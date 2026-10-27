@@ -129,6 +129,18 @@ for PATCH in "${PATCHES[@]}"; do
     echo "Skipping $(basename "$PATCH"): pong UI suffix disabled"
     continue
   fi
+  # The kernel step runs this script twice; a hunk that the first pass
+  # applied with fuzz cannot be reversed, so detect these two by content.
+  if [ "$(basename "$PATCH")" = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-default.patch" ] && \
+     grep -q "user_addr_t init_envp = USER_ADDR_NULL;" .cache/xnu-work/bsd/kern/kern_exec.c 2>/dev/null; then
+    echo "Already present: init_envp default declaration"
+    continue
+  fi
+  if [ "$(basename "$PATCH")" = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-plumbing.patch" ] && \
+     grep -q "init_exec_args.envp = envp;" .cache/xnu-work/bsd/kern/kern_exec.c 2>/dev/null; then
+    echo "Already present: four-argument init path"
+    continue
+  fi
   if [ "$(basename "$PATCH")" = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-plumbing.patch" ] && [ "${XNU_OWNER_CACHE_MOUNT:-0}" = 1 ]; then
     echo "Skipping zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-plumbing.patch: the owner cache mount provides the four-argument init path"
     continue

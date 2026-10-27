@@ -1,17 +1,17 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index e1dae6e..53b94c1 100644
+index f41b75b..4d53496 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7061,6 +7061,12 @@ load_init_program(proc_t p)
- 	if (scratch_result != KERN_SUCCESS) {
- 		panic("load_init_program: scratch allocation failed: %d", scratch_result);
- 	}
+@@ -6875,6 +6875,12 @@ load_init_program(proc_t p)
+ {
+ 	uint32_t i;
+ 	int error;
 +#if !defined(XNU_OWNER_CACHE_MOUNT) || !XNU_OWNER_CACHE_MOUNT
-+	/* The owner cache mount is the only other source of init_envp, and it
-+	 * is compiled out of this configuration, so the init helpers below get
-+	 * an empty environment instead of an undeclared identifier. */
++	/* The owner cache mount is the only other source of the init
++	 * environment of the helpers below, and it is compiled out of this
++	 * configuration, so start them with an empty environment. */
 +	user_addr_t init_envp = USER_ADDR_NULL;
 +#endif
- #if CONFIG_MEMORYSTATUS
- 	(void) memorystatus_init_at_boot_snapshot();
- #endif /* CONFIG_MEMORYSTATUS */
+ 	vm_map_t map = current_map();
+ 	mach_vm_offset_t scratch_addr = 0;
+ 	mach_vm_size_t map_page_size = vm_map_page_size(map);

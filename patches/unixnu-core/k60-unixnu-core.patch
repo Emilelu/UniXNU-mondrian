@@ -1,0 +1,161 @@
+diff --git a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
+index 7d4def5..21b5aff 100644
+--- a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
++++ b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
+@@ -10,6 +10,7 @@
+ #include <Library/DebugLib.h>
+ #include <Library/FdtLib.h>
+ #include <Library/HobLib.h>
++#include <Library/MemoryMapHelperLib.h>
+ #include <Library/UefiBootServicesTableLib.h>
+ #include <Protocol/BlockIo.h>
+ #include <Protocol/DevicePath.h>
+@@ -128,6 +129,38 @@ STATIC EFI_BLOCK_IO_PROTOCOL  mBlockIo = {
+   RamBlockFlush
+ };
+ 
++//
++// boot45: reject initrd ranges that the platform memory map does not
++// describe as mapped (AddMem) memory. ABL hands us /chosen initrd values
++// pointing at its own staging areas (e.g. 0xB5760000) which are NOT mapped
++// by our MMU -> Data Abort on the first block read.
++//
++STATIC
++BOOLEAN
++IsRangeMapped (
++  IN UINT64  Start,
++  IN UINT64  End
++  )
++{
++  EFI_MEMORY_REGION_DESCRIPTOR *Map;
++  UINT8                         Count;
++  UINT8                         i;
++
++  GetMemoryMap (&Map, &Count);
++
++  for (i = 0; i < Count; i++) {
++    if (Map[i].HobOption != AddMem) {
++      continue;
++    }
++
++    if ((Start >= Map[i].Address) && (End <= Map[i].Address + Map[i].Length)) {
++      return TRUE;
++    }
++  }
++
++  return FALSE;
++}
++
+ STATIC
+ VOID
+ PublishInitrd (
+@@ -161,8 +194,35 @@ PublishInitrd (
+ 
+   Start = ReadCells (StartProp, StartLength / 4);
+   End   = ReadCells (EndProp, EndLength / 4);
+-  if ((End <= Start) || (((End - Start) % RAM_BLOCK_SIZE) != 0)) {
+-    DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: initrd 0x%lx-0x%lx is not a whole number of sectors\n", Start, End));
++  if (End <= Start) {
++    DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: initrd 0x%lx-0x%lx is empty\n", Start, End));
++    return;
++  }
++
++  //
++  // A real payload FAT volume is sector aligned. ABL can still point
++  // linux,initrd-* at its own staging buffer (observed 0xB6961000 on K60);
++  // publishing a partial sector would hand FAT a truncated volume. Keep
++  // the skip, but make it a warning: this is an environment fact, not a
++  // firmware error. Payload builds must pad the FAT to 4 KiB.
++  //
++  if (((End - Start) % RAM_BLOCK_SIZE) != 0) {
++    DEBUG ((
++      DEBUG_WARN,
++      "UNIXNURAMDISK: initrd 0x%lx-0x%lx is not 512-byte aligned; skipping (payload must be 4K aligned)\n",
++      Start,
++      End
++      ));
++    return;
++  }
++
++  if (!IsRangeMapped (Start, End)) {
++    DEBUG ((
++      DEBUG_ERROR,
++      "UNIXNURAMDISK: initrd 0x%lx-0x%lx not inside mapped memory, skipping\n",
++      Start,
++      End
++      ));
+     return;
+   }
+ 
+@@ -210,6 +270,7 @@ UniXNURamDiskDxeEntry (
+   }
+ 
+   Dtb = ReadUnaligned64 ((CONST UINT64 *)GET_GUID_HOB_DATA (Hob));
++  DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: checking DTB at 0x%lx\n", Dtb));
+   if ((Dtb == 0) || ((Dtb & 3) != 0) || (FdtCheckHeader ((VOID *)(UINTN)Dtb) != 0)) {
+     DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: x0 0x%lx is not a device tree\n", Dtb));
+     return EFI_SUCCESS;
+diff --git a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
+index f4dab2d..cac3a3b 100644
+--- a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
++++ b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
+@@ -11,6 +11,7 @@
+ 
+ [Packages]
+   MdePkg/MdePkg.dec
++  SiliciumPkg/SiliciumPkg.dec
+ 
+ [LibraryClasses]
+   BaseLib
+@@ -19,6 +20,7 @@
+   FdtLib
+   HobLib
+   UefiBootServicesTableLib
++  MemoryMapHelperLib
+   UefiDriverEntryPoint
+ 
+ [Protocols]
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Config.c b/package/UniXNUPkg/Library/UniXNULib/Config.c
+index ed39c6b..c24c6a4 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Config.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Config.c
+@@ -35,7 +35,8 @@
+ STATIC CONST CHAR8  mBuiltinConfig[] =
+   "version = 1\n"
+   "[boot]\n"
+-  "timeout = 10\n"
++  "timeout = 300\n"
++  "fallback_timeout = 300\n"
+   "rotate = 2\n"
+   "[ui]\n"
+   "title = \"UniXNU\"\n"
+diff --git a/scripts/unixnu/bootimg.py b/scripts/unixnu/bootimg.py
+index 259fb29..c60e9c2 100644
+--- a/scripts/unixnu/bootimg.py
++++ b/scripts/unixnu/bootimg.py
+@@ -119,11 +119,20 @@ def build(ctx, uefi, fd, dtb, ramdisk=None, output=None):
+ def verify(path, combined, tree, ramdisk_path, image):
+     """Unpack the image and compare every part with its input."""
+     data = Path(path).read_bytes()
+-    kernel_size, kernel_address, ramdisk_size, _, second_size, _, tags, page, version, _ = struct.unpack_from('<10I', data, 8)
+-    if data[:8] != b'ANDROID!' or second_size or version != image['header_version'] or page != image['pagesize']:
+-        raise Error('boot image header does not match the requested parameters')
+-    if kernel_address != image['base'] + image['kernel_offset'] or tags != image['base'] + image['tags_offset']:
+-        raise Error('boot image load addresses do not match the requested offsets')
++    if image['header_version'] >= 3:
++        # v3/v4 layout: no second/pagesize/addr fields; payload aligned to image['pagesize']
++        kernel_size, ramdisk_size = struct.unpack_from('<II', data, 8)
++        version = struct.unpack_from('<I', data, 40)[0]
++        page = image['pagesize']
++        kernel_address = tags = 0
++        if data[:8] != b'ANDROID!' or version != image['header_version']:
++            raise Error('boot image header does not match the requested parameters')
++    else:
++        kernel_size, kernel_address, ramdisk_size, _, second_size, _, tags, page, version, _ = struct.unpack_from('<10I', data, 8)
++        if data[:8] != b'ANDROID!' or second_size or version != image['header_version'] or page != image['pagesize']:
++            raise Error('boot image header does not match the requested parameters')
++        if kernel_address != image['base'] + image['kernel_offset'] or tags != image['base'] + image['tags_offset']:
++            raise Error('boot image load addresses do not match the requested offsets')
+     kernel = data[page:page + kernel_size]
+     unpacker = zlib.decompressobj(16 + zlib.MAX_WBITS)
+     if unpacker.decompress(kernel) != combined or not unpacker.eof or unpacker.unused_data != tree:

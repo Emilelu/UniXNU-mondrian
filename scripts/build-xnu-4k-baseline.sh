@@ -129,6 +129,10 @@ for PATCH in "${PATCHES[@]}"; do
     echo "Skipping $(basename "$PATCH"): pong UI suffix disabled"
     continue
   fi
+  if [ "$(basename "$PATCH")" = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-plumbing.patch" ] && [ "${XNU_OWNER_CACHE_MOUNT:-0}" = 1 ]; then
+    echo "Skipping zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-plumbing.patch: the owner cache mount provides the four-argument init path"
+    continue
+  fi
   echo "Applying XNU patch: $(basename "$PATCH")"
   if git -C .cache/xnu-work apply --reverse --check "$PATCH" >/dev/null 2>&1; then
     echo "Already applied: $(basename "$PATCH")"

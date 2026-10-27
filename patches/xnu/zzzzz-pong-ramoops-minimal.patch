@@ -60,7 +60,7 @@
 +#include <arm/caches_internal.h>
 +#include <machine/machine_routines.h>
 +
-+#define PONG_RAMOOPS_PHYS_BASE 0x85200000ULL
++#define PONG_RAMOOPS_PHYS_BASE 0xA7000000ULL
 +#define PONG_RAMOOPS_CONSOLE_BYTES 0x00200000U
 +#define PONG_RAMOOPS_HEADER_BYTES 12U
 +#define PONG_RAMOOPS_MAGIC 0x43474244U

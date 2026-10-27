@@ -72,6 +72,7 @@ PATCHES=("$ROOT"/patches/xnu/*.patch)
 if [ "$XNU_VERSION" = "10063.141.1" ]; then
   PATCHES+=("$ROOT"/kits/NativePrelink/patches/*.patch)
 fi
+SKIP_PONG_SUFFIX=0
 for PATCH in "${PATCHES[@]}"; do
   if [ "$(basename "$PATCH")" = "external-archive-dependencies.patch" ] && [ -z "${XNU_EXTRA_LD_ARCHIVES:-}" ]; then
     echo "Skipping external-archive-dependencies.patch: this baseline links no external archives"
@@ -113,6 +114,19 @@ for PATCH in "${PATCHES[@]}"; do
   fi
   if [ "$(basename "$PATCH")" = "zzz-boot-progress.patch" ] && [ "${XNU_BOOT_PROGRESS:-0}" != 1 ]; then
     echo "Skipping zzz-boot-progress.patch: optional kernel boot tracing is disabled in this baseline"
+    continue
+  fi
+  if [ "$(basename "$PATCH")" = "zzzzzz-pong-writable-data.patch" ] && [ "${XNU_OWNER_DATA_MOUNT:-0}" != 1 ]; then
+    echo "Skipping zzzzzz-pong-writable-data.patch: writable Data is disabled in this baseline"
+    continue
+  fi
+  if [ "$(basename "$PATCH")" = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-upstream-oct22.patch" ] && [ "${XNU_OWNER_DATA_MOUNT:-0}" != 1 ]; then
+    echo "Skipping zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-upstream-oct22.patch: writable Data disabled; pong upstream/UI suffix disabled"
+    SKIP_PONG_SUFFIX=1
+    continue
+  fi
+  if [ "${SKIP_PONG_SUFFIX:-0}" = 1 ]; then
+    echo "Skipping $(basename "$PATCH"): pong UI suffix disabled"
     continue
   fi
   echo "Applying XNU patch: $(basename "$PATCH")"

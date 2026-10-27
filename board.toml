@@ -68,10 +68,7 @@ dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
 fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
 patches = [
   "Resources/MuPatches/AsmMacroLib.patch",
-  "Resources/MuPatches/Auth-Service.patch",
-  "Resources/MuPatches/Boot-Manager.patch",
-  "Resources/MuPatches/Timer.patch",
-  "Resources/MuPatches/Usb-Bus.patch",
+  "Resources/MuPatches/Boot-Manager.patch"
 ]
 packages = [
   "{uefi}",

@@ -17,7 +17,7 @@ index 7d4def5..21b5aff 100644
 +//
 +// boot45: reject initrd ranges that the platform memory map does not
 +// describe as mapped (AddMem) memory. ABL hands us /chosen initrd values
-+// pointing at its own staging areas (e.g. 0xB5760000) which are NOT mapped
++// pointing at its own staging areas (e.g. 0xB6760000) which are NOT mapped
 +// by our MMU -> Data Abort on the first block read.
 +//
 +STATIC
@@ -91,7 +91,7 @@ index 7d4def5..21b5aff 100644
    }
  
    Dtb = ReadUnaligned64 ((CONST UINT64 *)GET_GUID_HOB_DATA (Hob));
-+  DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: checking DTB at 0x%lx\n", Dtb));
++  DEBUG ((DEBUG_INFO, "UNIXNURAMDISK: checking DTB at 0x%lx\n", Dtb));
    if ((Dtb == 0) || ((Dtb & 3) != 0) || (FdtCheckHeader ((VOID *)(UINTN)Dtb) != 0)) {
      DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: x0 0x%lx is not a device tree\n", Dtb));
      return EFI_SUCCESS;

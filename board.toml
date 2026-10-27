@@ -25,7 +25,7 @@ defconfig = "mondrian_defconfig"
 
 [kernel.prelink]
 tool = "kits/XnuPrelink/emit_prelink.py"
-kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf"
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped"
 kernelcache_sha256 = "d260defcc2eaac258fd3a2234454dda46791dae45e97608c5416f9ba8fd366e9"
 slide = "0"
 roots = [

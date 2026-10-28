@@ -162,17 +162,17 @@ evidence = []
 
 [[area]]
 id = "packaging"
-status = "implemented"
+status = "host-verified"
 components = []
 paths = ["scripts/*payload*", "scripts/*image*", "scripts/*flash*", "patches/**", "package/Kit.toml"]
 inputs = ["Identify the image assembly hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for image assembly."]
 procedure = ["Follow the image assembly stage in the porting guide and record the actual commands."]
-findings = ["The kernel links and prelinks on macOS CI (run 40631225483: slide -0xb9c000, 54349824 bytes, lowest component extent 0xfffffff004426600); scripts/k60-prelink-local.py reproduces the same image locally from the uploaded native kernel."]
+findings = ["The kernel links and prelinks on macOS CI. Format 1 run 40631225483 produced 54349824 bytes; format 2 run 40650877574 produced 54419456 bytes at the same slide -0xb9c000 and the same lowest component extent 0xfffffff004426600.", "The 69632-byte difference is a real fix, not noise: the format-1 glob applied zzzzzz-pong-init-scratch-allocation.patch through fuzz and the panic string it adds is absent from that kernel, while the strict format-2 series applies it at its intended place and the string is present. The checked scratch allocation had never reached a qualified kernel before."]
 completion = ["Kernel and prelink succeed, payload contains all declared inputs, and the boot image matches the bootloader format and size limit."]
 limits = ["Hardware inputs and implementation are pending for this board."]
 next_action = ["Inventory the required image assembly inputs before implementation."]
-evidence = [{ kind = "source", reference = "scripts/k60-prelink-local.py", result = "the prelink step reproduces the qualified CI image locally: slide -0xb9c000, 54349824 bytes, lowest component extent 0xfffffff004426600" }]
+evidence = [{ kind = "host", reference = "https://github.com/Emilelu/UniXNU/actions/runs/40650877574", result = "Build kernel succeeded on macOS from this revision: prelink slide -0xb9c000, 54419456 bytes, lowest component extent 0xfffffff004426600", command = "./unixnu build kernel -D ../UniXNU-mondrian", revision = "6a10bf5e42ecfad7eed2789cc091287d31009623" }]
 
 [[area]]
 id = "diagnostics"

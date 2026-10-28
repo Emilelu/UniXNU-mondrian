@@ -1,0 +1,13 @@
+# Copy to local.toml (ignored by Git) to point whole categories at local directories. Each
+# subdirectory is one module. The command line (--local, --local-drivers, ...) takes precedence.
+#
+# The K60 build needs the UEFI checkout and the 20G81 kernelcache; both are local inputs that
+# no repository carries.
+[local]
+# drivers = "~/Code/dev/drivers"
+# kits = "~/Code/dev/kits"
+
+[build]
+# device = "../UniXNU-mondrian"
+# uefi = "../uefi-mondrian"
+# kernelcache = "~/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed"

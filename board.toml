@@ -1,66 +1,27 @@
+schema_version = 2
+
 [board]
 name = "mondrian"
 soc = "SM8475"
+soc_source = "sm8475"
+os_profile = "ipados-16.6.1-20G81"
 description = "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up"
 kit = "mondrian"
 
-# Apple component source (iPad7,1 / iOS 16.6.1) used for kernelcache,
-# DeviceTree and trust-cache inputs; this is not K60 hardware.
-[ipsw]
-url = "https://updates.cdn-apple.com/2023SummerFCS/fullrestores/042-44385/366890C4-D9B5-4938-B399-C19FB58DBEE0/iPad_Pro_HFR_16.6.1_20G81_Restore.ipsw"
-product = "iPad7,1"
-version = "16.6.1"
-build = "20G81"
-device_class = "j120ap"
-chip_id = 0x8011
-board_id = 12
-fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache"]
+# The kernel and prelink inputs live in the OS profile (profiles/os/ipados-16.6.1-20G81),
+# the SM8475 resources in the SoC source, and the board wiring in dts/mondrian.dts.
+[components]
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
 
 [kernel]
 defconfig = "mondrian_defconfig"
+config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "os:configs/ipados.config"]
+# The K60 series still carries every patch; the shared layers have empty series for now.
+patch_series = ["device:patches/xnu/series"]
 
-# Prelink derived from the 20G81 kernelcache (__PRELINK_TEXT at 0xfffffff004fbc000,
-# the same base configs/pong-iogpu-20G81.json records, so the slide is 0).
-# early_security_init is still missing: the fuxi/liuqin address belongs to 21H461.
-
-[kernel.prelink]
-tool = "kits/XnuPrelink/emit_prelink.py"
-kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped"
-kernelcache_sha256 = "d260defcc2eaac258fd3a2234454dda46791dae45e97608c5416f9ba8fd366e9"
-slide = "0"
-roots = [
-  "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
-  "com.apple.driver.AppleARMPlatform",
-  "com.apple.driver.AppleARMWatchdogTimer",
-  "com.apple.driver.AppleAudioClockLibs",
-  "com.apple.driver.AppleEffaceableStorage",
-  "com.apple.driver.AppleIISController",
-  "com.apple.driver.AppleM2ScalerCSCDriver",
-  "com.apple.driver.AppleMobileFileIntegrity",
-  "com.apple.driver.ApplePMGR",
-  "com.apple.driver.IODARTFamily",
-  "com.apple.filesystems.apfs",
-  "com.apple.iokit.CoreAnalyticsFamily",
-  "com.apple.iokit.IOAVFamily",
-  "com.apple.iokit.IOAudio2Family",
-  "com.apple.iokit.IOCECFamily",
-  "com.apple.iokit.IOCryptoAcceleratorFamily",
-  "com.apple.iokit.IOGPUFamily",
-  "com.apple.iokit.IOHDCPFamily",
-  "com.apple.iokit.IOMobileGraphicsFamily",
-  "com.apple.iokit.IOReportFamily",
-  "com.apple.iokit.IOSlowAdaptiveClockingFamily",
-  "com.apple.iokit.IOStorageFamily",
-  "com.apple.iokit.IOSurface",
-  "com.apple.kec.Libm",
-  "com.apple.kec.corecrypto",
-  "com.apple.kext.AppleMatch",
-  "com.apple.kext.CoreTrust",
-  "com.apple.security.AppleImage4",
-  "com.apple.security.sandbox",
-  "com.apple.iokit.IOHIDFamily",
-  "com.apple.iokit.IOHIDEventDriver",
-]
+[device_tree]
+source = "device:dts/mondrian.dts"
+include_dirs = ["soc:dts"]
 
 [firmware]
 config = "mondrian"
@@ -95,11 +56,15 @@ SHIP_MODE = "FALSE"
 BUILDID_STRING = "UniXNU-Mondrian"
 
 [payload]
+volume = "UNIXNU"
+size_mib = 192
+loader = "firmware"
+title = "UniXNU"
+# Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
+# swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
+dram_size = "0x300000000"
+kernel_args = ["-v", "serial=3"]
 tools = true
-
-# K60 bring-up: no payload is packed yet, so UniXNU falls back to the
-# built-in 300 s menu. Keep the same value when a payload is added; the
-# keypad auto-reset is cancelled by the first key press.
-[boot]
+# No payload is packed yet, so UniXNU falls back to the built-in menu. Keep the same value
+# when a payload is added; the keypad auto-reset is cancelled by the first key press.
 timeout = 300
-fallback_timeout = 300

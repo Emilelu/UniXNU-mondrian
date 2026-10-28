@@ -39,6 +39,9 @@ fi
 # Remove them first so earlier independent patches retain their idempotent checks.
 # The same holds for the boot-time GPU addon mount (zzy), which edits the owner Data mount function inside the systemos patch.
 # Reverse newest first; the loop below re-applies them in name order.
+# Format 2 prepares its ordered patch series through the shared resolver and passes the list in
+# UNIXNU_PATCH_LIST; the glob below is the format-1 path and must not run on top of it.
+if [ -z "${UNIXNU_PATCH_LIST:-}" ]; then
 python3 - <<'PY_PATCH_TIMES'
 from pathlib import Path
 import hashlib, json
@@ -166,6 +169,7 @@ for relative, (digest, atime, mtime) in json.loads(Path('.cache/xnu-patch-times.
     if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest:
         os.utime(path, ns=(atime, mtime))
 PY_PATCH_TIMES
+fi
 export XNU_AVAILABILITY_PL=$ROOT/.cache/fakeroot/usr/local/libexec/availability.pl
 python3 scripts/prepare-xnu-source.py
 BOOT_PROGRESS=${XNU_BOOT_PROGRESS:-0}

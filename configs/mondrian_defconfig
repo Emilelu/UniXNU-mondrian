@@ -52,3 +52,7 @@ CONFIG_XNU_SOURCE_PTHREAD=n
 CONFIG_XNU_TRUST_CACHE_RUNTIME=n
 CONFIG_XNU_VERIFIED_ROOT_PROBE=n
 CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=n
+
+# The K60 links its platform archives through the pong build scripts, not the format-2
+# archive recipes that profiles/arch/arm64/configs/common.config enables.
+CONFIG_XNU_BUILD_ARCHIVES=n

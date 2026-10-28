@@ -1,0 +1,27 @@
+/dts-v1/;
+
+/*
+ * Redmi K60 (mondrian) board description.
+ *
+ * The SM8475 CPUs, PSCI conduit and GICv3 window come from the SoC source; this
+ * file adds what is specific to the board. The Apple identity and the OS
+ * properties come from the OS profile's [adt] tables, and the payload handoff
+ * options from board.toml [payload.adt].
+ */
+
+/include/ "sm8475.dtsi"
+
+/ {
+	model = "Redmi K60";
+	compatible = "xiaomi,mondrian";
+
+	/*
+	 * Physical DRAM: 12 GiB (swinfo.fingerprint mondrian:12 on the measured
+	 * unit; the K60 also ships as 8 and 16 GiB, so re-read this value on a
+	 * different unit). Must match board.toml [payload] dram_size.
+	 */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x3 0x0>;
+	};
+};

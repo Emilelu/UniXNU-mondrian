@@ -1,4 +1,4 @@
-# Pong now targets Darwin 22 / iOS 16. These override the main repository feeds.
+# K60 now targets Darwin 22 / iOS 16. These override the main repository feeds.
 [[source]]
 name = "xnu"
 kind = "refer"
@@ -30,3 +30,10 @@ kind = "refer"
 git = "https://github.com/apple-oss-distributions/AvailabilityVersions.git"
 ref = "AvailabilityVersions-121"
 commit = "f3b52ca75ee842a8ac593bd7b03f9f4768c15755"
+
+# SM8475 platform resources shared with any other board on this SoC.
+[[source]]
+name = "sm8475"
+kind = "soc"
+git = "https://github.com/Emilelu/UniXNU-sm8475-common"
+commit = "70f20268933a38b0c6af12d42364f157ca09d674"

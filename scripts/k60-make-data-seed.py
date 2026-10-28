@@ -150,10 +150,13 @@ def main():
                 raise SystemExit(f'refusing to overwrite an existing seed: {image}')
             subprocess.run(['hdiutil', 'create', '-size', '32m', '-layout', 'NONE', '-fs', 'APFS',
                             '-volname', 'OwnerData', '-type', 'UDTO', str(image)], check=True)
+            # hdiutil create appends .cdr to UDTO images whose name lacks it.
+            created = image if image.is_file() else image.with_name(image.name + '.cdr')
+            print(f'seed: created {created}', flush=True)
             mount = temp / 'seed'
             mount.mkdir()
             attached = plistlib.loads(subprocess.check_output(
-                ['hdiutil', 'attach', '-nobrowse', '-owners', 'off', '-mountpoint', str(mount), '-plist', str(image)]))
+                ['hdiutil', 'attach', '-nobrowse', '-owners', 'off', '-mountpoint', str(mount), '-plist', str(created)]))
             volume_device = None
             try:
                 volumes = [e for e in attached['system-entities'] if e.get('mount-point') == str(mount)]
@@ -191,14 +194,16 @@ def main():
         finally:
             subprocess.run(['hdiutil', 'detach', whole_disk], capture_output=True)
 
-    data = image.read_bytes()
+    data = created.read_bytes()
     if len(data) % 512 == 0 and data[-512:-508] == b'koly':
         print('seed: stripping the 512-byte UDIF trailer', flush=True)
         data = data[:-512]
-        image.write_bytes(data)
+        created.write_bytes(data)
     if len(data) != 32 * 1024 ** 2 or data[32:36] != b'NXSB':
         raise SystemExit(f'unexpected seed image: {len(data)} bytes, magic {data[32:36]!r}; '
                          'host formatting did not produce a raw 32 MiB APFS container')
+    if created != image:
+        created.rename(image)
     report = {'volume_uuid': volume_uuid, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
               'source_member': member, 'source_sha256': source_sha256, 'launchd_sha256': launchd_sha256,
               'source_regular_files': count, 'source_regular_bytes': total,

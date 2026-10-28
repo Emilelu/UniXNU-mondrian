@@ -1,5 +1,5 @@
 diff --git a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
-index 7d4def5..9a9e634 100644
+index 7d4def5..1eb96f4 100644
 --- a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
 +++ b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
 @@ -10,9 +10,12 @@
@@ -54,7 +54,7 @@ index 7d4def5..9a9e634 100644
  STATIC
  VOID
  PublishInitrd (
-@@ -161,8 +196,116 @@ PublishInitrd (
+@@ -161,8 +196,123 @@ PublishInitrd (
  
    Start = ReadCells (StartProp, StartLength / 4);
    End   = ReadCells (EndProp, EndLength / 4);
@@ -132,7 +132,14 @@ index 7d4def5..9a9e634 100644
 +    }
 +
 +    DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: FAT boot sector at start+0x%lx\n", Probe - Start));
-+    End  -= (Probe - Start);
++    DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: initrd range 0x%lx-0x%lx, FAT starts at 0x%lx\n",
++            Start, End, Probe));
++    //
++    // Only the front of the range is vendor data: our FAT runs from its boot
++    // sector to the very end of the initrd, so End must not move with Start.
++    // Moving it truncated the volume by the vendor length and the FAT driver
++    // then failed every read past that point (FatDiskIo: Invalid Parameter).
++    //
 +    Start = Probe;
 +  }
 +  //
@@ -173,7 +180,7 @@ index 7d4def5..9a9e634 100644
      return;
    }
  
-@@ -186,9 +329,149 @@ PublishInitrd (
+@@ -186,9 +336,149 @@ PublishInitrd (
                    &mBlockIo,
                    NULL
                    );
@@ -323,7 +330,7 @@ index 7d4def5..9a9e634 100644
  EFI_STATUS
  EFIAPI
  UniXNURamDiskDxeEntry (
-@@ -199,6 +482,12 @@ UniXNURamDiskDxeEntry (
+@@ -199,6 +489,12 @@ UniXNURamDiskDxeEntry (
    EFI_HOB_GUID_TYPE  *Hob;
    UINT64             Dtb;
  
@@ -336,7 +343,7 @@ index 7d4def5..9a9e634 100644
    Hob = GetFirstGuidHob (&mEntryArgHobGuid);
    if (Hob == NULL) {
      DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: no entry argument HOB\n"));
-@@ -210,6 +499,7 @@ UniXNURamDiskDxeEntry (
+@@ -210,6 +506,7 @@ UniXNURamDiskDxeEntry (
    }
  
    Dtb = ReadUnaligned64 ((CONST UINT64 *)GET_GUID_HOB_DATA (Hob));

@@ -153,7 +153,8 @@ def main():
             # hdiutil create appends .cdr to UDTO images whose name lacks it.
             created = image if image.is_file() else image.with_name(image.name + '.cdr')
             print(f'seed: created {created}', flush=True)
-            mount = temp / 'seed'
+            # macOS /var is a symlink to /private/var: resolve it or the plist mount-point never matches.
+            mount = (temp / 'seed').resolve()
             mount.mkdir()
             attached = plistlib.loads(subprocess.check_output(
                 ['hdiutil', 'attach', '-nobrowse', '-owners', 'off', '-mountpoint', str(mount), '-plist', str(created)]))
@@ -161,7 +162,8 @@ def main():
             try:
                 volumes = [e for e in attached['system-entities'] if e.get('mount-point') == str(mount)]
                 if len(volumes) != 1:
-                    raise SystemExit('expected exactly one newly formatted volume')
+                    raise SystemExit(f'expected exactly one newly formatted volume at {mount}; '
+                                     f'got: {[e.get("mount-point") for e in attached["system-entities"]]}')
                 volume_device = volumes[0]['dev-entry']
                 volume_uuid = plistlib.loads(subprocess.check_output(
                     ['diskutil', 'info', '-plist', volume_device]))['VolumeUUID']

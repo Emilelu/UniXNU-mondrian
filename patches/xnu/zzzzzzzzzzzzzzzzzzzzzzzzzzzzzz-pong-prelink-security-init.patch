@@ -1,6 +1,6 @@
 --- a/libkern/c++/OSKext.cpp
 +++ b/libkern/c++/OSKext.cpp
-@@ -73,6 +73,11 @@
+@@ -73,6 +73,22 @@
  
  #include <libkern/OSKextLibPrivate.h>
  #include <libkern/c++/OSKext.h>
@@ -9,21 +9,30 @@
 +extern "C" int mac_late;
 +extern "C" __attribute__((used)) const uint32_t native_prelink_security_init_version = 1;
 +#endif
++
++/* Components whose start function validates Apple-only platform state and
++ * panics without it.  They are linked into this prelink because other
++ * components reference them, so leave them unstarted instead.
++ */
++static bool
++k60_skip_prelinked_start(const char *identifier)
++{
++	return strcmp(identifier, "com.apple.security.AppleImage4") == 0 ||
++	    strcmp(identifier, "com.apple.driver.AppleARMPlatform") == 0;
++}
  #include <libkern/c++/OSLib.h>
  
  #include <IOKit/IOLib.h>
-@@ -8282,10 +8287,58 @@
+@@ -8282,10 +8298,56 @@
  	// Drop a log message so logd can grab the needed information to decode this kext
  	OSKextLogKextInfo(this, kmod_info->address, kmod_info->size, firehose_tracepoint_code_load);
  	result = OSRuntimeInitializeCPP(this);
 -	if (result == KERN_SUCCESS) {
 +	if (result == KERN_SUCCESS && isPrelinked() &&
-+	    strcmp(getIdentifierCString(), "com.apple.security.AppleImage4") == 0) {
-+		/* This prelink carries AppleImage4 only because AMFI and apfs link
-+		 * against it.  Its start function validates a boot manifest that a
-+		 * non-Apple boot cannot supply and panics without one, so leave the
-+		 * component unstarted.  result stays KERN_SUCCESS, which is what the
-+		 * dependents check, and nothing calls into it before the policy is up.
++	    k60_skip_prelinked_start(getIdentifierCString())) {
++		/* These components only validate Apple platform state that a
++		 * non-Apple boot cannot supply.  Leaving them unstarted keeps
++		 * result at KERN_SUCCESS, which is what their dependents check.
 +		 */
 +		printf("NATIVEPRELINK: skip start of %s\n", getIdentifierCString());
 +	} else if (result == KERN_SUCCESS) {

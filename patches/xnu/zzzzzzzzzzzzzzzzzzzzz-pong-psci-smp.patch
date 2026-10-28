@@ -20,13 +20,18 @@
  }
 --- a/pexpert/pexpert/arm64/board_config.h
 +++ b/pexpert/pexpert/arm64/board_config.h
-@@ -90,7 +90,7 @@
+@@ -90,7 +90,11 @@
  #ifdef ARM64_BOARD_CONFIG_PONG
  #include <pexpert/arm64/PONG.h>
  #define MAX_L2_CLINE                   6
 -#define MAX_CPUS                       1
+-#define MAX_CPU_CLUSTERS               1
 +#define MAX_CPUS                       8
- #define MAX_CPU_CLUSTERS               1
++/* HAS_CLUSTER is undefined for PONG, so ml_parse_cpu_topology derives the
++ * physical cluster from cluster-type (P => 1, otherwise 0).  With a single
++ * slot MAX_CPU_CLUSTER_PHY_ID is 0, and the first 'P' CPU trips the assert
++ * guarding cluster_phys_to_logical[] before the console exists. */
++#define MAX_CPU_CLUSTERS               2
  #define CORE_NCTRS                     8 /* Unused placeholder: KPC disabled */
  #endif /* ARM64_BOARD_CONFIG_PONG */
 --- a/pexpert/pexpert/arm64/PONG.h

@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
 """Auto-slide wrapper around the pinned XnuPrelink emitter.
 
-The 20G81 prelink components are packed up to __PRELINK_DATA's end
-(0xfffffff007ba0000), which overlaps the K60 kernel's own segments: the native
-__DATA is larger than the 20G81 one, so slide 0 collides.  plan() only rejects
-component extents that overlap a native segment, so the slide that clears every
-component is bounded by the lowest native segment:
+Two 20G81 facts the pinned emitter does not know about the K60 kernel:
 
-    slide <= min(native segment va) - max(component extent end)
+1. The components are packed up to __PRELINK_DATA's end (0xfffffff007ba0000),
+   which overlaps the K60 kernel's own segments: the native __DATA is larger
+   than the 20G81 one, so slide 0 collides.  plan() only rejects component
+   extents that overlap a native segment, so the slide that clears every
+   component is bounded by the lowest native segment:
 
-That bound is computed from the two Mach-O headers (cheap) and then verified by
-plan() itself; a few extra steps guard against a component extent that reaches
-past the outer prelink segments.  The submodule is left untouched: the preflight
-copies the original emitter to emit_prelink_orig.py and installs this file as
-emit_prelink.py.
+       slide <= min(native segment va) - max(component extent end)
+
+   That bound is computed from the two Mach-O headers (cheap) and then verified
+   by plan() itself; a few extra steps guard against a component extent that
+   reaches past the outer prelink segments.
+
+2. com.apple.kec.Libm keeps a 1228-byte float table inside __TEXT_EXEC
+   (__text, 0xfffffff00594a054..0xfffffff00594b520).  instruction_inventory()
+   decodes it as TBZ/TBNZ and refuses the external PC-relative encodings, so the
+   table is registered as known inline data the same way the emitter registers
+   its own pools.
+
+The submodule is left untouched: the preflight copies the original emitter to
+emit_prelink_orig.py and installs this file as emit_prelink.py.
 """
 import argparse
 import json
@@ -28,6 +37,11 @@ STEP = 0x4000           # plan() requires a 4K-preserving slide
 FALLBACK = 0x40000      # extra clearance when a component extent is not packed
 ATTEMPTS = 16
 PRELINK_SEGMENTS = ('__PRELINK_TEXT', '__PLK_TEXT_EXEC', '__PLK_DATA_CONST', '__PRELINK_DATA')
+INLINE_DATA = (
+    ('0000807f0000004100008040db0f493f', 1228,
+     '73df5b757c53532583e3686b7d93df11ec1f5dd8c201d05502654a7812cc385f'),
+)
+orig.MATH_LITERAL_POOLS = tuple(orig.MATH_LITERAL_POOLS) + INLINE_DATA
 
 
 def component_end(original):

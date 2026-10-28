@@ -30,6 +30,9 @@ def main():
     parser.add_argument('--kit', type=Path, default=Path.home() / 'hackios/UniXNU/kits/XnuPrelink',
                         help='XnuPrelink checkout (default: %(default)s)')
     parser.add_argument('--board', type=Path, default=ROOT / 'board.toml')
+    parser.add_argument('--early-security-init', action='append', default=[],
+                        metavar='BUNDLE=ORIGINAL_VA',
+                        help='initializer the prelinker runs before lockdown')
     args = parser.parse_args()
 
     for path in (args.kernel, args.prelinked, args.kit / 'emit_prelink.py'):
@@ -52,6 +55,8 @@ def main():
                    '--prelinked', str(args.prelinked), f'--slide={slide}', '--output', str(args.output)]
         for root in roots:
             command += ['--root', root]
+        for initializer in args.early_security_init:
+            command += ['--early-security-init', initializer]
         print(f'prelink: {len(roots)} roots, slide {slide}', flush=True)
         result = subprocess.run(command, cwd=kit)
     if result.returncode:

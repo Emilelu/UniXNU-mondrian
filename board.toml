@@ -65,6 +65,7 @@ title = "UniXNU"
 dram_size = "0x300000000"
 kernel_args = ["-v", "serial=3"]
 tools = true
-# No payload is packed yet, so UniXNU falls back to the built-in menu. Keep the same value
-# when a payload is added; the keypad auto-reset is cancelled by the first key press.
-timeout = 300
+# -1 = no countdown while an input device is present. A positive value silently
+# boots the default entry when the operator looks away, which on K60 means
+# "Return to firmware" -> BDS -> Android.
+timeout = -1

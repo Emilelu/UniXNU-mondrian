@@ -460,11 +460,15 @@ AllocateWindow (KERNEL *Kernel, UINT64 WindowSize, EFI_PHYSICAL_ADDRESS *Address
     UINTN  Row = 1;
     UnicodeSPrint (Line, sizeof (Line), L"NO WINDOW %lx BIG RUN %lx @ %lx", WindowSize, BestBytes, BestStart);
     DiagDraw (Line, 0);
+    DEBUG ((DEBUG_ERROR, "DARWINBOOT: no window 0x%lx, biggest run 0x%lx at 0x%lx\n",
+            WindowSize, BestBytes, BestStart));
     for (Offset = 0; Offset + Stride <= Size; Offset += Stride) {
       Descriptor = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Map + Offset);
       if ((Descriptor->Type == EfiConventionalMemory) && (Descriptor->NumberOfPages >= 0x400) && (Row < 8)) {
         UnicodeSPrint (Line, sizeof (Line), L"FREE %lx + %lx", Descriptor->PhysicalStart, EFI_PAGES_TO_SIZE (Descriptor->NumberOfPages));
         DiagDraw (Line, Row++);
+        DEBUG ((DEBUG_ERROR, "DARWINBOOT: free 0x%lx + 0x%lx\n",
+                Descriptor->PhysicalStart, EFI_PAGES_TO_SIZE (Descriptor->NumberOfPages)));
       }
     }
 
@@ -553,6 +557,7 @@ Boot (
   if (EFI_ERROR (Status)) { return Status; }
   Status = ReadFile (Root, Request->KernelPath, SIZE_128MB, &Image, &ImageSize);
   if (EFI_ERROR (Status)) { goto Fail; }
+  DEBUG ((DEBUG_ERROR, "DARWINBOOT: kernel image 0x%lx bytes (%r)\n", (UINT64)ImageSize, Status));
   Status = ParseKernel (Image, ImageSize, &Kernel);
   if (EFI_ERROR (Status)) { goto Fail; }
   Length = StrSize (Request->KernelPath);
@@ -569,6 +574,9 @@ Boot (
   KeepPacked = FALSE;
   if (!AdtNode (Tree, TreeSize, &Offset, 0, 3, &RamdiskOffset, &TrustCacheOffset, &WindowSize, &KeepPacked) || (Offset != TreeSize)) { Status = EFI_COMPROMISED_DATA; goto Fail; }
   if (KeepPacked && (!RamdiskPacked || (RamdiskOffset == MAX_UINTN))) { Status = EFI_COMPROMISED_DATA; goto Fail; }
+  DEBUG ((DEBUG_ERROR,
+          "DARWINBOOT: adt tree=0x%lx window=0x%lx ramdisk=0x%lx trust=0x%lx keep=%d\n",
+          (UINT64)TreeSize, WindowSize, (UINT64)RamdiskOffset, (UINT64)TrustCacheOffset, KeepPacked));
   if (WindowSize == 0) { WindowSize = WINDOW_SIZE; }
   if (Kernel.Base > MAX_UINT64 - WindowSize) { Status = EFI_LOAD_ERROR; goto Fail; }
   if (Request->Ramdisk != NULL) {
@@ -594,6 +602,8 @@ Boot (
   }
   Status = ReadBootVideo (Video);
   if (EFI_ERROR (Status)) { goto Fail; }
+  DEBUG ((DEBUG_ERROR, "DARWINBOOT: allocating window 0x%lx (base 0x%lx end 0x%lx)\n",
+          WindowSize, Kernel.Base, Kernel.End));
   Status = AllocateWindow (&Kernel, WindowSize, &Address);
   if (EFI_ERROR (Status)) { goto Fail; }
   ArgsAddress = ALIGN_VALUE (Address + Kernel.End - Kernel.Base, SIZE_16KB);

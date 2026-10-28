@@ -1,23 +1,28 @@
 diff --git a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
-index 7d4def5..21b5aff 100644
+index 7d4def5..9a9e634 100644
 --- a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
 +++ b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.c
-@@ -10,6 +10,7 @@
+@@ -10,9 +10,12 @@
  #include <Library/DebugLib.h>
  #include <Library/FdtLib.h>
  #include <Library/HobLib.h>
++#include <Library/MemoryAllocationLib.h>
 +#include <Library/MemoryMapHelperLib.h>
  #include <Library/UefiBootServicesTableLib.h>
  #include <Protocol/BlockIo.h>
  #include <Protocol/DevicePath.h>
-@@ -128,6 +129,38 @@ STATIC EFI_BLOCK_IO_PROTOCOL  mBlockIo = {
++#include <Protocol/DiskIo.h>
+ 
+ // Mu-Silicium SEC stores the incoming x0 value in this HOB as a UINT64.
+ STATIC CONST EFI_GUID mEntryArgHobGuid = {
+@@ -128,6 +131,38 @@ STATIC EFI_BLOCK_IO_PROTOCOL  mBlockIo = {
    RamBlockFlush
  };
  
 +//
 +// boot45: reject initrd ranges that the platform memory map does not
 +// describe as mapped (AddMem) memory. ABL hands us /chosen initrd values
-+// pointing at its own staging areas (e.g. 0xB6760000) which are NOT mapped
++// pointing at its own staging areas (e.g. 0xB5760000) which are NOT mapped
 +// by our MMU -> Data Abort on the first block read.
 +//
 +STATIC
@@ -49,7 +54,7 @@ index 7d4def5..21b5aff 100644
  STATIC
  VOID
  PublishInitrd (
-@@ -161,8 +194,35 @@ PublishInitrd (
+@@ -161,8 +196,116 @@ PublishInitrd (
  
    Start = ReadCells (StartProp, StartLength / 4);
    End   = ReadCells (EndProp, EndLength / 4);
@@ -61,6 +66,76 @@ index 7d4def5..21b5aff 100644
 +  }
 +
 +  //
++  // Unconditional range dump: the alignment check below used to bail out
++  // through DEBUG_WARN, which disappears as soon as DEBUG_WARN is masked
++  // off, leaving no trace of what the bootloader actually handed over.
++  //
++  DEBUG ((
++    DEBUG_ERROR,
++    "UNIXNURAMDISK: initrd start=0x%lx end=0x%lx size=0x%lx rem512=0x%lx clen=%d/%d\n",
++    Start,
++    End,
++    End - Start,
++    (UINT64)((End - Start) % RAM_BLOCK_SIZE),
++    StartLength,
++    EndLength
++    ));
++
++  //
++  // The kernel gets ONE initrd assembled from several ramdisk images and
++  // /chosen points at the whole thing: on K60 a 22.6 MiB vendor_boot
++  // ramdisk sits in FRONT of our 192 MiB payload FAT, so sector 0 of Start
++  // is a cpio header (observed sig=A0CD bps=14128) and the FAT driver
++  // refused the volume. Walk forward for a real boot sector instead.
++  //
++  {
++    UINT64  Probe;
++    UINT8   *Boot;
++    UINT32  Bps;
++
++    //
++    // Byte by byte: the boundary between the concatenated ramdisk images is
++    // not sector aligned (the total is 0x3C bytes past a sector), so a
++    // sector-stepped scan steps over the boot sector entirely.
++    //
++    for (Probe = Start; Probe < End; Probe++) {
++      if ((Probe + RAM_BLOCK_SIZE) > End) {
++        break;
++      }
++
++      Boot = (UINT8 *)(UINTN)Probe;
++      if ((Boot[0] != 0xEB) && (Boot[0] != 0xE9)) {
++        continue;
++      }
++
++      if ((Boot[510] != 0x55) || (Boot[511] != 0xAA)) {
++        continue;
++      }
++
++      Bps = (UINT32)Boot[11] | ((UINT32)Boot[12] << 8);
++      if ((Bps != 512) && (Bps != 1024) && (Bps != 2048) && (Bps != 4096)) {
++        continue;
++      }
++
++      if ((CompareMem (Boot + 0x36, "FAT", 3) != 0) &&
++          (CompareMem (Boot + 0x52, "FAT", 3) != 0))
++      {
++        continue;
++      }
++
++      break;
++    }
++
++    if ((Probe + RAM_BLOCK_SIZE) > End) {
++      DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: no FAT boot sector in 0x%lx bytes\n", End - Start));
++      return;
++    }
++
++    DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: FAT boot sector at start+0x%lx\n", Probe - Start));
++    End  -= (Probe - Start);
++    Start = Probe;
++  }
++  //
 +  // A real payload FAT volume is sector aligned. ABL can still point
 +  // linux,initrd-* at its own staging buffer (observed 0xB6961000 on K60);
 +  // publishing a partial sector would hand FAT a truncated volume. Keep
@@ -68,13 +143,24 @@ index 7d4def5..21b5aff 100644
 +  // firmware error. Payload builds must pad the FAT to 4 KiB.
 +  //
 +  if (((End - Start) % RAM_BLOCK_SIZE) != 0) {
++    //
++    // Android 12+ ABL concatenates the boot.img ramdisk (our payload FAT,
++    // first) with the vendor_boot ramdisk (a ~22 MiB tail). The combined
++    // length is not sector aligned, so skipping here dropped a perfectly
++    // good FAT volume. Round the tail down: the FAT's own BPB decides how
++    // many sectors are real, the leftover bytes are never addressed.
++    //
 +    DEBUG ((
 +      DEBUG_WARN,
-+      "UNIXNURAMDISK: initrd 0x%lx-0x%lx is not 512-byte aligned; skipping (payload must be 4K aligned)\n",
-+      Start,
-+      End
++      "UNIXNURAMDISK: initrd size 0x%lx not 512-aligned; rounding end 0x%lx -> 0x%lx\n",
++      End - Start,
++      End,
++      End & ~(UINT64)(RAM_BLOCK_SIZE - 1)
 +      ));
-+    return;
++    End &= ~(UINT64)(RAM_BLOCK_SIZE - 1);
++    if (End <= Start) {
++      return;
++    }
 +  }
 +
 +  if (!IsRangeMapped (Start, End)) {
@@ -87,16 +173,179 @@ index 7d4def5..21b5aff 100644
      return;
    }
  
-@@ -210,6 +270,7 @@ UniXNURamDiskDxeEntry (
+@@ -186,9 +329,149 @@ PublishInitrd (
+                   &mBlockIo,
+                   NULL
+                   );
++  //
++  // A raw BlockIo nobody binds is a dead end: DiskIoDxe has to wrap it and
++  // the FAT driver has to mount it before any application can see a volume.
++  // Who refused the device is otherwise invisible.
++  //
++  {
++    EFI_STATUS       Connect;
++    EFI_STATUS       Second;
++    EFI_STATUS       DiskIo;
++    EFI_STATUS       Volumes;
++    EFI_STATUS       SelfRead;
++    UINT8            *Sector;
++    VOID             *DiskIoProtocol;
++    EFI_HANDLE       *VolumeHandles;
++    UINTN            VolumeCount;
++
++    DiskIoProtocol = NULL;
++    VolumeHandles  = NULL;
++    VolumeCount    = 0;
++    //
++    // Two passes: the FAT driver only claims the handle once DiskIo exists,
++    // and driver order inside a single ConnectController pass is not
++    // guaranteed to put DiskIoDxe first.
++    //
++    Connect = gBS->ConnectController (Handle, NULL, NULL, TRUE);
++    Second  = gBS->ConnectController (Handle, NULL, NULL, TRUE);
++    DiskIo  = gBS->HandleProtocol (Handle, &gEfiDiskIoProtocolGuid, &DiskIoProtocol);
++
++    //
++    // Prove the device serves the boot sector we expect (0x55AA + "MTOO");
++    // if this fails, FAT was never given a chance to work.
++    //
++    Sector   = AllocatePool (RAM_BLOCK_SIZE);
++    SelfRead = EFI_OUT_OF_RESOURCES;
++    if (Sector != NULL) {
++      ZeroMem (Sector, RAM_BLOCK_SIZE);
++      SelfRead = mBlockIo.ReadBlocks (&mBlockIo, mMedia.MediaId, 0, RAM_BLOCK_SIZE, Sector);
++      DEBUG ((
++        DEBUG_ERROR,
++        "UNIXNURAMDISK: selfread=%r sig=%02x%02x bps=%u oem=%c%c%c%c\n",
++        SelfRead,
++        Sector[510],
++        Sector[511],
++        (UINT32)(Sector[11] | (Sector[12] << 8)),
++        Sector[3],
++        Sector[4],
++        Sector[5],
++        Sector[6]
++        ));
++      FreePool (Sector);
++    }
++    Volumes = gBS->LocateHandleBuffer (
++                             ByProtocol,
++                             &gEfiSimpleFileSystemProtocolGuid,
++                             NULL,
++                             &VolumeCount,
++                             &VolumeHandles
++                             );
++    DEBUG ((
++      DEBUG_ERROR,
++      "UNIXNURAMDISK: connect=%r second=%r diskio=%r volumes=%u (%r)\n",
++      Connect,
++      Second,
++      DiskIo,
++      (UINT32)VolumeCount,
++      Volumes
++      ));
++    if (!EFI_ERROR (Volumes) && (VolumeHandles != NULL)) {
++      FreePool (VolumeHandles);
++    }
++  }
+   DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: initrd block device 0x%lx size 0x%lx %r\n", Start, End - Start, Status));
+ }
+ 
++//
++// XNU keeps a console/panic mirror in reserved DRAM (patch
++// zzzzz-pong-ramoops-minimal.patch): 12-byte header then a 2 MiB ring.
++// A warm reset keeps the contents, so a panic is readable from here.
++//
++#define K60_RAMOOPS_BASE     0xA7000000ULL
++#define K60_RAMOOPS_BYTES    0x00200000U
++#define K60_RAMOOPS_HEADER   12U
++#define K60_RAMOOPS_MAGIC    0x43474244U
++
++STATIC
++VOID
++DumpRamoops (
++  VOID
++  )
++{
++  volatile UINT32  *Header;
++  UINT32           Sig;
++  UINT32           Start;
++  UINT32           Size;
++  UINT32           Capacity;
++  UINT32           Take;
++  UINT32           Index;
++  CHAR8            Line[160];
++  UINTN            Used;
++
++  Header = (volatile UINT32 *)(UINTN)K60_RAMOOPS_BASE;
++  Sig    = Header[0];
++  Start  = Header[1];
++  Size   = Header[2];
++  if ((Sig != K60_RAMOOPS_MAGIC) || (Size == 0)) {
++    DEBUG ((DEBUG_ERROR, "RAMOOPS: sig=0x%08x size=0x%x (no xnu log)\n", Sig, Size));
++    return;
++  }
++
++  Capacity = K60_RAMOOPS_BYTES - K60_RAMOOPS_HEADER;
++  if ((Start >= Capacity) || (Size > Capacity)) {
++    Start = 0;
++    Size  = (Size > Capacity) ? Capacity : Size;
++  }
++
++  Take = (Size > 4096) ? 4096 : Size;
++  DEBUG ((DEBUG_ERROR, "RAMOOPS: size=0x%x start=0x%x, tail 0x%x\n", Size, Start, Take));
++
++  Used = 0;
++  for (Index = 0; Index < Take; Index++) {
++    UINT32  Offset;
++    CHAR8   C;
++
++    Offset = (Start + Size - Take + Index) % Capacity;
++    C      = *(volatile CHAR8 *)(UINTN)(K60_RAMOOPS_BASE + K60_RAMOOPS_HEADER + Offset);
++    if ((C < 0x20) || (C > 0x7E)) {
++      C = ((C == '\n') || (C == '\r') || (C == '\t')) ? ' ' : '.';
++    }
++
++    Line[Used++] = C;
++    if (Used == sizeof (Line) - 1) {
++      Line[Used] = '\0';
++      DEBUG ((DEBUG_ERROR, "RAMOOPS| %a\n", Line));
++      Used = 0;
++    }
++  }
++
++  if (Used != 0) {
++    Line[Used] = '\0';
++    DEBUG ((DEBUG_ERROR, "RAMOOPS| %a\n", Line));
++  }
++}
++
+ EFI_STATUS
+ EFIAPI
+ UniXNURamDiskDxeEntry (
+@@ -199,6 +482,12 @@ UniXNURamDiskDxeEntry (
+   EFI_HOB_GUID_TYPE  *Hob;
+   UINT64             Dtb;
+ 
++  //
++  // First thing: whatever XNU left in the reserved console mirror, before
++  // any of our own allocations can disturb it.
++  //
++  DumpRamoops ();
++
+   Hob = GetFirstGuidHob (&mEntryArgHobGuid);
+   if (Hob == NULL) {
+     DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: no entry argument HOB\n"));
+@@ -210,6 +499,7 @@ UniXNURamDiskDxeEntry (
    }
  
    Dtb = ReadUnaligned64 ((CONST UINT64 *)GET_GUID_HOB_DATA (Hob));
-+  DEBUG ((DEBUG_INFO, "UNIXNURAMDISK: checking DTB at 0x%lx\n", Dtb));
++  DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: checking DTB at 0x%lx\n", Dtb));
    if ((Dtb == 0) || ((Dtb & 3) != 0) || (FdtCheckHeader ((VOID *)(UINTN)Dtb) != 0)) {
      DEBUG ((DEBUG_ERROR, "UNIXNURAMDISK: x0 0x%lx is not a device tree\n", Dtb));
      return EFI_SUCCESS;
 diff --git a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
-index f4dab2d..cac3a3b 100644
+index f4dab2d..8aa73dd 100644
 --- a/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
 +++ b/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
 @@ -11,6 +11,7 @@
@@ -107,7 +356,7 @@ index f4dab2d..cac3a3b 100644
  
  [LibraryClasses]
    BaseLib
-@@ -19,6 +20,7 @@
+@@ -19,11 +20,14 @@
    FdtLib
    HobLib
    UefiBootServicesTableLib
@@ -115,20 +364,153 @@ index f4dab2d..cac3a3b 100644
    UefiDriverEntryPoint
  
  [Protocols]
+   gEfiBlockIoProtocolGuid                       ## PRODUCES
+   gEfiDevicePathProtocolGuid                    ## PRODUCES
++  gEfiDiskIoProtocolGuid                        ## CONSUMES
++  gEfiSimpleFileSystemProtocolGuid              ## CONSUMES
+ 
+ [Depex]
+   TRUE
 diff --git a/package/UniXNUPkg/Library/UniXNULib/Config.c b/package/UniXNUPkg/Library/UniXNULib/Config.c
-index ed39c6b..c24c6a4 100644
+index ed39c6b..7da6a07 100644
 --- a/package/UniXNUPkg/Library/UniXNULib/Config.c
 +++ b/package/UniXNUPkg/Library/UniXNULib/Config.c
-@@ -35,7 +35,8 @@
+@@ -35,7 +35,14 @@
  STATIC CONST CHAR8  mBuiltinConfig[] =
    "version = 1\n"
    "[boot]\n"
 -  "timeout = 10\n"
-+  "timeout = 300\n"
++  //
++  // -1 keeps the menu up until somebody presses a key (the fallback timer
++  // still runs when no input device exists).  A countdown here silently
++  // boots the first entry - "Return to firmware" - and drops the machine
++  // back into Android while the operator is looking away.
++  //
++  "timeout = -1\n"
 +  "fallback_timeout = 300\n"
    "rotate = 2\n"
    "[ui]\n"
    "title = \"UniXNU\"\n"
+@@ -1553,11 +1560,22 @@ UniXNUConfigLoad (
+ 
+   if (!Loaded && (Config->Error[0] == '\0')) {
+     Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Handles);
+-    if (!EFI_ERROR (Status)) {
+-      for (Index = 0; Index < Count && !Loaded && Config->Error[0] == '\0'; Index++) {
+-        Loaded = TryVolume (Config, Handles[Index]);
+-      }
++    if (EFI_ERROR (Status)) {
++      Count = 0;
++    }
++
++    //
++    // Without this a missing volume and a missing file look identical in the
++    // log; on a platform where a DXE driver publishes the payload as a block
++    // device that distinction is the whole diagnosis.
++    //
++    UniXNULog ("config: %u file system volume(s)", (UINT32)Count);
++    for (Index = 0; Index < Count && !Loaded && Config->Error[0] == '\0'; Index++) {
++      UniXNULog ("config: probing volume %u", (UINT32)(Index + 1));
++      Loaded = TryVolume (Config, Handles[Index]);
++    }
+ 
++    if (Count != 0) {
+       FreePool (Handles);
+     }
+   }
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Main.c b/package/UniXNUPkg/Library/UniXNULib/Main.c
+index 482f4d6..5f27c0d 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Main.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Main.c
+@@ -61,6 +61,7 @@ UniXNURun (
+   BOOLEAN          Countdown;
+   UNIXNU_ENTRY         *Entry;
+   UNIXNU_ENTRY         BootCopy;
++  CHAR8            Storage[96];
+ 
+   //
+   // A boot manager waits for people; the 5 minute BDS watchdog does not.
+@@ -76,13 +77,77 @@ UniXNURun (
+     );
+ 
+   //
+-  // Started straight from BDS, storage may not be connected yet.
++  // Connect storage before looking for the config volume.  BDS normally did
++  // this already when UniXNU runs as a firmware boot option, but an
++  // application launched from the boot menu path arrives with every volume
++  // still unbound: a block device published by a DXE driver (the K60
++  // payload ramdisk) then carries no file system at all, and the config on
++  // it stays invisible.
+   //
+-  if (Host == UniXNUHostFirmware) {
+-    UniXNUConnectAll ();
++  UniXNUConnectAll ();
++  UniXNUConnectAll ();
++
++  //
++  // A ramdisk published by a DXE driver only becomes a volume after DiskIoDxe
++  // wraps it and the FAT driver mounts it. Report the three counts on the menu:
++  // the firmware log is unreachable on this board (no serial, no network, no
++  // writable volume), so anything that only lands in the log costs a reboot.
++  //
++  {
++    EFI_HANDLE  *Blocks;
++    EFI_HANDLE  *Volumes;
++    UINTN       BlockCount;
++    UINTN       Connected;
++    UINTN       VolumeCount;
++
++    Blocks      = NULL;
++    Volumes     = NULL;
++    BlockCount  = 0;
++    Connected   = 0;
++    VolumeCount = 0;
++    Storage[0]  = '\0';
++
++    if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiBlockIoProtocolGuid, NULL, &BlockCount, &Blocks))) {
++      BlockCount = 0;
++      Blocks     = NULL;
++    }
++
++    //
++    // Read-only: connecting the handle here re-entered DiskIo/Fat inside the
++    // application and the run ended up back in Android. UniXNUConnectAll()
++    // above has already done the binding pass; this only reports numbers.
++    //
++    Connected = BlockCount;
++
++    if (!EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &VolumeCount, &Volumes))) {
++      FreePool (Volumes);
++    } else {
++      VolumeCount = 0;
++    }
++
++    if (Blocks != NULL) {
++      FreePool (Blocks);
++    }
++
++    AsciiSPrint (
++      Storage,
++      sizeof (Storage),
++      "blockio=%u connected=%u volumes=%u",
++      (UINT32)BlockCount,
++      (UINT32)Connected,
++      (UINT32)VolumeCount
++      );
++    UniXNULog ("storage: %a", Storage);
+   }
+ 
+   UniXNUConfigLoad (ImageHandle, &Config);
++
++  if (Storage[0] != '\0') {
++    if (Config.Notice[0] != '\0') {
++      AsciiStrCatS (Config.Notice, sizeof (Config.Notice), " | ");
++    }
++    AsciiStrCatS (Config.Notice, sizeof (Config.Notice), Storage);
++  }
+   UniXNULog (
+     "config: %u entries, %u drivers, %u dt patches, %u acpi tables, %u slices, %u kits loaded, %u skipped",
+     (UINT32)Config.EntryCount,
 diff --git a/scripts/unixnu/bootimg.py b/scripts/unixnu/bootimg.py
 index 259fb29..c60e9c2 100644
 --- a/scripts/unixnu/bootimg.py

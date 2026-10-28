@@ -34,6 +34,12 @@ for path in sorted(device.glob('scripts/build-pong-*-macos.py')):
     path.write_text(text)
 PY
 
+# The workflow checks out without submodules ("unixnu build" initializes them later), so the
+# prelink kit has to be present before the wrapper can replace its entry point.
+if [ ! -f kits/XnuPrelink/emit_prelink.py ]; then
+  git submodule update --init --recursive -- kits/XnuPrelink
+fi
+
 # Install the auto-slide prelink wrapper (device-repo copy; submodule untouched).
 if [ -f kits/XnuPrelink/emit_prelink.py ]; then
   cp kits/XnuPrelink/emit_prelink.py kits/XnuPrelink/emit_prelink_orig.py

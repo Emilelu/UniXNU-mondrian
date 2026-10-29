@@ -27,10 +27,31 @@ REFERENCE_URL = f'https://codeload.github.com/apple-oss-distributions/IOStorageF
 KERNEL_PIN = 'd260defcc2eaac258fd3a2234454dda46791dae45e97608c5416f9ba8fd366e9'
 DEFAULT_IPSW_URL = ('https://updates.cdn-apple.com/2023SummerFCS/fullrestores/042-44385/'
                     '366890C4-D9B5-4938-B399-C19FB58DBEE0/iPad_Pro_HFR_16.6.1_20G81_Restore.ipsw')
+# The K60 native kernel links at this address (ARM64_LINK_ADDR of the baseline make).
+ARM64_LINK_ADDR = 0xfffffff007004000
+# The auto-slide wrapper packs components up to the end of these segments and then
+# slides them clear of the lowest native segment in 4 KiB steps.
+PRELINK_SEGMENTS = ('__PRELINK_TEXT', '__PLK_TEXT_EXEC', '__PLK_DATA_CONST', '__PRELINK_DATA')
+SLIDE_STEP = 0x4000
 SLOTS = 190
 PURE_VIRTUAL = 14
 CLASS_SIZE = 0x90
-FIXED_PRELINK_BASE = 0xfffffff00b000000
+
+
+def prelink_placement(image):
+    """Return (base, slide, fixed) matching what the auto-slide wrapper will emit.
+
+    The wrapper packs the components up to the end of the outer prelink segments
+    and then slides them clear of the lowest native segment in 4 KiB steps, so the
+    bindings must be expressed in that final address space, not in the original
+    kernelcache's.
+    """
+    base = min(s['va'] for s in image['segments'] if s['name'].startswith('__PRELINK') and s['size'])
+    component_end = max(s['va'] + s['size'] for s in image['segments']
+                        if s['name'] in PRELINK_SEGMENTS and s['size'])
+    need = ARM64_LINK_ADDR - component_end
+    slide = (min(0, need) // SLIDE_STEP) * SLIDE_STEP
+    return base, slide, base + slide
 
 
 def digest(data):
@@ -336,7 +357,7 @@ def main():
     if struct.unpack('<I', read(destructor, 4))[0] & 0xfc000000 != 0x14000000:
         raise SystemExit('storage base destructor layout changed')
 
-    fixed = FIXED_PRELINK_BASE
+    fixed = prelink_placement(image)[2]
     slide = fixed - base
     bindings = {name: pointers[i] + slide for i, name in enumerate(methods)
                 if name not in known and name != '___cxa_pure_virtual'}

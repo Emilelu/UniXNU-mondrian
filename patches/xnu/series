@@ -104,3 +104,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-pgo-runtime-stub.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-rwlock-caller-trace.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-ppl-lock-sleepable.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-defer-img4.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-ready-guard.patch

@@ -1,0 +1,24 @@
+diff --git a/iokit/IOKit/IOLib.h b/iokit/IOKit/IOLib.h
+--- a/iokit/IOKit/IOLib.h
++++ b/iokit/IOKit/IOLib.h
+@@ -742,7 +742,15 @@
+ 
+ #ifdef XNU_KERNEL_PRIVATE
+ 
+-#define IOFREETYPE_ASSERT_COMPATIBLE_POINTER(ptr, type) \
++/*
++ * K60 Linux-build fix: KALLOC_TYPE_ASSERT_COMPATIBLE_POINTER expands to a
++ * _Static_assert over __typeof__(*(ptr)).  When ptr is a void * that is a hard
++ * error ("indirection not permitted on operand of type 'void *'") in upstream
++ * clang inside a C++ static_assert, even with -Wvoid-ptr-dereference disabled;
++ * Apple's clang accepts it as an extension.  The check is a compile-time
++ * diagnostic only, so keep it for C and drop it for C++.
++ */
++#if defined(__cplusplus)
++#define IOFREETYPE_ASSERT_COMPATIBLE_POINTER(ptr, type) do {} while (0)
++#else
++#define IOFREETYPE_ASSERT_COMPATIBLE_POINTER(ptr, type) \
+     KALLOC_TYPE_ASSERT_COMPATIBLE_POINTER(ptr, type)
++#endif
+ 
+ #else  /* XNU_KERNEL_PRIVATE */

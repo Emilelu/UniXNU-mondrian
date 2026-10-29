@@ -99,3 +99,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-duplicate-class-soft.patch
 0212-k60-empty-accelerator.patch
 0213-k60-display-first-frame.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-panic-report.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-cpp-void-ptr-assert.patch

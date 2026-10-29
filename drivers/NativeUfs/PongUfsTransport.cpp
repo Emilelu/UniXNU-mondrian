@@ -534,9 +534,12 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
   RootLayout layout;
   const char *why = nullptr;
   if (!findRootLayout(&layout, &why)) return transportFailure(why);
-  if (layout.userdataFirst != kPongUserdataFirst4k || layout.userdataLast != kPongUserdataLast4k ||
-      layout.userdataLast >= gHost.blocks)
-    return transportFailure("Pong userdata geometry changed");
+  // The geometry is read from the board's own GPT instead of a captured Pong
+  // constant: the K60 dual-system layout puts SHNGROOT in a dedicated "unixnu"
+  // partition whose first/last LBA differ from Pong's userdata. Only the sanity
+  // check against the device capacity remains.
+  if (layout.userdataFirst >= layout.userdataLast || layout.userdataLast >= gHost.blocks)
+    return transportFailure("root partition geometry outside the device");
   if (layout.manifestStatus) return transportFailure("invalid SHNGROOT manifest/hash/bounds");
   static const struct { const char *name, *product, *signature; unsigned offset; } wanted[] = {
     {"OS", "iOS 16 OS root", "EFI PART", 512},

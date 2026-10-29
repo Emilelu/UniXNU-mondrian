@@ -103,7 +103,12 @@ static bool findRootLayout (RootLayout *layout, const char **why)
     *why = "GPT entries CRC";
     return false;
   }
-  static const char wanted[] = "userdata";
+  // The SHNGROOT image lives in the board's dedicated partition. Pong used the
+  // Android "userdata" partition; the K60 dual-system layout uses "unixnu".
+#ifndef K60_ROOT_PARTITION
+#define K60_ROOT_PARTITION "unixnu"
+#endif
+  static const char wanted[] = K60_ROOT_PARTITION;
   bool found = false;
   for (uint32_t index = 0; index < count; index++) {
     const uint8_t *entry = gScratch + index * 128;

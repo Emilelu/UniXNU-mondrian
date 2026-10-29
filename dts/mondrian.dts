@@ -34,7 +34,7 @@
 		compatible = "qcom,sm8475-ufshc";
 		status = "okay";
 		reg = <0x0 0x1d84000 0x0 0x3000>;
-		unixnu,adt-name = "ufs";
+		unixnu,adt-name = "ufshc";
 		pong,ufs-hc-base = <0x0 0x1d84000>;
 		pong,ufs-hc-size = <0x0 0x3000>;
 		pong,gcc-ufs-page = <0x0 0x187000>;

@@ -247,9 +247,16 @@ if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" 
       --tree "$ROOT" --skip-image-verification
   fi
 fi
+if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ] && \
+   [ ! -f "$PONG_NATIVE_DRIVER_SOURCE/mac-build/storage-abi/interface-audit.json" ]; then
+  # The original IOStorageFamily kext lives in the 20G81 kernelcache, so derive
+  # the driver's storage imports from it (public reference + kext __DATA_CONST
+  # dispatch scan). bind-ios16-storage.py then emits original-bindings.o.
+  python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/derive-ios16-storage-bindings.py" --tree "$ROOT" || \
+    echo "WARNING: storage binding derivation failed; the UFS link will report undefined IOBlockStorageDevice imports" >&2
+fi
 if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
-  # PongDev-only path: the storage ABI audit lives in the developer machine's
-  # mac-build/ tree. On runners the generic component archive links instead.
+  # Compile the active Pong transport before linking.
   python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
     --tree "$ROOT" --skip-image-verification
 fi

@@ -144,6 +144,15 @@ def main():
                 raise SystemExit(f'no mounted volume carries sbin/launchd; mounts: {[str(m) for m in mounts]}')
             print(f'os: system volume at {os_root}', flush=True)
             launchd_sha256 = sha256_of(os_root / 'sbin/launchd')
+            os_volume_uuid = None
+            for entity in attached['system-entities']:
+                if entity.get('mount-point') == str(os_root):
+                    os_volume_uuid = plistlib.loads(subprocess.check_output(
+                        ['diskutil', 'info', '-plist', entity['dev-entry']]))['VolumeUUID']
+                    break
+            if os_volume_uuid is None:
+                raise SystemExit('could not read the OS volume UUID for root matching')
+            print(f'os: volume UUID {os_volume_uuid}', flush=True)
 
             image = args.output.resolve()
             if image.exists():
@@ -208,6 +217,7 @@ def main():
         created.rename(image)
     report = {'volume_uuid': volume_uuid, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
               'source_member': member, 'source_sha256': source_sha256, 'launchd_sha256': launchd_sha256,
+              'os_volume_uuid': os_volume_uuid,
               'source_regular_files': count, 'source_regular_bytes': total,
               'seed': 'Original OS private/var excluding staged_system_apps; symlinks preserved; runtime directories added',
               'guest_mutable': True, 'initial_seed_signature_verified': False,

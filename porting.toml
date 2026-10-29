@@ -65,7 +65,7 @@ evidence = []
 [[area]]
 id = "storage"
 status = "planned"
-components = []
+components = ["PongUfs"]
 paths = ["drivers/ShengUfs", "scripts/*ufs*", "scripts/*storage*", "scripts/*userdata*", "scripts/*root*"]
 inputs = ["Identify the storage and root hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for storage and root."]

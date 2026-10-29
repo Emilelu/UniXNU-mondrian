@@ -72,6 +72,10 @@ title = "UniXNU"
 # swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
 dram_size = "0x300000000"
 kernel_args = ["-v", "native-ufs=1"]
+# Bring-up: one CPU in the ADT. AppleARMCPU rejects a multi-CPU device tree
+# without per-CPU interrupts/reg-private/cache descriptors; pong boots the same
+# way (make-pong-adt.py --cpus defaults to 1). Raise after those are added.
+cpus = 1
 tools = true
 # Unattended bring-up needs a countdown. timeout = -1 means "wait for a key"
 # whenever an input device is present, and the K60 keypad (K60KeypadDeviceLib)

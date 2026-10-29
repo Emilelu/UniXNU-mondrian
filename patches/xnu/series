@@ -102,3 +102,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-cpp-void-ptr-assert.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-v-crypto-syntax.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-pgo-runtime-stub.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-rwlock-caller-trace.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-ppl-lock-sleepable.patch

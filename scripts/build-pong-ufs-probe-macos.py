@@ -51,18 +51,12 @@ def main():
     (out / 'build.log').write_text(result.stdout + result.stderr)
     if result.returncode:
         raise SystemExit(result.stderr)
-    transport = out / 'PongUfsTransport.o'
-    command[command.index(str(source))] = str(source.with_name('PongUfsTransport.cpp'))
-    command[-1] = str(transport)
-    result = subprocess.run(command, capture_output=True, text=True, env=env)
-    (out / 'transport-build.log').write_text(result.stdout + result.stderr)
-    if result.returncode:
-        raise SystemExit(result.stderr)
+    # Unity translation unit: NativeUfs.cpp includes PongUfsTransport.cpp.
     audit = DEVICE / 'mac-build/storage-abi/interface-audit.json'
-    objects = [str(obj), str(transport)]
+    objects = [str(obj)]
     if audit.is_file():
         subprocess.run([str(Path(os.sys.executable)), str(DEVICE / 'scripts/bind-ios16-storage.py'),
-                        '--object', str(transport), '--output', str(out)], check=True, env=env)
+                        '--object', str(obj), '--output', str(out)], check=True, env=env)
         objects.append(str(out / 'original-bindings.o'))
     else:
         (out / 'bindings.json').write_text('{}\n')
@@ -93,7 +87,7 @@ def main():
     (out / 'build-report.json').write_text(json.dumps(report, indent=2) + '\n')
     export = DEVICE / 'mac-build/native-ufs'
     export.mkdir(parents=True, exist_ok=True)
-    for name in ('libNativeUfs.a', 'build-report.json', 'build.log', 'bindings.json', 'transport-build.log'):
+    for name in ('libNativeUfs.a', 'build-report.json', 'build.log', 'bindings.json'):
         shutil.copyfile(out / name, export / name)
     print('Compiled Pong NativeUfs read/write path (boot-arg gated):', archive)
 

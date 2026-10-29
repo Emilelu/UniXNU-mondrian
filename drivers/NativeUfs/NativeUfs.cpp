@@ -252,3 +252,6 @@ bool NativeUfs::start (IOService *provider)
   else PongProbeRecord (1, "timer-scheduler", PongProbeFail, "observer thread creation failed", result);
   return true;
 }
+
+// Phase-2 unity merge: the generic component builder compiles one source file.
+#include "PongUfsTransport.cpp"

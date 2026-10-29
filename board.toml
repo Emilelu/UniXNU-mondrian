@@ -11,13 +11,20 @@ kit = "mondrian"
 # The kernel and prelink inputs live in the OS profile (profiles/os/ipados-16.6.1-20G81),
 # the SM8475 resources in the SoC source, and the board wiring in dts/mondrian.dts.
 [components]
-include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "PongUfs"]
 
 [kernel]
 defconfig = "mondrian_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "os:configs/ipados.config"]
 # The K60 series still carries every patch; the shared layers have empty series for now.
 patch_series = ["device:patches/xnu/series"]
+archives = ["component:PongUfs"]
+
+[userdata]
+first_lba = 53342976
+last_lba = 61731583
+lba_bytes = 4096
+windows = [{ "name" = "OS", "component" = "OS" }, { "name" = "SystemOS", "component" = "Cryptex1,SystemOS" }]
 
 [device_tree]
 source = "device:dts/mondrian.dts"
@@ -63,9 +70,12 @@ title = "UniXNU"
 # Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
 # swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
 dram_size = "0x300000000"
-kernel_args = ["-v", "serial=3"]
+kernel_args = ["-v", "native-ufs=1"]
 tools = true
 # -1 = no countdown while an input device is present. A positive value silently
 # boots the default entry when the operator looks away, which on K60 means
 # "Return to firmware" -> BDS -> Android.
 timeout = -1
+
+[payload."adt"]
+"root_match_volume_uuid" = "C5DAF029-2070-4F68-B3CC-1D1320344CF0"

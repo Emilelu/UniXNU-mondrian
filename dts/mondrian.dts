@@ -24,4 +24,25 @@
 		device_type = "memory";
 		reg = <0x0 0x80000000 0x3 0x0>;
 	};
+
+	/*
+	 * SM8475 UFS host (NativeUfs.cpp window checks: NativeUfs.cpp kUfsHost /
+	 * kGccUfsPage / SMMU constants, pong,ufs-* / pong,smmu-* properties are
+	 * exported to the ADT via unixnu,adt-name).
+	 */
+	ufs@1d84000 {
+		compatible = "qcom,sm8475-ufshc";
+		status = "okay";
+		reg = <0x0 0x1d84000 0x0 0x3000>;
+		unixnu,adt-name = "ufs";
+		pong,ufs-hc-base = <0x0 0x1d84000>;
+		pong,ufs-hc-size = <0x0 0x3000>;
+		pong,gcc-ufs-page = <0x0 0x187000>;
+		pong,smmu-base = <0x0 0x15000000>;
+		pong,smmu-size = <0x0 0x100000>;
+		pong,smmu-stream-id = <0xe0>;
+		pong,ufs-spi = <265>;
+		pong,smmu-context-banks = <78>;
+		pong,smmu-match-groups = <120>;
+	};
 };

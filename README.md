@@ -36,6 +36,21 @@ GIC `0x17100000` / `0x17180000`、8 核 `reg = 0x000..0x700`、面板 `m11a_42_0
 换一台不同容量的机器时，需要同步改 `dts/mondrian.dts` 的 `/memory` 与
 `board.toml [payload] dram_size`。
 
+**16 GiB 机型数据点**（issue #1，wohusaixing，Redmi K60 `23013RK75C`）：`/memory` 为
+五个 bank —— `0x80000000+0x6a000000`（bank0 上界 `0xEA000000`）、`0xf4600000+0x0ba00000`、
+`0x800000000+0x35300000`、`0x835900000+0x01e00000`、`0x840000000+0x340000000`，
+`MemTotal 15,519,744 kB`。ADT handoff 目前要求单一连续 DRAM 区间，五段映射暂不能原样描述；
+16 GiB 机可用单段收窄到 bank0 的写法（已在该机型实测：固件 `eb47698` 下可进 UniXNU 菜单并
+运行 XNU，见 issue #1）：
+
+```toml
+# dts/mondrian.dts -> /memory
+reg = <0x0 0x80000000 0x0 0x6a000000>;
+# board.toml
+[payload]
+dram_size = "0x6a000000"
+```
+
 ## 构建
 
 四个目录并列，核心仓用本仓的 `k60` 分支（已含 20G81 OS profile）：

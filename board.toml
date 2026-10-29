@@ -19,6 +19,7 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 # The K60 series still carries every patch; the shared layers have empty series for now.
 patch_series = ["device:patches/xnu/series"]
 archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs"]
+driver_records = "DEVELOPMENT_ARM64_PONG"
 
 [userdata]
 first_lba = 53342976

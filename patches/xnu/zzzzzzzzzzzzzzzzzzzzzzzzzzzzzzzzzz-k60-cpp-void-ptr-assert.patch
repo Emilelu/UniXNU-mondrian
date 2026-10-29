@@ -1,25 +1,27 @@
-diff --git a/iokit/IOKit/IOLib.h b/iokit/IOKit/IOLib.h
-index 8c7d318..3712940 100644
---- a/iokit/IOKit/IOLib.h
-+++ b/iokit/IOKit/IOLib.h
-@@ -742,8 +742,20 @@ log2up(vm_size_t size);
- 
- #ifdef XNU_KERNEL_PRIVATE
+diff --git a/osfmk/kern/kalloc.h b/osfmk/kern/kalloc.h
+index 535bc7b..f70f28e 100644
+--- a/osfmk/kern/kalloc.h
++++ b/osfmk/kern/kalloc.h
+@@ -828,9 +828,22 @@ __options_decl(kt_granule_t, uint32_t, {
+ 	    __builtin_xnu_types_compatible(__typeof__(*(ptr)), void))  \
+ 	_Pragma("clang diagnostic pop")
  
 +/*
-+ * K60 Linux-build fix: KALLOC_TYPE_ASSERT_COMPATIBLE_POINTER expands to a
-+ * _Static_assert over __typeof__(*(ptr)).  When ptr is a void *, that is a hard
-+ * error ("indirection not permitted on operand of type 'void *'") in upstream
-+ * clang inside a C++ static_assert, even with -Wvoid-ptr-dereference disabled;
-+ * Apple's clang accepts it as an extension.  The check is a compile-time
-+ * diagnostic only, so keep it for C and drop it for C++.
++ * K60 Linux-build fix: KALLOC_TYPE_IS_COMPATIBLE_PTR dereferences ptr inside
++ * __typeof__ to inspect its type. When ptr is a void *, upstream clang treats
++ * that as a hard error inside a C++ static_assert ("indirection not permitted on
++ * operand of type 'void *'"), and -Wvoid-ptr-dereference only downgrades the C
++ * diagnostic. Apple's clang accepts it as an extension, which is why the macOS
++ * build never hit this. The assertion is a compile-time diagnostic only, so keep
++ * it for C and drop it for C++.
 + */
 +#if defined(__cplusplus)
-+#define IOFREETYPE_ASSERT_COMPATIBLE_POINTER(ptr, type) do {} while (0)
++#define KALLOC_TYPE_ASSERT_COMPATIBLE_POINTER(ptr, type) do {} while (0)
 +#else
- #define IOFREETYPE_ASSERT_COMPATIBLE_POINTER(ptr, type) \
-     KALLOC_TYPE_ASSERT_COMPATIBLE_POINTER(ptr, type)
+ #define KALLOC_TYPE_ASSERT_COMPATIBLE_POINTER(ptr, type) \
+ 	_Static_assert(KALLOC_TYPE_IS_COMPATIBLE_PTR(ptr, type), \
+ 	    "Pointer type is not compatible with specified type")
 +#endif
  
- #else  /* XNU_KERNEL_PRIVATE */
  
+ /*!

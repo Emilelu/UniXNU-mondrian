@@ -8,7 +8,6 @@
 # switched off by this board configuration (native AES, owner cache mount, PGZ probe,
 # boot progress, writable Data, GPU addon, the pong UI suffix) or belong to another XNU
 # version (public entitlements, published freezer).
-
 apple-only-cpu-tunables.patch
 architectural-timer-entry.patch
 armvirt-platform-personality.patch

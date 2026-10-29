@@ -1,0 +1,24 @@
+diff --git a/bsd/kern/kern_trustcache.c b/bsd/kern/kern_trustcache.c
+index 4c22764..c6ebf19 100644
+--- a/bsd/kern/kern_trustcache.c
++++ b/bsd/kern/kern_trustcache.c
+@@ -248,9 +248,17 @@ trust_cache_runtime_init(void)
+ 	allow_legacy_caches = true;
+ #endif
+ 
+-	/* Image4 interface needs to be available */
++	/*
++	 * K60 bring-up: img4if is registered by the AppleImage4 kext, which starts
++	 * during IOKit bring-up - long after this bootstrap-phase call. Panicking here
++	 * would stop the boot before launchd, so defer instead: the lock is still
++	 * initialised below (that is what unblocks the DEBUG_RW assertion) and the
++	 * query paths report "not found" until the interface appears.
++	 */
+ 	if (img4if == NULL) {
+-		panic("image4 interface not available");
++		printf("K60 TRUSTCACHE: img4 interface not available yet, deferring runtime init\n");
++		lck_rw_init(&trust_cache_rt_lock, &trust_cache_lck_grp, 0);
++		return;
+ 	}
+ 
+ 	/* AMFI interface needs to be available */

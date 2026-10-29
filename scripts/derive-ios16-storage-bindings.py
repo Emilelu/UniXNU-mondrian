@@ -119,14 +119,16 @@ def im4p_payload(blob):
             body += count
         return tag, body, body + length
 
+    tag, at, end = der(blob, 0)
+    if tag != 0x30 or end != len(blob):
+        raise SystemExit('expected one complete IM4P sequence')
     fields = []
-    end = len(blob)
     while at < end:
-        tag, body, finish = der(blob, at)
-        fields.append((tag, blob[body:finish]))
+        kind, body, finish = der(blob, at)
+        fields.append((kind, blob[body:finish]))
         at = finish
-    if len(fields) < 4 or fields[0][1] != b'IM4P' or fields[1][1] != b'krnl':
-        raise SystemExit('expected a kernel IM4P payload')
+    if len(fields) < 4 or fields[0][1] != b'IM4P' or fields[1][1] != b'krnl' or fields[3][0] != 0x04:
+        raise SystemExit(f'unexpected IM4P fields: {[(hex(k), v[:8]) for k, v in fields[:5]]}')
     return fields[3][1]
 
 

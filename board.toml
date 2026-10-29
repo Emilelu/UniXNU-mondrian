@@ -73,10 +73,14 @@ title = "UniXNU"
 dram_size = "0x300000000"
 kernel_args = ["-v", "native-ufs=1"]
 tools = true
-# -1 = no countdown while an input device is present. A positive value silently
-# boots the default entry when the operator looks away, which on K60 means
-# "Return to firmware" -> BDS -> Android.
-timeout = -1
+# Unattended bring-up needs a countdown. timeout = -1 means "wait for a key"
+# whenever an input device is present, and the K60 keypad (K60KeypadDeviceLib)
+# always is: measured 2026-10-29 18:47, the unit parked in the menu, dropped off
+# USB and never came back, with XNU never loaded. A positive value boots the
+# default entry ("xnu") after that many seconds. If the kernel then fails and the
+# menu falls back to "Return to firmware", the unit lands in BDS -> Android,
+# which is the state a host-side watchdog can recover from.
+timeout = 5
 
 [payload."adt"]
 "root_match_volume_uuid" = "C5DAF029-2070-4F68-B3CC-1D1320344CF0"

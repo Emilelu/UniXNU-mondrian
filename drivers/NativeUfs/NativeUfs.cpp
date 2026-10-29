@@ -254,4 +254,3 @@ bool NativeUfs::start (IOService *provider)
 }
 
 // Phase-2 unity merge: the generic component builder compiles one source file.
-#include "PongUfsTransport.cpp"

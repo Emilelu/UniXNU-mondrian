@@ -247,7 +247,7 @@ if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" 
       --tree "$ROOT" --skip-image-verification
   fi
 fi
-if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -f "$PONG_NATIVE_DRIVER_SOURCE/mac-build/storage-abi/interface-audit.json" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
+if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
   # PongDev-only path: the storage ABI audit lives in the developer machine's
   # mac-build/ tree. On runners the generic component archive links instead.
   python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
@@ -963,9 +963,7 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $ARMCPU_ARCHIVE"
   fi
   if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
-    # Generic component archive produced by build_archives (build-arm-driver.py
-    # PongUfs), not the PongDev native-ufs probe archive.
-    UFS_ARCHIVE=$ROOT/build/sheng-ufs/libPongUfs.a
+    UFS_ARCHIVE=$ROOT/build/native-ufs/libNativeUfs.a
     test -f "$UFS_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $UFS_ARCHIVE"
@@ -1003,7 +1001,7 @@ python3 - "${XNU_NATIVE_AES:-0}" "${XNU_NATIVE_AES_ARCHIVE:-$ROOT/build/native-a
   "$NATIVE_VIRTIO_CONSOLE" "$ROOT/build/native-virtio-console/libNativeVirtioConsole.a" \
   "$NATIVE_OFFLINE_GPU" "$ROOT/build/native-offline-gpu/libNativeOfflineGPU.late.a" \
   "$SHENG_PMGR" "$ROOT/build/sheng-platform-power/libShengPlatformPower.a" \
-  "${XNU_NATIVE_UFS:-0}" "$ROOT/build/sheng-ufs/libPongUfs.a" \
+  "${XNU_NATIVE_UFS:-0}" "$ROOT/build/native-ufs/libNativeUfs.a" \
   "${XNU_NATIVE_ADRENO:-0}" "$ROOT/build/native-adreno/libNativeAdreno.a" \
   "$PONG_ADRENO_PLATFORM" "$ROOT/build/pong-adreno/libPongAdrenoPlatform.a" <<'PY'
 from pathlib import Path

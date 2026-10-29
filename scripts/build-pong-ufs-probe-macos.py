@@ -31,6 +31,9 @@ def main():
     env = dict(os.environ, DEVELOPER_DIR=DEVELOPER)
     sdk = subprocess.check_output(
         ['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True, env=env).strip()
+    storage_inc = tree / 'build/storage-abi/include'
+    if not storage_inc.is_dir():
+        storage_inc = DEVICE / 'mac-build/storage-abi/include'
     obj = out / 'NativeUfs.o'
     trace_enabled = 'CONFIG_XNU_PONG_EARLY_TRACE=y' in (DEVICE / 'configs/mondrian_defconfig').read_text().splitlines()
     command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios16.0',
@@ -39,7 +42,7 @@ def main():
         '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1',
         '-DXNU_PONG_EARLY_TRACE=' + str(int(trace_enabled)),
         '-DXNU_PONG_UFS_DATA=' + str(int('CONFIG_XNU_OWNER_DATA_UFS=y' in (DEVICE/'configs/mondrian_defconfig').read_text().splitlines())),
-        '-I' + str(DEVICE / 'mac-build/storage-abi/include'),
+        '-I' + str(storage_inc),
         '-I' + str(tree / '.cache/xnu-work/EXTERNAL_HEADERS'),
         '-I' + str(framework / 'PrivateHeaders'), '-I' + str(framework / 'Headers'),
         '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations',
@@ -55,12 +58,18 @@ def main():
     (out / 'transport-build.log').write_text(result.stdout + result.stderr)
     if result.returncode:
         raise SystemExit(result.stderr)
-    subprocess.run([str(Path(os.sys.executable)), str(DEVICE / 'scripts/bind-ios16-storage.py'),
-                    '--object', str(transport), '--output', str(out)], check=True, env=env)
+    audit = DEVICE / 'mac-build/storage-abi/interface-audit.json'
+    objects = [str(obj), str(transport)]
+    if audit.is_file():
+        subprocess.run([str(Path(os.sys.executable)), str(DEVICE / 'scripts/bind-ios16-storage.py'),
+                        '--object', str(transport), '--output', str(out)], check=True, env=env)
+        objects.append(str(out / 'original-bindings.o'))
+    else:
+        (out / 'bindings.json').write_text('{}\n')
+        print('PongDev storage audit absent; skipping original-storage binding')
     archive = out / 'libNativeUfs.a'
     archive.unlink(missing_ok=True)
-    subprocess.run(['xcrun', 'libtool', '-static', '-o', str(archive), str(obj), str(transport), str(out / 'original-bindings.o')],
-                   check=True, env=env)
+    subprocess.run(['xcrun', 'libtool', '-static', '-o', str(archive), *objects], check=True, env=env)
     report = {
         'host': platform.machine(), 'target': 'arm64-apple-ios16.0',
         'build_tree': str(tree),

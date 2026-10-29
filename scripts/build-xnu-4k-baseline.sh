@@ -247,9 +247,9 @@ if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" 
       --tree "$ROOT" --skip-image-verification
   fi
 fi
-if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
-  # The transport changes with the selected Data backend. Always compile the
-  # active Pong source before linking, rather than reuse an older RAM-era .a.
+if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -f "$PONG_NATIVE_DRIVER_SOURCE/mac-build/storage-abi/interface-audit.json" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
+  # PongDev-only path: the storage ABI audit lives in the developer machine's
+  # mac-build/ tree. On runners the generic component archive links instead.
   python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
     --tree "$ROOT" --skip-image-verification
 fi
@@ -945,7 +945,7 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   python3 "$PONG_DRIVER_SOURCE/scripts/build-pong-adreno-platform.py" \
     --output-dir "$ROOT/build/pong-adreno"
 fi
-if [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
+if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
   ARM_DT_ARCHIVE=$ROOT/build/armdt-platform/libArmDTPlatform.a
   test -f "$ARM_DT_ARCHIVE"
   PLATFORM_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel -Wl,-force_load,$ARM_DT_ARCHIVE"
@@ -963,7 +963,9 @@ if [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $ARMCPU_ARCHIVE"
   fi
   if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
-    UFS_ARCHIVE=$ROOT/build/native-ufs/libNativeUfs.a
+    # Generic component archive produced by build_archives (build-arm-driver.py
+    # PongUfs), not the PongDev native-ufs probe archive.
+    UFS_ARCHIVE=$ROOT/build/sheng-ufs/libPongUfs.a
     test -f "$UFS_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $UFS_ARCHIVE"

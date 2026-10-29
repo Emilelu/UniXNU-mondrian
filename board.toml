@@ -71,7 +71,7 @@ title = "UniXNU"
 # Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
 # swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
 dram_size = "0x300000000"
-kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1"]
+kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144"]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the

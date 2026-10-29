@@ -18,7 +18,7 @@ defconfig = "mondrian_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "os:configs/ipados.config"]
 # The K60 series still carries every patch; the shared layers have empty series for now.
 patch_series = ["device:patches/xnu/series"]
-archives = ["component:PongUfs"]
+archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs"]
 
 [userdata]
 first_lba = 53342976

@@ -71,11 +71,12 @@ title = "UniXNU"
 # Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
 # swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
 dram_size = "0x300000000"
-kernel_args = ["-v", "native-ufs=1"]
-# Bring-up: one CPU in the ADT. AppleARMCPU rejects a multi-CPU device tree
-# without per-CPU interrupts/reg-private/cache descriptors; pong boots the same
-# way (make-pong-adt.py --cpus defaults to 1). Raise after those are added.
-cpus = 1
+kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1"]
+# All eight CPUs. The AppleARMCPU device-tree validation that required a
+# single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
+# K60 ArmCpu driver instantiates every device_type=cpu node then starts the
+# secondaries through PSCI.
+cpus = 8
 tools = true
 # Unattended bring-up needs a countdown. timeout = -1 means "wait for a key"
 # whenever an input device is present, and the K60 keypad (K60KeypadDeviceLib)

@@ -38,7 +38,7 @@ PURE_VIRTUAL = 14
 CLASS_SIZE = 0x90
 
 
-def prelink_placement(image):
+def prelink_placement(kernel):
     """Return (base, slide, fixed) matching what the auto-slide wrapper will emit.
 
     The wrapper packs the components up to the end of the outer prelink segments
@@ -46,8 +46,8 @@ def prelink_placement(image):
     bindings must be expressed in that final address space, not in the original
     kernelcache's.
     """
-    base = min(s['va'] for s in image['segments'] if s['name'].startswith('__PRELINK') and s['size'])
-    component_end = max(s['va'] + s['size'] for s in image['segments']
+    base = min(s['va'] for s in kernel['segments'] if s['name'].startswith('__PRELINK') and s['size'])
+    component_end = max(s['va'] + s['size'] for s in kernel['segments']
                         if s['name'] in PRELINK_SEGMENTS and s['size'])
     need = ARM64_LINK_ADDR - component_end
     slide = (min(0, need) // SLIDE_STEP) * SLIDE_STEP
@@ -357,7 +357,7 @@ def main():
     if struct.unpack('<I', read(destructor, 4))[0] & 0xfc000000 != 0x14000000:
         raise SystemExit('storage base destructor layout changed')
 
-    fixed = prelink_placement(image)[2]
+    fixed = prelink_placement(kernel)[2]
     slide = fixed - base
     bindings = {name: pointers[i] + slide for i, name in enumerate(methods)
                 if name not in known and name != '___cxa_pure_virtual'}

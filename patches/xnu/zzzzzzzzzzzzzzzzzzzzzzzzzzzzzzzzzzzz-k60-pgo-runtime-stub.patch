@@ -1,0 +1,47 @@
+diff --git a/libkern/c++/OSKext.cpp b/libkern/c++/OSKext.cpp
+index 82661cf..dfe8941 100644
+--- a/libkern/c++/OSKext.cpp
++++ b/libkern/c++/OSKext.cpp
+@@ -10902,6 +10902,42 @@ int __llvm_profile_write_buffer_internal(char *Buffer,
+     const char *CountersEnd,
+     const char *NamesBegin,
+     const char *NamesEnd);
++
++/*
++ * K60 Linux-build fix: XNU references the LLVM profile runtime from the kext PGO
++ * path. Apple's toolchain links compiler-rt's profiling runtime implicitly, but
++ * the open source Linux toolchain has no Darwin arm64 profile runtime, so the
++ * kernel link fails with undefined ___llvm_profile_get_size_for_buffer_internal
++ * and ___llvm_profile_write_buffer_internal. Provide weak definitions: a strong
++ * definition from a real runtime still wins on macOS, and this build gets a
++ * no-op that reports no profile data.
++ */
++extern "C" __attribute__((weak)) uint64_t
++__llvm_profile_get_size_for_buffer_internal(const char *DataBegin,
++    const char *DataEnd,
++    const char *CountersBegin,
++    const char *CountersEnd,
++    const char *NamesBegin,
++    const char *NamesEnd)
++{
++	(void)DataBegin; (void)DataEnd; (void)CountersBegin;
++	(void)CountersEnd; (void)NamesBegin; (void)NamesEnd;
++	return 0;
++}
++
++extern "C" __attribute__((weak)) int
++__llvm_profile_write_buffer_internal(char *Buffer,
++    const char *DataBegin,
++    const char *DataEnd,
++    const char *CountersBegin,
++    const char *CountersEnd,
++    const char *NamesBegin,
++    const char *NamesEnd)
++{
++	(void)Buffer; (void)DataBegin; (void)DataEnd; (void)CountersBegin;
++	(void)CountersEnd; (void)NamesBegin; (void)NamesEnd;
++	return 0;
++}
+ }
+ 
+ 

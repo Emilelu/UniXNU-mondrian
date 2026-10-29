@@ -46,17 +46,26 @@ def main():
         '-I' + str(tree / '.cache/xnu-work/EXTERNAL_HEADERS'),
         '-I' + str(framework / 'PrivateHeaders'), '-I' + str(framework / 'Headers'),
         '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations',
-        '-Wno-unused-parameter', '-c', str(source), '-o', str(obj)]
+        '-Wno-unused-parameter', '-Wno-c99-designator', '-Wno-reorder-init-list',
+        '-Wno-deprecated-enum-enum-conversion', '-Wno-unnecessary-virtual-specifier',
+        '-c', str(source), '-o', str(obj)]
     result = subprocess.run(command, capture_output=True, text=True, env=env)
     (out / 'build.log').write_text(result.stdout + result.stderr)
     if result.returncode:
         raise SystemExit(result.stderr)
-    # Unity translation unit: NativeUfs.cpp includes PongUfsTransport.cpp.
+    # The transport and the frontend are separate translation units.
+    transport = out / 'PongUfsTransport.o'
+    command[command.index(str(source))] = str(source.with_name('PongUfsTransport.cpp'))
+    command[-1] = str(transport)
+    result = subprocess.run(command, capture_output=True, text=True, env=env)
+    (out / 'transport-build.log').write_text(result.stdout + result.stderr)
+    if result.returncode:
+        raise SystemExit(result.stderr)
     audit = DEVICE / 'mac-build/storage-abi/interface-audit.json'
-    objects = [str(obj)]
+    objects = [str(obj), str(transport)]
     if audit.is_file():
         subprocess.run([str(Path(os.sys.executable)), str(DEVICE / 'scripts/bind-ios16-storage.py'),
-                        '--object', str(obj), '--output', str(out)], check=True, env=env)
+                        '--object', str(transport), '--output', str(out)], check=True, env=env)
         objects.append(str(out / 'original-bindings.o'))
     else:
         (out / 'bindings.json').write_text('{}\n')
@@ -87,7 +96,7 @@ def main():
     (out / 'build-report.json').write_text(json.dumps(report, indent=2) + '\n')
     export = DEVICE / 'mac-build/native-ufs'
     export.mkdir(parents=True, exist_ok=True)
-    for name in ('libNativeUfs.a', 'build-report.json', 'build.log', 'bindings.json'):
+    for name in ('libNativeUfs.a', 'build-report.json', 'build.log', 'bindings.json', 'transport-build.log'):
         shutil.copyfile(out / name, export / name)
     print('Compiled Pong NativeUfs read/write path (boot-arg gated):', archive)
 

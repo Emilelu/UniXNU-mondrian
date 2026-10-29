@@ -249,11 +249,9 @@ bool NativeUfs::start (IOService *provider)
   thread_t thread = nullptr;
   kern_return_t result = kernel_thread_start (registrationReport, nullptr, &thread);
   if (result == KERN_SUCCESS) thread_deallocate (thread);
-  else PongProbeRecord (1, "timer-scheduler", PongProbeFail, "observer thread creation failed", result);
+  else PongProbeRecord (1, "timer-scheduler", PongProbeFail, "observer thread creation failed", (uint64_t) result);
   return true;
 }
 
 // Phase-2 unity merge: the generic component builder compiles one source file.
 
-// Phase-2 unity merge: the generic component builder compiles one source file.
-#include "PongUfsTransport.cpp"

@@ -310,18 +310,47 @@ def main():
     meta = (pointers[7] & ~4095) + immediate * 4096 + (add >> 10 & 4095)
 
     base = min(s['va'] for s in kernel['segments'] if s['name'].startswith('__PRELINK') and s['size'])
+
+    # protected constructor: the unique __TEXT_EXEC stub that stores table + 16
+    text_bytes = read(text['va'], text['size'])
+    constructors = []
+    for offset in range(0, text['size'] - 32, 4):
+        words = struct.unpack_from('<8I', text_bytes, offset)
+        if (words[:2] != (0xa9bf7bfd, 0x910003fd) or words[2] & 0xfc000000 != 0x94000000 or
+                words[3] & 0x9f00001f != 0x90000008 or words[4] & 0xffc003ff != 0x91000108 or
+                words[5:] != (0xf9000008, 0xa8c17bfd, 0xd65f03c0)):
+            continue
+        address = text['va'] + offset
+        immediate = ((words[3] >> 5 & 0x7ffff) << 2) | (words[3] >> 29 & 3)
+        if immediate & 1 << 20:
+            immediate -= 1 << 21
+        stored = ((address + 12) & ~4095) + immediate * 4096 + ((words[4] >> 10) & 4095)
+        if stored == table + 16:
+            constructors.append(address)
+    if len(constructors) != 1:
+        raise SystemExit(f'storage protected constructor is not unique: {len(constructors)}')
+    constructor = constructors[0]
+
+    # base destructor: the branch immediately before the slot-0 abstract trap
+    destructor = pointers[0] - 4
+    if struct.unpack('<I', read(destructor, 4))[0] & 0xfc000000 != 0x14000000:
+        raise SystemExit('storage base destructor layout changed')
+
     fixed = FIXED_PRELINK_BASE
     slide = fixed - base
     bindings = {name: pointers[i] + slide for i, name in enumerate(methods)
                 if name not in known and name != '___cxa_pure_virtual'}
     bindings.update({'__ZN20IOBlockStorageDevice10gMetaClassE': meta + slide,
-                     '__ZTV20IOBlockStorageDevice': table + slide})
+                     '__ZTV20IOBlockStorageDevice': table + slide,
+                     '__ZN20IOBlockStorageDeviceC2EPK11OSMetaClass': constructor + slide,
+                     '__ZN20IOBlockStorageDeviceD2Ev': destructor + slide})
 
     report = dict(
         build='20G81', darwin='22.6.0', source=str(reference), method_slots=SLOTS,
         compiled_public_class_size=CLASS_SIZE, pure_virtual_slots=PURE_VIRTUAL,
         kernel_bindings=matched, fixed_prelink_base=hex(fixed), prelink_base=hex(base),
         vtable=hex(table), original_metaclass=hex(meta),
+        original_protected_constructor=hex(constructor), original_base_destructor=hex(destructor),
         candidate_sha256=digest(original), live_native_4k=True,
         abstract_complete_destructors_trap=True,
         bindings={name: hex(value) for name, value in bindings.items()},

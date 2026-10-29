@@ -1028,6 +1028,10 @@ if not stamp.exists() or stamp.read_text() != identity:
 PY
 fi
 EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_BOOT_PROGRESS=$BOOT_PROGRESS"
+# The empty IOAcceleratorES stub belongs to display bring-up; the real
+# Adreno provider owns the class name once PongAdreno is linked.
+EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_K60_ACCEL_STUB=$((1 - PONG_ADRENO_PLATFORM))"
+
 # XNU 8796 consumes RC_NONARCH_CFLAGS through OTHER_CFLAGS in both CFLAGS
 # and SFLAGS. CFLAGS_EXTRA is not read by its makefiles: passing that name
 # silently omitted PAN/uaccess policy from C, C++ and assembly alike.

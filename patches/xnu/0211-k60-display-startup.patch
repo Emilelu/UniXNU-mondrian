@@ -1,0 +1,20 @@
+diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
+index 8b6307f..b50fe22 100644
+--- a/iokit/Kernel/MiniIOSurface.cpp
++++ b/iokit/Kernel/MiniIOSurface.cpp
+@@ -1916,8 +1916,13 @@ native_pong_ui_services_start(void)
+ 	if (PE_parse_boot_argn("pong_software_keybag", &keybag, sizeof(keybag)) && keybag) {
+ 		MiniAppleKeyStoreStart();
+ 	}
+-	uint32_t enable = 0;
+-	if (!PE_parse_boot_argn("pong_software_ui", &enable, sizeof(enable)) || !enable) {
++	/*
++	 * K60: the display is the boot framebuffer and is always wanted, so the
++	 * services start unless an explicit pong_software_ui=0 turns them off.
++	 */
++	uint32_t enable = 1;
++	if (PE_parse_boot_argn("pong_software_ui", &enable, sizeof(enable)) && !enable) {
++		IOLog("K60 DISPLAY: display services disabled by pong_software_ui=0\n");
+ 		return;
+ 	}
+ 	IOService * provider = IOService::getPlatform();

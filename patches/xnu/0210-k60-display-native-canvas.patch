@@ -1,0 +1,94 @@
+diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+index 7c90fe0..5b49d7d 100644
+--- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
++++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+@@ -104,6 +104,31 @@ static uint8_t  gFBCalls[128];          /* how many calls of each selector were
+  */
+ #define kFBDefaultWidth         0
+ #define kFBDefaultHeight        0
++/*
++ * K60 (mondrian) panel contract.
++ *
++ * The panel is 1440 x 3200, DSC video mode, 60 Hz. CoreAnimation takes its canvas
++ * from the mode this display publishes; a canvas that is not the panel's own
++ * pixel grid -- an iPhone-shaped 1125 x 2436, or the 1170 x 2532 of the 8 Plus
++ * class -- makes WindowServer's BoundingPathBitmap assert, because the bounds it
++ * is handed do not describe the display it draws on. So on this board the canvas
++ * is the panel, and fbwidth/fbheight/fbscale are refused rather than honoured.
++ *
++ * Boot-arg k60_panel=0 restores the generic behaviour, for a unit whose boot
++ * framebuffer is not this panel (QEMU, or a different panel revision).
++ */
++#define K60_PANEL_WIDTH         1440
++#define K60_PANEL_HEIGHT        3200
++static TUNABLE(uint32_t, gK60Panel, "k60_panel", 1);
++
++/* The boot framebuffer is the K60 panel at its native size. */
++static bool
++k60PanelNative(void)
++{
++	return gK60Panel != 0 &&
++	       vinfo.v_width == K60_PANEL_WIDTH && vinfo.v_height == K60_PANEL_HEIGHT;
++}
++
+ static TUNABLE(uint32_t, gFBDotsPerInch, "fb_dpi", 0);
+ 
+ static TUNABLE(uint32_t, gFBWidth, "fbwidth", kFBDefaultWidth);
+@@ -386,9 +411,20 @@ IOMobileFramebuffer::start(IOService * provider)
+ 	fPanelWidth = vinfo.v_width;
+ 	fPanelHeight = vinfo.v_height;
+ 	fRowBytes = vinfo.v_rowbytes;
+-	fWidth = gFBWidth ? gFBWidth : fPanelWidth;
+-	fHeight = gFBHeight ? gFBHeight : fPanelHeight;
+-	if (gFBScale != 0 && gFBScale != kFBDefaultScale) {
++	if (k60PanelNative()) {
++		/* The panel's own grid: see the contract at the top of the file. */
++		if ((gFBWidth != 0 && gFBWidth != K60_PANEL_WIDTH) ||
++		    (gFBHeight != 0 && gFBHeight != K60_PANEL_HEIGHT) ||
++		    (gFBScale != 0 && gFBScale != kFBDefaultScale)) {
++			IOLog("K60 DISPLAY: fbwidth/fbheight/fbscale refused, the canvas is the panel\n");
++		}
++		fWidth = K60_PANEL_WIDTH;
++		fHeight = K60_PANEL_HEIGHT;
++	} else {
++		fWidth = gFBWidth ? gFBWidth : fPanelWidth;
++		fHeight = gFBHeight ? gFBHeight : fPanelHeight;
++	}
++	if (!k60PanelNative() && gFBScale != 0 && gFBScale != kFBDefaultScale) {
+ 		static const char * const places[][2] = { { "/chosen", "display-scale" }, { "/product", "artwork-scale-factor" } };
+ 		uint32_t scale = gFBScale;
+ 
+@@ -408,10 +444,33 @@ IOMobileFramebuffer::start(IOService * provider)
+ 	fDiffLeft = fDiffTop = ~0u;
+ 	IOLog("MiniIOMobileFramebuffer: display %ux%u on a panel of %ux%u (%u bytes per row)\n", fWidth, fHeight,
+ 	    fPanelWidth, fPanelHeight, fRowBytes);
++	if (k60PanelNative()) {
++		IOLog("K60 DISPLAY: panel %ux%u DSC video mode, canvas %ux%u native, stride %u, %u Hz\n",
++		    K60_PANEL_WIDTH, K60_PANEL_HEIGHT, fWidth, fHeight, fRowBytes, refreshHz());
++	} else if (gK60Panel != 0) {
++		IOLog("K60 DISPLAY: boot framebuffer %ux%u is not the %ux%u panel; canvas stays %ux%u\n",
++		    fPanelWidth, fPanelHeight, K60_PANEL_WIDTH, K60_PANEL_HEIGHT, fWidth, fHeight);
++	}
+ 
+ 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
+ 	/* for who draws with the GPU (userland/src/eagl.c): a frame need not be waited for before it is handed over */
+ 	setProperty("PongSoftwareRenderer", kOSBooleanTrue);
++	{
++		/* What this display is, for the bring-up checklist and for user space. */
++		OSDictionary * k60 = OSDictionary::withCapacity(8);
++
++		if (k60 != NULL) {
++			setNumber(k60, "PanelWidth", fPanelWidth);
++			setNumber(k60, "PanelHeight", fPanelHeight);
++			setNumber(k60, "CanvasWidth", fWidth);
++			setNumber(k60, "CanvasHeight", fHeight);
++			setNumber(k60, "Stride", fRowBytes);
++			setNumber(k60, "RefreshHz", refreshHz());
++			k60->setObject("Native", k60PanelNative() ? kOSBooleanTrue : kOSBooleanFalse);
++			setProperty("K60Display", k60);
++			OSSafeReleaseNULL(k60);
++		}
++	}
+ 	publishModes();
+ 	setName("disp0");
+ 	registerService();

@@ -94,3 +94,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-plumbing.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-refresh-contract.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-prelink-security-init.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-duplicate-class-soft.patch
+0210-k60-display-native-canvas.patch
+0211-k60-display-startup.patch
+0212-k60-empty-accelerator.patch
+0213-k60-display-first-frame.patch

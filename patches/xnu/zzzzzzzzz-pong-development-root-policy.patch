@@ -1,6 +1,6 @@
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -1069,7 +1069,21 @@
+@@ -1069,7 +1069,24 @@
  				native_owner_root_checkpoint(autherr, owner, device);
  			}
  #endif

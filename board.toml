@@ -78,7 +78,10 @@ dram_size = "0x300000000"
 # exception_triage() and task_terminate_internal(): on this board the services
 # that consume those exceptions are still missing, so watchdogd is killed for a
 # FATAL wakeups violation it cannot answer. Remove it once they run.
-kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1"]
+# pong_ufs_readwrite=1 is what makes the UFS windows writable at all
+# (PongUfsTransport gates every write on it); without it even the Data
+# window is published read-only and nothing can be mounted read-write.
+kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1", "pong_ufs_readwrite=1"]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the

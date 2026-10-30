@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,456 @@
+@@ -6748,8 +6748,503 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -50,6 +50,34 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	    native_verified_block_volume_device(uuid, device, path, size) : 0;
 +#endif
 +}
++
++#if defined(XNU_OWNER_DATA_UFS) && XNU_OWNER_DATA_UFS
++/*
++ * The Data window lives on UFS, so this lookup comes from the PongUfs archive.
++ * Keep a weak stub for the bootstrap pass, which links without the archives.
++ */
++__attribute__((weak)) int
++native_pong_ufs_data_volume_device(const char *uuid, dev_t *device, char *path,
++    size_t size, uint64_t *bytes)
++{
++	(void)uuid;
++	(void)device;
++	(void)path;
++	(void)size;
++	if (bytes) {
++		*bytes = 0;
++	}
++	return 0;
++}
++
++static inline int
++k60_ufs_data_volume_device(const char *uuid, dev_t *device, char *path,
++    size_t size, uint64_t *bytes)
++{
++	return native_pong_ufs_data_volume_device ?
++	    native_pong_ufs_data_volume_device(uuid, device, path, size, bytes) : 0;
++}
++#endif
 +#if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
 +extern int native_owner_publish_boot_manifest(dev_t, const char *, dev_t, const char *);
 +#endif
@@ -80,8 +108,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +	const char *volume = "15B507FA-21B7-4EE5-B55D-0F3445DE0752";
@@ -388,7 +415,26 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	int error = EINVAL;
 +	vnode_t data_root = NULLVP;
 +	char device_path[64] = "/dev/md0";
-+#if defined(XNU_NATIVE_RAM_BLOCK) && XNU_NATIVE_RAM_BLOCK
++#if defined(XNU_OWNER_DATA_UFS) && XNU_OWNER_DATA_UFS
++	/*
++	 * The Data volume is a real UFS window, the way the reference board runs it:
++	 * the window is published by PongUfs, APFS attaches the container inside its
++	 * GPT, and this lookup matches the volume by UUID. The memory-backed seed is
++	 * deliberately not used here - mounting APFS on that device never returns.
++	 */
++	uint64_t ufs_bytes = 0;
++	if (!k60_ufs_data_volume_device(XNU_OWNER_DATA_VOLUME_UUID, &device, device_path,
++	    sizeof(device_path), &ufs_bytes)) {
++		printf("K60DATA UFS Data window not published for %s\n",
++		    XNU_OWNER_DATA_VOLUME_UUID);
++		error = ENOENT;
++		goto done;
++	}
++	size = ufs_bytes;
++	printf("K60DATA UFS window dev=%x path=%s bytes=%llx\n",
++	    (unsigned)device, device_path, (unsigned long long)size);
++	if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;
++#elif defined(XNU_NATIVE_RAM_BLOCK) && XNU_NATIVE_RAM_BLOCK
 +	/* The typed provider supplies logical seed identity for both dense and
 +	 * sparse media. A sparse disk has no contiguous logical-byte address. */
 +	if (!k60_ram_block_volume_seed(XNU_OWNER_DATA_VOLUME_UUID, &device, device_path,
@@ -454,12 +500,13 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +}
 +#endif
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7269,7 @@
+@@ -6821,7 +7316,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -468,7 +515,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6884,6 +7332,82 @@
+@@ -6884,6 +7379,82 @@
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
  	}
@@ -551,7 +598,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -6909,7 +7433,7 @@
+@@ -6909,7 +7480,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -560,7 +607,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7444,7 @@
+@@ -6920,7 +7491,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -569,7 +616,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7475,7 @@
+@@ -6951,7 +7522,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

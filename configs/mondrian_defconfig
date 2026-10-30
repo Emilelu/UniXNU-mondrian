@@ -32,7 +32,10 @@ CONFIG_XNU_OWNER_CACHE_MOUNT=y
 CONFIG_XNU_OWNER_CACHE_STARTUP=y
 CONFIG_XNU_OWNER_CRYPTEX_FILES=n
 CONFIG_XNU_OWNER_DATA_MOUNT=y
-CONFIG_XNU_OWNER_DATA_UFS=n
+# The Data volume is the UFS window installed at SBG 7420 MiB in the unixnu
+# SHNGROOT (APFS volume 6DCCF70A-... inside a GPT). The memory-backed seed is
+# not used: mounting APFS on that device never returns.
+CONFIG_XNU_OWNER_DATA_UFS=y
 # The APFS volume inside seed/k60-data-seed.dbr is "OwnerData" with this UUID.
 # 576A2203-... is the pong board constant: this board boots its own seed, so the
 # lookup has to name that volume or /private/var never mounts and mkbinit fails

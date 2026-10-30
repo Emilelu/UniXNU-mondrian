@@ -106,3 +106,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-ppl-lock-sleepable.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-defer-img4.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-ready-guard.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-second-static-trust-cache.patch
+0214-k60-console-font-scale.patch

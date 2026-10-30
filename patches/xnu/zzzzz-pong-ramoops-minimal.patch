@@ -78,7 +78,7 @@
 +static volatile uint32_t pong_ramoops_busy;
 +
 +void pong_ramoops_console_write(const char *, int);
-+void
++static inline void
 +pong_ramoops_console_write(const char *text, int length)
 +{
 +	if (!text || length <= 0 || !pong_ramoops_base ||
@@ -136,26 +136,32 @@
 +	__atomic_store_n(&pong_ramoops_busy, 0, __ATOMIC_RELEASE);
 +}
 +
-+/* Read back what the mirror holds; used by the bring-up self check. */
-+vm_offset_t
++/*
++ * Read back what the mirror holds; used by the bring-up self check.
++ * This header carries its own function definitions, so every reader must get a
++ * static copy: a plain (non-static) definition here is emitted once per
++ * translation unit that includes it, which fails both as a duplicate symbol and
++ * - when the include sits inside a block - as a nested function definition.
++ */
++static inline vm_offset_t
 +pong_ramoops_debug_base(void)
 +{
 +	return pong_ramoops_base;
 +}
 +
-+uint32_t
++static inline uint32_t
 +pong_ramoops_debug_start(void)
 +{
 +	return pong_ramoops_start;
 +}
 +
-+uint32_t
++static inline uint32_t
 +pong_ramoops_debug_size(void)
 +{
 +	return pong_ramoops_size;
 +}
 +
-+int
++static inline int
 +pong_ramoops_console_init(void)
 +{
 +	if (pong_ramoops_base) {

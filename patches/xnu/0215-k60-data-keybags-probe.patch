@@ -1,5 +1,5 @@
---- a/bsd/kern/kern_exec.c	2026-10-30 22:40:54.002425387 +0800
-+++ b/bsd/kern/kern_exec.c	2026-10-30 22:40:54.008002727 +0800
+--- a/bsd/kern/kern_exec.c	2026-10-30 22:43:48.393608320 +0800
++++ b/bsd/kern/kern_exec.c	2026-10-30 22:43:48.396055511 +0800
 @@ -7250,6 +7250,39 @@
  	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
  	printf("K60DATA mounted ro=%d fstype=%s\n",
@@ -33,7 +33,7 @@
 +			printf("K60DATA mkdir %s err=%d ret=%d\n",
 +			    k60_mkdir_paths[k60_m], k60_err, k60_ret);
 +		}
-+		panic("K60MKDIR k=%d l=%d c=%d t=%d r=%d m=%d",
++		printf("K60DATA mkdir summary k=%d l=%d c=%d t=%d r=%d m=%d\n",
 +		    k60_mkdir_err[0], k60_mkdir_err[1], k60_mkdir_err[2],
 +		    k60_mkdir_err[3], k60_mkdir_err[4], k60_mkdir_err[5]);
 +	}

@@ -1,5 +1,5 @@
---- a/bsd/kern/kern_exec.c	2026-10-30 23:35:27.750865806 +0800
-+++ b/bsd/kern/kern_exec.c	2026-10-30 23:35:27.753146305 +0800
+--- a/bsd/kern/kern_exec.c	2026-10-30 23:48:15.005774248 +0800
++++ b/bsd/kern/kern_exec.c	2026-10-30 23:48:15.010726691 +0800
 @@ -7149,6 +7149,31 @@
  uint8_t native_owner_data_seed_sha256[32];
  char native_owner_data_device_path[64];
@@ -32,22 +32,10 @@
  static int
  native_owner_data_prepare(proc_t p, user_addr_t scratch)
  {
-@@ -7250,6 +7275,47 @@
+@@ -7250,6 +7275,35 @@
  	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
  	printf("K60DATA mounted ro=%d fstype=%s\n",
  	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
-+	/*
-+	 * APFS refuses to mount with MNT_CPROTECT on a volume that has no crypto
-+	 * state or volume group, but MKB only reads the flag. Set it on the mounted
-+	 * struct afterwards and see whether MKB stops rejecting the volume.
-+	 */
-+	{
-+		mount_t k60_mp = vnode_mount(data_root);
-+		if (k60_mp) {
-+			k60_mp->mnt_flag |= MNT_CPROTECT;
-+			printf("K60DATA mnt_flag forced %x\n", k60_mp->mnt_flag);
-+		}
-+	}
 +	{
 +		static const char *k60_mkdir_paths[] = {
 +			"/private/var/keybags", "/private/var/logs", "/private/var/codes",

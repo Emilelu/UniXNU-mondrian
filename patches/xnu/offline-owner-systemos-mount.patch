@@ -1,8 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index f5449d4..ae21598 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,345 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
+@@ -6748,8 +6748,367 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -247,6 +246,28 @@ index f5449d4..ae21598 100644
 +#endif
 +	native_owner_cache_authorized = cache_authorized;
 +	native_owner_cache_status = error;
++#if defined(XNU_PONG_APFS_DEBUG) && XNU_PONG_APFS_DEBUG
++	{
++		/*
++		 * One line that says whether dyld will find the shared cache. Read it
++		 * from the panic screen: it is printed immediately before the init exec.
++		 */
++		vnode_t k60_cache_vp = NULLVP;
++		int k60_cache_err = vnode_lookup(
++		    "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e", 0,
++		    &k60_cache_vp, vfs_context_current());
++		if (k60_cache_vp) {
++			vnode_put(k60_cache_vp);
++		}
++		printf("K60CACHE stage=%d err=%d mnt=%d res=%d ro=%d union=%d flags=%llx sel=%x act=%x ra=%d ca=%d cache_lookup=%d root=%p dev=%x\n",
++		    native_owner_cache_stage, error, native_owner_cache_mount_status, result,
++		    native_owner_cache_readonly, native_owner_cache_native_union,
++		    (unsigned long long)native_owner_cache_actual_mount_flags,
++		    (unsigned)selected, (unsigned)native_owner_cache_mounted_device,
++		    root_authorized, cache_authorized, k60_cache_err,
++		    (void *)rootvnode, (unsigned)root_device);
++	}
++#endif
 +	native_owner_cache_checkpoint(error, cache_authorized);
 +	return error;
 +}
@@ -349,7 +370,7 @@ index f5449d4..ae21598 100644
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7158,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
+@@ -6821,7 +7180,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -358,7 +379,7 @@ index f5449d4..ae21598 100644
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6883,6 +7220,31 @@ load_init_program(proc_t p)
+@@ -6883,6 +7242,31 @@
  	    map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
@@ -390,7 +411,7 @@ index f5449d4..ae21598 100644
  	}
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
-@@ -6909,7 +7271,7 @@ load_init_program(proc_t p)
+@@ -6909,7 +7293,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -399,7 +420,7 @@ index f5449d4..ae21598 100644
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7282,7 @@ load_init_program(proc_t p)
+@@ -6920,7 +7304,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -408,7 +429,7 @@ index f5449d4..ae21598 100644
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7313,7 @@ load_init_program(proc_t p)
+@@ -6951,7 +7335,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

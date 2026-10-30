@@ -94,6 +94,17 @@ def sha256_of(path):
     return digest.hexdigest()
 
 
+def parse_size(text):
+    """hdiutil-style size string ('512m', '1g', '32m') as bytes, or None."""
+    if not text:
+        return None
+    suffix = text[-1].lower()
+    scale = {'k': 1024, 'm': 1024 ** 2, 'g': 1024 ** 3}.get(suffix)
+    if scale is None:
+        return int(text) if text.isdigit() else None
+    return int(text[:-1]) * scale
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--profile', type=Path, default=Path('profiles/os/ipados-16.6.1-20G81/profile.toml'))
@@ -213,9 +224,10 @@ def main():
         print('seed: stripping the 512-byte UDIF trailer', flush=True)
         data = data[:-512]
         created.write_bytes(data)
-    if len(data) != 32 * 1024 ** 2 or data[32:36] != b'NXSB':
+    expected = parse_size(args.size)
+    if len(data) < 32 * 1024 ** 2 or (expected and len(data) != expected) or data[32:36] != b'NXSB':
         raise SystemExit(f'unexpected seed image: {len(data)} bytes, magic {data[32:36]!r}; '
-                         'host formatting did not produce a raw 32 MiB APFS container')
+                         f'host formatting did not produce a raw APFS container of {args.size}')
     if created != image:
         created.rename(image)
     report = {'volume_uuid': volume_uuid, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),

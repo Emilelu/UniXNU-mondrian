@@ -1,0 +1,147 @@
+--- /dev/null
++++ b/iokit/Kernel/MiniWatchdog.cpp
+@@ -0,0 +1,113 @@
++/*
++ * Software IOWatchdog for the K60 port.
++ *
++ * watchdogd is a launchd job with _PanicOnCrash. It opens
++ * IOServiceMatching("IOWatchdog") with type 1 and exits when the service is
++ * missing, which panics the machine before any other userland service runs.
++ * Apple's kext arms a SoC watchdog that resets the board unless watchdogd keeps
++ * checking in; this board has no reset path wired, so accept every selector and
++ * never fire. Selectors seen from watchdogd: 0/1/3/4/5 scalars, 2 (1 KiB in) and
++ * 9 (small out).
++ */
++#include <pexpert/arm64/board_config.h>
++
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++#include <IOKit/IOLib.h>
++#include <IOKit/IOKitKeys.h>
++#include <IOKit/IOService.h>
++#include <IOKit/IOUserClient.h>
++#include <IOKit/IOMemoryDescriptor.h>
++#include <sys/proc.h>
++#include <sys/systm.h>
++
++#include "MiniDrivers.h"
++
++class IOWatchdog : public IOService
++{
++	OSDeclareDefaultStructors(IOWatchdog);
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++OSDefineMetaClassAndStructors(IOWatchdog, IOService);
++
++bool
++IOWatchdog::start(IOService *provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	setProperty(kIOUserClientClassKey, "IOWatchdogUserClient");
++	registerService();
++	IOLog("MiniWatchdog: IOWatchdog published; check-ins accepted, never fires\n");
++	return true;
++}
++
++class IOWatchdogUserClient : public IOUserClient
++{
++	OSDeclareDefaultStructors(IOWatchdogUserClient);
++public:
++	IOReturn clientClose(void) APPLE_KEXT_OVERRIDE;
++	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *args,
++	    IOExternalMethodDispatch *dispatch, OSObject *target,
++	    void *reference) APPLE_KEXT_OVERRIDE;
++};
++OSDefineMetaClassAndStructors(IOWatchdogUserClient, IOUserClient);
++
++IOReturn
++IOWatchdogUserClient::clientClose(void)
++{
++	terminate();
++	return kIOReturnSuccess;
++}
++
++static uint64_t gWatchdogLogged;
++
++IOReturn
++IOWatchdogUserClient::externalMethod(uint32_t selector,
++    IOExternalMethodArguments *args, __unused IOExternalMethodDispatch *dispatch,
++    __unused OSObject *target, __unused void *reference)
++{
++	for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
++		args->scalarOutput[i] = 0;
++	}
++	if (args->structureOutputDescriptor != NULL) {
++		IOMemoryDescriptor *out = args->structureOutputDescriptor;
++		IOByteCount len = out->getLength();
++		if (out->prepare() == kIOReturnSuccess) {
++			for (IOByteCount off = 0; off < len; off += 8) {
++				uint64_t zero = 0;
++				IOByteCount chunk = len - off < 8 ? len - off : 8;
++				out->writeBytes(off, &zero, chunk);
++			}
++			out->complete();
++			args->structureOutputDescriptorSize = (uint32_t)len;
++		}
++	} else if (args->structureOutput != NULL) {
++		memset(args->structureOutput, 0, args->structureOutputSize);
++	}
++
++	if (selector < 64 && !(gWatchdogLogged & (1ULL << selector))) {
++		char name[32] = "?";
++		gWatchdogLogged |= 1ULL << selector;
++		proc_selfname(name, sizeof(name));
++		IOLog("MiniWatchdog: %s sel %u in %u/%u out %u/%u -> ok\n", name,
++		    selector, args->scalarInputCount, args->structureInputSize,
++		    args->scalarOutputCount, args->structureOutputSize);
++	}
++	return kIOReturnSuccess;
++}
++
++void
++MiniWatchdogStart(void)
++{
++	IOService *resources = IOService::getResourceService();
++	IOWatchdog *wdt = OSTypeAlloc(IOWatchdog);
++	if (!resources || !wdt || !wdt->init() || !wdt->attach(resources)) {
++		OSSafeReleaseNULL(wdt);
++		IOLog("MiniWatchdog: service creation failed\n");
++		return;
++	}
++	if (!wdt->start(resources)) wdt->detach(resources);
++	wdt->release();
++}
++#endif
+--- a/iokit/conf/files
++++ b/iokit/conf/files
+@@ -83,6 +83,7 @@
+ iokit/Kernel/MiniIOMobileFramebuffer.cpp		optional iokitcpp
+ iokit/Kernel/MiniAcceleratorES.cpp		optional iokitcpp
+ iokit/Kernel/MiniAppleKeyStore.cpp			optional iokitcpp
++iokit/Kernel/MiniWatchdog.cpp			optional iokitcpp
+ iokit/Kernel/IOPlatformIO.cpp				optional iokitcpp
+ 
+ iokit/Kernel/IOCPU.cpp					optional iokitcpp
+--- a/iokit/Kernel/MiniDrivers.h
++++ b/iokit/Kernel/MiniDrivers.h
+@@ -17,6 +17,7 @@
+ void MiniIOMobileFramebufferStart(IOService * provider);
+ void MiniAcceleratorPublishStub(IOService * provider);
+ void MiniAppleKeyStoreStart(void);
++void MiniWatchdogStart(void);
+ /* A network hardware stand-in is not part of the Pong port. */
+ 
+ #endif /* _IOKIT_MINIDRIVERS_H */
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1312,6 +1312,8 @@
+ 	if (result == KERN_SUCCESS) {
+ 		extern void native_pong_ui_services_start(void);
+ 		native_pong_ui_services_start();
++		extern void MiniWatchdogStart(void);
++		MiniWatchdogStart();
+ 	}
+ #endif
+ 	return result;

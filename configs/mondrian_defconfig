@@ -20,7 +20,10 @@ CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
 CONFIG_XNU_NATIVE_OFFLINE_GPU=n
 CONFIG_XNU_NATIVE_PAN=y
-CONFIG_XNU_NATIVE_RAM_BLOCK=y
+# The UFS Data window replaces the memory-backed scratch disk: the build
+# refuses DATA_UFS together with NativeRamBlock, and mounting APFS on the
+# memory device never returns anyway.
+CONFIG_XNU_NATIVE_RAM_BLOCK=n
 CONFIG_XNU_NATIVE_TRUST_CACHE=y
 CONFIG_XNU_NATIVE_UFS=y
 CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n

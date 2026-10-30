@@ -1,6 +1,6 @@
---- a/bsd/kern/kern_exec.c	2026-10-30 21:54:26.395810126 +0800
-+++ b/bsd/kern/kern_exec.c	2026-10-30 21:54:26.396923203 +0800
-@@ -7250,6 +7250,26 @@
+--- a/bsd/kern/kern_exec.c	2026-10-30 22:13:07.731763259 +0800
++++ b/bsd/kern/kern_exec.c	2026-10-30 22:13:07.735055838 +0800
+@@ -7250,6 +7250,35 @@
  	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
  	printf("K60DATA mounted ro=%d fstype=%s\n",
  	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
@@ -11,6 +11,7 @@
 +		 * /private/var/keybags - so either the volume does not expose the seed
 +		 * paths or the mount is not where path resolution looks. Ask the kernel.
 +		 */
++		int k60_probe_err[3] = { -1, -1, -1 };
 +		static const char *k60_probe_paths[] = {
 +			"/private/var/keybags", "/private/var/mobile", "/private/var/empty"
 +		};
@@ -21,8 +22,16 @@
 +			printf("K60DATA probe %s err=%d vnode=%p type=%d\n",
 +			    k60_probe_paths[k60_p], k60_pe, k60_pv,
 +			    (k60_pe == 0 && k60_pv) ? vnode_vtype(k60_pv) : 0);
++			k60_probe_err[k60_p] = k60_pe;
 +			if (k60_pv) vnode_put(k60_pv);
 +		}
++		/*
++		 * The console scrolls: MKB prints enough afterwards to push these lines
++		 * off the panel, and pstore does not survive the reset on this board.
++		 * A panic is the only line that is guaranteed to still be on screen.
++		 */
++		panic("K60PROBE keybags=%d mobile=%d empty=%d",
++		    k60_probe_err[0], k60_probe_err[1], k60_probe_err[2]);
 +	}
  	if (actual != device ||
  	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;

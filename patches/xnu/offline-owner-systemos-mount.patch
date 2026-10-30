@@ -486,7 +486,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	uint32_t k60_data_rw = 0;
 +	(void)PE_parse_boot_argn("pong_data_rw", &k60_data_rw, sizeof(k60_data_rw));
 +	if (k60_data_rw == 1) {
-+		request.flags = MNT_CPROTECT;
++		request.flags = 0;
 +		printf("K60DATA RW mount enter path=/private/var dev=%s\n", device_path);
 +	} else {
 +		request.flags = MNT_RDONLY;

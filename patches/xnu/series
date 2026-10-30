@@ -114,3 +114,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-second-static-trust-cache.patch
 0219-k60-iowatchdog.patch
 0220-k60-coredump-off.patch
 0221-k60-watchdog-status.patch
+0222-k60-disable-watchdogd.patch

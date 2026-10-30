@@ -1,0 +1,67 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7530,6 +7530,64 @@
+ 		}
+ 		printf("K60DATA keybag write err=%d\n", k60_err);
+ 	}
++	/*
++	 * watchdogd is a _PanicOnCrash launchd job that exits when the watchdog
++	 * service does not answer, and launchd then panics the machine. Take it out
++	 * with the launchd disabled-jobs policy (the mechanism UniXNU-sheng exposes
++	 * as sheng-disable-watchdogd) instead of racing the prelinked
++	 * AppleARMWatchdogTimer class for the IOWatchdog name.
++	 */
++	{
++		static const char k60_lsd_dir[] = "/private/var/db/com.apple.xpc.launchd";
++		static const char k60_lsd_path[] =
++		    "/private/var/db/com.apple.xpc.launchd/disabled.plist";
++		static const char k60_lsd_body[] =
++		    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++		    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
++		    "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++		    "<plist version=\"1.0\"><dict>"
++		    "<key>com.apple.watchdogd</key><true/>"
++		    "</dict></plist>\n";
++		user_addr_t k60_lpath = scratch + 0x800;
++		user_addr_t k60_lbody = scratch + 0x900;
++		struct mkdir_args k60_lmd;
++		struct open_args k60_loa;
++		struct write_args k60_lwa;
++		struct close_args k60_lca;
++		int32_t k60_lret = 0;
++		int k60_lerr = copyout(k60_lsd_dir, k60_lpath, sizeof(k60_lsd_dir));
++		if (!k60_lerr) {
++			k60_lmd.path = k60_lpath;
++			k60_lmd.mode = 0755;
++			k60_lerr = mkdir(p, &k60_lmd, &k60_lret);
++			if (k60_lerr == 17) {   /* EEXIST */
++				k60_lerr = 0;
++			}
++		}
++		if (!k60_lerr) {
++			k60_lerr = copyout(k60_lsd_path, k60_lpath, sizeof(k60_lsd_path));
++		}
++		if (!k60_lerr) {
++			k60_lerr = copyout(k60_lsd_body, k60_lbody, sizeof(k60_lsd_body));
++		}
++		if (!k60_lerr) {
++			k60_loa.path = k60_lpath;
++			k60_loa.flags = 0x601;   /* O_WRONLY | O_CREAT | O_TRUNC */
++			k60_loa.mode = 0644;
++			k60_lerr = open(p, &k60_loa, &k60_lret);
++		}
++		if (!k60_lerr && k60_lret >= 0) {
++			int k60_lfd = k60_lret;
++			user_ssize_t k60_lwrote = 0;
++			k60_lwa.fd = k60_lfd;
++			k60_lwa.cbuf = k60_lbody;
++			k60_lwa.nbyte = sizeof(k60_lsd_body) - 1;
++			k60_lerr = write(p, &k60_lwa, &k60_lwrote);
++			k60_lca.fd = k60_lfd;
++			(void)sys_close(p, &k60_lca, &k60_lret);
++		}
++		printf("K60DATA launchd policy err=%d\n", k60_lerr);
++	}
+ 	if (actual != device ||
+ 	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
+ 	if (!error) native_owner_data_stage = 4;

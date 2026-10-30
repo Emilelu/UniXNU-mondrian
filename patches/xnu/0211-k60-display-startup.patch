@@ -2,7 +2,7 @@ diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
 index 8b6307f..b50fe22 100644
 --- a/iokit/Kernel/MiniIOSurface.cpp
 +++ b/iokit/Kernel/MiniIOSurface.cpp
-@@ -1916,8 +1916,13 @@ native_pong_ui_services_start(void)
+@@ -1916,10 +1916,20 @@ native_pong_ui_services_start(void)
  	if (PE_parse_boot_argn("pong_software_keybag", &keybag, sizeof(keybag)) && keybag) {
  		MiniAppleKeyStoreStart();
  	}
@@ -17,4 +17,12 @@ index 8b6307f..b50fe22 100644
 +		IOLog("K60 DISPLAY: display services disabled by pong_software_ui=0\n");
  		return;
  	}
- 	IOService * provider = IOService::getPlatform();
+-	IOService * provider = IOService::getPlatform();
++	/*
++	 * getPlatform() returns IOPlatformExpert*, which this translation unit only
++	 * knows by forward declaration, so the implicit upcast does not compile.
++	 * The value is only used as an IOService provider, so cast explicitly.
++	 */
++	IOService * provider = static_cast<IOService *>(IOService::getPlatform());
+ 	if (provider == NULL) {
+ 		IOLog("Pong UI: no platform provider; software display startup skipped\n");

@@ -1,0 +1,36 @@
+--- a/osfmk/kern/task.c
++++ b/osfmk/kern/task.c
+@@ -7500,6 +7500,16 @@
+ 	    fatal ? "FATAL " : "",
+ 	    lei.lei_limit, lei.lei_refill_period / NSEC_PER_SEC);
+ 
++#ifdef EXC_RESOURCE_MONITORS
++	/* The K60 has no consumer for the violation message yet: the send returns
++	 * 0x10000004 and the printf floods the boot console, which shares the
++	 * panel with the only copy of the UI. disable_exc_resource already means
++	 * "do not deliver EXC_RESOURCE on this board", so leave before the send
++	 * instead of after it. */
++	if (disable_exc_resource) {
++		return;
++	}
++#endif
+ 	kr = send_resource_violation(send_cpu_wakes_violation, task, &lei,
+ 	    fatal ? kRNFatalLimitFlag : 0);
+ 	if (kr) {
+@@ -7735,6 +7745,16 @@
+ 	os_log(OS_LOG_DEFAULT, "process [%d] caught causing excessive I/O (flavor: %d). Task I/O: %lld MB. [Limit : %lld MB per %lld secs]\n",
+ 	    pid, flavor, (lei.lei_balance / (1024 * 1024)), (lei.lei_limit / (1024 * 1024)), (lei.lei_refill_period / NSEC_PER_SEC));
+ 
++#ifdef EXC_RESOURCE_MONITORS
++	/* The K60 has no consumer for the violation message yet: the send returns
++	 * 0x10000004 and the printf floods the boot console, which shares the
++	 * panel with the only copy of the UI. disable_exc_resource already means
++	 * "do not deliver EXC_RESOURCE on this board", so leave before the send
++	 * instead of after it. */
++	if (disable_exc_resource) {
++		return;
++	}
++#endif
+ 	kr = send_resource_violation(send_disk_writes_violation, task, &lei, kRNFlagsNone);
+ 	if (kr) {
+ 		printf("send_resource_violation(disk_writes, ...): error %#x\n", kr);

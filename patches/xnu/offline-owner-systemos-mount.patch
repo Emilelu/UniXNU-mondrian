@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,503 @@
+@@ -6748,8 +6748,513 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -406,7 +406,8 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +uint8_t native_owner_data_seed_sha256[32];
 +char native_owner_data_device_path[64];
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +native_owner_data_prepare(proc_t p, user_addr_t scratch)
 +{
 +	printf("PONG APFS: scratch Data prepare enter uuid=%s\n", XNU_OWNER_DATA_VOLUME_UUID);
@@ -476,9 +477,17 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	    (error = copyout(device_path, spec, strlen(device_path) + 1)) ||
 +	    (error = copyout(payload, request.data, sizeof(payload)))) goto done;
 +	native_owner_data_stage = 2;
-+	printf("K60DATA mount enter path=/private/var dev=%s\n", device_path);
++	/*
++	 * Mount read-only first. The SystemOS union mount on the same UFS driver is
++	 * read-only and succeeds, while the read-write Data mount hangs right after
++	 * APFS finishes its space-manager scan. Splitting the two tells us whether
++	 * the write path is what blocks: a read-only mount that returns proves the
++	 * window, the GPT and the container are all fine.
++	 */
++	request.flags = MNT_RDONLY;
++	printf("K60DATA RO mount enter path=/private/var dev=%s\n", device_path);
 +	error = mount(p, &request, &result);
-+	printf("K60DATA mount returned error=%d result=%d\n", error, result);
++	printf("K60DATA RO mount returned error=%d result=%d\n", error, result);
 +	if (error) goto done;
 +	native_owner_data_stage = 3;
 +	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());
@@ -490,7 +499,9 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	if (device_node) vnode_put(device_node);
 +	native_owner_data_device = actual;
 +	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
-+	if (actual != device || (vfs_flags(data_mount) & MNT_RDONLY) ||
++	printf("K60DATA mounted ro=%d fstype=%s\n",
++	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
++	if (actual != device ||
 +	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
 +	if (!error) native_owner_data_stage = 4;
 +done:
@@ -500,13 +511,12 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +}
 +#endif
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7316,7 @@
+@@ -6821,7 +7326,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -515,7 +525,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6884,6 +7379,82 @@
+@@ -6884,6 +7389,82 @@
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
  	}
@@ -535,6 +545,18 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	    sizeof(skip_owner_apfs_mounts)) && skip_owner_apfs_mounts == 1) {
 +		printf("PONG DEVELOPMENT: optional SystemOS/Data mounts skipped by boot argument\n");
 +	} else {
++#if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
++	int data_error = 0;
++	if (k60_data_attempt) {
++		printf("K60DATA attempt enter\n");
++		data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
++		printf("K60DATA attempt returned error=%d stage=%d device=%x\n",
++		    data_error, native_owner_data_stage, (unsigned)native_owner_data_device);
++	} else {
++		printf("K60DATA skipped (pass pong_data_mount=1 to attempt)\n");
++	}
++	(void)data_error;
++#endif
 +#if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
 +	printf("PONG APFS: init owner mount hook entered\n");
 +	int cache_error = native_owner_cache_prepare(p, (user_addr_t)scratch_addr, &init_envp);
@@ -547,18 +569,6 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +		printf("PONG DEVELOPMENT: APFS SystemOS union PASS device=%x\n",
 +		    (unsigned)native_owner_cache_selected_device);
 +	}
-+#endif
-+#if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
-+	int data_error = 0;
-+	if (k60_data_attempt) {
-+		printf("K60DATA attempt enter\n");
-+		data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
-+		printf("K60DATA attempt returned error=%d stage=%d device=%x\n",
-+		    data_error, native_owner_data_stage, (unsigned)native_owner_data_device);
-+	} else {
-+		printf("K60DATA skipped (pass pong_data_mount=1 to attempt)\n");
-+	}
-+	(void)data_error;
 +#endif
 +	}
 +#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
@@ -598,7 +608,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -6909,7 +7480,7 @@
+@@ -6909,7 +7490,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -607,7 +617,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7491,7 @@
+@@ -6920,7 +7501,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -616,7 +626,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7522,7 @@
+@@ -6951,7 +7532,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

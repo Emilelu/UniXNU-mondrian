@@ -98,6 +98,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--profile', type=Path, default=Path('profiles/os/ipados-16.6.1-20G81/profile.toml'))
     parser.add_argument('--output', type=Path, default=Path('k60-data-seed.dbr'))
+    parser.add_argument('--size', default='32m',
+                        help='hdiutil -size value for the APFS container (default 32m; '
+                             'read-write mounts need far more than that)')
     args = parser.parse_args()
     if sys.platform != 'darwin':
         raise SystemExit('this script needs macOS hdiutil and diskutil')
@@ -157,7 +160,7 @@ def main():
             image = args.output.resolve()
             if image.exists():
                 raise SystemExit(f'refusing to overwrite an existing seed: {image}')
-            subprocess.run(['hdiutil', 'create', '-size', '32m', '-layout', 'NONE', '-fs', 'APFS',
+            subprocess.run(['hdiutil', 'create', '-size', args.size, '-layout', 'NONE', '-fs', 'APFS',
                             '-volname', 'OwnerData', '-type', 'UDTO', str(image)], check=True)
             # hdiutil create appends .cdr to UDTO images whose name lacks it.
             created = image if image.is_file() else image.with_name(image.name + '.cdr')

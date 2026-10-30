@@ -80,8 +80,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +	const char *volume = "15B507FA-21B7-4EE5-B55D-0F3445DE0752";
@@ -448,7 +447,8 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +}
 +#endif
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
@@ -462,7 +462,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6884,6 +7326,30 @@
+@@ -6884,6 +7326,64 @@
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
  	}
@@ -490,10 +490,44 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	    data_error, native_owner_data_stage);
 +#endif
 +	}
++#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
++	{
++		/*
++		 * The Data volume is what launchd needs for /private/var, and the ramoops
++		 * mirror is what a later boot needs to explain a failure. Report both as a
++		 * panic, but only when the Data volume really is missing: a healthy boot
++		 * must keep going.
++		 *
++		 * sig must be 0x43474244 (Linux PERSISTENT_RAM_SIG): sig==0 means the
++		 * mirror never mapped, so nothing reached Android's pstore.
++		 */
++		vnode_t k60_var = NULLVP;
++		int k60_var_err = vnode_lookup("/private/var", 0, &k60_var, vfs_context_current());
++		int k60_var_mounted = 0;
++		if (!k60_var_err && k60_var) {
++			k60_var_mounted = (vnode_mountedhere(k60_var) != NULL) ? 1 : 0;
++			vnode_put(k60_var);
++		}
++		if (!k60_var_mounted) {
++			extern vm_offset_t pong_ramoops_debug_base(void);
++			extern uint32_t pong_ramoops_debug_start(void);
++			extern uint32_t pong_ramoops_debug_size(void);
++			vm_offset_t k60_ro = pong_ramoops_debug_base();
++			uint32_t k60_sig = 0;
++			if (k60_ro) {
++				k60_sig = *(volatile uint32_t *)(uintptr_t)k60_ro;
++			}
++			panic("K60SELF novar ro_base=%p sig=%x ro_start=%u ro_size=%u var_err=%d datastage=%d dataerr=%d",
++			    (void *)k60_ro, k60_sig,
++			    pong_ramoops_debug_start(), pong_ramoops_debug_size(),
++			    k60_var_err, native_owner_data_stage, native_owner_data_status);
++		}
++	}
++#endif
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -6909,7 +7375,7 @@
+@@ -6909,7 +7409,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -502,7 +536,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7386,7 @@
+@@ -6920,7 +7420,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -511,7 +545,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7417,7 @@
+@@ -6951,7 +7451,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

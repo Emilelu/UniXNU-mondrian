@@ -136,6 +136,25 @@
 +	__atomic_store_n(&pong_ramoops_busy, 0, __ATOMIC_RELEASE);
 +}
 +
++/* Read back what the mirror holds; used by the bring-up self check. */
++vm_offset_t
++pong_ramoops_debug_base(void)
++{
++	return pong_ramoops_base;
++}
++
++uint32_t
++pong_ramoops_debug_start(void)
++{
++	return pong_ramoops_start;
++}
++
++uint32_t
++pong_ramoops_debug_size(void)
++{
++	return pong_ramoops_size;
++}
++
 +int
 +pong_ramoops_console_init(void)
 +{

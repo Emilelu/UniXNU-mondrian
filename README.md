@@ -29,19 +29,26 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | XNU 内核 | ✅ | 本地 Linux（WSL）与 macOS CI 均可编：`kernel.macho` 53.5 MB，含 prelink |
 | 板级 ADT / payload / bootimg | ✅ | payload 192 MiB + Android boot v4 镜像；校验用 `scripts/verify-k60-boot-img.sh` |
 | UFS root（SHNGROOT） | ✅ | OS / SystemOS 两个只读窗口，union 挂到 `/` |
-| `/private/var`（Data） | 🟡 只读 | 真实 UFS Data 窗口 @ offset `7,780,433,920`，32 MiB，只读可挂 |
-| keybag / MKB | ❌ | Data 不可写 → `systembag.kb` 写不进 → `MKB FATAL` |
+| `/private/var`（Data） | ✅ | 真实 UFS Data 窗口（卷 `1BCD69FF-…`）读写挂载：`K60DATA mount returned error=0 result=0 rw=1` |
+| keybag / MKB | ✅ | ADT `/defaults/no-effaceable-storage` + 内核写明文 `systembag.kb`；mkbinit 已过 |
+| watchdogd | ✅ | launchd disabled-jobs 策略禁用 `com.apple.watchdogd`（core 补丁 0222） |
+| 用户态 / SpringBoard | 🟡 | launchd 服务链已拉起 SpringBoard；崩在显示模式校验，见下节 |
 | 触摸 / GPU / 音频 / 网络 / 相机 | ❌ | 未开始。GPU 驱动源码已在 `drivers/PongAdreno/`（含 `submit/`），尚未进链接 |
 
-已实测：XNU 已 exec 到 `launchd`，服务链推进到 `watchdogd`（pid 95）；
-`/private/var` 来自真实 UFS Data 窗口，首次挂载成功（只读）。
+已实测：XNU 已 exec 到 `launchd`，服务链已拉起 `SpringBoard`（pid 110）；
+`/private/var` 来自真实 UFS Data 窗口，读写挂载成功，watchdogd 已由 launchd 策略禁用。
 
-## 当前卡点（2026-10-30）
+## 当前卡点（2026-10-31）
 
-1. **APFS 读写挂载在空间管理器扫描后卡死**。已加 `K60UFS write#N` 有限次跟踪（`drivers/NativeUfs/`），
-   尚未判定是 UFS 写命令卡住还是 APFS 内部卡住。
-2. **32 MiB Data 过小**。同 SoC 的 sirius 先例：32 MiB Data 空间耗尽 → watchdogd `brk #1` → panic。
-   扩容需要重造 APFS 种子（`hdiutil`/`newfs_apfs`，只能在 macOS 上做）。
+1. **SpringBoard 显示模式校验**（当前唯一硬阻断）。日志：
+   `FBSDisplayMode cannot be configured as requested: <FBSDisplayMode: … infxinf@0x (1440x3200/0) 60Hz p3 SDR>`，
+   `exception=6`。根因是 ADT `/chosen` 里没有 `display-scale`，FrontBoard 取到的 `preferredScale` 为 0，
+   点尺寸变成 `inf`，SpringBoard 在
+   `-[FBSDisplayMode _initWithWidth:height:preferredScale:scaleOverride:refreshRate:gamut:hdr:rotation:virtual:validityCheck:]`
+   里主动 `brk`。core `db7177c` 已在 OS profile 补 `display-scale = 3`（1440×3200 → 480×1066.67 点），
+   待上机验证。
+2. **`send_resource_violation(CPU wakes)` 循环**（`error 0x10000004`）。SpringBoard 起来后仍在报，
+   先看它是否随显示模式修复消失；`disable_exc_resource=1` 已在 kernel args 里。
 3. **换文件系统有前置条件**：20G81 的 kernelcache 里有 `com.apple.filesystems.hfs` 与
    `com.apple.filesystems.tmpfs`，但本仓库的 prelink 根列表里一个都没有，
    所以 `mount("hfs")` / `mount("tmpfs")` 现在必然 `ENODEV`。要用得先改 core 的 prelink 配置。

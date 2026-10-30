@@ -1,6 +1,8 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index f5449d4..ae21598 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7013,8 +7013,345 @@
+@@ -6748,8 +6748,345 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -43,8 +45,7 @@
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +	const char *volume = "15B507FA-21B7-4EE5-B55D-0F3445DE0752";
@@ -342,12 +343,13 @@
 +}
 +#endif
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -7086,7 +7423,7 @@
+@@ -6821,7 +7158,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -356,10 +358,10 @@
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -7148,6 +7485,31 @@
- 	mach_vm_size_t map_page_size = vm_map_page_size(map);
- 
- 	(void) mach_vm_allocate_kernel(map, &scratch_addr, map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
+@@ -6883,6 +7220,31 @@ load_init_program(proc_t p)
+ 	    map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
+ 	if (scratch_result != KERN_SUCCESS) {
+ 		panic("load_init_program: scratch allocation failed: %d", scratch_result);
 +	user_addr_t init_envp = USER_ADDR_NULL;
 +	uint32_t skip_owner_apfs_mounts = 0;
 +	if (PE_parse_boot_argn("pong_skip_owner_apfs_mounts", &skip_owner_apfs_mounts,
@@ -385,10 +387,10 @@
 +	    data_error, native_owner_data_stage);
 +#endif
 +	}
+ 	}
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
- #endif /* CONFIG_MEMORYSTATUS */
-@@ -7162,7 +7530,7 @@
+@@ -6909,7 +7271,7 @@ load_init_program(proc_t p)
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -397,7 +399,7 @@
  			if (!error) {
  				return;
  			}
-@@ -7173,7 +7541,7 @@
+@@ -6920,7 +7282,7 @@ load_init_program(proc_t p)
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -406,7 +408,7 @@
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -7186,7 +7554,7 @@
+@@ -6951,7 +7313,7 @@ load_init_program(proc_t p)
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

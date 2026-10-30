@@ -40,6 +40,9 @@ struct UfsHost {
   IOLock *lock = nullptr;
   bool ready = false, poisoned = false;
   bool writable = false;
+  /* Armed just before the Data mount; the first reads say where APFS stops. */
+  bool readTrace = false;
+  uint32_t readTraceCount = 0;
 };
 static UfsHost gHost;
 static bool gTransportAttempted;
@@ -402,7 +405,11 @@ extern "C" int native_pong_ufs_data_volume_device(const char *uuid,dev_t *device
   *bytes=0;
   if(!native_pong_ufs_volume_device(uuid,2,device,path,pathSize))return 0;
   for(unsigned i=0;i<gRootWindowCount;++i)if(!strcmp(gRootWindows[i].name,"Data")) {
-    *bytes=gRootWindows[i].size;return 1;
+    *bytes=gRootWindows[i].size;
+    gHost.readTrace = true;
+    gHost.readTraceCount = 0;
+    IOLog("K60RD trace armed for Data mount\n");
+    return 1;
   }
   return 0;
 }
@@ -477,6 +484,11 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
     return kIOReturnNotWritable;
   }
   if (!online || !gHost.ready) return kIOReturnNotReady;
+  if (!write && gHost.readTrace && gHost.readTraceCount < 48) {
+    IOLog("K60RD #%u blk=%llu cnt=%llu\n", gHost.readTraceCount,
+          (unsigned long long)block, (unsigned long long)count);
+    gHost.readTraceCount++;
+  }
   static uint32_t k60WriteTrace;
   const bool k60TraceWrite = write && k60WriteTrace < 8;
   if (k60TraceWrite) {

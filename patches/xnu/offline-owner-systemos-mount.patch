@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,450 @@
+@@ -6748,8 +6748,456 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -80,7 +80,8 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +	const char *volume = "15B507FA-21B7-4EE5-B55D-0F3445DE0752";
@@ -406,6 +407,9 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	SHA256_Update(&context, (const void *)base, size);
 +	SHA256_Final(native_owner_data_seed_sha256, &context);
 +#endif
++	printf("K60DATA seed ok dev=%x path=%s base=%llx bytes=%llx\n",
++	    (unsigned)device, device_path, (unsigned long long)base,
++	    (unsigned long long)size);
 +	native_owner_data_seed_base = base;
 +	native_owner_data_seed_size = size;
 +	native_owner_data_stage = 1;
@@ -426,10 +430,13 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	    (error = copyout(device_path, spec, strlen(device_path) + 1)) ||
 +	    (error = copyout(payload, request.data, sizeof(payload)))) goto done;
 +	native_owner_data_stage = 2;
++	printf("K60DATA mount enter path=/private/var dev=%s\n", device_path);
 +	error = mount(p, &request, &result);
++	printf("K60DATA mount returned error=%d result=%d\n", error, result);
 +	if (error) goto done;
 +	native_owner_data_stage = 3;
 +	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());
++	printf("K60DATA root lookup error=%d vnode=%p\n", error, data_root);
 +	if (error) goto done;
 +	mount_t data_mount = vnode_mount(data_root);
 +	vnode_t device_node = vfs_devvp(data_mount);
@@ -447,13 +454,12 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +}
 +#endif
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7263,7 @@
+@@ -6821,7 +7269,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -462,11 +468,22 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6884,6 +7326,64 @@
+@@ -6884,6 +7332,82 @@
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
  	}
 +	uint32_t skip_owner_apfs_mounts = 0;
++	/*
++	 * The writable Data volume is opt-in. With it off the boot reaches launchd
++	 * on the read-only union root; with it on the kernel tries to mount the
++	 * memory-backed APFS seed, and every step prints a marker so a hang is
++	 * visible as the last line on the screen.
++	 */
++	uint32_t k60_data_attempt = 0;
++	if (PE_parse_boot_argn("pong_data_mount", &k60_data_attempt,
++	    sizeof(k60_data_attempt)) && k60_data_attempt != 1) {
++		k60_data_attempt = 0;
++	}
 +	if (PE_parse_boot_argn("pong_skip_owner_apfs_mounts", &skip_owner_apfs_mounts,
 +	    sizeof(skip_owner_apfs_mounts)) && skip_owner_apfs_mounts == 1) {
 +		printf("PONG DEVELOPMENT: optional SystemOS/Data mounts skipped by boot argument\n");
@@ -485,9 +502,16 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	}
 +#endif
 +#if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
-+	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
-+	if (data_error) printf("PONG DEVELOPMENT: scratch Data mount SKIP error=%d stage=%d\n",
-+	    data_error, native_owner_data_stage);
++	int data_error = 0;
++	if (k60_data_attempt) {
++		printf("K60DATA attempt enter\n");
++		data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
++		printf("K60DATA attempt returned error=%d stage=%d device=%x\n",
++		    data_error, native_owner_data_stage, (unsigned)native_owner_data_device);
++	} else {
++		printf("K60DATA skipped (pass pong_data_mount=1 to attempt)\n");
++	}
++	(void)data_error;
 +#endif
 +	}
 +#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
@@ -508,7 +532,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +			k60_var_mounted = (vnode_mountedhere(k60_var) != NULL) ? 1 : 0;
 +			vnode_put(k60_var);
 +		}
-+		if (!k60_var_mounted) {
++		if (k60_data_attempt && !k60_var_mounted) {
 +			extern vm_offset_t pong_ramoops_debug_base(void);
 +			extern uint32_t pong_ramoops_debug_start(void);
 +			extern uint32_t pong_ramoops_debug_size(void);
@@ -527,7 +551,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -6909,7 +7409,7 @@
+@@ -6909,7 +7433,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -536,7 +560,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7420,7 @@
+@@ -6920,7 +7444,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -545,7 +569,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7451,7 @@
+@@ -6951,7 +7475,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

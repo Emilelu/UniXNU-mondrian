@@ -30,6 +30,9 @@ def main():
     sdk = subprocess.check_output(
         ['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True, env=env).strip()
     obj = out / 'NativeRamBlock.o'
+    storage_inc = tree / 'build/storage-abi/include'
+    if not storage_inc.is_dir():
+        storage_inc = DEVICE / 'mac-build/storage-abi/include'
     command = [
         'xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios16.0',
         '-isysroot', sdk, '-mkernel', '-ffreestanding', '-fno-builtin',
@@ -37,11 +40,14 @@ def main():
         '-fblocks', '-O2', '-DKERNEL=1', '-DKERNEL_PRIVATE=1',
         '-DXNU_KERNEL_PRIVATE=1',
         '-DPONG_RAM_BLOCK_VOLATILE_ONLY=1',
-        '-I' + str(DEVICE / 'mac-build/storage-abi/include'),
+        '-I' + str(storage_inc),
         '-I' + str(tree / '.cache/xnu-work/EXTERNAL_HEADERS'),
         '-I' + str(framework / 'PrivateHeaders'), '-I' + str(framework / 'Headers'),
         '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations',
-        '-Wno-unused-parameter', '-c', str(source), '-o', str(obj),
+        '-Wno-unused-parameter', '-Wno-c99-designator',
+        '-Wno-reorder-init-list', '-Wno-deprecated-enum-enum-conversion',
+        '-Wno-unnecessary-virtual-specifier',
+        '-c', str(source), '-o', str(obj),
     ]
     result = subprocess.run(command, capture_output=True, text=True, env=env)
     (out / 'build.log').write_text(result.stdout + result.stderr)

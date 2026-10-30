@@ -1,41 +1,42 @@
---- a/bsd/kern/kern_exec.c	2026-10-30 22:26:32.656514118 +0800
-+++ b/bsd/kern/kern_exec.c	2026-10-30 22:26:32.659010603 +0800
-@@ -7250,6 +7250,38 @@
+--- a/bsd/kern/kern_exec.c	2026-10-30 22:40:54.002425387 +0800
++++ b/bsd/kern/kern_exec.c	2026-10-30 22:40:54.008002727 +0800
+@@ -7250,6 +7250,39 @@
  	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
  	printf("K60DATA mounted ro=%d fstype=%s\n",
  	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
-+
 +	{
 +		/*
 +		 * The read-write mount completes on the mkapfs volume, but that volume is
 +		 * empty and MKB dies on /private/var/keybags. The hdiutil-built seeds have
 +		 * the directory but hang the read-write mount, so create the runtime
 +		 * directories here through the real mkdir syscall body, which resolves the
-+		 * path in the init process's address space.
++		 * path in the init process s address space.
 +		 */
 +		static const char *k60_mkdir_paths[] = {
 +			"/private/var/keybags", "/private/var/logs", "/private/var/codes",
 +			"/private/var/tmp", "/private/var/run", "/private/var/mobile"
 +		};
 +		unsigned k60_m;
-+		for (k60_m = 0; k60_m < sizeof(k60_mkdir_paths) / sizeof(k60_mkdir_paths[0]); k60_m++) {
++		int k60_mkdir_err[6] = { -1, -1, -1, -1, -1, -1 };
++		for (k60_m = 0; k60_m < 6; k60_m++) {
 +			user_addr_t k60_name = scratch + 0x400;
 +			struct mkdir_args k60_args;
 +			int32_t k60_ret = 0;
 +			int k60_err = copyout(k60_mkdir_paths[k60_m], k60_name,
 +			    strlen(k60_mkdir_paths[k60_m]) + 1);
-+			if (k60_err) {
-+				printf("K60DATA mkdir copyout %s err=%d\n", k60_mkdir_paths[k60_m], k60_err);
-+				continue;
++			if (!k60_err) {
++				k60_args.path = k60_name;
++				k60_args.mode = 0755;
++				k60_err = mkdir(p, &k60_args, &k60_ret);
 +			}
-+			k60_args.path = k60_name;
-+			k60_args.mode = 0755;
-+			k60_err = mkdir(p, &k60_args, &k60_ret);
++			k60_mkdir_err[k60_m] = k60_err;
 +			printf("K60DATA mkdir %s err=%d ret=%d\n",
 +			    k60_mkdir_paths[k60_m], k60_err, k60_ret);
 +		}
++		panic("K60MKDIR k=%d l=%d c=%d t=%d r=%d m=%d",
++		    k60_mkdir_err[0], k60_mkdir_err[1], k60_mkdir_err[2],
++		    k60_mkdir_err[3], k60_mkdir_err[4], k60_mkdir_err[5]);
 +	}
-+
  	if (actual != device ||
  	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
  	if (!error) native_owner_data_stage = 4;

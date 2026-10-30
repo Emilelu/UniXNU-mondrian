@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,367 @@
+@@ -6748,8 +6748,383 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -44,7 +44,8 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +	const char *volume = "15B507FA-21B7-4EE5-B55D-0F3445DE0752";
@@ -266,6 +267,22 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +		    (unsigned)selected, (unsigned)native_owner_cache_mounted_device,
 +		    root_authorized, cache_authorized, k60_cache_err,
 +		    (void *)rootvnode, (unsigned)root_device);
++		/*
++		 * Bring-up instrument: dyld cannot run without the shared cache, so a
++		 * mount that leaves it invisible is fatal anyway. Report it as the panic
++		 * itself - the console scrolls ordinary lines off the screen, but the
++		 * panic message is always the first line of the panic block.
++		 */
++		if (error || k60_cache_err) {
++			panic("K60CACHE stage=%d err=%d mnt=%d res=%d ro=%d union=%d flags=%llx sel=%x act=%x ra=%d ca=%d cl=%d rdev=%x",
++			    native_owner_cache_stage, error, native_owner_cache_mount_status,
++			    result, native_owner_cache_readonly,
++			    native_owner_cache_native_union,
++			    (unsigned long long)native_owner_cache_actual_mount_flags,
++			    (unsigned)selected, (unsigned)native_owner_cache_mounted_device,
++			    root_authorized, cache_authorized, k60_cache_err,
++			    (unsigned)root_device);
++		}
 +	}
 +#endif
 +	native_owner_cache_checkpoint(error, cache_authorized);
@@ -364,13 +381,12 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +}
 +#endif
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7180,7 @@
+@@ -6821,7 +7196,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -379,7 +395,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6883,6 +7242,31 @@
+@@ -6883,6 +7258,31 @@
  	    map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
@@ -411,7 +427,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  	}
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
-@@ -6909,7 +7293,7 @@
+@@ -6909,7 +7309,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -420,7 +436,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7304,7 @@
+@@ -6920,7 +7320,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -429,7 +445,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7335,7 @@
+@@ -6951,7 +7351,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

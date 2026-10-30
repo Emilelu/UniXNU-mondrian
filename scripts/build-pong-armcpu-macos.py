@@ -21,7 +21,7 @@ def main():
                         help='compatibility option; this builder does not hash or audit images')
     args = parser.parse_args()
     tree = args.tree.resolve()
-    if platform.system() not in ('Darwin', 'Linux'):
+    if platform.system() != 'Darwin' or platform.machine() != 'x86_64':
         raise SystemExit('This continuation uses the Intel macOS toolchain')
     out = tree / 'build/armcpu'
     out.mkdir(parents=True, exist_ok=True)

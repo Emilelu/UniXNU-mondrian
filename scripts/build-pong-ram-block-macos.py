@@ -20,7 +20,7 @@ def main():
     parser.add_argument('--skip-image-verification', action='store_true')
     args = parser.parse_args()
     tree = args.tree.resolve()
-    if platform.system() not in ('Darwin', 'Linux'):
+    if platform.system() != 'Darwin' or platform.machine() != 'x86_64':
         raise SystemExit('This continuation uses the Intel macOS toolchain')
     out = tree / 'build/native-ram-block'
     out.mkdir(parents=True, exist_ok=True)

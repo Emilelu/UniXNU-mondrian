@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,414 @@
+@@ -6748,8 +6748,439 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -17,8 +17,22 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 + * breaking the link.
 + */
 +#if defined(XNU_PONG_APFS_DEBUG) && XNU_PONG_APFS_DEBUG
-+extern int native_pong_ufs_volume_device(const char *, int, dev_t *, char *, size_t)
-+    __attribute__((weak));
++/*
++ * Weak defaults: the UFS transport and the RAM-block backend are linked from
++ * their component archives, and the bootstrap pass that produces the compile
++ * records links without them. A weak definition keeps that link resolvable and
++ * the archive's strong definition replaces it in the real kernel.
++ */
++__attribute__((weak)) int
++native_pong_ufs_volume_device(const char *uuid, int kind, dev_t *device, char *path, size_t size)
++{
++	(void)uuid;
++	(void)kind;
++	(void)device;
++	(void)path;
++	(void)size;
++	return 0;
++}
 +#else
 +extern int native_verified_block_volume_device(const char *, dev_t *, char *, size_t)
 +    __attribute__((weak));
@@ -321,8 +335,19 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +#ifndef XNU_OWNER_DATA_VOLUME_UUID
 +#error Supply the observed scratch volume UUID for the IOKit backend
 +#endif
-+extern int native_ram_block_volume_seed(const char *, dev_t *, char *, size_t, uint64_t *, uint64_t *, uint8_t *)
-+    __attribute__((weak));
++__attribute__((weak)) int
++native_ram_block_volume_seed(const char *uuid, dev_t *device, char *path, size_t size,
++    uint64_t *base, uint64_t *span, uint8_t *digest)
++{
++	(void)uuid;
++	(void)device;
++	(void)path;
++	(void)size;
++	(void)base;
++	(void)span;
++	(void)digest;
++	return 0;
++}
 +
 +static inline int
 +k60_ram_block_volume_seed(const char *uuid, dev_t *device, char *path, size_t size,
@@ -417,7 +442,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7227,7 @@
+@@ -6821,7 +7252,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -426,7 +451,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6884,6 +7290,30 @@
+@@ -6884,6 +7315,30 @@
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
  	}
@@ -457,7 +482,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -6909,7 +7339,7 @@
+@@ -6909,7 +7364,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -466,7 +491,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7350,7 @@
+@@ -6920,7 +7375,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -475,7 +500,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7381,7 @@
+@@ -6951,7 +7406,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

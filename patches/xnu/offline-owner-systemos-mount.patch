@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,439 @@
+@@ -6748,8 +6748,450 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -80,7 +80,8 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +	const char *volume = "15B507FA-21B7-4EE5-B55D-0F3445DE0752";
@@ -288,35 +289,46 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +		 * One line that says whether dyld will find the shared cache. Read it
 +		 * from the panic screen: it is printed immediately before the init exec.
 +		 */
-+		vnode_t k60_cache_vp = NULLVP;
-+		int k60_cache_err = vnode_lookup(
-+		    "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e", 0,
-+		    &k60_cache_vp, vfs_context_current());
-+		if (k60_cache_vp) {
-+			vnode_put(k60_cache_vp);
++		/* Probe candidate locations so one boot reveals the real layout. */
++		static const char *k60_paths[] = {
++		    "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e",
++		    "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++		    "/System/Library/Caches/com.apple.dyld",
++		    "/System/Cryptexes/OS/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e",
++		    "/System/Cryptexes/OS/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++		    "/System/Library/Caches",
++		    "/System/Cryptexes/OS",
++		    "/usr/lib/libSystem.B.dylib"
++		};
++		int k60_probe[8] = { 0 };
++		for (int k60_i = 0; k60_i < 8; k60_i++) {
++			vnode_t k60_vp = NULLVP;
++			k60_probe[k60_i] = vnode_lookup(k60_paths[k60_i], 0, &k60_vp,
++			    vfs_context_current());
++			if (k60_vp) {
++				vnode_put(k60_vp);
++			}
 +		}
-+		printf("K60CACHE stage=%d err=%d mnt=%d res=%d ro=%d union=%d flags=%llx sel=%x act=%x ra=%d ca=%d cache_lookup=%d root=%p dev=%x\n",
++		printf("K60CACHE stage=%d err=%d mnt=%d res=%d ro=%d union=%d flags=%llx sel=%x act=%x ra=%d ca=%d p0=%d p1=%d p2=%d p3=%d p4=%d p5=%d p6=%d p7=%d\n",
 +		    native_owner_cache_stage, error, native_owner_cache_mount_status, result,
 +		    native_owner_cache_readonly, native_owner_cache_native_union,
 +		    (unsigned long long)native_owner_cache_actual_mount_flags,
 +		    (unsigned)selected, (unsigned)native_owner_cache_mounted_device,
-+		    root_authorized, cache_authorized, k60_cache_err,
-+		    (void *)rootvnode, (unsigned)root_device);
++		    root_authorized, cache_authorized,
++		    k60_probe[0], k60_probe[1], k60_probe[2], k60_probe[3],
++		    k60_probe[4], k60_probe[5], k60_probe[6], k60_probe[7]);
 +		/*
 +		 * Bring-up instrument: dyld cannot run without the shared cache, so a
-+		 * mount that leaves it invisible is fatal anyway. Report it as the panic
-+		 * itself - the console scrolls ordinary lines off the screen, but the
-+		 * panic message is always the first line of the panic block.
++		 * mount that leaves every candidate invisible is fatal anyway. Report it
++		 * as the panic itself - the console scrolls ordinary lines off the
++		 * screen, but the panic message is always the first line of its block.
 +		 */
-+		if (error || k60_cache_err) {
-+			panic("K60CACHE stage=%d err=%d mnt=%d res=%d ro=%d union=%d flags=%llx sel=%x act=%x ra=%d ca=%d cl=%d rdev=%x",
++		if (error || (k60_probe[0] && k60_probe[1] && k60_probe[3] && k60_probe[4])) {
++			panic("K60CACHE FAIL stage=%d err=%d mnt=%d ro=%d union=%d p0=%d p1=%d p2=%d p3=%d p4=%d p5=%d p6=%d p7=%d",
 +			    native_owner_cache_stage, error, native_owner_cache_mount_status,
-+			    result, native_owner_cache_readonly,
-+			    native_owner_cache_native_union,
-+			    (unsigned long long)native_owner_cache_actual_mount_flags,
-+			    (unsigned)selected, (unsigned)native_owner_cache_mounted_device,
-+			    root_authorized, cache_authorized, k60_cache_err,
-+			    (unsigned)root_device);
++			    native_owner_cache_readonly, native_owner_cache_native_union,
++			    k60_probe[0], k60_probe[1], k60_probe[2], k60_probe[3],
++			    k60_probe[4], k60_probe[5], k60_probe[6], k60_probe[7]);
 +		}
 +	}
 +#endif
@@ -436,13 +448,12 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +}
 +#endif
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7252,7 @@
+@@ -6821,7 +7263,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -451,7 +462,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6884,6 +7315,30 @@
+@@ -6884,6 +7326,30 @@
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
  	}
@@ -482,7 +493,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -6909,7 +7364,7 @@
+@@ -6909,7 +7375,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -491,7 +502,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			}
-@@ -6920,7 +7375,7 @@
+@@ -6920,7 +7386,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -500,7 +511,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -6951,7 +7406,7 @@
+@@ -6951,7 +7417,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);

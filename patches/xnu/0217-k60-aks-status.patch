@@ -1,0 +1,48 @@
+--- a/iokit/Kernel/MiniAppleKeyStore.cpp
++++ b/iokit/Kernel/MiniAppleKeyStore.cpp
+@@ -53,6 +53,10 @@
+ static uint64_t gAKSLogged[4];
+ static bool gAKSNotifyState;
+ 
++int gMiniAppleKeyStoreUp;
++volatile unsigned gMiniAppleKeyStoreCalls;
++volatile unsigned gMiniAppleKeyStoreLastSelector;
++
+ static size_t
+ derPut(uint8_t *buf, size_t length, const char *key, uint8_t value)
+ {
+@@ -115,6 +119,7 @@
+ 	setProperty("PongVolatileSoftwareKeybag", kOSBooleanTrue);
+ 	setName("AppleKeyStore");
+ 	registerService();
++	gMiniAppleKeyStoreUp = 1;
+ 	IOLog("MiniAppleKeyStore: no-passcode software keybag published; software wrap/unwrap enabled\n");
+ 	return true;
+ }
+@@ -190,6 +195,8 @@
+ 	};
+ 	uint8_t der[128];
+ 	uint64_t *out = args->scalarOutput;
++	gMiniAppleKeyStoreCalls++;
++	gMiniAppleKeyStoreLastSelector = selector;
+ 	switch (selector) {
+ 	case kAKSOpenCheck:
+ 	case kAKSLockDevice:
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7341,7 +7341,14 @@
+ 		vnode_t vp = NULLVP;
+ 		IOSleep(2000);
+ 		int e = vnode_lookup("/private/var/keybags", 0, &vp, vfs_context_current());
+-		printf("K60WATCH t=%d keybags err=%d\n", i, e);
++		{
++			extern int gMiniAppleKeyStoreUp;
++			extern volatile unsigned gMiniAppleKeyStoreCalls;
++			extern volatile unsigned gMiniAppleKeyStoreLastSelector;
++			printf("K60WATCH t=%d keybags err=%d aks=%d calls=%u sel=0x%x\n",
++			    i, e, gMiniAppleKeyStoreUp, gMiniAppleKeyStoreCalls,
++			    gMiniAppleKeyStoreLastSelector);
++		}
+ 		if (vp) {
+ 			vnode_put(vp);
+ 		}

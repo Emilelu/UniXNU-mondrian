@@ -33,7 +33,11 @@ CONFIG_XNU_OWNER_CACHE_STARTUP=y
 CONFIG_XNU_OWNER_CRYPTEX_FILES=n
 CONFIG_XNU_OWNER_DATA_MOUNT=y
 CONFIG_XNU_OWNER_DATA_UFS=n
-CONFIG_XNU_OWNER_DATA_VOLUME_UUID="576A2203-F35D-45DA-80B0-11EF01DDA8C9"
+# The APFS volume inside seed/k60-data-seed.dbr is "OwnerData" with this UUID.
+# 576A2203-... is the pong board constant: this board boots its own seed, so the
+# lookup has to name that volume or /private/var never mounts and mkbinit fails
+# to write /private/var/keybags/systembag.kb.
+CONFIG_XNU_OWNER_DATA_VOLUME_UUID="6DCCF70A-6FD6-403E-ACED-95313CD7CBB8"
 CONFIG_XNU_OWNER_CACHE_VOLUME_UUID="15B507FA-21B7-4EE5-B55D-0F3445DE0752"
 CONFIG_XNU_OWNER_ROOT_AUDIT=n
 CONFIG_XNU_OWNER_ROOT_TRUST=n

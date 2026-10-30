@@ -71,7 +71,10 @@ title = "UniXNU"
 # Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
 # swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
 dram_size = "0x300000000"
-kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1"]
+# pong_software_keybag=1 selects the volatile no-passcode keybag from
+# zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch. Without it mkbinit cannot
+# load a system bag on this board (no SEP) and forces a recovery-mode reboot.
+kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1"]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the

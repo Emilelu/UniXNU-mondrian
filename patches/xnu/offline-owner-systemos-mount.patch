@@ -1,17 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -142,6 +142,9 @@
- #include <kern/coalition.h>
- #include <kern/policy_internal.h>
- #include <kern/kalloc.h>
-+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
-+#include <arm64/pong_ramoops_console.h>
-+#endif
- #include <kern/zalloc.h> /* zone_userspace_reboot_checks() */
- 
- #include <os/log.h>
-@@ -6748,8 +6751,450 @@
+@@ -6748,8 +6748,450 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -90,8 +80,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +	const char *volume = "15B507FA-21B7-4EE5-B55D-0F3445DE0752";
@@ -458,12 +447,13 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +}
 +#endif
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -6821,7 +7266,7 @@
+@@ -6821,7 +7263,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -472,7 +462,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -6884,6 +7329,61 @@
+@@ -6884,6 +7326,64 @@
  	if (scratch_result != KERN_SUCCESS) {
  		panic("load_init_program: scratch allocation failed: %d", scratch_result);
  	}
@@ -519,6 +509,9 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +			vnode_put(k60_var);
 +		}
 +		if (!k60_var_mounted) {
++			extern vm_offset_t pong_ramoops_debug_base(void);
++			extern uint32_t pong_ramoops_debug_start(void);
++			extern uint32_t pong_ramoops_debug_size(void);
 +			vm_offset_t k60_ro = pong_ramoops_debug_base();
 +			uint32_t k60_sig = 0;
 +			if (k60_ro) {

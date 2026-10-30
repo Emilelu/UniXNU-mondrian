@@ -1,23 +1,49 @@
---- a/bsd/kern/kern_exec.c	2026-10-30 22:43:48.393608320 +0800
-+++ b/bsd/kern/kern_exec.c	2026-10-30 22:43:48.396055511 +0800
-@@ -7250,6 +7250,39 @@
+--- a/bsd/kern/kern_exec.c	2026-10-30 23:25:12.948600200 +0800
++++ b/bsd/kern/kern_exec.c	2026-10-30 23:25:12.954624068 +0800
+@@ -7149,6 +7149,31 @@
+ uint8_t native_owner_data_seed_sha256[32];
+ char native_owner_data_device_path[64];
+ 
++extern void IOSleep(unsigned int);
++
++/*
++ * MKB is userland, so it runs after the Data mount, yet still reports ENOENT on
++ * /private/var/keybags. Report the directory every two seconds: the screen then
++ * shows whether it disappears before MKB looks, and the ordering is visible even
++ * when the log scrolls.
++ */
++static void
++k60_var_watch(void *arg, wait_result_t wr)
++{
++	for (int i = 0; i < 90; i++) {
++		vnode_t vp = NULLVP;
++		IOSleep(2000);
++		int e = vnode_lookup("/private/var/keybags", 0, &vp, vfs_context_current());
++		printf("K60WATCH t=%d keybags err=%d\n", i, e);
++		if (vp) {
++			vnode_put(vp);
++		}
++	}
++	(void)arg;
++	(void)wr;
++	thread_terminate(current_thread());
++}
++
+ static int
+ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ {
+@@ -7250,6 +7275,35 @@
  	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
  	printf("K60DATA mounted ro=%d fstype=%s\n",
  	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
 +	{
-+		/*
-+		 * The read-write mount completes on the mkapfs volume, but that volume is
-+		 * empty and MKB dies on /private/var/keybags. The hdiutil-built seeds have
-+		 * the directory but hang the read-write mount, so create the runtime
-+		 * directories here through the real mkdir syscall body, which resolves the
-+		 * path in the init process s address space.
-+		 */
 +		static const char *k60_mkdir_paths[] = {
 +			"/private/var/keybags", "/private/var/logs", "/private/var/codes",
 +			"/private/var/tmp", "/private/var/run", "/private/var/mobile"
 +		};
 +		unsigned k60_m;
 +		int k60_mkdir_err[6] = { -1, -1, -1, -1, -1, -1 };
++		thread_t k60_watch_thread = THREAD_NULL;
 +		for (k60_m = 0; k60_m < 6; k60_m++) {
 +			user_addr_t k60_name = scratch + 0x400;
 +			struct mkdir_args k60_args;
@@ -30,12 +56,14 @@
 +				k60_err = mkdir(p, &k60_args, &k60_ret);
 +			}
 +			k60_mkdir_err[k60_m] = k60_err;
-+			printf("K60DATA mkdir %s err=%d ret=%d\n",
-+			    k60_mkdir_paths[k60_m], k60_err, k60_ret);
 +		}
 +		printf("K60DATA mkdir summary k=%d l=%d c=%d t=%d r=%d m=%d\n",
 +		    k60_mkdir_err[0], k60_mkdir_err[1], k60_mkdir_err[2],
 +		    k60_mkdir_err[3], k60_mkdir_err[4], k60_mkdir_err[5]);
++		if (kernel_thread_start((thread_continue_t)k60_var_watch, NULL,
++		    &k60_watch_thread) == KERN_SUCCESS) {
++			thread_deallocate(k60_watch_thread);
++		}
 +	}
  	if (actual != device ||
  	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;

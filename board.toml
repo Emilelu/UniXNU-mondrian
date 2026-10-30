@@ -89,3 +89,7 @@ timeout = 5
 
 [payload."adt"]
 "root_match_volume_uuid" = "C5DAF029-2070-4F68-B3CC-1D1320344CF0"
+# The two unchanged 20G81 trust-cache modules (static 2510 entries, System 61).
+# launchd/dyld on the sealed system volume are ad-hoc signed and are only
+# accepted through this whitelist.
+"trust_cache_sha256" = "344ae6445dfcb791ac838dbfec5c4d39a871cf58f91d8bee84ba57204f6727e6"

@@ -1,30 +1,23 @@
---- /dev/null
-+++ b/iokit/Kernel/MiniWatchdog.cpp
-@@ -0,0 +1,113 @@
+--- a/iokit/Kernel/MiniAppleKeyStore.cpp
++++ b/iokit/Kernel/MiniAppleKeyStore.cpp
+@@ -296,3 +296,106 @@
+ 	store->release();
+ }
+ #endif
++
 +/*
-+ * Software IOWatchdog for the K60 port.
++ * Software IOWatchdog, same translation unit as the key store because a new
++ * file does not reach the link line in this build.
 + *
-+ * watchdogd is a launchd job with _PanicOnCrash. It opens
++ * watchdogd is a launchd job with _PanicOnCrash: it opens
 + * IOServiceMatching("IOWatchdog") with type 1 and exits when the service is
-+ * missing, which panics the machine before any other userland service runs.
++ * missing, which panics the machine as soon as the keybag stage is over.
 + * Apple's kext arms a SoC watchdog that resets the board unless watchdogd keeps
 + * checking in; this board has no reset path wired, so accept every selector and
 + * never fire. Selectors seen from watchdogd: 0/1/3/4/5 scalars, 2 (1 KiB in) and
 + * 9 (small out).
 + */
-+#include <pexpert/arm64/board_config.h>
-+
 +#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
-+#include <IOKit/IOLib.h>
-+#include <IOKit/IOKitKeys.h>
-+#include <IOKit/IOService.h>
-+#include <IOKit/IOUserClient.h>
-+#include <IOKit/IOMemoryDescriptor.h>
-+#include <sys/proc.h>
-+#include <sys/systm.h>
-+
-+#include "MiniDrivers.h"
-+
 +class IOWatchdog : public IOService
 +{
 +	OSDeclareDefaultStructors(IOWatchdog);
@@ -114,16 +107,6 @@
 +	wdt->release();
 +}
 +#endif
---- a/iokit/conf/files
-+++ b/iokit/conf/files
-@@ -83,6 +83,7 @@
- iokit/Kernel/MiniIOMobileFramebuffer.cpp		optional iokitcpp
- iokit/Kernel/MiniAcceleratorES.cpp		optional iokitcpp
- iokit/Kernel/MiniAppleKeyStore.cpp			optional iokitcpp
-+iokit/Kernel/MiniWatchdog.cpp			optional iokitcpp
- iokit/Kernel/IOPlatformIO.cpp				optional iokitcpp
- 
- iokit/Kernel/IOCPU.cpp					optional iokitcpp
 --- a/iokit/Kernel/MiniDrivers.h
 +++ b/iokit/Kernel/MiniDrivers.h
 @@ -17,6 +17,7 @@

@@ -458,6 +458,14 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
   if (write && (!gHost.writable || (window.baseByte & 4095) || (window.size & 4095)))
     return kIOReturnNotWritable;
   if (!online || !gHost.ready) return kIOReturnNotReady;
+  static uint32_t k60WriteTrace;
+  const bool k60TraceWrite = write && k60WriteTrace < 8;
+  if (k60TraceWrite) {
+    IOLog("K60UFS write#%u blk=%llu cnt=%llu hcs=%x hcsfatal=%x ready=%d poison=%d\n",
+          k60WriteTrace, (unsigned long long)block, (unsigned long long)count,
+          read32(gHost.hc, 0x58), read32(gHost.hc, 0x20), gHost.ready ? 1 : 0,
+          gHost.poisoned ? 1 : 0);
+  }
   uint64_t done = 0, bytes = count * kRootLogicalBlock;
   IOReturn result = kIOReturnSuccess;
   IOLockLock(mutex);
@@ -498,6 +506,12 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
     IOLockUnlock(gHost.lock);
     if (result != kIOReturnSuccess) break;
     done += take;
+  }
+  if (k60TraceWrite) {
+    k60WriteTrace++;
+    IOLog("K60UFS write#%u -> result=%x done=%llu ready=%d poison=%d\n",
+          k60WriteTrace - 1, result, (unsigned long long)done,
+          gHost.ready ? 1 : 0, gHost.poisoned ? 1 : 0);
   }
   IOLockUnlock(mutex);
   if (result != kIOReturnSuccess && result != kIOReturnNotWritable)

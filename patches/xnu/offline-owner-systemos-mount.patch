@@ -596,7 +596,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +			k60_var_mounted = (vnode_mountedhere(k60_var) != NULL) ? 1 : 0;
 +			vnode_put(k60_var);
 +		}
-+		if (k60_data_attempt && !k60_var_mounted) {
++		if (k60_data_attempt && native_owner_data_status != 0) {
 +			extern vm_offset_t pong_ramoops_debug_base(void);
 +			extern uint32_t pong_ramoops_debug_start(void);
 +			extern uint32_t pong_ramoops_debug_size(void);

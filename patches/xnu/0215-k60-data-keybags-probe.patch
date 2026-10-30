@@ -1,0 +1,29 @@
+--- a/bsd/kern/kern_exec.c	2026-10-30 21:54:26.395810126 +0800
++++ b/bsd/kern/kern_exec.c	2026-10-30 21:54:26.396923203 +0800
+@@ -7250,6 +7250,26 @@
+ 	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
+ 	printf("K60DATA mounted ro=%d fstype=%s\n",
+ 	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
++
++	{
++		/*
++		 * MKB runs in userland, after this mount, and still reports ENOENT on
++		 * /private/var/keybags - so either the volume does not expose the seed
++		 * paths or the mount is not where path resolution looks. Ask the kernel.
++		 */
++		static const char *k60_probe_paths[] = {
++			"/private/var/keybags", "/private/var/mobile", "/private/var/empty"
++		};
++		for (unsigned k60_p = 0; k60_p < 3; k60_p++) {
++			vnode_t k60_pv = NULLVP;
++			int k60_pe = vnode_lookup(k60_probe_paths[k60_p], 0, &k60_pv,
++			    vfs_context_current());
++			printf("K60DATA probe %s err=%d vnode=%p type=%d\n",
++			    k60_probe_paths[k60_p], k60_pe, k60_pv,
++			    (k60_pe == 0 && k60_pv) ? vnode_vtype(k60_pv) : 0);
++			if (k60_pv) vnode_put(k60_pv);
++		}
++	}
+ 	if (actual != device ||
+ 	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
+ 	if (!error) native_owner_data_stage = 4;

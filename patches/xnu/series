@@ -107,3 +107,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-defer-img4.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-ready-guard.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-second-static-trust-cache.patch
 0214-k60-console-font-scale.patch
+0215-k60-data-keybags-probe.patch

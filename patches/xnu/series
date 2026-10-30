@@ -47,6 +47,7 @@ offline-legacy-start.patch
 offline-native-gpu-broker.patch
 offline-owner-boot-manifest.patch
 offline-owner-cache-carrier.patch
+offline-owner-systemos-mount.patch
 offline-owner-root-binding-audit.patch
 offline-owner-root-crypto-probe.patch
 offline-owner-z-air-init.patch

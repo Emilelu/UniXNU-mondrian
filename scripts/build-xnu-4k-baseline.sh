@@ -260,6 +260,13 @@ if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && 
   python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
     --tree "$ROOT" --skip-image-verification
 fi
+if [ "${XNU_NATIVE_RAM_BLOCK:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
+  # Compile the RAM-block Data backend before linking. The link stage tests for
+  # build/native-ram-block/libNativeRamBlock.a and NativeRamBlock.o, but nothing
+  # built them before this.
+  python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ram-block-macos.py" \
+    --tree "$ROOT" --skip-image-verification
+fi
 if [ ! -f "$KERNEL_SDKROOT/usr/local/lib/kernel/libfirehose_kernel.a" ]; then
   bash scripts/build-firehose.sh
 fi

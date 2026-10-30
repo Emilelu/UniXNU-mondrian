@@ -450,13 +450,32 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
                                       IOStorageAttributes *, IOStorageCompletion *completion) {
   const uint64_t rootBlocks = window.size / kRootLogicalBlock;
   const bool write = buffer && buffer->getDirection() == kIODirectionOut;
+  // Entry trace: the deeper K60UFS write#N line sits after the writable gate, so
+  // a rejected write used to leave no trace at all. Log the first eight calls
+  // before any gate so "APFS never wrote" and "the gate refused" stay distinct.
+  static uint32_t k60WriteCalls;
+  const bool k60TraceCall = write && k60WriteCalls < 8;
+  if (k60TraceCall) {
+    IOLog("K60UFS wcall#%u blk=%llu cnt=%llu len=%llu writable=%d align=%u/%u online=%d ready=%d\n",
+          k60WriteCalls, (unsigned long long)block, (unsigned long long)count,
+          (unsigned long long)(buffer ? buffer->getLength() : 0),
+          gHost.writable ? 1 : 0, (unsigned)(window.baseByte & 4095),
+          (unsigned)(window.size & 4095), online ? 1 : 0, gHost.ready ? 1 : 0);
+    k60WriteCalls++;
+  }
   if (!buffer || !completion || !completion->action || !count || block >= rootBlocks ||
       count > rootBlocks - block || count > UINT64_MAX / kRootLogicalBlock ||
       buffer->getLength() < count * kRootLogicalBlock ||
       (buffer->getDirection() != kIODirectionIn && !write))
     return kIOReturnBadArgument;
-  if (write && (!gHost.writable || (window.baseByte & 4095) || (window.size & 4095)))
+  if (write && (!gHost.writable || (window.baseByte & 4095) || (window.size & 4095))) {
+    if (k60TraceCall) {
+      IOLog("K60UFS wcall#%u rejected NotWritable writable=%d base=%llu size=%llu\n",
+            k60WriteCalls - 1, gHost.writable ? 1 : 0,
+            (unsigned long long)window.baseByte, (unsigned long long)window.size);
+    }
     return kIOReturnNotWritable;
+  }
   if (!online || !gHost.ready) return kIOReturnNotReady;
   static uint32_t k60WriteTrace;
   const bool k60TraceWrite = write && k60WriteTrace < 8;

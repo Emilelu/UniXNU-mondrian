@@ -97,11 +97,14 @@ tools = true
 # which is the state a host-side watchdog can recover from.
 timeout = 5
 
-# The two unchanged 20G81 trust-cache modules (static 2510 entries, System 61).
+# The two unchanged 20G81 trust-cache modules (static 2510 entries, System 61),
+# shipped as one bundle in prebuilt/20G81-trustcache.bundle.
 # launchd/dyld on the sealed system volume are ad-hoc signed and are only
 # accepted through this whitelist. payload.py reads this from [payload], not
-# from [payload."adt"].
-trust_cache_sha256 = "344ae6445dfcb791ac838dbfec5c4d39a871cf58f91d8bee84ba57204f6727e6"
+# from [payload."adt"], and compares the hash against this list, so the value
+# must stay an array: a bare string makes every --trust-cache fail the
+# "is one of the trust caches this board accepts" check.
+trust_cache_sha256 = ["344ae6445dfcb791ac838dbfec5c4d39a871cf58f91d8bee84ba57204f6727e6"]
 
 [payload."adt"]
 "chip_id" = "8015"

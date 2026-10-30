@@ -1,62 +1,43 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index b87eef7..982e821 100644
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -90,6 +90,10 @@
- #if HIBERNATION
+@@ -91,6 +91,15 @@
  #include <IOKit/IOPlatformExpert.h>
  #endif /* HIBERNATION */
-+
+ 
 +#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
 +#include <arm64/pong_ramoops_console.h>
++/* The one definition of the mirror state declared in the header. */
++vm_offset_t pong_ramoops_base;
++uint32_t pong_ramoops_start;
++uint32_t pong_ramoops_size;
++volatile uint32_t pong_ramoops_busy;
 +#endif
- 
++
  extern void     patch_low_glo(void);
  extern int      serial_init(void);
-@@ -524,6 +528,10 @@
- #endif  /* __ARM_PAN_AVAILABLE__ */
+ extern void sleep_token_buffer_init(void);
+@@ -525,6 +534,10 @@ arm_init(
  
  	arm_vm_init(xmaxmem, args);
-+
+ 
 +#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
 +	(void)pong_ramoops_console_init();
 +#endif
- 
++
  	if (debug_boot_arg) {
  		patch_low_glo();
---- a/osfmk/console/serial_console.c
-+++ b/osfmk/console/serial_console.c
-@@ -509,9 +509,16 @@
-  * @param str The string of characters to print.
-  * @param size The number of characters in `str` to print.
-  */
-+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
-+extern void pong_ramoops_console_write(const char *, int);
-+#endif
-+
- void
- console_write(char *str, int size)
- {
-+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
-+	pong_ramoops_console_write(str, size);
-+#endif
- 	assert(str != NULL);
- 
- 	char *write_ptr = NULL;
-@@ -590,6 +597,9 @@
- void
- console_write_unbuffered(char c)
- {
-+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
-+	pong_ramoops_console_write(&c, 1);
-+#endif
- 	_cnputc(c, true);
- }
- 
+ 	}
+diff --git a/osfmk/arm64/pong_ramoops_console.h b/osfmk/arm64/pong_ramoops_console.h
+new file mode 100644
+index 0000000..91507e7
 --- /dev/null
 +++ b/osfmk/arm64/pong_ramoops_console.h
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,141 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
-+/* Minimal persistent console mirror for Pong. It does not touch VBAR, TTBR,
-+ * the framebuffer, scheduler state, IOKit, or storage. */
++/* Minimal persistent console mirror. It does not touch VBAR, TTBR, the
++ * framebuffer, scheduler state, IOKit, or storage. */
 +#include <arm/caches_internal.h>
 +#include <machine/machine_routines.h>
 +
@@ -72,12 +53,23 @@
 +	volatile uint32_t size;
 +};
 +
-+static vm_offset_t pong_ramoops_base;
-+static uint32_t pong_ramoops_start;
-+static uint32_t pong_ramoops_size;
-+static volatile uint32_t pong_ramoops_busy;
++/*
++ * One copy of the mirror state for the whole kernel: arm_init.c defines it.
++ * File-static state would give every translation unit that includes this header
++ * a private copy, so the read-back accessors could not see what
++ * pong_ramoops_console_init() stored.
++ */
++extern vm_offset_t pong_ramoops_base;
++extern uint32_t pong_ramoops_start;
++extern uint32_t pong_ramoops_size;
++extern volatile uint32_t pong_ramoops_busy;
 +
-+void pong_ramoops_console_write(const char *, int);
++/*
++ * This header carries its own definitions, so every reader gets a static copy.
++ * A plain definition here is emitted once per including translation unit, which
++ * fails both as a duplicate symbol and - when the include sits inside a block -
++ * as a nested function definition.
++ */
 +static inline void
 +pong_ramoops_console_write(const char *text, int length)
 +{
@@ -124,10 +116,10 @@
 +	uint32_t new_size = total >= capacity ? capacity : (uint32_t)total;
 +	uint32_t new_start = total > capacity ?
 +	    (uint32_t)((pong_ramoops_start + total - capacity) % capacity) : pong_ramoops_start;
-+	struct pong_ramoops_header *header =
++	struct pong_ramoops_header *header_ptr =
 +	    (struct pong_ramoops_header *)(uintptr_t)pong_ramoops_base;
-+	header->start = new_start;
-+	header->size = new_size;
++	header_ptr->start = new_start;
++	header_ptr->size = new_size;
 +	__asm__ volatile("dsb sy" ::: "memory");
 +	CleanPoC_DcacheRegion_Force(pong_ramoops_base, PONG_RAMOOPS_HEADER_BYTES);
 +	__asm__ volatile("dsb sy" ::: "memory");
@@ -136,13 +128,7 @@
 +	__atomic_store_n(&pong_ramoops_busy, 0, __ATOMIC_RELEASE);
 +}
 +
-+/*
-+ * Read back what the mirror holds; used by the bring-up self check.
-+ * This header carries its own function definitions, so every reader must get a
-+ * static copy: a plain (non-static) definition here is emitted once per
-+ * translation unit that includes it, which fails both as a duplicate symbol and
-+ * - when the include sits inside a block - as a nested function definition.
-+ */
++/* Read back what the mirror holds; used by the bring-up self check. */
 +static inline vm_offset_t
 +pong_ramoops_debug_base(void)
 +{
@@ -173,14 +159,14 @@
 +		return 0;
 +	}
 +
-+	struct pong_ramoops_header *header =
++	struct pong_ramoops_header *header_ptr =
 +	    (struct pong_ramoops_header *)(uintptr_t)mapped;
-+	header->sig = 0;
-+	header->start = 0;
-+	header->size = 0;
++	header_ptr->sig = 0;
++	header_ptr->start = 0;
++	header_ptr->size = 0;
 +	__asm__ volatile("dsb sy" ::: "memory");
 +	CleanPoC_DcacheRegion_Force(mapped, PONG_RAMOOPS_HEADER_BYTES);
-+	header->sig = PONG_RAMOOPS_MAGIC;
++	header_ptr->sig = PONG_RAMOOPS_MAGIC;
 +	__asm__ volatile("dsb sy" ::: "memory");
 +	CleanPoC_DcacheRegion_Force(mapped, PONG_RAMOOPS_HEADER_BYTES);
 +	__asm__ volatile("dsb sy" ::: "memory");
@@ -190,3 +176,34 @@
 +	pong_ramoops_base = mapped;
 +	return 1;
 +}
+diff --git a/osfmk/console/serial_console.c b/osfmk/console/serial_console.c
+index e5b23f2..2734a7a 100644
+--- a/osfmk/console/serial_console.c
++++ b/osfmk/console/serial_console.c
+@@ -509,9 +509,16 @@ console_resume()
+  * @param str The string of characters to print.
+  * @param size The number of characters in `str` to print.
+  */
++#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
++#include <arm64/pong_ramoops_console.h>
++#endif
++
+ void
+ console_write(char *str, int size)
+ {
++#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
++	pong_ramoops_console_write(str, size);
++#endif
+ 	assert(str != NULL);
+ 
+ 	char *write_ptr = NULL;
+@@ -590,6 +597,9 @@ console_write(char *str, int size)
+ void
+ console_write_unbuffered(char c)
+ {
++#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
++	pong_ramoops_console_write(&c, 1);
++#endif
+ 	_cnputc(c, true);
+ }
+ 

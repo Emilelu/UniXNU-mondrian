@@ -123,3 +123,8 @@ trust_cache_sha256 = ["344ae6445dfcb791ac838dbfec5c4d39a871cf58f91d8bee84ba57204
 # ---------------------------------------------------------------------------
 [adt."chosen"."bytes"]
 "mac-address-wifi0" = "525400123456"
+
+# Board-level scale from XTOM0706/UniXNU-mondrian 9d1a14f83d1050a042313f30dc9d5b7e80d31f7a.
+# Matches the current 20G81 profile; keep the K60 scale independent of OS defaults.
+[adt.chosen.u32]
+display-scale = 3

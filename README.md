@@ -108,6 +108,27 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 这些已实现的服务和模式降低了该类缺项的优先级，但不能单靠代码存在排除渲染或 ABI 问题。同族先例的完整修复菜单（24 条，带 file:line 引文）
 见工作区 `k60-work/sweet-fix-menu.md`。
 
+## Fork 巡查与吸收（2026-10-31）
+
+按用户要求，开发期间及推送前检查公开 fork；本会话另设每 6 小时一次的巡查提醒。
+`python3 scripts/audit-forks.py --output /tmp/mondrian-forks.json` 枚举所有 fork/分支并固定
+比较 SHA，只读报告候选，不自动合并。首次检查为 3 个 fork / 4 个分支 / 11 个历史独有提交，
+完整取舍和来源见 [docs/FORK-REVIEW.md](docs/FORK-REVIEW.md)。
+
+已吸收并验证：
+
+- `mzyxsl/daed6b5` 完整 cherry-pick 为 `acb5c2d`，修复本地 prelink 从 OS profile 读取参数；
+  trust-cache 数组与 lock pin 是规范化/一致性改动，不宣称它们此前阻止所有 payload 构建。
+  实际运行 prelink 通过，32 roots、slide `-0xb9c000`，输出与本轮原 prelink 内核逐字节一致。
+  非并列目录可用 `--profile` 和 `--kit` 显式指定。
+- 从 `mzyxsl/76552b8` 选择性导入离线适配记录检查器；整理现有路径归属，保留当前硬件验证等级。
+  `python3 scripts/check-porting-paths.py` 已通过。它只做离线预检，不替代框架官方检查器或设备验证。
+- 从 `XTOM0706/9d1a14f` 只移植设备级 `display-scale=3`；与当前 profile 一致，
+  ADT 生成/解析比较仅随机种子不同。未带入额外显示节点或未经目标验证的 ramoops magic。
+
+菜单倒计时已有等效补丁，不重复；另一台 16 GiB 手机的内存窗口和旧 Data UUID 不用于当前
+12 GiB 设备。没有因 fork 改变当前已构建诊断镜像的启动参数、内存或根文件系统。
+
 ## 工具
 
 | 脚本 | 用途 |
@@ -157,6 +178,7 @@ cd UniXNU
 python3 scripts/k60-prelink-local.py \
   --kernel mach.development.pong.unstripped \
   --prelinked out/ipsw/20G81/kernelcache.decompressed \
+  --profile profiles/os/ipados-16.6.1-20G81/profile.toml \
   --output kernel.macho
 ```
 

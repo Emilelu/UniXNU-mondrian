@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run the K60 prelink on a kernel that was built somewhere else.
 
-"unixnu build kernel" rebuilds XNU, which needs macOS.  This runs only the
-prelink step, with the roots and slide from [kernel.prelink], through the same
+"unixnu build kernel" rebuilds XNU with the configured host toolchain. This runs
+only the prelink step, with the roots and slide from [kernel.prelink], through the same
 auto-slide wrapper the CI preflight installs.  The kernel comes from the CI
 artifact (upload_kernel) or from any other machine; the 20G81 kernelcache is the
 one "unixnu ipsw" extracts.

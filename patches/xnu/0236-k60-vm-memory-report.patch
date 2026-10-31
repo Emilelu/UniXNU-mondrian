@@ -1,0 +1,25 @@
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -1852,6 +1852,22 @@
+ 
+ 	mem_actual = args->memSizeActual ? args->memSizeActual : mem_size;
+ 
++#if defined(PONG)
++	/*
++	 * K60: one read-only line so we can tell whether the 0172 finding
++	 * (docs/FORECAST-K60-IOS.md:573-578: "the VM must only manage memSizeActual,
++	 * past it the AP has DRAM the XPU refuses to decode and the first
++	 * allocation up there hangs the machine with no panic and no console
++	 * output") applies to this port. Nothing here changes any value.
++	 */
++	printf("K60 MEM: memSize %llu MiB, memSizeActual %llu MiB (%s), physBase 0x%llx physSize 0x%llx\n",
++	    (unsigned long long) (args->memSize >> 20),
++	    (unsigned long long) (mem_actual >> 20),
++	    (args->memSizeActual && args->memSizeActual < args->memSize) ? "cap needed" : "no cap needed",
++	    (unsigned long long) gPhysBase,
++	    (unsigned long long) mem_size);
++#endif
++
+ 	if ((memory_size != 0) && (mem_size > memory_size)) {
+ 		mem_size = memory_size;
+ 		max_mem_actual = memory_size;

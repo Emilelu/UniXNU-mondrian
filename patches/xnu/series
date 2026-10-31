@@ -120,3 +120,6 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-zap-reservation.patch
 0231-k60-accel-stub-adreno-gate.patch
 0232-k60-pong-adreno-ramoops-bridge.patch
 0233-k60-mfb-selector-success.patch
+0234-k60-seed-boot-preferences.patch
+0235-k60-exec-exit-trace.patch
+0236-k60-vm-memory-report.patch

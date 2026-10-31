@@ -35,18 +35,32 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | watchdogd | ✅ | launchd disabled-jobs 策略禁用（core 补丁 0222） |
 | SpringBoard 显示模式 | ✅ | ADT `display-scale = 3` |
 | 控制台刷屏 | ✅ | `send_resource_violation` 三条格式串清空 |
-| **用户态启动** | 🟡 | 跑到 APFS 事务刷盘（`tx_flush` 无等待），**但 UI 未起、无启动进度条** |
+| **用户态启动** | 🟡 | **UI 已起**：backboardd 在提交 1440x3200 BGRA 全屏图层，启动进度条间歇出现；但帧率约 **0.13 fps**（9 帧/70 秒），随后基本停住 |
 | **GPU（Adreno 730）** | 🟡 | `PongAdreno` 驱动已 `force_load` 进内核（51 处符号），**未上机启动** |
 | **IOMFB selector 兜底** | 🟡 | 0233 补丁已入 series（`GetGammaTable` 仍保持 unsupported），未上机 |
 | 触摸 / 120 Hz / 音频 / 网络 / 相机 | ❌ | 未开始 |
 
 ## 当前卡点（2026-10-31 10:00）
 
-1. **用户态 UI 未启动**（当前唯一硬阻断）。内核已跑过 APFS 事务阶段
-   （最后一行 `tx_flush:1241: disk5 xid 1582 tx stats: ... wait 0 0us flush 4267us`，
-   说明 APFS 无阻塞），screen 上没有出现启动进度条，console 仍持有输出权
-   （`gc_pause` 未触发）——即卡在 launchd 的某个早期 job，**比"进度条停滞"更早**。
-   待办：抓到该 job 名。
+1. **用户态启动在 UI 起来之后基本停住**（当前唯一硬阻断）。已实测到的事实：
+   - 显示通路端到端正常：`MiniIOMobileFramebuffer: swap N layer 0: surface (1440x3200 'BGRA')
+     from 0,0 1440x3200 to 0,0 1440x3200, layers set 0x1`；
+   - 帧率极低：5 秒统计输出 `2 frames in 22636 ms (0 a second)`、`2 frames in 28547 ms`，
+     合计约 9 帧 / 70 秒；每帧驱动耗时 2.5–33.9 ms，**99.7% 的时间不在驱动里**
+     （`waiting for the GPU = 0 us`），所以瓶颈不是 framebuffer，而是用户态 CPU/等待；
+   - 日志停在 `tx_flush`（APFS 无阻塞：`wait 1 420us`）与
+     `process UserEventAgent [23] crossed thread count high watermark (32),
+     EXC_RESOURCE supressed by a boot-arg.`；
+   - **`report = fSwapsShown < 8`**（MiniIOMobileFramebuffer.cpp:920）：每 swap 的详细日志
+     只在头 8 帧打印，因此"swap 行停在 8"是设计使然，**不能当卡死证据**，判存活要看 5 秒统计行；
+   - 启动进度条间歇出现后被控制台文本盖掉：首帧本应让出控制台
+     （MiniIOMobileFramebuffer.cpp:963-967 调 `PE_initialize_console(NULL, kPEGraphicsMode)`），
+     但 `video_console.c:451-453` 的 `gc_enable(TRUE)` 会把 `disableConsoleOutput` 复位，
+     由 `initialize_screen` 的 `gc_enable(!graphics_now)`（:3022）触发。
+   - 进度条上方无 Apple logo：XNU 的启动 logo 位图正常由 iBoot 交给内核，本移植走
+     UEFI + BootShim，无 iBoot 提供该数据 —— **推测为引导方式的必然结果，非卡住原因**（未验证）。
+   - 注意：屏幕上出现的裸数字（如 `83`）**不是进度百分比**，勿据此判断进度。
+
 2. **内核源码构建已修复**（本节从"不可用"转为已解决，保留原因备查）：
    - `'stdio.h' file not found` → `HOST_CC` 指向 `xnu-host-cc`；
    - `mig: line 183: command not found` 真因不是 `MIGCC` 而是 **`MIGCOM`**：

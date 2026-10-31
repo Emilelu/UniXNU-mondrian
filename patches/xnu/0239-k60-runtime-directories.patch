@@ -1,0 +1,85 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7509,15 +7509,53 @@
+ 	printf("K60DATA mounted ro=%d fstype=%s\n",
+ 	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
+ 	{
+-		static const char *k60_mkdir_paths[] = {
+-			"/private/var/keybags", "/private/var/logs", "/private/var/codes",
+-			"/private/var/tmp", "/private/var/run", "/private/var/mobile"
++		/* Boot-time directories the persistent Data container may lack. The empty
++		 * mkapfs replacement ships none of the Apple seed's tree, and three of the
++		 * gaps were observed as userland failures: launchd cannot create
++		 * /private/var/log/com.apple.xpc.launchd/launchd.log (ENOENT per event),
++		 * init_featureflags cannot resolve /Library/Preferences (a symlink to
++		 * /private/var/preferences), and tzinit reports a bad zoneinfo link under
++		 * /private/var/db/timezone. The container tree is the one the sibling K60
++		 * port needed. Parents precede children: mkdir has no recursion. */
++		static const char * const k60_mkdir_paths[] = {
++			"/private/var/keybags",
++			"/private/var/logs",
++			"/private/var/log",
++			"/private/var/log/com.apple.xpc.launchd",
++			"/private/var/codes",
++			"/private/var/tmp",
++			"/private/var/run",
++			"/private/var/mobile",
++			"/private/var/mobile/Library",
++			"/private/var/mobile/Library/Preferences",
++			"/private/var/mobile/Library/Caches",
++			"/private/var/preferences",
++			"/private/var/db",
++			"/private/var/db/timezone",
++			"/private/var/db/lockdown",
++			"/private/var/containers",
++			"/private/var/containers/Bundle",
++			"/private/var/containers/Data",
++			"/private/var/containers/Data/System",
++			"/private/var/containers/Shared",
++			"/private/var/containers/Shared/SystemGroup",
++			"/private/var/containers/Temp",
++			"/private/var/root",
++			"/private/var/root/Library",
++			"/private/var/wireless",
++			"/private/var/installd",
++			"/private/var/installd/Library",
++			"/private/var/installd/Library/Caches",
+ 		};
++#define K60_MKDIR_PATH_COUNT ((int) (sizeof(k60_mkdir_paths) / sizeof(k60_mkdir_paths[0])))
+ 		unsigned k60_m;
+-		int k60_mkdir_err[6] = { -1, -1, -1, -1, -1, -1 };
++		int k60_mkdir_err[K60_MKDIR_PATH_COUNT];
++		for (unsigned k60_z = 0; k60_z < K60_MKDIR_PATH_COUNT; k60_z++) {
++			k60_mkdir_err[k60_z] = -1;
++		}
+ 		thread_t k60_watch_thread = THREAD_NULL;
+ 		int k60_watch_enabled = 0;
+-		for (k60_m = 0; k60_m < 6; k60_m++) {
++		for (k60_m = 0; k60_m < K60_MKDIR_PATH_COUNT; k60_m++) {
+ 			user_addr_t k60_name = scratch + 0x400;
+ 			struct mkdir_args k60_args;
+ 			int32_t k60_ret = 0;
+@@ -7530,9 +7568,20 @@
+ 			}
+ 			k60_mkdir_err[k60_m] = k60_err;
+ 		}
+-		printf("K60DATA mkdir summary k=%d l=%d c=%d t=%d r=%d m=%d\n",
+-		    k60_mkdir_err[0], k60_mkdir_err[1], k60_mkdir_err[2],
+-		    k60_mkdir_err[3], k60_mkdir_err[4], k60_mkdir_err[5]);
++		{
++			int k60_ok = 0;
++			for (unsigned k60_s = 0; k60_s < K60_MKDIR_PATH_COUNT; k60_s++) {
++				if (k60_mkdir_err[k60_s] == 0) k60_ok++;
++			}
++			printf("K60DATA mkdir ok=%d/%d", k60_ok, K60_MKDIR_PATH_COUNT);
++			for (unsigned k60_s = 0; k60_s < K60_MKDIR_PATH_COUNT; k60_s++) {
++				if (k60_mkdir_err[k60_s] != 0) {
++					printf(" [%s=%d]", k60_mkdir_paths[k60_s] + sizeof("/private/var/") - 1,
++					    k60_mkdir_err[k60_s]);
++				}
++			}
++			printf("\n");
++		}
+ 		/* This periodic directory/AKS probe is opt-in; it is not watchdogd. */
+ 		(void)PE_parse_boot_argn("k60_watch", &k60_watch_enabled, sizeof(k60_watch_enabled));
+ 		if (k60_watch_enabled == 1 &&

@@ -227,39 +227,58 @@ br x1                 // 跳到内核入口的物理地址
 
 → **`arm_vm_init` 之前/之中的任何死亡都是完全静默的。** 必须先解决"看得见"的问题。
 
-### 尚未排除的最新线索（建议优先查这个）
+### 已核实：FDT 假设不成立（原"最新线索"是误判，2026-11-01 复核）
 
-打包给内核的 FDT **是原始 `hardware.dtb`（1862 B，14 个节点）**，不是
-`devicetree.generate()` 生成的 ADT（14,620 B）。
+原判断"打包的 `hardware.dtb` 缺节点导致 `ArmDTPlatform::configure()` 失败"**不成立**：
 
-- `unixnu bootimg` 的 `--dtb` 只做 `patch_dtb()`（按 `board.toml [[bootimg.dtb_node]]` 加节点），
-  **不会调用 `devicetree.generate()`**（已 grep 确认 `scripts/unixnu/` 内无此调用）
-- 该 DTB 只有：`/`、`/cpus`、`/cpus/cpu@0..7`、`/psci`、`/interrupt-controller@17100000`、
-  `/memory@80000000`、`/ufs@1d84000`
-- **缺 `/chosen`、`/arm-io`、`/defaults`、`/options`** —— 而这四个正是
-  `ArmDTPlatform.cpp` 头注释里声明 `configure()` 必需的东西：
-  > `/chosen` with a CHRP NVRAM proxy (nvram-bank-size, nvram-proxy-data)
-  > `/options`, `/cpus`, `/arm-io` and `/defaults` … absent inputs make configure() fail
-- payload 里 `adt_sha256 = 78f8ecd0528185818164eb8c93588fc5ba3ae4a25f29ee56be293e4d18b73bd0`
-  但 `payload/adt.bin`、`device-tree/adt.bin` **都不存在**
+- XNU 解析的从来不是 FDT。`DarwinBoot.c:698-711` 按文件名读 FAT 卷里的
+  `Payloads/kernel.macho.adt`，格式是 XNU 的 `DeviceTreeNode`；`SecureDTInit()`
+  （`pexpert/gen/device_tree.c:236-245`）连魔数都不校验。boot.img 尾部追加的那颗
+  1862 B `hardware.dtb` 是 Android `Image.gz-dtb` 惯例的产物，**没有任何消费者**
+  （`AndroidBootImgLocateFdt` 只服务 EFI/Linux 条目，XNU 条目不经过）。
+- ADT **一直存在**：payload FAT 内 `::/EFI/UniXNU/Payloads/kernel.macho.adt`，
+  **14,672 B**，sha256 `78f8ecd0…`，与 `payload.json` 的 `adt_sha256` 逐字节吻合。
+  不是"adt.bin 不存在"。
+- 该 ADT 节点树：`/device-tree` → `/chosen`（`nvram-bank-size=0x2000`、8192 B proxy）、
+  `/cpus`（cpu0..7）、`/psci`、`/arm-io`（`ranges`）、`/defaults`、`/options`、`/product`。
+  `ArmDTPlatform::configure()` 的四项结构检查与 `/chosen` NVRAM 检查**逐条可过**。
+- 所谓"头部 magic `0x06000000`"不是 magic、也不是容器：`06 00 00 00 07 00 00 00`
+  是 `nProperties=6 / nChildren=7`（小端）。该 blob 本身就是 ADT，内部不嵌 FDT。
+- 决定性对照：**能启动到 SpringBoard 的 20G81 镜像，`--dtb` 传的是同一个
+  1862 B `hardware.dtb`（sha256 `8b8618…`）**，payload 里的 ADT 也是同一套生成逻辑。
+  同一份输入一代成功一代失败 → FDT 不是自变量。
 
-`adt-generate2.py` 已能生成 14,620 B 的 ADT（注意：该 blob 头部 magic 是 `0x06000000`，
-是**容器格式**，内部才嵌 FDT；`adt-walk.py` 假设裸 FDT 会报 `not an FDT`，需要先修）。
+### 真正的缺口（2026-11-01 新发现，本轮要修）
+
+当前 darwin24 内核的 `__PRELINK_TEXT / __PRELINK_INFO / __PRELINK_DATA / __PLK_*`
+**六段 size 全为 0**（内核 20,872,376 B）；而能启动到 SpringBoard 的 20G81 内核同段是
+`0x714000 / 0x71000 / 0x158000`。
+
+- `scripts/build-darwin24-platform.py` 只做链接，**不做 prelink**；darwin24 路线没有
+  `profiles/os/ipados-18.7.10-22H374`，`unixnu build kernel` 的 prelink 步骤被整个绕过
+- pong 自己的 darwin24 流水线是做的：`build-ipados18-prelinked-boot.py` 用
+  `plan()/emit()` 把 22H374 的 kext 拼进自建内核（roots = corecrypto / pthread / apfs /
+  Compression / AppleFSCompressionZlib）
+- 22H374 kernelcache 已确认**解密完整**：`out/ipsw/22H374/kernelcache.decompressed`
+  48,562,204 B，`__PRELINK_INFO` 明文 XML 含 **852** 个 `CFBundleIdentifier`，
+  `__PRELINK_TEXT` 起始即 `cffaedfe` 可执行 Mach-O → prelink 在 Linux 可做
 
 ---
 
 ## 8. 下一步建议（按优先级）
 
-1. **先解决可观测性**，不要再盲刷：
-   - 在 `start.s` 的 `_start` 里加**不依赖 MMU 的面包屑**：`mov x20, x0` 之后、
-     开 MMU 之前各画一条色条到 framebuffer（`x20` 是 boot_args PA，`Video[]` 在 +0x28，
-     `v_rowBytes` 在 +0x38）。XNU 的 bootstrap 页表含 **V=P 块映射**，所以开 MMU 之后
-     用 PA 写 framebuffer 仍然有效。
-   - 或在 `arm_init()` 最开头、`arm_vm_init()` 之前，直接往 PA `0xA7000000` 写标记字，
-     之后从 Android root 用 `dd if=/dev/mem` 读回（设备已在 Android 时零成本）。
-2. **核对 FDT**：确认内核实际需要的是 `hardware.dtb` 还是生成的 ADT；若是后者，
-   需要把 ADT 送进 `bootimg`（或让 `bootimg` 调用 `devicetree.generate()`）。
-3. 若内核已越过 `arm_vm_init` → 读 ramoops carveout，看 `PONG DIAGNOSTIC v92` 是否出现。
+1. **补 prelink**（离线可验证，零设备风险）。5 个 roots，`slide = -0x112C000`（不要用
+   `emit_prelink_autoslide.py`，它会算成 `-0x2dc000`，不撞段但与 pong 已验证布局不一致）。
+   `AppleARMPlatform / AppleARMWatchdogTimer / AppleEffaceableStorage` 会被依赖自动拉进来，
+   **必须放进 `library_only_components`**，否则 `AppleARMPE` 会抢我们 `-force_load` 的
+   `ArmDTPlatform`、看门狗也会被挂上。
+2. **面包屑**：`start.s` M00–M03（MMU 关 → 开 → 开之后）+ `arm_init.c` M04–M07，
+   统一写 PA `0xA73FF000`（4 MiB carveout 的最后一页，UEFI 只清前 2 MiB，pong 的
+   diagnostic ring 也碰不到）。需要在 bootstrap 页表里补一个 2 MiB Device 块映射
+   （`0xA7200000`，描述符 `0x00400000A720040D`），否则 MMU 一开就不可写。
+   注意 `0xB8000000`（帧缓冲）与 `0xA7000000`（ramoops 头部）都**不在** bootstrap 映射内，
+   原方案里"开 MMU 后仍可用 PA 写 framebuffer"的说法是错的。
+3. 越过 `arm_vm_init` 后读 ramoops carveout，看 `PONG DIAGNOSTIC v92` / `K60B:` 是否出现。
 4. 再往后：22H374 trust cache 转换（仍用 20G81 的 `344ae644…`）、DarwinBoot24 UEFI 若需要。
 
 ---

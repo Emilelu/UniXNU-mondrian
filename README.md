@@ -178,8 +178,7 @@ python3 scripts/k60-prelink-local.py \
 
 - `boot-manifest-hash` 是板级事实，目前写在核心仓共享的
   `profiles/os/ipados-16.6.1-20G81/profile.toml` 里，正确位置应是本仓的 ADT 段。
-## 技术债：同族 0170 / 0172 不能直接打
-- `0170-k60-panel-buffer-out-of-vm.patch`（`osfmk/vm/vm_resident.c`、`osfmk/vm/vm_shared_region.c`）
+- **同族 0170 / 0172 不能直接打**：`0170-k60-panel-buffer-out-of-vm.patch`（`osfmk/vm/vm_resident.c`、`osfmk/vm/vm_shared_region.c`）
   与 `0172-k60-cap-managed-ram.patch`（`osfmk/arm64/arm_vm_init.c`）来自同族 K60 分支，
   本次实测 **`git apply --check` 与 `--3way` 都失败**；
   更要紧的是 **0172 的全部改动包在 `#if defined(ARM64_BOARD_CONFIG_SWEET)` 里**，

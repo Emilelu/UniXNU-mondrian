@@ -1,0 +1,18 @@
+/*
+ * Route A (xnu-11417 / darwin24): the pong ramoops console writes to the
+ * physical carveout of a Nothing Phone 2 (0x85200000). On the K60 that address
+ * is not a reserved pmsg zone; 0xA7000000 is, as established by this board's
+ * 16.6.1 ramoops work which read the region back from the device. Keep the ring
+ * buffer implementation unchanged and only retarget the window.
+ */
+--- a/osfmk/arm64/pong_ramoops_console.h
++++ b/osfmk/arm64/pong_ramoops_console.h
+@@ -4,7 +4,7 @@
+ #include <arm/caches_internal.h>
+ #include <machine/machine_routines.h>
+ 
+-#define PONG_RAMOOPS_PHYS_BASE 0x85200000ULL
++#define PONG_RAMOOPS_PHYS_BASE 0xA7000000ULL
+ #define PONG_RAMOOPS_CONSOLE_BYTES 0x00200000U
+ #define PONG_RAMOOPS_RESERVED_BYTES 0x00400000U
+ #define PONG_RAMOOPS_HEADER_BYTES 12U

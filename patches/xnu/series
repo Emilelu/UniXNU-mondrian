@@ -13,7 +13,6 @@ mockfs-typed-allocation.patch
 native-4k-bootstrap-capacity.patch
 native-4k-signature-hash-cache.patch
 native-4k-user-abi.patch
-public-entitlements-header.patch
 native-arm-pan.patch
 native-dt-panic-region.patch
 native-priv-work-interval.patch
@@ -61,3 +60,5 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-ready-guard.patch
 0214-k60-console-font-scale.patch
 0236-k60-managed-memory-and-panel.patch
 0241-k60-skip-launch-constraints.patch
+public-entitlements-header.patch
+0242-k60-entitlements-include-shim.patch

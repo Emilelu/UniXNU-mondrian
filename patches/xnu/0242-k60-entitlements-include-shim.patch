@@ -1,0 +1,72 @@
+/*
+ * Route A (xnu-10063): kern_exec.c includes <CodeSignature/Entitlements.h>, a
+ * private umbrella that no open source tree ships. The framework shim
+ * (public-entitlements-header.patch) already remaps the necp_client.c copy to
+ * CoreEntitlements; this extends the same remap to kern_exec.c so the exec
+ * path builds against the open CoreEntitlements headers.
+ */
+
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -183,7 +183,7 @@
+ 
+ #include "kern_exec_internal.h"
+ 
+-#include <CodeSignature/Entitlements.h>
++#include <CoreEntitlements/Entitlements.h>
+ 
+ #include <mach/exclaves.h>
+ 
+@@ -7100,10 +7100,10 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
+ }
+ 
+ static const char * init_programs[] = {
+-#if DEBUG
++#if DEBUG && !defined(PONG)
+ 	"/usr/appleinternal/sbin/launchd.debug",
+ #endif
+-#if DEVELOPMENT || DEBUG
++#if (DEVELOPMENT || DEBUG) && !defined(PONG)
+ 	"/usr/appleinternal/sbin/launchd.development",
+ #endif
+ 	"/sbin/launchd",
+@@ -7143,15 +7143,38 @@ load_init_program(proc_t p)
+ {
+ 	uint32_t i;
+ 	int error;
++	/*
++	 * K60: declare the init environment unconditionally. It used to be
++	 * guarded out when XNU_OWNER_CACHE_MOUNT was set, but with the owner cache
++	 * mount enabled (which activates offline-owner-systemos-mount.patch) that
++	 * patch still passes init_envp to load_init_program_at_path(), so the
++	 * declaration must exist in every configuration.
++	 */
++	user_addr_t init_envp = USER_ADDR_NULL;
+ 	vm_map_t map = current_map();
+ 	mach_vm_offset_t scratch_addr = 0;
+ 	mach_vm_size_t map_page_size = vm_map_page_size(map);
+ 
+-	(void) mach_vm_allocate_kernel(map, &scratch_addr, map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
++	kern_return_t scratch_result = mach_vm_allocate_kernel(map, &scratch_addr,
++	    map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
++	if (scratch_result != KERN_SUCCESS) {
++		panic("load_init_program: scratch allocation failed: %d", scratch_result);
++	}
+ #if CONFIG_MEMORYSTATUS
+ 	(void) memorystatus_init_at_boot_snapshot();
+ #endif /* CONFIG_MEMORYSTATUS */
+ 
++#if (DEBUG || DEVELOPMENT) && defined(XNU_NATIVE_AIR_INIT) && XNU_NATIVE_AIR_INIT
++	int offline_air = 0;
++	if (PE_parse_boot_argn("offline-air-init", &offline_air, sizeof(offline_air)) && offline_air) {
++		if (offline_air != 1) panic("offline AIR init invalid selector");
++		error = load_init_program_at_path(p, (user_addr_t)scratch_addr,
++		    "/private/var/tmp/air-native", init_envp);
++		if (error) panic("offline signed AIR instrument exec failed: %d", error);
++		return;
++	}
++#endif
++
+ #if DEBUG || DEVELOPMENT
+ 	/* Check for boot-arg suffix first */
+ 	char launchd_suffix[64];

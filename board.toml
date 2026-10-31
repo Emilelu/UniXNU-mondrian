@@ -4,7 +4,7 @@ schema_version = 2
 name = "mondrian"
 soc = "SM8475"
 soc_source = "sm8475"
-os_profile = "ipados-16.6.1-20G81"
+os_profile = "ipados-17.7.11-21H461"
 description = "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up"
 kit = "mondrian"
 
@@ -19,7 +19,7 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 # The K60 series still carries every patch; the shared layers have empty series for now.
 patch_series = ["device:patches/xnu/series"]
 archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs"]
-driver_records = "DEVELOPMENT_ARM64_PONG"
+driver_records = "DEVELOPMENT_ARM64_BCM2837"
 
 [userdata]
 first_lba = 53342976

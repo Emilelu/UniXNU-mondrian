@@ -1,216 +1,362 @@
 /*
  * Route A-18 (xnu-11417 / darwin24): early-boot breadcrumbs for the K60.
  *
- * A fault before arm_vm_init() is completely silent on this board: the ramoops
- * ring is not mapped until pmap exists and the loader has already left boot
- * services. Write eight u64 slots into the last page of the 4 MiB ramoops
- * carveout (0xA73FF000) from start.s (slots 0-3) and arm_init() (slots 4-6),
- * then read them back from Android with dd if=/dev/mem after a warm reset.
+ * A fault before arm_vm_init() is silent: the ramoops ring is not mapped until
+ * pmap exists and the loader has already left boot services.
  *
- * The page is outside the V=P range mapped for the kernel, so a 2 MiB
- * Device-nGnRnE block (0xA7200000) is added to the V=P L1 table. Do not touch
- * 0xA7000000 (UEFI clears the first 2 MiB on every boot) or 0xB8000000
- * (framebuffer, also outside the bootstrap map once the MMU is on).
+ * v1 wrote eight u64 slots into the last page of the ramoops carveout
+ * (PA 0xA73FF000). Flashed 2026-11-01 02:14: the board parked after the loader
+ * green bar with no USB and no reset, and a hang gives no way to read DRAM back.
+ * v2 paints 32x32 ARGB squares straight into the frame buffer, which Entry.S
+ * already proves writable from EL1 and which is visible without Android.
+ *
+ * Stages: 0 start_first_cpu (x0 = boot_args on entry), 1 bootstrap tables,
+ * 2 before SCTLR_EL1, 3 MMU on, 4 arm_init(), 5 PE_init_platform,
+ * 6 before arm_vm_init(). Stage 7 is the ramoops console line, because the V=P
+ * mapping the squares rely on is dropped inside arm_vm_init().
+ *
+ * The 6 MiB of frame buffer the squares touch is added to the V=P L1 table as
+ * Device-nGnRnE blocks (0xB8000000, 3 x 2 MiB). x20 (boot_args PA) and x21
+ * (must stay zero) are never written; x27/x28 carry Video base/stride.
  */
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -564,6 +564,65 @@
+@@ -564,6 +564,91 @@
  .endmacro
  
  /*
-+ * K60 bring-up breadcrumbs
++ * K60 bring-up breadcrumbs: one 32x32 square per stage, drawn straight into the
++ * UEFI frame buffer.
 + *
-+ * A fault before arm_vm_init() has no console: the ramoops ring is not mapped
-+ * until pmap exists, and the loader has already left boot services.  These
-+ * markers land in the last page of the 4 MiB ramoops carveout, which UEFI
-+ * leaves alone (it only clears the first 2 MiB) and which
-+ * pong_ramoops_diagnostic_write() cannot reach during bring-up.
++ * Why the frame buffer and not a physical scratch page: on 2026-11-01 the
++ * variant that wrote markers to the last page of the ramoops carveout
++ * (PA 0xA73FF000) was flashed and the board parked after the loader's green bar
++ * with no USB and no reset.  A hang leaves no way to read DRAM back, and the
++ * first store to that page is the prime suspect.  The frame buffer is the one
++ * channel already proven writable from EL1 - Entry.S paints its green bar there
++ * - and it is visible without Android ever coming back.
 + *
-+ * The page lies outside the range create_bootstrap_mapping() covers for the
-+ * kernel, so the 2 MiB Device block that contains it is added to the V=P L1
-+ * table by create_device_block_entry().  Device-nGnRnE (MAIR index 3) is the
-+ * same attribute arm_vm_init() later uses for this carveout.
++ * Geometry matches Entry.S: ARGB words, stride from boot_args.
++ *   x27 = Video.v_baseAddr, x28 = Video.v_rowBytes  (loaded at entry from x0)
++ * Square id sits at (64, 240 + 80*id).  From stage 3 on the MMU is enabled, so
++ * create_device_blocks() also maps the 6 MiB of frame buffer the squares touch;
++ * that mapping only lives in the V=P tables, so stage 7 has to go to the
++ * ramoops console instead.
 + *
-+ * Slot layout (8 x u64, read back from Android with dd if=/dev/mem):
-+ *   0 entered _start, 1 V=P+KVA tables built, 2 MMU about to be enabled,
-+ *   3 MMU on, 4 arm_init(), 5 PE_init_platform done, 6 about to arm_vm_init().
++ * Both registers are untouched by the rest of start.s, and x20 (boot_args PA)
++ * and x21 (must stay zero) are never written.
 + */
-+#define K60_MARK_PA     0x00000000A73FF000
-+#define K60_MARK_BLOCK  0x00000000A7200000
-+#define K60_MARK_BASE   0xB0000000
++#define K60_FB_X        64
++#define K60_FB_Y0       240
++#define K60_FB_STEP     80
++#define K60_FB_SIZE     32
++#define K60_FB_BLOCK    0xB8000000
++#define K60_FB_BLOCKS   3
 +
-+.macro K60_MARK id
-+	MOV64	x16, K60_MARK_PA
-+	MOV64	x17, (K60_MARK_BASE + (\id))
-+	str	x17, [x16, #(8 * (\id))]
++.macro K60_FB_STAGE
++	cbz	x27, 9f
++	mov	w16, #(K60_FB_Y0 + (K60_FB_STEP * ($0)))
++	mul	x16, x28, x16
++	add	x16, x16, x27
++	add	x16, x16, #(K60_FB_X * 4)
++	mov	w17, #(($1) & 0xffff)
++	movk	w17, #((($1) >> 16) & 0xffff), lsl #16
++	mov	x18, #(K60_FB_SIZE)
++1:	mov	x19, #(K60_FB_SIZE / 2)
++2:	stp	w17, w17, [x16], #8
++	subs	x19, x19, #1
++	b.ne	2b
++	sub	x16, x16, #(K60_FB_SIZE * 4)
++	add	x16, x16, x28
++	subs	x18, x18, #1
++	b.ne	1b
 +	dsb	sy
++9:
 +.endmacro
 +
 +/*
-+ * create_device_block_entry
++ * create_device_blocks
 + *
-+ * Adds one Device-nGnRnE 2 MiB block entry for a V=P address outside the range
-+ * create_bootstrap_mapping() covers.
++ * Maps $2 consecutive 2 MiB blocks Device-nGnRnE for a V=P range that
++ * create_bootstrap_mapping() does not cover.
 + *   arg0 - virtual/physical base (2 MiB aligned)
 + *   arg1 - L1 table address
-+ *   arg2 - free page pointer (advanced past the L2 page it uses)
-+ *   arg3, arg4, arg5 - scratch
++ *   arg2 - number of 2 MiB blocks (register, it is decremented)
++ *   arg3 - free page pointer (advanced past the L2 page it uses)
++ *   arg4..arg7 - scratch
 + */
-+.macro create_device_block_entry
-+	add	$2, $2, PGBYTES
-+	add	$3, x25, #(BOOTSTRAP_TABLE_BYTES >> 12), lsl #12
-+	cmp	$2, $3
++.macro create_device_blocks
++	add	$3, $3, PGBYTES
++	add	$4, x25, #(BOOTSTRAP_TABLE_BYTES >> 12), lsl #12
++	cmp	$3, $4
 +	b.hs	Lbootstrap_tables_exhausted
-+	create_l1_table_entry	$0, $1, $2, $3, $4, $5
-+	and	$3, $0, #(ARM_TT_L2_INDEX_MASK)
-+	lsr	$3, $3, #(ARM_TT_L2_SHIFT)
-+	lsl	$3, $3, #(TTE_SHIFT)
-+	add	$3, $2, $3
-+	mov	$4, #(ARM_TTE_VALID)
-+	orr	$4, $4, #(ARM_TTE_BLOCK_AF)
-+	orr	$4, $4, #(ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_DISABLE))
-+	MOV64	$5, ARM_TTE_BLOCK_NX
-+	orr	$4, $4, $5
-+	and	$5, $0, #(ARM_TTE_BLOCK_L2_MASK)
-+	orr	$4, $4, $5
-+	str	$4, [$3]
++	create_l1_table_entry	$0, $1, $3, $4, $5, $6
++	and	$4, $0, #(ARM_TT_L2_INDEX_MASK)
++	lsr	$4, $4, #(ARM_TT_L2_SHIFT)
++	lsl	$4, $4, #(TTE_SHIFT)
++	add	$4, $3, $4
++	mov	$5, #(ARM_TTE_VALID)
++	orr	$5, $5, #(ARM_TTE_BLOCK_AF)
++	orr	$5, $5, #(ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_DISABLE))
++	MOV64	$6, ARM_TTE_BLOCK_NX
++	orr	$5, $5, $6
++	and	$6, $0, #(ARM_TTE_BLOCK_L2_MASK)
++	orr	$5, $5, $6
++	mov	$7, #(ARM_TT_L2_SIZE)
++10:	str	$5, [$4], #(1 << TTE_SHIFT)
++	add	$5, $5, $7
++	subs	$2, $2, #1
++	b.ne	10b
 +.endmacro
 +
 +/*
   * _start_first_cpu
   * Cold boot init routine.  Called from __start
   *   x0 - Boot args
-@@ -584,6 +643,30 @@
- 	add		x0, x0, EXT(LowExceptionVectorBase)@pageoff
- 	MSR_VBAR_EL1_X0
+@@ -572,6 +657,15 @@
+ 	.globl EXT(start_first_cpu)
+ LEXT(start_first_cpu)
  
 +	/*
-+	 * K60 breadcrumb M00.
-+	 *
-+	 * This is the first store executed with the MMU off, and the first point
-+	 * at which a fault is observable: VBAR above points at
-+	 * LowExceptionVectorBase, which spins instead of resetting the board.
-+	 * A reset from here therefore means the store itself was fatal (XPU or a
-+	 * dead carveout), not that the kernel never ran.
-+	 *
-+	 * Clear all eight slots first so a stale image from a previous boot cannot
-+	 * be mistaken for progress.
++	 * K60 breadcrumb stage 0 (blue).  x0 is the boot_args physical address
++	 * on entry; Video is at +0x28 and v_rowBytes at +0x38 (boot.h).  Keeping
++	 * the two values in x27/x28 avoids re-reading boot_args under the MMU.
 +	 */
-+	MOV64	x16, K60_MARK_PA
-+	str	xzr, [x16, #0]
-+	str	xzr, [x16, #8]
-+	str	xzr, [x16, #16]
-+	str	xzr, [x16, #24]
-+	str	xzr, [x16, #32]
-+	str	xzr, [x16, #40]
-+	str	xzr, [x16, #48]
-+	str	xzr, [x16, #56]
-+	dsb	sy
-+	K60_MARK 0
++	ldr	x27, [x0, #0x28]				// Video.v_baseAddr
++	ldr	x28, [x0, #0x38]				// Video.v_rowBytes
++	K60_FB_STAGE 0, 0xFF0000FF
 +
- 
- 	// Get the kernel memory parameters from the boot args
- 	ldr		x22, [x20, BA_VIRT_BASE]			// Get the kernel virt base
-@@ -725,6 +808,15 @@
+ 	// Unlock the core for debugging
+ 	msr		OSLAR_EL1, xzr
+ 	msr		DAIFSet, #(DAIFSC_ALL)				// Disable all interrupts
+@@ -725,6 +819,16 @@
  	lsr		x5,  x24, #(ARM_TT_L2_SHIFT)
  	create_bootstrap_mapping x14, x15, x5, x3, x2, x9, x10, x11, x12, x13
  
 +	/*
-+	 * K60 breadcrumb: map the 2 MiB Device block that holds the marker page.
-+	 * x14/x15 (the KVA cursors) are dead here, x1 is the V=P L1 table and x2
-+	 * is the free-page cursor, exactly as create_bootstrap_mapping left them.
++	 * K60 breadcrumb: map the frame buffer rows the squares land in.  x14/x15
++	 * (the KVA cursors) are dead here, x1 is the V=P L1 table and x2 is the
++	 * free-page cursor, exactly as create_bootstrap_mapping left them.
 +	 */
-+	MOV64	x14, K60_MARK_BLOCK
-+	create_device_block_entry x14, x1, x2, x6, x10, x11
-+	K60_MARK 1
++	MOV64	x14, K60_FB_BLOCK
++	mov	x15, #(K60_FB_BLOCKS)
++	create_device_blocks x14, x1, x15, x2, x10, x11, x12, x13
++	K60_FB_STAGE 1, 0xFF00FFFF
 +
  	b Lbootstrap_tables_ready
  Lbootstrap_tables_exhausted:
  	// MMU is still off. Stop with the offending cursor/end preserved for
-@@ -857,9 +949,11 @@
+@@ -857,9 +961,11 @@
  #endif /* HAS_APPLE_PAC */
  
  	// Enable caches, MMU, ROP and JOP
-+	K60_MARK 2
++	K60_FB_STAGE 2, 0xFFFFFF00
  	MOV64   x0, SCTLR_EL1_DEFAULT
  	MSR_SCTLR_EL1_X0
  	isb		sy
-+	K60_MARK 3
++	K60_FB_STAGE 3, 0xFFFF00FF
  
  #if !VMAPPLE
  	MOV64	x1, SCTLR_EL1_DEFAULT
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -349,6 +349,34 @@
+@@ -349,6 +349,44 @@
   *		Function:		Runs on the boot CPU, once, on entry from iBoot.
   */
  
 +#if defined(PONG)
 +/*
-+ * K60 bring-up breadcrumbs (complements K60_MARK in osfmk/arm64/start.s).
++ * K60 bring-up breadcrumbs, second half (start.s draws stages 0..3).
 + *
-+ * start.s maps the 2 MiB Device block holding this page into the V=P bootstrap
-+ * tables and writes slots 0..3 before entering here.  Slots 4..6 continue in C
-+ * while TTBR0 still holds those tables.  arm_vm_init() then installs
-+ * invalid_ttep ("From here on out, we're off the bootstrap translation tables"),
-+ * so the identity map is gone: clear the flag there and let the ramoops console
-+ * take over, which is initialised immediately afterwards.
++ * Same geometry as the assembly: a 32x32 ARGB square, first column at x=64 for
++ * stages 0..6, second column at x=160 for the stages inside arm_vm_init().
++ * start.s maps 6 MiB of frame buffer into the V=P bootstrap tables, so marks
++ * work until arm_vm_init() switches TTBR0 away from them
++ * (set_mmu_ttb_alternate); nothing later can be painted.
 + */
-+#define K60_DIAG_PA             0xA73FF000ULL
-+#define K60_DIAG_MAGIC          0xB0000000U
++#define K60_FB_STAGE_X   64
++#define K60_FB_STAGE_Y   240
++#define K60_FB_STAGE_DY  80
++#define K60_FB_SIZE      32
 +
-+static int k60_diag_phys_ok = 1;
-+
-+static void
-+k60_diag_stage(unsigned int id)
++void
++k60_fb_mark(boot_args *args, unsigned int x0, unsigned int y0, uint32_t colour)
 +{
-+	if (!k60_diag_phys_ok) {
++	uint32_t *fb = (uint32_t *)(uintptr_t)args->Video.v_baseAddr;
++	const uint32_t stride = args->Video.v_rowBytes / sizeof(uint32_t);
++	uint32_t y, x;
++
++	if (fb == NULL || stride == 0 || args->Video.v_depth != 32) {
 +		return;
 +	}
-+	*(volatile uint64_t *)(uintptr_t)(K60_DIAG_PA + (8 * id)) =
-+	    (uint64_t)K60_DIAG_MAGIC + id;
++	for (y = 0; y < K60_FB_SIZE; y++) {
++		for (x = x0; x < x0 + K60_FB_SIZE; x++) {
++			fb[((y0 + y) * stride) + x] = colour;
++		}
++	}
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +}
++
++#define K60_FB_STAGE(args, id, colour) \
++	k60_fb_mark((args), K60_FB_STAGE_X, \
++	    K60_FB_STAGE_Y + (K60_FB_STAGE_DY * (id)), (colour))
 +#endif /* PONG */
 +
  __startup_func
  void
  arm_init(
-@@ -361,6 +389,10 @@
+@@ -361,6 +399,10 @@
  	DTEntry chosen = NULL;
  	unsigned int dt_entry_size = 0;
  
 +#if defined(PONG)
-+	k60_diag_stage(4);
++	K60_FB_STAGE(args, 4, 0xFFFF0000);
 +#endif
 +
  	arm_setup_pre_sign();
  
  	arm_slide_rebase_and_sign_image();
-@@ -381,6 +413,9 @@
+@@ -381,6 +423,9 @@
  #endif /* defined(HAS_APPLE_PAC) */
  
  	PE_init_platform(FALSE, args); /* Get platform expert set up */
 +#if defined(PONG)
-+	k60_diag_stage(5);
++	K60_FB_STAGE(args, 5, 0xFFFFFFFF);
 +#endif
  
  #if __arm64__
  	configure_timer_apple_regs();
-@@ -575,10 +610,16 @@
+@@ -389,6 +434,10 @@
+ 
+ 	configure_misc_apple_boot_args();
+ 	configure_misc_apple_regs(true);
++#if defined(PONG)
++	/* Third column: stages between PE_init_platform and arm_vm_init(). */
++	k60_fb_mark(args, 256, 240, 0xFF00A0FF);        /* apple regs/boot args */
++#endif
+ 
+ #if (DEVELOPMENT || DEBUG)
+ 	unsigned long const *platform_stall_ptr = NULL;
+@@ -459,6 +508,10 @@
+ 
+ 	ml_parse_cpu_topology();
+ 
++#if defined(PONG)
++	k60_fb_mark(args, 256, 320, 0xFFA0FF00);        /* cpu topology parsed */
++#endif
++
+ 
+ 	master_cpu = ml_get_boot_cpu_number();
+ 	assert(master_cpu >= 0 && master_cpu <= ml_get_max_cpu_number());
+@@ -480,6 +533,9 @@
+ 	thread->machine.pcpu_data_base_and_cpu_number =
+ 	    ml_make_pcpu_base_and_cpu_number(0, BootCpuData.cpu_number);
+ 	machine_set_current_thread(thread);
++#if defined(PONG)
++	k60_fb_mark(args, 256, 400, 0xFFFFA000);        /* bootstrap thread set */
++#endif
+ 
+ 	/*
+ 	 * Preemption is enabled for this thread so that it can lock mutexes without
+@@ -494,6 +550,9 @@
+ 
+ 	kernel_debug_string_early("kernel_startup_bootstrap");
+ 	kernel_startup_bootstrap();
++#if defined(PONG)
++	k60_fb_mark(args, 256, 480, 0xFFA000FF);        /* kernel startup done  */
++#endif
+ 
+ 	/*
+ 	 * Initialize the timer callout world
+@@ -504,6 +563,10 @@
+ 
+ 	processor_bootstrap();
+ 
++#if defined(PONG)
++	k60_fb_mark(args, 256, 560, 0xFF00FFC0);        /* processor bootstrap  */
++#endif
++
+ 	if (PE_parse_boot_argn("maxmem", &maxmem, sizeof(maxmem))) {
+ 		xmaxmem = (uint64_t) maxmem * (1024 * 1024);
+ 	} else if (PE_get_default("hw.memsize", &memsize, sizeof(memsize))) {
+@@ -575,10 +638,16 @@
  	gDramSize = *dram_size;
  	pmap_first_pnum = (ppnum_t)atop(gDramBase);
  
 +#if defined(PONG)
-+	k60_diag_stage(6);
++	k60_fb_mark(args, 256, 640, 0xFFFFC000);        /* dram base/size read  */
++	K60_FB_STAGE(args, 6, 0xFFFF8000);
 +#endif
  	arm_vm_init(xmaxmem, args);
  
  #if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
  	(void)pong_ramoops_console_init();
-+	/* TTBR0 now holds invalid_ttep: the V=P identity map is gone. */
-+	k60_diag_phys_ok = 0;
++	/* Stage 7: the only breadcrumb left after the V=P map is dropped. */
 +	pong_ramoops_console_write("K60B: arm_vm_init+ramoops ok\n", 30);
  #endif
  
  	if (debug_boot_arg) {
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -2001,6 +2001,14 @@
+ 	vm_offset_t      ptpage_vaddr;
+ 	vm_map_address_t dynamic_memory_begin;
+ 
++#if defined(PONG)
++	/* K60 breadcrumbs, second column: stages 7..12 live inside this function. */
++	extern void k60_fb_mark(boot_args *, unsigned int, unsigned int, uint32_t);
++#define K60_VM_STAGE(id, colour) \
++	k60_fb_mark(args, 160, 240 + (80 * ((id) - 7)), (colour))
++	K60_VM_STAGE(7, 0xFF0080FF);    /* arm_vm_init() entered            */
++#endif
++
+ 	/*
+ 	 * Get the virtual and physical kernel-managed memory base from boot_args.
+ 	 */
+@@ -2056,6 +2064,10 @@
+ 	} else {
+ 		max_mem_actual = mem_actual;
+ 	}
++#if defined(PONG)
++	K60_VM_STAGE(8, 0xFF00FF80);    /* pong_ram_init() + mem_size done  */
++#endif
++
+ #if !defined(ARM_LARGE_MEMORY)
+ 	if (mem_size >= ((VM_MAX_KERNEL_ADDRESS - VM_MIN_KERNEL_ADDRESS) / 2)) {
+ 		panic("Unsupported memory configuration %lx", mem_size);
+@@ -2075,6 +2087,10 @@
+ 
+ 	physmap_base += physmap_slide;
+ 
++#if defined(PONG)
++	K60_VM_STAGE(9, 0xFF804000);    /* physmap base + slide computed    */
++#endif
++
+ #if XNU_MONITOR
+ 	physmap_base = ROUND_TWIG(physmap_base);
+ #if defined(ARM_LARGE_MEMORY)
+@@ -2198,6 +2214,10 @@
+ 	 */
+ 	init_ptpages(cpu_tte, gVirtBase, dynamic_memory_begin, TRUE, ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
+ 
++#if defined(PONG)
++	K60_VM_STAGE(10, 0xFF8000FF);   /* bootstrap L1/L2 pages built      */
++#endif
++
+ #if defined(ARM_LARGE_MEMORY)
+ 	/*
+ 	 * Initialize l1 page table pages :
+@@ -2366,7 +2386,13 @@
+ 
+ 	arm_set_user_tbi();
+ 
++#if defined(PONG)
++	K60_VM_STAGE(11, 0xFF808080);   /* everything up to physmap init    */
++#endif
+ 	arm_vm_physmap_init(args);
++#if defined(PONG)
++	K60_VM_STAGE(12, 0xFF404040);   /* last mark before TTBR0 switches  */
++#endif
+ 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
+ 
+ #if XNU_MONITOR

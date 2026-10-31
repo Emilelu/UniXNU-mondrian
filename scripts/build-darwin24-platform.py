@@ -40,6 +40,13 @@ def apply_breadcrumbs():
     if probe.returncode == 0:
         print(f'{BREADCRUMBS.name}: already applied')
         return
+    # Dry-run first: `patch --forward` applies the hunks it can and leaves .rej
+    # files behind, which silently corrupts the tree for the next build.
+    probe = subprocess.run(['patch', '-p1', '--dry-run', '-s', '-i', str(BREADCRUMBS)],
+                           cwd=str(WORK), capture_output=True, text=True)
+    if probe.returncode != 0:
+        raise SystemExit(f'{BREADCRUMBS.name} does not apply cleanly:\n'
+                         f'{probe.stdout}{probe.stderr}')
     apply = subprocess.run(['patch', '-p1', '--forward', '-s', '-i', str(BREADCRUMBS)],
                            cwd=str(WORK), capture_output=True, text=True)
     if apply.returncode != 0:

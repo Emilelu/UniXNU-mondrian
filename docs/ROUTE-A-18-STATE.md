@@ -47,6 +47,28 @@ SecurityLock::LockType: SOFTWARE_LOCK …
 
 **盲区**：ramoops 控制台在 `arm_vm_init()` **之后**才初始化，所以那之前死亡全静默。
 
+## 2026-11-01 03:45 面包屑结果：死点 = ml_parse_cpu_topology()
+
+三列共 13 个色块（`0244` 的 FB 标记，见下）实测：左列 6 个、右列 0 个、第三列 1 个。
+→ 依次排除入口、页表、开 MMU、`arm_init()`、`PE_init_platform`（含 ArmDTPlatform /
+ADT 解析），死点落在 `arm_init.c` 里 `ml_parse_cpu_topology()` 内部。
+
+**根因假设（高置信）**：`sm8475.dtsi` 给 8 个 CPU 的 `reg` 是 `0x000,0x100,…0x700`，
+`MPIDR_CLUSTER_ID(reg)` 于是得到 **8 个物理簇**；而 `ml_parse_cpu_topology()` 里
+
+```c
+assert(phys_cluster_id <= MAX_CPU_CLUSTER_PHY_ID);
+assert(topology_info.num_clusters < MAX_CPU_CLUSTERS);   // 非 Apple 板配置普遍 = 2
+```
+
+从第 3 个核起断言失败 → `panic()` → 此时控制台还不存在 → 静默挂死。
+16.6.1 用的 Apple kernelcache 是 RELEASE，`assert` 被编掉，所以同一个 ADT 能过；
+我们从源码编的是 DEVELOPMENT，断言活着。
+
+**待定**：`reg` 到底该是扁平 `0x0..0x7`（一簇）还是真实 3 簇（`0x0-0x3 / 0x100-0x102 / 0x200`）。
+两者都要求 `MAX_CPU_CLUSTERS` ≥ 实际簇数；扁平值还要求硬件 MPIDR 也扁平，
+否则 `ml_get_cpu_number(MPIDR)` 在副核启动阶段会算错索引。
+
 ## 待查（优先）
 
 1. **prelink 缺口（2026-11-01 新发现）**：内核 `__PRELINK_TEXT / __PRELINK_INFO /

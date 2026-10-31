@@ -177,6 +177,44 @@ keybag 初始化、watchdog 策略、0235/0236 探针和启动参数其余部分
 校验值：kernel SHA-256 `6c5585287185161efc84730dd38990ce7746d29f106491cdf689c04ec5e6281d`，
 image SHA-256 `5ece69443b55b4099eca39e0a05b2151bafea0d5caeca3f9c7bf266fdcea8c7b`。
 
+
+### 0238：有界退出原因诊断（已构建，未上机）
+
+相对 0237 仅增加观察，不修改终止策略、返回值、reason 所有权或内存配置。
+
+```
+KX! N PID COMM exit=E sig=S r=R ns=NS code=0xC rf=0xF jf=0xJ
+K60XT N PID COMM xstat=0xX r=R ns=NS code=0xC rf=0xF
+```
+
+- `r` 区分 reason 是否存在；`ns/code/rf` 是提交时的标量值；`jf` 来自
+  `exit_with_reason()` 的 `jetsam_flags` 参数（此时尚未 OR 进 p_lflag）。
+- 目标 proc 锁和退出事务仍持有 reason；只读取标量，不分配/遍历 payload，
+  不新增或释放引用。`K60XT` 只在既有 `!P_LEXIT` 兜底分支内输出。
+- 新日志单独使用原子取号，限前 300 条 KX! 和 32 条 K60XT；取号顺序不等于显示顺序。
+  0235 的旧摘要全局字段仍未同步，不能因新行使用原子号而把旧摘要当作一致快照。
+
+| ns/code | 含义与限制 |
+| --- | --- |
+| 1/4 | jetsam：VM 可用页短缺 |
+| 1/12 | jetsam：compressor 空间短缺 |
+| 1/14 | jetsam：持续内存压力 |
+| 1/2、1/7 | highwater / 单进程内存限额；不一定是全局内存压力 |
+| 1/9 | idle-exit；不能因 SIGKILL 就叫它崩溃 |
+| 1/100 | CPU limit；即便 jf=0 也可能出现 |
+| 2/9 | SIGNAL/SIGKILL；可能是普通 kill 或其他策略的 bare psignal，不能直接确认发送者 |
+| 3、6、9、25 | CODESIGNING、DYLD、EXEC、SANDBOX 命名空间；按各自 code 解释 |
+
+`rf & 0x4` 表示显式 reason 从用户态提供；普通 kill 也可能没有这个位。
+缺失专用安全 reason 也不排除安全策略。若只得到 SIGNAL/9，下一步才在实际
+syscall/策略发出点加狭窄标记，不能把 current_proc 自动称为原始发送者。
+
+校验：完整构建、patch 反向检查、从最终 boot 镜像提取 kernel/ADT/配置均通过；
+与 0237 比较，启动配置相同，解析后的 ADT 仅 `/chosen/random-seed` 改变。
+
+kernel SHA-256 `46fb616d0645b1442bc55262d6cefd3656b3fd82cae101fa58ee914f2e36d486`；
+image SHA-256 `b4e2dafccd8a8589ecea0067a509a39a8a3a4e974a1661adc8330f5346c4b01e`。
+
 ## 5. ADT `/chosen` 身份（沿用既有配置）
 
 ADT 由 `tree/scripts/unixnu/devicetree.py::generate()` 生成，配置来自
@@ -265,6 +303,7 @@ if ((memory_size != 0) && (mem_size > memory_size)) {
 | `boot-mem.img` | 12:47 | `d47a65fe` | + 0236 v1 内存报数 | 被下面这颗取代 |
 | **`boot-trace2.img`** | **13:20** | **`27e06e64`** | **0235 v2 去重追踪 + 0236 v2（内存 + 面板帧缓冲报数 + `k60_capmanaged` 开关）+ `/chosen` 三条** | **已刷 13:21，正在跑** |
 | `boot-nowatch.img` | 0237 | `6c558528` | K60WATCH worker 默认关闭；其余启动配置沿用 trace2 | 构建、提取校验、fastboot 临时引导成功；屏幕结果待观察 |
+| `boot-exitreason.img` | 0238 | `46fb616d` | 提交原因字段和有界兜底日志；沿用关闭 K60WATCH 的配置 | 构建/提取比对通过，未临时引导 |
 
 > `boot-trace2.img` 相对 `boot-wifi.img` 的 delta：**0235 v1→v2（追踪形状）** + **0236 v1→v2
 > （多一行面板帧缓冲判定 + 一个默认关闭的内存上限开关）**。ADT 的**配置**完全相同；
@@ -286,7 +325,7 @@ if ((memory_size != 0) && (mem_size > memory_size)) {
 ## 9. 下一步
 
 1. 校验并临时引导 `boot-nowatch.img`，确认 K60WATCH 默认不再刷屏。
-2. 单独增加退出原因诊断，记录 reason namespace/code/flags 与 jetsam_flags。
+2. 临时引导已构建的 `boot-exitreason.img`，读取 reason namespace/code/flags 与 jetsam_flags。
    对 reason 为 SIGNAL 的路径，才进一步记录实际用户态请求或内核调用点。
 3. 内存与面板报告只用于筛查：`cap available` 不证明内存范围错误，`INSIDE` 不证明帧缓冲
    已进入空闲队列；必须核对 loader 内存契约与实际保留页逻辑后，才决定启用 cap 或移植 0170。

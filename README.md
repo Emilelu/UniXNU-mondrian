@@ -18,7 +18,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 迁移记录见 `porting.toml`；它同时是 [unixnu.com/zh/devices/mondrian](https://unixnu.com/zh/devices/mondrian)
 页面渲染的数据源。
 
-## 当前状态（2026-10-31，0237 构建）
+## 当前状态（2026-10-31，0238 诊断镜像）
 
 | 功能 | 状态 | 说明 |
 | --- | --- | --- |
@@ -37,6 +37,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | 控制台刷屏 | 🟡 | 已清空 resource-violation 三条格式串；0237 将 `K60WATCH` 周期探针改为默认不启动，`k60_watch=1` 才开启；`boot-nowatch.img` 已通过打包内容校验并由 fastboot 临时引导（exit=0），待屏幕确认 |
 | **用户态启动** | 🟡 | 进度条**会走一小段后停住**；5 秒统计**每窗恰好 2 帧**，窗口 24.9 s→5.6 s、每帧驱动 39.4 ms→2.6 ms、GPU 等待 0 µs ⇒ 优先检查用户态启动/退出原因（见 [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)） |
 | **用户态可观测性** | ✅ | 0235 v2：`KE` 按路径去重的 exec 尝试样本（≤128 行）/ `KX!` 只打异常退出 / `K60 ex= kx= abn=` + `K60 last exec:` + `K60 last bad :` 最近事件摘要（共享字段尚未同步） |
+| **退出原因诊断** | 🟡 | 0238 在 `KX!` 记录 `r/ns/code/rf/jf`，另用 `K60XT` 覆盖无前置 BSD exit 的兜底路径；已构建并提取校验，尚未临时引导；`K60WATCH` 仍默认关闭 |
 | **ADT `/chosen` 身份** | 🟡 | `mac-address-wifi0` + `unique-chip-id` + `chip-id` 已进 ADT（字节校验通过），效果未上机确认 |
 | **loader 内存与面板报数** | 🟡 | 0236 v2 打印 `K60 MEM:`（判定同族 0172 是否适用）与 `K60 FB :`（面板帧缓冲是否落在 VM 可管理区间内，判定同族 0170 是否适用）；`k60_capmanaged=1` 才启用上限收敛，默认关闭 |
 | **GPU（Adreno 730）** | 🟡 | `PongAdreno` 驱动已 `force_load` 进内核（51 处符号），**未上机启动** |
@@ -65,8 +66,9 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
    - 当前追踪使用无锁、非原子的全局计数和字符串，日志可能交错，`last bad` 各字段可能
       属于不同事件；`KE` 位于加载完成之前，`ex` 统计 exec 尝试，既不是成功启动数也不是
       进程数。因此不能用这些值认定计数倒退、重启、内存压力或卡死位置。
-   - 下一项诊断应记录内核已提交的 `exit_reason`（namespace/code/flags）与 `jetsam_flags`，
-      再按实际路径核对 SIGKILL 来源；**本次 0237 镜像仅关闭 K60WATCH，不夹带新终止探针**。
+   - 0238 诊断镜像已记录内核提交的 `exit_reason`（namespace/code/flags）和 `jetsam_flags`，
+     尚待上机；字段用于区分已记录原因，不等同于信号原始发送者。0238 与 0237 基线镜像的
+     启动配置完全一致，保留默认关闭 K60WATCH 的行为。
 
 2. **内核源码构建已修复**（本节从"不可用"转为已解决，保留原因备查）：
    - `'stdio.h' file not found` → `HOST_CC` 指向 `xnu-host-cc`；

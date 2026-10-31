@@ -124,3 +124,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-zap-reservation.patch
 0235-k60-exec-exit-trace.patch
 0236-k60-managed-memory-and-panel.patch
 0237-k60-keybag-watch-opt-in.patch
+0238-k60-exit-reason-observer.patch

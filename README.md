@@ -18,7 +18,35 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 迁移记录见 `porting.toml`；它同时是 [unixnu.com/zh/devices/mondrian](https://unixnu.com/zh/devices/mondrian)
 页面渲染的数据源。
 
+## 路线迁移：darwin22 → darwin24（2026-11-01）
+
+**16.6.1 / 20G81 / darwin22 分支已关闭。** 该分支解决了所有影响启动的内核 panic
+（8 核到 launchd、SpringBoard 拉起、`/private/var` 读写、keybag、watchdogd、进度条上屏），
+但用户态 **sig=9 风暴**（约 98% 守护进程被 signal 9 杀掉）无法解决——
+补丁 `0240`（无条件 Sandbox 策略）与 `0241`（`k60-no-lc=1`）都未能止住，故放弃。
+
+现工作于 **darwin24（iPadOS 18.7.10 / 22H374 / xnu-11417.140.69）**，路线名 `route-a-18`，
+依据是同为 SM8475 的 `UniXNU-pong`。当前进度：
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| darwin24 内核构建 | ✅ | Linux 全量构建，20,872,376 B，sha256 `2f485593…` |
+| 平台层链接 | ✅ | `libArmDTPlatform.a`(27,808 B) + `libArmCpu.a`(34,600 B) 已 `force_load` |
+| loader `boot_args` ABI | ✅ | 由 Darwin 22（`0x2e0`/608）修正为 Darwin 24（`0x480`/1024） |
+| loader 跳板 | ✅ | 屏幕出现绿条，证明已跳入内核入口 PA `0xC74C04A0` |
+| **内核早期启动** | 🔴 | 跳入后**静默复位**；观测盲区：ramoops 在 `arm_vm_init()` 之后才初始化 |
+| FDT 契约 | 🟡 | 待查：打包的是原始 `hardware.dtb`（14 节点），缺 `/chosen` `/arm-io` `/defaults` `/options` |
+
+完整交接见 **[`docs/ROUTE-A-18-HANDOFF-2026-11-01.md`](docs/ROUTE-A-18-HANDOFF-2026-11-01.md)**，
+当前状态见 [`docs/ROUTE-A-18-STATE.md`](docs/ROUTE-A-18-STATE.md)。
+
+---
+
 ## 当前状态（2026-10-31，Data ENOSPC 已证实）
+
+> 以下状态表属 **darwin22（16.6.1）阶段的历史记录**，分支已关闭，仅作背景参考。
+
+
 
 | 功能 | 状态 | 说明 |
 | --- | --- | --- |

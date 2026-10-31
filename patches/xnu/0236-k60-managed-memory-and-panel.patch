@@ -1,0 +1,62 @@
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -1852,6 +1852,59 @@
+ 
+ 	mem_actual = args->memSizeActual ? args->memSizeActual : mem_size;
+ 
++#if defined(PONG)
++	/*
++	 * K60: two read-only lines, and one change that stays off unless the boot
++	 * argument asks for it.
++	 *
++	 * The panel line answers whether the sibling K60 port's 0170 finding
++	 * applies: there the ABL display controller kept scanning the panel buffer
++	 * and any of those pages that reached a user map or a page table was
++	 * overwritten by console text, showing up as a striped panel and as
++	 * PTE/pthread/heap corruption. The fix was to keep those pages in the
++	 * vm_page array but never put them on a free list - a hole in the array
++	 * trips an assertion in vm_page_init. This line says whether the boot
++	 * framebuffer sits inside the range the VM is about to manage.
++	 *
++	 * The management line answers whether the sibling port's 0172 finding
++	 * applies. mem_actual only feeds max_mem_actual here; it never caps
++	 * mem_size, so the VM manages args->memSize worth of pages. Where the
++	 * loader's memSize spans DRAM the AP cannot decode, the first allocation up
++	 * there hangs the machine with no panic and no console output. That was
++	 * 703 MiB of usable RAM against a 1216 MiB span on the sibling port.
++	 *
++	 * k60_capmanaged=1 applies the cap. It is off by default so that the image
++	 * that measures is also the image that can test, without a kernel rebuild.
++	 */
++	{
++		uint64_t k60_fb = (uint64_t) args->Video.v_baseAddr;
++		uint64_t k60_fb_bytes = (uint64_t) args->Video.v_rowBytes * (uint64_t) args->Video.v_height;
++		uint64_t k60_fb_end = k60_fb + k60_fb_bytes;
++		int      k60_cap = 0;
++
++		printf("K60 MEM: memSize %llu MiB, memSizeActual %llu MiB (%s), physBase 0x%llx physSize 0x%llx\n",
++		    (unsigned long long) (args->memSize >> 20),
++		    (unsigned long long) (mem_actual >> 20),
++		    (args->memSizeActual && args->memSizeActual < args->memSize) ? "cap available" : "no cap",
++		    (unsigned long long) gPhysBase,
++		    (unsigned long long) mem_size);
++		printf("K60 FB : base 0x%llx %ux%u depth 0x%x stride %u bytes 0x%llx end 0x%llx -> %s managed range\n",
++		    (unsigned long long) k60_fb, (unsigned) args->Video.v_width, (unsigned) args->Video.v_height,
++		    (unsigned) args->Video.v_depth, (unsigned) args->Video.v_rowBytes,
++		    (unsigned long long) k60_fb_bytes, (unsigned long long) k60_fb_end,
++		    (k60_fb != 0 && k60_fb >= (uint64_t) gPhysBase
++		    && k60_fb_end <= (uint64_t) gPhysBase + (uint64_t) mem_size) ? "INSIDE" : "outside");
++
++		PE_parse_boot_argn("k60_capmanaged", &k60_cap, sizeof(k60_cap));
++		if (k60_cap && mem_actual != 0 && mem_actual < mem_size) {
++			printf("K60 MEM: k60_capmanaged=1, managed memory 0x%llx -> 0x%llx\n",
++			    (unsigned long long) mem_size, (unsigned long long) mem_actual);
++			mem_size = mem_actual;
++			gPhysSize = mem_size;
++		}
++	}
++#endif
++
+ 	if ((memory_size != 0) && (mem_size > memory_size)) {
+ 		mem_size = memory_size;
+ 		max_mem_actual = memory_size;

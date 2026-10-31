@@ -116,3 +116,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-second-static-trust-cache.patch
 0221-k60-watchdog-status.patch
 0222-k60-disable-watchdogd.patch
 0230-k60-exc-resource-early-out.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-zap-reservation.patch
+0231-k60-accel-stub-adreno-gate.patch
+0232-k60-pong-adreno-ramoops-bridge.patch
+0233-k60-mfb-selector-success.patch

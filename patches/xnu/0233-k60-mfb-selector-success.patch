@@ -1,0 +1,95 @@
+K60 MFB candidate patch: unimplemented IOMFB selectors answer success.
+
+Merge of the reference 0046 semantics with the K60 MiniIOMobileFramebuffer
+design intent, as agreed for Alternative D (candidate only: NOT added to
+patches/xnu/series, kernel NOT rebuilt).
+
+Semantics:
+- default path (selector has no case): keep the once-per-selector log, zero
+  every requested scalar output and the structure output (when no output
+  descriptor is attached), and return kIOReturnSuccess. This mirrors sweet
+  0046-sweet-iosurface-iomfb.patch: externalMethod seeds
+  IOReturn ret = kIOReturnSuccess (line 1370) and its default: break falls
+  through to return ret with zeroed outputs (lines 1425-1447).
+- exception kept from the K60 design intent (the old comment at
+  MiniIOMobileFramebuffer.cpp:1390-1392): GetGammaTable must not succeed with
+  an all-zero LUT -- that describes a black display. Selector 27 =
+  _kern_GetGammaTable[StructMethod] per the 20G81 IOMobileFramebuffer
+  framework kern_* table (sweet NOTES.md:114); a 20G81 backboardd was
+  observed calling IOMFB selectors 57, 15, 22, 29, 33, 79, 74, 12, 6, 27,
+  17, 84, 50 and surviving the 0046 all-success backend (sweet NOTES.md:86),
+  so 27 is the only query this backend refuses.
+- SetGammaTable (selector 17, same table) stays on the success path: this
+  software backend never consumes the table, so a written-but-ignored table
+  cannot blacken the panel.
+- explicit unsupported cases above the default are untouched: GetDisplayArea
+  (falls back to the framework default), GetBlock outside block 0x40, and
+  GetDotPitch without a DPI value.
+
+Basis:
+- refs/ios-sweet-k60/xnu/patches/0046-sweet-iosurface-iomfb.patch:1370
+  (ret = kIOReturnSuccess) and :1425-1447 (default: break -> zeroed outputs,
+  return ret).
+- refs/ios-sweet-k60/NOTES.md:86 (boot 0052n: backboardd opens the display
+  and walks selectors 57, 15, 22, 29, 33, 79, 74, 12, 6, 27, 17, 84, 50).
+- refs/ios-sweet-k60/NOTES.md:114 (kern_* selector table: 27 GetGammaTable,
+  17 SetGammaTable, 15 SetDebugFlags).
+- iokit/Kernel/MiniIOMobileFramebuffer.cpp:1390-1392 (K60 design intent
+  comment this patch partially preserves).
+
+Verification: git apply --check on a clean copy of the effective
+out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work tree
+(sideD-check.log). The series resolver (scripts/unixnu/patches.py:59) uses
+git apply, so this quilt-style header is accepted.
+diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+index 666b399..7aa5b65 100644
+--- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
++++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+@@ -55,6 +55,7 @@ enum {
+ 	kFBMethodSwapSignal             = 20,
+ 	kFBMethodSetDisplayDevice       = 22,
+ 	kFBMethodGetDigitalOutState     = 25,
++	kFBMethodGetGammaTable          = 27,
+ 	kFBMethodGetDotPitch            = 28,
+ 	kFBMethodGetDisplayArea         = 29,
+ 	kFBMethodSetColorRemapMode      = 33,
+@@ -1387,10 +1388,35 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 		    args->scalarInputCount > 1 ? in[1] : 0, args->scalarInputCount > 2 ? in[2] : 0, args->scalarOutputCount,
+ 		    args->structureInputSize, args->structureOutputSize);
+ 	}
+-	/* In particular, GetGammaTable must not succeed with an all-zero LUT:
+-	 * that describes a black display. Unsupported hardware queries/setters
+-	 * must leave the framework's software/default path in charge. */
+-	return kIOReturnUnsupported;
++	/* Merged semantics: the reference 0046 backend seeds
++	 * IOReturn ret = kIOReturnSuccess and answers every unimplemented
++	 * selector with zeroed outputs and success; a 20G81 backboardd walked
++	 * IOMFB selectors 57, 15, 22, 29, 33, 79, 74, 12, 6, 27, 17, 84, 50 and
++	 * kept going (sweet NOTES.md:86). Keep that behaviour, but preserve the
++	 * K60 design intent for the one hardware query that must never be
++	 * faked: GetGammaTable (selector 27, _kern_GetGammaTable[StructMethod]
++	 * in the 20G81 framework's kern_* table, sweet NOTES.md:114) must not
++	 * succeed with an all-zero LUT -- that describes a black display.
++	 * Other query-type selectors keep their explicit unsupported cases
++	 * above (GetDisplayArea, GetBlock outside block 0x40, GetDotPitch
++	 * without a DPI value). SetGammaTable (selector 17) stays on the
++	 * success path: this software backend never consumes the table, so a
++	 * written-but-ignored table cannot blacken the panel. */
++	if (selector == kFBMethodGetGammaTable) {
++		return kIOReturnUnsupported;
++	}
++
++	/* Unimplemented selector: answer like the reference 0046 backend --
++	 * zero every requested output and report success. */
++	if (args->scalarOutput != NULL) {
++		for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
++			args->scalarOutput[i] = 0;
++		}
++	}
++	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
++		bzero(args->structureOutput, args->structureOutputSize);
++	}
++	return kIOReturnSuccess;
+ }
+ 
+ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */

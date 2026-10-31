@@ -38,3 +38,15 @@ K60（mondrian）有第三方 TWRP 3.7.1_12 v8.6 A14 / OFRP 设备树，但**必
 - Data 无法读取时不要格式化；先保存 stage/dmesg，由设备维护者判断。
 
 官方文档：https://unixnu.com/zh/porting/dual-system-partition
+
+
+## unixnu 内部 Data 空间（2026-10-31 补充）
+
+双系统外层 unixnu 已有 32 GiB，不代表其内部 APFS Data 可用 32 GiB。
+最近历史安装：OS 4.746 GiB、SystemOS 2.482 GiB、Data APFS 256 MiB
+（7420 MiB 偏移、GPT 窗口 258 MiB）；窗口之后约 24.502 GiB 尚未利用。
+该历史清单未做设备读回，实际修复前必须从 recovery 重新获取布局与当前 Data 副本。
+
+用户日志已确认 Data APFS 写事务 ENOSPC。只读备份和保留旧卷的 22 GiB Data 预案见
+[DATA-SPACE-2026-10-31.md](DATA-SPACE-2026-10-31.md)。不需再次缩 Android F2FS；
+不得把旧首次安装/replace-existing-data 脚本当作保留数据的 APFS 扩容器。

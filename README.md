@@ -18,7 +18,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 迁移记录见 `porting.toml`；它同时是 [unixnu.com/zh/devices/mondrian](https://unixnu.com/zh/devices/mondrian)
 页面渲染的数据源。
 
-## 当前状态（2026-10-31，0238 诊断镜像）
+## 当前状态（2026-10-31，Data ENOSPC 已证实）
 
 | 功能 | 状态 | 说明 |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **平台驱动链接** | ✅ | `ArmDTPlatform`/`ArmCpu`/`NativeUfs` 已 `force_load` 进内核 |
 | **控制台字体放大** | ✅ | `k60_fontscale=3` 生效，日志在 1440x3200 上可读（0214 溢出已修） |
 | UFS root（SHNGROOT） | ✅ | OS / SystemOS 两个只读窗口，union 挂到 `/` |
-| `/private/var`（Data） | ✅ | 真实 UFS Data 窗口读写挂载 |
+| `/private/var`（Data） | 🟡 | 真实 UFS Data 可读写挂载，但用户日志已证实 APFS `ENOSPC`；最近历史安装仅 256 MiB，32 GiB unixnu 内约 24.5 GiB 未分配给窗口；当前容量/占用待 recovery 读回 |
 | keybag / MKB | ✅ | ADT `/defaults/no-effaceable-storage` + 内核写明文 `systembag.kb` |
 | watchdogd | ✅ | launchd disabled-jobs 策略禁用（core 补丁 0222） |
 | SpringBoard 显示模式 | ✅ | ADT `display-scale = 3` |
@@ -44,9 +44,20 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **IOMFB selector 兜底** | 🟡 | 0233 补丁已入 series（`GetGammaTable` 仍保持 unsupported），未上机 |
 | 触摸 / 120 Hz / 音频 / 网络 / 相机 | ❌ | 未开始 |
 
-## 当前卡点（2026-10-31，SIGKILL 原因待查）
+## 当前卡点（2026-10-31，先解决 Data 写入空间）
 
-1. **用户态启动在 UI 起来之后停住**（当前唯一硬阻断）。完整证据链见
+已确认一个必须先解决的存储阻断：`disk5s1 launchd/usermanagerd/logd_helper: ENOSPC`，
+`free_blocks` 约 1208 低于 `threshold_blocks=1310`，APFS 拒绝 INSERT 写事务。
+`xid` 增加不能当作写入成功或 UI 推进的证据。最近历史安装记录是 256 MiB APFS Data
+（不是此前误认的 512 MiB），外层 32 GiB 仍有约 24.5 GiB 未分配给窗口；
+“主要由日志写满”尚未统计证实。详见 [Data 容量与保留数据方案](docs/DATA-SPACE-2026-10-31.md)。
+
+预案是在 unixnu 偏移 8 GiB 处放入扩大后的 22 GiB Data，保留旧卷，末尾留约 2 GiB。
+须先 recovery 只读备份、在副本上用支持的 APFS 工具扩容并核验，不能靠改窗口长度或
+替换空种子处理。当前 UFS Data 挂载分支另有 2 GiB 上限，部署前需单独验证解除。
+**本次只新增只读采集/统计工具与文档，没有改写手机分区、窗口表或 APFS 容量。**
+
+1. **用户态启动在 UI 起来之后停住**。完整证据链见
    [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)，要点：
    - 进度条**会往前走一小段然后停住**。5 秒统计行是"打完即清零"的窗口量，
      实测连续六窗**每窗恰好 2 帧**，窗口长度有波动、末窗短于首窗（24895 / 10191 / 11968 / 12053 / 7319 / 5597 ms），
@@ -141,6 +152,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | `scripts/make-k60-gpt-data-image.py` | 裸 APFS → GPT 磁盘镜像 |
 | `scripts/install-k60-ufs-data.py` | 把 Data 窗口写进 `unixnu`（支持 `--dry-run`） |
 | `scripts/verify-k60-boot-img.sh` | boot v4 镜像独立校验（不依赖 `unixnu bootimg` 自带校验） |
+| `scripts/inspect-k60-data.py` | 只读采集 recovery 的 unixnu/Data 备份、核验 SHNGROOT/GPT/APFS 容量，`--usage` 在本地统计目录元数据 |
 | `scripts/build-pong-adreno-platform-linux.py` | 在 WSL 上产出 `libPongAdrenoPlatform.a`（macOS 版的 Linux 移植） |
 | `scripts/build-xnu-4k-baseline.sh` | 内核构建驱动脚本（设备仓版优先于框架仓版；已含强制重链修复） |
 | `scripts/sync-repos.sh` | 全部本地仓 fetch + 落后/领先报告，干净的仓可 ff-only |

@@ -4,7 +4,7 @@ schema_version = 2
 name = "mondrian"
 soc = "SM8475"
 soc_source = "sm8475"
-os_profile = "ipados-17.7.11-21H461"
+os_profile = "ipados-18.7.10-22H374"
 description = "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up"
 kit = "mondrian"
 

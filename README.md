@@ -35,8 +35,9 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | watchdogd | ✅ | launchd disabled-jobs 策略禁用（core 补丁 0222） |
 | SpringBoard 显示模式 | ✅ | ADT `display-scale = 3` |
 | 控制台刷屏 | 🟡 | 已清空 resource-violation 三条格式串；0237 将 `K60WATCH` 周期探针改为默认不启动，`k60_watch=1` 才开启；`boot-nowatch.img` 已通过打包内容校验并由 fastboot 临时引导（exit=0），待屏幕确认 |
-| **用户态启动** | 🟡 | 进度条**会走一小段后停住**；5 秒统计**每窗恰好 2 帧**，窗口 24.9 s→5.6 s、每帧驱动 39.4 ms→2.6 ms、GPU 等待 0 µs ⇒ 优先检查用户态启动/退出原因（见 [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)） |
+| **用户态启动** | 🟡 | 进度条到 ~1/3 后周期性回落；0235 v2 实测 98% 退出为 sig=9（tccd/timed/securityd/usermanagerd 成批）。根因已定位到源码级：`kern_minimac.c:371` 的 AMFI/Sandbox 替身策略被缺失的 boot-arg `amfi_get_out_of_my_way` 拦住，`__mac_syscall` 全部 ENOPOLICY(159)——与 sweet NOTES:91 记录的同名死亡路径一致（含 SpringBoard 的 work-interval）。详见 [`docs/DIAGNOSIS-SANDBOX-2026-10-31.md`](docs/DIAGNOSIS-SANDBOX-2026-10-31.md)；`boot-amfi.img` 已构建（唯一 delta = 该 boot-arg） |
 | **用户态可观测性** | ✅ | 0235 v2：`KE` 按路径去重的 exec 尝试样本（≤128 行）/ `KX!` 只打异常退出 / `K60 ex= kx= abn=` + `K60 last exec:` + `K60 last bad :` 最近事件摘要（共享字段尚未同步） |
+| **minimac 策略闸门** | 🟡 | 仓库自带 AMFI/Sandbox 替身（`kern_minimac.c`，含 container-path/priv 表/dyld policy），由 `amfi_get_out_of_my_way=1` 启用；此前所有镜像都没带这个参数，替身从未注册。`boot-amfi.img` 为打开后的第一颗 |
 | **退出原因诊断** | 🟡 | 0238 在 `KX!` 记录 `r/ns/code/rf/jf`，另用 `K60XT` 覆盖无前置 BSD exit 的兜底路径；已构建并提取校验，尚未临时引导；`K60WATCH` 仍默认关闭 |
 | **ADT `/chosen` 身份** | 🟡 | `mac-address-wifi0` + `unique-chip-id` + `chip-id` 已进 ADT（字节校验通过），效果未上机确认 |
 | **loader 内存与面板报数** | 🟡 | 0236 v2 打印 `K60 MEM:`（判定同族 0172 是否适用）与 `K60 FB :`（面板帧缓冲是否落在 VM 可管理区间内，判定同族 0170 是否适用）；`k60_capmanaged=1` 才启用上限收敛，默认关闭 |

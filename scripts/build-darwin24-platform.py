@@ -21,11 +21,33 @@ LOGDIR.mkdir(parents=True, exist_ok=True)
 
 ARM_DT = TREE / 'build/armdt-platform/libArmDTPlatform.a'
 ARM_CPU = TREE / 'build/armcpu/libArmCpu.a'
+BREADCRUMBS = Path(__file__).resolve().parents[1] / 'patches/xnu-ipados18/0244-k60-breadcrumbs.patch'
 
 for lib in (ARM_DT, ARM_CPU):
     if not lib.exists():
         raise SystemExit(f'missing archive: {lib}')
     print(f'{lib.name}: {lib.stat().st_size} bytes')
+
+
+def apply_breadcrumbs():
+    """Apply 0244 to the pong work tree, skipping it when it is already there.
+
+    The tree carries pong's 0001 patch as uncommitted edits, so 0244 is kept as a
+    standalone diff against that state rather than a commit it could be rebased on.
+    """
+    probe = subprocess.run(['patch', '-p1', '-R', '--dry-run', '-s', '-i', str(BREADCRUMBS)],
+                           cwd=str(WORK), capture_output=True, text=True)
+    if probe.returncode == 0:
+        print(f'{BREADCRUMBS.name}: already applied')
+        return
+    apply = subprocess.run(['patch', '-p1', '--forward', '-s', '-i', str(BREADCRUMBS)],
+                           cwd=str(WORK), capture_output=True, text=True)
+    if apply.returncode != 0:
+        raise SystemExit(f'{BREADCRUMBS.name} did not apply:\n{apply.stdout}{apply.stderr}')
+    print(f'{BREADCRUMBS.name}: applied')
+
+
+apply_breadcrumbs()
 
 toolchain = Path('/opt/unixnu-linux')
 clt = toolchain / 'CommandLineTools/usr'

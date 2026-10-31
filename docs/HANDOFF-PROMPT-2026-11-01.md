@@ -1,6 +1,9 @@
-# 交接 Prompt（2026-11-01）
+# 交接 Prompt — K60 iOS 移植（darwin22 → darwin24）
 
-```markdown
+> 用途：把下面这份 brief 完整交给接手的 agent。本文自包含，接手方无需读本对话。
+
+---
+
 你是 Redmi K60（mondrian / SM8475）移植 iOS 的主 agent，接手一次**路线迁移**：
 从已经跑通的 **darwin22（iOS/iPadOS 16.6.1 / 20G81 / xnu-8796）**，迁移到
 **darwin24（iPadOS 18.7.10 / 22H374 / xnu-11417）**。
@@ -61,7 +64,8 @@ ramoops 控制台（K60 基址 `0xA7000000`）要到 `arm_vm_init()` **之后**�
 ## 已验证完成、不要重做的四件事
 
 1. **平台层已补**：`libArmDTPlatform.a`(27,808 B) + `libArmCpu.a`(34,600 B) 已针对 darwin24 构建
-   并用 `-Wl,-force_load` 链入。内核 20,872,376 B，sha256 `2f485593b3f7c2d35657f14d5e2e5804ca434fbf56df6f275c0802bf32a7e5cd`。
+   并用 `-Wl,-force_load` 链入。内核 20,872,376 B，sha256
+   `2f485593b3f7c2d35657f14d5e2e5804ca434fbf56df6f275c0802bf32a7e5cd`。
    没有这一层，`PE_init` 找不到 `IODTPlatformExpert`，内核没有控制台。
 2. **`boot_args` ABI 已修**：`uefi-mondrian/.../DarwinBootPkg/Driver/BootArgs.h` 从
    Darwin 22（`sizeof 0x2e0`、命令行 608）改为 Darwin 24（`0x480`、1024，`BootFlags 0x470`、
@@ -94,8 +98,8 @@ ramoops 控制台（K60 基址 `0xA7000000`）要到 `arm_vm_init()` **之后**�
   `ArmDTPlatform.cpp` 头注释里声明 `configure()` 必需的东西（"absent inputs make configure() fail"）
 - payload 里 `adt_sha256 = 78f8ecd0…` 但 `adt.bin` 并不存在
 
-`k60-work/adt-generate2.py` 已能生成 14,620 B 的 ADT（注意它头部 magic 是 `0x06000000`，
-是**容器格式**，内部才嵌 FDT；`adt-walk.py` 假设裸 FDT 会报 `not an FDT`，需先修）。
+`scripts/adt-generate.py` 已能生成 14,620 B 的 ADT（注意它头部 magic 是 `0x06000000`，
+是**容器格式**，内部才嵌 FDT；直接按裸 FDT 解析会报 `not an FDT`，需先定位 FDT 魔数）。
 
 ## 建议的动作顺序
 
@@ -112,14 +116,16 @@ ramoops 控制台（K60 基址 `0xA7000000`）要到 `arm_vm_init()` **之后**�
 
 ```bash
 # 1) 平台驱动归档
-wsl -d Ubuntu-24.04 -- python3 <workspace>/k60-work/build-k60-platform-archives.py
+wsl -d Ubuntu-24.04 -- python3 ~/hackios/UniXNU-mondrian/scripts/build-k60-platform-archives.py
 
 # 2) 内核（含 force_load 两个归档）
-wsl -d Ubuntu-24.04 -- python3 <workspace>/k60-work/route-a18-platform-build.py
+wsl -d Ubuntu-24.04 -- python3 ~/hackios/UniXNU-mondrian/scripts/build-darwin24-platform.py
 ```
 
 **坑（必读）**：
-- `LD_KERNEL_ARCHIVES` 会**替换**默认列表 → 必须显式带 `-L$FAKEROOT/usr/local/lib/kernel -lfirehose_kernel`
+
+- `LD_KERNEL_ARCHIVES` 会**替换**默认列表 → 必须显式带
+  `-L$FAKEROOT/usr/local/lib/kernel -lfirehose_kernel`
 - **make 不追踪命令行变量变化** → 改 `LD_KERNEL_ARCHIVES` 后必须先删
   `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf` 才会重新链接。
   这条坑过一次：sha256 完全没变却以为链接成功。
@@ -138,7 +144,7 @@ cd /tmp/k60build && ./unixnu bootimg -D ~/hackios/UniXNU-mondrian \
   --ramdisk <OUT>/payload/payload.img \
   -o /mnt/d/Android/k60-ios/<name>.img
 # rc=1 + "boot image header does not match the requested parameters" 是已知误报，
-# 必须用独立哈希校验（见 HANDOFF §5）
+# 必须用 scripts/verify-boot-img-shim.py 独立校验
 ```
 
 ## ★ 用子 agent 提高效率
@@ -171,14 +177,20 @@ cd /tmp/k60build && ./unixnu bootimg -D ~/hackios/UniXNU-mondrian \
 
 用户是工程师，讨厌空话。直接给：改了什么、依据是什么、预期什么、没出现预期就排除了什么。
 不要用"应该没问题""试试看"这类表述。
-```
 
-## 附：给接手者的产物清单
+---
+
+## 附：关键产物清单（截至 2026-11-01）
 
 | 产物 | 大小 | sha256 |
 |---|---|---|
-| darwin24 内核 | 20,872,376 | `2f485593b3f7c2d35657f14d5e2e5804ca434fbf56df6f275c0802bf32a7e5cd` |
-| payload.img | 201,326,592 | `632cb82961ab2ecd82c1e36a97a284ecd9ceec3e012078867450cb670ea20728` |
-| UEFI FD | 3,145,728 | `a8a6f79c1d7705d96922c523c63c1cee24988788d29bfc97529e1cdbc67e4d4d` |
-| `boot-darwin24-abi24.img`（已刷，出绿条） | 201,887,744 | `c249c547e6999a2722b5884733bda98af9c0d5a719ab575e4e921465df8c338a` |
-| `boot-darwin24-abi24b.img`（未刷） | 201,887,744 | `6796e1479e5c5cd83fa37998b573d394e6b2b7a44ff2083353a153b9d04b35e0` |
+| darwin24 内核 `mach.development.pong.unstripped.noctf` | 20,872,376 | `2f485593b3f7c2d35657f14d5e2e5804ca434fbf56df6f275c0802bf32a7e5cd` |
+| `payload.img` | 201,326,592 | `632cb82961ab2ecd82c1e36a97a284ecd9ceec3e012078867450cb670ea20728` |
+| UEFI FD（ABI 修复 + 标签） | 3,145,728 | `a8a6f79c1d7705d96922c523c63c1cee24988788d29bfc97529e1cdbc67e4d4d` |
+| `boot-darwin24-abi24.img`（**已刷，出绿条**） | 201,887,744 | `c249c547e6999a2722b5884733bda98af9c0d5a719ab575e4e921465df8c338a` |
+| `boot-darwin24-abi24b.img`（已构建，未刷） | 201,887,744 | `6796e1479e5c5cd83fa37998b573d394e6b2b7a44ff2083353a153b9d04b35e0` |
+| `libArmDTPlatform.a` | 27,808 | — |
+| `libArmCpu.a` | 34,600 | — |
+| 22H374 kernelcache（解压后） | 48,562,204 | `7f730f49240b76ca4b5938b152479cba1b729ac4c188e233e73665394f04ba43` |
+
+设备仓库分支 `route-a-18`，相关提交：`449a204`、`e6e19a2`、`c65e037`、`61d39e2`、`934647b`。

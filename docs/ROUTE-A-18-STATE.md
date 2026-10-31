@@ -69,8 +69,34 @@ SecurityLock::LockType: SOFTWARE_LOCK …
 
 ## 未刷的产物
 
-`boot-darwin24-abi24b.img`（`6796e147…`）已构建并四道校验通过，只差刷入；
-与已刷版本的唯一区别是两处 ABI 标签字符串改为 "Darwin 24"。
+`boot-darwin24-bc1.img`（2026-11-01，`eb7d2be9…`，201,887,744 B）= **面包屑 + prelink 同镜**：
+
+| 层 | 内容 | 大小 / sha256 |
+|---|---|---|
+| kernel 槽 | BootShim(112 B) + `SILICIUM_UEFI.fd` | FD `a8a6f79c…`（与上一次刷的完全一样，loader 未改） |
+| 追加 DTB | `hardware.dtb` | 1,862 B，`8b8618…`（未变） |
+| payload | `payload.img` | 201,326,592 B，`6a134fe8…` |
+| payload 内内核 | `Payloads/kernel.macho` | **54,808,576 B**，`be549abb…` |
+| payload 内 ADT | `Payloads/kernel.macho.adt` | 14,672 B，`5dc18cf9…`（与旧 ADT 只差 `/chosen/random-seed` 64 B） |
+
+上一版 `boot-darwin24-abi24b.img`（`6796e147…`）已作废：只有 ABI 标签差异，不含这两项。
+
+### 这一版改了什么
+
+1. **prelink 补上**：`__PRELINK_TEXT` `0x7a8000`、`__PRELINK_INFO` `0x31000`，
+   15 个组件（5 个 root + 依赖）。`AppleARMPlatform` / `AppleARMWatchdogTimer` /
+   `AppleEffaceableStorage` 走 `library_only_components`：代码保留、`IOKitPersonalities` 删掉，
+   以免 `AppleARMPE` 抢我们 `-force_load` 的 `ArmDTPlatform`、看门狗被挂上。
+   复现：`python3 scripts/k60-prelink-darwin24.py`（slide 写死 `-0x112C000`）。
+2. **面包屑**：`patches/xnu-ipados18/0244-k60-breadcrumbs.patch`，8 个槽写 `0xA73FF000`。
+3. **入口 PA 变了**：prelink 后内核 Base 从 `0xfffffff007004000` 降到 `0xfffffff004004000`，
+   loader 落位 `0xC7004000`，入口 PA 从 `0xC74C04A0` 变成 **`0xCA4C84A0`**。
+   旧文档/脚本里 grep 到 `0xC74C04A0` 的是历史日志，别当成本次预期值。
+
+### 校验（已过，`scripts/verify-boot-img-payload.py`）
+
+kernel 槽 = shim + FD；ramdisk 槽逐字节等于 `payload.img`；payload 内 `kernel.macho` 逐字节等于
+新内核；`payload.json` 的 `kernel_sha256` / `adt_sha256` 与卷内一致。
 
 ## 设备/安全
 

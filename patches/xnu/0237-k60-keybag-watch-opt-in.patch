@@ -1,0 +1,22 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7516,6 +7516,7 @@
+ 		unsigned k60_m;
+ 		int k60_mkdir_err[6] = { -1, -1, -1, -1, -1, -1 };
+ 		thread_t k60_watch_thread = THREAD_NULL;
++		int k60_watch_enabled = 0;
+ 		for (k60_m = 0; k60_m < 6; k60_m++) {
+ 			user_addr_t k60_name = scratch + 0x400;
+ 			struct mkdir_args k60_args;
+@@ -7532,7 +7533,10 @@
+ 		printf("K60DATA mkdir summary k=%d l=%d c=%d t=%d r=%d m=%d\n",
+ 		    k60_mkdir_err[0], k60_mkdir_err[1], k60_mkdir_err[2],
+ 		    k60_mkdir_err[3], k60_mkdir_err[4], k60_mkdir_err[5]);
+-		if (kernel_thread_start((thread_continue_t)k60_var_watch, NULL,
++		/* This periodic directory/AKS probe is opt-in; it is not watchdogd. */
++		(void)PE_parse_boot_argn("k60_watch", &k60_watch_enabled, sizeof(k60_watch_enabled));
++		if (k60_watch_enabled == 1 &&
++		    kernel_thread_start((thread_continue_t)k60_var_watch, NULL,
+ 		    &k60_watch_thread) == KERN_SUCCESS) {
+ 			thread_deallocate(k60_watch_thread);
+ 		}

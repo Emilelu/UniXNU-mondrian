@@ -18,7 +18,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 迁移记录见 `porting.toml`；它同时是 [unixnu.com/zh/devices/mondrian](https://unixnu.com/zh/devices/mondrian)
 页面渲染的数据源。
 
-## 当前状态（2026-10-31 12:50）
+## 当前状态（2026-10-31，0237 构建）
 
 | 功能 | 状态 | 说明 |
 | --- | --- | --- |
@@ -34,24 +34,24 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | keybag / MKB | ✅ | ADT `/defaults/no-effaceable-storage` + 内核写明文 `systembag.kb` |
 | watchdogd | ✅ | launchd disabled-jobs 策略禁用（core 补丁 0222） |
 | SpringBoard 显示模式 | ✅ | ADT `display-scale = 3` |
-| 控制台刷屏 | ✅ | `send_resource_violation` 三条格式串清空 |
-| **用户态启动** | 🟡 | 进度条**会走一小段后停住**；5 秒统计**每窗恰好 2 帧**，窗口 24.9 s→5.6 s、每帧驱动 39.4 ms→2.6 ms、GPU 等待 0 µs ⇒ **卡在用户态，不是显示层**（见 [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)） |
-| **用户态可观测性** | ✅ | 0235 v2：`KE` 按路径去重的完整二进制清单（≤128 行）/ `KX!` 只打异常退出 / `K60 ex= kx= abn=` + `K60 last exec:` + `K60 last bad :` 三行常驻末屏 |
+| 控制台刷屏 | 🟡 | 已清空 resource-violation 三条格式串；0237 将 `K60WATCH` 周期探针改为默认不启动，`k60_watch=1` 才开启；`boot-nowatch.img` 已通过打包内容校验并由 fastboot 临时引导（exit=0），待屏幕确认 |
+| **用户态启动** | 🟡 | 进度条**会走一小段后停住**；5 秒统计**每窗恰好 2 帧**，窗口 24.9 s→5.6 s、每帧驱动 39.4 ms→2.6 ms、GPU 等待 0 µs ⇒ 优先检查用户态启动/退出原因（见 [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)） |
+| **用户态可观测性** | ✅ | 0235 v2：`KE` 按路径去重的 exec 尝试样本（≤128 行）/ `KX!` 只打异常退出 / `K60 ex= kx= abn=` + `K60 last exec:` + `K60 last bad :` 最近事件摘要（共享字段尚未同步） |
 | **ADT `/chosen` 身份** | 🟡 | `mac-address-wifi0` + `unique-chip-id` + `chip-id` 已进 ADT（字节校验通过），效果未上机确认 |
 | **loader 内存与面板报数** | 🟡 | 0236 v2 打印 `K60 MEM:`（判定同族 0172 是否适用）与 `K60 FB :`（面板帧缓冲是否落在 VM 可管理区间内，判定同族 0170 是否适用）；`k60_capmanaged=1` 才启用上限收敛，默认关闭 |
 | **GPU（Adreno 730）** | 🟡 | `PongAdreno` 驱动已 `force_load` 进内核（51 处符号），**未上机启动** |
 | **IOMFB selector 兜底** | 🟡 | 0233 补丁已入 series（`GetGammaTable` 仍保持 unsupported），未上机 |
 | 触摸 / 120 Hz / 音频 / 网络 / 相机 | ❌ | 未开始 |
 
-## 当前卡点（2026-10-31 12:50）
+## 当前卡点（2026-10-31，SIGKILL 原因待查）
 
 1. **用户态启动在 UI 起来之后停住**（当前唯一硬阻断）。完整证据链见
    [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)，要点：
    - 进度条**会往前走一小段然后停住**。5 秒统计行是"打完即清零"的窗口量，
-     实测连续六窗**每窗恰好 2 帧**，窗口长度单调变短（24895 / 10191 / 11968 / 12053 / 7319 / 5597 ms），
+     实测连续六窗**每窗恰好 2 帧**，窗口长度有波动、末窗短于首窗（24895 / 10191 / 11968 / 12053 / 7319 / 5597 ms），
      每帧驱动耗时 39.4 ms → 2.6 ms，且 `waiting for the GPU = 0 us`、
      `0 swaps waited for the frame before / 0 gave up / 0 came a refresh late`
-     ⇒ **帧缓冲与 GPU 路径不是瓶颈，是用户态在阻塞**（客户端"不怎么来要帧"）；
+     ⇒ 已计量的帧拷贝和 GPU 等待不足以解释帧间长停顿，优先检查用户态启动/退出原因；
    - `report = fSwapsShown < 8`（`iokit/Kernel/MiniIOMobileFramebuffer.cpp:920`）：每 swap 的详细日志
      只在**头 8 帧**打印，"swap 行停在 8"是设计使然，**不能当卡死证据**；判存活要看 5 秒统计行；
    - 屏幕上的裸数字（如 `83`）**不是进度百分比**；进度条上方无 Apple logo 是引导方式的结果
@@ -59,14 +59,14 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
    - 控制台与 UI 抢同一块 framebuffer，控制台丢字（`xid`→`xld`、`surfaces`→`urfac s`），属观感问题；
    - 本轮已补三样：**0235 v2 用户态追踪**、**`/chosen` 三条身份**、
      **0236 内存报数**；下一步靠它们定位 frontier，再严格一次一个变量推进。
-   - 首次上机（0235 v1）读到 `K60STAT execs=601 exits=400`，两个上限都被打满，
-     所以只能当下界：**至少 601 次 exec、400 次退出**，`ex-kx ≈ 200` 个进程活着 ——
-     这是相当正常的一支 iOS 守护进程 population，**不是"什么都起不来"，也不是"集体崩溃循环"**；
-     卡点是某一个具体的等待没被满足。v2 的 `KE` 清单会直接回答
-     `SpringBoard`/`backboardd`/`runningboardd`/`Setup` 有没有出现过。
-   - 计数器是只增的 `unsigned int`，**代码上不可能倒退**；"看起来倒退"只有三种可能：
-     滚动太快看错 / 控制台与 UI 抢 framebuffer 导致局部重绘 / **内核真的 panic 重启**。
-     在拿到 v2 输出前不对这一点下结论。
+   - 0235 v1 的 `execs=601 exits=400` 是两个封顶值，**不能相减推算存活进程数**。
+      0235 v2 实测多支 daemon 为 `exit=0 sig=9`，`ex` 从 680 增至 707；能确认启动活动和
+      SIGKILL 退出持续发生，尚不能确定是内存回收、用户态主动终止或其他终止路径。
+   - 当前追踪使用无锁、非原子的全局计数和字符串，日志可能交错，`last bad` 各字段可能
+      属于不同事件；`KE` 位于加载完成之前，`ex` 统计 exec 尝试，既不是成功启动数也不是
+      进程数。因此不能用这些值认定计数倒退、重启、内存压力或卡死位置。
+   - 下一项诊断应记录内核已提交的 `exit_reason`（namespace/code/flags）与 `jetsam_flags`，
+      再按实际路径核对 SIGKILL 来源；**本次 0237 镜像仅关闭 K60WATCH，不夹带新终止探针**。
 
 2. **内核源码构建已修复**（本节从"不可用"转为已解决，保留原因备查）：
    - `'stdio.h' file not found` → `HOST_CC` 指向 `xnu-host-cc`；
@@ -103,7 +103,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | `GetID == 1`，实现选择器 77 / 79（`GetBlock(0x40)`） | ✅ `kFBDisplayID 1`（`:320`）、`:1285`、`:1387` |
 | 发布空的 `IOAcceleratorES` | ✅ `0212-k60-empty-accelerator`（`XNU_K60_ACCEL_STUB` 默认 1） |
 
-⇒ **"缺渲染器/缺显示模式"可以排除。** 同族先例的完整修复菜单（24 条，带 file:line 引文）
+这些已实现的服务和模式降低了该类缺项的优先级，但不能单靠代码存在排除渲染或 ABI 问题。同族先例的完整修复菜单（24 条，带 file:line 引文）
 见工作区 `k60-work/sweet-fix-menu.md`。
 
 ## 工具

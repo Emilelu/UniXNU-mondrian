@@ -33,15 +33,14 @@ MiniIOMobileFramebuffer: <N> frames in <ms> ms (<x> a second), <us> us each in t
 
 四条结论：
 
-1. **窗口长度单调变短**（24.9 s → 5.6 s），每帧 12.4 s → 2.8 s。机器在"越跑越快"，不是冻死。
+1. 窗口长度有波动（24.9 / 10.2 / 12.0 / 12.1 / 7.3 / 5.6 s），末窗短于首窗；这些窗口内仍有帧提交，但不能据此断言启动持续改善。
 2. **驱动耗时掉了 13 倍**（39.4 ms → 2.6 ms），且 `waiting for the GPU = 0 us`、
    `0 swaps waited for the frame before / 0 gave up / 0 came a refresh late`。
-   ⇒ **帧缓冲与 GPU 路径不是瓶颈**，客户端只是"不怎么来要帧"。
-3. **每个窗口恰好 2 帧**（surface 12/14 交替）。这是"提交一对再等"的节奏，
-   不是 60 Hz 渲染循环。
-4. `tx_flush` 的 xid 仍在推进（1536 → 1662 → 1682），APFS 没有阻塞。
+   ⇒ 已计量的驱动时间和 GPU 等待远短于帧间停顿，优先检查提交前的用户态路径；尚未排除其他显示路径问题。
+3. 每个统计窗口为 2 帧，surface 12/14 交替。统计窗口在绘制时触发、首帧开始计时；不能将这一点解释为客户端刻意成对提交。
+4. `tx_flush` 的 xid 仍在推进（1536 → 1662 → 1682），证明有事务完成；这几行本身不足以证明所有 APFS 调用均无阻塞。
 
-⇒ **这是用户态阻塞，不是显示问题。** 需要的信息是"谁在画"和"卡在哪一支二进制"。
+优先检查用户态的启动、终止原因和等待路径；仅凭帧统计不能给出最终根因。
 
 ### 已知的观测陷阱
 
@@ -62,14 +61,14 @@ MiniIOMobileFramebuffer: <N> frames in <ms> ms (<x> a second), <us> us each in t
 
 | 输出 | 含义 | 上限 |
 | --- | --- | --- |
-| `KE <n> <pid> <comm> <path>` | **按路径 djb2 去重**：每个不同的二进制只打一行。这就是"这个启动到底跑过哪些程序"的完整清单 | 128 行 |
+| `KE <n> <pid> <comm> <path>` | 按路径哈希去重的 exec 尝试样本；不保证完整或已加载成功 | 128 行 |
 | `KX! <n> <pid> <comm> exit= sig= (execs N)` | **只打异常退出**（`status != 0` 或 `sig != 0`）。干净的 `exit(0)` 不占行 | 300 行 |
 | `K60 ex=A kx=B abn=C` | 三个计数器（无上限），随 5 秒统计行打出，**计数器一变就打** | — |
-| `K60 last exec: <pid> '<comm>' <path>` | **最后一次 exec** —— 卡住时它就是 frontier | — |
+| `K60 last exec: <pid> '<comm>' <path>` | 最近 exec 尝试摘要（字段可能并发混合），不能直接判定阻塞位置 | — |
 | `K60 last bad : <pid> '<comm>' exit= sig=` | **最后一次异常退出** | — |
 | `MiniIOMobileFramebuffer: swap client pid N '<comm>' on swap M` | 交 swap 的进程身份（最多 8 个不同 pid） | 8 行 |
 
-后三行反复打、且总是**最后留在屏幕上**的那几行，所以不管卡在哪，末屏就是结论。
+摘要随绘制统计触发，且只有计数变化时打印；完全停止绘制时不再更新。共享字段尚未同步，末屏提供排查线索，不能直接作为根因结论。
 
 实现要点：
 
@@ -113,38 +112,72 @@ K60 FB : base 0x.. <w>x<h> depth 0x.. stride <n> bytes 0x.. end 0x.. -> INSIDE|o
   正确做法是页照常留在 `vm_page` 数组里、只是**永远不上空闲队列**
   （在数组里挖洞会触发 `vm_page_init` 的断言）。我们这边面板帧缓冲的物理范围
   是 `boot_args->Video.v_baseAddr`（`boot_args` 在 `arm_vm_init` 里就是现成的 `args`），
-  这一行直接告诉我们它是否落在 VM 即将管理的区间内 —— **在 `INSIDE` 的情况下才需要移植 0170**。
+  这一行只比较地址区间；即使是 `INSIDE`，仍需验证该区间是否已经通过其他路径保留，不能据此直接断言需要移植 0170。
 
 - `k60_capmanaged=1` 才把 `mem_size`/`gPhysSize` 收敛到 `mem_actual`
   （等价于同族 `0172` 的 PONG 版）。注意只动 `mem_size`，
   **不动 `real_phys_size`**，所以 `phystokv()` 的 physmap 覆盖范围保持不变。
 
-## 4. 已经拿到的一个硬数字：用户态其实很忙
+## 4. 计数与 SIGKILL：已证实的事实及观测限制
 
-首次上机（0235 v1）读到：
+v1 输出 `K60STAT execs=601 exits=400` 仅表明两个计数均达到记录上限，**不能相减推算
+存活进程数，也不能据此排除反复启动/终止**。
+
+v2 的用户实录包含：
 
 ```
-K60STAT execs=601 exits=400
+K60 ex=680 kx=292 abn=267
+K60 last bad : 339 'contextstored' exit=0 sig=9
+KX! 268 343 ptpd exit=0 sig=9 (execs 680)
+KX! 269 315 mediaserverd exit=0 sig=9 (execs 681)
+K60 ex=707 kx=295 abn=270
 ```
 
-两个上限都被打满，所以只能得出**下界**：**至少 601 次 exec、400 次进程退出**。
-`ex - kx ≈ 200`，即此刻大约有 **200 个进程活着** —— 这是相当正常的一支 iOS 守护进程population，
-**不是"什么都起不来"，也不是"集体崩溃循环"**。
+此外还有 usermanagerd、mobiletimerd、coreduetd、powerd 等 `sig=9` 记录。
+这能确认多进程被 SIGKILL 终止、启动活动仍继续；**信号号本身不能判断发起者或原因**。
+应区分 jetsam（其中也包括正常 idle-exit）、用户态主动终止、签名/执行策略等路径。
 
-推论：卡点不是"没有用户态"，而是**某一个具体的等待没被满足**。
-v2 的 `KE`（按路径去重的完整清单，≤128 行）会直接回答：
-`SpringBoard` / `backboardd` / `runningboardd` / `launchservicesd` / `Setup` / `purplebuddy`
-到底有没有出现过；`KX!` 会回答谁被杀、被什么信号杀。
+0235 当前实现的限制：
 
-> 关于"KX 数字倒退"：计数器本身是只增的 `unsigned int`，代码上不可能倒退。
-> 能造成"看起来倒退"的只有三种：① 屏幕滚动太快看错；② 控制台与 UI 抢同一块
-> framebuffer 导致局部重绘/丢字（已实测到 `xid`→`xld`）；③ **内核真的 panic 重启了**，
-> 那计数器会从 1 重新开始。三者在 v1 的输出里都分辨不出来 —— 这正是 v2 要解决的：
-> 1) `KE` 与 `KX!` 前缀不同、各自独立的序号；2) `K60 ex= kx= abn=` 反复打且总在末屏；
-> 3) 若真重启，`ex`/`kx` 会回到很小的数并伴随 UEFI/内核横幅重新出现。
-> **在拿到 v2 的输出之前不对"倒退"下任何结论。**
+- `ex` 在 `exec_activate_image()` 路径复制后、加载成功前递增，是 exec 尝试数；
+  一个进程也可能经历多次 exec（例如 xpcproxy），所以 `ex-kx` 不是存活进程数。
+- 三个计数器使用非原子的 `++`，多个 CPU 的写入可能丢失或被观察到乱序；打印也可能交错。
+  因此撤回“代码上不可能倒退”及“仅由计数即可认定重启”的表述。
+- `last exec`/`last bad` 的 PID、comm、path、信号分别写入，没有快照锁；字段可能混合，
+  不能把最后一行当作已证实的阻塞点。用户也已明确“倒退”可能是看错，目前无重启结论。
+- `KE` 只有至多 128 个路径哈希样本，还可能哈希碰撞；没有出现不代表没有尝试执行。
+- `KX!` 只输出前 300 次异常退出；后续全局计数仍变化，但该行不会无限打印。
 
-## 5. ADT `/chosen` 身份（本轮已改）
+只读代码核对显示 `exit_with_reason()` 在提交 `p->p_exit_reason` 后仍持有目标进程锁，
+现有 `KX!` 附近可读取 reason 的 namespace/code/flags，并记录 `jetsam_flags` 参数。
+下一颗归因镜像应从这里取得原因，而非从 `SIGKILL` 或当前执行上下文猜测来源。
+
+### 0237：默认关闭 K60WATCH
+
+`K60WATCH` 是 `k60_var_watch()` 的周期 keybag/AKS 状态探针，每 2 秒一次、最多 90 次，
+不是 watchdogd。0237 保留该诊断函数，但将 worker 的启动改为显式 opt-in：
+
+```
+int k60_watch_enabled = 0;
+PE_parse_boot_argn("k60_watch", &k60_watch_enabled, sizeof(k60_watch_enabled));
+if (k60_watch_enabled == 1 && kernel_thread_start(...) == KERN_SUCCESS) { ... }
+```
+
+默认既不启动该线程，也不执行周期目录查询。仅 `k60_watch=1` 恢复旧探针。
+keybag 初始化、watchdog 策略、0235/0236 探针和启动参数其余部分保持相同。
+本次镜像 `boot-nowatch.img` 已完成：
+
+- 完整内核构建和补丁应用通过；默认值为 0，线程启动有显式 `== 1` 条件。
+- 从最终启动镜像提取 FAT，再提取实际 kernel/ADT/unixnu.toml；新内核哈希一致、
+  启动参数无 `k60_watch=1`，ADT 的 MAC、8 字节 unique-chip-id 和 4 字节 chip-id 校验通过。
+- 独立 boot v4/UEFI/DTB/FAT 内容校验 `RESULT == PASS`。
+- `fastboot -s 6033dbec boot boot-nowatch.img` 已返回 Sending OKAY / Booting OKAY / exit=0。
+  这证明加载器接受镜像；手机屏幕上的启动结果尚待观察，不能写成 UI 已修复。
+
+校验值：kernel SHA-256 `6c5585287185161efc84730dd38990ce7746d29f106491cdf689c04ec5e6281d`，
+image SHA-256 `5ece69443b55b4099eca39e0a05b2151bafea0d5caeca3f9c7bf266fdcea8c7b`。
+
+## 5. ADT `/chosen` 身份（沿用既有配置）
 
 ADT 由 `tree/scripts/unixnu/devicetree.py::generate()` 生成，配置来自
 `profiles/arch/arm64` → `soc.toml` → `profiles/os/ipados-16.6.1-20G81/profile.toml` → **本仓 `board.toml`**
@@ -192,7 +225,7 @@ ADT 由 `tree/scripts/unixnu/devicetree.py::generate()` 生成，配置来自
 | `GetID` 返回 1；实现选择器 77 / 79（`GetBlock(0x40)`） | ✅ `kFBDisplayID 1`（`:320`）、`:1285`、`:1387` |
 | 发布一个空 `IOAcceleratorES` | ✅ `0212-k60-empty-accelerator`，`XNU_K60_ACCEL_STUB` 默认 1 |
 
-⇒ **"缺渲染器/缺显示模式"这条基本可以排除。**
+这些代码路径已存在，不能仅以服务或属性存在就认定实际渲染与用户态 ABI 均正确。
 
 ## 7. 0170 / 0172 的适用性判定
 
@@ -231,36 +264,31 @@ if ((memory_size != 0) && (mem_size > memory_size)) {
 | `boot-wifi.img` | 12:39 | `5d1c13d3` | + `/chosen` 三条身份（**delta 仅 ADT**） | 已刷 12:41 |
 | `boot-mem.img` | 12:47 | `d47a65fe` | + 0236 v1 内存报数 | 被下面这颗取代 |
 | **`boot-trace2.img`** | **13:20** | **`27e06e64`** | **0235 v2 去重追踪 + 0236 v2（内存 + 面板帧缓冲报数 + `k60_capmanaged` 开关）+ `/chosen` 三条** | **已刷 13:21，正在跑** |
+| `boot-nowatch.img` | 0237 | `6c558528` | K60WATCH worker 默认关闭；其余启动配置沿用 trace2 | 构建、提取校验、fastboot 临时引导成功；屏幕结果待观察 |
 
 > `boot-trace2.img` 相对 `boot-wifi.img` 的 delta：**0235 v1→v2（追踪形状）** + **0236 v1→v2
 > （多一行面板帧缓冲判定 + 一个默认关闭的内存上限开关）**。ADT 的**配置**完全相同；
 > `adt_sha256` 每次构建都变，只是因为 `random-seed` / `boot-epoch` / nvram nonce 每次重新随机。
 
-### 万一还是不够：下一颗可以加的东西（按价值排序）
+### 退出原因诊断：代码核对结论（尚未加入本次镜像）
 
-1. 若 v2 的 `KE` 清单显示某支二进制**从未 exec** → 直接去查它为什么没被 launchd 排上
-   （`disabled.plist` / job 缺失 / 上一次依赖失败），不需要再加探针。
-2. 若 `KE` 清单完整但某进程**只 exec 不画** → 需要"谁在等什么"。那时加的是
-   `stackshot`：XNU 自带 `bsd/kern/stackshot.c` 的 `stack_snapshot()`，
-   由 MFB 统计线程在"连续 N 秒没有 swap"时触发一次，把全部线程栈落到 `dmar`/缓冲区。
-3. 若确实存在重启 → 加一个**在 UEFI 前打不出来的开机序号**（由 payload 的
-   `--kernel-arg k60_build=<tag>` 传，内核对不上就 panic），把重启变成不可否认的证据。
+- `exit_with_reason()` 在提交 `p->p_exit_reason` 后仍持有目标进程锁，可在现有退出日志
+  附近 NULL 检查后读取 namespace/code/flags，同时记录 `jetsam_flags` 参数。
+- jetsam 有直接调用 `exit_with_reason()` 的路径，绕过 `psignal()`。namespace 为
+  JETSAM 也不自动等于内存不足：其中包含 idle-exit、CPU limit 等原因，需要结合 code。
+- 多条安全/终止策略也发送不带专用 reason 的 SIGKILL，最终可能仅显示 SIGNAL/9；
+  所以 SIGNAL/9 不能排除代码签名，也不能证明是普通用户态 kill 请求。
+- `psignal()` 时的 `current_proc()` 只能称为执行上下文 ctx，不能直接称为原始发送者。
+  若需确证用户态请求，应在实际 kill/group-kill/terminate syscall 点记录请求者和目标。
+- `proc_exit()` 的 `!P_LEXIT` 兜底路径不经过现有 `KX!`；只加 psignal 或 KX 字段都不完整。
+  后续应单独覆盖这条路径，且保持日志有界。
 
-## 9. 下一步（严格一次一个变量）
+## 9. 下一步
 
-1. **`boot-trace2.img` 已在跑（13:21 刷入）**。等它停住，拍**最后那一屏**。要找的五样：
-   - `K60 ex=<A> kx=<B> abn=<C>` —— A 不再涨 = 彻底停住；若 A 回到很小的数 = **内核真的重启了**；
-   - `K60 last exec: <pid> '<comm>' <path>` —— 最后一次 exec，这就是 frontier；
-   - `K60 last bad : <pid> '<comm>' exit= sig=` —— 最后一次异常退出，`sig=9` 是 SIGKILL、
-     `sig=6` 是 SIGABRT（多半是 C++ 异常或 assert）；
-   - `KE ...` 清单里有没有 `SpringBoard` / `backboardd` / `runningboardd` / `Setup`；
-   - **`K60 MEM:` 与 `K60 FB :` 两行**（应该出现在启动早期）。
-2. 按这两行分派：
-   - `K60 MEM: ... (cap available)` → 重建 payload+bootimg 时加 `--kernel-arg k60_capmanaged=1`
-     （**不用重编内核**）→ `boot-cap.img`，单独看进展。
-   - `K60 FB : ... -> INSIDE managed range` → 移植 0170：在 `vm_page_release_startup` /
-     pmap 启动路径里把那一段物理页标记为"留在数组里但不上空闲队列"，
-     **PONG 版、区间取自 `args->Video`**，不再硬编码 `0xb8000000`。
-   - 两个都 `no cap` / `outside` → 排除这两条，转 `KE` 清单里"哪支二进制从没出现"的方向。
-3. 触摸仍卡在 RSC 块不可访问（同族先例 `LOCKSCREEN-2026-10-28.md:30-40`），
-   与当前卡点无关，暂不动。
+1. 校验并临时引导 `boot-nowatch.img`，确认 K60WATCH 默认不再刷屏。
+2. 单独增加退出原因诊断，记录 reason namespace/code/flags 与 jetsam_flags。
+   对 reason 为 SIGNAL 的路径，才进一步记录实际用户态请求或内核调用点。
+3. 内存与面板报告只用于筛查：`cap available` 不证明内存范围错误，`INSIDE` 不证明帧缓冲
+   已进入空闲队列；必须核对 loader 内存契约与实际保留页逻辑后，才决定启用 cap 或移植 0170。
+4. 参考分支使用另一套 loader、iOS 版本和 HFSX 布局。本项目继续使用独立 unixnu 分区的
+   APFS OS/Data 窗口；不因参考实现而改写 Android userdata 或改换根文件系统。

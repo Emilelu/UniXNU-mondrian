@@ -18,47 +18,55 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 迁移记录见 `porting.toml`；它同时是 [unixnu.com/zh/devices/mondrian](https://unixnu.com/zh/devices/mondrian)
 页面渲染的数据源。
 
-## 当前状态（2026-10-31）
+## 当前状态（2026-10-31 10:00）
 
 | 功能 | 状态 | 说明 |
 | --- | --- | --- |
 | UEFI 启动链 | ✅ | ABL -> `fastboot boot` -> BootShim -> UEFI -> UniXNU 菜单 |
 | 显示（软件） | ✅ | MiniIOMobileFramebuffer 纯 CPU 缩放 + memcpy，1440x3200 上屏 |
 | 实体按键 | ✅ | 官方 KeypadDevice 链 + `K60KeypadDeviceLib`（SPMI PON/GPIO） |
-| Tools -> Advanced Logger | ✅ | 4 MB Advanced Logger + QR 序列帧，OneSend 可抓 DXE 全量日志 |
 | XNU 内核启动 | ✅ | 8 核；AppleARMCPU `_validateConfiguration` 已二进制打补丁 |
-| 板级 ADT / payload / bootimg | ✅ | payload 192 MiB + Android boot v4 镜像；校验用 `scripts/verify-k60-boot-img.sh` |
+| **内核源码构建（WSL）** | ✅ | MIGCC/MIGCOM/HOST_CC 修复后可全量构建，见下节 |
+| **平台驱动链接** | ✅ | `ArmDTPlatform`/`ArmCpu`/`NativeUfs` 已 `force_load` 进内核 |
+| **控制台字体放大** | ✅ | `k60_fontscale=3` 生效，日志在 1440x3200 上可读（0214 溢出已修） |
 | UFS root（SHNGROOT） | ✅ | OS / SystemOS 两个只读窗口，union 挂到 `/` |
-| `/private/var`（Data） | ✅ | 真实 UFS Data 窗口读写挂载：`K60DATA mount returned error=0 result=0 rw=1` |
+| `/private/var`（Data） | ✅ | 真实 UFS Data 窗口读写挂载 |
 | keybag / MKB | ✅ | ADT `/defaults/no-effaceable-storage` + 内核写明文 `systembag.kb` |
-| watchdogd | ✅ | launchd disabled-jobs 策略禁用 `com.apple.watchdogd`（core 补丁 0222） |
-| SpringBoard 显示模式 | ✅ | ADT `display-scale = 3`；上机验证通过——屏幕出现启动进度条 |
-| 控制台刷屏 | ✅ | `send_resource_violation` 三条格式串清空，进度条不再被日志盖住 |
-| 用户态启动进度 | 🟡 | **进度条出现，但推进极慢 / 疑似停滞**，见下节 |
-| 触摸 / GPU / 120 Hz / 音频 / 网络 / 相机 | ❌ | 未开始；GPU 源码在 `drivers/PongAdreno/`，未进链接 |
+| watchdogd | ✅ | launchd disabled-jobs 策略禁用（core 补丁 0222） |
+| SpringBoard 显示模式 | ✅ | ADT `display-scale = 3` |
+| 控制台刷屏 | ✅ | `send_resource_violation` 三条格式串清空 |
+| **用户态启动** | 🟡 | 跑到 APFS 事务刷盘（`tx_flush` 无等待），**但 UI 未起、无启动进度条** |
+| **GPU（Adreno 730）** | 🟡 | `PongAdreno` 驱动已 `force_load` 进内核（51 处符号），**未上机启动** |
+| **IOMFB selector 兜底** | 🟡 | 0233 补丁已入 series（`GetGammaTable` 仍保持 unsupported），未上机 |
+| 触摸 / 120 Hz / 音频 / 网络 / 相机 | ❌ | 未开始 |
 
-已实测：XNU 已 exec 到 `launchd`，服务链拉起过 `SpringBoard`（pid 110）；
-`/private/var` 来自真实 UFS Data 窗口，读写挂载成功；watchdogd 已由 launchd 策略禁用。
+## 当前卡点（2026-10-31 10:00）
 
-## 当前卡点（2026-10-31）
-
-1. **启动进度条推进极慢**（当前唯一硬阻断）。黑底进度条界面与「带模糊遮罩的跑码界面」
-   交替出现，进度条有动静但几乎不动，日志不可读。已知部分：`MiniIOMobileFramebuffer`
-   是纯软件 framebuffer，每帧要对 1440x3200x4 约 18.4 MB 做 bilinear 缩放 + memcpy，
-   `fb_threads` 默认 1（`MiniIOMobileFramebuffer.cpp:165`，注释写 "Three by default"
-   但 `TUNABLE` 默认值是 1，以代码为准），单核整帧约 9–10 ms。
-   日志里的 "waiting for the gpu" 出自 `MiniIOMobileFramebuffer.cpp:1001` 的 5 秒统计，
-   **不是 GPU 真卡**。可先试的 boot-arg（不需要重编内核）：
-   `fb_threads=3`、`k60_fontscale=3`（`video_console.c:2831`，2~4 有效）。
-2. **内核源码构建在本机 WSL 上不可用**。`unixnu build kernel` 卡在 xnu 的 SETUP 主机工具：
-   `HOST_CC` 未定义时 `MakeInc.cmd:307` 回落到交叉 clang，报 `'stdio.h' file not found`，
-   需 `export HOST_CC=/opt/unixnu-linux/CommandLineTools/usr/bin/xnu-host-cc`（已验证有效）；
-   随后 `mig` 因 `MIGCC` 为空在 `mig:183` 报 `: command not found`，**未解决**
-   （`MakeInc.cmd:195-196` 的 `export MIGCC := $(CC)` 在该点 `CC` 为空）。
-   只换 payload / bootimg 的路径仍可用。
-3. **换文件系统有前置条件**：20G81 的 kernelcache 里有 `com.apple.filesystems.hfs` 与
-   `com.apple.filesystems.tmpfs`，但本仓库的 prelink 根列表里一个都没有，
-   所以 `mount("hfs")` / `mount("tmpfs")` 现在必然 `ENODEV`。要用得先改 core 的 prelink 配置。
+1. **用户态 UI 未启动**（当前唯一硬阻断）。内核已跑过 APFS 事务阶段
+   （最后一行 `tx_flush:1241: disk5 xid 1582 tx stats: ... wait 0 0us flush 4267us`，
+   说明 APFS 无阻塞），screen 上没有出现启动进度条，console 仍持有输出权
+   （`gc_pause` 未触发）——即卡在 launchd 的某个早期 job，**比"进度条停滞"更早**。
+   待办：抓到该 job 名。
+2. **内核源码构建已修复**（本节从"不可用"转为已解决，保留原因备查）：
+   - `'stdio.h' file not found` → `HOST_CC` 指向 `xnu-host-cc`；
+   - `mig: line 183: command not found` 真因不是 `MIGCC` 而是 **`MIGCOM`**：
+     `xcrun -find migcom` 只搜 `usr/bin`，而 `migcom` 在 `usr/libexec`，
+     于是 `export MIGCOM := $(shell ...)` 被设成空串，mig 的
+     `M=${MIGCOM-${migcomPath}}` 用 `${VAR-default}` 不兜底 → 管道变空命令。
+     修复见 `scripts/unixnu/kernel.py` 的 `linux_env()`。
+   - **平台库漏链接**：`kernel.py` 找不到 `startup.o.json`（路径硬编码
+     `DEVELOPMENT_ARM64_BCM2837`，PONG 板永不命中），导致**每次构建都跑
+     bootstrap pass**；该 pass 带 `XNU_BOOTSTRAP=1`，会跳过
+     `build-xnu-4k-baseline.sh` 里负责 `-force_load` 平台库的那一段，却仍执行
+     完整 `build` target 把内核链接掉。正式 pass 变量虽对，但 make 不追踪
+     命令行变量变化 → 不重链 → 内核里缺 `ArmDTPlatform`/`ArmCpu`/`NativeUfs`，
+     运行时由 score=0 的 `IOPanicPlatform` 兜底并 panic
+     `Unable to find driver for this platform "J120AP"`。
+     修复：`scripts/build-xnu-4k-baseline.sh` 在正式 pass 的 make 之前清掉
+     链接产物，强制重链。
+3. **换文件系统有前置条件**：20G81 的 kernelcache 里有 `com.apple.filesystems.hfs`
+   与 `com.apple.filesystems.tmpfs`，但本仓库的 prelink 根列表里一个都没有，
+   所以 `mount("hfs")` / `mount("tmpfs")` 现在必然 `ENODEV`。
 
 ## 工具
 
@@ -72,6 +80,8 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | `scripts/make-k60-gpt-data-image.py` | 裸 APFS → GPT 磁盘镜像 |
 | `scripts/install-k60-ufs-data.py` | 把 Data 窗口写进 `unixnu`（支持 `--dry-run`） |
 | `scripts/verify-k60-boot-img.sh` | boot v4 镜像独立校验（不依赖 `unixnu bootimg` 自带校验） |
+| `scripts/build-pong-adreno-platform-linux.py` | 在 WSL 上产出 `libPongAdrenoPlatform.a`（macOS 版的 Linux 移植） |
+| `scripts/build-xnu-4k-baseline.sh` | 内核构建驱动脚本（设备仓版优先于框架仓版；已含强制重链修复） |
 | `scripts/sync-repos.sh` | 全部本地仓 fetch + 落后/领先报告，干净的仓可 ff-only |
 
 ## 构建

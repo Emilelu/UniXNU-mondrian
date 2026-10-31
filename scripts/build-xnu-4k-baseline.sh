@@ -1003,6 +1003,20 @@ PY_RAM_BLOCK_BINDINGS
   fi
   EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$PLATFORM_ARCHIVES")
   EXTRA_MAKE_ARGS+=("XNU_EXTERNAL_KERNEL_ARCHIVES=$PLATFORM_DEPENDENCIES")
+
+  # The XNU_BOOTSTRAP pass above runs the full `build` target, so it also links the
+  # kernel -- without this block's archives, because the block is skipped while
+  # XNU_BOOTSTRAP is set. make does not track command-line variable changes, so this
+  # pass would otherwise reuse that link output and the platform archives
+  # (ArmDTPlatform, ArmCpu, NativeUfs) would never reach the kernel: XNU then finds no
+  # driver for the platform and IOPanicPlatform panics in IOPlatformExpert. Drop the
+  # link outputs so the archives are linked in. Relinking is a few seconds; without it
+  # the kernel is unusable.
+  PONG_LINK_OBJ="$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG"
+  rm -f "$PONG_LINK_OBJ/mach.development.pong"
+  rm -f "$PONG_LINK_OBJ/mach.development.pong.unstripped"
+  rm -rf "$PONG_LINK_OBJ/mach.development.pong.dSYM"
+  rm -f "$PONG_LINK_OBJ/mach.development.pong.link/mach.development.pong.linkarchives"
 fi
 if [ -z "${XNU_BOOTSTRAP:-}" ]; then
 python3 - "${XNU_NATIVE_AES:-0}" "${XNU_NATIVE_AES_ARCHIVE:-$ROOT/build/native-aes/libNativeAES.a}" \

@@ -24,15 +24,6 @@
  	rowline = vinfo.v_rowscanbytes >> 2;
  	rowlongs = vinfo.v_rowbytes >> 2;
  
-@@ -1389,7 +1397,7 @@
- 	current.charptr = renderptr;
- 	theChar = iso_font + (ch * ISO_CHAR_HEIGHT);
- 
--	for (line = 0; line < ISO_CHAR_HEIGHT; line++) {
-+	for (line = 0; line < VC_CH; line++) {
- 		unsigned char mask = 1;
- 		do {
- 			switch (newdepth) {
 @@ -1541,6 +1549,42 @@
  }
  

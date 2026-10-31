@@ -83,25 +83,41 @@ MiniIOMobileFramebuffer: <N> frames in <ms> ms (<x> a second), <us> us each in t
   链接会失败 `Undefined symbols`）。必须直接读 `p_pid`。
 - 跨文件共享靠 `extern` 声明 + 在 `kern_exec.c` 里定义；`strlcpy` 可用。
 
-### 0236 `k60-vm-memory-report`（已构建，未上机）
+### 0236 `k60-managed-memory-and-panel`（v2，已构建）
 
-一行只读打印，用来判定同族先例里 K60 的那条结论适不适用于我们：
+**默认完全只读**：不打任何 boot-arg 时它只打两行、不改任何值。第三段改动挂在
+`k60_capmanaged` 上，所以"量"和"试"可以是同一颗镜像 —— 换 boot-arg 只要重建
+payload+bootimg（约 1 分钟），**不必重编内核**。
 
 ```
-K60 MEM: memSize <A> MiB, memSizeActual <B> MiB (cap needed|no cap needed), physBase 0x.. physSize 0x..
+K60 MEM: memSize <A> MiB, memSizeActual <B> MiB (cap available|no cap), physBase 0x.. physSize 0x..
+K60 FB : base 0x.. <w>x<h> depth 0x.. stride <n> bytes 0x.. end 0x.. -> INSIDE|outside managed range
 ```
 
-背景：`osfmk/arm64/arm_vm_init.c` 里
+- `K60 MEM:` 判定的问题：`osfmk/arm64/arm_vm_init.c` 里
 
-```c
-gPhysSize = mem_size = ((gPhysBase + args->memSize) & ~PAGE_MASK) - gPhysBase;
-mem_actual = args->memSizeActual ? args->memSizeActual : mem_size;   /* 只用来算 max_mem_actual */
-```
+  ```c
+  gPhysSize = mem_size = ((gPhysBase + args->memSize) & ~PAGE_MASK) - gPhysBase;
+  mem_actual = args->memSizeActual ? args->memSizeActual : mem_size;   /* 只用来算 max_mem_actual */
+  ```
 
-`mem_actual` **不会**收敛 `mem_size`。同族 K60 分支的结论（`refs/ios-sweet-k60/docs/FORECAST-K60-IOS.md:573-578`）是
-"多出来的那部分 RAM 里有一截是 XPU 拒绝解码的，第一次在上面分配就**整机死、无 panic、无控制台输出**"。
-那台机器的现场是 `memSize=0x4c000000`(1216 MiB) / `memActual=0x2bf00000`(703 MiB)。
-**我们这边的两个数是多少，就是 0236 要回答的。**
+  `mem_actual` **不会**收敛 `mem_size`。同族 K60 分支的现场是
+  `memSize=0x4c000000`(1216 MiB) / `memActual=0x2bf00000`(703 MiB)，
+  结论是"多出来的 RAM 有一截是 XPU 拒绝解码的，第一次在上面分配就**整机死、
+  无 panic、无控制台输出**"（`FORECAST-K60-IOS.md:573-578`）。
+  我们这边的两个数是多少，就是这一行要回答的。
+
+- `K60 FB :` 判定的问题：同族补丁 `0170` 的注释说，ABL 显示控制器一直在扫面板缓冲
+  （他们那边是 `0xb8000000-0xb9200000`），那些页只要进了用户映射或页表就会被
+  控制台文字覆盖，**表现为"条纹屏 + 随机的 PTE/pthread/heap 损坏"**；
+  正确做法是页照常留在 `vm_page` 数组里、只是**永远不上空闲队列**
+  （在数组里挖洞会触发 `vm_page_init` 的断言）。我们这边面板帧缓冲的物理范围
+  是 `boot_args->Video.v_baseAddr`（`boot_args` 在 `arm_vm_init` 里就是现成的 `args`），
+  这一行直接告诉我们它是否落在 VM 即将管理的区间内 —— **在 `INSIDE` 的情况下才需要移植 0170**。
+
+- `k60_capmanaged=1` 才把 `mem_size`/`gPhysSize` 收敛到 `mem_actual`
+  （等价于同族 `0172` 的 PONG 版）。注意只动 `mem_size`，
+  **不动 `real_phys_size`**，所以 `phystokv()` 的 physmap 覆盖范围保持不变。
 
 ## 4. 已经拿到的一个硬数字：用户态其实很忙
 
@@ -213,12 +229,12 @@ if ((memory_size != 0) && (mem_size > memory_size)) {
 | `boot-prefs.img` | 11:32 | `223bdf74` | + 0234 偏好种子 | 进度条走一小段后停住 |
 | `boot-trace.img` | 12:17 | `5d1c13d3` | + 0235 v1 追踪 | 已刷；读到 `execs=601 exits=400`（两个上限打满） |
 | `boot-wifi.img` | 12:39 | `5d1c13d3` | + `/chosen` 三条身份（**delta 仅 ADT**） | 已刷 12:41 |
-| `boot-mem.img` | 12:47 | `d47a65fe` | + 0236 内存报数 | 已建，未刷 |
-| `boot-trace2.img` | 12:57 | `2bf8216d` | 0235 **v2** 去重追踪 + 0236 + `/chosen` 三条 | **待刷（首选）** |
+| `boot-mem.img` | 12:47 | `d47a65fe` | + 0236 v1 内存报数 | 被下面这颗取代 |
+| **`boot-trace2.img`** | **13:20** | **`27e06e64`** | **0235 v2 去重追踪 + 0236 v2（内存 + 面板帧缓冲报数 + `k60_capmanaged` 开关）+ `/chosen` 三条** | **已刷 13:21，正在跑** |
 
-> `boot-trace2.img` 相对 `boot-wifi.img` 的 delta：**0235 v1→v2（追踪形状）** + **0236 一行只读打印**。
-> ADT 的**配置**完全相同；`adt_sha256` 每次构建都变，只是因为 `random-seed` / `boot-epoch` /
-> nvram nonce 每次重新随机。
+> `boot-trace2.img` 相对 `boot-wifi.img` 的 delta：**0235 v1→v2（追踪形状）** + **0236 v1→v2
+> （多一行面板帧缓冲判定 + 一个默认关闭的内存上限开关）**。ADT 的**配置**完全相同；
+> `adt_sha256` 每次构建都变，只是因为 `random-seed` / `boot-epoch` / nvram nonce 每次重新随机。
 
 ### 万一还是不够：下一颗可以加的东西（按价值排序）
 
@@ -232,14 +248,19 @@ if ((memory_size != 0) && (mem_size > memory_size)) {
 
 ## 9. 下一步（严格一次一个变量）
 
-1. **刷 `boot-trace2.img`**，等它跑到停住，然后拍**最后那一屏**。要找的只有四样：
+1. **`boot-trace2.img` 已在跑（13:21 刷入）**。等它停住，拍**最后那一屏**。要找的五样：
    - `K60 ex=<A> kx=<B> abn=<C>` —— A 不再涨 = 彻底停住；若 A 回到很小的数 = **内核真的重启了**；
    - `K60 last exec: <pid> '<comm>' <path>` —— 最后一次 exec，这就是 frontier；
    - `K60 last bad : <pid> '<comm>' exit= sig=` —— 最后一次异常退出，`sig=9` 是 SIGKILL、
      `sig=6` 是 SIGABRT（多半是 C++ 异常或 assert）；
-   - `KE ...` 清单里有没有 `SpringBoard` / `backboardd` / `runningboardd` / `Setup`。
-2. 同时读 `K60 MEM: memSize ... memSizeActual ... (cap needed|no cap needed)`：
-   - `cap needed` → 写 `0236b`（PONG 版 0172）收敛 VM 可管理内存；
-   - `no cap needed` → 排除内存，转 0170 方向（面板帧缓冲出空闲队列，同时也能解释控制台丢字）。
+   - `KE ...` 清单里有没有 `SpringBoard` / `backboardd` / `runningboardd` / `Setup`；
+   - **`K60 MEM:` 与 `K60 FB :` 两行**（应该出现在启动早期）。
+2. 按这两行分派：
+   - `K60 MEM: ... (cap available)` → 重建 payload+bootimg 时加 `--kernel-arg k60_capmanaged=1`
+     （**不用重编内核**）→ `boot-cap.img`，单独看进展。
+   - `K60 FB : ... -> INSIDE managed range` → 移植 0170：在 `vm_page_release_startup` /
+     pmap 启动路径里把那一段物理页标记为"留在数组里但不上空闲队列"，
+     **PONG 版、区间取自 `args->Video`**，不再硬编码 `0xb8000000`。
+   - 两个都 `no cap` / `outside` → 排除这两条，转 `KE` 清单里"哪支二进制从没出现"的方向。
 3. 触摸仍卡在 RSC 块不可访问（同族先例 `LOCKSCREEN-2026-10-28.md:30-40`），
    与当前卡点无关，暂不动。

@@ -38,7 +38,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **用户态启动** | 🟡 | 进度条**会走一小段后停住**；5 秒统计**每窗恰好 2 帧**，窗口 24.9 s→5.6 s、每帧驱动 39.4 ms→2.6 ms、GPU 等待 0 µs ⇒ **卡在用户态，不是显示层**（见 [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)） |
 | **用户态可观测性** | ✅ | 0235 v2：`KE` 按路径去重的完整二进制清单（≤128 行）/ `KX!` 只打异常退出 / `K60 ex= kx= abn=` + `K60 last exec:` + `K60 last bad :` 三行常驻末屏 |
 | **ADT `/chosen` 身份** | 🟡 | `mac-address-wifi0` + `unique-chip-id` + `chip-id` 已进 ADT（字节校验通过），效果未上机确认 |
-| **loader 内存报数** | 🟡 | 0236 打印 `K60 MEM: memSize / memSizeActual / physBase / physSize`，用于判定同族 0172 是否适用 |
+| **loader 内存与面板报数** | 🟡 | 0236 v2 打印 `K60 MEM:`（判定同族 0172 是否适用）与 `K60 FB :`（面板帧缓冲是否落在 VM 可管理区间内，判定同族 0170 是否适用）；`k60_capmanaged=1` 才启用上限收敛，默认关闭 |
 | **GPU（Adreno 730）** | 🟡 | `PongAdreno` 驱动已 `force_load` 进内核（51 处符号），**未上机启动** |
 | **IOMFB selector 兜底** | 🟡 | 0233 补丁已入 series（`GetGammaTable` 仍保持 unsupported），未上机 |
 | 触摸 / 120 Hz / 音频 / 网络 / 相机 | ❌ | 未开始 |

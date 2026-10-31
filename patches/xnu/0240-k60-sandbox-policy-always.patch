@@ -1,0 +1,37 @@
+--- a/bsd/kern/kern_minimac.c
++++ b/bsd/kern/kern_minimac.c
+@@ -363,14 +363,30 @@
+ };
+ SECURITY_READ_ONLY_LATE(static mac_policy_handle_t) minisandbox_handle;
+ 
+-/* Called from kernel_bootstrap_thread() once the MAC framework is up. */
++/*
++ * Called from kernel_bootstrap_thread() once the MAC framework is up - BEFORE the
++ * prelinked kexts load.
++ *
++ * The "Sandbox" policy registers unconditionally, the way the sibling port's patch
++ * 0050 does it: without a policy of that name every __mac_syscall("Sandbox", ...)
++ * returns ENOPOLICY (security/mac_base.c:1587), launchd reports mach lookups as
++ * "error = 159: Sandbox restriction", and daemons die in sandbox profile init -
++ * the tccd/timed/securityd SIGKILL storm observed on 2026-10-31. Nothing here is
++ * a security mechanism: every query is answered "allowed" (see the ops above).
++ *
++ * The AMFI interface stand-in (miniamfi) is NOT registered on this board. The OS
++ * profile prelinks the real AppleMobileFileIntegrity kext, which calls
++ * amfi_interface_register() when it loads; registering a second table first or
++ * later both end in panic("AppleMobileFileIntegrity interface already set")
++ * (amfi.c:11) - boot-amfi.img demonstrated the early path of that. Signature
++ * enforcement on this kernel is disabled by cs_enforcement_disable=1, so the
++ * interface stand-in is not needed for the boot to proceed.
++ */
+ void
+ minimac_policy_init(void)
+ {
+-	uint32_t enabled = 0;
+-	if (!PE_parse_boot_argn("amfi_get_out_of_my_way", &enabled, sizeof(enabled)) || !enabled) return;
+-	mac_policy_register(&miniamfi_conf, &miniamfi_handle, NULL);
+ 	mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
++	printf("minimac: permissive Sandbox policy registered\n");
+ }
+ 
+ #endif

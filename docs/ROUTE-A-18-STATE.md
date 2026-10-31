@@ -49,14 +49,23 @@ SecurityLock::LockType: SOFTWARE_LOCK …
 
 ## 待查（优先）
 
-1. **`hardware.dtb` vs 生成 ADT**：镜像里追加的是原始 `hardware.dtb`（1,862 B，14 节点），
-   缺 `/chosen`、`/arm-io`、`/defaults`、`/options`——正是 `ArmDTPlatform::configure()` 声明必需的四项。
-   `unixnu bootimg --dtb` 只做 `patch_dtb()`，**不调用 `devicetree.generate()`**。
-   payload 里 `adt_sha256 = 78f8ecd0…` 但 `adt.bin` 不存在。
-2. **可观测性**：在 `start.s` 的 `_start` 加不依赖 MMU 的面包屑（`x20` = boot_args PA，
-   `Video[]`@+0x28，`v_rowBytes`@+0x38）；bootstrap 页表含 V=P 块映射，开 MMU 后仍可用 PA 访问。
-   或直接在 `arm_init` 开头往 PA `0xA7000000` 写标记，之后从 Android root `dd if=/dev/mem` 读回。
+1. **prelink 缺口（2026-11-01 新发现）**：内核 `__PRELINK_TEXT / __PRELINK_INFO /
+   __PRELINK_DATA / __PLK_*` 六段 size 全 0（能启动的 20G81 内核是
+   `0x714000 / 0x71000 / 0x158000`）。darwin24 路线没有 OS profile，`unixnu build kernel`
+   的 prelink 步骤被整个绕过。22H374 kernelcache 已解密完整（`__PRELINK_INFO` 明文 XML、
+   852 个 kext），可用 `kits/XnuPrelink` 在 Linux 补，`slide = -0x112C000`。
+2. **可观测性**：`start.s` M00–M03 + `arm_init.c` M04–M07，统一写 PA `0xA73FF000`
+   （4 MiB carveout 最后一页）。需在 bootstrap 页表补 2 MiB Device 块
+   （`0xA7200000`，`0x00400000A720040D`）。帧缓冲 `0xB8000000` 与 ramoops `0xA7000000`
+   **都不在** bootstrap 映射内，开 MMU 后直写必 data abort。
 3. 越过 `arm_vm_init` 后读 ramoops carveout（K60 基址 `0xA7000000`），看 `PONG DIAGNOSTIC v92`。
+
+## 待查（已作废，别再查）
+
+- ~~`hardware.dtb` 缺 `/chosen` `/arm-io` `/defaults` `/options` 导致 `configure()` 失败~~
+  → **不成立**。XNU 读的是 payload 里的 `Payloads/kernel.macho.adt`（14,672 B，
+  `78f8ecd0…`，五节点齐全），boot.img 尾部的 1862 B DTB 没有消费者；
+  20G81 用同一份 DTB 启动到 SpringBoard。详见 HANDOFF §7。
 
 ## 未刷的产物
 

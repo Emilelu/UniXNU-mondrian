@@ -30,7 +30,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **平台驱动链接** | ✅ | `ArmDTPlatform`/`ArmCpu`/`NativeUfs` 已 `force_load` 进内核 |
 | **控制台字体放大** | ✅ | `k60_fontscale=3` 生效，日志在 1440x3200 上可读（0214 溢出已修） |
 | UFS root（SHNGROOT） | ✅ | OS / SystemOS 两个只读窗口，union 挂到 `/` |
-| `/private/var`（Data） | 🟡 | 真实 UFS Data 可读写挂载，但用户日志已证实 APFS `ENOSPC`；最近历史安装仅 256 MiB，32 GiB unixnu 内约 24.5 GiB 未分配给窗口；当前容量/占用待 recovery 读回 |
+| `/private/var`（Data） | 🟡 | ENOSPC 已实测归因：256 MiB 容器被日志占满 97.6%（uuidtext/diagnostics 94%）；已安装 2045 MiB 新容器并读回校验（free blocks 为阈值 399 倍），旧卷已备份 PC；重启验证 pending |
 | keybag / MKB | ✅ | ADT `/defaults/no-effaceable-storage` + 内核写明文 `systembag.kb` |
 | watchdogd | ✅ | launchd disabled-jobs 策略禁用（core 补丁 0222） |
 | SpringBoard 显示模式 | ✅ | ADT `display-scale = 3` |

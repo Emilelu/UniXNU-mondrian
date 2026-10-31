@@ -136,3 +136,35 @@ APFS grow 路径；不猜 ioctl、不手改 NXSB/spaceman，也不把新的空�
 
 最后：扩大后的 GPT 镜像及完整回退方案先在主机验证，写入 unixnu 空白区域后读回校验；
 全部通过再提交单块 SHNGROOT 引用切换。本文仅为计划，没有写入设备。
+
+
+## 2026-10-31 15:40 执行记录：ENOSPC 归因与 2 GiB Data 安装（已验证）
+
+live capture（root Android KernelSU，只读，双重哈希）给出决定性证据：
+
+- 当前 Data 容器确认 256 MiB（checkpoint xid 2405，与控制台 xid 2339→2357 同源），
+  卷 `OwnerData` 已分配 261,971,968 / 268,435,456 字节 = **97.6%**。
+- 占用归因：`/db/uuidtext` 122.2 MiB、`/db/diagnostics` 71.8 MiB、`/db/analyticsd`
+  25.8 MiB、`/log/com.apple.xpc.launchd` 15.0 MiB、`/containers/Shared` 8.4 MiB ——
+  **日志占 94%**。"日志写爆"从假设变为实测结论；同时 256 MiB 本身也太小。
+- 完整备份：`D:/Android/k60-ios/backups/data-before-grow-2026-10-31/`，
+  SHA-256 `203184993ce09ba80786e257ac23e77cebbddf43348fa7de1d1a394d75259517`，
+  第二次设备读取哈希一致，manifest 前后未变。
+
+修复（在 PC 上构建，写入窗口后读回验证）：
+
+- mkapfs 2045 MiB（523,520 块）：上限 `0x80000000` = 2048 MiB 是内核
+  `kern_exec.c` UFS 分支的检查值，标准包装器 + 2 MiB 会超出，所以 APFS 收缩到
+  2045 MiB，最终 GPT 窗口 2047 MiB ≤ 上限 —— **零内核改动**。
+- 卷 UUID 保持 defconfig 的 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`，
+  容器 UUID 沿用 Apple 种子的 `068446EE-…`，label OwnerData。
+- 镜像 SHA-256：raw `0915f6c2…`，GPT 窗口 `562d80ec…`。
+- 安装：`--replace-existing-data`，offset 7420 MiB 不变，OS/SystemOS 未动；
+  dry-run 先行，manifest 由安装器重写为 2047 MiB。
+- **读回验证**：整窗 SHA-256 与推送镜像一致；APFS 解析通过
+  （1.997 GiB，xid 1）；fresh free blocks ≈ 523,515，
+  是 ENOSPC 阈值 1310 的 **399 倍**。
+- 证据：`D:/Android/k60-ios/backups/data2g-install-2026-10-31/install-verify.json`。
+
+旧 258 MiB 窗口的字节完整保存在 PC 备份中；SHNGROOT 单块写失败也不会破坏
+OS/SystemOS。回退 = 重新推送备份镜像 + 恢复 258 MiB 的 manifest 条目。

@@ -1,6 +1,10 @@
 name: Device documentation
 
-on: [push, pull_request]
+# Manual only: the upstream record validator fails on this fork's component set
+# ("unknown component PongUfs": the component catalog lives in the core fork,
+# not UniXNU/UniXNU), and documentation-only pushes should not spawn CI runs.
+on:
+  workflow_dispatch:
 
 permissions:
   contents: read

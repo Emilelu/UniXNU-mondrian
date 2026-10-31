@@ -104,4 +104,19 @@ timeout = 5
 trust_cache_sha256 = "344ae6445dfcb791ac838dbfec5c4d39a871cf58f91d8bee84ba57204f6727e6"
 
 [payload."adt"]
+"chip_id" = "8015"
 "root_match_volume_uuid" = "C5DAF029-2070-4F68-B3CC-1D1320344CF0"
+
+# ---------------------------------------------------------------------------
+# /chosen 里补两个 Apple 身份值。两条都有同族先例的 exact 引文：
+#   refs/ios-sweet-k60/docs/REBUILD-FROM-SCRATCH.md:41-42
+#     "/chosen 的 mac-address-wifi0（6 字节假 MAC）：没有它 lsd 建库时会卡在
+#      MobileGestalt 的网络匹配通知上。"
+#   refs/ios-sweet-k60/NOTES.md:77
+#     "On arm XNU publishes IOPlatformUUID (gethostuuid) only from
+#      /chosen/unique-chip-id (8 bytes) + /chosen/chip-id (4 bytes) ... so every
+#      CurrentHost preference write failed."
+# 52:54:00:12:34:56 = 本地管理、单播、非任何真实网卡。
+# ---------------------------------------------------------------------------
+[adt."chosen"."bytes"]
+"mac-address-wifi0" = "525400123456"

@@ -13,6 +13,7 @@ mockfs-typed-allocation.patch
 native-4k-bootstrap-capacity.patch
 native-4k-signature-hash-cache.patch
 native-4k-user-abi.patch
+public-entitlements-header.patch
 native-arm-pan.patch
 native-dt-panic-region.patch
 native-priv-work-interval.patch

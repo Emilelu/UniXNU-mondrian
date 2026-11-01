@@ -1,0 +1,39 @@
+/*
+ * Route A-18 (xnu-11417 / darwin24): size the PONG cluster arrays for SM8475.
+ *
+ * Measured on the K60 unit from Android (2026-11-01):
+ *   cpu0-3  physical_package_id 0, core_id 0-3, part 0xd46 (A510)
+ *   cpu4-6  physical_package_id 1, core_id 0-2, part 0xd47 (A710)
+ *   cpu7    physical_package_id 2, core_id 0,   part 0xd48 (X2)
+ * i.e. three clusters, with MPIDR aff1 = cluster and aff0 = core.
+ *
+ * pong's board config declared MAX_CPU_CLUSTERS 1, which was never exercised
+ * because pong has no device evidence for darwin24. ml_parse_cpu_topology()
+ * asserts both phys_cluster_id <= MAX_CPU_CLUSTER_PHY_ID (= clusters - 1) and
+ * num_clusters < MAX_CPU_CLUSTERS, so the third CPU panicked before any console
+ * existed - indistinguishable from a silent reset.
+ *
+ * The device tree has to carry the matching MPIDR values; that half lives in
+ * dts/mondrian.dts, not here.
+ */
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -274,7 +274,17 @@
+ #include <pexpert/arm64/PONG.h>
+ #define MAX_L2_CLINE                   6
+ #define MAX_CPUS                       8
+-#define MAX_CPU_CLUSTERS               1
++/*
++ * SM8475 has three real clusters, measured on the K60 unit (Android 2026-11-01):
++ * cpu0-3 physical_package_id 0 (A510, 0xd46), cpu4-6 id 1 (A710, 0xd47),
++ * cpu7 id 2 (X2, 0xd48). The ADT's per-CPU "reg" has to carry the matching
++ * MPIDR (0x000-0x003 / 0x100-0x102 / 0x200): ml_parse_cpu_topology() derives
++ * the cluster from MPIDR_CLUSTER_ID(reg) and asserts both
++ * phys_cluster_id <= MAX_CPU_CLUSTER_PHY_ID (= MAX_CPU_CLUSTERS - 1) and
++ * num_clusters < MAX_CPU_CLUSTERS. With 1 here it panicked on the third CPU,
++ * before any console existed, which looked exactly like a silent reset.
++ */
++#define MAX_CPU_CLUSTERS               3
+ #define CORE_NCTRS                     8 /* Unused placeholder: KPC disabled */
+ #endif /* ARM64_BOARD_CONFIG_PONG */
+ 

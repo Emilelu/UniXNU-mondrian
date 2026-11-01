@@ -68,6 +68,15 @@ volume = "UNIXNU"
 size_mib = 192
 loader = "firmware"
 title = "UniXNU"
+# The upstream entry probe patches the prelinked kernel image: it paints the
+# stage bars (blue at the kernel entry with the MMU off, magenta just before the
+# MMU comes on) and, with the panic screen, draws the panic string on the
+# kernel's own frame buffer. The reset delay makes the third stage reset the
+# board through PSCI six seconds after the MMU is on, so "did the kernel get
+# past the MMU enable" is answered by a board that walks back to fastboot on
+# its own instead of a manual power cycle.
+panic_screen = true
+entry_probe_reset_delay = 6
 # Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
 # swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
 dram_size = "0x300000000"

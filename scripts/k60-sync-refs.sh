@@ -104,3 +104,17 @@ if [ "$moved" -gt 0 ]; then
 else
 	echo "every tracked upstream branch is up to date with the local HEAD."
 fi
+
+# A moved branch is only half the picture. The component sources under
+# drivers/ are local copies, so a fix can sit already written in the
+# reference tree while our copy stays on the old order. The ArmCpu Darwin 24
+# start order was such a fix and the unit only found it after a panic named
+# the assertion.
+echo
+echo "== comparing our component sources against the reference tree =="
+if [ -x "$WROOT/UniXNU-mondrian/scripts/k60-compare-components.py" ] || \
+   [ -f "$WROOT/UniXNU-mondrian/scripts/k60-compare-components.py" ]; then
+	python3 "$WROOT/UniXNU-mondrian/scripts/k60-compare-components.py" || true
+else
+	echo "  k60-compare-components.py is missing"
+fi

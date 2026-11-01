@@ -115,3 +115,57 @@ python3 scripts/check-porting-paths.py
 
 节奏：每次构建前跑 `python3 scripts/audit-forks.py`（已有脚本，枚举 fork 与分支）；
 上游非 fork 分支用 `git ls-remote` 比对本表 SHA，变了再人工看。
+
+## UniXNU 组织的仓库与分支（2026-11-01 全量快照）
+
+`scripts/k60-sync-refs.sh` 会 fetch 这些仓并报告本地落后量；SHA 表用 `git ls-remote` 取。
+完整分析见 `docs/ROUTE-A-18-UPSTREAM.md`。
+
+| 仓库 | main / 默认分支 | 关键分支 |
+|---|---|---|
+| `UniXNU/UniXNU` | `627c932` | `feat/ipados27-gpu-parity` `d266658`（与 main 无共同祖先）；另有 26 个功能分支 |
+| `UniXNU/UniXNU-sheng` | `6b43339` | `feat/ipados27-gpu-parity` `d0eecd4`、`perf/gpu-smoothness` `88b11ae`、`feat/wifi` `4a22235`、`feat/speaker` `2b1a6cd` |
+| `UniXNU/UniXNU-sm8550-common` | `a9f45dc` | `feat/ipados-26` `9118a9e` |
+| `UniXNU/uefi-sheng` | `0a55f26` | `sheng` `20ac23d` |
+| `UniXNU/Adreno740` | `a9a2cbb` | `feat/ipados27-gpu-parity` `10ac0ea`、`perf/gpu-smoothness` `5629fbc` |
+| `UniXNU/AdrenoMetal` | `831a9dc` | `feat/ipados27-gpu-parity` `a0a34fa`、`perf/gpu-smoothness` `39ba232` |
+| `UniXNU/XnuPrelink` | `b74ed7c` | `feat/ipados27-gpu-parity` `76452c6` |
+| `UniXNU/DarwinBoot` | `3c75734` | `feat/ipados27-gpu-parity` `3e3a8a9` |
+| `UniXNU/ArmCpu` | `93a5030` | `feat/ipados27-gpu-parity` `4bd3230` |
+| `UniXNU/ArmDTPlatform` | `417ff95` | — |
+| `UniXNU/ShengUfs` | `99d8bcd` | `feat/ipados27-gpu-parity` `78c93b0` |
+| `UniXNU/ShengHidInput` | `71a40e7` | `feat/ipados27-gpu-parity` `24f1f3f` |
+| `UniXNU/ShengNovatekTouch` | `a1a6f2b` | `fix/touch-hold` `30e1542` |
+| `UniXNU/GopFramebuffer` | `19ef3a7` | `feat/ipados27-gpu-parity` `74ff4c4`、`feat/static-refresh` `c99046a` |
+| `UniXNU/ArmSmmu4K` | `83969cd` | `feat/ipados27-gpu-parity` `1811b6d` |
+| `UniXNU/VerifiedRoot` | `974f043` | `feat/ipados27-gpu-parity` `ed368a8` |
+| `UniXNU/RamBlock` | `4be2d7e` | `feat/ipados27-gpu-parity`（同 SHA） |
+| `UniXNU/VirtioMmioBlock` | `4e1013e` | `feat/ipados27-gpu-parity` `f4dfce6` |
+| `UniXNU/VirtioMmioConsole` | `7025321` | — |
+| `UniXNU/AdrenoFirmware` | `20ad3d7` | — |
+| `UniXNU/AdrenoPM4` | `282606b` | — |
+| `UniXNU/AirNir` | `b356371` | — |
+| `UniXNU/QcomGeniSpi` | `eac47ba` | — |
+| `UniXNU/Ath12kWifi` | `f6bf561` | — |
+| `UniXNU/SoftwareAES` | `4a45326` | — |
+| `UniXNU/ArmVirtPlatform` | `d1423a8` | — |
+| `UniXNU/ShengPreflight` | `9cfc8d2` | — |
+| `UniXNU/AppleKeyStoreState` | `42ff83e` | — |
+
+`feat/ipados27-gpu-parity` 横跨 14 个仓库，是一条联合作业线而不是单个仓库的功能。
+
+### D 盘参考仓（本地克隆，`scripts/k60-sync-refs.sh` 会 fetch 并报落后）
+
+| 路径 | 远端 | 本地 HEAD |
+|---|---|---|
+| `D:\Android\k60-ios\UniXNU` | `UniXNU/UniXNU` | `33da813`（main） |
+| `D:\Android\k60-ios\UniXNU-fork` | `Emilelu/UniXNU` | `48331ff`（k60） |
+| `D:\Android\k60-ios\UniXNU-sheng` | `UniXNU/UniXNU-sheng` | `08cde20` |
+| `D:\Android\k60-ios\UniXNU-liuqin` | `1696108518/UniXNU-liuqin` | `907b8e9` |
+| `D:\Android\k60-ios\ios-sweet-k60` | `Emilelu/ios-sweet-k60` | `3fbaa5e` |
+| `D:\Android\k60-ios\refs\{UniXNU,UniXNU-sheng,UniXNU-pong,UniXNU-sm8550-common,uefi-pong,ios-sweet,darwin-xnu-build}` | 各上游 | 各自 main |
+
+2026-11-01 同步结果：`ios-sweet-k60` 落后 2（新增 `docs/IOS-26-27-EVALUATION.md`、
+`docs/GPU-STATUS-2026-11-01.md`、`docs/INSTALLER-PLAN.md`、
+`docs/APP-INSTALL-EVALUATION.md`、`docs/JAILBREAK-TECHNIQUE-SURVEY.md`）；
+`~/hackios/UniXNU` 落后 1。

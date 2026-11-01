@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
-// Pong Darwin 22 GICv3 CPU provider, with firmware PSCI secondary startup.
+// Pong Darwin 24 GICv3 CPU provider, with firmware PSCI secondary startup.
 #include <IOKit/IOCPU.h>
 #include <IOKit/IODeviceTreeSupport.h>
 #include <IOKit/IOMemoryDescriptor.h>
@@ -16,6 +16,12 @@ extern "C" kern_return_t psci_smp_start_cpu(int);
 extern "C" void psci_smp_cpu_running(void);
 extern "C" void psci_smp_cpu_off(void) __attribute__((noreturn));
 extern "C" void pong_cpu_startup_finished(IOCPUInterruptController *);
+// Darwin 24 splits the first boot from processor_start(): the kernel calls
+// initCPU() while it runs processor_boot(), so every interrupt vector has to
+// exist before the first processor starts. These three live in the Mach core
+// (osfmk/arm64/machine_routines.c) and are not exported to kexts.
+extern "C" void pong_cpu_first_boot(processor_t);
+extern "C" void pong_cpu_first_boot_wait(processor_t);
 extern "C" {
 volatile uint32_t armcpu_registered, armcpu_gic_ready;
 volatile uint64_t armcpu_timer_interrupts, armcpu_ipi_interrupts;
@@ -331,16 +337,23 @@ bool ArmCpu::start(IOService *provider)
                                       &ArmCpu::dispatch, nullptr) != kIOReturnSuccess)
       panic("ArmCpu: IRQ handler registration failed for CPU %u", i);
   }
-  initCPU(true);
+  // Darwin 24 separates the first boot from processor_start(): the kernel
+  // calls initCPU() while it runs processor_boot(), and it expects every
+  // interrupt vector to exist beforehand. The Darwin 22 order - initCPU()
+  // here, then processor_start() - sends the boot CPU's own IPI before
+  // cpu_machine_init() has set StartedState, which trips the assertion in
+  // cpu_common.c:586. Run the kernel's first-boot path instead, so the
+  // vectors exist first and initCPU() lands at the right moment.
   psci_smp_init();
-  // CPU_ON failure is returned through cpu_start/processor_start; an offline
-  // secondary must not prevent the already working boot CPU from continuing.
+  pong_cpu_first_boot(machProcessor);
   for (unsigned i=0; i<ml_get_cpu_count(); i++) {
-    if (gCpus[i] == this) continue;
-    status = processor_start(gCpus[i]->machProcessor);
-    IOLog("ArmCpu: CPU %u PSCI start %s result=%d\n", i,
-        status == KERN_SUCCESS ? "PASS" : "FAIL (offline)", status);
+    if (gCpus[i] != this) pong_cpu_first_boot(gCpus[i]->machProcessor);
   }
+  for (unsigned i=0; i<ml_get_cpu_count(); i++) {
+    pong_cpu_first_boot_wait(gCpus[i]->machProcessor);
+    IOLog("ArmCpu: CPU %u first boot completed\n", i);
+  }
+  ml_cpu_init_completed();
   // IOKit may now expand its matching worker pool. A firmware-rejected
   // secondary remains offline; it must not leave the pool in bootstrap mode.
   pong_cpu_startup_finished(controller);

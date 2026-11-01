@@ -2,6 +2,13 @@
 
 > 完整背景见 `ROUTE-A-18-HANDOFF-2026-11-01.md`。本文只记"现在在哪、下一步做什么"。
 
+## 两条硬规则（每轮都执行）
+
+1. **设备**：先 `scripts/k60-device.sh state`；按 adb/fastboot 自动重启或直接 `boot`，不向用户要手动断电。
+2. **证据**：每次上机后 5 分钟内回填 `porting.toml`，`python3 scripts/check-porting-paths.py --quiet`
+   必须 0 error 才算这一轮结束。**状态按 completion 判，不按"碰过真机"判**——只验证了拓扑解析就仍是
+   `implemented`，不能写 `device-verified`。
+
 ## 一句话
 
 darwin24 内核**已经在 Linux 上完整构建并通过四道校验**；加载器 `boot_args` ABI 已从
@@ -124,3 +131,19 @@ kernel 槽 = shim + FD；ramdisk 槽逐字节等于 `payload.img`；payload 内 
 
 只 `fastboot boot`；绝不 flash boot/persist/modemst*/Android userdata；可写 `unixnu` 分区；
 串号 `6033dbec`。设备目前 adb/fastboot 均无响应。
+
+## 上游 26/27 现状（2026-11-01 评估，结论：不迁移）
+
+| 项 | 上游 `feat/ipados27-gpu-parity` | 我们 route-a-18 |
+|---|---|---|
+| 内核 | `xnu-12377.121.6` + darwin26 三补丁 | `xnu-11417.140.69` |
+| arch / donor | `arm64e` / `iPad17,3`(M4) | `arm64` / `iPad7,11`(A10) |
+| 机器配置 | `DEVELOPMENT_ARM64_BCM2837` | `DEVELOPMENT_ARM64_PONG` |
+| prelink | fileset：`--fileset-reference` + `--allow-missing` | 传统 `plan()/emit()`，slide `-0x112C000` |
+| 目标设备 | 仅 `sheng / SM8550` 在开发 | K60 / SM8475 |
+
+不迁移的三条理由：① 换内核版本 = 作废当前全部定位证据（面包屑 13 点 + 拓扑修复）；
+② pong 的 12,396 行补丁套不到 12377，PONG 机器配置要重写；③ iPad7,1 在 26/27 没有
+kernelcache，ADT 身份得整套换成 arm64e，而 arm64e 在 SM8475 上零证据。
+
+迁移代价与可摘取清单见 `docs/FORK-REVIEW.md` 末节。

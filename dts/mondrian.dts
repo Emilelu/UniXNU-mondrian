@@ -47,27 +47,12 @@
 	};
 
 	/*
-	 * CPU MPIDR, measured on this unit (Android, 2026-11-01):
-	 *   cpu0-3  physical_package_id 0, core_id 0-3   part 0xd46  (A510)
-	 *   cpu4-6  physical_package_id 1, core_id 0-2   part 0xd47  (A710)
-	 *   cpu7    physical_package_id 2, core_id 0     part 0xd48  (X2)
-	 * so "reg" is MPIDR: aff1 = cluster, aff0 = core.
-	 *
-	 * The SoC dtsi ships a flat 0x000..0x700 numbering (eight clusters), which
-	 * XNU turns into eight physical clusters and then trips
-	 * ml_parse_cpu_topology()'s num_clusters < MAX_CPU_CLUSTERS assert on the
-	 * third CPU - a silent panic, because no console exists yet. XNU also maps
-	 * a starting CPU's hardware MPIDR back to a logical id through this value
-	 * (ml_get_cpu_number), so it has to match the silicon, not just be small.
+	 * The CPU nodes come from the SoC dtsi: eight cores with the flat
+	 * 0x000..0x700 reg values, which are the hardware MPIDRs (Aff1 = core
+	 * index). The Android tree carries the same values, this firmware refuses
+	 * every CPU_ON target outside that table (bc9), and XNU matches a starting
+	 * core to its cpu data by this value - so do not override them here. The
+	 * 4/3/1 A510/A710/X2 grouping seen in Android's sysfs is cache topology,
+	 * not MPIDR affinity.
 	 */
-	cpus {
-		cpu@0 { reg = <0x000>; };
-		cpu@1 { reg = <0x001>; };
-		cpu@2 { reg = <0x002>; };
-		cpu@3 { reg = <0x003>; };
-		cpu@4 { reg = <0x100>; };
-		cpu@5 { reg = <0x101>; };
-		cpu@6 { reg = <0x102>; };
-		cpu@7 { reg = <0x200>; };
-	};
 };

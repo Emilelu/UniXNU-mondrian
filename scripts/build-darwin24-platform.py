@@ -29,7 +29,10 @@ PATCH_DIR = Path(__file__).resolve().parents[1] / 'patches/xnu-ipados18'
 # entry-sequence match. The file stays in the tree as a fallback for a board
 # that cannot use the probe.
 PATCHES = [PATCH_DIR / '0245-k60-cpu-clusters.patch',
-           PATCH_DIR / '0246-k60-console-font-scale.patch']
+           PATCH_DIR / '0246-k60-console-font-scale.patch',
+           PATCH_DIR / '0247-k60-psci-flat-targets.patch',
+           PATCH_DIR / '0248-k60-smp-arrival-probes.patch',
+           PATCH_DIR / '0250-k60-psci-target-scan.patch']
 
 for lib in (ARM_DT, ARM_CPU):
     if not lib.exists():
@@ -38,25 +41,29 @@ for lib in (ARM_DT, ARM_CPU):
 
 
 def apply_patches():
-    """Apply the route-a-18 patches to the pong work tree, skipping ones already in.
+    """Rewind the route-a-18 patches, then apply them in order.
 
-    The tree carries pong's 0001 patch as uncommitted edits, so these are kept as
-    standalone diffs against that state rather than commits to rebase onto.
+    The tree carries pong's 0001 patch as uncommitted edits, so these stay as
+    standalone diffs against that state. The patches overlap (0247 and 0250
+    both edit psci_smp.c's start path), so a per-patch "already applied"
+    probe cannot tell them apart once a later patch has edited the same
+    lines; a full rewind is deterministic. A rewind failure is tolerated for
+    a patch that was never applied.
     """
+    for patch_path in reversed(PATCHES):
+        undo = subprocess.run(['patch', '-p1', '-R', '-s', '-i', str(patch_path)],
+                              cwd=str(WORK), capture_output=True, text=True)
+        if undo.returncode == 0:
+            print(f'{patch_path.name}: rewound')
     for patch_path in PATCHES:
-        probe = subprocess.run(['patch', '-p1', '-R', '--dry-run', '-s', '-i', str(patch_path)],
-                               cwd=str(WORK), capture_output=True, text=True)
-        if probe.returncode == 0:
-            print(f'{patch_path.name}: already applied')
-            continue
-        # Dry-run first: `patch --forward` applies the hunks it can and leaves .rej
-        # files behind, which silently corrupts the tree for the next build.
+        # Dry-run first: `patch --forward` applies the hunks it can and leaves
+        # .rej files behind, which silently corrupts the tree for the next build.
         probe = subprocess.run(['patch', '-p1', '--dry-run', '-s', '-i', str(patch_path)],
                                cwd=str(WORK), capture_output=True, text=True)
         if probe.returncode != 0:
             raise SystemExit(f'{patch_path.name} does not apply cleanly:\n'
                              f'{probe.stdout}{probe.stderr}')
-        apply = subprocess.run(['patch', '-p1', '--forward', '-s', '-i', str(patch_path)],
+        apply = subprocess.run(['patch', '-p1', '-s', '-i', str(patch_path)],
                                cwd=str(WORK), capture_output=True, text=True)
         if apply.returncode != 0:
             raise SystemExit(f'{patch_path.name} did not apply:\n{apply.stdout}{apply.stderr}')

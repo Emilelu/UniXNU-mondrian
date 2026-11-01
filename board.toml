@@ -75,11 +75,16 @@ title = "UniXNU"
 # enable" into a board that walks back to fastboot on its own instead of a
 # manual power cycle.
 #
+# The reset delay is now off. The boot CPU got past the MMU and past the CPU
+# start order, so the stage 3 timer only cut the run short six seconds in and
+# hid whatever came next. Without it the kernel runs until it fails, and the
+# failure stays on the frame buffer: the kernel's own video console prints the
+# panic text and patch 0246 scales that text to a readable size.
+#
 # The probe's panic screen stays off: it installs code in the padding after
 # panic(), whose address is fixed for the reference kernel, so it refuses to
-# patch ours. The kernel's own video console prints the panic text, and patch
-# 0246 scales that text to a readable size.
-entry_probe_reset_delay = 6
+# patch ours.
+# entry_probe_reset_delay = 6
 # Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
 # swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
 dram_size = "0x300000000"

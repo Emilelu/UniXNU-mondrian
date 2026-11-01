@@ -22,8 +22,13 @@ LOGDIR.mkdir(parents=True, exist_ok=True)
 ARM_DT = TREE / 'build/armdt-platform/libArmDTPlatform.a'
 ARM_CPU = TREE / 'build/armcpu/libArmCpu.a'
 PATCH_DIR = Path(__file__).resolve().parents[1] / 'patches/xnu-ipados18'
-PATCHES = [PATCH_DIR / '0244-k60-breadcrumbs.patch',
-           PATCH_DIR / '0245-k60-cpu-clusters.patch',
+# 0244 painted the stage bars into the frame buffer from the source. The upstream
+# entry probe does the same on the linked image and additionally installs the
+# panic screen and the timed reset, so the source patch only got in the way: its
+# stage-3 marker sat between the ISB and the CPACR write and broke the probe's
+# entry-sequence match. The file stays in the tree as a fallback for a board
+# that cannot use the probe.
+PATCHES = [PATCH_DIR / '0245-k60-cpu-clusters.patch',
            PATCH_DIR / '0246-k60-console-font-scale.patch']
 
 for lib in (ARM_DT, ARM_CPU):

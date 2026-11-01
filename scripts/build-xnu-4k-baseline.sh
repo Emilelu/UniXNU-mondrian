@@ -237,6 +237,16 @@ if [ ! -f "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ] || \
     SYMROOT="$ROOT/build/xnu/sym" DSTROOT="$KERNEL_SDKROOT"
   touch "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers"
 fi
+if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -d "$PONG_NATIVE_DRIVER_SOURCE/shim-bin" ]; then
+  # The driver scripts call `xcrun c++filt`, and the Linux xcrun shim passes
+  # unknown tools straight through to the host binary. GNU c++filt needs `-_`
+  # to strip the Mach-O leading underscore before demangling, which Apple's
+  # does by itself; without it bind-ios16-storage.py reports
+  # "Undecoded method: __ZNK12PongUfsBlock12getMetaClassEv" and stops the UFS
+  # step. That project ships the wrapper for exactly this; put it first.
+  PATH="$PONG_NATIVE_DRIVER_SOURCE/shim-bin:$PATH"
+  export PATH
+fi
 if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   # These sources live in the active Pong project, not the old baseline's
   # drivers symlink. Build against the same freshly exported machine headers.

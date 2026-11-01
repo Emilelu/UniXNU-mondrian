@@ -250,18 +250,30 @@ def read_unit(offset, size):
 
 
 class Adb:
-    def __init__(self, executable, serial):
+    def __init__(self, executable, serial, su=False):
         self.command = [executable, '-s', serial]
+        self.su = su
     def run(self, *args, timeout=30, **kwargs):
         return subprocess.run(self.command+list(args), check=True, timeout=timeout, **kwargs)
     def text(self, *args, timeout=30):
+        argv = ' '.join(args)
+        if self.su:
+            # One quoted device-side command: adb concatenates argv, so the
+            # quotes must be inside the single host argument.
+            return self.run('shell', "su -c '" + argv + "'", timeout=timeout,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
         return self.run('shell', *args, timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
     def read(self, offset, size, output=None):
         require(offset >= 0 and size > 0 and offset % 512 == size % 512 == 0, 'Unaligned device read')
         require(offset + size <= PARTITION_BYTES, 'Device read exceeds unixnu')
         bs = read_unit(offset, size)
-        args = ['exec-out', 'dd', 'if='+TARGET, 'bs='+str(bs), 'skip='+str(offset//bs),
-                'count='+str(size//bs), 'status=none']
+        dd = ('dd if='+TARGET+' bs='+str(bs)+' skip='+str(offset//bs)+
+              ' count='+str(size//bs)+' status=none')
+        if self.su:
+            args = ['exec-out', "su -c '" + dd + "'"]
+        else:
+            args = ['exec-out', 'dd', 'if='+TARGET, 'bs='+str(bs), 'skip='+str(offset//bs),
+                    'count='+str(size//bs), 'status=none']
         if output is None:
             b = self.run(*args, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
             require(len(b) == size, 'Short device read')
@@ -272,11 +284,19 @@ class Adb:
 
 
 def capture(args):
-    adb = Adb(args.adb, args.serial)
+    adb = Adb(args.adb, args.serial, su=bool(getattr(args, 'su', False)))
     props = {k: adb.text('getprop', k) for k in ('ro.bootmode','ro.twrp.version','ro.orangefox.version')}
-    require(props['ro.bootmode'] == 'recovery' or props['ro.twrp.version'] or props['ro.orangefox.version'],
-            'Enter recovery first; this capture does not use Android root or XNU ADB')
-    require('uid=0(' in adb.text('id'), 'Root recovery ADB required')
+    if adb.su:
+        # Android running normally: root comes from KernelSU/Magisk, the device
+        # never mounts unixnu, and every command below is a pure read.
+        require('uid=0(' in adb.text('id'), 'Root (KernelSU/Magisk) required for Android capture')
+        source = 'live Android root read-only (no recovery, no writes)'
+    else:
+        require(props['ro.bootmode'] == 'recovery' or props['ro.twrp.version'] or props['ro.orangefox.version'],
+                'Enter recovery first, or pass --su for rooted Android; XNU ADB is never used')
+        require('uid=0(' in adb.text('id'), 'Root recovery ADB required')
+        source = 'live root recovery read-only'
+    _ = source
     resolved = adb.text('readlink', '-f', TARGET)
     require(re.fullmatch(r'/dev/block/[A-Za-z0-9._-]+', resolved) is not None, 'Unexpected unixnu symlink')
     name = resolved.rsplit('/', 1)[1]
@@ -319,7 +339,7 @@ def capture(args):
     require(re.fullmatch('[0-9a-f]{64}',remote) is not None, 'Invalid remote hash response')
     require(remote == digest_file(backup), 'Local/remote backup hashes differ')
     require(adb.read(0,4096) == raw, 'Manifest changed during backup')
-    report = {'captured_at':dt.datetime.now(dt.timezone.utc).isoformat(), 'source':'live root recovery read-only',
+    report = {'captured_at':dt.datetime.now(dt.timezone.utc).isoformat(), 'source':source,
               'geometry':geometry, 'manifest':info, 'data_backup_sha256':remote,
               'data_filesystem':gpt_apfs_info(backup), 'layout_preview':layout_preview(info)}
     if args.usage:
@@ -342,6 +362,7 @@ def main():
     cap.add_argument('--serial',required=True)
     cap.add_argument('--output-dir',required=True,type=Path)
     cap.add_argument('--usage',action='store_true',help='Summarize backup directory allocations locally')
+    cap.add_argument('--su',action='store_true',help='Rooted Android instead of recovery: wrap reads in su -c (still read-only)')
     args=p.parse_args()
     try:
         if args.mode=='capture':

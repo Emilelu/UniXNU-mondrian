@@ -99,3 +99,19 @@ python3 scripts/check-porting-paths.py
 - 新增审计脚本已运行真实 GitHub API，完整返回 3 个 fork/4 分支；无 API 错误。
 - 本轮没有因为 fork 更改手机启动镜像、内存大小、Data UUID、根文件系统或持久化日志签名。
   已完成的 0238 退出原因诊断镜像仍独立保留，等待 fastboot 后采样。
+
+## 上游 UniXNU 的分支（不是我们仓库的 fork）
+
+`git ls-remote https://github.com/UniXNU/UniXNU.git` → 28 个分支。与 darwin24 之后有关的只有一个：
+
+| 分支 | HEAD | 内容 |
+|---|---|---|
+| `feat/ipados27-gpu-parity` | `d2666583` | `xnu-12377.121.6` + darwin26 三补丁；profile `ipados-27.0.1-24A446` 与 `ipados-26.5.2-23F84` 都是 `arch = arm64e`、donor `iPad17,3`、`MACHINE_CONFIGS=BCM2837`、prelink 走 fileset |
+| `main` | `627c932a` | 本地 tracking 仍是 `da14170b`，落后 |
+
+结论（2026-11-01 评估）：**不作为迁移目标**。理由与代价表见 `ROUTE-A-18-STATE.md`
+「上游 26/27 现状」一节。可摘取的只有 fileset prelink 实现、darwin26 三补丁、
+`abi/original-classes.json`，以及 sheng(SM8550) 的 GPU/SMMU/display 模块。
+
+节奏：每次构建前跑 `python3 scripts/audit-forks.py`（已有脚本，枚举 fork 与分支）；
+上游非 fork 分支用 `git ls-remote` 比对本表 SHA，变了再人工看。

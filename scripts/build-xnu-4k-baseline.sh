@@ -4,7 +4,7 @@ trap 'echo "build-xnu-4k-baseline.sh: line $LINENO: $BASH_COMMAND failed" >&2' E
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 # Pong iOS 16 derivative of the successfully returned Mac build script.
-# First console build uses MACHINE_CONFIGS=PONG; preserve the original baseline artifact.
+# First console build uses MACHINE_CONFIGS=BCM2837; preserve the original baseline artifact.
 XNU_TAG=${UNIXNU_XNU_TAG:-xnu-8796.141.3}
 XNU_COMMIT=${UNIXNU_XNU_COMMIT:-1b191cb58250d0705d8a51287127505aa4bc0789}
 XNU_DARWIN=${UNIXNU_XNU_DARWIN:-22.6.0}
@@ -231,7 +231,7 @@ if [ ! -f "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ] || \
    [ .cache/xnu-work/pexpert/pexpert/arm64/board_config.h -nt "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ] || \
    [ .cache/xnu-work/pexpert/pexpert/arm64/PONG.h -nt "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ]; then
   make -C .cache/xnu-work installhdrs SDKROOT=macosx ARCH_CONFIGS=ARM64 \
-    MACHINE_CONFIGS=PONG KERNEL_CONFIGS=DEVELOPMENT \
+    MACHINE_CONFIGS=BCM2837 KERNEL_CONFIGS=DEVELOPMENT \
     RC_DARWIN_KERNEL_VERSION="$XNU_DARWIN" RC_ProjectSourceVersion="$XNU_VERSION" \
     MAKEJOBS=-j"${JOBS:-4}" OBJROOT="$ROOT/build/xnu/obj" \
     SYMROOT="$ROOT/build/xnu/sym" DSTROOT="$KERNEL_SDKROOT"
@@ -1092,7 +1092,7 @@ for argument in sys.argv[1:]:
         seen.add(key)
 PY_OBJECT_FLAGS
 make -C .cache/xnu-work "${XNU_BUILD_TARGET:-build}" SDKROOT="${XNU_SDKROOT:-iphoneos}" ARCH_CONFIGS=ARM64 \
-  MACHINE_CONFIGS=PONG KERNEL_CONFIGS=DEVELOPMENT \
+  MACHINE_CONFIGS=BCM2837 KERNEL_CONFIGS=DEVELOPMENT \
   ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64 LARGE_MEMORY_DEFINE=-UARM_LARGE_MEMORY \
   ARM64_LINK_ADDR=0xfffffff007004000 ARM64_PLKSEG_ADDR=0xfffffff004004000 \
   DEPLOYMENT_TARGET_FLAGS="-miphoneos-version-min=${UNIXNU_IOS_TARGET:-16.0} -DXNU_TARGET_OS_IOS" \

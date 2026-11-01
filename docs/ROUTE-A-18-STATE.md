@@ -147,3 +147,84 @@ kernel 槽 = shim + FD；ramdisk 槽逐字节等于 `payload.img`；payload 内 
 kernelcache，ADT 身份得整套换成 arm64e，而 arm64e 在 SM8475 上零证据。
 
 迁移代价与可摘取清单见 `docs/FORK-REVIEW.md` 末节。
+
+## 2026-11-01 12:00 CPU 启动顺序修复（bc8 实测通过）
+
+### 死点链条（面包屑退役后的第一份可读 panic）
+
+bc6 在 `k60_fontscale=4` 下第一次给出可读的 panic 全文：
+
+```
+panic(cpu 0 caller 0xffffffff007ada98): cpu_common.c:586
+Assertion failed: os_atomic_load(&cpu_data_ptr->cpu_flags, relaxed)
+  & InitState | StartedState == InitState | StartedState
+  (0x2000 == 0x3000, 8192 == 12288)
+```
+
+`osfmk/arm/cpu_data_internal.h:110-113`：
+
+| 标志 | 值 | 含义 |
+|---|---|---|
+| `StartedState` | `0x1000` | 处理器已启动（boot CPU 意为"中断已初始化"） |
+| `InitState` | `0x2000` | cpu_data 已完整初始化 |
+
+实际值 `0x2000` = 有 InitState、缺 StartedState。
+
+断言点 `osfmk/arm/cpu_common.c:585`，在 `cpu_signal_handler_internal(FALSE)` 里：
+收到 IPI 时若 `SIGPdisabled` 仍置位，就走 `else if` 分支去清它，而该分支要求
+`InitState | StartedState` 齐全。
+
+### 根因
+
+`drivers/ArmCpu/ArmCpu.cpp` 沿用 Darwin 22 的启动顺序：
+
+```
+ArmCpu::start()
+  ├─ initCPU(true)          ← 这里面结尾有 signalCPU(this)，发 self SGI
+  ├─ psci_smp_init()
+  └─ processor_start(次核)  ← 之后才 cpu_start() → cpu_machine_init()
+```
+
+`initCPU()` 末尾的 `signalCPU(this)` 是清 `SIGPdisabled` 的那一次自 IPI。Darwin 22 顺序下，
+它在 `cpu_machine_init()` **之前**发出，此时 StartedState 尚未设置，IPI 一到就撞断言。
+
+Apple 的实现（`iokit/Kernel/arm/AppleARMSMP.cpp:293`）在 `PE_cpu_machine_init()` 里发这个
+self IPI，而 `PE_cpu_machine_init()` 由 `cpu_machine_init()` 调用，后者**先**设 StartedState
+（`osfmk/arm/cpu_common.c:692`）再调 `PE_cpu_machine_init`。PONG 走的是
+`iokit/Kernel/IOCPU.cpp:157` 那份，没有 self IPI，改为依赖 `initCPU()` 自己发 —— 于是顺序反了。
+
+### Darwin 24 的做法
+
+Darwin 24 把「首次启动」与 `processor_start()` 分开：kernel 在 `processor_boot()` 期间调
+`initCPU()`，并要求所有中断向量在第一个处理器启动前就已存在。
+
+Mach core 在 PONG 下已带这三个符号（`osfmk/arm64/machine_routines.c`）：
+
+| 符号 | 作用 |
+|---|---|
+| `pong_cpu_first_boot(p)` | `processor_boot(p)` |
+| `pong_cpu_first_boot_wait(p)` | `processor_wait_for_start(p, PROCESSOR_FIRST_BOOT)` |
+| `ml_cpu_init_completed()` | `sched_cpu_init_completed()` |
+
+`drivers/ArmCpu/ArmCpu.cpp` 改为调用它们，`initCPU()` 交回 kernel 在正确时机调用。
+xnu 树未改一个字。
+
+### 实测（bc8）
+
+| 项 | 结果 |
+|---|---|
+| 屏幕 | 绿条（loader）+ 蓝条（探针 stage 1）+ 品红条（stage 2） |
+| panic | 无。`cpu_common.c:586` 不再触发 |
+| 板子 | 探针 stage 3 在开 MMU 后 6 秒 PSCI 复位，自动回 Android |
+| 内核 | 20,872,440 B，sha256 `6394c6f592843269…` |
+| 镜像 | `boot-darwin24-bc8.img`，sha256 `2fa34c63463ea809…` |
+
+### 移植来源
+
+`UniXNU/UniXNU-pong` 的 `drivers/ArmCpu/ArmCpu.cpp` 已有 `#if PONG_DARWIN_MAJOR >= 24` 分支，
+写的就是这套顺序。我们仓库的副本是 Darwin 22 时代的拷贝。pong 走的是 `PongPlatform24`
+组件并靠构建注入 `PONG_DARWIN_MAJOR`；我们是纯 Darwin 24 单版本路线，直接采用新路径，
+不引入版本宏。
+
+**教训**：这轮是 pong 仓库里已经写好的解法，只是我们没同步。上游 fork 与参考仓的定期 diff
+（`scripts/k60-sync-refs.sh`）应该覆盖到 `drivers/` 这类组件源码，而不只是 `patches/`。

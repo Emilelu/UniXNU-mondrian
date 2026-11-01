@@ -27,6 +27,14 @@ subsystem change updates the record in the same pull request.
 Before implementing a feature, driver or patch, survey the existing
 repositories and branches. Do not start writing first.
 
+0. Local patches first. Before any kernel change — new feature, bug fix or
+   adaptation — read every patch this tree already carries:
+   `patches/xnu/` (the closed 16.6.1 series, 64 files: SMP, timers, cache,
+   watchdog, display, keybags), `patches/xnu-ipados18/` (the darwin24
+   series), and the reference trees' patch directories. A problem being
+   solved "new" may already carry a proven answer, or a constraint that
+   explains why the obvious fix is wrong. Example: the PSCI SMP recipe
+   existed in both series, and re-deriving it cost a boot cycle.
 1. Sync: `bash scripts/k60-sync-refs.sh`. It fetches every reference repository
    under `D:\Android\k60-ios` and the WSL trees and reports which upstream moved.
    Never quote code from a repository whose upstream you have not fetched.

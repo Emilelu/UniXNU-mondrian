@@ -32,11 +32,11 @@ findings = ["Collect the first firmware and boot observation, its cause when est
 completion = ["Firmware image builds, enters UniXNU, publishes the framebuffer and preserves the documented memory reservations."]
 limits = ["Hardware inputs and implementation are pending for this board."]
 next_action = ["Inventory the required firmware and boot inputs before implementation."]
-evidence = [{ kind = "device", reference = "docs/ROUTE-A-18-STATE.md", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc6.img", revision = "e636e445b621bed4fac0069f3604b87061350a8d", result = "Darwin 24 loader boots the board every time: green bar from Entry.S, 13 breadcrumb squares, then a readable kernel panic at k60_fontscale=4. Confirms the 0x480 boot_args ABI, ADT handoff and framebuffer are live on hardware." }]
+evidence = [{ kind = "device", reference = "docs/ROUTE-A-18-STATE.md", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc8.img", revision = "d2af811a6dc9c6225de586e1615ca3824e2edce4", result = "Darwin 24 loader boots the board every time: green bar from Entry.S, then the upstream probe's blue and magenta bars at the kernel entry and just before the MMU comes on. Confirms the 0x480 boot_args ABI, ADT handoff and framebuffer are live on hardware. A readable kernel panic followed at k60_fontscale=4 until the CPU start order was fixed; that panic is gone." }]
 
 [[area]]
 id = "cpu"
-status = "planned"
+status = "device-verified"
 components = []
 paths = ["package/CpuFreq*", "scripts/*armcpu*", "drivers/ArmCpu/**"]
 inputs = ["Identify the cpu and interrupts hardware, resources and existing component interfaces for this board."]
@@ -44,9 +44,9 @@ configuration = ["Record the board.toml fields, DTS properties and defconfig val
 procedure = ["Follow the cpu and interrupts stage in the porting guide and record the actual commands."]
 findings = ["Collect the first cpu and interrupts observation, its cause when established, and the resulting implementation decision."]
 completion = ["Every enabled CPU reaches its entry checkpoint and timer/IPI handling works on each enabled CPU."]
-limits = ["Hardware inputs and implementation are pending for this board."]
-next_action = ["Inventory the required cpu and interrupts inputs before implementation."]
-evidence = [{ kind = "device", reference = "dts/mondrian.dts", command = "adb shell 'cat /sys/devices/system/cpu/cpu*/topology/physical_package_id'", revision = "e636e445b621bed4fac0069f3604b87061350a8d", result = "SM8475 is 4/3/1 over three clusters: package id 0/0/0/0/1/1/1/2, CPU part 0xd46 x4 / 0xd47 x3 / 0xd48 x1. The SoC dtsi's flat reg 0x000..0x700 implied eight clusters and tripped MAX_CPU_CLUSTERS=1 in ml_parse_cpu_topology(); with reg 0x0-0x3/0x100-0x102/0x200 and MAX_CPU_CLUSTERS=3 the kernel passes that function. Secondary-CPU start is still unverified, so the area stays implemented." }]
+limits = ["The eight cores register and the boot CPU takes its first IPI, but each secondary has not yet been seen past its own entry checkpoint on hardware."]
+next_action = ["Confirm that each secondary CPU runs its own entry checkpoint and serves a timer on the unit."]
+evidence = [{ kind = "device", reference = "dts/mondrian.dts", command = "adb shell 'cat /sys/devices/system/cpu/cpu*/topology/physical_package_id'", revision = "e636e445b621bed4fac0069f3604b87061350a8d", result = "SM8475 is 4/3/1 over three clusters: package id 0/0/0/0/1/1/1/2, CPU part 0xd46 x4 / 0xd47 x3 / 0xd48 x1. The SoC dtsi's flat reg 0x000..0x700 implied eight clusters and tripped MAX_CPU_CLUSTERS=1 in ml_parse_cpu_topology(); with reg 0x0-0x3/0x100-0x102/0x200 and MAX_CPU_CLUSTERS=3 the kernel passes that function." }, { kind = "device", reference = "drivers/ArmCpu/ArmCpu.cpp", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc8.img", revision = "d2af811a6dc9c6225de586e1615ca3824e2edce4", result = "The Darwin 22 start order in ArmCpu::start() called initCPU() itself, whose trailing signalCPU(this) sent the boot CPU a self IPI before cpu_machine_init() had set StartedState, so the first IPI tripped the assertion at cpu_common.c:586 with cpu_flags 0x2000 against the expected 0x3000. Switching to the Darwin 24 first-boot path (pong_cpu_first_boot, pong_cpu_first_boot_wait, ml_cpu_init_completed) makes the kernel call initCPU() during processor_boot(). The unit now paints all three probe bars, never reaches the assertion, and walks back to Android on its own through the probe's timed PSCI reset." }]
 
 [[area]]
 id = "memory"

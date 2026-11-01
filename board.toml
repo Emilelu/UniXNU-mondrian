@@ -98,7 +98,23 @@ dram_size = "0x300000000"
 # pong_ufs_readwrite=1 is what makes the UFS windows writable at all
 # (PongUfsTransport gates every write on it); without it even the Data
 # window is published read-only and nothing can be mounted read-write.
-kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1", "pong_ufs_readwrite=1"]
+# amfi_get_out_of_my_way=1 opens three gates at once in this tree:
+#   libkern/amfi/miniamfi.c:266 registers the AMFI interface stand-in, so the
+#     amfi pointer is no longer NULL and codesigning has a table to ask;
+#   bsd/kern/kern_minimac.c:477 registers the miniamfi and minisandbox MAC
+#     policies - without a policy named "Sandbox" every __mac_syscall returns
+#     ENOPOLICY (bsd/security/mac_base.c) and the launchd, tccd, timed and
+#     securityd daemons die in sandbox profile init. That is the SIGKILL storm
+#     this board showed on 2026-10-31 and it will come back on darwin24;
+#   bsd/kern/kern_codesigning.c:289 turns it into CS_CONFIG_ALLOW_ANY_SIGNATURE,
+#     the same thing cs_enforcement_disable=1 asks for.
+# It is safe here and only here: the 22H374 profile does not prelink the real
+# AppleMobileFileIntegrity kext, so amfi_interface_register() has a single
+# caller. The 16.6.1 route prelinks the real kext and adding this argument
+# makes the stand-in and the kext collide - panic "AppleMobileFileIntegrity
+# interface already set" at libkern/amfi/amfi.c:11, which is what
+# boot-amfi.img (2026-10-31) and boot-amfi2.img (2026-11-01) both showed.
+kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1", "pong_ufs_readwrite=1", "amfi_get_out_of_my_way=1"]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the

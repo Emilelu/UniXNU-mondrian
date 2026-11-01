@@ -178,7 +178,7 @@ evidence = [{ kind = "host", reference = "https://github.com/Emilelu/UniXNU/acti
 id = "diagnostics"
 status = "device-verified"
 components = []
-paths = ["scripts/check-*", "scripts/probe-*", "scripts/audit-*", "scripts/read-*", "scripts/prepare-*", "scripts/data/**", "package/tests/**", "package/*Tests*", "package/*Diagnostic*", "package/*Probe*", "package/Boot*", "package/linux-log/**", "unixnu.lock", "docs/**", "drivers/PongProbe.h", "scripts/sync-repos.sh", "scripts/verify-*.sh", "scripts/verify-*.py", "scripts/dump-boot-img-layout.py", "scripts/k60-device.sh", "scripts/k60-ramoops-read.sh"]
+paths = ["scripts/check-*", "scripts/probe-*", "scripts/audit-*", "scripts/read-*", "scripts/prepare-*", "scripts/data/**", "package/tests/**", "package/*Tests*", "package/*Diagnostic*", "package/*Probe*", "package/Boot*", "package/linux-log/**", "unixnu.lock", "docs/**", "drivers/PongProbe.h", "scripts/sync-repos.sh", "scripts/verify-*.sh", "scripts/verify-*.py", "scripts/dump-boot-img-layout.py", "scripts/k60-device.sh", "scripts/k60-ramoops-read.sh", "scripts/k60-sync-refs.sh"]
 inputs = ["Identify the diagnostics hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for diagnostics."]
 procedure = ["Follow the diagnostics stage in the porting guide and record the actual commands."]

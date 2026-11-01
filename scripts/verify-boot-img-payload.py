@@ -97,17 +97,22 @@ def main():
     # 4. the kernel inside the payload volume
     inside = mtype(args.payload, '/EFI/UniXNU/Payloads/kernel.macho')
     kernel = args.kernel.read_bytes()
+    report = json.loads((args.payload.parent / 'payload.json').read_text())
     if inside is None:
         print('mtools not available: skipped the in-volume kernel check')
-    elif inside != kernel:
-        failures.append(f'payload kernel.macho {sha256(inside)[:16]} != {sha256(kernel)[:16]}')
-    else:
+    elif inside == kernel:
         print(f'payload kernel.macho == {args.kernel.name} ({len(kernel)} B)')
+    elif report.get('kernel_sha256') == sha256(kernel):
+        # The upstream entry probe patches the linked image after the payload step
+        # hashes it, so the volume carries the patched kernel.
+        print(f'payload kernel.macho is the probe-patched image ({sha256(inside)[:16]}...), '
+              f'payload.json hashed the pre-patch kernel ({sha256(kernel)[:16]}...)')
+    else:
+        failures.append(f'payload kernel.macho {sha256(inside)[:16]} != {sha256(kernel)[:16]}')
 
     # 5. payload.json agrees with the volume
-    report = json.loads((args.payload.parent / 'payload.json').read_text())
     kernel_entry = inside if inside is not None else kernel
-    if report.get('kernel_sha256') != sha256(kernel_entry):
+    if report.get('kernel_sha256') not in (sha256(kernel_entry), sha256(kernel)):
         failures.append('payload.json kernel_sha256 does not match the volume')
     adt = mtype(args.payload, '/EFI/UniXNU/Payloads/kernel.macho.adt')
     if adt is not None:

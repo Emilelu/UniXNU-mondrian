@@ -4,13 +4,30 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 本仓库是**格式 2 设备仓**：`board.toml` 的 `schema_version = 2`，配置由 UniXNU 的共享解析器
 按 ARM64 → SoC → OS → 设备四层合并，输出目录为
-`out/mondrian/ipados-16.6.1-20G81/mondrian/`。
+`out/mondrian/ipados-18.7.10-22H374/mondrian/`。
+
+## 结构
+
+| 路径 | 内容 |
+| --- | --- |
+| `porting.toml` | 14 个子系统的输入、发现、证据与完成判据（权威设备记录） |
+| `board.toml` | 设备配置与组件选择 |
+| `feeds.toml` | 固定的 SoC 源 |
+| `configs/mondrian_defconfig` | 设备内核设置 |
+| `dts/mondrian.dts` | 内存、CPU 选择与外设配置 |
+| `patches/xnu/` | 设备补丁（16.6.1 系列） |
+| `patches/xnu-ipados18/` | darwin24 系列补丁（0244 面包屑 / 0245 簇数 / 0246 字号） |
+| `scripts/` | 设备构建与检查工具 |
+| `prebuilt/` | 二进制输入（trust cache） |
+
+`AGENTS.md` 是给人和 agent 的作业说明：必读文档、先调研再写代码、分支与提交规范、
+设备红线、失败判读、命令。
 
 ## 四层仓库
 
 | 层 | 仓库 | 内容 |
 | --- | --- | --- |
-| 框架 | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU)（分支 `k60`） | `unixnu` 命令、共享脚本、`profiles/arch/arm64`、`profiles/os/ipados-16.6.1-20G81`、组件目录 |
+| 框架 | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU)（分支 `k60`） | `unixnu` 命令、共享脚本、`profiles/arch/arm64`、`profiles/os/ipados-18.7.10-22H374`、组件目录 |
 | SoC | [Emilelu/UniXNU-sm8475-common](https://github.com/Emilelu/UniXNU-sm8475-common) | `soc.toml`、`configs/sm8475.config`、`dts/sm8475.dtsi`（CPU / PSCI / GIC） |
 | 设备 | 本仓库 | `board.toml`、`dts/mondrian.dts`、`configs/mondrian_defconfig`、`patches/xnu/series`、`package/`、`porting.toml` |
 | 固件 | [Emilelu/uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium 构建树，产出 `SILICIUM_UEFI.fd` |
@@ -30,12 +47,14 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| darwin24 内核构建 | ✅ | Linux 全量构建，20,872,376 B，sha256 `2f485593…` |
+| darwin24 内核构建 | ✅ | Linux 全量构建，20,872,544 B，sha256 `15966fcd…` |
 | 平台层链接 | ✅ | `libArmDTPlatform.a`(27,808 B) + `libArmCpu.a`(34,600 B) 已 `force_load` |
 | loader `boot_args` ABI | ✅ | 由 Darwin 22（`0x2e0`/608）修正为 Darwin 24（`0x480`/1024） |
 | loader 跳板 | ✅ | 屏幕出现绿条，证明已跳入内核入口 PA `0xC74C04A0` |
-| **内核早期启动** | 🔴 | 跳入后**静默复位**；观测盲区：ramoops 在 `arm_vm_init()` 之后才初始化 |
-| FDT 契约 | 🟡 | 待查：打包的是原始 `hardware.dtb`（14 节点），缺 `/chosen` `/arm-io` `/defaults` `/options` |
+| prelink | ✅ | 22H374 kext 拼入，15 个组件，`__PRELINK_TEXT` 0x7a8000，内核 54,808,576 B |
+| **内核早期启动** | 🔴 | 越过 `PE_init_platform`，死在 `ml_parse_cpu_topology` 之后；已能出可读 panic 屏 |
+| CPU 拓扑 | ✅ | Android 实测 SM8475 三簇；`MAX_CPU_CLUSTERS` 1→3，dts 的 CPU `reg` 改为真实 MPIDR |
+| FDT 契约 | ✅ | ADT 14672 B，五节点齐全，与旧版只差 `/chosen/random-seed` 64 B |
 
 完整交接见 **[`docs/ROUTE-A-18-HANDOFF-2026-11-01.md`](docs/ROUTE-A-18-HANDOFF-2026-11-01.md)**，
 当前状态见 [`docs/ROUTE-A-18-STATE.md`](docs/ROUTE-A-18-STATE.md)。

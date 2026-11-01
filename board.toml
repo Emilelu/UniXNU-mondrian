@@ -20,6 +20,13 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 patch_series = ["device:patches/xnu/series"]
 archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs"]
 driver_records = "DEVELOPMENT_ARM64_PONG"
+# The Pong Adreno / UI provider scripts that build-xnu-4k-baseline.sh runs with
+# PONG_DRIVER_SOURCE=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT} read their sources from this
+# checkout. $ROOT is the assembled build tree, which only links the components
+# selected in [components] and therefore has no drivers/PongAdreno, so the fallback
+# stops the build on PongAdrenoCpProfile.h. This is the same driver tree the device
+# archive recipes already build against.
+pong_native_driver_source = "/tmp/k60build/pong-driver"
 
 [userdata]
 first_lba = 53342976

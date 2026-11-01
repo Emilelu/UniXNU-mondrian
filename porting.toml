@@ -3,7 +3,7 @@ schema_version = 1
 [device]
 name = "mondrian"
 soc = "SM8475"
-os_profile = "ipados-18.7.10-22H374"
+os_profile = "ipados-16.6.1-20G81"
 summary = "Redmi K60 (mondrian/SM8475). Format 2 device: the kernel builds and prelinks, the payload and the boot image still need the board ADT and the hardware bring-up."
 
 [[area]]

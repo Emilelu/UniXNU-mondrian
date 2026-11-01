@@ -21,7 +21,10 @@ LOGDIR.mkdir(parents=True, exist_ok=True)
 
 ARM_DT = TREE / 'build/armdt-platform/libArmDTPlatform.a'
 ARM_CPU = TREE / 'build/armcpu/libArmCpu.a'
-BREADCRUMBS = Path(__file__).resolve().parents[1] / 'patches/xnu-ipados18/0244-k60-breadcrumbs.patch'
+PATCH_DIR = Path(__file__).resolve().parents[1] / 'patches/xnu-ipados18'
+PATCHES = [PATCH_DIR / '0244-k60-breadcrumbs.patch',
+           PATCH_DIR / '0245-k60-cpu-clusters.patch',
+           PATCH_DIR / '0246-k60-console-font-scale.patch']
 
 for lib in (ARM_DT, ARM_CPU):
     if not lib.exists():
@@ -29,32 +32,33 @@ for lib in (ARM_DT, ARM_CPU):
     print(f'{lib.name}: {lib.stat().st_size} bytes')
 
 
-def apply_breadcrumbs():
-    """Apply 0244 to the pong work tree, skipping it when it is already there.
+def apply_patches():
+    """Apply the route-a-18 patches to the pong work tree, skipping ones already in.
 
-    The tree carries pong's 0001 patch as uncommitted edits, so 0244 is kept as a
-    standalone diff against that state rather than a commit it could be rebased on.
+    The tree carries pong's 0001 patch as uncommitted edits, so these are kept as
+    standalone diffs against that state rather than commits to rebase onto.
     """
-    probe = subprocess.run(['patch', '-p1', '-R', '--dry-run', '-s', '-i', str(BREADCRUMBS)],
-                           cwd=str(WORK), capture_output=True, text=True)
-    if probe.returncode == 0:
-        print(f'{BREADCRUMBS.name}: already applied')
-        return
-    # Dry-run first: `patch --forward` applies the hunks it can and leaves .rej
-    # files behind, which silently corrupts the tree for the next build.
-    probe = subprocess.run(['patch', '-p1', '--dry-run', '-s', '-i', str(BREADCRUMBS)],
-                           cwd=str(WORK), capture_output=True, text=True)
-    if probe.returncode != 0:
-        raise SystemExit(f'{BREADCRUMBS.name} does not apply cleanly:\n'
-                         f'{probe.stdout}{probe.stderr}')
-    apply = subprocess.run(['patch', '-p1', '--forward', '-s', '-i', str(BREADCRUMBS)],
-                           cwd=str(WORK), capture_output=True, text=True)
-    if apply.returncode != 0:
-        raise SystemExit(f'{BREADCRUMBS.name} did not apply:\n{apply.stdout}{apply.stderr}')
-    print(f'{BREADCRUMBS.name}: applied')
+    for patch_path in PATCHES:
+        probe = subprocess.run(['patch', '-p1', '-R', '--dry-run', '-s', '-i', str(patch_path)],
+                               cwd=str(WORK), capture_output=True, text=True)
+        if probe.returncode == 0:
+            print(f'{patch_path.name}: already applied')
+            continue
+        # Dry-run first: `patch --forward` applies the hunks it can and leaves .rej
+        # files behind, which silently corrupts the tree for the next build.
+        probe = subprocess.run(['patch', '-p1', '--dry-run', '-s', '-i', str(patch_path)],
+                               cwd=str(WORK), capture_output=True, text=True)
+        if probe.returncode != 0:
+            raise SystemExit(f'{patch_path.name} does not apply cleanly:\n'
+                             f'{probe.stdout}{probe.stderr}')
+        apply = subprocess.run(['patch', '-p1', '--forward', '-s', '-i', str(patch_path)],
+                               cwd=str(WORK), capture_output=True, text=True)
+        if apply.returncode != 0:
+            raise SystemExit(f'{patch_path.name} did not apply:\n{apply.stdout}{apply.stderr}')
+        print(f'{patch_path.name}: applied')
 
 
-apply_breadcrumbs()
+apply_patches()
 
 toolchain = Path('/opt/unixnu-linux')
 clt = toolchain / 'CommandLineTools/usr'

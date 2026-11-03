@@ -361,3 +361,5 @@ osfmk/corecrypto/ccsha256_ltc_di.c	standard
 
 osfmk/prng/prng_random.c	standard
 osfmk/prng/entropy.c   standard
+
+osfmk/arm64/psci_smp.c standard

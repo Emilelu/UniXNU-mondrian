@@ -2,9 +2,9 @@
 #ifndef _PEXPERT_ARM64_PONG_H
 #define _PEXPERT_ARM64_PONG_H
 
-// Nothing Phone (2), SM8475. First boot uses only the boot CPU and generic
-// ARMv8 registers. The GIC/timer provider is separate from this build profile.
+// Nothing Phone (2), SM8475: firmware PSCI and the native GICv3 CPU provider.
 #define PONG 1
+#define GENERIC_PSCI_SMP 1
 #define NO_MONITOR 1
 #define NO_ECORE 1
 #define ARM_ARCH_TIMER 1

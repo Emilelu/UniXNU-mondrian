@@ -568,7 +568,7 @@ cpu_idle(void)
 #endif /* MONOTONIC */
 
 	if (wfi) {
-#if !defined(APPLE_ARM64_ARCH_FAMILY)
+#if !defined(APPLE_ARM64_ARCH_FAMILY) && !defined(GENERIC_PSCI_SMP)
 		platform_cache_idle_enter();
 #endif
 
@@ -943,7 +943,11 @@ cpu_start(int cpu)
 			break;
 		}
 #endif
+#if defined(GENERIC_PSCI_SMP)
+		return PE_cpu_start(cpu_data_ptr->cpu_id, (vm_offset_t)NULL, (vm_offset_t)NULL);
+#else
 		(void) PE_cpu_start(cpu_data_ptr->cpu_id, (vm_offset_t)NULL, (vm_offset_t)NULL);
+#endif
 	}
 
 	return KERN_SUCCESS;

@@ -128,6 +128,18 @@ LEXT(LowResetVectorBase)
 	.globl EXT(reset_vector)
 LEXT(reset_vector)
 	// Preserve x0 for start_first_cpu, if called
+#if defined(GENERIC_PSCI_SMP)
+	// PSCI enters with MMU/caches off. Install vectors before any optional
+	// debug-register access; retain Pong's independent boot-console vectors.
+	msr		DAIFSet, #(DAIFSC_ALL)
+	adrp	x0, EXT(LowSecondaryExceptionVectorBase)@page
+	add		x0, x0, EXT(LowSecondaryExceptionVectorBase)@pageoff
+	msr		VBAR_EL1, x0
+	isb
+	MOV64	x0, 0x30D00800
+	msr		SCTLR_EL1, x0
+	isb
+#else
 	// Unlock the core for debugging
 	msr		OSLAR_EL1, xzr
 	msr		DAIFSet, #(DAIFSC_ALL)				// Disable all interrupts
@@ -138,6 +150,7 @@ LEXT(reset_vector)
 	add     x0, x0, EXT(LowExceptionVectorBase)@pageoff
 	msr     VBAR_EL1, x0
 #endif
+#endif /* GENERIC_PSCI_SMP */
 
 
 
@@ -145,7 +158,7 @@ LEXT(reset_vector)
 	adrp	x19, EXT(ResetHandlerData)@page			// Get address of the reset handler data
 	add		x19, x19, EXT(ResetHandlerData)@pageoff
 	mrs		x15, MPIDR_EL1						// Load MPIDR to get CPU number
-#if HAS_CLUSTER
+#if HAS_CLUSTER || defined(GENERIC_PSCI_SMP)
 	and		x0, x15, #0xFFFF					// CPU number in Affinity0, cluster ID in Affinity1
 #else
 	and		x0, x15, #0xFF						// CPU number is in MPIDR Affinity Level 0
@@ -269,6 +282,92 @@ LEXT(LowExceptionVectorBase)
 	b		.
 	.align	7
 	b		.
+#if defined(GENERIC_PSCI_SMP)
+/*
+ * PSCI exception capture for a core other than the boot processor, from its first
+ * instruction (reset_vector) until common_start gives it the kernel's
+ * vectors. The boot loader is not this core's to return to; it leaves a note
+ * of what happened where the processor that is waiting for it looks
+ * (psci_smp_start_cpu()) and switches itself off again.
+ *
+ * VBAR holds a physical address here too, so the note is addressed
+ * physically; the store goes straight to memory when the MMU is still off,
+ * and is sent there when it is not.
+ */
+	.align	11
+	.globl EXT(LowSecondaryExceptionVectorBase)
+LEXT(LowSecondaryExceptionVectorBase)
+	/* EL1 SP 0 */
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	/* EL1 SP1 */
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	/* EL0 64 */
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	/* EL0 32 */
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+	.align	7
+	b		Lsecondary_early_exception
+
+	.align	3
+Lsecondary_early_exception:
+	// struct psci_smp_start_fault: { valid, MPIDR, ESR, ELR, FAR, LR, SP }
+	adrp	x9, EXT(psci_smp_start_fault)@page
+	add		x9, x9, EXT(psci_smp_start_fault)@pageoff
+	mrs		x10, MPIDR_EL1
+	str		x10, [x9, #8]
+	mrs		x10, ESR_EL1
+	str		x10, [x9, #16]
+	mrs		x10, ELR_EL1
+	str		x10, [x9, #24]
+	mrs		x10, FAR_EL1
+	str		x10, [x9, #32]
+	str		lr, [x9, #40]
+	mov		x10, sp
+	str		x10, [x9, #48]
+	mov		x10, #1
+	str		x10, [x9]
+	dc		cvac, x9
+	dsb		sy
+	// PSCI CPU_OFF, by the firmware's calling convention (psci_smp_hvc)
+	adrp	x9, EXT(psci_smp_hvc)@page
+	add		x9, x9, EXT(psci_smp_hvc)@pageoff
+	ldr		w9, [x9]
+	mov		x0, #0x0002
+	movk	x0, #0x8400, lsl #16
+	cbnz	w9, 1f
+	smc		#0
+	b		2f
+1:
+	hvc		#0
+2:
+	wfi											// it does not return; if it does, stay here
+	b		2b
+#endif /* defined(GENERIC_PSCI_SMP) */
 	.align 12, 0
 
 #if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR)

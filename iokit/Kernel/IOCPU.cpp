@@ -684,6 +684,9 @@ IOCPUInterruptController::registerInterrupt(IOService *nub,
 
 	IOUnlock(vector->interruptLock);
 
+#if !defined(PONG)
+	// Pong installs all vectors before PSCI CPU_ON. Waiting here for every
+	// CPU's local interrupt installation would prevent the first CPU_ON.
 	IOTakeLock(vectors[0].interruptLock);
 	if (enabledCPUs != numCPUs) {
 		assert_wait(this, THREAD_UNINT);
@@ -692,6 +695,7 @@ IOCPUInterruptController::registerInterrupt(IOService *nub,
 	} else {
 		IOUnlock(vectors[0].interruptLock);
 	}
+#endif
 
 	return kIOReturnSuccess;
 }

@@ -915,7 +915,7 @@ processor_startup(
 	ml_cpu_begin_state_transition(processor->cpu_id);
 	ml_broadcast_cpu_event(CPU_BOOT_REQUESTED, processor->cpu_id);
 	result = cpu_start(processor->cpu_id);
-#if defined (__arm__) || defined (__arm64__)
+#if (defined (__arm__) || defined (__arm64__)) && !defined(GENERIC_PSCI_SMP)
 	assert(result == KERN_SUCCESS);
 #else
 	if (result != KERN_SUCCESS) {

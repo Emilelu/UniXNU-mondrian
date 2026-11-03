@@ -680,7 +680,7 @@ cpu_can_exit(__unused int cpu)
 void
 cpu_machine_init(void)
 {
-	static boolean_t started = FALSE;
+	boolean_t started;
 	cpu_data_t      *cpu_data_ptr;
 
 	cpu_data_ptr = getCpuDatap();

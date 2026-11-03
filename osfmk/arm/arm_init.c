@@ -814,6 +814,11 @@ arm_init_cpu(
 
 	machine_set_current_thread(cpu_data_ptr->cpu_active_thread);
 
+#if defined(GENERIC_PSCI_SMP)
+	extern void psci_smp_cpu_reached(uint32_t);
+	psci_smp_cpu_reached(2); /* PSCI_SMP_CPU_IN_KERNEL */
+#endif
+
 #if APPLE_ARM64_ARCH_FAMILY
 	configure_late_apple_regs();
 #endif

@@ -111,6 +111,11 @@
  * Upper limit on how many pages can be consumed by bootstrap page tables
  */
 #define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 34)
+#elif !defined(APPLE_ARM64_ARCH_FAMILY) && !__ARM_16K_PG__
+/* Native 4 KiB: two roots plus up to seven L2 pages per 6 GiB mapping.
+ * The physical and virtual bases may each straddle an extra 1 GiB region.
+ */
+#define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 16)
 #else /* defined(ARM_LARGE_MEMORY) */
 #define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 8)
 #endif /* defined(ARM_LARGE_MEMORY) */

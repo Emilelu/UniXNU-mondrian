@@ -2048,7 +2048,10 @@ native_pong_ui_services_start(void)
 		return;
 	}
 	MiniIOMobileFramebufferStart(provider);
+	
+#if XNU_K60_ACCEL_STUB
 	MiniAcceleratorPublishStub(provider);
+#endif
 }
 
 #endif /* Pong development IOSurface */

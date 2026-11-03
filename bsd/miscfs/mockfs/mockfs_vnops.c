@@ -103,7 +103,7 @@ mockfs_lookup(struct vnop_lookup_args * ap)
 	fsnode = (mockfs_fsnode_t) dvp->v_data;
 	target_fsnode = NULL;
 
-	if ((op == LOOKUP) && (fsnode->type == MOCKFS_ROOT)) {
+	if ((op == LOOKUP || !(cnp->cn_flags & ISLASTCN)) && (fsnode->type == MOCKFS_ROOT)) {
 		/*
 		 * Okay, we're looking in the root directory, so we aren't necessarily
 		 *   going to fail.  What are we looking for?

@@ -2143,7 +2143,9 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
 	arm_vm_physmap_init(args);
 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
 
+#if XNU_MONITOR
 	ml_enable_monitor();
+#endif
 
 	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
 

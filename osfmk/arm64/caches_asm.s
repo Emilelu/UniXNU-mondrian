@@ -276,6 +276,10 @@ L_cpudr_loop:
  */
 	.text
 	.align 2
+#if !defined(APPLE_ARM64_ARCH_FAMILY)
+	.globl EXT(CleanPoC_DcacheRegion_Force_nopreempt_nohid)
+LEXT(CleanPoC_DcacheRegion_Force_nopreempt_nohid)
+#endif
 LEXT(CleanPoC_DcacheRegion_internal)
 	#define CLINE_FLUSH_STRIDE MMU_CLINE
 

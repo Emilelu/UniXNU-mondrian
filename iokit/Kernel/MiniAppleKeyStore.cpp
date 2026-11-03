@@ -21,6 +21,10 @@
 
 enum {
 	kAKSOpenCheck           = 0x00,
+	kAKSUnloadBag           = 0x04,
+	kAKSSetSystem           = 0x05,
+	kAKSLockBag             = 0x0d,
+	kAKSUnloadSessionBags   = 0x37,
 	kAKSGetLockState        = 0x07,
 	kAKSLockDevice          = 0x08,
 	kAKSUnlockDevice        = 0x09,
@@ -191,6 +195,12 @@ AppleKeyStoreUserClient::externalMethod(uint32_t selector,
 	case kAKSLockDevice:
 	case kAKSLockDeviceNow:
 	case kAKSUnlockDevice:
+	case kAKSUnloadBag:
+	case kAKSSetSystem:
+	case kAKSLockBag:
+	case kAKSUnloadSessionBags:
+		args->scalarOutputCount = 0;
+		return kIOReturnSuccess;
 	case kAKSUnlockBag:
 	case kAKSAssertHold:
 	case kAKSAssertDrop:

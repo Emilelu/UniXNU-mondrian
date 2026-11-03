@@ -16,13 +16,19 @@
 	compatible = "xiaomi,mondrian";
 
 	/*
-	 * Physical DRAM: 12 GiB (swinfo.fingerprint mondrian:12 on the measured
-	 * unit; the K60 also ships as 8 and 16 GiB, so re-read this value on a
-	 * different unit). Must match board.toml [payload] dram_size.
+	 * UniXNU contiguous handoff arena, NOT a claim about total installed RAM.
+	 * Serial 6033dbec live Android /memory/reg and /proc/iomem (2026-11-02) put
+	 * Serial 6033dbec live Android /memory/reg and /proc/iomem (2026-11-02) put
+	 * the only long high run at 0x840000000..0xa80000000 (9 GiB). A 7 GiB window
+	 * inside it was accepted by the loader but XNU printed nothing, so this image
+	 * goes back to the proven 4 GiB geometry: arena [0x900000000,0xa40000000) and
+	 * a 4 GiB managed window, which reached XNU with mem=actual=managed=4096 MiB.
+	 * The diagnostic kernel is unchanged, so the failing-program list is the goal.
+	 * 12 GiB is impossible: 4..32 GiB is a 28 GiB hole and no run is 12 GiB.
 	 */
-	memory@80000000 {
+	memory@900000000 {
 		device_type = "memory";
-		reg = <0x0 0x80000000 0x3 0x0>;
+		reg = <0x9 0x00000000 0x1 0x40000000>;
 	};
 
 	/*

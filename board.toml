@@ -92,9 +92,10 @@ title = "UniXNU"
 # panic(), whose address is fixed for the reference kernel, so it refuses to
 # patch ours.
 # entry_probe_reset_delay = 6
-# Must equal the /memory node of dts/mondrian.dts. 12 GiB: the measured unit reports
-# swinfo.fingerprint mondrian:12. Re-read it on a unit of another size.
-dram_size = "0x300000000"
+# Contiguous handoff ARENA size, not total installed DRAM. The actual live
+# Android memory map has six banks. Use only measured [0x900000000,0xa40000000)
+# below high reservations; must match dts/mondrian.dts and MemoryMapLib.c.
+dram_size = "0x140000000"
 # pong_software_keybag=1 selects the volatile no-passcode keybag from
 # zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch. Without it mkbinit cannot
 # load a system bag on this board (no SEP) and forces a recovery-mode reboot.
@@ -121,7 +122,7 @@ dram_size = "0x300000000"
 # makes the stand-in and the kext collide - panic "AppleMobileFileIntegrity
 # interface already set" at libkern/amfi/amfi.c:11, which is what
 # boot-amfi.img (2026-10-31) and boot-amfi2.img (2026-11-01) both showed.
-kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1", "pong_ufs_readwrite=1", "amfi_get_out_of_my_way=1"]
+kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1", "pong_ufs_readwrite=1", "k60_fontscale=3"]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the
@@ -149,22 +150,15 @@ trust_cache_sha256 = ["344ae6445dfcb791ac838dbfec5c4d39a871cf58f91d8bee84ba57204
 [payload."adt"]
 "chip_id" = "8015"
 "root_match_volume_uuid" = "C5DAF029-2070-4F68-B3CC-1D1320344CF0"
-
-# ---------------------------------------------------------------------------
-# /chosen 里补两个 Apple 身份值。两条都有同族先例的 exact 引文：
-#   refs/ios-sweet-k60/docs/REBUILD-FROM-SCRATCH.md:41-42
-#     "/chosen 的 mac-address-wifi0（6 字节假 MAC）：没有它 lsd 建库时会卡在
-#      MobileGestalt 的网络匹配通知上。"
-#   refs/ios-sweet-k60/NOTES.md:77
-#     "On arm XNU publishes IOPlatformUUID (gethostuuid) only from
-#      /chosen/unique-chip-id (8 bytes) + /chosen/chip-id (4 bytes) ... so every
-#      CurrentHost preference write failed."
-# 52:54:00:12:34:56 = 本地管理、单播、非任何真实网卡。
-# ---------------------------------------------------------------------------
-[adt."chosen"."bytes"]
-"mac-address-wifi0" = "525400123456"
-
-# Board-level scale from XTOM0706/UniXNU-mondrian 9d1a14f83d1050a042313f30dc9d5b7e80d31f7a.
-# Matches the current 20G81 profile; keep the K60 scale independent of OS defaults.
-[adt.chosen.u32]
-display-scale = 3
+# DarwinBoot window. Without this key the loader falls back to
+#   DarwinBoot.c:20   #define WINDOW_SIZE SIZE_256MB
+#   DarwinBoot.c:723  if (WindowSize == 0) { WindowSize = WINDOW_SIZE; }
+#   DarwinBoot.c:794  Args->MemorySize = WindowSize;
+# so boot_args->memSize reaches XNU as 256 MiB, and arm_vm_init.c:1857 turns that
+# into mem_size (gPhysBase comes from args->physBase, i.e. this window's address).
+# The earlier 4 GiB attempt targeted [0x100000000,0x380000000), a no-RAM
+# hole. Live serial-6033dbec FDT/iomem place high RAM at 0x800000000 and above.
+# Firmware exposes only measured arena [0x900000000,0xa40000000); screen
+# reports mem=actual=managed=4096 MiB. Service exits continue; SpringBoard is
+# pending. devicetree.py emits darwinboot-memory-size from this key.
+"owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)

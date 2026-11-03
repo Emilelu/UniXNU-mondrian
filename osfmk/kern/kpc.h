@@ -151,6 +151,7 @@ extern int kpc_threads_counting;
 extern void kpc_thread_ast_handler( thread_t thread );
 
 #ifdef MACH_KERNEL_PRIVATE
+#if KPC
 
 /* context switch callback for KPC */
 
@@ -166,6 +167,13 @@ kpc_off_cpu(thread_t thread)
 		kpc_off_cpu_internal(thread);
 	}
 }
+#else
+static inline void
+kpc_off_cpu(thread_t thread)
+{
+	(void)thread;
+}
+#endif /* KPC */
 
 #endif /* defined(MACH_KERNEL_PRIVATE) */
 

@@ -208,7 +208,9 @@ ktrace_reset_internal(uint32_t reset_mask)
 	}
 
 	if (reset_mask & KTRACE_KPERF) {
+	#if KPERF
 		kperf_reset();
+	#endif /* KPERF */
 	}
 	if (reset_mask & KTRACE_KDEBUG) {
 		kdebug_reset();
@@ -366,7 +368,9 @@ ktrace_disable(ktrace_state_t state_to_match)
 {
 	if (ktrace_state == state_to_match) {
 		kernel_debug_disable();
+	#if KPERF
 		kperf_disable_sampling();
+	#endif /* KPERF */
 	}
 }
 
@@ -391,7 +395,9 @@ ktrace_kernel_configure(uint32_t config_mask)
 
 	if (ktrace_state != KTRACE_STATE_OFF) {
 		if (ktrace_active_mask & config_mask & KTRACE_KPERF) {
+		#if KPERF
 			kperf_reset();
+		#endif /* KPERF */
 		}
 		if (ktrace_active_mask & config_mask & KTRACE_KDEBUG) {
 			kdebug_reset();
@@ -503,7 +509,9 @@ ktrace_set_owning_proc(proc_t p)
 		} else {
 			if (ktrace_state == KTRACE_STATE_BG) {
 				if (ktrace_active_mask & KTRACE_KPERF) {
+				#if KPERF
 					kperf_reset();
+				#endif /* KPERF */
 				}
 				if (ktrace_active_mask & KTRACE_KDEBUG) {
 					kdebug_reset();

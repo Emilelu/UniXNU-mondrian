@@ -27,6 +27,14 @@
  */
 #include <arm/pmap/pmap_internal.h>
 
+#if SCHED_HYGIENE_DEBUG && (DEVELOPMENT || DEBUG)
+bool
+pmap_pending_preemption(void)
+{
+	return _pmap_pending_preemption_real();
+}
+#endif /* SCHED_HYGIENE_DEBUG && (DEVELOPMENT || DEBUG) */
+
 /**
  * Placeholder for random pmap functionality that doesn't fit into any of the
  * other files. This will contain things like the CPU copy windows, ASID

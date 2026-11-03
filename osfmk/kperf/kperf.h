@@ -142,6 +142,7 @@ kperf_make_runnable(thread_t thread, int interrupt)
 	}
 }
 
+#if KPERF
 static inline void
 kperf_running_setup(processor_t processor, uint64_t now)
 {
@@ -150,6 +151,14 @@ kperf_running_setup(processor_t processor, uint64_t now)
 		kptimer_running_setup(processor, now);
 	}
 }
+#else
+static inline void
+kperf_running_setup(processor_t processor, uint64_t now)
+{
+	(void)processor;
+	(void)now;
+}
+#endif /* KPERF */
 
 /*
  * Should only be called by platform code at the end of each interrupt.

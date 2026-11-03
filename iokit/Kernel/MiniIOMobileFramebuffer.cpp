@@ -123,6 +123,20 @@ static uint8_t  gFBCalls[128];          /* how many calls of each selector were 
 #define K60_PANEL_HEIGHT        3200
 static TUNABLE(uint32_t, gK60Panel, "k60_panel", 1);
 
+/*
+ * Boot-arg k60_textonly=1: keep the kernel text console on the panel.
+ *
+ * The panel display path takes the framebuffer over as soon as the first UI
+ * frame arrives (PE_initialize_console(kPEGraphicsMode)), after which console
+ * text is no longer drawn. On a boot that stops early, that leaves the useful
+ * diagnostic lines -- including the five-second summary with the last abnormal
+ * exit's reason -- visible for about a second between UI frames. With this flag
+ * the display still reports its mode and still counts frames, but it does not
+ * draw them and does not claim the screen, so the console text stays readable
+ * for as long as the boot runs. Diagnostic only; it is off by default.
+ */
+static TUNABLE(uint32_t, gK60TextOnly, "k60_textonly", 0);
+
 /* The boot framebuffer is the K60 panel at its native size. */
 static bool
 k60PanelNative(void)
@@ -983,6 +997,14 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
 			continue;
 		}
 		if (s->info.bytesPerElement == 4 && s->info.planeCount == 0) {
+			if (gK60TextOnly != 0) {
+				/*
+				 * k60_textonly: leave the console in charge of the panel. The
+				 * frame is accounted for below like any other, but nothing is
+				 * drawn over the text, so the diagnostic lines stay readable.
+				 */
+				continue;
+			}
 			if (!fGraphics) {
 				/* the first picture: the kernel's text console must stop drawing over it */
 				fGraphics = true;
@@ -1022,68 +1044,36 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
 		absolutetime_to_nanoseconds(fStatDrawing, &drawing);
 		absolutetime_to_nanoseconds(fStatWaiting, &waiting);
 		absolutetime_to_nanoseconds(fStatBeatWait, &beat);
-		IOLog("MiniIOMobileFramebuffer: %u frames in %llu ms (%llu a second), %llu us each in the driver, after %llu us "
-		    "waiting for the GPU and, %u of them, %llu us for the next refresh; %u swaps waited for the frame before, "
-		    "%u gave up; %u swaps came a refresh late themselves\n", fStatFrames, nanos / NSEC_PER_MSEC,
-		    fStatFrames * NSEC_PER_SEC / nanos, drawing / fStatFrames / NSEC_PER_USEC,
-		    waiting / fStatFrames / NSEC_PER_USEC, fStatOnBeat, fStatOnBeat ? beat / fStatOnBeat / NSEC_PER_USEC : 0,
-		    fStatHeld, fStatLost, fStatSwapsLate);
-		fStatSwapsLate = 0;
+		/*
+		 * K60: ONE line per five-second window, only when a counter moved.
+		 * This boot has no GUI yet, so the panel cannot be scrolled to read
+		 * back -- every extra line pushes the diagnostic off the screen for
+		 * good. The frame statistics that used to sit here are three lines
+		 * per window and are not needed to answer "which program failed and
+		 * why"; the KX! record and this summary are.
+		 */
 		{
 			extern unsigned int k60_exec_count, k60_exit_count, k60_abnormal_count;
-			extern int k60_last_exec_pid, k60_last_bad_pid;
-			extern char k60_last_exec_comm[24], k60_last_exec_path[64], k60_last_bad_comm[24];
+			extern int k60_last_bad_pid;
+			extern char k60_last_bad_comm[24];
 			extern unsigned int k60_last_bad_signal, k60_last_bad_status;
+			extern unsigned int k60_last_bad_ns;
+			extern unsigned long long k60_last_bad_code, k60_last_bad_rf;
+			extern unsigned int k60_last_bad_jf;
+			extern volatile unsigned long long k60_dbg_mem_mib;
+			extern volatile unsigned long long k60_dbg_actual_mib;
+			extern volatile unsigned long long k60_dbg_phys_mib;
+			extern unsigned int vm_page_free_count;
 			static unsigned int k60_seen_exec = ~0u, k60_seen_exit = ~0u;
 
 			if (k60_exec_count != k60_seen_exec || k60_exit_count != k60_seen_exit) {
 				k60_seen_exec = k60_exec_count;
 				k60_seen_exit = k60_exit_count;
-				{
-					/*
-					 * K60 bring-up: memSize/memActual/managed from arm_vm_init plus the
-					 * live free page count. A falling free count with ns=1 exits in the
-					 * KX! lines is the jetsam storm, not a security policy.
-					 */
-					extern volatile unsigned long long k60_dbg_mem_mib;
-					extern volatile unsigned long long k60_dbg_actual_mib;
-					extern volatile unsigned long long k60_dbg_phys_mib;
-					extern unsigned int vm_page_free_count;
-					extern unsigned int vm_page_speculative_count;
-					IOLog("K60 ex=%u kx=%u abn=%u | mem=%llu actual=%llu managed=%llu free_pages=%u spec=%u\n",
-					    k60_exec_count, k60_exit_count, k60_abnormal_count,
-					    k60_dbg_mem_mib, k60_dbg_actual_mib, k60_dbg_phys_mib,
-					    vm_page_free_count, vm_page_speculative_count);
-				}
-				IOLog("K60 last exec: %d '%s' %s\n", k60_last_exec_pid, k60_last_exec_comm,
-				    k60_last_exec_path);
-				IOLog("K60 last bad : %d '%s' exit=%u sig=%u\n", k60_last_bad_pid, k60_last_bad_comm,
-				    k60_last_bad_status, k60_last_bad_signal);
+				IOLog("K60 ex=%u abn=%u mem=%llu free=%u | bad %d '%s' exit=%u sig=%u ns=%u code=0x%llx\n",
+				    k60_exec_count, k60_abnormal_count, k60_dbg_mem_mib, vm_page_free_count,
+				    k60_last_bad_pid, k60_last_bad_comm, k60_last_bad_status, k60_last_bad_signal,
+				    k60_last_bad_ns, k60_last_bad_code);
 			}
-		}
-		for (different = 0; different < 8 && fStatSurfaces[different] != 0; different++) {
-		}
-		if (different == 8 && fStatFrames > 8) {
-			uint32_t made, freed, again;
-			uint64_t making, freeing;
-
-			/* (CoreAnimation has made itself a new surface for every frame: see "the frames' surfaces" above) */
-			MiniIOSurfaceCost(&made, &making, &freed, &freeing, &again);
-			IOLog("MiniIOMobileFramebuffer: the frames came in surfaces %u, %u, %u, %u, %u and on, none twice; in that time "
-			    "%u surfaces of all kinds were made, in %llu us each (%u of them of memory kept from one before), and %u "
-			    "freed, in %llu us each\n", fStatSurfaces[0], fStatSurfaces[1], fStatSurfaces[2], fStatSurfaces[3],
-			    fStatSurfaces[4], made, making, again, freed, freeing);
-		}
-		bzero(fStatSurfaces, sizeof(fStatSurfaces));
-		fStatHeld = fStatLost = fStatOnBeat = 0;
-		fStatWaiting = fStatBeatWait = 0;
-		reportFrameTimes();
-		if (fDiff) {
-			IOLog("MiniIOMobileFramebuffer: %llu pixels of the panel changed a frame, all within %u,%u to %u,%u\n",
-			    fDiffPixels / fStatFrames, fDiffLeft, fDiffTop, fDiffRight, fDiffBottom);
-			fDiffPixels = 0;
-			fDiffLeft = fDiffTop = ~0u;
-			fDiffRight = fDiffBottom = 0;
 		}
 		fStatFrames = 0;
 		fStatDrawing = 0;

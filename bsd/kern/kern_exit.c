@@ -157,6 +157,86 @@ extern volatile int native_owner_cache_native_union;
  * repeated here where the result survives on the frame buffer.
  * A vnode_lookup error of 0 means the path exists.
  */
+
+/*
+ * K60 bring-up: a process that dies from its own signal often leaves the
+ * explanation -- an NSException reason, an assert message -- in its exit
+ * reason, not in its address space (the low 4 MiB the old scanner read is
+ * inside the 4 GiB pagezero on arm64 and was never mapped, so it could never
+ * print). Print what the reason carries instead: the signal sender's pid and
+ * name attached by build_signal_reason(), and the description string when
+ * userspace attached one. Diagnostic only: reads kernel memory owned by the
+ * exit transaction, writes nothing, and runs only when the exit carried a
+ * fatal signal and the kernel holds a reason.
+ */
+#define K60_REASON_STR_MAX 160
+
+extern unsigned int k60_str_seen;
+
+static void
+k60_print_exit_reason(proc_t p, os_reason_t reason)
+{
+	kcdata_iter_t iter, it;
+	pid_t sender = -1;
+	char from[33];
+	char desc[K60_REASON_STR_MAX + 1];
+	unsigned int i, n;
+
+	from[0] = '?'; from[1] = '\0';
+	desc[0] = '-'; desc[1] = '\0';
+
+	if (reason == OS_REASON_NULL || reason->osr_kcd_buf == NULL ||
+	    reason->osr_bufsize == 0) {
+		return;
+	}
+	iter = kcdata_iter(reason->osr_kcd_buf, reason->osr_bufsize);
+	if (!kcdata_iter_valid(iter) ||
+	    kcdata_iter_type(iter) != KCDATA_BUFFER_BEGIN_OS_REASON) {
+		return;
+	}
+
+	/* what build_signal_reason() attached: who sent the fatal signal */
+	it = kcdata_iter_find_type(iter, KCDATA_TYPE_PID);
+	if (kcdata_iter_valid(it) && kcdata_iter_size(it) >= sizeof(pid_t)) {
+		memcpy(&sender, kcdata_iter_payload(it), sizeof(pid_t));
+	}
+	it = kcdata_iter_find_type(iter, KCDATA_TYPE_PROCNAME);
+	if (kcdata_iter_valid(it)) {
+		n = kcdata_iter_size(it);
+		if (n > sizeof(from) - 1) {
+			n = sizeof(from) - 1;
+		}
+		for (i = 0; i < n; i++) {
+			char c = ((const char *)kcdata_iter_payload(it))[i];
+			if (c == '\0') {
+				break;
+			}
+			from[i] = (c >= 0x20 && c < 0x7f) ? c : '.';
+		}
+		from[i] = '\0';
+	}
+	/* what abort_with_reason()/terminate_with_reason() attached, if any */
+	it = kcdata_iter_find_type(iter, EXIT_REASON_USER_DESC);
+	if (kcdata_iter_valid(it)) {
+		n = kcdata_iter_size(it);
+		if (n > K60_REASON_STR_MAX) {
+			n = K60_REASON_STR_MAX;
+		}
+		for (i = 0; i < n; i++) {
+			char c = ((const char *)kcdata_iter_payload(it))[i];
+			if (c == '\0') {
+				break;
+			}
+			desc[i] = (c >= 0x20 && c < 0x7f) ? c : '.';
+		}
+		desc[i] = '\0';
+	}
+
+	k60_str_seen = 1;
+	printf("STR %d '%s' sender=%d from='%s' desc='%s'\n",
+	    proc_getpid(p), p->p_comm, (int)sender, from, desc);
+}
+
 static void
 k60_probe_dyld_cache(int out[8])
 {
@@ -1627,6 +1707,11 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate, 
 		extern int k60_last_bad_pid;
 		extern char k60_last_bad_comm[24];
 		extern unsigned int k60_last_bad_signal, k60_last_bad_status;
+		extern unsigned int k60_last_bad_ns;
+		extern unsigned long long k60_last_bad_code, k60_last_bad_rf;
+		extern unsigned int k60_last_bad_jf;
+		extern unsigned int k60_kx_count;
+		extern unsigned int k60_str_seen;
 		unsigned int k60_status = (unsigned int) ((rv >> 8) & 0xff);
 		unsigned int k60_sig = (unsigned int) (rv & 0x7f);
 
@@ -1640,21 +1725,94 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate, 
 			static _Atomic unsigned int k60_reason_sequence = 0;
 			unsigned int k60_record = atomic_fetch_add_explicit(&k60_reason_sequence,
 			    1u, memory_order_relaxed) + 1u;
-			if (k60_record <= 300) {
-				os_reason_t k60_reason = p->p_exit_reason;
-				printf("KX! %u %d %s exit=%u sig=%u r=%u ns=%u code=0x%llx rf=0x%llx jf=0x%x\n",
-				    k60_record, proc_getpid(p), p->p_comm, k60_status, k60_sig,
-				    (unsigned int)(k60_reason != OS_REASON_NULL),
-				    k60_reason ? k60_reason->osr_namespace : 0u,
-				    (unsigned long long)(k60_reason ? k60_reason->osr_code : 0),
-				    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0),
-				    (unsigned int)jetsam_flags);
+			/* Read once: both the KX! record and the summary globals use it. */
+			os_reason_t k60_reason = p->p_exit_reason;
+			/*
+			 * One line per distinct failing program, not the first 300 events.
+			 * A boot that enters a daemon loop reaches thousands of abnormal
+			 * exits within a minute; by then the bounded 300-event record is
+			 * exhausted and the screen only shows the single "last bad" entry.
+			 * Each distinct name is printed once with its exit status and, when
+			 * the kernel holds one, the reason namespace/code/flags, so one
+			 * screenshot lists every program that is actually failing.
+			 */
+			{
+				static _Atomic unsigned int k60_comm_count = 0;
+				static uint32_t k60_comm_hashes[64];
+				uint32_t k60_comm_hash = 5381;
+				const char * k60_walk = p->p_comm;
+				unsigned int k60_comm_pos, k60_comm_known = 0;
+
+				while (*k60_walk != '\0') {
+					k60_comm_hash = (k60_comm_hash * 33) ^
+					    (uint32_t) (unsigned char) *k60_walk++;
+				}
+				/* Duplicate lines under a race are harmless; each is one exit. */
+				k60_comm_pos = atomic_load_explicit(&k60_comm_count, memory_order_relaxed);
+				if (k60_comm_pos > 64) {
+					k60_comm_pos = 64;
+				}
+				for (unsigned int k60_comm_i = 0; k60_comm_i < k60_comm_pos; k60_comm_i++) {
+					if (k60_comm_hashes[k60_comm_i] == k60_comm_hash) {
+						k60_comm_known = 1;
+						break;
+					}
+				}
+				if (!k60_comm_known) {
+					k60_comm_pos = atomic_fetch_add_explicit(&k60_comm_count,
+					    1u, memory_order_relaxed);
+					/* K60: only the first failure of each program is printed, and
+					 * only while the console is still short. A boot that loops
+					 * reaches thousands of exits; printing them scrolls the useful
+					 * first record off the panel, so the count is what we keep. */
+					if (k60_comm_pos < 6) {
+						k60_comm_hashes[k60_comm_pos] = k60_comm_hash;
+						printf("KX! %u %d %s exit=%u sig=%u r=%u ns=%u code=0x%llx rf=0x%llx jf=0x%x first\n",
+						    k60_record, proc_getpid(p), p->p_comm, k60_status, k60_sig,
+						    (unsigned int)(k60_reason != OS_REASON_NULL),
+						    k60_reason ? k60_reason->osr_namespace : 0u,
+						    (unsigned long long)(k60_reason ? k60_reason->osr_code : 0),
+						    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0),
+						    (unsigned int)jetsam_flags);
+						k60_kx_count++;
+						/* K60DIAG: the boot-time K60DATA lines scroll away before the
+						 * first crash; replay their results once, right here. */
+						{
+							static int k60_diag_done = 0;
+							if (!k60_diag_done) {
+								extern int k60_data_mount_error;
+								extern int k60_data_ro;
+								extern char k60_data_fstype[16];
+								extern int k60_data_mkdir_ok;
+								extern uint8_t k60_data_mkdir_errno[28];
+								char k60_hex[57];
+								static const char k60_hd[] = "0123456789abcdef";
+								k60_diag_done = 1;
+								for (unsigned k60_e = 0; k60_e < 28; k60_e++) {
+									k60_hex[k60_e * 2] = k60_hd[(k60_data_mkdir_errno[k60_e] >> 4) & 0xf];
+									k60_hex[k60_e * 2 + 1] = k60_hd[k60_data_mkdir_errno[k60_e] & 0xf];
+								}
+								k60_hex[56] = '\0';
+								printf("K60DIAG mount err=%d ro=%d fstype=%s mkdir=%d/28 errno=%s\n",
+								    k60_data_mount_error, k60_data_ro, k60_data_fstype,
+								    k60_data_mkdir_ok, k60_hex);
+							}
+						}
+					}
+				}
+			}
+			if (k60_sig != 0) {
+				k60_print_exit_reason(p, k60_reason);
 			}
 			k60_abnormal_count++;
 			k60_last_bad_pid = proc_getpid(p);
 			strlcpy(k60_last_bad_comm, p->p_comm, sizeof(k60_last_bad_comm));
 			k60_last_bad_signal = k60_sig;
 			k60_last_bad_status = k60_status;
+			k60_last_bad_ns = k60_reason ? k60_reason->osr_namespace : 0u;
+			k60_last_bad_code = k60_reason ? k60_reason->osr_code : 0;
+			k60_last_bad_rf = k60_reason ? k60_reason->osr_flags : 0;
+			k60_last_bad_jf = (unsigned int)jetsam_flags;
 		}
 		/* a clean exit(0) is not worth a line: every daemon does it */
 	}
@@ -2088,7 +2246,9 @@ skipcheck:
 			} else if (kr == KERN_TERMINATED) {
 				printf("Process[%d] has been terminated before it could be converted to a corpse.\n", proc_getpid(p));
 			} else {
-				printf("Process[%d] crashed: %s. Too many corpses being created.\n", proc_getpid(p), p->p_comm);
+				/* K60: silent on purpose. Every crash hits this path, and hundreds of
+				 * identical lines push the one useful record off the panel. The reason
+				 * is already in the KX! line and in the five-second summary. */
 			}
 			create_corpse = FALSE;
 		}
@@ -2211,9 +2371,15 @@ proc_exit(proc_t p)
 		 */
 		{
 			static _Atomic unsigned int k60_fallback_sequence = 0;
+			static uint32_t k60_xt = ~0u;
 			unsigned int k60_record = atomic_fetch_add_explicit(&k60_fallback_sequence,
 			    1u, memory_order_relaxed) + 1u;
-			if (k60_record <= 32) {
+			if (k60_xt == ~0u) {
+				uint32_t k60_arg = 0;
+				(void)PE_parse_boot_argn("k60xt", &k60_arg, sizeof(k60_arg));
+				k60_xt = k60_arg;
+			}
+			if (k60_xt == 1 && k60_record <= 32) {
 				os_reason_t k60_reason = p->p_exit_reason;
 				printf("K60XT %u %d %s xstat=0x%x r=%u ns=%u code=0x%llx rf=0x%llx\n",
 				    k60_record, proc_getpid(p), p->p_comm, (unsigned int)p->p_xstat,

@@ -389,6 +389,10 @@ int          k60_last_bad_pid;
 char         k60_last_bad_comm[24];
 unsigned int k60_last_bad_signal;
 unsigned int k60_last_bad_status;
+unsigned int k60_last_bad_ns;
+unsigned long long k60_last_bad_code;
+unsigned long long k60_last_bad_rf;
+unsigned int k60_last_bad_jf;
 static int exec_copyout_strings(struct image_params *imgp, user_addr_t *stackp);
 static int load_return_to_errno(load_return_t lrtn);
 static int execargs_alloc(struct image_params *imgp);
@@ -7374,6 +7378,25 @@ uint64_t native_owner_data_seed_base, native_owner_data_seed_size;
 uint8_t native_owner_data_seed_sha256[32];
 char native_owner_data_device_path[64];
 
+/* K60DIAG: early Data-mount/mkdir results, replayed once at the first KX! line
+ * (the panel cannot scroll, so the boot-time K60DATA lines are otherwise lost). */
+int k60_data_mount_error = -1;
+int k60_data_ro = -1;
+char k60_data_fstype[16] = "-";
+int k60_data_mkdir_ok = -1;
+uint8_t k60_data_mkdir_errno[28];
+unsigned int k60_kx_count;       /* KX! lines actually printed (kern_exit.c) */
+unsigned int k60_str_seen;       /* 1 once an STR line has been printed (kern_exit.c) */
+int k60_data_mkdir_first_errno;  /* errno of the first failed mkdir (0 = none failed) */
+int k60_data_mkdir_first_index;  /* 1-based index into the path table (0 = none) */
+char k60_data_mkdir_first_dir[48] = "-";
+
+/* K60SELF: the Data-claim self-check no longer panics; it records the first
+ * failure here so the heartbeat can replay it next to the live /private/var
+ * state (first result vs whether the volume ended up mounted). */
+volatile int k60_data_selfcheck_err = 0;         /* first dataerr seen (0 = none yet) */
+volatile unsigned int k60_data_selfcheck_count;  /* degraded self-checks so far */
+
 extern void IOSleep(unsigned int);
 
 /*
@@ -7407,6 +7430,91 @@ k60_var_watch(void *arg, wait_result_t wr)
 	thread_terminate(current_thread());
 }
 
+/*
+ * K60HB: an unconditional heartbeat on its own kernel thread, independent of
+ * any userland process. The panel cannot scroll and every other K60 line is
+ * event-driven, so a quiet system and a dead kernel look identical on a
+ * photo. One line every 15 s separates "userland stalled" (beats continue)
+ * from "kernel wedged" (beats stop), and replays the early Data-mount/mkdir
+ * results that otherwise scroll away before the first crash.
+ */
+static void
+k60_heartbeat(void *arg, wait_result_t wr)
+{
+	unsigned int k60_beat = 0;
+
+	for (;;) {
+		char k60_hist[96];
+		unsigned int k60_hl = 0;
+		int k60_ee[28];
+		unsigned int k60_cc[28], k60_nn = 0;
+		unsigned int k60_i, k60_j;
+
+		IOSleep(15000);
+		k60_beat++;
+		/* mkdir errno histogram, top 4 by frequency; success (0) is not a group */
+		for (k60_i = 0; k60_i < 28; k60_i++) {
+			int k60_e = (int)k60_data_mkdir_errno[k60_i];
+			if (k60_e == 0) {
+				continue;
+			}
+			for (k60_j = 0; k60_j < k60_nn; k60_j++) {
+				if (k60_ee[k60_j] == k60_e) {
+					k60_cc[k60_j]++;
+					break;
+				}
+			}
+			if (k60_j == k60_nn && k60_nn < 28) {
+				k60_ee[k60_nn] = k60_e;
+				k60_cc[k60_nn] = 1;
+				k60_nn++;
+			}
+		}
+		for (k60_i = 0; k60_i + 1 < k60_nn; k60_i++) {
+			for (k60_j = k60_i + 1; k60_j < k60_nn; k60_j++) {
+				if (k60_cc[k60_j] > k60_cc[k60_i]) {
+					unsigned int k60_tc = k60_cc[k60_i];
+					int k60_te = k60_ee[k60_i];
+					k60_cc[k60_i] = k60_cc[k60_j]; k60_cc[k60_j] = k60_tc;
+					k60_ee[k60_i] = k60_ee[k60_j]; k60_ee[k60_j] = k60_te;
+				}
+			}
+		}
+		k60_hist[0] = '\0';
+		for (k60_i = 0; k60_i < k60_nn && k60_i < 4; k60_i++) {
+			int k60_w = snprintf(k60_hist + k60_hl, sizeof(k60_hist) - k60_hl,
+			    "%s%d/%u", k60_i ? " " : "", k60_ee[k60_i], k60_cc[k60_i]);
+			if (k60_w <= 0 || (unsigned int)k60_w >= sizeof(k60_hist) - k60_hl) {
+				break;
+			}
+			k60_hl += (unsigned int)k60_w;
+		}
+		if (k60_nn == 0) {
+			strlcpy(k60_hist, "-", sizeof(k60_hist));
+		}
+		/* K60SELF follow-up: replay the first degraded Data-claim error (sf)
+		 * next to the live /private/var mounted state (svm), so whether the
+		 * volume ended up mounted stays visible after the boot lines scroll. */
+		int k60_svm = 0;
+		{
+			vnode_t k60_sv = NULLVP;
+			if (vnode_lookup("/private/var", 0, &k60_sv, vfs_context_current()) == 0 &&
+			    k60_sv) {
+				k60_svm = (vnode_mountedhere(k60_sv) != NULL) ? 1 : 0;
+				vnode_put(k60_sv);
+			}
+		}
+		printf("K60HB t=%us ex=%u abn=%u mnt=%d ro=%d mk=%d/28 mkE=%s mkerr=%d at=%d dir=%s kx=%u str_seen=%u sf=%d svm=%d\n",
+		    k60_beat * 15, k60_exec_count, k60_abnormal_count,
+		    k60_data_mount_error, k60_data_ro, k60_data_mkdir_ok,
+		    k60_hist, k60_data_mkdir_first_errno, k60_data_mkdir_first_index,
+		    k60_data_mkdir_first_dir, k60_kx_count, k60_str_seen,
+		    k60_data_selfcheck_err, k60_svm);
+	}
+	(void)arg;
+	(void)wr;
+}
+
 static int
 native_owner_data_prepare(proc_t p, user_addr_t scratch)
 {
@@ -7434,7 +7542,9 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
 	size = ufs_bytes;
 	printf("K60DATA UFS window dev=%x path=%s bytes=%llx\n",
 	    (unsigned)device, device_path, (unsigned long long)size);
-	if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;
+	/* Persistent UFS Data may be resized up to 24 GiB (unixnu has the tail
+	 * room); the RAM-seed branches below keep their small legacy cap. */
+	if (!size || size > UINT64_C(0x600000000) || (size & 4095)) goto done;
 #elif defined(XNU_NATIVE_RAM_BLOCK) && XNU_NATIVE_RAM_BLOCK
 	/* The typed provider supplies logical seed identity for both dense and
 	 * sparse media. A sparse disk has no contiguous logical-byte address. */
@@ -7494,6 +7604,7 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
 		printf("K60DATA RO mount enter path=/private/var dev=%s\n", device_path);
 	}
 	error = mount(p, &request, &result);
+	k60_data_mount_error = error;
 	printf("K60DATA mount returned error=%d result=%d rw=%u\n", error, result, k60_data_rw);
 	if (error) goto done;
 	native_owner_data_stage = 3;
@@ -7506,6 +7617,9 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
 	if (device_node) vnode_put(device_node);
 	native_owner_data_device = actual;
 	native_owner_data_readonly = (vfs_flags(data_mount) & MNT_RDONLY) != 0;
+	k60_data_ro = (int)native_owner_data_readonly;
+	strlcpy(k60_data_fstype, vfs_statfs(data_mount)->f_fstypename,
+	    sizeof(k60_data_fstype));
 	printf("K60DATA mounted ro=%d fstype=%s\n",
 	    (vfs_flags(data_mount) & MNT_RDONLY) != 0, vfs_statfs(data_mount)->f_fstypename);
 	{
@@ -7567,12 +7681,21 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
 				k60_err = mkdir(p, &k60_args, &k60_ret);
 			}
 			k60_mkdir_err[k60_m] = k60_err;
+			if (k60_err != 0 && k60_data_mkdir_first_index == 0) {
+				k60_data_mkdir_first_index = (int)k60_m + 1;
+				k60_data_mkdir_first_errno = k60_err;
+				strlcpy(k60_data_mkdir_first_dir,
+				    k60_mkdir_paths[k60_m] + sizeof("/private/var/") - 1,
+				    sizeof(k60_data_mkdir_first_dir));
+			}
 		}
 		{
 			int k60_ok = 0;
 			for (unsigned k60_s = 0; k60_s < K60_MKDIR_PATH_COUNT; k60_s++) {
 				if (k60_mkdir_err[k60_s] == 0) k60_ok++;
+				k60_data_mkdir_errno[k60_s] = (uint8_t) (k60_mkdir_err[k60_s] & 0xff);
 			}
+			k60_data_mkdir_ok = k60_ok;
 			printf("K60DATA mkdir ok=%d/%d", k60_ok, K60_MKDIR_PATH_COUNT);
 			for (unsigned k60_s = 0; k60_s < K60_MKDIR_PATH_COUNT; k60_s++) {
 				if (k60_mkdir_err[k60_s] != 0) {
@@ -7952,6 +8075,16 @@ load_init_program(proc_t p)
 	    sizeof(k60_data_attempt)) && k60_data_attempt != 1) {
 		k60_data_attempt = 0;
 	}
+
+	/* K60HB: started before any mount work so even a hung Data mount keeps
+	 * it beating; runs on its own kernel thread, independent of userland. */
+	{
+		thread_t k60_hb_thread = THREAD_NULL;
+		if (kernel_thread_start((thread_continue_t)k60_heartbeat, NULL,
+		    &k60_hb_thread) == KERN_SUCCESS) {
+			thread_deallocate(k60_hb_thread);
+		}
+	}
 	if (PE_parse_boot_argn("pong_skip_owner_apfs_mounts", &skip_owner_apfs_mounts,
 	    sizeof(skip_owner_apfs_mounts)) && skip_owner_apfs_mounts == 1) {
 		printf("PONG DEVELOPMENT: optional SystemOS/Data mounts skipped by boot argument\n");
@@ -7986,9 +8119,10 @@ load_init_program(proc_t p)
 	{
 		/*
 		 * The Data volume is what launchd needs for /private/var, and the ramoops
-		 * mirror is what a later boot needs to explain a failure. Report both as a
-		 * panic, but only when the Data volume really is missing: a healthy boot
-		 * must keep going.
+		 * mirror is what a later boot needs to explain a failure. Report both,
+		 * but do not panic: a failed claim must fall through to the normal
+		 * init path so later mount/retry attempts and the heartbeat stay
+		 * observable (datafail=1 marks the degraded boot).
 		 *
 		 * sig must be 0x43474244 (Linux PERSISTENT_RAM_SIG): sig==0 means the
 		 * mirror never mapped, so nothing reached Android's pstore.
@@ -8009,10 +8143,16 @@ load_init_program(proc_t p)
 			if (k60_ro) {
 				k60_sig = *(volatile uint32_t *)(uintptr_t)k60_ro;
 			}
-			panic("K60SELF novar ro_base=%p sig=%x ro_start=%u ro_size=%u var_err=%d datastage=%d dataerr=%d",
+			k60_data_selfcheck_count++;
+			if (k60_data_selfcheck_err == 0) {
+				k60_data_selfcheck_err = native_owner_data_status;
+			}
+			printf("K60SELF datafail=1 novar ro_base=%p sig=%x ro_start=%u ro_size=%u var_err=%d var_mnt=%d datastage=%d dataerr=%d scc=%u; continue\n",
 			    (void *)k60_ro, k60_sig,
 			    pong_ramoops_debug_start(), pong_ramoops_debug_size(),
-			    k60_var_err, native_owner_data_stage, native_owner_data_status);
+			    k60_var_err, k60_var_mounted,
+			    native_owner_data_stage, native_owner_data_status,
+			    k60_data_selfcheck_count);
 		}
 	}
 #endif

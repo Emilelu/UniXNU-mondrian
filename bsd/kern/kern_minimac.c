@@ -367,8 +367,34 @@ SECURITY_READ_ONLY_LATE(static mac_policy_handle_t) minisandbox_handle;
 void
 minimac_policy_init(void)
 {
-	uint32_t enabled = 0;
-	if (!PE_parse_boot_argn("amfi_get_out_of_my_way", &enabled, sizeof(enabled)) || !enabled) return;
+	uint32_t amfi_enabled = 0;
+	uint32_t sandbox_enabled = 0;
+
+	/*
+	 * K60: the AMFI stand-in and the real AppleMobileFileIntegrity kext cannot
+	 * both register the "AMFI" policy - this route prelinks the real kext, so
+	 * asking for the stand-in reaches amfi.c's "interface already set" panic.
+	 *
+	 * The Sandbox stand-in has no such conflict and is what user space actually
+	 * needs: libsystem_sandbox reaches the kernel only through
+	 * __mac_syscall("Sandbox", ...) (mac_base.c:1587 returns ENOPOLICY when no
+	 * policy carries that name). Without it, container path lookups
+	 * (request 4, minisandbox_container_path) fail, Foundation gets no
+	 * container and the framework daemons abort themselves with SIGABRT or
+	 * SIGTRAP. So the Sandbox stand-in is registered on its own.
+	 *
+	 * k60_sandbox=1 enables it; k60_sandbox=0 disables it again for an A/B run.
+	 * amfi_get_out_of_my_way keeps its old meaning and still registers both,
+	 * for a route that does not prelink the real kext.
+	 */
+	if (PE_parse_boot_argn("k60_sandbox", &sandbox_enabled, sizeof(sandbox_enabled)) && sandbox_enabled) {
+		mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
+		printf("K60 SANDBOX: stand-in policy registered\n");
+		return;
+	}
+	if (!PE_parse_boot_argn("amfi_get_out_of_my_way", &amfi_enabled, sizeof(amfi_enabled)) || !amfi_enabled) {
+		return;
+	}
 	mac_policy_register(&miniamfi_conf, &miniamfi_handle, NULL);
 	mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
 }

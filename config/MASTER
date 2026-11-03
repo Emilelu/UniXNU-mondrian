@@ -321,6 +321,8 @@ options   CONFIG_EMBEDDED			# <config_embedded>
 # Compile XNU with PPL support.
 options   CONFIG_PMAP_PPL			# <config_pmap_ppl>
 
+options   CONFIG_APPLE_AMCC			# <apple_amcc>
+
 options   NOS_ARM_ASM			# <nos_arm_asm>
 options   NOS_ARM_PMAP			# <nos_arm_pmap>
 
@@ -611,8 +613,6 @@ options		CONFIG_DTRACE		#		    # <config_dtrace>
 options		LOCK_STATS		#		    # <lock_stats>
 
 # kernel performance tracing
-options     KPERF                  # <kperf>
-options     KPC                    # <kpc>
 
 
 options     CONFIG_PERVASIVE_CPI    # <config_pervasive_cpi>

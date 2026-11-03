@@ -1703,6 +1703,15 @@ handle_svc(arm_saved_state_t *state)
 	}
 
 	mach_kauth_cred_thread_update();
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	static unsigned pong_credential_notes;
+	struct proc *pong_cred_proc = pong_init_trace ? get_bsdtask_info(get_threadtask(thread)) : NULL;
+	if (pong_cred_proc && proc_pid(pong_cred_proc) == 1 &&
+	    pong_credential_notes < 8 && ml_get_interrupts_enabled()) {
+		++pong_credential_notes;
+		printf("Pong init: syscall credentials ready code=%d\n", trap_no);
+	}
+#endif
 
 	if (trap_no < 0) {
 		switch (trap_no) {

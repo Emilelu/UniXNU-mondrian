@@ -178,6 +178,16 @@ unix_syscall(
 #endif /* CONFIG_DEBUG_SYSCALL_REJECTION */
 
 	AUDIT_SYSCALL_ENTER(code, proc, uthread);
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	static unsigned pong_dispatch_notes;
+	uint32_t trace_init = 0;
+	if (pid == 1 && pong_dispatch_notes < 8 &&
+	    PE_parse_boot_argn("pong_init_trace", &trace_init, sizeof(trace_init)) &&
+	    trace_init && ml_get_interrupts_enabled()) {
+		++pong_dispatch_notes;
+		printf("Pong init: unix syscall dispatch code=%u\n", code);
+	}
+#endif
 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
 

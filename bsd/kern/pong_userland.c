@@ -1,6 +1,8 @@
 #include <pexpert/arm64/board_config.h>
 /* Pong / 20G81 static-init progress, recorded by the existing kernel console. */
-#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+/* Retired: boot progress uses the existing console; do not register a
+ * private sysctl solely to let PID 1 print its first message. */
+#if defined(PONG_INIT_SYSCTL_LOG) && PONG_INIT_SYSCTL_LOG
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/proc.h>

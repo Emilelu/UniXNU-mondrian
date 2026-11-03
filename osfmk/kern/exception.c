@@ -100,6 +100,11 @@
 #include <libkern/coreanalytics/coreanalytics.h>
 
 #include <sys/code_signing.h> /* for developer mode state */
+#include <pexpert/arm64/board_config.h>
+#if defined(ARM64_BOARD_CONFIG_PONG) && (DEVELOPMENT || DEBUG)
+extern void pong_ui_exception(exception_type_t, mach_exception_data_t,
+    mach_msg_type_number_t, thread_t);
+#endif
 
 bool panic_on_exception_triage = false;
 
@@ -651,6 +656,10 @@ exception_triage_thread(
 	kern_return_t   kr = KERN_FAILURE;
 
 	assert(exception != EXC_RPC_ALERT);
+
+#if defined(ARM64_BOARD_CONFIG_PONG) && (DEVELOPMENT || DEBUG)
+	pong_ui_exception(exception, code, codeCnt, thread);
+#endif
 
 	/*
 	 * If this behavior has been requested by the the kernel

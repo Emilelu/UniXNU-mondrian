@@ -363,3 +363,4 @@ osfmk/prng/prng_random.c	standard
 osfmk/prng/entropy.c   standard
 
 osfmk/arm64/psci_smp.c standard
+osfmk/arm64/pong_ui_exception.c standard

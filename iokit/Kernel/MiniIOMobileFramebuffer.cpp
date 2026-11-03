@@ -56,6 +56,7 @@ enum {
 	kFBMethodGetDigitalOutState     = 25,
 	kFBMethodGetDotPitch            = 28,
 	kFBMethodGetDisplayArea         = 29,
+	kFBMethodSetColorRemapMode      = 33,
 	kFBMethodSwapCancel             = 52,
 	kFBMethodGetColorRemapMode      = 57,
 	kFBMethodNotifications          = 72,
@@ -1182,6 +1183,22 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
 		args->scalarOutputCount = 1;
 		return kIOReturnSuccess;
 
+	case kFBMethodGetColorRemapMode:
+		if (args->scalarOutputCount < 1) return kIOReturnBadArgument;
+		/* This software backend presents the source RGB without a remap. */
+		out[0] = 0;
+		args->scalarOutputCount = 1;
+		return kIOReturnSuccess;
+	case kFBMethodSetColorRemapMode:
+		if (args->scalarInputCount != 1) return kIOReturnBadArgument;
+		return in[0] == 0 ? kIOReturnSuccess : kIOReturnUnsupported;
+
+	case kFBMethodGetDisplayArea:
+		/* 20G81 expects an eight-byte CGFloat, not width/height integers.
+		 * No physical-area ABI is advertised by the boot framebuffer. Let
+		 * IOMobileFramebuffer use its fallback instead of returning zero. */
+		return kIOReturnUnsupported;
+
 	case kFBMethodGetLayerDefaultSurface:           /* in: size wanted (or 0, 0); out: a send right for the surface */
 		if (args->scalarOutputCount < 1) {
 			return kIOReturnBadArgument;
@@ -1279,14 +1296,10 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
 		    args->scalarInputCount > 1 ? in[1] : 0, args->scalarInputCount > 2 ? in[2] : 0, args->scalarOutputCount,
 		    args->structureInputSize, args->structureOutputSize);
 	}
-	/* a request that only sets something is accepted; one that wants an answer gets zeros */
-	if (args->scalarOutputCount != 0) {
-		bzero(out, args->scalarOutputCount * sizeof(out[0]));
-	}
-	if (args->structureOutput != NULL && args->structureOutputSize != 0) {
-		bzero(args->structureOutput, args->structureOutputSize);
-	}
-	return kIOReturnSuccess;
+	/* In particular, GetGammaTable must not succeed with an all-zero LUT:
+	 * that describes a black display. Unsupported hardware queries/setters
+	 * must leave the framework's software/default path in charge. */
+	return kIOReturnUnsupported;
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */

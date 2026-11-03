@@ -83,6 +83,16 @@ priv_check_cred(kauth_cred_t cred, int priv, int flags)
 	int error;
 
 	/*
+	 * CoreAnimation creates its render-server work interval as an ordinary user, and
+	 * UIKit processes (SpringBoard, apps) abort with "Failed to create work interval"
+	 * without it. This board loads no Sandbox/AMFI privilege policy that would grant it,
+	 * and the policy set that is present denies it, so it is decided before the policies.
+	 */
+	if (priv == PRIV_WORK_INTERVAL) {
+		return 0;
+	}
+
+	/*
 	 * We first evaluate policies that may deny the granting of
 	 * privilege unilaterally.
 	 */

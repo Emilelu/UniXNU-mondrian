@@ -1920,6 +1920,8 @@ MiniIOSurfaceDrawn(MiniIOSurface * surface, __unused uint64_t milliseconds)
  * never fire. Selectors seen from watchdogd: 0/1/3/4/5 scalars, 2 (1 KiB in) and
  * 9 (small out).
  */
+int gK60WatchdogUp;
+
 class IOWatchdog : public IOService
 {
 	OSDeclareDefaultStructors(IOWatchdog);
@@ -1936,6 +1938,7 @@ IOWatchdog::start(IOService *provider)
 	}
 	setProperty(kIOUserClientClassKey, "IOWatchdogUserClient");
 	registerService();
+	gK60WatchdogUp = 1;
 	IOLog("MiniWatchdog: IOWatchdog published; check-ins accepted, never fires\n");
 	return true;
 }
@@ -1967,6 +1970,13 @@ IOWatchdogUserClient::externalMethod(uint32_t selector,
 {
 	for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
 		args->scalarOutput[i] = 0;
+	}
+	{
+		static unsigned k60_wdt_calls;
+		if (k60_wdt_calls < 16) {
+			printf("K60WDT sel=%u\n", selector);
+			k60_wdt_calls++;
+		}
 	}
 	if (args->structureOutputDescriptor != NULL) {
 		IOMemoryDescriptor *out = args->structureOutputDescriptor;

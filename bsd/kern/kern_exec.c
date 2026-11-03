@@ -7345,9 +7345,10 @@ k60_var_watch(void *arg, wait_result_t wr)
 			extern int gMiniAppleKeyStoreUp;
 			extern volatile unsigned gMiniAppleKeyStoreCalls;
 			extern volatile unsigned gMiniAppleKeyStoreLastSelector;
-			printf("K60WATCH t=%d keybags err=%d aks=%d calls=%u sel=0x%x\n",
+			extern int gK60WatchdogUp;
+			printf("K60WATCH t=%d keybags err=%d aks=%d calls=%u sel=0x%x wdt=%d\n",
 			    i, e, gMiniAppleKeyStoreUp, gMiniAppleKeyStoreCalls,
-			    gMiniAppleKeyStoreLastSelector);
+			    gMiniAppleKeyStoreLastSelector, gK60WatchdogUp);
 		}
 		if (vp) {
 			vnode_put(vp);

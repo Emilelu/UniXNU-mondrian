@@ -1940,6 +1940,7 @@ native_pong_ui_services_start(void)
 		return;
 	}
 	MiniIOMobileFramebufferStart(provider);
+	MiniAcceleratorPublishStub(provider);
 }
 
 #endif /* Pong development IOSurface */

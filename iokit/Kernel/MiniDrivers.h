@@ -15,6 +15,7 @@
 
 bool MiniIOSurfaceStart(IOService * provider);
 void MiniIOMobileFramebufferStart(IOService * provider);
+void MiniAcceleratorPublishStub(IOService * provider);
 void MiniAppleKeyStoreStart(void);
 /* A network hardware stand-in is not part of the Pong port. */
 

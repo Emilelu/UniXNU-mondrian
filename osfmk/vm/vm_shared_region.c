@@ -774,11 +774,15 @@ vm_shared_region_create(
 			sub_map = vm_map_create_options(pmap_nested, 0,
 			    (vm_map_offset_t)size, VM_MAP_CREATE_PAGEABLE);
 
+#if !defined(APPLE_ARM64_ARCH_FAMILY) && !__ARM_16K_PG__
+			vm_map_set_page_shift(sub_map, FOURK_PAGE_SHIFT);
+#else
 			if (is_64bit ||
 			    page_shift_user32 == SIXTEENK_PAGE_SHIFT) {
 				/* enforce 16KB alignment of VM map entries */
 				vm_map_set_page_shift(sub_map, SIXTEENK_PAGE_SHIFT);
 			}
+#endif
 #if __ARM_MIXED_PAGE_SIZE__
 			if (cputype == CPU_TYPE_ARM64 &&
 			    target_page_shift == FOURK_PAGE_SHIFT) {

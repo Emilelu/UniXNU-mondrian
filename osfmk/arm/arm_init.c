@@ -392,6 +392,10 @@ arm_init(
 
 
 	{
+		/* Native non-Apple 4K builds expose the hardware page size at any RAM size. */
+#if !defined(APPLE_ARM64_ARCH_FAMILY) && !__ARM_16K_PG__
+		PAGE_SHIFT_CONST = ARM_PGSHIFT;
+#else
 		/*
 		 * Select the advertised kernel page size.
 		 */
@@ -410,8 +414,14 @@ arm_init(
 			PAGE_SHIFT_CONST = ARM_PGSHIFT;
 		}
 
+#endif
+
+#if !defined(APPLE_ARM64_ARCH_FAMILY) && !__ARM_16K_PG__
+		page_shift_user32 = ARM_PGSHIFT;
+#else
 		/* 32-bit apps always see 16KB page size */
 		page_shift_user32 = PAGE_MAX_SHIFT;
+#endif
 #ifdef  APPLETYPHOON
 		if (PE_parse_boot_argn("cpus_defeatures", &cpus_defeatures, sizeof(cpus_defeatures))) {
 			if ((cpus_defeatures & 0xF) != 0) {

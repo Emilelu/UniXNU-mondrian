@@ -3321,7 +3321,7 @@ csops_internal(pid_t pid, int ops, user_addr_t uaddr, user_size_t usersize, user
 		}
 
 		void* osent = csblob_os_entitlements_get(blob);
-		if (!osent || amfi == NULL) {
+		if (!osent || amfi == NULL || amfi->OSEntitlements_get_xml == NULL) {
 			goto out;
 		}
 		CS_GenericBlob* xmlblob = NULL;
@@ -3357,7 +3357,8 @@ csops_internal(pid_t pid, int ops, user_addr_t uaddr, user_size_t usersize, user
 
 		error = csblob_get_der_entitlements(blob, (const CS_GenericBlob **)&start, &length);
 		if (error || start == NULL) {
-			if (amfi && csblob_os_entitlements_get(blob)) {
+			if (amfi && amfi->OSEntitlements_get_transmuted != NULL &&
+		    csblob_os_entitlements_get(blob)) {
 				void* osent = csblob_os_entitlements_get(blob);
 
 				const CS_GenericBlob* transmuted = NULL;

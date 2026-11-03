@@ -1502,6 +1502,9 @@ IOUserClient::copyClientEntitlement( task_t task,
 	if (task == kernel_task || entitlement == NULL) {
 		return NULL;
 	}
+	if (amfi == NULL || amfi->OSEntitlements.copyEntitlementAsOSObjectWithProc == NULL) {
+		return NULL;
+	}
 	proc_t proc = (proc_t)get_bsdtask_info(task);
 
 	kern_return_t ret = amfi->OSEntitlements.copyEntitlementAsOSObjectWithProc(

@@ -1553,7 +1553,7 @@ IOTaskHasStringEntitlement(task_t task, const char *entitlement, const char *val
 	if (task == kernel_task || entitlement == NULL || value == NULL) {
 		return false;
 	}
-	if (amfi == NULL) {
+	if (amfi == NULL || amfi->OSEntitlements.queryEntitlementStringWithProc == NULL) {
 		return false;
 	}
 	proc_t proc = (proc_t)get_bsdtask_info(task);
@@ -1587,7 +1587,7 @@ IOTaskHasEntitlement(task_t task, const char *entitlement)
 	if (task == kernel_task || entitlement == NULL) {
 		return false;
 	}
-	if (amfi == NULL) {
+	if (amfi == NULL || amfi->OSEntitlements.queryEntitlementBooleanWithProc == NULL) {
 		return false;
 	}
 	proc_t proc = (proc_t)get_bsdtask_info(task);
@@ -1623,7 +1623,7 @@ IOTaskGetEntitlement(task_t task, const char *entitlement)
 	if (task == kernel_task || entitlement == NULL) {
 		return NULL;
 	}
-	if (amfi == NULL) {
+	if (amfi == NULL || amfi->OSEntitlements.copyEntitlementAsOSObjectWithProc == NULL) {
 		return NULL;
 	}
 	proc_t proc = (proc_t)get_bsdtask_info(task);

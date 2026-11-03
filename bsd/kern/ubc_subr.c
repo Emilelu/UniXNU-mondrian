@@ -3890,7 +3890,9 @@ cs_blob_cleanup(struct cs_blob *blob)
 		blob->csb_native4k_hash_count = 0;
 	}
 	if (blob->csb_entitlements != NULL) {
-		if (amfi != NULL) amfi->OSEntitlements_invalidate(blob->csb_entitlements);
+		if (amfi != NULL && amfi->OSEntitlements_invalidate != NULL) {
+			amfi->OSEntitlements_invalidate(blob->csb_entitlements);
+		}
 		osobject_release(blob->csb_entitlements);
 		blob->csb_entitlements = NULL;
 	}
@@ -4356,7 +4358,8 @@ accelerate_entitlement_queries(
 	 * enforcement does not by itself make its kernel interface non-null.
 	 * Permit the missing entitlement accelerator only when the immutable
 	 * code-signing configuration records the explicit hard bypass. */
-	if (__improbable(amfi == NULL)) {
+	if (__improbable(amfi == NULL ||
+	    amfi->OSEntitlements.adjustContextWithoutMonitor == NULL)) {
 		code_signing_config_t config = 0;
 		static _Atomic bool reported_missing_amfi;
 		code_signing_configuration(NULL, &config);
@@ -4372,6 +4375,9 @@ accelerate_entitlement_queries(
 	}
 #endif
 
+	if (amfi == NULL || amfi->OSEntitlements.adjustContextWithoutMonitor == NULL) {
+		return ENXIO;
+	}
 	ret = amfi->OSEntitlements.adjustContextWithoutMonitor(
 		cs_blob->csb_entitlements,
 		cs_blob);

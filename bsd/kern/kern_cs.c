@@ -525,10 +525,9 @@ csblob_invalidate_flags(struct cs_blob *csblob)
 		csblob->csb_flags = updated_flags;
 	}
 
-	if (csblob->csb_entitlements != NULL) {
-		if (amfi != NULL) {
-			amfi->OSEntitlements_invalidate(csblob->csb_entitlements);
-		}
+	if (csblob->csb_entitlements != NULL && amfi != NULL &&
+	    amfi->OSEntitlements_invalidate != NULL) {
+		amfi->OSEntitlements_invalidate(csblob->csb_entitlements);
 	}
 
 	printf("Invalidated flags, old %x new %x\n", current_flags, csblob->csb_flags);
@@ -753,8 +752,8 @@ csblob_entitlements_dictionary_copy(struct cs_blob *csblob)
 	if (!csblob->csb_entitlements) {
 		return NULL;
 	}
-	if (!amfi) {
-		panic("CoreEntitlements: missing AMFI bridge\n");
+	if (!amfi || amfi->OSEntitlements_asdict == NULL) {
+		return NULL;
 	}
 	return amfi->OSEntitlements_asdict(csblob->csb_entitlements);
 }

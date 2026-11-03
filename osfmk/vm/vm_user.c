@@ -4474,7 +4474,6 @@ mach_vm_deferred_reclamation_buffer_init(
 	(void) task;
 	(void) address;
 	(void) size;
-	(void) indices;
 	return KERN_NOT_SUPPORTED;
 #endif /* CONFIG_DEFERRED_RECLAIM */
 }

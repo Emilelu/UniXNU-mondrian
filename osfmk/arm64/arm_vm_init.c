@@ -51,6 +51,12 @@
 
 #include <san/kasan.h>
 
+#if defined(PONG)
+volatile unsigned long long k60_dbg_mem_mib = 0;
+volatile unsigned long long k60_dbg_actual_mib = 0;
+volatile unsigned long long k60_dbg_phys_mib = 0;
+#endif
+
 #if __ARM_KERNEL_PROTECT__
 /*
  * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
@@ -1882,6 +1888,14 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
 		uint64_t k60_fb_end = k60_fb + k60_fb_bytes;
 		int      k60_cap = 0;
 
+		/*
+		 * K60 bring-up: the jetsam storm is a memory-size question, and the console
+		 * scrolls this line away before it can be read. Publish the three numbers so
+		 * the recurring frame-stats line can repeat them.
+		 */
+		k60_dbg_mem_mib = args->memSize >> 20;
+		k60_dbg_actual_mib = mem_actual >> 20;
+		k60_dbg_phys_mib = mem_size >> 20;
 		printf("K60 MEM: memSize %llu MiB, memSizeActual %llu MiB (%s), physBase 0x%llx physSize 0x%llx\n",
 		    (unsigned long long) (args->memSize >> 20),
 		    (unsigned long long) (mem_actual >> 20),

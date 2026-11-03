@@ -1039,7 +1039,22 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
 			if (k60_exec_count != k60_seen_exec || k60_exit_count != k60_seen_exit) {
 				k60_seen_exec = k60_exec_count;
 				k60_seen_exit = k60_exit_count;
-				IOLog("K60 ex=%u kx=%u abn=%u\n", k60_exec_count, k60_exit_count, k60_abnormal_count);
+				{
+					/*
+					 * K60 bring-up: memSize/memActual/managed from arm_vm_init plus the
+					 * live free page count. A falling free count with ns=1 exits in the
+					 * KX! lines is the jetsam storm, not a security policy.
+					 */
+					extern volatile unsigned long long k60_dbg_mem_mib;
+					extern volatile unsigned long long k60_dbg_actual_mib;
+					extern volatile unsigned long long k60_dbg_phys_mib;
+					extern unsigned int vm_page_free_count;
+					extern unsigned int vm_page_speculative_count;
+					IOLog("K60 ex=%u kx=%u abn=%u | mem=%llu actual=%llu managed=%llu free_pages=%u spec=%u\n",
+					    k60_exec_count, k60_exit_count, k60_abnormal_count,
+					    k60_dbg_mem_mib, k60_dbg_actual_mib, k60_dbg_phys_mib,
+					    vm_page_free_count, vm_page_speculative_count);
+				}
 				IOLog("K60 last exec: %d '%s' %s\n", k60_last_exec_pid, k60_last_exec_comm,
 				    k60_last_exec_path);
 				IOLog("K60 last bad : %d '%s' exit=%u sig=%u\n", k60_last_bad_pid, k60_last_bad_comm,

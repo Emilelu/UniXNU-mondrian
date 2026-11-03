@@ -7341,7 +7341,14 @@ k60_var_watch(void *arg, wait_result_t wr)
 		vnode_t vp = NULLVP;
 		IOSleep(2000);
 		int e = vnode_lookup("/private/var/keybags", 0, &vp, vfs_context_current());
-		printf("K60WATCH t=%d keybags err=%d\n", i, e);
+		{
+			extern int gMiniAppleKeyStoreUp;
+			extern volatile unsigned gMiniAppleKeyStoreCalls;
+			extern volatile unsigned gMiniAppleKeyStoreLastSelector;
+			printf("K60WATCH t=%d keybags err=%d aks=%d calls=%u sel=0x%x\n",
+			    i, e, gMiniAppleKeyStoreUp, gMiniAppleKeyStoreCalls,
+			    gMiniAppleKeyStoreLastSelector);
+		}
 		if (vp) {
 			vnode_put(vp);
 		}

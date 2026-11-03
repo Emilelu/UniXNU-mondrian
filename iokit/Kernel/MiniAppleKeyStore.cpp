@@ -53,6 +53,10 @@ enum {
 static uint64_t gAKSLogged[4];
 static bool gAKSNotifyState;
 
+int gMiniAppleKeyStoreUp;
+volatile unsigned gMiniAppleKeyStoreCalls;
+volatile unsigned gMiniAppleKeyStoreLastSelector;
+
 static size_t
 derPut(uint8_t *buf, size_t length, const char *key, uint8_t value)
 {
@@ -115,6 +119,7 @@ AppleKeyStore::start(IOService *provider)
 	setProperty("PongVolatileSoftwareKeybag", kOSBooleanTrue);
 	setName("AppleKeyStore");
 	registerService();
+	gMiniAppleKeyStoreUp = 1;
 	IOLog("MiniAppleKeyStore: no-passcode software keybag published; software wrap/unwrap enabled\n");
 	return true;
 }
@@ -190,6 +195,8 @@ AppleKeyStoreUserClient::externalMethod(uint32_t selector,
 	};
 	uint8_t der[128];
 	uint64_t *out = args->scalarOutput;
+	gMiniAppleKeyStoreCalls++;
+	gMiniAppleKeyStoreLastSelector = selector;
 	switch (selector) {
 	case kAKSOpenCheck:
 	case kAKSLockDevice:

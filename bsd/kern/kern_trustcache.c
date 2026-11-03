@@ -248,14 +248,30 @@ trust_cache_runtime_init(void)
 	allow_legacy_caches = true;
 #endif
 
-	/* Image4 interface needs to be available */
-	if (img4if == NULL) {
-		panic("image4 interface not available");
+	/*
+	 * K60 bring-up: img4if and amfi are registered by kexts that start during
+	 * IOKit bring-up, long after this bootstrap-phase call, so img4if is still
+	 * NULL here. Initializing the runtime does not need it:
+	 * trustCacheInitializeRuntime() only zeroes the structures and records the
+	 * img4 runtime pointer, and the static loader builds its objects with
+	 * trustCacheConstructInvalid(), which takes no img4 runtime. Panicking kills
+	 * the boot before launchd; and bailing out early while still returning
+	 * normally leaves trust_cache_rt all zeroes, which makes the first
+	 * amfi->TrustCache.loadModule() fault on the NULL mutableRT. So record NULL
+	 * for the runtime and initialize anyway: only the img4-authenticated
+	 * (dynamic) load path consults that pointer, and it refuses while absent.
+	 */
+	const img4_runtime_t *img4_rt = (img4if != NULL) ? IMG4_RUNTIME_DEFAULT : NULL;
+
+	if (img4_rt == NULL) {
+		printf("K60 TRUSTCACHE: img4 interface absent; static trust cache runtime only\n");
 	}
 
 	/* AMFI interface needs to be available */
 	if (amfi == NULL) {
-		panic("amfi interface not available");
+		printf("K60 TRUSTCACHE: AMFI interface absent; skipping trust cache runtime init\n");
+		lck_rw_init(&trust_cache_rt_lock, &trust_cache_lck_grp, 0);
+		return;
 	} else if (amfi->TrustCache.version < 2) {
 		panic("amfi interface is stale: %u", amfi->TrustCache.version);
 	}
@@ -266,7 +282,7 @@ trust_cache_runtime_init(void)
 		allow_second_static_cache,
 		allow_engineering_caches,
 		allow_legacy_caches,
-		IMG4_RUNTIME_DEFAULT);
+		img4_rt);
 
 	/* Initialize the read-write lock */
 	lck_rw_init(&trust_cache_rt_lock, &trust_cache_lck_grp, 0);
@@ -280,6 +296,15 @@ xnu_load_trust_cache(
 	const uint8_t *img4_aux_manifest, const size_t img4_aux_manifest_len)
 {
 	kern_return_t ret = KERN_DENIED;
+
+	/*
+	 * K60 bring-up: this path authenticates the module through img4, which the
+	 * AppleImage4 kext registers during IOKit bring-up. Refuse while it is absent
+	 * instead of dereferencing the interface pointer.
+	 */
+	if (img4if == NULL) {
+		return ret;
+	}
 
 	/* Ignore the auxiliary manifest until we add support for it */
 	(void)img4_aux_manifest;

@@ -1,3 +1,62 @@
+# K60 (mondrian) iOS 16.6.1 移植 — 进度条基线（progress-bar-20261102）
+
+> 本分支是 **K60 内核源树归档分支**：`xnu-8796.141.3`（apple-oss，提交 `1b191cb` 为浅克隆根）
+> + `patches/xnu/series` 现行 **123 项补丁**（按序每补丁一提交）
+> + 4 个主线私有诊断文件（单个 diag-only 提交）。
+> 设备仓配置/脚本主线在 `main` 与 `fix/k60-measured-high-window` 分支；本分支只承载内核树。
+
+## 当前基线
+
+- **分支**：`progress-bar-20261102`
+- **代码尖端 commit**：`8ba79fe`（`chore(xnu-diag): k60 probes outside the series`；本 README 是其后的文档提交）
+- **对应 boot 镜像 sha256**：`302a001b48fc4a18049c8ea449b3f8eb7b2a7d17ebb720c0908f5770b5293303`
+  （2026-11-02 20:03 上机；payload `0854bb38c9d5d20709130e45c5c5ff9094114802e29be8cdc8896b34722511e4`，
+  内核 macho `65fbe51eaad860fc26087f7716f24fe1d90a0275ef5edf53ad08b7ab61de059a`；
+  kcdata 诊断版镜像 `6153c2aa…` / 内核 `64ae6488…`，同晚验讫）
+- **屏上达到的程度**：`K60DATA mounted`（APFS，rw）→ `launchd` 加载成功 → `backboardd` 首帧
+  1440x3200（进度条 UI）；**未进 SpringBoard**，随后守护进程成片崩溃
+- **归档精度说明**：20:03 镜像对应当时的 series 状态；本分支重放的是**现行** 123 项 series
+  （含其后增补的诊断补丁）+ 现行 4 个诊断文件，与现役 `xnu-work` 树全部 125 个改动路径
+  **逐字节一致**。逐位复现 20:03 二进制请以镜像 sha 为准，本分支是源树级归档。
+
+## 可复现构建步骤（package-textonly 工艺）
+
+1. **编排**：`/tmp/k60build`（UniXNU fork `k60build` 分支，`db7177c`）+ 设备仓
+   `UniXNU-mondrian`（`fix/k60-measured-high-window` 工作区）。
+2. **内核**：`scripts/unixnu/patches.py` 按 `patches/xnu/series` 顺序对 `.cache/xnu-work`
+   （`1b191cb`）逐个 `git apply`；与本分支树等价，也可直接以本分支为源。
+3. **打包**：`E:\k60-work\tools\package-textonly.py`——从 192 MiB `payload.img` 出发，
+   `mcopy` 提取并回写 `kernel.macho.adt`，改写 `/chosen` 三项
+   （`dram-base` / `dram-size` / `darwinboot-memory-size`），固件 shim+FD 经 gzip 拼接
+   `dtc` 编译的 `dts/mondrian.dts`，最后 `mkbootimg.py --header_version 4` 产出 boot 镜像
+   （payload 与 boot 双产物）。
+4. **校验闸门**：payload 内 kernel.macho 探针签名 8 项计数断言（KX!/STR/单行摘要等）、
+   ADT 回写 round-trip 比对、设备树 memory 节点断言、`build-verification.json` 三 sha256
+   记录、上机前 snapshot/source/expected 三值一致核对。
+5. **上机**：只许 `fastboot boot`，**绝不 `fastboot flash`**。
+
+## 已知问题
+
+- `xpcproxy` spawn 期 EACCES：`execerr=13 where=spawn site=1`（posix_spawn 激活后属性段），
+  全量 exit=78 风暴。
+- 守护进程成片死亡：`sig=6`（自杀）/ `sig=5`（被杀），`exit=163`。
+- USB 日志通道未通：SMMU stream 0 未建 context，XNU 接管后 USB 全断。
+- ramoops 实机不可用（重启 DRAM 掉电），仅加载器侧取证有效。
+
+## 下一步路线
+
+1. 按 pong `ios16` 分支六件补丁；
+2. 自定义 PID1；
+3. 面板 / GPU。
+
+## 硬提醒
+
+**XNU 阶段没有任何日志通道——ramoops 不保留、USB 全断、串口不存在；屏摄是唯一证据源。**
+
+---
+
+（以下为上游 xnu-8796.141.3 原始 README，未改动。）
+
 What is XNU?
 ===========
 

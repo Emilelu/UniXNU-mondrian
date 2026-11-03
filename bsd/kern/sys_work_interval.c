@@ -283,6 +283,16 @@ work_interval_ctl(__unused proc_t p, struct work_interval_ctl_args *uap,
 
 		break;
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	case 6:
+	case 7:
+	case 8:
+		/* HackiOS: CoreAudio performance-controller hints are optional on
+		 * this software platform. Normal render/scheduler validation remains. */
+		if (kern_work_interval_type_of_thread(current_thread()) == WORK_INTERVAL_TYPE_COREAUDIO)
+			return 0;
+		return ENOTSUP;
+#endif
 	default:
 		return ENOTSUP;
 	}

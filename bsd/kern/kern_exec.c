@@ -3095,9 +3095,11 @@ spawn_validate_persona(struct _posix_spawn_persona_info *px_persona)
 	int error = 0;
 	struct persona *persona = NULL;
 
+#if !defined(PONG) || !(DEVELOPMENT || DEBUG) || SECURE_KERNEL
 	if (!IOCurrentTaskHasEntitlement( PERSONA_MGMT_ENTITLEMENT)) {
 		return EPERM;
 	}
+#endif
 
 	if (px_persona->pspi_flags & POSIX_SPAWN_PERSONA_GROUPS) {
 		if (px_persona->pspi_ngroups > NGROUPS_MAX) {
@@ -3107,11 +3109,15 @@ spawn_validate_persona(struct _posix_spawn_persona_info *px_persona)
 
 	persona = persona_lookup(px_persona->pspi_id);
 	if (!persona) {
+#if !defined(PONG) || !(DEVELOPMENT || DEBUG) || SECURE_KERNEL
 		error = ESRCH;
 		goto out;
+#endif
 	}
 
+#if !defined(PONG) || !(DEVELOPMENT || DEBUG) || SECURE_KERNEL
 out:
+#endif
 	if (persona) {
 		persona_put(persona);
 	}
@@ -3131,9 +3137,11 @@ spawn_persona_adopt(proc_t p, struct _posix_spawn_persona_info *px_persona)
 	 * the kauth with a different UID/GID combo
 	 */
 	persona = persona_lookup(px_persona->pspi_id);
+#if !defined(PONG) || !(DEVELOPMENT || DEBUG) || SECURE_KERNEL
 	if (!persona) {
 		return ESRCH;
 	}
+#endif
 
 	cred = kauth_cred_proc_ref(p);
 
@@ -3159,6 +3167,30 @@ spawn_persona_adopt(proc_t p, struct _posix_spawn_persona_info *px_persona)
 		    px_persona->pspi_gmuid);
 	}
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+	if (persona == NULL) {
+		/* HackiOS: honor requested credentials when this port has no persona
+		 * object. Update the child's credential, never the spawning thread's.
+		 * Match persona_proc_adopt's real-UID process accounting on exit. */
+		__block kauth_cred_t new_cred = cred;
+		__block uid_t old_ruid = KAUTH_UID_NONE;
+		uid_t new_ruid = kauth_cred_getruid(cred);
+		(void)proc_update_label(p, true, ^kauth_cred_t (kauth_cred_t cur_cred) {
+			old_ruid = kauth_cred_getruid(cur_cred);
+			if (new_cred != cur_cred) {
+				kauth_cred_ref(new_cred);
+				kauth_cred_unref(&cur_cred);
+			}
+			return new_cred;
+		});
+		kauth_cred_unref(&cred);
+		if (old_ruid != KAUTH_UID_NONE && old_ruid != new_ruid) {
+			(void)chgproccnt(new_ruid, 1);
+			(void)chgproccnt(old_ruid, -1);
+		}
+		return 0;
+	}
+#endif
 	ret = persona_proc_adopt(p, persona, cred);
 
 	kauth_cred_unref(&cred);

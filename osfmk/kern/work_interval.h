@@ -83,6 +83,8 @@ extern kern_return_t
 kern_work_interval_notify(thread_t thread, struct kern_work_interval_args* kwi_args);
 extern kern_return_t
 kern_work_interval_set_name(mach_port_name_t port_name, char *name, size_t len);
+extern uint32_t
+kern_work_interval_type_of_thread(thread_t thread);
 extern kern_return_t
 kern_work_interval_set_workload_id(mach_port_name_t port_name,
     struct kern_work_interval_workload_id_args *workload_id_args);

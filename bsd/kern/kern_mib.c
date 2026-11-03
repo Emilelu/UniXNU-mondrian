@@ -518,7 +518,7 @@ sysctl_hw_generic(__unused struct sysctl_oid *oidp, void *arg1,
 		 * Deprecated variables.  We still support these for
 		 * backwards compatibility purposes only.
 		 */
-#if XNU_TARGET_OS_OSX && defined(__arm64__)
+#if XNU_TARGET_OS_OSX && defined(__arm64__) && !defined(PONG)
 	/* The following two are kludged for backward
 	 * compatibility. Use hw.product/hw.target for something
 	 * consistent instead. */

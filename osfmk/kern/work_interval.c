@@ -683,6 +683,15 @@ work_interval_get_priority(thread_t thread)
 	return priority;
 }
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+uint32_t
+kern_work_interval_type_of_thread(thread_t thread)
+{
+	const struct work_interval *work_interval = thread->th_work_interval;
+	return work_interval ? work_interval->wi_create_flags & WORK_INTERVAL_TYPE_MASK : WORK_INTERVAL_TYPE_LAST;
+}
+#endif
+
 /*
  * Switch to a policy driven by the work interval (if applicable).
  */

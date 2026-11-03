@@ -32,6 +32,7 @@
 #include <pexpert/pexpert.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
+#include <sys/proc_internal.h>
 
 extern "C" {
 #include <console/video_console.h>
@@ -253,6 +254,8 @@ public:
 	uint64_t        fStatBeatWait;
 	uint32_t        fStatSurfaces[8];       /* the first different surfaces the bottom layer was given */
 	uint32_t        fStatHeld, fStatLost;   /* swaps that waited for the one before; that gave up waiting */
+	uint32_t        fClientPids[8];          /* the processes that have handed a swap to us */
+	uint8_t         fClientCount;
 	uint64_t        fSwapTime;              /* when the last swap was handed over */
 	uint32_t        fStatSwapsLate;         /* swaps that came more than a refresh and a quarter after the one before (and no pause) */
 	uint64_t        fStatWaiting;           /* how long frames waited for the GPU here */
@@ -791,6 +794,26 @@ IOMobileFramebuffer::reportFrameTimes(void)
 void
 IOMobileFramebuffer::present(const uint8_t * swap)
 {
+
+	/* which process is driving the panel: the window server, Setup, or something else */
+	{
+		proc_t k60_cp = current_proc();
+		uint32_t k60_pid = k60_cp ? (uint32_t) (k60_cp->p_pid) : 0;
+		bool k60_seen = false;
+		unsigned k60_i;
+
+		for (k60_i = 0; k60_i < fClientCount; k60_i++) {
+			if (fClientPids[k60_i] == k60_pid) {
+				k60_seen = true;
+				break;
+			}
+		}
+		if (!k60_seen && fClientCount < 8) {
+			fClientPids[fClientCount++] = k60_pid;
+			IOLog("MiniIOMobileFramebuffer: swap client pid %u '%s' on swap %u\n", k60_pid,
+			    k60_cp ? k60_cp->p_comm : "?", swapWord(swap, SWAP_ID));
+		}
+	}
 	AbsoluteTime deadline;
 
 	uint64_t now = mach_absolute_time(), period, pause;
@@ -1006,6 +1029,23 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
 		    waiting / fStatFrames / NSEC_PER_USEC, fStatOnBeat, fStatOnBeat ? beat / fStatOnBeat / NSEC_PER_USEC : 0,
 		    fStatHeld, fStatLost, fStatSwapsLate);
 		fStatSwapsLate = 0;
+		{
+			extern unsigned int k60_exec_count, k60_exit_count, k60_abnormal_count;
+			extern int k60_last_exec_pid, k60_last_bad_pid;
+			extern char k60_last_exec_comm[24], k60_last_exec_path[64], k60_last_bad_comm[24];
+			extern unsigned int k60_last_bad_signal, k60_last_bad_status;
+			static unsigned int k60_seen_exec = ~0u, k60_seen_exit = ~0u;
+
+			if (k60_exec_count != k60_seen_exec || k60_exit_count != k60_seen_exit) {
+				k60_seen_exec = k60_exec_count;
+				k60_seen_exit = k60_exit_count;
+				IOLog("K60 ex=%u kx=%u abn=%u\n", k60_exec_count, k60_exit_count, k60_abnormal_count);
+				IOLog("K60 last exec: %d '%s' %s\n", k60_last_exec_pid, k60_last_exec_comm,
+				    k60_last_exec_path);
+				IOLog("K60 last bad : %d '%s' exit=%u sig=%u\n", k60_last_bad_pid, k60_last_bad_comm,
+				    k60_last_bad_status, k60_last_bad_signal);
+			}
+		}
 		for (different = 0; different < 8 && fStatSurfaces[different] != 0; different++) {
 		}
 		if (different == 8 && fStatFrames > 8) {

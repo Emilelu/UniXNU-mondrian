@@ -1578,6 +1578,29 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate, 
 
 	p->p_lflag |= P_LEXIT;
 	p->p_xstat = rv;
+
+	{
+		extern unsigned int k60_exec_count, k60_exit_count, k60_abnormal_count;
+		extern int k60_last_bad_pid;
+		extern char k60_last_bad_comm[24];
+		extern unsigned int k60_last_bad_signal, k60_last_bad_status;
+		unsigned int k60_status = (unsigned int) ((rv >> 8) & 0xff);
+		unsigned int k60_sig = (unsigned int) (rv & 0x7f);
+
+		k60_exit_count++;
+		if (k60_status != 0 || k60_sig != 0) {
+			if (k60_abnormal_count < 300) {
+				printf("KX! %u %d %s exit=%u sig=%u (execs %u)\n", k60_abnormal_count + 1,
+				    proc_getpid(p), p->p_comm, k60_status, k60_sig, k60_exec_count);
+			}
+			k60_abnormal_count++;
+			k60_last_bad_pid = proc_getpid(p);
+			strlcpy(k60_last_bad_comm, p->p_comm, sizeof(k60_last_bad_comm));
+			k60_last_bad_signal = k60_sig;
+			k60_last_bad_status = k60_status;
+		}
+		/* a clean exit(0) is not worth a line: every daemon does it */
+	}
 	p->p_lflag |= jetsam_flags;
 
 	proc_transend(p, 1);

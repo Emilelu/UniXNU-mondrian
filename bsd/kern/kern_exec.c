@@ -368,6 +368,27 @@ struct exec_port_actions {
 
 struct image_params;    /* Forward */
 static int exec_activate_image(struct image_params *imgp);
+
+/*
+ * K60: the bring-up trace. The console is the only channel this machine gives
+ * us, so nothing here may be allowed to scroll the interesting part away:
+ *   - every exec is counted, but only the FIRST exec of each distinct binary is
+ *     printed (djb2 of the path), so the list is complete yet bounded;
+ *   - only abnormal exits (a signal, or a nonzero status) are printed;
+ *   - the last exec and the last abnormal exit are kept in globals, and
+ *     MiniIOMobileFramebuffer prints them beside its five-second frame line, so
+ *     whatever is on the screen when the boot stops is the summary.
+ */
+unsigned int k60_exec_count;             /* every exec */
+unsigned int k60_exit_count;             /* every exit */
+unsigned int k60_abnormal_count;         /* exits with a signal or a nonzero status */
+int          k60_last_exec_pid;
+char         k60_last_exec_comm[24];
+char         k60_last_exec_path[64];
+int          k60_last_bad_pid;
+char         k60_last_bad_comm[24];
+unsigned int k60_last_bad_signal;
+unsigned int k60_last_bad_status;
 static int exec_copyout_strings(struct image_params *imgp, user_addr_t *stackp);
 static int load_return_to_errno(load_return_t lrtn);
 static int execargs_alloc(struct image_params *imgp);
@@ -2160,6 +2181,33 @@ exec_activate_image(struct image_params *imgp)
 
 	/* Use excpath, which contains the copyin-ed exec path */
 	DTRACE_PROC1(exec, uintptr_t, excpath);
+
+	{
+		static uint32_t k60_path_hashes[128];
+		static unsigned k60_path_count;
+		uint32_t k60_hash = 5381;
+		const char * k60_walk = excpath;
+		bool k60_first = true;
+		unsigned k60_i;
+
+		k60_exec_count++;
+		while (*k60_walk != '\0') {
+			k60_hash = (k60_hash * 33) ^ (uint32_t) (unsigned char) *k60_walk++;
+		}
+		for (k60_i = 0; k60_i < k60_path_count; k60_i++) {
+			if (k60_path_hashes[k60_i] == k60_hash) {
+				k60_first = false;
+				break;
+			}
+		}
+		if (k60_first && k60_path_count < 128) {
+			k60_path_hashes[k60_path_count++] = k60_hash;
+			printf("KE %u %d %s %s\n", k60_path_count, proc_getpid(p), p->p_comm, excpath);
+		}
+		k60_last_exec_pid = proc_getpid(p);
+		strlcpy(k60_last_exec_comm, p->p_comm, sizeof(k60_last_exec_comm));
+		strlcpy(k60_last_exec_path, excpath, sizeof(k60_last_exec_path));
+	}
 
 	ndp = kalloc_type(struct nameidata, Z_WAITOK | Z_ZERO | Z_NOFAIL);
 

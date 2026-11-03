@@ -1258,6 +1258,11 @@ bsdinit_task(void)
 	bsd_init_kprintf("bsd_do_post - done");
 
 	load_init_program(p);
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	uint32_t trace_init = 0;
+	if (PE_parse_boot_argn("pong_init_trace", &trace_init, sizeof(trace_init)) && trace_init)
+		printf("Pong init: bsdinit_task completed; returning through AST\n");
+#endif
 	lock_trace = 1;
 }
 

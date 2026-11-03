@@ -766,6 +766,11 @@ bsd_init(void)
 	bsd_init_kprintf("calling bsd_bufferinit\n");
 	bsd_bufferinit();
 
+#if defined(XNU_SHENG_PMGR) && XNU_SHENG_PMGR
+	extern void sheng_pmgr_run(void);
+	sheng_pmgr_run();
+#endif
+
 	/*
 	 * Initialize the calendar.
 	 */

@@ -205,6 +205,13 @@ kmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, proc_t p)
 		error = EINVAL;
 		break;
 
+#if defined(PONG)
+	case TIOCSCTTY:
+		/* Shared boot console must survive a daemon/session leader exiting. */
+		error = ENOTTY;
+		break;
+#endif
+
 	/* Bodge in the CLOCAL flag as the km device is always local */
 	case TIOCSETA_32:
 	case TIOCSETAW_32:

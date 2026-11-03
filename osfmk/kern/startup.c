@@ -721,6 +721,10 @@ kernel_bootstrap_thread(void)
 	kernel_bootstrap_log("vnguard_policy_init");
 	vnguard_policy_init();
 #endif
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+	extern void minimac_policy_init(void);
+	minimac_policy_init();
+#endif
 #endif
 
 #if CONFIG_DTRACE

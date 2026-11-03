@@ -6930,6 +6930,21 @@ load_init_program(proc_t p)
 	}
 #endif
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+	/* The optional helper resides on the genuine pre-mounted scratch Data,
+	 * like HackiOS's separate init image. No OS/userdata rewrite is needed. */
+	char pong_init_path[128];
+	if (PE_parse_boot_argn("pong_init_path", pong_init_path, sizeof(pong_init_path))) {
+		if (strcmp(pong_init_path, "/private/var/pong/init") != 0)
+			panic("Unsupported Pong init path");
+		printf("Pong init: loading helper %s\n", pong_init_path);
+		error = load_init_program_at_path(p, (user_addr_t)scratch_addr, pong_init_path, init_envp);
+		printf("Pong init: helper exec result=%d\n", error);
+		if (error) panic("Pong init helper exec failed, errno %d", error);
+		return;
+	}
+#endif
+
 	error = ENOENT;
 	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
 		printf("load_init_program: attempting to load %s\n", init_programs[i]);

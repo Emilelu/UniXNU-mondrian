@@ -383,6 +383,8 @@ bsd/kern/kern_debug.c			standard
 bsd/kern/kern_symfile.c			standard
 bsd/kern/kern_descrip.c			standard
 bsd/kern/kern_guarded.c			standard
+bsd/kern/kern_minimac.c			optional config_macf
+bsd/kern/pong_userland.c			standard
 bsd/kern/kern_event.c			standard
 bsd/kern/kern_control.c			optional networking
 bsd/kern/kern_exec.c			standard

@@ -28,7 +28,13 @@
 // #include <Availability.h>
 #include <sys/cdefs.h>
 
-#if defined(__clang__) && ((defined(__apple_build_version__) && __apple_build_version__ > 5010000))
+/*
+ * K60 Linux-build fix: the q-register syntax below is an Apple assembler
+ * extension. Upstream clang's integrated assembler only accepts the v-register
+ * form (v0.4s, ...), which Apple's assembler also accepts, so every clang gets
+ * the V form and only non-clang toolchains fall back to q.
+ */
+#if defined(__clang__)
 #define __USES_V_CRYPTO_INTRINSICS 1
 #else
 #define __USES_V_CRYPTO_INTRINSICS 0

@@ -155,6 +155,13 @@ struct cs_blob {
 	void *XNU_PTRAUTH_SIGNED_PTR("cs_blob.csb_csm_obj") csb_csm_obj;
 	bool csb_csm_managed;
 #endif
+
+	/* Native 4K authenticators derived only from fully verified original
+	 * 16K blocks. Append fields to preserve the existing binary prefix.
+	 */
+	const uint8_t   *csb_native4k_hashes;
+	vm_size_t       csb_native4k_hashes_size;
+	vm_size_t       csb_native4k_hash_count;
 };
 
 /*

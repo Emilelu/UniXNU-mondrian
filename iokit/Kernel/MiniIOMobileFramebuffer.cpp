@@ -55,6 +55,7 @@ enum {
 	kFBMethodSwapSignal             = 20,
 	kFBMethodSetDisplayDevice       = 22,
 	kFBMethodGetDigitalOutState     = 25,
+	kFBMethodGetGammaTable          = 27,
 	kFBMethodGetDotPitch            = 28,
 	kFBMethodGetDisplayArea         = 29,
 	kFBMethodSetColorRemapMode      = 33,
@@ -1387,10 +1388,35 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
 		    args->scalarInputCount > 1 ? in[1] : 0, args->scalarInputCount > 2 ? in[2] : 0, args->scalarOutputCount,
 		    args->structureInputSize, args->structureOutputSize);
 	}
-	/* In particular, GetGammaTable must not succeed with an all-zero LUT:
-	 * that describes a black display. Unsupported hardware queries/setters
-	 * must leave the framework's software/default path in charge. */
-	return kIOReturnUnsupported;
+	/* Merged semantics: the reference 0046 backend seeds
+	 * IOReturn ret = kIOReturnSuccess and answers every unimplemented
+	 * selector with zeroed outputs and success; a 20G81 backboardd walked
+	 * IOMFB selectors 57, 15, 22, 29, 33, 79, 74, 12, 6, 27, 17, 84, 50 and
+	 * kept going (sweet NOTES.md:86). Keep that behaviour, but preserve the
+	 * K60 design intent for the one hardware query that must never be
+	 * faked: GetGammaTable (selector 27, _kern_GetGammaTable[StructMethod]
+	 * in the 20G81 framework's kern_* table, sweet NOTES.md:114) must not
+	 * succeed with an all-zero LUT -- that describes a black display.
+	 * Other query-type selectors keep their explicit unsupported cases
+	 * above (GetDisplayArea, GetBlock outside block 0x40, GetDotPitch
+	 * without a DPI value). SetGammaTable (selector 17) stays on the
+	 * success path: this software backend never consumes the table, so a
+	 * written-but-ignored table cannot blacken the panel. */
+	if (selector == kFBMethodGetGammaTable) {
+		return kIOReturnUnsupported;
+	}
+
+	/* Unimplemented selector: answer like the reference 0046 backend --
+	 * zero every requested output and report success. */
+	if (args->scalarOutput != NULL) {
+		for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
+			args->scalarOutput[i] = 0;
+		}
+	}
+	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
+		bzero(args->structureOutput, args->structureOutputSize);
+	}
+	return kIOReturnSuccess;
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */

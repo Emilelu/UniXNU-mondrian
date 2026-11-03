@@ -62,6 +62,16 @@ static OSSharedPtr<OSArray> gIOCPUs;
 static OSSharedPtr<const OSSymbol> gIOCPUStateKey;
 static OSSharedPtr<OSString> gIOCPUStateNames[kIOCPUStateCount];
 
+#if defined(PONG)
+// The exported kext SDK omits this internal IOService method. Keep the
+// completion notification in XNU, after the native driver tried every CPU.
+extern "C" void
+pong_cpu_startup_finished(IOCPUInterruptController *controller)
+{
+	controller->cpusRunning();
+}
+#endif
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #if !USE_APPLEARMSMP

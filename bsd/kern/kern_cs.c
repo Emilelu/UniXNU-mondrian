@@ -526,7 +526,9 @@ csblob_invalidate_flags(struct cs_blob *csblob)
 	}
 
 	if (csblob->csb_entitlements != NULL) {
-		amfi->OSEntitlements_invalidate(csblob->csb_entitlements);
+		if (amfi != NULL) {
+			amfi->OSEntitlements_invalidate(csblob->csb_entitlements);
+		}
 	}
 
 	printf("Invalidated flags, old %x new %x\n", current_flags, csblob->csb_flags);

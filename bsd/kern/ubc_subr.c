@@ -3890,7 +3890,7 @@ cs_blob_cleanup(struct cs_blob *blob)
 		blob->csb_native4k_hash_count = 0;
 	}
 	if (blob->csb_entitlements != NULL) {
-		amfi->OSEntitlements_invalidate(blob->csb_entitlements);
+		if (amfi != NULL) amfi->OSEntitlements_invalidate(blob->csb_entitlements);
 		osobject_release(blob->csb_entitlements);
 		blob->csb_entitlements = NULL;
 	}
@@ -4350,6 +4350,27 @@ accelerate_entitlement_queries(
 	 * context on its own.
 	 */
 	assert(ret == KERN_NOT_SUPPORTED);
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+	/* AMFI is deliberately absent from this development prelink. Disabling
+	 * enforcement does not by itself make its kernel interface non-null.
+	 * Permit the missing entitlement accelerator only when the immutable
+	 * code-signing configuration records the explicit hard bypass. */
+	if (__improbable(amfi == NULL)) {
+		code_signing_config_t config = 0;
+		static _Atomic bool reported_missing_amfi;
+		code_signing_configuration(NULL, &config);
+		if ((config & (CS_CONFIG_ENFORCEMENT_DISABLED |
+		    CS_CONFIG_GET_OUT_OF_MY_WAY)) ==
+		    (CS_CONFIG_ENFORCEMENT_DISABLED | CS_CONFIG_GET_OUT_OF_MY_WAY)) {
+			if (!atomic_exchange_explicit(&reported_missing_amfi, true, memory_order_relaxed)) {
+				printf("PONG DEVELOPMENT: AMFI interface absent; skip entitlement acceleration under hard bypass\n");
+			}
+			return 0;
+		}
+		return ENXIO;
+	}
+#endif
 
 	ret = amfi->OSEntitlements.adjustContextWithoutMonitor(
 		cs_blob->csb_entitlements,

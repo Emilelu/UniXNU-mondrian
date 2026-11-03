@@ -3321,7 +3321,7 @@ csops_internal(pid_t pid, int ops, user_addr_t uaddr, user_size_t usersize, user
 		}
 
 		void* osent = csblob_os_entitlements_get(blob);
-		if (!osent) {
+		if (!osent || amfi == NULL) {
 			goto out;
 		}
 		CS_GenericBlob* xmlblob = NULL;

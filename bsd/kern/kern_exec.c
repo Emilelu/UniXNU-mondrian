@@ -2639,6 +2639,8 @@ exec_applog_oslog(struct image_params *imgp)
 	if (!exec_applog || !*p || imgp->ip_ndp == NULL) return false;
 	const char *name = imgp->ip_ndp->ni_cnd.cn_nameptr;
 	if (name == NULL) return false;
+	const char *base = strrchr(name, '/');
+	if (base != NULL) name = base + 1;
 	while (*p) {
 		const char *word = p;
 		while (*p && *p != ',') p++;

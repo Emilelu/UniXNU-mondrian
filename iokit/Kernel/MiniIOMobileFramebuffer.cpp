@@ -53,6 +53,7 @@ enum {
 	kFBMethodGetDisplaySize         = 8,
 	kFBMethodRequestPowerChange     = 12,
 	kFBMethodSwapSignal             = 20,
+	kFBMethodSetDisplayDevice       = 22,
 	kFBMethodGetDigitalOutState     = 25,
 	kFBMethodGetDotPitch            = 28,
 	kFBMethodGetDisplayArea         = 29,
@@ -1190,6 +1191,13 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
 		args->scalarOutputCount = 1;
 		return kIOReturnSuccess;
 	case kFBMethodSetColorRemapMode:
+		if (args->scalarInputCount != 1) return kIOReturnBadArgument;
+		return in[0] == 0 ? kIOReturnSuccess : kIOReturnUnsupported;
+
+	case kFBMethodSetDisplayDevice:
+		/* 20G81 _kern_SetDisplayDevice sends one device index. This
+		 * service is permanently attached to the existing boot panel,
+		 * device zero. No external/alternate panel can be selected. */
 		if (args->scalarInputCount != 1) return kIOReturnBadArgument;
 		return in[0] == 0 ? kIOReturnSuccess : kIOReturnUnsupported;
 

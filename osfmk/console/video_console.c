@@ -104,6 +104,14 @@
 #include <sys/kdebug.h>
 
 #include "iso_font.c"
+
+/* K60: 8x16 glyphs on a 1440x3200 panel cannot be read from a photograph.
+ * vc_k60_sx/sy scale the glyph block and the cell geometry together. Both stay
+ * 1 unless k60_fontscale asks for more, so the default path is unchanged. */
+static unsigned int vc_k60_sx = 1;
+static unsigned int vc_k60_sy = 1;
+#define VC_CW (ISO_CHAR_WIDTH * vc_k60_sx)
+#define VC_CH (ISO_CHAR_HEIGHT * vc_k60_sy)
 #if defined(XNU_TARGET_OS_OSX)
 #include "progress_meter_data.c"
 #endif
@@ -1336,7 +1344,7 @@ vc_clear_screen(unsigned int xx, unsigned int yy, unsigned int scrreg_top,
 		return;
 	}
 
-	linelongs = vinfo.v_rowbytes * (ISO_CHAR_HEIGHT >> 2);
+	linelongs = vinfo.v_rowbytes * (VC_CH >> 2);
 	rowline = vinfo.v_rowscanbytes >> 2;
 	rowlongs = vinfo.v_rowbytes >> 2;
 
@@ -1541,6 +1549,42 @@ vc_paint_char_16(unsigned int xx, unsigned int yy, unsigned char ch, int attrs,
 }
 
 static void
+vc_paint_char_32_scaled(unsigned int xx, unsigned int yy, unsigned char ch, int attrs)
+{
+	uint32_t *src, *where;
+	unsigned int i, x, dx, dy;
+	uint32_t row[ISO_CHAR_WIDTH];
+
+	if (vc_rendered_font) {
+		src = (uint32_t*)(vc_rendered_font + (ch * vc_rendered_char_size));
+	} else {
+		vc_render_char(ch, vc_rendered_char, 32);
+		src = (uint32_t*)(vc_rendered_char);
+	}
+	where = (uint32_t*)(vinfo.v_baseaddr +
+	    (yy * VC_CH * vinfo.v_rowbytes) +
+	    (xx * VC_CW * 4));
+	for (i = 0; i < ISO_CHAR_HEIGHT; i++) {
+		for (x = 0; x < ISO_CHAR_WIDTH; x++) {
+			uint32_t val = *src++;
+			if (attrs & ATTR_UNDER && i == ISO_CHAR_HEIGHT - 1) {
+				val = ~val;
+			}
+			row[x] = (vc_color_back & ~val) | (vc_color_fore & val);
+		}
+		for (dy = 0; dy < vc_k60_sy; dy++) {
+			uint32_t *store = where;
+			for (x = 0; x < ISO_CHAR_WIDTH; x++) {
+				for (dx = 0; dx < vc_k60_sx; dx++) {
+					*store++ = row[x];
+				}
+			}
+			where = (uint32_t*)(((unsigned char*)where) + vinfo.v_rowbytes);
+		}
+	}
+}
+
+static void
 vc_paint_char_32(unsigned int xx, unsigned int yy, unsigned char ch, int attrs,
     unsigned char ch_previous, int attrs_previous)
 {
@@ -1548,6 +1592,11 @@ vc_paint_char_32(unsigned int xx, unsigned int yy, unsigned char ch, int attrs,
 	uint32_t *theCharPrevious;
 	uint32_t *where;
 	int i;
+
+	if (vc_k60_sx > 1 || vc_k60_sy > 1) {
+		vc_paint_char_32_scaled(xx, yy, ch, attrs);
+		return;
+	}
 
 	if (vc_rendered_font) {
 		theChar = (uint32_t*)(vc_rendered_font + (ch * vc_rendered_char_size));
@@ -1708,9 +1757,9 @@ vc_reverse_cursor(unsigned int xx, unsigned int yy)
 	}
 
 	where = (uint32_t*)(vinfo.v_baseaddr +
-	    (yy * ISO_CHAR_HEIGHT * vinfo.v_rowbytes) +
-	    (xx /** ISO_CHAR_WIDTH*/ * vinfo.v_depth));
-	for (line = 0; line < ISO_CHAR_HEIGHT; line++) {
+	    (yy * VC_CH * vinfo.v_rowbytes) +
+	    (xx * VC_CW * vinfo.v_depth));
+	for (line = 0; line < VC_CH; line++) {
 		switch (vinfo.v_depth) {
 		case 8:
 			where[0] = ~where[0];
@@ -1740,7 +1789,7 @@ vc_scroll_down(int num, unsigned int scrreg_top, unsigned int scrreg_bottom)
 		return;
 	}
 
-	linelongs = vinfo.v_rowbytes * (ISO_CHAR_HEIGHT >> 2);
+	linelongs = vinfo.v_rowbytes * (VC_CH >> 2);
 	rowline = vinfo.v_rowbytes >> 2;
 	rowscanline = vinfo.v_rowscanbytes >> 2;
 
@@ -1751,7 +1800,7 @@ vc_scroll_down(int num, unsigned int scrreg_top, unsigned int scrreg_bottom)
 	i = (scrreg_bottom - scrreg_top) - num;
 
 	while (i-- > 0) {
-		for (line = 0; line < ISO_CHAR_HEIGHT; line++) {
+		for (line = 0; line < VC_CH; line++) {
 			/*
 			 * Only copy what is displayed
 			 */
@@ -1774,7 +1823,7 @@ vc_scroll_up(int num, unsigned int scrreg_top, unsigned int scrreg_bottom)
 		return;
 	}
 
-	linelongs = vinfo.v_rowbytes * (ISO_CHAR_HEIGHT >> 2);
+	linelongs = vinfo.v_rowbytes * (VC_CH >> 2);
 	rowline = vinfo.v_rowbytes >> 2;
 	rowscanline = vinfo.v_rowscanbytes >> 2;
 
@@ -1784,7 +1833,7 @@ vc_scroll_up(int num, unsigned int scrreg_top, unsigned int scrreg_bottom)
 	i = (scrreg_bottom - scrreg_top) - num;
 
 	while (i-- > 0) {
-		for (line = 0; line < ISO_CHAR_HEIGHT; line++) {
+		for (line = 0; line < VC_CH; line++) {
 			/*
 			 * Only copy what is displayed
 			 */
@@ -2777,8 +2826,17 @@ gc_pause( boolean_t pause, boolean_t graphics_now )
 static void
 vc_initialize(__unused struct vc_info * vinfo_p)
 {
-	vinfo.v_rows = vinfo.v_height / ISO_CHAR_HEIGHT;
-	vinfo.v_columns = vinfo.v_width / ISO_CHAR_WIDTH;
+	{
+		int scale = 1;
+		if (PE_parse_boot_argn("k60_fontscale", &scale, sizeof(scale)) &&
+		    scale >= 2 && scale <= 4 && vinfo.v_depth == 32) {
+			vc_k60_sx = (unsigned int)scale;
+			vc_k60_sy = (unsigned int)scale;
+			printf("K60CONSOLE: font scale %d\n", scale);
+		}
+	}
+	vinfo.v_rows = vinfo.v_height / VC_CH;
+	vinfo.v_columns = vinfo.v_width / VC_CW;
 	vinfo.v_rowscanbytes = ((vinfo.v_depth + 7) / 8) * vinfo.v_width;
 	vc_uiscale = vinfo.v_scale;
 	if (vc_uiscale > kMaxProgressData) {

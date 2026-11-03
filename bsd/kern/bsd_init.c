@@ -897,6 +897,10 @@ bsd_init(void)
 #if CONFIG_DTRACE
 	dtrace_postinit();
 #endif
+#if (DEVELOPMENT || DEBUG) && defined(XNU_NATIVE_OFFLINE_GPU) && XNU_NATIVE_OFFLINE_GPU
+	extern void native_offline_gpu_publish(void);
+	native_offline_gpu_publish();
+#endif
 
 	/*
 	 * We attach the loopback interface *way* down here to ensure

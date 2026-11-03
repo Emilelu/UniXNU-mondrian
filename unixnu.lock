@@ -6,6 +6,9 @@ commit = "f3b52ca75ee842a8ac593bd7b03f9f4768c15755"
 [source."IOStorageFamily"]
 commit = "e45fbe30a7879e0b16e26dddb78538f1b00e0bff"
 
+[source."PongUfs"]
+commit = "c959284f63534eb56f0a4e863fd3a65127ad7a40"
+
 [source."corecrypto-2023"]
 commit = "11fba65b12d8830630e248dfa8344caf8b065f26"
 

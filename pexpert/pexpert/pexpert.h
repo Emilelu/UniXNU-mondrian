@@ -494,6 +494,8 @@ extern uint64_t PE_nvram_stashed_x86_macos_slide;
 
 boolean_t PE_reboot_on_panic(void);
 void PE_sync_panic_buffers(void);
+void PE_k60_publish_panic(void);
+void PE_k60_reset_now(void);
 
 typedef struct PE_panic_save_context {
 	void *psc_buffer;

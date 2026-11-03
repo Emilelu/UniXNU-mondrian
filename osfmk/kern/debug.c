@@ -1302,6 +1302,10 @@ debugger_collect_diagnostics(unsigned int exception, unsigned int code, unsigned
 		 */
 		SavePanicInfo(debugger_message, debugger_panic_data, debugger_panic_options);
 
+		/* K60: persist the panic log to the Android pstore zone and reset */
+		PE_k60_publish_panic();
+		PE_k60_reset_now();
+
 #if DEVELOPMENT || DEBUG
 		INJECT_NESTED_PANIC_IF_REQUESTED(PANIC_TEST_CASE_RECURPANIC_POSTLOG);
 #endif

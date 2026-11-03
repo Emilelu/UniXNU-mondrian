@@ -809,6 +809,85 @@ PE_sync_panic_buffers(void)
 	}
 }
 
+/*
+ * K60 bring-up: publish the panic text into the Android ramoops pmsg zone
+ * (0xA7200000, 2 MiB) as a persistent_ram buffer, then reset the machine so
+ * the next Android boot can expose it through /sys/fs/pstore (pmsg record).
+ */
+#define K60_PSTORE_BASE 0xA7200000u
+#define K60_PSTORE_SIZE 0x00200000u
+#define K60_PSTORE_SIG  0x43474244u
+#define K60_PSCI_SYSTEM_RESET 0x84000009u
+
+void
+PE_k60_publish_panic(void)
+{
+	vm_offset_t base;
+	uint32_t *hdr;
+	unsigned int len;
+
+	if (!gPanicBase || !panic_info) {
+		return;
+	}
+	len = panic_info->eph_panic_log_len;
+	if (len == 0) {
+		return;
+	}
+	if (len > K60_PSTORE_SIZE - 12) {
+		len = K60_PSTORE_SIZE - 12;
+	}
+	base = ml_io_map_wcomb(K60_PSTORE_BASE, K60_PSTORE_SIZE);
+	if (!base) {
+		return;
+	}
+	hdr = (uint32_t *)base;
+	hdr[0] = K60_PSTORE_SIG;
+	hdr[1] = 0;
+	hdr[2] = len;
+	bcopy((const void *)(gPanicBase + panic_info->eph_panic_log_offset), (void *)(base + 12), len);
+	CleanPoC_DcacheRegion_Force(base, 12 + len);
+}
+
+static int
+k60_psci_uses_hvc(void)
+{
+	DTEntry chosen;
+	void const *prop;
+	unsigned int size = 0;
+	static int cached = -1;
+
+	if (cached >= 0) {
+		return cached;
+	}
+	cached = 0;
+	if (SecureDTLookupEntry(0, "/chosen", &chosen) == kSuccess &&
+	    SecureDTGetProperty(chosen, "psci-method", &prop, &size) == kSuccess &&
+	    size >= 3 && ((const char *)prop)[0] == 'h' && ((const char *)prop)[1] == 'v' &&
+	    ((const char *)prop)[2] == 'c') {
+		cached = 1;
+	}
+	return cached;
+}
+
+void
+PE_k60_reset_now(void)
+{
+	/* PSCI SYSTEM_RESET with the conduit the boot loader advertised. */
+	register uint64_t x0 __asm__("x0") = (uint64_t)K60_PSCI_SYSTEM_RESET;
+	register uint64_t x1 __asm__("x1") = 0;
+	register uint64_t x2 __asm__("x2") = 0;
+	register uint64_t x3 __asm__("x3") = 0;
+
+	if (k60_psci_uses_hvc()) {
+		__asm__ volatile ("hvc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : : "memory");
+	} else {
+		__asm__ volatile ("smc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : : "memory");
+	}
+	for (;;) {
+		__asm__ volatile ("wfe");
+	}
+}
+
 static void
 pe_prepare_images(void)
 {

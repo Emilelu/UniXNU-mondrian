@@ -885,7 +885,7 @@ OSMetaClass::postModLoad(void * loadHandle)
 					/* Log this error here so we can include the class name.
 					 * xxx - we should look up the other kext that defines the class
 					 */
-#if defined(XNU_TARGET_OS_OSX)
+#if 1 /* K60: prelinked components may register classes twice; log, do not panic */
 					OSKextLog(myKext, kOSMetaClassLogSpec,
 #else
 					panic(

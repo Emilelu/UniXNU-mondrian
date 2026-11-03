@@ -1,0 +1,141 @@
+/*
+ * Route A-18 (xnu-11417 / darwin24): stop guessing the firmware's CPU_ON
+ * target table; find this core by observation.
+ *
+ * bc11 on the unit (2026-11-01): every flat target 0x100..0x700 is granted,
+ * AFFINITY_INFO says the cores are on, and the reset vector's arrival flag
+ * proved a core enters and matches its cpu data - but no core ever reached
+ * arm_init_cpu. The arrival (MPIDR 0x81000200, the X2) appeared before its
+ * own target was even sent, so the firmware's table does not follow the
+ * MPIDR order: a CPU_ON wakes an arbitrary core, which matched the cpu data
+ * whose handler was not set yet and hung on the old Lskip b . loop.
+ *
+ * Two changes:
+ *   - start.s parks a woken core on a re-read of its reset handler instead
+ *     of hanging: the starting processor cleans this cpu_data before every
+ *     CPU_ON, so the handler appears the moment its own turn sets it.
+ *   - psci_smp_start_cpu tries every flat target until the arrival flag
+ *     carries this core's own MPIDR, instead of one guessed target. A wrong
+ *     target wakes a core that parks (harmless); a refused target costs
+ *     nothing.
+ */
+--- a/osfmk/arm64/psci_smp.c
++++ b/osfmk/arm64/psci_smp.c
+@@ -231,27 +231,63 @@
+ 	__builtin_arm_dsb(DSB_SY);
+ 
+ 	unsigned int position = 0;
+-	uint64_t target = psci_smp_target(phys_id, &position);
++	uint64_t first = psci_smp_target(phys_id, &position);
+ 
+ 	os_atomic_store(&psci_smp_cpu_stage[cpu], PSCI_SMP_CPU_ASKED, release);
+-	status = psci_call(PSCI_CPU_ON, target, entry, 0);
+-	if (status == PSCI_INVALID_PARAMETERS && position != 0) {
+-		printf("psci: cpu %d: CPU_ON target 0x%llx refused, retrying with the plain position %u\n",
+-		    cpu, (unsigned long long)target, position);
+-		status = psci_call(PSCI_CPU_ON, (uint64_t)position, entry, 0);
++
++	/*
++	 * The firmware's CPU_ON target table does not follow the MPIDR order: bc9
++	 * refused every real MPIDR but 0x100 and 0x200, and bc11 saw every flat
++	 * target granted while the first core to arrive was not the one the first
++	 * target was meant for. So ask for this core the only way that cannot
++	 * miss: try every target until the core that arrives is ours. A target
++	 * that wakes a different core hands it a parked start - the reset vector
++	 * now waits for its own handler instead of hanging - and a target the
++	 * firmware refuses costs nothing.
++	 */
++	uint64_t order[8];
++	unsigned int count = 0;
++	order[count++] = first;
++	for (uint64_t t = 0x100; t <= 0x700; t += 0x100) {
++		if (t != first) {
++			order[count++] = t;
++		}
+ 	}
++
++	status = PSCI_INVALID_PARAMETERS;
++	uint64_t target = 0;
++	for (unsigned int k = 0; k < count; k++) {
++		target = order[k];
++		status = psci_call(PSCI_CPU_ON, target, entry, 0);
++		printf("psci: cpu %d (MPIDR 0x%x): CPU_ON target 0x%llx -> %lld (%s)\n",
++		    cpu, phys_id, (unsigned long long)target, status, psci_error(status));
++		if (status != 0) {
++			continue;
++		}
++		os_atomic_or(&psci_smp_started, 1u << cpu, relaxed);
++
++		/* give whatever core this woke a moment to show up in the reset vector */
++		for (unsigned int waited = 0; waited < 1000; waited++) {
++			FlushPoC_DcacheRegion((vm_offset_t)&psci_smp_arrival, sizeof(psci_smp_arrival));
++			if ((psci_smp_arrival & 0xffff) == phys_id) {
++				printf("psci: cpu %d: its core is in the reset vector (MPIDR 0x%llx) after target 0x%llx\n",
++				    cpu, (unsigned long long)psci_smp_arrival, (unsigned long long)target);
++				goto started;
++			}
++			FlushPoC_DcacheRegion((vm_offset_t)&psci_smp_start_fault, sizeof(psci_smp_start_fault));
++			if (psci_smp_start_fault.valid != 0) {
++				goto started;
++			}
++			delay_for_interval(1, NSEC_PER_MSEC);
++		}
++	}
++
++started:
+ 	if (status != 0) {
+ 		os_atomic_store(&psci_smp_cpu_stage[cpu], 0, release);
+-		printf("psci: cpu %d (MPIDR 0x%x, target 0x%llx) was not started: the firmware answers %lld (%s)\n",
+-		    cpu, phys_id, (unsigned long long)target, status, psci_error(status));
++		printf("psci: cpu %d (MPIDR 0x%x) was not started: no target woke it\n", cpu, phys_id);
+ 		return KERN_FAILURE;
+ 	}
+-	os_atomic_or(&psci_smp_started, 1u << cpu, relaxed);
+-
+-	int64_t aff = psci_call(PSCI_AFFINITY_INFO, target, 0, 0);
+-	printf("psci: cpu %d (target 0x%llx) granted; AFFINITY_INFO answers %lld (%s)\n",
+-	    cpu, (unsigned long long)target, aff,
+-	    aff == 0 ? "on" : aff == 1 ? "off" : aff == 2 ? "on pending" : "?");
+ 
+ 	clock_interval_to_deadline(PSCI_SMP_START_SECONDS, NSEC_PER_SEC, &deadline);
+ 	do {
+@@ -284,14 +320,11 @@
+ 		os_atomic_andnot(&psci_smp_started, 1u << cpu, relaxed);        /* nothing of it is left to stop */
+ 	} else {
+ 		FlushPoC_DcacheRegion((vm_offset_t)&psci_smp_arrival, sizeof(psci_smp_arrival));
+-		int64_t aff = psci_call(PSCI_AFFINITY_INFO, target, 0, 0);
+-		int64_t again = psci_call(PSCI_CPU_ON, target, entry, 0);
+-		printf("psci: cpu %d (MPIDR 0x%x, target 0x%llx) was started %d seconds ago and has not joined: %s\n",
+-		    cpu, phys_id, (unsigned long long)target, PSCI_SMP_START_SECONDS,
++		printf("psci: cpu %d (MPIDR 0x%x) was started %d seconds ago and has not joined: %s\n",
++		    cpu, phys_id, PSCI_SMP_START_SECONDS,
+ 		    stage >= PSCI_SMP_CPU_IN_KERNEL ? "it got as far as arm_init_cpu()" : "no sign of it since the firmware took the request");
+-		printf("psci: cpu %d: afterwards AFFINITY_INFO answers %lld (%s), a second CPU_ON answers %lld (%s), arrival flag 0x%llx\n",
+-		    cpu, aff, aff == 0 ? "on" : aff == 1 ? "off" : aff == 2 ? "on pending" : "?",
+-		    again, psci_error(again), (unsigned long long)psci_smp_arrival);
++		printf("psci: cpu %d: the reset vector has seen MPIDR 0x%llx so far\n",
++		    cpu, (unsigned long long)psci_smp_arrival);
+ 	}
+ 	return KERN_FAILURE;
+ }
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -200,8 +200,16 @@
+ 
+ 	adrp	x20, EXT(const_boot_args)@page
+ 	add		x20, x20, EXT(const_boot_args)@pageoff
+-	ldr		x0, [x21, CPU_RESET_HANDLER]		// Call CPU reset handler
+-	cbz		x0, Lskip_cpu_reset_handler
++	/*
++	 * The firmware's CPU_ON target table does not follow the MPIDR order, so
++	 * a CPU_ON meant for another core can wake this one before its own turn
++	 * (0250). Park here and re-read the handler until this cpu's turn sets
++	 * it: the starting processor cleans this cpu_data to memory before every
++	 * CPU_ON, so the write arrives while the MMU is still off.
++	 */
++Lwait_reset_handler:
++	ldr		x0, [x21, CPU_RESET_HANDLER]
++	cbz		x0, Lwait_reset_handler
+ 
+ 	// Validate that our handler is one of the two expected handlers
+ 	adrp	x2, EXT(resume_idle_cpu)@page

@@ -1,41 +1,304 @@
-# K60 (mondrian) iOS 16.6.1 移植 — 进度条基线（progress-bar-20261102）
+# UniXNU-mondrian
 
-> 本分支是 **K60 内核源树归档分支**：`xnu-8796.141.3`（apple-oss，提交 `1b191cb` 为浅克隆根）
+Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓库。
+
+本仓库是**格式 2 设备仓**：`board.toml` 的 `schema_version = 2`，配置由 UniXNU 的共享解析器
+按 ARM64 → SoC → OS → 设备四层合并，输出目录为
+`out/mondrian/ipados-18.7.10-22H374/mondrian/`。
+
+## 结构
+
+| 路径 | 内容 |
+| --- | --- |
+| `porting.toml` | 14 个子系统的输入、发现、证据与完成判据（权威设备记录） |
+| `board.toml` | 设备配置与组件选择 |
+| `feeds.toml` | 固定的 SoC 源 |
+| `configs/mondrian_defconfig` | 设备内核设置 |
+| `dts/mondrian.dts` | 内存、CPU 选择与外设配置 |
+| `patches/xnu/` | 设备补丁（16.6.1 系列） |
+| `patches/xnu-ipados18/` | darwin24 系列补丁（0244 面包屑 / 0245 簇数 / 0246 字号） |
+| `scripts/` | 设备构建与检查工具 |
+| `prebuilt/` | 二进制输入（trust cache） |
+
+`AGENTS.md` 是给人和 agent 的作业说明：必读文档、先调研再写代码、分支与提交规范、
+设备红线、失败判读、命令。
+
+## 四层仓库
+
+| 层 | 仓库 | 内容 |
+| --- | --- | --- |
+| 框架 | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU)（分支 `k60`） | `unixnu` 命令、共享脚本、`profiles/arch/arm64`、`profiles/os/ipados-18.7.10-22H374`、组件目录 |
+| SoC | [Emilelu/UniXNU-sm8475-common](https://github.com/Emilelu/UniXNU-sm8475-common) | `soc.toml`、`configs/sm8475.config`、`dts/sm8475.dtsi`（CPU / PSCI / GIC） |
+| 设备 | 本仓库 | `board.toml`、`dts/mondrian.dts`、`configs/mondrian_defconfig`、`patches/xnu/series`、`package/`、`porting.toml` |
+| 固件 | [Emilelu/uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium 构建树，产出 `SILICIUM_UEFI.fd` |
+
+迁移记录见 `porting.toml`；它同时是 [unixnu.com/zh/devices/mondrian](https://unixnu.com/zh/devices/mondrian)
+页面渲染的数据源。
+
+## 路线迁移：darwin22 → darwin24（2026-11-01）
+
+**16.6.1 / 20G81 / darwin22 分支已关闭。** 该分支解决了所有影响启动的内核 panic
+（8 核到 launchd、SpringBoard 拉起、`/private/var` 读写、keybag、watchdogd、进度条上屏），
+但用户态 **sig=9 风暴**（约 98% 守护进程被 signal 9 杀掉）无法解决——
+补丁 `0240`（无条件 Sandbox 策略）与 `0241`（`k60-no-lc=1`）都未能止住，故放弃。
+
+现工作于 **darwin24（iPadOS 18.7.10 / 22H374 / xnu-11417.140.69）**，路线名 `route-a-18`，
+依据是同为 SM8475 的 `UniXNU-pong`。当前进度：
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| darwin24 内核构建 | ✅ | Linux 全量构建，20,872,544 B，sha256 `15966fcd…` |
+| 平台层链接 | ✅ | `libArmDTPlatform.a`(27,808 B) + `libArmCpu.a`(34,600 B) 已 `force_load` |
+| loader `boot_args` ABI | ✅ | 由 Darwin 22（`0x2e0`/608）修正为 Darwin 24（`0x480`/1024） |
+| loader 跳板 | ✅ | 屏幕出现绿条，证明已跳入内核入口 PA `0xC74C04A0` |
+| prelink | ✅ | 22H374 kext 拼入，15 个组件，`__PRELINK_TEXT` 0x7a8000，内核 54,808,576 B |
+| **内核早期启动** | 🔴 | 越过 `PE_init_platform`，死在 `ml_parse_cpu_topology` 之后；已能出可读 panic 屏 |
+| CPU 拓扑 | ✅ | Android 实测 SM8475 三簇；`MAX_CPU_CLUSTERS` 1→3，dts 的 CPU `reg` 改为真实 MPIDR |
+| FDT 契约 | ✅ | ADT 14672 B，五节点齐全，与旧版只差 `/chosen/random-seed` 64 B |
+
+完整交接见 **[`docs/ROUTE-A-18-HANDOFF-2026-11-01.md`](docs/ROUTE-A-18-HANDOFF-2026-11-01.md)**，
+当前状态见 [`docs/ROUTE-A-18-STATE.md`](docs/ROUTE-A-18-STATE.md)。
+
+---
+
+## 当前状态（2026-10-31，Data ENOSPC 已证实）
+
+> 以下状态表属 **darwin22（16.6.1）阶段的历史记录**，分支已关闭，仅作背景参考。
+
+
+
+| 功能 | 状态 | 说明 |
+| --- | --- | --- |
+| UEFI 启动链 | ✅ | ABL -> `fastboot boot` -> BootShim -> UEFI -> UniXNU 菜单 |
+| 显示（软件） | ✅ | MiniIOMobileFramebuffer 纯 CPU 缩放 + memcpy，1440x3200 上屏 |
+| 实体按键 | ✅ | 官方 KeypadDevice 链 + `K60KeypadDeviceLib`（SPMI PON/GPIO） |
+| XNU 内核启动 | ✅ | 8 核；AppleARMCPU `_validateConfiguration` 已二进制打补丁 |
+| **内核源码构建（WSL）** | ✅ | MIGCC/MIGCOM/HOST_CC 修复后可全量构建，见下节 |
+| **平台驱动链接** | ✅ | `ArmDTPlatform`/`ArmCpu`/`NativeUfs` 已 `force_load` 进内核 |
+| **控制台字体放大** | ✅ | `k60_fontscale=3` 生效，日志在 1440x3200 上可读（0214 溢出已修） |
+| UFS root（SHNGROOT） | ✅ | OS / SystemOS 两个只读窗口，union 挂到 `/` |
+| `/private/var`（Data） | 🟡 | ENOSPC 已实测归因：256 MiB 容器被日志占满 97.6%（uuidtext/diagnostics 94%）；已安装 2045 MiB 新容器并读回校验（free blocks 为阈值 399 倍），旧卷已备份 PC；重启验证 pending |
+| keybag / MKB | ✅ | ADT `/defaults/no-effaceable-storage` + 内核写明文 `systembag.kb` |
+| watchdogd | ✅ | launchd disabled-jobs 策略禁用（core 补丁 0222） |
+| SpringBoard 显示模式 | ✅ | ADT `display-scale = 3` |
+| 控制台刷屏 | 🟡 | 已清空 resource-violation 三条格式串；0237 将 `K60WATCH` 周期探针改为默认不启动，`k60_watch=1` 才开启；`boot-nowatch.img` 已通过打包内容校验并由 fastboot 临时引导（exit=0），待屏幕确认 |
+| **用户态启动** | 🟡 | 进度条到 ~1/3 后周期性回落；0235 v2 实测 98% 退出为 sig=9（tccd/timed/securityd/usermanagerd 成批）。根因已定位到源码级：`kern_minimac.c:371` 的 AMFI/Sandbox 替身策略被缺失的 boot-arg `amfi_get_out_of_my_way` 拦住，`__mac_syscall` 全部 ENOPOLICY(159)——与 sweet NOTES:91 记录的同名死亡路径一致（含 SpringBoard 的 work-interval）。详见 [`docs/DIAGNOSIS-SANDBOX-2026-10-31.md`](docs/DIAGNOSIS-SANDBOX-2026-10-31.md)；`boot-amfi.img` 已构建（唯一 delta = 该 boot-arg） |
+| **用户态可观测性** | ✅ | 0235 v2：`KE` 按路径去重的 exec 尝试样本（≤128 行）/ `KX!` 只打异常退出 / `K60 ex= kx= abn=` + `K60 last exec:` + `K60 last bad :` 最近事件摘要（共享字段尚未同步） |
+| **minimac 策略闸门** | 🟡 | 仓库自带 AMFI/Sandbox 替身（`kern_minimac.c`，含 container-path/priv 表/dyld policy），由 `amfi_get_out_of_my_way=1` 启用；此前所有镜像都没带这个参数，替身从未注册。`boot-amfi.img` 为打开后的第一颗 |
+| **退出原因诊断** | 🟡 | 0238 在 `KX!` 记录 `r/ns/code/rf/jf`，另用 `K60XT` 覆盖无前置 BSD exit 的兜底路径；已构建并提取校验，尚未临时引导；`K60WATCH` 仍默认关闭 |
+| **ADT `/chosen` 身份** | 🟡 | `mac-address-wifi0` + `unique-chip-id` + `chip-id` 已进 ADT（字节校验通过），效果未上机确认 |
+| **loader 内存与面板报数** | 🟡 | 0236 v2 打印 `K60 MEM:`（判定同族 0172 是否适用）与 `K60 FB :`（面板帧缓冲是否落在 VM 可管理区间内，判定同族 0170 是否适用）；`k60_capmanaged=1` 才启用上限收敛，默认关闭 |
+| **GPU（Adreno 730）** | 🟡 | `PongAdreno` 驱动已 `force_load` 进内核（51 处符号），**未上机启动** |
+| **IOMFB selector 兜底** | 🟡 | 0233 补丁已入 series（`GetGammaTable` 仍保持 unsupported），未上机 |
+| 触摸 / 120 Hz / 音频 / 网络 / 相机 | ❌ | 未开始 |
+
+## 当前卡点（2026-10-31，先解决 Data 写入空间）
+
+已确认一个必须先解决的存储阻断：`disk5s1 launchd/usermanagerd/logd_helper: ENOSPC`，
+`free_blocks` 约 1208 低于 `threshold_blocks=1310`，APFS 拒绝 INSERT 写事务。
+`xid` 增加不能当作写入成功或 UI 推进的证据。最近历史安装记录是 256 MiB APFS Data
+（不是此前误认的 512 MiB），外层 32 GiB 仍有约 24.5 GiB 未分配给窗口；
+“主要由日志写满”尚未统计证实。详见 [Data 容量与保留数据方案](docs/DATA-SPACE-2026-10-31.md)。
+
+预案是在 unixnu 偏移 8 GiB 处放入扩大后的 22 GiB Data，保留旧卷，末尾留约 2 GiB。
+须先 recovery 只读备份、在副本上用支持的 APFS 工具扩容并核验，不能靠改窗口长度或
+替换空种子处理。当前 UFS Data 挂载分支另有 2 GiB 上限，部署前需单独验证解除。
+**本次只新增只读采集/统计工具与文档，没有改写手机分区、窗口表或 APFS 容量。**
+
+1. **用户态启动在 UI 起来之后停住**。完整证据链见
+   [`docs/BOOT-STALL-2026-10-31.md`](docs/BOOT-STALL-2026-10-31.md)，要点：
+   - 进度条**会往前走一小段然后停住**。5 秒统计行是"打完即清零"的窗口量，
+     实测连续六窗**每窗恰好 2 帧**，窗口长度有波动、末窗短于首窗（24895 / 10191 / 11968 / 12053 / 7319 / 5597 ms），
+     每帧驱动耗时 39.4 ms → 2.6 ms，且 `waiting for the GPU = 0 us`、
+     `0 swaps waited for the frame before / 0 gave up / 0 came a refresh late`
+     ⇒ 已计量的帧拷贝和 GPU 等待不足以解释帧间长停顿，优先检查用户态启动/退出原因；
+   - `report = fSwapsShown < 8`（`iokit/Kernel/MiniIOMobileFramebuffer.cpp:920`）：每 swap 的详细日志
+     只在**头 8 帧**打印，"swap 行停在 8"是设计使然，**不能当卡死证据**；判存活要看 5 秒统计行；
+   - 屏幕上的裸数字（如 `83`）**不是进度百分比**；进度条上方无 Apple logo 是引导方式的结果
+     （走 UEFI + BootShim，无 iBoot 提供该位图）—— `[推断，未验证]`；
+   - 控制台与 UI 抢同一块 framebuffer，控制台丢字（`xid`→`xld`、`surfaces`→`urfac s`），属观感问题；
+   - 本轮已补三样：**0235 v2 用户态追踪**、**`/chosen` 三条身份**、
+     **0236 内存报数**；下一步靠它们定位 frontier，再严格一次一个变量推进。
+   - 0235 v1 的 `execs=601 exits=400` 是两个封顶值，**不能相减推算存活进程数**。
+      0235 v2 实测多支 daemon 为 `exit=0 sig=9`，`ex` 从 680 增至 707；能确认启动活动和
+      SIGKILL 退出持续发生，尚不能确定是内存回收、用户态主动终止或其他终止路径。
+   - 当前追踪使用无锁、非原子的全局计数和字符串，日志可能交错，`last bad` 各字段可能
+      属于不同事件；`KE` 位于加载完成之前，`ex` 统计 exec 尝试，既不是成功启动数也不是
+      进程数。因此不能用这些值认定计数倒退、重启、内存压力或卡死位置。
+   - 0238 诊断镜像已记录内核提交的 `exit_reason`（namespace/code/flags）和 `jetsam_flags`，
+     尚待上机；字段用于区分已记录原因，不等同于信号原始发送者。0238 与 0237 基线镜像的
+     启动配置完全一致，保留默认关闭 K60WATCH 的行为。
+
+2. **内核源码构建已修复**（本节从"不可用"转为已解决，保留原因备查）：
+   - `'stdio.h' file not found` → `HOST_CC` 指向 `xnu-host-cc`；
+   - `mig: line 183: command not found` 真因不是 `MIGCC` 而是 **`MIGCOM`**：
+     `xcrun -find migcom` 只搜 `usr/bin`，而 `migcom` 在 `usr/libexec`，
+     于是 `export MIGCOM := $(shell ...)` 被设成空串，mig 的
+     `M=${MIGCOM-${migcomPath}}` 用 `${VAR-default}` 不兜底 → 管道变空命令。
+     修复见 `scripts/unixnu/kernel.py` 的 `linux_env()`。
+   - **平台库漏链接**：`kernel.py` 找不到 `startup.o.json`（路径硬编码
+     `DEVELOPMENT_ARM64_BCM2837`，PONG 板永不命中），导致**每次构建都跑
+     bootstrap pass**；该 pass 带 `XNU_BOOTSTRAP=1`，会跳过
+     `build-xnu-4k-baseline.sh` 里负责 `-force_load` 平台库的那一段，却仍执行
+     完整 `build` target 把内核链接掉。正式 pass 变量虽对，但 make 不追踪
+     命令行变量变化 → 不重链 → 内核里缺 `ArmDTPlatform`/`ArmCpu`/`NativeUfs`，
+     运行时由 score=0 的 `IOPanicPlatform` 兜底并 panic
+     `Unable to find driver for this platform "J120AP"`。
+     修复：`scripts/build-xnu-4k-baseline.sh` 在正式 pass 的 make 之前清掉
+     链接产物，强制重链。
+3. **换文件系统有前置条件**：20G81 的 kernelcache 里有 `com.apple.filesystems.hfs`
+   与 `com.apple.filesystems.tmpfs`，但本仓库的 prelink 根列表里一个都没有，
+   所以 `mount("hfs")` / `mount("tmpfs")` 现在必然 `ENODEV`。
+
+## 同机先例（重要）
+
+`refs/ios-sweet-k60/docs/LOCKSCREEN-2026-10-28.md` 记录**同一台 K60（mondrian，SM8475）
+已经进过锁屏**（iOS 16.7.16，HFSX 可写根写在 `unidata` 之外的 `userdata`），判据是
+"进度条走完后出现锁屏"。它给出的"CoreAnimation 一帧也不提交"的**四个必要条件**我们已逐条核对，
+**四条全部满足**：
+
+| 条件 | 我们 |
+| --- | --- |
+| 画布按面板原生 1440x3200 报 | ✅ `0210-k60-display-native-canvas`（实测 swap 已是 `1440x3200 BGRA`） |
+| 发布 `TimingElements` / `ColorElements` | ✅ `MiniIOMobileFramebuffer.cpp:363-365` |
+| `GetID == 1`，实现选择器 77 / 79（`GetBlock(0x40)`） | ✅ `kFBDisplayID 1`（`:320`）、`:1285`、`:1387` |
+| 发布空的 `IOAcceleratorES` | ✅ `0212-k60-empty-accelerator`（`XNU_K60_ACCEL_STUB` 默认 1） |
+
+这些已实现的服务和模式降低了该类缺项的优先级，但不能单靠代码存在排除渲染或 ABI 问题。同族先例的完整修复菜单（24 条，带 file:line 引文）
+见工作区 `k60-work/sweet-fix-menu.md`。
+
+## Fork 巡查与吸收（2026-10-31）
+
+按用户要求，开发期间及推送前检查公开 fork；本会话另设每 6 小时一次的巡查提醒。
+`python3 scripts/audit-forks.py --output /tmp/mondrian-forks.json` 枚举所有 fork/分支并固定
+比较 SHA，只读报告候选，不自动合并。首次检查为 3 个 fork / 4 个分支 / 11 个历史独有提交，
+完整取舍和来源见 [docs/FORK-REVIEW.md](docs/FORK-REVIEW.md)。
+
+已吸收并验证：
+
+- `mzyxsl/daed6b5` 完整 cherry-pick 为 `acb5c2d`，修复本地 prelink 从 OS profile 读取参数；
+  trust-cache 数组与 lock pin 是规范化/一致性改动，不宣称它们此前阻止所有 payload 构建。
+  实际运行 prelink 通过，32 roots、slide `-0xb9c000`，输出与本轮原 prelink 内核逐字节一致。
+  非并列目录可用 `--profile` 和 `--kit` 显式指定。
+- 从 `mzyxsl/76552b8` 选择性导入离线适配记录检查器；整理现有路径归属，保留当前硬件验证等级。
+  `python3 scripts/check-porting-paths.py` 已通过。它只做离线预检，不替代框架官方检查器或设备验证。
+- 从 `XTOM0706/9d1a14f` 只移植设备级 `display-scale=3`；与当前 profile 一致，
+  ADT 生成/解析比较仅随机种子不同。未带入额外显示节点或未经目标验证的 ramoops magic。
+
+菜单倒计时已有等效补丁，不重复；另一台 16 GiB 手机的内存窗口和旧 Data UUID 不用于当前
+12 GiB 设备。没有因 fork 改变当前已构建诊断镜像的启动参数、内存或根文件系统。
+
+## 工具
+
+| 脚本 | 用途 |
+| --- | --- |
+| `scripts/build-xnu-4k-baseline.sh` | 内核构建（含 defconfig 重生成） |
+| `scripts/k60-macos-preflight.sh` | 打核心补丁 + 装 auto-slide prelink wrapper |
+| `scripts/emit_prelink_autoslide.py` | 装到 `kits/XnuPrelink/emit_prelink.py` 的包装器 |
+| `scripts/k60-prelink-local.py` | 只跑 prelink，不需要 macOS |
+| `scripts/k60-make-data-seed.py` | 造 Data 种子（**需要 macOS**） |
+| `scripts/make-k60-gpt-data-image.py` | 裸 APFS → GPT 磁盘镜像 |
+| `scripts/install-k60-ufs-data.py` | 把 Data 窗口写进 `unixnu`（支持 `--dry-run`） |
+| `scripts/verify-k60-boot-img.sh` | boot v4 镜像独立校验（不依赖 `unixnu bootimg` 自带校验） |
+| `scripts/inspect-k60-data.py` | 只读采集 recovery 的 unixnu/Data 备份、核验 SHNGROOT/GPT/APFS 容量，`--usage` 在本地统计目录元数据 |
+| `scripts/build-pong-adreno-platform-linux.py` | 在 WSL 上产出 `libPongAdrenoPlatform.a`（macOS 版的 Linux 移植） |
+| `scripts/build-xnu-4k-baseline.sh` | 内核构建驱动脚本（设备仓版优先于框架仓版；已含强制重链修复） |
+| `scripts/sync-repos.sh` | 全部本地仓 fetch + 落后/领先报告，干净的仓可 ff-only |
+
+## 构建
+
+四个目录并列，核心仓用本仓的 `k60` 分支（已含 20G81 OS profile）：
+
+```sh
+git clone --recurse-submodules -b k60 https://github.com/Emilelu/UniXNU
+git clone https://github.com/Emilelu/UniXNU-sm8475-common
+git clone https://github.com/Emilelu/UniXNU-mondrian
+git clone --recurse-submodules https://github.com/Emilelu/uefi-mondrian
+
+cd UniXNU
+../UniXNU-mondrian/scripts/k60-macos-preflight.sh      # 打核心补丁 + 装 auto-slide prelink wrapper
+./unixnu defconfig mondrian_defconfig -D ../UniXNU-mondrian
+./unixnu fetch -D ../UniXNU-mondrian
+./unixnu status --json -D ../UniXNU-mondrian          # 三层 profile、组件、补丁顺序
+./unixnu build kernel -D ../UniXNU-mondrian
+```
+
+`k60-macos-preflight.sh` 会写 `$GITHUB_ENV`（CI 用），本地跑时如果不在 GitHub Actions
+里它会跳过那一行，其余步骤照常。它就把 `scripts/emit_prelink_autoslide.py` 装到
+`kits/XnuPrelink/emit_prelink.py` 的位置。
+
+**Linux（WSL）本地构建**：内核与 prelink 都不需要 macOS，工具链由
+`scripts/linux/setup-toolchain.py` 提供；`unixnu fetch` 会自动取回 IPSW 里的
+`kernelcache.decompressed`。只有 Data 种子（`k60-make-data-seed.py`）仍然依赖 macOS 的
+`hdiutil`/`diskutil`。
+
+没有 macOS 时，可以只把预链接单独跑：
+
+```sh
+python3 scripts/k60-prelink-local.py \
+  --kernel mach.development.pong.unstripped \
+  --prelinked out/ipsw/20G81/kernelcache.decompressed \
+  --profile profiles/os/ipados-16.6.1-20G81/profile.toml \
+  --output kernel.macho
+```
+
+固件构建：
+
+```sh
+./unixnu build firmware --uefi ../uefi-mondrian -D ../UniXNU-mondrian
+```
+
+输出 `uefi-mondrian/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd`。
+
+## 数据安全
+
+- bring-up 全程只用 `fastboot boot`（RAM 临时引导），**不 flash 任何分区**。
+- XNU 的 root/Data 使用独立 `unixnu` 分区：SHNGROOT 里的 OS/SystemOS 窗口 + 尾部 Data 窗口，
+  不写安卓 `userdata`；见 `docs/DUAL-SYSTEM.md`。
+- **绝对禁止** `fastboot flash persist` / `flash all`（TEE 密钥永久损坏）。
+- 写任何分区前先 `--dry-run` 确认几何，并备份 manifest。
+
+## 已知技术债
+
+- `boot-manifest-hash` 是板级事实，目前写在核心仓共享的
+  `profiles/os/ipados-16.6.1-20G81/profile.toml` 里，正确位置应是本仓的 ADT 段。
+- **同族 0170 / 0172 不能直接打**：`0170-k60-panel-buffer-out-of-vm.patch`（`osfmk/vm/vm_resident.c`、`osfmk/vm/vm_shared_region.c`）
+  与 `0172-k60-cap-managed-ram.patch`（`osfmk/arm64/arm_vm_init.c`）来自同族 K60 分支，
+  本次实测 **`git apply --check` 与 `--3way` 都失败**；
+  更要紧的是 **0172 的全部改动包在 `#if defined(ARM64_BOARD_CONFIG_SWEET)` 里**，
+  即使强打上去，对 PONG 板也是**空操作** —— 要生效必须重写成 PONG 版。
+  我们树上锚点位置一致（`arm_vm_init.c` 的 `mem_actual = ...` 之后），
+  所以先由 0236 量出 `memSize` / `memSizeActual` 再决定是否写 `0236b`。
+- `patches/xnu/series` 尾部有 6 个纯编译环境补丁（`k60-cpp-void-ptr-assert`、
+  `k60-v-crypto-syntax`、`k60-pgo-runtime-stub`、`k60-rwlock-caller-trace`、
+  `k60-panic-report`、`k60-ppl-lock-sleepable`），每次升上游都要重打。
+- 另有 22 个补丁未进 `series`，未评估。
+
+## 许可
+
+设备级代码采用 BSD-2-Clause-Patent。导入组件保留各自 SPDX 标记与原始许可证，
+见 `THIRD_PARTY_NOTICES.md`。
+
+---
+
+## 内核基线（progress-bar-20261102）
+
+> 内核源树归档分支 `progress-bar-20261102`：`xnu-8796.141.3`（apple-oss，提交 `1b191cb` 为浅克隆根）
 > + `patches/xnu/series` 现行 **123 项补丁**（按序每补丁一提交）
 > + 4 个主线私有诊断文件（单个 diag-only 提交）。
-> 设备仓配置/脚本主线在 `main` 与 `fix/k60-measured-high-window` 分支；本分支只承载内核树。
 
-## 当前基线
-
-- **分支**：`progress-bar-20261102`
-- **代码尖端 commit**：`8ba79fe`（`chore(xnu-diag): k60 probes outside the series`；本 README 是其后的文档提交）
+- **代码尖端 commit**：`8ba79fe`（`chore(xnu-diag): k60 probes outside the series`；归档分支 README 提交 `66a603f` 在其后）
 - **对应 boot 镜像 sha256**：`302a001b48fc4a18049c8ea449b3f8eb7b2a7d17ebb720c0908f5770b5293303`
   （2026-11-02 20:03 上机；payload `0854bb38c9d5d20709130e45c5c5ff9094114802e29be8cdc8896b34722511e4`，
   内核 macho `65fbe51eaad860fc26087f7716f24fe1d90a0275ef5edf53ad08b7ab61de059a`；
   kcdata 诊断版镜像 `6153c2aa…` / 内核 `64ae6488…`，同晚验讫）
 - **屏上达到的程度**：`K60DATA mounted`（APFS，rw）→ `launchd` 加载成功 → `backboardd` 首帧
   1440x3200（进度条 UI）；**未进 SpringBoard**，随后守护进程成片崩溃
-- **归档精度说明**：20:03 镜像对应当时的 series 状态；本分支重放的是**现行** 123 项 series
+- **归档精度说明**：20:03 镜像对应当时的 series 状态；该分支重放的是**现行** 123 项 series
   （含其后增补的诊断补丁）+ 现行 4 个诊断文件，与现役 `xnu-work` 树全部 125 个改动路径
-  **逐字节一致**。逐位复现 20:03 二进制请以镜像 sha 为准，本分支是源树级归档。
+  **逐字节一致**。逐位复现 20:03 二进制请以镜像 sha 为准，该分支是源树级归档。
 
-## 可复现构建步骤（package-textonly 工艺）
-
-1. **编排**：`/tmp/k60build`（UniXNU fork `k60build` 分支，`db7177c`）+ 设备仓
-   `UniXNU-mondrian`（`fix/k60-measured-high-window` 工作区）。
-2. **内核**：`scripts/unixnu/patches.py` 按 `patches/xnu/series` 顺序对 `.cache/xnu-work`
-   （`1b191cb`）逐个 `git apply`；与本分支树等价，也可直接以本分支为源。
-3. **打包**：`E:\k60-work\tools\package-textonly.py`——从 192 MiB `payload.img` 出发，
-   `mcopy` 提取并回写 `kernel.macho.adt`，改写 `/chosen` 三项
-   （`dram-base` / `dram-size` / `darwinboot-memory-size`），固件 shim+FD 经 gzip 拼接
-   `dtc` 编译的 `dts/mondrian.dts`，最后 `mkbootimg.py --header_version 4` 产出 boot 镜像
-   （payload 与 boot 双产物）。
-4. **校验闸门**：payload 内 kernel.macho 探针签名 8 项计数断言（KX!/STR/单行摘要等）、
-   ADT 回写 round-trip 比对、设备树 memory 节点断言、`build-verification.json` 三 sha256
-   记录、上机前 snapshot/source/expected 三值一致核对。
-5. **上机**：只许 `fastboot boot`，**绝不 `fastboot flash`**。
-
-## 已知问题
+**已知问题**：
 
 - `xpcproxy` spawn 期 EACCES：`execerr=13 where=spawn site=1`（posix_spawn 激活后属性段），
   全量 exit=78 风暴。
@@ -43,445 +306,4 @@
 - USB 日志通道未通：SMMU stream 0 未建 context，XNU 接管后 USB 全断。
 - ramoops 实机不可用（重启 DRAM 掉电），仅加载器侧取证有效。
 
-## 下一步路线
-
-1. 按 pong `ios16` 分支六件补丁；
-2. 自定义 PID1；
-3. 面板 / GPU。
-
-## 硬提醒
-
-**XNU 阶段没有任何日志通道——ramoops 不保留、USB 全断、串口不存在；屏摄是唯一证据源。**
-
----
-
-（以下为上游 xnu-8796.141.3 原始 README，未改动。）
-
-What is XNU?
-===========
-
-XNU kernel is part of the Darwin operating system for use in macOS and iOS operating systems. XNU is an acronym for X is Not Unix.
-XNU is a hybrid kernel combining the Mach kernel developed at Carnegie Mellon University with components from FreeBSD and a C++ API for writing drivers called IOKit.
-XNU runs on x86_64 for both single processor and multi-processor configurations.
-
-XNU Source Tree
-===============
-
-  * `config` - configurations for exported apis for supported architecture and platform
-  * `SETUP` - Basic set of tools used for configuring the kernel, versioning and kextsymbol management.
-  * `EXTERNAL_HEADERS` - Headers sourced from other projects to avoid dependency cycles when building. These headers should be regularly synced when source is updated.
-  * `libkern` - C++ IOKit library code for handling of drivers and kexts.
-  * `libsa` -  kernel bootstrap code for startup
-  * `libsyscall` - syscall library interface for userspace programs
-  * `libkdd` - source for user library for parsing kernel data like kernel chunked data.
-  * `makedefs` - top level rules and defines for kernel build.
-  * `osfmk` - Mach kernel based subsystems
-  * `pexpert` - Platform specific code like interrupt handling, atomics etc.
-  * `security` - Mandatory Access Check policy interfaces and related implementation.
-  * `bsd` - BSD subsystems code
-  * `tools` - A set of utilities for testing, debugging and profiling kernel.
-
-How to build XNU
-================
-
-Building `DEVELOPMENT` kernel
------------------------------
-
-The xnu make system can build kernel based on `KERNEL_CONFIGS` & `ARCH_CONFIGS` variables as arguments.
-Here is the syntax:
-
-    make SDKROOT=<sdkroot> ARCH_CONFIGS=<arch> KERNEL_CONFIGS=<variant>
-
-Where:
-
-  * \<sdkroot>: path to macOS SDK on disk. (defaults to `/`)
-  * \<variant>: can be `debug`, `development`, `release`, `profile` and configures compilation flags and asserts throughout kernel code.
-  * \<arch>   : can be valid arch to build for. (E.g. `X86_64`)
-
-To build a kernel for the same architecture as running OS, just type
-
-    $ make
-    $ make SDKROOT=macosx.internal
-
-Additionally, there is support for configuring architectures through `ARCH_CONFIGS` and kernel configurations with `KERNEL_CONFIGS`.
-
-    $ make SDKROOT=macosx.internal ARCH_CONFIGS=X86_64 KERNEL_CONFIGS=DEVELOPMENT
-    $ make SDKROOT=macosx.internal ARCH_CONFIGS=X86_64 KERNEL_CONFIGS="RELEASE DEVELOPMENT DEBUG"
-
-
-Note:
-  * By default, architecture is set to the build machine architecture, and the default kernel
-    config is set to build for DEVELOPMENT.
-
-
-This will also create a bootable image, kernel.[config],  and a kernel binary
-with symbols, kernel.[config].unstripped.
-
-To intall the kernel into a DSTROOT, use the `install_kernels` target:
-
-    $ make install_kernels DSTROOT=/tmp/xnu-dst
-
-Hint:
-For a more satisfying kernel debugging experience, with access to all
-local variables and arguments, but without all the extra check of the
-DEBUG kernel, add something like:
-	CFLAGS_DEVELOPMENTARM64="-O0 -g -DKERNEL_STACK_MULTIPLIER=2"
-	CXXFLAGS_DEVELOPMENTARM64="-O0 -g -DKERNEL_STACK_MULTIPLIER=2"
-to your make command.
-Replace DEVELOPMENT and ARM64 with the appropriate build and platform.
-
-
-  * To build with RELEASE kernel configuration
-
-        make KERNEL_CONFIGS=RELEASE SDKROOT=/path/to/SDK
-
-
-Building FAT kernel binary
---------------------------
-
-Define architectures in your environment or when running a make command.
-
-    $ make ARCH_CONFIGS="X86_64" exporthdrs all
-
-Other makefile options
-----------------------
-
- * $ make MAKEJOBS=-j8    # this will use 8 processes during the build. The default is 2x the number of active CPUS.
- * $ make -j8             # the standard command-line option is also accepted
- * $ make -w              # trace recursive make invocations. Useful in combination with VERBOSE=YES
- * $ make BUILD_LTO=0     # build without LLVM Link Time Optimization
- * $ make BOUND_CHECKS=0  # disable -fbound-attributes for this build
- * $ make REMOTEBUILD=user@remotehost # perform build on remote host
- * $ make BUILD_JSON_COMPILATION_DATABASE=1 # Build Clang JSON Compilation Database
-
-The XNU build system can optionally output color-formatted build output. To enable this, you can either
-set the `XNU_LOGCOLORS` environment variable to `y`, or you can pass `LOGCOLORS=y` to the make command.
-
-
-Debug information formats
-=========================
-
-By default, a DWARF debug information repository is created during the install phase; this is a "bundle" named kernel.development.\<variant>.dSYM
-To select the older STABS debug information format (where debug information is embedded in the kernel.development.unstripped image), set the BUILD_STABS environment variable.
-
-    $ export BUILD_STABS=1
-    $ make
-
-
-Building KernelCaches
-=====================
-
-To test the xnu kernel, you need to build a kernelcache that links the kexts and
-kernel together into a single bootable image.
-To build a kernelcache you can use the following mechanisms:
-
-  * Using automatic kernelcache generation with `kextd`.
-    The kextd daemon keeps watching for changing in `/System/Library/Extensions` directory.
-    So you can setup new kernel as
-
-        $ cp BUILD/obj/DEVELOPMENT/X86_64/kernel.development /System/Library/Kernels/
-        $ touch /System/Library/Extensions
-        $ ps -e | grep kextd
-
-  * Manually invoking `kextcache` to build new kernelcache.
-
-        $ kextcache -q -z -a x86_64 -l -n -c /var/tmp/kernelcache.test -K /var/tmp/kernel.test /System/Library/Extensions
-
-
-
-Running KernelCache on Target machine
-=====================================
-
-The development kernel and iBoot supports configuring boot arguments so that we can safely boot into test kernel and, if things go wrong, safely fall back to previously used kernelcache.
-Following are the steps to get such a setup:
-
-  1. Create kernel cache using the kextcache command as `/kernelcache.test`
-  2. Copy exiting boot configurations to alternate file
-
-         $ cp /Library/Preferences/SystemConfiguration/com.apple.Boot.plist /next_boot.plist
-
-  3. Update the kernelcache and boot-args for your setup
-
-         $ plutil -insert "Kernel Cache" -string "kernelcache.test" /next_boot.plist
-         $ plutil -replace "Kernel Flags" -string "debug=0x144 -v kernelsuffix=test " /next_boot.plist
-
-  4. Copy the new config to `/Library/Preferences/SystemConfiguration/`
-
-         $ cp /next_boot.plist /Library/Preferences/SystemConfiguration/boot.plist
-
-  5. Bless the volume with new configs.
-
-         $ sudo -n bless  --mount / --setBoot --nextonly --options "config=boot"
-
-     The `--nextonly` flag specifies that use the `boot.plist` configs only for one boot.
-     So if the kernel panic's you can easily power reboot and recover back to original kernel.
-
-
-
-
-Creating tags and cscope
-========================
-
-Set up your build environment and from the top directory, run:
-
-    $ make tags     # this will build ctags and etags on a case-sensitive volume, only ctags on case-insensitive
-    $ make TAGS     # this will build etags
-    $ make cscope   # this will build cscope database
-
-
-How to install a new header file from XNU
-=========================================
-
-XNU installs header files at the following locations -
-
-    a. $(DSTROOT)/System/Library/Frameworks/Kernel.framework/Headers
-    b. $(DSTROOT)/System/Library/Frameworks/Kernel.framework/PrivateHeaders
-    c. $(DSTROOT)/usr/include/
-    d. $(DSTROOT)/usr/local/include/
-    e. $(DSTROOT)/System/DriverKit/usr/include/
-    f. $(DSTROOT)/System/Library/Frameworks/IOKit.framework/Headers
-    g. $(DSTROOT)/System/Library/Frameworks/IOKit.framework/PrivateHeaders
-    h. $(DSTROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
-
-`Kernel.framework` is used by kernel extensions.\
-The `System.framework`, `/usr/include` and `/usr/local/include` are used by user level applications. \
-`IOKit.framework` is used by IOKit userspace clients. \
-`/System/DriverKit/usr/include` is used by userspace drivers. \
-The header files in framework's `PrivateHeaders` are only available for ** Apple Internal Development **.
-
-The directory containing the header file should have a Makefile that
-creates the list of files that should be installed at different locations.
-If you are adding the first header file in a directory, you will need to
-create Makefile similar to `xnu/bsd/sys/Makefile`.
-
-Add your header file to the correct file list depending on where you want
-to install it. The default locations where the header files are installed
-from each file list are -
-
-    a. `DATAFILES` : To make header file available in user level -
-       `$(DSTROOT)/usr/include`
-       `$(DSTROOT)/System/Library/Frameworks/System.framework/PrivateHeaders`
-
-    b. `DRIVERKIT_DATAFILES` : To make header file available to DriverKit userspace drivers -
-       `$(DSTROOT)/System/DriverKit/usr/include`
-
-    c. `PRIVATE_DATAFILES` : To make header file available to Apple internal in
-       user level -
-       `$(DSTROOT)/System/Library/Frameworks/System.framework/PrivateHeaders`
-
-    d. `EMBEDDED_PRIVATE_DATAFILES` : To make header file available in user
-       level for macOS as `EXTRA_DATAFILES`, but Apple internal in user level
-       for embedded OSes as `EXTRA_PRIVATE_DATAFILES` -
-       `$(DSTROOT)/usr/include` (`EXTRA_DATAFILES`)
-       `$(DSTROOT)/usr/local/include` (`EXTRA_PRIVATE_DATAFILES`)
-
-    d. `KERNELFILES` : To make header file available in kernel level -
-       `$(DSTROOT)/System/Library/Frameworks/Kernel.framework/Headers`
-       `$(DSTROOT)/System/Library/Frameworks/Kernel.framework/PrivateHeaders`
-
-    e. `PRIVATE_KERNELFILES` : To make header file available to Apple internal
-       for kernel extensions -
-       `$(DSTROOT)/System/Library/Frameworks/Kernel.framework/PrivateHeaders`
-
-    f. `MODULEMAPFILES` : To make module map file available in user level -
-       `$(DSTROOT)/usr/include`
-
-    g. `PRIVATE_MODULEMAPFILES` : To make module map file available to Apple
-       internal in user level -
-       `$(DSTROOT)/usr/local/include`
-
-The Makefile combines the file lists mentioned above into different
-install lists which are used by build system to install the header files. There
-are two types of install lists: machine-dependent and machine-independent.
-These lists are indicated by the presence of `MD` and `MI` in the build
-setting, respectively. If your header is architecture-specific, then you should
-use a machine-dependent install list (e.g. `INSTALL_MD_LIST`). If your header
-should be installed for all architectures, then you should use a
-machine-independent install list (e.g. `INSTALL_MI_LIST`).
-
-If the install list that you are interested does not exist, create it
-by adding the appropriate file lists.  The default install lists, its
-member file lists and their default location are described below -
-
-    a. `INSTALL_MI_LIST`, `INSTALL_MODULEMAP_MI_LIST` : Installs header and module map
-       files to a location that is available to everyone in user level.
-       Locations -
-           $(DSTROOT)/usr/include
-       Definition -
-           INSTALL_MI_LIST = ${DATAFILES}
-           INSTALL_MODULEMAP_MI_LIST = ${MODULEMAPFILES}
-
-    b. `INSTALL_DRIVERKIT_MI_LIST` : Installs header file to a location that is
-        available to DriverKit userspace drivers.
-        Locations -
-           $(DSTROOT)/System/DriverKit/usr/include
-       Definition -
-           INSTALL_DRIVERKIT_MI_LIST = ${DRIVERKIT_DATAFILES}
-
-    c.  `INSTALL_MI_LCL_LIST`, `INSTALL_MODULEMAP_MI_LCL_LIST` : Installs header and
-       module map files to a location that is available for Apple internal in user level.
-       Locations -
-           $(DSTROOT)/usr/local/include
-       Definition -
-           INSTALL_MI_LCL_LIST =
-           INSTALL_MODULEMAP_MI_LCL_LIST = ${PRIVATE_MODULEMAPFILES}
-
-    d. `INSTALL_IF_MI_LIST` : Installs header file to location that is available
-       to everyone for IOKit userspace clients.
-       Locations -
-            $(DSTROOT)/System/Library/Frameworks/IOKit.framework/Headers
-       Definition -
-            INSTALL_IF_MI_LIST = ${DATAFILES}
-
-    e. `INSTALL_IF_MI_LCL_LIST` : Installs header file to location that is
-       available to Apple internal for IOKit userspace clients.
-       Locations -
-            $(DSTROOT)/System/Library/Frameworks/IOKit.framework/PrivateHeaders
-       Definition -
-            INSTALL_IF_MI_LCL_LIST = ${DATAFILES} ${PRIVATE_DATAFILES}
-
-    f.  `INSTALL_SF_MI_LCL_LIST` : Installs header file to a location that is available
-       for Apple internal in user level.
-       Locations -
-           $(DSTROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
-       Definition -
-           INSTALL_SF_MI_LCL_LIST = ${DATAFILES} ${PRIVATE_DATAFILES}
-
-    g. `INSTALL_KF_MI_LIST` : Installs header file to location that is available
-       to everyone for kernel extensions.
-       Locations -
-            $(DSTROOT)/System/Library/Frameworks/Kernel.framework/Headers
-       Definition -
-            INSTALL_KF_MI_LIST = ${KERNELFILES}
-
-    h. `INSTALL_KF_MI_LCL_LIST` : Installs header file to location that is
-       available for Apple internal for kernel extensions.
-       Locations -
-            $(DSTROOT)/System/Library/Frameworks/Kernel.framework/PrivateHeaders
-       Definition -
-            INSTALL_KF_MI_LCL_LIST = ${KERNELFILES} ${PRIVATE_KERNELFILES}
-
-    i. `EXPORT_MI_LIST` : Exports header file to all of xnu (bsd/, osfmk/, etc.)
-       for compilation only. Does not install anything into the SDK.
-       Definition -
-            EXPORT_MI_LIST = ${KERNELFILES} ${PRIVATE_KERNELFILES}
-
-If you want to install the header file in a sub-directory of the paths
-described in (1), specify the directory name using two variables
-`INSTALL_MI_DIR` and `EXPORT_MI_DIR` as follows -
-
-    INSTALL_MI_DIR = dirname
-    EXPORT_MI_DIR = dirname
-
-If you want to install the module map file in a sub-directory, specify the
-directory name using the variable `INSTALL_MODULEMAP_MI_DIR` as follows -
-
-    INSTALL_MODULEMAP_MI_DIR = dirname
-
-A single header file can exist at different locations using the steps
-mentioned above.  However it might not be desirable to make all the code
-in the header file available at all the locations.  For example, you
-want to export a function only to kernel level but not user level.
-
- You can use C language's pre-processor directive (#ifdef, #endif, #ifndef)
- to control the text generated before a header file is installed.  The kernel
- only includes the code if the conditional macro is TRUE and strips out
- code for FALSE conditions from the header file.
-
- Some pre-defined macros and their descriptions are -
-
-    a. `PRIVATE` : If defined, enclosed definitions are considered System
-	Private Interfaces. These are visible within xnu and
-	exposed in user/kernel headers installed within the AppleInternal
-	"PrivateHeaders" sections of the System and Kernel frameworks.
-    b. `KERNEL_PRIVATE` : If defined, enclosed code is available to all of xnu
-	kernel and Apple internal kernel extensions and omitted from user
-	headers.
-    c. `BSD_KERNEL_PRIVATE` : If defined, enclosed code is visible exclusively
-	within the xnu/bsd module.
-    d. `MACH_KERNEL_PRIVATE`: If defined, enclosed code is visible exclusively
-	within the xnu/osfmk module.
-    e. `XNU_KERNEL_PRIVATE`: If defined, enclosed code is visible exclusively
-	within xnu.
-    f. `KERNEL` :  If defined, enclosed code is available within xnu and kernel
-       extensions and is not visible in user level header files.  Only the
-       header files installed in following paths will have the code -
-
-            $(DSTROOT)/System/Library/Frameworks/Kernel.framework/Headers
-            $(DSTROOT)/System/Library/Frameworks/Kernel.framework/PrivateHeaders
-    g. `DRIVERKIT`: If defined, enclosed code is visible exclusively in the
-    DriverKit SDK headers used by userspace drivers.
-
-Module map file name convention
-===============================
-
-In the simple case, a subdirectory of `usr/include` or `usr/local/include`
-can be represented by a standalone module. Where this is the case, set
-`INSTALL_MODULEMAP_MI_DIR` to `INSTALL_MI_DIR` and install a `module.modulemap`
-file there. `module.modulemap` is used even for private modules in
-`usr/local/include`; `module.private.modulemap` is not used. Caveat: in order
-to stay in the simple case, the module name needs to be exactly the same as
-the directory name. If that's not possible, then the following method will
-need to be applied.
-
-`xnu` contributes to the modules defined in CoreOSModuleMaps by installing
-module map files that are sourced from `usr/include/module.modulemap` and
-`usr/local/include/module.modulemap`. The naming convention for the `xnu`
-module map files are as follows.
-
-    a. Ideally the module map file covers an entire directory. A module map
-       file covering `usr/include/a/b/c` would be named `a_b_c.modulemap`.
-       `usr/local/include/a/b/c` would be `a_b_c_private.modulemap`.
-    b. Some headers are special and require their own module. In that case,
-       the module map file would be named after the module it defines.
-       A module map file defining the module `One.Two.Three` would be named
-       `one_two_three.modulemap`.
-
-Conditional compilation
-=======================
-
-`xnu` offers the following mechanisms for conditionally compiling code:
-
-    a. *CPU Characteristics* If the code you are guarding has specific
-    characterstics that will vary only based on the CPU architecture being
-    targeted, use this option. Prefer checking for features of the
-    architecture (e.g. `__LP64__`, `__LITTLE_ENDIAN__`, etc.).
-    b. *New Features* If the code you are guarding, when taken together,
-    implements a feature, you should define a new feature in `config/MASTER`
-    and use the resulting `CONFIG` preprocessor token (e.g. for a feature
-    named `config_virtual_memory`, check for `#if CONFIG_VIRTUAL_MEMORY`).
-    This practice ensures that existing features may be brought to other
-    platforms by simply changing a feature switch.
-    c. *Existing Features* You can use existing features if your code is
-    strongly tied to them (e.g. use `SECURE_KERNEL` if your code implements
-    new functionality that is exclusively relevant to the trusted kernel and
-    updates the definition/understanding of what being a trusted kernel means).
-
-It is recommended that you avoid compiling based on the target platform. `xnu`
-does not define the platform macros from `TargetConditionals.h`
-(`TARGET_OS_OSX`, `TARGET_OS_IOS`, etc.).
-
-
-Debugging xnu
-=============
-
-By default, the kernel reboots in the event of a panic.
-This behavior can be overriden by the `debug` boot-arg -- `debug=0x14e` will cause a panic to wait for a debugger to attach.
-To boot a kernel so it can be debugged by an attached machine, override the `kdp_match_name` boot-arg with the appropriate `ifconfig` interface.
-Ethernet, Thunderbolt, and serial debugging are supported, depending on the hardware.
-
-Use LLDB to debug the kernel:
-
-    ; xcrun -sdk macosx lldb <path-to-unstripped-kernel>
-    (lldb) gdb-remote [<host-ip>:]<port>
-
-The debug info for the kernel (dSYM) comes with a set of macros to support kernel debugging.
-To load these macros automatically when attaching to the kernel, add the following to `~/.lldbinit`:
-
-    settings set target.load-script-from-symbol-file true
-
-`tools/lldbmacros` contains the source for these commands.
-See the README in that directory for their usage, or use the built-in LLDB help with:
-
-    (lldb) help showcurrentstacks
-
+**硬提醒**：XNU 阶段没有任何日志通道——ramoops 不保留、USB 全断、串口不存在；屏摄是唯一证据源。

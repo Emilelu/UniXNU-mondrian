@@ -1,0 +1,15 @@
+diff --git a/osfmk/kern/lock_rw.c b/osfmk/kern/lock_rw.c
+index 416c84f..cfcd45a 100644
+--- a/osfmk/kern/lock_rw.c
++++ b/osfmk/kern/lock_rw.c
+@@ -1374,6 +1374,10 @@ lck_rw_lock_shared_internal_inline(
+ 	if (lock->lck_rw_can_sleep) {
+ 		lck_rw_lock_count_inc(thread, lock);
+ 	} else if (get_preemption_level() == 0) {
++		/* K60 bring-up: name the caller before the assertion fires so the
++		 * offending non-sleepable shared-lock acquisition can be located. */
++		printf("K60 RW-LOCK: non-sleepable shared lock %p, caller %p\n",
++		    lock, caller);
+ 		panic("Taking non-sleepable RW lock with preemption enabled");
+ 	}
+ 

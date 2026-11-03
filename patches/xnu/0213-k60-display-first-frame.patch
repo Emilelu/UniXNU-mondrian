@@ -1,0 +1,42 @@
+diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+index 5b49d7d..666b399 100644
+--- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
++++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+@@ -312,6 +312,8 @@ setNumber(OSDictionary * dict, const char * key, uint64_t value)
+  */
+ #define kFBTimingID     1
+ #define kFBColorID      1
++/* The display's own identifier: CoreAnimation treats 0 as "no display". */
++#define kFBDisplayID    1
+ 
+ void
+ IOMobileFramebuffer::publishModes(void)
+@@ -356,6 +358,8 @@ IOMobileFramebuffer::publishModes(void)
+ 
+ 	setProperty("TimingElements", timings);
+ 	setProperty("ColorElements", colors);
++	IOLog("K60 DISPLAY: TimingElements %ux%u at %u Hz id %u, ColorElements id %u depth 8\n",
++	    fWidth, fHeight, refreshHz(), kFBTimingID, kFBColorID);
+ 	OSSafeReleaseNULL(timings);
+ 	OSSafeReleaseNULL(colors);
+ 	OSSafeReleaseNULL(timing);
+@@ -965,6 +969,10 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
+ 	}
+ 	drawn = mach_absolute_time();
+ 	fSwapsShown++;
++	if (fSwapsShown == 1) {
++		IOLog("K60 DISPLAY: first frame presented (swap %u, %ux%u canvas on %ux%u panel)\n",
++		    swapWord(swap, SWAP_ID), fWidth, fHeight, fPanelWidth, fPanelHeight);
++	}
+ 	if (gTouchLat) {
+ 		IOLog("tl: v %u ready %llu shown %llu done %llu\n", swapWord(swap, SWAP_ID), micros(ready), micros(shown),
+ 		    micros(drawn));
+@@ -1240,7 +1248,7 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 		if (args->scalarOutputCount < 1) {
+ 			return kIOReturnBadArgument;
+ 		}
+-		out[0] = 1;
++		out[0] = kFBDisplayID;
+ 		args->scalarOutputCount = 1;
+ 		return kIOReturnSuccess;
+ 

@@ -1,0 +1,166 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -368,6 +368,27 @@
+ 
+ struct image_params;    /* Forward */
+ static int exec_activate_image(struct image_params *imgp);
++
++/*
++ * K60: the bring-up trace. The console is the only channel this machine gives
++ * us, so nothing here may be allowed to scroll the interesting part away:
++ *   - every exec is counted, but only the FIRST exec of each distinct binary is
++ *     printed (djb2 of the path), so the list is complete yet bounded;
++ *   - only abnormal exits (a signal, or a nonzero status) are printed;
++ *   - the last exec and the last abnormal exit are kept in globals, and
++ *     MiniIOMobileFramebuffer prints them beside its five-second frame line, so
++ *     whatever is on the screen when the boot stops is the summary.
++ */
++unsigned int k60_exec_count;             /* every exec */
++unsigned int k60_exit_count;             /* every exit */
++unsigned int k60_abnormal_count;         /* exits with a signal or a nonzero status */
++int          k60_last_exec_pid;
++char         k60_last_exec_comm[24];
++char         k60_last_exec_path[64];
++int          k60_last_bad_pid;
++char         k60_last_bad_comm[24];
++unsigned int k60_last_bad_signal;
++unsigned int k60_last_bad_status;
+ static int exec_copyout_strings(struct image_params *imgp, user_addr_t *stackp);
+ static int load_return_to_errno(load_return_t lrtn);
+ static int execargs_alloc(struct image_params *imgp);
+@@ -2161,6 +2182,33 @@
+ 	/* Use excpath, which contains the copyin-ed exec path */
+ 	DTRACE_PROC1(exec, uintptr_t, excpath);
+ 
++	{
++		static uint32_t k60_path_hashes[128];
++		static unsigned k60_path_count;
++		uint32_t k60_hash = 5381;
++		const char * k60_walk = excpath;
++		bool k60_first = true;
++		unsigned k60_i;
++
++		k60_exec_count++;
++		while (*k60_walk != '\0') {
++			k60_hash = (k60_hash * 33) ^ (uint32_t) (unsigned char) *k60_walk++;
++		}
++		for (k60_i = 0; k60_i < k60_path_count; k60_i++) {
++			if (k60_path_hashes[k60_i] == k60_hash) {
++				k60_first = false;
++				break;
++			}
++		}
++		if (k60_first && k60_path_count < 128) {
++			k60_path_hashes[k60_path_count++] = k60_hash;
++			printf("KE %u %d %s %s\n", k60_path_count, proc_getpid(p), p->p_comm, excpath);
++		}
++		k60_last_exec_pid = proc_getpid(p);
++		strlcpy(k60_last_exec_comm, p->p_comm, sizeof(k60_last_exec_comm));
++		strlcpy(k60_last_exec_path, excpath, sizeof(k60_last_exec_path));
++	}
++
+ 	ndp = kalloc_type(struct nameidata, Z_WAITOK | Z_ZERO | Z_NOFAIL);
+ 
+ 	NDINIT(ndp, LOOKUP, OP_LOOKUP, FOLLOW | LOCKLEAF | AUDITVNPATH1,
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1578,6 +1578,29 @@
+ 
+ 	p->p_lflag |= P_LEXIT;
+ 	p->p_xstat = rv;
++
++	{
++		extern unsigned int k60_exec_count, k60_exit_count, k60_abnormal_count;
++		extern int k60_last_bad_pid;
++		extern char k60_last_bad_comm[24];
++		extern unsigned int k60_last_bad_signal, k60_last_bad_status;
++		unsigned int k60_status = (unsigned int) ((rv >> 8) & 0xff);
++		unsigned int k60_sig = (unsigned int) (rv & 0x7f);
++
++		k60_exit_count++;
++		if (k60_status != 0 || k60_sig != 0) {
++			if (k60_abnormal_count < 300) {
++				printf("KX! %u %d %s exit=%u sig=%u (execs %u)\n", k60_abnormal_count + 1,
++				    proc_getpid(p), p->p_comm, k60_status, k60_sig, k60_exec_count);
++			}
++			k60_abnormal_count++;
++			k60_last_bad_pid = proc_getpid(p);
++			strlcpy(k60_last_bad_comm, p->p_comm, sizeof(k60_last_bad_comm));
++			k60_last_bad_signal = k60_sig;
++			k60_last_bad_status = k60_status;
++		}
++		/* a clean exit(0) is not worth a line: every daemon does it */
++	}
+ 	p->p_lflag |= jetsam_flags;
+ 
+ 	proc_transend(p, 1);
+--- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
++++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+@@ -32,6 +32,7 @@
+ #include <pexpert/pexpert.h>
+ #include <sys/systm.h>
+ #include <sys/proc.h>
++#include <sys/proc_internal.h>
+ 
+ extern "C" {
+ #include <console/video_console.h>
+@@ -253,6 +254,8 @@
+ 	uint64_t        fStatBeatWait;
+ 	uint32_t        fStatSurfaces[8];       /* the first different surfaces the bottom layer was given */
+ 	uint32_t        fStatHeld, fStatLost;   /* swaps that waited for the one before; that gave up waiting */
++	uint32_t        fClientPids[8];          /* the processes that have handed a swap to us */
++	uint8_t         fClientCount;
+ 	uint64_t        fSwapTime;              /* when the last swap was handed over */
+ 	uint32_t        fStatSwapsLate;         /* swaps that came more than a refresh and a quarter after the one before (and no pause) */
+ 	uint64_t        fStatWaiting;           /* how long frames waited for the GPU here */
+@@ -791,6 +794,26 @@
+ void
+ IOMobileFramebuffer::present(const uint8_t * swap)
+ {
++
++	/* which process is driving the panel: the window server, Setup, or something else */
++	{
++		proc_t k60_cp = current_proc();
++		uint32_t k60_pid = k60_cp ? (uint32_t) (k60_cp->p_pid) : 0;
++		bool k60_seen = false;
++		unsigned k60_i;
++
++		for (k60_i = 0; k60_i < fClientCount; k60_i++) {
++			if (fClientPids[k60_i] == k60_pid) {
++				k60_seen = true;
++				break;
++			}
++		}
++		if (!k60_seen && fClientCount < 8) {
++			fClientPids[fClientCount++] = k60_pid;
++			IOLog("MiniIOMobileFramebuffer: swap client pid %u '%s' on swap %u\n", k60_pid,
++			    k60_cp ? k60_cp->p_comm : "?", swapWord(swap, SWAP_ID));
++		}
++	}
+ 	AbsoluteTime deadline;
+ 
+ 	uint64_t now = mach_absolute_time(), period, pause;
+@@ -1006,6 +1029,23 @@
+ 		    waiting / fStatFrames / NSEC_PER_USEC, fStatOnBeat, fStatOnBeat ? beat / fStatOnBeat / NSEC_PER_USEC : 0,
+ 		    fStatHeld, fStatLost, fStatSwapsLate);
+ 		fStatSwapsLate = 0;
++		{
++			extern unsigned int k60_exec_count, k60_exit_count, k60_abnormal_count;
++			extern int k60_last_exec_pid, k60_last_bad_pid;
++			extern char k60_last_exec_comm[24], k60_last_exec_path[64], k60_last_bad_comm[24];
++			extern unsigned int k60_last_bad_signal, k60_last_bad_status;
++			static unsigned int k60_seen_exec = ~0u, k60_seen_exit = ~0u;
++
++			if (k60_exec_count != k60_seen_exec || k60_exit_count != k60_seen_exit) {
++				k60_seen_exec = k60_exec_count;
++				k60_seen_exit = k60_exit_count;
++				IOLog("K60 ex=%u kx=%u abn=%u\n", k60_exec_count, k60_exit_count, k60_abnormal_count);
++				IOLog("K60 last exec: %d '%s' %s\n", k60_last_exec_pid, k60_last_exec_comm,
++				    k60_last_exec_path);
++				IOLog("K60 last bad : %d '%s' exit=%u sig=%u\n", k60_last_bad_pid, k60_last_bad_comm,
++				    k60_last_bad_status, k60_last_bad_signal);
++			}
++		}
+ 		for (different = 0; different < 8 && fStatSurfaces[different] != 0; different++) {
+ 		}
+ 		if (different == 8 && fStatFrames > 8) {

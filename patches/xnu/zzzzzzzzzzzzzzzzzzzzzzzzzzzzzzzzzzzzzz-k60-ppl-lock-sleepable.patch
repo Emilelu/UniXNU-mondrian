@@ -1,0 +1,19 @@
+diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
+index fc2096f..efdd79c 100644
+--- a/osfmk/arm/pmap/pmap.c
++++ b/osfmk/arm/pmap/pmap.c
+@@ -2252,7 +2252,13 @@ pmap_bootstrap(
+ #if PMAP_CS_PPL_MONITOR
+ 	/* Initialize the PPL trust cache read-write lock */
+ 	lck_rw_init(&ppl_trust_cache_rt_lock, &pmap_lck_grp, 0);
+-	ppl_trust_cache_rt_lock.lck_rw_can_sleep = FALSE;
++	/*
++	 * K60 bring-up: the lock is only ever acquired from pmap_query_trust_cache_safe(),
++	 * which on this board is reached through the ordinary AMFI path with preemption
++	 * enabled because there is no XNU_MONITOR / KTRR to establish a PPL context. Keep
++	 * it sleepable so the DEBUG_RW assertion in lck_rw_lock_shared does not fire.
++	 */
++	ppl_trust_cache_rt_lock.lck_rw_can_sleep = TRUE;
+ #endif
+ 
+ #if MACH_ASSERT

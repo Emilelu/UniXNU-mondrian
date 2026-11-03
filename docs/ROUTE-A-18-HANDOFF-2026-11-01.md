@@ -1,0 +1,321 @@
+# Route A-18 交接全文（2026-11-01）
+
+> 本文承接 `HANDOFF-2026-10-31.md`（darwin22 时代）之后的所有工作。
+> **阅读顺序**：本文 → `ROUTE-A-18-STATE.md` → `PONG-FEASIBILITY.md` → `HANDOFF-2026-10-31.md`（历史）。
+
+---
+
+## 0. 一句话现状
+
+**darwin22（16.6.1）已经解决掉所有影响启动的内核 panic，但卡在用户态 sig=9 风暴；
+现按用户决定整体切换到 darwin24（18.7.10 / 22H374 / xnu-11417）。内核在 Linux 上可完整构建，
+已排除三层启动阻断，目前卡在"loader 跳板已执行（屏幕出现绿条）→ 内核进入后静默复位"。**
+
+---
+
+## 1. 为什么离开 darwin22（不要回头重查）
+
+darwin22 已经做到：8 核启动到 launchd、服务链拉起 SpringBoard、`/private/var` 读写挂载、
+keybag 通过、watchdogd 禁用、**屏幕出现 iOS 启动进度条**。
+
+**无法解决的那一个**：约 98% 守护进程以 signal 9 异常退出（sig=9 风暴）。已排除：
+
+| 假设 | 补丁 | 结果 |
+|---|---|---|
+| 无条件 Sandbox 策略拒绝 | `0240` | 风暴未停 |
+| 启动约束（LaunchConstraint）拒绝 | `0241`（`k60-no-lc=1`） | 风暴未停 |
+
+用户明确表态："问题依旧 不走16.6.1了"。**该分支已关闭，不要回去。**
+
+---
+
+## 2. 为什么选 pong（Route A-18 的依据）
+
+`UniXNU-pong` 是 **同一颗 SM8475**（A730 GPU / QCA6490 / TFA9873 / Goodix Berlin-D 全在），
+darwin24 = iPadOS 18.7.10 / 22H374 / xnu-11417.140.69。
+
+**证据强度的诚实说明**：pong 的 `porting.toml` 有 13 条 `kind="source"`、0 条 host、0 条 device，
+`migration-state.json` 里 `image_hashes_used: false`。**也就是说 pong 的 darwin24 从未提供过
+可复现的实机证据。** 不要把 pong 的"能跑"当成事实——本项目的 bug 可能就是 pong 自己的 bug。
+
+**架构决策**：不采用 pong 的构建系统（仅 macOS，`build-ipados18.py` 用 `xcrun`，CI 是
+`macos-15-intel`）。只采用 pong 的**内核源码与驱动**，送进我们自己的 K60 流水线
+（ADT / prelink / payload / bootimg），该流水线已在 16.6.1 上端到端验证过。
+
+---
+
+## 3. 构建环境（全部在 Linux，不需要 macOS）
+
+| 项 | 值 |
+|---|---|
+| 框架核心 | `/tmp/k60build`，分支 `k60build` |
+| 设备仓库 | `~/hackios/UniXNU-mondrian` |
+| pong 仓库 | `~/hackios/UniXNU-pong` |
+| UEFI 仓库 | `~/hackios/uefi-mondrian` |
+| K60 驱动源码 | `/tmp/k60build/pong-driver` |
+| 构建树 | `/tmp/k60build/out/route-a18/Pong-iPadOS18-native` |
+
+### 3.1 内核构建（可复现）
+
+```bash
+wsl -d Ubuntu-24.04 -- python3 <workspace>/k60-work/route-a18-platform-build.py
+```
+
+关键点（踩过的坑，别重犯）：
+
+1. `MACHINE_CONFIGS=PONG`（darwin24 白名单里没有 BCM2837）
+2. `PLATFORM=iPhoneOS` 必须显式设置
+3. **`LD_KERNEL_ARCHIVES` 会替换默认列表** → 必须显式写 `-L$FAKEROOT/usr/local/lib/kernel -lfirehose_kernel`
+4. **make 不追踪命令行变量变化** → 改 `LD_KERNEL_ARCHIVES` 后必须先删
+   `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf` 才会重新链接。
+   这一条坑过一次：sha256 完全没变，误以为链接成功。
+5. PGO 符号需 `LD_KERNEL_LIBS=.../libcc_kext.a`
+
+### 3.2 平台驱动归档（关键：曾经完全缺失）
+
+```bash
+wsl -d Ubuntu-24.04 -- python3 <workspace>/k60-work/build-k60-platform-archives.py
+```
+产出 `build/armdt-platform/libArmDTPlatform.a`（27,808 B）与 `build/armcpu/libArmCpu.a`（34,600 B）。
+
+**这两份必须用 `-Wl,-force_load` 链进内核**，否则 `PE_init` 找不到 `IODTPlatformExpert`，
+内核没有控制台、loader 报 `0 staged kext(s)`。16.6.1 能显示控制台正是因为它链了这两份。
+
+### 3.3 UEFI FD 构建
+
+```bash
+cd ~/hackios/uefi-mondrian && python3 ./build_uefi.py -d mondrian -r DEBUG -c
+```
+
+- **不需要 `nasm` / `iasl`**（曾误判为阻塞，实际 AARCH64 平台构建不需要）
+- 结尾 `The Device DTB is Missing in "Resources/DTBs"!` 是**无害**的构建后步骤失败，
+  硬件 DTB 由 `bootimg` 单独提供
+- 产物：`Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd`
+
+### 3.4 打包与校验
+
+```bash
+cd /tmp/k60build
+./unixnu bootimg -D ~/hackios/UniXNU-mondrian --uefi ~/hackios/uefi-mondrian \
+  --fd ~/hackios/uefi-mondrian/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd \
+  --dtb <OUT>/device-tree/hardware.dtb \
+  --ramdisk <OUT>/payload/payload.img \
+  -o /mnt/d/Android/k60-ios/<name>.img
+```
+
+`bootimg` 返回 rc=1 且提示 `boot image header does not match the requested parameters`
+是**已知误报**，必须用独立哈希校验，见 §5。
+
+---
+
+## 4. 已排除的三层阻断（重要，避免重复劳动）
+
+### 4.1 入口点 — 已排除
+
+darwin24 内核 `LC_UNIXTHREAD` PC = `0xFFFFFFF0074C04A0`，文件偏移 `0x4bc4a0`。
+入口字 `140006EF 00000000 00000000 00000000`，`B +0x1bbc` 跳到真实代码
+`D510109F D5034FDF AA0003F4 D2800015`。
+
+**我们 darwin22（能启动）的入口字完全一样**；Apple 22H374 只是用 `D503201F`(NOP) 填充、
+分支偏移不同，落点同样是 `D510109F...`。→ 入口不是问题。
+
+### 4.2 `boot_args` 结构体（xnu 源码侧）— 已排除
+
+`pexpert/pexpert/arm64/boot.h` 的 `struct boot_args`（13 字段）与 `struct Boot_Video`（6 字段）
+在 xnu-8796 与 xnu-11417 **完全相同**。→ 内核侧结构体没变。
+
+### 4.3 `start.s:756` 的 `bne .` 自旋 — 已排除
+
+```asm
+MOV64   x0, SCTLR_EL1_DEFAULT
+MSR_SCTLR_EL1_X0        // PONG 是 NO_MONITOR=1 → KTRR 关闭 → 仅 msr，不改 x0
+isb     sy
+MOV64   x1, SCTLR_EL1_DEFAULT
+cmp     x0, x1          // 常量与自己比较 → 永远相等
+bne     .
+```
+→ 永远不跳转，不是死循环点。（`start.s:568` 的 `bne .` 由 `tbz w1,#0x1f` 保护，
+非 kext 内核会跳过，也不是。）
+
+---
+
+## 5. boot 镜像真实布局（校验时必须知道）
+
+```
+偏移 0        ANDROID! 头 (page 4096, kernel_size 548935)
+偏移 4096     gzip(UEFI FD)  547,073 B   ← 内含 112 B BootShim 前缀，ARMd 在 +56
+偏移 551169   hardware.dtb     1,862 B   （追加在内核区末尾）
+偏移 557056   payload.img  201,326,592 B
+总计          201,887,744 B
+```
+
+校验方法（`verify-shim-fd.py` 已实现）：解 gzip → 去掉前 112 字节 → 必须等于 FD 的 sha256。
+
+---
+
+## 6. ★ Route A-18 的第 2 个根因：`boot_args` ABI（已修复并验证）
+
+**这是最容易被忽略、也最致命的一处。** `uefi-mondrian` 里的
+`Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h` 是**我们自己**在 16.6.1 时代改写的
+Darwin 22 版本，注释里就写着：
+
+> Handing a Darwin 22 kernel a Darwin 24 layout puts BootFlags and MemorySizeActual
+> 0x1a0 bytes past where the kernel reads them, which is an immediate fault on handoff.
+
+| 字段 | Darwin 22（旧，错） | Darwin 24（现在） |
+|---|---|---|
+| `DARWIN_BOOT_LINE_LENGTH` | 608 | **1024** |
+| `BootFlags` 偏移 | `0x2d0` | **`0x470`** |
+| `MemorySizeActual` 偏移 | `0x2d8` | **`0x478`** |
+| `sizeof` | `0x2e0` | **`0x480`** |
+
+已改并**双重验证**：
+- 编译期 `STATIC_ASSERT` 全过
+- `DarwinBoot.obj` 内含 `0x480 ×3`、`1024 ×11`；FD 内 `0x2e0` 出现 **0 次**
+- FD sha256：`a8a6f79c1d7705d96922c523c63c1cee24988788d29bfc97529e1cdbc67e4d4d`
+
+同批修正：`DarwinBoot.c` 两处打印从 "Darwin 22 ABI" 改为 "Darwin 24 ABI"（只是字符串，
+但屏幕上看到 "Darwin 22" 会误导诊断）。
+
+**顺带确认的事实**：`Entry.S` 与 pong 的 `DarwinBoot24` **sha256 完全一致**；
+`DarwinBoot.c` 与 pong 的差异只有我们加的 QR 调试行、前缀标签、ABI 字符串。
+→ **除 `BootArgs.h` 外，我们的 loader 本来就是 pong 的 DarwinBoot24。**
+
+---
+
+## 7. 当前卡点（下一任从这里开始）
+
+最后一次上机（`boot-darwin24-abi24.img`）现象：
+
+```
+… entry words 140006EF 00000000 00000000 00000000
+HANDOFF EXIT RETURN 00000000000000803518
+owned trampoline pa 0xC84F8000 (196 bytes)
+Exiting boot services…
+SecurityLock::LockType: SOFTWARE_LOCK … LockCapsuleInterface
+```
+**+ 屏幕上方出现绿条**（用户确认）。
+
+### 绿条意味着什么
+
+绿条由 `Entry.S` 的 `DarwinEnter` 绘制，位置在关 MMU **之前**：
+
+```asm
+mrs x4, sctlr_el1
+bic x4, x4, #1        // MMU OFF
+bic x4, x4, #4        // D-cache OFF
+bic x4, x4, #0x1000   // I-cache OFF
+msr sctlr_el1, x4
+tlbi vmalle1
+dsb sy
+isb
+br x1                 // 跳到内核入口的物理地址
+```
+
+→ **跳板确实执行了并跳进了内核**（PA `0xC74C04A0`）。阶段从"没进去"推进到"进去了、内核瞬死"。
+
+`HANDOFF EXIT RETURN 0x803518` 是 `ExitBootServices` 的返回码，bit63=0 → `EFI_ERROR` 为假
+→ `Enter()` 确实被调用，之后 `CpuDeadLoop()`，然后板子复位。
+
+### 已知的观测盲区（这是最大障碍）
+
+- pong 的驱动栈里**只有 5 个驱动**：`ArmCpu` `ArmDTPlatform` `NativeRamBlock` `NativeUfs` `PongAdreno`
+  ——**没有任何视频控制台驱动**
+- `pong_display` / `pong_software_ui` 在整个驱动树中**没有读者**（它们是用户态标志，不是控制台开关）
+- ramoops 控制台（K60 基址 `0xA7000000`）的 `pong_ramoops_console_init()` 在
+  `arm_init()` 里 **`arm_vm_init()` 之后**才跑
+
+→ **`arm_vm_init` 之前/之中的任何死亡都是完全静默的。** 必须先解决"看得见"的问题。
+
+### 已核实：FDT 假设不成立（原"最新线索"是误判，2026-11-01 复核）
+
+原判断"打包的 `hardware.dtb` 缺节点导致 `ArmDTPlatform::configure()` 失败"**不成立**：
+
+- XNU 解析的从来不是 FDT。`DarwinBoot.c:698-711` 按文件名读 FAT 卷里的
+  `Payloads/kernel.macho.adt`，格式是 XNU 的 `DeviceTreeNode`；`SecureDTInit()`
+  （`pexpert/gen/device_tree.c:236-245`）连魔数都不校验。boot.img 尾部追加的那颗
+  1862 B `hardware.dtb` 是 Android `Image.gz-dtb` 惯例的产物，**没有任何消费者**
+  （`AndroidBootImgLocateFdt` 只服务 EFI/Linux 条目，XNU 条目不经过）。
+- ADT **一直存在**：payload FAT 内 `::/EFI/UniXNU/Payloads/kernel.macho.adt`，
+  **14,672 B**，sha256 `78f8ecd0…`，与 `payload.json` 的 `adt_sha256` 逐字节吻合。
+  不是"adt.bin 不存在"。
+- 该 ADT 节点树：`/device-tree` → `/chosen`（`nvram-bank-size=0x2000`、8192 B proxy）、
+  `/cpus`（cpu0..7）、`/psci`、`/arm-io`（`ranges`）、`/defaults`、`/options`、`/product`。
+  `ArmDTPlatform::configure()` 的四项结构检查与 `/chosen` NVRAM 检查**逐条可过**。
+- 所谓"头部 magic `0x06000000`"不是 magic、也不是容器：`06 00 00 00 07 00 00 00`
+  是 `nProperties=6 / nChildren=7`（小端）。该 blob 本身就是 ADT，内部不嵌 FDT。
+- 决定性对照：**能启动到 SpringBoard 的 20G81 镜像，`--dtb` 传的是同一个
+  1862 B `hardware.dtb`（sha256 `8b8618…`）**，payload 里的 ADT 也是同一套生成逻辑。
+  同一份输入一代成功一代失败 → FDT 不是自变量。
+
+### 真正的缺口（2026-11-01 新发现，本轮要修）
+
+当前 darwin24 内核的 `__PRELINK_TEXT / __PRELINK_INFO / __PRELINK_DATA / __PLK_*`
+**六段 size 全为 0**（内核 20,872,376 B）；而能启动到 SpringBoard 的 20G81 内核同段是
+`0x714000 / 0x71000 / 0x158000`。
+
+- `scripts/build-darwin24-platform.py` 只做链接，**不做 prelink**；darwin24 路线没有
+  `profiles/os/ipados-18.7.10-22H374`，`unixnu build kernel` 的 prelink 步骤被整个绕过
+- pong 自己的 darwin24 流水线是做的：`build-ipados18-prelinked-boot.py` 用
+  `plan()/emit()` 把 22H374 的 kext 拼进自建内核（roots = corecrypto / pthread / apfs /
+  Compression / AppleFSCompressionZlib）
+- 22H374 kernelcache 已确认**解密完整**：`out/ipsw/22H374/kernelcache.decompressed`
+  48,562,204 B，`__PRELINK_INFO` 明文 XML 含 **852** 个 `CFBundleIdentifier`，
+  `__PRELINK_TEXT` 起始即 `cffaedfe` 可执行 Mach-O → prelink 在 Linux 可做
+
+---
+
+## 8. 下一步建议（按优先级）
+
+1. **补 prelink**（离线可验证，零设备风险）。5 个 roots，`slide = -0x112C000`（不要用
+   `emit_prelink_autoslide.py`，它会算成 `-0x2dc000`，不撞段但与 pong 已验证布局不一致）。
+   `AppleARMPlatform / AppleARMWatchdogTimer / AppleEffaceableStorage` 会被依赖自动拉进来，
+   **必须放进 `library_only_components`**，否则 `AppleARMPE` 会抢我们 `-force_load` 的
+   `ArmDTPlatform`、看门狗也会被挂上。
+2. **面包屑**：`start.s` M00–M03（MMU 关 → 开 → 开之后）+ `arm_init.c` M04–M07，
+   统一写 PA `0xA73FF000`（4 MiB carveout 的最后一页，UEFI 只清前 2 MiB，pong 的
+   diagnostic ring 也碰不到）。需要在 bootstrap 页表里补一个 2 MiB Device 块映射
+   （`0xA7200000`，描述符 `0x00400000A720040D`），否则 MMU 一开就不可写。
+   注意 `0xB8000000`（帧缓冲）与 `0xA7000000`（ramoops 头部）都**不在** bootstrap 映射内，
+   原方案里"开 MMU 后仍可用 PA 写 framebuffer"的说法是错的。
+3. 越过 `arm_vm_init` 后读 ramoops carveout，看 `PONG DIAGNOSTIC v92` / `K60B:` 是否出现。
+4. 再往后：22H374 trust cache 转换（仍用 20G81 的 `344ae644…`）、DarwinBoot24 UEFI 若需要。
+
+---
+
+## 9. 硬约束（违反会变砖）
+
+- **只 `fastboot boot`，绝不 `fastboot flash boot`**（boot 分区属 Android，会毁双系统）
+- **绝不 `fastboot flash persist`**（TEE 会 `deleteAllKeys`，密钥永久失效）
+- 允许写 `unixnu` 分区；禁止碰 `persist` / `modemst*` / Android `userdata`
+- 设备串号 `6033dbec`
+- **不要批量改动"你无法归因的改动"**（注意：这不等于"一次只改一个"）。按可归因性分三层：
+  - **离线可验证的改动 → 随便批量。** 构建配置、补丁系列、文档、字符串标签、结构体断言、
+    符号表核对，验证是确定性的且完整的，一次改 20 处也不会增加风险。
+  - **失败签名可区分的改动 → 应该批量。** 给内核加阶段面包屑（入口 / 页表建好 / MMU 开 /
+    `arm_vm_init` 后）之后，一次刷机就能拿到多个信息点；此时一次只改一个反而是浪费设备时间。
+    **加面包屑本身就是在购买批量改动的权利，所以优先做它。**
+  - **只有二值输出且原因不可分时，才必须一次一个。** 也就是"能跑 / 不能跑"是唯一信号、
+    且候选原因不互斥的场合。
+- 无论属于哪一层，汇报时必须写清**这次改了什么、依据是什么、预期看到什么、若没看到就排除了什么**。
+- 目标函数是**每次刷机的信息量**，不是每次刷机的改动量。设备是人工进 fastboot 的稀缺资源，
+  所以要尽量把可区分的信号打进同一颗镜像。
+- 提交按文件拆分，**绝不 `git add -A`**；`mac-build/` 保持未跟踪
+- 每个 push 的仓库，README 要及时跟进更新
+
+---
+
+## 10. 关键产物清单（截至 2026-11-01）
+
+| 产物 | 大小 | sha256 |
+|---|---|---|
+| darwin24 内核 `mach.development.pong.unstripped.noctf` | 20,872,376 | `2f485593b3f7c2d35657f14d5e2e5804ca434fbf56df6f275c0802bf32a7e5cd` |
+| payload.img | 201,326,592 | `632cb82961ab2ecd82c1e36a97a284ecd9ceec3e012078867450cb670ea20728` |
+| UEFI FD（ABI 修复 + 标签） | 3,145,728 | `a8a6f79c1d7705d96922c523c63c1cee24988788d29bfc97529e1cdbc67e4d4d` |
+| `boot-darwin24-abi24.img`（**已刷，出绿条**） | 201,887,744 | `c249c547e6999a2722b5884733bda98af9c0d5a719ab575e4e921465df8c338a` |
+| `boot-darwin24-abi24b.img`（已构建，未刷） | 201,887,744 | `6796e1479e5c5cd83fa37998b573d394e6b2b7a44ff2083353a153b9d04b35e0` |
+| `libArmDTPlatform.a` | 27,808 | — |
+| `libArmCpu.a` | 34,600 | — |
+| 22H374 kernelcache（解压后） | 48,562,204 | `7f730f49240b76ca4b5938b152479cba1b729ac4c188e233e73665394f04ba43` |
+
+设备仓库已提交：`3e23d1d`、`e24207d`、`b38621f`、`1c674d4`、`31f68da`（分支 `route-a-18`）。

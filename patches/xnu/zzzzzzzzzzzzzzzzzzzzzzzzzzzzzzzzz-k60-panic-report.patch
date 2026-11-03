@@ -1,0 +1,118 @@
+diff --git a/osfmk/kern/debug.c b/osfmk/kern/debug.c
+index 0a00656..451f40b 100644
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1302,6 +1302,10 @@ debugger_collect_diagnostics(unsigned int exception, unsigned int code, unsigned
+ 		 */
+ 		SavePanicInfo(debugger_message, debugger_panic_data, debugger_panic_options);
+ 
++		/* K60: persist the panic log to the Android pstore zone and reset */
++		PE_k60_publish_panic();
++		PE_k60_reset_now();
++
+ #if DEVELOPMENT || DEBUG
+ 		INJECT_NESTED_PANIC_IF_REQUESTED(PANIC_TEST_CASE_RECURPANIC_POSTLOG);
+ #endif
+diff --git a/pexpert/arm/pe_init.c b/pexpert/arm/pe_init.c
+index 04dda53..478ef90 100644
+--- a/pexpert/arm/pe_init.c
++++ b/pexpert/arm/pe_init.c
+@@ -763,6 +763,85 @@ PE_sync_panic_buffers(void)
+ 	}
+ }
+ 
++/*
++ * K60 bring-up: publish the panic text into the Android ramoops pmsg zone
++ * (0xA7200000, 2 MiB) as a persistent_ram buffer, then reset the machine so
++ * the next Android boot can expose it through /sys/fs/pstore (pmsg record).
++ */
++#define K60_PSTORE_BASE 0xA7200000u
++#define K60_PSTORE_SIZE 0x00200000u
++#define K60_PSTORE_SIG  0x43474244u
++#define K60_PSCI_SYSTEM_RESET 0x84000009u
++
++void
++PE_k60_publish_panic(void)
++{
++	vm_offset_t base;
++	uint32_t *hdr;
++	unsigned int len;
++
++	if (!gPanicBase || !panic_info) {
++		return;
++	}
++	len = panic_info->eph_panic_log_len;
++	if (len == 0) {
++		return;
++	}
++	if (len > K60_PSTORE_SIZE - 12) {
++		len = K60_PSTORE_SIZE - 12;
++	}
++	base = ml_io_map_wcomb(K60_PSTORE_BASE, K60_PSTORE_SIZE);
++	if (!base) {
++		return;
++	}
++	hdr = (uint32_t *)base;
++	hdr[0] = K60_PSTORE_SIG;
++	hdr[1] = 0;
++	hdr[2] = len;
++	bcopy((const void *)(gPanicBase + panic_info->eph_panic_log_offset), (void *)(base + 12), len);
++	CleanPoC_DcacheRegion_Force(base, 12 + len);
++}
++
++static int
++k60_psci_uses_hvc(void)
++{
++	DTEntry chosen;
++	void const *prop;
++	unsigned int size = 0;
++	static int cached = -1;
++
++	if (cached >= 0) {
++		return cached;
++	}
++	cached = 0;
++	if (SecureDTLookupEntry(0, "/chosen", &chosen) == kSuccess &&
++	    SecureDTGetProperty(chosen, "psci-method", &prop, &size) == kSuccess &&
++	    size >= 3 && ((const char *)prop)[0] == 'h' && ((const char *)prop)[1] == 'v' &&
++	    ((const char *)prop)[2] == 'c') {
++		cached = 1;
++	}
++	return cached;
++}
++
++void
++PE_k60_reset_now(void)
++{
++	/* PSCI SYSTEM_RESET with the conduit the boot loader advertised. */
++	register uint64_t x0 __asm__("x0") = (uint64_t)K60_PSCI_SYSTEM_RESET;
++	register uint64_t x1 __asm__("x1") = 0;
++	register uint64_t x2 __asm__("x2") = 0;
++	register uint64_t x3 __asm__("x3") = 0;
++
++	if (k60_psci_uses_hvc()) {
++		__asm__ volatile ("hvc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : : "memory");
++	} else {
++		__asm__ volatile ("smc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : : "memory");
++	}
++	for (;;) {
++		__asm__ volatile ("wfe");
++	}
++}
++
+ static void
+ pe_prepare_images(void)
+ {
+diff --git a/pexpert/pexpert/pexpert.h b/pexpert/pexpert/pexpert.h
+index 769a733..72d6091 100644
+--- a/pexpert/pexpert/pexpert.h
++++ b/pexpert/pexpert/pexpert.h
+@@ -494,6 +494,8 @@ extern uint64_t PE_nvram_stashed_x86_macos_slide;
+ 
+ boolean_t PE_reboot_on_panic(void);
+ void PE_sync_panic_buffers(void);
++void PE_k60_publish_panic(void);
++void PE_k60_reset_now(void);
+ 
+ typedef struct PE_panic_save_context {
+ 	void *psc_buffer;

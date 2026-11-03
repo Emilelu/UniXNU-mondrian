@@ -1,0 +1,106 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7588,6 +7588,103 @@
+ 		}
+ 		printf("K60DATA launchd policy err=%d\n", k60_lerr);
+ 	}
++
++	/*
++	 * K60: the boot then blocks in CoreTelephony -> CommCenter -- this image's OS
++	 * volume carries no CommCenter daemon at all, so the call never returns -- and
++	 * SpringBoard's scene-create watchdog kills Setup (com.apple.purplebuddy) while
++	 * it is still blocked there. Seed the two preferences the sweet bring-up used
++	 * to take both out of the path (their NOTES.md, images v13/v14). This runs from
++	 * the same kern_exec hook as the launchd policy above, so it needs no userland.
++	 */
++	{
++		static const char * const k60_pref_dirs[] = {
++			"/private/var/mobile",
++			"/private/var/mobile/Library",
++			"/private/var/mobile/Library/Preferences",
++		};
++		static const struct {
++			const char * path;
++			const char * body;
++		} k60_prefs[] = {
++			{ "/private/var/mobile/Library/Preferences/com.apple.springboard.plist",
++			  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++			  "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
++			  "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++			  "<plist version=\"1.0\"><dict>"
++			  "<key>BKNoWatchdogs</key><true/>"
++			  "<key>FBLaunchWatchdogExceptions</key><dict>"
++			  "<key>com.apple.purplebuddy</key><integer>100</integer>"
++			  "</dict></dict></plist>\n" },
++			{ "/private/var/mobile/Library/Preferences/com.apple.purplebuddy.plist",
++			  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++			  "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
++			  "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++			  "<plist version=\"1.0\"><dict>"
++			  "<key>SetupDone</key><true/>"
++			  "<key>SetupFinishedAllSteps</key><true/>"
++			  "<key>SetupVersion</key><integer>11</integer>"
++			  "<key>daemonizeNeedsToRun</key><false/>"
++			  "</dict></plist>\n" },
++		};
++		user_addr_t k60_pp = scratch + 0x800;
++		user_addr_t k60_pb = scratch + 0x900;
++		struct mkdir_args k60_pmd;
++		struct open_args k60_poa;
++		struct write_args k60_pwa;
++		struct close_args k60_pca;
++		int32_t k60_prc = 0;
++		int k60_perr = 0;
++		size_t k60_i;
++
++		for (k60_i = 0; k60_i < sizeof(k60_pref_dirs) / sizeof(k60_pref_dirs[0]); k60_i++) {
++			k60_perr = copyout(k60_pref_dirs[k60_i], k60_pp,
++			    strlen(k60_pref_dirs[k60_i]) + 1);
++			if (k60_perr) {
++				break;
++			}
++			k60_pmd.path = k60_pp;
++			k60_pmd.mode = 0755;
++			k60_perr = mkdir(p, &k60_pmd, &k60_prc);
++			if (k60_perr == 17) {   /* EEXIST */
++				k60_perr = 0;
++			}
++			if (k60_perr) {
++				break;
++			}
++		}
++
++		for (k60_i = 0; !k60_perr && k60_i < sizeof(k60_prefs) / sizeof(k60_prefs[0]); k60_i++) {
++			k60_perr = copyout(k60_prefs[k60_i].path, k60_pp,
++			    strlen(k60_prefs[k60_i].path) + 1);
++			if (k60_perr) {
++				break;
++			}
++			k60_perr = copyout(k60_prefs[k60_i].body, k60_pb,
++			    strlen(k60_prefs[k60_i].body) + 1);
++			if (k60_perr) {
++				break;
++			}
++			k60_poa.path = k60_pp;
++			k60_poa.flags = 0x601;  /* O_WRONLY | O_CREAT | O_TRUNC */
++			k60_poa.mode = 0644;
++			k60_perr = open(p, &k60_poa, &k60_prc);
++			if (k60_perr) {
++				break;
++			}
++			if (k60_prc >= 0) {
++				user_ssize_t k60_pwrote = 0;
++				int k60_pfd = k60_prc;
++				k60_pwa.fd = k60_pfd;
++				k60_pwa.cbuf = k60_pb;
++				k60_pwa.nbyte = strlen(k60_prefs[k60_i].body);
++				k60_perr = write(p, &k60_pwa, &k60_pwrote);
++				k60_pca.fd = k60_pfd;
++				(void)sys_close(p, &k60_pca, &k60_prc);
++			}
++		}
++		printf("K60DATA boot preferences err=%d\n", k60_perr);
++	}
+ 	if (actual != device ||
+ 	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
+ 	if (!error) native_owner_data_stage = 4;

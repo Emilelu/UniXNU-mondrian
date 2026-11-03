@@ -1,0 +1,35 @@
+--- a/osfmk/kern/task.c
++++ b/osfmk/kern/task.c
+@@ -7510,6 +7510,32 @@
+ 		return;
+ 	}
+ #endif
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++	/*
++	 * K60 bring-up: EXC_RESOURCE_MONITORS is off in this build, so the early return
++	 * the board patch placed inside that #ifdef never compiled. The send therefore
++	 * fails and prints its 0x10000004 on every violation, flooding the console that
++	 * shares the panel with the only copy of the UI. Report the offender and the
++	 * memory verdict a bounded number of times, then leave without sending.
++	 */
++	{
++		extern volatile unsigned long long k60_dbg_mem_mib;
++		extern volatile unsigned long long k60_dbg_actual_mib;
++		extern volatile unsigned long long k60_dbg_phys_mib;
++		extern unsigned int vm_page_free_count;
++		extern unsigned int vm_page_speculative_count;
++		static unsigned int k60_wakes_reported = 0;
++
++		if (k60_wakes_reported < 24) {
++			k60_wakes_reported++;
++			printf("K60RV %u %s[%d] mem=%llu actual=%llu managed=%llu free=%u spec=%u\n",
++			    k60_wakes_reported, procname, pid,
++			    k60_dbg_mem_mib, k60_dbg_actual_mib, k60_dbg_phys_mib,
++			    vm_page_free_count, vm_page_speculative_count);
++		}
++		return;
++	}
++#endif
+ 	kr = send_resource_violation(send_cpu_wakes_violation, task, &lei,
+ 	    fatal ? kRNFatalLimitFlag : 0);
+ 	if (kr) {

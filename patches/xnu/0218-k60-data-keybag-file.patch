@@ -1,0 +1,50 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7488,6 +7488,47 @@
+ 			thread_deallocate(k60_watch_thread);
+ 		}
+ 	}
++	/*
++	 * keybagd needs a system keybag on disk. With
++	 * IODeviceTree:/defaults/no-effaceable-storage it reads this file as a plain
++	 * plist rather than unwrapping it with the effaceable key, and ios-sweet-k60
++	 * reaches the home screen with exactly this four-byte KeyBagKeys payload.
++	 */
++	{
++		static const char k60_keybag_path[] = "/private/var/keybags/systembag.kb";
++		static const char k60_keybag_body[] =
++		    "<plist version=\"1.0\"><dict><key>KeyBagKeys</key>"
++		    "<data>U1dFRVQ=</data></dict></plist>";
++		user_addr_t k60_kpath = scratch + 0x600;
++		user_addr_t k60_kbody = scratch + 0x700;
++		struct open_args k60_oa;
++		struct write_args k60_wa;
++		struct close_args k60_ca;
++		int32_t k60_ret = 0;
++		int k60_err = copyout(k60_keybag_path, k60_kpath,
++		    sizeof(k60_keybag_path));
++		if (!k60_err) {
++			k60_err = copyout(k60_keybag_body, k60_kbody,
++			    sizeof(k60_keybag_body));
++		}
++		if (!k60_err) {
++			k60_oa.path = k60_kpath;
++			k60_oa.flags = 0x601;   /* O_WRONLY | O_CREAT | O_TRUNC */
++			k60_oa.mode = 0600;
++			k60_err = open(p, &k60_oa, &k60_ret);
++		}
++		if (!k60_err && k60_ret >= 0) {
++			int k60_fd = k60_ret;
++			user_ssize_t k60_wrote = 0;
++			k60_wa.fd = k60_fd;
++			k60_wa.cbuf = k60_kbody;
++			k60_wa.nbyte = sizeof(k60_keybag_body) - 1;
++			k60_err = write(p, &k60_wa, &k60_wrote);
++			k60_ca.fd = k60_fd;
++			(void)sys_close(p, &k60_ca, &k60_ret);
++		}
++		printf("K60DATA keybag write err=%d\n", k60_err);
++	}
+ 	if (actual != device ||
+ 	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
+ 	if (!error) native_owner_data_stage = 4;

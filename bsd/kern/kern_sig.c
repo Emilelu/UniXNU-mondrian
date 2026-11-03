@@ -2066,11 +2066,27 @@ psignal_internal(proc_t p, task_t task, thread_t thread, int flavor, int signum,
 			    ((proc_getcsflags(p) & CS_KILLED) ? "(CS_KILLED)" : ""));
 		} else {
 			launchd_exit_reason_desc = exit_reason_get_string_desc(signal_reason);
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+			{
+				extern const char *k60_lur_last(void **hook, int *ret);
+				void *k60_h = NULL;
+				int k60_r = 0;
+				const char *k60_n = k60_lur_last(&k60_h, &k60_r);
+				panic_plain("unexpected SIGKILL of %s %s with reason -- namespace %d code 0x%llx description %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s"
+				    " || LUR %s @%p r=%d",
+				    (p->p_name[0] != '\0' ? p->p_name : "initproc"),
+				    ((proc_getcsflags(p) & CS_KILLED) ? "(CS_KILLED)" : ""),
+				    signal_reason->osr_namespace, signal_reason->osr_code,
+				    launchd_exit_reason_desc ? launchd_exit_reason_desc : "none",
+				    k60_n, k60_h, k60_r);
+			}
+#else
 			panic_plain("unexpected SIGKILL of %s %s with reason -- namespace %d code 0x%llx description %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s",
 			    (p->p_name[0] != '\0' ? p->p_name : "initproc"),
 			    ((proc_getcsflags(p) & CS_KILLED) ? "(CS_KILLED)" : ""),
 			    signal_reason->osr_namespace, signal_reason->osr_code,
 			    launchd_exit_reason_desc ? launchd_exit_reason_desc : "none");
+#endif
 		}
 	}
 

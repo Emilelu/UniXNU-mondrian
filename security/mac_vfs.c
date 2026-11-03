@@ -89,6 +89,11 @@
 
 #include <security/mac_internal.h>
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+void k60_lur_note(const char *name, void *hook, int ret);
+const char *k60_lur_last(void **hook, int *ret);
+#endif
+
 /* convert {R,W,X}_OK values to V{READ,WRITE,EXEC} */
 #define ACCESS_MODE_TO_VNODE_MASK(m)    (m << 6)
 
@@ -845,9 +850,21 @@ mac_cred_label_update_execve(vfs_context_t ctx, kauth_cred_t new, struct vnode *
 			size_t spawnattrlen = 0;
 			void *spawnattr = exec_spawnattr_getmacpolicyinfo(macextensions, mpc->mpc_name, &spawnattrlen);
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+			{
+				/* K60 bring-up: name the refusing policy before aggregation hides it. */
+				int k60_hr = hook(cred, new, vfs_context_proc(ctx), vp, offset, scriptvp,
+				    mac_vnode_label(vp), scriptvnodelabel, execl, csflags, spawnattr, spawnattrlen, disjoint);
+				if (k60_hr != 0) {
+					k60_lur_note(mpc->mpc_name, (void *)hook, k60_hr);
+				}
+				error = mac_error_select(k60_hr, error);
+			}
+#else
 			error = mac_error_select(hook(cred, new, vfs_context_proc(ctx), vp, offset, scriptvp,
 			    mac_vnode_label(vp), scriptvnodelabel, execl, csflags, spawnattr, spawnattrlen, disjoint),
 			    error);
+#endif
 		}
 		if (mac_policy_list_conditional_busy() != 0) {
 			for (; i <= mac_policy_list.maxindex; i++) {
@@ -871,7 +888,20 @@ mac_cred_label_update_execve(vfs_context_t ctx, kauth_cred_t new, struct vnode *
 			mac_policy_list_unbusy();
 		}
 	}
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+	/*
+	 * K60 bring-up: this board has neither KTRR nor PPL, so a policy that Apple
+	 * relies on being tamper-proof cannot be allowed to veto exec here.
+	 * kern_exec.c copies this value into imgp->ip_mac_return and treats any
+	 * non-zero value as a policy failure, killing the exec'ing process with
+	 * OS_REASON_EXEC/EXEC_EXIT_REASON_SECURITY_POLICY - how launchd dies. Report
+	 * success and keep the offender for the panic text. Same stance as
+	 * cs_enforcement_disable=1.
+	 */
+	*labelupdateerror = 0;
+#else
 	*labelupdateerror = error;
+#endif
 	VFS_KERNEL_DEBUG_END1(27, vp);
 }
 
@@ -2890,3 +2920,39 @@ mac_vnode_notify_unlink(vfs_context_t ctx, struct vnode *dvp, struct vnode *vp,
 	    mac_vnode_label(vp), cnp);
 	VFS_KERNEL_DEBUG_END1(98, vp);
 }
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+#define K60_LUR_SLOTS 4
+static const char *k60_lur_names[K60_LUR_SLOTS];
+static void *k60_lur_hooks[K60_LUR_SLOTS];
+static int k60_lur_rets[K60_LUR_SLOTS];
+static unsigned int k60_lur_count;
+
+void
+k60_lur_note(const char *name, void *hook, int ret)
+{
+	unsigned int i = __atomic_fetch_add(&k60_lur_count, 1u, __ATOMIC_RELAXED);
+	if (i < K60_LUR_SLOTS) {
+		k60_lur_names[i] = name;
+		k60_lur_hooks[i] = hook;
+		k60_lur_rets[i] = ret;
+	}
+}
+
+const char *
+k60_lur_last(void **hook, int *ret)
+{
+	unsigned int n = __atomic_load_n(&k60_lur_count, __ATOMIC_RELAXED);
+	if (n == 0) {
+		*hook = NULL;
+		*ret = 0;
+		return "none";
+	}
+	if (n > K60_LUR_SLOTS) {
+		n = K60_LUR_SLOTS;
+	}
+	*hook = k60_lur_hooks[n - 1];
+	*ret = k60_lur_rets[n - 1];
+	return k60_lur_names[n - 1] ? k60_lur_names[n - 1] : "?";
+}
+#endif

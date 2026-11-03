@@ -6832,10 +6832,10 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 }
 
 static const char * init_programs[] = {
-#if DEBUG
+#if DEBUG && !defined(PONG)
 	"/usr/appleinternal/sbin/launchd.debug",
 #endif
-#if DEVELOPMENT || DEBUG
+#if (DEVELOPMENT || DEBUG) && !defined(PONG)
 	"/usr/appleinternal/sbin/launchd.development",
 #endif
 	"/sbin/launchd",

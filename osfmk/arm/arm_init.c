@@ -638,6 +638,16 @@ arm_init(
 #if __ARM_PAN_AVAILABLE__
 	__builtin_arm_wsr("pan", 1);
 #endif  /* __ARM_PAN_AVAILABLE__ */
+#if defined(PONG_LEGACY_UACCESS) && PONG_LEGACY_UACCESS
+	/* SM8475 supports PAN even when the generic copyio implementation does
+	 * not use it. Keep exception entry from silently re-enabling it. The
+	 * default SCTLR also carries SPAN so later CPU setup stays consistent. */
+	uint64_t pong_sctlr = __builtin_arm_rsr64("SCTLR_EL1");
+	__builtin_arm_wsr64("SCTLR_EL1", pong_sctlr | SCTLR_PAN_UNCHANGED);
+	__asm__ volatile("isb" ::: "memory");
+	__builtin_arm_wsr("pan", 0);
+	__asm__ volatile("isb" ::: "memory");
+#endif
 
 	arm_vm_init(xmaxmem, args);
 

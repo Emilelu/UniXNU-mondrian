@@ -17,7 +17,16 @@
 
 /* SM8475 sets PSTATE.PAN on exception entry; copyio must lift it around
  * user memory access, unlike the original BCM2837/A53 target. */
-#if defined(XNU_NATIVE_PAN) && XNU_NATIVE_PAN
+/* Development-only compatibility mode: use the generic no-PAN uaccess
+ * implementation and preserve PAN=0 across exception entry. All three
+ * pieces (copyio, initial PSTATE and SCTLR.SPAN) must agree. */
+#if defined(XNU_PONG_LEGACY_UACCESS) && XNU_PONG_LEGACY_UACCESS && \
+    (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+#define PONG_LEGACY_UACCESS 1
+#else
+#define PONG_LEGACY_UACCESS 0
+#endif
+#if defined(XNU_NATIVE_PAN) && XNU_NATIVE_PAN && !PONG_LEGACY_UACCESS
 #define __ARM_PAN_AVAILABLE__ 1
 #endif
 

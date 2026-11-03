@@ -6937,6 +6937,9 @@ load_init_program(proc_t p)
 	if (PE_parse_boot_argn("pong_init_path", pong_init_path, sizeof(pong_init_path))) {
 		if (strcmp(pong_init_path, "/private/var/pong/init") != 0)
 			panic("Unsupported Pong init path");
+#if defined(PONG_LEGACY_UACCESS) && PONG_LEGACY_UACCESS
+		printf("Pong uaccess: development no-PAN mode; SCTLR.SPAN preserved\n");
+#endif
 		printf("Pong init: loading helper %s\n", pong_init_path);
 		error = load_init_program_at_path(p, (user_addr_t)scratch_addr, pong_init_path, init_envp);
 		printf("Pong init: helper exec result=%d\n", error);

@@ -1585,6 +1585,18 @@ handle_kernel_abort(arm_saved_state_t *state, uint32_t esr, vm_offset_t fault_ad
 		panic_with_thread_kernel_state("Unexpected abort while on interrupt stack.", state);
 	}
 
+#if defined(PONG)
+	/* PAN is a permission restriction on the current instruction, not a
+	 * missing page. A successful pmap ref/mod update cannot fix it. Retrying
+	 * the same access can loop forever; use copyio's real EFAULT recovery. */
+	if (recover && is_permission_fault(fault_code) &&
+	    !VM_KERNEL_ADDRESS(fault_addr) &&
+	    (get_saved_state_cpsr(state) & PSR64_PAN)) {
+		handle_kernel_abort_recover(state, esr, fault_addr, thread);
+		return;
+	}
+#endif
+
 	if (is_vm_fault(fault_code)) {
 		kern_return_t result = KERN_FAILURE;
 		vm_map_t      map;

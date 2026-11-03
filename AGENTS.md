@@ -127,6 +127,32 @@ bash scripts/k60-device.sh state
 bash scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24.img
 ```
 
+Never flash the boot partition: every experiment image goes through
+`fastboot boot`, so the partition on the phone stays as it is.
+
+## Calling WSL from the host shell
+
+`wsl.exe` rebuilds its command line from argv, so the quotes around a
+`bash -lc "..."` payload are lost on the way. Any semicolon inside that payload
+then becomes a separator in the distro's outer shell: the part after it runs
+outside WSL, with the variables unset and the paths wrong. This has cost
+several wrong conclusions (an empty `$K`, an unset `$pat`, a loop that ran in
+the wrong shell).
+
+Two safe forms:
+
+```sh
+# a script on the Windows side, fed on stdin - content never passes the
+# Windows command line
+wsl.exe -d Ubuntu-24.04 -- bash -s < /c/Users/Emilelu/AppData/Local/Temp/step.sh
+
+# a script inside WSL, with MSYS path conversion turned off
+MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -- bash /tmp/step.sh
+```
+
+Both keep semicolons, variables and loops intact. A one-line payload without
+semicolons still works, but anything longer belongs in a script file.
+
 ## Porting record
 
 Read `porting.toml` and the [record guide](https://unixnu.com/porting/records)

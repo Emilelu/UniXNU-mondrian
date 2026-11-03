@@ -890,6 +890,15 @@ bsd_init(void)
 
 	bsd_init_kprintf("calling sysctl_mib_init\n");
 	sysctl_mib_init();
+#if defined(XNU_VERIFIED_ROOT_PROBE) && XNU_VERIFIED_ROOT_PROBE
+	{
+		extern void native_verified_root_probe(void);
+		int enabled = 0;
+		if (PE_parse_boot_argn("offline-owner-root-check", &enabled, sizeof(enabled)) && enabled) {
+			native_verified_root_probe();
+		}
+	}
+#endif
 
 	bsd_init_kprintf("calling bsd_autoconf\n");
 	bsd_autoconf();

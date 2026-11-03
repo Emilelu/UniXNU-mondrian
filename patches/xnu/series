@@ -131,5 +131,8 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-zap-reservation.patch
 0237-k60-keybag-watch-opt-in.patch
 0238-k60-exit-reason-observer.patch
 0239-k60-runtime-directories.patch
-0240-k60-sandbox-policy-always.patch
 0241-k60-skip-launch-constraints.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mactable-summary.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-cache-report.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mem-report.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch

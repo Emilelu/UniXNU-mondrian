@@ -56,4 +56,12 @@ const char * gIOKernelConfigTables =
     "     'IOProviderClass' = IOPlatformExpertDevice;"
     "     'IOProbeScore'    = 0:32;"
     "   }"
+#if defined(XNU_NATIVE_UFS) && XNU_NATIVE_UFS
+    "   ,{"
+    "     'IOClass'         = NativeUfs;"
+    "     'IOProviderClass' = IOPlatformDevice;"
+    "     'IONameMatch'     = ufshc;"
+    "     'IOProbeScore'    = 1000:32;"
+    "   }"
+#endif
     ")";

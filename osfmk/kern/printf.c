@@ -917,7 +917,11 @@ consdebug_putc(char c)
 
 	debug_putc(c);
 
-	if (!console_is_serial() && !disable_serial_output) {
+	if (!console_is_serial() && !disable_serial_output
+#if defined(ARM64_BOARD_CONFIG_PONG)
+	    && PE_kputc != console_write_unbuffered
+#endif
+	    ) {
 		PE_kputc(c);
 	}
 }
@@ -931,7 +935,11 @@ consdebug_putc_unbuffered(char c)
 
 	debug_putc(c);
 
-	if (!console_is_serial() && !disable_serial_output) {
+	if (!console_is_serial() && !disable_serial_output
+#if defined(ARM64_BOARD_CONFIG_PONG)
+	    && PE_kputc != console_write_unbuffered
+#endif
+	    ) {
 		PE_kputc(c);
 	}
 }

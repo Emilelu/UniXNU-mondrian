@@ -7564,6 +7564,14 @@ load_init_program(proc_t p)
 {
 	uint32_t i;
 	int error;
+	/*
+	 * K60: declare the init environment unconditionally. It used to be
+	 * guarded out when XNU_OWNER_CACHE_MOUNT was set, but with the owner cache
+	 * mount enabled (which activates offline-owner-systemos-mount.patch) that
+	 * patch still passes init_envp to load_init_program_at_path(), so the
+	 * declaration must exist in every configuration.
+	 */
+	user_addr_t init_envp = USER_ADDR_NULL;
 	vm_map_t map = current_map();
 	mach_vm_offset_t scratch_addr = 0;
 	mach_vm_size_t map_page_size = vm_map_page_size(map);

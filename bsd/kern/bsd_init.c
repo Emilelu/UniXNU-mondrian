@@ -473,6 +473,91 @@ bsd_rooted_ramdisk(void)
  * of the tro_ucred field so that the uthread structure can be
  * used like any other.
  */
+#if DEVELOPMENT || DEBUG
+extern kern_return_t OSKextLoadKextWithIdentifier(const char *identifier);
+volatile int native_apfs_load_status = -1;
+volatile uint32_t native_apfs_registered = 0;
+volatile uintptr_t native_apfs_vfsops = 0;
+
+__attribute__((noinline)) void
+native_apfs_probe_checkpoint(void)
+{
+	__asm__ volatile("" ::: "memory");
+}
+
+static void
+native_apfs_load_probe(void)
+{
+	int enabled = 0;
+	if (!PE_parse_boot_argn("offline-apfs-load", &enabled, sizeof(enabled)) || !enabled) {
+		return;
+	}
+	native_apfs_load_status = OSKextLoadKextWithIdentifier("com.apple.filesystems.apfs");
+	mount_list_lock();
+	for (struct vfstable *entry = vfsconf; entry; entry = entry->vfc_next) {
+		if (!strncmp(entry->vfc_name, "apfs", MFSNAMELEN)) {
+			native_apfs_registered = 1;
+			native_apfs_vfsops = (uintptr_t)entry->vfc_vfsops;
+			break;
+		}
+	}
+	mount_list_unlock();
+	native_apfs_probe_checkpoint();
+}
+
+volatile int native_iogpu_load_status = -1;
+
+__attribute__((noinline)) void
+native_iogpu_probe_checkpoint(void)
+{
+	__asm__ volatile("" ::: "memory");
+}
+
+static void
+native_iogpu_load_probe(void)
+{
+	int enabled = 0;
+	if (!PE_parse_boot_argn("offline-iogpu-load", &enabled, sizeof(enabled)) || !enabled) {
+		return;
+	}
+	native_iogpu_load_status = OSKextLoadKextWithIdentifier("com.apple.iokit.IOGPUFamily");
+	native_iogpu_probe_checkpoint();
+}
+
+volatile int native_mobile_graphics_load_status = -1;
+
+__attribute__((noinline)) void
+native_mobile_graphics_probe_checkpoint(void)
+{
+	__asm__ volatile("" ::: "memory");
+}
+
+static void
+native_mobile_graphics_load_probe(void)
+{
+	int enabled = 0;
+	if (!PE_parse_boot_argn("offline-mobile-graphics-load", &enabled, sizeof(enabled)) || !enabled) {
+		return;
+	}
+	native_mobile_graphics_load_status = OSKextLoadKextWithIdentifier("com.apple.iokit.IOMobileGraphicsFamily");
+	native_mobile_graphics_probe_checkpoint();
+#if defined(XNU_NATIVE_LEGACY_DISPLAY) && XNU_NATIVE_LEGACY_DISPLAY
+	int legacy_register = 0;
+	if (native_mobile_graphics_load_status == 0 &&
+	    PE_parse_boot_argn("offline-legacy-register", &legacy_register, sizeof(legacy_register)) && legacy_register) {
+		extern void native_legacy_display_probe(void);
+		native_legacy_display_probe();
+	}
+#endif
+	int client_probe = 0;
+	if (native_mobile_graphics_load_status == 0 &&
+	    PE_parse_boot_argn("offline-mobile-graphics-client", &client_probe, sizeof(client_probe)) && client_probe) {
+		extern void native_mobile_graphics_client_probe(void);
+		native_mobile_graphics_client_probe();
+	}
+}
+#endif
+
 void
 bsd_init(void)
 {
@@ -690,6 +775,27 @@ bsd_init(void)
 	/* Initialize the file systems. */
 	bsd_init_kprintf("calling vfsinit\n");
 	vfsinit();
+#if DEVELOPMENT || DEBUG
+	native_apfs_load_probe();
+	native_mobile_graphics_load_probe();
+	native_iogpu_load_probe();
+#if defined(XNU_ADRENO_FIRMWARE_PROBE) && XNU_ADRENO_FIRMWARE_PROBE
+	extern void native_adreno_firmware_probe(void);
+	native_adreno_firmware_probe();
+#endif
+#if defined(XNU_ADRENO_PM4_PROBE) && XNU_ADRENO_PM4_PROBE
+	extern void native_adreno_pm4_probe(void);
+	native_adreno_pm4_probe();
+#endif
+#if defined(XNU_SMMU4K_PROBE) && XNU_SMMU4K_PROBE
+	extern void native_smmu4k_probe(void);
+	native_smmu4k_probe();
+#endif
+#if defined(XNU_CONSTANT_UPLOADS_PROBE) && XNU_CONSTANT_UPLOADS_PROBE
+	extern void native_constants_probe(void);
+	native_constants_probe();
+#endif
+#endif
 
 #if CONFIG_PROC_UUID_POLICY
 	/* Initial proc_uuid_policy subsystem */

@@ -6603,3 +6603,66 @@ OSMetaClassDefineReservedUnused(IOUserClient2022, 0);
 OSMetaClassDefineReservedUnused(IOUserClient2022, 1);
 OSMetaClassDefineReservedUnused(IOUserClient2022, 2);
 OSMetaClassDefineReservedUnused(IOUserClient2022, 3);
+
+#if DEVELOPMENT || DEBUG
+extern "C" {
+volatile uint32_t native_mobile_graphics_abstract_null_mask;
+volatile uint64_t native_mobile_graphics_client_object;
+volatile uint64_t native_mobile_graphics_client_vptr;
+volatile uint64_t native_mobile_graphics_client_meta;
+volatile uint32_t native_mobile_graphics_client_size;
+volatile int native_mobile_graphics_client_init = -1;
+volatile uint32_t native_mobile_graphics_client_results[3] = {~0U, ~0U, ~0U};
+volatile int native_mobile_graphics_client_released;
+
+__attribute__((noinline)) void
+native_mobile_graphics_client_checkpoint(void)
+{
+	__asm__ volatile("" ::: "memory");
+}
+
+void
+native_mobile_graphics_client_probe(void)
+{
+	const char *abstract_names[] = {"IOMobileFramebuffer", "IOMobileFramebufferService", "IOMobileFramebufferLegacy"};
+	for (unsigned i = 0; i < 3; i++) {
+		OSObject *object = OSMetaClass::allocClassWithName(abstract_names[i]);
+		if (!object) {
+			native_mobile_graphics_abstract_null_mask |= 1U << i;
+		} else {
+			object->release();
+		}
+	}
+	OSObject *object = OSMetaClass::allocClassWithName("IOMobileFramebufferUserClient");
+	IOUserClient *client = OSDynamicCast(IOUserClient, object);
+	if (client) {
+		native_mobile_graphics_client_object = (uintptr_t)client;
+		native_mobile_graphics_client_vptr = *(const uintptr_t *)client;
+		native_mobile_graphics_client_meta = (uintptr_t)client->getMetaClass();
+		native_mobile_graphics_client_size = client->getMetaClass()->getClassSize();
+		native_mobile_graphics_client_init = client->init();
+		if (native_mobile_graphics_client_init) {
+			IOExternalMethodArguments arguments = {};
+			const uint32_t selectors[] = {90, 0x80000000U, ~0U};
+			for (unsigned i = 0; i < 3; i++) {
+				arguments.selector = selectors[i];
+				native_mobile_graphics_client_results[i] = client->externalMethod(selectors[i], &arguments, NULL, NULL, NULL);
+			}
+		}
+	}
+	if (object) {
+		object->release();
+		native_mobile_graphics_client_released = 1;
+	}
+	native_mobile_graphics_client_checkpoint();
+#if defined(XNU_NATIVE_MOBILE_DISPLAY) && XNU_NATIVE_MOBILE_DISPLAY
+	extern void native_mobile_display_provider_probe(void);
+	native_mobile_display_provider_probe();
+#endif
+#if defined(XNU_NATIVE_LEGACY_DISPLAY) && XNU_NATIVE_LEGACY_DISPLAY
+	extern void native_legacy_display_probe(void);
+	native_legacy_display_probe();
+#endif
+}
+}
+#endif

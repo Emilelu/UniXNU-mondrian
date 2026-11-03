@@ -734,7 +734,7 @@ kernel_bootstrap_thread(void)
 	csm_initialize_provisioning_profiles();
 #endif
 
-#ifndef BCM2837
+#if !defined(BCM2837) || (defined(XNU_NATIVE_TRUST_CACHE) && XNU_NATIVE_TRUST_CACHE)
 	kernel_bootstrap_log("trust_cache_init");
 
 	/* Initialize the runtime for the trust cache interface */

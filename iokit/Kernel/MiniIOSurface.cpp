@@ -1909,12 +1909,110 @@ MiniIOSurfaceDrawn(MiniIOSurface * surface, __unused uint64_t milliseconds)
 	return surface != NULL && surface->drawn == 0;
 }
 
+/*
+ * Software IOWatchdog.
+ *
+ * watchdogd is a launchd job with _PanicOnCrash: it opens
+ * IOServiceMatching("IOWatchdog") with type 1 and exits when the service is
+ * missing, which panics the machine as soon as the keybag stage is over.
+ * Apple's kext arms a SoC watchdog that resets the board unless watchdogd keeps
+ * checking in; this board has no reset path wired, so accept every selector and
+ * never fire. Selectors seen from watchdogd: 0/1/3/4/5 scalars, 2 (1 KiB in) and
+ * 9 (small out).
+ */
+class IOWatchdog : public IOService
+{
+	OSDeclareDefaultStructors(IOWatchdog);
+public:
+	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
+};
+OSDefineMetaClassAndStructors(IOWatchdog, IOService);
+
+bool
+IOWatchdog::start(IOService *provider)
+{
+	if (!IOService::start(provider)) {
+		return false;
+	}
+	setProperty(kIOUserClientClassKey, "IOWatchdogUserClient");
+	registerService();
+	IOLog("MiniWatchdog: IOWatchdog published; check-ins accepted, never fires\n");
+	return true;
+}
+
+class IOWatchdogUserClient : public IOUserClient
+{
+	OSDeclareDefaultStructors(IOWatchdogUserClient);
+public:
+	IOReturn clientClose(void) APPLE_KEXT_OVERRIDE;
+	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *args,
+	    IOExternalMethodDispatch *dispatch, OSObject *target,
+	    void *reference) APPLE_KEXT_OVERRIDE;
+};
+OSDefineMetaClassAndStructors(IOWatchdogUserClient, IOUserClient);
+
+IOReturn
+IOWatchdogUserClient::clientClose(void)
+{
+	terminate();
+	return kIOReturnSuccess;
+}
+
+static uint64_t gWatchdogLogged;
+
+IOReturn
+IOWatchdogUserClient::externalMethod(uint32_t selector,
+    IOExternalMethodArguments *args, __unused IOExternalMethodDispatch *dispatch,
+    __unused OSObject *target, __unused void *reference)
+{
+	for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
+		args->scalarOutput[i] = 0;
+	}
+	if (args->structureOutputDescriptor != NULL) {
+		IOMemoryDescriptor *out = args->structureOutputDescriptor;
+		IOByteCount len = out->getLength();
+		if (out->prepare() == kIOReturnSuccess) {
+			for (IOByteCount off = 0; off < len; off += 8) {
+				uint64_t zero = 0;
+				IOByteCount chunk = len - off < 8 ? len - off : 8;
+				out->writeBytes(off, &zero, chunk);
+			}
+			out->complete();
+			args->structureOutputDescriptorSize = (uint32_t)len;
+		}
+	} else if (args->structureOutput != NULL) {
+		memset(args->structureOutput, 0, args->structureOutputSize);
+	}
+
+	if (selector < 64 && !(gWatchdogLogged & (1ULL << selector))) {
+		gWatchdogLogged |= 1ULL << selector;
+		IOLog("MiniWatchdog: sel %u in %u/%u out %u/%u -> ok\n", selector,
+		    args->scalarInputCount, args->structureInputSize,
+		    args->scalarOutputCount, args->structureOutputSize);
+	}
+	return kIOReturnSuccess;
+}
+
 extern "C" void
 native_pong_ui_services_start(void)
 {
 	uint32_t keybag = 0;
 	if (PE_parse_boot_argn("pong_software_keybag", &keybag, sizeof(keybag)) && keybag) {
 		MiniAppleKeyStoreStart();
+	}
+	{
+		IOService *k60_resources = IOService::getResourceService();
+		IOWatchdog *k60_wdt = OSTypeAlloc(IOWatchdog);
+		if (k60_resources && k60_wdt && k60_wdt->init() &&
+		    k60_wdt->attach(k60_resources)) {
+			if (!k60_wdt->start(k60_resources)) {
+				k60_wdt->detach(k60_resources);
+			}
+			k60_wdt->release();
+		} else {
+			OSSafeReleaseNULL(k60_wdt);
+			IOLog("MiniWatchdog: service creation failed\n");
+		}
 	}
 	/*
 	 * K60: the display is the boot framebuffer and is always wanted, so the

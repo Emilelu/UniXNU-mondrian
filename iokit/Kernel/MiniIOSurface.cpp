@@ -1861,6 +1861,10 @@ MiniIOSurfaceDrawn(MiniIOSurface * surface, __unused uint64_t milliseconds)
 extern "C" void
 native_pong_ui_services_start(void)
 {
+	uint32_t keybag = 0;
+	if (PE_parse_boot_argn("pong_software_keybag", &keybag, sizeof(keybag)) && keybag) {
+		MiniAppleKeyStoreStart();
+	}
 	uint32_t enable = 0;
 	if (!PE_parse_boot_argn("pong_software_ui", &enable, sizeof(enable)) || !enable) {
 		return;

@@ -15,6 +15,7 @@
 
 bool MiniIOSurfaceStart(IOService * provider);
 void MiniIOMobileFramebufferStart(IOService * provider);
-/* KeyStore/network hardware stand-ins are not part of the Pong UI port. */
+void MiniAppleKeyStoreStart(void);
+/* A network hardware stand-in is not part of the Pong port. */
 
 #endif /* _IOKIT_MINIDRIVERS_H */

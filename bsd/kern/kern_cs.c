@@ -169,6 +169,9 @@ cs_init(void)
 	if (disable_cs_enforcement && PE_i_can_has_debugger(NULL) != 0) {
 		cs_system_enforcement_enable = 0;
 		cs_process_enforcement_enable = 0;
+#if defined(PONG)
+		printf("PONG DEVELOPMENT: code-signing enforcement disabled by boot argument\n");
+#endif
 	} else {
 		int panic = 0;
 		PE_parse_boot_argn("cs_enforcement_panic", &panic, sizeof(panic));

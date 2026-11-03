@@ -1069,7 +1069,24 @@ bsd_init(void)
 				native_owner_root_checkpoint(autherr, owner, device);
 			}
 #endif
-			if (autherr && !owner_authorized) {
+			int pong_development_root = 0;
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+			/* Explicit development policy for this port's unsealed restore image.
+			 * Keep the APFS auth result visible; never report it as authenticated.
+			 * This opt-in cannot authorize a writable root or a release kernel. */
+			PE_parse_boot_argn("pong_allow_unauthenticated_root", &pong_development_root,
+			    sizeof(pong_development_root));
+			/* The debugger check is deliberately not part of this gate: the
+			 * boot-args of a bring-up payload do not always carry a debug
+			 * token, and the read-only requirement below is what keeps an
+			 * unsealed root from ever being writable. */
+			pong_development_root = pong_development_root == 1 &&
+			    (vfs_flags(vnode_mount(rootvnode)) & MNT_RDONLY);
+			if (autherr && pong_development_root) {
+				printf("PONG DEVELOPMENT: allow unsealed read-only root; APFS rootauth error=%d\n", autherr);
+			}
+#endif
+			if (autherr && !owner_authorized && !pong_development_root) {
 				panic("rootvp not authenticated after mounting");
 			}
 #if defined(XNU_OWNER_ROOT_TRUST) && XNU_OWNER_ROOT_TRUST

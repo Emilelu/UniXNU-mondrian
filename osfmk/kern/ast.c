@@ -71,7 +71,9 @@
 #include <kern/waitq.h>
 #include <kern/ledger.h>
 #include <kern/machine.h>
+#if KPERF && KPC
 #include <kperf/kperf_kpc.h>
+#endif /* KPERF */
 #include <mach/policy.h>
 #include <security/mac_mach_internal.h> // for MACF AST hook
 #include <stdatomic.h>
@@ -256,7 +258,9 @@ ast_taken_user(void)
 
 	if (reasons & AST_KPERF) {
 		thread_ast_clear(thread, AST_KPERF);
+#if KPERF && KPC
 		kperf_kpc_thread_ast(thread);
+#endif /* KPERF */
 	}
 
 	if (reasons & AST_RESET_PCS) {

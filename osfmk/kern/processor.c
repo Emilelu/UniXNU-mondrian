@@ -148,7 +148,9 @@ processor_set_t         pset_array[MAX_PSETS] = { 0 };
 
 static timer_call_func_t running_timer_funcs[] = {
 	[RUNNING_TIMER_QUANTUM] = thread_quantum_expire,
+#if KPERF
 	[RUNNING_TIMER_KPERF] = kperf_timer_expire,
+#endif /* KPERF */
 };
 static_assert(sizeof(running_timer_funcs) / sizeof(running_timer_funcs[0])
     == RUNNING_TIMER_MAX, "missing running timer function");

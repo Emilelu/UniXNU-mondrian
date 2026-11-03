@@ -1670,7 +1670,7 @@ lookup_handle_symlink(struct nameidata *ndp, vnode_t *new_dp, bool *new_dp_has_i
 	int error;
 	char *cp;               /* pointer into pathname argument */
 	uio_t auio;
-	uio_stackbuf_t uio_buf[UIO_SIZEOF(1)];
+	char uio_buf[UIO_SIZEOF(1)] __attribute__((aligned(_Alignof(union iovecs))));
 	int need_newpathbuf;
 	u_int linklen = 0;
 	struct componentname *cnp = &ndp->ni_cnd;

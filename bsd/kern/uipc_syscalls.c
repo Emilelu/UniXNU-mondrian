@@ -3561,7 +3561,7 @@ sendfile(proc_ref_t p, struct sendfile_args *uap, __unused int *retval)
 		mbuf_t  m;
 		unsigned int    nbufs = SFUIOBUFS, i;
 		uio_t   auio;
-		uio_stackbuf_t    uio_buf[UIO_SIZEOF(SFUIOBUFS)]; /* 1 KB !!! */
+		char    uio_buf[UIO_SIZEOF(SFUIOBUFS)] __attribute__((aligned(_Alignof(union iovecs)))); /* 1 KB !!! */
 		size_t  uiolen;
 		user_ssize_t    rlen;
 		off_t   pgoff;

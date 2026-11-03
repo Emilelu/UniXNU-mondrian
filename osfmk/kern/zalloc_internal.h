@@ -383,7 +383,7 @@ struct zone {
 	uint16_t            z_kasan_redzone;
 	spl_t               z_kasan_spl;
 #endif
-#if ZONE_ENABLE_LOGGING || CONFIG_ZLEAKS || KASAN_TBI
+#if ZALLOC_ENABLE_LOGGING || ZONE_ENABLE_LOGGING || CONFIG_ZLEAKS || KASAN_TBI
 	/*
 	 * the allocation logs are used when:
 	 *

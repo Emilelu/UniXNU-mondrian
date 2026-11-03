@@ -64,6 +64,9 @@ clock_frequency_info_t gPEClockFrequencyInfo;
 vm_offset_t gPanicBase = 0;
 unsigned int gPanicSize;
 struct embedded_panic_header *panic_info = NULL;
+#if defined(PONG) && defined(XNU_PONG_VOLATILE_PANIC_LOG) && XNU_PONG_VOLATILE_PANIC_LOG
+static uint8_t pong_volatile_panic_log[128 * 1024] __attribute__((aligned(4096)));
+#endif
 
 #if (DEVELOPMENT || DEBUG) && defined(XNU_TARGET_OS_BRIDGE)
 /*
@@ -102,6 +105,18 @@ check_for_panic_log(void)
 	unsigned int size;
 	uintptr_t const *reg_prop;
 	uint32_t const *panic_region_length;
+
+#if defined(PONG) && defined(XNU_PONG_VOLATILE_PANIC_LOG) && XNU_PONG_VOLATILE_PANIC_LOG
+	/*
+	 * Pong has no Apple PRAM reservation in its supplied DT.  Keep the normal
+	 * embedded panic machinery valid with kernel-owned RAM.  The contents are
+	 * intentionally volatile and never advertised to firmware as persistent.
+	 */
+	gPanicBase = (vm_offset_t)pong_volatile_panic_log;
+	gPanicSize = sizeof(pong_volatile_panic_log);
+	panic_text_len = gPanicSize - sizeof(struct embedded_panic_header);
+	goto pong_panic_region_ready;
+#endif
 
 	/*
 	 * DT properties for the panic region are populated by UpdateDeviceTree() in iBoot:
@@ -163,6 +178,9 @@ check_for_panic_log(void)
 	}
 #endif /* DEVELOPMENT && defined(XNU_TARGET_OS_BRIDGE) */
 
+#endif
+#if defined(PONG) && defined(XNU_PONG_VOLATILE_PANIC_LOG) && XNU_PONG_VOLATILE_PANIC_LOG
+pong_panic_region_ready:
 #endif
 	panic_info = (struct embedded_panic_header *)gPanicBase;
 

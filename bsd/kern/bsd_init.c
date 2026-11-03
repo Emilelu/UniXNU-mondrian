@@ -1308,6 +1308,12 @@ bsd_autoconf(void)
 	extern void native_legacy_display_late_probe(void);
 	native_legacy_display_late_probe();
 #endif
+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+	if (result == KERN_SUCCESS) {
+		extern void native_pong_ui_services_start(void);
+		native_pong_ui_services_start();
+	}
+#endif
 	return result;
 }
 

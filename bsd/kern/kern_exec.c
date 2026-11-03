@@ -5587,6 +5587,71 @@ bad:
  * Note:	The argument and environment vectors are user space pointers
  *		to arrays of user space pointers.
  */
+#if defined(ARM64_BOARD_CONFIG_PONG) && (DEVELOPMENT || DEBUG)
+/* HackiOS's per-program compatibility-library insertion. Keep a bounded,
+ * locked snapshot: root may update configuration while another task execs. */
+static char exec_inject_conf[512];
+static LCK_MTX_DECLARE_ATTR(exec_inject_lock, &proc_lck_grp, &proc_lck_attr);
+
+static int
+sysctl_exec_inject(__unused struct sysctl_oid *oidp, __unused void *arg1,
+    __unused int arg2, struct sysctl_req *req)
+{
+	char conf[sizeof(exec_inject_conf)];
+	int changed = 0;
+	lck_mtx_lock(&exec_inject_lock);
+	strlcpy(conf, exec_inject_conf, sizeof(conf));
+	lck_mtx_unlock(&exec_inject_lock);
+	int error = sysctl_io_string(req, conf, sizeof(conf), 0, &changed);
+	if (error == 0 && changed) {
+		lck_mtx_lock(&exec_inject_lock);
+		strlcpy(exec_inject_conf, conf, sizeof(exec_inject_conf));
+		lck_mtx_unlock(&exec_inject_lock);
+	}
+	return error;
+}
+SYSCTL_PROC(_kern, OID_AUTO, exec_inject, CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_LOCKED,
+    0, 0, sysctl_exec_inject, "A", "LIBRARY NAME... [; LIBRARY NAME...]");
+
+static bool
+exec_inject_env(struct image_params *imgp, char *env, size_t size)
+{
+	char conf[sizeof(exec_inject_conf)];
+	const char *name, *p;
+	size_t used;
+	bool any = false;
+	if (imgp->ip_ndp == NULL) return false;
+	lck_mtx_lock(&exec_inject_lock);
+	strlcpy(conf, exec_inject_conf, sizeof(conf));
+	lck_mtx_unlock(&exec_inject_lock);
+	p = conf;
+	name = imgp->ip_ndp->ni_cnd.cn_nameptr;
+	used = strlcpy(env, "DYLD_INSERT_LIBRARIES=", size);
+	while (*p != 0) {
+		while (*p == ' ' || *p == ';') p++;
+		const char *library = p;
+		while (*p && *p != ' ' && *p != ';') p++;
+		size_t liblen = p - library;
+		bool matched = false;
+		while (*p == ' ') {
+			const char *word = ++p;
+			while (*p && *p != ' ' && *p != ';') p++;
+			if ((size_t)(p - word) == imgp->ip_ndp->ni_cnd.cn_namelen &&
+			    p != word && strncmp(word, name, p - word) == 0) matched = true;
+		}
+		if (matched && liblen && *library == '/') {
+			if (used + (any ? 1 : 0) + liblen >= size) return false;
+			if (any) env[used++] = ':';
+			memcpy(env + used, library, liblen);
+			used += liblen;
+			env[used] = 0;
+			any = true;
+		}
+	}
+	return any;
+}
+#endif
+
 __attribute__((noinline))
 static int
 exec_extract_strings(struct image_params *imgp)
@@ -5761,6 +5826,19 @@ exec_extract_strings(struct image_params *imgp)
 	}
 
 	/* Save space for envv[] NULL terminator */
+#if defined(ARM64_BOARD_CONFIG_PONG) && (DEVELOPMENT || DEBUG)
+	char inject_env[512];
+	if (exec_inject_env(imgp, inject_env, sizeof(inject_env))) {
+		error = exec_add_user_string(imgp, CAST_USER_ADDR_T(inject_env), UIO_SYSSPACE, TRUE);
+		if (error) goto bad;
+		if (imgp->ip_argspace < new_ptr_size) {
+			error = E2BIG;
+			goto bad;
+		}
+		imgp->ip_argspace -= new_ptr_size;
+		imgp->ip_envc++;
+	}
+#endif
 	if (imgp->ip_argspace < new_ptr_size) {
 		error = E2BIG;
 		goto bad;

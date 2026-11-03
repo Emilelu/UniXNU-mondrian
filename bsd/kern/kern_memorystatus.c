@@ -222,6 +222,14 @@ MACRO_END
 
 /* General tunables */
 
+/* HackiOS: boot images and permanently reserved kernel memory cannot be
+ * reclaimed by killing SpringBoard/backboardd. Base percentages on usable RAM. */
+#if defined(ARM64_BOARD_CONFIG_PONG)
+#define memstat_memory_size sane_size
+#else
+#define memstat_memory_size max_mem
+#endif
+
 unsigned long delta_percentage = 5;
 unsigned long critical_threshold_percentage = 5;
 // On embedded devices with more than 3GB of memory we lower the critical percentage.
@@ -1365,7 +1373,7 @@ memorystatus_init(void)
 	if (delta_percentage == 0) {
 		delta_percentage = 5;
 	}
-	if (max_mem > config_jetsam_large_memory_cutoff) {
+	if (memstat_memory_size > config_jetsam_large_memory_cutoff) {
 		critical_threshold_percentage = critical_threshold_percentage_larger_devices;
 		delta_percentage = delta_percentage_larger_devices;
 	}
@@ -1400,11 +1408,11 @@ memorystatus_init(void)
 		PE_get_default("kern.jetsam_idle_snapshot", &memorystatus_idle_snapshot, sizeof(memorystatus_idle_snapshot));
 	}
 
-	memorystatus_delta = (unsigned int) (delta_percentage * atop_64(max_mem) / 100);
-	memorystatus_available_pages_critical_idle_offset = (unsigned int) (idle_offset_percentage * atop_64(max_mem) / 100);
+	memorystatus_delta = (unsigned int) (delta_percentage * atop_64(memstat_memory_size) / 100);
+	memorystatus_available_pages_critical_idle_offset = (unsigned int) (idle_offset_percentage * atop_64(memstat_memory_size) / 100);
 	memorystatus_available_pages_critical_base = (unsigned int) ((critical_threshold_percentage / delta_percentage) * memorystatus_delta);
 	memorystatus_policy_more_free_offset_pages = (unsigned int) ((policy_more_free_offset_percentage / delta_percentage) * memorystatus_delta);
-	memorystatus_sysproc_aging_aggr_pages = (unsigned int) (sysproc_aging_aggr_threshold_percentage * atop_64(max_mem) / 100);
+	memorystatus_sysproc_aging_aggr_pages = (unsigned int) (sysproc_aging_aggr_threshold_percentage * atop_64(memstat_memory_size) / 100);
 
 	/* Set the swapin trigger in pages based on the maximum size allocated for each c_seg */
 	memorystatus_swapin_trigger_pages = (unsigned int) atop_64(memorystatus_swapin_trigger_segments * c_seg_allocsize);
@@ -5103,7 +5111,7 @@ memorystatus_pages_update(unsigned int pages_avail)
 	if (critical || delta) {
 		unsigned int total_pages;
 
-		total_pages = (unsigned int) atop_64(max_mem);
+		total_pages = (unsigned int) atop_64(memstat_memory_size);
 #if CONFIG_SECLUDED_MEMORY
 		total_pages -= vm_page_secluded_count;
 #endif /* CONFIG_SECLUDED_MEMORY */
@@ -6609,7 +6617,7 @@ memorystatus_update_levels_locked(boolean_t critical_only)
 	}
 
 #if VM_PRESSURE_EVENTS
-	memorystatus_available_pages_pressure = (int32_t)(pressure_threshold_percentage * (atop_64(max_mem) / 100));
+	memorystatus_available_pages_pressure = (int32_t)(pressure_threshold_percentage * (atop_64(memstat_memory_size) / 100));
 #endif
 }
 

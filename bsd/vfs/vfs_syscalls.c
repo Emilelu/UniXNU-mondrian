@@ -72,6 +72,10 @@
  */
 
 #include <sys/param.h>
+#if defined(ARM64_BOARD_CONFIG_PONG)
+#include <pexpert/arm64/board_config.h>
+#endif
+extern void pong_init_note(const char *);
 #include <sys/systm.h>
 #include <sys/namei.h>
 #include <sys/filedesc.h>
@@ -4554,9 +4558,17 @@ open1(vfs_context_t ctx, struct nameidata *ndp, int uflags,
 	AUDIT_ARG(fflags, oflags);
 	AUDIT_ARG(mode, vap->va_mode);
 
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open file descriptor allocation begin");
+#endif
 	if ((error = falloc_withinit(p, &fp, &indx, ctx, fp_init, initarg)) != 0) {
 		return error;
 	}
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open file descriptor allocation returned");
+#endif
 	if (flags & O_CLOEXEC) {
 		fp->fp_flags |= FP_CLOEXEC;
 	}
@@ -4583,6 +4595,10 @@ open1(vfs_context_t ctx, struct nameidata *ndp, int uflags,
 		}
 	}
 
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open vnode authorization begin");
+#endif
 	if ((error = vn_open_auth(ndp, &flags, vap, authvp))) {
 		if (authvp != NULLVP) {
 			vnode_put(authvp);
@@ -4604,6 +4620,10 @@ open1(vfs_context_t ctx, struct nameidata *ndp, int uflags,
 		vnode_put(authvp);
 	}
 
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open vnode authorization returned");
+#endif
 	uu->uu_dupfd = 0;
 	vp = ndp->ni_vp;
 
@@ -5044,7 +5064,15 @@ openat_internal(vfs_context_t ctx, user_addr_t path, int flags, int mode,
 	int cmode;
 	int error;
 
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open state allocation begin");
+#endif
 	__open_data = kalloc_type(typeof(*__open_data), Z_WAITOK);
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open state allocation returned");
+#endif
+
 	vap = &__open_data->va;
 	ndp = &__open_data->nd;
 
@@ -5066,7 +5094,14 @@ openat_internal(vfs_context_t ctx, user_addr_t path, int flags, int mode,
 int
 open(proc_t p, struct open_args *uap, int32_t *retval)
 {
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open handler entered");
+#endif
 	__pthread_testcancel(1);
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("open cancellation check returned");
+#endif
+
 	return open_nocancel(p, (struct open_nocancel_args *)uap, retval);
 }
 

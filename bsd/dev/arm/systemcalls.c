@@ -185,7 +185,8 @@ unix_syscall(
 	    PE_parse_boot_argn("pong_init_trace", &trace_init, sizeof(trace_init)) &&
 	    trace_init && ml_get_interrupts_enabled()) {
 		++pong_dispatch_notes;
-		printf("Pong init: unix syscall dispatch code=%u\n", code);
+		printf("Pong init: unix syscall dispatch code=%u handler=%p open=%p\n",
+		    code, (void *)callp->sy_call, (void *)open);
 	}
 #endif
 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));

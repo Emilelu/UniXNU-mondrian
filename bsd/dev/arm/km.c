@@ -9,6 +9,10 @@
  * HISTORY
  */
 #include <sys/param.h>
+#if defined(ARM64_BOARD_CONFIG_PONG)
+#include <pexpert/arm64/board_config.h>
+#endif
+extern void pong_init_note(const char *);
 #include <sys/tty.h>
 
 #include <machine/cons.h>
@@ -80,6 +84,9 @@ kmopen(dev_t dev, __unused int flag, __unused int devtype, proc_t pp)
 
 	tp = km_tty[unit];
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("console kmopen entered");
+#endif
 	tty_lock(tp);
 
 	tp->t_oproc = kmstart;
@@ -139,6 +146,9 @@ kmopen(dev_t dev, __unused int flag, __unused int devtype, proc_t pp)
 out:
 	tty_unlock(tp);
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("console kmopen returned");
+#endif
 	return ret;
 }
 

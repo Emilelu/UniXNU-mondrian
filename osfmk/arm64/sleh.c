@@ -64,6 +64,7 @@
 #if defined(PONG) && (DEVELOPMENT || DEBUG)
 #include <kern/task.h>
 extern int proc_pid(struct proc *);
+extern volatile int pong_init_user_seen;
 #endif
 #include <sys/kdebug.h>
 #include <kperf/kperf.h>
@@ -642,6 +643,7 @@ sleh_synchronous(arm_context_t *context, uint32_t esr, vm_offset_t far)
 	    get_bsdtask_info(get_threadtask(thread)) : NULL;
 	bool pong_record = false;
 	if (pong_init_trace && is_user && pong_proc && proc_pid(pong_proc) == 1) {
+		pong_init_user_seen = 1;
 		unsigned *count = class == ESR_EC_SVC_64 ? &pong_init_svcs : &pong_init_faults;
 		if (*count < 8) { ++*count; pong_record = true; }
 	}

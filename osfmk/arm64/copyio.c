@@ -29,6 +29,10 @@
 #include <arm/cpu_data_internal.h>
 #include <arm/misc_protos.h>
 #include <kern/thread.h>
+#if defined(ARM64_BOARD_CONFIG_PONG)
+#include <pexpert/arm64/board_config.h>
+#endif
+extern void pong_init_note(const char *);
 #include <kern/zalloc_internal.h>
 #include <sys/errno.h>
 #include <vm/pmap.h>
@@ -212,6 +216,11 @@ copyin(const user_addr_t user_addr, void *kernel_addr, vm_size_t nbytes)
 {
 	int result;
 
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("copyin entered");
+#endif
+
+
 	if (__improbable(nbytes == 0)) {
 		return 0;
 	}
@@ -228,6 +237,10 @@ copyin(const user_addr_t user_addr, void *kernel_addr, vm_size_t nbytes)
 	user_access_enable();
 	result = _bcopyin((const char *)user_addr, kernel_addr, nbytes);
 	user_access_disable();
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("copyin assembly returned");
+#endif
+
 	return result;
 }
 
@@ -317,6 +330,10 @@ copyinstr(const user_addr_t user_addr, char *kernel_addr, vm_size_t nbytes, vm_s
 		return ENAMETOOLONG;
 	}
 
+
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("copyinstr entered");
+#endif
 	result = copy_validate(user_addr, (uintptr_t)kernel_addr, nbytes, COPYIO_IN);
 	if (__improbable(result)) {
 		return result;
@@ -325,6 +342,10 @@ copyinstr(const user_addr_t user_addr, char *kernel_addr, vm_size_t nbytes, vm_s
 	result = _bcopyinstr((const char *)user_addr, kernel_addr, nbytes,
 	    &bytes_copied);
 	user_access_disable();
+#if defined(PONG) && (DEVELOPMENT || DEBUG)
+	pong_init_note("copyinstr assembly returned");
+#endif
+
 	if (result != EFAULT) {
 		*lencopied = bytes_copied;
 	}

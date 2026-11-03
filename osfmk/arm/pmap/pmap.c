@@ -6887,7 +6887,8 @@ void
 pmap_sync_page_attributes_phys(
 	ppnum_t pp)
 {
-	flush_dcache((vm_offset_t) (pp << PAGE_SHIFT), PAGE_SIZE, TRUE);
+	/* ptoa() widens before the shift; pp << PAGE_SHIFT can drop physical-address bits. */
+	flush_dcache((vm_offset_t) ptoa(pp), PAGE_SIZE, TRUE);
 }
 
 #if CONFIG_COREDUMP

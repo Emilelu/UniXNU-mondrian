@@ -74,6 +74,7 @@ mockfs_fsnode_create(mount_t mp, uint8_t type, mockfs_fsnode_t * fsnpp)
 	case MOCKFS_DEV:
 		break;
 	case MOCKFS_FILE:
+	case MOCKFS_TEST_FILE:
 		/*
 		 * For a regular file, size is meaningful, but it will always be equal to the
 		 * size of the backing device.
@@ -145,6 +146,12 @@ mockfs_fsnode_destroy(mockfs_fsnode_t fsnp)
 		}
 	}
 
+	if (fsnp->child_c) {
+		if ((rvalue = mockfs_fsnode_destroy(fsnp->child_c))) {
+			panic("mockfs: failed to destroy test node");
+		}
+	}
+
 	/*
 	 * We need to orphan this node before we destroy it.
 	 */
@@ -202,6 +209,9 @@ mockfs_fsnode_adopt(mockfs_fsnode_t parent, mockfs_fsnode_t child)
 	} else if (!parent->child_b) {
 		parent->child_b = child;
 		child->parent = parent;
+	} else if (!parent->child_c) {
+		parent->child_c = child;
+		child->parent = parent;
 	} else {
 		rvalue = ENOMEM;
 	}
@@ -243,6 +253,9 @@ mockfs_fsnode_orphan(mockfs_fsnode_t fsnp)
 	} else if (parent->child_b == fsnp) {
 		parent->child_b = NULL;
 		fsnp->parent = NULL;
+	} else if (parent->child_c == fsnp) {
+		parent->child_c = NULL;
+		fsnp->parent = NULL;
 	} else {
 		panic("mockfs_fsnode_orphan insanity, fsnp->parent != parent->child; fsnp = %p (in case gdb is screwing with you)", fsnp);
 	}
@@ -278,6 +291,8 @@ mockfs_fsnode_child_by_type(mockfs_fsnode_t parent, uint8_t type, mockfs_fsnode_
 		*child = parent->child_a;
 	} else if ((parent->child_b) && (parent->child_b->type == type)) {
 		*child = parent->child_b;
+	} else if ((parent->child_c) && (parent->child_c->type == type)) {
+		*child = parent->child_c;
 	} else {
 		rvalue = ENOENT;
 	}
@@ -322,7 +337,7 @@ mockfs_fsnode_vnode(mockfs_fsnode_t fsnp, vnode_t * vpp)
 		 * We need to create the vnode; this will be unpleasant.
 		 */
 		vnfs_param.vnfs_mp = fsnp->mnt;
-		vnfs_param.vnfs_vtype = (fsnp->type == MOCKFS_FILE) ? VREG : VDIR;
+		vnfs_param.vnfs_vtype = ((fsnp->type == MOCKFS_FILE) || (fsnp->type == MOCKFS_TEST_FILE)) ? VREG : VDIR;
 		vnfs_param.vnfs_str = "mockfs";
 		vnfs_param.vnfs_dvp = (fsnp->type == MOCKFS_ROOT) ? NULL : fsnp->parent->vp;
 		vnfs_param.vnfs_fsnode = fsnp;

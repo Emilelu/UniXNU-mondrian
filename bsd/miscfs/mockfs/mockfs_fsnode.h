@@ -46,7 +46,8 @@
 enum mockfs_fsnode_type {
 	MOCKFS_ROOT,
 	MOCKFS_DEV,
-	MOCKFS_FILE
+	MOCKFS_FILE,
+	MOCKFS_TEST_FILE
 };
 
 /*
@@ -58,6 +59,7 @@ enum mockfs_fsnode_type {
  *   VREG access).
  */
 struct mockfs_fsnode {
+	uint64_t               backing_offset; /* Offline two-file image only. */
 	uint64_t               size;    /* Bytes of data; 0 unless type is MOCKFS_FILE */
 	uint8_t                type;    /* Serves as a unique identifier for now */
 	mount_t                mnt;     /* The mount that this node belongs to */
@@ -66,6 +68,7 @@ struct mockfs_fsnode {
 	                                /* TODO: Replace child_a/child_b with something more flexible */
 	struct mockfs_fsnode * child_a; /* TEMPORARY */
 	struct mockfs_fsnode * child_b; /* TEMPORARY */
+	struct mockfs_fsnode * child_c; /* Offline test input. */
 };
 
 typedef struct mockfs_fsnode * mockfs_fsnode_t;

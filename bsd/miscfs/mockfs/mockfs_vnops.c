@@ -29,6 +29,7 @@
 #include <miscfs/mockfs/mockfs.h>
 #include <miscfs/mockfs/mockfs_vnops.h>
 #include <sys/ubc.h>
+#include <sys/fcntl.h>
 #include <sys/mount_internal.h>
 #include <sys/vnode_internal.h>
 #include <vfs/vfs_support.h>
@@ -46,6 +47,11 @@
  *   each function does in generic terms.
  */
 int mockfs_lookup(struct vnop_lookup_args * ap);
+static int mockfs_readonly_open(struct vnop_open_args *ap)
+{
+	return (ap->a_mode & FWRITE) ? EROFS : 0;
+}
+
 int mockfs_getattr(struct vnop_getattr_args * ap);
 int mockfs_read(struct vnop_read_args * ap);
 int mockfs_strategy(struct vnop_strategy_args * ap);
@@ -117,10 +123,15 @@ mockfs_lookup(struct vnop_lookup_args * ap)
 		 *   accidentally commit a change to the init_process pathname.  We map from name to node type
 		 *   here, as mockfs doesn't current use names; just unique types.
 		 */
-		if (!strncmp(cnp->cn_nameptr, "sbin", 5)) {
+		if (!strncmp(cnp->cn_nameptr, "sbin", 5) ||
+		    !strncmp(cnp->cn_nameptr, "usr", 4) || !strncmp(cnp->cn_nameptr, "lib", 4)) {
 			target_fsnode = fsnode;
 		} else if (!strncmp(cnp->cn_nameptr, "dev", 4)) {
 			mockfs_fsnode_child_by_type(fsnode, MOCKFS_DEV, &target_fsnode);
+		} else if (!strncmp(cnp->cn_nameptr, "dyld", 5)) {
+			mockfs_fsnode_child_by_type(fsnode, MOCKFS_TEST_FILE, &target_fsnode);
+		} else if (!strncmp(cnp->cn_nameptr, "probe.bin", 10)) {
+			mockfs_fsnode_child_by_type(fsnode, MOCKFS_TEST_FILE, &target_fsnode);
 		} else if (!strncmp(cnp->cn_nameptr, "launchd", 8)) {
 			mockfs_fsnode_child_by_type(fsnode, MOCKFS_FILE, &target_fsnode);
 		} else {
@@ -392,8 +403,12 @@ mockfs_blockmap(struct vnop_blockmap_args * ap)
 	 *   This also means that their request should always be contiguous, so the run calculation is easy!
 	 */
 	if (vp->v_type == VREG) {
-		*bpn = foffset / blksize;
-		*run = fsnode->size - foffset;
+		if (foffset < 0 || (uint64_t)foffset > fsnode->size) {
+			return EINVAL;
+		}
+		*bpn = (fsnode->backing_offset + foffset) / blksize;
+		/* File metadata is exact; block I/O may include allocated zero padding. */
+		*run = ((fsnode->size + 4095) & ~4095ULL) - foffset;
 
 		if (ap->a_size > *run) {
 			/* We've been asked for more data than the backing device can provide; we're done. */
@@ -411,9 +426,9 @@ const struct vnodeopv_entry_desc mockfs_vnodeop_entries[] = {
 	{ .opve_op = &vnop_default_desc, .opve_impl = (VOPFUNC) vn_default_error }, /* default */
 	{ .opve_op = &vnop_lookup_desc, .opve_impl = (VOPFUNC) mockfs_lookup }, /* lookup */
 	{ .opve_op = &vnop_create_desc, .opve_impl = (VOPFUNC) err_create },/* create */
-	{ .opve_op = &vnop_open_desc, .opve_impl = (VOPFUNC) err_open }, /* open */
+	{ .opve_op = &vnop_open_desc, .opve_impl = (VOPFUNC) mockfs_readonly_open }, /* open */
 	{ .opve_op = &vnop_mknod_desc, .opve_impl = (VOPFUNC) err_mknod }, /* mknod */
-	{ .opve_op = &vnop_close_desc, .opve_impl = (VOPFUNC) err_close }, /* close */
+	{ .opve_op = &vnop_close_desc, .opve_impl = (VOPFUNC) nop_close }, /* close */
 	{ .opve_op = &vnop_access_desc, .opve_impl = (VOPFUNC) err_access }, /* access */
 	{ .opve_op = &vnop_getattr_desc, .opve_impl = (VOPFUNC) mockfs_getattr }, /* getattr */
 	{ .opve_op = &vnop_setattr_desc, .opve_impl = (VOPFUNC) err_setattr }, /* setattr */
@@ -421,7 +436,7 @@ const struct vnodeopv_entry_desc mockfs_vnodeop_entries[] = {
 	{ .opve_op = &vnop_write_desc, .opve_impl = (VOPFUNC) err_write }, /* write */
 	{ .opve_op = &vnop_ioctl_desc, .opve_impl = (VOPFUNC) err_ioctl }, /* ioctl */
 	{ .opve_op = &vnop_select_desc, .opve_impl = (VOPFUNC) err_select }, /* select */
-	{ .opve_op = &vnop_mmap_desc, .opve_impl = (VOPFUNC) err_mmap }, /* mmap */
+	{ .opve_op = &vnop_mmap_desc, .opve_impl = (VOPFUNC) nop_mmap }, /* mmap */
 	{ .opve_op = &vnop_fsync_desc, .opve_impl = (VOPFUNC) nop_fsync }, /* fsync */
 	{ .opve_op = &vnop_remove_desc, .opve_impl = (VOPFUNC) err_remove }, /* remove */
 	{ .opve_op = &vnop_link_desc, .opve_impl = (VOPFUNC) err_link }, /* link */

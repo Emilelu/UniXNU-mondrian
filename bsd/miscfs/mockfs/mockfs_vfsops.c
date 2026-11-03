@@ -34,12 +34,23 @@
 #include <miscfs/mockfs/mockfs_vnops.h>
 #include <miscfs/specfs/specdev.h>
 #include <sys/disk.h>
+#include <sys/buf.h>
+#include <sys/kauth.h>
 #include <sys/errno.h>
 #include <sys/malloc.h>
 #include <sys/mount_internal.h>
 #include <sys/vnode_internal.h>
 
 static LCK_GRP_DECLARE(mockfs_mtx_grp, "mockfs-mutex");
+
+/* Bounded offline input container, not a deployment filesystem or trust claim.
+ * Two unmodified files: /sbin/launchd and /probe.bin; all offsets native 4K.
+ */
+struct mockfs_test_header {
+	char magic[8];
+	uint32_t version, count;
+	uint64_t launch_offset, launch_size, test_offset, test_size;
+};
 
 int mockfs_mountroot(mount_t mp, vnode_t rvp, __unused vfs_context_t ctx);
 
@@ -68,6 +79,10 @@ mockfs_mountroot(mount_t mp, vnode_t rvp, __unused vfs_context_t ctx)
 	mockfs_fsnode_t root_fsnode = NULL;
 	mockfs_fsnode_t dev_fsnode = NULL;
 	mockfs_fsnode_t file_fsnode = NULL;
+	mockfs_fsnode_t test_fsnode = NULL;
+	struct mockfs_test_header header = {0};
+	buf_t header_buf = NULL;
+	boolean_t test_image = FALSE;
 	mockfs_mount_t mockfs_mount_data = NULL;
 	dk_memdev_info_t memdev_info;
 
@@ -113,6 +128,42 @@ mockfs_mountroot(mount_t mp, vnode_t rvp, __unused vfs_context_t ctx)
 
 	lck_mtx_init(&mockfs_mount_data->mockfs_mnt_mtx, &mockfs_mtx_grp, LCK_ATTR_NULL);
 
+	mp->mnt_data = (typeof(mp->mnt_data))mockfs_mount_data;
+
+	/* Legacy single-Mach-O images retain their original mapping. */
+	rvalue = buf_meta_bread(rvp, 0, 4096, vfs_context_ucred(ctx), &header_buf);
+	if (!rvalue) {
+		memcpy(&header, (void *)buf_dataptr(header_buf), sizeof(header));
+	}
+	if (header_buf) {
+		buf_brelse(header_buf);
+	}
+	if (rvalue) {
+		goto done;
+	}
+	if (!memcmp(header.magic, "N4KROOT", 8)) {
+		uint64_t bytes = rvp->v_specinfo->si_devsize;
+		if (header.version != 1 || header.count != 2 || bytes > 32 * 1024 * 1024 ||
+		    header.launch_offset != 4096 || !header.launch_size || !header.test_size ||
+		    (header.test_offset & 4095) || header.test_offset < 8192 || header.test_offset > bytes ||
+		    header.launch_size > header.test_offset - header.launch_offset ||
+		    header.test_size > bytes - header.test_offset) {
+			rvalue = EINVAL;
+			goto done;
+		}
+		rvalue = mockfs_fsnode_create(mp, MOCKFS_TEST_FILE, &test_fsnode);
+		if (rvalue) {
+			goto done;
+		}
+		file_fsnode->backing_offset = header.launch_offset;
+		file_fsnode->size = header.launch_size;
+		test_fsnode->backing_offset = header.test_offset;
+		test_fsnode->size = header.test_size;
+		mockfs_mount_data->mockfs_memory_backed = FALSE;
+		test_image = TRUE;
+	}
+
+
 	/*
 	 * All of the needed nodes/structures have been set up; now we just need to establish the relationships
 	 *   between the various mockfs nodes.
@@ -125,11 +176,18 @@ mockfs_mountroot(mount_t mp, vnode_t rvp, __unused vfs_context_t ctx)
 		goto done;
 	}
 
+	if (test_image && (rvalue = mockfs_fsnode_adopt(root_fsnode, test_fsnode))) {
+		goto done;
+	}
+
 	mockfs_mount_data->mockfs_root = root_fsnode;
 	mp->mnt_data = (typeof(mp->mnt_data))mockfs_mount_data;
 
 done:
 	if (rvalue) {
+		if (test_fsnode) {
+			mockfs_fsnode_destroy(test_fsnode);
+		}
 		if (file_fsnode) {
 			mockfs_fsnode_destroy(file_fsnode);
 		}
@@ -142,6 +200,7 @@ done:
 		if (mockfs_mount_data) {
 			lck_mtx_destroy(&mockfs_mount_data->mockfs_mnt_mtx, &mockfs_mtx_grp);
 			kfree_type(struct mockfs_mount, mockfs_mount_data);
+		mp->mnt_data = NULL;
 		}
 	}
 

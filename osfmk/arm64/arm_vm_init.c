@@ -340,6 +340,10 @@ SECURITY_READ_ONLY_LATE(vm_offset_t)     static_memory_end;
 SECURITY_READ_ONLY_LATE(pmap_paddr_t)    avail_start;
 SECURITY_READ_ONLY_LATE(pmap_paddr_t)    avail_end;
 SECURITY_READ_ONLY_LATE(pmap_paddr_t)    real_avail_end;
+#if defined(PONG)
+/* Actual Pong DT gpu_micro_code_mem. Published only before VM allocation. */
+unsigned int pong_adreno_zap_reserved;
+#endif
 SECURITY_READ_ONLY_LATE(unsigned long)   real_phys_size;
 SECURITY_READ_ONLY_LATE(vm_map_address_t) physmap_base = (vm_map_address_t)0;
 SECURITY_READ_ONLY_LATE(vm_map_address_t) physmap_end = (vm_map_address_t)0;
@@ -1938,6 +1942,26 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
 	 * to trampoline to KVA. this requires only 3 pages to stay resident.
 	 */
 	avail_start = args->topOfKernelData;
+
+#if defined(PONG)
+	unsigned int pong_gpu_requested = 0;
+	if (PE_parse_boot_argn("pong_adreno_start", &pong_gpu_requested,
+	    sizeof(pong_gpu_requested)) && pong_gpu_requested == 1) {
+		const uint64_t zap = 0x8b91a000ULL, zap_end = zap + 0x2000;
+		if (zap_end <= gPhysBase || zap >= gPhysBase + mem_size) {
+			/* Outside this XNU window: the real DT reservation is unmanaged. */
+			pong_adreno_zap_reserved = 1;
+		} else if (zap >= gPhysBase && zap_end <= gPhysBase + mem_size &&
+		    avail_start <= zap) {
+			/* A contiguous boot allocator cannot split its static prefix.
+			 * Retain the prefix through ZAP before ANY early table/VM
+			 * allocation can recycle it. The rest of the4GiB stays usable. */
+			avail_start = zap_end;
+			pong_adreno_zap_reserved = 1;
+		}
+		/* If payload already overlaps it, leave unowned: GPU must skip ZAP. */
+	}
+#endif
 
 #if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR)
 	arm_replace_identity_map();

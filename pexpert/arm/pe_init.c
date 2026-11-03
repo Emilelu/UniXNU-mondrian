@@ -539,6 +539,25 @@ PE_create_console(void)
 	 */
 	check_for_panic_log();
 
+#if defined(PONG)
+	boolean_t verbose_console = FALSE;
+	if (PE_parse_boot_argn("-v", &verbose_console, sizeof(verbose_console)) &&
+	    PE_state.video.v_baseAddr && PE_state.video.v_width &&
+	    PE_state.video.v_height && PE_state.video.v_depth == 32) {
+		/* DarwinBoot supplies a GOP physical address. Mark it for the
+		 * stock video console to map into kernel VA, even when kernel_map
+		 * already exists. Never draw through the bootloader's low VA.
+		 */
+		if ((PE_state.video.v_baseAddr >> 63) == 0) {
+			PE_state.video.v_baseAddr |= 1UL;
+		}
+		PE_state.video.v_display = 0;
+		PE_initialize_console(&PE_state.video, kPETextMode);
+		PE_initialize_console(NULL, kPEAcquireScreen);
+		return;
+	}
+#endif
+
 	if (PE_state.video.v_display) {
 		PE_initialize_console(&PE_state.video, kPEGraphicsMode);
 	} else {

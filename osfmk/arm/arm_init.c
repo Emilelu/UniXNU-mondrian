@@ -91,6 +91,122 @@
 #include <IOKit/IOPlatformExpert.h>
 #endif /* HIBERNATION */
 
+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+#include <arm64/pong_ramoops_console.h>
+
+/* The one definition of the mirror state; every reader shares it. */
+vm_offset_t pong_ramoops_base;
+uint32_t pong_ramoops_start;
+uint32_t pong_ramoops_size;
+volatile uint32_t pong_ramoops_busy;
+
+void
+pong_ramoops_console_write(const char *text, int length)
+{
+	if (!text || length <= 0 || !pong_ramoops_base ||
+	    __atomic_exchange_n(&pong_ramoops_busy, 1, __ATOMIC_ACQUIRE)) {
+		return;
+	}
+
+	const uint32_t capacity = PONG_RAMOOPS_DATA_BYTES;
+	uint32_t old_size = pong_ramoops_size;
+	uint32_t write_at = old_size < capacity ?
+	    (pong_ramoops_start + old_size) % capacity : pong_ramoops_start;
+	uint32_t count = (uint32_t)length;
+	uint32_t skip = 0;
+	if (count > capacity) {
+		skip = count - capacity;
+		count = capacity;
+	}
+	uint32_t data_at = (write_at + skip) % capacity;
+	const char *source = text + skip;
+	volatile uint8_t *data = (volatile uint8_t *)(uintptr_t)
+	    (pong_ramoops_base + PONG_RAMOOPS_HEADER_BYTES);
+	uint32_t first = capacity - data_at;
+	if (first > count) {
+		first = count;
+	}
+	for (uint32_t i = 0; i < first; i++) {
+		data[data_at + i] = (uint8_t)source[i];
+	}
+	uint32_t second = count - first;
+	for (uint32_t i = 0; i < second; i++) {
+		data[i] = (uint8_t)source[first + i];
+	}
+
+	if (first) {
+		CleanPoC_DcacheRegion_Force((vm_offset_t)(uintptr_t)(data + data_at), first);
+	}
+	if (second) {
+		CleanPoC_DcacheRegion_Force((vm_offset_t)(uintptr_t)data, second);
+	}
+	__asm__ volatile("dsb sy" ::: "memory");
+
+	uint64_t total = (uint64_t)old_size + (uint32_t)length;
+	uint32_t new_size = total >= capacity ? capacity : (uint32_t)total;
+	uint32_t new_start = total > capacity ?
+	    (uint32_t)((pong_ramoops_start + total - capacity) % capacity) : pong_ramoops_start;
+	struct pong_ramoops_header *header =
+	    (struct pong_ramoops_header *)(uintptr_t)pong_ramoops_base;
+	header->start = new_start;
+	header->size = new_size;
+	__asm__ volatile("dsb sy" ::: "memory");
+	CleanPoC_DcacheRegion_Force(pong_ramoops_base, PONG_RAMOOPS_HEADER_BYTES);
+	__asm__ volatile("dsb sy" ::: "memory");
+	pong_ramoops_start = new_start;
+	pong_ramoops_size = new_size;
+	__atomic_store_n(&pong_ramoops_busy, 0, __ATOMIC_RELEASE);
+}
+
+vm_offset_t
+pong_ramoops_debug_base(void)
+{
+	return pong_ramoops_base;
+}
+
+uint32_t
+pong_ramoops_debug_start(void)
+{
+	return pong_ramoops_start;
+}
+
+uint32_t
+pong_ramoops_debug_size(void)
+{
+	return pong_ramoops_size;
+}
+
+int
+pong_ramoops_console_init(void)
+{
+	if (pong_ramoops_base) {
+		return 1;
+	}
+	vm_offset_t mapped = ml_io_map_wcomb(PONG_RAMOOPS_PHYS_BASE,
+	    PONG_RAMOOPS_CONSOLE_BYTES);
+	if (!mapped) {
+		return 0;
+	}
+
+	struct pong_ramoops_header *header =
+	    (struct pong_ramoops_header *)(uintptr_t)mapped;
+	header->sig = 0;
+	header->start = 0;
+	header->size = 0;
+	__asm__ volatile("dsb sy" ::: "memory");
+	CleanPoC_DcacheRegion_Force(mapped, PONG_RAMOOPS_HEADER_BYTES);
+	header->sig = PONG_RAMOOPS_MAGIC;
+	__asm__ volatile("dsb sy" ::: "memory");
+	CleanPoC_DcacheRegion_Force(mapped, PONG_RAMOOPS_HEADER_BYTES);
+	__asm__ volatile("dsb sy" ::: "memory");
+
+	pong_ramoops_start = 0;
+	pong_ramoops_size = 0;
+	pong_ramoops_base = mapped;
+	return 1;
+}
+#endif
+
 extern void     patch_low_glo(void);
 extern int      serial_init(void);
 extern void sleep_token_buffer_init(void);
@@ -524,6 +640,10 @@ arm_init(
 #endif  /* __ARM_PAN_AVAILABLE__ */
 
 	arm_vm_init(xmaxmem, args);
+
+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+	(void)pong_ramoops_console_init();
+#endif
 
 	if (debug_boot_arg) {
 		patch_low_glo();

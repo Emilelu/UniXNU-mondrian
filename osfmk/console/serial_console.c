@@ -509,9 +509,16 @@ console_resume()
  * @param str The string of characters to print.
  * @param size The number of characters in `str` to print.
  */
+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+extern void pong_ramoops_console_write(const char *, int);
+#endif
+
 void
 console_write(char *str, int size)
 {
+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+	pong_ramoops_console_write(str, size);
+#endif
 	assert(str != NULL);
 
 	char *write_ptr = NULL;
@@ -590,6 +597,9 @@ console_write(char *str, int size)
 void
 console_write_unbuffered(char c)
 {
+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+	pong_ramoops_console_write(&c, 1);
+#endif
 	_cnputc(c, true);
 }
 

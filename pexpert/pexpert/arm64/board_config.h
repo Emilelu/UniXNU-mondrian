@@ -87,6 +87,14 @@
 
 
 
+#ifdef ARM64_BOARD_CONFIG_PONG
+#include <pexpert/arm64/PONG.h>
+#define MAX_L2_CLINE                   6
+#define MAX_CPUS                       1
+#define MAX_CPU_CLUSTERS               1
+#define CORE_NCTRS                     8 /* Unused placeholder: KPC disabled */
+#endif /* ARM64_BOARD_CONFIG_PONG */
+
 #ifdef ARM64_BOARD_CONFIG_BCM2837
 #include <pexpert/arm64/BCM2837.h>
 

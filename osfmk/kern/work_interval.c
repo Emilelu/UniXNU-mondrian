@@ -1050,7 +1050,7 @@ kern_work_interval_create(thread_t thread,
 			return KERN_FAILURE;
 		}
 		if (!task_is_app(creating_task)) {
-#if XNU_TARGET_OS_OSX
+#if XNU_TARGET_OS_OSX || 1  /* sheng: UIKit aborts on a refused CA_CLIENT interval; soft-fail it as macOS does */
 			/*
 			 * Soft-fail the case of a non-app pretending to be an
 			 * app, by allowing it to press the buttons, but they're
@@ -1066,7 +1066,8 @@ kern_work_interval_create(thread_t thread,
 #endif /* XNU_TARGET_OS_OSX */
 		}
 		if (task_set_ca_client_wi(creating_task, true) == false) {
-			return KERN_FAILURE;
+			/* sheng: a second CA_CLIENT interval in a task is accepted but not connected, instead of aborting the app */
+			create_flags |= WORK_INTERVAL_FLAG_IGNORED;
 		}
 	}
 

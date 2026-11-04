@@ -1,0 +1,148 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 48328e2..28b8b25 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2110,6 +2110,67 @@ bad:
+  *
+  * XXX hardcoded, for now; should use linker sets
+  */
++/* ---- 0302: exec diagnostics (pid->path map + bounded exec-error printer) ---- */
++#define K60_PIDPATH_SLOTS 128
++static int k60_pidpath_pid[K60_PIDPATH_SLOTS];
++static char k60_pidpath_path[K60_PIDPATH_SLOTS][64];
++static _Atomic unsigned int k60_pidpath_seq = 0;
++
++const char *
++k60_exec_path_for_pid(int pid)
++{
++	int k60_i;
++	for (k60_i = 0; k60_i < K60_PIDPATH_SLOTS; k60_i++) {
++		if (k60_pidpath_pid[k60_i] == pid && k60_pidpath_path[k60_i][0] != '\0') {
++			return k60_pidpath_path[k60_i];
++		}
++	}
++	return NULL;
++}
++
++/*
++ * Bounded exec-error printer: first occurrence of each (comm,where,error)
++ * prints one line with the resolved exec path; repeats only count.
++ */
++static void
++k60_print_exec_error(proc_t p, int error, const char *where)
++{
++	static struct {
++		char comm[24];
++		char where[8];
++		unsigned int err;
++		unsigned int count;
++	} k60_xerr[8];
++	unsigned int k60_i, k60_free = 8, k60_hit = 8;
++
++	for (k60_i = 0; k60_i < 8; k60_i++) {
++		if (k60_xerr[k60_i].count == 0) {
++			if (k60_free == 8) {
++				k60_free = k60_i;
++			}
++			continue;
++		}
++		if (k60_xerr[k60_i].err == (unsigned int)error &&
++		    strncmp(k60_xerr[k60_i].comm, p->p_comm, 24) == 0 &&
++		    strncmp(k60_xerr[k60_i].where, where, 8) == 0) {
++			k60_hit = k60_i;
++			break;
++		}
++	}
++	if (k60_hit == 8 && k60_free != 8) {
++		k60_hit = k60_free;
++		strlcpy(k60_xerr[k60_hit].comm, p->p_comm, sizeof(k60_xerr[k60_hit].comm));
++		strlcpy(k60_xerr[k60_hit].where, where, sizeof(k60_xerr[k60_hit].where));
++		k60_xerr[k60_hit].err = (unsigned int)error;
++	}
++	if (k60_hit != 8 && ++k60_xerr[k60_hit].count == 1) {
++		const char *k60_xp = k60_exec_path_for_pid(proc_getpid(p));
++		printf("KX? %d %s execerr=%d where=%s path=%s\n",
++		    proc_getpid(p), p->p_comm, error, where,
++		    k60_xp != NULL ? k60_xp : "?");
++	}
++}
++
+ struct execsw {
+ 	int(*const ex_imgact)(struct image_params *);
+ 	const char *ex_name;
+@@ -2182,6 +2243,14 @@ exec_activate_image(struct image_params *imgp)
+ 	/* Use excpath, which contains the copyin-ed exec path */
+ 	DTRACE_PROC1(exec, uintptr_t, excpath);
+ 
++	{
++		unsigned int k60_slot = atomic_fetch_add_explicit(&k60_pidpath_seq,
++		    1u, memory_order_relaxed) & (K60_PIDPATH_SLOTS - 1);
++		k60_pidpath_pid[k60_slot] = proc_getpid(p);
++		strlcpy(k60_pidpath_path[k60_slot], excpath,
++		    sizeof(k60_pidpath_path[k60_slot]));
++	}
++
+ 	{
+ 		static uint32_t k60_path_hashes[128];
+ 		static unsigned k60_path_count;
+@@ -2352,6 +2421,9 @@ bad:
+ 	proc_transend(p, 0);
+ 
+ bad_notrans:
++	if (error) {
++		k60_print_exec_error(p, error, "exec");
++	}
+ 	if (imgp->ip_strings) {
+ 		execargs_free(imgp);
+ 	}
+@@ -4325,6 +4397,9 @@ bad_px_sa:
+ 	}
+ 
+ bad:
++	if (error) {
++		k60_print_exec_error(p, error, "spawn");
++	}
+ 
+ 	if (error == 0) {
+ 		/* reset delay idle sleep status if set */
+@@ -7434,7 +7509,7 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 	size = ufs_bytes;
+ 	printf("K60DATA UFS window dev=%x path=%s bytes=%llx\n",
+ 	    (unsigned)device, device_path, (unsigned long long)size);
+-	if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;
++	if (!size || size > UINT64_C(0x600000000) || (size & 4095)) goto done;
+ #elif defined(XNU_NATIVE_RAM_BLOCK) && XNU_NATIVE_RAM_BLOCK
+ 	/* The typed provider supplies logical seed identity for both dense and
+ 	 * sparse media. A sparse disk has no contiguous logical-byte address. */
+@@ -7444,11 +7519,11 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 		error = ENOENT;
+ 		goto done;
+ 	}
+-	if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;
++	if (!size || size > UINT64_C(0x600000000) || (size & 4095)) goto done;
+ #else
+ 	device = mdevlookup(0);
+ 	if (device == NODEV || mdevgetrange(0, &base, &size) || base < VM_MIN_KERNEL_ADDRESS ||
+-	    !size || size > UINT64_C(0x80000000) || (base & 4095) || (size & 4095)) goto done;
++	    !size || size > UINT64_C(0x600000000) || (base & 4095) || (size & 4095)) goto done;
+ 	SHA256_CTX context;
+ 	SHA256_Init(&context);
+ 	SHA256_Update(&context, (const void *)base, size);
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index fc8d20d..313d661 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1681,6 +1681,13 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate,
+ 				    (unsigned long long)(k60_reason ? k60_reason->osr_code : 0),
+ 				    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0),
+ 				    (unsigned int)jetsam_flags);
++				{
++					extern const char *k60_exec_path_for_pid(int);
++					const char *k60_xp = k60_exec_path_for_pid(proc_getpid(p));
++					if (k60_xp != NULL) {
++						printf("KXP %d %s\n", proc_getpid(p), k60_xp);
++					}
++				}
+ 			}
+ 			if ((k60_record % 100) == 0) {
+ 				unsigned int top[3] = { 16, 16, 16 };

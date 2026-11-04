@@ -136,3 +136,8 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mactable-summary.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-cache-report.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mem-report.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch
+0301-k60-sandbox-kx-histogram.patch
+0302-data-cap-execerr-kxp.patch
+0303-k60-heartbeat.patch
+0304-kxq-rate-ler-lw.patch
+0305-kxq-site-tags.patch

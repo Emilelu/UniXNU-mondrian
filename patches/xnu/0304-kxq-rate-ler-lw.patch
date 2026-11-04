@@ -1,0 +1,76 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index af74c36..fcac279 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2114,6 +2114,8 @@ bad:
+ unsigned int k60_execerr_prints = 0;
+ uint64_t k60_data_win_bytes = 0;
+ int k60_data_mounted = 0;
++int k60_last_execerr = -1;
++char k60_last_execwhere[8] = "";
+ 
+ /* ---- 0302: exec diagnostics (pid->path map + bounded exec-error printer) ---- */
+ #define K60_PIDPATH_SLOTS 128
+@@ -2141,6 +2143,8 @@ static void
+ k60_print_exec_error(proc_t p, int error, const char *where)
+ {
+ 	k60_execerr_prints++;
++	k60_last_execerr = error;
++	strlcpy(k60_last_execwhere, where, sizeof(k60_last_execwhere));
+ 	static struct {
+ 		char comm[24];
+ 		char where[8];
+@@ -2169,11 +2173,14 @@ k60_print_exec_error(proc_t p, int error, const char *where)
+ 		strlcpy(k60_xerr[k60_hit].where, where, sizeof(k60_xerr[k60_hit].where));
+ 		k60_xerr[k60_hit].err = (unsigned int)error;
+ 	}
+-	if (k60_hit != 8 && ++k60_xerr[k60_hit].count == 1) {
+-		const char *k60_xp = k60_exec_path_for_pid(proc_getpid(p));
+-		printf("KX? %d %s execerr=%d where=%s path=%s\n",
+-		    proc_getpid(p), p->p_comm, error, where,
+-		    k60_xp != NULL ? k60_xp : "?");
++	if (k60_hit != 8) {
++		unsigned int k60_n = ++k60_xerr[k60_hit].count;
++		if (k60_n == 1 || (k60_n % 200) == 0) {
++			const char *k60_xp = k60_exec_path_for_pid(proc_getpid(p));
++			printf("KX? #%u %d %s execerr=%d where=%s path=%s\n",
++			    k60_n, proc_getpid(p), p->p_comm, error, where,
++			    k60_xp != NULL ? k60_xp : "-");
++		}
+ 	}
+ }
+ 
+@@ -2208,16 +2215,26 @@ k60_heartbeat_thread(void *arg, wait_result_t wr)
+ 		unsigned int k60_xp = k60_storm_count("xpcproxy");
+ 		unsigned int k60_lag = k60_storm_count("launchd");
+ 		unsigned int k60_mse = k60_storm_count("MSEarlyBootTask");
++		char k60_dw[24];
++		char k60_ler[24];
++		const char *k60_lw;
+ 		if (k60_data_win_bytes != 0) {
+-			printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=%llu dm=%d\n",
+-			    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
+-			    k60_execerr_prints, k60_kxp_prints,
+-			    (unsigned long long)(k60_data_win_bytes >> 20), k60_data_mounted);
++			snprintf(k60_dw, sizeof(k60_dw), "%llu",
++			    (unsigned long long)(k60_data_win_bytes >> 20));
++		} else {
++			strlcpy(k60_dw, "-1", sizeof(k60_dw));
++		}
++		if (k60_last_execerr >= 0) {
++			snprintf(k60_ler, sizeof(k60_ler), "%d", k60_last_execerr);
++			k60_lw = k60_last_execwhere;
+ 		} else {
+-			printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=-1 dm=%d\n",
+-			    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
+-			    k60_execerr_prints, k60_kxp_prints, k60_data_mounted);
++			strlcpy(k60_ler, "-", sizeof(k60_ler));
++			k60_lw = "-";
+ 		}
++		printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=%s dm=%d ler=%s lw=%s\n",
++		    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
++		    k60_execerr_prints, k60_kxp_prints, k60_dw, k60_data_mounted,
++		    k60_ler, k60_lw);
+ 	}
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 	thread_block((thread_continue_t)k60_heartbeat_thread);

@@ -1,0 +1,23 @@
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1781,6 +1781,20 @@
+ 				    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0),
+ 				    (unsigned int)jetsam_flags);
+ 
++				/* 0389: print the crashing thread's PC/LR/SP so a silent
++				 * SIGSEGV (launchd) names the faulting address. */
++				{
++					extern struct arm_saved_state *find_user_regs(thread_t);
++					struct arm_saved_state *k60_ss = find_user_regs(current_thread());
++
++					if (k60_ss != NULL) {
++						printf("KXPC %d %s pc=0x%llx lr=0x%llx sp=0x%llx\n",
++						    proc_getpid(p), p->p_comm,
++						    (unsigned long long)get_saved_state_pc(k60_ss),
++						    (unsigned long long)get_saved_state_lr(k60_ss),
++						    (unsigned long long)get_saved_state_sp(k60_ss));
++					}
++				}
+ 				/*
+ 				 * 0373: a dyld abort (namespace 6) keeps the failing library
+ 				 * or symbol in the reason's kcdata buffer.  Dump it as text so

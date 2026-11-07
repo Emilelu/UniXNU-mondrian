@@ -1,0 +1,37 @@
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -377,9 +377,16 @@
+  * reset discards, so emit the identifying parts on the live console first.
+  */
+ void
+-k60_panic_report(const char *fmt, unsigned long caller)
++k60_panic_report(const char *fmt, va_list *panic_args, unsigned long caller)
+ {
+ 	printf("K60PANICFMT caller=0x%lx fmt=%s\n", caller, fmt ? fmt : "(null)");
++	/* 0387: the fmt alone names the panic; the expanded args carry the
++	 * concrete mutex / file:line that panic() saw. */
++	if (fmt && panic_args) {
++		printf("K60PANICARGS ");
++		vprintf(fmt, *panic_args);
++		printf("\n");
++	}
+ 	extern void k60_panic_reset_to_fastboot(void);
+ 
+ 	k60_panic_reset_to_fastboot();
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1087,12 +1087,12 @@
+ 	 * k60_panic_reset=1.
+ 	 */
+ 	{
+-		extern void k60_panic_report(const char *, unsigned long);
++		extern void k60_panic_report(const char *, va_list *, unsigned long);
+ 
+ 		/* 0347: the formatted dump only reaches the ramoops ring, which the
+ 		 * reset discards.  Print the format string and the panic caller while
+ 		 * the console still works, then hand the phone back to fastboot. */
+-		k60_panic_report(panic_format_str, panic_caller);
++		k60_panic_report(panic_format_str, panic_args, panic_caller);
+ 	}
+ #endif
+ 

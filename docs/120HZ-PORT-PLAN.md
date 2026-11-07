@@ -1,3 +1,22 @@
+> **⚠️ 数据源更正（2026-11-07，Lead 核实后追加，优先级高于本文件 §2/§3）**
+>
+> 本文件原 §2/§3 的面板参数取自 **`qcom,mdss_dsi_sharp_qhd_plus_dsc_cmd`** —— 一个 Qualcomm
+> **通用参考面板**（实测 27/35 个 fdt 都带它），**不是 K60 的实测面板**。
+> 依据：`D:/Android/k60-ios/deliverables/ZCODE-RESEARCH-REPORT.md:396`（U6-C5）。
+>
+> K60 真机面板是 **`qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd`**（`hwid.project=14`，
+> `D:/Android/k60-ios/AGENT-COORDINATION.md:1778`），它有 **60/90/120 三档**：
+> `timing@0`=60Hz（DCS `0x2F=0x02`）、`timing@1`=90Hz（`0x2F=0x01`）、`timing@2`=120Hz（`0x2F=0x00`），
+> 三档 **phy-timings 与 clockrate `0x47868C00`(1.2 GHz) 逐字节相同**
+> （`ZCODE-RESEARCH-REPORT.md:384`，U6-C4）。
+>
+> **因此：本文件里 sharp_qhd_plus 的 `0xC6` 切档序列在真机上大概率是错命令，禁止使用。**
+> 切档必须改用 m11a 的 DCS `0x2F`。
+>
+> 另据同一份证据：内核侧 `fb_hz=N`(1..240) 只改 **CoreAnimation 节拍**（TimingElements/vsync/present），
+> **不改面板扫描率**；**真 120Hz 需要新增 DSI host/PHY/PLL 驱动，而这块当前完全缺失**。
+> 只改 `fb_hz=120` 的后果被明确记录为：CA 按 8.33 ms 绘制、面板仍 60 Hz 扫描、CPU 拷贝翻倍、撕裂概率升高。
+
 # K60 120 Hz 移植方案（GPU scanout 生效之后执行）
 
 > 状态：方案稿，**未实施**。每条结论后附 `文件:行`；无法证实的集中在 §5。

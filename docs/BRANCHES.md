@@ -1,5 +1,7 @@
 # 分支台账（route-a-18）
 
+> 状态（2026-11-07）：本页是 2026-11-01 的分支清理台账，不跟踪之后的分支；当前工作分支为 `fix/k60-measured-high-window`，以 `git branch` 为准。
+
 > 2026-11-01 整理：把 48 个旧分支按"已合并 / 已作废"处理，只留下按规范命名的活动分支。
 > 分支规范见 `AGENTS.md`：`feat|fix|refactor|docs|chore|perf|wip/<topic>`，一条分支一件事，
 > 确认没问题才并入 `main`，任务完成后删分支。

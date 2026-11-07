@@ -1,0 +1,427 @@
+name: iOS 16 OS window (pong apply)
+
+# Produces the modified OS window image that the K60 unixnu SHNGROOT OS window
+# must contain before Pong's static init can start launchd. Nothing here touches
+# the device: docs/APPLY-PIPELINE.md covers the recovery-ADB write-back.
+#
+# Why the content changes but the length does not:
+#   prepare() clones the stock OS disk with /bin/cp -c (userland/build.py:430-432)
+#   and apply() edits that clone in place (build.py:449-508). The SHNGROOT window
+#   record keeps the stock length, so the artifact must be exactly as long as the
+#   device window (20G81: OS 5,096,113,664 B at offset 1 MiB).
+#
+# Inputs are restore components and are never committed:
+#   OS                 whole-disk image, EFI PART at offset 512 (the window itself)
+#   Cryptex1,SystemOS  mounted read-only as --system-cryptex (NXSB at offset 32)
+#   Data               only a writable APFS target: its contents never reach the
+#                      OS window (build.py:495-505), so a 512 MiB image is created
+#                      unless data_image_url supplies a real seed.
+#
+# IPSW URL: UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml:12, the same
+# object as UniXNU-pong/board.toml [ipsw] url.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "ipsw: HTTP-range extract from the restore; urls: direct component URLs; artifact: components from another run"
+        type: choice
+        options: [ipsw, urls, artifact]
+        default: ipsw
+      ipsw_url:
+        description: "iPadOS 16.6.1 20G81 restore IPSW"
+        type: string
+        default: "https://updates.cdn-apple.com/2023SummerFCS/fullrestores/042-44385/366890C4-D9B5-4938-B399-C19FB58DBEE0/iPad_Pro_HFR_16.6.1_20G81_Restore.ipsw"
+      os_image_url:
+        description: "OS whole-disk image (.dmg or raw .cdr); used when source=urls"
+        type: string
+        default: ""
+      systemos_image_url:
+        description: "Cryptex1,SystemOS image; used when source=urls"
+        type: string
+        default: ""
+      data_image_url:
+        description: "optional APFS Data image; empty creates a 512 MiB target"
+        type: string
+        default: ""
+      component_artifact:
+        description: "artifact holding os-image.dmg and systemos-image.dmg (source=artifact)"
+        type: string
+        default: "ios16-os-window-components"
+      component_run_id:
+        description: "run id of that artifact; empty means this run"
+        type: string
+        default: ""
+      expected_os_bytes:
+        description: "required OS window length; must equal the device SHNGROOT OS.size (0 skips the check)"
+        type: string
+        default: "5096113664"
+      os_offset_bytes:
+        description: "device SHNGROOT OS.offset; only used for the reported write command"
+        type: string
+        default: "1048576"
+      artifact_mode:
+        description: "split: <=1900 MiB parts; whole: one file"
+        type: choice
+        options: [split, whole]
+        default: split
+      runner:
+        description: "macOS runner label"
+        type: string
+        default: "macos-14"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ios16-os-window-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  COMPONENTS: ${{ github.workspace }}/.components
+  WORK: ${{ github.workspace }}/.work
+
+jobs:
+  os-window:
+    runs-on: ${{ inputs.runner || 'macos-14' }}
+    timeout-minutes: 240
+    env:
+      EXPECTED_OS_BYTES: ${{ inputs.expected_os_bytes }}
+      OS_OFFSET_BYTES: ${{ inputs.os_offset_bytes }}
+      ARTIFACT_MODE: ${{ inputs.artifact_mode }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host report
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcode-select -p
+          python3 -V
+          df -h /
+          git rev-parse HEAD
+          sha256sum userland/build.py tools/apfs/apfs.py tools/apfs/dmg.py 2>/dev/null || \
+            shasum -a 256 userland/build.py tools/apfs/apfs.py tools/apfs/dmg.py
+          # userland/build.py is byte-identical to UniXNU-pong FETCH_HEAD
+          # (sha256 21a5c6d27439...); the hash above makes drift visible.
+          for f in userland/mkjobs.py userland/init.c userland/libmini/start.S; do
+            test -f "$f" || { echo "missing prepare input: $f"; exit 1; }
+          done
+          mkdir -p "$COMPONENTS" "$WORK"
+
+      - name: Download components from another run
+        if: inputs.source == 'artifact'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.component_artifact }}
+          path: ${{ env.COMPONENTS }}
+          run-id: ${{ inputs.component_run_id || github.run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+
+      - name: Fetch components (IPSW or direct URLs)
+        if: inputs.source != 'artifact'
+        env:
+          SOURCE: ${{ inputs.source }}
+          IPSW_URL: ${{ inputs.ipsw_url }}
+          OS_URL: ${{ inputs.os_image_url }}
+          SYSTEMMOS_URL: ${{ inputs.systemos_image_url }}
+          DATA_URL: ${{ inputs.data_image_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$COMPONENTS"
+          if [ "$SOURCE" = "urls" ]; then
+            test -n "$OS_URL" && test -n "$SYSTEMMOS_URL" || {
+              echo "source=urls needs os_image_url and systemos_image_url"; exit 1; }
+            curl -fL --retry 5 --retry-delay 5 -o "$COMPONENTS/os-image.dmg" "$OS_URL"
+            curl -fL --retry 5 --retry-delay 5 -o "$COMPONENTS/systemos-image.dmg" "$SYSTEMMOS_URL"
+            if [ -n "$DATA_URL" ]; then
+              curl -fL --retry 5 --retry-delay 5 -o "$COMPONENTS/data-image.dmg" "$DATA_URL"
+            fi
+            exit 0
+          fi
+          # Stream only the two needed members out of the remote ZIP with HTTP
+          # ranges; the IPSW itself is never stored. Mirrors the identity and
+          # member resolution in UniXNU-pong scripts/fetch-ios16-assets.py:143-167.
+          python3 - "$IPSW_URL" "$COMPONENTS" <<'PY'
+          import io, json, os, plistlib, shutil, sys, urllib.request, zipfile
+
+          url, outdir = sys.argv[1], sys.argv[2]
+          BLOCK = 4 << 20
+          WANT = {"OS": "os-image.dmg", "Cryptex1,SystemOS": "systemos-image.dmg"}
+
+          class RangeFile(io.RawIOBase):
+              """Seekable read-only view of a remote object over HTTP ranges."""
+              def __init__(self, url):
+                  self.url = url
+                  self.pos = 0
+                  self.cache = {}
+                  req = urllib.request.Request(url, method="HEAD")
+                  with urllib.request.urlopen(req, timeout=120) as r:
+                      self.size = int(r.headers["Content-Length"])
+                  req = urllib.request.Request(url, headers={"Range": "bytes=0-0"})
+                  with urllib.request.urlopen(req, timeout=120) as r:
+                      if r.status != 206:
+                          raise SystemExit("the restore URL does not serve HTTP ranges")
+
+              def readable(self): return True
+              def seekable(self): return True
+              def tell(self): return self.pos
+
+              def seek(self, offset, whence=0):
+                  self.pos = (offset if whence == 0 else
+                              self.pos + offset if whence == 1 else self.size + offset)
+                  return self.pos
+
+              def _block(self, index):
+                  if index not in self.cache:
+                      start = index * BLOCK
+                      end = min(start + BLOCK, self.size) - 1
+                      req = urllib.request.Request(
+                          self.url, headers={"Range": "bytes=%d-%d" % (start, end)})
+                      with urllib.request.urlopen(req, timeout=300) as r:
+                          if r.status != 206:
+                              raise RuntimeError("range request refused")
+                          data = r.read()
+                      if len(data) != end - start + 1:
+                          raise RuntimeError("short range response")
+                      if len(self.cache) >= 3:
+                          self.cache.pop(next(iter(self.cache)))
+                      self.cache[index] = data
+                  return self.cache[index]
+
+              def readinto(self, target):
+                  remaining = min(len(target), self.size - self.pos)
+                  done = 0
+                  while done < remaining:
+                      index, inside = divmod(self.pos, BLOCK)
+                      block = self._block(index)
+                      take = min(remaining - done, len(block) - inside)
+                      target[done:done + take] = block[inside:inside + take]
+                      self.pos += take
+                      done += take
+                  return done
+
+          archive = zipfile.ZipFile(RangeFile(url))
+          manifest = plistlib.loads(archive.read("BuildManifest.plist"))
+          if (manifest.get("ProductVersion"), manifest.get("ProductBuildVersion")) != ("16.6.1", "20G81"):
+              raise SystemExit("restore is not 16.6.1 / 20G81")
+
+          def number(value):
+              return value if isinstance(value, int) else int(str(value), 16)
+
+          def identity(item):
+              info = item.get("Info", {})
+              try:
+                  chip = number(item.get("ApChipID", 0))
+                  board = number(item.get("ApBoardID", 0))
+              except (TypeError, ValueError):
+                  return False
+              return (info.get("DeviceClass") == "j120ap"
+                      and info.get("RestoreBehavior") == "Erase"
+                      and chip == 0x8011 and board == 0x0c)
+
+          chosen = next((i for i in manifest["BuildIdentities"] if identity(i)), None)
+          if chosen is None:
+              raise SystemExit("no j120ap Erase identity in BuildManifest")
+
+          report = {}
+          for component, name in WANT.items():
+              entry = chosen["Manifest"].get(component)
+              if not entry:
+                  raise SystemExit("BuildManifest has no %s; present: %s"
+                                   % (component, ", ".join(sorted(chosen["Manifest"]))))
+              member = entry["Info"]["Path"]
+              info = archive.getinfo(member)
+              dest = os.path.join(outdir, name)
+              with archive.open(info) as src, open(dest + ".partial", "wb") as dst:
+                  shutil.copyfileobj(src, dst, 8 << 20)
+              os.replace(dest + ".partial", dest)
+              report[component] = {"member": member, "file": name,
+                                   "bytes": os.path.getsize(dest)}
+              print("%s: %s -> %s (%d bytes)" % (component, member, name,
+                                                 os.path.getsize(dest)), flush=True)
+          with open(os.path.join(outdir, "component-report.json"), "w") as handle:
+              json.dump({"ipsw": url, "components": report}, handle, indent=2)
+          PY
+
+      - name: Normalize the OS window image
+        env:
+          DATA_URL: ${{ inputs.data_image_url }}
+        run: |
+          set -euo pipefail
+          src="$COMPONENTS/os-image.dmg"
+          test -f "$src" || { echo "missing $src"; exit 1; }
+          test -f "$COMPONENTS/systemos-image.dmg" || { echo "missing SystemOS image"; exit 1; }
+
+          mkdir -p "$WORK"
+          if [ "$(dd if="$src" bs=1 skip=512 count=8 2>/dev/null | tr -d '\000')" = "EFI PART" ]; then
+            echo "OS input is already a raw whole-disk image"
+            rm -f "$WORK/os-window.cdr"
+            ln "$src" "$WORK/os-window.cdr" 2>/dev/null || cp "$src" "$WORK/os-window.cdr"
+          else
+            echo "Converting the OS UDIF to a raw whole-disk image (UDTO)"
+            rm -f "$WORK/os-window.cdr"
+            hdiutil convert -format UDTO -o "$WORK/os-window" "$src"
+          fi
+          test -f "$WORK/os-window.cdr"
+          [ "$(dd if="$WORK/os-window.cdr" bs=1 skip=512 count=8 2>/dev/null)" = "EFI PART" ] || {
+            echo "OS window has no GPT (EFI PART at 512); the driver rejects it"; exit 1; }
+          bytes=$(stat -f %z "$WORK/os-window.cdr")
+          echo "OS window bytes: $bytes"
+          if [ "${EXPECTED_OS_BYTES:-0}" != "0" ] && [ "$bytes" != "$EXPECTED_OS_BYTES" ]; then
+            echo "OS window is $bytes bytes, the device record needs $EXPECTED_OS_BYTES"
+            echo "Re-read SHNGROOT OS.size on the device before writing anything back."
+            exit 1
+          fi
+
+          if [ -n "${DATA_URL:-}" ] || [ -f "$COMPONENTS/data-image.dmg" ]; then
+            test -f "$COMPONENTS/data-image.dmg" || curl -fL --retry 5 -o "$COMPONENTS/data-image.dmg" "$DATA_URL"
+            ln "$COMPONENTS/data-image.dmg" "$WORK/data.dmg" 2>/dev/null || \
+              cp "$COMPONENTS/data-image.dmg" "$WORK/data.dmg"
+          else
+            # apply() only needs a writable APFS mount to merge data-root into
+            # (build.py:495-505); this seed never reaches the OS window.
+            rm -f "$WORK/data.dmg"
+            hdiutil create -size 512m -fs APFS -volname Data -type UDIF -ov "$WORK/data.dmg" >/dev/null
+          fi
+          hdiutil imageinfo "$WORK/data.dmg" | grep -E 'Format|Partition' || true
+
+      - name: prepare (compile init, curate jobs, clone images)
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/os-root" "$WORK/systemos"
+          detach_all() {
+            hdiutil detach "$WORK/os-root" -force >/dev/null 2>&1 || true
+            hdiutil detach "$WORK/systemos" -force >/dev/null 2>&1 || true
+          }
+          trap detach_all EXIT
+
+          hdiutil attach -readonly -nobrowse -mountpoint "$WORK/os-root" "$WORK/os-window.cdr"
+          hdiutil attach -readonly -nobrowse -mountpoint "$WORK/systemos" "$COMPONENTS/systemos-image.dmg"
+
+          # build.py:397-402 refuses anything but the actual 20G81 volumes.
+          root_v=$(plutil -extract ProductVersion raw -o - "$WORK/os-root/System/Library/CoreServices/SystemVersion.plist")
+          root_b=$(plutil -extract ProductBuildVersion raw -o - "$WORK/os-root/System/Library/CoreServices/SystemVersion.plist")
+          sys_v=$(plutil -extract ProductVersion raw -o - "$WORK/systemos/System/Library/CoreServices/SystemVersion.plist")
+          sys_b=$(plutil -extract ProductBuildVersion raw -o - "$WORK/systemos/System/Library/CoreServices/SystemVersion.plist")
+          echo "OS root: $root_v/$root_b  SystemOS: $sys_v/$sys_b"
+          [ "$root_v" = "16.6.1" ] && [ "$root_b" = "20G81" ] || { echo "OS root is not 16.6.1/20G81"; exit 1; }
+          [ "$sys_v" = "16.6.1" ] && [ "$sys_b" = "20G81" ] || { echo "SystemOS is not 16.6.1/20G81"; exit 1; }
+
+          rm -rf "$WORK/out"
+          python3 userland/build.py prepare \
+            --out "$WORK/out" \
+            --os-root "$WORK/os-root" \
+            --os-image "$WORK/os-window.cdr" \
+            --system-cryptex "$WORK/systemos" \
+            --data-image "$WORK/data.dmg" \
+            --developer "$(xcode-select -p)"
+
+          # Duplicate APFS volume UUIDs cannot be mounted together: drop the
+          # source mounts before apply attaches the clone.
+          detach_all
+          trap - EXIT
+          rm -f "$COMPONENTS/systemos-image.dmg"
+          test -f "$WORK/out/pong-ios1661-system.cdr"
+          test -f "$WORK/out/build-plan.json"
+          df -h /
+
+      - name: apply (root, hdiutil, in-place on the clone)
+        run: |
+          set -euo pipefail
+          # build.py:450 requires euid 0; apply refuses an existing apply-complete.json.
+          sudo env PATH="$PATH" "$(command -v python3)" userland/build.py apply --out "$WORK/out"
+          test -f "$WORK/out/apply-complete.json"
+
+      - name: Verify the applied window
+        run: |
+          set -euo pipefail
+          img="$WORK/out/pong-ios1661-system.cdr"
+          mkdir -p "$WORK/check"
+          detach_check() { hdiutil detach "$WORK/check" -force >/dev/null 2>&1 || true; }
+          trap detach_check EXIT
+
+          bytes=$(stat -f %z "$img")
+          sha=$(shasum -a 256 "$img" | awk '{print $1}')
+          echo "artifact bytes: $bytes"
+          echo "artifact sha256: $sha"
+          if [ "${EXPECTED_OS_BYTES:-0}" != "0" ]; then
+            [ "$bytes" = "$EXPECTED_OS_BYTES" ] || { echo "length changed: $bytes != $EXPECTED_OS_BYTES"; exit 1; }
+          fi
+          [ "$(dd if="$img" bs=1 skip=512 count=8 2>/dev/null)" = "EFI PART" ] || {
+            echo "artifact no longer starts with a GPT"; exit 1; }
+
+          hdiutil attach -readonly -nobrowse -mountpoint "$WORK/check" "$img"
+          [ -f "$WORK/check/sbin/launchd.ios" ] || { echo "stock launchd was not preserved as launchd.ios"; exit 1; }
+          [ -f "$WORK/check/sbin/launchd" ] || { echo "static init is missing at sbin/launchd"; exit 1; }
+          [ "$(readlink "$WORK/check/System/Library/LaunchDaemons")" = "/pong/LaunchDaemons" ] || {
+            echo "LaunchDaemons is not the curated /pong/LaunchDaemons"; exit 1; }
+          [ -d "$WORK/check/pong/stock-config/LaunchDaemons" ] || { echo "stock jobs were not preserved"; exit 1; }
+          [ "$(readlink "$WORK/check/System/Cryptexes/OS")" = "/private/preboot" ] || {
+            echo "Cryptex OS link is not /private/preboot"; exit 1; }
+          [ "$(readlink "$WORK/check/System/Library/Caches/com.apple.dyld")" = "/private/preboot/System/Library/Caches/com.apple.dyld" ] || {
+            echo "dyld cache link is wrong"; exit 1; }
+          detach_check
+          trap - EXIT
+
+      - name: Package the artifact
+        run: |
+          set -euo pipefail
+          img="$WORK/out/pong-ios1661-system.cdr"
+          dist="$WORK/dist"
+          rm -rf "$dist"
+          mkdir -p "$dist"
+          sha=$(shasum -a 256 "$img" | awk '{print $1}')
+          bytes=$(stat -f %z "$img")
+          printf '%s  pong-ios1661-system.cdr\n' "$sha" > "$dist/pong-ios1661-system.cdr.sha256"
+          printf '%s\n' "$bytes" > "$dist/pong-ios1661-system.cdr.size"
+          cp "$WORK/out/build-plan.json" "$WORK/out/apply-complete.json" "$WORK/out/jobs-report.json" "$dist/"
+          python3 - "$dist/artifact.json" "$sha" "$bytes" "$ARTIFACT_MODE" "$OS_OFFSET_BYTES" <<'PY'
+          import json, sys
+          out, sha, size, mode, offset = (sys.argv[1], sys.argv[2], int(sys.argv[3]),
+                                          sys.argv[4], int(sys.argv[5]))
+          if offset % 4096:
+              raise SystemExit("OS window offset is not 4 KiB aligned")
+          json.dump({"file": "pong-ios1661-system.cdr", "bytes": size, "sha256": sha,
+                     "artifact_mode": mode,
+                     "window": {"offset": offset, "size": size},
+                     "target": "/dev/block/by-name/unixnu",
+                     "write_command": "dd if=pong-ios1661-system.cdr of=/dev/block/by-name/unixnu "
+                                      "bs=4096 seek=%d count=%d conv=notrunc,fsync"
+                                      % (offset // 4096, size // 4096),
+                     "note": "The device SHNGROOT OS.size must equal bytes; see docs/APPLY-PIPELINE.md."},
+                    open(out, "w"), indent=2)
+          PY
+          if [ "$ARTIFACT_MODE" = "split" ]; then
+            split -b 1900m -d -a 2 "$img" "$dist/pong-ios1661-system.cdr.part-"
+            ls -l "$dist"/pong-ios1661-system.cdr.part-* | head
+            cat > "$dist/REASSEMBLE.sh" <<'SH'
+          #!/bin/sh
+          set -eu
+          cat pong-ios1661-system.cdr.part-* > pong-ios1661-system.cdr
+          shasum -a 256 -c pong-ios1661-system.cdr.sha256
+          SH
+            chmod +x "$dist/REASSEMBLE.sh"
+          else
+            ln "$img" "$dist/pong-ios1661-system.cdr" 2>/dev/null || cp "$img" "$dist/pong-ios1661-system.cdr"
+          fi
+          ls -l "$dist"
+
+      - name: Upload the OS window
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios16-os-window-${{ github.run_id }}
+          path: ${{ env.WORK }}/dist/*
+          compression-level: 0
+          retention-days: 14
+
+      - name: Detach everything
+        if: always()
+        run: |
+          for m in "$WORK/check" "$WORK/os-root" "$WORK/systemos"; do
+            hdiutil detach "$m" -force >/dev/null 2>&1 || true
+          done
+          df -h /

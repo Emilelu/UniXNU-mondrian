@@ -62,7 +62,7 @@ index 0000000..b033b90
 +        property(entry,"max-y",&max_y,4) && se_phys==0x990000 && tlmm_phys==0xf000000 &&
 +        gcc_phys==0x100000 && rsc_phys==0x17a20000 && cmd_db_phys==0x80860000 &&
 +        gpio_offset==0x100000 && pins[0]==16 && pins[1]==17 && pins[2]==18 &&
-+        pins[3]==19 && pins[4]==21 && pins[5]==20 && max_x==1080 && max_y==2412;
++        pins[3]==19 && pins[4]==21 && pins[5]==20 && max_x==14400 && max_y==32000;
 +}
 +
 +static inline uint32_t
@@ -1052,7 +1052,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
 index 7c90fe0..3e9f5aa 100644
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-@@ -900,6 +900,10 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
+@@ -1032,6 +1032,10 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
  				/* the first picture: the kernel's text console must stop drawing over it */
  				fGraphics = true;
  				PE_initialize_console(NULL, kPEGraphicsMode);
@@ -1061,5 +1061,5 @@ index 7c90fe0..3e9f5aa 100644
 +				 * frame, otherwise vcputc continues painting over it. */
 +				PE_initialize_console(NULL, kPEReleaseScreen);
  			}
- 			drawLayer(s, src, dst);
+ 			if (!gpuFrame) drawLayer(s, src, dst);
  		}

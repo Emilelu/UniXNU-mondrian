@@ -1,20 +1,3 @@
---- a/iokit/Kernel/MiniIOSurface.cpp
-+++ b/iokit/Kernel/MiniIOSurface.cpp
-@@ -1917,12 +1917,12 @@
- 		MiniAppleKeyStoreStart();
- 	}
- 	uint32_t enable = 0;
--	if (!PE_parse_boot_argn("pong_software_ui", &enable, sizeof(enable)) || !enable) {
-+	if (!PE_parse_boot_argn("pong_display", &enable, sizeof(enable)) || !enable) {
- 		return;
- 	}
- 	IOService * provider = IOService::getPlatform();
- 	if (provider == NULL) {
--		IOLog("Pong UI: no platform provider; software display startup skipped\n");
-+		IOLog("Pong UI: no platform provider; native display startup skipped\n");
- 		return;
- 	}
- 	if (!MiniIOSurfaceStart(provider)) {
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 @@ -242,6 +242,7 @@
@@ -76,9 +59,9 @@
  				}
  			}
  			continue;
-@@ -937,7 +950,7 @@
- 				 * frame, otherwise vcputc continues painting over it. */
- 				PE_initialize_console(NULL, kPEReleaseScreen);
+@@ -988,7 +1020,7 @@
+ 				fGraphics = true;
+ 				PE_initialize_console(NULL, kPEGraphicsMode);
  			}
 -			if(!gpuFrame)drawLayer(s, src, dst);
 +			if (!gpuFrame) drawLayer(s, src, dst);

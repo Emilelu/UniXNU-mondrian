@@ -148,3 +148,11 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch
 0387-k60-panic-args.patch
 0388-k60-n4k-cache-io.patch
 0389-k60-kx-pc-lr.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-scanout.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-only-display.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-source-row-pitch.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-goodix-resume.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
+zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-container-path.patch
+zzz-boot-progress.patch

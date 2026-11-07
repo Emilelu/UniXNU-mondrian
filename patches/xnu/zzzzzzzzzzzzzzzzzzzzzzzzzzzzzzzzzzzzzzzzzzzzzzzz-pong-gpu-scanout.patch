@@ -17,9 +17,9 @@
  	fRowBytes = vinfo.v_rowbytes;
 +	pong_scanout_initialize((uint64_t)fBase,(size_t)fRowBytes*fPanelHeight,
 +	    fRowBytes,fPanelWidth,fPanelHeight);
- 	fWidth = gFBWidth ? gFBWidth : fPanelWidth;
- 	fHeight = gFBHeight ? gFBHeight : fPanelHeight;
- 	if (gFBScale != 0 && gFBScale != kFBDefaultScale) {
+ 	if (k60PanelNative()) {
+ 		/* The panel's own grid: see the contract at the top of the file. */
+ 		if ((gFBWidth != 0 && gFBWidth != K60_PANEL_WIDTH) ||
 @@ -801,9 +807,11 @@
  	uint64_t began = mach_absolute_time(), nanos, ready, shown, drawn;
  	uint32_t layers = 0;
@@ -63,9 +63,9 @@
  	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
  		uint32_t sid = swapWord(swap, SWAP_SURFACE(layer));
  		int32_t src[4], dst[4];
-@@ -905,7 +937,7 @@
- 				 * frame, otherwise vcputc continues painting over it. */
- 				PE_initialize_console(NULL, kPEReleaseScreen);
+@@ -988,7 +1020,7 @@
+ 				fGraphics = true;
+ 				PE_initialize_console(NULL, kPEGraphicsMode);
  			}
 -			drawLayer(s, src, dst);
 +			if(!gpuFrame)drawLayer(s, src, dst);

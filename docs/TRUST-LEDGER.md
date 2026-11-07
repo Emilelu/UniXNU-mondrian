@@ -23,7 +23,8 @@
 | T6 | `/memory/reg` 六段（`0x80000000/0x6a000000`、`0xf4600000/0xba00000`、`0x800000000/0x37500000`、`0x900000000/0x180000000`、`0x840000000/0xc0000000`、`0x837b00000/0x1e00000`） | `docs/MEASURED-HIGH-WINDOW-2026-11-02.md:41-51` | 设备在 Android/recovery：`adb shell od -A x -t x8 /sys/firmware/devicetree/base/memory/reg` | 未核实（设备当前在 fastboot） |
 | T7 | K60 触摸 9 个 DT 属性：`spi-base=0x990000`、`pins[4]=21`(INT)、`pins[5]=20`(RESET)、`max=14400/32000`、`avdd=GPIO71`、固件 `goodix_firmware_m11a` | `AGENT-COORDINATION.md:1379`；pong 断言见 `patches/xnu/zzzz…-pong-touch-console.patch:63-65` | 上机后用 `k60touchid=1` 判据行 `K60 TOUCH: ID: abi=berlin chip="…"` 与 `goodix: touch report at 0x…` 复核 | 部分已实测（spi/pins 与 pong 同值），`avdd/pins[0..3]` 未核实 |
 | T8 | `rsc-base=0x17a20000` 对 K60 可用 | pong 断言同文件 `:64` | 先只读探针（等价 sweet `0248`），**未探针前禁止发起 TCS 写**；K60 曾出现 RSC `0x17a00000` 访问死（`docs/ROUTE-A-18-DELTAS.md:13-15`） | 未核实 |
-| T9 | 面板 m11a 三档 60/90/120，切档 DCS `0x2F`（`0x02/0x01/0x00`），三档 phy-timings 与 clockrate `0x47868C00` 相同 | `ZCODE-RESEARCH-REPORT.md:384`（U6-C4） | 需 dtbo 原件（`dtbo_a_fdt15/fdt19` 已不在盘上，仅剩 `hardware.dtb` 1862 B）→ 从设备 vendor_boot 重新 dump | 未核实（源丢失） |
+| T9 | K60 真面板 = `qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd`（**不是** `sharp_qhd_plus_dsc_cmd`） | `ZCODE-RESEARCH-REPORT.md:384/:396` | **已用二进制 grep 复核**：`F:/k60-archive/dtb/dtbo_a_fdt19.dtb` 命中 `m11a_42_02_0a` 4 次、`dtbo_a_fdt15.dtb` 命中 0 次（fdt15 只有通用 `sharp_qhd_plus_dsc`） | **已实测** |
+| T11 | 面板三档 60/90/120，切档 DCS `0x2F`（`0x02/0x01/0x00`），三档 phy-timings 与 clockrate `0x47868C00` 相同 | `ZCODE-RESEARCH-REPORT.md:384` | 需从 `fdt19` 的 `m11a` 节点解析 timing@0/1/2 逐字节复核（dtbo 已在 `F:/k60-archive/dtb/`，可复算） | 可复算 |
 | T10 | prelink `roots` 与 `slide` 的取值 | `profiles/os/ipados-16.6.1-20G81/profile.toml`（`slide=0`） | 用 `D:/Android/k60-ios/config/kc20g81-components.json`（1418 行 load/exec 表）复算，并对首轮 prelink 报告做比对 | 可复算 |
 
 ## 3. 已被今天设备日志证实的（可作为基线）

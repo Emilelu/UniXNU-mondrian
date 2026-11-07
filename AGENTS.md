@@ -31,6 +31,18 @@ a violation costs work that cannot be recovered.
 The check before every build: `git -C ../UniXNU-mondrian status --porcelain` is
 empty, and the branch is level with its remote.
 
+3. **Research the reference repositories before proposing a fix.** `UniXNU-pong`
+   is the same SoC (SM8475) and the closest prior art: when a failure appears,
+   read its `board.toml`, `userland/`, `scripts/` and `migration/` notes first.
+   `ios-sweet-k60` holds the iOS 16 userland precedents, `UniXNU-sheng` and the
+   `UniXNU` docs cover the rest. Guessing is forbidden: a proposal must name the
+   file and line it came from, or state plainly that no prior art was found.
+   Counter-example from 2026-11-07 — a missing App cryptex was "fixed" by
+   inventing an extra `[userdata] windows` entry; pong instead keeps AppOS
+   inside the OS and replaces the dangling alias
+   (`userland/build-ipados18.py:260 drop_restore_app_alias`), which was the
+   actual answer all along.
+
 ## Required reading
 
 | Task | Required reading |

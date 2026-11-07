@@ -14,7 +14,47 @@
 4. **版本结论：官方 `drivers/`、`porting/`、`reference/` 全部文档 0 处提及 `16.6.1` 或 `20G81`。** 文档主要标注 iPadOS 17.7.11/21H461 与 iPadOS 27.0.1/24A446；对 K60 的 16.6.1 目标，所有组件级条目只能标“未说明”，不能把 17/27 的验证结果当作 16.6.1 资格。
 5. **规范结论：** 官方是 format-2 设备仓 + `components.toml` 选择 + `scripts/package.sh` + `--os` 覆盖的单一构建流；pong ios16 是 54 行 `board.toml` + 自定义脚本 + 8 个 vendored driver 目录的社区先例。建议采用“**官方规范壳 + pong 设备驱动核**”：设备仓/记录/打包向官方靠拢，硬件驱动继续用 pong 分叉，等官方补齐 SM8475/A730/QCA6490/AW882xx 后再逐项上游化。
 
-## ② 硬件→组件映射大表
+## ② 16 项官方文档覆盖率
+
+### B.1 阅读口径
+
+- **已读**一列全部为 **是（LIVE 2026-11-08）**：16 项共 39 个页面由 `https://unixnu.com` 实时抓取后逐页通读；与本地 2026-11-04 存档相比，`porting/drivers.md` 等页面已有更新，本表以 LIVE 为准。
+- **对 K60 适用性**按“官方组件/官方 ABI 是否能直接用”评级，不评价 K60 是否值得做该功能：
+  - **✅ 直接适用**：方法论或通用组件无需改 ABI 即可用于 20G81。
+  - **◐ 部分适用**：流程、架构、总线层可复用，但组件、板级常量或 OS ABI 必须重做/重对。
+  - **✗ 不适用**：官方组件与 K60 硬件代际/OS 代际不匹配，只能当参考实现或流程模板。
+
+### B.2 覆盖率表
+
+| # | 项目 | 文件（官方路径） | 是否已读 | 关键结论 | 对 K60 / 20G81 适用性 |
+|---:|---|---|---|---|---|
+| 1 | 适配顺序 | `docs/porting/drivers.md` | 是（LIVE） | 驱动边界必须写清 Hardware / Transport / Memory / OS / Build 五项；硬件顺序：CPU/中断/RAM/DMA → 存储 → 显示 → 输入 → GPU → Wi-Fi/蓝牙/USB → 基带 → DSP/音频/电源 → OS 服务；build 侧要接 `board.toml` 的 `[components] include`、`[kernel] archives`、`component:<ID>` 与初始化调用点。 | **✅ 方法论全适用**。K60 当前是 pong 式单脚本构建，迁官方 format-2 recipe 是后续重构项，不影响本条作为审查清单。 |
+| 2 | 平台与内存 | `docs/porting/platform.md` | 是（LIVE） | CPU MPIDR/PSCI/GIC/计时器；sheng 用 `unixnu,cluster-type = "E"/"P"`（E=cpu0–2，P=cpu3–7）；内存要求 `/memory` 单节点单组 reg、**contiguous handoff RAM range**；DMA 要记录 SMMU instance/stream/context；DarwinBoot 只接收 Mach-O、ADT、sidecar；RamBlock/VerifiedRoot 是可选块/信任层。 | **✅ 流程适用，数值全换**。K60 的 MPIDR 是 flat `0x000..0x700`，不能套 sheng 的 E/P 分组；K60 内存是六段不连续，官方“contiguous”模型只支持单窗口，详见 `④c`。 |
+| 3 | UFS 存储 | `docs/porting/ufs.md` + `docs/drivers/sheng-ufs.md`、`docs/drivers/verified-root.md`、`docs/drivers/ram-block.md` | 是（LIVE） | `ShengUfs` 是 SM8550 UFS 参考：host `0x01d84000/0x3000`、PHY `0x01d80000/0x2000`、apps-SMMU stream `0x60`、GCC `0x00100000`；流程是 firmware-state adoption（复用 bootloader 的 request list），再做 GPT/window/root publication；`VerifiedRoot` 做 owner-signed root policy，`RamBlock` 做 RAM-backed Data + `native_ufs_store` 回调。 | **◐ 流程适用，组件不适用**。K60 是 SM8475：host/PHY 同址但 SMMU stream `0xe0`、GCC UFS 页 `0x187000`、compatible `qcom,sm8475-ufshc`；`ShengUfs` 的 SM8550 常量不能直接选。K60 已有 `PongUfs`（`Emilelu/PongUfs@c959284`）逐项对上。`VerifiedRoot`/`RamBlock` 目前未启用。 |
+| 4 | 显示与亮度 | `docs/porting/display.md` | 是（LIVE） | 先确认 firmware GOP（base/size/dimensions/stride/pixel format/reserved range），再走 `GopFramebuffer` / `NativeLegacyDisplay` / `NativeGOPPresenter`；`DisplayTimingProbe` 读 DPU/DSI 计数；direct scanout `sheng-dpu-scanout=2` 是实验；24A446 有专门默认 surface adapter。亮度是独立运输层（KTZ8866 I2C 示例）。 | **◐ GOP/软件 framebuffer 模型适用，DSI 真通路不适用**。K60 目前只有 GOP + 软件 framebuffer（1440×3200@60）；真 DSI 面板驱动缺失，官方 `DisplayTimingProbe` 是 SM8550 DPU，不是 K60 DSI0。24A446 adapter 不能用于 20G81。 |
+| 5 | 亮度驱动 | `docs/drivers/sheng-backlight.md`、`docs/drivers/gop-framebuffer.md` | 是（LIVE） | `ShengBacklight` 驱动两颗 **KTZ8866 @ I2C 0x11**（QUP1 SE1 `0xa84000` / I2C hub `0x988000`），11-bit level 0–2047 写 `BL_BRT_LSB 0x04`/`BL_BRT_MSB 0x05`；GENI I2C 25 ms 超时；iPadOS 17 用 `IODisplayParameters.brightness`，iPadOS 27 还要 millinits/slider table/calibration/brightness-nits；`GopFramebuffer` 本身无亮度。 | **✗ 硬件不适用，◐ OS 属性模型可参考**。K60 无独立背光 IC：FDT 只有 `pm8350c gpio lcd_backlight_ctrl` 和面板 DCS 调光；上机笔记是 `0x11`(Sleep Out) → `0x29`(Display On) → `0x51`(brightness)。必须走 DSI DCS 传输，不能套 KTZ8866。20G81 只需 iPadOS 17 式属性，不需要 27 的 millinits 表。 |
+| 6 | 触控与按键 | `docs/porting/input.md` + `docs/drivers/sheng-novatek-touch.md`、`docs/drivers/sheng-hid-input.md`、`docs/drivers/qcom-geni-spi.md`、`docs/drivers/community-nativefocaltechtouch.md` | 是（LIVE） | `nvt_bus` 只要求 `xfer`（全双工、CS 保持）和 `delay`；`QcomGeniSpi` 提供 GENI SPI 引擎；`ShengNovatekTouch` 是 NT36532E 协议 + 40×60 矩阵核心；`TouchBoard.h` 存板级地址/时钟/引脚；`ShengHidInput` 用 IOHIDFamily 2031.120.4 ABI 发布 digitizer；`ButtonProbe.cpp` 做 GPIO/PMIC 按键并报 report 2。FT8203 社区驱动说明“不同传感器要自己写协议”。 | **◐ 总线层适用、协议层不适用**。`QcomGeniSpi` 可复用（换 SE4 `0x990000`、IRQ GPIO21、RESET GPIO20、AVDD GPIO71、SPI 15 MHz）；Goodix 的识别/固件/report 必须新写；`ShengHidInput` 需按 20G81 IOHIDFamily 重对；`ShengNovatekTouch`/NvtTouchCore 不能用于 Goodix。详见 `④a`。 |
+| 7 | GPU 与 Metal | `docs/porting/gpu.md` + `docs/drivers/adreno740.md`、`adreno-metal.md`、`adreno-firmware.md`、`adreno-pm4.md`、`arm-smmu4k.md`、`sm8550-platform.md`、`air-nir.md` | 是（LIVE） | `Adreno740` 只实现 **A740** 内核接口；`AdrenoMetal` 走 AIR→metal2vulkan→Turnip→NIR/IR3；`Sm8550Platform` 提供 GMU/GPU SMMU/RPMh command DB；`ArmSmmu4K` 是 4 KiB stage-1/2 表 kit；固件 `qcom/gmu_gen70200.bin`、`qcom/a740_sqe.fw`、`qcom/sm8550/sheng/a740_zap.mbn`；build 分 iOS 17 与 iOS 27 两套。 | **✗ A740 组件不适用**。K60 是 `qcom,kgsl-3d0@3d00000`、`qcom,gpu-model="Adreno730v3"`、chipid `0x7030002`、GMU `0x3d69000`；必须用 pong 的 `PongAdreno`/`PongMetal`（A730）+ `ArmSmmu4K` 思路。官方 GPU 流程（先 DMA/显示、后 GMU/firmware/ring）可当检查表。 |
+| 8 | Wi-Fi | `docs/porting/network.md` + `docs/drivers/ath12k-wifi.md` | 是（LIVE） | 先 PCIe endpoint（controller/PHY/lanes/reset/WLAN_EN/PERST/refclk/rails/SMMU/MSI），再实现 `nw_abi.h` 的 `lx_platform`/`nw_board`，最后 `WifiNet` 接 Apple80211；官方实现只列 **ath12k 家族 QCC2072/QCN9274/WCN7850**（WCN7850 端点 `17cb:1107`，128 MiB DMA window）。 | **✗ 组件不适用，流程 ◐**。K60 是 **QCA6490 / WCN6855 hw2.x，ath11k，端点 `17cb:1103`**；`Ath12kWifi` 没有 ath11k 后端。K60 应走 `PongWifi`（`Chengdong-Yu/pong-wifi@d2e33ca`，ath11k v7.0.14）+ K60 板级 profile；官方 `nw_abi` 契约可复用。 |
+| 9 | 蓝牙 | `docs/porting/bluetooth.md` | 是（LIVE） | `QcaBluetooth` 跑 Linux `btqca.c` 初始化，经 GENI UART + UART.SK 把 H4 字节送给 Apple `bluetoothd`；sheng 参数：UART QUP2 SE6 `0x898000`、IRQ 493、SMMU `0x423`、GPIO76–79、BT_EN81、3.2 Mbaud、固件 `hmtbtfw20.tlv`/`hmtnv20.bin`；用户态是 **iPadOS 27** BlueTool/bluetoothd/QcaBTType0.dylib。 | **✗ 对 20G81 不适用**。K60 是 QCA6490：UART QUPV3_2 SE20 `0x894000`、IRQ 587、GPIO76–79、BT_EN81、SW_CTRL82、XO204、wake byte `0xfd`；更关键的是 20G81 kernelcache **没有 IOBluetoothFamily/IOBluetoothHCI**，只有 `com.apple.driver.AppleBluetooth`（BTReset 电源字符设备），官方 iPadOS 27 路线无法照搬。 |
+| 10 | 蓝牙驱动 | `docs/drivers/qca-bluetooth.md` | 是（LIVE） | QcaBluetooth 状态只写 sheng/iPadOS 27.0.1（24A446）：GENI 4×2048 RX + 1×4096 TX、IBS、UART.SK；adapter 锁定单个 `bluetoothd` hash；`audio_system_plugins = ["BTAudioHALPlugin.driver"]`。 | **✗ 同第 9 项**。K60 无 pong 蓝牙实现；20G81 用户态也没有对应 HCI 栈。只能把 `qbt_geni`/`qbt_transport` 当 GENI UART 协议参考，第一版建议自研 UART HCI + btstack，不追 Apple `bluetoothd`。 |
+| 11 | USB | `docs/porting/usb.md` | 是（LIVE） | `QcomDwc3` 继承 `AppleUSBXDCI`/`AppleUSBXHCI`；sheng 参数：DWC3 `0x0a600000`、Apple window `+0xc000`、GIC 165、SMMU stream `0x40`、eUSB2 refclk 38.4 MHz；bringUp 9 步；UCSI over GLINK 角色切换；ABI 脚本 `gen-usb27-abi.py`/`gen-usb27-host-abi.py` 只针对 **24A446** kernelcache。 | **◐ 硬件流程参考，ABI 不适用**。K60 DWC3 `0xa600000`、eUSB2 PHY `0x88e3000`、QMP `0x88e8000`；DWC3 与 sheng 同址，但 PHY/IRQ/SMMU/rails 与 20G81 ABI 均未对位。官方 QcomDwc3 只能当方法参考。 |
+| 12 | USB 驱动 | `docs/drivers/qcom-dwc3.md`、`docs/drivers/community-native-dwc3.md` | 是（LIVE） | QcomDwc3 状态是 sheng/iPadOS 27：10 Gbps 枚举、Trust/配对/lockdown 通过；host mode 部分；`fairplayd.A2`/`adid` 必须关；community NativeDwc3 是 SM8150 nabu，**无硬件结果**。 | **◐ QcomDwc3 仅 24A446；✗ community NativeDwc3 对本板无意义**。K60 现有 USB 日志路线是 sweet/pong 的 DWC3 设备端 + CDC-ACM，不是 Apple USB 栈；若走官方 QcomDwc3，需先为 20G81 生成 ABI。 |
+| 13 | 基带与移动网络 | `docs/porting/baseband.md` + `docs/drivers/qcom-baseband.md` | 是（LIVE） | `QcomBaseband` 是 **SC7180 / IPA v4.2 / iOS 17** 参考：AppleBaseband/AppleBasebandPCIControl/AppleBasebandPCIInterface 类，QMUX/QRTR/QMI、SAHARA、IPA/GSI/QMAP，eSIM；Coachz 平台是 PCIe/MHI 风格。 | **✗ 不适用于 K60**。K60 是 SM8475 **集成 modem**：remoteproc@4080000（`qcom,sm8450-mpss-pas`）、GLINK→QRTR→QMI、IPA v5.1（mainline WIP），不是 SC7180 的 PCIe/MHI 架构。且 K60 伪装 iPad7,1（Wi-Fi 版）没有蜂窝身份，第一版应把 cellular 记为 `not-applicable`。 |
+| 14 | DSP、音频与电源 | `docs/porting/power.md` | 是（LIVE） | `AdspProbe`：ADSP 固件/PAS/SMEM/SMP2P/GLINK/mailbox、`ShengAdspClient`、`sheng_adsp_channel`；`AudioProbe`：AudioReach/GPR 图、`ShengCs35l43.c`（sheng 的 6×CS35L43）、WCD938x SoundWire 麦克风、period buffer；`ShengBattery`/`ShengBattmgr`、`CpuFreqProbe`、`ShengPlatformPower`。SM8550 注意：DSP buffer <4 GiB、PRM clock `0x30c`、VA macro、19.2 MHz host clock。 | **◐ ADSP/AudioReach 架构可复用，功放层不适用**。K60 ADSP `0x03000000`、region `0x9fd00000/0x3100000`、SMEM `0x80900000/0x200000`、IPCC `0xed18000/IRQ261`、GPR `adsp_apps`、SID `0x1801` 与 sheng/pong 同构；但功放是 **2×AW882xx**，不是 CS35L43/TFA9873。`AudioProbe`/`AdspProbe` 对 AW882xx 覆盖为 0，详见 `④b`。 |
+| 15 | 开发驱动 | `docs/drivers/overview.md`、`docs/drivers/xnu-drivers.md`、`docs/drivers/kexts.md`、`docs/drivers/device-tree-matching.md` | 是（LIVE） | 三层：UEFI driver / built-in XNU static archive / kext bundle。Built-in XNU 用 `IOService` + `KernelConfigTables.cpp` personality，编译必须复用 `.cpo.json` 的 flags，`-force_load` 链接；kext 需要 loader protocol revision 2，**shipped DarwinBoot 不接受 staged kexts**；DT matching 用 `IOClass/IOProviderClass/IONameMatch/IOProbeScore`。 | **✅ built-in 方法论适用**。K60 全部走 built-in（PongUfs/PongAdreno 均是）；`kexts.md` 的 bundle 路线对 K60 不适用（DarwinBoot22 不是 rev2 kext loader）。`device-tree-matching` 直接指导 PongUfs 的 `qcom,sm8475-ufshc` / `ufshc` 节点名修复。 |
+| 16 | 修改 XNU | `docs/xnu/boot-arguments.md`、`docs/xnu/four-k-page-tables.md`、`docs/xnu/patch-reference.md`、`docs/xnu/source-and-patches.md` | 是（LIVE） | boot-args 合并规则/1000 bytes/1024 buffer；4K 页用 BCM2837 机器配置与一组 4K 补丁；patch 顺序按 `patch_series` 声明；17.7.11 用 `xnu-10063.141.1`，**iOS 16 与 iPadOS 17 共享 arm64 patch series**，iOS/iPadOS 27 用 arm64e series。 | **◐ 规则适用，源码/补丁要按 20G81 重排**。K60 用 `xnu-8796.141.3` / Darwin 22.6，不是 `xnu-10063.141.1`；4K、boot-args、patch order 三条必须遵守。当前 581 字符安全，详见 `④d`。 |
+
+### B.3 适用性统计
+
+| 评级 | 项数 | 项目 |
+|---|---:|---|
+| ✅ 直接适用 | 3 | 1 适配顺序、2 平台与内存、15 开发驱动（方法论） |
+| ◐ 部分适用 | 7 | 3 UFS、4 显示、6 触控、11 USB、12 USB 驱动、14 DSP/音频/电源、16 修改 XNU |
+| ✗ 不适用（仅参考） | 6 | 5 亮度驱动、7 GPU、8 Wi-Fi、9 蓝牙、10 蓝牙驱动、13 基带 |
+| **合计** | **16** | **16/16 已读** |
+
+## ③ 硬件→组件映射大表
 
 ### 2.1 主映射表
 
@@ -90,7 +130,167 @@
 | CPU 频率/GPU 电源 | 同上 | 同上（`build-gop-legacy-display.py:256-257,327`）；`build-sheng-platform-power.py`（平台电源） | `sheng_cpufreq_probe()`/`sheng_gpu_power_probe()`（`LegacyDisplayProbe.cpp:514-515`）；`sheng-cpufreq=4`、`sheng-gpu-power=9` |
 | 显示时序 | 同上 | 同上（`build-gop-legacy-display.py:273,327`） | `sheng_dpu_probe()`（`LegacyDisplayProbe.cpp:525`）；`sheng-dpu=1`、`sheng-vsync=120` |
 
-## ③ 各组件板级输入（按硬件分节）
+## ④ 五个 K60 具体问题的回答
+
+### C.a K60 Goodix 触摸：官方哪些总线层可复用、哪些协议层必须新写
+
+**结论：总线和 HID 层可复用，协议和传感器层必须新写；Novatek 的 40×60 处理核心完全不能用于 Goodix。**
+
+| 层 | 官方文件 | 对 K60 的处理 |
+|---|---|---|
+| GENI SPI 控制器 | `docs/drivers/qcom-geni-spi.md` → `QcomGeniSpi/GeniSpi.c` | **复用**。`GeniSpi.c` 只依赖调用方给的寄存器访问/平台回调；K60 换 SE4 `0x990000/0x4000`、SPI CS0、15 MHz（首次 4 MHz）、GPIO16/17/18/19 的 `qup4` mux。 |
+| `nvt_bus` 接口形状 | `docs/drivers/sheng-novatek-touch.md`（`struct nvt_bus { xfer, delay }`） | **复用接口模式**，但把实现换成 Goodix：一次全双工 xfer、CS 保持、caller-owned buffer、超时/重试。 |
+| 芯片识别 / 固件 / 帧协议 | `NvtProtocol.c`、`NvtProtocol.h` | **必须新写 Goodix 协议**。K60 DT 的 `goodix_firmware_m11a`/`goodix_cfg_group_m11a` 暗示 Berlin 系，但 0242 同时实现了 Berlin（`0xf1` 地址 + `0xff` 读）与 GT9xx（`0x8140/0x814e/0x8150`）两套；真机尚未回 ID。 |
+| 触点处理核心 | `NvtTouchCore.c`（40×60 matrix → blob → tracking） | **不能复用**。Goodix 的 report 格式/矩阵/固件完全不同；需要按 Goodix Berlin/GT9xx 的 report 格式重写触点解析/跟踪，不能把 NVT 40×60 逻辑硬套。 |
+| 板级常量 / 时钟 / 引脚 | `TouchBoard.h`、`TouchProbe.cpp` | **复用框架，换值**：`spi-base=0x990000`、`tlmm-base=0x0f000000`（+`gpio-offset=0x100000` = `0x0f100000`）、`gcc-base=0x100000`、`rsc-base=0x17a20000`（drv-2；但 K60 RSC 首读会死，见未核实）、`cmd-db-base=0x80860000`、pins `<16 17 18 19 21 20>`、max-x/max-y `14400/32000`（raw）。 |
+| HID 发布 | `ShengHidInput/NativeHidInput.cpp`（IOHIDFamily 2031.120.4） | **可复用结构，ABI 需重对**：K60 20G81 的 IOHIDFamily 版本/selector 必须从本机 kernelcache 重新提取；`native_touch_seq` 快照协议可保留。 |
+| 物理按键 | `ButtonProbe.cpp` + `BootResetCore.h` | **参考**：K60 的 Power/Vol +/- 走 PMIC/GPIO，需按 K60 FDT 重填 PON/GPIO；官方 sheng report 2 的位定义可复用。 |
+
+**关键边界：**`porting/input.md` 第 22 行明确写“For a different sensor, implement its identification, firmware and report protocol. For a different bus controller, implement the transfer/delay callbacks used by `nvt_bus` when reusing the Novatek protocol.” 这句话反过来就是 K60 的答案：**传感器不同 → 协议全写；总线相同（GENI SPI）→ 只换板级回调**。
+
+### C.b 音频功放：AudioProbe/AdspProbe 是否覆盖 AW882xx，还是只覆盖 TFA9873
+
+**结论：两者都不覆盖 AW882xx；官方 `power.md` 的 AudioProbe 实际覆盖的是 sheng 的 WCD938x + 6×CS35L43，TFA9873 根本不是官方 16 项文档里的器件。**
+
+| 层 | 官方 `porting/power.md` 实际内容 | 对 K60 AW882xx 的覆盖 |
+|---|---|---|
+| ADSP transport | `AdspProbe.cpp`：PAS 固件、SMEM、SMP2P、GLINK、mailbox、`ShengAdspClient`、`sheng_adsp_channel` | **可复用（约 80–90%）**：K60 ADSP `0x03000000`、region `0x9fd00000/0x3100000`、SMEM `0x80900000/0x200000`、IPCC `0xed18000/IRQ261`、GPR `adsp_apps` 与 sheng/pong 同构。 |
+| AudioReach graph | `ShengGpr.h`、`ShengAudioReach.h`、`AudioProbe.cpp`：APM readiness、graph open/config、PRM votes、period buffer、`q6apm` 参考 | **可复用（约 70%）**：GPR 参数/图生命周期可抄；K60 需改 ADSP 固件路径、SM8475 图参数、TDM 1.536 MHz/双 data line。 |
+| Codec | `AudioProbe.cpp` 参考 sheng 的 WCD938x（reset gpio108、ldob15、SoundWire TX master `0x6d30000`） | **K60 同为 WCD938x**：可高比例复用；K60 的 `va/tx/rx-macro` 正常、`wsa-macro`/`wsa2-macro` disabled（`wsa-max-devs=0`）。 |
+| 功放 | `ShengCs35l43.c`：sheng 的 **6×CS35L43**，I2C | **0% 覆盖**。K60 是 **2×AW882xx @ I2C 0x34/0x35**（SE15 `0x880000`、GPIO56/57、reset GPIO1/3、IRQ GPIO88/63、spksw GPIO52、sound-channel 0/1、`aw-cali-mode="aw_none"`）。官方文档没有任何 AW882xx 寄存器/初始化/校准信息。 |
+| TFA9873 | **官方 16 项文档全篇 0 命中**；TFA9873 只在 pong 的 `PongAudio.cpp` 中出现（I2C `0xa94000`、GPIO48/49、reset 1/89、revision `0x0b73`） | **0% 覆盖，且不能混用**。TFA9873 是 pong（Nothing Phone 2）器件；K60 FDT 全 compatible 扫描无 `tfa,tfa98xx`。不要因为两者都可能用 I2C 0x34/0x35 就按 TFA 写死；第一步必须读 chip ID/revision。 |
+| 用户态 HAL | `ShengAudioService.cpp` / `ShengAudioPlugIn.c`（sheng 的 AudioServerPlugIn） | **可复用骨架**：`AudioServerPlugIn` API 在 iOS 16/17 稳定；K60 20G81 的 MediaExperience selector 需重定位（pong 的 22H374 地址不能直接抄）。 |
+
+**因此 b) 的准确回答是：**`AudioProbe` 不是 AW882xx 驱动，也不是 TFA9873 驱动；它只是“ADSP AudioReach + WCD938x + CS35L43”的 sheng 示例。K60 要做的是 **保留 AdspProbe/AudioReach 的传输与图框架，新增 AW882xx 功放驱动（I2C 0x34/0x35）和 K60 TDM 1.536 MHz/双数据线配置**；TFA9873 只能作为 pong 参考，不能当 K60 硬件事实。
+
+### C.c platform.md 对内存窗口/DarwinBoot 的约束，是否支持多区间 arena
+
+**结论：官方 `porting/platform.md` 只支持“单一连续 handoff RAM range”，不支持多区间 arena；8 GiB 单窗口可以做，9.97 GiB 多区间不在官方 16 项文档的模型内。**
+
+| 问题 | 官方原文/约束 | 对 K60 的含义 |
+|---|---|---|
+| DTS `/memory` | `porting/device-repository.md`：format 2 要求 `payload.dram_size` 与硬件 DTS 的 `/memory` 节点一致；`devicetree.py` 要求**恰好一个 memory 节点、恰好一组 reg**（本仓脚本行为，官方文档对应“single contiguous DRAM range”）。 | K60 若把 `dram_size` 写成 12 GiB（`0x300000000`），必须同时把 DTS 改成 `memory@80000000` 单组 reg；但这只是 ADT 元数据，不是 XNU 窗口。 |
+| DarwinBoot 窗口 | `porting/platform.md` 只说“the loader's owned-memory request has its own size and alignment constraints. Keep both consistent with the actual UEFI memory map.” 官方页没有给 8 GiB 数字。 | K60 本地 `drivers/DarwinBoot22/DarwinBootPkg/Driver/WindowSize.h` 才定义 `size <= 0x200000000`（8 GiB）；`devicetree.py` 也只接受 256 MiB–8 GiB。8 GiB 单窗口是本地实现硬顶，不是官方文档承诺。 |
+| 多区间 arena | 官方没有任何 `pmap_memory_regions` / 多段物理内存的说明；`four-k-page-tables.md` 只讨论 4K 页表与 bootstrap 表池（“Two roots plus up to seven L2 pages per 6 GiB mapping”）。 | K60 要让 XNU 管理低区 434.9 MiB + 高区 9774.5 MiB（约 9.97 GiB），必须给 arm64 加 pmap/vm_page 多区间支持；这是内核子系统改造，不是官方 16 项文档里的任何组件或配置能解决的。 |
+| 8 GiB 单窗口 | 官方 `platform.md` 的“contiguous”模型 + 本地 `WindowSize.h` 8 GiB 上限 + K60 最长连续段 `[0x840000000,0xA69B78000)` 8.652 GiB（扣 DXE/内核基址偏移 0x20000 后对齐 8 GiB）。 | **可行**：`owned_memory_size = 0x200000000`（8 GiB），arena 至少 `0x200020000`；实际用 `0x840000000 + 0x229B78000` 的 8.652 GiB arena，并把顶部 `0xA69B78000..0xA80000000` 设为 MEM_RES。MEMORY-12G-PLAN 的阶梯（6/7/8 GiB）按此执行。 |
+| 9.97 GiB 多区间 | 官方无支持；XNU arm64 当前只读一个 `{physBase, memSize}`。 | **不可直接做**：需要新增多区间 pmap/vm_page/physmap 补丁，并逐段挖掉 modem/ADSP/camera/HYP/UEFI/DXE 保留；不属于本 16 项文档范围。 |
+
+**建议取舍：**先把 8 GiB 单窗口跑通（这是官方 contiguous 模型内、也是 DarwinBoot 硬顶），把 9.97 GiB 多区间列为独立的内核项目；不要为了“12 GiB 装机”把 12 GiB 写进 `owned_memory_size`（解析器和 `AllocateWindow()` 都会拒绝）。
+
+### C.d boot-args 长度上限、4K 页表要求、patch 顺序要求
+
+| 约束 | 官方规定 | K60 当前状态 / 结论 |
+|---|---|---|
+| boot-args 长度 | `docs/xnu/boot-arguments.md`：拼接后的命令行 **at most 1000 bytes**；DarwinBoot 复制进 **1024-byte buffer**。每个参数匹配 `[A-Za-z0-9_.-]+(=[A-Za-z0-9_.,-]+)?`。 | 你给的 **581 字符** < 1000，余量 **419 bytes**；格式上安全。注意 `board.toml` 的 `kernel_args` 单独只有 9 个 token、169 字符；581 应是 `[build] kernel_args` / local override 合并后的 effective line，最终以 `./unixnu payload` 打印的 `kernel args:` 与 payload.json 为准。 |
+| 参数合并顺序 | `[payload] kernel_args`（board）→ `[build] kernel_args`（unixnu.local.toml）→ `--kernel-arg` 覆盖；同名后者替换前者。 | 新增 K60 驱动参数应写进 `[payload] kernel_args` 默认值，调试用 `--kernel-arg` 一次性覆盖；不要把临时参数写死在脚本。 |
+| 4K 页表 | `docs/xnu/four-k-page-tables.md`：XNU 必须编译为 **BCM2837** machine config（`ARM_PGSHIFT=12`、`ARM_PGBYTES=4096`、`TCR_EL1_BOOT` TG0=0、TG1=2）；补丁至少 `native-4k-bootstrap-capacity`、`native-4k-user-abi`、`native-4k-signature-hash-cache`、`pgz-aligned-validation`、`zzx-pmap-sync-64bit-pa`；SMMU 用 `ArmSmmu4K` 4 KiB 表；新代码用 `PAGE_SIZE`/`ARM_PGSHIFT`，DMA 按 `PAGE_SIZE` 对齐。 | K60 profile 已是 `MACHINE_CONFIGS=PONG`（20G81 机器配置，4K 语义）；`CONFIG_XNU_NATIVE_CS_HASH_CACHE=y` 已在 `mondrian_defconfig`。8 GiB 窗口的 bootstrap 表池需满足“每 6 GiB 映射”预算；8.652 GiB arena 必须用 `native-4k-bootstrap-capacity` 的扩展池，不要用默认 16 KiB 假设。 |
+| patch 顺序 | `docs/xnu/patch-reference.md`：format 2 按 `[kernel] patch_series` **声明顺序**应用；依赖补丁排在被依赖之后；碰 `zzy`/`zzz` 区域的补丁排在它们之前；`unixnu status --json` 打印 resolved sequence。format 1 按 `patches/xnu/*.patch` / `kits/XnuPrelink/patches/*.patch` 文件名字典序。 | K60 当前是 format 2 `patch_series = ["device:patches/xnu/series"]`（129 条），`status --json` 应报告 129 条有序补丁；不要用 pong 的 glob 字母序直接套（会先跑 0210 而目标文件还没被 UI foundation 创建）。新增 K60 补丁必须插在 `zzy`/`zzz` 之前。 |
+| 源码 pin | `docs/xnu/source-and-patches.md`：17.7.11 用 `xnu-10063.141.1`，iOS 16 与 iPadOS 17 共享 arm64 patch series；27 用 arm64e series。 | K60 是 `xnu-8796.141.3`/Darwin22.6；不要拿 10063 的补丁直接套。`profiles/os/ipados-16.6.1-20G81/profile.toml` 已 pin `1b191cb58250d0705d8a51287127505aa4bc0789`。 |
+
+### C.e 每一项对 iOS 16.6.1/20G81 的适用性汇总
+
+| 项 | 20G81 适用性 | 理由（简） |
+|---:|---|---|
+| 1 适配顺序 | ✅ | 纯流程，无 OS ABI。 |
+| 2 平台与内存 | ✅ | CPU/GIC/内存/DMA 流程与 OS 版本无关；K60 值需换。 |
+| 3 UFS | ◐ | 流程适用；`ShengUfs` SM8550 组件不适用，K60 用 PongUfs。 |
+| 4 显示与亮度 | ◐ | GOP/软件 framebuffer 模型适用；24A446 DSI adapter 不适用 20G81。 |
+| 5 亮度驱动 | ✗ | K60 无 KTZ8866，背光走 DCS 0x51；官方驱动硬件不适用。 |
+| 6 触控与按键 | ◐ | `QcomGeniSpi` 总线层可用；Goodix 协议新写，HID ABI 重对。 |
+| 7 GPU 与 Metal | ✗ | 官方 A740 组件不适用 A730v3；用 PongAdreno。 |
+| 8 Wi-Fi | ✗ | 官方 ath12k/WCN7850 不适用 QCA6490 ath11k；用 PongWifi。 |
+| 9 蓝牙 | ✗ | 20G81 无 IOBluetoothFamily；官方 iPadOS27 BlueTool 路线不适用。 |
+| 10 蓝牙驱动 | ✗ | 同 9；QcaBluetooth 只覆盖 WCN7850/iPadOS27。 |
+| 11 USB | ◐ | DWC3/eUSB2 硬件流程参考；24A446 ABI 不适用 20G81。 |
+| 12 USB 驱动 | ◐ | QcomDwc3 仅 24A446；community NativeDwc3 是 SM8150，无结果。 |
+| 13 基带 | ✗ | 官方 SC7180/IPA4.2 与 K60 集成 SM8475 modem 不同类；iPad7,1 可 skip。 |
+| 14 DSP/音频/电源 | ◐ | ADSP/AudioReach 框架可用；AW882xx 功放必须新写。 |
+| 15 开发驱动 | ✅ | built-in XNU 方法完全适用；kext bundle 路线不适用 shipped DarwinBoot。 |
+| 16 修改 XNU | ◐ | boot-args/4K/patch order 规则适用；源码 pin/补丁集按 20G81 重排。 |
+
+> 逐组件版本明细见 `C.e-1`；该表保留官方 catalog 的 `os_abi` 与文档正文的对照，是 C.e 的证据底稿。
+
+## ⑤ 与 pong 方案的差异与取舍
+
+### 5.1 官方规范 vs pong ios16（流程层）
+
+| 维度 | 官方 UniXNU 规范 | pong ios16 先例 | 对 K60 的含义 |
+| --- | --- | --- | --- |
+| 设备仓格式 | format 2：`schema_version=2`、`[components] include`、`[kernel] archives`、`[os_overrides]`（`docs/reference/configuration.md:3-5,44-59`；`docs/porting/packaging.md:3-24`） | 54 行 `board.toml`，无 `schema_version`/`[components]`/`[userdata]`/`windows`（`K60:docs/audits/PONG16-DIFF-AUDIT.md:10-16`；`git show FETCH_HEAD:board.toml`） | K60 已是 format 2，应继续用官方壳；不要退回 pong 的扁平 `board.toml` |
+| 组件选择 | `components.toml` 目录 + `[components] include`，解析器按依赖排序（`docs/reference/components.md:3-13,46-57`） | drivers 以 git submodule/目录 vendored，无 catalog 选择（`K60:docs/audits/PONG16-DIFF-AUDIT.md:198-213`） | K60 目前只选 `ArmDTPlatform/ArmCpu/XnuPrelink/PongUfs`（`board.toml:14`）；其余 pong 驱动要逐步登记为组件或设备本地模块 |
+| 补丁应用 | `[kernel] patch_series` 有序 series，`scripts/package.sh` 解析（`docs/porting/packaging.md:33-37`） | `patches/xnu/*.patch` 字母序 glob（`K60:docs/audits/PONG16-DIFF-AUDIT.md:12,32-40`） | K60 已用 series（129 条）；不要启用 pong 的 glob 路径 |
+| 构建入口 | `scripts/package.sh --os 17` / `--os 27` / `--os PROFILE`，唯一脚本模板（`docs/porting/packaging.md:3-24,41-53`） | 自定义 `build-ios16-pong-macos.py` / `build-pong-prelinked-boot.py` / `build-userdata.py`（pong README「构建」节） | K60 可以保留自定义 16.6.1 预构建脚本作为过渡，但发布路径应接到 `scripts/package.sh` 的 `--os PROFILE` |
+| OS profile | `profiles/os/ipados-17.7.11-21H461`、`ipados-27.0.1-24A446`；`[os_overrides]` 管理差异（`docs/porting/packaging.md:84-98`） | 自带 `os-profiles/`，iOS 16.6.1/20G81；无官方 16.6.1 profile 支持声明（`K60:docs/audits/PONG16-DIFF-AUDIT.md:5-8`；`UniXNU/profiles/os/ipados-16.6.1-20G81` 存在但文档未提） | K60 的 16.6.1 profile 是设备仓核心资产；官方组件迁移必须在此 profile 上重新验证 |
+| 记录 | `porting.toml` 每个 area 有 inputs/configuration/procedure/findings/limits/next_action/evidence（`docs/porting/records.md:15-35,41-59`） | pong ios16 **没有 `porting.toml`**（`K60:docs/audits/PONG16-DIFF-AUDIT.md:15`） | K60 已有 13 个 area 的 `porting.toml`，继续按官方记录规范维护 |
+| 输出 | `out/<device>/<os_profile>/<config>/`，manifest 记录 revision/大小/SHA-256（`docs/porting/packaging.md:100-117`） | 自定义输出目录（pong README 脚本参数） | K60 统一输出路径，便于与官方文档对齐 |
+
+### 5.2 子系统取舍
+
+| 子系统 | 官方推荐 | K60 现方案/最接近先例 | 取舍建议 |
+| --- | --- | --- | --- |
+| CPU/中断/内存 | ArmDTPlatform + ArmCpu + ArmSmmu4K | pong ArmCpu/ArmDTPlatform（同码）；K60 DTS/ADT 已有 | **保留 pong 驱动 + 官方 DTS/ADT 契约**；`ArmSmmu4K` 可直接引入做 GPU/display kit；16.6.1 first-boot 不换 ArmCpu |
+| UFS | ShengUfs（SM8550） | PongUfs（SM8475，`components.toml:551-560`） | **保留 PongUfs**；把 SM8475 常量整理成 ShengUfs 的 SoC 后端是长期方向，不是本次切换 |
+| 显示 | GopFramebuffer（iOS17/27） | MiniIOMobileFramebuffer + CPU 软件呈现（K60 0210/0211/0213） | **保留 K60 显示栈**；GopFramebuffer 仅在 K60 迁到 17/27 时替换；现在换会引入 ABI 断点 |
+| 背光 | AppleARMBacklight 示例（KTZ8866 I2C） | K60 面板 DCS `0x51` 调光，无背光 IC | **复用 OS 服务契约，重写 DSI-command 传输**；不要照抄 KTZ8866 寄存器 |
+| 触摸 | QcomGeniSpi + ShengNovatekTouch + ShengHidInput | K60 Goodix/xiaomi,m11a-spi；pong `pong_goodix.c` | **QcomGeniSpi + ShengHidInput 复用；ShengNovatekTouch 不用；Goodix 协议层用 pong/K60 0242** |
+| 实体键 | ButtonProbe.cpp（板级参考） | pong `pong-physical-keys.patch`；K60 无 XNU 驱动 | **新写 K60 按钮驱动**（UEFI 参数为源）；无官方组件可换 |
+| GPU/Metal | Adreno740 + AdrenoMetal + Sm8550Platform（A740/SM8550） | PongAdreno + PongMetal（A730/SM8475） | **保留 pong GPU 栈**；官方 A740 栈不适用；可复用 AdrenoFirmware/AdrenoPM4/AirNir/ArmSmmu4K kit |
+| WiFi | Ath12kWifi（WCN7850） | PongWifi（QCA6490/ath11k，pong main） | **移植 PongWifi**；Ath12kWifi 不适用；K60 计划已如此选择（`K60:docs/plans/WIFI-PORT-PLAN.md:13`） |
+| 蓝牙 | QcaBluetooth（WCN7850 UART） | pong 无 BT 驱动；K60 零先例 | **以 QcaBluetooth 的 qbt/GENI 框架为骨架新写 QCA6490 驱动**；不能直接选官方组件 |
+| 音频 | AudioProbe/ShengAudioReach/ShengGpr（CS35L43/WCD938x） | pong main 的 PongAudio（TFA9873）；K60 AW882xx | **复用 AudioReach/GPR 框架；新写 AW882xx 功放与 K60 TDM 路由**；官方/ pong 功放都不能直接跑 |
+| DSP/电源/电池 | AdspProbe/ShengBattmgr/ShengBattery/ShengPlatformPower（SM8550） | pong main 的 PongPower（SM8475）；pong ios16 无 | **从 pong main 移植 PongPower 并改 ADSP carveout/PMIC**；官方 sheng 只作参考 |
+| USB | QcomDwc3（iOS27/24A446） | pong ios16 无 USB 栈；K60 自定义 DWC3/usblog | **16.6.1 继续自定义 DWC3/usblog**；QcomDwc3 等迁到 27 或完成 16.6.1 ABI 审计后再换 |
+
+### 5.3 建议路线
+
+1. **短期（16.6.1 主线）：** 保留 pong 设备驱动（PongUfs、PongAdreno/PongMetal、Goodix、PongWifi、PongPower、自定义 DWC3），把 `board.toml`/`porting.toml`/构建输出按官方 format 2 收紧；只引入无 ABI 风险的 `ArmSmmu4K`、`QcomGeniSpi`、`ShengHidInput` 接口层。
+2. **中期（接口对齐）：** 把 K60 DTS/ADT 按 `docs/porting/device-tree.md` 和 `docs/porting/platform.md` 补齐（`/chosen` NVRAM、`/cpus` cluster-type、`/buttons`、`/arm-io` ranges、`dma-coherent`、`iommus`）；为 PongUfs/PongAdreno/PongWifi/PongPower 写 `porting.toml` 记录和 host check。
+3. **长期（官方化）：** 官方补齐 SM8475/A730/QCA6490/AW882xx 后，按 `docs/reference/components.md` 的 catalog 流程注册为正式组件；在此之前不要为了“用官方组件”而替换任何已验证的 pong 驱动。
+
+## ⑥ 未核实项
+
+1. **`docs/reference/components` 目录不存在。** 任务书写的该目录没有 md；只有 `docs/reference/components.md`（85 行）。本清单以 `components.md` + `docs/drivers/repositories.md` + `components.toml` 为准。
+2. **`components.toml` 与 `.gitmodules` 的 12 个 pin 不一致：** `ArmCpu`（catalog `93a5030…` vs gitlink `9066b53…`）、`Adreno740`（`6fa7bae…` vs `5c8c145…`）、`AdrenoMetal`（`6d7f734…` vs `ce5e19e…`）、`GopFramebuffer`（`e47c1b8…` vs `33e941a…`）、`AppleKeyStoreState`（`8c70daf…` vs `42ff83e…`）、`RamBlock`（`4be2d7e…` vs `25c57e0…`）、`DarwinBoot`（`3c75734…` vs `3325e35…`）、`ArmSmmu4K`（`83969cd…` vs `3ba9245…`）、`XnuPrelink`（`c645d76…` vs `f876e3e…`）、`VerifiedRoot`（`974f043…` vs `def0266…`）、`ShengUfs`（`99d8bcd…` vs `af14068…`）、`VirtioMmioBlock`（`4e1013e…` vs `8ee3a5a…`）。哪个是发布基线未核实；引用 pin 时要同时给出两套值。
+3. **官方文档对 16.6.1/20G81 零声明：** `drivers/`、`porting/`、`reference/` 全文检索无命中；K60 的 16.6.1 profile 只证明配置层可选，不代表任何驱动/ABI 已在 20G81 上验证。
+4. **K60 硬件值来源等级：** 本清单的 K60 地址/GPIO/固件名大多来自本地计划文档和 live FDT 记录，不是官方文档；其中 `QCA6490 BT` 固件 `htbtfw21.tlv`/`htnv21.bin`、AW882xx 寄存器表/awini 校准、Goodix 具体型号（Berlin vs GT9xx）均标为未核实（`K60:docs/plans/BT-AUDIO-PORT-PLAN.md:97-101,414,499-500`、`K60:docs/plans/K60-TOUCH-PARAMS.md:250-255`）。
+5. **K60 USB 的 SMMU stream：** 本地记录为 `0x0`（`K60:docs/reference/ISSUES.md:195`），官方 QcomDwc3 sheng 参考为 `0x40`（`docs/porting/usb.md:31`）；K60 实际 stream/context 需以设备 DTS/实测为准，未核实。
+6. **K60 背光：** “无独立背光 IC、DCS `0x51`”来自本地 FDT/上机笔记（`K60:docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:106-108`）；官方文档只描述 KTZ8866 I2C 示例。DCS 的亮度位宽/量程（0xFF vs 0..2047）需按 m11a panel 文档再核。
+7. **pong main 与 pong ios16 的驱动范围不同：** pong ios16 只有 `ArmCpu/ArmDTPlatform/DarwinBoot22/NativeMetal/NativeRamBlock/NativeUfs/PongAdreno/PongMetal` 8 个 driver 目录（`git ls-tree FETCH_HEAD:drivers`）；`PongWifi/PongPower/PongUsb/PongBt` 只在 pong main（22H374）或未实现。K60 的 WiFi/音频/电源计划引用 pong main，不是 ios16；这些代码的 Darwin24 ABI 不能直接用于 16.6.1。
+8. **官方 `Sm8550Platform` 无 SM8475 等价物：** catalog 只有 SM8550 kit（`components.toml:454-470`）；K60 A730 的 GMU/GPU SMMU/RPMh 命令库需要自建（或从 pong PongPlatform 移植），不能选 `Sm8550Platform`。
+9. **`GopFramebuffer` 的 iOS 16.6.1 ABI 构建器不存在：** `build-gop-legacy-display.py` 在 `ARCH != 'arm64' or IOS_VERSION major != 17` 时直接 `SystemExit`（`:10-12`）；`-27.py` 只接受 arm64e iPadOS27（`:17-18`）。K60 若换 GopFramebuffer，必须先写 16.6.1 的 LegacyDisplay ABI JSON/构建器，未核实可行性。
+10. **官方组件版本目录 vs 文档：** `Adreno740`/`AdrenoMetal` catalog `os_abi` 只写 17.7.11（`components.toml:87,109`），但文档给出 iOS27 构建命令（`adreno740.md:26`、`adreno-metal.md:40`、`gpu.md:144-150`）；`GopFramebuffer` catalog 写 17+27（`components.toml:215`），文档构建器只覆盖 17/27。catalog 元数据可能滞后于文档，选型时以文档 + 实测 ABI 为准。
+11. **官方 `ShengUfs`/`ShengNovatekTouch`/`GopFramebuffer` 的 `verified_devices` 只有 sheng（`components.toml:132,175,217`），没有 K60/SM8475 记录；任何“可复用”判断都是接口层推断，不是硬件验证结论。**
+12. **基带未列入本任务范围：** K60 是带 modem 的手机，但本任务清单未包含 cellular；官方 `QcomBaseband` 只提供 SC7180/IPA v4.2/iOS 17 的 Coachz 参考（`docs/porting/baseband.md:5`），K60 的 modem 型号、EFS/NV、QRTR/QMI、IPA 版本均未核实，后续需要单独评估。
+13. **`ShengBacklight` 没有独立组件仓库：** 它是 `UniXNU-sheng/package/AppleARMBacklight.cpp` 的板级代码，不在 `components.toml` 的 `id` 列表中；引用它时只能按“官方参考实现”处理，不能当作可选择的 catalog 组件。
+
+### 6.1 本次 LIVE 通读新增未核实项
+
+| # | 项 | 现状 | 闭合方式 |
+|---:|---|---|---|
+| N1 | 官方页面 LIVE 与本地存档差异 | 本次 16 项 39 页全部用 LIVE；`porting/drivers.md` 等页面在 2026-11-08 已比 2026-11-04 存档新；本文件部分旧表引用的仍是本地 `E:/hackios/UniXNU/docs` 快照（2026-10-29） | 每次改动前用 `query.py --live` 重抓；引用行号以本地快照为准，结论以 LIVE 为准 |
+| N2 | K60 Goodix 具体型号/ABI（Berlin vs GT9xx） | DT 只有 `xiaomi,m11a-spi` / `goodix_firmware_m11a`；0242 双 ABI 均未在真机读到 ID | stage 4 `k60touchstage=4 k60rpmhoff=1` 读 `0x10014`/`0x8140`，看 `abi berlin` 或 `abi gt9xx` |
+| N3 | K60 RSC/TCS `0x17a00000/0x17a20000` 可达性 | 0240 称 drv-2 可读、0246 称首读 TCS 整机死；根因未定（XPU/电源域/互连） | 只用 0248 只读探针；先确认 XPU/电源域，不写 TCS |
+| N4 | K60 IOVDD（pm8350c ldoc2）冷启动状态 | `k60rpmhoff=1` 时假设 bootloader/Android 已开 ldo2；冷启动是否成立未知 | Android 热重启进 fastboot 再 boot，对比冷启动 ID 结果 |
+| N5 | K60 UFS 冷初始化/gear/PHY 状态 | PongUfs 走 firmware-state adoption；K60 冷启动时 PHY/clock 是否仍由 ABL 配置未逐项核实 | 第一轮 UFS 日志读 HCE/HCS、link state、request-list base；按 `porting/ufs.md` 的 inventory 记录 |
+| N6 | K60 DSI 真通路（DSI0 `0xae94000`）与面板上电时序 | 当前只有 GOP 软件 framebuffer；120Hz 计划只确定 DSI0 基址和部分寄存器 | 先做 DSI host/PHY/PLL 驱动；`120HZ-PORT-PLAN.md` 的路径 B 需补全 m11a 的 52 字节 DCS payload |
+| N7 | K60 背光 DCS 0x51 的完整序列/范围 | 上机笔记只写 `0x11`→`0x29`→`0x51`；亮度范围/斜率未测 | 在 DSI 通路打通后，逐级写 0x51 并读回/目测；记录到 display record |
+| N8 | K60 GPU SID 路由 / GMU 固件 / ZAP | `PongAdreno` 只接受 exact 5/0x405 GMU 和 0/0x400/1/0x401 GPU 路由；K60 实际 SMR/S2CR 未核实 | 第一轮 `GPU SMMU actual IDs` + `SKIP ASID lease conflicts` 日志定标；ZAP 用 K60 签名镜像 |
+| N9 | K60 WiFi 固件清单/分区路径/子系统 device ID | `amss.bin`/`m3.bin`/`firmware-2.bin`/`board-2.bin` 为 WCN6855 hw2.1 惯例；K60 `modem_a/b/image/qca6490` 未列；子系统 device 0x0108 未实读 | 只读挂载 `modem<slot>` 列目录；PCI config 读 subsystem ID；记录 `proprietary-files.txt` |
+| N10 | Ath12kWifi 是否可加 ath11k 后端 | 官方组件只列 ath12k/QCC2072/QCN9274/WCN7850；K60 是 QCA6490/WCN6855 0x1103 | 拉取 Ath12kWifi 源码静态比对；若 WMI/QMI 差异大，直接用 PongWifi |
+| N11 | K60 蓝牙固件文件名/波特率/BT_EN 极性 | `htbtfw21.tlv`/`htnv21.bin` 是 WCN6855 家族惯例；K60 分区未核实；初始 115200/运行 3.2M 未实测 | 列 `modem_a/b/image/qca6490`；上机 stage 2 读 GENI FW revision；示波器看 BT_EN |
+| N12 | 20G81 是否有可用的 Apple 蓝牙栈 | kernelcache 字符串扫 `IOBluetoothFamily` 0 命中，只有 `AppleBluetooth`/BTReset；`IOSerialFamily` 存在 | 若要做 Apple `bluetoothd`，先补 IOBluetoothFamily 或证明其用户态可行；第一版走 btstack |
+| N13 | K60 USB IRQ/SMMU stream/PHY rails | DWC3 `0xa600000`、eUSB2 `0x88e3000`、QMP `0x88e8000` 已定位；IRQ/stream/rail 未逐项核实 | 读 K60 FDT `usb` 节点 + GCC/GDSC；按 `porting/usb.md` inventory 填 |
+| N14 | QcomDwc3 20G81 ABI | 官方脚本只生成 24A446 JSON；K60 20G81 类布局未提取 | 用 `scripts/gen-usb27-abi.py` 的同一方法从 20G81 kernelcache 生成；先验证 `AppleUSBXDCI` slot 179 |
+| N15 | K60 集成 modem 的 IPA/GLINK 细节 | 官方 QcomBaseband 是 SC7180 IPA v4.2；K60 是 SM8475 IPA v5.1 WIP；EFS/FSG 分区未核实 | 若做 cellular，先按 `porting/baseband.md` 的 inventory 采集；第一版 `not-applicable` |
+| N16 | AW882xx 寄存器表/awini 校准/reset 极性 | 本机无 AW882xx 源码/寄存器表/校准；DT 只给地址/GPIO/IRQ | 从 Xiaomi/LineageOS 内核拉 `aw882xx` 驱动与 `awini`；先读 chip ID/revision |
+| N17 | 20G81 的 IOHIDFamily / GopFramebuffer / ShengHidInput ABI | 官方组件 `os_abi` 不列 20G81；`ShengHidInput` 记录 IOHIDFamily 2031.120.4 | 从 20G81 kernelcache 提取 IOHIDFamily 版本/selector；先在 QEMU/host 验证再上机 |
+| N18 | 8 GiB 单窗口是否真能启动 | 7 GiB 曾被 loader 接受但 XNU 无输出（2026-11-02 的 7g 实验）；8 GiB 未测；4.75 GiB 已实测 `vm_page_bootstrap` 1,245,184 页 | 按 MEMORY-12G-PLAN 阶梯先 4.75→6→7→8 GiB，每轮只改 `owned_memory_size` 并保留回滚镜像 |
+| N19 | 当前 boot-args 581 字符的构成 | `board.toml` 的 `kernel_args` 只有 9 token/169 字符；581 应是 `[build]`/local override 合并后的 effective line，未在本文件核对生成物 | 运行 `./unixnu payload` 看 `kernel args:` 与 `payload.json` 的实际 `kernel_args`；若超过 1000 按优先级删诊断参数 |
+| N20 | 官方 `platform.md` 的 8 GiB 上限 | 官方页不写数字；8 GiB 来自 K60 本地 `DarwinBoot22/WindowSize.h` 和 `devicetree.py` 的 256 MiB–8 GiB 校验 | 以本地代码为准；若换官方 DarwinBoot 主线，重新核对 `WindowSize.h` |
+| N21 | 官方 `TFA9873` 覆盖 | 官方 16 项 39 页全文 0 命中 TFA9873；只有 pong `PongAudio.cpp` 有该器件 | 不要把 TFA 寄存器写进 K60；K60 功放先读 I2C 0x34/0x35 chip ID |
+| N22 | 官方 `AudioProbe` 的功放型号 | 官方 `power.md` 只列 `ShengCs35l43.c`（CS35L43）与 WCD938x；没有 AW882xx | 同上；AW882xx 驱动需从厂商源码另取 |
+
+## 附录 A 各组件板级输入
 
 ### 3.1 CPU / 中断 / 内存
 
@@ -263,7 +463,7 @@
 
 **K60 现值：** DWC3 `0xa600000`（+QSCRATCH `0xa6f8800`）、eUSB2 PHY `0x88e3000`、QMP `0x88e8000`、USB3 GDSC、SMMU stream `0x0`（`K60:docs/reference/USB-LOG-CHANNEL.md:150-152`、`K60:docs/reference/ISSUES.md:195`）；官方 sheng 是 DWC3 同址、window `+0xc000`、IRQ 165、SMMU stream `0x40`、eUSB2 38.4 MHz（`docs/porting/usb.md:25-33`）。K60 的 stream 不同，是 USB 适配的最大风险之一。
 
-## ④ iOS 版本适用性表
+## 附录 B iOS 版本适用性
 
 **全局事实：** 对 `E:/hackios/UniXNU/docs/drivers`、`docs/porting`、`docs/reference` 三个目录做全文检索，`16.6.1` 与 `20G81` 命中数均为 **0**。官方文档只在通用 arm64 说明里承认 iOS 16 可作为 arm64 profile（`docs/porting/arm64e.md:6`：“Other devices use an arm64 profile (iOS 16 or iPadOS 17, for example `ipados-17.7.11-21H461`)”），但没有任何组件级 16.6.1 验证声明。K60 的 `profiles/os/ipados-16.6.1-20G81/profile.toml` 存在，只证明 OS 配置层可选。
 
@@ -297,207 +497,7 @@
 
 **结论：** 没有一条官方组件文档写“也适用 16.6.1/20G81”。K60 的 16.6.1 只能作为 arm64 自定义 profile 继续维护；任何官方组件迁移都要先在 20G81 kernelcache/headers 上重新做 ABI 审计，不能以 17.7.11/21H461 或 27.0.1/24A446 的通过记录代替。
 
-## ⑤ 与 pong 方案的差异与取舍建议
-
-### 5.1 官方规范 vs pong ios16（流程层）
-
-| 维度 | 官方 UniXNU 规范 | pong ios16 先例 | 对 K60 的含义 |
-| --- | --- | --- | --- |
-| 设备仓格式 | format 2：`schema_version=2`、`[components] include`、`[kernel] archives`、`[os_overrides]`（`docs/reference/configuration.md:3-5,44-59`；`docs/porting/packaging.md:3-24`） | 54 行 `board.toml`，无 `schema_version`/`[components]`/`[userdata]`/`windows`（`K60:docs/audits/PONG16-DIFF-AUDIT.md:10-16`；`git show FETCH_HEAD:board.toml`） | K60 已是 format 2，应继续用官方壳；不要退回 pong 的扁平 `board.toml` |
-| 组件选择 | `components.toml` 目录 + `[components] include`，解析器按依赖排序（`docs/reference/components.md:3-13,46-57`） | drivers 以 git submodule/目录 vendored，无 catalog 选择（`K60:docs/audits/PONG16-DIFF-AUDIT.md:198-213`） | K60 目前只选 `ArmDTPlatform/ArmCpu/XnuPrelink/PongUfs`（`board.toml:14`）；其余 pong 驱动要逐步登记为组件或设备本地模块 |
-| 补丁应用 | `[kernel] patch_series` 有序 series，`scripts/package.sh` 解析（`docs/porting/packaging.md:33-37`） | `patches/xnu/*.patch` 字母序 glob（`K60:docs/audits/PONG16-DIFF-AUDIT.md:12,32-40`） | K60 已用 series（129 条）；不要启用 pong 的 glob 路径 |
-| 构建入口 | `scripts/package.sh --os 17` / `--os 27` / `--os PROFILE`，唯一脚本模板（`docs/porting/packaging.md:3-24,41-53`） | 自定义 `build-ios16-pong-macos.py` / `build-pong-prelinked-boot.py` / `build-userdata.py`（pong README「构建」节） | K60 可以保留自定义 16.6.1 预构建脚本作为过渡，但发布路径应接到 `scripts/package.sh` 的 `--os PROFILE` |
-| OS profile | `profiles/os/ipados-17.7.11-21H461`、`ipados-27.0.1-24A446`；`[os_overrides]` 管理差异（`docs/porting/packaging.md:84-98`） | 自带 `os-profiles/`，iOS 16.6.1/20G81；无官方 16.6.1 profile 支持声明（`K60:docs/audits/PONG16-DIFF-AUDIT.md:5-8`；`UniXNU/profiles/os/ipados-16.6.1-20G81` 存在但文档未提） | K60 的 16.6.1 profile 是设备仓核心资产；官方组件迁移必须在此 profile 上重新验证 |
-| 记录 | `porting.toml` 每个 area 有 inputs/configuration/procedure/findings/limits/next_action/evidence（`docs/porting/records.md:15-35,41-59`） | pong ios16 **没有 `porting.toml`**（`K60:docs/audits/PONG16-DIFF-AUDIT.md:15`） | K60 已有 13 个 area 的 `porting.toml`，继续按官方记录规范维护 |
-| 输出 | `out/<device>/<os_profile>/<config>/`，manifest 记录 revision/大小/SHA-256（`docs/porting/packaging.md:100-117`） | 自定义输出目录（pong README 脚本参数） | K60 统一输出路径，便于与官方文档对齐 |
-
-### 5.2 子系统取舍
-
-| 子系统 | 官方推荐 | K60 现方案/最接近先例 | 取舍建议 |
-| --- | --- | --- | --- |
-| CPU/中断/内存 | ArmDTPlatform + ArmCpu + ArmSmmu4K | pong ArmCpu/ArmDTPlatform（同码）；K60 DTS/ADT 已有 | **保留 pong 驱动 + 官方 DTS/ADT 契约**；`ArmSmmu4K` 可直接引入做 GPU/display kit；16.6.1 first-boot 不换 ArmCpu |
-| UFS | ShengUfs（SM8550） | PongUfs（SM8475，`components.toml:551-560`） | **保留 PongUfs**；把 SM8475 常量整理成 ShengUfs 的 SoC 后端是长期方向，不是本次切换 |
-| 显示 | GopFramebuffer（iOS17/27） | MiniIOMobileFramebuffer + CPU 软件呈现（K60 0210/0211/0213） | **保留 K60 显示栈**；GopFramebuffer 仅在 K60 迁到 17/27 时替换；现在换会引入 ABI 断点 |
-| 背光 | AppleARMBacklight 示例（KTZ8866 I2C） | K60 面板 DCS `0x51` 调光，无背光 IC | **复用 OS 服务契约，重写 DSI-command 传输**；不要照抄 KTZ8866 寄存器 |
-| 触摸 | QcomGeniSpi + ShengNovatekTouch + ShengHidInput | K60 Goodix/xiaomi,m11a-spi；pong `pong_goodix.c` | **QcomGeniSpi + ShengHidInput 复用；ShengNovatekTouch 不用；Goodix 协议层用 pong/K60 0242** |
-| 实体键 | ButtonProbe.cpp（板级参考） | pong `pong-physical-keys.patch`；K60 无 XNU 驱动 | **新写 K60 按钮驱动**（UEFI 参数为源）；无官方组件可换 |
-| GPU/Metal | Adreno740 + AdrenoMetal + Sm8550Platform（A740/SM8550） | PongAdreno + PongMetal（A730/SM8475） | **保留 pong GPU 栈**；官方 A740 栈不适用；可复用 AdrenoFirmware/AdrenoPM4/AirNir/ArmSmmu4K kit |
-| WiFi | Ath12kWifi（WCN7850） | PongWifi（QCA6490/ath11k，pong main） | **移植 PongWifi**；Ath12kWifi 不适用；K60 计划已如此选择（`K60:docs/plans/WIFI-PORT-PLAN.md:13`） |
-| 蓝牙 | QcaBluetooth（WCN7850 UART） | pong 无 BT 驱动；K60 零先例 | **以 QcaBluetooth 的 qbt/GENI 框架为骨架新写 QCA6490 驱动**；不能直接选官方组件 |
-| 音频 | AudioProbe/ShengAudioReach/ShengGpr（CS35L43/WCD938x） | pong main 的 PongAudio（TFA9873）；K60 AW882xx | **复用 AudioReach/GPR 框架；新写 AW882xx 功放与 K60 TDM 路由**；官方/ pong 功放都不能直接跑 |
-| DSP/电源/电池 | AdspProbe/ShengBattmgr/ShengBattery/ShengPlatformPower（SM8550） | pong main 的 PongPower（SM8475）；pong ios16 无 | **从 pong main 移植 PongPower 并改 ADSP carveout/PMIC**；官方 sheng 只作参考 |
-| USB | QcomDwc3（iOS27/24A446） | pong ios16 无 USB 栈；K60 自定义 DWC3/usblog | **16.6.1 继续自定义 DWC3/usblog**；QcomDwc3 等迁到 27 或完成 16.6.1 ABI 审计后再换 |
-
-### 5.3 建议路线
-
-1. **短期（16.6.1 主线）：** 保留 pong 设备驱动（PongUfs、PongAdreno/PongMetal、Goodix、PongWifi、PongPower、自定义 DWC3），把 `board.toml`/`porting.toml`/构建输出按官方 format 2 收紧；只引入无 ABI 风险的 `ArmSmmu4K`、`QcomGeniSpi`、`ShengHidInput` 接口层。
-2. **中期（接口对齐）：** 把 K60 DTS/ADT 按 `docs/porting/device-tree.md` 和 `docs/porting/platform.md` 补齐（`/chosen` NVRAM、`/cpus` cluster-type、`/buttons`、`/arm-io` ranges、`dma-coherent`、`iommus`）；为 PongUfs/PongAdreno/PongWifi/PongPower 写 `porting.toml` 记录和 host check。
-3. **长期（官方化）：** 官方补齐 SM8475/A730/QCA6490/AW882xx 后，按 `docs/reference/components.md` 的 catalog 流程注册为正式组件；在此之前不要为了“用官方组件”而替换任何已验证的 pong 驱动。
-
-## ⑥ 未核实项
-
-1. **`docs/reference/components` 目录不存在。** 任务书写的该目录没有 md；只有 `docs/reference/components.md`（85 行）。本清单以 `components.md` + `docs/drivers/repositories.md` + `components.toml` 为准。
-2. **`components.toml` 与 `.gitmodules` 的 12 个 pin 不一致：** `ArmCpu`（catalog `93a5030…` vs gitlink `9066b53…`）、`Adreno740`（`6fa7bae…` vs `5c8c145…`）、`AdrenoMetal`（`6d7f734…` vs `ce5e19e…`）、`GopFramebuffer`（`e47c1b8…` vs `33e941a…`）、`AppleKeyStoreState`（`8c70daf…` vs `42ff83e…`）、`RamBlock`（`4be2d7e…` vs `25c57e0…`）、`DarwinBoot`（`3c75734…` vs `3325e35…`）、`ArmSmmu4K`（`83969cd…` vs `3ba9245…`）、`XnuPrelink`（`c645d76…` vs `f876e3e…`）、`VerifiedRoot`（`974f043…` vs `def0266…`）、`ShengUfs`（`99d8bcd…` vs `af14068…`）、`VirtioMmioBlock`（`4e1013e…` vs `8ee3a5a…`）。哪个是发布基线未核实；引用 pin 时要同时给出两套值。
-3. **官方文档对 16.6.1/20G81 零声明：** `drivers/`、`porting/`、`reference/` 全文检索无命中；K60 的 16.6.1 profile 只证明配置层可选，不代表任何驱动/ABI 已在 20G81 上验证。
-4. **K60 硬件值来源等级：** 本清单的 K60 地址/GPIO/固件名大多来自本地计划文档和 live FDT 记录，不是官方文档；其中 `QCA6490 BT` 固件 `htbtfw21.tlv`/`htnv21.bin`、AW882xx 寄存器表/awini 校准、Goodix 具体型号（Berlin vs GT9xx）均标为未核实（`K60:docs/plans/BT-AUDIO-PORT-PLAN.md:97-101,414,499-500`、`K60:docs/plans/K60-TOUCH-PARAMS.md:250-255`）。
-5. **K60 USB 的 SMMU stream：** 本地记录为 `0x0`（`K60:docs/reference/ISSUES.md:195`），官方 QcomDwc3 sheng 参考为 `0x40`（`docs/porting/usb.md:31`）；K60 实际 stream/context 需以设备 DTS/实测为准，未核实。
-6. **K60 背光：** “无独立背光 IC、DCS `0x51`”来自本地 FDT/上机笔记（`K60:docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:106-108`）；官方文档只描述 KTZ8866 I2C 示例。DCS 的亮度位宽/量程（0xFF vs 0..2047）需按 m11a panel 文档再核。
-7. **pong main 与 pong ios16 的驱动范围不同：** pong ios16 只有 `ArmCpu/ArmDTPlatform/DarwinBoot22/NativeMetal/NativeRamBlock/NativeUfs/PongAdreno/PongMetal` 8 个 driver 目录（`git ls-tree FETCH_HEAD:drivers`）；`PongWifi/PongPower/PongUsb/PongBt` 只在 pong main（22H374）或未实现。K60 的 WiFi/音频/电源计划引用 pong main，不是 ios16；这些代码的 Darwin24 ABI 不能直接用于 16.6.1。
-8. **官方 `Sm8550Platform` 无 SM8475 等价物：** catalog 只有 SM8550 kit（`components.toml:454-470`）；K60 A730 的 GMU/GPU SMMU/RPMh 命令库需要自建（或从 pong PongPlatform 移植），不能选 `Sm8550Platform`。
-9. **`GopFramebuffer` 的 iOS 16.6.1 ABI 构建器不存在：** `build-gop-legacy-display.py` 在 `ARCH != 'arm64' or IOS_VERSION major != 17` 时直接 `SystemExit`（`:10-12`）；`-27.py` 只接受 arm64e iPadOS27（`:17-18`）。K60 若换 GopFramebuffer，必须先写 16.6.1 的 LegacyDisplay ABI JSON/构建器，未核实可行性。
-10. **官方组件版本目录 vs 文档：** `Adreno740`/`AdrenoMetal` catalog `os_abi` 只写 17.7.11（`components.toml:87,109`），但文档给出 iOS27 构建命令（`adreno740.md:26`、`adreno-metal.md:40`、`gpu.md:144-150`）；`GopFramebuffer` catalog 写 17+27（`components.toml:215`），文档构建器只覆盖 17/27。catalog 元数据可能滞后于文档，选型时以文档 + 实测 ABI 为准。
-11. **官方 `ShengUfs`/`ShengNovatekTouch`/`GopFramebuffer` 的 `verified_devices` 只有 sheng（`components.toml:132,175,217`），没有 K60/SM8475 记录；任何“可复用”判断都是接口层推断，不是硬件验证结论。**
-12. **基带未列入本任务范围：** K60 是带 modem 的手机，但本任务清单未包含 cellular；官方 `QcomBaseband` 只提供 SC7180/IPA v4.2/iOS 17 的 Coachz 参考（`docs/porting/baseband.md:5`），K60 的 modem 型号、EFS/NV、QRTR/QMI、IPA 版本均未核实，后续需要单独评估。
-13. **`ShengBacklight` 没有独立组件仓库：** 它是 `UniXNU-sheng/package/AppleARMBacklight.cpp` 的板级代码，不在 `components.toml` 的 `id` 列表中；引用它时只能按“官方参考实现”处理，不能当作可选择的 catalog 组件。
-
-### 6.1 本次 LIVE 通读新增未核实项
-
-| # | 项 | 现状 | 闭合方式 |
-|---:|---|---|---|
-| N1 | 官方页面 LIVE 与本地存档差异 | 本次 16 项 39 页全部用 LIVE；`porting/drivers.md` 等页面在 2026-11-08 已比 2026-11-04 存档新；本文件部分旧表引用的仍是本地 `E:/hackios/UniXNU/docs` 快照（2026-10-29） | 每次改动前用 `query.py --live` 重抓；引用行号以本地快照为准，结论以 LIVE 为准 |
-| N2 | K60 Goodix 具体型号/ABI（Berlin vs GT9xx） | DT 只有 `xiaomi,m11a-spi` / `goodix_firmware_m11a`；0242 双 ABI 均未在真机读到 ID | stage 4 `k60touchstage=4 k60rpmhoff=1` 读 `0x10014`/`0x8140`，看 `abi berlin` 或 `abi gt9xx` |
-| N3 | K60 RSC/TCS `0x17a00000/0x17a20000` 可达性 | 0240 称 drv-2 可读、0246 称首读 TCS 整机死；根因未定（XPU/电源域/互连） | 只用 0248 只读探针；先确认 XPU/电源域，不写 TCS |
-| N4 | K60 IOVDD（pm8350c ldoc2）冷启动状态 | `k60rpmhoff=1` 时假设 bootloader/Android 已开 ldo2；冷启动是否成立未知 | Android 热重启进 fastboot 再 boot，对比冷启动 ID 结果 |
-| N5 | K60 UFS 冷初始化/gear/PHY 状态 | PongUfs 走 firmware-state adoption；K60 冷启动时 PHY/clock 是否仍由 ABL 配置未逐项核实 | 第一轮 UFS 日志读 HCE/HCS、link state、request-list base；按 `porting/ufs.md` 的 inventory 记录 |
-| N6 | K60 DSI 真通路（DSI0 `0xae94000`）与面板上电时序 | 当前只有 GOP 软件 framebuffer；120Hz 计划只确定 DSI0 基址和部分寄存器 | 先做 DSI host/PHY/PLL 驱动；`120HZ-PORT-PLAN.md` 的路径 B 需补全 m11a 的 52 字节 DCS payload |
-| N7 | K60 背光 DCS 0x51 的完整序列/范围 | 上机笔记只写 `0x11`→`0x29`→`0x51`；亮度范围/斜率未测 | 在 DSI 通路打通后，逐级写 0x51 并读回/目测；记录到 display record |
-| N8 | K60 GPU SID 路由 / GMU 固件 / ZAP | `PongAdreno` 只接受 exact 5/0x405 GMU 和 0/0x400/1/0x401 GPU 路由；K60 实际 SMR/S2CR 未核实 | 第一轮 `GPU SMMU actual IDs` + `SKIP ASID lease conflicts` 日志定标；ZAP 用 K60 签名镜像 |
-| N9 | K60 WiFi 固件清单/分区路径/子系统 device ID | `amss.bin`/`m3.bin`/`firmware-2.bin`/`board-2.bin` 为 WCN6855 hw2.1 惯例；K60 `modem_a/b/image/qca6490` 未列；子系统 device 0x0108 未实读 | 只读挂载 `modem<slot>` 列目录；PCI config 读 subsystem ID；记录 `proprietary-files.txt` |
-| N10 | Ath12kWifi 是否可加 ath11k 后端 | 官方组件只列 ath12k/QCC2072/QCN9274/WCN7850；K60 是 QCA6490/WCN6855 0x1103 | 拉取 Ath12kWifi 源码静态比对；若 WMI/QMI 差异大，直接用 PongWifi |
-| N11 | K60 蓝牙固件文件名/波特率/BT_EN 极性 | `htbtfw21.tlv`/`htnv21.bin` 是 WCN6855 家族惯例；K60 分区未核实；初始 115200/运行 3.2M 未实测 | 列 `modem_a/b/image/qca6490`；上机 stage 2 读 GENI FW revision；示波器看 BT_EN |
-| N12 | 20G81 是否有可用的 Apple 蓝牙栈 | kernelcache 字符串扫 `IOBluetoothFamily` 0 命中，只有 `AppleBluetooth`/BTReset；`IOSerialFamily` 存在 | 若要做 Apple `bluetoothd`，先补 IOBluetoothFamily 或证明其用户态可行；第一版走 btstack |
-| N13 | K60 USB IRQ/SMMU stream/PHY rails | DWC3 `0xa600000`、eUSB2 `0x88e3000`、QMP `0x88e8000` 已定位；IRQ/stream/rail 未逐项核实 | 读 K60 FDT `usb` 节点 + GCC/GDSC；按 `porting/usb.md` inventory 填 |
-| N14 | QcomDwc3 20G81 ABI | 官方脚本只生成 24A446 JSON；K60 20G81 类布局未提取 | 用 `scripts/gen-usb27-abi.py` 的同一方法从 20G81 kernelcache 生成；先验证 `AppleUSBXDCI` slot 179 |
-| N15 | K60 集成 modem 的 IPA/GLINK 细节 | 官方 QcomBaseband 是 SC7180 IPA v4.2；K60 是 SM8475 IPA v5.1 WIP；EFS/FSG 分区未核实 | 若做 cellular，先按 `porting/baseband.md` 的 inventory 采集；第一版 `not-applicable` |
-| N16 | AW882xx 寄存器表/awini 校准/reset 极性 | 本机无 AW882xx 源码/寄存器表/校准；DT 只给地址/GPIO/IRQ | 从 Xiaomi/LineageOS 内核拉 `aw882xx` 驱动与 `awini`；先读 chip ID/revision |
-| N17 | 20G81 的 IOHIDFamily / GopFramebuffer / ShengHidInput ABI | 官方组件 `os_abi` 不列 20G81；`ShengHidInput` 记录 IOHIDFamily 2031.120.4 | 从 20G81 kernelcache 提取 IOHIDFamily 版本/selector；先在 QEMU/host 验证再上机 |
-| N18 | 8 GiB 单窗口是否真能启动 | 7 GiB 曾被 loader 接受但 XNU 无输出（2026-11-02 的 7g 实验）；8 GiB 未测；4.75 GiB 已实测 `vm_page_bootstrap` 1,245,184 页 | 按 MEMORY-12G-PLAN 阶梯先 4.75→6→7→8 GiB，每轮只改 `owned_memory_size` 并保留回滚镜像 |
-| N19 | 当前 boot-args 581 字符的构成 | `board.toml` 的 `kernel_args` 只有 9 token/169 字符；581 应是 `[build]`/local override 合并后的 effective line，未在本文件核对生成物 | 运行 `./unixnu payload` 看 `kernel args:` 与 `payload.json` 的实际 `kernel_args`；若超过 1000 按优先级删诊断参数 |
-| N20 | 官方 `platform.md` 的 8 GiB 上限 | 官方页不写数字；8 GiB 来自 K60 本地 `DarwinBoot22/WindowSize.h` 和 `devicetree.py` 的 256 MiB–8 GiB 校验 | 以本地代码为准；若换官方 DarwinBoot 主线，重新核对 `WindowSize.h` |
-| N21 | 官方 `TFA9873` 覆盖 | 官方 16 项 39 页全文 0 命中 TFA9873；只有 pong `PongAudio.cpp` 有该器件 | 不要把 TFA 寄存器写进 K60；K60 功放先读 I2C 0x34/0x35 chip ID |
-| N22 | 官方 `AudioProbe` 的功放型号 | 官方 `power.md` 只列 `ShengCs35l43.c`（CS35L43）与 WCD938x；没有 AW882xx | 同上；AW882xx 驱动需从厂商源码另取 |
-
-## 附录 B 官方 16 项覆盖核对
-
-### B.1 阅读口径
-
-- **已读**一列全部为 **是（LIVE 2026-11-08）**：16 项共 39 个页面由 `https://unixnu.com` 实时抓取后逐页通读；与本地 2026-11-04 存档相比，`porting/drivers.md` 等页面已有更新，本表以 LIVE 为准。
-- **对 K60 适用性**按“官方组件/官方 ABI 是否能直接用”评级，不评价 K60 是否值得做该功能：
-  - **✅ 直接适用**：方法论或通用组件无需改 ABI 即可用于 20G81。
-  - **◐ 部分适用**：流程、架构、总线层可复用，但组件、板级常量或 OS ABI 必须重做/重对。
-  - **✗ 不适用**：官方组件与 K60 硬件代际/OS 代际不匹配，只能当参考实现或流程模板。
-
-### B.2 覆盖率表
-
-| # | 项目 | 文件（官方路径） | 是否已读 | 关键结论 | 对 K60 / 20G81 适用性 |
-|---:|---|---|---|---|---|
-| 1 | 适配顺序 | `docs/porting/drivers.md` | 是（LIVE） | 驱动边界必须写清 Hardware / Transport / Memory / OS / Build 五项；硬件顺序：CPU/中断/RAM/DMA → 存储 → 显示 → 输入 → GPU → Wi-Fi/蓝牙/USB → 基带 → DSP/音频/电源 → OS 服务；build 侧要接 `board.toml` 的 `[components] include`、`[kernel] archives`、`component:<ID>` 与初始化调用点。 | **✅ 方法论全适用**。K60 当前是 pong 式单脚本构建，迁官方 format-2 recipe 是后续重构项，不影响本条作为审查清单。 |
-| 2 | 平台与内存 | `docs/porting/platform.md` | 是（LIVE） | CPU MPIDR/PSCI/GIC/计时器；sheng 用 `unixnu,cluster-type = "E"/"P"`（E=cpu0–2，P=cpu3–7）；内存要求 `/memory` 单节点单组 reg、**contiguous handoff RAM range**；DMA 要记录 SMMU instance/stream/context；DarwinBoot 只接收 Mach-O、ADT、sidecar；RamBlock/VerifiedRoot 是可选块/信任层。 | **✅ 流程适用，数值全换**。K60 的 MPIDR 是 flat `0x000..0x700`，不能套 sheng 的 E/P 分组；K60 内存是六段不连续，官方“contiguous”模型只支持单窗口，详见 `④c`。 |
-| 3 | UFS 存储 | `docs/porting/ufs.md` + `docs/drivers/sheng-ufs.md`、`docs/drivers/verified-root.md`、`docs/drivers/ram-block.md` | 是（LIVE） | `ShengUfs` 是 SM8550 UFS 参考：host `0x01d84000/0x3000`、PHY `0x01d80000/0x2000`、apps-SMMU stream `0x60`、GCC `0x00100000`；流程是 firmware-state adoption（复用 bootloader 的 request list），再做 GPT/window/root publication；`VerifiedRoot` 做 owner-signed root policy，`RamBlock` 做 RAM-backed Data + `native_ufs_store` 回调。 | **◐ 流程适用，组件不适用**。K60 是 SM8475：host/PHY 同址但 SMMU stream `0xe0`、GCC UFS 页 `0x187000`、compatible `qcom,sm8475-ufshc`；`ShengUfs` 的 SM8550 常量不能直接选。K60 已有 `PongUfs`（`Emilelu/PongUfs@c959284`）逐项对上。`VerifiedRoot`/`RamBlock` 目前未启用。 |
-| 4 | 显示与亮度 | `docs/porting/display.md` | 是（LIVE） | 先确认 firmware GOP（base/size/dimensions/stride/pixel format/reserved range），再走 `GopFramebuffer` / `NativeLegacyDisplay` / `NativeGOPPresenter`；`DisplayTimingProbe` 读 DPU/DSI 计数；direct scanout `sheng-dpu-scanout=2` 是实验；24A446 有专门默认 surface adapter。亮度是独立运输层（KTZ8866 I2C 示例）。 | **◐ GOP/软件 framebuffer 模型适用，DSI 真通路不适用**。K60 目前只有 GOP + 软件 framebuffer（1440×3200@60）；真 DSI 面板驱动缺失，官方 `DisplayTimingProbe` 是 SM8550 DPU，不是 K60 DSI0。24A446 adapter 不能用于 20G81。 |
-| 5 | 亮度驱动 | `docs/drivers/sheng-backlight.md`、`docs/drivers/gop-framebuffer.md` | 是（LIVE） | `ShengBacklight` 驱动两颗 **KTZ8866 @ I2C 0x11**（QUP1 SE1 `0xa84000` / I2C hub `0x988000`），11-bit level 0–2047 写 `BL_BRT_LSB 0x04`/`BL_BRT_MSB 0x05`；GENI I2C 25 ms 超时；iPadOS 17 用 `IODisplayParameters.brightness`，iPadOS 27 还要 millinits/slider table/calibration/brightness-nits；`GopFramebuffer` 本身无亮度。 | **✗ 硬件不适用，◐ OS 属性模型可参考**。K60 无独立背光 IC：FDT 只有 `pm8350c gpio lcd_backlight_ctrl` 和面板 DCS 调光；上机笔记是 `0x11`(Sleep Out) → `0x29`(Display On) → `0x51`(brightness)。必须走 DSI DCS 传输，不能套 KTZ8866。20G81 只需 iPadOS 17 式属性，不需要 27 的 millinits 表。 |
-| 6 | 触控与按键 | `docs/porting/input.md` + `docs/drivers/sheng-novatek-touch.md`、`docs/drivers/sheng-hid-input.md`、`docs/drivers/qcom-geni-spi.md`、`docs/drivers/community-nativefocaltechtouch.md` | 是（LIVE） | `nvt_bus` 只要求 `xfer`（全双工、CS 保持）和 `delay`；`QcomGeniSpi` 提供 GENI SPI 引擎；`ShengNovatekTouch` 是 NT36532E 协议 + 40×60 矩阵核心；`TouchBoard.h` 存板级地址/时钟/引脚；`ShengHidInput` 用 IOHIDFamily 2031.120.4 ABI 发布 digitizer；`ButtonProbe.cpp` 做 GPIO/PMIC 按键并报 report 2。FT8203 社区驱动说明“不同传感器要自己写协议”。 | **◐ 总线层适用、协议层不适用**。`QcomGeniSpi` 可复用（换 SE4 `0x990000`、IRQ GPIO21、RESET GPIO20、AVDD GPIO71、SPI 15 MHz）；Goodix 的识别/固件/report 必须新写；`ShengHidInput` 需按 20G81 IOHIDFamily 重对；`ShengNovatekTouch`/NvtTouchCore 不能用于 Goodix。详见 `④a`。 |
-| 7 | GPU 与 Metal | `docs/porting/gpu.md` + `docs/drivers/adreno740.md`、`adreno-metal.md`、`adreno-firmware.md`、`adreno-pm4.md`、`arm-smmu4k.md`、`sm8550-platform.md`、`air-nir.md` | 是（LIVE） | `Adreno740` 只实现 **A740** 内核接口；`AdrenoMetal` 走 AIR→metal2vulkan→Turnip→NIR/IR3；`Sm8550Platform` 提供 GMU/GPU SMMU/RPMh command DB；`ArmSmmu4K` 是 4 KiB stage-1/2 表 kit；固件 `qcom/gmu_gen70200.bin`、`qcom/a740_sqe.fw`、`qcom/sm8550/sheng/a740_zap.mbn`；build 分 iOS 17 与 iOS 27 两套。 | **✗ A740 组件不适用**。K60 是 `qcom,kgsl-3d0@3d00000`、`qcom,gpu-model="Adreno730v3"`、chipid `0x7030002`、GMU `0x3d69000`；必须用 pong 的 `PongAdreno`/`PongMetal`（A730）+ `ArmSmmu4K` 思路。官方 GPU 流程（先 DMA/显示、后 GMU/firmware/ring）可当检查表。 |
-| 8 | Wi-Fi | `docs/porting/network.md` + `docs/drivers/ath12k-wifi.md` | 是（LIVE） | 先 PCIe endpoint（controller/PHY/lanes/reset/WLAN_EN/PERST/refclk/rails/SMMU/MSI），再实现 `nw_abi.h` 的 `lx_platform`/`nw_board`，最后 `WifiNet` 接 Apple80211；官方实现只列 **ath12k 家族 QCC2072/QCN9274/WCN7850**（WCN7850 端点 `17cb:1107`，128 MiB DMA window）。 | **✗ 组件不适用，流程 ◐**。K60 是 **QCA6490 / WCN6855 hw2.x，ath11k，端点 `17cb:1103`**；`Ath12kWifi` 没有 ath11k 后端。K60 应走 `PongWifi`（`Chengdong-Yu/pong-wifi@d2e33ca`，ath11k v7.0.14）+ K60 板级 profile；官方 `nw_abi` 契约可复用。 |
-| 9 | 蓝牙 | `docs/porting/bluetooth.md` | 是（LIVE） | `QcaBluetooth` 跑 Linux `btqca.c` 初始化，经 GENI UART + UART.SK 把 H4 字节送给 Apple `bluetoothd`；sheng 参数：UART QUP2 SE6 `0x898000`、IRQ 493、SMMU `0x423`、GPIO76–79、BT_EN81、3.2 Mbaud、固件 `hmtbtfw20.tlv`/`hmtnv20.bin`；用户态是 **iPadOS 27** BlueTool/bluetoothd/QcaBTType0.dylib。 | **✗ 对 20G81 不适用**。K60 是 QCA6490：UART QUPV3_2 SE20 `0x894000`、IRQ 587、GPIO76–79、BT_EN81、SW_CTRL82、XO204、wake byte `0xfd`；更关键的是 20G81 kernelcache **没有 IOBluetoothFamily/IOBluetoothHCI**，只有 `com.apple.driver.AppleBluetooth`（BTReset 电源字符设备），官方 iPadOS 27 路线无法照搬。 |
-| 10 | 蓝牙驱动 | `docs/drivers/qca-bluetooth.md` | 是（LIVE） | QcaBluetooth 状态只写 sheng/iPadOS 27.0.1（24A446）：GENI 4×2048 RX + 1×4096 TX、IBS、UART.SK；adapter 锁定单个 `bluetoothd` hash；`audio_system_plugins = ["BTAudioHALPlugin.driver"]`。 | **✗ 同第 9 项**。K60 无 pong 蓝牙实现；20G81 用户态也没有对应 HCI 栈。只能把 `qbt_geni`/`qbt_transport` 当 GENI UART 协议参考，第一版建议自研 UART HCI + btstack，不追 Apple `bluetoothd`。 |
-| 11 | USB | `docs/porting/usb.md` | 是（LIVE） | `QcomDwc3` 继承 `AppleUSBXDCI`/`AppleUSBXHCI`；sheng 参数：DWC3 `0x0a600000`、Apple window `+0xc000`、GIC 165、SMMU stream `0x40`、eUSB2 refclk 38.4 MHz；bringUp 9 步；UCSI over GLINK 角色切换；ABI 脚本 `gen-usb27-abi.py`/`gen-usb27-host-abi.py` 只针对 **24A446** kernelcache。 | **◐ 硬件流程参考，ABI 不适用**。K60 DWC3 `0xa600000`、eUSB2 PHY `0x88e3000`、QMP `0x88e8000`；DWC3 与 sheng 同址，但 PHY/IRQ/SMMU/rails 与 20G81 ABI 均未对位。官方 QcomDwc3 只能当方法参考。 |
-| 12 | USB 驱动 | `docs/drivers/qcom-dwc3.md`、`docs/drivers/community-native-dwc3.md` | 是（LIVE） | QcomDwc3 状态是 sheng/iPadOS 27：10 Gbps 枚举、Trust/配对/lockdown 通过；host mode 部分；`fairplayd.A2`/`adid` 必须关；community NativeDwc3 是 SM8150 nabu，**无硬件结果**。 | **◐ QcomDwc3 仅 24A446；✗ community NativeDwc3 对本板无意义**。K60 现有 USB 日志路线是 sweet/pong 的 DWC3 设备端 + CDC-ACM，不是 Apple USB 栈；若走官方 QcomDwc3，需先为 20G81 生成 ABI。 |
-| 13 | 基带与移动网络 | `docs/porting/baseband.md` + `docs/drivers/qcom-baseband.md` | 是（LIVE） | `QcomBaseband` 是 **SC7180 / IPA v4.2 / iOS 17** 参考：AppleBaseband/AppleBasebandPCIControl/AppleBasebandPCIInterface 类，QMUX/QRTR/QMI、SAHARA、IPA/GSI/QMAP，eSIM；Coachz 平台是 PCIe/MHI 风格。 | **✗ 不适用于 K60**。K60 是 SM8475 **集成 modem**：remoteproc@4080000（`qcom,sm8450-mpss-pas`）、GLINK→QRTR→QMI、IPA v5.1（mainline WIP），不是 SC7180 的 PCIe/MHI 架构。且 K60 伪装 iPad7,1（Wi-Fi 版）没有蜂窝身份，第一版应把 cellular 记为 `not-applicable`。 |
-| 14 | DSP、音频与电源 | `docs/porting/power.md` | 是（LIVE） | `AdspProbe`：ADSP 固件/PAS/SMEM/SMP2P/GLINK/mailbox、`ShengAdspClient`、`sheng_adsp_channel`；`AudioProbe`：AudioReach/GPR 图、`ShengCs35l43.c`（sheng 的 6×CS35L43）、WCD938x SoundWire 麦克风、period buffer；`ShengBattery`/`ShengBattmgr`、`CpuFreqProbe`、`ShengPlatformPower`。SM8550 注意：DSP buffer <4 GiB、PRM clock `0x30c`、VA macro、19.2 MHz host clock。 | **◐ ADSP/AudioReach 架构可复用，功放层不适用**。K60 ADSP `0x03000000`、region `0x9fd00000/0x3100000`、SMEM `0x80900000/0x200000`、IPCC `0xed18000/IRQ261`、GPR `adsp_apps`、SID `0x1801` 与 sheng/pong 同构；但功放是 **2×AW882xx**，不是 CS35L43/TFA9873。`AudioProbe`/`AdspProbe` 对 AW882xx 覆盖为 0，详见 `④b`。 |
-| 15 | 开发驱动 | `docs/drivers/overview.md`、`docs/drivers/xnu-drivers.md`、`docs/drivers/kexts.md`、`docs/drivers/device-tree-matching.md` | 是（LIVE） | 三层：UEFI driver / built-in XNU static archive / kext bundle。Built-in XNU 用 `IOService` + `KernelConfigTables.cpp` personality，编译必须复用 `.cpo.json` 的 flags，`-force_load` 链接；kext 需要 loader protocol revision 2，**shipped DarwinBoot 不接受 staged kexts**；DT matching 用 `IOClass/IOProviderClass/IONameMatch/IOProbeScore`。 | **✅ built-in 方法论适用**。K60 全部走 built-in（PongUfs/PongAdreno 均是）；`kexts.md` 的 bundle 路线对 K60 不适用（DarwinBoot22 不是 rev2 kext loader）。`device-tree-matching` 直接指导 PongUfs 的 `qcom,sm8475-ufshc` / `ufshc` 节点名修复。 |
-| 16 | 修改 XNU | `docs/xnu/boot-arguments.md`、`docs/xnu/four-k-page-tables.md`、`docs/xnu/patch-reference.md`、`docs/xnu/source-and-patches.md` | 是（LIVE） | boot-args 合并规则/1000 bytes/1024 buffer；4K 页用 BCM2837 机器配置与一组 4K 补丁；patch 顺序按 `patch_series` 声明；17.7.11 用 `xnu-10063.141.1`，**iOS 16 与 iPadOS 17 共享 arm64 patch series**，iOS/iPadOS 27 用 arm64e series。 | **◐ 规则适用，源码/补丁要按 20G81 重排**。K60 用 `xnu-8796.141.3` / Darwin 22.6，不是 `xnu-10063.141.1`；4K、boot-args、patch order 三条必须遵守。当前 581 字符安全，详见 `④d`。 |
-
-### B.3 适用性统计
-
-| 评级 | 项数 | 项目 |
-|---|---:|---|
-| ✅ 直接适用 | 3 | 1 适配顺序、2 平台与内存、15 开发驱动（方法论） |
-| ◐ 部分适用 | 7 | 3 UFS、4 显示、6 触控、11 USB、12 USB 驱动、14 DSP/音频/电源、16 修改 XNU |
-| ✗ 不适用（仅参考） | 6 | 5 亮度驱动、7 GPU、8 Wi-Fi、9 蓝牙、10 蓝牙驱动、13 基带 |
-| **合计** | **16** | **16/16 已读** |
-
-## 附录 C 五个具体问题的回答
-
-### C.a K60 Goodix 触摸：官方哪些总线层可复用、哪些协议层必须新写
-
-**结论：总线和 HID 层可复用，协议和传感器层必须新写；Novatek 的 40×60 处理核心完全不能用于 Goodix。**
-
-| 层 | 官方文件 | 对 K60 的处理 |
-|---|---|---|
-| GENI SPI 控制器 | `docs/drivers/qcom-geni-spi.md` → `QcomGeniSpi/GeniSpi.c` | **复用**。`GeniSpi.c` 只依赖调用方给的寄存器访问/平台回调；K60 换 SE4 `0x990000/0x4000`、SPI CS0、15 MHz（首次 4 MHz）、GPIO16/17/18/19 的 `qup4` mux。 |
-| `nvt_bus` 接口形状 | `docs/drivers/sheng-novatek-touch.md`（`struct nvt_bus { xfer, delay }`） | **复用接口模式**，但把实现换成 Goodix：一次全双工 xfer、CS 保持、caller-owned buffer、超时/重试。 |
-| 芯片识别 / 固件 / 帧协议 | `NvtProtocol.c`、`NvtProtocol.h` | **必须新写 Goodix 协议**。K60 DT 的 `goodix_firmware_m11a`/`goodix_cfg_group_m11a` 暗示 Berlin 系，但 0242 同时实现了 Berlin（`0xf1` 地址 + `0xff` 读）与 GT9xx（`0x8140/0x814e/0x8150`）两套；真机尚未回 ID。 |
-| 触点处理核心 | `NvtTouchCore.c`（40×60 matrix → blob → tracking） | **不能复用**。Goodix 的 report 格式/矩阵/固件完全不同；需要按 Goodix Berlin/GT9xx 的 report 格式重写触点解析/跟踪，不能把 NVT 40×60 逻辑硬套。 |
-| 板级常量 / 时钟 / 引脚 | `TouchBoard.h`、`TouchProbe.cpp` | **复用框架，换值**：`spi-base=0x990000`、`tlmm-base=0x0f000000`（+`gpio-offset=0x100000` = `0x0f100000`）、`gcc-base=0x100000`、`rsc-base=0x17a20000`（drv-2；但 K60 RSC 首读会死，见未核实）、`cmd-db-base=0x80860000`、pins `<16 17 18 19 21 20>`、max-x/max-y `14400/32000`（raw）。 |
-| HID 发布 | `ShengHidInput/NativeHidInput.cpp`（IOHIDFamily 2031.120.4） | **可复用结构，ABI 需重对**：K60 20G81 的 IOHIDFamily 版本/selector 必须从本机 kernelcache 重新提取；`native_touch_seq` 快照协议可保留。 |
-| 物理按键 | `ButtonProbe.cpp` + `BootResetCore.h` | **参考**：K60 的 Power/Vol +/- 走 PMIC/GPIO，需按 K60 FDT 重填 PON/GPIO；官方 sheng report 2 的位定义可复用。 |
-
-**关键边界：**`porting/input.md` 第 22 行明确写“For a different sensor, implement its identification, firmware and report protocol. For a different bus controller, implement the transfer/delay callbacks used by `nvt_bus` when reusing the Novatek protocol.” 这句话反过来就是 K60 的答案：**传感器不同 → 协议全写；总线相同（GENI SPI）→ 只换板级回调**。
-
-### C.b 音频功放：AudioProbe/AdspProbe 是否覆盖 AW882xx，还是只覆盖 TFA9873
-
-**结论：两者都不覆盖 AW882xx；官方 `power.md` 的 AudioProbe 实际覆盖的是 sheng 的 WCD938x + 6×CS35L43，TFA9873 根本不是官方 16 项文档里的器件。**
-
-| 层 | 官方 `porting/power.md` 实际内容 | 对 K60 AW882xx 的覆盖 |
-|---|---|---|
-| ADSP transport | `AdspProbe.cpp`：PAS 固件、SMEM、SMP2P、GLINK、mailbox、`ShengAdspClient`、`sheng_adsp_channel` | **可复用（约 80–90%）**：K60 ADSP `0x03000000`、region `0x9fd00000/0x3100000`、SMEM `0x80900000/0x200000`、IPCC `0xed18000/IRQ261`、GPR `adsp_apps` 与 sheng/pong 同构。 |
-| AudioReach graph | `ShengGpr.h`、`ShengAudioReach.h`、`AudioProbe.cpp`：APM readiness、graph open/config、PRM votes、period buffer、`q6apm` 参考 | **可复用（约 70%）**：GPR 参数/图生命周期可抄；K60 需改 ADSP 固件路径、SM8475 图参数、TDM 1.536 MHz/双 data line。 |
-| Codec | `AudioProbe.cpp` 参考 sheng 的 WCD938x（reset gpio108、ldob15、SoundWire TX master `0x6d30000`） | **K60 同为 WCD938x**：可高比例复用；K60 的 `va/tx/rx-macro` 正常、`wsa-macro`/`wsa2-macro` disabled（`wsa-max-devs=0`）。 |
-| 功放 | `ShengCs35l43.c`：sheng 的 **6×CS35L43**，I2C | **0% 覆盖**。K60 是 **2×AW882xx @ I2C 0x34/0x35**（SE15 `0x880000`、GPIO56/57、reset GPIO1/3、IRQ GPIO88/63、spksw GPIO52、sound-channel 0/1、`aw-cali-mode="aw_none"`）。官方文档没有任何 AW882xx 寄存器/初始化/校准信息。 |
-| TFA9873 | **官方 16 项文档全篇 0 命中**；TFA9873 只在 pong 的 `PongAudio.cpp` 中出现（I2C `0xa94000`、GPIO48/49、reset 1/89、revision `0x0b73`） | **0% 覆盖，且不能混用**。TFA9873 是 pong（Nothing Phone 2）器件；K60 FDT 全 compatible 扫描无 `tfa,tfa98xx`。不要因为两者都可能用 I2C 0x34/0x35 就按 TFA 写死；第一步必须读 chip ID/revision。 |
-| 用户态 HAL | `ShengAudioService.cpp` / `ShengAudioPlugIn.c`（sheng 的 AudioServerPlugIn） | **可复用骨架**：`AudioServerPlugIn` API 在 iOS 16/17 稳定；K60 20G81 的 MediaExperience selector 需重定位（pong 的 22H374 地址不能直接抄）。 |
-
-**因此 b) 的准确回答是：**`AudioProbe` 不是 AW882xx 驱动，也不是 TFA9873 驱动；它只是“ADSP AudioReach + WCD938x + CS35L43”的 sheng 示例。K60 要做的是 **保留 AdspProbe/AudioReach 的传输与图框架，新增 AW882xx 功放驱动（I2C 0x34/0x35）和 K60 TDM 1.536 MHz/双数据线配置**；TFA9873 只能作为 pong 参考，不能当 K60 硬件事实。
-
-### C.c platform.md 对内存窗口/DarwinBoot 的约束，是否支持多区间 arena
-
-**结论：官方 `porting/platform.md` 只支持“单一连续 handoff RAM range”，不支持多区间 arena；8 GiB 单窗口可以做，9.97 GiB 多区间不在官方 16 项文档的模型内。**
-
-| 问题 | 官方原文/约束 | 对 K60 的含义 |
-|---|---|---|
-| DTS `/memory` | `porting/device-repository.md`：format 2 要求 `payload.dram_size` 与硬件 DTS 的 `/memory` 节点一致；`devicetree.py` 要求**恰好一个 memory 节点、恰好一组 reg**（本仓脚本行为，官方文档对应“single contiguous DRAM range”）。 | K60 若把 `dram_size` 写成 12 GiB（`0x300000000`），必须同时把 DTS 改成 `memory@80000000` 单组 reg；但这只是 ADT 元数据，不是 XNU 窗口。 |
-| DarwinBoot 窗口 | `porting/platform.md` 只说“the loader's owned-memory request has its own size and alignment constraints. Keep both consistent with the actual UEFI memory map.” 官方页没有给 8 GiB 数字。 | K60 本地 `drivers/DarwinBoot22/DarwinBootPkg/Driver/WindowSize.h` 才定义 `size <= 0x200000000`（8 GiB）；`devicetree.py` 也只接受 256 MiB–8 GiB。8 GiB 单窗口是本地实现硬顶，不是官方文档承诺。 |
-| 多区间 arena | 官方没有任何 `pmap_memory_regions` / 多段物理内存的说明；`four-k-page-tables.md` 只讨论 4K 页表与 bootstrap 表池（“Two roots plus up to seven L2 pages per 6 GiB mapping”）。 | K60 要让 XNU 管理低区 434.9 MiB + 高区 9774.5 MiB（约 9.97 GiB），必须给 arm64 加 pmap/vm_page 多区间支持；这是内核子系统改造，不是官方 16 项文档里的任何组件或配置能解决的。 |
-| 8 GiB 单窗口 | 官方 `platform.md` 的“contiguous”模型 + 本地 `WindowSize.h` 8 GiB 上限 + K60 最长连续段 `[0x840000000,0xA69B78000)` 8.652 GiB（扣 DXE/内核基址偏移 0x20000 后对齐 8 GiB）。 | **可行**：`owned_memory_size = 0x200000000`（8 GiB），arena 至少 `0x200020000`；实际用 `0x840000000 + 0x229B78000` 的 8.652 GiB arena，并把顶部 `0xA69B78000..0xA80000000` 设为 MEM_RES。MEMORY-12G-PLAN 的阶梯（6/7/8 GiB）按此执行。 |
-| 9.97 GiB 多区间 | 官方无支持；XNU arm64 当前只读一个 `{physBase, memSize}`。 | **不可直接做**：需要新增多区间 pmap/vm_page/physmap 补丁，并逐段挖掉 modem/ADSP/camera/HYP/UEFI/DXE 保留；不属于本 16 项文档范围。 |
-
-**建议取舍：**先把 8 GiB 单窗口跑通（这是官方 contiguous 模型内、也是 DarwinBoot 硬顶），把 9.97 GiB 多区间列为独立的内核项目；不要为了“12 GiB 装机”把 12 GiB 写进 `owned_memory_size`（解析器和 `AllocateWindow()` 都会拒绝）。
-
-### C.d boot-args 长度上限、4K 页表要求、patch 顺序要求
-
-| 约束 | 官方规定 | K60 当前状态 / 结论 |
-|---|---|---|
-| boot-args 长度 | `docs/xnu/boot-arguments.md`：拼接后的命令行 **at most 1000 bytes**；DarwinBoot 复制进 **1024-byte buffer**。每个参数匹配 `[A-Za-z0-9_.-]+(=[A-Za-z0-9_.,-]+)?`。 | 你给的 **581 字符** < 1000，余量 **419 bytes**；格式上安全。注意 `board.toml` 的 `kernel_args` 单独只有 9 个 token、169 字符；581 应是 `[build] kernel_args` / local override 合并后的 effective line，最终以 `./unixnu payload` 打印的 `kernel args:` 与 payload.json 为准。 |
-| 参数合并顺序 | `[payload] kernel_args`（board）→ `[build] kernel_args`（unixnu.local.toml）→ `--kernel-arg` 覆盖；同名后者替换前者。 | 新增 K60 驱动参数应写进 `[payload] kernel_args` 默认值，调试用 `--kernel-arg` 一次性覆盖；不要把临时参数写死在脚本。 |
-| 4K 页表 | `docs/xnu/four-k-page-tables.md`：XNU 必须编译为 **BCM2837** machine config（`ARM_PGSHIFT=12`、`ARM_PGBYTES=4096`、`TCR_EL1_BOOT` TG0=0、TG1=2）；补丁至少 `native-4k-bootstrap-capacity`、`native-4k-user-abi`、`native-4k-signature-hash-cache`、`pgz-aligned-validation`、`zzx-pmap-sync-64bit-pa`；SMMU 用 `ArmSmmu4K` 4 KiB 表；新代码用 `PAGE_SIZE`/`ARM_PGSHIFT`，DMA 按 `PAGE_SIZE` 对齐。 | K60 profile 已是 `MACHINE_CONFIGS=PONG`（20G81 机器配置，4K 语义）；`CONFIG_XNU_NATIVE_CS_HASH_CACHE=y` 已在 `mondrian_defconfig`。8 GiB 窗口的 bootstrap 表池需满足“每 6 GiB 映射”预算；8.652 GiB arena 必须用 `native-4k-bootstrap-capacity` 的扩展池，不要用默认 16 KiB 假设。 |
-| patch 顺序 | `docs/xnu/patch-reference.md`：format 2 按 `[kernel] patch_series` **声明顺序**应用；依赖补丁排在被依赖之后；碰 `zzy`/`zzz` 区域的补丁排在它们之前；`unixnu status --json` 打印 resolved sequence。format 1 按 `patches/xnu/*.patch` / `kits/XnuPrelink/patches/*.patch` 文件名字典序。 | K60 当前是 format 2 `patch_series = ["device:patches/xnu/series"]`（129 条），`status --json` 应报告 129 条有序补丁；不要用 pong 的 glob 字母序直接套（会先跑 0210 而目标文件还没被 UI foundation 创建）。新增 K60 补丁必须插在 `zzy`/`zzz` 之前。 |
-| 源码 pin | `docs/xnu/source-and-patches.md`：17.7.11 用 `xnu-10063.141.1`，iOS 16 与 iPadOS 17 共享 arm64 patch series；27 用 arm64e series。 | K60 是 `xnu-8796.141.3`/Darwin22.6；不要拿 10063 的补丁直接套。`profiles/os/ipados-16.6.1-20G81/profile.toml` 已 pin `1b191cb58250d0705d8a51287127505aa4bc0789`。 |
-
-### C.e 每一项对 iOS 16.6.1/20G81 的适用性汇总
-
-| 项 | 20G81 适用性 | 理由（简） |
-|---:|---|---|
-| 1 适配顺序 | ✅ | 纯流程，无 OS ABI。 |
-| 2 平台与内存 | ✅ | CPU/GIC/内存/DMA 流程与 OS 版本无关；K60 值需换。 |
-| 3 UFS | ◐ | 流程适用；`ShengUfs` SM8550 组件不适用，K60 用 PongUfs。 |
-| 4 显示与亮度 | ◐ | GOP/软件 framebuffer 模型适用；24A446 DSI adapter 不适用 20G81。 |
-| 5 亮度驱动 | ✗ | K60 无 KTZ8866，背光走 DCS 0x51；官方驱动硬件不适用。 |
-| 6 触控与按键 | ◐ | `QcomGeniSpi` 总线层可用；Goodix 协议新写，HID ABI 重对。 |
-| 7 GPU 与 Metal | ✗ | 官方 A740 组件不适用 A730v3；用 PongAdreno。 |
-| 8 Wi-Fi | ✗ | 官方 ath12k/WCN7850 不适用 QCA6490 ath11k；用 PongWifi。 |
-| 9 蓝牙 | ✗ | 20G81 无 IOBluetoothFamily；官方 iPadOS27 BlueTool 路线不适用。 |
-| 10 蓝牙驱动 | ✗ | 同 9；QcaBluetooth 只覆盖 WCN7850/iPadOS27。 |
-| 11 USB | ◐ | DWC3/eUSB2 硬件流程参考；24A446 ABI 不适用 20G81。 |
-| 12 USB 驱动 | ◐ | QcomDwc3 仅 24A446；community NativeDwc3 是 SM8150，无结果。 |
-| 13 基带 | ✗ | 官方 SC7180/IPA4.2 与 K60 集成 SM8475 modem 不同类；iPad7,1 可 skip。 |
-| 14 DSP/音频/电源 | ◐ | ADSP/AudioReach 框架可用；AW882xx 功放必须新写。 |
-| 15 开发驱动 | ✅ | built-in XNU 方法完全适用；kext bundle 路线不适用 shipped DarwinBoot。 |
-| 16 修改 XNU | ◐ | boot-args/4K/patch order 规则适用；源码 pin/补丁集按 20G81 重排。 |
-
-> 逐组件版本明细见 `C.e-1`；该表保留官方 catalog 的 `os_abi` 与文档正文的对照，是 C.e 的证据底稿。
-
-## 附录 A 官方页面来源（LIVE 2026-11-08）
+## 附录 C 官方页面来源
 
 | 项 | URL |
 |---:|---|

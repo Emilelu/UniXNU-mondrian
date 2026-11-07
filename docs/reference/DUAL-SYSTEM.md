@@ -48,5 +48,5 @@ K60（mondrian）有第三方 TWRP 3.7.1_12 v8.6 A14 / OFRP 设备树，但**必
 该历史清单未做设备读回，实际修复前必须从 recovery 重新获取布局与当前 Data 副本。
 
 用户日志已确认 Data APFS 写事务 ENOSPC。只读备份和保留旧卷的 22 GiB Data 预案见
-[DATA-SPACE-2026-10-31.md](DATA-SPACE-2026-10-31.md)。不需再次缩 Android F2FS；
+[DATA-SPACE-2026-10-31.md](../archive/DATA-SPACE-2026-10-31.md)。不需再次缩 Android F2FS；
 不得把旧首次安装/replace-existing-data 脚本当作保留数据的 APFS 扩容器。

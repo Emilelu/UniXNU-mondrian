@@ -32,7 +32,7 @@ sudo scripts/linux/setup-toolchain.py
 
 ## 3. boot_args / DT / 内存窗口
 
-内存窗口以 [MEASURED-HIGH-WINDOW-2026-11-02.md](MEASURED-HIGH-WINDOW-2026-11-02.md) 的实测 `/memory/reg` 为准（serial `6033dbec`，BE64 base/size）：
+内存窗口以 [MEASURED-HIGH-WINDOW-2026-11-02.md](../audits/MEASURED-HIGH-WINDOW-2026-11-02.md) 的实测 `/memory/reg` 为准（serial `6033dbec`，BE64 base/size）：
 
 - 低段：`0x80000000/0x6a000000`（到 `0xea000000`）、`0xf4600000/0xba00000`（到 `0x100000000`）。
 - 高段四段：`0x800000000/0x37500000`、`0x837b00000/0x1e00000`、`0x840000000/0xc0000000`、`0x900000000/0x180000000`（合到 `0xa80000000`）；其中最大连续空闲段 `0x840000000..0xa80000000` = 8.65 GiB。
@@ -52,7 +52,7 @@ K60 的 UFS/Data/root 必须显式指向 `unixnu`，**不能**用默认 userdata
 
 按依赖顺序：UFS/GPT -> APFS/HFSX root -> 显示/触摸（K60 是 Goodix）-> GPU
 （Adreno 730）-> 音频/网络/电源。每项都要有 QR 日志和页面判读，不要凭“感觉”推进。
-当前状态：launchd SIGSEGV 是唯一硬阻断，先按 [APPLY-PIPELINE.md](APPLY-PIPELINE.md) 处理 stock OS 窗口（见 STATE §2-§3）。
+当前状态：launchd SIGSEGV 是唯一硬阻断，先按 [APPLY-PIPELINE.md](../plans/APPLY-PIPELINE.md) 处理 stock OS 窗口（见 STATE §2-§3）。
 
 ## 安全规则
 

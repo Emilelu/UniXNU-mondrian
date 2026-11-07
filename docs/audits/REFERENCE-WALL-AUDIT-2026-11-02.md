@@ -1,6 +1,6 @@
 # Audit against ios-sweet-k60's proven walls (2026-11-02T18:26:27+08:00)
 
-> Status (2026-11-07): the `ns=2` self-abort reading below is still current. Window numbers in "Ceiling note" are superseded by [MEASURED-HIGH-WINDOW-2026-11-02.md](MEASURED-HIGH-WINDOW-2026-11-02.md) and `board.toml`; see [STATE-2026-11-07.md](STATE-2026-11-07.md).
+> Status (2026-11-07): the `ns=2` self-abort reading below is still current. Window numbers in "Ceiling note" are superseded by [MEASURED-HIGH-WINDOW-2026-11-02.md](MEASURED-HIGH-WINDOW-2026-11-02.md) and `board.toml`; see [STATE-2026-11-07.md](../state/STATE-2026-11-07.md).
 
 `ios-sweet-k60` runs the same SoC (Redmond K60 / mondrian / SM8475) and reached the
 iOS lockscreen and home screen. Its NOTES.md lists the walls in the order it broke

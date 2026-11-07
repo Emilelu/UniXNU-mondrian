@@ -287,7 +287,7 @@
 
 #### 1.3.3 `docs/reference/glossary.md`（43 行）— 术语表
 
-- 33 个术语：ADT（Apple device tree，compact node encoding，XNU 从 `.adt` sidecar 读）、AMFI、ABL、BootShim、UniXNU（UEFI boot manager）、DarwinBoot（UniXNU XNU loader）、Defconfig、Device repository、ADT sidecar（`kernel.macho.adt`）、Feed、Firmware volume（EDK II `SILICUM_UEFI.fd`）、IOMedia、IPSW、Kernelcache、Kext、Kit、Module、Personality、PGZ（zone allocator secondary page）、Prelink、SMMU、Trust cache、Userdata、SHNGROOT、SystemOS、DSC、FDF、INF、DXE、BDS、GOP、CHRP、PGZ probe（`:3-37`）。
+- 33 个术语：ADT（Apple device tree，compact node encoding，XNU 从 `.adt` sidecar 读）、AMFI、ABL、BootShim、UniXNU（UEFI boot manager）、DarwinBoot（UniXNU XNU loader）、Defconfig、Device repository、ADT sidecar（`kernel.macho.adt`）、Feed、Firmware volume（EDK II `SILICIUM_UEFI.fd`）、IOMedia、IPSW、Kernelcache、Kext、Kit、Module、Personality、PGZ（zone allocator secondary page）、Prelink、SMMU、Trust cache、Userdata、SHNGROOT、SystemOS、DSC、FDF、INF、DXE、BDS、GOP、CHRP、PGZ probe（`:3-37`）。
 - 本表是全文术语的唯一权威；对 K60 文档写作应统一用 `ADT`（不是 DTB）、`payload`、`prelink`、`SHNGROOT`。
 
 #### 1.3.4 `docs/reference/boot-configuration.md`（303 行）— `unixnu.toml` 与 `Kit.toml` 全字段

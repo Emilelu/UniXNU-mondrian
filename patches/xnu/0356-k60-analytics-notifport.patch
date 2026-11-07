@@ -1,0 +1,50 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -4626,7 +4626,22 @@
+ 
+ 
+ 	IOStatisticsClientCall();
+-	IORWLockWrite(&client->lock);
++		/* 0356: CoreAnalyticsUserClient reaches registerNotificationPort() with an
++	 * uninitialised internal mutex when its owner task failed the entitlement
++	 * check ("analyticsd is not entitled"); the kext then panics inside
++	 * lck_mtx_lock.  Refuse the call for that class until the entitlement path
++	 * is fixed, so the rest of the system can boot. */
++	if (client->getMetaClass() &&
++	    !strcmp(client->getMetaClass()->getClassName(), "CoreAnalyticsUserClient")) {
++		static unsigned k60ca_seen;
++		if (k60ca_seen < 4) {
++			k60ca_seen++;
++			printf("K60CA refuse notification port for analytics client\n");
++		}
++		return kIOReturnUnsupported;
++	}
++
++IORWLockWrite(&client->lock);
+ 	ret = client->registerNotificationPort( port, notification_type,
+ 	    (io_user_reference_t) reference );
+ 	IORWLockUnlock(&client->lock);
+@@ -4657,7 +4672,22 @@
+ 
+ 
+ 	IOStatisticsClientCall();
+-	IORWLockWrite(&client->lock);
++		/* 0356: CoreAnalyticsUserClient reaches registerNotificationPort() with an
++	 * uninitialised internal mutex when its owner task failed the entitlement
++	 * check ("analyticsd is not entitled"); the kext then panics inside
++	 * lck_mtx_lock.  Refuse the call for that class until the entitlement path
++	 * is fixed, so the rest of the system can boot. */
++	if (client->getMetaClass() &&
++	    !strcmp(client->getMetaClass()->getClassName(), "CoreAnalyticsUserClient")) {
++		static unsigned k60ca_seen;
++		if (k60ca_seen < 4) {
++			k60ca_seen++;
++			printf("K60CA refuse notification port for analytics client\n");
++		}
++		return kIOReturnUnsupported;
++	}
++
++IORWLockWrite(&client->lock);
+ 	ret = client->registerNotificationPort( port, notification_type,
+ 	    reference );
+ 	IORWLockUnlock(&client->lock);

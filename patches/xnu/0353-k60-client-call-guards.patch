@@ -1,0 +1,40 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -4491,19 +4491,33 @@
+ 			}
+ 
+ 			if (kIOReturnSuccess == res) {
+-				res = client->registerOwner(owningTask);
++				/* 0353: a released client has no usable locks; skip the call
++				 * rather than take lck_mtx_lock on a torn-down object. */
++				if (__improbable(!client->reserved)) {
++					res = kIOReturnNoMemory;
++				} else {
++					res = client->registerOwner(owningTask);
++				}
+ 			}
+ 			OSSafeReleaseNULL(creatorName);
+ 
+ 			if (kIOReturnSuccess != res) {
+ 				IOStatisticsClientCall();
+-				client->clientClose();
+-				client->setTerminateDefer(service, false);
++				if (__improbable(!client->reserved)) {
++					printf("K60OP skip close/defer for released client=%p\n", (void *)client);
++				} else {
++					client->clientClose();
++					client->setTerminateDefer(service, false);
++				}
+ 				client->release();
+ 				OSSafeReleaseNULL(client);   /* 0349: drop the pin as well */
+ 				break;
+ 			}
+-			client->setTerminateDefer(service, false);
++			if (__improbable(!client->reserved)) {
++				printf("K60OP skip final defer for released client=%p\n", (void *)client);
++			} else {
++				client->setTerminateDefer(service, false);
++			}
+ 			/* 0352: hold the pin instead of dropping it.  The kext that owns this
+ 			 * client (CoreAnalyticsUserClient) releases its own reference behind the
+ 			 * generic open path's back, so dropping ours lets the object be reused

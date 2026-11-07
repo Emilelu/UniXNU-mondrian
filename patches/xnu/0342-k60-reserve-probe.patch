@@ -1,0 +1,41 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -773,8 +773,10 @@
+ 			static unsigned k60sp_seen;
+ 			if (k60sp_seen < 16) {
+ 				k60sp_seen++;
+-				printf("K60SP n=%u this=%p reserved=%p lr=%p key=%s\n",
+-				    k60sp_seen, (void *)this, (void *)reserved,
++				printf("K60SP n=%u this=%p cls=%s reserved=%p lr=%p key=%s\n",
++				    k60sp_seen, (void *)this,
++				    getMetaClass() ? getMetaClass()->getClassName() : "?",
++				    (void *)reserved,
+ 				    __builtin_return_address(0),
+ 				    aKey ? aKey->getCStringNoCopy() : "(null)");
+ 			}
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -31,6 +31,8 @@
+ #include <IOKit/IOKitServer.h>
+ #include <IOKit/IOKitKeysPrivate.h>
+ #include <IOKit/IOUserClient.h>
++extern "C" bool k60_usblog_console_up(void);
++
+ #include <IOKit/IOService.h>
+ #include <IOKit/IORegistryEntry.h>
+ #include <IOKit/IOCatalogue.h>
+@@ -1596,6 +1598,14 @@
+ 	if (!reserved) {
+ 		reserved = IOMallocType(ExpansionData);
+ 	}
++	if (k60_usblog_console_up()) {
++		static unsigned k60rsv_seen;
++		if (k60rsv_seen < 12) {
++			k60rsv_seen++;
++			printf("K60RSV n=%u this=%p reserved=%p\n",
++			    k60rsv_seen, (void *)this, (void *)reserved);
++		}
++	}
+ 	setTerminateDefer(NULL, true);
+ 	IOStatisticsRegisterCounter();
+ 	IORWLockInlineInit(&lock);

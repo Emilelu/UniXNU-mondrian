@@ -1,0 +1,39 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -735,6 +735,25 @@
+ {
+ 	OSObject * obj;
+ 
++	/*
++	 * 0350: a released IORegistryEntry can still be reached through a stale
++	 * reference (CoreAnalyticsUserClient when analyticsd has no entitlement).
++	 * PLOCK dereferences reserved->fLock, and fLock is the first member of
++	 * ExpansionData, so a released entry faults at address 0 and panics the
++	 * kernel.  Report and answer "no such property" instead.
++	 */
++	if (__improbable(!reserved)) {
++		if (k60_usblog_console_up()) {
++			static unsigned k60gn_seen;
++			if (k60gn_seen < 16) {
++				k60gn_seen++;
++				printf("K60GETNULL n=%u this=%p key=%s\n", k60gn_seen, (void *)this,
++				    aKey ? aKey->getCStringNoCopy() : "(null)");
++			}
++		}
++		return NULL;
++	}
++
+ 	PLOCK;
+ 	obj = getPropertyTable()->getObject( aKey );
+ 	PUNLOCK;
+@@ -745,6 +764,10 @@
+ void
+ IORegistryEntry::removeProperty( const OSSymbol * aKey)
+ {
++	if (__improbable(!reserved)) {
++		return;   /* 0350: same released-entry hazard as getProperty() */
++	}
++
+ 	PLOCK;
+ 	getPropertyTable()->removeObject( aKey );
+ 	PUNLOCK;

@@ -1,0 +1,55 @@
+--- a/pexpert/arm/pe_init.c
++++ b/pexpert/arm/pe_init.c
+@@ -819,6 +819,42 @@
+ #define K60_PSTORE_SIG  0x43474244u
+ #define K60_PSCI_SYSTEM_RESET 0x84000009u
+ 
++/*
++ * 0311: Xiaomi "bootloader" restart reason.
++ *
++ * ABL looks this cookie up after every reset and walks into fastboot instead of
++ * the flashed boot image, which is what makes an unattended boot/read/reset
++ * loop possible: flash a boot image, read the serial console, panic, and come
++ * back to fastboot with no key presses. Address and value come from the UEFI
++ * keypad helper that already does this on the other side of the same fence
++ * (uefi-mondrian K60KeypadDeviceLib.c: AutoResetToFastboot ->
++ * Wr32(0x146AA65C, 0x77665500) then EfiResetCold) and from the live DT node
++ * qcom,msm-imem@146aa000 / restart_reason@65c.
++ *
++ * Written from the panic path on purpose: a panic that has already decided to
++ * reset should leave the phone in fastboot, not in Android, so the next
++ * `fastboot boot` needs no human.
++ */
++#define K60_IMEM_PA              0x146AA000u
++#define K60_IMEM_SIZE            0x00001000u
++#define K60_IMEM_RESTART_REASON  0x65cu
++#define K60_RESTART_REASON_BOOTLOADER 0x77665500u
++
++/* vm/pmap.h does not reach this unit; k60_usblog.c declares it the same way. */
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++
++static void
++k60_publish_restart_reason(uint32_t reason)
++{
++	vm_offset_t imem = ml_io_map(K60_IMEM_PA, K60_IMEM_SIZE);
++
++	if (!imem) {
++		return;
++	}
++	*(volatile uint32_t *)(imem + K60_IMEM_RESTART_REASON) = reason;
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
++
+ void
+ PE_k60_publish_panic(void)
+ {
+@@ -826,6 +862,9 @@
+ 	uint32_t *hdr;
+ 	unsigned int len;
+ 
++	/* 0311: whatever happens below, the next boot is fastboot. */
++	k60_publish_restart_reason(K60_RESTART_REASON_BOOTLOADER);
++
+ 	if (!gPanicBase || !panic_info) {
+ 		return;
+ 	}

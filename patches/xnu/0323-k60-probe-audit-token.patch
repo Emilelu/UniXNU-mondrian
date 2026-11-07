@@ -1,0 +1,112 @@
+--- a/osfmk/kern/task.c
++++ b/osfmk/kern/task.c
+@@ -86,6 +86,26 @@
+  * Copyright (c) 2005 SPARTA, Inc.
+  */
+ 
++/*
++ * k60 0323: temporary probe. xpcproxy validates the audit token that launchd
++ * puts into its reply (val[5] must be 1, val[1] must be 0). Record what
++ * task_info(TASK_AUDIT_TOKEN) actually returns for the first few callers. No
++ * printf in this file (pitfall #70); bsd/kern/kern_exec.c prints it from the
++ * K60 heartbeat.
++ */
++#define K60AT_N 6
++
++extern int k60at_seen;
++extern int k60at_cpid[];
++extern int k60at_tpid[];
++extern int k60at_euid[];
++extern int k60at_apid[];
++extern int k60at_pidver[];
++extern int k60at_err[];
++extern void k60at_latch(int, int, int, int, int, int);
++
++/* fields and the latcher are defined at the end of this file */
++
+ #include <mach/mach_types.h>
+ #include <mach/boolean.h>
+ #include <mach/host_priv.h>
+@@ -5304,9 +5324,12 @@
+ 	case TASK_AUDIT_TOKEN:
+ 	{
+ 		audit_token_t   *audit_token_p;
++		int k60_cp = task_pid(current_task());
++		int k60_err = 0;
+ 
+ 		if (*task_info_count < TASK_AUDIT_TOKEN_COUNT) {
+ 			error = KERN_INVALID_ARGUMENT;
++			k60at_latch(k60_cp, task_pid(task), -1, -1, -1, error);
+ 			break;
+ 		}
+ 
+@@ -5314,6 +5337,10 @@
+ 
+ 		*audit_token_p = *task_get_audit_token(task);
+ 
++		k60at_latch(k60_cp, task_pid(task),
++		    (int)(*audit_token_p).val[1], (int)(*audit_token_p).val[5],
++		    (int)(*audit_token_p).val[7], 0);
++
+ 		*task_info_count = TASK_AUDIT_TOKEN_COUNT;
+ 		break;
+ 	}
+@@ -9181,3 +9208,31 @@
+ {
+ 	return kdp_lck_mtx_lock_spin_is_acquired(&task->lock);
+ }
++
++
++/* ---- k60 0323 probe state (end of file, file scope) ---- */
++int k60at_seen;
++int k60at_cpid[K60AT_N];
++int k60at_tpid[K60AT_N];
++int k60at_euid[K60AT_N];
++int k60at_apid[K60AT_N];
++int k60at_pidver[K60AT_N];
++int k60at_err[K60AT_N];
++
++void
++k60at_latch(int k60_cpid, int k60_tpid, int k60_euid, int k60_apid,
++    int k60_pidver, int k60_err)
++{
++	int k60_i;
++
++	if (k60at_seen >= K60AT_N) {
++		return;
++	}
++	k60_i = k60at_seen++;
++	k60at_cpid[k60_i] = k60_cpid;
++	k60at_tpid[k60_i] = k60_tpid;
++	k60at_euid[k60_i] = k60_euid;
++	k60at_apid[k60_i] = k60_apid;
++	k60at_pidver[k60_i] = k60_pidver;
++	k60at_err[k60_i] = k60_err;
++}
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2246,6 +2246,24 @@
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 		{
+ 		extern int k60_probe_ready;
++		extern int k60at_seen;
++		extern int k60at_cpid[];
++		extern int k60at_tpid[];
++		extern int k60at_euid[];
++		extern int k60at_apid[];
++		extern int k60at_pidver[];
++		extern int k60at_err[];
++
++		k60_probe_ready = 1;
++		if (k60at_seen > 0) {
++			int k60_i;
++			for (k60_i = 0; k60_i < k60at_seen && k60_i < 6; k60_i++) {
++				printf("K60AT i=%d caller=%d tpid=%d euid=%d apid=%d pidver=%d err=%d\n",
++				    k60_i, k60at_cpid[k60_i], k60at_tpid[k60_i],
++				    k60at_euid[k60_i], k60at_apid[k60_i],
++				    k60at_pidver[k60_i], k60at_err[k60_i]);
++			}
++		}
+ 		extern int k60pi_seen;
+ 		extern int k60pi_pid;
+ 		extern int k60pi_flavor;

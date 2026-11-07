@@ -1,0 +1,18 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -767,11 +767,13 @@
+ 			{
+ 				extern int proc_selfpid(void);
+ 
+-				printf("K60EXC n=%u pid=%d esr=%x far=%llx pc=%llx lr=%llx\n",
++				printf("K60EXC n=%u pid=%d esr=%x far=%llx pc=%llx lr=%llx sp=%llx fp=%llx\n",
+ 				    k60exc_seen, proc_selfpid(), (unsigned)esr,
+ 				    (unsigned long long)far,
+ 				    (unsigned long long)get_saved_state_pc(state),
+-				    (unsigned long long)get_saved_state_lr(state));
++				    (unsigned long long)get_saved_state_lr(state),
++				    (unsigned long long)get_saved_state_sp(state),
++				    (unsigned long long)get_saved_state_fp(state));
+ 			}
+ 		}
+ 	}

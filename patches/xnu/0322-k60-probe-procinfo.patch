@@ -1,0 +1,80 @@
+--- a/bsd/kern/proc_info.c
++++ b/bsd/kern/proc_info.c
+@@ -35,6 +35,7 @@
+ #include <sys/kernel.h>
+ #include <sys/malloc.h>
+ #include <sys/proc_internal.h>
++#include <pexpert/pexpert.h>
+ #include <sys/kauth.h>
+ #include <sys/file_internal.h>
+ #include <sys/vnode_internal.h>
+@@ -1898,6 +1899,39 @@
+ /********************************** proc_pidinfo ********************************/
+ 
+ 
++/*
++ * k60 0322: temporary probe. xpcproxy exits 78 because its
++ * proc_pidinfo(getpid(), PROC_PIDT_SHORTBSDINFO, 1, buf, 64) does not return
++ * 64. Latch the first failing SHORTBSDINFO call in globals (pid/flavor/arg/
++ * buffersize/errno) so the K60 heartbeat can report the real errno. No printf
++ * here (pitfall #70); bsd/kern/kern_exec.c prints it from the heartbeat.
++ */
++int k60pi_seen;
++int k60pi_pid = -1;
++int k60pi_flavor = -1;
++unsigned long long k60pi_arg;
++unsigned int k60pi_bufsize;
++int k60pi_err = -1;
++
++static void
++k60pi_latch(int k60_pid, int k60_flavor, unsigned long long k60_arg,
++    unsigned int k60_bs, int k60_err)
++{
++	if (k60pi_seen || k60_err == 0) {
++		return;
++	}
++	if (k60_flavor != 13) {
++		return;
++	}
++	k60pi_seen = 1;
++	k60pi_pid = k60_pid;
++	k60pi_flavor = k60_flavor;
++	k60pi_arg = k60_arg;
++	k60pi_bufsize = k60_bs;
++	k60pi_err = k60_err;
++}
++
++
+ int
+ proc_pidinfo(int pid, uint32_t flags, uint64_t ext_id, int flavor, uint64_t arg, user_addr_t buffer, uint32_t  buffersize, int32_t * retval)
+ {
+@@ -2446,6 +2480,7 @@
+ 	} else if (zombie) {
+ 		proc_drop_zombref(p);
+ 	}
++	k60pi_latch(pid, flavor, arg, buffersize, error);
+ 	return error;
+ }
+ 
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2246,6 +2246,19 @@
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 		{
+ 		extern int k60_probe_ready;
++		extern int k60pi_seen;
++		extern int k60pi_pid;
++		extern int k60pi_flavor;
++		extern unsigned long long k60pi_arg;
++		extern unsigned int k60pi_bufsize;
++		extern int k60pi_err;
++
++		k60_probe_ready = 1;
++		if (k60pi_seen) {
++			printf("K60PI pid=%d flavor=%d arg=%llu bs=%u err=%d\n",
++			    k60pi_pid, k60pi_flavor, k60pi_arg, k60pi_bufsize,
++			    k60pi_err);
++		}
+ 
+ 		k60_probe_ready = 1;
+ 	}

@@ -1,18 +1,3 @@
-# XNU patch series for the K60 (mondrian) kernel, in application order.
-#
-# This is the set the format-1 build applied to xnu-8796.141.3 through the glob in
-# scripts/build-xnu-4k-baseline.sh, recorded from the qualified run 40631225483 so the
-# format-2 resolver applies exactly the same patches in the same order. It is also
-# byte-identical to the set the 16.6.1 storm-era images used (commit 99eeba9).
-#
-# HISTORY: at e5f23c4 this file was cut to the 62 patches that apply to xnu-10063 for
-# route-a-17 (17.7.11 / BCM2837), and that 64-entry set survived into route-a-18. It
-# drops 56 patches that the 16.6.1 route needs - among them the whole HackiOS userland
-# ABI (miniamfi, MiniIOSurface, MiniIOMobileFramebuffer), the elite Sandbox policy,
-# the watchdog shutdown and the runtime directories. Building 16.6.1 from that set
-# produces a kernel that is 56 patches poorer than the one the sig=9 storm was
-# observed on. This file is restored to the 120-patch set; series.16-full keeps the
-# same list as the reference copy.
 apple-only-cpu-tunables.patch
 architectural-timer-entry.patch
 armvirt-platform-personality.patch
@@ -136,12 +121,67 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mactable-summary.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-cache-report.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mem-report.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch
+0300-k60-usblog-ep0.patch
 0243-k60-console-export.patch
 0301-k60-sandbox-kx-histogram.patch
 0302-data-cap-execerr-kxp.patch
 0303-k60-heartbeat.patch
 0304-kxq-rate-ler-lw.patch
 0305-kxq-site-tags.patch
+0306-k60-console-snapshot.patch
+0307-k60-usblog-dma-coherency.patch
+0309-k60-minimac-amfi-standin.patch
+0310-k60-amfi-keep-first.patch
+0311-k60-panic-restart-reason.patch
+0318-k60-miniamfi-optional.patch
+0320-k60-skip-firmware-mount.patch
+0308-k60-usblog-pong-capture-restart.patch
+0314-k60-kern-exit-tolerate-and-clean.patch
+0321-k60-probe-vm-mem-entry.patch
+0322-k60-probe-procinfo.patch
+0323-k60-probe-audit-token.patch
+0324-k60-probe-trailer-audit.patch
+0325-k60-probe-trailer-elem.patch
+0326-k60-probe-posix-spawn.patch
+0327-k60-persona-proxy-bootstrap.patch
+0328-k60-exit-reason-payload.patch
+0329-k60-miniamfi-entitlement-trace.patch
+0330-k60-entitlement-allow.patch
+0331-k60-prevlog-replay.patch
+0332-k60-skip-prelinked-load.patch
+0333-k60-prevlog-panic-focus.patch
+0334-k60-panic-reset-fastboot.patch
+0337-k60-checkin-compat.patch
+0339-k60-xpc-report.patch
+0340-k60-uilib-deploy.patch
+0341-k60-setprop-probe.patch
+0342-k60-reserve-probe.patch
+0343-k60-reserve-fail.sh.patch
+0344-k60-client-uaf-probe.patch
+0345-k60-setprop-null-guard.patch
+0346-k60-userexc-trace.patch
+0347-k60-panic-text.patch
+0348-k60-kernexc-trace.patch
+0349-k60-client-pin.patch
+0350-k60-getprop-null-guard.patch
+0351-k60-property-guards.patch
+0352-k60-client-pin-hold.patch
+0353-k60-client-call-guards.patch
+0354-k60-panic-backtrace.patch
+0355-k60-connect-guards.patch
+0356-k60-analytics-notifport.patch
+0357-k60-close-gen-guard.patch
+0358-k60-deny-analytics-open.patch
+0359-k60-proptable-guards.patch
+0360-k60-null-lock-safety.patch
+0361-k60-childset-guard.patch
+0362-k60-nullentry-name.patch
+0363-k60-attach-expansion.patch
+0364-k60-deny-without-release.patch
+0365-k60-ui-owns-screen.patch
+0366-k60-userexc-pid.patch
+0367-k60-userexc-sp-fp.patch
+0373-k60-dyld-payload.patch
 0384-k60-pid-hibernate.patch
 0385-k60-aks-datamigrator.patch
 0386-k60-quiet-exec-probes.patch

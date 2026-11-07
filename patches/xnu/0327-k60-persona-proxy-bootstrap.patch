@@ -1,0 +1,72 @@
+--- a/bsd/kern/kern_persona.c
++++ b/bsd/kern/kern_persona.c
+@@ -534,6 +534,54 @@
+ 	return 0;
+ }
+ 
++/*
++ * K60: seed the SYSTEM_PROXY personas that Darwin 24 launchd looks up by
++ * persona_uid - the system domain asks for (uid_t)-1, user/501 asks for 501.
++ * kpersona_alloc_syscall() gates on the persona-mgmt entitlement, which is
++ * unpopulated here, so the kernel creates them directly before init runs.
++ */
++void
++k60_persona_proxy_bootstrap(void)
++{
++	static const struct { const char *name; uid_t uid; } domains[] = {
++		{ "k60-sys", (uid_t)-1 },
++		{ "k60-mobile", 501 },
++	};
++	unsigned i;
++
++	for (i = 0; i < sizeof(domains) / sizeof(domains[0]); i++) {
++		struct persona *existing = NULL;
++		struct persona *proxy = NULL;
++		size_t count = 1;
++		int error = 0;
++
++		if (persona_find(domains[i].name, PERSONA_ID_NONE,
++		    &existing, &count) == 0) {
++			if (existing) {
++				persona_put(existing);
++			}
++			continue;
++		}
++		proxy = persona_alloc(PERSONA_ID_NONE, domains[i].name,
++		    PERSONA_SYSTEM_PROXY, NULL, domains[i].uid, &error);
++		if (!proxy) {
++			printf("K60PERSONA alloc %s failed %d\n",
++			    domains[i].name, error);
++			continue;
++		}
++		error = persona_init_begin(proxy);
++		persona_init_end(proxy, error);
++		if (error) {
++			persona_put(proxy);
++			printf("K60PERSONA init %s failed %d\n",
++			    domains[i].name, error);
++			continue;
++		}
++		printf("K60PERSONA ready %s id=%u uid=%d\n",
++		    domains[i].name, proxy->pna_id, (int)domains[i].uid);
++	}
++}
++
+ struct persona *
+ persona_proc_get(pid_t pid)
+ {
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1274,6 +1274,12 @@
+ 
+ 	bsd_init_kprintf("bsd_do_post - done");
+ 
++#if CONFIG_PERSONAS
++	{
++		extern void k60_persona_proxy_bootstrap(void);
++		k60_persona_proxy_bootstrap();
++	}
++#endif
+ 	load_init_program(p);
+ #if defined(PONG) && (DEVELOPMENT || DEBUG)
+ 	uint32_t trace_init = 0;

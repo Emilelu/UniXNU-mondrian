@@ -1,0 +1,103 @@
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -989,6 +989,85 @@
+ }
+ 
+ /*
++ * 0338: drain the console ring to the host while the machine is still up.
++ *
++ * Called from panic_trap_to_debugger() after the dump has been printed.  The
++ * worker thread is frozen, so this drives the DWC3 bulk IN endpoint directly:
++ * registers through dwc_wr/dwc_rd, payload through ud.dma (already
++ * DMA-coherent and physically mapped), one TRB at a time with a bounded wait.
++ * Nothing here prints, allocates, locks, or sleeps unboundedly.
++ */
++#define K60_PF_SLICE    512u
++#define K60_PF_ROUNDS   40u
++
++void
++k60_panic_flush_console(void)
++{
++	int enabled = 0;
++	volatile uint32_t *t;
++	uint32_t pb = 0, ps = 0, pz = 0;
++	uint64_t pt = 0, pd = 0;
++	uint32_t want, cursor;
++	unsigned r;
++
++	if (!ud.dma || !ud.dma_pa || !ud.started || !ud.configured) {
++		return;
++	}
++	if (!PE_parse_boot_argn("k60_panic_flush", &enabled, sizeof(enabled)) ||
++	    !enabled) {
++		return;
++	}
++
++	/*
++	 * The frozen worker may have left the TX slot owned by hardware.  Wait for
++	 * it to retire before reusing the TRB; if it never does, reuse anyway --
++	 * a lost slice is far better than sending nothing.
++	 */
++	t = (volatile uint32_t *)(ud.dma + UD_TRB_TX);
++	for (unsigned spin = 0; spin < 100000 && (t[3] & TRB_HWO); spin++) {
++		__asm__ volatile ("yield");
++	}
++
++	if (pong_ramoops_snapshot(0, (void *)(ud.dma + UD_TXDATA), 0, &pb, &ps,
++	    &pz, &pt, &pd) != 1 || pt == 0) {
++		return;
++	}
++	want = pt > (uint64_t)(K60_PF_SLICE * K60_PF_ROUNDS) ?
++	    (uint32_t)(K60_PF_SLICE * K60_PF_ROUNDS) : (uint32_t)pt;
++	cursor = (uint32_t)(pt - want);
++
++	for (r = 0; r < K60_PF_ROUNDS && (uint64_t)cursor < pt; r++) {
++		uint32_t bytes = 0, start = 0, size = 0;
++		uint64_t total = 0, dropped = 0;
++		uint32_t take;
++
++		if (pong_ramoops_snapshot((uint64_t)cursor,
++		    (void *)(ud.dma + UD_TXDATA), K60_PF_SLICE, &bytes, &start, &size,
++		    &total, &dropped) != 1 || bytes == 0) {
++			break;
++		}
++		take = bytes;
++		/* A short packet marks the end of a slice for the host. */
++		if (ud.packet && take >= ud.packet && !(take % ud.packet)) {
++			--take;
++		}
++		if (take) {
++			ud_sync(UD_TXDATA, take);
++			if (ud_start(3, UD_TXDATA, take, TRBCTL_NORMAL) != 0) {
++				break;
++			}
++			for (unsigned spin = 0; spin < 200000 &&
++			    (t[3] & TRB_HWO); spin++) {
++				__asm__ volatile ("yield");
++			}
++		}
++		cursor += bytes;
++	}
++	ud.tx_active = false;
++	ud.log_cursor = cursor;
++}
++
++/*
+  * Endpoint bring-up (PongUsbDevice.h:122-127): SETEPCONFIG with
+  * XFER_COMPLETE/XFER_NOT_READY events, one transfer resource.
+  */
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1087,8 +1087,12 @@
+ 	 * k60_panic_reset=1.
+ 	 */
+ 	{
++		extern void k60_panic_flush_console(void);
+ 		extern void k60_panic_reset_to_fastboot(void);
+ 
++		/* 0338: get the dump out while the gadget is still alive. */
++		k60_panic_flush_console();
++		/* 0334: then hand the phone back to fastboot. */
+ 		k60_panic_reset_to_fastboot();
+ 	}
+ #endif

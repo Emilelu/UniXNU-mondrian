@@ -1,0 +1,47 @@
+--- a/libkern/amfi/miniamfi_entitlements.cpp
++++ b/libkern/amfi/miniamfi_entitlements.cpp
+@@ -19,11 +19,13 @@
+ #include <kern/cs_blobs.h>
+ #include <mach/kern_return.h>
+ #include <kern/kalloc.h>
++#include <libkern/libkern.h>
+ #include <string.h>
+ 
+ extern "C" {
+ struct proc;
+ int cs_entitlements_blob_get(struct proc *p, void **out_start, size_t *out_length);
++int proc_getpid(struct proc *p);
+ 
+ kern_return_t miniamfi_entitlement_boolean(struct proc *proc, const char *name);
+ kern_return_t miniamfi_entitlement_string(struct proc *proc, const char *name, const char *value);
+@@ -65,6 +67,17 @@
+ 	return dict;
+ }
+ 
++/*
++ * 0329: the first N entitlement questions of a boot, on the serial console.
++ *
++ * The AMFI stand-in is the only place in the kernel that knows whether a
++ * program's signature really carries an entitlement, so it is also the only
++ * place that can say why a privileged call such as
++ * setiopolicy_np(IOPOL_TYPE_VFS_ALLOW_LOW_SPACE_WRITES) is refused.  Bounded
++ * on purpose: an unbounded trace would flood the console during boot.
++ */
++static unsigned int k60_ent_trace;
++
+ kern_return_t
+ miniamfi_entitlement_boolean(struct proc *proc, const char *name)
+ {
+@@ -77,6 +90,12 @@
+ 		}
+ 		entitlements->release();
+ 	}
++	if (k60_ent_trace < 40u) {
++		unsigned int n = k60_ent_trace++;
++
++		printf("K60ENT %u pid=%d %s=%d\n", n, proc_getpid(proc), name,
++		    result == KERN_SUCCESS ? 1 : 0);
++	}
+ 	return result;
+ }
+ 

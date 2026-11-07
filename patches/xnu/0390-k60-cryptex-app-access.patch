@@ -1,0 +1,30 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -6936,6 +6936,27 @@
+ int
+ access(__unused proc_t p, struct access_args *uap, __unused int32_t *retval)
+ {
++#if defined(PONG) && (DEVELOPMENT || DEBUG)
++	/* 0390: the App cryptex is not present on this port; launchd checks
++	 * /System/Cryptexes/App/usr/libexec/* with access(X_OK) and then SIGSEGVs
++	 * when the lookup fails (the crash is at a fixed pc in the shared cache,
++	 * right after the "failed with errno 2" line).  Report success for the
++	 * whole App cryptex prefix so launchd keeps its normal control flow. */
++	{
++		char k60_path[128];
++		size_t k60_len = 0;
++
++		if (copyinstr(uap->path, k60_path, sizeof(k60_path), &k60_len) == 0 &&
++		    strncmp(k60_path, "/System/Cryptexes/App", 22) == 0) {
++			static unsigned k60_hits;
++			if (k60_hits < 8) {
++				k60_hits++;
++				printf("K60 access: cryptex-App %s -> success (fake)\n", k60_path);
++			}
++			return 0;
++		}
++	}
++#endif
+ 	return faccessat_internal(vfs_context_current(), AT_FDCWD,
+ 	           uap->path, uap->flags, 0, UIO_USERSPACE);
+ }

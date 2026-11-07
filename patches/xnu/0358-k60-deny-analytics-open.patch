@@ -1,0 +1,32 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -4339,6 +4339,29 @@
+ 			res = kIOReturnError;
+ 		}
+ 
++		/*
++		 * 0358: CoreAnalyticsUserClient comes back half-initialised when its owner
++		 * task fails the entitlement check ("analyticsd is not entitled"): its
++		 * internal mutex and provider links are never set up, and every later
++		 * generic call (setProperty, getProperty, clientClose, notification ports)
++		 * faults inside the kernel.  Refuse the open so no handle escapes; the
++		 * analytics daemon then simply goes without, and the rest of the system
++		 * boots.  Remove once the entitlement path delivers the real blob.
++		 */
++		if (res == kIOReturnSuccess && client != NULL &&
++		    client->getMetaClass() != NULL &&
++		    !strcmp(client->getMetaClass()->getClassName(), "CoreAnalyticsUserClient")) {
++			static unsigned k60deny_seen;
++
++			if (k60deny_seen < 4) {
++				k60deny_seen++;
++				printf("K60DENY analytics client open refused\n");
++			}
++			client->clientClose();
++			OSSafeReleaseNULL(client);
++			res = kIOReturnNotPermitted;
++		}
++
+ 		if (res == kIOReturnSuccess) {
+ 			if (!client->reserved) {
+ 				if (!client->reserve()) {

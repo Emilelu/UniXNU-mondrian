@@ -1,0 +1,38 @@
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1780,6 +1780,35 @@
+ 				    (unsigned long long)(k60_reason ? k60_reason->osr_code : 0),
+ 				    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0),
+ 				    (unsigned int)jetsam_flags);
++
++				/*
++				 * 0373: a dyld abort (namespace 6) keeps the failing library
++				 * or symbol in the reason's kcdata buffer.  Dump it as text so
++				 * the console says why the process died instead of only the
++				 * signal.
++				 */
++				if (k60_reason != OS_REASON_NULL &&
++				    k60_reason->osr_namespace == 6 &&
++				    k60_reason->osr_kcd_buf != NULL &&
++				    k60_reason->osr_bufsize > 0) {
++					char k60_text[132];
++					uint32_t k60_len = k60_reason->osr_bufsize;
++					uint32_t k60_i;
++
++					if (k60_len > sizeof(k60_text) - 1) {
++						k60_len = sizeof(k60_text) - 1;
++					}
++					for (k60_i = 0; k60_i < k60_len; k60_i++) {
++						char k60_c = k60_reason->osr_kcd_buf[k60_i];
++
++						k60_text[k60_i] = (k60_c >= 0x20 && k60_c < 0x7f) ? k60_c : '.';
++					}
++					k60_text[k60_len] = '\0';
++					printf("KXDP %d %s ns=6 code=0x%llx size=%u why=%s\n",
++					    proc_getpid(p), p->p_comm,
++					    (unsigned long long)k60_reason->osr_code,
++					    k60_reason->osr_bufsize, k60_text);
++				}
+ 				{
+ 					extern const char *k60_exec_path_for_pid(int);
+ 					const char *k60_xp = k60_exec_path_for_pid(proc_getpid(p));

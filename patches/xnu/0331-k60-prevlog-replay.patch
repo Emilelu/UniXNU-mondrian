@@ -1,0 +1,109 @@
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -281,6 +281,49 @@
+ 	return EBUSY;
+ }
+ 
++/* 0331: previous-boot ring preserved before pong_ramoops_console_init clears it. */
++#define K60_PREVLOG_BYTES (48 * 1024)
++static char     k60_prevlog_buf[K60_PREVLOG_BYTES];
++static uint32_t k60_prevlog_len;
++static int      k60_prevlog_valid;
++void            k60_prevlog_dump(void);
++
++/*
++ * 0331: previous-boot console replay.  Called once the thread subsystem
++ * exists; the text goes through printf, so it lands in the new ring and is
++ * drained to USB by the same worker that prints everything else.
++ */
++void
++k60_prevlog_dump(void)
++{
++	if (!k60_prevlog_valid) {
++		printf("K60PREV none (first boot after power cycle)\n");
++		return;
++	}
++	printf("K60PREV begin len=%u\n", k60_prevlog_len);
++	uint32_t off = 0;
++	while (off < k60_prevlog_len) {
++		char line[125];
++		uint32_t n = 0;
++		while (off < k60_prevlog_len && n < 120) {
++			char c = k60_prevlog_buf[off++];
++			if (c == '\r') {
++				continue;
++			}
++			if (c == 0) {
++				c = '.';
++			}
++			line[n++] = c;
++			if (c == '\n') {
++				break;
++			}
++		}
++		line[n] = 0;
++		printf("K60PREV %s", line);
++	}
++	printf("K60PREV end\n");
++}
++
+ int
+ pong_ramoops_console_init(void)
+ {
+@@ -295,6 +338,36 @@
+ 
+ 	struct pong_ramoops_header *header =
+ 	    (struct pong_ramoops_header *)(uintptr_t)mapped;
++	/*
++	 * 0331: the ring survives a reboot in DRAM, but this function is about
++	 * to destroy the header that says what the bytes mean.  Take a copy of
++	 * the previous epoch's tail first: a panic backtrace lives there and
++	 * nothing inside a dead kernel can deliver it.
++	 */
++	{
++		uint32_t prev_sig = header->sig;
++		uint32_t prev_start = header->start;
++		uint32_t prev_size = header->size;
++
++		if (prev_sig == PONG_RAMOOPS_MAGIC && prev_size > 0 &&
++		    prev_size <= PONG_RAMOOPS_DATA_BYTES &&
++		    prev_start < PONG_RAMOOPS_DATA_BYTES) {
++			uint32_t want = prev_size < K60_PREVLOG_BYTES ?
++			    prev_size : K60_PREVLOG_BYTES;
++			volatile const uint8_t *prev = (volatile const uint8_t *)
++			    (uintptr_t)(mapped + PONG_RAMOOPS_HEADER_BYTES);
++			uint32_t from = (prev_start + (prev_size - want)) %
++			    PONG_RAMOOPS_DATA_BYTES;
++
++			for (uint32_t i = 0; i < want; i++) {
++				k60_prevlog_buf[i] = (char)prev[
++				    (from + i) % PONG_RAMOOPS_DATA_BYTES];
++			}
++			k60_prevlog_len = want;
++			k60_prevlog_valid = 1;
++		}
++	}
++
+ 	header->sig = 0;
+ 	header->start = 0;
+ 	header->size = 0;
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -76,6 +76,7 @@
+ 
+ void k60_usblog_init(void);
+ void k60_usblog_start(void);
++void k60_prevlog_dump(void);
+ 
+ /*
+  * SM8475 (waipio family) GCC, offsets from Linux gcc-sm8450.c.
+@@ -1695,6 +1696,9 @@
+ 	if (k60_usblog_mode < 2 || ud.started) {
+ 		return;
+ 	}
++	/* 0331: surface the previous boot's ring (panic backtrace) once. */
++	k60_prevlog_dump();
++
+ 	if (kernel_thread_start(ud_worker, NULL, &thread) == KERN_SUCCESS) {
+ 		thread_deallocate(thread);
+ 	}

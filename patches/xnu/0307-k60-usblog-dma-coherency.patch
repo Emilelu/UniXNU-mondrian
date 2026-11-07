@@ -1,0 +1,69 @@
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -600,11 +600,11 @@
+ #define UD_EVT          0x0000          /* event buffer, 4 KiB */
+ #define UD_EVT_SIZE     0x1000
+ #define UD_TRB_OUT      0x1000          /* ep0 OUT TRB */
+-#define UD_TRB_IN       0x1010          /* ep0 IN TRB */
++#define UD_TRB_IN       0x10c0          /* ep0 IN TRB (own 64 B line, 0307) */
+ #define UD_SETUP        0x1040          /* 8-byte setup packet */
+ #define UD_DATA         0x1100          /* ep0 data stage, 512 bytes */
+ #define UD_TRB_TX       0x3000          /* bulk IN (console) TRB */
+-#define UD_TRB_RX       0x3020          /* bulk OUT TRB */
++#define UD_TRB_RX       0x3040          /* bulk OUT TRB (own 64 B line, 0307) */
+ #define UD_TXDATA       0x4000          /* bulk IN payload, 4 KiB */
+ #define UD_RXDATA       0x5000          /* bulk OUT payload, 4 KiB */
+ #define UD_SIZE         0x8000
+@@ -780,7 +780,11 @@
+  * CDC-ACM (PongUsbDevice.h:54-58): IF0 communications (interrupt 0x82) +
+  * IF1 data (bulk 0x81 IN = console TX, 0x01 OUT = host RX drain). */
+ static uint8_t ud_dev_desc[18] = {
+-	18, 1, 0x00, 0x02, 2, 0, 0, 64,
++	/* 0307: class 02 / subclass 02 in the device descriptor so Windows
++	 * binds inbox usbser.sys by compatible ID USB\Class_02&SubClass_02
++	 * (Microsoft Learn "USB serial driver (Usbser.sys)"); subclass 00
++	 * leaves Windows without a driver. Linux cdc_acm / macOS unaffected. */
++	18, 1, 0x00, 0x02, 2, 2, 0, 64,
+ 	0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 3, 1,
+ };
+ static const uint8_t ud_cfg_template[] = {
+@@ -1108,10 +1112,24 @@
+ 		ud.failed = true;
+ 		return;
+ 	}
++	if (count) {
++		/*
++		 * 0307: the event buffer is written by the controller's DMA and the
++		 * DMA area is a cacheable mapping (header: "cacheable +
++		 * flush_dcache64 instead of a write-combine mapping"). Without this
++		 * the CPU reads stale cached words: every event decoded as
++		 * 0x00000000 (console-font1.log: 8x "event 0x00000000", ev=8
++		 * cfg=0), SETUP completions were dropped and the host failed
++		 * GET_DESCRIPTOR (Windows: VID_0000&PID_0002 Code 43). The CPU never
++		 * writes this range after the initial flush, so clean+invalidate
++		 * here only invalidates.
++		 */
++		ud_sync(UD_EVT, UD_EVT_SIZE);
++	}
+ 	for (uint32_t done = 0; done < count; done += 4) {
+ 		uint32_t ev = *(volatile uint32_t *)(ud.dma + UD_EVT + ud.evt_pos);
+ 		ud.evt_pos = (ud.evt_pos + 4) % UD_EVT_SIZE;
+-		if (ud.events++ < 400) {
++		if (ud.events++ < 48) {
+ 			printf("K60 USBLOG: event 0x%08x\n", ev);
+ 		}
+ 		ud_event(ev);
+@@ -1226,6 +1244,13 @@
+ 		ud_worker_exit();
+ 	}
+ 	ud.dma_pa = ptoa_64(pn);
++	/*
++	 * 0307: KMA_ZERO zeroes through the cacheable kernel mapping, leaving
++	 * dirty lines over the whole DMA area. Push them to the point of
++	 * coherence before the controller owns any of it, otherwise a later
++	 * eviction or clean overwrites controller-written events/SETUP data.
++	 */
++	flush_dcache64((addr64_t)ud.dma_pa, UD_SIZE, TRUE);
+ 
+ 	/* Hard gate: stream-0 bypass context before the first DMA write. */
+ 	if (smmu_usb_bypass(ud.dma_pa, UD_SIZE) != 0) {

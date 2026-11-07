@@ -1,0 +1,19 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -4357,8 +4357,14 @@
+ 				k60deny_seen++;
+ 				printf("K60DENY analytics client open refused\n");
+ 			}
+-			client->clientClose();
+-			OSSafeReleaseNULL(client);
++			/*
++			 * 0364: do NOT close or release it.  The kext keeps this object in its
++			 * own registry links; dropping the last reference here frees it while
++			 * it is still reachable, which is exactly the dangling entry the
++			 * matching code later walks into.  Leaving it alive and simply not
++			 * handing the handle to userland keeps the kernel consistent.
++			 */
++			client = NULL;
+ 			res = kIOReturnNotPermitted;
+ 		}
+ 

@@ -1,0 +1,40 @@
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1087,9 +1087,12 @@
+ 	 * k60_panic_reset=1.
+ 	 */
+ 	{
+-		extern void k60_panic_reset_to_fastboot(void);
++		extern void k60_panic_report(const char *, unsigned long);
+ 
+-		k60_panic_reset_to_fastboot();
++		/* 0347: the formatted dump only reaches the ramoops ring, which the
++		 * reset discards.  Print the format string and the panic caller while
++		 * the console still works, then hand the phone back to fastboot. */
++		k60_panic_report(panic_format_str, panic_caller);
+ 	}
+ #endif
+ 
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -372,6 +372,20 @@
+ }
+ 
+ /*
++ * 0347: called from panic_trap_to_debugger() with the panic format string and
++ * the caller address.  The formatted dump lands in the ramoops ring, which the
++ * reset discards, so emit the identifying parts on the live console first.
++ */
++void
++k60_panic_report(const char *fmt, unsigned long caller)
++{
++	printf("K60PANICFMT caller=0x%lx fmt=%s\n", caller, fmt ? fmt : "(null)");
++	extern void k60_panic_reset_to_fastboot(void);
++
++	k60_panic_reset_to_fastboot();
++}
++
++/*
+  * 0334: panic-path entry.  Registers and delays only -- the SPMI and IMEM
+  * windows were mapped while boot was healthy, so this is safe with the other
+  * CPUs parked and no lock held by us.

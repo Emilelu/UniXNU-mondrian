@@ -1,0 +1,30 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -4347,6 +4347,14 @@
+ 		}
+ 
+ 		if (res == kIOReturnSuccess) {
++			/* 0349: a kext can release its user client between newUserClient()
++			 * and the generic open path's property work (observed with
++			 * CoreAnalyticsUserClient when analyticsd had no entitlement).  Hold
++			 * our own reference for the whole block so the object cannot be
++			 * freed underneath: getProperty()/setProperty() on a released entry
++			 * fault on a NULL expansion pointer.  The original reference still
++			 * goes to *connection below. */
++			client->retain();
+ 			/* 0344: is the client still alive across the creator-name
+ 			 * allocation?  A use-after-free would zero reserved here. */
+ 			void * k60_rsv_before = (void *)client->reserved;
+@@ -4492,10 +4500,11 @@
+ 				client->clientClose();
+ 				client->setTerminateDefer(service, false);
+ 				client->release();
+-				client = NULL;
++				OSSafeReleaseNULL(client);   /* 0349: drop the pin as well */
+ 				break;
+ 			}
+ 			client->setTerminateDefer(service, false);
++			client->release();   /* 0349: drop the pin; *connection keeps its own */
+ 		}
+ 	}while (false);
+ 

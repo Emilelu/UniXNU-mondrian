@@ -1,0 +1,71 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -285,6 +285,29 @@
+ 
+ enum { kIORegCapacityIncrement = 4 };
+ 
++/*
++ * 0335: latched report of setProperty calls that were refused because
++ * `reserved` was not a valid pointer.  Written here, printed by the usblog
++ * heartbeat (bsd/dev/k60_usblog.c), never by this file.
++ */
++unsigned int k60_sp_count;
++unsigned int k60_sp_n;
++const void  *k60_sp_lr[8];
++
++unsigned int
++k60_setprop_report(const void **out, unsigned int max)
++{
++	unsigned int i;
++
++	if (out == NULL || max == 0) {
++		return k60_sp_n;
++	}
++	for (i = 0; i < k60_sp_n && i < max; i++) {
++		out[i] = k60_sp_lr[i];
++	}
++	return k60_sp_n;
++}
++
+ bool
+ IORegistryEntry::init( OSDictionary * dict )
+ {
+@@ -759,6 +782,38 @@
+ IORegistryEntry::setProperty( const OSSymbol * aKey, OSObject * anObject)
+ {
+ 	bool ret = false;
++	/*
++	 * 0335: `reserved` is allocated by init(); a stale or never-initialised
++	 * entry faults inside PLOCK (pc 0xfffffff00791adb4 on this kernel).  Refuse
++	 * the call instead of dereferencing it -- and record the caller for the
++	 * usblog heartbeat, because this function runs before the console exists
++	 * (pitfall #108).
++	 */
++	if ((uintptr_t)reserved < 0xffff000000000000ULL) {
++		static int k60_sp_guard = -1;
++
++		if (k60_sp_guard < 0) {
++			k60_sp_guard = 0;
++			PE_parse_boot_argn("k60_setprop_guard", &k60_sp_guard,
++			    sizeof(k60_sp_guard));
++		}
++		if (k60_sp_guard) {
++			const void *lr = __builtin_return_address(0);
++			bool seen = false;
++
++			for (unsigned i = 0; i < k60_sp_n; i++) {
++				if (k60_sp_lr[i] == lr) {
++					seen = true;
++					break;
++				}
++			}
++			if (!seen && k60_sp_n < 8) {
++				k60_sp_lr[k60_sp_n++] = lr;
++			}
++			k60_sp_count++;
++			return false;
++		}
++	}
+ 
+ 	// If we are inserting a collection class and the current entry
+ 	// is attached into the registry (inPlane()) then mark the collection

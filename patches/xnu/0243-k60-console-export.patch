@@ -6,6 +6,7 @@ index f4e322e..a114543 100644
  
  bsd/dev/memdev.c			standard
  bsd/dev/mem.c				standard
+ bsd/dev/k60_usblog.c				standard
 +bsd/dev/k60_console_export.c	standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard

@@ -1,0 +1,15 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -4504,7 +4504,11 @@
+ 				break;
+ 			}
+ 			client->setTerminateDefer(service, false);
+-			client->release();   /* 0349: drop the pin; *connection keeps its own */
++			/* 0352: hold the pin instead of dropping it.  The kext that owns this
++			 * client (CoreAnalyticsUserClient) releases its own reference behind the
++			 * generic open path's back, so dropping ours lets the object be reused
++			 * while the rest of this block is still reading properties.  Leaking one
++			 * reference per open is the contained cost of keeping the kernel alive. */
+ 		}
+ 	}while (false);
+ 

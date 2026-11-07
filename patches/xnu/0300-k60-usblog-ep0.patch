@@ -1,0 +1,1386 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -105,6 +105,7 @@
+ 
+ bsd/dev/memdev.c			standard
+ bsd/dev/mem.c				standard
++bsd/dev/k60_usblog.c				standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+ 
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -0,0 +1,1339 @@
++/*
++ * K60 (mondrian, SM8475): USB kernel log channel, full CDC-ACM console
++ * (boot-arg k60_usblog=2). The DWC3 device controller exposes a standard
++ * CDC-ACM serial port; a poll thread drains the persistent console mirror
++ * (physical 0xA7000000, 2 MiB, "DBGC" header) onto the bulk IN endpoint.
++ *
++ * Boot-arg: k60_usblog=0 (or absent) = fully inert; =1 = read-only probe
++ * including the apps_smmu gate-0 dump; =2 = full CDC console.
++ *
++ * Sources (both BSD-2-Clause-Patent; same-SoC proven on SM8475):
++ *   - Chengdong-Yu/pong-usb @6070a991: PongUsbDevice.h (CDC-ACM descriptors,
++ *     ep0 state machine, console ring drain, halt->SMMU->CSFTRST order,
++ *     GSNPSID/PRTCAPDIR gates, QSCRATCH latch check, 2/10 ms poll worker)
++ *     and Dwc3Registers.h (register fields).
++ *   - UniXNU-mondrian drivers/NativeUfs/SmmuTakeover.h (SMMUv2 bypass
++ *     planner/configurer; the K60 UFS stream 0xe0 takeover already runs
++ *     this on this SoC) - ported 1:1 to C, plus the R-B1 fix (reject
++ *     stage-2-only banks, ArmSmmu4KProgram.c:77-78 semantics).
++ *   - ios-sweet 0072/0073/0074 (dipa-studio) for the A-stage probe this
++ *     file grew from.
++ *
++ * K60 adaptations vs pong:
++ *   - No UEFI handoff record and no PMIC battery driver on this tree:
++ *     GCC status gates + explicit halt replace the handoff certificate;
++ *     QSCRATCH VBUS override is forced unconditionally with a latch
++ *     read-back hard gate (pong waits for a real PMIC cable report).
++ *   - DMA buffer comes from kmem_alloc_contig (K60 DRAM is the high
++ *     window 0x9xxxxxxxx, so 64-bit GEVNTADR/TRB programming matters)
++ *     instead of a firmware lease; cacheable + flush_dcache64 instead
++ *     of a write-combine mapping.
++ *   - Console ring is the existing pong_ramoops mirror (reused through
++ *     its read-only accessor), byte-format identical to pong's consumer.
++ *   - Root-transport ordering: the worker waits (bounded, <=90 s) for the
++ *     UFS SMMU takeover to be visible in the apps_smmu SMR slots before
++ *     writing any SMMU register, so the two drivers never interleave
++ *     SMMU writes. This replaces pong's pong_ufs_ready() call, which is
++ *     not linkable from the kernel proper on this tree.
++ *   - Mux / iPhone identity / battery paths are not ported.
++ *
++ * Failure containment: every hard gate fails by printing and exiting the
++ * worker thread; the controller is never left running after a failure,
++ * no partition is touched, and k60_usblog=0 keeps the file fully inert.
++ */
++#if defined(ARM64_BOARD_CONFIG_PONG)
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <arm/caches_internal.h>
++#include <mach/vm_param.h>
++#include <mach/vm_statistics.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++#include <pexpert/pexpert.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++/* vm/pmap.h does not expose this one in the BSD compilation unit. */
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
++/*
++ * bsd compilation units have no <arm64/...> include root, so the ring
++ * accessor is declared directly (osfmk/arm64/pong_ramoops_console.h).
++ * The ring ABI constants below mirror that header verbatim.
++ */
++extern vm_offset_t pong_ramoops_debug_base(void);
++/* kern/thread.h's declaration does not reach bsd/dev units; extern like above. */
++extern void thread_terminate_self(void);
++#define PONG_RAMOOPS_MAGIC          0x43474244U     /* "DBGC" */
++#define PONG_RAMOOPS_HEADER_BYTES   12U
++#define PONG_RAMOOPS_DATA_BYTES     (0x00200000U - PONG_RAMOOPS_HEADER_BYTES)
++
++void k60_usblog_init(void);
++void k60_usblog_start(void);
++
++/*
++ * SM8475 (waipio family) GCC, offsets from Linux gcc-sm8450.c.
++ * usb30_prim_gdsc        .gdscr = 0x49004 (bit 31 set = power on)
++ * gcc_usb30_prim_master_clk      .enable/halt_reg = 0x49018
++ * gcc_usb30_prim_sleep_clk       0x49020
++ * gcc_usb30_prim_mock_utmi_clk   0x49024
++ * gcc_cfg_noc_usb3_prim_axi_clk  0x49084
++ * gcc_aggre_usb3_prim_axi_clk    0x49088
++ * gcc_eusb3_0_clkref_en          0x9c00c
++ * gcc_usb3_0_clkref_en           0x9c010
++ * Branch CBCR bit 31 reads 1 while the clock is off (BRANCH_HALT).
++ */
++#define GCC_PA                  0x00100000
++#define GCC_SIZE                0x00100000
++#define GCC_USB30_PRIM_GDSCR    0x49004         /* bit 31: power on */
++#define CBCR_CLK_OFF            (1u << 31)
++
++static const struct {
++	const char *name;
++	uint32_t    off;
++} usb_cbcr[] = {
++	{ "master", 0x49018 },
++	{ "sleep", 0x49020 },
++	{ "mock-utmi", 0x49024 },
++	{ "cfg-noc-axi", 0x49084 },
++	{ "aggre-axi", 0x49088 },
++	{ "clkref-eusb3", 0x9c00c },
++	{ "clkref-usb3", 0x9c010 },
++};
++
++#define DWC3_PA                 0x0a600000
++#define DWC3_SIZE               0x0000d000
++/* mondrian: the USB2 PHY is the eUSB2 hsphy at 0x88e3000 (sweet: QUSB2 0x88e2000). */
++#define EUSB2_PA                0x088e3000
++#define EUSB2_SIZE              0x00000400
++
++/*
++ * apps_smmu (ARM SMMUv2, "qcom,sm8450-smmu-500"/"arm,mmu-500"): the DWC3's
++ * DMA stream is stream/SID 0 (upstream sm8450.dtsi usb_1 node:
++ * iommus = <&apps_smmu 0x0 0x0>). Nothing else in this kernel registers
++ * stream 0, and the platform global policy is expected to fault unmatched
++ * streams (ArmSmmu4KStreams.c:18-24, sCR0 USFCFG), so every DWC3 DMA
++ * faults until a context is installed. Base/limits match mondrian.dts
++ * pong,smmu-* (the same values the K60 UFS takeover uses,
++ * PongUfsTransport.cpp:164/177 with NativeUfs.cpp:29 kUfsStreamId=0xe0).
++ * GR1 offsets assume the 4K global page that smmu_plan_bank() enforces
++ * via IDR1.PAGESIZE.
++ */
++#define APPS_SMMU_PA            0x15000000
++#define APPS_SMMU_SIZE          0x00100000
++#define APPS_SMMU_USB_SID       0
++#define APPS_SMMU_UFS_SID       0xe0
++#define APPS_SMMU_BANKS         78      /* upper bound; IDR1.NUMCB wins */
++#define APPS_SMMU_GROUPS        120     /* upper bound; IDR0.NUMSMRG wins */
++#define SMMU_SCR0               0x000
++#define SMMU_IDR0               0x020
++#define SMMU_IDR1               0x024
++#define SMMU_IDR2               0x028
++#define SMMU_GFSR               0x048
++#define SMMU_GFSYNR0            0x050
++#define SMMU_GFSYNR1            0x054
++#define SMMU_SMR(n)             (0x800 + 4 * (n))
++#define SMMU_S2CR(n)            (0xc00 + 4 * (n))
++#define SMMU_CBAR(n)            (0x1000 + 4 * (n))
++#define SMMU_CBA2R(n)           (0x1800 + 4 * (n))
++
++static void smmu_dump_state(void);
++
++static int k60_usblog_mode = -1;        /* -1: init not run yet */
++
++static uint32_t
++usb_rd(vm_offset_t base, uint32_t off)
++{
++	uint32_t v = *(volatile uint32_t *)(base + off);
++	__asm__ volatile ("dmb oshld" ::: "memory");
++	return v;
++}
++
++static void
++usb_wr(vm_offset_t base, uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(base + off) = v;
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
++
++static int
++k60_usblog_arg(void)
++{
++	int enabled = 0;
++
++	/* k60_usblog=0 off, 1 probe only, 2 full CDC console */
++	PE_parse_boot_argn("k60_usblog", &enabled, sizeof(enabled));
++	return enabled;
++}
++
++/*
++ * Read-only apps_smmu gate-0 dump: with k60_usblog=1 this is the first
++ * on-device evidence for sCR0/IDRx/GFSR (review items U-A/U-B); no SMMU
++ * write and no DMA is ever made in probe mode.
++ */
++static void
++smmu_dump_state(void)
++{
++	vm_offset_t s = ml_io_map(APPS_SMMU_PA, APPS_SMMU_SIZE);
++	if (s == 0) {
++		printf("K60 USBLOG: apps_smmu map failed\n");
++		return;
++	}
++	uint32_t scr0 = usb_rd(s, SMMU_SCR0), idr0 = usb_rd(s, SMMU_IDR0);
++	uint32_t idr1 = usb_rd(s, SMMU_IDR1), idr2 = usb_rd(s, SMMU_IDR2);
++	printf("K60 USBLOG: SMMU sCR0 0x%08x IDR0 0x%08x IDR1 0x%08x IDR2 0x%08x GFSR 0x%08x GFSYNR1:0 0x%08x:0x%08x\n",
++	    scr0, idr0, idr1, idr2, usb_rd(s, SMMU_GFSR),
++	    usb_rd(s, SMMU_GFSYNR1), usb_rd(s, SMMU_GFSYNR0));
++	if (!(scr0 & 0x400)) {
++		printf("K60 USBLOG: WARNING sCR0.USFCFG clear: unmatched streams bypass, "
++		    "SMMU would not have blocked USB DMA\n");
++	}
++	unsigned groups = idr0 & 255, shown = 0;
++	for (unsigned i = 0; i < groups && shown < 12; i++) {
++		uint32_t smr = usb_rd(s, SMMU_SMR(i));
++		if (!(smr & 0x80000000U)) {
++			continue;
++		}
++		printf("K60 USBLOG: SMMU slot %u SMR 0x%08x S2CR 0x%08x\n",
++		    i, smr, usb_rd(s, SMMU_S2CR(i)));
++		shown++;
++	}
++}
++
++static void
++k60_usblog_probe(void)
++{
++	uint32_t gdscr, cbcr[sizeof(usb_cbcr) / sizeof(usb_cbcr[0])];
++	bool clocks_on = true;
++
++	vm_offset_t gcc = ml_io_map(GCC_PA, GCC_SIZE);
++	if (gcc == 0) {
++		printf("K60 USBLOG: GCC map failed\n");
++		return;
++	}
++	gdscr = usb_rd(gcc, GCC_USB30_PRIM_GDSCR);
++	printf("K60 USBLOG: GDSC usb30_prim 0x%08x (%s)\n", gdscr, (gdscr & (1u << 31)) ? "on" : "off");
++	for (unsigned i = 0; i < sizeof(usb_cbcr) / sizeof(usb_cbcr[0]); i++) {
++		cbcr[i] = usb_rd(gcc, usb_cbcr[i].off);
++		printf("K60 USBLOG: clk %-11s CBCR 0x%08x (%s)\n", usb_cbcr[i].name, cbcr[i],
++		    (cbcr[i] & CBCR_CLK_OFF) ? "off" : "on");
++	}
++	/* DWC3 registers need the GDSC, the master clock and the config-NoC path. */
++	clocks_on = (gdscr & (1u << 31)) && !(cbcr[0] & CBCR_CLK_OFF) && !(cbcr[3] & CBCR_CLK_OFF);
++	if (!clocks_on) {
++		printf("K60 USBLOG: controller unpowered or unclocked; DWC3 not read\n");
++		return;
++	}
++	{
++		vm_offset_t dwc = ml_io_map(DWC3_PA, DWC3_SIZE);
++		if (dwc != 0) {
++			printf("K60 USBLOG: DWC3 GSNPSID 0x%08x GCTL 0x%08x GSTS 0x%08x GUSB2PHYCFG 0x%08x\n",
++			    usb_rd(dwc, 0xc120), usb_rd(dwc, 0xc110), usb_rd(dwc, 0xc118), usb_rd(dwc, 0xc200));
++			printf("K60 USBLOG: DWC3 DCFG 0x%08x DCTL 0x%08x DEVTEN 0x%08x DSTS 0x%08x DALEPENA 0x%08x\n",
++			    usb_rd(dwc, 0xc700), usb_rd(dwc, 0xc704), usb_rd(dwc, 0xc708), usb_rd(dwc, 0xc70c),
++			    usb_rd(dwc, 0xc720));
++			printf("K60 USBLOG: DWC3 GEVNTADR 0x%08x%08x GEVNTSIZ 0x%08x GEVNTCOUNT 0x%08x GHWPARAMS0 0x%08x\n",
++			    usb_rd(dwc, 0xc404), usb_rd(dwc, 0xc400), usb_rd(dwc, 0xc408), usb_rd(dwc, 0xc40c),
++			    usb_rd(dwc, 0xc140));
++		}
++	}
++	{
++		vm_offset_t phy = ml_io_map(EUSB2_PA, EUSB2_SIZE);
++		if (phy != 0) {
++			/* eUSB2 hsphy window; offsets are informational only (QUSB2 layout). */
++			printf("K60 USBLOG: eUSB2[0x88e3000] +0x1a0 0x%08x +0x210 0x%08x +0x240 0x%08x +0x254 0x%08x\n",
++			    usb_rd(phy, 0x1a0), usb_rd(phy, 0x210), usb_rd(phy, 0x240), usb_rd(phy, 0x254));
++		}
++	}
++	/* No SMMU access here: at arm_init the apps_smmu clock state is unproven
++	 * (RISKS A2 "read GR1 = abort" precedent on sheng). The gate-0 dump runs
++	 * at worker start instead (thread context, bsd_init). */
++}
++
++/*
++ * Called from arm_init, right after the ramoops console mirror starts:
++ * parse the boot-arg and run the read-only probe. The thread subsystem
++ * does not exist yet (thread_init() runs in kernel_bootstrap), so the
++ * gadget worker is deferred to k60_usblog_start().
++ */
++void
++k60_usblog_init(void)
++{
++	k60_usblog_mode = k60_usblog_arg();
++	if (!k60_usblog_mode) {
++		return;
++	}
++	k60_usblog_probe();
++}
++
++/* ------------------------------------------------------------------ */
++/* apps_smmu stream-0 bypass context (SmmuTakeover.h 1:1 C port).      */
++/* ------------------------------------------------------------------ */
++
++struct smmu_plan {
++	unsigned slot, bank, pages;
++	uint32_t smr, s2cr, previous_bank;
++	int reuse, migrate;
++	const char *error;
++};
++
++/* SmmuTakeover.h:13-20 (address-width code table). */
++static unsigned
++smmu_addr_bits(unsigned code)
++{
++	switch (code) {
++	case 0: return 32; case 1: return 36; case 2: return 40;
++	case 3: return 42; case 4: return 44; case 5: return 48;
++	default: return 0;
++	}
++}
++
++/* SmmuTakeover.h:22-93 (planUfsSmmuBank): pure read-only planning.
++ * R-B1: reject stage-2-only context banks (bank < IDR1.NUMS2CB), the
++ * check the kit version does at ArmSmmu4KProgram.c:77-78; not retryable
++ * (banks are picked from the top, lower candidates only get worse). */
++static void
++smmu_plan_bank(vm_offset_t s, uint16_t stream, uint64_t dma, uint64_t bytes,
++    unsigned owned_banks, unsigned owned_groups, unsigned bank_from_top,
++    struct smmu_plan *p)
++{
++	bzero(p, sizeof(*p));
++	p->slot = 0xffffffffU;
++	p->previous_bank = 0xffffffffU;
++
++	uint32_t idr0 = usb_rd(s, SMMU_IDR0), idr2 = usb_rd(s, SMMU_IDR2);
++	unsigned count = idr0 & 255;
++	if (!(idr0 & (1U << 30)) || !(idr2 & (1U << 12))) {
++		p->error = "SMMU AArch64 stage 1 unsupported";
++		return;
++	}
++	for (unsigned shift = 0; shift <= 8; shift += 4) {
++		unsigned bits = smmu_addr_bits((idr2 >> shift) & 15);
++		if (!bits || !bytes || dma >= (1ULL << bits) ||
++		    bytes > (1ULL << bits) - dma) {
++			p->error = "DMA exceeds SMMU address width";
++			return;
++		}
++	}
++	uint32_t idr1 = usb_rd(s, SMMU_IDR1);
++	unsigned banks = idr1 & 255;
++	if (!owned_banks || !owned_groups || !banks || !count) {
++		p->error = "empty SMMU ownership/capability range";
++		return;
++	}
++	if (banks > owned_banks) {
++		banks = owned_banks;
++	}
++	if (count > owned_groups) {
++		count = owned_groups;
++	}
++	p->pages = 1U << (((idr1 >> 28) & 7) + 1);
++	if ((idr1 >> 31) || !count || p->pages > 128 || banks < 2 ||
++	    banks > 128 || (p->pages + banks) * 4096 > 0x100000) {
++		p->error = "unsupported SMMU geometry";
++		return;
++	}
++	if (count > 128) {
++		p->error = "unsupported stream-match group count";
++		return;
++	}
++	if (bank_from_top >= banks - 1) {
++		p->error = "no free context bank";
++		return;
++	}
++	p->bank = banks - 1 - bank_from_top;
++	if (p->bank < ((idr1 >> 16) & 255)) {   /* R-B1: stage-2-only bank */
++		p->error = "context bank is stage-2 only";
++		return;
++	}
++
++	unsigned matches = 0;
++	for (unsigned i = 0; i < count; i++) {
++		uint32_t smr = usb_rd(s, SMMU_SMR(i));
++		if (!(smr & 0x80000000U)) {
++			if (!p->reuse && !p->migrate) {
++				p->slot = i;
++			}
++			continue;
++		}
++		uint32_t s2cr = usb_rd(s, SMMU_S2CR(i));
++		uint32_t mask = (smr >> 16) & 0x7fff;
++		int match = ((smr ^ stream) & 0xffff & ~mask) == 0;
++		int translate = ((s2cr >> 16) & 3) == 0;
++		unsigned mapped_bank = s2cr & 255;
++		int our_bank = translate && mapped_bank == p->bank;
++		if (match) {
++			++matches;
++			if (matches > 1 || mask || !translate || mapped_bank >= banks) {
++				p->slot = i;
++				p->smr = smr;
++				p->s2cr = s2cr;
++				p->error = "conflicting USB stream mapping";
++				return;
++			}
++			p->reuse = our_bank;
++			p->migrate = !our_bank;
++			p->previous_bank = mapped_bank;
++			p->slot = i;
++			p->smr = smr;
++			p->s2cr = s2cr;
++		} else if (our_bank) {
++			p->slot = i;
++			p->smr = smr;
++			p->s2cr = s2cr;
++			p->error = "reserved context bank already used";
++			return;
++		}
++	}
++	uint32_t sctlr = usb_rd(s, (p->pages + p->bank) * 4096);
++	if ((sctlr & 1) || (p->reuse && (sctlr ||
++	    usb_rd(s, SMMU_CBAR(p->bank)) != 0x10000 ||
++	    (usb_rd(s, SMMU_CBA2R(p->bank)) & ~1U)))) {
++		p->error = "reserved context bank not bypass";
++		return;
++	}
++	if (p->slot == 0xffffffffU) {
++		p->error = "no free stream-match group";
++	}
++}
++
++/* SmmuTakeover.h:97-116 (planUfsSmmu): bounded bank-from-top retry. */
++static int
++smmu_plan_retryable(const char *error)
++{
++	return !__builtin_strcmp(error, "reserved context bank already used") ||
++	    !__builtin_strcmp(error, "reserved context bank not bypass");
++}
++
++static void
++smmu_plan(vm_offset_t s, uint16_t stream, uint64_t dma, uint64_t bytes,
++    unsigned owned_banks, unsigned owned_groups, struct smmu_plan *p)
++{
++	smmu_plan_bank(s, stream, dma, bytes, owned_banks, owned_groups, 0, p);
++	if (!p->error || !smmu_plan_retryable(p->error)) {
++		return;
++	}
++	struct smmu_plan first = *p;
++	for (unsigned attempt = 1; attempt < 8; attempt++) {
++		smmu_plan_bank(s, stream, dma, bytes, owned_banks,
++		    owned_groups, attempt, p);
++		if (!p->error) {
++			return;
++		}
++		if (!smmu_plan_retryable(p->error)) {
++			break;
++		}
++	}
++	*p = first;
++}
++
++/* SmmuTakeover.h:122-144 (configureUfsSmmu): every write read back. */
++static const char *
++smmu_configure(vm_offset_t s, const struct smmu_plan *p, uint16_t stream)
++{
++	unsigned cb = (p->pages + p->bank) * 4096;
++
++	if (p->error) {
++		return p->error;
++	}
++	if (!p->reuse) {
++		usb_wr(s, cb, 0);
++	}
++	if (usb_rd(s, cb) != 0) {
++		return "SMMU bypass disable readback";
++	}
++	if (usb_rd(s, SMMU_CBA2R(p->bank)) != 1) {
++		usb_wr(s, SMMU_CBA2R(p->bank), 1);
++	}
++	if (!p->reuse) {
++		usb_wr(s, SMMU_CBAR(p->bank), 0x10000);
++	}
++	if (usb_rd(s, SMMU_CBA2R(p->bank)) != 1 ||
++	    usb_rd(s, SMMU_CBAR(p->bank)) != 0x10000 || usb_rd(s, cb) != 0) {
++		return "SMMU VA64 bypass readback";
++	}
++	if (!p->reuse) {
++		usb_wr(s, SMMU_S2CR(p->slot), p->bank);
++		if (usb_rd(s, SMMU_S2CR(p->slot)) != p->bank) {
++			return "SMMU stream context readback";
++		}
++		if (!p->migrate) {
++			usb_wr(s, SMMU_SMR(p->slot), 0x80000000U | stream);
++		}
++	}
++	if (usb_rd(s, SMMU_SMR(p->slot)) != (0x80000000U | stream) ||
++	    usb_rd(s, SMMU_S2CR(p->slot)) != p->bank) {
++		return "SMMU stream mapping readback";
++	}
++	return NULL;
++}
++
++/*
++ * Install the stream-0 bypass context. Returns 0 on success; on any
++ * failure nothing DMA-capable has been enabled and the caller must not
++ * start the controller.
++ */
++static int
++smmu_usb_bypass(uint64_t dma, uint64_t bytes)
++{
++	vm_offset_t s = ml_io_map(APPS_SMMU_PA, APPS_SMMU_SIZE);
++	if (s == 0) {
++		printf("K60 USBLOG: apps_smmu map failed\n");
++		return -1;
++	}
++	smmu_dump_state();
++
++	struct smmu_plan plan;
++	smmu_plan(s, APPS_SMMU_USB_SID, dma, bytes,
++	    APPS_SMMU_BANKS, APPS_SMMU_GROUPS, &plan);
++	if (plan.error) {
++		printf("K60 USBLOG: SMMU plan failed: %s\n", plan.error);
++		return -1;
++	}
++	printf("K60 USBLOG: SMMU plan sid 0 slot %u bank %u firmware-bank %u action %s\n",
++	    plan.slot, plan.bank, plan.previous_bank,
++	    plan.migrate ? "migrate" : plan.reuse ? "reuse" : "install");
++
++	const char *why = smmu_configure(s, &plan, APPS_SMMU_USB_SID);
++	printf("K60 USBLOG: SMMU sid 0 slot %u bank %u SMR 0x%08x S2CR 0x%08x CBAR 0x%08x CBA2R 0x%08x SCTLR 0x%08x\n",
++	    plan.slot, plan.bank,
++	    usb_rd(s, SMMU_SMR(plan.slot)), usb_rd(s, SMMU_S2CR(plan.slot)),
++	    usb_rd(s, SMMU_CBAR(plan.bank)), usb_rd(s, SMMU_CBA2R(plan.bank)),
++	    usb_rd(s, (plan.pages + plan.bank) * 4096));
++	if (why) {
++		printf("K60 USBLOG: SMMU configure failed: %s\n", why);
++		return -1;
++	}
++	return 0;
++}
++
++/*
++ * Root-transport ordering (review C3): the K60 UFS driver takes over the
++ * same apps_smmu with stream 0xe0. Never interleave SMMU writes with it;
++ * the worker waits until the UFS stream's SMR is valid (the last write
++ * of configureUfsSmmu, SmmuTakeover.h:139) before touching the SMMU.
++ * Read-only polling, bounded; on timeout USB is skipped, boot continues.
++ */
++static int
++smmu_ufs_done(vm_offset_t s)
++{
++	uint32_t idr0 = usb_rd(s, SMMU_IDR0);
++	unsigned groups = idr0 & 255;
++	if (groups > APPS_SMMU_GROUPS) {
++		groups = APPS_SMMU_GROUPS;
++	}
++	for (unsigned i = 0; i < groups; i++) {
++		uint32_t smr = usb_rd(s, SMMU_SMR(i));
++		if ((smr & 0x80000000U) && ((smr & 0xffff) == APPS_SMMU_UFS_SID)) {
++			return 1;
++		}
++	}
++	return 0;
++}
++
++/* ------------------------------------------------------------------ */
++/* DWC3 device gadget (pong CDC-ACM form).                              */
++/* ------------------------------------------------------------------ */
++
++#define GSNPSID         0xc120
++#define GCTL            0xc110
++#define GUSB2PHYCFG     0xc200
++#define GEVNTADRLO      0xc400
++#define GEVNTADRHI      0xc404
++#define GEVNTSIZ        0xc408
++#define GEVNTCOUNT      0xc40c
++#define DCFG            0xc700
++#define DCTL            0xc704
++#define DEVTEN          0xc708
++#define DSTS            0xc70c
++#define DALEPENA        0xc720
++#define DEPCMDPAR2(n)   (0xc800 + 0x10 * (n))
++#define DEPCMDPAR1(n)   (0xc804 + 0x10 * (n))
++#define DEPCMDPAR0(n)   (0xc808 + 0x10 * (n))
++#define DEPCMD(n)       (0xc80c + 0x10 * (n))
++
++#define GCTL_DSBLCLKGTNG        (1u << 0)
++#define GUSB2PHYCFG_SUSPHY      (1u << 6)
++#define GUSB2PHYCFG_ENBLSLPM    (1u << 8)
++
++/*
++ * Qualcomm wrapper registers ("QSCRATCH", core base + 0xf8800). The
++ * controller only connects (pull-up on D+) while it sees a valid VBUS
++ * session; Linux dwc3-qcom forces that in software
++ * (dwc3_qcom_vbus_override_enable). Read-back after the write is a hard
++ * gate (review item U-E).
++ */
++#define QSCRATCH_PA             0x0a6f8800
++#define QSCRATCH_HS_PHY_CTRL    0x10
++#define   UTMI_OTG_VBUS_VALID   (1u << 20)
++#define   SW_SESSVLD_SEL        (1u << 28)
++#define QSCRATCH_SS_PHY_CTRL    0x30
++#define   LANE0_PWR_PRESENT     (1u << 24)
++
++#define DCTL_RUN_STOP   (1u << 31)
++#define DCTL_CSFTRST    (1u << 30)
++#define DSTS_DEVCTRLHLT (1u << 22)
++
++#define DEPCMD_SETEPCONFIG      1
++#define DEPCMD_SETTRANSFRESOURCE 2
++#define DEPCMD_SETSTALL         4
++#define DEPCMD_CLEARSTALL       5
++#define DEPCMD_STARTTRANSFER    6
++#define DEPCMD_DEPSTARTCFG      9
++#define DEPCMD_CMDACT           (1u << 10)
++
++#define TRB_HWO         (1u << 0)
++#define TRB_LST         (1u << 1)
++#define TRB_IOC         (1u << 11)
++#define TRBCTL_NORMAL   (1u << 4)
++#define TRBCTL_SETUP    (2u << 4)
++#define TRBCTL_STATUS2  (3u << 4)
++#define TRBCTL_STATUS3  (4u << 4)
++#define TRBCTL_DATA     (5u << 4)
++
++/* DMA area layout (pong's 32 KiB plan, PongUsbDevice.h:53). */
++#define UD_EVT          0x0000          /* event buffer, 4 KiB */
++#define UD_EVT_SIZE     0x1000
++#define UD_TRB_OUT      0x1000          /* ep0 OUT TRB */
++#define UD_TRB_IN       0x1010          /* ep0 IN TRB */
++#define UD_SETUP        0x1040          /* 8-byte setup packet */
++#define UD_DATA         0x1100          /* ep0 data stage, 512 bytes */
++#define UD_TRB_TX       0x3000          /* bulk IN (console) TRB */
++#define UD_TRB_RX       0x3020          /* bulk OUT TRB */
++#define UD_TXDATA       0x4000          /* bulk IN payload, 4 KiB */
++#define UD_RXDATA       0x5000          /* bulk OUT payload, 4 KiB */
++#define UD_SIZE         0x8000
++
++static struct {
++	vm_offset_t dwc;
++	vm_offset_t dma;
++	uint64_t    dma_pa;
++	uint32_t    evt_pos;
++	int         sleep_chan;
++	enum { EP0_SETUP, EP0_DATA, EP0_WAIT_STATUS2, EP0_WAIT_STATUS3, EP0_STATUS } state;
++	bool        data_in;        /* data stage direction */
++	uint32_t    events;         /* rate-limits event prints */
++	bool        started;
++	bool        failed;
++	bool        configured;
++	bool        dtr;
++	bool        tx_active;
++	bool        rx_active;
++	bool        log_ready;
++	uint32_t    log_cursor;
++	uint32_t    tx_end;
++	uint32_t    packet;         /* current bulk max packet: 64 or 512 */
++	bool        ever_connected;
++} ud;
++
++static inline void
++dwc_wr(uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(ud.dwc + off) = v;
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
++
++static inline uint32_t
++dwc_rd(uint32_t off)
++{
++	return usb_rd(ud.dwc, off);
++}
++
++static void
++ud_sync(uint32_t off, uint32_t len)
++{
++	flush_dcache64((addr64_t)(ud.dma_pa + off), len, TRUE);
++}
++
++static void
++ud_sleep_ms(unsigned ms)
++{
++	uint64_t deadline;
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&ud.sleep_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++static void
++ud_worker_exit(void)
++{
++	thread_terminate_self();
++	thread_block(THREAD_CONTINUE_NULL);
++	/* not reached */
++}
++
++static int
++ud_epcmd(unsigned ep, uint32_t cmd, uint32_t p0, uint32_t p1, uint32_t p2)
++{
++	dwc_wr(DEPCMDPAR0(ep), p0);
++	dwc_wr(DEPCMDPAR1(ep), p1);
++	dwc_wr(DEPCMDPAR2(ep), p2);
++	dwc_wr(DEPCMD(ep), cmd | DEPCMD_CMDACT);
++	for (int i = 0; i < 1000; i++) {
++		uint32_t v = dwc_rd(DEPCMD(ep));
++		if (!(v & DEPCMD_CMDACT)) {
++			uint32_t status = (v >> 12) & 0xf;
++			if (status) {
++				printf("K60 USBLOG: ep%u cmd 0x%x status %u\n", ep, cmd & 0xf, status);
++				return -1;
++			}
++			return 0;
++		}
++		delay(1);
++	}
++	printf("K60 USBLOG: ep%u cmd 0x%x timeout\n", ep, cmd & 0xf);
++	return -1;
++}
++
++/* Per-physical-endpoint TRB slot (pong layout: EpTrb/TxTrb/RxTrb). */
++static uint32_t
++ud_trb_for(unsigned ep)
++{
++	switch (ep) {
++	case 0: return UD_TRB_OUT;
++	case 1: return UD_TRB_IN;
++	case 2: return UD_TRB_RX;
++	default: return UD_TRB_TX;      /* ep 3 */
++	}
++}
++
++/*
++ * One TRB on physical endpoint ep. TRB control matches pong exactly
++ * (HWO|LST|IOC, no ISP_IMI); buffer and TRB are cleaned to the point of
++ * coherence before the doorbell.
++ */
++static int
++ud_start(unsigned ep, uint32_t buf, uint32_t len, uint32_t ctl)
++{
++	uint32_t trb = ud_trb_for(ep);
++	volatile uint32_t *t = (volatile uint32_t *)(ud.dma + trb);
++	uint64_t bpa = ud.dma_pa + buf;
++
++	t[0] = (uint32_t)bpa;
++	t[1] = (uint32_t)(bpa >> 32);
++	t[2] = len;
++	t[3] = ctl | TRB_HWO | TRB_LST | TRB_IOC;
++	ud_sync(trb, 16);
++	if (len) {
++		ud_sync(buf, len);
++	}
++	uint64_t tpa = ud.dma_pa + trb;
++	return ud_epcmd(ep, DEPCMD_STARTTRANSFER, (uint32_t)(tpa >> 32), (uint32_t)tpa, 0);
++}
++
++static void
++ud_start_setup(void)
++{
++	ud.state = EP0_SETUP;
++	(void)ud_start(0, UD_SETUP, 8, TRBCTL_SETUP);
++}
++
++static void
++ud_stall(void)
++{
++	(void)ud_epcmd(0, DEPCMD_SETSTALL, 0, 0, 0);
++	ud_start_setup();
++}
++
++/*
++ * Endpoint bring-up (PongUsbDevice.h:122-127): SETEPCONFIG with
++ * XFER_COMPLETE/XFER_NOT_READY events, one transfer resource.
++ */
++static int
++ud_endpoint(unsigned ep, unsigned type, unsigned maxpkt)
++{
++	uint32_t p0 = ((type & 3u) << 1) | ((maxpkt & 0x7ffu) << 3);
++	if (ep & 1) {
++		p0 |= (ep >> 1) << 17;          /* FIFO number for IN endpoints */
++	}
++	uint32_t p1 = (ep << 25) | (1u << 8) | (1u << 10);
++	if (ud_epcmd(ep, DEPCMD_SETEPCONFIG, p0, p1, 0)) {
++		return -1;
++	}
++	return ud_epcmd(ep, DEPCMD_SETTRANSFRESOURCE, 1, 0, 0);
++}
++
++/* PongUsbDevice.h:143-148: full endpoint re-init after a bus reset. */
++static void
++ud_reset_endpoints(void)
++{
++	ud.configured = ud.dtr = false;
++	ud.tx_active = ud.rx_active = false;
++	ud.log_ready = false;
++	dwc_wr(DALEPENA, 0);
++	if (ud_epcmd(0, DEPCMD_DEPSTARTCFG, 0, 0, 0) ||
++	    ud_endpoint(0, 0, 64) || ud_endpoint(1, 0, 64)) {
++		printf("K60 USBLOG: endpoint 0 setup failed\n");
++		ud.failed = true;
++		return;
++	}
++	dwc_wr(DALEPENA, 0x3);
++	ud_start_setup();
++}
++
++/* Descriptors. VID 0x1209 / PID 0x0001 = pid.codes test ID, not a product.
++ * CDC-ACM (PongUsbDevice.h:54-58): IF0 communications (interrupt 0x82) +
++ * IF1 data (bulk 0x81 IN = console TX, 0x01 OUT = host RX drain). */
++static uint8_t ud_dev_desc[18] = {
++	18, 1, 0x00, 0x02, 2, 0, 0, 64,
++	0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 3, 1,
++};
++static const uint8_t ud_cfg_template[] = {
++	9, 2, 67, 0, 2, 1, 0, 0xc0, 50,                 /* 2 interfaces, self-powered, 100 mA */
++	9, 4, 0, 0, 1, 2, 2, 1, 0,                      /* IF0: CDC comm, 1 endpoint */
++	5, 0x24, 0, 0x10, 1,                            /* CDC header */
++	5, 0x24, 1, 0, 1,                               /* call management */
++	4, 0x24, 2, 2,                                  /* ACM */
++	5, 0x24, 6, 0, 1,                               /* union */
++	7, 5, 0x82, 3, 16, 0, 16,                       /* EP 0x82 interrupt IN, 16 B */
++	9, 4, 1, 0, 2, 10, 0, 0, 0,                     /* IF1: CDC data, 2 endpoints */
++	7, 5, 0x81, 2, 64, 0, 0,                        /* EP 0x81 bulk IN */
++	7, 5, 0x01, 2, 64, 0, 0,                        /* EP 0x01 bulk OUT */
++};
++static const char *const ud_strings[] = { NULL, "unixnu", "K60 XNU console", "0001" };
++
++/*
++ * Build the (other-speed) configuration descriptor, walking the real
++ * endpoint descriptors so the bulk max-packet follows the current link
++ * speed (PongUsbDevice.h:69-78).
++ */
++static uint32_t
++ud_configuration(uint8_t *out, int other)
++{
++	uint32_t length = sizeof(ud_cfg_template);
++	memcpy(out, ud_cfg_template, length);
++	if (other) {
++		out[1] = 7;
++	}
++	for (uint32_t n = 9; n + 2 <= length && out[n] >= 2; n += out[n]) {
++		if (out[n + 1] == 5 && out[n] >= 7 && (out[n + 3] & 3) == 2) {
++			uint32_t p = other ? (ud.packet == 512 ? 64 : 512) : ud.packet;
++			out[n + 4] = (uint8_t)p;
++			out[n + 5] = (uint8_t)(p >> 8);
++		}
++	}
++	return length;
++}
++
++static uint32_t
++ud_string(unsigned idx, uint8_t *out)
++{
++	if (idx == 0) {
++		out[0] = 4; out[1] = 3; out[2] = 0x09; out[3] = 0x04;   /* en-US */
++		return 4;
++	}
++	if (idx >= sizeof(ud_strings) / sizeof(ud_strings[0])) {
++		return 0;
++	}
++	const char *str = ud_strings[idx];
++	uint32_t n = 2;
++	for (; *str && n < 126; str++) {
++		out[n++] = (uint8_t)*str;
++		out[n++] = 0;
++	}
++	out[0] = (uint8_t)n;
++	out[1] = 3;
++	return n;
++}
++
++/*
++ * Control request handling (PongUsbDevice.h:158-213, Mux/iPhone branches
++ * removed): standard requests plus the CDC-ACM class set
++ * (GET/SET_LINE_CODING, SET_CONTROL_LINE_STATE, SEND_BREAK) and
++ * CLEAR_FEATURE for the data endpoints.
++ */
++static void
++ud_setup(void)
++{
++	const uint8_t *st = (const uint8_t *)(ud.dma + UD_SETUP);
++	uint8_t *data = (uint8_t *)(ud.dma + UD_DATA);
++	uint8_t type = st[0], req = st[1];
++	uint16_t value = (uint16_t)(st[2] | st[3] << 8);
++	uint16_t index = (uint16_t)(st[4] | st[5] << 8);
++	uint16_t length = (uint16_t)(st[6] | st[7] << 8);
++	uint32_t n = 0;
++	bool ok = true;
++	bool status_only = false;
++
++	if (ud.events < 400) {
++		printf("K60 USBLOG: setup %02x %02x %04x len %u\n", type, req, value, length);
++	}
++	ud.data_in = (type & 0x80) != 0;
++	if ((type & 0x60) == 0 && req == 6 && (type & 0x80)) {
++		/* GET_DESCRIPTOR */
++		switch (value >> 8) {
++		case 1: memcpy(data, ud_dev_desc, sizeof(ud_dev_desc)); n = sizeof(ud_dev_desc); break;
++		case 2: n = ud_configuration(data, 0); break;
++		case 7: n = ud_configuration(data, 1); break;
++		case 3: n = ud_string(value & 0xff, data); ok = n != 0; break;
++		case 6: {       /* device qualifier */
++			const uint8_t q[] = { 10, 6, 0, 2, ud_dev_desc[4], ud_dev_desc[5], ud_dev_desc[6], 64, 1, 0 };
++			memcpy(data, q, 10); n = 10; break;
++		}
++		default: ok = false; break;
++		}
++	} else if (type == 0 && req == 5 && !length && value < 128) {
++		/* SET_ADDRESS: takes effect now (DWC3 handles the timing) */
++		uint32_t dcfg = dwc_rd(DCFG) & ~(0x7fu << 3);
++		dwc_wr(DCFG, dcfg | ((uint32_t)(value & 0x7f) << 3));
++		printf("K60 USBLOG: address %u\n", value & 0x7f);
++		status_only = true;
++	} else if (type == 0x02 && req == 1 && !value && !length) {
++		/* CLEAR_FEATURE(ENDPOINT_HALT) on a data endpoint */
++		unsigned ep = ((index & 15) << 1) | ((index >> 7) & 1);
++		if (index > 0x8f || (index & 0x70) || (ep != 2 && ep != 3 && ep != 5)) {
++			ok = false;
++		} else {
++			(void)ud_epcmd(ep, DEPCMD_CLEARSTALL, 0, 0, 0);
++			status_only = true;
++		}
++	} else if (type == 0 && req == 9 && !length && value <= 1) {
++		/* SET_CONFIGURATION */
++		if (ud.configured && value == 1) {
++			status_only = true;
++		} else {
++			ud.configured = value != 0;
++			if (ud.configured) {
++				/* physical EP2 = bulk OUT, EP3 = bulk IN, EP5 = interrupt IN */
++				if (ud_endpoint(2, 2, ud.packet) ||
++				    ud_endpoint(3, 2, ud.packet) ||
++				    ud_endpoint(5, 3, 16)) {
++					ud.failed = true;
++					return;
++				}
++				dwc_wr(DALEPENA, dwc_rd(DALEPENA) | 0x2c);
++			} else {
++				ud.dtr = false;
++				ud.tx_active = ud.rx_active = false;
++				ud.log_ready = false;
++			}
++			printf("K60 USBLOG: configured (%u)\n", value);
++			status_only = true;
++		}
++	} else if (type == 0x80 && req == 8) {          /* GET_CONFIGURATION */
++		data[0] = ud.configured ? 1 : 0; n = 1;
++	} else if ((type & 0x60) == 0 && req == 0 && (type & 0x80)) {
++		/* GET_STATUS: self-powered, no remote wake (device); 0 otherwise */
++		data[0] = type == 0x80 ? 1 : 0; data[1] = 0; n = 2;
++	} else if (type == 0xa1 && req == 0x21) {       /* GET_LINE_CODING: 115200 8N1 */
++		const uint8_t coding[] = { 0x00, 0xc2, 0x01, 0x00, 0, 0, 8 };
++		memcpy(data, coding, 7); n = 7;
++	} else if (type == 0x21 && req == 0x20 && length == 7) {
++		/* SET_LINE_CODING: consume the 7-byte data stage, then status */
++		ud.data_in = false;
++		ud.state = EP0_DATA;
++		(void)ud_start(0, UD_DATA, 64, TRBCTL_DATA);
++		return;
++	} else if (type == 0x21 && req == 0x22 && !length) {
++		/* SET_CONTROL_LINE_STATE: DTR opens the console drain */
++		ud.dtr = (value & 1) != 0;
++		printf("K60 USBLOG: DTR %u\n", ud.dtr ? 1 : 0);
++		status_only = true;
++	} else if (type == 0x21 && req == 0x23 && !length) {
++		/* SEND_BREAK: acknowledged, ignored */
++		status_only = true;
++	} else if (type == 0x01 && req == 11 && !length && !value) {
++		/* SET_INTERFACE (only alternate 0 exists) */
++		status_only = true;
++	} else if (type == 0x81 && req == 10) {         /* GET_INTERFACE */
++		data[0] = 0; n = 1;
++	} else {
++		ok = false;
++	}
++	if (!ok) {
++		ud_stall();
++		return;
++	}
++	if (status_only) {
++		ud.state = EP0_WAIT_STATUS2;
++		return;
++	}
++	if (length == 0) {
++		ud.state = EP0_WAIT_STATUS2;
++		return;
++	}
++	ud.state = EP0_DATA;
++	if (ud.data_in) {
++		if (n > length) {
++			n = length;
++		}
++		(void)ud_start(1, UD_DATA, n, TRBCTL_DATA);
++	} else {
++		(void)ud_start(0, UD_DATA, 64, TRBCTL_DATA);  /* OUT data is discarded */
++	}
++}
++
++/*
++ * Console ring drain (PongUsbDevice.h:270-285 console(), byte-compatible
++ * with this kernel's pong_ramoops mirror: 12-byte header
++ * {0x43474244, start, size}, capacity 0x200000-12). The ring is read
++ * through its own WC mapping via the read-only accessor; this consumer
++ * keeps an independent read cursor and never writes the ring. On the
++ * first pass after connect the last 64 KiB are replayed so early-boot
++ * output is not lost.
++ */
++static void
++ud_console(void)
++{
++	if (!ud.configured || !ud.dtr || ud.failed) {
++		return;
++	}
++	if (!ud.rx_active) {
++		/* Keep the host's bulk OUT pipe drained; payload is discarded. */
++		ud.rx_active = ud_start(2, UD_RXDATA, ud.packet, TRBCTL_NORMAL) == 0;
++	}
++	if (ud.tx_active) {
++		return;
++	}
++	vm_offset_t ring = pong_ramoops_debug_base();
++	if (!ring) {
++		return;
++	}
++	volatile uint32_t *h = (volatile uint32_t *)ring;
++	const uint32_t capacity = PONG_RAMOOPS_DATA_BYTES;
++	/*
++	 * D-2026-11-04-02: readers take no lock; header consistency via
++	 * seqlock-style double read with a bounded retry (writer drops bytes
++	 * rather than blocks on contention).
++	 */
++	uint32_t start = 0, size = 0;
++	int stable = 0;
++	for (unsigned tries = 0; tries < 4 && !stable; tries++) {
++		start = h[1];
++		size = h[2];
++		__asm__ volatile ("dmb oshld" ::: "memory");
++		stable = h[0] == PONG_RAMOOPS_MAGIC && h[1] == start && h[2] == size;
++	}
++	if (!stable) {
++		return;
++	}
++	if (start >= capacity || size > capacity) {
++		return;
++	}
++	if (!ud.log_ready) {
++		ud.log_cursor = (start + (size > 65536 ? size - 65536 : 0)) % capacity;
++		ud.log_ready = true;
++	}
++	uint32_t end = (start + size) % capacity;
++	unsigned available = (end + capacity - ud.log_cursor) % capacity;
++	if (!available) {
++		return;
++	}
++	unsigned length = available > 1024 ? 1024 : available;
++	if (length >= ud.packet && !(length % ud.packet)) {
++		--length;       /* terminate with a real short packet */
++	}
++	volatile uint8_t *source = (volatile uint8_t *)(ring + PONG_RAMOOPS_HEADER_BYTES);
++	uint8_t *target = (uint8_t *)(ud.dma + UD_TXDATA);
++	for (unsigned i = 0; i < length; i++) {
++		target[i] = source[(ud.log_cursor + i) % capacity];
++	}
++	ud.tx_end = (ud.log_cursor + length) % capacity;
++	ud.tx_active = ud_start(3, UD_TXDATA, length, TRBCTL_NORMAL) == 0;
++}
++
++static void
++ud_event(uint32_t ev)
++{
++	if (ev & 1) {                   /* device event */
++		uint32_t type = (ev >> 8) & 0xf;
++		if (type == 1) {        /* USB reset */
++			dwc_wr(DCFG, dwc_rd(DCFG) & ~(0x7fu << 3));
++			ud_reset_endpoints();
++			printf("K60 USBLOG: bus reset\n");
++		} else if (type == 2) { /* connect done */
++			uint32_t speed = dwc_rd(DSTS) & 7;
++			ud.packet = speed == 0 ? 512 : 64;      /* high speed -> 512 */
++			ud.ever_connected = true;
++			printf("K60 USBLOG: connected, speed %u\n", speed);
++		} else if (type == 0) {
++			ud.configured = ud.dtr = false;
++			ud.tx_active = ud.rx_active = false;
++			ud.log_ready = false;
++			printf("K60 USBLOG: disconnect\n");
++		}
++		return;
++	}
++	unsigned ep = (ev >> 1) & 0x1f;
++	unsigned type = (ev >> 6) & 0xf;
++	unsigned status = (ev >> 12) & 0xf;
++	if (ep >= 2) {
++		if (type == 1) {        /* XferComplete */
++			if (ep == 3) {
++				ud.tx_active = false;
++				ud.log_cursor = ud.tx_end;
++			}
++			if (ep == 2) {
++				ud_sync(UD_TRB_RX, 16);         /* HW wrote the TRB back */
++				ud.rx_active = false;           /* payload discarded */
++			}
++		}
++		return;
++	}
++	/*
++	 * Control transfer state machine (Linux dwc3 ep0.c): SETUP completes ->
++	 * request handled; the data stage (if any) is started right away; the
++	 * status stage is started when the controller reports XferNotReady
++	 * with status "control status"; its completion re-arms SETUP.
++	 */
++	if (type == 1) {                /* XferComplete */
++		switch (ud.state) {
++		case EP0_SETUP:
++			ud_sync(UD_SETUP, 8);
++			ud_setup();
++			break;
++		case EP0_DATA:
++			ud.state = EP0_WAIT_STATUS3;
++			break;
++		case EP0_STATUS:
++			ud_start_setup();
++			break;
++		default:
++			break;
++		}
++		return;
++	}
++	if (type == 3 && status == 2) { /* XferNotReady, control status phase */
++		if (ud.state == EP0_WAIT_STATUS2 || ud.state == EP0_WAIT_STATUS3) {
++			uint32_t ctl = ud.state == EP0_WAIT_STATUS3 ? TRBCTL_STATUS3 : TRBCTL_STATUS2;
++			ud.state = EP0_STATUS;
++			(void)ud_start(ep, UD_DATA, 0, ctl);
++		}
++	}
++}
++
++static void
++ud_events(void)
++{
++	uint32_t count = dwc_rd(GEVNTCOUNT) & 0xfffc;
++	if (count > UD_EVT_SIZE) {
++		printf("K60 USBLOG: event ring overrun\n");
++		ud.failed = true;
++		return;
++	}
++	for (uint32_t done = 0; done < count; done += 4) {
++		uint32_t ev = *(volatile uint32_t *)(ud.dma + UD_EVT + ud.evt_pos);
++		ud.evt_pos = (ud.evt_pos + 4) % UD_EVT_SIZE;
++		if (ud.events++ < 400) {
++			printf("K60 USBLOG: event 0x%08x\n", ev);
++		}
++		ud_event(ev);
++	}
++	if (count) {
++		dwc_wr(GEVNTCOUNT, count);
++	}
++}
++
++/*
++ * Gadget worker. Sequence follows PongUsbDevice.h:294-342 (initialize)
++ * and :373-391 (worker), with the K60 ordering contract:
++ *   bounded UFS SMMU wait -> GCC/role gates -> halt (RUN_STOP clear +
++ *   DEVCTRLHLT wait + DEVTEN/DALEPENA clear) -> SMMU stream-0 bypass
++ *   context (hard gate) -> CSFTRST -> C1 register fixes -> endpoints ->
++ *   forced QSCRATCH VBUS override with latch read-back -> RUN_STOP ->
++ *   2/10 ms poll loop (events + console drain).
++ *
++ * E-worker-state (temporary diagnostic): a coarse progress counter (us)
++ * plus a 2 s heartbeat thread, because one-shot prints scroll off the
++ * screen long before the init stage. st: 2=entry/dump 3=smmu installed
++ * 4=running. Not a state machine, just breadcrumbs for the frozen frame.
++ */
++static volatile int us;
++static void ud_hb(void *a __unused, wait_result_t w __unused){int c;for(;;){uint64_t d;printf("K60 USBLOG: st=%d ev=%u cfg=%d dtr=%d fl=%d\n",us,ud.events,ud.configured,ud.dtr,ud.failed);clock_interval_to_deadline(2000,NSEC_PER_MSEC,&d);(void)assert_wait_deadline(&c,THREAD_UNINT,d);thread_block(THREAD_CONTINUE_NULL);}}
++
++static void
++ud_worker(void *arg __unused, wait_result_t wr __unused)
++{
++	uint64_t deadline;
++
++	us = 2; printf("K60 USBLOG: worker entry\n");
++	{ thread_t t; if(kernel_thread_start(ud_hb,NULL,&t)==KERN_SUCCESS) thread_deallocate(t); }
++
++	/* Gate-0 dump here (thread context), not in the arm_init probe: the
++	 * apps_smmu read window is only proven safe once the platform is up. */
++	smmu_dump_state();
++
++	/* C3: wait for the UFS SMMU takeover (stream 0xe0) to complete. */
++	vm_offset_t smmu = ml_io_map(APPS_SMMU_PA, APPS_SMMU_SIZE);
++	if (smmu == 0) {
++		printf("K60 USBLOG: apps_smmu map failed; USB skipped\n");
++		ud_worker_exit();
++	}
++	printf("K60 USBLOG: waiting for UFS SMMU before USB takeover\n");
++	unsigned waited = 0;
++	for (; waited < 180; waited++) {
++		if (smmu_ufs_done(smmu)) {
++			break;
++		}
++		ud_sleep_ms(500);
++	}
++	if (!smmu_ufs_done(smmu)) {
++		printf("K60 USBLOG: UFS SMMU not ready after 90 s; USB skipped, boot continues\n");
++		ud_worker_exit();
++	}
++	printf("K60 USBLOG: UFS SMMU ready after %u ms\n", waited * 500);
++
++	/* Same gate as the probe: never touch a gated DWC3 block. */
++	vm_offset_t gcc = ml_io_map(GCC_PA, GCC_SIZE);
++	if (gcc == 0) {
++		printf("K60 USBLOG: GCC map failed; gadget not started\n");
++		ud_worker_exit();
++	}
++	uint32_t gdscr = usb_rd(gcc, GCC_USB30_PRIM_GDSCR);
++	uint32_t master = usb_rd(gcc, usb_cbcr[0].off);
++	uint32_t cfg_noc = usb_rd(gcc, usb_cbcr[3].off);
++	if (!(gdscr & (1u << 31)) || (master & CBCR_CLK_OFF) || (cfg_noc & CBCR_CLK_OFF)) {
++		printf("K60 USBLOG: controller unpowered or unclocked (GDSC 0x%08x master 0x%08x cfg-noc 0x%08x); gadget not started\n",
++		    gdscr, master, cfg_noc);
++		ud_worker_exit();
++	}
++	ud.dwc = ml_io_map(DWC3_PA, DWC3_SIZE);
++	if (ud.dwc == 0) {
++		printf("K60 USBLOG: DWC3 map failed; gadget not started\n");
++		ud_worker_exit();
++	}
++	/* C1 read-only identity/role gates before any controller write. */
++	uint32_t id = dwc_rd(GSNPSID) & 0xffff0000;
++	if (id != 0x55330000 && id != 0x55340000 && id != 0x33310000) {
++		printf("K60 USBLOG: unexpected GSNPSID 0x%08x; gadget not started\n", dwc_rd(GSNPSID));
++		ud_worker_exit();
++	}
++	if (((dwc_rd(GCTL) >> 12) & 3) != 2) {
++		printf("K60 USBLOG: GCTL.PRTCAPDIR not device (GCTL 0x%08x); gadget not started\n",
++		    dwc_rd(GCTL));
++		ud_worker_exit();
++	}
++
++	/* C2: quiesce the controller before the first SMMU write. */
++	dwc_wr(DCTL, dwc_rd(DCTL) & ~DCTL_RUN_STOP);
++	int i;
++	for (i = 0; i < 250 && !(dwc_rd(DSTS) & DSTS_DEVCTRLHLT); i++) {
++		delay(1000);
++	}
++	if (!(dwc_rd(DSTS) & DSTS_DEVCTRLHLT)) {
++		printf("K60 USBLOG: controller did not halt after %d ms (DSTS 0x%08x); gadget not started\n",
++		    i, dwc_rd(DSTS));
++		ud_worker_exit();
++	}
++	dwc_wr(DEVTEN, 0);
++	dwc_wr(DALEPENA, 0);
++
++	if (kmem_alloc_contig(kernel_map, &ud.dma, UD_SIZE, PAGE_MASK, 0, 0,
++	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++		printf("K60 USBLOG: no DMA memory\n");
++		ud_worker_exit();
++	}
++	ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)ud.dma);
++	if (!pn) {
++		printf("K60 USBLOG: DMA buffer has no physical page\n");
++		ud_worker_exit();
++	}
++	ud.dma_pa = ptoa_64(pn);
++
++	/* Hard gate: stream-0 bypass context before the first DMA write. */
++	if (smmu_usb_bypass(ud.dma_pa, UD_SIZE) != 0) {
++		printf("K60 USBLOG: SMMU context unavailable; gadget not started\n");
++		ud_worker_exit();
++	}
++	us = 3;
++
++	/* Device controller soft reset (PHY and global setup stay as ABL left them). */
++	dwc_wr(DCTL, DCTL_CSFTRST);
++	for (i = 0; i < 500 && (dwc_rd(DCTL) & DCTL_CSFTRST); i++) {
++		delay(1000);
++	}
++	printf("K60 USBLOG: soft reset %s after %d ms, GCTL 0x%08x DCFG 0x%08x\n",
++	    (dwc_rd(DCTL) & DCTL_CSFTRST) ? "STUCK" : "done", i, dwc_rd(GCTL), dwc_rd(DCFG));
++	if (dwc_rd(DCTL) & DCTL_CSFTRST) {
++		ud_worker_exit();
++	}
++
++	/* C1: four register fixes in pong's order (PongUsbDevice.h:325-341). */
++	dwc_wr(GUSB2PHYCFG, dwc_rd(GUSB2PHYCFG) & ~(GUSB2PHYCFG_SUSPHY | GUSB2PHYCFG_ENBLSLPM));
++	dwc_wr(DCFG, dwc_rd(DCFG) & ~0x3ffu);           /* high speed, address 0 */
++
++	dwc_wr(GEVNTADRLO, (uint32_t)(ud.dma_pa + UD_EVT));
++	dwc_wr(GEVNTADRHI, (uint32_t)((ud.dma_pa + UD_EVT) >> 32));
++	dwc_wr(GEVNTSIZ, (1u << 31) | UD_EVT_SIZE);     /* interrupt masked: polled */
++	dwc_wr(GEVNTCOUNT, dwc_rd(GEVNTCOUNT) & 0xffff);
++	ud.evt_pos = 0;
++	ud.packet = 64;
++
++	ud_reset_endpoints();
++	if (ud.failed) {
++		ud_worker_exit();
++	}
++	dwc_wr(DEVTEN, 0xf);                            /* disconnect, reset, connect, link */
++	dwc_wr(GCTL, dwc_rd(GCTL) | GCTL_DSBLCLKGTNG);
++
++	/* Forced VBUS override (K60 has no PMIC session reporter); latch check
++	 * is a hard gate (review U-E). */
++	vm_offset_t qs = ml_io_map(QSCRATCH_PA, 0x100);
++	if (qs == 0) {
++		printf("K60 USBLOG: QSCRATCH map failed; gadget not started\n");
++		ud_worker_exit();
++	}
++	uint32_t hs = usb_rd(qs, QSCRATCH_HS_PHY_CTRL), ss = usb_rd(qs, QSCRATCH_SS_PHY_CTRL);
++	printf("K60 USBLOG: QSCRATCH HS_PHY_CTRL 0x%08x SS_PHY_CTRL 0x%08x GENERAL_CFG 0x%08x\n",
++	    hs, ss, usb_rd(qs, 0x08));
++	usb_wr(qs, QSCRATCH_HS_PHY_CTRL, hs | UTMI_OTG_VBUS_VALID | SW_SESSVLD_SEL);
++	usb_wr(qs, QSCRATCH_SS_PHY_CTRL, ss | LANE0_PWR_PRESENT);
++	uint32_t hs2 = usb_rd(qs, QSCRATCH_HS_PHY_CTRL), ss2 = usb_rd(qs, QSCRATCH_SS_PHY_CTRL);
++	printf("K60 USBLOG: VBUS override on: HS_PHY_CTRL 0x%08x SS_PHY_CTRL 0x%08x\n", hs2, ss2);
++	if ((hs2 & (UTMI_OTG_VBUS_VALID | SW_SESSVLD_SEL)) != (UTMI_OTG_VBUS_VALID | SW_SESSVLD_SEL)) {
++		printf("K60 USBLOG: QSCRATCH session vote did not latch; gadget not started\n");
++		ud_worker_exit();
++	}
++
++	dwc_wr(DCTL, dwc_rd(DCTL) | DCTL_RUN_STOP);
++	for (i = 0; i < 500 && (dwc_rd(DSTS) & DSTS_DEVCTRLHLT); i++) {
++		delay(1000);
++	}
++	printf("K60 USBLOG: running (DSTS 0x%08x after %d ms), DMA at 0x%llx\n", dwc_rd(DSTS), i, ud.dma_pa);
++	ud.started = true;
++	us = 4;
++
++	unsigned idle_loops = 0;
++	int phy_hint = 0;
++	while (!ud.failed) {
++		ud_events();
++		ud_console();
++		if (!ud.ever_connected && !phy_hint && ++idle_loops >= 6000) {
++			/* ~60 s of silence after RUN_STOP: review U-D. */
++			printf("K60 USBLOG: no USB activity 60 s after RUN_STOP; PHY rails or VBUS path suspect\n");
++			phy_hint = 1;
++		}
++		ud_sleep_ms(ud.configured ? 2 : 10);
++	}
++	dwc_wr(DCTL, dwc_rd(DCTL) & ~DCTL_RUN_STOP);
++	clock_interval_to_deadline(250, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&ud.sleep_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++	/* DMA/context retained on failure: never reuse active pages. */
++	printf("K60 USBLOG: controller failed, output stopped; DMA retained\n");
++	ud_worker_exit();
++}
++
++/*
++ * Called from bsd_init once IOKit is up: the thread subsystem exists, so
++ * only the worker thread is created here; every register touch happens
++ * inside it (bounded UFS wait must not block the boot thread).
++ */
++void
++k60_usblog_start(void)
++{
++	thread_t thread;
++
++	if (k60_usblog_mode < 0) {
++		k60_usblog_mode = k60_usblog_arg();
++	}
++	if (k60_usblog_mode < 2 || ud.started) {
++		return;
++	}
++	if (kernel_thread_start(ud_worker, NULL, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++}
++#endif /* ARM64_BOARD_CONFIG_PONG */
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -669,6 +669,13 @@
+ 	(void)pong_ramoops_console_init();
+ #endif
+ 
++#if defined(ARM64_BOARD_CONFIG_PONG)
++	/* K60 USB log channel: probe the DWC3 now (read-only);
++	 * the CDC console worker starts from bsd_init once threads exist. */
++	extern void k60_usblog_init(void);
++	(void)k60_usblog_init();
++#endif
++
+ 	if (debug_boot_arg) {
+ 		patch_low_glo();
+ 	}
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1314,6 +1314,15 @@
+ 		native_pong_ui_services_start();
+ 	}
+ #endif
++
++#if defined(ARM64_BOARD_CONFIG_PONG)
++	/* K60 USB log channel: with threads running, spawn the CDC console
++	 * worker the arm_init probe measured (boot-arg k60_usblog=2). */
++	if (result == KERN_SUCCESS) {
++		extern void k60_usblog_start(void);
++		k60_usblog_start();
++	}
++#endif
+ 	return result;
+ }
+ 

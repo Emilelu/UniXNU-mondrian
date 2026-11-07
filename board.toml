@@ -26,7 +26,7 @@ driver_records = "DEVELOPMENT_ARM64_PONG"
 # selected in [components] and therefore has no drivers/PongAdreno, so the fallback
 # stops the build on PongAdrenoCpProfile.h. This is the same driver tree the device
 # archive recipes already build against.
-pong_native_driver_source = "/tmp/k60build/pong-driver"
+pong_native_driver_source = "/opt/k60/trees/pong-driver"
 
 [userdata]
 first_lba = 53342976

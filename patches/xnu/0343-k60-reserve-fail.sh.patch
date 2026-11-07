@@ -1,0 +1,31 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -1597,6 +1597,12 @@
+ {
+ 	if (!reserved) {
+ 		reserved = IOMallocType(ExpansionData);
++		if (!reserved) {
++			/* 0343: never claim success without expansion data - the caller
++			 * then sets IOUserClientCreator on it and setProperty would fault. */
++			printf("K60RSV FAIL this=%p\n", (void *)this);
++			return false;
++		}
+ 	}
+ 	if (k60_usblog_console_up()) {
+ 		static unsigned k60rsv_seen;
+@@ -4331,6 +4337,15 @@
+ 			}
+ 		}
+ 
++		if (res == kIOReturnSuccess && !client->reserved) {
++			/* 0343: last line of defence - setProperty("IOUserClientCreator")
++			 * dereferences reserved, so a client without it must not proceed. */
++			printf("K60RSV NULL client=%p\n", (void *)client);
++			client->clientClose();
++			OSSafeReleaseNULL(client);
++			res = kIOReturnNoMemory;
++		}
++
+ 		if (res == kIOReturnSuccess) {
+ 			OSString * creatorName = IOCopyLogNameForPID(proc_selfpid());
+ 			if (creatorName) {

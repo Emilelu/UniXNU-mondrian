@@ -278,3 +278,29 @@ python3 scripts/k60-prelink-local.py \
 
 设备级代码采用 BSD-2-Clause-Patent。导入组件保留各自 SPDX 标记与原始许可证，
 见 `THIRD_PARTY_NOTICES.md`。
+
+## 当前状态（2026-11-07）
+
+iOS 16.6.1（20G81）在 K60 上已经跑到用户态首帧：
+
+- 内核启动完整：XNU → launchd → SpringBoard / backboardd / containermanagerd / mediaserverd，
+  显示层报告 `K60 DISPLAY: first frame presented (swap 1, 1440x3200 canvas on 1440x3200 panel)`，
+  之后 `MiniIOMobileFramebuffer` 稳定 60 fps（`305 frames in 5011 ms (60 a second)`）。
+- 屏幕上有 iOS 的启动进度条；内核文本控制台与进度条会抢同一块 framebuffer
+  （`init` 把每个守护进程的 stderr 指向 `/dev/console`），0365 在首帧之后停止 framebuffer 文字。
+- 当前唯一阻塞：**launchd（pid 1）收到 SIGSEGV**（`KX! 50 1 launchd exit=0 sig=11 ... code=0xb`），
+  XNU 按设计因 `pid 1 exited` panic，板子复位，进度条从头再来。launchd 的崩溃地址尚未抓到。
+- 内省工具：`K60PANICFMT`（panic 格式串+caller）、`K60KEXC`（pc/lr/sp/esr/far）、
+  `K60KFRAME`（帧指针回溯）、`K60NULLENTRY`（无 ExpansionData 的 IORegistryEntry 身份）。
+
+已知约束：payload 的 boot-arg 必须保持在 600 字符以内（boot.img 内预编译的 UniXNU 加载器
+超过这个长度直接返回 `Bad Buffer Size`，内核零启动）；payload FAT 用已验证的 0372 基座，
+组装脚本会自动扩展内核簇链并读回校验。
+
+### 最近可用镜像
+
+| 镜像 | 说明 |
+| --- | --- |
+| `boot-0408-20261107.img` | 首帧 + SpringBoard 存活（内核文本控制台仍在画屏） |
+| `boot-0409-20261107.img` | 同上，`k60_textonly=0`（该参数在当前内核里其实无效） |
+| `boot-0410-20261107.img` | 0365：首帧后停止 framebuffer 文字，屏幕只留 iOS UI |

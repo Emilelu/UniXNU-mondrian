@@ -1,0 +1,61 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2246,6 +2246,15 @@
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 		{
+ 		extern int k60_probe_ready;
++		extern int k60ps_enter;
++		extern int k60ps_pid;
++		extern int k60ps_err;
++
++		k60_probe_ready = 1;
++		{
++			printf("K60PS enter=%d pid=%d err=%d\n",
++			    k60ps_enter, k60ps_pid, k60ps_err);
++		}
+ 		extern int k60tr_seen;
+ 		extern int k60tr_callpid[];
+ 		extern int k60tr_elem[];
+@@ -3712,9 +3721,42 @@
+  *		Handle posix_spawnattr_t
+  *		Handle posix_spawn_file_actions_t
+  */
++/*
++ * k60 0326: temporary probe. xpcproxy exits 0 without exec'ing its service;
++ * record whether it even reaches posix_spawn and what that returns.
++ * The direct printf is safe here: xpcproxy is spawned long after the console is
++ * up, and it is gated on k60_probe_ready (set by the heartbeat at t=15 s), with
++ * the output capped at 8 lines.
++ */
++extern int k60_probe_ready;
++
++int k60ps_enter;
++int k60ps_prints;
++int k60ps_pid = -1;
++int k60ps_err;
++
++static int posix_spawn_internal(proc_t, struct posix_spawn_args *, int32_t *);
++
+ int
+ posix_spawn(proc_t ap, struct posix_spawn_args *uap, int32_t *retval)
+ {
++	int k60_r = posix_spawn_internal(ap, uap, retval);
++
++	if (ap != PROC_NULL && strncmp(ap->p_comm, "xpcproxy", 9) == 0) {
++		k60ps_enter++;
++		k60ps_pid = proc_getpid(ap);
++		k60ps_err = k60_r;
++		if (k60_probe_ready && k60ps_prints < 8) {
++			k60ps_prints++;
++			printf("K60PSX pid=%d err=%d\n", k60ps_pid, k60ps_err);
++		}
++	}
++	return k60_r;
++}
++
++static int
++posix_spawn_internal(proc_t ap, struct posix_spawn_args *uap, int32_t *retval)
++{
+ 	proc_t p = ap;
+ 	user_addr_t pid = uap->pid;
+ 	int ival[2];            /* dummy retval for setpgid() */

@@ -1,0 +1,65 @@
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -1576,6 +1576,52 @@
+ 	return IOTaskHasEntitlement(NULL, entitlement);
+ }
+ 
++/*
++ * 0330: the two questions that have actually killed a daemon on this board.
++ *
++ * runningboardd and UserEventAgent abort when
++ * setiopolicy_np(IOPOL_TYPE_VFS_ALLOW_LOW_SPACE_WRITES) returns EPERM, and
++ * usermanagerd cannot create its personas without persona_alloc.  Both are
++ * refused only because the AMFI table is NULL, and the stand-in that would
++ * answer from the code signature instead crashes launchd (0355).  So answer
++ * yes for these two names and for nothing else, behind a boot-arg, so the
++ * widening stays a deliberate act that one boot can switch off.
++ */
++static bool
++k60_entitlement_allow_enabled(void)
++{
++	static int enabled = -1;
++
++	if (enabled < 0) {
++		uint32_t value = 0;
++
++		enabled = (PE_parse_boot_argn("k60_entitlement_allow", &value,
++		    sizeof(value)) && value != 0) ? 1 : 0;
++		if (enabled) {
++			IOLog("K60ENT allow-list active (amfi %s)\n",
++			    amfi == NULL ? "NULL" : "present");
++		}
++	}
++	return enabled == 1;
++}
++
++static bool
++k60_entitlement_is_allowed(const char *name)
++{
++	static const char * const allowed[] = {
++		"com.apple.private.vfs.allow-low-space-writes",
++		"com.apple.private.persona-mgmt",
++	};
++	size_t i;
++
++	for (i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
++		if (strcmp(name, allowed[i]) == 0) {
++			return true;
++		}
++	}
++	return false;
++}
++
+ extern "C" boolean_t
+ IOTaskHasEntitlement(task_t task, const char *entitlement)
+ {
+@@ -1587,6 +1633,9 @@
+ 	if (task == kernel_task || entitlement == NULL) {
+ 		return false;
+ 	}
++	if (k60_entitlement_allow_enabled() && k60_entitlement_is_allowed(entitlement)) {
++		return true;
++	}
+ 	if (amfi == NULL || amfi->OSEntitlements.queryEntitlementBooleanWithProc == NULL) {
+ 		return false;
+ 	}

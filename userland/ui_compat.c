@@ -571,7 +571,19 @@ static void install_objc_hooks(void)
 }
 
 static void image_added(const struct mach_header *h, intptr_t slide)
-{ (void)h;(void)slide;install_objc_hooks(); }
+{
+    static unsigned k60img;
+    if (k60img < 24) {
+        Dl_info info;
+        const char *path = "?";
+        if (dladdr((const void *)h, &info) && info.dli_fname) {
+            path = info.dli_fname;
+        }
+        k60img++;
+        say("Pong UI: img %u %s\n", k60img, path);
+    }
+    install_objc_hooks();
+}
 
 /* HackiOS's delayed unlock is needed while Pong has no input path into the
  * iOS lock screen. Use the actual 20G81 int argument (20F66 used long in the
@@ -675,17 +687,47 @@ static void main_snapshot(void *context)
 
 static void start_home_transition(void)
 {
+    say("Pong UI: ht1 mach_thread_self\n");
     ui_main_thread=mach_thread_self();
     size_t length=0;
+    say("Pong UI: ht2 dyld cache range\n");
     const void *cache=_dyld_get_shared_cache_range(&length);
     ui_cache_slide=cache?(uintptr_t)cache-0x180000000ULL:0;
-    CFRunLoopObserverRef observer=CFRunLoopObserverCreate(NULL,kCFRunLoopBeforeWaiting,true,2000001,main_turn,NULL);
-    if (observer) { CFRunLoopAddObserver(CFRunLoopGetMain(),observer,kCFRunLoopCommonModes);CFRelease(observer); }
-    dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),NULL,present_home);
-    dispatch_queue_t queue=dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW,0);
-    dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW,60*NSEC_PER_SEC),queue,(void *)60,main_snapshot);
-    dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW,120*NSEC_PER_SEC),queue,(void *)120,main_snapshot);
-    dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW,300*NSEC_PER_SEC),queue,(void *)300,main_snapshot);
+    say("Pong UI: ht3 cache slide=%llx\n",(unsigned long long)ui_cache_slide);
+    /* 0348: the compile-only CF shim defines kCFRunLoopCommonModes as a NULL
+     * literal, so CFRunLoopAddObserver faults; and CFRunLoopObserverCreate
+     * itself faults inside a pre-main constructor in SpringBoard.  The observer
+     * only reported main-runloop turns, so poll from dispatch instead. */
+    say("Pong UI: ht4 observer skipped (no CFRunLoop in constructor)\n");
+    /* 0353: the library is linked with -undefined dynamic_lookup, so dispatch
+     * ends up as a flat-namespace lazy bind.  In SpringBoard those binds are not
+     * resolved and dyld raises "missing symbol called" (the process then dies
+     * with SIGABRT).  Resolve them by hand and skip scheduling when absent - the
+     * delayed work is presentation only, never a boot requirement. */
+    typedef void (*after_f_fn)(dispatch_time_t, dispatch_queue_t, void *, dispatch_function_t);
+    typedef dispatch_time_t (*time_fn)(dispatch_time_t, long long);
+    typedef dispatch_queue_t (*main_q_fn)(void);
+    typedef dispatch_queue_t (*global_q_fn)(long, unsigned long);
+    after_f_fn p_after = (after_f_fn)dlsym(RTLD_DEFAULT, "dispatch_after_f");
+    time_fn p_time = (time_fn)dlsym(RTLD_DEFAULT, "dispatch_time");
+    main_q_fn p_mainq = (main_q_fn)dlsym(RTLD_DEFAULT, "dispatch_get_main_queue");
+    global_q_fn p_gq = (global_q_fn)dlsym(RTLD_DEFAULT, "dispatch_get_global_queue");
+    say("Pong UI: ht7 dispatch syms after=%p time=%p mainq=%p gq=%p\n",
+        (void *)p_after, (void *)p_time, (void *)p_mainq, (void *)p_gq);
+    if (p_after && p_time && p_mainq) {
+        p_after(p_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), p_mainq(), NULL, present_home);
+        say("Pong UI: ht8 present_home scheduled\n");
+        if (p_gq) {
+            dispatch_queue_t queue = p_gq(DISPATCH_QUEUE_PRIORITY_LOW, 0);
+            p_after(p_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC), queue, (void *)60, main_snapshot);
+            p_after(p_time(DISPATCH_TIME_NOW, 120 * NSEC_PER_SEC), queue, (void *)120, main_snapshot);
+            p_after(p_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_SEC), queue, (void *)300, main_snapshot);
+            say("Pong UI: ht9 snapshots scheduled\n");
+        }
+    } else {
+        say("Pong UI: ht8 dispatch unavailable; presentation scheduling skipped\n");
+    }
+    say("Pong UI: ht10 done\n");
 }
 
 /* Addresses resolved from the supplied 20G81 QuartzCore, not from 20F66.
@@ -829,12 +871,18 @@ __attribute__((constructor)) static void pong_ui_init(void)
         pong_settings_icons_start(settings_record);
     }
     if (is_springboard) {
-        CFPreferencesSetAppValue(CFSTR("BSUIVibrancyEffectViewDisabled"),kCFBooleanTrue,kCFPreferencesCurrentApplication);
-        /* 20G81 SpringBoard reads this preference. Set it before UIApplication
-         * startup: the delayed wake cannot run until the main queue is free. */
-        CFPreferencesSetAppValue(CFSTR("SBDisableAutoDim"),kCFBooleanTrue,kCFPreferencesCurrentApplication);
+        /* 0347: CFPreferencesSetAppValue inside a pre-main constructor faults
+         * SpringBoard (KX! sig=11 right after "SB prefs begin").  These two
+         * switches are cosmetic (vibrancy off, no auto-dim); skip them until
+         * the preferences daemon connection is proven to work from SpringBoard.
+         */
+        say("Pong UI: SB prefs skipped (constructor-stage CFPreferences faults)\n");
     }
-    if (is_springboard) start_home_transition();
+    if (is_springboard) {
+        say("Pong UI: SB home transition begin\n");
+        start_home_transition();
+        say("Pong UI: SB home transition done\n");
+    }
     if (backboard) {install_renderer_hook();pong_touch_start();}
     _dyld_register_func_for_add_image(image_added);
 }

@@ -1,0 +1,25 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -724,6 +724,22 @@
+ 	}
+ #endif
+ 
++	/*
++	 * 0346: always-on user data-abort trace.  SpringBoard dies with SIGSEGV
++	 * seconds after launch and the kernel keeps no record of the fault, so
++	 * print ESR/FAR/PC for the first few user aborts (rate limited).
++	 */
++	if (is_user && class == ESR_EC_DABORT_EL0 && ml_get_interrupts_enabled()) {
++		static unsigned k60exc_seen;
++		extern bool k60_usblog_console_up(void);
++		if (k60exc_seen < 64 && k60_usblog_console_up()) {
++			k60exc_seen++;
++			printf("K60EXC n=%u esr=%x far=%llx pc=%llx\n",
++			    k60exc_seen, (unsigned)esr, (unsigned long long)far,
++			    (unsigned long long)get_saved_state_pc(state));
++		}
++	}
++
+ 	switch (class) {
+ 	case ESR_EC_SVC_64:
+ 		if (!is_saved_state64(state) || !is_user) {

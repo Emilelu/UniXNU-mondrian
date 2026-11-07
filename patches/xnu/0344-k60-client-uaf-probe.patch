@@ -1,0 +1,22 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -4347,7 +4347,19 @@
+ 		}
+ 
+ 		if (res == kIOReturnSuccess) {
++			/* 0344: is the client still alive across the creator-name
++			 * allocation?  A use-after-free would zero reserved here. */
++			void * k60_rsv_before = (void *)client->reserved;
++			unsigned int k60_rc_before = 0;
+ 			OSString * creatorName = IOCopyLogNameForPID(proc_selfpid());
++			if (k60_usblog_console_up()) {
++				printf("K60UF client=%p cls=%s rsv_before=%p rsv_after=%p name=%p\n",
++				    (void *)client,
++				    client->getMetaClass() ? client->getMetaClass()->getClassName() : "?",
++				    k60_rsv_before, (void *)client->reserved, (void *)creatorName);
++				k60_rc_before = (unsigned int)client->getRetainCount();
++				printf("K60UF2 retain=%u\n", k60_rc_before);
++			}
+ 			if (creatorName) {
+ 				client->setProperty(kIOUserClientCreatorKey, creatorName);
+ 			}

@@ -1,0 +1,90 @@
+--- a/osfmk/ipc/ipc_kmsg.c
++++ b/osfmk/ipc/ipc_kmsg.c
+@@ -71,6 +71,22 @@
+  */
+ 
+ 
++/*
++ * k60 0324: temporary probe. Record the audit token the kernel stamps into a
++ * mach trailer when PID 1 (launchd) is the sender. xpcproxy validates
++ * val[5]==1 (pid) and val[1]==0 (euid) on the token it reads from launchd's
++ * reply; this shows whether the kernel side is right. No printf here
++ * (pitfall #70); bsd/kern/kern_exec.c prints it from the K60 heartbeat.
++ */
++#define K60TK_N 4
++
++extern int k60tk_seen;
++extern int k60tk_spid[];
++extern int k60tk_euid[];
++extern int k60tk_apid[];
++extern int k60tk_pidver[];
++extern void k60tk_latch(int, int, int, int);
++
+ #include <mach/mach_types.h>
+ #include <mach/boolean.h>
+ #include <mach/kern_return.h>
+@@ -6773,6 +6789,13 @@
+ 		trailer->msgh_trailer_size = MACH_MSG_TRAILER_MINIMUM_SIZE;
+ 		trailer->msgh_sender = *task_get_sec_token(sender);
+ 		trailer->msgh_audit = *task_get_audit_token(sender);
++		/* k60 0324: only PID 1 (launchd) matters to xpcproxy's reply check */
++		if (task_pid(sender) == 1) {
++			k60tk_latch(task_pid(sender),
++			    (int)trailer->msgh_audit.val[1],
++			    (int)trailer->msgh_audit.val[5],
++			    (int)trailer->msgh_audit.val[7]);
++		}
+ 	}
+ }
+ 
+@@ -6893,3 +6916,26 @@
+ 	kmsg->ikm_voucher_port = IP_NULL;
+ 	kmsg->ikm_voucher_type = MACH_MSGH_BITS_ZERO;
+ }
++
++
++/* ---- k60 0324 probe state (file scope) ---- */
++int k60tk_seen;
++int k60tk_spid[K60TK_N];
++int k60tk_euid[K60TK_N];
++int k60tk_apid[K60TK_N];
++int k60tk_pidver[K60TK_N];
++
++void
++k60tk_latch(int k60_spid, int k60_euid, int k60_apid, int k60_pidver)
++{
++	int k60_i;
++
++	if (k60tk_seen >= K60TK_N) {
++		return;
++	}
++	k60_i = k60tk_seen++;
++	k60tk_spid[k60_i] = k60_spid;
++	k60tk_euid[k60_i] = k60_euid;
++	k60tk_apid[k60_i] = k60_apid;
++	k60tk_pidver[k60_i] = k60_pidver;
++}
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2246,6 +2246,21 @@
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 		{
+ 		extern int k60_probe_ready;
++		extern int k60tk_seen;
++		extern int k60tk_spid[];
++		extern int k60tk_euid[];
++		extern int k60tk_apid[];
++		extern int k60tk_pidver[];
++
++		k60_probe_ready = 1;
++		if (k60tk_seen > 0) {
++			int k60_i;
++			for (k60_i = 0; k60_i < k60tk_seen && k60_i < 4; k60_i++) {
++				printf("K60TK i=%d spid=%d euid=%d apid=%d pidver=%d\n",
++				    k60_i, k60tk_spid[k60_i], k60tk_euid[k60_i],
++				    k60tk_apid[k60_i], k60tk_pidver[k60_i]);
++			}
++		}
+ 		extern int k60at_seen;
+ 		extern int k60at_cpid[];
+ 		extern int k60at_tpid[];

@@ -1,0 +1,97 @@
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -3182,6 +3182,18 @@
+ {
+ 	IOReturn ret;
+ 	CHECK( IOUserClient, connection, client );
++	/* 0355: a connection can outlive its client object (kext-owned clients are
++	 * released behind the generic open path).  The MIG routines below take the
++	 * client's embedded lock, which a reused object no longer has. */
++	if (__improbable(!client->reserved)) {
++		static unsigned k60cg_seen;
++		if (k60cg_seen < 16) {
++			k60cg_seen++;
++			printf("K60CG stale connection=%p\n", (void *)connection);
++		}
++		return kIOReturnNotReady;
++	}
++
+ 
+ 	IOStatisticsClientCall();
+ 	IORWLockWrite(&client->lock);
+@@ -4543,6 +4555,18 @@
+ 	}
+ 
+ 	CHECK( IOUserClient, connection, client );
++	/* 0355: a connection can outlive its client object (kext-owned clients are
++	 * released behind the generic open path).  The MIG routines below take the
++	 * client's embedded lock, which a reused object no longer has. */
++	if (__improbable(!client->reserved)) {
++		static unsigned k60cg_seen;
++		if (k60cg_seen < 16) {
++			k60cg_seen++;
++			printf("K60CG stale connection=%p\n", (void *)connection);
++		}
++		return kIOReturnNotReady;
++	}
++
+ 
+ 	IOStatisticsClientCall();
+ 
+@@ -4588,6 +4612,18 @@
+ {
+ 	kern_return_t ret;
+ 	CHECK( IOUserClient, connection, client );
++	/* 0355: a connection can outlive its client object (kext-owned clients are
++	 * released behind the generic open path).  The MIG routines below take the
++	 * client's embedded lock, which a reused object no longer has. */
++	if (__improbable(!client->reserved)) {
++		static unsigned k60cg_seen;
++		if (k60cg_seen < 16) {
++			k60cg_seen++;
++			printf("K60CG stale connection=%p\n", (void *)connection);
++		}
++		return kIOReturnNotReady;
++	}
++
+ 
+ 	IOStatisticsClientCall();
+ 	IORWLockWrite(&client->lock);
+@@ -4607,6 +4643,18 @@
+ {
+ 	kern_return_t ret;
+ 	CHECK( IOUserClient, connection, client );
++	/* 0355: a connection can outlive its client object (kext-owned clients are
++	 * released behind the generic open path).  The MIG routines below take the
++	 * client's embedded lock, which a reused object no longer has. */
++	if (__improbable(!client->reserved)) {
++		static unsigned k60cg_seen;
++		if (k60cg_seen < 16) {
++			k60cg_seen++;
++			printf("K60CG stale connection=%p\n", (void *)connection);
++		}
++		return kIOReturnNotReady;
++	}
++
+ 
+ 	IOStatisticsClientCall();
+ 	IORWLockWrite(&client->lock);
+@@ -4824,6 +4872,18 @@
+ 	io_object_t connect_to)
+ {
+ 	CHECK( IOUserClient, connection, client );
++	/* 0355: a connection can outlive its client object (kext-owned clients are
++	 * released behind the generic open path).  The MIG routines below take the
++	 * client's embedded lock, which a reused object no longer has. */
++	if (__improbable(!client->reserved)) {
++		static unsigned k60cg_seen;
++		if (k60cg_seen < 16) {
++			k60cg_seen++;
++			printf("K60CG stale connection=%p\n", (void *)connection);
++		}
++		return kIOReturnNotReady;
++	}
++
+ 	CHECK( IOUserClient, connect_to, to );
+ 
+ 	IOReturn ret;

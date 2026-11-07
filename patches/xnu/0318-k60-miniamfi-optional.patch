@@ -1,0 +1,40 @@
+--- a/libkern/amfi/miniamfi.c
++++ b/libkern/amfi/miniamfi.c
+@@ -263,7 +263,36 @@
+ miniamfi_init(void)
+ {
+ 	uint32_t enabled = 0;
+-	if (amfi != NULL || !PE_parse_boot_argn("amfi_get_out_of_my_way", &enabled, sizeof(enabled)) || !enabled) return;
++	uint32_t k60_miniamfi = 0;
++
++	if (amfi != NULL || !PE_parse_boot_argn("amfi_get_out_of_my_way", &enabled, sizeof(enabled)) || !enabled) {
++		return;
++	}
++	/*
++	 * 0318: follow the Pong ios16 recipe - leave the amfi_t table NULL.
++	 *
++	 * Pong's zzzzzzzzzzz-pong-development-no-amfi-interface.patch states it
++	 * plainly: "AMFI is deliberately absent from this development prelink.
++	 * Disabling enforcement does not by itself make its kernel interface
++	 * non-null." Every amfi-> dereference in this tree is already guarded with
++	 * "amfi == NULL || <fn> == NULL", and accelerate_entitlement_queries()
++	 * returns success when the table is missing AND the immutable code-signing
++	 * configuration carries CS_CONFIG_ENFORCEMENT_DISABLED |
++	 * CS_CONFIG_GET_OUT_OF_MY_WAY (cs_enforcement_disable=1 plus
++	 * amfi_get_out_of_my_way=1, both on this board's cmdline).
++	 *
++	 * Filling the table with the stand-in defeats that branch: user space then
++	 * calls a real-looking AMFI that has no IOKit service, and
++	 * launchd_cache_loader aborts with "Unable to find AMFI". Keeping it NULL
++	 * is what makes the signed-plist verification vacuous and lets the helper
++	 * install launchd's service cache.
++	 *
++	 * k60_miniamfi=1 opts the stand-in back in (kept for A/B runs).
++	 */
++	if (!PE_parse_boot_argn("k60_miniamfi", &k60_miniamfi, sizeof(k60_miniamfi)) || !k60_miniamfi) {
++		printf("Pong userland: AMFI interface left NULL (pong ios16 recipe)\n");
++		return;
++	}
+ 	amfi_interface_register(&miniamfi);
+ 	printf("Pong userland: HackiOS development AMFI interface registered\n");
+ }

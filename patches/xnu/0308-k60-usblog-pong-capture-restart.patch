@@ -1,0 +1,407 @@
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -54,6 +54,7 @@
+ #include <vm/pmap.h>
+ #include <vm/vm_kern.h>
+ #include <pexpert/pexpert.h>
++#include <sys/reboot.h>          /* 0319: reboot_kernel() */
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ /* vm/pmap.h does not expose this one in the BSD compilation unit. */
+@@ -146,6 +147,195 @@
+ 
+ static int k60_usblog_mode = -1;        /* -1: init not run yet */
+ 
++/*
++ * 0308: automatic return to fastboot.
++ *
++ * The serial console is one-way: to read a boot's log the operator has to
++ * power-cycle the phone by hand and catch fastboot. Writing the Xiaomi
++ * "bootloader" restart reason into IMEM and issuing PSCI SYSTEM_RESET makes
++ * the phone walk back into fastboot on its own, which is exactly what the
++ * UEFI keypad helper already does on the other side of the same fence
++ * (uefi-mondrian K60KeypadDeviceLib.c: AutoResetToFastboot ->
++ * Wr32(0x146AA65C, 0x77665500) then EfiResetCold). Address and cookie come
++ * from that code and from the live DT node
++ * qcom,msm-imem@146aa000 / restart_reason@65c.
++ *
++ * Two triggers, both gated by k60_usblog_reset=<seconds> (0 = never):
++ *   - the console ring has been quiet for that many seconds, and
++ *   - the log has ended at a known-fatal event (panic or a critical exit).
++ * The first keeps a healthy boot readable for as long as a human needs; the
++ * second avoids sitting on a dead machine for the whole window.
++ */
++#define K60_IMEM_PA              0x146AA000u    /* msm-imem@146aa000 */
++#define K60_IMEM_SIZE            0x00001000u
++#define K60_IMEM_RESTART_REASON  0x65cu         /* restart_reason@65c */
++#define K60_RESTART_REASON_BOOTLOADER 0x77665500u
++
++static int k60_usblog_reset = -1;       /* -1: arg not parsed yet */
++
++static int
++k60_usblog_reset_arg(void)
++{
++	int seconds = 0;
++
++	PE_parse_boot_argn("k60_usblog_reset", &seconds, sizeof(seconds));
++	return seconds;
++}
++
++/*
++ * 0319: Pong-style restart reason (ported from
++ * pong-boot-capture/PongBootCapture.h, Chengdong-Yu/pong-boot-capture).
++ *
++ * The bootloader reads the PMIC SDAM7100 cell ("restart@48 bits<1 7>", APPS
++ * EE0) - not just IMEM - when deciding where to go after a reset. That is why
++ * writing IMEM alone still landed in Android. Pong's markTarget():
++ *
++ *     value = (before & 1) | (target << 1);
++ *     target 1 = REC        -> IMEM 0x77665502
++ *     target 2 = bootloader -> IMEM 0x77665500
++ *
++ * The SPMI side is a v7 transaction: an observer read of the SDAM cell, then a
++ * channel command 0x48<<4 carrying the new byte in the channel data register.
++ */
++#define K60_SPMI_CORE_PA     0x0C400000u
++#define K60_SPMI_CORE_SIZE   0x00003000u
++#define K60_SPMI_CONFIG_PA   0x0C42D000u
++#define K60_SPMI_CONFIG_SIZE 0x00004000u
++#define K60_SPMI_OBSERVER_PA 0x0C440000u
++#define K60_SPMI_CHANNEL_PA  0x0C500000u
++
++static unsigned    k60_spmi_apid;
++static vm_offset_t k60_spmi_observer;
++static vm_offset_t k60_spmi_channel;
++static vm_offset_t k60_imem;
++
++static bool
++k60_spmi_wait(vm_offset_t w, uint32_t off)
++{
++	for (unsigned n = 0; n < 100000; n++) {
++		uint32_t s = *(volatile uint32_t *)(w + off + 8);
++		if (s & 1) {
++			return (s & 15) == 1;
++		}
++	}
++	return false;
++}
++
++static bool
++k60_sd_read_cell(uint8_t *v)
++{
++	*(volatile uint32_t *)(k60_spmi_observer + k60_spmi_apid * 0x20) =
++	    (1u << 27) | (0x48u << 4);
++	if (!k60_spmi_wait(k60_spmi_observer, k60_spmi_apid * 0x20)) {
++		return false;
++	}
++	*v = (uint8_t)(*(volatile uint32_t *)(k60_spmi_observer +
++	    k60_spmi_apid * 0x20 + 0x18) & 0xff);
++	return true;
++}
++
++static bool
++k60_prime_restart(int target)
++{
++	vm_offset_t core = ml_io_map(K60_SPMI_CORE_PA, K60_SPMI_CORE_SIZE);
++	vm_offset_t cfg  = ml_io_map(K60_SPMI_CONFIG_PA, K60_SPMI_CONFIG_SIZE);
++	uint32_t version, count;
++	int apid = -1;
++
++	if (!core || !cfg) {
++		return false;
++	}
++	version = *(volatile uint32_t *)core;
++	count = *(volatile uint32_t *)(core + 4) & 0x7ff;
++	if (version < 0x70000000u || version >= 0x80000000u || !count || count > 1024) {
++		return false;
++	}
++	for (uint32_t n = 0; n < count; n++) {
++		uint32_t slave = *(volatile uint32_t *)(core + 0x2000 + 4 * n);
++		uint32_t cfgv  = *(volatile uint32_t *)(cfg + 4 * n);
++		if (((slave >> 8) & 0xfff) == 0x71 && (cfgv & 7) == 0) {
++			apid = (int)n;
++			break;
++		}
++	}
++	if (apid < 0) {
++		return false;
++	}
++	k60_spmi_apid = (unsigned)apid;
++	k60_spmi_observer = ml_io_map(K60_SPMI_OBSERVER_PA,
++	    (k60_spmi_apid * 0x20 + 0x20 + 4095) & ~4095u);
++	k60_spmi_channel = ml_io_map(K60_SPMI_CHANNEL_PA + k60_spmi_apid * 4096, 4096);
++	k60_imem = ml_io_map(K60_IMEM_PA, K60_IMEM_SIZE);
++	if (!k60_spmi_observer || !k60_spmi_channel || !k60_imem) {
++		return false;
++	}
++	{
++		uint8_t before = 0, after = 0, value;
++
++		if (!k60_sd_read_cell(&before)) {
++			return false;
++		}
++		value = (uint8_t)((before & 1) | (target << 1));
++		*(volatile uint32_t *)(k60_spmi_channel + 0x10) = value;
++		*(volatile uint32_t *)k60_spmi_channel = 0x48u << 4;
++		if (!k60_spmi_wait(k60_spmi_channel, 0) || !k60_sd_read_cell(&after) ||
++		    after != value) {
++			return false;
++		}
++	}
++	*(volatile uint32_t *)(k60_imem + K60_IMEM_RESTART_REASON) =
++	    (target == 1) ? 0x77665502u : K60_RESTART_REASON_BOOTLOADER;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	return *(volatile uint32_t *)(k60_imem + K60_IMEM_RESTART_REASON) ==
++	    ((target == 1) ? 0x77665502u : K60_RESTART_REASON_BOOTLOADER);
++}
++
++/*
++ * Publish the restart reason and hand the machine to the native reboot path.
++ * pong uses reboot_kernel(RB_QUICK) rather than a bare PSCI call: the latter
++ * can simply return, which is what left this board sitting at the panic screen.
++ */
++static void
++k60_usblog_reset_to_fastboot(void)
++{
++	bool primed = k60_prime_restart(2);
++
++	printf("K60 USBLOG: restart reason %s\n",
++	    primed ? "published" : "FAILED to publish");
++	delay(1500000);
++
++	{
++		register uint64_t x0 __asm__("x0") = 0x84000009u;
++		register uint64_t x1 __asm__("x1") = 0;
++		register uint64_t x2 __asm__("x2") = 0;
++		register uint64_t x3 __asm__("x3") = 0;
++		__asm__ volatile ("smc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : : "memory");
++		printf("K60 USBLOG: SMC SYSTEM_RESET returned 0x%llx\n", x0);
++	}
++	{
++		register uint64_t x0 __asm__("x0") = 0x84000009u;
++		register uint64_t x1 __asm__("x1") = 0;
++		register uint64_t x2 __asm__("x2") = 0;
++		register uint64_t x3 __asm__("x3") = 0;
++		__asm__ volatile ("hvc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : : "memory");
++		printf("K60 USBLOG: HVC SYSTEM_RESET returned 0x%llx\n", x0);
++	}
++	{
++		register uint64_t x0 __asm__("x0") = 0xC4000009u;
++		register uint64_t x1 __asm__("x1") = 0;
++		register uint64_t x2 __asm__("x2") = 0;
++		register uint64_t x3 __asm__("x3") = 0;
++		__asm__ volatile ("smc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : : "memory");
++		printf("K60 USBLOG: SMC SYSTEM_RESET2 returned 0x%llx\n", x0);
++	}
++	printf("K60 USBLOG: all conduits returned; trying reboot_kernel\n");
++	reboot_kernel(0x400, NULL);
++	printf("K60 USBLOG: reboot_kernel returned\n");
++	for (;;) {
++		__asm__ volatile ("wfe");
++	}
++}
++
+ static uint32_t
+ usb_rd(vm_offset_t base, uint32_t off)
+ {
+@@ -629,6 +819,8 @@
+ 	uint32_t    tx_end;
+ 	uint32_t    packet;         /* current bulk max packet: 64 or 512 */
+ 	bool        ever_connected;
++	unsigned    quiet_loops;        /* 0308: poll iterations with no fresh ring data */
++	bool        fatal_seen;         /* 0308: log ended at a fatal event */
+ } ud;
+ 
+ static inline void
+@@ -1029,10 +1221,116 @@
+ 	if (length > snap_bytes) {
+ 		length = snap_bytes;
+ 	}
++	/*
++	 * 0308: the ring produced fresh bytes, so restart the quiet countdown
++	 * and sniff the outgoing slice for the log shapes that mean the machine
++	 * is dead: a panic banner, or a critical process exit. Slices are 1 KiB,
++	 * so a marker can straddle one; the whole ring tail is searched through
++	 * the snapshot instead (see ud_console_fatal).
++	 */
++	ud.quiet_loops = 0;
+ 	ud.tx_end = (ud.log_cursor + length) % capacity;
+ 	ud.tx_active = ud_start(3, UD_TXDATA, length, TRBCTL_NORMAL) == 0;
+ }
+ 
++/*
++ * 0308: has the log ended at something fatal?
++ *
++ * Reads the tail of the console ring through the same snapshot accessor and
++ * looks for the markers this kernel and launchd emit exactly once, at the end:
++ *   "panic("                            - kernel panic banner
++ *   "exited -- exit reason namespace"    - a critical process exit, which
++ *                                          proc_handle_critical_exit turns
++ *                                          into a panic right after printing
++ *   "K60XT"                              - init (PID 1) terminated
++ * Only the last few KiB are searched: these markers appear at the very end of
++ * a dead boot, and a stale occurrence from an earlier epoch must not trigger
++ * a reset on a healthy one.
++ */
++static bool
++ud_console_fatal(void)
++{
++	vm_offset_t ring = pong_ramoops_debug_base();
++	static const char *const markers[] = {
++		"panic(",
++		"exited -- exit reason namespace",
++		"K60XT",
++	};
++	uint8_t tail[1024];
++	uint32_t start = 0, size = 0, bytes = 0;
++	uint64_t total = 0, dropped = 0;
++
++	if (!ring) {
++		return false;
++	}
++	/*
++	 * cursor > total is clamped to total by the accessor, so this asks for
++	 * the newest bytes. bytes is the amount actually returned, which may be
++	 * less than sizeof(tail) early in a boot.
++	 */
++	if (pong_ramoops_snapshot(UINT64_MAX, tail, sizeof(tail), &bytes, &start,
++	    &size, &total, &dropped) != 1 || bytes == 0) {
++		return false;
++	}
++	for (unsigned m = 0; m < sizeof(markers) / sizeof(markers[0]); m++) {
++		const char *needle = markers[m];
++		unsigned n = (unsigned)strlen(needle);
++		for (unsigned k = 0; k + n <= bytes; k++) {
++			if (!memcmp(tail + k, needle, n)) {
++				return true;
++			}
++		}
++	}
++	return false;
++}
++
++/*
++ * 0319: CDC-ACM command channel (pong PongUsbDevice.h:88-97).
++ *
++ * The host writes a plain text line to the bulk OUT endpoint:
++ *     reboot fastboot   -> set the bootloader restart reason and reboot
++ *     reboot rec        -> same for recovery
++ *     help              -> print the accepted commands
++ * This is what makes "read the log, then put the phone back into fastboot"
++ * an explicit action instead of a timer guess. A manual command never starts
++ * a timed capture, and it runs on the worker thread with USB still live so
++ * the ACK can be delivered.
++ */
++static char     ud_cmdline[64];
++static unsigned ud_cmdlen;
++static bool     ud_cmddiscard;
++
++static void
++ud_command(const char *buf, uint32_t len)
++{
++	for (uint32_t i = 0; i < len; i++) {
++		char c = buf[i];
++
++		if (c == '\n' || c == '\r') {
++			if (ud_cmdlen && !ud_cmddiscard) {
++				ud_cmdline[ud_cmdlen] = 0;
++				if (!strcmp(ud_cmdline, "reboot fastboot")) {
++					printf("K60 USBLOG: command reboot fastboot; priming restart reason\n");
++					k60_usblog_reset_to_fastboot();
++				} else if (!strcmp(ud_cmdline, "reboot rec") ||
++				    !strcmp(ud_cmdline, "reboot recovery")) {
++					printf("K60 USBLOG: command reboot rec\n");
++					(void)k60_prime_restart(1);
++					reboot_kernel(0x400, NULL);
++				} else {
++					printf("K60 USBLOG: commands: reboot rec | reboot fastboot | help\n");
++				}
++			}
++			ud_cmdlen = 0;
++			ud_cmddiscard = false;
++		} else if (c < 32 || c > 126 || ud_cmdlen >= sizeof(ud_cmdline) - 1) {
++			ud_cmddiscard = true;
++		} else if (!ud_cmddiscard) {
++			ud_cmdline[ud_cmdlen++] = c;
++		}
++	}
++}
++
+ static void
+ ud_event(uint32_t ev)
+ {
+@@ -1066,7 +1364,9 @@
+ 			}
+ 			if (ep == 2) {
+ 				ud_sync(UD_TRB_RX, 16);         /* HW wrote the TRB back */
+-				ud.rx_active = false;           /* payload discarded */
++				ud_sync(UD_RXDATA, ud.packet);  /* 0319: read the OUT payload */
++				ud_command((const char *)(ud.dma + UD_RXDATA), ud.packet);
++				ud.rx_active = false;
+ 			}
+ 		}
+ 		return;
+@@ -1315,6 +1615,19 @@
+ 	ud.started = true;
+ 	us = 4;
+ 
++	/*
++	 * 0319: prime the PMIC SDAM restart reason to fastboot NOW, while the
++	 * system is healthy. After this point, every reset — panic, watchdog,
++	 * manual power-cycle — will make ABL walk into fastboot instead of
++	 * Android. This is what makes the boot/capture/reset development loop
++	 * fully automatic.
++	 */
++	if (k60_prime_restart(2)) {
++		printf("K60 USBLOG: PMIC restart reason primed for fastboot\n");
++	} else {
++		printf("K60 USBLOG: PMIC restart reason priming FAILED\n");
++	}
++
+ 	unsigned idle_loops = 0;
+ 	int phy_hint = 0;
+ 	while (!ud.failed) {
+@@ -1325,6 +1638,33 @@
+ 			printf("K60 USBLOG: no USB activity 60 s after RUN_STOP; PHY rails or VBUS path suspect\n");
+ 			phy_hint = 1;
+ 		}
++		/*
++		 * 0308: hand the phone back to fastboot once the log has been
++		 * delivered. ud.quiet_loops counts poll iterations without fresh
++		 * ring bytes (reset in ud_console), so the window is the loop period
++		 * times that many. A fatal tail short-circuits it.
++		 */
++		if (k60_usblog_reset > 0 && ud.ever_connected) {
++			ud.quiet_loops++;
++			/* Conservative: assume the slow 10 ms poll period. */
++			unsigned quiet_ms = ud.quiet_loops * 10;
++			if (ud.fatal_seen || (quiet_ms >= (unsigned)k60_usblog_reset * 1000u &&
++			    !ud.tx_active)) {
++				if (ud.fatal_seen) {
++					printf("K60 USBLOG: fatal tail in the log; resetting to fastboot\n");
++				} else {
++					printf("K60 USBLOG: console quiet %u s; resetting to fastboot\n",
++					    (unsigned)k60_usblog_reset);
++				}
++				/* Let the last DMA write land on the host before reset. */
++				ud_sleep_ms(400);
++				k60_usblog_reset_to_fastboot();
++			}
++			/* Fatal detection is cheap enough to run once a second. */
++			if (ud.quiet_loops % 100 == 1) {
++				ud.fatal_seen = ud_console_fatal();
++			}
++		}
+ 		ud_sleep_ms(ud.configured ? 2 : 10);
+ 	}
+ 	dwc_wr(DCTL, dwc_rd(DCTL) & ~DCTL_RUN_STOP);
+@@ -1349,6 +1689,9 @@
+ 	if (k60_usblog_mode < 0) {
+ 		k60_usblog_mode = k60_usblog_arg();
+ 	}
++	if (k60_usblog_reset < 0) {
++		k60_usblog_reset = k60_usblog_reset_arg();
++	}
+ 	if (k60_usblog_mode < 2 || ud.started) {
+ 		return;
+ 	}

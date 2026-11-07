@@ -1,0 +1,90 @@
+--- a/osfmk/ipc/ipc_kmsg.c
++++ b/osfmk/ipc/ipc_kmsg.c
+@@ -87,6 +87,19 @@
+ extern int k60tk_pidver[];
+ extern void k60tk_latch(int, int, int, int);
+ 
++/*
++ * k60 0325: probe which trailer element kind (GET_RCV_ELEMENTS) receivers ask
++ * for. xpcproxy needs MACH_RCV_TRAILER_AUDIT (3) to see launchd's audit token.
++ * No printf here (pitfall #70); bsd/kern/kern_exec.c prints from the heartbeat.
++ */
++#define K60TR_N 8
++
++extern int k60tr_seen;
++extern int k60tr_callpid[];
++extern int k60tr_elem[];
++extern int k60tr_rawopt[];
++extern void k60tr_latch(int, int, int);
++
+ #include <mach/mach_types.h>
+ #include <mach/boolean.h>
+ #include <mach/kern_return.h>
+@@ -6833,9 +6846,13 @@
+ #endif /* __arm64__ */
+ 
+ 	if (!(option & MACH_RCV_TRAILER_MASK)) {
++		k60tr_latch(task_pid(current_task()), 0, (int)(option & 0xfff00000));
+ 		return;
+ 	}
+ 
++	k60tr_latch(task_pid(current_task()), (int)GET_RCV_ELEMENTS(option),
++	    (int)(option & 0xfff00000));
++
+ 	trailer->msgh_seqno = seqno;
+ 	trailer->msgh_context = context;
+ 	trailer->msgh_trailer_size = REQUESTED_TRAILER_SIZE(thread_is_64bit_addr(thread), option);
+@@ -6939,3 +6956,30 @@
+ 	k60tk_apid[k60_i] = k60_apid;
+ 	k60tk_pidver[k60_i] = k60_pidver;
+ }
++
++
++/* ---- k60 0325 probe state (file scope) ---- */
++int k60tr_seen;
++int k60tr_callpid[K60TR_N];
++int k60tr_elem[K60TR_N];
++int k60tr_rawopt[K60TR_N];
++
++void
++k60tr_latch(int k60_cpid, int k60_elem, int k60_raw)
++{
++	int k60_i;
++
++	/* record each distinct element kind once */
++	for (k60_i = 0; k60_i < k60tr_seen; k60_i++) {
++		if (k60tr_elem[k60_i] == k60_elem) {
++			return;
++		}
++	}
++	if (k60tr_seen >= K60TR_N) {
++		return;
++	}
++	k60_i = k60tr_seen++;
++	k60tr_callpid[k60_i] = k60_cpid;
++	k60tr_elem[k60_i] = k60_elem;
++	k60tr_rawopt[k60_i] = k60_raw;
++}
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2246,6 +2246,20 @@
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 		{
+ 		extern int k60_probe_ready;
++		extern int k60tr_seen;
++		extern int k60tr_callpid[];
++		extern int k60tr_elem[];
++		extern int k60tr_rawopt[];
++
++		k60_probe_ready = 1;
++		if (k60tr_seen > 0) {
++			int k60_i;
++			for (k60_i = 0; k60_i < k60tr_seen && k60_i < 8; k60_i++) {
++				printf("K60TR i=%d pid=%d elem=%d raw=0x%x\n",
++				    k60_i, k60tr_callpid[k60_i], k60tr_elem[k60_i],
++				    k60tr_rawopt[k60_i]);
++			}
++		}
+ 		extern int k60tk_seen;
+ 		extern int k60tk_spid[];
+ 		extern int k60tk_euid[];

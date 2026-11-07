@@ -1,0 +1,11 @@
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -1510,7 +1510,7 @@
+  * 4=running. Not a state machine, just breadcrumbs for the frozen frame.
+  */
+ static volatile int us;
+-static void ud_hb(void *a __unused, wait_result_t w __unused){int c;for(;;){uint64_t d;{if(us>=4&&!k60_restart_ready){k60_restart_ready=k60_restart_map_once()?1:-1;printf("K60PANIC: restart windows %s\n",k60_restart_ready>0?"ready":"unavailable");}}{int pt=0;if(k60_restart_ready>0&&PE_parse_boot_argn("k60_panic_test",&pt,sizeof(pt))&&pt>0)panic("k60_panic_test: deliberate panic to validate the recovery chain");}{static unsigned n;int sr=0;n++;if(us>=4&&PE_parse_boot_argn("k60_selftest_reboot",&sr,sizeof(sr))&&sr>0&&n>=(unsigned)(sr/2)){printf("K60SELFTEST: reboot after %u s\n",n*2);k60_usblog_reset_to_fastboot();}}printf("K60 USBLOG: st=%d ev=%u cfg=%d dtr=%d fl=%d\n",us,ud.events,ud.configured,ud.dtr,ud.failed);clock_interval_to_deadline(2000,NSEC_PER_MSEC,&d);(void)assert_wait_deadline(&c,THREAD_UNINT,d);thread_block(THREAD_CONTINUE_NULL);}}
++static void ud_hb(void *a __unused, wait_result_t w __unused){int c;for(;;){uint64_t d;{extern unsigned int k60_sp_count;extern unsigned int k60_sp_n;extern const void *k60_sp_lr[];if(us>=4&&k60_sp_count){static unsigned shown;if(shown<k60_sp_n&&k60_sp_n>0){printf("K60SP refused=%u distinct=%u lr=%p\n",k60_sp_count,k60_sp_n,k60_sp_lr[k60_sp_n-1]);shown=k60_sp_n;}}}{if(us>=4&&!k60_restart_ready){k60_restart_ready=k60_restart_map_once()?1:-1;printf("K60PANIC: restart windows %s\n",k60_restart_ready>0?"ready":"unavailable");}}{int pt=0;if(k60_restart_ready>0&&PE_parse_boot_argn("k60_panic_test",&pt,sizeof(pt))&&pt>0)panic("k60_panic_test: deliberate panic to validate the recovery chain");}{static unsigned n;int sr=0;n++;if(us>=4&&PE_parse_boot_argn("k60_selftest_reboot",&sr,sizeof(sr))&&sr>0&&n>=(unsigned)(sr/2)){printf("K60SELFTEST: reboot after %u s\n",n*2);k60_usblog_reset_to_fastboot();}}printf("K60 USBLOG: st=%d ev=%u cfg=%d dtr=%d fl=%d\n",us,ud.events,ud.configured,ud.dtr,ud.failed);clock_interval_to_deadline(2000,NSEC_PER_MSEC,&d);(void)assert_wait_deadline(&c,THREAD_UNINT,d);thread_block(THREAD_CONTINUE_NULL);}}
+ 
+ static void
+ ud_worker(void *arg __unused, wait_result_t wr __unused)

@@ -1,0 +1,17 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -489,6 +489,14 @@
+ 		    VALUE(state->far));
+ 	}
+ 
++	/* 0348: the panic text itself only reaches the ramoops ring, which the
++	 * reset discards.  Emit the fault identity on the live console first. */
++	printf("K60KEXC msg=%s pc=0x%llx lr=0x%llx sp=0x%llx esr=0x%x far=0x%llx\n",
++	    msg ? msg : "(null)",
++	    (unsigned long long)state->pc, (unsigned long long)state->lr,
++	    (unsigned long long)state->sp, (unsigned)state->esr,
++	    (unsigned long long)state->far);
++
+ 	panic_plain("%s at pc 0x%016llx, lr 0x%016llx (saved state: %p%s)\n"
+ 	    "\t  x0:  0x%016llx x1:  0x%016llx  x2:  0x%016llx  x3:  0x%016llx\n"
+ 	    "\t  x4:  0x%016llx x5:  0x%016llx  x6:  0x%016llx  x7:  0x%016llx\n"

@@ -4,7 +4,7 @@ schema_version = 1
 name = "mondrian"
 soc = "SM8475"
 os_profile = "ipados-16.6.1-20G81"
-summary = "Redmi K60 (mondrian/SM8475). Format 2 device: the kernel builds and prelinks, the payload and the boot image still need the board ADT and the hardware bring-up."
+summary = "Redmi K60 (mondrian/SM8475). Format 2 device: the kernel builds and prelinks, the boot image assembles and boots into iOS 16.6.1 userland on hardware - launchd, SpringBoard, backboardd and dozens of daemons run and the framebuffer presents composited frames at 60 fps. The open wall is launchd (pid 1) taking SIGSEGV, which makes XNU panic on \"pid 1 exited\" and restarts the boot loop."
 
 [[area]]
 id = "configuration"
@@ -78,17 +78,17 @@ evidence = []
 
 [[area]]
 id = "display"
-status = "planned"
+status = "device-verified"
 components = []
 paths = ["package/*Display*", "package/*Framebuffer*", "package/*Backlight*", "package/AppleARMBacklight.cpp", "package/GeniI2c*", "scripts/*display*", "scripts/*gop*", "scripts/*framebuffer*"]
 inputs = ["Identify the display hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for display."]
 procedure = ["Follow the display stage in the porting guide and record the actual commands."]
-findings = ["Collect the first display observation, its cause when established, and the resulting implementation decision.", "Board-level chosen display-scale=3 adapted from XTOM0706 9d1a14f83d1050a042313f30dc9d5b7e80d31f7a. Parsing generated ADTs before/after gives identical properties except random-seed with the current 20G81 profile. Its additional sweet display node is not copied because MiniIOMobileFramebuffer already publishes a disp0 display-subsystem child at runtime."]
+findings = ["2026-11-07: the framebuffer presents composited frames on hardware. MiniIOMobileFramebuffer logs \"K60 DISPLAY: first frame presented (swap 1, 1440x3200 canvas on 1440x3200 panel)\" and then a steady 60 fps swap report (\"305 frames in 5011 ms (60 a second)\"); SpringBoard, backboardd and mediaserverd all reach the panel path. The framebuffer also carries the text console, and init routes every daemon stderr to /dev/console, so kernel text and the iOS progress bar take turns on the panel - 0365 stops the framebuffer text once the first frame is presented.", "Board-level chosen display-scale=3 adapted from XTOM0706 9d1a14f83d1050a042313f30dc9d5b7e80d31f7a. Parsing generated ADTs before/after gives identical properties except random-seed with the current 20G81 profile. Its additional sweet display node is not copied because MiniIOMobileFramebuffer already publishes a disp0 display-subsystem child at runtime."]
 completion = ["A known frame appears with correct geometry and colors, then userland presentation and backlight controls work."]
-limits = ["Hardware inputs and implementation are pending for this board."]
-next_action = ["Inventory the required display inputs before implementation."]
-evidence = []
+limits = ["Frames reach the panel at 60 fps, but the boot never finishes: launchd (pid 1) takes SIGSEGV, XNU panics on \"pid 1 exited\" and the board restarts, so the progress bar restarts instead of completing. Backlight and colour correctness are not measured."]
+next_action = ["Fix the launchd SIGSEGV (see the diagnostics area) so the boot can pass the progress bar; then measure backlight and colour."]
+evidence = [{ kind = "device", reference = "evidence/usblog-20261107-092212/console.log", command = "fastboot boot boot-0409-20261107.img; capture COM5", result = "K60 DISPLAY: first frame presented (swap 1, 1440x3200 canvas on 1440x3200 panel); MiniIOMobileFramebuffer 305 frames in 5011 ms (60 a second); SpringBoard alive with SpringBoard.framework loaded; no kernel data abort during the run." }]
 
 [[area]]
 id = "input"
@@ -182,7 +182,7 @@ paths = ["scripts/check-*", "scripts/probe-*", "scripts/audit-*", "scripts/read-
 inputs = ["Identify the diagnostics hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for diagnostics."]
 procedure = ["Follow the diagnostics stage in the porting guide and record the actual commands."]
-findings = ["Collect the first diagnostics observation, its cause when established, and the resulting implementation decision.", "Imported the source-only offline path/evidence checker from mzyxsl 76552b88441757defce4080a241c2f0ea7464538, preserving current milestone statuses instead of copying its outdated runtime records. scripts/audit-forks.py enumerates public forks and all branches, pins comparison SHAs, and reports candidates without executing or merging fork code. KX SIGKILL records alone do not prove a sender or pressure; 0238 adds committed reason scalars and bounded fallback logging. See docs/FORK-REVIEW.md and docs/BOOT-STALL-2026-10-31.md."]
+findings = ["Collect the first diagnostics observation, its cause when established, and the resulting implementation decision.", "2026-11-07: the kernel panic path now reports itself. 0347 prints the panic format string with its caller (K60PANICFMT), 0348 prints the saved state (K60KEXC msg/pc/lr/sp/esr/far), 0354 walks the frame-pointer chain (K60KFRAME, six frames) and 0362 names an IORegistryEntry that reaches a generic accessor with no expansion record (K60NULLENTRY). That set turned a silent reset into a located fault every time it was used.", "2026-11-07: the boot loop is launchd, not the kernel. The console shows \"KX! 50 1 launchd exit=0 sig=11 r=1 ns=2 code=0xb\" followed by \"pid 1 exited -- exit reason namespace 2 subcode 0xb\" and then the XNU panic \"pid 1 exited\"; the reset that follows is the documented behaviour, the defect is the SIGSEGV inside launchd. The launchd fault address has not been captured yet.", "Imported the source-only offline path/evidence checker from mzyxsl 76552b88441757defce4080a241c2f0ea7464538, preserving current milestone statuses instead of copying its outdated runtime records. scripts/audit-forks.py enumerates public forks and all branches, pins comparison SHAs, and reports candidates without executing or merging fork code. KX SIGKILL records alone do not prove a sender or pressure; 0238 adds committed reason scalars and bounded fallback logging. See docs/FORK-REVIEW.md and docs/BOOT-STALL-2026-10-31.md."]
 completion = ["Each claimed milestone has a reproducible command, a matching source/image revision and an accessible result."]
 limits = ["Hardware inputs and implementation are pending for this board."]
 next_action = ["Inventory the required diagnostics inputs before implementation."]

@@ -1,0 +1,43 @@
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -359,6 +359,40 @@
+ 			uint32_t from = (prev_start + (prev_size - want)) %
+ 			    PONG_RAMOOPS_DATA_BYTES;
+ 
++			/*
++			 * 0333: the ring is still addressable here, so re-aim the
++			 * window at the last panic header instead of the newest
++			 * bytes.  A data-abort dump is much longer than the copy
++			 * buffer, and only its head names the faulting code.
++			 */
++			{
++				uint32_t dbytes = PONG_RAMOOPS_DATA_BYTES;
++				uint32_t best = 0xFFFFFFFFu;
++
++				for (uint32_t i = 0; i + 6 <= prev_size; i++) {
++					uint32_t j = (from + i) % dbytes;
++
++					if (prev[j] == 'p' &&
++					    prev[(j + 1) % dbytes] == 'a' &&
++					    prev[(j + 2) % dbytes] == 'n' &&
++					    prev[(j + 3) % dbytes] == 'i' &&
++					    prev[(j + 4) % dbytes] == 'c' &&
++					    prev[(j + 5) % dbytes] == '(') {
++						best = i;
++						i += 5;
++					}
++				}
++				if (best != 0xFFFFFFFFu &&
++				    (prev_size - best) < (512 * 1024)) {
++					from = (from + best) % dbytes;
++					uint32_t rest = prev_size - best;
++
++					want = rest < K60_PREVLOG_BYTES ?
++					    rest : K60_PREVLOG_BYTES;
++					printf("K60PREV panic-focused at +%u "
++					    "(ring %u)\n", best, prev_size);
++				}
++			}
+ 			for (uint32_t i = 0; i < want; i++) {
+ 				k60_prevlog_buf[i] = (char)prev[
+ 				    (from + i) % PONG_RAMOOPS_DATA_BYTES];

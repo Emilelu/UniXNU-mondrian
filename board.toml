@@ -1,0 +1,162 @@
+schema_version = 2
+
+[board]
+name = "mondrian"
+soc = "SM8475"
+soc_source = "sm8475"
+os_profile = "ipados-16.6.1-20G81"
+description = "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up"
+kit = "mondrian"
+
+# The kernel and prelink inputs live in the OS profile (profiles/os/ipados-16.6.1-20G81),
+# the SM8475 resources in the SoC source, and the board wiring in dts/mondrian.dts.
+[components]
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "PongUfs"]
+
+[kernel]
+defconfig = "mondrian_defconfig"
+config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "os:configs/ipados.config"]
+# The K60 series still carries every patch; the shared layers have empty series for now.
+patch_series = ["device:patches/xnu/series"]
+archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs"]
+driver_records = "DEVELOPMENT_ARM64_PONG"
+# The Pong Adreno / UI provider scripts that build-xnu-4k-baseline.sh runs with
+# PONG_DRIVER_SOURCE=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT} read their sources from this
+# checkout. $ROOT is the assembled build tree, which only links the components
+# selected in [components] and therefore has no drivers/PongAdreno, so the fallback
+# stops the build on PongAdrenoCpProfile.h. This is the same driver tree the device
+# archive recipes already build against.
+pong_native_driver_source = "/tmp/k60build/pong-driver"
+
+[userdata]
+first_lba = 53342976
+last_lba = 61731583
+lba_bytes = 4096
+windows = [{ "name" = "OS", "component" = "OS" }, { "name" = "SystemOS", "component" = "Cryptex1,SystemOS" }]
+
+[device_tree]
+source = "device:dts/mondrian.dts"
+include_dirs = ["soc:dts"]
+
+[firmware]
+config = "mondrian"
+dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
+fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+patches = [
+  "Resources/MuPatches/AsmMacroLib.patch",
+  "Resources/MuPatches/Boot-Manager.patch"
+]
+packages = [
+  "{uefi}",
+  "{tree}/package",
+  "{tree}/drivers/DarwinBoot22",
+  "{edk2}",
+  "{uefi}/Platforms/Xiaomi",
+  "{uefi}/Common/Mu",
+  "{uefi}/Common/Mu_OEM_Sample",
+  "{uefi}/Silicon/Qualcomm",
+  "{uefi}/Silicon/Silicium",
+  "{uefi}/Silicium-ACPI",
+  "{uefi}/Silicium-ACPI/Platforms/Xiaomi",
+  "{uefi}/Silicium-ACPI/Silicon/Qualcomm",
+  # K60 bring-up inherits the pong vendor DXE/GOP binaries.
+  "{uefi}/Binaries/pong",
+]
+
+[firmware.defines]
+DEVICE_MODEL = "0"
+ENABLE_SECUREBOOT = "0"
+MEMORY_PROTECTION = "TRUE"
+SHIP_MODE = "FALSE"
+BUILDID_STRING = "UniXNU-Mondrian"
+
+[payload]
+volume = "UNIXNU"
+size_mib = 192
+loader = "firmware"
+title = "UniXNU"
+# The upstream entry probe patches the prelinked kernel image: it paints the
+# stage bars (blue at the kernel entry with the MMU off, magenta just before the
+# MMU comes on) and, with the reset delay, resets the board through PSCI six
+# seconds after the MMU is on. That turns "did the kernel get past the MMU
+# enable" into a board that walks back to fastboot on its own instead of a
+# manual power cycle.
+#
+# The reset delay is now off. The boot CPU got past the MMU and past the CPU
+# start order, so the stage 3 timer only cut the run short six seconds in and
+# hid whatever came next. Without it the kernel runs until it fails, and the
+# failure stays on the frame buffer: the kernel's own video console prints the
+# panic text and patch 0246 scales that text to a readable size.
+#
+# The probe's panic screen stays off: it installs code in the padding after
+# panic(), whose address is fixed for the reference kernel, so it refuses to
+# patch ours.
+# entry_probe_reset_delay = 6
+# Contiguous handoff ARENA size, not total installed DRAM. The actual live
+# Android memory map has six banks. Use only measured [0x900000000,0xa40000000)
+# below high reservations; must match dts/mondrian.dts and MemoryMapLib.c.
+dram_size = "0x140000000"
+# pong_software_keybag=1 selects the volatile no-passcode keybag from
+# zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch. Without it mkbinit cannot
+# load a system bag on this board (no SEP) and forces a recovery-mode reboot.
+# disable_exc_resource stops the wakeups/disk-write monitors from reaching
+# exception_triage() and task_terminate_internal(): on this board the services
+# that consume those exceptions are still missing, so watchdogd is killed for a
+# FATAL wakeups violation it cannot answer. Remove it once they run.
+# pong_ufs_readwrite=1 is what makes the UFS windows writable at all
+# (PongUfsTransport gates every write on it); without it even the Data
+# window is published read-only and nothing can be mounted read-write.
+# amfi_get_out_of_my_way=1 opens three gates at once in this tree:
+#   libkern/amfi/miniamfi.c:266 registers the AMFI interface stand-in, so the
+#     amfi pointer is no longer NULL and codesigning has a table to ask;
+#   bsd/kern/kern_minimac.c:477 registers the miniamfi and minisandbox MAC
+#     policies - without a policy named "Sandbox" every __mac_syscall returns
+#     ENOPOLICY (bsd/security/mac_base.c) and the launchd, tccd, timed and
+#     securityd daemons die in sandbox profile init. That is the SIGKILL storm
+#     this board showed on 2026-10-31 and it will come back on darwin24;
+#   bsd/kern/kern_codesigning.c:289 turns it into CS_CONFIG_ALLOW_ANY_SIGNATURE,
+#     the same thing cs_enforcement_disable=1 asks for.
+# It is safe here and only here: the 22H374 profile does not prelink the real
+# AppleMobileFileIntegrity kext, so amfi_interface_register() has a single
+# caller. The 16.6.1 route prelinks the real kext and adding this argument
+# makes the stand-in and the kext collide - panic "AppleMobileFileIntegrity
+# interface already set" at libkern/amfi/amfi.c:11, which is what
+# boot-amfi.img (2026-10-31) and boot-amfi2.img (2026-11-01) both showed.
+kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1", "pong_ufs_readwrite=1", "k60_fontscale=3"]
+# All eight CPUs. The AppleARMCPU device-tree validation that required a
+# single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
+# K60 ArmCpu driver instantiates every device_type=cpu node then starts the
+# secondaries through PSCI.
+cpus = 8
+tools = true
+# Unattended bring-up needs a countdown. timeout = -1 means "wait for a key"
+# whenever an input device is present, and the K60 keypad (K60KeypadDeviceLib)
+# always is: measured 2026-10-29 18:47, the unit parked in the menu, dropped off
+# USB and never came back, with XNU never loaded. A positive value boots the
+# default entry ("xnu") after that many seconds. If the kernel then fails and the
+# menu falls back to "Return to firmware", the unit lands in BDS -> Android,
+# which is the state a host-side watchdog can recover from.
+timeout = 5
+
+# B decision (2026-11-03): align with pong and drop the whole trust-cache path.
+# The payload ships no trust-cache sidecar (no --trust-cache anywhere in the
+# build chain), so this whitelist is intentionally empty. payload.py reads this
+# from [payload], not from [payload."adt"], and only consults it when a
+# --trust-cache is passed; keep it an array (schema).
+trust_cache_sha256 = []
+
+[payload."adt"]
+"chip_id" = "8015"
+"root_match_volume_uuid" = "C5DAF029-2070-4F68-B3CC-1D1320344CF0"
+# DarwinBoot window. Without this key the loader falls back to
+#   DarwinBoot.c:20   #define WINDOW_SIZE SIZE_256MB
+#   DarwinBoot.c:723  if (WindowSize == 0) { WindowSize = WINDOW_SIZE; }
+#   DarwinBoot.c:794  Args->MemorySize = WindowSize;
+# so boot_args->memSize reaches XNU as 256 MiB, and arm_vm_init.c:1857 turns that
+# into mem_size (gPhysBase comes from args->physBase, i.e. this window's address).
+# The earlier 4 GiB attempt targeted [0x100000000,0x380000000), a no-RAM
+# hole. Live serial-6033dbec FDT/iomem place high RAM at 0x800000000 and above.
+# Firmware exposes only measured arena [0x900000000,0xa40000000); screen
+# reports mem=actual=managed=4096 MiB. Service exits continue; SpringBoard is
+# pending. devicetree.py emits darwinboot-memory-size from this key.
+"owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)

@@ -1,0 +1,85 @@
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index 1161432..9e5f967 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -138,6 +138,49 @@
+ 
+ #include <pexpert/pexpert.h>
+ 
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++#include <sys/vnode.h>
++#include <sys/vnode_internal.h>
++#include <sys/namei.h>
++/* Filled by native_owner_cache_* in kern_exec.c; reported from the initproc panic. */
++extern volatile int native_owner_cache_stage;
++extern volatile int native_owner_cache_status;
++extern volatile int native_owner_cache_mount_status;
++extern volatile int native_owner_cache_readonly;
++extern volatile int native_owner_cache_authorized;
++extern volatile int native_owner_cache_root_recheck;
++extern volatile int native_owner_cache_native_union;
++
++/*
++ * K60 bring-up: where the dyld shared cache is reachable right now. The printf that
++ * reports the same thing is scrolled off by this panic's stackshot, so the probe is
++ * repeated here where the result survives on the frame buffer.
++ * A vnode_lookup error of 0 means the path exists.
++ */
++static void
++k60_probe_dyld_cache(int out[8])
++{
++	static const char *paths[8] = {
++	    "/private/preboot",
++	    "/private/preboot/System/Library/Caches/com.apple.dyld",
++	    "/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++	    "/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e",
++	    "/private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++	    "/private/preboot/Cryptexes/OS",
++	    "/System/Library/Caches/com.apple.dyld",
++	    "/usr/lib/libSystem.B.dylib"
++	};
++
++	for (int i = 0; i < 8; i++) {
++		vnode_t vp = NULLVP;
++		out[i] = vnode_lookup(paths[i], 0, &vp, vfs_context_current());
++		if (vp != NULLVP) {
++			vnode_put(vp);
++		}
++	}
++}
++#endif
++
+ #include <kdp/kdp_dyld.h>
+ 
+ #if SYSV_SHM
+@@ -1825,10 +1868,30 @@ proc_handle_critical_exit(proc_t p, int rv)
+ 		panic_with_options(0, NULL, DEBUGGER_OPTION_INITPROC_PANIC, "%s -- no exit reason available -- (signal %d, exit status %d %s)",
+ 		    prefix_str, WTERMSIG(rv), WEXITSTATUS(rv), ((proc_getcsflags(p) & CS_KILLED) ? "CS_KILLED" : ""));
+ 	} else {
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++		{
++			int k60_p[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
++
++			k60_probe_dyld_cache(k60_p);
++			panic_with_options(0, NULL, DEBUGGER_OPTION_INITPROC_PANIC, "%s %s -- exit reason namespace %d subcode 0x%llx description: %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s"
++			    " || CACHE st=%d err=%d mnt=%d ro=%d un=%d rr=%d ca=%d"
++			    " || PATHS p0=%d p1=%d p2=%d p3=%d p4=%d p5=%d p6=%d p7=%d",
++			    ((proc_getcsflags(p) & CS_KILLED) ? "CS_KILLED" : ""),
++			    prefix_str, p->p_exit_reason->osr_namespace, p->p_exit_reason->osr_code,
++			    exit_reason_desc ? exit_reason_desc : "none",
++			    native_owner_cache_stage, native_owner_cache_status,
++			    native_owner_cache_mount_status, native_owner_cache_readonly,
++			    native_owner_cache_native_union, native_owner_cache_root_recheck,
++			    native_owner_cache_authorized,
++			    k60_p[0], k60_p[1], k60_p[2], k60_p[3],
++			    k60_p[4], k60_p[5], k60_p[6], k60_p[7]);
++		}
++#else
+ 		panic_with_options(0, NULL, DEBUGGER_OPTION_INITPROC_PANIC, "%s %s -- exit reason namespace %d subcode 0x%llx description: %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s",
+ 		    ((proc_getcsflags(p) & CS_KILLED) ? "CS_KILLED" : ""),
+ 		    prefix_str, p->p_exit_reason->osr_namespace, p->p_exit_reason->osr_code,
+ 		    exit_reason_desc ? exit_reason_desc : "none");
++#endif
+ 	}
+ }
+ 

@@ -1,0 +1,53 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -400,6 +400,50 @@
+ {
+ 	struct __mac_mount_args muap;
+ 
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++	/*
++	 * 0320: tolerate the firmware/factorydata bind mounts that union mode
++	 * cannot satisfy. With XNU_OWNER_UNION_SYSTEMOS the owner cache is unioned
++	 * onto "/" and nothing is mounted at /private/preboot, so launchd's
++	 * mount-phase-1/2 bind mounts of synthetic /private trees come back EPERM
++	 * and a failed critical boot task panics PID 1. The skipped targets are
++	 * caches and iBoot firmware images; nothing on the path to SpringBoard
++	 * reads them. Opt-in: k60_skip_firmware_mount=1.
++	 */
++	{
++		static int k60_skip_firmware_mount = -1;
++		char k60_path[64];
++		size_t k60_len = 0;
++
++		if (k60_skip_firmware_mount < 0) {
++			uint32_t enabled = 0;
++			k60_skip_firmware_mount =
++			    (PE_parse_boot_argn("k60_skip_firmware_mount", &enabled, sizeof(enabled)) && enabled) ? 1 : 0;
++		}
++		if (k60_skip_firmware_mount &&
++		    copyinstr(uap->path, k60_path, sizeof(k60_path), &k60_len) == 0) {
++			static const char *const k60_skip_targets[] = {
++				"/usr/standalone/firmware",
++				"/System/Library/Caches/com.apple.factorydata",
++			};
++			unsigned k60_i;
++			for (k60_i = 0; k60_i < sizeof(k60_skip_targets) / sizeof(k60_skip_targets[0]); k60_i++) {
++				if (!strcmp(k60_path, k60_skip_targets[k60_i])) {
++					printf("K60: %s reported mounted (k60_skip_firmware_mount=1)\n", k60_path);
++					return 0;
++				}
++			}
++			{
++				static unsigned k60_seen;
++				if (k60_seen < 30) {
++					k60_seen++;
++					printf("K60 mount: %s\n", k60_path);
++				}
++			}
++		}
++	}
++#endif
++
+ 	muap.type = uap->type;
+ 	muap.path = uap->path;
+ 	muap.flags = uap->flags;

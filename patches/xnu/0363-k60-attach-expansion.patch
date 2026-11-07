@@ -1,0 +1,30 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -2198,6 +2198,27 @@
+ 		return false;
+ 	}
+ 
++	/*
++	 * 0363: every entry that becomes reachable from the registry must own its
++	 * expansion record.  A kext can create an IORegistryEntry subclass without
++	 * ever running IORegistryEntry::init() (observed with
++	 * CoreAnalyticsUserClient); the traversal below then dereferences
++	 * reserved->fLock and panics.  Fill it here - the last point before the
++	 * entry becomes visible - with the same allocation init() performs.
++	 */
++	if (__improbable(!reserved)) {
++		reserved = IOMallocType(ExpansionData);
++		if (!reserved) {
++			return false;
++		}
++		reserved->fLock = IORecursiveLockAlloc();
++		if (!reserved->fLock) {
++			return false;
++		}
++		printf("K60ATTACH filled expansion this=%p cls=%s\n", (void *)this,
++		    getMetaClass() ? getMetaClass()->getClassName() : "?");
++	}
++
+ 	WLOCK;
+ 
+ 	if (!reserved->fRegistryEntryID) {

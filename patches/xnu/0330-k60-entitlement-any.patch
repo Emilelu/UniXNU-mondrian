@@ -1,0 +1,37 @@
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -1587,6 +1587,34 @@
+ 	if (task == kernel_task || entitlement == NULL) {
+ 		return false;
+ 	}
++	/*
++	 * 0330: k60_entitlement_any=1 answers yes without asking AMFI.
++	 *
++	 * The AMFI table stays NULL on this port unless k60_miniamfi=1 registers
++	 * the stand-in, and every caller of this function reads false as "the
++	 * program does not hold the entitlement".  Some of those questions are not
++	 * optional for user space: setiopolicy_np(IOPOL_TYPE_VFS_ALLOW_LOW_SPACE_WRITES)
++	 * and persona_alloc have already killed daemons on this board over exactly
++	 * that false.  A machine that boots with code signing switched off needs
++	 * the option to stop pretending it has a security boundary.  Off by
++	 * default, so turning it on stays a deliberate act.
++	 */
++	{
++		static int k60_entitlement_any = -1;
++
++		if (k60_entitlement_any < 0) {
++			uint32_t value = 0;
++
++			k60_entitlement_any = (PE_parse_boot_argn("k60_entitlement_any", &value,
++			    sizeof(value)) && value != 0) ? 1 : 0;
++			if (k60_entitlement_any) {
++				IOLog("K60ENT any-mode: every entitlement question answers yes\n");
++			}
++		}
++		if (k60_entitlement_any == 1) {
++			return true;
++		}
++	}
+ 	if (amfi == NULL || amfi->OSEntitlements.queryEntitlementBooleanWithProc == NULL) {
+ 		return false;
+ 	}

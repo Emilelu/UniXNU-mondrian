@@ -1,0 +1,63 @@
+--- a/bsd/kern/kern_minimac.c
++++ b/bsd/kern/kern_minimac.c
+@@ -367,7 +367,6 @@
+ void
+ minimac_policy_init(void)
+ {
+-	uint32_t amfi_enabled = 0;
+ 	uint32_t sandbox_enabled = 0;
+ 
+ 	/*
+@@ -383,20 +382,48 @@
+ 	 * container and the framework daemons abort themselves with SIGABRT or
+ 	 * SIGTRAP. So the Sandbox stand-in is registered on its own.
+ 	 *
+-	 * k60_sandbox=1 enables it; k60_sandbox=0 disables it again for an A/B run.
++	 * 0309: the AMFI stand-in is needed as well, and for a reason that has
++	 * nothing to do with enforcement. The prelink step strips
++	 * IOKitPersonalities/AppleSecurityExtension from the real kext
++	 * (scripts/build-pong-prelinked-boot.py gpu_libraries), so the
++	 * AppleMobileFileIntegrity IOKit service is never published. User space
++	 * reaches AMFI through IOKit (libamfi's IOServiceGetMatchingService), so
++	 * launchd's /usr/libexec/launchd_cache_loader aborts with
++	 * "Unable to find AMFI" while verifying /System/Library/xpc/launchd.plist,
++	 * exits with sig=6, and proc_handle_critical_exit panics PID 1's boot
++	 * (serial log 2026-11-05). The two stand-ins cover different MAC policy
++	 * names ("AMFI" vs "Sandbox") and mpo_policy_syscall answers request 0x60
++	 * "query boot-arg state" that libamfi asks for; cs_enforcement_disable=1
++	 * keeps the signature hook inert. Registering both is safe: only the
++	 * stand-in exists on this route, the prelinked kext cannot register
++	 * anything without its AppleSecurityExtension.
++	 *
++	 * k60_sandbox=1 enables the Sandbox stand-in and, with k60_amfi=1, the
++	 * AMFI stand-in too; k60_sandbox=0 / k60_amfi=0 disable them for A/B runs.
+ 	 * amfi_get_out_of_my_way keeps its old meaning and still registers both,
+ 	 * for a route that does not prelink the real kext.
+ 	 */
++	uint32_t amfi_standin = 0;
++	uint32_t amfi_legacy = 0;
++
++	if (PE_parse_boot_argn("k60_amfi", &amfi_standin, sizeof(amfi_standin)) && amfi_standin) {
++		mac_policy_register(&miniamfi_conf, &miniamfi_handle, NULL);
++		printf("K60 AMFI: stand-in policy registered\n");
++	}
+ 	if (PE_parse_boot_argn("k60_sandbox", &sandbox_enabled, sizeof(sandbox_enabled)) && sandbox_enabled) {
+ 		mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
+ 		printf("K60 SANDBOX: stand-in policy registered\n");
+ 		return;
+ 	}
+-	if (!PE_parse_boot_argn("amfi_get_out_of_my_way", &amfi_enabled, sizeof(amfi_enabled)) || !amfi_enabled) {
++	if (!PE_parse_boot_argn("amfi_get_out_of_my_way", &amfi_legacy, sizeof(amfi_legacy)) || !amfi_legacy) {
+ 		return;
+ 	}
+-	mac_policy_register(&miniamfi_conf, &miniamfi_handle, NULL);
+-	mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
++	if (!amfi_standin) {
++		mac_policy_register(&miniamfi_conf, &miniamfi_handle, NULL);
++	}
++	if (!sandbox_enabled) {
++		mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
++	}
+ }
+ 
+ #endif

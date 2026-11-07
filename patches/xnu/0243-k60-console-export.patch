@@ -1,0 +1,254 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+index f4e322e..a114543 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -105,6 +105,7 @@ bsd/dev/random/randomdev.c		standard
+ 
+ bsd/dev/memdev.c			standard
+ bsd/dev/mem.c				standard
+ bsd/dev/k60_usblog.c				standard
++bsd/dev/k60_console_export.c	standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+ 
+diff --git a/bsd/dev/k60_console_export.c b/bsd/dev/k60_console_export.c
+new file mode 100755
+index 0000000..bc88466
+--- /dev/null
++++ b/bsd/dev/k60_console_export.c
+@@ -0,0 +1,186 @@
++/*
++ * K60 read-only export of the pong ramoops console mirror.
++ *
++ * serial_console.c mirrors every console byte into the physical ring at
++ * PONG_RAMOOPS_PHYS_BASE before any screen output decision, so the ring
++ * holds a superset of what the panel ever shows (it also covers bytes that
++ * disableConsoleOutput drops and anything printed after the video console
++ * wedges).  This sysctl exposes the ring to root userspace so a drainer can
++ * persist the full XNU console stream to the Data volume.  Inert unless the
++ * boot-arg k60_console_export=1 is present; with the arg absent or 0 the
++ * handler returns ENODEV and nothing else changes.
++ *
++ * Protocol: the caller passes its 64-bit stream cursor via SYSCTL_IN (no
++ * input means cursor 0).  The reply is struct k60_console_export_hdr
++ * followed by the bytes of the half-open stream range
++ * [max(cursor, total-size), total), capped to K60_CONSOLE_EXPORT_CHUNK per
++ * call; callers loop until ce_avail < K60_CONSOLE_EXPORT_CHUNK.  Bit0 of
++ * ce_flags tells the caller its cursor fell behind the retained window (a
++ * gap of total-size-cursor bytes was overwritten).  Readers never take the
++ * ring's busy lock (a stalled lock makes the console writer drop bytes) and
++ * never write the ring header; snapshot consistency uses a seqlock-style
++ * double read with bounded retries, returning EAGAIN when the ring would
++ * not sit still.
++ */
++
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/types.h>
++#include <sys/errno.h>
++#include <sys/sysctl.h>
++#include <stdint.h>
++#include <string.h>
++
++#include <mach/vm_types.h>
++#include <pexpert/pexpert.h>
++
++#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
++
++#include <kern/kalloc.h>
++
++/* osfmk/arm64/pong_ramoops_console.h is not on the BSD include path; mirror
++ * the ring constants and state here.  Keep in sync manually. */
++#define PONG_RAMOOPS_CONSOLE_BYTES 0x00200000U
++#define PONG_RAMOOPS_HEADER_BYTES 12U
++#define PONG_RAMOOPS_DATA_BYTES (PONG_RAMOOPS_CONSOLE_BYTES - PONG_RAMOOPS_HEADER_BYTES)
++#define PONG_RAMOOPS_MAGIC 0x43474244U      /* "DBGC" */
++
++extern vm_offset_t pong_ramoops_base;
++extern uint32_t pong_ramoops_start;
++extern uint32_t pong_ramoops_size;
++extern uint64_t pong_ramoops_total;
++extern uint64_t pong_ramoops_dropped;
++
++#define K60_CONSOLE_EXPORT_CHUNK 65536U
++#define K60_CONSOLE_EXPORT_MAGIC 0x4B363043U      /* "K60C" */
++#define K60_CONSOLE_EXPORT_FLAG_BEHIND 0x1U
++
++struct k60_console_export_hdr {
++	uint32_t ce_magic;
++	uint32_t ce_sig;          /* ring sig, PONG_RAMOOPS_MAGIC */
++	uint32_t ce_capacity;     /* ring data capacity in bytes */
++	uint32_t ce_size;         /* retained bytes */
++	uint32_t ce_start;        /* ring offset of the oldest retained byte */
++	uint32_t ce_flags;
++	uint64_t ce_total;        /* cumulative accepted stream bytes */
++	uint64_t ce_dropped;      /* cumulative busy-dropped bytes */
++	uint64_t ce_from;         /* stream offset of payload[0] */
++	uint64_t ce_avail;        /* payload bytes in this reply */
++};
++
++static int k60_console_export_state = -1;
++
++static int
++k60_console_export_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(oidp, arg1, arg2)
++	if (k60_console_export_state < 0) {
++		int value = 0;
++		k60_console_export_state =
++		    (PE_parse_boot_argn("k60_console_export", &value,
++		    sizeof(value)) && value == 1) ? 1 : 0;
++	}
++	if (k60_console_export_state == 0 || !pong_ramoops_base) {
++		return ENODEV;
++	}
++
++	uint64_t cursor = 0;
++	if (req->newptr) {
++		if (req->newlen != sizeof(cursor)) {
++			return EINVAL;
++		}
++		int error = SYSCTL_IN(req, &cursor, sizeof(cursor));
++		if (error) {
++			return error;
++		}
++	}
++
++	const size_t outcap = sizeof(struct k60_console_export_hdr) +
++	    K60_CONSOLE_EXPORT_CHUNK;
++	uint8_t *buf = (uint8_t *)kalloc_data(outcap, Z_WAITOK);
++	if (!buf) {
++		return ENOMEM;
++	}
++	struct k60_console_export_hdr *hdr =
++	    (struct k60_console_export_hdr *)(void *)buf;
++	uint8_t *payload = buf + sizeof(*hdr);
++	const uint32_t capacity = PONG_RAMOOPS_DATA_BYTES;
++	volatile const uint8_t *data = (volatile const uint8_t *)(uintptr_t)
++	    (pong_ramoops_base + PONG_RAMOOPS_HEADER_BYTES);
++
++	uint64_t total = 0, from = 0;
++	uint32_t start = 0, size = 0, flags = 0, count = 0;
++	int error = EAGAIN;
++	for (int attempt = 0; attempt < 4; attempt++) {
++		uint64_t t0 = __atomic_load_n(&pong_ramoops_total,
++		    __ATOMIC_ACQUIRE);
++		uint32_t s0 = __atomic_load_n(&pong_ramoops_start,
++		    __ATOMIC_ACQUIRE);
++		uint32_t z0 = __atomic_load_n(&pong_ramoops_size,
++		    __ATOMIC_ACQUIRE);
++		__atomic_thread_fence(__ATOMIC_ACQUIRE);
++		if (z0 > capacity || t0 < z0) {
++			continue;                       /* torn snapshot */
++		}
++		uint64_t oldest = t0 - z0;
++		from = cursor;
++		flags = 0;
++		if (from < oldest) {
++			from = oldest;
++			flags = K60_CONSOLE_EXPORT_FLAG_BEHIND;
++		} else if (from > t0) {
++			from = t0;
++		}
++		uint64_t avail = t0 - from;
++		if (avail > K60_CONSOLE_EXPORT_CHUNK) {
++			avail = K60_CONSOLE_EXPORT_CHUNK;
++		}
++		uint64_t off = from - oldest;
++		uint32_t pos = (uint32_t)((s0 + off) % capacity);
++		count = (uint32_t)avail;
++		uint32_t first = capacity - pos;
++		if (first > count) {
++			first = count;
++		}
++		memcpy(payload, (const void *)(uintptr_t)(data + pos), first);
++		memcpy(payload + first, (const void *)(uintptr_t)data,
++		    count - first);
++		__atomic_thread_fence(__ATOMIC_ACQUIRE);
++		if (__atomic_load_n(&pong_ramoops_total, __ATOMIC_ACQUIRE) == t0 &&
++		    __atomic_load_n(&pong_ramoops_start, __ATOMIC_ACQUIRE) == s0 &&
++		    __atomic_load_n(&pong_ramoops_size, __ATOMIC_ACQUIRE) == z0) {
++			total = t0;
++			start = s0;
++			size = z0;
++			error = 0;
++			break;
++		}
++	}
++	if (error) {
++		kfree_data(buf, outcap);
++		return error;
++	}
++
++	hdr->ce_magic = K60_CONSOLE_EXPORT_MAGIC;
++	hdr->ce_sig = PONG_RAMOOPS_MAGIC;
++	hdr->ce_capacity = capacity;
++	hdr->ce_size = size;
++	hdr->ce_start = start;
++	hdr->ce_flags = flags;
++	hdr->ce_total = total;
++	hdr->ce_dropped = __atomic_load_n(&pong_ramoops_dropped,
++	    __ATOMIC_RELAXED);
++	hdr->ce_from = from;
++	hdr->ce_avail = count;
++
++	error = SYSCTL_OUT(req, buf, sizeof(*hdr) + count);
++	kfree_data(buf, outcap);
++	return error;
++}
++
++SYSCTL_PROC(_kern, OID_AUTO, pong_ramoops,
++    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_LOCKED,
++    0, 0, k60_console_export_sysctl, "S",
++    "K60 console ring export (boot-arg k60_console_export=1)");
++
++#endif /* PONG && XNU_PONG_RAMOOPS_CONSOLE */
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 72c9aaa..0d27b78 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -99,6 +99,8 @@ vm_offset_t pong_ramoops_base;
+ uint32_t pong_ramoops_start;
+ uint32_t pong_ramoops_size;
+ volatile uint32_t pong_ramoops_busy;
++uint64_t pong_ramoops_total;
++uint64_t pong_ramoops_dropped;
+ 
+ /*
+  * GPU bring-up diagnostics share the persistent console mirror. The dedicated
+@@ -117,8 +119,12 @@ pong_ramoops_diagnostic_write(const char *text, int length)
+ void
+ pong_ramoops_console_write(const char *text, int length)
+ {
+-	if (!text || length <= 0 || !pong_ramoops_base ||
+-	    __atomic_exchange_n(&pong_ramoops_busy, 1, __ATOMIC_ACQUIRE)) {
++	if (!text || length <= 0 || !pong_ramoops_base) {
++		return;
++	}
++	if (__atomic_exchange_n(&pong_ramoops_busy, 1, __ATOMIC_ACQUIRE)) {
++		/* A contending writer loses its bytes whole; keep the loss visible. */
++		__atomic_add_fetch(&pong_ramoops_dropped, (uint64_t)length, __ATOMIC_RELAXED);
+ 		return;
+ 	}
+ 
+@@ -169,6 +175,7 @@ pong_ramoops_console_write(const char *text, int length)
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ 	pong_ramoops_start = new_start;
+ 	pong_ramoops_size = new_size;
++	pong_ramoops_total += (uint64_t)length;
+ 	__atomic_store_n(&pong_ramoops_busy, 0, __ATOMIC_RELEASE);
+ }
+ 
+diff --git a/osfmk/arm64/pong_ramoops_console.h b/osfmk/arm64/pong_ramoops_console.h
+index 8bc10f5..d5aea1a 100644
+--- a/osfmk/arm64/pong_ramoops_console.h
++++ b/osfmk/arm64/pong_ramoops_console.h
+@@ -24,6 +24,8 @@ extern vm_offset_t pong_ramoops_base;
+ extern uint32_t pong_ramoops_start;
+ extern uint32_t pong_ramoops_size;
+ extern volatile uint32_t pong_ramoops_busy;
++extern uint64_t pong_ramoops_total;
++extern uint64_t pong_ramoops_dropped;
+ 
+ void pong_ramoops_console_write(const char *text, int length);
+ int  pong_ramoops_console_init(void);

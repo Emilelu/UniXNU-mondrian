@@ -1,0 +1,100 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index fcac279..c712cc5 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2116,6 +2116,7 @@ uint64_t k60_data_win_bytes = 0;
+ int k60_data_mounted = 0;
+ int k60_last_execerr = -1;
+ char k60_last_execwhere[8] = "";
++int k60_last_execsite = -1;
+ 
+ /* ---- 0302: exec diagnostics (pid->path map + bounded exec-error printer) ---- */
+ #define K60_PIDPATH_SLOTS 128
+@@ -2177,9 +2178,9 @@ k60_print_exec_error(proc_t p, int error, const char *where)
+ 		unsigned int k60_n = ++k60_xerr[k60_hit].count;
+ 		if (k60_n == 1 || (k60_n % 200) == 0) {
+ 			const char *k60_xp = k60_exec_path_for_pid(proc_getpid(p));
+-			printf("KX? #%u %d %s execerr=%d where=%s path=%s\n",
++			printf("KX? #%u %d %s execerr=%d where=%s site=%d path=%s\n",
+ 			    k60_n, proc_getpid(p), p->p_comm, error, where,
+-			    k60_xp != NULL ? k60_xp : "-");
++			    k60_last_execsite, k60_xp != NULL ? k60_xp : "-");
+ 		}
+ 	}
+ }
+@@ -2224,6 +2225,7 @@ k60_heartbeat_thread(void *arg, wait_result_t wr)
+ 		} else {
+ 			strlcpy(k60_dw, "-1", sizeof(k60_dw));
+ 		}
++		char k60_site[12];
+ 		if (k60_last_execerr >= 0) {
+ 			snprintf(k60_ler, sizeof(k60_ler), "%d", k60_last_execerr);
+ 			k60_lw = k60_last_execwhere;
+@@ -2231,10 +2233,15 @@ k60_heartbeat_thread(void *arg, wait_result_t wr)
+ 			strlcpy(k60_ler, "-", sizeof(k60_ler));
+ 			k60_lw = "-";
+ 		}
+-		printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=%s dm=%d ler=%s lw=%s\n",
++		if (k60_last_execsite >= 0) {
++			snprintf(k60_site, sizeof(k60_site), "%d", k60_last_execsite);
++		} else {
++			strlcpy(k60_site, "-", sizeof(k60_site));
++		}
++		printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=%s dm=%d ler=%s lw=%s site=%s\n",
+ 		    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
+ 		    k60_execerr_prints, k60_kxp_prints, k60_dw, k60_data_mounted,
+-		    k60_ler, k60_lw);
++		    k60_ler, k60_lw, k60_site);
+ 	}
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 	thread_block((thread_continue_t)k60_heartbeat_thread);
+@@ -3836,6 +3843,7 @@ posix_spawn(proc_t ap, struct posix_spawn_args *uap, int32_t *retval)
+ 				goto bad;
+ 			}
+ 			if ((error = spawn_validate_persona(px_persona)) != 0) {
++				k60_last_execsite = 6;
+ 				goto bad;
+ 			}
+ 		}
+@@ -3875,6 +3883,7 @@ posix_spawn(proc_t ap, struct posix_spawn_args *uap, int32_t *retval)
+ #if CONFIG_MACF
+ 		if (px_args.mac_extensions_size != 0) {
+ 			if ((error = spawn_copyin_macpolicyinfo(&px_args, (struct ip_px_smpx_s *)&imgp->ip_px_smpx)) != 0) {
++				k60_last_execsite = 4;
+ 				goto bad;
+ 			}
+ 		}
+@@ -3929,6 +3938,7 @@ posix_spawn(proc_t ap, struct posix_spawn_args *uap, int32_t *retval)
+ #endif
+ 
+ 		if ((error = exec_validate_spawnattr_policy(psa->psa_apptype)) != 0) {
++			k60_last_execsite = 5;
+ 			goto bad;
+ 		}
+ 	}
+@@ -4309,6 +4319,7 @@ do_fork1:
+ 	if (uap->mac_p != USER_ADDR_NULL) {
+ 		error = mac_execve_enter(uap->mac_p, imgp);
+ 		if (error) {
++			k60_last_execsite = 3;
+ 			goto bad;
+ 		}
+ 	}
+@@ -4320,6 +4331,9 @@ do_fork1:
+ 	 * as 0 and pretends the call succeeded.
+ 	 */
+ 	error = exec_activate_image(imgp);
++	if (error) {
++		k60_last_execsite = 2;
++	}
+ #if defined(HAS_APPLE_PAC)
+ 	ml_task_set_jop_pid_from_shared_region(new_task);
+ 	ml_task_set_disable_user_jop(new_task, imgp->ip_flags & IMGPF_NOJOP ? TRUE : FALSE);
+@@ -4459,6 +4473,7 @@ do_fork1:
+ 		}
+ 
+ bad_px_sa:
++		k60_last_execsite = 1;
+ 		if (error != 0) {
+ 			KERNEL_DEBUG_CONSTANT(BSDDBG_CODE(DBG_BSD_PROC, BSD_PROC_EXITREASON_CREATE) | DBG_FUNC_NONE,
+ 			    proc_getpid(p), OS_REASON_EXEC, EXEC_EXIT_REASON_BAD_PSATTR, 0, 0);

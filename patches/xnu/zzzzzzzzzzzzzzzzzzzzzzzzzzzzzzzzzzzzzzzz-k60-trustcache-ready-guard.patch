@@ -1,0 +1,50 @@
+diff --git a/bsd/kern/kern_trustcache.c b/bsd/kern/kern_trustcache.c
+index 4c22764..9499a8c 100644
+--- a/bsd/kern/kern_trustcache.c
++++ b/bsd/kern/kern_trustcache.c
+@@ -221,6 +221,14 @@ ppl_check_trust_cache_runtime_for_uuid(
+ LCK_GRP_DECLARE(trust_cache_lck_grp, "trust_cache_lck_grp");
+ decl_lck_rw_data(, trust_cache_rt_lock);
+ 
++/*
++ * K60 bring-up: true once trust_cache_runtime_init() has completed. The image4
++ * interface it needs is registered by the AppleImage4 kext during IOKit
++ * bring-up, long after this bootstrap-phase call, so the runtime can still be
++ * uninitialised when AMFI issues its first query.
++ */
++static bool trust_cache_runtime_ready = false;
++
+ /* Immutable part of the runtime */
+ SECURITY_READ_ONLY_LATE(TrustCacheRuntime_t) trust_cache_rt_storage;
+ SECURITY_READ_ONLY_LATE(TrustCacheRuntime_t*) trust_cache_rt = &trust_cache_rt_storage;
+@@ -270,6 +278,8 @@ trust_cache_runtime_init(void)
+ 
+ 	/* Initialize the read-write lock */
+ 	lck_rw_init(&trust_cache_rt_lock, &trust_cache_lck_grp, 0);
++
++	trust_cache_runtime_ready = true;
+ }
+ 
+ static kern_return_t
+@@ -405,6 +415,10 @@ xnu_query_trust_cache(
+ 		return KERN_INVALID_ARGUMENT;
+ 	}
+ 
++	if (!trust_cache_runtime_ready) {
++		return KERN_NOT_FOUND;
++	}
++
+ 	/* Lock the runtime as shared */
+ 	lck_rw_lock_shared(&trust_cache_rt_lock);
+ 
+@@ -442,6 +456,10 @@ xnu_check_trust_cache_runtime_for_uuid(
+ 		return KERN_NOT_SUPPORTED;
+ 	}
+ 
++	if (!trust_cache_runtime_ready) {
++		return KERN_NOT_FOUND;
++	}
++
+ 	/* Lock the runtime as shared */
+ 	lck_rw_lock_shared(&trust_cache_rt_lock);
+ 

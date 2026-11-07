@@ -1,0 +1,24 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -100,6 +100,20 @@
+ uint32_t pong_ramoops_size;
+ volatile uint32_t pong_ramoops_busy;
+ 
++/*
++ * GPU bring-up diagnostics share the persistent console mirror. The dedicated
++ * pmsg diagnostic region (pong-settings-pmsg) predates the extern move of the
++ * ramoops state and still needs a rebase; until then the Adreno driver's
++ * writes land in the same verified mirror as kernel console traffic.
++ */
++void
++pong_ramoops_diagnostic_write(const char *text, int length)
++{
++	if (text && length > 0) {
++		pong_ramoops_console_write(text, length);
++	}
++}
++
+ void
+ pong_ramoops_console_write(const char *text, int length)
+ {

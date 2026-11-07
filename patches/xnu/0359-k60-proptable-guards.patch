@@ -1,0 +1,35 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -552,6 +552,10 @@
+ bool
+ IORegistryEntry::serializeProperties( OSSerialize * s ) const
+ {
++	if (__improbable(!reserved)) {
++		return false;   /* 0359: released or uninitialised entry */
++	}
++
+ //    setProperty( getRetainCount(), 32, "__retain" );
+ 
+ 	PLOCK;
+@@ -570,6 +574,10 @@
+ OSArray *
+ IORegistryEntry::copyPropertyKeys(void) const
+ {
++	if (__improbable(!reserved)) {
++		return NULL;   /* 0359: released or uninitialised entry */
++	}
++
+ 	PLOCK;
+ 	OSArray * keys = getPropertyTable()->copyKeys();
+ 	PUNLOCK;
+@@ -580,6 +588,10 @@
+ OSDictionary *
+ IORegistryEntry::dictionaryWithProperties( void ) const
+ {
++	if (__improbable(!reserved)) {
++		return NULL;   /* 0359: released or uninitialised entry */
++	}
++
+ 	OSDictionary *      dict;
+ 
+ 	PLOCK;

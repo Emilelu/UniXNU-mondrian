@@ -1,0 +1,45 @@
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1789,6 +1789,42 @@
+ 					}
+ 				}
+ 			}
++			/*
++			 * 0328: runningboardd and friends die with ns=18 (LIBSYSTEM) and
++			 * print nothing on their own stderr. The human-readable text of
++			 * such a fault lives in the reason's kcdata buffer, so dump the
++			 * raw bytes as ascii. Bounded: 6 dumps per boot, 512 bytes each.
++			 */
++			{
++				static _Atomic unsigned int k60_payload_prints = 0;
++				os_reason_t k60_pr = p->p_exit_reason;
++				if (k60_pr != OS_REASON_NULL &&
++				    k60_pr->osr_namespace == 18u &&
++				    k60_pr->osr_kcd_buf != NULL &&
++				    k60_pr->osr_bufsize >= 32u &&
++				    atomic_fetch_add_explicit(&k60_payload_prints, 1u,
++				    memory_order_relaxed) < 6u) {
++					unsigned int k60_plen = k60_pr->osr_bufsize;
++					unsigned int k60_poff;
++					char k60_pline[72];
++					if (k60_plen > 512u) {
++						k60_plen = 512u;
++					}
++					printf("KXD %d %s len=%u\n", proc_getpid(p), p->p_comm,
++					    k60_pr->osr_bufsize);
++					for (k60_poff = 0; k60_poff < k60_plen; k60_poff += 64) {
++						unsigned int k60_j, k60_n = 0;
++						for (k60_j = 0; k60_j < 64 && k60_poff + k60_j < k60_plen; k60_j++) {
++							unsigned char k60_ch =
++							    (unsigned char)k60_pr->osr_kcd_buf[k60_poff + k60_j];
++							k60_pline[k60_n++] =
++							    (k60_ch >= 0x20 && k60_ch < 0x7f) ? (char)k60_ch : '.';
++						}
++						k60_pline[k60_n] = 0;
++						printf("KXD %d +%u %s\n", proc_getpid(p), k60_poff, k60_pline);
++					}
++				}
++			}
+ 			if ((k60_record % 100) == 0) {
+ 				unsigned int top[3] = { 16, 16, 16 };
+ 				for (k60_i = 0; k60_i < 16; k60_i++) {

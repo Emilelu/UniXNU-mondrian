@@ -1,0 +1,50 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 53b94c1..fdb4288 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -6926,7 +6926,8 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
+  *		initproc might be different.
+  */
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
++    user_addr_t envp)
+ {
+ 	int retval[2];
+ 	int error;
+@@ -6998,7 +6999,7 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
+ 	 */
+ 	init_exec_args.fname = argv0;
+ 	init_exec_args.argp = scratch_addr;
+-	init_exec_args.envp = USER_ADDR_NULL;
++	init_exec_args.envp = envp;
+ 
+ 	/*
+ 	 * So that init task is set with uid,gid 0 token
+@@ -7092,7 +7093,7 @@ load_init_program(proc_t p)
+ 
+ 		if (is_release_suffix) {
+ 			printf("load_init_program: attempting to load /sbin/launchd\n");
+-			error = load_init_program_at_path(p, (user_addr_t)scratch_addr, "/sbin/launchd");
++			error = load_init_program_at_path(p, (user_addr_t)scratch_addr, "/sbin/launchd", init_envp);
+ 			if (!error) {
+ 				return;
+ 			}
+@@ -7103,7 +7104,7 @@ load_init_program(proc_t p)
+ 			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
+ 
+ 			printf("load_init_program: attempting to load %s\n", launchd_path);
+-			error = load_init_program_at_path(p, (user_addr_t)scratch_addr, launchd_path);
++			error = load_init_program_at_path(p, (user_addr_t)scratch_addr, launchd_path, init_envp);
+ 			if (!error) {
+ 				return;
+ 			} else if (error != ENOENT) {
+@@ -7134,7 +7135,7 @@ load_init_program(proc_t p)
+ 	error = ENOENT;
+ 	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
+ 		printf("load_init_program: attempting to load %s\n", init_programs[i]);
+-		error = load_init_program_at_path(p, (user_addr_t)scratch_addr, init_programs[i]);
++		error = load_init_program_at_path(p, (user_addr_t)scratch_addr, init_programs[i], init_envp);
+ 		if (!error) {
+ 			return;
+ 		} else if (error != ENOENT) {

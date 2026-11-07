@@ -1,0 +1,135 @@
+--- a/osfmk/vm/vm_user.c
++++ b/osfmk/vm/vm_user.c
+@@ -86,6 +86,7 @@
+  */
+ 
+ #include <debug.h>
++#include <pexpert/pexpert.h>
+ 
+ #include <vm_cpm.h>
+ #include <mach/boolean.h>
+@@ -417,12 +418,62 @@
+  *	deallocates the specified range of addresses in the
+  *	specified address map.
+  */
++/*
++ * k60 0321 v2: the first run proved the loader's mapping of
++ * /System/Library/xpc/launchd.plist does NOT start with "bplist00" -- it starts
++ * with "chDa" (mid-"LaunchDaemons"). Store 64 bytes in globals so the next boot
++ * can identify what the loader is actually reading. No printf in this file.
++ */
++int k60_probe_ready;
++int k60_probe_seen;
++unsigned long long k60_probe_start;
++unsigned long long k60_probe_size;
++unsigned int k60_probe_copyin_kr = 0xffffffffu;
++unsigned int k60_probe_copytype;
++unsigned char k60_probe_head[64];
++
++static void
++k60_probe_dealloc_content(vm_map_t k60_map, mach_vm_offset_t k60_start,
++    mach_vm_size_t k60_size)
++{
++	vm_map_copy_t k60_copy = VM_MAP_COPY_NULL;
++	kern_return_t k60_kr;
++	int k60_i;
++
++	if (!k60_probe_ready || k60_probe_seen) {
++		return;
++	}
++	if (k60_size < 1048576ULL || k60_size > 2097152ULL) {
++		return;
++	}
++	k60_kr = vm_map_copyin(k60_map, (vm_map_address_t)k60_start,
++	    (vm_map_size_t)64, FALSE, &k60_copy);
++	k60_probe_start = (unsigned long long)k60_start;
++	k60_probe_size = (unsigned long long)k60_size;
++	k60_probe_copyin_kr = (unsigned int)k60_kr;
++	k60_probe_seen = 1;
++	if (k60_kr == KERN_SUCCESS && k60_copy != VM_MAP_COPY_NULL) {
++		k60_probe_copytype = (unsigned int)k60_copy->type;
++		if (k60_copy->type == VM_MAP_COPY_KERNEL_BUFFER) {
++			const unsigned char *k60_b =
++			    (const unsigned char *)k60_copy->cpy_kdata;
++
++			for (k60_i = 0; k60_i < 64; k60_i++) {
++				k60_probe_head[k60_i] = k60_b[k60_i];
++			}
++		}
++		vm_map_copy_discard(k60_copy);
++	}
++}
++
+ kern_return_t
+ mach_vm_deallocate(
+ 	vm_map_t                map,
+ 	mach_vm_offset_t        start,
+ 	mach_vm_size_t  size)
+ {
++	k60_probe_dealloc_content(map, start, size);
++
+ 	if ((map == VM_MAP_NULL) || (start + size < start)) {
+ 		return KERN_INVALID_ARGUMENT;
+ 	}
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2244,6 +2244,13 @@
+ 		    k60_ler, k60_lw, k60_site);
+ 	}
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
++		{
++		extern int k60_probe_ready;
++
++		k60_probe_ready = 1;
++	}
++	/* k60 0321: the heartbeat's first K60HB line is already out, so the
++	 * console is up and the loader's munmap (t~=60 s) is still ahead. */
+ 	thread_block((thread_continue_t)k60_heartbeat_thread);
+ 	/* NOTREACHED */
+ }
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1672,6 +1672,43 @@
+ 	if (k60_tolerate_cache_loader && p != initproc &&
+ 	    strncmp(p->p_name, "launchd_cache_loader", 16) == 0) {
+ 		printf("K60: launchd_cache_loader reported as clean exit (was 0x%x)\n", rv);
++			{
++				extern int k60_probe_seen;
++				extern unsigned long long k60_probe_start;
++				extern unsigned long long k60_probe_size;
++				extern unsigned int k60_probe_copyin_kr;
++				extern unsigned int k60_probe_copytype;
++				extern unsigned char k60_probe_head[64];
++
++				if (k60_probe_seen) {
++					printf("K60MV start=0x%llx size=0x%llx copyin=0x%x type=%u\n",
++					    k60_probe_start, k60_probe_size,
++					    k60_probe_copyin_kr, k60_probe_copytype);
++					printf("K60MV64 %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\n",
++					    k60_probe_head[0], k60_probe_head[1], k60_probe_head[2], k60_probe_head[3],
++					    k60_probe_head[4], k60_probe_head[5], k60_probe_head[6], k60_probe_head[7],
++					    k60_probe_head[8], k60_probe_head[9], k60_probe_head[10], k60_probe_head[11],
++					    k60_probe_head[12], k60_probe_head[13], k60_probe_head[14], k60_probe_head[15],
++					    (k60_probe_head[0] >= 0x20 && k60_probe_head[0] < 0x7f) ? k60_probe_head[0] : '.',
++					    (k60_probe_head[1] >= 0x20 && k60_probe_head[1] < 0x7f) ? k60_probe_head[1] : '.',
++					    (k60_probe_head[2] >= 0x20 && k60_probe_head[2] < 0x7f) ? k60_probe_head[2] : '.',
++					    (k60_probe_head[3] >= 0x20 && k60_probe_head[3] < 0x7f) ? k60_probe_head[3] : '.',
++					    (k60_probe_head[4] >= 0x20 && k60_probe_head[4] < 0x7f) ? k60_probe_head[4] : '.',
++					    (k60_probe_head[5] >= 0x20 && k60_probe_head[5] < 0x7f) ? k60_probe_head[5] : '.',
++					    (k60_probe_head[6] >= 0x20 && k60_probe_head[6] < 0x7f) ? k60_probe_head[6] : '.',
++					    (k60_probe_head[7] >= 0x20 && k60_probe_head[7] < 0x7f) ? k60_probe_head[7] : '.',
++					    (k60_probe_head[8] >= 0x20 && k60_probe_head[8] < 0x7f) ? k60_probe_head[8] : '.',
++					    (k60_probe_head[9] >= 0x20 && k60_probe_head[9] < 0x7f) ? k60_probe_head[9] : '.',
++					    (k60_probe_head[10] >= 0x20 && k60_probe_head[10] < 0x7f) ? k60_probe_head[10] : '.',
++					    (k60_probe_head[11] >= 0x20 && k60_probe_head[11] < 0x7f) ? k60_probe_head[11] : '.',
++					    (k60_probe_head[12] >= 0x20 && k60_probe_head[12] < 0x7f) ? k60_probe_head[12] : '.',
++					    (k60_probe_head[13] >= 0x20 && k60_probe_head[13] < 0x7f) ? k60_probe_head[13] : '.',
++					    (k60_probe_head[14] >= 0x20 && k60_probe_head[14] < 0x7f) ? k60_probe_head[14] : '.',
++					    (k60_probe_head[15] >= 0x20 && k60_probe_head[15] < 0x7f) ? k60_probe_head[15] : '.');
++				} else {
++					printf("K60MV not-seen (no 1-2 MiB dealloc matched)\n");
++				}
++			}
+ 		rv = 0;
+ 		/*
+ 		 * Also clear the exit reason and signal state: launchd determines

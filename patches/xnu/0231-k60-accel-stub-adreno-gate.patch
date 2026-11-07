@@ -1,0 +1,14 @@
+diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
+--- a/iokit/Kernel/MiniIOSurface.cpp
++++ b/iokit/Kernel/MiniIOSurface.cpp
+@@ -2048,7 +2048,10 @@
+ 		return;
+ 	}
+ 	MiniIOMobileFramebufferStart(provider);
++	
++#if XNU_K60_ACCEL_STUB
+ 	MiniAcceleratorPublishStub(provider);
++#endif
+ }
+ 
+ #endif /* Pong development IOSurface */

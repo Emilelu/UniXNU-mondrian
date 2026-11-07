@@ -1,0 +1,118 @@
+diff --git a/bsd/kern/kern_minimac.c b/b/bsd/kern/kern_minimac.c
+index f707517..af2b43e 100644
+--- a/bsd/kern/kern_minimac.c
++++ b/bsd/kern/kern_minimac.c
+@@ -367,8 +367,34 @@ SECURITY_READ_ONLY_LATE(static mac_policy_handle_t) minisandbox_handle;
+ void
+ minimac_policy_init(void)
+ {
+-	uint32_t enabled = 0;
+-	if (!PE_parse_boot_argn("amfi_get_out_of_my_way", &enabled, sizeof(enabled)) || !enabled) return;
++	uint32_t amfi_enabled = 0;
++	uint32_t sandbox_enabled = 0;
++
++	/*
++	 * K60: the AMFI stand-in and the real AppleMobileFileIntegrity kext cannot
++	 * both register the "AMFI" policy - this route prelinks the real kext, so
++	 * asking for the stand-in reaches amfi.c's "interface already set" panic.
++	 *
++	 * The Sandbox stand-in has no such conflict and is what user space actually
++	 * needs: libsystem_sandbox reaches the kernel only through
++	 * __mac_syscall("Sandbox", ...) (mac_base.c:1587 returns ENOPOLICY when no
++	 * policy carries that name). Without it, container path lookups
++	 * (request 4, minisandbox_container_path) fail, Foundation gets no
++	 * container and the framework daemons abort themselves with SIGABRT or
++	 * SIGTRAP. So the Sandbox stand-in is registered on its own.
++	 *
++	 * k60_sandbox=1 enables it; k60_sandbox=0 disables it again for an A/B run.
++	 * amfi_get_out_of_my_way keeps its old meaning and still registers both,
++	 * for a route that does not prelink the real kext.
++	 */
++	if (PE_parse_boot_argn("k60_sandbox", &sandbox_enabled, sizeof(sandbox_enabled)) && sandbox_enabled) {
++		mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
++		printf("K60 SANDBOX: stand-in policy registered\n");
++		return;
++	}
++	if (!PE_parse_boot_argn("amfi_get_out_of_my_way", &amfi_enabled, sizeof(amfi_enabled)) || !amfi_enabled) {
++		return;
++	}
+ 	mac_policy_register(&miniamfi_conf, &miniamfi_handle, NULL);
+ 	mac_policy_register(&minisandbox_conf, &minisandbox_handle, NULL);
+ }
+diff --git a/bsd/kern/kern_exit.c b/b/bsd/kern/kern_exit.c
+index 6478e1e..fc8d20d 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1638,9 +1638,41 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate,
+ 			 * ticket order does not imply console print order or a sender identity.
+ 			 */
+ 			static _Atomic unsigned int k60_reason_sequence = 0;
++			/*
++			 * 0301: per-(comm,status,sig) storm table, 16 slots. The first
++			 * occurrence of each combination prints one KX! line; repeats only
++			 * count. Every 100th abnormal exit prints a KX# line with the top 3.
++			 * Bounded output without a hard cap; slots are not locked
++			 * (diagnostic only, counts may be racy).
++			 */
++			static struct {
++				char comm[24];
++				uint32_t status, sig, count;
++			} k60_storm[16];
+ 			unsigned int k60_record = atomic_fetch_add_explicit(&k60_reason_sequence,
+ 			    1u, memory_order_relaxed) + 1u;
+-			if (k60_record <= 300) {
++			unsigned int k60_free = 16, k60_hit = 16, k60_i;
++			for (k60_i = 0; k60_i < 16; k60_i++) {
++				if (k60_storm[k60_i].count == 0) {
++					if (k60_free == 16) {
++						k60_free = k60_i;
++					}
++					continue;
++				}
++				if (k60_storm[k60_i].status == k60_status &&
++				    k60_storm[k60_i].sig == k60_sig &&
++				    strncmp(k60_storm[k60_i].comm, p->p_comm, 24) == 0) {
++					k60_hit = k60_i;
++					break;
++				}
++			}
++			if (k60_hit == 16 && k60_free != 16) {
++				k60_hit = k60_free;
++				strlcpy(k60_storm[k60_hit].comm, p->p_comm, sizeof(k60_storm[k60_hit].comm));
++				k60_storm[k60_hit].status = k60_status;
++				k60_storm[k60_hit].sig = k60_sig;
++			}
++			if (k60_hit != 16 && ++k60_storm[k60_hit].count == 1) {
+ 				os_reason_t k60_reason = p->p_exit_reason;
+ 				printf("KX! %u %d %s exit=%u sig=%u r=%u ns=%u code=0x%llx rf=0x%llx jf=0x%x\n",
+ 				    k60_record, proc_getpid(p), p->p_comm, k60_status, k60_sig,
+@@ -1650,6 +1682,29 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate,
+ 				    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0),
+ 				    (unsigned int)jetsam_flags);
+ 			}
++			if ((k60_record % 100) == 0) {
++				unsigned int top[3] = { 16, 16, 16 };
++				for (k60_i = 0; k60_i < 16; k60_i++) {
++					if (k60_storm[k60_i].count == 0) {
++						continue;
++					}
++					if (top[0] == 16 || k60_storm[k60_i].count > k60_storm[top[0]].count) {
++						top[2] = top[1]; top[1] = top[0]; top[0] = k60_i;
++					} else if (top[1] == 16 || k60_storm[k60_i].count > k60_storm[top[1]].count) {
++						top[2] = top[1]; top[1] = k60_i;
++					} else if (top[2] == 16 || k60_storm[k60_i].count > k60_storm[top[2]].count) {
++						top[2] = k60_i;
++					}
++				}
++				printf("KX# %u abn=%u storm %s=%u %s=%u %s=%u\n",
++				    k60_record, k60_abnormal_count + 1,
++				    top[0] != 16 ? k60_storm[top[0]].comm : "-",
++				    top[0] != 16 ? k60_storm[top[0]].count : 0,
++				    top[1] != 16 ? k60_storm[top[1]].comm : "-",
++				    top[1] != 16 ? k60_storm[top[1]].count : 0,
++				    top[2] != 16 ? k60_storm[top[2]].comm : "-",
++				    top[2] != 16 ? k60_storm[top[2]].count : 0);
++			}
+ 			k60_abnormal_count++;
+ 			k60_last_bad_pid = proc_getpid(p);
+ 			strlcpy(k60_last_bad_comm, p->p_comm, sizeof(k60_last_bad_comm));

@@ -1,0 +1,64 @@
+/dts-v1/;
+
+/*
+ * Redmi K60 (mondrian) board description.
+ *
+ * The SM8475 CPUs, PSCI conduit and GICv3 window come from the SoC source; this
+ * file adds what is specific to the board. The Apple identity and the OS
+ * properties come from the OS profile's [adt] tables, and the payload handoff
+ * options from board.toml [payload.adt].
+ */
+
+/include/ "sm8475.dtsi"
+
+/ {
+	model = "Redmi K60";
+	compatible = "xiaomi,mondrian";
+
+	/*
+	 * UniXNU contiguous handoff arena, NOT a claim about total installed RAM.
+	 * Serial 6033dbec live Android /memory/reg and /proc/iomem (2026-11-02) put
+	 * Serial 6033dbec live Android /memory/reg and /proc/iomem (2026-11-02) put
+	 * the only long high run at 0x840000000..0xa80000000 (9 GiB). A 7 GiB window
+	 * inside it was accepted by the loader but XNU printed nothing, so this image
+	 * goes back to the proven 4 GiB geometry: arena [0x900000000,0xa40000000) and
+	 * a 4 GiB managed window, which reached XNU with mem=actual=managed=4096 MiB.
+	 * The diagnostic kernel is unchanged, so the failing-program list is the goal.
+	 * 12 GiB is impossible: 4..32 GiB is a 28 GiB hole and no run is 12 GiB.
+	 */
+	memory@900000000 {
+		device_type = "memory";
+		reg = <0x9 0x00000000 0x1 0x40000000>;
+	};
+
+	/*
+	 * SM8475 UFS host (NativeUfs.cpp window checks: NativeUfs.cpp kUfsHost /
+	 * kGccUfsPage / SMMU constants, pong,ufs-* / pong,smmu-* properties are
+	 * exported to the ADT via unixnu,adt-name).
+	 */
+	ufs@1d84000 {
+		compatible = "qcom,sm8475-ufshc";
+		status = "okay";
+		reg = <0x0 0x1d84000 0x0 0x3000>;
+		unixnu,adt-name = "ufshc";
+		pong,ufs-hc-base = <0x0 0x1d84000>;
+		pong,ufs-hc-size = <0x0 0x3000>;
+		pong,gcc-ufs-page = <0x0 0x187000>;
+		pong,smmu-base = <0x0 0x15000000>;
+		pong,smmu-size = <0x0 0x100000>;
+		pong,smmu-stream-id = <0xe0>;
+		pong,ufs-spi = <265>;
+		pong,smmu-context-banks = <78>;
+		pong,smmu-match-groups = <120>;
+	};
+
+	/*
+	 * The CPU nodes come from the SoC dtsi: eight cores with the flat
+	 * 0x000..0x700 reg values, which are the hardware MPIDRs (Aff1 = core
+	 * index). The Android tree carries the same values, this firmware refuses
+	 * every CPU_ON target outside that table (bc9), and XNU matches a starting
+	 * core to its cpu data by this value - so do not override them here. The
+	 * 4/3/1 A510/A710/X2 grouping seen in Android's sysfs is cache topology,
+	 * not MPIDR affinity.
+	 */
+};

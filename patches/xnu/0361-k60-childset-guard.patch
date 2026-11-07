@@ -1,0 +1,35 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -1874,6 +1874,10 @@
+ IORegistryEntry *
+ IORegistryEntry::copyParentEntry( const IORegistryPlane * plane ) const
+ {
++	if (__improbable(!reserved)) {
++		return NULL;   /* 0361: released/uninitialised entry */
++	}
++
+ 	IORegistryEntry *   entry = NULL;
+ 	OSArray *           links;
+ 
+@@ -1905,6 +1909,10 @@
+ OSArray *
+ IORegistryEntry::getChildSetReference( const IORegistryPlane * plane ) const
+ {
++	if (__improbable(!reserved)) {
++		return NULL;   /* 0361: released/uninitialised entry */
++	}
++
+ 	if (plane) {
+ 		return (OSArray *) registryTable()->getObject(
+ 			plane->keys[kChildSetIndex]);
+@@ -1969,6 +1977,10 @@
+ IORegistryEntry::copyChildEntry(
+ 	const IORegistryPlane * plane ) const
+ {
++	if (__improbable(!reserved)) {
++		return NULL;   /* 0361: released/uninitialised entry */
++	}
++
+ 	IORegistryEntry *   entry = NULL;
+ 	OSArray *           links;
+ 

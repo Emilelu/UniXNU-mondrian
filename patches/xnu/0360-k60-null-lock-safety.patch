@@ -1,0 +1,56 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -120,8 +120,8 @@
+ 	        gIORegistryGenerationCount++
+ // make atomic
+ 
+-#define PUNLOCK IORecursiveLockUnlock( reserved->fLock )
+-#define PLOCK   IORecursiveLockLock( reserved->fLock )
++#define PUNLOCK do { if (reserved) { IORecursiveLockUnlock( reserved->fLock ); } } while (0)
++#define PLOCK   do { if (reserved) { IORecursiveLockLock( reserved->fLock ); } } while (0)
+ 
+ #define IOREGSPLITTABLES
+ 
+@@ -1916,6 +1916,10 @@
+ OSIterator *
+ IORegistryEntry::getChildIterator( const IORegistryPlane * plane ) const
+ {
++	if (__improbable(!reserved)) {
++		return NULL;   /* 0360 */
++	}
++
+ 	OSArray *           links;
+ 	OSIterator *        iter;
+ 
+@@ -1944,6 +1948,10 @@
+ uint32_t
+ IORegistryEntry::getChildCount( const IORegistryPlane * plane ) const
+ {
++	if (__improbable(!reserved)) {
++		return 0;   /* 0360 */
++	}
++
+ 	OSArray * links;
+ 	uint32_t  count = 0;
+ 
+@@ -2691,5 +2699,20 @@
+ OSDictionary *
+ IORegistryEntry::getPropertyTable( void ) const
+ {
++	if (__improbable(!reserved)) {
++		/*
++		 * 0360: a released or never-initialised entry is still reachable from
++		 * generic I/O Kit code (kext-owned user clients, stale match state).
++		 * Answering with a shared empty table turns those paths into harmless
++		 * "no such property" results instead of a NULL-lock data abort.  Every
++		 * mutating path is guarded separately, so this table stays read-only.
++		 */
++		static OSDictionary * k60_empty;
++
++		if (!k60_empty) {
++			k60_empty = OSDictionary::withCapacity(1);
++		}
++		return k60_empty;
++	}
+ 	return fPropertyTable;
+ }

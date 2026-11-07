@@ -1,0 +1,13 @@
+diff --git a/config/MASTER.arm64.pong b/config/MASTER.arm64.pong
+--- a/config/MASTER.arm64.pong
++++ b/config/MASTER.arm64.pong
+@@ -95,3 +95,9 @@
+ options   CONFIG_KERNEL_INTEGRITY		# <kernel_integrity>
+ options   CONFIG_UBSAN_MINIMAL		# <ubsan_minimal>
+ options   CONFIG_KERNEL_TBI	# <kernel_tbi>
++
++# The payload carries two Apple static trust caches (StaticTrustCache and
++# Cryptex1,SystemTrustCache). Without this option the second module is typed as
++# engineering and load_static_trust_cache() skips it, which would hide any
++# cdhash that only the system cache lists.
++options   CONFIG_SECOND_STATIC_TRUST_CACHE	# <second_static_trust_cache>

@@ -1,0 +1,55 @@
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1589,9 +1589,23 @@
+ 
+ 		k60_exit_count++;
+ 		if (k60_status != 0 || k60_sig != 0) {
+-			if (k60_abnormal_count < 300) {
+-				printf("KX! %u %d %s exit=%u sig=%u (execs %u)\n", k60_abnormal_count + 1,
+-				    proc_getpid(p), p->p_comm, k60_status, k60_sig, k60_exec_count);
++			/* The target's proc lock and exit transaction still own this reason.
++			 * Read scalars only: no payload allocation/parsing or extra references.
++			 * A separate atomic ticket bounds output across different proc locks;
++			 * ticket order does not imply console print order or a sender identity.
++			 */
++			static _Atomic unsigned int k60_reason_sequence = 0;
++			unsigned int k60_record = atomic_fetch_add_explicit(&k60_reason_sequence,
++			    1u, memory_order_relaxed) + 1u;
++			if (k60_record <= 300) {
++				os_reason_t k60_reason = p->p_exit_reason;
++				printf("KX! %u %d %s exit=%u sig=%u r=%u ns=%u code=0x%llx rf=0x%llx jf=0x%x\n",
++				    k60_record, proc_getpid(p), p->p_comm, k60_status, k60_sig,
++				    (unsigned int)(k60_reason != OS_REASON_NULL),
++				    k60_reason ? k60_reason->osr_namespace : 0u,
++				    (unsigned long long)(k60_reason ? k60_reason->osr_code : 0),
++				    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0),
++				    (unsigned int)jetsam_flags);
+ 			}
+ 			k60_abnormal_count++;
+ 			k60_last_bad_pid = proc_getpid(p);
+@@ -2128,6 +2142,25 @@
+ 		 * This can happen if a thread_terminate() occurs
+ 		 * in a single-threaded process.
+ 		 */
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++		/* This branch bypasses exit_with_reason()/KX; observe it separately.
++		 * It identifies the fallback path, not who initiated task termination.
++		 */
++		{
++			static _Atomic unsigned int k60_fallback_sequence = 0;
++			unsigned int k60_record = atomic_fetch_add_explicit(&k60_fallback_sequence,
++			    1u, memory_order_relaxed) + 1u;
++			if (k60_record <= 32) {
++				os_reason_t k60_reason = p->p_exit_reason;
++				printf("K60XT %u %d %s xstat=0x%x r=%u ns=%u code=0x%llx rf=0x%llx\n",
++				    k60_record, proc_getpid(p), p->p_comm, (unsigned int)p->p_xstat,
++				    (unsigned int)(k60_reason != OS_REASON_NULL),
++				    k60_reason ? k60_reason->osr_namespace : 0u,
++				    (unsigned long long)(k60_reason ? k60_reason->osr_code : 0),
++				    (unsigned long long)(k60_reason ? k60_reason->osr_flags : 0));
++			}
++		}
++#endif
+ 		p->p_lflag |= P_LEXIT;
+ 		proc_transend(p, 1);
+ 		proc_unlock(p);

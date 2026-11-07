@@ -1,0 +1,94 @@
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1641,6 +1641,51 @@
+ 	p->p_exit_reason = exit_reason;
+ 
+ 	p->p_lflag |= P_LEXIT;
++
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++	/*
++	 * 0316: report launchd_cache_loader's abort as a clean exit.
++	 *
++	 * On this port the helper cannot reach an AMFI IOKit service: the profile
++	 * demotes the real AppleMobileFileIntegrity kext to a library (no
++	 * IOKitPersonalities, because loading it crashes - see the IOAVFamily
++	 * static-region fault) and miniamfi is a MAC policy with no IOKit service.
++	 * The helper therefore SIGABRTs, and launchd treats that as a failed
++	 * critical boot task and panics PID 1 ("Boot task failed ...
++	 * Panicking in 3 seconds").
++	 *
++	 * Its only job is to hand /System/Library/xpc/launchd.plist's signature to
++	 * AMFI. The dyld shared cache is already mounted at the normal path and the
++	 * kernel has set the dyld-1066.8 skipIgnition flag (XNU_OWNER_CACHE_STARTUP),
++	 * so the cache is usable without it. Reporting 0 to the parent lets launchd
++	 * continue with the remaining boot tasks instead of panicking.
++	 *
++	 * p->p_xstat is the single place the wait status is published, so this is
++	 * the only hook needed. Default off; k60_tolerate_cache_loader=1 enables.
++	 */
++	static int k60_tolerate_cache_loader = -1;
++	if (k60_tolerate_cache_loader < 0) {
++		uint32_t enabled = 0;
++		k60_tolerate_cache_loader =
++		    (PE_parse_boot_argn("k60_tolerate_cache_loader", &enabled, sizeof(enabled)) && enabled) ? 1 : 0;
++	}
++	if (k60_tolerate_cache_loader && p != initproc &&
++	    strncmp(p->p_name, "launchd_cache_loader", 16) == 0) {
++		printf("K60: launchd_cache_loader reported as clean exit (was 0x%x)\n", rv);
++		rv = 0;
++		/*
++		 * Also clear the exit reason and signal state: launchd determines
++		 * boot-task failure from the exit reason namespace (OS_REASON_LIBXPC)
++		 * and the signal, not just the wait status. Without this, launchd
++		 * still sees the SIGABRT through its exception handler and panics.
++		 */
++		if (p->p_exit_reason != OS_REASON_NULL) {
++			os_reason_free(p->p_exit_reason);
++			p->p_exit_reason = OS_REASON_NULL;
++		}
++	}
++#endif
++
+ 	p->p_xstat = rv;
+ 
+ 	{
+@@ -1827,6 +1872,39 @@
+ static bool
+ proc_should_trigger_panic(proc_t p, int rv)
+ {
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++	/*
++	 * 0314: opt-in escape hatch for /usr/libexec/launchd_cache_loader.
++	 *
++	 * launchd spawns that helper with POSIX_SPAWN_PANIC_ON_CRASH, and on this
++	 * port it dies with SIGABRT because user space cannot reach the AMFI IOKit
++	 * service: the prelink step strips AppleMobileFileIntegrity's
++	 * IOKitPersonalities (profile.toml --library-only) and restoring them makes
++	 * the real kext fail during IOKit init, before the USB console exists.
++	 *
++	 * Its actual job on a stock device is to hand /System/Library/xpc/
++	 * launchd.plist's signature to AMFI. The dyld shared cache itself is
++	 * already reachable on this port - the K60CACHE probe printed p0=0 for
++	 * /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e and the
++	 * kernel sets the dyld-1066.8 skipIgnition flag after the union mount
++	 * (XNU_OWNER_CACHE_STARTUP) - so tolerating this one crash lets launchd
++	 * carry on with the remaining boot tasks instead of panicking PID 1.
++	 *
++	 * Default off: k60_tolerate_cache_loader=1 enables it, and the message
++	 * below makes it obvious in the serial log that a crash was swallowed.
++	 */
++	static int k60_tolerate_cache_loader = -1;
++	if (k60_tolerate_cache_loader < 0) {
++		uint32_t enabled = 0;
++		k60_tolerate_cache_loader =
++		    (PE_parse_boot_argn("k60_tolerate_cache_loader", &enabled, sizeof(enabled)) && enabled) ? 1 : 0;
++	}
++	if (k60_tolerate_cache_loader && p != initproc &&
++	    strncmp(p->p_name, "launchd_cache_loader", 16) == 0) {
++		printf("K60: launchd_cache_loader exit tolerated; launchd continues\n");
++		return false;
++	}
++#endif
+ 	if (p == initproc || (p->p_crash_behavior & POSIX_SPAWN_PANIC_ON_EXIT) != 0) {
+ 		/* Always panic for launchd or equivalents */
+ 		return true;

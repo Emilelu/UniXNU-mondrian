@@ -1,0 +1,21 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -783,6 +783,18 @@
+ 		}
+ 	}
+ 
++	/*
++	 * 0345: an IORegistryEntry without expansion data cannot hold properties.
++	 * A kext can release its user client (reusing the memory) between
++	 * newUserClient() and the generic open path's setProperty() call; reading
++	 * or dereferencing reserved there is a fatal data abort.  Refusing the
++	 * property keeps the kernel alive - the property is diagnostic only.
++	 */
++	if (!reserved) {
++		printf("K60SPNULL key=%s\n", aKey ? aKey->getCStringNoCopy() : "(null)");
++		return false;
++	}
++
+ 	// If we are inserting a collection class and the current entry
+ 	// is attached into the registry (inPlane()) then mark the collection
+ 	// as immutable.

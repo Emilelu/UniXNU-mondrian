@@ -1,0 +1,12 @@
+--- a/iokit/Kernel/MiniAppleKeyStore.cpp
++++ b/iokit/Kernel/MiniAppleKeyStore.cpp
+@@ -269,6 +269,9 @@
+ 		wrapMix(key, length - 8);
+ 		return answer(args, key, length - 8);
+ 	}
++	case 93:   /* aks_assert_consume - sweet 0054: answer success */
++	case 34:   /* _aks_stash_load - datamigrator */
++		return kIOReturnSuccess;
+ 	default:
+ 		break;
+ 	}

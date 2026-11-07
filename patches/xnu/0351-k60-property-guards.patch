@@ -1,0 +1,12 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -484,6 +484,9 @@
+ {                                                                       \
+     OSObject *	obj;                                                    \
+                                                                         \
++    if (__improbable(!reserved)) {                                      \
++	return NULL;   /* 0351: released entry has no property table */    \
++    }                                                                   \
+     PLOCK;                                                              \
+     obj = getProperty( aKey );                                          \
+     if( obj)                                                            \

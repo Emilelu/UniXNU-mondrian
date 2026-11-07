@@ -1,0 +1,14 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -196,6 +196,11 @@
+ SInt32
+ IORegistryEntry::getRegistryEntryGenerationCount(void) const
+ {
++	if (__improbable(!reserved)) {
++		/* 0357: a service reached through a closed user client can already be
++		 * released; answering 0 keeps clientClose() from faulting at +0x10. */
++		return 0;
++	}
+ 	return reserved->fRegistryEntryGenerationCount;
+ }
+ 

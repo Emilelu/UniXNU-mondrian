@@ -1,0 +1,22 @@
+diff --git a/osfmk/kern/task.c b/osfmk/kern/task.c
+index 24ed326..242e493 100644
+--- a/osfmk/kern/task.c
++++ b/osfmk/kern/task.c
+@@ -7498,6 +7498,17 @@ SENDING_NOTIFICATION__THIS_PROCESS_IS_CAUSING_TOO_MANY_WAKEUPS(void)
+ 	    fatal ? "FATAL " : "",
+ 	    lei.lei_limit, lei.lei_refill_period / NSEC_PER_SEC);
+ 
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++	/*
++	 * K60 bring-up: the board boots with disable_exc_resource, so this violation can
++	 * never be delivered - but the call still fails and its error is printed on every
++	 * wakeup. The console shares the panel with the only copy of the boot UI, so skip
++	 * the send instead of reporting its failure.
++	 */
++	if (disable_exc_resource) {
++		return;
++	}
++#endif
+ 	kr = send_resource_violation(send_cpu_wakes_violation, task, &lei,
+ 	    fatal ? kRNFatalLimitFlag : 0);
+ 	if (kr) {

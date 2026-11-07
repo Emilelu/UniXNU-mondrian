@@ -1,0 +1,47 @@
+--- a/iokit/Kernel/IORegistryEntry.cpp
++++ b/iokit/Kernel/IORegistryEntry.cpp
+@@ -1875,6 +1875,14 @@
+ IORegistryEntry::copyParentEntry( const IORegistryPlane * plane ) const
+ {
+ 	if (__improbable(!reserved)) {
++		static unsigned k60ne_seen;
++
++		if (k60ne_seen < 12) {
++			k60ne_seen++;
++			/* getName() walks reserved itself - it must not be used here. */
++			printf("K60NULLENTRY this=%p cls=%s\n", (void *)this,
++			    getMetaClass() ? getMetaClass()->getClassName() : "?");
++		}
+ 		return NULL;   /* 0361: released/uninitialised entry */
+ 	}
+ 
+@@ -1910,6 +1918,14 @@
+ IORegistryEntry::getChildSetReference( const IORegistryPlane * plane ) const
+ {
+ 	if (__improbable(!reserved)) {
++		static unsigned k60ne_seen;
++
++		if (k60ne_seen < 12) {
++			k60ne_seen++;
++			/* getName() walks reserved itself - it must not be used here. */
++			printf("K60NULLENTRY this=%p cls=%s\n", (void *)this,
++			    getMetaClass() ? getMetaClass()->getClassName() : "?");
++		}
+ 		return NULL;   /* 0361: released/uninitialised entry */
+ 	}
+ 
+@@ -1978,6 +1994,14 @@
+ 	const IORegistryPlane * plane ) const
+ {
+ 	if (__improbable(!reserved)) {
++		static unsigned k60ne_seen;
++
++		if (k60ne_seen < 12) {
++			k60ne_seen++;
++			/* getName() walks reserved itself - it must not be used here. */
++			printf("K60NULLENTRY this=%p cls=%s\n", (void *)this,
++			    getMetaClass() ? getMetaClass()->getClassName() : "?");
++		}
+ 		return NULL;   /* 0361: released/uninitialised entry */
+ 	}
+ 

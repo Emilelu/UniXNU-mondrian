@@ -1,0 +1,120 @@
+/*
+ * Route A-18 (xnu-11417 / darwin24): find out where the granted cores stop.
+ *
+ * bc10 on the unit (2026-11-01): with the flat targets every CPU_ON is
+ * granted and no core is ever seen again - no exception record, no kernel
+ * stage. Three probes separate "the core never ran our entry" from "it ran
+ * and died silently":
+ *
+ *   - AFFINITY_INFO right after the grant and again after the wait: does the
+ *     firmware itself believe the core is on?
+ *   - a second CPU_ON after the wait: granted again means the grants are
+ *     hollow, denied means the core is held somewhere.
+ *   - psci_smp_arrival (start.s): a core that reaches the reset vector and
+ *     matches its cpu data stores its MPIDR there before anything else.
+ */
+--- a/osfmk/arm64/psci_smp.c
++++ b/osfmk/arm64/psci_smp.c
+@@ -75,6 +75,16 @@
+ } psci_smp_start_fault __attribute__((aligned(64)));
+ _Static_assert(sizeof(struct psci_smp_start_fault) == 64, "one cache line");
+ 
++/*
++ * Written by a core inside the reset vector the moment it has matched its cpu
++ * data (start.s, 0248): the full MPIDR of the first core through. The stores
++ * happen with the MMU and caches off, so they land in memory; readers
++ * invalidate their cached copy first, like the fault record above. The boot
++ * processor passes here too and writes its MPIDR 0x0, which reads as "no
++ * arrival yet" - harmless, since a secondary's MPIDR is never zero.
++ */
++volatile uint64_t psci_smp_arrival;
++
+ static uint32_t psci_smp_cpu_stage[MAX_CPUS];   /* PSCI_SMP_CPU_*, by cpu number */
+ static uint32_t psci_smp_started;               /* a bit per core that CPU_ON was granted for */
+ 
+@@ -152,6 +162,12 @@
+ 	printf("psci: conduit %s, firmware answers version 0x%llx (major %lld minor %lld)\n",
+ 	    psci_smp_hvc ? "hvc" : "smc", (unsigned long long)version,
+ 	    version >> 16, version & 0xffff);
++
++	uint64_t boot_mpidr;
++	__asm__ volatile ("mrs %0, MPIDR_EL1" : "=r" (boot_mpidr));
++	printf("psci: boot cpu MPIDR 0x%llx, secondary entry physical 0x%llx\n",
++	    (unsigned long long)boot_mpidr,
++	    (unsigned long long)ml_static_vtop((vm_offset_t)&LowResetVectorBase));
+ }
+ 
+ /* A processor other than the boot processor says how far it has come. */
+@@ -192,6 +208,7 @@
+ 	uint64_t entry = ml_static_vtop((vm_offset_t)&LowResetVectorBase);
+ 	uint64_t now, deadline;
+ 	int64_t status;
++	int arrival_reported = 0;
+ 
+ 	/*
+ 	 * What that core reads with its MMU off: the code and the page tables of start.s, and what
+@@ -231,6 +248,11 @@
+ 	}
+ 	os_atomic_or(&psci_smp_started, 1u << cpu, relaxed);
+ 
++	int64_t aff = psci_call(PSCI_AFFINITY_INFO, target, 0, 0);
++	printf("psci: cpu %d (target 0x%llx) granted; AFFINITY_INFO answers %lld (%s)\n",
++	    cpu, (unsigned long long)target, aff,
++	    aff == 0 ? "on" : aff == 1 ? "off" : aff == 2 ? "on pending" : "?");
++
+ 	clock_interval_to_deadline(PSCI_SMP_START_SECONDS, NSEC_PER_SEC, &deadline);
+ 	do {
+ 		stage = os_atomic_load(&psci_smp_cpu_stage[cpu], acquire);
+@@ -239,9 +261,15 @@
+ 		}
+ 		/* memory, not this processor's copy of it */
+ 		FlushPoC_DcacheRegion((vm_offset_t)&psci_smp_start_fault, sizeof(psci_smp_start_fault));
++		FlushPoC_DcacheRegion((vm_offset_t)&psci_smp_arrival, sizeof(psci_smp_arrival));
+ 		if (psci_smp_start_fault.valid != 0) {
+ 			break;
+ 		}
++		if (psci_smp_arrival != 0 && !arrival_reported) {
++			arrival_reported = 1;
++			printf("psci: cpu %d: the reset vector ran and matched cpu data for MPIDR 0x%llx\n",
++			    cpu, (unsigned long long)psci_smp_arrival);
++		}
+ 		delay_for_interval(1, NSEC_PER_MSEC);
+ 		now = mach_absolute_time();
+ 	} while (now < deadline);
+@@ -255,9 +283,15 @@
+ 		    cpu, f->mpidr, f->esr, f->elr, f->far, f->lr, f->sp, f->elr + to_virtual, f->lr + to_virtual);
+ 		os_atomic_andnot(&psci_smp_started, 1u << cpu, relaxed);        /* nothing of it is left to stop */
+ 	} else {
++		FlushPoC_DcacheRegion((vm_offset_t)&psci_smp_arrival, sizeof(psci_smp_arrival));
++		int64_t aff = psci_call(PSCI_AFFINITY_INFO, target, 0, 0);
++		int64_t again = psci_call(PSCI_CPU_ON, target, entry, 0);
+ 		printf("psci: cpu %d (MPIDR 0x%x, target 0x%llx) was started %d seconds ago and has not joined: %s\n",
+ 		    cpu, phys_id, (unsigned long long)target, PSCI_SMP_START_SECONDS,
+ 		    stage >= PSCI_SMP_CPU_IN_KERNEL ? "it got as far as arm_init_cpu()" : "no sign of it since the firmware took the request");
++		printf("psci: cpu %d: afterwards AFFINITY_INFO answers %lld (%s), a second CPU_ON answers %lld (%s), arrival flag 0x%llx\n",
++		    cpu, aff, aff == 0 ? "on" : aff == 1 ? "off" : aff == 2 ? "on pending" : "?",
++		    again, psci_error(again), (unsigned long long)psci_smp_arrival);
+ 	}
+ 	return KERN_FAILURE;
+ }
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -178,6 +178,18 @@
+ 	b		Lcheck_cpu_data_entry	// loop
+ Lfound_cpu_data_entry:
+ 
++#if defined(GENERIC_PSCI_SMP)
++	// Diagnostic (0248): the first core through the reset vector that matched
++	// its cpu data leaves its full MPIDR in psci_smp_arrival. The MMU and the
++	// caches are off, so the store lands in memory; adrp stays correct because
++	// the kernel image's virtual and physical offsets are identical. The boot
++	// processor passes here too and writes its MPIDR 0x0, which the C side
++	// reads as "no arrival yet".
++	adrp	x9, EXT(psci_smp_arrival)@page
++	add	x9, x9, EXT(psci_smp_arrival)@pageoff
++	str	x15, [x9]
++#endif
++
+ #ifdef APPLEEVEREST
+ 	/*
+ 	 * On H15, we need to configure PIO-only tunables and to apply

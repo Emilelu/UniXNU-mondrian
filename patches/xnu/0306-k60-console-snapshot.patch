@@ -1,0 +1,454 @@
+--- a/bsd/dev/k60_console_export.c
++++ b/bsd/dev/k60_console_export.c
+@@ -33,6 +33,8 @@
+ 
+ #include <mach/vm_types.h>
+ #include <pexpert/pexpert.h>
++#include <sys/proc.h>
++#include <sys/kauth.h>
+ 
+ #if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+ 
+@@ -50,6 +52,11 @@
+ extern uint32_t pong_ramoops_size;
+ extern uint64_t pong_ramoops_total;
+ extern uint64_t pong_ramoops_dropped;
++extern uint64_t pong_ramoops_seq;
++
++int pong_ramoops_snapshot(uint64_t cursor, void *dst, uint32_t max_bytes,
++    uint32_t *out_bytes, uint32_t *out_start, uint32_t *out_size,
++    uint64_t *out_total, uint64_t *out_dropped);
+ 
+ #define K60_CONSOLE_EXPORT_CHUNK 65536U
+ #define K60_CONSOLE_EXPORT_MAGIC 0x4B363043U      /* "K60C" */
+@@ -68,19 +75,47 @@
+ 	uint64_t ce_avail;        /* payload bytes in this reply */
+ };
+ 
+-static int k60_console_export_state = -1;
+-
++_Static_assert(sizeof(struct k60_console_export_hdr) == 56,
++    "k60 console export header must stay 56 bytes (init mirror)");
++_Static_assert(offsetof(struct k60_console_export_hdr, ce_total) == 24,
++    "ce_total offset must match init mirror");
++_Static_assert(offsetof(struct k60_console_export_hdr, ce_dropped) == 32,
++    "ce_dropped offset must match init mirror");
++_Static_assert(offsetof(struct k60_console_export_hdr, ce_from) == 40,
++    "ce_from offset must match init mirror");
++_Static_assert(offsetof(struct k60_console_export_hdr, ce_avail) == 48,
++    "ce_avail offset must match init mirror");
++
++/*
++ * The OID carries CTLFLAG_WR so the generic sysctl layer accepts the 8-byte
++ * cursor supplied via newp (kern_newsysctl.c:1709-1714 rejects newp
++ * otherwise).  It is NOT a writable setting: the only accepted new value is
++ * the per-call cursor, copied into a local scalar, and the handler never
++ * mutates the ramoops ring.  CTLFLAG_ANYBODY is deliberately absent, so the
++ * generic layer applies the superuser gate to cursor callers; the explicit
++ * credential check below additionally covers plain reads, which bypass it.
++ */
+ static int
+ k60_console_export_sysctl SYSCTL_HANDLER_ARGS
+ {
+ #pragma unused(oidp, arg1, arg2)
+-	if (k60_console_export_state < 0) {
+-		int value = 0;
+-		k60_console_export_state =
+-		    (PE_parse_boot_argn("k60_console_export", &value,
+-		    sizeof(value)) && value == 1) ? 1 : 0;
+-	}
+-	if (k60_console_export_state == 0 || !pong_ramoops_base) {
++	/* Root-only on every request, reads included. */
++	if (!req->p) {
++		return EPERM;
++	}
++	kauth_cred_t cred = kauth_cred_proc_ref(req->p);
++	if (!cred) {
++		return EPERM;
++	}
++	int is_root = (kauth_cred_getuid(cred) == 0);
++	kauth_cred_unref(&cred);
++	if (!is_root) {
++		return EPERM;
++	}
++
++	int enabled = 0;
++	if (!PE_parse_boot_argn("k60_console_export", &enabled, sizeof(enabled)) ||
++	    enabled != 1 || !pong_ramoops_base) {
+ 		return ENODEV;
+ 	}
+ 
+@@ -93,6 +128,8 @@
+ 		if (error) {
+ 			return error;
+ 		}
++	} else if (req->newlen != 0) {
++		return EINVAL;
+ 	}
+ 
+ 	const size_t outcap = sizeof(struct k60_console_export_hdr) +
+@@ -104,82 +141,38 @@
+ 	struct k60_console_export_hdr *hdr =
+ 	    (struct k60_console_export_hdr *)(void *)buf;
+ 	uint8_t *payload = buf + sizeof(*hdr);
+-	const uint32_t capacity = PONG_RAMOOPS_DATA_BYTES;
+-	volatile const uint8_t *data = (volatile const uint8_t *)(uintptr_t)
+-	    (pong_ramoops_base + PONG_RAMOOPS_HEADER_BYTES);
+-
+-	uint64_t total = 0, from = 0;
+-	uint32_t start = 0, size = 0, flags = 0, count = 0;
+-	int error = EAGAIN;
+-	for (int attempt = 0; attempt < 4; attempt++) {
+-		uint64_t t0 = __atomic_load_n(&pong_ramoops_total,
+-		    __ATOMIC_ACQUIRE);
+-		uint32_t s0 = __atomic_load_n(&pong_ramoops_start,
+-		    __ATOMIC_ACQUIRE);
+-		uint32_t z0 = __atomic_load_n(&pong_ramoops_size,
+-		    __ATOMIC_ACQUIRE);
+-		__atomic_thread_fence(__ATOMIC_ACQUIRE);
+-		if (z0 > capacity || t0 < z0) {
+-			continue;                       /* torn snapshot */
+-		}
+-		uint64_t oldest = t0 - z0;
+-		from = cursor;
+-		flags = 0;
+-		if (from < oldest) {
+-			from = oldest;
+-			flags = K60_CONSOLE_EXPORT_FLAG_BEHIND;
+-		} else if (from > t0) {
+-			from = t0;
+-		}
+-		uint64_t avail = t0 - from;
+-		if (avail > K60_CONSOLE_EXPORT_CHUNK) {
+-			avail = K60_CONSOLE_EXPORT_CHUNK;
+-		}
+-		uint64_t off = from - oldest;
+-		uint32_t pos = (uint32_t)((s0 + off) % capacity);
+-		count = (uint32_t)avail;
+-		uint32_t first = capacity - pos;
+-		if (first > count) {
+-			first = count;
+-		}
+-		memcpy(payload, (const void *)(uintptr_t)(data + pos), first);
+-		memcpy(payload + first, (const void *)(uintptr_t)data,
+-		    count - first);
+-		__atomic_thread_fence(__ATOMIC_ACQUIRE);
+-		if (__atomic_load_n(&pong_ramoops_total, __ATOMIC_ACQUIRE) == t0 &&
+-		    __atomic_load_n(&pong_ramoops_start, __ATOMIC_ACQUIRE) == s0 &&
+-		    __atomic_load_n(&pong_ramoops_size, __ATOMIC_ACQUIRE) == z0) {
+-			total = t0;
+-			start = s0;
+-			size = z0;
+-			error = 0;
+-			break;
+-		}
+-	}
+-	if (error) {
++	uint32_t count = 0, start = 0, size = 0;
++	uint64_t total = 0, dropped = 0;
++	int snapshot = pong_ramoops_snapshot(cursor, payload,
++	    K60_CONSOLE_EXPORT_CHUNK, &count, &start, &size, &total, &dropped);
++	if (snapshot != 1) {
+ 		kfree_data(buf, outcap);
+-		return error;
++		/* EBUSY is terminal: XNU retries EAGAIN unboundedly. */
++		return snapshot == 0 ? ENODEV : snapshot;
+ 	}
+ 
++	uint64_t oldest = total >= size ? total - size : 0;
++	uint64_t from = cursor < oldest ? oldest : (cursor > total ? total : cursor);
++	uint32_t flags = (cursor < oldest) ? K60_CONSOLE_EXPORT_FLAG_BEHIND : 0;
++
+ 	hdr->ce_magic = K60_CONSOLE_EXPORT_MAGIC;
+ 	hdr->ce_sig = PONG_RAMOOPS_MAGIC;
+-	hdr->ce_capacity = capacity;
++	hdr->ce_capacity = PONG_RAMOOPS_DATA_BYTES;
+ 	hdr->ce_size = size;
+ 	hdr->ce_start = start;
+ 	hdr->ce_flags = flags;
+ 	hdr->ce_total = total;
+-	hdr->ce_dropped = __atomic_load_n(&pong_ramoops_dropped,
+-	    __ATOMIC_RELAXED);
++	hdr->ce_dropped = dropped;
+ 	hdr->ce_from = from;
+ 	hdr->ce_avail = count;
+ 
+-	error = SYSCTL_OUT(req, buf, sizeof(*hdr) + count);
++	int error = SYSCTL_OUT(req, buf, sizeof(*hdr) + count);
+ 	kfree_data(buf, outcap);
+ 	return error;
+ }
+ 
+ SYSCTL_PROC(_kern, OID_AUTO, pong_ramoops,
+-    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_LOCKED,
++    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_WR | CTLFLAG_LOCKED,
+     0, 0, k60_console_export_sysctl, "S",
+     "K60 console ring export (boot-arg k60_console_export=1)");
+ 
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -64,6 +64,9 @@
+  * The ring ABI constants below mirror that header verbatim.
+  */
+ extern vm_offset_t pong_ramoops_debug_base(void);
++int pong_ramoops_snapshot(uint64_t cursor, void *dst, uint32_t max_bytes,
++    uint32_t *out_bytes, uint32_t *out_start, uint32_t *out_size,
++    uint64_t *out_total, uint64_t *out_dropped);
+ /* kern/thread.h's declaration does not reach bsd/dev units; extern like above. */
+ extern void thread_terminate_self(void);
+ #define PONG_RAMOOPS_MAGIC          0x43474244U     /* "DBGC" */
+@@ -991,31 +994,25 @@
+ 	if (!ring) {
+ 		return;
+ 	}
+-	volatile uint32_t *h = (volatile uint32_t *)ring;
+ 	const uint32_t capacity = PONG_RAMOOPS_DATA_BYTES;
+-	/*
+-	 * D-2026-11-04-02: readers take no lock; header consistency via
+-	 * seqlock-style double read with a bounded retry (writer drops bytes
+-	 * rather than blocks on contention).
+-	 */
+-	uint32_t start = 0, size = 0;
+-	int stable = 0;
+-	for (unsigned tries = 0; tries < 4 && !stable; tries++) {
+-		start = h[1];
+-		size = h[2];
+-		__asm__ volatile ("dmb oshld" ::: "memory");
+-		stable = h[0] == PONG_RAMOOPS_MAGIC && h[1] == start && h[2] == size;
+-	}
+-	if (!stable) {
+-		return;
+-	}
+-	if (start >= capacity || size > capacity) {
+-		return;
+-	}
++	uint8_t *target = (uint8_t *)(ud.dma + UD_TXDATA);
+ 	if (!ud.log_ready) {
+-		ud.log_cursor = (start + (size > 65536 ? size - 65536 : 0)) % capacity;
++		uint32_t pb = 0, ps = 0, pz = 0;
++		uint64_t pt = 0, pd = 0;
++		int rc = pong_ramoops_snapshot(0, target, 0, &pb, &ps, &pz, &pt, &pd);
++		if (rc != 1) {
++			return;
++		}
++		ud.log_cursor = (ps + (pz > 65536 ? pz - 65536 : 0)) % capacity;
+ 		ud.log_ready = true;
+ 	}
++	uint32_t start = 0, size = 0, snap_bytes = 0;
++	uint64_t total = 0, dropped = 0;
++	int rc = pong_ramoops_snapshot((uint64_t)ud.log_cursor, target, 1024,
++	    &snap_bytes, &start, &size, &total, &dropped);
++	if (rc != 1 || snap_bytes == 0) {
++		return;
++	}
+ 	uint32_t end = (start + size) % capacity;
+ 	unsigned available = (end + capacity - ud.log_cursor) % capacity;
+ 	if (!available) {
+@@ -1025,10 +1022,8 @@
+ 	if (length >= ud.packet && !(length % ud.packet)) {
+ 		--length;       /* terminate with a real short packet */
+ 	}
+-	volatile uint8_t *source = (volatile uint8_t *)(ring + PONG_RAMOOPS_HEADER_BYTES);
+-	uint8_t *target = (uint8_t *)(ud.dma + UD_TXDATA);
+-	for (unsigned i = 0; i < length; i++) {
+-		target[i] = source[(ud.log_cursor + i) % capacity];
++	if (length > snap_bytes) {
++		length = snap_bytes;
+ 	}
+ 	ud.tx_end = (ud.log_cursor + length) % capacity;
+ 	ud.tx_active = ud_start(3, UD_TXDATA, length, TRBCTL_NORMAL) == 0;
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -30,6 +30,7 @@
+  */
+ 
+ #include <debug.h>
++#include <sys/errno.h>
+ #include <mach_ldebug.h>
+ #include <mach_kdp.h>
+ 
+@@ -101,6 +102,7 @@
+ volatile uint32_t pong_ramoops_busy;
+ uint64_t pong_ramoops_total;
+ uint64_t pong_ramoops_dropped;
++uint64_t pong_ramoops_seq;
+ 
+ /*
+  * GPU bring-up diagnostics share the persistent console mirror. The dedicated
+@@ -129,9 +131,14 @@
+ 	}
+ 
+ 	const uint32_t capacity = PONG_RAMOOPS_DATA_BYTES;
+-	uint32_t old_size = pong_ramoops_size;
++	/* Publish odd before mutating anything a reader can copy. */
++	__atomic_store_n(&pong_ramoops_seq,
++	    __atomic_load_n(&pong_ramoops_seq, __ATOMIC_RELAXED) + 1,
++	    __ATOMIC_SEQ_CST);
++	uint32_t old_size = __atomic_load_n(&pong_ramoops_size, __ATOMIC_RELAXED);
++	uint32_t old_start = __atomic_load_n(&pong_ramoops_start, __ATOMIC_RELAXED);
+ 	uint32_t write_at = old_size < capacity ?
+-	    (pong_ramoops_start + old_size) % capacity : pong_ramoops_start;
++	    (old_start + old_size) % capacity : old_start;
+ 	uint32_t count = (uint32_t)length;
+ 	uint32_t skip = 0;
+ 	if (count > capacity) {
+@@ -165,7 +172,7 @@
+ 	uint64_t total = (uint64_t)old_size + (uint32_t)length;
+ 	uint32_t new_size = total >= capacity ? capacity : (uint32_t)total;
+ 	uint32_t new_start = total > capacity ?
+-	    (uint32_t)((pong_ramoops_start + total - capacity) % capacity) : pong_ramoops_start;
++	    (uint32_t)((old_start + total - capacity) % capacity) : old_start;
+ 	struct pong_ramoops_header *header =
+ 	    (struct pong_ramoops_header *)(uintptr_t)pong_ramoops_base;
+ 	header->start = new_start;
+@@ -173,28 +180,105 @@
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ 	CleanPoC_DcacheRegion_Force(pong_ramoops_base, PONG_RAMOOPS_HEADER_BYTES);
+ 	__asm__ volatile("dsb sy" ::: "memory");
+-	pong_ramoops_start = new_start;
+-	pong_ramoops_size = new_size;
+-	pong_ramoops_total += (uint64_t)length;
++	__atomic_store_n(&pong_ramoops_start, new_start, __ATOMIC_RELAXED);
++	__atomic_store_n(&pong_ramoops_size, new_size, __ATOMIC_RELAXED);
++	__atomic_store_n(&pong_ramoops_total,
++	    __atomic_load_n(&pong_ramoops_total, __ATOMIC_RELAXED) + (uint64_t)length,
++	    __ATOMIC_RELAXED);
++	/* Everything a reader may copy is published; close the sequence. */
++	__atomic_thread_fence(__ATOMIC_RELEASE);
++	__atomic_store_n(&pong_ramoops_seq,
++	    __atomic_load_n(&pong_ramoops_seq, __ATOMIC_RELAXED) + 1,
++	    __ATOMIC_RELEASE);
+ 	__atomic_store_n(&pong_ramoops_busy, 0, __ATOMIC_RELEASE);
+ }
+ 
+ vm_offset_t
+ pong_ramoops_debug_base(void)
+ {
+-	return pong_ramoops_base;
++	return __atomic_load_n(&pong_ramoops_base, __ATOMIC_ACQUIRE);
+ }
+ 
+ uint32_t
+ pong_ramoops_debug_start(void)
+ {
+-	return pong_ramoops_start;
++	return __atomic_load_n(&pong_ramoops_start, __ATOMIC_ACQUIRE);
+ }
+ 
+ uint32_t
+ pong_ramoops_debug_size(void)
+ {
+-	return pong_ramoops_size;
++	return __atomic_load_n(&pong_ramoops_size, __ATOMIC_ACQUIRE);
++}
++
++/*
++ * Shared, bounded, non-blocking snapshot.  Copying payload uses volatile
++ * byte loads from the write-combine mapping; readers never take
++ * pong_ramoops_busy (a stalled reader makes the console writer drop bytes,
++ * D-2026-11-04-02).  The writer brackets accepted records with an odd/even
++ * sequence; a snapshot is accepted only if the sequence did not move while
++ * the payload was copied.
++ */
++int
++pong_ramoops_snapshot(uint64_t cursor, void *dst, uint32_t max_bytes,
++    uint32_t *out_bytes, uint32_t *out_start, uint32_t *out_size,
++    uint64_t *out_total, uint64_t *out_dropped)
++{
++	vm_offset_t base = __atomic_load_n(&pong_ramoops_base, __ATOMIC_ACQUIRE);
++	if (!base) {
++		return 0;
++	}
++	if (!dst || !out_bytes || !out_start || !out_size || !out_total ||
++	    !out_dropped || max_bytes > PONG_RAMOOPS_DATA_BYTES) {
++		return EINVAL;
++	}
++	const uint32_t capacity = PONG_RAMOOPS_DATA_BYTES;
++	volatile const uint8_t *data = (volatile const uint8_t *)(uintptr_t)
++	    (base + PONG_RAMOOPS_HEADER_BYTES);
++
++	for (unsigned attempt = 0; attempt < PONG_RAMOOPS_SNAPSHOT_TRIES; attempt++) {
++		uint64_t seq0 = __atomic_load_n(&pong_ramoops_seq, __ATOMIC_ACQUIRE);
++		if (seq0 & 1) {
++			continue;               /* writer in progress */
++		}
++		uint64_t total = __atomic_load_n(&pong_ramoops_total, __ATOMIC_RELAXED);
++		uint32_t start = __atomic_load_n(&pong_ramoops_start, __ATOMIC_RELAXED);
++		uint32_t size = __atomic_load_n(&pong_ramoops_size, __ATOMIC_RELAXED);
++		uint64_t dropped = __atomic_load_n(&pong_ramoops_dropped,
++		    __ATOMIC_RELAXED);
++		if (start >= capacity || size > capacity || total < size) {
++			continue;               /* torn metadata */
++		}
++		uint64_t oldest = total - size;
++		uint64_t from = cursor;
++		if (from < oldest) {
++			from = oldest;
++		} else if (from > total) {
++			from = total;
++		}
++		uint64_t avail64 = total - from;
++		if (avail64 > max_bytes) {
++			avail64 = max_bytes;
++		}
++		uint64_t off = from - oldest;
++		uint32_t pos = (uint32_t)((start + off) % capacity);
++		uint32_t count = (uint32_t)avail64;
++		uint8_t *out = (uint8_t *)dst;
++		for (uint32_t i = 0; i < count; i++) {
++			out[i] = data[(pos + i) % capacity];
++		}
++		__atomic_thread_fence(__ATOMIC_ACQUIRE);
++		if (__atomic_load_n(&pong_ramoops_seq, __ATOMIC_ACQUIRE) != seq0) {
++			continue;               /* payload copied across a write */
++		}
++		*out_bytes = count;
++		*out_start = start;
++		*out_size = size;
++		*out_total = total;
++		*out_dropped = dropped;
++		return 1;
++	}
++	return EBUSY;
+ }
+ 
+ int
+@@ -221,9 +305,10 @@
+ 	CleanPoC_DcacheRegion_Force(mapped, PONG_RAMOOPS_HEADER_BYTES);
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ 
+-	pong_ramoops_start = 0;
+-	pong_ramoops_size = 0;
+-	pong_ramoops_base = mapped;
++	__atomic_store_n(&pong_ramoops_seq, 0, __ATOMIC_RELEASE);
++	__atomic_store_n(&pong_ramoops_start, 0, __ATOMIC_RELAXED);
++	__atomic_store_n(&pong_ramoops_size, 0, __ATOMIC_RELAXED);
++	__atomic_store_n(&pong_ramoops_base, mapped, __ATOMIC_RELEASE);
+ 	return 1;
+ }
+ #endif
+--- a/osfmk/arm64/pong_ramoops_console.h
++++ b/osfmk/arm64/pong_ramoops_console.h
+@@ -26,8 +26,22 @@
+ extern volatile uint32_t pong_ramoops_busy;
+ extern uint64_t pong_ramoops_total;
+ extern uint64_t pong_ramoops_dropped;
++extern uint64_t pong_ramoops_seq;
+ 
+ void pong_ramoops_console_write(const char *text, int length);
++
++/*
++ * Consistent, bounded, non-blocking snapshot of the retained mirror ring.
++ * Single writer/multiple readers (D-2026-11-04-02): readers never take
++ * pong_ramoops_busy.  Returns 1 with a snapshot, 0 when no mirror exists,
++ * or a positive errno (EINVAL/EBUSY).  EBUSY means "try again later",
++ * not a permanent failure; callers must not treat it as fatal.
++ */
++int pong_ramoops_snapshot(uint64_t cursor, void *dst, uint32_t max_bytes,
++    uint32_t *out_bytes, uint32_t *out_start, uint32_t *out_size,
++    uint64_t *out_total, uint64_t *out_dropped);
++
++#define PONG_RAMOOPS_SNAPSHOT_TRIES 8
+ int  pong_ramoops_console_init(void);
+ 
+ /* Read back what the mirror holds; used by the bring-up self check. */

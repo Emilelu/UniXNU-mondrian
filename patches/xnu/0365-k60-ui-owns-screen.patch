@@ -1,0 +1,43 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -109,6 +109,8 @@
+  * vc_k60_sx/sy scale the glyph block and the cell geometry together. Both stay
+  * 1 unless k60_fontscale asks for more, so the default path is unchanged. */
+ static unsigned int vc_k60_sx = 1;
++
++int k60_screen_owned_by_ui = 0;
+ static unsigned int vc_k60_sy = 1;
+ #define VC_CW (ISO_CHAR_WIDTH * vc_k60_sx)
+ #define VC_CH (ISO_CHAR_HEIGHT * vc_k60_sy)
+@@ -1238,6 +1240,17 @@
+ void
+ vcputc_options(char c, __unused bool poll)
+ {
++	/*
++	 * 0365: once the first composited frame reaches the panel the UI owns it.
++	 * Every daemon writes its diagnostics to /dev/console (init sets
++	 * stderr -> /dev/console), and painting those over SpringBoard's progress
++	 * bar is what makes the screen alternate between the UI and a text dump.
++	 * Keep the kernel console (COM5 export) but stop drawing on the panel.
++	 */
++	if (__improbable(k60_screen_owned_by_ui != 0)) {
++		return;
++	}
++
+ 	if (gc_initialized && gc_enabled) {
+ 		VCPUTC_LOCK_LOCK();
+ 		if (gc_enabled) {
+--- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
++++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+@@ -994,6 +994,11 @@
+ 	drawn = mach_absolute_time();
+ 	fSwapsShown++;
+ 	if (fSwapsShown == 1) {
++		{
++			extern int k60_screen_owned_by_ui;
++
++			k60_screen_owned_by_ui = 1;
++		}
+ 		IOLog("K60 DISPLAY: first frame presented (swap %u, %ux%u canvas on %ux%u panel)\n",
+ 		    swapWord(swap, SWAP_ID), fWidth, fHeight, fPanelWidth, fPanelHeight);
+ 	}

@@ -1,0 +1,71 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -142,6 +142,7 @@
+ #include <kern/coalition.h>
+ #include <kern/policy_internal.h>
+ #include <kern/kalloc.h>
++extern boolean_t ml_get_interrupts_enabled(void);
+ #include <kern/zalloc.h> /* zone_userspace_reboot_checks() */
+ 
+ #include <os/log.h>
+@@ -2238,10 +2239,10 @@
+ 		} else {
+ 			strlcpy(k60_site, "-", sizeof(k60_site));
+ 		}
+-		printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=%s dm=%d ler=%s lw=%s site=%s\n",
++		if (ml_get_interrupts_enabled()) { printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=%s dm=%d ler=%s lw=%s site=%s\n",
+ 		    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
+ 		    k60_execerr_prints, k60_kxp_prints, k60_dw, k60_data_mounted,
+-		    k60_ler, k60_lw, k60_site);
++		    k60_ler, k60_lw, k60_site); }
+ 	}
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 		{
+@@ -2252,8 +2253,8 @@
+ 
+ 		k60_probe_ready = 1;
+ 		{
+-			printf("K60PS enter=%d pid=%d err=%d\n",
+-			    k60ps_enter, k60ps_pid, k60ps_err);
++			if (ml_get_interrupts_enabled()) { printf("K60PS enter=%d pid=%d err=%d\n",
++			    k60ps_enter, k60ps_pid, k60ps_err); }
+ 		}
+ 		extern int k60tr_seen;
+ 		extern int k60tr_callpid[];
+@@ -2264,9 +2265,9 @@
+ 		if (k60tr_seen > 0) {
+ 			int k60_i;
+ 			for (k60_i = 0; k60_i < k60tr_seen && k60_i < 8; k60_i++) {
+-				printf("K60TR i=%d pid=%d elem=%d raw=0x%x\n",
++				if (ml_get_interrupts_enabled()) { printf("K60TR i=%d pid=%d elem=%d raw=0x%x\n",
+ 				    k60_i, k60tr_callpid[k60_i], k60tr_elem[k60_i],
+-				    k60tr_rawopt[k60_i]);
++				    k60tr_rawopt[k60_i]); }
+ 			}
+ 		}
+ 		extern int k60tk_seen;
+@@ -2279,9 +2280,9 @@
+ 		if (k60tk_seen > 0) {
+ 			int k60_i;
+ 			for (k60_i = 0; k60_i < k60tk_seen && k60_i < 4; k60_i++) {
+-				printf("K60TK i=%d spid=%d euid=%d apid=%d pidver=%d\n",
++				if (ml_get_interrupts_enabled()) { printf("K60TK i=%d spid=%d euid=%d apid=%d pidver=%d\n",
+ 				    k60_i, k60tk_spid[k60_i], k60tk_euid[k60_i],
+-				    k60tk_apid[k60_i], k60tk_pidver[k60_i]);
++				    k60tk_apid[k60_i], k60tk_pidver[k60_i]); }
+ 			}
+ 		}
+ 		extern int k60at_seen;
+@@ -2296,10 +2297,10 @@
+ 		if (k60at_seen > 0) {
+ 			int k60_i;
+ 			for (k60_i = 0; k60_i < k60at_seen && k60_i < 6; k60_i++) {
+-				printf("K60AT i=%d caller=%d tpid=%d euid=%d apid=%d pidver=%d err=%d\n",
++				if (ml_get_interrupts_enabled()) { printf("K60AT i=%d caller=%d tpid=%d euid=%d apid=%d pidver=%d err=%d\n",
+ 				    k60_i, k60at_cpid[k60_i], k60at_tpid[k60_i],
+ 				    k60at_euid[k60_i], k60at_apid[k60_i],
+-				    k60at_pidver[k60_i], k60at_err[k60_i]);
++				    k60at_pidver[k60_i], k60at_err[k60_i]); }
+ 			}
+ 		}
+ 		extern int k60pi_seen;

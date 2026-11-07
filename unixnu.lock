@@ -1,0 +1,31 @@
+# Resolved git sources, written by "unixnu fetch". Local sources are never recorded.
+
+[source."AvailabilityVersions"]
+commit = "f3b52ca75ee842a8ac593bd7b03f9f4768c15755"
+
+[source."IOStorageFamily"]
+commit = "e45fbe30a7879e0b16e26dddb78538f1b00e0bff"
+
+[source."PongUfs"]
+commit = "c959284f63534eb56f0a4e863fd3a65127ad7a40"
+
+[source."corecrypto-2023"]
+commit = "11fba65b12d8830630e248dfa8344caf8b065f26"
+
+[source."edk2"]
+commit = "cfb93724a06ff86ff5ba971413368a7809ee42a5"
+
+[source."libdispatch"]
+commit = "ca80d30399cf4854d3b970076f83dde4a6e74e78"
+
+[source."libplatform"]
+commit = "1b2b22f2e37384af2c562bd95d5e93ce2e192451"
+
+[source."libpthread"]
+commit = "c0e60fb5ecfc54cf379c261d3f9572cc22ded891"
+
+[source."sm8475"]
+commit = "d0c90f1e2f8d570b48030ec5062aef59d0040121"
+
+[source."xnu"]
+commit = "1b191cb58250d0705d8a51287127505aa4bc0789"

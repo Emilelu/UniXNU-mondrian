@@ -1,0 +1,61 @@
+--- a/osfmk/ipc/mach_port.c
++++ b/osfmk/ipc/mach_port.c
+@@ -3041,6 +3041,18 @@
+ 	return KERN_SUCCESS;
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_PONG) && (DEVELOPMENT || DEBUG)
++/* 0337: how many check-ins used the compatibility answer.  Printed by the
++ * usblog heartbeat, not from here (this path runs for every XPC check-in). */
++unsigned int k60_checkin_compat;
++
++static void
++k60_checkin_compat_note(void)
++{
++	k60_checkin_compat++;
++}
++#endif
++
+ kern_return_t
+ mach_port_is_connection_for_service(
+ 	ipc_space_t space,
+@@ -3068,7 +3080,39 @@
+ 	}
+ 
+ 	if (!mach_msg_filter_at_least(MACH_MSG_FILTER_CALLBACKS_VERSION_1)) {
++#if defined(ARM64_BOARD_CONFIG_PONG) && (DEVELOPMENT || DEBUG)
++		/*
++		 * 0337: no private Sandbox message-filter provider is prelinked on
++		 * this port, so the native answer here is KERN_NOT_SUPPORTED -- which
++		 * libxpc refuses, turning every XPC check-in into "Bogus check-in
++		 * attempt. Ignoring." and blocking RunningBoard's handshake (and with
++		 * it SpringBoard's first frame).
++		 *
++		 * Keep the real permission checks and real errors; only after both
++		 * port rights are proven valid, publish the documented "no filter
++		 * association" answer libxpc accepts (filter_policy_id = 0 with
++		 * KERN_INVALID_CAPABILITY).  Nothing is reported as filtered success.
++		 */
++		ret = ipc_port_translate_receive(space, service_port_name,
++		    &service_port);
++		if (ret) {
++			return ret;
++		}
++		ip_mq_unlock(service_port);
++
++		ret = ipc_port_translate_receive(space, connection_port_name,
++		    &connection_port);
++		if (ret) {
++			return ret;
++		}
++		ip_mq_unlock(connection_port);
++
++		*filter_policy_id = 0;
++		k60_checkin_compat_note();
++		return KERN_INVALID_CAPABILITY;
++#else
+ 		return KERN_NOT_SUPPORTED;
++#endif
+ 	}
+ 
+ 	ret = ipc_port_translate_receive(space, service_port_name, &service_port);

@@ -1,0 +1,112 @@
+/*
+ * Route A-18 (xnu-11417 / darwin24): talk to the firmware the way it talks.
+ *
+ * bc9 on the unit (2026-11-01): CPU_ON with the hardware MPIDR as the target
+ * was refused with INVALID_PARAMETERS for every core except 0x100 and 0x200 -
+ * exactly the two values that also exist in the Android device tree's flat
+ * table 0x0, 0x100 ... 0x700. The granted cores never arrived, because the
+ * request went out as SMC, past Gunyah (which owns EL2 here) into EL3, and
+ * the physical core came up inside the hypervisor without a vcpu handoff.
+ *
+ * Translate the target (position among the registered cores, shifted into the
+ * Affinity 1 byte; a refusal retries with the plain position), report the
+ * firmware version over whichever conduit /chosen/psci-method selects, and
+ * say which target was used in every diagnostic line.
+ */
+--- a/osfmk/arm64/psci_smp.c
++++ b/osfmk/arm64/psci_smp.c
+@@ -50,10 +50,12 @@
+ 
+ #if defined(GENERIC_PSCI_SMP)
+ 
++#define PSCI_VERSION            0x84000000u
+ #define PSCI_CPU_OFF            0x84000002u
+ #define PSCI_CPU_ON             0xC4000003u
+ #define PSCI_AFFINITY_INFO      0xC4000004u
+ #define PSCI_AFFINITY_OFF       1
++#define PSCI_INVALID_PARAMETERS (-2)
+ 
+ #define PSCI_SMP_START_SECONDS  5       /* how long a started core is waited for */
+ #define PSCI_SMP_STOP_SECONDS   3       /* ... and the cores that were told to stop */
+@@ -105,6 +107,34 @@
+ 	return (status <= 0 && status > -(int64_t)(sizeof(names) / sizeof(names[0]))) ? names[-status] : "?";
+ }
+ 
++/*
++ * The firmware does not take the hardware MPIDR as the CPU_ON target. Its
++ * table runs 0x0, 0x100, ..., 0x700 over the cores in ascending-MPIDR order,
++ * which is what the Android device tree feeds its own kernel and what this
++ * board's firmware accepted - and refused, for every value outside it, when
++ * the real MPIDR was sent instead. The ADT keeps the real MPIDR because the
++ * topology parser and the reset vector both match on it, so the target is
++ * translated: the core's position among the registered ones, shifted into the
++ * Affinity 1 byte. A refusal retries with the plain position, in case this
++ * firmware numbers its cores without the shift.
++ */
++static uint64_t
++psci_smp_target(uint32_t phys_id, unsigned int *plain_position)
++{
++	unsigned int rank = 0;
++
++	for (int other = 0; other <= ml_get_max_cpu_number(); other++) {
++		cpu_data_t *cdp = cpu_datap(other);
++		if (cdp != NULL && (uint32_t)cdp->cpu_phys_id < phys_id) {
++			rank++;
++		}
++	}
++	if (plain_position != NULL) {
++		*plain_position = rank;
++	}
++	return (uint64_t)rank << 8;
++}
++
+ void
+ psci_smp_init(void)
+ {
+@@ -117,6 +147,11 @@
+ 	    size >= 3 && strncmp((const char *)prop, "hvc", 3) == 0) {
+ 		psci_smp_hvc = 1;
+ 	}
++
++	int64_t version = psci_call(PSCI_VERSION, 0, 0, 0);
++	printf("psci: conduit %s, firmware answers version 0x%llx (major %lld minor %lld)\n",
++	    psci_smp_hvc ? "hvc" : "smc", (unsigned long long)version,
++	    version >> 16, version & 0xffff);
+ }
+ 
+ /* A processor other than the boot processor says how far it has come. */
+@@ -178,12 +213,20 @@
+ 	}
+ 	__builtin_arm_dsb(DSB_SY);
+ 
++	unsigned int position = 0;
++	uint64_t target = psci_smp_target(phys_id, &position);
++
+ 	os_atomic_store(&psci_smp_cpu_stage[cpu], PSCI_SMP_CPU_ASKED, release);
+-	status = psci_call(PSCI_CPU_ON, phys_id, entry, 0);
++	status = psci_call(PSCI_CPU_ON, target, entry, 0);
++	if (status == PSCI_INVALID_PARAMETERS && position != 0) {
++		printf("psci: cpu %d: CPU_ON target 0x%llx refused, retrying with the plain position %u\n",
++		    cpu, (unsigned long long)target, position);
++		status = psci_call(PSCI_CPU_ON, (uint64_t)position, entry, 0);
++	}
+ 	if (status != 0) {
+ 		os_atomic_store(&psci_smp_cpu_stage[cpu], 0, release);
+-		printf("psci: cpu %d (MPIDR 0x%x) was not started: the firmware answers %lld (%s)\n",
+-		    cpu, phys_id, status, psci_error(status));
++		printf("psci: cpu %d (MPIDR 0x%x, target 0x%llx) was not started: the firmware answers %lld (%s)\n",
++		    cpu, phys_id, (unsigned long long)target, status, psci_error(status));
+ 		return KERN_FAILURE;
+ 	}
+ 	os_atomic_or(&psci_smp_started, 1u << cpu, relaxed);
+@@ -212,8 +255,8 @@
+ 		    cpu, f->mpidr, f->esr, f->elr, f->far, f->lr, f->sp, f->elr + to_virtual, f->lr + to_virtual);
+ 		os_atomic_andnot(&psci_smp_started, 1u << cpu, relaxed);        /* nothing of it is left to stop */
+ 	} else {
+-		printf("psci: cpu %d (MPIDR 0x%x) was started %d seconds ago and has not joined: %s\n",
+-		    cpu, phys_id, PSCI_SMP_START_SECONDS,
++		printf("psci: cpu %d (MPIDR 0x%x, target 0x%llx) was started %d seconds ago and has not joined: %s\n",
++		    cpu, phys_id, (unsigned long long)target, PSCI_SMP_START_SECONDS,
+ 		    stage >= PSCI_SMP_CPU_IN_KERNEL ? "it got as far as arm_init_cpu()" : "no sign of it since the firmware took the request");
+ 	}
+ 	return KERN_FAILURE;

@@ -1,0 +1,167 @@
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -147,6 +147,8 @@
+ static void smmu_dump_state(void);
+ 
+ static int k60_usblog_mode = -1;        /* -1: init not run yet */
++static int k60_usblog_running;       /* 0334: worker alive; panic may reset */
++static int k60_restart_ready;         /* 0334: SPMI/IMEM windows mapped */
+ 
+ /*
+  * 0308: automatic return to fastboot.
+@@ -235,31 +237,52 @@
+ 	return true;
+ }
+ 
++/*
++ * 0334: mapping is separated from writing.  ml_io_map takes kernel-map locks,
++ * which the panic path cannot rely on (the other CPUs are parked, possibly
++ * inside those very locks), so the windows are mapped once while boot is
++ * healthy and the panic path only touches registers.
++ */
+ static bool
+-k60_prime_restart(int target)
++k60_restart_map_once(void)
+ {
+-	vm_offset_t core = ml_io_map(K60_SPMI_CORE_PA, K60_SPMI_CORE_SIZE);
+-	vm_offset_t cfg  = ml_io_map(K60_SPMI_CONFIG_PA, K60_SPMI_CONFIG_SIZE);
+-	uint32_t version, count;
++	static int mapped;      /* 0: not yet, 1: ready, -1: unusable */
++	vm_offset_t core;
++	vm_offset_t cfg;
++	uint32_t version;
++	uint32_t count;
+ 	int apid = -1;
+ 
+-	if (!core || !cfg) {
++	if (mapped > 0) {
++		return true;
++	}
++	if (mapped < 0) {
+ 		return false;
+ 	}
+-	version = *(volatile uint32_t *)core;
+-	count = *(volatile uint32_t *)(core + 4) & 0x7ff;
+-	if (version < 0x70000000u || version >= 0x80000000u || !count || count > 1024) {
++	core = ml_io_map(K60_SPMI_CORE_PA, K60_SPMI_CORE_SIZE);
++	cfg  = ml_io_map(K60_SPMI_CONFIG_PA, K60_SPMI_CONFIG_SIZE);
++	version = 0;
++	count = 0;
++	if (core && cfg) {
++		version = *(volatile uint32_t *)core;
++		count = *(volatile uint32_t *)(core + 4) & 0x7ff;
++	}
++	if (!core || !cfg || version < 0x70000000u || version >= 0x80000000u ||
++	    !count || count > 1024) {
++		mapped = -1;
+ 		return false;
+ 	}
+ 	for (uint32_t n = 0; n < count; n++) {
+ 		uint32_t slave = *(volatile uint32_t *)(core + 0x2000 + 4 * n);
+ 		uint32_t cfgv  = *(volatile uint32_t *)(cfg + 4 * n);
++
+ 		if (((slave >> 8) & 0xfff) == 0x71 && (cfgv & 7) == 0) {
+ 			apid = (int)n;
+ 			break;
+ 		}
+ 	}
+ 	if (apid < 0) {
++		mapped = -1;
+ 		return false;
+ 	}
+ 	k60_spmi_apid = (unsigned)apid;
+@@ -268,6 +291,17 @@
+ 	k60_spmi_channel = ml_io_map(K60_SPMI_CHANNEL_PA + k60_spmi_apid * 4096, 4096);
+ 	k60_imem = ml_io_map(K60_IMEM_PA, K60_IMEM_SIZE);
+ 	if (!k60_spmi_observer || !k60_spmi_channel || !k60_imem) {
++		mapped = -1;
++		return false;
++	}
++	mapped = 1;
++	return true;
++}
++
++static bool
++k60_prime_restart(int target)
++{
++	if (!k60_restart_map_once()) {
+ 		return false;
+ 	}
+ 	{
+@@ -296,7 +330,7 @@
+  * pong uses reboot_kernel(RB_QUICK) rather than a bare PSCI call: the latter
+  * can simply return, which is what left this board sitting at the panic screen.
+  */
+-static void
++void
+ k60_usblog_reset_to_fastboot(void)
+ {
+ 	bool primed = k60_prime_restart(2);
+@@ -337,6 +371,27 @@
+ 	}
+ }
+ 
++/*
++ * 0334: panic-path entry.  Registers and delays only -- the SPMI and IMEM
++ * windows were mapped while boot was healthy, so this is safe with the other
++ * CPUs parked and no lock held by us.
++ */
++void
++k60_panic_reset_to_fastboot(void)
++{
++	int enabled = 0;
++
++	if (!k60_usblog_running) {
++		return;
++	}
++	if (!PE_parse_boot_argn("k60_panic_reset", &enabled, sizeof(enabled)) ||
++	    !enabled) {
++		return;
++	}
++	printf("K60PANIC: ring kept; restart reason -> bootloader\n");
++	k60_usblog_reset_to_fastboot();
++}
++
+ static uint32_t
+ usb_rd(vm_offset_t base, uint32_t off)
+ {
+@@ -1455,7 +1510,7 @@
+  * 4=running. Not a state machine, just breadcrumbs for the frozen frame.
+  */
+ static volatile int us;
+-static void ud_hb(void *a __unused, wait_result_t w __unused){int c;for(;;){uint64_t d;printf("K60 USBLOG: st=%d ev=%u cfg=%d dtr=%d fl=%d\n",us,ud.events,ud.configured,ud.dtr,ud.failed);clock_interval_to_deadline(2000,NSEC_PER_MSEC,&d);(void)assert_wait_deadline(&c,THREAD_UNINT,d);thread_block(THREAD_CONTINUE_NULL);}}
++static void ud_hb(void *a __unused, wait_result_t w __unused){int c;for(;;){uint64_t d;{if(us>=4&&!k60_restart_ready){k60_restart_ready=k60_restart_map_once()?1:-1;printf("K60PANIC: restart windows %s\n",k60_restart_ready>0?"ready":"unavailable");}}{int pt=0;if(k60_restart_ready>0&&PE_parse_boot_argn("k60_panic_test",&pt,sizeof(pt))&&pt>0)panic("k60_panic_test: deliberate panic to validate the recovery chain");}{static unsigned n;int sr=0;n++;if(us>=4&&PE_parse_boot_argn("k60_selftest_reboot",&sr,sizeof(sr))&&sr>0&&n>=(unsigned)(sr/2)){printf("K60SELFTEST: reboot after %u s\n",n*2);k60_usblog_reset_to_fastboot();}}printf("K60 USBLOG: st=%d ev=%u cfg=%d dtr=%d fl=%d\n",us,ud.events,ud.configured,ud.dtr,ud.failed);clock_interval_to_deadline(2000,NSEC_PER_MSEC,&d);(void)assert_wait_deadline(&c,THREAD_UNINT,d);thread_block(THREAD_CONTINUE_NULL);}}
+ 
+ static void
+ ud_worker(void *arg __unused, wait_result_t wr __unused)
+@@ -1463,6 +1518,7 @@
+ 	uint64_t deadline;
+ 
+ 	us = 2; printf("K60 USBLOG: worker entry\n");
++	k60_usblog_running = 1;   /* 0334: panics may now reset */
+ 	{ thread_t t; if(kernel_thread_start(ud_hb,NULL,&t)==KERN_SUCCESS) thread_deallocate(t); }
+ 
+ 	/* Gate-0 dump here (thread context), not in the arm_init probe: the
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1079,6 +1079,20 @@
+ 	/* call machine-layer panic handler */
+ 	ml_panic_trap_to_debugger(panic_format_str, panic_args, reason, ctx, panic_options_mask, panic_caller);
+ 
++#if defined(__arm64__)
++	/*
++	 * 0334: the dump above sits in the ramoops ring and cannot be delivered by
++	 * a thread of this kernel.  Hand the phone back to fastboot with DRAM
++	 * untouched so the next boot can replay it.  No-op unless
++	 * k60_panic_reset=1.
++	 */
++	{
++		extern void k60_panic_reset_to_fastboot(void);
++
++		k60_panic_reset_to_fastboot();
++	}
++#endif
++
+ 	/* track depth of debugger/panic entry */
+ 	CPUDEBUGGERCOUNT++;
+ 

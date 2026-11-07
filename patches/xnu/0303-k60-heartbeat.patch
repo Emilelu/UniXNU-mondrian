@@ -1,0 +1,169 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 28b8b25..af74c36 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2110,6 +2110,11 @@ bad:
+  *
+  * XXX hardcoded, for now; should use linker sets
+  */
++/* ---- 0303: heartbeat globals (must precede 0302 printer) ---- */
++unsigned int k60_execerr_prints = 0;
++uint64_t k60_data_win_bytes = 0;
++int k60_data_mounted = 0;
++
+ /* ---- 0302: exec diagnostics (pid->path map + bounded exec-error printer) ---- */
+ #define K60_PIDPATH_SLOTS 128
+ static int k60_pidpath_pid[K60_PIDPATH_SLOTS];
+@@ -2135,6 +2140,7 @@ k60_exec_path_for_pid(int pid)
+ static void
+ k60_print_exec_error(proc_t p, int error, const char *where)
+ {
++	k60_execerr_prints++;
+ 	static struct {
+ 		char comm[24];
+ 		char where[8];
+@@ -2171,6 +2177,53 @@ k60_print_exec_error(proc_t p, int error, const char *where)
+ 	}
+ }
+ 
++/* ---- 0303: periodic self-report heartbeat (observation only) ---- */
++static _Atomic int k60_hb_started = 0;
++
++static void k60_heartbeat_thread(void *arg, wait_result_t wr);
++
++void
++k60_heartbeat_start_once(void)
++{
++	if (os_atomic_cmpxchg(&k60_hb_started, 0, 1, relaxed)) {
++		thread_t th;
++		if (kernel_thread_start((thread_continue_t)k60_heartbeat_thread, NULL, &th) == KERN_SUCCESS) {
++			thread_deallocate(th);
++		} else {
++			k60_hb_started = 0;
++		}
++	}
++}
++
++static void
++k60_heartbeat_thread(void *arg, wait_result_t wr)
++{
++	static unsigned long long k60_hb_ticks = 0;
++	(void)arg; (void)wr;
++	k60_hb_ticks++;
++	{
++		extern unsigned int k60_abnormal_count;
++		extern unsigned int k60_storm_count(const char *);
++		extern unsigned int k60_kxp_prints;
++		unsigned int k60_xp = k60_storm_count("xpcproxy");
++		unsigned int k60_lag = k60_storm_count("launchd");
++		unsigned int k60_mse = k60_storm_count("MSEarlyBootTask");
++		if (k60_data_win_bytes != 0) {
++			printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=%llu dm=%d\n",
++			    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
++			    k60_execerr_prints, k60_kxp_prints,
++			    (unsigned long long)(k60_data_win_bytes >> 20), k60_data_mounted);
++		} else {
++			printf("K60HB t=%llu abn=%u xp=%u lag=%u mse=%u kxq=%u kxp=%u dw=-1 dm=%d\n",
++			    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
++			    k60_execerr_prints, k60_kxp_prints, k60_data_mounted);
++		}
++	}
++	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
++	thread_block((thread_continue_t)k60_heartbeat_thread);
++	/* NOTREACHED */
++}
++
+ struct execsw {
+ 	int(*const ex_imgact)(struct image_params *);
+ 	const char *ex_name;
+@@ -7507,6 +7560,8 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 		goto done;
+ 	}
+ 	size = ufs_bytes;
++	k60_data_win_bytes = size;
++	k60_heartbeat_start_once();
+ 	printf("K60DATA UFS window dev=%x path=%s bytes=%llx\n",
+ 	    (unsigned)device, device_path, (unsigned long long)size);
+ 	if (!size || size > UINT64_C(0x600000000) || (size & 4095)) goto done;
+@@ -7519,10 +7574,13 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 		error = ENOENT;
+ 		goto done;
+ 	}
++	k60_data_win_bytes = size;
+ 	if (!size || size > UINT64_C(0x600000000) || (size & 4095)) goto done;
+ #else
+ 	device = mdevlookup(0);
+-	if (device == NODEV || mdevgetrange(0, &base, &size) || base < VM_MIN_KERNEL_ADDRESS ||
++	if (device == NODEV || mdevgetrange(0, &base, &size)) goto done;
++	k60_data_win_bytes = size;
++	if (base < VM_MIN_KERNEL_ADDRESS ||
+ 	    !size || size > UINT64_C(0x600000000) || (base & 4095) || (size & 4095)) goto done;
+ 	SHA256_CTX context;
+ 	SHA256_Init(&context);
+@@ -7571,6 +7629,7 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 	error = mount(p, &request, &result);
+ 	printf("K60DATA mount returned error=%d result=%d rw=%u\n", error, result, k60_data_rw);
+ 	if (error) goto done;
++	k60_data_mounted = 1;
+ 	native_owner_data_stage = 3;
+ 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());
+ 	printf("K60DATA root lookup error=%d vnode=%p\n", error, data_root);
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index 313d661..ace4339 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1504,6 +1504,27 @@ exit1_internal(proc_t p, int rv, int *retval, boolean_t thread_can_terminate, bo
+ 	return exit_with_reason(p, rv, retval, thread_can_terminate, perf_notify, jetsam_flags, OS_REASON_NULL);
+ }
+ 
++/* ---- 0303: storm table shared with the heartbeat reporter ---- */
++static struct k60_storm_ent {
++	char comm[24];
++	uint32_t status, sig, count;
++} k60_storm[16];
++
++unsigned int
++k60_storm_count(const char *comm)
++{
++	unsigned int i, total = 0;
++	for (i = 0; i < 16; i++) {
++		if (k60_storm[i].count != 0 && strncmp(k60_storm[i].comm, comm, 24) == 0) {
++			total += k60_storm[i].count;
++		}
++	}
++	return total;
++}
++
++unsigned int k60_kxp_prints = 0;
++extern void k60_heartbeat_start_once(void);
++
+ /*
+  * NOTE: exit_with_reason drops a reference on the passed exit_reason
+  */
+@@ -1645,10 +1666,6 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate,
+ 			 * Bounded output without a hard cap; slots are not locked
+ 			 * (diagnostic only, counts may be racy).
+ 			 */
+-			static struct {
+-				char comm[24];
+-				uint32_t status, sig, count;
+-			} k60_storm[16];
+ 			unsigned int k60_record = atomic_fetch_add_explicit(&k60_reason_sequence,
+ 			    1u, memory_order_relaxed) + 1u;
+ 			unsigned int k60_free = 16, k60_hit = 16, k60_i;
+@@ -1685,6 +1702,7 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate,
+ 					extern const char *k60_exec_path_for_pid(int);
+ 					const char *k60_xp = k60_exec_path_for_pid(proc_getpid(p));
+ 					if (k60_xp != NULL) {
++						k60_kxp_prints++;
+ 						printf("KXP %d %s\n", proc_getpid(p), k60_xp);
+ 					}
+ 				}
+@@ -1713,6 +1731,7 @@ exit_with_reason(proc_t p, int rv, int *retval, boolean_t thread_can_terminate,
+ 				    top[2] != 16 ? k60_storm[top[2]].count : 0);
+ 			}
+ 			k60_abnormal_count++;
++			k60_heartbeat_start_once();
+ 			k60_last_bad_pid = proc_getpid(p);
+ 			strlcpy(k60_last_bad_comm, p->p_comm, sizeof(k60_last_bad_comm));
+ 			k60_last_bad_signal = k60_sig;

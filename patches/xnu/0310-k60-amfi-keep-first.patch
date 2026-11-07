@@ -1,0 +1,28 @@
+--- a/libkern/amfi/amfi.c
++++ b/libkern/amfi/amfi.c
+@@ -8,7 +8,24 @@
+ amfi_interface_register(const amfi_t *mfi)
+ {
+ 	if (amfi) {
+-		panic("AppleMobileFileIntegrity interface already set");
++		/*
++		 * 0309: keep-first instead of a fatal panic.
++		 *
++		 * Two things can reach this function on this board: the miniamfi
++		 * stand-in (STARTUP EARLY_BOOT, when amfi_get_out_of_my_way=1) and the
++		 * prelinked AppleMobileFileIntegrity kext once its IOKit personality is
++		 * allowed to match (profile.toml --keep-personalities). The original
++		 * panic is what forced the K60 to choose between the stand-in and the
++		 * IOKit service, and without the service user space cannot verify
++		 * launchd.plist ("Unable to find AMFI", serial log 2026-11-05).
++		 *
++		 * Keeping the first table is enough: the kernel needs one permissive
++		 * amfi_t to answer entitlement and trust-cache questions, and the
++		 * kext's IOKit service is published independently of who won this
++		 * race. Whoever arrives second leaves its table unused.
++		 */
++		printf("AMFI: interface already registered; keeping the first table\n");
++		return;
+ 	}
+ 	amfi = mfi;
+ }

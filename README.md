@@ -47,7 +47,7 @@ Redmi K60（**mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓库。�
 
 | 层 | 仓库 | 内容 |
 | --- | --- | --- |
-| 框架 | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU)（分支 `k60`） | `unixnu` 命令、共享脚本、ARM64 与 OS profile、组件目录 |
+| 框架 | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU)（`main`） | `unixnu` 命令、共享脚本、ARM64 与 OS profile、组件目录 |
 | SoC | [Emilelu/UniXNU-sm8475-common](https://github.com/Emilelu/UniXNU-sm8475-common) | `soc.toml`、`configs/sm8475.config`、`dts/sm8475.dtsi` |
 | 设备 | 本仓库 | `board.toml`、`dts/mondrian.dts`、`patches/xnu/series`、`userland/`、`porting.toml` |
 | 固件 | [Emilelu/uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium 构建树，产出 `SILICIUM_UEFI.fd` |
@@ -57,7 +57,7 @@ Redmi K60（**mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓库。�
 ## 构建
 
 ```sh
-git clone --recurse-submodules -b k60 https://github.com/Emilelu/UniXNU
+git clone --recurse-submodules -b main https://github.com/Emilelu/UniXNU
 git clone https://github.com/Emilelu/UniXNU-sm8475-common
 git clone https://github.com/Emilelu/UniXNU-mondrian
 

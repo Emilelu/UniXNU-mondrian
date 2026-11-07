@@ -272,7 +272,7 @@ python3 scripts/k60-prelink-local.py \
 - `patches/xnu/series` 尾部有 6 个纯编译环境补丁（`k60-cpp-void-ptr-assert`、
   `k60-v-crypto-syntax`、`k60-pgo-runtime-stub`、`k60-rwlock-caller-trace`、
   `k60-panic-report`、`k60-ppl-lock-sleepable`），每次升上游都要重打。
-- 另有 22 个补丁未进 `series`，未评估。
+- `patches/xnu/series` 现有 **182 项**（磁盘上共 209 个补丁文件，27 个未进 series，保留作参考）。
 
 ## 许可
 

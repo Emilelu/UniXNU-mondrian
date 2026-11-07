@@ -194,3 +194,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch
 0363-k60-attach-expansion.patch
 0364-k60-deny-without-release.patch
 0365-k60-ui-owns-screen.patch
+0366-k60-userexc-pid.patch

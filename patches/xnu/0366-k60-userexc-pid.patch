@@ -1,0 +1,21 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -764,9 +764,15 @@
+ 		extern bool k60_usblog_console_up(void);
+ 		if (k60exc_seen < 64 && k60_usblog_console_up()) {
+ 			k60exc_seen++;
+-			printf("K60EXC n=%u esr=%x far=%llx pc=%llx\n",
+-			    k60exc_seen, (unsigned)esr, (unsigned long long)far,
+-			    (unsigned long long)get_saved_state_pc(state));
++			{
++				extern int proc_selfpid(void);
++
++				printf("K60EXC n=%u pid=%d esr=%x far=%llx pc=%llx lr=%llx\n",
++				    k60exc_seen, proc_selfpid(), (unsigned)esr,
++				    (unsigned long long)far,
++				    (unsigned long long)get_saved_state_pc(state),
++				    (unsigned long long)get_saved_state_lr(state));
++			}
+ 		}
+ 	}
+ 

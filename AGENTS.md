@@ -9,6 +9,28 @@ catalog live in `UniXNU`.
 The porting record in `porting.toml` is the authoritative device state. Every
 subsystem change updates the record in the same pull request.
 
+## Iron rules
+
+Two rules outrank everything else in this file. They are not style preferences;
+a violation costs work that cannot be recovered.
+
+1. **Nothing durable lives in `/tmp`.** Patches, `series` entries, build
+   scripts, notes, and any generated artefact a result refers to belong in the
+   repository or under `E:\k60-work`. `/tmp` is wiped without warning: on
+   2026-11-07 a cleanup removed `/tmp/usb-cdc-mainline` and took an entire day
+   of kernel patches with it, leaving only the compiled `macho` behind. If a
+   file is not deliberately disposable, do not create it there.
+
+2. **Source is tracked and pushed before the next step.** A patch, script or
+   document is not finished when it is written; it is finished when it is
+   committed on its branch and pushed to the fork. `git status` must not carry
+   source changes across a build, and a build tree must never be the only copy
+   of a patch. Work that exists only in a scratch worktree is unpublished work,
+   and an unpublished patch is a patch that does not exist.
+
+The check before every build: `git -C ../UniXNU-mondrian status --porcelain` is
+empty, and the branch is level with its remote.
+
 ## Required reading
 
 | Task | Required reading |

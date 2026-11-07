@@ -136,8 +136,15 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mactable-summary.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-cache-report.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-mem-report.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch
+0243-k60-console-export.patch
 0301-k60-sandbox-kx-histogram.patch
 0302-data-cap-execerr-kxp.patch
 0303-k60-heartbeat.patch
 0304-kxq-rate-ler-lw.patch
 0305-kxq-site-tags.patch
+0384-k60-pid-hibernate.patch
+0385-k60-aks-datamigrator.patch
+0386-k60-quiet-exec-probes.patch
+0387-k60-panic-args.patch
+0388-k60-n4k-cache-io.patch
+0389-k60-kx-pc-lr.patch

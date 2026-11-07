@@ -14,7 +14,7 @@
 4. **版本结论：官方 `drivers/`、`porting/`、`reference/` 全部文档 0 处提及 `16.6.1` 或 `20G81`。** 文档主要标注 iPadOS 17.7.11/21H461 与 iPadOS 27.0.1/24A446；对 K60 的 16.6.1 目标，所有组件级条目只能标“未说明”，不能把 17/27 的验证结果当作 16.6.1 资格。
 5. **规范结论：** 官方是 format-2 设备仓 + `components.toml` 选择 + `scripts/package.sh` + `--os` 覆盖的单一构建流；pong ios16 是 54 行 `board.toml` + 自定义脚本 + 8 个 vendored driver 目录的社区先例。建议采用“**官方规范壳 + pong 设备驱动核**”：设备仓/记录/打包向官方靠拢，硬件驱动继续用 pong 分叉，等官方补齐 SM8475/A730/QCA6490/AW882xx 后再逐项上游化。
 
-## ② 硬件→官方组件大表
+## ② 硬件→组件映射大表
 
 ### 2.1 主映射表
 
@@ -376,7 +376,6 @@
 | N20 | 官方 `platform.md` 的 8 GiB 上限 | 官方页不写数字；8 GiB 来自 K60 本地 `DarwinBoot22/WindowSize.h` 和 `devicetree.py` 的 256 MiB–8 GiB 校验 | 以本地代码为准；若换官方 DarwinBoot 主线，重新核对 `WindowSize.h` |
 | N21 | 官方 `TFA9873` 覆盖 | 官方 16 项 39 页全文 0 命中 TFA9873；只有 pong `PongAudio.cpp` 有该器件 | 不要把 TFA 寄存器写进 K60；K60 功放先读 I2C 0x34/0x35 chip ID |
 | N22 | 官方 `AudioProbe` 的功放型号 | 官方 `power.md` 只列 `ShengCs35l43.c`（CS35L43）与 WCD938x；没有 AW882xx | 同上；AW882xx 驱动需从厂商源码另取 |
-
 
 ## 附录 B 官方 16 项覆盖核对
 

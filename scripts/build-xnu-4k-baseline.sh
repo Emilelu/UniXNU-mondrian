@@ -948,12 +948,11 @@ PY_BINDINGS
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ROOT/build/boot-progress/libBootProgress.a"
   fi
   KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES ${XNU_EXTRA_LD_ARCHIVES:-}"
-  EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$KERNEL_EXTRA_ARCHIVES")
   EXTRA_MAKE_ARGS+=("XNU_EXTERNAL_KERNEL_ARCHIVES=$KERNEL_ARCHIVE_DEPENDENCIES")
 fi
 # The generic platform is independent of the old source-corecrypto14 recipe.
 # Its crypto provider comes from the separately prelinked 20G81 component.
-PONG_ADRENO_PLATFORM=${XNU_PONG_ADRENO_PLATFORM:-0}
+PONG_ADRENO_PLATFORM=${XNU_PONG_ADRENO_PLATFORM:-1}
 if [ "$PONG_ADRENO_PLATFORM" != 0 ] && [ "$PONG_ADRENO_PLATFORM" != 1 ]; then
   echo 'XNU_PONG_ADRENO_PLATFORM must be 0 or 1' >&2
   exit 1
@@ -967,6 +966,10 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   # IOAcceleratorES initializer runs only after20G81 IOGPUFamily loads.
   # Keep foreign A740/Redwood hardware owners disabled independently.
   PONG_DRIVER_SOURCE=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}
+  # The tree step does not re-sync an existing drivers/PongAdreno directory;
+  # refresh it from the device repo so PongAdrenoScanout.cpp reaches the archive.
+  mkdir -p "$ROOT/drivers/PongAdreno"
+  cp -a "$PONG_DRIVER_SOURCE/drivers/PongAdreno/." "$ROOT/drivers/PongAdreno/"
   python3 "$PONG_DRIVER_SOURCE/scripts/build-pong-adreno-platform.py" \
     --output-dir "$ROOT/build/pong-adreno"
 fi
@@ -979,6 +982,7 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$PONG_GPU_ARCHIVE -Wl,-u,_PongAdrenoGmuStart"
+    KERNEL_EXTRA_ARCHIVES="${KERNEL_EXTRA_ARCHIVES:-} -Wl,-force_load,$PONG_GPU_ARCHIVE -Wl,-u,_PongAdrenoGmuStart"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $PONG_GPU_ARCHIVE"
   fi
   if [ "${XNU_ARMCPU:-0}" = 1 ]; then
@@ -1011,7 +1015,6 @@ PY_RAM_BLOCK_BINDINGS
     fi
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $RAM_BLOCK_ARCHIVE"
   fi
-  EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$PLATFORM_ARCHIVES")
   EXTRA_MAKE_ARGS+=("XNU_EXTERNAL_KERNEL_ARCHIVES=$PLATFORM_DEPENDENCIES")
 
   # The XNU_BOOTSTRAP pass above runs the full `build` target, so it also links the

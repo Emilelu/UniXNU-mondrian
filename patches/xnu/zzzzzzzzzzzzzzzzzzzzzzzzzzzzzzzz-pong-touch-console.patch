@@ -5620,5 +5620,5 @@ index 7c90fe0..3e9f5aa 100644
 +				 * frame, otherwise vcputc continues painting over it. */
 +				PE_initialize_console(NULL, kPEReleaseScreen);
  			}
- 			if (!gpuFrame) drawLayer(s, src, dst);
+ 			drawLayer(s, src, dst);
  		}

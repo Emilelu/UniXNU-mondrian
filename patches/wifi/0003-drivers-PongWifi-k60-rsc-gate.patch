@@ -1,0 +1,26 @@
+diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPlatform.cpp
+index 7632a67..66bbedc 100644
+--- a/drivers/PongWifi/PongWifiPlatform.cpp
++++ b/drivers/PongWifi/PongWifiPlatform.cpp
+@@ -690,6 +690,21 @@ extern "C" void pong_rpmh_init(void) {
+  if(!smmuLeaseLock)smmuLeaseLock=IOLockAlloc();
+ }
+ extern "C" bool pong_rpmh_vote(uint32_t address,uint32_t value) {
++ // K60 hardware note: touching the APSS RSC before its power/interconnect
++ // domain is proven can hard-hang the phone (K60-TOUCH-PARAMS.md:120,174).
++ // Default is therefore "RSC disabled": supplies() fails safe and the
++ // optional WiFi worker stops before any regulator/TCS write. Enable only
++ // after a read-only probe has shown 0x17a20000/TCS4 is accessible.
++ static uint32_t rscEnabled;
++ if(!rscEnabled) {
++  uint32_t flag=0;
++  if(!PE_parse_boot_argn("k60_wifi_rsc",&flag,sizeof flag)||flag!=1) {
++   static bool said;
++   if(!said){said=true;IOLog("PongWifi: RSC votes disabled; boot with k60_wifi_rsc=1 only after a read-only probe\n");}
++   return false;
++  }
++  rscEnabled=1;
++ }
+  if(!powerLock)return false;
+  IOLockLock(powerLock);
+  bool ok=(rsc.v||rsc.open(0x17a20000,0x10000))&&rawVote(address,value);

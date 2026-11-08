@@ -1,0 +1,24 @@
+diff --git a/drivers/ArmDTPlatform/ArmDTPlatform.cpp b/drivers/ArmDTPlatform/ArmDTPlatform.cpp
+index d908875..e7db635 100644
+--- a/drivers/ArmDTPlatform/ArmDTPlatform.cpp
++++ b/drivers/ArmDTPlatform/ArmDTPlatform.cpp
+@@ -24,6 +24,9 @@ extern "C" bool pong_cpu_start(IOService *platform);
+ #if XNU_PONG_ADRENO_PLATFORM
+ extern "C" void pong_adreno_start_optional(void);
+ #endif
++#if XNU_PONG_WIFI
++extern "C" void pong_wifi_start_optional(void);
++#endif
+ 
+ // Observation counters describe actual published nubs, not started drivers.
+ extern "C" {
+@@ -221,6 +224,9 @@ bool ArmDTPlatform::configure (IOService *provider)
+   IOLog ("ArmDTPlatform: registered platform cpus=%u arm-io=%u devices=%u nvram-proxy=%u\n",
+          cpuCount, busCount, armdt_platform_device_count, armdt_platform_nvram_proxy);
+   registerService ();
++#if XNU_PONG_WIFI
++  pong_wifi_start_optional();
++#endif
+ #if XNU_PONG_ADRENO_PLATFORM
+   pong_adreno_start_optional();
+ #endif

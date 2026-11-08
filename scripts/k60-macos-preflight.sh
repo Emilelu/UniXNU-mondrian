@@ -4,7 +4,13 @@
 set -euo pipefail
 dir=$(cd "$(dirname "$0")" && pwd)
 chmod +x "$dir"/*.sh 2>/dev/null || true
-sh "$dir/apply-core-patches.sh" "$PWD"
+# The core patch is optional: the upstream core has moved past the revisions it
+# names (bootimg.py verify() already takes `compression`), so applying it fails
+# with "patch does not apply" on files the core owns. Apply it when it still
+# fits; the kernel build does not depend on it.
+if ! sh "$dir/apply-core-patches.sh" "$PWD"; then
+  echo "core patch did not apply; continuing (already merged upstream?)" >&2
+fi
 
 # The pong Mac scripts stand in the Pong developer machine: they pin the Xcode
 # developer directory and the pong driver sources to /Volumes/PongDev, and

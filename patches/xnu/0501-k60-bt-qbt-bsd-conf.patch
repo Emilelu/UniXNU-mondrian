@@ -1,0 +1,30 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -108,6 +108,12 @@
+ bsd/dev/k60_usblog.c				standard
+ bsd/dev/k60_uilib.c		standard
+ bsd/dev/k60_console_export.c	standard
++bsd/dev/qbt_k60.c			standard
++bsd/dev/qbt/qbt_core.c		standard
++bsd/dev/qbt/qbt_geni.c		standard
++bsd/dev/qbt/qbt_transport.c	standard
++bsd/dev/qbt/qbt_linux.c		standard
++bsd/dev/qbt/btqca.c		standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+ 
+--- a/bsd/conf/Makefile.arm64
++++ b/bsd/conf/Makefile.arm64
+@@ -8,6 +8,12 @@
+ kern_csr.o_INCFLAGS += -I$(SRCROOT)/osfmk
+ kern_debug.o_INCFLAGS += -I$(SRCROOT)/osfmk
+ 
++# K60 Bluetooth / QcaBluetooth.  qbt_k60.c is in bsd/dev while the shared
++# qbt headers live in bsd/dev/qbt; btqca.c additionally needs the Linux
++# compatibility shims under bsd/dev/qbt/shim.
++qbt_k60.o_INCFLAGS += -I$(SRCROOT)/bsd/dev/qbt
++btqca.o_INCFLAGS += -I$(SRCROOT)/bsd/dev/qbt -I$(SRCROOT)/bsd/dev/qbt/shim
++
+ ######################################################################
+ #END    Machine dependent Makefile fragment for arm
+ ######################################################################

@@ -1,17 +1,17 @@
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-@@ -41,6 +41,10 @@
- #include <IOKit/IOBufferMemoryDescriptor.h>
+@@ -43,6 +43,10 @@
  
  #include "MiniIOSurface.h"
-+
+ 
 +extern "C" void pong_scanout_initialize(uint64_t,size_t,uint32_t,uint32_t,uint32_t);
 +extern "C" int pong_scanout_frame(IOMemoryDescriptor *,size_t,uint32_t,uint32_t,uint32_t);
 +extern "C" bool pong_scanout_quarantined(void);
- 
++
  
  /* IOConnectCallMethod selectors of the framebuffer user client (iOS 16.5) */
-@@ -386,6 +390,8 @@
+ enum {
+@@ -419,6 +423,8 @@
  	fPanelWidth = vinfo.v_width;
  	fPanelHeight = vinfo.v_height;
  	fRowBytes = vinfo.v_rowbytes;
@@ -20,7 +20,7 @@
  	if (k60PanelNative()) {
  		/* The panel's own grid: see the contract at the top of the file. */
  		if ((gFBWidth != 0 && gFBWidth != K60_PANEL_WIDTH) ||
-@@ -801,9 +807,11 @@
+@@ -888,9 +894,11 @@
  	uint64_t began = mach_absolute_time(), nanos, ready, shown, drawn;
  	uint32_t layers = 0;
  	bool report;
@@ -32,7 +32,7 @@
  			IOLog("MiniIOMobileFramebuffer: swap %u: the GPU is not done with surface %u after %u ms; shown as it is\n",
  			    swapWord(swap, SWAP_ID), swapWord(swap, SWAP_SURFACE(layer)), SWAP_GPU_MS);
  		}
-@@ -859,6 +867,30 @@
+@@ -946,6 +954,30 @@
  		    swapWord(swap, SWAP_ID), fSwapsShown, swapWord(swap, SWAP_SURFACE(0)), swapWord(swap, SWAP_SURFACE(1)),
  		    swapWord(swap, SWAP_SURFACE(2)), swapWord(swap, SWAP_SURFACE(3)), set, swapWord(swap, SWAP_LAYERS_CLEARED));
  	}
@@ -63,9 +63,7 @@
  	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
  		uint32_t sid = swapWord(swap, SWAP_SURFACE(layer));
  		int32_t src[4], dst[4];
-@@ -988,7 +1020,7 @@
- 				fGraphics = true;
- 				PE_initialize_console(NULL, kPEGraphicsMode);
+@@ -990,5 +1022,5 @@
  			}
 -			drawLayer(s, src, dst);
 +			if(!gpuFrame)drawLayer(s, src, dst);

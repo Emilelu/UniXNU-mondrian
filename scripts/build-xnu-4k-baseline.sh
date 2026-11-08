@@ -721,8 +721,8 @@ EXTRA_MAKE_ARGS+=("start.o_SFLAGS_ADD=-DXNU_NATIVE_ARCH_TIMER=$NATIVE_ARCH_TIMER
 EXTRA_MAKE_ARGS+=("arm_init.o_CFLAGS_ADD=-DXNU_PONG_EARLY_TRACE=$PONG_EARLY_TRACE -DXNU_PONG_RAMOOPS_CONSOLE=$PONG_RAMOOPS_CONSOLE -mstrict-align -mgeneral-regs-only -march=armv8.1-a")
 EXTRA_MAKE_ARGS+=("arm_vm_init.o_CFLAGS_ADD=-DXNU_PONG_EARLY_TRACE=$PONG_EARLY_TRACE")
 EXTRA_MAKE_ARGS+=("machine_routines.o_CFLAGS_ADD=-DXNU_PONG_EARLY_TRACE=$PONG_EARLY_TRACE")
-EXTRA_MAKE_ARGS+=("k60_console_export.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=$PONG_RAMOOPS_CONSOLE")
 EXTRA_MAKE_ARGS+=("serial_console.o_CFLAGS_ADD=-DXNU_PONG_EARLY_TRACE=$PONG_EARLY_TRACE -DXNU_PONG_RAMOOPS_CONSOLE=$PONG_RAMOOPS_CONSOLE")
+EXTRA_MAKE_ARGS+=("k60_console_export.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=$PONG_RAMOOPS_CONSOLE")
 EXTRA_MAKE_ARGS+=("debug.o_CFLAGS_ADD=-DXNU_PONG_EARLY_TRACE=$PONG_EARLY_TRACE")
 EXTRA_MAKE_ARGS+=("counter_test.o_CFLAGS_ADD=-DXNU_PONG_EARLY_TRACE=$PONG_EARLY_TRACE")
 EXTRA_MAKE_ARGS+=("IOStartIOKit.cpo_CFLAGS_ADD=-DXNU_PONG_EARLY_TRACE=$PONG_EARLY_TRACE")
@@ -968,12 +968,18 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   # IOAcceleratorES initializer runs only after20G81 IOGPUFamily loads.
   # Keep foreign A740/Redwood hardware owners disabled independently.
   PONG_DRIVER_SOURCE=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}
-  # The tree step does not re-sync an existing drivers/PongAdreno directory;
-  # refresh it from the device repo so PongAdrenoScanout.cpp reaches the archive.
-  mkdir -p "$ROOT/drivers/PongAdreno"
-  cp -a "$PONG_DRIVER_SOURCE/drivers/PongAdreno/." "$ROOT/drivers/PongAdreno/"
   python3 "$PONG_DRIVER_SOURCE/scripts/build-pong-adreno-platform.py" \
     --output-dir "$ROOT/build/pong-adreno"
+  # K60_GPU_BOOTSTRAP: the bootstrap link skips PLATFORM_ARCHIVES entirely
+  # (XNU_BOOTSTRAP is always set for PONG because its record name differs),
+  # so the scanout objects in this archive would be undefined there. Give the
+  # bootstrap pass its own LD_KERNEL_ARCHIVES with firehose + the archive; the
+  # real pass keeps using the full PLATFORM_ARCHIVES.
+  if [ -n "${XNU_BOOTSTRAP:-}" ]; then
+    PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
+    test -f "$PONG_GPU_ARCHIVE"
+    EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE")
+  fi
 fi
 if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
   ARM_DT_ARCHIVE=$ROOT/build/armdt-platform/libArmDTPlatform.a
@@ -984,7 +990,6 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$PONG_GPU_ARCHIVE -Wl,-u,_PongAdrenoGmuStart"
-    KERNEL_EXTRA_ARCHIVES="${KERNEL_EXTRA_ARCHIVES:-} -Wl,-force_load,$PONG_GPU_ARCHIVE -Wl,-u,_PongAdrenoGmuStart"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $PONG_GPU_ARCHIVE"
   fi
   if [ "${XNU_ARMCPU:-0}" = 1 ]; then

@@ -8,6 +8,15 @@
 
 ## 一、硬规矩（违反过一次就会重犯旧错）
 
+0. **动手前必须先读这四份，禁止凭记忆开工**
+   - `docs/reference/PITFALLS-FROM-HISTORY.md`（1,969 行，坑的完整目录）
+   - `docs/reference/ISSUES.md`（487 行，问题+根因+修法）
+   - `docs/reference/DECISIONS.md`（357 行，为什么这么选）
+   - `docs/plans/APPLY-PIPELINE.md`（381 行，apply() 全流程）
+   本次会话 15 个坑里 **14 个早就写在这些文件里**，我却重造了 4 个抓取脚本、
+   6 个构建脚本、几十个 scratch 文件——**问题不是没记录，是我没读**。
+   配套脚本清单也先查：`ls E:\k60-work\usb-a-stage\scripts\`。
+
 1. **只改 patch 文件，绝不手改 `tree/.cache/xnu-work/`**
    `tree/.cache/xnu-work` 是生成物。直接编辑会在下一次清树重建时丢失。
    我犯过：手改 `kern_exec.c` 补 `init_envp`、手改 `MiniIOSurface.cpp` 换 `reinterpret_cast`、手写 `k60_init_blob.h` —— 全部在重建后丢失并再次报错。
@@ -88,17 +97,31 @@ cd /tmp/k60build
   EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$PLATFORM_ARCHIVES")
   ```
 
-### boot args（与黄金镜像一致，仅多最后一项）
+### boot args（**必须与 `boot-0461` 完整 29 项一致**；我曾只用 20 项，漏了 9 项）
+
+从 `boot-0461-20261107.img` 内 payload 的 `unixnu.toml` 实读（这就是跑到 SpringBoard 那一次）：
 ```
--v native-ufs=1 pong_allow_unauthenticated_root=1 debug=0x144
+-v native-ufs=1 pong_allow_unauthenticated_root=1 debug=0x140
 cs_enforcement_disable=1 pong_software_keybag=1 disable_exc_resource=1
 pong_ufs_readwrite=1 k60_console_export=1 k60_usblog=2
 pong_data_mount=1 pong_data_rw=1 fb_threads=3 k60_textonly=1
 amfi_get_out_of_my_way=1 pong_init_path=/private/var/pong/init
-epoch=1793709100 k60_fontscale=3 k60_init_blob=1
+epoch=1793709100 k60_fontscale=3
+k60_skip_firmware_mount=1        ← 漏了它：launchd mount-phase bind mount 会 EPERM → PID 1 panic
+k60_tolerate_cache_loader=1      ← 漏了它：launchd_cache_loader 崩溃被当成致命
+launchd_unsecure_cache=1         ← 内核不识别，无害
+xpcproxy_idversion=1
+applog=1 applog_name=runningboardd,backboardd,lsd
+k60_entitlement_allow=1
+k60_skip_iosurface=1
+k60_panic_reset=1
+k60_selftest_reboot=300
 ```
+**`debug=0x140` 不是 `0x144`**：`0x144` 含 `DB_NMI`，panic 会卡在 NMI 里**不复位**，
+必须手动长按电源。`0x140` 才会走 0311 的 `IMEM 0x146AA65C = 0x77665500` 自动回 fastboot。
 **缺 `k60_usblog=2` → CDC console 不枚举，设备静默。**
-**`board.toml` B decision：不要传 `--trust-cache`**（多出 `kernel.macho.trustcache` + ADT 里多 `TrustCache` 节点，与黄金不符）。
+`boot-0461` 的 payload 里**有** `kernel.macho.trustcache`（61,764 B），
+所以"B decision 不要 trust-cache"这条对 11-07 那次**不成立**，不要再据此排除。
 
 ### boot 镜像格式（`unixnu bootimg` 产出的**不可用**）
 ```
@@ -119,37 +142,96 @@ epoch=1793709100 k60_fontscale=3 k60_init_blob=1
 | "AMFI 拒绝未签名 init"（Round 15） | `namespace 9` 是 `OS_REASON_EXEC`，不是 CODESIGNING |
 | "stub 缺 4 GiB pagezero"（Round 17） | 实测 stub **有** `__PAGEZERO vmsize=0x100000000` |
 | "把 `PONG_ADRENO_PLATFORM` 从 1 改 0 能修 panic" | 黄金本身 `.config` 里就是 `=y`，ADRENO 不是变量 |
-| "改 boot-args 能修" | 当前 panic 发生在 `stage=4` 之后、`loading helper` 之前，即写文件内部 |
-| "用 `--trust-cache`" | `board.toml` 明确写 B decision 要 drop（与 pong 对齐） |
+| "改 boot-args 能修 `vnode_rele_ext`" | 那个 panic 已由 `vnode_close(vp,0,ctx)` 修好，与 args 无关 |
+| "用 `--trust-cache` 一定错" | `boot-0461` 里就有 trustcache，11-07 那次是带它跑起来的 |
+| **"内核里缺 init / 需要内嵌 init blob"** | 实测 `boot-0461` 的 kernel.macho **既没有** `faa38544…` 也**没有**我的补丁版 blob。它直接用设备上 dd 写入的 init |
+| **"`0391` 是必要的"** | 黄金没有内嵌 blob 也能进 SpringBoard。`0391` 是自造路线，且**用 `O_TRUNC` 破坏了设备上的正确 init** |
+| **"`launchd.ios` 需要我们用字符串替换来修"** | 设备上的 init 是 dd 写入的 v10guard 系列，源码级就已经是 `/sbin/launchd`；我那个二进制替换是多余的，且破坏了签名页哈希 |
+| **"git 里有 `68d9bb06…` 那个修好的 init"** | 查遍 `deliverables`/`candidates`/`forks-review`/git history，**不存在**。不要再去搜 |
 
 ---
 
 ## 四、当前状态与阻塞
 
-### 已确认可用
-- 内核构建链（192 补丁，`ArmDTPlatform=38`，`K60INIT=1`）
-- Data 卷挂载全成功：`K60DATA mount returned error=0 rw=1`、
-  `K60UFS write#0..#7` 全 `result=0`、`K60UILIB deploy bytes=111328 resid=0 error=0`、
-  `K60DATA mkdir ok=1/28`（全 EEXIST，正常）、
-  `keybag/launchd policy/boot preferences err=0`、`attempt returned error=0 stage=4`
-- CDC console 能枚举（COM5，VID_1209/PID_0001）
+### 真正的目标状态（重要：不要再把已成功的当成失败）
 
-### 当前阻塞（Round 19 实测）
-日志停在 `K60DATA attempt returned error=0 stage=4` 之后，**没有** `Pong init: loading helper`，
-说明 panic 发生在 `k60_install_embedded_init()` 内部（写文件），即 `vnode_rele_ext kusecount` 不平衡。
+`boot-0461-20261107.img`（201,883,648 B，sha256 `b2c612c8…` 的同类件）**已经进系统了**：
+```
+[SpringBoard] Pong UI: img 323 ...
+[SpringBoard] [backboardd] Pong UI: UIApplication -_run hooked
+```
+之后才崩：`KX! 18 1 launchd exit=0 sig=11` → `initproc exited -- namespace 2 subcode 0xb`，
+死前最后一行是 `access(/System/Cryptexes/App/usr/libexec/webbookmarksd, X_OK) failed with errno 2`。
+即：**UI 已起来，卡在 launchd(PID 1) 崩溃**，根因是设备 OS 窗从未跑过 `apply()`。
 
-**已做的修复（待验证）**：`0391` 已按 `0340` 的写法重新生成
-（`vnode_close(vp, 0, ctx)` / `IO_SYNC` / `vfs_context_ucred(ctx)` / 带 `resid`），
-`patches/xnu/0391-k60-embedded-init.patch` = 195,757 B，2 hunks。
+### 已确认可用（有日志证据）
+- UEFI → 内核 → APFS：`SystemOS mounted dev=9000006 ro=1 union=1 flags=14809021`、
+  `K60CACHE stage=6 err=0 ... p1=0 p2=0 p5=0`（与黄金逐字段一致）、`APFS SystemOS union PASS`
+- Data：`K60DATA mount returned error=0 rw=1`、`K60UFS write#0..#7` 全 `result=0`、
+  `K60UILIB deploy bytes=111328 resid=0 error=0`、`mkdir ok=1/28`（全 EEXIST，正常）
+- init（用设备上 dd 写入的版本）：`Pong init: helper exec result=0` → 全部 boot_stage 通过
+- CDC console 枚举（COM5，VID_1209/PID_0001）
+
+### 当前阻塞：launchd(PID 1) 崩溃，不是内核问题
+`apply()` 从未运行（需要 macOS `hdiutil`），所以：
+- `/pong/LaunchDaemons`、`/pong/boot-jobs` 等 bindfs 源目录不存在 →
+  init 打印 5 条 `optional boot view SKIP`
+- stock `LaunchDaemons` 未被移到 `/pong/stock-config`，launchd 读到的 job 集与文件系统不一致
+
+**修法**：用 `tools/apfs` 离线在 Data 窗造出 `/pong/LaunchDaemons`（从 20G81 plist 按 `CORE`/`DENY` 筛选），
+再让 init 的 `prepare_boot_services()` 去 bindfs —— **不需要改内核，不需要改 init**。
+历史证据：`write-pong-init-*.ps1` 的四闸门写盘流程已跑通多次。
 
 ### 设备侧重要事实
-- **设备上的 `/private/var/pong/init` 曾被我的 0391（`O_TRUNC`）覆盖成坏 stub，现已损坏**
-- 所以修复后的镜像**必须带 `k60_init_blob=1`** 才能把正确的 pong init 写回去
-- 旧 pong init（35160 B）在 extent 36,864 B 内，放得下
+- `/private/var/pong/init` 是 **11-03 用「手工 dd 写 9 块到 extent (0,36864,6135)」放入 inode 216**，
+  extent 未经过 APFS 正常分配，spaceman 位图中块 6135-6143 仍是 free（PITFALLS:230）
+- **inode.size 字段残留 35160**：任何 > 35,160 B 的 init 会被按旧 size **截断执行**（PITFALLS:462）
+- 历次版本：v6 34,872/`25d23885`、v7probe 34,880/`a00da80e`、v9alias 34,880/`78dcee4c`、
+  **v10guard 34,880/`db7e4eee`**（最后写入）；段回读 `ed6c3bf1…`
+- 我的 `0391` 用 `O_TRUNC` 覆盖过它，**现值未知**，必须重新核实
 
-### 抓取工具
-- 常驻守护：`python E:/k60-work/scratch/capd.py --output <log> --stop-file <STOP> --status <status> --max-seconds 0 --idle 0 --wait-port 0`
-  无限期等 1209:0001，逐块 flush，不自行停止
-- UI 按钮：安装的 `@local/k60-console-buttons` 插件，路由
-  `/k60-console/{start,stop,status,log}`，挂在 `conversation.composer.dock`
-- **教训**：不要点“停止”再看——panic 后串口就没数据了。应保持守护常驻，直接读文件。
+### 抓取与自动化工具（**用现成的，不要重造**）
+```powershell
+pwsh E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1 `
+  -Image <img> -Seconds 300 -WaitFastboot 90
+```
+`E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1`（11-06，259 行）已实现：
+自动 boot、从注册表 `\Device\USBSER000` 找端口、逐块 Flush、
+**端口消失后重开**（`-ReopenSeconds`）、**panic 后等静默再收尾**（`-PanicGraceSeconds`）、
+**等设备自动回 fastboot**（`-WaitFastboot`，靠 0311）、写 `capture.json` 含 `complete` 判定。
+
+**我今天重写的 `cap.py`/`capwait.py`/`capd.py`/`capd2.py`/`bootcap.ps1`/`bootcap1.ps1`
+全是重复轮子，且缺 `-WaitFastboot` 和完整性判定。不要再写新的。**
+UI 按钮插件 `@local/k60-console-buttons` 仅作辅助，不替代上面的脚本。
+
+---
+
+## 五、本次会话踩坑清单（每条都要防止复发）
+
+| # | 坑 | 根因 | 防复发 |
+|---|---|---|---|
+| 1 | `0391` 新增文件段缺 `@@ -0,0 +1,N @@` hunk 头 | `git apply` **静默创建 0 字节文件**，编译报 `use of undeclared identifier` | 生成 patch 后必须 `git apply --check` + **`stat -c%s` 确认新文件非 0 字节** |
+| 2 | 删 `LD_KERNEL_ARCHIVES` 两行 | 自造注入方案时"清理"过头，`ArmDTPlatform` 不链接 → `Unable to find driver for this platform: "J120AP"` | 改脚本前先 `diff -u` 黄金脚本（`out3/.../tree/scripts/`），改后复查两行还在 |
+| 3 | `0391` 吞掉 `init_envp` 声明 | patch 的 hunk 上下文覆盖了 `load_init_program` 里的声明行 | patch 应用后 `grep -c 'user_addr_t init_envp'` 必须 ≥1 |
+| 4 | 用 `cp -a` 盖树后 `unixnu` 跳过补丁 | `tree/` 已存在就不重新解包+打补丁 | 构建日志必须 `grep -c '== kernel: patch'` = **192**（或 191） |
+| 5 | 清 `tree/` 连 `fakeroot` 一起删 | SDK 头丢失 → `Availability.h: No such file` | 清树前备份 `.cache/fakeroot` 与 `.cache/sources`，清后立即回填 |
+| 6 | GitHub 403（feed / DriverKit） | WSL 直连被限流 | 用 `out3/feeds` 本地副本 + `.cache/sources/xnu-driverkit-*.json` 缓存 |
+| 7 | `unixnu bootimg` 产物不可用 | 把 `ksize` 写成 1,027,600，payload 偏移错 | 只用 `splice4` 方式（保留 0461 布局，payload 放 552,960） |
+| 8 | `vnode_close(vp, FWRITE, ctx)` | 让 `vnode_rele_internal` 递减未 acquire 的 `v_writecount` → `vnode_rele_ext kusecount` panic | 内核写文件一律照抄 `0340:7001-7013`，`vnode_close(vp, 0, ctx)` |
+| 9 | 手工用 `clang` 编 init stub | `ld64.lld 18` 的 `-static` **未实现**，产物带 `DYLDLINK`+`LOAD_DYLINKER` → `EXEC_EXIT_REASON_BAD_MACHO` | **不要自己编 init**。用设备上 dd 写入的现成 init，或用 pong 的静态二进制 |
+| 10 | 用 `k60_init_blob` 覆盖设备 init | `O_TRUNC` 破坏 dd 写入的正确文件 | **永不用 `k60_init_blob`**。需要换 init 时走 `write-pong-init-*.ps1` 四闸门 dd |
+| 11 | boot args 只用 20 项 | 漏 `k60_skip_firmware_mount=1` → launchd mount-phase EPERM → PID 1 panic | 打包前必须与 `boot-0461` 的 29 项逐字比对 |
+| 12 | `debug=0x144` 而非 `0x140` | `0x144` 含 `DB_NMI`，panic 卡在 NMI 不复位，必须手动长按电源 | 固定 `debug=0x140` |
+| 13 | 重造抓取/引导脚本 | 没 `ls` 就开工，`boot-and-capture.ps1` 早有全部功能 | **先查 `E:\k60-work\usb-a-stage\scripts\`**，已有就不再写 |
+| 14 | 抓取器没启动就 boot | 工具调用被中断，daemon 没起，panic 现场丢失 | 用 `boot-and-capture.ps1`，它一个进程内完成 boot+capture |
+| 15 | 改 boot 镜像后设备静默 | 镜像格式/args/或内核早期挂死 | 每次 boot 只用 `boot-and-capture.ps1` 并检查 `capture.json` 的 `complete` |
+
+## 六、下一步（唯一正确的路径）
+
+1. 设备进 fastboot（需人工长按电源 10–15s → 音量下+电源）
+2. `boot-and-capture.ps1 -Image E:\k60-work\usb-a-stage\out\boot-0461-20261107.img -Seconds 300 -WaitFastboot 90`
+   → 建立基线，同时确认设备上的 init 是否还完好
+3. 基线确认后：从 `series` **删除 `0391`**，脚本回退到与黄金脚本逐行一致，
+   重建并验证 `diff` 源码树 0 差异（内核对黄金等价）
+4. 用 `tools/apfs` 离线在 Data 窗造 `/pong/LaunchDaemons`（按 `CORE`/`DENY` 筛选 20G81 plist），
+   解决 launchd(PID 1) 崩溃 —— 这是"进系统并稳住"的最后一步

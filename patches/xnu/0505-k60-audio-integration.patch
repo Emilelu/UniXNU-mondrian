@@ -1,0 +1,29 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -114,6 +114,8 @@
+ bsd/dev/qbt/qbt_transport.c	standard
+ bsd/dev/qbt/qbt_linux.c		standard
+ bsd/dev/qbt/btqca.c		standard
++bsd/dev/aw882xx.c			standard
++bsd/dev/pong_audio.c			standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+ 
+
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1348,6 +1348,14 @@
+ 		qbt_k60_start();
+ 	}
+ #endif
++	/* K60 audio skeleton: PONG is not defined in this TU (no board_config.h
++	 * include), so use #if 1. The worker is fail-closed, read-only probe. */
++#if 1
++	if (result == KERN_SUCCESS) {
++		extern int pong_audio_bootstrap(void);
++		(void)pong_audio_bootstrap();
++	}
++#endif
+ 	return result;
+ }
+ 

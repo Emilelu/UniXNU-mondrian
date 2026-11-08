@@ -1,0 +1,3987 @@
+--- /dev/null
++++ b/bsd/dev/qbt_k60.c
+@@ -0,0 +1,1230 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/*
++ * qbt_k60.c - Redmi K60 (mondrian / SM8475 / "cape") Bluetooth board backend
++ * for the QcaBluetooth reference implementation.
++ *
++ * Target hardware (all sourced in EVIDENCE.md):
++ *   - QCA6490 / WCN6855-class controller, compatible "qcom,qca6490"
++ *   - GENI UART @ 0x00894000 (QUPV3_2 SE20), GIC SPI 587 level-high,
++ *     TLMM GPIO 76=CTS 77=RTS 78=TX 79=RX (function qup20)
++ *   - BT_EN=GPIO81, SW_CTRL=GPIO82 (input), XO latch=GPIO204, WLAN_EN=GPIO80
++ *   - BT VDD IO = PM8350 S10, 1.8 V fixed, under /soc/rsc@17a00000
++ *
++ * STATUS: EXPERIMENTAL.  Eight-step pipeline ①–⑦ are documented in
++ * REPORT.md; ⑧ (on-device) has not been executed.  Do not treat any
++ * register value as hardware-verified until the S0–S6 matrix in REPORT.md
++ * has a device log attached.
++ *
++ * This file is an implementation skeleton: every register/constant that could
++ * not be checked against a public source is marked TODO.  It does not attempt
++ * any unverified write.  Build it as a normal XNU BSD C file; for host syntax
++ * checking compile with -DK60_BT_HOST_TEST.
++ *
++ * IMPORTANT (K60-specific): never map or read the RSC (0x17a00000 /
++ * 0x17a20000).  The first RSC register read kills this machine
++ * (GOODIX-TOUCH-PORT.md:99-105).  All PMIC rails used by Bluetooth
++ * (PM8350 S10/S11/S12, PM8350C S1, PMR735A L7) are RPMh-controlled
++ * (K60 live FDT:5796-5804) and must be inherited from a warm Android boot.
++ */
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "qbt.h"
++#include "qbt_geni.h"
++#include "qbt_transport.h"
++
++#ifdef KERNEL
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/errno.h>
++#include <sys/proc.h>
++#include <sys/vnode.h>
++#include <sys/uio.h>
++#include <sys/fcntl.h>
++#include <sys/kauth.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <pexpert/pexpert.h>
++#include <IOKit/IOLib.h>
++#else /* K60_BT_HOST_TEST: minimal host shims so this file can be syntax- and
++       * unit-checked without the XNU SDK.  None of these stubs touch hardware. */
++#include <errno.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#define IODelay(us) ((void)(us))
++#define IOSleep(ms) ((void)(ms))
++static inline uint64_t mach_absolute_time(void) { return 0; }
++static inline void absolutetime_to_nanoseconds(uint64_t t, uint64_t *ns) { *ns = t; }
++static inline void nanoseconds_to_absolutetime(uint64_t ns, uint64_t *t) { *t = ns; }
++static inline void *IOMallocData(size_t n) { return calloc(1, n); }
++static inline void IOFreeData(void *p, size_t n) { (void)n; free(p); }
++#endif
++
++/* ------------------------------------------------------------------------- */
++/* K60 hardware constants.  Evidence tag names refer to EVIDENCE.md.          */
++/* ------------------------------------------------------------------------- */
++
++/* E-FDT-06: /soc/qcom,qup_uart@894000 reg = <0x894000 0x4000> */
++#define K60_BT_UART_BASE            0x00894000u
++#define K60_BT_UART_SIZE            0x4000u
++/* E-FDT-07: /soc/qcom,qupv3_2_geni_se@8c0000 reg = <0x8c0000 0x2000> */
++#define K60_BT_QUP_WRAPPER_BASE     0x008C0000u
++#define K60_BT_QUP_WRAPPER_SIZE     0x2000u
++/* E-FDT-06: interrupts-extended GIC SPI 0x24b = 587, type 4 (level high) */
++#define K60_BT_UART_GIC_SPI         587u
++/* E-FDT-06: second interrupts-extended entry phandle 0x3c (TLMM) gpio 0x4f = 79 */
++#define K60_BT_RX_WAKE_GPIO         79u
++#define K60_BT_CTS_GPIO             76u
++#define K60_BT_RTS_GPIO             77u
++#define K60_BT_TX_GPIO              78u
++
++/* E-FDT-01: qcom,bt-reset-gpio = <&tlmm 81 0>; qcom,bt-sw-ctrl-gpio = <&tlmm 82 0>;
++ *           qcom,xo-clk-gpio = <&tlmm 204 0>; qcom,wl-reset-gpio = <&tlmm 80 0> */
++#define K60_BT_EN_GPIO              81u
++#define K60_BT_SW_CTRL_GPIO         82u
++#define K60_BT_XO_GPIO              204u
++#define K60_WLAN_EN_GPIO            80u
++
++/* E-FDT-03: /soc/pinctrl@f000000 reg = <0xf000000 0x1000000>; the GPIO
++ * register page starts at +0x100000, i.e. flat 0x0f100000. */
++#define K60_TLMM_BASE               0x0F100000u
++#define K60_TLMM_SIZE               0x00100000u  /* covers GPIO204 at +0xCC000 */
++
++/* E-FDT-08: /soc/interrupt-controller@17100000 reg first range 0x17100000/0x10000 */
++#define K60_GIC_DIST_BASE           0x17100000u
++#define K60_GIC_DIST_SIZE           0x00010000u
++/* E-FDT-03: pinctrl@f000000 interrupts = <0x00 0xd0 0x04> -> GIC SPI 208 */
++#define K60_TLMM_GIC_SPI            208u
++
++/* E-GCC-01: drivers/clk/qcom/gcc-sm8450.c (Linux v6.6) */
++#define K60_GCC_BASE                0x00100000u
++#define K60_GCC_SIZE                0x001F4200u  /* same GCC window as K60/Pong SM8475 platform */
++#define K60_GCC_GPLL0_CMD           0x00062018u  /* gcc_gpll0 enable_reg, BIT(0) */
++#define K60_GCC_QUPV3_WRAP2_VOTE    0x00062010u  /* 0x62010: shared vote register */
++#define K60_GCC_VOTE_CORE           (1u << 0)    /* gcc_qupv3_wrap2_core_clk */
++#define K60_GCC_VOTE_S_AHB          (1u << 1)    /* gcc_qupv3_wrap_2_s_ahb_clk */
++#define K60_GCC_VOTE_M_AHB          (1u << 2)    /* gcc_qupv3_wrap_2_m_ahb_clk */
++#define K60_GCC_VOTE_CORE_2X        (1u << 3)    /* gcc_qupv3_wrap2_core_2x_clk */
++#define K60_GCC_VOTE_SE20           (1u << 9)    /* BIT(9): gcc_qupv3_wrap2_s5_clk */
++#define K60_GCC_VOTE_ALL \
++    (K60_GCC_VOTE_CORE | K60_GCC_VOTE_S_AHB | K60_GCC_VOTE_M_AHB | \
++     K60_GCC_VOTE_CORE_2X | K60_GCC_VOTE_SE20)
++
++/* E-GCC-02..05: branch halt registers (CBCR_CLK_OFF is BIT(31)). */
++#define K60_GCC_WRAP2_CORE_HALT     0x00033280u
++#define K60_GCC_WRAP2_CORE_2X_HALT  0x0003328Cu
++#define K60_GCC_WRAP2_M_AHB_HALT    0x0002E004u
++#define K60_GCC_WRAP2_S_AHB_HALT    0x0002E008u
++#define K60_GCC_WRAP2_SE20_HALT     0x0002E610u  /* 0x2e610: gcc_qupv3_wrap2_s5_clk halt */
++#define K60_GCC_WRAP2_SE20_CMD_RCGR 0x0002E618u  /* 0x2e618: gcc_qupv3_wrap2_s5_clk_src */
++
++/* E-GCC-06: SM8450 QUP SE clock table (gcc_qupv3_wrap0_s0_clk_src), Hz.
++ * K60 Android gcc-waipio.c:776-788 has the identical list.  It deliberately
++ * has no 51.2 MHz / 102.4 MHz entry. */
++static const uint32_t k60_qup_se_freq[] = {
++    7372800u, 14745600u, 19200000u, 29491200u, 32000000u,
++    48000000u, 64000000u, 75000000u, 80000000u, 96000000u, 100000000u,
++};
++
++/* RCG entries copied from gcc-sm8450.c:476-489 through the F() macro:
++ *   F(freq, src, h, m, n) -> pre_div = 2*h - 1, source cfg per gcc_parent_map_0.
++ * Source cfg: P_BI_TCXO=0, P_GCC_GPLL0_OUT_MAIN=1, P_GCC_GPLL0_OUT_EVEN=6
++ * (gcc-sm8450.c:112-121).  MND writes follow clk-rcg2.c:285-350. */
++struct k60_se_rate { uint32_t hz; uint8_t src_cfg; uint8_t pre_div; uint16_t m, n; };
++static const struct k60_se_rate k60_se_rates[] = {
++    { 7372800u, 6, 1, 384, 15625 },
++    { 14745600u, 6, 1, 768, 15625 },
++    { 19200000u, 0, 1, 0, 0 },
++    { 29491200u, 6, 1, 1536, 15625 },
++    { 32000000u, 6, 1, 8, 75 },
++    { 48000000u, 6, 1, 4, 25 },
++    { 64000000u, 6, 1, 16, 75 },
++    { 75000000u, 6, 7, 0, 0 },
++    { 80000000u, 6, 1, 4, 15 },
++    { 96000000u, 6, 1, 8, 25 },
++    { 100000000u, 1, 11, 0, 0 },
++};
++
++/* E-FDT-02: bt_qca6490 supply properties and rpmh-regulator-smpb10 /
++ * regulator-pm8350-s10 (1.8 V fixed) under /soc/rsc@17a00000.  This file does
++ * not touch any regulator or RSC register. */
++#define K60_BT_VDD_IO_UV            1800000u
++/* Android source of these blobs is /vendor/firmware (preferred) or
++ * modem_a/modem_b image/qca6490/.  At runtime the iOS Data addon path below
++ * holds the verified copies; see EVIDENCE.md §4.4. */
++#define K60_BT_FIRMWARE_ROOT        "/private/var/ngpu/firmware/qca"
++
++/* E-GENI-04/E-GENI-05: QUP wrapper HW version decides 32x vs 16x sampling. */
++#define K60_QUP_HW_VER_REG          0x00000004u
++#define K60_QUP_VERSION_2_5         0x20050000u
++
++/* Default baud.  See EVIDENCE.md E-GCC-07: qbt_geni_set_rate(3200000,
++ * 100000000, 16) is asserted to fail with -ERANGE in the upstream unit test;
++ * 3,000,000 x 16 = 48 MHz and 4,000,000 x 16 = 64 MHz are exact table entries.
++ * Keep 3,000,000 as the first bring-up value; 3.2 Mbaud is not reachable on
++ * SM8450's SE clock table under qbt_geni's 1% rule without a different parent
++ * clock (TODO: verify on hardware whether the controller accepts 3 Mbaud). */
++#define K60_BT_INIT_BAUD            115200u
++#define K60_BT_RUN_BAUD             3000000u
++
++#define K60_DMA_BYTES               32768u
++#define K60_TX_OFFSET               0u
++#define K60_RX_OFFSET               4096u
++
++/* TLMM register layout, from pinctrl-sm8450.c PINGROUP macro (E-PINCTRL-01):
++ * ctl_reg = id*0x1000, io_reg = +0x4, intr_cfg_reg = +0x8,
++ * intr_status_reg = +0xc; mux_bit=2, pull_bit=0, drv_bit=6, oe_bit=9,
++ * in_bit=0, out_bit=1, intr_enable_bit=0, intr_polarity_bit=1,
++ * intr_detection_bit=2 (width 2), intr_raw_status_bit=4. */
++#define K60_TLMM_GPIO_CFG(g)        ((g) * 0x1000u + 0x0u)
++#define K60_TLMM_GPIO_IO(g)         ((g) * 0x1000u + 0x4u)
++#define K60_TLMM_GPIO_INTR_CFG(g)   ((g) * 0x1000u + 0x8u)
++#define K60_TLMM_GPIO_INTR_STATUS(g)((g) * 0x1000u + 0xCu)
++#define K60_TLMM_MUX_BIT            2u
++#define K60_TLMM_PULL_DOWN          1u
++#define K60_TLMM_PULL_UP            3u
++#define K60_TLMM_PULL_NONE          0u
++#define K60_TLMM_DRIVE_2MA          0u   /* (2 mA / 2) - 1 */
++#define K60_TLMM_OE_BIT             9u
++#define K60_TLMM_OUT_BIT            1u
++#define K60_TLMM_IN_BIT             0u
++#define K60_TLMM_INTR_ENABLE_BIT    0u
++#define K60_TLMM_INTR_POLARITY_BIT  1u
++#define K60_TLMM_INTR_DETECTION_BIT 2u
++#define K60_TLMM_INTR_RAW_STATUS_BIT 4u
++#define K60_TLMM_INTR_TARGET_BIT    5u
++#define K60_TLMM_INTR_TARGET_KPSS   3u
++#define K60_PIN_FUNC_GPIO           0u
++/* E-PINCTRL-02: PINGROUP(76, qup20, ...) puts qup20 at funcs[1]; mux value
++ * written to the register is the index in funcs[], i.e. 1 << mux_bit = 0x4. */
++#define K60_PIN_FUNC_QUP20          (1u << K60_TLMM_MUX_BIT)
++#define K60_PIN_CFG(pull, drive)    (((drive) << 6) | (pull))
++
++#define K60_XO_PULSE_US             150u    /* vendor: 100..200 us before BT_EN high */
++#define K60_BT_EN_LOW_MS            50u
++#define K60_BT_EN_HIGH_MS           50u
++#define K60_BT_OFF_MS               100u
++#define K60_WLAN_OFF_DISCHARGE_MS   100u
++
++/* ------------------------------------------------------------------------- */
++/* Board state                                                                 */
++/* ------------------------------------------------------------------------- */
++
++struct k60_region {
++    volatile uint32_t *va;
++    uint64_t phys;
++    size_t bytes;
++};
++
++struct k60_bt_state {
++    struct k60_region gcc, uart, qup, tlmm, gic, smmu;
++    struct qbt_geni geni;
++    struct qbt *core;
++    void *dma_base;
++    uint64_t dma_pa;
++    size_t dma_bytes;
++    uint32_t pending;
++    uint32_t rx_wake;
++    uint32_t power_request;
++    uint32_t started;
++    uint64_t rx_sequence;
++    unsigned baud;
++    bool resources;
++    bool powered;
++    bool gated;
++    bool clocked;
++    bool serial_irq;
++    bool wake_irq;
++    bool service;
++    bool initializing;
++    bool warm_boot;
++    unsigned stage;
++    uint8_t address[6];
++};
++
++static struct k60_bt_state k60;
++
++/* Forward declarations for functions used before their definitions. */
++static void k60_wait_until(void *ctx, uint64_t deadline);
++static void k60_uart_irq(void *ctx);
++static void k60_tlmm_irq(void *ctx);
++static int k60_clock(void *ctx, bool enabled);
++static void k60_log(void *ctx, int level, const char *line);
++
++/* ------------------------------------------------------------------------- */
++/* Host/kernel shims                                                          */
++/* ------------------------------------------------------------------------- */
++#ifdef KERNEL
++extern void *ml_io_map(vm_offset_t phys, vm_size_t size);
++extern IOReturn armcpu_spi_attach(uint32_t intid, bool edge,
++                                  void (*handler)(void *), void *context,
++                                  uint32_t *readback, uint64_t *router);
++/* Optional: present in some ArmCpu variants, absent in the current K60 tree.
++ * The skeleton also writes GICD_ISENABLER/ICENABLER directly, so this is a
++ * belt-and-braces call only. */
++extern IOReturn armcpu_spi_mask(uint32_t intid, bool masked) __attribute__((weak));
++extern int k60_bt_local_address(uint8_t address[6]) __attribute__((weak));
++extern volatile int native_gpu_addon_stage __attribute__((weak));
++
++/* Fail-closed default; a board-specific file may provide a strong definition
++ * that reads /chosen/unique-chip-id (see REPORT.md integration notes). */
++__attribute__((weak)) int
++k60_bt_local_address(uint8_t address[6])
++{
++    (void)address;
++    return -ENOENT;
++}
++#else
++static uint32_t k60_host_pages[0x4000 / 4];
++static void *ml_io_map(uint64_t phys, size_t size) {
++    (void)phys; (void)size; return k60_host_pages;
++}
++typedef int IOReturn;
++#define kIOReturnSuccess 0
++static IOReturn armcpu_spi_attach(uint32_t i, bool e, void (*h)(void *), void *c,
++                                  uint32_t *r, uint64_t *a) {
++    (void)i; (void)e; (void)h; (void)c; (void)r; (void)a; return 0;
++}
++static IOReturn armcpu_spi_mask(uint32_t i, bool m) { (void)i; (void)m; return 0; }
++static volatile int native_gpu_addon_stage = 1;
++static int PE_parse_boot_argn(const char *name, void *value, size_t size) {
++    (void)name; (void)value; (void)size; return 0;
++}
++typedef void *thread_t;
++typedef int wait_result_t;
++static int kernel_thread_start(void (*fn)(void *, int), void *arg, thread_t *out) {
++    (void)fn; (void)arg; if (out) *out = NULL; return 0;
++}
++static void thread_deallocate(thread_t t) { (void)t; }
++#define THREAD_UNINT 0
++#define THREAD_AWAKENED 0
++#define THREAD_CONTINUE_NULL NULL
++static void assert_wait(void *e, int i) { (void)e; (void)i; }
++static void assert_wait_deadline(void *e, int i, uint64_t d) { (void)e; (void)i; (void)d; }
++static void clear_wait(void *t, int r) { (void)t; (void)r; }
++static void thread_block(void *c) { (void)c; }
++static void thread_wakeup(void *e) { (void)e; }
++static void thread_yield_to_preemption(void) {}
++#endif
++
++static uint32_t k60_read32(const struct k60_region *r, uint32_t off) {
++    return r->va[off / 4u];
++}
++static void k60_write32(const struct k60_region *r, uint32_t off, uint32_t value) {
++    r->va[off / 4u] = value;
++#ifdef __aarch64__
++    __asm__ volatile("dsb sy" ::: "memory");
++#endif
++}
++static void k60_barrier(void) {
++#ifdef __aarch64__
++    __asm__ volatile("dsb sy" ::: "memory");
++#endif
++}
++
++static int k60_map(struct k60_region *r, uint64_t phys, size_t bytes) {
++    if (r->va) return 0;
++    r->phys = phys;
++    r->bytes = bytes;
++#ifdef KERNEL
++    r->va = (volatile uint32_t *)ml_io_map((vm_offset_t)phys, (vm_size_t)bytes);
++#else
++    r->va = (volatile uint32_t *)ml_io_map(phys, bytes);
++#endif
++    return r->va ? 0 : -ENOMEM;
++}
++
++static void __attribute__((unused)) k60_unmap(struct k60_region *r) {
++    /* ml_io_unmap is deliberately not called in the skeleton: the board
++       lifetime is the kernel lifetime.  Add it in the real integration. */
++    (void)r;
++}
++
++/* ------------------------------------------------------------------------- */
++/* TLMM / GPIO helpers                                                        */
++/* ------------------------------------------------------------------------- */
++
++static void k60_pin_cfg(uint32_t gpio, uint32_t cfg) {
++    k60_write32(&k60.tlmm, K60_TLMM_GPIO_CFG(gpio), cfg);
++}
++static void k60_pin_io(uint32_t gpio, uint32_t value) {
++    k60_write32(&k60.tlmm, K60_TLMM_GPIO_IO(gpio), value);
++}
++static int k60_pin_input(uint32_t gpio) {
++    return (k60_read32(&k60.tlmm, K60_TLMM_GPIO_IO(gpio)) & (1u << K60_TLMM_IN_BIT)) != 0;
++}
++static void k60_gpio_output(uint32_t gpio, bool high, uint32_t pull, uint32_t drive) {
++    uint32_t cfg = K60_PIN_CFG(pull, drive) | (1u << K60_TLMM_OE_BIT);
++    k60_pin_io(gpio, high ? (1u << K60_TLMM_OUT_BIT) : 0u);
++    k60_pin_cfg(gpio, cfg);
++}
++static void k60_gpio_input(uint32_t gpio, uint32_t pull, uint32_t drive) {
++    uint32_t cfg = k60_read32(&k60.tlmm, K60_TLMM_GPIO_CFG(gpio));
++    cfg &= ~(1u << K60_TLMM_OE_BIT);          /* input: clear output enable */
++    cfg &= ~(0xfu << K60_TLMM_MUX_BIT);       /* function GPIO = 0 */
++    cfg &= ~((3u << 0) | (7u << 6));           /* clear pull and drive */
++    cfg |= K60_PIN_CFG(pull, drive);
++    k60_pin_cfg(gpio, cfg);
++}
++
++/* Configure GPIO79 as a falling-edge TLMM interrupt (vendor pattern:
++ * pinctrl-msm.c:1109-1124; sheng BluetoothProbe.cpp:110-116 uses the same
++ * raw register sequence). */
++static void k60_arm_rx_wake(void) {
++    volatile uint32_t *r = k60.tlmm.va + K60_TLMM_GPIO_CFG(K60_BT_RX_WAKE_GPIO) / 4u;
++    /* Function GPIO, no pull, 2 mA, input. */
++    k60_gpio_input(K60_BT_RX_WAKE_GPIO, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
++    r[2] = 0;                          /* INTR_CFG = 0 */
++    r[3] = 0;                          /* INTR_STATUS ack */
++    r[2] = (K60_TLMM_INTR_TARGET_KPSS << K60_TLMM_INTR_TARGET_BIT) |
++           (2u << K60_TLMM_INTR_DETECTION_BIT) |       /* EDGE_FALLING */
++           (1u << K60_TLMM_INTR_POLARITY_BIT) |
++           (1u << K60_TLMM_INTR_RAW_STATUS_BIT) | (1u << K60_TLMM_INTR_ENABLE_BIT);
++    k60_barrier();
++}
++static void k60_disarm_rx_wake(void) {
++    volatile uint32_t *r = k60.tlmm.va + K60_TLMM_GPIO_CFG(K60_BT_RX_WAKE_GPIO) / 4u;
++    r[2] &= ~(1u << K60_TLMM_INTR_ENABLE_BIT);
++    r[3] = 0;
++    k60_gpio_input(K60_BT_RX_WAKE_GPIO, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
++}
++static bool k60_rx_wake_pending(void) {
++    return (k60_read32(&k60.tlmm, K60_TLMM_GPIO_INTR_STATUS(K60_BT_RX_WAKE_GPIO)) & 1u) != 0;
++}
++
++/* UART active pin mux.  FDT pinctrl-1 = qupv3_se20_cts/rts/tx/rx_active:
++ * GPIO76..79, function qup20, 2 mA; bias per FDT (E-FDT-04). */
++static void k60_uart_pins_active(void) {
++    k60_pin_cfg(K60_BT_CTS_GPIO, K60_PIN_FUNC_QUP20 | K60_PIN_CFG(K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA));
++    k60_pin_cfg(K60_BT_RTS_GPIO, K60_PIN_FUNC_QUP20 | K60_PIN_CFG(K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA));
++    k60_pin_cfg(K60_BT_TX_GPIO,  K60_PIN_FUNC_QUP20 | K60_PIN_CFG(K60_TLMM_PULL_UP,   K60_TLMM_DRIVE_2MA));
++    k60_pin_cfg(K60_BT_RX_WAKE_GPIO, K60_PIN_FUNC_QUP20 | K60_PIN_CFG(K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA));
++    k60_barrier();
++}
++static void k60_uart_pins_idle(void) {
++    /* FDT pinctrl-0 = default_cts / default_rtsrx / default_tx: all GPIO
++     * function, bias per board default; park them as inputs so nothing drives
++     * against the controller while BT_EN is low. */
++    k60_gpio_input(K60_BT_CTS_GPIO, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
++    k60_gpio_input(K60_BT_RTS_GPIO, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
++    k60_gpio_input(K60_BT_TX_GPIO, K60_TLMM_PULL_UP, K60_TLMM_DRIVE_2MA);
++    k60_gpio_input(K60_BT_RX_WAKE_GPIO, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
++}
++
++/* GIC SPI enable/disable helper.  armcpu_spi_attach owns routing; this only
++ * toggles the distributor enable bit, which is safe for a level IRQ. */
++static void k60_gic_mask(uint32_t intid, bool masked) {
++    volatile uint32_t *gicd = k60.gic.va;
++    uint32_t word = (intid / 32u) * 4u;
++    uint32_t bit = 1u << (intid % 32u);
++    if (!gicd) return;
++    gicd[(masked ? 0x180u : 0x100u) / 4u + word / 4u] = bit;
++    k60_barrier();
++}
++
++/* ------------------------------------------------------------------------- */
++/* GCC clock control (QUPV3_2 vote register + branch halt polling)            */
++/* ------------------------------------------------------------------------- */
++
++/* Program gcc_qupv3_wrap2_s5_clk_src (QUPV3_2 SE20) to an exact table rate.
++ * Register layout: CMD_RCGR + CFG/M/N/D = +0x4/+0x8/+0xc/+0x10
++ * (clk-rcg2.c:34-49); MND formula and dual-edge mode: clk-rcg2.c:285-350. */
++static int k60_gcc_set_se_rate(uint32_t hz) {
++    const struct k60_se_rate *r = NULL;
++    for (size_t i = 0; i < sizeof(k60_se_rates) / sizeof(k60_se_rates[0]); i++)
++        if (k60_se_rates[i].hz == hz) { r = &k60_se_rates[i]; break; }
++    if (!r) return -EINVAL;
++    uint32_t base = K60_GCC_WRAP2_SE20_CMD_RCGR;
++    uint32_t cfg = k60_read32(&k60.gcc, base + 0x4);
++    const uint32_t mask = 0x1fu | (7u << 8) | (3u << 12) | (1u << 20);
++    uint32_t value = (uint32_t)r->pre_div | ((uint32_t)r->src_cfg << 8) | (1u << 20);
++    if (r->m && r->n && r->m != r->n) value |= (2u << 12); /* CFG_MODE_DUAL_EDGE */
++    /* Linux writes M/N/D before CFG (clk-rcg2.c:285-350). */
++    if (r->m && r->n) {
++        const uint32_t width_mask = 0xffffu; /* mnd_width = 16 */
++        uint32_t n_minus_m = (uint32_t)(r->n - r->m);
++        uint32_t d_val = r->n;
++        uint32_t two_d = n_minus_m * 2u;
++        if (d_val < r->m) d_val = r->m;
++        if (d_val > two_d) d_val = two_d;
++        k60_write32(&k60.gcc, base + 0x8, r->m);
++        k60_write32(&k60.gcc, base + 0xc, (~n_minus_m) & width_mask);
++        k60_write32(&k60.gcc, base + 0x10, (~d_val) & width_mask);
++    }
++    k60_write32(&k60.gcc, base + 0x4, (cfg & ~mask) | value);
++    IODelay(10);
++    return 0;
++}
++
++static int k60_gcc_wait_halt(uint32_t halt_reg) {
++    for (unsigned i = 0; i < 1000; i++) {
++        /* CBCR_CLK_OFF = BIT(31); 0 means running (clk-branch.h:42). */
++        if (!(k60_read32(&k60.gcc, halt_reg) & (1u << 31))) return 0;
++        IODelay(1);
++    }
++    return -ETIMEDOUT;
++}
++
++static int k60_serial_clock(bool enabled) {
++    if (enabled) {
++        /* GPLL0 must be locked before the SE RCG can use it (gcc-sm8450.c:39-54). */
++        k60_write32(&k60.gcc, K60_GCC_GPLL0_CMD, k60_read32(&k60.gcc, K60_GCC_GPLL0_CMD) | 1u);
++        for (unsigned i = 0; i < 1000 && !(k60_read32(&k60.gcc, 0x0u) & (1u << 31)); i++)
++            IODelay(1);
++        if (!(k60_read32(&k60.gcc, 0x0u) & (1u << 31))) return -ETIMEDOUT;
++        k60_write32(&k60.gcc, K60_GCC_QUPV3_WRAP2_VOTE,
++                    k60_read32(&k60.gcc, K60_GCC_QUPV3_WRAP2_VOTE) | K60_GCC_VOTE_ALL);
++        int e;
++        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_CORE_HALT))) return e;
++        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_CORE_2X_HALT))) return e;
++        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_M_AHB_HALT))) return e;
++        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_S_AHB_HALT))) return e;
++        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_SE20_HALT))) return e;
++        k60.clocked = true;
++        return 0;
++    }
++    /* Drop the SE vote first, then the wrapper infrastructure.  This skeleton
++     * does not poll for halt on disable; the vendor driver only delays 10 us
++     * for BRANCH_HALT_VOTED (clk-branch.c:69-73). */
++    k60_write32(&k60.gcc, K60_GCC_QUPV3_WRAP2_VOTE,
++                k60_read32(&k60.gcc, K60_GCC_QUPV3_WRAP2_VOTE) & ~K60_GCC_VOTE_ALL);
++    IODelay(10);
++    k60.clocked = false;
++    return 0;
++}
++
++/* ------------------------------------------------------------------------- */
++/* GENI engine helpers                                                        */
++/* ------------------------------------------------------------------------- */
++
++static uint32_t k60_uart_read(void *ctx, uint32_t reg) {
++    (void)ctx;
++    return k60_read32(&k60.uart, reg);
++}
++static void k60_uart_write(void *ctx, uint32_t reg, uint32_t value) {
++    (void)ctx;
++    k60_write32(&k60.uart, reg, value);
++}
++static void k60_dma_barrier(void *ctx) { (void)ctx; k60_barrier(); }
++static void k60_dma_sync(void *ctx, const struct qbt_dma_buffer *buffer,
++                         size_t bytes, bool device, bool tx) {
++    (void)ctx;
++    /* Cache maintenance matches the sheng board backend (BluetoothProbe.cpp:85-99):
++     * TX clean to PoC; RX invalidate after device writes. */
++    if (bytes && (device || !tx)) {
++#ifdef __aarch64__
++        uint64_t ctr;
++        __asm__ volatile("mrs %0, ctr_el0" : "=r"(ctr));
++        size_t line = 4u << ((ctr >> 16) & 15u);
++        uintptr_t at = (uintptr_t)buffer->bytes & ~(line - 1u);
++        uintptr_t end = (uintptr_t)buffer->bytes + bytes;
++        for (; at < end; at += line) {
++            if (tx) __asm__ volatile("dc cvac, %0" ::"r"(at) : "memory");
++            else if (device) __asm__ volatile("dc civac, %0" ::"r"(at) : "memory");
++            else __asm__ volatile("dc ivac, %0" ::"r"(at) : "memory");
++        }
++#endif
++    }
++    k60_barrier();
++}
++static void k60_irq_mask(void *ctx, bool masked) {
++    (void)ctx;
++    if (k60.serial_irq) {
++        k60_gic_mask(K60_BT_UART_GIC_SPI, masked);
++        if (armcpu_spi_mask) (void)armcpu_spi_mask(K60_BT_UART_GIC_SPI, masked);
++    }
++}
++static void k60_wake(void *ctx) {
++    (void)ctx;
++    __atomic_store_n(&k60.pending, 1u, __ATOMIC_RELEASE);
++#ifdef KERNEL
++    thread_wakeup((event_t)&k60.pending);
++#endif
++}
++static uint64_t k60_now_ns(void *ctx) {
++    (void)ctx;
++#ifdef KERNEL
++    uint64_t ns = 0;
++    absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
++    return ns;
++#else
++    return 0;
++#endif
++}
++static size_t k60_geni_receive(void *ctx, const uint8_t *bytes, size_t n) {
++    (void)ctx;
++    if (!k60.core) return n;
++    if (k60.initializing) {
++        /* Optional boot-time trace hook; keep hooks out of the data path. */
++    }
++    k60.rx_sequence += n;
++    return qbt_receive(k60.core, bytes, n);
++}
++static size_t k60_transport_receive(void *ctx, const uint8_t *bytes, size_t n) {
++    (void)ctx;
++    return qbt_transport_receive(bytes, (uint32_t)n);
++}
++static size_t k60_uart_write_cb(void *ctx, const uint8_t *bytes, size_t n) {
++    (void)ctx;
++    return qbt_geni_write(&k60.geni, bytes, n);
++}
++static bool k60_uart_drained(void *ctx) {
++    (void)ctx;
++    return k60.gated || qbt_geni_drained(&k60.geni);
++}
++static int k60_uart_flow(void *ctx, bool enabled) {
++    (void)ctx;
++    qbt_geni_set_flow(&k60.geni, enabled);
++    return 0;
++}
++
++/* Return the SE clock frequency whose divider gives <=1% error for
++ * baud*sampling.  Mirrors qbt_geni_set_rate's arithmetic (qbt_geni.c:65-73). */
++static int k60_geni_source_hz(uint32_t baud, unsigned sampling, uint32_t *hz) {
++    uint64_t target = (uint64_t)baud * sampling;
++    uint64_t best_err = UINT64_MAX;
++    uint32_t best = 0;
++    if (!target) return -EINVAL;
++    for (size_t i = 0; i < sizeof(k60_qup_se_freq) / sizeof(k60_qup_se_freq[0]); i++) {
++        uint32_t freq = k60_qup_se_freq[i];
++        uint64_t div = (freq + target / 2u) / target;
++        if (!div) continue;
++        uint64_t actual = freq / div;
++        uint64_t err = actual > target ? actual - target : target - actual;
++        if (err < best_err) { best_err = err; best = freq; }
++    }
++    if (!best || best_err * 100u > target) return -ERANGE;
++    *hz = best;
++    return 0;
++}
++static unsigned k60_qup_sampling(void) {
++    /* QUP_HW_VER_REG is at wrapper base + 0x4 (qcom-geni-se.c:114). */
++    uint32_t ver = k60_read32(&k60.qup, K60_QUP_HW_VER_REG);
++    return ver >= K60_QUP_VERSION_2_5 ? 16u : 32u;
++}
++
++static int k60_stop_engine(void) {
++    k60_irq_mask(NULL, true);
++    k60_uart_write(NULL, 0xe1c, 0); /* G_IRQ_EN */
++    if ((k60_uart_read(NULL, 0x40) & 0x1001u) || (k60_uart_read(NULL, 0xe40) & 3u)) {
++        k60_uart_write(NULL, 0x604, 2); /* G_M_CTRL abort */
++        k60_uart_write(NULL, 0x634, 2); /* G_S_CTRL abort */
++        unsigned i = 0;
++        for (; i < 1000 && (k60_uart_read(NULL, 0x40) & 0x1001u); i++) IODelay(1);
++        if (i == 1000) return -ETIMEDOUT;
++        k60_uart_write(NULL, 0xc58, 1); /* G_TX_RESET */
++        k60_uart_write(NULL, 0xd58, 1); /* G_RX_RESET */
++        for (i = 0; i < 1000 && (k60_uart_read(NULL, 0xe40) & 3u); i++) IODelay(1);
++        if (i == 1000) return -ETIMEDOUT;
++    }
++    k60_uart_write(NULL, 0x618, UINT32_MAX);
++    k60_uart_write(NULL, 0x648, UINT32_MAX);
++    k60_uart_write(NULL, 0xc44, UINT32_MAX);
++    k60_uart_write(NULL, 0xd44, UINT32_MAX);
++    k60.geni.state = QBT_GENI_OFF;
++    k60.geni.rx_busy = k60.geni.tx_busy = false;
++    return 0;
++}
++
++static int k60_prepare_engine(void) {
++    uint8_t *base = (uint8_t *)k60.dma_base;
++    struct qbt_dma_buffer tx = { base + K60_TX_OFFSET, k60.dma_pa + K60_TX_OFFSET, QBT_GENI_TX_SIZE };
++    struct qbt_dma_buffer rx[QBT_GENI_RX_COUNT];
++    for (unsigned i = 0; i < QBT_GENI_RX_COUNT; i++)
++        rx[i] = (struct qbt_dma_buffer){ base + K60_RX_OFFSET + i * QBT_GENI_RX_SIZE,
++                                         k60.dma_pa + K60_RX_OFFSET + i * QBT_GENI_RX_SIZE,
++                                         QBT_GENI_RX_SIZE };
++    struct qbt_geni_ops ops = {
++        .context = NULL, .read = k60_uart_read, .write = k60_uart_write,
++        .barrier = k60_dma_barrier, .sync = k60_dma_sync, .now_ns = k60_now_ns,
++        .irq_mask = k60_irq_mask, .wake_worker = k60_wake, .receive = k60_geni_receive,
++    };
++    int e = qbt_geni_prepare(&k60.geni, &ops, &tx, rx);
++    if (e) return e;
++    uint32_t hz = 0;
++    e = k60_geni_source_hz(K60_BT_INIT_BAUD, k60_qup_sampling(), &hz);
++    if (!e) e = k60_gcc_set_se_rate(hz);
++    if (e) return e;
++    e = qbt_geni_set_rate(&k60.geni, K60_BT_INIT_BAUD, hz, k60_qup_sampling());
++    if (e) return e;
++    k60.baud = K60_BT_INIT_BAUD;
++    return 0;
++}
++
++static int k60_quiesce(void) {
++    uint64_t end = k60_now_ns(NULL) + 40000000ULL;
++    for (;;) {
++        int e = qbt_geni_quiesce(&k60.geni);
++        if (!e) return 0;
++        if (e != -EINPROGRESS && e != -EBUSY) return e;
++        if (!k60.gated) {
++            (void)qbt_geni_service(&k60.geni);
++            if (k60.geni.state == QBT_GENI_FAILED) qbt_fail(k60.core, k60.geni.error);
++        }
++        if (k60.geni.state == QBT_GENI_STOPPED) return 0;
++        if (k60_now_ns(NULL) >= end) return -ETIMEDOUT;
++        uint64_t next = qbt_geni_deadline(&k60.geni);
++        if (next > end) next = end;
++        k60_wait_until(NULL, next);
++    }
++}
++
++/* ------------------------------------------------------------------------- */
++/* The 14 qbt_platform callbacks                                              */
++/* ------------------------------------------------------------------------- */
++
++static void *k60_allocate(void *ctx, size_t n) { (void)ctx; return IOMallocData(n); }
++static void k60_release(void *ctx, void *p, size_t n) { (void)ctx; IOFreeData(p, n); }
++
++static void k60_pump(void *ctx) {
++    (void)ctx;
++    if (__atomic_exchange_n(&k60.rx_wake, 0u, __ATOMIC_ACQ_REL) && k60.powered) {
++        qbt_rx_wake(k60.core);
++        /* GPIO consumed the first wake byte 0xFD while the UART was gated. */
++        const uint8_t wake = 0xfd;
++        (void)qbt_receive(k60.core, &wake, 1);
++    }
++    if (!k60.gated && k60.geni.state != QBT_GENI_OFF) {
++        if (qbt_geni_service(&k60.geni)) k60_wake(NULL);
++        if (k60.geni.state == QBT_GENI_FAILED) qbt_fail(k60.core, k60.geni.error);
++    }
++    if (k60.gated && k60_rx_wake_pending()) {
++        /* Fallback for a missed TLMM interrupt. */
++        volatile uint32_t *r = k60.tlmm.va + K60_TLMM_GPIO_CFG(K60_BT_RX_WAKE_GPIO) / 4u;
++        r[3] = 0;
++        __atomic_store_n(&k60.rx_wake, 1u, __ATOMIC_RELEASE);
++    }
++}
++
++static void k60_wait_until(void *ctx, uint64_t deadline) {
++    (void)ctx;
++#ifdef KERNEL
++    if (__atomic_exchange_n(&k60.pending, 0u, __ATOMIC_ACQ_REL)) return;
++    if (deadline == UINT64_MAX) assert_wait((event_t)&k60.pending, THREAD_UNINT);
++    else {
++        uint64_t absolute;
++        nanoseconds_to_absolutetime(deadline, &absolute);
++        assert_wait_deadline((event_t)&k60.pending, THREAD_UNINT, absolute);
++    }
++    if (__atomic_exchange_n(&k60.pending, 0u, __ATOMIC_ACQ_REL))
++        clear_wait(current_thread(), THREAD_AWAKENED);
++    else thread_block(THREAD_CONTINUE_NULL);
++#else
++    (void)deadline;
++#endif
++}
++
++/* clock(false) must only succeed with a real RX wake source armed. */
++static int k60_clock(void *ctx, bool enabled) {
++    (void)ctx;
++    if (enabled) {
++        if (!k60.gated) return 0;
++        if (k60_serial_clock(true)) return -EIO;
++        k60_disarm_rx_wake();
++        k60_uart_pins_active(); /* GPIO79 must return to qup20 before resume */
++        IODelay(10);
++        k60.gated = false;
++        return qbt_geni_resume(&k60.geni);
++    }
++    if (k60.gated) return 0;
++    uint64_t sequence = k60.rx_sequence;
++    int e = k60_quiesce();
++    if (e) return e;
++    if (sequence != k60.rx_sequence || qbt_transport_tx_pending()) {
++        (void)qbt_geni_resume(&k60.geni);
++        return -EBUSY;
++    }
++    k60_arm_rx_wake();
++    if (k60_rx_wake_pending()) {
++        k60_disarm_rx_wake();
++        (void)qbt_geni_resume(&k60.geni);
++        return -EBUSY;
++    }
++    /* Leave RTS ready so the controller's 0xFD wake indication reaches GPIO79. */
++    k60_uart_write(NULL, 0x2ac, 0x80000001u);
++    k60.gated = true;
++    if (k60_serial_clock(false)) {
++        k60.gated = false;
++        k60_disarm_rx_wake();
++        (void)qbt_geni_resume(&k60.geni);
++        return -EIO;
++    }
++    return 0;
++}
++
++static int k60_uart_speed(void *ctx, uint32_t baud) {
++    (void)ctx;
++    int e = k60_quiesce();
++    if (e) return e;
++    uint32_t hz = 0;
++    e = k60_geni_source_hz(baud, k60_qup_sampling(), &hz);
++    if (!e) e = k60_gcc_set_se_rate(hz);
++    if (!e) e = qbt_geni_set_rate(&k60.geni, baud, hz, k60_qup_sampling());
++    if (!e) e = qbt_geni_resume(&k60.geni);
++    if (!e) k60.baud = baud;
++    return e;
++}
++
++/* Small local string helpers: the XNU kernel does not guarantee the full
++ * libc string API in every BSD compile unit. */
++static const char *k60_strchr(const char *s, char c) {
++    for (; s && *s; s++) if (*s == c) return s;
++    return NULL;
++}
++static const char *k60_strstr(const char *s, const char *needle) {
++    if (!s || !needle || !*needle) return s;
++    for (; *s; s++) {
++        const char *a = s, *b = needle;
++        while (*a && *b && *a == *b) { a++; b++; }
++        if (!*b) return s;
++    }
++    return NULL;
++}
++static const char *k60_strrchr(const char *s, char c) {
++    const char *last = NULL;
++    for (; s && *s; s++) if (*s == c) last = s;
++    return last;
++}
++
++/* Firmware names are validated strictly, like the sheng reader
++ * (BluetoothFirmware.c:13-24).  K60 additionally aliases the WCN6855
++ * "wcnhp*" names to the vendor "hp*" and "ht*" spellings, because the
++ * K60 Android tree's older btqca.c uses qca/htbtfw%02x.tlv. */
++static bool k60_firmware_name_ok(const char *name) {
++    static const char *prefix[] = {
++        "qca/wcnhpbtfw", "qca/hpbtfw", "qca/htbtfw",
++        "qca/wcnhpnv", "qca/hpnv", "qca/htnv",
++    };
++    if (!name) return false;
++    for (size_t p = 0; p < sizeof(prefix) / sizeof(prefix[0]); p++) {
++        size_t plen = strlen(prefix[p]);
++        if (strncmp(name, prefix[p], plen)) continue;
++        const char *s = name + plen;
++        if (k60_strchr(prefix[p], 'b') && k60_strstr(prefix[p], "btfw")) {
++            /* <2 hex>.tlv */
++            if (!s[0] || !s[1] || s[2] != '.' || s[3] != 't' || s[4] != 'l' ||
++                s[5] != 'v' || s[6] != '\0') return false;
++            for (int i = 0; i < 2; i++)
++                if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f')))
++                    return false;
++            return true;
++        }
++        /* <2 hex>[g].bin or <2 hex>[g].b<2-4 hex> */
++        if (!s[0] || !s[1]) return false;
++        const char *tail = s + 2;
++        if (*tail == 'g') tail++;
++        if (!strncmp(tail, ".bin", 4) && tail[4] == '\0') return true;
++        if (tail[0] == '.' && tail[1] == 'b') {
++            size_t n = strlen(tail + 2);
++            if (n < 2 || n > 4) return false;
++            for (size_t i = 0; i < n; i++)
++                if (!((tail[2 + i] >= '0' && tail[2 + i] <= '9') ||
++                      (tail[2 + i] >= 'a' && tail[2 + i] <= 'f'))) return false;
++            return true;
++        }
++        return false;
++    }
++    return false;
++}
++
++#ifdef KERNEL
++/* VFS reader for the Data-addon firmware.  Modeled on the sheng board reader
++ * (BluetoothFirmware.c:25-51): vnode_open + vnode_getattr + vn_rdwr, with a
++ * 4 MiB bound and a short-read check.  The Data addon must be mounted; the
++ * worker waits for native_gpu_addon_stage >= 1 before entering power-on. */
++static int k60_bt_firmware_read(const char *name, uint8_t **data, size_t *size) {
++    if (!data || !size || !name) return EINVAL;
++    *data = NULL; *size = 0;
++    /* Runtime-first path is the verified Data-addon copy.  The Android paths
++     * are fallbacks for a development build that mounts the vendor/modem
++     * partition read-only; they are never required on a normal boot. */
++    static const char *const roots[] = {
++        K60_BT_FIRMWARE_ROOT,
++        "/vendor/firmware/qca",
++        "/vendor/firmware",
++        "/firmware/image",
++        "/modem/image/qca6490",
++    };
++    const char *base = strncmp(name, "qca/", 4) ? name : name + 4;
++    vfs_context_t ctx = vfs_context_kernel();
++    int error = ENOENT;
++    for (size_t r = 0; r < sizeof(roots) / sizeof(roots[0]); r++) {
++        char path[160];
++        vnode_t vp = NULL;
++        uint8_t *buffer = NULL;
++        size_t length = 0;
++        snprintf(path, sizeof(path), "%s/%s", roots[r], base);
++        error = vnode_open(path, FREAD, 0, 0, &vp, ctx);
++        if (!error) {
++            struct vnode_attr va;
++            VATTR_INIT(&va);
++            VATTR_WANTED(&va, va_data_size);
++            error = vnode_getattr(vp, &va, ctx);
++            if (!error && (vnode_vtype(vp) != VREG || !va.va_data_size ||
++                           va.va_data_size > 4u * 1024u * 1024u)) error = EINVAL;
++            if (!error) {
++                length = (size_t)va.va_data_size;
++                buffer = IOMallocData(length);
++                if (!buffer) error = ENOMEM;
++                else {
++                    int resid = 0;
++                    error = vn_rdwr(UIO_READ, vp, (caddr_t)buffer, (int)length, 0,
++                                    UIO_SYSSPACE, IO_NOAUTH, vfs_context_ucred(ctx),
++                                    &resid, vfs_context_proc(ctx));
++                    if (!error && resid) error = EIO;
++                }
++            }
++        }
++        if (vp) vnode_close(vp, FREAD, ctx);
++        if (!error) { *data = buffer; *size = length; return 0; }
++        if (buffer) IOFreeData(buffer, length);
++    }
++    return error;
++}
++#else
++static int k60_firmware_read_host(const char *name, const uint8_t **data, size_t *size) {
++    (void)name; (void)data; (void)size; return -ENOENT;
++}
++#endif
++
++/* Try the exact requested name first, then the two historical spellings.
++ * Example: qca/wcnhpbtfw21.tlv -> qca/hpbtfw21.tlv -> qca/htbtfw21.tlv. */
++static int k60_firmware_get(void *ctx, const char *name, const uint8_t **data, size_t *size) {
++    (void)ctx;
++    if (!data || !size) return -EINVAL;
++    *data = NULL; *size = 0;
++    if (!k60_firmware_name_ok(name)) return -ENOENT;
++    const char *slash = k60_strrchr(name, '/');
++    const char *base = slash ? slash + 1 : name;
++    const char *stems[3];
++    unsigned nstems = 0;
++    if (!strncmp(base, "wcnhpbtfw", 9)) { stems[nstems++] = "wcnhpbtfw"; stems[nstems++] = "hpbtfw"; stems[nstems++] = "htbtfw"; }
++    else if (!strncmp(base, "hpbtfw", 6)) { stems[nstems++] = "hpbtfw"; stems[nstems++] = "wcnhpbtfw"; stems[nstems++] = "htbtfw"; }
++    else if (!strncmp(base, "htbtfw", 6)) { stems[nstems++] = "htbtfw"; stems[nstems++] = "hpbtfw"; stems[nstems++] = "wcnhpbtfw"; }
++    else if (!strncmp(base, "wcnhpnv", 7)) { stems[nstems++] = "wcnhpnv"; stems[nstems++] = "hpnv"; stems[nstems++] = "htnv"; }
++    else if (!strncmp(base, "hpnv", 4)) { stems[nstems++] = "hpnv"; stems[nstems++] = "wcnhpnv"; stems[nstems++] = "htnv"; }
++    else if (!strncmp(base, "htnv", 4)) { stems[nstems++] = "htnv"; stems[nstems++] = "hpnv"; stems[nstems++] = "wcnhpnv"; }
++    else return -ENOENT;
++    const char *suffix = base + strlen(stems[0]); /* caller's stem may differ from stems[0] */
++    if (!strncmp(base, "hpbtfw", 6)) suffix = base + 6;
++    else if (!strncmp(base, "htbtfw", 6)) suffix = base + 6;
++    else if (!strncmp(base, "hpnv", 4)) suffix = base + 4;
++    else if (!strncmp(base, "htnv", 4)) suffix = base + 4;
++    else if (!strncmp(base, "wcnhpbtfw", 9)) suffix = base + 9;
++    else if (!strncmp(base, "wcnhpnv", 7)) suffix = base + 7;
++    int last = -ENOENT;
++    for (unsigned i = 0; i < nstems; i++) {
++        char candidate[96];
++        snprintf(candidate, sizeof(candidate), "qca/%s%s", stems[i], suffix);
++        if (!k60_firmware_name_ok(candidate)) continue;
++        uint8_t *bytes = NULL;
++        int e;
++#ifdef KERNEL
++        e = k60_bt_firmware_read(candidate, &bytes, size);
++#else
++        (void)bytes;
++        e = k60_firmware_read_host(candidate, data, size);
++#endif
++        if (!e) {
++#ifdef KERNEL
++            *data = bytes;
++#endif
++            if (strcmp(candidate, name)) k60_log(NULL, 6, candidate); /* trace alias */
++            return 0;
++        }
++        last = e;
++    }
++    return last;
++}
++static void k60_firmware_put(void *ctx, const uint8_t *data, size_t size) {
++    (void)ctx;
++    if (data) IOFreeData((void *)data, size);
++}
++static void k60_log(void *ctx, int level, const char *line) {
++    (void)ctx;
++#ifdef KERNEL
++    if (level <= 3) printf("[bluetooth] %s\n", line);
++#else
++    if (level <= 3) fprintf(stderr, "[bluetooth] %s\n", line);
++#endif
++}
++
++static const struct qbt_platform k60_platform = {
++    .context = NULL,
++    .allocate = k60_allocate,
++    .release = k60_release,
++    .now_ns = k60_now_ns,
++    .uart_write = k60_uart_write_cb,
++    .uart_drained = k60_uart_drained,
++    .uart_speed = k60_uart_speed,
++    .uart_flow = k60_uart_flow,
++    .clock = k60_clock,
++    .pump = k60_pump,
++    .wait_until = k60_wait_until,
++    .receive = k60_transport_receive,
++    .firmware_get = k60_firmware_get,
++    .firmware_put = k60_firmware_put,
++    .log = k60_log,
++};
++
++/* ------------------------------------------------------------------------- */
++/* Power sequencing (TLMM only; no RSC/regulator access)                      */
++/* ------------------------------------------------------------------------- */
++
++static void k60_xo_pulse(void) {
++    /* Vendor sequence btpower.c:423-456: drive XO high, wait 100-200 us,
++     * raise BT_EN, then hold XO 4-6 ms before releasing. */
++    k60_gpio_output(K60_BT_XO_GPIO, true, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
++    IODelay(K60_XO_PULSE_US);
++}
++static void k60_xo_release(void) {
++    IODelay(5000);
++    k60_gpio_output(K60_BT_XO_GPIO, false, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
++}
++
++static int k60_bt_power_on(void) {
++    if (k60.powered) return 0;
++    if (!k60.warm_boot) {
++        /* K60 hard rule: the PMIC rails are RPMh/RSC controlled and RSC must
++         * not be read.  Cold boot needs an external (UEFI/SPMI) voter. */
++        return -EOPNOTSUPP;
++    }
++    int e = k60_map(&k60.gcc, K60_GCC_BASE, K60_GCC_SIZE);
++    if (!e) e = k60_map(&k60.uart, K60_BT_UART_BASE, K60_BT_UART_SIZE);
++    if (!e) e = k60_map(&k60.qup, K60_BT_QUP_WRAPPER_BASE, K60_BT_QUP_WRAPPER_SIZE);
++    if (!e) e = k60_map(&k60.tlmm, K60_TLMM_BASE, K60_TLMM_SIZE);
++    if (!e) e = k60_map(&k60.gic, K60_GIC_DIST_BASE, K60_GIC_DIST_SIZE);
++    if (e) return e;
++    if (!k60.dma_base) {
++        k60.dma_bytes = K60_DMA_BYTES;
++        k60.dma_base = IOMallocData(k60.dma_bytes);
++        if (!k60.dma_base) return -ENOMEM;
++        /* TODO: replace with a physically contiguous allocation and map the
++         * QUPV3_2 SMMU stream (FDT iommus = <&apps_smmu 0x483 0>).
++         * The skeleton assumes a 1:1 PA here; if the SMMU is translating,
++         * this address is wrong and GENI DMA will fault. */
++        k60.dma_pa = (uint64_t)(uintptr_t)k60.dma_base;
++    }
++    /* Keep UART pins parked while the controller is held in reset. */
++    k60_uart_pins_idle();
++    /* Read WLAN_EN (GPIO80) without changing its mux/direction: the WLAN
++     * driver or the bootloader owns that pin. */
++    k60_gpio_output(K60_BT_EN_GPIO, false, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
++    IOSleep(K60_BT_EN_LOW_MS);
++    if (k60_pin_input(K60_WLAN_EN_GPIO)) {
++        k60_xo_pulse();
++        k60_gpio_output(K60_BT_EN_GPIO, true, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
++        k60_xo_release();
++    } else {
++        IOSleep(K60_WLAN_OFF_DISCHARGE_MS);
++        k60_xo_pulse();
++        k60_gpio_output(K60_BT_EN_GPIO, true, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
++        k60_xo_release();
++    }
++    IOSleep(K60_BT_EN_HIGH_MS);
++    k60.powered = true; /* mark early so any later failure runs power_off cleanup */
++    k60_gpio_input(K60_BT_SW_CTRL_GPIO, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
++    if (!k60.clocked) {
++        e = k60_serial_clock(true);
++        if (e) return e;
++    }
++    k60_uart_pins_active();
++    e = k60_stop_engine();
++    if (e) return e;
++    e = k60_prepare_engine();
++    if (e) return e;
++    if (!k60.serial_irq) {
++        e = armcpu_spi_attach(K60_BT_UART_GIC_SPI, false, k60_uart_irq, NULL, NULL, NULL);
++        if (e) return -EIO;
++        k60.serial_irq = true;
++        k60_irq_mask(NULL, true);
++    }
++    if (!k60.wake_irq) {
++        e = armcpu_spi_attach(K60_TLMM_GIC_SPI, false, k60_tlmm_irq, NULL, NULL, NULL);
++        if (e) return -EIO;
++        k60.wake_irq = true;
++    }
++    e = qbt_geni_start(&k60.geni);
++    if (e) return e;
++    k60.gated = false;
++    return 0;
++}
++
++static int k60_bt_power_off(void) {
++    if (!k60.powered) return 0;
++    qbt_set_service(k60.core, false);
++    k60.service = false;
++    int e = 0;
++    if (k60.geni.state != QBT_GENI_OFF) {
++        if (k60.gated) { int r = k60_clock(NULL, true); if (!e) e = r; }
++        if (k60.clocked && k60.core) { int r = qbt_shutdown(k60.core); if (!e) e = r; }
++    }
++    if (k60.clocked && k60.geni.state != QBT_GENI_OFF) { int r = k60_quiesce(); if (!e) e = r; }
++    k60_irq_mask(NULL, true);
++    k60_disarm_rx_wake();
++    k60_gpio_output(K60_BT_EN_GPIO, false, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
++    IOSleep(K60_BT_OFF_MS);
++    if (k60.clocked) (void)k60_stop_engine();
++    k60_serial_clock(false);
++    k60.powered = false;
++    k60.gated = false;
++    __atomic_store_n(&k60.rx_wake, 0u, __ATOMIC_RELEASE);
++    return e;
++}
++
++/* ------------------------------------------------------------------------- */
++/* Interrupt handlers and transport glue                                      */
++/* ------------------------------------------------------------------------- */
++
++static void k60_uart_irq(void *ctx) {
++    (void)ctx;
++    qbt_geni_irq(&k60.geni);
++}
++static void k60_tlmm_irq(void *ctx) {
++    (void)ctx;
++    volatile uint32_t *r = k60.tlmm.va + K60_TLMM_GPIO_CFG(K60_BT_RX_WAKE_GPIO) / 4u;
++    if (!(r[3] & 1u)) return;
++    r[2] &= ~(1u << K60_TLMM_INTR_ENABLE_BIT);
++    r[3] = 0;
++    k60_barrier();
++    __atomic_store_n(&k60.rx_wake, 1u, __ATOMIC_RELEASE);
++    k60_wake(NULL);
++}
++
++static int k60_request_power(void *ctx, bool enabled) {
++    (void)ctx;
++    uint32_t expected = 0;
++    if (!__atomic_compare_exchange_n(&k60.power_request, &expected, enabled ? 1u : 2u,
++                                     false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
++        return EBUSY;
++    k60_wake(NULL);
++    return 0;
++}
++
++static void k60_power_result(bool enabled, int error) {
++    struct qbt_info info;
++    qbt_get_info(k60.core, &info);
++#ifdef KERNEL
++    printf("[bluetooth] power=%u result=%d baud=%u firmware=%s\n",
++           enabled, error, info.baud, info.firmware);
++#endif
++    qbt_transport_power_result(enabled, error < 0 ? -error : error,
++                               info.firmware, info.baud);
++}
++
++static void k60_worker(void *arg, wait_result_t wait_result) {
++    (void)arg; (void)wait_result;
++#ifdef KERNEL
++    thread_set_thread_name(current_thread(), "k60-bluetooth");
++#endif
++    k60.core = qbt_create(&k60_platform);
++    if (!k60.core) return;
++    struct qbt_transport_ops transport = { .context = NULL, .wake = k60_wake, .power = k60_request_power };
++    if (qbt_transport_init(&transport)) return;
++#ifdef KERNEL
++    while (&native_gpu_addon_stage && native_gpu_addon_stage < 1)
++        k60_wait_until(NULL, k60_now_ns(NULL) + 10000000ULL);
++#endif
++    int e = k60_bt_power_on();
++    if (!e) {
++        /* The local address comes from the board identity hook (in the real
++         * board integration: /chosen/unique-chip-id hashed with a fixed
++         * domain, same approach as sheng BluetoothProbe.cpp:222-264).  If the
++         * hook is absent, qbt_boot rejects the all-zero address. */
++#ifdef KERNEL
++        e = k60_bt_local_address ? k60_bt_local_address(k60.address) : -ENOENT;
++#else
++        e = -ENOENT;
++#endif
++        if (!e) e = qbt_boot(k60.core, K60_BT_RUN_BAUD, k60.address);
++    }
++    if (e) (void)k60_bt_power_off();
++    k60_power_result(true, e);
++    uint64_t health = k60_now_ns(NULL) + 1000000000ULL;
++    uint64_t close_at = 0;
++    for (;;) {
++        uint32_t command = __atomic_exchange_n(&k60.power_request, 0u, __ATOMIC_ACQ_REL);
++        if (command) {
++            e = command == 1 ? k60_bt_power_on() : k60_bt_power_off();
++            if (e && command == 1) (void)k60_bt_power_off();
++            k60_power_result(command == 1, e);
++        }
++        if (k60.powered) {
++            k60_pump(NULL);
++            bool active = qbt_transport_active();
++            if (active != k60.service) {
++                qbt_set_service(k60.core, active);
++                k60.service = active;
++                close_at = active ? 0 : k60_now_ns(NULL) + 500000000ULL;
++            }
++            uint8_t tx[2048];
++            size_t room = qbt_transmit_capacity(k60.core);
++            if (room > sizeof(tx)) room = sizeof(tx);
++            if (room) {
++                uint32_t n = qbt_transport_tx_take(tx, (uint32_t)room);
++                if (n && qbt_transmit(k60.core, tx, n)) e = -EIO;
++            }
++            qbt_step(k60.core);
++            struct qbt_info info;
++            qbt_get_info(k60.core, &info);
++            if (info.state == 3 || k60.geni.state == QBT_GENI_FAILED ||
++                (close_at && k60_now_ns(NULL) >= close_at)) {
++                int error = info.state == 3 ? info.error : k60.geni.error;
++                (void)k60_bt_power_off();
++                k60_power_result(false, error);
++                close_at = 0;
++            }
++        }
++        uint64_t t = k60_now_ns(NULL);
++        if (t >= health) health = t + 1000000000ULL;
++        uint64_t deadline = k60.powered ? qbt_deadline(k60.core) : UINT64_MAX;
++        uint64_t geni = k60.powered && !k60.gated ? qbt_geni_deadline(&k60.geni) : UINT64_MAX;
++        if (geni < deadline) deadline = geni;
++        if (health < deadline) deadline = health;
++        if (close_at && close_at < deadline) deadline = close_at;
++        if (!deadline) { thread_yield_to_preemption(); continue; }
++        k60_wait_until(NULL, deadline);
++    }
++}
++
++/* Entry point called from bsd_init.c/bsd_autoconf when boot arg k60bt=1. */
++void qbt_k60_start(void) {
++    uint32_t expected = 0;
++    if (!__atomic_compare_exchange_n(&k60.started, &expected, 1u, false,
++                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return;
++    unsigned enabled = 0;
++    if (!PE_parse_boot_argn("k60bt", &enabled, sizeof(enabled)) || !enabled) {
++        k60.started = 0;
++        return;
++    }
++    k60.stage = 1;
++    (void)PE_parse_boot_argn("k60bt_stage", &k60.stage, sizeof(k60.stage));
++    if (!k60.stage) { k60.started = 0; return; }
++    unsigned warm = 0;
++    /* Default to refusing: K60 first bring-up must be from a warm Android boot
++     * so PM8350 S10/S11/S12, PM8350C S1 and PMR735A L7 are already on. */
++    k60.warm_boot = PE_parse_boot_argn("k60bt_warm", &warm, sizeof(warm)) && warm != 0;
++#ifdef KERNEL
++    thread_t thread = NULL;
++    if (kernel_thread_start(k60_worker, NULL, &thread) == KERN_SUCCESS)
++        thread_deallocate(thread);
++    else
++        k60.started = 0;
++#endif
++}
++
++#ifdef K60_BT_HOST_TEST
++/* Tiny host self-check for the clock arithmetic.  Not built into the kernel. */
++int main(void) {
++    uint32_t hz = 0;
++    if (k60_geni_source_hz(115200, 16, &hz) || hz != 7372800u) return 1;
++    if (k60_geni_source_hz(3000000, 16, &hz) || hz != 48000000u) return 1;
++    if (k60_geni_source_hz(3200000, 16, &hz) != -ERANGE) return 1;
++    if (k60_geni_source_hz(4000000, 16, &hz) || hz != 64000000u) return 1;
++    printf("qbt_k60 host checks passed\n");
++    return 0;
++}
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/qbt.h
+@@ -0,0 +1,67 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef QBT_H
++#define QBT_H
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++struct qbt;
++/* All protocol entry points run on one executor. IRQ and socket producers use
++ * their own queues and wake it; callbacks never reenter a command operation. */
++struct qbt_platform {
++    void *context;
++    void *(*allocate)(void *, size_t);
++    void (*release)(void *, void *, size_t);
++    uint64_t (*now_ns)(void *);
++    size_t (*uart_write)(void *, const uint8_t *, size_t);
++    bool (*uart_drained)(void *);
++    int (*uart_speed)(void *, uint32_t);
++    int (*uart_flow)(void *, bool);
++    /* clock(false) succeeds only with a real RX wake source armed. */
++    int (*clock)(void *, bool);
++    void (*pump)(void *);
++    void (*wait_until)(void *, uint64_t);
++    size_t (*receive)(void *, const uint8_t *, size_t);
++    /* Returned firmware remains valid until firmware_put; NVM is copied. */
++    int (*firmware_get)(void *, const char *, const uint8_t **, size_t *);
++    void (*firmware_put)(void *, const uint8_t *, size_t);
++    void (*log)(void *, int, const char *);
++};
++struct qbt_stats {
++    uint64_t tx_bytes, rx_bytes, host_bytes, delivered_bytes;
++    uint64_t commands, timeouts, malformed, unmatched_events;
++    uint64_t wake_ind, wake_ack, sleep_ind, wake_retries, clock_sleeps;
++    uint64_t backpressure, tx_rejected, resets;
++    uint64_t tlv_sent, tlv_acks, tlv_final_status, hardware_errors, last_hardware_error;
++};
++struct qbt_info {
++    unsigned state; /* 0 off, 1 initializing, 2 ready, 3 failed */
++    int error;
++    uint32_t baud, product, soc;
++    uint16_t rom, patch;
++    char firmware[64];
++};
++struct qbt *qbt_create(const struct qbt_platform *);
++void qbt_destroy(struct qbt *);
++/* Returns consumed input; the UART retains unconsumed bytes under backpressure. */
++size_t qbt_receive(struct qbt *, const uint8_t *, size_t);
++/* Atomic enqueue: 0 accepted, negative errno leaves ownership with the caller. */
++int qbt_transmit(struct qbt *, const uint8_t *, size_t);
++size_t qbt_transmit_capacity(const struct qbt *);
++void qbt_step(struct qbt *);
++uint64_t qbt_deadline(const struct qbt *);
++void qbt_set_service(struct qbt *, bool);
++void qbt_rx_wake(struct qbt *);
++/* Abort command waiters promptly after a UART/DMA fault on the executor. */
++void qbt_fail(struct qbt *, int error);
++/* address uses display/network order; the Linux adapter converts to bdaddr_t. */
++int qbt_boot(struct qbt *, uint32_t baud, const uint8_t address[6]);
++int qbt_shutdown(struct qbt *);
++void qbt_get_info(const struct qbt *, struct qbt_info *);
++void qbt_get_stats(const struct qbt *, struct qbt_stats *);
++#ifdef __cplusplus
++}
++#endif
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_geni.h
+@@ -0,0 +1,68 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef QBT_GENI_H
++#define QBT_GENI_H
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++#define QBT_GENI_RX_COUNT 4u
++#define QBT_GENI_RX_SIZE 2048u
++#define QBT_GENI_TX_SIZE 4096u
++/* Buffers are mapped for the device's actual DMA domain by the board adapter.
++ * sync(for_device=true) publishes TX / relinquishes RX CPU ownership. */
++struct qbt_dma_buffer { uint8_t *bytes; uint64_t address; size_t capacity; };
++struct qbt_geni_ops {
++    void *context;
++    uint32_t (*read)(void *, uint32_t);
++    void (*write)(void *, uint32_t, uint32_t);
++    void (*barrier)(void *);
++    void (*sync)(void *, const struct qbt_dma_buffer *, size_t, bool for_device, bool tx);
++    uint64_t (*now_ns)(void *);
++    /* GIC mask, usable in hard IRQ even when the serial clock is gated. */
++    void (*irq_mask)(void *, bool);
++    void (*wake_worker)(void *);
++    size_t (*receive)(void *, const uint8_t *, size_t);
++};
++enum qbt_geni_state { QBT_GENI_OFF, QBT_GENI_RUN, QBT_GENI_CANCEL,
++    QBT_GENI_ABORT, QBT_GENI_RESET, QBT_GENI_STOPPED, QBT_GENI_FAILED };
++struct qbt_geni_stats {
++    uint64_t interrupts, tx_bytes, rx_bytes, tx_dma, rx_dma;
++    uint64_t rx_pauses, rx_backpressure, dma_errors, line_errors, cancel_timeouts;
++};
++struct qbt_geni {
++    struct qbt_geni_ops ops;
++    struct qbt_dma_buffer tx, rx[QBT_GENI_RX_COUNT];
++    struct qbt_geni_stats stats;
++    enum qbt_geni_state state;
++    unsigned rx_head, rx_ready, rx_active;
++    unsigned rx_length[QBT_GENI_RX_COUNT], rx_offset;
++    unsigned tx_length;
++    uint32_t baud, source_hz, oversampling;
++    uint32_t fault_irq[4]; /* M, S, TX DMA and RX DMA status from a failed service turn. */
++    uint64_t stop_deadline;
++    int error;
++    bool tx_busy, rx_busy, flow, irq_pending;
++};
++/* Engine must be idle, supplied with its UART microcode and functional clocks. */
++int qbt_geni_prepare(struct qbt_geni *, const struct qbt_geni_ops *,
++    const struct qbt_dma_buffer *, const struct qbt_dma_buffer [QBT_GENI_RX_COUNT]);
++/* Source clock is already selected by the board; reject baud error above 1%. */
++int qbt_geni_set_rate(struct qbt_geni *, uint32_t baud, uint32_t source_hz, unsigned oversampling);
++int qbt_geni_start(struct qbt_geni *);
++void qbt_geni_irq(struct qbt_geni *);
++/* One bounded worker turn; true requests another turn without sleeping. */
++bool qbt_geni_service(struct qbt_geni *);
++size_t qbt_geni_write(struct qbt_geni *, const uint8_t *, size_t);
++bool qbt_geni_drained(struct qbt_geni *);
++void qbt_geni_set_flow(struct qbt_geni *, bool);
++/* Cancel RX only after TX drains, then finish from IRQ or timed service turns.
++ * Clock gating is allowed only at STOPPED with an external RX wake armed. */
++int qbt_geni_quiesce(struct qbt_geni *);
++int qbt_geni_resume(struct qbt_geni *);
++uint64_t qbt_geni_deadline(const struct qbt_geni *);
++#ifdef __cplusplus
++}
++#endif
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_transport.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef QBT_TRANSPORT_H
++#define QBT_TRANSPORT_H
++#include <stdbool.h>
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++struct qbt_transport_ops {
++    void *context;
++    void (*wake)(void *);
++    /* Queue power transition on the UART worker; never call back inline. */
++    int (*power)(void *, bool);
++};
++extern volatile uint32_t qbt_transport_activity[4];
++int qbt_transport_init(const struct qbt_transport_ops *);
++void qbt_transport_boot_result(int error, const char *firmware, uint32_t baud);
++void qbt_transport_power_result(bool enabled, int error, const char *firmware, uint32_t baud);
++uint32_t qbt_transport_receive(const uint8_t *, uint32_t);
++uint32_t qbt_transport_tx_pending(void);
++uint32_t qbt_transport_tx_take(uint8_t *, uint32_t);
++bool qbt_transport_active(void);
++#ifdef __cplusplus
++}
++#endif
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_internal.h
+@@ -0,0 +1,50 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef QBT_INTERNAL_H
++#define QBT_INTERNAL_H
++#include "qbt.h"
++#ifdef KERNEL
++#include <sys/errno.h>
++#include <sys/systm.h>
++#else
++#include <errno.h>
++#include <string.h>
++#include <stdio.h>
++#endif
++#define QBT_TX_CAPACITY 32768u
++#define QBT_CHUNK 2048u
++#define QBT_COMMAND_TIMEOUT 10000000000ULL
++#define QBT_WAKE_RETRY 100000000ULL
++#define QBT_TX_POLL 1000000ULL
++#define QBT_SPEED_REPLY_MS 100u
++#define QBT_SPEED_SETTLE_MS 5u
++#define QBT_TX_IDLE 2000000000ULL
++enum { QBT_ASLEEP, QBT_WAKING, QBT_AWAKE };
++struct qbt_tx_frame { uint8_t type, header[4], have, need; unsigned body; };
++struct qbt {
++    struct qbt_platform ops;
++    struct qbt_info info;
++    struct qbt_stats stats;
++    uint8_t tx[QBT_TX_CAPACITY];
++    struct qbt_tx_frame tx_frame;
++    unsigned tx_head, tx_length;
++    bool service, ibs, rx_awake, clock_on;
++    unsigned tx_state, wake_attempts;
++    uint64_t retry_at, idle_at;
++    uint8_t control[16]; unsigned control_length;
++    uint8_t command[259]; unsigned command_length, command_offset;
++    bool waiting, complete, speed_reply;
++    uint16_t wait_opcode;
++    uint8_t wait_event;
++    uint8_t reply[258]; unsigned reply_length;
++    uint8_t type, header[4]; unsigned header_length, header_need, body;
++    uint8_t event[258]; unsigned event_length;
++    bool drop;
++    uint8_t forward[QBT_CHUNK]; unsigned forward_length, forward_offset;
++};
++int qbt_command(struct qbt *, uint16_t, const void *, unsigned, uint8_t,
++                uint8_t *, size_t *);
++int qbt_send_command(struct qbt *, uint16_t, const void *, unsigned);
++int qbt_drain(struct qbt *, uint64_t);
++void qbt_delay(struct qbt *, unsigned);
++void qbt_linux_log(struct qbt *, int, const char *, ...);
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_geni_regs.h
+@@ -0,0 +1,82 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Register definitions: Linux include/linux/soc/qcom/geni-se.h and
++ * drivers/{tty/serial/qcom_geni_serial,soc/qcom/qcom-geni-se}.c at source-lock. */
++#ifndef QBT_GENI_REGS_H
++#define QBT_GENI_REGS_H
++#define G_FORCE_DEFAULT 0x20u
++#define G_OUTPUT 0x24u
++#define G_CGC 0x28u
++#define G_STATUS 0x40u
++#define G_M_CLK 0x48u
++#define G_S_CLK 0x4cu
++#define G_FW_REV 0x68u
++#define G_CLK_SEL 0x7cu
++#define G_LOOPBACK 0x22cu
++#define G_BYTE_GRAN 0x254u
++#define G_DMA_MODE 0x258u
++#define G_TX_CFG 0x25cu
++#define G_TX_PACK0 0x260u
++#define G_TX_PACK1 0x264u
++#define G_TX_WORD 0x268u
++#define G_TX_STOP 0x26cu
++#define G_TX_LEN 0x270u
++#define G_RX_CFG 0x280u
++#define G_RX_PACK0 0x284u
++#define G_RX_PACK1 0x288u
++#define G_RX_WORD 0x28cu
++#define G_RX_STALE 0x294u
++#define G_TX_PARITY 0x2a4u
++#define G_RX_PARITY 0x2a8u
++#define G_MANUAL_RFR 0x2acu
++#define G_M_CMD 0x600u
++#define G_M_CTRL 0x604u
++#define G_M_IRQ 0x610u
++#define G_M_IRQ_EN 0x614u
++#define G_M_CLEAR 0x618u
++#define G_S_CMD 0x630u
++#define G_S_CTRL 0x634u
++#define G_S_IRQ 0x640u
++#define G_S_IRQ_EN 0x644u
++#define G_S_CLEAR 0x648u
++#define G_TX_FIFO_STATUS 0x800u
++#define G_RX_WM 0x810u
++#define G_RX_RFR_WM 0x814u
++#define G_TX_PTR_L 0xc30u
++#define G_TX_PTR_H 0xc34u
++#define G_TX_ATTR 0xc38u
++#define G_TX_DMA_LEN 0xc3cu
++#define G_TX_IRQ 0xc40u
++#define G_TX_CLEAR 0xc44u
++#define G_TX_IRQ_EN 0xc48u
++#define G_TX_IRQ_SET 0xc4cu
++#define G_TX_IRQ_UNSET 0xc50u
++#define G_RX_PTR_L 0xd30u
++#define G_RX_PTR_H 0xd34u
++#define G_RX_ATTR 0xd38u
++#define G_RX_DMA_LEN 0xd3cu
++#define G_RX_IRQ 0xd40u
++#define G_RX_CLEAR 0xd44u
++#define G_RX_IRQ_EN 0xd48u
++#define G_RX_IRQ_SET 0xd4cu
++#define G_RX_IRQ_UNSET 0xd50u
++#define G_RX_LEN_IN 0xd54u
++#define G_RX_RESET 0xd58u
++#define G_GSI_EVENT 0xe18u
++#define G_IRQ_EN 0xe1cu
++#define G_HW_PARAM1 0xe28u
++#define G_DMA_CFG 0xe30u
++#define G_DMA_IF_EN 0x2004u
++#define G_M_ACTIVE 1u
++#define G_S_ACTIVE (1u<<12)
++#define G_CANCEL (1u<<2)
++#define G_ABORT (1u<<1)
++#define G_DONE 1u
++#define G_EOT 2u
++#define G_DMA_ERROR 4u
++#define G_RESET_DONE 8u
++#define G_CMD_ERRORS 0x0eu
++#define G_LINE_ERRORS ((3u<<9)|(3u<<11)|(3u<<24))
++#define G_IRQ_MASK 0x0fu
++#define G_RFR_OFF 0x80000002u
++#define G_STOP_TIMEOUT_NS 10000000ULL
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_core.c
+@@ -0,0 +1,280 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* H4 framing and Qualcomm IBS, following Linux hci_qca and h4_recv_buf.
++ * Byte storage is bounded. The executor sleeps on actual work/deadline events. */
++#include "qbt_internal.h"
++#include <stdarg.h>
++#define SLEEP_IND 0xfe
++#define WAKE_IND 0xfd
++#define WAKE_ACK 0xfc
++static uint64_t now(struct qbt *q) { return q->ops.now_ns(q->ops.context); }
++static bool drained(struct qbt *q) { return q->ops.uart_drained(q->ops.context); }
++static int clock_on(struct qbt *q) {
++    if (q->clock_on) return 0;
++    int e = q->ops.clock(q->ops.context, true);
++    if (!e) q->clock_on = true;
++    return e;
++}
++static bool flush(struct qbt *q) {
++    while (q->forward_offset < q->forward_length) {
++        size_t n = q->ops.receive(q->ops.context, q->forward + q->forward_offset,
++                                q->forward_length - q->forward_offset);
++        if (!n) { q->stats.backpressure++; return false; }
++        if (n > q->forward_length - q->forward_offset) n = q->forward_length - q->forward_offset;
++        q->forward_offset += (unsigned)n; q->stats.delivered_bytes += n;
++    }
++    q->forward_offset = q->forward_length = 0;
++    return true;
++}
++static void control(struct qbt *q, uint8_t b) {
++    if (q->control_length < sizeof(q->control)) q->control[q->control_length++] = b;
++    else q->stats.malformed++;
++}
++/* Stop each DMA chunk at a packet boundary. IBS bytes may never be inserted
++ * into the middle of a command, ACL, SCO or ISO frame spanning several slots. */
++static size_t tx_advance(struct qbt_tx_frame *f,const uint8_t *p,size_t n) {
++    size_t i=0;
++    while(i<n) {
++        if(!f->type) {
++            uint8_t t=p[i++];if(t!=1 && t!=2 && t!=3 && t!=5)return 0;
++            f->type=t;f->have=0;f->need=t==1||t==3?3:4;
++        } else if(f->need) {
++            f->header[f->have++]=p[i++];if(--f->need)continue;
++            f->body=f->type==1||f->type==3?f->header[2]:
++                (f->header[2]|(unsigned)f->header[3]<<8)&(f->type==5?0x3fff:0xffff);
++            if(!f->body){f->type=0;return i;}
++        } else {
++            size_t take=n-i;if(take>f->body)take=f->body;
++            i+=take;f->body-=(unsigned)take;if(!f->body){f->type=0;return i;}
++        }
++    }
++    return i;
++}
++static void event(struct qbt *q) {
++    const uint8_t *e = q->event; unsigned n = q->event_length;
++    if (n >= 3 && e[0] == 0x10) { q->stats.hardware_errors++; q->stats.last_hardware_error = e[2]; }
++    /* The speed change completes after the switch, at the new rate. */
++    if (n >= 5 && e[0] == 0x0e && e[3] == 0x48 && e[4] == 0xfc) q->speed_reply = true;
++    /* A nonzero TLV report describes an earlier segment; only status 0 answers a wait. */
++    if (n >= 7 && e[0] == 0x0e && e[3] == 0x00 && e[4] == 0xfc && e[6] == 0x1e) {
++        q->stats.tlv_acks++; q->stats.tlv_final_status = e[5];
++        if (e[5]) return;
++    }
++    if (q->waiting && !q->complete) {
++        bool match = false;
++        if (!q->wait_event && n >= 5 && e[0] == 0x0e)
++            match = (e[3] | (unsigned)e[4] << 8) == q->wait_opcode;
++        else if (q->wait_event == e[0]) match = true;
++        if (match) {
++            /* Matching replies have independent storage from parser scratch. */
++            memcpy(q->reply, e, n); q->reply_length = n; q->complete = true;
++            return;
++        }
++        if (n >= 6 && e[0] == 0x0f && (e[4] | (unsigned)e[5] << 8) == q->wait_opcode && e[2]) {
++            memcpy(q->reply, e, n); q->reply_length = n; q->complete = true;
++            return;
++        }
++    }
++    if (q->service && !q->drop) {
++        q->forward[0] = 4; memcpy(q->forward + 1, e, n);
++        q->forward_length = n + 1;
++    } else q->stats.unmatched_events++;
++}
++struct qbt *qbt_create(const struct qbt_platform *p) {
++    if (!p || !p->allocate || !p->release || !p->now_ns || !p->uart_write ||
++        !p->uart_drained || !p->uart_speed || !p->uart_flow || !p->clock ||
++        !p->pump || !p->wait_until || !p->receive || !p->firmware_get || !p->firmware_put) return NULL;
++    struct qbt *q = p->allocate(p->context, sizeof(*q));
++    if (q) { memset(q, 0, sizeof(*q)); q->ops = *p; q->clock_on = true; q->info.baud = 115200; }
++    return q;
++}
++void qbt_destroy(struct qbt *q) {
++    if (!q) return;
++    struct qbt_platform p = q->ops; memset(q, 0, sizeof(*q)); p.release(p.context, q, sizeof(*q));
++}
++size_t qbt_receive(struct qbt *q, const uint8_t *data, size_t length) {
++    if (q->info.state == 3) return 0;
++    size_t i = 0;
++    while (i < length) {
++        if (!flush(q)) break;
++        if (!q->header_need && !q->body) {
++            uint8_t b = data[i++];
++            if (b == WAKE_IND) {
++                int e = clock_on(q);
++                if (e) { qbt_fail(q, e); break; }
++                q->rx_awake = true; control(q, WAKE_ACK); q->stats.wake_ack++;
++            } else if (b == WAKE_ACK) {
++                if (q->tx_state == QBT_WAKING) { q->tx_state = QBT_AWAKE; q->retry_at = 0; q->idle_at = now(q) + QBT_TX_IDLE; }
++            } else if (b == SLEEP_IND) q->rx_awake = false;
++            else if (b >= 2 && b <= 5) {
++                q->type = b; q->header_length = 0; q->header_need = b == 4 ? 2 : b == 3 ? 3 : 4;
++                q->drop = !q->service;
++            } else { q->stats.malformed++; i = length; }
++            continue;
++        }
++        if (q->header_need) {
++            q->header[q->header_length++] = data[i++];
++            if (--q->header_need) continue;
++            uint8_t t = q->type;
++            q->body = t == 4 ? q->header[1] : t == 3 ? q->header[2] :
++                (q->header[2] | (unsigned)q->header[3] << 8) & (t == 5 ? 0x3fff : 0xffff);
++            q->drop = q->drop || !q->service || (t == 2 &&
++                (q->header[0] | (unsigned)q->header[1] << 8) == 0x2edc);
++            if (t == 4) { memcpy(q->event, q->header, 2); q->event_length = 2; }
++            else if (!q->drop) { q->forward[0] = t; memcpy(q->forward + 1, q->header, q->header_length); q->forward_length = q->header_length + 1; }
++            if (!q->body && t == 4) event(q);
++            continue;
++        }
++        size_t n = length - i;
++        if (n > q->body) n = q->body;
++        if (q->type == 4) {
++            if (n > sizeof(q->event) - q->event_length) { q->stats.malformed++; break; }
++            memcpy(q->event + q->event_length, data + i, n); q->event_length += (unsigned)n;
++        } else if (!q->drop) {
++            if (n > sizeof(q->forward)) n = sizeof(q->forward);
++            memcpy(q->forward, data + i, n); q->forward_length = (unsigned)n;
++        }
++        i += n; q->body -= (unsigned)n;
++        if (!q->body && q->type == 4) event(q);
++    }
++    q->stats.rx_bytes += i; (void)flush(q); return i;
++}
++int qbt_transmit(struct qbt *q, const uint8_t *p, size_t n) {
++    if (!q->service || q->info.state != 2) return -ENETDOWN;
++    if (!n || !p || n > QBT_TX_CAPACITY - q->tx_length) { q->stats.tx_rejected++; return -ENOBUFS; }
++    unsigned tail = (q->tx_head + q->tx_length) % QBT_TX_CAPACITY;
++    size_t first = QBT_TX_CAPACITY - tail; if (first > n) first = n;
++    memcpy(q->tx + tail, p, first); memcpy(q->tx, p + first, n - first);
++    q->tx_length += (unsigned)n; q->stats.host_bytes += n; return 0;
++}
++size_t qbt_transmit_capacity(const struct qbt *q) {
++    return q->service && q->info.state==2?QBT_TX_CAPACITY-q->tx_length:0;
++}
++void qbt_step(struct qbt *q) {
++    if (q->info.state == 3) return;
++    (void)flush(q);
++    uint64_t t = now(q); bool pending = q->command_length || (q->service && q->tx_length);
++    if (pending) {
++        int e = clock_on(q);
++        if (e) { qbt_fail(q, e); return; }
++    }
++    if (q->ibs && pending && q->tx_state == QBT_ASLEEP) {
++        q->tx_state = QBT_WAKING; q->wake_attempts = 1; control(q, WAKE_IND);
++        q->retry_at = t + QBT_WAKE_RETRY; q->stats.wake_ind++;
++    } else if (q->ibs && q->tx_state == QBT_WAKING && t >= q->retry_at) {
++        if (++q->wake_attempts > 10) {
++            q->info.error = -ETIMEDOUT; q->info.state = 3; q->service = false;
++            q->retry_at = 0; q->stats.timeouts++; return;
++        }
++        control(q, WAKE_IND); q->retry_at = t + QBT_WAKE_RETRY; q->stats.wake_retries++;
++    }
++    if (q->control_length && q->clock_on && !q->tx_frame.type) {
++        size_t n = q->ops.uart_write(q->ops.context, q->control, q->control_length);
++        if (n > q->control_length) n = q->control_length;
++        memmove(q->control, q->control + n, q->control_length - n); q->control_length -= (unsigned)n;
++        if (q->control_length) return;
++    }
++    if (!q->ibs || q->tx_state == QBT_AWAKE) {
++        const uint8_t *p = NULL; size_t n = 0; bool cmd = q->command_length != 0;
++        if (cmd) { p = q->command + q->command_offset; n = q->command_length - q->command_offset; }
++        else if (q->service && q->tx_length) { p = q->tx + q->tx_head; n = QBT_TX_CAPACITY - q->tx_head; if (n > q->tx_length) n = q->tx_length; }
++        if (n) {
++            if (n > QBT_CHUNK) n = QBT_CHUNK;
++            struct qbt_tx_frame preview=q->tx_frame;
++            n=tx_advance(&preview,p,n);
++            if(!n){q->info.error=-EPROTO;q->info.state=3;q->service=false;return;}
++            size_t used = q->ops.uart_write(q->ops.context, p, n); if (used > n) used = n;
++            if(used)(void)tx_advance(&q->tx_frame,p,used);
++            q->stats.tx_bytes += used;
++            if (cmd) { q->command_offset += (unsigned)used; if (q->command_offset == q->command_length) q->command_offset = q->command_length = 0; }
++            else { q->tx_head = (q->tx_head + (unsigned)used) % QBT_TX_CAPACITY; q->tx_length -= (unsigned)used; }
++            if (used) q->idle_at = t + QBT_TX_IDLE;
++        }
++        if (q->ibs && !q->command_length && !q->tx_length && !q->control_length &&
++            !q->tx_frame.type && q->tx_state == QBT_AWAKE && q->idle_at && t >= q->idle_at && drained(q)) {
++            control(q, SLEEP_IND); q->tx_state = QBT_ASLEEP; q->idle_at = 0; q->stats.sleep_ind++;
++        }
++    }
++    if (q->ibs && q->tx_state == QBT_ASLEEP && !q->rx_awake && !q->tx_length &&
++        !q->command_length && !q->control_length && !q->tx_frame.type && q->clock_on && drained(q)) {
++        if (!q->ops.clock(q->ops.context, false)) { q->clock_on = false; q->stats.clock_sleeps++; }
++    }
++}
++uint64_t qbt_deadline(const struct qbt *q) {
++    if (q->info.state == 3) return UINT64_MAX;
++    bool idle = q->ops.uart_drained(q->ops.context);
++    if (q->control_length && !q->tx_frame.type && idle) return 0;
++    if ((q->command_length || (q->service && q->tx_length)) && idle && q->tx_state != QBT_WAKING) return 0;
++    if (q->tx_state == QBT_WAKING && q->retry_at) return q->retry_at;
++    if (q->ibs && !q->tx_frame.type && q->tx_state == QBT_AWAKE && q->idle_at && idle) return q->idle_at;
++    return UINT64_MAX;
++}
++void qbt_set_service(struct qbt *q, bool enabled) {
++    q->service = enabled && q->info.state == 2;
++    if (!q->service) {
++        if(q->tx_frame.type){q->info.state=3;q->info.error=-ECANCELED;}
++        q->drop = true;
++        q->tx_head = q->tx_length = 0; q->forward_length = q->forward_offset = 0;
++    }
++}
++void qbt_rx_wake(struct qbt *q) {
++    if (q->info.state == 3) return;
++    int e = clock_on(q);
++    if (e) qbt_fail(q, e);
++}
++void qbt_fail(struct qbt *q,int error) {
++    q->info.state=3;q->info.error=error<0?error:-EIO;q->service=false;
++    q->retry_at=q->idle_at=0;
++}
++static int run(struct qbt *q, uint64_t deadline, unsigned predicate) {
++    for (;;) {
++        q->ops.pump(q->ops.context); qbt_step(q);
++        if (q->info.error) return q->info.error;
++        if ((predicate == 0 && !q->command_length) || (predicate == 1 && q->complete) ||
++            (predicate == 2 && !q->command_length && drained(q))) return 0;
++        uint64_t t = now(q); if (t >= deadline) { q->stats.timeouts++; return -ETIMEDOUT; }
++        uint64_t next = qbt_deadline(q);
++        /* Wire drain has no IRQ of its own: bytes waiting on it re-check here. */
++        if (predicate == 2 || q->command_length || q->control_length) {
++            if (!next || next > t + QBT_TX_POLL) next = t + QBT_TX_POLL;
++        }
++        if (!next || next > deadline) next = deadline;
++        /* UART completion and ring-space producers signal this wait. */
++        q->ops.wait_until(q->ops.context, next);
++    }
++}
++int qbt_send_command(struct qbt *q, uint16_t op, const void *data, unsigned n) {
++    if (n > 255 || (n && !data)) return -EINVAL;
++    uint64_t deadline = now(q) + QBT_COMMAND_TIMEOUT;
++    int e = run(q, deadline, 0); if (e) return e;
++    q->command[0] = 1; q->command[1] = (uint8_t)op; q->command[2] = op >> 8; q->command[3] = (uint8_t)n;
++    if (n) memcpy(q->command + 4, data, n);
++    q->command_length = n + 4; q->command_offset = 0; q->stats.commands++;
++    if (op == 0xfc00 && n && ((const uint8_t *)data)[0] == 0x1e) q->stats.tlv_sent++;
++    return run(q, deadline, 0);
++}
++int qbt_command(struct qbt *q, uint16_t op, const void *data, unsigned n, uint8_t ev,
++                uint8_t *reply, size_t *length) {
++    if (q->waiting) return -EBUSY;
++    q->wait_opcode = op; q->wait_event = ev; q->waiting = true; q->complete = false; q->reply_length = 0;
++    uint64_t deadline = now(q) + QBT_COMMAND_TIMEOUT;
++    int e = qbt_send_command(q, op, data, n);
++    if (!e) e = run(q, deadline, 1);
++    q->waiting = false;
++    if (e) return e;
++    unsigned skip = q->reply[0] == 0x0e ? 5 : 2;
++    if (q->reply[0] == 0x0f) return -EIO;
++    if (q->reply_length < skip || *length < q->reply_length - skip) return -EMSGSIZE;
++    *length = q->reply_length - skip; memcpy(reply, q->reply + skip, *length); return 0;
++}
++int qbt_drain(struct qbt *q, uint64_t deadline) { return run(q, deadline, 2); }
++void qbt_delay(struct qbt *q, unsigned ms) {
++    uint64_t end = now(q) + (uint64_t)ms * 1000000;
++    while (now(q) < end) { q->ops.pump(q->ops.context); qbt_step(q); q->ops.wait_until(q->ops.context, end); }
++}
++void qbt_get_info(const struct qbt *q, struct qbt_info *out) { *out = q->info; }
++void qbt_get_stats(const struct qbt *q, struct qbt_stats *out) { *out = q->stats; }
++void qbt_linux_log(struct qbt *q, int level, const char *format, ...) {
++    if (!q->ops.log) return;
++    char text[160]; va_list ap; va_start(ap, format); vsnprintf(text, sizeof(text), format, ap); va_end(ap);
++    q->ops.log(q->ops.context, level, text);
++}
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_geni.c
+@@ -0,0 +1,191 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Qualcomm GENI SE UART DMA. Sequencing follows the locked Linux driver.
++ * Hard IRQ only masks the GIC line and wakes the owning executor. */
++#include "qbt_geni.h"
++#include "qbt_geni_regs.h"
++#ifdef KERNEL
++#include <sys/errno.h>
++#include <sys/systm.h>
++#else
++#include <errno.h>
++#include <string.h>
++#endif
++static uint32_t rd(struct qbt_geni *g, uint32_t r) { return g->ops.read(g->ops.context,r); }
++static void wr(struct qbt_geni *g, uint32_t r, uint32_t v) { g->ops.write(g->ops.context,r,v); }
++static void barrier(struct qbt_geni *g) { g->ops.barrier(g->ops.context); }
++static void rfr(struct qbt_geni *g, bool ready) {
++    /* Stopped flow control deasserts RTS across a controller baud change, as Linux does. */
++    wr(g,G_MANUAL_RFR,ready&&g->flow?0:G_RFR_OFF);
++}
++static void arm_rx(struct qbt_geni *g) {
++    if (g->rx_busy || g->rx_ready == QBT_GENI_RX_COUNT || g->state != QBT_GENI_RUN) return;
++    unsigned i=(g->rx_head+g->rx_ready)%QBT_GENI_RX_COUNT;
++    const struct qbt_dma_buffer *b=&g->rx[i];
++    g->ops.sync(g->ops.context,b,QBT_GENI_RX_SIZE,true,false);
++    wr(g,G_RX_IRQ_SET,G_DONE|G_EOT|G_DMA_ERROR);
++    wr(g,G_RX_PTR_L,(uint32_t)b->address);wr(g,G_RX_PTR_H,(uint32_t)(b->address>>32));
++    wr(g,G_RX_ATTR,0);barrier(g);
++    g->rx_active=i;g->rx_busy=true;
++    wr(g,G_RX_DMA_LEN,QBT_GENI_RX_SIZE);barrier(g);rfr(g,true);
++}
++static bool valid_buffer(const struct qbt_dma_buffer *b, size_t n) {
++    return b->bytes && b->capacity>=n && !(b->address&63u) && b->address<=UINT64_MAX-n;
++}
++int qbt_geni_prepare(struct qbt_geni *g, const struct qbt_geni_ops *ops,
++    const struct qbt_dma_buffer *tx, const struct qbt_dma_buffer rx[QBT_GENI_RX_COUNT]) {
++    if (!g || !ops || !ops->read || !ops->write || !ops->barrier || !ops->sync ||
++        !ops->now_ns || !ops->irq_mask || !ops->wake_worker || !ops->receive ||
++        !tx || !rx || !valid_buffer(tx,QBT_GENI_TX_SIZE)) return -EINVAL;
++    for (unsigned i=0;i<QBT_GENI_RX_COUNT;i++) {
++        if (!valid_buffer(&rx[i],QBT_GENI_RX_SIZE)) return -EINVAL;
++        if (rx[i].address<tx->address+QBT_GENI_TX_SIZE && tx->address<rx[i].address+QBT_GENI_RX_SIZE) return -EINVAL;
++        for (unsigned j=0;j<i;j++)
++            if (rx[i].address<rx[j].address+QBT_GENI_RX_SIZE && rx[j].address<rx[i].address+QBT_GENI_RX_SIZE) return -EINVAL;
++    }
++    memset(g,0,sizeof(*g));g->ops=*ops;g->tx=*tx;memcpy(g->rx,rx,sizeof(g->rx));g->flow=true;
++    ops->irq_mask(ops->context,true);
++    if (((rd(g,G_FW_REV)>>8)&255u)!=2) return -ENXIO;
++    if (rd(g,G_STATUS)&(G_M_ACTIVE|G_S_ACTIVE)) return -EBUSY;
++    unsigned depth=(rd(g,G_HW_PARAM1)>>16)&255u;if(depth<4)return -ENXIO;
++    wr(g,G_IRQ_EN,0);wr(g,G_GSI_EVENT,0);
++    wr(g,G_M_IRQ_EN,0);wr(g,G_S_IRQ_EN,0);wr(g,G_TX_IRQ_UNSET,UINT32_MAX);wr(g,G_RX_IRQ_UNSET,UINT32_MAX);
++    wr(g,G_M_CLEAR,UINT32_MAX);wr(g,G_S_CLEAR,UINT32_MAX);
++    wr(g,G_TX_CLEAR,UINT32_MAX);wr(g,G_RX_CLEAR,UINT32_MAX);
++    wr(g,G_CGC,rd(g,G_CGC)|0x7f);wr(g,G_DMA_CFG,rd(g,G_DMA_CFG)|0x0f);
++    wr(g,G_OUTPUT,0x7f);wr(g,G_FORCE_DEFAULT,1);
++    wr(g,G_DMA_MODE,1);wr(g,G_DMA_IF_EN,rd(g,G_DMA_IF_EN)|1);
++    /* Four 8-bit words, low byte first, same packing as geni_se_config_packing. */
++    wr(g,G_TX_PACK0,0x4380e);wr(g,G_TX_PACK1,0xc3e0e);
++    wr(g,G_RX_PACK0,0x4380e);wr(g,G_RX_PACK1,0xc3e0e);wr(g,G_BYTE_GRAN,0);
++    wr(g,G_TX_WORD,8);wr(g,G_RX_WORD,8);wr(g,G_TX_STOP,0);
++    wr(g,G_TX_PARITY,0);wr(g,G_RX_PARITY,0);wr(g,G_TX_CFG,0);wr(g,G_RX_CFG,0);
++    wr(g,G_LOOPBACK,0);wr(g,G_RX_STALE,160);wr(g,G_RX_WM,2);wr(g,G_RX_RFR_WM,depth-2);
++    rfr(g,false);barrier(g);g->state=QBT_GENI_STOPPED;return 0;
++}
++int qbt_geni_set_rate(struct qbt_geni *g,uint32_t baud,uint32_t hz,unsigned sample) {
++    if (g->state!=QBT_GENI_STOPPED || !baud || !hz || (sample!=16 && sample!=32)) return -EINVAL;
++    uint64_t target=(uint64_t)baud*sample,div=((uint64_t)hz+target/2)/target;
++    if (!div || div>4095) return -ERANGE;
++    uint64_t actual=(uint64_t)hz/div,diff=actual>target?actual-target:target-actual;
++    if (diff*100>target) return -ERANGE;
++    wr(g,G_M_CLK,((uint32_t)div<<4)|1);wr(g,G_S_CLK,((uint32_t)div<<4)|1);wr(g,G_CLK_SEL,0);
++    barrier(g);g->baud=baud;g->source_hz=hz;g->oversampling=sample;return 0;
++}
++int qbt_geni_start(struct qbt_geni *g) {
++    if (g->state!=QBT_GENI_STOPPED || !g->baud || g->rx_ready) return -EINVAL;
++    /* Reset-time line state is stale when the board releases the controller. */
++    wr(g,G_M_CLEAR,UINT32_MAX);wr(g,G_S_CLEAR,UINT32_MAX);
++    wr(g,G_TX_CLEAR,UINT32_MAX);wr(g,G_RX_CLEAR,UINT32_MAX);
++    wr(g,G_M_IRQ_EN,G_DONE|G_CMD_ERRORS|(1u<<31));
++    wr(g,G_S_IRQ_EN,G_CMD_ERRORS|G_LINE_ERRORS|(1u<<4)|(1u<<5));
++    g->state=QBT_GENI_RUN;
++    /* Linux starts the secondary sequencer with UART_PARAM_RFR_OPEN. */
++    wr(g,G_S_CMD,(1u<<27)|(1u<<7));arm_rx(g);wr(g,G_IRQ_EN,G_IRQ_MASK);barrier(g);
++    __atomic_store_n(&g->irq_pending,false,__ATOMIC_RELEASE);
++    g->ops.irq_mask(g->ops.context,false);return 0;
++}
++void qbt_geni_irq(struct qbt_geni *g) {
++    g->ops.irq_mask(g->ops.context,true);
++    __atomic_store_n(&g->irq_pending,true,__ATOMIC_RELEASE);
++    g->ops.wake_worker(g->ops.context);
++}
++static bool deliver(struct qbt_geni *g) {
++    unsigned budget=QBT_GENI_RX_COUNT;
++    while(g->rx_ready && budget--) {
++        unsigned i=g->rx_head,remaining=g->rx_length[i]-g->rx_offset;
++        size_t n=g->ops.receive(g->ops.context,g->rx[i].bytes+g->rx_offset,remaining);
++        if(n>remaining)n=remaining;g->rx_offset+=(unsigned)n;
++        if(g->rx_offset!=g->rx_length[i]) {g->stats.rx_backpressure++;return n!=0;}
++        g->rx_head=(i+1)%QBT_GENI_RX_COUNT;g->rx_ready--;g->rx_offset=0;arm_rx(g);
++    }
++    return g->rx_ready!=0;
++}
++static void fail(struct qbt_geni *g,int error) {
++    g->error=error;g->state=QBT_GENI_FAILED;g->stop_deadline=0;
++    /* DMA buffers stay pinned until reset/power-off proves DMA is stopped. */
++    rfr(g,false);wr(g,G_IRQ_EN,0);barrier(g);g->ops.irq_mask(g->ops.context,true);
++}
++bool qbt_geni_service(struct qbt_geni *g) {
++    if(g->state==QBT_GENI_OFF || g->state==QBT_GENI_STOPPED || g->state==QBT_GENI_FAILED)return false;
++    bool irq=__atomic_exchange_n(&g->irq_pending,false,__ATOMIC_ACQ_REL);
++    uint32_t mi=rd(g,G_M_IRQ),si=rd(g,G_S_IRQ),ti=rd(g,G_TX_IRQ),ri=rd(g,G_RX_IRQ);
++    if(irq)g->stats.interrupts++;
++    wr(g,G_M_CLEAR,mi);wr(g,G_S_CLEAR,si);wr(g,G_TX_CLEAR,ti);wr(g,G_RX_CLEAR,ri);
++    if(((mi|si)&G_CMD_ERRORS) || ((ti|ri)&G_DMA_ERROR) || (si&G_LINE_ERRORS) || (ri&((1u<<5)|(3u<<7)))) {
++        g->fault_irq[0]=mi;g->fault_irq[1]=si;g->fault_irq[2]=ti;g->fault_irq[3]=ri;
++    }
++    if((mi|si)&G_CMD_ERRORS || (ti|ri)&G_DMA_ERROR) {g->stats.dma_errors++;fail(g,-EIO);return false;}
++    /* Line errors drop or mark received data; the transport keeps running, as in Linux. */
++    if((si&G_LINE_ERRORS) || (ri&((1u<<5)|(3u<<7))))g->stats.line_errors++;
++    if(g->tx_busy && (ti&G_DONE)) {
++        g->ops.sync(g->ops.context,&g->tx,g->tx_length,false,true);
++        g->stats.tx_bytes+=g->tx_length;g->stats.tx_dma++;g->tx_length=0;g->tx_busy=false;
++    }
++    if(g->rx_busy && (ri&(G_DONE|G_EOT))) {
++        unsigned n=rd(g,G_RX_LEN_IN),i=g->rx_active;
++        g->rx_busy=false;
++        if(n>QBT_GENI_RX_SIZE){g->stats.dma_errors++;fail(g,-EOVERFLOW);return false;}
++        g->ops.sync(g->ops.context,&g->rx[i],n,false,false);
++        if(ri&(1u<<5))n=0; /* Parity failure: drop this completion. */
++        g->stats.rx_dma++;g->stats.rx_bytes+=n;
++        if(n){g->rx_length[i]=n;g->rx_ready++;}
++        if(g->rx_ready==QBT_GENI_RX_COUNT){rfr(g,false);g->stats.rx_pauses++;}
++        arm_rx(g);
++    }
++    bool more=deliver(g);
++    if(g->state!=QBT_GENI_RUN) {
++        uint64_t t=g->ops.now_ns(g->ops.context);
++        if(!(rd(g,G_STATUS)&G_S_ACTIVE) && !g->rx_busy && g->state!=QBT_GENI_RESET) {
++            g->stop_deadline=0;
++            if(g->rx_ready)return more;
++            g->state=QBT_GENI_STOPPED;g->stop_deadline=0;wr(g,G_IRQ_EN,0);barrier(g);
++            g->ops.irq_mask(g->ops.context,true);return more;
++        }
++        if(g->state==QBT_GENI_RESET && (ri&G_RESET_DONE)) {
++            g->rx_busy=false;
++            if(rd(g,G_STATUS)&G_S_ACTIVE){fail(g,-ETIMEDOUT);return false;}
++            g->state=QBT_GENI_CANCEL;g->stop_deadline=0;
++            if(g->rx_ready)return more;
++            g->state=QBT_GENI_STOPPED;g->stop_deadline=0;wr(g,G_IRQ_EN,0);barrier(g);
++            g->ops.irq_mask(g->ops.context,true);return more;
++        }
++        if(g->stop_deadline && t>=g->stop_deadline) {
++            g->stats.cancel_timeouts++;g->stop_deadline=t+G_STOP_TIMEOUT_NS;
++            if(g->state==QBT_GENI_CANCEL){wr(g,G_S_CTRL,G_ABORT);g->state=QBT_GENI_ABORT;}
++            else if(g->state==QBT_GENI_ABORT){wr(g,G_RX_IRQ_SET,G_RESET_DONE);wr(g,G_RX_RESET,1);g->state=QBT_GENI_RESET;}
++            else {fail(g,-ETIMEDOUT);return false;}
++        }
++    }
++    barrier(g);g->ops.irq_mask(g->ops.context,false);return more;
++}
++bool qbt_geni_drained(struct qbt_geni *g) {
++    if(g->tx_busy)return false;
++    /* M_GP_LENGTH keeps the finished command's byte count; it is not a pending count. */
++    return !(rd(g,G_STATUS)&G_M_ACTIVE) && !rd(g,G_TX_FIFO_STATUS);
++}
++size_t qbt_geni_write(struct qbt_geni *g,const uint8_t *bytes,size_t n) {
++    if(g->state!=QBT_GENI_RUN || !bytes || !n || !qbt_geni_drained(g))return 0;
++    if(n>QBT_GENI_TX_SIZE)n=QBT_GENI_TX_SIZE;
++    memcpy(g->tx.bytes,bytes,n);g->ops.sync(g->ops.context,&g->tx,n,true,true);
++    g->tx_busy=true;g->tx_length=(unsigned)n;
++    wr(g,G_TX_LEN,(uint32_t)n);wr(g,G_M_CMD,1u<<27);
++    wr(g,G_TX_IRQ_SET,G_DONE|G_EOT|G_DMA_ERROR);
++    wr(g,G_TX_PTR_L,(uint32_t)g->tx.address);wr(g,G_TX_PTR_H,(uint32_t)(g->tx.address>>32));
++    wr(g,G_TX_ATTR,1);barrier(g);wr(g,G_TX_DMA_LEN,(uint32_t)n);barrier(g);return n;
++}
++void qbt_geni_set_flow(struct qbt_geni *g,bool enabled) {
++    g->flow=enabled;uint32_t cfg=rd(g,G_TX_CFG);
++    wr(g,G_TX_CFG,enabled?(cfg&~2u):(cfg|2u));
++    rfr(g,g->rx_busy && g->state==QBT_GENI_RUN);barrier(g);
++}
++int qbt_geni_quiesce(struct qbt_geni *g) {
++    if(g->state==QBT_GENI_STOPPED)return 0;
++    if(g->state==QBT_GENI_FAILED)return g->error;
++    if(g->state!=QBT_GENI_RUN)return -EINPROGRESS;
++    if(!qbt_geni_drained(g) || g->rx_ready)return -EBUSY;
++    g->state=QBT_GENI_CANCEL;rfr(g,false);
++    g->stop_deadline=g->ops.now_ns(g->ops.context)+G_STOP_TIMEOUT_NS;
++    wr(g,G_S_CTRL,G_CANCEL);barrier(g);return -EINPROGRESS;
++}
++int qbt_geni_resume(struct qbt_geni *g) { return qbt_geni_start(g); }
++uint64_t qbt_geni_deadline(const struct qbt_geni *g) { return g->stop_deadline?g->stop_deadline:UINT64_MAX; }
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_transport.c
+@@ -0,0 +1,471 @@
++/* SPDX-License-Identifier: APSL-2.0 */
++/* Copyright (c) 2026 daimile2 and contributors.
++ * Adapted for WCN7850 and XNU arm64e. See qbt_transport.c.license. */
++#include "qbt_transport.h"
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <kern/locks.h>
++#include <sys/kern_control.h>
++#include <sys/sysctl.h>
++#include <sys/mbuf.h>
++#include <sys/mcache.h>
++#include <sys/proc.h>
++#include <uuid/uuid.h>
++#include <skywalk/os_skywalk.h>
++#include <mach/mach_interface.h>
++#include <mach/semaphore.h>
++#include <mach/sync_policy.h>
++#include <kern/sync_sema.h>
++#include <kern/task.h>
++#define BT_SK_FIFO 8192u
++static struct qbt_transport_ops bt_ops;
++static uint32_t bt_sk_speed=115200;
++static uint64_t bt_sk_kicks_tx,bt_sk_kicks_rx;
++static void bt_kick(void)
++{
++    if(bt_ops.wake)bt_ops.wake(bt_ops.context);
++}
++struct bt_termios64 {
++    uint64_t iflag,oflag,cflag,lflag;
++    uint8_t cc[20];
++    uint32_t pad;
++    uint64_t ispeed,ospeed;
++};
++static LCK_GRP_DECLARE(bt_sk_grp,"unixnu.bt.uart.sk");
++static LCK_MTX_DECLARE(bt_sk_lock,&bt_sk_grp);
++static struct {
++    kern_ctl_ref ctl;
++    bool connected,creating,closing;
++    kern_nexus_t nexus;
++    uint32_t unit,spec[3];
++    struct bt_termios64 termios;
++    nexus_controller_t ncd;
++    uuid_t provider,instance;
++    kern_pbufpool_t pool;
++    kern_channel_ring_t rxring,txring;
++    unsigned busy;
++    uint32_t rx_head,rx_len,tx_head,tx_len;
++    uint8_t rx[BT_SK_FIFO],tx[BT_SK_FIFO];
++    int boot;           /* -1 pending, 0 ready, else errno */
++    bool power_pending;
++    int power_result;
++    char firmware[64];
++    uint64_t rx_dropped;
++} bt_sk={.boot=-1,.spec={2048,16,16}};
++
++/* Native stack activity: power requests, boot-state reads, control connects, channel requests. */
++volatile uint32_t qbt_transport_activity[4];
++static inline void bt_sk_count(unsigned index)
++{
++    (void)__atomic_add_fetch(&qbt_transport_activity[index],1u,__ATOMIC_RELAXED);
++}
++static void bt_sk_termios_default(void)
++{
++    memset(&bt_sk.termios,0,sizeof(bt_sk.termios));
++    /* The hardware line: 8N1, CREAD, RTS/CTS. */
++    bt_sk.termios.cflag=0x300|0x800|0x8000|0x10000|0x20000;
++    bt_sk.termios.ispeed=bt_sk.termios.ospeed=bt_sk_speed;
++}
++static void bt_sk_fifo_put(uint8_t *fifo,uint32_t head,uint32_t *len,const uint8_t *data,uint32_t n)
++{
++    uint32_t at=(head+*len)%BT_SK_FIFO,first=MIN(n,BT_SK_FIFO-at);
++    memcpy(fifo+at,data,first);memcpy(fifo,data+first,n-first);
++    *len+=n;
++}
++static void bt_sk_fifo_get(const uint8_t *fifo,uint32_t *head,uint32_t *len,uint8_t *data,uint32_t n)
++{
++    uint32_t first=MIN(n,BT_SK_FIFO-*head);
++    memcpy(data,fifo+*head,first);memcpy(data+first,fifo,n-first);
++    *head=(*head+n)%BT_SK_FIFO;*len-=n;
++}
++/* Ring notification outside the lock; disconnect drains these first. */
++static void bt_sk_notify(kern_channel_ring_t ring)
++{
++    if(!ring) {lck_mtx_unlock(&bt_sk_lock);return;}
++    ++bt_sk.busy;lck_mtx_unlock(&bt_sk_lock);
++    (void)kern_channel_notify(ring,0);
++    lck_mtx_lock(&bt_sk_lock);
++    if(!--bt_sk.busy) wakeup(&bt_sk.busy);
++    lck_mtx_unlock(&bt_sk_lock);
++}
++/* Called with the transport lock held by both sync callbacks. */
++static errno_t bt_sk_io_status(void)
++{
++    if(!bt_sk.connected || bt_sk.closing) return ENOTCONN;
++    return bt_sk.boot<0?EAGAIN:bt_sk.boot;
++}
++
++/* UART owner side. rx_put returns the bytes taken: all of them while no
++ * RX ring exists (discarded), else what fits in the FIFO. */
++uint32_t qbt_transport_receive(const uint8_t *data,uint32_t n)
++{
++    if(!n) return 0;
++    lck_mtx_lock(&bt_sk_lock);
++    if(!bt_sk.rxring || bt_sk.closing || bt_sk.boot) {
++        bt_sk.rx_dropped+=n;lck_mtx_unlock(&bt_sk_lock);return n;
++    }
++    if(n>BT_SK_FIFO-bt_sk.rx_len) n=BT_SK_FIFO-bt_sk.rx_len;
++    if(!n) {lck_mtx_unlock(&bt_sk_lock);return 0;}
++    bt_sk_fifo_put(bt_sk.rx,bt_sk.rx_head,&bt_sk.rx_len,data,n);
++    bt_sk_notify(bt_sk.rxring);
++    return n;
++}
++uint32_t qbt_transport_tx_pending(void)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    uint32_t n=bt_sk.tx_len;
++    lck_mtx_unlock(&bt_sk_lock);
++    return n;
++}
++uint32_t qbt_transport_tx_take(uint8_t *data,uint32_t max)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    uint32_t n=bt_sk.tx_len<max?bt_sk.tx_len:max;
++    bt_sk_fifo_get(bt_sk.tx,&bt_sk.tx_head,&bt_sk.tx_len,data,n);
++    if(n && bt_sk.txring && !bt_sk.closing) bt_sk_notify(bt_sk.txring);
++    else lck_mtx_unlock(&bt_sk_lock);
++    return n;
++}
++bool qbt_transport_active(void)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    bool active=bt_sk.connected && !bt_sk.closing && bt_sk.rxring && bt_sk.txring && !bt_sk.boot;
++    lck_mtx_unlock(&bt_sk_lock);return active;
++}
++
++/* Kernel pipe provider. */
++static errno_t bt_sk_pre_connect(kern_nexus_provider_t prov __unused,proc_t p __unused,kern_nexus_t nexus __unused,
++    nexus_port_t port __unused,kern_channel_t channel __unused,void **ctx __unused) {return 0;}
++static errno_t bt_sk_connected(kern_nexus_provider_t prov __unused,kern_nexus_t nexus,kern_channel_t channel __unused)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    bool valid=bt_sk.connected && !bt_sk.closing;
++    if(valid) bt_sk.nexus=nexus;
++    lck_mtx_unlock(&bt_sk_lock);
++    bt_kick();return valid?0:ENXIO;
++}
++/* bluetoothd closes the control socket before destroying its channel when it turns off, so this
++ * can arrive after bt_sk_disconnect finished. That channel no longer owns the transport state. */
++static void bt_sk_pre_disconnect(kern_nexus_provider_t prov __unused,kern_nexus_t nexus,kern_channel_t channel __unused)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    if(bt_sk.nexus==nexus) bt_sk.closing=true;
++    while(bt_sk.busy) (void)msleep(&bt_sk.busy,&bt_sk_lock,PZERO,"btsk",NULL);
++    lck_mtx_unlock(&bt_sk_lock);
++    bt_kick();
++}
++static void bt_sk_disconnected(kern_nexus_provider_t prov __unused,kern_nexus_t nexus __unused,kern_channel_t channel __unused) {}
++static errno_t bt_sk_ring_init(kern_nexus_provider_t prov __unused,kern_nexus_t nexus __unused,kern_channel_t channel __unused,
++    kern_channel_ring_t ring,boolean_t is_tx,void **ctx __unused)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    if(is_tx) bt_sk.txring=ring; else bt_sk.rxring=ring;
++    lck_mtx_unlock(&bt_sk_lock);
++    bt_kick();
++    return 0;
++}
++static void bt_sk_ring_fini(kern_nexus_provider_t prov __unused,kern_nexus_t nexus __unused,kern_channel_ring_t ring)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    if(bt_sk.txring==ring) bt_sk.txring=NULL;
++    if(bt_sk.rxring==ring) bt_sk.rxring=NULL;
++    lck_mtx_unlock(&bt_sk_lock);
++    bt_kick();
++}
++/* Host -> controller: whole slots into the TX FIFO; a slot that does not fit
++ * stays in the ring until the UART owner drains the FIFO and notifies. */
++static errno_t bt_sk_sync_tx(kern_nexus_provider_t prov __unused,kern_nexus_t nexus __unused,kern_channel_ring_t ring,uint32_t flags __unused)
++{
++    kern_channel_slot_t prev=NULL,slot;
++    errno_t error=0;
++    lck_mtx_lock(&bt_sk_lock);
++    error=bt_sk_io_status();
++    if(error) {lck_mtx_unlock(&bt_sk_lock);return error;}
++    for(slot=kern_channel_get_next_slot(ring,NULL,NULL);slot && !bt_sk.closing;slot=kern_channel_get_next_slot(ring,slot,NULL)) {
++        kern_packet_t ph=kern_channel_slot_get_packet(ring,slot);
++        if(ph) {
++            kern_buflet_t buf=kern_packet_get_next_buflet(ph,NULL);
++            uint32_t n=kern_packet_get_data_length(ph);
++            if(!buf || n>bt_sk.spec[0] || kern_buflet_get_data_offset(buf)>kern_buflet_get_data_limit(buf) ||
++                n>kern_buflet_get_data_limit(buf)-kern_buflet_get_data_offset(buf)) {
++                error=EPROTO;break;
++            }
++            if(n>BT_SK_FIFO-bt_sk.tx_len) break;
++            const uint8_t *data=(const uint8_t *)kern_buflet_get_data_address(buf)+kern_buflet_get_data_offset(buf);
++            bt_sk_fifo_put(bt_sk.tx,bt_sk.tx_head,&bt_sk.tx_len,data,n);
++        }
++        prev=slot;
++    }
++    if(prev) {kern_channel_advance_slot(ring,prev);(void)kern_channel_reclaim(ring);}
++    if(prev) ++bt_sk_kicks_tx;
++    lck_mtx_unlock(&bt_sk_lock);
++    if(prev) bt_kick();
++    return error;
++}
++/* Controller -> host: the RX FIFO into freshly allocated slot packets. */
++static errno_t bt_sk_sync_rx(kern_nexus_provider_t prov __unused,kern_nexus_t nexus,kern_channel_ring_t ring,uint32_t flags __unused)
++{
++    kern_channel_slot_t prev=NULL,slot;kern_pbufpool_t pool=NULL;
++    if(kern_nexus_get_pbufpool(nexus,NULL,&pool) || !pool) return 0;
++    lck_mtx_lock(&bt_sk_lock);
++    errno_t error=bt_sk_io_status();
++    if(error) {lck_mtx_unlock(&bt_sk_lock);return error;}
++    (void)kern_channel_reclaim(ring);
++    for(slot=kern_channel_get_next_slot(ring,NULL,NULL);slot && bt_sk.rx_len && !bt_sk.closing;slot=kern_channel_get_next_slot(ring,slot,NULL)) {
++        kern_packet_t ph=0;
++        if(kern_pbufpool_alloc_nosleep(pool,1,&ph)) break;
++        kern_buflet_t buf=kern_packet_get_next_buflet(ph,NULL);
++        uint32_t n=bt_sk.rx_len<bt_sk.spec[0]?bt_sk.rx_len:bt_sk.spec[0];
++        if(!buf || !kern_buflet_get_data_address(buf) || n>kern_buflet_get_data_limit(buf)) {
++            kern_pbufpool_free(pool,ph);break;
++        }
++        uint32_t head=bt_sk.rx_head,length=bt_sk.rx_len;
++        bt_sk_fifo_get(bt_sk.rx,&head,&length,kern_buflet_get_data_address(buf),n);
++        kern_packet_clear_flow_uuid(ph);
++        if(kern_buflet_set_data_offset(buf,0) || kern_buflet_set_data_length(buf,n) ||
++            kern_packet_finalize(ph) || kern_channel_slot_attach_packet(ring,slot,ph)) {
++            kern_pbufpool_free(pool,ph);break;
++        }
++        bt_sk.rx_head=head;bt_sk.rx_len=length;
++        prev=slot;
++    }
++    if(prev) {kern_channel_advance_slot(ring,prev);++bt_sk_kicks_rx;}
++    lck_mtx_unlock(&bt_sk_lock);
++    if(prev) bt_kick();
++    return 0;
++}
++
++static void bt_sk_destroy(nexus_controller_t ncd,const uuid_t provider,const uuid_t instance,kern_pbufpool_t pool)
++{
++    if(!uuid_is_null(instance)) (void)kern_nexus_controller_free_provider_instance(ncd,instance);
++    if(pool) kern_pbufpool_destroy(pool);
++    if(!uuid_is_null(provider)) (void)kern_nexus_controller_deregister_provider(ncd,provider);
++    if(ncd) kern_nexus_controller_destroy(ncd);
++}
++static errno_t bt_sk_create(const uint32_t spec[3],pid_t pid,nexus_controller_t *ncdp,uuid_t provider,uuid_t instance,kern_pbufpool_t *poolp)
++{
++    nexus_controller_t ncd=NULL;nexus_attr_t attr=NULL;kern_pbufpool_t pool=NULL;uuid_t domain;
++    uuid_clear(provider);uuid_clear(instance);
++    errno_t e=kern_nexus_controller_create(&ncd);
++    if(!e) e=kern_nexus_get_default_domain_provider(NEXUS_TYPE_KERNEL_PIPE,&domain);
++    if(!e) e=kern_nexus_attr_create(&attr);
++    if(!e) e=kern_nexus_attr_set(attr,NEXUS_ATTR_SLOT_BUF_SIZE,spec[0]);
++    if(!e) e=kern_nexus_attr_set(attr,NEXUS_ATTR_TX_SLOTS,spec[1]);
++    if(!e) e=kern_nexus_attr_set(attr,NEXUS_ATTR_RX_SLOTS,spec[2]);
++    if(!e) {
++        struct kern_nexus_provider_init init={
++            .nxpi_version=KERN_NEXUS_DOMAIN_PROVIDER_CURRENT_VERSION,.nxpi_flags=NXPIF_VIRTUAL_DEVICE,
++            .nxpi_pre_connect=bt_sk_pre_connect,.nxpi_connected=bt_sk_connected,
++            .nxpi_pre_disconnect=bt_sk_pre_disconnect,.nxpi_disconnected=bt_sk_disconnected,
++            .nxpi_ring_init=bt_sk_ring_init,.nxpi_ring_fini=bt_sk_ring_fini,
++            .nxpi_sync_tx=bt_sk_sync_tx,.nxpi_sync_rx=bt_sk_sync_rx,
++        };
++        e=kern_nexus_controller_register_provider(ncd,domain,(const uint8_t *)"com.apple.uart.sk.bluetooth",&init,sizeof(init),attr,(uuid_t *)provider);
++    }
++    if(attr) kern_nexus_attr_destroy(attr);
++    if(!e) {
++        struct kern_pbufpool_init pp={.kbi_version=KERN_PBUFPOOL_CURRENT_VERSION,.kbi_flags=KBIF_VIRTUAL_DEVICE|KBIF_QUANTUM,
++            .kbi_packets=(spec[1]+spec[2])*2,.kbi_bufsize=spec[0],.kbi_max_frags=1};
++        (void)snprintf((char *)pp.kbi_name,sizeof(pp.kbi_name),"com.apple.kpipe.uart.bluetooth");
++        e=kern_pbufpool_create(&pp,&pool,NULL);
++    }
++    if(!e) {
++        struct kern_nexus_init init={.nxi_version=KERN_NEXUS_CURRENT_VERSION,.nxi_tx_pbufpool=pool};
++        e=kern_nexus_controller_alloc_provider_instance(ncd,provider,NULL,NULL,(uuid_t *)instance,&init);
++    }
++    if(!e) {
++        nexus_port_t port=NEXUS_PORT_KERNEL_PIPE_CLIENT;
++        e=kern_nexus_controller_bind_provider_instance(ncd,instance,&port,pid,NULL,NULL,0,NEXUS_BIND_PID);
++    }
++    if(e) {bt_sk_destroy(ncd,provider,instance,pool);return e;}
++    *ncdp=ncd;*poolp=pool;
++    return 0;
++}
++
++/* Kernel control. */
++static errno_t bt_sk_connect(kern_ctl_ref ref __unused,struct sockaddr_ctl *sac,void **unitinfo)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    if(bt_sk.connected) {lck_mtx_unlock(&bt_sk_lock);return EBUSY;}
++    bt_sk.connected=true;bt_sk.closing=false;bt_sk.unit=sac->sc_unit;*unitinfo=&bt_sk;
++    bt_sk_termios_default();
++    lck_mtx_unlock(&bt_sk_lock);
++    bt_sk_count(2);
++    printf("[bluetooth sk] connect unit=%u pid=%d\n",sac->sc_unit,proc_pid(current_proc()));
++    /* A client on a stopped controller restarts it; failures reach the client through I/O status. */
++    if(bt_sk.boot>0 && bt_ops.power)(void)bt_ops.power(bt_ops.context,true);
++    return 0;
++}
++static errno_t bt_sk_disconnect(kern_ctl_ref ref __unused,u_int32_t unit,void *unitinfo __unused)
++{
++    lck_mtx_lock(&bt_sk_lock);
++    if(!bt_sk.connected || bt_sk.unit!=unit) {lck_mtx_unlock(&bt_sk_lock);return 0;}
++    bt_sk.closing=true;
++    while(bt_sk.creating) (void)msleep(&bt_sk.creating,&bt_sk_lock,PZERO,"btskclose",NULL);
++    while(bt_sk.busy) (void)msleep(&bt_sk.busy,&bt_sk_lock,PZERO,"btskclose",NULL);
++    nexus_controller_t ncd=bt_sk.ncd;kern_pbufpool_t pool=bt_sk.pool;uuid_t provider,instance;
++    uuid_copy(provider,bt_sk.provider);uuid_copy(instance,bt_sk.instance);
++    bt_sk.ncd=NULL;bt_sk.pool=NULL;uuid_clear(bt_sk.provider);uuid_clear(bt_sk.instance);
++    lck_mtx_unlock(&bt_sk_lock);
++    if(ncd) bt_sk_destroy(ncd,provider,instance,pool);
++    lck_mtx_lock(&bt_sk_lock);
++    printf("[bluetooth sk] disconnect unit=%u rx_dropped=%llu\n",unit,bt_sk.rx_dropped);
++    bt_sk.connected=bt_sk.closing=false;bt_sk.nexus=NULL;
++    /* A channel that outlives this session gets no more notifications; its ring_fini finds nothing to clear. */
++    bt_sk.rxring=bt_sk.txring=NULL;
++    bt_sk.rx_head=bt_sk.rx_len=bt_sk.tx_head=bt_sk.tx_len=0;
++    bt_sk.spec[0]=2048;bt_sk.spec[1]=bt_sk.spec[2]=16;
++    lck_mtx_unlock(&bt_sk_lock);
++    bt_kick();
++    return 0;
++}
++static errno_t bt_sk_send(kern_ctl_ref ref __unused,u_int32_t unit __unused,void *unitinfo __unused,mbuf_t m,int flags __unused)
++{
++    mbuf_freem(m);
++    return EOPNOTSUPP;
++}
++static errno_t bt_sk_setopt(kern_ctl_ref ref __unused,u_int32_t unit __unused,void *unitinfo __unused,int opt,void *data,size_t len)
++{
++    if((uint32_t)opt==0x800c5414u) {             /* IOAOSSKYSETCHANNELSPEC */
++        if(len!=12) return EINVAL;
++        const uint32_t *spec=data;
++        lck_mtx_lock(&bt_sk_lock);
++        if(!bt_sk.connected || bt_sk.closing) {lck_mtx_unlock(&bt_sk_lock);return ENXIO;}
++        if(bt_sk.ncd) {lck_mtx_unlock(&bt_sk_lock);return 0;}
++        if(bt_sk.creating) {lck_mtx_unlock(&bt_sk_lock);return EBUSY;}
++        if(!spec[0] || (spec[0]&(spec[0]-1)) || spec[0]>4096 || spec[1]-1>=512 || spec[2]-1>=512) {
++            lck_mtx_unlock(&bt_sk_lock);return EINVAL;
++        }
++        memcpy(bt_sk.spec,spec,12);bt_sk.creating=true;
++        lck_mtx_unlock(&bt_sk_lock);
++        nexus_controller_t ncd=NULL;kern_pbufpool_t pool=NULL;uuid_t provider,instance;
++        pid_t pid=proc_pid(current_proc());
++        errno_t e=bt_sk_create(spec,pid,&ncd,provider,instance,&pool);
++        lck_mtx_lock(&bt_sk_lock);
++        bt_sk.creating=false;
++        if(!e) {bt_sk.ncd=ncd;bt_sk.pool=pool;uuid_copy(bt_sk.provider,provider);uuid_copy(bt_sk.instance,instance);}
++        wakeup(&bt_sk.creating);
++        lck_mtx_unlock(&bt_sk_lock);
++        bt_sk_count(3);
++        printf("[bluetooth sk] channel spec buf=%u slots=%u/%u pid=%d error=%d\n",spec[0],spec[1],spec[2],pid,e);
++        return e?ENXIO:0;
++    }
++    if((uint32_t)opt==0x80487414u) {             /* TIOCSETA */
++        if(len!=sizeof(struct bt_termios64)) return EINVAL;
++        const struct bt_termios64 *t=data;
++        /* The line is fixed at 8N1 RTS/CTS and the operating speed set in the bring-up. */
++        bool ok=(t->cflag&(0x300|0x400|0x1000))==0x300 && (t->cflag&0x30000)==0x30000 &&
++            t->ispeed==bt_sk_speed && t->ospeed==bt_sk_speed;
++        printf("[bluetooth sk] TIOCSETA cflag=%#llx speed=%llu/%llu %s\n",t->cflag,t->ispeed,t->ospeed,ok?"accepted":"unsupported");
++        if(!ok) return EINVAL;
++        lck_mtx_lock(&bt_sk_lock);bt_sk.termios=*t;lck_mtx_unlock(&bt_sk_lock);
++        return 0;
++    }
++    return ENOPROTOOPT;
++}
++static errno_t bt_sk_getopt(kern_ctl_ref ref __unused,u_int32_t unit __unused,void *unitinfo __unused,int opt,void *data,size_t *len)
++{
++    errno_t e=0;
++    lck_mtx_lock(&bt_sk_lock);
++    if((uint32_t)opt==0x400c5413u) {              /* channel spec */
++        if(*len<12) e=EINVAL; else {memcpy(data,bt_sk.spec,12);*len=12;}
++    } else if((uint32_t)opt==0x40105412u) {       /* nexus UUID */
++        if(*len<sizeof(uuid_t)) e=EINVAL;
++        else if(!bt_sk.ncd) e=ENXIO;
++        else {memcpy(data,bt_sk.instance,sizeof(uuid_t));*len=sizeof(uuid_t);}
++    } else if((uint32_t)opt==0x40487413u) {       /* TIOCGETA */
++        if(*len<sizeof(struct bt_termios64)) e=EINVAL;
++        else {memcpy(data,&bt_sk.termios,sizeof(struct bt_termios64));*len=sizeof(struct bt_termios64);}
++    } else e=ENOPROTOOPT;
++    lck_mtx_unlock(&bt_sk_lock);
++    return e;
++}
++
++static int bt_sk_boot_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(oidp,arg1,arg2)
++    int error=0,value;
++    bt_sk_count(1);
++    lck_mtx_lock(&bt_sk_lock);
++    struct timespec timeout={30,0};
++    while(bt_sk.boot<0 && !error) error=msleep(&bt_sk.boot,&bt_sk_lock,PZERO|PCATCH,"btboot",&timeout);
++    value=bt_sk.boot;
++    lck_mtx_unlock(&bt_sk_lock);
++    return error?error:SYSCTL_OUT(req,&value,sizeof(value));
++}
++SYSCTL_PROC(_kern,OID_AUTO,qbt_boot,CTLTYPE_INT|CTLFLAG_RD|CTLFLAG_LOCKED,NULL,0,bt_sk_boot_sysctl,"I","WCN7850 kernel bring-up result");
++SYSCTL_STRING(_kern,OID_AUTO,qbt_firmware,CTLFLAG_RD|CTLFLAG_LOCKED,bt_sk.firmware,sizeof(bt_sk.firmware),"WCN7850 firmware build label");
++
++/* BlueTool's sandbox denies sysctl writes, so reading this value requests startup
++ * and waits for the worker's result. The worker keeps a running controller as it is. */
++static int bt_sk_power_on_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(oidp,arg1,arg2)
++    int error=0,result=0;
++    if(req->newptr)return EPERM;
++    if(!req->oldptr)return SYSCTL_OUT(req,&result,sizeof(result));
++    bt_sk_count(0);
++    lck_mtx_lock(&bt_sk_lock);
++    if(bt_sk.power_pending || !bt_ops.power){lck_mtx_unlock(&bt_sk_lock);return EBUSY;}
++    bt_sk.power_pending=true;bt_sk.power_result=EINPROGRESS;
++    lck_mtx_unlock(&bt_sk_lock);
++    error=bt_ops.power(bt_ops.context,true);
++    lck_mtx_lock(&bt_sk_lock);
++    if(error){bt_sk.power_pending=false;bt_sk.power_result=error;}
++    struct timespec timeout={30,0};
++    while(bt_sk.power_pending && !error)error=msleep(&bt_sk.power_pending,&bt_sk_lock,PZERO|PCATCH,"btpower",&timeout);
++    result=bt_sk.power_result;lck_mtx_unlock(&bt_sk_lock);
++    return error?error:SYSCTL_OUT(req,&result,sizeof(result));
++}
++SYSCTL_PROC(_kern,OID_AUTO,qbt_power_on,CTLTYPE_INT|CTLFLAG_RD|CTLFLAG_LOCKED,NULL,0,bt_sk_power_on_sysctl,"I","WCN7850 startup request");
++
++int qbt_transport_init(const struct qbt_transport_ops *ops)
++{
++    if(!ops || !ops->wake || !ops->power)return EINVAL;
++    lck_mtx_lock(&bt_sk_lock);
++    if(bt_ops.wake){lck_mtx_unlock(&bt_sk_lock);return EALREADY;}
++    bt_ops=*ops;lck_mtx_unlock(&bt_sk_lock);return 0;
++}
++
++/* Called once by the UART owner: 0 after a complete bring-up (with the
++ * UART speed it configured), else errno. */
++void qbt_transport_power_result(bool enabled,int error,const char *firmware,uint32_t speed)
++{
++    if(enabled && !error && !bt_sk.ctl) {
++        bt_sk_speed=speed;
++        struct kern_ctl_reg reg={.ctl_flags=CTL_FLAG_REG_SOCK_STREAM,
++            .ctl_connect=bt_sk_connect,.ctl_disconnect=bt_sk_disconnect,.ctl_send=bt_sk_send,
++            .ctl_setopt=bt_sk_setopt,.ctl_getopt=bt_sk_getopt};
++        strlcpy(reg.ctl_name,"com.apple.uart.sk.bluetooth",sizeof(reg.ctl_name));
++        error=ctl_register(&reg,&bt_sk.ctl);
++        printf("[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=%d firmware=%s speed=%u\n",error,firmware,speed);
++    }
++    lck_mtx_lock(&bt_sk_lock);
++    if(firmware) strlcpy(bt_sk.firmware,firmware,sizeof(bt_sk.firmware));
++    if(enabled && !error){bt_sk_speed=speed;bt_sk_termios_default();}
++    bt_sk.boot=error?error:enabled?0:ENETDOWN;
++    if(!enabled || error)bt_sk.rx_head=bt_sk.rx_len=bt_sk.tx_head=bt_sk.tx_len=0;
++    bt_sk.power_pending=false;bt_sk.power_result=error;
++    kern_channel_ring_t rx=NULL,tx=NULL;
++    if(bt_sk.boot && bt_sk.connected && !bt_sk.closing) {
++        rx=bt_sk.rxring;tx=bt_sk.txring;
++        if(rx || tx) ++bt_sk.busy;
++    }
++    lck_mtx_unlock(&bt_sk_lock);
++    wakeup(&bt_sk.boot);
++    wakeup(&bt_sk.power_pending);
++    /* Wake blocked channel users so their next sync observes the error. The
++     * busy reference keeps both rings alive until notifications finish. */
++    if(rx) (void)kern_channel_notify(rx,0);
++    if(tx && tx!=rx) (void)kern_channel_notify(tx,0);
++    if(rx || tx) {
++        lck_mtx_lock(&bt_sk_lock);
++        if(!--bt_sk.busy) wakeup(&bt_sk.busy);
++        lck_mtx_unlock(&bt_sk_lock);
++    }
++    bt_kick();
++}
++void qbt_transport_boot_result(int error,const char *firmware,uint32_t speed)
++{
++    qbt_transport_power_result(true,error,firmware,speed);
++}
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_linux.c
+@@ -0,0 +1,122 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#include "qbt_linux.h"
++#include "btqca.h"
++#include <stdarg.h>
++/* Linux startup runs on the single owning wireless executor. The other
++ * adapters receive their hci_dev explicitly; allocation helpers use this scope. */
++static struct qbt *startup_owner;
++struct allocation { size_t size; struct qbt *q; unsigned char bytes[]; };
++void *vmalloc(size_t n) {
++    struct qbt *q=startup_owner;
++    if (!q || n > SIZE_MAX-sizeof(struct allocation)) return NULL;
++    struct allocation *p=q->ops.allocate(q->ops.context,sizeof(*p)+n);
++    if (!p) return NULL; p->size=n; p->q=q; return p->bytes;
++}
++void vfree(void *bytes) {
++    if (!bytes) return;
++    struct allocation *p=(void *)((unsigned char *)bytes-sizeof(struct allocation));
++    p->q->ops.release(p->q->ops.context,p,sizeof(*p)+p->size);
++}
++void kfree(void *p) { vfree(p); }
++char *kstrndup(const void *s,size_t n,int flags) {
++    (void)flags; char *out=vmalloc(n+1); if(out) {memcpy(out,s,n);out[n]=0;} return out;
++}
++size_t strscpy(char *out,const char *s,size_t n) {
++    size_t len=strlen(s); if(n) {size_t take=len<n-1?len:n-1;memcpy(out,s,take);out[take]=0;}return len;
++}
++void msleep(unsigned n) { if(startup_owner) qbt_delay(startup_owner,n); }
++struct sk_buff *bt_skb_alloc(size_t n,int flags) {
++    (void)flags;
++    if (n>300 || !startup_owner) return NULL;
++    struct sk_buff *s=vmalloc(sizeof(*s));
++    if(s) {memset(s,0,sizeof(*s));s->q=startup_owner;s->data=s->storage;s->capacity=sizeof(s->storage);}return s;
++}
++void kfree_skb(struct sk_buff *s) { vfree(s); }
++void *skb_put(struct sk_buff *s,size_t n) {
++    if(n>s->capacity-s->len) return NULL;
++    void *p=s->data+s->len;s->len+=n;return p;
++}
++void skb_put_u8(struct sk_buff *s,u8 v) {u8 *p=skb_put(s,1);if(p)*p=v;}
++void *skb_pull_data(struct sk_buff *s,size_t n) {
++    if(n>s->len)return NULL;void *p=s->data;s->data+=n;s->len-=n;s->capacity-=n;return p;
++}
++/* btqca's synthetic completion serves its Linux command scheduler during
++ * download. It stays inside startup and never reaches the native transport. */
++int hci_recv_frame(struct hci_dev *h,struct sk_buff *s) {(void)h;kfree_skb(s);return 0;}
++struct sk_buff *__hci_cmd_sync_ev(struct hci_dev *h,u16 op,unsigned n,const void *p,u8 event,unsigned timeout) {
++    (void)timeout;
++    struct sk_buff *s=bt_skb_alloc(258,0);if(!s)return ERR_PTR(-ENOMEM);
++    size_t length=s->capacity;
++    int e=qbt_command(h->q,op,p,n,event==HCI_EV_CMD_COMPLETE?0:event,s->data,&length);
++    if (!e && (event == 0 || event == HCI_EV_CMD_COMPLETE) && (!length || s->data[0])) e = -EIO;
++    if(e){kfree_skb(s);return ERR_PTR(e);}s->len=length;return s;
++}
++struct sk_buff *__hci_cmd_sync(struct hci_dev *h,u16 op,unsigned n,const void *p,unsigned timeout) {
++    return __hci_cmd_sync_ev(h,op,n,p,0,timeout);
++}
++int __hci_cmd_send(struct hci_dev *h,u16 op,unsigned n,const void *p) {return qbt_send_command(h->q,op,p,n);}
++int __hci_reset_sync(struct hci_dev *h) {
++    struct sk_buff *s=__hci_cmd_sync(h,0x0c03,0,NULL,HCI_INIT_TIMEOUT);
++    if(IS_ERR(s))return PTR_ERR(s);int e=s->len==1&&!s->data[0]?0:-EIO;kfree_skb(s);return e;
++}
++int request_firmware(const struct firmware **out,const char *name,void *device) {
++    struct qbt *q=((struct qbt_device *)device)->q;
++    struct firmware *f=vmalloc(sizeof(*f));if(!f)return -ENOMEM;
++    f->q=q;int e=q->ops.firmware_get(q->ops.context,name,&f->data,&f->size);
++    if(e){vfree(f);return e;}*out=f;return 0;
++}
++void release_firmware(const struct firmware *f) {
++    f->q->ops.firmware_put(f->q->ops.context,f->data,f->size);vfree((void *)f);
++}
++void hci_set_fw_info(struct hci_dev *h,const char *fmt,...) {
++    va_list ap;va_start(ap,fmt);vsnprintf(h->q->info.firmware,sizeof(h->q->info.firmware),fmt,ap);va_end(ap);
++}
++void hci_set_quirk(struct hci_dev *h,unsigned value) {(void)h;(void)value;}
++void hci_set_msft_opcode(struct hci_dev *h,unsigned value) {(void)h;(void)value;}
++static int set_speed(struct qbt *q,uint32_t speed,uint8_t baud) {
++    int e=q->ops.uart_flow(q->ops.context,false);if(e)return e;
++    q->speed_reply=false;
++    e=qbt_send_command(q,0xfc48,&baud,1);
++    if(!e)e=qbt_drain(q,q->ops.now_ns(q->ops.context)+QBT_COMMAND_TIMEOUT);
++    if(!e){qbt_delay(q,1);e=q->ops.uart_speed(q->ops.context,speed);}
++    int flow=q->ops.uart_flow(q->ops.context,true);if(!e)e=flow;
++    /* The first TLV segment holds the download mode and is lost if it precedes the switch. */
++    for(unsigned ms=0;!e && !q->speed_reply && ms<QBT_SPEED_REPLY_MS;ms++)qbt_delay(q,1);
++    if(!e)qbt_delay(q,QBT_SPEED_SETTLE_MS);
++    if(!e)q->info.baud=speed;return e;
++}
++int qbt_boot(struct qbt *q,uint32_t speed,const uint8_t address[6]) {
++    if(!address || !(address[0]|address[1]|address[2]|address[3]|address[4]|address[5]) || (address[0]&1))return -EINVAL;
++    uint8_t baud;
++    switch(speed) {case 115200:baud=QCA_BAUDRATE_115200;break;case 3000000:baud=QCA_BAUDRATE_3000000;break;
++    case 3200000:baud=QCA_BAUDRATE_3200000;break;case 4000000:baud=QCA_BAUDRATE_4000000;break;default:return -EINVAL;}
++    struct qbt *expected=NULL;
++    if(!__atomic_compare_exchange_n(&startup_owner,&expected,q,false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return -EBUSY;
++    struct qbt_platform platform=q->ops;struct qbt_stats stats=q->stats;
++    memset(q,0,sizeof(*q));q->ops=platform;q->stats=stats;q->stats.tlv_sent=q->stats.tlv_acks=0;q->clock_on=true;q->info.baud=115200;q->info.state=1;
++    struct hci_dev h={.q=q,.dev={.q=q}};struct qca_btsoc_version version;
++    int e=qca_read_soc_version(&h,&version,QCA_WCN6855);
++    if(!e) {
++        q->info.product=version.product_id;q->info.soc=version.soc_id;q->info.rom=version.rom_ver;q->info.patch=version.patch_ver;
++        if(speed!=115200)e=set_speed(q,speed,baud);
++    }
++    if(!e)e=qca_uart_setup(&h,baud,QCA_WCN6855,version,NULL,NULL);
++    if(!e) {
++        q->ibs=true;q->tx_state=QBT_ASLEEP;q->rx_awake=false;
++        bdaddr_t local;for(unsigned i=0;i<6;i++)local.b[i]=address[5-i];e=qca_set_bdaddr(&h,&local);
++    }
++    __atomic_store_n(&startup_owner,NULL,__ATOMIC_RELEASE);q->info.error=e;q->info.state=e?3:2;
++    if(e) {q->ibs=false;q->command_length=q->command_offset=0;q->retry_at=q->idle_at=0;}
++    else q->stats.resets++;
++    return e;
++}
++int qbt_shutdown(struct qbt *q) {
++    struct qbt *expected=NULL;
++    if(!__atomic_compare_exchange_n(&startup_owner,&expected,q,false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return -EBUSY;
++    qbt_set_service(q,false);
++    struct hci_dev h={.q=q,.dev={.q=q}};
++    int e=q->info.state==2?qca_send_pre_shutdown_cmd(&h):0;
++    __atomic_store_n(&startup_owner,NULL,__ATOMIC_RELEASE);q->ibs=false;q->waiting=false;
++    q->command_length=q->command_offset=q->control_length=0;q->retry_at=q->idle_at=0;
++    q->header_need=q->body=0;q->info.state=0;q->info.error=e;return e;
++}
+--- /dev/null
++++ b/bsd/dev/qbt/qbt_linux.h
+@@ -0,0 +1,101 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Narrow host services for the unmodified Linux btqca.c initialization code. */
++#ifndef QBT_LINUX_H
++#define QBT_LINUX_H
++#include "qbt_internal.h"
++#include <stdint.h>
++#include <stdbool.h>
++#include <stddef.h>
++/* Namespace the Linux services and btqca exports in the combined XNU image.
++ * The source fetched by prepare-linux.py remains byte-identical upstream. */
++#define vmalloc qbt_lx_vmalloc
++#define vfree qbt_lx_vfree
++#define kfree qbt_lx_kfree
++#define kstrndup qbt_lx_kstrndup
++#define strscpy qbt_lx_strscpy
++#define msleep qbt_lx_msleep
++#define bt_skb_alloc qbt_lx_bt_skb_alloc
++#define kfree_skb qbt_lx_kfree_skb
++#define skb_put qbt_lx_skb_put
++#define skb_put_u8 qbt_lx_skb_put_u8
++#define skb_pull_data qbt_lx_skb_pull_data
++#define hci_recv_frame qbt_lx_hci_recv_frame
++#define __hci_cmd_sync_ev qbt_lx_hci_cmd_sync_ev
++#define __hci_cmd_sync qbt_lx_hci_cmd_sync
++#define __hci_cmd_send qbt_lx_hci_cmd_send
++#define __hci_reset_sync qbt_lx_hci_reset_sync
++#define request_firmware qbt_lx_request_firmware
++#define release_firmware qbt_lx_release_firmware
++#define hci_set_fw_info qbt_lx_hci_set_fw_info
++#define hci_set_quirk qbt_lx_hci_set_quirk
++#define hci_set_msft_opcode qbt_lx_hci_set_msft_opcode
++#define qca_check_bdaddr qbt_lx_qca_check_bdaddr
++#define qca_set_bdaddr qbt_lx_qca_set_bdaddr
++#define qca_set_bdaddr_rome qbt_lx_qca_set_bdaddr_rome
++#define qca_read_soc_version qbt_lx_qca_read_soc_version
++#define qca_uart_setup qbt_lx_qca_uart_setup
++#define qca_send_pre_shutdown_cmd qbt_lx_qca_send_pre_shutdown_cmd
++#define qca_set_speed qbt_lx_qca_set_speed
++typedef uint8_t u8, __u8;
++typedef uint16_t u16, __le16;
++typedef uint32_t u32, __le32;
++#define __packed __attribute__((packed))
++#define IS_ENABLED(x) 1
++#define le16_to_cpu(x) (x)
++#define le32_to_cpu(x) (x)
++#define cpu_to_le16(x) (x)
++#define GFP_KERNEL 0
++#define HCI_INIT_TIMEOUT 10000
++#define HCI_EV_VENDOR 0xff
++#define HCI_EV_CMD_COMPLETE 0x0e
++#define HCI_EVENT_PKT 4
++#define HCI_OP_READ_BD_ADDR 0x1009
++#define HCI_QUIRK_USE_BDADDR_PROPERTY 1
++#define EXPORT_SYMBOL_GPL(x)
++#define MODULE_AUTHOR(x)
++#define MODULE_DESCRIPTION(x)
++#define MODULE_LICENSE(x)
++#define ERR_PTR(e) ((void *)(intptr_t)(e))
++#define IS_ERR(p) ((uintptr_t)(p) >= (uintptr_t)-4095)
++#define PTR_ERR(p) ((int)(intptr_t)(p))
++#define min(a,b) ((a) < (b) ? (a) : (b))
++typedef struct { u8 b[6]; } bdaddr_t;
++static const bdaddr_t qbt_zero_address = {{0}};
++#define BDADDR_ANY (&qbt_zero_address)
++static inline int bacmp(const bdaddr_t *a, const bdaddr_t *b) { return memcmp(a,b,6); }
++static inline void baswap(bdaddr_t *a, const bdaddr_t *b) { for(unsigned i=0;i<6;i++) a->b[i]=b->b[5-i]; }
++struct qbt_device { struct qbt *q; };
++struct hci_dev { struct qbt *q; struct qbt_device dev; bdaddr_t public_addr; };
++struct sk_buff { struct qbt *q; u8 *data; size_t len, capacity; u8 type; u8 storage[300]; };
++struct firmware { const u8 *data; size_t size; struct qbt *q; };
++struct hci_event_hdr { u8 evt, plen; } __packed;
++struct hci_ev_cmd_complete { u8 ncmd; u16 opcode; } __packed;
++struct hci_rp_read_bd_addr { u8 status; bdaddr_t bdaddr; } __packed;
++struct sk_buff *__hci_cmd_sync_ev(struct hci_dev *, u16, unsigned, const void *, u8, unsigned);
++struct sk_buff *__hci_cmd_sync(struct hci_dev *, u16, unsigned, const void *, unsigned);
++int __hci_cmd_send(struct hci_dev *, u16, unsigned, const void *);
++int __hci_reset_sync(struct hci_dev *);
++struct sk_buff *bt_skb_alloc(size_t, int);
++void kfree_skb(struct sk_buff *);
++void *skb_put(struct sk_buff *, size_t);
++void skb_put_u8(struct sk_buff *, u8);
++void *skb_pull_data(struct sk_buff *, size_t);
++int hci_recv_frame(struct hci_dev *, struct sk_buff *);
++#define hci_skb_pkt_type(s) ((s)->type)
++int request_firmware(const struct firmware **, const char *, void *);
++void release_firmware(const struct firmware *);
++void *vmalloc(size_t);
++void vfree(void *);
++void kfree(void *);
++char *kstrndup(const void *, size_t, int);
++size_t strscpy(char *, const char *, size_t);
++void msleep(unsigned);
++void hci_set_fw_info(struct hci_dev *, const char *, ...);
++void hci_set_quirk(struct hci_dev *, unsigned);
++void hci_set_msft_opcode(struct hci_dev *, unsigned);
++#define bt_dev_dbg(h,fmt,...) do { if (0) qbt_linux_log((h)->q,7,fmt,##__VA_ARGS__); } while (0)
++#define bt_dev_info(h,fmt,...) qbt_linux_log((h)->q,6,fmt,##__VA_ARGS__)
++#define bt_dev_err(h,fmt,...) qbt_linux_log((h)->q,3,fmt,##__VA_ARGS__)
++#define BT_DBG(...) ((void)0)
++#define BT_ERR(...) ((void)0)
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/btqca.c
+@@ -0,0 +1,1030 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ *  Bluetooth supports for Qualcomm Atheros chips
++ *
++ *  Copyright (c) 2015 The Linux Foundation. All rights reserved.
++ */
++#include <linux/module.h>
++#include <linux/firmware.h>
++#include <linux/vmalloc.h>
++
++#include <net/bluetooth/bluetooth.h>
++#include <net/bluetooth/hci_core.h>
++
++#include "btqca.h"
++
++int qca_read_soc_version(struct hci_dev *hdev, struct qca_btsoc_version *ver,
++			 enum qca_btsoc_type soc_type)
++{
++	struct sk_buff *skb;
++	struct edl_event_hdr *edl;
++	char cmd;
++	int err = 0;
++	u8 event_type = HCI_EV_VENDOR;
++	u8 rlen = sizeof(*edl) + sizeof(*ver);
++	u8 rtype = EDL_APP_VER_RES_EVT;
++
++	bt_dev_dbg(hdev, "QCA Version Request");
++
++	/* Unlike other SoC's sending version command response as payload to
++	 * VSE event. WCN3991 sends version command response as a payload to
++	 * command complete event.
++	 */
++	if (soc_type >= QCA_WCN3991) {
++		event_type = 0;
++		rlen += 1;
++		rtype = EDL_PATCH_VER_REQ_CMD;
++	}
++
++	cmd = EDL_PATCH_VER_REQ_CMD;
++	skb = __hci_cmd_sync_ev(hdev, EDL_PATCH_CMD_OPCODE, EDL_PATCH_CMD_LEN,
++				&cmd, event_type, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "Reading QCA version information failed (%d)",
++			   err);
++		return err;
++	}
++
++	if (skb->len != rlen) {
++		bt_dev_err(hdev, "QCA Version size mismatch len %d", skb->len);
++		err = -EILSEQ;
++		goto out;
++	}
++
++	edl = (struct edl_event_hdr *)(skb->data);
++
++	if (edl->cresp != EDL_CMD_REQ_RES_EVT ||
++	    edl->rtype != rtype) {
++		bt_dev_err(hdev, "QCA Wrong packet received %d %d", edl->cresp,
++			   edl->rtype);
++		err = -EIO;
++		goto out;
++	}
++
++	if (soc_type >= QCA_WCN3991)
++		memcpy(ver, edl->data + 1, sizeof(*ver));
++	else
++		memcpy(ver, &edl->data, sizeof(*ver));
++
++	bt_dev_info(hdev, "QCA Product ID   :0x%08x",
++		    le32_to_cpu(ver->product_id));
++	bt_dev_info(hdev, "QCA SOC Version  :0x%08x",
++		    le32_to_cpu(ver->soc_id));
++	bt_dev_info(hdev, "QCA ROM Version  :0x%08x",
++		    le16_to_cpu(ver->rom_ver));
++	bt_dev_info(hdev, "QCA Patch Version:0x%08x",
++		    le16_to_cpu(ver->patch_ver));
++
++	if (ver->soc_id == 0 || ver->rom_ver == 0)
++		err = -EILSEQ;
++
++out:
++	kfree_skb(skb);
++	if (err)
++		bt_dev_err(hdev, "QCA Failed to get version (%d)", err);
++
++	return err;
++}
++EXPORT_SYMBOL_GPL(qca_read_soc_version);
++
++static int qca_read_fw_build_info(struct hci_dev *hdev)
++{
++	struct sk_buff *skb;
++	struct edl_event_hdr *edl;
++	char *build_label;
++	char cmd;
++	int build_lbl_len, err = 0;
++
++	bt_dev_dbg(hdev, "QCA read fw build info");
++
++	cmd = EDL_GET_BUILD_INFO_CMD;
++	skb = __hci_cmd_sync_ev(hdev, EDL_PATCH_CMD_OPCODE, EDL_PATCH_CMD_LEN,
++				&cmd, 0, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "Reading QCA fw build info failed (%d)",
++			   err);
++		return err;
++	}
++
++	if (skb->len < sizeof(*edl)) {
++		err = -EILSEQ;
++		goto out;
++	}
++
++	edl = (struct edl_event_hdr *)(skb->data);
++
++	if (edl->cresp != EDL_CMD_REQ_RES_EVT ||
++	    edl->rtype != EDL_GET_BUILD_INFO_CMD) {
++		bt_dev_err(hdev, "QCA Wrong packet received %d %d", edl->cresp,
++			   edl->rtype);
++		err = -EIO;
++		goto out;
++	}
++
++	if (skb->len < sizeof(*edl) + 1) {
++		err = -EILSEQ;
++		goto out;
++	}
++
++	build_lbl_len = edl->data[0];
++
++	if (skb->len < sizeof(*edl) + 1 + build_lbl_len) {
++		err = -EILSEQ;
++		goto out;
++	}
++
++	build_label = kstrndup(&edl->data[1], build_lbl_len, GFP_KERNEL);
++	if (!build_label) {
++		err = -ENOMEM;
++		goto out;
++	}
++
++	hci_set_fw_info(hdev, "%s", build_label);
++
++	bt_dev_info(hdev, "QCA FW build version: %s", build_label);
++
++	kfree(build_label);
++out:
++	kfree_skb(skb);
++	return err;
++}
++
++static int qca_send_patch_config_cmd(struct hci_dev *hdev)
++{
++	const u8 cmd[] = { EDL_PATCH_CONFIG_CMD, 0x01, 0, 0, 0 };
++	struct sk_buff *skb;
++	struct edl_event_hdr *edl;
++	int err;
++
++	bt_dev_dbg(hdev, "QCA Patch config");
++
++	skb = __hci_cmd_sync_ev(hdev, EDL_PATCH_CMD_OPCODE, sizeof(cmd),
++				cmd, 0, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "Sending QCA Patch config failed (%d)", err);
++		return err;
++	}
++
++	if (skb->len != 2) {
++		bt_dev_err(hdev, "QCA Patch config cmd size mismatch len %d", skb->len);
++		err = -EILSEQ;
++		goto out;
++	}
++
++	edl = (struct edl_event_hdr *)(skb->data);
++
++	if (edl->cresp != EDL_PATCH_CONFIG_RES_EVT || edl->rtype != EDL_PATCH_CONFIG_CMD) {
++		bt_dev_err(hdev, "QCA Wrong packet received %d %d", edl->cresp,
++			   edl->rtype);
++		err = -EIO;
++		goto out;
++	}
++
++	err = 0;
++
++out:
++	kfree_skb(skb);
++	return err;
++}
++
++static int qca_read_fw_board_id(struct hci_dev *hdev, u16 *bid)
++{
++	u8 cmd;
++	struct sk_buff *skb;
++	struct edl_event_hdr *edl;
++	int err = 0;
++
++	cmd = EDL_GET_BID_REQ_CMD;
++	skb = __hci_cmd_sync_ev(hdev, EDL_PATCH_CMD_OPCODE, EDL_PATCH_CMD_LEN,
++				&cmd, 0, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "Reading QCA board ID failed (%d)", err);
++		return err;
++	}
++
++	edl = skb_pull_data(skb, sizeof(*edl));
++	if (!edl) {
++		bt_dev_err(hdev, "QCA read board ID with no header");
++		err = -EILSEQ;
++		goto out;
++	}
++
++	if (edl->cresp != EDL_CMD_REQ_RES_EVT ||
++	    edl->rtype != EDL_GET_BID_REQ_CMD) {
++		bt_dev_err(hdev, "QCA Wrong packet: %d %d", edl->cresp, edl->rtype);
++		err = -EIO;
++		goto out;
++	}
++
++	if (skb->len < 3) {
++		err = -EILSEQ;
++		goto out;
++	}
++
++	*bid = (edl->data[1] << 8) + edl->data[2];
++	bt_dev_dbg(hdev, "%s: bid = %x", __func__, *bid);
++
++out:
++	kfree_skb(skb);
++	return err;
++}
++
++int qca_send_pre_shutdown_cmd(struct hci_dev *hdev)
++{
++	struct sk_buff *skb;
++	int err;
++
++	bt_dev_dbg(hdev, "QCA pre shutdown cmd");
++
++	skb = __hci_cmd_sync_ev(hdev, QCA_PRE_SHUTDOWN_CMD, 0,
++				NULL, HCI_EV_CMD_COMPLETE, HCI_INIT_TIMEOUT);
++
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "QCA preshutdown_cmd failed (%d)", err);
++		return err;
++	}
++
++	kfree_skb(skb);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(qca_send_pre_shutdown_cmd);
++
++static bool qca_filename_has_extension(const char *filename)
++{
++	const char *suffix = strrchr(filename, '.');
++
++	/* File extensions require a dot, but not as the first or last character */
++	if (!suffix || suffix == filename || *(suffix + 1) == '\0')
++		return 0;
++
++	/* Avoid matching directories with names that look like files with extensions */
++	return !strchr(suffix, '/');
++}
++
++static bool qca_get_alt_nvm_file(char *filename, size_t max_size)
++{
++	char fwname[64];
++	const char *suffix;
++
++	/* nvm file name has an extension, replace with .bin */
++	if (qca_filename_has_extension(filename)) {
++		suffix = strrchr(filename, '.');
++		strscpy(fwname, filename, suffix - filename + 1);
++		snprintf(fwname + (suffix - filename),
++		       sizeof(fwname) - (suffix - filename), ".bin");
++		/* If nvm file is already the default one, return false to skip the retry. */
++		if (strcmp(fwname, filename) == 0)
++			return false;
++
++		snprintf(filename, max_size, "%s", fwname);
++		return true;
++	}
++	return false;
++}
++
++static int qca_tlv_check_data(struct hci_dev *hdev,
++			       struct qca_fw_config *config,
++			       u8 *fw_data, size_t fw_size,
++			       enum qca_btsoc_type soc_type)
++{
++	const u8 *data;
++	u32 type_len;
++	u16 tag_id, tag_len;
++	int idx, length;
++	struct tlv_type_hdr *tlv;
++	struct tlv_type_patch *tlv_patch;
++	struct tlv_type_nvm *tlv_nvm;
++	uint8_t nvm_baud_rate = config->user_baud_rate;
++	u8 type;
++
++	config->dnld_mode = QCA_SKIP_EVT_NONE;
++	config->dnld_type = QCA_SKIP_EVT_NONE;
++
++	switch (config->type) {
++	case ELF_TYPE_PATCH:
++		if (fw_size < 7)
++			return -EINVAL;
++
++		config->dnld_mode = QCA_SKIP_EVT_VSE_CC;
++		config->dnld_type = QCA_SKIP_EVT_VSE_CC;
++
++		bt_dev_dbg(hdev, "File Class        : 0x%x", fw_data[4]);
++		bt_dev_dbg(hdev, "Data Encoding     : 0x%x", fw_data[5]);
++		bt_dev_dbg(hdev, "File version      : 0x%x", fw_data[6]);
++		break;
++	case TLV_TYPE_PATCH:
++		if (fw_size < sizeof(struct tlv_type_hdr) + sizeof(struct tlv_type_patch))
++			return -EINVAL;
++
++		tlv = (struct tlv_type_hdr *)fw_data;
++		type_len = le32_to_cpu(tlv->type_len);
++		tlv_patch = (struct tlv_type_patch *)tlv->data;
++
++		/* For Rome version 1.1 to 3.1, all segment commands
++		 * are acked by a vendor specific event (VSE).
++		 * For Rome >= 3.2, the download mode field indicates
++		 * if VSE is skipped by the controller.
++		 * In case VSE is skipped, only the last segment is acked.
++		 */
++		config->dnld_mode = tlv_patch->download_mode;
++		config->dnld_type = config->dnld_mode;
++
++		BT_DBG("TLV Type\t\t : 0x%x", type_len & 0x000000ff);
++		BT_DBG("Total Length           : %d bytes",
++		       le32_to_cpu(tlv_patch->total_size));
++		BT_DBG("Patch Data Length      : %d bytes",
++		       le32_to_cpu(tlv_patch->data_length));
++		BT_DBG("Signing Format Version : 0x%x",
++		       tlv_patch->format_version);
++		BT_DBG("Signature Algorithm    : 0x%x",
++		       tlv_patch->signature);
++		BT_DBG("Download mode          : 0x%x",
++		       tlv_patch->download_mode);
++		BT_DBG("Reserved               : 0x%x",
++		       tlv_patch->reserved1);
++		BT_DBG("Product ID             : 0x%04x",
++		       le16_to_cpu(tlv_patch->product_id));
++		BT_DBG("Rom Build Version      : 0x%04x",
++		       le16_to_cpu(tlv_patch->rom_build));
++		BT_DBG("Patch Version          : 0x%04x",
++		       le16_to_cpu(tlv_patch->patch_version));
++		BT_DBG("Reserved               : 0x%x",
++		       le16_to_cpu(tlv_patch->reserved2));
++		BT_DBG("Patch Entry Address    : 0x%x",
++		       le32_to_cpu(tlv_patch->entry));
++		break;
++
++	case TLV_TYPE_NVM:
++		if (fw_size < sizeof(struct tlv_type_hdr))
++			return -EINVAL;
++
++		tlv = (struct tlv_type_hdr *)fw_data;
++
++		type_len = le32_to_cpu(tlv->type_len);
++		length = type_len >> 8;
++		type = type_len & 0xff;
++
++		/* Some NVM files have more than one set of tags, only parse
++		 * the first set when it has type 2 for now. When there is
++		 * more than one set there is an enclosing header of type 4.
++		 */
++		if (type == 4) {
++			if (fw_size < 2 * sizeof(struct tlv_type_hdr))
++				return -EINVAL;
++
++			tlv++;
++
++			type_len = le32_to_cpu(tlv->type_len);
++			length = type_len >> 8;
++			type = type_len & 0xff;
++		}
++
++		BT_DBG("TLV Type\t\t : 0x%x", type);
++		BT_DBG("Length\t\t : %d bytes", length);
++
++		if (type != 2)
++			break;
++
++		if (fw_size < length + (tlv->data - fw_data))
++			return -EINVAL;
++
++		idx = 0;
++		data = tlv->data;
++		while (idx + sizeof(struct tlv_type_nvm) <= length) {
++			tlv_nvm = (struct tlv_type_nvm *)(data + idx);
++
++			tag_id = le16_to_cpu(tlv_nvm->tag_id);
++			tag_len = le16_to_cpu(tlv_nvm->tag_len);
++
++			if (length < idx + sizeof(struct tlv_type_nvm) + tag_len)
++				return -EINVAL;
++
++			/* Update NVM tags as needed */
++			switch (tag_id) {
++			case EDL_TAG_ID_BD_ADDR:
++				if (tag_len != sizeof(bdaddr_t))
++					return -EINVAL;
++
++				memcpy(&config->bdaddr, tlv_nvm->data, sizeof(bdaddr_t));
++
++				break;
++
++			case EDL_TAG_ID_HCI:
++				if (tag_len < 3)
++					return -EINVAL;
++
++				/* HCI transport layer parameters
++				 * enabling software inband sleep
++				 * onto controller side.
++				 */
++				tlv_nvm->data[0] |= 0x80;
++
++				/* UART Baud Rate */
++				if (soc_type >= QCA_WCN3991)
++					tlv_nvm->data[1] = nvm_baud_rate;
++				else
++					tlv_nvm->data[2] = nvm_baud_rate;
++
++				break;
++
++			case EDL_TAG_ID_DEEP_SLEEP:
++				if (tag_len < 1)
++					return -EINVAL;
++
++				/* Sleep enable mask
++				 * enabling deep sleep feature on controller.
++				 */
++				tlv_nvm->data[0] |= 0x01;
++
++				break;
++			}
++
++			idx += sizeof(struct tlv_type_nvm) + tag_len;
++		}
++		break;
++
++	default:
++		BT_ERR("Unknown TLV type %d", config->type);
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int qca_tlv_send_segment(struct hci_dev *hdev, int seg_size,
++				const u8 *data, enum qca_tlv_dnld_mode mode,
++				enum qca_btsoc_type soc_type)
++{
++	struct sk_buff *skb;
++	struct edl_event_hdr *edl;
++	struct tlv_seg_resp *tlv_resp;
++	u8 cmd[MAX_SIZE_PER_TLV_SEGMENT + 2];
++	int err = 0;
++	u8 event_type = HCI_EV_VENDOR;
++	u8 rlen = (sizeof(*edl) + sizeof(*tlv_resp));
++	u8 rtype = EDL_TVL_DNLD_RES_EVT;
++
++	cmd[0] = EDL_PATCH_TLV_REQ_CMD;
++	cmd[1] = seg_size;
++	memcpy(cmd + 2, data, seg_size);
++
++	if (mode == QCA_SKIP_EVT_VSE_CC || mode == QCA_SKIP_EVT_VSE)
++		return __hci_cmd_send(hdev, EDL_PATCH_CMD_OPCODE, seg_size + 2,
++				      cmd);
++
++	/* Unlike other SoC's sending version command response as payload to
++	 * VSE event. WCN3991 sends version command response as a payload to
++	 * command complete event.
++	 */
++	if (soc_type >= QCA_WCN3991) {
++		event_type = 0;
++		rlen = sizeof(*edl);
++		rtype = EDL_PATCH_TLV_REQ_CMD;
++	}
++
++	skb = __hci_cmd_sync_ev(hdev, EDL_PATCH_CMD_OPCODE, seg_size + 2, cmd,
++				event_type, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "QCA Failed to send TLV segment (%d)", err);
++		return err;
++	}
++
++	if (skb->len != rlen) {
++		bt_dev_err(hdev, "QCA TLV response size mismatch");
++		err = -EILSEQ;
++		goto out;
++	}
++
++	edl = (struct edl_event_hdr *)(skb->data);
++
++	if (edl->cresp != EDL_CMD_REQ_RES_EVT || edl->rtype != rtype) {
++		bt_dev_err(hdev, "QCA TLV with error stat 0x%x rtype 0x%x",
++			   edl->cresp, edl->rtype);
++		err = -EIO;
++	}
++
++	if (soc_type >= QCA_WCN3991)
++		goto out;
++
++	tlv_resp = (struct tlv_seg_resp *)(edl->data);
++	if (tlv_resp->result) {
++		bt_dev_err(hdev, "QCA TLV with error stat 0x%x rtype 0x%x (0x%x)",
++			   edl->cresp, edl->rtype, tlv_resp->result);
++	}
++
++out:
++	kfree_skb(skb);
++
++	return err;
++}
++
++static int qca_inject_cmd_complete_event(struct hci_dev *hdev)
++{
++	struct hci_event_hdr *hdr;
++	struct hci_ev_cmd_complete *evt;
++	struct sk_buff *skb;
++
++	skb = bt_skb_alloc(sizeof(*hdr) + sizeof(*evt) + 1, GFP_KERNEL);
++	if (!skb)
++		return -ENOMEM;
++
++	hdr = skb_put(skb, sizeof(*hdr));
++	hdr->evt = HCI_EV_CMD_COMPLETE;
++	hdr->plen = sizeof(*evt) + 1;
++
++	evt = skb_put(skb, sizeof(*evt));
++	evt->ncmd = 1;
++	evt->opcode = cpu_to_le16(QCA_HCI_CC_OPCODE);
++
++	skb_put_u8(skb, QCA_HCI_CC_SUCCESS);
++
++	hci_skb_pkt_type(skb) = HCI_EVENT_PKT;
++
++	return hci_recv_frame(hdev, skb);
++}
++
++static int qca_download_firmware(struct hci_dev *hdev,
++				 struct qca_fw_config *config,
++				 enum qca_btsoc_type soc_type,
++				 u8 rom_ver)
++{
++	const struct firmware *fw;
++	u8 *data;
++	const u8 *segment;
++	int ret, size, remain, i = 0;
++
++	bt_dev_info(hdev, "QCA Downloading %s", config->fwname);
++
++	ret = request_firmware(&fw, config->fwname, &hdev->dev);
++	if (ret) {
++		/* If the board-specific file is missing, try loading the default
++		 * one, unless that was attempted already.
++		 */
++		if (config->type == TLV_TYPE_NVM &&
++		    qca_get_alt_nvm_file(config->fwname, sizeof(config->fwname))) {
++			bt_dev_info(hdev, "QCA Downloading %s", config->fwname);
++			ret = request_firmware(&fw, config->fwname, &hdev->dev);
++			if (ret) {
++				bt_dev_err(hdev, "QCA Failed to request file: %s (%d)",
++					   config->fwname, ret);
++				return ret;
++			}
++		} else {
++			bt_dev_err(hdev, "QCA Failed to request file: %s (%d)",
++				   config->fwname, ret);
++			return ret;
++		}
++	}
++
++	size = fw->size;
++	data = vmalloc(fw->size);
++	if (!data) {
++		bt_dev_err(hdev, "QCA Failed to allocate memory for file: %s",
++			   config->fwname);
++		release_firmware(fw);
++		return -ENOMEM;
++	}
++
++	memcpy(data, fw->data, size);
++	release_firmware(fw);
++
++	ret = qca_tlv_check_data(hdev, config, data, size, soc_type);
++	if (ret)
++		goto out;
++
++	segment = data;
++	remain = size;
++	while (remain > 0) {
++		int segsize = min(MAX_SIZE_PER_TLV_SEGMENT, remain);
++
++		bt_dev_dbg(hdev, "Send segment %d, size %d", i++, segsize);
++
++		remain -= segsize;
++		/* The last segment is always acked regardless download mode */
++		if (!remain || segsize < MAX_SIZE_PER_TLV_SEGMENT)
++			config->dnld_mode = QCA_SKIP_EVT_NONE;
++
++		ret = qca_tlv_send_segment(hdev, segsize, segment,
++					   config->dnld_mode, soc_type);
++		if (ret)
++			goto out;
++
++		segment += segsize;
++	}
++
++	/* Latest qualcomm chipsets are not sending a command complete event
++	 * for every fw packet sent. They only respond with a vendor specific
++	 * event for the last packet. This optimization in the chip will
++	 * decrease the BT in initialization time. Here we will inject a command
++	 * complete event to avoid a command timeout error message.
++	 */
++	if (config->dnld_type == QCA_SKIP_EVT_VSE_CC ||
++	    config->dnld_type == QCA_SKIP_EVT_VSE)
++		ret = qca_inject_cmd_complete_event(hdev);
++
++out:
++	vfree(data);
++
++	return ret;
++}
++
++static int qca_disable_soc_logging(struct hci_dev *hdev)
++{
++	struct sk_buff *skb;
++	u8 cmd[2];
++	int err;
++
++	cmd[0] = QCA_DISABLE_LOGGING_SUB_OP;
++	cmd[1] = 0x00;
++	skb = __hci_cmd_sync_ev(hdev, QCA_DISABLE_LOGGING, sizeof(cmd), cmd,
++				HCI_EV_CMD_COMPLETE, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "QCA Failed to disable soc logging(%d)", err);
++		return err;
++	}
++
++	kfree_skb(skb);
++
++	return 0;
++}
++
++int qca_set_bdaddr_rome(struct hci_dev *hdev, const bdaddr_t *bdaddr)
++{
++	struct sk_buff *skb;
++	u8 cmd[9];
++	int err;
++
++	cmd[0] = EDL_NVM_ACCESS_SET_REQ_CMD;
++	cmd[1] = 0x02; 			/* TAG ID */
++	cmd[2] = sizeof(bdaddr_t);	/* size */
++	memcpy(cmd + 3, bdaddr, sizeof(bdaddr_t));
++	skb = __hci_cmd_sync_ev(hdev, EDL_NVM_ACCESS_OPCODE, sizeof(cmd), cmd,
++				HCI_EV_VENDOR, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "QCA Change address command failed (%d)", err);
++		return err;
++	}
++
++	kfree_skb(skb);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(qca_set_bdaddr_rome);
++
++static int qca_check_bdaddr(struct hci_dev *hdev, const struct qca_fw_config *config)
++{
++	struct hci_rp_read_bd_addr *bda;
++	struct sk_buff *skb;
++	int err;
++
++	if (bacmp(&hdev->public_addr, BDADDR_ANY))
++		return 0;
++
++	skb = __hci_cmd_sync(hdev, HCI_OP_READ_BD_ADDR, 0, NULL,
++			     HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "Failed to read device address (%d)", err);
++		return err;
++	}
++
++	if (skb->len != sizeof(*bda)) {
++		bt_dev_err(hdev, "Device address length mismatch");
++		kfree_skb(skb);
++		return -EIO;
++	}
++
++	bda = (struct hci_rp_read_bd_addr *)skb->data;
++	if (!bacmp(&bda->bdaddr, &config->bdaddr))
++		hci_set_quirk(hdev, HCI_QUIRK_USE_BDADDR_PROPERTY);
++
++	kfree_skb(skb);
++
++	return 0;
++}
++
++static void qca_get_nvm_name_by_board(char *fwname, size_t max_size,
++		const char *stem, enum qca_btsoc_type soc_type,
++		struct qca_btsoc_version ver, u8 rom_ver, u16 bid)
++{
++	const char *variant;
++	const char *prefix;
++
++	/* Set the default value to variant and prefix */
++	variant = "";
++	prefix = "b";
++
++	if (soc_type == QCA_QCA2066)
++		prefix = "";
++
++	if (soc_type == QCA_WCN6855 || soc_type == QCA_QCA2066) {
++		/* If the chip is manufactured by GlobalFoundries */
++		if ((le32_to_cpu(ver.soc_id) & QCA_HSP_GF_SOC_MASK) == QCA_HSP_GF_SOC_ID)
++			variant = "g";
++	}
++
++	if (rom_ver != 0) {
++		if (bid == 0x0 || bid == 0xffff)
++			snprintf(fwname, max_size, "qca/%s%02x%s.bin", stem, rom_ver, variant);
++		else
++			snprintf(fwname, max_size, "qca/%s%02x%s.%s%02x", stem, rom_ver,
++						variant, prefix, bid);
++	} else {
++		if (bid == 0x0 || bid == 0xffff)
++			snprintf(fwname, max_size, "qca/%s%s.bin", stem, variant);
++		else
++			snprintf(fwname, max_size, "qca/%s%s.%s%02x", stem, variant, prefix, bid);
++	}
++}
++
++int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
++		   enum qca_btsoc_type soc_type, struct qca_btsoc_version ver,
++		   const char *firmware_name, const char *rampatch_name)
++{
++	struct qca_fw_config config = {};
++	const char *variant = "";
++	int err;
++	u8 rom_ver = 0;
++	u32 soc_ver;
++	u16 boardid = 0;
++
++	bt_dev_dbg(hdev, "QCA setup on UART");
++
++	soc_ver = get_soc_ver(ver.soc_id, ver.rom_ver);
++
++	bt_dev_info(hdev, "QCA controller version 0x%08x", soc_ver);
++
++	config.user_baud_rate = baudrate;
++
++	/* Firmware files to download are based on ROM version.
++	 * ROM version is derived from last two bytes of soc_ver.
++	 */
++	if (soc_type == QCA_WCN3988)
++		rom_ver = ((soc_ver & 0x00000f00) >> 0x05) | (soc_ver & 0x0000000f);
++	else if (soc_type == QCA_WCN3998)
++		rom_ver = ((soc_ver & 0x0000f000) >> 0x07) | (soc_ver & 0x0000000f);
++	else
++		rom_ver = ((soc_ver & 0x00000f00) >> 0x04) | (soc_ver & 0x0000000f);
++
++	if (soc_type == QCA_WCN6750)
++		qca_send_patch_config_cmd(hdev);
++
++	/* Download rampatch file */
++	config.type = TLV_TYPE_PATCH;
++	if (rampatch_name) {
++		snprintf(config.fwname, sizeof(config.fwname), "qca/%s", rampatch_name);
++	} else {
++		switch (soc_type) {
++		case QCA_QCA2066:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/hpbtfw%02x.tlv", rom_ver);
++			break;
++		case QCA_QCA6390:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/htbtfw%02x.tlv", rom_ver);
++			break;
++		case QCA_WCN3950:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/cmbtfw%02x.tlv", rom_ver);
++			break;
++		case QCA_WCN3990:
++		case QCA_WCN3991:
++		case QCA_WCN3998:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/crbtfw%02x.tlv", rom_ver);
++			break;
++		case QCA_WCN3988:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/apbtfw%02x.tlv", rom_ver);
++			break;
++		case QCA_WCN6750:
++			/* Choose mbn file by default.If mbn file is not found
++			 * then choose tlv file
++			 */
++			config.type = ELF_TYPE_PATCH;
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/msbtfw%02x.mbn", rom_ver);
++			break;
++		case QCA_WCN6855:
++			/* Due to historical reasons, WCN685x chip has been using firmware
++			 * without the "wcn" prefix. The mapping between the chip and its
++			 * corresponding firmware has now been corrected.
++			 */
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/wcnhpbtfw%02x.tlv", rom_ver);
++			break;
++		case QCA_WCN7850:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/hmtbtfw%02x.tlv", rom_ver);
++			break;
++		default:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/rampatch_%08x.bin", soc_ver);
++		}
++	}
++
++	err = qca_download_firmware(hdev, &config, soc_type, rom_ver);
++	/* For WCN6750, if mbn file is not present then check for
++	 * tlv file.
++	 */
++	if (err < 0 && soc_type == QCA_WCN6750) {
++		bt_dev_dbg(hdev, "QCA Failed to request file: %s (%d)",
++			   config.fwname, err);
++		config.type = TLV_TYPE_PATCH;
++		snprintf(config.fwname, sizeof(config.fwname),
++			 "qca/msbtfw%02x.tlv", rom_ver);
++		bt_dev_info(hdev, "QCA Downloading %s", config.fwname);
++		err = qca_download_firmware(hdev, &config, soc_type, rom_ver);
++	} else if (err < 0 && !rampatch_name && soc_type == QCA_WCN6855) {
++		snprintf(config.fwname, sizeof(config.fwname),
++			 "qca/hpbtfw%02x.tlv", rom_ver);
++		err = qca_download_firmware(hdev, &config, soc_type, rom_ver);
++	}
++
++	if (err < 0) {
++		bt_dev_err(hdev, "QCA Failed to request file: %s (%d)",
++			   config.fwname, err);
++		return err;
++	}
++
++	/* Give the controller some time to get ready to receive the NVM */
++	msleep(10);
++
++	if (soc_type == QCA_QCA2066 || soc_type == QCA_WCN7850)
++		qca_read_fw_board_id(hdev, &boardid);
++
++	/* Download NVM configuration */
++	config.type = TLV_TYPE_NVM;
++	if (firmware_name) {
++		/* The firmware name has an extension, use it directly */
++		if (qca_filename_has_extension(firmware_name)) {
++			snprintf(config.fwname, sizeof(config.fwname), "qca/%s", firmware_name);
++		} else {
++			qca_read_fw_board_id(hdev, &boardid);
++			qca_get_nvm_name_by_board(config.fwname, sizeof(config.fwname),
++				 firmware_name, soc_type, ver, 0, boardid);
++		}
++	} else {
++		switch (soc_type) {
++		case QCA_QCA2066:
++			qca_get_nvm_name_by_board(config.fwname,
++						  sizeof(config.fwname),
++						  "hpnv", soc_type, ver,
++						  rom_ver, boardid);
++			break;
++		case QCA_QCA6390:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/htnv%02x.bin", rom_ver);
++			break;
++		case QCA_WCN3950:
++			if (le32_to_cpu(ver.soc_id) == QCA_WCN3950_SOC_ID_T)
++				variant = "t";
++			else if (le32_to_cpu(ver.soc_id) == QCA_WCN3950_SOC_ID_S)
++				variant = "s";
++
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/cmnv%02x%s.bin", rom_ver, variant);
++			break;
++		case QCA_WCN3990:
++		case QCA_WCN3991:
++		case QCA_WCN3998:
++			if (le32_to_cpu(ver.soc_id) == QCA_WCN3991_SOC_ID)
++				variant = "u";
++
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/crnv%02x%s.bin", rom_ver, variant);
++			break;
++		case QCA_WCN3988:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/apnv%02x.bin", rom_ver);
++			break;
++		case QCA_WCN6750:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/msnv%02x.bin", rom_ver);
++			break;
++		case QCA_WCN6855:
++			qca_read_fw_board_id(hdev, &boardid);
++			qca_get_nvm_name_by_board(config.fwname, sizeof(config.fwname),
++						  "wcnhpnv", soc_type, ver, rom_ver, boardid);
++			break;
++		case QCA_WCN7850:
++			qca_get_nvm_name_by_board(config.fwname, sizeof(config.fwname),
++				 "hmtnv", soc_type, ver, rom_ver, boardid);
++			break;
++		default:
++			snprintf(config.fwname, sizeof(config.fwname),
++				 "qca/nvm_%08x.bin", soc_ver);
++		}
++	}
++
++	err = qca_download_firmware(hdev, &config, soc_type, rom_ver);
++	if (err < 0 && !firmware_name && soc_type == QCA_WCN6855) {
++		qca_get_nvm_name_by_board(config.fwname, sizeof(config.fwname),
++					  "hpnv", soc_type, ver, rom_ver, boardid);
++		err = qca_download_firmware(hdev, &config, soc_type, rom_ver);
++	}
++
++	if (err < 0) {
++		bt_dev_err(hdev, "QCA Failed to request file: %s (%d)",
++			   config.fwname, err);
++		return err;
++	}
++
++	switch (soc_type) {
++	case QCA_QCA2066:
++	case QCA_QCA6390:
++	case QCA_WCN3991:
++	case QCA_WCN6750:
++	case QCA_WCN6855:
++	case QCA_WCN7850:
++		err = qca_disable_soc_logging(hdev);
++		if (err < 0)
++			return err;
++		break;
++	default:
++		break;
++	}
++
++	/* WCN399x and WCN6750 supports the Microsoft vendor extension with 0xFD70 as the
++	 * VsMsftOpCode.
++	 */
++	switch (soc_type) {
++	case QCA_WCN3950:
++	case QCA_WCN3988:
++	case QCA_WCN3990:
++	case QCA_WCN3991:
++	case QCA_WCN3998:
++	case QCA_WCN6750:
++		hci_set_msft_opcode(hdev, 0xFD70);
++		break;
++	default:
++		break;
++	}
++
++	/* Perform HCI reset */
++	err = __hci_reset_sync(hdev);
++	if (err < 0) {
++		bt_dev_err(hdev, "QCA Failed to run HCI_RESET (%d)", err);
++		return err;
++	}
++	bt_dev_dbg(hdev, "QCA HCI_RESET succeed");
++
++	switch (soc_type) {
++	case QCA_WCN3991:
++	case QCA_WCN6750:
++	case QCA_WCN6855:
++	case QCA_WCN7850:
++		/* get fw build info */
++		err = qca_read_fw_build_info(hdev);
++		if (err < 0)
++			return err;
++		break;
++	default:
++		break;
++	}
++
++	err = qca_check_bdaddr(hdev, &config);
++	if (err)
++		return err;
++
++	bt_dev_info(hdev, "QCA setup on UART is completed");
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(qca_uart_setup);
++
++int qca_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
++{
++	bdaddr_t bdaddr_swapped;
++	struct sk_buff *skb;
++	int err;
++
++	baswap(&bdaddr_swapped, bdaddr);
++
++	skb = __hci_cmd_sync_ev(hdev, EDL_WRITE_BD_ADDR_OPCODE, 6,
++				&bdaddr_swapped, 0, HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		err = PTR_ERR(skb);
++		bt_dev_err(hdev, "QCA Change address cmd failed (%d)", err);
++		return err;
++	}
++
++	kfree_skb(skb);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(qca_set_bdaddr);
++
++
++MODULE_AUTHOR("Ben Young Tae Kim <ytkim@qca.qualcomm.com>");
++MODULE_DESCRIPTION("Bluetooth support for Qualcomm Atheros family");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/bsd/dev/qbt/btqca.h
+@@ -0,0 +1,205 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ *  Bluetooth supports for Qualcomm Atheros ROME chips
++ *
++ *  Copyright (c) 2015 The Linux Foundation. All rights reserved.
++ */
++
++#define EDL_PATCH_CMD_OPCODE		0xFC00
++#define EDL_NVM_ACCESS_OPCODE		0xFC0B
++#define EDL_WRITE_BD_ADDR_OPCODE	0xFC14
++#define EDL_PATCH_CMD_LEN		1
++#define EDL_PATCH_VER_REQ_CMD		0x19
++#define EDL_PATCH_TLV_REQ_CMD		0x1E
++#define EDL_GET_BUILD_INFO_CMD		0x20
++#define EDL_GET_BID_REQ_CMD		0x23
++#define EDL_NVM_ACCESS_SET_REQ_CMD	0x01
++#define EDL_PATCH_CONFIG_CMD		0x28
++#define MAX_SIZE_PER_TLV_SEGMENT	243
++#define QCA_PRE_SHUTDOWN_CMD		0xFC08
++#define QCA_DISABLE_LOGGING		0xFC17
++
++#define EDL_CMD_REQ_RES_EVT		0x00
++#define EDL_PATCH_VER_RES_EVT		0x19
++#define EDL_APP_VER_RES_EVT		0x02
++#define EDL_TVL_DNLD_RES_EVT		0x04
++#define EDL_CMD_EXE_STATUS_EVT		0x00
++#define EDL_SET_BAUDRATE_RSP_EVT	0x92
++#define EDL_NVM_ACCESS_CODE_EVT		0x0B
++#define EDL_PATCH_CONFIG_RES_EVT	0x00
++#define QCA_DISABLE_LOGGING_SUB_OP	0x14
++
++#define EDL_TAG_ID_BD_ADDR		2
++#define EDL_TAG_ID_HCI			17
++#define EDL_TAG_ID_DEEP_SLEEP		27
++
++#define QCA_WCN3990_POWERON_PULSE	0xFC
++#define QCA_WCN3990_POWEROFF_PULSE	0xC0
++
++#define QCA_HCI_CC_OPCODE		0xFC00
++#define QCA_HCI_CC_SUCCESS		0x00
++
++#define QCA_WCN3991_SOC_ID		0x40014320
++
++#define QCA_WCN3950_SOC_ID_T		0x40074130
++#define QCA_WCN3950_SOC_ID_S		0x40075130
++
++/* QCA chipset version can be decided by patch and SoC
++ * version, combination with upper 2 bytes from SoC
++ * and lower 2 bytes from patch will be used.
++ */
++#define get_soc_ver(soc_id, rom_ver)	\
++	((le32_to_cpu(soc_id) << 16) | (le16_to_cpu(rom_ver)))
++
++#define QCA_HSP_GF_SOC_ID		0x1200
++#define QCA_HSP_GF_SOC_MASK		0x0000ff00
++
++enum qca_baudrate {
++	QCA_BAUDRATE_115200	= 0,
++	QCA_BAUDRATE_57600,
++	QCA_BAUDRATE_38400,
++	QCA_BAUDRATE_19200,
++	QCA_BAUDRATE_9600,
++	QCA_BAUDRATE_230400,
++	QCA_BAUDRATE_250000,
++	QCA_BAUDRATE_460800,
++	QCA_BAUDRATE_500000,
++	QCA_BAUDRATE_720000,
++	QCA_BAUDRATE_921600,
++	QCA_BAUDRATE_1000000,
++	QCA_BAUDRATE_1250000,
++	QCA_BAUDRATE_2000000,
++	QCA_BAUDRATE_3000000,
++	QCA_BAUDRATE_4000000,
++	QCA_BAUDRATE_1600000,
++	QCA_BAUDRATE_3200000,
++	QCA_BAUDRATE_3500000,
++	QCA_BAUDRATE_AUTO	= 0xFE,
++	QCA_BAUDRATE_RESERVED
++};
++
++enum qca_tlv_dnld_mode {
++	QCA_SKIP_EVT_NONE,
++	QCA_SKIP_EVT_VSE,
++	QCA_SKIP_EVT_CC,
++	QCA_SKIP_EVT_VSE_CC
++};
++
++enum qca_tlv_type {
++	TLV_TYPE_PATCH = 1,
++	TLV_TYPE_NVM,
++	ELF_TYPE_PATCH,
++};
++
++struct qca_fw_config {
++	u8 type;
++	char fwname[64];
++	uint8_t user_baud_rate;
++	enum qca_tlv_dnld_mode dnld_mode;
++	enum qca_tlv_dnld_mode dnld_type;
++	bdaddr_t bdaddr;
++};
++
++struct edl_event_hdr {
++	__u8 cresp;
++	__u8 rtype;
++	__u8 data[];
++} __packed;
++
++struct qca_btsoc_version {
++	__le32 product_id;
++	__le16 patch_ver;
++	__le16 rom_ver;
++	__le32 soc_id;
++} __packed;
++
++struct tlv_seg_resp {
++	__u8 result;
++} __packed;
++
++struct tlv_type_patch {
++	__le32 total_size;
++	__le32 data_length;
++	__u8   format_version;
++	__u8   signature;
++	__u8   download_mode;
++	__u8   reserved1;
++	__le16 product_id;
++	__le16 rom_build;
++	__le16 patch_version;
++	__le16 reserved2;
++	__le32 entry;
++} __packed;
++
++struct tlv_type_nvm {
++	__le16 tag_id;
++	__le16 tag_len;
++	__le32 reserve1;
++	__le32 reserve2;
++	__u8   data[];
++} __packed;
++
++struct tlv_type_hdr {
++	__le32 type_len;
++	__u8   data[];
++} __packed;
++
++enum qca_btsoc_type {
++	QCA_INVALID = -1,
++	QCA_AR3002,
++	QCA_ROME,
++	QCA_WCN3950,
++	QCA_WCN3988,
++	QCA_WCN3990,
++	QCA_WCN3998,
++	QCA_WCN3991,
++	QCA_QCA2066,
++	QCA_QCA6390,
++	QCA_WCN6750,
++	QCA_WCN6855,
++	QCA_WCN7850,
++};
++
++#if IS_ENABLED(CONFIG_BT_QCA)
++
++int qca_set_bdaddr_rome(struct hci_dev *hdev, const bdaddr_t *bdaddr);
++int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
++		   enum qca_btsoc_type soc_type, struct qca_btsoc_version ver,
++		   const char *firmware_name, const char *rampatch_name);
++int qca_read_soc_version(struct hci_dev *hdev, struct qca_btsoc_version *ver,
++			 enum qca_btsoc_type);
++int qca_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr);
++int qca_send_pre_shutdown_cmd(struct hci_dev *hdev);
++#else
++
++static inline int qca_set_bdaddr_rome(struct hci_dev *hdev, const bdaddr_t *bdaddr)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
++				 enum qca_btsoc_type soc_type,
++				 struct qca_btsoc_version ver,
++				 const char *firmware_name,
++				 const char *rampatch_name)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int qca_read_soc_version(struct hci_dev *hdev,
++				       struct qca_btsoc_version *ver,
++				       enum qca_btsoc_type)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int qca_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int qca_send_pre_shutdown_cmd(struct hci_dev *hdev)
++{
++	return -EOPNOTSUPP;
++}
++#endif
+--- /dev/null
++++ b/bsd/dev/qbt/shim/linux/module.h
+@@ -0,0 +1,2 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#include "qbt_linux.h"
+--- /dev/null
++++ b/bsd/dev/qbt/shim/linux/firmware.h
+@@ -0,0 +1,2 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#include "qbt_linux.h"
+--- /dev/null
++++ b/bsd/dev/qbt/shim/linux/vmalloc.h
+@@ -0,0 +1,2 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#include "qbt_linux.h"
+--- /dev/null
++++ b/bsd/dev/qbt/shim/net/bluetooth/bluetooth.h
+@@ -0,0 +1,2 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#include "qbt_linux.h"
+--- /dev/null
++++ b/bsd/dev/qbt/shim/net/bluetooth/hci_core.h
+@@ -0,0 +1,2 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#include "qbt_linux.h"

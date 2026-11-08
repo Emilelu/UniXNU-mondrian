@@ -1,0 +1,31 @@
+--- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
++++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+@@ -107,7 +107,7 @@
+ /*
+  * K60 (mondrian) panel contract.
+  *
+- * The panel is 1440 x 3200, DSC video mode, 60 Hz. CoreAnimation takes its canvas
++ * The panel is 1440 x 3200, DSC video mode, 120 Hz. CoreAnimation takes its canvas
+  * from the mode this display publishes; a canvas that is not the panel's own
+  * pixel grid -- an iPhone-shaped 1125 x 2436, or the 1170 x 2532 of the 8 Plus
+  * class -- makes WindowServer's BoundingPathBitmap assert, because the bounds it
+@@ -119,6 +119,8 @@
+  */
+ #define K60_PANEL_WIDTH         1440
+ #define K60_PANEL_HEIGHT        3200
++/* P1 fixed 120 Hz: 1000000000 / 120 = 8,333,333 ns per refresh. */
++#define K60_PANEL_REFRESH_HZ    120
+ static TUNABLE(uint32_t, gK60Panel, "k60_panel", 1);
+ 
+ /* The boot framebuffer is the K60 panel at its native size. */
+@@ -190,6 +192,10 @@
+ static inline uint32_t
+ refreshHz(void)
+ {
++	/* P1: K60 panel is fixed at 120 Hz; vsync periods derive from this. */
++	if (k60PanelNative()) {
++		return K60_PANEL_REFRESH_HZ;
++	}
+ 	return gRefreshHz >= 1 && gRefreshHz <= 240 ? gRefreshHz : kFBRefreshHz;
+ }
+ static uint32_t

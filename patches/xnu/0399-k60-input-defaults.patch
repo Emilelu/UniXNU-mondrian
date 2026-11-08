@@ -1,0 +1,30 @@
+--- a/bsd/dev/pong_goodix.c
++++ b/bsd/dev/pong_goodix.c
+@@ -891,8 +891,10 @@
+ void
+ pong_goodix_init(void)
+ {
+-    uint32_t enabled=0;thread_t thread;
+-    if (!PE_parse_boot_argn("pong_touch",&enabled,sizeof(enabled)) || !enabled) return;
++    uint32_t enabled=1;thread_t thread;
++    /* 0399: default ON so no boot-arg is needed (boot-args are size-limited). */
++    (void)PE_parse_boot_argn("pong_touch",&enabled,sizeof(enabled));
++    if (!enabled) return;
+     if (!configuration()) {printf("Pong touch: missing/incompatible Pong DT; SKIP\n");return;}
+     if (kernel_thread_start(touch_thread,NULL,&thread)==KERN_SUCCESS) thread_deallocate(thread);
+ }
+--- a/bsd/dev/pong_buttons.c
++++ b/bsd/dev/pong_buttons.c
+@@ -136,8 +136,10 @@
+ 
+ void pong_buttons_init(void)
+ {
+-    uint32_t enabled=0;thread_t t;
+-    if (!PE_parse_boot_argn("pong_buttons",&enabled,sizeof(enabled)) || !enabled) return;
++    uint32_t enabled=1;thread_t t;
++    /* 0399: default ON so no boot-arg is needed. */
++    (void)PE_parse_boot_argn("pong_buttons",&enabled,sizeof(enabled));
++    if (!enabled) return;
+     if (kernel_thread_start(keys_thread,NULL,&t)==KERN_SUCCESS) thread_deallocate(t);
+ }
+ #endif

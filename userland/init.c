@@ -326,7 +326,10 @@ main(int argc, char **argv, char **envp)
         return 127;
     }
     if (nullfd > 2) close(nullfd);
-    execve("/sbin/launchd.ios", next, env);
+    /* DECISIONS.md:344 — our root is a sealed read-only union and carries no
+     * /sbin/launchd.ios (that rename belongs to the offline apply() pipeline),
+     * so PID 1 must exec the stock path or die with ENOENT. */
+    execve("/sbin/launchd", next, env);
     int exec_error = errno;
     (void)dup2(2, 1);
     errno = exec_error;

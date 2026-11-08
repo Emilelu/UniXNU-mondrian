@@ -1,0 +1,174 @@
+--- a/iokit/Kernel/MiniIOSurface.cpp
++++ b/iokit/Kernel/MiniIOSurface.cpp
+@@ -2003,9 +2003,171 @@
+ 	return kIOReturnSuccess;
+ }
+ 
++
++/*
++ * K60 (mondrian / SM8475) DSI panel bring-up, inlined here on purpose.
++ *
++ * Why inline: the DSI code lives in drivers/PongAdreno/PongDsiPanel.cpp, but that
++ * object sits in libPongAdrenoPlatform.a and a reference from this translation
++ * unit does not pull it in (the archive is scanned before this object's
++ * reference is known). Keeping the sequence here makes the call deterministic.
++ *
++ * K60 has no discrete backlight IC; the panel is lit by DCS commands over DSI0
++ * (verified order from the port's own notes): 0x11 Sleep Out -> 0x29 Display On
++ * -> 0x51 brightness. Registers/FIFO flow are the same SM8475 DSI 2.x controller
++ * zizhan uses at 0x0ae94000.
++ */
++enum : uint32_t {
++	K60_DSI_PA = 0x0ae94000u,
++	K60_DSI_LEN = 0x400,
++	K60_DSI_HW_VERSION = 0x000,
++	K60_DSI_CTRL = 0x004,
++	K60_DSI_STATUS = 0x008,
++	K60_DSI_CMD_DMA_CTRL = 0x03c,
++	K60_DSI_DMA_CMD_LENGTH = 0x04c,
++	K60_DSI_TRIG_CTRL = 0x084,
++	K60_DSI_CMD_DMA_SW_TRIGGER = 0x090,
++	K60_DSI_INT_CTRL = 0x110,
++	K60_DSI_TPG_CTRL = 0x15c,
++	K60_DSI_TPG_CMD_DMA_INIT_VAL = 0x17c,
++	K60_DSI_TPG_DMA_FIFO_RESET = 0x1ec,
++};
++static IOMemoryDescriptor *k60_dsi_desc;
++static IOMemoryMap *k60_dsi_map_obj;
++static vm_offset_t k60_dsi_base;
++static unsigned k60_panel_state; /* 0 = not tried, 1 = ok, 2 = failed */
++
++static inline uint32_t k60_dsi_rd(uint32_t off)
++{
++	return *(volatile uint32_t *)(k60_dsi_base + off);
++}
++static inline void k60_dsi_wr(uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(k60_dsi_base + off) = v;
++}
++
++static bool k60_dsi_init(void)
++{
++	if (k60_panel_state) {
++		return k60_panel_state == 1;
++	}
++	k60_panel_state = 2;
++	k60_dsi_desc = IOMemoryDescriptor::withPhysicalAddress(K60_DSI_PA, K60_DSI_LEN,
++	    kIODirectionInOut);
++	if (k60_dsi_desc) {
++		k60_dsi_map_obj = k60_dsi_desc->map();
++	}
++	if (k60_dsi_map_obj) {
++		k60_dsi_base = (vm_offset_t)k60_dsi_map_obj->getVirtualAddress();
++	}
++	if (!k60_dsi_base) {
++		IOLog("K60 PANEL: no DSI0 mapping at %#x\n", K60_DSI_PA);
++		return false;
++	}
++	const uint32_t ver = k60_dsi_rd(K60_DSI_HW_VERSION);
++	const uint32_t ctl = k60_dsi_rd(K60_DSI_CTRL);
++	IOLog("K60 PANEL: DSI0 version=0x%08x ctrl=0x%08x status=0x%08x\n",
++	    ver, ctl, k60_dsi_rd(K60_DSI_STATUS));
++	if ((ver >> 28) != 2 || (ctl & 5u) != 5u) {
++		IOLog("K60 PANEL: DSI0 not a running command-mode DSI 2.x controller\n");
++		return false;
++	}
++	return true;
++}
++
++/* One DCS command through the FIFO: 0x05 (short, no arg) or 0x15 (short, 1 arg). */
++static int k60_dsi_dcs(uint8_t cmd, uint8_t value, bool has_value)
++{
++	if (!k60_dsi_base) {
++		return -1;
++	}
++	uint32_t words[2];
++	uint32_t n = 0;
++	words[n++] = (1u << 31) | ((has_value ? 0x15u : 0x05u) << 16) |
++	    (has_value ? (uint32_t)value << 8 : 0u) | cmd;
++	words[n++] = 0;
++
++	uint32_t i;
++	for (i = 0; i < 250 && (k60_dsi_rd(K60_DSI_STATUS) & (1u << 1)); i++) {
++		IODelay(20);
++	}
++	if (k60_dsi_rd(K60_DSI_STATUS) & (1u << 1)) {
++		return -2;
++	}
++	for (i = 0; i < 1000 && (k60_dsi_rd(K60_DSI_STATUS) & (1u << 2)); i++) {
++		IODelay(20);
++	}
++	const uint32_t tpg = k60_dsi_rd(K60_DSI_TPG_CTRL);
++	const uint32_t dma = k60_dsi_rd(K60_DSI_CMD_DMA_CTRL);
++	const uint32_t trig = k60_dsi_rd(K60_DSI_TRIG_CTRL);
++	if ((trig & 0xfu) != 4u) {
++		k60_dsi_wr(K60_DSI_TRIG_CTRL, (trig & ~0xfu) | 4u);
++	}
++	k60_dsi_wr(K60_DSI_INT_CTRL, (k60_dsi_rd(K60_DSI_INT_CTRL) & 0xaaaaaaaau) | 1u);
++	k60_dsi_wr(K60_DSI_TPG_CTRL, (3u << 16) | (1u << 2) | (1u << 1));
++	for (uint32_t w = 0; w < n; w++) {
++		k60_dsi_wr(K60_DSI_TPG_CMD_DMA_INIT_VAL, words[w]);
++	}
++	k60_dsi_wr(K60_DSI_CMD_DMA_CTRL, (dma & ~((1u << 31) | (1u << 30) | (1u << 26))) | (1u << 28));
++	k60_dsi_wr(K60_DSI_DMA_CMD_LENGTH, n * 4);
++	k60_dsi_wr(K60_DSI_CMD_DMA_SW_TRIGGER, 1);
++	bool done = false;
++	for (i = 0; i < 1250 && !done; i++) {
++		done = (k60_dsi_rd(K60_DSI_INT_CTRL) & 1u) != 0;
++		if (!done) {
++			IODelay(20);
++		}
++	}
++	if (!(k60_dsi_rd(K60_DSI_STATUS) & (1u << 1))) {
++		k60_dsi_wr(K60_DSI_INT_CTRL, (k60_dsi_rd(K60_DSI_INT_CTRL) & 0xaaaaaaaau) | 1u);
++		k60_dsi_wr(K60_DSI_TPG_CTRL, 0);
++		k60_dsi_wr(K60_DSI_TPG_DMA_FIFO_RESET, 1);
++		IODelay(1);
++		k60_dsi_wr(K60_DSI_TPG_DMA_FIFO_RESET, 0);
++		k60_dsi_wr(K60_DSI_TPG_CTRL, tpg);
++		k60_dsi_wr(K60_DSI_CMD_DMA_CTRL, dma);
++		if ((trig & 0xfu) != 4u) {
++			k60_dsi_wr(K60_DSI_TRIG_CTRL, trig);
++		}
++	}
++	if (!done) {
++		IOLog("K60 PANEL: DCS 0x%02x timed out status=0x%x\n", cmd, k60_dsi_rd(K60_DSI_STATUS));
++		return -3;
++	}
++	return 0;
++}
++
++static bool k60_panel_on(void)
++{
++	if (!k60_dsi_init()) {
++		return false;
++	}
++	IOLog("K60 PANEL: DCS 0x11 (Sleep Out)\n");
++	if (k60_dsi_dcs(0x11, 0, false)) {
++		return false;
++	}
++	IODelay(120 * 1000);
++	IOLog("K60 PANEL: DCS 0x29 (Display On)\n");
++	if (k60_dsi_dcs(0x29, 0, false)) {
++		return false;
++	}
++	IODelay(20 * 1000);
++	IOLog("K60 PANEL: DCS 0x51 0xff (brightness max)\n");
++	if (k60_dsi_dcs(0x51, 0xff, true)) {
++		return false;
++	}
++	k60_panel_state = 1;
++	IOLog("K60 PANEL: bring-up complete (0x11/0x29/0x51)\n");
++	return true;
++}
++
+ extern "C" void
+ native_pong_ui_services_start(void)
+ {
++	/* K60: light the panel before any scanout so SpringBoard is visible. */
++	if (!k60_panel_on()) {
++		IOLog("K60 DISPLAY: panel bring-up failed; continuing with canvas only\n");
++	}
+ 	uint32_t keybag = 0;
+ 	if (PE_parse_boot_argn("pong_software_keybag", &keybag, sizeof(keybag)) && keybag) {
+ 		MiniAppleKeyStoreStart();

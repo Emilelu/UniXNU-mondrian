@@ -9,6 +9,14 @@
 #include <kern/clock.h>
 #include <kern/task.h>
 #include <pexpert/pexpert.h>
+
+/*
+ * K60 panel bring-up (DCS 0x11/0x29/0x51 over DSI0) lives in PongDsiPanel.cpp.
+ * Calling it from this translation unit (same static archive) makes the linker
+ * pull PongDsiPanel.o in; a call from MiniIOSurface.cpp does not, because the
+ * archive is scanned before that reference is known.
+ */
+extern "C" bool pong_panel_bringup(void);
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
 namespace {
 IOLock *scanout_gate;
@@ -29,6 +37,9 @@ uint64_t deadline(unsigned ms){uint64_t d;clock_interval_to_deadline(ms,kMillise
 }
 extern "C" void pong_scanout_initialize(uint64_t address,size_t bytes,uint32_t stride,uint32_t width,uint32_t height)
 {
+    /* K60: bring the panel out of Sleep Out before any scanout is offered,
+     * independent of whether the GPU scanout path itself is enabled. */
+    if(!pong_panel_bringup())IOLog("K60 DISPLAY: panel bring-up failed; continuing with canvas only\n");
     unsigned enabled=0;
     if(scanout_gate || !PE_parse_boot_argn("pong_gpu_scanout",&enabled,sizeof(enabled)) || enabled!=1)return;
     if(!address || (address&4095) || !width || !height || stride<uint64_t(width)*4 ||

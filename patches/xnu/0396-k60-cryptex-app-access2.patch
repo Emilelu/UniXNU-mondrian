@@ -1,0 +1,28 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -6855,6 +6855,25 @@
+ faccessat_internal(vfs_context_t ctx, int fd, user_addr_t path, int amode,
+     int flag, enum uio_seg segflg)
+ {
++#if defined(PONG) && (DEVELOPMENT || DEBUG)
++	/* 0396: launchd reaches the App-cryptex programs through faccessat(), not
++	 * access(), so 0390's access() bypass never fired. Same policy here. */
++	{
++		char k60_path[128];
++		size_t k60_len = 0;
++
++		if (segflg == UIO_USERSPACE && fd == AT_FDCWD &&
++		    copyinstr(path, k60_path, sizeof(k60_path), &k60_len) == 0 &&
++		    strncmp(k60_path, "/System/Cryptexes/App", 22) == 0) {
++			static unsigned k60_cryptex_app_fake2;
++			if (k60_cryptex_app_fake2 < 12) {
++				k60_cryptex_app_fake2++;
++				printf("K60 access2: cryptex-App %s -> success (fake)\n", k60_path);
++			}
++			return 0;
++		}
++	}
++#endif
+ 	int error;
+ 	struct nameidata nd;
+ 	int niopts;

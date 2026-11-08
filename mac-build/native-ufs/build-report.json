@@ -1,0 +1,29 @@
+{
+  "host": "x86_64",
+  "target": "arm64-apple-ios16.0",
+  "build_tree": "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree",
+  "source": "/home/emilelu/hackios/UniXNU-mondrian/drivers/NativeUfs/NativeUfs.cpp",
+  "image_verification": "skipped by request",
+  "read_write_capable": true,
+  "runtime_write_arg": "pong_ufs_readwrite=1",
+  "write_scope": "declared SHNGROOT OS/SystemOS/Data windows; each mount retains its own flags",
+  "storage_commands": [
+    "NOP",
+    "READ ATTRIBUTE",
+    "START STOP ACTIVE",
+    "TEST UNIT READY",
+    "READ CAPACITY",
+    "READ(10)",
+    "WRITE(10) FUA",
+    "SYNCHRONIZE CACHE(10)"
+  ],
+  "smmu_writes": "exclusive UFS SID 0xe0 only after queue stop",
+  "optional_probes_default": "off",
+  "board": "Nothing Phone (2) Pong / SM8475",
+  "ufs_hc": "0x01d84000/0x3000",
+  "gcc_ufs_page": "0x00187000/0x1000",
+  "stream_id": "0xe0",
+  "hardware_tested": false,
+  "smmu_owned_context_banks": 78,
+  "smmu_owned_match_groups": 120
+}

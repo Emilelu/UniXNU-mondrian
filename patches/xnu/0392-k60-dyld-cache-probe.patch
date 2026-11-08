@@ -1,0 +1,39 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8347,6 +8347,36 @@
+ #if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+ 	/* The optional helper resides on the genuine pre-mounted scratch Data,
+ 	 * like HackiOS's separate init image. No OS/userdata rewrite is needed. */
++
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++	/*
++	 * K60 boot-time dyld shared-cache probe. The panic-time probe in
++	 * kern_exit.c runs after the address space is already broken, so its
++	 * vnode_lookup results cannot be trusted. Run the same checks here, in
++	 * load_init_program(), while the mount topology is still intact.
++	 */
++	{
++		static const char *k60_dyld_probe[] = {
++			"/System/Library/Caches/com.apple.dyld",
++			"/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++			"/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e",
++			"/private/preboot",
++			"/private/preboot/System/Library/Caches/com.apple.dyld",
++			"/private/preboot/Cryptexes/OS",
++			"/usr/lib/libSystem.B.dylib",
++			"/usr/lib/dyld",
++			"/System/Cryptexes/OS",
++		};
++		for (unsigned k60_i = 0; k60_i < sizeof(k60_dyld_probe) / sizeof(k60_dyld_probe[0]); k60_i++) {
++			vnode_t k60_vp = NULLVP;
++			int k60_rc = vnode_lookup(k60_dyld_probe[k60_i], 0, &k60_vp, vfs_context_current());
++			printf("K60DYLD path=%s rc=%d\n", k60_dyld_probe[k60_i], k60_rc);
++			if (k60_vp != NULLVP) {
++				vnode_put(k60_vp);
++			}
++		}
++	}
++#endif
+ 	char pong_init_path[128];
+ 	if (PE_parse_boot_argn("pong_init_path", pong_init_path, sizeof(pong_init_path))) {
+ 		if (strcmp(pong_init_path, "/private/var/pong/init") != 0)

@@ -99,7 +99,16 @@ cd /tmp/k60build
 
 ### boot args（**必须与 `boot-0461` 完整 29 项一致**；我曾只用 20 项，漏了 9 项）
 
-从 `boot-0461-20261107.img` 内 payload 的 `unixnu.toml` 实读（这就是跑到 SpringBoard 那一次）：
+**黄金 payload 原件在磁盘上，不要重新打包**：
+```
+/mnt/e/k60-work/scratch/payload-0461.img   201326592 B  2026-11-07 21:25:57  tol=YES initblob=no
+/mnt/e/k60-work/scratch/payload-0461c.img  201326592 B  2026-11-07 21:25:58  tol=YES initblob=no
+```
+（`payload-0461` 与 `boot-0461-20261107.img` 只差 2 秒，是打进那个 boot 镜像的原始 payload）
+同日迭代链：`payload-0441` → `selfreset` 系列 → `0444`/`0445c`/`0447` … → **`0461`（进 SpringBoard）**。
+带 `selfreset` 名字的版本对应 0311 自动复位验证。
+
+从 `payload-0461.img` 的 `unixnu.toml` 实读（跑到 SpringBoard 那一次）：
 ```
 -v native-ufs=1 pong_allow_unauthenticated_root=1 debug=0x140
 cs_enforcement_disable=1 pong_software_keybag=1 disable_exc_resource=1
@@ -117,7 +126,7 @@ k60_skip_iosurface=1
 k60_panic_reset=1
 k60_selftest_reboot=300
 ```
-**`debug=0x140` 不是 `0x144`**：`0x144` 含 `DB_NMI`，panic 会卡在 NMI 里**不复位**，
+``**`debug=0x140` 不是 `0x144`**：`0x144` 含 `DB_NMI`，panic 会卡在 NMI 里**不复位**，
 必须手动长按电源。`0x140` 才会走 0311 的 `IMEM 0x146AA65C = 0x77665500` 自动回 fastboot。
 **缺 `k60_usblog=2` → CDC console 不枚举，设备静默。**
 `boot-0461` 的 payload 里**有** `kernel.macho.trustcache`（61,764 B），
@@ -147,7 +156,7 @@ k60_selftest_reboot=300
 | **"内核里缺 init / 需要内嵌 init blob"** | 实测 `boot-0461` 的 kernel.macho **既没有** `faa38544…` 也**没有**我的补丁版 blob。它直接用设备上 dd 写入的 init |
 | **"`0391` 是必要的"** | 黄金没有内嵌 blob 也能进 SpringBoard。`0391` 是自造路线，且**用 `O_TRUNC` 破坏了设备上的正确 init** |
 | **"`launchd.ios` 需要我们用字符串替换来修"** | 设备上的 init 是 dd 写入的 v10guard 系列，源码级就已经是 `/sbin/launchd`；我那个二进制替换是多余的，且破坏了签名页哈希 |
-| **"git 里有 `68d9bb06…` 那个修好的 init"** | 查遍 `deliverables`/`candidates`/`forks-review`/git history，**不存在**。不要再去搜 |
+| ~~"`68d9bb06…` 不存在"~~ **错！它在 `E:\k60-work\deliverables\pong-init\init-v2`（35,160 B）** | 我按文件名 `init` 搜，漏了 `init-v2`。该件 `flags=0x1`、`__PAGEZERO 0x100000000`、`UNIXTHREAD`、`CODE_SIG`、内含 `/sbin/launchd`（无 `.ios`）——正是需要的形态 |
 
 ---
 
@@ -189,6 +198,21 @@ k60_selftest_reboot=300
 - 历次版本：v6 34,872/`25d23885`、v7probe 34,880/`a00da80e`、v9alias 34,880/`78dcee4c`、
   **v10guard 34,880/`db7e4eee`**（最后写入）；段回读 `ed6c3bf1…`
 - 我的 `0391` 用 `O_TRUNC` 覆盖过它，**现值未知**，必须重新核实
+
+**init 全谱系（`E:\k60-work\deliverables\pong-init\`，15 个版本都在）**：
+```
+init          faa38544  35160  原始（exec /sbin/launchd.ios）
+init-v2       68d9bb06  35160  exec→/sbin/launchd  ← 正确形态，有签名，就用它
+init-v3~v5    35160            
+init-v6       25d23885  34872
+init-v7probe  a00da80e  34880
+init-v8probe/v8trace  34880
+init-v9alias  78dcee4c  34880
+init-v10guard db7e4eee  34880   ← 设备上最后一次 dd 写入的版本
+init-v11drain 12b9df42  34912   ← 34,912 / 35,160 B，仅剩 248 B 余量（PITFALLS 46）
+init-v12union 3703f983  34464
+```
+每个版本都配 `init.c.<ver>-mondrian-src` 源文件，可追溯。
 
 ### 抓取与自动化工具（**用现成的，不要重造**）
 ```powershell

@@ -1,0 +1,65 @@
+--- a/bsd/dev/pong_goodix.c
++++ b/bsd/dev/pong_goodix.c
+@@ -19,7 +19,7 @@
+ extern vm_offset_t ml_io_map_wcomb(vm_offset_t phys_addr, vm_size_t size);
+ extern kern_return_t thread_terminate(thread_t thread);
+ 
+-static vm_offset_t tlmm, gcc, se, rsc, cmd_db;
++static vm_offset_t tlmm, gcc, gcc_vote, se, rsc, cmd_db;
+ static uint64_t tlmm_phys, gcc_phys, se_phys, rsc_phys, cmd_db_phys;
+ static uint32_t pins[6], gpio_offset, max_x, max_y;
+ 
+@@ -260,22 +260,27 @@
+ /* ---- clocks (GCC) -------------------------------------------------------------------------------- */
+ 
+ #define GCC_PHYS                gcc_phys
+-#define GCC_SIZE                0x70000UL
+-#define GCC_VOTE                (gcc + 0x62008)         /* the application processor's votes */
++/* 0402: the two GCC windows are ~0x3B000 apart, so one 0x70000 mapping made
++ * ml_io_map request 448 KiB and panic (kmem_alloc ... failed with 3). Map only
++ * the two 4 KiB pages the driver actually touches. */
++#define GCC_QUP_OFFSET          0x27000UL
++#define GCC_VOTE_OFFSET         0x62000UL
++#define GCC_WINDOW_SIZE         0x1000UL
++#define GCC_VOTE                (gcc_vote + 0x0008)     /* the application processor's votes */
+ #define VOTE_QUP0_CORE_2X       (1u << 9)
+ #define VOTE_QUP0_CORE          (1u << 8)
+ #define VOTE_QUP0_M_AHB         (1u << 6)
+ #define VOTE_QUP0_S_AHB         (1u << 7)
+ #define VOTE_QUP0_SE4           (1u << 14)             /* Pong: wrapper 0 serial engine 4 */
+-#define GCC_QUP0_M_AHB_CBCR     (gcc + 0x27004)         /* bit 31: the clock is off */
+-#define GCC_QUP0_S_AHB_CBCR     (gcc + 0x27008)
+-#define GCC_QUP0_SE4_CBCR       (gcc + 0x274dc)
+-#define GCC_QUP0_SE4_CMD        (gcc + 0x274e4)         /* bit 0: take the new configuration */
+-#define GCC_QUP0_SE4_CFG        (gcc + 0x274e8)         /* [4:0] 2*divider-1, [10:8] source, [13:12] mode */
+-#define GCC_QUP0_SE4_DFSR       (gcc + 0x274f8)         /* bit 0: the engine chooses among preset rates itself */
+-#define GCC_QUP0_SE4_PERF_CFG(l) (gcc + 0x27500 + 4 * (l))
+-#define GCC_QUP0_SE4_PERF_M(l)  (gcc + 0x27540 + 4 * (l))
+-#define GCC_QUP0_SE4_PERF_N(l)  (gcc + 0x27580 + 4 * (l))
++#define GCC_QUP0_M_AHB_CBCR     (gcc + 0x0004)         /* bit 31: the clock is off */
++#define GCC_QUP0_S_AHB_CBCR     (gcc + 0x0008)
++#define GCC_QUP0_SE4_CBCR       (gcc + 0x04dc)
++#define GCC_QUP0_SE4_CMD        (gcc + 0x04e4)         /* bit 0: take the new configuration */
++#define GCC_QUP0_SE4_CFG        (gcc + 0x04e8)         /* [4:0] 2*divider-1, [10:8] source, [13:12] mode */
++#define GCC_QUP0_SE4_DFSR       (gcc + 0x04f8)         /* bit 0: the engine chooses among preset rates itself */
++#define GCC_QUP0_SE4_PERF_CFG(l) (gcc + 0x0500 + 4 * (l))
++#define GCC_QUP0_SE4_PERF_M(l)  (gcc + 0x0540 + 4 * (l))
++#define GCC_QUP0_SE4_PERF_N(l)  (gcc + 0x0580 + 4 * (l))
+ #define CLOCK_OFF               (1u << 31)
+ #define XO_HZ                   19200000
+ 
+@@ -871,10 +876,12 @@
+ static void
+ touch_thread(__unused void *parameter, __unused wait_result_t result)
+ {
+-    tlmm=ml_io_map(TLMM_PHYS,TLMM_SIZE);gcc=ml_io_map(GCC_PHYS,GCC_SIZE);
++    tlmm=ml_io_map(TLMM_PHYS,TLMM_SIZE);
++    gcc=ml_io_map(GCC_PHYS+GCC_QUP_OFFSET,GCC_WINDOW_SIZE);
++    gcc_vote=ml_io_map(GCC_PHYS+GCC_VOTE_OFFSET,GCC_WINDOW_SIZE);
+     se=ml_io_map(SE_PHYS,SE_SIZE);rsc=ml_io_map(RSC_PHYS,RSC_SIZE);
+     cmd_db=ml_io_map_wcomb(CMD_DB_PHYS,CMD_DB_SIZE);
+-    if (!tlmm || !gcc || !se || !rsc || !cmd_db || !bring_up()) {
++    if (!tlmm || !gcc || !gcc_vote || !se || !rsc || !cmd_db || !bring_up()) {
+         printf("Pong touch: Goodix initialization failed; normal UI boot continues\n");
+         thread_terminate(current_thread());return;
+     }

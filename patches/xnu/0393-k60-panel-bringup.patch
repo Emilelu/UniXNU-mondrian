@@ -1,0 +1,31 @@
+--- a/iokit/Kernel/MiniIOSurface.cpp
++++ b/iokit/Kernel/MiniIOSurface.cpp
+@@ -2003,6 +2003,12 @@
+ 	return kIOReturnSuccess;
+ }
+ 
++/*
++ * K60 panel bring-up lives in drivers/PongAdreno/PongDsiPanel.cpp. Declared here
++ * at file scope: a block-scope extern declaration is rejected by this compiler.
++ */
++extern "C" bool pong_panel_bringup(void);
++
+ extern "C" void
+ native_pong_ui_services_start(void)
+ {
+@@ -2038,6 +2044,15 @@
+ 	 * knows by forward declaration, so the implicit upcast does not compile.
+ 	 * The value is only used as an IOService provider, so cast explicitly.
+ 	 */
++	/*
++	 * K60: the panel must leave Sleep Out and enter Display On before the first
++	 * scanout, otherwise the framebuffer has content while the panel stays
++	 * black (SpringBoard then reports screen=0 dim=1). DCS 0x11/0x29/0x51
++	 * over DSI0. See drivers/PongAdreno/PongDsiPanel.cpp.
++	 */
++	if (!pong_panel_bringup()) {
++		IOLog("K60 DISPLAY: panel bring-up failed; continuing with canvas only\n");
++	}
+ 	IOService * provider = static_cast<IOService *>(IOService::getPlatform());
+ 	if (provider == NULL) {
+ 		IOLog("Pong UI: no platform provider; software display startup skipped\n");

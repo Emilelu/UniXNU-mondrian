@@ -80,7 +80,7 @@ def main():
         '-c',str(source/'PongAdrenoPlatform.cpp'),'-o',str(obj)]
     subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
     cpp_template=cmd.copy()
-    names=['PongAdrenoCp','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator']+['submit/'+n for n in [
+    names=['PongAdrenoCp','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator','PongDsiPanel']+['submit/'+n for n in [
         'NativeAdrenoBoard','NativeAdrenoClient','NativeAdrenoPublish','NativeAdrenoRing','NativeAdrenoCpInit','NativeAdrenoTimer','NativeAdrenoIrq','NativeAdrenoPwrup',
         'NativeAdrenoCpu','NativeAdrenoMemory','NativeAdrenoSmmuMemory',
         'NativeAdrenoSmmuContext','NativeAdrenoVm','NativeAdrenoSubmit','NativeAdrenoUserClient']]

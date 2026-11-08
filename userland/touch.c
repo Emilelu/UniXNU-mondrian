@@ -32,6 +32,15 @@ struct virtual_service_callbacks {
 };
 
 static IOHIDEventSystemClientRef (*IOHIDEventSystemClientCreateWithType)(CFAllocatorRef allocator, int type, CFDictionaryRef attributes);
+static IOHIDEventSystemClientRef (*IOHIDEventSystemClientCreate)(CFAllocatorRef allocator);
+
+static IOHIDEventSystemClientRef
+pong_hid_client_create(int type)
+{
+	if (IOHIDEventSystemClientCreateWithType) return IOHIDEventSystemClientCreateWithType(NULL, type, NULL);
+	if (IOHIDEventSystemClientCreate) return IOHIDEventSystemClientCreate(NULL);
+	return NULL;
+}
 static void (*IOHIDEventSystemClientScheduleWithDispatchQueue)(IOHIDEventSystemClientRef client, dispatch_queue_t queue);
 static IOHIDServiceClientRef (*IOHIDVirtualServiceClientCreateWithCallbacks)(IOHIDEventSystemClientRef client, CFDictionaryRef attributes,
     const struct virtual_service_callbacks *callbacks, void *target, void *refcon);
@@ -307,7 +316,7 @@ input_thread(void *unused)
     /* Register during BackBoard's main-screen digitizer initialization.
      * make_service already retries a server that is not ready yet. */
     for (unsigned i=0;i<2 && !screen;i++) {
-        client=IOHIDEventSystemClientCreateWithType(NULL,types[i],NULL);
+        client=pong_hid_client_create(types[i]);
         if (!client) continue;
         IOHIDEventSystemClientScheduleWithDispatchQueue(client,dispatch_queue_create("pong.touch.hid",NULL));
         screen=make_service(client,"Pong Goodix Berlin-D",HID_PAGE_DIGITIZER,HID_USAGE_TOUCH_SCREEN,true);
@@ -353,7 +362,7 @@ buttons_thread(void *unused)
     IOHIDEventSystemClientRef client=NULL;IOHIDServiceClientRef keys=NULL;
     const int types[]={HID_CLIENT_SIMPLE,HID_CLIENT_RATE_CONTROLLED};
     for (unsigned i=0;i<2 && !keys;i++) {
-        client=IOHIDEventSystemClientCreateWithType(NULL,types[i],NULL);
+        client=pong_hid_client_create(types[i]);
         if (!client) continue;
         IOHIDEventSystemClientScheduleWithDispatchQueue(client,dispatch_queue_create("pong.keys.hid",NULL));
         keys=make_service(client,"Pong physical side and volume keys",HID_PAGE_CONSUMER,HID_USAGE_CONSUMER_CONTROL,false);
@@ -387,7 +396,12 @@ void
 pong_touch_start(void)
 {
 #define RESOLVE(name) do { name=(__typeof__(name))dlsym(RTLD_DEFAULT,#name); if (!name) {say("Pong touch HID: unavailable " #name "; SKIP\n");return;} } while (0)
-    RESOLVE(IOHIDEventSystemClientCreateWithType);
+    /* 20G81 has no ...CreateWithType; fall back to the legacy creator. */
+    IOHIDEventSystemClientCreateWithType=(__typeof__(IOHIDEventSystemClientCreateWithType))dlsym(RTLD_DEFAULT,"IOHIDEventSystemClientCreateWithType");
+    IOHIDEventSystemClientCreate=(__typeof__(IOHIDEventSystemClientCreate))dlsym(RTLD_DEFAULT,"IOHIDEventSystemClientCreate");
+    if (!IOHIDEventSystemClientCreateWithType && !IOHIDEventSystemClientCreate) {
+        say("Pong touch HID: no IOHIDEventSystemClientCreate variant; SKIP\n");return;
+    }
     RESOLVE(IOHIDEventSystemClientScheduleWithDispatchQueue);
     RESOLVE(IOHIDVirtualServiceClientCreateWithCallbacks);
     RESOLVE(IOHIDVirtualServiceClientRemove);

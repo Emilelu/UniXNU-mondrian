@@ -1,0 +1,14 @@
+--- a/bsd/dev/pong_goodix.c
++++ b/bsd/dev/pong_goodix.c
+@@ -891,7 +891,10 @@
+ void
+ pong_goodix_init(void)
+ {
+-    uint32_t enabled=1;thread_t thread;
++    /* 0401: pong_goodix allocates 448 KiB during bring-up and our kernel's
++     * large kmem ranges cannot serve it (kmem_alloc ... failed with 3);
++     * keep the touch driver opt-in via pong_touch=1 until that is fixed. */
++    uint32_t enabled=0;thread_t thread;
+     /* 0399: default ON so no boot-arg is needed (boot-args are size-limited). */
+     (void)PE_parse_boot_argn("pong_touch",&enabled,sizeof(enabled));
+     if (!enabled) return;

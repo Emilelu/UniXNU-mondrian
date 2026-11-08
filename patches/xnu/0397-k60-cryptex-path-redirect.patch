@@ -1,0 +1,31 @@
+--- a/bsd/vfs/vfs_lookup.c
++++ b/bsd/vfs/vfs_lookup.c
+@@ -173,6 +173,28 @@
+ 	struct componentname *cnp = &ndp->ni_cnd;
+ 	vfs_context_t ctx = cnp->cn_context;
+ 	proc_t p = vfs_context_proc(ctx);
++#if defined(PONG) && (DEVELOPMENT || DEBUG)
++	/* 0397: this port has no App cryptex, and launchd SIGSEGVs when one of its
++	 * daemons cannot be resolved. init prepares the same tree under
++	 * /private/var/pong on the writable Data volume. The replacement is shorter
++	 * than the original prefix so it always fits the existing path buffer. */
++	if (cnp->cn_pnbuf != NULL &&
++	    strncmp(cnp->cn_pnbuf, "/System/Cryptexes/App", 21) == 0) {
++		char k60_alt[MAXPATHLEN];
++		int k60_n = snprintf(k60_alt, sizeof(k60_alt),
++		    "/private/var/pong%s", cnp->cn_pnbuf + 21);
++		if (k60_n > 0 && k60_n < (int)sizeof(k60_alt) &&
++		    (size_t)k60_n + 1 <= cnp->cn_pnlen) {
++			static unsigned k60_redirects;
++			memcpy(cnp->cn_pnbuf, k60_alt, (size_t)k60_n + 1);
++			cnp->cn_pnlen = (size_t)k60_n + 1;
++			if (k60_redirects < 10) {
++				k60_redirects++;
++				printf("K60 redirect: -> %s\n", k60_alt);
++			}
++		}
++	}
++#endif
+ #if CONFIG_AUDIT
+ /* XXX ut should be from context */
+ 	uthread_t ut = current_uthread();

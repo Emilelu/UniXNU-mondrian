@@ -3,7 +3,8 @@
 # Runs in the UniXNU core checkout; DEVICE_DIR points at this repo.
 set -euo pipefail
 dir=$(cd "$(dirname "$0")" && pwd)
-"$dir/apply-core-patches.sh" "$PWD"
+chmod +x "$dir"/*.sh 2>/dev/null || true
+sh "$dir/apply-core-patches.sh" "$PWD"
 
 # The pong Mac scripts stand in the Pong developer machine: they pin the Xcode
 # developer directory and the pong driver sources to /Volumes/PongDev, and

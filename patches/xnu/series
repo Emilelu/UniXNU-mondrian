@@ -199,3 +199,11 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-source-row-pitch.pat
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0334b-k60-autoreset.patch
+0500-k60-bt-qbt-new-files.patch
+0502b-k60-bt-qbt-kernel-stubs.patch
+0501-k60-bt-qbt-bsd-conf.patch
+0502-k60-bt-qbt-bsd-init.patch
+0503-k60-audio-aw882xx.patch
+0504-k60-audio-pong-audio.patch
+0505-k60-audio-integration.patch
+0506-k60-120hz-refresh.patch

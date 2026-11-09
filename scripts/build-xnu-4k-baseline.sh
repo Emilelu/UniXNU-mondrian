@@ -657,6 +657,25 @@ if sys.argv[2] == '1':
             'The value in the defconfig is a captured one; set the variable to the volume '
             'this kernel has to mount. Received: ' + repr(sys.argv[4]))
     text = '#define XNU_OWNER_DATA_VOLUME_UUID "' + value + '"\n'
+    # The committed scratch Data seed must carry the UUID we are about to bake in.
+    # Otherwise the build passes (payload.py only copies the seed) and the kernel
+    # fails to find its Data volume on device, far away from this line.
+    _seed = Path(__file__).resolve().parents[1] / 'seed' / 'k60-data-seed.dbr'
+    if _seed.is_file():
+        _raw = _seed.read_bytes()
+        _want = uuid.UUID(value).bytes
+        if _want not in _raw:
+            raise SystemExit(
+                'SEED_DATA_VOLUME_UUID mismatch: configs/mondrian_defconfig bakes in '
+                + value + ' but seed/k60-data-seed.dbr does not contain that UUID.\n'
+                'The build would succeed and the device would fail much later, so this is '
+                'checked here. Fix one of them:\n'
+                '  * CONFIG_XNU_OWNER_DATA_VOLUME_UUID="<uuid of the committed seed>"\n'
+                '  * or replace seed/k60-data-seed.dbr with a seed carrying this UUID.\n'
+                'Read the seed\'s UUID with:\n'
+                '  python3 -c "import io,re;d=io.open(\'seed/k60-data-seed.dbr\',\'rb\').read();'
+                'print(d.find(bytes.fromhex(\'<uuid, no dashes>\')))"')
+
 try:
     cache = str(uuid.UUID(sys.argv[5])).upper()
 except ValueError:

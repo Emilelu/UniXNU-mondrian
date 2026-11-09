@@ -1,0 +1,184 @@
+--- a/bsd/dev/k60_usblog.c	2026-11-09 14:06:26.392498900 +0800
++++ b/bsd/dev/k60_usblog.c	2026-11-09 14:06:26.414845900 +0800
+@@ -186,6 +186,44 @@
+ }
+ 
+ /*
++ * 0334b: default-on automatic reset for the *normal* (non-panic) path.
++ *
++ * k60_panic_reset only covers panic.  k60_usblog_reset (0308) only fires when
++ * a USB host has the console open (ud.ever_connected) and the console ring has
++ * gone quiet - but ud_hb prints a status line every 2 s, so the ring is never
++ * quiet while that thread lives.  A boot that simply sits in user space
++ * therefore never came back to fastboot and needed a human power cycle.
++ *
++ * The window below is independent of the USB host, so it also works with no
++ * console attached:
++ *   k60_autoreset=<s>       reset this many seconds after the kernel reaches
++ *                           the USB-log hook in bsd_init (default 300)
++ *   k60_autoreset_idle=<s>  also reset after this many seconds with no exec /
++ *                           exit / XPC-check-in progress, once boot is past
++ *                           K60_AUTORESET_ARM_DELAY (default 0 = never; a
++ *                           suggested value is 60)
++ * k60_autoreset=0 and k60_autoreset_idle=0 together disable the mechanism
++ * (that is the old behaviour: the phone stays in iOS).
++ */
++#define K60_AUTORESET_DEFAULT_SECS      300
++#define K60_AUTORESET_IDLE_DEFAULT_SECS 0       /* opt-in: k60_autoreset_idle=60 */
++#define K60_AUTORESET_ARM_DELAY         120
++
++static int k60_autoreset_secs = -1;     /* -1: boot-arg not parsed yet */
++static int k60_autoreset_idle = -1;     /* -1: boot-arg not parsed yet */
++
++static int
++k60_autoreset_arg(const char *name, int dflt)
++{
++	int v = -1;
++
++	if (PE_parse_boot_argn(name, &v, sizeof(v)) && v >= 0) {
++		return v;
++	}
++	return dflt;
++}
++
++/*
+  * 0319: Pong-style restart reason (ported from
+  * pong-boot-capture/PongBootCapture.h, Chengdong-Yu/pong-boot-capture).
+  *
+@@ -337,7 +375,25 @@
+ 
+ 	printf("K60 USBLOG: restart reason %s\n",
+ 	    primed ? "published" : "FAILED to publish");
+-	delay(1500000);
++	/*
++	 * 0334b: 200 ms instead of 1.5 s.  The ring was already drained by the
++	 * console worker; the long wait only truncated the log (pitfall #114).
++	 */
++	delay(200000);
++
++	/*
++	 * 0334b: reset through the conduit this board has actually reset with.
++	 * PE_k60_reset_now() is the panic path's reset
++	 * (osfmk/kern/debug.c:1324 -> pexpert/arm/pe_init.c:912): PSCI
++	 * SYSTEM_RESET (0x84000009) on the conduit /chosen advertises, then
++	 * "for(;;) wfe".  It does not return, so the brute-force sequence below
++	 * is a fallback that should never run.
++	 */
++	{
++		extern void PE_k60_reset_now(void);
++
++		PE_k60_reset_now();
++	}
+ 
+ 	{
+ 		register uint64_t x0 __asm__("x0") = 0x84000009u;
+@@ -1540,6 +1596,80 @@
+ {
+ 	return us >= 4;
+ }
++
++/*
++ * 0334b: the automatic-reset worker.
++ *
++ * Runs in its own kernel thread, so a frozen user space, a dead USB host or an
++ * absent console cannot stop it.  It sleeps on a private wait channel: the
++ * gadget worker's ud.sleep_chan is woken by the poll loop, and reusing it
++ * would let that loop shorten this countdown.
++ *
++ * The one reset point is k60_usblog_reset_to_fastboot(), which publishes the
++ * restart reason (PMIC SDAM cell + IMEM cookie) before it resets; that is what
++ * makes ABL walk back into fastboot instead of the flashed boot image.
++ */
++static int k60_autoreset_chan;
++
++static void
++k60_autoreset_sleep_ms(unsigned ms)
++{
++	uint64_t deadline;
++
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&k60_autoreset_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++static void
++k60_autoreset_thread(void *arg __unused, wait_result_t wr __unused)
++{
++	extern unsigned int k60_exec_count, k60_exit_count, k60_checkin_compat;
++	unsigned elapsed = 0;
++	unsigned idle = 0;
++	unsigned progress;
++
++	/*
++	 * Establish the restart reason NOW, before any timer can expire, instead
++	 * of waiting for the USB gadget worker to do it.  Without k60_usblog=2 the
++	 * gadget never starts, so on a console-less boot the SDAM cell and the
++	 * IMEM cookie used to stay untouched and every reset landed in Android.
++	 */
++	if (k60_prime_restart(2)) {
++		printf("K60AUTORESET: restart reason primed for fastboot\n");
++	} else {
++		printf("K60AUTORESET: restart reason priming FAILED\n");
++	}
++
++	progress = k60_exec_count + k60_exit_count + k60_checkin_compat;
++	printf("K60AUTORESET: armed absolute=%d idle=%d\n",
++	    k60_autoreset_secs, k60_autoreset_idle);
++	for (;;) {
++		unsigned now;
++
++		k60_autoreset_sleep_ms(1000);
++		elapsed++;
++		now = k60_exec_count + k60_exit_count + k60_checkin_compat;
++		if (now != progress) {
++			progress = now;
++			idle = 0;
++		} else {
++			idle++;
++		}
++		if (k60_autoreset_secs > 0 && (int)elapsed >= k60_autoreset_secs) {
++			printf("K60AUTORESET: %d s since boot; resetting to fastboot\n",
++			    k60_autoreset_secs);
++			break;
++		}
++		if (k60_autoreset_idle > 0 && elapsed >= K60_AUTORESET_ARM_DELAY &&
++		    (int)idle >= k60_autoreset_idle) {
++			printf("K60AUTORESET: no progress for %d s; resetting to fastboot\n",
++			    k60_autoreset_idle);
++			break;
++		}
++	}
++	k60_usblog_reset_to_fastboot();
++}
+ static void ud_hb(void *a __unused, wait_result_t w __unused){int c;for(;;){uint64_t d;{extern unsigned int k60_checkin_compat;if(us>=4&&k60_checkin_compat){static unsigned shown;if(k60_checkin_compat>shown){printf("K60XPC compat=%u\n",k60_checkin_compat);shown=k60_checkin_compat;}}}{if(us>=4&&!k60_restart_ready){k60_restart_ready=k60_restart_map_once()?1:-1;printf("K60PANIC: restart windows %s\n",k60_restart_ready>0?"ready":"unavailable");}}{int pt=0;if(k60_restart_ready>0&&PE_parse_boot_argn("k60_panic_test",&pt,sizeof(pt))&&pt>0)panic("k60_panic_test: deliberate panic to validate the recovery chain");}{static unsigned n;int sr=0;n++;if(us>=4&&PE_parse_boot_argn("k60_selftest_reboot",&sr,sizeof(sr))&&sr>0&&n>=(unsigned)(sr/2)){printf("K60SELFTEST: reboot after %u s\n",n*2);k60_usblog_reset_to_fastboot();}}printf("K60 USBLOG: st=%d ev=%u cfg=%d dtr=%d fl=%d\n",us,ud.events,ud.configured,ud.dtr,ud.failed);clock_interval_to_deadline(2000,NSEC_PER_MSEC,&d);(void)assert_wait_deadline(&c,THREAD_UNINT,d);thread_block(THREAD_CONTINUE_NULL);}}
+ 
+ static void
+@@ -1779,6 +1909,28 @@
+ 	if (k60_usblog_reset < 0) {
+ 		k60_usblog_reset = k60_usblog_reset_arg();
+ 	}
++
++	/*
++	 * 0334b: default ON, and deliberately independent of k60_usblog: the
++	 * phone must return to fastboot even when no console is configured.
++	 * k60_autoreset=0 disables it (the old "stays in iOS" behaviour).
++	 */
++	if (k60_autoreset_secs < 0) {
++		k60_autoreset_secs = k60_autoreset_arg("k60_autoreset",
++		    K60_AUTORESET_DEFAULT_SECS);
++	}
++	if (k60_autoreset_idle < 0) {
++		k60_autoreset_idle = k60_autoreset_arg("k60_autoreset_idle",
++		    K60_AUTORESET_IDLE_DEFAULT_SECS);
++	}
++	printf("K60AUTORESET: config absolute=%d idle=%d (0 = off)\n",
++	    k60_autoreset_secs, k60_autoreset_idle);
++	if (k60_autoreset_secs > 0 || k60_autoreset_idle > 0) {
++		if (kernel_thread_start(k60_autoreset_thread, NULL, &thread) == KERN_SUCCESS) {
++			thread_deallocate(thread);
++		}
++	}
++
+ 	if (k60_usblog_mode < 2 || ud.started) {
+ 		return;
+ 	}

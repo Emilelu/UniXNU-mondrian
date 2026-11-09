@@ -905,6 +905,198 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 - **30 秒判定**：data abort 的 `far` 值减去映射基址，就是**越界的偏移**。
   对着它找是哪个 `#define X(n)` 算出来的。
 
+### P-65 **GENI 时钟链真正断点：`CMD_ROOT_OFF`（bit31）关闭，不是 DFS_EN**
+
+- **排查过程（两次搞错寄存器，都记下来）**：
+  1. 先以为 `DFS_EN` 在 `CMD` 寄存器 → 写 `CMD |= 1` → `cmd` 读回仍是 `0x80000000`，无效
+  2. 才发现 Linux 定义（`clk-rcg2.c:24-31`）：
+     ```c
+     #define CMD_REG          0x0
+     #define CMD_UPDATE       BIT(0)      ← CMD bit0 是"提交配置"，不是 DFS_EN
+     #define CMD_ROOT_OFF     BIT(31)     ← CMD bit31 = root 关闭
+     #define SE_CMD_DFSR_OFFSET 0x14
+     #define SE_CMD_DFS_EN    BIT(0)      ← DFS_EN 在 DFSR，不在 CMD
+     ```
+  3. 我们的 `dfsr = 0x21` → **bit0 早就是 1，DFS 一直是使能的**
+
+- **真正根因**：`cmd = 0x80000000` → **`CMD_ROOT_OFF` bit31 = 1**
+  Linux `clk-rcg2.c:74`：
+  ```c
+  return (cmd & CMD_ROOT_OFF) == 0;   // bit31=1 → root 关闭 → 不出时钟
+  ```
+  **RCG root 被关掉时，任何频率配置（DFS 或普通）都不产生时钟。**
+
+- **实证（关键突破）**：
+  ```
+  DFSEN post cmd=0x80000000 cbcr=0x80004220   ← 写 CMD 后 cbcr 短暂变 ON（bit31=1）
+  CLKPROOF se4_cbcr=0x4220                     ← 但随后又变回 OFF
+  ```
+  `cbcr` 能变 `0x80004220` 说明**时钟硬件本身可用**，只是没被正确保持。
+
+- **修复**：
+  ```c
+  /* 1. 清 CMD_ROOT_OFF */
+  wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) & ~(1u << 31));
+  /* 2. 提交（CMD_UPDATE）*/
+  wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) | 1u);
+  for (500 次) { 等 bit0 清零 }
+  ```
+
+- **通用教训**：
+  **改 RCG 前先读 `CMD` 寄存器判断 root 是否开着。** `cmd & BIT(31)` = 0 才继续。
+  这比查频率表、divider、DFS 档位都更优先。
+
+- **30 秒判定**：时钟不输出时，第一步读 `CMD` 看 bit31；若为 1，先清它，
+  再谈频率配置。顺序错了会在错误的寄存器上浪费多轮。
+
+### P-66 **`CMD_ROOT_OFF` 写不进去：RCG root 由硬件授权控制，软件无法强制开启**
+
+- **实测（`evidence/usblog-20261109-190657`，内核 `09b0d5d0`）**：
+  ```
+  ROOT_ON pre  cmd=0x80000000 cbcr=0x80004220
+  ROOT_ON post cmd=0x80000000 cbcr=0x80004220     ← 写完 cmd 完全没变
+  CLKPROOF se4_cbcr=0x4220                        ← 之后又变了
+  ```
+
+- **事实 1：`CMD` bit31（`CMD_ROOT_OFF`）写不进去**
+  写 `wr(cmd, rd(cmd) & ~(1u<<31))` 后回读仍是 `0x80000000`。
+  → **这是只读状态位**，root 使能由硬件/固件授权，不由软件写 CMD 控制。
+
+- **事实 2：CBCR bit31 语义确认为 CLK_OFF=1**
+  | 值 | bit31 | 含义 |
+  |---|---|---|
+  | `0x80004220` | 1 | **OFF** |
+  | `0x4220` | 0 | **未 OFF** |
+
+  **注意**：我此前一度把 `0x80004220` 当成"ON"，方向读反了，已更正。
+
+- **事实 3：时钟状态在两次读取之间翻转**
+  `clocks_on()` 期间是 `0x80004220`(OFF)，到 `geni_transfer()` 时是 `0x4220`(未 OFF)。
+  说明有其它机制（HWCG 门控 / GCC 投票 / 电源域）在动态控制。
+
+- **结论**：**RCG root 的使能不归 XNU 软件控制。**
+  要真正打开 SE4 时钟，需要：
+  1. **RPMh/RSC 投票**（我们禁止访问，HR-01）
+  2. 或 **GDSC/电源域**（QUP 无 GDSC，见 P-63 附注）
+  3. 或 **依赖 ABL 在 Android 启动时已打开**（需验证 Android 侧时钟状态）
+
+- **这条对触摸修复的意义**：
+  即使 GENI 全部寄存器配置正确、FIFO 逃生开了、DFS 档位选对了，
+  **只要 SE4 的 RCG root 没被授权，SPI 传输就永远不完成**。
+  这是**架构级阻塞**，不是驱动 bug。
+
+- **30 秒判定**：写 `CMD` 后回读不变 → 该位只读。
+  不要继续在 CMD/CBCR 上试写，转去查授权路径（RPMh / 电源域 / 固件）。
+### P-67 **时钟其实一直在运行：`cbcr=0x4220` 的 bit31=0 就是"未关闭"**
+
+- **我连续两轮把 CBCR 语义读反了**，这里一次性纠正：
+
+  | `CLOCK_OFF = (1u<<31)` | 含义 |
+  |---|---|
+  | `0x80004220` | **bit31=1 → 时钟 OFF** |
+  | **`0x4220`** | **bit31=0 → 时钟在运行（未关闭）** |
+
+- **实测时间线（`evidence/usblog-20261109-190657`，内核 `09b0d5d0`）**：
+  ```
+  clocks_on() 期间:  se4_cbcr = 0x80004220   ← OFF
+  geni_transfer() 时: CLKPROOF se4_cbcr = 0x4220   ← 未 OFF = 运行中
+  ```
+  **时钟在 `clocks_on()` 之后自己打开了**（很可能是 `wr(GCC_QUP0_SE4_CFG...)` 或 GENI 访问唤醒的）。
+
+- **因此**：
+  - ❌ "SE4 时钟没运行" —— **错误**
+  - ❌ "需要清 `CMD_ROOT_OFF`" —— **错误**（该位只读，且时钟已开）
+  - ❌ "这是架构级阻塞" —— **错误**
+
+- **真正的阻塞点回到 GENI 引擎**：
+  ```
+  GENI pre  status=0 clk_cfg=0x51 trans_cfg=0 word_len=0x4   ← 配置全对
+  GENI cmd0 readback=0x18000000                              ← 命令被接受
+  SPI transfer: status=0, sent=36, received=0                ← 但永不完成
+  ```
+  `status & M_CMD_DONE` 从未置位 → `M_CMD_DONE` 不是 bit0！
+
+- **下一步必须验证**：`GENI_M_IRQ_STATUS`（`se+0x610`）的 `M_CMD_DONE` 位定义
+  是否与我们对 `status` 的解读一致。我们用的 `M_CMD_DONE = (1u<<0)`，
+  但 `status=0x41` 的 bit0=1 却没被识别为 DONE —— **说明位定义可能错**。
+
+- **30 秒判定**：判断时钟是否在跑，只看 `cbcr & (1u<<31)`。
+  **bit31=0 = 在跑**。不要再看 bit30（那不是 ON 标志）或其他位。
+### P-69 **阶段门控的插入位置必须在"危险调用之前"，不是之后**
+
+- **症状**：新加的 `k60_touch_se=7`（本意是"只走 bitbang，不碰 GENI/RPMh"）
+  上机后 **0 日志整机死**（`evidence/usblog-20261109-192255`，0 B）。
+
+- **根因**：门控插在了 `io_supply_on()` **之后**：
+  ```c
+  if (!problem) {
+      spi_transfer=geni_transfer;
+      if (goodix_probe(false)) return true;
+      if (touch_stage < 6) return false;      // stage 5 停在这
+      if (io_supply_on()) { ... }             // ← stage 7 也会执行！
+  }
+  ...
+  if (touch_stage < 7) return false;          // ← 门控在这里，太晚了
+  spi_transfer = bitbang_transfer;
+  ```
+  `touch_stage=7` 时 `7 < 6` 为假 → 继续执行 `io_supply_on()`
+  → `rpmh_write()` → `wr(TCS(rsc+0xd00))` 且 `rsc=0` → **非法地址 data abort**。
+
+- **修复（两处）**：
+  1. `if (touch_stage == 6 && io_supply_on())` —— 只有 stage 6 允许碰 RPMh
+  2. bitbang 循环里的 `if (attempt==0 && touch_stage == 6 && io_supply_on())`
+  3. **并在 `bring_up()` 最前面**加 `if (touch_stage >= 7) goto bitbang_only;`
+     —— 让 stage 7 完全跳过 `clocks_on()` / `geni_spi_init()` / 200ms 失败传输
+
+- **通用教训**：
+  **给新阶段加门控时，必须确认它在整条调用链上位于所有危险调用之前。**
+  只在一个位置加 `if (stage < N) return` 是不够的 —— 如果中途还有别的
+  `if (stage < M)`（M < N）分支，新阶段会从那些分支"漏"过去。
+
+- **检查方法**：加新阶段后，`grep -n 'touch_stage'` 全文列出所有门控点，
+  按执行顺序逐个确认新阶段会走哪条路。
+
+- **30 秒判定**：新 stage 一上机就 0 日志 → 先查它是否漏过了某个危险调用，
+  而不是怀疑新功能本身。
+
+### P-70 **K60 触摸 SPI 引脚角色：MISO 是 GPIO 17，不是 16**
+
+- **背景**：FDT 的 `qupv3_se4_spi_active` 只给出引脚**集合**
+  `pins = "gpio16\0gpio17\0gpio18\0gpio19"`（function `qup4`），
+  **没有说明**哪个是 MISO / MOSI / CLK / CS。
+
+- **我们原来的假设（来自 pong 参考实现，从未核对）**：
+  `MISO=16, MOSI=17, CLK=18, CS=19`
+
+- **实测（24 种排列一次扫描，`evidence/usblog-20261109-195627`，内核 `7bfc16a4`）**：
+  ```
+  PERM0  miso=16 mosi=17 clk=18 cs=19  -> 00 00 00 00
+  PERM7  miso=17 mosi=16 clk=19 cs=18  -> ff ff ff ff   ★
+  PERM8  miso=17 mosi=18 clk=16 cs=19  -> ff ff ff ff   ★
+  其余 22 种                            -> 00 00 00 00
+  ```
+  **两个 `ff` 的共同点是 `miso=17`** → **MISO 实际在 GPIO 17**。
+
+- **`ff ff ff ff` 的意义**：MISO 被拉高。SPI 空闲态（CS 未选中或芯片未驱动）
+  通常是**高电平**，说明这条线**终于连到芯片侧**了；而 `00` 说明那条线根本不是 MISO
+  （悬空被拉低或接错）。
+
+- **修正**：`pins[]` 的 MISO/MOSI 位置需要交换：
+  ```c
+  // 原（错）：MISO=pins[0]=16, MOSI=pins[1]=17
+  // 新（对）：MISO=pins[1]=17, MOSI=pins[0]=16
+  ```
+  剩余 CLK/CS 还需在 `miso=17` 的 6 种组合里确认（PERM6 `mosi=16 clk=18 cs=19`
+  最符合 Qualcomm 标准顺序）。
+
+- **通用教训**：
+  **FDT 的 pinctrl `pins` 属性只保证"这四根线属于这个 SE"，不保证顺序。**
+  在写 bitbang 或手搓 SPI 前，必须用排列扫描（24 种）实测确定角色，
+  不能从别的板子照抄。一次扫描就能省掉多轮猜测。
+
+- **30 秒判定**：bitbang 读全 `00` → MISO 选错；读全 `ff` → MISO 大概率对了，
+  但芯片没响应（需查 CS/CLK 或供电）。
+
 ## 台账维护规则
 
 1. 新坑确认后**当场追加**（与 ISSUES 同步，不等收尾）。

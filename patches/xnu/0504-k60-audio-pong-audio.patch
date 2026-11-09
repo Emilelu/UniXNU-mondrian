@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/pong_audio.c
-@@ -0,0 +1,964 @@
+@@ -0,0 +1,970 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * K60 audio core skeleton: ADSP/PAS1 + AudioReach GPR plumbing.
@@ -65,7 +65,13 @@
 +#define PONG_ADSP_PA                0x9fd00000u
 +#define PONG_ADSP_SIZE              0x03100000u
 +#define PONG_SMEM_PA                0x80900000u
-+#define PONG_SMEM_SIZE              0x00200000u
++/* K60_WINDOW_BUDGET: io_submap is 8 MiB kernel-wide (osfmk/arm/io_map.c:65)
++ * and io_map() panics on KERN_NO_SPACE. usblog already holds ~2 MiB and touch
++ * ~0.7 MiB, so asking for a 2 MiB SMEM window here is what pushed the total
++ * over the limit. The skeleton only prints the window, it does not walk it,
++ * so 64 KiB is enough to prove the mapping works; revisit when the real SMEM
++ * reader lands (it must then map what it actually touches, not the whole area). */
++#define PONG_SMEM_SIZE              0x00010000u
 +#define PONG_IPCC_PA                0x0ed18000u
 +#define PONG_IPCC_SIZE              0x00001000u
 +#define PONG_AOSS_PA                0x0c300000u

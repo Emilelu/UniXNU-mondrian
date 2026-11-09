@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,983 @@
+@@ -0,0 +1,1097 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -96,7 +96,18 @@ index 0000000..b033b90
 +/* ---- pins (TLMM) ------------------------------------------------------------------------------- */
 +
 +#define TLMM_PHYS               tlmm_phys
-+#define TLMM_SIZE               0x200000UL
++/* K60_WINDOW_BUDGET: io_submap is IO_MAP_SIZE = 8 MiB for the WHOLE kernel
++ * (osfmk/arm/io_map.c:65) and io_map() raises a panic on KERN_NO_SPACE instead
++ * of returning NULL (kmem_alloc with KMA_NOFAIL -> __kmem_failed_panic). Asking
++ * for 2 MiB here plus 448 KiB of GCC pushed the touch thread past the budget and
++ * the boot died with an empty console, which looks like a register hang but is
++ * really an out-of-address-space panic. Only GPIO_CFG/GPIO_IO are touched, and
++ * they live at gpio_offset + 0x1000*n with n in {16,17,18,19,21,20}, so the
++ * window must span 0x1000*21 + 4 = 0x15004. 0x20000 (128 KiB) covers every pin
++ * with headroom and still saves 1.88 MiB of the shared submap.
++ * P-64: an earlier 64 KiB value left pin 20 outside the mapping and the first
++ * gpio_set() on it took a kernel data abort (far = base + 0x14004). */
++#define TLMM_SIZE               0x20000UL
 +#define GPIO_CFG(n)             (tlmm + gpio_offset + 0x1000UL * (n))         /* [1:0] pull, [5:2] function, [8:6] drive, [9] output */
 +#define GPIO_IO(n)              (tlmm + gpio_offset + 0x1000UL * (n) + 4)     /* bit 0 in, bit 1 out */
 +#define PULL_NONE               0
@@ -309,6 +320,11 @@ index 0000000..b033b90
 +
 +static uint32_t se_source_hz, se_clock_select;
 +
++/* K60_DIAG_STAGE: k60_touch_se=<n> selects how far bring_up() is allowed to go.
++ * Nothing else changes: with the boot-arg absent the driver still returns
++ * before starting the thread. See DIAGNOSIS-GUIDE.md for the stage table. */
++static unsigned touch_stage;
++
 +static uint32_t
 +rcg_rate(uint32_t cfg, uint32_t m, uint32_t not_n_minus_m)
 +{
@@ -345,18 +361,48 @@ index 0000000..b033b90
 +	const char *problem = NULL;
 +	bool ok = false;
 +
-+	/* 1. GPLL0 first: gcc_qupv3_wrap0_s4_clk_src derives its rate from GPLL0
-+	 *    (gcc-sm8450.c gcc_parent_map_0: 0 TCXO, 1 GPLL0 main, 6 GPLL0 even), so the RCG
-+	 *    and the DFS levels are meaningless unless it is locked. It is a shared vote,
-+	 *    bit 0 of 0x62018, not an exclusive enable (TouchProbe.cpp:399-402). */
-+	wr(GCC_GPLL0_ENABLE, rd(GCC_GPLL0_ENABLE) | VOTE_GPLL0);
-+	for (int i = 0; i < 10000; i++) {
-+		if (rd(GCC_GPLL0_MODE) & PLL_LOCK) break;
-+		sleep_us(10);
++	/* K60_DIAG_STAGE.  A boot that dies produces no console at all, and the
++	 * ramoops ring does not survive the reset (every single capture in
++	 * evidence/ prints "K60PREV none"), so a printf-only probe cannot be read
++	 * back.  The only per-step observable is therefore "did the whole boot
++	 * survive", so every group of accesses sits behind its own stage number.
++	 *
++	 *   1  GPIO reset/int only                      (usblog-20261108-213652 proved it)
++	 *   2  QUP0 vote + DFSR + SE4 RCG + M/S/SE4 CBCR (proved in 221038 / 233955)
++	 *   3  GPLL0: RMW of 0x62018 and read of 0x100000   <-- never executed before
++	 *   4  CORE / CORE_2X CBCR at 0x33000 / 0x3300c     <-- never executed before
++	 *   5  geni_spi_init(): first touch of the 0x990000 window
++	 *   6  io_supply_on(): the RPMh RSC writes
++	 */
++	printf("Pong touch: DIAG clocks entry stage=%u\n", touch_stage);
++	if (touch_stage < 3) {
++		printf("Pong touch: DIAG stop in clocks_on (no GCC access)\n");
++		return false;
 +	}
-+	printf("Pong touch: clocks gpll0 vote=%08x mode=%08x\n", rd(GCC_GPLL0_ENABLE), rd(GCC_GPLL0_MODE));
 +
-+	wr(GCC_VOTE, rd(GCC_VOTE) | VOTE_QUP0_CORE_2X | VOTE_QUP0_CORE | VOTE_QUP0_M_AHB | VOTE_QUP0_S_AHB);
++	if (touch_stage >= 3) {
++		/* stage 3: the two accesses this round introduced.  GPLL0 feeds
++		 * gcc_qupv3_wrap0_s4_clk_src (gcc-sm8450.c gcc_parent_map_0:
++		 * 0 TCXO, 1 GPLL0 main, 6 GPLL0 even); 0x62018 bit0 is its enable
++		 * (gcc-sm8450.c:39-47), 0x0 is PLL_MODE with lock at bit31. */
++		printf("Pong touch: DIAG s3 pre-gpll0 (first access 0x%llx)\n",
++		    (unsigned long long)(GCC_PHYS + 0x62018));
++		wr(GCC_GPLL0_ENABLE, rd(GCC_GPLL0_ENABLE) | VOTE_GPLL0);
++		printf("Pong touch: DIAG s3 gpll0 enable ok\n");
++		for (int i = 0; i < 10000; i++) {
++			if (rd(GCC_GPLL0_MODE) & PLL_LOCK) break;
++			sleep_us(10);
++		}
++		printf("Pong touch: DIAG s3 gpll0 vote=%08x mode=%08x\n",
++		    rd(GCC_GPLL0_ENABLE), rd(GCC_GPLL0_MODE));
++	}
++
++	printf("Pong touch: DIAG s2 pre-vote (first access 0x%llx)\n",
++	    (unsigned long long)(GCC_PHYS + 0x62008));
++	vote = rd(GCC_VOTE);
++	printf("Pong touch: DIAG s2 vote=%08x\n", vote);
++	wr(GCC_VOTE, vote | VOTE_QUP0_CORE_2X | VOTE_QUP0_CORE | VOTE_QUP0_M_AHB | VOTE_QUP0_S_AHB);
++	printf("Pong touch: DIAG s2 post-vote\n");
 +	if (rd(GCC_QUP0_SE4_DFSR) & 1) {
 +		/* preset rates: the lowest that is at least 4 MHz */
 +		for (uint32_t level = 0; level < 8; level++) {
@@ -376,11 +422,13 @@ index 0000000..b033b90
 +		/* the crystal, undivided: nothing else has to be running */
 +		/* gcc_qupv3_wrap0_s4_clk_src sets hw_clk_ctrl (clk-rcg2.c:553-555, CFG bit 20),
 +		 * so preserve it. hid_width is 5: the divider is bits [4:0] within 0x371f. */
++		printf("Pong touch: DIAG s2 pre-rcg\n");
 +		wr(GCC_QUP0_SE4_CFG, (rd(GCC_QUP0_SE4_CFG) & ~0x371fu) | (1u << 20) | 1);
 +		wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) | 1);
 +		for (int i = 0; i < 500 && (rd(GCC_QUP0_SE4_CMD) & 1); i++) {
 +			sleep_us(10);
 +		}
++		printf("Pong touch: DIAG s2 post-rcg cmd=%08x\n", rd(GCC_QUP0_SE4_CMD));
 +		if (rd(GCC_QUP0_SE4_CMD) & 1) {
 +			problem = "the serial engine's clock does not take its configuration";
 +			goto out;
@@ -389,31 +437,53 @@ index 0000000..b033b90
 +		se_clock_select = 0;
 +	}
 +	wr(GCC_VOTE, rd(GCC_VOTE) | VOTE_QUP0_SE4);
-+	/* 2. Verify all FIVE branches before anything reads the engine.
++	/* 2. Verify the branches before anything reads the engine.
 +	 * M_AHB and S_AHB are hardware-clock-gated (bit1 set): such a branch reports CLK_OFF
 +	 * while idle and wakes on access, so CLK_OFF alone does NOT mean "not running"
-+	 * (clk-branch.c:61-72, TouchProbe.cpp:404-406). CORE, CORE_2X and SE4 have no such
-+	 * bit and must show CLK_OFF clear. The two core branches were never read before,
-+	 * yet sm8450.dtsi:1301 makes MASTER/SLAVE_QUP_CORE_0 the path to the SE window. */
++	 * (clk-branch.c:61-72, TouchProbe.cpp:404-406). */
++	printf("Pong touch: DIAG s2 pre-cbcr\n");
 +	for (int i = 0; i < 2000; i++) {
 +		m_ahb = rd(GCC_QUP0_M_AHB_CBCR);
 +		s_ahb = rd(GCC_QUP0_S_AHB_CBCR);
-+		core = rd(GCC_QUP0_CORE_CBCR);
-+		core2x = rd(GCC_QUP0_CORE_2X_CBCR);
 +		se4 = rd(GCC_QUP0_SE4_CBCR);
-+		ok = cbcr_running(m_ahb) && cbcr_running(s_ahb) &&
-+		    !(core & CLOCK_OFF) && !(core2x & CLOCK_OFF) && !(se4 & CLOCK_OFF);
++		ok = cbcr_running(m_ahb) && cbcr_running(s_ahb) && !(se4 & CLOCK_OFF);
 +		if (ok) break;
 +		sleep_us(10);
 +	}
++	printf("Pong touch: DIAG s2 post-cbcr m=%08x s=%08x se=%08x ok=%u\n",
++	    m_ahb, s_ahb, se4, ok);
 +
-+	/* The last lines printed before the engine is touched. If a boot still dies, this is
-+	   the exact state it died in: every raw CBCR, the vote word and the SE's own RCG. */
++	if (touch_stage < 4) {
++		printf("Pong touch: DIAG stop before CORE/CORE_2X\n");
++		goto out;
++	}
++
++	/* stage 4: the QUP0 core branches.  Offset 0x33000 / 0x3300c per
++	 * gcc-sm8450.c:1939-1947 and 1926-1934; halt_check BRANCH_HALT_VOTED. */
++	printf("Pong touch: DIAG s4 pre-core (0x%llx, 0x%llx)\n",
++	    (unsigned long long)(GCC_PHYS + 0x33000), (unsigned long long)(GCC_PHYS + 0x3300c));
++	core = rd(GCC_QUP0_CORE_CBCR);
++	printf("Pong touch: DIAG s4 core=%08x\n", core);
++	core2x = rd(GCC_QUP0_CORE_2X_CBCR);
++	printf("Pong touch: DIAG s4 core2x=%08x\n", core2x);
++	ok = ok && !(core & CLOCK_OFF) && !(core2x & CLOCK_OFF);
++	printf("Pong touch: DIAG s4 verdict ok=%u\n", ok);
++
 +out:
 +	vote = rd(GCC_VOTE);
-+	printf("Pong touch: clocks vote=%08x cbcr m=%08x s=%08x se=%08x core=%08x core2x=%08x\n",
-+	    vote, rd(GCC_QUP0_M_AHB_CBCR), rd(GCC_QUP0_S_AHB_CBCR), rd(GCC_QUP0_SE4_CBCR),
-+	    rd(GCC_QUP0_CORE_CBCR), rd(GCC_QUP0_CORE_2X_CBCR));
++	/* The CORE pair is only printed when its stage allowed the read: stage 1 and
++	 * 2 must touch nothing that has never been touched on a K60, otherwise the
++	 * staged probe would reintroduce the very doubt it is meant to remove. */
++	if (touch_stage >= 4) {
++		printf("Pong touch: clocks vote=%08x cbcr m=%08x s=%08x se=%08x core=%08x core2x=%08x\n",
++		    vote, rd(GCC_QUP0_M_AHB_CBCR), rd(GCC_QUP0_S_AHB_CBCR), rd(GCC_QUP0_SE4_CBCR),
++		    rd(GCC_QUP0_CORE_CBCR), rd(GCC_QUP0_CORE_2X_CBCR));
++	} else if (touch_stage >= 2) {
++		printf("Pong touch: clocks vote=%08x cbcr m=%08x s=%08x se=%08x core=-- core2x=--\n",
++		    vote, rd(GCC_QUP0_M_AHB_CBCR), rd(GCC_QUP0_S_AHB_CBCR), rd(GCC_QUP0_SE4_CBCR));
++	} else {
++		printf("Pong touch: clocks vote=(not read) no GCC register touched\n");
++	}
 +	printf("Pong touch: clocks se4 cfg=%08x cmd=%08x dfsr=%08x src_hz=%u sel=%u\n",
 +	    rd(GCC_QUP0_SE4_CFG), rd(GCC_QUP0_SE4_CMD), rd(GCC_QUP0_SE4_DFSR), se_source_hz, se_clock_select);
 +	if (problem) {
@@ -925,8 +995,14 @@ index 0000000..b033b90
 +static bool
 +bring_up(void)
 +{
++    printf("Pong touch: DIAG bring_up entry stage=%u\n", touch_stage);
 +    gpio_output(PIN_RESET,true,PULL_UP,6);
 +    gpio_configure(PIN_INT,0,PULL_UP,6,false);
++    printf("Pong touch: DIAG reset/irq pins done\n");
++    if (touch_stage < 3) {
++        printf("Pong touch: DIAG stop after GPIO (stage 2)\n");
++        return false;
++    }
 +    if (clocks_on()) {
 +        /* K60_PINORDER: sheng (TouchProbe.cpp:422-425) configures the four SPI
 +         * pins BEFORE touching the engine. Doing it after geni_spi_init leaves
@@ -935,15 +1011,26 @@ index 0000000..b033b90
 +        gpio_configure(PIN_MOSI,1,PULL_NONE,6,false);
 +        gpio_configure(PIN_CLK,1,PULL_NONE,6,false);
 +        gpio_configure(PIN_CS,1,PULL_NONE,6,false);
-+        /* If a console capture still ends here or on the next line, the engine window
-+         * itself is the fault: clocks_on() has already printed all five raw CBCRs. */
++        printf("Pong touch: DIAG spi pins muxed to qup4\n");
++        if (touch_stage < 5) {
++            printf("Pong touch: DIAG stop before the engine window (0x%llx)\n", se_phys);
++            return false;
++        }
 +        printf("Pong touch: touching serial engine %#llx now\n",se_phys);
 +        const char *problem=geni_spi_init(4000000);
 +        if (!problem) {
 +            spi_transfer=geni_transfer;
 +            if (goodix_probe(false)) return true;
++            if (touch_stage < 6) {
++                printf("Pong touch: DIAG stop before RPMh (stage 5)\n");
++                return false;
++            }
 +            if (io_supply_on()) { touch_reset();if (goodix_probe(true)) return true; }
 +        } else printf("Pong touch: GENI unavailable: %s; use GPIO SPI\n",problem);
++    }
++    if (touch_stage < 6) {
++        printf("Pong touch: DIAG stop before bitbang (stage %u)\n", touch_stage);
++        return false;
 +    }
 +    /* Only the two known data pins can exchange direction; no arbitrary scan. */
 +    spi_transfer=bitbang_transfer;
@@ -958,10 +1045,34 @@ index 0000000..b033b90
 +static void
 +touch_thread(__unused void *parameter, __unused wait_result_t result)
 +{
-+    tlmm=ml_io_map(TLMM_PHYS,TLMM_SIZE);gcc=ml_io_map(GCC_PHYS,GCC_SIZE);
-+    se=ml_io_map(SE_PHYS,SE_SIZE);rsc=ml_io_map(RSC_PHYS,RSC_SIZE);
++    printf("Pong touch: DIAG thread entered stage=%u\n", touch_stage);
++    /* K60_STAGE0: with stage 0 there is nothing to do at all. Returning here
++     * separates "the thread itself is the problem" from "any map or GPIO is". */
++    if (touch_stage == 0) {
++        printf("Pong touch: DIAG stage0 thread alive, returning\n");
++        thread_terminate(current_thread());
++        return;
++    }
++    /* base the tiny TLMM window on gpio_offset (0x100000), not on TLMM_PHYS */
++    tlmm=ml_io_map(TLMM_PHYS+gpio_offset,TLMM_SIZE)-gpio_offset;
++    gcc=ml_io_map(GCC_PHYS,GCC_SIZE);
++    printf("Pong touch: DIAG mapped tlmm=%#llx gcc=%#llx\n",
++        (unsigned long long)tlmm, (unsigned long long)gcc);
++    /* K60_NO_RSC: 0x17a20000 is the RSC "DRV 2" window. The project's own
++     * research (docs/research/touch/05-plan.md:9, findings 0246/0248) records
++     * that the FIRST read of its TCS kills the whole device. Do not map it.
++     * cmd_db is plain memory and stays mapped; rsc stays NULL on purpose. */
++    rsc = 0;
++    se=ml_io_map(SE_PHYS,SE_SIZE);
 +    cmd_db=ml_io_map_wcomb(CMD_DB_PHYS,CMD_DB_SIZE);
-+    if (!tlmm || !gcc || !se || !rsc || !cmd_db || !bring_up()) {
++    printf("Pong touch: DIAG mapped se=%#llx rsc=%#llx cmd_db=%#llx\n",
++        (unsigned long long)se, (unsigned long long)rsc, (unsigned long long)cmd_db);
++    if (touch_stage == 1) {
++        printf("Pong touch: DIAG stage1 maps ok, NOT calling bring_up\n");
++        thread_terminate(current_thread());
++        return;
++    }
++    if (!tlmm || !gcc || !se || !cmd_db || !bring_up()) {
 +        printf("Pong touch: Goodix initialization failed; normal UI boot continues\n");
 +        thread_terminate(current_thread());return;
 +    }
@@ -991,12 +1102,15 @@ index 0000000..b033b90
 +     * a gated SE hangs the interconnect and the whole boot dies with no console
 +     * output (observed 2026-11-09). Keep the SE path OFF by default; enable it
 +     * only on an explicit experimental boot with k60_touch_se=1. */
++    printf("Pong touch: DIAG init entered\n");
 +    uint32_t se_enabled=0;
 +    (void)PE_parse_boot_argn("k60_touch_se",&se_enabled,sizeof(se_enabled));
++    touch_stage = se_enabled;
 +    if (!se_enabled) {
 +        printf("Pong touch: SE path disabled (k60_touch_se not set); DT verified only\n");
 +        return;
 +    }
++    printf("Pong touch: DIAG gate open, stage=%u; starting thread\n", touch_stage);
 +    if (kernel_thread_start(touch_thread,NULL,&thread)==KERN_SUCCESS) thread_deallocate(thread);
 +}
 +#endif /* PONG */

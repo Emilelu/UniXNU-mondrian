@@ -1,7 +1,7 @@
 diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
 --- a/makedefs/MakeInc.def
 +++ b/makedefs/MakeInc.def
-@@ -306,5 +306,4 @@ CFLAGS_GEN = $(DEBUG_CFLAGS) -nostdinc \
+@@ -306,6 +306,5 @@
  	-fno-builtin \
  	-fno-common \
  	-ftrivial-auto-var-init=zero \

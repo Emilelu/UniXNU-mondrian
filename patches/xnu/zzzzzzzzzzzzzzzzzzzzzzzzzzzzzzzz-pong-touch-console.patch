@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1097 @@
+@@ -0,0 +1,1262 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -324,6 +324,10 @@ index 0000000..b033b90
 + * Nothing else changes: with the boot-arg absent the driver still returns
 + * before starting the thread. See DIAGNOSIS-GUIDE.md for the stage table. */
 +static unsigned touch_stage;
++/* K60_FIFO_ESCAPE: see geni_spi_init(). 0 reproduces the old behaviour. */
++int k60_touch_allow_fifo_disabled;
++/* K60_FORCE_RCG: 1 = program the RCG divider even when DFS mode is advertised. */
++int k60_touch_force_rcg;
 +
 +static uint32_t
 +rcg_rate(uint32_t cfg, uint32_t m, uint32_t not_n_minus_m)
@@ -403,7 +407,19 @@ index 0000000..b033b90
 +	printf("Pong touch: DIAG s2 vote=%08x\n", vote);
 +	wr(GCC_VOTE, vote | VOTE_QUP0_CORE_2X | VOTE_QUP0_CORE | VOTE_QUP0_M_AHB | VOTE_QUP0_S_AHB);
 +	printf("Pong touch: DIAG s2 post-vote\n");
-+	if (rd(GCC_QUP0_SE4_DFSR) & 1) {
++	extern int k60_touch_force_rcg;
++	if ((rd(GCC_QUP0_SE4_DFSR) & 1) && !k60_touch_force_rcg) {
++		/* K60_PERF_DUMP: the clock never starts (cbcr bit30=0) and dfsr bit0=1
++		 * says the RCG is in DFS mode, so print every preset level: cfg/m/n and
++		 * the rate rcg_rate() derives. This is what tells us whether a usable
++		 * level exists at all and which one the hardware is actually on. */
++		for (uint32_t level = 0; level < 8; level++) {
++			uint32_t pc = rd(GCC_QUP0_SE4_PERF_CFG(level));
++			uint32_t pm = rd(GCC_QUP0_SE4_PERF_M(level));
++			uint32_t pn = rd(GCC_QUP0_SE4_PERF_N(level));
++			printf("Pong touch: PERF[%u] cfg=%#x m=%#x n=%#x hz=%u\n",
++			    level, pc, pm, pn, rcg_rate(pc, pm, pn));
++		}
 +		/* preset rates: the lowest that is at least 4 MHz */
 +		for (uint32_t level = 0; level < 8; level++) {
 +			uint32_t hz = rcg_rate(rd(GCC_QUP0_SE4_PERF_CFG(level)), rd(GCC_QUP0_SE4_PERF_M(level)),
@@ -418,6 +434,22 @@ index 0000000..b033b90
 +			problem = "no usable preset clock rate";
 +			goto out;
 +		}
++		/* K60_ROOT_ON: the real blocker is CMD_ROOT_OFF (CMD bit31), not
++		 * DFS_EN. Linux clk-rcg2.c:74 says the root is enabled only when
++		 * (cmd & CMD_ROOT_OFF) == 0; our CMD reads 0x80000000, i.e. the RCG
++		 * root is switched OFF, so no rate -- DFS or not -- produces a clock.
++		 * DFS_EN itself is DFSR bit0 and already reads 1 (dfsr=0x21).
++		 * Clearing ROOT_OFF and committing with CMD_UPDATE (CMD bit0) is the
++		 * documented enable sequence (clk-rcg2.c:118-128). */
++		printf("Pong touch: ROOT_ON pre cmd=%#x cbcr=%#x\n",
++		    rd(GCC_QUP0_SE4_CMD), rd(GCC_QUP0_SE4_CBCR));
++		wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) & ~(1u << 31));
++		wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) | 1u);
++		for (int i = 0; i < 500 && (rd(GCC_QUP0_SE4_CMD) & 1u); i++) {
++			sleep_us(10);
++		}
++		printf("Pong touch: ROOT_ON post cmd=%#x cbcr=%#x\n",
++		    rd(GCC_QUP0_SE4_CMD), rd(GCC_QUP0_SE4_CBCR));
 +	} else {
 +		/* the crystal, undivided: nothing else has to be running */
 +		/* gcc_qupv3_wrap0_s4_clk_src sets hw_clk_ctrl (clk-rcg2.c:553-555, CFG bit 20),
@@ -562,12 +594,28 @@ index 0000000..b033b90
 +	if ((rd(GENI_FW_REVISION_RO) >> 8 & 0xff) != 1) {
 +		return "the serial engine has no SPI firmware";
 +	}
-+	if (rd(GENI_IF_DISABLE_RO) & 1) {
++	/* K60_FIFO_ESCAPE: the board reports FIFO_IF_DISABLE (0x064 bit0 = 1).
++	 * Official QcomGeniSpi has two escape hatches (GeniSpi.c:80): use_dma, or
++	 * allow_fifo_disabled ("try FIFO mode even when FIFO_IF_DISABLE is set",
++	 * GeniSpi.h:208). The DMA path needs SE DMA + SMMU work; the flag costs one
++	 * boot and tells us whether the engine answers at all. Default 0 keeps the
++	 * previous behaviour byte for byte. */
++	extern int k60_touch_allow_fifo_disabled;
++	if ((rd(GENI_IF_DISABLE_RO) & 1) && !k60_touch_allow_fifo_disabled) {
 +		return "the serial engine's FIFO interface is disabled";
 +	}
++	if (rd(GENI_IF_DISABLE_RO) & 1) {
++		printf("Pong touch: FIFO_IF_DISABLE set but k60_touch_fifo=1, trying anyway\n");
++	}
 +	fifo_depth = rd(SE_HW_PARAM_0) >> 16 & 0x3f;
-+	if (fifo_depth < 4) {
++	printf("Pong touch: GENI hw_param0=%#x fifo_depth=%u if_disable=%#x\n",
++	    rd(SE_HW_PARAM_0), fifo_depth, rd(GENI_IF_DISABLE_RO));
++	if (fifo_depth < 4 && !k60_touch_allow_fifo_disabled) {
 +		return "the serial engine reports no FIFO";
++	}
++	if (fifo_depth < 4) {
++		printf("Pong touch: fifo_depth=%u < 4 but k60_touch_fifo=1, using 4\n", fifo_depth);
++		fifo_depth = 4;
 +	}
 +	wr(SE_GSI_EVENT_EN, 0);
 +	wr(GENI_M_IRQ_CLEAR, 0xffffffff);
@@ -669,9 +717,28 @@ index 0000000..b033b90
 +		sleep_us(100);
 +	}
 +	wr(GENI_M_IRQ_CLEAR, 0xffffffff);
++	/* K60_GENI_DIAG: what does the engine look like before the command? */
++	printf("Pong touch: GENI pre status=%#x clk_cfg=%#x trans_cfg=%#x word_len=%#x\n",
++	    rd(GENI_STATUS), rd(GENI_SER_M_CLK_CFG), rd(SPI_TRANS_CFG), rd(SPI_WORD_LEN));
++	/* K60_CLK_PROOF: is the SE's SPI branch clock really running, and did the
++	 * RCG divider take? clk_cfg reads back 0x51, so the register accepted the
++	 * write; this tells us whether the GCC side agrees. */
++	{
++		uint32_t se4 = rd(GCC_QUP0_SE4_CBCR);
++		uint32_t cfg = rd(GCC_QUP0_SE4_CFG);
++		uint32_t cmd = rd(GCC_QUP0_SE4_CMD);
++		printf("Pong touch: CLKPROOF se4_cbcr=%#x off=%u on=%u hwcg=%u\n",
++		    se4, (se4 >> 31) & 1, (se4 >> 30) & 1, (se4 >> 1) & 1);
++		printf("Pong touch: CLKPROOF se4_cfg=%#x cmd=%#x dfsr=%#x\n",
++		    cfg, cmd, rd(GCC_QUP0_SE4_DFSR));
++	}
 +	wr(SPI_TX_TRANS_LEN, length);
 +	wr(SPI_RX_TRANS_LEN, length);
++	printf("Pong touch: GENI lens tx=%#x rx=%#x\n",
++	    rd(SPI_TX_TRANS_LEN), rd(SPI_RX_TRANS_LEN));
 +	wr(GENI_M_CMD0, SPI_FULL_DUPLEX);
++	printf("Pong touch: GENI cmd0 readback=%#x status=%#x\n",
++	    rd(GENI_M_CMD0), rd(GENI_STATUS));
 +	clock_interval_to_deadline(200, NSEC_PER_MSEC, &deadline);
 +	while (mach_absolute_time() < deadline) {
 +		while (sent < length && (rd(GENI_TX_FIFO_STATUS) & 0x0fffffff) + 1 < fifo_depth) {
@@ -683,6 +750,18 @@ index 0000000..b033b90
 +			wr(GENI_TX_FIFO, word);
 +		}
 +		status = rd(GENI_M_IRQ_STATUS);
++		/* K60_XFER_TRACE: the command is accepted (cmd0 reads back) but
++		 * M_CMD_DONE never appears and the RX FIFO stays empty. Print the
++		 * engine state for the first few iterations only. */
++		{
++			static unsigned trace;
++			if (trace < 8) {
++				printf("Pong touch: XFER[%u] irq=%#x gst=%#x txf=%#x rxf=%#x sent=%u rcv=%u\n",
++				    trace, status, rd(GENI_STATUS), rd(GENI_TX_FIFO_STATUS),
++				    rd(GENI_RX_FIFO_STATUS), sent, received);
++				trace++;
++			}
++		}
 +		geni_drain(rx, length, &received);
 +		if (status & M_ERRORS) {
 +			break;
@@ -708,11 +787,16 @@ index 0000000..b033b90
 +
 +static unsigned bitbang_in, bitbang_out;
 +
++/* K60_PIN_PERMUTE: bitbang roles as variables so the probe can try all 24 assignments. */
++static unsigned bitbang_clk, bitbang_cs;
++
 +static void
 +bitbang_init(void)
 +{
-+	gpio_output(PIN_CS, true, PULL_NONE, 6);
-+	gpio_output(PIN_CLK, false, PULL_NONE, 6);
++	if (!bitbang_clk) bitbang_clk = PIN_CLK;
++	if (!bitbang_cs) bitbang_cs = PIN_CS;
++	gpio_output(bitbang_cs, true, PULL_NONE, 6);
++	gpio_output(bitbang_clk, false, PULL_NONE, 6);
 +	gpio_output(bitbang_out, false, PULL_NONE, 6);
 +	gpio_configure(bitbang_in, 0, PULL_NONE, 2, false);
 +}
@@ -720,21 +804,23 @@ index 0000000..b033b90
 +static bool
 +bitbang_transfer(const uint8_t *tx, uint8_t *rx, uint32_t length)
 +{
-+	gpio_set(PIN_CS, false);
++	if (!bitbang_clk) bitbang_clk = PIN_CLK;
++	if (!bitbang_cs) bitbang_cs = PIN_CS;
++	gpio_set(bitbang_cs, false);
 +	for (uint32_t i = 0; i < length; i++) {
 +		uint8_t out = tx ? tx[i] : 0, in = 0;
 +
 +		for (int bit = 7; bit >= 0; bit--) {
 +			gpio_set(bitbang_out, out >> bit & 1);
-+			gpio_set(PIN_CLK, true);
++			gpio_set(bitbang_clk, true);
 +			in = (uint8_t)(in << 1 | gpio_get(bitbang_in));
-+			gpio_set(PIN_CLK, false);
++			gpio_set(bitbang_clk, false);
 +		}
 +		if (rx) {
 +			rx[i] = in;
 +		}
 +	}
-+	gpio_set(PIN_CS, true);
++	gpio_set(bitbang_cs, true);
 +	return true;
 +}
 +
@@ -996,6 +1082,14 @@ index 0000000..b033b90
 +bring_up(void)
 +{
 +    printf("Pong touch: DIAG bring_up entry stage=%u\n", touch_stage);
++    /* K60_S7_SKIP_GENI: stage 7 exists to exercise the bitbang fallback only.
++     * Skip the whole GENI block (clocks_on, engine init, 200 ms failing
++     * transfer) so the pins go straight to GPIO mode and no engine register is
++     * ever touched. */
++    if (touch_stage >= 7) {
++        printf("Pong touch: DIAG stage7 skips GENI, straight to bitbang\n");
++        goto bitbang_only;
++    }
 +    gpio_output(PIN_RESET,true,PULL_UP,6);
 +    gpio_configure(PIN_INT,0,PULL_UP,6,false);
 +    printf("Pong touch: DIAG reset/irq pins done\n");
@@ -1025,19 +1119,78 @@ index 0000000..b033b90
 +                printf("Pong touch: DIAG stop before RPMh (stage 5)\n");
 +                return false;
 +            }
-+            if (io_supply_on()) { touch_reset();if (goodix_probe(true)) return true; }
++            /* K60_STAGE7_ONLY: only stage 6 exercises the RPMh path. Stage 7
++             * is bitbang-only and must never call io_supply_on(): it writes
++             * TCS(rsc+0xd00+...) and rsc is 0 by HR-01 -> data abort. */
++            if (touch_stage == 6 && io_supply_on()) { touch_reset();if (goodix_probe(true)) return true; }
 +        } else printf("Pong touch: GENI unavailable: %s; use GPIO SPI\n",problem);
 +    }
-+    if (touch_stage < 6) {
++    if (touch_stage < 7) {
 +        printf("Pong touch: DIAG stop before bitbang (stage %u)\n", touch_stage);
 +        return false;
 +    }
++    /* K60_BITBANG_ONLY: stage 7 skips GENI completely. io_supply_on() is NOT
++     * called here on purpose: it writes TCS(rsc+0xd00+...) and rsc is 0 by
++     * HR-01, so any call would take a data abort. The chip may already be
++     * powered by ABL; if not, the probe simply reads zeroes and fails safely. */
++bitbang_only:
++    printf("Pong touch: DIAG bitbang-only path (stage %u)\n", touch_stage);
++    gpio_output(PIN_RESET,true,PULL_UP,6);
++    gpio_configure(PIN_INT,0,PULL_UP,6,false);
++    /* K60_PIN_PERMUTE_BLOCK: the FDT fixes the pin SET (gpio16..19, function
++     * qup4) but not which is MISO/MOSI/CLK/CS. Try all 24 assignments and print
++     * the first four bytes each returns; the live chip answers on exactly one. */
++    /* K60_MISO17: the 24-way sweep showed MISO is GPIO 17 (only assignments
++     * with miso=17 returned 0xff instead of 0x00). Pulse RESET, then probe the
++     * six remaining MOSI/CLK/CS assignments over {16,18,19}. */
++    /* K60_AVDD71: FDT goodix,avdd-gpio = <&tlmm 0x47 0> = GPIO 71. A load
++     * switch enable, so drive it high and give the rail time to settle. */
++    printf("Pong touch: AVDD gpio71 on, int_before=%u\n", gpio_get(PIN_INT));
++    gpio_output(71u, true, PULL_NONE, 6);
++    sleep_ms(10);
++    printf("Pong touch: AVDD gpio71 done int_after=%u\n", gpio_get(PIN_INT));
++    printf("Pong touch: RESETPULSE low 20ms then high 120ms\n");
++    gpio_output(PIN_RESET, false, PULL_NONE, 6);
++    sleep_ms(20);
++    gpio_output(PIN_RESET, true, PULL_UP, 6);
++    sleep_ms(120);
++    printf("Pong touch: RESETPULSE done int_pin=%u\n", gpio_get(PIN_INT));
++    {
++        static const unsigned rest[3] = {16u, 18u, 19u};
++        static const uint8_t zero[4] = {0, 0, 0, 0};
++        unsigned n = 0;
++        for (unsigned b = 0; b < 3; b++)
++        for (unsigned c = 0; c < 3; c++) {
++            if (c == b) continue;
++            for (unsigned d = 0; d < 3; d++) {
++                uint8_t probe[4] = {0, 0, 0, 0};
++                if (d == b || d == c) continue;
++                bitbang_in = 17u;
++                bitbang_out = rest[b];
++                bitbang_clk = rest[c];
++                bitbang_cs = rest[d];
++                bitbang_init();
++                bitbang_transfer(zero, probe, 4);
++                printf("Pong touch: M17[%u] miso=17 mosi=%u clk=%u cs=%u b=%02x %02x %02x %02x\n",
++                    n, rest[b], rest[c], rest[d], probe[0], probe[1], probe[2], probe[3]);
++                n++;
++            }
++        }
++        bitbang_clk = PIN_CLK;
++        bitbang_cs = PIN_CS;
++    }
 +    /* Only the two known data pins can exchange direction; no arbitrary scan. */
 +    spi_transfer=bitbang_transfer;
++    /* K60_BB_DIAG: PIN_INT is a pull-up input. A powered controller drives it
++     * low after reset; a floating (unpowered) chip leaves it high. This is the
++     * cheapest way to tell "no reply because unpowered" from "wrong SPI mode". */
++    printf("Pong touch: BBDIAG int_pin=%u reset_pin=%u pins=%u,%u,%u,%u\n",
++        gpio_get(PIN_INT), 1u, pins[0], pins[1], pins[2], pins[3]);
 +    for (unsigned attempt=0;attempt<2;attempt++) {
 +        bitbang_in=pins[attempt];bitbang_out=pins[1-attempt];bitbang_init();
-+        if (goodix_probe(false)) return true;
-+        if (attempt==0 && io_supply_on()) {touch_reset();if (goodix_probe(true)) return true;}
++        printf("Pong touch: BBDIAG attempt=%u in=%u out=%u\n", attempt, bitbang_in, bitbang_out);
++        if (goodix_probe(true)) return true;
++        if (attempt==0 && touch_stage == 6 && io_supply_on()) {touch_reset();if (goodix_probe(true)) return true;}
 +    }
 +    return false;
 +}
@@ -1106,6 +1259,18 @@ index 0000000..b033b90
 +    uint32_t se_enabled=0;
 +    (void)PE_parse_boot_argn("k60_touch_se",&se_enabled,sizeof(se_enabled));
 +    touch_stage = se_enabled;
++    {
++        int fifo = 0;
++        (void)PE_parse_boot_argn("k60_touch_fifo", &fifo, sizeof(fifo));
++        k60_touch_allow_fifo_disabled = fifo;
++        if (fifo) printf("Pong touch: FIFO escape armed (k60_touch_fifo=1)\n");
++    }
++    {
++        int rcg = 0;
++        (void)PE_parse_boot_argn("k60_touch_rcg", &rcg, sizeof(rcg));
++        k60_touch_force_rcg = rcg;
++        if (rcg) printf("Pong touch: forcing RCG path (k60_touch_rcg=1)\n");
++    }
 +    if (!se_enabled) {
 +        printf("Pong touch: SE path disabled (k60_touch_se not set); DT verified only\n");
 +        return;

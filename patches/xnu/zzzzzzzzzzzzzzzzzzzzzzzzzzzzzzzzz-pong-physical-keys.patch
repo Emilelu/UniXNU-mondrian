@@ -116,7 +116,7 @@
 +    if (queues[kind].ready) {result=true;goto out;}
 +    if (input_major<0) input_major=cdevsw_add(-1,&touch_cdevsw);
 +    if (input_major<0) goto out;
-+    if (devfs_make_node(makedev(input_major,kind),DEVFS_CHAR,UID_ROOT,GID_WHEEL,0444,name)) {
++    if (devfs_make_node(makedev(input_major,kind),DEVFS_CHAR,UID_ROOT,GID_WHEEL,0444,"%s",name)) {
 +        queues[kind].ready=true;result=true;
      }
 -    return true;
@@ -129,7 +129,7 @@
  #endif
 --- /dev/null
 +++ b/bsd/dev/pong_buttons.c
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,147 @@
 +/* Pong SM8475 PMIC keys. Read-only peripheral access, adapted from HackiOS
 + * redwood_buttons.c (APSL 2.0) and NothingOSS spmi-pmic-arb.c register layouts.
 + * No PMIC configuration/reset/supply writes and no display/GPU dependency. */
@@ -268,15 +268,12 @@
 +
 +void pong_buttons_init(void)
 +{
-+    uint32_t enabled=1; /* default ON; boot-arg can turn off */
-+    thread_t t;
-+    /* K60_GATE: a missing boot-arg makes PE_parse_boot_argn return FALSE;
-+     * the compiled-in default above is the policy, so ignore the return. */
++    uint32_t enabled=1; /* K60: default ON so the driver actually runs */thread_t t;
++    /* K60_GATE: PE_parse_boot_argn returns FALSE when the boot-arg is absent,
++     * so the || below would always return. Ignore the return value and
++     * let the compiled-in default (enabled=1) decide. */
 +    (void)PE_parse_boot_argn("pong_buttons",&enabled,sizeof(enabled));
 +    if (!enabled) return;
-+    /* K60_PROBE: create /dev/pong-buttons even if configuration() later fails,
-+     * so the userland HID publisher can open it and report what it sees. */
-+    (void)pong_buttons_device_ready();
 +    if (kernel_thread_start(keys_thread,NULL,&t)==KERN_SUCCESS) thread_deallocate(t);
 +}
 +#endif
@@ -303,3 +300,14 @@
 +void pong_buttons_init(void);
  #endif
  #endif
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1153,6 +1153,8 @@
+ #if defined(PONG)
+ 	extern void pong_goodix_init(void);
+ 	pong_goodix_init();
++		extern void pong_buttons_init(void);
++		pong_buttons_init();
+ #endif
+ #endif /* DEVFS */
+ 

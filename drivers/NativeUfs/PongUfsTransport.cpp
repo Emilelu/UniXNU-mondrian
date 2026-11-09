@@ -108,6 +108,11 @@ static void cacheInvalidate(const void *start, size_t size) {
   __asm__ volatile("dsb sy" ::: "memory");
 }
 static void hostWrite(unsigned offset, uint32_t value) { write32(gHost.hc, offset, value); }
+// The installed Apple SDK declares PE_parse_boot_arg_str only under
+// XNU_KERNEL_PRIVATE, which the kext build does not define; the kernel itself
+// exports it (pexpert/gen/bootargs.c). Declare it to read a string value such as
+// k60_root_partition without PE_parse_boot_argn's numeric conversion.
+extern "C" boolean_t PE_parse_boot_arg_str(const char *arg_string, char *arg_ptr, int size);
 #include "RootQueue.h"
 #include "RootCommands.h"
 #include "RootLayout.h"

@@ -20,13 +20,25 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 patch_series = ["device:patches/xnu/series"]
 archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs"]
 driver_records = "DEVELOPMENT_ARM64_PONG"
-# The Pong Adreno / UI provider scripts that build-xnu-4k-baseline.sh runs with
-# PONG_DRIVER_SOURCE=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT} read their sources from this
-# checkout. $ROOT is the assembled build tree, which only links the components
-# selected in [components] and therefore has no drivers/PongAdreno, so the fallback
-# stops the build on PongAdrenoCpProfile.h. This is the same driver tree the device
-# archive recipes already build against.
-pong_native_driver_source = "/opt/k60/trees/pong-driver"
+# The Pong Adreno / UI provider scripts are not selected by this key. The kernel
+# build only reads the PONG_NATIVE_DRIVER_SOURCE environment variable:
+#   scripts/build-xnu-4k-baseline.sh:240   shim-bin goes on PATH when
+#                                          $PONG_NATIVE_DRIVER_SOURCE has one
+#   scripts/build-xnu-4k-baseline.sh:250   ArmDT / ArmCpu provider scripts
+#   scripts/build-xnu-4k-baseline.sh:260   storage ABI derivation
+#   scripts/build-xnu-4k-baseline.sh:268   NativeUfs transport compile
+#   scripts/build-xnu-4k-baseline.sh:273   NativeRamBlock compile
+#   scripts/build-xnu-4k-baseline.sh:970   Adreno platform, falling back to
+#                                          ${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}
+# and no repository code reads a [kernel] pong_native_driver_source key. The
+# scripts that were executed out of that tree live in this repository
+# (scripts/build-pong-*.py, scripts/bind-ios16-storage.py,
+# scripts/derive-ios16-storage-bindings.py), so the fallback now points at the
+# checkout instead of the assembled build tree, which has no drivers/PongAdreno.
+# Set the environment variable only to build against a different driver tree;
+# see scripts/k60-macos-preflight.sh:13-14 for the macOS CI form.
+# pong_native_driver_source was this path before the fallback existed:
+# "/opt/k60/trees/pong-driver" (not in this repository, no reader, remove it).
 
 [userdata]
 first_lba = 53342976
@@ -122,7 +134,48 @@ dram_size = "0x140000000"
 # makes the stand-in and the kext collide - panic "AppleMobileFileIntegrity
 # interface already set" at libkern/amfi/amfi.c:11, which is what
 # boot-amfi.img (2026-10-31) and boot-amfi2.img (2026-11-01) both showed.
-kernel_args = ["-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x144", "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1", "pong_ufs_readwrite=1", "k60_fontscale=3"]
+#
+# These arguments are the measured payload of boot-0461-20261107.img (and of
+# boot-0442-20261107.img before it): 28 entries, debug=0x140, 581 bytes of a
+# 600-byte command line (docs/reference/PITFALLS-FROM-HISTORY.md pitfall 124).
+# Both images reached SpringBoard on the board, so this is the verified list.
+# Read the measured list back out of an image with a FAT directory walk over the
+# payload volume (/EFI/UniXNU/unixnu.toml, the `args = "..."` line); the boot img
+# header and payload offset for these images are documented in
+# docs/state/LEDGER.md. boot-0601-goldenargs.img carries a different, 19-entry
+# list and is not a substitute for this one
+# (docs/state/BUILD-RECIPE-2026-11-08.md records the difference).
+#
+# The arguments that only exist here, and what their absence did:
+#   debug=0x140                 not 0x144. 0x144 has DB_NMI, so a panic parks
+#                               in the debugger and never reboots; 0x140 lets
+#                               0334/k60_panic_reset hand the board back to
+#                               fastboot through IMEM 0x146AA65C instead.
+#   k60_usblog=2                enumerates the USB CDC console. Without it the
+#                               board is silent even when the kernel is running.
+#   k60_skip_firmware_mount=1   launchd's mount-phase bind mounts get EPERM on
+#                               this board and PID 1 panics on the error.
+#   k60_tolerate_cache_loader=1 a crashed launchd_cache_loader stops being fatal.
+#   k60_panic_reset=1           automatic fastboot after a panic, so a failed
+#                               experiment does not need a power cycle.
+#   k60_console_export=1        exports the console to /chosen for the host.
+#   k60_selftest_reboot=300     self-reset watchdog: 150 hearts of 2 s, then
+#                               back to fastboot (pitfall 133).
+#   amfi_get_out_of_my_way=1, launchd_unsecure_cache=1, xpcproxy_idversion=1,
+#   k60_entitlement_allow=1, k60_skip_iosurface=1: the userland gates that let
+#   launchd and SpringBoard start without a real AMFI/SEP.
+kernel_args = [
+  "-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x140",
+  "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1",
+  "pong_ufs_readwrite=1", "k60_console_export=1", "k60_usblog=2",
+  "pong_data_mount=1", "pong_data_rw=1", "fb_threads=3", "k60_textonly=1",
+  "amfi_get_out_of_my_way=1", "pong_init_path=/private/var/pong/init",
+  "epoch=1793709100", "k60_fontscale=3", "k60_skip_firmware_mount=1",
+  "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
+  "xpcproxy_idversion=1", "applog=1", "applog_name=runningboardd,backboardd,lsd",
+  "k60_entitlement_allow=1", "k60_skip_iosurface=1", "k60_panic_reset=1",
+  "k60_selftest_reboot=300",
+]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the

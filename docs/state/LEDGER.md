@@ -97,14 +97,22 @@ cd /tmp/k60build
   EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$PLATFORM_ARCHIVES")
   ```
 
-### boot args（**必须与 `boot-0461` 完整 29 项一致**；我曾只用 20 项，漏了 9 项）
+### boot args（**必须与 `boot-0461` 完整 28 项一致**；我曾只用 20 项，漏了 9 项）
+
+> 2026-11-09 复测更正：这一节原来写「29 项」，并把 `payload-0461.img` 当成 `boot-0461`
+> 的原始 payload。两处都不对，实测见下。`29` 是「28 项 + `k60_init_blob=1`」的
+> 配方口径（`docs/state/BUILD-RECIPE-2026-11-08.md`），镜像里没有这个组合。
 
 **黄金 payload 原件在磁盘上，不要重新打包**：
 ```
 /mnt/e/k60-work/scratch/payload-0461.img   201326592 B  2026-11-07 21:25:57  tol=YES initblob=no
 /mnt/e/k60-work/scratch/payload-0461c.img  201326592 B  2026-11-07 21:25:58  tol=YES initblob=no
 ```
-（`payload-0461` 与 `boot-0461-20261107.img` 只差 2 秒，是打进那个 boot 镜像的原始 payload）
+（原记录说 `payload-0461` 是打进 `boot-0461` 的原始 payload。**实测不成立**：只读 FAT
+目录链解析 `boot-0461-20261107.img@552960` 得到 **28 项 / `debug=0x140`**，而
+`payload-0461.img` 是 **16 项 / `debug=0x144`**（无 `k60_usblog`、无 `k60_skip_firmware_mount`、
+无 `k60_panic_reset`）。同秒的 `payload-0461c.img` 才是 28 项 / `0x140`。这两个 scratch
+文件同名不同内容，别按文件名认版本，要按 FAT 解析结果认。）
 同日迭代链：`payload-0441` → `selfreset` 系列 → `0444`/`0445c`/`0447` … → **`0461`（进 SpringBoard）**。
 带 `selfreset` 名字的版本对应 0311 自动复位验证。
 
@@ -244,7 +252,7 @@ UI 按钮插件 `@local/k60-console-buttons` 仅作辅助，不替代上面的�
 | 8 | `vnode_close(vp, FWRITE, ctx)` | 让 `vnode_rele_internal` 递减未 acquire 的 `v_writecount` → `vnode_rele_ext kusecount` panic | 内核写文件一律照抄 `0340:7001-7013`，`vnode_close(vp, 0, ctx)` |
 | 9 | 手工用 `clang` 编 init stub | `ld64.lld 18` 的 `-static` **未实现**，产物带 `DYLDLINK`+`LOAD_DYLINKER` → `EXEC_EXIT_REASON_BAD_MACHO` | **不要自己编 init**。用设备上 dd 写入的现成 init，或用 pong 的静态二进制 |
 | 10 | 用 `k60_init_blob` 覆盖设备 init | `O_TRUNC` 破坏 dd 写入的正确文件 | **永不用 `k60_init_blob`**。需要换 init 时走 `write-pong-init-*.ps1` 四闸门 dd |
-| 11 | boot args 只用 20 项 | 漏 `k60_skip_firmware_mount=1` → launchd mount-phase EPERM → PID 1 panic | 打包前必须与 `boot-0461` 的 29 项逐字比对 |
+| 11 | boot args 只用 20 项 | 漏 `k60_skip_firmware_mount=1` → launchd mount-phase EPERM → PID 1 panic | 打包前必须与 `boot-0461` 的 **28 项**逐字比对（2026-11-09 复测：28 项 / `debug=0x140`，不是 29 项；见上文「boot args」节） |
 | 12 | `debug=0x144` 而非 `0x140` | `0x144` 含 `DB_NMI`，panic 卡在 NMI 不复位，必须手动长按电源 | 固定 `debug=0x140` |
 | 13 | 重造抓取/引导脚本 | 没 `ls` 就开工，`boot-and-capture.ps1` 早有全部功能 | **先查 `E:\k60-work\usb-a-stage\scripts\`**，已有就不再写 |
 | 14 | 抓取器没启动就 boot | 工具调用被中断，daemon 没起，panic 现场丢失 | 用 `boot-and-capture.ps1`，它一个进程内完成 boot+capture |

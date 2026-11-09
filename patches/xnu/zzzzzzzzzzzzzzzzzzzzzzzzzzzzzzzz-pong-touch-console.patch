@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,915 @@
+@@ -0,0 +1,932 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -354,14 +354,28 @@ index 0000000..b033b90
 +		se_clock_select = 0;
 +	}
 +	wr(GCC_VOTE, rd(GCC_VOTE) | VOTE_QUP0_SE4);
++	/* K60_CLKFIX: M_AHB and S_AHB are hardware-clock-gated branches (bit1 set).
++	 * Such a branch reports CLK_OFF (bit31) while idle and wakes on access, so
++	 * CLK_OFF alone does NOT mean "not running". Linux skips the halt check in
++	 * HWCG mode (clk-branch.c:61-72); the official sheng touch stack uses the
++	 * same predicate (TouchProbe.cpp:404-406). Only SE4 has no HWCG and must
++	 * show CLK_OFF clear. Real K60 values from usblog-20261108-213652:
++	 *   m=0x00000000 s=0x80000002 se4=0x00004220  -> all three are running. */
 +	for (int i = 0; i < 1000; i++) {
-+		if (!((rd(GCC_QUP0_M_AHB_CBCR) | rd(GCC_QUP0_S_AHB_CBCR) | rd(GCC_QUP0_SE4_CBCR)) & CLOCK_OFF)) {
++		uint32_t m = rd(GCC_QUP0_M_AHB_CBCR);
++		uint32_t s = rd(GCC_QUP0_S_AHB_CBCR);
++		uint32_t se4 = rd(GCC_QUP0_SE4_CBCR);
++		bool m_ok = !(m & CLOCK_OFF) || (m & 2u);
++		bool s_ok = !(s & CLOCK_OFF) || (s & 2u);
++		if (m_ok && s_ok && !(se4 & CLOCK_OFF)) {
++			printf("goodix: clocks running m=%#x s=%#x se4=%#x src=%u Hz sel=%u\n",
++			    m, s, se4, se_source_hz, se_clock_select);
 +			return true;
 +		}
 +		sleep_us(10);
 +	}
-+	printf("goodix: clocks stay off: %#x %#x %#x\n", rd(GCC_QUP0_M_AHB_CBCR), rd(GCC_QUP0_S_AHB_CBCR),
-+	    rd(GCC_QUP0_SE4_CBCR));
++	printf("goodix: clocks stay off: m=%#x s=%#x se4=%#x\n", rd(GCC_QUP0_M_AHB_CBCR),
++	    rd(GCC_QUP0_S_AHB_CBCR), rd(GCC_QUP0_SE4_CBCR));
 +	return false;
 +}
 +
@@ -866,12 +880,15 @@ index 0000000..b033b90
 +    gpio_output(PIN_RESET,true,PULL_UP,6);
 +    gpio_configure(PIN_INT,0,PULL_UP,6,false);
 +    if (clocks_on()) {
++        /* K60_PINORDER: sheng (TouchProbe.cpp:422-425) configures the four SPI
++         * pins BEFORE touching the engine. Doing it after geni_spi_init leaves
++         * the QUP mux pointing at the wrong function during engine setup. */
++        gpio_configure(PIN_MISO,1,PULL_NONE,6,false);
++        gpio_configure(PIN_MOSI,1,PULL_NONE,6,false);
++        gpio_configure(PIN_CLK,1,PULL_NONE,6,false);
++        gpio_configure(PIN_CS,1,PULL_NONE,6,false);
 +        const char *problem=geni_spi_init(4000000);
 +        if (!problem) {
-+            gpio_configure(PIN_MISO,1,PULL_NONE,6,false);
-+            gpio_configure(PIN_MOSI,1,PULL_NONE,6,false);
-+            gpio_configure(PIN_CLK,1,PULL_NONE,6,false);
-+            gpio_configure(PIN_CS,1,PULL_NONE,6,false);
 +            spi_transfer=geni_transfer;
 +            if (goodix_probe(false)) return true;
 +            if (io_supply_on()) { touch_reset();if (goodix_probe(true)) return true; }

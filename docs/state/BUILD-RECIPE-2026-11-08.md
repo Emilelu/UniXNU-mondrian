@@ -31,7 +31,7 @@ setsid nohup env XNU_PONG_ADRENO_PLATFORM=0 ./unixnu build kernel \
 
 ## 打包命令
 ```bash
-# payload（args 必须与黄金镜像一致，只多 k60_init_blob=1）
+# payload（这份配方自己的 args；见下面「29 项的来历」一节，它与黄金镜像不同）
 ./unixnu payload -D /tmp/usb-cdc-mainline/device --out <out> --uefi /mnt/e/hackios/uefi-mondrian \
   --kernel-arg pong_allow_unauthenticated_root=1 --kernel-arg debug=0x144 \
   --kernel-arg cs_enforcement_disable=1 --kernel-arg pong_software_keybag=1 \
@@ -57,6 +57,64 @@ boot-0601-goldenargs.img  202,362,880 B
 sha256 0d3ed4fe37fa601ac985b4635405d2255e5c81551e59761e0f3f94aa79140893
 fastboot boot boot-0601-goldenargs.img
 ```
+
+## 「29 项」的来历，与黄金镜像的实测差异（2026-11-09 复测）
+
+**这份配方打包出来的镜像实际是 19 项、`debug=0x144`，不是 29 项。** 用只读 FAT 目录链
+解析 `boot-0601-goldenargs.img` 的 payload（`ANDROID!` 头 `ksize=1,027,600`、payload 在
+偏移 1,032,192 起）得到的 `/EFI/UniXNU/unixnu.toml`：
+
+```
+751 B  args tokens: 19   debug=0x144
+-v native-ufs=1 pong_allow_unauthenticated_root=1 debug=0x144 cs_enforcement_disable=1
+pong_software_keybag=1 disable_exc_resource=1 pong_ufs_readwrite=1 k60_console_export=1
+k60_usblog=2 pong_data_mount=1 pong_data_rw=1 fb_threads=3 k60_textonly=1
+amfi_get_out_of_my_way=1 pong_init_path=/private/var/pong/init epoch=1793709100
+k60_fontscale=3 k60_init_blob=1
+```
+
+（19 项里的 `k60_init_blob=1` 就是 0391 的内嵌 init，黄金镜像没有它，所以 28 + 1 = 29 是
+**当时的口径**，不是镜像内容。`docs/state/LEDGER.md:100` 的「29 项」沿用了这个口径。）
+
+**黄金镜像 `boot-0442/0461-20261107.img` 实测是 28 项、`debug=0x140`**（同样只读 FAT 解析，
+payload 在偏移 552,960；三份 console 捕获逐字回显同一列表）：
+
+```
+972 B  args tokens: 28   debug=0x140
+-v native-ufs=1 pong_allow_unauthenticated_root=1 debug=0x140 cs_enforcement_disable=1
+pong_software_keybag=1 disable_exc_resource=1 pong_ufs_readwrite=1 k60_console_export=1
+k60_usblog=2 pong_data_mount=1 pong_data_rw=1 fb_threads=3 k60_textonly=1
+amfi_get_out_of_my_way=1 pong_init_path=/private/var/pong/init epoch=1793709100
+k60_fontscale=3 k60_skip_firmware_mount=1 k60_tolerate_cache_loader=1
+launchd_unsecure_cache=1 xpcproxy_idversion=1 applog=1
+applog_name=runningboardd,backboardd,lsd k60_entitlement_allow=1 k60_skip_iosurface=1
+k60_panic_reset=1 k60_selftest_reboot=300
+```
+
+**逐项差异（19 项 → 28 项多了 10 项，少了 1 项）：**
+
+| 项 | 0601（19 项） | 0442/0461（28 项） | 影响 |
+|---|---|---|---|
+| `debug` | `0x144` | `0x140` | `0x144` 含 `DB_NMI`，panic 卡在调试器里不复位；`0x140` 才走 0331/0334 的 IMEM `0x146AA65C=0x77665500` 自动回 fastboot（`docs/state/LEDGER.md:129-130`） |
+| `k60_skip_firmware_mount=1` | ✗ | ✓ | launchd mount-phase bind mount 报 EPERM → PID 1 panic |
+| `k60_tolerate_cache_loader=1` | ✗ | ✓ | `launchd_cache_loader` 崩溃被当成致命 |
+| `k60_panic_reset=1` | ✗ | ✓ | panic 后不自动回 fastboot，要手动长按电源 |
+| `k60_selftest_reboot=300` | ✗ | ✓ | 150 次 2 秒心跳后自复位回 fastboot（坑 133） |
+| `launchd_unsecure_cache=1` | ✗ | ✓ | 内核不识别，无害；缺它时 launchd 读 cache 路径更严 |
+| `xpcproxy_idversion=1` | ✗ | ✓ | xpcproxy 版本检查放宽 |
+| `applog=1` | ✗ | ✓ | 用户态 applog 采集 |
+| `applog_name=runningboardd,backboardd,lsd` | ✗ | ✓ | applog 只采这三个进程（args 预算，坑 124） |
+| `k60_entitlement_allow=1` | ✗ | ✓ | 无 AMFI 时放行 entitlement |
+| `k60_skip_iosurface=1` | ✗ | ✓ | 跳过 IOSurface duplicate class 卡点 |
+| `k60_init_blob=1` | ✓ | ✗ | 0391 内嵌 init；黄金镜像用设备上 dd 写入的 init，**不需要它**，而且它的 `O_TRUNC` 会破坏那个 init（`docs/state/LEDGER.md:246` 坑 10） |
+
+结论：**`boot-0601-goldenargs.img` 不是「带 golden args」的镜像**——它的文件名与内容不符，
+19 项里的 `debug=0x144` 与坑 12 的硬规矩冲突。要用能上机的 args，请用 `boot-0442` 或
+`boot-0461` 的 28 项 `debug=0x140`，`board.toml` 的 `[payload] kernel_args` 已按它改齐。
+
+此外两代镜像的 boot 布局也不同（`ksize` 548,774 / payload@552,960 与 1,027,600 /
+payload@1,032,192），`unixnu bootimg` 产出的头与能启动的布局不一致，见
+`docs/state/LEDGER.md:135-143`。
 
 ## 关键教训（都是本会话实际踩的）
 

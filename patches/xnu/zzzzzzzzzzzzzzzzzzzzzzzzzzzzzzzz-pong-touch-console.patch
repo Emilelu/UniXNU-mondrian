@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,909 @@
+@@ -0,0 +1,903 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -62,7 +62,7 @@ index 0000000..b033b90
 +        property(entry,"max-y",&max_y,4) && se_phys==0x990000 && tlmm_phys==0xf000000 &&
 +        gcc_phys==0x100000 && rsc_phys==0x17a20000 && cmd_db_phys==0x80860000 &&
 +        gpio_offset==0x100000 && pins[0]==16 && pins[1]==17 && pins[2]==18 &&
-+        pins[3]==19 && pins[4]==21 && pins[5]==20 && max_x==1080 && max_y==2412;
++        pins[3]==19 && pins[4]==21 && pins[5]==20 && max_x==14400 && max_y==32000;
 +}
 +
 +static inline uint32_t
@@ -285,7 +285,7 @@ index 0000000..b033b90
 +#define VOTE_QUP0_CORE          (1u << 8)
 +#define VOTE_QUP0_M_AHB         (1u << 6)
 +#define VOTE_QUP0_S_AHB         (1u << 7)
-+#define VOTE_QUP0_SE4           (1u << 14)             /* K60: QUP0 SE1 (spi@990000) */
++#define VOTE_QUP0_SE4           (1u << 14)             /* Pong: wrapper 0 serial engine 4 */
 +#define GCC_QUP0_M_AHB_CBCR     (gcc + 0x27004)         /* bit 31: the clock is off */
 +#define GCC_QUP0_S_AHB_CBCR     (gcc + 0x27008)
 +#define GCC_QUP0_SE4_CBCR       (gcc + 0x274dc)
@@ -324,12 +324,6 @@ index 0000000..b033b90
 +clocks_on(void)
 +{
 +	wr(GCC_VOTE, rd(GCC_VOTE) | VOTE_QUP0_CORE_2X | VOTE_QUP0_CORE | VOTE_QUP0_M_AHB | VOTE_QUP0_S_AHB);
-+	/* K60_HWCG: the vote alone leaves S_AHB halted (0x80000002 = bit31 halt
-+	 * + bit1 HWCG). Linux clk_branch2_enable clears the HWCG bit before
-+	 * polling, so clear bit1 on all three gates. */
-+	wr(GCC_QUP0_M_AHB_CBCR, rd(GCC_QUP0_M_AHB_CBCR) & ~2u);
-+	wr(GCC_QUP0_S_AHB_CBCR, rd(GCC_QUP0_S_AHB_CBCR) & ~2u);
-+	wr(GCC_QUP0_SE4_CBCR, rd(GCC_QUP0_SE4_CBCR) & ~2u);
 +	if (rd(GCC_QUP0_SE4_DFSR) & 1) {
 +		/* preset rates: the lowest that is at least 4 MHz */
 +		for (uint32_t level = 0; level < 8; level++) {
@@ -916,10 +910,10 @@ index 0000000..b033b90
 +void
 +pong_goodix_init(void)
 +{
-+    uint32_t enabled=1; /* default ON; boot-arg can turn off */
-+    thread_t thread;
-+    /* K60_GATE: a missing boot-arg makes PE_parse_boot_argn return FALSE;
-+     * the compiled-in default above is the policy, so ignore the return. */
++    uint32_t enabled=1; /* K60: default ON so the driver actually runs */thread_t thread;
++    /* K60_GATE: PE_parse_boot_argn returns FALSE when the boot-arg is absent,
++     * so the || below would always return. Ignore the return value and
++     * let the compiled-in default (enabled=1) decide. */
 +    (void)PE_parse_boot_argn("pong_touch",&enabled,sizeof(enabled));
 +    if (!enabled) return;
 +    if (!configuration()) {printf("Pong touch: missing/incompatible Pong DT; SKIP\n");return;}
@@ -1021,24 +1015,26 @@ index 0000000..57e74e5
 +}
 +#endif
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 2be0f40..fa638ce 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -1333,6 +1327,14 @@
- 	if (result == KERN_SUCCESS) {
- 		extern void k60_usblog_start(void);
- 		k60_usblog_start();
-+		/* K60_MOVED: run the input drivers once the USB log ring exists.
-+		 * bsd_init.c does not include board_config.h, so PONG is undefined here. */
-+		#if 1
-+		extern void pong_goodix_init(void);
-+		pong_goodix_init();
-+		extern void pong_buttons_init(void);
-+		pong_buttons_init();
-+		#endif
+@@ -1147,6 +1147,16 @@
+ 		bsd_init_kprintf("calling devfs_kernel_mount\n");
+ 		devfs_kernel_mount(mounthere);
  	}
- #endif
- 	return result;
-
++/* K60_PONG_LOCAL: bsd_init.c never includes board_config.h, so PONG
++ * was undefined here and this block was compiled out. Define it.
++ * Do not use #if 1: the keys patch relies on the same guard. */
++#if !defined(PONG)
++#define PONG 1
++#endif
++#if defined(PONG)
++	extern void pong_goodix_init(void);
++	pong_goodix_init();
++#endif
+ #endif /* DEVFS */
+ 
+ #if CONFIG_BASESYSTEMROOT
 diff --git a/bsd/sys/pong_input.h b/bsd/sys/pong_input.h
 new file mode 100644
 index 0000000..199de9b
@@ -1066,7 +1062,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
 index 7c90fe0..3e9f5aa 100644
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-@@ -900,6 +900,10 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
+@@ -1032,6 +1032,10 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
  				/* the first picture: the kernel's text console must stop drawing over it */
  				fGraphics = true;
  				PE_initialize_console(NULL, kPEGraphicsMode);
@@ -1075,5 +1071,5 @@ index 7c90fe0..3e9f5aa 100644
 +				 * frame, otherwise vcputc continues painting over it. */
 +				PE_initialize_console(NULL, kPEReleaseScreen);
  			}
- 			drawLayer(s, src, dst);
+ 			if (!gpuFrame) drawLayer(s, src, dst);
  		}

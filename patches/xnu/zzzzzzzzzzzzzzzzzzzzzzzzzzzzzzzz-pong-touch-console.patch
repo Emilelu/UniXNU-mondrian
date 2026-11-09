@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,932 @@
+@@ -0,0 +1,983 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -286,7 +286,9 @@ index 0000000..b033b90
 +#define VOTE_QUP0_M_AHB         (1u << 6)
 +#define VOTE_QUP0_S_AHB         (1u << 7)
 +#define VOTE_QUP0_SE4           (1u << 14)             /* Pong: wrapper 0 serial engine 4 */
-+#define GCC_QUP0_M_AHB_CBCR     (gcc + 0x27004)         /* bit 31: the clock is off */
++#define GCC_QUP0_CORE_CBCR      (gcc + 0x33000)         /* gcc_qupv3_wrap0_core_clk, no hwcg */
++#define GCC_QUP0_CORE_2X_CBCR   (gcc + 0x3300c)         /* gcc_qupv3_wrap0_core_2x_clk, no hwcg */
++#define GCC_QUP0_M_AHB_CBCR     (gcc + 0x27004)         /* bit 31: the clock is off, bit 1: hwcg */
 +#define GCC_QUP0_S_AHB_CBCR     (gcc + 0x27008)
 +#define GCC_QUP0_SE4_CBCR       (gcc + 0x274dc)
 +#define GCC_QUP0_SE4_CMD        (gcc + 0x274e4)         /* bit 0: take the new configuration */
@@ -296,6 +298,13 @@ index 0000000..b033b90
 +#define GCC_QUP0_SE4_PERF_M(l)  (gcc + 0x27540 + 4 * (l))
 +#define GCC_QUP0_SE4_PERF_N(l)  (gcc + 0x27580 + 4 * (l))
 +#define CLOCK_OFF               (1u << 31)
++#define HWCG                    (1u << 1)               /* gcc-sm8450.c: hwcg_bit = 1 on the AHB branches */
++/* gcc_gpll0 (gcc-sm8450.c:50-55): enable_reg 0x62018 BIT(0), offset 0x0, LUCID_EVO.
++ * PLL_MODE = offset + 0x0 and its lock indication is BIT(31) (clk-alpha-pll.c:16,34). */
++#define GCC_GPLL0_ENABLE        (gcc + 0x62018)
++#define VOTE_GPLL0              (1u << 0)
++#define GCC_GPLL0_MODE          (gcc + 0x0000)
++#define PLL_LOCK                (1u << 31)
 +#define XO_HZ                   19200000
 +
 +static uint32_t se_source_hz, se_clock_select;
@@ -321,8 +330,32 @@ index 0000000..b033b90
 +}
 +
 +static bool
++cbcr_running(uint32_t cbcr)
++{
++	/* TouchProbe.cpp:406 -- a hardware-clock-gated branch (bit 1) reports CLK_OFF while
++	 * idle and wakes on the next access, so only a branch without that bit must have
++	 * CLK_OFF clear. Demanding CLK_OFF==0 from a gated branch is a false negative. */
++	return !(cbcr & CLOCK_OFF) || (cbcr & HWCG);
++}
++
++static bool
 +clocks_on(void)
 +{
++	uint32_t m_ahb = 0, s_ahb = 0, core = 0, core2x = 0, se4 = 0, vote;
++	const char *problem = NULL;
++	bool ok = false;
++
++	/* 1. GPLL0 first: gcc_qupv3_wrap0_s4_clk_src derives its rate from GPLL0
++	 *    (gcc-sm8450.c gcc_parent_map_0: 0 TCXO, 1 GPLL0 main, 6 GPLL0 even), so the RCG
++	 *    and the DFS levels are meaningless unless it is locked. It is a shared vote,
++	 *    bit 0 of 0x62018, not an exclusive enable (TouchProbe.cpp:399-402). */
++	wr(GCC_GPLL0_ENABLE, rd(GCC_GPLL0_ENABLE) | VOTE_GPLL0);
++	for (int i = 0; i < 10000; i++) {
++		if (rd(GCC_GPLL0_MODE) & PLL_LOCK) break;
++		sleep_us(10);
++	}
++	printf("Pong touch: clocks gpll0 vote=%08x mode=%08x\n", rd(GCC_GPLL0_ENABLE), rd(GCC_GPLL0_MODE));
++
 +	wr(GCC_VOTE, rd(GCC_VOTE) | VOTE_QUP0_CORE_2X | VOTE_QUP0_CORE | VOTE_QUP0_M_AHB | VOTE_QUP0_S_AHB);
 +	if (rd(GCC_QUP0_SE4_DFSR) & 1) {
 +		/* preset rates: the lowest that is at least 4 MHz */
@@ -336,47 +369,62 @@ index 0000000..b033b90
 +			}
 +		}
 +		if (se_source_hz == 0) {
-+			printf("goodix: no usable preset clock rate\n");
-+			return false;
++			problem = "no usable preset clock rate";
++			goto out;
 +		}
 +	} else {
 +		/* the crystal, undivided: nothing else has to be running */
-+		wr(GCC_QUP0_SE4_CFG, (rd(GCC_QUP0_SE4_CFG) & ~0x371fu) | 1);
++		/* gcc_qupv3_wrap0_s4_clk_src sets hw_clk_ctrl (clk-rcg2.c:553-555, CFG bit 20),
++		 * so preserve it. hid_width is 5: the divider is bits [4:0] within 0x371f. */
++		wr(GCC_QUP0_SE4_CFG, (rd(GCC_QUP0_SE4_CFG) & ~0x371fu) | (1u << 20) | 1);
 +		wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) | 1);
 +		for (int i = 0; i < 500 && (rd(GCC_QUP0_SE4_CMD) & 1); i++) {
 +			sleep_us(10);
 +		}
 +		if (rd(GCC_QUP0_SE4_CMD) & 1) {
-+			printf("goodix: the serial engine's clock does not take its configuration (%#x)\n", rd(GCC_QUP0_SE4_CMD));
-+			return false;
++			problem = "the serial engine's clock does not take its configuration";
++			goto out;
 +		}
 +		se_source_hz = XO_HZ;
 +		se_clock_select = 0;
 +	}
 +	wr(GCC_VOTE, rd(GCC_VOTE) | VOTE_QUP0_SE4);
-+	/* K60_CLKFIX: M_AHB and S_AHB are hardware-clock-gated branches (bit1 set).
-+	 * Such a branch reports CLK_OFF (bit31) while idle and wakes on access, so
-+	 * CLK_OFF alone does NOT mean "not running". Linux skips the halt check in
-+	 * HWCG mode (clk-branch.c:61-72); the official sheng touch stack uses the
-+	 * same predicate (TouchProbe.cpp:404-406). Only SE4 has no HWCG and must
-+	 * show CLK_OFF clear. Real K60 values from usblog-20261108-213652:
-+	 *   m=0x00000000 s=0x80000002 se4=0x00004220  -> all three are running. */
-+	for (int i = 0; i < 1000; i++) {
-+		uint32_t m = rd(GCC_QUP0_M_AHB_CBCR);
-+		uint32_t s = rd(GCC_QUP0_S_AHB_CBCR);
-+		uint32_t se4 = rd(GCC_QUP0_SE4_CBCR);
-+		bool m_ok = !(m & CLOCK_OFF) || (m & 2u);
-+		bool s_ok = !(s & CLOCK_OFF) || (s & 2u);
-+		if (m_ok && s_ok && !(se4 & CLOCK_OFF)) {
-+			printf("goodix: clocks running m=%#x s=%#x se4=%#x src=%u Hz sel=%u\n",
-+			    m, s, se4, se_source_hz, se_clock_select);
-+			return true;
-+		}
++	/* 2. Verify all FIVE branches before anything reads the engine.
++	 * M_AHB and S_AHB are hardware-clock-gated (bit1 set): such a branch reports CLK_OFF
++	 * while idle and wakes on access, so CLK_OFF alone does NOT mean "not running"
++	 * (clk-branch.c:61-72, TouchProbe.cpp:404-406). CORE, CORE_2X and SE4 have no such
++	 * bit and must show CLK_OFF clear. The two core branches were never read before,
++	 * yet sm8450.dtsi:1301 makes MASTER/SLAVE_QUP_CORE_0 the path to the SE window. */
++	for (int i = 0; i < 2000; i++) {
++		m_ahb = rd(GCC_QUP0_M_AHB_CBCR);
++		s_ahb = rd(GCC_QUP0_S_AHB_CBCR);
++		core = rd(GCC_QUP0_CORE_CBCR);
++		core2x = rd(GCC_QUP0_CORE_2X_CBCR);
++		se4 = rd(GCC_QUP0_SE4_CBCR);
++		ok = cbcr_running(m_ahb) && cbcr_running(s_ahb) &&
++		    !(core & CLOCK_OFF) && !(core2x & CLOCK_OFF) && !(se4 & CLOCK_OFF);
++		if (ok) break;
 +		sleep_us(10);
 +	}
-+	printf("goodix: clocks stay off: m=%#x s=%#x se4=%#x\n", rd(GCC_QUP0_M_AHB_CBCR),
-+	    rd(GCC_QUP0_S_AHB_CBCR), rd(GCC_QUP0_SE4_CBCR));
-+	return false;
++
++	/* The last lines printed before the engine is touched. If a boot still dies, this is
++	   the exact state it died in: every raw CBCR, the vote word and the SE's own RCG. */
++out:
++	vote = rd(GCC_VOTE);
++	printf("Pong touch: clocks vote=%08x cbcr m=%08x s=%08x se=%08x core=%08x core2x=%08x\n",
++	    vote, rd(GCC_QUP0_M_AHB_CBCR), rd(GCC_QUP0_S_AHB_CBCR), rd(GCC_QUP0_SE4_CBCR),
++	    rd(GCC_QUP0_CORE_CBCR), rd(GCC_QUP0_CORE_2X_CBCR));
++	printf("Pong touch: clocks se4 cfg=%08x cmd=%08x dfsr=%08x src_hz=%u sel=%u\n",
++	    rd(GCC_QUP0_SE4_CFG), rd(GCC_QUP0_SE4_CMD), rd(GCC_QUP0_SE4_DFSR), se_source_hz, se_clock_select);
++	if (problem) {
++		printf("Pong touch: clocks verdict=halted (%s)\n", problem);
++	} else {
++		printf("Pong touch: clocks verdict=%s\n", ok ? "running" : "halted");
++	}
++	if (!ok) {
++		printf("Pong touch: clocks halted, refusing to touch serial engine %#llx\n", se_phys);
++	}
++	return ok;
 +}
 +
 +/* ---- SPI through the serial engine (GENI) ---------------------------------------------------------- */
@@ -887,6 +935,9 @@ index 0000000..b033b90
 +        gpio_configure(PIN_MOSI,1,PULL_NONE,6,false);
 +        gpio_configure(PIN_CLK,1,PULL_NONE,6,false);
 +        gpio_configure(PIN_CS,1,PULL_NONE,6,false);
++        /* If a console capture still ends here or on the next line, the engine window
++         * itself is the fault: clocks_on() has already printed all five raw CBCRs. */
++        printf("Pong touch: touching serial engine %#llx now\n",se_phys);
 +        const char *problem=geni_spi_init(4000000);
 +        if (!problem) {
 +            spi_transfer=geni_transfer;
@@ -949,6 +1000,7 @@ index 0000000..b033b90
 +    if (kernel_thread_start(touch_thread,NULL,&thread)==KERN_SUCCESS) thread_deallocate(thread);
 +}
 +#endif /* PONG */
+
 diff --git a/bsd/dev/pong_input.c b/bsd/dev/pong_input.c
 new file mode 100644
 index 0000000..57e74e5

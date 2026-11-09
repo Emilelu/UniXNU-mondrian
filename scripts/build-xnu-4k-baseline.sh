@@ -237,14 +237,81 @@ if [ ! -f "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ] || \
     SYMROOT="$ROOT/build/xnu/sym" DSTROOT="$KERNEL_SDKROOT"
   touch "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers"
 fi
-if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -d "$PONG_NATIVE_DRIVER_SOURCE/shim-bin" ]; then
+# The Pong provider scripts that this script runs (build-pong-platform-macos.py,
+# build-pong-armcpu-macos.py, derive-ios16-storage-bindings.py,
+# build-pong-ufs-probe-macos.py, build-pong-ram-block-macos.py,
+# build-pong-adreno-platform.py, bind-ios16-storage.py) live in this repository
+# under scripts/, and the sources they compile live under drivers/. The assembled
+# $ROOT does not have them: it only links the components that [components] selects,
+# so $ROOT/drivers/PongAdreno does not exist and the Adreno step stops on
+# PongAdrenoCpProfile.h. The scripts are copied into $ROOT/scripts, and the device
+# repository is reachable through the tree's own links: patches/xnu is a symlink
+# into the device checkout, so realpath(patches/xnu/../..) is that checkout.
+# Resolve it, keep an explicit PONG_NATIVE_DRIVER_SOURCE if one is already set, and
+# let the Adreno step use the Linux variant of the recipe when the macOS one is the
+# only thing there (it pins /Volumes/PongDev and needs Xcode). shim-bin is also
+# missing from this repository; the block below derives the c++filt wrapper from
+# the host demangler instead of shipping a copy of it.
+if [ -z "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
+  # realpath(1) is not on every host; the build already requires python3.
+  PONG_DEVICE_CHECKOUT=$(python3 - "$ROOT" <<'PY_DRIVER_SOURCE'
+import os
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+for link in ('patches/xnu', 'kits/mondrian', 'package'):
+    resolved = Path(os.path.realpath(root / link))
+    # patches/xnu is <checkout>/patches/xnu; kits/<kit> and package are the
+    # checkout's own package/ directory.
+    if resolved.name == 'xnu' and resolved.parent.name == 'patches':
+        candidate = resolved.parents[1]
+    elif resolved.name == 'package':
+        candidate = resolved.parent
+    else:
+        candidate = resolved
+    if (candidate / 'drivers/PongAdreno').is_dir():
+        print(candidate)
+        break
+PY_DRIVER_SOURCE
+  )
+  if [ -n "$PONG_DEVICE_CHECKOUT" ]; then
+    PONG_NATIVE_DRIVER_SOURCE=$PONG_DEVICE_CHECKOUT
+    echo "PONG_NATIVE_DRIVER_SOURCE=${PONG_NATIVE_DRIVER_SOURCE} (derived from the build tree)" >&2
+  else
+    echo 'PONG_NATIVE_DRIVER_SOURCE is unset and the device checkout could not be located; the ArmDT/ArmCpu/NativeUfs archives will be skipped and the link will stop on their files' >&2
+  fi
+fi
+if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
+  export PONG_NATIVE_DRIVER_SOURCE
+fi
+PONG_DRIVER_SHIM_BIN=
+if [ -d "${PONG_NATIVE_DRIVER_SOURCE:-}/shim-bin" ]; then
+  PONG_DRIVER_SHIM_BIN=$PONG_NATIVE_DRIVER_SOURCE/shim-bin
+elif [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
+  # Apple's c++filt strips the Mach-O leading underscore itself, GNU's needs `-_`.
+  # Derive the wrapper from the host demangler instead of shipping a copy.
+  DEMANGLE=$(command -v c++filt || true)
+  if [ -n "$DEMANGLE" ]; then
+    PONG_DRIVER_SHIM_BIN=$ROOT/build/pong-shim-bin
+    mkdir -p "$PONG_DRIVER_SHIM_BIN"
+    printf '%s\n' \
+      '#!/bin/sh' \
+      '# Apple c++filt strips the Mach-O leading underscore before demangling (GNU needs -_).' \
+      "exec $DEMANGLE -_ \"\$@\"" > "$PONG_DRIVER_SHIM_BIN/c++filt"
+    chmod +x "$PONG_DRIVER_SHIM_BIN/c++filt"
+    echo "shim-bin (c++filt -_) derived at $PONG_DRIVER_SHIM_BIN" >&2
+  else
+    echo 'WARNING: no c++filt on the host; the storage symbol demangling will fail' >&2
+  fi
+fi
+if [ -n "${PONG_DRIVER_SHIM_BIN:-}" ] && [ -d "$PONG_DRIVER_SHIM_BIN" ]; then
   # The driver scripts call `xcrun c++filt`, and the Linux xcrun shim passes
   # unknown tools straight through to the host binary. GNU c++filt needs `-_`
   # to strip the Mach-O leading underscore before demangling, which Apple's
   # does by itself; without it bind-ios16-storage.py reports
   # "Undecoded method: __ZNK12PongUfsBlock12getMetaClassEv" and stops the UFS
-  # step. That project ships the wrapper for exactly this; put it first.
-  PATH="$PONG_NATIVE_DRIVER_SOURCE/shim-bin:$PATH"
+  # step. Put the wrapper first.
+  PATH="$PONG_DRIVER_SHIM_BIN:$PATH"
   export PATH
 fi
 if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
@@ -567,7 +634,13 @@ if [ "$OWNER_DATA_MOUNT" = 1 ] && [ "$OWNER_BOOT_MANIFEST" != 1 ]; then
   fi
 fi
 OWNER_DATA_HEADER=$ROOT/build/xnu/owner-data-volume.h
-python3 - "$OWNER_DATA_HEADER" "$OWNER_DATA_MOUNT" "$NATIVE_RAM_BLOCK" "${XNU_OWNER_DATA_VOLUME_UUID:-}" "${XNU_OWNER_CACHE_VOLUME_UUID:-}" <<'PY_DATA_UUID'
+# The header carries the SystemOS volume UUID of the OS a kernel was built for,
+# and the patch that reads it refuses to compile without the macro. The value is
+# therefore taken from the build configuration (CONFIG_XNU_OWNER_CACHE_VOLUME_UUID
+# of the defconfig, which unixnu exports as XNU_OWNER_CACHE_VOLUME_UUID) and
+# checked before the build starts instead of raising a bare SystemExit with the
+# patched source as the only trace. It may also be forced through the environment.
+python3 - "$OWNER_DATA_HEADER" "$OWNER_DATA_MOUNT" "$NATIVE_RAM_BLOCK" "${XNU_OWNER_DATA_VOLUME_UUID:-}" "${XNU_OWNER_CACHE_VOLUME_UUID:-}" "${XNU_OWNER_CACHE_VOLUME_UUID_SOURCE:-}" <<'PY_DATA_UUID'
 from pathlib import Path
 import sys
 import uuid
@@ -577,12 +650,27 @@ if sys.argv[2] == '1':
     try:
         value = str(uuid.UUID(sys.argv[4])).upper()
     except ValueError:
-        raise SystemExit('Set XNU_OWNER_DATA_VOLUME_UUID to the actual observed scratch APFS volume UUID')
+        raise SystemExit(
+            'XNU_OWNER_DATA_VOLUME_UUID is required when XNU_OWNER_DATA_MOUNT=1 '
+            '(CONFIG_XNU_OWNER_DATA_VOLUME_UUID="..." in the selected defconfig) and must be '
+            'the APFS volume UUID of the scratch Data volume observed on the board. '
+            'The value in the defconfig is a captured one; set the variable to the volume '
+            'this kernel has to mount. Received: ' + repr(sys.argv[4]))
     text = '#define XNU_OWNER_DATA_VOLUME_UUID "' + value + '"\n'
 try:
     cache = str(uuid.UUID(sys.argv[5])).upper()
 except ValueError:
-    raise SystemExit('Set XNU_OWNER_CACHE_VOLUME_UUID to the observed Pong SystemOS APFS UUID')
+    raise SystemExit(
+        'XNU_OWNER_CACHE_VOLUME_UUID is required: the offline SystemOS mount patch '
+        '(patches/xnu/offline-owner-systemos-mount.patch) reads the SystemOS volume UUID '
+        'through this macro and refuses to compile without it.\n'
+        'Fix one of these and rebuild:\n'
+        '  * set CONFIG_XNU_OWNER_CACHE_VOLUME_UUID="<UUID>" in configs/mondrian_defconfig\n'
+        '    (the 20G81 SystemOS volume is 15B507FA-21B7-4EE5-B55D-0F3445DE0752, recorded in '
+        'docs/reference/PITFALLS-FROM-HISTORY.md pitfall 91);\n'
+        '  * or export XNU_OWNER_CACHE_VOLUME_UUID=<UUID> for this run;\n'
+        '  * or add "systemos_volume_uuid" under [root] of the selected OS profile.\n'
+        'Received: ' + repr(sys.argv[5]) + ' (from ' + (sys.argv[6] or 'the environment') + ')')
 text += '#define XNU_OWNER_CACHE_VOLUME_UUID "' + cache + '"\n'
 path.parent.mkdir(parents=True, exist_ok=True)
 if not path.exists() or path.read_text() != text:
@@ -968,7 +1056,16 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   # IOAcceleratorES initializer runs only after20G81 IOGPUFamily loads.
   # Keep foreign A740/Redwood hardware owners disabled independently.
   PONG_DRIVER_SOURCE=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}
-  python3 "$PONG_DRIVER_SOURCE/scripts/build-pong-adreno-platform.py" \
+  # The macOS recipe pins /Volumes/PongDev and needs Xcode (its --tree and
+  # --firmware-dir defaults, and xcrun --sdk iphoneos). This repository carries
+  # the Linux port next to it, which reads $UNIXNU_SDKROOT and the host toolchain
+  # shim instead; prefer it whenever the macOS one cannot be used here.
+  PONG_ADRENO_SCRIPT=$PONG_DRIVER_SOURCE/scripts/build-pong-adreno-platform.py
+  if [ "${PONG_HOST_LINUX:-}" != 0 ] && [ "$(uname -s)" = Linux ] && \
+     [ -f "$PONG_DRIVER_SOURCE/scripts/build-pong-adreno-platform-linux.py" ]; then
+    PONG_ADRENO_SCRIPT=$PONG_DRIVER_SOURCE/scripts/build-pong-adreno-platform-linux.py
+  fi
+  python3 "$PONG_ADRENO_SCRIPT" \
     --output-dir "$ROOT/build/pong-adreno"
   # K60_GPU_BOOTSTRAP: the bootstrap link skips PLATFORM_ARCHIVES entirely
   # (XNU_BOOTSTRAP is always set for PONG because its record name differs),

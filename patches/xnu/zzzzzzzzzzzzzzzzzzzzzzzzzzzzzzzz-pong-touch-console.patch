@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,4952 @@
+@@ -0,0 +1,4999 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -4343,6 +4343,53 @@ index 0000000..b033b90
 +						printf("goodix: CFG-EXIT ack=%02x %s\n", la,
 +						    la == 0x80 ? "OK-config-applied" : "FAIL");
 +						sleep_ms(100);
++						/*
++						 * K60_CFG_RESET: the step goodix_update_finish exists for.
++						 *
++						 * goodix_brl_fwupdate.c:920
++						 *   static int goodix_update_finish(struct fw_update_ctrl *fwu_ctrl)
++						 *   {
++						 *       if (goodix_fw_update_reset(100))
++						 *           ts_err("reset abnormal");
++						 *
++						 * The config only lands in the chip's RAM buffer, so the chip
++						 * has to restart before the new configuration is used. brl_reset
++						 * (goodix_brl_hw.c:310) also re-runs brl_select_spi_mode because
++						 * the reset drops the bus back to its ROM mode:
++						 *   gpio_direction_output(reset_gpio, 0);
++						 *   usleep_range(2000, 2100);
++						 *   gpio_direction_output(reset_gpio, 1);
++						 *   msleep(delay);
++						 *   return brl_select_spi_mode(cd);
++						 */
++						if (la == 0x80) {
++							const uint8_t one2 = 0x01;
++							uint8_t rb2 = 0;
++							bool spi2 = false;
++							int a;
++
++							printf("goodix: CFG-RESET assert reset (gpio%d)\n", PIN_RESET);
++							gpio_set(PIN_RESET, false);
++							sleep_ms(2);
++							gpio_set(PIN_RESET, true);
++							sleep_ms(100);
++							/* brl_reset tail: redo the 0xc900 SPI-mode handshake. */
++							for (a = 0; a < 5; a++) {
++								if (!goodix_write(0xc900u, &one2, 1)) {
++									continue;
++								}
++								rb2 = 0;
++								if (goodix_read(0xc900u, &rb2, 1) && rb2 == one2) {
++									spi2 = true;
++									break;
++								}
++								sleep_ms(5);
++							}
++							printf("goodix: CFG-RESET re-handshake %s (rb=%02x)\n",
++							    spi2 ? "OK" : "FAIL", rb2);
++							/* Give the scan engine time to calibrate the new config. */
++							sleep_ms(300);
++						}
 +					}
 +				}
 +				}   /* close the CFG-START block */

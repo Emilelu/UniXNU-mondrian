@@ -1,0 +1,92 @@
+diff --git a/bsd/miscfs/devfs/devfs_vfsops.c b/bsd/miscfs/devfs/devfs_vfsops.c
+index 2b208f8..c526d93 100644
+--- a/bsd/miscfs/devfs/devfs_vfsops.c
++++ b/bsd/miscfs/devfs/devfs_vfsops.c
+@@ -112,8 +112,16 @@ devfs_init(__unused struct vfsconf *vfsp)
+ 	if (devfs_sinit()) {
+ 		return ENOTSUP;
+ 	}
++	/*
++	 * K60: session daemons run as persona UIDs (501 etc.) and launchd's
++	 * stdio file actions open /dev/console with O_RDWR. The stock 0622
++	 * (group+w, no read) denies the read half to non-root, and every
++	 * session spawn then fails EACCES in exec_handle_file_actions -
++	 * the xpcproxy storm. devfs is rebuilt on every boot and there is
++	 * no real tty security boundary on this port, so grant rw to all.
++	 */
+ 	devfs_make_node(makedev(0, 0), DEVFS_CHAR,
+-	    UID_ROOT, GID_WHEEL, 0622, "console");
++	    UID_ROOT, GID_WHEEL, 0666, "console");
+ 	devfs_make_node(makedev(2, 0), DEVFS_CHAR,
+ 	    UID_ROOT, GID_WHEEL, 0666, "tty");
+ #if CONFIG_DEV_KMEM
+diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
+index d22e316..dd9d6a5 100644
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -4644,6 +4644,14 @@ open1(vfs_context_t ctx, struct nameidata *ndp, int uflags,
+ 	pong_init_note("open vnode authorization begin");
+ #endif
+ 	if ((error = vn_open_auth(ndp, &flags, vap, authvp))) {
++		if (error == EACCES) {
++			/* K60probe: open denied - dump requester cred and target attrs */
++			kauth_cred_t k60c = vfs_context_ucred(ctx);
++			printf("K60POPEN err=13 uid=%d ruid=%d path=%s mode=%o type=%d\n",
++			    kauth_cred_getuid(k60c), kauth_cred_getruid(k60c),
++			    ndp->ni_cnd.cn_nameptr ? ndp->ni_cnd.cn_nameptr : "?",
++			    (unsigned)vap->va_mode, (int)(vap->va_type));
++		}
+ 		if (authvp != NULLVP) {
+ 			vnode_put(authvp);
+ 		}
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+index 7906953..533333d 100644
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -2290,7 +2290,22 @@ extern volatile dev_t native_owner_cache_mounted_device;
+ static boolean_t
+ pong_owner_shared_cache_mount(vnode_t process_root, vnode_t file)
+ {
+-	const char *directory = "/private/preboot/System/Library/Caches/com.apple.dyld";
++	/*
++	 * The cache can live in either of two layouts on this board:
++	 *   K60:      /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64
++	 *             (inside the root union, beside the process root)
++	 *   Pong:     /private/preboot/System/Library/Caches/com.apple.dyld
++	 *             (a separate SystemOS volume mounted below Preboot)
++	 * The probe showed the K60 layout: the cache file resolves (rc=0) while
++	 * /private/preboot/System/Library/Caches/com.apple.dyld does not exist
++	 * (rc=2). Accepting only the Pong path left every shared region empty, so
++	 * vm_shared_region_start_address() failed and every dyld client died.
++	 * Enumerating both keeps the Pong layout working.
++	 */
++	static const char * const directories[] = {
++		"/System/Library/Caches/com.apple.dyld",
++		"/private/preboot/System/Library/Caches/com.apple.dyld",
++	};
+ 	vnode_t expected_parent = NULLVP;
+ 	vnode_t device_vnode = NULLVP;
+ 	boolean_t authorized = FALSE;
+@@ -2315,11 +2330,17 @@ pong_owner_shared_cache_mount(vnode_t process_root, vnode_t file)
+ 		actual = vnode_specrdev(device_vnode);
+ 		vnode_put(device_vnode);
+ 	}
+-	if (actual != native_owner_cache_selected_device ||
+-	    vnode_lookup(directory, 0, &expected_parent, vfs_context_current())) return FALSE;
+-	authorized = vnode_vtype(expected_parent) == VDIR &&
+-	    vnode_mount(expected_parent) == cache_mount && vnode_parent(file) == expected_parent;
+-	vnode_put(expected_parent);
++	if (actual != native_owner_cache_selected_device) return FALSE;
++	for (size_t i = 0; i < sizeof(directories) / sizeof(directories[0]); i++) {
++		vnode_t parent = NULLVP;
++		if (vnode_lookup(directories[i], 0, &parent, vfs_context_current())) continue;
++		if (vnode_vtype(parent) == VDIR &&
++		    vnode_mount(parent) == cache_mount && vnode_parent(file) == parent) {
++			authorized = TRUE;
++		}
++		vnode_put(parent);
++		if (authorized) break;
++	}
+ 	return authorized;
+ }
+ #endif

@@ -1,0 +1,39 @@
+# K60 memory-window change: 4.75 GiB -> 8 GiB
+#
+# Apply from /mnt/e/hackios with:
+#   patch -p1 --dry-run < proposed.patch
+#   patch -p1 < proposed.patch
+#
+# Source trees:
+#   /mnt/e/hackios/uefi-mondrian
+#   /mnt/e/hackios/UniXNU-mondrian
+#
+--- a/UniXNU-mondrian/board.toml
++++ b/UniXNU-mondrian/board.toml
+@@ -92,9 +92,9 @@
+ # panic(), whose address is fixed for the reference kernel, so it refuses to
+ # patch ours.
+ # entry_probe_reset_delay = 6
+-# Contiguous handoff ARENA size, not total installed DRAM. The actual live
+-# Android memory map has six banks. Use only measured [0x900000000,0xa40000000)
+-# below high reservations; must match dts/mondrian.dts and MemoryMapLib.c.
++# Physical DRAM total declared by the board DTS; this must equal the
++# dts/mondrian.dts /memory node size. Keep at 5 GiB for the 8 GiB-window
++# change; the DarwinBoot window is owned_memory_size below, not this key.
+ dram_size = "0x140000000"
+ # pong_software_keybag=1 selects the volatile no-passcode keybag from
+ # zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch. Without it mkbinit cannot
+@@ -156,7 +156,7 @@
+ # into mem_size (gPhysBase comes from args->physBase, i.e. this window's address).
+ # The earlier 4 GiB attempt targeted [0x100000000,0x380000000), a no-RAM
+ # hole. Live serial-6033dbec FDT/iomem place high RAM at 0x800000000 and above.
+-# Firmware exposes only measured arena [0x900000000,0xa40000000); screen
+-# reports mem=actual=managed=4096 MiB. Service exits continue; SpringBoard is
+-# pending. devicetree.py emits darwinboot-memory-size from this key.
+-"owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)
+\ No newline at end of file
++# Firmware exposes measured high arena [0x840000000,0xa69b78000) = 8.652 GiB;
++# the 8 GiB window below is the single-window maximum. Service exits continue;
++# SpringBoard is pending. devicetree.py emits darwinboot-memory-size from this key.
++"owned_memory_size" = "0x200000000"  # 8 GiB window (single-window hard limit)
+\ No newline at end of file

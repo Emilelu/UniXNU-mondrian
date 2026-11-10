@@ -105,10 +105,34 @@ static bool findRootLayout (RootLayout *layout, const char **why)
   }
   // The SHNGROOT image lives in the board's dedicated partition. Pong used the
   // Android "userdata" partition; the K60 dual-system layout uses "unixnu".
+  // The compiled default stays "unixnu" (a build may still define
+  // K60_ROOT_PARTITION to bake another name in). k60_root_partition=<name>
+  // overrides it at boot, so a board whose GPT has no unixnu partition (a 16 GiB
+  // unit that has not been shrunk yet, for example) can point the same kernel at
+  // another partition without a rebuild. The name is compared as UTF-16LE, so it
+  // is limited to the 36 characters of a GPT name field and to printable ASCII.
 #ifndef K60_ROOT_PARTITION
 #define K60_ROOT_PARTITION "unixnu"
 #endif
-  static const char wanted[] = K60_ROOT_PARTITION;
+  // The matcher is called once per boot, so the argument is read here instead of
+  // cached in a static: that keeps the parser free of hidden state and lets a
+  // host test drive several boot-arg sets in one process.
+  static constexpr unsigned kRootPartitionMax = 36;
+  char wanted[kRootPartitionMax + 2] = K60_ROOT_PARTITION;
+  char requested[kRootPartitionMax + 2] = {};
+  if (PE_parse_boot_arg_str ("k60_root_partition", requested, sizeof (requested)) && requested[0]) {
+    unsigned length = 0;
+    bool usable = true;
+    while (requested[length]) {
+      const unsigned char c = static_cast<unsigned char> (requested[length]);
+      if (c < 0x20 || c > 0x7e) { usable = false; break; }
+      ++length;
+    }
+    if (usable && length && length <= kRootPartitionMax)
+      memcpy (wanted, requested, length + 1);
+    else
+      printf ("K60ROOT: ignoring k60_root_partition=%s (needs 1..36 printable ASCII characters)\n", requested);
+  }
   bool found = false;
   for (uint32_t index = 0; index < count; index++) {
     const uint8_t *entry = gScratch + index * 128;
@@ -126,12 +150,17 @@ static bool findRootLayout (RootLayout *layout, const char **why)
       }
     }
     bool match = true;
-    for (unsigned c = 0; c < sizeof (wanted); c++) {
+    unsigned wantedLength = 0;
+    while (wanted[wantedLength] && wantedLength < kRootPartitionMax) ++wantedLength;
+    for (unsigned c = 0; c < wantedLength; ++c) {
       if (entry[56 + 2 * c] != static_cast<uint8_t> (wanted[c]) || entry[57 + 2 * c] != 0) {
         match = false;
         break;
       }
     }
+    // A full 36-character name has no terminator left inside the 72-byte field.
+    if (match && wantedLength < kRootPartitionMax)
+      match = entry[56 + 2 * wantedLength] == 0 && entry[57 + 2 * wantedLength] == 0;
     if (match) {
       if (found) {
         *why = "duplicate userdata partition";
@@ -144,6 +173,7 @@ static bool findRootLayout (RootLayout *layout, const char **why)
   }
   if (!found || layout->userdataLast < layout->userdataFirst) {
     *why = "no userdata partition";
+    printf ("K60ROOT: no GPT partition named %s; k60_root_partition=<name> selects another one\n", wanted);
     return false;
   }
   gRootDiagnostic.first = layout->userdataFirst;

@@ -1,0 +1,2352 @@
+diff --git a/drivers/PongWifi/PongWifiLease.h b/drivers/PongWifi/PongWifiLease.h
+new file mode 100644
+index 0000000..bc5bee2
+--- /dev/null
++++ b/drivers/PongWifi/PongWifiLease.h
+@@ -0,0 +1,106 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef PONG_WIFI_LEASE_H
++#define PONG_WIFI_LEASE_H
++#include <stdbool.h>
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++
++#define PONG_WIFI_GET_LEASE 0x50574c01
++#define PONG_WIFI_TEST_RECONNECT 0x50574c02
++#define PONG_WIFI_LEASE_VERSION 2
++#define PONG_WIFI_LEASE_DNS_MAX 4
++
++struct pong_wifi_lease {
++    uint32_t version, dns_count, lease_seconds, reserved;
++    uint64_t link, sequence;
++    uint8_t address[4], mask[4], router[4], dns[PONG_WIFI_LEASE_DNS_MAX][4];
++};
++
++static inline unsigned pong_wifi_be16(const uint8_t *p) { return (p[0] << 8) | p[1]; }
++
++/* Shared parser for the live DHCP witness. It returns only the fields used to
++ * restore native publication. It does not change, accept, or transmit packets. */
++static inline unsigned pong_wifi_dhcp_fields(const uint8_t *b, size_t n,
++    const uint8_t mac[6], struct pong_wifi_lease *lease)
++{
++    if (n < 241 || b[1] != 1 || b[2] != 6 || memcmp(b + 28, mac, 6) ||
++        memcmp(b + 236, "\x63\x82\x53\x63", 4)) return 0;
++    unsigned type = 0;
++    bool end = false, classless = false, mask = false, router = false;
++    struct pong_wifi_lease result = {};
++    memcpy(result.address, b + 16, 4);
++    for (size_t i = 240; i < n;) {
++        const unsigned code = b[i++];
++        if (!code) continue;
++        if (code == 255) { end = true; break; }
++        if (i == n) return 0;
++        const unsigned len = b[i++];
++        if (len > n - i) return 0;
++        if (code == 53 && len == 1) type = b[i];
++        if (code == 51 && len == 4)
++            result.lease_seconds = ((uint32_t)b[i] << 24) | ((uint32_t)b[i + 1] << 16) |
++                                   ((uint32_t)b[i + 2] << 8) | b[i + 3];
++        if (code == 121 || code == 249) classless = true;
++        if (code == 1 && len == 4) { memcpy(result.mask, b + i, 4); mask = true; }
++        if (code == 3 && len >= 4 && len % 4 == 0) { memcpy(result.router, b + i, 4); router = true; }
++        if (code == 6 && len % 4 == 0)
++            for (unsigned j = 0; j < len && result.dns_count < PONG_WIFI_LEASE_DNS_MAX; j += 4)
++                memcpy(result.dns[result.dns_count++], b + i + j, 4);
++        i += len;
++    }
++    if (!end) return 0;
++    if (type == 5 && b[0] == 2 && !classless && mask && router && result.dns_count && result.lease_seconds) {
++        result.version = PONG_WIFI_LEASE_VERSION;
++        *lease = result;
++    }
++    return type;
++}
++struct pong_wifi_lease_tracker {
++    struct pong_wifi_lease current;
++    uint64_t link, sequence, expires, request_until;
++    uint8_t xid[4];
++    bool up, requested;
++};
++
++static inline void pong_wifi_lease_link(struct pong_wifi_lease_tracker *t, bool up)
++{
++    if (up != t->up) ++t->link;
++    t->up = up;
++    t->requested = false;
++    t->current.version = 0;
++}
++
++static inline void pong_wifi_lease_packet(struct pong_wifi_lease_tracker *t,
++    bool out, unsigned type, const uint8_t *bootp, const struct pong_wifi_lease *ack, uint64_t seconds)
++{
++    if (!t->up) return;
++    if (out && bootp[0] == 1) {
++        if (type == 3) {
++            memcpy(t->xid, bootp + 4, 4);
++            t->request_until = seconds + 120;
++            t->requested = true;
++        } else if (type == 4 || type == 7) {
++            t->current.version = 0;
++            t->requested = false;
++        }
++    } else if (!out && bootp[0] == 2 && (type == 5 || type == 6) &&
++               t->requested && seconds < t->request_until && !memcmp(t->xid, bootp + 4, 4)) {
++        t->requested = false;
++        t->current = *ack;
++        t->current.sequence = ++t->sequence;
++        t->expires = seconds + ack->lease_seconds;
++    }
++}
++
++static inline struct pong_wifi_lease pong_wifi_lease_snapshot(const struct pong_wifi_lease_tracker *t, uint64_t seconds)
++{
++    struct pong_wifi_lease s = {};
++    s.link = t->link;
++    if (t->up && t->current.version && seconds < t->expires) {
++        s = t->current;
++        s.link = t->link;
++    }
++    return s;
++}
++#endif
+diff --git a/drivers/PongWifi/PongWifiNet.cpp b/drivers/PongWifi/PongWifiNet.cpp
+new file mode 100644
+index 0000000..5a0e9ac
+--- /dev/null
++++ b/drivers/PongWifi/PongWifiNet.cpp
+@@ -0,0 +1,913 @@
++// SPDX-License-Identifier: BSD-2-Clause-Patent
++// The WiFi module's network side: the Ethernet interface the system routes through, the registry entries by which the wireless daemon and
++// the network configuration find a wireless interface, and the Apple80211 requests (ioctls on that interface) the daemon uses to scan,
++// join and read state. Nothing here talks to the radio: it calls the module's station interface (nw_abi.h) and turns what it answers into
++// the structures the system's wireless framework reads.
++//
++// Layouts below are those the framework reads and writes; where a field's meaning is not known it is left zero. Every request is written
++// to the log (type, direction, length) and a request that is not handled is refused, so which ones the framework needs shows in the log.
++#include <IOKit/IOLib.h>
++#include <IOKit/IOPlatformExpert.h>
++#include <IOKit/IOService.h>
++#include <IOKit/IORegistryEntry.h>
++#include <IOKit/IOUserClient.h>
++#include <libkern/OSAtomic.h>
++#include <libkern/c++/OSData.h>
++#include <libkern/c++/OSNumber.h>
++#include <libkern/c++/OSSerialize.h>
++#include <sys/kern_event.h>
++#include <sys/socket.h>
++#include <sys/sockio.h>
++#include <net/ethernet.h>
++#include <net/if.h>
++#include <net/if_media.h>
++#include <net/if_ether.h>
++#include <net/kpi_interface.h>
++extern "C" {
++#include <net/bpf.h>
++}
++#include <net/if_types.h>
++#include <netinet/in.h>
++#include <sys/mbuf.h>
++#include <kern/locks.h>
++#include <kern/thread.h>
++#include <kern/thread_call.h>
++#include <sys/systm.h>
++#include <stdarg.h>
++#include "nw_abi.h"
++#include "PongWifiLease.h"
++#include "PongWifiNotify.h"
++#include <pexpert/pexpert.h>
++#include <kern/clock.h>
++
++extern "C" bool pong_wifi_test_reconnect(void);
++extern "C" unsigned nw_wifi_channel_list(unsigned *, unsigned);
++extern "C" int nw_wifi_rssi_limits(int *,int *);
++extern "C" volatile uint64_t pong_wifi_progress[3];
++static bool gProgressDiagnostic;
++extern "C" void native_wifi_logf(int level, const char *fmt, ...);
++extern "C" void pong_wifi_wake(void);   // WifiProbe.cpp: the WiFi thread sends the queued frame now
++
++#define SIOCSA80211 0x802869c8UL   // _IOW('i', 200, struct apple80211req)
++#define SIOCGA80211 0xc02869c9UL   // _IOWR('i', 201, struct apple80211req)
++
++// (the header declares it without C linkage; the symbol is the C one)
++extern "C" int pong_kev_post(struct kev_msg *) __asm__("_kev_post_msg");
++
++namespace {
++
++struct apple80211req {
++  char req_if_name[16];
++  int32_t req_type;
++  int32_t req_val;
++  uint32_t req_len;
++  user_addr_t req_data __attribute__((aligned(8)));
++};
++
++// request types
++enum {
++  kSsid = 1, kAuthType = 2, kCipherKey = 3, kChannel = 4, kPowerSave = 5, kTxPower = 7, kRate = 8, kBssid = 9, kScanReq = 10, kScanResult = 11,
++  kCardCaps = 12, kState = 13, kPhyMode = 14, kOpMode = 15, kRssi = 16, kNoise = 17, kPower = 19, kAssociate = 20, kAssociateResult = 21,
++  kDisassociate = 22, kSupportedChannels = 27, kLocale = 28, kDeauth = 29, kDriverVersion = 43, kHardwareVersion = 44, kCountryCode = 51,
++  kRadioInfo = 54, kWowEnabled = 70, kVirtualRole = 96, kVirtualParent = 97, kScanReqMultiple = 86, kScanCacheClear = 90, kCurrentNetwork = 103, kRssiBounds = 106, kChannelsInfo = 207, kHwSupportedChannels = 254,
++};
++// events
++enum { kEvPowerChanged = 1, kEvSsidChanged = 2, kEvBssidChanged = 3, kEvLinkChanged = 4, kEvAssocDone = 9, kEvScanDone = 10, kEvRsnHandshakeDone = 20 };
++// results of an association, as the framework numbers them
++enum { kAssocOk = 1, kAssocFailed = 2, kAssocTimeout = 9, kAssocBadKey = 21 };
++
++struct channel { uint32_t version, channel, flags; };
++struct channels_list { uint32_t version, count; channel list[401]; uint32_t unused; };           // 4824 bytes
++struct scan_result {                                                                              // 1164 bytes
++  uint32_t version; channel ch; uint16_t noise_known; int16_t noise, snr, rssi; uint16_t beacon_interval, capability; uint8_t bssid[6];
++  uint8_t rate_count, unused0; uint32_t rates[15]; uint8_t ssid_length, ssid[32], unused1[3]; uint32_t age_ms; uint8_t flags, unused2;
++  uint16_t elements_length; uint8_t elements[1024];
++};
++// 22H374 retains the legacy prefix, but reads a separate monotonic-raw
++// nanosecond observation timestamp at +0x8d0. Returning only the prefix
++// leaves TIMESTAMP zero and breaks native scan freshness filtering.
++struct scan_result24 {
++  scan_result legacy;
++  uint8_t reserved[0x8d0-sizeof(scan_result)];
++  uint64_t timestamp_ns;
++};
++static_assert(sizeof(scan_result24)==2264 &&
++  __builtin_offsetof(scan_result24,timestamp_ns)==0x8d0,"22H374 scan timestamp ABI");
++struct assoc_request {                                                                            // 592 bytes
++  uint32_t version; uint16_t mode, auth_lower, auth_upper, unused0; uint32_t ssid_length; uint8_t ssid[32]; uint8_t bssid[6], unused1[2];
++  uint32_t key_version, key_length, key_cipher; uint16_t key_flags, key_index; uint8_t key[64]; uint8_t rest[0x250 - 0x88];
++};
++// Native 22H374 IO80211 __performAssociation sends 0x384 bytes. Unlike
++// the older 0x250 layout its lower/upper authentication fields are 32-bit.
++// Decoding it as the legacy layout reads auth_upper as the SSID length.
++struct assoc_request24 {
++  uint32_t version; uint16_t mode, unused0; uint32_t auth_lower, auth_upper;
++  uint32_t ssid_length; uint8_t ssid[32], bssid[6], unused1[2];
++  uint32_t key_version, key_length, key_cipher; uint16_t key_flags, key_index;
++  uint8_t key[64], rest[0x384-0x8c];
++};
++static_assert(sizeof(assoc_request24)==0x384 &&
++  __builtin_offsetof(assoc_request24,ssid_length)==0x10 &&
++  __builtin_offsetof(assoc_request24,bssid)==0x34 &&
++  __builtin_offsetof(assoc_request24,key)==0x4c,"22H374 association ABI");
++struct link_event { uint8_t down, unused0[3]; int32_t rssi; uint16_t snr, noise; uint8_t unused1[4]; uint8_t involuntary, unused2[3]; uint32_t reason, subreason; uint8_t unused3[4]; };
++static_assert(sizeof(scan_result) == 1164 && __builtin_offsetof(scan_result, ssid_length) == 0x60 && __builtin_offsetof(scan_result, age_ms) == 0x84 &&
++              __builtin_offsetof(scan_result, elements) == 0x8c, "scan result layout");
++static_assert(sizeof(assoc_request) == 592 && __builtin_offsetof(assoc_request, key) == 0x48, "association layout");
++static_assert(sizeof(channels_list) == 4824, "channel list layout");
++static_assert(sizeof(link_event) == 32, "link event layout");
++
++ifnet_t gIf;
++uint8_t gMac[6];
++lck_grp_t *gGrp;
++lck_mtx_t *gLock;
++bool gCycleTest;
++struct pong_wifi_lease_tracker gLease;
++
++uint64_t lease_clock() {
++  uint64_t ns = 0;
++  absolutetime_to_nanoseconds(mach_continuous_time(), &ns);
++  return ns / 1000000000ull;
++}
++
++bool gPower = true;
++bool gFailed;
++bool gKeyed;   // the last join used a passphrase
++uint32_t gRxFrames, gRxErrors; int gRxLastError;
++uint32_t gRxNoBuffer, gRxChains, gRxLongest;   // frames dropped for want of a buffer, frames that took a chain, the longest frame
++struct { unsigned count, kicks, cleared, longest; bool kicked; } gStall;   // input thread stalls (check_input)   // frames handed to the stack, refused ones and the last refusal
++int gAssocResult = kAssocOk;
++unsigned gScanCursor, gScanning;
++thread_call_t gNotifications;
++pong_wifi_notification_queue gNotificationQueue;
++enum { NotifyControl=1, NotifyScan, NotifyAssociate, NotifyLost, NotifyFailed };
++enum { NotifyPower=1, NotifyLinkDown=2 };
++bool gUserJoin;   // the wireless daemon joined, left or switched the radio itself: the unattended test join steps aside
++uint32_t gLogged[256 / 32];
++
++void log(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
++void log(int level, const char *fmt, ...) {
++  char line[160]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
++  native_wifi_logf(level, "%s", line);
++}
++
++// ---- events to the framework: class IEEE 802.11 (6), subclass 1, data starting with the interface name ----
++void post_event(uint32_t code, const void *payload, size_t length) {
++  uint8_t data[128]; if (length > sizeof data - 16) length = sizeof data - 16;
++  memset(data, 0, 16); snprintf(reinterpret_cast<char *>(data), 16, "en0"); if (length) memcpy(data + 16, payload, length);
++  struct kev_msg msg; memset(&msg, 0, sizeof msg);
++  msg.vendor_code = KEV_VENDOR_APPLE; msg.kev_class = 6; msg.kev_subclass = 1; msg.event_code = code;
++  msg.dv[0].data_length = static_cast<uint32_t>(16 + length); msg.dv[0].data_ptr = data;
++  pong_kev_post(&msg);
++}
++// link state for the network configuration: the interface's flags and the stack's own link events
++void post_link(bool up) {
++  if (!gIf) return;
++  lck_mtx_lock(gLock);
++  if (gLease.up != up) pong_wifi_lease_link(&gLease, up);
++  lck_mtx_unlock(gLock);
++  ifnet_set_flags(gIf, up ? IFF_RUNNING : 0, IFF_RUNNING);
++  struct { struct net_event_data data; } payload; memset(&payload, 0, sizeof payload);
++  payload.data.if_family = IFNET_FAMILY_ETHERNET; payload.data.if_unit = 0; snprintf(payload.data.if_name, sizeof payload.data.if_name, "en");
++  struct kev_msg msg; memset(&msg, 0, sizeof msg);
++  msg.vendor_code = KEV_VENDOR_APPLE; msg.kev_class = KEV_NETWORK_CLASS; msg.kev_subclass = KEV_DL_SUBCLASS; msg.event_code = up ? KEV_DL_LINK_ON : KEV_DL_LINK_OFF;
++  msg.dv[0].data_length = sizeof payload; msg.dv[0].data_ptr = &payload;
++  pong_kev_post(&msg);
++}
++
++// Socket/ifnet delivery can synchronously cause output or interface queries.
++// The cooperative firmware dispatcher must remain free to drain that work.
++// Queue bounded FIFO transitions under gLock, then deliver outside both the
++// network lock and dispatcher context. Never coalesce a real down/up edge.
++void queue_notification_locked(pong_wifi_notification event) {
++  if(__atomic_load_n(&gFailed,__ATOMIC_ACQUIRE) && event.kind!=NotifyFailed)return;
++  if(!pong_wifi_notification_push(&gNotificationQueue,event)) {
++    log(3,"wifi-net: notification queue overflow; interface failed");
++    __atomic_store_n(&gFailed,true,__ATOMIC_RELEASE);gPower=false;
++    gAssocResult=kAssocFailed;gScanning=0;
++    pong_wifi_notification_reset(&gNotificationQueue);
++    pong_wifi_notification failure={NotifyFailed,1,0,0};
++    pong_wifi_notification_push(&gNotificationQueue,failure);
++  }
++  thread_call_enter(gNotifications);
++}
++void deliver_notifications(thread_call_param_t,thread_call_param_t) {
++  for(;;) {
++    pong_wifi_notification event={};
++    lck_mtx_lock(gLock);
++    bool available=pong_wifi_notification_pop(&gNotificationQueue,&event);
++    lck_mtx_unlock(gLock);
++    if(!available)return;
++    switch(event.kind) {
++    case NotifyControl:
++      if(event.result&NotifyLinkDown)post_link(false);
++      if(event.result&NotifyPower)post_event(kEvPowerChanged,nullptr,0);
++      break;
++    case NotifyScan:post_event(kEvScanDone,nullptr,0);break;
++    case NotifyAssociate:
++      if(event.result==NW_RES_OK)post_link(true);
++      post_event(kEvAssocDone,nullptr,0);
++      if(event.result==NW_RES_OK) {
++        post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);
++        link_event link={};link.rssi=event.rssi;link.noise=static_cast<uint16_t>(-95);link.snr=static_cast<uint16_t>(event.rssi+95);
++        post_event(kEvLinkChanged,&link,sizeof link);
++        if(event.keyed)post_event(kEvRsnHandshakeDone,nullptr,0);
++      }
++      log(6,"wifi-net: association notifications delivered result %d",event.result);
++      break;
++    case NotifyLost: {
++      post_link(false);link_event link={};link.down=1;link.involuntary=1;link.reason=static_cast<uint32_t>(event.result);
++      post_event(kEvLinkChanged,&link,sizeof link);break;
++    }
++    case NotifyFailed:
++      post_link(false);
++      if(event.result)post_event(kEvScanDone,nullptr,0);
++      post_event(kEvAssocDone,nullptr,0);post_event(kEvPowerChanged,nullptr,0);break;
++    }
++  }
++}
++void notify_locked(unsigned events) {
++  pong_wifi_notification event={NotifyControl,static_cast<int32_t>(events),0,0};
++  queue_notification_locked(event);
++}
++void on_scan_done() {
++  lck_mtx_lock(gLock);gScanning=0;gScanCursor=0;
++  pong_wifi_notification event={NotifyScan,0,0,0};queue_notification_locked(event);
++  lck_mtx_unlock(gLock);
++}
++thread_call_t gCachedScan;
++void cached_scan_done(thread_call_param_t,thread_call_param_t) { on_scan_done(); }
++void on_connect_done(int result) {
++  nw_wifi_status status={};nw_wifi_status_get(&status);
++  lck_mtx_lock(gLock);
++  gAssocResult=result==NW_RES_OK?kAssocOk:result==NW_RES_BAD_KEY?kAssocBadKey:result==NW_RES_TIMEOUT?kAssocTimeout:kAssocFailed;
++  // NW_RES_OK follows actual key installation/STA_AUTHORIZED for WPA2.
++  pong_wifi_notification event={NotifyAssociate,result,status.signal_dbm,gKeyed?1u:0u};
++  queue_notification_locked(event);lck_mtx_unlock(gLock);
++  log(6,"wifi-net: join finished: module result %d",result);
++}
++void on_link_lost(int reason) {
++  log(6,"wifi-net: link lost: reason %d",reason);
++  lck_mtx_lock(gLock);pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
++}
++
++// What the address configuration exchanges, as it crosses the interface: DHCP messages (type, transaction, offered address) and ARP, the first
++// ones of each direction, and per-kind counts for the traffic line.
++struct Kinds { uint32_t arp, ip4, dhcp, ip6, other; } gKindsIn, gKindsOut;
++void note_frame(const uint8_t *e, size_t n, bool out) {
++  Kinds &k = out ? gKindsOut : gKindsIn; const unsigned type = n >= 14 ? (e[12] << 8 | e[13]) : 0; const char *dir = out ? "out" : "in";
++  if (type == 0x0806) {
++    k.arp++; static unsigned shown[2];
++    if (n >= 42 && shown[out]++ < 12) log(6, "wifi-net: arp %s op %u %u.%u.%u.%u asks %u.%u.%u.%u", dir, e[21], e[28], e[29], e[30], e[31], e[38], e[39], e[40], e[41]);
++    return; }
++  if (type == 0x86dd) { k.ip6++; return; }
++  if (type != 0x0800 || n < 34) { k.other++; return; }
++  k.ip4++; const uint8_t *ip = e + 14; const unsigned ihl = (ip[0] & 15) * 4;
++  if (ip[9] != 17 || n < 14 + ihl + 8) return;
++  const uint8_t *udp = ip + ihl; const unsigned sp = udp[0] << 8 | udp[1], dp = udp[2] << 8 | udp[3];
++  if (!((sp == 67 || sp == 68) && (dp == 67 || dp == 68))) return;
++  k.dhcp++; const uint8_t *b = udp + 8; const size_t bl = n - (b - e); unsigned msg = 0;
++  if (ihl >= 20 && !(pong_wifi_be16(ip + 6) & 0x3fff)) {
++    const unsigned udpLen = pong_wifi_be16(udp + 4), ipLen = pong_wifi_be16(ip + 2);
++    if (udpLen >= 8 + 241 && udpLen - 8 <= bl && ipLen >= ihl + udpLen && ipLen <= n - 14) {
++      struct pong_wifi_lease lease = {};
++      const unsigned mt = pong_wifi_dhcp_fields(b, udpLen - 8, gMac, &lease);
++      if (mt && ((out && sp == 68 && dp == 67) || (!out && sp == 67 && dp == 68))) {
++        lck_mtx_lock(gLock);
++        pong_wifi_lease_packet(&gLease, out, mt, b, &lease, lease_clock());
++        lck_mtx_unlock(gLock);
++      }
++    }
++  }
++  for (size_t o = 240; bl >= 240 && o + 2 <= bl && b[o] != 255; o += b[o] ? 2 + b[o + 1] : 1) if (b[o] == 53 && o + 2 < bl) { msg = b[o + 2]; break; }
++  static unsigned shown[2]; if (shown[out]++ < 24 && bl >= 240)
++    log(6, "wifi-net: dhcp %s type %u xid %02x%02x%02x%02x flags %02x%02x to %02x:%02x:%02x:%02x:%02x:%02x yiaddr %u.%u.%u.%u", dir, msg, b[4], b[5], b[6], b[7], b[10], b[11],
++        e[0], e[1], e[2], e[3], e[4], e[5], b[16], b[17], b[18], b[19]);
++  // An offer or acknowledgement: the network settings the server hands out (mask, router, name servers, lease), to tell a server that
++  // gives no IPv4 name server from a client that drops one.
++  if (out || (msg != 2 && msg != 5)) return;
++  char opts[124]; int at = 0;   // fits the 160-byte log line
++  for (size_t o = 240; o + 2 <= bl && b[o] != 255 && at >= 0 && at < static_cast<int>(sizeof opts) - 24; o += b[o] ? 2 + b[o + 1] : 1) {
++    if (!b[o]) continue;
++    const unsigned code = b[o], len = b[o + 1]; const uint8_t *v = b + o + 2;
++    if (o + 2 + len > bl) break;
++    if ((code == 1 || code == 3 || code == 6 || code == 54) && len >= 4)
++      for (unsigned i = 0; i + 4 <= len && at < static_cast<int>(sizeof opts) - 24; i += 4)
++        at += snprintf(opts + at, sizeof opts - at, " %u=%u.%u.%u.%u", code, v[i], v[i + 1], v[i + 2], v[i + 3]);
++    else if (code == 51 && len == 4) at += snprintf(opts + at, sizeof opts - at, " 51=%u", v[0] << 24 | v[1] << 16 | v[2] << 8 | v[3]);
++    else at += snprintf(opts + at, sizeof opts - at, " %u", code);
++  }
++  log(6, "wifi-net: dhcp %s type %u options%s", dir, msg, opts);
++}
++void on_rx(const uint8_t *eth, size_t length) {
++  if (!gIf || length < 14) return;
++  note_frame(eth, length, false);
++  // Two bytes ahead of the Ethernet header put the IP header on a 4-byte boundary. The packet may come back as a chain (a frame larger
++  // than one cluster, or no large cluster free): each buffer gets only what fits in it. Setting the whole length on the first one (as
++  // before) let the stack read past that buffer's end (i469: a data abort in m_copydata reading across a page).
++  enum : size_t { Align = 2 };
++  mbuf_t m = nullptr;
++  if (mbuf_allocpacket(MBUF_DONTWAIT, length + Align, nullptr, &m) || !m) { gRxNoBuffer++; return; }
++  if (length > gRxLongest) gRxLongest = static_cast<uint32_t>(length);
++  if (mbuf_next(m)) gRxChains++;
++  size_t done = 0; bool first = true;
++  for (mbuf_t n = m; n; n = mbuf_next(n)) {
++    size_t room = mbuf_maxlen(n) - mbuf_leadingspace(n);
++    if (first) { if (room < Align + 14) break; mbuf_setdata(n, static_cast<uint8_t *>(mbuf_datastart(n)) + mbuf_leadingspace(n) + Align, 0); room -= Align; }
++    const size_t take = length - done < room ? length - done : room;
++    memcpy(mbuf_data(n), eth + done, take); mbuf_setlen(n, take); done += take; first = false;
++  }
++  if (done != length) { gRxNoBuffer++; mbuf_freem(m); return; }
++  mbuf_pkthdr_setlen(m, length); mbuf_pkthdr_setrcvif(m, gIf);
++  mbuf_pkthdr_setheader(m, mbuf_data(m)); mbuf_adj(m, 14);   // the stack wants the Ethernet header apart from the payload
++  struct ifnet_stat_increment_param inc; memset(&inc, 0, sizeof inc); inc.packets_in = 1; inc.bytes_in = static_cast<uint32_t>(length);
++  const errno_t e = ifnet_input(gIf, m, &inc);
++  if (e) { gRxErrors++; gRxLastError = e; } else gRxFrames++;
++}
++const struct nw_wifi_events gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx };
++
++// ---- the interface ----
++errno_t if_output(ifnet_t, mbuf_t m) {
++  size_t length = mbuf_pkthdr_len(m);
++  if (length >= 14 && length <= 2000) {
++    uint8_t frame[2000]; mbuf_copydata(m, 0, length, frame);
++    note_frame(frame, length, true);
++    if (nw_wifi_tx(frame, length)) log(6, "wifi-net: a frame was dropped (queue full)");
++    else {ifnet_stat_increment_out(gIf, 1, static_cast<uint32_t>(length), 0); pong_wifi_wake();}
++  }
++  mbuf_freem(m);
++  return 0;
++}
++void if_event_stub(ifnet_t, const struct kev_msg *) {}
++
++// ---- Apple80211 ----
++void fill_channel(channel &c, uint32_t mhz) {
++  c.version = 1;
++  if (mhz >= 4900) { c.channel = (mhz - 5000) / 5; c.flags = 0x2 | 0x10; } else { c.channel = mhz == 2484 ? 14 : (mhz - 2407) / 5; c.flags = 0x2 | 0x8; }
++}
++uint64_t scan_clock_ns() {
++  uint64_t ns=0;absolutetime_to_nanoseconds(mach_continuous_time(),&ns);return ns;
++}
++void fill_result(scan_result24 &record, const nw_bss_info &b,uint64_t sampled_ns) {
++  memset(&record, 0, sizeof record);scan_result &r=record.legacy;
++  r.version = 1; fill_channel(r.ch, b.freq_mhz); r.noise_known = 1; r.noise = -95; r.rssi = b.signal_dbm; r.snr = b.signal_dbm + 95;
++  r.beacon_interval = b.beacon_int; r.capability = b.caps; memcpy(r.bssid, b.bssid, 6); r.ssid_length = b.ssid_len; memcpy(r.ssid, b.ssid, 32);
++  r.age_ms = b.age_ms; r.elements_length = b.ie_len > sizeof r.elements ? sizeof r.elements : b.ie_len; memcpy(r.elements, b.ie, r.elements_length);
++  r.rate_count = 0;
++  // The station exposes real frame age at millisecond resolution. Sample
++  // the clock BEFORE querying it and round age upward, so this estimate
++  // never makes an old cached observation newer than the actual frame.
++  const uint64_t age_ns=(uint64_t(b.age_ms)+1)*1000000ull;
++  record.timestamp_ns=sampled_ns>age_ns?sampled_ns-age_ns:0;
++}
++int copy_out(const apple80211req &rq, const void *src, size_t size, bool kernel = false) {
++  if (rq.req_len == 0 || !rq.req_data) return EINVAL;
++  const size_t n = rq.req_len < size ? rq.req_len : size;
++  if (kernel) { memcpy(reinterpret_cast<void *>(rq.req_data), src, n); return 0; }
++  return copyout(src, rq.req_data, n);
++}
++// A get that gives no buffer takes a single value in req_val; one with a buffer gets {version, value}.
++int answer_value(apple80211req &rq, uint32_t value, bool kernel = false) {
++  if (rq.req_len == 0 || !rq.req_data) { rq.req_val = static_cast<int32_t>(value); return 0; }
++  const uint32_t w[2] = { 1, value }; return copy_out(rq, w, sizeof w, kernel);
++}
++// The raw bytes, their length in req_len.
++int answer_bytes(apple80211req &rq, const void *src, uint32_t size, bool kernel = false) {
++  if (!rq.req_data) return EINVAL;
++  const uint32_t n = rq.req_len < size ? rq.req_len : size; rq.req_len = size;
++  if (kernel) { memcpy(reinterpret_cast<void *>(rq.req_data), src, n); return 0; }
++  return copyout(src, rq.req_data, n);
++}
++int copy_in(const apple80211req &rq, void *dst, size_t size, bool kernel = false) {
++  if (!rq.req_data) return EINVAL;
++  memset(dst, 0, size);
++  const size_t n = rq.req_len < size ? rq.req_len : size;
++  if (kernel) { memcpy(dst, reinterpret_cast<const void *>(rq.req_data), n); return 0; }
++  return copyin(rq.req_data, dst, n);
++}
++unsigned gResultsShown;
++// The regulatory country as the access points announce it (802.11d: the Country element, id 7, of the strongest network that has one), else "XX".
++void country(char cc[3]) {
++  cc[0] = 'X'; cc[1] = 'X'; cc[2] = 0; int best = -200; nw_bss_info b;
++  for (int i = 0, n = nw_wifi_bss_count(); i < n; ++i) {
++    if (nw_wifi_bss_get(i, &b) || b.signal_dbm <= best) continue;
++    for (unsigned o = 0; o + 2 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1])
++      if (b.ie[o] == 7 && b.ie[o + 1] >= 2 && b.ie[o + 2] >= 'A' && b.ie[o + 2] <= 'Z' && b.ie[o + 3] >= 'A' && b.ie[o + 3] <= 'Z') {
++        cc[0] = static_cast<char>(b.ie[o + 2]); cc[1] = static_cast<char>(b.ie[o + 3]); best = b.signal_dbm; break; }
++  }
++}
++int map_state(unsigned s) { switch (s) { case NW_STA_SCANNING: return 1; case NW_STA_AUTH: return 2; case NW_STA_ASSOC: case NW_STA_KEYS: return 3; case NW_STA_UP: return 4; default: return 0; } }
++
++int apple80211(bool set, apple80211req &rq, bool kernel = false) {
++  if (__atomic_load_n(&gFailed,__ATOMIC_ACQUIRE) && (set || rq.req_type != kPower)) return ENETDOWN;
++  // Both native selector 0 and the socket tunnel hold gLock here.
++  if (rq.req_type == PONG_WIFI_TEST_RECONNECT)
++    return set && gCycleTest && pong_wifi_test_reconnect() ? 0 : EOPNOTSUPP;
++  if (rq.req_type == PONG_WIFI_GET_LEASE) {
++    if (set) return EOPNOTSUPP;
++    if(gProgressDiagnostic) {
++      static unsigned queries;
++      if((queries++%5)==0) {
++        uint64_t ns=0;absolutetime_to_nanoseconds(mach_absolute_time(),&ns);
++        log(6,"wifi-net: dispatcher phase=%llu age-ms=%llu generation=%llu where=%llu fn-offset=%llx depth=%llu",pong_wifi_progress[0],ns/1000000ull-pong_wifi_progress[1],pong_wifi_progress[2],nw_wifi_where[0],nw_wifi_where[1],nw_wifi_where[2]);
++      }
++    }
++    const auto lease = pong_wifi_lease_snapshot(&gLease, lease_clock());
++    return answer_bytes(rq, &lease, sizeof(lease), kernel);
++  }
++  nw_wifi_status st; nw_wifi_status_get(&st);
++  const int type = rq.req_type;
++  // (not on the stack: the largest answer is 4824 bytes)
++  union Out { uint8_t raw[5120]; channels_list chans; scan_result24 res; };
++  Out *outp = static_cast<Out *>(IOMallocData(sizeof(Out)));
++  if (!outp) return ENOMEM;
++  memset(outp, 0, sizeof(Out));
++  struct Free { Out *p; ~Free() { IOFreeData(p, sizeof(Out)); } } freeOut{outp};
++  Out &out = *outp;
++  uint32_t *w = reinterpret_cast<uint32_t *>(out.raw);
++  if (set) {
++    switch (type) {
++    case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]); if (!gPower) {nw_wifi_disconnect();pong_wifi_wake();} notify_locked(NotifyPower); return 0; }
++    case kScanReq: case kScanReqMultiple: {
++      if(!gPower)return ENETDOWN;
++      if(rq.req_len<20)return EINVAL;
++      uint8_t buf[0x80]; if (copy_in(rq, buf, sizeof buf, kernel)) return EFAULT;
++      uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
++      if(ssidLength>32 || rq.req_len<20+ssidLength)return EINVAL;
++      // joining or joined: a scan takes the radio off channel for seconds and the access point's beacons and handshake frames are missed, so
++      // the daemon gets the last results instead
++      if (st.state >= NW_STA_AUTH && nw_wifi_bss_count() > 0) {
++        if (!gCachedScan) gCachedScan = thread_call_allocate(cached_scan_done, nullptr);
++        if (!gCachedScan) return ENOMEM;
++        static unsigned answered; if (++answered <= 8 || answered % 64 == 0) log(6, "wifi-net: scan %u while joined: answered from the cache", answered);
++        gScanning = 1; gScanCursor = 0; gResultsShown = 24; uint64_t at; clock_interval_to_deadline(2000, kMillisecondScale, &at); thread_call_enter_delayed(gCachedScan, at); return 0; }
++      gScanning = 1; gScanCursor = 0; gResultsShown = 0;
++      if(nw_wifi_scan(ssidLength?ssid:nullptr,ssidLength)){gScanning=0;return EBUSY;}
++      pong_wifi_wake();return 0; }
++    case kAssociate: {
++      if(!gPower)return ENETDOWN;
++      assoc_request24 a={};
++      const bool darwin24=rq.req_len==sizeof(assoc_request24);
++      size_t keyOffset;
++      if(darwin24) {
++        if(copy_in(rq,&a,sizeof(a),kernel))return EFAULT;
++        keyOffset=__builtin_offsetof(assoc_request24,key);
++      } else if(rq.req_len==sizeof(assoc_request)) {
++        assoc_request legacy={};
++        if(copy_in(rq,&legacy,sizeof(legacy),kernel))return EFAULT;
++        a.version=legacy.version;a.mode=legacy.mode;
++        a.auth_lower=legacy.auth_lower;a.auth_upper=legacy.auth_upper;
++        a.ssid_length=legacy.ssid_length;memcpy(a.ssid,legacy.ssid,sizeof(a.ssid));
++        memcpy(a.bssid,legacy.bssid,sizeof(a.bssid));
++        a.key_version=legacy.key_version;a.key_length=legacy.key_length;a.key_cipher=legacy.key_cipher;
++        a.key_flags=legacy.key_flags;a.key_index=legacy.key_index;
++        memcpy(a.key,legacy.key,sizeof(a.key));memset(&legacy,0,sizeof(legacy));
++        keyOffset=__builtin_offsetof(assoc_request,key);
++      } else return EINVAL;
++      if(a.version!=1 || !a.ssid_length || a.ssid_length>32 || a.key_length>64 ||
++          rq.req_len<keyOffset+a.key_length) {memset(&a,0,sizeof(a));return EINVAL;}
++      // The station implements open/WPA2-personal, not enterprise or SAE.
++      // Preserve native failure for unsupported authentication, not an open join.
++      if(a.auth_upper && a.auth_upper!=8) {memset(&a,0,sizeof(a));return EOPNOTSUPP;}
++      const bool hasBssid = (a.bssid[0] | a.bssid[1] | a.bssid[2] | a.bssid[3] | a.bssid[4] | a.bssid[5]) != 0;
++      const bool hasKey = a.key_length != 0 && a.key_length <= 64; char pass[65]; memset(pass, 0, sizeof pass); if (hasKey) memcpy(pass, a.key, a.key_length);
++      // cipher 6: the daemon already derived the pairwise master key (32 bytes); the module takes it as 64 hex digits
++      unsigned keyLength = a.key_length;
++      if (hasKey && a.key_cipher == 6 && a.key_length == 32) { static const char hex[] = "0123456789abcdef"; for (int i = 0; i < 32; i++) { pass[2 * i] = hex[a.key[i] >> 4]; pass[2 * i + 1] = hex[a.key[i] & 15]; } keyLength = 64; }
++      gAssocResult = kAssocFailed; gUserJoin = true;
++      log(6, "wifi-net: join: ssid length %u, bssid given %d, key length %u cipher %u", a.ssid_length, hasBssid, a.key_length, a.key_cipher);
++      gKeyed = hasKey; int r = nw_wifi_connect(a.ssid, a.ssid_length, hasBssid ? a.bssid : nullptr, hasKey ? pass : nullptr, hasKey ? keyLength : 0);
++      memset(pass, 0, sizeof pass); memset(&a, 0, sizeof a);
++      if(!r)pong_wifi_wake();
++      return r ? EINVAL : 0; }
++    case kDisassociate: case kDeauth: gUserJoin = true; log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
++    case kScanCacheClear: case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return 0;
++    default: return EOPNOTSUPP;
++    }
++  }
++  switch (type) {
++  case kPower: w[0] = 1; w[1] = 1; w[2] = gPower ? 1 : 0; return copy_out(rq, w, 24, kernel);
++  case kState: return answer_value(rq, static_cast<uint32_t>(gPower ? map_state(st.state) : 0), kernel);
++  case kOpMode: return answer_value(rq, 1, kernel);   // station
++  case kAuthType: w[0] = 1; w[1] = 1; w[2] = gKeyed ? 0x8 : 0; return copy_out(rq, w, 16, kernel);   // {version, lower: open system, upper: WPA2 personal or none}
++  case kPowerSave: return answer_value(rq, 0, kernel);
++  // en0 is the physical infrastructure station, not P2P/AWDL. A physical
++  // interface has role zero and no virtual parent. These discovery queries
++  // must not be confused with unsupported virtual-interface creation.
++  case kVirtualRole: return answer_value(rq, 0, kernel);
++  case kVirtualParent: return answer_bytes(rq, out.raw, 0, kernel);
++  case kWowEnabled: return answer_value(rq, 0, kernel); // no WoW suspend path exposed
++  case kCardCaps: {   // a bitmap, bit n in byte n / 8: AES, AES-CCM, power management, short slot and preamble, WPA2, WME, short guard interval at 20 MHz
++    static const uint8_t has[] = { 2, 3, 6, 9, 10, 14, 17, 19 };
++    for (uint8_t b : has) out.raw[b / 8] |= static_cast<uint8_t>(1u << (b % 8));
++    // 22H374 asks for 19 capability bytes (older clients ask for 12).
++    // Preserve that negotiated extent and zero unsupported extension bits;
++    // truncating the newer bitmap to 12 makes interface discovery incomplete.
++    const uint32_t bytes=rq.req_len>19?19:rq.req_len;
++    return answer_bytes(rq, out.raw, bytes, kernel); }
++  case kPhyMode: w[0] = 1; w[1] = 0x1 | 0x2 | 0x4 | 0x8 | 0x10 | 0x20 | 0x40; w[2] = st.state == NW_STA_UP ? 0x8 : 0; return copy_out(rq, w, 12, kernel);
++  case kSsid: if (st.state < NW_STA_ASSOC) return ENOENT; return answer_bytes(rq, st.ssid, st.ssid_len, kernel);
++  case kBssid: if (st.state < NW_STA_ASSOC) return ENOENT; return answer_bytes(rq, st.bssid, 6, kernel);
++  case kChannel: if (st.state < NW_STA_AUTH) return ENOENT; w[0] = 1; fill_channel(*reinterpret_cast<channel *>(out.raw + 4), st.freq_mhz); return copy_out(rq, w, 16, kernel);
++  case kRssiBounds: {
++    static_assert(sizeof(int)==4,"Apple80211 signed RSSI words");
++    int bounds[4]={1,0,0,0};
++    if(nw_wifi_rssi_limits(&bounds[1],&bounds[2]))return EOPNOTSUPP;
++    // The station imposes no additional RSSI admission policy. Use its
++    // representable floor for this legacy gate; CoreWiFi retains its own
++    // -80/-90 dBm candidate quality policy and actual RSSI measurements.
++    // Refusing this query leaves wifid's threshold at zero and rejects
++    // every ordinary negative-dBm result before issuing an association.
++    bounds[3]=bounds[1];
++    return copy_out(rq,bounds,sizeof(bounds),kernel);
++  }
++  case kRssi: case kNoise: {   // {version, radios, unit (0: dBm), per chain[4], aggregate, extension per chain[4], its aggregate}
++    if (type == kRssi && st.state != NW_STA_UP) return ENOENT;
++    const uint32_t v = static_cast<uint32_t>(type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95);
++    w[0] = 1; w[1] = 1; w[2] = 0; for (int i = 3; i < 13; i++) w[i] = v; return copy_out(rq, w, 13 * 4, kernel); }
++  case kRate: return answer_value(rq, st.state == NW_STA_UP ? 54 : 0, kernel);
++  case kTxPower: return answer_value(rq, 15, kernel);
++  case kDriverVersion: case kHardwareVersion: { const char *v = type == kDriverVersion ? "nativewifi 1" : "QCA6490 (ath11k/WCN6855)"; strlcpy(reinterpret_cast<char *>(out.raw), v, 256); return copy_out(rq, out.raw, 256, kernel); }
++  case kCountryCode: { char cc[3]; country(cc); return answer_bytes(rq, cc, 3, kernel); }   // the two letters and a NUL (the daemon asks with a 3-byte buffer)
++  case kAssociateResult: return answer_value(rq, static_cast<uint32_t>(gAssocResult), kernel);
++  case kSupportedChannels: case kHwSupportedChannels: {
++    out.chans.version = 1; unsigned n = 0;
++    uint32_t frequencies[401];unsigned actual=nw_wifi_channel_list(frequencies,401);
++    // CWFChannel compares the complete flag word for supported membership.
++    // Keep the band/width representation consistent with scan/current/
++    // history channels rather than adding ACTIVE only to this answer.
++    for(unsigned i=0;i<actual && n<401;i++){fill_channel(out.chans.list[n],frequencies[i]);n++;}
++    out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }
++  case kScanResult: {
++    nw_bss_info b; const int count = nw_wifi_bss_count();
++    const uint64_t sampled_ns=scan_clock_ns();
++    if (gScanCursor >= static_cast<unsigned>(count) || nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) { gScanCursor = 0; return EIO; }   // after the last record
++    gScanCursor++; fill_result(out.res, b,sampled_ns);
++    if (gResultsShown < 3) { ++gResultsShown; log(6, "wifi-net: scan result %u: %u MHz, %d dBm, %.*s", gScanCursor, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid)); }
++    return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
++  case kCurrentNetwork: {
++    if (st.state < NW_STA_ASSOC) return ENOENT;
++    nw_bss_info b; const int count = nw_wifi_bss_count();
++    for (int i = 0; i < count; i++) {
++      const uint64_t sampled_ns=scan_clock_ns();
++      if (!nw_wifi_bss_get(i, &b) && !memcmp(b.bssid, st.bssid, 6)) {
++        fill_result(out.res, b,sampled_ns);
++        return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel);
++      }
++    }
++    return ENOENT; }
++  default: return EOPNOTSUPP;
++  }
++}
++
++errno_t if_ioctl(ifnet_t, unsigned long cmd, void *data) {
++  if(!gLock)return ENXIO;
++  switch (cmd) {
++  case SIOCGA80211: case SIOCSA80211: {
++    apple80211req *rq = static_cast<apple80211req *>(data);
++    if(!rq)return EINVAL;
++    const uint32_t len = rq->req_len; const int32_t val = rq->req_val;
++    const bool set=cmd==SIOCSA80211;
++    // A user-page fault must not retain the driver state lock: scan/join
++    // completions on the station worker need that lock too. The native
++    // user-client tunnel already uses this copy-before/after-lock pattern.
++    if(len>5120 || (len && !rq->req_data))return EINVAL;
++    void *bytes=len?IOMallocZeroData(len):nullptr;
++    if(len && !bytes)return ENOMEM;
++    struct Buffer {void *p;size_t n;~Buffer(){if(p){bzero(p,n);IOFreeData(p,n);}}} buffer{bytes,len};
++    if(set && len && copyin(rq->req_data,bytes,len))return EFAULT;
++    apple80211req local=*rq;
++    local.req_data=reinterpret_cast<user_addr_t>(bytes);
++    lck_mtx_lock(gLock);
++    int e=apple80211(set,local,true);
++    // every request with its answer, for the first few hundred; then a type's first one only
++    static unsigned shown; const int type = rq->req_type; const bool first = type >= 0 && type < 256 && !(gLogged[type / 32] & (1u << (type % 32)));
++    if (type >= 0 && type < 256) gLogged[type / 32] |= 1u << (type % 32);
++    if (shown < 300 || first) { ++shown; log(6, "wifi-net: request %u: type %d %s len %u val %d -> %d (len %u val %d)", shown, type, set ? "set" : "get", len, val, e, local.req_len, local.req_val); }
++    lck_mtx_unlock(gLock);
++    if(!e && !set && len) {
++      const size_t n=local.req_len<len?local.req_len:len;
++      if(n && copyout(bytes,rq->req_data,n))e=EFAULT;
++    }
++    rq->req_val=local.req_val;rq->req_len=local.req_len;
++    return e;
++  }
++  case SIOCGIFMEDIA: {
++    struct ifmediareq *m = static_cast<struct ifmediareq *>(data);
++    nw_wifi_status st; nw_wifi_status_get(&st);
++    // the framework lists wireless interfaces by this media type
++    m->ifm_current = IFM_IEEE80211 | IFM_AUTO; m->ifm_mask = 0; m->ifm_status = IFM_AVALID | (st.state == NW_STA_UP ? IFM_ACTIVE : 0);
++    m->ifm_active = IFM_IEEE80211 | IFM_AUTO;
++    const int requested=m->ifm_count;
++    m->ifm_count = 1;
++    // Darwin first asks for the count, then supplies ifm_ulist. Returning
++    // count=1 without copying the entry leaves userspace's list uninitialized.
++    if (requested > 0 && m->ifm_ulist) {
++      const int medium=IFM_IEEE80211 | IFM_AUTO;
++      return copyout(&medium, (user_addr_t)m->ifm_ulist, sizeof(medium));
++    }
++    return 0;
++  }
++  case SIOCSIFFLAGS: case SIOCSIFMTU: case SIOCADDMULTI: case SIOCDELMULTI: case SIOCSIFADDR: case SIOCSIFMEDIA: return 0;
++  default: { static unsigned said; if (said++ < 16) log(6, "wifi-net: interface request %lx not handled", cmd); return EOPNOTSUPP; }
++  }
++}
++
++// ---- registry entries (see the top of the file in the build: the classes are registered late) ----
++}  // namespace
++
++// 22H374's IO80211 library first binds through the interface user client.
++// Its selector 0 tunnels the SAME Apple80211 requests as the socket path;
++// refusing IOServiceOpen leaves modern CoreWiFi without a usable binding.
++// Layout derived from the selected runtime, not an older IO80211 vtable.
++struct Apple80211MethodRequest {
++  uint32_t command, length;
++  uint8_t bytes[0x3c00];
++  apple80211req request;
++};
++static_assert(sizeof(Apple80211MethodRequest)==0x3c30 &&
++              __builtin_offsetof(Apple80211MethodRequest,request)==0x3c08,
++              "22H374 Apple80211 selector 0 layout");
++
++class Pong80211UserClient : public IOUserClient {
++  OSDeclareDefaultStructors(Pong80211UserClient);
++  static uint32_t capacity(IOExternalMethodArguments *a) {
++    return a->structureOutputDescriptor ? a->structureOutputDescriptorSize : a->structureOutputSize;
++  }
++  static bool output(IOExternalMethodArguments *a,const void *data,uint32_t bytes) {
++    if(bytes>capacity(a))return false;
++    if(a->structureOutputDescriptor) {
++      // MIG supplies an unwired virtual descriptor for OOL requests.
++      // writeBytes walks physical segments; it does not fault/wire pages.
++      // Pair ownership locally and finish before returning to the caller.
++      auto memory=a->structureOutputDescriptor;
++      if(bytes) {
++        IOReturn result=memory->prepare(kIODirectionIn);
++        if(result!=kIOReturnSuccess)return false;
++        const bool copied=memory->writeBytes(0,data,bytes)==bytes;
++        memory->complete(kIODirectionIn);
++        if(!copied)return false;
++      }
++      a->structureOutputDescriptorSize=bytes;
++    } else {
++      if(bytes && !a->structureOutput)return false;
++      if(bytes)memcpy(a->structureOutput,data,bytes);
++      a->structureOutputSize=bytes;
++    }
++    return true;
++  }
++public:
++  bool initWithTask(task_t task,void *security,UInt32 type,OSDictionary *properties) override {
++    return type==0 && IOUserClient::initWithTask(task,security,type,properties);
++  }
++  IOReturn clientClose() override { terminate();return kIOReturnSuccess; }
++  IOReturn externalMethod(uint32_t selector,IOExternalMethodArguments *a,
++      IOExternalMethodDispatch *,OSObject *,void *) override {
++    if(!a || a->scalarInputCount || a->scalarOutputCount)return kIOReturnBadArgument;
++    const uint64_t inputBytes=a->structureInputDescriptor ?
++        a->structureInputDescriptor->getLength() : a->structureInputSize;
++    if(selector==1 || selector==7) {
++      if(inputBytes || capacity(a)!=1)return kIOReturnBadArgument;
++      // Standard ioctl tunnel implemented; Apple's separate fast-path is
++      // not implemented. These describe this client, not radio abilities.
++      const uint8_t supported=selector==1;
++      return output(a,&supported,1)?kIOReturnSuccess:kIOReturnBadArgument;
++    }
++    if(selector!=0)return kIOReturnUnsupported;
++    if(inputBytes!=sizeof(Apple80211MethodRequest) || capacity(a)>0x3c00 || !gLock)
++      return kIOReturnBadArgument;
++    auto packet=static_cast<Apple80211MethodRequest *>(IOMallocData(sizeof(Apple80211MethodRequest)));
++    if(!packet)return kIOReturnNoMemory;
++    struct Free {Apple80211MethodRequest *p;~Free(){
++      auto bytes=reinterpret_cast<volatile uint8_t *>(p);
++      for(size_t i=0;i<sizeof(*p);i++)bytes[i]=0;
++      IOFreeData(p,sizeof(*p));}} release{packet};
++    if(a->structureInputDescriptor) {
++      // The native envelope is 15KiB, larger than MIG's in-band limit.
++      // services88 read this descriptor without prepare(), which can reach
++      // IOGMD's fatal "not wired for the IODMACommand" path. The pages
++      // belong to this one request, never to the radio's DMA arena.
++      auto memory=a->structureInputDescriptor;
++      IOReturn result=memory->prepare(kIODirectionOut);
++      if(result!=kIOReturnSuccess)return result;
++      const bool copied=memory->readBytes(0,packet,sizeof(*packet))==sizeof(*packet);
++      memory->complete(kIODirectionOut);
++      if(!copied)return kIOReturnNotReadable;
++    } else {
++      if(!a->structureInput)return kIOReturnBadArgument;
++      memcpy(packet,a->structureInput,sizeof(*packet));
++    }
++    if((packet->command!=SIOCGA80211 && packet->command!=SIOCSA80211) ||
++       packet->length>sizeof(packet->bytes) ||
++       strncmp(packet->request.req_if_name,"en0",sizeof(packet->request.req_if_name)))
++      return kIOReturnBadArgument;
++    const bool set=packet->command==SIOCSA80211;
++    const uint32_t outCapacity=capacity(a);
++    // The library puts payload length at +4 and payload at +8. The copied
++    // user pointer at +3c28 is never followed. Scalar GETs return req_val;
++    // bind's version sanity query instead supplies a 256-byte output only.
++    const bool scalar=!set && !packet->length && outCapacity==sizeof(uint32_t);
++    apple80211req rq=packet->request;
++    rq.req_len=scalar?0:(packet->length ? packet->length : (!set?outCapacity:0));
++    if(!set && rq.req_len>outCapacity)return kIOReturnBadArgument;
++    rq.req_data=rq.req_len?reinterpret_cast<user_addr_t>(packet->bytes):0;
++    int result;
++    {
++      struct Guard {Guard(){lck_mtx_lock(gLock);}~Guard(){lck_mtx_unlock(gLock);}} guard;
++      result=apple80211(set,rq,true);
++    }
++    static unsigned logged;static uint32_t seen[2][1024/32];
++    const unsigned type=static_cast<unsigned>(rq.req_type);
++    const bool first=type<1024 && !(__atomic_fetch_or(&seen[set][type/32],1u<<(type%32),__ATOMIC_RELAXED)&(1u<<(type%32)));
++    if(__atomic_fetch_add(&logged,1u,__ATOMIC_RELAXED)<96 || first || (set && (rq.req_type==kAssociate || rq.req_type==kCipherKey || rq.req_type==kAuthType)))log(6,"wifi-net: native client type %d %s bytes=%u -> %d",
++        rq.req_type,set?"set":"get",packet->length,result);
++    // IO80211's wrapper preserves these errno values; do not turn an
++    // unsupported request or failed association into a successful result.
++    if(result)return static_cast<IOReturn>(result);
++    if(set)return output(a,nullptr,0)?kIOReturnSuccess:kIOReturnBadArgument;
++    const uint32_t bytes=scalar?sizeof(rq.req_val):(rq.req_len<outCapacity?rq.req_len:outCapacity);
++    return output(a,scalar?static_cast<const void *>(&rq.req_val):packet->bytes,bytes)?
++        kIOReturnSuccess:kIOReturnBadArgument;
++  }
++};
++OSDefineMetaClassAndStructors(Pong80211UserClient,IOUserClient);
++class IO80211Controller : public IOService {OSDeclareDefaultStructors(IO80211Controller);};
++OSDefineMetaClassAndStructors(IO80211Controller,IOService);
++class IONetworkInterface : public IOService {OSDeclareDefaultStructors(IONetworkInterface);};
++OSDefineMetaClassAndStructors(IONetworkInterface,IOService);
++class IO80211Interface : public IONetworkInterface {
++  OSDeclareDefaultStructors(IO80211Interface);
++public:
++  IOReturn newUserClient(task_t task,void *security,UInt32 type,OSDictionary *properties,IOUserClient **out) override {
++    if(type!=0)return kIOReturnUnsupported;
++    auto client=OSTypeAlloc(Pong80211UserClient);
++    if(!client || !client->initWithTask(task,security,type,properties)) {
++      OSSafeReleaseNULL(client);return kIOReturnNotPermitted;
++    }
++    if(!client->attach(this)){client->release();return kIOReturnError;}
++    if(!client->start(this)){client->detach(this);client->release();return kIOReturnError;}
++    *out=client;return kIOReturnSuccess;
++  }
++};
++OSDefineMetaClassAndStructors(IO80211Interface,IONetworkInterface);
++
++// The network configuration's interface namer waits for a service of this class, opens it and only then publishes that IOKit is quiet;
++// everything that lists interfaces (the wireless daemon among them) waits for that. Interfaces here are named when they are made, so the
++// commands it sends (as properties of its connection) are only logged.
++class IONetworkStackUserClient : public IOUserClient {
++  OSDeclareDefaultStructors(IONetworkStackUserClient);
++ public:
++  IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE {
++    static unsigned said;
++    if (said++ < 16) {
++      char text[200] = "?";
++      if (OSSerialize *s = OSSerialize::withCapacity(512)) { if (properties && properties->serialize(s)) strlcpy(text, s->text(), sizeof text); s->release(); }
++      log(6, "wifi-net: network stack command %s", text);
++    }
++    return kIOReturnSuccess;
++  }
++  IOReturn clientClose() APPLE_KEXT_OVERRIDE { terminate(); return kIOReturnSuccess; }
++};
++OSDefineMetaClassAndStructors(IONetworkStackUserClient, IOUserClient);
++class IONetworkStack : public IOService {
++  OSDeclareDefaultStructors(IONetworkStack);
++ public:
++  IOReturn newUserClient(task_t task, void *security, UInt32 type, OSDictionary *, IOUserClient **handler) APPLE_KEXT_OVERRIDE {
++    IONetworkStackUserClient *client = OSTypeAlloc(IONetworkStackUserClient);
++    if (!client || !client->initWithTask(task, security, type)) { OSSafeReleaseNULL(client); return kIOReturnNoMemory; }
++    if (!client->attach(this)) { client->release(); return kIOReturnError; }
++    if (!client->start(this)) { client->detach(this); client->release(); return kIOReturnError; }
++    log(6, "wifi-net: the network stack was opened (type %u)", static_cast<unsigned>(type));
++    *handler = client; return kIOReturnSuccess;
++  }
++};
++OSDefineMetaClassAndStructors(IONetworkStack, IOService);
++
++namespace {
++
++IOService *publish(IOService *service, IOService *provider, const char *name) {
++  if (!service || !service->attach(provider)) { OSSafeReleaseNULL(service); return nullptr; }
++  service->setName(name);
++  if (!service->start(provider)) { service->detach(provider); service->release(); return nullptr; }
++  service->registerService();
++  return service;
++}
++void publish_registry(const char *ifname) {
++  IOService *platform = IOService::getPlatform();
++  if (IONetworkStack *stack = OSTypeAlloc(IONetworkStack)) {
++    if (!stack->init() || !publish(stack, platform, "IONetworkStack")) log(3, "wifi-net: the network stack service did not start"); else stack->release(); }
++  IO80211Controller *controller = OSTypeAlloc(IO80211Controller);
++  IO80211Interface *wlan = OSTypeAlloc(IO80211Interface);
++  if (!platform || !controller || !wlan || !controller->init() || !wlan->init()) { OSSafeReleaseNULL(controller); OSSafeReleaseNULL(wlan); log(3, "wifi-net: registry objects not made"); return; }
++  if (OSData *mac = OSData::withBytes(gMac, 6)) { controller->setProperty("IOMACAddress", mac); mac->release(); }
++  controller->setProperty("IOBuiltin", true);
++  // This board already attached and named the real DLIL interface en0.
++  // InterfaceNamer must not try to rename it through IONetworkStack.
++  controller->setProperty("SelfNamed", true);
++  controller = static_cast<IO80211Controller *>(publish(controller, platform, "PongWLANController"));
++  if (!controller) { wlan->release(); log(3, "wifi-net: the controller did not start"); return; }
++  wlan->setProperty("IOInterfaceName", ifname); wlan->setProperty("BSD Name", ifname); wlan->setProperty("IOInterfaceNamePrefix", "en");
++  if (OSNumber *n = OSNumber::withNumber(static_cast<unsigned long long>(IFT_ETHER), 32)) { wlan->setProperty("IOInterfaceType", n); n->release(); }
++  if (OSNumber *n = OSNumber::withNumber(0ULL, 32)) { wlan->setProperty("IOInterfaceUnit", n); n->release(); }
++  if (OSData *mac = OSData::withBytes(gMac, 6)) {wlan->setProperty("IOMACAddress", mac);mac->release();}
++  wlan->setProperty("IOBuiltin", true); wlan->setProperty("IOPrimaryInterface", true); wlan->setProperty("IO80211InterfaceRole", "Infrastructure");
++  wlan->setProperty("NativeSandboxGrantProcess","wifid,configd");
++  wlan->setProperty("IOUserClientClass","Pong80211UserClient");
++  if (!publish(wlan, controller, "PongWLAN")) log(3, "wifi-net: the interface service did not start"); else wlan->release();
++  controller->release();
++}
++
++// en0's IPv4 addresses and packet counts, for the log.
++void log_traffic() {
++  if (!gIf) return;
++  char text[64] = "none"; ifaddr_t *list = nullptr;
++  if (!ifnet_get_address_list_family(gIf, &list, AF_INET) && list) {
++    if (list[0]) { struct sockaddr_in a; memset(&a, 0, sizeof a);
++      if (!ifaddr_address(list[0], reinterpret_cast<struct sockaddr *>(&a), sizeof a)) { const uint8_t *b = reinterpret_cast<const uint8_t *>(&a.sin_addr); snprintf(text, sizeof text, "%u.%u.%u.%u", b[0], b[1], b[2], b[3]); } }
++    ifnet_free_address_list(list); }
++  struct ifnet_stats_param stats; memset(&stats, 0, sizeof stats); ifnet_stat(gIf, &stats);
++  char tx[160]; nw_wifi_tx_reasons(tx, sizeof tx);
++  log(6, "wifi-net: en0 address %s, packets in %llu out %llu; frames to the stack %u, refused %u (last %d)", text, static_cast<unsigned long long>(stats.packets_in),
++      static_cast<unsigned long long>(stats.packets_out), gRxFrames, gRxErrors, gRxLastError);
++  log(6, "wifi-net: tx %s", tx);
++  log(6, "wifi-net: in arp %u ip4 %u dhcp %u ip6 %u other %u", gKindsIn.arp, gKindsIn.ip4, gKindsIn.dhcp, gKindsIn.ip6, gKindsIn.other);
++  log(6, "wifi-net: out arp %u ip4 %u dhcp %u ip6 %u other %u", gKindsOut.arp, gKindsOut.ip4, gKindsOut.dhcp, gKindsOut.ip6, gKindsOut.other);
++  log(6, "wifi-net: input stalls %u, kicks %u, cleared after a kick %u, longest %u s", gStall.count, gStall.kicks, gStall.cleared, gStall.longest);
++  log(6, "wifi-net: rx no buffer %u, chained %u, longest frame %u", gRxNoBuffer, gRxChains, gRxLongest);
++}
++
++}  // namespace
++
++extern "C" void pong_wifi_net_diagnostics(void) { log_traffic(); }
++extern "C" bool pong_wifi_net_has_ipv4(void) {
++  if (!gIf) return false;
++  ifaddr_t *list = nullptr; bool valid = false;
++  if (!ifnet_get_address_list_family(gIf, &list, AF_INET) && list) {
++    for (unsigned i = 0; list[i]; ++i) {
++      struct sockaddr_in a; memset(&a, 0, sizeof a);
++      if (ifaddr_address(list[i], reinterpret_cast<struct sockaddr *>(&a), sizeof a)) continue;
++      const uint8_t *b = reinterpret_cast<const uint8_t *>(&a.sin_addr);
++      if (b[0] && b[0] != 127 && b[0] < 224 && !(b[0] == 169 && b[1] == 254)) valid = true;
++    }
++    ifnet_free_address_list(list);
++  }
++  return valid;
++}
++
++// Install worker callbacks before nw_wifi_start. The interface and its MAC
++// are published only after the real station is ready. RX already drops
++// frames before gIf exists; those buffers remain owned by the station.
++extern "C" bool pong_wifi_net_prepare(void) {
++  if (!gGrp) gGrp = lck_grp_alloc_init("pong-wifi-net", LCK_GRP_ATTR_NULL);
++  if (!gGrp) return false;
++  if (!gLock) gLock = lck_mtx_alloc_init(gGrp, LCK_ATTR_NULL);
++  if (!gLock) return false;
++  if (!gNotifications) gNotifications=thread_call_allocate(deliver_notifications,nullptr);
++  if (!gNotifications) return false;
++  nw_wifi_set_events(&gEvents);
++  return true;
++}
++
++// Failure completes outstanding asynchronous requests; wifid must not wait
++// indefinitely for scan/join events from a stopped firmware dispatcher.
++extern "C" void pong_wifi_net_failed(void) {
++  if (!gLock) return;
++  lck_mtx_lock(gLock);
++  __atomic_store_n(&gFailed,true,__ATOMIC_RELEASE); gPower = false;
++  bool scanning = gScanning != 0;
++  gScanning = 0; gScanCursor = 0; gAssocResult = kAssocFailed;
++  if (gCachedScan) thread_call_cancel(gCachedScan);
++  pong_wifi_notification_reset(&gNotificationQueue);
++  if(gIf) { pong_wifi_notification event={NotifyFailed,scanning?1:0,0,0};queue_notification_locked(event); }
++  lck_mtx_unlock(gLock);
++}
++
++// Called once the module has a station interface and a hardware address.
++extern "C" void pong_wifi_net_start(const uint8_t mac[6]) {
++  if (gIf) return;
++  if (!pong_wifi_net_prepare()) { log(3, "wifi-net: event setup unavailable"); return; }
++  memcpy(gMac, mac, 6);
++  uint32_t diagnostic=0;gProgressDiagnostic=PE_parse_boot_argn("pong_wifi_diag",&diagnostic,sizeof diagnostic)&&diagnostic==1;
++  uint32_t test = 0, cycle = 0;
++  gCycleTest = PE_parse_boot_argn("pong_wifi_test", &test, sizeof(test)) && test == 1 &&
++      PE_parse_boot_argn("pong_wifi_cycle", &cycle, sizeof(cycle)) && cycle == 1;
++  struct ifnet_init_eparams p; memset(&p, 0, sizeof p);
++  p.ver = IFNET_INIT_CURRENT_VERSION; p.len = sizeof p; p.flags = IFNET_INIT_LEGACY | IFNET_INIT_NX_NOAUTO; p.name = "en"; p.unit = 0; p.family = IFNET_FAMILY_ETHERNET; p.subfamily = IFNET_SUBFAMILY_WIFI; p.type = IFT_ETHER;
++  p.output = if_output; p.demux = ether_demux; p.add_proto = ether_add_proto; p.del_proto = ether_del_proto; p.check_multi = ether_check_multi; p.framer = ether_frameout;
++  p.ioctl = if_ioctl; p.event = if_event_stub; static const uint8_t bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }; p.broadcast_addr = bcast; p.broadcast_len = 6;
++  // Without NX_NOAUTO the stack puts a compatibility nexus in front of a Wi-Fi "en" interface, and its input no longer goes through the
++  // interface's own input thread.
++  ifnet_t ifp = nullptr; errno_t e = ifnet_allocate_extended(&p, &ifp);
++  if (e || !ifp) { log(3, "wifi-net: ifnet allocation failed: %d", e); return; }
++  ifnet_set_mtu(ifp, 1500); ifnet_set_flags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST, 0xffff); ifnet_set_baudrate(ifp, 54000000ULL);
++  ifnet_set_hdrlen(ifp, 14); ifnet_set_addrlen(ifp, 6); ifnet_set_eflags(ifp, IFEF_ENQUEUE_MULTI, IFEF_ENQUEUE_MULTI);
++  e = ifnet_attach(ifp, nullptr);
++  if (e) { log(3, "wifi-net: ifnet attach failed: %d", e); ifnet_release(ifp); return; }
++  ifnet_set_lladdr(ifp, mac, 6);
++  // A driver of its own interface attaches the packet filter itself: the DHCP client sends through it while the interface has no address.
++  e = bpf_attach(ifp, DLT_EN10MB, 14, nullptr, nullptr); if (e) log(3, "wifi-net: packet filter attach failed: %d", e);
++  gIf = ifp; ifnet_set_flags(ifp, IFF_UP, IFF_UP);
++  publish_registry("en0");
++  log(6, "wifi-net: en0 is up, hardware address %02x:%02x:%02x:%02x:%02x:%02x, capabilities 0x%x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
++      ifnet_capabilities_enabled(ifp));
++}
+diff --git a/drivers/PongWifi/PongWifiNotify.h b/drivers/PongWifi/PongWifiNotify.h
+new file mode 100644
+index 0000000..6eb5561
+--- /dev/null
++++ b/drivers/PongWifi/PongWifiNotify.h
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef PONG_WIFI_NOTIFY_H
++#define PONG_WIFI_NOTIFY_H
++#include <stdint.h>
++#include <stdbool.h>
++
++/* Protected by the network driver's lock. Producers never deliver socket
++ * or ifnet events from the cooperative firmware dispatcher. */
++struct pong_wifi_notification {
++    uint32_t kind;
++    int32_t result, rssi;
++    uint32_t keyed;
++};
++#define PONG_WIFI_NOTIFY_CAPACITY 32
++struct pong_wifi_notification_queue {
++    struct pong_wifi_notification entries[PONG_WIFI_NOTIFY_CAPACITY];
++    unsigned first, count;
++};
++static inline bool pong_wifi_notification_push(struct pong_wifi_notification_queue *q,
++                                              struct pong_wifi_notification event)
++{
++    if (q->count == PONG_WIFI_NOTIFY_CAPACITY) return false;
++    q->entries[(q->first + q->count) % PONG_WIFI_NOTIFY_CAPACITY] = event;
++    ++q->count;
++    return true;
++}
++static inline bool pong_wifi_notification_pop(struct pong_wifi_notification_queue *q,
++                                             struct pong_wifi_notification *event)
++{
++    if (!q->count) return false;
++    *event = q->entries[q->first];
++    q->first = (q->first + 1) % PONG_WIFI_NOTIFY_CAPACITY;
++    --q->count;
++    return true;
++}
++static inline void pong_wifi_notification_reset(struct pong_wifi_notification_queue *q)
++{
++    q->first = q->count = 0;
++}
++#endif
+diff --git a/drivers/PongWifi/PongWifiPci.cpp b/drivers/PongWifi/PongWifiPci.cpp
+new file mode 100644
+index 0000000..18a0143
+--- /dev/null
++++ b/drivers/PongWifi/PongWifiPci.cpp
+@@ -0,0 +1,139 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#include "PongWifiPci.h"
++#include <IOKit/IOLib.h>
++#include <IOKit/IODeviceMemory.h>
++#include <IOKit/IOMemoryDescriptor.h>
++
++/* Resource facts from Pong's live DT and PCI sysfs; clock offsets from
++ * Nothing SM8475 / Linux gcc-sm8450.c. No SM8550 clock addresses or WCN7850
++ * endpoint IDs occur in this adapter. The DT profile retains the separate
++ * power, PHY, GPIO, stream and active ITS inputs for the board sequencer. */
++struct Region {
++    IOMemoryMap *map = nullptr;
++    volatile uint8_t *bytes = nullptr;
++    bool open(uint64_t base, size_t length) {
++        IODeviceMemory *memory = IODeviceMemory::withRange(base, length);
++        if (!memory) return false;
++        map = memory->map(kIOMapAnywhere | kIOMapInhibitCache);
++        memory->release();
++        bytes = map ? reinterpret_cast<volatile uint8_t *>(map->getVirtualAddress()) : nullptr;
++        return bytes != nullptr;
++    }
++    uint32_t read32(size_t offset) const {
++        const uint32_t v = *reinterpret_cast<volatile uint32_t *>(bytes + offset);
++        __asm__ volatile("dmb oshld" ::: "memory");
++        return v;
++    }
++    void close() { if (map) map->release(); map = nullptr; bytes = nullptr; }
++};
++
++struct PongWifiPci {
++    Region gcc, dbi, config, bar;
++    uint16_t pcie = 0, msi = 0;
++    IOLock *configLock = nullptr;
++};
++
++void PongWifiPciClose(PongWifiPci *p)
++{
++    if (!p) return;
++    p->bar.close(); p->config.close(); p->dbi.close(); p->gcc.close();
++    if (p->configLock) IOLockFree(p->configLock);
++    IODelete(p, PongWifiPci, 1);
++}
++
++static bool config_offset(PongWifiPci *p, uint32_t *offset, unsigned width)
++{
++    if (!p || !p->config.bytes || (width != 1 && width != 2 && width != 4)) return false;
++    uint32_t off = *offset;
++    if (off & 0x80000000u) {
++        off &= 0x7fffffffu;
++        if (!p->pcie || off >= 0x1000u - p->pcie) return false;
++        off += p->pcie;
++    }
++    if (off > 0x1000u - width || (off & (width - 1))) return false;
++    *offset = off;
++    return true;
++}
++
++int PongWifiPciRead(PongWifiPci *p, uint32_t offset, unsigned width, uint32_t *value)
++{
++    if (!value || !config_offset(p, &offset, width)) return -1;
++    IOLockLock(p->configLock);
++    volatile uint8_t *at = p->config.bytes + offset;
++    *value = width == 1 ? *at : width == 2 ?
++        *reinterpret_cast<volatile uint16_t *>(at) : *reinterpret_cast<volatile uint32_t *>(at);
++    __asm__ volatile("dmb oshld" ::: "memory");
++    IOLockUnlock(p->configLock);
++    return 0;
++}
++
++int PongWifiPciWrite(PongWifiPci *p, uint32_t offset, unsigned width, uint32_t value)
++{
++    if (!config_offset(p, &offset, width)) return -1;
++    /* DMA activation and BAR reassignment belong to the owner which has
++     * established the endpoint's SMMU stream/MSI mapping. This config helper
++     * must not expose those writes before that implementation is connected. */
++    if (offset < 0x40) return -1;
++    IOLockLock(p->configLock);
++    volatile uint8_t *at = p->config.bytes + offset;
++    /* Native byte enables avoid clearing adjacent write-one-to-clear PCI
++     * status bits, which a dword read/modify/write would accidentally do. */
++    if (width == 1) *at = (uint8_t)value;
++    else if (width == 2) *reinterpret_cast<volatile uint16_t *>(at) = (uint16_t)value;
++    else *reinterpret_cast<volatile uint32_t *>(at) = value;
++    __asm__ volatile("dsb oshst" ::: "memory");
++    IOLockUnlock(p->configLock);
++    return 0;
++}
++
++void *PongWifiPciBar(PongWifiPci *p, size_t *bytes)
++{
++    if (!p || !bytes || !p->bar.bytes) return nullptr;
++    *bytes = 0x200000;
++    return const_cast<uint8_t *>(p->bar.bytes);
++}
++uint16_t PongWifiPciMsiCapability(PongWifiPci *p) { return p ? p->msi : 0; }
++
++PongWifiPciResult PongWifiPciOpen(PongWifiPci **out)
++{
++    if (!out || *out) return PongWifiPciArgument;
++    PongWifiPci *p = IONewZero(PongWifiPci, 1);
++    if (!p) return PongWifiPciMemory;
++    auto fail = [&](PongWifiPciResult result) { PongWifiPciClose(p); return result; };
++    p->configLock = IOLockAlloc();
++    if (!p->configLock || !p->gcc.open(0x100000, 0xa0000)) return fail(PongWifiPciMemory);
++    if (!(p->gcc.read32(0x7b004) & (1u << 31))) return fail(PongWifiPciPower);
++    /* Never touch the controller's DBI/config view with its bus clocks off.
++     * These are SM8475 PCIe0 gates, not Sheng's 0x6bxxx/0x520xx branches. */
++    const unsigned branches[] = {0x7b020, 0x7b028, 0x7b030, 0x7b034, 0x7b03c};
++    for (unsigned offset : branches)
++        if (p->gcc.read32(offset) & (1u << 31)) return fail(PongWifiPciClock);
++    if (!p->dbi.open(0x60000000, 0x1000)) return fail(PongWifiPciMemory);
++    if (!(p->dbi.read32(0x72c) & (1u << 4)) || (p->dbi.read32(0x728) & 0x3f) != 0x11)
++        return fail(PongWifiPciLink);
++    /* This opens an existing root-port handoff; it does not silently change
++     * the iATU while another controller owner could have outstanding access. */
++    if (!p->config.open(0x60100000, 0x1000)) return fail(PongWifiPciMemory);
++    /* Only the primary ID is verified for zizhan. The Pong subsystem ID is
++     * not a safe board requirement until this phone's PCI config is logged. */
++    if (p->config.read32(0) != 0x110317cb)
++        return fail(PongWifiPciIdentity);
++    uint32_t bar = p->config.read32(0x10);
++    if ((bar & 0xfffffff0) != 0x60200000 || (bar & 1) || (bar & 6) != 4 ||
++        p->config.read32(0x14) != 0 || !(p->config.read32(4) & 2)) return fail(PongWifiPciBarInvalid);
++    unsigned cap = p->config.read32(0x34) & 0xff;
++    uint64_t visited = 0;
++    for (unsigned guard = 0; cap && guard < 48; ++guard) {
++        if (cap < 0x40 || cap > 0xfc || (cap & 3) || (visited & (1ull << (cap / 4))))
++            return fail(PongWifiPciCapability);
++        visited |= 1ull << (cap / 4);
++        uint32_t value = p->config.read32(cap);
++        if ((value & 0xff) == 0x10) p->pcie = (uint16_t)cap;
++        if ((value & 0xff) == 0x05) p->msi = (uint16_t)cap;
++        cap = (value >> 8) & 0xff;
++    }
++    if (cap || !p->pcie || !p->msi) return fail(PongWifiPciCapability);
++    if (!p->bar.open(0x60200000, 0x200000)) return fail(PongWifiPciMemory);
++    *out = p;
++    return PongWifiPciOK;
++}
+diff --git a/drivers/PongWifi/PongWifiPci.h b/drivers/PongWifi/PongWifiPci.h
+new file mode 100644
+index 0000000..68adfce
+--- /dev/null
++++ b/drivers/PongWifi/PongWifiPci.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef PONG_WIFI_PCI_H
++#define PONG_WIFI_PCI_H
++#include <stddef.h>
++#include <stdint.h>
++
++/* PCI access for the QCA6490 ath11k/MHI backend. This is a handoff adapter,
++ * not a substitute for powering the board or for the ath11k protocol stack.
++ * Open refuses an unpowered/unclocked controller, a link that is down, an
++ * unexpected endpoint, or a BAR which has not actually been assigned.
++ * It never enables bus mastering or borrows UFS/GPU DMA/context ownership. */
++struct PongWifiPci;
++enum PongWifiPciResult {
++    PongWifiPciOK, PongWifiPciArgument, PongWifiPciMemory,
++    PongWifiPciPower, PongWifiPciClock, PongWifiPciLink,
++    PongWifiPciIdentity, PongWifiPciBarInvalid, PongWifiPciCapability
++};
++PongWifiPciResult PongWifiPciOpen(PongWifiPci **out);
++void PongWifiPciClose(PongWifiPci *pci);
++int PongWifiPciRead(PongWifiPci *, uint32_t offset, unsigned width, uint32_t *value);
++int PongWifiPciWrite(PongWifiPci *, uint32_t offset, unsigned width, uint32_t value);
++/* Bit 31 of offset selects the endpoint's actual PCI Express capability,
++ * as in UniXNU's nw_board.cfg_read/cfg_write contract. */
++void *PongWifiPciBar(PongWifiPci *, size_t *bytes);
++uint16_t PongWifiPciMsiCapability(PongWifiPci *);
++/* A production backend must quiesce submissions, disable MSI/bus mastering,
++ * and stop endpoint DMA before Close; Close does not release DMA memory. */
++#endif
+diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPlatform.cpp
+new file mode 100644
+index 0000000..7632a67
+--- /dev/null
++++ b/drivers/PongWifi/PongWifiPlatform.cpp
+@@ -0,0 +1,700 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Pong / SM8475 QCA6490 PCIe0 cold start. Board facts come from live DT.
++ * Linux ath11k owns MHI/QMI/radio state. Optional failure leaves boot running;
++ * endpoint DMA storage and translation tables stay retained until reset. */
++#include <IOKit/IOLib.h>
++#include <IOKit/IOBufferMemoryDescriptor.h>
++#include <IOKit/IODeviceMemory.h>
++#include <IOKit/IODeviceTreeSupport.h>
++#include <kern/thread.h>
++#include <kern/clock.h>
++#include <pexpert/pexpert.h>
++#include <libkern/c++/OSMetaClass.h>
++#include <sys/random.h>
++#include "nw_abi.h"
++#include "../PongAdreno/ArmSmmu4K/ArmSmmu4KProgram.h"
++#include "PongWifiInputs.h"
++#include "PongWifiTestInputs.h"
++#include "QcomRpmh.h"
++extern "C" {
++int armcpu_spi_attach(uint32_t, bool, void (*)(void *), void *, uint32_t *, uint64_t *);
++void pong11_lx_irq_raise_all(void);
++void pong_wifi_net_start(const uint8_t mac[6]);
++bool pong_wifi_net_prepare(void);
++bool pong_wifi_net_has_ipv4(void);
++void pong_wifi_net_diagnostics(void);
++void pong_wifi_net_failed(void);
++int nw_wifi_firmware_error(void);
++void PongWifiNetStaticInit(void);
++bool pong_ufs_ready(void);
++bool pong_rpmh_vote(uint32_t,uint32_t);
++bool pong_smmu_lease_lock(void);
++void pong_smmu_lease_unlock(void);
++void pong_rpmh_init(void);
++extern const uint8_t pong_wifi_firmware[], pong_wifi_firmware_end[];
++}
++extern kmod_info_t g_kernel_kmod_info;
++extern "C" { volatile uint64_t pong_wifi_progress[3]={}; }
++namespace {
++#include "../NativeUfs/SmmuTakeover.h"
++constexpr uint64_t Iova=0xa0000000;
++constexpr unsigned MsiAddressLo=0x820, MsiAddressHi=0x824, MsiEnable=0x828, MsiMask=0x82c, MsiStatus=0x830;
++constexpr unsigned PcieGlobalIntid=32+140, ParfMsi0=1u<<23;
++constexpr size_t TableBytes=512*1024;
++size_t ArenaBytes;
++struct Window {
++ IOMemoryMap *map=nullptr; volatile uint8_t *v=nullptr; size_t n=0;
++ bool open(uint64_t pa,size_t bytes) {
++  auto m=IODeviceMemory::withRange(pa,bytes); if(!m)return false;
++  map=m->map(kIOMapAnywhere|kIOMapInhibitCache);m->release();
++  n=bytes;v=map?reinterpret_cast<volatile uint8_t *>(map->getVirtualAddress()):nullptr;return v;
++ }
++ uint32_t r(size_t o) const {uint32_t x=*reinterpret_cast<volatile uint32_t *>(v+o);__asm__ volatile("dmb oshld":::"memory");return x;}
++ void w(size_t o,uint32_t x) { *reinterpret_cast<volatile uint32_t *>(v+o)=x;__asm__ volatile("dsb oshst":::"memory");}
++};
++Window gcc,tlmm,parf,phy,dbi,atu,cfg,bar,smmu,gic,db,rsc;
++Window pmicCore,pmicConfig,pmicObserver;
++unsigned pmicChannels;
++IOBufferMemoryDescriptor *arena,*tables,*msiPage;
++uint8_t *arenaVa; uint64_t tablePa,msiPa; uint64_t cbOffset;
++unsigned pcieCap,msiCap; volatile uint32_t stopped,wake; bool dmaOwned,hostMmioReady;
++uint64_t initDeadline;
++uint64_t now() {uint64_t ns=0;absolutetime_to_nanoseconds(mach_absolute_time(),&ns);return ns/1000000;}
++bool progressDiagnostic;
++void progress(unsigned phase) {if(progressDiagnostic){pong_wifi_progress[0]=phase;pong_wifi_progress[1]=now();pong_wifi_progress[2]++;}}
++void log(int level,const char *s) {if(level<7)IOLog("PongWifi[%d]: %s\n",level,s);}
++bool fail(const char *s) {log(3,s);return false;}
++void clean(void *p,size_t n) {uintptr_t a=reinterpret_cast<uintptr_t>(p)&~uintptr_t(63),e=reinterpret_cast<uintptr_t>(p)+n;for(;a<e;a+=64)__asm__ volatile("dc civac,%0"::"r"(a):"memory");__asm__ volatile("dsb sy":::"memory");}
++bool wait(Window &w,size_t o,uint32_t mask,uint32_t value,unsigned ms) {uint64_t end=now()+ms;do {if((w.r(o)&mask)==value)return true;IOSleep(1);}while(now()<end);return false;}
++void pin(unsigned p,uint32_t conf,int val) {
++ const unsigned reg=0x1000*p,old=tlmm.r(reg);
++ // Nothing's msm_pinmux_set_mux claims EGPIO-capable pins with bit12.
++ // GPIO204 (QCA6490 XO latch) reports PRESENT bit11. Without claiming
++ // APPS ownership, OE/output writes do not drive the LPASS/SSC-owned pad.
++ conf=(old&~0x3ffu)|(conf&0x3ffu);
++ if(old&(1u<<11))conf|=1u<<12;
++ if(val>=0)tlmm.w(reg+4,val?2:0);
++ tlmm.w(reg,conf);
++ if(val>=0)tlmm.w(reg+4,val?2:0);
++}
++void enableWlan() {
++ // Nothing CNSS2 QCA6490 PMU latch, also used for a retained-clock retry.
++ if(!(tlmm.r(81*0x1000+4)&1))IOSleep(100);
++ pin(204,(tlmm.r(204*0x1000)&~0x3cu)|(1u<<9),1);IODelay(200);
++ pin(80,3u|7u<<6|1u<<9,1);IODelay(1000);
++ IOSleep(3);pin(204,(tlmm.r(204*0x1000)&~0x3cu)|(1u<<9),0);IOSleep(60);
++}
++void reset(uint32_t off) {gcc.w(off,gcc.r(off)|1);IODelay(1000);gcc.w(off,gcc.r(off)&~1u);IODelay(1000);}
++// Same read-only SPMI v7 observer as Pong's PMIC button path. Resource
++// identity/PPID comes from this phone, not Sheng's different PMIC mapping.
++bool pmicOpen() {
++ if(!pmicCore.open(0xc400000,0x3000)||!pmicConfig.open(0xc42d000,0x4000))return false;
++ const unsigned version=pmicCore.r(0);pmicChannels=pmicCore.r(4)&0x7ff;
++ if(version<0x70000000||version>=0x80000000||!pmicChannels||pmicChannels>1024)return fail("incompatible Pong SPMI observer");
++ return pmicObserver.open(0xc440000,(pmicChannels*0x20+4095)&~size_t(4095));
++}
++int pmicChannel(unsigned ppid) {
++ int found=-1;
++ for(unsigned i=0;i<pmicChannels;i++) {
++  const unsigned map=pmicCore.r(0x2000+4*i);
++  if(!map||((map>>8)&0xfff)!=ppid)continue;
++  const unsigned owner=pmicConfig.r(4*i)&7;
++  if(found<0||owner==0)found=int(i);
++ }
++ return found;
++}
++bool pmicRead(unsigned channel,unsigned reg,uint8_t *out,unsigned bytes) {
++ if(!bytes||bytes>8||channel>=pmicChannels)return false;
++ const unsigned base=channel*0x20;
++ pmicObserver.w(base,(1u<<27)|(reg<<4)|(bytes-1));
++ const uint64_t end=now()+2;unsigned status;
++ do {status=pmicObserver.r(base+8);}while(!(status&1)&&now()<end);
++ if((status&15)!=1)return false;
++ const unsigned words[2]={pmicObserver.r(base+0x18),bytes>4?pmicObserver.r(base+0x1c):0};
++ for(unsigned i=0;i<bytes;i++)out[i]=(words[i/4]>>(8*(i%4)))&255;
++ return true;
++}
++bool railReady(const PongWifiRail &r) {
++ if(!r.ppid)return true; // No guessed peripheral for shared analogue LDOs.
++ const int channel=pmicChannel(r.ppid);uint8_t id[2]={};
++ if(channel<0||!pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type||id[1]!=r.subtype) {
++  IOLog("PongWifi: rail %s PPID=%x unavailable/type mismatch %x/%x\n",r.name,r.ppid,id[0],id[1]);return false;
++ }
++ uint8_t status=0,enable=0,voltage[2]={};unsigned mv=0,readErrors=0;const uint64_t end=now()+100;
++ do {
++  if(!pmicRead(unsigned(channel),8,&status,1)||!pmicRead(unsigned(channel),0x46,&enable,1)||!pmicRead(unsigned(channel),0x40,voltage,2)) {
++   ++readErrors;IOSleep(1);continue;
++  }
++  mv=unsigned(voltage[0])|(unsigned(voltage[1])<<8);
++  if((status&0x80)&&(enable&0x80)&&mv>=r.mv) {
++   // Another PMIC consumer may legitimately request a higher setpoint.
++   IOLog("PongWifi: rail %s physical ready PPID=%x %umV status=%x enable=%x observerErrors=%u\n",r.name,r.ppid,mv,status,enable,readErrors);return true;
++  }
++  IOSleep(1);
++ }while(now()<end);
++ IOLog("PongWifi: rail %s not ready PPID=%x requested=%umV actual=%umV status=%x enable=%x observerErrors=%u\n",r.name,r.ppid,r.mv,mv,status,enable,readErrors);
++ return false;
++}
++/* APSS DRV2: SLEEP0..2, ACTIVE3..4, WAKE5..6; GPU leases 3.
++ * A fresh command-status completion and idle state are required. IRQ remains
++ * masked because this owner polls and has no RSC interrupt handler. */
++IOLock *powerLock,*smmuLeaseLock;
++bool rawVote(uint32_t addr,uint32_t value) {
++ constexpr unsigned b=0xd00+4*0x2a0,other=0xd00+3*0x2a0;
++ unsigned caps=rsc.r(0xc),count=(caps>>12)&63,ncpt=(caps>>27)&31;
++ if(((rsc.r(0)>>16)&255)>=3||count<8||ncpt<1||!rsc.r(b+0x18))return fail("active TCS4 unavailable");
++ if(!rsc.r(other+0x18)){unsigned mask=rsc.r(other+0x1c);for(unsigned i=0;i<ncpt&&i<16;i++)if((mask&(1u<<i))&&rsc.r(other+0x34+20*i)==addr)return fail("conflicting RPMh transaction");}
++ rsc.w(0xd00,rsc.r(0xd00)&~(1u<<4));
++ rsc.w(b+0x14,rsc.r(b+0x14)&~((1u<<24)|(1u<<16)));rsc.w(b+0x1c,0);rsc.w(0xd08,1u<<4);
++ if(!wait(rsc,0xd04,1u<<4,0,10))return false;
++ rsc.w(b+0x30,0x10108);rsc.w(b+0x34,addr);rsc.w(b+0x38,value);
++ rsc.w(b+0x10,1);rsc.w(b+0x1c,1);rsc.w(b+0x14,1u<<16);rsc.w(b+0x14,(1u<<16)|(1u<<24));
++ bool progressed=false,done=false;uint64_t end=now()+100;
++ do {unsigned st=rsc.r(b+0x3c),idle=rsc.r(b+0x18);if((st&0x10100)!=0x10100||!idle)progressed=true;if((st&0x10100)==0x10100&&idle&&(progressed||(rsc.r(0xd04)&(1u<<4)))){done=true;break;}IODelay(10);}while(now()<end);
++ if(!done)return fail("RPMh response timeout; transaction retained");
++ rsc.w(b+0x1c,0);rsc.w(0xd08,1u<<4);rsc.w(b+0x14,rsc.r(b+0x14)&~(1u<<24));return true;
++}
++// BCM auxiliary data is {u32 unit,u16 width,u8 vcd,...}, not ARC levels.
++// Parse the actual bounded cmd-db entry; never invent a bandwidth unit.
++bool bcmVote(const uint8_t *copy,const char *name) {
++ auto u16=[](const uint8_t *v){return unsigned(v[0])|(unsigned(v[1])<<8);};
++ auto u32=[](const uint8_t *v){return unsigned(v[0])|(unsigned(v[1])<<8)|(unsigned(v[2])<<16)|(unsigned(v[3])<<24);};
++ for(unsigned slave=0;slave<8;slave++){auto h=copy+8+slave*16;if(!u16(h))break;size_t heads=144+u16(h+2),data=144+u16(h+4),count=u16(h+6);
++  if(heads>0x20000||count>(0x20000-heads)/24)return false;
++  for(size_t i=0;i<count;i++){auto e=copy+heads+24*i;if(strncmp(reinterpret_cast<const char *>(e),name,8))continue;
++   size_t aux=data+u16(e+22),len=u16(e+20);if(len<8||aux>0x20000||len>0x20000-aux)return false;
++   unsigned unit=u32(copy+aux),width=u16(copy+aux+4),addr=u32(e+16);if(!unit||!width||!addr)return false;
++   // SM8450 pcie-anoc SN7 / qns_pcie_mem_noc has buswidth16, channels1.
++   const uint64_t scaled=(2000000ull*width+15)/16;
++   uint64_t x=(scaled*1000+unit-1)/unit;if(!x)x=1;if(x>0x3fff)x=0x3fff;
++   return pong_rpmh_vote(addr,(1u<<30)|(1u<<29)|(unsigned(x)<<14)|unsigned(x));
++  }
++ }return fail("PCIe NoC SN7 cmd-db resource absent");
++}
++bool supplies() {
++ if(!pmicOpen()||!db.open(0x80860000,0x20000))return false;
++ uint8_t *copy=static_cast<uint8_t *>(IOMallocData(0x20000));if(!copy)return false;
++ for(unsigned i=0;i<0x20000;i+=4){unsigned v=db.r(i);memcpy(copy+i,&v,4);}
++ bool ok=true;
++ for(const auto &r:kPongWifiRails) {QcomRpmhResource res={};if(qcom_cmd_db_find(copy,0x20000,r.name,&res)){ok=fail("required SM8475 rail missing in cmd-db");break;}
++  // These are dedicated WLAN supplies, retained until endpoint reset. Their
++  // minimum setpoints and maximum bounds are taken from this phone's DT.
++  if(!pong_rpmh_vote(res.address+8,7)||!pong_rpmh_vote(res.address,r.mv)||!pong_rpmh_vote(res.address+4,1)){ok=false;break;}
++  if(!railReady(r)){ok=fail("physical WLAN supply did not follow RPMh request");break;}
++ }
++ // Retain the actual highest allowed ARC parent votes, as the GPU owner
++ // does; never lower a shared CX/MX vote inherited from another consumer.
++ const char *parents[]={"mx.lvl","cx.lvl"};
++ for(const char *name:parents)if(ok){QcomRpmhResource res={};if(qcom_cmd_db_find(copy,0x20000,name,&res)||!res.level_count){ok=false;break;}unsigned index=0;for(unsigned i=1;i<res.level_count;i++)if(res.levels[i]>res.levels[index])index=i;ok=pong_rpmh_vote(res.address,index);}
++ // The actual PCIe ref_clk_src is RPMH_CXO_CLK, not just GCC CLKREF_EN.
++ // clk-rpmh.c waipio_bi_tcxo votes xo.lvl=3 while this consumer is active.
++ if(ok){QcomRpmhResource xo={};ok=!qcom_cmd_db_find(copy,0x20000,"xo.lvl",&xo)&&pong_rpmh_vote(xo.address,3);}
++ if(ok)ok=bcmVote(copy,"SN7");
++ IOFreeData(copy,0x20000);if(ok)log(6,"SM8475 WLAN rail requests acknowledged");return ok;
++}
++bool coldLink() {
++ if(!gcc.open(0x100000,0xa0000)||!tlmm.open(0xf100000,0xd0000))return false;
++ // REC leaves PCIe0 suspended. Only GCC/TLMM are accessible at this point:
++ // even an LTSSM read from PARF can cause a NoC fault while GDSC/AHB is off.
++ // pci-msm asserts endpoint reset first and accesses PARF only after its
++ // regulator/clock/reset sequence has completed.
++ log(6,"PCIe0 cold start; power and bus clocks precede host MMIO");
++ pin(94,1u|1u<<9,0);pin(95,3u|1u<<2,-1);pin(96,3u,-1);
++ pin(80,1u|1u<<9,0);IOSleep(150);
++ if(!supplies())return false;
++ // Sheng waits after the regulator transaction before releasing WLAN_EN.
++ // The response completes the RPMh request, not the board's rail settling.
++ IOSleep(20);
++ // QCA6490 CNSS2: assert XO_CLK before WLAN_EN and keep the latch
++ // asserted 2..5ms afterwards. GPIO204 is from this phone's DT.
++ enableWlan();
++ // A temporary boot can inherit the previous OS's suspended PIPE mux and
++ // vote. Park on the real TCXO parent with the branch disabled before
++ // resetting the core. Do not clock an uninitialized PHY from its output.
++ gcc.w(0x62008,gcc.r(0x62008)&~(1u<<4));
++ gcc.w(0x7b060,(gcc.r(0x7b060)&~3u)|2u);
++ // This votable GDSC also has a separate APSS collapse vote. It is at
++ // 0x162128 bit0 in Pong's live DT, not Sheng's 0x152020 register.
++ gcc.w(kPongPcieCollapseVote,gcc.r(kPongPcieCollapseVote)&~kPongPcieCollapseMask);
++ // SM8475 has a single PCIe0 GDSC at 7b004, no SM8550 PHY GDSC.
++ gcc.w(0x7b004,gcc.r(0x7b004)&~1u);
++ if(!wait(gcc,0x7b004,1u<<31,1u<<31,100))return fail("PCIe0 GDSC off");
++ // Follow the complete Sheng QMP clock sequence: keep PIPE on TCXO during
++ // reset/table setup, then select the PHY output before PCS reset release.
++ // Mixing an early external parent with a stopped PIPE loses that clock
++ // throughout core/PHY reset and the PCS/PIPE hand-off.
++ gcc.w(0x7b068,1);gcc.w(0x7b064,gcc.r(0x7b064)|1);
++ // pci-msm indexes max-clock-frequency-hz after TWO pipe-clock slots:
++ // refgen is index 11, 100 MHz, during initial training. qcom,bw-scale
++ // selects 19.2 MHz only after a real Gen1/Gen2 link is negotiated.
++ // Retain the native initial clock and advertised speed from core reset.
++ gcc.w(0x62018,gcc.r(0x62018)|1u); // GPLL0_OUT_MAIN, 600 MHz
++ if(!wait(gcc,0,1u<<31,1u<<31,100))return fail("PCIe refgen GPLL0 did not lock");
++ gcc.w(0x7b04c,(1u<<8)|11u);gcc.w(0x7b048,gcc.r(0x7b048)|1);
++ if(!wait(gcc,0x7b064,1,0,20)||!wait(gcc,0x7b048,1,0,20))return fail("PCIe clock source update timeout");
++ gcc.w(0x62008,gcc.r(0x62008)|0x3f); // PIPE is running from TCXO here.
++ // Pong's clock-names lists BOTH aggregate NoC branches (IDs 8 and 9),
++ // plus DDRSS SF TBU and PHY rate-change. gcc-waipio.c maps aggregate1
++ // to vote bit11, not Sheng's SM8550 cnoc clock. Do not omit this path.
++ gcc.w(0x62000,gcc.r(0x62000)|(1u<<11)|(1u<<12)|(1u<<19)|(1u<<22));
++ gcc.w(0x9c004,gcc.r(0x9c004)|1);
++ const unsigned branches[]={0x7b01cu,0x7b020u,0x7b028u,0x7b030u,0x7b034u};
++ for(unsigned o:branches)if(!wait(gcc,o,1u<<31,0,100))return fail("PCIe clock remains halted");
++ reset(0x7b000);
++ // Pong DT names these core_reset and phy_reset. There is no
++ // pcie_0_phy_pipe_reset entry: PHY_BCR resets the programmed PCS/SERDES.
++ // Complete both resets before loading the vendor PHY sequence.
++ reset(0x7c01c);
++ if(!parf.open(0x1c00000,0x3000))return false;
++ hostMmioReady=true;
++ parf.w(0x1b0,parf.r(0x1b0)&~(1u<<8));
++ if(!dbi.open(0x60000000,0x1000)||!phy.open(0x1c06000,0x2000)||!atu.open(0x60001000,0x1000))return false;
++ // QMP PCS v5: assert SW_RESET, stop SERDES/PCS, then remove the analogue
++ // power vote while PIPE uses TCXO and the EP is in reset.
++ // The live DT table later powers up at 0x240, releases SW_RESET at 0x200,
++ // and starts at 0x244. Give those writes real low-to-high transitions.
++ phy.w(0x200,1);phy.w(0x244,0);phy.w(kPongPciePhyPowerDown,0);IODelay(1000);
++ // PARF PHY_TEST_PWR_DOWN is bit0. The vendor's SW_PWRDN/REFCLK_DRV_DSBL
++ // bits belong to PCS power-down at +0x240, not this PARF register.
++ const unsigned inheritedPhyCtrl=parf.r(0x40);
++ parf.w(0x1000,4);parf.w(0x40,inheritedPhyCtrl&~1u);parf.w(0x350,0);parf.w(0x358,0x04000000);
++ IOLog("PongWifi: cold REFCLK PHY_CTRL=%x->%x mux=%x CLKREF=%x\n",inheritedPhyCtrl,parf.r(0x40),gcc.r(0x7b060),gcc.r(0x9c004));
++ parf.w(0,0x365e);parf.w(0x174,parf.r(0x174)|(1u<<4));
++ // Nothing pci-msm's active path and Sheng leave CLKREQ under the real
++ // pin/controller, clearing a suspend override. A forced CLKREQ input is
++ // not a replacement for ref_clk_src / CLKREF_EN votes. Match the native
++ // PARF PM setup before PHY startup; endpoint ASPM remains disabled below.
++ parf.w(0x2b0,0);parf.w(0x20,parf.r(0x20)&~(1u<<5));
++ parf.w(0x1a8,parf.r(0x1a8)|(1u<<31));
++ // Entire vendor PHY table from Pong DT, including power/reset/start entries.
++ for(const auto &e:kPongWifiPhy){
++  if(e.off==0x200&&!(e.value&1))gcc.w(0x7b060,gcc.r(0x7b060)&~3u);
++  phy.w(e.off,e.value);if(e.delay)IODelay(e.delay);
++ }
++ IODelay(1000);
++ // The vendor pipe-clock helper only pulses resets with a matching
++ // pipe_reset DT name. Pong supplies none, so retain its freshly loaded
++ // SERDES/PCS sequence and the running external PIPE.
++ if(!wait(phy,kPongPciePhyStatus,kPongPciePhyStatusMask,0,200))return fail("Pong PCIe PHY not ready");
++ // Dedicated PCIe0 SID table: BDF 100 maps to SID1c01, root SID1c00.
++ for(unsigned i=0;i<256;i++)parf.w(0x2000+4*i,0);
++ const unsigned bdfBytes[]={1u,0u};unsigned crc=0;for(unsigned byte:bdfBytes){crc^=byte;for(unsigned bit=0;bit<8;bit++)crc=(crc&0x80)?((crc<<1)^7)&255:(crc<<1)&255;}
++ parf.w(0x2000+crc*4,0x01000100);parf.w(0x2c00,parf.r(0x2c00)&~1u);
++ // SM8475's DesignWare core is reset above. Firmware's lane/clock setup
++ // cannot be inherited after that reset: restore the actual x1 root port.
++ dbi.w(0x8bc,dbi.r(0x8bc)|1); // DBI RO write enable, per pci-msm
++ // DesignWare PORT_LINK_CONTROL: lane count alone does not enable the
++ // data-link layer after a cold reset. FAST_LINK bypasses normal training.
++ dbi.w(0x710,(dbi.r(0x710)&~((0x3fu<<16)|(1u<<7)))|(1u<<16)|(1u<<5));
++ dbi.w(0x80c,(dbi.r(0x80c)&~0x1f00u)|0x100);
++ dbi.w(0xb40,kPongPcieAuxMhz); // qcom,aux-clk-freq, not an OS timebase
++ const unsigned maxSpeed=dbi.r(0x7c)&15;
++ for(unsigned speed=3;speed<=maxSpeed && speed<=4;speed++) {
++  dbi.w(0x890,(dbi.r(0x890)&~((3u<<24)|1u))|((speed-3)<<24));
++  dbi.w(0x8a8,dbi.r(0x8a8)&~0x00ffff00u); // vendor default eq-pset vector=0
++  dbi.w(0x8ac,dbi.r(0x8ac)&~31u);
++ }
++ if(maxSpeed>=3)dbi.w(0x154,0x55555555); // pci-msm default core preset
++ if(maxSpeed>=4)dbi.w(0x178,0x55555555);
++ dbi.w(0x8bc,dbi.r(0x8bc)&~1u);
++ // pci-msm applies these before releasing PERST even for the x1 port.
++ parf.w(0x2c4,parf.r(0x2c4)|(1u<<8));
++ dbi.w(0x714,dbi.r(0x714)|(1u<<5));
++ dbi.w(0x78,(dbi.r(0x78)&~0x7000u)|0x2000); // 512-byte MRRS
++ dbi.w(0x80,dbi.r(0x80)&~0x13u); // no ASPM or inherited Link Disable
++ dbi.w(0x18,0x10100);*reinterpret_cast<volatile uint16_t *>(dbi.v+4)=6;
++ // The actual Pong REC pci-msm/CNSS log requests Gen2 and negotiates x1.
++ // Keep the hardware maximum capability intact, but use that board target.
++ dbi.w(0xa0,(dbi.r(0xa0)&~15u)|kPongPcieTargetSpeed);
++ // Qualcomm ELBI XMLH_LINK_UP plus PCIe capability DLL active is the
++ // vendor link criterion. PORT_DEBUG1 bit4 alone is not DLL readiness.
++ bool linked=false;uint64_t states=0;
++ for(unsigned attempt=0;attempt<2&&!linked;attempt++) {
++  if(attempt) {
++   // DetectQuiet/Active with no receiver needs a fresh PHY power/reset
++   // transition as well as an endpoint reset. Replay Pong's pci-msm path:
++   // stop PIPE, reset the PHY, load its complete DT table from the external
++   // source, then enable PIPE. No BAR/DMA has been exposed at this point.
++   parf.w(0x1b0,parf.r(0x1b0)&~(1u<<8));pin(94,1u|1u<<9,0);
++   pin(80,1u|1u<<9,0);IOSleep(150);
++   gcc.w(0x7b060,(gcc.r(0x7b060)&~3u)|2u);
++   gcc.w(0x62008,gcc.r(0x62008)&~(1u<<4));
++   reset(0x7c01c);
++   phy.w(0x200,1);phy.w(0x244,0);phy.w(kPongPciePhyPowerDown,0);IODelay(1000);
++   gcc.w(0x7b060,gcc.r(0x7b060)&~3u);
++   for(const auto &e:kPongWifiPhy){phy.w(e.off,e.value);if(e.delay)IODelay(e.delay);}
++   IODelay(1000);gcc.w(0x62008,gcc.r(0x62008)|(1u<<4));
++   if(!wait(phy,kPongPciePhyStatus,kPongPciePhyStatusMask,0,200))
++    return fail("PCIe native PHY restart not ready");
++   enableWlan();
++   IOLog("PongWifi: retry uses Pong pci-msm full PHY reset/table/PIPE sequence\n");
++  }
++  IOSleep(kPongPcieEpLatencyMs);
++  // PCIe CEM requires at least 100ms stable power/refclk before PERST#.
++  IOSleep(100);pin(94,1u|1u<<9,1);IODelay(kPongPciePerstDelayUs);
++  parf.w(0x1b0,parf.r(0x1b0)|(1u<<8));
++  if(!(parf.r(0x1b0)&(1u<<8)))return fail("PCIe0 LTSSM enable not retained");
++  uint64_t linkEnd=now()+1000;
++  do {unsigned elbi=dbi.r(0xf28),link=dbi.r(0x80);states|=1ull<<((elbi>>12)&63);
++   if((elbi&0x400)&&(link&(1u<<29))){linked=true;break;}IOSleep(2);
++  }while(now()<linkEnd);
++  if(!linked)IOLog("PongWifi: training attempt=%u target=Gen%u states=%llx LTSSM_CTRL=%x CLKREQ=%x/%x WAKE=%x\n",attempt+1,kPongPcieTargetSpeed,states,parf.r(0x1b0),tlmm.r(95*0x1000),tlmm.r(95*0x1000+4),tlmm.r(96*0x1000+4));
++ }
++ if(!linked){IOLog("PongWifi: PCIe0 ELBI=%x link=%x PHY=%x LTSSM=%x/%x clock=%x/%x collapse=%x GPIO80=%x/%x PERST=%x/%x XO=%x/%x mux=%x\n",dbi.r(0xf28),dbi.r(0x80),phy.r(0x214),dbi.r(0x728),dbi.r(0x72c),gcc.r(0x7b03c),gcc.r(0x7b044),gcc.r(kPongPcieCollapseVote),tlmm.r(80*0x1000),tlmm.r(80*0x1000+4),tlmm.r(94*0x1000),tlmm.r(94*0x1000+4),tlmm.r(204*0x1000),tlmm.r(204*0x1000+4),gcc.r(0x7b060));pin(94,1u|1u<<9,0);return fail("PCIe0 link training timeout");}
++ // Match msm_pcie_scale_link_bandwidth after the native DLL-up check.
++ const unsigned negotiated=(dbi.r(0x80)>>16)&15u;
++ if(negotiated==1 || negotiated==2) {
++  gcc.w(0x7b04c,1);gcc.w(0x7b048,gcc.r(0x7b048)|1);
++  if(!wait(gcc,0x7b048,1,0,20))return fail("PCIe negotiated refgen update timeout");
++ }
++ // Type-1 memory aperture, as in Sheng's endpoint setup, using Pong's
++ // actual 0x60200000..0x63ffffff range rather than Sheng's 0x60300000.
++ dbi.w(0x20,0x63f06020);
++ // DesignWare unrolled outbound region0 CFG0 to endpoint BDF01:00.0.
++ atu.w(0,4);atu.w(8,0x60100000);atu.w(12,0);atu.w(16,0x60100fff);atu.w(20,0x01000000);atu.w(24,0);atu.w(4,0x80000000);
++ if(!wait(atu,4,0x80000000,0x80000000,20)||!cfg.open(0x60100000,0x1000))return false;
++ if(cfg.r(0)!=0x110317cb)return fail("QCA6490 endpoint identity mismatch");
++ // The subsystem ID in Pong's capture has not been verified on zizhan.
++ IOLog("PongWifi: QCA6490 PCI subsystem=%x\n",cfg.r(0x2c));
++ // Disable bus mastering while host isolation and interrupts are established.
++ *reinterpret_cast<volatile uint16_t *>(cfg.v+4)=2;
++ cfg.w(0x10,0x60200004);cfg.w(0x14,0);
++ // Memory outbound region1: full real 60200000..63ffffff host aperture.
++ constexpr unsigned b=0x200;
++ atu.w(b,0);atu.w(b+8,0x60200000);atu.w(b+12,0);atu.w(b+16,0x63ffffff);atu.w(b+20,0x60200000);atu.w(b+24,0);atu.w(b+4,0x80000000);
++ if(!wait(atu,b+4,0x80000000,0x80000000,20))return false;
++ uint64_t seen=0;unsigned cap=cfg.r(0x34)&255;
++ for(unsigned n=0;cap&&n<48;n++){if(cap<0x40||cap>0xfc||(cap&3)||(seen&(1ull<<(cap/4))))return fail("PCI capability list invalid");seen|=1ull<<(cap/4);unsigned v=cfg.r(cap);if((v&255)==0x10)pcieCap=cap;if((v&255)==5)msiCap=cap;cap=(v>>8)&255;}
++ if(cap||!pcieCap||!msiCap||!bar.open(0x60200000,0x200000))return false;
++ log(6,"QCA6490 PCIe0 link and BAR established, bus master held off");return true;
++}
++IOBufferMemoryDescriptor *buffer(size_t n,uint64_t *pa,bool uncached=false) {
++ auto d=IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,IOOptionBits(kIODirectionInOut)|IOOptionBits(kIOMemoryPhysicallyContiguous)|IOOptionBits(kIOMemoryMapperNone)|IOOptionBits(uncached?kIOMapWriteCombineCache:0),n,4096);
++ if(!d)return nullptr;IOByteCount span=0;*pa=d->getPhysicalSegment(0,&span,kIOMemoryMapperNone);
++ if(!*pa||(*pa&4095)||span<n||*pa+n>(1ull<<36)){d->release();return nullptr;}
++ bzero(d->getBytesNoCopy(),n);return d;
++}
++bool allocateArena() {
++ // QCA6490 needs contiguous DMA addresses, not 128 MiB of adjacent RAM.
++ // Wire ordinary pages and let this SID's native4K SMMU provide the IOVA
++ // extent. A large physically contiguous allocation fails after UI startup.
++ uint32_t preferred=64;
++ if(PE_parse_boot_argn("pong_wifi_dma_mib",&preferred,sizeof preferred)&&preferred!=64&&preferred!=128)
++  return fail("WiFi DMA budget must be 64 or 128 MiB");
++ const uint32_t budgets[]={preferred,64};
++ for(unsigned attempt=0;attempt<(preferred==64?1u:2u);++attempt) {
++  const size_t bytes=size_t(budgets[attempt])*1024*1024;
++  arena=IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
++   IOOptionBits(kIODirectionInOut)|IOOptionBits(kIOMemoryMapperNone)|IOOptionBits(kIOMapWriteCombineCache),bytes,4096);
++  if(!arena){IOLog("PongWifi: DMA allocation SKIP %u MiB; trying smaller actual budget\n",budgets[attempt]);continue;}
++  const bool prepared=arena->prepare()==kIOReturnSuccess;
++  arenaVa=prepared?static_cast<uint8_t *>(arena->getBytesNoCopy()):nullptr;
++  if(!arenaVa||(reinterpret_cast<uintptr_t>(arenaVa)&4095)||arena->getLength()!=bytes) {
++   if(prepared)arena->complete();arena->release();arena=nullptr;arenaVa=nullptr;
++   IOLog("PongWifi: DMA wiring/mapping SKIP %u MiB\n",budgets[attempt]);continue;
++  }
++  ArenaBytes=bytes;bzero(arenaVa,ArenaBytes);
++  IOLog("PongWifi: actual wired DMA budget %u MiB\n",budgets[attempt]);return true;
++ }
++ return fail("WiFi wired DMA arena allocation failed at all budgets");
++}
++int smmuRead32(void *,size_t off,uint32_t *out) {
++ if(!out||(off&3)||off>smmu.n-4)return -1;
++ *out=smmu.r(off);return 0;
++}
++int smmuRead64(void *,size_t off,uint64_t *out) {
++ if(!out||(off&7)||off>smmu.n-8)return -1;
++ *out=*reinterpret_cast<volatile uint64_t *>(smmu.v+off);
++ __asm__ volatile("dmb oshld":::"memory");return 0;
++}
++int smmuWrite32(void *,size_t off,uint32_t value) {
++ if((off&3)||off>smmu.n-4)return -1;
++ smmu.w(off,value);return 0;
++}
++int smmuWrite64(void *,size_t off,uint64_t value) {
++ if((off&7)||off>smmu.n-8)return -1;
++ *reinterpret_cast<volatile uint64_t *>(smmu.v+off)=value;
++ __asm__ volatile("dsb sy":::"memory");return 0;
++}
++int smmuBarrier(void *) {__asm__ volatile("dsb sy":::"memory");return 0;}
++bool isolation() {
++ if(!smmu.open(0x15000000,0x100000))return false;
++ // Pong's root interrupt map routes int_global_int to SPI140. Use the
++ // DesignWare MSI receiver already implemented in this core; GIC MBIS and
++ // an unimplemented ITS command queue are not prerequisites for this path.
++ if(!allocateArena())return false;
++ tables=buffer(TableBytes,&tablePa);msiPage=buffer(4096,&msiPa);
++ if(!tables||!msiPage)return fail("WiFi SMMU table/MSI allocation failed");
++ struct Lease{bool held;Lease():held(pong_smmu_lease_lock()){}~Lease(){if(held)pong_smmu_lease_unlock();}} leaseGuard;
++ if(!leaseGuard.held)return false;
++ auto plan=planUfsSmmu(0x1c01,Iova,ArenaBytes+4096,[](unsigned o){return smmu.r(o);},78,120);
++ if(plan.error)return fail(plan.error);
++ ArmSmmu4KConfig bc={32,36,tablePa,(ArenaBytes/4096)+1};
++ const size_t capacity=ArenaBytes/4096+1;
++ auto ranges=IONewData(ArmSmmu4KRange,capacity);
++ if(!ranges)return fail("WiFi DMA span metadata allocation failed");
++ size_t count=1;ranges[0]={Iova,msiPa,4096,3,0,2};
++ for(size_t off=0;off<ArenaBytes;off+=4096) {
++  IOByteCount span=0;const uint64_t pa=arena->getPhysicalSegment(off,&span,kIOMemoryMapperNone);
++  if(!pa||(pa&4095)||span<4096||pa>=(1ull<<36)||4096>(1ull<<36)-pa) {
++   IODeleteData(ranges,ArmSmmu4KRange,capacity);return fail("WiFi DMA page outside SM8475 output range");
++  }
++  auto &last=ranges[count-1];
++  if(count>1&&last.physical+last.bytes==pa)last.bytes+=4096;
++  else ranges[count++]={Iova+4096+off,pa,4096,3,0,2};
++ }
++ ArmSmmu4KResult br={};auto tv=static_cast<uint64_t *>(tables->getBytesNoCopy());
++ const auto built=ArmSmmu4KBuild(&bc,ranges,count,tv,TableBytes/4096,&br);
++ IODeleteData(ranges,ArmSmmu4KRange,capacity);
++ if(built!=ArmSmmu4KSuccess)return fail("WiFi native4K page tables failed");
++ IOLog("PongWifi: %luMiB wired DMA mapped from %lu spans, %lu native4K table pages\n",(unsigned long)(ArenaBytes>>20),(unsigned long)(count-1),(unsigned long)br.table_pages);
++
++ ArmSmmu4KContextConfig cc={};cc.lower=&bc;cc.lower_tables=&br;cc.id0=smmu.r(0x20);cc.id2=smmu.r(0x28);cc.asid=0x1c01;cc.coherent_walk=1;cc.polled_faults=1;
++ // zizhan g272: TCR2 reads back 0x38071, including TBI0/TBI1, while
++ // the untagged policy encoded 0x38011. As in the native GPU context,
++ // explicitly request TBI for this lower-only 32-bit IOVA aperture.
++ // Every admitted DMA address has a zero top byte; keep exact readback
++ // validation rather than masking an unexpected translation policy.
++ cc.ignore_top_byte=1;
++ // g273 reaches activation but SCTLR.ASIDPNE reads zero. Coordinate a
++ // shared ASID instead: UFS/Wi-Fi context changes hold the same lease,
++ // and no other enabled APPSSMMU stage-1 bank may use this ASID.
++ const unsigned banks=smmu.r(0x24)&255;
++ for(unsigned bank=0;bank<banks;++bank) {
++  if(bank==plan.bank)continue;
++  const size_t cb=(plan.pages+bank)*4096;
++  if(!(smmu.r(cb)&1)||!((smmu.r(0x1000+4*bank)>>16)&3))continue;
++  uint64_t ttbr0=0,ttbr1=0;
++  if(smmuRead64(nullptr,cb+0x20,&ttbr0)||smmuRead64(nullptr,cb+0x28,&ttbr1))
++   return fail("WiFi shared ASID lease read failed");
++  if((ttbr0>>48)==cc.asid||(ttbr1>>48)==cc.asid)
++   return fail("WiFi shared ASID conflicts with active context");
++ }
++ cc.shared_asid=1;
++ clean(tv,br.table_pages*4096);__asm__ volatile("dsb sy":::"memory");
++ // Nothing's arm_smmu_write_context_bank requires TCR2/TCR BEFORE TTBR:
++ // TCR2.AS controls access to ASID[15:8]. The old adapter wrote SID1c01's
++ // ASID while AS was still reset, losing its upper byte on readback.
++ // Reuse the native4K programming primitive already used by the GPU, which
++ // verifies the disabled image, synchronizes TLBs, then enables the bank.
++ ArmSmmu4KIo io={nullptr,smmu.n,smmuRead32,smmuRead64,smmuWrite32,smmuWrite64,smmuBarrier,1};
++ ArmSmmu4KProgramResult programmed={};
++ const auto status=ArmSmmu4KProgramDisabledContext(&io,plan.bank,&cc,20000,&programmed);
++ if(status!=ArmSmmu4KSuccess) {
++  IOLog("PongWifi: SMMU program status=%u bank=%u phase=%u TTBR0=%llx TTBR1=%llx TCR=%x TCR2=%x CBAR=%x CBA2R=%x MAIR=%llx SCTLR=%x FSR=%x writes=%u polls=%u\n",
++   unsigned(status),plan.bank,programmed.phase,programmed.readback.ttbr0,programmed.readback.ttbr1,
++   programmed.readback.tcr,programmed.readback.tcr2,programmed.readback.cbar,programmed.readback.cba2r,
++   (uint64_t(programmed.readback.mair1)<<32)|programmed.readback.mair0,programmed.readback.sctlr,
++   programmed.fault_status,programmed.writes,programmed.poll_reads);
++  return fail("WiFi SMMU context programming failed; SID remains detached");
++ }
++ cbOffset=programmed.context_offset;
++ const bool exids=(cc.id0>>8)&1;
++ const uint32_t validSmr=exids?0:UINT32_C(1)<<31;
++ const uint32_t validS2cr=exids?UINT32_C(1)<<10:0;
++ smmu.w(0xc00+4*plan.slot,plan.bank);
++ smmu.w(0x800+4*plan.slot,validSmr|0x1c01);
++ if(exids)smmu.w(0xc00+4*plan.slot,plan.bank|validS2cr);
++ if(smmu.r(0xc00+4*plan.slot)!=(plan.bank|validS2cr)||smmu.r(0x800+4*plan.slot)!=(validSmr|0x1c01))return fail("WiFi SID routing failed");
++ dmaOwned=true;log(6,"exclusive SID1c01 native4K DMA and retained MSI landing page established");return true;
++}
++struct Block {uint32_t at,bytes;bool used;};Block blocks[16384];unsigned blockCount;
++void *dmaAlloc(size_t n,uint64_t *bus) {
++ if(!bus||!n||n>ArenaBytes)return nullptr;n=(n+63)&~size_t(63);if(n>=4096)n=(n+4095)&~size_t(4095);
++ uint32_t align=64;if(n>=4096){align=4096;while(align<n)align<<=1;}
++ for(unsigned i=0;i<blockCount;i++){auto b=blocks[i];if(b.used)continue;uint64_t addr=Iova+4096+b.at;uint32_t pad=uint32_t((-addr)&(align-1));if(n>b.bytes||pad>b.bytes-n)continue;
++  unsigned extra=(pad?1:0)+(b.bytes>pad+n?1:0);if(blockCount+extra>16384)return nullptr;
++  memmove(blocks+i+extra,blocks+i,(blockCount-i)*sizeof(Block));blockCount+=extra;unsigned at=i;
++  if(pad)blocks[at++]={b.at,pad,false};blocks[at]={b.at+pad,uint32_t(n),true};if(b.bytes>pad+n)blocks[at+1]={uint32_t(b.at+pad+n),uint32_t(b.bytes-pad-n),false};
++  *bus=Iova+4096+b.at+pad;void *p=arenaVa+b.at+pad;bzero(p,n);return p;
++ }return nullptr;
++}
++void dmaFree(size_t,void *p,uint64_t) {uintptr_t off=reinterpret_cast<uintptr_t>(p)-reinterpret_cast<uintptr_t>(arenaVa);for(unsigned i=0;i<blockCount;i++)if(blocks[i].at==off&&blocks[i].used){blocks[i].used=false;if(i+1<blockCount&&!blocks[i+1].used){blocks[i].bytes+=blocks[i+1].bytes;memmove(blocks+i+1,blocks+i+2,(blockCount-i-2)*sizeof(Block));--blockCount;}if(i&&!blocks[i-1].used){blocks[i-1].bytes+=blocks[i].bytes;memmove(blocks+i,blocks+i+1,(blockCount-i-1)*sizeof(Block));--blockCount;}return;}}
++uint64_t dmaMap(void *p,size_t n,int) {uintptr_t off=reinterpret_cast<uintptr_t>(p)-reinterpret_cast<uintptr_t>(arenaVa);return off<ArenaBytes&&n<=ArenaBytes-off?Iova+4096+off:0;}
++void dmaSync(uint64_t bus,size_t n,int) {if(bus<Iova+4096||bus-(Iova+4096)>=ArenaBytes||n>ArenaBytes-(bus-(Iova+4096)))return;__asm__ volatile("dsb sy":::"memory");}
++
++void *alloc(size_t n) {if(n>SIZE_MAX-16)return nullptr;auto p=static_cast<uint8_t *>(IOMallocData(n+16));if(!p)return nullptr;*reinterpret_cast<size_t *>(p)=n+16;return p+16;}
++void freeHeap(void *p) {if(p){auto b=static_cast<uint8_t *>(p)-16;IOFreeData(b,*reinterpret_cast<size_t *>(b));}}
++void halt() {stopped=1;if(hostMmioReady){dbi.w(MsiEnable,0);parf.w(0x22c,0);}if(tlmm.v)pin(94,1u|1u<<9,0);pong_wifi_net_failed();IOLog("PongWifi: worker stopped; DMA retained until reset\n");thread_terminate(current_thread());thread_block(THREAD_CONTINUE_NULL);__builtin_unreachable();}
++void poll() {if(nw_wifi_firmware_error()){log(3,"QCA6490 firmware FAIL; stopping optional worker, normal iOS boot continues");halt();}if(initDeadline&&now()>initDeadline){log(3,"firmware initialization exceeded deadline");halt();}if(dmaOwned){unsigned fs=smmu.r(cbOffset+0x58);if(fs&0xc00001fe){IOLog("PongWifi: owned SMMU fault=%x FAR=%x%08x FSYNR0=%x\n",fs,smmu.r(cbOffset+0x64),smmu.r(cbOffset+0x60),smmu.r(cbOffset+0x68));halt();}}}
++void sleep(unsigned ms) {while(ms){poll();unsigned part=ms>100?100:ms;IOSleep(part);ms-=part;}poll();}
++int fwGet(const char *path,const uint8_t **data,size_t *size) {
++ const char *name=path;for(const char *p=path;*p;p++)if(*p=='/')name=p+1;
++ // Linux WCN6855 hw2 firmware uses the vendor v2 image. Select from the
++ // actual TCSR HW major (pci.c uses the same register), never PCI revision.
++ if(!strcmp(name,"amss.bin")&&((bar.r(0x224)>>8)&15)==2)name="amss20.bin";
++ const size_t total=size_t(pong_wifi_firmware_end-pong_wifi_firmware);unsigned count=0;if(total<8||memcmp(pong_wifi_firmware,"PWF2",4))return -1;memcpy(&count,pong_wifi_firmware+4,4);
++ if(count>(total-8)/40)return -1;
++ for(unsigned i=0;i<count;i++){const uint8_t *e=pong_wifi_firmware+8+i*40;if(strnlen(reinterpret_cast<const char *>(e),32)>=32||strcmp(reinterpret_cast<const char *>(e),name))continue;unsigned off,len;memcpy(&off,e+32,4);memcpy(&len,e+36,4);if(off>total||len>total-off)return -1;*data=pong_wifi_firmware+off;*size=len;IOLog("PongWifi: firmware %s bytes=%u\n",name,len);return 0;}return -1;
++}
++int cfgRead(int o,int n,uint32_t *v) {unsigned off=unsigned(o);if(off&0x80000000)off=(off&0x7fffffff)+pcieCap;if(!v||(n!=1&&n!=2&&n!=4)||off>4096-unsigned(n)||(off&(unsigned(n)-1)))return -1;*v=n==1?cfg.v[off]:n==2?*reinterpret_cast<volatile uint16_t *>(cfg.v+off):cfg.r(off);return 0;}
++int cfgWrite(int o,int n,uint32_t v) {unsigned off=unsigned(o);if(off&0x80000000)off=(off&0x7fffffff)+pcieCap;if((n!=1&&n!=2&&n!=4)||off>4096-unsigned(n)||(off&(unsigned(n)-1)))return -1;if(off<0x40&&!(off==4&&n==2&&dmaOwned&&(v&~7u)==0))return -1;if(n==1)cfg.v[off]=uint8_t(v);else if(n==2)*reinterpret_cast<volatile uint16_t *>(cfg.v+off)=uint16_t(v);else cfg.w(off,v);__asm__ volatile("dsb sy":::"memory");return 0;}
++int msiTarget(uint32_t *lo,uint32_t *hi,uint32_t *data) {if(!dmaOwned)return -1;*lo=uint32_t(Iova+0x40);*hi=0;*data=0;return 0;}
++void *mapPhys(uint64_t pa,size_t n) {if(pa>=0x60200000&&pa<0x60400000&&n<=0x60400000-pa)return const_cast<uint8_t *>(bar.v)+pa-0x60200000;return nullptr;}
++volatile uint32_t msiArrivals;
++// Opt-in bring-up fixture: join only the exact locally supplied network,
++// after real scanning, and report protocol results without credentials.
++unsigned testReconnectState;
++void testNetwork(const nw_wifi_status &st) {
++ static bool checked=false,enabled=false,attempted=false,finished=false;
++ static bool alternate=false,reconnecting=false,rescanned=false;
++ static uint32_t firstBand=0;
++ static uint8_t firstBssid[6];
++ static uint64_t deadline=0, reconnectAt=0;
++ if(!checked) {
++  checked=true;uint32_t flag=0;
++  enabled=PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag)&&flag==1;
++  alternate=enabled&&PE_parse_boot_argn("pong_wifi_alt",&flag,sizeof flag)&&flag==1;
++  if(enabled&&PE_parse_boot_argn("pong_wifi_band",&firstBand,sizeof firstBand)&&
++     firstBand!=0&&firstBand!=2&&firstBand!=5) {
++   log(6,"WiFi association test SKIP: band must be 0, 2 or 5");enabled=false;
++  }
++  if(enabled&&(!kWifiTestSsidBytes||!kWifiTestKeyBytes)) {
++   log(6,"WiFi association test SKIP: no private network fixture");enabled=false;
++  }
++  deadline=now()+60000;
++ }
++ if(!enabled)return;
++ if(__atomic_load_n(&testReconnectState,__ATOMIC_ACQUIRE)==2) {
++  __atomic_store_n(&testReconnectState,3,__ATOMIC_RELEASE);
++  log(6,"WiFi lifecycle test RUNNING: disconnecting station");
++  nw_wifi_disconnect(); reconnectAt=now()+10000;
++ }
++ if(reconnectAt) {
++  if(now()<reconnectAt)return;
++  reconnectAt=0;attempted=false;finished=false;reconnecting=true;deadline=now()+60000;
++  log(6,"WiFi lifecycle test RUNNING: reconnecting to scanned network");
++ }
++ if(finished)return;
++ if(!attempted&&st.state==NW_STA_IDLE) {
++  nw_bss_info b={};
++  for(int i=0,n=nw_wifi_bss_count();i<n;++i) {
++   if(nw_wifi_bss_get(i,&b)||b.ssid_len!=kWifiTestSsidBytes||memcmp(b.ssid,kWifiTestSsid,kWifiTestSsidBytes))continue;
++   // Optional fixture control: scanner order must not decide which direction
++   // a cross-band regression exercises. Only admit the same private SSID.
++   const unsigned band=b.freq_mhz>=2400&&b.freq_mhz<2500?2:
++    b.freq_mhz>=4900&&b.freq_mhz<5925?5:0;
++   const unsigned wanted=alternate&&reconnecting&&firstBand?
++    (firstBand==2?5:2):firstBand;
++   if(wanted&&band!=wanted)continue;
++   if(alternate&&reconnecting&&!memcmp(b.bssid,firstBssid,sizeof firstBssid))continue;
++   int result=nw_wifi_connect(kWifiTestSsid,kWifiTestSsidBytes,b.bssid,
++    reinterpret_cast<const char *>(kWifiTestKey),kWifiTestKeyBytes);
++   attempted=true;deadline=now()+60000;
++   IOLog("PongWifi: association test RUNNING: scanned target, request=%d\n",result);
++   if(result){finished=true;log(3,"WiFi association test FAIL: station refused request");}
++   break;
++  }
++  if(alternate&&reconnecting&&!attempted&&!rescanned) {
++   rescanned=true;
++   nw_wifi_scan(kWifiTestSsid,kWifiTestSsidBytes);
++  }
++ }
++ if(attempted&&st.state==NW_STA_UP&&pong_wifi_net_has_ipv4()) {
++  finished=true;log(6,"WiFi association test PASS: authenticated link and IPv4 address");
++  if(!reconnecting)memcpy(firstBssid,st.bssid,sizeof firstBssid);
++  else if(alternate)log(6,memcmp(firstBssid,st.bssid,sizeof firstBssid)?
++   "WiFi lifecycle test AP switch PASS: associated to distinct BSSID":
++   "WiFi lifecycle test AP switch FAIL: BSSID did not change");
++  unsigned idle=0;
++  __atomic_compare_exchange_n(&testReconnectState,&idle,1,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED);
++  pong_wifi_net_diagnostics();
++ } else if(now()>=deadline) {
++  finished=true;
++  IOLog("PongWifi: association test FAIL: target_found=%u state=%u result=%d IPv4=%u\n",
++   attempted,st.state,st.result,pong_wifi_net_has_ipv4());
++ }
++}
++void signalWorker() {__atomic_store_n(&wake,1,__ATOMIC_RELEASE);thread_wakeup(reinterpret_cast<event_t>(const_cast<uint32_t *>(&wake)));}
++void irq(void *) {
++ unsigned pending=dbi.r(MsiStatus);
++ if(pending){dbi.w(MsiStatus,pending);__atomic_fetch_add(&msiArrivals,1,__ATOMIC_RELAXED);}
++ // Only this port's MSI group is enabled in PARF. Drop the aggregator's
++ // level before EOI; no unrelated PCIe status is acknowledged here.
++ parf.w(0x228,ParfMsi0);
++ static unsigned empty;
++ empty=pending?0:empty+1;
++ if(empty>=64){dbi.w(MsiEnable,0);parf.w(0x22c,parf.r(0x22c)&~ParfMsi0);}
++ signalWorker();
++}
++void worker(void *,wait_result_t) {
++ uint32_t diagnostic=0;progressDiagnostic=PE_parse_boot_argn("pong_wifi_diag",&diagnostic,sizeof diagnostic)&&diagnostic==1;
++ // UFS owns another SID on the same APPSSMMU: serialize initial bank lease.
++ unsigned n=0;for(;n<180&&!pong_ufs_ready();n++)IOSleep(500);
++ if(n==180){fail("UFS prerequisites absent; WiFi skipped");goto done;}
++ IOSleep(2000);
++ if(!coldLink()||!isolation())goto done;
++ // nw_abi.h requires events before start/step. Early station completion
++ // must not be lost while the board is still waiting for its hardware MAC.
++ if(!pong_wifi_net_prepare()){fail("network event setup failed");goto done;}
++ dbi.w(MsiEnable,0);dbi.w(MsiMask,~0u);dbi.w(MsiStatus,~0u);
++ dbi.w(MsiAddressLo,unsigned(Iova+0x40));dbi.w(MsiAddressHi,unsigned((Iova+0x40)>>32));
++ parf.w(0x22c,0);parf.w(0x228,ParfMsi0);
++ {uint32_t ctl=0;uint64_t route=0;
++  if(armcpu_spi_attach(PcieGlobalIntid,false,irq,nullptr,&ctl,&route)){fail("PCIe0 SPI140 MSI receiver attach failed");goto done;}}
++ dbi.w(MsiMask,0);dbi.w(MsiEnable,~0u);parf.w(0x22c,ParfMsi0);
++ log(6,"DesignWare MSI receiver armed on Pong PCIe0 SPI140");
++ blocks[0]={0,uint32_t(ArenaBytes),false};blockCount=1;
++ {static const lx_platform platform={now,sleep,poll,log,halt,alloc,freeHeap,dmaAlloc,dmaFree,dmaMap,dmaSync,fwGet};
++  static nw_board board;board={const_cast<uint8_t *>(bar.v),0x200000,0x1103,uint16_t(msiCap),800,cfgRead,cfgWrite,msiTarget,mapPhys};
++  if(cfgWrite(4,2,6))goto done;
++  initDeadline=now()+90000;int r=nw_wifi_start(&platform,&board);if(r){IOLog("PongWifi: ath11k start failed=%d\n",r);goto done;}
++ }
++ {bool net=false,irqSeen=false;uint64_t diagnosticsAt=0;for(;;){if(!irqSeen&&__atomic_load_n(&msiArrivals,__ATOMIC_RELAXED)){irqSeen=true;log(6,"QCA6490 MSI delivered by GIC");}progress(1);poll();progress(2);int busy=nw_wifi_step();progress(3);nw_wifi_status st={};nw_wifi_status_get(&st);progress(4);
++   if(!net&&st.channels&&st.state!=NW_STA_OFF&&nw_wifi_stats.stage>=4&&!nw_wifi_stats.last_err){bool valid=false;for(unsigned i=0;i<6;i++)valid|=st.mac[i]!=0;if(valid&&!(st.mac[0]&1)){initDeadline=0;net=true;
++     auto chosen=IORegistryEntry::fromPath("/chosen",gIODTPlane);if(chosen){chosen->setProperty("mac-address-wifi0",st.mac,6);chosen->release();}
++     void *handle=OSMetaClass::preModLoad(g_kernel_kmod_info.name);if(!handle)goto done;
++     PongWifiNetStaticInit();if(OSMetaClass::postModLoad(handle)!=kIOReturnSuccess)goto done;
++     pong_wifi_net_start(st.mac);log(6,"QCA6490 station ready; starting actual scan");nw_wifi_scan(nullptr,0);
++   }}
++   if(net) {
++    progress(5);testNetwork(st);
++    if(now()>=diagnosticsAt) {
++     diagnosticsAt=now()+15000;
++     IOLog("PongWifi: runtime state=%u scans=%u BSS=%u frames=%u MSI=%u receiver=%x dma-mib=%lu\n",
++      st.state,nw_wifi_stats.scans,nw_wifi_stats.bss_seen,nw_wifi_stats.frames,
++      __atomic_load_n(&msiArrivals,__ATOMIC_RELAXED),dbi.r(MsiStatus),(unsigned long)(ArenaBytes>>20));
++     progress(6);pong_wifi_net_diagnostics();
++    }
++   }
++   progress(7);IOSleep(busy?1:5);
++ }}
++ done: stopped=1;
++ // A mapped address does not prove a powered device. Failed GDSC/clock
++ // prerequisites must not be followed by cleanup MMIO into a dead domain.
++ if(hostMmioReady){if(dbi.v)dbi.w(MsiEnable,0);if(parf.v)parf.w(0x22c,0);}
++ if(tlmm.v)pin(94,1u|1u<<9,0);
++ log(3,"WiFi initialization stopped; normal iOS boot continues, DMA retained");thread_terminate(current_thread());thread_block(THREAD_CONTINUE_NULL);
++}
++}
++extern "C" void PongWifiRandom(void *p,size_t n) {while(n){unsigned part=n>4096?4096:unsigned(n);read_random(p,part);p=static_cast<uint8_t *>(p)+part;n-=part;}}
++extern "C" bool pong_wifi_test_reconnect(void) {
++ unsigned ready=1;
++ return __atomic_compare_exchange_n(&testReconnectState,&ready,2,false,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED);
++}
++extern "C" void pong_wifi_wake(void) {signalWorker();}
++extern "C" void native_wifi_logf(int level,const char *fmt,...) {char line[256];va_list a;va_start(a,fmt);vsnprintf(line,sizeof line,fmt,a);va_end(a);log(level,line);}
++extern "C" void pong_wifi_start_optional(void) {
++ pong_rpmh_init();
++ uint32_t enabled=0;if(!PE_parse_boot_argn("pong_wifi",&enabled,sizeof enabled)||enabled!=1)return;
++ static uint32_t started;if(__atomic_exchange_n(&started,1,__ATOMIC_ACQ_REL))return;
++ // These network classes are linked into the native kernel, not loaded as a
++ // separate kext. Register their metaclasses before publishing any service.
++ thread_t t=nullptr;if(kernel_thread_start(worker,nullptr,&t)==KERN_SUCCESS)thread_deallocate(t);else log(3,"WiFi worker allocation failed");
++}
++
++// All APSS software clients sharing active TCS4 use this sleeping lock.
++// GPU has a separate active TCS3 lease and its retained rail minima.
++extern "C" void pong_rpmh_init(void) {
++ if(!powerLock)powerLock=IOLockAlloc();
++ if(!smmuLeaseLock)smmuLeaseLock=IOLockAlloc();
++}
++extern "C" bool pong_rpmh_vote(uint32_t address,uint32_t value) {
++ if(!powerLock)return false;
++ IOLockLock(powerLock);
++ bool ok=(rsc.v||rsc.open(0x17a20000,0x10000))&&rawVote(address,value);
++ IOLockUnlock(powerLock);return ok;
++}
++
++extern "C" bool pong_smmu_lease_lock(void){if(!smmuLeaseLock)return false;IOLockLock(smmuLeaseLock);return true;}
++extern "C" void pong_smmu_lease_unlock(void){if(smmuLeaseLock)IOLockUnlock(smmuLeaseLock);}
+diff --git a/drivers/PongWifi/README.md b/drivers/PongWifi/README.md
+new file mode 100644
+index 0000000..b20ec4f
+--- /dev/null
++++ b/drivers/PongWifi/README.md
+@@ -0,0 +1,76 @@
++# Pong QCA6490 Wi-Fi
++
++Pong 的 SM8475 / QCA6490 使用 PCIe0、MHI 和 ath11k。(https://unixnu.com/zh/porting/network)
++
++## 接入
++
++- `configs/pong-wifi-sm8475.json`：从本机 REC DT、PCI sysfs 捕获的板级输入。
++- `configs/zizhan-wifi-sm8475.json`：MIX Fold 2 自己的 live DT 板级输入；zizhan 构建使用它。Pong 的 PHY 表、WLAN 供电列表和时钟数组不能直接用于 zizhan。
++- `PongWifiPlatform.cpp`：Pong 的供电、PCIe/PHY、BAR、独立 SID `0x1c01`、
++  native 4 KiB 页表和 MSI；UFS 就绪后再取得独立 context bank，保留 UFS 的 SID/队列。
++- `ath11k/PongAth11k.c`：实际 Linux v7.0.14 ath11k PCI/MHI/QMI，连接 UniXNU 的 station ABI。
++- `PongWifiNet.cpp`：Darwin 24 ifnet、Apple80211 ioctl、RX/TX 和网络事件。
++- `scripts/build-pong-ath11k.py`：编译实际驱动；内部链接拒绝缺失实现，将 Linux shim 符号隔离。
++- `scripts/build-pong-wifi-native.py`：编译板级/网络代码，合并归档并延后注册网络类。
++- `CONFIG_XNU_PONG_WIFI=y`：构建并链接归档；`pong_wifi=1` 启动板级工作线程。
++
++APSS DRV2 使用 Pong DT 的 active TCS4，保留 GPU 的 TCS3。使用 SM8475 GCC
++`0x7bxxx`、真实 PHY 表和 cmd-db `SN7` 带宽投票。CPU 和 SMMU 的 DMA 环使用
++Normal-NC，页表独立保留。使用 DesignWare 控制器的 MSI 接收器，按 Pong DT
++`int_global_int` 路由到 SPI140（GIC INTID172）；PARF MSI0 为 bit23。
++端点 MSI 数据为 0..31，Linux shim 的 IRQ base 800 仅作内部编号。无需 GIC MBIS
++或虚构 ITS 命令完成。MSI 目标有单独保留页；中断先清 receiver 和 aggregator 再 EOI。
++
++固件来自本机 modem 中 `image/qca6490`，仅嵌入忽略的本地构建产物。
++BDF 按 QMI chip/board ID 使用 Nothing CNSS2 的文件命名规则，AMSS 按
++实际硬件 major 选择；不将 PCI revision 当成固件 major，不随机选择 board-data。
++高位 board ID 组合文件名时保留 QMI chip ID 决定的 `bdwlan`/`bdwlang` 前缀；
++本机实际选中了哪一个文件仍以设备日志为准。
++无线地址使用固件报告的地址，不伪造出厂 MAC。WPA nonce 使用 XNU `read_random`。
++
++## 当前证据
++
++真实 ath11k、PCI、MHI、QRTR、QMI、station 和网络代码已编译接入。
++固件启动、MSI 实际到达、BSS 扫描、认证、地址配置及联网仍需分别记录真机结果。
++只有 station 就绪且具有有效硬件 MAC 后才发布网络接口；失败记录原因并让 iOS 继续启动。
++不会用空的成功实现替代固件、扫描或链接结果。
++
++services44 按本机 DT 的 `gdsc-vdd-supply` 补接独立 collapse vote：
++`0x162128` bit0，PCIe0 GDSCR 为 `0x17b004`。启用时只清除此 consumer 的位；
++不使用 Sheng 的 collapse 寄存器。按 Nothing `pci-msm.c`，PHY 源在 GDSC
++开启时选择，PIPE 分支在 PHY 表和稳定等待后再启用；补齐 `xo.lvl=3`
++参考时钟投票和训练前的 lane-skew/PARF 配置。实际 link/扫描仍待真机日志。
++
++`PongWifiPci.cpp` 是早期的只接收现有 PCI 交接的辅助代码，完整路径由
++`PongWifiPlatform.cpp` 负责；它不被额外当作另一个 PCIe owner 启动。
++
++services46 对照官方 network.md 补接 `nw_wifi_set_events`：在
++`nw_wifi_start/step` 前安装回调，ifnet 仍等真实 MAC/信道表就绪才发布。
++补齐 PHY rate-change 根时钟的 GPLL0 父时钟 vote 和 lock 等待，以及
++slave Q2A 分支的 halt 检查。Cape 与 Waipio 共用 Nothing 的 gcc-waipio.c；
++其中 Cape fixup 改 PLL 操作和部分 UFS/SDCC 定义，不能仅凭文件名判定
++整个 PCIe 寄存器表不适配。没有放宽 DLL/端点 ID/MSI/DMA 的成功条件。
++services45 仍停在 DetectQuiet，下一轮链路和固件扫描结果待实际日志。
++
++services47 保存 services46 的 DetectQuiet 日志后，对照 Pong 的实际 DT 和
++Nothing 的 gcc-waipio.h/c，补齐第二路 aggregate NoC（ID9/vote bit11），
++恢复 active CLKREQ/PARF PM 配置，保留正常电源稳定等待；真实链路建立后
++再配置 Pong 的 type1 memory aperture。没有延长训练超时来伪造成功。
++链路、MSI、固件和扫描结果继续以实际日志为准。
++
++services60 对照 services59 日志的 DLL 未激活，显式启用 PORT_LINK_CONTROL DLL_LINK_EN，清除 FAST_LINK，并以确定的 Gen1 target 训练；不降低实际端点或 DLL 成功条件。尚待本轮真机链路与扫描结果。
++
++## iPadOS 18 IPv4 租约与路由
++
++启用 Wi-Fi（`CONFIG_XNU_PONG_WIFI=y`、`pong_wifi=1`）时，原生
++IPConfiguration 仍负责地址、续租和 DHCP 冲突检测。若当前 en0 地址已生效而
++系统没有可用的默认路由或 DNS，`wifi-service18` 通过只读 Apple80211 请求
++读取本次连接中与 DHCPREQUEST 匹配的 ACK，只把验证过的网关和 DNS 发布到独立
++的 SystemConfiguration 会话；不会修改原生服务或设置固定地址。原生路由和
++DNS 恢复后让回系统。地址丢失、租约失效或链路代次切换后释放该会话。
++
++驱动只跟踪与本机 MAC、当前事务和当前链路一致的 ACK。拒绝的 ACK、NAK、
++RELEASE、过期和断线不会保留旧快照；有 classless 路由选项的包交给原生
++DHCP 路由策略。人工制造续租、断线和公网请求仅在本地验证镜像上开启。
++
++详细设备结果见 [Wi-Fi 与 USB 记录](../../docs/progress/2026-11-04-wifi-usb.md)。
+diff --git a/drivers/PongWifi/ath11k/PongAth11k.c b/drivers/PongWifi/ath11k/PongAth11k.c
+new file mode 100644
+index 0000000..8b72f6e
+--- /dev/null
++++ b/drivers/PongWifi/ath11k/PongAth11k.c
+@@ -0,0 +1,149 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Linux ath11k PCI/MHI + UniXNU's shared dispatcher/station ABI. */
++#include "lx_pci.h"
++#include "lx_plat.h"
++#include "nw_board.h"
++#include "nw_wifi.h"
++#include "nw_mac80211.h"
++#include "nw_sta.h"
++#include "nw_qrtr.h"
++#include <net/mac80211.h>
++#include "core.h"
++#include "debug.h"
++#include <linux/mhi.h>
++
++int pong_ath11k_pci_init(void);
++void pong_ath11k_pci_exit(void);
++int mhi_init_hook(void);
++int nw_qrtr_mhi_register(void);
++void nw_qrtr_mhi_unregister(void);
++void lx_irq_raise_all(void);
++
++struct nw_wifi_stats nw_wifi_stats;
++static int running;
++static struct ieee80211_hw *registered_hw;
++static int firmware_error;
++static u32 last_wmi[8], wmi_count;
++/* Same cooperative registration ordering as PongWifi d2e33ca: let the
++ * QMI/core registration unwind before starting the station on zizhan. */
++static void registered(struct ieee80211_hw *hw) { registered_hw = hw; }
++void pong_ath11k_wmi_submitted(u32 id)
++{ last_wmi[wmi_count++ % ARRAY_SIZE(last_wmi)] = id; }
++int nw_wifi_firmware_error(void) { return firmware_error; }
++void pong_ath11k_mhi_failed(struct mhi_controller *controller, int reason)
++{
++    if (firmware_error) return;
++    firmware_error = -EIO;
++    struct ath11k_base *ab = dev_get_drvdata(controller->cntrl_dev);
++    if (ab) set_bit(ATH11K_FLAG_CRASH_FLUSH, &ab->dev_flags);
++    nw_wifi_stats.last_err = firmware_error;
++    lx_log(3, "zizhan QCA6490 firmware FAIL: MHI reason=%d, WMI submitted=%u", reason, wmi_count);
++    for (u32 i = wmi_count > ARRAY_SIZE(last_wmi) ? wmi_count - ARRAY_SIZE(last_wmi) : 0; i < wmi_count; ++i)
++        lx_log(3, "WMI before firmware stop: #%u command=0x%x", i + 1, last_wmi[i % ARRAY_SIZE(last_wmi)]);
++}
++static void receive(struct ieee80211_hw *hw, struct sk_buff *skb) { (void)hw; nw_sta_rx(skb); }
++static void scanned(struct ieee80211_hw *hw, bool aborted) { (void)hw; nw_sta_scan_done(aborted); }
++static const struct nw_wifi_hooks hooks = {
++    .registered = registered, .rx = receive, .scan_done = scanned,
++    .beacon_loss = nw_sta_link_lost, .eapol_status = nw_sta_eapol_status,
++};
++
++int nw_wifi_start(const struct lx_platform *p, const struct nw_board *b)
++{
++    if (running || !p || !b || b->device_id != 0x1103 || !b->bar || b->bar_len < 0x200000 ||
++        !p->now_ms || !p->sleep_ms || !p->poll || !p->log || !p->halt || !p->alloc || !p->free ||
++        !p->dma_alloc || !p->dma_free || !p->dma_map || !p->dma_sync || !p->fw_get ||
++        !b->cfg_read || !b->cfg_write || !b->msi_target || !b->map_phys) return -EINVAL;
++    lx_plat = p; nw_board = b;
++    /* nw_sta supplies Ethernet MSDUs with HW_80211_ENCAP. Match the
++     * firmware's WMI offload mode before vdev/resource creation. */
++    ath11k_frame_mode = ATH11K_HW_TXRX_ETHERNET;
++    lx_log(6, "zizhan QCA6490 Ethernet TX/RX offload selected");
++    lx_root_init(); nw_qrtr_init(); nw_wifi_set_hooks(&hooks);
++    int r = mhi_init_hook();
++    if (r) return r;
++    r = nw_qrtr_mhi_register();
++    if (r) return r;
++    nw_wifi_stats.stage = 1;
++    r = pong_ath11k_pci_init();
++    if (r) {
++        nw_wifi_stats.last_err = r;
++        nw_qrtr_mhi_unregister();
++        lx_log(3, "Pong ath11k PCI/MHI initialization failed: %d", r);
++        return r;
++    }
++    running = 1; nw_wifi_stats.stage = 2;
++    return 0;
++}
++int nw_wifi_step(void)
++{
++    if (!running) return 0;
++    const unsigned frames = nw_wifi_stats.frames;
++    if (firmware_error) return firmware_error;
++    lx_irq_raise_all(); lx_pump();
++    if (firmware_error) return firmware_error;
++    if (registered_hw && registered_hw == nw_wifi_hw()) {
++        struct ath11k *ar = registered_hw->priv;
++        if (test_bit(ATH11K_FLAG_REGISTERED, &ar->ab->dev_flags)) {
++            struct ieee80211_hw *hw = registered_hw;
++            registered_hw = NULL;
++            nw_sta_ready(hw);
++        }
++    }
++    if (firmware_error) return firmware_error;
++    nw_sta_run();
++    return frames != nw_wifi_stats.frames || nw_sta_tx_pending();
++}
++void nw_wifi_stop(void)
++{
++    if (!running) return;
++    running = 0; pong_ath11k_pci_exit(); nw_qrtr_mhi_unregister();
++}
++
++/* Optional extended diagnostic counters are not part of the station path.
++ * Their absence is recorded rather than reporting firmware statistics that
++ * were never requested or received. */
++void nw_wifi_htt_stats(int type) { lx_log(7, "ath11k: optional HTT counter type %d not requested", type); }
++void nw_wifi_rx_state(char *out, int n) { if (n > 0) snprintf(out, n, "RX frames=%u", nw_wifi_stats.frames); }
++void nw_wifi_ring_state(char *out, int n) { if (n > 0) snprintf(out, n, "ath11k ring snapshot unavailable"); }
++void nw_wifi_tx_reasons(char *out, int n) { if (n > 0) snprintf(out, n, "ath11k tx reason snapshot unavailable"); }
++
++static void says(int level, const char *format, va_list args)
++{
++    char line[256]; vsnprintf(line, sizeof line, format, args);
++    lx_log(level, "ath11k: %s", line);
++}
++void ath11k_info(struct ath11k_base *ab, const char *format, ...)
++{ (void)ab; va_list a; va_start(a, format); says(6, format, a); va_end(a); }
++void ath11k_warn(struct ath11k_base *ab, const char *format, ...)
++{ (void)ab; va_list a; va_start(a, format); says(4, format, a); va_end(a); }
++void ath11k_err(struct ath11k_base *ab, const char *format, ...)
++{ (void)ab; va_list a; va_start(a, format); says(3, format, a); va_end(a); }
++
++int nw_wifi_rssi_limits(int *minimum, int *maximum)
++{
++ struct ieee80211_hw *hw=nw_wifi_hw();
++ if(!hw || !minimum || !maximum || !ieee80211_hw_check(hw,SIGNAL_DBM))return -1;
++ /* These are the actual decoder's signed signal representation limits,
++  * not a claim about RF sensitivity or a fabricated signal measurement. */
++ _Static_assert(sizeof(((struct ieee80211_rx_status *)0)->signal)==1,"RSSI signal width");
++ _Static_assert(((__typeof__(((struct ieee80211_rx_status *)0)->signal))-1)<0,"signed RSSI signal");
++ const unsigned bits=8*sizeof(((struct ieee80211_rx_status *)0)->signal);
++ *minimum=-(1<<(bits-1));*maximum=(1<<(bits-1))-1;
++ return 0;
++}
++
++/* The framework's supported channels come from firmware/regulatory state. */
++unsigned nw_wifi_channel_list(unsigned *out, unsigned capacity)
++{
++ struct ieee80211_hw *hw=nw_wifi_hw();unsigned n=0;
++ if (!hw || !out) return 0;
++ for (unsigned b=0;b<NUM_NL80211_BANDS;b++) {
++  struct ieee80211_supported_band *band=hw->wiphy->bands[b];if(!band)continue;
++  for (unsigned i=0;i<band->n_channels && n<capacity;i++) {
++   const struct ieee80211_channel *c=&band->channels[i];
++   if (!(c->flags & IEEE80211_CHAN_DISABLED)) out[n++]=c->center_freq;
++  }
++ }
++ return n;
++}
+diff --git a/drivers/PongWifi/ath11k/compat/PongCompat.h b/drivers/PongWifi/ath11k/compat/PongCompat.h
+new file mode 100644
+index 0000000..15b2aba
+--- /dev/null
++++ b/drivers/PongWifi/ath11k/compat/PongCompat.h
+@@ -0,0 +1,37 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef PONG_ATH11K_COMPAT_H
++#define PONG_ATH11K_COMPAT_H
++#include "lx_pci.h"
++#include "PongWait.h"
++typedef unsigned long kernel_ulong_t;
++#undef IS_ENABLED
++#define PONG_DEFINED_1 0,
++#define PONG_SECOND(_a, b, ...) b
++#define PONG_DEFINED_II(x) PONG_SECOND(x 1, 0)
++#define PONG_DEFINED_I(x) PONG_DEFINED_II(PONG_DEFINED_##x)
++#define IS_ENABLED(x) PONG_DEFINED_I(x)
++#define IS_REACHABLE(x) IS_ENABLED(x)
++#define swab32(x) __builtin_bswap32((u32)(x))
++#define prefetch(p) __builtin_prefetch(p)
++#define from_tasklet(v, t, m) container_of(t, __typeof__(*(v)), m)
++#define dma_alloc_noncoherent(d, n, h, dir, f) lx_dma_alloc(d, n, h)
++#define dma_free_noncoherent(d, n, p, h, dir) lx_dma_free(d, n, p, h)
++static inline u32 *memset32(u32 *dst, u32 value, size_t count)
++{ u32 *result = dst; while (count--) *dst++ = value; return result; }
++/* No RSS hash has been calculated for a newly received shim skb. Zero means
++ * "not calculated", and is not a fabricated flow classification. */
++static inline u32 skb_get_hash(struct sk_buff *skb) { (void)skb; return 0; }
++static inline struct device_node *of_find_node_by_type(struct device_node *node, const char *type)
++{ (void)node; (void)type; return NULL; }
++static inline bool of_property_present(const struct device_node *node, const char *name)
++{ (void)node; (void)name; return false; }
++static inline bool of_machine_is_compatible(const char *name)
++{ return name && (!strcmp(name, "qcom,sm8475") || !strcmp(name, "nothing,pong")); }
++static inline int device_get_mac_address(struct device *device, u8 *address)
++{ (void)device; memset(address, 0, 6); return -ENODEV; }
++#define resource_size(r) ((r)->end - (r)->start + 1)
++static inline int of_reserved_mem_region_to_resource(struct device_node *node, int i, struct resource *r)
++{ (void)node; (void)i; (void)r; return -ENODEV; }
++static inline void *devm_ioremap(struct device *device, phys_addr_t pa, size_t bytes)
++{ (void)device; return lx_ioremap(pa, bytes); }
++#endif
+diff --git a/drivers/PongWifi/ath11k/compat/PongWait.h b/drivers/PongWifi/ath11k/compat/PongWait.h
+new file mode 100644
+index 0000000..2ac365a
+--- /dev/null
++++ b/drivers/PongWifi/ath11k/compat/PongWait.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef ZIZHAN_PONG_WIFI_WAIT_H
++#define ZIZHAN_PONG_WIFI_WAIT_H
++/* zizhan uses the cooperative dispatcher with polled IRQs. A busy pump
++ * still consumes time: never make the deadline depend on becoming idle.
++ * WMI send conditions transfer skb ownership and must run only once on
++ * the successful iteration. Completion waits use the same bounded rule. */
++#undef wait_event_timeout
++#undef wait_event_timeout_once
++#define wait_event_timeout_once(w, cond, timeout) ({ \
++    unsigned long _pong_end = jiffies + (timeout); long _pong_result; (void)(w); \
++    for (;;) { \
++        if (cond) { \
++            _pong_result = time_before(jiffies, _pong_end) ? (long)(_pong_end - jiffies) : 1; \
++            break; \
++        } \
++        if (!time_before(jiffies, _pong_end)) { _pong_result = 0; break; } \
++        if (!lx_pump()) lx_idle(1); \
++    } \
++    _pong_result; })
++#define wait_event_timeout(w, cond, timeout) wait_event_timeout_once(w, cond, timeout)
++#endif
+diff --git a/drivers/PongWifi/ath11k/compat/linux/dmi.h b/drivers/PongWifi/ath11k/compat/linux/dmi.h
+new file mode 100644
+index 0000000..cc798c0
+--- /dev/null
++++ b/drivers/PongWifi/ath11k/compat/linux/dmi.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef PONG_ATH11K_DMI_H
++#define PONG_ATH11K_DMI_H
++#include "lx_ath.h"
++/* ARM Pong has no x86 DMI board table. Keep laptop-specific quirks unmatched. */
++enum { DMI_NONE, DMI_BIOS_VENDOR, DMI_BIOS_VERSION, DMI_BOARD_VENDOR, DMI_BOARD_NAME,
++       DMI_BOARD_VERSION, DMI_PRODUCT_NAME, DMI_PRODUCT_VERSION, DMI_SYS_VENDOR };
++struct dmi_strmatch { int slot; const char *substr; };
++struct dmi_system_id {
++    int (*callback)(const struct dmi_system_id *);
++    const char *ident;
++    struct dmi_strmatch matches[4];
++    void *driver_data;
++};
++#define DMI_MATCH(slot_, text_) { .slot = (slot_), .substr = (text_) }
++#define DMI_EXACT_MATCH(slot_, text_) DMI_MATCH(slot_, text_)
++static inline const struct dmi_system_id *dmi_first_match(const struct dmi_system_id *ids)
++{ (void)ids; return NULL; }
++#endif
+diff --git a/drivers/PongWifi/ath11k/compat/linux/of_irq.h b/drivers/PongWifi/ath11k/compat/linux/of_irq.h
+new file mode 100644
+index 0000000..e39fb67
+--- /dev/null
++++ b/drivers/PongWifi/ath11k/compat/linux/of_irq.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef PONG_ATH11K_OF_IRQ_H
++#define PONG_ATH11K_OF_IRQ_H
++#include "lx_pci.h"
++/* The PCI path obtains MSI vectors from nw_board; no Linux OF IRQ domain. */
++static inline int of_irq_count(struct device_node *node) { (void)node; return 0; }
++static inline int of_irq_get(struct device_node *node, int i) { (void)node; (void)i; return -ENODEV; }
++#endif
+diff --git a/drivers/PongWifi/ath11k/compat/linux/suspend.h b/drivers/PongWifi/ath11k/compat/linux/suspend.h
+new file mode 100644
+index 0000000..149b0c6
+--- /dev/null
++++ b/drivers/PongWifi/ath11k/compat/linux/suspend.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef PONG_LINUX_SUSPEND_H
++#define PONG_LINUX_SUSPEND_H
++#include "lx_os.h"
++/* This XNU board profile has no Linux system-suspend notifier chain. Match
++ * Linux's CONFIG_PM_SLEEP=n behavior; MHI power-up/down is still real. */
++#define PM_HIBERNATION_PREPARE 0x0001
++#define PM_POST_HIBERNATION 0x0002
++#define PM_SUSPEND_PREPARE 0x0003
++#define PM_POST_SUSPEND 0x0004
++#define PM_RESTORE_PREPARE 0x0005
++#define PM_POST_RESTORE 0x0006
++#ifndef register_pm_notifier
++#define register_pm_notifier(n) ((void)(n), 0)
++#endif
++#ifndef unregister_pm_notifier
++#define unregister_pm_notifier(n) ((void)(n), 0)
++#endif
++#endif
+diff --git a/drivers/PongWifi/proprietary-files.txt b/drivers/PongWifi/proprietary-files.txt
+new file mode 100644
+index 0000000..8f9f91a
+--- /dev/null
++++ b/drivers/PongWifi/proprietary-files.txt
+@@ -0,0 +1,12 @@
++# Extract from this Pong's modem_a, read-only. Keep these local, outside Git.
++# scripts/prepare-pong-wifi.py records the actual inventory and board inputs.
++image/qca6490/amss.bin
++image/qca6490/amss20.bin
++image/qca6490/m3.bin
++image/qca6490/regdb.bin
++image/qca6490/bdwlan.*
++image/qca6490/bdwlang.*
++
++# No fabricated MAC/calibration; the live DT requests use-nv-mac.
++# Select the BDF using the real firmware QMI chip/board ID, not an arbitrary
++# bdwlan file, a WCN7850 board-2.bin, or the PCI revision alone.

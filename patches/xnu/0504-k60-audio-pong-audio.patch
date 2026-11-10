@@ -1,0 +1,973 @@
+--- /dev/null
++++ b/bsd/dev/pong_audio.c
+@@ -0,0 +1,970 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * K60 audio core skeleton: ADSP/PAS1 + AudioReach GPR plumbing.
++ *
++ * EXPERIMENTAL: this is a compileable skeleton, not a working audio driver.
++ * It ports the structure of PongPower/PongAudio.cpp and the pure packet
++ * builders of PongPower/ShengAudioReach.c (both BSD-2-Clause-Patent), with
++ * K60 board constants from the live FDT.
++ *
++ * K60 facts used here (see /mnt/e/k60-work/scratch/audio-work/EVIDENCE.md):
++ *   - ADSP: remoteproc-adsp@03000000, qcom,cape-adsp-pas,
++ *     reserved memory 0x9fd00000 + 0x3100000 (49 MiB)
++ *   - SMEM: 0x80900000 + 0x200000; IPCC: 0xed18000 IRQ 261;
++ *     GPR: qcom,gpr reg=2, qcom,glink-channels="adsp_apps",
++ *     qcom,intents=<0x200 0x14>
++ *   - AudioReach PCM: 48 kHz, stereo, 32-bit, 480-frame periods,
++ *     8 slots in a 64 KiB low-DMA lease, SID 0x1801
++ *   - TDM: tert MI2S/TDM, 1.536 MHz, tx-lines=0x3 (SD0+SD1),
++ *     GPIO121=SCK/123=WS/122=SD0/124=SD1
++ *
++ * Eight-step pipeline status (E:/k60-work/docs/PORTING-PIPELINE.md):
++ *   (1) same-hardware: Pong/Sheng AudioReach implementations (REUSE.md)
++ *   (2) official docs: no K60 audio datasheet; AudioReach opcodes from
++ *       Sheng/Pong source
++ *   (3) reverse + device data: K60 live FDT only; no ADSP firmware dump
++ *   (4) wide validation: K60 FDT + liuqin ADSP carveout match (EVIDENCE.md)
++ *   (5) plan: PLAN.md P4
++ *   (6) deep dive: REPORT.md
++ *   (7) verification: compile-only; ADSP/PAS1 execution TODO
++ *   (8) on-device: not attempted
++ */
++
++#include <pexpert/arm64/board_config.h>
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/types.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <mach/vm_param.h>
++#include <pexpert/pexpert.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <string.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++extern void thread_terminate_self(void);
++
++/* ------------------------------------------------------------------------- */
++/* K60 board constants (M: live FDT; see EVIDENCE.md)                        */
++/* ------------------------------------------------------------------------- */
++
++#define PONG_AUDIO_RATE             48000u
++#define PONG_AUDIO_PERIOD_FRAMES    480u
++#define PONG_AUDIO_PERIOD_BYTES     (PONG_AUDIO_PERIOD_FRAMES * 2u * 4u)
++#define PONG_AUDIO_SLOTS            8u
++#define PONG_AUDIO_LEAD_FRAMES      (30u * PONG_AUDIO_PERIOD_FRAMES)
++#define PONG_AUDIO_RING_FRAMES      65536u
++#define PONG_AUDIO_GPR_PORT         0x2001u
++
++#define PONG_ADSP_PA                0x9fd00000u
++#define PONG_ADSP_SIZE              0x03100000u
++#define PONG_SMEM_PA                0x80900000u
++/* K60_WINDOW_BUDGET: io_submap is 8 MiB kernel-wide (osfmk/arm/io_map.c:65)
++ * and io_map() panics on KERN_NO_SPACE. usblog already holds ~2 MiB and touch
++ * ~0.7 MiB, so asking for a 2 MiB SMEM window here is what pushed the total
++ * over the limit. The skeleton only prints the window, it does not walk it,
++ * so 64 KiB is enough to prove the mapping works; revisit when the real SMEM
++ * reader lands (it must then map what it actually touches, not the whole area). */
++#define PONG_SMEM_SIZE              0x00010000u
++#define PONG_IPCC_PA                0x0ed18000u
++#define PONG_IPCC_SIZE              0x00001000u
++#define PONG_AOSS_PA                0x0c300000u
++#define PONG_AOSS_SIZE              0x00000400u
++#define PONG_AUDIO_SID              0x1801u
++#define PONG_AUDIO_DMA_BYTES        0x00010000u
++#define PONG_AUDIO_TDM_CLK_HZ       1536000u
++#define PONG_AUDIO_TDM_TX_LINES     3u
++
++/* ------------------------------------------------------------------------- */
++/* ShengAudioAbi-compatible control page (kernel view)                       */
++/* ------------------------------------------------------------------------- */
++
++#define SHENG_AUDIO_MAGIC           0x53484155u
++#define SHENG_AUDIO_VERSION         2u
++#define SHENG_AUDIO_OUT_CHANNELS    2u
++#define SHENG_AUDIO_IN_CHANNELS     0u
++
++typedef struct {
++	uint32_t magic;
++	uint32_t version;
++	uint32_t rate;
++	uint32_t out_channels;
++	uint32_t in_channels;
++	uint32_t period_frames;
++	uint32_t ring_frames;
++	uint32_t lead_frames;
++	volatile uint32_t state;
++	uint32_t reserved0;
++	uint64_t ticks_per_frame_q32;
++	volatile uint64_t out_anchor_host;
++	volatile uint64_t in_anchor_host;
++	volatile uint64_t out_frames;
++	volatile uint64_t in_frames;
++	volatile uint32_t out_late;
++	volatile uint32_t in_late;
++	volatile uint32_t out_seq;
++	volatile uint32_t in_seq;
++	volatile uint32_t out_gain_q16;
++	volatile uint32_t out_muted;
++} PongAudioControl;
++
++/* ------------------------------------------------------------------------- */
++/* GPR packet format (ported from ShengGpr.c/h, BSD-2-Clause)                */
++/* ------------------------------------------------------------------------- */
++
++#define GPR_VERSION                 3u
++#define GPR_HEADER_BYTES            24u
++#define GPR_MAX_PACKET              560u
++#define GPR_DOMAIN_ADSP             2u
++#define GPR_DOMAIN_APPS             3u
++#define GPR_PORT_APM                1u
++#define GPR_OP_BASIC_RESULT         0x02000002u
++#define GPR_OP_APM_GET_SPF_STATE    0x0100100Du
++#define GPR_OP_APM_SPF_STATE        0x02001007u
++
++typedef struct {
++	uint8_t version;
++	uint8_t header_bytes;
++	uint16_t size;
++	uint8_t dst_domain;
++	uint8_t src_domain;
++	uint16_t reserved;
++	uint32_t src_port;
++	uint32_t dst_port;
++	uint32_t token;
++	uint32_t opcode;
++	const uint8_t *payload;
++	uint32_t payload_bytes;
++} PongGprPacket;
++
++enum {
++	PongGprOk = 0,
++	PongGprShort = -1,
++	PongGprBadVersion = -2,
++	PongGprBadHeader = -3,
++	PongGprBadSize = -4
++};
++
++static void
++pong_raw32(uint8_t *p, uint32_t v)
++{
++	p[0] = (uint8_t)v;
++	p[1] = (uint8_t)(v >> 8);
++	p[2] = (uint8_t)(v >> 16);
++	p[3] = (uint8_t)(v >> 24);
++}
++
++static uint32_t
++pong_le32(const uint8_t *p)
++{
++	return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 |
++	    (uint32_t)p[3] << 24;
++}
++
++static uint32_t
++pong_gpr_encode(uint8_t *out, uint32_t capacity, const PongGprPacket *packet,
++    const void *payload, uint32_t payload_bytes)
++{
++	if (payload_bytes > GPR_MAX_PACKET - GPR_HEADER_BYTES ||
++	    (payload_bytes != 0 && payload == NULL)) {
++		return 0;
++	}
++	const uint32_t size = GPR_HEADER_BYTES + payload_bytes;
++	if (size > capacity) {
++		return 0;
++	}
++	pong_raw32(out, (GPR_VERSION & 0xfu) | (GPR_HEADER_BYTES / 4u) << 4 |
++	    size << 8);
++	pong_raw32(out + 4, (packet->dst_domain & 0xffu) |
++	    (packet->src_domain & 0xffu) << 8);
++	pong_raw32(out + 8, packet->src_port);
++	pong_raw32(out + 12, packet->dst_port);
++	pong_raw32(out + 16, packet->token);
++	pong_raw32(out + 20, packet->opcode);
++	if (payload_bytes != 0) {
++		memcpy(out + GPR_HEADER_BYTES, payload, payload_bytes);
++	}
++	return size;
++}
++
++static int
++pong_gpr_decode(const uint8_t *in, uint32_t length, PongGprPacket *packet)
++{
++	if (length < GPR_HEADER_BYTES) {
++		return PongGprShort;
++	}
++	const uint32_t w0 = pong_le32(in);
++	const uint32_t w1 = pong_le32(in + 4);
++	packet->version = (uint8_t)(w0 & 0xfu);
++	packet->header_bytes = (uint8_t)(((w0 >> 4) & 0xfu) * 4u);
++	packet->size = (uint16_t)(w0 >> 8);
++	if (packet->version != GPR_VERSION) {
++		return PongGprBadVersion;
++	}
++	if (packet->header_bytes < GPR_HEADER_BYTES) {
++		return PongGprBadHeader;
++	}
++	if (packet->size < packet->header_bytes || packet->size > length) {
++		return PongGprBadSize;
++	}
++	packet->dst_domain = (uint8_t)(w1 & 0xffu);
++	packet->src_domain = (uint8_t)((w1 >> 8) & 0xffu);
++	packet->src_port = pong_le32(in + 8);
++	packet->dst_port = pong_le32(in + 12);
++	packet->token = pong_le32(in + 16);
++	packet->opcode = pong_le32(in + 20);
++	packet->payload = in + packet->header_bytes;
++	packet->payload_bytes = packet->size - packet->header_bytes;
++	return PongGprOk;
++}
++
++/* ------------------------------------------------------------------------- */
++/* AudioReach packet builders (ported from PongPower/ShengAudioReach.c)      */
++/* ------------------------------------------------------------------------- */
++
++#define AR_APM_IID                  1u
++#define AR_OP_GRAPH_OPEN            0x01001000u
++#define AR_OP_GRAPH_PREPARE         0x01001001u
++#define AR_OP_GRAPH_START           0x01001002u
++#define AR_OP_GRAPH_STOP            0x01001003u
++#define AR_OP_GRAPH_CLOSE           0x01001004u
++#define AR_OP_SET_CFG               0x01001006u
++#define AR_OP_MEM_MAP               0x0100100Cu
++#define AR_OP_MEM_UNMAP             0x0100100Du
++#define AR_OP_MEM_MAP_DONE          0x02001001u
++#define AR_OP_WRITE                 0x0400100Au
++#define AR_OP_WRITE_DONE            0x05001004u
++#define AR_OP_EOS_RENDERED          0x05001001u
++
++#define AR_MOD_WR_SHMEM             0x07001000u
++#define AR_MOD_PCM_CNV              0x07001003u
++#define AR_MOD_PCM_DEC              0x07001005u
++#define AR_MOD_I2S_SINK             0x0700100Au
++
++/* TODO(k60): these instance IDs are copied from Pong's topology. They MUST
++ * be replaced by K60 ADSP graph enumeration before any graph is started
++ * (PORTING-PIPELINE item ⑦: do not treat inferred values as configuration). */
++#define AR_SG_PLAY                  0x4001u
++#define AR_SG_SPEAKER               0x4005u
++#define AR_IID_PLAY_SHMEM           0x6001u
++#define AR_IID_PLAY_DEC             0x6002u
++#define AR_IID_PLAY_CNV             0x6003u
++#define AR_IID_SPEAKER_I2S          0x6051u
++
++#define AR_PRM_IID                  2u
++#define AR_OP_PRM_REQUEST           0x0100100Fu
++#define AR_OP_PRM_RELEASE           0x01001010u
++#define AR_OP_PRM_REQUEST_DONE      0x02001002u
++#define AR_OP_PRM_RELEASE_DONE      0x02001003u
++
++#define PARAM_SG_CONFIG             0x08001001u
++#define PARAM_CONTAINER_CONFIG      0x08001000u
++#define PARAM_MODULE_LIST           0x08001002u
++#define PARAM_MODULE_PROP           0x08001003u
++#define PARAM_MODULE_CONN           0x08001004u
++#define PARAM_SG_LIST               0x08001005u
++#define PARAM_I2S_INTF              0x08001019u
++#define PARAM_HW_EP_MF              0x08001017u
++#define PARAM_FRAME_SIZE_FACTOR     0x08001018u
++#define PARAM_PCM_OUTPUT            0x08001008u
++#define PARAM_MEDIA_FORMAT          0x0800100Cu
++#define PARAM_HEADER                16u
++#define CMD_HEADER                  16u
++#define PERF_LOW_LATENCY            2u
++#define DIR_TX                      1u
++#define DIR_RX                      2u
++#define SCENARIO_PLAYBACK           1u
++#define POS_STREAM                  1u
++#define POS_GLOBAL_DEV              4u
++#define DOMAIN_ADSP                 2u
++#define STACK_SIZE                  8192u
++#define OUT_PORT                    1u
++#define IN_PORT                     2u
++#define LPAIF_TYPE                  0u
++#define I2S_TERTIARY                2u
++#define I2S_SPEAKER_SD              3u /* K60: SD0|SD1, live-fdt.dts:20063 */
++#define WS_INTERNAL                 1u
++#define INTERLEAVED                 1u
++#define DEINTERLEAVED_UNPACKED      3u
++
++typedef struct {
++	uint8_t *p;
++	uint32_t n;
++	uint32_t cap;
++	int bad;
++} PongWriter;
++
++typedef struct {
++	uint32_t rate;
++	uint16_t bits;
++	uint16_t channels;
++} PongArFormat;
++
++static void
++pong_put8(PongWriter *w, uint32_t v)
++{
++	if (w->n + 1 > w->cap) {
++		w->bad = 1;
++		return;
++	}
++	w->p[w->n++] = (uint8_t)v;
++}
++
++static void
++pong_put16(PongWriter *w, uint32_t v)
++{
++	pong_put8(w, v);
++	pong_put8(w, v >> 8);
++}
++
++static void
++pong_put32(PongWriter *w, uint32_t v)
++{
++	pong_put16(w, v);
++	pong_put16(w, v >> 16);
++}
++
++static void
++pong_pad_to(PongWriter *w, uint32_t end)
++{
++	while (!w->bad && w->n < end) {
++		pong_put8(w, 0);
++	}
++}
++
++static uint32_t
++pong_align8(uint32_t v)
++{
++	return (v + 7u) & ~7u;
++}
++
++static void
++pong_set32(PongWriter *w, uint32_t at, uint32_t v)
++{
++	if (at + 4 <= w->n) {
++		w->p[at] = (uint8_t)v;
++		w->p[at + 1] = (uint8_t)(v >> 8);
++		w->p[at + 2] = (uint8_t)(v >> 16);
++		w->p[at + 3] = (uint8_t)(v >> 24);
++	}
++}
++
++static void
++pong_begin(PongWriter *w, uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t dst, uint32_t token, uint32_t opcode)
++{
++	w->p = out;
++	w->n = 0;
++	w->cap = capacity < GPR_MAX_PACKET ? capacity : GPR_MAX_PACKET;
++	w->bad = 0;
++	pong_put32(w, 0);
++	pong_put32(w, GPR_DOMAIN_ADSP | GPR_DOMAIN_APPS << 8);
++	pong_put32(w, port);
++	pong_put32(w, dst);
++	pong_put32(w, token);
++	pong_put32(w, opcode);
++}
++
++static uint32_t
++pong_finish(PongWriter *w)
++{
++	if (w->bad) {
++		return 0;
++	}
++	pong_set32(w, 0, (GPR_VERSION & 0xfu) | (GPR_HEADER_BYTES / 4u) << 4 |
++	    w->n << 8);
++	return w->n;
++}
++
++static void
++pong_cmd_header(PongWriter *w, uint32_t payload)
++{
++	pong_put32(w, 0);
++	pong_put32(w, 0);
++	pong_put32(w, 0);
++	pong_put32(w, payload);
++}
++
++static uint32_t
++pong_cmd_payload_start(PongWriter *w)
++{
++	const uint32_t at = w->n;
++	pong_cmd_header(w, 0);
++	return at;
++}
++
++static void
++pong_cmd_payload_end(PongWriter *w, uint32_t at)
++{
++	pong_set32(w, at + 12, w->n - at - CMD_HEADER);
++}
++
++static uint32_t
++pong_param_begin(PongWriter *w, uint32_t iid, uint32_t id)
++{
++	const uint32_t at = w->n;
++	pong_put32(w, iid);
++	pong_put32(w, id);
++	pong_put32(w, 0);
++	pong_put32(w, 0);
++	return at;
++}
++
++static void
++pong_param_end(PongWriter *w, uint32_t at)
++{
++	pong_pad_to(w, at + pong_align8(w->n - at));
++	pong_set32(w, at + 8, w->n - at - PARAM_HEADER);
++}
++
++typedef struct {
++	uint32_t id;
++	uint32_t perf;
++	uint32_t direction;
++	uint32_t scenario;
++} PongSg;
++
++typedef struct {
++	uint32_t id;
++	uint32_t position;
++} PongContainer;
++
++typedef struct {
++	uint32_t module;
++	uint32_t iid;
++	uint32_t inputs;
++	uint32_t outputs;
++} PongModule;
++
++typedef struct {
++	uint32_t from;
++	uint32_t to;
++} PongLink;
++
++static uint32_t
++pong_graph_open(uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t token, const PongSg *sg, const PongContainer *c,
++    const PongModule *m, unsigned modules, const PongLink *l, unsigned links)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_APM_IID, token, AR_OP_GRAPH_OPEN);
++	const uint32_t cmd = pong_cmd_payload_start(&w);
++	uint32_t at = pong_param_begin(&w, AR_APM_IID, PARAM_SG_CONFIG);
++	pong_put32(&w, 1);
++	pong_put32(&w, sg->id);
++	pong_put32(&w, 3);
++	pong_put32(&w, 0x0800100Eu);
++	pong_put32(&w, 4);
++	pong_put32(&w, sg->perf);
++	pong_put32(&w, 0x0800100Fu);
++	pong_put32(&w, 4);
++	pong_put32(&w, sg->direction);
++	pong_put32(&w, 0x08001010u);
++	pong_put32(&w, 4);
++	pong_put32(&w, sg->scenario);
++	pong_param_end(&w, at);
++	at = pong_param_begin(&w, AR_APM_IID, PARAM_CONTAINER_CONFIG);
++	pong_put32(&w, 1);
++	pong_put32(&w, c->id);
++	pong_put32(&w, 4);
++	pong_put32(&w, 0x08001011u);
++	pong_put32(&w, 8);
++	pong_put32(&w, 1);
++	pong_put32(&w, 0x0B001001u);
++	pong_put32(&w, 0x08001012u);
++	pong_put32(&w, 4);
++	pong_put32(&w, c->position);
++	pong_put32(&w, 0x08001013u);
++	pong_put32(&w, 4);
++	pong_put32(&w, STACK_SIZE);
++	pong_put32(&w, 0x08001014u);
++	pong_put32(&w, 4);
++	pong_put32(&w, DOMAIN_ADSP);
++	pong_param_end(&w, at);
++	at = pong_param_begin(&w, AR_APM_IID, PARAM_MODULE_LIST);
++	pong_put32(&w, 1);
++	pong_put32(&w, sg->id);
++	pong_put32(&w, c->id);
++	pong_put32(&w, modules);
++	for (unsigned i = 0; i < modules; ++i) {
++		pong_put32(&w, m[i].module);
++		pong_put32(&w, m[i].iid);
++	}
++	pong_param_end(&w, at);
++	at = pong_param_begin(&w, AR_APM_IID, PARAM_MODULE_PROP);
++	pong_put32(&w, modules);
++	for (unsigned i = 0; i < modules; ++i) {
++		pong_put32(&w, m[i].iid);
++		pong_put32(&w, 1);
++		pong_put32(&w, 0x08001015u);
++		pong_put32(&w, 8);
++		pong_put32(&w, m[i].inputs);
++		pong_put32(&w, m[i].outputs);
++	}
++	pong_param_end(&w, at);
++	at = pong_param_begin(&w, AR_APM_IID, PARAM_MODULE_CONN);
++	pong_put32(&w, links);
++	for (unsigned i = 0; i < links; ++i) {
++		pong_put32(&w, l[i].from);
++		pong_put32(&w, OUT_PORT);
++		pong_put32(&w, l[i].to);
++		pong_put32(&w, IN_PORT);
++	}
++	pong_param_end(&w, at);
++	pong_cmd_payload_end(&w, cmd);
++	return pong_finish(&w);
++}
++
++static uint32_t
++pong_ar_open_speaker_device(uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t token)
++{
++	static const PongSg sg = { AR_SG_SPEAKER, PERF_LOW_LATENCY, DIR_RX,
++		SCENARIO_PLAYBACK };
++	static const PongContainer c = { AR_SG_SPEAKER, POS_GLOBAL_DEV };
++	static const PongModule m[] = {
++		{ AR_MOD_I2S_SINK, AR_IID_SPEAKER_I2S, 1, 0 }
++	};
++	return pong_graph_open(out, capacity, port, token, &sg, &c, m, 1, NULL,
++	    0);
++}
++
++static uint32_t
++pong_ar_open_playback_stream(uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t token)
++{
++	static const PongSg sg = { AR_SG_PLAY, PERF_LOW_LATENCY, DIR_RX,
++		SCENARIO_PLAYBACK };
++	static const PongContainer c = { AR_SG_PLAY, POS_STREAM };
++	static const PongModule m[] = {
++		{ AR_MOD_WR_SHMEM, AR_IID_PLAY_SHMEM, 0, 1 },
++		{ AR_MOD_PCM_DEC, AR_IID_PLAY_DEC, 1, 1 },
++		{ AR_MOD_PCM_CNV, AR_IID_PLAY_CNV, 1, 1 }
++	};
++	static const PongLink l[] = {
++		{ AR_IID_PLAY_SHMEM, AR_IID_PLAY_DEC },
++		{ AR_IID_PLAY_DEC, AR_IID_PLAY_CNV },
++		{ AR_IID_PLAY_CNV, AR_IID_SPEAKER_I2S }
++	};
++	return pong_graph_open(out, capacity, port, token, &sg, &c, m, 3, l,
++	    3);
++}
++
++static void
++pong_hw_ep_mf(PongWriter *w, uint32_t iid, const PongArFormat *f)
++{
++	const uint32_t at = pong_param_begin(w, iid, PARAM_HW_EP_MF);
++	pong_put32(w, f->rate);
++	pong_put16(w, f->bits);
++	pong_put16(w, f->channels);
++	pong_put32(w, 1);
++	pong_param_end(w, at);
++}
++
++static void
++pong_frame_size_factor(PongWriter *w, uint32_t iid)
++{
++	const uint32_t at = pong_param_begin(w, iid, PARAM_FRAME_SIZE_FACTOR);
++	pong_put32(w, 1);
++	pong_param_end(w, at);
++}
++
++static uint32_t
++pong_ar_config_speaker_device(uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t token, const PongArFormat *f)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_APM_IID, token, AR_OP_SET_CFG);
++	const uint32_t cmd = pong_cmd_payload_start(&w);
++	const uint32_t at = pong_param_begin(&w, AR_IID_SPEAKER_I2S,
++	    PARAM_I2S_INTF);
++	pong_put32(&w, LPAIF_TYPE);
++	pong_put32(&w, I2S_TERTIARY);
++	pong_put16(&w, I2S_SPEAKER_SD);
++	pong_put16(&w, WS_INTERNAL);
++	pong_param_end(&w, at);
++	pong_hw_ep_mf(&w, AR_IID_SPEAKER_I2S, f);
++	pong_frame_size_factor(&w, AR_IID_SPEAKER_I2S);
++	pong_cmd_payload_end(&w, cmd);
++	return pong_finish(&w);
++}
++
++static void
++pong_pcm_output(PongWriter *w, uint32_t iid, const PongArFormat *f,
++    uint32_t interleaving)
++{
++	const uint32_t at = pong_param_begin(w, iid, PARAM_PCM_OUTPUT);
++	pong_put32(w, 1);
++	pong_put32(w, 0x09001000u);
++	pong_put32(w, (16u + f->channels + 3u) & ~3u);
++	pong_put16(w, f->bits);
++	pong_put16(w, 1);
++	pong_put16(w, f->bits);
++	pong_put16(w, f->bits - 1u);
++	pong_put16(w, 1);
++	pong_put16(w, interleaving);
++	pong_put16(w, 0);
++	pong_put16(w, f->channels);
++	for (unsigned i = 0; i < f->channels; ++i) {
++		pong_put8(w, i + 1u);
++	}
++	pong_param_end(w, at);
++}
++
++static uint32_t
++pong_ar_config_playback_stream(uint8_t *out, uint32_t capacity,
++    uint32_t port, uint32_t token, const PongArFormat *f)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_APM_IID, token, AR_OP_SET_CFG);
++	const uint32_t cmd = pong_cmd_payload_start(&w);
++	pong_pcm_output(&w, AR_IID_PLAY_DEC, f, INTERLEAVED);
++	pong_pcm_output(&w, AR_IID_PLAY_CNV, f, DEINTERLEAVED_UNPACKED);
++	pong_cmd_payload_end(&w, cmd);
++	return pong_finish(&w);
++}
++
++static uint32_t
++pong_ar_config_playback_shmem(uint8_t *out, uint32_t capacity,
++    uint32_t port, uint32_t token, const PongArFormat *f)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_IID_PLAY_SHMEM, token,
++	    AR_OP_SET_CFG);
++	const uint32_t cmd = pong_cmd_payload_start(&w);
++	const uint32_t at = pong_param_begin(&w, AR_IID_PLAY_SHMEM,
++	    PARAM_MEDIA_FORMAT);
++	const uint32_t pcm_bytes = (16u + f->channels + 3u) & ~3u;
++	pong_put32(&w, 1);
++	pong_put32(&w, 0x09001000u);
++	pong_put32(&w, pcm_bytes);
++	pong_put32(&w, f->rate);
++	pong_put16(&w, f->bits);
++	pong_put16(&w, 1);
++	pong_put16(&w, f->bits);
++	pong_put16(&w, f->bits - 1u);
++	pong_put16(&w, 1);
++	pong_put16(&w, f->channels);
++	for (unsigned i = 0; i < f->channels; ++i) {
++		pong_put8(&w, i + 1u);
++	}
++	pong_param_end(&w, at);
++	pong_cmd_payload_end(&w, cmd);
++	return pong_finish(&w);
++}
++
++static uint32_t
++pong_ar_graph_command(uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t token, uint32_t opcode, uint32_t sg)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_APM_IID, token, opcode);
++	const uint32_t cmd = pong_cmd_payload_start(&w);
++	const uint32_t at = pong_param_begin(&w, AR_APM_IID, PARAM_SG_LIST);
++	pong_put32(&w, 1);
++	pong_put32(&w, sg);
++	pong_param_end(&w, at);
++	pong_cmd_payload_end(&w, cmd);
++	return pong_finish(&w);
++}
++
++static uint32_t
++pong_ar_map(uint8_t *out, uint32_t capacity, uint32_t port, uint32_t token,
++    uint64_t address, uint32_t bytes)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_APM_IID, token, AR_OP_MEM_MAP);
++	pong_put16(&w, 3);
++	pong_put16(&w, 1);
++	pong_put32(&w, 0);
++	pong_put32(&w, (uint32_t)address);
++	pong_put32(&w, (uint32_t)(address >> 32));
++	pong_put32(&w, (bytes + 4095u) & ~4095u);
++	pong_pad_to(&w, w.n + CMD_HEADER);
++	return pong_finish(&w);
++}
++
++static uint32_t
++pong_ar_write(uint8_t *out, uint32_t capacity, uint32_t port, uint32_t token,
++    uint64_t address, uint32_t handle, uint32_t bytes)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_IID_PLAY_SHMEM, token, AR_OP_WRITE);
++	pong_put32(&w, (uint32_t)address);
++	pong_put32(&w, (uint32_t)(address >> 32));
++	pong_put32(&w, handle);
++	pong_put32(&w, bytes);
++	pong_put32(&w, 0);
++	pong_put32(&w, 0);
++	pong_put32(&w, 0);
++	pong_put32(&w, 0);
++	pong_put32(&w, 0);
++	pong_put32(&w, 0);
++	pong_put32(&w, 0);
++	return pong_finish(&w);
++}
++
++static uint32_t
++pong_ar_prm_clock(uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t token, uint32_t clock_id, uint32_t hz)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_PRM_IID, token,
++	    hz ? AR_OP_PRM_REQUEST : AR_OP_PRM_RELEASE);
++	const uint32_t cmd = pong_cmd_payload_start(&w);
++	const uint32_t at = pong_param_begin(&w, AR_PRM_IID, 0x0800102Cu);
++	pong_put32(&w, 1);
++	pong_put32(&w, clock_id);
++	if (hz != 0) {
++		pong_put32(&w, hz);
++		pong_put32(&w, 1);
++		pong_put32(&w, 0);
++	}
++	pong_set32(&w, at + 8, w.n - at - PARAM_HEADER);
++	pong_cmd_payload_end(&w, cmd);
++	return pong_finish(&w);
++}
++
++typedef struct {
++	uint32_t opcode;
++	uint32_t token;
++	uint32_t src_port;
++	uint32_t result_opcode;
++	uint32_t status;
++	uint32_t handle;
++	uint64_t address;
++	uint32_t data_bytes;
++	uint32_t offset;
++} PongArAnswer;
++
++enum {
++	PongArUnknown = 0,
++	PongArBasicResult = 1,
++	PongArMapped = 2,
++	PongArWriteDone = 3,
++	PongArFrameworkState = 5,
++	PongArPrmDone = 6,
++	PongArBad = -1
++};
++
++static int
++pong_ar_parse(const uint8_t *in, uint32_t length, PongArAnswer *a)
++{
++	PongGprPacket p;
++	memset(a, 0, sizeof(*a));
++	if (pong_gpr_decode(in, length, &p) != PongGprOk) {
++		return PongArBad;
++	}
++	a->opcode = p.opcode;
++	a->token = p.token;
++	a->src_port = p.src_port;
++	const uint8_t *d = p.payload;
++	switch (p.opcode) {
++	case GPR_OP_BASIC_RESULT:
++		if (p.payload_bytes < 8) {
++			return PongArBad;
++		}
++		a->result_opcode = pong_le32(d);
++		a->status = pong_le32(d + 4);
++		return PongArBasicResult;
++	case AR_OP_PRM_REQUEST_DONE:
++	case AR_OP_PRM_RELEASE_DONE:
++		if (p.payload_bytes < 4) {
++			return PongArBad;
++		}
++		a->status = pong_le32(d + (p.payload_bytes >= 8 ? 4 : 0));
++		return PongArPrmDone;
++	case GPR_OP_APM_SPF_STATE:
++		if (p.payload_bytes < 4) {
++			return PongArBad;
++		}
++		a->status = pong_le32(d);
++		return PongArFrameworkState;
++	case AR_OP_MEM_MAP_DONE:
++		if (p.payload_bytes < 4) {
++			return PongArBad;
++		}
++		a->handle = pong_le32(d);
++		return PongArMapped;
++	case AR_OP_WRITE_DONE:
++		if (p.payload_bytes < 16) {
++			return PongArBad;
++		}
++		a->address = pong_le32(d) | (uint64_t)pong_le32(d + 4) << 32;
++		a->handle = pong_le32(d + 8);
++		a->status = pong_le32(d + 12);
++		return PongArWriteDone;
++	default:
++		return PongArUnknown;
++	}
++}
++
++/* ------------------------------------------------------------------------- */
++/* Kernel-side state and skeleton entry points                               */
++/* ------------------------------------------------------------------------- */
++
++typedef struct {
++	vm_offset_t adsp;
++	vm_offset_t smem;
++	vm_offset_t ipcc;
++	vm_offset_t aoss;
++	uint64_t dma_pa;
++	uint32_t dma_size;
++	uint32_t graph_state;
++	bool mapped;
++	bool service_ready;
++} PongAudioState;
++
++static PongAudioState g_pong_audio;
++
++static bool
++pong_audio_map(void)
++{
++	if (g_pong_audio.mapped) {
++		return true;
++	}
++	/* TODO(k60): map only what the probe needs; PAS1 firmware loading
++	 * will map the full 0x9fd00000+0x3100000 carveout after the SCM
++	 * call path exists. Mapping the first page here is a compile-time
++	 * placeholder, not an ADSP access. */
++	g_pong_audio.adsp = ml_io_map(PONG_ADSP_PA, 0x1000);
++	g_pong_audio.smem = ml_io_map(PONG_SMEM_PA, PONG_SMEM_SIZE);
++	g_pong_audio.ipcc = ml_io_map(PONG_IPCC_PA, PONG_IPCC_SIZE);
++	g_pong_audio.aoss = ml_io_map(PONG_AOSS_PA, PONG_AOSS_SIZE);
++	if (!g_pong_audio.adsp || !g_pong_audio.smem || !g_pong_audio.ipcc ||
++	    !g_pong_audio.aoss) {
++		printf("PongAudio: map failed adsp=%lx smem=%lx ipcc=%lx aoss=%lx\n",
++		    (unsigned long)g_pong_audio.adsp,
++		    (unsigned long)g_pong_audio.smem,
++		    (unsigned long)g_pong_audio.ipcc,
++		    (unsigned long)g_pong_audio.aoss);
++		return false;
++	}
++	g_pong_audio.mapped = true;
++	printf("PongAudio: ADSP carveout 0x%x+0x%x, SMEM 0x%x+0x%x, "
++	    "IPCC 0x%x/IRQ261 (skeleton)\n", PONG_ADSP_PA, PONG_ADSP_SIZE,
++	    PONG_SMEM_PA, PONG_SMEM_SIZE, PONG_IPCC_PA);
++	return true;
++}
++
++int pong_audio_bootstrap(void);
++int pong_audio_start(void);
++int pong_audio_stop(void);
++int pong_audio_submit(const void *frames, uint32_t frame_count);
++int pong_audio_status(void);
++int pong_audio_selftest(void);
++extern int aw882xx_bootstrap(void);
++
++static void
++pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
++{
++	(void)pong_audio_start();
++	thread_terminate_self();
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++int
++pong_audio_bootstrap(void)
++{
++	int mode = 0;
++	if (!PE_parse_boot_argn("pong_audio", &mode, sizeof(mode)) || mode == 0) {
++		return 0;
++	}
++	/* The amplifier driver has its own boot-arg gate (pong_aw882xx);
++	 * calling it here keeps the two components independent. */
++	(void)aw882xx_bootstrap();
++	thread_t thread = NULL;
++	if (kernel_thread_start(pong_audio_worker, NULL, &thread) !=
++	    KERN_SUCCESS) {
++		printf("PongAudio: worker thread creation failed\n");
++		return -1;
++	}
++	thread_deallocate(thread);
++	return 0;
++}
++
++int
++pong_audio_start(void)
++{
++	int mode = 0;
++	if (!PE_parse_boot_argn("pong_audio", &mode, sizeof(mode)) || mode == 0) {
++		return 0;
++	}
++	if (!pong_audio_map()) {
++		return -1;
++	}
++	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
++	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
++	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
++	printf("PongAudio: EXPERIMENTAL skeleton; PAS1/AudioReach not started\n");
++	return 0;
++}
++
++int
++pong_audio_stop(void)
++{
++	g_pong_audio.service_ready = false;
++	return 0;
++}
++
++int
++pong_audio_submit(const void *frames, uint32_t frame_count)
++{
++	(void)frames;
++	(void)frame_count;
++	/* TODO(k60): connect to PongAudio.cpp:285-327 submit() and the
++	 * AudioReach AR_OP_WRITE path once the graph is open. */
++	return ENOTSUP;
++}
++
++int
++pong_audio_status(void)
++{
++	return g_pong_audio.service_ready ? 1 : 0;
++}
++
++/* Compile-time coverage of every pure packet builder. This is not a hardware
++ * self-test and is not called from bsd_init; it keeps the builders linked and
++ * gives a future unit test a single entry point. */
++int
++pong_audio_selftest(void)
++{
++	uint8_t buf[512];
++	const PongArFormat f = { PONG_AUDIO_RATE, 32, 2 };
++	uint32_t built = 0;
++	built += pong_ar_open_speaker_device(buf, sizeof(buf), PONG_AUDIO_GPR_PORT,
++	    1);
++	built += pong_ar_config_speaker_device(buf, sizeof(buf),
++	    PONG_AUDIO_GPR_PORT, 2, &f);
++	built += pong_ar_open_playback_stream(buf, sizeof(buf),
++	    PONG_AUDIO_GPR_PORT, 3);
++	built += pong_ar_config_playback_stream(buf, sizeof(buf),
++	    PONG_AUDIO_GPR_PORT, 4, &f);
++	built += pong_ar_config_playback_shmem(buf, sizeof(buf),
++	    PONG_AUDIO_GPR_PORT, 5, &f);
++	built += pong_ar_graph_command(buf, sizeof(buf), PONG_AUDIO_GPR_PORT,
++	    6, AR_OP_GRAPH_PREPARE, AR_SG_PLAY);
++	built += pong_ar_map(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 7,
++	    0x10000000ull, PONG_AUDIO_DMA_BYTES);
++	built += pong_ar_write(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 8,
++	    0x10000000ull, 1, PONG_AUDIO_PERIOD_BYTES);
++	built += pong_ar_prm_clock(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 9,
++	    0x104u, PONG_AUDIO_TDM_CLK_HZ);
++	PongGprPacket p = { 0 };
++	p.dst_domain = GPR_DOMAIN_ADSP;
++	p.src_domain = GPR_DOMAIN_APPS;
++	p.src_port = PONG_AUDIO_GPR_PORT;
++	p.dst_port = GPR_PORT_APM;
++	p.token = 10;
++	p.opcode = GPR_OP_APM_GET_SPF_STATE;
++	built += pong_gpr_encode(buf, sizeof(buf), &p, NULL, 0);
++	PongArAnswer answer;
++	(void)pong_ar_parse(buf, built <= sizeof(buf) ? built : sizeof(buf),
++	    &answer);
++	printf("PongAudio: packet self-test bytes=%u (compile coverage only)\n",
++	    built);
++	return (int)built;
++}

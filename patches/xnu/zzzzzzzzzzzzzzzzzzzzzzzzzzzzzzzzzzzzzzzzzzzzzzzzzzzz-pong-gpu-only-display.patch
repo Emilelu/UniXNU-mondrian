@@ -1,6 +1,6 @@
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-@@ -242,6 +242,7 @@
+@@ -271,6 +271,7 @@
  	uint32_t        fFrameTimes[FRAME_TIMES + 1], fFramePauses, fFrameLongest;
  	/* boot-arg fb_diff=1: which pixels of the panel each frame changed (it costs: the panel's memory is slow to read) */
  	bool            fDiff;
@@ -8,7 +8,7 @@
  	uint64_t        fDiffPixels;
  	uint32_t        fDiffLeft, fDiffTop, fDiffRight, fDiffBottom;
  	/* the screen recording, if one was asked for */
-@@ -351,6 +352,9 @@
+@@ -384,6 +385,9 @@
  	if (!IOService::start(provider)) {
  		return false;
  	}
@@ -18,7 +18,7 @@
  	if (vinfo.v_baseaddr == 0 || vinfo.v_width == 0 || vinfo.v_height == 0 || vinfo.v_depth != 32) {
  		IOLog("MiniIOMobileFramebuffer: no usable boot framebuffer (%ux%u, depth %u)\n", vinfo.v_width, vinfo.v_height,
  		    vinfo.v_depth);
-@@ -868,7 +872,7 @@
+@@ -955,7 +959,7 @@
  		    swapWord(swap, SWAP_SURFACE(2)), swapWord(swap, SWAP_SURFACE(3)), set, swapWord(swap, SWAP_LAYERS_CLEARED));
  	}
  	/* The firmware scanout is linear BGRA. Hand off only one full-size,
@@ -27,14 +27,13 @@
  	 * No CPU writes may race an outstanding GPU copy after a timeout. */
  	bool gpuFrame=false;
  	if(pong_scanout_quarantined()){IOLockUnlock(fLock);return;}
-@@ -889,8 +893,17 @@
+@@ -976,8 +980,17 @@
  			PE_initialize_console(NULL,kPEGraphicsMode);
  			PE_initialize_console(NULL,kPEReleaseScreen);
  		}
 -		gpuFrame=pong_scanout_frame(memory,offset,fRowBytes,fPanelWidth,fPanelHeight)!=0;
--	}
 +		gpuFrame=pong_scanout_frame(memory,offset,fRowBytes,fPanelWidth,fPanelHeight)==1;
-+	}
+ 	}
 +	/* A delivered GPU copy whose completion is uncertain must never race a
 +	 * CPU write. Result 2 poisons the handoff; result 0 permits CPU fallback. */
 +	if(pong_scanout_quarantined()){IOLockUnlock(fLock);return;}
@@ -47,7 +46,7 @@
  	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
  		uint32_t sid = swapWord(swap, SWAP_SURFACE(layer));
  		int32_t src[4], dst[4];
-@@ -906,9 +919,9 @@
+@@ -993,9 +1006,9 @@
  		}
  		if (sid == 0) {
  			/* the bottom layer taken away: nothing is shown, the screen is black */
@@ -59,9 +58,7 @@
  				}
  			}
  			continue;
-@@ -988,7 +1020,7 @@
- 				fGraphics = true;
- 				PE_initialize_console(NULL, kPEGraphicsMode);
+@@ -1022,5 +1035,5 @@
  			}
 -			if(!gpuFrame)drawLayer(s, src, dst);
 +			if (!gpuFrame) drawLayer(s, src, dst);

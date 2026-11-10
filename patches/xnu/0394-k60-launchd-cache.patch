@@ -1,6 +1,6 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -8078,6 +8078,41 @@
+@@ -8078,6 +8078,44 @@
  }
  #endif
  
@@ -23,7 +23,10 @@
 +	int error;
 +	int resid = 0;
 +
-+	error = vnode_open("/private/var/pong/launchd.plist",
++	/* The helper bind-mounts /private/var/pong/xpc over /System/Library/xpc, so
++	 * the cache has to live inside that directory; writing it to pong/ directly
++	 * left it outside the bind and launchd kept reading the stock cache. */
++	error = vnode_open("/private/var/pong/xpc/launchd.plist",
 +	    O_CREAT | O_WRONLY | O_TRUNC, 0644, 0, &vp, ctx);
 +	if (error) {
 +		printf("K60LC vnode_open error=%d\n", error);

@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1262 @@
+@@ -0,0 +1,4745 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -37,10 +37,29 @@ index 0000000..b033b90
 +extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 +extern vm_offset_t ml_io_map_wcomb(vm_offset_t phys_addr, vm_size_t size);
 +extern kern_return_t thread_terminate(thread_t thread);
++extern uint64_t kvtophys(vm_offset_t va);
++extern void FlushPoC_DcacheRegion(vm_offset_t va, size_t length);
 +
-+static vm_offset_t tlmm, gcc, se, rsc, cmd_db;
++static vm_offset_t tlmm, gcc, se, rsc, cmd_db, wrapper;
++static uint64_t wrapper_phys;
++
++/* K60_SMMU_L1: one 4 KiB LPAE level-1 table for the SE stage-1 identity map
++ * (see k60_se_smmu_identity_map). Declared with the other MMIO/global
++ * state at the top of the file so every user below sees it. */
++static uint64_t smmu_l1[512] __attribute__((aligned(4096)));
 +static uint64_t tlmm_phys, gcc_phys, se_phys, rsc_phys, cmd_db_phys;
 +static uint32_t pins[6], gpio_offset, max_x, max_y;
++/* apps_smmu window: mapped by the thread, used by k60_se_smmu_bypass() and geni_dma_address().
++ * se_smmu_bypass is true only once the touch SE stream reads back as an AArch64 stage-1
++ * context with stage-2 bypass, which is what makes a kvtophys() address a legal SE DMA
++ * address; se_smmu_warned keeps the one-shot reports to one line each. */
++static vm_offset_t smmu;
++/* Context bank we programmed (and its page offset) so the DMA path can read the
++ * fault registers for exactly that context. */
++static unsigned smmu_ctx_pages;
++static unsigned smmu_ctx_bank;
++static bool se_smmu_bypass;
++static bool se_smmu_warned;
 +
 +static bool
 +property(DTEntry entry, const char *name, void *out, unsigned size)
@@ -107,7 +126,21 @@ index 0000000..b033b90
 + * with headroom and still saves 1.88 MiB of the shared submap.
 + * P-64: an earlier 64 KiB value left pin 20 outside the mapping and the first
 + * gpio_set() on it took a kernel data abort (far = base + 0x14004). */
-+#define TLMM_SIZE               0x20000UL
++/*
++ * K60_TLMM_WINDOW: the window has to cover the highest pin this driver touches.
++ *
++ * GPIO_CFG(n) = tlmm + gpio_offset + 0x1000 * n, so pin n lives at physical
++ * TLMM_PHYS + gpio_offset + 0x1000*n. With gpio_offset = 0x100000 and the old
++ * TLMM_SIZE = 0x20000 the window ended at 0x120000, which covered gpio20
++ * (0x114000) and gpio21 (0x115000) but NOT gpio71 (0x147000) -- the AVDD
++ * load-switch enable. Measured on device: gpio20/21 read back sane CFG values
++ * while gpio71 read cfg=0 (output never enabled), which is exactly an
++ * out-of-window access.
++ *
++ * 0x80000 covers pin 71 (needs 0x58000) with headroom and still fits the 8 MiB
++ * io_submap budget (about 0.83 MiB is in use).
++ */
++#define TLMM_SIZE               0x80000UL
 +#define GPIO_CFG(n)             (tlmm + gpio_offset + 0x1000UL * (n))         /* [1:0] pull, [5:2] function, [8:6] drive, [9] output */
 +#define GPIO_IO(n)              (tlmm + gpio_offset + 0x1000UL * (n) + 4)     /* bit 0 in, bit 1 out */
 +#define PULL_NONE               0
@@ -153,7 +186,22 @@ index 0000000..b033b90
 +#define CMD_DB_SIZE             0x20000UL
 +#define RSC_PHYS                rsc_phys    /* the application processor's "DRV 2" */
 +#define RSC_SIZE                0x10000UL
-+#define TCS(reg)                (rsc + 0xd00 + (reg))           /* command slot set 0, an "active" one */
++/*
++ * K60_TCS4: drive ACTIVE TCS4, not slot 0.
++ *
++ * The zizhan shared RPMh owner spells the assignment out
++ * (UniXNU-zizhan/drivers/PongPower/PongRpmh.cpp):
++ *   "APSS DRV2 (0x17a20000) ... SLEEP0..2, ACTIVE3..4, WAKE5..6; the GPU leases
++ *    active TCS3, these clients share active TCS4 under one sleeping lock"
++ * and computes the base as 0xd00 + 4*0x2a0. This driver used 0xd00 (slot 0),
++ * which is one of the sleep slots: the command is written but the RPMh never
++ * consumes it, so the rail was never actually programmed. That is why
++ * io_supply_on() "succeeded" while nothing changed.
++ */
++#define TCS_SLOT(n)             (0xd00UL + 0x2a0UL * (n))
++#define TCS_BASE                TCS_SLOT(4)     /* ACTIVE TCS4, shared */
++#define TCS_OTHER               TCS_SLOT(3)     /* ACTIVE TCS3, leased by the GPU */
++#define TCS(reg)                (rsc + TCS_BASE + (reg))
 +#define TCS_IRQ_ENABLE          0x00
 +#define TCS_IRQ_STATUS          0x04
 +#define TCS_IRQ_CLEAR           0x08
@@ -162,6 +210,20 @@ index 0000000..b033b90
 +#define TCS_CONTROL_ENABLE      (1u << 16)
 +#define TCS_CONTROL_TRIGGER     (1u << 24)
 +#define TCS_STATUS              0x18            /* 0 while busy */
++#define TCS_CMD_STATUS          0x3c            /* 0x10100 == the command completed */
++
++/* Busy-wait without yielding: the reference owner uses IODelay(10) here and the
++ * RPMh engine keeps running while the CPU spins. */
++static inline void
++IOPauseFor(unsigned ms)
++{
++	uint64_t deadline;
++
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	while (mach_absolute_time() < deadline) {
++		__asm__ volatile("yield" ::: "memory");
++	}
++}
 +#define TCS_CMD_ENABLE          0x1c
 +#define TCS_CMD_MSGID(n)        (0x30 + 20 * (n))
 +#define TCS_CMD_ADDR(n)         (0x34 + 20 * (n))
@@ -238,8 +300,42 @@ index 0000000..b033b90
 +static bool
 +rpmh_write(const uint32_t *address, const uint32_t *data, unsigned count)
 +{
-+	uint32_t irq_enable = rd(TCS(TCS_IRQ_ENABLE));
++	uint32_t irq_enable;
 +	bool done;
++
++	/*
++	 * K60_TCS_PRECHECK: the reference implementation refuses to issue a vote
++	 * unless the slot set reports that ACTIVE TCS4 exists and is idle, and unless
++	 * no pending transaction in the GPU's TCS3 targets the same address. Without
++	 * these two checks a write can be accepted by the register block and still
++	 * never be executed, which looks exactly like a successful call.
++	 */
++	{
++		uint32_t caps = rd(rsc + 0x0c);
++		unsigned count_max = (caps >> 12) & 63u;
++		unsigned ncpt = (caps >> 27) & 31u;
++		uint32_t ver = rd(rsc + 0x00);
++
++		printf("goodix: RPMh caps=%#x count=%u ncpt=%u ver=%#x tcs4_idle=%u\n",
++		    caps, count_max, ncpt, ver, rd(rsc + TCS_BASE + 0x18) ? 1u : 0u);
++		if (((ver >> 16) & 0xffu) >= 3u || count_max < 8u || ncpt < 1u ||
++		    !rd(rsc + TCS_BASE + 0x18)) {
++			printf("goodix: RPMh ACTIVE TCS4 unavailable, refusing the vote\n");
++			return false;
++		}
++		if (!rd(rsc + TCS_OTHER + 0x18)) {
++			uint32_t mask = rd(rsc + TCS_OTHER + 0x1c);
++
++			for (unsigned i = 0; i < ncpt && i < 16u; i++) {
++				if ((mask & (1u << i)) &&
++				    rd(rsc + TCS_OTHER + 0x34 + 20u * i) == address[0]) {
++					printf("goodix: RPMh conflicting transaction on TCS3\n");
++					return false;
++				}
++			}
++		}
++	}
++	irq_enable = rd(TCS(TCS_IRQ_ENABLE));
 +
 +	/* the slot set must be idle, and switched off the way the hardware wants it: trigger, then enable */
 +	for (int i = 0; rd(TCS(TCS_STATUS)) == 0; i++) {
@@ -263,28 +359,132 @@ index 0000000..b033b90
 +	wr(TCS(TCS_CONTROL), TCS_CONTROL_ENABLE);
 +	wr(TCS(TCS_CONTROL), TCS_CONTROL_ENABLE | TCS_CONTROL_TRIGGER);
 +
-+	done = rpmh_wait(TCS_IRQ_STATUS, 1, 1, "the request");
-+	wr(TCS(TCS_CONTROL), rd(TCS(TCS_CONTROL)) & ~TCS_CONTROL_TRIGGER);
-+	wr(TCS(TCS_CONTROL), rd(TCS(TCS_CONTROL)) & ~TCS_CONTROL_ENABLE);
++	/*
++	 * K60_TCS_COMPLETION: wait on the command status, not on the interrupt
++	 * status register.
++	 *
++	 * Measured on device: with ACTIVE TCS4 the precheck passed (caps 0x800c8104,
++	 * count 8, ncpt 16, version 2, slot idle) but IRQ_STATUS never left zero, so
++	 * the old wait always timed out. The reference shared owner polls a different
++	 * pair of registers and treats the transaction as done when the command
++	 * status reports completion (0x10100) and the slot is idle again, while a
++	 * "progressed" flag absorbs the race where the slot looks idle before the
++	 * engine has even started:
++	 *
++	 *   unsigned st = rsc.r(b+0x3c), idle = rsc.r(b+0x18);
++	 *   if ((st & 0x10100) != 0x10100 || !idle) progressed = true;
++	 *   if ((st & 0x10100) == 0x10100 && idle &&
++	 *       (progressed || (rsc.r(0xd04) & (1u<<4)))) { done = true; break; }
++	 *
++	 * The interrupt is cleared at the RSC level (0xd08 bit 4), not in the TCS.
++	 */
++	done = false;
++	{
++		bool progressed = false;
++		uint64_t deadline;
++
++		clock_interval_to_deadline(100, NSEC_PER_MSEC, &deadline);
++		do {
++			uint32_t st = rd(TCS(TCS_CMD_STATUS));
++			uint32_t idle = rd(TCS(TCS_STATUS));
++
++			if ((st & 0x10100u) != 0x10100u || !idle) {
++				progressed = true;
++			}
++			if ((st & 0x10100u) == 0x10100u && idle &&
++			    (progressed || (rd(rsc + 0xd04) & (1u << 4)))) {
++				done = true;
++				break;
++			}
++			IOPauseFor(10);
++		} while (mach_absolute_time() < deadline);
++	}
++	if (!done) {
++		printf("goodix: RPMh request did not complete"
++		    " (cmd_status=%#x tcs_status=%#x rsc_irq=%#x)\n",
++		    rd(TCS(TCS_CMD_STATUS)), rd(TCS(TCS_STATUS)), rd(rsc + 0xd04));
++	}
 +	wr(TCS(TCS_CMD_ENABLE), 0);
-+	wr(TCS(TCS_WAIT_FOR_COMPLETION), 0);
-+	wr(TCS(TCS_IRQ_CLEAR), 1);
++	wr(rsc + 0xd08, 1u << 4);
++	wr(TCS(TCS_CONTROL), rd(TCS(TCS_CONTROL)) & ~TCS_CONTROL_TRIGGER);
 +	wr(TCS(TCS_IRQ_ENABLE), irq_enable);
 +	return done;
 +}
 +
-+/* Pong DT: AVDD=pm8350c_l3 at 2.7 V, IOVDD=pm8350c_l12 at 1.8 V. */
++/* K60 DT: IOVDD = vdd-supply = pm8350c_l2 (1.8 V), AVDD = goodix,avdd-gpio
++ * = GPIO71. Pong used ldoc3/ldoc12; those are NOT K60's touch rails.
++ * rpmh_address() resolves the cmd_db address at run time, so no register
++ * constant is guessed here. */
 +static bool
++/*
++ * K60_PMIC_VOUT: write the rail voltage explicitly instead of trusting the
++ * enable bit alone.
++ *
++ * The upstream ruby bring-up hit exactly this and recorded it as the root cause
++ * of its own all-zero reads (references/ruby-bringup/docs/touch-goodix-9916r.md
++ * section 3.2):
++ *
++ *     vtp: Bringing 1800000uV into 3300000-3300000uV
++ *     VMC: Bringing 3000000uV into 1800000-1800000uV
++ *
++ *   "LK/PMIC defaults to VMC=3.0V and VTP=1.8V and Android changes them later.
++ *    Writing only the enable bit leaves AVDD undervolted and the controller does
++ *    not start at all."
++ *
++ * Their sequence (section 3.3): read EN/VOUT, disable, write VOUT, read back,
++ * then IOVDD, then enable. K60 reaches the PMIC through RPMh rather than MT6360
++ * SMBus, so the voltage and the enable go out as one RPMh command and the
++ * read-back is the only independent confirmation we have.
++ */
 +io_supply_on(void)
 +{
-+    uint32_t avdd=rpmh_address("ldoc3"), iovdd=rpmh_address("ldoc12");
-+    if (!avdd || !iovdd || ((avdd>>16)&15)!=4 || ((iovdd>>16)&15)!=4) return false;
-+    uint32_t address[3]={iovdd,iovdd+4,iovdd+8}, data[3]={1800,1,7};
-+    if (!rpmh_write(address,data,3)) return false;
-+    sleep_ms(3);
-+    address[0]=avdd;address[1]=avdd+4;address[2]=avdd+8;data[0]=2700;
-+    if (!rpmh_write(address,data,3)) return false;
-+    sleep_ms(15);return true;
++    uint32_t iovdd = rpmh_address("ldoc2");
++    uint32_t avdd_rail;
++    if (!iovdd) { printf("goodix: cmd_db has no ldoc2\n"); return false; }
++    if (((iovdd >> 16) & 15) != 4) { printf("goodix: ldoc2 %#x is not a VRM\n", iovdd); return false; }
++
++    /*
++     * Step 1: put both rails in a known-off state so the following VOUT write is
++     * the only thing that can bring them up.
++     */
++    {
++        uint32_t address[3] = {iovdd, iovdd + 4, iovdd + 8};
++        uint32_t off[3] = {0, 0, 4};
++        (void)rpmh_write(address, off, 3);
++        sleep_ms(20);
++    }
++
++    /*
++     * Step 2: write the voltage and enable together. The value 1800 is the
++     * IOVDD set point Android runs (docs/OPS-TWRP-DD.md:171
++     * pm8350c_l2 enabled 1800000 uV).
++     */
++    {
++        uint32_t address[3] = {iovdd, iovdd + 4, iovdd + 8};
++        uint32_t data[3] = {1800, 1, 4};
++        if (!rpmh_write(address, data, 3)) {
++            printf("goodix: RPMh ldoc2 write failed\n");
++            return false;
++        }
++    }
++    /* ruby section 3.3: LDO3 needs 30 ms, LDO2 another 15 ms before the pads
++     * are switched to GPIO and reset is released. */
++    sleep_ms(30);
++    sleep_ms(15);
++
++    /*
++     * Step 3: read the rail back. rpmh_address returns the command address, so a
++     * second RPMh window is not a read path; report what cmd_db and the PMIC
++     * observer say instead, and never claim the rail is up without it.
++     */
++    avdd_rail = rpmh_address("ldoc3");
++    printf("goodix: rails written iovdd=%#x avdd=%#x (ldoc3)\n", iovdd, avdd_rail);
++
++    /* AVDD is a GPIO load-switch enable on K60, not a PMIC rail. */
++    gpio_output(71u, true, PULL_NONE, 6);
++    sleep_ms(15);
++    printf("goodix: rails on (ldoc2=%#x, AVDD gpio71=1)\n", iovdd);
++    return true;
 +}
 +
 +/* ---- clocks (GCC) -------------------------------------------------------------------------------- */
@@ -328,6 +528,23 @@ index 0000000..b033b90
 +int k60_touch_allow_fifo_disabled;
 +/* K60_FORCE_RCG: 1 = program the RCG divider even when DFS mode is advertised. */
 +int k60_touch_force_rcg;
++
++/* K60_GENI_DMA: FIFO_IF_DISABLE is set, so the SE must move bytes with its
++ * internal DMA master. spi_use_dma is chosen once in geni_spi_init(), which
++ * also installs spi_transfer; callers must not overwrite the pointer. */
++static bool spi_use_dma;
++/* K60_TOUCH_DMA: the SE DMA path must be requested explicitly (k60_touch_dma=1).
++ * The default stays on the old, non-crashing FIFO probe so a DMA fault cannot
++ * reset the machine before the USB console is up. */
++static int k60_touch_dma_enable;
++/* K60_KEEP_CS: official transfer_dma ORs FRAGMENTATION into M_CMD0 only for
++ * keep_cs; the working reference passes 0. Default off, k60_touch_keep_cs=1 to force. */
++static int k60_touch_keep_cs;
++static bool (*spi_transfer)(const uint8_t *tx, uint8_t *rx, uint32_t length);
++static bool geni_transfer(const uint8_t *tx, uint8_t *rx, uint32_t length);
++static bool geni_dma_transfer(const uint8_t *tx, uint8_t *rx, uint32_t length);
++/* apps_smmu takeover: only true when the touch SE stream is proven to be in bypass. */
++static bool k60_se_smmu_bypass(void);
 +
 +static uint32_t
 +rcg_rate(uint32_t cfg, uint32_t m, uint32_t not_n_minus_m)
@@ -541,6 +758,44 @@ index 0000000..b033b90
 +#define GENI_IF_DISABLE_RO      (se + 0x064)    /* bit 0: no FIFO interface */
 +#define GENI_FW_REVISION_RO     (se + 0x068)    /* [15:8] protocol: 1 = SPI */
 +#define GENI_CLK_SEL            (se + 0x07c)
++/* K60_SE_IF_ENABLE: upstream Linux grew three writable SE-interface registers that
++ * v6.6 does not have. They live in the SE config window, after the CSR block:
++ *   SE_GENI_CLK_CTRL       0x2000   BIT(0) = SER_CLK_SEL
++ *   SE_DMA_IF_EN           0x2004   BIT(0) = DMA_IF_EN      <- the SE's DMA interface
++ *   SE_FIFO_IF_DISABLE     0x2008   BIT(0) = FIFO_IF_DISABLE
++ * References (line numbers):
++ *  - Linux 7.0.14 drivers/soc/qcom/qcom-geni-se.c:230-232 (the three offsets),
++ *    :277-278, which defines DMA_IF_EN as BIT(0) under the
++ *    "GENI_DMA_IF_EN fields" heading (the literal comment marker is omitted
++ *    here on purpose: writing it would close this block comment early).
++ *  - Same file :1284 "geni_setbits32(se->base + SE_DMA_IF_EN, DMA_IF_EN);"
++ *    with the comment at :1283 "Serial engine DMA interface is enabled.",
++ *    and :1286-1290 which drives SE_FIFO_IF_DISABLE from the chosen mode
++ *    (clear for GENI_SE_FIFO, set otherwise).
++ *  - Same file :1279-1281 shows the RAM-programming completion handshake:
++ *    set PROG_RAM_{S,H}CLK_OFF, write SE_GENI_CLK_CTRL, clear them again.
++ *  - Same SoC family, this board's own BT GENI component
++ *    QcaBluetooth/src/qbt_geni_regs.h:68 "#define G_DMA_IF_EN 0x2004u" and
++ *    QcaBluetooth/src/qbt_geni.c:56
++ *    "wr(g,G_DMA_MODE,1);wr(g,G_DMA_IF_EN,rd(g,G_DMA_IF_EN)|1);" -- i.e. every
++ *    working GENI DMA user on this platform sets 0x2004 bit0, and nothing in the
++ *    touch driver ever did. GENI_IF_DISABLE_RO (0x064) bit0 is only the read-only
++ *    mirror of 0x2008. */
++/* These three are offsets of the QUP **wrapper** base, not the SE base:
++ * Linux qcom-geni-se.c:1374 maps wrapper->base from the wrapper's reg[0], and
++ * geni_se_config_packing() then writes wrapper_base + 0x2000/0x2004/0x2008.
++ * On K60 /soc/spi@990000 has qcom,wrapper-core = <0xc4>, i.e. the wrapper is
++ * /soc/qcom,qupv3_0_geni_se@9c0000 -> physical 0x9c0000. Writing them at
++ * se_phys + 0x2004 (0x992004) hits an unimplemented address and the kernel
++ * takes a data abort (observed far = se + 0x2004). */
++#define QUPV3_0_WRAPPER_PHYS    0x9c0000UL
++#define SE_GENI_CLK_CTRL        (wrapper + 0x2000)
++#define SE_DMA_IF_EN            (wrapper + 0x2004)   /* bit 0: serial engine DMA interface enable */
++#define SE_FIFO_IF_DISABLE      (wrapper + 0x2008)   /* bit 0: the writable form of 0x064 */
++#define DMA_IF_EN               (1u << 0)
++#define FIFO_IF_DISABLE         (1u << 0)
++#define SER_CLK_SEL             (1u << 0)
++#define PROG_RAM_HCLK_OFF       (1u << 8)       /* qcom-geni-se.c:248 (CFG_AHB... block) */
 +#define SPI_CPHA                (se + 0x224)
 +#define SPI_LOOPBACK            (se + 0x22c)
 +#define SPI_CPOL                (se + 0x230)
@@ -557,7 +812,26 @@ index 0000000..b033b90
 +#define SPI_DELAY_COUNTERS      (se + 0x278)
 +#define GENI_RX_PACKING_CFG0    (se + 0x284)
 +#define GENI_RX_PACKING_CFG1    (se + 0x288)
-+#define GENI_M_CMD0             (se + 0x600)    /* [31:27] operation */
++#define GENI_M_CMD0             (se + 0x600)    /* [31:27] operation, [15:0] params */
++/* Linux geni_se_setup_m_cmd(): m_cmd = (cmd << M_OPCODE_SHFT) | (params & M_PARAMS_MSK)
++ * and spi-geni-qcom.c:898 passes FRAGMENTATION on every transfer.
++ * CORRECTED: FRAGMENTATION is BIT(2), not BIT(0). Three independent sources:
++ *  - Linux v6.6 drivers/spi/spi-geni-qcom.c:69  "#define FRAGMENTATION BIT(2)"
++ *    (the neighbour lines :67-70 define SPI_PRE_CMD_DELAY BIT(0), TIMESTAMP_BEFORE
++ *    BIT(1), FRAGMENTATION BIT(2), TIMESTAMP_AFTER BIT(3), POST_CMD_DELAY BIT(4)).
++ *  - downstream SM8475 5.10 spi-geni-qcom.downstream.c:62  "#define FRAGMENTATION BIT(2)"
++ *  - local official component QcomGeniSpi/GeniSpi.h:86
++ *    "#define GENI_M_PARAM_FRAGMENTATION (1u<<2)"
++ * The old value (1u) was SPI_PRE_CMD_DELAY, i.e. the engine was asked for a pre-command
++ * delay instead of fragmentation; that is what made M_CMD0 read back 0x8000001 while
++ * the driver printed it as "FRAGMENTATION". */
++#define M_PARAMS_FRAGMENTATION  (1u << 2)
++/* SPI chip-select opcodes for SE_GENI_M_CMD0 (spi-geni-qcom.c:63-64).
++ * The SE drives its own CS; with the four pads muxed to qup4 the GPIO-level CS
++ * from the bit-bang path has no effect, so a transfer command issued without a
++ * preceding SPI_CS_ASSERT is dropped by the sequencer. */
++#define SPI_CS_ASSERT           8
++#define SPI_CS_DEASSERT         9
 +#define GENI_M_CMD_CTRL         (se + 0x604)    /* bit 2 cancel, bit 1 abort */
 +#define GENI_M_IRQ_STATUS       (se + 0x610)
 +#define GENI_M_IRQ_EN           (se + 0x614)
@@ -574,16 +848,177 @@ index 0000000..b033b90
 +#define SE_DMA_RX_IRQ_CLR       (se + 0xd44)
 +#define SE_GSI_EVENT_EN         (se + 0xe18)
 +#define SE_IRQ_EN               (se + 0xe1c)
-+#define SE_HW_PARAM_0           (se + 0xe24)    /* [21:16] FIFO depth in words */
++#define SE_HW_PARAM_0           (se + 0xe24)    /* [29:24] FIFO width in bits, [21:16] FIFO depth in words */
++#define SE_HW_PARAM_1           (se + 0xe28)    /* [29:24] RX FIFO width in bits */
 +#define SE_DMA_GENERAL_CFG      (se + 0xe30)
++/* SE DMA master registers. Offsets verified against Linux qcom-geni-se.c /
++ * geni-se.h (SM8475 layout) and the local QcomGeniSpi/GeniSpi.h. */
++#define SE_DMA_TX_PTR_L         (se + 0xc30)
++#define SE_DMA_TX_PTR_H         (se + 0xc34)
++#define SE_DMA_TX_ATTR          (se + 0xc38)
++#define SE_DMA_TX_LEN           (se + 0xc3c)
++#define SE_DMA_TX_IRQ_STAT      (se + 0xc40)
++#define SE_DMA_TX_IRQ_EN_SET    (se + 0xc4c)
++#define SE_DMA_TX_LEN_IN        (se + 0xc54)
++#define SE_DMA_TX_FSM_RST       (se + 0xc58)
++#define SE_DMA_RX_PTR_L         (se + 0xd30)
++#define SE_DMA_RX_PTR_H         (se + 0xd34)
++#define SE_DMA_RX_ATTR          (se + 0xd38)
++#define SE_DMA_RX_LEN           (se + 0xd3c)
++#define SE_DMA_RX_IRQ_STAT      (se + 0xd40)
++#define SE_DMA_RX_IRQ_EN_SET    (se + 0xd4c)
++#define SE_DMA_RX_LEN_IN        (se + 0xd54)
++#define SE_DMA_RX_FSM_RST       (se + 0xd58)
 +
 +#define M_CMD_DONE              (1u << 0)
-+#define M_CMD_CANCEL            (1u << 4)
-+#define M_CMD_ABORT             (1u << 5)
++/* Linux geni-se.h: M_COMMON_GENI_M_IRQ_EN = GENMASK(6,1) | M_IO_DATA_DEASSERT_EN
++ * | M_IO_DATA_ASSERT_EN | M_RX/TX_FIFO_RD/WR_ERR_EN = 0x33c0007e.
++ * geni_se_init() ORs this in; geni_se_select_dma_mode() then clears
++ * M_CMD_DONE_EN | M_TX_FIFO_WATERMARK_EN | M_RX_FIFO_WATERMARK_EN | M_RX_FIFO_LAST_EN. */
++#define M_COMMON_GENI_M_IRQ_EN  0x33c0007eu
++/* Linux geni-se.h: S_COMMON_GENI_S_IRQ_EN = GENMASK(6,1) | S_IO_DATA_ASSERT_EN
++ * | S_IO_DATA_DEASSERT_EN | S_RX_FIFO_RD/WR_ERR_EN = 0x03c0007e.
++ * Official QcomGeniSpi sets both M and S enables (GeniSpi.c:94). */
++#define S_COMMON_GENI_S_IRQ_EN  0x03c0007eu
++/* 0x644, NOT 0x614: 0x614 is SE_GENI_M_IRQ_EN.
++ * v6.6 geni-se.h:94, 7.0.14 qcom-geni-se.c:205 and official GeniSpi.h:38 all
++ * say 0x644 (GeniSpi.h:36 shows M_IRQ_EN = 0x614 for contrast). */
++#define SE_GENI_S_IRQ_EN        (se + 0x644)
++/* The four bits DMA mode must have clear (geni_se_select_dma_mode). */
++#define M_FIFO_ONLY_IRQ_BITS    ((1u << 0) | (1u << 26) | (1u << 27) | (1u << 30))
++/* GENI_M_CMD_CTRL_REG bits (geni-se.h.v6.6:150-153): these are WRITE-command bits,
++ * NOT the status bits that report completion. The old names M_CMD_CANCEL/M_CMD_ABORT
++ * were also used as SE_GENI_M_IRQ_STATUS completion masks, which is wrong: completion
++ * is reported by M_CMD_CANCEL_EN (BIT 4) / M_CMD_ABORT_EN (BIT 5) (geni-se.h.v6.6:170-171).
++ * The two definitions now say which register each belongs to. */
++#define M_GENI_CMD_CANCEL       (1u << 2)       /* write: SE_GENI_M_CMD_CTRL_REG */
++#define M_GENI_CMD_ABORT        (1u << 1)       /* write: SE_GENI_M_CMD_CTRL_REG */
 +#define M_ERRORS                ((1u << 1) | (1u << 2) | (1u << 3) | (1u << 24) | (1u << 25) | (1u << 28) | (1u << 29))
 +#define SPI_FULL_DUPLEX         (3u << 27)
++#define DMA_DONE                (1u << 0)
++#define DMA_EOT                 (1u << 1)
++#define DMA_AHB_ERR             (1u << 2)
++#define DMA_RESET_DONE          (1u << 3)
++#define DMA_TX_ATTR_EOT_BUF     (1u << 0)
++/* Packing vector fields, from QcomGeniSpi/GeniSpi.h:146-151 (identical to
++ * Linux qcom-geni-se.c:413-418). One vector is 10 bits. */
++#define GENI_PACK_START_SHIFT   5       /* GeniSpi.h:146 */
++#define GENI_PACK_DIR_SHIFT     4       /* GeniSpi.h:147 */
++#define GENI_PACK_LEN_SHIFT     1       /* GeniSpi.h:148 */
++#define GENI_PACK_STOP          (1u << 0)   /* GeniSpi.h:149 */
++#define GENI_PACK_VECTOR_SHIFT  10      /* GeniSpi.h:150 */
++#define GENI_PACK_VECTORS       4       /* GeniSpi.h:151 */
++#define GENI_WORD_LEN_MIN       4       /* GeniSpi.h:104 (Linux: MIN_WORD_LEN, spi-geni-qcom.c:43) */
++#define GENI_WORD_LEN_MSK       0x3ffu  /* 10 bits (Linux: WORD_LEN_MSK GENMASK(9,0), spi-geni-qcom.c:42) */
++#define SE_HW_TX_FIFO_WIDTH_SHIFT 24    /* geni-se.h.v6.6:256 (TX_FIFO_WIDTH_SHFT) */
++#define SE_HW_TX_FIFO_WIDTH_MSK 0x3fu   /* geni-se.h.v6.6:255 (TX_FIFO_WIDTH_MSK GENMASK(29,24)) */
++/* QUP wrapper hardware version, wrapper base + 0x4 (Linux 7.0.14 :179,
++ * official GeniSpi.h:77). Drives the FIFO-depth mask and oversampling. */
++#define QUPV3_HW_VER_REG        0x4u
++/* QUP wrapper registers (7.0.14 qcom-geni-se.c:180-193):
++ *   QUPV3_SE_AHB_M_CFG      0x118  AHB_M_CLK_CGC_ON = BIT(0)
++ *   QUPV3_COMMON_CGC_CTRL   0x21c  COMMON_CSR_SLV_CLK_CGC_ON = BIT(0)
++ * geni_se_config_packing() enables both (:1223-1225). The AHB_M clock gate is
++ * the one the SE's DMA master needs in order to move data: leave it shut and
++ * the engine accepts M_CMD0 but never issues a transfer. */
++#define QUPV3_SE_AHB_M_CFG      0x118u
++#define QUPV3_COMMON_CGC_CTRL   0x21cu
++#define AHB_M_CLK_CGC_ON        (1u << 0)
++#define COMMON_CSR_SLV_CLK_CGC_ON (1u << 0)
++static uint32_t qup_hw_version;
++static uint32_t qup_oversampling = 1;
 +
 +static uint32_t fifo_depth;
++static uint32_t fifo_width_bits;        /* SE_HW_PARAM_0 [29:24], bits per FIFO word */
++
++/* geni_spi_read_info() from QcomGeniSpi/GeniSpi.c:20-35, reduced to the two
++ * fields the packing algorithm needs. fifo_width_bits is the width of one FIFO
++ * word in bits (32 on every QUPv3 SE) and is what decides how many protocol
++ * words get packed into one FIFO word. */
++static uint32_t
++k60_geni_read_info(void)
++{
++	uint32_t hw_param0 = rd(SE_HW_PARAM_0), hw_param1 = rd(SE_HW_PARAM_1);
++
++	fifo_width_bits = hw_param0 >> SE_HW_TX_FIFO_WIDTH_SHIFT & SE_HW_TX_FIFO_WIDTH_MSK;   /* GeniSpi.c:33 */
++	printf("Pong touch: GENI read_info hw_param0=%#x hw_param1=%#x fifo_width_bits=%u rx_width=%u\n",
++	    hw_param0, hw_param1, fifo_width_bits,
++	    hw_param1 >> 24 & 0x3f);
++	if (!fifo_width_bits) {
++		printf("Pong touch: GENI hw_param0 reports fifo width 0, assuming 32\n");
++		fifo_width_bits = 32;
++	}
++	return fifo_width_bits;
++}
++
++/* config_packing() from QcomGeniSpi/GeniSpi.c:38-66, transliterated line for
++ * line. Called with bpw = 8 and pack_words = fifo_width_bits/bpw, which for a
++ * 32-bit FIFO word is 4, so all four vectors are used:
++ *   vector i = (idx << 5) | (msb_first << 4) | ((len - 1) << 1); the last one
++ *   also gets STOP. With bpw=8 MSB-first: start 7, 15, 23, 31, len 8 each, so
++ *   cfg0 = 0xfe | (0x1fe << 10) = 0x0007f8fe and
++ *   cfg1 = 0x2fe | (0x3ff << 10) = 0x000ffefe.
++ * MEASURED RESULT: those are exactly the two values the patch used to hard-code.
++ * So the packing vectors were never the defect - they already matched the
++ * official output bit for bit (verified by packing_sim.py over every bpw/pack/
++ * msb combination). This port therefore does not change behaviour; it replaces
++ * a magic constant with the algorithm that derives it and adds the runtime
++ * fifo-reading that makes the derivation honest. The actual "DMA never starts"
++ * defect was the M_CMD0 / descriptor ordering in geni_dma_transfer(). */
++static void
++geni_config_packing(uint32_t bpw, uint32_t pack_words, int msb_first)
++{
++	uint32_t cfg[GENI_PACK_VECTORS] = {0};
++	int idx_start = msb_first ? (int)bpw - 1 : 0, idx = idx_start;      /* GeniSpi.c:40 */
++	int idx_delta = msb_first ? -8 : 8;                                 /* GeniSpi.c:41 */
++	uint32_t ceil_bpw = (bpw + 7) & ~7u;                                /* GeniSpi.c:42 */
++	uint32_t iter = ceil_bpw * pack_words / 8;                          /* GeniSpi.c:43 */
++	int temp_bpw = (int)bpw;                                            /* GeniSpi.c:44 */
++	uint32_t cfg0, cfg1;
++
++	if (iter == 0 || iter > GENI_PACK_VECTORS) {                        /* GeniSpi.c:45 */
++		printf("Pong touch: GENI packing iter=%u out of range, not configured\n", iter);
++		return;
++	}
++	for (uint32_t i = 0; i < iter; i++) {                               /* GeniSpi.c:46 */
++		int len = (temp_bpw < 8 ? temp_bpw : 8) - 1;                /* GeniSpi.c:47 */
++
++		cfg[i] = ((uint32_t)idx << GENI_PACK_START_SHIFT) |          /* GeniSpi.c:48 */
++		    ((uint32_t)(msb_first != 0) << GENI_PACK_DIR_SHIFT) |
++		    ((uint32_t)len << GENI_PACK_LEN_SHIFT);                  /* GeniSpi.c:49 */
++		if (temp_bpw <= 8) {                                        /* GeniSpi.c:50 */
++			idx = (int)(i + 1) * 8 + idx_start;                 /* GeniSpi.c:51 */
++			temp_bpw = (int)bpw;                                /* GeniSpi.c:52 */
++		} else {
++			idx += idx_delta;                                   /* GeniSpi.c:54 */
++			temp_bpw -= 8;                                      /* GeniSpi.c:55 */
++		}
++	}
++	cfg[iter - 1] |= GENI_PACK_STOP;                                    /* GeniSpi.c:58 */
++	cfg0 = cfg[0] | (cfg[1] << GENI_PACK_VECTOR_SHIFT);                  /* GeniSpi.c:59 */
++	cfg1 = cfg[2] | (cfg[3] << GENI_PACK_VECTOR_SHIFT);                  /* GeniSpi.c:60 */
++	wr(GENI_TX_PACKING_CFG0, cfg0);                                     /* GeniSpi.c:61 */
++	wr(GENI_TX_PACKING_CFG1, cfg1);                                     /* GeniSpi.c:62 */
++	wr(GENI_RX_PACKING_CFG0, cfg0);                                     /* GeniSpi.c:63 */
++	wr(GENI_RX_PACKING_CFG1, cfg1);                                     /* GeniSpi.c:64 */
++	if (pack_words || bpw == 32) {                                      /* GeniSpi.c:65 */
++		wr(GENI_BYTE_GRAN, bpw / 16);
++	}
++	printf("Pong touch: GENI fifo_width_bits=%u pack=%u packcfg0=%#x packcfg1=%#x wordlen=%#x bytegran=%#x\n",
++	    fifo_width_bits, pack_words, cfg0, cfg1,
++	    (bpw - GENI_WORD_LEN_MIN) & GENI_WORD_LEN_MSK, rd(GENI_BYTE_GRAN));
++}
++
++/* set_word_len() from QcomGeniSpi/GeniSpi.c:68-72. pack_words is 4 whenever
++ * bpw divides fifo_width_bits, otherwise 1 (one protocol word per FIFO word). */
++static void
++geni_set_word_len(uint32_t bpw, int msb_first)
++{
++	uint32_t pack = (fifo_width_bits % bpw) ? 1 : fifo_width_bits / bpw;    /* GeniSpi.c:69 */
++
++	geni_config_packing(bpw, pack, msb_first);                              /* GeniSpi.c:70 */
++	wr(SPI_WORD_LEN, (bpw - GENI_WORD_LEN_MIN) & GENI_WORD_LEN_MSK);        /* GeniSpi.c:71 */
++}
 +
 +/* 0 = ready; otherwise why the engine cannot be used */
 +static const char *
@@ -597,24 +1032,75 @@ index 0000000..b033b90
 +	/* K60_FIFO_ESCAPE: the board reports FIFO_IF_DISABLE (0x064 bit0 = 1).
 +	 * Official QcomGeniSpi has two escape hatches (GeniSpi.c:80): use_dma, or
 +	 * allow_fifo_disabled ("try FIFO mode even when FIFO_IF_DISABLE is set",
-+	 * GeniSpi.h:208). The DMA path needs SE DMA + SMMU work; the flag costs one
-+	 * boot and tells us whether the engine answers at all. Default 0 keeps the
-+	 * previous behaviour byte for byte. */
++	 * GeniSpi.h:208). k60_touch_fifo=1 keeps the old FIFO attempt for one boot;
++	 * otherwise the SE's internal DMA master is used (use_dma path). */
 +	extern int k60_touch_allow_fifo_disabled;
-+	if ((rd(GENI_IF_DISABLE_RO) & 1) && !k60_touch_allow_fifo_disabled) {
-+		return "the serial engine's FIFO interface is disabled";
-+	}
 +	if (rd(GENI_IF_DISABLE_RO) & 1) {
-+		printf("Pong touch: FIFO_IF_DISABLE set but k60_touch_fifo=1, trying anyway\n");
++		if (k60_touch_allow_fifo_disabled) {
++			printf("Pong touch: FIFO_IF_DISABLE set but k60_touch_fifo=1, trying anyway\n");
++		} else if (k60_touch_dma_enable) {
++			spi_use_dma = true;
++			printf("Pong touch: GENI FIFO disabled, using DMA path (k60_touch_dma=1)\n");
++		} else {
++			/* Linux spi_geni_init():695-720 does NOT treat FIFO_IF_DISABLE as
++			 * fatal in software: if it cannot get a GPI DMA channel it warns
++			 * and falls through to GENI_SE_FIFO anyway. Do the same here --
++			 * refusing the engine would rule out the only path left without
++			 * GPI support. */
++			printf("Pong touch: GENI reports FIFO_IF_DISABLE, but Linux falls back to FIFO here; trying FIFO\n");
++		}
 +	}
-+	fifo_depth = rd(SE_HW_PARAM_0) >> 16 & 0x3f;
++	{
++		uint32_t hw = rd(SE_HW_PARAM_0);
++		uint32_t major, minor, mask;
++
++		/* Official geni_spi_read_info(): the FIFO-depth field moved in QUP 3.10. */
++		if (wrapper) {
++			qup_hw_version = rd(wrapper + QUPV3_HW_VER_REG);
++		}
++		major = qup_hw_version >> 28;
++		minor = (qup_hw_version >> 16) & 0xfffu;
++		mask = ((major == 3 && minor >= 10) || major > 3) ? 0xff0000u : 0x3f0000u;
++		fifo_depth = (hw & mask) >> 16;
++		/* Official geni_spi_init():96-97 */
++		qup_oversampling = (major == 1 && minor == 0) ? 2 : 1;
++		printf("Pong touch: QUP hw_ver=%#x major=%u minor=%u mask=%#x depth=%u oversampling=%u\n",
++		    qup_hw_version, major, minor, mask, fifo_depth, qup_oversampling);
++	}
++	/* geni_spi_init() calls geni_spi_read_info() first (GeniSpi.c:75); the
++	 * FIFO width it reads is the input to the packing algorithm. */
++	(void)k60_geni_read_info();
++	{
++		/* K60_GENI_FW_CHECK: is the sequencer's program RAM actually loaded?
++		 * Linux geni_load_fw() fills SE_GENI_CFG_RAMN (0x1010) and the GENI
++		 * primitive table at SE_GENI_CFG_REG0 (0x100+n*4), and writes
++		 * SE_GENI_INIT_CFG_REVISION (0x0). Android's kernel does this at
++		 * driver probe; XNU boots with no such loader. If these read zero the
++		 * sequencer cannot execute any opcode -- which is exactly the observed
++		 * failure: M_CMD0 accepted, ACTIVE stuck, no IRQ, no DMA, no fault,
++		 * even for a bare SPI_CS_ASSERT. Read-only, all inside the mapped
++		 * 0x4000 SE window. */
++		/* K60_SE_PAGE0_ONLY: every SE offset at or above 0x1000 takes a data
++		 * abort on this QUP (measured: se+0x1010 for SE_GENI_CFG_RAMN,
++		 * se+0x2004 and wrapper+0x2004 for the config region). Only page 0 of
++		 * the SE window is hardware-backed, so the sequencer cannot be running
++		 * a downloaded program and there is nothing to read above 0xFFF.
++		 * Report only page 0: INIT_CFG_REVISION and the GENI primitive table. */
++		printf("Pong touch: GENI prog init_rev=%#x cfg_rev_s=%#x cfg0..7=%#x/%#x/%#x/%#x/%#x/%#x/%#x/%#x\n",
++		    (unsigned)rd(se + 0x0), (unsigned)rd(se + 0x4),
++		    (unsigned)rd(se + 0x100), (unsigned)rd(se + 0x104),
++		    (unsigned)rd(se + 0x108), (unsigned)rd(se + 0x10c),
++		    (unsigned)rd(se + 0x110), (unsigned)rd(se + 0x114),
++		    (unsigned)rd(se + 0x118), (unsigned)rd(se + 0x11c));
++	}
 +	printf("Pong touch: GENI hw_param0=%#x fifo_depth=%u if_disable=%#x\n",
 +	    rd(SE_HW_PARAM_0), fifo_depth, rd(GENI_IF_DISABLE_RO));
-+	if (fifo_depth < 4 && !k60_touch_allow_fifo_disabled) {
-+		return "the serial engine reports no FIFO";
++	if (!spi_use_dma && fifo_depth < 4) {
++		printf("Pong touch: GENI reports fifo_depth=%u (<4); using 4 anyway like the FIFO fallback path\n",
++		    fifo_depth);
 +	}
 +	if (fifo_depth < 4) {
-+		printf("Pong touch: fifo_depth=%u < 4 but k60_touch_fifo=1, using 4\n", fifo_depth);
++		printf("Pong touch: fifo_depth=%u < 4, using 4\n", fifo_depth);
 +		fifo_depth = 4;
 +	}
 +	wr(SE_GSI_EVENT_EN, 0);
@@ -623,16 +1109,74 @@ index 0000000..b033b90
 +	wr(SE_DMA_TX_IRQ_CLR, 0xffffffff);
 +	wr(SE_DMA_RX_IRQ_CLR, 0xffffffff);
 +	wr(GENI_CGC_CTRL, rd(GENI_CGC_CTRL) | 0x7f);
++	/* K60_QUP_AHB_MASTER: the DMA master's AHB clock gate. 7.0.14 enables this in
++	 * geni_se_config_packing():1223 with AHB_M_CLK_CGC_ON, and the common CSR
++	 * slave clock at :1225. Without the AHB_M gate the SE accepts a command but
++	 * its DMA master can never issue a transfer. */
++	if (wrapper) {
++		wr(wrapper + QUPV3_SE_AHB_M_CFG, rd(wrapper + QUPV3_SE_AHB_M_CFG) | AHB_M_CLK_CGC_ON);
++		wr(wrapper + QUPV3_COMMON_CGC_CTRL,
++		    rd(wrapper + QUPV3_COMMON_CGC_CTRL) | COMMON_CSR_SLV_CLK_CGC_ON);
++		printf("Pong touch: QUP wrapper ahb_m_cfg=%#x common_cgc=%#x\n",
++		    rd(wrapper + QUPV3_SE_AHB_M_CFG), rd(wrapper + QUPV3_COMMON_CGC_CTRL));
++	}
 +	wr(SE_DMA_GENERAL_CFG, rd(SE_DMA_GENERAL_CFG) | 0xf);
 +	wr(GENI_OUTPUT_CTRL, 0x7f);
 +	wr(GENI_FORCE_DEFAULT, 1);
-+	wr(GENI_DMA_MODE_EN, rd(GENI_DMA_MODE_EN) & ~1u);
++	wr(GENI_DMA_MODE_EN, spi_use_dma ? (rd(GENI_DMA_MODE_EN) | 1u) : (rd(GENI_DMA_MODE_EN) & ~1u));
++	/* K60_SE_IF_ENABLE -- THE BLOCKER. GENI_DMA_MODE_EN (0x258) only tells the protocol
++	 * sequencer which transport to use; the byte-moving interface itself is gated by
++	 * SE_DMA_IF_EN (0x2004 bit0), and that gate is closed at reset. Linux 7.0.14
++	 * qcom-geni-se.c:1283-1290 opens it and then drives SE_FIFO_IF_DISABLE from the mode:
++	 *     geni_setbits32(se->base + SE_DMA_IF_EN, DMA_IF_EN);
++	 *     if (mode == GENI_SE_FIFO) geni_clrbits32(se->base + SE_FIFO_IF_DISABLE, FIFO_IF_DISABLE);
++	 *     else                     geni_setbits32(se->base + SE_FIFO_IF_DISABLE, FIFO_IF_DISABLE);
++	 * This board's own BT GENI transport does the same at QcaBluetooth/src/qbt_geni.c:56
++	 *     wr(g,G_DMA_MODE,1); wr(g,G_DMA_IF_EN,rd(g,G_DMA_IF_EN)|1);
++	 * The touch driver set 0x258 but never 0x2004, so M_CMD0 was accepted by the
++	 * sequencer (STATUS bit0 = M_GENI_CMD_ACTIVE stuck, cmd0 reads back) while the DMA
++	 * master stayed disconnected: no descriptor is ever fetched, hence stat_tx=0,
++	 * stat_rx=0, txin=0, rxin=0 and no M_CMD_DONE. Linux v6.6/v5.10 do not have these
++	 * registers in their source at all, which is why an audit against v6.6 could not
++	 * find the missing step. */
++	/*
++	 * K60_QUP_NO_CONFIG_REGION: DISABLED -- this block is documentation only.
++	 *
++	 * The QUP config region at +0x2000 is NOT implemented on this SoC's QUP.
++	 * Measured on device: touching it takes a kernel data abort, and the fault
++	 * address is base + 0x2004 for BOTH candidate bases:
++	 *     se_phys + 0x2004 = 0x992004   -> far = se + 0x2004      (abort)
++	 *     wrapper  + 0x2004 = 0x9c2004  -> far = wrapper + 0x2004 (abort)
++	 * A data abort (not a read returning 0) means the address is unbacked, so
++	 * SE_GENI_CLK_CTRL / SE_DMA_IF_EN / SE_FIFO_IF_DISABLE exist only on newer
++	 * QUP revisions. Linux 7.0.14 has them; the v6.6 and 5.10 trees used for the
++	 * rest of this driver do not.
++	 *
++	 * The original intent (from Linux 7.0.14 qcom-geni-se.c:1283-1290 and the
++	 * board's own BT transport at QcaBluetooth/src/qbt_geni.c:56) was:
++	 *     geni_setbits32(se->base + SE_DMA_IF_EN, DMA_IF_EN);
++	 *     if (mode == GENI_SE_FIFO) clrbits(SE_FIFO_IF_DISABLE, FIFO_IF_DISABLE);
++	 *     else                      setbits(SE_FIFO_IF_DISABLE, FIFO_IF_DISABLE);
++	 * Kept below, never executed, so a future board with the newer QUP can be
++	 * enabled by flipping the condition.
++	 */
++	if (0) {
++		wr(SE_DMA_IF_EN, rd(SE_DMA_IF_EN) | DMA_IF_EN);
++		wr(SE_FIFO_IF_DISABLE, spi_use_dma ? (rd(SE_FIFO_IF_DISABLE) | FIFO_IF_DISABLE)
++		    : (rd(SE_FIFO_IF_DISABLE) & ~FIFO_IF_DISABLE));
++		printf("Pong touch: GENI if_en dma=%#x fifo_disable=%#x mode_en=%#x ro_if_disable=%#x\n",
++		    rd(SE_DMA_IF_EN), rd(SE_FIFO_IF_DISABLE), rd(GENI_DMA_MODE_EN), rd(GENI_IF_DISABLE_RO));
++	}
 +	wr(GENI_RX_WATERMARK, fifo_depth - 3);
 +	wr(GENI_RX_RFR_WATERMARK, fifo_depth - 2);
 +	wr(GENI_TX_WATERMARK, 0);
 +	/* the status bits we poll follow these enables; the interrupt itself stays masked at the GIC */
 +	wr(SE_IRQ_EN, rd(SE_IRQ_EN) | 0xf);
-+	wr(GENI_M_IRQ_EN, rd(GENI_M_IRQ_EN) | 0x7fc0007f);
++	wr(GENI_M_IRQ_EN, (rd(GENI_M_IRQ_EN) | M_COMMON_GENI_M_IRQ_EN) & ~M_FIFO_ONLY_IRQ_BITS);
++	/* GeniSpi.c:94 sets the secondary sequencer's common enables too. */
++	wr(SE_GENI_S_IRQ_EN, rd(SE_GENI_S_IRQ_EN) | S_COMMON_GENI_S_IRQ_EN);
++	/* M_FIFO_ONLY_IRQ_BITS are already clear in the write above
++	 * (geni_se_select_dma_mode does the same clearing in Linux). */
 +
 +	/* mode 0, chip select 0, 8 bits, most significant first, four bytes in a FIFO word */
 +	wr(SPI_LOOPBACK, 0);
@@ -642,16 +1186,27 @@ index 0000000..b033b90
 +	wr(SPI_DEMUX_OUTPUT_INV, 0);
 +	wr(SPI_TRANS_CFG, rd(SPI_TRANS_CFG) & ~2u);
 +	wr(SPI_DELAY_COUNTERS, 0);
-+	wr(GENI_TX_PACKING_CFG0, 0x0007f8fe);
-+	wr(GENI_TX_PACKING_CFG1, 0x000ffefe);
-+	wr(GENI_RX_PACKING_CFG0, 0x0007f8fe);
-+	wr(GENI_RX_PACKING_CFG1, 0x000ffefe);
-+	wr(GENI_BYTE_GRAN, 0);
-+	wr(SPI_WORD_LEN, 8 - 4);
++	/* 8 bits per word, MSB first (SPI mode 0): the official set_word_len()
++	 * (GeniSpi.c:68-72) derives pack_words from the FIFO width and programs
++	 * the four packing vectors with config_packing() (GeniSpi.c:38-66).
++	 * Note that this derives the same cfg0/cfg1 the previous hard-coded
++	 * constants already had (0x0007f8fe / 0x000ffefe); the packing registers
++	 * were not the reason DMA failed. It also makes the BYTE_GRAN write
++	 * conditional exactly as the official code does (GeniSpi.c:65) instead of
++	 * unconditional, so the register now follows the same rule as upstream. */
++	geni_set_word_len(8, 1);
 +
-+	divider = (se_source_hz + hz - 1) / hz;
++	/* Official GeniSpi.c:139-148: div = ceil(sclk_hz / (oversampling * speed_hz)).
++	 * The oversampling factor comes from the QUP hardware version
++	 * (geni_spi_init:96-97): 2 for QUP 1.0, else 1. */
++	{
++		uint64_t denom = (uint64_t)qup_oversampling * hz;
++
++		divider = (uint32_t)((se_source_hz + denom - 1) / denom);
++	}
 +	wr(GENI_CLK_SEL, se_clock_select & 7);
 +	wr(GENI_SER_M_CLK_CFG, (divider ? divider : 1) << 4 | 1);
++	spi_transfer = spi_use_dma ? geni_dma_transfer : geni_transfer;
 +	return NULL;
 +}
 +
@@ -682,16 +1237,61 @@ index 0000000..b033b90
 +	}
 +}
 +
++/* K60_M_CMD_ABORT: clear a stuck M_GENI_CMD_ACTIVE before issuing a new command.
++ * STATUS bit0 stuck at 0x41 means the primary sequencer still believes a command is
++ * running, so every later M_CMD0 write is ignored. Linux never has to do this because
++ * it arms the interrupt first; polling drivers must. This is exactly the manual
++ * cancel/abort sequence of QcomGeniSpi/GeniSpi.c:281-289 recover() and
++ * geni-se.h.v6.6:366-396 (geni_se_cancel_m_cmd -> CTRL BIT(2), then
++ * geni_se_abort_m_cmd -> CTRL BIT(1)) and the completion bits are M_CMD_CANCEL_EN
++ * (BIT(4)) / M_CMD_ABORT_EN (BIT(5)) in SE_GENI_M_IRQ_STATUS (geni-se.h.v6.6:170-171).
++ * Returns true when the sequencer ended up idle. */
++#define M_IRQ_CANCEL_DONE       (1u << 4)       /* geni-se.h.v6.6:170 M_CMD_CANCEL_EN */
++#define M_IRQ_ABORT_DONE        (1u << 5)       /* geni-se.h.v6.6:171 M_CMD_ABORT_EN */
++
++static bool
++geni_abort_active(void)
++{
++	if (!(rd(GENI_STATUS) & 1)) {
++		return true;                    /* already idle */
++	}
++	wr(GENI_M_IRQ_CLEAR, 0xffffffff);
++	wr(GENI_M_CMD_CTRL, M_GENI_CMD_CANCEL);
++	for (int i = 0; i < 2000; i++) {
++		if (rd(GENI_M_IRQ_STATUS) & M_IRQ_CANCEL_DONE) {
++			break;
++		}
++		if (!(rd(GENI_STATUS) & 1)) {
++			break;
++		}
++		sleep_us(50);
++	}
++	if (rd(GENI_STATUS) & 1) {
++		wr(GENI_M_CMD_CTRL, M_GENI_CMD_ABORT);
++		for (int i = 0; i < 2000; i++) {
++			if (rd(GENI_M_IRQ_STATUS) & M_IRQ_ABORT_DONE) {
++				break;
++			}
++			if (!(rd(GENI_STATUS) & 1)) {
++				break;
++			}
++			sleep_us(50);
++		}
++	}
++	wr(GENI_M_IRQ_CLEAR, 0xffffffff);
++	return !(rd(GENI_STATUS) & 1);
++}
++
 +static void
 +geni_recover(void)
 +{
-+	wr(GENI_M_CMD_CTRL, 1u << 2);
-+	for (int i = 0; i < 2000 && !(rd(GENI_M_IRQ_STATUS) & M_CMD_CANCEL); i++) {
++	wr(GENI_M_CMD_CTRL, M_GENI_CMD_CANCEL);
++	for (int i = 0; i < 2000 && !(rd(GENI_M_IRQ_STATUS) & M_IRQ_CANCEL_DONE); i++) {
 +		sleep_us(100);
 +	}
-+	if (!(rd(GENI_M_IRQ_STATUS) & M_CMD_CANCEL)) {
-+		wr(GENI_M_CMD_CTRL, 1u << 1);
-+		for (int i = 0; i < 2000 && !(rd(GENI_M_IRQ_STATUS) & M_CMD_ABORT); i++) {
++	if (!(rd(GENI_M_IRQ_STATUS) & M_IRQ_CANCEL_DONE)) {
++		wr(GENI_M_CMD_CTRL, M_GENI_CMD_ABORT);
++		for (int i = 0; i < 2000 && !(rd(GENI_M_IRQ_STATUS) & M_IRQ_ABORT_DONE); i++) {
 +			sleep_us(100);
 +		}
 +	}
@@ -716,6 +1316,10 @@ index 0000000..b033b90
 +		}
 +		sleep_us(100);
 +	}
++	/* Same stale-M_GENI_CMD_ACTIVE problem as the DMA path: the FIFO run of
++	 * evidence/usblog-20261109-192021 shows geni_transfer() reaching STATUS=0x41 and
++	 * never clearing it, after which every later M_CMD0 is ignored. */
++	(void)geni_abort_active();
 +	wr(GENI_M_IRQ_CLEAR, 0xffffffff);
 +	/* K60_GENI_DIAG: what does the engine look like before the command? */
 +	printf("Pong touch: GENI pre status=%#x clk_cfg=%#x trans_cfg=%#x word_len=%#x\n",
@@ -736,7 +1340,10 @@ index 0000000..b033b90
 +	wr(SPI_RX_TRANS_LEN, length);
 +	printf("Pong touch: GENI lens tx=%#x rx=%#x\n",
 +	    rd(SPI_TX_TRANS_LEN), rd(SPI_RX_TRANS_LEN));
-+	wr(GENI_M_CMD0, SPI_FULL_DUPLEX);
++	/* M_CMD0 = (opcode << 27) | params (geni-se.h.v6.6:336). SPI_FULL_DUPLEX is
++	 * already the shifted opcode (0x18000000) and M_PARAMS_FRAGMENTATION is BIT(2),
++	 * so the OR is a plain field merge: 0x18000000 | 0x4 = 0x18000004. */
++	wr(GENI_M_CMD0, SPI_FULL_DUPLEX | (k60_touch_keep_cs ? M_PARAMS_FRAGMENTATION : 0));
 +	printf("Pong touch: GENI cmd0 readback=%#x status=%#x\n",
 +	    rd(GENI_M_CMD0), rd(GENI_STATUS));
 +	clock_interval_to_deadline(200, NSEC_PER_MSEC, &deadline);
@@ -786,6 +1393,16 @@ index 0000000..b033b90
 +/* ---- SPI by hand, on the same pins ----------------------------------------------------------------- */
 +
 +static unsigned bitbang_in, bitbang_out;
++/* K60_BB_DELAY_ARG: k60_touch_bb_us=<n> overrides the half-period (0 = off). */
++static int k60_touch_bb_us = -1;
++/*
++ * K60_DIAG_LEVEL: 0 = only the 5-second heartbeat, 1 = also the region sweeps,
++ * 2 = also the per-report byte dumps. The diagnostics are extremely chatty (the
++ * region sweep alone prints one line per 32-byte block on every sample) and the
++ * console is a slow serial line, so leaving them on makes the whole boot crawl.
++ * boot-arg: k60_touch_diag=<0|1|2>
++ */
++static int k60_touch_diag;
 +
 +/* K60_PIN_PERMUTE: bitbang roles as variables so the probe can try all 24 assignments. */
 +static unsigned bitbang_clk, bitbang_cs;
@@ -801,30 +1418,685 @@ index 0000000..b033b90
 +	gpio_configure(bitbang_in, 0, PULL_NONE, 2, false);
 +}
 +
++/*
++ * K60_BB_DELAY: half-period delay for the bit-bang SPI clock.
++ *
++ * The GPIO block is mapped VM_WIMG_IO (nGnRnE), so back-to-back MMIO stores are
++ * ordered and the loop can run at tens of MHz -- far above what a Goodix
++ * BerlinD controller samples reliably. The upstream ruby bring-up measured the
++ * same problem and settled on 2 us per half period (~250 kHz):
++ *   0168-ruby-spi3-touch.patch:1703  gt.bb_delay_us = 2;
++ * Its driver keeps the value tunable from a boot argument (:1710), which is how
++ * they found it. Reproduce both here; k60_touch_bb_us=0 disables the delay so a
++ * run can still be compared against the old behaviour.
++ */
++static uint32_t bb_delay_us = 2;
++
++static void
++bb_half_delay(void)
++{
++	if (bb_delay_us) {
++		sleep_us(bb_delay_us);
++	}
++}
++
 +static bool
 +bitbang_transfer(const uint8_t *tx, uint8_t *rx, uint32_t length)
 +{
 +	if (!bitbang_clk) bitbang_clk = PIN_CLK;
 +	if (!bitbang_cs) bitbang_cs = PIN_CS;
 +	gpio_set(bitbang_cs, false);
++	bb_half_delay();
 +	for (uint32_t i = 0; i < length; i++) {
 +		uint8_t out = tx ? tx[i] : 0, in = 0;
 +
 +		for (int bit = 7; bit >= 0; bit--) {
++			/* SPI mode 0: data is set while the clock is low and
++			 * sampled on the rising edge; every edge gets the
++			 * half-period delay so the controller can follow. */
 +			gpio_set(bitbang_out, out >> bit & 1);
++			bb_half_delay();
 +			gpio_set(bitbang_clk, true);
++			bb_half_delay();
 +			in = (uint8_t)(in << 1 | gpio_get(bitbang_in));
 +			gpio_set(bitbang_clk, false);
++			bb_half_delay();
 +		}
 +		if (rx) {
 +			rx[i] = in;
 +		}
 +	}
++	bb_half_delay();
 +	gpio_set(bitbang_cs, true);
++	bb_half_delay();
 +	return true;
 +}
 +
-+static bool (*spi_transfer)(const uint8_t *tx, uint8_t *rx, uint32_t length);
++/* ---- apps_smmu: the SE DMA master is an SMMU client ----------------------------------------------- */
++/*
++ * K60 live merged FDT (E:/k60-work/reports/live-6033dbec-fdt.dtb, sha256 95c02052…, parsed
++ * 2026-11-10 with a read-only FDT walker):
++ *
++ *   /soc/spi@990000                    qcom,wrapper-core = </soc/qcom,qupv3_0_geni_se@9c0000>
++ *                                      and NO iommus property of its own
++ *   /soc/qcom,qupv3_0_geni_se@9c0000   iommus = <&apps_smmu 0x5a3 0x0>
++ *                                      qcom,iommu-dma-addr-pool = <0x40000000 0x10000000>
++ *   /soc/qcom,qupv3_2_geni_se@8c0000   iommus = <&apps_smmu 0x483 0x0>   <- QCA6490 BT UART
++ *   /soc/apps-smmu@15000000            reg = <0x15000000 0x100000>, #iommu-cells = <2>
++ *
++ * So the touch SE's stream is 0x5a3, NOT 0x483. SID 0x483 belongs to the QUPV3_2 wrapper, whose
++ * only client here is qup_uart@894000, i.e. the Bluetooth UART (0500-k60-bt-qbt-new-files.patch:
++ * 1028 says exactly that). Putting 0x483 into bypass would leave the touch DMA stream untouched
++ * and would also break BT on the next boot.
++ *
++ * Linux maps every SE DMA buffer through the wrapper's IOMMU and hands the engine the resulting
++ * IOVA (qcom-geni-se.c:703-712 geni_se_tx_dma_prep -> dma_map_single(wrapper->dev, ...); rx at
++ * :755-764), so SE_DMA_*_PTR_L/H must never see a bare physical address on a translating stream.
++ * This port instead moves the wrapper's stream into SMMU bypass, which makes the IOVA equal the
++ * physical address kvtophys() already returns.
++ *
++ * The takeover below is NativeUfs/SmmuTakeover.h, the path this platform already proves for SID
++ * 0xe0 (PongUfsTransport.cpp:360-377). That header is C++ and cannot be included from this file,
++ * so it is ported function by function exactly as 0300-k60-usblog-ep0.patch:288-484 ported it for
++ * SID 0. Line references below point at SmmuTakeover.h.
++ */
++#define APPS_SMMU_PHYS          0x15000000UL
++/* K60_SMMU_WINDOW: the context-bank register array is (pages + banks) * 4096
++ * contiguous bytes (SmmuTakeover.h:49), NOT a few KiB: on this part idr1 =
++ * 0x6000004b gives pages=128 and banks=75 -> 0xcb000 for the full set. We only
++ * need one bank, so APPS_SMMU_BANKS caps it to 8 and the window becomes
++ * (128 + 8) * 4096 = 0x88000 plus 0x3c80 of SMR/S2CR tables -> 0x90000 fits
++ * with headroom while staying well inside the 8 MiB io_submap budget.
++ * (0x8000 never worked: the geometry check compares against this very constant.) */
++#define APPS_SMMU_SIZE          0xd0000UL
++#define APPS_SMMU_TOUCH_SID     0x5a3           /* qupv3_0 wrapper: the touch SE's DMA parent */
++#define APPS_SMMU_BT_SID        0x483           /* qupv3_2 wrapper; reported for contrast only */
++/* Use the real hardware bank count (IDR1 says 75). Capping it to 8 made the plan
++ * pick bank 7, and the hardware rewrote S2CR BYPASS to FAULT there -- the UFS
++ * stream works on bank 73 of the same 75, so high banks are the usable ones.
++ * The window below is sized for this count. */
++#define APPS_SMMU_BANKS         75
++#define APPS_SMMU_GROUPS        120             /* DT bound; IDR0.NUMSMRG wins */
++#define SMMU_SCR0               0x000
++#define SMMU_IDR0               0x020
++#define SMMU_IDR1               0x024
++#define SMMU_IDR2               0x028
++#define SMMU_GFSR               0x048
++#define SMMU_SMR(n)             (0x800 + 4 * (n))
++#define SMMU_S2CR(n)            (0xc00 + 4 * (n))
++#define SMMU_CBAR(n)            (0x1000 + 4 * (n))
++#define SMMU_CBA2R(n)           (0x1800 + 4 * (n))
++/* ARM IHI 0062D.c: S2CR.TYPE is bits [17:16], never [1:0]. 0b01 = bypass. */
++#define SMMU_S2CR_TYPE_MASK     (3u << 16)
++#define SMMU_S2CR_TYPE_TRANS    (0u << 16)
++#define SMMU_S2CR_TYPE_BYPASS   (1u << 16)
++#define SMMU_S2CR_TYPE_FAULT    (2u << 16)
++#define SMMU_CBAR_STAGE1_S2_BYP 0x10000u        /* ARM_SMMU_CBAR_TYPE=1: S1 trans + S2 bypass */
++/* Context-bank registers, relative to the bank base (pages + bank) * 4096.
++ * Offsets from arm-smmu.h: CB_SCTLR=0x0, CB_TTBR0=0x20, CB_TCR=0x30. */
++#define SMMU_CB_SCTLR           0x00u
++#define SMMU_CB_TTBR0           0x20u
++#define SMMU_CB_TCR             0x30u
++#define SMMU_SCTLR_M            (1u << 0)
++/* Fault reporting (arm-smmu.h): GR0_sGFSR 0x48; per-context CB_FSR 0x58,
++ * CB_FAR 0x60 (64-bit), CB_FSYNR0 0x68. */
++#define SMMU_GFSR               0x48u
++#define SMMU_CB_FSR             0x58u
++#define SMMU_CB_FAR             0x60u
++#define SMMU_CB_FSYNR0          0x68u
++#define SMMU_FSR_TF             (1u << 1)   /* translation fault */
++#define SMMU_FSR_PF             (1u << 3)   /* permission fault */
++#define SMMU_FSR_EF             (1u << 4)   /* external fault */
++#define SMMU_FSR_UUT            (1u << 8)   /* unsupported transaction */
++/* TCR for 4 KiB granule, 39-bit VA (T0SZ=25), inner/outer WB-WA, walks cached. */
++#define SMMU_TCR_T0SZ(n)        ((uint32_t)(n) & 0x3fu)
++#define SMMU_TCR_IRGN0_WBWA     (1u << 8)
++#define SMMU_TCR_ORGN0_WBWA     (1u << 10)
++#define SMMU_TCR_SH0_INNER      (3u << 12)
++#define SMMU_TCR_TG0_4K         (0u << 14)
++#define SMMU_TCR_IPS_40BIT      (2u << 32)
++#define SMMU_TCR_VALUE          (SMMU_TCR_T0SZ(25) | SMMU_TCR_IRGN0_WBWA | \
++                                 SMMU_TCR_ORGN0_WBWA | SMMU_TCR_SH0_INNER)
++/* LPAE level-1 block descriptor: output address [47:30], bits[1:0]=01 = block. */
++#define SMMU_L1_BLOCK(pa)       (((uint64_t)(pa) & 0x0000ffffc0000000ull) | 0x1ull)
++#define SMMU_CBA2R_AARCH64      1u              /* ArmSmmu4KContext.c:52 */
++
++/* SmmuTakeover.h:3-9 (UfsSmmuPlan), C form. */
++struct se_smmu_plan {
++	unsigned slot, bank, pages;
++	uint32_t smr, s2cr, previous_bank;
++	int reuse, migrate;
++	const char *error;
++};
++
++/* Declared with the other MMIO windows at the top of the file so k60_se_smmu_bypass() can be
++ * called from the bring-up thread before its definition below. */
++
++/* SmmuTakeover.h:13-20 */
++static unsigned
++smmu_addr_bits(unsigned code)
++{
++	switch (code) {
++	case 0: return 32; case 1: return 36; case 2: return 40;
++	case 3: return 42; case 4: return 44; case 5: return 48;
++	default: return 0;
++	}
++}
++
++/* The smallest of the three IDR2 address widths, or 0 when the hardware reports an unsupported
++ * encoding. VA64=1 does not widen any of them (SmmuTakeover.h:10-12). */
++static unsigned
++smmu_bypass_bits(void)
++{
++	uint32_t idr2;
++	unsigned best = 0;
++
++	if (!smmu) {
++		return 0;
++	}
++	idr2 = rd(smmu + SMMU_IDR2);
++	for (unsigned shift = 0; shift <= 8; shift += 4) {
++		unsigned bits = smmu_addr_bits((idr2 >> shift) & 15);
++
++		if (!bits) {
++			return 0;
++		}
++		if (!best || bits < best) {
++			best = bits;
++		}
++	}
++	return best;
++}
++
++/* Read-only: IDR/SCR0/GFSR plus every enabled stream-match slot. This is the diagnostic the
++ * task asks for first; it writes nothing, so it is safe before any decision is made. */
++static void
++smmu_dump(const char *tag)
++{
++	uint32_t idr0;
++	unsigned groups, shown = 0;
++
++	if (!smmu) {
++		printf("Pong touch: SMMU %s not mapped\n", tag);
++		return;
++	}
++	idr0 = rd(smmu + SMMU_IDR0);
++	printf("Pong touch: SMMU %s id0=%#x id1=%#x id2=%#x scr0=%#x gfsr=%#x\n", tag,
++	    idr0, rd(smmu + SMMU_IDR1), rd(smmu + SMMU_IDR2),
++	    rd(smmu + SMMU_SCR0), rd(smmu + SMMU_GFSR));
++	printf("Pong touch: SMMU %s touch-sid=%#x bypass-bits=%u (bt sid %#x is another wrapper)\n",
++	    tag, APPS_SMMU_TOUCH_SID, smmu_bypass_bits(), APPS_SMMU_BT_SID);
++	groups = idr0 & 0xff;
++	if (groups > APPS_SMMU_GROUPS) {
++		groups = APPS_SMMU_GROUPS;
++	}
++	for (unsigned i = 0; i < groups; i++) {
++		uint32_t smr = rd(smmu + SMMU_SMR(i));
++
++		if (!(smr & 0x80000000U)) {
++			continue;
++		}
++		printf("Pong touch: SMMU %s slot=%u sid=%#x mask=%#x S2CR=%#x\n", tag,
++		    i, smr & 0xffff, (smr >> 16) & 0x7fff, rd(smmu + SMMU_S2CR(i)));
++		if (++shown >= 16) {
++			printf("Pong touch: SMMU %s (further slots not printed)\n", tag);
++			break;
++		}
++	}
++	if (!shown) {
++		printf("Pong touch: SMMU %s no stream-match slot is enabled\n", tag);
++	}
++}
++
++/* Report one SID routing: slot, SMR, S2CR and, for a translation type, the context bank
++ * registers behind it. Read-only. A SID with no enabled slot is a stream the SMMU does not
++ * match at all, which is exactly the case S_CR0.USFCFG decides (fault vs bypass). */
++static void
++smmu_report_sid(const char *tag, uint16_t sid)
++{
++	uint32_t idr0, idr1;
++	unsigned groups, pages;
++
++	if (!smmu) {
++		printf("Pong touch: SMMU %s sid=%#x not mapped\n", tag, sid);
++		return;
++	}
++	idr0 = rd(smmu + SMMU_IDR0);
++	idr1 = rd(smmu + SMMU_IDR1);
++	groups = idr0 & 0xff;
++	if (groups > APPS_SMMU_GROUPS) {
++		groups = APPS_SMMU_GROUPS;
++	}
++	pages = 1U << (((idr1 >> 28) & 7) + 1);
++	for (unsigned i = 0; i < groups; i++) {
++		uint32_t smr = rd(smmu + SMMU_SMR(i));
++		uint32_t s2cr, mask;
++		unsigned type, bank;
++
++		if (!(smr & 0x80000000U) || (smr & 0xffff) != sid) {
++			continue;
++		}
++		mask = (smr >> 16) & 0x7fff;
++		s2cr = rd(smmu + SMMU_S2CR(i));
++		type = (s2cr >> 16) & 3;
++		bank = s2cr & 0xff;
++		printf("Pong touch: SMMU %s sid=%#x slot=%u SMR=%#x mask=%#x S2CR=%#x type=%u(%s) bank=%u\n",
++		    tag, sid, i, smr, mask, s2cr, type,
++		    type == 0 ? "translate" : type == 1 ? "bypass" : type == 2 ? "fault" : "reserved", bank);
++		if (type == 0 && bank < (idr1 & 0xff) && (pages + bank) * 4096 < APPS_SMMU_SIZE) {
++			printf("Pong touch: SMMU %s sid=%#x bank=%u CBAR=%#x CBA2R=%#x SCTLR=%#x exact=%u\n",
++			    tag, sid, bank, rd(smmu + SMMU_CBAR(bank)), rd(smmu + SMMU_CBA2R(bank)),
++			    rd(smmu + (pages + bank) * 4096), (mask == 0));
++		}
++		return;
++	}
++	printf("Pong touch: SMMU %s sid=%#x has NO enabled stream-match slot (unmatched stream)\n",
++	    tag, sid);
++}
++
++/* SmmuTakeover.h:22-93 (planUfsSmmuBank) plus the stage-2-only check from
++ * ArmSmmu4KProgram.c:77-78. Reads only. Every ambiguous case refuses instead of guessing.
++ * dma/bytes may be 0/0 to skip the address-width gate; k60_se_smmu_bypass() then relies on
++ * geni_dma_address() to refuse a physical address the bypass range cannot carry. */
++static void
++smmu_plan_bank(vm_offset_t s, uint16_t stream, uint64_t dma, uint64_t bytes,
++    unsigned owned_banks, unsigned owned_groups, unsigned bank_from_top, struct se_smmu_plan *p)
++{
++	uint32_t idr0 = rd(s + SMMU_IDR0), idr1 = rd(s + SMMU_IDR1), idr2 = rd(s + SMMU_IDR2);
++	unsigned count = idr0 & 0xff, banks, matches = 0;
++	uint32_t sctlr;
++
++	memset(p, 0, sizeof(*p));
++	p->slot = 0xffffffffU;
++	p->previous_bank = 0xffffffffU;
++	if (!(idr0 & (1U << 30)) || !(idr2 & (1U << 12))) {
++		p->error = "SMMU AArch64 stage 1 unsupported";
++		return;
++	}
++	if (bytes) {
++		for (unsigned shift = 0; shift <= 8; shift += 4) {
++			unsigned bits = smmu_addr_bits((idr2 >> shift) & 15);
++
++			if (!bits || dma >= (1ULL << bits) || bytes > (1ULL << bits) - dma) {
++				p->error = "DMA exceeds SMMU address width";
++				return;
++			}
++		}
++	}
++	banks = idr1 & 0xff;
++	if (!owned_banks || !owned_groups || !banks || !count) {
++		p->error = "empty SMMU ownership/capability range";
++		return;
++	}
++	if (banks > owned_banks) {
++		banks = owned_banks;
++	}
++	if (count > owned_groups) {
++		count = owned_groups;
++	}
++	p->pages = 1U << (((idr1 >> 28) & 7) + 1);
++	if ((idr1 >> 31) || !count || p->pages > 128 || banks < 2 || banks > 128 ||
++	    (p->pages + banks) * 4096 > APPS_SMMU_SIZE) {
++		p->error = "unsupported SMMU geometry";
++		return;
++	}
++	if (count > 128) {
++		p->error = "unsupported stream-match group count";
++		return;
++	}
++	if (bank_from_top >= banks - 1) {
++		p->error = "no free context bank";
++		return;
++	}
++	p->bank = banks - 1 - bank_from_top;
++	if (p->bank < ((idr1 >> 16) & 0xff)) {
++		p->error = "context bank is stage-2 only";
++		return;
++	}
++	for (unsigned i = 0; i < count; i++) {
++		uint32_t smr = rd(s + SMMU_SMR(i));
++		uint32_t s2cr, mask;
++		int match, translate, our_bank;
++
++		if (!(smr & 0x80000000U)) {
++			if (!p->reuse && !p->migrate) {
++				p->slot = i;
++			}
++			continue;
++		}
++		s2cr = rd(s + SMMU_S2CR(i));
++		mask = (smr >> 16) & 0x7fff;
++		match = ((smr ^ stream) & 0xffff & ~mask) == 0;
++		translate = (s2cr & SMMU_S2CR_TYPE_MASK) == SMMU_S2CR_TYPE_TRANS;
++		our_bank = translate && (s2cr & 0xff) == p->bank;
++		if (match) {
++			++matches;
++			if (matches > 1 || mask || !translate || (s2cr & 0xff) >= banks) {
++				p->slot = i; p->smr = smr; p->s2cr = s2cr;
++				p->error = "conflicting SE stream mapping";
++				return;
++			}
++			p->reuse = our_bank;
++			p->migrate = !our_bank;
++			p->previous_bank = s2cr & 0xff;
++			p->slot = i; p->smr = smr; p->s2cr = s2cr;
++		} else if (our_bank) {
++			p->slot = i; p->smr = smr; p->s2cr = s2cr;
++			p->error = "reserved context bank already used";
++			return;
++		}
++	}
++	sctlr = rd(s + (p->pages + p->bank) * 4096);
++	if ((sctlr & 1) || (p->reuse && (sctlr ||
++	    rd(s + SMMU_CBAR(p->bank)) != SMMU_CBAR_STAGE1_S2_BYP ||
++	    (rd(s + SMMU_CBA2R(p->bank)) & ~1U)))) {
++		p->error = "reserved context bank not bypass";
++		return;
++	}
++	if (p->slot == 0xffffffffU) {
++		p->error = "no free stream-match group";
++	}
++}
++
++/* SmmuTakeover.h:97-116 (planUfsSmmu): bounded bank-from-top retry. */
++static int
++smmu_plan_retryable(const char *error)
++{
++	return error && (!__builtin_strcmp(error, "reserved context bank already used") ||
++	    !__builtin_strcmp(error, "reserved context bank not bypass"));
++}
++
++static void
++smmu_plan(vm_offset_t s, uint16_t stream, uint64_t dma, uint64_t bytes,
++    unsigned owned_banks, unsigned owned_groups, struct se_smmu_plan *p)
++{
++	struct se_smmu_plan first;
++
++	smmu_plan_bank(s, stream, dma, bytes, owned_banks, owned_groups, 0, p);
++	if (!p->error || !smmu_plan_retryable(p->error)) {
++		return;
++	}
++	first = *p;
++	for (unsigned attempt = 1; attempt < 8; attempt++) {
++		smmu_plan_bank(s, stream, dma, bytes, owned_banks, owned_groups, attempt, p);
++		if (!p->error) {
++			return;
++		}
++		if (!smmu_plan_retryable(p->error)) {
++			break;
++		}
++	}
++	*p = first;
++}
++
++/* SmmuTakeover.h:122-144 (configureUfsSmmu): every write is read back before the next one. The
++ * context is built while SCTLR.M is still 0 and the SID is published last, so a half-configured
++ * bank is never reachable. */
++static const char *
++smmu_configure(vm_offset_t s, const struct se_smmu_plan *p, uint16_t stream)
++{
++	unsigned cb = (p->pages + p->bank) * 4096;
++
++	if (p->error) {
++		return p->error;
++	}
++	if (!p->reuse) {
++		wr(s + cb, 0);
++	}
++	if (rd(s + cb) != 0) {
++		return "SMMU bypass disable readback";
++	}
++	/* VA64 first: the measured DMA buffer sits at 0x9037a5000, i.e. above 4 GiB, and with
++	 * VA64=0 a SCTLR.M=0 bypass still rejects inputs above 32 bits (SmmuTakeover.h:10-12). */
++	if (rd(s + SMMU_CBA2R(p->bank)) != SMMU_CBA2R_AARCH64) {
++		wr(s + SMMU_CBA2R(p->bank), SMMU_CBA2R_AARCH64);
++	}
++	if (!p->reuse) {
++		wr(s + SMMU_CBAR(p->bank), SMMU_CBAR_STAGE1_S2_BYP);
++	}
++	if (rd(s + SMMU_CBA2R(p->bank)) != SMMU_CBA2R_AARCH64 ||
++	    rd(s + SMMU_CBAR(p->bank)) != SMMU_CBAR_STAGE1_S2_BYP || rd(s + cb) != 0) {
++		return "SMMU VA64 bypass readback";
++	}
++	if (!p->reuse) {
++		/* S2CR.TYPE lives in [17:16]; 1 = BYPASS. Writing only the bank
++		 * number leaves TYPE=0 (translate), which is why the device read
++		 * back S2CR=0x7 and the SE DMA still had a translation to resolve. */
++		uint32_t s2cr = SMMU_S2CR_TYPE_BYPASS | (p->bank & 0xffu);
++
++		wr(s + SMMU_S2CR(p->slot), s2cr);
++		if ((rd(s + SMMU_S2CR(p->slot)) & ~SMMU_S2CR_TYPE_MASK) != (p->bank & 0xffu)) {
++			return "SMMU stream context readback";
++		}
++		if (!p->migrate) {
++			wr(s + SMMU_SMR(p->slot), 0x80000000U | stream);
++		}
++	}
++	if (rd(s + SMMU_SMR(p->slot)) != (0x80000000U | stream) ||
++	    (rd(s + SMMU_S2CR(p->slot)) & ~SMMU_S2CR_TYPE_MASK) != (p->bank & 0xffu) ||
++	    (rd(s + SMMU_S2CR(p->slot)) & SMMU_S2CR_TYPE_MASK) != SMMU_S2CR_TYPE_BYPASS) {
++		return "SMMU stream mapping readback";
++	}
++	return NULL;
++}
++
++/* True when this SID is already routed to architectural bypass by an exact SMR match.
++ * S2CR.TYPE=0b01 means the SMMU does not translate the stream at all (ARM IHI 0062D.c),
++ * so a physical address is already the legal DMA address and nothing needs programming.
++ * Read-only: this never writes a register. */
++static bool
++smmu_sid_is_bypass(uint16_t sid)
++{
++	uint32_t idr0;
++	unsigned groups;
++
++	if (!smmu) {
++		return false;
++	}
++	idr0 = rd(smmu + SMMU_IDR0);
++	groups = idr0 & 0xff;
++	if (groups > APPS_SMMU_GROUPS) {
++		groups = APPS_SMMU_GROUPS;
++	}
++	for (unsigned i = 0; i < groups; i++) {
++		uint32_t smr = rd(smmu + SMMU_SMR(i));
++
++		if (!(smr & 0x80000000U) || (smr & 0xffff) != sid) {
++			continue;
++		}
++		/* Only an exact match counts: a masked SMR would capture other streams too,
++		 * and this code must not claim that as the touch SE being in bypass. */
++		if (((smr >> 16) & 0x7fff) != 0) {
++			return false;
++		}
++		return (rd(smmu + SMMU_S2CR(i)) & SMMU_S2CR_TYPE_MASK) == SMMU_S2CR_TYPE_BYPASS;
++	}
++	return false;
++}
++
++/* Put the touch SE's stream into SMMU bypass. Returns true only when the stream reads back as an
++ * exact match on an AArch64 stage-1 / stage-2-bypass context. Nothing is enabled when this fails:
++ * the caller keeps the previous (translating or faulting) stream state. */
++/*
++ * K60_SMMU_IDENTITY: the part refuses S2CR.TYPE=BYPASS (writing 0x10007 reads
++ * back 0x20007, and 0x10048 reads back 0x20048), so the only shape left is the
++ * one UFS already uses on this board: CBAR.TYPE=1 (S1 translate + S2 bypass),
++ * S2CR.TYPE=0 (TRANS) and a real stage-1 table.
++ *
++ * The table is one 4 KiB LPAE L1 with a single 1 GiB block descriptor covering
++ * the region the SE DMA buffers live in, which makes the map an identity map.
++ */
++static bool
++k60_se_smmu_identity_map(uint64_t dma_phys, uint16_t *bank_out)
++{
++	struct se_smmu_plan plan;
++	uint64_t l1_pa, block_pa;
++	unsigned idx;
++	uint32_t cb;
++	unsigned banks_from_idr;
++
++	if (!smmu) {
++		return false;
++	}
++	/*
++	 * The refused BYPASS attempt left S2CR=0x20048 (FAULT + bank) and a valid
++	 * SMR behind, so the planner sees the slot as a conflicting stream. Return
++	 * that slot to the idle shape first: S2CR back to fault with no bank, SMR
++	 * cleared, then plan.
++	 */
++	for (unsigned i = 0; i < (rd(smmu + SMMU_IDR0) & 0xffu); i++) {
++		uint32_t smr = rd(smmu + SMMU_SMR(i));
++
++		if ((smr & 0x80000000u) && (smr & 0xffffu) == APPS_SMMU_TOUCH_SID) {
++			uint32_t was = rd(smmu + SMMU_S2CR(i));
++
++			wr(smmu + SMMU_S2CR(i), SMMU_S2CR_TYPE_FAULT);
++			wr(smmu + SMMU_SMR(i), 0);
++			printf("Pong touch: SMMU identity: cleared stale slot=%u s2cr %#x -> %#x\n",
++			    i, was, rd(smmu + SMMU_S2CR(i)));
++			break;
++		}
++	}
++	/* Pick a bank the same way the bypass path did, but keep the plan only for
++	 * slot/bank selection: we program the context ourselves below. */
++	smmu_plan(smmu, APPS_SMMU_TOUCH_SID, 0, 0, APPS_SMMU_BANKS, APPS_SMMU_GROUPS, &plan);
++	if (plan.error) {
++		printf("Pong touch: SMMU identity plan failed: %s\n", plan.error);
++		return false;
++	}
++	banks_from_idr = rd(smmu + SMMU_IDR1) & 0xff;
++	cb = (plan.pages + plan.bank) * 4096;
++
++	/* A 4 KiB L1 table holds 512 8-byte descriptors; a 1 GiB block entry covers
++	 * 2^30 of VA, so one entry is enough for the DMA buffer's region. */
++	block_pa = dma_phys & ~((1ull << 30) - 1);
++	idx = (unsigned)((dma_phys >> 30) & 0x1ffu);
++	l1_pa = (uint64_t)kvtophys((vm_offset_t)smmu_l1);
++	if (!l1_pa) {
++		printf("Pong touch: SMMU identity: kvtophys(L1) failed\n");
++		return false;
++	}
++	memset(smmu_l1, 0, sizeof(smmu_l1));
++	smmu_l1[idx] = SMMU_L1_BLOCK(block_pa);
++	FlushPoC_DcacheRegion((vm_offset_t)smmu_l1, sizeof(smmu_l1));
++	printf("Pong touch: SMMU identity L1 pa=%#llx idx=%u desc=%#llx block_pa=%#llx\n",
++	    (unsigned long long)l1_pa, idx,
++	    (unsigned long long)smmu_l1[idx], (unsigned long long)block_pa);
++
++	/* Program the bank: disable, TCR, TTBR0, then enable with SCTLR.M. */
++	wr(smmu + cb + SMMU_CB_SCTLR, 0);
++	wr(smmu + cb + SMMU_CB_TCR, SMMU_TCR_VALUE);
++	wr(smmu + cb + SMMU_CB_TTBR0, (uint32_t)l1_pa | 0x1u);   /* ASID 0, CnP */
++	wr(smmu + cb + SMMU_CB_SCTLR, SMMU_SCTLR_M | (1u << 3)); /* M=1, CFCFG? keep minimal */
++	printf("Pong touch: SMMU identity cb=%#x sctlr=%#x tcr=%#x ttbr0=%#x\n",
++	    cb, rd(smmu + cb + SMMU_CB_SCTLR), rd(smmu + cb + SMMU_CB_TCR),
++	    rd(smmu + cb + SMMU_CB_TTBR0));
++
++	/* Publish the stream: SMR first, then S2CR with TYPE=TRANS and the bank.
++	 * CBAR.TYPE=1 (S1 translate + S2 bypass) makes this a pure identity map. */
++	wr(smmu + SMMU_CBAR(plan.bank), SMMU_CBAR_STAGE1_S2_BYP);
++	wr(smmu + SMMU_CBA2R(plan.bank), SMMU_CBA2R_AARCH64);
++	wr(smmu + SMMU_SMR(plan.slot), 0x80000000U | APPS_SMMU_TOUCH_SID);
++	wr(smmu + SMMU_S2CR(plan.slot), (plan.bank & 0xffu));   /* TYPE=0 TRANS */
++	printf("Pong touch: SMMU identity slot=%u SMR=%#x S2CR=%#x cbar=%#x\n",
++	    plan.slot, rd(smmu + SMMU_SMR(plan.slot)), rd(smmu + SMMU_S2CR(plan.slot)),
++	    rd(smmu + SMMU_CBAR(plan.bank)));
++	if (((rd(smmu + SMMU_S2CR(plan.slot)) >> 16) & 3u) != 0) {
++		printf("Pong touch: SMMU identity: S2CR TYPE did not stick\n");
++		return false;
++	}
++	smmu_ctx_pages = plan.pages;
++	smmu_ctx_bank = plan.bank;
++	if (bank_out) {
++		*bank_out = (uint16_t)plan.bank;
++	}
++	return true;
++}
++
++static bool
++k60_se_smmu_bypass(void)
++{
++	struct se_smmu_plan plan;
++	const char *why;
++
++	if (!smmu) {
++		return false;
++	}
++	smmu_dump("pre");
++	/* Already bypassed: the goal state. Report it and change nothing, so a re-entry or a
++	 * firmware-installed bypass is not mistaken for a conflict. */
++	if (smmu_sid_is_bypass(APPS_SMMU_TOUCH_SID)) {
++		printf("Pong touch: SMMU sid=%#x is already in architectural bypass; no write needed\n",
++		    APPS_SMMU_TOUCH_SID);
++		return true;
++	}
++	smmu_plan(smmu, APPS_SMMU_TOUCH_SID, 0, 0, APPS_SMMU_BANKS, APPS_SMMU_GROUPS, &plan);
++	if (plan.error) {
++		printf("Pong touch: SMMU sid=%#x plan failed: %s\n", APPS_SMMU_TOUCH_SID, plan.error);
++		return false;
++	}
++	printf("Pong touch: SMMU sid=%#x slot=%u bank=%u firmware-bank=%u action=%s\n",
++	    APPS_SMMU_TOUCH_SID, plan.slot, plan.bank, plan.previous_bank,
++	    plan.migrate ? "migrate" : plan.reuse ? "reuse" : "install");
++	why = smmu_configure(smmu, &plan, APPS_SMMU_TOUCH_SID);
++	printf("Pong touch: SMMU sid=%#x slot=%u SMR=%#x S2CR=%#x CBAR=%#x CBA2R=%#x SCTLR=%#x\n",
++	    APPS_SMMU_TOUCH_SID, plan.slot,
++	    rd(smmu + SMMU_SMR(plan.slot)), rd(smmu + SMMU_S2CR(plan.slot)),
++	    rd(smmu + SMMU_CBAR(plan.bank)), rd(smmu + SMMU_CBA2R(plan.bank)),
++	    rd(smmu + (plan.pages + plan.bank) * 4096));
++	if (why) {
++		/*
++		 * This part rewrites S2CR.TYPE=BYPASS to FAULT (0x10007 -> 0x20007,
++		 * 0x10048 -> 0x20048), so the architectural-bypass shape is not
++		 * available. Fall back to a stage-1 identity map, which is exactly
++		 * what UFS uses on this board (CBAR.TYPE=1, S2CR.TYPE=0).
++		 */
++		uint16_t ibank = 0;
++
++		printf("Pong touch: SMMU sid=%#x bypass refused (%s); trying stage-1 identity map\n",
++		    APPS_SMMU_TOUCH_SID, why);
++		if (k60_se_smmu_identity_map(0x9037a5000ull, &ibank)) {
++			printf("Pong touch: SMMU sid=%#x identity map ACTIVE bank=%u\n",
++			    APPS_SMMU_TOUCH_SID, ibank);
++			return true;
++		}
++		printf("Pong touch: SMMU sid=%#x identity map failed too\n", APPS_SMMU_TOUCH_SID);
++		return false;
++	}
++	printf("Pong touch: SMMU sid=%#x bypass active, SE DMA may use physical addresses\n",
++	    APPS_SMMU_TOUCH_SID);
++	return true;
++}
++
++/* The address the SE's DMA master is given. Linux hands it a dma_map_single() IOVA
++ * (qcom-geni-se.c:708/760); with the stream in bypass that IOVA is the physical address, so
++ * kvtophys() is correct. With bypass unproven the same physical address is still returned, so
++ * the existing failure diagnostics keep running and a translation fault surfaces as DMA_AHB_ERR,
++ * but it is reported once and the width is checked against the hardware's bypass range. */
++static uint64_t
++geni_dma_address(const void *buffer, uint32_t length)
++{
++	uint64_t pa = kvtophys((vm_offset_t)buffer);
++	unsigned bits;
++
++	if (!se_smmu_bypass) {
++		if (!se_smmu_warned) {
++			se_smmu_warned = true;
++			printf("Pong touch: SMMU sid=%#x not in bypass; SE DMA address %#llx is a raw PA\n",
++			    APPS_SMMU_TOUCH_SID, (unsigned long long)pa);
++		}
++		return pa;
++	}
++	bits = smmu_bypass_bits();
++	if (!bits || pa >= (1ULL << bits) || length > (1ULL << bits) - pa) {
++		if (!se_smmu_warned) {
++			se_smmu_warned = true;
++			printf("Pong touch: SMMU sid=%#x bypass covers %u bits, DMA %#llx len %u does not fit\n",
++			    APPS_SMMU_TOUCH_SID, bits, (unsigned long long)pa, length);
++		}
++	}
++	return pa;
++}
 +
 +/* ---- the Goodix chip ------------------------------------------------------------------------------- */
 +
@@ -836,8 +2108,215 @@ index 0000000..b033b90
 +#define GOODIX_STATUS_REQUEST   0x40
 +#define GOODIX_REQUEST_RESET    3
 +
-+static uint8_t spi_tx[8 + GOODIX_MAX_READ], spi_rx[8 + GOODIX_MAX_READ];
-+static uint32_t touch_address, command_address;
++/* Page-aligned so each buffer is one physically contiguous page for the SE DMA master. */
++static uint8_t spi_tx[8 + GOODIX_MAX_READ] __attribute__((aligned(4096)));
++/* K60_SMMU_L1: one 4 KiB LPAE level-1 table for the SE's stage-1 identity map.
++ * 512 entries x 8 bytes = 4096. Only one entry is populated. */
++static uint8_t spi_rx[8 + GOODIX_MAX_READ] __attribute__((aligned(4096)));
++static uint32_t touch_address, touch_address_alt, command_address;
++
++/* One transfer with the chip selected throughout, moved by the SE's internal
++ * DMA master (the FIFO interface is disabled on this board). Sequence mirrors
++ * QcomGeniSpi transfer_dma() and Linux spi-geni-qcom.c setup_se_xfer() +
++ * geni_se_tx_init_dma()/geni_se_rx_init_dma(). */
++static bool
++geni_dma_transfer(const uint8_t *tx, uint8_t *rx, uint32_t length)
++{
++	static unsigned complaints, traces;
++	uint64_t deadline;
++	uint32_t cmd = 0;
++
++	if (length > 8 + GOODIX_MAX_READ) {
++		return false;
++	}
++	/* K60_CLEAR_STUCK_ACTIVE: a previous failed transfer can leave M_GENI_CMD_ACTIVE
++	 * asserted (observed as STATUS=0x41 in both the FIFO and the DMA path). While that
++	 * bit is set the sequencer ignores every new M_CMD0 write, so the transfer can
++	 * never start. Actively cancel/abort it first instead of only polling for it to
++	 * clear; geni-se.h.v6.6:366-396 documents the cancel-then-abort order. */
++	for (int i = 0; rd(GENI_STATUS) & 1; i++) {
++		if (i > 2000) {
++			geni_recover();
++			break;
++		}
++		sleep_us(100);
++	}
++	if (!geni_abort_active()) {
++		printf("Pong touch: DMA sequencer will not go idle (status=%#x), forcing abort path\n",
++		    rd(GENI_STATUS));
++	}
++	wr(GENI_M_IRQ_CLEAR, 0xffffffff);
++	wr(SE_DMA_TX_IRQ_CLR, 0xffffffff);
++	wr(SE_DMA_RX_IRQ_CLR, 0xffffffff);
++	if (tx) {
++		FlushPoC_DcacheRegion((vm_offset_t)tx, length);
++		wr(SPI_TX_TRANS_LEN, length);
++		cmd |= 1u;       /* SPI_TX_ONLY */
++	}
++	if (rx) {
++		FlushPoC_DcacheRegion((vm_offset_t)rx, length);
++		wr(SPI_RX_TRANS_LEN, length);
++		cmd |= 2u;       /* SPI_RX_ONLY */
++	}
++	if (!cmd) {
++		return false;
++	}
++	{
++		uint64_t tpa = tx ? geni_dma_address(tx, length) : 0;
++		uint64_t rpa = rx ? geni_dma_address(rx, length) : 0;
++
++		/* K60_DMA_PREDUMP: read-only snapshot of every register the DMA path
++		 * depends on, taken immediately BEFORE M_CMD0. This is what separates the
++		 * three candidate blockers on the next boot without guessing:
++		 *  - if_en=0x0  -> the DMA interface gate (SE_DMA_IF_EN 0x2004) is shut and
++		 *    no descriptor can ever be fetched, whatever M_CMD0 says;
++		 *  - status bit0 set while irq=0 and stat_tx=0 -> stale M_GENI_CMD_ACTIVE;
++		 *  - dma_gen bit2 (DMA_AHB_SLV_CFG_ON) clear -> the AHB slave path for the
++		 *    descriptors is not clocked (qcom-geni-se.c:172-178, 228-231).
++		 * fifo_depth is printed because RX_WATERMARK/RFR are derived from it. */
++		printf("Pong touch: DMA pre len=%u txpa=%#llx rxpa=%#llx se=%#llx\n",
++		    length, (unsigned long long)tpa, (unsigned long long)rpa,
++		    (unsigned long long)se_phys);
++		printf("Pong touch: DMA pre se_if clk_ctrl=%#x if_en=%#x fifo_dis=%#x ro_fifo_dis=%#x\n",
++		    0u /* QUP config region not implemented; never read it */, 0u, 0u,
++		    rd(GENI_IF_DISABLE_RO));
++		printf("Pong touch: DMA pre mode=%#x irq_en=%#x irq_st=%#x gst=%#x dma_gen=%#x\n",
++		    rd(GENI_DMA_MODE_EN), rd(GENI_M_IRQ_EN), rd(GENI_M_IRQ_STATUS),
++		    rd(GENI_STATUS), rd(SE_DMA_GENERAL_CFG));
++		printf("Pong touch: DMA pre tx_st=%#x rx_st=%#x tx_fifo=%#x rx_fifo=%#x txin=%#x rxin=%#x\n",
++		    rd(SE_DMA_TX_IRQ_STAT), rd(SE_DMA_RX_IRQ_STAT),
++		    rd(GENI_TX_FIFO_STATUS), rd(GENI_RX_FIFO_STATUS),
++		    rd(SE_DMA_TX_LEN_IN), rd(SE_DMA_RX_LEN_IN));
++		printf("Pong touch: DMA pre ptr tx=%#x/%#x/%#x/%#x rx=%#x/%#x/%#x/%#x\n",
++		    rd(SE_DMA_TX_PTR_L), rd(SE_DMA_TX_PTR_H), rd(SE_DMA_TX_ATTR), rd(SE_DMA_TX_LEN),
++		    rd(SE_DMA_RX_PTR_L), rd(SE_DMA_RX_PTR_H), rd(SE_DMA_RX_ATTR), rd(SE_DMA_RX_LEN));
++		if (smmu && smmu_ctx_bank) {
++			/* Read-only fault observers for the context we installed. A DMA
++			 * transaction the SMMU rejects is recorded here and NOT as an
++			 * engine AHB_ERR, because the request dies before the interconnect.
++			 * arm-smmu.h: sGFSR 0x48, CB_FSR 0x58, CB_FAR 0x60, CB_FSYNR0 0x68. */
++			unsigned cbb = (smmu_ctx_pages + smmu_ctx_bank) * 4096;
++			uint32_t fsr = rd(smmu + cbb + SMMU_CB_FSR), gfsr = rd(smmu + SMMU_GFSR);
++			uint32_t fsynr = rd(smmu + cbb + SMMU_CB_FSYNR0);
++
++			printf("Pong touch: SMMU fault fsr=%#x%s%s%s%s gfsr=%#x far=%#llx WNR=%u\n",
++			    fsr,
++			    (fsr & SMMU_FSR_TF) ? " TF" : "",
++			    (fsr & SMMU_FSR_PF) ? " PF" : "",
++			    (fsr & SMMU_FSR_EF) ? " EF" : "",
++			    (fsr & SMMU_FSR_UUT) ? " UUT" : "",
++			    gfsr,
++			    (unsigned long long)((uint64_t)rd(smmu + cbb + SMMU_CB_FAR) |
++				((uint64_t)rd(smmu + cbb + SMMU_CB_FAR + 4) << 32)),
++			    (fsynr >> 4) & 1u);
++			if (fsr) {
++				wr(smmu + cbb + SMMU_CB_FSR, fsr);   /* W1C */
++			}
++			if (gfsr) {
++				wr(smmu + SMMU_GFSR, gfsr);
++			}
++		}
++		printf("Pong touch: DMA pre spi word_len=%#x cfg=%#x clk=%#x/%#x lens=%#x/%#x\n",
++		    rd(SPI_WORD_LEN), rd(SPI_TRANS_CFG), rd(GENI_CLK_SEL), rd(GENI_SER_M_CLK_CFG),
++		    rd(SPI_TX_TRANS_LEN), rd(SPI_RX_TRANS_LEN));
++	}
++	/* ORDER, verified against BOTH references:
++	 *  - QcomGeniSpi/GeniSpi.c:241 writes SE_GENI_M_CMD0 first, then
++	 *    SE_DMA_RX_* (243-249) and SE_DMA_TX_* (250-256); its own comment at
++	 *    :242 says "the LEN write starts each direction".
++	 *  - Linux spi-geni-qcom.c:898 geni_se_setup_m_cmd() first, then
++	 *    geni_se_rx_init_dma()/geni_se_tx_init_dma() at 900-906.
++	 * The previous revision had it backwards (descriptors, then M_CMD0), which
++	 * leaves M_GENI_CMD_ACTIVE asserted with no DMA request the engine will
++	 * act on: exactly status=0x41 with stat_tx=0 stat_rx=0 txin=0 rxin=0.
++	 * SPI_TX/RX_TRANS_LEN stay: the official DMA path writes them too
++	 * (GeniSpi.c:228 and :235), and Linux writes them unconditionally at
++	 * spi-geni-qcom.c:868/873 before the FIFO-vs-DMA choice at :891.
++	 * M_CMD0 = (cmd << M_OPCODE_SHFT) | params, M_OPCODE_SHFT=27, M_PARAMS_MSK=GENMASK(26,0)
++	 * (geni-se.h.v6.6:147-148, applied at :336). cmd = SPI_TX_ONLY(1) | SPI_RX_ONLY(2) = 3,
++	 * i.e. 3 << 27 = 0x18000000; params = FRAGMENTATION = BIT(2) -> 0x18000004.
++	 * Linux does the same with SPI_TX_ONLY=1/SPI_RX_ONLY=2 (spi-geni-qcom.c:60-61); its
++	 * SPI_TX_RX=7 (:62) is never used by this path. */
++	/* Chip select first (spi-geni-qcom.c:321), otherwise the sequencer drops
++	 * the transfer command with M_GENI_CMD_ACTIVE stuck and no error. */
++	wr(GENI_M_CMD0, (SPI_CS_ASSERT << 27) | M_PARAMS_FRAGMENTATION);
++	for (int i = 0; i < 2000 && (rd(GENI_STATUS) & 1); i++) {
++		sleep_us(50);
++	}
++	/* Official transfer_dma (GeniSpi.c:244) ORs FRAGMENTATION only when the
++	 * caller asks to keep CS across fragments; the working reference on this
++	 * SoC family (sheng TouchProbe.cpp:157) passes keep_cs = 0, so the command
++	 * carries no param bits. Default to that and allow it to be forced. */
++	wr(GENI_M_CMD0, (cmd << 27) | (k60_touch_keep_cs ? M_PARAMS_FRAGMENTATION : 0));
++	printf("Pong touch: DMA cmd written=%#x readback=%#x status=%#x\n",
++	    cmd << 27, rd(GENI_M_CMD0), rd(GENI_STATUS));
++	if (rx) {
++		uint64_t pa = geni_dma_address(rx, length);
++
++		wr(SE_DMA_RX_IRQ_EN_SET, DMA_DONE | DMA_EOT | DMA_AHB_ERR);
++		wr(SE_DMA_RX_PTR_L, (uint32_t)pa);
++		wr(SE_DMA_RX_PTR_H, (uint32_t)(pa >> 32));
++		wr(SE_DMA_RX_ATTR, 0);
++		wr(SE_DMA_RX_LEN, length);
++	}
++	if (tx) {
++		uint64_t pa = geni_dma_address(tx, length);
++
++		wr(SE_DMA_TX_IRQ_EN_SET, DMA_DONE | DMA_EOT | DMA_AHB_ERR);
++		wr(SE_DMA_TX_PTR_L, (uint32_t)pa);
++		wr(SE_DMA_TX_PTR_H, (uint32_t)(pa >> 32));
++		wr(SE_DMA_TX_ATTR, DMA_TX_ATTR_EOT_BUF);
++		wr(SE_DMA_TX_LEN, length);
++	}
++	{
++		bool tx_done = !tx, rx_done = !rx;
++
++		clock_interval_to_deadline(200, NSEC_PER_MSEC, &deadline);
++		while (mach_absolute_time() < deadline) {
++			uint32_t ts = tx ? rd(SE_DMA_TX_IRQ_STAT) : 0;
++			uint32_t rs = rx ? rd(SE_DMA_RX_IRQ_STAT) : 0;
++			uint32_t ms = rd(GENI_M_IRQ_STATUS);
++
++			if (ts) {
++				wr(SE_DMA_TX_IRQ_CLR, ts);
++			}
++			if (rs) {
++				wr(SE_DMA_RX_IRQ_CLR, rs);
++			}
++			if (ms) {
++				wr(GENI_M_IRQ_CLEAR, ms);
++			}
++			if ((ts & DMA_AHB_ERR) || (rs & DMA_AHB_ERR) || (ms & M_ERRORS)) {
++				break;
++			}
++			if (ts & DMA_DONE) {
++				tx_done = true;
++			}
++			if (rs & DMA_DONE) {
++				rx_done = true;
++			}
++			if (tx_done && rx_done) {
++				if (rx) {
++					FlushPoC_DcacheRegion((vm_offset_t)rx, length);
++				}
++				if (traces < 4) {
++					printf("Pong touch: GENI DMA xfer len=%u ok\n", length);
++					traces++;
++				}
++				return true;
++			}
++		}
++	}
++	if (complaints++ < 8) {
++		printf("goodix: SPI DMA transfer of %u bytes failed: stat_tx=%#x stat_rx=%#x irq=%#x txin=%#x rxin=%#x\n",
++		    length, rd(SE_DMA_TX_IRQ_STAT), rd(SE_DMA_RX_IRQ_STAT),
++		    rd(GENI_M_IRQ_STATUS), rd(SE_DMA_TX_LEN_IN), rd(SE_DMA_RX_LEN_IN));
++	}
++	geni_recover();
++	wr(SE_DMA_TX_FSM_RST, 1);
++	wr(SE_DMA_RX_FSM_RST, 1);
++	return false;
++}
 +
 +static bool
 +goodix_read(uint32_t address, uint8_t *data, uint32_t length)
@@ -875,6 +2354,1023 @@ index 0000000..b033b90
 +}
 +
 +/* The chip's blocks end in the 16-bit sum of their bytes; all zeros or all ones is no answer at all. */
++/* K60_P0_DEV_CONFIRM: Berlin-D needs a boot-option handshake before any
++ * register is readable. Write 8 x 0xAA to 0x10000, read the same 8 bytes back
++ * and require an exact match (3 tries). Reference: Goodix official
++ * goodix_brl_hw.c:75-109,243 and Linux goodix_berlin_core.c:217-247,276.
++ * The frame format in goodix_read/goodix_write is already correct; this only
++ * adds the missing step before them. */
++#define GOODIX_BOOTOPTION_ADDR  0x10000
++#define GOODIX_DEV_CONFIRM_VAL  0xAA
++
++static bool
++goodix_dev_confirm(void)
++{
++	uint8_t tx[8], rx[8];
++
++	if (!spi_transfer) {
++		printf("goodix: dev_confirm before spi_transfer is set\n");
++		return false;
++	}
++	memset(tx, GOODIX_DEV_CONFIRM_VAL, sizeof(tx));
++	for (int attempt = 0; attempt < 3; attempt++) {
++		memset(rx, 0, sizeof(rx));
++		if (!goodix_write(GOODIX_BOOTOPTION_ADDR, tx, sizeof(tx))) {
++			printf("goodix: dev_confirm write failed (attempt %d)\n", attempt);
++			return false;
++		}
++		if (!goodix_read(GOODIX_BOOTOPTION_ADDR, rx, sizeof(rx))) {
++			printf("goodix: dev_confirm read failed (attempt %d)\n", attempt);
++			return false;
++		}
++		if (memcmp(tx, rx, sizeof(tx)) == 0) {
++			printf("goodix: device confirm OK (0x10000 = 8 x 0xAA)\n");
++			return true;
++		}
++		printf("goodix: device confirm mismatch %02x %02x %02x %02x (attempt %d)\n",
++		    rx[0], rx[1], rx[2], rx[3], attempt);
++		sleep_ms(5);
++	}
++	printf("goodix: device confirm FAILED; check AVDD(GPIO71)/IOVDD/RESET/SPI\n");
++	return false;
++}
++
++/* K60_P0_POWER: IOVDD is pm8350c_l2 and is assumed already on from the Android
++ * warm boot (touching RPMh/RSC from XNU kills this machine, HR-01). AVDD is
++ * goodix,avdd-gpio = GPIO71. Vendor order: AVDD -> 15 ms -> RESET low 2 ms ->
++ * RESET high -> 4 ms -> dev_confirm -> 100 ms. */
++static void
++k60_touch_power_cycle(void)
++{
++	gpio_output(71u, true, PULL_NONE, 6);
++	sleep_ms(15);
++	/*
++	 * K60_RESET_TIMING: match the documented Berlin-D power-on sequence
++	 * (references/ruby-bringup/docs/touch-goodix-9916r.md section 3.3):
++	 *     reset low 10 ms -> high 100 ms
++	 * The old 2 ms / 4 ms pair was short enough that the ROM answered
++	 * (dev_confirm and the version block are valid almost immediately) while the
++	 * touch-scan engine had not started yet, so the frame area kept returning
++	 * stale power-on data instead of live frames.
++	 */
++	gpio_output(PIN_RESET, false, PULL_NONE, 6);
++	sleep_ms(10);
++	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	sleep_ms(100);
++}
++
++/* ==== K60_MISO_FLOAT_TEST: is anything driving the SPI data lines? =========
++ * TLMM pull encoding: 0 = none, 1 = pull-down, 3 = pull-up (see PULL_* above).
++ * Sample each candidate pin with a pull-up and with a pull-down. A pin that
++ * follows the pull is floating: nothing drives it (controller unpowered or in
++ * reset). A pin that ignores the pull is driven by the controller.
++ * Read-only: GPIO configuration + input sampling only, no PMIC access.
++ */
++static unsigned
++k60_sample_with_pull(unsigned pin, unsigned pull)
++{
++	gpio_configure(pin, 0, pull, 2, false);
++	for (volatile int i = 0; i < 2000; i++) { }
++	return gpio_get(pin) ? 1u : 0u;
++}
++
++static void
++k60_miso_float_test(void)
++{
++	static const unsigned cand[4] = {16u, 17u, 18u, 19u};
++	printf("K60FLOAT: pull-up(3) vs pull-down(1) on gpio16..19 (same value = driven)\n");
++	for (unsigned i = 0; i < 4; i++) {
++		unsigned up = k60_sample_with_pull(cand[i], PULL_UP);
++		unsigned dn = k60_sample_with_pull(cand[i], 1u);
++		printf("K60FLOAT: gpio%u up=%u down=%u -> %s\n",
++		    cand[i], up, dn, (up == dn) ? "DRIVEN" : "FLOATING");
++	}
++	printf("K60FLOAT: int(gpio21) pull-up=%u  reset(gpio20) pull-up=%u\n",
++	    k60_sample_with_pull(PIN_INT, PULL_UP), k60_sample_with_pull(PIN_RESET, PULL_UP));
++}
++/* ==== end K60_MISO_FLOAT_TEST ============================================= */
++
++/* ==== K60_RESET_POLARITY_SWEEP: which RESET level releases the controller? ===
++ * Read-only apart from the RESET GPIO itself. For each reset level, sample INT
++ * and test gpio16..19 as inputs with a pull-up and a pull-down.
++ */
++static void
++k60_reset_polarity_sweep(void)
++{
++	static const unsigned cand[4] = {16u, 17u, 18u, 19u};
++	for (unsigned level = 0; level < 2; level++) {
++		gpio_output(PIN_RESET, level ? true : false, PULL_NONE, 6);
++		sleep_ms(20);
++		printf("K60RST: reset=%u int=%u\n", level, gpio_get(PIN_INT));
++		for (unsigned i = 0; i < 4; i++) {
++			unsigned up = k60_sample_with_pull(cand[i], PULL_UP);
++			unsigned dn = k60_sample_with_pull(cand[i], 1u);
++			printf("K60RST: reset=%u gpio%u up=%u down=%u -> %s\n",
++			    level, cand[i], up, dn, (up == dn) ? "DRIVEN" : "FLOATING");
++		}
++	}
++}
++/* ==== end K60_RESET_POLARITY_SWEEP ======================================= */
++
++/* Forward decl: goodix_probe is defined below the stage blocks. */
++static bool goodix_probe(bool verbose);
++/* Forward decls: stage19 and stage21 run helpers whose bodies are further down. */
++static void k60_frame_scan(void);
++static void k60_multi_addr_probe(void);
++static void k60_stage21_pmic(void);
++static void k60_stage22_ldo(void);
++static void k60_stage23_ldoscan(void);
++static void k60_hm_peak_sample(void);
++
++/* K60_SMMU_L1: one 4 KiB LPAE level-1 table for the SE stage-1 identity map.
++ * Declared here because k60_se_smmu_identity_map() (defined below) uses it. */
++/* Forward declarations for the SPMI helpers used by stage20. The definitions
++ * and the other forward declarations sit below this block. The mapping
++ * variables are only needed by the definitions, not here. */
++static int k60_spmi_find(uint16_t ppid, uint16_t *out_apid);
++static bool k60_spmi_read(uint16_t apid, uint8_t reg, uint8_t *buf, uint32_t len);
++
++/* ==== K60_STAGE20_ELEC: powered electrical diagnosis =======================
++ * Measured on 2026-11-10 (usblog-20261110-141044) after power + reset:
++ *     gpio16 up=1 down=0 -> FLOATING    (MISO: nothing drives it)
++ *     gpio17 up=1 down=0 -> FLOATING
++ *     gpio18 up=1 down=0 -> FLOATING
++ *     gpio19 up=0 down=0 -> DRIVEN      (CS: we pull it low ourselves)
++ *     int=0, reset=1
++ * So the pad we treat as MISO is not being driven by the controller, and INT
++ * reads low with no touch in progress. Either the controller is still held in
++ * reset, or the role assignment is wrong. This stage answers both without
++ * guessing: it sweeps the RESET level and all 24 pin roles, sampling each pad
++ * with an internal pull-up and pull-down so a driven pad is distinguishable
++ * from a floating one.
++ */
++static void
++k60_stage20_elec(void)
++{
++	static const unsigned cand[4] = {16u, 17u, 18u, 19u};
++	static const unsigned roles[4] = {0u, 1u, 2u, 3u};   /* MISO MOSI CLK CS */
++
++	printf("K60S20: powered electrical diagnosis\n");
++	io_supply_on();
++	/*
++	 * K60_POWER_VERIFY: read the GPIO output latches back instead of assuming the
++	 * write took effect.
++	 *
++	 * The upstream ruby probe found its controller had never been powered because
++	 * nobody checked the digital-IO switch: its P0 snapshot read
++	 *     GPIO do30 = 0x00401000  -> IOVDD pin110 bit14 = 0, switch off
++	 * and that is why every later stage read all zeros. The lesson recorded there
++	 * is to read the output register, not to trust the write.
++	 *
++	 * K60 has no separate digital-IO switch pin; AVDD is GPIO71 and IOVDD is the
++	 * pm8350c_l2 rail. Print CFG and IO for the three power/reset pins so a
++	 * silently-ignored write is visible.
++	 */
++	{
++		printf("K60S20: gpio71(AVDD) cfg=%#x io=%#x\n",
++		    (unsigned)rd(GPIO_CFG(71u)), (unsigned)rd(GPIO_IO(71u)));
++		printf("K60S20: gpio20(RESET) cfg=%#x io=%#x\n",
++		    (unsigned)rd(GPIO_CFG(PIN_RESET)), (unsigned)rd(GPIO_IO(PIN_RESET)));
++		printf("K60S20: gpio21(INT)  cfg=%#x io=%#x\n",
++		    (unsigned)rd(GPIO_CFG(PIN_INT)), (unsigned)rd(GPIO_IO(PIN_INT)));
++	}
++	/*
++	 * K60S20_PMIC_READBACK: io_supply_on() only checks that the RPMh write was
++	 * accepted, never that the rail actually came up. Read the PMIC back so a
++	 * "write accepted but no voltage" case cannot masquerade as a SPI problem.
++	 * Android recorded pm8350c_l2 as enabled 1.8 V (docs/OPS-TWRP-DD.md:171);
++	 * ldoc2 in cmd_db is the same rail.
++	 */
++	{
++		uint32_t iovdd = rpmh_address("ldoc2");
++		uint16_t apid = 0;
++
++		printf("K60S20: ldoc2 cmd_db=%#x (type=%u)\n", iovdd, (iovdd >> 16) & 15);
++		/* pm8350c: the SPMI slave that owns ldoc2/ldoc3/ldoc12 */
++		if (k60_spmi_find(0x2c2u, &apid) == 0) {
++			uint8_t v2 = 0, e2 = 0, v3 = 0, e3 = 0, v12 = 0, e12 = 0;
++
++			k60_spmi_read(apid, 0x00, &v2, 1);           /* LDO2 VOUT */
++			k60_spmi_read(apid, 0x46, &e2, 1);           /* LDO2 enable */
++			k60_spmi_read(apid, 0x00, &v3, 1);
++			/* reg offsets are relative to the peripheral base; print what we can */
++			printf("K60S20: pm8350c apid=%#x ldo2_vset=%#x ldo2_en=%#x\n",
++			    apid, v2, e2);
++			(void)v3; (void)e3; (void)v12; (void)e12;
++		} else {
++			printf("K60S20: pm8350c (ppid 0x2c2) not found on SPMI\n");
++		}
++	}
++
++	/* 1) RESET level sweep: does releasing reset change INT or any pad? */
++	for (unsigned level = 0; level < 2; level++) {
++		gpio_output(PIN_RESET, level ? true : false, PULL_NONE, 6);
++		sleep_ms(30);
++		printf("K60S20: reset=%u int=%u\n", level, gpio_get(PIN_INT));
++		for (unsigned i = 0; i < 4; i++) {
++			unsigned up = k60_sample_with_pull(cand[i], PULL_UP);
++			unsigned dn = k60_sample_with_pull(cand[i], 1u);
++			printf("K60S20:   reset=%u gpio%u up=%u down=%u -> %s\n",
++			    level, cand[i], up, dn, (up == dn) ? "DRIVEN" : "FLOATING");
++		}
++	}
++
++	/* 2) Hold the controller released and sweep every role assignment.
++	 *    For each assignment, drive CS low and CLK idle, then sample each of
++	 *    the four pads. A pad that ignores the pull is being driven by the
++	 *    controller, which identifies the real MISO. */
++	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	sleep_ms(20);
++	printf("K60S20: role sweep (reset released, int=%u)\n", gpio_get(PIN_INT));
++	for (unsigned a = 0; a < 4; a++) {
++		for (unsigned b = 0; b < 4; b++) {
++			if (b == a) continue;
++			for (unsigned c = 0; c < 4; c++) {
++				if (c == a || c == b) continue;
++				for (unsigned d = 0; d < 4; d++) {
++					if (d == a || d == b || d == c) continue;
++					/* a=MISO b=MOSI c=CLK d=CS
++					 * Clear every pad to a plain input first: the previous
++					 * iteration may have left one of them driven low as CS, and a
++					 * pad that is only *released* keeps its level long enough to be
++					 * misread as "driven". */
++					for (unsigned r = 0; r < 4; r++) {
++						gpio_configure(cand[r], 0, PULL_NONE, 2, false);
++					}
++					sleep_ms(2);
++					gpio_configure(cand[d], 0, PULL_UP, 6, true);
++					gpio_set(cand[d], false);
++					gpio_configure(cand[c], 0, PULL_NONE, 6, true);
++					gpio_set(cand[c], false);
++					gpio_configure(cand[b], 0, PULL_NONE, 6, true);
++					gpio_set(cand[b], false);
++					gpio_configure(cand[a], 0, PULL_NONE, 2, false);
++					sleep_ms(2);
++					{
++						unsigned up = k60_sample_with_pull(cand[a], PULL_UP);
++						unsigned dn = k60_sample_with_pull(cand[a], 1u);
++						if (up == dn) {
++							printf("K60S20: MISO=gpio%u MOSI=gpio%u CLK=gpio%u CS=gpio%u -> DRIVEN(%u)\n",
++							    cand[a], cand[b], cand[c], cand[d], up);
++						}
++					}
++				}
++			}
++		}
++	}
++	printf("K60S20: role sweep done\n");
++
++	/* 3) Leave the pads in the documented roles. */
++	gpio_configure(PIN_MISO, 0, PULL_NONE, 2, false);
++	gpio_configure(PIN_MOSI, 0, PULL_NONE, 6, true);
++	gpio_configure(PIN_CLK, 0, PULL_NONE, 6, true);
++	gpio_configure(PIN_CS, 0, PULL_UP, 6, true);
++	printf("K60S20: done int=%u\n", gpio_get(PIN_INT));
++}
++/* ==== end K60_STAGE20_ELEC ================================================ */
++
++/* ==== K60_STAGE19_GENI_POWER: GENI SPI + correct rails + probe ============== */
++/*
++ * K60_STAGE19_READY: returns true when the controller answered, so the caller
++ * can fall through into the polling loop. Returning void here is what made the
++ * thread terminate right after a successful probe: dev_confirm and probe both
++ * reported OK while no event was ever polled.
++ */
++static bool
++k60_stage19_geni_power(void)
++{
++	printf("K60S19: GENI SPI + io_supply_on + probe\n");
++	/* power FIRST so the chip is awake before the first GENI transfer */
++	io_supply_on();
++	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	gpio_configure(PIN_INT, 0, PULL_UP, 6, false);
++	if (!clocks_on()) {
++		printf("K60S19: clocks_on failed\n");
++		return false;
++	}
++
++	const char *problem = geni_spi_init(4000000);
++	if (!problem) {
++		/* GENI accepted the engine: mux the four pads to qup4 and try it. */
++		gpio_configure(PIN_MISO, 1, PULL_NONE, 6, false);
++		gpio_configure(PIN_MOSI, 1, PULL_NONE, 6, false);
++		gpio_configure(PIN_CLK, 1, PULL_NONE, 6, false);
++		gpio_configure(PIN_CS, 1, PULL_NONE, 6, false);
++		/* spi_transfer was chosen by geni_spi_init (FIFO or DMA) */
++		k60_touch_power_cycle();
++		printf("K60S19: reset done int=%u\n", gpio_get(PIN_INT));
++		if (goodix_dev_confirm()) {
++			printf("K60S19: dev_confirm -> OK\n");
++			sleep_ms(100);
++			if (goodix_probe(true)) {
++				printf("K60S19: goodix_probe -> OK (GENI path)\n");
++				return true;
++			}
++			printf("K60S19: goodix_probe -> fail; trying SPI by GPIO\n");
++		}
++		/*
++		 * The engine accepted the command but no byte moved (measured:
++		 * "SPI transfer of 13 bytes failed: status 0, sent 13, received 0").
++		 * That is the expected behaviour on this board: SE4 runs its firmware in
++		 * GSI (DMA-only) mode, so both the FIFO and the legacy SE DMA paths are
++		 * dead even though geni_spi_init() succeeds. Fall through to bit-bang.
++		 */
++		printf("K60S19: GENI probe failed (status 0 / received 0); falling back to SPI by GPIO\n");
++	} else {
++		printf("K60S19: GENI unavailable: %s; trying SPI by GPIO\n", problem);
++	}
++
++	/*
++	 * K60_BITBANG_FALLBACK (zizhan 0002-zizhan-fts.patch:970-982): drive the same
++	 * four pads as GPIOs instead -- SPI mode 0, data set while the clock is low
++	 * and sampled on the rising edge.
++	 *
++	 * The pads MUST be returned to GPIO function here: the GENI attempt above
++	 * muxed them to qup4 (function 1), and while they belong to the serial engine
++	 * gpio_set() no longer moves the pin, so every transfer reads back 0x00/0xff.
++	 * This is why the earlier bit-bang probe could never work.
++	 */
++	gpio_configure(PIN_MISO, 0, PULL_NONE, 6, false);
++	gpio_configure(PIN_MOSI, 0, PULL_NONE, 6, true);
++	gpio_configure(PIN_CLK, 0, PULL_NONE, 6, true);
++	gpio_configure(PIN_CS, 0, PULL_UP, 6, true);
++	bitbang_in = PIN_MISO;
++	bitbang_out = PIN_MOSI;
++	bitbang_clk = PIN_CLK;
++	bitbang_cs = PIN_CS;
++	bitbang_init();
++	spi_transfer = bitbang_transfer;
++
++	k60_touch_power_cycle();
++	printf("K60S19: bitbang reset done int=%u\n", gpio_get(PIN_INT));
++	/*
++	 * K60_POWER_VERIFY: read the GPIO output latches back instead of trusting
++	 * the write. The upstream ruby probe found its controller had never been
++	 * powered because nobody checked the digital-IO switch -- its P0 snapshot
++	 * read "GPIO do30 = 0x00401000 -> IOVDD pin110 bit14 = 0, switch off" and
++	 * every later stage read all zeros. The lesson recorded there is to read the
++	 * output register, not to assume the store took effect.
++	 *
++	 * TLMM bit layout (pinctrl-msm): CFG[1:0]=pull, CFG[5:2]=function,
++	 * CFG[9]=output enable; IO[0]=input level, IO[1]=output level.
++	 */
++	printf("K60S19: gpio71(AVDD)  cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(71u)), (unsigned)rd(GPIO_IO(71u)),
++	    ((unsigned)rd(GPIO_CFG(71u)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(71u)) >> 1) & 1u);
++	printf("K60S19: gpio20(RESET) cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_RESET)), (unsigned)rd(GPIO_IO(PIN_RESET)),
++	    ((unsigned)rd(GPIO_CFG(PIN_RESET)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(PIN_RESET)) >> 1) & 1u);
++	printf("K60S19: gpio21(INT)   cfg=%#x io=%#x -> in=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_INT)), (unsigned)rd(GPIO_IO(PIN_INT)),
++	    (unsigned)rd(GPIO_IO(PIN_INT)) & 1u);
++	/*
++	 * K60_POWER_VERIFY: read the GPIO output latches back instead of trusting
++	 * the write. The upstream ruby probe found its controller had never been
++	 * powered because nobody checked the digital-IO switch -- its P0 snapshot
++	 * read "GPIO do30 = 0x00401000 -> IOVDD pin110 bit14 = 0, switch off" and
++	 * every later stage read all zeros. The lesson recorded there is to read the
++	 * output register, not to assume the store took effect.
++	 *
++	 * TLMM bit layout (pinctrl-msm): CFG[1:0]=pull, CFG[5:2]=function,
++	 * CFG[9]=output enable; IO[0]=input level, IO[1]=output level.
++	 */
++	printf("K60S19: gpio71(AVDD)  cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(71u)), (unsigned)rd(GPIO_IO(71u)),
++	    ((unsigned)rd(GPIO_CFG(71u)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(71u)) >> 1) & 1u);
++	printf("K60S19: gpio20(RESET) cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_RESET)), (unsigned)rd(GPIO_IO(PIN_RESET)),
++	    ((unsigned)rd(GPIO_CFG(PIN_RESET)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(PIN_RESET)) >> 1) & 1u);
++	printf("K60S19: gpio21(INT)   cfg=%#x io=%#x -> in=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_INT)), (unsigned)rd(GPIO_IO(PIN_INT)),
++	    (unsigned)rd(GPIO_IO(PIN_INT)) & 1u);
++	/*
++	 * K60_POWER_VERIFY: read the GPIO output latches back instead of trusting
++	 * the write. The upstream ruby probe found its controller had never been
++	 * powered because nobody checked the digital-IO switch -- its P0 snapshot
++	 * read "GPIO do30 = 0x00401000 -> IOVDD pin110 bit14 = 0, switch off" and
++	 * every later stage read all zeros. The lesson recorded there is to read the
++	 * output register, not to assume the store took effect.
++	 *
++	 * TLMM bit layout (pinctrl-msm): CFG[1:0]=pull, CFG[5:2]=function,
++	 * CFG[9]=output enable; IO[0]=input level, IO[1]=output level.
++	 */
++	printf("K60S19: gpio71(AVDD)  cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(71u)), (unsigned)rd(GPIO_IO(71u)),
++	    ((unsigned)rd(GPIO_CFG(71u)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(71u)) >> 1) & 1u);
++	printf("K60S19: gpio20(RESET) cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_RESET)), (unsigned)rd(GPIO_IO(PIN_RESET)),
++	    ((unsigned)rd(GPIO_CFG(PIN_RESET)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(PIN_RESET)) >> 1) & 1u);
++	printf("K60S19: gpio21(INT)   cfg=%#x io=%#x -> in=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_INT)), (unsigned)rd(GPIO_IO(PIN_INT)),
++	    (unsigned)rd(GPIO_IO(PIN_INT)) & 1u);
++	/*
++	 * K60_POWER_VERIFY: read the GPIO output latches back instead of trusting
++	 * the write. The upstream ruby probe found its controller had never been
++	 * powered because nobody checked the digital-IO switch -- its P0 snapshot
++	 * read "GPIO do30 = 0x00401000 -> IOVDD pin110 bit14 = 0, switch off" and
++	 * every later stage read all zeros. The lesson recorded there is to read the
++	 * output register, not to assume the store took effect.
++	 *
++	 * TLMM bit layout (pinctrl-msm): CFG[1:0]=pull, CFG[5:2]=function,
++	 * CFG[9]=output enable; IO[0]=input level, IO[1]=output level.
++	 */
++	printf("K60S19: gpio71(AVDD)  cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(71u)), (unsigned)rd(GPIO_IO(71u)),
++	    ((unsigned)rd(GPIO_CFG(71u)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(71u)) >> 1) & 1u);
++	printf("K60S19: gpio20(RESET) cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_RESET)), (unsigned)rd(GPIO_IO(PIN_RESET)),
++	    ((unsigned)rd(GPIO_CFG(PIN_RESET)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(PIN_RESET)) >> 1) & 1u);
++	printf("K60S19: gpio21(INT)   cfg=%#x io=%#x -> in=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_INT)), (unsigned)rd(GPIO_IO(PIN_INT)),
++	    (unsigned)rd(GPIO_IO(PIN_INT)) & 1u);
++	/*
++	 * K60_POWER_VERIFY: read the GPIO output latches back instead of trusting
++	 * the write. The upstream ruby probe found its controller had never been
++	 * powered because nobody checked the digital-IO switch -- its P0 snapshot
++	 * read "GPIO do30 = 0x00401000 -> IOVDD pin110 bit14 = 0, switch off" and
++	 * every later stage read all zeros. The lesson recorded there is to read the
++	 * output register, not to assume the store took effect.
++	 *
++	 * TLMM bit layout (pinctrl-msm): CFG[1:0]=pull, CFG[5:2]=function,
++	 * CFG[9]=output enable; IO[0]=input level, IO[1]=output level.
++	 */
++	printf("K60S19: gpio71(AVDD)  cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(71u)), (unsigned)rd(GPIO_IO(71u)),
++	    ((unsigned)rd(GPIO_CFG(71u)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(71u)) >> 1) & 1u);
++	printf("K60S19: gpio20(RESET) cfg=%#x io=%#x -> out_en=%u level=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_RESET)), (unsigned)rd(GPIO_IO(PIN_RESET)),
++	    ((unsigned)rd(GPIO_CFG(PIN_RESET)) >> 9) & 1u,
++	    ((unsigned)rd(GPIO_IO(PIN_RESET)) >> 1) & 1u);
++	printf("K60S19: gpio21(INT)   cfg=%#x io=%#x -> in=%u\n",
++	    (unsigned)rd(GPIO_CFG(PIN_INT)), (unsigned)rd(GPIO_IO(PIN_INT)),
++	    (unsigned)rd(GPIO_IO(PIN_INT)) & 1u);
++	/*
++	 * K60_BITBANG_MISO_PROBE: sample the four pads now that the chip is powered
++	 * and out of reset. A pad that ignores the internal pull is being driven by
++	 * the controller; one that follows the pull means nothing drives it, so the
++	 * power or reset sequence is wrong rather than the SPI framing.
++	 */
++	{
++		static const unsigned cand[4] = {16u, 17u, 18u, 19u};
++		for (unsigned i = 0; i < 4; i++) {
++			unsigned up = k60_sample_with_pull(cand[i], PULL_UP);
++			unsigned dn = k60_sample_with_pull(cand[i], 1u);
++			printf("K60S19: powered gpio%u up=%u down=%u -> %s\n",
++			    cand[i], up, dn, (up == dn) ? "DRIVEN" : "FLOATING");
++		}
++		/* restore the SPI roles after the pull sampling */
++		bitbang_init();
++		printf("K60S19: powered int=%u reset=%u\n",
++		    gpio_get(PIN_INT), gpio_get(PIN_RESET));
++	}
++	printf("K60S19: bitbang dev_confirm -> %s\n", goodix_dev_confirm() ? "OK" : "fail");
++	sleep_ms(100);
++	if (goodix_probe(true)) {
++		printf("K60S19: bitbang goodix_probe -> OK (SPI by GPIO path)\n");
++		/*
++		 * K60_SCAN_ENABLE: mirror the vendor brl_select_spi_mode exactly.
++		 *
++		 * That function (goodix_core.ko + brl_select_spi_mode, read in full)
++		 * writes 0xC900 = 0x01, reads it back, and retries up to five times until
++		 * the read-back equals 0x01:
++		 *     buf_write[0] = 0x01; buf_read[0] = 0x00;
++		 *     loop up to 5: write(0xc900, buf_write, 1);
++		 *                    read (0xc900, buf_read,  1);
++		 *                    if (buf_read[0] == buf_write[0]) break;  // == 0x01
++		 * The frame area staying static (CHANGED NO across the whole log) while
++		 * dev_confirm and goodix_probe both pass means the scan engine is not
++		 * started; this handshake is the vendor's own enable sequence.
++		 */
++		{
++			const uint8_t one = 0x01;
++			uint8_t rb = 0;
++			bool spi_ok = false;
++
++			for (int attempt = 0; attempt < 5; attempt++) {
++				if (!goodix_write(0xc900u, &one, 1)) {
++					continue;
++				}
++				rb = 0;
++				if (goodix_read(0xc900u, &rb, 1) && rb == one) {
++					spi_ok = true;
++					break;
++				}
++				sleep_ms(5);
++			}
++			printf("K60S19: 0xc900 SPI-enable write/verify -> %s (rb=%02x)\n",
++			    spi_ok ? "OK" : "FAIL", rb);
++			if (!spi_ok) {
++				return false;
++			}
++		}
++		/*
++		 * K60_FRAME_CLEAR_TEST: the 0x10308 frame area never changes across 79
++		 * full sweeps of 0x10000..0x11000, while 0x10400..0x10fe0 changes on
++		 * every sweep. The sensor is sampling but no report frame is ever
++		 * composed, so test whether the frame area is writable at all. The
++		 * reference protocol writes one zero byte there to clear sync after
++		 * reading a frame (references/ruby-bringup/docs/touch-goodix-9916r.md
++		 * section 5.3); we have never written it because we never saw a frame.
++		 */
++		{
++			uint8_t before[8], after[8], after2[8];
++			const uint8_t zero = 0;
++			bool ok;
++
++			if (goodix_read(touch_address, before, sizeof(before))) {
++				printf("K60S19: FRAME before %02x %02x %02x %02x %02x %02x %02x %02x\n",
++				    before[0], before[1], before[2], before[3],
++				    before[4], before[5], before[6], before[7]);
++			}
++			ok = goodix_write(touch_address, &zero, 1);
++			printf("K60S19: FRAME clear write -> %s\n", ok ? "accepted" : "FAILED");
++			if (goodix_read(touch_address, after, sizeof(after))) {
++				printf("K60S19: FRAME after  %02x %02x %02x %02x %02x %02x %02x %02x  (%s)\n",
++				    after[0], after[1], after[2], after[3],
++				    after[4], after[5], after[6], after[7],
++				    memcmp(before, after, sizeof(before)) ? "WROTE" : "unchanged");
++			}
++			sleep_ms(200);
++			if (goodix_read(touch_address, after2, sizeof(after2))) {
++				printf("K60S19: FRAME +200ms %02x %02x %02x %02x %02x %02x %02x %02x  (%s)\n",
++				    after2[0], after2[1], after2[2], after2[3],
++				    after2[4], after2[5], after2[6], after2[7],
++				    memcmp(after, after2, sizeof(after)) ? "refilled" : "static");
++			}
++			printf("K60S19: FRAME command_address=%#x\n", command_address);
++		}
++		/* K60_DIAG_LEVEL: the sweeps print hundreds of lines; only on request. */
++		if (k60_touch_diag >= 1) {
++			k60_frame_scan();
++			k60_multi_addr_probe();
++		}
++		return true;
++	}
++	printf("K60S19: bitbang goodix_probe -> fail\n");
++	return false;
++}
++/* ==== end K60_STAGE19_GENI_POWER ========================================== */
++
++/* ==== K60_STAGE18_SWITCH_PERMUTE: SPI switch + 24 pin orders =============== */
++static bool
++k60_stage18_switch_once(void)
++{
++	uint8_t one = 1, v = 0;
++	for (unsigned i = 0; i < 5; i++) {
++		goodix_write(0xC900u, &one, 1);
++		memset(&v, 0, sizeof(v));
++		goodix_read(0xC900u, &v, 1);
++		if (v == 1) return true;
++		sleep_ms(2);
++	}
++	return false;
++}
++
++static void
++k60_stage18_permute(void)
++{
++	static const unsigned base[4] = {16u, 17u, 18u, 19u};
++	printf("K60S18: SPI switch + 24 pin permutations\n");
++	if (!io_supply_on()) { printf("K60S18: supply FAILED\n"); return; }
++	/*
++	 * K60_RESET_TIMING: match the documented Berlin-D power-on sequence
++	 * (references/ruby-bringup/docs/touch-goodix-9916r.md section 3.3):
++	 *     reset low 10 ms -> high 100 ms
++	 * The old 2 ms / 4 ms pair was short enough that the ROM answered
++	 * (dev_confirm and the version block are valid almost immediately) while the
++	 * touch-scan engine had not started yet, so the frame area kept returning
++	 * stale power-on data instead of live frames.
++	 */
++	gpio_output(PIN_RESET, false, PULL_NONE, 6);
++	sleep_ms(10);
++	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	sleep_ms(100);
++	spi_transfer = bitbang_transfer;
++	unsigned n = 0;
++	for (unsigned a = 0; a < 4; a++)
++	for (unsigned b = 0; b < 4; b++) {
++		if (b == a) continue;
++		for (unsigned c = 0; c < 4; c++) {
++			if (c == a || c == b) continue;
++			for (unsigned d = 0; d < 4; d++) {
++				uint8_t v8[8];
++				if (d == a || d == b || d == c) continue;
++				bitbang_in = base[a];
++				bitbang_out = base[b];
++				bitbang_clk = base[c];
++				bitbang_cs = base[d];
++				bitbang_init();
++				bool sw = k60_stage18_switch_once();
++				memset(v8, 0, sizeof(v8));
++				bool ok = goodix_read(0x8140u, v8, sizeof(v8));
++				printf("K60S18: P%u miso=%u mosi=%u clk=%u cs=%u switch=%s ver=%02x %02x %02x %02x %02x %02x %02x %02x\n",
++				    n, base[a], base[b], base[c], base[d], sw ? "OK" : "fail",
++				    v8[0], v8[1], v8[2], v8[3], v8[4], v8[5], v8[6], v8[7]);
++				n++;
++			}
++		}
++	}
++	bitbang_clk = PIN_CLK;
++	bitbang_cs = PIN_CS;
++}
++/* ==== end K60_STAGE18_SWITCH_PERMUTE ====================================== */
++
++/* ==== K60_STAGE17_SPI_SWITCH: Goodix defaults to I2C; 0xC900=1 -> SPI ====== */
++static void
++k60_stage17_spi_switch(void)
++{
++	printf("K60S17: SPI mode switch (0xC900=0x01, retry 5)\n");
++	if (!io_supply_on()) { printf("K60S17: supply FAILED\n"); return; }
++	/*
++	 * K60_RESET_TIMING: match the documented Berlin-D power-on sequence
++	 * (references/ruby-bringup/docs/touch-goodix-9916r.md section 3.3):
++	 *     reset low 10 ms -> high 100 ms
++	 * The old 2 ms / 4 ms pair was short enough that the ROM answered
++	 * (dev_confirm and the version block are valid almost immediately) while the
++	 * touch-scan engine had not started yet, so the frame area kept returning
++	 * stale power-on data instead of live frames.
++	 */
++	gpio_output(PIN_RESET, false, PULL_NONE, 6);
++	sleep_ms(10);
++	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	sleep_ms(100);
++	printf("K60S17: reset done int=%u\n", gpio_get(PIN_INT));
++	spi_transfer = bitbang_transfer;
++	bitbang_in = 17u; bitbang_out = 16u; bitbang_clk = 18u; bitbang_cs = 19u;
++	bitbang_init();
++	uint8_t one = 1, v = 0;
++	bool sw = false;
++	for (unsigned i = 0; i < 5; i++) {
++		goodix_write(0xC900u, &one, 1);
++		memset(&v, 0, sizeof(v));
++		goodix_read(0xC900u, &v, 1);
++		printf("K60S17: switch try %u -> %02x\n", i, v);
++		if (v == 1) { sw = true; break; }
++		sleep_ms(2);
++	}
++	printf("K60S17: spi switch %s\n", sw ? "OK" : "FAILED");
++	uint8_t v8[8] = {0};
++	bool ok = goodix_read(0x8140u, v8, sizeof(v8));
++	printf("K60S17: gtp 0x8140 -> %s: %02x %02x %02x %02x %02x %02x %02x %02x\n",
++	    ok ? "ok" : "fail", v8[0], v8[1], v8[2], v8[3], v8[4], v8[5], v8[6], v8[7]);
++	uint8_t b28[28] = {0};
++	bool ok2 = goodix_read(0x10014u, b28, sizeof(b28));
++	printf("K60S17: brl 0x10014 -> %s: %02x %02x %02x %02x %02x %02x %02x %02x\n",
++	    ok2 ? "ok" : "fail", b28[0], b28[1], b28[2], b28[3], b28[4], b28[5], b28[6], b28[7]);
++}
++/* ==== end K60_STAGE17_SPI_SWITCH ========================================= */
++
++/* ==== K60_STAGE16_GTP_VERSION: M11A is GTP, read 0x8140 not 0x10000 ====== */
++static void
++k60_stage16_gtp_version(void)
++{
++	printf("K60S16: GTP version read (0x8140, 8 bytes)\n");
++	if (!io_supply_on()) { printf("K60S16: supply FAILED\n"); return; }
++	/*
++	 * K60_RESET_TIMING: match the documented Berlin-D power-on sequence
++	 * (references/ruby-bringup/docs/touch-goodix-9916r.md section 3.3):
++	 *     reset low 10 ms -> high 100 ms
++	 * The old 2 ms / 4 ms pair was short enough that the ROM answered
++	 * (dev_confirm and the version block are valid almost immediately) while the
++	 * touch-scan engine had not started yet, so the frame area kept returning
++	 * stale power-on data instead of live frames.
++	 */
++	gpio_output(PIN_RESET, false, PULL_NONE, 6);
++	sleep_ms(10);
++	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	sleep_ms(100);
++	printf("K60S16: reset done int=%u\n", gpio_get(PIN_INT));
++	spi_transfer = bitbang_transfer;
++	bitbang_in = 17u; bitbang_out = 16u; bitbang_clk = 18u; bitbang_cs = 19u;
++	bitbang_init();
++	uint8_t v[8] = {0};
++	bool ok = goodix_read(0x8140u, v, sizeof(v));
++	printf("K60S16: gtp version -> %s: %02x %02x %02x %02x %02x %02x %02x %02x\n",
++	    ok ? "ok" : "fail", v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
++	uint8_t cfg[1] = {0};
++	bool ok2 = goodix_read(0x8047u, cfg, sizeof(cfg));
++	printf("K60S16: cfg checksum -> %s: %02x\n", ok2 ? "ok" : "fail", cfg[0]);
++}
++/* ==== end K60_STAGE16_GTP_VERSION ======================================== */
++
++/* ==== K60_STAGE15_RAIL_VOLT: enable each rail at its own voltage ========== */
++static bool
++k60_enable_rail_uv(const char *name, uint32_t uV)
++{
++	uint32_t addr = rpmh_address(name);
++	if (!addr) { printf("K60S15: no %s\n", name); return false; }
++	if (((addr >> 16) & 15) != 4) { printf("K60S15: %s not VRM\n", name); return false; }
++	uint32_t a[3] = {addr, addr + 4, addr + 8};
++	uint32_t d[3] = {uV, 1, 4};
++	bool ok = rpmh_write(a, d, 3);
++	printf("K60S15: %s @%u mV -> %s\n", name, uV, ok ? "ok" : "FAILED");
++	return ok;
++}
++
++static void
++k60_stage15_rail_volt(void)
++{
++	printf("K60S15: IOVDD ldoc2 @1800, AVDD ldoc3 @2700, ldoc12 @1800\n");
++	k60_enable_rail_uv("ldoc2", 1800);   /* touch IOVDD */
++	k60_enable_rail_uv("ldoc3", 2700);   /* touch AVDD 2.7 V */
++	k60_enable_rail_uv("ldoc12", 1800);
++	sleep_ms(30);
++	/* AVDD load-switch enable as well (FDT goodix,avdd-gpio = GPIO71). */
++	gpio_output(71u, true, PULL_NONE, 6);
++	sleep_ms(15);
++	/*
++	 * K60_RESET_TIMING: match the documented Berlin-D power-on sequence
++	 * (references/ruby-bringup/docs/touch-goodix-9916r.md section 3.3):
++	 *     reset low 10 ms -> high 100 ms
++	 * The old 2 ms / 4 ms pair was short enough that the ROM answered
++	 * (dev_confirm and the version block are valid almost immediately) while the
++	 * touch-scan engine had not started yet, so the frame area kept returning
++	 * stale power-on data instead of live frames.
++	 */
++	gpio_output(PIN_RESET, false, PULL_NONE, 6);
++	sleep_ms(10);
++	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	sleep_ms(100);
++	printf("K60S15: reset done int=%u\n", gpio_get(PIN_INT));
++	spi_transfer = bitbang_transfer;
++	bitbang_in = 17u; bitbang_out = 16u; bitbang_clk = 18u; bitbang_cs = 19u;
++	bitbang_init();
++	printf("K60S15: dev_confirm -> %s\n", goodix_dev_confirm() ? "OK" : "fail");
++	if (!goodix_dev_confirm()) {
++		/* also try the other MISO candidate ordering */
++		bitbang_in = 16u; bitbang_out = 17u;
++		bitbang_init();
++		printf("K60S15: dev_confirm (miso=16) -> %s\n", goodix_dev_confirm() ? "OK" : "fail");
++	}
++}
++/* ==== end K60_STAGE15_RAIL_VOLT ========================================= */
++
++/* ==== K60_STAGE14_RAIL_SETS: which regulator set powers the controller? ==== */
++static bool
++k60_enable_rail(const char *name)
++{
++	uint32_t addr = rpmh_address(name);
++	if (!addr) { printf("K60S14: cmd_db has no %s\n", name); return false; }
++	if (((addr >> 16) & 15) != 4) { printf("K60S14: %s %#x is not VRM\n", name, addr); return false; }
++	uint32_t a[3] = {addr, addr + 4, addr + 8};
++	uint32_t d[3] = {1800, 1, 4};
++	bool ok = rpmh_write(a, d, 3);
++	printf("K60S14: enable %s addr=%#x -> %s\n", name, addr, ok ? "ok" : "FAILED");
++	return ok;
++}
++
++static void
++k60_stage14_rail_sets(void)
++{
++	static const char *sets[4][3] = {
++		{"ldoc2", NULL, NULL},
++		{"ldoc3", "ldoc12", NULL},
++		{"ldoc2", "ldoc12", NULL},
++		{"ldoc2", "ldoc3", "ldoc12"},
++	};
++	for (unsigned s = 0; s < 4; s++) {
++		printf("K60S14: === set %u ===\n", s);
++		for (unsigned i = 0; i < 3; i++)
++			if (sets[s][i]) k60_enable_rail(sets[s][i]);
++		sleep_ms(20);
++		gpio_output(71u, true, PULL_NONE, 6);
++		sleep_ms(15);
++		gpio_output(PIN_RESET, false, PULL_NONE, 6);
++		sleep_ms(10);
++		gpio_output(PIN_RESET, true, PULL_UP, 6);
++		sleep_ms(100);
++		spi_transfer = bitbang_transfer;
++		bitbang_in = 17u; bitbang_out = 16u; bitbang_clk = 18u; bitbang_cs = 19u;
++		bitbang_init();
++		printf("K60S14: set %u dev_confirm -> %s\n", s, goodix_dev_confirm() ? "OK" : "fail");
++	}
++}
++/* ==== end K60_STAGE14_RAIL_SETS ========================================= */
++
++/* ==== K60_STAGE13_POWERED_PERMUTE: 24 pin orders with the rails on ======== */
++static void
++k60_stage13_permute(void)
++{
++	static const unsigned base[4] = {16u, 17u, 18u, 19u};
++	unsigned n = 0;
++	printf("K60S13: powered permutation sweep (write 8xAA to 0x10000, read 8)\n");
++	for (unsigned a = 0; a < 4; a++)
++	for (unsigned b = 0; b < 4; b++) {
++		if (b == a) continue;
++		for (unsigned c = 0; c < 4; c++) {
++			if (c == a || c == b) continue;
++			for (unsigned d = 0; d < 4; d++) {
++				uint8_t tx[8], rx[8];
++				if (d == a || d == b || d == c) continue;
++				bitbang_in = base[a];
++				bitbang_out = base[b];
++				bitbang_clk = base[c];
++				bitbang_cs  = base[d];
++				bitbang_init();
++				memset(tx, 0xAA, sizeof(tx));
++				memset(rx, 0, sizeof(rx));
++				spi_transfer = bitbang_transfer;
++				goodix_write(0x10000u, tx, sizeof(tx));
++				goodix_read(0x10000u, rx, sizeof(rx));
++				printf("K60S13: P%u miso=%u mosi=%u clk=%u cs=%u b=%02x %02x %02x %02x %02x %02x %02x %02x\n",
++				    n, base[a], base[b], base[c], base[d],
++				    rx[0], rx[1], rx[2], rx[3], rx[4], rx[5], rx[6], rx[7]);
++				n++;
++			}
++		}
++	}
++	bitbang_clk = PIN_CLK;
++	bitbang_cs = PIN_CS;
++}
++/* ==== end K60_STAGE13_POWERED_PERMUTE =================================== */
++
++/* ==== K60_STAGE12_PAD_INT_VOLT: pad mux + INT source + LDO voltage ======== */
++/* Forward declarations: the SPMI helpers are defined in the probe block below. */
++static int k60_spmi_init(void);
++static int k60_spmi_find(uint16_t ppid, uint16_t *out_apid);
++static bool k60_spmi_read(uint16_t apid, uint8_t reg, uint8_t *buf, uint32_t len);
++
++static void
++k60_stage12_checks(void)
++{
++	static const unsigned pads[6] = {16u, 17u, 18u, 19u, 20u, 21u};
++	/* Default state first (reset defaults), then configure to qup4 and re-read. */
++	printf("K60S12: TLMM defaults (before any configuration)\n");
++	for (unsigned i = 0; i < 6; i++) {
++		uint32_t cfg = rd(GPIO_CFG(pads[i]));
++		printf("K60S12: default gpio%u cfg=%#x function=%u pull=%u oe=%u\n",
++		    pads[i], cfg, (cfg >> 2) & 0xfu, cfg & 3u, (cfg >> 9) & 1u);
++	}
++	/* Now mux the four SPI pads to qup4 (function 1) and prove the write took. */
++	for (unsigned i = 0; i < 4; i++)
++		gpio_configure(pads[i], 1u, PULL_NONE, 6, false);
++	printf("K60S12: after gpio_configure(function=1)\n");
++	for (unsigned i = 0; i < 4; i++) {
++		uint32_t cfg = rd(GPIO_CFG(pads[i]));
++		printf("K60S12: muxed gpio%u cfg=%#x function=%u pull=%u oe=%u %s\n",
++		    pads[i], cfg, (cfg >> 2) & 0xfu, cfg & 3u, (cfg >> 9) & 1u,
++		    (((cfg >> 2) & 0xfu) == 1u) ? "QUP4_OK" : "MUX_FAILED");
++	}
++	/* H6: is INT low because the controller drives it, or a board pull-down? */
++	gpio_output(71u, false, PULL_NONE, 6);
++	sleep_ms(10);
++	printf("K60S12: AVDD(gpio71)=0 int=%u\n", gpio_get(PIN_INT));
++	gpio_output(71u, true, PULL_NONE, 6);
++	sleep_ms(10);
++	printf("K60S12: AVDD(gpio71)=1 int=%u\n", gpio_get(PIN_INT));
++	/* H3: raw dump of the PM8350C regulator block so the encoding is visible. */
++	if (k60_spmi_init() != 0) {
++		printf("K60S12: SPMI init failed; cannot dump regulators\n");
++		return;
++	}
++	for (uint16_t ppid = 0x2c1u; ppid <= 0x2cdu; ppid++) {
++		uint16_t apid = 0;
++		int owner = k60_spmi_find(ppid, &apid);
++		if (owner < 0) continue;
++		uint8_t r40 = 0, r41 = 0, r45 = 0, r46 = 0, t[2] = {0,0};
++		k60_spmi_read(apid, 4, t, 2);
++		k60_spmi_read(apid, 0x40, &r40, 1);
++		k60_spmi_read(apid, 0x41, &r41, 1);
++		k60_spmi_read(apid, 0x45, &r45, 1);
++		k60_spmi_read(apid, 0x46, &r46, 1);
++		printf("K60S12: ppid=%#x apid=%u owner=%d type=%u sub=%u r40=%#x r41=%#x r45=%#x r46=%#x\n",
++		    ppid, apid, owner, t[0], t[1], r40, r41, r45, r46);
++	}
++}
++/* ==== end K60_STAGE12_PAD_INT_VOLT ====================================== */
++
++/* ==== K60_SPMI_LDO2_PROBE: read-only PMIC arbiter v7 probe ================
++ * Read-only: the only MMIO store is the observer command word (one SPMI read).
++ * No PMIC register is written and RSC is never touched (HR-01).
++ * References: live-fdt.dts:9820-9834 (windows), :10370-10374 (SID=2),
++ * spmi-pmic-arb.c:1396-1424,1555-1558 (v7 offsets), cmd-db.c:24-25.
++ */
++#define K60_SPMI_CORE_PA   0x0c400000UL
++#define K60_SPMI_CNFG_PA   0x0c42d000UL
++#define K60_SPMI_OBS_PA    0x0c440000UL
++#define K60_CMD_DB_PA      0x80860000UL
++
++struct k60_cmd_db_rsc {uint16_t slv,hoff,doff,count,ver,rsv[3];};
++struct k60_cmd_db_hdr {uint32_t version;uint8_t magic[4];struct k60_cmd_db_rsc rsc[8];
++    uint32_t checksum,reserved;uint8_t data[];};
++struct k60_cmd_db_entry {uint8_t id[8];uint32_t prio[2],addr;uint16_t len,off;};
++
++static vm_offset_t k60_spmi_core, k60_spmi_cnfg, k60_spmi_obs;
++static uint32_t k60_spmi_apids; static bool k60_spmi_v7;
++
++static int
++k60_spmi_find(uint16_t ppid, uint16_t *out_apid)
++{
++	uint16_t found = 0xffffu; unsigned owner_best = 7;
++	for (uint32_t i = 0; i < k60_spmi_apids; i++) {
++		uint32_t map = rd(k60_spmi_core + (k60_spmi_v7 ? 0x2000u : 0x900u) + 4u * i);
++		if (!map || ((map >> 8) & 0xfffu) != ppid) continue;
++		unsigned owner = rd(k60_spmi_cnfg + (k60_spmi_v7 ? 0u : 0x700u) + 4u * i) & 7u;
++		if (found == 0xffffu || owner < owner_best) { found = (uint16_t)i; owner_best = owner; }
++	}
++	if (found == 0xffffu) return -1;
++	*out_apid = found; return (int)owner_best;
++}
++
++static bool
++k60_spmi_read(uint16_t apid, uint8_t reg, uint8_t *buf, uint32_t len)
++{
++	vm_offset_t ch = k60_spmi_obs + (k60_spmi_v7 ? 0x20UL : 0x80UL) * apid;
++	uint64_t limit; uint32_t status = 0;
++	clock_interval_to_deadline(2, NSEC_PER_MSEC, &limit);
++	wr(ch, (1u << 27) | ((uint32_t)reg << 4) | ((len - 1u) & 7u));
++	do { status = rd(ch + 8); } while (!(status & 1u) && mach_absolute_time() < limit);
++	if ((status & 0xfu) != 1u) return false;
++	uint32_t d0 = rd(ch + 0x18), d1 = (len > 4u) ? rd(ch + 0x1c) : 0;
++	for (uint32_t i = 0; i < len; i++) buf[i] = (uint8_t)(((i < 4u) ? d0 : d1) >> (8u * (i & 3u)));
++	return true;
++}
++
++static int
++k60_spmi_init(void)
++{
++	k60_spmi_core = ml_io_map(K60_SPMI_CORE_PA, 0x3000);
++	k60_spmi_cnfg = ml_io_map(K60_SPMI_CNFG_PA, 0x4000);
++	k60_spmi_obs  = ml_io_map(K60_SPMI_OBS_PA,  0x8000);
++	if (!k60_spmi_core || !k60_spmi_cnfg || !k60_spmi_obs) {
++		printf("K60SPMI: map failed core=%#lx cnfg=%#lx obs=%#lx\n",
++		    (unsigned long)k60_spmi_core, (unsigned long)k60_spmi_cnfg, (unsigned long)k60_spmi_obs);
++		return -1;
++	}
++	uint32_t ver = rd(k60_spmi_core);
++	k60_spmi_v7 = (ver >= 0x70000000u && ver < 0x80000000u);
++	k60_spmi_apids = rd(k60_spmi_core + 4) & 0x7ffu;
++	printf("K60SPMI: arbiter ver=%#x apids=%u layout=%s\n", ver, k60_spmi_apids,
++	    k60_spmi_v7 ? "v7" : "v5");
++	if (!k60_spmi_apids || k60_spmi_apids > 1024) { printf("K60SPMI: bad apid count\n"); return -1; }
++	return 0;
++}
++
++static void
++k60_spmi_probe(void)
++{
++	if (k60_spmi_init() != 0) return;
++
++	/* Self-check: PON PPID 0x013 must resolve (K60 measured APID 407). */
++	uint16_t pon = 0;
++	int pon_owner = k60_spmi_find(0x013u, &pon);
++	if (pon_owner >= 0) {
++		uint8_t id[2] = {0,0};
++		bool ok = k60_spmi_read(pon, 4, id, 2);
++		printf("K60SPMI: PON apid=%u owner=%d type=%u sub=%u %s\n",
++		    pon, pon_owner, id[0], id[1], ok ? "" : "(read failed)");
++	} else printf("K60SPMI: PON PPID 0x013 NOT FOUND -> arbiter layout wrong\n");
++
++	/* cmd_db: read the "ldoc2" entry if present. */
++	vm_offset_t db = ml_io_map(K60_CMD_DB_PA, 0x10000);
++	if (db) {
++		const struct k60_cmd_db_hdr *h = (const struct k60_cmd_db_hdr *)db;
++		printf("K60SPMI: cmd_db magic=%02x %02x %02x %02x\n",
++		    h->magic[0], h->magic[1], h->magic[2], h->magic[3]);
++		if (h->magic[0] == 0xdb && h->magic[1] == 0x30) {
++			for (unsigned s = 0; s < 8; s++) {
++				const struct k60_cmd_db_rsc *r = &h->rsc[s];
++				if (!r->slv || !r->count || r->count > 512u) continue;
++				const struct k60_cmd_db_entry *e =
++				    (const struct k60_cmd_db_entry *)(h->data + r->hoff);
++				for (unsigned i = 0; i < r->count; i++) {
++					if (e[i].id[0] != 'l' || e[i].id[1] != 'd' || e[i].id[2] != 'o')
++						continue;
++					printf("K60SPMI: cmd_db %.8s addr=%#x hw=%u sid=%u ppid=%#x\n",
++					    e[i].id, e[i].addr, (e[i].addr >> 16) & 0xfu,
++					    (e[i].addr >> 12) & 0xfu, (e[i].addr >> 4) & 0xffu);
++				}
++			}
++		}
++	}
++
++	/* Scan PPID 0x240..0x24F for the PMIC5 LDO block and dump its state. */
++	for (uint16_t ppid = 0x200u; ppid <= 0x2ffu; ppid++) {
++		uint16_t apid = 0;
++		int owner = k60_spmi_find(ppid, &apid);
++		if (owner < 0) continue;
++		uint8_t t[2] = {0,0}, rg = 0xff, vs = 0xff, en = 0xff;
++		k60_spmi_read(apid, 4, t, 2);
++		k60_spmi_read(apid, 0x40, &rg, 1);
++		k60_spmi_read(apid, 0x41, &vs, 1);
++		k60_spmi_read(apid, 0x46, &en, 1);
++		printf("K60SPMI: ppid=%#x apid=%u owner=%d type=%u sub=%u range=%#x vset=%#x enable=%#x %s\n",
++		    ppid, apid, owner, t[0], t[1], rg, vs, en,
++		    (en & 0x80u) ? "LDO_ENABLED" : "LDO_OFF");
++	}
++	printf("K60SPMI: probe done\n");
++}
++/* ==== end K60_SPMI_LDO2_PROBE ========================================== */
++
 +static bool
 +goodix_checksum_ok(const uint8_t *data, uint32_t length)
 +{
@@ -906,11 +3402,495 @@ index 0000000..b033b90
 +static void
 +touch_reset(void)
 +{
++	/* ruby section 3.3: reset low 10 ms, then 100 ms for the scan engine. */
 +	gpio_set(PIN_RESET, false);
-+	sleep_ms(2);
++	sleep_ms(10);
 +	gpio_set(PIN_RESET, true);
 +	sleep_ms(100);
 +}
++
++/*
++ * K60_FRAME_HUNT: find the address that actually changes when the panel is
++ * touched instead of assuming where the frame lives.
++ *
++ * Everything about the documented location checks out: the vendor misc block at
++ * IC_INFO+44 reads 08 03 01 00 (= 0x10308), misc+48/50 are both 8, and misc+52/54
++ * are 1440/3200. Reads of 0x10000 and 0x10014 return correct, checksum-valid
++ * data. Only 0x10308 comes back as 00 94 b7 56 4b b4 ce ba -- six identical
++ * samples, head checksum 0x02a0 against a stored 0xbace, which cannot be a live
++ * frame because an idle frame is all zeros.
++ *
++ * So instead of trying other offsets by hand, snapshot 0x10000..0x11000 and
++ * report every 32-byte block that differs from the snapshot. The block that
++ * moves with the finger is the frame, whatever the vendor ABI says.
++ */
++#define HUNT_BASE   0x10000u
++#define HUNT_SIZE   0x1000u
++#define HUNT_BLOCK  32u
++#define HUNT_BLOCKS (HUNT_SIZE / HUNT_BLOCK)
++
++static uint8_t hunt_snap[HUNT_BLOCKS][HUNT_BLOCK];
++static uint8_t hunt_cur[HUNT_BLOCKS][HUNT_BLOCK];
++static bool hunt_have;
++
++static unsigned
++hunt_nonzero(const uint8_t *p, unsigned n)
++{
++	unsigned c = 0;
++	for (unsigned i = 0; i < n; i++) {
++		if (p[i]) {
++			c++;
++		}
++	}
++	return c;
++}
++
++static bool
++hunt_scan(uint8_t out[HUNT_BLOCKS][HUNT_BLOCK])
++{
++	for (unsigned b = 0; b < HUNT_BLOCKS; b++) {
++		if (!goodix_read(HUNT_BASE + b * HUNT_BLOCK, out[b], HUNT_BLOCK)) {
++			return false;
++		}
++	}
++	return true;
++}
++
++/* Print the blocks whose content moved. diff_only=false also prints the map. */
++static void
++hunt_compare(bool diff_only)
++{
++	unsigned changed = 0;
++
++	if (!hunt_scan(hunt_cur)) {
++		printf("K60HUNT: scan failed\n");
++		return;
++	}
++	for (unsigned b = 0; b < HUNT_BLOCKS; b++) {
++		unsigned nz = hunt_nonzero(hunt_cur[b], HUNT_BLOCK);
++		bool diff = hunt_have && memcmp(hunt_snap[b], hunt_cur[b], HUNT_BLOCK) != 0;
++
++		if (diff) {
++			changed++;
++		}
++		if ((diff || !diff_only) && k60_touch_diag >= 1) {
++			printf("K60HUNT: %#06x nz=%02u %s ", HUNT_BASE + b * HUNT_BLOCK, nz,
++			    diff ? "CHANGED" : "       ");
++			for (unsigned i = 0; i < 16; i++) {
++				printf("%02x ", hunt_cur[b][i]);
++			}
++			printf(" ");
++			for (unsigned i = 16; i < HUNT_BLOCK; i++) {
++				printf("%02x ", hunt_cur[b][i]);
++			}
++			printf("\n");
++		}
++	}
++	if (hunt_have) {
++		printf("K60HUNT: %u of %u blocks changed\n", changed, HUNT_BLOCKS);
++	}
++	memcpy(hunt_snap, hunt_cur, sizeof(hunt_snap));
++	hunt_have = true;
++}
++/* ==== end K60_FRAME_HUNT ================================================== */
++
++/*
++ * K60_FRAME_SCAN: locate a checksum-valid GTP frame head anywhere in
++ * 0x10000..0x11000 instead of trusting the misc-derived address.
++ *
++ * Facts that motivated this: 0x10400..0x10fe0 changes on every sweep (the sensor
++ * is sampling), 0x10308 never changes, a write to 0x10308 is silently dropped,
++ * and 0x10320..0x103e0 is a solid block of random-looking bytes. A 26-byte frame
++ * starting at 0x10308 would overlap that block, which cannot be right.
++ *
++ * A real GTP head is unforgeable: sum(data[0..5]) & 0xffff == data[6] | data[7]<<8
++ * (documents section 5.3, and the vendor appends the same 16-bit sum). Slide a
++ * 8-byte window over the whole 4 KiB and report every match.
++ */
++#define SCAN_CHUNK  256u
++
++static void
++k60_frame_scan(void)
++{
++	static uint8_t win[HUNT_SIZE];
++	unsigned hits = 0;
++
++	printf("K60SCAN: reading %#x..%#x for checksum-valid frame heads\n",
++	    HUNT_BASE, HUNT_BASE + HUNT_SIZE);
++	/* Read in 256-byte chunks: a single 4 KiB transfer exceeds what the frame
++	 * reader accepts, and the 32-byte sweeps already prove chunked reads work. */
++	for (unsigned off = 0; off < HUNT_SIZE; off += SCAN_CHUNK) {
++		if (!goodix_read(HUNT_BASE + off, win + off, SCAN_CHUNK)) {
++			printf("K60SCAN: chunk read failed at %#x\n", HUNT_BASE + off);
++			return;
++		}
++	}
++	unsigned zero_heads = 0, touch_heads = 0;
++
++	for (unsigned i = 0; i + 8 <= HUNT_SIZE; i++) {
++		unsigned sum = (unsigned)(win[i + 0] + win[i + 1] + win[i + 2] +
++		    win[i + 3] + win[i + 4] + win[i + 5]) & 0xffffu;
++		unsigned stored = (unsigned)win[i + 6] | ((unsigned)win[i + 7] << 8);
++
++		if (sum != stored) {
++			continue;
++		}
++		/*
++		 * A run of zero bytes trivially satisfies sum==stored (0 == 0), so the
++		 * first sweep reported 394 "heads" that were all padding. Count those
++		 * separately and only report heads that carry a real event byte.
++		 */
++		if (sum == 0 && stored == 0) {
++			zero_heads++;
++			continue;
++		}
++		if (win[i + 0] & GOODIX_STATUS_TOUCH) {
++			touch_heads++;
++		}
++		if (hits < 24) {
++			printf("K60SCAN: head @%#06x %02x %02x %02x %02x %02x %02x %02x %02x  event=%02x n=%u sum=%04x%s\n",
++			    HUNT_BASE + i,
++			    win[i + 0], win[i + 1], win[i + 2], win[i + 3],
++			    win[i + 4], win[i + 5], win[i + 6], win[i + 7],
++			    win[i + 0], win[i + 2] & 0x0fu, sum,
++			    (win[i + 0] & GOODIX_STATUS_TOUCH) ? " TOUCH" : "");
++		}
++		hits++;
++	}
++	printf("K60SCAN: %u nonzero heads (%u with TOUCH bit) in %u bytes; %u all-zero runs skipped\n",
++	    hits, touch_heads, HUNT_SIZE, zero_heads);
++	/* Raw window around the vendor-derived frame address, so the bytes that the
++	 * misc block points at can be read directly instead of through a filter. */
++	for (unsigned w = 0x102e0u; w < 0x10340u; w += 16) {
++		unsigned off = w - HUNT_BASE;
++		printf("K60SCAN: raw %#06x %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n",
++		    w,
++		    win[off + 0], win[off + 1], win[off + 2], win[off + 3],
++		    win[off + 4], win[off + 5], win[off + 6], win[off + 7],
++		    win[off + 8], win[off + 9], win[off + 10], win[off + 11],
++		    win[off + 12], win[off + 13], win[off + 14], win[off + 15]);
++	}
++}
++/* ==== end K60_FRAME_SCAN ================================================== */
++
++/*
++ * K60_STAGE21_PMIC: checklist items 1-3 from the reference debugging list.
++ *
++ * references/ruby-bringup/docs/touch-goodix-9916r.md section 8:
++ *   1. I2C5 idle SCL/SDA both 1; otherwise check pinmux/input enable first.
++ *   2. Read LDO3/LDO2 EN/VOUT; the old values are usually 0x80/0xB0, 0x80/0x40.
++ *   3. After writing VOUT the read-back must be 0x3A/0xD0; after enabling EN 0xC4.
++ *
++ * Section 3.2 records the failure this catches: writing only the enable bit
++ * leaves the analog rail undervolted and the controller never starts, which is
++ * exactly the "dev_confirm and the version block are fine but no frame ever
++ * appears" signature this board shows.
++ *
++ * The RPMh helper in this file can only write, so the read-back has to come from
++ * SPMI, which reports the PMIC's real registers. An earlier attempt looked for a
++ * single hard-coded PPID and concluded "not found"; sweeping the whole range and
++ * printing what actually answers is the documented first step instead of a guess.
++ */
++static void
++k60_stage21_pmic(void)
++{
++	unsigned found = 0;
++
++	printf("K60S21: checklist 1-3, SPMI sweep for the PMIC\n");
++	if (k60_spmi_init() != 0) {
++		printf("K60S21: SPMI init failed, cannot read any rail\n");
++		return;
++	}
++	/* Item 1: the arbiter itself must answer before anything else is meaningful. */
++	printf("K60S21: SPMI arbiter APIDs=%u\n", (unsigned)k60_spmi_apids);
++	for (uint16_t ppid = 0x000u; ppid <= 0x3ffu; ppid++) {
++		uint16_t apid = 0;
++
++		if (k60_spmi_find(ppid, &apid) < 0) {
++			continue;
++		}
++		found++;
++		{
++			uint8_t r[16];
++			bool ok = k60_spmi_read(apid, 0x00u, r, sizeof(r));
++
++			printf("K60S21: ppid=%#05x apid=%u %s %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n",
++			    ppid, apid, ok ? "ok " : "ERR",
++			    r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7],
++			    r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]);
++		}
++	}
++	printf("K60S21: %u PPIDs answered\n", found);
++	/*
++	 * Checklist item 2: dump the PMIC5 LDO block.
++	 *
++	 * The first sweep capped its output at 24 entries and the LDO range never
++	 * appeared; sweeping 0x4000..0x4fff and printing registers 0x40..0x7f shows
++	 * the enable and voltage set points. Reference expectation from
++	 * references/ruby-bringup/docs/touch-goodix-9916r.md section 8 item 2:
++	 *   "Read LDO3/LDO2 EN/VOUT; the old values are usually 0x80/0xB0, 0x80/0x40."
++	 * Item 3: "After writing VOUT the read-back must be 0x3A/0xD0; after enabling
++	 * EN 0xC4."
++	 */
++	/*
++	 * K60S21_LDO_RANGE: PPIDs are 12 bits wide.
++	 *
++	 * k60_spmi_find compares ((map >> 8) & 0xfff) against the requested PPID, so
++	 * anything at or above 0x1000 can never match; the previous sweep of
++	 * 0x4000..0x4fff therefore printed nothing at all. The PMIC peripherals live
++	 * in the SID-tagged range: SID 3 (pm8350c) answered with 52 entries between
++	 * 0x301 and 0x3fe, and pm8350c_l2 -- the touch IOVDD rail Android reports as
++	 * enabled 1.8 V -- is one of them.
++	 */
++	printf("K60S21: SID2/SID3 PMIC peripherals, registers 0x30..0x5f\n");
++	for (uint16_t ppid = 0x200u; ppid <= 0x3ffu; ppid++) {
++		uint16_t apid = 0;
++		uint8_t r[64];
++
++		if (k60_spmi_find(ppid, &apid) < 0) {
++			continue;
++		}
++		/*
++		 * K60S21_SMALL_READS: the SPMI read helper carries the length in a 3-bit
++		 * field and unpacks with (i & 3), so a single call can only deliver 8 real
++		 * bytes; asking for 48 returned the same 4 bytes twelve times (the last
++		 * sweep printed "03 00 40 30" over and over). Read one register at a time
++		 * instead, which is what makes the values meaningful.
++		 */
++		{
++			uint8_t en = 0, vlo = 0, vhi = 0, t1 = 0, t2 = 0, t3 = 0;
++
++			if (!k60_spmi_read(apid, 0x46u, &en, 1) ||
++			    !k60_spmi_read(apid, 0x40u, &vlo, 1) ||
++			    !k60_spmi_read(apid, 0x41u, &vhi, 1) ||
++			    !k60_spmi_read(apid, 0x45u, &t1, 1) ||
++			    !k60_spmi_read(apid, 0x47u, &t2, 1) ||
++			    !k60_spmi_read(apid, 0x48u, &t3, 1)) {
++				continue;
++			}
++			/*
++			 * Report only peripherals that look like an LDO: enable control
++			 * carrying bit 6, as the reference debugging list describes
++			 * ("EN/VOUT; the old values are usually 0x80/0xB0, 0x80/0x40").
++			 */
++			if (!(en & 0x40u)) {
++				continue;
++			}
++			printf("K60S21: LDO PPID=%#05x apid=%u en=%02x vout=%02x%02x st45=%02x st47=%02x st48=%02x\n",
++			    ppid, apid, en, vhi, vlo, t1, t2, t3);
++		}
++	}
++}
++/* ==== end K60_STAGE21_PMIC ================================================ */
++
++/*
++ * K60_MULTI_ADDR: compare every address the vendor misc block exposes against
++ * the documented frame layout (references/ruby-bringup/docs/touch-goodix-9916r.md
++ * section 5.3), so the choice is made from evidence instead of from a hunch.
++ *
++ * Documented head layout:
++ *   [0] event, 0x80 = GOODIX_TOUCH_EVENT
++ *   [2] touch_num = value & 0x0f
++ *   [6..7] head checksum = sum(data[0..5]) & 0xffff
++ * A real frame therefore has to satisfy the checksum and, when a finger is down,
++ * carry 0x80 at [0]. Printing all four candidates with that verdict next to each
++ * makes the right one unambiguous.
++ */
++static void
++k60_multi_addr_probe(void)
++{
++	static const struct {
++		uint32_t addr;
++		const char *name;
++	} cand[] = {
++		{ 0x10174u, "misc+0 " },
++		{ 0x10218u, "misc+12" },
++		{ 0x10308u, "misc+44" },
++		{ 0x10400u, "misc+24" },
++	};
++
++	printf("K60MULTI: comparing %u documented-layout candidates\n",
++	    (unsigned)(sizeof(cand) / sizeof(cand[0])));
++	for (unsigned i = 0; i < sizeof(cand) / sizeof(cand[0]); i++) {
++		uint8_t b[8];
++		unsigned sum, stored;
++
++		if (!goodix_read(cand[i].addr, b, sizeof(b))) {
++			printf("K60MULTI: %s %#07x read FAILED\n", cand[i].name, cand[i].addr);
++			continue;
++		}
++		sum = (unsigned)(b[0] + b[1] + b[2] + b[3] + b[4] + b[5]) & 0xffffu;
++		stored = (unsigned)b[6] | ((unsigned)b[7] << 8);
++		printf("K60MULTI: %s %#07x %02x %02x %02x %02x %02x %02x %02x %02x  event=%u csum=%s n=%u\n",
++		    cand[i].name, cand[i].addr,
++		    b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
++		    (b[0] & 0x80u) ? 1u : 0u,
++		    (sum == stored) ? "ok " : "BAD",
++		    (unsigned)(b[2] & 0x0fu));
++	}
++}
++/* ==== end K60_MULTI_ADDR ================================================== */
++
++/*
++ * K60_STAGE22_LDO: read the pm8350c LDO rails that cmd_db names.
++ *
++ * The addresses are already recorded for this board (docs/HANDOFF.md:1626,1632):
++ *   ldoc1  = 0x42b00 (sid2)   ldoc2  = 0x42c00 (sid2, ppid 0xc0)   <- touch IOVDD
++ *   ldoc3  = 0x40f00 (sid0)   ldoc8  = 0x42d00 (sid2)
++ *   ldoc10 = 0x42200 (sid2)   ldoc11 = 0x43300 (sid3)
++ *   ldoc12 = 0x42e00 (sid2)
++ *
++ * The pass criteria are recorded too:
++ *   docs/BACKLOG.md:208  PMIC5 PLDO 1.8 V encodes as range=0, vset=0x25
++ *                        (a historical measurement of range=0x8 vset=0x7 was wrong)
++ *   reference section 8  EN reads 0x80 before enabling and 0xC4 after; VOUT reads
++ *                        0x3A/0xD0 once written
++ *
++ * Reading one register at a time is required: the SPMI helper carries the length
++ * in a three-bit field and unpacks with (i & 3), so a wide read only repeats the
++ * first four bytes.
++ */
++static void
++k60_stage22_ldo(void)
++{
++	static const struct {
++		const char *name;
++		uint16_t ppid;
++	} rail[] = {
++		{ "ldoc1 ", 0x0b0u }, { "ldoc2 ", 0x0c0u }, { "ldoc8 ", 0x0d0u },
++		{ "ldoc10", 0x220u }, { "ldoc12", 0x2e0u }, { "ldoc11", 0x300u },
++	};
++
++	printf("K60S22: pm8350c LDO rails by cmd_db ppid\n");
++	if (k60_spmi_init() != 0) {
++		printf("K60S22: SPMI init failed\n");
++		return;
++	}
++	for (unsigned i = 0; i < sizeof(rail) / sizeof(rail[0]); i++) {
++		uint16_t apid = 0;
++		uint8_t en = 0, vrange = 0, vset = 0;
++
++		if (k60_spmi_find(rail[i].ppid, &apid) < 0) {
++			printf("K60S22: %s ppid=%#05x NOT FOUND\n", rail[i].name, rail[i].ppid);
++			continue;
++		}
++		if (!k60_spmi_read(apid, 0x46u, &en, 1) ||
++		    !k60_spmi_read(apid, 0x40u, &vrange, 1) ||
++		    !k60_spmi_read(apid, 0x41u, &vset, 1)) {
++			printf("K60S22: %s apid=%u read FAILED\n", rail[i].name, apid);
++			continue;
++		}
++		/*
++		 * Verdict against the recorded encoding: 1.8 V is range 0 / vset 0x25,
++		 * EN bit6 is the enable and bit7 is the regulator-OK flag.
++		 */
++		printf("K60S22: %s ppid=%#05x apid=%u en=%02x(ok=%u en=%u) range=%02x vset=%02x -> %s\n",
++		    rail[i].name, rail[i].ppid, apid, en,
++		    (en >> 7) & 1u, (en >> 6) & 1u, vrange, vset,
++		    (vrange == 0 && vset == 0x25) ? "1.8V OK" : "NOT 1.8V");
++	}
++}
++/* ==== end K60_STAGE22_LDO ================================================= */
++
++/*
++ * K60_STAGE23_LDOSCAN: find the touch rails by their voltage encoding instead of
++ * by the cmd_db ppid.
++ *
++ * Why this approach: cmd_db says ldoc1 is ppid 0xb0 and ldoc2 is ppid 0xc0, but a
++ * direct lookup found apid 72 for 0xb0 while 0xc0 did not answer at all (see
++ * stage22). So the ppid derivation is not reliable for every rail, and guessing
++ * again would just repeat that mistake.
++ *
++ * The pass criteria are recorded locally:
++ *   docs/BACKLOG.md:208  PMIC5 PLDO 1.8 V is range=0 / vset=0x25
++ *   reference section 8  EN reads 0x80 before enabling, 0xC4 after
++ *
++ * This sweep prints every peripheral whose voltage set point differs from the
++ * all-ones idle value, with the decoded verdict, so the 1.8 V rail identifies
++ * itself.
++ */
++static void
++k60_stage23_ldoscan(void)
++{
++	unsigned found = 0, shown = 0;
++
++	printf("K60S23: sweep every PPID for a configured LDO\n");
++	if (k60_spmi_init() != 0) {
++		printf("K60S23: SPMI init failed\n");
++		return;
++	}
++	for (uint16_t ppid = 0x000u; ppid <= 0xfffu; ppid++) {
++		uint16_t apid = 0;
++		uint8_t en = 0, vrange = 0, vset = 0;
++
++		if (k60_spmi_find(ppid, &apid) < 0) {
++			continue;
++		}
++		found++;
++		if (!k60_spmi_read(apid, 0x46u, &en, 1) ||
++		    !k60_spmi_read(apid, 0x40u, &vrange, 1) ||
++		    !k60_spmi_read(apid, 0x41u, &vset, 1)) {
++			continue;
++		}
++		/*
++		 * 0xff / 0xff is the unpopulated pattern seen on almost every
++		 * peripheral; anything else has a real set point.
++		 */
++		if (vrange == 0xffu && vset == 0xffu) {
++			continue;
++		}
++		if (vrange == 0x00u && vset == 0x00u && en == 0x00u) {
++			continue;
++		}
++		shown++;
++		printf("K60S23: ppid=%#05x apid=%u en=%02x(ok=%u en=%u) range=%02x vset=%02x%s\n",
++		    ppid, apid, en, (en >> 7) & 1u, (en >> 6) & 1u, vrange, vset,
++		    (vrange == 0x00u && vset == 0x25u) ? "  <== 1.8V MATCH" : "");
++	}
++	printf("K60S23: %u peripherals answered, %u carry a set point\n", found, shown);
++}
++/* ==== end K60_STAGE23_LDOSCAN ============================================= */
++
++/*
++ * K60_HM_PEAK: track the peak of the 0x10400 capacitance field.
++ *
++ * The sweep at 0x104a0 shows a stream of 16-bit LE values (0x2848 0x2870 ...)
++ * that change on every sample; the whole 0x10420..0x10760 block does. That is
++ * the AFE's per-node reading. A real finger press makes one node spike well
++ * above its neighbours and the peak index tracks the finger; a purely floating
++ * field only drifts slowly. This distinguishes "the chip is not sensing a touch"
++ * from "the chip senses it but never writes a formatted report", which decides
++ * the next step instead of guessing it.
++ */
++#define HM_BASE   0x10400u
++#define HM_NODES  256u   /* 512 bytes, 256 x 16-bit nodes */
++
++static void
++k60_hm_peak_sample(void)
++{
++	uint8_t buf[512];
++	unsigned peak_i = 0;
++	uint16_t peak_v = 0;
++	unsigned sum = 0;
++
++	if (!goodix_read(HM_BASE, buf, sizeof(buf))) {
++		return;
++	}
++	for (unsigned i = 0; i < HM_NODES; i++) {
++		uint16_t v = (uint16_t)buf[2 * i] | ((uint16_t)buf[2 * i + 1] << 8);
++
++		sum += v;
++		if (v > peak_v) {
++			peak_v = v;
++			peak_i = i;
++		}
++	}
++	if (k60_touch_diag >= 2) {
++		printf("goodix: HMPEAK node=%u val=%u avg=%u int=%u\n",
++		    peak_i, peak_v, sum / HM_NODES, gpio_get(PIN_INT) ? 1u : 0u);
++	}
++}
++/* ==== end K60_HM_PEAK ==================================================== */
 +
 +/* Is the chip there and running its firmware? Finds where it keeps the touch report. */
 +static bool
@@ -955,13 +3935,238 @@ index 0000000..b033b90
 +		printf("goodix: chip description too short (%u, lists end at %u)\n", length, offset);
 +		return false;
 +	}
++	/*
++	 * K60_TOUCH_ADDR: keep the documented frame address.
++	 *
++	 * references/ruby-bringup/docs/touch-goodix-9916r.md section 5.3 states the
++	 * touch data address is 0x10308 and that its P2 stage read real frames from
++	 * exactly there (checksum valid, raw x/y inside the panel range). misc+44
++	 * holds that value, so take it.
++	 *
++	 * misc+24 (0x10400) is kept as an alternate for diagnostics only. It does
++	 * change on every sample, but the values hover in a narrow band
++	 * (0x26fe..0x2719) which is a DC offset with noise, not finger motion, and
++	 * its bytes 3..7 are a fixed e8 08 e8 08 01. That signature says the analog
++	 * front end is not converting, which matches section 3.2: an undervolted
++	 * AVDD lets the ROM answer (dev_confirm and the version block read fine) while
++	 * the scan engine never produces a report. The earlier revision swapped the
++	 * two addresses on the strength of the "it changes" observation alone, which
++	 * was not a documented reason.
++	 */
 +	touch_address = le32(info + offset + 44);
++	touch_address_alt = le32(info + offset + 24);
 +	command_address = le32(info + offset + 0);      /* (the "misc" part: the command buffer comes first) */
++	{
++		printf("goodix: misc candidates");
++		for (unsigned c = 0; c + 4 <= 56; c += 4) {
++			uint32_t v = le32(info + offset + c);
++			if (v >= 0x10000u && v < 0x11000u) {
++				printf(" +%u=%#x", c, v);
++			}
++		}
++		printf("\n");
++		printf("goodix: using touch_address=%#x (misc+44 per ruby doc 5.3), alt=%#x (misc+24)\n",
++		    touch_address, touch_address_alt);
++		/*
++		 * K60_MISC_FULL: parse every address in the official goodix_ic_info_misc
++		 * layout (goodix_ts_core.h section) instead of reading only +0/+12/+24/+44.
++		 * cmd_addr and fw_buffer are what config download targets.
++		 */
++		{
++			uint32_t cmd_addr = le32(info + offset + 0);
++			uint16_t cmd_max = (uint16_t)le16(info + offset + 4);
++			uint32_t fw_state = le32(info + offset + 16);
++			uint32_t fw_buf   = le32(info + offset + 24);
++			uint16_t fw_buf_max = (uint16_t)le16(info + offset + 28);
++			uint32_t frame_addr = le32(info + offset + 32);
++			uint32_t touch_data = le32(info + offset + 0);
++
++			(void)touch_data;
++			(void)cmd_max;
++			(void)fw_state;
++			printf("goodix: MISC cmd=%#x cmax=%u fwstate=%#x fwbuf=%#x fwmax=%u framedata=%#x\n",
++			    cmd_addr, cmd_max, fw_state, fw_buf, fw_buf_max, frame_addr);
++			printf("goodix: MISC raw +0=%#x +4=%u +16=%#x +24=%#x +28=%u +32=%#x\n",
++			    le32(info + offset + 0), (unsigned)le16(info + offset + 4),
++			    le32(info + offset + 16), le32(info + offset + 24),
++			    (unsigned)le16(info + offset + 28), le32(info + offset + 32));
++			/*
++			 * K60_FWBUF_TEST: is 0x10400 writable RAM?
++			 *
++			 * Misc reports fw_buffer_addr = 0x10400, but that block also changes
++			 * every sample. The official config path is write(fw_buffer_addr) then
++			 * read it back and memcmp, so a write that survives read-back proves
++			 * the address really is the firmware/config staging buffer and that a
++			 * config download is possible. A write that does not survive means the
++			 * block belongs to the chip and config lives elsewhere.
++			 */
++			{
++				const uint8_t pat[4] = { 0xa5, 0x5a, 0xa5, 0x5a };
++				uint8_t rb[4] = { 0, 0, 0, 0 };
++				uint8_t base[4] = { 0, 0, 0, 0 };
++				bool wok, rok;
++
++				rok = goodix_read(0x10400u, base, sizeof(base));
++				wok = goodix_write(0x10400u, pat, sizeof(pat));
++				sleep_ms(2);
++				if (rok && goodix_read(0x10400u, rb, sizeof(rb))) {
++					printf("goodix: FWBUF 0x10400 before=%02x%02x%02x%02x write=%s after=%02x%02x%02x%02x -> %s\n",
++					    base[0], base[1], base[2], base[3],
++					    wok ? "ok" : "ERR",
++					    rb[0], rb[1], rb[2], rb[3],
++					    (rb[0] == pat[0] && rb[1] == pat[1] &&
++					     rb[2] == pat[2] && rb[3] == pat[3]) ?
++					    "WRITABLE-RAM" : "chip-owned");
++				}
++			}
++			/*
++			 * K60_SEND_CMD: issue 0x90/0x81 (read rawdata) exactly as
++			 * goodix_brl_hw.c does and read the acknowledgement.
++			 *
++			 * Frame layout from goodix_ts_core.h:
++			 *   u8 state; u8 ack; u8 len; u8 cmd; u8 data[];
++			 * brl_send_cmd zeroes state/ack, appends a U8-LE checksum over
++			 * buf[2..len-1], writes the whole struct to misc.cmd_addr and then
++			 * polls the same address for cmd_ack.ack == 0x80.
++			 * Raw-data request (line 1313): cmd 0x90, data[0] 0x81, len 5.
++			 *
++			 * Whether the firmware answers this at all decides the next step:
++			 * an ack means the command path works and the coordinate read
++			 * (cmd 0) is worth trying; no ack means the firmware is not running
++			 * its service loop and config/firmware has to be loaded first.
++			 */
++			{
++				uint8_t f[8];
++				uint8_t ack[8];
++				unsigned sum = 0;
++				bool got = false;
++				uint8_t last_ack = 0xff;
++
++				memset(f, 0, sizeof(f));
++				f[0] = 0x00;            /* state */
++				f[1] = 0x00;            /* ack */
++				f[2] = 0x05;            /* len  = 5 */
++				f[3] = 0x90;            /* cmd  = 0x90 */
++				f[4] = 0x81;            /* data[0] = rawdata request */
++				(void)sum;
++				/*
++				 * Exact official command frame. checksum algorithm
++				 * (goodix_ts_utils.c goodix_append_checksum, read in full):
++				 *   checksum = sum(data[0..len-1]);
++				 *   data[len]   = checksum & 0xff;      // low byte
++				 *   data[len+1] = (checksum >> 8) & 0xff; // high byte
++				 * Called as append(&cmd->buf[2], cmd->len - 2, U8_LE):
++				 *   data = buf[2..], len param = 5-2 = 3
++				 *   sum(buf[2]+buf[3]+buf[4]) = 0x05+0x90+0x81 = 0x116
++				 *   buf[2+3]=buf[5] = 0x16, buf[2+4]=buf[6] = 0x01
++				 * So the exact 8-byte frame is
++				 *   [00][00][05][90][81][16][01][00].
++				 */
++				{
++					unsigned chk = (unsigned)f[2] + (unsigned)f[3] + (unsigned)f[4];
++
++					memset(f, 0, sizeof(f));
++					f[0] = 0x00;                 /* state */
++					f[1] = 0x00;                 /* ack */
++					f[2] = 0x05;                 /* len */
++					f[3] = 0x90;                 /* cmd = read rawdata */
++					f[4] = 0x81;                 /* data[0] */
++					f[5] = (uint8_t)(chk & 0xff);          /* low  = 0x16 */
++					f[6] = (uint8_t)((chk >> 8) & 0xff);   /* high = 0x01 */
++					printf("goodix: CMD-FIX frame %02x %02x %02x %02x %02x %02x %02x %02x\n",
++					    f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]);
++					if (goodix_write(command_address, f, sizeof(f))) {
++						for (int t = 0; t < 15; t++) {
++							if (goodix_read(command_address, ack, sizeof(ack))) {
++								last_ack = ack[1];
++								if (ack[1] != 0x00 && ack[1] != 0xff) {
++									break;
++								}
++							}
++							sleep_ms(20);
++						}
++					}
++					printf("goodix: CMD-FIX ack=%02x %s\n",
++					    last_ack,
++					    last_ack == 0x80 ? "OK" :
++					    last_ack == 0x04 ? "CHECKSUM-ERR" :
++					    last_ack == 0x02 ? "BUSY" :
++					    last_ack == 0x01 ? "IDLE" :
++					    last_ack == 0x03 ? "BUF-OVF" : "NO-RESPONSE");
++					(void)got;
++				}
++				/*
++				 * K60_CFG_START: verify CONFIG_CMD_START(0x04) is accepted.
++				 *
++				 * brl_send_config (brl_hw.c:493) sets len=CONFIG_CND_LEN(4),
++				 * cmd=CONFIG_CMD_START(0x04), then send_cfg_cmd waits for
++				 * ack==0x80. brl_send_cmd checksums buf[2..] over (len-2)=2 bytes
++				 * so the frame is [00][00][04][04][cs_lo][cs_hi] with
++				 * cs = 0x04+0x04 = 0x08. A non-zero-ack here proves the config
++				 * download path is reachable and that we can proceed to write the
++				 * 1627-byte config into fw_buffer in 16-byte chunks.
++				 */
++				{
++					uint8_t cf[8];
++					uint8_t cack[8];
++					uint8_t caf_last = 0xff;
++
++					memset(cf, 0, sizeof(cf));
++					cf[0] = 0x00;              /* state */
++					cf[1] = 0x00;              /* ack */
++					cf[2] = 0x04;              /* len = CONFIG_CND_LEN */
++					cf[3] = 0x04;              /* cmd = CONFIG_CMD_START */
++					cf[4] = 0x08;              /* cs low  = 0x04+0x04 */
++					cf[5] = 0x00;              /* cs high */
++					printf("goodix: CFG-START frame %02x %02x %02x %02x %02x %02x %02x %02x\n",
++					    cf[0], cf[1], cf[2], cf[3], cf[4], cf[5], cf[6], cf[7]);
++					if (goodix_write(command_address, cf, sizeof(cf))) {
++						for (int t = 0; t < 20; t++) {
++							if (goodix_read(command_address, cack, sizeof(cack))) {
++								caf_last = cack[1];
++								if (cack[1] != 0x00 && cack[1] != 0xff) {
++									break;
++								}
++							}
++							sleep_ms(20);
++						}
++					}
++					printf("goodix: CFG-START ack=%02x %s\n",
++					    caf_last,
++					    caf_last == 0x80 ? "OK-config-ready" :
++					    caf_last == 0x04 ? "CHECKSUM-ERR" :
++					    caf_last == 0x02 ? "BUSY" :
++					    caf_last == 0x01 ? "IDLE" :
++					    caf_last == 0x03 ? "BUF-OVF" : "NO-RESPONSE");
++				}
++			}
++		}
++	}
 +    /* Pong vendor misc ABI: +48 header, +50 point size, +52/+54 real axes. */
 +    if (offset+56+2 > length || le16(info+offset+48)!=8 || le16(info+offset+50)!=8) return false;
 +    uint16_t x=le16(info+offset+52), y=le16(info+offset+54);
 +    if (x && y) { max_x=x;max_y=y; }
 +	printf("goodix: touch report at %#x, coordinates up to %u x %u\n", touch_address, max_x, max_y);
++	/*
++	 * K60_MISC_DUMP: show the raw misc block so the 0x10308 derivation can be
++	 * checked byte by byte. The frame area reads back as static non-zero data
++	 * (00 94 b7 56 4b b4 ce ba, six identical samples), which cannot be a live
++	 * frame: an idle frame is all zeros. Either the address is derived wrong or
++	 * the frame lives somewhere else.
++	 */
++	{
++		printf("goodix: IC_INFO length=%u lists-end offset=%u\n", length, offset);
++		for (uint32_t i = 0; i + 16 <= 64 && offset + i + 16 <= length; i += 16) {
++			printf("goodix: misc+%02u..%02u %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n",
++			    i, i + 15,
++			    info[offset + i + 0], info[offset + i + 1], info[offset + i + 2], info[offset + i + 3],
++			    info[offset + i + 4], info[offset + i + 5], info[offset + i + 6], info[offset + i + 7],
++			    info[offset + i + 8], info[offset + i + 9], info[offset + i + 10], info[offset + i + 11],
++			    info[offset + i + 12], info[offset + i + 13], info[offset + i + 14], info[offset + i + 15]);
++		}
++	}
++	/* K60_FRAME_HUNT: baseline snapshot right after the controller is known good. */
++	hunt_compare(false);
 +	return touch_address != 0;
 +}
 +
@@ -1032,14 +4237,101 @@ index 0000000..b033b90
 +goodix_poll(void)
 +{
 +	static uint8_t report[8 + 8 * GOODIX_MAX_TOUCHES + 2];
++	/*
++	 * K60_ALT_FRAME: 0x10400 is the only block that carries 0x80 in byte 0 and
++	 * advances monotonically (0x0b -> ... -> 0xe7 -> 0x10 0x01 -> ...), so it is
++	 * the live working area; 0x10308 returns a static 00 94 b7 ... and never
++	 * moves. Dump the first 16 bytes of 0x10400 while a touch is sensed so the
++	 * coordinate fields can be identified instead of guessed.
++	 */
++	{
++		uint8_t alt[8];
++
++		if (k60_touch_diag >= 2 && !gpio_get(PIN_INT) &&
++		    goodix_read(0x10400u, alt, sizeof(alt))) {
++			printf("goodix: ALT10400 int=0 %02x %02x %02x %02x %02x %02x %02x %02x\n",
++			    alt[0], alt[1], alt[2], alt[3], alt[4], alt[5], alt[6], alt[7]);
++		}
++	}
 +	static unsigned bad;
 +	const uint8_t zero = 0;
 +	const uint32_t first = 8 + 8 * 2 + 2;           /* the header and two fingers: all there is, most of the time */
 +	uint32_t count;
 +
 +	seen.polls++;
-+	if (!goodix_read(touch_address, report, first) || report[0] == 0) {
-+		return;
++	/*
++	 * K60_POLL_DIAG: separate the two silent failure modes and dump the raw
++	 * header while INT is low, so a read that returns all zeros can be told
++	 * apart from a read that fails outright.
++	 */
++	/*
++	 * K60_FRAME_DIAG: the frame area reads back as static non-zero data
++	 * (00 94 b7 56 4b b4 ce ba, identical on six consecutive samples). An idle
++	 * frame is all zeros, so that content cannot be a frame at all -- either the
++	 * address is wrong or the bytes are misaligned on the wire.
++	 *
++	 * While INT is low (the chip says it has something) dump:
++	 *   - the whole 34-byte wire image, so a byte shift is visible
++	 *   - 0x10300 for 32 bytes, in case the frame sits at a nearby offset
++	 *   - whether consecutive samples differ at all
++	 */
++	{
++		static unsigned read_fail, header_zero, dumped;
++		static uint8_t prev[8];
++		static bool have_prev;
++		bool ok = goodix_read(touch_address, report, first);
++		bool int_low = gpio_get(PIN_INT) == 0;
++
++		if (!ok) {
++			if (read_fail++ < 6) {
++				printf("goodix: READ FAIL addr=%#x len=%u int=%u\n",
++				    touch_address, first, gpio_get(PIN_INT));
++			}
++			return;
++		}
++		if (int_low && dumped < 8) {
++			dumped++;
++			printf("goodix: WIRE[34] ");
++			for (unsigned w = 0; w < 34 && w < 8 + first; w++) {
++				printf("%02x ", spi_rx[w]);
++			}
++			printf("\n");
++			printf("goodix: DATA     ");
++			for (unsigned d = 0; d < 8; d++) {
++				printf("%02x ", report[d]);
++			}
++			printf("  event=%02x touch_num=%u sum=%04x stored=%04x\n",
++			    report[0], report[2] & 0x0fu,
++			    (unsigned)((report[0] + report[1] + report[2] + report[3] +
++			        report[4] + report[5]) & 0xffffu),
++			    (unsigned)(report[6] | (report[7] << 8)));
++			if (have_prev) {
++				printf("goodix: CHANGED  %s\n",
++				    memcmp(prev, report, 8) ? "yes" : "NO (static)");
++			}
++			memcpy(prev, report, 8);
++			have_prev = true;
++			/* Nearby window: is the live frame at a different offset? */
++			{
++				static uint8_t near[32];
++				if (goodix_read(0x10300u, near, 32)) {
++					printf("goodix: @10300  ");
++					for (unsigned n = 0; n < 32; n++) {
++						printf("%02x ", near[n]);
++					}
++					printf("\n");
++				}
++			}
++		}
++		if (report[0] == 0) {
++			if (header_zero++ < 2) {
++				printf("goodix: HEADER ZERO addr=%#x int=%u bytes=%02x %02x %02x %02x %02x %02x %02x %02x\n",
++				    touch_address, gpio_get(PIN_INT),
++				    report[0], report[1], report[2], report[3],
++				    report[4], report[5], report[6], report[7]);
++			}
++			return;
++		}
 +	}
 +	seen.reports++;
 +	count = report[2] & 0xf;
@@ -1050,7 +4342,7 @@ index 0000000..b033b90
 +	goodix_write(touch_address, &zero, 1);
 +	if (!goodix_checksum_ok(report, 8)) {
 +		seen.bad++;
-+		if (bad++ < 8) {
++		if (bad++ < 3 && k60_touch_diag >= 2) {
 +			printf("goodix: bad report header: %02x %02x %02x %02x %02x %02x %02x %02x\n", report[0], report[1],
 +			    report[2], report[3], report[4], report[5], report[6], report[7]);
 +		}
@@ -1082,6 +4374,95 @@ index 0000000..b033b90
 +bring_up(void)
 +{
 +    printf("Pong touch: DIAG bring_up entry stage=%u\n", touch_stage);
++    if (touch_stage == 8) { k60_spmi_probe(); return false; }
++    if (touch_stage == 9) { k60_miso_float_test(); return false; }
++    if (touch_stage == 20) { k60_stage20_elec(); return false; }
++    if (touch_stage == 21) { k60_stage21_pmic(); return false; }
++    if (touch_stage == 22) { k60_stage22_ldo(); return false; }
++    if (touch_stage == 23) { k60_stage23_ldoscan(); return false; }
++    if (touch_stage == 19) {
++        printf("Pong touch: stage19 GENI + power\n");
++        /* K60_STAGE19_READY: fall through into the polling loop when the
++         * controller answered; otherwise the thread terminates and no event is
++         * ever read even though dev_confirm and probe both printed OK. */
++        return k60_stage19_geni_power();
++    }
++    if (touch_stage == 18) {
++        printf("Pong touch: stage18 switch + permutation\n");
++        k60_stage18_permute();
++        return false;
++    }
++    if (touch_stage == 17) {
++        printf("Pong touch: stage17 SPI mode switch\n");
++        k60_stage17_spi_switch();
++        return false;
++    }
++    if (touch_stage == 16) {
++        printf("Pong touch: stage16 GTP version read\n");
++        k60_stage16_gtp_version();
++        return false;
++    }
++    if (touch_stage == 15) {
++        printf("Pong touch: stage15 per-rail voltage test\n");
++        k60_stage15_rail_volt();
++        return false;
++    }
++    if (touch_stage == 14) {
++        printf("Pong touch: stage14 rail-set sweep\n");
++        k60_stage14_rail_sets();
++        return false;
++    }
++    if (touch_stage == 13) {
++        printf("Pong touch: stage13 power on + powered permutation sweep\n");
++        if (!io_supply_on()) { printf("Pong touch: stage13 supply FAILED\n"); return false; }
++        /* ruby section 3.3: reset low 10 ms -> high 100 ms. */
++        gpio_output(PIN_RESET, false, PULL_NONE, 6);
++        sleep_ms(10);
++        gpio_output(PIN_RESET, true, PULL_UP, 6);
++        sleep_ms(100);
++        printf("Pong touch: stage13 reset done int=%u\n", gpio_get(PIN_INT));
++        k60_stage13_permute();
++        return false;
++    }
++    if (touch_stage == 12) {
++        printf("Pong touch: stage12 pad/int/volt checks\n");
++        k60_stage12_checks();
++        return false;
++    }
++    if (touch_stage == 11) {
++        printf("Pong touch: stage11 supply + reset polarity sweep\n");
++        if (!io_supply_on()) { printf("Pong touch: stage11 supply FAILED\n"); return false; }
++        sleep_ms(5);
++        k60_reset_polarity_sweep();
++        return false;
++    }
++    if (touch_stage == 10) {
++        printf("Pong touch: stage10 rsc=%#lx cmd_db=%#lx\n",
++            (unsigned long)rsc, (unsigned long)cmd_db);
++        if (!io_supply_on()) { printf("Pong touch: stage10 supply FAILED\n"); return false; }
++        printf("Pong touch: stage10 supply OK; re-reading PMIC through SPMI\n");
++        k60_spmi_probe();
++        printf("Pong touch: stage10 PMIC re-read done\n");
++        /* The controller needs a real reset pulse after the rails come up:
++         * AVDD settled, RESET low 2 ms, RESET high, 4 ms before dev_confirm. */
++        printf("Pong touch: stage10 reset pulse\n");
++        /* ruby section 3.3: reset low 10 ms -> high 100 ms. */
++        gpio_output(PIN_RESET, false, PULL_NONE, 6);
++        sleep_ms(10);
++        gpio_output(PIN_RESET, true, PULL_UP, 6);
++        sleep_ms(100);
++        printf("Pong touch: stage10 reset done int=%u\n", gpio_get(PIN_INT));
++        /* Powered + out of reset: is anything actually driving the data lines? */
++        k60_miso_float_test();
++        spi_transfer = bitbang_transfer;
++        bitbang_in = 16u; bitbang_out = 17u; bitbang_init();
++        if (goodix_dev_confirm()) {
++            printf("Pong touch: stage10 DEV_CONFIRM OK -> touch rail is alive\n");
++            sleep_ms(100);
++            goodix_probe(true);
++        }
++        return false;
++    }
 +    /* K60_S7_SKIP_GENI: stage 7 exists to exercise the bitbang fallback only.
 +     * Skip the whole GENI block (clocks_on, engine init, 200 ms failing
 +     * transfer) so the pins go straight to GPIO mode and no engine register is
@@ -1113,7 +4494,6 @@ index 0000000..b033b90
 +        printf("Pong touch: touching serial engine %#llx now\n",se_phys);
 +        const char *problem=geni_spi_init(4000000);
 +        if (!problem) {
-+            spi_transfer=geni_transfer;
 +            if (goodix_probe(false)) return true;
 +            if (touch_stage < 6) {
 +                printf("Pong touch: DIAG stop before RPMh (stage 5)\n");
@@ -1122,7 +4502,12 @@ index 0000000..b033b90
 +            /* K60_STAGE7_ONLY: only stage 6 exercises the RPMh path. Stage 7
 +             * is bitbang-only and must never call io_supply_on(): it writes
 +             * TCS(rsc+0xd00+...) and rsc is 0 by HR-01 -> data abort. */
-+            if (touch_stage == 6 && io_supply_on()) { touch_reset();if (goodix_probe(true)) return true; }
++            /* K60_P0: never call io_supply_on() on K60 (ldoc3/ldoc12 are the
++             * wrong rails and any RSC/TCS access kills the machine, HR-01). */
++            k60_touch_power_cycle();
++            if (!goodix_dev_confirm()) return false;
++            sleep_ms(100);
++            if (goodix_probe(true)) return true;
 +        } else printf("Pong touch: GENI unavailable: %s; use GPIO SPI\n",problem);
 +    }
 +    if (touch_stage < 7) {
@@ -1143,18 +4528,9 @@ index 0000000..b033b90
 +    /* K60_MISO17: the 24-way sweep showed MISO is GPIO 17 (only assignments
 +     * with miso=17 returned 0xff instead of 0x00). Pulse RESET, then probe the
 +     * six remaining MOSI/CLK/CS assignments over {16,18,19}. */
-+    /* K60_AVDD71: FDT goodix,avdd-gpio = <&tlmm 0x47 0> = GPIO 71. A load
-+     * switch enable, so drive it high and give the rail time to settle. */
-+    printf("Pong touch: AVDD gpio71 on, int_before=%u\n", gpio_get(PIN_INT));
-+    gpio_output(71u, true, PULL_NONE, 6);
-+    sleep_ms(10);
-+    printf("Pong touch: AVDD gpio71 done int_after=%u\n", gpio_get(PIN_INT));
-+    printf("Pong touch: RESETPULSE low 20ms then high 120ms\n");
-+    gpio_output(PIN_RESET, false, PULL_NONE, 6);
-+    sleep_ms(20);
-+    gpio_output(PIN_RESET, true, PULL_UP, 6);
-+    sleep_ms(120);
-+    printf("Pong touch: RESETPULSE done int_pin=%u\n", gpio_get(PIN_INT));
++    printf("Pong touch: P0 power cycle (AVDD gpio71, RESET pulse)\n");
++    k60_touch_power_cycle();
++    printf("Pong touch: P0 power done int_pin=%u\n", gpio_get(PIN_INT));
 +    {
 +        static const unsigned rest[3] = {16u, 18u, 19u};
 +        static const uint8_t zero[4] = {0, 0, 0, 0};
@@ -1181,6 +4557,9 @@ index 0000000..b033b90
 +    }
 +    /* Only the two known data pins can exchange direction; no arbitrary scan. */
 +    spi_transfer=bitbang_transfer;
++    /* K60_P0_DEV_CONFIRM: mandatory Berlin-D handshake before any real read. */
++    if (!goodix_dev_confirm()) return false;
++    sleep_ms(100);
 +    /* K60_BB_DIAG: PIN_INT is a pull-up input. A powered controller drives it
 +     * low after reset; a floating (unpowered) chip leaves it high. This is the
 +     * cheapest way to tell "no reply because unpowered" from "wrong SPI mode". */
@@ -1199,6 +4578,15 @@ index 0000000..b033b90
 +touch_thread(__unused void *parameter, __unused wait_result_t result)
 +{
 +    printf("Pong touch: DIAG thread entered stage=%u\n", touch_stage);
++    {
++        int delay_ms = 0;
++        if (PE_parse_boot_argn("k60_touch_delay", &delay_ms, sizeof(delay_ms)) && delay_ms > 0) {
++            if (delay_ms > 60000) delay_ms = 60000;
++            printf("Pong touch: delaying %d ms so the console is up\n", delay_ms);
++            sleep_ms((unsigned)delay_ms);
++            printf("Pong touch: delay done\n");
++        }
++    }
 +    /* K60_STAGE0: with stage 0 there is nothing to do at all. Returning here
 +     * separates "the thread itself is the problem" from "any map or GPIO is". */
 +    if (touch_stage == 0) {
@@ -1217,9 +4605,50 @@ index 0000000..b033b90
 +     * cmd_db is plain memory and stays mapped; rsc stays NULL on purpose. */
 +    rsc = 0;
 +    se=ml_io_map(SE_PHYS,SE_SIZE);
++    /* K60_QUP_NO_CONFIG_REGION: the QUP config region at +0x2000
++     * (SE_GENI_CLK_CTRL / SE_DMA_IF_EN / SE_FIFO_IF_DISABLE) is NOT implemented
++     * on this SoC's QUP. Both candidate bases take a kernel data abort:
++     *   se_phys + 0x2004      -> far = se + 0x2004
++     *   wrapper  + 0x2004     -> far = wrapper + 0x2004
++     * A data abort (rather than reading 0) means the address is unbacked, so
++     * these registers exist only on newer QUP revisions. Do not map or touch
++     * them here. */
++    /* Only the hardware-version register at +0x4 is read from the wrapper. The
++     * aborting address earlier was wrapper + 0x2004 (config-region page 2, not
++     * implemented); +0x4 lives in the first page that every QUP implements. */
++    wrapper_phys = QUPV3_0_WRAPPER_PHYS;
++    wrapper = ml_io_map(QUPV3_0_WRAPPER_PHYS, 0x1000);
++    /* K60_P0_RSC_MAP: rsc was declared but never mapped, so it stayed 0 and
++     * every TCS(rsc + 0xd00 + ...) access wrote to physical 0xd00, which is the
++     * data abort previously mis-read as "RSC is forbidden" (HR-01). */
++    rsc=ml_io_map(RSC_PHYS,RSC_SIZE);
++    if (!rsc) printf("Pong touch: RSC map failed (phys %#llx size %#lx)\n",
++        (unsigned long long)RSC_PHYS, (unsigned long)RSC_SIZE);
 +    cmd_db=ml_io_map_wcomb(CMD_DB_PHYS,CMD_DB_SIZE);
 +    printf("Pong touch: DIAG mapped se=%#llx rsc=%#llx cmd_db=%#llx\n",
 +        (unsigned long long)se, (unsigned long long)rsc, (unsigned long long)cmd_db);
++    /* K60_SE_SMMU: the SE DMA master is an SMMU client. The touch SE hangs off the QUPV3_0
++     * wrapper, whose FDT stream is <&apps_smmu 0x5a3 0>, and Linux gives the engine a
++     * dma_map_single() IOVA (qcom-geni-se.c:708/760). Putting that stream into bypass makes
++     * the IOVA equal the physical address kvtophys() returns, so SE_DMA_*_PTR_L/H may carry
++     * it. This runs before bring_up() so the very first GENI transfer has a usable address. */
++    smmu=ml_io_map(APPS_SMMU_PHYS,APPS_SMMU_SIZE);
++    if (!smmu) {
++        printf("Pong touch: apps_smmu map failed (phys %#lx size %#lx)\n",
++            (unsigned long)APPS_SMMU_PHYS, (unsigned long)APPS_SMMU_SIZE);
++    } else {
++        /* Read-only first: the SMMU state before anything is written. Both the SID the FDT
++         * actually routes to the touch wrapper and the one earlier notes named are reported,
++         * so the log settles the attribution on hardware. */
++        smmu_report_sid("pre-touch", APPS_SMMU_TOUCH_SID);
++        smmu_report_sid("pre-bt", APPS_SMMU_BT_SID);
++        se_smmu_bypass = k60_se_smmu_bypass();
++        /* Read back: the SMR/S2CR/context the stream now has is the evidence it took. */
++        smmu_report_sid("post-touch", APPS_SMMU_TOUCH_SID);
++        smmu_report_sid("post-bt", APPS_SMMU_BT_SID);
++        printf("Pong touch: SMMU verdict sid=%#x bypass=%u\n", APPS_SMMU_TOUCH_SID,
++            se_smmu_bypass ? 1u : 0u);
++    }
 +    if (touch_stage == 1) {
 +        printf("Pong touch: DIAG stage1 maps ok, NOT calling bring_up\n");
 +        thread_terminate(current_thread());
@@ -1232,10 +4661,47 @@ index 0000000..b033b90
 +    if (!pong_touch_device_ready()) {thread_terminate(current_thread());return;}
 +    printf("Pong touch: Berlin-D ready, SPI 0x%llx GPIO reset=%u irq=%u, axes %ux%u\n",
 +        se_phys,PIN_RESET,PIN_INT,max_x,max_y);
-+    unsigned idle=0;
++    printf("Pong touch: POLL start int=%u addr=%#x\n", gpio_get(PIN_INT), touch_address);
++    unsigned idle=0, tick=0, hb_polls=0, hb_reports=0, hb_touches=0;
 +    for (;;) {
 +        if (!gpio_get(PIN_INT) || ++idle>=10) {idle=0;goodix_poll();}
 +        sleep_ms(8);
++        /*
++         * K60_TOUCH_HB: the poll path returns silently when the chip has nothing
++         * to say, so without a heartbeat there is no way to tell "the loop is
++         * not running", "the loop runs but INT never falls" and "the loop reads
++         * the chip but the header is rejected" apart. Print the counters and
++         * the INT level every ~5 s.
++         */
++        /*
++         * K60_FRAME_HUNT: while INT is low the panel has something to report, so
++         * compare the whole 0x10000..0x11000 window against the snapshot and
++         * print the blocks that moved. This finds the frame address instead of
++         * guessing it. The periodic pass keeps a baseline when nothing is
++         * touched.
++         */
++        if (k60_touch_diag >= 2 && tick % 16 == 0) {
++            k60_hm_peak_sample();
++        }
++        if (k60_touch_diag >= 1) {
++            if (!gpio_get(PIN_INT)) {
++                hunt_compare(true);
++            } else if (tick % 1000 == 999) {
++                hunt_compare(false);
++            }
++        }
++        if (++tick >= 625) {
++            tick = 0;
++            printf("Pong touch: POLL hb int=%u polls=%u(+%u) reports=%u(+%u) touches=%u(+%u) bad=%u\n",
++                gpio_get(PIN_INT),
++                seen.polls, seen.polls - hb_polls,
++                seen.reports, seen.reports - hb_reports,
++                seen.touches, seen.touches - hb_touches,
++                seen.bad);
++            hb_polls = seen.polls;
++            hb_reports = seen.reports;
++            hb_touches = seen.touches;
++        }
 +    }
 +}
 +
@@ -1263,6 +4729,22 @@ index 0000000..b033b90
 +        int fifo = 0;
 +        (void)PE_parse_boot_argn("k60_touch_fifo", &fifo, sizeof(fifo));
 +        k60_touch_allow_fifo_disabled = fifo;
++        {
++            int dma = 0, keep_cs = 0, bb_us = 0, diag = 0;
++            if (PE_parse_boot_argn("k60_touch_keep_cs", &keep_cs, sizeof(keep_cs))) {
++                k60_touch_keep_cs = keep_cs;
++            }
++            if (PE_parse_boot_argn("k60_touch_bb_us", &bb_us, sizeof(bb_us))) {
++                k60_touch_bb_us = bb_us;
++            }
++            if (PE_parse_boot_argn("k60_touch_diag", &diag, sizeof(diag))) {
++                k60_touch_diag = diag;
++            }
++            if (PE_parse_boot_argn("k60_touch_dma", &dma, sizeof(dma)) && dma) {
++                k60_touch_dma_enable = dma;
++                printf("Pong touch: DMA path requested (k60_touch_dma=%d)\n", dma);
++            }
++        }
 +        if (fifo) printf("Pong touch: FIFO escape armed (k60_touch_fifo=1)\n");
 +    }
 +    {
@@ -1279,7 +4761,7 @@ index 0000000..b033b90
 +    if (kernel_thread_start(touch_thread,NULL,&thread)==KERN_SUCCESS) thread_deallocate(thread);
 +}
 +#endif /* PONG */
-
++
 diff --git a/bsd/dev/pong_input.c b/bsd/dev/pong_input.c
 new file mode 100644
 index 0000000..57e74e5

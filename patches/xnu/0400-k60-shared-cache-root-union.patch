@@ -1,0 +1,67 @@
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+index 0000000..1111111 100644
+--- a/bsd/vm/vm_unix.c	2026-11-10 13:26:39.854917557 +0800
++++ b/bsd/vm/vm_unix.c	2026-11-10 13:26:39.855152996 +0800
+@@ -2321,7 +2321,18 @@
+ 	}
+ 	mount_t root_mount = vnode_mount(process_root);
+ 	mount_t cache_mount = vnode_mount(file);
+-	if (!root_mount || !cache_mount || root_mount == cache_mount ||
++	/*
++	 * K60_SHARED_CACHE_ROOT_UNION: this board keeps the dyld shared cache inside
++	 * the root union (/System/Library/Caches/com.apple.dyld), so the cache mount
++	 * is the process root's own mount. The stock check rejected that case
++	 * outright (root_mount == cache_mount), which left every shared region empty
++	 * and made vm_shared_region_start_address() fail for launchd. Probe evidence:
++	 *   /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64  rc=0
++	 *   /private/preboot/System/Library/Caches/com.apple.dyld          rc=2
++	 * The same-mount layout is accepted only for the K60 board; the separate
++	 * SystemOS volume layout (Pong) keeps all of its original checks.
++	 */
++	if (!root_mount || !cache_mount ||
+ 	    !(vfs_flags(root_mount) & MNT_RDONLY) || !(vfs_flags(cache_mount) & MNT_RDONLY) ||
+ 	    strcmp(vfs_statfs(root_mount)->f_fstypename, "apfs") ||
+ 	    strcmp(vfs_statfs(cache_mount)->f_fstypename, "apfs")) return FALSE;
+@@ -2338,6 +2349,10 @@
+ 		    vnode_mount(parent) == cache_mount && vnode_parent(file) == parent) {
+ 			authorized = TRUE;
+ 		}
++		if (!authorized && root_mount == cache_mount && vnode_vtype(parent) == VDIR &&
++		    vnode_mount(parent) == root_mount && vnode_parent(file) == parent) {
++			authorized = TRUE;
++		}
+ 		vnode_put(parent);
+ 		if (authorized) break;
+ 	}
+@@ -2683,6 +2698,20 @@
+ #if defined(PONG) && defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
+ 		boolean_t pong_owner_cache = FALSE;
+ #endif
++#if defined(PONG) && defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
++		/*
++		 * K60_SHARED_CACHE_ROOT_UNION: authorize before the mount comparison.
++		 * The cache lives on the process' own root mount here, so the
++		 * "different mount" test below would skip the block entirely and the
++		 * later preboot lookup could never succeed.
++		 */
++		if (pong_owner_shared_cache_mount(rdir_vp, srfmp->vp)) {
++			pong_owner_cache = TRUE;
++		}
++		if (pong_owner_cache) {
++			goto k60_shared_cache_ok;
++		}
++#endif
+ 		if (srfmp->vp->v_mount != rdir_vp->v_mount) {
+ #if defined(XNU_OWNER_CACHE_CARRIER) && XNU_OWNER_CACHE_CARRIER
+ 			owner_carrier = native_owner_shared_cache_carrier(rdir_vp, srfmp->vp);
+@@ -2721,6 +2750,10 @@
+ 				(void)vnode_put(preboot_vp);
+ 			}
+ 		}
++#if defined(PONG) && defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
++k60_shared_cache_ok:
++		;
++#endif
+ #endif /* CONFIG_CSR */
+ 
+ 		if (scdir_enforce

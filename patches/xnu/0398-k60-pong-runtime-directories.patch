@@ -1,0 +1,18 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 48328e2..3b94883 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7546,6 +7546,13 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 			"/private/var/installd",
+ 			"/private/var/installd/Library",
+ 			"/private/var/installd/Library/Caches",
++			/* The Pong helper and its UI payload live here: the kernel's own
++			 * K60UILIB deploy and the helper exec both need the directory to
++			 * exist before launchd starts (vnode_open returned ENOENT). */
++			"/private/var/pong",
++			"/private/var/pong/boot-jobs",
++			"/private/var/pong/stock-config",
++			"/private/var/pong/empty-hal",
+ 		};
+ #define K60_MKDIR_PATH_COUNT ((int) (sizeof(k60_mkdir_paths) / sizeof(k60_mkdir_paths[0])))
+ 		unsigned k60_m;

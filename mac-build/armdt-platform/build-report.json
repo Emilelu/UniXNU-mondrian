@@ -1,8 +1,8 @@
 {
   "host": "x86_64",
   "target": "arm64-apple-ios16.0",
-  "source": "/home/emilelu/hackios/UniXNU-mondrian/drivers/ArmDTPlatform/ArmDTPlatform.cpp",
-  "archive": "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armdt-platform/libArmDTPlatform.a",
+  "source": "/mnt/e/hackios/UniXNU-mondrian/drivers/ArmDTPlatform/ArmDTPlatform.cpp",
+  "archive": "/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armdt-platform/libArmDTPlatform.a",
   "image_verification": "skipped by request",
   "command": [
     "xcrun",
@@ -12,7 +12,7 @@
     "-target",
     "arm64-apple-ios16.0",
     "-isysroot",
-    "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot",
+    "/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot",
     "-mkernel",
     "-ffreestanding",
     "-fno-builtin",
@@ -31,13 +31,13 @@
     "-Xclang",
     "+pan",
     "-DXNU_PONG_ADRENO_PLATFORM=1",
-    "-I/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders",
-    "-I/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/Headers",
+    "-I/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders",
+    "-I/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/Headers",
     "-Wno-deprecated-declarations",
     "-c",
-    "/home/emilelu/hackios/UniXNU-mondrian/drivers/ArmDTPlatform/ArmDTPlatform.cpp",
+    "/mnt/e/hackios/UniXNU-mondrian/drivers/ArmDTPlatform/ArmDTPlatform.cpp",
     "-o",
-    "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armdt-platform/ArmDTPlatform.o"
+    "/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armdt-platform/ArmDTPlatform.o"
   ],
   "runtime_qualified": false,
   "hardware_access": "DT-driven nub publication; no fixed SoC register addresses"

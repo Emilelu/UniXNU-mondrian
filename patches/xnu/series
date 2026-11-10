@@ -206,3 +206,6 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch
 0506-k60-120hz-refresh.patch
+0398-k60-pong-runtime-directories.patch
+0399-k60-shared-cache-root-layout.patch
+0400-k60-shared-cache-root-union.patch

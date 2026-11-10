@@ -1,0 +1,61 @@
+# K60 memory-window change: 4.75 GiB -> 8 GiB
+#
+# Apply from /mnt/e/hackios with:
+#   patch -p1 --dry-run < proposed.patch
+#   patch -p1 < proposed.patch
+#
+# Source trees:
+#   /mnt/e/hackios/uefi-mondrian
+#   /mnt/e/hackios/UniXNU-mondrian
+#
+--- a/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c
++++ b/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c
+@@ -86,12 +86,14 @@
+   // /proc/iomem place high DDR at >= 0x800000000, NOT at 0x100000000.
+   // [0x100000000,0x800000000) is a hole; advertising it caused DarwinBoot
+   // ZeroMem at RVA 0x48fc to take ESR 0x96000010 while copying the kernel.
+-  // Expose only [0x840000000,0xa40000000): 8 GiB in one measured, physically
+-  // contiguous run, ending below the first observed high reservation at
+-  // 0xa69b78000. DarwinWindowSizeValid caps a window at 8 GiB, so this is the
+-  // whole usable arena: a 12 GiB window is impossible on this board.
++  // Expose the measured contiguous run [0x840000000,0xa69b78000) = 8.652 GiB.
++  // [0xa69b78000,0xa80000000) stays a separate reservation, never Conv.
++  // DarwinWindowSizeValid caps a window at 8 GiB, so 8 GiB is the single-window
++  // maximum; a 12 GiB window is impossible because [0x100000000,0x800000000)
++  // is a 28 GiB hole and the next high bank begins at 0x800000000.
+   // AddMem is intentional: both HOB and identity mapping must be built.
+-  {"XNU High Arena",     0x900000000ULL, 0x140000000ULL, AddMem, SYS_MEM, SYS_MEM_CAP, Conv, WRITE_BACK_XN},
++  {"XNU High Arena",     0x840000000ULL, 0x229B78000ULL, AddMem, SYS_MEM, SYS_MEM_CAP, Conv, WRITE_BACK_XN},
++  {"XNU High Top Reserve", 0xA69B78000ULL, 0x16488000ULL, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
+ 
+   // Other Memory Regions
+   {"IMEM Base",          0x14680000, 0x0002A000, NoHob , MMAP_IO  , INITIALIZED, Conv   , NS_DEVICE},
+--- a/UniXNU-mondrian/board.toml
++++ b/UniXNU-mondrian/board.toml
+@@ -92,9 +92,9 @@
+ # panic(), whose address is fixed for the reference kernel, so it refuses to
+ # patch ours.
+ # entry_probe_reset_delay = 6
+-# Contiguous handoff ARENA size, not total installed DRAM. The actual live
+-# Android memory map has six banks. Use only measured [0x900000000,0xa40000000)
+-# below high reservations; must match dts/mondrian.dts and MemoryMapLib.c.
++# Physical DRAM total declared by the board DTS; this must equal the
++# dts/mondrian.dts /memory node size. Keep at 5 GiB for the 8 GiB-window
++# change; the DarwinBoot window is owned_memory_size below, not this key.
+ dram_size = "0x140000000"
+ # pong_software_keybag=1 selects the volatile no-passcode keybag from
+ # zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch. Without it mkbinit cannot
+@@ -156,7 +156,7 @@
+ # into mem_size (gPhysBase comes from args->physBase, i.e. this window's address).
+ # The earlier 4 GiB attempt targeted [0x100000000,0x380000000), a no-RAM
+ # hole. Live serial-6033dbec FDT/iomem place high RAM at 0x800000000 and above.
+-# Firmware exposes only measured arena [0x900000000,0xa40000000); screen
+-# reports mem=actual=managed=4096 MiB. Service exits continue; SpringBoard is
+-# pending. devicetree.py emits darwinboot-memory-size from this key.
+-"owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)
+\ No newline at end of file
++# Firmware exposes measured high arena [0x840000000,0xa69b78000) = 8.652 GiB;
++# the 8 GiB window below is the single-window maximum. Service exits continue;
++# SpringBoard is pending. devicetree.py emits darwinboot-memory-size from this key.
++"owned_memory_size" = "0x200000000"  # 8 GiB window (single-window hard limit)
+\ No newline at end of file

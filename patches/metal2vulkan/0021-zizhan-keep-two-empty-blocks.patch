@@ -1,0 +1,50 @@
+zizhan: keep two empty pooled blocks per pool instead of one (backboardd re-made and mapped a 64 MiB block at every
+home-screen animation; docs/progress/2026-11-01-120hz-and-cadence.md section 8).
+
+--- a/crates/metal2vulkan-runtime/src/memory.rs
++++ b/crates/metal2vulkan-runtime/src/memory.rs
+@@ -51,6 +51,13 @@
+ /// The size of a pooled block, at most the device's `maxMemoryAllocationSize`.
+ pub(super) const BLOCK_BYTES: u64 = 64 << 20;
+ 
++/// The empty pooled blocks a pool keeps (zizhan, docs/progress/2026-11-01-120hz-and-cadence.md section 8). With one, every
++/// home-screen animation paid 150-200 ms in backboardd's display thread: Core Animation's new surface filled the kept block past
++/// half, [`keep_room`] made a 64 MiB block (allocated, zeroed, write-combined and mapped page by page, 16384 pages), and when the
++/// surface went both blocks were empty and one was freed again. Two keep the pair across animations; memory pressure still trims
++/// them ([`Memory::trim_empty_blocks`]).
++pub(super) const KEPT_EMPTY_BLOCKS: usize = 2;
++
+ /// What memory a resource needs.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub(super) enum MemoryClass {
+@@ -349,21 +356,24 @@
+     }
+ 
+     /// Return `[offset, offset + size)` of block `index`. The block's payload when the block
+-    /// must now be freed: a dedicated block, or a pooled block that emptied while another empty
+-    /// pooled block is kept.
++    /// must now be freed: a dedicated block, or a pooled block that emptied while
++    /// [`KEPT_EMPTY_BLOCKS`] other empty pooled blocks are kept.
+     pub(super) fn release(&mut self, index: usize, offset: u64, size: u64) -> Option<T> {
+         let block = self.blocks.get_mut(index)?.as_mut()?;
+         block.ranges.free(offset, size);
+         if !block.ranges.is_empty() {
+             return None;
+         }
+-        let keep = !block.dedicated
+-            && !self.blocks.iter().enumerate().any(|(other, block)| {
+-                other != index
++        let dedicated = block.dedicated;
++        let kept_empty = (self.blocks.iter().enumerate())
++            .filter(|(other, block)| {
++                *other != index
+                     && block
+                         .as_ref()
+                         .is_some_and(|block| !block.dedicated && block.ranges.is_empty())
+-            });
++            })
++            .count();
++        let keep = !dedicated && kept_empty < KEPT_EMPTY_BLOCKS;
+         if keep {
+             return None;
+         }

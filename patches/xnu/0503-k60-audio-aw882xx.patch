@@ -1,0 +1,826 @@
+--- /dev/null
++++ b/bsd/dev/aw882xx.c
+@@ -0,0 +1,823 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * K60 (Redmi K60 / mondrian / SM8475) AW882xx smart-PA driver.
++ *
++ * EXPERIMENTAL: this file is compiled from source and syntax-checked only.
++ * It has NOT been run on hardware and it is NOT a complete vendor driver:
++ * the AW882xx register map, chip-ID values, protection policy and power
++ * sequencing are not available in this workspace. Every such item is marked
++ * TODO/AW882XX_TODO below and must not be treated as a measured value.
++ *
++ * Board facts (all from the K60 live FDT; see
++ * /mnt/e/k60-work/scratch/audio-work/EVIDENCE.md):
++ *   - Bus: /soc/i2c@880000 (QUPV3_2 SE15), GPIO56=SCL / GPIO57=SDA,
++ *     function qup15, 2 mA pull-up (live-fdt.dts:13301-13316, 3562-3594)
++ *   - TOP: I2C 0x34, reset GPIO1, IRQ GPIO88 (flags 0x2008), spksw GPIO52,
++ *     sound-channel 0 (live-fdt.dts:13318-13329)
++ *   - BOT: I2C 0x35, reset GPIO3, IRQ GPIO63 (flags 0x2008),
++ *     sound-channel 1 (live-fdt.dts:13331-13341)
++ *   - No vdd/vbat supply property exists on either node
++ *     (live-fdt.dts:13318-13341). Do not write guessed PMIC votes.
++ *
++ * Eight-step pipeline status (E:/k60-work/docs/PORTING-PIPELINE.md):
++ *   (1) same-hardware: Pong/Sheng smart-PA frameworks only; AW882xx has no
++ *       local implementation (REUSE.md section 4.4)
++ *   (2) official docs: AW882xx datasheet/vendor driver NOT available
++ *   (3) reverse + device data: FDT line facts above; no AW882xx register dump
++ *   (4) wide validation: only one independent hardware source (K60 FDT)
++ *   (5) plan: see PLAN.md P2B
++ *   (6) deep dive: see REPORT.md sections
++ *   (7) verification: compile-only here; register values are TODO/推断
++ *   (8) on-device: not attempted
++ */
++
++#include <pexpert/arm64/board_config.h>
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/types.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <mach/vm_param.h>
++#include <pexpert/pexpert.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <string.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++extern void thread_terminate_self(void);
++
++/* ------------------------------------------------------------------------- */
++/* K60 board constants (M: live FDT; see EVIDENCE.md)                        */
++/* ------------------------------------------------------------------------- */
++
++#define AW882XX_I2C_PA              0x00880000u
++#define AW882XX_I2C_SIZE            0x00004000u
++#define AW882XX_TLMM_PA             0x0f000000u
++#define AW882XX_TLMM_SIZE           0x000d0000u
++#define AW882XX_GCC_PA              0x00100000u
++#define AW882XX_GCC_SIZE            0x000a0000u
++
++#define AW882XX_ADDR_TOP            0x34u
++#define AW882XX_ADDR_BOT            0x35u
++#define AW882XX_I2C_GPIO_SCL        56u
++#define AW882XX_I2C_GPIO_SDA        57u
++#define AW882XX_RESET_GPIO_TOP      1u
++#define AW882XX_RESET_GPIO_BOT      3u
++#define AW882XX_IRQ_GPIO_TOP        88u
++#define AW882XX_IRQ_GPIO_BOT        63u
++#define AW882XX_SPKSW_GPIO          52u
++#define AW882XX_SOUND_CHANNEL_TOP   0u
++#define AW882XX_SOUND_CHANNEL_BOT   1u
++
++/* FDT interrupt flags are 0x2008 (raw); the task/board description calls
++ * this falling-edge. TODO(aw882xx): decode against the final TLMM
++ * interrupt-controller binding; do not silently rewrite. */
++#define AW882XX_IRQ_FLAGS           0x2008u
++
++/* TLMM mux helper values copied from PongAudio.cpp:117-126 pattern.
++ * TODO(aw882xx): confirm the K60 qup15 function number is 1; the FDT says
++ * function "qup15" and zizhan's audit confirms the same SE15 pin group. */
++#define AW882XX_TLMM_CFG_GPIO       0x00000201u  /* function 0 + bit9 */
++#define AW882XX_TLMM_CFG_I2C        0x00000007u  /* function 1 + 2mA */
++
++/* ------------------------------------------------------------------------- */
++/* GENI I2C engine (adapted from pong-power/GeniI2c.c/h, BSD-2-Clause)      */
++/* ------------------------------------------------------------------------- */
++
++#define GENI_FW_REVISION            0x0068u
++#define GENI_IF_DISABLE             0x0064u
++#define GENI_CLK_CFG                0x0048u
++#define GENI_BYTE_GRAN              0x0254u
++#define GENI_DMA_MODE               0x0258u
++#define GENI_TX_PACK0               0x0260u
++#define GENI_TX_PACK1               0x0264u
++#define GENI_TX_LEN                 0x026cu
++#define GENI_RX_LEN                 0x0270u
++#define GENI_SCL_COUNTERS           0x0278u
++#define GENI_RX_PACK0               0x0284u
++#define GENI_RX_PACK1               0x0288u
++#define GENI_M_CMD0                 0x0600u
++#define GENI_M_CMD_CTRL             0x0604u
++#define GENI_M_IRQ_STATUS           0x0610u
++#define GENI_M_IRQ_EN               0x0614u
++#define GENI_M_IRQ_CLEAR            0x0618u
++#define GENI_TX_FIFO                0x0700u
++#define GENI_RX_FIFO                0x0780u
++#define GENI_RX_FIFO_STATUS         0x0804u
++#define GENI_TX_WATERMARK           0x080cu
++#define GENI_SE_IRQ_EN              0x0e1cu
++
++#define GENI_M_CMD_DONE             (1u << 0)
++#define GENI_M_CMD_OVERRUN          (1u << 1)
++#define GENI_M_ILLEGAL_CMD          (1u << 2)
++#define GENI_M_CMD_FAILURE          (1u << 3)
++#define GENI_M_CMD_CANCEL           (1u << 4)
++#define GENI_M_CMD_ABORT            (1u << 5)
++#define GENI_M_GP_IRQ               (0x3fu << 9)
++#define GENI_M_TX_WATERMARK         (1u << 30)
++#define GENI_M_ERRORS               (GENI_M_CMD_OVERRUN | GENI_M_ILLEGAL_CMD | \
++	GENI_M_CMD_FAILURE | GENI_M_GP_IRQ)
++#define GENI_M_IRQ_WANTED           (GENI_M_CMD_DONE | GENI_M_ERRORS | \
++	GENI_M_CMD_CANCEL | GENI_M_CMD_ABORT | GENI_M_TX_WATERMARK)
++#define GENI_SE_M_IRQ_EN            (1u << 2)
++#define GENI_CMD_CTRL_ABORT         (1u << 1)
++#define GENI_CMD_CTRL_CANCEL        (1u << 2)
++#define GENI_PROTO_I2C              3u
++#define GENI_OP_WRITE               1u
++#define GENI_OP_READ                2u
++#define GENI_STOP_STRETCH           (1u << 2)
++
++typedef struct {
++	uint32_t (*read)(void *ctx, uint32_t reg);
++	void (*write)(void *ctx, uint32_t reg, uint32_t value);
++	void *ctx;
++} Aw882xxGeniIo;
++
++enum {
++	Aw882xxGeniIdle = 0,
++	Aw882xxGeniTxWait,
++	Aw882xxGeniWriteDone,
++	Aw882xxGeniReadDone,
++	Aw882xxGeniCancelling,
++	Aw882xxGeniAborting
++};
++
++enum {
++	Aw882xxGeniPending = 0,
++	Aw882xxGeniDone = 1,
++	Aw882xxGeniFailed = 2
++};
++
++enum {
++	Aw882xxGeniOk = 0,
++	Aw882xxGeniErrBusy = 1,
++	Aw882xxGeniErrBus = 2,
++	Aw882xxGeniErrTimeout = 3,
++	Aw882xxGeniErrNoData = 4,
++	Aw882xxGeniErrState = 5
++};
++
++typedef struct {
++	Aw882xxGeniIo io;
++	uint8_t address;
++	uint8_t phase;
++	uint8_t reading;
++	uint8_t hold;
++	uint8_t error;
++	uint8_t data;
++	uint8_t tx_words;
++	uint8_t rx_length;
++	uint32_t tx[2];
++	uint32_t length;
++	uint32_t rx;
++	uint32_t error_status;
++	uint32_t done;
++	uint32_t failed;
++	uint32_t timeouts;
++	uint32_t stray;
++} Aw882xxGeni;
++
++static uint32_t
++aw882xx_geni_rd(Aw882xxGeni *g, uint32_t reg)
++{
++	return g->io.read(g->io.ctx, reg);
++}
++
++static void
++aw882xx_geni_wr(Aw882xxGeni *g, uint32_t reg, uint32_t value)
++{
++	g->io.write(g->io.ctx, reg, value);
++}
++
++static int
++aw882xx_geni_prepare(Aw882xxGeni *g, const Aw882xxGeniIo *io, uint8_t address,
++    uint32_t *config)
++{
++	memset(g, 0, sizeof(*g));
++	g->io = *io;
++	g->address = address;
++	const uint32_t proto = (aw882xx_geni_rd(g, GENI_FW_REVISION) >> 8) & 0xffu;
++	const uint32_t clock = aw882xx_geni_rd(g, GENI_CLK_CFG);
++	if (config != NULL) {
++		*config = (proto << 24) | (clock & 0xffffffu);
++	}
++	if (proto != GENI_PROTO_I2C || (aw882xx_geni_rd(g, GENI_IF_DISABLE) & 1u) ||
++	    !(clock & 1u) || !aw882xx_geni_rd(g, GENI_SCL_COUNTERS)) {
++		return -1;
++	}
++	aw882xx_geni_wr(g, GENI_DMA_MODE, 0);
++	aw882xx_geni_wr(g, GENI_TX_PACK0, 0x7f8fe);
++	aw882xx_geni_wr(g, GENI_TX_PACK1, 0xffefe);
++	aw882xx_geni_wr(g, GENI_RX_PACK0, 0x7f8fe);
++	aw882xx_geni_wr(g, GENI_RX_PACK1, 0xffefe);
++	aw882xx_geni_wr(g, GENI_BYTE_GRAN, 0);
++	aw882xx_geni_wr(g, GENI_TX_WATERMARK, 0);
++	aw882xx_geni_wr(g, GENI_M_IRQ_CLEAR, 0xffffffffu);
++	aw882xx_geni_wr(g, GENI_M_IRQ_EN, GENI_M_IRQ_WANTED);
++	aw882xx_geni_wr(g, GENI_SE_IRQ_EN,
++	    aw882xx_geni_rd(g, GENI_SE_IRQ_EN) | GENI_SE_M_IRQ_EN);
++	return 0;
++}
++
++static void
++aw882xx_geni_write_command(Aw882xxGeni *g, const uint8_t *bytes,
++    uint32_t length, int hold)
++{
++	g->tx[0] = 0;
++	g->tx[1] = 0;
++	for (uint32_t i = 0; i < length; ++i) {
++		g->tx[i / 4] |= (uint32_t)bytes[i] << (8 * (i % 4));
++	}
++	g->tx_words = (uint8_t)((length + 3) / 4);
++	g->length = length;
++	g->hold = (uint8_t)hold;
++	aw882xx_geni_wr(g, GENI_TX_LEN, length);
++	aw882xx_geni_wr(g, GENI_M_CMD0, (GENI_OP_WRITE << 27) |
++	    ((uint32_t)g->address << 9) | (hold ? GENI_STOP_STRETCH : 0));
++	aw882xx_geni_wr(g, GENI_TX_WATERMARK, 1);
++	g->phase = Aw882xxGeniTxWait;
++}
++
++static int
++aw882xx_geni_start_write_bytes(Aw882xxGeni *g, const uint8_t *bytes,
++    uint32_t length)
++{
++	if (g->phase != Aw882xxGeniIdle || length == 0 || length > 8) {
++		return -1;
++	}
++	g->reading = 0;
++	g->error = Aw882xxGeniOk;
++	aw882xx_geni_write_command(g, bytes, length, 0);
++	return 0;
++}
++
++static int
++aw882xx_geni_start_read_bytes(Aw882xxGeni *g, const uint8_t *bytes,
++    uint32_t length, uint32_t read_length)
++{
++	if (g->phase != Aw882xxGeniIdle || length == 0 || length > 4 ||
++	    read_length == 0 || read_length > 4) {
++		return -1;
++	}
++	g->reading = 1;
++	g->rx_length = (uint8_t)read_length;
++	g->error = Aw882xxGeniOk;
++	aw882xx_geni_write_command(g, bytes, length, 1);
++	return 0;
++}
++
++static int
++aw882xx_geni_finish(Aw882xxGeni *g, int error, uint32_t status)
++{
++	g->phase = Aw882xxGeniIdle;
++	aw882xx_geni_wr(g, GENI_TX_WATERMARK, 0);
++	if (!error) {
++		g->done++;
++		return Aw882xxGeniDone;
++	}
++	g->error = (uint8_t)error;
++	g->error_status = status;
++	g->failed++;
++	return Aw882xxGeniFailed;
++}
++
++static int
++aw882xx_geni_event(Aw882xxGeni *g, uint32_t status)
++{
++	if (!status) {
++		return Aw882xxGeniPending;
++	}
++	switch (g->phase) {
++	case Aw882xxGeniIdle:
++		g->stray++;
++		return Aw882xxGeniPending;
++	case Aw882xxGeniCancelling:
++		if (status & GENI_M_CMD_CANCEL) {
++			return aw882xx_geni_finish(g, Aw882xxGeniErrTimeout,
++			    g->error_status);
++		}
++		return Aw882xxGeniPending;
++	case Aw882xxGeniAborting:
++		if (status & GENI_M_CMD_ABORT) {
++			return aw882xx_geni_finish(g, Aw882xxGeniErrTimeout,
++			    g->error_status);
++		}
++		return Aw882xxGeniPending;
++	default:
++		break;
++	}
++	if (status & GENI_M_ERRORS) {
++		return aw882xx_geni_finish(g, Aw882xxGeniErrBus, status);
++	}
++	if (g->phase == Aw882xxGeniTxWait) {
++		if (status & GENI_M_TX_WATERMARK) {
++			for (unsigned i = 0; i < g->tx_words; ++i) {
++				aw882xx_geni_wr(g, GENI_TX_FIFO, g->tx[i]);
++			}
++			aw882xx_geni_wr(g, GENI_TX_WATERMARK, 0);
++			g->phase = Aw882xxGeniWriteDone;
++		}
++		if (!(status & GENI_M_CMD_DONE)) {
++			return Aw882xxGeniPending;
++		}
++		if (g->phase == Aw882xxGeniTxWait) {
++			return aw882xx_geni_finish(g, Aw882xxGeniErrState, status);
++		}
++	}
++	if (!(status & GENI_M_CMD_DONE)) {
++		return Aw882xxGeniPending;
++	}
++	if (g->phase == Aw882xxGeniWriteDone) {
++		if (!g->reading) {
++			return aw882xx_geni_finish(g, Aw882xxGeniOk, 0);
++		}
++		aw882xx_geni_wr(g, GENI_RX_LEN, g->rx_length);
++		aw882xx_geni_wr(g, GENI_M_CMD0, (GENI_OP_READ << 27) |
++		    ((uint32_t)g->address << 9));
++		g->phase = Aw882xxGeniReadDone;
++		return Aw882xxGeniPending;
++	}
++	if (!(aw882xx_geni_rd(g, GENI_RX_FIFO_STATUS) & 0x1ffffffu)) {
++		return aw882xx_geni_finish(g, Aw882xxGeniErrNoData, status);
++	}
++	g->rx = aw882xx_geni_rd(g, GENI_RX_FIFO);
++	g->data = (uint8_t)g->rx;
++	return aw882xx_geni_finish(g, Aw882xxGeniOk, 0);
++}
++
++static int
++aw882xx_geni_poll(Aw882xxGeni *g)
++{
++	const uint32_t status = aw882xx_geni_rd(g, GENI_M_IRQ_STATUS);
++	if (status) {
++		aw882xx_geni_wr(g, GENI_M_IRQ_CLEAR, status);
++	}
++	return g->phase == Aw882xxGeniIdle ? Aw882xxGeniPending :
++	    aw882xx_geni_event(g, status);
++}
++
++static int
++aw882xx_geni_timeout(Aw882xxGeni *g)
++{
++	switch (g->phase) {
++	case Aw882xxGeniIdle:
++		return Aw882xxGeniPending;
++	case Aw882xxGeniCancelling:
++		aw882xx_geni_wr(g, GENI_M_CMD_CTRL, GENI_CMD_CTRL_ABORT);
++		g->phase = Aw882xxGeniAborting;
++		return Aw882xxGeniPending;
++	case Aw882xxGeniAborting:
++		return aw882xx_geni_finish(g, Aw882xxGeniErrTimeout,
++		    g->error_status);
++	default:
++		g->timeouts++;
++		g->error_status = aw882xx_geni_rd(g, GENI_M_IRQ_STATUS);
++		aw882xx_geni_wr(g, GENI_TX_WATERMARK, 0);
++		aw882xx_geni_wr(g, GENI_M_CMD_CTRL, GENI_CMD_CTRL_CANCEL);
++		g->phase = Aw882xxGeniCancelling;
++		return Aw882xxGeniPending;
++	}
++}
++
++/* ------------------------------------------------------------------------- */
++/* MMIO windows                                                              */
++/* ------------------------------------------------------------------------- */
++
++typedef struct {
++	vm_offset_t gcc;
++	vm_offset_t tlmm;
++	vm_offset_t i2c;
++	Aw882xxGeni geni;
++	uint32_t i2c_config;
++	bool mapped;
++	bool geni_ready;
++} Aw882xxBus;
++
++static Aw882xxBus g_aw882xx_bus;
++
++static uint32_t
++aw882xx_gcc_read(uint32_t off)
++{
++	return *(volatile uint32_t *)(g_aw882xx_bus.gcc + off);
++}
++
++static void
++aw882xx_gcc_write(uint32_t off, uint32_t value)
++{
++	*(volatile uint32_t *)(g_aw882xx_bus.gcc + off) = value;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++static uint32_t
++aw882xx_tlmm_read(uint32_t off)
++{
++	return *(volatile uint32_t *)(g_aw882xx_bus.tlmm + off);
++}
++
++static void
++aw882xx_tlmm_write(uint32_t off, uint32_t value)
++{
++	*(volatile uint32_t *)(g_aw882xx_bus.tlmm + off) = value;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++static uint32_t
++aw882xx_i2c_read_reg(void *ctx, uint32_t reg)
++{
++	__unused Aw882xxBus *bus = ctx;
++	return *(volatile uint32_t *)(g_aw882xx_bus.i2c + reg);
++}
++
++static void
++aw882xx_i2c_write_reg(void *ctx, uint32_t reg, uint32_t value)
++{
++	__unused Aw882xxBus *bus = ctx;
++	*(volatile uint32_t *)(g_aw882xx_bus.i2c + reg) = value;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++static bool
++aw882xx_wait_cbcrc(uint32_t off, unsigned timeout_ms)
++{
++	for (unsigned i = 0; i < timeout_ms; ++i) {
++		const uint32_t v = aw882xx_gcc_read(off);
++		if (!(v & (1u << 31)) || (v & 2u)) {
++			return true;
++		}
++		delay(1);
++	}
++	return false;
++}
++
++static bool
++aw882xx_bus_map(void)
++{
++	if (g_aw882xx_bus.mapped) {
++		return true;
++	}
++	g_aw882xx_bus.gcc = ml_io_map(AW882XX_GCC_PA, AW882XX_GCC_SIZE);
++	g_aw882xx_bus.tlmm = ml_io_map(AW882XX_TLMM_PA, AW882XX_TLMM_SIZE);
++	g_aw882xx_bus.i2c = ml_io_map(AW882XX_I2C_PA, AW882XX_I2C_SIZE);
++	if (!g_aw882xx_bus.gcc || !g_aw882xx_bus.tlmm || !g_aw882xx_bus.i2c) {
++		return false;
++	}
++	g_aw882xx_bus.mapped = true;
++	return true;
++}
++
++static void
++aw882xx_pin_config(unsigned gpio, uint32_t config, int level)
++{
++	const uint32_t reg = gpio * 0x1000u;
++	const uint32_t old = aw882xx_tlmm_read(reg);
++	uint32_t newcfg = (old & ~0x3ffu) | (config & 0x3ffu);
++	if (old & (1u << 11)) {
++		newcfg |= 1u << 12;
++	}
++	if (level >= 0) {
++		aw882xx_tlmm_write(reg + 4, level ? 2u : 0u);
++	}
++	aw882xx_tlmm_write(reg, newcfg);
++	if (level >= 0) {
++		aw882xx_tlmm_write(reg + 4, level ? 2u : 0u);
++	}
++}
++
++/* ------------------------------------------------------------------------- */
++/* AW882xx register protocol -- TODO: the byte order/width below is the     */
++/* Pong TFA9873-style 1-byte register + 2-byte big-endian data format and   */
++/* is NOT verified for AW882xx. Replace with the vendor driver definition.  */
++/* ------------------------------------------------------------------------- */
++
++static bool
++aw882xx_i2c_transfer(uint8_t address, const uint8_t *tx, uint32_t tx_len,
++    uint16_t *value)
++{
++	Aw882xxGeni *g = &g_aw882xx_bus.geni;
++	g->address = address;
++	int r;
++	if (value != NULL) {
++		r = aw882xx_geni_start_read_bytes(g, tx, tx_len, 2);
++	} else {
++		r = aw882xx_geni_start_write_bytes(g, tx, tx_len);
++	}
++	if (r != 0) {
++		return false;
++	}
++	for (unsigned phase = 0; phase < 3; ++phase) {
++		for (unsigned i = 0; i < 1000; ++i) {
++			r = aw882xx_geni_poll(g);
++			if (r == Aw882xxGeniDone) {
++				if (value != NULL) {
++					*value = (uint16_t)(((g->rx & 0xffu) << 8) |
++					    ((g->rx >> 8) & 0xffu));
++				}
++				return true;
++			}
++			if (r == Aw882xxGeniFailed) {
++				return false;
++			}
++			delay(1);
++		}
++		if (aw882xx_geni_timeout(g) != Aw882xxGeniPending) {
++			break;
++		}
++	}
++	return false;
++}
++
++static bool
++aw882xx_reg_read(uint8_t address, uint8_t reg, uint16_t *value)
++{
++	const uint8_t tx[1] = { reg };
++	return aw882xx_i2c_transfer(address, tx, sizeof(tx), value);
++}
++
++static bool
++aw882xx_reg_write(uint8_t address, uint8_t reg, uint16_t value)
++{
++	const uint8_t tx[3] = { reg, (uint8_t)(value >> 8), (uint8_t)value };
++	return aw882xx_i2c_transfer(address, tx, sizeof(tx), NULL);
++}
++
++/* TODO(aw882xx): all of these register numbers/values are placeholders.
++ * They are deliberately marked AW882XX_TODO and must be replaced only from
++ * an Awinic AW882xx datasheet/vendor header (PORTING-PIPELINE step ②). */
++#define AW882XX_TODO_CHIP_ID_REG       0x0000u
++#define AW882XX_TODO_REVISION_REG      0x0001u
++#define AW882XX_TODO_STATUS_REG        0x0010u
++
++typedef struct {
++	uint8_t reg;
++	uint16_t value;
++	uint16_t mask;
++} Aw882xxRegValue;
++
++/* Placeholder row kept compilable but disabled: a guessed init sequence would
++ * be worse than no write. Fill from vendor `aw882xx.c` defaults when present. */
++static const Aw882xxRegValue g_aw882xx_todo_init[] = {
++	{ 0x00u, 0x0000u, 0xffffu },   /* TODO(aw882xx): vendor register 0 */
++};
++static bool g_aw882xx_apply_todo_init;
++
++static bool
++aw882xx_reg_update(uint8_t address, uint8_t reg, uint16_t mask, uint16_t value)
++{
++	uint16_t old = 0;
++	if (!aw882xx_reg_read(address, reg, &old)) {
++		return false;
++	}
++	return aw882xx_reg_write(address, reg, (uint16_t)((old & ~mask) |
++	    (value & mask)));
++}
++
++/* ------------------------------------------------------------------------- */
++/* AW882xx device state                                                      */
++/* ------------------------------------------------------------------------- */
++
++typedef struct {
++	uint8_t address;
++	unsigned reset_gpio;
++	unsigned irq_gpio;
++	unsigned spksw_gpio;
++	unsigned sound_channel;
++	uint16_t chip_id;
++	uint16_t revision;
++	bool present;
++	bool initialized;
++} Aw882xxAmp;
++
++static Aw882xxAmp g_aw882xx_top = {
++	.address = AW882XX_ADDR_TOP,
++	.reset_gpio = AW882XX_RESET_GPIO_TOP,
++	.irq_gpio = AW882XX_IRQ_GPIO_TOP,
++	.spksw_gpio = AW882XX_SPKSW_GPIO,
++	.sound_channel = AW882XX_SOUND_CHANNEL_TOP,
++};
++
++static Aw882xxAmp g_aw882xx_bot = {
++	.address = AW882XX_ADDR_BOT,
++	.reset_gpio = AW882XX_RESET_GPIO_BOT,
++	.irq_gpio = AW882XX_IRQ_GPIO_BOT,
++	.spksw_gpio = 0,
++	.sound_channel = AW882XX_SOUND_CHANNEL_BOT,
++};
++
++static void
++aw882xx_reset(Aw882xxAmp *amp)
++{
++	/* TODO(aw882xx): use datasheet assert/release times. K60 reset-gpio
++	 * flag 0 is active-high by DT convention [推断], not measured. */
++	aw882xx_pin_config(amp->reset_gpio, AW882XX_TLMM_CFG_GPIO, 1);
++	delay(1000);
++	aw882xx_pin_config(amp->reset_gpio, AW882XX_TLMM_CFG_GPIO, 0);
++	delay(1000);
++}
++
++static bool
++aw882xx_probe_one(Aw882xxAmp *amp)
++{
++	uint16_t chip = 0;
++	uint16_t rev = 0;
++	if (!aw882xx_reg_read(amp->address, (uint8_t)AW882XX_TODO_CHIP_ID_REG,
++	    &chip) ||
++	    !aw882xx_reg_read(amp->address, (uint8_t)AW882XX_TODO_REVISION_REG,
++	    &rev)) {
++		printf("AW882xx: addr=0x%02x no ACK (read-only probe)\n",
++		    amp->address);
++		return false;
++	}
++	amp->chip_id = chip;
++	amp->revision = rev;
++	amp->present = true;
++	printf("AW882xx: addr=0x%02x chip=0x%04x rev=0x%04x "
++	    "(TODO: verify against vendor IDs)\n", amp->address, chip, rev);
++	return true;
++}
++
++static bool
++aw882xx_init_one(Aw882xxAmp *amp)
++{
++	if (!amp->present) {
++		return false;
++	}
++	aw882xx_reset(amp);
++	if (!aw882xx_probe_one(amp)) {
++		return false;
++	}
++	if (g_aw882xx_apply_todo_init) {
++		for (unsigned i = 0; i < sizeof(g_aw882xx_todo_init) /
++		    sizeof(g_aw882xx_todo_init[0]); ++i) {
++			const Aw882xxRegValue *v = &g_aw882xx_todo_init[i];
++			if (v->mask == 0xffffu) {
++				if (!aw882xx_reg_write(amp->address, v->reg, v->value)) {
++					return false;
++				}
++			} else if (!aw882xx_reg_update(amp->address, v->reg, v->mask,
++			    v->value)) {
++				return false;
++			}
++		}
++	}
++	if (amp->spksw_gpio != 0) {
++		/* TODO(aw882xx): GPIO52 polarity is not documented in the K60
++		 * FDT; keep the switch deasserted until the board schematic is
++		 * checked. */
++		aw882xx_pin_config(amp->spksw_gpio, AW882XX_TLMM_CFG_GPIO, 0);
++	}
++	amp->initialized = true;
++	printf("AW882xx: addr=0x%02x initialized (EXPERIMENTAL)\n",
++	    amp->address);
++	return true;
++}
++
++static void
++aw882xx_irq_pin_prepare(Aw882xxAmp *amp)
++{
++	/* TODO(aw882xx): the TLMM GPIO interrupt controller binding is not
++	 * implemented here. Configure the pad as GPIO input for now; the GIC
++	 * interrupt registration remains a follow-up item. */
++	aw882xx_pin_config(amp->irq_gpio, AW882XX_TLMM_CFG_GPIO, -1);
++	printf("AW882xx: irq gpio%u prepared (flags=0x%x, handler TODO)\n",
++	    amp->irq_gpio, AW882XX_IRQ_FLAGS);
++}
++
++static bool
++aw882xx_bus_init(void)
++{
++	if (!aw882xx_bus_map()) {
++		printf("AW882xx: cannot map GCC/TLMM/I2C windows\n");
++		return false;
++	}
++	/* GCC QUPV3_2 votes: same sequence as PongAudio.cpp:127-139, with
++	 * K60's TLMM base above. TODO(aw882xx): verify the GCC offsets on the
++	 * final K60 tree; they are SM8475-family values, not AW882xx values. */
++	aw882xx_gcc_write(0x62008, aw882xx_gcc_read(0x62008) |
++	    (15u << 18) | (1u << 27));
++	const uint32_t gates[] = { 0x3314cu, 0x33140u, 0x28004u, 0x28008u,
++		0x28610u };
++	for (unsigned i = 0; i < sizeof(gates) / sizeof(gates[0]); ++i) {
++		if (!aw882xx_wait_cbcrc(gates[i], 100)) {
++			printf("AW882xx: GCC gate 0x%x not ready\n", gates[i]);
++			return false;
++		}
++	}
++	aw882xx_pin_config(AW882XX_I2C_GPIO_SCL, AW882XX_TLMM_CFG_I2C, -1);
++	aw882xx_pin_config(AW882XX_I2C_GPIO_SDA, AW882XX_TLMM_CFG_I2C, -1);
++	unsigned level = 0xff;
++	for (unsigned i = 0; i < 8; ++i) {
++		const uint32_t cfg = aw882xx_gcc_read(0x28618u + 0x1cu + 4u * i);
++		if (((cfg >> 8) & 7u) == 0 && ((cfg >> 12) & 3u) == 0 &&
++		    (cfg & 31u) <= 1u) {
++			level = i;
++			break;
++		}
++	}
++	if (level == 0xff) {
++		printf("AW882xx: no QUPV3_2 SE15 clock level\n");
++		return false;
++	}
++	aw882xx_i2c_write_reg(NULL, 0x28, aw882xx_i2c_read_reg(NULL, 0x28) |
++	    0x7fu);
++	aw882xx_i2c_write_reg(NULL, 0xe30, aw882xx_i2c_read_reg(NULL, 0xe30) |
++	    15u);
++	aw882xx_i2c_write_reg(NULL, 0x24, 0x7fu);
++	aw882xx_i2c_write_reg(NULL, 0x20, 1u);
++	aw882xx_i2c_write_reg(NULL, 0xe18, 0);
++	aw882xx_i2c_write_reg(NULL, 0x7c, level);
++	aw882xx_i2c_write_reg(NULL, GENI_CLK_CFG, 0x21u);
++	aw882xx_i2c_write_reg(NULL, GENI_SCL_COUNTERS,
++	    (5u << 20) | (11u << 10) | 22u);
++	Aw882xxGeniIo io = { aw882xx_i2c_read_reg, aw882xx_i2c_write_reg, NULL };
++	if (aw882xx_geni_prepare(&g_aw882xx_bus.geni, &io, AW882XX_ADDR_TOP,
++	    &g_aw882xx_bus.i2c_config) != 0) {
++		printf("AW882xx: GENI SE15 is not I2C firmware\n");
++		return false;
++	}
++	g_aw882xx_bus.geni_ready = true;
++	printf("AW882xx: GENI I2C ready (config=0x%x)\n",
++	    g_aw882xx_bus.i2c_config);
++	return true;
++}
++
++/* ------------------------------------------------------------------------- */
++/* Public entry points                                                       */
++/* ------------------------------------------------------------------------- */
++
++int aw882xx_bootstrap(void);
++int aw882xx_probe(void);
++int aw882xx_start(void);
++
++int
++aw882xx_probe(void)
++{
++	int value = 0;
++	if (!PE_parse_boot_argn("pong_aw882xx", &value, sizeof(value)) ||
++	    value == 0) {
++		return 0;
++	}
++	if (!aw882xx_bus_init()) {
++		return -1;
++	}
++	/* A released reset is required before the I2C ID registers answer.
++	 * This is still a read-only identity probe: only GPIO reset is driven. */
++	aw882xx_reset(&g_aw882xx_top);
++	aw882xx_reset(&g_aw882xx_bot);
++	aw882xx_irq_pin_prepare(&g_aw882xx_top);
++	aw882xx_irq_pin_prepare(&g_aw882xx_bot);
++	bool top = aw882xx_probe_one(&g_aw882xx_top);
++	bool bot = aw882xx_probe_one(&g_aw882xx_bot);
++	printf("AW882xx: probe top=%d bot=%d\n", top, bot);
++	return top && bot ? 0 : -1;
++}
++
++int
++aw882xx_start(void)
++{
++	int value = 0;
++	if (!PE_parse_boot_argn("pong_aw882xx", &value, sizeof(value)) ||
++	    value < 2) {
++		return 0;
++	}
++	if (!g_aw882xx_bus.geni_ready && !aw882xx_bus_init()) {
++		return -1;
++	}
++	bool top = aw882xx_init_one(&g_aw882xx_top);
++	bool bot = aw882xx_init_one(&g_aw882xx_bot);
++	printf("AW882xx: init top=%d bot=%d (EXPERIMENTAL)\n", top, bot);
++	return top && bot ? 0 : -1;
++}
++
++static void
++aw882xx_worker(void *arg __unused, wait_result_t wait __unused)
++{
++	int value = 0;
++	if (PE_parse_boot_argn("pong_aw882xx", &value, sizeof(value))) {
++		if (value == 1) {
++			(void)aw882xx_probe();
++		} else if (value >= 2) {
++			(void)aw882xx_start();
++		}
++	}
++	thread_terminate_self();
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++int
++aw882xx_bootstrap(void)
++{
++	int value = 0;
++	if (!PE_parse_boot_argn("pong_aw882xx", &value, sizeof(value)) ||
++	    value == 0) {
++		return 0;
++	}
++	thread_t thread = NULL;
++	if (kernel_thread_start(aw882xx_worker, NULL, &thread) != KERN_SUCCESS) {
++		printf("AW882xx: worker thread creation failed\n");
++		return -1;
++	}
++	thread_deallocate(thread);
++	return 0;
++}

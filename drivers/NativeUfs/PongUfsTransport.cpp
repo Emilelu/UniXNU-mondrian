@@ -11,7 +11,9 @@
 #include <IOKit/IOLib.h>
 #include <vm/vm_kern.h>
 #include <kern/clock.h>
+#include <kern/sched_prim.h>
 #include <mach/mach_time.h>
+#include <machine/machine_routines.h>
 #include <libkern/c++/OSBoolean.h>
 #include <libkern/c++/OSDictionary.h>
 #include <libkern/c++/OSIterator.h>
@@ -37,6 +39,7 @@ struct UfsHost {
   IOBufferMemoryDescriptor *dma = nullptr;
   uint8_t *virt = nullptr;
   uint64_t phys = 0, blocks = 0;
+  uint32_t dmaBytes = 0;          // size of the slot region actually allocated
   IOLock *lock = nullptr;
   bool ready = false, poisoned = false;
   bool writable = false;
@@ -46,6 +49,11 @@ struct UfsHost {
 };
 static UfsHost gHost;
 static bool gTransportAttempted;
+// How many command slots this bring-up enabled (1, 8, 16 or 32) and which request-list form is in use.
+extern "C" volatile uint32_t native_ufs_slots = 0;
+extern "C" volatile uint32_t native_ufs_list_mode = 0;   // 0 region A (entry 2s), 1 own page, 2 own page + region B
+extern "C" volatile uint32_t native_ufs_irq_mode = 0;
+extern "C" volatile uint64_t native_ufs_irqs = 0, native_ufs_irq_sleeps = 0;
 enum : uint64_t {
   // Pong LUN0 GPT entry "userdata", captured from this phone in recovery.
   kPongUserdataFirst4k = 0x413248ULL,
@@ -108,9 +116,176 @@ static void cacheInvalidate(const void *start, size_t size) {
   __asm__ volatile("dsb sy" ::: "memory");
 }
 static void hostWrite(unsigned offset, uint32_t value) { write32(gHost.hc, offset, value); }
+// The installed Apple SDK declares PE_parse_boot_arg_str only under
+// XNU_KERNEL_PRIVATE, which the kext build does not define; the kernel itself
+// exports it (pexpert/gen/bootargs.c). Declare it to read a string value such as
+// k60_root_partition without PE_parse_boot_argn's numeric conversion.
+extern "C" boolean_t PE_parse_boot_arg_str(const char *arg_string, char *arg_ptr, int size);
+// The installed Apple SDK ships a truncated kern/sched_prim.h that omits clear_wait (it sits under XNU_KERNEL_PRIVATE in
+// the kernel's own header). clear_wait is a normal kernel-internal symbol and this archive is linked statically into the
+// kernel, so declaring it here resolves exactly like PE_parse_boot_arg_str above.
+extern "C" kern_return_t clear_wait(thread_t thread, wait_result_t result);
 #include "RootQueue.h"
 #include "RootCommands.h"
 #include "RootLayout.h"
+
+// ---- Completion interrupt ------------------------------------------------------------------------------------------
+// Same UFSHCI path as the upstream concurrent driver. K60's live DT reports pong,ufs-spi=265, and the ArmCpu SPI
+// registration takes the GIC INTID, i.e. 265 + 32 = 297 (kUfsIrq). Both entry points are weakly imported: the K60 kernel
+// exports armcpu_spi_attach, while armcpu_spi_mask is not present in this tree, so the interrupt is left unmasked at the
+// GIC only if the symbol resolves.
+extern "C" IOReturn armcpu_spi_attach (uint32_t, bool, void (*) (void *), void *, uint32_t *, uint64_t *) __attribute__((weak_import));
+extern "C" IOReturn armcpu_spi_mask (uint32_t, bool) __attribute__((weak_import));
+constexpr uint32_t kUfsIrq = 265 + 32;
+static volatile uint32_t gIrqCount = 0;
+static bool gIrqMode = false;
+
+static uint32_t hostCompletionCount (unsigned slot) { return __atomic_load_n (&gSlotGen[slot], __ATOMIC_ACQUIRE); }
+static bool hostInterruptMode (void) { return gIrqMode && !gHostPanic; }
+
+// Hybrid polling: poll for gSpinUs first, then sleep on the slot's completion (or a 1 ms timeout as a safety net).
+static uint64_t gSpinTicks = 0;
+static uint32_t gSpinTicksUs = ~0U;
+static void hostWaitCompletion (unsigned slot, uint32_t seen, uint64_t started)
+{
+  const uint32_t spinUs = *static_cast<volatile uint32_t *> (&gSpinUs);
+  if (spinUs != gSpinTicksUs) {
+    nanoseconds_to_absolutetime (uint64_t (spinUs) * 1000, &gSpinTicks);
+    gSpinTicksUs = spinUs;
+  }
+  if (!hostInterruptMode () || mach_absolute_time () - started < gSpinTicks || !ml_get_interrupts_enabled ()) {
+    IODelay (2);
+    return;
+  }
+  assert_wait_timeout ((event_t) (uintptr_t) &gSlotGen[slot], THREAD_UNINT, 1000, NSEC_PER_USEC);
+  if (hostCompletionCount (slot) != seen) {
+    clear_wait (current_thread (), THREAD_AWAKENED);
+    return;
+  }
+  __atomic_fetch_add (&native_ufs_irq_sleeps, 1, __ATOMIC_RELAXED);
+  thread_block (THREAD_CONTINUE_NULL);
+}
+
+static void hostInterrupt (void *)
+{
+  if (read32 (gHost.hc, 0x20) & 1) {
+    write32 (gHost.hc, 0x20, 1);
+    __asm__ volatile ("dsb sy" ::: "memory");
+  }
+  __atomic_add_fetch (&gIrqCount, 1, __ATOMIC_RELEASE);
+  __atomic_fetch_add (&native_ufs_irqs, 1, __ATOMIC_RELAXED);
+  // Wake exactly the slots whose doorbell bit the controller has cleared.
+  uint32_t done = __atomic_load_n (&gOutstanding, __ATOMIC_ACQUIRE) & ~read32 (gHost.hc, 0x58);
+  while (done) {
+    const unsigned entry = static_cast<unsigned> (__builtin_ctz (done));
+    done &= done - 1;
+    const int slot = gEntrySlot[entry];
+    if (slot < 0) continue;
+    __atomic_add_fetch (&gSlotGen[slot], 1, __ATOMIC_RELEASE);
+    thread_wakeup ((event_t) (uintptr_t) &gSlotGen[slot]);
+  }
+}
+
+// Hybrid-polling budget and zero-copy switch, settable from a benchmark. Zero-copy PRDT scatter/gather (hostBuildPrds,
+// up to 64 entries of up to 256 KiB, at most 1 MiB per command) is used when the caller's buffer is page aligned and
+// every page is reachable through the storage stream; otherwise the slot's 128 KiB data area is used.
+extern "C" void native_ufs_set_spin (uint32_t us) { gSpinUs = us; }
+
+// Zero copy (RootCommands.h): a kernel page's physical address, if the storage stream can reach it (gDmaLimit, from the
+// SMMU's bypass width and the controller's 64-bit addressing, set at bring-up; 0 until then, so no zero copy).
+static uint64_t gDmaLimit = 0;
+static uint64_t hostDmaAddress (const void *va)
+{
+  const uint64_t address = ml_vtophys (reinterpret_cast<vm_offset_t> (va));
+  return address && address < gDmaLimit && gDmaLimit - address >= 4096 ? address : 0;
+}
+extern "C" void native_ufs_set_zero_copy (int on) { gZeroCopy = on != 0; }
+
+// Register the completion interrupt. armcpu_spi_mask is checked only if the kernel exports it.
+static void hostEnableInterrupt (void)
+{
+  if (gIrqMode || !&armcpu_spi_attach) return;
+  if (armcpu_spi_attach (kUfsIrq, false, hostInterrupt, nullptr, nullptr, nullptr) != kIOReturnSuccess) {
+    IOLog("PONG_UFS: completion interrupt attach failed for INTID %u; polling\n", kUfsIrq);
+    return;
+  }
+  hostWrite (0x24, 1);            // UTRCE: UTRD completion interrupt enable
+  if (&armcpu_spi_mask && armcpu_spi_mask (kUfsIrq, false) != kIOReturnSuccess) {
+    hostWrite (0x24, 0);
+    IOLog("PONG_UFS: completion interrupt unmask failed for INTID %u; polling\n", kUfsIrq);
+    return;
+  }
+  gIrqMode = true;
+  native_ufs_irq_mode = 1;
+  IOLog("PONG_UFS: completion interrupt on INTID %u (UTRCE), hybrid polling %u us\n", kUfsIrq, gSpinUs);
+}
+
+// Can the storage stream reach this physical range? The SMMU is left in bypass (VA64), so the bound is the smallest of the
+// three IDR2 address sizes, exactly what the region A check used. Separate allocations (list page, region B) must be
+// checked too, since nothing guarantees they land inside region A's range.
+static bool hostReachable (uint64_t phys, uint64_t bytes, bool wide)
+{
+  if (!wide && phys + bytes > 0x100000000ULL) return false;
+  if (!gHost.smmu) return false;
+  const uint32_t idr2 = read32 (gHost.smmu, 0x28);
+  for (unsigned shift = 0; shift <= 8; shift += 4) {
+    const unsigned bits = ufsSmmuAddressBits ((idr2 >> shift) & 15);
+    if (!bits || phys >= (1ULL << bits) || bytes > (1ULL << bits) - phys) return false;
+  }
+  return true;
+}
+
+// A physically contiguous, page-aligned DMA allocation the storage stream can reach; the caller releases it.
+static IOBufferMemoryDescriptor *hostContiguous (uint32_t bytes, IOOptionBits extra, bool wide, uint8_t **virt, uint64_t *phys)
+{
+  IOBufferMemoryDescriptor *dma = IOBufferMemoryDescriptor::inTaskWithOptions (kernel_task,
+    IOOptionBits (kIODirectionInOut) | IOOptionBits (kIOMemoryPhysicallyContiguous) | IOOptionBits (kIOMemoryMapperNone) | extra,
+    bytes, 4096);
+  if (!dma) return nullptr;
+  IOByteCount contiguous = 0;
+  *virt = static_cast<uint8_t *> (dma->getBytesNoCopy ());
+  *phys = dma->getPhysicalSegment (0, &contiguous, kIOMemoryMapperNone);
+  if (!*virt || !*phys || (*phys & 4095) || contiguous < bytes || !hostReachable (*phys, bytes, wide)) {
+    dma->release ();
+    return nullptr;
+  }
+  bzero (*virt, bytes);
+  cacheCivac (*virt, bytes);
+  return dma;
+}
+
+// S3 upgrade: move the request list onto its own write-combined page (slot s -> entry s) and, when region A holds all
+// kRegionSlots, add region B for slots kRegionSlots..kSlots-1. Any allocation that fails leaves the previous, smaller
+// geometry in place: the driver keeps working with fewer slots rather than failing bring-up.
+static IOBufferMemoryDescriptor *gListDma = nullptr, *gRegionB = nullptr;
+static OSSharedPtr<IOMemoryMap> gListMap;
+static void hostSlotsUpgrade (unsigned regionSlots, unsigned entries, bool wide)
+{
+  if (gListDma || regionSlots < 2 || entries < regionSlots) return;
+  uint8_t *listVirt = nullptr;
+  uint64_t listPhys = 0;
+  IOBufferMemoryDescriptor *list = hostContiguous (4096, IOOptionBits (kIOMapWriteCombineCache), wide, &listVirt, &listPhys);
+  if (!list) return;
+  // The list page must be reached by the controller through an uncached mapping.
+  OSSharedPtr<IOMemoryMap> map (list->createMappingInTask (kernel_task, 0, kIOMapAnywhere | kIOMapWriteCombineCache), OSNoRetain);
+  uint8_t *mapped = map ? reinterpret_cast<uint8_t *> (map->getVirtualAddress ()) : nullptr;
+  if (!mapped) { list->release (); return; }
+  gListDma = list; gListMap = map; gUtrlPhys = listPhys;
+  hostSlotGeometryListPage (regionSlots, mapped);
+  native_ufs_list_mode = 1;
+  unsigned total = regionSlots;
+  uint8_t *regionVirt = nullptr;
+  uint64_t regionPhys = 0;
+  if (regionSlots == kRegionSlots && entries >= kSlots &&
+      (gRegionB = hostContiguous (kRegionBBytes, 0, wide, &regionVirt, &regionPhys))) {
+    hostSlotGeometryRegionB (kRegionSlots, regionVirt, regionPhys, mapped);
+    total = kSlots;
+    native_ufs_list_mode = 2;
+  }
+  hostSlotsInit (total, gHost.lock);
+  native_ufs_slots = gSlotCount;
+  IOLog("PONG_UFS: request list on write-combined page; %u command slot(s), list mode %u\n", gSlotCount, native_ufs_list_mode);
+}
 
 static bool transportFailure(const char *why) {
   gHost.ready = false;
@@ -142,18 +317,43 @@ static bool hostBringUp() {
   gRootDiagnostic.version = read32(gHost.hc, 8);
   recordTransport(kIOReturnNotReady, 15);
   gRootDiagnostic.stage = "DMA allocation";
-  gHost.dma = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
-    IOOptionBits(kIODirectionInOut) | IOOptionBits(kIOMemoryPhysicallyContiguous) | IOOptionBits(kIOMemoryMapperNone), kDmaBytes, 4096);
+  // The concurrent region needs more contiguous DMA memory than the single slot did, and a fragmented kernel map can
+  // refuse it. Ask for the full 16-slot region A first, then the eight-slot region, and never fail bring-up over it: the
+  // single-slot size is the guaranteed fallback and keeps the driver working exactly as before.
   gHost.lock = IOLockAlloc();
-  if (!gHost.dma || !gHost.lock) return transportFailure("DMA allocation");
-  gHost.virt = static_cast<uint8_t *>(gHost.dma->getBytesNoCopy());
-  IOByteCount contiguous = 0;
-  gHost.phys = gHost.dma->getPhysicalSegment(0, &contiguous, kIOMemoryMapperNone);
-  gRootDiagnostic.dma = gHost.phys; gRootDiagnostic.contiguous = contiguous;
-  if (!gHost.virt || !gHost.phys || (gHost.phys & 4095) || contiguous < kDmaBytes ||
-      (!(gRootDiagnostic.cap & 0x01000000) && gHost.phys + kDmaBytes > 0x100000000ULL))
-    return transportFailure("DMA address/contiguity");
-  bzero(gHost.virt, kDmaBytes); cacheCivac(gHost.virt, kDmaBytes);
+  const bool wide = (gRootDiagnostic.cap & 0x01000000) != 0;
+  // Three tiers, widest first: the full region A with region B, an eight-slot region A, and the original single slot.
+  // The tier that succeeds fixes how many slots come up; the single slot is the guaranteed fallback.
+  const uint32_t sizes[3] = { uint32_t(kDmaBytes), uint32_t(kDmaBytesEightSlots), uint32_t(kDmaBytesOneSlot) };
+  for (unsigned attempt = 0; attempt < 3 && !gHost.virt; ++attempt) {
+    const uint32_t bytes = sizes[attempt];
+    IOBufferMemoryDescriptor *dma = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
+      IOOptionBits(kIODirectionInOut) | IOOptionBits(kIOMemoryPhysicallyContiguous) | IOOptionBits(kIOMemoryMapperNone), bytes, 4096);
+    if (!dma) continue;
+    uint8_t *virt = static_cast<uint8_t *>(dma->getBytesNoCopy());
+    IOByteCount contiguous = 0;
+    uint64_t phys = dma->getPhysicalSegment(0, &contiguous, kIOMemoryMapperNone);
+    gRootDiagnostic.dma = phys; gRootDiagnostic.contiguous = contiguous;
+    if (!virt || !phys || (phys & 4095) || contiguous < bytes || (!wide && phys + bytes > 0x100000000ULL)) {
+      dma->release();
+      continue;
+    }
+    gHost.dma = dma; gHost.virt = virt; gHost.phys = phys; gHost.dmaBytes = bytes;
+  }
+  if (!gHost.virt || !gHost.lock) return transportFailure("DMA address/contiguity");
+  // What the allocation actually granted decides the slot count: full region A, eight, or the original single slot.
+  const unsigned entries = (gRootDiagnostic.cap & 0x1f) + 1;
+  unsigned slots;
+  if (gHost.dmaBytes >= uint32_t (kDmaBytes)) slots = kRegionSlots;
+  else if (gHost.dmaBytes >= uint32_t (kDmaBytesEightSlots)) slots = 8;
+  else slots = 1;
+  if (slots > entries) slots = entries;
+  if (slots > kRegionSlots) slots = kRegionSlots;
+  hostSlotGeometryRegionA (slots);
+  hostSlotsInit (slots, gHost.lock);
+  native_ufs_slots = gSlotCount;
+  IOLog("PONG_UFS: %u command slot(s), DMA region %u bytes, controller entries %u\n", gSlotCount, gHost.dmaBytes, entries);
+  bzero(gHost.virt, gHost.dmaBytes); cacheCivac(gHost.virt, gHost.dmaBytes);
   gRootDiagnostic.stage = "quiesce firmware queue";
   const char *why = nullptr;
   if (!hostStopQueue(&why)) return transportFailure(why);
@@ -161,7 +361,7 @@ static bool hostBringUp() {
   gHost.smmu = mapPhys(0x15000000, 0x100000, gHost.smmuMap);
   if (!gHost.smmu) return transportFailure("SMMU map");
   auto read = [](unsigned offset) { return read32(gHost.smmu, offset); };
-  UfsSmmuPlan plan = planUfsSmmu(0xe0, gHost.phys, kDmaBytes, read, 78, 120);
+  UfsSmmuPlan plan = planUfsSmmu(0xe0, gHost.phys, gHost.dmaBytes, read, 78, 120);
   gRootDiagnostic.smmuId1 = read(0x24); gRootDiagnostic.smmuId2 = read(0x28);
   gRootDiagnostic.smmuSlot = plan.slot; gRootDiagnostic.smr = plan.smr; gRootDiagnostic.s2cr = plan.s2cr;
   unsigned rawBanks = gRootDiagnostic.smmuId1 & 255, rawGroups = read(0x20) & 255;
@@ -179,6 +379,22 @@ static bool hostBringUp() {
   gRootDiagnostic.cbar = read(0x1000 + 4 * plan.bank); gRootDiagnostic.cba2r = read(0x1800 + 4 * plan.bank);
   gRootDiagnostic.sctlr = read32(gHost.cb, 0);
   if (why) return transportFailure(why);
+  {
+    // The zero-copy PRDT path may only point at pages the storage stream can reach. The SMMU stays in bypass, so the
+    // bound is the smallest of its three IDR2 address sizes (and 32 bits when the controller lacks 64-bit addressing).
+    uint64_t limit = wide ? ~0ULL : 0x100000000ULL;
+    const uint32_t idr2 = gHost.smmu ? read32(gHost.smmu, 0x28) : 0;
+    for (unsigned shift = 0; shift <= 8; shift += 4) {
+      const unsigned bits = ufsSmmuAddressBits((idr2 >> shift) & 15);
+      const uint64_t width = bits ? (bits >= 64 ? ~0ULL : 1ULL << bits) : 0;
+      if (width < limit) limit = width;
+    }
+    gDmaLimit = limit;
+  }
+  // The request list form must be final before the controller is told where the list is: hostStartQueue programs
+  // UTRLBA from gUtrlPhys, and the geometry decides which entry each slot rings. Best-effort: any allocation that fails
+  // leaves the smaller geometry that already works.
+  hostSlotsUpgrade (gSlotCount, entries, (gRootDiagnostic.cap & 0x01000000) != 0);
   gRootDiagnostic.stage = "request list start";
   if (!hostStartQueue(&why)) return transportFailure(why);
   gRootDiagnostic.stage = "NOP OUT";
@@ -200,6 +416,9 @@ static bool hostBringUp() {
     IOSleep(10);
   }
   if (!gHost.ready) return transportFailure("LUN 0 not ready");
+  // The LUN answers, so the controller is fully up and every bring-up command (which runs on slot 0) is done: turn on
+  // completion interrupts. Best-effort; a failure leaves the polled configuration that already works.
+  hostEnableInterrupt ();
   gRootDiagnostic.stage = "READ CAPACITY";
   uint8_t capacity[10] = {0x25};
   if (hostScsi(0, capacity, 10, true, 8, 200000, &scsi) != kIOReturnSuccess) return transportFailure("READ CAPACITY");
@@ -214,8 +433,12 @@ static bool hostBringUp() {
 
 class PongUfsBlock : public IOBlockStorageDevice {
   OSDeclareDefaultStructors(PongUfsBlock)
-  uint8_t *bounce = nullptr;
-  IOLock *mutex = nullptr;
+  // Each in-flight request owns one bounce buffer, so concurrent requests never share a payload. kDataMax-sized so one
+  // request reaches the driver as one command instead of a chain of 4 KiB ones.
+  static constexpr unsigned kBounces = 4;
+  uint8_t *bounces[kBounces] = {};
+  uint32_t bounceFree = 0;
+  IOLock *windowLock = nullptr;
   bool online = false;
   RootDiskWindow window = {};
 public:
@@ -243,6 +466,9 @@ public:
   IOReturn getWriteCacheState(bool *v) override { *v = false; return kIOReturnSuccess; }
   IOReturn setWriteCacheState(bool) override { return kIOReturnNotWritable; }
   IOReturn doAsyncReadWrite(IOMemoryDescriptor *, UInt64, UInt64, IOStorageAttributes *, IOStorageCompletion *) override;
+  // Take/give a bounce buffer from the per-device pool; concurrent callers of doAsyncReadWrite each hold their own.
+  uint8_t *takeBounce();
+  void giveBounce(uint8_t *buffer);
 };
 OSDefineMetaClassAndStructors(PongUfsBlock, IOBlockStorageDevice)
 
@@ -422,13 +648,21 @@ bool PongUfsBlock::init(OSDictionary *properties, const RootDiskWindow &selected
   return true;
 }
 bool PongUfsBlock::start(IOService *provider) {
-  bounce = static_cast<uint8_t *>(IOMalloc(4096)); mutex = IOLockAlloc();
-  if (!bounce || !mutex || !gHost.ready || !window.size || !IOBlockStorageDevice::start(provider)) return false;
+  windowLock = IOLockAlloc();
+  for (unsigned k = 0; k < kBounces; ++k) {
+    bounces[k] = static_cast<uint8_t *>(IOMallocAligned(kDataMax, 4096));
+    if (!bounces[k]) return false;
+    bounceFree |= 1U << k;
+  }
+  if (!windowLock || !gHost.ready || !window.size || !IOBlockStorageDevice::start(provider)) return false;
   gRootDiagnostic.stage = "first root read";
-  if (hostRead4k(0, window.baseByte / 4096, 1, bounce) != kIOReturnSuccess)
-    return transportFailure("first root read");
-  if (memcmp(bounce + window.signatureOffset, window.signature, strlen(window.signature)))
-    return transportFailure("SHNGROOT window signature mismatch");
+  uint8_t *probe = takeBounce();
+  const IOReturn first = hostRead4k(0, window.baseByte / 4096, 1, probe);
+  const bool matched = first == kIOReturnSuccess &&
+      !memcmp(probe + window.signatureOffset, window.signature, strlen(window.signature));
+  giveBounce(probe);
+  if (first != kIOReturnSuccess) return transportFailure("first root read");
+  if (!matched) return transportFailure("SHNGROOT window signature mismatch");
   gRootDiagnostic.first = kPongUserdataFirst4k;
   gRootDiagnostic.last = kPongUserdataLast4k;
   gRootDiagnostic.windowBytes = window.size;
@@ -448,9 +682,24 @@ bool PongUfsBlock::start(IOService *provider) {
   PongProbeRecord(4, "ufs-transport", PongProbePass, detail, window.size);
   return true;
 }
+uint8_t *PongUfsBlock::takeBounce() {
+  IOLockLock(windowLock);
+  while (!bounceFree) IOLockSleep(windowLock, &bounceFree, THREAD_UNINT);
+  const unsigned k = static_cast<unsigned>(__builtin_ctz(bounceFree));
+  bounceFree &= ~(1U << k);
+  IOLockUnlock(windowLock);
+  return bounces[k];
+}
+void PongUfsBlock::giveBounce(uint8_t *buffer) {
+  IOLockLock(windowLock);
+  for (unsigned k = 0; k < kBounces; ++k) if (bounces[k] == buffer) bounceFree |= 1U << k;
+  IOLockWakeup(windowLock, &bounceFree, true);
+  IOLockUnlock(windowLock);
+}
 void PongUfsBlock::free() {
-  if (bounce) IOFree(bounce, 4096);
-  if (mutex) IOLockFree(mutex);
+  for (unsigned k = 0; k < kBounces; ++k) if (bounces[k]) { IOFreeAligned(bounces[k], kDataMax); bounces[k] = nullptr; }
+  bounceFree = 0;
+  if (windowLock) { IOLockFree(windowLock); windowLock = nullptr; }
   IOBlockStorageDevice::free();
 }
 IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block, UInt64 count,
@@ -499,7 +748,9 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
   }
   uint64_t done = 0, bytes = count * kRootLogicalBlock;
   IOReturn result = kIOReturnSuccess;
-  IOLockLock(mutex);
+  // No global lock: every iteration takes its own command slot and its own bounce buffer, so concurrent requests run
+  // in parallel on different slots (S2: up to eight).
+  uint8_t *bounce = takeBounce();
   while (done < bytes) {
     const uint64_t absolute = window.baseByte + block * kRootLogicalBlock + done;
     const uint32_t inside = static_cast<uint32_t>(absolute & 4095);
@@ -517,24 +768,20 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
         break;
       }
     }
-    IOLockLock(gHost.lock);
     if (!gHost.ready || gHost.poisoned) {
       result = kIOReturnNotReady;
-    } else {
-      // Prepared storage descriptors can copy directly to/from the shared
-      // payload. Keep ownership until the copy and any RMW write complete.
-      // Full physical-block writes need no read of the old contents.
-      if (!write || inside || take != uint64_t(physicalBlocks) * 4096)
-        result = hostRead4kLocked(0, absolute / 4096, physicalBlocks);
-      if (result == kIOReturnSuccess && write && !hostIdle()) result = kIOReturnNotReady;
-      if (result == kIOReturnSuccess) {
-        uint8_t *data = gHost.virt + kDataOffset + inside;
-        uint64_t copied = write ? buffer->readBytes(done, data, take) : buffer->writeBytes(done, data, take);
-        if (copied != take) result = kIOReturnUnderrun;
-        else if (write) result = hostWrite4kLocked(0, absolute / 4096, physicalBlocks);
-      }
+      break;
     }
-    IOLockUnlock(gHost.lock);
+    // The bounce buffer is private to this request; the command slot is taken inside hostRead4k/hostWrite4k.
+    // Full physical-block writes need no read of the old contents.
+    if (!write || inside || take != uint64_t(physicalBlocks) * 4096)
+      result = hostRead4k(0, absolute / 4096, physicalBlocks, bounce);
+    if (result == kIOReturnSuccess) {
+      uint8_t *data = bounce + inside;
+      uint64_t copied = write ? buffer->readBytes(done, data, take) : buffer->writeBytes(done, data, take);
+      if (copied != take) result = kIOReturnUnderrun;
+      else if (write) result = hostWrite4k(0, absolute / 4096, physicalBlocks, bounce, true);
+    }
     if (result != kIOReturnSuccess) break;
     done += take;
   }
@@ -544,7 +791,7 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
           k60WriteTrace - 1, result, (unsigned long long)done,
           gHost.ready ? 1 : 0, gHost.poisoned ? 1 : 0);
   }
-  IOLockUnlock(mutex);
+  giveBounce(bounce);
   if (result != kIOReturnSuccess && result != kIOReturnNotWritable)
     transportFailure(write ? "block write failed" : "block read failed");
   completion->action(completion->target, completion->parameter, result, done);

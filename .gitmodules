@@ -1,3 +1,0 @@
-[submodule "drivers/NativeMetal"]
-	path = drivers/NativeMetal
-	url = https://github.com/UniXNU/NativeMetal.git

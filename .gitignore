@@ -35,3 +35,7 @@
 __pycache__/
 *.py[cod]
 /local.toml
+mac-build/*/cache/
+*.fat
+mac-build/*/build-report.json
+build/

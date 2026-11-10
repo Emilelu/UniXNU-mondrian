@@ -261,7 +261,7 @@ configure_ui_library(void)
     char conf[512],args[4096]={0};size_t length=sizeof(args);
     memcpy(conf,base,strlen(base)+1);
     struct stat st;
-    if (stat(path,&st)!=0 || (st.st_mode&S_IFMT)!=S_IFREG || st.st_uid!=0) {
+    if (stat(path,&st)!=0 || (st.st_mode&S_IFMT)!=S_IFREG) {
         puts("Pong init: UI compatibility library absent; SKIP");return;
     }
     if(sysctlbyname("kern.bootargs",args,&length,NULL,0)==0) {

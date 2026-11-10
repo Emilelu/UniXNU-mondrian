@@ -1,9 +1,9 @@
 {
   "host": "x86_64",
   "target": "arm64-apple-ios16.0",
-  "build_tree": "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree",
-  "source": "/home/emilelu/hackios/UniXNU-mondrian/drivers/ArmCpu/ArmCpu.cpp",
-  "archive": "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armcpu/libArmCpu.a",
+  "build_tree": "/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree",
+  "source": "/mnt/e/hackios/UniXNU-mondrian/drivers/ArmCpu/ArmCpu.cpp",
+  "archive": "/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armcpu/libArmCpu.a",
   "image_verification": "skipped by request",
   "command": [
     "xcrun",
@@ -13,7 +13,7 @@
     "-target",
     "arm64-apple-ios16.0",
     "-isysroot",
-    "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot",
+    "/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot",
     "-mkernel",
     "-ffreestanding",
     "-fno-builtin",
@@ -31,13 +31,13 @@
     "-target-feature",
     "-Xclang",
     "+pan",
-    "-I/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders",
-    "-I/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/Headers",
+    "-I/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders",
+    "-I/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/Headers",
     "-Wno-deprecated-declarations",
     "-c",
-    "/home/emilelu/hackios/UniXNU-mondrian/drivers/ArmCpu/ArmCpu.cpp",
+    "/mnt/e/hackios/UniXNU-mondrian/drivers/ArmCpu/ArmCpu.cpp",
     "-o",
-    "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armcpu/ArmCpu.o"
+    "/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/armcpu/ArmCpu.o"
   ],
   "runtime_qualified": false,
   "hardware_access": "DT GICv3 redistributors, EL1 virtual timer, PSCI CPU_ON/CPU_OFF"

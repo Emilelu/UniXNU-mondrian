@@ -218,16 +218,146 @@ prepare_calendar(void)
     }
 }
 
+/* Expand the archive the kernel writes next to the helper. The format is in
+ * scripts/pack-boot-jobs.py: a header, then one fixed record per entry
+ * followed by the name, the link target and the data. The kernel cannot create
+ * several hundred files safely before PID 1 exists, so it does one write of the
+ * archive and this runs the loop in user space, where open/write/mkdir work. */
+#define PONGJOB_HEADER 12
+#define PONGJOB_RECORD 24
+
+/* mini.h declares lseek() but not the whence constants; the archive reader
+ * needs SEEK_CUR to skip an entry's payload after a failed open/symlink. */
+#ifndef SEEK_CUR
+#define SEEK_CUR 1
+#endif
+
+/* read() is a raw syscall here and may return a short count; the archive is
+ * parsed positionally, so every field must be filled before it is decoded. */
+static int
+read_full(int fd, void *buf, size_t want)
+{
+    unsigned char *p = buf;
+    size_t done = 0;
+    while (done < want) {
+        ssize_t n = read(fd, p + done, want - done);
+        if (n <= 0) return -1;
+        done += (size_t)n;
+    }
+    return 0;
+}
+
+static int
+unpack_boot_jobs(const char *archive, const char *dest)
+{
+    struct stat st;
+    if (stat(archive, &st) != 0 || (st.st_mode & S_IFMT) != S_IFREG) return -1;
+    int in = open(archive, O_RDONLY, 0);
+    if (in < 0) return -1;
+    unsigned char head[PONGJOB_HEADER];
+    unsigned char rec[PONGJOB_RECORD];
+    char path[512], name[512], target[512];
+    if (read_full(in, head, sizeof(head)) != 0 ||
+        memcmp(head, "PONGJOB1", 8) != 0) { close(in); return -1; }
+    unsigned count = (unsigned)head[8] | ((unsigned)head[9] << 8) |
+                     ((unsigned)head[10] << 16) | ((unsigned)head[11] << 24);
+    int made = 0, failed = 0;
+    for (unsigned i = 0; i < count; i++) {
+        if (read_full(in, rec, sizeof(rec)) != 0) { failed++; break; }
+        /* '<IIIIII': mode@0 uid@4 gid@8 size@12 nlen@16 dlen@20. Reading size
+         * from 8 skipped a field, so nlen decoded as the file size and every
+         * path was built from a name that ran into the payload. */
+        unsigned mode = (unsigned)rec[0] | ((unsigned)rec[1] << 8) |
+                        ((unsigned)rec[2] << 16) | ((unsigned)rec[3] << 24);
+        unsigned size = (unsigned)rec[12] | ((unsigned)rec[13] << 8) |
+                        ((unsigned)rec[14] << 16) | ((unsigned)rec[15] << 24);
+        unsigned nlen = (unsigned)rec[16] | ((unsigned)rec[17] << 8) |
+                        ((unsigned)rec[18] << 16) | ((unsigned)rec[19] << 24);
+        unsigned dlen = (unsigned)rec[20] | ((unsigned)rec[21] << 8) |
+                        ((unsigned)rec[22] << 16) | ((unsigned)rec[23] << 24);
+        if (nlen == 0 || nlen >= sizeof(name) ||
+            read_full(in, name, nlen) != 0) { failed++; break; }
+        name[nlen] = 0;
+        size_t dl = strlen(dest);
+        if (dl + 1 + nlen + 1 > sizeof(path)) { failed++; break; }
+        strcpy(path, dest);
+        path[dl] = '/';
+        strcpy(path + dl + 1, name);
+        if ((mode & S_IFMT) == S_IFDIR) {
+            if (mkdir(path, mode & 07777) == 0 || errno == 17) made++;
+            else failed++;
+        } else if ((mode & S_IFMT) == S_IFLNK) {
+            if (dlen == 0 || dlen >= sizeof(target) ||
+                read_full(in, target, dlen) != 0) {
+                failed++;
+                (void)lseek(in, (off_t)(dlen + size), SEEK_CUR);
+                continue;
+            }
+            target[dlen] = 0;
+            if (symlink(target, path) == 0 || errno == 17) made++;
+            else failed++;
+            if (size) (void)lseek(in, (off_t)size, SEEK_CUR);
+        } else if ((mode & S_IFMT) == S_IFREG) {
+            int out = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode & 07777);
+            if (out < 0) {
+                if (failed < 3) {
+                    printf("Pong init: unpack open failed errno=%d name=%s\n",
+                           errno, name);
+                }
+                failed++;
+                /* Skip this entry's data, or the next record is read from the
+                 * middle of a file and every following entry is garbage. */
+                (void)lseek(in, (off_t)size, SEEK_CUR);
+                continue;
+            }
+            unsigned left = size;
+            char buf[4096];
+            int broken = 0;
+            while (left) {
+                size_t want = left < sizeof(buf) ? left : sizeof(buf);
+                if (read_full(in, buf, want) != 0) { broken = 1; break; }
+                ssize_t w = write(out, buf, want);
+                if (w != (ssize_t)want) { broken = 1; break; }
+                left -= (unsigned)want;
+            }
+            close(out);
+            if (broken) { failed++; break; }
+            made++;
+        }
+    }
+    close(in);
+    printf("Pong init: boot-jobs unpack entries=%u made=%d failed=%d\n",
+           count, made, failed);
+    return failed ? -1 : 0;
+}
+
 /* Same composition as HackiOS init: hide physical audio plug-ins before
  * mediaserverd scans them. Keep mediaserverd for VideoToolbox/HEIC decoding.
  * The optional job set is a real 20G81 directory supplied in writable Data. */
 static void
 prepare_boot_services(void)
 {
+    /* Expand the curated job set first: the bind below needs a populated
+     * source directory, and the archive is written by the kernel next to the
+     * helper before PID 1 exists. */
+    (void)unpack_boot_jobs("/private/var/pong/boot-jobs.pack",
+        "/private/var/pong/boot-jobs");
     static const struct { const char *source, *target; } views[] = {
-        {"/private/var/pong/boot-jobs", "/pong/LaunchDaemons"},
+        /* Bind over the directory launchd actually reads. The stock apply()
+         * pipeline leaves a /pong/LaunchDaemons symlink behind, but the sealed
+         * root here has no /pong at all, so a bind to that path was always
+         * skipped ("source/target unavailable") and launchd ran the full stock
+         * set. The target must exist for bindfs to attach, and
+         * /System/Library/LaunchDaemons does. */
+        {"/private/var/pong/boot-jobs", "/System/Library/LaunchDaemons"},
         {"/private/var/pong/empty-hal", "/System/Library/Audio/Plug-Ins/HAL"},
         {"/private/var/pong/empty-hal", "/Library/Audio/Plug-Ins/HAL"},
+        /* launchd reads its service cache from /System/Library/xpc, not from the
+         * LaunchDaemons directory. The kernel writes the curated cache (CORE
+         * jobs only, no App-cryptex programs) to the Data volume, so it has to
+         * be bound over the stock one or launchd keeps using stock and refuses
+         * every job it cannot resolve. */
+        {"/private/var/pong/xpc", "/System/Library/xpc"},
         /* Keep a read-only path to stock assets before overlaying their
          * directory. The RAM view contains aliases, not copied pictures. */
         {"/Library/Wallpaper", "/private/var/pong/stock-wallpaper"},

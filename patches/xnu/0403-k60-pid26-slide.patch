@@ -1,0 +1,62 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -161,6 +161,7 @@
+ #endif
+ 
+ #include <vm/vm_map.h>
++#include <vm/vm_shared_region.h>
+ #include <vm/vm_kern.h>
+ #include <vm/vm_protos.h>
+ #include <vm/vm_kern.h>
+@@ -2243,6 +2244,51 @@
+ 		    k60_hb_ticks * 15, k60_abnormal_count, k60_xp, k60_lag, k60_mse,
+ 		    k60_execerr_prints, k60_kxp_prints, k60_dw, k60_data_mounted,
+ 		    k60_ler, k60_lw, k60_site); }
++		/*
++		 * 0400: report the shared region start address once SpringBoard is
++		 * running. The user-side probe prints pc-ui_cache_slide, where
++		 * ui_cache_slide is cache_base-0x180000000; when
++		 * _dyld_get_shared_cache_range() returns NULL the base is 0, the
++		 * subtraction underflows, and the printed value is not an address in
++		 * the image at all. The slide implied by this start address says which
++		 * of the two happened.
++		 *
++		 * Retried every heartbeat because the process does not exist yet when
++		 * the first beats fire; printed once, then never again.
++		 */
++		{
++			static int k60_sr_reported = 0;
++
++			if (!k60_sr_reported && ml_get_interrupts_enabled()) {
++				proc_t k60_sp = proc_find(26);
++
++				if (k60_sp != PROC_NULL) {
++					task_t k60_st = proc_task(k60_sp);
++
++					if (k60_st != TASK_NULL) {
++						vm_shared_region_t k60_sr;
++						mach_vm_offset_t k60_sa = 0;
++
++						task_reference(k60_st);
++						k60_sr = vm_shared_region_get(k60_st);
++						if (k60_sr != (vm_shared_region_t)NULL) {
++							if (vm_shared_region_start_address(
++							    k60_sr, &k60_sa, k60_st) == KERN_SUCCESS) {
++								printf("K60SR26 t=%llu start=%#llx slide=%#llx\n",
++								    k60_hb_ticks * 15,
++								    (unsigned long long)k60_sa,
++								    (unsigned long long)(k60_sa -
++								    UINT64_C(0x180000000)));
++								k60_sr_reported = 1;
++							}
++							vm_shared_region_deallocate(k60_sr);
++						}
++						task_deallocate(k60_st);
++					}
++					proc_rele(k60_sp);
++				}
++			}
++		}
+ 	}
+ 	assert_wait_timeout((event_t)&k60_hb_started, THREAD_UNINT, 15, NSEC_PER_SEC);
+ 		{

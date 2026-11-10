@@ -209,3 +209,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0398-k60-pong-runtime-directories.patch
 0399-k60-shared-cache-root-layout.patch
 0400-k60-shared-cache-root-union.patch
+0403-k60-pid26-slide.patch

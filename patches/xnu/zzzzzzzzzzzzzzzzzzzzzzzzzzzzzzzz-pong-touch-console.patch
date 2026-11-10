@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,4999 @@
+@@ -0,0 +1,5059 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -4387,6 +4387,50 @@ index 0000000..b033b90
 +							}
 +							printf("goodix: CFG-RESET re-handshake %s (rb=%02x)\n",
 +							    spi2 ? "OK" : "FAIL", rb2);
++							/*
++							 * K60_COORD_MODE: put the chip back into coordinate mode.
++							 *
++							 * goodix_brl_hw.c brld_get_cap_data (the Berlin-D path,
++							 * :1296-1360) ends with:
++							 *     temp_cmd.cmd = 0x90;
++							 *     temp_cmd.data[0] = 0;
++							 *     temp_cmd.len = 5;
++							 *     brl_send_cmd(cd, &temp_cmd);
++							 * because the same cmd=0x90 with data[0]=0x81 selects
++							 * rawdata and 0x82 selects diffdata. We sent 0x81 earlier to
++							 * read the raw frame and never sent this one back, so the chip
++							 * stayed in rawdata mode and never composed a touch report.
++							 * That is why 0x10308 holds static bytes and reports stay 0.
++							 */
++							{
++								uint8_t cm[8];
++								uint8_t ca[8];
++								uint8_t cl = 0xff;
++								unsigned csum = 0x05u + 0x90u + 0x00u;
++								int ct;
++
++								memset(cm, 0, sizeof(cm));
++								cm[0] = 0x00;                    /* state */
++								cm[1] = 0x00;                    /* ack */
++								cm[2] = 0x05;                    /* len */
++								cm[3] = 0x90;                    /* cmd */
++								cm[4] = 0x00;                    /* data[0] = coordinate mode */
++								cm[5] = (uint8_t)(csum & 0xff);  /* 0x95 */
++								cm[6] = (uint8_t)((csum >> 8) & 0xff);
++								printf("goodix: COORD-MODE frame %02x %02x %02x %02x %02x %02x %02x %02x\n",
++								    cm[0], cm[1], cm[2], cm[3], cm[4], cm[5], cm[6], cm[7]);
++								(void)goodix_write(command_address, cm, sizeof(cm));
++								for (ct = 0; ct < 20; ct++) {
++									if (goodix_read(command_address, ca, sizeof(ca))) {
++										cl = ca[1];
++										if (cl != 0x00 && cl != 0xff) break;
++									}
++									sleep_ms(20);
++								}
++								printf("goodix: COORD-MODE ack=%02x %s\n", cl,
++								    cl == 0x80 ? "OK-coordinate-mode" : "FAIL");
++								sleep_ms(50);
++							}
 +							/* Give the scan engine time to calibrate the new config. */
 +							sleep_ms(300);
 +						}
@@ -4488,7 +4532,7 @@ index 0000000..b033b90
 +
 +/* Read the report if there is one, and tell the chip it has been read. */
 +static void
-+goodix_poll(void)
++goodix_poll(unsigned int_at_entry)
 +{
 +	static uint8_t report[8 + 8 * GOODIX_MAX_TOUCHES + 2];
 +	/*
@@ -4534,7 +4578,12 @@ index 0000000..b033b90
 +		static uint8_t prev[8];
 +		static bool have_prev;
 +		bool ok = goodix_read(touch_address, report, first);
-+		bool int_low = gpio_get(PIN_INT) == 0;
++		/*
++		 * Use the level the caller saw when it decided to read: the pulse is
++		 * long gone by the time the transfer finishes, so re-reading here made
++		 * every "INT was low" branch dead code.
++		 */
++		bool int_low = int_at_entry == 0;
 +
 +		if (!ok) {
 +			if (read_fail++ < 6) {
@@ -4918,8 +4967,19 @@ index 0000000..b033b90
 +    printf("Pong touch: POLL start int=%u addr=%#x\n", gpio_get(PIN_INT), touch_address);
 +    unsigned idle=0, tick=0, hb_polls=0, hb_reports=0, hb_touches=0;
 +    for (;;) {
-+        if (!gpio_get(PIN_INT) || ++idle>=10) {idle=0;goodix_poll();}
-+        sleep_ms(8);
++        /*
++         * K60_POLL_FAST: the Goodix INT is a short pulse (the falling edge that
++         * says "a report is ready"), so sampling it every 8 ms and reading only
++         * when it happens to be low misses nearly every report. The driver that
++         * works on real hardware polls unconditionally every 16 ms
++         * (drivers/input/hakios.goodix.c:1516-1548, idle_looks = 16000/poll_us).
++         * Here the interval is 2 ms and the idle escape fires on the second
++         * pass, so the chip is read at least every 4 ms whether or not INT is
++         * low, and immediately when it is.
++         */
++        unsigned int_now = gpio_get(PIN_INT);
++        if (!int_now || ++idle >= 1) {idle=0;goodix_poll(int_now);}
++        sleep_ms(2);
 +        /*
 +         * K60_TOUCH_HB: the poll path returns silently when the chip has nothing
 +         * to say, so without a heartbeat there is no way to tell "the loop is

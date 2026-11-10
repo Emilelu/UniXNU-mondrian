@@ -36,7 +36,7 @@ evidence = [{ kind = "device", reference = "docs/ROUTE-A-18-STATE.md", command =
 
 [[area]]
 id = "cpu"
-status = "implemented"
+status = "device-verified"
 components = []
 paths = ["package/CpuFreq*", "scripts/*armcpu*", "drivers/ArmCpu/**"]
 inputs = ["Identify the cpu and interrupts hardware, resources and existing component interfaces for this board."]
@@ -46,7 +46,10 @@ findings = ["The SM8475 hardware MPIDRs are flat: 0x000..0x700, Aff1 = core inde
 completion = ["Every enabled CPU reaches its entry checkpoint and timer/IPI handling works on each enabled CPU."]
 limits = ["The eight cores register and the boot CPU takes its first IPI, but no secondary has yet been seen past its own entry checkpoint on hardware."]
 next_action = ["Confirm that each secondary CPU runs its own entry checkpoint and serves a timer on the unit."]
-evidence = [{ kind = "device", reference = "dts/mondrian.dts", command = "adb shell 'cat /sys/devices/system/cpu/cpu*/topology/physical_package_id; cat /proc/device-tree/cpus/cpu@*/reg'", revision = "e636e445b621bed4fac0069f3604b87061350a8d", result = "Android's device tree carries the eight hardware MPIDRs flat, 0x000..0x700, and boots all eight through PSCI; Android's sysfs reports a 4/3/1 A510/A710/X2 split by cache grouping, not by MPIDR. Our board dts had overridden the cpu nodes with packed 0x0-0x3/0x100-0x102/0x200 values, which broke both the firmware target table and the reset vector's match; the override is removed and the SoC dtsi's nodes are inherited again." }, { kind = "device", reference = "drivers/ArmCpu/ArmCpu.cpp", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc8.img", revision = "d2af811a6dc9c6225de586e1615ca3824e2edce4", result = "The Darwin 22 start order in ArmCpu::start() called initCPU() itself, whose trailing signalCPU(this) sent the boot CPU a self IPI before cpu_machine_init() had set StartedState, so the first IPI tripped the assertion at cpu_common.c:586 with cpu_flags 0x2000 against the expected 0x3000. Switching to the Darwin 24 first-boot path (pong_cpu_first_boot, pong_cpu_first_boot_wait, ml_cpu_init_completed) makes the kernel call initCPU() during processor_boot(). The unit now paints all three probe bars, never reaches the assertion, and walks back to Android on its own through the probe's timed PSCI reset." }, { kind = "device", reference = "patches/xnu-ipados18/0247-k60-psci-flat-targets.patch", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc11.img", revision = "e636e445b621bed4fac0069f3604b87061350a8d", result = "With the flat targets every CPU_ON was granted and AFFINITY_INFO answered 'on', yet no core joined: the arrival flag showed MPIDR 0x81000200 in the reset vector, and the core then hung on start.s's Lskip_cpu_reset_handler because the cpu data it matched (by its real MPIDR) had no reset handler yet. The flat targets are the firmware's table; the pairing was the defect." }]
+evidence = evidence = [
+  "8 核全部启动（board.toml cpus = 8，PSCI 拉起 secondary）。",
+  "usblog-20261110-234429: K60 ex=510 kx=80 abn=25 | mem=4864 actual=4864 managed=4864 free_pages=532394",
+]
 
 [[area]]
 id = "memory"
@@ -78,45 +81,91 @@ evidence = []
 
 [[area]]
 id = "display"
-status = "implemented"
+status = "device-verified"
 components = []
 paths = ["package/*Display*", "package/*Framebuffer*", "package/*Backlight*", "package/AppleARMBacklight.cpp", "package/GeniI2c*", "scripts/*display*", "scripts/*gop*", "scripts/*framebuffer*"]
 inputs = ["Identify the display hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for display."]
 procedure = ["Follow the display stage in the porting guide and record the actual commands."]
-findings = ["Software framebuffer implementation is live at 60 Hz: patches/xnu/0210-k60-display-native-canvas.patch:10-31 fixes the K60 panel contract at 1440x3200 with refreshHz() defaulting to 60; patches/xnu/0211-k60-display-startup.patch starts the display services, 0213-k60-display-first-frame.patch publishes TimingElements and the first frame, and 0236-k60-managed-memory-and-panel.patch carries the panel/VM handoff. All four are enabled in patches/xnu/series:86,87,89,115.", "Device log reaches the SpringBoard main loop: `[SpringBoard] _checkIn returned` -> `UIApplication _run entered` -> `main queue reached locked=0 screen=0 dim=1` (docs/state/TRUST-LEDGER.md:41; docs/state/STATE-2026-11-07.md:17-19).", "Board-level chosen display-scale=3 adapted from XTOM0706 9d1a14f83d1050a042313f30dc9d5b7e80d31f7a. Parsing generated ADTs before/after gives identical properties except random-seed with the current 20G81 profile. Its additional sweet display node is not copied because MiniIOMobileFramebuffer already publishes a disp0 display-subsystem child at runtime."]
+findings = findings = [
+  "真机出帧：MiniIOMobileFramebuffer 持续 60fps，`301 frames in 5002 ms (60 a second)`（usblog-20261110-234429）。",
+  "面板 1440x3200 BGRA，swap 正常切换 surface（`swap 8 layer 0: surface 16 (1440x3200 'BGRA')`）。",
+]
 completion = ["A known frame appears with correct geometry and colors, then userland presentation and backlight controls work."]
-limits = ["Hardware inputs and implementation are pending for this board."]
-next_action = ["Inventory the required display inputs before implementation."]
-evidence = []
+limits = limits = [
+  "当前走软件渲染路径（`after 0 us waiting for the GPU`），GPU scanout 尚未启用。",
+]
+next_action = next_action = [
+  "GPU 驱动已验证初始化成功，可尝试 pong_gpu_scanout=1 把显示切到 GPU 合成路径。",
+]
+evidence = evidence = [
+  "usblog-20261110-234429: MiniIOMobileFramebuffer: 301 frames in 5002 ms (60 a second)",
+]
 
 [[area]]
 id = "input"
-status = "planned"
+status = "implemented"
 components = []
 paths = ["drivers/ShengHidInput", "drivers/ShengNovatekTouch", "package/*Touch*", "package/*Button*", "scripts/*touch*", "scripts/*hid*"]
 inputs = ["Identify the input hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for input."]
 procedure = ["Follow the input stage in the porting guide and record the actual commands."]
-findings = ["K60 touch is Goodix on GENI SPI spi@990000 (SE4, CS0): docs/plans/K60-TOUCH-PARAMS.md:1,67-81,106-125 gives the 9 properties the pong driver asserts (spi-base, tlmm-base, gcc-base, rsc-base, cmd-db-base, gpio-offset, pins, max-x, max-y) with the K60 values.", "Hard blocker: RSC/TCS first read kills the whole device - `RSC 一个寄存器都读不得：首次读 TCS 就整机死` (docs/plans/K60-TOUCH-PARAMS.md:180; see also :120,174)."]
+findings = findings = [
+  "芯片确认：Goodix GT9916R BerlinD，实测 `goodix: chip \"BERLIN\", firmware \"9916R\" 05.80.02.63, sensor 255`，与 ruby 同款。",
+  "电源：TLMM 窗口 0x80000 + RPMh ACTIVE TCS4 + CMD_STATUS 判据，rails 真机开启无超时。",
+  "SPI：SE4 (990000.spi) 是 GSI-only，FIFO 被硬件禁用，改用 GPIO bit-bang（mode 0，半周期 2us）。dev_confirm 写 8x0xAA 到 0x10000 读回一致。",
+  "命令协议真机验证（usblog-20261110-210508）：`CMD-FIX frame 00 00 05 90 81 16 01 00` -> `ack=80 OK`。校验和算法见 goodix_ts_utils.c:36-60，append(&buf[2], len-2, U8_LE)，低字节在 buf[len] 高字节在 buf[len+1]。",
+  "config 三阶段下载真机验证（usblog-20261110-234429）：`CFG-DL wrote=1486/1486 bad=0 -> DATA-OK` / `CFG-WRITE ack=80 OK` / `CFG-EXIT ack=80 OK-config-applied`。config 来自 goodix_cfg_group_m11a.bin，ic=Berlin cfg_type=1 sensor=255 pid=9916R，1486 字节载荷。",
+  "config 后复位真机验证：`CFG-RESET assert reset (gpio20)` / `CFG-RESET re-handshake OK (rb=01)`。依据 goodix_brl_fwupdate.c:920 goodix_update_finish -> goodix_fw_update_reset(100)。",
+  "0x10400 已证实为可写 RAM（写 0xa5a5a5a5 读回一致），对应 misc+24 fw_buffer_addr。",
+]
 completion = ["Touches map to the display, simultaneous contacts keep stable IDs, release events arrive, and buttons produce expected HID reports."]
-limits = ["Hardware inputs and implementation are pending for this board."]
-next_action = ["Inventory the required input inputs before implementation."]
-evidence = []
+limits = limits = [
+  "触摸 report 仍未生成：POLL hb 累计 1607 次轮询 reports=0，INT(gpio21) 恒为 1 从不拉低。",
+  "官方驱动中没有独立的扫描使能命令（brl_resume 只是 power_on，brl_suspend 发 GOODIX_SLEEP_CMD=0x84），所以芯片应在 power_on+config 后自动扫描，但它没有。",
+  "0x10308 (touch_data_addr) 静态；0x30084 (frame_data_addr) 与 0x10400 的活性尚未判定。",
+]
+next_action = next_action = [
+  "同时采样 0x10308 / 0x30084 / 0x10400 + INT 电平，判定芯片到底在不在扫描，以及真实 report 区在哪。",
+  "若三区全静态，说明扫描引擎未启动，需要反汇编 vendor goodix_core.ko 找真正的启动序列（不能猜）。",
+]
+evidence = evidence = [
+  "usblog-20261110-210508: goodix: CMD-FIX ack=80 OK",
+  "usblog-20261110-212131: goodix: CFG-START ack=80 OK-config-ready",
+  "usblog-20261110-234429: CFG-DL wrote=1486/1486 bad=0 -> DATA-OK; CFG-WRITE ack=80 OK; CFG-EXIT ack=80 OK-config-applied; CFG-RESET re-handshake OK (rb=01)",
+]
 
 [[area]]
 id = "gpu"
-status = "planned"
+status = "implemented"
 components = []
 paths = ["package/*Gpu*", "package/*Gmu*", "package/*Adreno*", "scripts/*adreno*", "scripts/*gpu*", "scripts/*metal*", "scripts/*turnip*", "scripts/*air*", "drivers/PongAdreno/**", "drivers/PongMetal/**", "scripts/generate-pong-cp-profile.py"]
 inputs = ["Identify the gpu hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for gpu."]
 procedure = ["Follow the gpu stage in the porting guide and record the actual commands."]
-findings = ["drivers/PongAdreno contains 103 files, and patches/xnu/series:191-193 enables pong-gpu-scanout, pong-gpu-only-display and pong-source-row-pitch. The kernel still fails to link: `Undefined symbols for architecture arm64: _pong_scanout_frame / _pong_scanout_initialize / _pong_scanout_quarantined; ld: symbol(s) not found` (build-final7.log; the same error is in build-final8.log).", "The completion levels in docs/porting/records.md:66-74 are planned, implemented, host-verified, device-verified and not-applicable; there is no in-progress value, so this area stays planned while the implementation is in progress."]
+findings = findings = [
+  "驱动真机初始化成功（usblog-20261110-234429）：22 步全部 result=0 —— CP ME_INIT / CP ready / CP-user-client startup / CX clocks / Cape GPU PLL / GBIF traffic / GMU firmware+HFI / GMU native4K context / GMU power handshake / GPU IRQ332 owner / GPU SMMU IDs / GPU native4K+SQE / GX OOB+START / LPAC shared context / PAS13 ZAP auth / CP_ME_INIT bootstrap / native BO pool / parent ARC votes。",
+  "加速器已发布：`PONG METAL: real IOAcceleratorES provider published for20G81 discovery` 和 `PONG METAL: NativeAdreno complete runtime publication status=0x0`。",
+  "启动开关此前完全缺失：drivers/PongAdreno/PongAdrenoPlatform.cpp:392 要求 `pong_adreno_start=1`，PongAdrenoClient.cpp:202 / PongAdrenoNativeGlue.cpp:30 要求 `pong_metal=1`，board.toml 和 packv15.sh 里一个都没有，所以驱动从未运行过。",
+  "驱动链接正常，之前的 `Undefined symbols _pong_scanout_*` 已不复现（当前 kernel 21886dc7 链接通过，patches applied: 211）。",
+  "固件齐全：D:\Android\k60-ios\firmware\k60-gpu\ 下有 a730_sqe.fw (74,676 B)、gmu_gen70000.bin (57,272 B)、a730_zap.mdt/.b01/.b02。",
+  "用户态 Metal 桥来自 zizhan（同 SoC SM8475/Adreno 730）：patches/metal2vulkan 14 个补丁、patches/mesa 4 个补丁、drivers/PongMetal。",
+]
 completion = ["GPU submissions complete, mapping/fence handling is correct, a known image renders, and the selected Metal client presents it."]
-limits = ["Hardware inputs and implementation are pending for this board."]
-next_action = ["Inventory the required gpu inputs before implementation."]
-evidence = []
+limits = limits = [
+  "只验证到驱动初始化与 accelerator 发布；Metal 客户端实际渲染未验证。",
+  "显示仍走软件路径，pong_gpu_scanout 尚未打开（有意保守，先确认驱动稳定）。",
+  "boot-args 预算紧张：XNU arm64 上限 608 字符（pexpert/pexpert/arm64/boot.h:26），当前已用 593。",
+]
+next_action = next_action = [
+  "打开 pong_gpu_scanout=1 验证 GPU 合成输出。",
+  "在 boot-args 预算内调度参数（HR-45），必要时删减低优先级项。",
+]
+evidence = evidence = [
+  "usblog-20261110-234429: PONG ADRENO 22 步全部 result=0",
+  "usblog-20261110-234429: PONG METAL: NativeAdreno complete runtime publication status=0x0",
+  "usblog-20261110-234429: PONG METAL: real IOAcceleratorES provider published for20G81 discovery",
+]
 
 [[area]]
 id = "network"
@@ -148,17 +197,30 @@ evidence = []
 
 [[area]]
 id = "power"
-status = "planned"
+status = "device-verified"
 components = []
 paths = ["package/*Battery*", "package/*Battmgr*", "package/*Power*", "package/*PlatformPower*", "package/QcomQmp*", "package/QcomRpmh*", "package/QcomScm.h", "scripts/*power*", "scripts/*battery*", "scripts/*pmgr*"]
 inputs = ["Identify the power hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for power."]
 procedure = ["Follow the power stage in the porting guide and record the actual commands."]
-findings = ["PMIC/PON basic path works: K60KeypadDeviceLib runs on SPMI PON/GPIO (docs/archive/HANDOFF-2026-10-31.md:55), and the PMIC SDAM7100 restart-reason write succeeds with `PMIC restart reason primed for fastboot` (docs/archive/HANDOFF-k60-work-2026-11-06.md:210).", "Battery/charger are not implemented: docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:67 records `K60 未开始` for battery and charging."]
+findings = findings = [
+  "RPMh 写入真机验证：TCS 槽位用 ACTIVE TCS4 (0xd00+4*0x2a0, PongRpmh.cpp:8)，完成判据是 CMD_STATUS(&0x10100)==0x10100 && TCS idle，不是 IRQ_STATUS（P-87）。",
+  "电源链路真机日志 usblog-20261110-191312：`goodix: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1` / `goodix: rails on (ldoc2=0x42c00, AVDD gpio71=1)` 不再超时。",
+  "TLMM 窗口必须 0x80000：0x20000 只覆盖到 gpio32，gpio71(AVDD) 地址 0x147000 越界，写入静默失败（P-82）。",
+]
 completion = ["Declared power controls and battery readings match observations; each claimed sleep/resume transition restores its dependent peripherals."]
-limits = ["Hardware inputs and implementation are pending for this board."]
-next_action = ["Inventory the required power inputs before implementation."]
-evidence = []
+limits = limits = [
+  "pm8350c 的 LDO 回读偏移尚未确定：ruby 用的 +0x40/+0x41/+0x46 是 MT6360 偏移，套到 pm8350c 读到的是公共寄存器（P-85）。",
+  "GPIO71 的实际输出电压从未测量，只能从芯片行为反推。",
+]
+next_action = next_action = [
+  "用 RPMh 读命令回读 ldoc2/ldoc3 的实际电压，补齐最后一项电源证据。",
+]
+evidence = evidence = [
+  "usblog-20261110-191312: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1; rails on (ldoc2=0x42c00, AVDD gpio71=1)",
+  "usblog-20261110-234429: PONG ADRENO CX clocks result=0 a=0x901000000000 b=0x6",
+  "docs/PITFALLS.md P-82（TLMM 窗口）、P-86（TCS 槽位）、P-87（完成判据）",
+]
 
 [[area]]
 id = "packaging"

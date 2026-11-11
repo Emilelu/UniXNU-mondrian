@@ -4,15 +4,19 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 **当前目标：iOS 16.6.1（20G81）/ darwin22 上跑通完整硬件。**
 
-> 本 README 最后更新：2026-11-09。历史路线（darwin24 / iPadOS 18.7.10）已归档到 `archive/darwin24-main-20261103` 分支，不再维护。
+> 本 README 最后更新：2026-11-11。历史路线（darwin24 / iPadOS 18.7.10）已归档到 `chore/archive-darwin24-main-20261103`。4-main-20261103` 分支，不再维护。
 
 ## 分支
 
 | 分支 | 用途 |
 |---|---|
 | **`main`** | 主线（默认分支），所有可工作的阶段性成果都合到这里 |
-| `archive/first-frame-20261107` | 历史里程碑：iOS 16.6.1 用户态首帧 |
-| `archive/darwin24-main-20261103` | 已废弃的 darwin24（iPadOS 18）路线 |
+| `feat/first-frame-20261107` | 历史里程碑：iOS 16.6.1 用户态首帧（2026-11-07，独立历史线） |
+| `chore/archive-darwin24-main-20261103` | 已废弃的 darwin24（iPadOS 18）路线（归档保留） |
+
+> 2026-11-11 清理：删除了已完全合入 `main` 的 `fix/k60-measured-high-window`，
+> 以及与之重复的 `archive/first-frame-20261107`、`archive/darwin24-main-20261103`
+> 本地别名。远端现存 3 个分支。
 
 提交规范见 `AGENTS.md` 铁律 11：**改动后及时 commit，阶段性成果及时 push**（push 用 Windows 侧 git）。
 
@@ -20,18 +24,52 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 | 项 | 状态 | 证据 |
 |---|---|---|
-| Boot chain（UEFI → UniXNU loader → XNU → launchd） | ✅ | 启动日志 |
+| Boot chain（UEFI → UniXNU loader → XNU → launchd） | ✅ | `Pong init: exec original /sbin/launchd`，最大 pid 196 |
 | UFS / APFS 三窗（OS / SystemOS / Data） | ✅ | `PONG APFS: OS root binding PASS`、`K60DATA mounted ro=0 fstype=apfs` |
 | 显示首帧（1440×3200） | ✅ | `K60 DISPLAY: first frame presented (swap 1)` |
 | 背光（DCS 0x11/0x29/0x51） | ✅ | `K60 PANEL: bring-up complete` |
 | 锁屏 / SpringBoard | ✅ | `Pong UI: 20G81 compatibility library entered SpringBoard` |
-| launchd 稳定 | ✅ | 禁用 8 个 App-cryptex job 后不再 `initproc exited` |
+| launchd 稳定 | ✅ | `0394` 精选缓存（22 个核心 job）已并入 `0391`，写 `/private/var/pong/xpc/launchd.plist` |
 | **实体键（电源/音量）** | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `U _pong_buttons_init`），`configuration()` 结果不可观测 |
-| **触摸** | 🔄 | 时钟已修（QUP0 **SE1** 偏移 + HWCG 清除）；GENI SE FIFO 模式仍被拒；固件已从真机提取（`goodix_firmware_m11a.bin` 223,744 B，sha `1e647510…`） |
-| GPU（Adreno 730v3 scanout） | ❌ | 三补丁已 rebase（sha `cba010e4`/`77a95ade`/`8bc95a66`），卡在 `libPongAdrenoPlatform.a` 的 `-force_load` 作用域 |
+| **触摸** | 🔄 | 协议已确认为 **GTP**（`ANDROID-HW-TRUTH.md:16`），非 Berlin-D；SPI 全通、config `state=80`、芯片有中断与原始帧，但触点恒为 0；GTP 探针已就位待验证
+| GPU（Adreno 730v3） | 🔄 | 内核全链 `result=0`（42 行）、`CP ready`、`IOAcceleratorES` 已发布；Metal 插件 94,928 B 已部署且属主修为 0，`native Metal entry enabled` 已出现；插件注入 backboardd 仍崩溃（`-[NSURL fileURLWithPath:]`），当前用 `pong_metal=2` 绕开
 | WiFi / 蓝牙 / 音频 / 相机 / 传感器 / 电源 | 📋 | 八步调研已完成，实现进行中 |
 
 详细状态与缺口矩阵见 [`E:\k60-work\docs\PORTING-PIPELINE.md`](file:///E:/k60-work/docs/PORTING-PIPELINE.md)。
+
+
+## 2026-11-11 变更摘要
+
+### 从上游 `yibiya/fix/ui-startup-blob` 移植（该分支 2026-11-11 新建）
+
+此前该镜像的 refspec 只跟踪 `upstream-fix` 单分支，其它 5 个分支从未被下载。
+修复 refspec 后才发现这条分支含 319 个 `main` 没有的提交。
+
+| 修复 | 提交 | 解决的问题 |
+|---|---|---|
+| `userland/ui_compat.c` | `f291b52` | `CFPreferencesSetAppValue` 在 `__attribute__((constructor))` 里调用会阻塞主线程 → backboardd 崩溃。移到 `present_home()`（主队列运行时）。 |
+| `patches/xnu/0394` | `5198a67` | 原 launchd 服务缓存引用本移植不带的 App-cryptex 程序（`webbookmarksd`），launchd SIGSEGV → 内核 panic `initproc exited`。改为 22 个核心 job 的精选缓存。 |
+| `patches/xnu/0340` | `c6e555c` | UI 库换成上游的 95,856 B 版本（含上述修复）。 |
+
+`0394` 的调用点已并入 `0391`（两者抢同一处 `kern_exec.c` 锚点，独立应用会冲突）。
+
+### 触摸协议纠正
+
+`docs/ANDROID-HW-TRUTH.md:10-16`（2026-11-10 Android 实机实测）早已记录：
+K60 的触摸芯片走 **GTP 协议**（`/sys/class/input/event7 -> goodix_ts`），
+不是 Berlin-D（BRL）。此前所有 BRL 阶段的实验方向错误。
+
+已加入 GTP 寄存器探针：`0x8140`（版本）、`0x8047`（config 版本）、
+`0x804E`（状态）、`0x814E`（buffer status）。
+
+### 其他
+
+- **goodix resume**：来自从未入 series 的 `pong-goodix-resume.patch`，
+  reset + probe + 清除 report 字节，唤醒 Android 遗留的 sleep/gesture 状态。
+- **Metal 插件部署**：94,928 B，用 2026-11-11 源码在 Mac 上重编并签名，
+  通过 `0340` 的同一机制写入 `/private/var/pong/PongAdrenoMetal.bundle/`。
+- **工具链**：新增 `scripts/track-upstream-branches.py`（上游全分支追踪，
+  含 zizhan 等参考仓库）；`gate.py` 新增 `[P]` 协议断言与 `[Q]` 补丁结构校验。
 
 ## 结构
 

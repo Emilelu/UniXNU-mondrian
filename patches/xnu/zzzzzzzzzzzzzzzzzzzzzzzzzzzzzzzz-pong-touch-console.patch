@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1062 @@
+@@ -0,0 +1,1074 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -628,6 +628,11 @@ index 0000000..b033b90
 +#define GOODIX_STATUS_TOUCH     0x80
 +#define GOODIX_STATUS_REQUEST   0x40
 +#define GOODIX_REQUEST_RESET    3
++/* The chip asks for a config with code 0x01 after a reset
++ * (goodix_brl_hw.c:1206, BRL_REQUEST_CODE_CONFIG). We have no config to
++ * send yet, so the request is only counted and logged; a silent drop here
++ * would look exactly like a chip that simply never reports a touch. */
++#define GOODIX_REQUEST_CONFIG   1
 +
 +static uint8_t spi_tx[8 + GOODIX_MAX_READ], spi_rx[8 + GOODIX_MAX_READ];
 +static uint32_t touch_address, command_address;
@@ -875,7 +880,7 @@ index 0000000..b033b90
 +goodix_poll(void)
 +{
 +    static uint8_t report[8 + 8 * GOODIX_MAX_TOUCHES + 2];
-+    static unsigned complaints;
++    static unsigned complaints, configRequests;
 +    const uint8_t zero = 0;
 +    const uint32_t first = 8 + 8 * 2 + 2;
 +    bool valid = true, reset = false;
@@ -900,7 +905,13 @@ index 0000000..b033b90
 +            if (valid && count && !goodix_checksum_ok(report + 8, 8 * count + 2)) valid = false;
 +            if (valid && !goodix_contacts_valid(report + 8, count)) valid = false;
 +        }
-+        if (report[0] & GOODIX_STATUS_REQUEST) reset = report[2] == GOODIX_REQUEST_RESET;
++        if (report[0] & GOODIX_STATUS_REQUEST) {
++           reset = report[2] == GOODIX_REQUEST_RESET;
++           if (report[2] == GOODIX_REQUEST_CONFIG && configRequests++ < 8) {
++               printf("goodix: chip requested a config (code %#x); none available yet\n",
++                   report[2]);
++           }
++       }
 +    }
 +    if (!goodix_write(touch_address, &zero, 1)) {
 +        if (complaints++ < 8) printf("goodix: report status clear failed\n");
@@ -1079,7 +1090,7 @@ index 0000000..b033b90
 +    }
 +}
 +#endif /* PONG */
-
++
 diff --git a/bsd/dev/pong_input.c b/bsd/dev/pong_input.c
 new file mode 100644
 index 0000000..57e74e5

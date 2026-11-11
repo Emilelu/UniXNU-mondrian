@@ -3253,3 +3253,40 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
 **下一项测量**：从 Android 确认 `goodix_ts` 是否真的发送了 config，
 以及不发送 config 时芯片是否仍能上报。判据：Android 启动日志里有没有
 `success send config`。
+
+### P-135 ★★★ 芯片会主动请求 config（code 0x01），我们只处理了 reset（0x03）
+
+- **官方实现**（`goodix_brl_hw.c:1204-1212`）：
+  ```c
+  if (event_status & GOODIX_REQUEST_EVENT) {
+      if (pre_buf[2] == BRL_REQUEST_CODE_CONFIG)      // 0x01
+          ts_event->request_code = REQUEST_TYPE_CONFIG;
+      else if (pre_buf[2] == BRL_REQUEST_CODE_RESET)  // 0x03
+          ts_event->request_code = REQUEST_TYPE_RESET;
+  }
+  ```
+  然后 `goodix_ts_request_handle`（`goodix_ts_core.c:1216-1219`）：
+  ```c
+  if (request_code == REQUEST_TYPE_CONFIG)
+      ret = goodix_send_ic_config(cd, CONFIG_TYPE_NORMAL);
+  else if (request_code == REQUEST_TYPE_RESET)
+      ret = hw_ops->reset(cd, GOODIX_NORMAL_RESET_DELAY_MS);
+  ```
+- **我们的实现**：只有 `reset = report[2] == GOODIX_REQUEST_RESET;`
+  **config 请求（0x01）被静默丢弃。**
+- **为什么这是关键**：芯片复位后会主动要求主机下发 config。不应答 = 芯片停在
+  「等 config」状态 = 不产生触点报告。这与观测到的「0x10308 首字节恒 0x00」
+  完全吻合。
+- **本轮动作**：先加**诊断探针**（不猜实现）：
+  ```c
+  if (report[2] == GOODIX_REQUEST_CONFIG && configRequests++ < 8)
+      printf("goodix: chip requested a config (code %#x); none available yet\n", report[2]);
+  ```
+  上机后若看到这条日志，就证明芯片确实在请求 config，下一步才实现 `send_config`。
+- **教训**：
+  1. **event 状态位里的「子类型」必须逐个处理。** 我们处理了 `GOODIX_STATUS_TOUCH`(0x80)
+     和 `GOODIX_STATUS_REQUEST`(0x40) 的大类，但 REQUEST 的子码 0x01/0x03 只处理了一个。
+  2. **「静默丢弃」是最难查的 bug 类型。** 没有日志、没有错误码，表现就是「芯片不动」。
+     正确做法是先加计数和日志，把静默变可见。
+  3. **八步流程要求 ⑥ 深挖时消解全部不确定项。** 之前把 REQUEST 当成「只有 reset」，
+     是没有逐行核对官方 `brl_event_handler` 的结果。

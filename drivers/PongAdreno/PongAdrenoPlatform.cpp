@@ -140,15 +140,22 @@ static bool poll(const Mapping &m,size_t at,uint32_t mask,uint32_t wanted,unsign
     }
     return false;
 }
+/* Hold the highest AUX corner the firmware itself advertises. APSS DRV2
+ * served every boot-firmware consumer before XNU existed, so lowering an
+ * unknown retained vote would cut power under another owner. This is the
+ * selection the upstream driver booted with on this board (its startup
+ * reported result=0 for every step, "parent ARC votes" included); the
+ * minimum-threshold variant was never the one that ran. Never invent a
+ * corner or exceed the firmware's own table. */
 static unsigned required_corner(const PongPowerResource &rail,unsigned minimum)
 {
-    // Resolve real AUX indices for initial GMU200MHz/HUB150MHz rates.
-    // CX LOW_SVS64 and MX minimum192 come from vendor and cmd-db mol.
-    for(unsigned i=1;i<rail.bytes/2 && i<16;i++) {
+    unsigned index=16,highest=0;
+    (void)minimum;
+    for(unsigned i=0;i<rail.bytes/2 && i<16;i++) {
         unsigned level=rail.aux[2*i]|unsigned(rail.aux[2*i+1])<<8;
-        if(level>=minimum)return i;
+        if(level>highest){highest=level;index=i;}
     }
-    return 16;
+    return index;
 }
 static bool vote_parents(const PongPowerInputs &in)
 {
@@ -402,10 +409,18 @@ static void run(void *,wait_result_t)
     // can record a refused monitor request without losing the working chain.
     IOSleep(8000);
     record("startup requested; no accelerator published",0);
-    rsc.physical=0x17a20000;rsc.bytes=0x10000;rsc.secure=true;
+    /* APSS RSC is a plain MMIO window on this board. Upstream's driver
+     * initialized on hardware with a direct mapping (its 22-step startup
+     * reported result=0 for every step, including "parent ARC votes"), while
+     * routing the same accesses through the Qualcomm secure-I/O service was
+     * refused by the monitor with -2 before any vote was written. Use the
+     * direct window and keep the SMC helper out of this path. */
+    rsc.physical=0x17a20000;rsc.bytes=0x10000;rsc.secure=false;
     if(!map(gcc,0x100000,0x1000)||!map(gcc_vote,0x162000,0x1000)||
         !map(gcc_branches,0x181000,0x1000)||!map(db,0x80860000,0x20000))
         {record("SKIP resource mapping",1);return;}
+    if(!map(rsc,0x17a20000,0x10000))
+        {record("SKIP RSC map",1);return;}
     PongPowerInputs inputs={};auto input_status=PongAdrenoReadPowerInputs(
         reinterpret_cast<const uint8_t *>(db.cpu),db.bytes,PongAdrenoChipId,&inputs);
     if(input_status){record("SKIP command-db",input_status);return;}

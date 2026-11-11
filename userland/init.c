@@ -331,6 +331,82 @@ unpack_boot_jobs(const char *archive, const char *dest)
     return failed ? -1 : 0;
 }
 
+/* bindfs needs a real directory on writable Data. Never follow an existing
+ * symlink here: these root-owned views are later read by mobile processes. */
+static int
+wallpaper_directory(const char *path)
+{
+    struct stat st;
+    if (lstat(path, &st) != 0) {
+        if (errno != 2 || mkdir(path, 0755) != 0 || chown(path, 0, 0) != 0)
+            return -1;
+    } else if ((st.st_mode & S_IFMT) != S_IFDIR || st.st_uid != 0 || (st.st_mode & 022)) {
+        return -1;
+    }
+    return chmod(path, 0755);
+}
+
+/* Expose exactly the names in the preserved Apple directory. The view holds
+ * symlinks only, not images or renamed iPad metadata pretending to be iPhone
+ * content. A compatible phone catalogue must actually be supplied by 20G81. */
+static int
+wallpaper_aliases(void)
+{
+    static unsigned char entries[4096];
+    const char *stock = "/private/var/pong/stock-wallpaper";
+    const char *view = "/private/var/pong/Wallpaper";
+    int fd = open(stock, O_RDONLY | O_DIRECTORY, 0), failed = 0, made = 0;
+    off_t position = 0;
+    ssize_t n;
+    if (fd < 0) return -1;
+    while ((n = getdirentries(fd, entries, sizeof(entries), &position)) > 0) {
+        size_t offset = 0;
+        while (offset < (size_t)n) {
+            const struct dirent *entry = (const struct dirent *)(entries + offset);
+            size_t header = offsetof(struct dirent, d_name);
+            if ((size_t)n - offset < header || entry->d_reclen < header + 1 ||
+                entry->d_reclen > (size_t)n - offset || !entry->d_namlen ||
+                entry->d_namlen >= sizeof(entry->d_name) ||
+                header + entry->d_namlen + 1 > entry->d_reclen ||
+                entry->d_name[entry->d_namlen] != 0) {
+                failed = 1; break;
+            }
+            offset += entry->d_reclen;
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+            size_t length = entry->d_namlen;
+            int valid = 1;
+            for (size_t i = 0; i < length; i++)
+                if (!entry->d_name[i] || entry->d_name[i] == '/') valid = 0;
+            char source[512], target[512], existing[512];
+            size_t sl = strlen(stock), tl = strlen(view);
+            if (!valid || sl + length + 2 > sizeof(source) || tl + length + 2 > sizeof(target)) {
+                failed = 1; break;
+            }
+            memcpy(source, stock, sl); source[sl++] = '/';
+            memcpy(source + sl, entry->d_name, length + 1);
+            memcpy(target, view, tl); target[tl++] = '/';
+            memcpy(target + tl, entry->d_name, length + 1);
+            struct stat st;
+            if (lstat(target, &st) == 0) {
+                ssize_t count = (st.st_mode & S_IFMT) == S_IFLNK ?
+                    readlink(target, existing, sizeof(existing)) : -1;
+                if (count != (ssize_t)strlen(source) || memcmp(existing, source, (size_t)count)) {
+                    printf("Pong init: wallpaper alias conflict %s\n", target);
+                    failed = 1; break;
+                }
+            } else if (errno != 2 || symlink(source, target) != 0) {
+                failed = 1; break;
+            }
+            made++;
+        }
+        if (failed) break;
+    }
+    if (n < 0) failed = 1;
+    close(fd);
+    printf("Pong init: genuine stock wallpaper aliases=%d result=%d\n", made, failed ? -1 : 0);
+    return failed || made == 0 ? -1 : 0;
+}
+
 /* Same composition as HackiOS init: hide physical audio plug-ins before
  * mediaserverd scans them. Keep mediaserverd for VideoToolbox/HEIC decoding.
  * The optional job set is a real 20G81 directory supplied in writable Data. */
@@ -342,6 +418,11 @@ prepare_boot_services(void)
      * helper before PID 1 exists. */
     (void)unpack_boot_jobs("/private/var/pong/boot-jobs.pack",
         "/private/var/pong/boot-jobs");
+    int wallpaper_ready = 0;
+    int wallpaper_dirs = wallpaper_directory("/private/var/pong/stock-wallpaper") == 0 &&
+                         wallpaper_directory("/private/var/pong/Wallpaper") == 0;
+    if (!wallpaper_dirs)
+        printf("Pong init: wallpaper view directories unavailable errno=%d\n", errno);
     static const struct { const char *source, *target; } views[] = {
         /* Bind over the directory launchd actually reads. The stock apply()
          * pipeline leaves a /pong/LaunchDaemons symlink behind, but the sealed
@@ -365,9 +446,14 @@ prepare_boot_services(void)
     };
     for (unsigned i = 0; i < sizeof(views)/sizeof(views[0]); i++) {
         struct stat source, target;
-        if (strcmp(views[i].target,"/Library/Wallpaper")==0 &&
-            stat("/private/var/pong/stock-wallpaper/Collections/Collections~ipad.plist",&source)!=0) {
-            puts("Pong init: wallpaper aliases SKIP (stock view unavailable)");
+        if (strcmp(views[i].source,"/Library/Wallpaper")==0 &&
+            (!wallpaper_dirs || stat("/Library/Wallpaper/Collections/Collections~ipad.plist",&source)!=0 ||
+             (source.st_mode&S_IFMT)!=S_IFREG)) {
+            puts("Pong init: stock wallpaper view SKIP (genuine 20G81 catalogue unavailable)");
+            continue;
+        }
+        if (strcmp(views[i].target,"/Library/Wallpaper")==0 && !wallpaper_ready) {
+            puts("Pong init: wallpaper aliases SKIP (stock view or aliases unavailable)");
             continue;
         }
         if (lstat(views[i].source,&source)!=0 || (source.st_mode&S_IFMT)!=S_IFDIR ||
@@ -379,6 +465,8 @@ prepare_boot_services(void)
         int result=mount("bindfs",views[i].target,MNT_RDONLY,(void *)views[i].source);
         printf("Pong init: boot view %s -> %s result=%d errno=%d\n",
                views[i].source,views[i].target,result,result?errno:0);
+        if (strcmp(views[i].source,"/Library/Wallpaper")==0 && result==0)
+            wallpaper_ready = wallpaper_aliases() == 0;
     }
 }
 

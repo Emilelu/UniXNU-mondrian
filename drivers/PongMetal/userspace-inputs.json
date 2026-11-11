@@ -1,0 +1,75 @@
+{
+  "guest": {
+    "version": "16.6.1",
+    "build": "20G81",
+    "clang_target": "arm64-apple-ios16.6.1",
+    "rust_target": "aarch64-apple-ios",
+    "signature_page_bytes": 4096,
+    "device_instance_bytes": 528,
+    "chip_id": "0x07030002",
+    "publication_default": false
+  },
+  "core_inputs": {
+    "revision": "d07f3c3fc44fe3932be47af3cd5f3c169a531ee4",
+    "mesa_record": "scripts/data/adreno-compiler-inputs.json",
+    "translator_record": "scripts/data/gpu-metal-vulkan-inputs.json",
+    "mesa_commit": "85fda3b36405bcaea8bffc64aa4f2651dc90770d",
+    "translator_commit": "720ef1ce9ae2a2068999a8675717418b9416283e",
+    "mesa_patches": [
+      "patches/mesa/freedreno-tools-nir.patch",
+      "patches/mesa/ir3-darwin-build-id.patch",
+      "patches/mesa/ir3-portable-asm-roundtrip.patch",
+      "patches/mesa/offline-adreno-compiler-probe.patch",
+      "patches/mesa/turnip-darwin-kmd.patch",
+      "patches/mesa/turnip-graphics-cache-feedback.patch",
+      "patches/mesa/turnip-empty-scissor.patch",
+      "patches/mesa/turnip-builtin-shader-pack.patch",
+      "patches/mesa/turnip-host-import-images.patch"
+    ],
+    "reason": "The recorded Pong backend uses bounded BO retirement. Later core revisions replace its allocation/retirement implementation and are not interchangeable with the Pong scoped-heap/reclaim patches."
+  },
+  "metal_module": {
+    "repository": "https://github.com/UniXNU/AdrenoMetal.git",
+    "revision": "ce5e19e33e05e1873d38d818e23cabfe0ac708c3",
+    "patches": [
+      "bridge/patches/0001-optional-constant-output-members.patch",
+      "bridge/patches/0002-resource-wait-storage-dependencies.patch",
+      "bridge/patches/0003-cache-device-entry-point-priming.patch",
+      "bridge/patches/0004-fold-constant-global-field-loads.patch",
+      "bridge/patches/0005-keep-module-decodes-and-profile-fingerprints.patch",
+      "bridge/patches/0006-skip-draws-without-a-pipeline.patch",
+      "bridge/patches/0007-accept-two-plane-rgb-surfaces.patch"
+    ],
+    "dependency_lock": "tools/metal-vulkan-probe.lock"
+  },
+  "device_patches": {
+    "mesa": [
+      "patches/mesa/0001-pong-scoped-gpu-heap.patch",
+      "patches/mesa/0002-pong-allocation-pressure-reclaim.patch"
+    ],
+    "translator": [
+      "patches/metal2vulkan/0008-pong-ios16-20G81-policy.patch",
+      "patches/metal2vulkan/0009-pong-owned-iosurface-row-padding.patch"
+    ]
+  },
+  "host": {
+    "python_minimum": "3.12",
+    "rust_toolchain": "1.98.0",
+    "meson": "1.9.1",
+    "requirements_record": "scripts/requirements-adreno-compiler.txt",
+    "glslang_minimum": "12.2",
+    "reference_packages": {
+      "clang-18": "1:18.1.3-1ubuntu1",
+      "lld-18": "1:18.1.3-1ubuntu1",
+      "llvm-18": "1:18.1.3-1ubuntu1",
+      "ninja-build": "1.11.1-2",
+      "bison": "2:3.8.2+dfsg-1ubuntu0.24.04.1",
+      "flex": "2.6.4-8.2build1",
+      "glslang-tools": "15.1.0-2~ubuntu0.24.04.2"
+    },
+    "sdk": "External real iPhoneOS SDK. The retained iPhoneOS16.5.sdk directory identifies itself as iPhoneOS16.4 in SDKSettings.json.",
+    "cpp_abi": "Use this SDK's usr/include/c++/v1 and /usr/lib/libc++.1.dylib (__1), not Linux or Android C++ headers/libraries.",
+    "ndk_required": false,
+    "signing": "Mach-O LLD -adhoc_codesign signs at link time; never call the kernel's no-op codesign shim."
+  }
+}

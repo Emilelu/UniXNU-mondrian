@@ -185,11 +185,42 @@ def check_root_docs_linked(verbose=True):
     return problems, counted
 
 
+
+# README 章节的重要性顺序（2026-11-12 用户要求按重要性排序）
+SECTION_ORDER = {
+    'README.md': ['八步流程进度', '构建', '门禁', '数据安全', '作业纪律',
+                  '结构', '四层仓库', '分支', '文档', '许可'],
+    'README_EN.md': ['Eight-step progress', 'Building', 'Gates', 'Data safety',
+                     'Working discipline', 'Layout', 'Four-layer repository model',
+                     'Branches', 'Documentation', 'License'],
+}
+
+
+def check_section_order(verbose=True):
+    """README 的 ## 章节必须严格按重要性顺序排列"""
+    problems = []
+    counted = 0
+    for name, expected in SECTION_ORDER.items():
+        path = os.path.join(REPO, name)
+        if not os.path.exists(path):
+            continue
+        s = io.open(path, encoding='utf-8', errors='ignore').read()
+        actual = re.findall(r'^## (.+)$', s, re.M)
+        counted += len(expected)
+        if actual != expected:
+            problems.append('%s 章节顺序不符。期望 %s；实际 %s'
+                            % (name, ' → '.join(expected), ' → '.join(actual)))
+    if verbose:
+        print('  检查 %d 个章节的顺序' % counted)
+    return problems, counted
+
+
 def run(verbose=True):
     all_problems = []
     total = 0
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
-               check_root_docs_linked, check_bilingual, check_freshness):
+               check_root_docs_linked, check_section_order, check_bilingual,
+               check_freshness):
         p, n = fn(verbose)
         all_problems += p
         total += n

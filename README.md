@@ -33,13 +33,42 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 > 八步定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
 <!-- EIGHT-STEP-TABLE:END -->
 
-## 分支
+## 构建
 
-| 分支 | 用途 |
+```bash
+./unixnu build kernel -D .
+```
+
+产物：`build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`。
+
+本地构建脚本位于工作区（不在仓库内），流程见
+[`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md)。
+
+## 门禁
+
+四个检查在构建/刷机前自动运行，任一失败即中止：
+
+| 门禁 | 检查内容 |
 |---|---|
-| **`main`** | 主线（默认分支），所有可工作的阶段性成果都合到这里 |
-| `feat/first-frame-20261107` | 历史里程碑：iOS 16.6.1 用户态首帧（独立历史线） |
-| `chore/archive-darwin24-main-20261103` | 已废弃的 darwin24（iPadOS 18）路线（归档保留） |
+| `scripts/research-gate.py` | `docs/research/SOURCES.toml` 里每个参考源都已考察并写下 finding |
+| `scripts/eight-step-gate.py` | 八步证据完整；`build` 需 ①–⑥，`flash` 需 ①–⑦ + ⑧ 预测 |
+| `scripts/porting-gate.py` | `porting.toml` 符合官方 schema；`README` 八步表与数据一致 |
+| `scripts/render-eight-step-table.py --check` | README 表格与 `EIGHT-STEPS.toml` 一致 |
+
+## 数据安全
+
+- bring-up 全程只用 `fastboot boot`（RAM 临时引导），**不 flash 任何分区**。
+- XNU 的 root/Data 使用独立 `unixnu` 分区，不写安卓 `userdata`。
+- **绝对禁止** `fastboot flash persist` / `flash all`（TEE 密钥永久损坏）。
+
+## 作业纪律
+
+1. **八步流水线**：同型 → 官方 → 反编译 → 广域 → 方案 → 深挖 → 核验 → 上机。
+   缺一步不得上机。定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
+2. **先查官方组件目录**：动手写驱动前必须查 `UniXNU/components.toml`
+   与 [驱动仓库列表](https://unixnu.com/zh/drivers/repositories)，避免重复造轮子。
+3. **坑必记录**：[`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md)。
+4. **改动后及时 commit，阶段性成果及时 push。**
 
 ## 结构
 
@@ -65,42 +94,13 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | 设备 | 本仓库 | `board.toml`、`dts/mondrian.dts`、`patches/xnu/` |
 | 固件 | [uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium 构建树 |
 
-## 构建
+## 分支
 
-```bash
-./unixnu build kernel -D .
-```
-
-产物：`build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`。
-
-本地构建脚本位于工作区（不在仓库内），流程见
-[`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md)。
-
-## 门禁
-
-四个检查在构建/刷机前自动运行，任一失败即中止：
-
-| 门禁 | 检查内容 |
+| 分支 | 用途 |
 |---|---|
-| `scripts/research-gate.py` | `docs/research/SOURCES.toml` 里每个参考源都已考察并写下 finding |
-| `scripts/eight-step-gate.py` | 八步证据完整；`build` 需 ①–⑥，`flash` 需 ①–⑦ + ⑧ 预测 |
-| `scripts/porting-gate.py` | `porting.toml` 符合官方 schema；`README` 八步表与数据一致 |
-| `scripts/render-eight-step-table.py --check` | README 表格与 `EIGHT-STEPS.toml` 一致 |
-
-## 作业纪律
-
-1. **八步流水线**：同型 → 官方 → 反编译 → 广域 → 方案 → 深挖 → 核验 → 上机。
-   缺一步不得上机。定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
-2. **先查官方组件目录**：动手写驱动前必须查 `UniXNU/components.toml`
-   与 [驱动仓库列表](https://unixnu.com/zh/drivers/repositories)，避免重复造轮子。
-3. **坑必记录**：[`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md)。
-4. **改动后及时 commit，阶段性成果及时 push。**
-
-## 数据安全
-
-- bring-up 全程只用 `fastboot boot`（RAM 临时引导），**不 flash 任何分区**。
-- XNU 的 root/Data 使用独立 `unixnu` 分区，不写安卓 `userdata`。
-- **绝对禁止** `fastboot flash persist` / `flash all`（TEE 密钥永久损坏）。
+| **`main`** | 主线（默认分支），所有可工作的阶段性成果都合到这里 |
+| `feat/first-frame-20261107` | 历史里程碑：iOS 16.6.1 用户态首帧（独立历史线） |
+| `chore/archive-darwin24-main-20261103` | 已废弃的 darwin24（iPadOS 18）路线（归档保留） |
 
 ## 文档
 

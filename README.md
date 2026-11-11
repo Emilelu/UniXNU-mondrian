@@ -102,6 +102,24 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 - XNU 的 root/Data 使用独立 `unixnu` 分区，不写安卓 `userdata`。
 - **绝对禁止** `fastboot flash persist` / `flash all`（TEE 密钥永久损坏）。
 
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/INDEX.md`](docs/INDEX.md) | **文档总入口**：阅读顺序、全量目录、门禁命令 |
+| [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | 硬件状态明细与变更记录 |
+| [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | 八步流程规范 |
+| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★35 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-130 |
+| [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |
+| [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | 逐硬件的八步证据（门禁数据源） |
+| [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | 必须考察的参考源清单（门禁数据源） |
+| [`CREDITS.md`](CREDITS.md) | 贡献者与全部外部来源 |
+| [`AGENTS.md`](AGENTS.md) | 仓库级 agent 约定 |
+| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | 第三方许可证声明 |
+| [`v98-source.md`](v98-source.md) | v98 构建的源码集快照说明 |
+| [`README_EN.md`](README_EN.md) | English |
+
 ## 许可
 
 设备级代码采用 BSD-2-Clause-Patent。导入组件保留各自 SPDX 标记与原始许可证。

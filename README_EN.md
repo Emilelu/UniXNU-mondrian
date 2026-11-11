@@ -105,6 +105,24 @@ Four checks run automatically before build or flash; any failure aborts:
 - XNU root/Data lives on a separate `unixnu` partition and never touches Android `userdata`.
 - **Never run** `fastboot flash persist` or `flash all` (permanent TEE key damage).
 
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/INDEX.md`](docs/INDEX.md) | **Documentation entry point**: reading order, full tree, gate commands |
+| [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status detail and change log |
+| [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
+| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★35 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-130 |
+| [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
+| [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | Per-hardware eight-step evidence (gate data source) |
+| [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | Required reference sources (gate data source) |
+| [`CREDITS.md`](CREDITS.md) | Contributors and all external sources |
+| [`AGENTS.md`](AGENTS.md) | Repository-level agent conventions |
+| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Third-party license notices |
+| [`v98-source.md`](v98-source.md) | Source set snapshot for the v98 build |
+| [`README.md`](README.md) | 中文版 |
+
 ## License
 
 Device-level code is BSD-2-Clause-Patent. Imported components keep their own SPDX

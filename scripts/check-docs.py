@@ -155,11 +155,41 @@ def check_subdir_indexes(verbose=True):
     return problems, counted
 
 
+
+def check_root_docs_linked(verbose=True):
+    """仓库根目录每个 .md（除 README.md 自身）都必须被 README.md 链接，
+    且 README.md 必须链接 docs/INDEX.md 作为文档总入口。"""
+    problems = []
+    README = os.path.join(REPO, 'README.md')
+    if not os.path.exists(README):
+        return ['README.md 不存在'], 0
+    s = io.open(README, encoding='utf-8', errors='ignore').read()
+
+    counted = 0
+    for name in sorted(os.listdir(REPO)):
+        if not name.endswith('.md'):
+            continue
+        if name == 'README.md':
+            continue
+        counted += 1
+        if '](%s)' % name not in s:
+            problems.append('根目录 %s 未在 README.md 中链接' % name)
+
+    # docs/INDEX.md 必须作为文档总入口被链接
+    counted += 1
+    if '](docs/INDEX.md)' not in s:
+        problems.append('README.md 未链接 docs/INDEX.md（文档总入口）')
+
+    if verbose:
+        print('  检查 %d 个根目录文档与 docs 入口的 README 链接' % counted)
+    return problems, counted
+
+
 def run(verbose=True):
     all_problems = []
     total = 0
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
-               check_bilingual, check_freshness):
+               check_root_docs_linked, check_bilingual, check_freshness):
         p, n = fn(verbose)
         all_problems += p
         total += n

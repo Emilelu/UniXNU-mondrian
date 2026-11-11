@@ -1,0 +1,95 @@
+# EIGHT-STEPS.toml — 每个硬件修复的八步流程记录
+#
+# 八步（EIGHT-STEP-EVIDENCE.md）：
+#   ① 同型   ② 官方   ③ 反编译   ④ 广域   ⑤ 方案   ⑥ 深挖   ⑦ 核验   ⑧ 上机
+#
+# 规则：
+#   - build 需要 ①~⑥ 全部有依据
+#   - flash 需要 ①~⑦ 全部 + ⑧ 的 prediction.success / prediction.failure
+#   - 每条 evidence 必须含可核查引用：file:line / URL / usblog-YYMMDD-HHMMSS / 0x… / P-xx / ★xx
+#   - ⑦ 核验必须 local_verified = true（不刷机就能证明）
+#   - 没做过的步骤写 done = false 并说明缺什么，不要编
+#
+# 维护纪律：状态只能按实际证据升级，不能为了让门禁通过而填。
+
+[hardware.touch]
+name = "触摸（Goodix GT9916R / BERLIN）"
+
+[hardware.touch.step.same_model]
+done = true
+evidence = "同型号 mondrian 在 unixnu.com/devices/mondrian-mzyxsl 记录 Input = planned，明确写着『No captured report proves that the Goodix controller answers on this unit』；本机自己的 Android 侧 goodix_ts 正常工作（/sys/class/input/event7）。参考 references/UniXNU-pong/userland/touch.c 只有 Pong 原机实现，不同芯片。"
+
+[hardware.touch.step.official]
+done = true
+evidence = "官方移植指南 https://unixnu.com/zh/porting/input 给出总线/传感器协议/引脚/中断/固件/触点ID/坐标映射七项；官方 Goodix Berlin 驱动 goodix_brl_hw.c 提供 brl_send_config 与 brld_get_framedata 的完整流程，见 docs/engineering/TOUCH-STATEMACHINE.md。"
+
+[hardware.touch.step.decompile]
+done = true
+evidence = "Android 实机取证写入 docs/engineering/ANDROID-HW-TRUTH.md：IOVDD = pm8350c_l2 1.8V、AVDD 非 pm8350c_l3；DT 节点 compatible = xiaomi,m11a-spi。K60-TOUCH-DT-EVIDENCE.md 记录 /proc/device-tree/soc/spi@990000/xiaomi_touch@0/ 全部属性。2026-11-11 实测纠正协议结论：BRL 0x10000 读出 BERLIN 9916R 05.80.02.63，GTP 0x8140 全 0（见 P-129）。"
+
+[hardware.touch.step.wide]
+done = true
+evidence = "同 SoC SM8475 兄弟移植 references/phk110-port/docs/phk110/waves/wave12c-electrical.md 记录触摸 PASS 全流程（20ms 节拍 + 分帧收割）；wave12b-probe-verdict.md 记录软件链 1-4 环闭环；wave12-touch-buttons.md 记录 cape/sm8475 的 GCC 与 mainline sm8450 不同（m/s_ahb FDT 索引 134/135 vs 118/119）。同外设芯片参考 references/phk110-port/drivers/input/hakios.goodix.c 是 POCO X5 Pro(redwood/SM8350) 的，机型不同已标注。"
+
+[hardware.touch.step.plan]
+done = true
+evidence = "方案：保持 BRL 协议（P-129 实测结论）；轮询节拍按同 SoC 实测从 2ms 改为 20ms（PITFALLS.md P-129）；config 下发走官方 brl_send_config 路径；报告从 frame_data_addr 读取并要求 byte0 & 0x80。改动落在 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch。"
+
+[hardware.touch.step.deep]
+done = true
+evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行，官方 Goodix 驱动状态机逐段提取）与 PITFALLS.md P-122/P-124：0x10308 跨几十次读取返回同一串字节，与『每 CS 帧一块、20ms 重新武装』的节拍假设自洽；0x10400 byte2 恒为 0 说明报告计数位未被填充。"
+
+[hardware.touch.step.verify]
+done = false
+local_verified = false
+evidence = "未做本地核验。缺：① 没有对 BRL 帧格式做离线单元测试（用 wave12c 的原始字节序列喂我们的解析函数）；② 没有验证 20ms 节拍改动后的代码路径在模拟输入下产生正确计数；③ 没有用 goodix_brl_hw.c 的 brld_get_framedata 逐行对照我们的 frame_data_addr 计算。当前只有『编译通过』，这不构成核验。按 ★34/HR-69 不能推进到刷机。"
+
+[hardware.touch.step.device]
+done = false
+evidence = "尚未在 20ms 节拍版本上做真机验证。历史状态：usblog-20261111-233246 记录 GTP 探针全 0、触点计数恒 0、backboardd 0 崩、最大 pid 196。"
+
+[hardware.touch.step.device.prediction]
+success = "Pong touch: POLL hb 行里 reports 与 touches 计数随手指触摸增长（reports>0），且 FRAME-EVENT 的 byte2（触点计数）非 0"
+failure = "Pong touch: POLL hb 连续三个心跳 reports=0(+0) touches=0(+0) 且 0x10308 仍返回同一串字节"
+
+# ---------------------------------------------------------------- GPU
+
+[hardware.gpu]
+name = "GPU（Adreno 730v3 / Metal）"
+
+[hardware.gpu.step.same_model]
+done = true
+evidence = "同型号参考 references/UniXNU-pong 的 drivers/PongAdreno（103 文件）；本机 drivers/PongAdreno 105 文件，差异仅在 PongAdrenoScanout.cpp 的 DSI 面板部分。unixnu.com/devices/mondrian-mzyxsl 记录 GPU 为 CONFIG_XNU_PONG_ADRENO_PLATFORM=n 从未出帧，本移植已超过该状态。"
+
+[hardware.gpu.step.official]
+done = true
+evidence = "官方 GPU 移植指南 https://unixnu.com/zh/porting/gpu 四节：代际匹配 / 电源固件 / 内存命令 / 构建加入 Metal。本移植按该顺序执行，见 docs/plans/GPU-ENABLE-PLAN.md。"
+
+[hardware.gpu.step.decompile]
+done = true
+evidence = "live FDT Adreno 节点 chip_id = 0x07030002（A730v3）、gmem_bytes = 0x200000；iOS 20G81 的 _MTLDevice ABI 528 字节由 PongMetalPlugin.mm 门禁校验（kern.osversion 必须 20G81）。"
+
+[hardware.gpu.step.wide]
+done = true
+evidence = "广域交叉验证见 impl/three-hw-audit2/04-wide-validation.md（15 条 × 4 源）；同 SoC 侧参考 references/UniXNU-sheng-upstream/package 的 GPU 调度实现。"
+
+[hardware.gpu.step.plan]
+done = true
+evidence = "方案见 docs/plans/GPU-ENABLE-PLAN.md（47,368 B，6 章节）：内核 Adreno 全链启动 → IOAcceleratorES 发布 → Metal 插件注入 backboardd → QuartzCore policy。预链接滑动量由 build-pong-adreno-platform.py:96 在构建时应用（fixed_prelink_base - original_prelink_base = -0xb9c000）。"
+
+[hardware.gpu.step.deep]
+done = true
+evidence = "深挖：内核 42 行 result=0 全通（CP ready、GMU firmware/HFI、CX clocks、parent ARC），但 IOAcceleratorES 发布 0 次；插件 94,928 B 已部署且属主 uid=0（K60METALPLUGIN deploy bytes=94928 resid=0 error=0），native Metal entry 0 次。PITFALLS.md 记录 pong_metal=2 绕开注入后 backboardd 0 崩、maxpid 196。"
+
+[hardware.gpu.step.verify]
+done = true
+local_verified = true
+evidence = "本地核验已完成：kernel.macho 54,280,192 B / sha256 9a9c47b4，patches applied 211；strings 验证 GTP 探针、K60METALPLUGIN、K60LC、resume 六个标记全部在内核中；0340 补丁在干净树上 git apply --check rc=0 且生成 bsd/dev/k60_uilib.c 1,036,210 B、kern_exec.c 含 2 处 deploy 调用；Metal 插件 /tmp/PongAdrenoMetal.signed 94,928 B、ncmds=24、LC_CODE_SIGNATURE magic=0xfade0cc0 校验通过。"
+
+[hardware.gpu.step.device]
+done = false
+evidence = "尚未在 pong_metal=1（真实注入）下验证。历史：pong_metal=1 时 backboardd 崩溃 13 次（-[NSURL fileURLWithPath:] nil），pong_metal=2 时系统稳定但 IOAcceleratorES 0 次。"
+
+[hardware.gpu.step.device.prediction]
+success = "日志出现 native Metal entry enabled 且 IOAcceleratorES provider published，backboardd crashed 计数为 0，MiniIOMobileFramebuffer 帧率 > 0"
+failure = "出现 crashed: backboardd 或 IOAcceleratorES 发布 0 次且 native Metal entry 0 次"

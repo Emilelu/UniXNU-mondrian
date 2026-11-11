@@ -1,6 +1,6 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -8078,6 +8078,44 @@
+@@ -8115,6 +8115,44 @@
  }
  #endif
  
@@ -45,7 +45,7 @@
  static int
  load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
-@@ -8378,12 +8413,19 @@
+@@ -8421,12 +8456,19 @@
  	}
  #endif
  	char pong_init_path[128];

@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,5059 @@
+@@ -0,0 +1,5117 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -1394,7 +1394,9 @@ index 0000000..b033b90
 +
 +static unsigned bitbang_in, bitbang_out;
 +/* K60_BB_DELAY_ARG: k60_touch_bb_us=<n> overrides the half-period (0 = off). */
-+static int k60_touch_bb_us = -1;
++/* 2 us is the half-period every working K60 boot used; -1 (no delay) never worked.
++ * Keeping it as the default removes k60_touch_bb_us from the boot-args budget. */
++static int k60_touch_bb_us = 2;
 +/*
 + * K60_DIAG_LEVEL: 0 = only the 5-second heartbeat, 1 = also the region sweeps,
 + * 2 = also the per-report byte dumps. The diagnostics are extremely chatty (the
@@ -1403,6 +1405,17 @@ index 0000000..b033b90
 + * boot-arg: k60_touch_diag=<0|1|2>
 + */
 +static int k60_touch_diag;
++/*
++ * K60_TOUCH_MINIMAL: do exactly what the working driver does and nothing else.
++ *
++ * hakios.goodix.c:1398-1450 (PHK110, same GT9916 Berlin-D, real touch working)
++ * runs only power_on -> clocks -> SPI init -> pins -> touch_reset -> probe, then
++ * polls. It never writes dev_confirm's 0xAA pattern, never touches 0xc900, never
++ * downloads a config and never sends a mode command. Every one of those returns
++ * ack=0x80 for us while 0x10308 and 0x30084 stay static, so one of them may be
++ * what keeps the scan engine idle. minimal=1 drops them all.
++ */
++static int k60_touch_minimal;
 +
 +/* K60_PIN_PERMUTE: bitbang roles as variables so the probe can try all 24 assignments. */
 +static unsigned bitbang_clk, bitbang_cs;
@@ -2402,20 +2415,35 @@ index 0000000..b033b90
 +static void
 +k60_touch_power_cycle(void)
 +{
-+	gpio_output(71u, true, PULL_NONE, 6);
-+	sleep_ms(15);
 +	/*
-+	 * K60_RESET_TIMING: match the documented Berlin-D power-on sequence
-+	 * (references/ruby-bringup/docs/touch-goodix-9916r.md section 3.3):
-+	 *     reset low 10 ms -> high 100 ms
-+	 * The old 2 ms / 4 ms pair was short enough that the ROM answered
-+	 * (dev_confirm and the version block are valid almost immediately) while the
-+	 * touch-scan engine had not started yet, so the frame area kept returning
-+	 * stale power-on data instead of live frames.
++	 * K60_RESET_TIMING: reset is asserted *before* the rails come up, held for
++	 * 2 ms after they do, then given 100 ms to start scanning. Both
++	 * implementations that work on real GT9916 hardware go in this order:
++	 *
++	 *   hakios.goodix.c:1368 power_on (PHK110, same chip, real touch working)
++	 *       gpio_output(PIN_RESET, false, PULL_UP, 8);    reset first
++	 *       gpio_configure(PIN_INT, 0, PULL_UP, 8, false);
++	 *       io_supply_on();
++	 *       sleep_ms(3);
++	 *       gpio_output(PIN_AVDD, true, PULL_NONE, 2);
++	 *       sleep_ms(15);
++	 *
++	 *   goodix_brl_hw.c:310 brl_reset (vendor Linux driver)
++	 *       gpio_direction_output(reset_gpio, 0);
++	 *       usleep_range(2000, 2100);                     <- 2 ms, not 10
++	 *       gpio_direction_output(reset_gpio, 1);
++	 *       msleep(delay);
++	 *
++	 * We used to raise AVDD first and then hold reset low for 10 ms, which
++	 * matches neither: the chip saw power before reset, and the low pulse was
++	 * five times longer than either reference uses.
 +	 */
-+	gpio_output(PIN_RESET, false, PULL_NONE, 6);
-+	sleep_ms(10);
++	gpio_output(PIN_RESET, false, PULL_UP, 6);
++	gpio_output(71u, true, PULL_NONE, 6);
++	sleep_ms(3);
++	sleep_ms(15);
 +	gpio_output(PIN_RESET, true, PULL_UP, 6);
++	sleep_ms(2);
 +	sleep_ms(100);
 +}
 +
@@ -2832,7 +2860,11 @@ index 0000000..b033b90
 +		printf("K60S19: powered int=%u reset=%u\n",
 +		    gpio_get(PIN_INT), gpio_get(PIN_RESET));
 +	}
-+	printf("K60S19: bitbang dev_confirm -> %s\n", goodix_dev_confirm() ? "OK" : "fail");
++	if (k60_touch_minimal) {
++		printf("K60S19: bitbang dev_confirm SKIP (minimal path)\n");
++	} else {
++		printf("K60S19: bitbang dev_confirm -> %s\n", goodix_dev_confirm() ? "OK" : "fail");
++	}
 +	sleep_ms(100);
 +	if (goodix_probe(true)) {
 +		printf("K60S19: bitbang goodix_probe -> OK (SPI by GPIO path)\n");
@@ -2850,7 +2882,9 @@ index 0000000..b033b90
 +		 * dev_confirm and goodix_probe both pass means the scan engine is not
 +		 * started; this handshake is the vendor's own enable sequence.
 +		 */
-+		{
++		if (k60_touch_minimal) {
++			printf("K60S19: 0xc900 SPI-enable SKIP (minimal path)\n");
++		} else {
 +			const uint8_t one = 0x01;
 +			uint8_t rb = 0;
 +			bool spi_ok = false;
@@ -3402,9 +3436,21 @@ index 0000000..b033b90
 +static void
 +touch_reset(void)
 +{
-+	/* ruby section 3.3: reset low 10 ms, then 100 ms for the scan engine. */
++	/*
++	 * Two working implementations both keep the line low for 2 ms, not 10:
++	 *   goodix_brl_hw.c:310 brl_reset
++	 *       gpio_direction_output(reset_gpio, 0);
++	 *       usleep_range(2000, 2100);
++	 *       gpio_direction_output(reset_gpio, 1);
++	 *   hakios.goodix.c:683 touch_reset (PHK110, real GT9916 touch working)
++	 *       gpio_set(PIN_RESET, false);
++	 *       sleep_ms(2);
++	 *       gpio_set(PIN_RESET, true);
++	 * The 10 ms we used came from ruby's section 3.3 prose and matches neither.
++	 * A longer low pulse can land the chip in a different boot path.
++	 */
 +	gpio_set(PIN_RESET, false);
-+	sleep_ms(10);
++	sleep_ms(2);
 +	gpio_set(PIN_RESET, true);
 +	sleep_ms(100);
 +}
@@ -4287,6 +4333,9 @@ index 0000000..b033b90
 +					const unsigned CHUNK = 64u;
 +					unsigned off = 0, bad = 0;
 +
++					if (k60_touch_minimal) {
++						printf("goodix: CFG download SKIP (minimal path)\n");
++					} else {
 +					printf("goodix: CFG-DL start, %u bytes in %u-byte chunks\n",
 +					    CFG_LEN, CHUNK);
 +					while (off < CFG_LEN) {
@@ -4417,6 +4466,9 @@ index 0000000..b033b90
 +								cm[4] = 0x00;                    /* data[0] = coordinate mode */
 +								cm[5] = (uint8_t)(csum & 0xff);  /* 0x95 */
 +								cm[6] = (uint8_t)((csum >> 8) & 0xff);
++								if (k60_touch_minimal) {
++									printf("goodix: COORD-MODE SKIP (minimal path)\n");
++								} else {
 +								printf("goodix: COORD-MODE frame %02x %02x %02x %02x %02x %02x %02x %02x\n",
 +								    cm[0], cm[1], cm[2], cm[3], cm[4], cm[5], cm[6], cm[7]);
 +								(void)goodix_write(command_address, cm, sizeof(cm));
@@ -4430,10 +4482,12 @@ index 0000000..b033b90
 +								printf("goodix: COORD-MODE ack=%02x %s\n", cl,
 +								    cl == 0x80 ? "OK-coordinate-mode" : "FAIL");
 +								sleep_ms(50);
++								}   /* end of !minimal COORD-MODE */
 +							}
 +							/* Give the scan engine time to calibrate the new config. */
 +							sleep_ms(300);
-+						}
++						}   /* closes if (off == CFG_LEN && bad == 0); CFG-RESET ran inside */
++					}       /* closes else (!k60_touch_minimal): the whole config path */
 +					}
 +				}
 +				}   /* close the CFG-START block */
@@ -5044,7 +5098,7 @@ index 0000000..b033b90
 +        (void)PE_parse_boot_argn("k60_touch_fifo", &fifo, sizeof(fifo));
 +        k60_touch_allow_fifo_disabled = fifo;
 +        {
-+            int dma = 0, keep_cs = 0, bb_us = 0, diag = 0;
++            int dma = 0, keep_cs = 0, bb_us = 0, diag = 0, minimal = 0;
 +            if (PE_parse_boot_argn("k60_touch_keep_cs", &keep_cs, sizeof(keep_cs))) {
 +                k60_touch_keep_cs = keep_cs;
 +            }
@@ -5053,6 +5107,10 @@ index 0000000..b033b90
 +            }
 +            if (PE_parse_boot_argn("k60_touch_diag", &diag, sizeof(diag))) {
 +                k60_touch_diag = diag;
++            }
++            if (PE_parse_boot_argn("k60_touch_minimal", &minimal, sizeof(minimal)) && minimal) {
++                k60_touch_minimal = 1;
++                printf("Pong touch: MINIMAL path (reset+probe+poll only, like hakios.goodix.c)\n");
 +            }
 +            if (PE_parse_boot_argn("k60_touch_dma", &dma, sizeof(dma)) && dma) {
 +                k60_touch_dma_enable = dma;

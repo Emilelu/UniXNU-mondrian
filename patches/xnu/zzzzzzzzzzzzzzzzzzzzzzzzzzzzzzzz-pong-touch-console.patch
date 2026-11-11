@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,5117 @@
+@@ -0,0 +1,5436 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -77,11 +77,11 @@ index 0000000..b033b90
 +    return property(entry,"spi-base",&se_phys,8) && property(entry,"tlmm-base",&tlmm_phys,8) &&
 +        property(entry,"gcc-base",&gcc_phys,8) && property(entry,"rsc-base",&rsc_phys,8) &&
 +        property(entry,"cmd-db-base",&cmd_db_phys,8) && property(entry,"gpio-offset",&gpio_offset,4) &&
-+        property(entry,"pins",pins,sizeof(pins)) && property(entry,"max-x",&max_x,4) &&
-+        property(entry,"max-y",&max_y,4) && se_phys==0x990000 && tlmm_phys==0xf000000 &&
++        property(entry,"pins",pins,sizeof(pins)) && (property(entry,"panel-max-x",&max_x,4) || property(entry,"max-x",&max_x,4)) &&
++        (property(entry,"panel-max-y",&max_y,4) || property(entry,"max-y",&max_y,4)) && se_phys==0x990000 && tlmm_phys==0xf000000 &&
 +        gcc_phys==0x100000 && rsc_phys==0x17a20000 && cmd_db_phys==0x80860000 &&
 +        gpio_offset==0x100000 && pins[0]==16 && pins[1]==17 && pins[2]==18 &&
-+        pins[3]==19 && pins[4]==21 && pins[5]==20 && max_x==1080 && max_y==2412;
++        pins[3]==19 && pins[4]==21 && pins[5]==20 && max_x>=1080 && max_y>=2412;
 +}
 +
 +static inline uint32_t
@@ -1416,6 +1416,18 @@ index 0000000..b033b90
 + * what keeps the scan engine idle. minimal=1 drops them all.
 + */
 +static int k60_touch_minimal;
++/*
++ * K60_SKIP_DEV_CONFIRM: dev_confirm writes eight 0xAA bytes to 0x10000.
++ *
++ * 0x10000 is misc.cmd_addr -- the first field of the command block, not a
++ * scratch area. Writing 0xAA there pokes the command state machine, and the
++ * only implementation that works on real GT9916 hardware
++ * (references/phk110-port hakios.goodix.c bring_up) never issues this command
++ * at all. Measured here: with dev_confirm the chip reports frames whose touch
++ * count is always 0 (0x10400 byte2 = 0x00) while 0x10308 never changes.
++ * Skip it by default; k60_touch_dev_confirm=1 brings it back.
++ */
++static int k60_touch_dev_confirm;
 +
 +/* K60_PIN_PERMUTE: bitbang roles as variables so the probe can try all 24 assignments. */
 +static unsigned bitbang_clk, bitbang_cs;
@@ -2127,6 +2139,9 @@ index 0000000..b033b90
 + * 512 entries x 8 bytes = 4096. Only one entry is populated. */
 +static uint8_t spi_rx[8 + GOODIX_MAX_READ] __attribute__((aligned(4096)));
 +static uint32_t touch_address, touch_address_alt, command_address;
++/* packed misc value; the config download must target fw_buffer_addr */
++static uint32_t k60_fw_buffer_addr;
++static uint32_t k60_fw_buffer_max_len;
 +
 +/* One transfer with the chip selected throughout, moved by the SE's internal
 + * DMA master (the FIFO interface is disabled on this board). Sequence mirrors
@@ -2860,10 +2875,17 @@ index 0000000..b033b90
 +		printf("K60S19: powered int=%u reset=%u\n",
 +		    gpio_get(PIN_INT), gpio_get(PIN_RESET));
 +	}
++	/*
++	 * dev_confirm is off unless k60_touch_dev_confirm=1. See the note on
++	 * k60_touch_dev_confirm: it writes eight 0xAA bytes to 0x10000, which is
++	 * misc.cmd_addr, not scratch memory.
++	 */
 +	if (k60_touch_minimal) {
 +		printf("K60S19: bitbang dev_confirm SKIP (minimal path)\n");
-+	} else {
++	} else if (k60_touch_dev_confirm) {
 +		printf("K60S19: bitbang dev_confirm -> %s\n", goodix_dev_confirm() ? "OK" : "fail");
++	} else {
++		printf("K60S19: bitbang dev_confirm SKIP (0x10000 is cmd_addr)\n");
 +	}
 +	sleep_ms(100);
 +	if (goodix_probe(true)) {
@@ -4021,12 +4043,15 @@ index 0000000..b033b90
 +		{
 +			uint32_t cmd_addr = le32(info + offset + 0);
 +			uint16_t cmd_max = (uint16_t)le16(info + offset + 4);
-+			uint32_t fw_state = le32(info + offset + 16);
-+			uint32_t fw_buf   = le32(info + offset + 24);
-+			uint16_t fw_buf_max = (uint16_t)le16(info + offset + 28);
-+			uint32_t frame_addr = le32(info + offset + 32);
-+			uint32_t touch_data = le32(info + offset + 0);
++			/* packed: goodix_ts_core.h wraps ic_info in #pragma pack(1) */
++			uint32_t fw_state = le32(info + offset + 12);
++			uint32_t fw_buf   = le32(info + offset + 18);
++			uint16_t fw_buf_max = (uint16_t)le16(info + offset + 22);
++			uint32_t frame_addr = le32(info + offset + 24);
++			uint32_t touch_data = le32(info + offset + 44);
 +
++			k60_fw_buffer_addr = fw_buf;
++			k60_fw_buffer_max_len = fw_buf_max;
 +			(void)touch_data;
 +			(void)cmd_max;
 +			(void)fw_state;
@@ -4052,8 +4077,11 @@ index 0000000..b033b90
 +				uint8_t base[4] = { 0, 0, 0, 0 };
 +				bool wok, rok;
 +
++				/* 0x10400 is misc.frame_data_addr: the live raw frame area.
++				 * Writing a test pattern into it corrupts what the firmware is
++				 * producing, so this probe is read-only. */
 +				rok = goodix_read(0x10400u, base, sizeof(base));
-+				wok = goodix_write(0x10400u, pat, sizeof(pat));
++				wok = 0;
 +				sleep_ms(2);
 +				if (rok && goodix_read(0x10400u, rb, sizeof(rb))) {
 +					printf("goodix: FWBUF 0x10400 before=%02x%02x%02x%02x write=%s after=%02x%02x%02x%02x -> %s\n",
@@ -4121,7 +4149,30 @@ index 0000000..b033b90
 +					f[6] = (uint8_t)((chk >> 8) & 0xff);   /* high = 0x01 */
 +					printf("goodix: CMD-FIX frame %02x %02x %02x %02x %02x %02x %02x %02x\n",
 +					    f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]);
-+					if (goodix_write(command_address, f, sizeof(f))) {
++					/*
++					 * K60_NO_RAWDATA_ON_START: 0x90/0x81 puts the chip into raw-data
++					 * mode. The official driver only sends it as a capacitance-test
++					 * entry (goodix_brl_hw.c:1313) and its exit: label restores
++					 * 0x90/0x00 unconditionally (:1348-1351). Our minimal path skips
++					 * the restore, so every minimal boot entered raw-data mode and
++					 * stayed there -- the scan engine never sees a normal frame.
++					 * Never enter it when minimal is set.
++					 */
++					/*
++					 * K60_NEVER_RAWDATA: do not send 0x90/0x81 at all.
++					 *
++					 * Measured 2026-11-11 20:29 with the full config flow: the
++					 * chip interrupted 196 times and 564 bytes of the window
++					 * changed (frame data at 0x10400 is alive), yet 0x10308
++					 * stayed 0x00. The only step still differing from the
++					 * official sequence is this raw-data request, which puts
++					 * the chip into a diagnostic mode before config is applied
++					 * and relies on 0x90/0x00 to come back. Official never
++					 * combines it with the normal report path
++					 * (goodix_brl_hw.c:1313 is the capacitance-test entry, and
++					 * :1348-1351 the unconditional exit).
++					 */
++					if (0 && goodix_write(command_address, f, sizeof(f))) {
 +						for (int t = 0; t < 15; t++) {
 +							if (goodix_read(command_address, ack, sizeof(ack))) {
 +								last_ack = ack[1];
@@ -4156,6 +4207,7 @@ index 0000000..b033b90
 +					uint8_t cf[8];
 +					uint8_t cack[8];
 +					uint8_t caf_last = 0xff;
++					uint8_t caf_state = 0;
 +
 +					memset(cf, 0, sizeof(cf));
 +					cf[0] = 0x00;              /* state */
@@ -4166,9 +4218,19 @@ index 0000000..b033b90
 +					cf[5] = 0x00;              /* cs high */
 +					printf("goodix: CFG-START frame %02x %02x %02x %02x %02x %02x %02x %02x\n",
 +					    cf[0], cf[1], cf[2], cf[3], cf[4], cf[5], cf[6], cf[7]);
-+					if (goodix_write(command_address, cf, sizeof(cf))) {
++					/*
++					 * K60_CFGSTART_GUARD: CONFIG_CMD_START tells the chip to expect
++					 * config data. In minimal mode the download is skipped
++					 * (patch guard at the CFG-DL block), so sending START alone
++					 * leaves the chip waiting for a body that never arrives --
++					 * measured in all three minimal runs, which all showed
++					 * "CFG-START ack=80 OK-config-ready" and nothing after it.
++					 * Never announce a config we are not going to send.
++					 */
++					if (!k60_touch_minimal && goodix_write(command_address, cf, sizeof(cf))) {
 +						for (int t = 0; t < 20; t++) {
 +							if (goodix_read(command_address, cack, sizeof(cack))) {
++								caf_state = cack[0];
 +								caf_last = cack[1];
 +								if (cack[1] != 0x00 && cack[1] != 0xff) {
 +									break;
@@ -4177,7 +4239,16 @@ index 0000000..b033b90
 +							sleep_ms(20);
 +						}
 +					}
-+					printf("goodix: CFG-START ack=%02x %s\n",
++					/*
++					 * K60_STATE_CHECK: official wait_cmd_status()
++					 * (goodix_brl_hw.c:448,461,466) tests cmd_ack.state == 0x80,
++					 * not the following ack byte. Everything this driver prints
++					 * as "OK" so far tested cack[1] only, so a config could be
++					 * acknowledged at the ack byte while state still said busy.
++					 * Print both so the two can be told apart.
++					 */
++					printf("goodix: CFG-START state=%02x ack=%02x %s\n",
++					    caf_state,
 +					    caf_last,
 +					    caf_last == 0x80 ? "OK-config-ready" :
 +					    caf_last == 0x04 ? "CHECKSUM-ERR" :
@@ -4336,17 +4407,26 @@ index 0000000..b033b90
 +					if (k60_touch_minimal) {
 +						printf("goodix: CFG download SKIP (minimal path)\n");
 +					} else {
-+					printf("goodix: CFG-DL start, %u bytes in %u-byte chunks\n",
-+					    CFG_LEN, CHUNK);
++						printf("goodix: CFG-DL start, %u bytes -> fwbuf %#x (max %u)\n",
++						    CFG_LEN, k60_fw_buffer_addr, k60_fw_buffer_max_len);
 +					while (off < CFG_LEN) {
 +						unsigned n = CFG_LEN - off < CHUNK ? CFG_LEN - off : CHUNK;
 +						uint8_t rb[64];
 +
-+						if (!goodix_write(0x10400u + off, k60_cfg + off, n)) {
++						/* misc.fw_buffer_addr, NOT 0x10400: 0x10400 is
++						 * frame_data_addr, the live raw frame area, and
++						 * writing 1488 bytes there stops the scan engine
++						 * (measured: minimal mode scans, full config does not). */
++						if (off + n > k60_fw_buffer_max_len) {
++							printf("goodix: CFG-DL abort %u > %u\n",
++							    off + n, k60_fw_buffer_max_len);
++							break;
++						}
++						if (!goodix_write(k60_fw_buffer_addr + off, k60_cfg + off, n)) {
 +							printf("goodix: CFG-DL write fail off=%u\n", off);
 +							bad++; break;
 +						}
-+						if (goodix_read(0x10400u + off, rb, n) &&
++						if (goodix_read(k60_fw_buffer_addr + off, rb, n) &&
 +						    memcmp(rb, k60_cfg + off, n) != 0) {
 +							/* Report the first mismatch only: printing every
 +							 * one would flood the console. */
@@ -4411,17 +4491,43 @@ index 0000000..b033b90
 +						 *   msleep(delay);
 +						 *   return brl_select_spi_mode(cd);
 +						 */
++						/*
++						 * K60_NO_CFG_RESET: goodix_send_ic_config() runs
++						 * brl_send_config() (goodix_ts_core.c:2088) and then only
++						 * msleep(100) (goodix_brl_hw.c:553-559) -- no reset, no
++						 * work-mode command, no COORD-MODE switch. The reset below
++						 * was copied from goodix_update_finish() (fwupdate.c:924),
++						 * which is the flash-firmware path, not the config path.
++						 * Running it re-resets the chip and discards the 1488 bytes
++						 * just written into fw_buffer_addr = 0x1205c, which is RAM.
++						 * Keep it disabled unless a boot-arg asks for it.
++						 */
++						/*
++						 * K60_COORD_ONLY: this block holds two unrelated things.
++						 *
++						 * The reset below came from goodix_update_finish()
++						 * (fwupdate.c:924) and must NOT run after a config
++						 * download, because fw_buffer_addr is RAM and a reset
++						 * discards the config (P-123). Disabling the whole
++						 * block also disabled the COORD-MODE switch at its end,
++						 * which left the chip in raw-data mode: 0x10400 kept
++						 * streaming frames (8 samples, all with the 0x80
++						 * flag) while 0x10308 never received a report.
++						 * So keep the block, drop only the reset.
++						 */
 +						if (la == 0x80) {
 +							const uint8_t one2 = 0x01;
 +							uint8_t rb2 = 0;
 +							bool spi2 = false;
 +							int a;
 +
-+							printf("goodix: CFG-RESET assert reset (gpio%d)\n", PIN_RESET);
-+							gpio_set(PIN_RESET, false);
-+							sleep_ms(2);
-+							gpio_set(PIN_RESET, true);
-+							sleep_ms(100);
++							/* reset skipped on purpose: RAM config would be lost. */
++							if (0) {
++								gpio_set(PIN_RESET, false);
++								sleep_ms(2);
++								gpio_set(PIN_RESET, true);
++								sleep_ms(100);
++							}
 +							/* brl_reset tail: redo the 0xc900 SPI-mode handshake. */
 +							for (a = 0; a < 5; a++) {
 +								if (!goodix_write(0xc900u, &one2, 1)) {
@@ -4471,7 +4577,22 @@ index 0000000..b033b90
 +								} else {
 +								printf("goodix: COORD-MODE frame %02x %02x %02x %02x %02x %02x %02x %02x\n",
 +								    cm[0], cm[1], cm[2], cm[3], cm[4], cm[5], cm[6], cm[7]);
-+								(void)goodix_write(command_address, cm, sizeof(cm));
++								/*
++								 * K60_NO_COORD_SWITCH: measured 2026-11-11 21:16.
++								 *
++								 * With the config applied and this switch sent, the
++								 * chip produced ZERO interrupts across 19 heartbeats
++								 * (all int=1) and 0x10400 stopped streaming. Without
++								 * the switch, the same config gave 196 interrupts and
++								 * a live 0x10400. So 0x90/0x00 here is not "enter
++								 * coordinate mode", it stops the scan engine.
++								 *
++								 * Official only sends it to leave a raw-data request
++								 * it issued itself (goodix_brl_hw.c:1348-1351). We no
++								 * longer issue that request, so we must not send the
++								 * exit either.
++								 */
++								if (0) { (void)goodix_write(command_address, cm, sizeof(cm)); }
 +								for (ct = 0; ct < 20; ct++) {
 +									if (goodix_read(command_address, ca, sizeof(ca))) {
 +										cl = ca[1];
@@ -4681,7 +4802,138 @@ index 0000000..b033b90
 +			}
 +		}
 +		if (report[0] == 0) {
-+			if (header_zero++ < 2) {
++			/*
++			 * K60_INT_LOW_DUMP: the one measurement never taken.
++			 *
++			 * Every dump so far printed int=1 because this branch was rate
++			 * limited to the first two occurrences, and those happened while
++			 * nothing was touching the panel. So there is no record anywhere
++			 * of what 0x10308 returns at the moment INT actually goes low --
++			 * which is the only moment a report can exist.
++			 *
++			 * Capture exactly that: when INT is low, read 64 bytes from
++			 * touch_address and print them all, up to 16 times. If the first
++			 * byte is still zero at INT-low, then 0x10308 is not the report
++			 * area no matter what the struct offset said, and the 64 bytes
++			 * will show where the live data actually starts.
++			 */
++			const unsigned int_low = (unsigned)gpio_get(PIN_INT) == 0;
++			static unsigned int_low_dumps;
++			if (int_low && int_low_dumps < 8) {
++				/*
++				 * K60_ROTATE_WINDOW: one 2 KiB window was not enough.
++				 *
++				 * With the full config applied the chip interrupted 196 times
++				 * and 564 bytes moved, but they all sat in the frame-data area
++				 * (0x10400+) and around fw_state (0x10218). 0x10308 stayed
++				 * 0x00. So the report is either not at touch_data_addr or it
++				 * lives further out -- 0x10cf4 and 0x13c40 both decode as
++				 * plausible addresses from the same ic_info block.
++				 *
++				 * Cover 0x10000..0x13FFF: eight 2 KiB chunks, one chunk per
++				 * INT-low sample, cycling. Each chunk keeps its own baseline,
++				 * so the second visit to a chunk is a real diff. 196 samples
++				 * give every chunk ~24 comparisons.
++				 */
++				static uint8_t ring[8 * 2048];
++				static uint8_t tmp[2048];
++				static uint8_t have[8];
++				unsigned chunk, got = 0, changed = 0;
++				unsigned n;
++				int_low_dumps++;
++				chunk = int_low_dumps & 7u;
++				while (got < sizeof(tmp)) {
++					unsigned len = sizeof(tmp) - got;
++					if (len > GOODIX_MAX_READ) {
++						len = GOODIX_MAX_READ;
++					}
++					if (!goodix_read(0x10000u + chunk * 2048u + got,
++					    tmp + got, len)) {
++						break;
++					}
++					got += len;
++				}
++				/*
++				 * K60_BERLIN_D_FRAME: Berlin-D publishes events in the FRAME
++				 * area, not in touch_data.
++				 *
++				 * The official reader for this chip family is
++				 * goodix_brl_hw.c:1238 brld_get_framedata() -- the "brld"
++				 * prefix is Berlin-D -- and it works from
++				 * misc->frame_data_addr, with misc->frame_data_head_len as the
++				 * header size. On this chip the packed misc block decodes to
++				 * frame_data_addr = 0x10400 / head_len = 16, while
++				 * touch_data_addr = 0x10308 / head_len = 8.
++				 *
++				 * Everything measured agrees with the frame path and not the
++				 * touch path: 0x10308 holds the same eight bytes on every read
++				 * (a counter that changes only between boots), while the
++				 * 0x10400 region showed 551..1315 bytes moving per sample. So
++				 * dump the first 32 frame bytes on every INT-low and look for
++				 * GOODIX_TOUCH_EVENT (0x80) in byte 0.
++				 */
++				if (int_low_dumps <= 8) {
++					uint8_t fr[32];
++					uint8_t tt[32];
++					/* The measurement never taken: what does the touch area
++					 * itself return at the exact moment INT is low, while the
++					 * config is applied and the scan engine is running? */
++					if (goodix_read(touch_address, tt, sizeof(tt))) {
++						unsigned q;
++						printf("goodix: TOUCH@INTLOW");
++						for (q = 0; q < sizeof(tt); q++) {
++							printf(" %02x", tt[q]);
++						}
++						printf("\n");
++					}
++					if (goodix_read(0x10400u, fr, sizeof(fr))) {
++						unsigned q;
++						printf("goodix: FRAME%s int=%u",
++						    (fr[0] & 0x80) ? "-EVENT" : "",
++						    (unsigned)gpio_get(PIN_INT));
++						for (q = 0; q < sizeof(fr); q++) {
++							printf(" %02x", fr[q]);
++						}
++						printf("\n");
++					} else {
++						printf("goodix: FRAME read failed\n");
++					}
++				}
++				if (got == sizeof(tmp)) {
++					uint8_t *base_win = ring + chunk * 2048u;
++					if (have[chunk]) {
++						unsigned page[32] = { 0 };
++						for (n = 0; n < sizeof(tmp); n++) {
++							if (tmp[n] != base_win[n]) {
++								page[n >> 6]++;
++								if (changed < 4) {
++									printf("goodix: WDIFF %#x %02x->%02x\n",
++									    0x10000u + chunk * 2048u + n,
++									    base_win[n], tmp[n]);
++								}
++								changed++;
++							}
++						}
++						printf("goodix: WDIFF#%u chunk=%u %#x changed=%u pages:",
++						    int_low_dumps, chunk,
++						    0x10000u + chunk * 2048u, changed);
++						for (n = 0; n < 32; n++) {
++							if (page[n]) {
++								printf(" +%#x/%u",
++								    (n << 6), page[n]);
++							}
++						}
++						printf("\n");
++					} else {
++						printf("goodix: WDIFF#%u chunk=%u baseline @%#x=%02x\n",
++						    int_low_dumps, chunk,
++						    0x10000u + chunk * 2048u + 0x308u,
++						    tmp[0x308]);
++					}
++					memcpy(base_win, tmp, sizeof(tmp));
++					have[chunk] = 1;
++				}
++			} else if (header_zero++ < 2) {
 +				printf("goodix: HEADER ZERO addr=%#x int=%u bytes=%02x %02x %02x %02x %02x %02x %02x %02x\n",
 +				    touch_address, gpio_get(PIN_INT),
 +				    report[0], report[1], report[2], report[3],
@@ -5016,6 +5268,73 @@ index 0000000..b033b90
 +        thread_terminate(current_thread());return;
 +    }
 +    if (!pong_touch_device_ready()) {thread_terminate(current_thread());return;}
++    /*
++     * K60_GOODIX_RESUME (from patches/xnu/zzzz...-pong-goodix-resume.patch,
++     * which exists in this repository but was never added to the series):
++     * Android or recovery can leave the controller in sleep or gesture mode,
++     * and every boot on this unit starts from Android. Reset the already
++     * identified Berlin controller and clear the report byte before polling.
++     */
++    {
++        const uint8_t clear = 0;
++        touch_reset();
++        if (!goodix_probe(true)) {
++            printf("Pong touch: resume probe failed; continuing\n");
++        } else if (!goodix_write(touch_address, &clear, 1)) {
++            printf("Pong touch: cannot acknowledge resumed report\n");
++        } else {
++            printf("Pong touch: resume sequence done (reset+probe+clear) addr=%#x\n",
++                touch_address);
++        }
++    }
++    /*
++     * K60_GTP_PROBE: the K60 touch controller answers the GTP register set,
++     * not the Berlin-D (BRL) one.
++     *
++     * Established 2026-11-10 02:55 from the live Android unit and recorded in
++     * docs/ANDROID-HW-TRUTH.md:10-16:
++     *     /sys/class/input/event7 -> goodix_ts        (the GTP driver)
++     *     DT compatible          -> xiaomi,m11a-spi
++     *     GTP registers: version 0x8140 (8 B), config checksum 0x8047,
++     *                    status 0x804E, buffer status 0x814E
++     * docs/BACKLOG.md:229 states it as P0-19: "touch protocol wrong:
++     * xiaomi,m11a-spi is GTP (goodix_ts), not Berlin-D (BRL); stages 8-15 all
++     * wrong". docs/HANDOFF.md:2097 repeats it.
++     *
++     * A whole day was spent on BRL because that note was never read before
++     * writing code. This probe makes the answer impossible to miss: it reads
++     * the four GTP registers on the already-working SPI and prints them, so
++     * one boot says whether the GTP entry point answers.
++     *
++     * GTP buffer status (0x814E): bit7 = data ready, low nibble = touch count.
++     * The point records start at 0x8150, eight bytes each. That is the classic
++     * Goodix GTP layout this driver should be speaking.
++     */
++    {
++        uint8_t g[8];
++        uint8_t one;
++        unsigned q;
++
++        if (goodix_read(0x8140u, g, sizeof(g))) {
++            printf("Pong touch: GTP 0x8140 id=");
++            for (q = 0; q < 4; q++) {
++                printf("%c", (g[q] >= 0x20 && g[q] < 0x7f) ? g[q] : '.');
++            }
++            printf(" fw=%02x%02x\\n", g[5], g[4]);
++        } else {
++            printf("Pong touch: GTP 0x8140 read failed\\n");
++        }
++        if (goodix_read(0x8047u, &one, 1)) {
++            printf("Pong touch: GTP 0x8047 config_version=%u\n", one);
++        }
++        if (goodix_read(0x804Eu, &one, 1)) {
++            printf("Pong touch: GTP 0x804E status=%u\n", one);
++        }
++        if (goodix_read(0x814Eu, &one, 1)) {
++            printf("Pong touch: GTP 0x814E buffer_status=%#x ready=%u points=%u\n",
++                one, (one & 0x80) ? 1u : 0u, one & 0x0f);
++        }
++    }
 +    printf("Pong touch: Berlin-D ready, SPI 0x%llx GPIO reset=%u irq=%u, axes %ux%u\n",
 +        se_phys,PIN_RESET,PIN_INT,max_x,max_y);
 +    printf("Pong touch: POLL start int=%u addr=%#x\n", gpio_get(PIN_INT), touch_address);

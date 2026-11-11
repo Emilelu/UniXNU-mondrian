@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include "PongMetalAbi.h"
 #include "NativeBridgeMetalFrontend.h"
 #include "NativeAdrenoABI.h"
@@ -155,8 +156,24 @@ static id openDevice(unsigned port)
         if(result)break;
     }
     if(result) {
-        const int policy=PongApplyQuartzCorePolicy20G81();
-        if(policy)report("20G81 decoded-image policy unavailable",policy);
+        /* K60_POLICY_OFF (2026-11-11): PongApplyQuartzCorePolicy20G81 writes
+         * into QuartzCore's process-local state using absolute addresses that
+         * only make sense for the exact 20G81 QuartzCore the UUID check was
+         * derived from. Running it inside backboardd is the one thing this
+         * plugin does that can damage another framework's memory, and the
+         * crash that kills backboardd is [NSURL fileURLWithPath:nil] -- a nil
+         * that appears after the policy runs, not before it.
+         *
+         * pong_metal_policy=0 skips it so one boot can separate "the plugin
+         * damages QuartzCore" from "something else kills backboardd".
+         * Default stays on: only an explicit =0 turns it off. */
+        const char *policy_off=getenv("PONG_METAL_POLICY_OFF");
+        if(policy_off && policy_off[0]=='1') {
+            report("decoded-image policy skipped for isolation",0);
+        } else {
+            const int policy=PongApplyQuartzCorePolicy20G81();
+            if(policy)report("20G81 decoded-image policy unavailable",policy);
+        }
     }
     report(result?"real Vulkan-backed device created":"runtime refused device",result?0:-1);
     return result;

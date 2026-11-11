@@ -77,9 +77,11 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | `board.toml` | `schema_version = 2` 设备配置与组件选择 |
 | `porting.toml` | 14 个子系统的记录（官网设备页数据源） |
 | `feeds.toml` | 固定的 SoC 源 |
+| `local.toml.example` | 本地路径配置模板（复制为 `local.toml`，已被 gitignore） |
 | `configs/mondrian_defconfig` | 设备内核设置 |
 | `dts/mondrian.dts` | 内存、CPU、外设 |
 | `patches/xnu/` | 设备补丁，顺序见 `patches/xnu/series` |
+| `patches/uefi/` | UEFI 固件补丁（记录用，不进内核构建）|
 | `scripts/` | 构建与检查工具（含四道门禁） |
 | `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
 | `docs/engineering/` | 铁则、坑记录、硬件真值、八步规范 |

@@ -80,9 +80,11 @@ Four checks run automatically before build or flash; any failure aborts:
 | `board.toml` | `schema_version = 2` board configuration and component selection |
 | `porting.toml` | Records for 14 subsystems (data source for the device page on unixnu.com) |
 | `feeds.toml` | Pinned SoC sources |
+| `local.toml.example` | Local path configuration template (copy to `local.toml`, which is gitignored) |
 | `configs/mondrian_defconfig` | Kernel configuration |
 | `dts/mondrian.dts` | Memory, CPU, peripherals |
 | `patches/xnu/` | Device patches; order in `patches/xnu/series` |
+| `patches/uefi/` | UEFI firmware patches (record only, not part of the kernel build) |
 | `scripts/` | Build and check tooling (including four gates) |
 | `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
 | `docs/engineering/` | Hard rules, pitfalls, hardware truth, eight-step spec |

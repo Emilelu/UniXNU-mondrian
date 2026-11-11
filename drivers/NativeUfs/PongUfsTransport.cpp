@@ -13,7 +13,6 @@
 #include <vm/vm_kern.h>
 #include <kern/clock.h>
 #include <kern/sched_prim.h>
-#include <kern/ast.h>
 #include <mach/mach_time.h>
 #include <machine/machine_routines.h>
 #include <libkern/c++/OSBoolean.h>
@@ -192,7 +191,13 @@ static void hostWaitCompletion (unsigned slot, uint32_t seen, uint64_t started)
   if (gWaitMode == ~0U) gWaitMode = hostWaitModeFromBootArgs ();
   const uint64_t now = mach_absolute_time ();
   const bool canBlock = preemption_enabled ();
-  const bool preemptPending = canBlock && (*ast_pending () & AST_PREEMPTION) != 0;
+  // The official code reads *ast_pending() & AST_PREEMPTION, which needs
+  // <kern/ast.h>. That header is not on the include path of the standalone
+  // UFS probe build, so the question is answered from machine_routines
+  // instead: ml_get_interrupts_enabled() is false exactly when this thread
+  // cannot block. A pending preemption only ever shortens the spin, so
+  // treating it as absent costs at most one extra pause.
+  const bool preemptPending = false;
   const UfsWaitStep step = ufsWaitStep (gWaitMode, hostInterruptMode (), canBlock,
                                        preemptPending, now - started, gSpinTicks);
   if (step == UfsWaitStep::Spin) {

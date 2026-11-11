@@ -24,7 +24,7 @@ extern "C" void pong_ramoops_diagnostic_write(const char *,int);
 namespace {
 struct Mapping {OSSharedPtr<IOMemoryMap> keep;uintptr_t cpu=0;size_t bytes=0;uint64_t physical=0;bool secure=false;};
 struct Memory {IOBufferMemoryDescriptor *keep=nullptr;uint8_t *cpu=nullptr;uint64_t pa=0;size_t bytes=0;};
-static Mapping windows[PongGpuWindowCount],gcc,rsc,db;
+static Mapping windows[PongGpuWindowCount],gcc,gcc_vote,gcc_branches,rsc,db;
 static Memory cache,dummy,hfi,logmem,tables;
 static PongClockState clocks;
 static PongGpuGmuDevice gmu;
@@ -75,6 +75,24 @@ static bool map(Mapping &m,uint64_t physical,size_t bytes)
     if(memory)m.keep=OSSharedPtr<IOMemoryMap>(memory->map(kIOMapAnywhere|kIOMapInhibitCache),OSNoRetain);
     if(!m.keep)return false;
     m.cpu=m.keep->getVirtualAddress();m.bytes=bytes;return m.cpu!=0;
+}
+static Mapping *gcc_mapping(size_t &at)
+{
+    size_t page=at&~size_t(4095);at&=4095;
+    return page==0?&gcc:page==0x62000?&gcc_vote:page==0x81000?&gcc_branches:nullptr;
+}
+static uint32_t gcc_read(size_t at)
+{
+    Mapping *m=gcc_mapping(at);
+    if(!m){secure_io_failed=true;return 0;}
+    return *reinterpret_cast<volatile uint32_t *>(m->cpu+at);
+}
+static void gcc_write(size_t at,uint32_t value)
+{
+    Mapping *m=gcc_mapping(at);
+    if(!m){secure_io_failed=true;return;}
+    *reinterpret_cast<volatile uint32_t *>(m->cpu+at)=value;
+    __asm__ volatile("dsb sy":::"memory");
 }
 static uint32_t rd(const Mapping &m,size_t at)
 {
@@ -213,15 +231,21 @@ static bool vote_parents(const PongPowerInputs &in)
     return !secure_io_failed;
 }
 static int clock_read(void *,PongClockWindow w,size_t at,uint32_t *v)
-{const Mapping &m=w==PongClockGcc?gcc:windows[PongGpuClock];if(at>m.bytes-4)return 1;*v=rd(m,at);return 0;}
+{
+    if(w==PongClockGcc){*v=gcc_read(at);return secure_io_failed?1:0;}
+    const Mapping &m=windows[PongGpuClock];if(m.bytes<4 || at>m.bytes-4)return 1;*v=rd(m,at);return 0;
+}
 static int clock_write(void *,PongClockWindow w,size_t at,uint32_t v)
-{const Mapping &m=w==PongClockGcc?gcc:windows[PongGpuClock];if(at>m.bytes-4)return 1;wr(m,at,v);return 0;}
+{
+    if(w==PongClockGcc){gcc_write(at,v);return secure_io_failed?1:0;}
+    const Mapping &m=windows[PongGpuClock];if(m.bytes<4 || at>m.bytes-4)return 1;wr(m,at,v);return 0;
+}
 static int clock_prerequisite(void *)
 {
     // GCC fixed LUCID_EVO GPLL0, actual L/alpha/lock, TCXO19.2MHz from DT.
     // Its hardware-decoded rate must be600MHz; no A740 PLL is programmed.
-    uint64_t rate=19200000ULL*((rd(gcc,0x10)&0xffff)*65536ULL+(rd(gcc,0x14)&0xffff))/65536;
-    return !parents_ready || !(rd(gcc,0)&0x80000000) || rate!=600000000;
+    uint64_t rate=19200000ULL*((gcc_read(0x10)&0xffff)*65536ULL+(gcc_read(0x14)&0xffff))/65536;
+    return secure_io_failed || !parents_ready || !(gcc_read(0)&0x80000000) || rate!=600000000;
 }
 static int smmu_read(void *,size_t at,uint32_t *v)
 {const Mapping &m=windows[PongGpuSmmu];if((at&3)||at>m.bytes-4)return 1;*v=rd(m,at);return 0;}
@@ -379,7 +403,8 @@ static void run(void *,wait_result_t)
     IOSleep(8000);
     record("startup requested; no accelerator published",0);
     rsc.physical=0x17a20000;rsc.bytes=0x10000;rsc.secure=true;
-    if(!map(gcc,0x100000,0x82000)||!map(db,0x80860000,0x20000))
+    if(!map(gcc,0x100000,0x1000)||!map(gcc_vote,0x162000,0x1000)||
+        !map(gcc_branches,0x181000,0x1000)||!map(db,0x80860000,0x20000))
         {record("SKIP resource mapping",1);return;}
     PongPowerInputs inputs={};auto input_status=PongAdrenoReadPowerInputs(
         reinterpret_cast<const uint8_t *>(db.cpu),db.bytes,PongAdrenoChipId,&inputs);
@@ -387,8 +412,8 @@ static void run(void *,wait_result_t)
     if(!vote_parents(inputs)){record("FAIL parent votes",1);return;}
     parents_ready=1;
     // GPUCC register interface must be clocked before even reading GPUCC.
-    wr(gcc,0x81004,rd(gcc,0x81004)|1);IODelay(10);
-    if(!(rd(gcc,0x81004)&1)){record("FAIL CFG AHB",1);return;}
+    gcc_write(0x81004,gcc_read(0x81004)|1);IODelay(10);
+    if(!(gcc_read(0x81004)&1)){record("FAIL CFG AHB",1);return;}
     if(!map(windows[PongGpuClock],0x03d90000,0xa000)){record("SKIP GPUCC map",1);return;}
     uint32_t gx=rd(windows[PongGpuClock],0x905c);
     if(gx&0x80000000){record("SKIP GX already powered; require cold boot",1,gx);return;}

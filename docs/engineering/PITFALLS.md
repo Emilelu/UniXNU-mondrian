@@ -3150,3 +3150,48 @@ goodix_brl_hw.c:553-559
   2. 用脚本生成补丁时，**前缀逻辑要独立于内容逻辑**：
      先把纯内容写好，最后统一加前缀，不要在内容里混入前缀字符。
   3. `gate.py` 的 `[Q]` 项应该同时检查"hunk 内没有双加号"。
+
+### P-134 ★★★ 触摸 config 下发的格式理解错误：官方要的是 `.cfg` 文本经转换后的结果
+
+- **背景**：触摸芯片能识别（读出 `BERLIN 9916R 05.80.02.63`）、config 下载"成功"
+  （`CFG-START state=80`、`CFG-DL 1488 bytes`、`CFG-EXIT ack=80`），
+  但 `0x10308`（`touch_data_addr`）首字节恒为 `0x00`，芯片不产生触点报告。
+- **官方流程**（`goodix_ts_core.c:428-465, 483-502`）：
+  ```c
+  ret = request_firmware(&cfg_img, GOODIX_DEFAULT_CFG_NAME, dev);
+      // GOODIX_DEFAULT_CFG_NAME = "goodix_cfg_group.cfg"
+
+  goodix_ts_convert_0x_data(cfg_img->data, cfg_img->size,
+                            config->data, &config->len);
+      // .cfg 是 ASCII 文本，形如 "x00 x00 ... x39 x39 x31 x36 x52"
+      // 每个 'x' 后跟两个十六进制 ASCII 字符 -> 1 字节
+      // 输出长度 = 'x'/'X' 字符的个数
+
+  hw_ops->send_config(core_data, config->data, config->len);
+      // brl_send_config 原样写入 fw_buffer_addr，回读 memcmp 比对
+  ```
+- **我们的做法**：直接把二进制 `.bin` 写进 `fw_buffer_addr`，没有经过
+  `convert_0x_data`。如果我们的 `.bin` 本身就是转换后的结果，那没问题；
+  如果它是从 `goodix_cfg_group_m11a.bin`（1627 B 容器）里剥出来的子包，
+  则边界可能错。
+- **已验证的事实**：
+  - `goodix_cfg_group_m11a.bin`（1627 B）的 `bin_len`（u32@0）= 1627 ✅ 与文件等长
+  - `checksum`（u8@4）= 0xdc，且 `sum(d[5:]) & 0xFF == 0xdc` ✅
+  - 但按官方 `goodix_cfg_bin_head` 布局（`bin_len(4) + checksum(1) + bin_version[N] + pkg_num(1)`）
+    反推，`bin_version` 长度会是 0、`pkg_num` = 54，**明显不合理**
+  - 说明这个文件用的是 **vendor 变体格式**，不是 mainline `goodix_cfg_bin_head`
+  - 头部实际形态（观测）：`5b 06 00 00 | dc 36 00 00 | 00 01 00 00 | 00 00 00 00 | 12 00 | 49 06 00 00 | "Berlin"`
+    其中 `0x065b`=1627（总长）、`0x0649`=1609（子包长度）、`0x0012`=18（某偏移）
+- **下一步测量**：
+  1. 从 Android 提取真正的 `goodix_cfg_group.cfg`（ASCII 文本），
+     跑 `convert_0x_data` 得到参考字节序列
+  2. 与我们的 1486 字节逐字节比对
+  3. 核对 `goodix_ts_core_vendor.c` 是否有另一套 cfg 解析（vendor 变体）
+- **教训**：
+  1. **"config 下载成功"不等于"config 生效"。** 我们的 `CFG-START state=80`、
+     `CFG-DL 1488 bytes`、`CFG-EXIT ack=80` 全部通过，但芯片仍不上报。
+     回读 memcmp 只能证明"字节写进去了"，不能证明"芯片接受了这个 config"。
+  2. **config 文件有 ASCII 与二进制两种形态**，官方默认走 ASCII + 转换。
+     直接发二进制前必须先确认它已经是转换后的结果。
+  3. **容器格式有 mainline 与 vendor 两套**，`bin_len`/`checksum` 对得上
+     不代表布局就是 mainline 的。

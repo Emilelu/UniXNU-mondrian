@@ -178,6 +178,40 @@ examined = "2026-11-12"
 finding = """本次 ①②③ 调研记录。① 同型：Pong 是 SM8475 + QCA6490，与 K60 完全相同，40 KB 的 PCIe0 冷启动实现可直接参考。② 官方：Ath12kWifi 组件针对 ath12k（qcc2072/qcn9274/wcn7850），K60 是 QCA6490（ath11k 族），MHI/QRTR 接口不同 → 官方无覆盖，只能参考 Pong + mainline ath11k。③ 反编译：K60 固件路径与大小已知，但 PCI 层参数（device id / BAR / subsystem_device）待补。"""
 
 
+[subsystem.audio]
+why = "音频（WCD938x codec + ADSP + AudioReach/PRM）"
+
+[[subsystem.audio.required]]
+path = "references/pong-power/PongAdsp.cpp"
+why = "★ ADSP PAS1 启动 + SMEM/SMP2P/GLINK 传输（34,547 B）"
+examined = "2026-11-12"
+finding = """Pong SM8475 ADSP PAS1 启动 + Qualcomm SMEM/SMP2P/GLINK 三层传输，34,547 B。这是音频栈里最复杂的一层：PAS 负责认证并启动 ADSP 这个独立处理器，SMEM 是共享内存、SMP2P 是核间信号、GLINK 是建立在两者之上的通道抽象。复杂度高于 GPU 的 GMU 启动（GMU 只有 HFI 一层）。"""
+
+[[subsystem.audio.required]]
+path = "references/pong-power/PongAudio.cpp"
+why = "AudioReach / PRM 命令通道与周期填充（29,263 B）"
+examined = "2026-11-12"
+finding = """AudioReach / PRM 命令通道与周期填充，29,263 B。关键约束（代码里的 static_assert）：音频周期必须留在 low DMA 分区内。含 fail(step,error) 统一失败记录、receive/next 的环形队列（512 字节、32 槽）、native_audio_stats[8] 统计数组。"""
+
+[[subsystem.audio.required]]
+path = "references/pong-power/PongWcd938.h"
+why = "WCD938x codec 前置条件与 PRM 投票（6,262 B），含实际 DT 的供电真值"
+examined = "2026-11-12"
+finding = """WCD938x codec 前置条件与 PRM 投票，6,262 B。代码注释给出三条硬事实：硬件输入来自实际 Pong DTS 与 NothingOSS c402fcdb 的 audio-kernel SWR/LPASS 实现；AudioReach/PRM 编码与 UniXNU-sheng 共享；实际 DT 是 PM8350 S10B 供 WCD RXTX/buck/IO 1.8V。并明确警告：在物理采集图真的返回 PCM 之前不要宣布麦克风可用。PRM 投票模式可复用：每个 rate 试两个频率 × 两个 attribute，任一 ACK 即成功，每次打日志。"""
+
+[[subsystem.audio.required]]
+path = "references/pong-power/PongIOAudio2.h"
+why = "IOAudio2 驱动接口（23,857 B）"
+examined = "2026-11-12"
+finding = """IOAudio2 驱动接口，23,857 B。是 macOS/iOS 音频栈的内核侧接口，Pong 用它把 AudioReach 的 PCM 流注册成系统音频设备。我们完全没有这一层。"""
+
+[[subsystem.audio.required]]
+path = "docs/research/audio/RESEARCH.md"
+why = "本次 ①②③ 调研记录"
+examined = "2026-11-12"
+finding = """本次 ①②③ 调研。① 同型：Pong 有约 107 KB 的完整音频栈（ADSP 34 KB + Audio 29 KB + IOAudio2 24 KB + WCD938x 6 KB + Service 7 KB）。② 官方：components.toml 25 个组件里没有音频组件，官方唯一的音频代码在 UniXNU-sheng 的板级实现里，参考链只能是 Pong + UniXNU-sheng + NothingOSS audio-kernel。③ 反编译：K60 与 Pong 同为 SM8475，codec 大概率也是 WCD938x，但必须实测；K60 还有独立的 aw882xx smart PA，Pong 可能没有，这是额外驱动。"""
+
+
 [subsystem.launchd]
 why = "launchd pid 1：hw.target 身份链、服务缓存"
 

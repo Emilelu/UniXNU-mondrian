@@ -3491,3 +3491,32 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
      成功，或根本没执行到。成功也打一行，歧义就消失了。
   3. **"不可观测"是可以修的。** 遇到只能标"待观察"的项时，先问：
      能不能加一行日志把它变成可观测？通常能。
+
+### P-143 ★★★ "文件丢失"其实是搜索范围不够：固件一直在 D 盘
+
+- **症状**：`.cache/firmware/k60-gpu/` 空了，构建在
+  `build-pong-adreno-platform.py:64` 报 `FileNotFoundError: gmu_gen70000.bin`。
+  于是把 `CONFIG_XNU_PONG_ADRENO_PLATFORM` 设为 `n`，GPU 从构建里消失了六轮。
+- **真因**：五个固件文件一直在 `/mnt/d/Android/k60-ios/firmware/k60-gpu/`
+  ```
+  74,676 B  a730_sqe.fw
+  57,272 B  gmu_gen70000.bin
+   3,564 B  a730_zap.mdt
+   2,236 B  a730_zap.b01
+   3,416 B  a730_zap.b02
+  ```
+  而 `porting.toml:248` 早就写着这句话：
+  > The GPU firmware set is complete under D:/Android/k60-ios/firmware/k60-gpu
+- **我当时的搜索范围**：`<workspace>`、`/mnt/e/hackios`、`/opt/k60`
+  —— **漏了 /mnt/d**。而 REPO-INVENTORY.md 明确写着 `D:\Android\k60-ios` 是
+  48 个仓库的分布位置之一。
+- **恢复**：复制回 `.cache/firmware/k60-gpu/`，SHA256 校验一致，
+  `CONFIG_XNU_PONG_ADRENO_PLATFORM=y` 设回。构建产物 54,243,328 B（比关闭时多 270 KB），
+  `libPongAdrenoPlatform.a` 406,464 B，GPU 符号全部在内核里。
+- **教训**：
+  1. **搜文件前先读仓库清单。** `REPO-INVENTORY.md` 与 `porting.toml` 里
+     已经写明资产位置，比 `find` 全盘搜更可靠也更快。
+  2. **"丢失"要先区分"被删"和"没在搜的地方"。** 这次是后者，
+     代价是 GPU 线停了六轮。
+  3. **porting.toml 的 findings 是资产清单，不只是结论。**
+     它记录了固件路径、大小、以及哪些脚本消费它们。

@@ -128,7 +128,7 @@ Metal 插件签名：LC_CODE_SIGNATURE dataoff=76048 datasize=18880 magic=0xfade
 
 [hardware.gpu.step.device]
 done = false
-evidence = "尚未在 pong_metal=1（真实注入）下验证。历史：pong_metal=1 时 backboardd 崩溃 13 次（-[NSURL fileURLWithPath:] nil），pong_metal=2 时系统稳定但 IOAcceleratorES 0 次。"
+evidence = "固件已恢复（2026-11-12）：五个文件在 /mnt/d/Android/k60-ios/firmware/k60-gpu，复制回 .cache/firmware/k60-gpu/ 后重新启用 Adreno，构建产物 54,243,328 B、libPongAdrenoPlatform.a 406,464 B，GPU 符号全部在内核里。仍尚未在 pong_metal=1（真实注入）下验证。历史：pong_metal=1 时 backboardd 崩溃 13 次（-[NSURL fileURLWithPath:] nil），pong_metal=2 时系统稳定但 IOAcceleratorES 0 次。"
 
 [hardware.gpu.step.device.prediction]
 success = "日志出现 native Metal entry enabled 且 IOAcceleratorES provider published，backboardd crashed 计数为 0，MiniIOMobileFramebuffer 帧率 > 0"

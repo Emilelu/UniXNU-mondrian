@@ -3409,3 +3409,23 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   触摸驱动的 `printf` 走内核日志，不依赖 applog（用户态 os_log 捕获）。
 - **教训**：**每次动 boot-args 都要先打印当前总长和余量**，
   不能等到构建或刷机时才发现超限。
+
+### P-140 ★★ 同一个驱动里不能有两条复位路径
+
+- **症状**：`goodix_apply_config` 用的是内联 GPIO 翻转复位
+  ```c
+  gpio_set(PIN_RESET, false); sleep_ms(2);
+  gpio_set(PIN_RESET, true);  sleep_ms(100);
+  ```
+  而 `touch_reset()` 在同样三步之后还调了 `spi_mode_select()`。
+  两条路径行为不一致：走 apply_config 的那次复位**跳过了 SPI 模式确认**。
+- **官方依据**：`brl_select_spi_mode` 有三处调用点 ——
+  `goodix_brl_hw.c:120`（`brl_reset_after`）、`:197`、`:322`（`brl_reset` 的返回处）。
+  官方在每个复位出口都重新确认模式。
+- **修复**：`goodix_apply_config` 改用 `touch_reset()`，并补 `static void touch_reset(void);`
+  前置声明（`apply_config` 定义在 `touch_reset` 之前）。
+- **教训**：
+  1. **复位是个"协议重新开始"的动作，所有复位必须走同一个函数。**
+     散落的 GPIO 翻转会让后续步骤在不确定的芯片状态下运行。
+  2. **用脚本移植代码时，要注意定义顺序。** 直接把函数体粘到前面会缺前置声明，
+     C99+ 会报 implicit declaration。

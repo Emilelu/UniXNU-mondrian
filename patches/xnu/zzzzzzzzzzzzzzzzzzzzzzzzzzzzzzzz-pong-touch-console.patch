@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1318 @@
+@@ -0,0 +1,1323 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -643,6 +643,10 @@ index 0000000..b033b90
 +static uint8_t spi_tx[8 + GOODIX_MAX_READ], spi_rx[8 + GOODIX_MAX_READ];
 +static uint32_t touch_address, command_address, fw_buffer_address;
 +
++/* Declared ahead of its definition: goodix_apply_config resets the chip
++ * through it so the SPI mode is re-confirmed on that path too. */
++static void touch_reset(void);
++
 +static bool
 +goodix_read(uint32_t address, uint8_t *data, uint32_t length)
 +{
@@ -896,10 +900,11 @@ index 0000000..b033b90
 +	if (off != sizeof(k60_cfg) || bad) return false;
 +	if (!goodix_command(4, 0x05, NULL, 0, "CFG-WRITE")) return false;
 +	if (!goodix_command(4, 0x06, NULL, 0, "CFG-EXIT")) return false;
-+	gpio_set(PIN_RESET, false);
-+	sleep_ms(2);
-+	gpio_set(PIN_RESET, true);
-+	sleep_ms(100);
++	/* Same reset path as everywhere else, so the SPI mode is re-confirmed
++	 * before the coordinate-mode command and the re-probe that follows.
++	 * The official driver reselects at brl_reset:322 and brl_reset_after:120
++	 * for exactly this reason. */
++	touch_reset();
 +	if (!goodix_command(5, 0x90, &coordinate, 1, "COORD-MODE")) return false;
 +	sleep_ms(50);
 +	return true;

@@ -19,13 +19,14 @@ def main():
     p.add_argument('--reference-dir',type=Path,
         help='regenerate hardware facts from the matching vendor gen7_reg.h')
     p.add_argument('--output-dir',required=True,type=Path)
-    p.add_argument('--tree',type=Path,default=Path('/Volumes/PongDev/build/Pong-iOS16-v45-high-scratch/tree'))
-    p.add_argument('--firmware-dir',type=Path,default=Path('/Volumes/PongDev/build/Pong-iOS16-v92-settings-adreno/firmware'))
+    p.add_argument('--tree',type=Path,default=Path.cwd())
+    p.add_argument('--firmware-dir',type=Path,
+        default=Path(os.environ.get('PONG_ADRENO_FIRMWARE_DIR', ROOT / '.cache/firmware/k60-gpu')))
     p.add_argument('--developer-dir',type=Path,
         default=Path('/Volumes/PongDev/Applications/Xcode.app/Contents/Developer'))
     a=p.parse_args();out=a.output_dir.resolve();out.mkdir(parents=True,exist_ok=True)
     source=ROOT/'drivers/PongAdreno'
-    regs=(a.reference_dir/'gen7_reg.h').read_text() if a.reference_dir else (source/'PongAdrenoCpProfile.h').read_text()
+    regs=(a.reference_dir/'gen7_reg.h').read_text() if a.reference_dir else (source/'PongAdrenoRegisters.h').read_text()
     needed=sorted(set(re.findall(r'\bGEN7_[A-Z0-9_]+\b',(source/'PongAdrenoGmu.c').read_text())))
     values={}
     for name in needed:

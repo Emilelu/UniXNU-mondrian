@@ -34,15 +34,18 @@ def main():
     p.add_argument('--reference-dir',type=Path,
         help='regenerate hardware facts from the matching vendor gen7_reg.h')
     p.add_argument('--output-dir',required=True,type=Path)
-    p.add_argument('--tree',type=Path,default=Path('/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree'))
-    p.add_argument('--firmware-dir',type=Path,default=Path('/mnt/d/Android/k60-ios/firmware/k60-gpu'))
+    p.add_argument('--tree',type=Path,default=Path.cwd(),
+        help='resolved kernel tree; the kernel invokes this recipe from that tree')
+    p.add_argument('--firmware-dir',type=Path,
+        default=Path(os.environ.get('PONG_ADRENO_FIRMWARE_DIR', ROOT / '.cache/firmware/k60-gpu')),
+        help='actual captured K60 GMU/SQE/ZAP inputs')
     p.add_argument('--developer-dir',type=Path,
         default=None,help='accepted for call compatibility; ignored on Linux')
     p.add_argument('--sdk-root',type=Path,default=None,
         help='SDK root; defaults to $UNIXNU_SDKROOT (the fakeroot)')
     a=p.parse_args();out=a.output_dir.resolve();out.mkdir(parents=True,exist_ok=True)
     source=ROOT/'drivers/PongAdreno'
-    regs=(a.reference_dir/'gen7_reg.h').read_text() if a.reference_dir else (source/'PongAdrenoCpProfile.h').read_text()
+    regs=(a.reference_dir/'gen7_reg.h').read_text() if a.reference_dir else (source/'PongAdrenoRegisters.h').read_text()
     needed=sorted(set(re.findall(r'\bGEN7_[A-Z0-9_]+\b',(source/'PongAdrenoGmu.c').read_text())))
     values={}
     for name in needed:
@@ -67,6 +70,7 @@ def main():
     sources+=['ArmSmmu4K/'+name for name in ['ArmSmmu4K','ArmSmmu4KContext',
         'ArmSmmu4KProgram','ArmSmmu4KStreams','ArmSmmu4KAudit',
         'ArmSmmu4KLive','ArmSmmu4KTableMemory']]
+    framework=a.tree/'.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A'
     for name in sources:
         obj=out/(Path(name).name+'.o')
         cmd=['xcrun','clang','-target','arm64-apple-ios16.0','-isysroot',sdk,
@@ -74,6 +78,7 @@ def main():
              '-fno-asynchronous-unwind-tables','-Os',
              '-Wall','-Wextra','-Werror','-I'+str(out),'-I'+str(source),
              '-I'+str(source/'ArmSmmu4K'),
+             '-I'+str(framework/'Headers'),
              '-c',str(source/(name+'.c')),'-o',str(obj)]
         subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
     # Embed only the actual captured GMU firmware for cold startup. No hashes,
@@ -91,7 +96,6 @@ def main():
     obj=out/'PongAdrenoFirmware.generated.o'
     cmd=commands[0].copy();cmd[cmd.index('-c')+1]=str(data);cmd[-1]=str(obj)
     subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
-    framework=a.tree/'.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A'
     obj=out/'PongAdrenoPlatform.o'
     cmd=['xcrun','clang++','-target','arm64-apple-ios16.0','-isysroot',sdk,
         '-mkernel','-ffreestanding','-fno-builtin','-fno-stack-protector','-mgeneral-regs-only',

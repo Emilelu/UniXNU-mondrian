@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
-/* SM8475 cold GMU startup. No A740/Redwood platform owner or ready device.
- * All MMIO belongs to Pong's captured DT. This driver is the sole XNU owner
- * of the GPU SMMU and APSS DRV2 active TCS3 (no generic RPMh driver is linked).
+/* SM8475 cold GMU startup. The GPU SMMU and active TCS3 have one owner.
+ * K60 cannot safely access APSS RSC from EL1: all TCS operations use the
+ * documented Qualcomm secure I/O service, which can reject protected access.
  * Do not steal a live master, a busy TCS or unrelated stream/context bank.
  */
 #include <IOKit/IOLib.h>
@@ -22,7 +22,7 @@ extern "C" const uint8_t PongAdrenoGmuFirmware[];
 extern "C" const size_t PongAdrenoGmuFirmwareBytes;
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
 namespace {
-struct Mapping {OSSharedPtr<IOMemoryMap> keep;uintptr_t cpu=0;size_t bytes=0;};
+struct Mapping {OSSharedPtr<IOMemoryMap> keep;uintptr_t cpu=0;size_t bytes=0;uint64_t physical=0;bool secure=false;};
 struct Memory {IOBufferMemoryDescriptor *keep=nullptr;uint8_t *cpu=nullptr;uint64_t pa=0;size_t bytes=0;};
 static Mapping windows[PongGpuWindowCount],gcc,rsc,db;
 static Memory cache,dummy,hfi,logmem,tables;
@@ -39,11 +39,34 @@ static ArmSmmu4KContextConfig config;
 static ArmSmmu4KIo smmu_io;
 static uint64_t bank_offset;
 static unsigned parents_ready,attempted;
+static bool secure_io_failed;
 static void record(const char *phase,unsigned result,uint64_t a=0,uint64_t b=0)
 {
     char text[240];int n=snprintf(text,sizeof(text),
         "PONG ADRENO: %s result=%u a=0x%llx b=0x%llx\n",phase,result,a,b);
     if(n>0){IOLog("%s",text);pong_ramoops_diagnostic_write(text,n<(int)sizeof(text)?n:(int)sizeof(text)-1);}
+}
+static uint64_t microseconds();
+/* Qualcomm TZ_IO_ACCESS_READ/WRITE, scm_sip_interface.h and qcom_scm.c.
+ * No EL1 load/store is issued to RSC. Reject transport/service failures;
+ * interrupted calls resume with the vendor's A6 cookie, within a time bound. */
+static bool secure_io(bool write,uint64_t address,uint32_t *value)
+{
+    if(address<0x17a20000ULL || address>0x17a2fffcULL || (address&3))return false;
+    const uint64_t function=write?0xc2000502ULL:0xc2000501ULL;
+    uint64_t first=function,a6=0,begin=microseconds();
+    for(unsigned resumes=0;resumes<1000 && microseconds()-begin<1000000;resumes++) {
+        register uint64_t x0 asm("x0")=first,x1 asm("x1")=write?2:1;
+        register uint64_t x2 asm("x2")=address,x3 asm("x3")=write?*value:0;
+        register uint64_t x4 asm("x4")=0,x5 asm("x5")=0,x6 asm("x6")=a6,x7 asm("x7")=0;
+        asm volatile("smc #0":"+r"(x0),"+r"(x1),"+r"(x2),"+r"(x3),"+r"(x4),"+r"(x5),"+r"(x6),"+r"(x7)
+            ::"x8","x9","x10","x11","x12","x13","x14","x15","x16","x17","memory");
+        if(x0==1){first=1;a6=x6;continue;}
+        if(x0!=0){record(write?"secure RSC write refused":"secure RSC read refused",1,address,x0);return false;}
+        if(!write)*value=uint32_t(x1);
+        return true;
+    }
+    record("secure RSC call timed out",1,address);return false;
 }
 static bool map(Mapping &m,uint64_t physical,size_t bytes)
 {
@@ -54,9 +77,17 @@ static bool map(Mapping &m,uint64_t physical,size_t bytes)
     m.cpu=m.keep->getVirtualAddress();m.bytes=bytes;return m.cpu!=0;
 }
 static uint32_t rd(const Mapping &m,size_t at)
-{return *reinterpret_cast<volatile uint32_t *>(m.cpu+at);}
+{
+    if(m.bytes<4 || (at&3) || at>m.bytes-4){secure_io_failed=true;return 0;}
+    if(m.secure){if(secure_io_failed)return 0;uint32_t value=0;if(!secure_io(false,m.physical+at,&value))secure_io_failed=true;return value;}
+    return *reinterpret_cast<volatile uint32_t *>(m.cpu+at);
+}
 static void wr(const Mapping &m,size_t at,uint32_t value)
-{__asm__ volatile("dsb sy":::"memory");*reinterpret_cast<volatile uint32_t *>(m.cpu+at)=value;__asm__ volatile("dsb sy":::"memory");}
+{
+    if(m.bytes<4 || (at&3) || at>m.bytes-4){secure_io_failed=true;return;}
+    if(m.secure){if(!secure_io_failed && !secure_io(true,m.physical+at,&value))secure_io_failed=true;return;}
+    __asm__ volatile("dsb sy":::"memory");*reinterpret_cast<volatile uint32_t *>(m.cpu+at)=value;__asm__ volatile("dsb sy":::"memory");
+}
 static int barrier(void *){__asm__ volatile("dsb sy":::"memory");return 0;}
 static uint64_t microseconds()
 {clock_sec_t s;clock_usec_t u;clock_get_system_microtime(&s,&u);return uint64_t(s)*1000000+u;}
@@ -85,37 +116,49 @@ static bool poll(const Mapping &m,size_t at,uint32_t mask,uint32_t wanted,unsign
 {
     uint64_t begin=microseconds();
     for(unsigned n=0;n<us && microseconds()-begin<us;n++) {
-        if((rd(m,at)&mask)==wanted)return true;IODelay(1);
+        uint32_t current=rd(m,at);
+        if(secure_io_failed)return false;
+        if((current&mask)==wanted)return true;IODelay(1);
     }
     return false;
 }
-static unsigned retained_corner(const PongPowerResource &rail)
+static unsigned required_corner(const PongPowerResource &rail,unsigned minimum)
 {
-    // APSS DRV2 previously served all boot-firmware consumers. Until XNU
-    // has a shared RPMh aggregator, do not lower an unknown retained vote.
-    // Hold the highest ACTUAL allowed AUX corner, without changing CPU/GPU
-    // frequency. Never invent a corner or exceed the firmware's own table.
-    unsigned index=16,highest=0;
-    for(unsigned i=0;i<rail.bytes/2 && i<16;i++) {
-        unsigned v=rail.aux[2*i]|unsigned(rail.aux[2*i+1])<<8;
-        if(v>highest){highest=v;index=i;}
+    // Resolve real AUX indices for initial GMU200MHz/HUB150MHz rates.
+    // CX LOW_SVS64 and MX minimum192 come from vendor and cmd-db mol.
+    for(unsigned i=1;i<rail.bytes/2 && i<16;i++) {
+        unsigned level=rail.aux[2*i]|unsigned(rail.aux[2*i+1])<<8;
+        if(level>=minimum)return i;
     }
-    return index;
+    return 16;
 }
 static bool vote_parents(const PongPowerInputs &in)
 {
     // Pong live DT: APSS DRV2, TCS layout sleep0..2, active3..4, wake5..6.
     // Only active TCS3 is leased here. Sleep/wake and other drivers are intact.
     uint32_t caps=rd(rsc,0xc);
+    if(secure_io_failed)return false;
     // DRV_NUM_TCS_SHIFT6 * Pong drv-id2. DT reserves eight TCSes including
     // fast-path7. NCPT is the actual five-bit per-TCS command capacity.
     unsigned count=(caps>>12)&63,ncpt=(caps>>27)&31;
     if(count<8 || ncpt<2){record("SKIP APSS DRV2 capacity",1,caps,(uint64_t(count)<<32)|ncpt);return false;}
     const size_t base=0xd00+3*0x2a0;
     if(!rd(rsc,base+0x18)){record("SKIP active TCS3 busy",1,rd(rsc,base+0x14),rd(rsc,base+0x1c));return false;}
-    uint32_t cx=retained_corner(in.cx);
-    uint32_t mx=retained_corner(in.mx);
+    uint32_t cx=required_corner(in.cx,64);
+    uint32_t mx=required_corner(in.mx,192);
     if(cx==16 || mx==16){record("SKIP ARC AUX levels",1,cx,mx);return false;}
+    // Do not lower an existing APSS active request while borrowing TCS3.
+    // Completed commands retain their last data even when CMD_ENABLE clears.
+    for(unsigned tcs=3;tcs<=4;tcs++) for(unsigned command=0;command<ncpt;command++) {
+        size_t slot=0xd00+tcs*0x2a0+0x34+20*command;
+        uint32_t address=rd(rsc,slot),value=rd(rsc,slot+4);
+        if(secure_io_failed)return false;
+        const PongPowerResource *rail=address==in.cx.address?&in.cx:address==in.mx.address?&in.mx:nullptr;
+        if(!rail)continue;
+        if(value>=rail->bytes/2 || value>=16){record("SKIP unknown retained ARC index",1,address,value);return false;}
+        if(address==in.cx.address && value>cx)cx=value;
+        if(address==in.mx.address && value>mx)mx=value;
+    }
     // Check active TCS4 as well: the AOP must never receive concurrent
     // commands for the same ARC address. Preserve all foreign in-flight work.
     const size_t other=0xd00+4*0x2a0;
@@ -161,13 +204,13 @@ static bool vote_parents(const PongPowerInputs &in)
         if(commands && idle && (progressed || (rd(rsc,0xd04)&(1u<<3)))){complete=true;break;}
         IODelay(10);
     }
-    if(!complete){record("FAIL ARC completion",1,(uint64_t(first)<<32)|second,idle);return false;}
+    if(!complete || secure_io_failed){record("FAIL ARC completion",1,(uint64_t(first)<<32)|second,idle);return false;}
     wr(rsc,base+0x1c,0);wr(rsc,0xd08,1u<<3);
     // Clear only the completed transaction's trigger, matching vendor reclaim.
     // Keep the acknowledged votes and parent resources retained.
     wr(rsc,base+0x14,rd(rsc,base+0x14)&~(1u<<24));
     record("parent ARC votes acknowledged",0,mx,cx);
-    return true;
+    return !secure_io_failed;
 }
 static int clock_read(void *,PongClockWindow w,size_t at,uint32_t *v)
 {const Mapping &m=w==PongClockGcc?gcc:windows[PongGpuClock];if(at>m.bytes-4)return 1;*v=rd(m,at);return 0;}
@@ -331,8 +374,12 @@ static int cp_write(void *,uint32_t reg,uint32_t value)
 }
 static void run(void *,wait_result_t)
 {
+    // Delay optional hardware work until the console and normal desktop boot
+    // can record a refused monitor request without losing the working chain.
+    IOSleep(8000);
     record("startup requested; no accelerator published",0);
-    if(!map(gcc,0x100000,0x1f4200)||!map(rsc,0x17a20000,0x10000)||!map(db,0x80860000,0x20000))
+    rsc.physical=0x17a20000;rsc.bytes=0x10000;rsc.secure=true;
+    if(!map(gcc,0x100000,0x82000)||!map(db,0x80860000,0x20000))
         {record("SKIP resource mapping",1);return;}
     PongPowerInputs inputs={};auto input_status=PongAdrenoReadPowerInputs(
         reinterpret_cast<const uint8_t *>(db.cpu),db.bytes,PongAdrenoChipId,&inputs);

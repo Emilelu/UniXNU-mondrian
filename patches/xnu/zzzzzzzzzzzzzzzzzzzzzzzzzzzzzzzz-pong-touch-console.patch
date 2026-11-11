@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1039 @@
+@@ -0,0 +1,1062 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -617,6 +617,11 @@ index 0000000..b033b90
 +/* ---- the Goodix chip ------------------------------------------------------------------------------- */
 +
 +#define GOODIX_FW_VERSION       0x10014         /* 28 bytes */
++/* Berlin A SPI mode select. brl_reset ends with this call
++ * (goodix_brl_hw.c:322); without it the chip stays in whatever mode the
++ * previous transfer left it in and later reads come back stale. */
++#define GOODIX_SPI_MODE_REG         0xC900
++#define GOODIX_SPI_NORMAL_MODE_0    0x01
 +#define GOODIX_IC_INFO          0x10070         /* a 16-bit length, then that many bytes */
 +#define GOODIX_MAX_READ         1024
 +#define GOODIX_MAX_TOUCHES      10
@@ -695,6 +700,23 @@ index 0000000..b033b90
 +	return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
 +}
 +
++/* Berlin A SPI mode select, from goodix_brl_hw.c:54-74. Write the mode,
++ * read it back, and only accept a matching read. brl_reset ends with this
++ * (goodix_brl_hw.c:322) because the chip does not reliably stay in normal
++ * mode across a reset. */
++static bool
++spi_mode_select(void)
++{
++    const uint8_t want = GOODIX_SPI_NORMAL_MODE_0;
++    for (unsigned i = 0; i < 5; i++) {
++        uint8_t got = 0;
++        if (!goodix_write(GOODIX_SPI_MODE_REG, &want, 1)) continue;
++        if (goodix_read(GOODIX_SPI_MODE_REG, &got, 1) && got == want) return true;
++    }
++    printf("goodix: SPI mode select failed, chip never echoed %#x\n", want);
++    return false;
++}
++
 +static void
 +touch_reset(void)
 +{
@@ -702,6 +724,7 @@ index 0000000..b033b90
 +	sleep_ms(2);
 +	gpio_set(PIN_RESET, true);
 +	sleep_ms(100);
++	(void)spi_mode_select();
 +}
 +
 +/* Is the chip there and running its firmware? Finds where it keeps the touch report. */

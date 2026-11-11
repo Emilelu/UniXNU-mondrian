@@ -213,7 +213,9 @@ for name in _targets:
             continue
         if i == len(lines) - 1 and l == '':
             continue
-        if l == '' or l[0] not in ' +-\\':
+        # 空行在 unified diff 的 hunk 内是合法的「上下文空行」。
+        # 只有「非空且首字符不是 + - 空格 反斜杠」才是真损坏。
+        if l != '' and l[0] not in ' +-\\':
             illegal += 1
     if illegal:
         bad_struct += 1

@@ -16,6 +16,13 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 |---|---|---|---|---|---|---|---|---|---|
 | **触摸（Goodix GT9916R / BERLIN）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
 | **GPU（Adreno 730v3 / Metal）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **storage** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **display** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **bootchain** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **buttons** | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | In progress |
+| **wifi** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | In progress |
+| **audio** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | In progress |
+| **battery** | ✅ | ✅ | ❌ | ❌ | ❌ | — | — | — | In progress |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | UFS / 存储 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 显示 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |

@@ -3429,3 +3429,33 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
      散落的 GPIO 翻转会让后续步骤在不确定的芯片状态下运行。
   2. **用脚本移植代码时，要注意定义顺序。** 直接把函数体粘到前面会缺前置声明，
      C99+ 会报 implicit declaration。
+
+### P-141 ★★★ 八步记录只覆盖 2 个硬件，而 STATUS.md 列了 10 个
+
+- **症状**：`docs/research/EIGHT-STEPS.toml` 只有 `touch` 和 `gpu` 两项；
+  `docs/engineering/STATUS.md` 的硬件表有 10 项，其中 6 项是 ✅ 设备已验证
+  （Boot chain / UFS-APFS / 显示首帧 / 背光 / 锁屏-SpringBoard / launchd 稳定）。
+- **后果**：
+  1. 六个跑通的硬件没有八步证据链，换人或换机时无法判断"当时靠什么验证的"
+  2. 门禁的 flash 检查只看到 2 个硬件，其余 8 个完全不受约束
+  3. 这正是"反复踩坑、反复造轮子"的根源 —— 记录和事实不一致
+- **修复（2026-11-12）**：
+  1. 补齐 storage / display / bootchain / buttons / wifi / audio / battery 七项，
+     evidence 全部引用 STATUS.md 的原始日志行或 patches 里的具体文件
+  2. 给每个硬件加 `status = "active" | "parked" | "planned"`
+  3. 门禁只对 `active` 做硬检查：八步流程约束的是**正在做的修复**，
+     不是历史清单。parked/planned 如实记录但不阻断构建
+  4. 门禁新增 [W] 检查：STATUS.md 里出现的硬件必须在 EIGHT-STEPS.toml 有记录
+  5. 已 device-verified 的项补 `prediction.success/failure`，
+     让重刷或换机时能立刻判断是否回归
+- **结果**：
+  ```
+  build 模式 -> 0 问题，5 个 active 硬件，30 项检查
+  flash 模式 -> 仅 1 个问题：touch ⑦ 核验未完成
+  ```
+- **教训**：
+  1. **"做了"和"记录了"是两件事。** 没有八步记录的工作，下次无法复用，
+     也无法判断是否可以信赖。
+  2. **门禁只应该约束正在做的事。** 把历史上碰过但没做完的东西一起硬卡，
+     会让人为了过门禁而写假证据 —— 那比没记录更糟。
+  3. **STATUS.md 与 EIGHT-STEPS.toml 必须双向一致。** 加 [W] 检查让漂移无处藏身。

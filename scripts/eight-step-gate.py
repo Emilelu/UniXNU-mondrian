@@ -87,7 +87,12 @@ def validate(mode='build', verbose=True):
     need = BUILD_STEPS if mode == 'build' else FLASH_STEPS
     checked = 0
 
-    hw = d.get('hardware', {})
+    hw_all = d.get('hardware', {})
+    # 只有 status=active 的硬件做硬检查。parked/planned 如实记录但不阻断构建：
+    # 八步流程约束的是「正在做的修复」，不是历史清单。
+    hw = {k: v for k, v in hw_all.items() if v.get('status', 'active') == 'active'}
+    _parked = {k: v.get('status') for k, v in hw_all.items()
+               if v.get('status', 'active') != 'active'}
     if not hw:
         return False, ['EIGHT-STEPS.toml 里没有 [hardware.*] 条目']
 
@@ -179,3 +184,54 @@ if __name__ == '__main__':
     print('结论: %s' % ('✅ 八步流程通过（可以%s）' % ('构建' if mode == 'build' else '刷机')
                         if ok else '❌ 八步流程未通过，禁止%s' % ('构建' if mode == 'build' else '刷机')))
     sys.exit(0 if ok else 1)
+
+# ============ W. STATUS.md 与 EIGHT-STEPS.toml 的硬件覆盖一致 ============
+# 2026-11-12: STATUS.md 列了 10 项硬件，EIGHT-STEPS.toml 之前只跟踪 2 项。
+# 做了不记录 = 下次重复踩坑，所以这里强制两边覆盖一致。
+sec('W', 'STATUS.md 与 EIGHT-STEPS.toml 硬件覆盖一致')
+
+# STATUS.md 的中文硬件名 -> EIGHT-STEPS.toml 的 key
+_MAP = {
+    'Boot chain': 'bootchain',
+    'UFS': 'storage',
+    '显示': 'display',
+    '背光': 'display',
+    '实体键': 'buttons',
+    '触摸': 'touch',
+    'GPU': 'gpu',
+    'WiFi': 'wifi',
+    '音频': 'audio',
+    '电池': 'battery',
+}
+
+_tracked = set()
+try:
+    _steps = tomllib.load(io.open(ROOT + '/docs/research/EIGHT-STEPS.toml', 'rb'))
+    _tracked = set(_steps.get('hardware', {}).keys())
+except Exception as _e:
+    bad('W', 'EIGHT-STEPS.toml 可读', str(_e)[:60])
+
+_seen = set()
+_missing = []
+try:
+    for _line in io.open(ROOT + '/docs/engineering/STATUS.md', encoding='utf-8', errors='ignore'):
+        if not _line.startswith('|'):
+            continue
+        for _cn, _key in _MAP.items():
+            if _cn in _line:
+                if _key in _tracked:
+                    _seen.add(_key)
+                elif _key not in _missing:
+                    _missing.append(_key)
+except Exception as _e:
+    bad('W', 'STATUS.md 可读', str(_e)[:60])
+
+if _missing:
+    bad('W', 'STATUS.md 的硬件都有八步记录',
+        '缺: ' + ', '.join(sorted(_missing)) + '（见 docs/research/EIGHT-STEPS.toml）')
+else:
+    ok('W', 'STATUS.md 的硬件都有八步记录', '%d 项' % len(_seen))
+
+_untracked = sorted(_tracked - _seen)
+if _untracked:
+    warn('W', 'EIGHT-STEPS.toml 有 STATUS.md 未列的硬件', ', '.join(_untracked))

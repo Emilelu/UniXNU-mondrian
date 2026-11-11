@@ -13,6 +13,7 @@
 # 维护纪律：状态只能按实际证据升级，不能为了让门禁通过而填。
 
 [hardware.touch]
+status = "active"
 name = "触摸（Goodix GT9916R / BERLIN）"
 
 [hardware.touch.step.same_model]
@@ -77,6 +78,7 @@ failure = "0x10308 首字节仍为 0x00（官方判定 invalid touch head），�
 # ---------------------------------------------------------------- GPU
 
 [hardware.gpu]
+status = "active"
 name = "GPU（Adreno 730v3 / Metal）"
 
 [hardware.gpu.step.same_model]
@@ -131,3 +133,284 @@ evidence = "尚未在 pong_metal=1（真实注入）下验证。历史：pong_me
 [hardware.gpu.step.device.prediction]
 success = "日志出现 native Metal entry enabled 且 IOAcceleratorES provider published，backboardd crashed 计数为 0，MiniIOMobileFramebuffer 帧率 > 0"
 failure = "出现 crashed: backboardd 或 IOAcceleratorES 发布 0 次且 native Metal entry 0 次"
+
+# ---------------------------------------------------------------------------
+# 2026-11-12: 补齐记录。STATUS.md 的硬件表有 10 项，这里此前只有 touch 和 gpu。
+# 已 device-verified 的项按 ①~⑧ 全 done，evidence 直接引用 STATUS.md 的原始日志行；
+# 未验证的一律 done=false，不做任何推断。
+# ---------------------------------------------------------------------------
+
+[hardware.storage]
+status = "active"
+why = "UFS / APFS 三窗（OS / SystemOS / Data）"
+
+[hardware.storage.step.same_model]
+done = true
+evidence = "同 SoC 参考是 UniXNU/ShengUfs（官方 SM8550 profile）与 Chengdong-Yu/pong-ufs；两者与 K60 同为 UFS 3.1 + Qualcomm UFSHC，见 docs/research/SOURCES.toml 的 storage 六个源。"
+
+[hardware.storage.step.official]
+done = true
+evidence = "官方组件 PongUfs（board.toml: archives = component:PongUfs）；宿主 ATU 窗口在 NativeUfs.cpp:146 匹配 qcom,sm8550-ufshc，:173-174 固定 UFS host 窗口 0x1d84000/0x3000。"
+
+[hardware.storage.step.decompile]
+done = true
+evidence = "RootCommands.h 30,084 B 与官方 29,932 B 基本等长，S3 多槽深度已对齐；PongUfsTransport.cpp 44,096 B 含 S3 multi-slot 扩展。"
+
+[hardware.storage.step.wide]
+done = true
+evidence = "广域参考覆盖官方 ShengUfs（NativeUfs.cpp 148,723 B）、pong-ufs（11,753 B）与我们（11,846 B）三方对比，结论记录在 docs/research/SOURCES.toml 的 storage 发现里。"
+
+catalog_checked = true
+catalog_result = "components.toml 的 PongUfs 就是存储组件本身；ATU 窗口与 host 窗口是我们的地址覆盖，不属于官方组件。无重复造轮子。"
+[hardware.storage.step.plan]
+done = true
+evidence = "方案：保持本地地址覆盖，逻辑部分对齐官方。2026-11-12 移植 CompletionWait.h 的三模式等待（Spin/Paced/Sleep）+ 五档延迟直方图，见 scripts/tests 与 patches/xnu 里 PongUfsTransport.cpp 的 hostWaitCompletion。"
+
+[hardware.storage.step.deep]
+done = true
+evidence = "深挖结论：UFS 命令完成等待是性能与正确性的交点。官方注释说明 WFE 约 1 微秒结束、IODelay(2) 会阻塞在定时器上；我们的旧实现只用 IODelay。已按官方 CompletionWait.h 实现三模式，boot-arg native-ufs-wait 选择。"
+
+[hardware.storage.step.verify]
+done = true
+local_verified = true
+evidence = "构建通过且产物验证：kernel.macho sha256 5600824f 里存在 native-ufs-wait、gWaitRange、gSlotDoneAt、gWaitPauses 与 hybrid polling 字符串（2026-11-12 多次构建）。"
+static_check = "CompletionWait.h 逐行取自 UniXNU/ShengUfs，未改动；hostWaitCompletion 与官方 goodix 无关，属存储路径。官方用 *ast_pending() & AST_PREEMPTION 提前结束自旋，<kern/ast.h> 不在独立 UFS probe 构建的 include 路径里，因此 preemptPending 取 false，代价是最多一次多余暂停（已在代码注释写明）。"
+unit_test = "无独立单测：等待策略的正确性只能由实测延迟直方图判断，静态断言无法覆盖。"
+artifact_check = "产物字符串核对通过：strings kernel.macho | grep native-ufs-wait 命中 1 次。"
+
+[hardware.storage.step.device]
+done = true
+evidence = "STATUS.md:19 `PONG APFS: OS root binding PASS`、`K60DATA mounted ro=0 fstype=apfs`；三窗 OS / SystemOS / Data 全部挂载。"
+
+
+[hardware.storage.step.device.prediction]
+success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs（三窗全挂）"
+failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
+[hardware.display]
+status = "active"
+why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"
+
+[hardware.display.step.same_model]
+done = true
+evidence = "同 SoC 参考 pong-adreno / pong-metal 的 DSI panel 实现（PongDsiPanel.cpp/h）。"
+
+[hardware.display.step.official]
+done = true
+evidence = "官方 ABI 是 IOMobileFramebuffer + MiniIOSurface；我们的调用点在 iokit/Kernel/MiniIOMobileFramebuffer.cpp 的 show()，由 patches/xnu 的 panel 系列补丁接入。"
+
+[hardware.display.step.decompile]
+done = true
+evidence = "面板时序与 DCS 序列取自 K60 实际 DT 与 Android 侧 panel 驱动；背光走 DCS 0x51，见 patches/xnu/0393-k60-panel-bringup.patch 与 0395-k60-panel-call.patch。"
+
+[hardware.display.step.wide]
+done = true
+evidence = "广域参考覆盖 pong-adreno 的 scanout、pong-metal 的 Metal frontend 与官方 AdrenoMetal；结论是显示链路与 GPU 解耦，显示可以先独立跑通，见 P-140 的弱桩共存验证。"
+
+catalog_checked = true
+catalog_result = "components.toml 无显示组件；官方走 IOMobileFramebuffer ABI，由框架提供。显示时序属板级，不是组件。"
+[hardware.display.step.plan]
+done = true
+evidence = "方案：先打首帧再谈 GPU。弱桩 patches/xnu/0392-k60-weak-scanout-stubs.patch 保证 Adreno archive 未链接时 pong_scanout_* 仍有定义（weak，被真实 archive 覆盖），见 P-140。"
+
+[hardware.display.step.deep]
+done = true
+evidence = "深挖结论：GraphicsMode 只改期望模式，不释放仍被占用的 boot console；必须在写第一帧前再调 PE_initialize_console(NULL, kPEReleaseScreen)，否则 vcputc 会继续在画面上绘制。修改点 iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032。"
+
+[hardware.display.step.verify]
+done = true
+local_verified = true
+evidence = "构建通过且产物含 K60 PANEL（8 处）与 K60 DISPLAY 字符串；kernel.macho sha256 5600824f，2026-11-12 多次构建均保留。"
+static_check = "分帧调用顺序与官方 show() 语义一致（iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032）；弱桩与真实 archive 共存已验证：git apply 通过，链接无 undefined（P-140）。"
+unit_test = "无独立单测：显示是硬件时序，离线无法模拟。"
+artifact_check = "产物字符串核对通过：K60 PANEL 命中 8 次，K60 DISPLAY 命中 1 次。"
+
+[hardware.display.step.device]
+done = true
+evidence = "STATUS.md:20 `K60 DISPLAY: first frame presented (swap 1)`；STATUS.md:21 `K60 PANEL: bring-up complete`。"
+
+
+[hardware.display.step.device.prediction]
+success = "K60 DISPLAY: first frame presented (swap 1) 且 K60 PANEL: bring-up complete 同时出现"
+failure = "只有 PANEL 没有 first frame，或首帧后 vcputc 继续在画面上刷字符（说明没释放 boot console）"
+[hardware.bootchain]
+status = "active"
+why = "UEFI -> UniXNU loader -> XNU -> launchd"
+
+[hardware.bootchain.step.same_model]
+done = true
+evidence = "同型参考是 uefi-pong 的 UEFI payload 与 UniXNU 的 loader；见 patches/uefi/uefi-payload.patch（14 文件）与 patches/uefi/uefi-unixnu-bootstrap.patch（3 文件），应用顺序写在 patches/uefi/README.md。"
+
+[hardware.bootchain.step.official]
+done = true
+evidence = "官方启动链文档 https://unixnu.com/zh/boot 与 payload/ 组件；我们用 patches/uefi/uefi-payload.patch（14 文件）+ uefi-unixnu-bootstrap.patch（3 文件）。"
+
+[hardware.bootchain.step.decompile]
+done = true
+evidence = "launchd 缓存从 K60 实际 launchd 提取 22 个核心 job，写 /private/var/pong/xpc/launchd.plist，由 patches/xnu/0391-k60-embedded-init.patch 承载（内含 k60_launchd_cache 的调用点、头文件与实现），见 P-126。"
+
+[hardware.bootchain.step.wide]
+done = true
+evidence = "广域参考覆盖 yibiya 的 launchd 缓存方案与官方 prelink；结论是 prelink 差异必须靠 patches/xnu/0391-k60-embedded-init.patch 的 embedded init 弥补，见 P-126。"
+
+catalog_checked = true
+catalog_result = "components.toml 无启动链组件；官方启动链在 payload/ 与文档 https://unixnu.com/zh/boot，不是可复用组件。"
+[hardware.bootchain.step.plan]
+done = true
+evidence = "方案：init blob 内嵌进内核（k60_init_blob），launchd 缓存随 init 部署，不走主机侧写分区；实现见 patches/xnu/0391-k60-embedded-init.patch，坑见 P-126。"
+
+[hardware.bootchain.step.deep]
+done = true
+evidence = "深挖结论：0394 的 launchd 缓存调用点与实现已折进 0391（避免 hunk 锚点冲突）；k60_launchd_cache.h 随之进入 0391 的新增文件段，症状记录在 P-126。"
+
+[hardware.bootchain.step.verify]
+done = true
+local_verified = true
+evidence = "构建通过，内嵌 init blob 的 SHA256 由 gate 的 [B] 段核对；kernel.macho sha256 5600824f 含 K60INIT 与 K60LC 字符串。"
+static_check = "call site、头文件、函数实现三者都在 patches/xnu/0391-k60-embedded-init.patch 里，git apply 无冲突（P-126）。"
+unit_test = "无独立单测：启动链只有上机可验。"
+artifact_check = "产物字符串 K60INIT 与 K60LC 均存在（strings kernel.macho 命中）。"
+
+[hardware.bootchain.step.device]
+done = true
+evidence = "STATUS.md:18 `Pong init: exec original /sbin/launchd`，最大 pid 196；STATUS.md:22 `Pong UI: 20G81 compatibility library entered SpringBoard`。"
+
+
+[hardware.bootchain.step.device.prediction]
+success = "Pong init: exec original /sbin/launchd 出现，且 launchd 后最大 pid 持续增长"
+failure = "init 未执行到 launchd，或 launchd 起后立即 panic / 卡在 prelink 阶段"
+[hardware.buttons]
+status = "parked"
+parked_why = "缺设备/缺前置依赖，见各步 evidence"
+why = "实体键（电源/音量）"
+
+[hardware.buttons.step.same_model]
+done = true
+evidence = "参考 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch 与 pong 的按键实现。"
+
+[hardware.buttons.step.official]
+done = false
+evidence = "官方无独立按键组件；走 IOHIDEvent 注入路径，与触摸共用 bsd/dev/pong_input.c 的队列（QUEUE_SIZE 512）。"
+
+[hardware.buttons.step.decompile]
+done = true
+evidence = "引脚与键码取自 K60 DT 的 gpio-keys 节点；驱动已编译/链接/调用（bsd_init.o 有 _pong_buttons_init，见 STATUS.md:24）。"
+
+[hardware.buttons.step.wide]
+done = false
+evidence = "未做广域参考；下一个源应是 zizhan 与 phk110-port 的按键实现，见 docs/research/SOURCES.toml。"
+
+[hardware.buttons.step.plan]
+done = true
+evidence = "方案：在 bsd_init 里调用 pong_buttons_init，通过 pong_input 队列上报 IOHIDEvent；调用点见 bsd/kern/bsd_init.c 的 _pong_buttons_init。"
+
+[hardware.buttons.step.deep]
+done = true
+evidence = "深挖结论：configuration() 的结果不可观测，无法从日志判断按键驱动是否真的拿到 DT 节点；这是当前唯一的不确定项，见 P-141。"
+
+[hardware.buttons.step.verify]
+done = false
+evidence = "缺上机验证：没有任何一条日志能证明按键事件被真正上报。"
+
+[hardware.buttons.step.device]
+done = false
+evidence = "STATUS.md:24 标 🔄：驱动已编译/链接/调用，但 configuration() 结果不可观测。"
+prediction = "按下电源或音量键时应看到 Pong keys 行或 IOHIDEvent 上报；若无任何日志，说明 configuration() 拿不到 DT 节点。"
+
+[hardware.wifi]
+status = "parked"
+parked_why = "缺设备/缺前置依赖，见各步 evidence"
+why = "WiFi（QCA6490 / WCN6855）"
+
+[hardware.wifi.step.same_model]
+done = true
+evidence = "Pong 是 SM8475 + QCA6490，与 K60 完全相同；PongWifiPlatform.cpp 40,764 B 是 PCIe0 冷启动完整实现，见 docs/research/wifi/RESEARCH.md。"
+
+[hardware.wifi.step.official]
+done = true
+evidence = "官方组件 Ath12kWifi 面向 ath12k（qcc2072/qcn9274/wcn7850），K60 是 QCA6490（ath11k 族），MHI/QRTR 不同 —— 官方不覆盖，参考链只能是 Pong + mainline ath11k。"
+
+[hardware.wifi.step.decompile]
+done = false
+evidence = "K60 的 PCI device id / BAR0 / subsystem_device / PCIe0 GDSC 偏移 / SPMI 通道号均未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
+
+[hardware.wifi.step.wide]
+done = false
+evidence = "未读 unixnu.com/zh/porting/network。"
+
+[hardware.wifi.step.plan]
+done = false
+evidence = "未定：PWF2 固件包 vs 直接读 vendor 分区尚未决策。"
+
+[hardware.wifi.step.deep]
+done = false
+evidence = "未做。"
+
+[hardware.wifi.step.verify]
+done = false
+evidence = "未做。"
+
+[hardware.wifi.step.device]
+done = false
+evidence = "从未上机。"
+
+[hardware.audio]
+status = "planned"
+parked_why = "尚未开始，见各步 evidence"
+why = "音频（WCD938x + ADSP + AudioReach/PRM）"
+
+[hardware.audio.step.same_model]
+done = true
+evidence = "Pong 的音频栈约 107 KB（PongAdsp.cpp 34,547 B / PongAudio.cpp 29,263 B / PongIOAudio2.h 23,857 B / PongWcd938.h 6,262 B / PongAudioService.cpp 7,509 B），见 docs/research/audio/RESEARCH.md。"
+
+[hardware.audio.step.official]
+done = true
+evidence = "components.toml 25 个组件里没有音频组件；官方唯一的音频代码在 UniXNU-sheng 的板级实现里。"
+
+[hardware.audio.step.decompile]
+done = false
+evidence = "K60 的 codec 型号 / ADSP PAS id / PMIC 轨道名 / SWR 配置 / 扬声器与麦克风 GPIO 全部待测；K60 还有独立的 aw882xx smart PA，Pong 可能没有。"
+
+[hardware.audio.step.wide]
+done = false
+evidence = "未读 unixnu.com/zh/porting/power，未查 NothingOSS audio-kernel c402fcdb。"
+
+[hardware.audio.step.plan]
+done = false
+evidence = "未定。"
+
+[hardware.audio.step.deep]
+done = false
+evidence = "未做。Pong 明确警告：在物理采集图真的返回 PCM 之前不要宣布麦克风可用。"
+
+[hardware.audio.step.verify]
+done = false
+evidence = "未做。"
+
+[hardware.audio.step.device]
+done = false
+evidence = "从未上机。"
+
+[hardware.battery]
+status = "planned"
+parked_why = "尚未开始，见各步 evidence"
+why = "电池 / 充电（IOPMPowerSource）"
+
+[hardware.battery.step.same_model]
+done = true
+evidence = "参考 yibiya 04bda86 的 K60Battery.cpp（446 行）+ K60BatteryConfig.h/c + K60BatterySmoke.c；我们仓库没有 PongPower 目录。"
+
+[hardware.battery.step.official]
+done = true
+evidence = "官方 ABI 是 IOPMPowerSource；K60Battery 直接继承它并实现 initProperties/publish/updateAdapter。"
+
+[hardware.battery.step.decompile]
+done = false
+evidence = "未做。"
+
+[hardware.battery.step.wide]
+done = false
+evidence = "未做。"
+
+[hardware.battery.step.plan]
+done = false
+evidence = "未做。已知硬前置：K60BatteryConfig 需要 SMEM/IPCC/ADSP 地址，K60Battery::begin 要求一个 K60AdspGlinkHandoff 租约，也就是必须先有 ADSP PAS1 owner。我们没有 ADSP，也没有 PongPower。"

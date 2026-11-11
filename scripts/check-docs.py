@@ -24,6 +24,7 @@ FILES = [
     REPO + '/README.md',
     REPO + '/README_EN.md',
     REPO + '/docs/INDEX.md',
+    REPO + '/AGENTS.md',
 ]
 
 LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+)\)')

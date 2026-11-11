@@ -214,3 +214,22 @@ trust_cache_sha256 = []
 # reports mem=actual=managed=4096 MiB. Service exits continue; SpringBoard is
 # pending. devicetree.py emits darwinboot-memory-size from this key.
 "owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)
+
+# K60 live FDT: xiaomi_touch@0 on QUP0 SE4. These absolute resources are
+# metadata for the board-started driver, not an incomplete interrupt mapping.
+[adt.arm-io.pong-touch.string]
+compatible = "xiaomi,m11a-spi"
+
+[adt.arm-io.pong-touch.u64]
+spi-base = "0x990000"
+tlmm-base = "0xf000000"
+gcc-base = "0x100000"
+
+[adt.arm-io.pong-touch.u32]
+gpio-offset = "0x100000"
+avdd-gpio = 71
+max-x = 14400
+max-y = 32000
+
+[adt.arm-io.pong-touch.bytes]
+pins = "100000001100000012000000130000001500000014000000"

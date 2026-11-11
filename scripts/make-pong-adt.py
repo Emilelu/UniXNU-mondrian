@@ -202,18 +202,17 @@ def main():
         # until a complete Pong GIC SPI provider and interrupt specifier exist.
         ('pong,ufs-spi', struct.pack('<I', UFS_SPI)),
     ])
-    # Actual Pong live DT: QUP0 SE4 / Goodix Berlin-D, GPIO20 reset/21 IRQ.
+    # K60 live FDT: QUP0 SE4 / Goodix m11a, GPIO20 reset/21 IRQ/71 AVDD.
     # Absolute metadata avoids an incomplete arm-io interrupt/reg mapping.
     touch = node('pong-touch', [
-        ('compatible', b'pong,goodix-berlin-d\0'),
+        ('compatible', b'xiaomi,m11a-spi\0'),
         ('spi-base', struct.pack('<Q', 0x990000)),
         ('tlmm-base', struct.pack('<Q', 0xF000000)),
         ('gcc-base', struct.pack('<Q', 0x100000)),
-        ('rsc-base', struct.pack('<Q', 0x17A20000)),
-        ('cmd-db-base', struct.pack('<Q', 0x80860000)),
         ('gpio-offset', struct.pack('<I', 0x100000)),
         ('pins', struct.pack('<6I', 16, 17, 18, 19, 21, 20)),
         ('max-x', struct.pack('<I', 14400)), ('max-y', struct.pack('<I', 32000)),
+        ('avdd-gpio', struct.pack('<I', 71)),
     ])
     tree = node('device-tree', [
         # Keys use the actual SM8475 PMIC-arbiter resources below.

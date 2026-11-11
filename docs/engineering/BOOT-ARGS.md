@@ -4,7 +4,7 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 602 字节，余 6。
+**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 591 字节，余 17。
 
 ## 一览
 
@@ -215,9 +215,29 @@ pong_gpu_scanout=1     -> 只有在 accelerator 已发布之后才应该打开
 
 ```
 上限 608
-当前 30 项 602，余 6
+当前 30 项 591，余 17
 pong_metal=1        需 13  -> 超限 7
 pong_gpu_scanout=1  需 19  -> 超限 14
 ```
 
 候选让位项：`k60_selftest_reboot=300`（23 字节，手动测试不需要）。
+
+## 当前状态（2026-11-12）
+
+已启用：
+
+```
+pong_adreno_start=1   平台线程
+pong_metal=1          accelerator 发布
+k60_touch_se=6        触摸发布
+```
+
+未启用（按依赖顺序应当后开）：
+
+```
+pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 accelerator 已发布
+```
+
+为给 `pong_metal=1` 腾空间，已移除 `k60_selftest_reboot=300`（23 字节）。
+它是无人值守自检后的自动重启看门狗：手动上机测试时不需要，
+而且在观察过程中会把设备重启掉。

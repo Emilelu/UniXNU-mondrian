@@ -1,0 +1,77 @@
+# SOURCES.toml — 每个子系统"做之前必须考察"的参考源清单
+#
+# 用法：
+#   1. 动手写某个子系统的代码之前，先打开下面列出的每一个文件
+#   2. 在 examined 填日期，在 finding 写"从这个文件学到了什么"（>=20 字）
+#   3. 跑 python3 scripts/research-gate.py，全绿才能构建
+#
+# 为什么需要这个：
+#   2026-11-12 事实核查发现，同 SoC 兄弟移植的 wave12c-electrical.md
+#   在本地躺了两天没被打开，却去抄了同仓库里另一台机器（POCO X5 Pro）
+#   的驱动。根因不是"不知道要读"，是没有清单 + 没有强制。
+#
+# 铁则：path 必须是本地真实存在的文件；finding 必须是具体技术事实，
+#       不能写"已阅读"三个字。
+
+[subsystem.touch]
+why = "触摸：协议、寄存器、总线节拍、电源时序"
+
+[[subsystem.touch.required]]
+path = "references/phk110-port/docs/phk110/waves/wave12c-electrical.md"
+why = "同 SoC SM8475 触摸 PASS 全记录（20ms 节拍 + 分帧收割）"
+examined = "2026-11-12"
+finding = """同 SoC SM8475 触摸 PASS 全记录。核心：该 SoC 上触摸控制器每 CS 帧只吐一个响应块，块按约 20ms 节拍重新武装；微秒级续读会踩进未武装窗口读回错位填充。改成 20ms 节拍 + 9 字节分帧收割 + padding 收编后 Boot #21 首轮 PASS。错误路径：先判"芯片电气故障"是误诊，实际芯片一直在应答。"""
+
+[[subsystem.touch.required]]
+path = "references/phk110-port/docs/phk110/waves/wave12b-probe-verdict.md"
+why = "同 SoC 触摸前一轮失败诊断（软件链 1-4 环闭环、第 5 环断点）"
+examined = "2026-11-12"
+finding = """同 SoC 触摸前一轮失败诊断。软件链 1-4 环（供电/复位、时钟决策、后端选定、引脚配置）全部寄存器级证实可达；断点在第 5 环 MISO 数据返回侧。关键教训：v1 窗 50/50 轮无一 0xA5 帧，但这是因为续读时机错误，不是芯片不响应。bitbang 后端与 GENI FIFO 完全解耦，FIFO 被禁不影响 bitbang。"""
+
+[[subsystem.touch.required]]
+path = "references/phk110-port/docs/phk110/waves/wave12a-touch-probe.md"
+why = "同 SoC 触摸第一轮（GENI FIFO 禁用、bitbang 回退）"
+examined = "2026-11-12"
+finding = """同 SoC 触摸第一轮。两个可一击修复的事实：GENI 引擎本身活着（firmware 0x102 = SPI 协议），但 FIFO 接口被 SE 固件关闭（GENI_IF_DISABLE_RO bit0=1）；bitbang 回退被驱动里v1_read 第 787 行硬编码直呼 geni_transfer 完全屏蔽，绕过 spi_xfer 抽象。教训：抽象层里只要有一处直呼底层，回退路径就从未被测试过。"""
+
+[[subsystem.touch.required]]
+path = "references/phk110-port/docs/phk110/waves/wave12-touch-buttons.md"
+why = "同 SoC 触摸板级真值（引脚、供电、复位、INT）"
+examined = "2026-11-12"
+finding = """同 SoC 触摸板级真值 + 关键架构差异：cape/sm8475 的 GCC 与 mainline sm8450 不同，FDT 时钟索引 m/s_ahb = 134/135，mainline 是 118/119（铁证）。wrap1 s_ahb 分支投票后不清 bit31，0x28008 读回 0x80000002。引脚：INT=GPIO21 level-low，RESET=GPIO20 active-low，VDD=GPIO97，SPI 四线 GPIO16/17/18/19。"""
+
+[[subsystem.touch.required]]
+path = "docs/engineering/ANDROID-HW-TRUTH.md"
+why = "本机 Android 实测真值（注意：协议结论已被实测推翻，见 P-129）"
+examined = "2026-11-12"
+finding = """本机 Android 实测真值。但注意：其中"驱动 goodix_ts = GTP 协议"的推断已被 2026-11-11 实测推翻——GTP 寄存器 0x8140/0x8047/0x804E/0x814E 全返回 0x00，BRL 0x10000 稳定读出 BERLIN 9916R 05.80.02.63。模块名不等于协议名。见 P-129。"""
+
+[[subsystem.touch.required]]
+path = "docs/engineering/PITFALLS.md"
+why = "P-129：不能从驱动名推断协议；同 SoC 兄弟移植优先级最高"
+examined = "2026-11-12"
+finding = """P-129 记录了本次协议翻转全过程：不能从驱动文件名/模块名推断协议，只能实测寄存器。P-126 记录 Python 转义会静默破坏补丁。P-127 记录"补丁在树里不等于补丁已应用"。P-117/P-118 记录嵌入式 init 的 __TEXT 页边界和 boot-args 缺失导致 0 字节日志。"""
+
+[subsystem.gpu]
+why = "GPU/Metal：GMU 固件、SMMU、提交、fence、ABI"
+
+[[subsystem.gpu.required]]
+path = "docs/engineering/PITFALLS.md"
+why = "Metal 插件部署、prelink slide、ABI 门禁相关坑"
+examined = "2026-11-12"
+finding = """P-129 记录了本次协议翻转全过程：不能从驱动文件名/模块名推断协议，只能实测寄存器。P-126 记录 Python 转义会静默破坏补丁。P-127 记录"补丁在树里不等于补丁已应用"。P-117/P-118 记录嵌入式 init 的 __TEXT 页边界和 boot-args 缺失导致 0 字节日志。"""
+
+[[subsystem.gpu.required]]
+path = "docs/engineering/HARD-RULES.md"
+why = "预链接基址、__TEXT 页边界、boot-args 红线"
+examined = "2026-11-12"
+finding = """★34（HR-69）：协议只能实测确认；同 SoC 兄弟移植优先于通用驱动；参考源优先级固定为同型号 > 同 SoC > 同外设芯片 > 官方通用驱动。★32（HR-67）：跟进上游必须覆盖全部分支，单分支 refspec 会漏掉关键修复。★27：__TEXT filesize 必须 <= 16384 否则 0 字节日志 + 自动复位。"""
+
+[subsystem.launchd]
+why = "launchd pid 1：hw.target 身份链、服务缓存"
+
+[[subsystem.launchd.required]]
+path = "references/phk110-port/docs/phk110/waves/wave20-launchd.md"
+why = "同 SoC 的 hw.target 根因与双层修复"
+examined = "2026-11-12"
+finding = """同 SoC 的 hw.target 根因链：dyld 内嵌 libignition 启动时 sysctlbyname("hw.target")，kern_mib.c:502-508 在 PEGetTargetName 返回 false 时直接 return EINVAL(22)，libignition 拿到非 0 errno 即让 launchd 退场。PEGetTargetName 走 IOPlatformExpert.cpp:944 -> IODTPlatformExpert，DT 根无 model 属性时失败。双层修复：loader 用真身份（xnuloader/mkidentity.sh 喂本机 DT）+ 内核加 hw_target boot-arg fallback。"""

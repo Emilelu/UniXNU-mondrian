@@ -4,7 +4,7 @@ schema_version = 1
 name = "mondrian"
 soc = "SM8475"
 os_profile = "ipados-16.6.1-20G81"
-summary = "Redmi K60 (mondrian/SM8475). Format 2 device: UEFI, UniXNU loader, XNU and launchd boot to userland; storage, display, firmware, power and diagnostics are device-verified; input and GPU are implemented but not device-verified."
+summary = "Redmi K60 (mondrian/SM8475). Format 2 device: UEFI, UniXNU loader, XNU and launchd boot to userland; configuration, memory, input and GPU are implemented; firmware, CPU, storage, display, power and diagnostics are device-verified; network, audio and cellular are planned."
 
 [[area]]
 id = "configuration"

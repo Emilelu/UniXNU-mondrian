@@ -1065,6 +1065,60 @@ python3 scripts/check-docs.py
 
 ---
 
+
+---
+
+## ★37（HR-72）待办与文档里禁止硬编码上游 SHA
+
+**来源**：2026-11-12 用户指出
+> "yibiya 1b09728 文档这一项应该要改 白天他可能又有很多新commit和新分支"
+
+### 问题
+
+我写的待办里出现 `yibiya 1b09728`、`pong-ufs 138a9fb` 这种具体 SHA。
+上游每小时都可能推进，写死的 SHA 第二天就是废纸，而且会误导：
+- 看的人以为"只有这一个提交要取"
+- 实际可能已经有 5 个新提交，其中 3 个更重要
+- SHA 一旦被 force-push 或 rebase，连对象都不存在
+
+### 硬规则
+
+1. **待办、计划、README 里禁止写死上游 SHA。**
+   写成"查什么"和"怎么查"，不写"取这个 SHA"。
+2. **正确写法**：给出查询命令 + 判断标准
+   ```bash
+   python3 scripts/track-upstream-branches.py 2>&1 | grep -A6 'yibiya-upstream'
+   git log --oneline main..yibiya/fix/touch-gpu-bringup | head -20
+   ```
+   判断标准写"涉及 K60/SM8475 硬件、启动链、⑦ 未通过项 → 取"。
+3. **允许写 SHA 的例外**：
+   - `porting.toml` 的 evidence `revision`（规范要求 40 字符 SHA）
+   - commit message 里的 `cherry picked from commit <sha>`（trailer 要求）
+   - 已完成工作的记录（"已在 <sha> 取用"），但必须同时注明日期
+4. **上游名称可以写，版本号不要写**。
+   "Pong 的 `port/ios18e-native-302` 分支"可以；
+   "Pong 的 `138a9fb`"不行——分支名稳定，SHA 不稳定。
+
+### 判别（10 秒）
+
+```bash
+# 待办类文档里搜 7~40 位的十六进制串
+grep -nE '\b[0-9a-f]{7,40}\b' docs/plans/*.md | grep -v 'revision\|cherry picked'
+```
+
+命中即为违规。
+
+### 为什么值得单独一条铁则
+
+硬编码 SHA 是"看起来精确，实际最脆弱"的典型：
+- 写的时候确实精确
+- 但精确性只维持到上游下一次 push
+- 而且它让读者失去"主动查询"的意识
+
+**稳定的做法是写清查询方法和判断标准，让每次执行都拿到当下最新的真相。**
+
+---
+
 # 第二章 规则正文（按编号）
 ## 铁则 1（HR-01）：**访问 RSC/RPMh 前必须确认 `ml_io_map` 成功 —— 原「RSC 禁止访问」是误诊**
 
@@ -2298,7 +2352,7 @@ DNS: github.com → 198.18.0.150                              ← 被代理软�
    ```
    **实测直连可用**（`git ls-remote` 返回 HEAD sha），比错代理快得多。
 
-3. **脚本**：`E:\k60-work\scripts\fix-git-proxy.sh`（已实现，自动探测+修复+验证）
+3. **脚本**：`<workspace>\scripts\fix-git-proxy.sh`（已实现，自动探测+修复+验证）
 
 4. **每次同步报告里必须打印实际使用的代理**，便于事后排查。
 

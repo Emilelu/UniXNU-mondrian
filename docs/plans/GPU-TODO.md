@@ -24,15 +24,24 @@
 官方仓库：`https://github.com/UniXNU/AdrenoMetal`
 本地镜像：`references/AdrenoMetal`（main = `83b667824`）
 
-| 提交 | 内容 | 价值 |
+**现查现取**（★37：不写死 SHA）：
+
+```bash
+cd /mnt/e/k60-work/references/AdrenoMetal && git fetch --all --prune
+git log --oneline --since='3 days ago' origin/main
+```
+
+**要取的提交类型**（按提交信息里的前缀识别）：
+
+| 前缀 | 内容 | 优先级 |
 |---|---|---|
-| `9c09d41` | `perf(bridge): lower on the lowering thread, submit at commit, warm pipelines` | 降低在 lowering 线程做、提交在 commit 做、预热管线 |
-| `dfb5edc` | `perf(bridge): relaxed half arithmetic and Turnip driver facts in the runtime` | 放宽 half 运算 |
-| `9ddfaf2` | `perf(turnip): let Turnip choose each pass's rendering, with concurrent binning` | Turnip 自选 pass 渲染方式 + 并发 binning |
-| `20be9f9` | `perf(plugin): render every pass in tile memory` | 每个 pass 在 tile memory 内渲染（省带宽）|
-| `54ac1a0` | `feat(diag): count what screen-size passes draw on` | 诊断：统计全屏 pass |
-| `beeab71` | `fix(diag): keep the frame trace on macOS and through a reset` | 诊断：帧追踪跨 reset 保留 |
-| `83b6678` | `feat(diag): send Turnip's log to the system log and a file` | 诊断：Turnip 日志进 syslog + 文件 |
+| `perf(bridge):` | 降低/提交/预热管线、放宽 half 运算 | P0 |
+| `perf(turnip):` | Turnip 自选 pass 渲染、并发 binning | P0 |
+| `perf(plugin):` | 每个 pass 在 tile memory 内渲染（省带宽）| P0 |
+| `feat(diag):` / `fix(diag):` | 帧追踪、Turnip 日志导出 | P1 |
+
+判断标准：改动集中在 `NativeAdrenoMetalPlugin.mm` 与 `bridge/NativeMetalObjects.rs`，
+不含平台地址 → 可移植。
 
 **做法**：这些改动集中在 `NativeAdrenoMetalPlugin.mm` 和 `bridge/NativeMetalObjects.rs`，
 不含平台地址，**可移植**。但要先确认它们的 API 是 21H461 还是 20G81。

@@ -7,6 +7,10 @@
 
 ---
 
+> 本文件里的 SHA 是**已完成工作的取用记录**，每条都带取用日期。
+> 待办与计划里不写死上游 SHA（★37 / HR-72）——上游每小时都在推进，
+> 写死的 SHA 第二天就过时。查最新状态用 `scripts/track-upstream-branches.py`。
+
 ## 一、硬件状态明细
 
 | 项 | 状态 | 证据 |
@@ -56,11 +60,11 @@
 此前上游镜像的 refspec 只跟踪 `upstream-fix` 单分支，其它分支从未下载。
 修复 refspec 后发现该分支含 319 个 `main` 没有的提交。
 
-| 修复 | 提交 | 解决的问题 |
-|---|---|---|
-| `userland/ui_compat.c` | `f291b52` | `CFPreferencesSetAppValue` 在 `__attribute__((constructor))` 里调用会阻塞主线程 → backboardd 崩溃。移到 `present_home()`（主队列运行时）。 |
-| `patches/xnu/0394` | `5198a67` | 原 launchd 服务缓存引用本移植不带的 App-cryptex 程序（`webbookmarksd`），launchd SIGSEGV → 内核 panic `initproc exited`。改为 22 个核心 job 的精选缓存。 |
-| `patches/xnu/0340` | `c6e555c` | UI 库换成上游的 95,856 B 版本（含上述修复）。 |
+| 修复 | 提交 | 取用日期 | 解决的问题 |
+|---|---|---|---|
+| `userland/ui_compat.c` | `f291b52` | 2026-11-11 | `CFPreferencesSetAppValue` 在 `__attribute__((constructor))` 里调用会阻塞主线程 → backboardd 崩溃。移到 `present_home()`（主队列运行时）。 |
+| `patches/xnu/0394` | `5198a67` | 2026-11-11 | 原 launchd 服务缓存引用本移植不带的 App-cryptex 程序（`webbookmarksd`），launchd SIGSEGV → 内核 panic `initproc exited`。改为 22 个核心 job 的精选缓存。 |
+| `patches/xnu/0340` | `c6e555c` | 2026-11-11 | UI 库换成上游的 95,856 B 版本（含上述修复）。 |
 
 `0394` 的调用点已并入 `0391`——两者抢同一处 `kern_exec.c` 锚点，
 独立应用会冲突。
@@ -103,12 +107,12 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 
 ### 触摸/GPU 驱动取自 `yibiya/fix/touch-gpu-bringup`
 
-| 提交 | 内容 |
-|---|---|
-| `2994f1f` | `fix(input): supply actual K60 touch metadata` |
-| `6565837` | `fix(gpu): use monitor access for K60 RSC` |
-| `4eb8395` | `fix(gpu): map only consumed GCC pages` |
-| `c80e0e1` | `fix(input): adapt real Goodix and HID to K60`（触摸驱动重写）|
+| 提交 | 取用日期 | 内容 |
+|---|---|---|
+| `2994f1f` | 2026-11-12 | `fix(input): supply actual K60 touch metadata` |
+| `6565837` | 2026-11-12 | `fix(gpu): use monitor access for K60 RSC` |
+| `4eb8395` | 2026-11-12 | `fix(gpu): map only consumed GCC pages` |
+| `c80e0e1` | 2026-11-12 | `fix(input): adapt real Goodix and HID to K60`（触摸驱动重写）|
 
 ### 流程与门禁
 

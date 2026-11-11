@@ -216,12 +216,58 @@ def check_section_order(verbose=True):
     return problems, counted
 
 
+
+
+# 待办/计划类文档里禁止硬编码上游 SHA（★37 / HR-72）
+#
+# 只在明确的 commit 语境里检测，避免把寄存器地址（1c00000）、
+# 分区大小（5096113664）、设备序列号（6033dbec）当成 SHA。
+# 判据：7-40 位十六进制，至少含一个 a-f，且同一行出现 commit 语境词。
+SHA_RE = re.compile(r'\b(?=[0-9a-f]{7,40}\b)(?=[0-9]*[a-f])[0-9a-f]{7,40}\b')
+SHA_COMMIT_CONTEXT = re.compile(
+    r'提交|commit|cherry.?pick|取自|取用|upstream|上游|分支.*@|@[0-9a-f]{7}', re.I)
+SHA_SKIP = re.compile(
+    r'revision|cherry.?picked|sha256|image size|sectors|serial|adb -s|LBA', re.I)
+# 只有「待办/计划」性质的文档受约束。调研记录、审计、参考文档里的
+# SHA 是历史事实，不在管辖范围内。
+# 只扫「待办/计划」文档。STATUS.md 是已完成工作的记录，按 HR-72
+# 的例外条款允许写 SHA（它每一行都带取用日期）。
+SHA_SCAN_FILES = [
+    'docs/plans/BACKLOG.md',
+    'docs/plans/GPU-TODO.md',
+]
+
+
+def check_no_hardcoded_sha(verbose=True):
+    """待办与计划文档不得写死上游 SHA；写死的第二天就过时"""
+    problems = []
+    counted = 0
+    for rel in SHA_SCAN_FILES:
+        p = os.path.join(REPO, rel)
+        if not os.path.exists(p):
+            continue
+        counted += 1
+        for lineno, line in enumerate(
+                io.open(p, encoding='utf-8', errors='ignore'), 1):
+            if SHA_SKIP.search(line):
+                continue
+            if not SHA_COMMIT_CONTEXT.search(line):
+                continue
+            for m in SHA_RE.finditer(line):
+                problems.append('%s:%d 硬编码上游 SHA `%s`（★37：改写查询命令）'
+                                % (rel, lineno, m.group(0)))
+                break
+    if verbose:
+        print('  检查 %d 个待办/计划文档的 SHA 硬编码' % counted)
+    return problems, counted
+
+
 def run(verbose=True):
     all_problems = []
     total = 0
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
-               check_root_docs_linked, check_section_order, check_bilingual,
-               check_freshness):
+               check_root_docs_linked, check_section_order, check_no_hardcoded_sha,
+               check_bilingual, check_freshness):
         p, n = fn(verbose)
         all_problems += p
         total += n

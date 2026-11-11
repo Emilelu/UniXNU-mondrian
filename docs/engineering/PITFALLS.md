@@ -3222,3 +3222,34 @@ goodix_brl_hw.c:553-559
 
 **决定性判据**：从 Android 提取 `goodix_cfg_group.cfg`（ASCII 文本），
 跑 `convert_0x_data` 后的长度是 1486 还是 1609。
+
+#### P-134 再修正（2026-11-12）：当前驱动根本不发 config
+
+查 `patches/xnu/zzzz...-pong-touch-console.patch`（1212 行）的全部函数定义：
+
+```
+goodix_read / goodix_write / goodix_checksum_ok / goodix_dummy_data
+touch_reset / goodix_probe / goodix_contacts_valid / goodix_release
+goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
+```
+
+**没有 config 下载函数。** `goodix_probe` 只做三件事：
+1. 读 `GOODIX_FW_VERSION`（28 字节）验证芯片身份与校验
+2. 读 `GOODIX_IC_INFO` 解析 ABI（length + version(16) + features(10) + 4 counts + 5 个 u16 频率表 + misc(52)）
+3. 从 misc 提取 `touch_address = le32(info+offset+44)` 和 `command_address = le32(info+offset)`
+
+**结论：`CFG-START` / `CFG-DL 1488 bytes` / `CFG-EXIT` 是旧版本驱动的日志，
+对应代码已被删除。当前驱动不发 config。**
+
+这改变了 P-134 的整个前提：
+- 之前假设「我们发了 1486 字节 config 但格式错」
+- 实际是「我们根本没发 config」
+
+**新的问题**：Goodix 芯片是否需要 config 才能产生触点报告？
+- 官方 Linux 驱动：`brl_send_config` 是**可选**的（`hw_ops->send_config` 存在才调用），
+  且 `brl_event_handler` 不依赖 config 是否发送过
+- 但 config 决定扫描参数（频率、增益、噪声阈值），没有 config 可能扫描不到电容变化
+
+**下一项测量**：从 Android 确认 `goodix_ts` 是否真的发送了 config，
+以及不发送 config 时芯片是否仍能上报。判据：Android 启动日志里有没有
+`success send config`。

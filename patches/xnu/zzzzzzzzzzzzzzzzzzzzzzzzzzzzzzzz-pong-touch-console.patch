@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,5436 @@
+@@ -0,0 +1,5452 @@
 +/* Goodix Berlin-D / Pong SM8475. Adapted from HackiOS redwood_goodix.c
 + * (APSL 2.0). Hardware resources are the Pong live DT, checked against the
 + * NothingOSS cape pinctrl and waipio GCC source. No Redwood peripherals. */
@@ -5341,18 +5341,34 @@ index 0000000..b033b90
 +    unsigned idle=0, tick=0, hb_polls=0, hb_reports=0, hb_touches=0;
 +    for (;;) {
 +        /*
-+         * K60_POLL_FAST: the Goodix INT is a short pulse (the falling edge that
-+         * says "a report is ready"), so sampling it every 8 ms and reading only
-+         * when it happens to be low misses nearly every report. The driver that
-+         * works on real hardware polls unconditionally every 16 ms
-+         * (drivers/input/hakios.goodix.c:1516-1548, idle_looks = 16000/poll_us).
-+         * Here the interval is 2 ms and the idle escape fires on the second
-+         * pass, so the chip is read at least every 4 ms whether or not INT is
-+         * low, and immediately when it is.
++         * K60_POLL_CADENCE: read the controller on a ~20 ms cadence, not every
++         * 2 ms.
++         *
++         * The previous code had "if (!int_now || ++idle >= 1)" with idle = 0,
++         * and ++idle is 1 on the first pass, so the condition was always true:
++         * the chip was read every 2 ms whether or not INT was low. That is the
++         * exact failure a sibling SM8475 port documented on real hardware
++         * (Seanding1998/hakios-xnu-kernel, docs/phk110/waves/wave12c-electrical.md):
++         * the controller emits one response block per CS frame and re-arms it
++         * on a ~20 ms cadence, so a read issued microseconds after the previous
++         * transaction lands inside the un-armed window and returns stale or
++         * shifted padding. Their log showed the identical shape -- a block that
++         * never changed across dozens of reads -- and the 20 ms cadence is what
++         * turned the probe green on the third boot.
++         *
++         * Keep an immediate read when INT is already low (a report is waiting),
++         * but when INT is high wait the full cadence before asking again.
 +         */
 +        unsigned int_now = gpio_get(PIN_INT);
-+        if (!int_now || ++idle >= 1) {idle=0;goodix_poll(int_now);}
-+        sleep_ms(2);
++        if (!int_now) {
++            idle = 0;
++            goodix_poll(int_now);
++            sleep_ms(2);
++        } else {
++            sleep_ms(20);
++            idle = 0;
++            goodix_poll(int_now);
++        }
 +        /*
 +         * K60_TOUCH_HB: the poll path returns silently when the chip has nothing
 +         * to say, so without a heartbeat there is no way to tell "the loop is

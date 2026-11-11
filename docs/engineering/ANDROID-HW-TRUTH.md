@@ -11,9 +11,28 @@
 | xiaomi 虚拟设备 | `uinput-goodix` | `/sys/class/input/event1` |
 | IOVDD | `pm8350c_l2` enabled 1.8V | `/sys/class/regulator/` |
 | AVDD | **不是 pm8350c_l3（2.7V disabled）** | 同上 |
-| 结论 | **我们 stage 8-15 用 Berlin-D(BRL) 协议，芯片是 GTP —— 语言不对，芯片当然不响应** | — |
+| 结论 | ~~芯片是 GTP~~ **已被 2026-11-11 实测推翻**：GTP 寄存器 `0x8140/0x8047/0x804E/0x814E` 全部返回 0x00，而 BRL `0x10000` 稳定读出 `BERLIN 9916R 05.80.02.63`。**BRL 才是正确协议**，详见 P-129。 | 见下方 §协议实测 |
 
 **GTP 协议关键寄存器**：版本 `0x8140`（8B）、config 校验 `0x8047`、状态 `0x804E`。
+
+### 2026-11-11 协议实测（推翻上面的 GTP 结论）
+
+同一启动 `usblog-20261111-233246` 内：
+
+```
+第 710 行: goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255   ← BRL 0x10000 OK
+第 805 行: Pong touch: GTP 0x8140 id=.... fw=0000                            ← GTP 全 0
+第 806 行: Pong touch: GTP 0x8047 config_version=0                           ← 0
+第 807 行: Pong touch: GTP 0x804E status=0                                   ← 0
+第 808 行: Pong touch: GTP 0x814E buffer_status=0 ready=0 points=0           ← 0
+```
+
+探针在 `resume sequence done` 之后执行，说明 `goodix_probe(true)` 刚刚成功、
+芯片处于工作状态——此时 GTP 寄存器仍全 0，**只能解释为芯片不支持 GTP 寻址**。
+
+**教训**：`goodix_ts` 只是模块名。Goodix 的 Berlin 芯片在 vendor 内核里
+也常以 `goodix_ts.ko` 形式加载（内部走 `goodix_brl_hw.c`），
+**不能用驱动文件名推断协议，必须实测寄存器**。见 P-129。
 
 ## 显示
 | 项 | 真值 |

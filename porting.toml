@@ -47,8 +47,8 @@ completion = ["Every enabled CPU reaches its entry checkpoint and timer/IPI hand
 limits = ["The eight cores register and the boot CPU takes its first IPI, but no secondary has yet been seen past its own entry checkpoint on hardware."]
 next_action = ["Confirm that each secondary CPU runs its own entry checkpoint and serves a timer on the unit."]
 evidence = [
-  "8 核全部启动（board.toml cpus = 8，PSCI 拉起 secondary）。",
-  "usblog-20261110-234429: K60 ex=510 kx=80 abn=25 | mem=4864 actual=4864 managed=4864 free_pages=532394",
+  { kind = "device", reference = "README.md", result = "8 核全部启动（board.toml cpus = 8，PSCI 拉起 secondary）。" },
+  { kind = "device", reference = "evidence/usblog-20261110-234429/console.log", result = "usblog-20261110-234429: K60 ex=510 kx=80 abn=25 | mem=4864 actual=4864 managed=4864 free_pages=532394" },
 ]
 
 [[area]]
@@ -99,7 +99,7 @@ next_action = [
   "GPU 驱动已验证初始化成功，可尝试 pong_gpu_scanout=1 把显示切到 GPU 合成路径。",
 ]
 evidence = [
-  "usblog-20261110-234429: MiniIOMobileFramebuffer: 301 frames in 5002 ms (60 a second)",
+  { kind = "device", reference = "evidence/usblog-20261110-234429/console.log", result = "usblog-20261110-234429: MiniIOMobileFramebuffer: 301 frames in 5002 ms (60 a second)" },
 ]
 
 [[area]]
@@ -130,9 +130,9 @@ next_action = [
   "若三区全静态，说明扫描引擎未启动，需要反汇编 vendor goodix_core.ko 找真正的启动序列（不能猜）。",
 ]
 evidence = [
-  "usblog-20261110-210508: goodix: CMD-FIX ack=80 OK",
-  "usblog-20261110-212131: goodix: CFG-START ack=80 OK-config-ready",
-  "usblog-20261110-234429: CFG-DL wrote=1486/1486 bad=0 -> DATA-OK; CFG-WRITE ack=80 OK; CFG-EXIT ack=80 OK-config-applied; CFG-RESET re-handshake OK (rb=01)",
+  { kind = "device", reference = "evidence/usblog-20261110-210508/console.log", result = "usblog-20261110-210508: goodix: CMD-FIX ack=80 OK" },
+  { kind = "device", reference = "evidence/usblog-20261110-212131/console.log", result = "usblog-20261110-212131: goodix: CFG-START ack=80 OK-config-ready" },
+  { kind = "device", reference = "evidence/usblog-20261110-234429/console.log", result = "usblog-20261110-234429: CFG-DL wrote=1486/1486 bad=0 -> DATA-OK; CFG-WRITE ack=80 OK; CFG-EXIT ack=80 OK-config-applied; CFG-RESET re-handshake OK (rb=01)" },
 ]
 
 [[area]]
@@ -162,9 +162,9 @@ next_action = [
   "在 boot-args 预算内调度参数（HR-45），必要时删减低优先级项。",
 ]
 evidence = [
-  "usblog-20261110-234429: PONG ADRENO 22 步全部 result=0",
-  "usblog-20261110-234429: PONG METAL: NativeAdreno complete runtime publication status=0x0",
-  "usblog-20261110-234429: PONG METAL: real IOAcceleratorES provider published for20G81 discovery",
+  { kind = "device", reference = "evidence/usblog-20261110-234429/console.log", result = "usblog-20261110-234429: PONG ADRENO 22 步全部 result=0" },
+  { kind = "device", reference = "evidence/usblog-20261110-234429/console.log", result = "usblog-20261110-234429: PONG METAL: NativeAdreno complete runtime publication status=0x0" },
+  { kind = "device", reference = "evidence/usblog-20261110-234429/console.log", result = "usblog-20261110-234429: PONG METAL: real IOAcceleratorES provider published for20G81 discovery" },
 ]
 
 [[area]]
@@ -217,9 +217,9 @@ next_action = [
   "用 RPMh 读命令回读 ldoc2/ldoc3 的实际电压，补齐最后一项电源证据。",
 ]
 evidence = [
-  "usblog-20261110-191312: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1; rails on (ldoc2=0x42c00, AVDD gpio71=1)",
-  "usblog-20261110-234429: PONG ADRENO CX clocks result=0 a=0x901000000000 b=0x6",
-  "docs/PITFALLS.md P-82（TLMM 窗口）、P-86（TCS 槽位）、P-87（完成判据）",
+  { kind = "device", reference = "evidence/usblog-20261110-191312/console.log", result = "usblog-20261110-191312: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1; rails on (ldoc2=0x42c00, AVDD gpio71=1)" },
+  { kind = "device", reference = "evidence/usblog-20261110-234429/console.log", result = "usblog-20261110-234429: PONG ADRENO CX clocks result=0 a=0x901000000000 b=0x6" },
+  { kind = "device", reference = "docs/PITFALLS.md#P-82", result = "docs/PITFALLS.md P-82（TLMM 窗口）、P-86（TCS 槽位）、P-87（完成判据）" },
 ]
 
 [[area]]
@@ -235,6 +235,44 @@ completion = ["Kernel and prelink succeed, payload contains all declared inputs,
 limits = ["Hardware inputs and implementation are pending for this board."]
 next_action = ["Inventory the required image assembly inputs before implementation."]
 evidence = [{ kind = "host", reference = "https://github.com/Emilelu/UniXNU/actions/runs/40650877574", result = "Build kernel succeeded on macOS from this revision: prelink slide -0xb9c000, 54419456 bytes, lowest component extent 0xfffffff004426600", command = "./unixnu build kernel -D ../UniXNU-mondrian", revision = "6a10bf5e42ecfad7eed2789cc091287d31009623" }, { kind = "host", reference = "scripts/verify-boot-img-payload.py", result = "Route a-18 chain reproduces end to end: kernel 20,872,544 B (15966fcd) -> prelink 54,808,576 B -> payload 201,326,592 B -> boot-darwin24-bc6.img. The verifier confirms the kernel slot is the 112-byte shim plus the rebuilt FD, the ramdisk slot is byte-identical to payload.img, and the in-volume kernel.macho matches the built kernel.", command = "python3 scripts/k60-prelink-darwin24.py && python3 scripts/verify-boot-img-payload.py --img /mnt/d/Android/k60-ios/boot-darwin24-bc6.img --payload /tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/payload/payload.img --kernel /tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/kernel/kernel.macho", revision = "e636e445b621bed4fac0069f3604b87061350a8d" }]
+
+[[area]]
+id = "cellular"
+status = "planned"
+components = []
+paths = ["docs/engineering/ANDROID-HW-TRUTH.md", "dts/mondrian.dts"]
+inputs = [
+  "K60 carries a Snapdragon X65-class modem inside the SM8475 package; it is not an external modem over PCIe.",
+  "Modem firmware, EFS/NV data and the SIM identity live on the Android side of this dual-system unit and have not been inventoried from a live boot.",
+  "No QRTR/QMI endpoint, IPA path or SIM slot has been exercised under XNU on this board.",
+]
+configuration = [
+  "board.toml declares the SM8475 SoC but no cellular component; the modem is not yet listed in [components].",
+  "dts/mondrian.dts does not describe the modem's memory regions, QRTR transport or IPA queues.",
+]
+procedure = [
+  "Inventory the modem firmware partition and the QRTR/QMI services from an Android boot before writing any driver.",
+  "Record the IPA/QMAP configuration and the SIM identity source (physical slot or eSIM) for this unit.",
+  "Only then decide whether the baseband path is in scope for this port.",
+]
+findings = [
+  "The port currently has no baseband support at all; Android's own modem stack is untouched on the other side of the dual-system split.",
+  "Recording it as planned rather than not-applicable keeps the gap visible: this board does have a modem, it is simply not implemented.",
+]
+completion = [
+  "A device boot shows the modem enumerated over QRTR with a readable firmware revision.",
+  "A data session or at least a registered network is observed, with the command and image revision recorded.",
+]
+limits = [
+  "No modem firmware, EFS/NV or SIM data has been read from this unit.",
+  "The IPA and QMAP paths are unexamined; nothing in this repository touches them.",
+]
+next_action = [
+  "Read the modem firmware partition and the QRTR service list from an Android boot, then record them here.",
+]
+evidence = [
+  { kind = "source", reference = "docs/engineering/ANDROID-HW-TRUTH.md", result = "Android truth table records the SoC and the peripherals that were actually measured; the modem is not among them, which is why this area stays planned." },
+]
 
 [[area]]
 id = "diagnostics"

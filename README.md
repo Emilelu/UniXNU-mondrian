@@ -31,7 +31,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | 锁屏 / SpringBoard | ✅ | `Pong UI: 20G81 compatibility library entered SpringBoard` |
 | launchd 稳定 | ✅ | `0394` 精选缓存（22 个核心 job）已并入 `0391`，写 `/private/var/pong/xpc/launchd.plist` |
 | **实体键（电源/音量）** | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `U _pong_buttons_init`），`configuration()` 结果不可观测 |
-| **触摸** | 🔄 | 协议已确认为 **GTP**（`ANDROID-HW-TRUTH.md:16`），非 Berlin-D；SPI 全通、config `state=80`、芯片有中断与原始帧，但触点恒为 0；GTP 探针已就位待验证
+| **触摸** | 🔄 | 协议实测确认是 **BRL**（`0x10000` 读出 `BERLIN 9916R 05.80.02.63`；GTP 寄存器 `0x8140` 等全返回 0，见 P-129）。SPI 全通、config `state=80`、芯片有中断与原始帧，但触点恒为 0。轮询节拍原为 2 ms，按同 SoC PHK110 实测改为 20 ms 待验证 |
 | GPU（Adreno 730v3） | 🔄 | 内核全链 `result=0`（42 行）、`CP ready`、`IOAcceleratorES` 已发布；Metal 插件 94,928 B 已部署且属主修为 0，`native Metal entry enabled` 已出现；插件注入 backboardd 仍崩溃（`-[NSURL fileURLWithPath:]`），当前用 `pong_metal=2` 绕开
 | WiFi / 蓝牙 / 音频 / 相机 / 传感器 / 电源 | 📋 | 八步调研已完成，实现进行中 |
 
@@ -53,14 +53,30 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 `0394` 的调用点已并入 `0391`（两者抢同一处 `kern_exec.c` 锚点，独立应用会冲突）。
 
-### 触摸协议纠正
+### 触摸协议：一次被实测推翻的纠错
 
-`docs/ANDROID-HW-TRUTH.md:10-16`（2026-11-10 Android 实机实测）早已记录：
-K60 的触摸芯片走 **GTP 协议**（`/sys/class/input/event7 -> goodix_ts`），
-不是 Berlin-D（BRL）。此前所有 BRL 阶段的实验方向错误。
+`docs/ANDROID-HW-TRUTH.md` 曾据模块名 `goodix_ts` 推断 K60 走 **GTP 协议**。
+2026-11-11 的实测推翻了它：
 
-已加入 GTP 寄存器探针：`0x8140`（版本）、`0x8047`（config 版本）、
-`0x804E`（状态）、`0x814E`（buffer status）。
+```
+同一启动 usblog-20261111-233246
+第 710 行: goodix: chip "BERLIN", firmware "9916R" 05.80.02.63   ← BRL 0x10000 OK
+第 805 行: GTP 0x8140 id=.... fw=0000                            ← GTP 全 0
+第 807 行: GTP 0x804E status=0
+第 808 行: GTP 0x814E buffer_status=0 points=0
+```
+
+探针在 `resume sequence done` 之后执行，芯片当时处于工作状态，GTP 仍全 0
+→ **BRL 才是正确协议**。`goodix_ts` 只是模块名，Goodix 的 Berlin 系列
+在 vendor 内核里也用它加载（内部走 `goodix_brl_hw.c`）。
+
+真正的线索来自同 SoC 的兄弟移植（`Seanding1998/hakios-xnu-kernel`，
+一加 Ace 2 / PHK110 / **SM8475**）：`docs/phk110/waves/wave12c-electrical.md`
+记录该 SoC 上的触摸控制器**每 CS 帧只吐一个响应块，块按 ~20 ms 节拍重新武装**，
+微秒级续读会踩进未武装窗口读回错位填充。我们的轮询循环
+（`if (!int_now || ++idle >= 1)` + `sleep_ms(2)`，条件恒真）每 2 ms 无条件读，
+比该节拍快 10 倍——这解释了 `0x10308` 为什么跨几十次读取永远返回同一串字节。
+轮询已改为 20 ms 节拍待验证。详见 P-129。
 
 ### 其他
 

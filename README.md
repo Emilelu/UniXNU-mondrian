@@ -4,7 +4,29 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 **当前目标：iOS 16.6.1（20G81）/ darwin22 上跑通完整硬件。**
 
-> 本 README 最后更新：2026-11-11。历史路线（darwin24 / iPadOS 18.7.10）已归档到 `chore/archive-darwin24-main-20261103`。4-main-20261103` 分支，不再维护。
+> 本 README 最后更新：2026-11-12。历史路线（darwin24 / iPadOS 18.7.10）已归档到 `chore/archive-darwin24-main-20261103`。
+
+## 八步流程进度
+
+| 硬件 | ① 同型 | ② 官方 | ③ 反编译 | ④ 广域 | ⑤ 方案 | ⑥ 深挖 | ⑦ 核验 | ⑧ 上机 | 当前状态 |
+|---|---|---|---|---|---|---|---|---|---|
+| **触摸（Goodix GT9916R / BERLIN）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **卡在 ⑦ 核验** |
+| **GPU（Adreno 730v3 / Metal）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
+| CPU | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| UFS / 存储 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| 显示 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| 固件 / 启动 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| 电源 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| 诊断 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| WiFi / 蓝牙 / USB | — | — | — | — | — | — | — | — | planned |
+| 音频 | — | — | — | — | — | — | — | — | planned |
+| 基带 | — | — | — | — | — | — | — | — | planned |
+| DSP | — | — | — | — | — | — | — | — | planned |
+
+> ✅ 完成　◐ 部分　❌ 未完成　— 未建立记录
+>
+> 表格由 `scripts/render-eight-step-table.py` 从 `docs/research/EIGHT-STEPS.toml` 生成，`--check` 可校验 README 是否与数据一致。
+> 八步定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
 
 ## 分支
 

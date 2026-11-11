@@ -107,6 +107,43 @@ why = "预链接基址、__TEXT 页边界、boot-args 红线"
 examined = "2026-11-12"
 finding = """★34（HR-69）：协议只能实测确认；同 SoC 兄弟移植优先于通用驱动；参考源优先级固定为同型号 > 同 SoC > 同外设芯片 > 官方通用驱动。★32（HR-67）：跟进上游必须覆盖全部分支，单分支 refspec 会漏掉关键修复。★27：__TEXT filesize 必须 <= 16384 否则 0 字节日志 + 自动复位。"""
 
+[[subsystem.gpu.required]]
+path = "references/AdrenoMetal/NativeAdrenoMetalPlugin.mm"
+why = "★ 官方 Metal 插件 51,271 B。24 小时内 8 个提交，含 perf(bridge)/perf(turnip)/perf(plugin) 三类优化"
+examined = "2026-11-12"
+finding = """官方实现。2026-11-12 01:41 仍在更新（83b6678）。最近的性能优化全部落在本文件：
+9c09d41 降低在 lowering 线程做、提交在 commit 做、预热管线；
+9ddfaf2 让 Turnip 自选每个 pass 的渲染方式 + 并发 binning；
+20be9f9 每个 pass 在 tile memory 内渲染以省带宽；
+dfb5edc 放宽 half 运算。
+os_abi 是 ipados-17.7.11-21H461，我们是 20G81，移植前必须核对
+_MTLDevice ABI / NativeAdrenoAbiVersion / chip_id(0x07030002) / gmem_bytes(0x200000)。"""
+
+[[subsystem.gpu.required]]
+path = "references/AdrenoMetal/NativeBridgeMetalFrontend.mm"
+why = "官方 bridge 369,834 B（我们 109,178 B，差 260 KB）"
+examined = "2026-11-12"
+finding = """官方 bridge，369,834 B，是我们 109,178 B 的 3.4 倍。
+9c09d41 与 dfb5edc 都改到这里。规模差异说明官方把大量 Metal 语义翻译、
+命令编码、pipeline 缓存做进了 bridge，我们只覆盖了基础路径。"""
+
+[[subsystem.gpu.required]]
+path = "references/pong-metal/NativeBridgeMetalFrontend.mm"
+why = "pong 的 bridge 166,152 B —— 官方到 20G81 之间的中间产物，最贴近我们的版本"
+examined = "2026-11-12"
+finding = """pong 的 bridge，166,152 B，比我们多 57 KB，比官方少 204 KB。
+它是官方实现向 iOS 18 系列裁剪后的版本，最贴近我们的 20G81 基线。
+优先 diff 它相对我们多出的 57 KB，而不是直接跳到官方 369 KB。"""
+
+[[subsystem.gpu.required]]
+path = "docs/plans/GPU-TODO.md"
+why = "GPU/Metal 待办清单（本次整理）"
+examined = "2026-11-12"
+finding = """记录 P0~P3 四级待办：官方 AdrenoMetal 的 8 个性能/诊断提交、
+pong-metal 的中间层 diff、内核侧对齐 pong-adreno 的 port/ios18e-native-302 分支、
+补齐官方缺失的 6 个文件。并记录三条硬约束：pong_metal=1 崩溃、
+20G81 vs 21H461 ABI 差异、chip_id A100/A730v3 差异。"""
+
 [subsystem.launchd]
 why = "launchd pid 1：hw.target 身份链、服务缓存"
 

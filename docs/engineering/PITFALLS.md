@@ -110,8 +110,8 @@
 
 - **现象**：`package-datafix.py` 的 `mcopy -o -i payload.img ::/EFI/UniXNU/Payloads/kernel.macho extracted/kernel.macho` 在目标已存在时不走 stdin，直接 `open("/dev/tty")` 等待人工确认；进程 S 态、`/proc/<pid>/io` 无读写增长，脚本无限挂起（13:05 那轮「拷完 payload 后被中断」即此；2026-11-03 v1 打包复现两次）。
 - **为什么当初走错**：把 `-o`（overwrite）当成「永不询问」；实际上 mtools 对「已存在的落盘目标」仍可能经 `/dev/tty` 确认，stdin 重定向无效（它根本不读 stdin）。
-- **正确做法**：重跑前 `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`；并用 `setsid python3 <workspace>\tools\package-datafix.py < /dev/null`（新会话无控制终端，`/dev/tty` 打不开即不会等待）。判定卡死：`ls -l /proc/<mcopy_pid>/fd`，fd 4 指向 `/dev/tty` 即中。
-- **证据**：`/proc/388/fd` 实录 fd 4 → `/dev/tty`、wchan=`wait_woken`（2026-11-03 14:27）；`<workspace>\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1。
+- **正确做法**：重跑前 `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`；并用 `setsid python3 E:\k60-work\tools\package-datafix.py < /dev/null`（新会话无控制终端，`/dev/tty` 打不开即不会等待）。判定卡死：`ls -l /proc/<mcopy_pid>/fd`，fd 4 指向 `/dev/tty` 即中。
+- **证据**：`/proc/388/fd` 实录 fd 4 → `/dev/tty`、wchan=`wait_woken`（2026-11-03 14:27）；`E:\k60-work\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1。
 - **30 秒判定**：打包脚本含 `mcopy` 且 `extracted/` 非空 → 先删目标再跑；发现打包 5 分钟无产物 → 查 fd 是否挂 `/dev/tty`，挂则 kill 后按正确做法重跑。
 
 ---
@@ -125,7 +125,7 @@
   1. **整理任何目录前先查它的 `scripts/` 是否被构建链引用**（grep 构建脚本、board.toml、CI 工作流）；是构建输入的一律不删、不忽略。
   2. **`.gitignore` 只能忽略产物**（`*.a` / `*.o` / `*.log` / `build/` / `build-report.json`），**禁止整目录忽略含脚本的目录**；改完必须 `git check-ignore -v` 证明脚本不再被忽略。
   3. 恢复依赖优先走对象库确定性来源（`git ls-tree -r <commit> --name-only` 判定 → `git checkout <commit> -- <path>`），不要靠搜索现凑。
-- **证据**：v2 构建 4 连失败日志（`logs/kernel-v2.log`）；恢复提交 `cafab71 fix(vendor): restore pong platform build scripts`（315cf99 → scripts 7 件 + bindings.json）；`.gitignore` 修正前后（`/pong-driver/` → 5 条产物规则）+ `check-ignore -v` 输出；固件实址 `<android-sdk>\k60-ios\firmware\k60-gpu`（5 件与 13:55 构建产物 `PongAdrenoFirmware.generated.c` 反嵌字节完全一致）。
+- **证据**：v2 构建 4 连失败日志（`logs/kernel-v2.log`）；恢复提交 `cafab71 fix(vendor): restore pong platform build scripts`（315cf99 → scripts 7 件 + bindings.json）；`.gitignore` 修正前后（`/pong-driver/` → 5 条产物规则）+ `check-ignore -v` 输出；固件实址 `D:\Android\k60-ios\firmware\k60-gpu`（5 件与 13:55 构建产物 `PongAdrenoFirmware.generated.c` 反嵌字节完全一致）。
 - **30 秒判定**：要给任何目录加 ignore/删除前 → 先 `grep -rn '目录名' build-*.sh board.toml .github/workflows`，有命中即停；凡看到 `.gitignore` 里出现整目录（非 `*.a` 等产物模式）→ 直接否，按本条改。
 
 ---
@@ -563,7 +563,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 ### P-44 改补丁必须改**三方**（repo 补丁 / device 补丁 / 构建树），只改一处会被覆盖
 
 - **三方位置**：
-  1. `<repo>\patches\xnu\<补丁>`（git 真源）
+  1. `E:\hackios\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
   2. `/tmp/usb-cdc-mainline/device/patches/xnu/<补丁>`（buildv15 会从 repo 覆盖这里）
   3. `$B/tree/.cache/xnu-work/...`（**构建真正编译的树**，每次清树重建）
 - **本轮实证的踩坑链**：
@@ -591,7 +591,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   `@@` 头（含 `-0,0 +1,N` 新文件形式），并已**集成进 `buildv15.sh` 的第 2b 步**——
   每次构建前自动运行，手改正文再也不会弄坏构建。
 - **30 秒判定**：任何 `corrupt patch` / `unterminated` 报错，先跑一次
-  `python3 <workspace>/scratch/fix-patch-hunks.py`，通常直接解决。
+  `python3 E:/k60-work/scratch/fix-patch-hunks.py`，通常直接解决。
 
 ### P-47 `if (!PE_parse_boot_argn(...) || !enabled) return;` —— 真正的门控杀手
 
@@ -1104,7 +1104,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   `completion = ["在设备上观察该接口的实际工作结果并保存对应日志"]`，
   就断定「pong 自己也没验证过 Goodix 触摸」。**这是错的。**
 
-- **铁证**（`<workspace>/UniXNU-pong/migration/ipados18/services.md`）：
+- **铁证**（`/mnt/e/hackios/UniXNU-pong/migration/ipados18/services.md`）：
   | 行 | 原文 |
   |---|---|
   | 296 | `touch/key HID 事件继续出现` |
@@ -1223,7 +1223,7 @@ commit message、issue 回复里都有 `P-NN` 引用。
 ### P-76 不查 `UniXNU-zizhan` 就动手 = 必然重复造轮子（2026-11-10）
 
 **症状**：触摸 SE4 的 GENI DMA 问题上耗了 20+ 轮、改了 15 个配置项、刷机十余次，
-最后发现 `<workspace>\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
+最后发现 `E:\hackios\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
 早就写好了答案。
 
 **根因**：`UniXNU-zizhan` 是 **pong 的超集**，同 SM8475、同 QUP0 SE4、同 GPIO16-19 /
@@ -1236,7 +1236,7 @@ printf("zizhan touch: GENI unavailable: %s; SPI by GPIO\n", problem);
 spi_transfer = bitbang_transfer;
 ```
 
-**正确做法**：任何硬件工作前，先跑 `<workspace>\scratch\hw-preflight.sh <硬件名>`，
+**正确做法**：任何硬件工作前，先跑 `E:\k60-work\scratch\hw-preflight.sh <硬件名>`，
 它会强制列出 zizhan/pong/sheng 里该硬件已有的产物。清单非空就必须先读。
 
 **复发次数**：本会话至少 3 次（触摸 GENI、蓝牙 `qbt_geni.c`、官方中文文档）。
@@ -1581,7 +1581,7 @@ if ((st & 0x10100) == 0x10100 && idle &&
   后台运行没有 TTY → **永久阻塞在 HTTP 401**。
 - **正解**：**push 在 Windows 侧执行**（Windows 有 gh 凭据 + 凭据管理器）。
   ```powershell
-  Set-Location '<repo>'
+  Set-Location 'E:\hackios\UniXNU-mondrian'
   $env:GIT_TERMINAL_PROMPT='0'
   git push --force --progress origin main
   ```
@@ -3052,3 +3052,40 @@ goodix_brl_hw.c:553-559
      他们的 `wave12c` 用三轮 Boot（#19 取证 / #20 节拍 / #21 PASS）走完的路，
      我们如果能早点读到就不必重复。
   4. **结论翻转时要立刻改文档**，不能让错误结论继续指导后续工作。
+
+### P-131 ★★★ Windows checkout 的 CRLF 行尾符让整个参考仓库"变脏"
+
+- **症状**：`sync-all-repos-v2.sh` 报告 5 个 Pong 仓库"脏文件过多（>50）违反 HR-40"，
+  跳过不同步：`UniXNU-pong(143)`、`pong-adreno(116)`、`pong-adreno-metal(106)`、
+  `uefi-pong(62)`、`ios-sweet(140)`。看起来像有大量本地改动。
+- **真因**：`git diff --stat` 显示 `116 files changed, 15175 insertions(+), 15175 deletions(-)`
+  —— **插入和删除完全相等**。这是 CRLF/LF 行尾符转换的指纹。
+  抽样验证：
+  ```
+  HEAD 版本:    # Agent instructions$
+  工作区版本:   # Agent instructions^M$      ← 多了 ^M（CR）
+  ```
+  `git diff -w`（忽略空白）后**差异文件数为 0**，确认内容零改动。
+- **为什么发生**：Windows 侧 git 的 `core.autocrlf` 在 checkout 时把 LF 转 CRLF，
+  而这些仓库没有 `.gitattributes` 约束。
+- **修复**：
+  ```bash
+  git -C <repo> config core.autocrlf false
+  git -C <repo> config core.eol lf
+  git -C <repo> checkout -- .
+  ```
+  执行后 13 个仓库的脏文件全部归零。
+- **判别（3 秒）**：
+  ```bash
+  git -C <repo> diff --numstat | awk '{if ($1==$2) n++} END {print n" 个对称差异"}'
+  # 或者
+  git -C <repo> diff -w --numstat | wc -l    # 为 0 = 纯行尾符问题
+  ```
+- **教训**：
+  1. **"脏文件数"不能作为"有本地改动"的判据。** 必须先跑 `git diff -w`。
+  2. **Windows 上的 git 仓库必须有 `.gitattributes` 或 `core.autocrlf=false`**，
+     否则每一次 checkout 都会把整个仓库变成"脏的"。
+  3. **同步脚本的 HR-40 检查应该用 `git diff -w --numstat | wc -l` 而不是
+     `git status --porcelain | wc -l`** —— 后者把行尾符差异也算进去。
+- **顺带**：清掉了 7 个参考仓库里遗留的 `README-K60-NOTES.md`
+  （我们自己写的仓库说明，内容已在 `docs/engineering/REPO-INVENTORY.md`）。

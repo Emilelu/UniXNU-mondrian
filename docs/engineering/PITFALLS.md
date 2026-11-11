@@ -3564,3 +3564,34 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   2. **"按设计不发布"也是一种失败形态，必须与"出错"区分开。** 两者都表现为
      "没有发布"，但一个要改参数、一个要修代码。
   3. **P-142 的教训在这里同样成立**：一串裸 `return false` 等于没有诊断。
+
+### P-145 ★★★ `pong_adreno_start` 从未出现在 board.toml，GPU 平台从未启动过
+
+- **代码要求**（`drivers/PongAdreno/PongAdrenoPlatform.cpp:479`）：
+  ```c
+  if(!PE_parse_boot_argn("pong_adreno_start",&requested,sizeof(requested)) || requested!=1) return;
+  ```
+  没有这个参数，`pong_adreno_start_optional()` 直接 return，**整个 Adreno 平台不启动**。
+- **实测**：
+  ```
+  git log -S'pong_adreno_start' -- board.toml   -> 无输出（从未加过）
+  board.toml 的 kernel_args 里：pong_adreno_start / pong_metal / pong_gpu_scanout 全部缺失
+  ```
+  三个 GPU 开关**一个都没设**。
+- **后果**：`IOAcceleratorES provider published = 0`、`native Metal entry` 缺失，
+  这两条现象不需要任何 bug 来解释 —— 平台根本没跑。
+- **修复（2026-11-12）**：加入 `pong_adreno_start=1`（582 → 602 字节，余 6）。
+  本轮只加这一个，不加 `pong_metal`，一次只改一个变量。
+- **字节预算**（608 上限）：
+  ```
+  当前 30 项 602 字节，余量 6
+  pong_metal=1 需 13 字节（12 + 1 空格）-> 超限 7
+  ```
+  下次要开 `pong_metal` 时必须先腾空间。候选：`k60_selftest_reboot=300`（23 B，
+  无人值守自检重启，手动测试时不需要）。
+- **教训**：
+  1. **"功能没生效"要先查开关，再查代码。** 三个 GPU 开关全缺，这比任何驱动
+     bug 都更早发生。
+  2. **文档写了 next_action 不等于配置里有了。** `porting.toml:240` 写着
+     "Boot with pong_adreno_start=1"，但 board.toml 从未加过 —— 文档与配置脱节。
+  3. **`git log -S<key> -- board.toml` 是判断"某开关是否曾经配过"的最快方法。**

@@ -163,3 +163,32 @@ git 历史里从未跟踪过它们。
 接进 `build-xnu-4k-baseline.sh`。届时再一并评估该提交。
 
 查询命令：`git -C references/UniXNU-upstream log --oneline --grep="keep the Vulkan device after a GPU restart"`
+
+---
+
+## GPU 的三个启动开关与字节预算（2026-11-12）
+
+代码里有三个开关，**全部要求恰好等于 1**，缺一个对应环节就不执行：
+
+| 开关 | 位置 | 作用 |
+|---|---|---|
+| `pong_adreno_start` | `PongAdrenoPlatform.cpp:479` | 启动 Adreno 平台（缺则什么都不做）|
+| `pong_metal` | `PongAdrenoNativeGlue.cpp:30,44` | 发布 Metal accelerator（缺则按设计不发布）|
+| `pong_gpu_scanout` | `PongAdrenoScanout.cpp:44` | GPU scanout（缺则用软件路径）|
+
+**现状**：只有 `pong_adreno_start=1` 已加入（2026-11-12），另两个未设。
+
+**字节预算**（arm64 boot-args 上限 608）：
+
+```
+当前 30 项，602 字节，余量 6
+pong_metal=1        需 13 字节  -> 超限 7
+pong_gpu_scanout=1  需 19 字节  -> 超限 14
+```
+
+要开 `pong_metal` 必须先腾空间。候选删除项：
+
+- `k60_selftest_reboot=300`（23 B）—— 无人值守自检重启，手动测试时不需要
+- `fb_threads=3`（12 B）—— 已 device-verified，但去掉可能影响显示性能
+
+查询命令：`grep -n 'pong_adreno_start\|pong_metal\|pong_gpu_scanout' drivers/PongAdreno/*.cpp`

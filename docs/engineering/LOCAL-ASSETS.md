@@ -74,6 +74,6 @@
 
 **更新方式**（定时任务每日两次自动执行）：
 ```bash
-cd /mnt/e/hackios/UniXNU-mondrian && git fetch yibiya upstream-fix --depth 60
+cd <repo> && git fetch yibiya upstream-fix --depth 60
 git log --oneline -20 yibiya/upstream-fix
 ```

@@ -42,7 +42,7 @@ fastboot boot <img> → 抓 300s 串口 → 内核自动回 fastboot → 刷下�
 |---|---|
 | **WSL 的 git** | **没有 GitHub 凭据** → push 静默挂起等密码，永不返回 |
 | **Windows 的 git** | ✅ `gh auth git-credential` + 凭据管理器，push 正常 |
-| push 命令 | `Set-Location 'E:\hackios\UniXNU-mondrian'; $env:GIT_TERMINAL_PROMPT='0'; git push --force --progress origin main` |
+| push 命令 | `Set-Location '<repo>'; $env:GIT_TERMINAL_PROMPT='0'; git push --force --progress origin main` |
 | 排查 | `ls-remote` 是 GET（能过），`push` 是 POST（需认证）→ **前者秒回后者卡死 = 认证问题** |
 
 **WSL 只做 fetch / 构建 / 刷机。push 一律在 Windows 侧。**
@@ -138,7 +138,7 @@ codesign --force --sign - --pagesize 4096 \
 
 | 项 | 值 |
 |---|---|
-| 发行版数据 | `D:\Android\wsl`（ubuntu 24.04 vhdx）|
+| 发行版数据 | `<android-sdk>\wsl`（ubuntu 24.04 vhdx）|
 | **网关会变** | 历史值 `172.27.64.1` / 现 `198.18.0.2` → **git 代理写死会失效** |
 | DNS | `github.com` → `198.18.0.150`（被代理软件 fake-ip 劫持）|
 
@@ -149,7 +149,7 @@ codesign --force --sign - --pagesize 4096 \
 # 修法：清掉错误代理，实测直连可用
 git config --global --unset http.proxy
 git config --global --unset https.proxy
-# 或跑 /mnt/e/k60-work/scripts/fix-git-proxy.sh 自动探测
+# 或跑 <workspace>/scripts/fix-git-proxy.sh 自动探测
 ```
 
 ### WSL 内重要路径
@@ -160,7 +160,7 @@ git config --global --unset https.proxy
 | `/opt/unixnu-linux` | Xcode/LLVM 工具链副本 |
 | `/root/linux-apfs-rw` | APFS 驱动（git 仓库）|
 | `/home/emilelu/k60-work` | WSL 侧工作目录 |
-| `/mnt/e/k60-work` | **主工作区**（Windows E 盘）|
+| `<workspace>` | **主工作区**（Windows E 盘）|
 
 ---
 
@@ -170,9 +170,9 @@ git config --global --unset https.proxy
 |---|---|
 | 构建内核 | `<workspace>/scratch/buildv15.sh`（≈200 秒）|
 | 打包镜像 | `<workspace>/scratch/packv15.sh` |
-| 刷机+抓日志 | `E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1` |
+| 刷机+抓日志 | `<workspace>\usb-a-stage\scripts\boot-and-capture.ps1` |
 | 构建树输出 | `/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/` |
-| 镜像输出 | `E:\k60-work\usb-a-stage\out\boot-v15-20261108.img` |
+| 镜像输出 | `<workspace>\usb-a-stage\out\boot-v15-20261108.img` |
 
 ### 后台构建（避免超时）
 
@@ -195,13 +195,13 @@ kernel.macho sha256 <hash>
 | 位置 | 仓库数 |
 |---|---|
 | `E:\hackios` | 15 |
-| `E:\k60-work\references` | 23 |
-| `E:\k60-work\forks-review` | 3 |
-| `D:\Android\k60-ios` | 6 |
+| `<workspace>\references` | 23 |
+| `<workspace>\forks-review` | 3 |
+| `<android-sdk>\k60-ios` | 6 |
 | WSL `/root` | 1 |
 | **合计** | **48** |
 
-**主仓**：`E:\hackios\UniXNU-mondrian`（分支 `fix/k60-measured-high-window`）
+**主仓**：`<repo>`（分支 `fix/k60-measured-high-window`）
 
 ---
 
@@ -209,10 +209,10 @@ kernel.macho sha256 <hash>
 
 | 源 | 用途 |
 |---|---|
-| `E:\hackios\UniXNU-zizhan` | **同 SoC SM8475 超集，第一优先参考** |
-| `E:\k60-work\references\yibiya-upstream` | fork，`upstream-fix` 分支（采纳分析见 YIBIYA-PICK.md）|
-| `E:\k60-work\impl\touch-protocol\refs\` | **完整官方 Goodix BerlinD 驱动源码** |
-| `E:\k60-work\references\ruby-bringup` | GT9916R 触摸（K60 同款芯片）|
+| `<workspace>\UniXNU-zizhan` | **同 SoC SM8475 超集，第一优先参考** |
+| `<workspace>\references\yibiya-upstream` | fork，`upstream-fix` 分支（采纳分析见 YIBIYA-PICK.md）|
+| `<workspace>\impl\touch-protocol\refs\` | **完整官方 Goodix BerlinD 驱动源码** |
+| `<workspace>\references\ruby-bringup` | GT9916R 触摸（K60 同款芯片）|
 
 ---
 

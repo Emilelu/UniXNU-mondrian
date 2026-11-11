@@ -105,8 +105,25 @@ def render():
     return '\n'.join(out)
 
 
+def apply_to_readme():
+    table = render()
+    s = io.open(README, encoding='utf-8', errors='ignore').read()
+    BEGIN = '<!-- EIGHT-STEP-TABLE:BEGIN -->'
+    END = '<!-- EIGHT-STEP-TABLE:END -->'
+    i = s.find(BEGIN)
+    j = s.find(END)
+    if i < 0 or j < 0:
+        raise SystemExit('README 里找不到 EIGHT-STEP-TABLE 标记')
+    s = s[:i + len(BEGIN)] + '\n' + table + '\n' + s[j:]
+    io.open(README, 'w', encoding='utf-8', newline='\n').write(s)
+    print('✅ 已更新 README 的八步表格')
+
+
 if __name__ == '__main__':
     table = render()
+    if '--apply' in sys.argv:
+        apply_to_readme()
+        sys.exit(0)
     if '--check' in sys.argv:
         readme = io.open(README, encoding='utf-8', errors='ignore').read()
         if table.strip() in readme:

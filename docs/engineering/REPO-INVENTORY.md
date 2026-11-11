@@ -1,7 +1,7 @@
 # 本地仓库总清单（全盘扫描结果，勿再重复询问）
 
 > 扫描时间：2026-11-10 21:45
-> 扫描范围：**E:\hackios、E:\k60-work、E:\k60-archive、D:\Android、D:\Android\k60-ios、D:\Android\wsl、F:\k60-archive**
+> 扫描范围：**E:\hackios、<workspace>、E:\k60-archive、<android-sdk>、<android-sdk>\k60-ios、<android-sdk>\wsl、F:\k60-archive**
 > 铁则：HR-39（调试前先查索引）。**任何仓库位置问题先看本文档，不要问用户。**
 
 ## 1. E:\hackios（主工作区，14 个 git 仓库）
@@ -26,7 +26,7 @@
 
 **非 git 目录**：acpi-mondrian-submodule-backup, artifacts, k60, work-display, xnu-src
 
-## 2. E:\k60-work\references（pong 生态 20+ 仓库）
+## 2. <workspace>\references（pong 生态 20+ 仓库）
 
 | 仓库 | 分支 | HEAD | 脏 | origin |
 |---|---|---|---|---|
@@ -56,7 +56,7 @@
 
 **非 git**：UniXNU-ruby, ruby-bringup, ios-sweet-0155(空), unixnu-site, upstream-watch, **yibiya-fork**
 
-## 3. E:\k60-work\forks-review
+## 3. <workspace>\forks-review
 
 | 仓库 | HEAD | origin |
 |---|---|---|
@@ -66,7 +66,7 @@
 
 **非 git**：diffs, patches
 
-## 3b. D:\Android\k60-ios 下的 6 个 git 仓库（重要！）
+## 3b. <android-sdk>\k60-ios 下的 6 个 git 仓库（重要！）
 
 | 仓库 | 分支 | HEAD | origin |
 |---|---|---|---|
@@ -77,7 +77,7 @@
 | UniXNU-sheng | main | 08cde20 | UniXNU/UniXNU-sheng |
 | uefi-pong | main | 87c10fd | Chengdong-Yu/uefi-pong |
 
-## 4. D:\Android（3 项，非 git）
+## 4. <android-sdk>（3 项，非 git）
 
 | 目录 | 项数 | 说明 |
 |---|---|---|
@@ -85,7 +85,7 @@
 | platform-tools | 14 | adb/fastboot |
 | wsl | 1 | Ubuntu-24.04（WSL 发行版数据）|
 
-### D:\Android\k60-ios 完整内容（34 项）
+### <android-sdk>\k60-ios 完整内容（34 项）
 ```
 AGENT-COORDINATION.md  INDEX.md  README.md
 UniXNU/                UniXNU-fork/     UniXNU-liuqin/   UniXNU-sheng/
@@ -96,7 +96,7 @@ patches/  payload/  scripts/  seed/  smp/  tools/
 boot.json  hardware.dtb  repack.sh  robocopy.log
 ```
 
-## 5. D:\Android\wsl
+## 5. <android-sdk>\wsl
 - Ubuntu-24.04/（WSL 发行版根，非仓库）
 
 ## 6. F:\k60-archive
@@ -124,9 +124,9 @@ seed256/
 | 位置 | git 仓库数 |
 |---|---|
 | E:\hackios | 15 |
-| E:\k60-work\references | 23 |
-| E:\k60-work\forks-review | 3 |
-| D:\Android\k60-ios | 6 |
+| <workspace>\references | 23 |
+| <workspace>\forks-review | 3 |
+| <android-sdk>\k60-ios | 6 |
 | **合计** | **47 个 git 仓库** |
 
 **定时同步任务应覆盖全部 47 个。**
@@ -137,9 +137,9 @@ seed256/
 
 **每日两次**，同步以下仓库到上游最新：
 1. **E:\hackios 全部 15 个 git 仓库**（有 origin 的）
-2. **E:\k60-work\references 全部 23 个 git 仓库**
-3. **E:\k60-work\forks-review 3 个**
-4. **D:\Android\k60-ios 下的仓库**（需确认哪些是 git）
+2. **<workspace>\references 全部 23 个 git 仓库**
+3. **<workspace>\forks-review 3 个**
+4. **<android-sdk>\k60-ios 下的仓库**（需确认哪些是 git）
 
 **额外**：yibiya fork（https://github.com/yibiya/UniXNU-mondrian/commits/upstream-fix/）
 的有用 commit 需 cherry-pick 到主仓。
@@ -150,7 +150,7 @@ seed256/
 
 ---
 
-## 8. WSL 内部文件系统（D:\Android\wsl 的 vhdx 内部）
+## 8. WSL 内部文件系统（<android-sdk>\wsl 的 vhdx 内部）
 
 > **重要**：WSL 里散落着大量工作文件，扫描范围必须包括 `/root`、`/home`、`/opt`、`/tmp`。
 
@@ -199,16 +199,16 @@ seed256/
 | 位置 | git 仓库数 |
 |---|---|
 | E:\hackios | 15 |
-| E:\k60-work\references | 23 |
-| E:\k60-work\forks-review | 3 |
-| D:\Android\k60-ios | 6 |
+| <workspace>\references | 23 |
+| <workspace>\forks-review | 3 |
+| <android-sdk>\k60-ios | 6 |
 | **WSL /root/linux-apfs-rw** | **1** |
 | **合计** | **48 个** |
 
-**同步脚本**：`E:\k60-work\scripts\sync-all-repos.sh`
+**同步脚本**：`<workspace>\scripts\sync-all-repos.sh`
 
 **额外任务**：检查 `yibiya/UniXNU-mondrian` 的 `upstream-fix` 分支新 commit，
-有用的 cherry-pick 到主仓 `E:\hackios\UniXNU-mondrian`。
+有用的 cherry-pick 到主仓 `<repo>`。
 
 **安全约束**：有未提交改动的仓库一律跳过（不 stash、不强拉），
 在日志中列出，等人工处理。

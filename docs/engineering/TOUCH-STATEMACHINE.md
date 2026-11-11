@@ -1,8 +1,8 @@
 # Goodix GT9916R (Berlin-D) 上电→出报告 状态机提取
 
-依据：官方 vendor Linux 驱动 `E:\k60-work\impl\touch-protocol\refs\`（下称 `brl_hw.c` / `core.c` /`fwupdate.c`），
+依据：官方 vendor Linux 驱动 `<workspace>\impl\touch-protocol\refs\`（下称 `brl_hw.c` / `core.c` /`fwupdate.c`），
 主线内核 `refs\linux-master\goodix_berlin_core.c`（下称 `mainline`），
-以及我们自己的补丁 `E:\hackios\UniXNU-mondrian\patches\xnu\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch`（下称 `patch`）。
+以及我们自己的补丁 `<repo>\patches\xnu\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch`（下称 `patch`）。
 所有行号均为实测。
 
 ---

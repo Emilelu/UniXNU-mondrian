@@ -34,15 +34,15 @@ wsl -u root -e bash -c "tr -d '\r' < <workspace>/scratch/packv15.sh > /tmp/pv.sh
 
 ```powershell
 # 刷机（先确认设备）
-$env:PATH='D:\Android\platform-tools;'+$env:PATH
+$env:PATH='<android-sdk>\platform-tools;'+$env:PATH
 fastboot devices        # 没有就 adb devices → adb reboot bootloader（HR-43）
-& 'E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1' `
-  -Image 'E:\k60-work\usb-a-stage\out\boot-v15-20261108.img' -Seconds 170 -WaitFastboot 90
+& '<workspace>\usb-a-stage\scripts\boot-and-capture.ps1' `
+  -Image '<workspace>\usb-a-stage\out\boot-v15-20261108.img' -Seconds 170 -WaitFastboot 90
 ```
 
 **读日志**：
 ```powershell
-$d = Get-ChildItem 'E:\k60-work\evidence' -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$d = Get-ChildItem '<workspace>\evidence' -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 Get-Content (Join-Path $d.FullName 'console.log') | Where-Object { $_ -match '<关键词>' }
 ```
 
@@ -53,7 +53,7 @@ Get-Content (Join-Path $d.FullName 'console.log') | Where-Object { $_ -match '<�
 **任何「硬件到底是不是好的」的疑问，先做这个再改代码。**
 
 ```powershell
-$env:PATH='D:\Android\platform-tools;'+$env:PATH
+$env:PATH='<android-sdk>\platform-tools;'+$env:PATH
 # 1) 从 fastboot/内核回 Android
 adb devices; adb reboot
 Start-Sleep 45
@@ -144,7 +144,7 @@ sshpass -p <password> scp <user>@<mac-host>:/tmp/init.new /tmp/init.new
 ```bash
 cd <repo>
 # 0) 备份
-git bundle create /mnt/e/k60-work/rollback/<repo>-$(date +%Y%m%d-%H%M%S).bundle --all
+git bundle create <workspace>/rollback/<repo>-$(date +%Y%m%d-%H%M%S).bundle --all
 
 # 1) 剔除
 git filter-repo --path <大文件目录> --invert-paths --force

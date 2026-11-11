@@ -317,7 +317,7 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 1. **push 一律在 Windows 侧跑**：
    ```powershell
-   Set-Location 'E:\hackios\UniXNU-mondrian'
+   Set-Location '<repo>'
    $env:GIT_TERMINAL_PROMPT='0'
    git push --force --progress origin main
    ```
@@ -474,7 +474,7 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 2. **补丁要改三处，少一处就被覆盖**（P-44）：
    ```
-   ① E:\hackios\UniXNU-mondrian\patches\xnu\<name>.patch   （仓库）
+   ① <repo>\patches\xnu\<name>.patch   （仓库）
    ② /tmp/usb-cdc-mainline/device/patches/xnu\<name>.patch （构建输入）
    ③ 构建树 .cache/xnu-work/<target>                         （已应用状态）
    ```
@@ -885,11 +885,11 @@ done
    ```
    任何 `+refs/heads/<单个分支>:` 的写法都是缺陷。
 2. **必须用 `fetch --all --prune`**，让上游删掉的分支本地也清掉。
-3. **必须有增量状态文件**：`/mnt/e/k60-work/.upstream-branches.json`
+3. **必须有增量状态文件**：`<workspace>/.upstream-branches.json`
    记录每个仓库每个分支上次看到的 SHA。判定：
    - 状态里没有的分支 → `[新分支]` + 列出最近 5 个提交
    - SHA 变了 → `[更新]` + 列出 `old..new` 全部提交
-4. **唯一入口**：`python3 /mnt/e/k60-work/scripts/track-upstream-branches.py`
+4. **唯一入口**：`python3 <workspace>/scripts/track-upstream-branches.py`
    已接入 `sync-all-repos-v2.sh`，每次同步自动跑。
 5. **不要只看主分支**。2026-11-11 的教训：答案在 `fix/ui-startup-blob`
    的 `f291b52`（把 CFPreferences 从 constructor 移到主队列），
@@ -899,7 +899,7 @@ done
 
 ```bash
 # 每个镜像的 refspec 必须是全分支
-for d in /mnt/e/k60-work/references/*-upstream; do
+for d in <workspace>/references/*-upstream; do
   printf '%-40s %s\n' "$(basename $d)" "$(git -C "$d" config --get remote.origin.fetch)"
 done
 # 出现 +refs/heads/<具体名字>: 就是缺陷
@@ -942,7 +942,7 @@ done
    `device-verified` / `not-applicable`。
 5. **改动后必须跑门禁**（`gate.py` 的 `[R]` 项）：
    ```
-   python3 /mnt/e/k60-work/scripts/gate.py --quick
+   python3 <workspace>/scripts/gate.py --quick
    ```
 6. **官网是唯一验收标准**：改完确认 `https://unixnu.com/devices/mondrian`
    能正常渲染，不能只看本地文件解析通过。
@@ -1565,18 +1565,18 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
 
 - **症状（2026-11-09 23:10，用户指出）**：
   查官方文档时我一直在 `web_fetch https://unixnu.com/...`，
-  **而本地 `E:\hackios\UniXNU\docs\zh\porting\` 就有全部 26 个页面**。
+  **而本地 `<workspace>\UniXNU\docs\zh\porting\` 就有全部 26 个页面**。
 - **本地路径**：
   | 内容 | 路径 |
   |---|---|
-  | 中文 porting 页 | `E:\hackios\UniXNU\docs\zh\porting\`（26 篇）|
-  | 英文 porting 页 | `E:\hackios\UniXNU\docs\porting\` |
-  | 驱动页 | `E:\hackios\UniXNU\docs\drivers\` |
-  | 组件定义 | `E:\hackios\UniXNU\components.toml` |
-  | 设备记录 | `E:\hackios\UniXNU\docs\.vitepress\device-records\` |
+  | 中文 porting 页 | `<workspace>\UniXNU\docs\zh\porting\`（26 篇）|
+  | 英文 porting 页 | `<workspace>\UniXNU\docs\porting\` |
+  | 驱动页 | `<workspace>\UniXNU\docs\drivers\` |
+  | 组件定义 | `<workspace>\UniXNU\components.toml` |
+  | 设备记录 | `<workspace>\UniXNU\docs\.vitepress\device-records\` |
 - **铁则**：
-  1. **先 `ls E:\hackios\UniXNU\docs\zh\porting\`，读本地文件**
-  2. **再 `git -C E:\hackios\UniXNU fetch && git rev-list --count HEAD..@{u}` 检查是否落后上游**
+  1. **先 `ls <workspace>\UniXNU\docs\zh\porting\`，读本地文件**
+  2. **再 `git -C <workspace>\UniXNU fetch && git rev-list --count HEAD..@{u}` 检查是否落后上游**
   3. 只有本地没有的页面才 `web_fetch`
   4. **每次读文档前都要先检查上游是否更新**（本会话曾落后 10 个提交，
      其中 `f7f9f7a` 正是 UFS 并发方案、`6ae5f83`/`a443832` 是 AdrenoMetal 更新）
@@ -1599,7 +1599,7 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
   | 场景 | 最小查证 |
   |---|---|
   | 要改驱动 | `grep` 确认函数是否已存在（本会话两次因 `k60_spmi_init` 不存在而编译失败）|
-  | 要用工具 | `ls` 确认工具在本地（本会话一直在 web_fetch 官方文档，而本地 `E:\hackios\UniXNU\docs\zh\porting\` 就有 26 篇）|
+  | 要用工具 | `ls` 确认工具在本地（本会话一直在 web_fetch 官方文档，而本地 `<workspace>\UniXNU\docs\zh\porting\` 就有 26 篇）|
   | 要用外部机器 | SSH 探活 |
   | 要写分区 | 先读头部确认 APFS 结构，不要整盘读写 |
   | 要下结论 | 先验证前提（本会话"INT=0 说明芯片活着"因默认下拉而作废）|
@@ -2099,7 +2099,7 @@ ruby 文档 §5.3 白纸黑字写着：
 **触发场景（2026-11-10 严重返工）**
 
 触摸驱动排查了 200+ 轮，反复盲试帧地址、电源、时序。
-结果发现 `/mnt/e/k60-work/impl/touch-protocol/refs/` 里**早就有完整官方 Goodix
+结果发现 `<workspace>/impl/touch-protocol/refs/` 里**早就有完整官方 Goodix
 BerlinD 驱动源码**（`goodix_brl_hw.c`、`goodix_brl_spi.c`、`goodix_cfg_bin.c`、
 `goodix_ts_core.c` 等），以及 `goodix_cfg_group_m11a.bin` config 固件。
 
@@ -2115,14 +2115,14 @@ BerlinD 驱动源码**（`goodix_brl_hw.c`、`goodix_brl_spi.c`、`goodix_cfg_bi
    ## 本地资源索引（先看这里！）
    | 资源 | 路径 | 用途 |
    |------|------|------|
-   | 官方驱动 goodix_brl_hw.c | /mnt/e/k60-work/impl/touch-protocol/refs/ | config下载+复位时序 |
+   | 官方驱动 goodix_brl_hw.c | <workspace>/impl/touch-protocol/refs/ | config下载+复位时序 |
    | config 固件 bin | scratch/goodix-fw/goodix_cfg_group_m11a.bin | 1627B config |
    | firmware bin | scratch/goodix-fw/goodix_firmware_m11a.bin | 223744B |
    ```
 
 2. **开始调试前，对目标硬件做一次全盘检索**：
    ```bash
-   find /mnt/e/k60-work /mnt/e/hackios -ipath '*<hw>*' -o -iname '*goodix*' ...
+   find <workspace> <workspace> -ipath '*<hw>*' -o -iname '*goodix*' ...
    ```
    把结果登记进索引。**没查全盘之前禁止改代码。**
 
@@ -2247,7 +2247,7 @@ DNS: github.com → 198.18.0.150                              ← 被代理软�
    ```
    **实测直连可用**（`git ls-remote` 返回 HEAD sha），比错代理快得多。
 
-3. **脚本**：`E:\k60-work\scripts\fix-git-proxy.sh`（已实现，自动探测+修复+验证）
+3. **脚本**：`<workspace>\scripts\fix-git-proxy.sh`（已实现，自动探测+修复+验证）
 
 4. **每次同步报告里必须打印实际使用的代理**，便于事后排查。
 

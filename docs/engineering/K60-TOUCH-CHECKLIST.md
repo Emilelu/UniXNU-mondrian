@@ -150,7 +150,7 @@ goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255
 **K60 触摸就是 GT9916R BerlinD（同 ruby），协议层应适用 ruby/官方驱动。**
 
 ### 本地已找到完整官方驱动源码
-`/mnt/e/k60-work/impl/touch-protocol/refs/`
+`<workspace>/impl/touch-protocol/refs/`
 - goodix_brl_hw.c (1474 行)  ← 硬件+config下载
 - goodix_brl_fwupdate.c (35KB) ← 固件更新
 - goodix_ts_core.c (61KB)
@@ -404,7 +404,7 @@ patches applied: 197
 ### 已验证存在且有效
 
 ```
-/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin/
+<workspace>/impl/gpu-mac-build/out/metal-plugin/
 ├── PongAdrenoMetal.bundle/
 │   ├── Info.plist                  695 B    NSPrincipalClass = PongAdrenoMetalDevice ✓
 │   ├── PongAdrenoMetal             94,896 B Mach-O arm64 dylib ✓

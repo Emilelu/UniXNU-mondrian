@@ -1,8 +1,8 @@
 # 可复用工具总表（HR-49：发现工具就登记，别让用户提醒）
 
 > **两个 scripts 目录，别搞混：**
-> - `/mnt/e/k60-work/scripts/` — 本地新增工具（inject-payload-files、sync-all-repos、fix-git-proxy）
-> - `E:\hackios\UniXNU-mondrian\scripts\` — **仓库内**工具（build-pong-*, data2g-*, reshuangroot, audit-*）
+> - `<workspace>/scripts/` — 本地新增工具（inject-payload-files、sync-all-repos、fix-git-proxy）
+> - `<repo>\scripts\` — **仓库内**工具（build-pong-*, data2g-*, reshuangroot, audit-*）
 
 > 用法：要做某件事之前先在这里搜工具，不要重复造轮子或满盘 find。
 
@@ -16,12 +16,12 @@
 | minfo | 同上 | 查 FAT 剩余空间 | `minfo -i payload.img ::` |
 | **apfsck** | `/usr/sbin/apfsck` | APFS 卷检查 | `apfsck -q image.img` |
 | **linux-apfs-rw** | `/root/linux-apfs-rw/` | **完整 APFS 读写内核模块**（含压缩） | `make && insmod apfs.ko` |
-| Python APFS | `/mnt/e/k60-work/impl/bt-8step/_work/apfs.py` | 解析 APFS 结构 | `python3 apfs.py <img>` |
+| Python APFS | `<workspace>/impl/bt-8step/_work/apfs.py` | 解析 APFS 结构 | `python3 apfs.py <img>` |
 | reshuangroot | **仓库内** `scripts/reshuangroot.py` | 重建 unixnu 的 SHNGROOT 头 | 见 `docs/OPS-DATA-REBUILD.md` |
 | diff-physical-vs-apfs | `k60-work/apps/diff-physical-vs-apfs.py` | 物理 vs 逻辑对比 | — |
-| data2g-install.sh | **仓库内** `E:\hackios\UniXNU-mondrian\scripts\data2g-install.sh` | Android 侧 dd 流式装 2 GiB Data | `sh data2g-install.sh /dev/block/by-name/unixnu` |
-| data2g-stream.sh | **仓库内** `E:\hackios\UniXNU-mondrian\scripts\data2g-stream.sh` | Data 种子流式写入 | — |
-| **inject-payload-files.sh** | `/mnt/e/k60-work/scripts/inject-payload-files.sh` | **往 payload.img FAT 注入任意文件/目录**（自动建目录、查剩余空间） | `inject-payload-files.sh --src DIR --dest /METAL` |
+| data2g-install.sh | **仓库内** `<repo>\scripts\data2g-install.sh` | Android 侧 dd 流式装 2 GiB Data | `sh data2g-install.sh /dev/block/by-name/unixnu` |
+| data2g-stream.sh | **仓库内** `<repo>\scripts\data2g-stream.sh` | Data 种子流式写入 | — |
+| **inject-payload-files.sh** | `<workspace>/scripts/inject-payload-files.sh` | **往 payload.img FAT 注入任意文件/目录**（自动建目录、查剩余空间） | `inject-payload-files.sh --src DIR --dest /METAL` |
 
 ## 2. APFS 校验器（4 个，用途不同）
 
@@ -40,7 +40,7 @@
 | buildv15.sh | `<workspace>/scratch/buildv15.sh` | 构建内核（≈200s） |
 | packv15.sh | `<workspace>/scratch/packv15.sh` | 打包 boot.img |
 | **SERIES-FINAL.txt** | `<workspace>/scratch/SERIES-FINAL.txt` | **补丁顺序真相源**（P-90：改仓库 series 无效） |
-| boot-and-capture.ps1 | `E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1` | 刷机 + 抓串口日志 |
+| boot-and-capture.ps1 | `<workspace>\usb-a-stage\scripts\boot-and-capture.ps1` | 刷机 + 抓串口日志 |
 | patch-armcpu-validate.py | 构建树 `tree/scripts/` | ARMCPU 校验补丁（P-24 强制） |
 | build-pong-metal-plugin.py | `scripts/` | 构建 Metal bundle（**需 Mac + Xcode**） |
 | build-pong-adreno-platform.py | `scripts/` | 构建 PongAdreno 静态库 |
@@ -84,7 +84,7 @@ cd <xnu-work> && git apply --check <patch>   # 必须无输出
 
 | 工具 | 用途 | 备注 |
 |---|---|---|
-| fastboot | 刷机 | `D:\Android\platform-tools` |
+| fastboot | 刷机 | `<android-sdk>\platform-tools` |
 | adb | Android 交互 | **`adb reboot bootloader` 可进 fastboot**（HR-43）|
 | TWRP | 分区级 dd | 慢，优先用 `DATA-VOLUME-DEPLOY.md` 的方法一 |
 | sshpass | Mac SSH | `sshpass -p <password> ssh <user>@<mac-host>` |
@@ -113,7 +113,7 @@ adb shell 'cat /sys/devices/platform/goodix_ts.0/read_cfg'
 | 工具 | 用途 |
 |---|---|
 | COM5 | K60 内核串口（`boot-and-capture.ps1` 自动接） |
-| `E:\k60-work\evidence\usblog-*\console.log` | 每次启动的日志 |
+| `<workspace>\evidence\usblog-*\console.log` | 每次启动的日志 |
 
 ## 10. 反汇编 / 二进制
 
@@ -262,9 +262,9 @@ PY
 ## track-upstream-branches.py — 上游全分支追踪（★32）
 
 ```bash
-python3 /mnt/e/k60-work/scripts/track-upstream-branches.py           # 报告 + 更新状态
-python3 /mnt/e/k60-work/scripts/track-upstream-branches.py --dry-run # 只报告
-python3 /mnt/e/k60-work/scripts/track-upstream-branches.py --json    # 机器可读
+python3 <workspace>/scripts/track-upstream-branches.py           # 报告 + 更新状态
+python3 <workspace>/scripts/track-upstream-branches.py --dry-run # 只报告
+python3 <workspace>/scripts/track-upstream-branches.py --json    # 机器可读
 ```
 
 做三件事：强制全分支 refspec、`fetch --all --prune`、与

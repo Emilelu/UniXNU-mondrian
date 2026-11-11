@@ -88,10 +88,11 @@ static void (*IOHIDEventSetIntegerValue)(IOHIDEventRef event, uint32_t field, CF
 #define EDGE_TOP        (16.0 / 812)
 #define EDGE_BOTTOM     (34.0 / 812)    /* the strip below the applications' content, where the home bar is */
 
-static struct {
+struct finger_state {
 	bool touching, edge;
 	double x, y;
-} fingers[MAX_FINGERS];
+};
+static struct finger_state fingers[MAX_FINGERS];
 
 static CFNumberRef
 number(int value)
@@ -228,21 +229,28 @@ make_service(IOHIDEventSystemClientRef client, const char *product, int page, in
 }
 
 /* One frame of the touch screen: the hand, and under it every finger that is down or has just lifted. */
-static void
+static bool
 send_touch(IOHIDServiceClientRef screen, const struct pong_touch *t)
 {
-	uint32_t change = t->type == PONG_TOUCH_MOVE ? DIGITIZER_POSITION : DIGITIZER_RANGE | DIGITIZER_TOUCH;
 	IOHIDEventRef hand, finger;
 	bool any = false;
 	unsigned f = t->finger;
 
-	if (f >= MAX_FINGERS || (t->type != PONG_TOUCH_DOWN && !fingers[f].touching)) {
-		return;
+	if (f >= MAX_FINGERS || t->type < PONG_TOUCH_DOWN || t->type > PONG_TOUCH_UP ||
+	    (t->type == PONG_TOUCH_UP && !fingers[f].touching)) {
+		return true;
 	}
+	/* open() discards old queue entries. A real MOVE can therefore be the
+	 * first sample when this bridge attaches to an already-down finger. */
+	bool landing = t->type != PONG_TOUCH_UP && !fingers[f].touching;
+	uint32_t change = t->type == PONG_TOUCH_MOVE && !landing ? DIGITIZER_POSITION : DIGITIZER_RANGE | DIGITIZER_TOUCH;
+	struct finger_state previous = fingers[f];
 	fingers[f].touching = t->type != PONG_TOUCH_UP;
-	fingers[f].x = t->x / 65535.0;
-	fingers[f].y = t->y / 65535.0;
-	if (t->type == PONG_TOUCH_DOWN) {
+	/* The kernel already converts raw K60 axes to the u16 wire interval;
+	 * decode it once, without dividing by the panel's pixel dimensions. */
+	fingers[f].x = (t->x > PONG_TOUCH_COORD_MAX ? PONG_TOUCH_COORD_MAX : t->x) / (double)PONG_TOUCH_COORD_MAX;
+	fingers[f].y = (t->y > PONG_TOUCH_COORD_MAX ? PONG_TOUCH_COORD_MAX : t->y) / (double)PONG_TOUCH_COORD_MAX;
+	if (landing) {
 		fingers[f].edge = fingers[f].x < EDGE_SIDE || fingers[f].x > 1 - EDGE_SIDE || fingers[f].y < EDGE_TOP ||
 		    fingers[f].y > 1 - EDGE_BOTTOM;
 	}
@@ -252,7 +260,7 @@ send_touch(IOHIDServiceClientRef screen, const struct pong_touch *t)
 
 	hand = IOHIDEventCreateDigitizerEvent(NULL, t->time, DIGITIZER_HAND, 0, 0, change & ~DIGITIZER_RANGE, 0, fingers[f].x,
 	    fingers[f].y, 0, 0, 0, 0, any, any, 0);
-    if (!hand) return;
+    if (!hand) {fingers[f]=previous;return false;}
 	IOHIDEventSetIntegerValue(hand, FIELD_DIGITIZER_DISPLAY_INTEGRATED, 1);
 	IOHIDEventSetIntegerValue(hand, FIELD_IS_BUILT_IN, 1);
 	for (unsigned i = 0; i < MAX_FINGERS; i++) {
@@ -262,16 +270,16 @@ send_touch(IOHIDServiceClientRef screen, const struct pong_touch *t)
 		finger = IOHIDEventCreateDigitizerFingerEvent(NULL, t->time, i + 1, i + 2,
 		    (i == f ? change : 0) | (fingers[i].edge ? DIGITIZER_FROM_EDGE_TIP : 0), fingers[i].x, fingers[i].y, 0,
 		    fingers[i].touching ? 1.0 : 0.0, 0, fingers[i].touching, fingers[i].touching, 0);
-        if (!finger) {CFRelease(hand);return;}
+        if (!finger) {CFRelease(hand);fingers[f]=previous;return false;}
 		IOHIDEventSetIntegerValue(finger, FIELD_DIGITIZER_DISPLAY_INTEGRATED, 1);
 		IOHIDEventAppendEvent(hand, finger, 0);
 		CFRelease(finger);
 	}
-    if (!IOHIDVirtualServiceClientDispatchEvent(screen,hand)) {
-        static unsigned failures;
-        if (failures++<3) fprintf(stderr,"Pong touch HID: event dispatch refused\n");
-    }
+    Boolean sent=IOHIDVirtualServiceClientDispatchEvent(screen,hand);
+    if (!sent) say("Pong touch HID: event dispatch refused; stopping real input bridge\n");
 	CFRelease(hand);
+    if (!sent) fingers[f]=previous;
+    return sent;
 }
 
 /* A real tap can wake the display in the requested wake-detection mode.
@@ -296,8 +304,8 @@ release_contacts(IOHIDServiceClientRef screen,uint64_t time)
 {
     for (unsigned i=0;i<MAX_FINGERS;i++) if (fingers[i].touching) {
         struct pong_touch up={time,PONG_TOUCH_UP,i,
-            (uint32_t)(fingers[i].x*65535),(uint32_t)(fingers[i].y*65535)};
-        send_touch(screen,&up);
+            (uint32_t)(fingers[i].x*PONG_TOUCH_COORD_MAX),(uint32_t)(fingers[i].y*PONG_TOUCH_COORD_MAX)};
+        (void)send_touch(screen,&up);
     }
 }
 
@@ -343,7 +351,7 @@ input_thread(void *unused)
             continue;
         }
         if (waking&bit) {if (sample.type==PONG_TOUCH_UP) waking&=~bit;continue;}
-        send_touch(screen,&sample);
+        if (!send_touch(screen,&sample)) break;
     }
     /* Release outstanding contacts if the physical source goes away. */
     release_contacts(screen,mach_absolute_time());

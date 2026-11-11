@@ -94,6 +94,7 @@ docs/
 |---|---|---|
 | `state/SESSION-DIRECTIVES-2026-11-07.md` | 2026-11-07 会话的用户指令总账 | 参考 |
 | `state/STATE-2026-11-07.md` | 2026-11-07 的当前真相快照 | **过时**，现以 `engineering/STATUS.md` 为准 |
+| `BOOT-ARGS.md` | **Boot 参数参考**：每个参数的接受值/默认/陷阱，608 字节预算，三个 GPU 开关的串行依赖 |
 | `state/TRUST-LEDGER.md` | 数值可信度台账（T/E/C 分级） | 参考 |
 | `state/NEXT-STEPS.md` | 当时的推进顺序 | **过时** |
 

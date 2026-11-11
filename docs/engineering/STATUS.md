@@ -11,6 +11,35 @@
 > 待办与计划里不写死上游 SHA（★37 / HR-72）——上游每小时都在推进，
 > 写死的 SHA 第二天就过时。查最新状态用 `scripts/track-upstream-branches.py`。
 
+
+### 可刷镜像（2026-11-12 07:58）
+
+```
+/mnt/e/k60-work/usb-a-stage/out/boot-r42-touch-gpu.img
+202,362,880 B
+sha256 708527a10577222acfecb2ed00998f01bef2a83040fa37b90da309f2d069f27c
+```
+
+包含当天全部改动：
+
+| 改动 | 日志判据 |
+|---|---|
+| 触摸 boot-option 握手 | `device confirm OK` / `FAILED` |
+| 触摸 SPI 模式选择 | `SPI mode select failed` |
+| 触摸 config 请求检测 | `chip requested a config` |
+| 触摸 config 下载 | `CFG-DL wrote=N/1488 bad=0` |
+| 触摸坐标模式切换 | `COORD-MODE ack=80` |
+| 实体键逐条件诊断 | `Pong keys: missing <prop>` |
+| GPU 八条发布诊断 | `accelerator not published` / `publish skipped` |
+| UFS 三模式等待 | `native-ufs-wait` |
+| GPU 启动开关 | `pong_adreno_start=1` |
+| GPU Metal 开关 | `pong_metal=1` |
+
+内核 sha256 `c447cefa419a6f6d`，payload 内核 `6dbcc4dc59a484cb`（payload 步骤
+额外打 AppleARMCPU 补丁），212 个补丁。
+
+**此前的最新镜像是 `boot-v15-20261108.img`（2026-11-11），不含以上任何一项。**
+
 ## 一、硬件状态明细
 
 | 项 | 状态 | 证据 |

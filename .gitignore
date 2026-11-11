@@ -39,3 +39,4 @@ mac-build/*/cache/
 *.fat
 mac-build/*/build-report.json
 build/
+/.cache/

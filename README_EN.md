@@ -1,96 +1,112 @@
 # UniXNU-mondrian
 
-UniXNU device support for the Redmi K60 (**mondrian**, Qualcomm **SM8475**).
+UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualcomm **SM8475**).
 
-- Firmware: [uefi-mondrian](https://github.com/Emilelu/uefi-mondrian)
-- Core: [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU) (branch `k60`)
-- SoC: [Emilelu/UniXNU-sm8475-common](https://github.com/Emilelu/UniXNU-sm8475-common)
+**Current target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
 
-## Status (2026-10-30)
+> Last updated: 2026-11-12. Detailed status and change log:
+> [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md).
 
-| Area | State | Notes |
-| --- | --- | --- |
-| UEFI boot chain | OK | ABL -> `fastboot boot` -> BootShim -> UEFI -> UniXNU menu |
-| Display | OK | ABL splash framebuffer + SimpleFbDxe GOP, 1440x3200, 5760 B stride; no GPU acceleration |
-| Buttons | OK | Official KeypadDevice chain + `K60KeypadDeviceLib` (SPMI PON/GPIO) |
-| Tools -> Advanced Logger | OK | 4 MB Advanced Logger + QR frames; OneSend captures the DXE log |
-| XNU kernel | OK | builds on Linux (WSL) and on the macOS CI; `kernel.macho` 53.5 MB with prelink |
-| Board ADT / payload / boot image | OK | 192 MiB payload + Android boot v4 image; verify with `scripts/verify-k60-boot-img.sh` |
-| UFS root (SHNGROOT) | OK | OS and SystemOS read-only windows, union-mounted on `/` |
-| `/private/var` (Data) | RO only | real UFS Data window at offset `7,780,433,920`, 32 MiB, mounts read-only |
-| keybag / MKB | FAIL | Data is not writable, so `systembag.kb` cannot be written and MKB goes fatal |
-| Touch / GPU / audio / network / camera | TODO | not started; the GPU driver source (with `submit/`) is already in `drivers/PongAdreno/` but not linked |
+[中文版](README.md)
 
-Measured: XNU reaches `launchd` and the service chain proceeds to `watchdogd`
-(pid 95); `/private/var` mounts for the first time from the real UFS Data window,
-read-only.
+## Eight-step progress
 
-## Open blockers (2026-10-30)
+<!-- EIGHT-STEP-TABLE:BEGIN -->
+| Hardware | ① Same model | ② Official | ③ Reverse | ④ Wide search | ⑤ Plan | ⑥ Deep dive | ⑦ Local verify | ⑧ On device | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| **触摸（Goodix GT9916R / BERLIN）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
+| **GPU（Adreno 730v3 / Metal）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| UFS / 存储 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| 显示 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| 固件 / 启动 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| WiFi / 蓝牙 / USB | — | — | — | — | — | — | — | — | planned |
+| 音频 | — | — | — | — | — | — | — | — | planned |
+| 基带 | — | — | — | — | — | — | — | — | planned |
+| DSP | — | — | — | — | — | — | — | — | planned |
 
-1. **The APFS read-write mount hangs** after the space-manager scan. A bounded
-   `K60UFS write#N` trace is in place (`drivers/NativeUfs/`); it has not yet told
-   us whether the UFS write itself stalls or APFS stalls internally.
-2. **32 MiB Data is too small.** The same-SoC sirius board hit ENOSPC on a 32 MiB
-   Data volume and trapped in watchdogd (`brk #1`). Growing it needs a new APFS
-   seed, which only `hdiutil`/`newfs_apfs` on macOS can produce.
-3. **Switching filesystems has a prerequisite.** The 20G81 kernelcache contains
-   `com.apple.filesystems.hfs` and `com.apple.filesystems.tmpfs`, but neither is
-   in this repository's prelink root list, so `mount("hfs")` / `mount("tmpfs")`
-   currently fails with ENODEV. The core prelink configuration has to change first.
+> ✅ done　◐ partial　❌ not done　— no record
+>
+> 表格由 `scripts/render-eight-step-table.py` 从 `docs/research/EIGHT-STEPS.toml` 生成，`--check` 可校验 README 是否与数据一致。
+> 八步定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
+<!-- EIGHT-STEP-TABLE:END -->
 
-## Build
+## Branches
 
-Four sibling trees are required. Apply the core patch first:
+| Branch | Purpose |
+|---|---|
+| **`main`** | Mainline (default). All working milestones land here |
+| `feat/first-frame-20261107` | Historical milestone: first iOS 16.6.1 userland frame (separate history line) |
+| `chore/archive-darwin24-main-20261103` | Retired darwin24 (iPadOS 18) route (kept as archive) |
 
-```sh
-git clone --recurse-submodules -b k60 https://github.com/Emilelu/UniXNU
-git clone https://github.com/Emilelu/UniXNU-sm8475-common
-git clone https://github.com/Emilelu/UniXNU-mondrian
-git clone --recurse-submodules https://github.com/Emilelu/uefi-mondrian
+## Layout
 
-cd UniXNU
-../UniXNU-mondrian/scripts/k60-macos-preflight.sh      # core patches + auto-slide prelink wrapper
-./unixnu defconfig mondrian_defconfig -D ../UniXNU-mondrian
-./unixnu fetch -D ../UniXNU-mondrian
-./unixnu build kernel -D ../UniXNU-mondrian
+| Path | Contents |
+|---|---|
+| `board.toml` | `schema_version = 2` board configuration and component selection |
+| `porting.toml` | Records for 14 subsystems (data source for the device page on unixnu.com) |
+| `feeds.toml` | Pinned SoC sources |
+| `configs/mondrian_defconfig` | Kernel configuration |
+| `dts/mondrian.dts` | Memory, CPU, peripherals |
+| `patches/xnu/` | Device patches; order in `patches/xnu/series` |
+| `scripts/` | Build and check tooling (including four gates) |
+| `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
+| `docs/engineering/` | Hard rules, pitfalls, hardware truth, eight-step spec |
+| `docs/research/` | Eight-step evidence (`EIGHT-STEPS.toml`) and research checklist (`SOURCES.toml`) |
+
+## Four-layer repository model
+
+| Layer | Repository | Contents |
+|---|---|---|
+| Framework | [UniXNU/UniXNU](https://github.com/UniXNU/UniXNU) | `unixnu` command, shared scripts, component catalog |
+| SoC | [UniXNU-sm8475-common](https://github.com/UniXNU/UniXNU-sm8475-common) | `soc.toml`, `configs/sm8475.config`, `dts/sm8475.dtsi` |
+| Device | This repository | `board.toml`, `dts/mondrian.dts`, `patches/xnu/` |
+| Firmware | [uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium build tree |
+
+## Building
+
+```bash
+./unixnu build kernel -D .
 ```
 
-On Linux (WSL) the kernel and the prelink step both build without macOS; the
-toolchain comes from `scripts/linux/setup-toolchain.py` and `unixnu fetch`
-pulls `kernelcache.decompressed` from the IPSW. Only the Data seed
-(`scripts/k60-make-data-seed.py`) still needs macOS.
+Output: `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`.
 
-```sh
-python3 scripts/k60-prelink-local.py \
-  --kernel mach.development.pong.unstripped \
-  --prelinked out/ipsw/20G81/kernelcache.decompressed \
-  --output kernel.macho
-```
+Local build scripts live in the workspace (not in this repository); see
+[`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md) for the flow.
 
-Firmware:
+## Gates
 
-```sh
-./unixnu build firmware --uefi ../uefi-mondrian -D ../UniXNU-mondrian
-```
+Four checks run automatically before build or flash; any failure aborts:
+
+| Gate | What it checks |
+|---|---|
+| `scripts/research-gate.py` | Every source in `docs/research/SOURCES.toml` has been examined and has a written finding |
+| `scripts/eight-step-gate.py` | Eight-step evidence is complete; `build` needs ①–⑥, `flash` needs ①–⑦ plus the ⑧ prediction |
+| `scripts/porting-gate.py` | `porting.toml` matches the official schema; the README table matches the data |
+| `scripts/render-eight-step-table.py --check` | README table matches `EIGHT-STEPS.toml` |
+
+## Working discipline
+
+1. **Eight-step pipeline**: same model → official → reverse engineering → wide search →
+   plan → deep dive → local verification → on device. No flashing until a step is complete.
+   See [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md).
+2. **Check the official component catalog first**: before writing a driver, search
+   `UniXNU/components.toml` and the
+   [driver repository list](https://unixnu.com/zh/drivers/repositories) to avoid
+   reimplementing an existing wheel.
+3. **Record every pitfall**: [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md).
+4. **Commit changes promptly and push milestones.**
 
 ## Data safety
 
-- Bring-up uses `fastboot boot` only: no partition is written.
-- XNU root/Data use a dedicated `unixnu` partition (SHNGROOT OS/SystemOS windows
-  plus a trailing Data window), never Android `userdata`; see
-  `docs/DUAL-SYSTEM.md`.
-- Never flash `persist` or run `flash all`.
-- Run `--dry-run` and back up the manifest before any partition write.
-
-## Known debt
-
-- `boot-manifest-hash` is board-specific but lives in the shared OS profile of the
-  core repo; it belongs in this repository's ADT section.
-- Six build-environment patches sit at the tail of `patches/xnu/series` and have to
-  be re-applied on every upstream bump.
-- 22 further patches are not in `series` and have not been triaged.
+- Bring-up uses `fastboot boot` only (temporary RAM boot); **no partition is ever flashed**.
+- XNU root/Data lives on a separate `unixnu` partition and never touches Android `userdata`.
+- **Never run** `fastboot flash persist` or `flash all` (permanent TEE key damage).
 
 ## License
 
-Device code is BSD-2-Clause-Patent; imported components keep their own SPDX
-headers and licenses. See `THIRD_PARTY_NOTICES.md`.
+Device-level code is BSD-2-Clause-Patent. Imported components keep their own SPDX
+identifiers and original licenses. Third-party sources are listed in
+[`CREDITS.md`](CREDITS.md).

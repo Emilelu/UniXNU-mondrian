@@ -24,9 +24,11 @@ except ImportError:
 REPO = '/mnt/e/hackios/UniXNU-mondrian'
 DATA = os.path.join(REPO, 'docs', 'research', 'EIGHT-STEPS.toml')
 README = os.path.join(REPO, 'README.md')
+README_EN = os.path.join(REPO, 'README_EN.md')
 
 STEPS = ['same_model', 'official', 'decompile', 'wide', 'plan', 'deep', 'verify', 'device']
-HEADS = ['① 同型', '② 官方', '③ 反编译', '④ 广域', '⑤ 方案', '⑥ 深挖', '⑦ 核验', '⑧ 上机']
+HEADS_ZH = ['① 同型', '② 官方', '③ 反编译', '④ 广域', '⑤ 方案', '⑥ 深挖', '⑦ 核验', '⑧ 上机']
+HEADS_EN = ['① Same model', '② Official', '③ Reverse', '④ Wide search', '⑤ Plan', '⑥ Deep dive', '⑦ Local verify', '⑧ On device']
 
 # 未建立八步记录的硬件（诚实显示为 —，本身说明流程没走到）
 UNTRACKED = [
@@ -61,43 +63,61 @@ def cell(entry, st):
     return '✅' if entry.get('done') is True else '❌'
 
 
-def render():
+def render(lang='zh'):
     if tomllib is None:
         raise SystemExit('缺 tomllib')
     d = tomllib.load(open(DATA, 'rb'))
     hw = d.get('hardware', {})
 
     out = []
-    out.append('| 硬件 | ' + ' | '.join(HEADS) + ' | 当前状态 |')
+    HEADS = HEADS_ZH if lang == 'zh' else HEADS_EN
+    first = '硬件' if lang == 'zh' else 'Hardware'
+    last = '当前状态' if lang == 'zh' else 'Status'
+    out.append('| %s | ' % first + ' | '.join(HEADS) + ' | %s |' % last)
     out.append('|' + '---|' * (len(HEADS) + 2))
 
     for name, body in hw.items():
         steps = body.get('step', {})
         cells = [cell(steps.get(st), st) for st in STEPS]
         # 状态推导
-        if all(c == '✅' for c in cells):
-            status = '**八步全通**'
-        elif cells[7] == '✅':
-            status = 'device-verified'
-        elif cells[6] == '✅':
-            status = '可刷机（⑦ 已核验）'
-        elif all(c in ('✅', '◐') for c in cells[:6]):
-            status = '**卡在 ⑦ 核验**'
+        if lang == 'zh':
+            if all(c == '✅' for c in cells):
+                status = '**八步全通**'
+            elif cells[7] == '✅':
+                status = 'device-verified'
+            elif cells[6] == '✅':
+                status = '可刷机（⑦ 已核验）'
+            elif all(c in ('✅', '◐') for c in cells[:6]):
+                status = '**卡在 ⑦ 核验**'
+            else:
+                status = '进行中'
         else:
-            status = '进行中'
+            if all(c == '✅' for c in cells):
+                status = '**All eight steps pass**'
+            elif cells[7] == '✅':
+                status = 'device-verified'
+            elif cells[6] == '✅':
+                status = 'Ready to flash (⑦ verified)'
+            elif all(c in ('✅', '◐') for c in cells[:6]):
+                status = '**Blocked at ⑦**'
+            else:
+                status = 'In progress'
         out.append('| **%s** | %s | %s |' % (body.get('name', name), ' | '.join(cells), status))
 
     for label, st in UNTRACKED:
         cells = ['—'] * len(STEPS)
         if st == 'device-verified':
             cells[7] = '✅'
-            status = 'device-verified（未建八步记录）'
+            status = 'device-verified（未建八步记录）' if lang == 'zh' else 'device-verified (no record)'
         else:
             status = st
         out.append('| %s | %s | %s |' % (label, ' | '.join(cells), status))
 
     out.append('')
-    out.append('> ✅ 完成　◐ 部分　❌ 未完成　— 未建立记录')
+    if lang == 'zh':
+        out.append('> ✅ 完成　◐ 部分　❌ 未完成　— 未建立记录')
+    else:
+        out.append('> ✅ done　◐ partial　❌ not done　— no record')
     out.append('>')
     out.append('> 表格由 `scripts/render-eight-step-table.py` 从 `docs/research/EIGHT-STEPS.toml` 生成，'
                '`--check` 可校验 README 是否与数据一致。')
@@ -106,17 +126,20 @@ def render():
 
 
 def apply_to_readme():
-    table = render()
-    s = io.open(README, encoding='utf-8', errors='ignore').read()
-    BEGIN = '<!-- EIGHT-STEP-TABLE:BEGIN -->'
-    END = '<!-- EIGHT-STEP-TABLE:END -->'
-    i = s.find(BEGIN)
-    j = s.find(END)
-    if i < 0 or j < 0:
-        raise SystemExit('README 里找不到 EIGHT-STEP-TABLE 标记')
-    s = s[:i + len(BEGIN)] + '\n' + table + '\n' + s[j:]
-    io.open(README, 'w', encoding='utf-8', newline='\n').write(s)
-    print('✅ 已更新 README 的八步表格')
+    for lang, path in (('zh', README), ('en', README_EN)):
+        if not os.path.exists(path):
+            continue
+        table = render(lang)
+        s = io.open(path, encoding='utf-8', errors='ignore').read()
+        BEGIN = '<!-- EIGHT-STEP-TABLE:BEGIN -->'
+        END = '<!-- EIGHT-STEP-TABLE:END -->'
+        i = s.find(BEGIN)
+        j = s.find(END)
+        if i < 0 or j < 0:
+            continue
+        s = s[:i + len(BEGIN)] + '\n' + table + '\n' + s[j:]
+        io.open(path, 'w', encoding='utf-8', newline='\n').write(s)
+        print('✅ 已更新 %s' % os.path.basename(path))
 
 
 if __name__ == '__main__':

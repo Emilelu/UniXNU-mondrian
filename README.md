@@ -4,6 +4,8 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 **当前目标：iOS 16.6.1（20G81）/ darwin22 上跑通完整硬件。**
 
+[English](README_EN.md)
+
 > 最后更新：2026-11-12。详细状态与变更记录见
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md)。
 

@@ -141,6 +141,20 @@ def validate(mode='build', verbose=True):
             else:
                 checked += 1
 
+
+    # --- README 表格一致性（防止 README 与 EIGHT-STEPS.toml drift）---
+    try:
+        import subprocess as _sp
+        _r = _sp.run(['python3', os.path.join(REPO, 'scripts', 'render-eight-step-table.py'), '--check'],
+                     capture_output=True, text=True, timeout=60)
+        if _r.returncode != 0:
+            problems.append('README 八步表格与 EIGHT-STEPS.toml 不一致，'
+                            '跑 scripts/render-eight-step-table.py 重新生成并覆盖 README 的「八步流程进度」段')
+        elif verbose:
+            print('  README 八步表格: ✅ 与数据一致')
+    except Exception as _e3:
+        problems.append('README 表格一致性检查失败: %s' % str(_e3)[:50])
+
     if verbose:
         print('  模式: %s' % mode)
         print('  硬件项: %d 个（%s）' % (len(hw), ', '.join(hw.keys())))

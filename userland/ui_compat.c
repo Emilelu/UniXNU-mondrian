@@ -617,6 +617,13 @@ static void show_ui_state(const char *phase, id manager, id backlight)
 static void present_home(void *unused)
 {
     (void)unused;
+    /* 0403 (from yibiya/fix/ui-startup-blob f291b52): reachable only once the
+     * main queue is running, which is also when cfprefsd is up. Setting these
+     * in the constructor blocked the main thread before any hook could install.
+     * Measured on this port: with the calls in the constructor the injected
+     * library deadlocked before the first composited frame. */
+    CFPreferencesSetAppValue(CFSTR("BSUIVibrancyEffectViewDisabled"),kCFBooleanTrue,kCFPreferencesCurrentApplication);
+    CFPreferencesSetAppValue(CFSTR("SBDisableAutoDim"),kCFBooleanTrue,kCFPreferencesCurrentApplication);
     id manager=existing_singleton("SBLockScreenManager");
     id backlight=existing_singleton("SBBacklightController");
     show_ui_state("main queue reached",manager,backlight);
@@ -827,12 +834,6 @@ __attribute__((constructor)) static void pong_ui_init(void)
     if (is_settings) {
         settings_record_init();
         pong_settings_icons_start(settings_record);
-    }
-    if (is_springboard) {
-        CFPreferencesSetAppValue(CFSTR("BSUIVibrancyEffectViewDisabled"),kCFBooleanTrue,kCFPreferencesCurrentApplication);
-        /* 20G81 SpringBoard reads this preference. Set it before UIApplication
-         * startup: the delayed wake cannot run until the main queue is free. */
-        CFPreferencesSetAppValue(CFSTR("SBDisableAutoDim"),kCFBooleanTrue,kCFPreferencesCurrentApplication);
     }
     if (is_springboard) start_home_transition();
     if (backboard) {install_renderer_hook();pong_touch_start();}

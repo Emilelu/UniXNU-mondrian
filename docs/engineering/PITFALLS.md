@@ -3520,3 +3520,47 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
      代价是 GPU 线停了六轮。
   3. **porting.toml 的 findings 是资产清单，不只是结论。**
      它记录了固件路径、大小、以及哪些脚本消费它们。
+
+### P-144 ★★★ `pong_metal=2` 永远不发布 accelerator —— 这不是 bug，是设计
+
+- **症状**：`IOAcceleratorES provider published` 计数恒为 0，`native Metal entry`
+  不出现，帧率 0。
+- **代码事实**（`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:30, 44`）：
+  ```c
+  const bool enabled = PE_parse_boot_argn("pong_metal",&metal,sizeof(metal)) && metal == 1;
+  ...
+  if (PE_parse_boot_argn("pong_metal",&metal,sizeof(metal)) && metal == 1) {
+      const IOReturn status = PongAdrenoPublishMetalAccelerator();
+  ```
+  **只有恰好等于 1 才发布。** `pong_metal=2` 走的是「不发布」分支，
+  所以拿 `pong_metal=2` 的日志去判断 Metal provider 好坏，等于什么都没测。
+- **同时存在的诊断缺陷**：`PongAdrenoPublishClient` 的四个 `return false`
+  全部没有日志，因此"published = 0"无法区分：
+  1. `backend` 已存在（重复发布）
+  2. `device` 为空
+  3. `device->healthy()` 为假（CP backend 不健康）
+  4. `native_adreno_publish()` 返回错误
+  5. `native_adreno_published_service()` 返回空
+  6. `PongAdrenoConfigureService()` 失败
+  7. `pong_metal != 1`（按设计不发布）
+- **修复（2026-11-12）**：每个分支都打印 `PONG METAL: <原因> (<值>)`，
+  并且明确区分"失败"与"按设计不发布"：
+  ```
+  publish skipped: already published (1)
+  publish skipped: null backend (0)
+  publish skipped: CP backend unhealthy (0)
+  native_adreno_publish failed (<IOReturn>)
+  native_adreno_published_service returned null (0)
+  configure service failed; native healthy = 0|1
+  accelerator not published: pong_metal is not 1, value=<n>
+  accelerator not published: pong_metal absent, value=0
+  ```
+- **产物验证**：kernel.macho sha256 1583b632，七条字符串全部存在，
+  GPU 原有符号（PongAdrenoGmuFirmware / IOAcceleratorES / K60METALPLUGIN）
+  与其它硬件标记均未回归。
+- **教训**：
+  1. **拿错档位的日志做判断，比没有日志更糟。** `pong_metal=2` 稳定但什么都
+     不发布，它的稳定性不能证明 Metal 路径可用。跑之前先确认参数落在哪个分支。
+  2. **"按设计不发布"也是一种失败形态，必须与"出错"区分开。** 两者都表现为
+     "没有发布"，但一个要改参数、一个要修代码。
+  3. **P-142 的教训在这里同样成立**：一串裸 `return false` 等于没有诊断。

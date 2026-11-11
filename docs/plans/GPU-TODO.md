@@ -134,3 +134,32 @@ git 历史里从未跟踪过它们。
 
 **教训**：`/.cache/` 这类 gitignore 目录里放的是**构建必需品**时，
 必须有独立备份，不能只依赖工作区文件。
+
+---
+
+## Mesa / Turnip 补丁的现状（2026-11-12 核查）
+
+**结论：四个 mesa 补丁目前没有任何构建路径消费它们。**
+
+| 补丁 | 谁应用 |
+|---|---|
+| `0001-pong-scoped-gpu-heap.patch` | `scripts/build-pong-turnip.py:29` |
+| `0002-pong-allocation-pressure-reclaim.patch` | `scripts/build-pong-turnip.py:32` |
+| `0003-pong-atomic-batches-and-fence-wait.patch` | **无** |
+| `0004-pong-buffer-copy-allocation-errors.patch` | **无** |
+
+而 `scripts/build-pong-turnip.py` **本身没有任何构建脚本调用**，且要求：
+- `--mesa`（需已打上 UniXNU Darwin backend 补丁的 Mesa 源码）
+- `--abi-directory`、`--tools-directory`、`--venv`、`--output-dir`
+- `--developer-dir`，默认 `/Volumes/PongDev/.../Xcode.app`（仅 macOS）
+
+内核产物里 `tu_knl` / `tu_device` 各 0 次出现，确认 Turnip 未进内核。
+
+**因此上游新提交「turnip: keep the Vulkan device after a GPU restart」
+虽然技术上可应用（它改 `tu_knl_darwin.cc` 第 1664-1690 行，我们的补丁改 77-1090
+与 `tu_clear_blit.cc`，无行重叠），但它此刻不会进入任何产物 —— 先不引入。**
+
+**解锁条件**：真正在 Linux 侧交叉构建 Turnip，或把 `build-pong-turnip.py`
+接进 `build-xnu-4k-baseline.sh`。届时再一并评估该提交。
+
+查询命令：`git -C references/UniXNU-upstream log --oneline --grep="keep the Vulkan device after a GPU restart"`

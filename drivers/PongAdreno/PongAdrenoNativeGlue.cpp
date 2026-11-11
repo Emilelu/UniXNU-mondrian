@@ -32,16 +32,44 @@ bool PongAdrenoConfigureService(IOService *service)
     if(enabled)service->setProperty("NativeSandboxGrantProcess","backboardd,SpringBoard,CollectionsPoster,WidgetRenderer_Default,PosterBoard,Weather,WeatherPoster,GradientPosterExtension");
     return true;
 }
+/* Every early return names itself. "IOAcceleratorES provider published = 0"
+ * cannot be acted on when four different failures all look like the same
+ * silence. */
+static void pong_metal_line(const char *why,long value)
+{
+    char line[160];
+    const int n=snprintf(line,sizeof(line),"PONG METAL: %s (%ld)\n",why,value);
+    IOLog("%s",line);pong_ramoops_diagnostic_write(line,n);
+}
+
 bool PongAdrenoPublishClient(PongCpBackend *device)
 {
-    if(backend || !device || !device->healthy())return false;
+    if(backend) { pong_metal_line("publish skipped: already published",1); return false; }
+    if(!device) { pong_metal_line("publish skipped: null backend",0); return false; }
+    if(!device->healthy()) { pong_metal_line("publish skipped: CP backend unhealthy",0); return false; }
     backend=device;
     const IOReturn result=native_adreno_publish(device->vm,device->submit,device->ring,
         &device->clock,device->timer,&device->info,32,device->output_bits);
-    if(result)return false;
-    if(!PongAdrenoConfigureService(native_adreno_published_service()))return false;
+    if(result) { pong_metal_line("native_adreno_publish failed",result); return false; }
+    IOService *published=native_adreno_published_service();
+    if(!published) { pong_metal_line("native_adreno_published_service returned null",0); return false; }
+    if(!PongAdrenoConfigureService(published)) {
+        pong_metal_line("configure service failed; native healthy =",
+            pong_adreno_native_healthy() ? 1 : 0);
+        return false;
+    }
     unsigned metal=0;
-    if(PE_parse_boot_argn("pong_metal",&metal,sizeof(metal)) && metal==1) {
+    const bool haveArg=PE_parse_boot_argn("pong_metal",&metal,sizeof(metal));
+    if(!haveArg || metal!=1) {
+        /* pong_metal=2 lands here by design: the accelerator is only published
+         * when the argument is exactly 1, so a run at 2 proves nothing about
+         * the Metal provider. */
+        pong_metal_line(haveArg ? "accelerator not published: pong_metal is not 1, value="
+                                : "accelerator not published: pong_metal absent, value=",
+                        (long)metal);
+        return true;
+    }
+    {
         const IOReturn status=PongAdrenoPublishMetalAccelerator();
         char line[160];const int n=snprintf(line,sizeof(line),
             "PONG METAL: NativeAdreno complete runtime publication status=0x%x\n",status);

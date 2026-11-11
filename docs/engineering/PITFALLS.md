@@ -3459,3 +3459,35 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   2. **门禁只应该约束正在做的事。** 把历史上碰过但没做完的东西一起硬卡，
      会让人为了过门禁而写假证据 —— 那比没记录更糟。
   3. **STATUS.md 与 EIGHT-STEPS.toml 必须双向一致。** 加 [W] 检查让漂移无处藏身。
+
+### P-142 ★★★ 七个条件 OR 在一起静默返回 false，等于没写诊断
+
+- **症状**：实体键驱动的 `configuration()` 长这样
+  ```c
+  if (SecureDTLookupEntry(NULL,"/arm-io/pong-buttons",&e)!=kSuccess ||
+      !property(e,"core-base",&c,8) || !property(e,"cnfg-base",&n,8) ||
+      ... || c!=0xc400000 || n!=0xc42d000 || ... )
+      return false;
+  ```
+  任一个条件失败都只得到 `false`，日志里什么都没有。
+  于是"驱动已编译/链接/调用"和"驱动真的跑起来了"无法区分 ——
+  STATUS.md 只能标 🔄 并注明"`configuration()` 结果不可观测"。
+- **修复**：拆成逐条件检查，每个失败分支打印自己：
+  ```
+  Pong keys: DT node /arm-io/pong-buttons not found
+  Pong keys: missing core-base            （7 个属性各一条）
+  Pong keys: unexpected bases core=... cnfg=... observer=... ee=...
+  Pong keys: ppid mismatch pon=... (want ...) volume-up=... (want ...)
+  Pong keys: PMIC windows mapping failed core=... cnfg=... observer=...
+  Pong keys: PMIC windows mapped, pon-ppid=... volume-up-ppid=...
+  ```
+  成功路径也有日志（最后一行），所以"没日志"不再有歧义。
+- **产物验证**：kernel.macho sha256 345d44c4 里 `Pong keys: missing` 命中 7 次，
+  其余各 1 次。
+- **教训**：
+  1. **OR 链是诊断的反面。** 条件越多，静默 false 丢的信息越多。
+     宁可多写几行 if，也不要一个长 OR。
+  2. **成功路径也要打日志。** 只有失败才打日志时，"没有日志"可以有两种含义：
+     成功，或根本没执行到。成功也打一行，歧义就消失了。
+  3. **"不可观测"是可以修的。** 遇到只能标"待观察"的项时，先问：
+     能不能加一行日志把它变成可观测？通常能。

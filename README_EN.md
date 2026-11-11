@@ -19,7 +19,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **storage** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **display** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **bootchain** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **buttons** | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | In progress |
+| **buttons** | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | **wifi** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | In progress |
 | **audio** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | In progress |
 | **battery** | ✅ | ✅ | ❌ | ❌ | ❌ | — | — | — | In progress |

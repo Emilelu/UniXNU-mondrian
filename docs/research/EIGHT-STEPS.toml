@@ -305,16 +305,20 @@ evidence = "方案：在 bsd_init 里调用 pong_buttons_init，通过 pong_inpu
 
 [hardware.buttons.step.deep]
 done = true
-evidence = "深挖结论：configuration() 的结果不可观测，无法从日志判断按键驱动是否真的拿到 DT 节点；这是当前唯一的不确定项，见 P-141。"
+evidence = "深挖结论：configuration() 原本把 7 个以上条件 OR 在一起静默返回 false，无法判断 DT 节点缺失、属性缺失还是值不匹配。2026-11-12 改为逐条件检查并各自打印：Pong keys: DT node / missing <prop> / unexpected bases / ppid mismatch / PMIC windows mapped，实现见 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch，见 P-142。"
 
 [hardware.buttons.step.verify]
 done = false
-evidence = "缺上机验证：没有任何一条日志能证明按键事件被真正上报。"
+local_verified = true
+evidence = "本地产物核查通过：kernel.macho sha256 345d44c4 里 Pong keys: missing 命中 7 次，DT node / unexpected bases / ppid mismatch / PMIC windows mapped 各 1 次（2026-11-12）。仍缺上机：按键事件是否真的上报。"
+static_check = "configuration() 的每个条件都有独立分支与日志；与 DT 侧 /arm-io/pong-buttons 的属性名逐一对应（core-base / cnfg-base / observer-base / ee / pon-ppid / volume-up-ppid）。"
+unit_test = "无独立单测：DT 属性存在性只能在目标机判定。"
+artifact_check = "产物字符串核对通过（见 evidence）。"
 
 [hardware.buttons.step.device]
 done = false
 evidence = "STATUS.md:24 标 🔄：驱动已编译/链接/调用，但 configuration() 结果不可观测。"
-prediction = "按下电源或音量键时应看到 Pong keys 行或 IOHIDEvent 上报；若无任何日志，说明 configuration() 拿不到 DT 节点。"
+prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppid 与 volume-up-ppid）；按下电源或音量键时应看到按键事件上报。若出现 Pong keys: DT node 或 missing <prop>，说明 DT 侧属性缺失，需核对 /arm-io/pong-buttons 节点。"
 
 [hardware.wifi]
 status = "parked"

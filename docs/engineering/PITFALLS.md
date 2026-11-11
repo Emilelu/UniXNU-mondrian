@@ -3321,3 +3321,46 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
      注释第一句就是 "answers no register until..."，这是最直接的线索。
   3. **看别人的实现能省掉几轮上机。** yibiya 的两个提交直接命中了我们
      正在推的两个假设（握手 + config），这就是跟踪上游的价值。
+
+### P-137 ★★★ config 下载必须走 vendor 命令块，且最后要切坐标模式（0x90）
+
+- **完整流程**（yibiya 04bda86 的 `goodix_apply_config`，对齐官方
+  `brl_send_config` + `goodix_send_ic_config`）：
+  ```
+  1. goodix_command(4, 0x04, NULL, 0, "CFG-START")     准备
+  2. 分块写 k60_cfg[]（64 字节/块）+ 回读比对
+  3. goodix_command(4, 0x05, NULL, 0, "CFG-WRITE")     提交
+  4. goodix_command(4, 0x06, NULL, 0, "CFG-EXIT")      结束
+  5. 复位（PIN_RESET 低 2ms -> 高 100ms）
+  6. goodix_command(5, 0x90, &coord, 1, "COORD-MODE")  ★ 切坐标上报
+  7. sleep_ms(50)
+  ```
+- **命令帧格式**（vendor 块）：
+  ```
+  frame[2] = len        (4 或 5)
+  frame[3] = cmd        (0x04/0x05/0x06/0x90)
+  frame[4..] = data
+  sum = len + cmd + data bytes
+  frame[len]   = sum & 0xff
+  frame[len+1] = sum >> 8
+  写 8 字节到 command_address，读 ack[1]，等 0x80
+  ```
+- **第 6 步 0x90 是 raw 帧与触点的分界线。** 不发它，芯片停在 rawdata 模式，
+  `0x10308` 永远是 0x00 —— 这正是我们观测到的现象。
+- **config 数据的确切来源**：
+  ```
+  容器 goodix_cfg_group_m11a.bin（1627 B）
+    容器[139:141] = 4e 4d          <- vendor 块标识（ASCII "NM"）
+    容器[141:1627] = 1486 字节     <- 我们之前剥的
+    yibiya 的 k60_cfg[1488] = 容器[139:1627]  <- 含 4e 4d 前缀
+  ```
+  我们少了 `4e 4d` 这两个字节，命令块头部会错位。
+- **misc 偏移**：`fw_buffer_addr` 在 `misc+18`（不是 +24 的 frame_data_addr）。
+  没有它 `goodix_apply_config` 根本无法运行。
+- **教训**：
+  1. **"写进去了" ≠ "生效了"。** 分块写 + 回读比对只能证明字节落地，
+     真正让芯片切模式的是最后的 0x90 命令。
+  2. **config 数组的边界必须精确到字节。** 差 2 字节的 `4e 4d` 前缀，
+     整个命令块就错位。
+  3. **再看一次上游实现能省掉整轮上机。** yibiya 的 `goodix_apply_config`
+     是 30 行，把我们从"猜 config 格式"直接带到"照抄已验证的流程"。

@@ -59,37 +59,37 @@ why = "UFS：控制器初始化、命令队列、根卷发布、已验证表缓�
 path = "references/ShengUfs/NativeUfs.cpp"
 why = "★ 官方最新实现（148,723 B，是我们 12.5 倍）。包含多槽命令队列、VerifiedTableCache、RootWindowRead、RootPublication"
 examined = "2026-11-12"
-finding = """官方最新实现，148,723 B，是我们 11,846 B 的 12.5 倍。包含多槽命令队列、VerifiedTableCache、RootWindowRead、RootPublication 四块我们完全缺失的能力。它的命令队列思路（每槽独立 UTRD/UCD/data 区、独立 doorbell 位）与我们 S3 实现一致，说明我们的方向对，但官方把根卷发布和已验证表缓存也做进去了。"""
+finding = """官方实现 148,723 B，是我们 11,846 B 的 12.5 倍。**不能整体替换**：它硬编码 SM8550（NativeUfs.cpp:146 匹配 "qcom,sm8550-ufshc"，:173-174 的 UFS host 窗口是 0x1d84000/0x3000），依赖 VirtioMmioBlock + VerifiedRoot，os_abi 是 ipados-17.7.11-21H461，verified_devices 只有 sheng。**价值在于架构**：它把多槽命令队列、已验证表缓存、根卷发布、窗口读取四块拆干净了，我们照它的分层重写 K60 版，保留 SM8475 的地址与 DT 匹配。"""
 
 [[subsystem.storage.required]]
 path = "references/ShengUfs/RootCommands.h"
 why = "官方命令队列（29,932 B）"
 examined = "2026-11-12"
-finding = """官方 29,932 B，我们 30,084 B —— 规模几乎相同，说明 S3 多槽命令队列的实现深度已对齐。但官方这一版配套 CompletionWait.h（自旋/节拍/睡眠三模式）和 TransferPoll.h，我们的是自己写的混合轮询。官方把等待策略抽成可配置的 boot-arg（native-ufs-wait），我们写死了。"""
+finding = """官方 29,932 B，我们 30,084 B，规模几乎相同 —— 说明多槽命令队列的深度已对齐。差别在可配置性：官方配套 CompletionWait.h 把等待策略抽成 boot-arg，我们写死。这一层可以直接照搬，因为它不含平台地址。"""
 
 [[subsystem.storage.required]]
 path = "references/ShengUfs/VerifiedTableCache.h"
 why = "最新提交 57f031c：缓存已验证根表页，替代整表 wiring"
 examined = "2026-11-12"
-finding = """最新提交 57f031c 的核心。有界缓存已验证根表的哈希表页：每个 4096 字节镜像块一个 SHA-256，每页 128 条；页哈希来自 owner 签名头，只有页哈希常驻内存。缓存预分配并 wired，填充时不再分配内存、直接走 transport 而不走 window 设备，避免内存压力下 page-in 等待自己的已验证读。不匹配的页永不缓存且其块被拒。含 hits/misses/reads/evictions/waits/failures 六个统计。我们完全没有这层缓存。"""
+finding = """提交 57f031c 的核心，**纯逻辑，不含平台地址，可直接移植**。有界缓存已验证根表的哈希表页：每 4096 字节镜像块一个 SHA-256，每页 128 条；页哈希来自 owner 签名头，只有页哈希常驻内存。缓存预分配并 wired，填充时不分配内存、直接走 transport 不走 window 设备，避免内存压力下 page-in 等待自己的已验证读。不匹配的页永不缓存且其块被拒。六个统计：hits/misses/reads/evictions/waits/failures。我们完全没有这层。"""
 
 [[subsystem.storage.required]]
 path = "references/ShengUfs/CompletionWait.h"
 why = "提交 34ff541：短命令自旋等待 + 显示 in-flight 命令"
 examined = "2026-11-12"
-finding = """提交 34ff541 的核心。把命令完成等待抽成三种模式（boot-arg native-ufs-wait）：Spin(1, 默认) 在自旋预算内不阻塞轮询，之后睡到完成中断；Paced(0) 用 IODelay(2) 做暂停；Sleep(2) 从第一次暂停起就睡。决策函数 ufsWaitStep 输入 interruptMode/canBlock/preemptPending/elapsed/spinTicks。无中断、中断被屏蔽或抢占禁用时退回 IODelay 自旋。另有 5 档等待时间直方图（<50/100/200/400us/更长）。我们的混合轮询是写死的，没有这个可配置性。"""
+finding = """提交 34ff541 的核心，**纯逻辑，不含平台地址，可直接移植**。三种等待模式（boot-arg native-ufs-wait）：Spin(1,默认) 自旋预算内轮询后睡到完成中断；Paced(0) 用 IODelay(2) 暂停；Sleep(2) 从第一次暂停起就睡。决策函数 ufsWaitStep 输入 interruptMode/canBlock/preemptPending/elapsed/spinTicks。无中断、中断屏蔽或抢占禁用时退回 IODelay 自旋。另有 5 档等待时间直方图（<50/100/200/400us/更长）。我们的混合轮询是写死的。"""
 
 [[subsystem.storage.required]]
 path = "references/pong-ufs/PongUfsTransport.cpp"
 why = "pong 的传输层（30,709 B），我们 44,096 B 的 S3 多槽版本源自它"
 examined = "2026-11-12"
-finding = """pong 的传输层，30,709 B。我们的 44,096 B 是在它基础上加了 S3 多槽 + 中断 + readTrace。它的结构：hostSlotGeometry 注册槽位、hostCompletionCount 读完成计数、hostInterruptMode 报告中断模式、hostDmaAddress 做 VA→PA。我们的 native_ufs_slots/list_mode/irq_mode/irqs/irq_sleeps 五个全局变量是它没有的观测点。"""
+finding = """pong 的传输层 30,709 B。pong-ufs 也是从官方 ShengUfs 派生的，但简化了。我们的 44,096 B 在它基础上加了多槽 + 中断 + readTrace。结构：hostSlotGeometry 注册槽位、hostCompletionCount 读完成计数、hostInterruptMode 报告中断模式、hostDmaAddress 做 VA→PA。**注意**：pong-ufs 与 ShengUfs 也不一致（NativeUfs.cpp 11,753 vs 148,723），所以维护时要同时看两个源，不能只跟 pong。"""
 
 [[subsystem.storage.required]]
 path = "docs/engineering/STATUS.md"
 why = "当前 UFS 状态（device-verified：OS root binding PASS、K60DATA mounted）"
 examined = "2026-11-12"
-finding = """UFS 当前是 device-verified：PONG APFS OS root binding PASS、K60DATA mounted ro=0 fstype=apfs、K60UFS write#0..#7 result=0。所以「跟不跟官方最新」不是能不能用的问题，而是官方新增的 VerifiedTableCache / RootPublication / 可配置等待策略要不要补的问题。"""
+finding = """UFS 当前 device-verified：PONG APFS OS root binding PASS、K60DATA mounted ro=0 fstype=apfs、K60UFS write#0..#7 result=0。所以「跟不跟官方最新」不是能不能用的问题，而是要不要补官方已验证的架构能力（VerifiedTableCache / RootPublication / RootWindowRead / 可配置等待策略）的问题。"""
 
 
 [subsystem.gpu]

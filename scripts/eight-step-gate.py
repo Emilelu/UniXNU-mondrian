@@ -109,10 +109,25 @@ def validate(mode='build', verbose=True):
             if entry.get('done') is not True:
                 problems.append('%s 未标记 done=true' % label)
                 continue
-            # ⑦ 核验额外要求本地已验证
-            if st == 'verify' and entry.get('local_verified') is not True:
-                problems.append('%s 未 local_verified=true（不能在没本地证明前推进）' % label)
-                continue
+            # ⑦ 核验额外要求本地已验证 + 三类验证齐全
+            if st == 'verify':
+                if entry.get('local_verified') is not True:
+                    problems.append('%s 未 local_verified=true（不能在没本地证明前推进）' % label)
+                    continue
+                for kind in ('static_check', 'unit_test', 'artifact_check'):
+                    if not (entry.get(kind) or '').strip():
+                        problems.append('%s 缺 %s（⑦ 要求静态对照/离线单测/产物检查三类齐全）'
+                                        % (label, kind))
+                        continue
+            # ④ 广域额外要求：官方组件目录必须查过
+            if st == 'wide':
+                if entry.get('catalog_checked') is not True:
+                    problems.append('%s 未 catalog_checked=true（必须先查 UniXNU/components.toml，避免重复造轮子）' % label)
+                    continue
+                cr = (entry.get('catalog_result') or '').strip()
+                if len(cr) < 40:
+                    problems.append('%s catalog_result 太短（要逐个说明官方组件能不能用）' % label)
+                    continue
             checked += 1
 
         # flash 模式额外检查第 8 步的预测

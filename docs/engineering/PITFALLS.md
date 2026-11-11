@@ -3290,3 +3290,34 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
      正确做法是先加计数和日志，把静默变可见。
   3. **八步流程要求 ⑥ 深挖时消解全部不确定项。** 之前把 REQUEST 当成「只有 reset」，
      是没有逐行核对官方 `brl_event_handler` 的结果。
+
+### P-136 ★★★ Berlin-D 在 boot-option 握手完成前不响应任何寄存器
+
+- **官方注释**（`goodix_brl_hw.c:78-106` `brl_dev_confirm`）：
+  > Berlin-D answers no register until the boot-option handshake has run:
+  > write 8 x 0xAA to 0x10000 and require the same eight bytes back.
+  > It is also the only independent proof of the MISO/MOSI/CLK/CS assignment.
+- **常量**：`BOOTOPTION_ADDR = 0x10000`、`DEV_CONFIRM_VAL = 0xAA`
+- **我们的实现**：`goodix_probe` 直接从 `GOODIX_FW_VERSION` 读起，**没有握手**。
+- **为什么这个遗漏极具欺骗性**：我们的日志里明明打出了
+  `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`，
+  看起来芯片通信完全正常。但官方说握手前芯片**不响应任何寄存器** ——
+  也就是说那次读成功本身就应该被怀疑。
+- **修复**（本轮）：移植 `goodix_dev_confirm`，在 `goodix_probe` 最开头调用：
+  ```c
+  if (!goodix_dev_confirm()) return false;
+  ```
+  三次尝试、每次间隔 5 ms，失败时打印
+  `device confirm FAILED; check AVDD(GPIO71)/IOVDD/RESET/SPI`。
+- **来源**：yibiya 的 `81dd415e5`（`fix(board): run the touch driver at its
+  publishing stage`）与 `04bda86`（`fix(touch,power): land the handshake,
+  config download and battery link`）。他同时找到了 1488 字节的
+  `k60_cfg[]` 数组（以 `4e 4d` 即 ASCII "NM" 开头，与我们从容器剥出的
+  `00 00 00 00 00 00 39 39...` 不同）。
+- **教训**：
+  1. **"能读出芯片 ID" 不等于 "通信正常"。** 有些芯片在默认模式下能回答
+     少数只读寄存器，但完整功能需要先走握手。
+  2. **官方注释里写着前置条件时，必须当成硬约束。** `brl_dev_confirm` 的
+     注释第一句就是 "answers no register until..."，这是最直接的线索。
+  3. **看别人的实现能省掉几轮上机。** yibiya 的两个提交直接命中了我们
+     正在推的两个假设（握手 + config），这就是跟踪上游的价值。

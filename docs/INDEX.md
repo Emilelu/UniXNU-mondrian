@@ -78,6 +78,7 @@ docs/
 | `08-on-device.md` | 触摸调研 ⑧ 上机 |
 | `09-CLOCK-FIX-PLAN.md` | GENI 时钟修复方案 |
 | `10-SE-HANG-ROUND3.md` | SE 挂死第三轮诊断 |
+| `wifi/RESEARCH.md` | **WiFi 八步 ①②③**：Pong 同 SoC 同芯片的 PCIe0 冷启动、PWF2 固件包、K60 本机真值 |
 | `11-KEY-EVIDENCE-RING.md` | 关键证据闭环清单 |
 | `GENI-ACCESS-PRECONDITIONS.md` | GENI 引擎可访问性前置条件 |
 

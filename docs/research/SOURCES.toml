@@ -144,6 +144,40 @@ pong-metal 的中间层 diff、内核侧对齐 pong-adreno 的 port/ios18e-nativ
 补齐官方缺失的 6 个文件。并记录三条硬约束：pong_metal=1 崩溃、
 20G81 vs 21H461 ABI 差异、chip_id A100/A730v3 差异。"""
 
+[subsystem.wifi]
+why = "WiFi（QCA6490 / WCN6855）：PCIe0 冷启动、SPMI PMIC、固件加载"
+
+[[subsystem.wifi.required]]
+path = "references/pong-wifi/PongWifiPlatform.cpp"
+why = "★ 同 SoC SM8475 + 同芯片 QCA6490 的 PCIe0 冷启动完整实现（40,764 B）"
+examined = "2026-11-12"
+finding = """Pong / SM8475 QCA6490 PCIe0 冷启动完整实现，40,764 B。平台地址（都是 SM8475 真值）：GCC 0x100000/0xa0000、TLMM 0xf100000/0xd0000、PARF 0x1c00000/0x3000、DBI 0x60000000/0x1000、PHY 0x1c06000/0x2000、ATU 0x60001000/0x1000、SPMI core 0xc400000/0x3000、SPMI config 0xc42d000/0x4000。四条注释明确写出与 Sheng(SM8550) 的差异：0x162128 bit0 不是 Sheng 的 0x152020；SM8475 只有一个 PCIe0 GDSC 在 7b004，没有 SM8550 的 PHY GDSC；要 vote bit11 而不是 Sheng 的 SM8550 cnoc clock；实际 BAR 范围是 0x60200000..0x63ffffff 而不是 Sheng 的 0x60300000。这四条是踩过坑的记录，移植 K60 时必须逐条核对。"""
+
+[[subsystem.wifi.required]]
+path = "references/pong-wifi/PongWifiFirmware.cpp"
+why = "PWF2 固件包加载器（3,984 B）：从本机 root 读 /pong/firmware/qca6490.pwf"
+examined = "2026-11-12"
+finding = """PWF2 固件包加载器，3,984 B。不读 vendor 分区，而是读本机 root 的 /pong/firmware/qca6490.pwf。格式：magic 0x32465750（"PWF2"）+ 8 字节头[magic][entry count]，之后 entry 数组（name[32] + offset + bytes），载荷按需加载，上限 64 MiB，offset 必须 4096 对齐。优点：固件完全自包含，不依赖 vendor 分区或其他板级输入。缺点：需要先实现 .pwf 打包工具（Pong 用 scripts/build-pong-wifi-native.py）。"""
+
+[[subsystem.wifi.required]]
+path = "references/UniXNU-pong/configs/pong-wifi-sm8475.json"
+why = "板级 PCI 参数：vendor 0x17CB / device 0x1103 / BAR0 0x60200000 2MiB"
+examined = "2026-11-12"
+finding = """板级 PCI 参数：format=pong-qca6490-board-v1，soc=SM8475，vendor=6091(0x17CB Qualcomm)、device=4355(0x1103 QCA6490)、subsystem_vendor=6091、subsystem_device=264、revision=1、BAR0 base=1612709888(0x60200000) bytes=2097152(2 MiB)。K60 的 subsystem_device 需要单独核对——Pong 是 264，K60 可能不同，不同则 PCIe 枚举会失败。"""
+
+[[subsystem.wifi.required]]
+path = "docs/engineering/ANDROID-HW-TRUTH.md"
+why = "K60 本机 WiFi 真值：qca6490 + cnss2，固件目录与文件大小"
+examined = "2026-11-12"
+finding = """K60 本机 WiFi 真值（2026-11-10 Android 实测）：驱动 qca6490 + cnss2 + wlan_firmware_service，固件目录 /vendor/firmware_mnt/image/qca6490/，已实测连上 5G（rssi:-53 freq:5180）。固件文件：amss.bin 5.47 MB、amss20.bin 5,296,128 B、Data.msc 889,524 B、Data20.msc 916,071 B、bd_m11agf.elf 60,000 B（蓝牙）。缺：K60 的 PCI device id / BAR0 / subsystem_device / PCIe0 GDSC 偏移 / SPMI 通道号。"""
+
+[[subsystem.wifi.required]]
+path = "docs/research/wifi/RESEARCH.md"
+why = "本次 ①②③ 调研记录"
+examined = "2026-11-12"
+finding = """本次 ①②③ 调研记录。① 同型：Pong 是 SM8475 + QCA6490，与 K60 完全相同，40 KB 的 PCIe0 冷启动实现可直接参考。② 官方：Ath12kWifi 组件针对 ath12k（qcc2072/qcn9274/wcn7850），K60 是 QCA6490（ath11k 族），MHI/QRTR 接口不同 → 官方无覆盖，只能参考 Pong + mainline ath11k。③ 反编译：K60 固件路径与大小已知，但 PCI 层参数（device id / BAR / subsystem_device）待补。"""
+
+
 [subsystem.launchd]
 why = "launchd pid 1：hw.target 身份链、服务缓存"
 

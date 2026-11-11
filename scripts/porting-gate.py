@@ -149,6 +149,21 @@ else:
             bad('R', 'area 字段不完整', '; '.join(_incomplete[:3]), hard=False)
         else:
             ok('R', 'area 字段', '全部完整')
+
+        # 官网语义验证：复刻 sync-devices.py 的 validate(allow_custom_components=True)
+        try:
+            import importlib.util as _ilu
+            _spec = _ilu.spec_from_file_location(
+                'pr', '/mnt/e/k60-work/references/UniXNU/scripts/porting-record.py')
+            if _spec:
+                _pr = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_pr)
+                _board = _tml.load(open(REPO + '/board.toml', 'rb'))
+                _pr.validate(_d, _board, 'mondrian', allow_custom_components=True)
+                ok('R', '官网 validate 语义', 'allow_custom_components=True 通过')
+        except Exception as _e2:
+            bad('R', '官网 validate 语义', str(_e2)[:70], hard=False)
+
     except Exception as _e:
         bad('R', 'porting.toml 解析', str(_e)[:60])
 

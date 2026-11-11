@@ -29,7 +29,15 @@ evidence = "Android 实机取证写入 docs/engineering/ANDROID-HW-TRUTH.md：IO
 
 [hardware.touch.step.wide]
 done = true
+catalog_checked = true
 evidence = "同 SoC SM8475 兄弟移植 references/phk110-port/docs/phk110/waves/wave12c-electrical.md 记录触摸 PASS 全流程（20ms 节拍 + 分帧收割）；wave12b-probe-verdict.md 记录软件链 1-4 环闭环；wave12-touch-buttons.md 记录 cape/sm8475 的 GCC 与 mainline sm8450 不同（m/s_ahb FDT 索引 134/135 vs 118/119）。同外设芯片参考 references/phk110-port/drivers/input/hakios.goodix.c 是 POCO X5 Pro(redwood/SM8350) 的，机型不同已标注。"
+catalog_result = """逐个核对 UniXNU/components.toml 25 个组件中与触摸相关的 4 个：
+- QcomGeniSpi（drivers/QcomGeniSpi/GeniSpi.c，revision eac47bae）：【可直接用】GENI SPI 控制器，含 transfer_dma() 路径；GeniSpi.c:80 明确 fifo_disabled 时只要 use_dma 就继续，且 GeniSpi.c:113-118 有完整的 DMA 模式切换。这正是我们卡住的『FIFO 被禁只能退回 bitbang』问题的官方解。verified_devices 为空，需自行验证。
+- ShengNovatekTouch：不可用，是 Novatek NT36532 协议，我们是 Goodix GT9916R。
+- ShengHidInput：可参考架构（NativeHidInput.cpp 通过 IOHIDDevice 上报），但依赖 ShengNovatekTouch，需换成我们的 Goodix 源。
+- AdrenoMetal / Adreno740：与触摸无关。
+结论：QcomGeniSpi 应当作为 SPI 层的首选实现，替换我们的手写 bitbang。"""
+
 
 [hardware.touch.step.plan]
 done = true
@@ -42,7 +50,13 @@ evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行，�
 [hardware.touch.step.verify]
 done = false
 local_verified = false
-evidence = "未做本地核验。缺：① 没有对 BRL 帧格式做离线单元测试（用 wave12c 的原始字节序列喂我们的解析函数）；② 没有验证 20ms 节拍改动后的代码路径在模拟输入下产生正确计数；③ 没有用 goodix_brl_hw.c 的 brld_get_framedata 逐行对照我们的 frame_data_addr 计算。当前只有『编译通过』，这不构成核验。按 ★34/HR-69 不能推进到刷机。"
+evidence = "未完成。当前只有部分静态对照，缺离线单测与产物检查。按 ★34/HR-69 不能推进到刷机。"
+static_check = """已完成部分：官方 goodix_ts_core.h:185-225 的 struct goodix_ic_info_misc 在 #pragma pack() 下逐字节计算偏移，与我们驱动对照：
+  cmd_addr +0 / fw_state_addr +12 / fw_buffer_addr +18 / fw_buffer_max_len +22 / frame_data_addr +24 / touch_data_addr +44 —— 我们的 misc+0/+12/+24/+44 全部一致。
+  待补：misc+48、misc+52 的用途未确认（官方 +52 是 reserved1），需对照 goodix_brl_hw.c brld_get_framedata 的 frame_data_head_len 用法。"""
+unit_test = ""
+artifact_check = ""
+
 
 [hardware.touch.step.device]
 done = false
@@ -71,7 +85,15 @@ evidence = "live FDT Adreno 节点 chip_id = 0x07030002（A730v3）、gmem_bytes
 
 [hardware.gpu.step.wide]
 done = true
+catalog_checked = true
 evidence = "广域交叉验证见 impl/three-hw-audit2/04-wide-validation.md（15 条 × 4 源）；同 SoC 侧参考 references/UniXNU-sheng-upstream/package 的 GPU 调度实现。"
+catalog_result = """逐个核对 UniXNU/components.toml 中与 GPU 相关的 5 个：
+- Adreno740（drivers/Adreno740，revision 4e0314df）：【架构可复用】A740 kernel GPU driver，verified_devices=[sheng]，依赖 Sm8550Platform/AdrenoPM4/AdrenoFirmware/ArmSmmu4K。我们是 A730v3，硬件不同但 NativeAdrenoService.cpp 的分层可直接借鉴。
+- AdrenoMetal（drivers/AdrenoMetal，revision 454ff2ce）：【架构可复用】Metal frontend through metal2vulkan and Turnip，source_files 含 NativeAdrenoMetalPlugin.mm / NativeBridgeMetalFrontend.mm / bridge/NativeMetalBridge.rs —— 与我们 drivers/PongMetal/PongMetalPlugin.mm 是同一套架构，官方版在持续维护（最新提交 54ac1a0 turnip perf），我们的是旧分支。
+- AdrenoPM4 / AdrenoFirmware：可复用为命令编码与固件 kit。
+- ArmSmmu4K：可复用，替代我们手写的 SMMU identity map。
+结论：GPU 侧应优先采官方 AdrenoMetal + Adreno740 分层，而不是继续维护自建 PongMetal。"""
+
 
 [hardware.gpu.step.plan]
 done = true
@@ -84,7 +106,15 @@ evidence = "深挖：内核 42 行 result=0 全通（CP ready、GMU firmware/HFI
 [hardware.gpu.step.verify]
 done = true
 local_verified = true
-evidence = "本地核验已完成：kernel.macho 54,280,192 B / sha256 9a9c47b4，patches applied 211；strings 验证 GTP 探针、K60METALPLUGIN、K60LC、resume 六个标记全部在内核中；0340 补丁在干净树上 git apply --check rc=0 且生成 bsd/dev/k60_uilib.c 1,036,210 B、kern_exec.c 含 2 处 deploy 调用；Metal 插件 /tmp/PongAdrenoMetal.signed 94,928 B、ncmds=24、LC_CODE_SIGNATURE magic=0xfade0cc0 校验通过。"
+evidence = "本地核验完成：kernel.macho sha256 9a9c47b4、patches applied 211、0340 在干净树 git apply --check rc=0、Metal 插件 94,928 B 签名校验通过（见下方 artifact_check 的完整输出）。离线单测：GPU 侧无用户态解析逻辑，以 ABI 与产物检查替代。"
+static_check = """ABI 静态对照：Metal 插件 /tmp/PongAdrenoMetal.signed ncmds=24，依赖 @rpath/PongMetalBridge.dylib / Foundation / CoreFoundation / Metal / libobjc.A / libc++.1 / libSystem.B；PongMetalPlugin.mm 的 20G81 门禁（kern.osversion == 20G81、_MTLDevice 528 字节 ABI、chip_id 0x07030002、gmem_bytes 0x200000）逐项与 configs/pong-iogpu-20G81.json 一致。
+预链接滑动：bindings.json fixed_prelink_base 0xfffffff004420000 - original_prelink_base 0xfffffff004fbc000 = -0xb9c000，与 build-pong-adreno-platform.py:96 应用值一致。"""
+unit_test = "GPU 侧无独立用户态解析器；以 ABI/偏移静态对照（见 static_check）替代离线单测。"
+artifact_check = """kernel.macho 54,280,192 B / sha256 9a9c47b4，patches applied 211。
+strings 验证六个标记全部存在：GTP 0x8140 / GTP 0x814E / K60METALPLUGIN deploy / K60LC curated launchd cache / K60INIT embedded helper / resume sequence done。
+0340 补丁在干净树 git apply --check rc=0，生成 bsd/dev/k60_uilib.c 1,036,210 B、kern_exec.c 含 2 处 k60_uilib_deploy 调用、conf/files 含 k60_uilib.c。
+Metal 插件签名：LC_CODE_SIGNATURE dataoff=76048 datasize=18880 magic=0xfade0cc0。"""
+
 
 [hardware.gpu.step.device]
 done = false

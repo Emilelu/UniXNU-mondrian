@@ -52,6 +52,46 @@ why = "P-129：不能从驱动名推断协议；同 SoC 兄弟移植优先级最
 examined = "2026-11-12"
 finding = """P-129 记录了本次协议翻转全过程：不能从驱动文件名/模块名推断协议，只能实测寄存器。P-126 记录 Python 转义会静默破坏补丁。P-127 记录"补丁在树里不等于补丁已应用"。P-117/P-118 记录嵌入式 init 的 __TEXT 页边界和 boot-args 缺失导致 0 字节日志。"""
 
+[subsystem.storage]
+why = "UFS：控制器初始化、命令队列、根卷发布、已验证表缓存"
+
+[[subsystem.storage.required]]
+path = "references/ShengUfs/NativeUfs.cpp"
+why = "★ 官方最新实现（148,723 B，是我们 12.5 倍）。包含多槽命令队列、VerifiedTableCache、RootWindowRead、RootPublication"
+examined = "2026-11-12"
+finding = """官方最新实现，148,723 B，是我们 11,846 B 的 12.5 倍。包含多槽命令队列、VerifiedTableCache、RootWindowRead、RootPublication 四块我们完全缺失的能力。它的命令队列思路（每槽独立 UTRD/UCD/data 区、独立 doorbell 位）与我们 S3 实现一致，说明我们的方向对，但官方把根卷发布和已验证表缓存也做进去了。"""
+
+[[subsystem.storage.required]]
+path = "references/ShengUfs/RootCommands.h"
+why = "官方命令队列（29,932 B）"
+examined = "2026-11-12"
+finding = """官方 29,932 B，我们 30,084 B —— 规模几乎相同，说明 S3 多槽命令队列的实现深度已对齐。但官方这一版配套 CompletionWait.h（自旋/节拍/睡眠三模式）和 TransferPoll.h，我们的是自己写的混合轮询。官方把等待策略抽成可配置的 boot-arg（native-ufs-wait），我们写死了。"""
+
+[[subsystem.storage.required]]
+path = "references/ShengUfs/VerifiedTableCache.h"
+why = "最新提交 57f031c：缓存已验证根表页，替代整表 wiring"
+examined = "2026-11-12"
+finding = """最新提交 57f031c 的核心。有界缓存已验证根表的哈希表页：每个 4096 字节镜像块一个 SHA-256，每页 128 条；页哈希来自 owner 签名头，只有页哈希常驻内存。缓存预分配并 wired，填充时不再分配内存、直接走 transport 而不走 window 设备，避免内存压力下 page-in 等待自己的已验证读。不匹配的页永不缓存且其块被拒。含 hits/misses/reads/evictions/waits/failures 六个统计。我们完全没有这层缓存。"""
+
+[[subsystem.storage.required]]
+path = "references/ShengUfs/CompletionWait.h"
+why = "提交 34ff541：短命令自旋等待 + 显示 in-flight 命令"
+examined = "2026-11-12"
+finding = """提交 34ff541 的核心。把命令完成等待抽成三种模式（boot-arg native-ufs-wait）：Spin(1, 默认) 在自旋预算内不阻塞轮询，之后睡到完成中断；Paced(0) 用 IODelay(2) 做暂停；Sleep(2) 从第一次暂停起就睡。决策函数 ufsWaitStep 输入 interruptMode/canBlock/preemptPending/elapsed/spinTicks。无中断、中断被屏蔽或抢占禁用时退回 IODelay 自旋。另有 5 档等待时间直方图（<50/100/200/400us/更长）。我们的混合轮询是写死的，没有这个可配置性。"""
+
+[[subsystem.storage.required]]
+path = "references/pong-ufs/PongUfsTransport.cpp"
+why = "pong 的传输层（30,709 B），我们 44,096 B 的 S3 多槽版本源自它"
+examined = "2026-11-12"
+finding = """pong 的传输层，30,709 B。我们的 44,096 B 是在它基础上加了 S3 多槽 + 中断 + readTrace。它的结构：hostSlotGeometry 注册槽位、hostCompletionCount 读完成计数、hostInterruptMode 报告中断模式、hostDmaAddress 做 VA→PA。我们的 native_ufs_slots/list_mode/irq_mode/irqs/irq_sleeps 五个全局变量是它没有的观测点。"""
+
+[[subsystem.storage.required]]
+path = "docs/engineering/STATUS.md"
+why = "当前 UFS 状态（device-verified：OS root binding PASS、K60DATA mounted）"
+examined = "2026-11-12"
+finding = """UFS 当前是 device-verified：PONG APFS OS root binding PASS、K60DATA mounted ro=0 fstype=apfs、K60UFS write#0..#7 result=0。所以「跟不跟官方最新」不是能不能用的问题，而是官方新增的 VerifiedTableCache / RootPublication / 可配置等待策略要不要补的问题。"""
+
+
 [subsystem.gpu]
 why = "GPU/Metal：GMU 固件、SMMU、提交、fence、ABI"
 

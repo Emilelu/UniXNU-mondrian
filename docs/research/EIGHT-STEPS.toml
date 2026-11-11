@@ -45,17 +45,25 @@ evidence = "方案：保持 BRL 协议（P-129 实测结论）；轮询节拍按
 
 [hardware.touch.step.deep]
 done = true
-evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行，官方 Goodix 驱动状态机逐段提取）与 PITFALLS.md P-122/P-124：0x10308 跨几十次读取返回同一串字节，与『每 CS 帧一块、20ms 重新武装』的节拍假设自洽；0x10400 byte2 恒为 0 说明报告计数位未被填充。"
+evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）与 PITFALLS.md P-122/P-124。2026-11-12 离线单测进一步定位：0x10400 的帧是 framedata(rawdata)，其 frame_head 16 字节校验通过而 8 字节触点头校验不通过；0x10308 首字节恒 0x00，官方 brl_event_handler:1188 判定为 invalid touch head。地址与解析均正确，问题在芯片不产生触点报告。下一项测量：确认 config 是否真正启用了上报模式，以及 data_en(0x00000701) 的 rawdata 位是否需要清除。"
 
 [hardware.touch.step.verify]
 done = false
 local_verified = false
-evidence = "未完成。当前只有部分静态对照，缺离线单测与产物检查。按 ★34/HR-69 不能推进到刷机。"
-static_check = """已完成部分：官方 goodix_ts_core.h:185-225 的 struct goodix_ic_info_misc 在 #pragma pack() 下逐字节计算偏移，与我们驱动对照：
-  cmd_addr +0 / fw_state_addr +12 / fw_buffer_addr +18 / fw_buffer_max_len +22 / frame_data_addr +24 / touch_data_addr +44 —— 我们的 misc+0/+12/+24/+44 全部一致。
-  待补：misc+48、misc+52 的用途未确认（官方 +52 是 reserved1），需对照 goodix_brl_hw.c brld_get_framedata 的 frame_data_head_len 用法。"""
-unit_test = ""
-artifact_check = ""
+evidence = "离线单测已完成（scripts/tests/test-brl-parse.py 10/11 通过，scripts/tests/verify-official-checksum.py 验证真实帧），但**发现了新的不确定项**：0x10400 是 framedata 而非触点报告，0x10308 首字节恒 0x00。按 ⑦ 的通过条件（不确定项必须全部消解）不能标为 done。"
+static_check = """官方实现逐行核对完成（goodix_brl_hw.c）：
+- struct goodix_ic_info_misc packed 偏移：cmd_addr +0 / fw_state_addr +12 / fw_buffer_addr +18 / fw_buffer_max_len +22 / frame_data_addr +24 / touch_data_addr +44 —— 与我们全部一致。
+- struct frame_head packed 16 字节：sync +0 / frame_index +1 / cur_frame_len +3 / next_frame_len +5 / data_en +7 / touch_pack_index +11 / stylus_pack_index +12 / res +13 / checksum +14。
+- 触点路径常量（:994-1000）：IRQ_EVENT_HEAD_LEN=8、BYTES_PER_POINT=8、COOR_DATA_CHECKSUM_SIZE=2、GOODIX_TOUCH_EVENT=0x80、GOODIX_REQUEST_EVENT=0x40。
+- 触点解析（goodix_parse_finger:1004）：coor_data=&buf[8]，id=(coor_data[0]>>4)&0x0F，x=le16(+2)，y=le16(+4)，w=le16(+6)，每点 8 字节 —— 与我们一致。
+- 校验算法（goodix_ts_utils.c:67-87）：U8_LE 为 cal=sum(data[0..size-3]) 与 r=data[size-2]|(data[size-1]<<8) 比较相等，不是求和为零。"""
+unit_test = """离线单测 10/11 通过（1 个失败是测试用例构造错误而非驱动缺陷）：
+全零帧/空帧->无事件；1/2/5/10 触点->count 正确；超上限 15->拒绝；头部校验错->拒绝；RESET->reset=True。
+用真实日志帧验证时发现两个新事实：
+1. 0x10400 的帧 80 19 00 e8 08 e8 08 01 07 00 00 19 00 00 9a 02 用 8 字节触点头校验不通过（cal=0x2B1 vs r=0x0108），但用 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a）——证明这是 framedata(rawdata) 帧，不是触点报告。
+2. 0x10308（touch_data_addr，已确认等于 misc+44）首字节恒为 0x00，官方 brl_event_handler:1188 明确判定 pre_buf[0]==0x00 为 invalid touch head 并返回。
+结论：地址与解析逻辑都正确，芯片没有产生触点报告。新的不确定项：芯片为何不上报（config 未真正启用上报 / 停在 rawdata 模式 / 需要额外命令）。"""
+artifact_check = """待补：确认 0340 嵌入的 UI 库与 userland/touch.c 源码一致。"""
 
 
 [hardware.touch.step.device]
@@ -63,8 +71,8 @@ done = false
 evidence = "尚未在 20ms 节拍版本上做真机验证。历史状态：usblog-20261111-233246 记录 GTP 探针全 0、触点计数恒 0、backboardd 0 崩、最大 pid 196。"
 
 [hardware.touch.step.device.prediction]
-success = "Pong touch: POLL hb 行里 reports 与 touches 计数随手指触摸增长（reports>0），且 FRAME-EVENT 的 byte2（触点计数）非 0"
-failure = "Pong touch: POLL hb 连续三个心跳 reports=0(+0) touches=0(+0) 且 0x10308 仍返回同一串字节"
+success = "Pong touch: POLL hb 里 reports 与 touches 随手指触摸增长（reports>0），且 0x10308 首字节非 0x00 并通过 8 字节 U8_LE 校验"
+failure = "0x10308 首字节仍为 0x00（官方判定 invalid touch head），或 POLL hb 连续三个心跳 reports=0(+0) touches=0(+0)"
 
 # ---------------------------------------------------------------- GPU
 

@@ -110,8 +110,8 @@
 
 - **现象**：`package-datafix.py` 的 `mcopy -o -i payload.img ::/EFI/UniXNU/Payloads/kernel.macho extracted/kernel.macho` 在目标已存在时不走 stdin，直接 `open("/dev/tty")` 等待人工确认；进程 S 态、`/proc/<pid>/io` 无读写增长，脚本无限挂起（13:05 那轮「拷完 payload 后被中断」即此；2026-11-03 v1 打包复现两次）。
 - **为什么当初走错**：把 `-o`（overwrite）当成「永不询问」；实际上 mtools 对「已存在的落盘目标」仍可能经 `/dev/tty` 确认，stdin 重定向无效（它根本不读 stdin）。
-- **正确做法**：重跑前 `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`；并用 `setsid python3 E:\k60-work\tools\package-datafix.py < /dev/null`（新会话无控制终端，`/dev/tty` 打不开即不会等待）。判定卡死：`ls -l /proc/<mcopy_pid>/fd`，fd 4 指向 `/dev/tty` 即中。
-- **证据**：`/proc/388/fd` 实录 fd 4 → `/dev/tty`、wchan=`wait_woken`（2026-11-03 14:27）；`E:\k60-work\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1。
+- **正确做法**：重跑前 `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`；并用 `setsid python3 <workspace>\tools\package-datafix.py < /dev/null`（新会话无控制终端，`/dev/tty` 打不开即不会等待）。判定卡死：`ls -l /proc/<mcopy_pid>/fd`，fd 4 指向 `/dev/tty` 即中。
+- **证据**：`/proc/388/fd` 实录 fd 4 → `/dev/tty`、wchan=`wait_woken`（2026-11-03 14:27）；`<workspace>\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1。
 - **30 秒判定**：打包脚本含 `mcopy` 且 `extracted/` 非空 → 先删目标再跑；发现打包 5 分钟无产物 → 查 fd 是否挂 `/dev/tty`，挂则 kill 后按正确做法重跑。
 
 ---
@@ -1236,7 +1236,7 @@ printf("zizhan touch: GENI unavailable: %s; SPI by GPIO\n", problem);
 spi_transfer = bitbang_transfer;
 ```
 
-**正确做法**：任何硬件工作前，先跑 `E:\k60-work\scratch\hw-preflight.sh <硬件名>`，
+**正确做法**：任何硬件工作前，先跑 `<workspace>\scratch\hw-preflight.sh <硬件名>`，
 它会强制列出 zizhan/pong/sheng 里该硬件已有的产物。清单非空就必须先读。
 
 **复发次数**：本会话至少 3 次（触摸 GENI、蓝牙 `qbt_geni.c`、官方中文文档）。
@@ -3089,3 +3089,64 @@ goodix_brl_hw.c:553-559
      `git status --porcelain | wc -l`** —— 后者把行尾符差异也算进去。
 - **顺带**：清掉了 7 个参考仓库里遗留的 `README-K60-NOTES.md`
   （我们自己写的仓库说明，内容已在 `docs/engineering/REPO-INVENTORY.md`）。
+
+### P-132 ★★★ 改 defconfig 不生效：`unixnu build` 读的是缓存的 `.config`
+
+- **症状**：把 `configs/mondrian_defconfig` 的 `CONFIG_XNU_PONG_ADRENO_PLATFORM`
+  从 `y` 改成 `n`，三份副本（仓库 / `/tmp/usb-cdc-mainline/device` /
+  `/opt/k60/trees/usb-cdc-mainline/device`）都确认是 `n`，但构建仍在
+  `build-pong-adreno-platform.py` 处因缺 GPU 固件失败。
+- **真因**：`unixnu build kernel` 读的是
+  `out-baseline/mondrian/<profile>/.config`，**不是** `configs/*_defconfig`。
+  `.config` 是 `unixnu defconfig NAME` 生成的快照，时间戳停在 2026-11-08。
+  `config.py:159` 定义 `self.config_path = self.work / '.config'`，
+  `need_config()` 只读它。
+- **修复**：
+  ```bash
+  cd /opt/k60/trees/k60build
+  ./unixnu defconfig mondrian_defconfig -D <device> --out <out-baseline>
+  ```
+  刷新后 `.config` 的 Adreno 值立刻从 `y` 变 `n`。
+- **判别（3 秒）**：
+  ```bash
+  grep PONG_ADRENO <out>/mondrian/<profile>/.config
+  stat -c%y <out>/mondrian/<profile>/.config     # 时间戳旧 = 缓存
+  ```
+- **教训**：
+  1. **改 defconfig 之后必须跑 `unixnu defconfig`**，否则改动不生效。
+  2. **三份副本一致不等于生效**——真正生效的是第四份 `.config`。
+  3. 构建失败时先看 `.config` 的时间戳，别怀疑配置内容。
+
+### P-133 ★★★ 补丁正文里的双加号 `++` 会变成 C 源码里的非法字符
+
+- **症状**：构建在编译 `bsd/dev/k60_uilib.c` 时失败：
+  ```
+  k60_uilib.c:21:1: error: expected external declaration
+  ```
+  第 21 行是 `+static const unsigned char k60_uilib_blob[] = {`。
+- **真因**：`patch` 格式里 `+` 是"新增行"的前缀，**不属于源码内容**。
+  用脚本重建 blob 数组时，我把 `+` 前缀和 C 源码拼在一起写进了补丁正文，
+  于是 `git apply` 生成的文件里真的多了一个 `+`。
+- **正确写法**：补丁正文里每行只加**一个** `+`：
+  ```
+  +static const unsigned char k60_uilib_blob[] = {
+  +    0xcf,0xfa,0xed,0xfe,...
+  +};
+  ```
+  而不是：
+  ```
+  ++static const unsigned char ...   ← 错，源码里会多一个 +
+  ```
+- **判别（3 秒）**：
+  ```python
+  # hunk 内不允许出现以 '++' 开头的正文行（'+++ b/' 文件头除外）
+  for l in hunk_lines:
+      if l.startswith('++') and not l.startswith('+++ b/'):
+          print('双加号:', l)
+  ```
+- **教训**：
+  1. **"补丁结构合法"和"生成的源码合法"是两件事。**
+     `git apply` 能成功应用一个内容有 `+` 的补丁，但编译会失败。
+  2. 用脚本生成补丁时，**前缀逻辑要独立于内容逻辑**：
+     先把纯内容写好，最后统一加前缀，不要在内容里混入前缀字符。
+  3. `gate.py` 的 `[Q]` 项应该同时检查"hunk 内没有双加号"。

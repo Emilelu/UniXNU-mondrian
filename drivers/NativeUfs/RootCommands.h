@@ -30,6 +30,7 @@ static volatile uint32_t gSlotGen[kSlots] = {};
 static uint32_t hostCompletionCount (unsigned slot);
 static bool hostInterruptMode (void);
 static void hostWaitCompletion (unsigned slot, uint32_t seen, uint64_t started);
+static void hostWaitDone (uint64_t started);
 static uint64_t hostDmaAddress (const void *va);
 
 static void hostSlotGeometry (unsigned index, uint8_t *utrd, uint32_t entry, uint8_t *ucd, uint64_t ucdPhys, uint8_t *data,
@@ -193,6 +194,7 @@ static IOReturn hostAwait (const UfsSlot &slot, uint32_t dataBytes, uint64_t dea
   HardwareTransferPort port = { slot, deadline, 0 };
   UfsTransferPoll state;
   UfsTransferEnd end = pollUfsTransfer (port, state);
+  hostWaitDone (port.started);
   if (end == UfsTransferEnd::Completed) __atomic_and_fetch (&gOutstanding, ~slot.bit, __ATOMIC_RELEASE);
   gRootDiagnostic.polls = state.polls;
   gRootDiagnostic.dbSeen = state.doorbellSeen;

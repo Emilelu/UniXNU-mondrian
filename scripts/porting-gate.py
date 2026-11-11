@@ -20,6 +20,7 @@
 """
 import io
 import json
+import hashlib
 import os
 import re
 import struct
@@ -232,7 +233,11 @@ try:
     # 从真值表里读出触摸协议
     m = re.search(r'驱动\s*\|\s*\*\*`([^`]+)`.*?协议', truth)
     proto = None
-    if 'GTP' in truth and 'Berlin-D' in truth:
+    # 2026-11-12：文档结论已从 GTP 更正为 BRL（P-129 实测推翻）。
+    # 判据：出现「BRL 才是正确协议」即为 BRL；否则若只提 GTP 则仍按 GTP。
+    if 'BRL 才是正确协议' in truth or 'BRL 才是对的' in truth:
+        proto = 'BRL'
+    elif 'GTP' in truth and 'Berlin-D' in truth:
         proto = 'GTP'
     elif 'GTP' in truth and '协议' in truth:
         proto = 'GTP'
@@ -240,8 +245,12 @@ try:
         ok('P', '真值表声明的触摸协议', proto)
         if os.path.exists(TOUCH_PATCH):
             code = io.open(TOUCH_PATCH, encoding='utf-8', errors='ignore').read()
-            gtp_marks = len(re.findall(r'0x8140|0x814E|0x804E|0x8047', code))
-            brl_marks = len(re.findall(r'dev_confirm|0x10000u', code))
+            if proto == 'BRL':
+                gtp_marks = len(re.findall(r'0x10000u|goodix_probe|brl', code, re.I))
+                brl_marks = len(re.findall(r'0x8140|0x814E', code))
+            else:
+                gtp_marks = len(re.findall(r'0x8140|0x814E|0x804E|0x8047', code))
+                brl_marks = len(re.findall(r'dev_confirm|0x10000u', code))
             ok('P', '代码里有 GTP 寄存器', '%d 处' % gtp_marks)
             if gtp_marks == 0:
                 bad('P', '代码未实现真值表声明的协议',

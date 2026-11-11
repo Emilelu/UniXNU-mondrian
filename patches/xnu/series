@@ -190,6 +190,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch
 0389-k60-kx-pc-lr.patch
 0390-k60-cryptex-app-access.patch
 0391-k60-embedded-init.patch
+0392-k60-weak-scanout-stubs.patch
 0392-k60-dyld-cache-probe.patch
 0395-k60-panel-call.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-scanout.patch

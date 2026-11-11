@@ -103,3 +103,36 @@ NativeMetalBridgePhase.h       10,579 B
 ⑧ 上机：待做（`pong_metal=1` 下验证）
 
 **先做 ④**：把 `references/AdrenoMetal` 与 `references/pong-metal` 加进 SOURCES.toml。
+
+---
+
+## P-132：GPU 固件 `.cache/firmware/k60-gpu/` 丢失
+
+**症状**：构建在 `build-pong-adreno-platform.py:64` 失败：
+```
+FileNotFoundError: /mnt/e/hackios/UniXNU-mondrian/.cache/firmware/k60-gpu/gmu_gen70000.bin
+```
+
+**需要五个文件**（`build-pong-adreno-platform.py:61-63`）：
+```
+gmu_gen70000.bin    → PongAdrenoGmuFirmware
+a730_sqe.fw         → PongAdrenoSqeFirmware
+a730_zap.mdt        → PongAdrenoZapMdt
+a730_zap.b01        → PongAdrenoZapCode
+a730_zap.b02        → PongAdrenoZapSignature
+```
+
+**原因**：cherry-pick yibiya 的 `fix(gpu): link actual scanout and mailbox`
+时带入 `.gitignore` 的 `/.cache/`（他的本意是"本地捕获的固件不进 git"），
+随后修 CRLF 时 `git checkout -- .` 不会恢复被忽略的文件，固件从磁盘消失。
+git 历史里从未跟踪过它们。
+
+**恢复方法**：从设备重新提取。这五个文件在 Android 的
+`/vendor/firmware_mnt/image/` 与 `/vendor/firmware_mnt/image/a730/` 下。
+
+**临时对策**：`configs/mondrian_defconfig` 设
+`CONFIG_XNU_PONG_ADRENO_PLATFORM=n`，构建脚本跳过整个 Adreno 分支
+（`build-xnu-4k-baseline.sh:962`）。UFS/触摸/其他硬件不受影响。
+
+**教训**：`/.cache/` 这类 gitignore 目录里放的是**构建必需品**时，
+必须有独立备份，不能只依赖工作区文件。

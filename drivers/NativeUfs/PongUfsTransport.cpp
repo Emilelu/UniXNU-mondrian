@@ -4,6 +4,7 @@
 // Shared queue/protocol code derives
 // from Sheng; board addresses and stream ID come from Pong's live DT.
 #include <IOKit/IOService.h>
+#include "CompletionWait.h"
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IOBSD.h>
 #include <IOKit/storage/IOBlockStorageDevice.h>
@@ -12,6 +13,7 @@
 #include <vm/vm_kern.h>
 #include <kern/clock.h>
 #include <kern/sched_prim.h>
+#include <kern/ast.h>
 #include <mach/mach_time.h>
 #include <machine/machine_routines.h>
 #include <libkern/c++/OSBoolean.h>
@@ -143,9 +145,43 @@ static bool gIrqMode = false;
 static uint32_t hostCompletionCount (unsigned slot) { return __atomic_load_n (&gSlotGen[slot], __ATOMIC_ACQUIRE); }
 static bool hostInterruptMode (void) { return gIrqMode && !gHostPanic; }
 
-// Hybrid polling: poll for gSpinUs first, then sleep on the slot's completion (or a 1 ms timeout as a safety net).
+// Completion wait, ported from UniXNU/ShengUfs CompletionWait.h.
+//
+// Three modes behind the native-ufs-wait boot argument:
+//   Spin (1, default)  one WFE per pause inside the spin budget, then sleep
+//                      until the completion interrupt. A WFE ends within about
+//                      a microsecond on the counter's event stream, whereas
+//                      IODelay(2) blocks on a timer and costs far more.
+//   Paced (0)          IODelay(2) per pause, the behaviour we had before.
+//   Sleep (2)          sleep from the first pause on.
+// Without the interrupt, with interrupts masked, or with preemption disabled,
+// the wait cannot sleep and falls back to IODelay.
 static uint64_t gSpinTicks = 0;
 static uint32_t gSpinTicksUs = ~0U;
+static uint32_t gWaitMode = ~0U;   // boot-arg native-ufs-wait, resolved on first wait
+
+// Wait statistics, for the log.
+static volatile uint64_t gWaitPauses = 0, gWaitPauseTicks = 0;
+static volatile uint64_t gWaitYields = 0, gWaitRange[kUfsWaitRanges] = {};
+struct alignas (64) UfsSlotSpin { volatile uint64_t pauses, ticks; };
+static UfsSlotSpin gSlotSpin[kSlots];
+static volatile uint64_t gSlotDoneAt[kSlots] = {};
+
+static uint32_t hostWaitModeFromBootArgs (void)
+{
+  static uint32_t resolved = ~0U;
+  if (resolved == ~0U) {
+    uint32_t mode = kUfsWaitSpin;
+    if (PE_parse_boot_argn ("native-ufs-wait", &mode, sizeof (mode)) &&
+        mode <= kUfsWaitSleep) {
+      resolved = mode;
+    } else {
+      resolved = kUfsWaitSpin;
+    }
+  }
+  return resolved;
+}
+
 static void hostWaitCompletion (unsigned slot, uint32_t seen, uint64_t started)
 {
   const uint32_t spinUs = *static_cast<volatile uint32_t *> (&gSpinUs);
@@ -153,10 +189,29 @@ static void hostWaitCompletion (unsigned slot, uint32_t seen, uint64_t started)
     nanoseconds_to_absolutetime (uint64_t (spinUs) * 1000, &gSpinTicks);
     gSpinTicksUs = spinUs;
   }
-  if (!hostInterruptMode () || mach_absolute_time () - started < gSpinTicks || !ml_get_interrupts_enabled ()) {
-    IODelay (2);
+  if (gWaitMode == ~0U) gWaitMode = hostWaitModeFromBootArgs ();
+  const uint64_t now = mach_absolute_time ();
+  const bool canBlock = preemption_enabled ();
+  const bool preemptPending = canBlock && (*ast_pending () & AST_PREEMPTION) != 0;
+  const UfsWaitStep step = ufsWaitStep (gWaitMode, hostInterruptMode (), canBlock,
+                                       preemptPending, now - started, gSpinTicks);
+  if (step == UfsWaitStep::Spin) {
+    __builtin_arm_wfe ();
+    UfsSlotSpin &spin = gSlotSpin[slot];
+    spin.pauses = spin.pauses + 1;
+    spin.ticks = spin.ticks + (mach_absolute_time () - now);
     return;
   }
+  if (step == UfsWaitStep::Pause) {
+    IODelay (2);
+    __atomic_fetch_add (&gWaitPauses, 1, __ATOMIC_RELAXED);
+    __atomic_fetch_add (&gWaitPauseTicks, mach_absolute_time () - now, __ATOMIC_RELAXED);
+    return;
+  }
+  if (preemptPending && gWaitMode == kUfsWaitSpin && now - started < gSpinTicks) {
+    __atomic_fetch_add (&gWaitYields, 1, __ATOMIC_RELAXED);
+  }
+  __atomic_store_n (&gSlotDoneAt[slot], 0, __ATOMIC_RELAXED);
   assert_wait_timeout ((event_t) (uintptr_t) &gSlotGen[slot], THREAD_UNINT, 1000, NSEC_PER_USEC);
   if (hostCompletionCount (slot) != seen) {
     clear_wait (current_thread (), THREAD_AWAKENED);
@@ -164,6 +219,14 @@ static void hostWaitCompletion (unsigned slot, uint32_t seen, uint64_t started)
   }
   __atomic_fetch_add (&native_ufs_irq_sleeps, 1, __ATOMIC_RELAXED);
   thread_block (THREAD_CONTINUE_NULL);
+}
+
+// Records the completion time of a finished command into the histogram.
+static void hostWaitDone (uint64_t started)
+{
+  uint64_t ns = 0;
+  absolutetime_to_nanoseconds (mach_absolute_time () - started, &ns);
+  __atomic_fetch_add (&gWaitRange[ufsWaitRange (ns / 1000)], 1, __ATOMIC_RELAXED);
 }
 
 static void hostInterrupt (void *)
@@ -181,6 +244,9 @@ static void hostInterrupt (void *)
     done &= done - 1;
     const int slot = gEntrySlot[entry];
     if (slot < 0) continue;
+    // Record when the handler first saw this completion, so the waiter can
+    // measure how long it took to be scheduled after the interrupt.
+    __atomic_store_n (&gSlotDoneAt[slot], mach_absolute_time (), __ATOMIC_RELAXED);
     __atomic_add_fetch (&gSlotGen[slot], 1, __ATOMIC_RELEASE);
     thread_wakeup ((event_t) (uintptr_t) &gSlotGen[slot]);
   }
@@ -190,6 +256,15 @@ static void hostInterrupt (void *)
 // up to 64 entries of up to 256 KiB, at most 1 MiB per command) is used when the caller's buffer is page aligned and
 // every page is reachable through the storage stream; otherwise the slot's 128 KiB data area is used.
 extern "C" void native_ufs_set_spin (uint32_t us) { gSpinUs = us; }
+
+// native-ufs-wait selects the completion wait strategy (CompletionWait.h).
+// 0 = Paced (IODelay), 1 = Spin (WFE, default), 2 = Sleep.
+// A boot argument is read once at first use.
+extern "C" void native_ufs_set_wait_mode (uint32_t mode)
+{
+  if (mode <= kUfsWaitSleep) gWaitMode = mode;
+}
+
 
 // Zero copy (RootCommands.h): a kernel page's physical address, if the storage stream can reach it (gDmaLimit, from the
 // SMMU's bypass width and the controller's 64-bit addressing, set at bring-up; 0 until then, so no zero copy).

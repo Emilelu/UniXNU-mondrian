@@ -7,7 +7,7 @@
 | 项 | 真值 | 证据 |
 |---|---|---|
 | 设备树 compatible | **`xiaomi,m11a-spi`** | `/proc/device-tree/soc/spi@990000/touchscreen@0/compatible` |
-| 驱动 | **`goodix_ts`（GTP 协议）** | `/sys/class/input/event7 -> goodix_ts` |
+| 驱动 | **`goodix_ts`**（模块名，**不等于 GTP 协议**；见下方实测） | `/sys/class/input/event7 -> goodix_ts` |
 | xiaomi 虚拟设备 | `uinput-goodix` | `/sys/class/input/event1` |
 | IOVDD | `pm8350c_l2` enabled 1.8V | `/sys/class/regulator/` |
 | AVDD | **不是 pm8350c_l3（2.7V disabled）** | 同上 |

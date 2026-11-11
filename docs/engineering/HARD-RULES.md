@@ -113,7 +113,7 @@ cat file.c
 ```bash
 # 任何依赖外部机器（Mac / 设备 / 网络）的操作前必须先探
 fastboot devices || adb devices
-sshpass -p <password> ssh -o ConnectTimeout=8 <user>@<mac-host> 'echo OK'
+sshpass -p 1015 ssh -o ConnectTimeout=8 Emilelu@192.168.31.205 'echo OK'
 ```
 探活失败 → 换路径或等待，**不要在离线机器上排计划**。
 
@@ -317,7 +317,7 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 1. **push 一律在 Windows 侧跑**：
    ```powershell
-   Set-Location '<repo>'
+   Set-Location 'E:\hackios\UniXNU-mondrian'
    $env:GIT_TERMINAL_PROMPT='0'
    git push --force --progress origin main
    ```
@@ -474,7 +474,7 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 2. **补丁要改三处，少一处就被覆盖**（P-44）：
    ```
-   ① <repo>\patches\xnu\<name>.patch   （仓库）
+   ① E:\hackios\UniXNU-mondrian\patches\xnu\<name>.patch   （仓库）
    ② /tmp/usb-cdc-mainline/device/patches/xnu\<name>.patch （构建输入）
    ③ 构建树 .cache/xnu-work/<target>                         （已应用状态）
    ```
@@ -1011,6 +1011,57 @@ for a in d.get('area', []):
 ```
 
 **核心：不要猜，要测。且先看同 SoC 的人踩过什么。**
+
+---
+
+
+---
+
+## ★36（HR-71）README / INDEX 必须与仓库现状同步，且有门禁兜底
+
+**来源**：2026-11-12 用户两次要求
+1. "UniXNU-mondrian/docs/INDEX.md 及时更新"
+2. "这个 还有readme更新也要加门禁 确保及时更新"
+
+### 硬规则
+
+1. **三份入口文档必须同时维护**：
+   - `README.md` / `README_EN.md` —— 设备简介、八步进度、结构、构建
+   - `docs/INDEX.md` —— 文档总入口
+   - `docs/engineering/README.md` —— 工程文档子索引
+2. **`docs/engineering/` 与 `docs/research/` 下每个 `.md` 都必须在 `docs/INDEX.md` 登记**，
+   `docs/engineering/` 的还必须在本目录 `README.md` 登记。
+3. **所有相对链接必须指向真实文件**。禁止留下失效链接。
+4. **README 与 README_EN 必须互链且都有八步表格标记块**
+   （`<!-- EIGHT-STEP-TABLE:BEGIN/END -->`）。
+5. **README / INDEX 必须链接 `docs/engineering/STATUS.md`**，
+   保证详细状态有出口，不会被塞进 README。
+6. **门禁**：`scripts/check-docs.py`，已接入 `gate.py` 的 `[T]` 项，
+   并在 `clean_build.sh` / `flash.sh` 开头强制运行。任一失败 = 拒绝构建/刷机。
+
+### 判别（10 秒）
+
+```bash
+python3 scripts/check-docs.py
+```
+
+输出 `✅ 文档一致性通过` 才算完成。它会检查：
+- 相对链接总数与失效数
+- `docs/engineering` + `docs/research` 的 INDEX 覆盖率
+- `docs/engineering/README.md` 的子目录覆盖率
+- 中英互链与八步表格标记
+- `STATUS.md` 引用
+
+### 为什么值得单独一条铁则
+
+文档过时不是"忘了更新"，是**没有机制强制更新**：
+- `docs/INDEX.md` 从 2026-11-07 到 2026-11-12 五天没动，
+  里面列的 40 多个文件路径大半已失效
+- `docs/engineering/README.md` 写着"铁则 ★1–★32 / 坑 P-01–P-127"，
+  实际已是 ★35 / P-130
+- README 一度堆了 174 行，把变更日志、协议纠错、状态明细全塞进去
+
+**文档不是写给人看的，是写给门禁查的。** 门禁查不到的文档一定会烂。
 
 ---
 
@@ -1565,18 +1616,18 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
 
 - **症状（2026-11-09 23:10，用户指出）**：
   查官方文档时我一直在 `web_fetch https://unixnu.com/...`，
-  **而本地 `<workspace>\UniXNU\docs\zh\porting\` 就有全部 26 个页面**。
+  **而本地 `E:\hackios\UniXNU\docs\zh\porting\` 就有全部 26 个页面**。
 - **本地路径**：
   | 内容 | 路径 |
   |---|---|
-  | 中文 porting 页 | `<workspace>\UniXNU\docs\zh\porting\`（26 篇）|
-  | 英文 porting 页 | `<workspace>\UniXNU\docs\porting\` |
-  | 驱动页 | `<workspace>\UniXNU\docs\drivers\` |
-  | 组件定义 | `<workspace>\UniXNU\components.toml` |
-  | 设备记录 | `<workspace>\UniXNU\docs\.vitepress\device-records\` |
+  | 中文 porting 页 | `E:\hackios\UniXNU\docs\zh\porting\`（26 篇）|
+  | 英文 porting 页 | `E:\hackios\UniXNU\docs\porting\` |
+  | 驱动页 | `E:\hackios\UniXNU\docs\drivers\` |
+  | 组件定义 | `E:\hackios\UniXNU\components.toml` |
+  | 设备记录 | `E:\hackios\UniXNU\docs\.vitepress\device-records\` |
 - **铁则**：
-  1. **先 `ls <workspace>\UniXNU\docs\zh\porting\`，读本地文件**
-  2. **再 `git -C <workspace>\UniXNU fetch && git rev-list --count HEAD..@{u}` 检查是否落后上游**
+  1. **先 `ls E:\hackios\UniXNU\docs\zh\porting\`，读本地文件**
+  2. **再 `git -C E:\hackios\UniXNU fetch && git rev-list --count HEAD..@{u}` 检查是否落后上游**
   3. 只有本地没有的页面才 `web_fetch`
   4. **每次读文档前都要先检查上游是否更新**（本会话曾落后 10 个提交，
      其中 `f7f9f7a` 正是 UFS 并发方案、`6ae5f83`/`a443832` 是 AdrenoMetal 更新）
@@ -1599,7 +1650,7 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
   | 场景 | 最小查证 |
   |---|---|
   | 要改驱动 | `grep` 确认函数是否已存在（本会话两次因 `k60_spmi_init` 不存在而编译失败）|
-  | 要用工具 | `ls` 确认工具在本地（本会话一直在 web_fetch 官方文档，而本地 `<workspace>\UniXNU\docs\zh\porting\` 就有 26 篇）|
+  | 要用工具 | `ls` 确认工具在本地（本会话一直在 web_fetch 官方文档，而本地 `E:\hackios\UniXNU\docs\zh\porting\` 就有 26 篇）|
   | 要用外部机器 | SSH 探活 |
   | 要写分区 | 先读头部确认 APFS 结构，不要整盘读写 |
   | 要下结论 | 先验证前提（本会话"INT=0 说明芯片活着"因默认下拉而作废）|
@@ -2122,7 +2173,7 @@ BerlinD 驱动源码**（`goodix_brl_hw.c`、`goodix_brl_spi.c`、`goodix_cfg_bi
 
 2. **开始调试前，对目标硬件做一次全盘检索**：
    ```bash
-   find <workspace> <workspace> -ipath '*<hw>*' -o -iname '*goodix*' ...
+   find <workspace> /mnt/e/hackios -ipath '*<hw>*' -o -iname '*goodix*' ...
    ```
    把结果登记进索引。**没查全盘之前禁止改代码。**
 
@@ -2247,7 +2298,7 @@ DNS: github.com → 198.18.0.150                              ← 被代理软�
    ```
    **实测直连可用**（`git ls-remote` 返回 HEAD sha），比错代理快得多。
 
-3. **脚本**：`<workspace>\scripts\fix-git-proxy.sh`（已实现，自动探测+修复+验证）
+3. **脚本**：`E:\k60-work\scripts\fix-git-proxy.sh`（已实现，自动探测+修复+验证）
 
 4. **每次同步报告里必须打印实际使用的代理**，便于事后排查。
 

@@ -79,6 +79,22 @@ def series_fingerprint():
 
 
 
+
+# ============ T. 文档一致性（★36 —— README/INDEX 必须及时更新）============
+sec('T', '文档一致性（★36）')
+try:
+    _doc = subprocess.run(['python3', REPO + '/scripts/check-docs.py'],
+                          capture_output=True, text=True, timeout=120)
+    if _doc.returncode == 0:
+        ok('T', 'README / INDEX 一致性', '链接有效、索引完整、中英同步')
+    else:
+        _lines = [l.strip() for l in (_doc.stdout or '').split('\n') if l.strip().startswith('- ')]
+        bad('T', 'README / INDEX 需要更新', (_lines[0][2:] if _lines else '见 check-docs.py 输出'))
+        for _l in _lines[1:6]:
+            bad('T', '  ' + _l[2:], '', hard=False)
+except Exception as _e4:
+    bad('T', '文档一致性检查', str(_e4)[:60], hard=False)
+
 # ============ R. porting.toml schema（★33 —— 官网设备页靠它渲染）============
 sec('R', 'porting.toml schema（★33）')
 try:

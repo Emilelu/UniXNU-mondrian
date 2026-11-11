@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1312 @@
+@@ -0,0 +1,1318 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -1196,14 +1196,6 @@ index 0000000..b033b90
 +        printf("Pong touch: identification failed; retained IOVDD is unverified, no /dev/pong-touch\n");
 +        return false;
 +    }
-+    /* The chip asks for its scan configuration right after a reset and will
-+     * not report a contact until it has one. goodix_apply_config also ends by
-+     * switching to coordinate mode (command 0x90), which is the difference
-+     * between raw frames and touch points. */
-+    if (!goodix_apply_config(fw_buffer_address)) {
-+        printf("Pong touch: config download failed; the chip stays in raw mode\n");
-+        return false;
-+    }
 +    return true;
 +}
 +
@@ -1256,9 +1248,23 @@ index 0000000..b033b90
 +        printf("Pong touch: controller failed identification after resume reset\n");
 +        goto out;
 +    }
++
 +    const uint8_t clear = 0;
 +    if (!goodix_write(touch_address, &clear, 1)) {
 +        printf("Pong touch: cannot clear the resumed report status\n");
++        goto out;
++    }
++    /* The chip asks for its scan configuration after every reset and will not
++     * report a contact until it has one. goodix_apply_config also ends by
++     * switching to coordinate mode (command 0x90), which is the difference
++     * between raw frames and touch points. It resets the chip itself, so the
++     * ABI has to be re-read afterwards. */
++    if (!goodix_apply_config(fw_buffer_address)) {
++        printf("Pong touch: config download failed; no input device published\n");
++        goto out;
++    }
++    if (!goodix_probe(true)) {
++        printf("Pong touch: identification lost after config reset\n");
 +        goto out;
 +    }
 +    if (!pong_touch_device_ready()) {

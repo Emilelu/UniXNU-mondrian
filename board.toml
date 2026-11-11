@@ -37,8 +37,12 @@ driver_records = "DEVELOPMENT_ARM64_PONG"
 # checkout instead of the assembled build tree, which has no drivers/PongAdreno.
 # Set the environment variable only to build against a different driver tree;
 # see scripts/k60-macos-preflight.sh:13-14 for the macOS CI form.
-# pong_native_driver_source was this path before the fallback existed:
-# "/opt/k60/trees/pong-driver" (not in this repository, no reader, remove it).
+# pong_native_driver_source IS read, by the unixnu framework rather than by
+# this repository: scripts/unixnu/kernel.py:191 assigns it to the
+# PONG_NATIVE_DRIVER_SOURCE environment variable. Dropping the key leaves that
+# variable empty, build-xnu-4k-baseline.sh:250 then skips the ArmDT provider,
+# and line 986 fails with 'test -f "$ARM_DT_ARCHIVE" failed'. 2026-11-12.
+pong_native_driver_source = "/tmp/k60build/pong-driver"
 
 [userdata]
 first_lba = 53342976
@@ -167,15 +171,12 @@ dram_size = "0x140000000"
 kernel_args = [
   "-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x140",
   "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1",
-  "pong_ufs_readwrite=1", "k60_console_export=1", "k60_usblog=2",
-  "pong_data_mount=1", "pong_data_rw=1", "fb_threads=3", "k60_textonly=1",
-  "amfi_get_out_of_my_way=1", "pong_init_path=/private/var/pong/init",
-  "epoch=1793709100", "k60_fontscale=3", "k60_skip_firmware_mount=1",
-  "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
-  "xpcproxy_idversion=1", "applog=1", "applog_name=runningboardd,backboardd,lsd",
-  "k60_init_blob=1", "k60_launchd_cache=1",
-  "k60_entitlement_allow=1", "k60_skip_iosurface=1", "k60_panic_reset=1",
-  "k60_selftest_reboot=300",
+  "pong_ufs_readwrite=1", "k60_console_export=1", "k60_usblog=2", "pong_data_mount=1",
+  "pong_data_rw=1", "fb_threads=3", "k60_textonly=1", "amfi_get_out_of_my_way=1",
+  "pong_init_path=/private/var/pong/init", "epoch=1793709100", "k60_fontscale=3",
+  "k60_skip_firmware_mount=1", "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
+  "xpcproxy_idversion=1", "k60_init_blob=1", "k60_launchd_cache=1", "k60_entitlement_allow=1",
+  "k60_skip_iosurface=1", "k60_panic_reset=1", "k60_selftest_reboot=300", "k60_touch_se=6",
 ]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the

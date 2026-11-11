@@ -3364,3 +3364,48 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
      整个命令块就错位。
   3. **再看一次上游实现能省掉整轮上机。** yibiya 的 `goodix_apply_config`
      是 30 行，把我们从"猜 config 格式"直接带到"照抄已验证的流程"。
+
+### P-138 ★★★ `pong_native_driver_source` 缺席会让 ArmDT 归档不构建
+
+- **症状**：构建在 `build-xnu-4k-baseline.sh:986` 失败：
+  ```
+  test -f "$ARM_DT_ARCHIVE" failed
+  ```
+  且 `$ROOT/build/` 下只有 `generated/ storage-abi/ xnu/`，没有 `armdt-platform/`。
+- **真因**：`board.toml` 的 `[kernel]` 段缺 `pong_native_driver_source`。
+  unixnu 框架 `scripts/unixnu/kernel.py:191` 读这个 key 并赋给环境变量
+  `PONG_NATIVE_DRIVER_SOURCE`；而 `build-xnu-4k-baseline.sh:250` 的条件是
+  ```
+  if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
+      python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-platform-macos.py" ...
+  ```
+  变量为空 -> 整个 ArmDT/ArmCpu provider 构建被跳过 -> 986 行找不到归档。
+- **诱因**：repo 版 `board.toml` 把该 key 删了，注释还写着
+  「no repository code reads a [kernel] pong_native_driver_source key」。
+  这句话**只对仓库自身成立**（仓库代码确实不读），但 unixnu 框架读。
+  把 repo 版同步到设备目录（构建输入）后，构建立刻坏掉。
+- **修复**：
+  1. repo 版与设备版都补回
+     `pong_native_driver_source = "/tmp/k60build/pong-driver"`
+  2. 把误导性注释改成说明「unixnu 的 kernel.py:191 读它」并记录 986 行症状
+- **教训**：
+  1. **"仓库里没人读" ≠ "没人读"。** 构建框架（unixnu）是外部依赖，
+     它读哪些 key 必须单独核对，不能只看本仓库。
+  2. **同步 repo → 构建输入时，要检查 key 集合差异，不只看内容新旧。**
+  3. 构建失败在 `test -f` 这类无信息量的检查上时，先看**产物目录缺什么**，
+     再倒推是哪个构建步骤被条件跳过了。
+
+### P-139 ★★★ 改 boot-args 必须先算 608 字节上限
+
+- **症状**：想加 `k60_touch_se=6`，发现加完超限。
+- **实测**：改动前已是 617 字节，**已经超出 608 上限 9 字节**。
+- **yibiya 的做法**（81dd415 的 commit message）：
+  > The applog pair is dropped to stay inside the 608-byte arm64 boot-args
+  > limit, which the touch argument would otherwise exceed.
+  > SpringBoard's own os_log output is unaffected.
+- **我们的处理**：删 `applog=1`（8 B）+ `applog_name=runningboardd,backboardd,lsd`
+  （46 B），加 `k60_touch_se=6`（17 B），最终 29 项 582 字节，余量 26。
+- **判据**：`k60_console_export=1` + `k60_usblog=2` 已提供内核日志与 USB 日志，
+  触摸驱动的 `printf` 走内核日志，不依赖 applog（用户态 os_log 捕获）。
+- **教训**：**每次动 boot-args 都要先打印当前总长和余量**，
+  不能等到构建或刷机时才发现超限。

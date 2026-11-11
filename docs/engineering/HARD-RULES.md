@@ -917,6 +917,103 @@ done
 
 ---
 
+
+---
+
+## ★33（HR-68）porting.toml 按官方规范维护，改动后必须跑 schema 门禁
+
+**来源**：P-128（2026-11-11，官网设备页显示 `'str' object has no attribute 'get'`）
+
+### 硬规则
+
+1. **写 `porting.toml` 前先读规范**：`https://unixnu.com/zh/porting/records`。
+   不要凭直觉写，schema 不是猜得出来的。
+2. **`evidence` 的每个元素必须是表**，含 `kind`/`reference`/`result`：
+   ```toml
+   evidence = [{ kind = "device", reference = "evidence/<log>/console.log",
+                 result = "实际观察到的日志行" }]
+   ```
+   裸字符串在 TOML 里合法，但违反记录 schema，会让官网渲染崩溃。
+3. **14 个必需部分一个都不能少**：
+   configuration / firmware / cpu / memory / storage / display / input / gpu /
+   network / cellular / audio / power / packaging / diagnostics。
+   没有的能力填 `not-applicable` 并在 `limits` 说明原因。
+4. **`status` 只能取**：`planned` / `implemented` / `host-verified` /
+   `device-verified` / `not-applicable`。
+5. **改动后必须跑门禁**（`gate.py` 的 `[R]` 项）：
+   ```
+   python3 /mnt/e/k60-work/scripts/gate.py --quick
+   ```
+6. **官网是唯一验收标准**：改完确认 `https://unixnu.com/devices/mondrian`
+   能正常渲染，不能只看本地文件解析通过。
+
+### 判别（10 秒）
+
+```python
+import tomllib
+d = tomllib.load(open('porting.toml','rb'))
+for a in d.get('area', []):
+    for e in a.get('evidence', []):
+        assert isinstance(e, dict), '%s: evidence 有裸字符串' % a.get('id')
+```
+
+### 为什么值得单独一条铁则
+
+这个坑**反复踩**：
+- 之前 `board.toml` 的 `[payload] trust_cache_sha256` 写成裸字符串，
+  导致每个 `--trust-cache` 都过不了 board allow-list（mzyxsl 的记录里也踩过）
+- 现在 `porting.toml` 的 `evidence` 12 处裸字符串
+- 两次都是"TOML 语法正确但 schema 不合规"，两次都是别人先发现
+
+**共同根因：把格式规范当建议读，不当协议读。**
+
+---
+
+
+---
+
+## ★34（HR-69）协议/型号只能实测确认；同 SoC 兄弟移植优先于通用驱动
+
+**来源**：P-129（2026-11-11，一天内 BRL→GTP→BRL 两次翻转，40+ 次无效刷机）
+
+### 硬规则
+
+1. **禁止从驱动文件名、模块名、DT compatible 推断通信协议。**
+   `goodix_ts` 既可能是 GTP 也可能是 BRL；`xiaomi,m11a-spi` 只说明板级包装。
+   唯一可信的做法是**读两组寄存器看哪组有响应**：
+   - BRL: `0x10000` → 芯片型号字符串
+   - GTP: `0x8140` → 产品 ID + 固件版本
+2. **"芯片有反应" ≠ "读到有效数据"。** INT 电平变化、能读到非零字节，
+   都不证明读取时机正确。必须看**数据是否随外部事件变化**。
+3. **同 SoC 兄弟移植的优先级高于官方通用驱动。**
+   找参考的顺序固定为：
+   1. 同型号机型（mondrian）
+   2. **同 SoC**（SM8475：PHK110 / d22ap / taro 系列）
+   3. 同外设芯片（GT9916）
+   4. 官方通用驱动（Linux mainline）
+4. **总线节拍必须按实测值，不能凭直觉。** SM8475 上的触摸控制器
+   按 ~20 ms 节拍重新武装响应块（PHK110 实测），
+   2 ms 轮询会永远读在未武装窗口里，表现为"数据永远不变"。
+5. **结论翻转必须同步改文档**，并在 PITFALLS 里记录翻转过程本身，
+   防止错误结论继续指导后续工作。
+
+### 已登记的兄弟移植参考源
+
+| 仓库 | 机型 | SoC | 关键文档 |
+|---|---|---|---|
+| `Seanding1998/hakios-xnu-kernel`（`phk110-port`） | 一加 Ace 2 / PHK110 | **SM8475** | `docs/phk110/waves/wave12c-electrical.md`（触摸 PASS 全记录）、`wave20-launchd.md`（hw.target 根因） |
+
+### 判别（10 秒）
+
+```bash
+# 两组寄存器各读一次，谁的返回有结构谁就是对
+# 注意：两次读之间必须 >=20ms
+```
+
+**核心：不要猜，要测。且先看同 SoC 的人踩过什么。**
+
+---
+
 # 第二章 规则正文（按编号）
 ## 铁则 1（HR-01）：**访问 RSC/RPMh 前必须确认 `ml_io_map` 成功 —— 原「RSC 禁止访问」是误诊**
 

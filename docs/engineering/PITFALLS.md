@@ -2967,3 +2967,88 @@ goodix_brl_hw.c:553-559
   1. **仓库里有补丁 ≠ 补丁生效。** 必须 `grep <编号> patches/xnu/series` 确认。
      今天我们至少有 3 个补丁（0391、0394、0404）都是"文件在、series 里没有"。
   2. **series 的条数变化要能解释。** 211 与 212 的差别就是一个补丁有没有生效。
+
+### P-128 ★★★ porting.toml 格式错误导致官网设备页显示异常
+
+- **症状**：`https://unixnu.com/devices/mondrian` 显示
+  `'str' object has no attribute 'get'`，整个设备页空白，
+  只有 "Complete and validate porting.toml" 一句提示。
+- **真因**：`[[area]]` 的 `evidence` 数组元素**必须是表**（含 `kind`/`reference`/`result`），
+  我们写了 12 处裸字符串：
+  ```toml
+  # 错
+  evidence = ["usblog-20261110-234429: PONG ADRENO 22 步全部 result=0"]
+  # 对
+  evidence = [{ kind = "device", reference = "evidence/usblog-.../console.log",
+                result = "PONG ADRENO 22 步全部 result=0" }]
+  ```
+  网站用 `e.get('kind')` 读每个元素，遇到字符串就抛异常。
+- **附带问题**：缺 `cellular` 部分。规范要求"没有基带的设备填 `not-applicable`"，
+  K60 有基带，必须写 `planned` 并说明缺口。
+- **判别（10 秒）**：
+  ```python
+  import tomllib
+  d = tomllib.load(open('porting.toml','rb'))
+  for a in d.get('area', []):
+      for e in a.get('evidence', []):
+          assert isinstance(e, dict), '%s evidence 有裸字符串' % a.get('id')
+  ```
+  **注意**：TOML 语法正确不代表格式合规——裸字符串在 TOML 里是合法值，
+  但违反记录的 schema。
+- **规范位置**：`https://unixnu.com/zh/porting/records`
+  - 必需部分：configuration / firmware / cpu / memory / storage / display /
+    input / gpu / network / cellular / audio / power / packaging / diagnostics
+  - 每个 area 的字段：id / status / components / paths / inputs / configuration /
+    procedure / findings / completion / limits / next_action / evidence
+  - `status` 只能是 planned / implemented / host-verified / device-verified / not-applicable
+  - 每项 evidence 含 kind / reference / result；host 与 device 证据还需 command
+    和完整 40 字符 revision
+- **教训**：
+  1. **格式规范文档必须当作"协议"来读，不是当作建议。**
+     我们从来没读过 `/zh/porting/records`，凭直觉写 TOML，
+     结果 12 处 evidence 全错、缺 1 个必需部分。
+  2. **"TOML 语法正确" ≠ "记录合规"。** 前者是解析器的事，后者是 schema 的事。
+     必须用官方检查器：`python3 scripts/porting-record.py check --device <path>`。
+  3. **官网是唯一的验收标准。** 改完 porting.toml 必须确认设备页能正常渲染，
+     不能只看本地文件。
+
+### P-129 ★★★ 用驱动文件名推断芯片协议 = 错误方向；同 SoC 兄弟移植记录是最高价值参考
+
+- **症状链**（2026-11-11，一天内两次翻转结论）：
+  1. 先认为芯片是 Berlin-D（BRL），做了 40+ 次刷机
+  2. 发现 `ANDROID-HW-TRUTH.md` 写着"驱动是 `goodix_ts`（GTP 协议）"，
+     于是断定"协议搞错了"，改做 GTP 探针
+  3. GTP 探针实测：`0x8140/0x8047/0x804E/0x814E` **全部返回 0x00**，
+     而同一启动里 BRL `0x10000` 稳定读出 `BERLIN 9916R 05.80.02.63`
+  4. **结论：BRL 才是对的，GTP 是错的。`goodix_ts` 只是模块名。**
+
+- **真因**：Goodix 的 Berlin 系列在 vendor 内核里**也用 `goodix_ts.ko` 加载**
+  （源码走 `goodix_brl_hw.c`）。模块名和协议名不是一回事。
+  `ANDROID-HW-TRUTH.md:14` 的"是 GTP 不是 BRL"是从驱动名推断的，没有实测寄存器。
+
+- **判别（唯一可信）**：读两组寄存器，看哪组有响应
+  | 协议 | 版本寄存器 | 期望 |
+  |---|---|---|
+  | BRL | `0x10000` | 芯片型号字符串（如 `BERLIN 9916R`）|
+  | GTP | `0x8140` | 产品 ID 4 字节 + 固件版本 2 字节 |
+  实测结果（`usblog-20261111-233246`）：BRL 有数据，GTP 全 0 → BRL。
+
+- **附带教训（同 SoC 兄弟移植）**：
+  `Seanding1998/hakios-xnu-kernel`（一加 Ace 2 / PHK110 / **SM8475**）的
+  `docs/phk110/waves/wave12c-electrical.md` 记录了同 SoC 的触摸 PASS 经验：
+  > 每 CS 帧只吐一个 9 字节块，块按 **~20 ms 节拍重新武装**。
+  > 续读帧紧贴 header 帧（µs 级）→ 踩进未武装窗口 → 读回错位填充。
+  > 改成"20 ms 节拍 + 9 字节分帧收割"后首轮即 PASS。
+
+  我们的轮询循环 `sleep_ms(2)` + `++idle >= 1` 恒真 → **每 2 ms 无条件读**，
+  比兄弟移植的节拍快 10 倍，一直在未武装窗口里采样。
+  **这解释了 `0x10308` 为什么跨几十次读取永远返回同一串字节。**
+
+- **教训**：
+  1. **不能从驱动文件名推断协议**，只能实测寄存器。
+  2. **"芯片有反应"和"读到有效数据"是两件事**——INT 会变、能读到固定字节，
+     不代表读的时机对。
+  3. **同 SoC 的兄弟移植是最省时间的参考**，优先级高于官方通用驱动。
+     他们的 `wave12c` 用三轮 Boot（#19 取证 / #20 节拍 / #21 PASS）走完的路，
+     我们如果能早点读到就不必重复。
+  4. **结论翻转时要立刻改文档**，不能让错误结论继续指导后续工作。

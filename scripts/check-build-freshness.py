@@ -53,6 +53,43 @@ def last_commit_time(d):
         return 0
 
 
+
+def check_packages():
+    """board.toml 的 [firmware].packages 每个 {tree} 路径必须真实存在。
+
+    为什么加（2026-11-12 第三次同类事故）：board.toml 引用
+    {tree}/drivers/DarwinBoot22，但构建树里没有那个目录，EDK2 报
+    "error 000E: One Path in PACKAGES_PATH doesn't exist" 然后失败。
+    文件在仓库里有，参与构建的副本里没有 —— 和 scripts/unixnu、
+    drivers/PongPower 是同一个模式。
+    """
+    try:
+        import tomllib
+    except ImportError:
+        return []
+    p = os.path.join(REPO, 'board.toml')
+    if not os.path.isfile(p):
+        return []
+    try:
+        cfg = tomllib.load(open(p, 'rb'))
+    except Exception as exc:
+        return ['P board.toml 解析失败: %s' % exc]
+
+    packages = cfg.get('firmware', {}).get('packages', [])
+    if not packages:
+        return []
+
+    problems = []
+    for item in packages:
+        s = str(item)
+        if '{tree}' not in s:
+            continue
+        rel = s.replace('{tree}/', '').replace('{tree}', '')
+        target = os.path.join(BUILD + "/tree", rel)
+        if not os.path.exists(target):
+            problems.append('P packages 路径不存在: {tree}/%s（构建树缺这个目录/文件）' % rel)
+    return problems
+
 def check():
     problems = []
 
@@ -87,6 +124,9 @@ def check():
         if fd_t < u_t:
             problems.append('F3 固件比 uefi-mondrian 最后一次提交旧（fd %.0f < commit %d）'
                             % (fd_t, u_t))
+
+    # P 检查 packages 路径
+    problems.extend(check_packages())
 
     # F4 构建产物存在
     for rel in ('kernel/kernel.macho', 'payload/payload.img'):

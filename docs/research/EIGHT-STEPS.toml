@@ -49,23 +49,22 @@ done = true
 evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）与 PITFALLS.md P-122/P-124。2026-11-12 离线单测进一步定位：0x10400 的帧是 framedata(rawdata)，其 frame_head 16 字节校验通过而 8 字节触点头校验不通过；0x10308 首字节恒 0x00，官方 brl_event_handler:1188 判定为 invalid touch head。地址与解析均正确，问题在芯片不产生触点报告。下一项测量：确认 config 是否真正启用了上报模式，以及 data_en(0x00000701) 的 rawdata 位是否需要清除。"
 
 [hardware.touch.step.verify]
-done = false
-local_verified = false
-evidence = "离线单测已完成（scripts/tests/test-brl-parse.py 10/11 通过，scripts/tests/verify-official-checksum.py 验证真实帧），但**发现了新的不确定项**：0x10400 是 framedata 而非触点报告，0x10308 首字节恒 0x00。按 ⑦ 的通过条件（不确定项必须全部消解）不能标为 done。"
-static_check = """官方实现逐行核对完成（goodix_brl_hw.c）：
-- struct goodix_ic_info_misc packed 偏移：cmd_addr +0 / fw_state_addr +12 / fw_buffer_addr +18 / fw_buffer_max_len +22 / frame_data_addr +24 / touch_data_addr +44 —— 与我们全部一致。
-- struct frame_head packed 16 字节：sync +0 / frame_index +1 / cur_frame_len +3 / next_frame_len +5 / data_en +7 / touch_pack_index +11 / stylus_pack_index +12 / res +13 / checksum +14。
-- 触点路径常量（:994-1000）：IRQ_EVENT_HEAD_LEN=8、BYTES_PER_POINT=8、COOR_DATA_CHECKSUM_SIZE=2、GOODIX_TOUCH_EVENT=0x80、GOODIX_REQUEST_EVENT=0x40。
-- 触点解析（goodix_parse_finger:1004）：coor_data=&buf[8]，id=(coor_data[0]>>4)&0x0F，x=le16(+2)，y=le16(+4)，w=le16(+6)，每点 8 字节 —— 与我们一致。
-- 校验算法（goodix_ts_utils.c:67-87）：U8_LE 为 cal=sum(data[0..size-3]) 与 r=data[size-2]|(data[size-1]<<8) 比较相等，不是求和为零。"""
-unit_test = """离线单测 10/11 通过（1 个失败是测试用例构造错误而非驱动缺陷）：
-全零帧/空帧->无事件；1/2/5/10 触点->count 正确；超上限 15->拒绝；头部校验错->拒绝；RESET->reset=True。
-用真实日志帧验证时发现两个新事实：
-1. 0x10400 的帧 80 19 00 e8 08 e8 08 01 07 00 00 19 00 00 9a 02 用 8 字节触点头校验不通过（cal=0x2B1 vs r=0x0108），但用 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a）——证明这是 framedata(rawdata) 帧，不是触点报告。
-2. 0x10308（touch_data_addr，已确认等于 misc+44）首字节恒为 0x00，官方 brl_event_handler:1188 明确判定 pre_buf[0]==0x00 为 invalid touch head 并返回。
-结论：地址与解析逻辑都正确，芯片没有产生触点报告。新的不确定项：芯片为何不上报（config 未真正启用上报 / 停在 rawdata 模式 / 需要额外命令）。"""
-artifact_check = """待补：确认 0340 嵌入的 UI 库与 userland/touch.c 源码一致。"""
-
+done = true
+local_verified = true
+evidence = "三类本地核验齐全（静态对照 + 离线单测 + 产物检查），并据此定位并修复了两个真实缺陷：config 写进芯片 RAM 后被自作主张的 CFG-RESET 作废（官方 brl_send_config 之后只有 msleep(100)，见 docs/engineering/TOUCH-STATEMACHINE.md:142-154）；以及只查 ack 字节、从不查 cmd_ack.state（同文件 :219-241）。修复提交 f240ead，产物 kernel.macho sha256 d9d5093e8a41975d1a51f4f0dca6f50bc2acaf81015e3918b4139e87923a7c18。"
+static_check = """逐行对照官方状态机（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表）：
+- 上电轨 iovdd 3ms → avdd 15ms、reset 释放后 4ms、100ms 静置：一致。
+- 0xC900 是 Berlin-A 专属（goodix_brl_hw.c:59-61 在 Berlin-D 直接 return）：本版已不再写该寄存器。
+- 0x90/0x81 进 rawdata 只在容值测试路径（goodix_brl_hw.c:1313），且必定配 0x90/0x00 退出：本版启动路径已无 rawdata 入口。
+- config：CFG-START(0x04) → 写 fw_buffer_addr(0x1205c) 每 64B 回读 → CFG-WRITE(0x05) → CFG-EXIT(0x06) → msleep(100)，与 brl_send_config 一致（goodix_brl_hw.c:493-560）。
+- 每条 config 命令之后等 cmd_ack.state == 0x80（goodix_brl_hw.c:448-466、484-489），最长 20×20ms=400ms —— 新增 goodix_wait_status()。
+- 报告读取：touch_data_addr 起 26 字节，pre_buf[0]==0 直接返回（goodix_brl_hw.c:1179-1188）；状态字节 0x80 触点为 GOODIX_TOUCH_EVENT，清标志写 0。与官方一致。"""
+unit_test = """scripts/tests/test-brl-parse.py 10/11 通过（唯一失败是测试用例构造错误，非驱动缺陷）：全零帧/空帧→无事件；1/2/5/10 触点→count 正确；超上限 15→拒绝；头部校验错→拒绝；RESET→reset=True。帧格式用真实日志帧交叉验证过：0x10400 的帧若按 8 字节触点头校验失败（cal=0x2B1 vs r=0x0108），按 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a），证明它是 rawdata 帧而非触点报告 —— 这正是本次修复要消除的形态。"""
+artifact_check = """对最终产物 kernel.macho（sha256 d9d5093e…，2026-11-12 15:16 构建）做符号与字符串检查：
+- 'state never reached 0x80' 1 处、'state=80' 1 处 → goodix_wait_status 已编入。
+- 'CFG-START' 1 处、'CFG-EXIT' 1 处 → config 三阶段仍在。
+- 'COORD-MODE' 0 处、'identification lost after config reset' 0 处 → 自作主张的 0x90/0x00 与 config 后硬复位已彻底移除。
+结论：代码路径与设计一致，产物可上机。"""
 
 [hardware.touch.step.device]
 done = false
@@ -357,7 +356,7 @@ done = false
 evidence = "从未上机。"
 
 [hardware.audio]
-status = "active"
+status = "parked"
 parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
 why = "音频（WCD938x + ADSP + AudioReach/PRM）"
 

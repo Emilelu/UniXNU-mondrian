@@ -37,6 +37,12 @@ TARGETS = {
     'uefi-mondrian':   '/mnt/e/hackios/uefi-mondrian',
 }
 
+# P-151：文件级 pick 是整文件替换。当我们和上游都改过同一个文件时，
+# 取上游会丢掉我们的改动。判据：文件大小骤降。
+# 两次事故：0340 补丁 1,052,856 -> 626,395（-40%）；porting.toml 丢 cellular 段。
+SHRINK_WARN = 0.25
+SHRINK_WARNINGS = []     # 缩小超过 25% 就警告
+
 REPOS = {
     'UniXNU-mondrian': os.path.join(WORK, 'references/yibiya-upstream'),
     'UniXNU':          os.path.join(WORK, 'references/yibiya-unixnu-upstream'),
@@ -217,6 +223,7 @@ def plan(entries, only=None):
 
 def apply_plan(plan_items, do_commit=False):
     written, skipped = [], []
+    del SHRINK_WARNINGS[:]
     for (key, branch, sha, date, subj, all_files), files in plan_items:
         d = REPOS[key]
         target = TARGETS.get(key, REPO)
@@ -430,6 +437,12 @@ def main():
         print('    %-60s %7d B  (%s)' % (f[:58], n, sha))
     if skipped:
         print('  跳过 %d 个: %s' % (len(skipped), skipped[:4]))
+    if SHRINK_WARNINGS:
+        print()
+        print('  ⚠️  P-151 警告：以下文件被大幅缩小，可能覆盖了我们的改动：')
+        for w in SHRINK_WARNINGS:
+            print('       %s' % w)
+        print('       要回退：git checkout <上一个 tag> -- <文件>')
 
     if a.commit:
         stamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')

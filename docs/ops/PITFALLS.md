@@ -1097,6 +1097,47 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 - **30 秒判定**：bitbang 读全 `00` → MISO 选错；读全 `ff` → MISO 大概率对了，
   但芯片没响应（需查 CS/CLK 或供电）。
 
+### P-71 **Android v4 的 header_size 不是 kernel 起点**
+
+- **症状**：cand12 的 `fastboot boot` 返回 OKAY，但没有 CDC 控制台，随后回到 fastboot；`console-20261112-094738.json` 记录 0 字节。
+- **根因**：重打包脚本把偏移 20 的 `header_size=1584` 当成数据起点。v4 的头结构长 1584，整页长 4096；kernel 必须从 4096 开始，ramdisk 必须从 `4096 + align4096(kernel_size)` 开始。本次 ramdisk 被放到 550448，而正确地址是 552960，覆盖了 UEFI gzip 尾部。
+- **证据**：cand7 的固件流可解压到 EOF，后接 1866 字节 FDT；cand12 的同一流报 `incorrect data check`。cand12 位于错误偏移的 FAT 与当前 `payload.img` 逐字节相同，SHA256 `49b60bcbc51307ff449e24e72e1c76dd12621c3ff8d156ebceac4a3d9a126a95`，无需回退内核功能。
+- **修复**：使用已存在的 `scripts/build-bootimg.py:29-47` 布局；重打包工具迁入 `scripts/repack-boot.py`，保留完整 4096 字节头页，按页对齐 kernel/ramdisk，并在写出前验证固件 gzip 和附加 FDT。
+- **检查**：`python3 scripts/test-repack-boot.py` 覆盖真实偏移下的固件解压、跨页载荷、固件 CRC 损坏及签名区截断。重建命令：`python3 scripts/repack-boot.py --template /root/k60/work/touch-gpu/gpu8-start.img --ramdisk /root/k60/work/out-cand/mondrian/ipados-16.6.1-20G81/mondrian/payload/payload.img --output /mnt/e/k60-ios/boot-cand13-20261112.img`。
+- **30 秒判定**：有 `ANDROID!` 不等于镜像可启动；从 **4096** 取 kernel 区域，用 `zlib.decompressobj(31)` 检查 EOF 和附加 FDT。不要只在整包里搜索诊断字符串。
+
+### P-72 **UFS Data 后端不能被 payload 门禁强制挂 RAM seed**
+
+- **症状**：修正 v4 偏移后的 cand13 仍无 CDC 日志并回到 fastboot（`console-20261112-100518.json`）。实际 `unixnu.toml` 比可用 cand7 多了 `initrd = "Payloads/scratch-data.img"`。
+- **确定的不一致**：`configs/mondrian_defconfig` 选择 `XNU_OWNER_DATA_UFS=y`、`XNU_NATIVE_RAM_BLOCK=n`；`pong-ufs-data.patch` 明确从已安装的 UFS IOMedia 挂 Data，不使用 seed mapping 或 RAM fallback。旧 `core/scripts/unixnu/payload.py:41-53` 却要求所有 OWNER_DATA_MOUNT 内核提供 RAM seed，导致打包命令恢复了已知不可用的 RAM Data 路径。
+- **修复**：payload 按所选后端决定 seed 前提：UFS Data 不需要 seed，传 seed 则报冲突；内存 Data 保持原始 seed 要求。只重建 payload，无需回退当前触摸、显示、电池或重编内核。
+- **检查**：`python3 core/scripts/test-payload-data.py`；构建 `./core/unixnu payload -D work/device-ui --out work/out-cand`，确认无 `initrd`、无 `scratch-data.img`、ADT 无 RAMDisk，同时保留 `/arm-io/pong-touch`。
+- **边界**：cand13 的零日志不能单独证明 RAM seed 是第二次复位的唯一原因；以去掉冲突后的实机结果判定。
+
+### P-73 **共享 ADT 转换不能漏掉已工作的 CPU/UFS 合同**
+
+- **症状**：cand14 仍在 CDC 枚举前复位（`console-20261112-101525.json`）。语义对比 cand7 与实际 cand14 ADT，除新触摸节点外，还少了 `/cpus/max_cpus`、8 个 `cpu-id` 和 9 个 UFS `pong,*` 属性。
+- **根因**：`core/scripts/unixnu/devicetree.py` CPU 生成仅输出 `reg`，缺少逻辑 CPU ID；`hardware_properties` 的类型集合也未包含 DTS 已有的 UFS 属性。`drivers/NativeUfs/NativeUfs.cpp:155-178` 在首个 MMIO 前逐一验证这些属性，缺失就拒绝启动。
+- **修复**：生成从零开始连续的逻辑 `cpu-id` 和启用 CPU 总数，保留原 MPIDR；把已有 UFS 绝对窗口按 u64、stream/IRQ/计数按 u32 转小端。没有改硬件地址，没有绕过驱动验证。
+- **检查**：`python3 core/scripts/test-devicetree-handoff.py` 覆盖禁用 CPU 导致的逻辑编号间隙、物理 affinity 保持、UFS 窗口宽度与字节序。新载荷必须与 cand7 的 CPU/UFS 合同一致，同时保留新触摸节点。
+- **边界**：这些是确定的合同缺失；是否解释所有前控制台复位，以修复后实机结果判定。
+
+### P-74 **启动演示用 delayed unlock 不能成为正常锁屏行为**
+
+- **症状**：cand15 已恢复桌面，用户指出应先出现锁屏而非直接进桌面。
+- **根因**：`userland/ui_compat.c` 的 10 秒延迟 callback 主动调用 `SBLockScreenManager unlockUIFromSource:withOptions:` source24；这是缺输入时展示桌面的 workaround，不是原生锁屏流程。
+- **修复**：保留主队列上的渲染偏好与 screen-on，删除自动 unlock，局部函数改为 `present_initial_screen` / `start_ui_presentation`，正常本地认证路径不变。已重生成实际 0340 嵌入库（95824B，SHA256 `85f2431d238e7b6250483d69c2fddb11e9d63cf5c9c01c2a192ec54ec896b82a`，4KiB 签名通过）。
+- **检查**：启动后保留原生锁屏；只有真实用户输入才能进入解锁路径。触摸缺失不能用自动解锁掩盖；最终以屏幕及状态转换判定。
+
+### P-75 **壁纸目录可见不等于原生壁纸已选中**
+
+- **症状**：cand16 原生锁屏已出现，但用户确认壁纸全黑；stock-wallpaper bind 和 aliases=4 均成功。
+- **确定的不一致**：20G81 原始素材只有 iPad 目录，默认目录按设备名和精确 logicalScreenClass 筛选，当前 phone 界面无法自动命中。成功挂载仅证明素材可见。
+- **修复**：在原生主队列初始亮屏后，保留已有图片/颜色/动态壁纸，仅对确认为空的配置选择完整的真实 7410 WWDC 2022 bundle。使用原始 `WKWallpaperBundle initWithURL:` 和 `WKSystemShellWallpaperManager setLockScreenWallpaperRepresenting:mirrorToHomeScreen:completion:`，不改文件名、筛选谓词或认证状态。
+- **调试证据**：`kern.pong_diagnostic` 现复用于 SpringBoard/backboard，输出实际 homeButtonType、现有内容、HEIC 文件验证与原生提交。setter completion ABI 是 void()，回调返回不能当成像素成功。源码/API/真实资产依据记录在 `work/touch-gpu/wallpaper-native20G81.json`。
+- **检查**：下一版必须实际显示素材；`existing-content=-1`、文件缺失或 ABI 不符都明确报未实现前提，不伪造成功。COM8 已实测收到 13300 字节并返回 help；这是 CDC 诊断通道，不是 LLDB/Apple usbmux。
+- **cand18 实证**：`console-20261112-115737.log` 78716B，真实 `K60UI` 日志显示 `locked=1 homeButtonType=2`、`existing-content=1`，因此原生设置未提交。`k60_wallpaper_reset=1` 仅供本次恢复镜像显式重新选择真实 stock；默认不替换已有内容。新日志列出 lock/home 配置属性与对象类，既不把已有配置当作像素证明，也不把 callback 返回当成功。
+
 ## 台账维护规则
 
 1. 新坑确认后**当场追加**（与 ISSUES 同步，不等收尾）。

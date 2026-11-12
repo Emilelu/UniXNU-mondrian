@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..47949a3
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1350 @@
+@@ -0,0 +1,1351 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -983,8 +983,9 @@ index 0000000..47949a3
 +	sleep_ms(2);
 +	gpio_set(PIN_RESET, true);
 +	sleep_ms(100);
-+	/* Before bring_up() selects a transport there is no bus to ask for SPI
-+	 * mode on; goodix_write() through a NULL pointer aborted the kernel. */
++	/* Before bring_up() selects a transport there is no bus to ask
++	 * for SPI mode on; goodix_write() through a NULL pointer aborted
++	 * the kernel at touch_reset+0x14c. */
 +	if (spi_transfer == spi_transfer_unset) {
 +		printf("Pong touch: reset only; serial transport not selected yet\n");
 +		return;

@@ -1,6 +1,6 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -641,6 +641,56 @@
+@@ -641,6 +641,55 @@
  
  /* Declared ahead of its definition: goodix_apply_config resets the chip
   * through it so the SPI mode is re-confirmed on that path too. */
@@ -36,28 +36,27 @@
 +        return;
 +    }
 +    printf("K60SPMI ver=%#x channels=%u\n", spmi_rd(0x000), spmi_rd(0x004) & 0x7ff);
-+    for (uint32_t n = 0; n < 64; n++) {
-+        uint32_t v = spmi_rd(0x900 + 4 * n);
++    for (uint32_t off = 0; off < 0x3000; off += 4) {
++        uint32_t v = spmi_rd(off);
 +        if (!v) {
 +            continue;
 +        }
 +        if (nz == 0) {
-+            s0 = v;
-+        } else if (nz == 1) {
++            s0 = off;
 +            s1 = v;
-+        } else if (nz == 2) {
-+            s2 = v;
++        } else if (nz == 1) {
++            s2 = off;
 +        }
 +        nz++;
 +    }
-+    printf("K60SPMI mapped=%u/64 first=%#x %#x %#x\n", nz, s0, s1, s2);
++    printf("K60SPMI nz=%u first_off=%#x val=%#x next_off=%#x\n", nz, s0, s1, s2);
 +    printf("K60SPMI obs_status0=%#x\n", spmi_obs_rd(0, 0x08));
 +}
 +
  static void touch_reset(void);
  
  static bool
-@@ -1209,6 +1259,7 @@
+@@ -1209,6 +1258,7 @@
              return false;
          }
          bool gpio_spi;

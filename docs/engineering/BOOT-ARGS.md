@@ -241,3 +241,24 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 为给 `pong_metal=1` 腾空间，已移除 `k60_selftest_reboot=300`（23 字节）。
 它是无人值守自检后的自动重启看门狗：手动上机测试时不需要，
 而且在观察过程中会把设备重启掉。
+
+---
+
+### `k60_battery`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 1（启用） |
+| 来源 | `drivers/PongPower/K60Battery.cpp:420`（`PE_parse_boot_argn("k60_battery", &enabled, sizeof(enabled))`）|
+| 作用 | 0 = 完全不启动电池服务；非 0 = 允许启动 |
+
+**注意**：非 0 只表示"允许尝试"。`k60_physical_battery_start()` 随后要求
+`/chosen` 里有 `k60-adsp-glink-handoff` 属性，且该记录里四个标志全真
+（Authenticated / ResourcesHeld / GlinkExclusive / FreshHostFifos）。
+没有这个 PAS1 租约时它会打印
+`K60Battery: blocked rc=N: no authenticated exclusive PAS1/SMEM/GLINK platform handoff`
+然后返回，**不会发布任何假电量**。
+
+所以 `k60_battery=0` 是彻底关掉，`k60_battery=1`（默认）是"有租约才启动"。
+没有第三个状态 —— 不存在"强制启动"的开关。

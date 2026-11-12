@@ -43,22 +43,9 @@ REPOS = {
     'uefi-mondrian':   os.path.join(WORK, 'references/yibiya-uefi-upstream'),
 }
 
-# 分支 -> (mirror repo key, git ref)
-BRANCHES = [
-    ('UniXNU-mondrian', 'main'),
-    ('UniXNU-mondrian', 'fix/boot-v4-repack'),
-    ('UniXNU-mondrian', 'fix/touch-gpu-bringup'),
-    ('UniXNU-mondrian', 'fix/ui-startup-blob'),
-    ('UniXNU-mondrian', 'fix/k60-measured-high-window'),
-    ('UniXNU-mondrian', 'feat/first-frame-20261107'),
-    ('UniXNU-mondrian', 'upstream-fix'),
-    ('UniXNU-mondrian', 'chore/archive-darwin24-main-20261103'),
-    ('UniXNU', 'main'),
-    ('UniXNU', 'fix/k60-input-adt'),
-    ('UniXNU', 'fix/ufs-data-payload'),
-    ('UniXNU', 'feat/smp-0340'),
-    ('uefi-mondrian', 'main'),
-]
+# 分支不再硬编码。yibiya 随时新建分支，写死的列表必然漏。
+# discover_branches() 每次从镜像的 refs/remotes/origin/ 里枚举。
+
 
 # 永不覆盖的路径（构建产物 / 许可证 / 我们自己的门禁与文档）
 SKIP_PATHS = (
@@ -87,6 +74,22 @@ CATS = [
 ]
 
 SEEN = os.path.join(WORK, '.pick-upstream-seen.json')
+
+
+
+def discover_branches():
+    """枚举三个镜像当前所有分支。新分支自动纳入，不需要改代码。"""
+    out = []
+    for key, d in REPOS.items():
+        if not os.path.isdir(os.path.join(d, '.git')):
+            continue
+        r = subprocess.run(['git', 'for-each-ref', '--format=%(refname:short)',
+                            'refs/remotes/origin/'], capture_output=True, text=True, cwd=d)
+        for ref in (r.stdout or '').strip().split('\n'):
+            if not ref.strip() or ref.endswith('/HEAD'):
+                continue
+            out.append((key, ref.replace('origin/', '')))
+    return sorted(out)
 
 
 def git(d, *args):
@@ -129,7 +132,7 @@ def collect(fetch=True):
     seen = load_seen()
     out = []
     baseline = {}
-    for key, branch in BRANCHES:
+    for key, branch in discover_branches():
         d = REPOS[key]
         if not os.path.isdir(os.path.join(d, '.git')):
             continue
@@ -145,7 +148,39 @@ def collect(fetch=True):
         k = '%s/%s' % (key, branch)
         old = seen.get(k)
         if old is None:
-            baseline[k] = head      # 首次：记基线，不报历史
+            # 新分支：按「文件收敛」而不是重放历史。
+            # 重放历史会把 yibiya 的 Initial import 等 700+ 提交全部走一遍，
+            # 而且会把我们删掉的文件复活。正确目标只有一个：让这个分支的
+            # 尖端状态出现在我们的树里，只写真正不同的文件。
+            baseline[k] = head
+            target = TARGETS.get(key, REPO)
+            differ = []
+            r2 = subprocess.run(['git', 'ls-tree', '-r', '--name-only', ref],
+                                capture_output=True, text=True, cwd=d)
+            for f in (r2.stdout or '').split('\n'):
+                f = f.strip()
+                if not f:
+                    continue
+                if any(f == p or f.startswith(p) for p in SKIP_PATHS):
+                    continue
+                op = os.path.join(target, f)
+                r3 = subprocess.run(['git', 'show', '%s:%s' % (ref, f)],
+                                    capture_output=True, cwd=d)
+                if r3.returncode != 0:
+                    continue
+                if os.path.isdir(op):
+                    continue          # submodule
+                if not os.path.exists(op):
+                    differ.append(f)
+                else:
+                    try:
+                        if open(op, 'rb').read() != r3.stdout:
+                            differ.append(f)
+                    except OSError:
+                        differ.append(f)
+            if differ:
+                date = git(d, 'log', '-1', '--format=%ci', ref) or ''
+                out.append((key, branch, head, date, 'sync branch tip: %d files' % len(differ), differ))
             continue
         if old == head:
             continue
@@ -249,6 +284,94 @@ def record_triage(entries, applied_shas):
         io.open(TRIAGE, 'w', encoding='utf-8', newline='\n').write(t)
 
 
+
+def converge(target_key, mirror, target_tree, dry_run=True):
+    """把镜像所有分支里「每个文件的最新版本」收敛进目标树。
+
+    为什么不是按分支：最新代码散落在各个分支上。同一个文件可能在
+    fix/touch-gpu-bringup 上最新，另一个在 fix/boot-v4-repack 上最新。
+    按分支取任何单个分支都会漏。正确模型是逐文件取所有分支里的最新提交。
+
+    返回 (写入列表, 跳过列表)。
+    """
+    # 1) 收集所有分支的 ref
+    r = subprocess.run(['git', 'for-each-ref', '--format=%(refname:short)',
+                        'refs/remotes/origin/'], capture_output=True, text=True, cwd=mirror)
+    refs = [x.strip() for x in (r.stdout or '').split('\n')
+            if x.strip() and not x.endswith('/HEAD')]
+    if not refs:
+        return [], []
+
+    # 2) 每个文件 -> (时间戳, ref, 路径)
+    newest = {}
+    for ref in refs:
+        # 一次 log 拿到该分支上每个文件最近一次被改的时间，而不是每个文件跑一次 log。
+        r2 = subprocess.run(['git', 'log', '--format=@%ct', '--name-only', ref],
+                            capture_output=True, text=True, cwd=mirror)
+        ts = 0
+        for line in (r2.stdout or '').split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('@'):
+                try:
+                    ts = int(line[1:])
+                except ValueError:
+                    ts = 0
+                continue
+            f = line
+            if any(f == p or f.startswith(p) for p in SKIP_PATHS):
+                continue
+            cur = newest.get(f)
+            if cur is None or ts > cur[0]:
+                newest[f] = (ts, ref, f)
+
+    # 3) 逐个比内容
+    written, skipped = [], []
+    for f, (ts, ref, path) in sorted(newest.items()):
+        dst = os.path.join(target_tree, f)
+        if os.path.isdir(dst):
+            skipped.append((f, 'submodule'))
+            continue
+        r4 = subprocess.run(['git', 'show', '%s:%s' % (ref, path)], capture_output=True, cwd=mirror)
+        if r4.returncode != 0:
+            skipped.append((f, 'show failed'))
+            continue
+        if os.path.exists(dst):
+            try:
+                if open(dst, 'rb').read() == r4.stdout:
+                    continue
+            except OSError:
+                pass
+        if not dry_run:
+            os.makedirs(os.path.dirname(dst) or target_tree, exist_ok=True)
+            io.open(dst, 'wb').write(r4.stdout)
+        written.append((f, len(r4.stdout), ref.replace('origin/', '')[:24]))
+    return written, skipped
+
+
+def main_converge(dry_run):
+    total = 0
+    for key, mirror in REPOS.items():
+        target = TARGETS.get(key)
+        if not target or not os.path.isdir(os.path.join(mirror, '.git')):
+            continue
+        written, skipped = converge(key, mirror, target, dry_run=dry_run)
+        if not written and not skipped:
+            continue
+        print()
+        print('  === %s -> %s ===' % (key, target))
+        print('    %s %d 个文件' % ('待写入' if dry_run else '已写入', len(written)))
+        for f, n, ref in written[:12]:
+            print('      %-58s %7d  (%s)' % (f[:56], n, ref))
+        if len(written) > 12:
+            print('      ... 还有 %d' % (len(written) - 12))
+        for f, why in skipped[:4]:
+            print('      跳过 %-52s %s' % (f[:50], why))
+        total += len(written)
+    return total
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--plan', action='store_true')
@@ -257,9 +380,16 @@ def main():
     ap.add_argument('--only', default='')
     ap.add_argument('--no-fetch', action='store_true')
     ap.add_argument('--mark', action='store_true', help='只推进水位，不写文件')
+    ap.add_argument('--converge', action='store_true', help='所有分支逐文件最新版收敛')
+    ap.add_argument('--dry-run', action='store_true')
     a = ap.parse_args()
 
     only = set(x.strip() for x in a.only.split(',') if x.strip()) or None
+    if a.converge:
+        n = main_converge(dry_run=a.dry_run or not a.apply)
+        print()
+        print('  合计 %d 个文件%s' % (n, '（dry-run）' if (a.dry_run or not a.apply) else ''))
+        return 0
     entries, baseline = collect(fetch=not a.no_fetch)
     if baseline:
         seen0 = load_seen()

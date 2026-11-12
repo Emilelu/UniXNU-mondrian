@@ -186,6 +186,52 @@ def apply_plan(plan_items, do_commit=False):
     return written, skipped
 
 
+
+TRIAGE = os.path.join(REPO, 'docs', 'research', 'UPSTREAM-TRIAGE.toml')
+
+
+def record_triage(entries, applied_shas):
+    """把本轮抓到/应用的提交写进研判台账，并推进 watermark。
+
+    两套水位必须同源，否则 pick 走了但台账没走，门禁就会一直报「未研判」。
+    """
+    if not os.path.isfile(TRIAGE):
+        return
+    t = io.open(TRIAGE, encoding='utf-8', errors='ignore').read()
+    orig = t
+
+    # 推进 watermark
+    for key, branch, sha, date, subj, files in entries:
+        repo_name = 'yibiya/' + key
+        pat = re.compile(
+            r'(\[\[branch\]\]\nrepo = "%s"\nmirror = "[^"]*"\nbranch = "%s"\nwatermark = ")([0-9a-f]+)(")'
+            % (re.escape(repo_name), re.escape(branch)))
+        def repl(m, sha=sha):
+            return m.group(1) + sha + m.group(4)
+        t = pat.sub(repl, t, count=1)
+
+    # 为未在台账里的提交补记录
+    existing = set(re.findall(r'sha = "([0-9a-f]+)"', t))
+    blocks = []
+    for key, branch, sha, date, subj, files in entries:
+        short = sha[:9]
+        if short in existing or sha in existing:
+            continue
+        doc_only = all(f.endswith(('.md', '.txt', '.rst')) or f.startswith('.github/') for f in files)
+        verdict = 'not-applicable' if doc_only else 'picked'
+        how = ('纯文档' if doc_only else '文件级提取（pick-upstream.py）')
+        blocks.append(
+            '\n[[commit]]\nsha = "%s"\nsubject = "%s"\nverdict = "%s"\nhow = "%s"\n'
+            'reason = "自动记录：%s 分支 %s"\ndate = "%s"\n'
+            % (short, subj.replace('"', "'")[:80], verdict, how, key, branch, date[:10]))
+
+    if blocks:
+        t = t.rstrip() + '\n' + ''.join(blocks)
+
+    if t != orig:
+        io.open(TRIAGE, 'w', encoding='utf-8', newline='\n').write(t)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--plan', action='store_true')
@@ -257,7 +303,8 @@ def main():
     for key, branch, sha, date, subj, files in entries:
         seen['%s/%s' % (key, branch)] = sha
     save_seen(seen)
-    print('  水位已推进')
+    record_triage(entries, [e[2] for e in entries])
+    print('  水位已推进（研判台账已同步）')
     return 0
 
 

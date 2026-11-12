@@ -427,3 +427,11 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-166"
 statement = "The build must read the repository patch series and only copy it to the build input; a build script that writes the series makes edits invisible and changes the patch set silently."
 check = "python3 scripts/check-build-applied.py"
+
+[[rule]]
+id = "P-167"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-167"
+statement = "A userland source change that cannot be compiled on this machine must not be committed: the shipped blob would keep diverging from the source. No iOS SDK, no userland edit."
+waiver = """Waiver: the check needs a manifest of buildable artifacts. land when
+userland/build.py records which artifact each source feeds and the SDK it needs."""

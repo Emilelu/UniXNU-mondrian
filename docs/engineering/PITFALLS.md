@@ -3993,3 +3993,15 @@ CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过�
 
 规则：仓库是唯一真源；构建只允许**读**它，然后复制给构建输入。
 `scripts/check-build-applied.py` 现在同时比对二者，不一致即报红（P-166）。
+## P-167 UI 库改了但编不出来：本机没有 iOS SDK
+
+`userland/build.py ui` 需要 `--sdk <iPhoneOS.sdk>` 或 `--developer <Xcode>`
+（`compile_ui()` 里 `xcrun --sdk iphoneos --show-sdk-path`）。本机只有
+`/opt/unixnu-linux/CommandLineTools/SDKs/MacOSX.sdk`，`/opt` 与 `/mnt/e` 下
+都没有任何 `iPhoneOS*.sdk`。因此 `userland/*.c` 的任何修改都无法产出新的
+`libpong-ui.dylib`，也就无法刷新 `0340-k60-uilib-deploy.patch` 里内嵌的 blob。
+
+规则：**没有 SDK 就不要改 userland 源码**。改了却编不出来，源码与真正烧进
+设备的那份 blob 就分叉了，这正是"看起来修好了、设备上没变"的整类坑。
+要么先补齐 SDK（并把路径写进 `docs/engineering/`），要么把修复做在内核侧
+（例如由内核在 Data 挂载后 dlopen 不可行，必须在进程上下文里执行）。

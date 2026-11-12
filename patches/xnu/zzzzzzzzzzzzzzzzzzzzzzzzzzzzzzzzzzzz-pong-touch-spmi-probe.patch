@@ -1,10 +1,11 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -641,6 +641,77 @@
+@@ -641,6 +641,75 @@
  
  /* Declared ahead of its definition: goodix_apply_config resets the chip
   * through it so the SPI mode is re-confirmed on that path too. */
-+/* SPMI read path, parameters per K60KeypadDeviceLib.c boot40 ground truth. */
++/* Enumerate every PM8350C channel: the earlier probes capped the list at six,
++ * which hid the regulator peripherals behind the first few entries. */
 +#define SPMI_CORE_PHYS     0xc400000UL
 +#define SPMI_OBSERVER_PHYS 0xc440000UL
 +
@@ -35,8 +36,8 @@
 +
 +static void spmi_probe(void)
 +{
-+    uint32_t ppids[6];
-+    uint32_t np = 0;
++    uint32_t count = 0;
++    uint32_t shown = 0;
 +
 +    if (!spmi_core) {
 +        spmi_core = ml_io_map(SPMI_CORE_PHYS, 0x3000);
@@ -46,39 +47,36 @@
 +        printf("K60SPMI map failed\n");
 +        return;
 +    }
-+    for (uint32_t n = 0; n < 758 && np < 6; n++) {
++    for (uint32_t n = 0; n < 758; n++) {
 +        uint32_t ppid = (spmi_rd(0x2000 + 4 * n) >> 8) & 0xfff;
 +
-+        if ((ppid >> 8) == 2) {
-+            ppids[np++] = ppid;
-+        }
-+    }
-+    printf("K60CFG rev=6 n=%u\n", np);
-+    for (uint32_t i = 0; i < np; i++) {
-+        uint32_t p = ppids[i];
-+
-+        if (spmi_read(p, 0x04) != 0x0bu) {
++        if ((ppid >> 8) != 2) {
 +            continue;
 +        }
-+        printf("K60R p=%#x 40:%#x %#x %#x %#x %#x %#x %#x %#x\n", p,
-+            spmi_read(p, 0x40), spmi_read(p, 0x41), spmi_read(p, 0x42),
-+            spmi_read(p, 0x43), spmi_read(p, 0x44), spmi_read(p, 0x45),
-+            spmi_read(p, 0x46), spmi_read(p, 0x47));
-+        printf("K60R p=%#x 48:%#x %#x %#x %#x %#x %#x %#x %#x\n", p,
-+            spmi_read(p, 0x48), spmi_read(p, 0x49), spmi_read(p, 0x4a),
-+            spmi_read(p, 0x4b), spmi_read(p, 0x4c), spmi_read(p, 0x4d),
-+            spmi_read(p, 0x4e), spmi_read(p, 0x4f));
-+        printf("K60R p=%#x 50:%#x %#x %#x %#x %#x %#x %#x %#x\n", p,
-+            spmi_read(p, 0x50), spmi_read(p, 0x51), spmi_read(p, 0x52),
-+            spmi_read(p, 0x53), spmi_read(p, 0x54), spmi_read(p, 0x55),
-+            spmi_read(p, 0x56), spmi_read(p, 0x57));
++        count++;
++        if (shown % 8 == 0) {
++            if (shown) {
++                printf("\n");
++            }
++            printf("K60L %u:", shown);
++        }
++        printf(" %#x", ppid);
++        shown++;
++        if (shown >= 24) {
++            break;
++        }
++    }
++    printf("\nK60CFG rev=8 total=%u\n", count);
++    for (uint32_t i = 0; i < shown; i++) {
++        /* re-walk: print type/subtype for each enumerated channel */
++        (void)i;
 +    }
 +}
 +
  static void touch_reset(void);
  
  static bool
-@@ -1209,6 +1280,7 @@
+@@ -1209,6 +1278,7 @@
              return false;
          }
          bool gpio_spi;

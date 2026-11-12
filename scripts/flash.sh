@@ -82,7 +82,7 @@ WIN_OUT="E:\\k60-work\\evidence\\usblog-${STAMP}"
 WIN_BOOT=$(echo "$REPO/scripts/boot-and-capture.ps1" | sed 's|^/mnt/\([a-z]\)/|\U\1:\\|; s|/|\\|g')
 echo "  img: $WIN_IMG"
 echo "  证据目录: $WIN_OUT"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WIN_BOOT" \
+powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "$WIN_BOOT" \
   -Image "$WIN_IMG" -Seconds "$SECS" -WaitFastboot 150 -OutDir "$WIN_OUT" -Serial "$SERIAL"
 RC=$?
 echo

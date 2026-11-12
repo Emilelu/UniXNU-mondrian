@@ -68,7 +68,7 @@ try {
         foreach ($name in $variants) { [Environment]::SetEnvironmentVariable($name,$null,'Process') }
         [Environment]::SetEnvironmentVariable($canonical,$value,'Process')
     }
-    $reader=Start-Process -FilePath $engine -ArgumentList $argv -PassThru -RedirectStandardOutput $collectorOut -RedirectStandardError $collectorErr
+    $reader=Start-Process -FilePath $engine -ArgumentList $argv -PassThru -WindowStyle Hidden -RedirectStandardOutput $collectorOut -RedirectStandardError $collectorErr
     $readyDeadline=(Get-Date).AddSeconds(20)
     while (-not (Test-Path -LiteralPath $ready)) {
         $reader.Refresh()
@@ -82,7 +82,10 @@ try {
     $boot=Invoke-Fastboot @('-s',$Serial,'boot',$Image)
     $bootRc=$boot.code; $boot.text | Set-Content -LiteralPath $bootText -Encoding UTF8
     Write-Host $boot.text
-    $bootAccepted=($bootRc -eq 0 -and $boot.text -match 'Booting\s+OKAY')
+    # fastboot writes progress to stderr, which PowerShell turns into a
+    # NativeCommandError record; the exit code can be -1 even when the phone
+    # is already running the image. The text is the only trustworthy signal.
+    $bootAccepted=($boot.text -match 'Booting\s+OKAY')
     if (-not $bootAccepted) { throw "fastboot boot failed (exit $bootRc); see $bootText" }
     $limit=(Get-Date).AddSeconds($Seconds+190+$ReopenSeconds)
     while ($true) {

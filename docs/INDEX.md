@@ -157,6 +157,7 @@ docs/
 | [`../board.toml`](../board.toml) | 设备配置与组件选择 |
 | [`../AGENTS.md`](../AGENTS.md) | 仓库级 agent 约定 |
 | `research/SUBAGENT-DELIVERABLES.md` | **Subagent 交付物台账**：落库文件 + 产出断言 + 提交，门禁验证断言成立 |
+| `engineering/DIVISION-OF-LABOR.md` | **上下游分工与仓库覆盖**：哪些跟踪、哪些 pick、为什么参考实现不能 pick |
 
 ---
 

@@ -123,6 +123,7 @@ Four checks run automatically before build or flash; any failure aborts:
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) — Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing
+- [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) — Division of labour and repository coverage: 23 tracked / 48 synced / 3 picked
 | [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | Per-hardware eight-step evidence (gate data source) |
 | [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | Required reference sources (gate data source) |
 | [`CREDITS.md`](CREDITS.md) | Contributors and all external sources |

@@ -1,6 +1,6 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -641,6 +641,60 @@
+@@ -641,6 +641,71 @@
  
  /* Declared ahead of its definition: goodix_apply_config resets the chip
   * through it so the SPI mode is re-confirmed on that path too. */
@@ -37,23 +37,34 @@
 +    }
 +    printf("K60SPMI ver=%#x channels=%u\n", spmi_rd(0x000), spmi_rd(0x004) & 0x7ff);
 +    {
-+        uint32_t sid2 = 0, sid2a = 0, sid2b = 0, sid2c = 0;
-+        for (uint32_t n = 0; n < 768; n++) {
-+            uint32_t v = spmi_rd(0x1400 + 4 * n);
-+            if (((v >> 8) & 0xf) != 2) {
++        uint32_t n = 0, q[6] = { 0, 0, 0, 0, 0, 0 };
++
++        for (uint32_t i = 0; i < 758; i++) {
++            uint32_t ppid = spmi_rd(0x2000 + 4 * i) >> 8;
++
++            if ((ppid >> 8) != 2u) {
 +                continue;
 +            }
-+            if (sid2 == 0) {
-+                sid2a = (v >> 8) & 0xfff;
-+            } else if (sid2 == 1) {
-+                sid2b = (v >> 8) & 0xfff;
-+            } else if (sid2 == 2) {
-+                sid2c = (v >> 8) & 0xfff;
++            if (n < 6) {
++                q[n] = ppid;
 +            }
-+            sid2++;
++            n++;
 +        }
-+        printf("K60SPMI sid2=%u ch=%#x %#x %#x\n", sid2, sid2a, sid2b, sid2c);
-+        printf("K60SPMI probe_status=%#x\n", spmi_obs_rd(0, 0x08));
++        printf("K60CFG rev=4 t2 n=%u\n", n);
++        for (uint32_t i = 0; i < 6; i++) {
++            uint32_t st = 0, pp = q[i];
++
++            if (!pp) {
++                continue;
++            }
++            wr(spmi_obs + 0x20u * pp + 0x00, (15u << 27) | (0x04u << 4) | 0u);
++            for (uint32_t k = 0; k < 2000 && !(st & 0x1u); k++) {
++                st = *(volatile uint32_t *)(spmi_obs + 0x20u * pp + 0x08);
++            }
++            printf("K60CFG q=%#x st=%#x v=%#x\n", pp, st,
++                   *(volatile uint32_t *)(spmi_obs + 0x20u * pp + 0x18) & 0xffu);
++        }
++    }
 +    }
 +    printf("K60SPMI obs_status0=%#x\n", spmi_obs_rd(0, 0x08));
 +}
@@ -61,7 +72,7 @@
  static void touch_reset(void);
  
  static bool
-@@ -1209,6 +1263,7 @@
+@@ -1209,6 +1274,7 @@
              return false;
          }
          bool gpio_spi;

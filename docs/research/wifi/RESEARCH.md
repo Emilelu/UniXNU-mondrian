@@ -177,3 +177,142 @@ WiFi 是 P3（新子系统），低于：
 
 **但 WiFi 的 ① 已完成且质量很高**（同 SoC 同芯片 + 已踩过 SM8550 的坑），
 如果要做新子系统，WiFi 是首选。
+
+---
+
+## ④ 广域：官方文档给出的完整适配路径
+
+来源：https://unixnu.com/zh/porting/network （2026-11-12 读取）
+
+### 硬前置
+
+> 先完成[平台中断和 DMA](/zh/porting/platform)。
+
+**WiFi 排在整个驱动顺序里平台之后。** 我们的 UFS 已提供 DMA 与中断，这是有利条件。
+
+### 组件接口（`include/nw_abi.h`）
+
+必须实现三组回调：
+
+| 结构 | 内容 |
+|---|---|
+| `lx_platform` | 时间、休眠、轮询、日志、内存分配、DMA 分配/映射/同步、`fw_get` |
+| `nw_board` | BAR、PCI 身份、配置空间访问、MSI 目标 |
+| `nw_wifi_events` | 事件回调（在工作线程执行，须及时返回）|
+
+所有权约定（文档明确写出）：
+- `dma_alloc` 返回清零的 CPU 内存 + 端点可达的 bus 地址
+- `dma_map` 对范围外缓冲返回 0
+- `dma_sync` 按传输方向同步缓存
+- `fw_get` 按文件名返回数据与长度，保证组件消费期间有效
+- 先装 `nw_wifi_events` 再启动工作线程；`nw_wifi_step` 非零则继续推进
+- 接收回调若要交给异步 OS 路径，返回前必须复制到 OS 拥有的缓冲
+
+### 阶段选择
+
+参考探针用 `wifi` boot-arg 选阶段：
+
+```
+1  检查交接状态
+2  启动链路
+4  检查端点
+5+ 进入可复用协议栈（由协议栈执行 MHI 和固件启动）
+```
+
+### 板级启动的六步（文档第 2 节）
+
+1. 检查已供电、已启用时钟的寄存器状态
+2. 执行目标板的电源、时钟、PHY 配置和复位顺序
+3. 训练链路并读取端点 vendor/device ID
+4. 分配并映射 BAR，检查 PCI capability，启用 memory 与 bus-master
+5. 建立端点 DMA 范围，确认缓冲区在选定缓存策略下可达
+6. 接入 MSI 并确认中断到达，再依赖中断推进驱动
+
+**预期结果**：端点正确、BAR 可读、DMA 可用、中断到达。
+
+### 参考实现（sheng / WCN7850 on SM8550 PCIe0）的实测结论
+
+| 方面 | 结论 |
+|---|---|
+| 供电 | 六路 PMU 电源都需要 RPMh 的模式、电压和使能请求；**缺少模式请求时有两路不上电，链路无法训练** |
+| PCIe | PCIe0 训练到 Gen2 x1；端点 ID `17cb:1107` |
+| 中断 | 芯片的 MSI 经 PCIe0 自己的 MSI 接收器送到 **SPI 141**；工作线程在中断之间睡眠 |
+| 固件 | `c7-00108` 可运行；`c2-00259` 卡在按需分页器 |
+| MAC | 固件上报的 MAC 为零，由板级用芯片 ID 生成 |
+| 扫描 | 不扫描 6 GHz（其 59 个被动信道会占用大部分扫描时间）|
+| 关联 | 对端条目使用接入点自己的 HT/VHT 能力，而不是本机的；加入与四次握手约 100 ms |
+| 链路 | 5 s 内仍收到帧时忽略固件的 beacon 丢失；**VHT MCS 10 和 11 的帧会被丢弃** |
+| 系统 | 无法保存网络密码，因此不把该网络视为已知网络 |
+
+### DMA 与固件的来源
+
+> 参考实现使用 `native_ufs_extra_*` 提供 DMA 内存区，使用 `native_ufs_part_*` 读取固件。
+
+**这意味着 WiFi 复用了 UFS 的 DMA 与分区读取服务。** 我们已有 `NativeUfs` 与
+`PongUfsTransport`，但需确认是否暴露了等效接口；若没有，WiFi 需要自己的 DMA 分配路径。
+
+固件文件名、board data 与校准数据来源需记录在 `proprietary-files.txt`。
+
+### 与 K60 的差异（必须注意）
+
+| 项 | 官方参考 | K60 |
+|---|---|---|
+| SoC | SM8550 | **SM8475（与 Pong 相同）** |
+| 芯片 | WCN7850（ath12k 族）| **QCA6490 / WCN6855（ath11k 族）** |
+| 端点 ID | `17cb:1107` | 预期 `17cb:1103`（Pong 配置 device=4355=0x1103，待实测）|
+| MSI | SPI 141 | 待实测 |
+| 板级实现 | sheng 的 `WifiProbe.cpp` + `WifiNet.cpp` | **Pong 的 `PongWifiPlatform.cpp`（40,764 B，同 SoC 同芯片）** |
+
+**结论**：官方文档给的是「怎么做」的骨架和 sheng 的 SM8550/WCN7850 实测值；
+K60 的板级数值必须来自 Pong（同 SoC 同芯片）或实测，不能照抄 sheng。
+
+---
+
+## ⑤ 方案（基于 ④ 的证据）
+
+分三步，每步都有独立的验证点：
+
+### 第一步：板级 PCIe0 冷启动（只到端点可读）
+
+照 Pong 的 `PongWifiPlatform.cpp` 移植，不改协议栈：
+
+- 平台地址（SM8475 真值，Pong 已核对）：GCC `0x100000`、TLMM `0xf100000`、
+  PARF `0x1c00000`、DBI `0x60000000`、PHY `0x1c06000`、ATU `0x60001000`、
+  SPMI core `0xc400000`、SPMI config `0xc42d000`
+- 六步按官方顺序，每步独立打印与判据
+- **验证点**：链路训练成功，读到端点 vendor/device ID `17cb:11xx`
+
+### 第二步：决定协议栈归属
+
+两条路，必须先量再选：
+
+| 路 | 条件 | 代价 |
+|---|---|---|
+| A. 用 `Ath12kWifi` | 仅在它支持 ath11k/WCN6855 时可行 | 官方组件面向 ath12k，MHI/QRTR 细节不同 |
+| B. 自建 ath11k 路径 | 参考 Pong 的 `PongWifiNet.cpp`（47,656 B）| 工作量大，但不依赖上游是否支持 |
+
+**判据**：读 `nw_abi.h` 与 `nw_wifi.c`，核对端点协议版本与固件族是否覆盖 WCN6855。
+
+### 第三步：固件与校准数据
+
+Pong 用 PWF2 包（`/pong/firmware/qca6490.pwf`，magic `0x32465750`）。
+我们要么复刻 PWF2 打包，要么直接从 vendor 分区读：
+
+```
+/vendor/firmware_mnt/image/qca6490/
+  amss.bin 5.47 MB   amss20.bin 5,296,128 B
+  Data.msc 889,524 B Data20.msc 916,071 B
+  bd_m11agf.elf 60,000 B（蓝牙）
+```
+
+**判据**：固件启动成功 + 扫描产生 BSS 记录（官方文档的两个独立预期结果）。
+
+---
+
+## ⑥ 深挖待办
+
+- [ ] K60 的端点 ID、BAR0、subsystem_device（实测）
+- [ ] K60 的 MSI 目标（官方参考是 SPI 141，K60 待测）
+- [ ] K60 的六路 PMU 电源与 RPMh 请求（Pong 用 SPMI 观察者，K60 待核对）
+- [ ] `nw_abi.h` 是否覆盖 WCN6855（决定第二步走 A 还是 B）
+- [ ] UFS 是否暴露 `native_ufs_extra_*` / `native_ufs_part_*` 等效接口

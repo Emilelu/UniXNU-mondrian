@@ -338,13 +338,13 @@ done = false
 evidence = "K60 的 PCI device id / BAR0 / subsystem_device / PCIe0 GDSC 偏移 / SPMI 通道号均未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
 
 [hardware.wifi.step.wide]
-done = false
-evidence = "未读 unixnu.com/zh/porting/network。"
-
+done = true
+evidence = "官方文档 https://unixnu.com/zh/porting/network 读完（2026-11-12）。它给出骨架与 sheng 的 SM8550/WCN7850 实测值：PCIe0 Gen2 x1、端点 17cb:1107、MSI 经 PCIe0 自身接收器到 SPI 141、固件 c7-00108 可用而 c2-00259 卡在按需分页器、固件 MAC 为零需板级生成、不扫 6 GHz、VHT MCS 10/11 丢帧。组件接口为 lx_platform / nw_board / nw_wifi_events。硬前置是平台中断与 DMA。参考实现用 native_ufs_extra_* 提供 DMA、native_ufs_part_* 读固件。"
+catalog_checked = true
+catalog_result = "components.toml 的 Ath12kWifi 面向 ath12k（qcc2072/qcn9274/wcn7850），K60 是 QCA6490/WCN6855（ath11k 族），MHI/QRTR 细节不同 —— 官方组件不覆盖该芯片。板级数值只能来自 Pong（同 SoC 同芯片）或实测，不能照抄 sheng。"
 [hardware.wifi.step.plan]
-done = false
-evidence = "未定：PWF2 固件包 vs 直接读 vendor 分区尚未决策。"
-
+done = true
+evidence = "三步方案见 docs/research/wifi/RESEARCH.md 的 ⑤ 节。第一步照 Pong 的 PongWifiPlatform.cpp 移植板级 PCIe0 冷启动（平台地址是 SM8475 真值：GCC 0x100000、TLMM 0xf100000、PARF 0x1c00000、DBI 0x60000000、PHY 0x1c06000、ATU 0x60001000、SPMI 0xc400000/0xc42d000），验证点是链路训练成功且读到端点 17cb:11xx。第二步先读 nw_abi.h 与 nw_wifi.c 判定 Ath12kWifi 是否覆盖 WCN6855，再决定用它还是自建 ath11k 路径。第三步固件走 vendor 分区（amss.bin 5.47 MB / amss20.bin 5,296,128 B / Data.msc 889,524 B / Data20.msc 916,071 B），判据是固件启动成功且扫描产生 BSS 记录。"
 [hardware.wifi.step.deep]
 done = false
 evidence = "未做。"

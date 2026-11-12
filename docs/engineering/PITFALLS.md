@@ -3967,3 +3967,17 @@ CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过�
 
 规则：横幅只描述"现在开始做什么"，结论必须由最后一个阶段的 result 或一条明确的
 "published/failed" 行给出。
+
+## P-165 序列里一个补丁失配，它和它之后的全部消失
+
+`git apply --numstat` 只证明 diff 结构合法，不证明上下文在当前树上还能匹配。手写 hunk
+（尤其是给 `kern_exec.c` 这种被多个补丁反复改的文件）时，前一个补丁应用后原文已经变了，
+新补丁的三行上下文只要有一行对不上，`git apply` 就整条放弃——**它之后的补丁也一并跳过**，
+而后面的编译错误往往出现在完全无关的文件里。
+
+2026-11-13 的实例：手写的 `0341-k60-metal-seeds.patch` 通过语法校验，接进序列后
+`patches applied: 210`（序列 222 条），新文件连名字都没出现在日志里，构建失败，代价 13 分钟。
+
+规则：**永远用"已应用源码 + `diff -u`"生成补丁**，不要手写 hunk 的上下文与行号。
+构建后立刻跑 `python3 scripts/check-build-applied.py`，它比对日志里的
+`patches applied: N` 与 `patches/xnu/series` 的行数。

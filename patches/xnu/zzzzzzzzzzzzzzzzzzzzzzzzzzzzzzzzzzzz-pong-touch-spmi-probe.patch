@@ -1,11 +1,10 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -641,6 +641,72 @@
+@@ -641,6 +641,77 @@
  
  /* Declared ahead of its definition: goodix_apply_config resets the chip
   * through it so the SPI mode is re-confirmed on that path too. */
-+/* SPMI read path: parameters verified against K60KeypadDeviceLib.c boot40.
-+ * map table core+0x2000 (758 entries), observer stride 0x20, opcode 15. */
++/* SPMI read path, parameters per K60KeypadDeviceLib.c boot40 ground truth. */
 +#define SPMI_CORE_PHYS     0xc400000UL
 +#define SPMI_OBSERVER_PHYS 0xc440000UL
 +
@@ -29,7 +28,7 @@
 +        }
 +    }
 +    if (st != 0x1u) {
-+        return 0xdead0000u | st;
++        return 0xee00u | st;
 +    }
 +    return *(volatile uint32_t *)(ch + 0x18) & 0xffu;
 +}
@@ -47,7 +46,6 @@
 +        printf("K60SPMI map failed\n");
 +        return;
 +    }
-+    printf("K60SPMI ver=%#x channels=%u\n", spmi_rd(0x000), spmi_rd(0x004) & 0x7ff);
 +    for (uint32_t n = 0; n < 758 && np < 6; n++) {
 +        uint32_t ppid = (spmi_rd(0x2000 + 4 * n) >> 8) & 0xfff;
 +
@@ -55,25 +53,32 @@
 +            ppids[np++] = ppid;
 +        }
 +    }
-+    printf("K60CFG rev=5 n=%u\n", np);
++    printf("K60CFG rev=6 n=%u\n", np);
 +    for (uint32_t i = 0; i < np; i++) {
 +        uint32_t p = ppids[i];
 +
-+        printf("K60P p=%#x type=%#x sub=%#x r0=%#x r1=%#x\n", p,
-+            spmi_read(p, 0x04), spmi_read(p, 0x05),
-+            spmi_read(p, 0x00), spmi_read(p, 0x01));
-+        printf("K60P p=%#x b0=%#x %#x %#x %#x b4=%#x %#x %#x %#x\n", p,
-+            spmi_read(p, 0x08), spmi_read(p, 0x09),
-+            spmi_read(p, 0x0a), spmi_read(p, 0x0b),
-+            spmi_read(p, 0x0c), spmi_read(p, 0x0d),
-+            spmi_read(p, 0x0e), spmi_read(p, 0x0f));
++        if (spmi_read(p, 0x04) != 0x0bu) {
++            continue;
++        }
++        printf("K60R p=%#x 40:%#x %#x %#x %#x %#x %#x %#x %#x\n", p,
++            spmi_read(p, 0x40), spmi_read(p, 0x41), spmi_read(p, 0x42),
++            spmi_read(p, 0x43), spmi_read(p, 0x44), spmi_read(p, 0x45),
++            spmi_read(p, 0x46), spmi_read(p, 0x47));
++        printf("K60R p=%#x 48:%#x %#x %#x %#x %#x %#x %#x %#x\n", p,
++            spmi_read(p, 0x48), spmi_read(p, 0x49), spmi_read(p, 0x4a),
++            spmi_read(p, 0x4b), spmi_read(p, 0x4c), spmi_read(p, 0x4d),
++            spmi_read(p, 0x4e), spmi_read(p, 0x4f));
++        printf("K60R p=%#x 50:%#x %#x %#x %#x %#x %#x %#x %#x\n", p,
++            spmi_read(p, 0x50), spmi_read(p, 0x51), spmi_read(p, 0x52),
++            spmi_read(p, 0x53), spmi_read(p, 0x54), spmi_read(p, 0x55),
++            spmi_read(p, 0x56), spmi_read(p, 0x57));
 +    }
 +}
 +
  static void touch_reset(void);
  
  static bool
-@@ -1209,6 +1275,7 @@
+@@ -1209,6 +1280,7 @@
              return false;
          }
          bool gpio_spi;

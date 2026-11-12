@@ -3803,3 +3803,68 @@ strings 里 "M11HTC":  present      <- 同上
   > 判据：pick 前后文件大小的变化幅度 —— 掉 40% 这种，几乎肯定覆盖了本地工作。
 - **已加检查**：`pick-upstream.py` 应在覆盖前比较文件大小，落差超过阈值时警告而不是静默覆盖。
   （待实现，记在这里。）
+
+### P-152 ★★★ Data 卷的 UUID 必须是设备上真实卷，不是 seed 里的那个
+
+- **症状**：内核启动到 owner mount 后自己 panic：
+  ```
+  PONG APFS: wait for Data UUID 6DCCF70A-6FD6-403E-ACED-95313CD7CBB8, timeout=5s
+  PONG APFS: Data UUID wait timed out
+  PONG APFS: window media uuid=1BCD69FF-24A5-48B1-94B6-8FE592B2F597 bsd=disk5s1 depth=8
+  K60DATA UFS Data window not published for 6DCCF70A-...
+  K60PANICARGS K60SELF novar ... datastage=0 dataerr=2 @kern_exec.c:8463
+  ```
+- **根因**：`CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 写的是 `seed/k60-data-seed.dbr`（32 MiB）里的
+  卷 UUID `6DCCF70A-…`。设备上那个 19.87 GiB 的 Data 窗口是后来长出来的另一个卷，
+  UUID 是 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`，容器是 `068446EE-…`。
+  Data 窗口本身发布正常、APFS 容器也挂上了 —— 内核只是拿一个不存在的 UUID 等了 5 秒。
+- **判据**：控制台里 `PONG APFS: window media count=N window=PongDataWindow` 及其后面
+  若干行 `window media uuid=…` 就是该窗口里真实存在的卷。UUID 必须从那里抄，不能从种子推。
+- **修法**：`configs/mondrian_defconfig` 改成实际卷 UUID，并在注释里写下日志出处。
+- **门禁**：`scripts/check-data-identity.py`（把 defconfig 的 UUID 与最近一份控制台日志里
+  观察到的 Data 窗口卷 UUID 交叉核对）。
+
+### P-153 ★★★ UFS Data 分支的尺寸天花板是 2 GiB，19.87 GiB 的窗口会被静默丢掉
+
+- **症状**：UUID 修好后仍然 `goto done`，`/private/var` 不挂载。
+- **根因**：`patches/xnu/offline-owner-systemos-mount.patch` 的 UFS 分支沿用了 scratch-seed
+  时代的 `if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;`。
+  2 GiB 对 32 MiB 的种子合适，对 19.87 GiB 的真实窗口就是拒绝。
+- **修法**：UFS 分支上限抬到 `0x800000000`（32 GiB = 整个 unixnu 分区）。
+  scratch-seed 分支（`XNU_NATIVE_RAM_BLOCK`）保持 2 GiB 不动。
+- **门禁**：`scripts/check-data-identity.py` 同时核对天花板 > 清单里 Data 窗口的实际字节数。
+
+### P-154 ★★ 重新构建的固件卷找不到 payload 卷；`cf448571…` 仍然能启
+
+- **症状**：`fastboot boot` 通过，屏上「failed to find an operating system」，串口：
+  ```
+  UNIXNURAMDISK: initrd block device 0xAA961000 size 0xD69DE00 Success
+  UNIXNU: config: no boot entry found
+  UNIXNU: config: none found, using built-in configuration
+  UNIXNU: menu: shown 4 entries, default 0 'exit'
+  ```
+- **已排除**：`Platforms/` 与 yibiya 仓库零差异、六个 Mu patch 逐字节相同、子模块 pin 相同、
+  payload FAT 在 `0x87000` 且 `EFI/UNIXNU/unixnu.toml` 可读（`mtype` 验证）、
+  去掉 Mu patch 重打（`patches = []`）仍然失败。
+- **当前状态**：未定位。可用做法是 `unixnu bootimg --fd /tmp/old-fd.fd` 用固件卷
+  `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`（从
+  `keep-a6165f2404568c1d.img` 里提出）先跑通内核这条线。
+- **已知基线**：`cf448571…` 能启；从源码重建的三个 pin（`3c9c7b2`+六补丁 →`f50b7e3c…`、
+  `3d2a9fa`/`6f805f2`+六补丁 → 直接冲突）都无法复现它。
+- **门禁**：`scripts/check-boot-procedure.py` 之外新增 `check-fd-identity.py`：
+  打包时若固件卷 sha256 不等于 `cf448571…` 且没有 `--allow-unverified-fd`，直接拒绝出图。
+
+### P-155 ★★ 给 kern_exec.c 的早期补丁加行会打断后面所有补丁
+
+- **症状**：`0302-data-cap-execerr-kxp.patch` 在 `bsd/kern/kern_exec.c:7434` 失配，
+  整轮 15 分钟构建作废：
+  ```
+  unixnu: XNU patch .../0302-data-cap-execerr-kxp.patch: git failed (1):
+  error: patch failed: bsd/kern/kern_exec.c:7434
+  ```
+- **根因**：`offline-owner-systemos-mount.patch` 在 `kern_exec.c` 里多加了 2 行注释，
+  后续补丁的上下文整体下移，`git apply` 不接受。
+- **修法**：改这类早期补丁时**保持净行数不变**——要么把注释压进已有的注释块，
+  要么同时删掉等量行。`fix-patch-hunks.py` 只重算 hunk 计数，不会替后续补丁找偏移。
+- **门禁**：`porting-gate.py` 的 `[S]` series 指纹会在补丁内容变化时要求显式
+  `--force-new-series`；真正的判据仍是完整构建。

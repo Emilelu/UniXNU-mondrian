@@ -1,0 +1,196 @@
+# /tmp references that iron rule 1 does not yet fail on.
+#
+# Every entry is debt: a path under /tmp that a committed file reads or
+# writes. The 2026-11-07 cleanup wiped /tmp/usb-cdc-mainline and took a day
+# of kernel patches with it; each line below is a place that can happen
+# again. Delete the entry when the path becomes persistent.
+
+version = 1
+
+[[allow]]
+path = "patches/xnu/0242-k60-entitlements-include-shim.patch::/tmp/air-native"
+reason = "补丁内的主机路径引用，尚未改成可覆盖变量"
+
+[[allow]]
+path = "patches/xnu/offline-owner-z-air-init.patch::/tmp/air-native"
+reason = "补丁内的主机路径引用，尚未改成可覆盖变量"
+
+[[allow]]
+path = "scripts/__pycache__/install-k60-ufs-data.cpython-312.pyc::/tmp/k60-data-window.cdrz"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/__pycache__/install-k60-ufs-data.cpython-312.pyc::/tmp/k60-shngroot-with-data.bin"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/__pycache__/install-k60-ufs-data.cpython-312.pyc::/tmp/x."
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/adt-generate.py::/tmp/k60build"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/adt-generate.py::/tmp/k60build/out/route-a18/adt-generated.bin"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/audit-forks.py::/tmp/mondrian-forks.json"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/build-darwin24-console.py::/tmp/k60build/out/route-a18/Pong-iPadOS18-native"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/build-darwin24-linux.sh::/tmp/k60build/out/feeds"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/build-darwin24-linux.sh::/tmp/k60build/out/route-a18/Pong-iPadOS18-native"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/build-darwin24-linux.sh::/tmp/k60build/out/route-a18/logs"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/build-darwin24-platform.py::/tmp/k60build/out/route-a18/Pong-iPadOS18-native"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/build-k60-platform-archives.py::/tmp/k60build/out/route-a18/Pong-iPadOS18-native"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/build-k60-platform-archives.py::/tmp/k60build/pong-driver"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/check-kernel-entry.py::/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/check-kernel-entry.py::/tmp/k60build/out/route-a18/Pong-iPadOS18-native/"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/check-kernel-thread-entry.py::/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/xnu/"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/check-kernel-thread-entry.py::/tmp/k60build/out/route-a18/Pong-iPadOS18-native/build/xnu/"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/check-tmp-artifacts.py::/tmp/usb-cdc-mainline"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/data2g-stream.sh::/tmp/data2g-seeks.txt"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/dump-boot-img-layout.py::/tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/device-tree/hardware.dtb"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/dump-boot-img-layout.py::/tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/payload/payload.img"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/extract-kernelcache-kexts.py::/tmp/k60build/out/ipsw/22H374/kernelcache.decompressed"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/extract-kernelcache-kexts.py::/tmp/k60build/out/ipsw/22H374/kext-ids.txt"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/extract-kernelcache-kexts.py::/tmp/k60build/out/ipsw/22H374/roots-darwin24.txt"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/install-k60-ufs-data.py::/tmp/k60-data-window.cdr"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/install-k60-ufs-data.py::/tmp/k60-shngroot-with-data.bin"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/install-k60-ufs-data.py::/tmp/x."
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/install-pong-ufs-data.py::/tmp/pong-shngroot-with-data.bin"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/install-pong-ufs-data.py::/tmp/pong-ufs-data-install.cdr"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/k60-prelink-darwin24.py::/tmp/k60build/out/ipsw/22H374/kernelcache.decompressed"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/k60-prelink-darwin24.py::/tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/kernel/kernel.macho"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/k60-prelink-darwin24.py::/tmp/k60build/out/route-a18/Pong-iPadOS18-native"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/k60-ramoops-read.sh::/tmp/ramoops-"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/parse-kernelcache-im4p.py::/tmp/k60build/out/ipsw/22H374/kernelcache.decompressed"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/parse-kernelcache-im4p.py::/tmp/k60build/out/ipsw/22H374/kernelcache.release.ipad7c"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/porting-gate.py::/tmp/usb-cdc-mainline/device/patches/xnu"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/sync-repos.sh::/tmp/k60-sync-last.txt"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/sync-repos.sh::/tmp/k60build"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/verify-boot-img-payload.py::/tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/kernel/kernel.macho"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/verify-boot-img-payload.py::/tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/payload/payload.img"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/verify-boot-img-shim.py::/tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/device-tree/hardware.dtb"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/verify-darwin24-img.sh::/tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/payload/payload.img"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/verify-k60-boot-img.sh::/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/device-tree/hardware.dtb"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/verify-k60-boot-img.sh::/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/payload/payload.img"
+reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/verify-kernel-platform-symbols.sh::/tmp/k60build/out/route-a18/Pong-iPadOS18-native/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf"
+reason = "构建脚本的运行期暂存目录"

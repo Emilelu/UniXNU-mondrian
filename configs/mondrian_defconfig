@@ -36,14 +36,16 @@ CONFIG_XNU_OWNER_CACHE_STARTUP=y
 CONFIG_XNU_OWNER_CRYPTEX_FILES=n
 CONFIG_XNU_OWNER_DATA_MOUNT=y
 # The Data volume is the UFS window installed at SBG 7420 MiB in the unixnu
-# SHNGROOT (APFS volume 6DCCF70A-... inside a GPT). The memory-backed seed is
-# not used: mounting APFS on that device never returns.
+# SHNGROOT (APFS volume inside a GPT). The memory-backed seed is not used:
+# mounting APFS on that device never returns.
 CONFIG_XNU_OWNER_DATA_UFS=y
-# The APFS volume inside seed/k60-data-seed.dbr is "OwnerData" with this UUID.
-# 576A2203-... is the pong board constant: this board boots its own seed, so the
-# lookup has to name that volume or /private/var never mounts and mkbinit fails
-# to write /private/var/keybags/systembag.kb.
-CONFIG_XNU_OWNER_DATA_VOLUME_UUID="6DCCF70A-6FD6-403E-ACED-95313CD7CBB8"
+# The live window is NOT the 32 MiB seed from seed/k60-data-seed.dbr: that seed
+# carries 6DCCF70A-..., while the volume the device actually publishes is
+# 1BCD69FF-... inside container 068446EE-... (console, 2026-11-12 17:09:
+# "window media uuid=1BCD69FF-24A5-48B1-94B6-8FE592B2F597 bsd=disk5s1").
+# Naming the seed's UUID here made the kernel wait 5 s, time out, and self-panic
+# with K60DATA dataerr=2 (ENOENT) at kern_exec.c:8463.
+CONFIG_XNU_OWNER_DATA_VOLUME_UUID="1BCD69FF-24A5-48B1-94B6-8FE592B2F597"
 CONFIG_XNU_OWNER_CACHE_VOLUME_UUID="15B507FA-21B7-4EE5-B55D-0F3445DE0752"
 CONFIG_XNU_OWNER_ROOT_AUDIT=n
 CONFIG_XNU_OWNER_ROOT_TRUST=n

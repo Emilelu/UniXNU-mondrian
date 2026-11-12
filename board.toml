@@ -59,13 +59,13 @@ config = "mondrian"
 dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
 fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
 patches = [
-  "Resources/MuPatches/AsmMacroLib.patch",
-  "Resources/MuPatches/Boot-Manager.patch"
+  # Mu_Basecore 6f805f2 already carries all six K60 fixes (3d2a9fa, "local patches for k60
+  # firmware build", is an ancestor). yibiya's build_uefi.py removes them for the same reason.
+  # Applying Boot-Manager.patch a second time is what this board did until 2026-11-12.
 ]
 packages = [
   "{uefi}",
   "{tree}/package",
-  "{tree}/drivers/DarwinBoot22",
   "{edk2}",
   "{uefi}/Platforms/Xiaomi",
   "{uefi}/Common/Mu",

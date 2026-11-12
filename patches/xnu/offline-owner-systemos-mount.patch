@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -6748,8 +6748,520 @@
+@@ -6748,8 +6748,522 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -417,10 +417,9 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	char device_path[64] = "/dev/md0";
 +#if defined(XNU_OWNER_DATA_UFS) && XNU_OWNER_DATA_UFS
 +	/*
-+	 * The Data volume is a real UFS window, the way the reference board runs it:
-+	 * the window is published by PongUfs, APFS attaches the container inside its
-+	 * GPT, and this lookup matches the volume by UUID. The memory-backed seed is
-+	 * deliberately not used here - mounting APFS on that device never returns.
++	 * The Data volume is a real UFS window: PongUfs publishes it, APFS attaches
++	 * the container inside its GPT, and this lookup matches the volume by UUID.
++	 * The memory-backed seed is not used - mounting APFS on it never returns.
 +	 */
 +	uint64_t ufs_bytes = 0;
 +	if (!k60_ufs_data_volume_device(XNU_OWNER_DATA_VOLUME_UUID, &device, device_path,
@@ -433,7 +432,8 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	size = ufs_bytes;
 +	printf("K60DATA UFS window dev=%x path=%s bytes=%llx\n",
 +	    (unsigned)device, device_path, (unsigned long long)size);
-+	if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;
++	/* 32 GiB ceiling: this window is the whole unixnu slice, not a small seed. */
++	if (!size || size > UINT64_C(0x800000000) || (size & 4095)) goto done;
 +#elif defined(XNU_NATIVE_RAM_BLOCK) && XNU_NATIVE_RAM_BLOCK
 +	/* The typed provider supplies logical seed identity for both dense and
 +	 * sparse media. A sparse disk has no contiguous logical-byte address. */

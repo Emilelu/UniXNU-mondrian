@@ -1,0 +1,348 @@
+# Compliance registry: every iron rule, every gated pitfall and every normative
+# requirement this repository asks for lives here with an executable check.
+#
+# `scripts/check-rules.py` reads this file, runs every `check`, and fails when
+#   * a registered check exits non-zero,
+#   * an iron rule has no entry,
+#   * a pitfall newer than `grandfather_through` has no entry.
+#
+# A rule that cannot be machine-checked yet still needs an entry with a `waiver`
+# that explains why and names what would make it checkable. A waiver is a debt,
+# not an exemption: it is printed in every report.
+version = 1
+grandfather_through = 151   # P-001..P-151 predate the registry; new ones must register
+
+# ---------------------------------------------------------------- iron rules
+
+[[rule]]
+id = "iron-1"
+kind = "iron"
+source = "AGENTS.md:iron-1"
+statement = "Nothing durable lives in /tmp."
+check = "python3 scripts/check-tmp-artifacts.py"
+
+[[rule]]
+id = "iron-2"
+kind = "iron"
+source = "AGENTS.md:iron-2"
+statement = "Source is tracked and pushed before the next step."
+check = "python3 scripts/check-tree-clean.py"
+
+[[rule]]
+id = "iron-3"
+kind = "iron"
+source = "AGENTS.md:iron-3"
+statement = "Follow the eight-step process; no flashing without step 7."
+check = "python3 scripts/eight-step-gate.py --build"
+
+[[rule]]
+id = "iron-4"
+kind = "iron"
+source = "AGENTS.md:iron-4"
+statement = "Check the official component catalog before writing a driver."
+check = "python3 scripts/porting-gate.py --quick"
+
+[[rule]]
+id = "iron-5"
+kind = "iron"
+source = "AGENTS.md:iron-5"
+statement = "The build input and the repository never diverge."
+check = "python3 scripts/sync-device-input.py --check"
+
+[[rule]]
+id = "iron-6"
+kind = "iron"
+source = "AGENTS.md:iron-6"
+statement = "Every upstream pickup is triaged and recorded."
+check = "python3 scripts/check-upstream-triage.py"
+
+[[rule]]
+id = "iron-7"
+kind = "iron"
+source = "AGENTS.md:iron-7"
+statement = "A snapshot tag exists for the state a build or flash starts from."
+check = "python3 scripts/check-snapshot-tag.py"
+
+[[rule]]
+id = "iron-8"
+kind = "iron"
+source = "AGENTS.md:iron-8"
+statement = "A boot without the serial console is a blind experiment."
+check = "python3 scripts/check-boot-procedure.py"
+
+# ------------------------------------------------------------------ pitfalls
+
+[[rule]]
+id = "P-147"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-147"
+statement = "A driver property the DT never declares silently disables its diagnostics."
+check = "python3 scripts/check-dt-asserts.py"
+
+[[rule]]
+id = "P-151"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-151"
+statement = "A file-level upstream pick overwrites local work on the same file."
+check = "python3 scripts/check-pick-shrink.py"
+
+[[rule]]
+id = "P-152"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-152"
+statement = "The Data volume UUID must be the volume the device publishes, not the seed's."
+check = "python3 scripts/check-data-identity.py"
+
+[[rule]]
+id = "P-153"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-153"
+statement = "The UFS Data size ceiling must cover the real window."
+check = "python3 scripts/check-data-identity.py"
+
+[[rule]]
+id = "P-154"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-154"
+statement = "A rebuilt firmware volume does not find the payload volume."
+waiver = """unlocated as of 2026-11-12: the rebuilt FD never reports a file system volume
+while the extracted cf448571 volume does, with identical Platforms/, pins and Mu patches.
+Becomes checkable once a firmware serial capture can be produced automatically."""
+
+[[rule]]
+id = "P-155"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-155"
+statement = "Adding lines to an early kern_exec.c patch breaks every later patch."
+check = "python3 scripts/check-patch-series.py"
+
+[[rule]]
+id = "hard-1"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★1"
+statement = "先整篇读，禁止先 grep"
+waiver = "整篇读 vs 先 grep 是人的行为，无法从仓库状态判定；改成「每次改文件前必须引用文件:行号」，由 ★2 的检查覆盖"
+
+[[rule]]
+id = "hard-2"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★2"
+statement = "任何改动必须能指出「文件:行号」依据"
+waiver = "依据引用格式可被脚本检查，但判据是语义的；等有人写出「每个改动都带 file:line」的机器可读清单再加检查"
+
+[[rule]]
+id = "hard-3"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★3"
+statement = "先抄清单逐条执行，禁止跳步"
+waiver = "跳步由八步流程门禁兜底（iron-3），清单本身无法机器判定"
+
+[[rule]]
+id = "hard-4"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★4"
+statement = "选型必须有同型设备的成功证据"
+waiver = "同型设备成功证据属于调研结论，靠 research-gate 的证据字段间接保证"
+
+[[rule]]
+id = "hard-5"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★5"
+statement = "变动必须及时 commit"
+check = "python3 scripts/check-tree-clean.py"
+
+[[rule]]
+id = "hard-6"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★6"
+statement = "用户重复交代同一件事 = 文档缺陷，立刻补进去"
+waiver = "「用户重复交代 = 文档缺陷」需要一个对话记录输入源，仓库里没有"
+
+[[rule]]
+id = "hard-7"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★7"
+statement = "动外部资源前先探活"
+waiver = "探活是运行期动作；可检查的形式是脚本里先 ping 再操作，尚未统一写法"
+
+[[rule]]
+id = "hard-8"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★8"
+statement = "boot-args 硬上限 608 字符，加参数前必须量长度"
+check = "python3 scripts/check-boot-args.py"
+
+[[rule]]
+id = "hard-9"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★9"
+statement = "分支卫生、及时合并 main、README/porting.toml 随现状更新"
+check = "python3 scripts/check-docs.py"
+
+[[rule]]
+id = "hard-10"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★10"
+statement = "commit 之后必须 push：本地提交不等于成果存在"
+check = "python3 scripts/check-tree-clean.py"
+
+[[rule]]
+id = "hard-11"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★11"
+statement = "push 必须在 Windows 侧执行，WSL 里的 git 没有凭据会静默挂起"
+check = "python3 scripts/check-tree-clean.py"
+
+[[rule]]
+id = "hard-12"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★12"
+statement = "能复用的工具、流程、命令，立刻写文档——不要等用户提醒"
+waiver = "「能复用的工具立刻写文档」不可判定；docs 门禁只能保证已写的文档不烂"
+
+[[rule]]
+id = "hard-13"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★13"
+statement = "遇到坑必须**当轮**写进文档，且必须升为可检索的条目"
+waiver = "坑必须当轮记录，由 RULES.toml 的覆盖检查间接保证（新坑不登记即失败）"
+
+[[rule]]
+id = "hard-14"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★14"
+statement = "构建链的四个真相源，改错地方等于没改"
+waiver = "四个真相源的具体路径随仓库演进，写死后会像 P-154 一样过期"
+
+[[rule]]
+id = "hard-15"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★15"
+statement = "补丁格式有三个 git apply 硬性要求，错一个就返工"
+check = "python3 scripts/check-patch-series.py"
+
+[[rule]]
+id = "hard-16"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★16"
+statement = "门控开关：先查「哪个函数读哪个 arg」，再谈为什么没生效"
+waiver = "门控开关要先查哪个函数读哪个 arg，属于调试方法而非仓库性质"
+
+[[rule]]
+id = "hard-17"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★17"
+statement = "MMIO 三件事：窗口要够大、偏移要真实、地址要虚拟"
+waiver = "MMIO 三件事需要运行期窗口信息，静态不可判定"
+
+[[rule]]
+id = "hard-18"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★18"
+statement = "硬件协议层：先反编译控制器，再写协议；同型号可抄但要核对"
+waiver = "「先反编译控制器」是过程要求；可检查的替代是 porting.toml 的 catalog 字段（iron-4）"
+
+[[rule]]
+id = "hard-19"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★19"
+statement = "证据判定：日志里没有 ≠ 没运行；单一字段不判完成度"
+waiver = "证据判定标准，可被八步流程 ⑦ 的 artifact_check 部分覆盖"
+
+[[rule]]
+id = "hard-20"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★20"
+statement = "init / 用户态：不重编能手工作的二进制，用内核侧做"
+waiver = "init 侧取舍属于设计判断"
+
+[[rule]]
+id = "hard-21"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★21"
+statement = "subagent 只能做「单窗口可完成 + 必须产出文件」的任务"
+waiver = "subagent 任务边界靠 SUBAGENT-DELIVERABLES 台账，已由 check-subagent-ledger.py 覆盖"
+
+[[rule]]
+id = "hard-22"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★22"
+statement = "仓库与同步：push 在 Windows、pull 要真拉、版本要先对齐"
+waiver = "仓库同步流程由全量同步任务与 iron-5 覆盖"
+
+[[rule]]
+id = "hard-23"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★23"
+statement = "不要重复造轮子：先查 zizhan / 官方仓库 / 本地工具"
+waiver = "「先查有没有现成的」需要 catalog 查询记录，属于 iron-4 的 porting-gate 范围"
+
+[[rule]]
+id = "hard-24"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★24"
+statement = "改构建脚本前必须 `diff -u` 黄金脚本"
+waiver = "改构建脚本前 diff 黄金脚本，可用 git diff 事后检查，但无法证明人看过"
+
+[[rule]]
+id = "hard-25"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★25"
+statement = "「能编过」不等于「能运行」：运行时判据优先"
+waiver = "「能编过 ≠ 能运行」由八步流程 ⑧ 上机门禁覆盖"
+
+[[rule]]
+id = "hard-26"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★26"
+statement = "往文件系统放东西之前，先查构建脚本怎么放的"
+waiver = "往文件系统放东西前先查构建脚本怎么放，属于过程要求"
+
+[[rule]]
+id = "hard-27"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★27"
+statement = "改嵌入式二进制后必须查段表，不能只看文件大小"
+waiver = "段表检查可用 llvm-otool 自动化，尚未写成脚本；写入 RULES.toml 待实现"
+
+[[rule]]
+id = "hard-28"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★28"
+statement = "「0 字节日志」先查日志开没开，再查代码"
+waiver = "0 字节日志先查日志开关，属于诊断顺序要求"
+
+[[rule]]
+id = "hard-32"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★32"
+statement = "跟进上游必须覆盖「全部分支」，且必须能报「新增了什么」"
+waiver = "全分支跟进由 track-upstream-branches.py + iron-6 覆盖"
+
+[[rule]]
+id = "hard-33"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★33"
+statement = "porting.toml 按官方规范维护，改动后必须跑 schema 门禁"
+check = "python3 scripts/porting-gate.py --quick"
+
+[[rule]]
+id = "hard-34"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★34"
+statement = "协议/型号只能实测确认；同 SoC 兄弟移植优先于通用驱动"
+waiver = "协议/型号只能实测确认，由八步流程 ① 同型号证据覆盖"
+
+[[rule]]
+id = "hard-36"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★36"
+statement = "README / INDEX 必须与仓库现状同步，且有门禁兜底"
+check = "python3 scripts/check-docs.py"
+
+[[rule]]
+id = "hard-37"
+kind = "hard"
+source = "docs/engineering/HARD-RULES.md:★37"
+statement = "待办与文档里禁止硬编码上游 SHA"
+waiver = "禁止硬编码上游 SHA：可由脚本扫描 docs 里的 40 位十六进制串，但误报率高，待设计允许列表后实现"

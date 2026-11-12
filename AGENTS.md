@@ -133,17 +133,27 @@ then run automatically and must all pass.
 
 ## Gates
 
-Four checks run before `build` or `flash`; any failure aborts.
+`python3 scripts/check-rules.py` is the registry: it runs every check below and
+also fails when an iron rule or a new pitfall has no check registered at all.
+The list itself lives in `docs/engineering/RULES.toml`, so a rule that is only
+prose is a red build, not a wish.
 
 | Gate | Command | Checks |
 |---|---|---|
+| Registry | `python3 scripts/check-rules.py` | Every iron rule and every pitfall after P-151 has an executable check or a written waiver |
+| Temp artefacts | `python3 scripts/check-tmp-artifacts.py` | No `/tmp` path is read as a durable source without an entry in `docs/engineering/TMP-ALLOWLIST.toml` (iron rule 1) |
+| Tree clean | `python3 scripts/check-tree-clean.py` | No tracked file is modified but uncommitted, and `HEAD` is not behind its upstream (iron rule 2) |
+| Data identity | `python3 scripts/check-data-identity.py` | The compiled Data volume UUID exists in the newest console log, and the UFS size ceiling covers the real window (P-152, P-153) |
+| Patch budget | `python3 scripts/check-patch-series.py` | The net line delta every series patch applies to `bsd/kern/kern_exec.c` still matches the recorded baseline (P-155) |
+| Pick shrink | `python3 scripts/check-pick-shrink.py` | A file-level upstream pick cannot silently replace a larger local file (P-151) |
 | Research | `python3 scripts/research-gate.py` | Every source in `docs/research/SOURCES.toml` has `examined` plus a written `finding` |
 | Eight-step | `python3 scripts/eight-step-gate.py --build` / `--flash` | ①–⑥ for build, ①–⑦ plus the ⑧ prediction for flash |
 | Porting | `python3 scripts/porting-gate.py --quick` | `porting.toml` matches the official schema; the README table matches the data |
 | Docs | `python3 scripts/check-docs.py` | Link integrity, INDEX coverage, root-doc links, section order, bilingual |
 | Scope freeze | `python3 scripts/check-scope-freeze.py` | Nothing under a frozen path in `docs/SCOPE-FREEZE.toml` changed since its baseline; frozen areas warn instead of fail |
 | DT asserts | `python3 scripts/check-dt-asserts.py` | Every `property(entry,"X",...)` a driver patch reads exists in `dts/mondrian.dts`; a missing one means the driver returns false and its diagnostics never run (P-147) |
-| Input sync | `python3 scripts/sync-device-input.py --check` | The build input matches the repository; nothing exists in only one of them (iron rule 5) | parity |
+| Input sync | `python3 scripts/sync-device-input.py --check` | The build input matches the repository; nothing exists in only one of them (iron rule 5) |
+| Boot procedure | `python3 scripts/check-boot-procedure.py` | Every boot captures the serial console first and never `fastboot flash`es a partition (iron rule 8) |
 
 `scripts/porting-gate.py` hosts sections `[T]` (docs), `[R]` (porting schema),
 `[Q]` (patch structure), `[P]` (protocol assertion) and `[S]` (series fingerprint).

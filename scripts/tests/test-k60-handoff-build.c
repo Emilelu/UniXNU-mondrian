@@ -85,6 +85,34 @@ int main(void)
             *(uint32_t *)(out + 72) == 0) { printf("FAIL offset triple\n"); fails++; }
     }
 
+
+    /* K60PmicGlink::discover() reads the descriptor as uint32_t and rejects a
+     * smp2p state that is not 4-byte aligned, so every leased offset must be
+     * 8-aligned and the sizes must survive the same read. */
+    {
+        const uint32_t offs[3] = {
+            *(uint32_t *)(out + 56), *(uint32_t *)(out + 64),
+            *(uint32_t *)(out + 72)
+        };
+        const uint32_t lens[3] = {
+            *(uint32_t *)(out + 60), *(uint32_t *)(out + 68),
+            *(uint32_t *)(out + 76)
+        };
+        unsigned k;
+        /* The lease carries offsets for desc/tx/rx only; smp2p is re-found by
+         * its item id, so +92 is an id and never an offset. */
+        for (k = 0; k < 3; ++k) {
+            if (offs[k] == 0 || (offs[k] & 7u) != 0) {
+                printf("FAIL alignment item%u off=%#x\n", k, offs[k]);
+                fails++;
+            }
+        }
+        if (lens[0] != 32u || lens[1] < 256u || lens[2] < 256u) {
+            printf("FAIL lease sizes\n");
+            fails++;
+        }
+    }
+
     /* Second build must reuse the same items, not duplicate them. */
     {
         uint8_t out2[K60_HANDOFF_BYTES];
@@ -102,6 +130,6 @@ int main(void)
         if (*(uint32_t *)&mem[part + 12] != up_before) { printf("FAIL partition touched\n"); fails++; }
     }
 
-    printf(fails ? "TESTS FAILED %d\n" : "TESTS OK 8\n", fails);
+    printf(fails ? "TESTS FAILED %d\n" : "TESTS OK 9\n", fails);
     return fails != 0;
 }

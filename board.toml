@@ -168,16 +168,24 @@ dram_size = "0x140000000"
 #   amfi_get_out_of_my_way=1, launchd_unsecure_cache=1, xpcproxy_idversion=1,
 #   k60_entitlement_allow=1, k60_skip_iosurface=1: the userland gates that let
 #   launchd and SpringBoard start without a real AMFI/SEP.
+#   pong_metal=2, k60_autoreset=300, applog=1 and the absence of fb_threads /
+#   k60_textonly are not cosmetic: the 2026-11-11 image that boots into
+#   SpringBoard passes exactly this set, and the 2026-11-12 builds that replace
+#   pong_metal=2 with 1 lose SpringBoard to a code-signing page storm
+#   (cs_invalid_page 11x, 27 corpses) while the same kernel with these arguments
+#   still reaches userland. k60_touch_se is absent on purpose: the driver
+#   rejects 19 and stops polling, and stage 6 cannot reach the panel anyway
+#   until the qup4 GPIO SPI pin roles exist in the ADT.
 kernel_args = [
   "-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x140",
   "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1",
   "pong_ufs_readwrite=1", "k60_console_export=1", "k60_usblog=2", "pong_data_mount=1",
-  "pong_data_rw=1", "fb_threads=3", "k60_textonly=1", "amfi_get_out_of_my_way=1",
+  "pong_data_rw=1", "amfi_get_out_of_my_way=1",
   "pong_init_path=/private/var/pong/init", "epoch=1793709100", "k60_fontscale=3",
   "k60_skip_firmware_mount=1", "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
   "xpcproxy_idversion=1", "k60_init_blob=1", "k60_launchd_cache=1", "k60_entitlement_allow=1",
-  "k60_skip_iosurface=1", "k60_panic_reset=1", "k60_touch_se=6", "pong_adreno_start=1",
-  "pong_metal=1",
+  "k60_skip_iosurface=1", "k60_panic_reset=1", "pong_adreno_start=1",
+  "pong_metal=2", "k60_autoreset=300", "applog=1",
 ]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the

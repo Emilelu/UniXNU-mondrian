@@ -167,6 +167,38 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 | `porting.toml` | 14 个子系统的记录（官网设备页数据源）|
 | `CREDITS.md` | 贡献者与来源 |
 
+## GPU / Metal：种子已就位，插件无人加载（2026-11-13 06:16 实测）
+
+`K60SEED` 三行证明内核侧投递成功，且权限与判据完全吻合：
+
+```
+K60SEED /private/var/pong/PongAdrenoMetal.publish          bytes=2   resid=0 error=0 uid=0 mode=0x81a4
+K60SEED /private/var/pong/PongAdrenoMetal.clients          bytes=122 resid=0 error=0 uid=0 mode=0x81a4
+K60SEED /private/var/pong/PongAdrenoMetal.bundle/Info.plist bytes=555 resid=0 error=0 uid=0 mode=0x81ed
+```
+
+`0x81a4` = 0644、`0x81ed` = 0755、`uid=0`，满足 `PongMetalPlugin.mm:191-200` 的
+`S_ISREG` / `st_uid == 0` / `(st_mode & 022) == 0` 三个条件。
+
+同一次启动里 `PONG METAL: … publication status=0x0`，说明 `IOAcceleratorES` 也发布了。
+
+**但 UI 依旧判定软件路径**，而且原因是可定位的：`userland/ui_compat.c:510` 只有在
+`MTLCreateSystemDefaultDevice()` 返回 nil 时才打印
+`optional camera-filter GPU prewarm skipped (software-only platform)`——
+所以那不是“策略选择”，是**这个进程里确实没有 Metal 设备**。
+
+同一份日志里 `DYLD_INSERT`、`PongMetal`、`libpong` 三个词零命中，
+`NativeAdrenoPublish.cpp` 的 MetalPluginName 读取者计数也没有输出，
+说明 `PongAdrenoMetal.bundle` 虽然被 0340 部署到 `/private/var/pong/`，
+**却从来没有任何进程 dlopen 过它**。Apple 的 Metal 装载器只认
+`/System/Library/Extensions/<MetalPluginName>.bundle`，而我们根卷是密封的（P-27），
+所以“把 bundle 放对位置”这条路本身不成立。
+
+结论：剩下的不是权限问题，也不是 GPU 硬件问题，而是**装载路径**问题——
+必须由用户态自己在调用 `MTLCreateSystemDefaultDevice()` 之前
+`dlopen("/private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal", RTLD_NOW|RTLD_GLOBAL)`，
+让 ObjC 类先注册进进程，再让 Metal 去匹配 IOAcceleratorES。
+
 ## GPU / Metal 现状（2026-11-13 实测，修正旧结论）
 
 三条来自 `E:\k60-work\evidence\usblog-20261113-055021\console.log`：

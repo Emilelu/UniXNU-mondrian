@@ -3758,3 +3758,28 @@ strings 里 "M11HTC":  present      <- 同上
   - 构建输入里多出来的补丁直接删（真源是仓库）
   - 有差异就失败，已挂进 `clean_build.sh`，在其它门禁之前
   - 构建前先自动同步一次，再检查，所以失败意味着「连自动同步都没救回来」
+
+### P-149 ★★★ 传错 DTB：镜像大了 478 KB，起不来
+
+- **症状**：`fastboot boot` 返回 OKAY，设备闪一下复位回 fastboot，COM5 完全枚举不出来。
+  没有任何日志，因为死在 UEFI 读内核之前。
+- **根因**：`./unixnu bootimg --dtb` 传的是 UEFI 仓库里的全量 DTB：
+  ```
+  ❌ uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb   480,692 B
+  ✅ out-baseline/.../device-tree/hardware.dtb                                         2,925 B
+  ```
+  打进 boot.img 的 kernel 区是 `gzip(shim + firmware) + dtb`，DTB 直接挂在尾部。
+  480 KB 的 DTB 让 kernel 区从 548,774 B 涨到 1,027,600 B。
+- **怎么一眼看出来**：
+  ```python
+  # 解 gzip 忽略尾部，比较两镜像的 gzip 部分和尾部
+  keep: gzip 546,908 B（sha256 相同）+ 尾部 1,866 B
+  r52 : gzip 546,908 B（sha256 相同）+ 尾部 480,692 B
+                                              ↑ 差别全在这里
+  ```
+  **固件完全相同，差的全是 DTB。** 这一条就把"固件变了 / kernel 变了 / boot-arg 变了"
+  三个错误假设一次性排除。
+- **教训**：
+  > **镜像起不来时，先把 boot.img 拆开逐段比，不要猜 kernel / boot-arg / 驱动。**
+  > **两个组件仓库里都有名字像 DTB 的文件，选错一个就是 478 KB 的差距。**
+- **已写进**：`docs/engineering/REPO-MAP.md` 第四节，标明该用哪个 DTB 和判据。

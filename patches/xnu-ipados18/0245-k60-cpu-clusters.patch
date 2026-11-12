@@ -25,7 +25,7 @@
  */
 --- a/pexpert/pexpert/arm64/board_config.h
 +++ b/pexpert/pexpert/arm64/board_config.h
-@@ -274,7 +274,15 @@
+@@ -274,6 +274,14 @@
  #include <pexpert/arm64/PONG.h>
  #define MAX_L2_CLINE                   6
  #define MAX_CPUS                       8

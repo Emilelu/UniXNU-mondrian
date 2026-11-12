@@ -70,6 +70,10 @@ SKIP_PATHS = (
     # 145-line upstream version and dropped the entries for BOOT-PROCEDURE.md,
     # BOOT-ARGS.md and HARD-RULES.md, which fails check-boot-procedure.py G.
     'docs/INDEX.md', 'docs/',
+    # porting.toml carries the board's area contract; an upstream copy dropped
+    # the cellular area and made porting-gate.py refuse with
+    # "[R] 必需部分缺失 cellular" (P-151, second instance).
+    'porting.toml',
     'AGENTS.md', 'README.md', 'README_EN.md', 'CREDITS.md',
     'docs/SCOPE-FREEZE.toml', '.gitignore',
 )

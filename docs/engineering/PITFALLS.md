@@ -3682,3 +3682,44 @@ strings 里 "M11HTC":  present      <- 同上
 
 **判断依据**：只有引用之后，内核大小才会变化、`nm` 里才会出现符号。
 这两个是唯一可靠的判据 —— 不能只看构建是否成功。
+
+### P-147 ★★★ 诊断写进了内核，但所在函数从未被执行
+
+- **症状**：连续十几轮往触摸驱动里加诊断（device confirm、SPI mode select、CFG-DL、
+  COORD-MODE、触点解析），构建成功、`strings` 能在内核里找到这些字符串，**但上机日志里一行都没有**。
+- **根因**：`pong_goodix_init()` 的第一步是 `configuration()`，它用一串短路 `&&` 断言 DT 属性：
+  ```c
+  property(entry,"avdd-gpio",&avdd_gpio,4) &&
+  property(entry,"max-x",&max_x,4) && property(entry,"max-y",&max_y,4) &&
+  ...
+  avdd_gpio==71 && max_x==14400 && max_y==32000;
+  ```
+  而构建出的 ADT 里**根本没有 `avdd-gpio`**，`max-x` 是 1080（面板像素）、`max-y` 是 2412。
+  `configuration()` 恒返回 false → `pong_goodix_init()` 打印
+  `Pong touch: missing/incompatible K60 DT` 后直接 return →
+  **`bring_up()` / `touch_thread()` 里的全部诊断一次都没跑。**
+- **为什么难发现**：
+  1. 构建成功、符号在、字符串在 —— 每一步"看起来都对"
+  2. 那条 `missing/incompatible K60 DT` 日志如果没抓到，就完全看不出驱动提前退出了
+  3. 诊断加得越多，越容易以为"加了就会打印"
+- **教训**：
+  > **加诊断之前，先确认诊断所在的函数会被执行。**
+  > **一个 `if (!configuration()) return;` 能让后面几百行全部变成死代码，而构建对此一无所知。**
+- **已加门禁**：`scripts/check-dt-asserts.py`
+  - 解析驱动补丁里的 `property(entry,"X",...)` 调用
+  - 对照 `dts/mondrian.dts` 里对应节点的属性
+  - 缺一个就失败（冻结区只警告）
+  - 已挂进 `clean_build.sh`，位置在 `check-scope-freeze.py` 之前
+- **它还立刻抓到了第二个问题**：`pong-touch` 不只缺 `avdd-gpio`，还缺 `bitbang-pins`
+  —— 后者是 GPIO 回退路径的必需项。
+
+#### 同类风险清单（还没检查过）
+
+`configuration()` 这种"断言一切、缺一即退"的写法如果还有别处，同样会让诊断静默失效：
+
+- [ ] `pong_buttons` 的 `configuration()` —— 已确认 6 个属性齐全
+- [ ] `PongAdrenoPlatform` 的 `start()` 前置检查
+- [ ] `NativeUfs` 的 `configuration()`
+- [ ] `PongAudio`（将来实现时）
+
+**每个新驱动在写 `configuration()` 时，必须同时给 `check-dt-asserts.py` 加一条对应规则。**

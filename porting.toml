@@ -308,7 +308,7 @@ evidence = []
 id = "power"
 status = "device-verified"
 components = []
-paths = ["package/*Battery*", "package/*Battmgr*", "package/*Power*", "package/*PlatformPower*", "package/QcomQmp*", "package/QcomRpmh*", "package/QcomScm.h", "scripts/*power*", "scripts/*battery*", "scripts/*pmgr*"]
+paths = ["package/*Battery*", "package/*Battmgr*", "package/*Power*", "package/*PlatformPower*", "package/QcomQmp*", "package/QcomRpmh*", "package/QcomScm.h", "scripts/*power*", "scripts/*battery*", "scripts/*pmgr*","drivers/PongPower/**"]
 inputs = [
   "RPMh, TLMM, pm8350c LDOs, GPIO71 AVDD, and the qti_battery_charger_main_m81 charger.",
 ]

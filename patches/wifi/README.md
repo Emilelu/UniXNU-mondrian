@@ -59,3 +59,33 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 ```
 
 > 原补丁与原始 `new/` 文件保留在 `patches/original/` 供对照；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。
+
+---
+
+## 接线状态（2026-11-12 核实，SA-03）
+
+**这 9 个补丁此前从未被应用** —— 全仓没有任何 `series` 或 applier 引用 `patches/wifi`。
+本目录现在有 `series`（0001-0009），但要真正生效还需要两步：
+
+1. **接入构建**：`unixnu` 目前只认 `patches/xnu/series`。要么把 wifi 补丁并进那条系列，
+   要么在构建流程里加一个 applier 步骤。
+2. **`0010` 缺失**：README 里说必需的 `0010`（在 `build-xnu-4k-baseline.sh` 加
+   `-force_load libPongWifiNative.a`）在最终系列和本仓里都不存在。
+   没有它，archive 编出来也不会链进内核。
+
+## 已知 bug：refgen 索引写错
+
+`PongWifiPlatform.cpp:221`（在 `0001` 补丁里）：
+
+```c
+gcc.w(0x7b04c, (1u << 8) | 11u);
+```
+
+`11` 是 **Pong 的** refgen 索引。K60 profile 的 100 MHz 在 **index 10**
+（index 11 全 0），而 `0009` 的脚本也断言 `[10]`。
+
+**首次 bring-up 必选错父时钟，链路训练会失败。**
+
+`:335` 的 `gcc.w(0x7b04c, 1)` 也要按 K60 重算。
+
+修法：把 11 改成 10，或参数化（从 DT/profile 读索引）。

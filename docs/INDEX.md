@@ -96,6 +96,7 @@ docs/
 |---|---|---|
 | `state/SESSION-DIRECTIVES-2026-11-07.md` | 2026-11-07 会话的用户指令总账 | 参考 |
 | `state/STATE-2026-11-07.md` | 2026-11-07 的当前真相快照 | **过时**，现以 `engineering/STATUS.md` 为准 |
+| `engineering/BATTERY-INTEGRATION.md` | **电池栈编译集成**：构建脚本 4 处改动、defconfig 开关、宏链路、归档构建时机、无 PAS1 时的运行时行为 |
 | `BOOT-ARGS.md` | **Boot 参数参考**：每个参数的接受值/默认/陷阱，608 字节预算，三个 GPU 开关的串行依赖 |
 | `state/TRUST-LEDGER.md` | 数值可信度台账（T/E/C 分级） | 参考 |
 | `state/NEXT-STEPS.md` | 当时的推进顺序 | **过时** |

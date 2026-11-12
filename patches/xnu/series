@@ -212,4 +212,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0400-k60-pid26-slide.patch
 0401-k60-embedded-init.patch
 0398-k60-pong-runtime-directories.patch
-patches/xnu/0600-k60-display-composition.patch
+0600-k60-display-composition.patch

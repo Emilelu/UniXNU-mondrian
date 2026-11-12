@@ -38,7 +38,7 @@ note = "触摸/GPU 主线分支，已部分采纳（见 cc584ca）"
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "fix/boot-v4-repack"
-watermark = "1e0030e1e"
+watermark = "f44574515"
 note = "v4 打包偏移修复，我们不适用"
 
 [[branch]]
@@ -94,7 +94,7 @@ note = "[adt.arm-io.*] 生成器修复，对触摸/按键 DT 直接相关"
 repo = "yibiya/UniXNU"
 mirror = "references/yibiya-unixnu-upstream"
 branch = "fix/ufs-data-payload"
-watermark = "a1b4bc9f5"
+watermark = "9a32b6122"
 note = "UFS Data 不该挂 ram seed，我们 config 两个都开了"
 
 [[branch]]
@@ -193,3 +193,48 @@ subject = "docs(adt): document absolute peripheral metadata"
 verdict = "deferred"
 reason = "同 1e1a70e"
 review_after = "2026-11-13"
+
+# ---- 2026-11-12 10:20-10:47 新增 ----
+
+[[commit]]
+sha = "182c0a2"
+subject = "fix(adt): retain CPU and UFS handoff properties"
+verdict = "picked"
+how = "直接取 scripts/unixnu/devicetree.py + scripts/test-devicetree-handoff.py"
+reason = "U32/U64 表补了 pong,ufs-* 与 pong,smmu-* 九个名字，CPU 节点加 cpu-id、cpus 加 max_cpus。我们 DTS 里这九个属性全都有，之前类型不对所以导出成 bytes。他的测试跑了：2 tests OK。"
+date = "2026-11-12"
+
+[[commit]]
+sha = "9a32b61"
+subject = "docs(adt): document CPU and UFS handoff bindings"
+verdict = "not-applicable"
+reason = "纯文档，对应 182c0a2，代码已取"
+date = "2026-11-12"
+
+[[commit]]
+sha = "810eecb"
+subject = "docs(boot): record ADT contract omissions"
+verdict = "not-applicable"
+reason = "纯文档，记录 ADT 契约缺项，正是 182c0a2 修的问题"
+date = "2026-11-12"
+
+[[commit]]
+sha = "e7391cb"
+subject = "fix(ui): keep initial native lockscreen locked"
+verdict = "deferred"
+reason = "改 0340-k60-uilib-deploy.patch（3844 行重写）+ userland/ui_compat.c。我们 0340 有 1,052,856 B（上游 491,930 B），差异很大，直接替换会覆盖我们的改动，需要先比对再决定"
+review_after = "2026-11-13"
+
+[[commit]]
+sha = "5abea9a"
+subject = "docs(boot): record unchanged-kernel recovery candidate"
+verdict = "not-applicable"
+reason = "纯文档，porting.toml 元数据"
+date = "2026-11-12"
+
+[[commit]]
+sha = "f445745"
+subject = "docs(input): record live transport and lockscreen state"
+verdict = "not-applicable"
+reason = "纯文档，PITFALLS + porting.toml。但内容值得读：记录 live transport 和 lockscreen 状态"
+date = "2026-11-12"

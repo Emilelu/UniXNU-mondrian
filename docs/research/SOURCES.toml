@@ -212,6 +212,27 @@ examined = "2026-11-12"
 finding = """本次 ①②③ 调研。① 同型：Pong 有约 107 KB 的完整音频栈（ADSP 34 KB + Audio 29 KB + IOAudio2 24 KB + WCD938x 6 KB + Service 7 KB）。② 官方：components.toml 25 个组件里没有音频组件，官方唯一的音频代码在 UniXNU-sheng 的板级实现里，参考链只能是 Pong + UniXNU-sheng + NothingOSS audio-kernel。③ 反编译：K60 与 Pong 同为 SM8475，codec 大概率也是 WCD938x，但必须实测；K60 还有独立的 aw882xx smart PA，Pong 可能没有，这是额外驱动。"""
 
 
+[subsystem.battery]
+why = "电池 / 充电（IOPMPowerSource）：走 PMIC GLINK，硬前置是 ADSP PAS1"
+
+[[subsystem.battery.required]]
+path = "references/yibiya-power-files/K60Battery.cpp"
+why = "IOPMPowerSource 子类：initProperties / publish / updateAdapter / 三个定时器（446 行）。来源 yibiya 的 fix/touch-gpu-bringup 分支，提交 fix(touch,power): land the handshake, config download and battery link；该分支不在 main 上，文件已导出到 references/yibiya-power-files/。"
+examined = "2026-11-12"
+finding = "begin() 的签名暴露硬依赖：bool begin(IOService *, const K60BatteryConfig &, const K60AdspGlinkHandoff &)。它用 K60PmicGlink::Client 打开传输，失败时打印 physical transport initialization rejected 并返回 false。也就是说没有 ADSP GLINK 交接租约，电池驱动连传输都建立不起来。"
+
+[[subsystem.battery.required]]
+path = "references/yibiya-power-files/K60BatteryConfig.h"
+why = "K60BatteryConfig（112 B）与 K60AdspGlinkHandoff（104 B）的结构定义。同一提交导出，见 references/yibiya-power-files/。"
+examined = "2026-11-12"
+finding = "handoff 租约要求四个标志全真：Authenticated(1<<0) / ResourcesHeld(1<<1) / GlinkExclusive(1<<2) / FreshHostFifos(1<<3)，HandoffRequired=15。头文件注释明确写着只有真正的平台或 loader PAS1 owner 能发出这个租约，配置生成器绝不能伪造。K6BH 记录布局：magic/version/bytes/flags @0..12，epoch @16，SMEM base/bytes @24/32，ADSP base/bytes @40/48，descriptor/TX/RX offset+bytes @56..76，APSS TX head @80，APSS RX tail @84，remote PID @88(2)，SMP2P item @92(443)。"
+
+[[subsystem.battery.required]]
+path = "docs/research/battery/RESEARCH.md"
+why = "本次 ①②④ 调研记录与解锁链"
+examined = "2026-11-12"
+finding = "解锁链是 PAS1 -> GLINK -> PMIC GLINK -> 电池协议 -> IOPMPowerSource，跳不过去。官方 power 页给了六步流程与单位转换（电压电流微转毫、容量 0.01% 转百分比、秒转分钟），并强调必须先确认目标协议的充电电流符号。官方组件目录里没有电池组件，实现全在 UniXNU-sheng 的板级 package/ 下。"
+
 [subsystem.launchd]
 why = "launchd pid 1：hw.target 身份链、服务缓存"
 

@@ -120,3 +120,108 @@ K60 与 Pong 同为 SM8475，音频 codec 大概率也是 **WCD938x**，
 - P2 UFS 对齐官方架构（已完成等待策略部分）
 
 **而且 ADSP 启动比 GPU 的 GMU 更复杂**，建议放在 WiFi 之后。
+
+---
+
+## ④ 广域：官方 power 页给出的完整路径与 SM8550 硬事实
+
+来源：https://unixnu.com/zh/porting/power （2026-11-12 读取）
+
+### 硬前置
+
+> 先完成[平台内存、中断和 DMA](/zh/porting/platform)。
+
+与 WiFi 相同：音频排在平台之后。我们的 UFS 已提供 DMA 与中断。
+
+### 要确认的四类输入（文档第 1 节）
+
+| 功能 | 需要的输入 | 产物 |
+|---|---|---|
+| DSP | 固件/PAS ID、内存预留、邮箱中断、共享内存布局、时钟与电源归属 | 固件加载器 + 消息传输 |
+| 音频 | codec/功放 ID、总线、时钟、路由、DSP 拓扑、支持格式、OS 音频 ABI | 端点配置、流引擎、OS 服务 |
+| 电池 | 电量计或固件协议、属性 ID、单位、电流符号、通知消息 | 测量值解码器 + power-source 服务 |
+| 电源 | 时钟域、OPP 表、稳压器、固件投票、温控限制 | 板级策略 |
+
+### DSP 传输（`ShengAdsp` / `AdspProbe.cpp`）
+
+```c
+sheng_adsp_channel(name, intent_size, intent_count, initiator, callbacks, context);
+sheng_adsp_send(...);   // 0=已入队  -1=队列满或消息过长  -2=参数错
+#define SHENG_ADSP_MAX_MESSAGE 512
+```
+
+**所有权**：回调运行在 DSP 线程，必须把字节**复制到有界队列**再唤醒消费者工作循环；
+请求处理和等待放在消费者侧。
+
+**结果判据**：通道能打开、完成一次有超时的请求/响应、报告失败并重连。
+
+### 音频流（AudioReach / GPR）
+
+**SM8550 上决定通路能否启动的五个细节（文档原文）**：
+
+1. **DSP 接收的缓冲区地址是 32 位，高 32 位放流索引（`0x1001 & 0xf`）。周期缓冲区要放在 4 GiB 以下。**
+2. DSP 先给小 GLINK intent，请求后再给大的。**远端 intent 表满时也要保留新给的 intent。**
+3. PRM 请求从 PRM 自己的端口发出，用 PRM 时钟 ID；**TX core 时钟是 `0x30c`，不是设备树里的编号。**
+4. **VA macro 和 TX macro 都要打开 TX SoundWire master 的时钟门控。**
+5. **CoreAudio 假定 host clock 为 24 MHz。时基为 19.2 MHz 时，音频服务必须在启动时修正这个常量，
+   否则音频服务器的 IO 周期会长 25%，播放和录音都会卡顿。**
+
+**第 5 条对我们的 K60 尤其重要** —— SM8475 的时基也是 19.2 MHz，
+如果我们做音频而不修正这个常量，就会出现「能出声但卡顿」的假成功。
+
+### 麦克风采集的参考路由（SM8550）
+
+| 阶段 | 参考取值 |
+|---|---|
+| Codec | WCD938x，复位 gpio108，供电 ldob15，TX master（`0x6d30000`）上的 SoundWire 设备 1 |
+| 模拟 | AMIC3、micbias 3、ADC2 |
+| 链路 | codec 数据端口 1 通道 2 → master 端口 2 |
+| 数字 | TX decimator 0 读 `SWR_MIC1`，codec DMA TX3 |
+| 格式 | 单声道，48 kHz |
+| iOS | HAL 插件的输入端口；**iOS 只在 Thunderbolt 传输类型下接受它** |
+
+**验证命令**：`audio=4` 在启动时读两秒，`[mic]` 与 `[mic capture]` 日志给出
+返回周期、字节数、非零样本比例和峰值。
+
+### 与 K60 的差异
+
+| 项 | sheng（SM8550）| K60（SM8475）|
+|---|---|---|
+| Codec | WCD938x | **待实测**（Pong 也用 WCD938x，同 SoC 大概率相同）|
+| 功放 | CS35L43（I2C）| **K60 有独立的 aw882xx smart PA** |
+| reset gpio | 108 | 待实测 |
+| 供电 | ldob15 | 待实测（Pong 注释：PM8350 S10B 供 WCD RXTX/buck/IO 1.8V）|
+| TX master | `0x6d30000` | 待实测 |
+| 时基 | 19.2 MHz | **19.2 MHz（相同，第 5 条硬事实直接适用）** |
+
+---
+
+## ⑤ 方案（初稿，待 ③ 实测后细化）
+
+按官方顺序，前置是 DSP 传输通：
+
+**第一步：DSP 传输（`ShengAdspClient` 形状）**
+- 固件加载（PAS1）+ SMEM + SMP2P + GLINK + 邮箱
+- 先建立 **ready/crash 通知路径**，再打开通道
+- 判据：通道能打开 + 一次有超时的请求/响应
+
+**第二步：AudioReach 图**
+- 先做**播放**（比采集少 SoundWire 链路）
+- 周期缓冲区必须放在 **4 GiB 以下**（第 1 条硬事实）
+- 修正 CoreAudio 的 24 MHz 常量（第 5 条）
+
+**第三步：采集（麦克风）**
+- 需要 codec 上电 + SoundWire 枚举 + 模拟通路 + 数字通路四段
+
+**第四步：接入 OS**
+- 从 kernelcache 和框架确认音频 provider、必需方法、请求布局
+
+---
+
+## ⑥ 深挖待办
+
+- [ ] K60 的 DSP PAS ID（Pong 用 PAS1）
+- [ ] K60 的 codec 型号、reset gpio、供电轨道（实测）
+- [ ] K60 的 aw882xx smart PA 的 I2C 地址与寄存器表
+- [ ] K60 的 TX SoundWire master 基址
+- [ ] K60 的时基确认（若非 19.2 MHz，第 5 条需重算）

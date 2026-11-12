@@ -316,3 +316,69 @@ Pong 用 PWF2 包（`/pong/firmware/qca6490.pwf`，magic `0x32465750`）。
 - [ ] K60 的六路 PMU 电源与 RPMh 请求（Pong 用 SPMI 观察者，K60 待核对）
 - [ ] `nw_abi.h` 是否覆盖 WCN6855（决定第二步走 A 还是 B）
 - [ ] UFS 是否暴露 `native_ufs_extra_*` / `native_ufs_part_*` 等效接口
+
+---
+
+## ⑤ 第二步判定：`Ath12kWifi` 不能驱动 QCA6490 —— 走自建 ath11k 路径
+
+读取了组件的两个源文件（2026-11-12）：
+
+- `include/nw_abi.h`（f6bf561）
+- `src/nw_wifi.c`（f6bf561）
+
+### 判定依据
+
+`nw_wifi.c` 的启动入口和全部内部实现都绑在 **ath12k WiFi 7**：
+
+```c
+int ath12k_wifi7_pci_init(void);     // 唯一的驱动入口
+void ath12k_wifi7_pci_exit(void);
+
+// 诊断代码直接操作 ath12k 结构
+struct ath12k_base *ab = ar->ab;
+ath12k_hal_srng_src_num_free(ab, s, true);   // HAL srng
+ab->ce.ce_pipe[p];                           // copy engine
+dp->reo_except_ring / dp->wbm_idle_ring;     // REO / WBM
+ATH12K_HTC_EP_2 / ath12k_pci_priv(ab);
+```
+
+`components.toml` 也写明硬件是 `qcc2072, qcn9274, wcn7850` —— 全是 WiFi 7 的 ath12k 器件。
+
+**K60 是 QCA6490 / WCN6855，WiFi 6E，ath11k 族。** 两者在 MHI 通道、CE 数量、
+HAL ring 布局、WMI 命令集上都不同。`ath12k_wifi7_pci_init` 不会驱动它。
+
+### 结论：走 B 路（自建 ath11k 路径）
+
+参考 **Pong 的 `PongWifiNet.cpp`（47,656 B）** 与 mainline `ath11k` 的 qca6490 支持。
+
+但 `nw_abi.h` 本身是**干净可复用的芯片无关边界**，值得照它的形状设计我们的模块：
+
+| 接口 | 可复用性 |
+|---|---|
+| `lx_platform`（now_ms/sleep_ms/poll/log/halt/alloc/free/dma_*/fw_get）| ✅ 完全可复用 |
+| `nw_board`（bar/device_id/msi_cap/irq_base/cfg_read/cfg_write/msi_target/map_phys）| ✅ 完全可复用，`device_id` 由板级填 |
+| `nw_wifi_events`（scan_done/connect_done/link_lost/rx）| ✅ 完全可复用 |
+| `nw_wifi_*` 的 station API | ✅ 形状可复用（scan/connect/tx/status）|
+
+**照 `nw_abi.h` 设计自己的模块，实现用 ath11k。** 这样板级代码与 sheng 一致，
+将来若上游支持 WCN6855 可以平滑切换。
+
+### 顺带得到的可复用知识：MAC 地址生成
+
+`nw_wifi.c` 的 `nw_board_mac`：
+
+1. 先试 `wlan_mac.bin`（**文本**，取最后一个 `=` 之后的 12 个十六进制字符）
+2. 校验 `is_valid_ether_addr`
+3. 失败则生成**本地管理地址**：`made[0] = (made[0] & 0xfe) | 0x02`
+
+**K60 大概率也需要这个**：官方文档说「固件上报的 MAC 为零，由板级用芯片 ID 生成」。
+Pong 的做法可以对照。
+
+### 另一个可复用点：`fw_get` 的语义
+
+```c
+int (*fw_get)(const char *name, const uint8_t **data, size_t *size);  // 按路径最后一段取固件
+```
+
+组件用 `fw_get("amss.bin", ...)`、`fw_get("wlan_mac.bin", ...)` —— **只给文件名**，
+不要路径。我们的实现要在 `/vendor/firmware_mnt/image/qca6490/` 里按文件名查找。

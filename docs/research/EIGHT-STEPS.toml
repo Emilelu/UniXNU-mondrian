@@ -346,9 +346,8 @@ catalog_result = "components.toml 的 Ath12kWifi 面向 ath12k（qcc2072/qcn9274
 done = true
 evidence = "三步方案见 docs/research/wifi/RESEARCH.md 的 ⑤ 节。第一步照 Pong 的 PongWifiPlatform.cpp 移植板级 PCIe0 冷启动（平台地址是 SM8475 真值：GCC 0x100000、TLMM 0xf100000、PARF 0x1c00000、DBI 0x60000000、PHY 0x1c06000、ATU 0x60001000、SPMI 0xc400000/0xc42d000），验证点是链路训练成功且读到端点 17cb:11xx。第二步先读 nw_abi.h 与 nw_wifi.c 判定 Ath12kWifi 是否覆盖 WCN6855，再决定用它还是自建 ath11k 路径。第三步固件走 vendor 分区（amss.bin 5.47 MB / amss20.bin 5,296,128 B / Data.msc 889,524 B / Data20.msc 916,071 B），判据是固件启动成功且扫描产生 BSS 记录。"
 [hardware.wifi.step.deep]
-done = false
-evidence = "未做。"
-
+done = true
+evidence = "读了 Ath12kWifi 的 include/nw_abi.h 与 src/nw_wifi.c（f6bf561）。判定：该组件绑死 ath12k WiFi 7 —— 唯一入口是 ath12k_wifi7_pci_init，诊断代码直接操作 struct ath12k_base / hal_srng / ce_pipe / reo_ring / wbm_idle_ring / ATH12K_HTC_EP_2，components.toml 的硬件也全是 qcc2072/qcn9274/wcn7850。K60 是 QCA6490/WCN6855（ath11k，WiFi 6E），MHI 通道、CE 数量、HAL ring 布局、WMI 命令集都不同，故不能复用该组件，走自建 ath11k 路径（参考 PongWifiNet.cpp 47,656 B 与 mainline ath11k）。但 nw_abi.h 是干净的芯片无关边界，照它的形状（lx_platform / nw_board / nw_wifi_events / nw_wifi_* station API）设计我们的模块。另得两个可复用知识：nw_board_mac 先读 wlan_mac.bin 的文本 MAC（最后一个 = 之后 12 个十六进制字符）否则生成本地管理地址 (a[0]&0xfe)|0x02；fw_get 只按文件名取，实现需在 /vendor/firmware_mnt/image/qca6490/ 里查找。见 docs/research/wifi/RESEARCH.md 的 ⑤ 第二步判定节。"
 [hardware.wifi.step.verify]
 done = false
 evidence = "未做。"

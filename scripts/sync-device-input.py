@@ -24,9 +24,12 @@ SCRATCH_SERIES = '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
 # 框架副本：E:\\hackios\\UniXNU -> /opt/k60/trees/k60build
 # 2026-11-12 加。此前 sync-device-input.py 只同步 device 树，框架副本靠手工 cp，
 # 结果 scripts/unixnu 漂移了 17 个文件而没人发现（check-build-freshness.py F1）。
+# 只同步框架 CLI（scripts/unixnu）。整个 scripts/ 不能同步：
+# 构建副本里的 build-xnu-4k-baseline.sh / linux/setup-toolchain.py 带有本地适配
+# （工具链路径、macOS/Linux 分支），用仓库版覆盖会让宿主编译找不到 stdio.h。
+# 2026-11-12 踩过：同步整个 scripts/ 之后内核构建报 'stdio.h' file not found。
 FRAMEWORK_PAIRS = [
     ('/mnt/e/hackios/UniXNU/scripts/unixnu', '/opt/k60/trees/k60build/scripts/unixnu'),
-    ('/mnt/e/hackios/UniXNU/scripts', '/opt/k60/trees/k60build/scripts'),
 ]
 
 ITEMS = [

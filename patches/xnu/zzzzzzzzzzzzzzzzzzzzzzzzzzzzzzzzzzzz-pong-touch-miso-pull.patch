@@ -1,13 +1,14 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -559,7 +559,10 @@
+@@ -559,7 +559,11 @@
          return false;
      }
      gpio_output(PIN_CS, true, PULL_UP, 6);
 -    gpio_configure(PIN_MISO, 0, PULL_NONE, 6, false);
 +    /* K60BB: a floating MISO reads zero whether the line is dead or the
 +     * chip is silent. Pull it up so the two cases become distinguishable. */
-+    gpio_configure(PIN_MISO, 0, PULL_UP, 6, false);
++    /* pull DOWN: a floating MISO then reads 0, a driven one still reads 1 */
++    gpio_configure(PIN_MISO, 0, 1, 6, false);
 +    printf("K60BB miso pull-up armed; idle level=%u\n", (unsigned)gpio_get(PIN_MISO));
      gpio_output(PIN_CLK, false, PULL_NONE, 6);
      gpio_output(PIN_MOSI, false, PULL_NONE, 6);

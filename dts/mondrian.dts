@@ -37,15 +37,6 @@
 	 * exported to the ADT via unixnu,adt-name).
 	 */
 
-	pong-buttons {
-		unixnu,adt-name = "pong-buttons";
-		core-base = <0x0 0x0c400000>;
-		cnfg-base = <0x0 0x0c42d000>;
-		observer-base = <0x0 0x0c440000>;
-		ee = <0>;
-		pon-ppid = <0x13>;
-		volume-up-ppid = <0x18d>;
-	};
 
 	/*
 	 * Audio hardware exported to the ADT. Every value here is either an SM8475

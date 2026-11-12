@@ -187,3 +187,37 @@ completion = ["Each claimed milestone has a reproducible command, a matching sou
 limits = ["The current USB gadget is XNU CDC-ACM VID1209/PID0001, not Apple usbmux. Only documented help/reboot commands are exposed; no remote debugserver or LLDB single-stepping connection has been established."]
 next_action = ["cand18 verifies the selected kern.pong_diagnostic endpoint: actual K60UI SpringBoard/backboardd messages reached COM8, including locked state, HomeButtonType2, wallpaper preservation and Mach main-thread snapshots. Continue through this bounded text endpoint; a full remote debugger still needs a target debugserver and transport."]
 evidence = [{ kind = "device", reference = "patches/xnu-ipados18/0244-k60-breadcrumbs.patch", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc4.img; count the breadcrumb squares", revision = "e636e445b621bed4fac0069f3604b87061350a8d", result = "Breadcrumbs turned a silent reset into a located fault: column 1 showed six squares, column 2 zero, column 3 one, which put the death inside ml_parse_cpu_topology(). The first carrier (u64 slots at 0xA73FF000) was useless because a hung board never returns DRAM, so the markers moved into the framebuffer; 0245 then produced a readable panic on hardware." }, { kind = "device", reference = "docs/reference/ROUTE-A-18-UPSTREAM.md", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc7.img", revision = "350d1c57c86d2fc562c7fa7529271fdae3af95bc", result = "The upstream entry probe installs on this kernel: stage 1 blue bar, stage 2 magenta bar, stage 3 resets the board through PSCI six seconds after the MMU comes on. The board walked back to fastboot and then to Android by itself, so a hung kernel no longer needs a manual power cycle. The probe's panic screen stays off because it installs code in the padding after panic(), at an address fixed for the reference kernel." }]
+
+[[area]]
+id = "cellular"
+status = "planned"
+components = []
+paths = ["docs/engineering/ANDROID-HW-TRUTH.md", "dts/mondrian.dts"]
+inputs = [
+  "K60 carries a Snapdragon X65-class modem inside the SM8475 package; it is not an external modem on this board.",
+  "Modem firmware, EFS/NV data and the SIM identity live on the Android side of the dual-system unit.",
+  "No QRTR/QMI endpoint, IPA path or SIM slot has been exercised under XNU.",
+]
+configuration = [
+  "board.toml declares the SM8475 SoC but no cellular component.",
+  "dts/mondrian.dts does not describe the modem memory regions, QRTR transport or IPA queues.",
+]
+procedure = [
+  "Inventory the modem firmware partition and the QRTR/QMI services from an Android boot.",
+  "Record the IPA/QMAP configuration and the SIM identity source.",
+  "Only then decide whether the baseband path is in scope for this port.",
+]
+findings = [
+  "The port currently has no baseband support at all; Android modem stack is untouched.",
+  "Recording it as planned rather than not-applicable keeps the gap visible.",
+]
+completion = [
+  "A device boot shows the modem enumerated over QRTR with a readable firmware revision.",
+]
+limits = [
+  "Nothing has been measured on this board beyond the Android-side inventory.",
+]
+next_action = [
+  "Read the Android modem partitions before writing any cellular code.",
+]
+evidence = []

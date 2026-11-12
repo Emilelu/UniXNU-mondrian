@@ -143,3 +143,58 @@ ADSP 侧从未写过——这正是 `K60AdspGlinkHandoff` 一直"只有消费者
 跳过第 3 步直接发布属性会通过 `k60_adsp_handoff_parse`，但
 `K60PmicGlink.cpp:60-69` 的 SMEM 条目比对会以 `error = -23` 拒绝——
 所以"假通道"在这个设计里是被挡住的，代价只是多一轮启动。
+
+## 两个缺口的参考实现已找到（round 221）
+
+之前记的“缺 SMEM 分配器、缺 ADSP PAS1 加载器”不是说没有参考，是说**本仓库里**没有。
+参考实现在参考仓，且都是同平台（SM8475）的完整代码：
+
+### SMEM 分配：`E:\k60-work\references\pong-power\QcomSmem.c:94`
+
+```c
+int qcom_smem_alloc(const QcomSmem *smem, const QcomSmemPartition *p, uint16_t item, uint32_t size)
+{
+    uint32_t at; int found, rc = walk_uncached(smem, p, item, &at, &found);
+    if (rc) return rc;
+    if (found) return QcomSmemExists;
+    if (qcom_smem_find(smem, p, item, &offset, &bytes) == QcomSmemOk) return QcomSmemExists;
+    const uint32_t aligned = align_up(size, 8), need = ENTRY + aligned;
+    if (!size || aligned < size || (uint64_t)at + need > rd(smem, p->offset + 16)) return QcomSmemNoSpace;
+    qcom_smem_write32(smem, p->offset + at, CANARY | (uint32_t)item << 16);
+    qcom_smem_write32(smem, p->offset + at + 4, aligned);
+    qcom_smem_write32(smem, p->offset + at + 8, aligned - size);
+    qcom_smem_write32(smem, p->offset + at + 12, 0);
+    for (uint32_t i = 0; i < aligned; i += 4) qcom_smem_write32(smem, p->offset + at + ENTRY + i, 0);
+    qcom_smem_write32(smem, p->offset + 12, at + need);   /* entry complete, then bump `up` */
+    return QcomSmemOk;
+}
+```
+
+关键点，全部与本仓 `K60Smem.c` 的结构对得上（`PART_HEADER 32`、`ENTRY 16`、`CANARY 0xa5a5`、
+`up = rd(offset+12)`、`down = rd(offset+16)`）：
+
+1. 先 `walk_uncached` 串行走一遍目录，再 `find` 一次——两处都要，防并发与重复；
+2. 条目头四字：`CANARY | item<<16`、`aligned`、`aligned-size`(padding)、`0`；
+3. 数据区按 4 字节清零，长度 `aligned`；
+4. **最后**才写 `up = at + need`，注释写明 “The entry is complete before the free mark moves over it”；
+5. 空间判据是 `at + ENTRY + aligned <= down`。
+
+也就是说：`up` 向上长、`down` 是硬上界，与 `partition_bounds()` 的
+`PART_HEADER <= up <= down <= size` 完全一致。这不是猜的算法，可以直接复刻。
+
+### ADSP PAS1 + GLINK：`E:\k60-work\references\pong-power\PongAdsp.cpp`（714 行）
+
+文件头自述 `Pong SM8475 ADSP PAS1 boot and Qualcomm SMEM/SMP2P/GLINK transport`，
+且明确 `No SM8550 PAS36 image is loaded`——正是我们要的那块。关键锚点：
+
+| 行 | 内容 |
+| --- | --- |
+| `:244` | `asm volatile("smc #0" : "+r"(x0) … "+r"(x7) …)`，与 GPU 侧同一约定 |
+| `:301` | `authenticateHeader(Image &image, uint32_t pas, uint64_t base)` —— PAS 元数据认证 |
+| `:312-315` | 元数据必须有物理连续区 `phys & 4095 == 0`、`span >= bytes`、`phys+bytes <= 1<<36` |
+| `:142-143` | `kickGlink()` → `ring(QCOM_IPCC_CLIENT_LPASS, QCOM_IPCC_SIGNAL_GLINK_QMP)`；`kickSmp2p()` → `…_SMP2P` |
+| `:37` | 协议标识按 Pong live DT 与 NothingOSS `cape-adsp-pas` 保留 |
+
+这说明此前判断的“要新写驱动”过重了：ADSP 路由是**移植已存在的实现**，
+而不是从零设计。真正的工作量在于把它接到本仓的 `K60Smem.c` / `K60PmicGlink.cpp` 契约上，
+并按 P-165 的规则以补丁形式落地。

@@ -51,6 +51,7 @@
 | [`../research/SUBAGENT-DELIVERABLES.md`](../research/SUBAGENT-DELIVERABLES.md) | Subagent 交付物台账：每条调研必须有落库文件 + 产出断言 + 提交（铁则 8）|
 | [`BATTERY-INTEGRATION.md`](BATTERY-INTEGRATION.md) | 电池栈编译集成：构建脚本 4 处改动、defconfig 开关、宏链路、归档构建时机、无 PAS1 时的运行时行为 |
 | [`DIVISION-OF-LABOR.md`](DIVISION-OF-LABOR.md) | 上下游分工 + 仓库覆盖：23 个跟踪 / 48 个同步 / 3 个 pick，以及为什么 fork 与参考实现处理方式不同 |
+| `../scripts/check-build-freshness.py` | 构建新鲜度门禁：框架副本一致 / 固件不旧 / 产物齐备；`--manifest` 记录各组件 sha256 |
 | `../scripts/check-snapshot-tag.py` | 快照门禁：启动相关改动前必须有已推送的 snap-* tag（铁则 7）|
 
 ---

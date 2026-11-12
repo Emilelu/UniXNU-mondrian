@@ -20,6 +20,15 @@ DEV = '/opt/k60/trees/usb-cdc-mainline/device'
 SCRATCH_SERIES = '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
 
 # 仓库里需要镜像到构建输入的条目（相对路径）
+
+# 框架副本：E:\\hackios\\UniXNU -> /opt/k60/trees/k60build
+# 2026-11-12 加。此前 sync-device-input.py 只同步 device 树，框架副本靠手工 cp，
+# 结果 scripts/unixnu 漂移了 17 个文件而没人发现（check-build-freshness.py F1）。
+FRAMEWORK_PAIRS = [
+    ('/mnt/e/hackios/UniXNU/scripts/unixnu', '/opt/k60/trees/k60build/scripts/unixnu'),
+    ('/mnt/e/hackios/UniXNU/scripts', '/opt/k60/trees/k60build/scripts'),
+]
+
 ITEMS = [
     'board.toml',
     'porting.toml',
@@ -74,6 +83,27 @@ def main():
             os.makedirs(os.path.dirname(d), exist_ok=True)
             shutil.copyfile(s, d)
             copied.append(rel)
+
+    # 框架副本
+    fw_copied = 0
+    for src_dir, dst_dir in FRAMEWORK_PAIRS:
+        if not os.path.isdir(src_dir) or not os.path.isdir(dst_dir):
+            continue
+        for f in sorted(os.listdir(src_dir)):
+            sp = os.path.join(src_dir, f)
+            if not os.path.isfile(sp):
+                continue
+            dp = os.path.join(dst_dir, f)
+            if os.path.exists(dp) and filecmp.cmp(sp, dp, shallow=False):
+                continue
+            if a.check:
+                copied.append(os.path.join('framework', f))
+                continue
+            os.makedirs(dst_dir, exist_ok=True)
+            shutil.copyfile(sp, dp)
+            fw_copied += 1
+    if fw_copied:
+        print('  框架副本已同步 %d 个文件' % fw_copied)
 
     # series 也镜像到 scratch（一份只读副本，供别的脚本查）
     try:

@@ -4078,3 +4078,24 @@ grep -n 'PongPower\|K60Smem\|K60Handoff' scripts/build-xnu-4k-baseline.sh \
 ① 在 `scripts/build-xnu-4k-baseline.sh` 里产出归档；② 加入 `KERNEL_EXTRA_ARCHIVES`
 并 `-force_load`；③ 有一个能被 `strings kernel.macho` 或上机日志验证的标记字符串。
 缺第 ③ 条时，"没看到日志"无法区分"没跑"和"跑了没输出"。
+
+### P-170 追加实测：归档这条路在本机走不通，正路是 patch 进 bsd/dev
+
+`E:\hackios\UniXNU-mondrian\scripts\build-pong-ram-block-macos.py:32-38` 的编译命令是
+
+```python
+subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], ...)
+command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios16.0', ...]
+```
+
+也就是**所有 `KERNEL_EXTRA_ARCHIVES` 归档都要 iPhoneOS SDK**，而这台机器上没有（P-167）。
+`device/mac-build/native-ufs/libNativeUfs.a` 这类归档是别的机器上编译好、提交进仓库的，
+所以它们能链接，而我们在本机新写的 `.c` 永远进不了归档。
+
+正确路径不是造归档，而是走已经验证过的那条：**用 patch 把源文件放进 `bsd/dev/`，
+并在 `bsd/conf/files` 加一行**——`zzzz…-pong-touch-console.patch` 就是这样把
+`bsd/dev/pong_goodix.c` 加进去的，内核用同一套 CLT clang 编译，不需要 iOS SDK。
+因此 `K60Smem.c` / `K60HandoffBuild.c` 的落地方案是：
+① 作为 `bsd/dev/pong_smem.c` / `bsd/dev/pong_handoff.c` 由补丁加入；
+② `bsd/conf/files` 加 `dev/pong_smem.c   optional pong_touch`（或新建 config 依赖）；
+③ 保持 `K60HO ` 前缀短标记，`strings kernel.macho` 必须能查到。

@@ -106,3 +106,92 @@
 	 * not MPIDR affinity.
 	 */
 };
+
+/*
+ * ADSP / GLINK infrastructure, copied from the official board FDT
+ * (Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb) rather than
+ * invented: smem_region@80900000, syscon@1f40000 + tcsr-mutex hwlock,
+ * mailboxes@ed18000 (ipcc), the cape-adsp-pas remoteproc and the pmic-glink
+ * channel that the battery archive builder requires.  Every reg value and every
+ * child property below appears verbatim in that dump; see
+ * docs/research/audio/VENDOR-ADSP-NODE.md.
+ */
+/ {
+	smem_region: smem-region@80900000 {
+		no-map;
+		reg = <0x00 0x80900000 0x00 0x200000>;
+	};
+
+	tcsr_syscon: syscon@1f40000 {
+		compatible = "syscon";
+		reg = <0x00 0x1f40000 0x00 0x20000>;
+	};
+
+	hwlock: hwlock {
+		compatible = "qcom,tcsr-mutex";
+		syscon = <&tcsr_syscon 0x00 0x1000>;
+		#hwlock-cells = <0x01>;
+	};
+
+	smem: smem {
+		compatible = "qcom,smem";
+		memory-region = <&smem_region>;
+		hwlocks = <&hwlock 0x03>;
+	};
+
+	ipcc: mailbox@ed18000 {
+		compatible = "qcom,ipcc";
+		reg = <0x00 0xed18000 0x00 0x1000>;
+		interrupts = <0x00 0xe5 0x04>;
+		interrupt-controller;
+		#interrupt-cells = <0x03>;
+		#mbox-cells = <0x02>;
+	};
+
+	adsp_region: adsp-region@9fd00000 {
+		no-map;
+		reg = <0x00 0x9fd00000 0x00 0x3100000>;
+	};
+
+	remoteproc_adsp: remoteproc-adsp@3000000 {
+		compatible = "qcom,cape-adsp-pas";
+		reg = <0x00 0x3000000 0x00 0x10000>;
+		memory-region = <&adsp_region>;
+		status = "ok";
+
+		glink-edge {
+			qcom,remote-pid = <0x02>;
+			transport = "smem";
+			mboxes = <&ipcc 0x03 0x00>;
+			mbox-names = "adsp_smem";
+			interrupt-parent = <&ipcc>;
+			interrupts = <0x03 0x00 0x01>;
+			label = "adsp";
+			qcom,glink-label = "lpass";
+
+			qcom,pmic_glink_rpmsg {
+				qcom,glink-channels = "PMIC_RTR_ADSP_APPS";
+			};
+		};
+	};
+
+	smp2p_adsp: smp2p-adsp {
+		compatible = "qcom,smp2p";
+		qcom,smem = <0x1bb 0x1ad>;
+		interrupt-parent = <&ipcc>;
+		interrupts = <0x03 0x02 0x01>;
+		mboxes = <&ipcc 0x03 0x02>;
+		qcom,local-pid = <0x00>;
+		qcom,remote-pid = <0x02>;
+	};
+
+	pmic_glink: pmic-glink {
+		compatible = "qcom,pmic-glink";
+		qcom,pmic-glink-channel = "PMIC_RTR_ADSP_APPS";
+		qcom,protection-domain = "tms/servreg", "msm/adsp/charger_pd";
+
+		battery_charger: battery-charger {
+			compatible = "qcom,battery-charger";
+		};
+	};
+};

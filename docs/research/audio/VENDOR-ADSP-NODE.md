@@ -133,3 +133,29 @@
 剩下两个未决依赖（下一轮必须先在仓库里找到出处，不能凭猜）：`smem` 的
 `memory-region` 对应哪块保留内存、`hwlocks` 指向哪个 TCSR/hwspinlock 节点。这两项
 在厂商 FDT 里是 phandle，必须解出指向的节点定义才能搬进我们的 ADT。
+
+## ADT 已落地（2026-11-13）
+
+`dts/mondrian.dts` 现在带有整套 GLINK 基础设施，全部取自官方 FDT，没有自造值：
+`smem-region@80900000`（0x200000）、`syscon@1f40000`、`hwlock`（tcsr-mutex）、
+`smem`、`mailbox@ed18000`（ipcc）、`remoteproc-adsp@3000000`（含 `memory-region = <&adsp_region>`
+指向 `adsp-region@9fd00000`）、`smp2p-adsp`、`pmic-glink` + `battery-charger`。
+
+验证方式不是"看起来对"，而是让构建器真正跑一遍：
+
+```
+$ dtc -I dts -O dtb -i <sm8475-common>/dts -o /tmp/m.dtb dts/mondrian.dts
+（仅剩一条 warning：/mailbox@ed18000 Missing interrupt-parent）
+
+$ python3 scripts/build-k60-physical-battery.py --output-dir /tmp/pbat \
+    --framework /mnt/e/hackios/UniXNU --hardware-dtb /tmp/m.dtb \
+    --battery-module /mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+K60BatteryConfig.generated.c
+K60BatteryProtocol.generated.h
+captured-board-config.bin
+Build the real Darwin22 Kernel SDK before this archive
+```
+
+四道节点检查（adsp / smem / ipcc / battery-charger）、glink-edge 的
+`host0/ADSP2/IPCC3/0` 结构校验、smp2p 的 `remote-pid=2 local-pid=0` 全部通过，
+构建器已经生成配置源文件，只差 Kernel SDK 才能编译成归档（`P-157` 的下一步）。

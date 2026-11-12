@@ -1,0 +1,113 @@
+# 厂商 FDT 里的 ADSP/PAS 节点（官方来源，可直接抄）
+
+来源：`E:\hackios\uefi-mondrian\Platforms\Xiaomi\mondrianPkg\FdtBlob\sm8475-xiaomi-mondrian.dtb`
+（480,692 B，官方打包的完整板级 FDT），用 `dtc -I dtb -O dts` 解出。
+
+这张表回答了 `docs/research/audio/GAP-ANALYSIS.md` 里长期悬着的那个问题：
+**`K60AdspGlinkHandoff` 的 producer 该由谁提供**。答案不是"我们自己编一个"，
+而是这块板上本来就有 `qcom,cape-adsp-pas` 远程处理器节点和
+`qcom,pmic-glink` 的 `PMIC_RTR_ADSP_APPS` 通道，我们的 ADT 从来没收进去。
+
+电池归档构建器的报错正是同一件事：
+`Expected one enabled qcom,cape-adsp-pas, found 0`
+（`scripts/build-k60-physical-battery.py` 要求 ADT 里存在该节点且 status 为可用）。
+
+## 关键节点原文
+
+```dts
+		remoteproc-adsp@03000000 {
+			compatible = "qcom,cape-adsp-pas";
+			reg = <0x3000000 0x10000>;
+			status = "ok";
+			cx-supply = <0x93>;
+			cx-uV-uA = <0x180 0x00>;
+			mx-supply = <0x94>;
+			mx-uV-uA = <0x180 0x00>;
+			reg-names = "cx\0mx";
+			clocks = <0x20 0x00>;
+			clock-names = "xo";
+			qcom,qmp = <0x8c>;
+			interconnects = <0x5a 0x2b 0x46 0x200>;
+			interconnect-names = "crypto_ddr";
+			memory-region = <0x95>;
+			interrupts-extended = <0x42 0x06 0x01 0x96 0x00 0x00 0x96 0x02 0x00 0x96 0x01 0x00 0x96 0x03 0x00 0x96 0x07 0x00>;
+			interrupt-names = "wdog\0fatal\0handover\0ready\0stop-ack\0shutdown-ack";
+			qcom,smem-states = <0x97 0x00>;
+			qcom,smem-state-names = "stop";
+			phandle = <0x33c>;
+
+			glink-edge {
+				qcom,remote-pid = <0x02>;
+				transport = "smem";
+				mboxes = <0x8f 0x03 0x00>;
+				mbox-names = "adsp_smem";
+				interrupt-parent = <0x8f>;
+				interrupts = <0x03 0x00 0x01>;
+				label = "adsp";
+				qcom,glink-label = "lpass";
+				phandle = <0x33d>;
+
+				qcom,adsp_qrtr {
+					qcom,glink-channels = "IPCRTR";
+					qcom,intents = <0x800 0x05 0x2000 0x03 0x4400 0x02>;
+				};
+
+				qcom,msm_fastrpc_rpmsg {
+					compatible = "qcom,msm-fastrpc-rpmsg";
+					qcom,glink-channels = "fastrpcglink-apps-dsp";
+					qcom,intents = <0x64 0x40>;
+				};
+
+				qcom,pmic_glink_rpmsg {
+					qcom,glink-channels = "PMIC_RTR_ADSP_APPS";
+				};
+
+				qcom,pmic_glink_log_rpmsg {
+					qcom,glink-channels = "PMIC_LOGS_ADSP_APPS";
+					qcom,intents = <0x800 0x05 0xc00 0x03 0x2000 0x01>;
+				};
+
+				qcom,gpr {
+					phandle = <0x4c8>;
+					reg = <0x02>;
+					qcom,intents = <0x200 0x14>;
+					qcom,glink-channels = "adsp_apps";
+					compatible = "qcom,gpr";
+
+					spf_core {
+						reg = <0x03>;
+						compatible = "qcom,spf_core";
+					};
+
+					audio-pkt {
+						reg = <0x17>;
+						qcom,audiopkt-ch-name = "apr_audio_svc";
+						compatible = "qcom,audio-pkt";
+					};
+
+					q6prm {
+						phandle = <0x4c9>;
+						reg = <0x07>;
+						compatible = "qcom,audio_prm";
+					};
+				};
+			};
+		};
+
+```
+
+## 外围相关（同一份 FDT）
+
+- `qcom,pmic_glink`（line 8555）：`qcom,pmic-glink-channel = "PMIC_RTR_ADSP_APPS"`，
+  `qcom,protection-domain = "tms/servreg\0msm/adsp/charger_pd"` —— 这就是充电域。
+- `qcom,pmic_glink_log`（8579）：`PMIC_LOGS_ADSP_APPS`，日志通道。
+- `adsp_region@9fd00000`（177）与 `adsp_heap_region`（346）：与
+  `dts/mondrian.dts` 里已修的 `adsp-base = 0x9fd00000` / `adsp-size = 0x03100000` 一致，
+  互相印证。
+
+## 下一步（按八步流程）
+
+这不是推断出来的硬件：节点来自官方 FDT，属②官方 + ③反编译两步的直接产物。
+要把 `remoteproc-adsp` + `pmic_glink` 落到我们的 ADT/DTS 里，先确认三件事：
+寄存器基址与 `adsp_region` 不冲突、`glink-edge` 的 mbox 在我们的
+`smem`/`ipcc` 映射里可解析、`status` 字段的取值。三者都有出处之后才动手。

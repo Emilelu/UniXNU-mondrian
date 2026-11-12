@@ -99,3 +99,47 @@ ADSP 侧从未写过——这正是 `K60AdspGlinkHandoff` 一直"只有消费者
 结论：这份契约仍然是必要的（它把"要什么"钉死了），但它不能替代那两块实现。
 下一步的正当顺序是先在 ADSP 侧复刻 `PongAdrenoZap` 的 PAS 流程，再补 SMEM 分配，
 最后才轮到发布属性——顺序颠倒就会退化成"属性对了但通道是假的"。
+
+## 迁移评估：GPU 的 PAS 路径能借什么（round 220）
+
+`PongAdrenoZap.c`（133 行）本身**不是** PAS 加载器，它只是两件事：
+1. `PongAdrenoPlanZap()` —— 解析厂商 ZAP 的 ELF32 元数据，算出非法重叠；
+2. `PongAdrenoStartZap()` —— 通过 `PongZapOps` 回调把校验后的地址交给调用者。
+
+真正的 SCM 调用不在它里面，而在调用者：
+
+- `drivers/PongAdreno/PongAdrenoCp.cpp:178-187` —— 注释写明
+  `Same SMCCC64 SIP convention and QCOM A6 resume as Nothing's qcom_scm-smc.c`，
+  实现就是内联 `asm volatile("smc #0" : "+r"(x0) … "+r"(x7) …)`。
+- `drivers/PongAdreno/PongAdrenoPlatform.cpp:62` 同一种写法。
+- `PongZapOps` 契约（`PongAdrenoZap.h:43`）里带 `ops->scm` 与
+  `ops->smccc_width`（32 或 64），`PongAdrenoStartZap` 在
+  `PongAdrenoZap.c:76` 处对 `!ops->publish || !ops->scm` 直接拒绝。
+
+结论：**内核里没有独立的 SCM 驱动**（`grep -rl 'scm_call|qcom_scm|SCM_SIP' iokit/ bsd/ osfmk/`
+零命中），SCM 是可复制的内联 `smc #0` 模式。ADSP 侧可以照抄这段约定，
+不需要新增框架。
+
+### 迁移到 ADSP 时必须重算的四项
+
+| 项 | GPU 的值 | ADSP 的值 |
+| --- | --- | --- |
+| PAS id | 13（`PAS13 ZAP auth`） | 1（`PAS1`） |
+| 固件目标 | GPU FW 区 + ZAP 元数据 | `adsp_region@9fd00000`，0x3100000 |
+| 复位/GDSC | GX OOB/START 序列 | ADSP 需要单独的 GDSC + 复位释放顺序 |
+| 通道 | CP 邮箱 fence | GLINK：IPCChost0/ADSP2、smp2p(2/0)、SMEM 三环 |
+
+前三项都在 `remoteproc-adsp@3000000` 的 ADT 节点与我们已有的 vendor DTS 里能查到
+（见 `docs/research/audio/VENDOR-ADSP-NODE.md`）。
+
+### 顺序仍然是硬的
+
+1. 内联 SMC（照抄 `PongAdrenoCp.cpp:187`）→ PAS1 auth + reset；
+2. 把 ADSP 固件装进 `adsp_region` 并释放；
+3. SMEM 分配器（当前缺失）→ 切 desc/tx/rx 三环；
+4. 组 104 字节 blob 并发布 `k60-adsp-glink-handoff`；
+5. 电池/音频各自的协议层才可能真正开始。
+
+跳过第 3 步直接发布属性会通过 `k60_adsp_handoff_parse`，但
+`K60PmicGlink.cpp:60-69` 的 SMEM 条目比对会以 `error = -23` 拒绝——
+所以"假通道"在这个设计里是被挡住的，代价只是多一轮启动。

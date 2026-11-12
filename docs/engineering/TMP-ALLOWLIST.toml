@@ -194,3 +194,7 @@ reason = "构建脚本的运行期暂存目录"
 [[allow]]
 path = "scripts/verify-kernel-platform-symbols.sh::/tmp/k60build/out/route-a18/Pong-iPadOS18-native/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf"
 reason = "构建脚本的运行期暂存目录"
+
+[[allow]]
+path = "scripts/flash.sh::/tmp/k60flash.XXXXXX"
+reason = "门禁输出落在 mktemp -d 的临时目录里，trap EXIT 时删除；不是存放点"

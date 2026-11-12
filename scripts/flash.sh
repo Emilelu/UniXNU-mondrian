@@ -97,4 +97,3 @@ case "$RC" in
   5) echo "  ⚠️  设备已自己回到 fastboot（可能是 panic 复位），看 console.log 尾部" ;;
   *) echo "  ❓ 未预期的退出码 $RC" ;;
 esac
-if [ -f /tmp/usblog-cap.log ]; then rm -f /tmp/usblog-cap.log; fi

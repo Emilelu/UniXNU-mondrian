@@ -76,3 +76,26 @@ typedef struct {
 （`K60ConfigBadEncoding` / `K60ConfigNoOwnership` / `K60ConfigBadResource` /
 `K60ConfigWrongEpoch`），没有"缺属性就用默认值"的分支。所以电池驱动在没有生产者时
 必然停在这里，而不是带着半真半假的状态上线——这是设计意图，不是缺陷。
+
+## 生产者缺的两块，实测（2026-11-13，round 219）
+
+写完契约后立刻去查"能不能照它实现"，答案是还缺两块，而且都能用路径说清：
+
+**一、没有 SMEM 分配器。** `drivers/` 下 `k60_smem_*` 只有两族函数：
+
+- `k60_smem_partition(...)` —— 定位分区
+- `k60_smem_find(..., item_id, &offset, &size)` —— 查已有条目
+
+`K60PmicGlink.cpp:60-69` 正是用它们把 lease 里的 `desc/tx/rx` 偏移与 SMEM 里**真实存在**
+的条目逐项比对，比不上就 `error = -23` 退出。也就是说：lease 不能凭空写三个偏移，
+SMEM 里必须先有三个真条目。而仓库里没有任何分配（alloc/lookup-write）接口，
+分配器的缺失是硬缺口。
+
+**二、没有 ADSP PAS1 装载器。** `grep -rln 'PAS1|pas1|auth_and_reset|adsp_pas' drivers/`
+只命中 `drivers/PongAdreno/*`（GPU 的 ZAP/CP 路径）和 `drivers/PongPower/K60Battery.cpp`
+里的注释。也就是说 PAS1 的 auth+reset 流程只有 GPU 侧有一份可参考实现，
+ADSP 侧从未写过——这正是 `K60AdspGlinkHandoff` 一直"只有消费者没有生产者"的根因。
+
+结论：这份契约仍然是必要的（它把"要什么"钉死了），但它不能替代那两块实现。
+下一步的正当顺序是先在 ADSP 侧复刻 `PongAdrenoZap` 的 PAS 流程，再补 SMEM 分配，
+最后才轮到发布属性——顺序颠倒就会退化成"属性对了但通道是假的"。

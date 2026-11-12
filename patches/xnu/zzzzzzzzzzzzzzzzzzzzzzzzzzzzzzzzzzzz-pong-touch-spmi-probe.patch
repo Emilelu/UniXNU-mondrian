@@ -1,11 +1,11 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -641,6 +641,65 @@
+@@ -641,6 +641,68 @@
  
  /* Declared ahead of its definition: goodix_apply_config resets the chip
   * through it so the SPI mode is re-confirmed on that path too. */
-+/* Enumerate every PM8350C channel and read its peripheral type/subtype, so the
-+ * regulator group can be located instead of guessed from the first six. */
++/* Walk the whole SPMI map table (every slave id) and report the channels that
++ * answer with a real peripheral type: the regulators are not all on sid 2. */
 +#define SPMI_CORE_PHYS     0xc400000UL
 +#define SPMI_OBSERVER_PHYS 0xc440000UL
 +
@@ -36,8 +36,7 @@
 +
 +static void spmi_probe(void)
 +{
-+    uint32_t ppids[32];
-+    uint32_t np = 0;
++    uint32_t live = 0;
 +
 +    if (!spmi_core) {
 +        spmi_core = ml_io_map(SPMI_CORE_PHYS, 0x3000);
@@ -47,26 +46,30 @@
 +        printf("K60SPMI map failed\n");
 +        return;
 +    }
-+    for (uint32_t n = 0; n < 758 && np < 24; n++) {
++    for (uint32_t n = 0; n < 758; n++) {
 +        uint32_t ppid = (spmi_rd(0x2000 + 4 * n) >> 8) & 0xfff;
++        uint32_t t;
 +
-+        if ((ppid >> 8) == 2) {
-+            ppids[np++] = ppid;
++        if ((ppid >> 8) == 0) {
++            continue;
++        }
++        t = spmi_read(ppid, 0x04);
++        if (t == 0xee03u || t == 0 || t == 0xffu || t == 0xeeu) {
++            continue;
++        }
++        printf("K60T rev=10 p=%#x t=%#x s=%#x r=%#x\n", ppid, t,
++            spmi_read(ppid, 0x05), spmi_read(ppid, 0x00));
++        if (++live >= 28) {
++            break;
 +        }
 +    }
-+    printf("K60CFG rev=9 n=%u\n", np);
-+    for (uint32_t i = 0; i < np; i++) {
-+        uint32_t p = ppids[i];
-+
-+        printf("K60T p=%#x t=%#x s=%#x r=%#x\n", p,
-+            spmi_read(p, 0x04), spmi_read(p, 0x05), spmi_read(p, 0x00));
-+    }
++    printf("K60CFG rev=10 live=%u\n", live);
 +}
 +
  static void touch_reset(void);
  
  static bool
-@@ -1209,6 +1268,7 @@
+@@ -1209,6 +1271,7 @@
              return false;
          }
          bool gpio_spi;

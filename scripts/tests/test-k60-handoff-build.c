@@ -44,6 +44,47 @@ int main(void)
     if (*(uint32_t *)(out + 92) != 0x504u) { printf("FAIL smp2p item\n"); fails++; }
     if (*(uint64_t *)(out + 24) != 0x80900000ull) { printf("FAIL smem base\n"); fails++; }
 
+
+    /* Every documented offset must carry its documented field. The table is
+     * copied from docs/research/battery/GLINK-HANDOFF.md, not from this code. */
+    {
+        static const struct { uint32_t at, value, mask; const char *name; } fields[] = {
+            {0,  K60_HANDOFF_MAGIC, 0xffffffffu, "magic"},
+            {4,  K60_HANDOFF_VERSION, 0xffffffffu, "version"},
+            {8,  104u, 0xffffffffu, "bytes"},
+            {12, 0x7u, 0xffffffffu, "flags"},
+            {16, 1793709100u, 0xffffffffu, "epoch"},
+            {20, 0u, 0xffffffffu, "pad20"},
+            {24, 0x80900000u, 0xffffffffu, "smem_base lo"},
+            {28, 0u, 0xffffffffu, "smem_base hi"},
+            {32, 0x200000u, 0xffffffffu, "smem_bytes"},
+            {36, 0u, 0xffffffffu, "pad36"},
+            {40, 0x9fd00000u, 0xffffffffu, "adsp_base lo"},
+            {44, 0u, 0xffffffffu, "adsp_base hi"},
+            {48, 0x3100000u, 0xffffffffu, "adsp_bytes"},
+            {52, 0u, 0xffffffffu, "pad52"},
+            {60, 32u, 0xffffffffu, "desc_bytes"},
+            {68, 4096u, 0xffffffffu, "tx_bytes"},
+            {76, 4096u, 0xffffffffu, "rx_bytes"},
+            {80, 0u, 0xffffffffu, "host_tx_head"},
+            {84, 0u, 0xffffffffu, "host_rx_tail"},
+            {88, 2u, 0xffffffffu, "remote_pid"},
+            {92, 0x504u, 0xffffffffu, "smp2p_item"},
+            {96, 1u, 0xffffffffu, "restart_flag"},
+            {100, 0u, 0xffffffffu, "reserved"}
+        };
+        unsigned k;
+        for (k = 0; k < sizeof fields / sizeof fields[0]; ++k) {
+            const uint32_t got = *(uint32_t *)(out + fields[k].at) & fields[k].mask;
+            if (got != fields[k].value) {
+                printf("FAIL field %s @%u got=%#x want=%#x\n", fields[k].name, fields[k].at, got, fields[k].value);
+                fails++;
+            }
+        }
+        if (*(uint32_t *)(out + 56) == 0 || *(uint32_t *)(out + 64) == 0 ||
+            *(uint32_t *)(out + 72) == 0) { printf("FAIL offset triple\n"); fails++; }
+    }
+
     /* Second build must reuse the same items, not duplicate them. */
     {
         uint8_t out2[K60_HANDOFF_BYTES];
@@ -61,6 +102,6 @@ int main(void)
         if (*(uint32_t *)&mem[part + 12] != up_before) { printf("FAIL partition touched\n"); fails++; }
     }
 
-    printf(fails ? "TESTS FAILED %d\n" : "TESTS OK 7\n", fails);
+    printf(fails ? "TESTS FAILED %d\n" : "TESTS OK 8\n", fails);
     return fails != 0;
 }

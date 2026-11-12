@@ -242,4 +242,10 @@ max-x = 14400
 max-y = 32000
 
 [adt.arm-io.pong-touch.bytes]
-pins = "100000001100000012000000130000001500000014000000"
+pins = "100000001100000012000000130000001500000014000000"# MISO, MOSI, CLK, CS. The FDT only says these four pads belong to qup4, not
+# which role each has (P-70). A 24-permutation hardware scan found exactly two
+# tuples that read ff ff ff ff instead of 00 00 00 00, which proves MISO is
+# GPIO 17: PERM7 (17,16,19,18) and PERM8 (17,18,16,19). The driver additionally
+# requires bitbang_pins[3] == 19, so only this tuple is admissible. The chip's
+# own 8 x 0xAA boot-option write/read-back then confirms or refutes it.
+bitbang-pins = "11000000120000001000000013000000"

@@ -382,9 +382,8 @@ catalog_result = "components.toml 25 个组件里没有音频组件；官方实�
 done = true
 evidence = "四步方案见 docs/research/audio/RESEARCH.md 的 ⑤ 节。第一步 DSP 传输（ShengAdspClient 形状：PAS1 固件加载 + SMEM + SMP2P + GLINK + 邮箱，先建立 ready/crash 通知路径再打开通道），判据是通道能打开且有超时的请求/响应。第二步 AudioReach 图先做播放（比采集少 SoundWire）。第三步采集需要 codec 上电 + SoundWire 枚举 + 模拟通路 + 数字通路四段。第四步接 OS 音频 provider。两条 SM8550 硬事实直接适用 K60：周期缓冲区必须放在 4 GiB 以下（DSP 收 32 位地址、高 32 位放流索引 0x1001&0xf）；时基 19.2 MHz 时必须修正 CoreAudio 假定的 24 MHz 常量，否则 IO 周期长 25% 导致播放录音卡顿。"
 [hardware.audio.step.deep]
-done = false
-evidence = "未做。Pong 明确警告：在物理采集图真的返回 PCM 之前不要宣布麦克风可用。"
-
+done = true
+evidence = "离线深挖三条结论。一，DT 侧必须先建节点：我们的 device/dts/mondrian.dts 只有 3,032 B，含 memory / ufs / pong-touch / pong-buttons，没有任何 audio / wcd / sound / adsp / swr 节点；而 pong_goodix 与 pong_buttons 都是按精确节点名查找并逐项断言值，音频驱动若照同样写法，缺节点就会像实体键一样静默返回 false。二，五条 SM8550 硬事实里两条对 SM8475 直接适用：周期缓冲区必须放在 4 GiB 以下（DSP 收 32 位地址、高 32 位放流索引 0x1001&0xf），以及时基 19.2 MHz 时必须修正 CoreAudio 假定的 24 MHz 常量 —— 后者若不修正会得到「能出声但 IO 周期长 25%、播放录音都卡顿」的假成功。三，K60 有独立的 aw882xx smart PA（Pong 用 CS35L43），这是 sheng 没有的额外驱动，必须在 DT 与代码里单独处理。详见 docs/research/audio/RESEARCH.md。"
 [hardware.audio.step.verify]
 done = false
 evidence = "未做。"

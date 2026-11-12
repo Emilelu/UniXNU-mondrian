@@ -225,3 +225,70 @@ sheng_adsp_send(...);   // 0=已入队  -1=队列满或消息过长  -2=参数�
 - [ ] K60 的 aw882xx smart PA 的 I2C 地址与寄存器表
 - [ ] K60 的 TX SoundWire master 基址
 - [ ] K60 的时基确认（若非 19.2 MHz，第 5 条需重算）
+
+---
+
+## ⑥ 深挖（离线部分）：三条硬结论
+
+### 一、DT 侧必须先建节点，否则驱动静默失败
+
+实测我们的板级 DT：
+
+```
+/opt/k60/trees/usb-cdc-mainline/device/dts/mondrian.dts   3,032 B
+包含：memory / ufs / pong-touch / pong-buttons
+不含：audio / codec / wcd / sound / adsp / swr / aw8 / mic / spk
+```
+
+而现有两个驱动都是**按精确节点名查找并逐项断言值**：
+
+```c
+// pong_goodix 的 configuration()
+if (SecureDTLookupEntry(NULL, "/arm-io/pong-touch", &entry) != kSuccess) return false;
+
+// pong_buttons 的 configuration()
+if (SecureDTLookupEntry(NULL, "/arm-io/pong-buttons", &e) != kSuccess) return false;
+```
+
+**音频驱动若照同样写法，缺节点就会像实体键一样静默返回 false。**
+实体键那一轮我们已经把这种静默改成了逐条件诊断（P-142），音频必须从一开始就这么写。
+
+**待办**：在 `mondrian.dts` 里建 `/arm-io/pong-audio`（或按 UniXNU 的 ADT 约定），
+列出 codec、功放、TX master 基址、reset gpio、供电轨道。
+
+### 二、五条 SM8550 硬事实中两条对 SM8475 直接适用
+
+| # | 硬事实 | 对 K60 的适用性 |
+|---|---|---|
+| 1 | DSP 收 32 位缓冲区地址，高 32 位放流索引（`0x1001 & 0xf`）；周期缓冲区必须 < 4 GiB | ✅ **直接适用**（同为 Qualcomm DSP）|
+| 2 | DSP 先给小 GLINK intent，请求后再给大的；远端表满时也要保留 | ✅ 直接适用（GLINK 层）|
+| 3 | TX core 时钟是 `0x30c`，不是设备树编号 | ⚠️ **待实测**（时钟 ID 可能不同）|
+| 4 | VA macro 和 TX macro 都要开 TX SoundWire master 时钟门控 | ⚠️ 待实测（macro 布局可能不同）|
+| 5 | CoreAudio 假定 host clock 24 MHz；时基 19.2 MHz 时必须修正 | ✅ **直接适用**（SM8475 时基也是 19.2 MHz）|
+
+**第 5 条最危险**：不修正会得到「能出声但卡顿」的假成功 ——
+比彻底失败更难判断，因为第一耳朵听起来是好的。
+
+### 三、K60 有独立的 aw882xx smart PA
+
+```
+sheng：CS35L43（I2C 功放）
+K60：  aw882xx（smart PA，独立 I2C 地址与寄存器表）
+```
+
+**这是 sheng 没有的额外驱动**，必须在 DT 与代码里单独处理。
+Pong 的 `PongWcd938.h` 只覆盖 codec，不含 smart PA —— 说明 Pong 的板子可能没有，
+或者用别的方式处理。
+
+**待办**：从 K60 的 Android 侧确认 aw882xx 的 I2C 地址与初始化序列。
+
+---
+
+## ⑥ 深挖待办（需要设备）
+
+- [ ] K60 的 DSP PAS ID（Pong 用 PAS1，K60 待确认）
+- [ ] K60 的 codec 型号（Pong 用 WCD938x，同 SoC 大概率相同，但需实测）
+- [ ] K60 的 TX SoundWire master 基址（sheng 是 `0x6d30000`）
+- [ ] K60 的时基确认（若非 19.2 MHz，第 5 条需重算）
+- [ ] aw882xx 的 I2C 地址与寄存器表
+- [ ] TX core 时钟 ID（sheng 是 `0x30c`）

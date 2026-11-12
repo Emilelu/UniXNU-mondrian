@@ -241,3 +241,11 @@ subject = "docs(input): record live transport and lockscreen state"
 verdict = "not-applicable"
 reason = "纯文档，PITFALLS + porting.toml。但内容值得读：记录 live transport 和 lockscreen 状态"
 date = "2026-11-12"
+
+[[commit]]
+sha = "4a6966b35"
+subject = "submodule: repin Mu_Basecore to release/202608 HEAD"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：uefi-mondrian 分支 main"
+date = "2026-11-09"

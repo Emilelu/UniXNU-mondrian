@@ -27,6 +27,16 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = '/mnt/e/k60-work'
 
+
+# 三个目标树：每个上游仓库的文件要写到对应的本地仓库，而不是全塞进设备仓库。
+# 2026-11-12 之前只写了设备仓库，导致 yibiya 对 UniXNU 框架和 uefi-mondrian
+# 的提交从来没有进过我们的工作树 —— 镜像在跟，但 pick 没跟。
+TARGETS = {
+    'UniXNU-mondrian': '/mnt/e/hackios/UniXNU-mondrian',
+    'UniXNU':          '/mnt/e/hackios/UniXNU',
+    'uefi-mondrian':   '/mnt/e/hackios/uefi-mondrian',
+}
+
 REPOS = {
     'UniXNU-mondrian': os.path.join(WORK, 'references/yibiya-upstream'),
     'UniXNU':          os.path.join(WORK, 'references/yibiya-unixnu-upstream'),
@@ -174,12 +184,19 @@ def apply_plan(plan_items, do_commit=False):
     written, skipped = [], []
     for (key, branch, sha, date, subj, all_files), files in plan_items:
         d = REPOS[key]
+        target = TARGETS.get(key, REPO)
         for f in files:
+            # submodule（gitlink）不能按文件写：git show 只会返回子模块的 commit
+            # SHA，写进去就把目录变成一个文本文件。这类改动要单独做
+            # git submodule update，这里只记录。
+            if os.path.isdir(os.path.join(target, f)) and not os.path.islink(os.path.join(target, f)):
+                skipped.append((f, 'submodule，需 git submodule update'))
+                continue
             r = subprocess.run(['git', 'show', '%s:%s' % (sha, f)], capture_output=True, cwd=d)
             if r.returncode != 0:
                 skipped.append((f, 'show failed'))
                 continue
-            dst = os.path.join(REPO, f)
+            dst = os.path.join(target, f)
             os.makedirs(os.path.dirname(dst) or REPO, exist_ok=True)
             io.open(dst, 'wb').write(r.stdout)
             written.append((f, len(r.stdout), sha[:9]))
@@ -286,17 +303,25 @@ def main():
 
     if a.commit:
         stamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-        body = '\n'.join('  %s %s/%s %s' % (sha[:9], k[:10], b[:20], s[:60])
-                         for (k, b, sha, dt, s, _), _ in items[:30])
-        msg = ('feat(upstream): pick %d commits from yibiya branches\n\n'
-               'Applied by scripts/pick-upstream.py at %s. File-level extraction,\n'
-               'because the two histories share no ancestor.\n\n%s'
-               % (len(items), stamp, body))
-        subprocess.run(['git', 'add', '-A'], cwd=REPO)
-        subprocess.run(['git', '-c', 'user.name=Emilelu',
-                        '-c', 'user.email=kimiuso@vip.qq.com',
-                        'commit', '-q', '-m', msg], cwd=REPO)
-        print('  已提交')
+        # 按目标树分组提交 —— 三个树是独立的 git 仓库
+        by_target = {}
+        for (k, b, sha, dt, s, _), files in items:
+            by_target.setdefault(k, []).append((sha, b, s, files))
+        for key, group in by_target.items():
+            target = TARGETS.get(key, REPO)
+            body = '\n'.join('  %s %s %s' % (sha[:9], b[:22], subj[:60])
+                             for sha, b, subj, _ in group[:30])
+            msg = ('feat(upstream): pick %d commits from yibiya/%s\n\n'
+                   'Applied by scripts/pick-upstream.py at %s. File-level extraction,\n'
+                   'because the two histories share no ancestor.\n\n%s'
+                   % (len(group), key, stamp, body))
+            subprocess.run(['git', 'add', '-A'], cwd=target, capture_output=True)
+            r = subprocess.run(['git', '-c', 'user.name=Emilelu',
+                                '-c', 'user.email=kimiuso@vip.qq.com',
+                                'commit', '-q', '-m', msg], cwd=target,
+                               capture_output=True, text=True)
+            status = '已提交' if r.returncode == 0 else ('无变化' if 'nothing to commit' in (r.stdout or '') else '失败')
+            print('  %-18s %s' % (key, status))
 
     # 推进水位
     seen = load_seen()

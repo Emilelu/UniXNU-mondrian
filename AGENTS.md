@@ -82,6 +82,18 @@ a violation costs work that cannot be recovered.
    times. Reporting is not following. A deferred commit without a date is a
    forgotten commit.
 
+7. **Snapshot before touching anything that boots.** A tag is the only thing
+   that makes a change reversible. `git reset --hard` destroyed the eight-step
+   table deduplication because there was nothing to reset back to, and
+   `git pull --rebase` resurrected the reverted `0403` patch because the revert
+   had not been pushed. Both were one tag away from being harmless.
+
+   Run `python3 scripts/check-snapshot-tag.py --tag` before any change under
+   `patches/xnu/`, `configs/`, `board.toml`, `dts/` or `drivers/`. The gate
+   refuses to tag a dirty tree - a tag that does not contain the work is a lie -
+   and it fails the build when the newest `snap-*` tag is unpushed or when
+   boot-relevant files have changed since it.
+
 The check before every build: `git status --porcelain` is empty on the source
 tree, the branch is level with its remote, and
 `python3 scripts/sync-device-input.py --check` reports no drift. The gates below

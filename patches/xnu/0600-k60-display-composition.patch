@@ -1,0 +1,983 @@
+Subject: [PATCH] k60: retain display layers and recompose damaged footprints
+
+Prepared against XNU8796.141.3 after the current patches/xnu/series.
+Targets only iokit/Kernel/MiniIOMobileFramebuffer.cpp; no touch/GPU hardware
+initialization, boot identity, framebuffer mode or userland gate changes.
+
+The actual20G81 IOMobileFramebufferSwapEnd input is a layer delta: set/clear
+masks, enabled flags and valid source/destination rectangles are authoritative.
+Unmentioned layers retain one MiniIOSurface holder until replaced or cleared.
+Old and new footprints are recomposed from retained layers in premultiplied
+BGRA/RGBA source-over order, with clipping that preserves the original transform.
+Only damaged scanout rows are written; cached row/column storage is allocated
+at startup, never per frame. The first real frame still releases the console.
+
+Prior art: Pong ios16 7798f1e5f261e7121d01d7e4807ed73512737ded, inherited
+MiniIOMobileFramebuffer; HakiOS63fc2b4633bac3af8e57dadab9f5a8d4cb940438,
+MiniIOMobileFramebuffer.cpp:677-688,1097-1122 for source extent/destination
+bounds; original20G81 IOMFB at0x1af17b8a4/0x1af17b9ec/0x1af17ba14/0x1af17be34
+for masks and enabled geometry. Pixel blend follows the published iOS vImage
+premultiplied BGRA formula (Alpha.h:401-418). Existing license notices remain.
+
+CPU desktop remains the default. Existing explicitly requested GPU scanout
+still accepts only one validated full-screen BGRA layer and never races
+quarantined DMA. Unsupported layout/invalid surface errors are preserved.
+
+Verification not run by this worker. Main agent owns patch applicability,
+host layer smoke, source builds and device rendering observations.
+
+diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+--- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
++++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+@@ -215,6 +215,54 @@
+ 
+ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 
++struct PanelRect {
++	int32_t left, top, right, bottom;
++};
++
++static inline bool
++rectEmpty(const PanelRect & rect)
++{
++	return rect.left >= rect.right || rect.top >= rect.bottom;
++}
++
++static PanelRect
++rectIntersection(const PanelRect & a, const PanelRect & b)
++{
++	return { a.left > b.left ? a.left : b.left, a.top > b.top ? a.top : b.top,
++	         a.right < b.right ? a.right : b.right, a.bottom < b.bottom ? a.bottom : b.bottom };
++}
++
++/* At most an old and a new footprint per hardware layer. Merge overlaps so
++ * translucent pixels are composed once, never blended twice onto old scanout. */
++static void
++addDamage(PanelRect * damage, unsigned * count, PanelRect rect)
++{
++	if (rectEmpty(rect)) {
++		return;
++	}
++	for (unsigned i = 0; i < *count;) {
++		const PanelRect & old = damage[i];
++		if (rect.right < old.left || old.right < rect.left ||
++		    rect.bottom < old.top || old.bottom < rect.top) {
++			i++;
++			continue;
++		}
++		rect = { rect.left < old.left ? rect.left : old.left, rect.top < old.top ? rect.top : old.top,
++		         rect.right > old.right ? rect.right : old.right, rect.bottom > old.bottom ? rect.bottom : old.bottom };
++		damage[i] = damage[--*count];
++		i = 0;
++	}
++	damage[(*count)++] = rect;
++}
++
++struct DisplayLayer {
++	MiniIOSurface * surface;                /* one holder until the layer is replaced or cleared */
++	int32_t src[4], dst[4];
++	int32_t px0, py0, px1, py1;             /* unclipped transform, so clipping does not rescale */
++	PanelRect bounds;                      /* visible footprint only */
++	bool rgba, unscaled;
++};
++
+ struct RowJob;
+ 
+ class IOMobileFramebuffer : public IOService
+@@ -231,6 +279,7 @@
+ 	uint32_t        fSwapsShown;
+ 	uint32_t        fLayersShown;           /* which layers the last swap had a surface in */
+ 	bool            fGraphics;              /* the text console has been told to stop */
++	DisplayLayer    fLayers[SWAP_LAYERS];   /* SwapEnd is a layer delta, not a complete scene */
+ 	/*
+ 	 * A frame goes to the panel when the GPU is done with it: a thread of ours waits for that
+ 	 * and copies it there, and whoever made the frame is back at the next one meanwhile. One
+@@ -241,9 +290,9 @@
+ 	 * clock of its own, and a SwapEnd held past its next tick makes that tick late, the clock going
+ 	 * on from there (rc.jobs.fps: 28% of the frames over 16.7 ms with two, 33% with one).
+ 	 */
+-	IOLock *        fSwapLock;              /* around the next five */
++	IOLock *        fSwapLock;              /* queue slots and their owned surface holders */
+ 	uint8_t         fSwap[SWAP_QUEUE][SWAP_SIZE];   /* the swaps on their way to the panel (fb_queue), from fSwapFirst on */
+-	MiniIOSurface * fSwapSurfaces[SWAP_QUEUE][SWAP_LAYERS]; /* ... their surfaces, held from SwapEnd on: their maker may let go of them */
++	DisplayLayer    fSwapLayers[SWAP_QUEUE][SWAP_LAYERS]; /* queued updates own their surface holders */
+ 	unsigned        fSwapFirst, fSwapsWaiting;
+ 	/*
+ 	 * ... and not whenever the GPU happens to be done, but on a beat of the refresh rate
+@@ -278,24 +327,24 @@
+ 	/* boot-arg fb_diff=1: which pixels of the panel each frame changed (it costs: the panel's memory is slow to read) */
+ 	bool            fDiff;
+ 	bool            fGpuOnly;              /* explicit bring-up policy, never the default */
++	bool            fGpuScanout;           /* explicit opt-in; CPU never scans pixels to qualify a GPU frame */
+ 	uint64_t        fDiffPixels;
+ 	uint32_t        fDiffLeft, fDiffTop, fDiffRight, fDiffBottom;
+-	/* the screen recording, if one was asked for */
+-	uint32_t *      fColumn;                /* drawLayer(): source column for every panel column */
+-	uint16_t *      fColumnWeight;          /* ... with fb_filter: how much of the column after it, of 256 */
+-	uint32_t *      fBlendRow;              /* ... and a row of the picture blended from two (fBlendRowSize pixels) */
+-	uint32_t        fBlendRowSize;
++	uint32_t *      fColumn;                /* per retained layer, one source column per panel column */
++	uint16_t *      fColumnWeight;
++	uint32_t *      fRow;                   /* composition in cached RAM; scanout written once per damaged row */
+ 
+ 	virtual bool start(IOService * provider) APPLE_KEXT_OVERRIDE;
+ 	void publishModes(void);
+ 	MiniIOSurface * defaultSurface(void);
+-	void present(const uint8_t * swap);
+-	void show(const uint8_t * swap, MiniIOSurface ** surfaces);
++	IOReturn present(const uint8_t * swap);
++	void show(const uint8_t * swap, DisplayLayer * updates);
+ 	void presenter(void);
+ 	static void presenterMain(void * self, wait_result_t result);
+ 	void reportFrameTimes(void);
+-	void drawLayer(MiniIOSurface * s, const int32_t * src, const int32_t * dst);
+-	void drawRows(const struct RowJob * job, int32_t y0, int32_t y1, uint32_t * blendRow);
++	IOReturn prepareLayer(MiniIOSurface * s, const uint8_t * swap, unsigned layer, DisplayLayer * update);
++	void composeRect(const PanelRect & rect);
++	void drawRows(const struct RowJob * job, int32_t y0, int32_t y1, uint32_t * row);
+ 	static void helperMain(void * self, wait_result_t result);
+ 	/* the scaling shared out (fb_threads): fThreads drawers, the presenter and fThreads - 1 helpers */
+ 	unsigned        fThreads;
+@@ -303,7 +352,7 @@
+ 	const struct RowJob * fHelperJob;
+ 	uint64_t        fHelperGeneration;
+ 	unsigned        fHelpersBusy, fHelpersStarted;
+-	uint32_t *      fHelperBlend[7];
++	uint32_t *      fHelperRows[7];
+ };
+ 
+ OSDefineMetaClassAndStructors(IOMobileFramebuffer, IOService);
+@@ -394,13 +443,16 @@
+ 	uint32_t gpuOnly = 0;
+ 	PE_parse_boot_argn("pong_gpu_only", &gpuOnly, sizeof(gpuOnly));
+ 	fGpuOnly = gpuOnly != 0;
++	uint32_t gpuScanout = 0;
++	PE_parse_boot_argn("pong_gpu_scanout", &gpuScanout, sizeof(gpuScanout));
++	fGpuScanout = gpuScanout == 1;
+ 	if (vinfo.v_baseaddr == 0 || vinfo.v_width == 0 || vinfo.v_height == 0 || vinfo.v_depth != 32) {
+ 		IOLog("MiniIOMobileFramebuffer: no usable boot framebuffer (%ux%u, depth %u)\n", vinfo.v_width, vinfo.v_height,
+ 		    vinfo.v_depth);
+ 		return false;
+ 	}
+ 	if (vinfo.v_width > 16384 || vinfo.v_height > 16384 ||
+-	    vinfo.v_rowbytes < vinfo.v_width * 4 ||
++	    (vinfo.v_baseaddr & 3) || (vinfo.v_rowbytes & 3) || vinfo.v_rowbytes < vinfo.v_width * 4 ||
+ 	    (uint64_t)vinfo.v_baseaddr > ~0ULL - (uint64_t)vinfo.v_rowbytes * vinfo.v_height) {
+ 		IOLog("MiniIOMobileFramebuffer: invalid boot framebuffer range\n");
+ 		return false;
+@@ -408,26 +460,18 @@
+ 	fLock = IOLockAlloc();
+ 	fSwapLock = IOLockAlloc();
+ 	fHelperLock = IOLockAlloc();
+-	fColumn = IONewZero(uint32_t, vinfo.v_width);
+-	fColumnWeight = IONewZero(uint16_t, vinfo.v_width);
+-	if (!fLock || !fSwapLock || !fHelperLock || !fColumn || !fColumnWeight) {
++	fColumn = IONewZero(uint32_t, vinfo.v_width * SWAP_LAYERS);
++	fColumnWeight = IONewZero(uint16_t, vinfo.v_width * SWAP_LAYERS);
++	fRow = IONew(uint32_t, vinfo.v_width);
++	fThreads = gThreads >= 1 && gThreads <= 8 ? gThreads : 1;
++	bool allocated = fLock && fSwapLock && fHelperLock && fColumn && fColumnWeight && fRow;
++	for (unsigned i = 0; i + 1 < fThreads; i++) {
++		fHelperRows[i] = IONew(uint32_t, vinfo.v_width);
++		allocated = allocated && fHelperRows[i] != NULL;
++	}
++	if (!allocated) {
+ 		IOLog("MiniIOMobileFramebuffer: no memory for display state\n");
+ 		return false;
+-	}
+-	if (kernel_thread_start(&IOMobileFramebuffer::presenterMain, this, &thread) != KERN_SUCCESS) {
+-		IOLog("MiniIOMobileFramebuffer: no thread to put frames on the panel with\n");
+-		return false;
+-	}
+-	thread_set_thread_name(thread, "frames to the panel");
+-	thread_deallocate(thread);
+-	fThreads = gThreads >= 1 && gThreads <= 8 ? gThreads : 1;
+-	for (unsigned i = 0; i + 1 < fThreads; i++) {
+-		if (kernel_thread_start(&IOMobileFramebuffer::helperMain, this, &thread) != KERN_SUCCESS) {
+-			fThreads = i + 1;
+-			break;
+-		}
+-		thread_set_thread_name(thread, "frames to the panel: a helper");
+-		thread_deallocate(thread);
+ 	}
+ 	fBase = (uint8_t *) vinfo.v_baseaddr;
+ 	fPanelWidth = vinfo.v_width;
+@@ -452,6 +496,10 @@
+ 		static const char * const places[][2] = { { "/chosen", "display-scale" }, { "/product", "artwork-scale-factor" } };
+ 		uint32_t scale = gFBScale;
+ 
++		if (scale > 16384 / kFBPointsHigh) {
++			IOLog("MiniIOMobileFramebuffer: invalid display scale %u\n", scale);
++			return false;
++		}
+ 		fWidth = kFBPointsWide * scale;
+ 		fHeight = kFBPointsHigh * scale;
+ 		/* what the loader's device tree says about the scale is where MobileGestalt has it from */
+@@ -463,6 +511,24 @@
+ 				node->release();
+ 			}
+ 		}
++	}
++	if (fWidth == 0 || fHeight == 0 || fWidth > 16384 || fHeight > 16384) {
++		IOLog("MiniIOMobileFramebuffer: invalid display canvas %ux%u\n", fWidth, fHeight);
++		return false;
++	}
++	if (kernel_thread_start(&IOMobileFramebuffer::presenterMain, this, &thread) != KERN_SUCCESS) {
++		IOLog("MiniIOMobileFramebuffer: no thread to put frames on the panel with\n");
++		return false;
++	}
++	thread_set_thread_name(thread, "frames to the panel");
++	thread_deallocate(thread);
++	for (unsigned i = 0; i + 1 < fThreads; i++) {
++		if (kernel_thread_start(&IOMobileFramebuffer::helperMain, this, &thread) != KERN_SUCCESS) {
++			fThreads = i + 1;
++			break;
++		}
++		thread_set_thread_name(thread, "frames to the panel: a helper");
++		thread_deallocate(thread);
+ 	}
+ 	fDiff = gDiff != 0;
+ 	fDiffLeft = fDiffTop = ~0u;
+@@ -536,92 +602,125 @@
+ 	return at < 0 ? 0 : at > (in - 1) * 256 ? (in - 1) * 256 : at;
+ }
+ 
+-/*
+- * The rows of one layer, from `y0` to `y1` (panel rows), as drawLayer() has worked them out:
+- * scaling a whole frame takes one processor some 9 ms, so with boot-arg fb_threads=N it is shared
+- * out between N of them, each with rows of its own and a row of blending of its own.
+- */
++/* BGRA/RGBA scanout layers carry premultiplied alpha. The panel's fourth
++ * byte is reserved, so composition is over an opaque black display backdrop. */
++static inline uint32_t
++sourceOver(uint32_t top, uint32_t bottom)
++{
++	uint32_t alpha = top >> 24;
++	if (alpha == 0) {
++		return bottom;
++	}
++	if (alpha == 255) {
++		return top;
++	}
++	uint32_t result = 0xff000000;
++	for (unsigned shift = 0; shift < 24; shift += 8) {
++		uint32_t value = ((bottom >> shift) & 255) * (255 - alpha) + 128;
++		value = ((value + (value >> 8)) >> 8) + ((top >> shift) & 255);
++		result |= (value < 255 ? value : 255) << shift;
++	}
++	return result;
++}
++
++/* One damaged rectangle, composed in cached row storage by disjoint workers.
++ * No framebuffer read/modify/write and no allocation in the presenter. */
+ struct RowJob {
+-	const uint8_t * pixels;
+-	uint32_t        stride;
+-	int32_t         sx, sy, sw, sh, px0, py0, px1, py1, cx0, cx1;
+-	bool            filter, unscaled;
++	PanelRect rect;
++	bool directBottom;
++	bool directOnly;
+ };
+ 
+ void
+-IOMobileFramebuffer::drawRows(const RowJob * job, int32_t y0, int32_t y1, uint32_t * blendRow)
+-{
+-	const uint8_t * pixels = job->pixels;
+-	uint32_t stride = job->stride;
+-	int32_t sx = job->sx, sy = job->sy, sw = job->sw, sh = job->sh;
+-	int32_t px0 = job->px0, py0 = job->py0, px1 = job->px1, py1 = job->py1, cx0 = job->cx0, cx1 = job->cx1;
+-	bool filter = job->filter;
+-
++IOMobileFramebuffer::drawRows(const RowJob * job, int32_t y0, int32_t y1, uint32_t * row)
++{
++	const PanelRect & rect = job->rect;
+ 	for (int32_t y = y0; y < y1; y++) {
+-		const uint32_t * from;
+-		uint32_t * to;
+-
+-		if (y < 0 || (uint32_t) y >= fPanelHeight) {
++		if (job->directOnly && !fDiff) {
++			const DisplayLayer & bottom = fLayers[0];
++			const uint32_t * source = (const uint32_t *)(bottom.surface->pixels() +
++			    (size_t)(bottom.src[1] + y - bottom.py0) * bottom.surface->info.bytesPerRow);
++			uint32_t * to = (uint32_t *)(fBase + (size_t)y * fRowBytes);
++			for (int32_t x = rect.left; x < rect.right; x++) {
++				uint32_t value = source[bottom.src[0] + x - bottom.px0];
++				to[x] = value >> 24 ? value | 0xff000000 : 0xff000000;
++			}
+ 			continue;
+ 		}
+-		to = (uint32_t *) (fBase + (size_t) y * fRowBytes);
+-		if (job->unscaled) {
+-			/* not scaled at all */
+-			memcpy(to + px0, pixels + (size_t) (sy + y - py0) * stride + (size_t) sx * 4, (size_t) sw * 4);
+-			continue;
+-		}
+-		if (filter) {
+-			int64_t at = sample_at(y - py0, sh, py1 - py0);
+-			uint32_t row = (uint32_t) (at >> 8), weight = (uint32_t) (at & 255);
+-			const uint32_t * upper = (const uint32_t *) (pixels + (size_t) (sy + row) * stride) + sx;
+-
+-			if (weight == 0 || row + 1 >= (uint32_t) sh) {
+-				from = upper;
++		if (job->directBottom) {
++			const DisplayLayer & bottom = fLayers[0];
++			const uint32_t * source = (const uint32_t *)(bottom.surface->pixels() +
++			    (size_t)(bottom.src[1] + y - bottom.py0) * bottom.surface->info.bytesPerRow);
++			for (int32_t x = rect.left; x < rect.right; x++) {
++				uint32_t value = source[bottom.src[0] + x - bottom.px0];
++				row[x] = value >> 24 ? value | 0xff000000 : 0xff000000;
++			}
++		} else {
++			for (int32_t x = rect.left; x < rect.right; x++) {
++				row[x] = 0xff000000;
++			}
++		}
++		for (unsigned index = job->directBottom ? 1 : 0; index < SWAP_LAYERS; index++) {
++			const DisplayLayer & layer = fLayers[index];
++			if (layer.surface == NULL || y < layer.bounds.top || y >= layer.bounds.bottom) {
++				continue;
++			}
++			int32_t x0 = rect.left > layer.bounds.left ? rect.left : layer.bounds.left;
++			int32_t x1 = rect.right < layer.bounds.right ? rect.right : layer.bounds.right;
++			if (x0 >= x1) {
++				continue;
++			}
++			const uint32_t * columns = fColumn + (size_t)index * fPanelWidth;
++			const uint16_t * weights = fColumnWeight + (size_t)index * fPanelWidth;
++			uint32_t sourceY, weightY = 0;
++			if (layer.unscaled) {
++				sourceY = (uint32_t)(layer.src[1] + y - layer.py0);
++			} else if (gFilter != 0) {
++				int64_t at = sample_at((int64_t)y - layer.py0, layer.src[3], (int64_t)layer.py1 - layer.py0);
++				sourceY = (uint32_t)layer.src[1] + (uint32_t)(at >> 8);
++				weightY = sourceY + 1 < (uint32_t)(layer.src[1] + layer.src[3]) ? (uint32_t)(at & 255) : 0;
+ 			} else {
+-				const uint32_t * lower = (const uint32_t *) (pixels + (size_t) (sy + row + 1) * stride) + sx;
+-				uint32_t first = fColumn[cx0], last = fColumn[cx1 - 1] + 1 < (uint32_t) sw ? fColumn[cx1 - 1] + 1 : fColumn[cx1 - 1];
+-
+-				uint32_t * __restrict mixed = blendRow;
+-
+-				for (uint32_t c = first; c <= last; c++) {
+-					uint32_t a = upper[c], b = lower[c];
+-
+-					mixed[c] = a == b ? a : blend(a, b, weight);           /* (most of a screen is the same as next to it) */
++				sourceY = (uint32_t)(layer.src[1] + ((int64_t)y - layer.py0) * layer.src[3] /
++				    ((int64_t)layer.py1 - layer.py0));
++			}
++			const MiniIOSurface * surface = layer.surface;
++			const uint32_t * upper = (const uint32_t *)(surface->pixels() + (size_t)sourceY * surface->info.bytesPerRow);
++			const uint32_t * lower = weightY ? (const uint32_t *)((const uint8_t *)upper + surface->info.bytesPerRow) : upper;
++			for (int32_t x = x0; x < x1; x++) {
++				uint32_t column = layer.unscaled ? (uint32_t)(layer.src[0] + x - layer.px0) : columns[x];
++				uint32_t value = upper[column];
++				if (weightY && value != lower[column]) {
++					value = blend(value, lower[column], weightY);
+ 				}
+-				from = blendRow;
+-			}
+-		} else {
+-			from = (const uint32_t *) (pixels + (size_t) (sy + (int64_t) (y - py0) * sh / (py1 - py0)) * stride);
+-		}
++				uint32_t weightX = layer.unscaled ? 0 : weights[x];
++				if (weightX) {
++					uint32_t next = upper[column + 1];
++					if (weightY && next != lower[column + 1]) {
++						next = blend(next, lower[column + 1], weightY);
++					}
++					if (value != next) {
++						value = blend(value, next, weightX);
++					}
++				}
++				if (layer.rgba) {
++					value = (value & 0xff00ff00) | ((value & 255) << 16) | ((value >> 16) & 255);
++				}
++				row[x] = sourceOver(value, row[x]);
++			}
++		}
++		uint32_t * to = (uint32_t *)(fBase + (size_t)y * fRowBytes);
+ 		if (fDiff) {
+-			for (int32_t x = cx0; x < cx1; x++) {
+-				uint32_t value = filter ? blend(from[fColumn[x]], from[fColumn[x] + (fColumnWeight[x] != 0)], fColumnWeight[x]) :
+-				    from[fColumn[x]];
+-
+-				if (to[x] != value) {
++			for (int32_t x = rect.left; x < rect.right; x++) {
++				if (to[x] != row[x]) {
+ 					fDiffPixels++;
+-					fDiffLeft = (uint32_t) x < fDiffLeft ? (uint32_t) x : fDiffLeft;
+-					fDiffRight = (uint32_t) x > fDiffRight ? (uint32_t) x : fDiffRight;
+-					fDiffTop = (uint32_t) y < fDiffTop ? (uint32_t) y : fDiffTop;
+-					fDiffBottom = (uint32_t) y > fDiffBottom ? (uint32_t) y : fDiffBottom;
++					fDiffLeft = (uint32_t)x < fDiffLeft ? (uint32_t)x : fDiffLeft;
++					fDiffRight = (uint32_t)x > fDiffRight ? (uint32_t)x : fDiffRight;
++					fDiffTop = (uint32_t)y < fDiffTop ? (uint32_t)y : fDiffTop;
++					fDiffBottom = (uint32_t)y > fDiffBottom ? (uint32_t)y : fDiffBottom;
+ 				}
+ 			}
+ 		}
+-		if (filter) {
+-			const uint32_t * __restrict column = fColumn + cx0;
+-			const uint16_t * __restrict weights = fColumnWeight + cx0;
+-			uint32_t * __restrict out = to + cx0;
+-
+-			for (uint32_t i = 0, n = (uint32_t) (cx1 - cx0); i < n; i++) {
+-				uint32_t c = column[i], w = weights[i], a = from[c];
+-
+-				out[i] = w == 0 || a == from[c + 1] ? a : blend(a, from[c + 1], w);
+-			}
+-		} else {
+-			for (int32_t x = cx0; x < cx1; x++) {
+-				to[x] = from[fColumn[x]];
+-			}
+-		}
++		memcpy(to + rect.left, row + rect.left, (size_t)(rect.right - rect.left) * 4);
+ 	}
+ }
+ 
+@@ -649,10 +748,10 @@
+ 		job = fb->fHelperJob;
+ 		IOLockUnlock(fb->fHelperLock);
+ 		/* share index + 1 of fThreads (the presenter takes share 0) */
+-		rows = job->py1 - job->py0;
+-		y0 = job->py0 + (int32_t) ((int64_t) rows * (index + 1) / fb->fThreads);
+-		y1 = job->py0 + (int32_t) ((int64_t) rows * (index + 2) / fb->fThreads);
+-		blend = fb->fHelperBlend[index];
++		rows = job->rect.bottom - job->rect.top;
++		y0 = job->rect.top + (int32_t)((int64_t)rows * (index + 1) / fb->fThreads);
++		y1 = job->rect.top + (int32_t)((int64_t)rows * (index + 2) / fb->fThreads);
++		blend = fb->fHelperRows[index];
+ 		fb->drawRows(job, y0, y1, blend);
+ 		IOLockLock(fb->fHelperLock);
+ 		fb->fHelpersBusy--;
+@@ -663,104 +762,83 @@
+ 	}
+ }
+ 
+-/*
+- * Put a rectangle of a 32-bit surface on the screen. `dst` is in display coordinates; the
+- * panel may be of another size, and the layer itself may be scaled: both are done in one
+- * step, bilinear (or nearest neighbour: fb_filter=0).
+- */
++/* Validate the actual SwapSetLayer rectangle and byte extent at enqueue time.
++ * Empty rectangles disable that footprint; they never mean "draw fullscreen".
++ * DST_LIMIT is the HakiOS bound on client-controlled display coordinates. */
++#define DST_LIMIT (1 << 24)
++IOReturn
++IOMobileFramebuffer::prepareLayer(MiniIOSurface * s, const uint8_t * swap, unsigned index, DisplayLayer * layer)
++{
++	memcpy(layer->src, swap + SWAP_SOURCE(index), sizeof(layer->src));
++	memcpy(layer->dst, swap + SWAP_DEST(index), sizeof(layer->dst));
++	int32_t sx = layer->src[0], sy = layer->src[1], sw = layer->src[2], sh = layer->src[3];
++	int32_t dx = layer->dst[0], dy = layer->dst[1], dw = layer->dst[2], dh = layer->dst[3];
++	const minisurf_result & info = s->info;
++	if (info.bytesPerElement != 4 || info.planeCount != 0 || info.elementWidth != 1 || info.elementHeight != 1 ||
++	    (info.pixelFormat != FOURCC('B', 'G', 'R', 'A') && info.pixelFormat != FOURCC('R', 'G', 'B', 'A'))) {
++		return kIOReturnUnsupported;
++	}
++	if (s->kpixels == NULL || ((uintptr_t)s->kpixels & 3) || (info.offset & 3) || (info.bytesPerRow & 3) ||
++	    sx < 0 || sy < 0 || sw < 0 || sh < 0 || dw < 0 || dh < 0 ||
++	    info.width > 16384 || info.height > 16384 ||
++	    (uint64_t)sx + sw > info.width || (uint64_t)sy + sh > info.height ||
++	    info.bytesPerRow < (uint64_t)info.width * 4 || info.offset > info.allocSize ||
++	    (uintptr_t)s->kpixels > ~(uintptr_t)0 - info.allocSize) {
++		return kIOReturnBadArgument;
++	}
++	layer->rgba = info.pixelFormat == FOURCC('R', 'G', 'B', 'A');
++	if (sw == 0 || sh == 0 || dw == 0 || dh == 0) {
++		return kIOReturnSuccess;
++	}
++	if ((uint64_t)info.offset + ((uint64_t)sy + sh - 1) * info.bytesPerRow + ((uint64_t)sx + sw) * 4 > info.allocSize) {
++		return kIOReturnBadArgument;
++	}
++	int64_t px0 = (int64_t)dx * fPanelWidth / fWidth;
++	int64_t py0 = (int64_t)dy * fPanelHeight / fHeight;
++	int64_t px1 = ((int64_t)dx + dw) * fPanelWidth / fWidth;
++	int64_t py1 = ((int64_t)dy + dh) * fPanelHeight / fHeight;
++	if (px0 < -DST_LIMIT || py0 < -DST_LIMIT || px0 > DST_LIMIT || py0 > DST_LIMIT ||
++	    px1 < -DST_LIMIT || py1 < -DST_LIMIT || px1 > DST_LIMIT || py1 > DST_LIMIT) {
++		return kIOReturnBadArgument;
++	}
++	layer->px0 = (int32_t)px0;
++	layer->py0 = (int32_t)py0;
++	layer->px1 = (int32_t)px1;
++	layer->py1 = (int32_t)py1;
++	layer->bounds = rectIntersection({ layer->px0, layer->py0, layer->px1, layer->py1 },
++	    { 0, 0, (int32_t)fPanelWidth, (int32_t)fPanelHeight });
++	layer->unscaled = px1 - px0 == sw && py1 - py0 == sh;
++	return kIOReturnSuccess;
++}
++
+ void
+-IOMobileFramebuffer::drawLayer(MiniIOSurface * s, const int32_t * src, const int32_t * dst)
+-{
+-	int32_t sx = src[0], sy = src[1], sw = src[2], sh = src[3];
+-	int32_t dx = dst[0], dy = dst[1], dw = dst[2], dh = dst[3];
+-	int32_t px0, py0, px1, py1, cx0, cx1;
+-	bool filter = gFilter != 0;
+-	RowJob job;
+-
+-	if (sw <= 0 || sh <= 0) {
+-		sx = sy = 0;
+-		sw = (int32_t) s->info.width;
+-		sh = (int32_t) s->info.height;
+-	}
+-	if (dw <= 0 || dh <= 0) {
+-		dx = dy = 0;
+-		dw = (int32_t) fWidth;
+-		dh = (int32_t) fHeight;
+-	}
+-	if (sx < 0 || sy < 0 || (uint32_t) (sx + sw) > s->info.width || (uint32_t) (sy + sh) > s->info.height) {
++IOMobileFramebuffer::composeRect(const PanelRect & rect)
++{
++	const DisplayLayer & bottom = fLayers[0];
++	bool directBottom = bottom.surface && bottom.unscaled && !bottom.rgba &&
++	    bottom.bounds.left <= rect.left && bottom.bounds.top <= rect.top &&
++	    bottom.bounds.right >= rect.right && bottom.bounds.bottom >= rect.bottom;
++	bool directOnly = directBottom;
++	for (unsigned i = 1; i < SWAP_LAYERS && directOnly; i++) {
++		directOnly = !fLayers[i].surface || rectEmpty(rectIntersection(rect, fLayers[i].bounds));
++	}
++	RowJob job = { rect, directBottom, directOnly };
++	if (fThreads <= 1 || fDiff || rect.bottom - rect.top < 64) {
++		drawRows(&job, rect.top, rect.bottom, fRow);
+ 		return;
+ 	}
+-	/* the rectangle on the panel */
+-	px0 = (int32_t) ((int64_t) dx * fPanelWidth / fWidth);
+-	py0 = (int32_t) ((int64_t) dy * fPanelHeight / fHeight);
+-	px1 = (int32_t) ((int64_t) (dx + dw) * fPanelWidth / fWidth);
+-	py1 = (int32_t) ((int64_t) (dy + dh) * fPanelHeight / fHeight);
+-	if (px1 <= px0 || py1 <= py0) {
++	IOLockLock(fHelperLock);
++	if (fHelpersStarted + 1 < fThreads) {
++		IOLockUnlock(fHelperLock);
++		drawRows(&job, rect.top, rect.bottom, fRow);
+ 		return;
+ 	}
+-	/* (blending, a row of the picture mixed from two: room for it, for every one who draws rows) */
+-	if (filter && fBlendRowSize < (uint32_t) sw) {
+-		if (fBlendRow != NULL) {
+-			IODelete(fBlendRow, uint32_t, fBlendRowSize);
+-		}
+-		for (unsigned i = 0; i + 1 < fThreads; i++) {
+-			if (fHelperBlend[i] != NULL) {
+-				IODelete(fHelperBlend[i], uint32_t, fBlendRowSize);
+-			}
+-		}
+-		fBlendRowSize = (uint32_t) sw;
+-		fBlendRow = IONew(uint32_t, fBlendRowSize);
+-		for (unsigned i = 0; i + 1 < fThreads; i++) {
+-			fHelperBlend[i] = IONew(uint32_t, fBlendRowSize);
+-			if (fHelperBlend[i] == NULL && fBlendRow != NULL) {
+-				IODelete(fBlendRow, uint32_t, fBlendRowSize);
+-				fBlendRow = NULL;
+-			}
+-		}
+-		if (fBlendRow == NULL) {
+-			fBlendRowSize = 0;
+-		}
+-	}
+-	filter = filter && fBlendRow != NULL;
+-	/* which pixel of a source row each pixel of a panel row takes: worked out once, not 2.6 million times */
+-	cx0 = px0 < 0 ? 0 : px0;
+-	cx1 = (uint32_t) px1 > fPanelWidth ? (int32_t) fPanelWidth : px1;
+-	for (int32_t x = cx0; x < cx1; x++) {
+-		if (filter) {
+-			int64_t at = sample_at(x - px0, sw, px1 - px0);
+-
+-			fColumn[x] = (uint32_t) (at >> 8);              /* (in the blended row: from sx on) */
+-			fColumnWeight[x] = (uint16_t) (fColumn[x] + 1 < (uint32_t) sw ? at & 255 : 0);
+-		} else {
+-			fColumn[x] = (uint32_t) (sx + (int64_t) (x - px0) * sw / (px1 - px0));
+-		}
+-	}
+-	job.pixels = s->pixels();
+-	job.stride = s->info.bytesPerRow;
+-	job.sx = sx;
+-	job.sy = sy;
+-	job.sw = sw;
+-	job.sh = sh;
+-	job.px0 = px0;
+-	job.py0 = py0;
+-	job.px1 = px1;
+-	job.py1 = py1;
+-	job.cx0 = cx0;
+-	job.cx1 = cx1;
+-	job.filter = filter;
+-	job.unscaled = px1 - px0 == sw && py1 - py0 == sh && px0 >= 0 && (uint32_t) px1 <= fPanelWidth;
+-	if (fThreads <= 1 || fDiff || fHelpersStarted + 1 < fThreads) {
+-		drawRows(&job, py0, py1, fBlendRow);
+-		return;
+-	}
+-	/* shared out: the helpers take their rows, this thread the first share, then waits for them */
+-	IOLockLock(fHelperLock);
+ 	fHelperJob = &job;
+ 	fHelpersBusy = fThreads - 1;
+ 	fHelperGeneration++;
+ 	IOLockWakeup(fHelperLock, &fHelperGeneration, false);
+ 	IOLockUnlock(fHelperLock);
+-	drawRows(&job, py0, py0 + (int32_t) ((int64_t) (py1 - py0) / fThreads), fBlendRow);
++	drawRows(&job, rect.top, rect.top + (rect.bottom - rect.top) / (int32_t)fThreads, fRow);
+ 	IOLockLock(fHelperLock);
+ 	while (fHelpersBusy != 0) {
+ 		IOLockSleep(fHelperLock, &fHelpersBusy, THREAD_UNINT);
+@@ -807,10 +885,38 @@
+ }
+ 
+ /* SwapEnd: the swap is handed to the thread that puts frames on the panel, as soon as that has no other waiting. */
+-void
++IOReturn
+ IOMobileFramebuffer::present(const uint8_t * swap)
+ {
+ 
++	DisplayLayer updates[SWAP_LAYERS] = {};
++	uint32_t set = swapWord(swap, SWAP_LAYERS_SET);
++	uint32_t cleared = swapWord(swap, SWAP_LAYERS_CLEARED);
++	uint32_t changed = set | cleared;
++	IOReturn error = kIOReturnSuccess;
++	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
++		uint32_t bit = 1u << layer, sid = swapWord(swap, SWAP_SURFACE(layer));
++		if (!(changed & bit) || (cleared & bit) || !sid || !swapWord(swap, SWAP_ENABLED(layer))) {
++			continue;
++		}
++		updates[layer].surface = MiniIOSurfaceCopy(sid);
++		if (updates[layer].surface == NULL) {
++			error = kIOReturnNotFound;
++		} else {
++			error = prepareLayer(updates[layer].surface, swap, layer, &updates[layer]);
++		}
++		if (error != kIOReturnSuccess) {
++			static unsigned rejected;
++			if (__atomic_fetch_add(&rejected, 1, __ATOMIC_RELAXED) < 8) {
++				IOLog("MiniIOMobileFramebuffer: swap %u layer %u surface %u rejected (%#x); retained frame unchanged\n",
++				    swapWord(swap, SWAP_ID), layer, sid, error);
++			}
++			for (unsigned i = 0; i < SWAP_LAYERS; i++) {
++				MiniIOSurfaceDrop(updates[i].surface);
++			}
++			return error;
++		}
++	}
+ 	/* which process is driving the panel: the window server, Setup, or something else */
+ 	{
+ 		proc_t k60_cp = current_proc();
+@@ -848,22 +954,22 @@
+ 	while (fSwapsWaiting >= swapQueue()) {
+ 		if (IOLockSleepDeadline(fSwapLock, &fSwapsWaiting, deadline, THREAD_UNINT) == THREAD_TIMED_OUT &&
+ 		    fSwapsWaiting >= swapQueue()) {
+-			fStatLost++;                    /* (the GPU has stopped answering: the frame before is waiting for it) */
++			fStatLost++;                    /* do not commit a dropped layer delta */
+ 			IOLockUnlock(fSwapLock);
+-			return;
++			for (unsigned i = 0; i < SWAP_LAYERS; i++) {
++				MiniIOSurfaceDrop(updates[i].surface);
++			}
++			return kIOReturnTimeout;
+ 		}
+ 	}
+ 	unsigned slot = (fSwapFirst + fSwapsWaiting) % SWAP_QUEUE;
+ 
+ 	memcpy(fSwap[slot], swap, SWAP_SIZE);
+-	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
+-		uint32_t sid = swapWord(swap, SWAP_SURFACE(layer));
+-
+-		fSwapSurfaces[slot][layer] = sid != 0 ? MiniIOSurfaceCopy(sid) : NULL;
+-	}
++	memcpy(fSwapLayers[slot], updates, sizeof(updates));
+ 	fSwapsWaiting++;
+ 	IOLockWakeup(fSwapLock, fSwap, true);
+ 	IOLockUnlock(fSwapLock);
++	return kIOReturnSuccess;
+ }
+ 
+ void
+@@ -876,7 +982,7 @@
+ IOMobileFramebuffer::presenter(void)
+ {
+ 	static uint8_t swap[SWAP_SIZE];         /* (one thread) */
+-	MiniIOSurface * surfaces[SWAP_LAYERS];
++	DisplayLayer updates[SWAP_LAYERS];
+ 
+ 	for (;;) {
+ 		IOLockLock(fSwapLock);
+@@ -884,13 +990,11 @@
+ 			IOLockSleep(fSwapLock, fSwap, THREAD_UNINT);
+ 		}
+ 		memcpy(swap, fSwap[fSwapFirst], SWAP_SIZE);
+-		memcpy(surfaces, fSwapSurfaces[fSwapFirst], sizeof(surfaces));
++		memcpy(updates, fSwapLayers[fSwapFirst], sizeof(updates));
+ 		IOLockUnlock(fSwapLock);
+-		show(swap, surfaces);
++		show(swap, updates);
+ 		for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
+-			if (surfaces[layer] != NULL) {
+-				MiniIOSurfaceDrop(surfaces[layer]);
+-			}
++			MiniIOSurfaceDrop(updates[layer].surface);
+ 		}
+ 		MiniIOSurfaceClearKept();               /* (the next frame is some milliseconds away) */
+ 	}
+@@ -898,19 +1002,21 @@
+ 
+ /* A swap's surfaces onto the panel, once the GPU is done with them. */
+ void
+-IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
++IOMobileFramebuffer::show(const uint8_t * swap, DisplayLayer * updates)
+ {
+ 	uint32_t set = swapWord(swap, SWAP_LAYERS_SET);
++	uint32_t cleared = swapWord(swap, SWAP_LAYERS_CLEARED), changed = set | cleared;
+ 	uint64_t began = mach_absolute_time(), nanos, ready, shown, drawn;
+ 	uint32_t layers = 0;
+ 	bool report;
+ 	bool surfacesReady = true;
+ 
+ 	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
+-		if (surfaces[layer] != NULL && !MiniIOSurfaceDrawn(surfaces[layer], SWAP_GPU_MS)) {
++		MiniIOSurface * s = changed & (1u << layer) ? updates[layer].surface : fLayers[layer].surface;
++		if (s != NULL && !MiniIOSurfaceDrawn(s, SWAP_GPU_MS)) {
+ 			surfacesReady = false;
+-			IOLog("MiniIOMobileFramebuffer: swap %u: the GPU is not done with surface %u after %u ms; shown as it is\n",
+-			    swapWord(swap, SWAP_ID), swapWord(swap, SWAP_SURFACE(layer)), SWAP_GPU_MS);
++			IOLog("MiniIOMobileFramebuffer: swap %u: surface %u still being drawn after %u ms; retained frame unchanged\n",
++			    swapWord(swap, SWAP_ID), s->sid, SWAP_GPU_MS);
+ 		}
+ 	}
+ 	fStatWaiting += mach_absolute_time() - began;
+@@ -947,6 +1053,11 @@
+ 	IOLockWakeup(fSwapLock, &fSwapsWaiting, true);
+ 	IOLockUnlock(fSwapLock);
+ 	IOLockLock(fLock);
++	if (!surfacesReady || pong_scanout_quarantined()) {
++		fStatLost++;
++		IOLockUnlock(fLock);
++		return;
++	}
+ 	if (fLastFrame != 0) {
+ 		absolutetime_to_nanoseconds(began - fLastFrame, &nanos);
+ 		nanos /= NSEC_PER_MSEC;
+@@ -964,87 +1075,126 @@
+ 		    swapWord(swap, SWAP_ID), fSwapsShown, swapWord(swap, SWAP_SURFACE(0)), swapWord(swap, SWAP_SURFACE(1)),
+ 		    swapWord(swap, SWAP_SURFACE(2)), swapWord(swap, SWAP_SURFACE(3)), set, swapWord(swap, SWAP_LAYERS_CLEARED));
+ 	}
+-	/* The firmware scanout is linear BGRA. Hand off only one full-size,
+-	 * unscaled layer; other layouts use CPU composition unless explicitly disabled.
+-	 * No CPU writes may race an outstanding GPU copy after a timeout. */
+-	bool gpuFrame=false;
+-	if(pong_scanout_quarantined()){IOLockUnlock(fLock);return;}
+-	MiniIOSurface *base=surfaces[0];
+-	int32_t source[4],destination[4];
+-	memcpy(source,swap+SWAP_SOURCE(0),sizeof(source));
+-	memcpy(destination,swap+SWAP_DEST(0),sizeof(destination));
+-	if(surfacesReady && base && !swapWord(swap,SWAP_SURFACE(1)) && !swapWord(swap,SWAP_SURFACE(2)) &&
+-	    !swapWord(swap,SWAP_SURFACE(3)) && base->info.bytesPerElement==4 && !base->info.planeCount &&
+-	    base->info.pixelFormat==FOURCC('B','G','R','A') && base->info.bytesPerRow>=uint64_t(fPanelWidth)*4 &&
+-	    !source[0] && !source[1] && !destination[0] && !destination[1] &&
+-	    source[2]==(int32_t)fPanelWidth && source[3]==(int32_t)fPanelHeight &&
+-	    destination[2]==(int32_t)fPanelWidth && destination[3]==(int32_t)fPanelHeight) {
+-		IOMemoryDescriptor *memory=base->client?base->client:base->memory;
+-		size_t offset=(size_t)(base->pixels()-(base->client?base->kpixels:base->kbase));
+-		if(!fGraphics) {
+-			fGraphics=true;
+-			PE_initialize_console(NULL,kPEGraphicsMode);
+-			PE_initialize_console(NULL,kPEReleaseScreen);
+-		}
+-		gpuFrame=pong_scanout_frame(memory,offset,base->info.bytesPerRow,fPanelWidth,fPanelHeight)==1;
+-	}
+-	/* A delivered GPU copy whose completion is uncertain must never race a
+-	 * CPU write. Result 2 poisons the handoff; result 0 permits CPU fallback. */
+-	if(pong_scanout_quarantined()){IOLockUnlock(fLock);return;}
+-	if(fGpuOnly && !gpuFrame) {
+-		static unsigned missed=0;
+-		if(missed++<4)IOLog("PONG GPU ONLY: no completed GPU frame; CPU composition disabled\n");
+-		IOLockUnlock(fLock);return;
+-	}
+-
++	PanelRect damage[SWAP_LAYERS * 2 + 1];
++	unsigned damageCount = 0;
++	DisplayLayer * next[SWAP_LAYERS];
+ 	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
+-		uint32_t sid = swapWord(swap, SWAP_SURFACE(layer));
+-		int32_t src[4], dst[4];
+-		MiniIOSurface * s;
+-
+-		layers |= sid != 0 ? 1u << layer : 0;
+-		/* the frames' surfaces: is it a few, in turn? */
+-		for (unsigned i = 0; layer == 0 && sid != 0 && i < 8; i++) {
++		uint32_t bit = 1u << layer;
++		next[layer] = changed & bit ? &updates[layer] : &fLayers[layer];
++		if (changed & bit) {
++			addDamage(damage, &damageCount, fLayers[layer].bounds);
++			addDamage(damage, &damageCount, next[layer]->bounds);
++		}
++		if (next[layer]->surface != NULL && !rectEmpty(next[layer]->bounds)) {
++			layers |= bit;
++		}
++	}
++	if (damageCount == 0) {
++		/* A delta wholly outside the display still owns its retained surface. */
++		for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
++			if (changed & (1u << layer)) {
++				MiniIOSurfaceDrop(fLayers[layer].surface);
++				fLayers[layer] = updates[layer];
++				updates[layer].surface = NULL;
++			}
++		}
++		IOLockUnlock(fLock);
++		return;
++	}
++	if (!fGraphics && layers == 0) {
++		IOLockUnlock(fLock);
++		return;
++	}
++	if (!fGraphics) {
++		/* Only the first real frame replaces the acquired boot console. */
++		addDamage(damage, &damageCount, { 0, 0, (int32_t)fPanelWidth, (int32_t)fPanelHeight });
++	}
++	/* Keep the existing explicit GPU handoff, but qualify the retained scene,
++	 * not this delta's unmentioned surface slots. One premultiplied full-screen
++	 * BGRA layer over black has the same RGB as a direct copy (alpha-zero
++	 * source RGB must be zero). Multi-layer composition stays on the CPU;
++	 * never race a quarantined DMA copy. */
++	bool gpuFrame = false;
++	DisplayLayer & bottom = *next[0];
++	MiniIOSurface * base = bottom.surface;
++	if (fGpuScanout && layers == 1 && base && !bottom.rgba && bottom.unscaled &&
++	    !bottom.src[0] && !bottom.src[1] && !bottom.px0 && !bottom.py0 &&
++	    bottom.src[2] == (int32_t)fPanelWidth && bottom.src[3] == (int32_t)fPanelHeight &&
++	    bottom.px1 == (int32_t)fPanelWidth && bottom.py1 == (int32_t)fPanelHeight) {
++		IOMemoryDescriptor * memory = base->client ? base->client : base->memory;
++		size_t offset = base->client ? (size_t)base->info.offset : (size_t)PAGE_SIZE + base->info.offset;
++		if (!fGraphics) {
++			fGraphics = true;
++			PE_initialize_console(NULL, kPEGraphicsMode);
++			PE_initialize_console(NULL, kPEReleaseScreen);
++		}
++		gpuFrame = pong_scanout_frame(memory, offset, base->info.bytesPerRow, fPanelWidth, fPanelHeight) == 1;
++	}
++	if (pong_scanout_quarantined()) {
++		IOLockUnlock(fLock);
++		return;
++	}
++	if (fGpuOnly && !gpuFrame) {
++		static unsigned missed;
++		if (missed++ < 4) {
++			IOLog("PONG GPU ONLY: no completed GPU frame; CPU composition disabled\n");
++		}
++		IOLockUnlock(fLock);
++		return;
++	}
++	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
++		if (!(changed & (1u << layer))) {
++			continue;
++		}
++		const DisplayLayer & before = fLayers[layer];
++		const DisplayLayer & after = updates[layer];
++		bool sameTransform = before.surface && after.surface && before.rgba == after.rgba &&
++		    memcmp(before.src, after.src, sizeof(before.src)) == 0 &&
++		    memcmp(before.dst, after.dst, sizeof(before.dst)) == 0;
++		MiniIOSurfaceDrop(fLayers[layer].surface);
++		fLayers[layer] = updates[layer];
++		updates[layer].surface = NULL;       /* transfer queued holder to the retained layer */
++		const DisplayLayer & state = fLayers[layer];
++		if (state.surface == NULL || rectEmpty(state.bounds) || state.unscaled || sameTransform) {
++			continue;
++		}
++		uint32_t * columns = fColumn + (size_t)layer * fPanelWidth;
++		uint16_t * weights = fColumnWeight + (size_t)layer * fPanelWidth;
++		for (int32_t x = state.bounds.left; x < state.bounds.right; x++) {
++			if (gFilter != 0) {
++				int64_t at = sample_at((int64_t)x - state.px0, state.src[2], (int64_t)state.px1 - state.px0);
++				uint32_t column = (uint32_t)(at >> 8);
++				columns[x] = (uint32_t)state.src[0] + column;
++				weights[x] = column + 1 < (uint32_t)state.src[2] ? (uint16_t)(at & 255) : 0;
++			} else {
++				columns[x] = (uint32_t)(state.src[0] + ((int64_t)x - state.px0) * state.src[2] /
++				    ((int64_t)state.px1 - state.px0));
++				weights[x] = 0;
++			}
++		}
++	}
++	if (!fGraphics) {
++		fGraphics = true;
++		PE_initialize_console(NULL, kPEGraphicsMode);
++		PE_initialize_console(NULL, kPEReleaseScreen);
++	}
++	if (!gpuFrame) {
++		for (unsigned i = 0; i < damageCount; i++) {
++			composeRect(damage[i]);
++		}
++	}
++	if ((changed & 1) && fLayers[0].surface) {
++		uint32_t sid = fLayers[0].surface->sid;
++		for (unsigned i = 0; i < 8; i++) {
+ 			if (fStatSurfaces[i] == 0 || fStatSurfaces[i] == sid) {
+ 				fStatSurfaces[i] = sid;
+ 				break;
+ 			}
+ 		}
+-		if (sid == 0) {
+-			/* the bottom layer taken away: nothing is shown, the screen is black */
+-			if (!gpuFrame && layer == 0 && (set & 1) && fGraphics) {
+-				for (uint32_t y = 0; y < fPanelHeight; y++) {
+-					bzero(fBase + (size_t)y * fRowBytes, (size_t)fPanelWidth * 4);
+-				}
+-			}
+-			continue;
+-		}
+-		memcpy(src, swap + SWAP_SOURCE(layer), sizeof(src));
+-		memcpy(dst, swap + SWAP_DEST(layer), sizeof(dst));
+-		s = surfaces[layer];
+-		if (report) {
+-			IOLog("MiniIOMobileFramebuffer: swap %u layer %u: surface %u%s (%ux%u '%c%c%c%c') "
+-			    "from %d,%d %dx%d to %d,%d %dx%d, layers set 0x%x\n", swapWord(swap, SWAP_ID), layer, sid,
+-			    s ? "" : " MISSING", s ? s->info.width : 0, s ? s->info.height : 0,
+-			    s ? (int) (s->info.pixelFormat >> 24 & 0xff) : '?', s ? (int) (s->info.pixelFormat >> 16 & 0xff) : '?',
+-			    s ? (int) (s->info.pixelFormat >> 8 & 0xff) : '?', s ? (int) (s->info.pixelFormat & 0xff) : '?',
+-			    src[0], src[1], src[2], src[3], dst[0], dst[1], dst[2], dst[3], set);
+-		}
+-		if (s == NULL) {
+-			continue;
+-		}
+-		if (s->info.bytesPerElement == 4 && s->info.planeCount == 0) {
+-			if (!fGraphics) {
+-				/* the first picture: the kernel's text console must stop drawing over it */
+-				fGraphics = true;
+-				PE_initialize_console(NULL, kPEGraphicsMode);
+-				/* GraphicsMode only changes the desired mode. Release the
+-				 * still-acquired boot console before writing the first UI
+-				 * frame, otherwise vcputc continues painting over it. */
+-				PE_initialize_console(NULL, kPEReleaseScreen);
+-			}
+-			if (!gpuFrame) drawLayer(s, src, dst);
+-		}
++	}
++	if (report) {
++		IOLog("MiniIOMobileFramebuffer: retained layers %#x, damage rectangles %u, presenter %s\n",
++		    layers, damageCount, gpuFrame ? "GPU" : "CPU");
+ 	}
+ 	drawn = mach_absolute_time();
+ 	fSwapsShown++;
+@@ -1063,8 +1213,9 @@
+ 	}
+ 	if (layers != fLayersShown) {
+ 		IOLog("MiniIOMobileFramebuffer: swap #%u: surfaces in layers 0x%x now (0x%x before): %u %u %u %u\n", fSwapsShown, layers,
+-		    fLayersShown, swapWord(swap, SWAP_SURFACE(0)), swapWord(swap, SWAP_SURFACE(1)), swapWord(swap, SWAP_SURFACE(2)),
+-		    swapWord(swap, SWAP_SURFACE(3)));
++		    fLayersShown, fLayers[0].surface ? fLayers[0].surface->sid : 0,
++		    fLayers[1].surface ? fLayers[1].surface->sid : 0, fLayers[2].surface ? fLayers[2].surface->sid : 0,
++		    fLayers[3].surface ? fLayers[3].surface->sid : 0);
+ 		fLayersShown = layers;
+ 	}
+ 
+@@ -1425,8 +1576,7 @@
+ 			IOLog("MiniIOMobileFramebuffer: swap request of %u bytes, expected %u\n", args->structureInputSize, SWAP_SIZE);
+ 			return kIOReturnBadArgument;
+ 		}
+-		fOwner->present((const uint8_t *) args->structureInput);
+-		return kIOReturnSuccess;
++		return fOwner->present((const uint8_t *) args->structureInput);
+ 
+ 	case kFBMethodSwapWait:                         /* a swap is on the screen as soon as it is made */
+ 		if (gTouchLat) {

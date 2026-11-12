@@ -48,6 +48,7 @@
 |---|---|
 | `README.md` | 本索引 |
 | [`REPO-MAP.md`](REPO-MAP.md) | 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
+| `../scripts/check-snapshot-tag.py` | 快照门禁：启动相关改动前必须有已推送的 snap-* tag（铁则 7）|
 
 ---
 

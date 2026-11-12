@@ -1,6 +1,6 @@
 # 范围冻结
 #
-# 用户明确说过「不要动 X」时，在这里登记。scripts/check-scope-freeze.py 会在构建前
+# 用户明确说「不要动 X」时，在这里登记。scripts/check-scope-freeze.py 会在构建前
 # 检查这些路径有没有被改动，改了就直接失败。
 #
 # 为什么需要这张表（2026-11-12）：用户说过不要碰触摸和 GPU，我仍然改了
@@ -8,25 +8,9 @@
 # 门禁看不见。规则写在对话里等于没写。
 #
 # 解除冻结：删掉对应区域，或在对话里取得用户明确同意后再删。
+#
+# 2026-11-12：用户要求「所有冻结的东西都解冻，所有都要治本」。
+# 冻结区已全部清空。触碰冻结区时必须走治本方案（见 docs/proposals/），
+# 不允许用改 DTS 这类临时补丁绕过架构问题。
 
-[frozen.touch]
-reason = "用户要求：暂不修改触摸相关代码与 DT"
-baseline = "8d3bcad"
-paths = [
-  "dts/mondrian.dts",
-  "patches/xnu/*pong-touch*",
-  "patches/xnu/*0403-k60-goodix*",
-  "userland/touch.c",
-  "userland/touch.h",
-]
-
-[frozen.gpu]
-reason = "用户要求：暂不修改 GPU 相关代码与开关"
-baseline = "8d3bcad"
-paths = [
-  "drivers/PongAdreno/*",
-  "drivers/PongMetal/*",
-  "patches/xnu/*pong-gpu*",
-  "patches/xnu/*pong-adreno*",
-  "patches/xnu/*pong-metal*",
-]
+[frozen]

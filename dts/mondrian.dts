@@ -36,22 +36,6 @@
 	 * kGccUfsPage / SMMU constants, pong,ufs-* / pong,smmu-* properties are
 	 * exported to the ADT via unixnu,adt-name).
 	 */
-	/*
-	 * K60 input hardware exported to the ADT. pong_goodix / pong_buttons look
-	 * these nodes up by exact name and assert every value.
-	 */
-	pong-touch {
-		unixnu,adt-name = "pong-touch";
-		spi-base = <0x0 0x00990000>;
-		tlmm-base = <0x0 0x0f000000>;
-		gcc-base = <0x0 0x00100000>;
-		rsc-base = <0x0 0x17a20000>;
-		cmd-db-base = <0x0 0x80860000>;
-		gpio-offset = <0x00100000>;
-		pins = <16 17 18 19 21 20>;
-		max-x = <1080>;
-		max-y = <2412>;
-	};
 
 	pong-buttons {
 		unixnu,adt-name = "pong-buttons";

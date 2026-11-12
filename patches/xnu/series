@@ -189,9 +189,8 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-wakes.patch
 0388-k60-n4k-cache-io.patch
 0389-k60-kx-pc-lr.patch
 0390-k60-cryptex-app-access.patch
-0391-k60-embedded-init.patch
-0392-k60-weak-scanout-stubs.patch
 0392-k60-dyld-cache-probe.patch
+0394-k60-launchd-cache.patch
 0395-k60-panel-call.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-scanout.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-only-display.patch
@@ -207,6 +206,10 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch
 0506-k60-120hz-refresh.patch
-0398-k60-pong-runtime-directories.patch
+0392-k60-weak-scanout-stubs.patch
 0399-k60-shared-cache-root-layout.patch
-0400-k60-shared-cache-root-union.patch
+0402-k60-shared-cache-root-union.patch
+0400-k60-pid26-slide.patch
+0401-k60-embedded-init.patch
+0398-k60-pong-runtime-directories.patch
+patches/xnu/0600-k60-display-composition.patch

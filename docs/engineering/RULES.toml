@@ -360,3 +360,10 @@ kind = "hard"
 source = "scripts/check-config-consistency.py"
 statement = "生成 .config 必须与所选 defconfig 一致（否则改了 defconfig 也不生效）"
 check = "python3 scripts/check-config-consistency.py"
+
+[[rule]]
+id = "P-157"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-157"
+statement = "打开需要外部归档的 CONFIG_*，构建脚本必须真的 -force_load 那个归档"
+waiver = "P-157：需要一张 CONFIG→归档 的映射表才能自动判定；先由八步流程 ⑦ 的 artifact_check 人工核对"

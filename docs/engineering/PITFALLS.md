@@ -3887,3 +3887,23 @@ strings 里 "M11HTC":  present      <- 同上
 - **门禁**：`check-boot-args.py` 新增范围校验——把 `BOOT-ARGS.md` 表格里「范围」列
   的 `A..B` / `≤ N` 解析成判据，逐条比对 `board.toml` 的实参，越界即失败。
   文档因此变成可执行的：写下来的范围就会被检查。
+
+### P-157 ★★ 配置打开了，构建脚本却从没把库链进去
+
+- **症状**：`configs/mondrian_defconfig` 里 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`，
+  `.config` 里也是 `y`，但内核里既没有 `K60Battery` 的对象文件也没有一个字串，
+  串口日志零 `K60Battery` 行——看上去"电池驱动没工作"。
+- **根因**：`E:\hackios\UniXNU\scripts\unixnu\kernel.py:17-26` 只导出
+  `XNU_K60_PHYSICAL_BATTERY=1`；真正把 `libK60PhysicalBattery.a` 链进去的是
+  `tree/scripts/build-xnu-4k-baseline.sh`，而它**既不读这个环境变量，也没有
+  `-Wl,-force_load`**。`patches/xnu/0602-physical-battery.patch:10-12` 明写
+  "父进程必须自己完成这两步"。于是配置是纯装饰。
+- **证据**：`llvm-nm kernel.macho` 有 `IOKitBSDInit.cpo`，没有 K60Battery/PongPower
+  对象或符号；`scripts/build-k60-physical-battery.py` 从未被调用；
+  `/opt/k60` 下不存在 `libK60PhysicalBattery.a`。
+- **修法（未做）**：在 `build-xnu-4k-baseline.sh` 里仿照 UFS 归档那一段
+  （`:927-929` 的 `test -f` + `-Wl,-force_load`）加电池归档，并且生成归档的步骤
+  要进构建链。
+- **门禁（未做）**：凡是 `CONFIG_XNU_*_MOUNT`/`_BATTERY` 这类"要链外部归档"的开关，
+  应当有检查：开关为 `y` 时，`build-xnu-4k-baseline.sh` 必须出现对应的
+  `-force_load`，否则失败。现在的 `check-rules.py` 没有这一类。

@@ -1492,7 +1492,7 @@ index 0000000..7632a67
 + // Retain the native initial clock and advertised speed from core reset.
 + gcc.w(0x62018,gcc.r(0x62018)|1u); // GPLL0_OUT_MAIN, 600 MHz
 + if(!wait(gcc,0,1u<<31,1u<<31,100))return fail("PCIe refgen GPLL0 did not lock");
-+ gcc.w(0x7b04c,(1u<<8)|11u);gcc.w(0x7b048,gcc.r(0x7b048)|1);
++ gcc.w(0x7b04c,(1u<<8)|10u);gcc.w(0x7b048,gcc.r(0x7b048)|1);
 + if(!wait(gcc,0x7b064,1,0,20)||!wait(gcc,0x7b048,1,0,20))return fail("PCIe clock source update timeout");
 + gcc.w(0x62008,gcc.r(0x62008)|0x3f); // PIPE is running from TCXO here.
 + // Pong's clock-names lists BOTH aggregate NoC branches (IDs 8 and 9),

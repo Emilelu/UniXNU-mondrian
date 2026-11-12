@@ -3783,3 +3783,23 @@ strings 里 "M11HTC":  present      <- 同上
   > **镜像起不来时，先把 boot.img 拆开逐段比，不要猜 kernel / boot-arg / 驱动。**
   > **两个组件仓库里都有名字像 DTB 的文件，选错一个就是 478 KB 的差距。**
 - **已写进**：`docs/engineering/REPO-MAP.md` 第四节，标明该用哪个 DTB 和判据。
+
+### P-151 ★★ pick 上游单个文件会覆盖我们对同一文件的改动
+
+- **症状**：`pick-upstream.py --apply` 取 yibiya 的 `9269d7728`（wallpaper native stock restore），
+  它带的 `patches/xnu/0340-k60-uilib-deploy.patch` 覆盖了我们的版本。
+  变更量 **12,438 行、9,500 删除**，之后 `git apply --check` 在核心里失败：
+  ```
+  error: patch failed: bsd/dev/k60_uilib.c:0
+  error: patch failed: bsd/kern/kern_exec.c:7772
+  ```
+- **根因**：文件级 pick 是「整文件替换」，没有三方合并。当我们和上游**都改过同一个文件**时，
+  取上游等于丢掉我们的改动。这两个文件恰好是 1,052,856 B（我们）对 626,395 B（上游），
+  差异巨大。
+- **修法**：`git checkout <上一个 tag> -- <该文件>` 精确回退，然后**手工把上游那次提交的意图
+  合进来**，而不是整文件替换。
+- **教训**：
+  > **pick 的单位不是文件，是改动。** 当两边都动过同一个文件时，整文件替换一定丢东西。
+  > 判据：pick 前后文件大小的变化幅度 —— 掉 40% 这种，几乎肯定覆盖了本地工作。
+- **已加检查**：`pick-upstream.py` 应在覆盖前比较文件大小，落差超过阈值时警告而不是静默覆盖。
+  （待实现，记在这里。）

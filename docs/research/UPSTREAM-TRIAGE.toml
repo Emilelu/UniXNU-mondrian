@@ -41,7 +41,7 @@ note = "触摸/GPU 主线分支，已部分采纳（见 cc584ca）"
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "fix/boot-v4-repack"
-watermark = "3fc3881811e26147343eab4dd48e788897cc8313"
+watermark = "5ee976f531d53a648e797ae76d3022d093564f52"
 note = "v4 打包偏移修复，我们不适用"
 
 [[branch]]
@@ -249,3 +249,27 @@ verdict = "picked"
 how = "文件级提取（pick-upstream.py）"
 reason = "自动记录：uefi-mondrian 分支 main"
 date = "2026-11-09"
+
+[[commit]]
+sha = "9269d7728"
+subject = "fix(wallpaper): permit explicit native stock restore"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"
+
+[[commit]]
+sha = "aec8dc3fb"
+subject = "docs(ui): record live native wallpaper guard"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"
+
+[[commit]]
+sha = "5ee976f53"
+subject = "docs(ui): record verified wallpaper recovery image"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"

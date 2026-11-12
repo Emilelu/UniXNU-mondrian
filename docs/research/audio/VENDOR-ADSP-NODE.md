@@ -111,3 +111,25 @@
 要把 `remoteproc-adsp` + `pmic_glink` 落到我们的 ADT/DTS 里，先确认三件事：
 寄存器基址与 `adsp_region` 不冲突、`glink-edge` 的 mbox 在我们的
 `smem`/`ipcc` 映射里可解析、`status` 字段的取值。三者都有出处之后才动手。
+## 构建器实际要求的完整依赖（`build-k60-physical-battery.py:56-80`）
+
+`one('qcom,cape-adsp-pas')`、`one('qcom,smem')`、`one('qcom,ipcc')`、
+`one('qcom,battery-charger')` 四个节点必须各存在一个，且：
+
+- `glink-edge` 恰好一个，`qcom,remote-pid = 2`，`mboxes = <ipcc 3 0>`
+- edge 下必须有子节点带 `qcom,glink-channels = "PMIC_RTR_ADSP_APPS"`
+- `qcom,battery-charger` 的**父节点**必须带 `qcom,pmic-glink-channel = "PMIC_RTR_ADSP_APPS"`
+- 还要有 `qcom,smp2p` 且 `remote-pid = 2`、`local-pid = 0`
+
+## 厂商 FDT 里的实际取值（照抄即可）
+
+| 节点 | 关键属性 |
+|---|---|
+| `ipcc` | `reg = <0xed18000 0x1000>`，`#mbox-cells = <2>`，`interrupt-controller`，`interrupts = <0 0xe5 4>` |
+| `smem` | `memory-region = <…>`，`hwlocks = <… 3>` |
+| `smp2p`（adsp） | `qcom,smem = <0x1bb 0x1ad>`，`mboxes = <ipcc 3 2>`，`interrupts = <3 2 1>`，`local-pid = 0`，`remote-pid = 2` |
+| `battery-charger` | 父节点 `qcom,pmic_glink` 带 `PMIC_RTR_ADSP_APPS` + `protection-domain = "tms/servreg\0msm/adsp/charger_pd"` |
+
+剩下两个未决依赖（下一轮必须先在仓库里找到出处，不能凭猜）：`smem` 的
+`memory-region` 对应哪块保留内存、`hwlocks` 指向哪个 TCSR/hwspinlock 节点。这两项
+在厂商 FDT 里是 phandle，必须解出指向的节点定义才能搬进我们的 ADT。

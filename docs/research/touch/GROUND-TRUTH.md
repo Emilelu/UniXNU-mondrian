@@ -85,3 +85,30 @@ Conclusions that stand:
 - Changing ownership needs a write to the core window, and every such write faults. This is a bus-level refusal, not a code defect.
 
 Not yet determined: whether the configuration window `0xc42d000` accepts writes; if it does, ownership can be set there. If it does not, the rail must be enabled from the firmware side before hand-off.
+
+## MISO 悬空的判定（2026-11-13，实测三组）
+
+| 构型 | CS | MISO 采样 | 结论 |
+|---|---|---|---|
+| 上拉偏置 | 1 | 每帧每一位都是 1（`miso=104` = 13x8，`miso=128` = 16x8） | 线被拉高 |
+| 下拉偏置，焊盘未配置 | 未配置 | 每一位都是 0 | 线跟随偏置 |
+| 下拉偏置，焊盘已配置 | 1 | 每一位都是 0 | 线跟随偏置 |
+
+同一批实验里 `K60PAD cs=1 miso=0 clk=0 mosi=0 rst=1` 与 `K60RST pin=20 after=1`
+证明 GPIO 控制器、焊盘配置、引脚映射（MISO 17 / MOSI 18 / CLK 16 / CS 19 /
+RESET 20）、复位时序都正确。MISO 在两种偏置下都跟随偏置，说明没有任何一端
+在驱动它——触摸芯片（Goodix GT9916R）没有工作。
+
+已经排除的解释：时钟过快（333 kHz，上限 500 kHz）、SPI 模式（Mode 0 MSB-first
+上升沿采样）、片选时序、复位未释放、引脚映射错误、映射表/寄存器地址错误。
+
+剩下的解释只有一个：芯片没有 IOVDD。`pm8350c_l2` 1.8 V 在 Android 下是
+`enabled`（`/sys/class/regulator/pm8350c_l2/state`），但在本移植的启动链上
+没有任何一方投过票，而 AP 侧四条通路都不可用：
+
+1. SPMI 映射表（`core+0x2000` 与 `core+0x900` 两种布局都遍历过）没有 PPID `0x241`；
+2. 固件树里没有 RPMh/RSC 驱动（`find -iname '*rpmh*' -o -iname '*rsc*'` 零命中）；
+3. 厂商 DTB 里 `pm8350c_l2` 是 `regulator-name` 形式的 RPMh 消费者，不带 SPMI 基址；
+4. RSC `0x17a00000` 对 XNU 被 XPU 封锁（读即 abort）。
+
+结论：这一项必须在 ABL/固件层解决，内核侧的探针到此为止。

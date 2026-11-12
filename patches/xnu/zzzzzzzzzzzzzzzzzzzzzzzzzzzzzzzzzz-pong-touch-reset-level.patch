@@ -1,0 +1,12 @@
+--- a/bsd/dev/pong_goodix.c
++++ b/bsd/dev/pong_goodix.c
+@@ -972,6 +972,9 @@
+ 	sleep_ms(2);
+ 	gpio_set(PIN_RESET, true);
+ 	sleep_ms(100);
++	printf("K60RST pin=%lu after=%u clk=%u cs=%u\n",
++	    (unsigned long)PIN_RESET, (unsigned)gpio_get(PIN_RESET),
++	    (unsigned)gpio_get(PIN_CLK), (unsigned)gpio_get(PIN_CS));
+ 	/* Before bring_up() selects a transport there is no bus to ask
+ 	 * for SPI mode on; goodix_write() through a NULL pointer aborted
+ 	 * the kernel at touch_reset+0x14c. */

@@ -38,10 +38,11 @@ with (bundle/'Info.plist').open('wb') as f:
         CFBundleSupportedPlatforms=['iPhoneOS']),f)
 clients=['backboardd', 'SpringBoard', 'CollectionsPoster', 'WidgetRenderer_Default', 'PosterBoard', 'Weather', 'WeatherPoster', 'GradientPosterExtension']
 (out/'PongAdrenoMetal.clients').write_text('\n'.join(clients)+'\n')
-(out/'PongAdrenoMetal.publish').write_text('1\n')
+(out/'PongAdrenoMetal.publish').write_text('0\n')
 (out/'build-report.json').write_text(json.dumps(dict(bundle=str(bundle),command=command,
     guest='20G81',chip_id='0x07030002',discovery='IOAcceleratorES -> MetalPluginName -> NSBundle principal class',
     clients=clients,
+    publication_enabled=False,
     required_properties=['PongAdrenoCPReady','PongMetal20G81Enabled'],
     activation='pong_metal=1; native CP fences;20G81 ABI/protocols; Vulkan device creation',
     hardware_acceleration_confirmed=False,

@@ -1,0 +1,37 @@
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -137,7 +137,33 @@
+ #include <os/system_event_log.h>
+ 
+ #include <pexpert/pexpert.h>
+ 
++#include <pexpert/arm64/board_config.h>
++#include <sys/sysctl.h>
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
++/* Bounded native UI diagnostics over the existing kernel console. No command,
++ * address or kernel-memory interface; only the selected UI processes write. */
++static int
++k60_ui_diagnostic SYSCTL_HANDLER_ARGS
++{
++	proc_t p = current_proc();
++	char text[1024];
++	if (!p || (strcmp(p->p_comm, "SpringBoard") &&
++	    strcmp(p->p_comm, "backboardd") && strcmp(p->p_comm, "Preferences")))
++		return EPERM;
++	if (!req->newptr || !req->newlen || req->newlen >= sizeof(text))
++		return EINVAL;
++	int error = SYSCTL_IN(req, text, req->newlen);
++	if (error) return error;
++	text[req->newlen] = 0;
++	printf("K60UI %s[%d]: %s\n", p->p_comm, proc_getpid(p), text);
++	return 0;
++}
++SYSCTL_PROC(_kern, OID_AUTO, pong_diagnostic,
++    CTLTYPE_STRING | CTLFLAG_WR | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,
++    0, 0, k60_ui_diagnostic, "A", "K60 native UI console diagnostics");
++#endif
++
+ #if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
+ #include <sys/vnode.h>
+ #include <sys/vnode_internal.h>

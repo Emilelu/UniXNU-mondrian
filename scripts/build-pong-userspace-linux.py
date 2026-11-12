@@ -8,8 +8,9 @@ reconstructed from the recorded revisions without modifying the reference
 checkouts. Only product libraries are compiled; no tests, shader fixtures,
 benchmarks, image verification, device operations or automatic publication.
 
-Run --prepare-only first, then the printed cargo generate-lockfile/fetch
-commands. The product build is --locked --offline and keeps Cargo.lock,
+Run --prepare-only first, then the printed cargo fetch command, which extends
+the original dependency lock with the three exactly pinned loader packages.
+The product build is --locked --offline and keeps Cargo.lock,
 source/patch records, frontend objects and the Rust archive for relinking.
 The generated publication marker is always 0: activation belongs to the
 hardware-qualified integration step, not to this builder.
@@ -66,6 +67,7 @@ class Builder:
         self.out.mkdir(parents=True, exist_ok=True)
         self.commands = []
         self.source_records = {}
+        self.tool_versions = {}
         self.cc = executable(args.cc)
         self.cpp = executable(args.cxx)
         self.ld = executable(args.linker)
@@ -74,6 +76,8 @@ class Builder:
         self.pkg_config = executable(args.pkg_config)
         self.sdk = args.sdk_root.resolve()
         settings = json.loads((self.sdk / 'SDKSettings.json').read_text())
+        self.sdk_identity = dict(settings_sha256=hashlib.sha256(
+            (self.sdk / 'SDKSettings.json').read_bytes()).hexdigest(), framework_imports={})
         if 'iphoneos' not in settings.get('SupportedTargets', {}):
             raise RuntimeError('--sdk-root must be a real device iPhoneOS SDK, not a kernel fakeroot or simulator SDK')
         self.sdk_version = settings['Version']
@@ -85,6 +89,8 @@ class Builder:
             directory = self.frameworks / (name + '.framework')
             if not (directory / (name + '.tbd')).is_file():
                 raise RuntimeError('Real iPhoneOS framework import is missing: ' + str(directory))
+            self.sdk_identity['framework_imports'][name] = hashlib.sha256(
+                (directory / (name + '.tbd')).read_bytes()).hexdigest()
         if not (self.sdk / 'usr/lib/libc++.tbd').is_file():
             raise RuntimeError('The SDK import for the guest /usr/lib/libc++.1.dylib is missing')
         self.guest = pins['guest']
@@ -96,6 +102,8 @@ class Builder:
         self.link_flags = ['--ld-path=' + self.ld,
                            '-Wl,-platform_version,ios,' + self.guest['version'] + ',' + self.sdk_version,
                            '-Wl,-adhoc_codesign', '-Wl,-no_fixup_chains']
+        for name, tool in (('c', self.cc), ('cpp', self.cpp), ('linker', self.ld), ('ar', self.ar)):
+            self.tool_versions[name] = subprocess.check_output([tool, '--version'], text=True).strip()
         self.env = dict(os.environ)
         for key in list(self.env):
             if key.startswith(('IR3_', 'FD_MESA_', 'NIR_', 'MESA_SHADER_', 'TU_', 'NMB_', 'NATIVE_METAL_',
@@ -136,7 +144,10 @@ class Builder:
         destination = self.out / 'sources' / (name + '-' + identity)
         complete = destination / '.pong-source.json'
         if not complete.is_file():
-            destination.mkdir(parents=True, exist_ok=False)
+            if destination.exists():
+                raise RuntimeError('Incomplete prepared source at ' + str(destination) +
+                                   '; inspect its patch logs and choose a fresh output directory')
+            destination.mkdir(parents=True)
             archive = self.out / 'sources' / (name + '-' + identity + '.tar')
             with archive.open('wb') as stream:
                 subprocess.run(['git', '-C', str(repository), 'archive', '--format=tar', revision],
@@ -146,7 +157,7 @@ class Builder:
             for index, (entry, data) in enumerate(patches):
                 patch = self.out / 'patches' / name / ('%02d-' % index + Path(entry['path']).name)
                 write_changed(patch, data)
-                self.run(['git', 'apply', '--whitespace=nowarn', str(patch)],
+                self.run(['patch', '--batch', '--forward', '--fuzz=0', '-p1', '-i', str(patch)],
                          self.out / ('%s-patch-%02d.log' % (name, index)), cwd=destination)
             dump(complete, record)
         self.source_records[name] = dict(record, directory=str(destination))
@@ -154,7 +165,8 @@ class Builder:
 
     def record(self):
         return dict(guest=self.guest, sdk=dict(directory=str(self.sdk), version=self.sdk_version,
-                    cpp_headers=str(self.cxx_headers), cpp_runtime='/usr/lib/libc++.1.dylib'),
+                    cpp_headers=str(self.cxx_headers), cpp_runtime='/usr/lib/libc++.1.dylib',
+                    **self.sdk_identity), tool_versions=self.tool_versions,
                     source_inputs=str(INPUTS), sources=self.source_records,
                     compiler=self.cc, cpp_compiler=self.cpp, linker=self.ld,
                     compile_flags=self.flags, cpp_flags=self.cpp_flags, link_flags=self.link_flags,
@@ -186,7 +198,7 @@ def prepare_sources(builder):
         raise RuntimeError('The recorded nine-patch Mesa source identity differs')
     if translator_record['translator']['commit'] != core['translator_commit']:
         raise RuntimeError('The recorded Pong translator source identity differs')
-    module = a.metal_source or a.core / 'drivers/AdrenoMetal'
+    module = (a.metal_source or a.core / 'drivers/AdrenoMetal').resolve()
     metal = pins['metal_module']
     mesa_patches = recorded_patches(a.core, core['revision'], core['mesa_patches'])
     mesa_patches += device_patches(pins['device_patches']['mesa'])
@@ -218,6 +230,8 @@ def prepare_meson(builder):
     for key, value in (('c', builder.cc), ('cpp', builder.cpp), ('objc', builder.cc),
                        ('ar', builder.ar), ('strip', builder.strip), ('pkg-config', builder.pkg_config)):
         text += key + ' = ' + repr(value) + '\n'
+    for language in ('c', 'cpp', 'objc'):
+        text += language + '_ld = ' + repr(builder.ld) + '\n'
     text += ("[host_machine]\nsystem = 'darwin'\ncpu_family = 'aarch64'\n"
              "cpu = 'arm64'\nendian = 'little'\n[properties]\nneeds_exe_wrapper = true\n"
              '[built-in options]\n')
@@ -229,7 +243,7 @@ def prepare_meson(builder):
     write_changed(cross, text)
     native = out / 'pong-host.native'
     write_changed(native, '[binaries]\nc = ' + repr(builder.cc) + '\ncpp = ' + repr(builder.cpp) +
-                  '\n[ built-in options ]\nc_args = []\ncpp_args = []\nc_link_args = []\ncpp_link_args = []\n')
+                  '\n[built-in options]\nc_args = []\ncpp_args = []\nc_link_args = []\ncpp_link_args = []\n')
     return cross, native
 
 
@@ -241,22 +255,27 @@ def prepare_cargo(builder, translator, module):
     external = [p for p in tomllib.loads(seed.decode())['package'] if 'source' in p]
     versions = {p['name']: p['version'] for p in external}
     manifest = bridge / 'Cargo.toml'
-    dependencies = [
+    write_changed(manifest, '\n'.join([
+        '[package]', 'name = "pong-metal-bridge"', 'version = "0.1.0"', 'edition = "2024"',
+        'rust-version = "1.98"', '[workspace]', 'resolver = "2"', '[lib]', 'crate-type = ["staticlib"]',
+        'path = ' + json.dumps(str(ROOT / 'drivers/PongMetal/bridge/lib.rs')),
+        '[dependencies]',
         'metal2vulkan = { path = ' + json.dumps(str(translator / 'crates/metal2vulkan')) + ', features = ["ash"] }',
         'metal2vulkan-runtime = { path = ' + json.dumps(str(translator / 'crates/metal2vulkan-runtime')) + ' }',
         'libc = "=' + versions['libc'] + '"',
-        'serde_json = "=' + versions['serde_json'] + '"',
-        'sha2 = "=' + versions['sha2'] + '"',
-    ]
-    write_changed(manifest, '\n'.join([
-        '[package]', 'name = "pong-metal-bridge"', 'version = "0.1.0"', 'edition = "2024"',
-        'rust-version = "1.98"', '[workspace]', '[lib]', 'crate-type = ["staticlib"]',
-        'path = ' + json.dumps(str(ROOT / 'drivers/PongMetal/bridge/lib.rs')),
-        '[dependencies]', *dependencies,
+        'ash = { version = "=0.38.0+1.3.281", default-features = false, features = ["std", "loaded"] }',
+        'libloading = "=0.8.9"',
+        '[target.\'cfg(windows)\'.dependencies]', 'windows-link = "=0.2.1"',
         '[profile.release]', 'panic = "unwind"', 'debug = 0', '']))
     write_changed(bridge / 'dependency-seed.lock', seed)
-    if not (bridge / 'Cargo.lock').exists():
+    if not (bridge / 'Cargo.lock').is_file():
         write_changed(bridge / 'Cargo.lock', seed)
+    # Cargo extends the real source seed during the explicit prerequisite fetch.
+    # The library build never resolves new versions or rewrites this lock.
+    allowed = {p['name']: dict(version=p['version'], checksum=p['checksum']) for p in external}
+    allowed.update({p['name']: dict(version=p['version'], checksum=p['checksum'])
+                    for p in builder.pins['runtime_loader_packages']})
+    dump(bridge / 'dependency-versions.json', allowed)
     cargo_directory = builder.args.cargo_directory.resolve()
     cargo = str(cargo_directory / 'cargo')
     # Cargo reads configuration from its cwd, not --manifest-path's directory.
@@ -274,15 +293,15 @@ def prepare_cargo(builder, translator, module):
     builder.env['CXXFLAGS_' + builder.guest['rust_target'].replace('-', '_')] = shlex.join(builder.cpp_flags)
     builder.env['AR_' + builder.guest['rust_target'].replace('-', '_')] = builder.ar
     commands = [
-        [cargo, '+' + builder.pins['host']['rust_toolchain'], 'generate-lockfile', '--manifest-path', str(manifest)],
-        [cargo, '+' + builder.pins['host']['rust_toolchain'], 'fetch', '--locked', '--manifest-path', str(manifest),
+        [cargo, '+' + builder.pins['host']['rust_toolchain'], 'fetch', '--manifest-path', str(manifest),
          '--target', builder.guest['rust_target']],
     ]
     dump(bridge / 'dependency-preparation.json', dict(cwd=str(bridge), commands=commands,
          environment=dict(CARGO_HOME=builder.env['CARGO_HOME'], SDKROOT=str(builder.sdk),
                           IPHONEOS_DEPLOYMENT_TARGET=builder.guest['version']),
          seed_record=builder.pins['metal_module'],
-         note='Run these fetch-only commands before building; the seed lacks runtime Vulkan-loader packages.'))
+         loader_packages=builder.pins['runtime_loader_packages'],
+         note='Fetch-only preparation; Cargo.lock retains original seed versions plus pinned ash/libloading.'))
     return manifest, commands
 
 
@@ -318,6 +337,10 @@ def build_turnip(builder, mesa, cross, native):
     library = turnip / 'src/freedreno/vulkan/libvulkan_freedreno.dylib'
     builder.run([ninja, '-C', str(turnip), '-j' + str(a.jobs),
                  'src/freedreno/vulkan/libvulkan_freedreno.dylib'], builder.out / 'turnip-build.log')
+    report = builder.record()
+    report.update(library=str(library), options=options, native_abi=str(abi / 'NativeAdrenoABI.h'),
+                  native_abi_sha256=hashlib.sha256((abi / 'NativeAdrenoABI.h').read_bytes()).hexdigest())
+    dump(turnip / 'build-report.json', report)
     return library
 
 
@@ -327,6 +350,13 @@ def build_bridge(builder, manifest):
     lock = tomllib.loads((bridge / 'Cargo.lock').read_text())
     if not any(p['name'] == 'pong-metal-bridge' for p in lock['package']):
         raise RuntimeError('Cargo.lock is only the source seed: run the printed dependency-preparation commands first')
+    allowed = json.loads((bridge / 'dependency-versions.json').read_text())
+    for package in lock['package']:
+        if 'source' in package:
+            actual = dict(version=package['version'], checksum=package.get('checksum'))
+            if allowed.get(package['name']) != actual:
+                raise RuntimeError('Unrecorded Cargo dependency: ' + package['name'] +
+                                   '; use the original seed and printed prerequisite fetch command')
     target = builder.guest['rust_target']
     rustlib = subprocess.check_output(
         [str(builder.args.cargo_directory.resolve() / 'rustc'),
@@ -439,6 +469,18 @@ def main():
                 print(shlex.join(command))
             print('Then repeat this builder command without --prepare-only.')
             return
+        for name, tool in (('meson', a.venv.resolve() / 'bin/meson'), ('ninja', a.ninja),
+                           ('bison', 'bison'), ('flex', 'flex'), ('glslang', 'glslangValidator'),
+                           ('rust', a.cargo_directory.resolve() / 'rustc')):
+            host_tool = shutil.which(str(tool), path=builder.env['PATH'])
+            if not host_tool:
+                raise RuntimeError('Required host executable is missing: ' + str(tool))
+            command = [host_tool, '--version']
+            if name == 'rust':
+                command.insert(1, '+' + pins['host']['rust_toolchain'])
+            builder.tool_versions[name] = subprocess.check_output(command, env=builder.env, text=True).strip()
+        if builder.tool_versions['meson'] != pins['host']['meson']:
+            raise RuntimeError('Use the recorded Meson ' + pins['host']['meson'] + ' environment')
         turnip = build_turnip(builder, mesa, cross, native)
         bridge = build_bridge(builder, manifest)
         bundle = build_plugin(builder, bridge, turnip)

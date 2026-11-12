@@ -451,7 +451,18 @@ static BOOL poster_switcher_allowed(id self, SEL sel, id *explanation)
     return NO;
 }
 
-static void wallpaper_overlay(id self, SEL sel) { (void)self;(void)sel; }
+static void wallpaper_overlay(id self, SEL sel)
+{
+    /* This used to be a bare no-op, which suppressed the wallpaper overlay
+     * view itself and left the lock screen black while the clock (layer 0)
+     * still drew. The CPU presenter does compose multiple layers, so let the
+     * original create/destroy run and only note that it happened. */
+    static unsigned calls;
+    if (__atomic_fetch_add(&calls,1,__ATOMIC_RELAXED)<4)
+        say("Pong UI: wallpaper overlay view create/destroy call %u\n",calls);
+    if (wallpaper_original)
+        ((void(*)(id,SEL))wallpaper_original)(self,sel);
+}
 
 /* The 20G81 status provider already accepts nil for an absent internal
  * battery. With no actual power-source driver on Pong, do not synchronously

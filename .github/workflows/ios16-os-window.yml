@@ -425,5 +425,3 @@ jobs:
             hdiutil detach "$m" -force >/dev/null 2>&1 || true
           done
           df -h /
-
-# registration touch: keep the workflow registered on forks

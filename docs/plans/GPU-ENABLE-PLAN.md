@@ -1,6 +1,9 @@
 # K60 Adreno 730 scanout 启用方案
 
-> 范围：只读调研 + 本文件。没有改 `patches/`、`series`、`drivers/`、`userland/`。
+> 范围：调研 + 本文件；2026-11-12 起进入实施，改动面见 ⑦。
+> 已改：`board.toml`（阶段 A boot arg）、`patches/xnu/…-k60-mem-report.patch`（把
+> `K60FB` 判定接到复报通道）。`series` 与三个 scanout 补丁此前已就位，本轮只做验证。
+> 仍**没有**改 `drivers/`、`userland/`、`0231`、`0232`。
 > 结论全部带 `文件:行`；查不到或没有证据的写在 ⑥ 的“未核实”。
 > 本文的“K60”指 `mondrian`（SM8475，20G81），“pong”指 Nothing Phone (2) 的 pong16 参考树。
 
@@ -469,10 +472,10 @@ pong_gpu_only=1
 | F1 | `PONG SCANOUT: GPU copy not retired; retain pages and previous frame` | `SCANOUTCPP:154-157` | DMA 不确定，`poisoned=true`；此后所有帧返回 2，**只能重启**。去掉 `pong_gpu_scanout=1` 重启，回到 CPU。 |
 | F2 | `PONG GPU ONLY: no completed GPU frame; CPU composition disabled` | `GPUONLY:58-62` | 只在 `pong_gpu_only=1` 时出现；说明 GPU 没交付。去掉 `pong_gpu_only`，恢复 CPU 回退。 |
 | F3 | `PONG SCANOUT: client closed with outstanding GPU copy; retain pages` | `SCANOUTCPP:72-75` | presenter 退出时还有未完成 copy；进入隔离。重启。 |
-| F4 | `PONG SCANOUT: actual framebuffer handoff available` **没有出现** | `SCANOUTCPP:30-58` 的静默 return | 初始化被拒绝（地址不对齐、`PE_current_console` 宽高/stride/depth 不符、`v_rotate` 非 0、bytes 不匹配）。不要继续开 `pong_gpu_only`；先查 `0210` 的 `fRowBytes` 和 `0236` 的 `K60 FB:` 行。 |
+| F4 | `PONG SCANOUT: actual framebuffer handoff available` **没有出现** | `SCANOUTCPP:30-58` 的静默 return | 初始化被拒绝（地址不对齐、`PE_current_console` 宽高/stride/depth 不符、`v_rotate` 非 0、bytes 不匹配）。不要继续开 `pong_gpu_only`；先查 `0210` 的 `fRowBytes` 和 `K60FB` 行的 base/end。 |
 | F5 | `PONG ADRENO: SKIP ...` / `FAIL ...` / `SMMU FAULT` | `PLATFORMCPP:308` 及各处 `record()` | GPU 没起来；`pong_gpu_scanout=1` 不会有效果。回到软件路径，按具体阶段修。 |
 | F6 | `PONG METAL: ... status=0x...` 非 0 | `PongAdrenoNativeGlue.cpp:46-49` | Metal 发布失败；scanout 仍可能工作，但 CA 不会用 Metal。先修 Metal 或退回软件 UI。 |
-| F7 | `K60 FB: ... -> INSIDE managed range` | `0236:37-48` | **硬停止**。framebuffer 在 XNU 管理的物理范围内，VM 可能把页面分给用户态/页表；GPU 继续扫描会造成条带、PTE/heap 损坏。先解决保留问题，再开 GPU。 |
+| F7 | `K60FB base=0x... end=0x... -> INSIDE managed range` | `…-k60-mem-report.patch`（复报通道） | **硬停止**。framebuffer 在 XNU 管理的物理范围内，VM 可能把页面分给用户态/页表；GPU 继续扫描会造成条带、PTE/heap 损坏。先解决保留问题，再开 `pong_gpu_scanout=1`。原始 `K60 FB:` 行在 `arm_vm_init` 里、串口未起时打印，**任何日志都看不到**；判定改由 `k60_dbg_fb_inside` 复报到帧统计行，输出前缀是 `K60FB`。 |
 | F8 | `PONG GPU ONLY` 没有出现但屏幕黑/冻结 | 行为判据 | 可能是 GPU 帧被提交但没显示，或 presenter 卡住；查 `GPU frame completed` 和 `PongMetalScanout` 的 `actual GPU scanout copy completed`（`PongMetalScanout.h:44`）。 |
 
 ### 5.3 两层路径的独立判据
@@ -491,7 +494,7 @@ pong_gpu_only=1
 
 `0236:10-19` 的注释记录了 sibling K60 port 的 0170 发现：ABL 的显示控制器持续扫描 panel buffer；这些页一旦进入用户映射或页表，就会被控制台文本覆盖，表现为条带面板和 PTE/pthread/heap 损坏。`0236:37-48` 只打印 `K60 FB: ... -> INSIDE/outside managed range`，`k60_capmanaged` 只是可选地缩小 `mem_size`（`:50-56`），**没有把 framebuffer 从 VM 里保留出来**。如果日志是 `INSIDE`，开 GPU scanout 会让“ABL 扫描 + GPU DMA + CPU 控制台”三方写同一块内存，后果比不开 GPU 更严重。
 
-**处置**：把 `K60 FB: ... -> INSIDE` 作为硬停止条件。先按 `0236` 的注释思路把 framebuffer 页从 free list/allocator 中保留（这是另一个补丁的工作，不在本次范围），确认 `outside` 后再开 `pong_gpu_scanout=1`。
+**处置**：把 `K60FB ... -> INSIDE` 作为硬停止条件。原始 `K60 FB:` 行在 `arm_vm_init` 内、串口起来之前打印，任何日志都收不到；`…-k60-mem-report.patch` 把同一个判定存进 `k60_dbg_fb_inside`，由帧统计行以 `K60FB` 前缀复报（有界，不会刷屏）。先按 `0236` 的注释思路把 framebuffer 页从 free list/allocator 中保留（这是另一个补丁的工作，不在本次范围），确认 `outside` 后再开 `pong_gpu_scanout=1`。
 
 **R2：补丁 fuzz 误贴。**
 
@@ -551,6 +554,71 @@ K60 的 ABL 可能为了 boot splash 已经给 GPU 上电；如果这样，`pong
 
 ---
 
+## ⑦ 实施记录（2026-11-12）
+
+### 7.1 已经做完的
+
+| 项 | 现状 | 证据 |
+|---|---|---|
+| `SERIES` 里三个 scanout 补丁 | **已在** 195-197 行，顺序 `SCANOUT` → `GPUONLY` → `PITCH` | `patches/xnu/series:195-197` |
+| `SCANOUT` hunk 2 的 rebase | **已完成**，`pong_scanout_initialize` 就在 `fRowBytes` 之后、`if (k60PanelNative())` 之前 | 补丁自身即 K60 版；套用后落在 `MiniIOMobileFramebuffer.cpp:436` |
+| `GPUONLY` hunk 1 的处理 | **已按方案 A 处理**：补丁里已无 `MiniIOSurface.cpp` 的启动门 hunk，`0211` 的 `pong_software_ui` 语义保留 | `grep -c MiniIOSurface.cpp` = 0 |
+| 整份 series（216 条） | 在干净 `xnu-8796.141.3` 上 `git apply -C0` 全部通过，**0 失败、0 fuzz** | 见 7.3 |
+| `pong_adreno_start=1` | 已加入 `board.toml` 的 `kernel_args`（阶段 A），整串 30 项 / 594 字节 | `board.toml:196` |
+| R1 判定可读性 | `K60 FB:` 行串口收不到，改由 `k60_dbg_fb_inside` 复报为 `K60FB` | `…-k60-mem-report.patch` |
+| 内核 | `sha256 2d5334d5f64308c3…`，含全部 GPU 证据串 | 见 7.2 |
+| boot image | `E:\k60-ios\boot-gpuA-20261112.img`，payload 已换、UEFI/DTB 沿用 cand24 | 见 7.2 |
+
+### 7.2 构建与打包验证
+
+内核里确认存在的证据串（`strings -a kernel.macho`）：
+
+```text
+startup requested; no accelerator published
+actual framebuffer handoff available
+GPU frame completed
+PONG GPU ONLY: no completed GPU frame
+K60FB base=
+```
+
+打包后从镜像里读回：
+
+- `args = "..."` 末尾是 `pong_adreno_start=1`，与 `board.toml` 一致；
+- payload FAT 卷内的内核字节与 `kernel.macho`（`2d5334d5…`）一致；
+- 镜像总长 201883648，payload 起始 552960，与 cand24 相同，头部未动。
+
+### 7.3 复现命令
+
+```sh
+# 1. 干净树验证整份 series（不能拿 device-ui 里的 vendored XNU 做，它已是打好补丁的快照）
+cd <core>/out/.../tree/.cache/xnu-work && git archive HEAD | tar -x -C /tmp/series
+for p in $(grep -vE '^\s*#|^\s*$' device-ui/patches/xnu/series); do
+  git apply -C0 device-ui/patches/xnu/$p || echo "FAIL $p"; done
+
+# 2. 内核
+python3 core/unixnu build kernel -D work/device-ui --out work/out-cand --skip-setup -j 8
+# 3. payload（CONFIG_XNU_OWNER_DATA_UFS 用的是装好的 Data 卷，不能传 --data-ramdisk）
+python3 core/unixnu build payload -D work/device-ui --out work/out-cand -j 8
+# 4. 换 payload 进镜像（UEFI/DTP 沿用 cand24，只换 552960 起始的整卷）
+python3 - <<'PY' … d[552960:552960+201326592] = new_payload … PY
+```
+
+### 7.4 下一步：板上阶段 A
+
+只差上机。用 `fastboot boot E:\k60-ios\boot-gpuA-20261112.img`，**不 flash**。
+
+依次确认：
+
+1. `K60FB base=0x… end=0x… -> outside managed range` —— 这是 R1 门。出现 `INSIDE` 就停，不要再加 `pong_gpu_scanout=1`。
+2. `PONG ADRENO: startup requested; no accelerator published`（P1）—— 只证明线程进来了。
+3. P2-P7 逐级：`GPU SMMU actual IDs` → `GMU native4K context` → `GMU firmware/HFI` → `GMU power handshake` → `CP/user-client startup` → `CP ready; authenticated nonsecure fence`。
+4. 见到 `SKIP GX already powered; require cold boot` 说明 ABL 已经给 GPU 上电，是启动时序问题，不是补丁问题（R3）。
+5. 见到 `SKIP ASID lease conflicts` 说明 K60 的 SMMU 路由与 Pong 不同（R4），要先定标才能继续。
+
+阶段 A 通过后，再往 `board.toml` 加 `pong_gpu_scanout=1`（阶段 B），最后才做 `pong_gpu_only=1` 的一轮决定性实验。
+
+---
+
 ## 附：一句话回答
 
-**能开，但不是“改一行 0231”**：当前 defconfig 已经把 PongAdreno 链进来并让 `XNU_K60_ACCEL_STUB=0`；真正缺的是把三个 scanout 补丁 rebase 进 `SERIES`、传 `pong_adreno_start=1`/`pong_gpu_scanout=1`，以及先确认 `K60 FB` 不在 managed range 内。最小集是“`SERIES` 加三个补丁 + 两处 rebase + 两个 boot arg”，`0232` 保留，`ADDON`/`BROKER` 第一轮不开。最大风险是 **R1：framebuffer 在 XNU managed range 内时，GPU DMA 与 VM 抢同一批页**，会从“GPU 没起来”升级成内存/页表损坏；`K60 FB: ... -> INSIDE` 必须当硬停止条件。
+**能开，但不是“改一行 0231”**：当前 defconfig 已经把 PongAdreno 链进来并让 `XNU_K60_ACCEL_STUB=0`；三个 scanout 补丁与其两处 rebase 已经就位（见 ⑦），本轮补上的是 `pong_adreno_start=1` 与让 R1 判定可见的 `K60FB` 复报。最大风险仍是 **R1：framebuffer 在 XNU managed range 内时，GPU DMA 与 VM 抢同一批页**；`K60FB … -> INSIDE` 是硬停止条件，所以阶段 A 只启动 GPU、不交接 framebuffer。

@@ -63,6 +63,8 @@ copy_new(const char *source, const char *dest, int mode, int uid, int gid)
     return chmod(dest, mode) || chown(dest, uid, gid) ? -1 : 0;
 }
 
+static int unpack_boot_jobs(const char *archive, const char *dest);
+
 static void
 prepare_var(void)
 {
@@ -111,7 +113,25 @@ prepare_var(void)
     int fd = open("/private/var/.pong-write-check", O_CREAT | O_EXCL | O_WRONLY, 0600);
     if (fd < 0) { printf("Pong init: Data not writable: errno=%d\n", errno); return; }
     close(fd); unlink("/private/var/.pong-write-check");
-    if (read_text("/pong/etc/var.skel", buf, sizeof(buf)) < 0) {
+    /*
+     * 0406: apply() normally ships /pong/etc/var.skel and /pong/var-seed on the
+     * OS window, and that step never ran here: the root is a sealed union with
+     * no /pong at all. The kernel writes the same tree as a PONGJOB1 archive
+     * next to the helper, so expand it before reading the skeleton.
+     */
+    {
+        struct stat sk;
+        if (stat("/pong/etc/var.skel", &sk) != 0) {
+            /* unpack_boot_jobs only creates entries under dest, never dest
+             * itself; boot-jobs works because K60DATA pre-creates that one. */
+            mkdir("/private/var/pong/root", 0755);
+            int n = unpack_boot_jobs("/private/var/pong/var.pack",
+                "/private/var/pong/root");
+            printf("Pong init: var.pack expand result=%d\n", n);
+        }
+    }
+    if (read_text("/pong/etc/var.skel", buf, sizeof(buf)) < 0 &&
+        read_text("/private/var/pong/root/pong/etc/var.skel", buf, sizeof(buf)) < 0) {
         printf("Pong init: var.skel unavailable: errno=%d\n", errno); return;
     }
     int made = 0, errors = 0;
@@ -135,7 +155,19 @@ prepare_var(void)
             struct stat st;
             if (lstat(field[2], &st) != 0) result = symlink(field[1], field[2]);
         } else if (count == 6 && field[0][0] == 'f') {
-            result = copy_new(field[5], field[4], (int)number(field[1], 8),
+            char source[512];
+            struct stat probe;
+            /* 0406: apply() would have staged these under /pong on the OS
+             * window, which this sealed root cannot carry. The archive expands
+             * to the writable volume instead, so try that prefix first. */
+            strcpy(source, field[5]);
+            if (stat(source, &probe) != 0 && strncmp(field[5], "/pong/", 6) == 0) {
+                char rebased[512];
+                strcpy(rebased, "/private/var/pong/root");
+                strcpy(rebased + strlen("/private/var/pong/root"), field[5]);
+                strcpy(source, rebased);
+            }
+            result = copy_new(source, field[4], (int)number(field[1], 8),
                               (int)number(field[2], 10), (int)number(field[3], 10));
         }
         errors += result != 0;
@@ -221,16 +253,10 @@ prepare_calendar(void)
 /* Expand the archive the kernel writes next to the helper. The format is in
  * scripts/pack-boot-jobs.py: a header, then one fixed record per entry
  * followed by the name, the link target and the data. The kernel cannot create
- * several hundred files safely before PID 1 exists, so it does one write of the
- * archive and this runs the loop in user space, where open/write/mkdir work. */
+ * 406 files safely before PID 1 exists, so it does one write of the archive and
+ * this runs the loop in user space, where open/write/mkdir already work. */
 #define PONGJOB_HEADER 12
 #define PONGJOB_RECORD 24
-
-/* mini.h declares lseek() but not the whence constants; the archive reader
- * needs SEEK_CUR to skip an entry's payload after a failed open/symlink. */
-#ifndef SEEK_CUR
-#define SEEK_CUR 1
-#endif
 
 /* read() is a raw syscall here and may return a short count; the archive is
  * parsed positionally, so every field must be filled before it is decoded. */
@@ -255,18 +281,18 @@ unpack_boot_jobs(const char *archive, const char *dest)
     int in = open(archive, O_RDONLY, 0);
     if (in < 0) return -1;
     unsigned char head[PONGJOB_HEADER];
-    unsigned char rec[PONGJOB_RECORD];
-    char path[512], name[512], target[512];
     if (read_full(in, head, sizeof(head)) != 0 ||
         memcmp(head, "PONGJOB1", 8) != 0) { close(in); return -1; }
     unsigned count = (unsigned)head[8] | ((unsigned)head[9] << 8) |
                      ((unsigned)head[10] << 16) | ((unsigned)head[11] << 24);
+    char path[512];
     int made = 0, failed = 0;
     for (unsigned i = 0; i < count; i++) {
+        unsigned char rec[PONGJOB_RECORD];
         if (read_full(in, rec, sizeof(rec)) != 0) { failed++; break; }
-        /* '<IIIIII': mode@0 uid@4 gid@8 size@12 nlen@16 dlen@20. Reading size
-         * from 8 skipped a field, so nlen decoded as the file size and every
-         * path was built from a name that ran into the payload. */
+        /* '<IIIIII': mode@0 uid@4 gid@8 size@12 nlen@16 dlen@20. Reading
+         * size from 8 skipped a field, so nlen decoded as the file size and
+         * every path was built from a name that ran into the payload. */
         unsigned mode = (unsigned)rec[0] | ((unsigned)rec[1] << 8) |
                         ((unsigned)rec[2] << 16) | ((unsigned)rec[3] << 24);
         unsigned size = (unsigned)rec[12] | ((unsigned)rec[13] << 8) |
@@ -275,8 +301,11 @@ unpack_boot_jobs(const char *archive, const char *dest)
                         ((unsigned)rec[18] << 16) | ((unsigned)rec[19] << 24);
         unsigned dlen = (unsigned)rec[20] | ((unsigned)rec[21] << 8) |
                         ((unsigned)rec[22] << 16) | ((unsigned)rec[23] << 24);
-        if (nlen == 0 || nlen >= sizeof(name) ||
-            read_full(in, name, nlen) != 0) { failed++; break; }
+        char name[512];
+        if (nlen == 0 || nlen >= sizeof(name)) {
+            failed++; break;
+        }
+        if (read_full(in, name, nlen) != 0) { failed++; break; }
         name[nlen] = 0;
         size_t dl = strlen(dest);
         if (dl + 1 + nlen + 1 > sizeof(path)) { failed++; break; }
@@ -287,12 +316,13 @@ unpack_boot_jobs(const char *archive, const char *dest)
             if (mkdir(path, mode & 07777) == 0 || errno == 17) made++;
             else failed++;
         } else if ((mode & S_IFMT) == S_IFLNK) {
-            if (dlen == 0 || dlen >= sizeof(target) ||
-                read_full(in, target, dlen) != 0) {
+            char target[512];
+            if (dlen == 0 || dlen >= sizeof(target)) {
                 failed++;
                 (void)lseek(in, (off_t)(dlen + size), SEEK_CUR);
                 continue;
             }
+            if (read_full(in, target, dlen) != 0) { failed++; break; }
             target[dlen] = 0;
             if (symlink(target, path) == 0 || errno == 17) made++;
             else failed++;
@@ -312,17 +342,18 @@ unpack_boot_jobs(const char *archive, const char *dest)
             }
             unsigned left = size;
             char buf[4096];
-            int broken = 0;
             while (left) {
                 size_t want = left < sizeof(buf) ? left : sizeof(buf);
-                if (read_full(in, buf, want) != 0) { broken = 1; break; }
-                ssize_t w = write(out, buf, want);
-                if (w != (ssize_t)want) { broken = 1; break; }
-                left -= (unsigned)want;
+                ssize_t got = read(in, buf, want);
+                if (got <= 0) { failed++; break; }
+                if (write(out, buf, (size_t)got) != got) { failed++; break; }
+                left -= (unsigned)got;
             }
             close(out);
-            if (broken) { failed++; break; }
-            made++;
+            if (left) (void)lseek(in, (off_t)left, SEEK_CUR);
+            else made++;
+        } else {
+            failed++;
         }
     }
     close(in);
@@ -338,12 +369,12 @@ wallpaper_directory(const char *path)
 {
     struct stat st;
     if (lstat(path, &st) != 0) {
-        if (errno != 2 || mkdir(path, 0755) != 0 || chown(path, 0, 0) != 0)
+        if (errno != 2 || mkdir(path, 0755) != 0)
             return -1;
     } else if ((st.st_mode & S_IFMT) != S_IFDIR || st.st_uid != 0 || (st.st_mode & 022)) {
         return -1;
     }
-    return chmod(path, 0755);
+    return chown(path, 0, 0) != 0 || chmod(path, 0755) != 0 ? -1 : 0;
 }
 
 /* Expose exactly the names in the preserved Apple directory. The view holds
@@ -362,15 +393,19 @@ wallpaper_aliases(void)
     while ((n = getdirentries(fd, entries, sizeof(entries), &position)) > 0) {
         size_t offset = 0;
         while (offset < (size_t)n) {
-            const struct dirent *entry = (const struct dirent *)(entries + offset);
+            struct dirent record;
+            const struct dirent *entry = &record;
             size_t header = offsetof(struct dirent, d_name);
+            if ((size_t)n - offset < header) { failed = 1; break; }
+            memcpy(&record, entries + offset, header);
             if ((size_t)n - offset < header || entry->d_reclen < header + 1 ||
                 entry->d_reclen > (size_t)n - offset || !entry->d_namlen ||
                 entry->d_namlen >= sizeof(entry->d_name) ||
                 header + entry->d_namlen + 1 > entry->d_reclen ||
-                entry->d_name[entry->d_namlen] != 0) {
+                entries[offset + header + entry->d_namlen] != 0) {
                 failed = 1; break;
             }
+            memcpy(record.d_name, entries + offset + header, entry->d_namlen + 1);
             offset += entry->d_reclen;
             if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
             size_t length = entry->d_namlen;
@@ -390,7 +425,7 @@ wallpaper_aliases(void)
             if (lstat(target, &st) == 0) {
                 ssize_t count = (st.st_mode & S_IFMT) == S_IFLNK ?
                     readlink(target, existing, sizeof(existing)) : -1;
-                if (count != (ssize_t)strlen(source) || memcmp(existing, source, (size_t)count)) {
+                if (count < 0 || count != (ssize_t)strlen(source) || memcmp(existing, source, (size_t)count)) {
                     printf("Pong init: wallpaper alias conflict %s\n", target);
                     failed = 1; break;
                 }
@@ -424,20 +459,19 @@ prepare_boot_services(void)
     if (!wallpaper_dirs)
         printf("Pong init: wallpaper view directories unavailable errno=%d\n", errno);
     static const struct { const char *source, *target; } views[] = {
-        /* Bind over the directory launchd actually reads. The stock apply()
-         * pipeline leaves a /pong/LaunchDaemons symlink behind, but the sealed
-         * root here has no /pong at all, so a bind to that path was always
-         * skipped ("source/target unavailable") and launchd ran the full stock
-         * set. The target must exist for bindfs to attach, and
+        /* 0401: bind over the directory launchd actually reads. The stock
+         * apply() pipeline leaves a /pong/LaunchDaemons symlink behind, but the
+         * sealed root here has no /pong at all, so a bind to that path was
+         * always skipped ("source/target unavailable") and launchd ran the
+         * full stock set. The target must exist for bindfs to attach, and
          * /System/Library/LaunchDaemons does. */
         {"/private/var/pong/boot-jobs", "/System/Library/LaunchDaemons"},
         {"/private/var/pong/empty-hal", "/System/Library/Audio/Plug-Ins/HAL"},
         {"/private/var/pong/empty-hal", "/Library/Audio/Plug-Ins/HAL"},
-        /* launchd reads its service cache from /System/Library/xpc, not from the
-         * LaunchDaemons directory. The kernel writes the curated cache (CORE
-         * jobs only, no App-cryptex programs) to the Data volume, so it has to
-         * be bound over the stock one or launchd keeps using stock and refuses
-         * every job it cannot resolve. */
+        /* 0402: launchd reads its service cache from here, not from the
+         * LaunchDaemons directory. The kernel writes the curated cache (22
+         * CORE jobs, no App-cryptex programs) to the Data volume, so it has
+         * to be bound over the stock one or launchd keeps using stock. */
         {"/private/var/pong/xpc", "/System/Library/xpc"},
         /* Keep a read-only path to stock assets before overlaying their
          * directory. The RAM view contains aliases, not copied pictures. */
@@ -474,12 +508,32 @@ static void
 configure_ui_library(void)
 {
     const char *path="/private/var/pong/libpong-ui.dylib";
+    /* 0404: SpringBoard is injected by default. k60_ui_springboard=0 removes
+     * only that target, which is how the constructor was ruled out as the cause
+     * of the stuck main queue; leaving that experiment as the default made
+     * boot-v36..v39 present no frame at all. */
     const char *base="/private/var/pong/libpong-ui.dylib SpringBoard backboardd containermanagerd containermanagerd_system mediaserverd Preferences";
     const char *metal="; /private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal backboardd";
     char conf[512],args[4096]={0};size_t length=sizeof(args);
+    {
+        int k60_sb = 1;
+        if (sysctlbyname("kern.bootargs", args, &length, NULL, 0) == 0) {
+            for (char *p=args;*p;) {
+                while(*p==' ')p++;
+                if (strncmp(p,"k60_ui_springboard=0",20)==0 && (!p[20] || p[20]==' ')) {
+                    k60_sb = 0;
+                }
+                while (*p && *p!=' ') p++;
+            }
+        }
+        if (!k60_sb) {
+            base = "/private/var/pong/libpong-ui.dylib backboardd containermanagerd containermanagerd_system mediaserverd Preferences";
+        }
+        args[0]=0; length=sizeof(args);
+    }
     memcpy(conf,base,strlen(base)+1);
     struct stat st;
-    if (stat(path,&st)!=0 || (st.st_mode&S_IFMT)!=S_IFREG) {
+    if (stat(path,&st)!=0 || (st.st_mode&S_IFMT)!=S_IFREG || st.st_uid!=0) {
         puts("Pong init: UI compatibility library absent; SKIP");return;
     }
     if(sysctlbyname("kern.bootargs",args,&length,NULL,0)==0) {
@@ -528,8 +582,14 @@ main(int argc, char **argv, char **envp)
     char *env[] = {
         "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME=/var/root", "TMPDIR=/var/tmp/",
-        "DYLD_SHARED_CACHE_DIR=/private/preboot/System/Library/Caches/com.apple.dyld/",
-        "DYLD_FALLBACK_LIBRARY_PATH=/private/preboot/usr/lib",
+        /* PITFALLS P-22: the reference board keeps its cache under
+         * /private/preboot, this port's union mount exposes it at
+         * /System/Library/Caches/com.apple.dyld (boot probe: rc=0 there,
+         * rc=2 under /private/preboot). Pointing at preboot made dyld report
+         * "Library not loaded: /usr/lib/libSystem.B.dylib (no dyld cache)" and
+         * launchd died as PID 1 before any job could run. */
+        "DYLD_SHARED_CACHE_DIR=/System/Library/Caches/com.apple.dyld/",
+        "DYLD_FALLBACK_LIBRARY_PATH=/System/Library/Frameworks:/usr/lib",
         NULL
     };
     puts("Pong init: exec original 20G81 launchd; stdin/stdout -> /dev/null, stderr -> /dev/console");

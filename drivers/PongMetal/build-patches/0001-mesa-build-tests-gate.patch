@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Mesa 85fda3b3 runs this test while configuring even with build-tests=false.
+# Honor its existing build-tests option; do not alter the driver or compiler.
+--- a/src/freedreno/meson.build
++++ b/src/freedreno/meson.build
+@@ -53,6 +53,7 @@
+   subdir('vulkan')
+ endif
+ 
++if with_tests
+ # 77 is a convention used by Meson and other build systems to skip tests.
+ SKIP_RETURN_CODE = 77
+ 
+@@ -72,3 +73,4 @@
+   args : files('tests/check_xml_includes.py'),
+   suite : ['freedreno'],
+ )
++endif

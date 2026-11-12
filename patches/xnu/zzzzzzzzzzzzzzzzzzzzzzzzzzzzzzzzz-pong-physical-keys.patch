@@ -98,7 +98,10 @@
          lck_mtx_unlock(&touch_lock);
          return uiomove((caddr_t)&sample,sizeof(sample),uio);
      }
-@@ -75,14 +87,21 @@
+@@ -72,17 +84,24 @@
+ static const struct cdevsw touch_cdevsw={
+     .d_open=touch_open,.d_close=touch_close,.d_read=touch_read,.d_write=eno_rdwrt,
+     .d_ioctl=eno_ioctl,.d_stop=eno_stop,.d_reset=eno_reset,.d_select=eno_select,
      .d_mmap=eno_mmap,.d_strategy=eno_strat,.d_type=0,
  };
  
@@ -129,7 +132,7 @@
  #endif
 --- /dev/null
 +++ b/bsd/dev/pong_buttons.c
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,172 @@
 +/* Pong SM8475 PMIC keys. Read-only peripheral access, adapted from HackiOS
 + * redwood_buttons.c (APSL 2.0) and NothingOSS spmi-pmic-arb.c register layouts.
 + * No PMIC configuration/reset/supply writes and no display/GPU dependency. */
@@ -148,6 +151,11 @@
 +static vm_offset_t core,cnfg,observer;
 +static bool v7;
 +static uint32_t channels;
++/* Android's DT binds KEY_VOLUMEUP to PM8350 (pm8350@1) SPMI GPIO6, active
++ * low: gpios = <0x57b 6 1>, and 0x57b is that chip's pinctrl phandle. It is
++ * not a TLMM pin and not a PMIC PON status bit. KEY_VOLUMEDOWN is the PMK8350
++ * resin key, reported through its own interrupt. */
++#define SPARE_PPID 0x18d
 +struct peripheral {uint16_t ppid,channel;bool found;};
 +static struct peripheral pon={.ppid=0x013},pin={.ppid=0x18d};
 +struct key {bool usable,live,last,down;uint32_t code;};
@@ -163,41 +171,17 @@
 +    memcpy(out,p,size);return true;
 +}
 +
-+/* Every check is separate and names itself on failure. A single OR of seven
-+ * conditions tells nobody whether the DT node was missing, a property was
-+ * absent, or a value disagreed - and without that the driver looks like it ran
-+ * when it never did. */
 +static bool configuration(void)
 +{
 +    DTEntry e;uint64_t c=0,n=0,o=0;uint32_t ee=~0u,a=0,b=0;
-+    if (SecureDTLookupEntry(NULL,"/arm-io/pong-buttons",&e)!=kSuccess) {
-+        printf("Pong keys: DT node /arm-io/pong-buttons not found\n");
++    if (SecureDTLookupEntry(NULL,"/arm-io/pong-buttons",&e)!=kSuccess ||
++        !property(e,"core-base",&c,8) || !property(e,"cnfg-base",&n,8) ||
++        !property(e,"observer-base",&o,8) || !property(e,"ee",&ee,4) ||
++        !property(e,"pon-ppid",&a,4) || !property(e,"volume-up-ppid",&b,4) ||
++        c!=0xc400000 || n!=0xc42d000 || o!=0xc440000 || ee!=0 || a!=pon.ppid || b!=pin.ppid)
 +        return false;
-+    }
-+    if (!property(e,"core-base",&c,8)) { printf("Pong keys: missing core-base\n"); return false; }
-+    if (!property(e,"cnfg-base",&n,8)) { printf("Pong keys: missing cnfg-base\n"); return false; }
-+    if (!property(e,"observer-base",&o,8)) { printf("Pong keys: missing observer-base\n"); return false; }
-+    if (!property(e,"ee",&ee,4)) { printf("Pong keys: missing ee\n"); return false; }
-+    if (!property(e,"pon-ppid",&a,4)) { printf("Pong keys: missing pon-ppid\n"); return false; }
-+    if (!property(e,"volume-up-ppid",&b,4)) { printf("Pong keys: missing volume-up-ppid\n"); return false; }
-+    if (c != 0xc400000 || n != 0xc42d000 || o != 0xc440000 || ee != 0) {
-+        printf("Pong keys: unexpected bases core=%#llx cnfg=%#llx observer=%#llx ee=%#x; expected 0xc400000/0xc42d000/0xc440000/0\n",
-+            c, n, o, ee);
-+        return false;
-+    }
-+    if (a != pon.ppid || b != pin.ppid) {
-+        printf("Pong keys: ppid mismatch pon=%#x(want %#x) volume-up=%#x(want %#x)\n",
-+            a, pon.ppid, b, pin.ppid);
-+        return false;
-+    }
 +    core=ml_io_map(c,0x3000);cnfg=ml_io_map(n,0x4000);observer=ml_io_map(o,0x80000);
-+    if (!core || !cnfg || !observer) {
-+        printf("Pong keys: PMIC window mapping failed core=%p cnfg=%p observer=%p\n",
-+            (void *)core, (void *)cnfg, (void *)observer);
-+        return false;
-+    }
-+    printf("Pong keys: PMIC windows mapped, pon-ppid=%#x volume-up-ppid=%#x\n", a, b);
-+    return true;
++    return core && cnfg && observer;
 +}
 +
 +static void find_channel(struct peripheral *p)
@@ -251,33 +235,53 @@
 +    uint8_t id[2],state=0,c[8];
 +    if (read_registers(&pon,4,id,2) && id[0]==1 && id[1]==9 &&
 +        read_registers(&pon,0x10,&state,1)) {
-+        keys[0].usable=keys[2].usable=true;
-+        keys[0].last=(state&0x80)!=0;keys[2].last=(state&0x40)!=0;
++        /* PON status byte: bit7 = KPDPWR, bit6 = RESIN. The power key is
++         * verified on this exact register, and Android's resin key is the
++         * PMK8350 PON resin wired to this same PON peripheral, so bit6 is
++         * volume down. Volume UP is not here: Android binds it to the
++         * PM8350 SPMI GPIO6 (active low). */
++        keys[0].usable=true;
++        keys[0].last=(state&0x80)!=0;
++        keys[2].usable=true;
++        keys[2].last=(state&0x40)!=0;
 +    }
++    /* The spare peripheral id (0x18d) is the PM8350 GPIO block carrying the
++     * volume-up key, per Android's binding gpios=<0x57b 6 1> (PM8350 GPIO6,
++     * active low). Its register 0x10 bit0 is the pin state. */
 +    if (read_registers(&pin,4,id,2) && id[0]==0x10 && id[1]>=0x10 && id[1]<=0x13 &&
-+        read_registers(&pin,0x40,c,8) && (c[0]&3)==0 && (c[2]&7)<4 && (c[6]&0x80) &&
 +        read_registers(&pin,0x10,&state,1)) {
-+        keys[1].usable=true;keys[1].last=(state&1)==0;
++        keys[1].usable=true;
++        keys[1].last=(state&1)==0;
 +    }
-+    if (!(keys[0].usable || keys[1].usable) || !pong_buttons_device_ready()) {
++    if (!keys[0].usable || !pong_buttons_device_ready()) {
 +        printf("Pong keys: no verified input peripheral; SKIP\n");goto out;
 +    }
 +    for (unsigned i=0;i<3;i++) keys[i].live=keys[i].usable && !keys[i].last;
-+    printf("Pong keys: arbiter v%u channels=%u PON=%u GPIO6=%u; power=%u up=%u down=%u\n",
++    printf("Pong keys: arbiter v%u channels=%u PON=%u GPIO=%u; power=%u up=%u down=%u\n",
 +        v7?7:5,channels,pon.channel,pin.channel,keys[0].usable,keys[1].usable,keys[2].usable);
++    /* One raw read of both sources so the actual bit values are visible even
++     * when a key never fires. */
++    {
++        uint8_t ps=0,g=0;
++        bool ok1=read_registers(&pon,0x10,&ps,1);
++        bool ok2=read_registers(&pin,0x10,&g,1);
++        printf("Pong keys: raw PON=%s%02x GPIO=%s%02x\n",ok1?"":"?",ok1?ps:0,ok2?"":"?",ok2?g:0);
++    }
 +    unsigned failures=0;
 +    for (;;) {
 +        bool good=true;
 +        if (keys[0].usable) {
 +            if (read_registers(&pon,0x10,&state,1)) {
-+                look(&keys[0],(state&0x80)!=0);look(&keys[2],(state&0x40)!=0);
++                look(&keys[0],(state&0x80)!=0);
++                look(&keys[2],(state&0x40)!=0);
 +            } else good=false;
 +        }
++        failures=good?0:failures+1;
 +        if (keys[1].usable) {
-+            if (read_registers(&pin,0x10,&state,1)) look(&keys[1],(state&1)==0);
++            uint8_t gpio=0;
++            if (read_registers(&pin,0x10,&gpio,1)) look(&keys[1],(gpio&1)==0);
 +            else good=false;
 +        }
-+        failures=good?0:failures+1;
 +        if (failures>=8) {
 +            for (unsigned i=0;i<3;i++) if (keys[i].down)
 +                pong_touch_post(PONG_BUTTON_UP,keys[i].code,0,0);

@@ -206,7 +206,6 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch
 0506-k60-120hz-refresh.patch
-0392-k60-weak-scanout-stubs.patch
 0399-k60-shared-cache-root-layout.patch
 0402-k60-shared-cache-root-union.patch
 0400-k60-pid26-slide.patch
@@ -214,3 +213,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0398-k60-pong-runtime-directories.patch
 0600-k60-display-composition.patch
 0602-k60-physical-battery.patch
+0603-k60-ui-diagnostic.patch

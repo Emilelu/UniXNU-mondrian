@@ -1,8 +1,8 @@
 {
   "host": "x86_64",
   "target": "arm64-apple-ios16.0",
-  "build_tree": "/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/tree",
-  "source": "/home/emilelu/hackios/UniXNU-mondrian/drivers/NativeUfs/NativeUfs.cpp",
+  "build_tree": "/root/k60/work/out-cand/mondrian/ipados-16.6.1-20G81/mondrian/tree",
+  "source": "/root/k60/work/device-ui/drivers/NativeUfs/NativeUfs.cpp",
   "image_verification": "skipped by request",
   "read_write_capable": true,
   "runtime_write_arg": "pong_ufs_readwrite=1",

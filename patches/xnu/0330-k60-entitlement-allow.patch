@@ -1,19 +1,17 @@
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -1576,6 +1576,52 @@
+@@ -1510,9 +1510,60 @@
  	return IOTaskHasEntitlement(NULL, entitlement);
  }
  
 +/*
-+ * 0330: the two questions that have actually killed a daemon on this board.
-+ *
-+ * runningboardd and UserEventAgent abort when
++ * 0330: the questions that have actually refused a boot-time operation on
++ * this board. runningboardd and UserEventAgent abort when
 + * setiopolicy_np(IOPOL_TYPE_VFS_ALLOW_LOW_SPACE_WRITES) returns EPERM, and
-+ * usermanagerd cannot create its personas without persona_alloc.  Both are
-+ * refused only because the AMFI table is NULL, and the stand-in that would
-+ * answer from the code signature instead crashes launchd (0355).  So answer
-+ * yes for these two names and for nothing else, behind a boot-arg, so the
-+ * widening stays a deliberate act that one boot can switch off.
++ * usermanagerd cannot create its personas without persona_alloc. The Pong
++ * helper needs bindfs to overlay the curated job set. All are refused only
++ * because the AMFI table is NULL, so answer yes for these names and nothing
++ * else, behind a boot-arg, so the widening stays a deliberate act.
 + */
 +static bool
 +k60_entitlement_allow_enabled(void)
@@ -39,6 +37,10 @@
 +	static const char * const allowed[] = {
 +		"com.apple.private.vfs.allow-low-space-writes",
 +		"com.apple.private.persona-mgmt",
++		/* The helper binds the curated job set over LaunchDaemons at boot.
++		 * Without this entry bindfs_mount() refuses with EPERM and launchd
++		 * keeps reading the stock job set. */
++		"com.apple.private.bindfs-allow",
 +	};
 +	size_t i;
 +
@@ -53,13 +55,9 @@
  extern "C" boolean_t
  IOTaskHasEntitlement(task_t task, const char *entitlement)
  {
-@@ -1587,6 +1633,9 @@
- 	if (task == kernel_task || entitlement == NULL) {
- 		return false;
- 	}
 +	if (k60_entitlement_allow_enabled() && k60_entitlement_is_allowed(entitlement)) {
 +		return true;
 +	}
- 	if (amfi == NULL || amfi->OSEntitlements.queryEntitlementBooleanWithProc == NULL) {
- 		return false;
+ 	if (task == NULL) {
+ 		task = current_task();
  	}

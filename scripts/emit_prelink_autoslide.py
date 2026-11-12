@@ -63,6 +63,8 @@ def main():
     parser.add_argument('--root', required=True, action='append')
     parser.add_argument('--slide', required=True, type=lambda value: int(value, 0))
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--library-only', action='append', default=[], metavar='BUNDLE',
+                        help='keep code and bindings, drop IOKitPersonalities/AppleSecurityExtension')
     parser.add_argument('--early-security-init', action='append', default=[],
                         metavar='BUNDLE=ORIGINAL_VA')
     args = parser.parse_args()
@@ -97,7 +99,8 @@ def main():
         else:
             raise SystemExit(f'no slide clears the collision; last tried {slide + FALLBACK:#x}')
 
-    image, report = orig.emit(native, original, args.root, slide, initializers)
+    image, report = orig.emit(native, original, args.root, slide, initializers,
+                              tuple(args.library_only))
     if args.output.exists():
         raise SystemExit('Refuse to overwrite an existing candidate')
     args.output.parent.mkdir(parents=True, exist_ok=True)

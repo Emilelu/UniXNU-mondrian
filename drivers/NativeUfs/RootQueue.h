@@ -1,11 +1,5 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 // Root queue takeover; shared with the host fault-injection harness.
-//
-// STAGE S3: the request list is a page of its own (gUtrlPhys, a write-combined 4 KiB allocation) instead of region A's
-// offset 0, so all 32 entries serve (slot s on entry s) and no cache maintenance touches the list. Until the page exists
-// gUtrlPhys is 0 and the list address stays region A, which is exactly what S1/S2 did.
-static uint64_t gUtrlPhys = 0;
-
 static bool hostWaitRegister (unsigned offset, uint32_t mask, uint32_t value)
 {
   uint64_t deadline;
@@ -49,11 +43,10 @@ static bool hostStopQueue (const char **why)
 
 static bool hostStartQueue (const char **why)
 {
-  // S3: our own write-combined list page when it was allocated, else region A's offset 0 as before.
-  const uint64_t base = gUtrlPhys ? gUtrlPhys : gHost.phys;
-  hostWrite (0x50, static_cast<uint32_t> (base));
-  hostWrite (0x54, static_cast<uint32_t> (base >> 32));
-  if (read32 (gHost.hc, 0x50) != uint32_t (base) || read32 (gHost.hc, 0x54) != uint32_t (base >> 32)) {
+  hostWrite (0x50, static_cast<uint32_t> (gHost.phys));
+  hostWrite (0x54, static_cast<uint32_t> (gHost.phys >> 32));
+  if (read32 (gHost.hc, 0x50) != uint32_t (gHost.phys) ||
+      read32 (gHost.hc, 0x54) != uint32_t (gHost.phys >> 32)) {
     recordTransport (kIOReturnIOError, 15);
     *why = "request list address";
     return false;

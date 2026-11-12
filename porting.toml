@@ -106,16 +106,16 @@ evidence = [{ kind = "device", reference = "board.toml", command = "adb -s be74b
 
 [[area]]
 id = "gpu"
-status = "planned"
+status = "implemented"
 components = []
 paths = ["package/*Gpu*", "package/*Gmu*", "package/*Adreno*", "scripts/*adreno*", "scripts/*gpu*", "scripts/*metal*", "scripts/*turnip*", "scripts/*air*", "drivers/PongAdreno/**", "drivers/PongMetal/**", "drivers/NativeMetal", "scripts/generate-pong-cp-profile.py"]
 inputs = ["Identify the gpu hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for gpu."]
 procedure = ["Follow the gpu stage in the porting guide and record the actual commands."]
-findings = ["cand7 renders through CPU composition; CONFIG_XNU_PONG_ADRENO_PLATFORM=n disables the real archive. The enabled scanout callsites currently resolve to explicit software-only weak functions, not GPU execution.", "Read-only device evidence confirms Adreno730v3 chip0x07030002 and the actual GMU/SQE/ZAP firmware. The build provider now resolves its real kernel tree, uses the retained register header and captured K60 firmware directory. K60 RSC EL1 accesses historically hang; the actual backend now uses documented Qualcomm monitor secure-IO calls for TCS reads/writes, propagates authorization failures, and retains real fence prerequisites."]
+findings = ["2026-11-12: the three Pong scanout patches are now in patches/xnu/series:195-197 in the source order SCANOUT, GPUONLY, PITCH, and the whole 216-entry series applies to a clean xnu-8796.141.3 with git apply -C0: 0 failures, 0 fuzz (docs/plans/GPU-ENABLE-PLAN.md 7.1). SCANOUT already carries the K60 insertion point, so pong_scanout_initialize runs after fRowBytes and before if (k60PanelNative()), and GPUONLY no longer contains the MiniIOSurface.cpp startup gate that would have overridden 0211.", "Kernel sha256 2d5334d5f64308c3... builds with pong_adreno_start=1 in the 30-entry / 594-byte kernel_args and carries every scanout evidence string: actual framebuffer handoff available, GPU frame completed, PONG GPU ONLY and startup requested.", "R1 is still unmeasured on hardware. 0236 prints K60 FB: before the serial console exists, so no capture contains that line; patches/xnu/...-k60-mem-report.patch now stores the same verdict in k60_dbg_fb_inside and republishes it as K60FB base=.. end=.. -> INSIDE|outside on the bounded frame-stats line. INSIDE is the hard stop for scanout handoff."]
 completion = ["GPU submissions complete, mapping/fence handling is correct, a known image renders, and the selected Metal client presents it."]
-limits = ["gpu8-start reaches the actual Adreno startup entry but every TCS access went through the Qualcomm secure-IO service, which the monitor denied (return -2), so parent votes failed before GMU/HFI, ZAP or CP. The change to a direct RSC mapping and retained highest AUX corner is compiled and packaged but has not run: the board left the USB bus after that trial and did not return. No GPU or Metal presentation is qualified; CPU desktop frames do not establish acceleration."]
-next_action = ["Boot the candidate with the board reconnected and read the PONG ADRENO steps. Upstream initialised this same hardware with a direct APSS RSC mapping, reporting result=0 for all 22 steps including the parent ARC votes, so the secure-IO route was the deviation; the direct mapping is now used and must be judged by those steps, not by reaching the desktop. GPU publication still requires real GMU/HFI/ZAP/CP fences."]
+limits = ["Stage A (pong_adreno_start=1, no framebuffer handoff) has not run on the board since 2026-11-12; the GPU bus was unavailable after the last trial. No PONG ADRENO step, no SMMU ID read, no GMU/HFI, no CP fence and no GPU frame is qualified. The CPU desktop frames from cand7 do not establish acceleration. pong_gpu_scanout and pong_gpu_only stay unset in board.toml until K60FB reports outside."]
+next_action = ["Boot E:/k60-ios/boot-gpuA-20261112.img with fastboot boot and read the log in this order: K60FB -> outside (stop on INSIDE), then startup requested, GPU SMMU actual IDs, GMU native4K context, GMU firmware/HFI, GMU power handshake, CP/user-client startup, CP ready; authenticated nonsecure fence. SKIP GX already powered means the bootloader already powered the GPU, and SKIP ASID lease conflicts means the K60 SMMU routing differs from Pong; both are safe refusals that need the routing measured before stage B adds pong_gpu_scanout=1."]
 evidence = [{ kind = "device", reference = "scripts/build-pong-adreno-platform-linux.py", command = "fastboot -s be74ba07 boot E:/k60-ios/boot-gpu8-start-20261112.img; boot_capture2.py --seconds 240 --idle 0", revision = "61544e3f6736506485b10a3f635a6d2e87a95a10", result = "console-20261112-013119.log 72314B: startup requested, secure RSC read refused at0x17a2000c return0xfffffffffffffffe, FAIL parent votes. No accelerator published. Authentic K60 GMU/SQE/ZAP firmware is embedded, but GMU/CP/fence execution did not begin." }, { kind = "source", reference = "https://github.com/Emilelu/UniXNU-mondrian (upstream/main in work/up-device)", command = "git show upstream/main:drivers/PongAdreno/PongAdrenoPlatform.cpp; git show upstream/main:porting.toml", revision = "609e51aec8ffc5b06d844d3444ad1349abf598be", result = "The upstream driver maps 0x17a20000/0x10000 directly and never calls secure I/O, and its record reports all 22 startup steps result=0 with parent ARC votes acknowledged and the accelerator published. That is the evidence the local secure-IO route was the deviation, so the direct mapping and retained-highest-corner selection are adopted. Upstream still reports rendering unverified and scanout off." }, { kind = "host", reference = "scripts/build-pong-userspace-linux.py", command = "python3 scripts/build-pong-userspace-linux.py --core core --mesa work/refs/mesa --translator work/refs/metal2vulkan --sdk-root work/iPhoneOS16.5.sdk --venv venv --output-dir work/gpu-userspace", revision = "0eb295a0256d9548567eae347eb763ce6e46392d", result = "Linux cross-build completed rc=0: Turnip 687/687 objects compiled and libvulkan_freedreno.dylib linked, the metal2vulkan crates compiled to the bridge staticlib and linked into PongMetalBridge.dylib, and PongAdrenoMetal linked; all three are arm64 Mach-O dylibs with NOUNDEFS, and the publication marker is 0. Build evidence only: the kernel publishes no accelerator, so no device execution happened." }]
 
 [[area]]
@@ -187,37 +187,3 @@ completion = ["Each claimed milestone has a reproducible command, a matching sou
 limits = ["The current USB gadget is XNU CDC-ACM VID1209/PID0001, not Apple usbmux. Only documented help/reboot commands are exposed; no remote debugserver or LLDB single-stepping connection has been established."]
 next_action = ["cand18 verifies the selected kern.pong_diagnostic endpoint: actual K60UI SpringBoard/backboardd messages reached COM8, including locked state, HomeButtonType2, wallpaper preservation and Mach main-thread snapshots. Continue through this bounded text endpoint; a full remote debugger still needs a target debugserver and transport."]
 evidence = [{ kind = "device", reference = "patches/xnu-ipados18/0244-k60-breadcrumbs.patch", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc4.img; count the breadcrumb squares", revision = "e636e445b621bed4fac0069f3604b87061350a8d", result = "Breadcrumbs turned a silent reset into a located fault: column 1 showed six squares, column 2 zero, column 3 one, which put the death inside ml_parse_cpu_topology(). The first carrier (u64 slots at 0xA73FF000) was useless because a hung board never returns DRAM, so the markers moved into the framebuffer; 0245 then produced a readable panic on hardware." }, { kind = "device", reference = "docs/reference/ROUTE-A-18-UPSTREAM.md", command = "scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc7.img", revision = "350d1c57c86d2fc562c7fa7529271fdae3af95bc", result = "The upstream entry probe installs on this kernel: stage 1 blue bar, stage 2 magenta bar, stage 3 resets the board through PSCI six seconds after the MMU comes on. The board walked back to fastboot and then to Android by itself, so a hung kernel no longer needs a manual power cycle. The probe's panic screen stays off because it installs code in the padding after panic(), at an address fixed for the reference kernel." }]
-
-[[area]]
-id = "cellular"
-status = "planned"
-components = []
-paths = ["docs/engineering/ANDROID-HW-TRUTH.md", "dts/mondrian.dts"]
-inputs = [
-  "K60 carries a Snapdragon X65-class modem inside the SM8475 package; it is not an external modem on this board.",
-  "Modem firmware, EFS/NV data and the SIM identity live on the Android side of the dual-system unit.",
-  "No QRTR/QMI endpoint, IPA path or SIM slot has been exercised under XNU.",
-]
-configuration = [
-  "board.toml declares the SM8475 SoC but no cellular component.",
-  "dts/mondrian.dts does not describe the modem memory regions, QRTR transport or IPA queues.",
-]
-procedure = [
-  "Inventory the modem firmware partition and the QRTR/QMI services from an Android boot.",
-  "Record the IPA/QMAP configuration and the SIM identity source.",
-  "Only then decide whether the baseband path is in scope for this port.",
-]
-findings = [
-  "The port currently has no baseband support at all; Android modem stack is untouched.",
-  "Recording it as planned rather than not-applicable keeps the gap visible.",
-]
-completion = [
-  "A device boot shows the modem enumerated over QRTR with a readable firmware revision.",
-]
-limits = [
-  "Nothing has been measured on this board beyond the Android-side inventory.",
-]
-next_action = [
-  "Read the Android modem partitions before writing any cellular code.",
-]
-evidence = []

@@ -14,6 +14,7 @@ import os
 from pathlib import Path, PurePosixPath
 import plistlib
 import posixpath
+import re
 import shutil
 import stat
 import struct
@@ -361,23 +362,96 @@ def compile_init(out, developer, destination):
     return init_signature
 
 
-def compile_ui(out, developer):
-    """Build the 20G81 adapter; no prebuilt 20F66 addresses/libraries."""
-    env = dict(os.environ, DEVELOPER_DIR=str(developer))
-    sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], env=env, text=True).strip()
+def compile_ui(out, developer, *, sdk=None, compiler='clang-18', linker='ld64.lld-18'):
+    """Build the 20G81 adapter against a real iOS SDK, never declaration shims."""
+    env = dict(os.environ)
+    if sdk is None:
+        env['DEVELOPER_DIR'] = str(developer)
+        sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], env=env, text=True).strip()
+        command = ['xcrun', '--sdk', 'iphoneos', 'clang']
+        link_flags = []
+    else:
+        sdk = sdk.resolve()
+        sdk_version = json.loads((sdk / 'SDKSettings.json').read_text())['Version']
+        command = [compiler]
+        link_flags = [f'--ld-path={shutil.which(linker) or linker}',
+                      f'-Wl,-platform_version,ios,16.6.1,{sdk_version}', '-Wl,-adhoc_codesign']
     destination = out / 'libpong-ui.dylib'
-    cmd = ['xcrun', '--sdk', 'iphoneos', 'clang', '-target', 'arm64-apple-ios16.6.1',
-           '-isysroot', sdk, '-Os', '-fblocks', '-dynamiclib', '-Wall', '-Wextra', '-Werror',
-           '-Wl,-no_fixup_chains', '-install_name', '/private/var/pong/libpong-ui.dylib',
+    cmd = [*command, '-target', 'arm64-apple-ios16.6.1',
+           '-isysroot', str(sdk), '-Os', '-fblocks', '-dynamiclib', '-Wall', '-Wextra', '-Werror',
+           *link_flags, '-Wl,-no_fixup_chains', '-install_name', '/private/var/pong/libpong-ui.dylib',
            '-framework', 'CoreFoundation', '-framework', 'CoreGraphics', '-lobjc',
            str(USERLAND / 'ui_compat.c'), str(USERLAND / 'icons_cpu.c'),
            str(USERLAND / 'touch.c'),
            '-o', str(destination)]
     run(cmd, env=env)
-    run(['codesign', '--force', '--sign', '-', '--pagesize', '4096', destination])
+    if developer is not None:
+        run(['codesign', '--force', '--sign', '-', '--pagesize', '4096', destination])
+    native_init_signature(destination.read_bytes())
     (out / 'ui-compile-command.json').write_text(json.dumps(cmd, indent=2) + '\n')
     return destination
 
+
+def embed_ui_library(library):
+    """Regenerate the existing 0340 array and its hunk, preserving its callsites."""
+    patch = PROJECT / 'patches/xnu/0340-k60-uilib-deploy.patch'
+    source = patch.read_text()
+    begin = source.index('+static const unsigned char k60_uilib_blob[] = {\n')
+    end = source.index('+};\n', begin) + len('+};\n')
+    data = library.read_bytes()
+    native_init_signature(data)
+    rows = ['+static const unsigned char k60_uilib_blob[] = {']
+    rows.extend('+    ' + ','.join(f'0x{byte:02x}' for byte in data[i:i + 12]) + ','
+                for i in range(0, len(data), 12))
+    rows.append('+};')
+    source = source[:begin] + '\n'.join(rows) + '\n' + source[end:]
+    lines = source.splitlines()
+    hunk = next(i for i, line in enumerate(lines) if line.startswith('@@ -0,0 +1,'))
+    stop = next(i for i in range(hunk + 1, len(lines)) if lines[i].startswith('--- a/'))
+    lines[hunk] = f'@@ -0,0 +1,{sum(line.startswith("+") for line in lines[hunk + 1:stop])} @@'
+    patch.write_text('\n'.join(lines) + '\n')
+    return patch
+
+
+def ui(a):
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    library = compile_ui(out, a.developer, sdk=a.sdk, compiler=a.compiler, linker=a.linker)
+    patch = embed_ui_library(library)
+    dump(out / 'ui-library.json', dict(library=str(library), bytes=library.stat().st_size,
+         signature=native_init_signature(library.read_bytes()), patch=str(patch)))
+    print(f'{library} -> {patch}')
+
+
+
+def launchd_cache(a):
+    """Keep selected jobs' event-publisher contracts in the deployed cache."""
+    patch = PROJECT / 'patches/xnu/0394-k60-launchd-cache.patch'
+    source = patch.read_text()
+    marker = '+static const unsigned char k60_launchd_cache[K60_LAUNCHD_CACHE_LEN] = {\n'
+    begin = source.index(marker) + len(marker)
+    end = source.index('+};', begin)
+    data = bytes(int(byte, 16) for byte in re.findall(r'0x([0-9a-fA-F]{2})\b', source[begin:end]))
+    cache = plistlib.loads(data)
+    restored = []
+    for path, job in cache['LaunchDaemons'].items():
+        descriptor = plistlib.loads((a.jobs / Path(path).name).read_bytes())
+        if 'PublishesEvents' in descriptor:
+            job['PublishesEvents'] = descriptor['PublishesEvents']
+            restored.append(job['Label'])
+    data = plistlib.dumps(cache, fmt=plistlib.FMT_BINARY)
+    rows = [f'+/* Generated from the selected 20G81 cache ({len(cache["LaunchDaemons"])} jobs); preserve event publishers. */',
+            f'+#define K60_LAUNCHD_CACHE_LEN {len(data)}', marker.rstrip('\n')]
+    rows.extend('+    ' + ','.join(f'0x{byte:02x}' for byte in data[i:i + 12]) + ','
+                for i in range(0, len(data), 12))
+    rows.append('+};')
+    header = source.index('@@ -0,0 +1,', source.index('+++ b/bsd/kern/k60_launchd_cache.h'))
+    patch.write_text(source[:header] + f'@@ -0,0 +1,{len(rows)} @@\n' + '\n'.join(rows) + '\n')
+    a.out.mkdir(parents=True, exist_ok=True)
+    (a.out / 'launchd.plist').write_bytes(data)
+    dump(a.out / 'launchd-cache.json', dict(jobs=len(cache['LaunchDaemons']),
+         restored_event_publishers=restored, bytes=len(data), patch=str(patch)))
+    print(f'{patch}: restored event publishers {restored}')
 
 def helper(a):
     out = a.out.resolve(); out.mkdir(parents=True, exist_ok=True)
@@ -551,6 +625,16 @@ def main():
         s = sub.add_parser(name); s.add_argument('--out', type=Path, required=True)
     s = sub.add_parser('helper'); s.add_argument('--out', type=Path, required=True)
     s.add_argument('--developer', type=Path, required=True)
+    s = sub.add_parser('ui', help='compile the UI library and refresh its embedded 0340 blob')
+    s.add_argument('--out', type=Path, required=True)
+    sdk = s.add_mutually_exclusive_group(required=True)
+    sdk.add_argument('--developer', type=Path)
+    sdk.add_argument('--sdk', type=Path, help='real iOS SDK for a Linux clang/LLD build')
+    s.add_argument('--compiler', default='clang-18')
+    s.add_argument('--linker', default='ld64.lld-18')
+    s = sub.add_parser('launchd_cache', help='retain event publishers in the selected service cache')
+    s.add_argument('--jobs', type=Path, required=True, help='prepared 20G81 LaunchDaemons directory')
+    s.add_argument('--out', type=Path, required=True)
     a = p.parse_args()
     globals()[a.mode](a)
 

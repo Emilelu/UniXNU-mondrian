@@ -4,7 +4,7 @@
 >
 > 引用约定：`docs/...` 指官方 `E:/hackios/UniXNU/docs/...`；`K60:docs/...` 指设备仓 `E:/hackios/UniXNU-mondrian/docs/...`；`components.toml` 指 `E:/hackios/UniXNU/components.toml`；`README.md`/`board.toml`/`porting.toml`/`dts/` 指设备仓根目录。`build-gop-legacy-display*.py` 等脚本位于 `E:/hackios/UniXNU-sheng/scripts/` 或 `E:/hackios/UniXNU/scripts/`，行号按本次读取的本地快照。
 
-> 2026-11-08 LIVE 复核：本文件在本地快照（2026-10-29/11-07）基础上，按官网查询重抓「3. 适配驱动」16 项共 39 页；正文按 ①结论 → ②16 项覆盖率 → ③硬件映射/板级输入 → ④五个具体问题 → ⑤pong 对比 → ⑥未核实 排列，板级输入明细见附录 A、版本明细见附录 B、页面来源见附录 C。
+> 2026-11-08 LIVE 复核：本文件在本地快照（2026-10-29/11-07）基础上，按官网查询重抓「3. 适配驱动」16 项共 39 页；正文按 ①结论 → ②硬件映射 → ③板级输入 → ④版本表 → ⑤pong 对比 → ⑥未核实 重排，16 项覆盖核对与五问回答放在附录 B/C，页面来源见附录 A。
 
 ## ① 结论摘要
 
@@ -16,7 +16,7 @@
 
 ## ② 16 项官方文档覆盖率
 
-### 2.1 阅读口径
+### B.1 阅读口径
 
 - **已读**一列全部为 **是（LIVE 2026-11-08）**：16 项共 39 个页面由 `https://unixnu.com` 实时抓取后逐页通读；与本地 2026-11-04 存档相比，`porting/drivers.md` 等页面已有更新，本表以 LIVE 为准。
 - **对 K60 适用性**按“官方组件/官方 ABI 是否能直接用”评级，不评价 K60 是否值得做该功能：
@@ -24,7 +24,7 @@
   - **◐ 部分适用**：流程、架构、总线层可复用，但组件、板级常量或 OS ABI 必须重做/重对。
   - **✗ 不适用**：官方组件与 K60 硬件代际/OS 代际不匹配，只能当参考实现或流程模板。
 
-### 2.2 覆盖率表
+### B.2 覆盖率表
 
 | # | 项目 | 文件（官方路径） | 是否已读 | 关键结论 | 对 K60 / 20G81 适用性 |
 |---:|---|---|---|---|---|
@@ -45,7 +45,7 @@
 | 15 | 开发驱动 | `docs/drivers/overview.md`、`docs/drivers/xnu-drivers.md`、`docs/drivers/kexts.md`、`docs/drivers/device-tree-matching.md` | 是（LIVE） | 三层：UEFI driver / built-in XNU static archive / kext bundle。Built-in XNU 用 `IOService` + `KernelConfigTables.cpp` personality，编译必须复用 `.cpo.json` 的 flags，`-force_load` 链接；kext 需要 loader protocol revision 2，**shipped DarwinBoot 不接受 staged kexts**；DT matching 用 `IOClass/IOProviderClass/IONameMatch/IOProbeScore`。 | **✅ built-in 方法论适用**。K60 全部走 built-in（PongUfs/PongAdreno 均是）；`kexts.md` 的 bundle 路线对 K60 不适用（DarwinBoot22 不是 rev2 kext loader）。`device-tree-matching` 直接指导 PongUfs 的 `qcom,sm8475-ufshc` / `ufshc` 节点名修复。 |
 | 16 | 修改 XNU | `docs/xnu/boot-arguments.md`、`docs/xnu/four-k-page-tables.md`、`docs/xnu/patch-reference.md`、`docs/xnu/source-and-patches.md` | 是（LIVE） | boot-args 合并规则/1000 bytes/1024 buffer；4K 页用 BCM2837 机器配置与一组 4K 补丁；patch 顺序按 `patch_series` 声明；17.7.11 用 `xnu-10063.141.1`，**iOS 16 与 iPadOS 17 共享 arm64 patch series**，iOS/iPadOS 27 用 arm64e series。 | **◐ 规则适用，源码/补丁要按 20G81 重排**。K60 用 `xnu-8796.141.3` / Darwin 22.6，不是 `xnu-10063.141.1`；4K、boot-args、patch order 三条必须遵守。当前 581 字符安全，详见 `④d`。 |
 
-### 2.3 适用性统计
+### B.3 适用性统计
 
 | 评级 | 项数 | 项目 |
 |---|---:|---|
@@ -56,9 +56,9 @@
 
 ## ③ 硬件→组件映射大表
 
-### 3.1 主映射表
+### 2.1 主映射表
 
-| K60 硬件 | 官方组件/仓库 | 板级输入清单（完整字段见附录 A） | 与 pong 现方案的关系 |
+| K60 硬件 | 官方组件/仓库 | 板级输入清单（完整字段见 ③） | 与 pong 现方案的关系 |
 | --- | --- | --- | --- |
 | **CPU / 中断 / 内存** | `ArmDTPlatform`（platform expert）+ `ArmCpu`（CPU/GIC/timer）+ `ArmSmmu4K`（SMMUv2 4 KiB 表 kit）。仓库见 `docs/drivers/repositories.md:28-31`；页面 `docs/drivers/arm-dt-platform.md:5-17`、`docs/drivers/arm-cpu.md:5-17`、`docs/drivers/arm-smmu4k.md:3-19`；流程 `docs/porting/platform.md:18-20,24-26,71-74` | MPIDR/启动 CPU/启用核数、PSCI 方法、GIC revision/ distributor+redistributor 范围与 stride、timer 频率与中断 specifier（`docs/porting/platform.md:24-26`）；每个 CPU 节点 `unixnu,cluster-type="E"/"P"`（`:49-50`）；DRAM/secure carveout/framebuffer/DSP/GPU 固件/payload/kernel 的连续 handoff 范围与 `owned_memory_size`（`:66-69`）；每设备 DMA 地址宽度、物理→IOVA、SMMU instance/stream/context、cache 策略（`:71-74`）；ADT 必备 `/cpus`、`/psci`、`/arm-io`、`/chosen`、`/defaults`、`/options`（`docs/porting/device-tree.md:141-151`） | K60 当前 `drivers/ArmCpu`、`drivers/ArmDTPlatform` 与 pong ios16 字节一致（`K60:docs/audits/PONG16-DIFF-AUDIT.md:198-211`）；官方同名组件是上游版本，但 K60 的 Darwin22 first-boot 路径仍依赖 pong 修改（0247 等）。短期保留 pong CPU/平台代码，只把 DTS/ADT 契约对齐官方；`ArmSmmu4K` 可独立作为 kit 复用。 |
 | **UFS** | `ShengUfs`（SM8550 UFS transport/root；`docs/drivers/repositories.md:13`、`docs/drivers/sheng-ufs.md:3-20`）。K60 现有 `PongUfs` 是设备组件（`components.toml:551-560`） | Controller compatible/revision/MMIO/capabilities/IRQ；PHY 范围/lane/参考时钟/tuning；clocks provider/ID/rate/parent/branch/interconnect；reset/power；SMMU instance/stream ID/mask/context bank/地址宽度；DMA 分配/IOVA/对齐/coherency/cache；HCE/HCS/link state/request-list 交接；LUN/块大小/容量/GPT/root 窗口/Data/log 保留；storage ABI/prelink/匹配（`docs/porting/ufs.md:37-47`）；`[userdata] first_lba/last_lba/lba_bytes`、`[payload.adt] root_match_volume_uuid`、`CONFIG_XNU_NATIVE_UFS=y`、`native-ufs-root=1`（`:94-118`） | K60 的 `PongUfs` 来自 pong `NativeUfs`，`dts/mondrian.dts:39-53` 已给出 `pong,ufs-*`/`pong,smmu-*` 全部常量（host `0x1d84000/0x3000`、GCC `0x187000`、SMMU `0x15000000/0x100000`、stream `0xe0`、SPI 265、context banks 78、match groups 120）。官方 `ShengUfs` 只覆盖 SM8550，不能直接替换；保留 PongUfs，后续可把 SM8475 常量做成 ShengUfs 的 SoC 后端。 |
@@ -73,7 +73,7 @@
 | **USB** | `QcomDwc3`（AppleUSBXDCI/AppleUSBXHCI on Qualcomm DWC3；`docs/drivers/qcom-dwc3.md:3-49`、`docs/porting/usb.md:14-118`、`docs/drivers/repositories.md:27`） | DWC3 base 与 Apple register window（base + `0xc000`）、GIC INTID、SMMU stream、eUSB2 参考时钟 38.4 MHz、eUSB2 PHY/PMIC repeater/QMP combo PHY/retimer/GDSC/RPMh rails（`docs/porting/usb.md:25-33`）；bringUp 9 阶段（`:44-57`）；stage 1 identity context write-back inner-shareable（`:59-60`）；AppleUSBXDCI/AppleUSBXHCI kext 加载顺序与 prelink roots（`:66-80`）；UCSI `qcom_dwc3_vbus`/`qcom_ucsi_start/receive/tick/polling`（`:90-105`）；pairing 的 `chip-id`/`board-id`/`security-domain`、`native-union-statfs-fsid`、lock state 3（`:108-118`） | 官方 `QcomDwc3` 只标 iPadOS 27.0.1（24A446）（`docs/drivers/qcom-dwc3.md:9`、`components.toml:523`），ABI JSON 也全部是 24A446（`docs/porting/usb.md:78-80`）。K60 DWC3 core 同在 `0xa600000`（+QSCRATCH `0xa6f8800`），但 eUSB2 PHY 是 `0x88e3000`、SMMU stream 实测为 `0x0`（`K60:docs/reference/USB-LOG-CHANNEL.md:150-152`、`K60:docs/reference/ISSUES.md:195`）。pong ios16 没有 USB 栈；K60 目前是自定义 DWC3/usblog 探针，不能直接换 QcomDwc3。 |
 | **OS 支撑（钥匙串/加密/预链接/加载器/块）** | `AppleKeyStoreState`、`SoftwareAES`、`XnuPrelink`、`DarwinBoot`、`RamBlock`、`VerifiedRoot`（`docs/drivers/repositories.md:15,19-20,24,36-37`；`docs/reference/components.md:42-44`） | 钥匙串：`native_aks_device_id`、`sheng-aks-sls=3`、selectors/state callback（`docs/drivers/apple-key-store-state.md:9-13`）；加密：XNU AES/IOCryptoAcceleratorFamily ABI（`docs/porting/platform.md:87`）；prelink：kernelcache pin/roots/slide/ABI（`docs/drivers/xnu-prelink.md:9-14`）；loader：arm64/arm64e `MH_EXECUTE`、ADT/trust cache/ramdisk（`docs/drivers/darwin-boot.md:5-17`）；RamBlock：`native_ufs_store` 持久化回调（`docs/drivers/ram-block.md:5-9`）；VerifiedRoot：signed volume policy（`docs/porting/platform.md:86`） | K60 当前使用 `DarwinBoot22`、`kits/NativePrelink`、`NativeRamBlock`（pong 分叉），不是官方 `DarwinBoot`/`XnuPrelink`/`RamBlock`。16.6.1 ABI 未审计，建议保留现有；`AppleKeyStoreState`/`SoftwareAES` 可作为后续官方化候选，但 K60 现在有自己的 miniamfi/keybag 补丁路径（`K60:docs/state/SESSION-DIRECTIVES-2026-11-07.md:5-13`）。 |
 
-### 3.2 官方组件资产、submodule pin 与 build integration
+### 2.2 官方组件资产、submodule pin 与 build integration
 
 **Submodule 归属说明：** 框架仓 `UniXNU/.gitmodules` 只包含下表的“框架 submodule”组；`ShengUfs`、`ShengHidInput`、`ShengNovatekTouch`、`QcaBluetooth`、`QcomDwc3`、`Ath12kWifi`、`ShengPreflight` 是设备仓 `UniXNU-sheng/.gitmodules` 的 submodule；`Sm8550Platform` 是 `UniXNU-sm8550-common` 的 kit 目录，不是 submodule。
 
@@ -108,7 +108,7 @@
 
 > **Pin 冲突警告：** 上表“框架/设备仓 gitlink pin”是 `.gitmodules` 的 `git ls-tree` 实值；“`components.toml` revision”是目录登记值。两者在 `ArmCpu`、`Adreno740`、`AdrenoMetal`、`GopFramebuffer`、`AppleKeyStoreState`、`RamBlock`、`DarwinBoot`、`ArmSmmu4K`、`XnuPrelink`、`VerifiedRoot`、`ShengUfs`、`VirtioMmioBlock` 等 12 个组件上不一致；发布前必须确认以哪个为准（见 ⑥）。
 
-### 3.3 不在 component catalog 的官方参考实现
+### 2.3 不在 component catalog 的官方参考实现
 
 | 功能 | 官方参考文件/仓库 | 文档依据 | 说明 |
 | --- | --- | --- | --- |
@@ -132,7 +132,7 @@
 
 ## ④ 五个 K60 具体问题的回答
 
-### ④a K60 Goodix 触摸：官方哪些总线层可复用、哪些协议层必须新写
+### C.a K60 Goodix 触摸：官方哪些总线层可复用、哪些协议层必须新写
 
 **结论：总线和 HID 层可复用，协议和传感器层必须新写；Novatek 的 40×60 处理核心完全不能用于 Goodix。**
 
@@ -148,7 +148,7 @@
 
 **关键边界：**`porting/input.md` 第 22 行明确写“For a different sensor, implement its identification, firmware and report protocol. For a different bus controller, implement the transfer/delay callbacks used by `nvt_bus` when reusing the Novatek protocol.” 这句话反过来就是 K60 的答案：**传感器不同 → 协议全写；总线相同（GENI SPI）→ 只换板级回调**。
 
-### ④b 音频功放：AudioProbe/AdspProbe 是否覆盖 AW882xx，还是只覆盖 TFA9873
+### C.b 音频功放：AudioProbe/AdspProbe 是否覆盖 AW882xx，还是只覆盖 TFA9873
 
 **结论：两者都不覆盖 AW882xx；官方 `power.md` 的 AudioProbe 实际覆盖的是 sheng 的 WCD938x + 6×CS35L43，TFA9873 根本不是官方 16 项文档里的器件。**
 
@@ -163,7 +163,7 @@
 
 **因此 b) 的准确回答是：**`AudioProbe` 不是 AW882xx 驱动，也不是 TFA9873 驱动；它只是“ADSP AudioReach + WCD938x + CS35L43”的 sheng 示例。K60 要做的是 **保留 AdspProbe/AudioReach 的传输与图框架，新增 AW882xx 功放驱动（I2C 0x34/0x35）和 K60 TDM 1.536 MHz/双数据线配置**；TFA9873 只能作为 pong 参考，不能当 K60 硬件事实。
 
-### ④c platform.md 对内存窗口/DarwinBoot 的约束，是否支持多区间 arena
+### C.c platform.md 对内存窗口/DarwinBoot 的约束，是否支持多区间 arena
 
 **结论：官方 `porting/platform.md` 只支持“单一连续 handoff RAM range”，不支持多区间 arena；8 GiB 单窗口可以做，9.97 GiB 多区间不在官方 16 项文档的模型内。**
 
@@ -177,7 +177,7 @@
 
 **建议取舍：**先把 8 GiB 单窗口跑通（这是官方 contiguous 模型内、也是 DarwinBoot 硬顶），把 9.97 GiB 多区间列为独立的内核项目；不要为了“12 GiB 装机”把 12 GiB 写进 `owned_memory_size`（解析器和 `AllocateWindow()` 都会拒绝）。
 
-### ④d boot-args 长度上限、4K 页表要求、patch 顺序要求
+### C.d boot-args 长度上限、4K 页表要求、patch 顺序要求
 
 | 约束 | 官方规定 | K60 当前状态 / 结论 |
 |---|---|---|
@@ -187,7 +187,7 @@
 | patch 顺序 | `docs/xnu/patch-reference.md`：format 2 按 `[kernel] patch_series` **声明顺序**应用；依赖补丁排在被依赖之后；碰 `zzy`/`zzz` 区域的补丁排在它们之前；`unixnu status --json` 打印 resolved sequence。format 1 按 `patches/xnu/*.patch` / `kits/XnuPrelink/patches/*.patch` 文件名字典序。 | K60 当前是 format 2 `patch_series = ["device:patches/xnu/series"]`（129 条），`status --json` 应报告 129 条有序补丁；不要用 pong 的 glob 字母序直接套（会先跑 0210 而目标文件还没被 UI foundation 创建）。新增 K60 补丁必须插在 `zzy`/`zzz` 之前。 |
 | 源码 pin | `docs/xnu/source-and-patches.md`：17.7.11 用 `xnu-10063.141.1`，iOS 16 与 iPadOS 17 共享 arm64 patch series；27 用 arm64e series。 | K60 是 `xnu-8796.141.3`/Darwin22.6；不要拿 10063 的补丁直接套。`profiles/os/ipados-16.6.1-20G81/profile.toml` 已 pin `1b191cb58250d0705d8a51287127505aa4bc0789`。 |
 
-### ④e 每一项对 iOS 16.6.1/20G81 的适用性汇总
+### C.e 每一项对 iOS 16.6.1/20G81 的适用性汇总
 
 | 项 | 20G81 适用性 | 理由（简） |
 |---:|---|---|
@@ -208,7 +208,7 @@
 | 15 开发驱动 | ✅ | built-in XNU 方法完全适用；kext bundle 路线不适用 shipped DarwinBoot。 |
 | 16 修改 XNU | ◐ | boot-args/4K/patch order 规则适用；源码 pin/补丁集按 20G81 重排。 |
 
-> 逐组件版本明细见附录 B；该表保留官方 catalog 的 `os_abi` 与文档正文的对照，是 ④e 的证据底稿。
+> 逐组件版本明细见 `C.e-1`；该表保留官方 catalog 的 `os_abi` 与文档正文的对照，是 C.e 的证据底稿。
 
 ## ⑤ 与 pong 方案的差异与取舍
 

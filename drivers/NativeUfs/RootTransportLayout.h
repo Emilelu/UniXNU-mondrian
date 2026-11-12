@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
-// DMA layout. Up to kSlots commands run concurrently, each in its own command slot: a request list entry, a command
+// DMA layout. Up to kSlots commands can run concurrently, each in its own command slot: a request list entry, a command
 // descriptor and a data area (RootCommands.h keeps the geometry of each slot in a table).
 //
-// STAGE S3: the full 32 slots. Three regions:
-//   * region A (cached, allocated first): slots 0..kRegionSlots-1;
-//   * a write-combined 4 KiB request-list page: all 32 entries, slot s on entry s. The stream is not cache coherent
-//     and an entry is 32 bytes, so two entries share a 64-byte line. A cached list would need entry 2s so that cleaning
-//     one entry cannot write a stale copy over the controller's completion of another, which caps a cached list at 16
-//     entries. A write-combined (uncached) page needs no cache maintenance at all, so every entry serves;
-//   * region B (cached): slots kRegionSlots..kSlots-1, descriptors first then data.
-// If the list page or region B cannot be allocated, S3 degrades to region A only, which still gives 16 slots through
-// entries 2s (the S2 shape), and then to a single slot.
+// STAGE S1 (this file): geometry only. The constants and the slot offset helpers are introduced so S2/S3 can size their
+// allocations from them, but kDmaBytes deliberately stays kDmaBytesOneSlot and no caller enumerates slots yet, so the
+// driver still runs exactly one command at a time. Nothing outside this header changes in S1.
+//
+// Region A (one contiguous, cached allocation) holds slots 0..kRegionSlots-1: slot 0 keeps the original layout (its
+// descriptor at kUcdOffset, data at kDataOffset), the others follow. Offset 0 of region A holds the request list
+// (UTRLBA) unless the list has a page of its own. The stream is not cache coherent and request list entries are
+// 32 bytes, so two entries share a 64-byte line: with the list in region A, slot s uses entry 2s (the CPU's clean of
+// one entry must not write a stale copy over the controller's completion of another). A list page mapped
+// write-combined (not cached, as Linux's coherent DMA memory on this stream) lets slot s use entry s, so all 32
+// entries serve; region B then holds slots kRegionSlots..kSlots-1 with descriptors first and data after.
 enum : uint32_t {
   kUcdOffset = 4096,
   kRspOffset = 512,
@@ -28,21 +30,15 @@ enum : uint32_t {
   kDmaBytesEightSlots = kExtraDataOffset + 7 * kDataMax,
   kRegionBDataOffset = kRegionSlots * kUcdStride,
   kRegionBBytes = kRegionBDataOffset + kRegionSlots * kDataMax,
-  // S3 target and capabilities.
-  kSlotTarget = 32,
-  kUseOwnListPage = 1,
-  kUseCompletionInterrupt = 1,
-  // Region A is what this stage asks for first; the request-list page and region B are separate allocations.
-  kDmaBytes = kDmaBytesRegionA,
+  // S1 runs one slot, so the allocation stays the original single-slot size.
+  kDmaBytes = kDmaBytesOneSlot,
 };
 // Region A offsets of slot s < kRegionSlots.
 static constexpr uint32_t ufsSlotUcdOffset (unsigned slot) { return slot ? kExtraUcdOffset + (slot - 1) * kUcdStride : kUcdOffset; }
 static constexpr uint32_t ufsSlotDataOffset (unsigned slot) { return slot ? kExtraDataOffset + (slot - 1) * kDataMax : kDataOffset; }
-// The request list entry of slot s when the list lives in region A (cached, entry 2s) and on its own write-combined
-// page (uncached, entry s).
+// The request list entry of slot s with the list in region A.
 static constexpr uint32_t ufsSlotEntry (unsigned slot) { return 2 * slot; }
 static constexpr uint32_t ufsSlotUtrdOffset (unsigned slot) { return 32 * ufsSlotEntry (slot); }
 static_assert (ufsSlotUcdOffset (kRegionSlots - 1) + kPrdtOffset + 16 <= kExtraDataOffset, "slot descriptors overlap data");
 static_assert (ufsSlotUtrdOffset (kRegionSlots - 1) + 32 <= kUcdOffset, "request list overlaps slot 0's descriptor");
 static_assert (kDmaBytesEightSlots <= kDmaBytesRegionA, "eight-slot region must fit inside the sixteen-slot region");
-static_assert (32 * kSlots <= 4096, "request list page must hold one entry per slot");

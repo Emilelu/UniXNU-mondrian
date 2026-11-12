@@ -623,7 +623,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	IOLockLock(fHelperLock);
  	while (fHelpersBusy != 0) {
  		IOLockSleep(fHelperLock, &fHelpersBusy, THREAD_UNINT);
-@@ -807,10 +885,38 @@
+@@ -807,10 +885,49 @@
  }
  
  /* SwapEnd: the swap is handed to the thread that puts frames on the panel, as soon as that has no other waiting. */
@@ -639,6 +639,17 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
 +	IOReturn error = kIOReturnSuccess;
 +	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
 +		uint32_t bit = 1u << layer, sid = swapWord(swap, SWAP_SURFACE(layer));
++		/* A declared layer with no surface is skipped silently below; report the
++		 * raw delta once per layer so a missing wallpaper surface is visible. */
++		if (layer && (set | cleared) & bit) {
++			static uint32_t reported;
++			if (!(reported & bit)) {
++				reported |= bit;
++				IOLog("MiniIOMobileFramebuffer: swap %u layer %u set=%u cleared=%u surface=%u enabled=%u\n",
++				    swapWord(swap, SWAP_ID), layer, !!(set & bit), !!(cleared & bit), sid,
++				    swapWord(swap, SWAP_ENABLED(layer)));
++			}
++		}
 +		if (!(changed & bit) || (cleared & bit) || !sid || !swapWord(swap, SWAP_ENABLED(layer))) {
 +			continue;
 +		}

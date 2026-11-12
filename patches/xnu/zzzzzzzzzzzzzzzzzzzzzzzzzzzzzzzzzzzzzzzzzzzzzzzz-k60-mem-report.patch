@@ -1,6 +1,6 @@
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
-@@ -51,6 +51,12 @@
+@@ -51,6 +51,19 @@
  
  #include <san/kasan.h>
  
@@ -8,12 +8,19 @@
 +volatile unsigned long long k60_dbg_mem_mib = 0;
 +volatile unsigned long long k60_dbg_actual_mib = 0;
 +volatile unsigned long long k60_dbg_phys_mib = 0;
++/* The panel line is printed before the serial console exists, so the boot that
++ * measures it never shows it. Publish the verdict here and let the frame-stats
++ * line below repeat it. 1 means the ABL display controller keeps scanning pages
++ * the VM is about to hand out, which is the hard stop for GPU scanout. */
++volatile unsigned long long k60_dbg_fb_base = 0;
++volatile unsigned long long k60_dbg_fb_end = 0;
++volatile int k60_dbg_fb_inside = -1;
 +#endif
 +
  #if __ARM_KERNEL_PROTECT__
  /*
   * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
-@@ -1882,6 +1888,14 @@
+@@ -1882,6 +1900,18 @@
  		uint64_t k60_fb_end = k60_fb + k60_fb_bytes;
  		int      k60_cap = 0;
  
@@ -25,12 +32,17 @@
 +		k60_dbg_mem_mib = args->memSize >> 20;
 +		k60_dbg_actual_mib = mem_actual >> 20;
 +		k60_dbg_phys_mib = mem_size >> 20;
++		k60_dbg_fb_base = k60_fb;
++		k60_dbg_fb_end = k60_fb_end;
++		k60_dbg_fb_inside = (k60_fb != 0 && k60_fb >= (uint64_t) gPhysBase &&
++		    k60_fb_end <= (uint64_t) gPhysBase + (uint64_t) mem_size) ? 1 : 0;
  		printf("K60 MEM: memSize %llu MiB, memSizeActual %llu MiB (%s), physBase 0x%llx physSize 0x%llx\n",
  		    (unsigned long long) (args->memSize >> 20),
  		    (unsigned long long) (mem_actual >> 20),
+
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-@@ -1039,7 +1039,22 @@
+@@ -1039,7 +1039,29 @@
  			if (k60_exec_count != k60_seen_exec || k60_exit_count != k60_seen_exit) {
  				k60_seen_exec = k60_exec_count;
  				k60_seen_exit = k60_exit_count;
@@ -44,12 +56,19 @@
 +					extern volatile unsigned long long k60_dbg_mem_mib;
 +					extern volatile unsigned long long k60_dbg_actual_mib;
 +					extern volatile unsigned long long k60_dbg_phys_mib;
++					extern volatile unsigned long long k60_dbg_fb_base;
++					extern volatile unsigned long long k60_dbg_fb_end;
++					extern volatile int k60_dbg_fb_inside;
 +					extern unsigned int vm_page_free_count;
 +					extern unsigned int vm_page_speculative_count;
 +					IOLog("K60 ex=%u kx=%u abn=%u | mem=%llu actual=%llu managed=%llu free_pages=%u spec=%u\n",
 +					    k60_exec_count, k60_exit_count, k60_abnormal_count,
 +					    k60_dbg_mem_mib, k60_dbg_actual_mib, k60_dbg_phys_mib,
 +					    vm_page_free_count, vm_page_speculative_count);
++					IOLog("K60FB base=0x%llx end=0x%llx -> %s managed range\n",
++					    k60_dbg_fb_base, k60_dbg_fb_end,
++					    k60_dbg_fb_inside < 0 ? "unmeasured" :
++					    (k60_dbg_fb_inside ? "INSIDE" : "outside"));
 +				}
  				IOLog("K60 last exec: %d '%s' %s\n", k60_last_exec_pid, k60_last_exec_comm,
  				    k60_last_exec_path);

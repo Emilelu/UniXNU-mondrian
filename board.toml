@@ -37,12 +37,8 @@ driver_records = "DEVELOPMENT_ARM64_PONG"
 # checkout instead of the assembled build tree, which has no drivers/PongAdreno.
 # Set the environment variable only to build against a different driver tree;
 # see scripts/k60-macos-preflight.sh:13-14 for the macOS CI form.
-# pong_native_driver_source IS read, by the unixnu framework rather than by
-# this repository: scripts/unixnu/kernel.py:191 assigns it to the
-# PONG_NATIVE_DRIVER_SOURCE environment variable. Dropping the key leaves that
-# variable empty, build-xnu-4k-baseline.sh:250 then skips the ArmDT provider,
-# and line 986 fails with 'test -f "$ARM_DT_ARCHIVE" failed'. 2026-11-12.
-pong_native_driver_source = "/tmp/k60build/pong-driver"
+# pong_native_driver_source was this path before the fallback existed:
+# "/opt/k60/trees/pong-driver" (not in this repository, no reader, remove it).
 
 [userdata]
 first_lba = 53342976
@@ -59,13 +55,13 @@ config = "mondrian"
 dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
 fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
 patches = [
-  # Mu_Basecore 6f805f2 already carries all six K60 fixes (3d2a9fa, "local patches for k60
-  # firmware build", is an ancestor). yibiya's build_uefi.py removes them for the same reason.
-  # Applying Boot-Manager.patch a second time is what this board did until 2026-11-12.
+  "Resources/MuPatches/AsmMacroLib.patch",
+  "Resources/MuPatches/Boot-Manager.patch"
 ]
 packages = [
   "{uefi}",
   "{tree}/package",
+  "{tree}/drivers/DarwinBoot22",
   "{edk2}",
   "{uefi}/Platforms/Xiaomi",
   "{uefi}/Common/Mu",
@@ -163,29 +159,41 @@ dram_size = "0x140000000"
 #   k60_panic_reset=1           automatic fastboot after a panic, so a failed
 #                               experiment does not need a power cycle.
 #   k60_console_export=1        exports the console to /chosen for the host.
-#   k60_selftest_reboot=300     self-reset watchdog: 150 hearts of 2 s, then
-#                               back to fastboot (pitfall 133).
+#   k60_selftest_reboot=0       off. 300 was a bring-up watchdog: 150 hearts of
+#                               2 s, then back to fastboot (pitfall 133). It is
+#                               what pulled the board out of a *healthy* iOS at
+#                               13:18 on 2026-11-10, four minutes after the boot
+#                               that first reached SpringBoard without crashing.
+#   k60_autoreset=0             off. The kernel default is 300 s from bsd_init,
+#                               independent of the boot args, so leaving it
+#                               unset resets the board mid-session anyway.
 #   amfi_get_out_of_my_way=1, launchd_unsecure_cache=1, xpcproxy_idversion=1,
 #   k60_entitlement_allow=1, k60_skip_iosurface=1: the userland gates that let
 #   launchd and SpringBoard start without a real AMFI/SEP.
-#   pong_metal=2, k60_autoreset=300, applog=1 and the absence of fb_threads /
-#   k60_textonly are not cosmetic: the 2026-11-11 image that boots into
-#   SpringBoard passes exactly this set, and the 2026-11-12 builds that replace
-#   pong_metal=2 with 1 lose SpringBoard to a code-signing page storm
-#   (cs_invalid_page 11x, 27 corpses) while the same kernel with these arguments
-#   still reaches userland. k60_touch_se is absent on purpose: the driver
-#   rejects 19 and stops polling, and stage 6 cannot reach the panel anyway
-#   until the qup4 GPIO SPI pin roles exist in the ADT.
 kernel_args = [
   "-v", "native-ufs=1", "pong_allow_unauthenticated_root=1", "debug=0x140",
   "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1",
-  "pong_ufs_readwrite=1", "k60_console_export=1", "k60_usblog=2", "pong_data_mount=1",
-  "pong_data_rw=1", "amfi_get_out_of_my_way=1",
-  "pong_init_path=/private/var/pong/init", "epoch=1793709100", "k60_fontscale=3",
-  "k60_skip_firmware_mount=1", "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
-  "xpcproxy_idversion=1", "k60_init_blob=1", "k60_launchd_cache=1", "k60_entitlement_allow=1",
-  "k60_skip_iosurface=1", "k60_panic_reset=1", "pong_adreno_start=1",
-  "pong_metal=2", "k60_autoreset=300", "applog=1",
+  "pong_ufs_readwrite=1", "k60_console_export=1", "k60_usblog=2",
+  "pong_data_mount=1", "pong_data_rw=1", "fb_threads=3", "k60_textonly=1",
+  "amfi_get_out_of_my_way=1", "pong_init_path=/private/var/pong/init",
+  "epoch=1793709100", "k60_fontscale=3", "k60_skip_firmware_mount=1",
+  "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
+  "xpcproxy_idversion=1",
+  "k60_entitlement_allow=1", "k60_skip_iosurface=1", "k60_panic_reset=1",
+  "k60_init_blob=1", "k60_launchd_cache=1",
+  "k60_autoreset=0",
+  # Touch stage 6 publishes /dev/pong-touch only after the chip answered the
+  # boot-option handshake and accepted the config package. The applog pair was
+  # dropped to stay inside the 608-byte arm64 boot-args limit; SpringBoard's own
+  # os_log output is unaffected.
+  "k60_touch_se=6",
+  # Adreno stage A (docs/plans/GPU-ENABLE-PLAN.md 4.4): start the GPU and report
+  # every stage, but do not hand the framebuffer over yet. pong_gpu_scanout and
+  # pong_gpu_only stay unset until the K60FB line below proves the boot
+  # framebuffer is outside the VM's managed range; a GPU DMA into pages the VM
+  # also hands out corrupts page tables rather than merely failing to present.
+  # The whole list is 594 of the 608 bytes arm64 boot-args allow.
+  "pong_adreno_start=1",
 ]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
@@ -225,6 +233,40 @@ trust_cache_sha256 = []
 # pending. devicetree.py emits darwinboot-memory-size from this key.
 "owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)
 
+# K60 has only side/volume keys. This is the native MobileGestalt/BSPlatform
+# contract, not a synthetic Home key or a lock-screen text override:
+# core/docs/guide/mobilegestalt.md:26-44 defines native HomeButtonType=2.
+# Verify the actual 20G81 consumer through the runtime homeButtonType log.
+# The format2 generator emits /buttons from this typed table. Real digitizer
+# events remain responsible for the bottom-edge swipe and normal authentication.
+[adt.buttons.string]
+compatible = "buttons"
+device_type = "buttons"
+
+[adt.buttons.strings]
+button-names = ["hold", "voldown", "volup"]
+
+[adt.buttons.u32]
+home-button-type = 2
+
+# PMIC key arbiter. bsd/dev/pong_buttons.c looks up exactly
+# /arm-io/pong-buttons and rejects any value that differs from these
+# constants (its configuration()), so they are not tunable: SM8475 SPMI
+# arbiter core/cnfg/observer windows on the APSS EE, and the PM8350C PON
+# PON1 (0x013) / GPIO6 (0x18d) peripherals.
+[adt.arm-io.pong-buttons.string]
+compatible = "pong,pm8350-keys"
+
+[adt.arm-io.pong-buttons.u64]
+core-base = "0xc400000"
+cnfg-base = "0xc42d000"
+observer-base = "0xc440000"
+
+[adt.arm-io.pong-buttons.u32]
+ee = 0
+pon-ppid = 19
+volume-up-ppid = 397
+
 # K60 live FDT: xiaomi_touch@0 on QUP0 SE4. These absolute resources are
 # metadata for the board-started driver, not an incomplete interrupt mapping.
 [adt.arm-io.pong-touch.string]
@@ -243,3 +285,10 @@ max-y = 32000
 
 [adt.arm-io.pong-touch.bytes]
 pins = "100000001100000012000000130000001500000014000000"
+# MISO, MOSI, CLK, CS. The FDT only says these four pads belong to qup4, not
+# which role each has (P-70). A 24-permutation hardware scan found exactly two
+# tuples that read ff ff ff ff instead of 00 00 00 00, which proves MISO is
+# GPIO 17: PERM7 (17,16,19,18) and PERM8 (17,18,16,19). The driver additionally
+# requires bitbang_pins[3] == 19, so only this tuple is admissible. The chip's
+# own 8 x 0xAA boot-option write/read-back then confirms or refutes it.
+bitbang-pins = "11000000120000001000000013000000"

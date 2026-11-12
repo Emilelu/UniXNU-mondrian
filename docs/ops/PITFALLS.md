@@ -1138,6 +1138,17 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 - **检查**：下一版必须实际显示素材；`existing-content=-1`、文件缺失或 ABI 不符都明确报未实现前提，不伪造成功。COM8 已实测收到 13300 字节并返回 help；这是 CDC 诊断通道，不是 LLDB/Apple usbmux。
 - **cand18 实证**：`console-20261112-115737.log` 78716B，真实 `K60UI` 日志显示 `locked=1 homeButtonType=2`、`existing-content=1`，因此原生设置未提交。`k60_wallpaper_reset=1` 仅供本次恢复镜像显式重新选择真实 stock；默认不替换已有内容。新日志列出 lock/home 配置属性与对象类，既不把已有配置当作像素证明，也不把 callback 返回当成功。
 
+### P-76 **K60 音量键不在 PON 状态位：音量上是 PM8350 GPIO6，音量下是 resin**
+
+- **症状**：cand20 电源键可用（`locked` 状态随层切换），但音量上和音量下完全无反应。
+- **根因**：`pong_buttons.c` 把音量上/下都当成 PON 外设状态字节的 0x40 位。Android 权威绑定并非如此：
+  - 音量上：`gpio_keys/vol_up.gpios = <0x57b 6 1>`，`0x57b` 是 **pm8350@1 的 pinctrl phandle**，即 PM8350 的 SPMI GPIO6，active-low（`linux,code=0x73` = KEY_VOLUMEUP）。
+  - 音量下：`pon_hlos@1300/resin`，`linux,code=0x72`，中断号 `0x13`（19）、类型 3。
+  - 电源：PON pwrkey（`linux,code=0x74`，中断 `20054423`/`20382103`），与现有 0x80 位一致。
+- **正确做法**：PON 状态只提供电源键；音量键必须走各自的 PM8350 SPMI GPIO / resin 通道。在实现前不得用 PON 位伪造，否则会发布假按键。
+- **证据**：`adb shell cat /proc/interrupts` 显示 `spmi-gpio 5 Edge volume_up`、`pmic_arb 20316567 Edge pmic_resin`、`pmic_arb 20382103 Edge pmic_pwrkey`；`/sys/firmware/devicetree/base/soc/gpio_keys/vol_up/gpios` = `0000057b 00000006 00000001`；六个 SPMI 控制器 phandle 实测为 pm8350@1=`0x57b`、pm8350c@2=`0x57c`、pm8350b@3=`0x5aa`。
+- **30 秒判定**：音量键只按电源键正常 → 先看 `Pong keys` 状态行里 up/down 是否为 1；若为 1 却无事件，是通道选错（本条），不是 HID 问题。
+
 ## 台账维护规则
 
 1. 新坑确认后**当场追加**（与 ISSUES 同步，不等收尾）。

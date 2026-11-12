@@ -1,0 +1,30 @@
+############ 1) 仓库里的触摸相关文件 ############
+
+############ 2) 触摸调研文档 ############
+/mnt/e/hackios/UniXNU-mondrian/docs/archive/ZCODE-RESEARCH-TASK.md:111:### 题目 4：Goodix 触摸 + 无 RSC 的 GENI-SPI
+/mnt/e/hackios/UniXNU-mondrian/docs/archive/ZCODE-RESEARCH-TASK.md:113:硬件：Goodix（Berlin 或 GT9xx），GENI-SPI SE4 @ `0x990000`，GPIO16-19(SPI) / 20(reset) / 21(IRQ) / 71(AVDD)，坐标 14400×32000。
+/mnt/e/hackios/UniXNU-mondrian/docs/audits/PONG-FEASIBILITY.md:31:- `PongPlatform24` 组件（`migration/format2/components.toml`）：**A730、QCA6490、TFA9873、Goodix Berlin-D** —— K60 全部同款或同族。
+/mnt/e/hackios/UniXNU-mondrian/docs/audits/PONG16-DIFF-AUDIT.md:59:| `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch` | bsd/conf/files, bsd/dev/pong_goodix.c, bsd/dev/pong_input.c 等 6 个 | 设备专属 | Goodix 触摸/物理按键驱动 |
+/mnt/e/hackios/UniXNU-mondrian/docs/audits/PONG16-DIFF-AUDIT.md:60:| `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch` | bsd/conf/files, bsd/dev/pong_buttons.c, bsd/dev/pong_input.c 等 5 个 | 设备专属 | Goodix 触摸/物理按键驱动 |
+/mnt/e/hackios/UniXNU-mondrian/docs/audits/PONG16-DIFF-AUDIT.md:61:| `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-goodix-resume.patch` | bsd/dev/pong_goodix.c | 设备专属 | Goodix 触摸/物理按键驱动 |
+/mnt/e/hackios/UniXNU-mondrian/docs/INDEX.md:49:| plans/K60-TOUCH-PARAMS.md | K60 Goodix / GENI-SPI 触摸参数表：live merged FDT 解析、9 个 DT 属性、置信度与复核方法 | 当前 | — |
+/mnt/e/hackios/UniXNU-mondrian/docs/plans/DOCS-DEVICES-A-M.md:7:> K60 基准：Redmi K60 / mondrian / SM8475，Adreno 730、QCA6490（WCN6855 同族）、Goodix（`xiaomi,m11a-spi`，GENI SPI `0x990000` CS0 15 MHz，IRQ GPIO21，reset GPIO20）、2×AW882xx smartpa。K60 具体地址/GPIO 以设备仓与既有计划为准，本文只标注“页面原文数值”。
+/mnt/e/hackios/UniXNU-mondrian/docs/plans/DOCS-DEVICES-A-M.md:14:4. **对 K60 最有价值的不是同 SoC 页，而是三组“同组件/同拓扑”页：** `marble-milacy.md`（SM7475，4×A510+3×A710+1×X2 同拓扑，UFS 0x1d84000/PHY 0x1d80000/SMMU 0x15000000/stream 0xE0，Goodix GT9916S 的 SPI/CS/15 MHz/IRQ GPIO21/reset GPIO20/GCC 0x100000 与 K60 已解析值一致，GPI `0x900000` 与 clock IDs 94/134/135 待上机复核）、`fuxi-oddlylabs.md`（完整 GENI SPI 触摸 + RPMh + HID 工程模板）、`asteroids.md`（双 TFA9873 完整音频链路）；音频侧 `erhai-xingxing19035.md` 是 A–M 唯一给出 AW882xx 实机硬件清单的页面。
+/mnt/e/hackios/UniXNU-mondrian/docs/plans/DOCS-DEVICES-A-M.md:82:- `evb10.md` — RK3588 EVB10 V10；除 Audio=IM 外全域 device-verified：iPadOS 17.7.11 userland、eMMC root+Data、VOP2 显示、Goodix GT1158 触摸、Mali-G610 ~50 fps、2.4 GHz Wi-Fi；GPU 调频/中断完成、5 GHz、音频听感、热限制未做。
+/mnt/e/hackios/UniXNU-mondrian/docs/plans/DOCS-DEVICES-A-M.md:138:- `j716f.md` — SM8250 Lenovo Xiaoxin Pad Pro 2021 TB-J716F；除 Network/Audio=PL 外全域 device-verified（Storage/Display/Input/GPU/Power/Diag 均有真机证据），含 Format-1→2 迁移、FAST/日志/reader、Goodix GT7386 I2C（SE4 `0x00990000`, addr `0x5D`, 10 点）与 PM8150 PON 键；超长记录（1336 行），是 A–M 中最完整的整机参考。
+/mnt/e/hackios/UniXNU-mondrian/docs/plans/DOCS-DEVICES-A-M.md:166:- `marble.md` — SM7475 Redmi Note 12 Turbo/POCO F5；legacy XNU 8796 源 port，历史短暂到 iOS Hello，touch/setup 未完成；非 Format-2，13 域全 PL。Goodix GT9916R 的 SPI/GPI 参数清单见②。
+
+############ 3) GPU / scanout 相关 boot-args 在代码里 ############
+/mnt/e/hackios/UniXNU-mondrian/drivers/PongAdreno/PongAdrenoScanout.cpp:30:extern "C" void pong_scanout_initialize(uint64_t address,size_t bytes,uint32_t stride,uint32_t width,uint32_t height)
+/mnt/e/hackios/UniXNU-mondrian/drivers/PongAdreno/PongAdrenoScanout.cpp:33:    if(scanout_gate || !PE_parse_boot_argn("pong_gpu_scanout",&enabled,sizeof(enabled)) || enabled!=1)return;
+/mnt/e/hackios/UniXNU-mondrian/drivers/PongAdreno/PongAdrenoScanout.h:6:void pong_scanout_initialize(uint64_t,size_t,uint32_t,uint32_t,uint32_t);
+/mnt/e/hackios/UniXNU-mondrian/drivers/PongAdreno/README.md:62:`pong_gpu_scanout=1` enables the path. The20G81 Metal plugin imports the real
+/mnt/e/hackios/UniXNU-mondrian/drivers/PongMetal/PongMetalScanout.h:53:        const char key[]="pong_gpu_scanout=0";
+/mnt/e/hackios/UniXNU-mondrian/patches/xnu/0392-k60-weak-scanout-stubs.patch:9:+extern "C" __attribute__((weak)) void pong_scanout_initialize(uint64_t a, size_t b, uint32_t c, uint32_t d, uint32_t e) { (void)a;(void)b;(void)c;(void)d;(void)e; }
+/mnt/e/hackios/UniXNU-mondrian/patches/xnu/SERIES-CHANGES-2026-11-07.md:16:- **hunk 2（patch 第 14 行，`@@ -386,6 +390,8 @@`）**：按 `0210-k60-display-native-canvas.patch` 的 `k60PanelNative()` 结构重排。`pong_scanout_initialize(...)` 仍插在 `fPanelWidth/fPanelHeight/fRowBytes = vinfo...` 之后；其后的上下文从 pong 原版的三行（`fWidth = gFBWidth ? ...` / `fHeight = ...` / `if (gFBScale ...`）改为 K60 的：
+/mnt/e/hackios/UniXNU-mondrian/patches/xnu/SERIES-CHANGES-2026-11-07.md:97:- 运行期风险仍按 `docs/plans/GPU-ENABLE-PLAN.md` §6：`K60 FB: ... -> INSIDE managed range` 是硬停止；首次上机先 `pong_adreno_start=1`，再 `pong_gpu_scanout=1`，`pong_gpu_only=1` 只做一轮决定性实验。
+/mnt/e/hackios/UniXNU-mondrian/patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-scanout.patch:8:+extern "C" void pong_scanout_initialize(uint64_t,size_t,uint32_t,uint32_t,uint32_t);
+/mnt/e/hackios/UniXNU-mondrian/patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-scanout.patch:18:+	pong_scanout_initialize((uint64_t)fBase,(size_t)fRowBytes*fPanelHeight,
+
+############ 4) 当前 boot args 里的 GPU/触摸项（payload-0461） ############
+pong_gpu_scanout

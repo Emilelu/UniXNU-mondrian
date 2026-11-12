@@ -1,0 +1,126 @@
+############ SpringBoard 首帧之前的所有 SpringBoard 行 ############
+847:KE 24 27 launchd /System/Library/CoreServices/SpringBoard.app/SpringBoard
+1117:[mediaserverd] Pong UI: img 13 /System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices
+1226:K60RV 2 SpringBoard[27] mem=4864 actual=4864 managed=4864 free=980316 spec=142646
+1555:[backboardd] Pong UI: img 97 /System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices
+1659:[backboardd] [SpringBoard] Pong UI: img 175 /System/Library/PrivateFrameworks/WatchdogClient.framework/WatchdogClient
+1660:Pong UI: 20G81 compatibility library entered SpringBoard
+1664:[SpringBoard] Pong UI: SB prefs skipped (constructor-stage CFPreferences faults)
+1666:[SpringBoard] Pong UI: observer active (no hooks)
+1667:[backboardd] [SpringBoard] Pong UI: img 1 /private/var/pong/libpong-ui.dylib
+1680:[SpringBoard] [backboardd] Pong UI: UIApplication -_run hooked
+1683:[SpringBoard] [backboardd] Pong UI: _checkIn hooked
+1684:[SpringBoard] Pong UI: img 2 /System/Library/CoreServices/SpringBoard.app/SpringBoard
+1686:[SpringBoard] [backboardd] Pong UI: img 3 /System/Library/PrivateFrameworks/SpringBoard.framework/SpringBoard
+1687:[SpringBoard] Pong UI: img 4 /System/Library/PrivateFrameworks/AirTraffic.framework/AirTraffic
+1691:[SpringBoard] [backboardd] Pong UI: img 192 /System/Library/PrivateFrameworks/UserManagement.framework/UserManagement
+1693:[SpringBoard] Pong UI: img 6 /usr/lib/libIOAccessoryManager.dylib
+1695:[SpringBoard] Pong UI: img 7 /System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager
+1697:[SpringBoard] Pong UI: img 8 /System/Library/PrivateFrameworks/CrashReporterSupport.framework/CrashReporterSupport
+1699:[SpringBoard] Pong UI: img 9 /System/Library/PrivateFrameworks/EAP8021X.framework/EAP8021X
+1701:[SpringBoard] Pong UI: img 10 /usr/lib/libmis.dylib
+1703:[SpringBoard] Pong UI: img 11 /usr/lib/liblockdown.dylib
+1704:[SpringBoard] Pong UI: img 12 /usr/lib/libAccessibility.dylib
+1706:[SpringBoard] Pong UI: img 13 /System/Library/PrivateFrameworks/VoiceServices.framework/VoiceServices
+1707:[SpringBoard] Pong UI: img 14 /System/Library/PrivateFrameworks/StoreServices.framework/StoreServices
+1709:[SpringBoard] Pong UI: img 15 /usr/lib/libsp.dylib
+1711:[SpringBoard] Pong UI: img 16 /usr/lib/libSystem.B.dylib
+1713:[SpringBoard] Pong UI: img 17 /System/Library/PrivateFrameworks/AssistantServices.framework/AssistantServices
+1715:[SpringBoard] Pong UI: img 18 /System/Library/PrivateFrameworks/MobileBackup.framework/MobileBackup
+1717:[SpringBoard] Pong UI: img 19 /System/Library/PrivateFrameworks/MobileKeyBag.framework/MobileKeyBag
+1719:[SpringBoard] Pong UI: img 20 /System/Library/PrivateFrameworks/Netrb.framework/Netrb
+1720:[SpringBoard] Pong UI: img 21 /System/Library/PrivateFrameworks/AppPredictionClient.framework/AppPredictionClient
+1722:[SpringBoard] Pong UI: img 22 /System/Library/PrivateFrameworks/ProactiveSuggestionClientModel.framework/ProactiveSuggestionClientModel
+1724:[SpringBoard] Pong UI: img 23 /System/Library/PrivateFrameworks/LowPowerMode.framework/LowPowerMode
+1726:[SpringBoard] Pong UI: img 24 /System/Library/PrivateFrameworks/iOSScreenSharing.framework/iOSScreenSharing
+1727:[backboardd] [SpringBoard] Pong UI: img 25 /System/Library/PrivateFrameworks/StudyLog.framework/StudyLog
+1729:[SpringBoard] Pong UI: img 26 /System/Library/PrivateFrameworks/MobileActivation.framework/MobileActivation
+1730:[backboardd] [SpringBoard] Pong UI: img 27 /usr/lib/libIOReport.dylib
+1732:[SpringBoard] Pong UI: img 28 /System/Library/PrivateFrameworks/MobileStoreDemoKit.framework/MobileStoreDemoKit
+1733:[backboardd] [SpringBoard] Pong UI: img 29 /System/Library/PrivateFrameworks/CPMS.framework/CPMS
+1737:[SpringBoard] Pong UI: img 30 /System/Library/PrivateFrameworks/CoreAccessories.framework/CoreAccessories
+
+############ UIApplication -_run 之后紧跟的行（真的显示了吗） ############
+[SpringBoard] [backboardd] Pong UI: UIApplication -_run hooked
+Pong UI: img 189 /System/Library/PrivateFrameworks/WiFiPeerToPeer.framework/WiFiKE 112 114 xpcproxy /System/Library/PrivateFrameworks/CalendarDaemon.framework/Support/calaccessd
+PeerToPeer
+[SpringBoard] [backboardd] Pong UI: _checkIn hooked
+[SpringBoard] Pong UI: img 2 /System/Library/CoreServices/SpringBoard.app/SpringBoard
+Pong UI: img 190 /System/Library/Frameworks/UserNotifications.framework/UserNotifications
+[SpringBoard] [backboardd] Pong UI: img 3 /System/Library/PrivateFrameworks/SpringBoard.framework/SpringBoard
+[SpringBoard] Pong UI: img 4 /System/Library/PrivateFrameworks/AirTraffic.framework/AirTraffic
+K60UF client=0xfffffff6c9f6e600 cls=AppleKeyStoreUserClient rsv_before=0xfffffff5e3b22730 rsv_after=0xfffffff5e3b22730 name=0xfffffff6c9f84bf8
+K60UF2 retain=3
+Pong UI: img 191 /System/Library/Frameworks/ExtensionFoundation.framework/ExtensionFoundation
+[SpringBoard] [backboardd] Pong UI: img 192 /System/Library/PrivateFrameworks/UserManagement.framework/UserManagement
+Pong UI: img 5 /System/Library/PrivateFrameworks/MobileWiFi.framework/MobileWiFi
+[SpringBoard] Pong UI: img 6 /usr/lib/libIOAccessoryManager.dylib
+[backboardd] Pong UI: img 193 /System/Library/PrivateFrameworks/PlugInKit.framework/PlugInKit
+[SpringBoard] Pong UI: img 7 /System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager
+[backboardd] Pong UI: img 194 /System/Library/Frameworks/CoreTelephony.framework/CoreTelephony
+[SpringBoard] Pong UI: img 8 /System/Library/PrivateFrameworks/CrashReporterSupport.framework/CrashReporterSupport
+[backboardd] Pong UI: img 195 /usr/lib/libcupolicy.dylib
+[SpringBoard] Pong UI: img 9 /System/Library/PrivateFrameworks/EAP8021X.framework/EAP8021X
+[backboardd] Pong UI: img 196 /usr/lib/libTelephonyUtilDynamic.dylib
+[SpringBoard] Pong UI: img 10 /usr/lib/libmis.dylib
+[backboardd] Pong UI: img 197 /System/Library/PrivateFrameworks/CommonUtilities.framework/CommonUtilities
+[SpringBoard] Pong UI: img 11 /usr/lib/liblockdown.dylib
+[SpringBoard] Pong UI: img 12 /usr/lib/libAccessibility.dylib
+[backboardd] Pong UI: img 198 /System/Library/PrivateFrameworks/MSUDataAccessor.framework/MSUDataAccessor
+[SpringBoard] Pong UI: img 13 /System/Library/PrivateFrameworks/VoiceServices.framework/VoiceServices
+[SpringBoard] Pong UI: img 14 /System/Library/PrivateFrameworks/StoreServices.framework/StoreServices
+[backboardd] Pong UI: img 199 /usr/lib/libpartition2_dynamic.dylib
+[SpringBoard] Pong UI: img 15 /usr/lib/libsp.dylib
+[backboardd] Pong UI: img 200 /System/Library/Frameworks/OpenGLES.framework/OpenGLES
+
+############ 有没有首帧/第一次提交/framebuffer present这类证据 ############
+67:Serial requested, consistent debug disabled or debug boot arg not present, configuring debugging over serial
+614:init_data_protection: No SEP present on this device
+632:com.apple.xpc.launchd|2026-11-03 04:32:27.635992 (restore-datapartition) <Notice>: optional boot task not present
+650:main: Content from the ramdisk will be present at /private/var/MobileSoftwareUpdate//6b36302d6f776e65722d626f6f742d6d616e69666573742d763100000000000000000000000000000000000000000000-MSUData if it exists
+887:KE 56 85 xpcproxy /usr/bin/IOMFB_FDR_Loader
+1159:[mediaserverd] KX! 5 85 IOMFB_FDR_Loader exit=1 sig=0 r=0 ns=0 code=0x0 rf=0x0 jf=0x0
+1160:KXPC 85 IOMFB_FDR_Loader pc=0x21147c508 lr=0x1de008400 sp=0x16f4bb7c0
+1383:[backboardd] Pong UI: 20G81 compositor render update installed (protection=0)
+2353:: 31fa7d80 : Permanent update volume present..supportDir will be placed there
+3399:[backboardd] Pong UI: img 378 /System/Library/PrivateFrameworks/Symptoms.framework/Frameworks/SymptomPresentationFeed.framework/SymptomPresentationFeed
+3418:Pong UI: UIApplication _run entered
+3425:[SpringBoard] Pong UI: present_home scheduled from _run
+3434:K60 DISPLAY: first frame presented (swap 1, 1440x3200 canvas on 1440x3200 panel)
+3494:[SpringBoard] Pong UI: presenter class created
+3499:[SpringBoard] Pong UI: step4 begin (present_home)
+3500:[SpringBoard] Pong UI: present manager=0x10de078f0 backlight=0x282233680
+3501:[SpringBoard] Pong UI: main queue reached locked=0 screen=0 dim=1 pending-unblank=0
+3502:[SpringBoard] Pong UI: present_home observe-only (no backlight/unlock messages)
+
+############ launchd 崩溃前最后 30 行 ############
+
+: 6ef1b000 : waiting for matching IOKit service: {
+    IOPropertyMatch =     {
+        EmbeddedDeviceTypeRoot = 1;
+    };
+}
+
+K60XPC compat=2726
+K60 USBLOG: st=4 ev=10432 cfg=1 dtr=1 fl=0
+2026-11-03 04:33:29.766 duetexpertd[161:1268] --- handled event com.apple.duetexpertd.clientModelRefreshBlendingLayer ---
+K60UF client=0xfffffff4174c8e00 cls=RootDomainUserClient rsv_before=0xfffffff5e3b22590 rsv_after=0xfffffff5e3b22590 name=0xfffffff6c9f7f898
+K60UF2 retain=3
+2026-11-03 04:33:30.293 SpringBoard[27:278] *** _applyBackdropViewSettings error: invalid size: (0.33 x 0.33). Both dimensions must be >= 1: <UIImage:0x283e20240 anonymous {0.33333333333333331, 0.33333333333333331} renderingMode=automatic(original)>
+2026-11-03 04:33:30.375 SpringBoard[27:278] Unbalanced calls to begin/end appearance transitions for <SBCoverSheetPrimarySlidingViewController: 0x10f02be00>.
+K60UF client=0xfffffff4174c8f00 cls=RootDomainUserClient rsv_before=0xfffffff5e3b225c0 rsv_after=0xfffffff5e3b225c0 name=0xfffffff6c9f7f0d0
+K60UF2 retain=3
+2026-11-03 04:33:30.463 SpringBoard[27:2720] ### Failed to Soft Linked: /System/Library/Frameworks/CarKit.framework/CarKit
+KX? #1 251 xpcproxy execerr=2 where=exec site=1 path=/usr/libexec/xpcproxy
+KX? #1 251 xpcproxy execerr=2 where=spawn site=2 path=/usr/libexec/xpcproxy
+access(/System/Cryptexes/App/usr/libexec/webbookmarksd, X_OK) failed with errno 2 - No such file or directoryKX! 18 1 launchd exit=0 sig=11 r=1 ns=2 code=0xb rf=0x0 jf=0x0
+KXPC 1 launchd pc=0x100e6e158 lr=0x100e6ea20 sp=0x16f0c0390
+pid 1 exited -- exit reason namespace 2 subcode 0xb, description none
+Failed to generate core file for pid: 1: error 14, took 0.000 seconds
+K60PANICFMT caller=0xfffffff007754058 fmt=%s %s -- exit reason namespace %d subcode 0x%llx description: %.800s || CACHE st=%d err=%d mnt=%d ro=%d un=%d rr=%d ca=%d || PATHS p0=%d p1=%d p2=%d p3=%d p4=%d p5=%d p6=%d p7=%d
+K60PANICARGS  initproc exited -- exit reason namespace 2 subcode 0xb description: none || CACHE st=6 err=0 mnt=0 ro=1 un=1 rr=1 ca=1 || PATHS p0=0 p1=2 p2=2 p3=2 p4=2 p5=2 p6=0 p7=2
+K60PANIC: ring kept; restart reason -> bootloader
+K60 USBLOG: restart reason published
+K60XPC compat=2811
+K60 USBLOG: st=4 ev=10462 cfg=1 dtr=1 fl=0
+Discovering all extensions

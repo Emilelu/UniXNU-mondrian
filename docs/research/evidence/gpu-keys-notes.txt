@@ -1,0 +1,28 @@
+############ 1) GPU 是否真的驱动了（证据） ############
+--- series 里有没有 gpu-scanout / adreno 补丁：
+110:0231-k60-accel-stub-adreno-gate.patch
+111:0232-k60-pong-adreno-ramoops-bridge.patch
+--- 内核里 GPU 相关字符串：
+  pong_adreno_start: 2
+  PONG SCANOUT: 1
+  AGXAccelerator: 28
+  IOGPU: 265
+  pong_gpu_scanout: 1
+--- 本次启动日志里的 GPU/scanout 行：
+[mediaserverd] Pong UI: img 143 /System/Library/PrivateFrameworks/GPUCompiler.framework/Libraries/libGPUCompilerUtils.dylib
+[backboardd] [SpringBoard] Pong UI: img 146 /System/Library/PrivateFrameworks/GPUCompiler.framework/Libraries/libGPUCompilerUtils.dylib
+[SpringBoard] Pong UI: img 324 /System/Library/PrivateFrameworks/GPUCompiler.framework/Libraries/libGPUCompilerUtils.dylib
+Pong UI: optional camera-filter GPU prewarm skipped (software-only platform)
+[backboardd] Pong UI: img 322 /System/Library/PrivateFrameworks/IOGPU.framework/IOGPU
+
+############ 2) 壁纸缺失原因（日志原文） ############
+Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper (source/target unavailable)
+Pong init: wallpaper aliases SKIP (stock view unavailable)
+[SpringBoard] Pong UI: img 68 /System/Library/PrivateFrameworks/WallpaperKit.framework/WallpaperKit
+
+############ 3) pong 仓库分支 ############
+* main
+  remotes/origin/HEAD -> origin/main
+  remotes/origin/main
+--- 是否已有 ios16 分支：
+fatal: Needed a single revision

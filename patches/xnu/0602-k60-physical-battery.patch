@@ -1,0 +1,32 @@
+From: UniXNU contributors
+Subject: [PATCH] k60: start only the authenticated physical battery source
+
+The builtin archive inherits XNU's real IOPMPowerSource. It reads the actual
+PMIC_RTR_ADSP_APPS protocol over exclusively leased SMEM/GLINK FIFOs and
+publishes only after a valid coherent hardware sample. A missing PAS1 owner
+handoff is logged and leaves battery status unavailable; no fixed percentage,
+Android snapshot, live-DSP reset or safe-check bypass is introduced.
+
+Parent integration must force-load libK60PhysicalBattery.a and define
+XNU_K60_PHYSICAL_BATTERY=1 for IOKitBSDInit.cpo. No personality starts a fake
+battery: the source registers only after its hardware validation.
+
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -109,8 +109,16 @@
++#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
++extern "C" void k60_physical_battery_start(void);
++#endif
++
+ kern_return_t
+ IOKitBSDInit( void )
+ {
+ 	IOService::publishResource("IOBSD");
+ 
++#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
++	k60_physical_battery_start();
++#endif
++
+ #if IOPOLLED_COREFILE
+ 	corefile_open_call = thread_call_allocate_with_options(IOOpenPolledCoreFile, NULL, THREAD_CALL_PRIORITY_KERNEL, THREAD_CALL_OPTIONS_ONCE);
+ #endif

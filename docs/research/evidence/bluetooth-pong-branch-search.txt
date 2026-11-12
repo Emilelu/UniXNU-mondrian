@@ -1,0 +1,58 @@
+############ 1) pong main 分支（iOS 18 线）里的蓝牙 ############
+HEAD:migration/ipados18/services.md
+HEAD:migration/ipados18/services110-adsp-poster-textinput.md
+HEAD:userland/board_services18.py
+HEAD:userland/settings_compat18.c
+HEAD:userland/usb_services18.py
+--- 命中行 ---
+HEAD:migration/ipados18/services.md:549:- 关于本机沿用 stock 的无无线硬件分支，省略未移植的 SIM/Wi-Fi/Bluetooth 查询；系统版本取原生本地 fallback，不改全局设备身份。
+HEAD:userland/board_services18.py:84:        elif label == 'com.apple.bluetoothd':
+HEAD:userland/board_services18.py:88:            job['_LimitLoadToDeviceTree'] = ['bluetooth', 'marconi-bt']
+HEAD:userland/board_services18.py:89:            reason = 'requires a real Pong Bluetooth transport; none implemented'
+HEAD:userland/settings_compat18.c:199:        const char *names[]={"_macAddress","_bluetoothMACAddress","_myNumber"};
+HEAD:userland/usb_services18.py:43:    # records or claims that a camera/Bluetooth controller is implemented.
+
+############ 2) sheng 仓里的蓝牙实现 ############
+/mnt/e/hackios/UniXNU-sheng/drivers/QcaBluetooth
+/mnt/e/hackios/UniXNU-sheng/firmware/bluetooth
+/mnt/e/hackios/UniXNU-sheng/package/BluetoothFirmware.c
+/mnt/e/hackios/UniXNU-sheng/package/BluetoothFirmware.h
+/mnt/e/hackios/UniXNU-sheng/package/BluetoothProbe.cpp
+/mnt/e/hackios/UniXNU-sheng/package/tests/bluetooth_platform.c
+/mnt/e/hackios/UniXNU-sheng/patches/xnu-12377/sheng-bluetooth-exit-diagnostic.patch
+/mnt/e/hackios/UniXNU-sheng/patches/xnu-12377/sheng-bluetooth-runtime.patch
+/mnt/e/hackios/UniXNU-sheng/reports/ipados27-bluetooth-native.md
+/mnt/e/hackios/UniXNU-sheng/reports/ipados27-bluetooth-startup.md
+/mnt/e/hackios/UniXNU-sheng/scripts/build-bluetooth-userspace.py
+/mnt/e/hackios/UniXNU-sheng/scripts/build-qca-bluetooth.py
+/mnt/e/hackios/UniXNU-sheng/scripts/check-bluetooth-board.py
+/mnt/e/hackios/UniXNU-sheng/scripts/check-bluetooth-platform.py
+/mnt/e/hackios/UniXNU-sheng/scripts/check-bluetooth-runtime.py
+--- package 目录 ---
+BluetoothFirmware.c
+BluetoothFirmware.h
+BluetoothProbe.cpp
+
+############ 3) 20G81 内核里有没有 IOBluetooth 家族 ############
+  IOBluetoothFamily: 0
+  IOBluetoothHCI: 0
+  IOBluetoothHostController: 0
+  AppleBluetooth: 0
+  BTReset: 0
+
+############ 4) 本地有哪些 IPSW / kernelcache 可用于对比 ############
+/mnt/e/hackios/UniXNU/out/ipsw/20G81/:
+total 6.5G
+-rwxrwxrwx 1 emilelu emilelu 2.5G Oct 29 12:00 096-56782-083.dmg
+-rwxrwxrwx 1 emilelu emilelu  196 Oct 29 12:00 096-56782-083.dmg.json
+-rwxrwxrwx 1 emilelu emilelu 4.0G Oct 29 11:57 096-57366-083.dmg
+-rwxrwxrwx 1 emilelu emilelu  181 Oct 29 11:57 096-57366-083.dmg.json
+-rwxrwxrwx 1 emilelu emilelu  47M Oct 28 00:37 kernelcache.decompressed
+
+/mnt/e/hackios/UniXNU/out/ipsw/21H461/:
+total 45M
+-rwxrwxrwx 1 emilelu emilelu 45M Oct 28 00:38 kernelcache.decompressed
+/mnt/e/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed
+/mnt/e/hackios/UniXNU/out/ipsw/21H461/kernelcache.decompressed
+/mnt/e/hackios/UniXNU-mondrian/mac-build/storage-abi/cache/kernelcache.decompressed
+/mnt/e/hackios/UniXNU-mondrian/mac-build/storage-abi/cache/kernelcache.fat

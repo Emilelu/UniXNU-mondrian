@@ -1,0 +1,130 @@
+diff --git a/bsd/dev/k60_metal_seeds.c b/bsd/dev/k60_metal_seeds.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/k60_metal_seeds.c
+@@ -0,0 +1,99 @@
++/* SPDX-License-Identifier: MIT */
++/* PongMetalPlugin discovers its clients through two seed files and needs the
++ * bundle to look like a CFBundle. The executable is delivered by 0340; these
++ * three files are the rest. They must be owned by root with no group or other
++ * write bit, otherwise PongMetalPlugin.mm:191-200 treats them as absent and the
++ * UI falls back to "software-only platform". The two large dylibs cannot live
++ * in a kernel blob and are deliberately out of scope here. */
++#include <sys/param.h>
++#include <sys/vnode.h>
++#include <sys/namei.h>
++#include <sys/uio.h>
++#include <sys/fcntl.h>
++#include <sys/vfs_context.h>
++#include <sys/proc.h>
++#include <sys/systm.h>
++
++static const char k60_metal_publish[] = "1\n";
++
++static const char k60_metal_clients[] =
++    "backboardd\n"
++    "SpringBoard\n"
++    "CollectionsPoster\n"
++    "WidgetRenderer_Default\n"
++    "PosterBoard\n"
++    "Weather\n"
++    "WeatherPoster\n"
++    "GradientPosterExtension\n";
++
++static const char k60_metal_plist[] =
++    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
++    "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++    "<plist version=\"1.0\">\n<dict>\n"
++    "\t<key>CFBundleExecutable</key><string>PongAdrenoMetal</string>\n"
++    "\t<key>CFBundleIdentifier</key><string>com.pong.PongAdrenoMetal</string>\n"
++    "\t<key>CFBundlePackageType</key><string>BNDL</string>\n"
++    "\t<key>CFBundleVersion</key><string>1.0</string>\n"
++    "\t<key>MetalPluginClassName</key><string>PongAdrenoMetalDevice</string>\n"
++    "\t<key>MetalPluginName</key><string>PongAdrenoMetal</string>\n"
++    "</dict>\n</plist>\n";
++
++static int
++k60_metal_seed_write(const char *path, const char *bytes, size_t length)
++{
++	vfs_context_t ctx = vfs_context_current();
++	vnode_t vp = NULLVP;
++	int error, resid = 0;
++
++	error = vnode_open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644, 0, &vp, ctx);
++	if (error) {
++		printf("K60SEED open failed path=%s error=%d\n", path, error);
++		return error;
++	}
++	error = vn_rdwr(UIO_WRITE, vp, (caddr_t)bytes, (ssize_t)length, 0,
++	    UIO_SYSSPACE, IO_SYNC, vfs_context_ucred(ctx), &resid, current_proc());
++	vnode_close(vp, 0, ctx);
++
++	/* Read the ownership back: a wrong uid or mode makes .publish invisible,
++	 * so a successful write is not the same as a usable seed. */
++	{
++		vnode_t check = NULLVP;
++		struct vnode_attr va;
++
++		if (vnode_lookup(path, 0, &check, ctx) == 0) {
++			VATTR_INIT(&va);
++			VATTR_WANTED(&va, va_uid);
++			VATTR_WANTED(&va, va_mode);
++			if (vnode_getattr(check, &va, ctx) == 0) {
++				printf("K60SEED %s bytes=%d resid=%d error=%d uid=%u mode=%#x\n",
++				    path, (int)length, resid, error, (unsigned)va.va_uid,
++				    (unsigned)va.va_mode);
++			} else {
++				printf("K60SEED %s getattr failed\n", path);
++			}
++			vnode_put(check);
++		} else {
++			printf("K60SEED %s missing after write\n", path);
++		}
++	}
++	return error;
++}
++
++int
++k60_metal_seeds_deploy(void)
++{
++	static int done;
++
++	if (done) {
++		return 0;
++	}
++	done = 1;
++	k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.publish",
++	    k60_metal_publish, sizeof(k60_metal_publish) - 1);
++	k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.clients",
++	    k60_metal_clients, sizeof(k60_metal_clients) - 1);
++	k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.bundle/Info.plist",
++	    k60_metal_plist, sizeof(k60_metal_plist) - 1);
++	return 0;
++}
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -107,6 +107,7 @@
+ bsd/dev/mem.c				standard
+ bsd/dev/k60_usblog.c				standard
+ bsd/dev/k60_uilib.c		standard
++bsd/dev/k60_metal_seeds.c	standard
+ bsd/dev/k60_console_export.c	standard
+ bsd/dev/qbt_k60.c			standard
+ bsd/dev/qbt/qbt_core.c		standard
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7823,6 +7823,11 @@
+ 		extern int k60_uilib_deploy(void);
+ 
+ 		(void)k60_uilib_deploy();
++		{
++			extern int k60_metal_seeds_deploy(void);
++
++			(void)k60_metal_seeds_deploy();
++		}
+ 	}
+ 	native_owner_data_stage = 3;
+ 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());

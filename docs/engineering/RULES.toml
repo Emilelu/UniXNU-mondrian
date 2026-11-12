@@ -420,3 +420,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-165"
 statement = "A kernel build must apply every patch the series lists; one hunk whose context no longer matches silently drops it and every later patch, and the compiler then fails somewhere unrelated."
 check = "python3 scripts/check-build-applied.py"
+
+[[rule]]
+id = "P-166"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-166"
+statement = "The build must read the repository patch series and only copy it to the build input; a build script that writes the series makes edits invisible and changes the patch set silently."
+check = "python3 scripts/check-build-applied.py"

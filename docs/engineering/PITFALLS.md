@@ -3981,3 +3981,15 @@ CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过�
 规则：**永远用"已应用源码 + `diff -u`"生成补丁**，不要手写 hunk 的上下文与行号。
 构建后立刻跑 `python3 scripts/check-build-applied.py`，它比对日志里的
 `patches applied: N` 与 `patches/xnu/series` 的行数。
+
+## P-166 构建脚本不许写补丁清单
+
+`buildv15.sh` 曾在每次构建开头把 `patches/xnu/series` 覆盖成
+`/mnt/e/k60-work/scratch/SERIES-FINAL.txt`。后果是双向的：改仓库里的序列不生效，
+改 scratch 里那份却会静默改变整个补丁集。2026-11-13 的一次误删就是这样发生的——
+按编号前缀删除了两条 `0341`，其中一条是别人写的 `0341-k60-setprop-probe.patch`，
+于是 `0342` 找不到它要改的 `printf`，构建停在 157/222，而错误只说
+`iorkit/Kernel/IORegistryEntry.cpp: patch does not apply`，完全看不出缺前置。
+
+规则：仓库是唯一真源；构建只允许**读**它，然后复制给构建输入。
+`scripts/check-build-applied.py` 现在同时比对二者，不一致即报红（P-166）。

@@ -32,6 +32,23 @@ def applied_count(log: pathlib.Path) -> int:
     return int(hits[-1]) if hits else -1
 
 
+INPUT = pathlib.Path("/tmp/usb-cdc-mainline/device/patches/xnu/series")
+
+
+def input_matches_repo() -> str:
+    """P-166: the build must not carry its own copy of the patch list."""
+    if not INPUT.is_file():
+        return "input series absent; skipping parity check"
+    repo = [l.strip() for l in SERIES.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+    dev = [l.strip() for l in INPUT.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+    if repo == dev:
+        return ""
+    only_repo = [n for n in repo if n not in dev]
+    only_dev = [n for n in dev if n not in repo]
+    return (f"❌ P-166 构建输入序列与仓库不一致：只在仓库有 {only_repo[:3]}，"
+            f"只在输入有 {only_dev[:3]}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--log", default="/mnt/e/k60-work/scratch/BUILD_V15.txt",
@@ -39,6 +56,10 @@ def main() -> int:
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
+    parity = input_matches_repo()
+    if parity.startswith("❌"):
+        print(parity)
+        return 1
     log = pathlib.Path(args.log)
     want = series_count()
     if not log.is_file():

@@ -357,8 +357,8 @@ done = false
 evidence = "从未上机。"
 
 [hardware.audio]
-status = "planned"
-parked_why = "尚未开始，见各步 evidence"
+status = "active"
+parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
 why = "音频（WCD938x + ADSP + AudioReach/PRM）"
 
 [hardware.audio.step.same_model]

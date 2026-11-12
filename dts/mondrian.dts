@@ -55,8 +55,8 @@
 		unixnu,adt-name = "pong-audio";
 		rsc-base = <0x0 0x17a20000>;
 		cmd-db-base = <0x0 0x80860000>;
-		adsp-base = <0x0 0x0a000000>;
-		adsp-size = <0x0 0x01c00000>;
+		adsp-base = <0x0 0x9fd00000>;
+		adsp-size = <0x0 0x03100000>;
 
 		/* 0 = not measured. The driver must reject these and say which one. */
 		tx-master-base = <0x0 0x0>;

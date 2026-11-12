@@ -26,7 +26,7 @@
 | 编号 | 任务 | 派发时间 | 落库文件 | 产出断言 | 状态 | 落库提交 |
 |---|---|---|---|---|---|---|
 | SA-01 | 电池栈构建集成调研 | 2026-11-12 11:35 | `docs/engineering/BATTERY-INTEGRATION.md` | `file:drivers/PongPower/K60Battery.cpp` | running | — |
-| SA-02 | 音频/DSP 栈差距调研 | 2026-11-12 11:36 | `docs/research/audio/GAP-ANALYSIS.md` | `grep:docs/research/EIGHT-STEPS.toml:audio` | running | — |
+| SA-02 | 音频/DSP 栈差距调研 | 2026-11-12 11:36 | `docs/research/audio/GAP-ANALYSIS.md` | `grep:docs/research/audio/GAP-ANALYSIS.md:PAS1` | landed | PENDING |
 | SA-03 | WiFi 实现差距调研 | 2026-11-12 11:37 | `docs/research/wifi/GAP-ANALYSIS.md` | `grep:docs/research/EIGHT-STEPS.toml:wifi` | running | — |
 
 ## 已落库并应用

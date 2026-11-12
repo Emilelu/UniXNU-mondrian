@@ -435,3 +435,12 @@ source = "docs/engineering/PITFALLS.md:P-167"
 statement = "A userland source change that cannot be compiled on this machine must not be committed: the shipped blob would keep diverging from the source. No iOS SDK, no userland edit."
 waiver = """Waiver: the check needs a manifest of buildable artifacts. land when
 userland/build.py records which artifact each source feeds and the SDK it needs."""
+
+[[rule]]
+id = "P-168"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-168"
+statement = "The physical battery archive needs IOPMPowerSource.h from Apple's Kernel.framework, which XNU source does not carry; without that SDK the archive cannot be produced and must not be claimed as built."
+waiver = """Waiver: checkable once the tree records whether Kernel.framework headers
+were provisioned, or once the driver moves into patches/xnu where every symbol has an
+in-tree definition."""

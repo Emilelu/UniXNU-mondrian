@@ -4005,3 +4005,25 @@ CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过�
 设备的那份 blob 就分叉了，这正是"看起来修好了、设备上没变"的整类坑。
 要么先补齐 SDK（并把路径写进 `docs/engineering/`），要么把修复做在内核侧
 （例如由内核在 Data 挂载后 dlopen 不可行，必须在进程上下文里执行）。
+## P-168 电池归档还缺 Kernel.framework 私有头
+
+`scripts/build-k60-physical-battery.py:294-296` 在编译归档前硬性要求：
+
+```python
+framework = tree / '.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A'
+if not (framework / 'PrivateHeaders/IOKit/pwr_mgt/IOPMPowerSource.h').exists() and \
+   not (framework / 'Headers/IOKit/pwr_mgt/IOPMPowerSource.h').exists():
+    raise ValueError('Build the real Darwin22 Kernel SDK before this archive')
+```
+
+实测：`tree/.cache/fakeroot` 下没有 `Kernel.framework`，全树 `find -name IOPMPowerSource.h`
+**零命中**——`IOPMPowerSource.h` 属于 Apple 的 Kernel.framework 私有头，
+不在 XNU 源码里，所以它既不会随 `installhdrs` 产生，也不是我们能从源码推出来的。
+
+结论：`libK60PhysicalBattery.a` 在本机无法生成，`-force_load` 也就无从做起。
+这与 P-167（userland 需要 iPhoneOS.sdk）是同一类外部依赖，不是实现缺陷。
+
+可行的替代只有一条，且必须先在文档里论证：不依赖 Kernel.framework，
+直接以 XNU 自己的 `iokit/IOKit/*` 与 `osfmk/*` 头为准，把电池驱动作为
+`patches/xnu/` 里的源码补丁编进内核（`0602-physical-battery.patch` 的方向），
+而不是外部归档。走这条路要先证明它需要的每一个符号在内核里都有定义。

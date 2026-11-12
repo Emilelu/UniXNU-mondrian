@@ -48,6 +48,24 @@ def static_guard() -> list[str]:
     return problems
 
 
+def restored_earlier(sha: str, path: str) -> bool:
+    """True when the file's new blob is a version we already committed before.
+
+    A deliberate rollback (restoring our own older copy after a pick replaced
+    it) shrinks the file exactly like a bad pick does, so size alone cannot
+    tell them apart. The blob identity can: if the post-commit content equals
+    the content at some earlier commit of that path, nothing was lost.
+    """
+    new_blob = git("rev-parse", f"{sha}:{path}").strip()
+    if not new_blob:
+        return False
+    history = git("log", "--format=%H", "-40", f"{sha}^", "--", path).split()
+    for older in history:
+        if git("rev-parse", f"{older}:{path}").strip() == new_blob:
+            return True
+    return False
+
+
 def last_pick_shrink() -> list[str]:
     sha = git("log", "-1", "--format=%H", "--", "patches", "drivers")
     if not sha:
@@ -66,6 +84,9 @@ def last_pick_shrink() -> list[str]:
         old_size = int(git("cat-file", "-s", f"{sha}^:{path}") or 0)
         new_size = int(git("cat-file", "-s", f"{sha}:{path}") or 0)
         if old_size and new_size and new_size < old_size * (1 - LIMIT):
+            if restored_earlier(sha, str(path)):
+                print(f"    {path} 缩到 {new_size} B，但内容等于更早提交的版本（有意回滚）")
+                continue
             problems.append(
                 f"{sha[:8]} 让 {path} 从 {old_size} B 缩到 {new_size} B "
                 f"（-{100 * (1 - new_size / old_size):.0f}%），检查是否覆盖了本地改动")

@@ -140,6 +140,7 @@
 	};
 
 	ipcc: mailbox@ed18000 {
+		interrupt-parent = <&intc>;
 		compatible = "qcom,ipcc";
 		reg = <0x00 0xed18000 0x00 0x1000>;
 		interrupts = <0x00 0xe5 0x04>;

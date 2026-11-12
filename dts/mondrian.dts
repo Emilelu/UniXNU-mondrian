@@ -36,6 +36,50 @@
 	 * kGccUfsPage / SMMU constants, pong,ufs-* / pong,smmu-* properties are
 	 * exported to the ADT via unixnu,adt-name).
 	 */
+
+
+	/*
+	 * Audio hardware exported to the ADT. Every value here is either an SM8475
+	 * address window the existing nodes already use, or zero.
+	 *
+	 * Zero means "not measured yet", never "use a default": the driver must
+	 * refuse to start and name the missing property. Guessing an I2C address, a
+	 * GPIO or a clock id produces a device that reports success and makes no
+	 * sound, which is the hardest failure to read from a log.
+	 *
+	 * Non-zero sources: rsc-base and cmd-db-base are shared with pong-touch
+	 * above; adsp-base is the SM8475 ADSP window from Pong's PAS1 work;
+	 * timebase-hz is 19.2 MHz, as on SM8550.
+	 */
+	pong-audio {
+		unixnu,adt-name = "pong-audio";
+		rsc-base = <0x0 0x17a20000>;
+		cmd-db-base = <0x0 0x80860000>;
+		adsp-base = <0x0 0x9fd00000>;
+		adsp-size = <0x0 0x03100000>;
+
+		/* 0 = not measured. The driver must reject these and say which one. */
+		tx-master-base = <0x0 0x0>;
+		codec-reset-gpio = <0>;
+		codec-i2c-address = <0>;
+		amp-i2c-address = <0>;
+		tx-core-clock-id = <0>;
+		codec-supply-rail = <0>;
+		mic-bias = <0>;
+		mic-adc = <0>;
+		swr-device-index = <0>;
+
+		/* CoreAudio assumes 24 MHz. At a 19.2 MHz timebase the audio service
+		 * must correct that constant, or the IO period runs 25% long and both
+		 * playback and capture stutter. */
+		timebase-hz = <19200000>;
+		coreaudio-assumed-hz = <24000000>;
+
+		/* Periodic buffers must sit below 4 GiB: the DSP takes a 32-bit
+		 * address with the stream index in the high word (0x1001 & 0xf). */
+		period-buffer-limit = <0x1 0x00000000>;
+	};
+
 	ufs@1d84000 {
 		compatible = "qcom,sm8475-ufshc";
 		status = "okay";

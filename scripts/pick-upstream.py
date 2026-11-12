@@ -56,6 +56,10 @@ REPOS = {
 # 永不覆盖的路径（构建产物 / 许可证 / 我们自己的门禁与文档）
 SKIP_PATHS = (
     'LICENSE', 'COPYING',
+    # The board contract is ours: a pick once replaced board.toml with a version
+    # whose kernel_args lose SpringBoard (P-160), and the same wholesale
+    # extraction would silently undo any argument or geometry decision.
+    'board.toml', 'configs/mondrian_defconfig', 'dts/mondrian.dts',
     'scripts/check-', 'scripts/tests/', 'scripts/watch-upstream.py',
     'scripts/pick-upstream.py', 'scripts/sync-device-input.py',
     'docs/research/', 'docs/engineering/', 'docs/proposals/',

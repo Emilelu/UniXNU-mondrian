@@ -103,6 +103,29 @@ a violation costs work that cannot be recovered.
    and it fails the build when the newest `snap-*` tag is unpushed or when
    boot-relevant files have changed since it.
 
+8. **A boot without the serial console is a blind experiment.** Every
+   `fastboot boot` must run with the CDC-ACM capture already attached, before
+   the boot starts - not after. The console is `VID_1209&PID_0001`, it binds
+   `usbser.sys`, and its COM number exists only under
+   `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` as `\Device\USBSER000`; picking a port by
+   FriendlyName silently selects a Bluetooth modem instead. DTR must be raised or
+   the kernel never drains the console ring.
+
+   `bash /mnt/e/k60-work/scripts/flash.sh <img> <secs>` does this unconditionally
+   and reports whether the console ever appeared. `K60 console never appeared`
+   is not a broken script: it is proof that the kernel died before USB gadget
+   init, and the investigation must follow the early-boot path instead of
+   guessing at UI symptoms. The full procedure, the evidence layout and the
+   bisect recipe are in
+   [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md);
+   `scripts/check-boot-procedure.py` fails the run when the wrapper stops
+   attaching the capture.
+
+   This rule exists because a boot hung early on 2026-11-12 and left no log at
+   all - the failure was diagnosed by guessing ("maybe it cannot find the unixnu
+   partition") instead of reading it. Anything that depends on being remembered
+   is not a process.
+
 The check before every build: `git status --porcelain` is empty on the source
 tree, the branch is level with its remote, and
 `python3 scripts/sync-device-input.py --check` reports no drift. The gates below

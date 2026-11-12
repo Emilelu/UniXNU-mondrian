@@ -115,6 +115,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | [`docs/INDEX.md`](docs/INDEX.md) | **文档总入口**：阅读顺序、全量目录、门禁命令 |
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | 硬件状态明细与变更记录 |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | 八步流程规范 |
+| [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md) | 启动流程唯一入口（铁则 8）：先挂串口抓取再 `fastboot boot` |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★35 |
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-130 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |

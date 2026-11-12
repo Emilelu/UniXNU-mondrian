@@ -14,6 +14,7 @@
 | [STATUS.md](STATUS.md) | **当前硬件状态明细** + 2026-11-11/11-12 变更记录（README 的详细版） |
 - [`BOOT-ARGS.md`](BOOT-ARGS.md) —— 每个 boot 参数的接受值、默认与陷阱；608 字节预算；三个 GPU 开关的串行依赖。
 | [EIGHT-STEP-SPEC.md](EIGHT-STEP-SPEC.md) | **八步流程规范**：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机。每步含目的/必做/证据格式/通过条件/反模式 |
+| [BOOT-PROCEDURE.md](BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂 CDC-ACM 串口抓取 → `fastboot boot`；"控制台没出现"= 早启动挂死的硬证据；含二分回退配方 |
 
 ## 二、规则与坑
 

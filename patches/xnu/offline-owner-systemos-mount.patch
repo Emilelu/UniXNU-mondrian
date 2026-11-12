@@ -119,10 +119,10 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +#endif
 +	const char *mountpoint = "/";
 +#else
-+	const char *mountpoint = "/private/preboot";
++	const char *mountpoint = "/";
 +#endif
 +#if !defined(XNU_OWNER_UNION_SYSTEMOS) || !XNU_OWNER_UNION_SYSTEMOS
-+	const char *environment = "DYLD_SHARED_CACHE_DIR=/private/preboot/System/Library/Caches/com.apple.dyld/";
++	const char *environment = "DYLD_SHARED_CACHE_DIR=/System/Library/Caches/com.apple.dyld/";
 +#endif
 +	vnode_t original_os_root = rootvnode;
 +	native_owner_cache_original_root = (uintptr_t)original_os_root;
@@ -144,7 +144,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	uint32_t anonymous_owner = 99;
 +#if !defined(XNU_OWNER_UNION_SYSTEMOS) || !XNU_OWNER_UNION_SYSTEMOS
 +#if defined(XNU_OWNER_CRYPTEX_FILES) && XNU_OWNER_CRYPTEX_FILES
-+	const char *fallback = "DYLD_FALLBACK_LIBRARY_PATH=/private/preboot/usr/lib";
++	const char *fallback = "DYLD_FALLBACK_LIBRARY_PATH=/usr/lib";
 +	user64_addr_t environment_vector[3] = {scratch + 0x400, scratch + 0x600, USER_ADDR_NULL};
 +#else
 +	user64_addr_t environment_vector[2] = {scratch + 0x400, USER_ADDR_NULL};
@@ -262,7 +262,7 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
 +	native_owner_cache_stage = 5;
 +#if !defined(XNU_OWNER_UNION_SYSTEMOS) || !XNU_OWNER_UNION_SYSTEMOS
 +#if defined(XNU_OWNER_CRYPTEX_FILES) && XNU_OWNER_CRYPTEX_FILES
-+	const char *shared_cache_path = "/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64";
++	const char *shared_cache_path = "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64";
 +	vnode_t shared_cache_vp = NULLVP;
 +	int shared_cache_error = vnode_lookup(shared_cache_path, 0, &shared_cache_vp,
 +	    vfs_context_current());

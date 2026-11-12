@@ -198,3 +198,7 @@ reason = "构建脚本的运行期暂存目录"
 [[allow]]
 path = "scripts/flash.sh::/tmp/k60flash.XXXXXX"
 reason = "门禁输出落在 mktemp -d 的临时目录里，trap EXIT 时删除；不是存放点"
+
+[[allow]]
+path = "scripts/check-build-applied.py::/tmp/usb-cdc-mainline/device/patches/xnu/series"
+reason = "门禁比较的是构建输入序列，输入镜像本身就在 /tmp/usb-cdc-mainline（见文件头注释），不是持久存放点"

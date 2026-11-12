@@ -66,6 +66,10 @@ SKIP_PATHS = (
     'scripts/check-', 'scripts/tests/', 'scripts/watch-upstream.py',
     'scripts/pick-upstream.py', 'scripts/sync-device-input.py',
     'docs/research/', 'docs/engineering/', 'docs/proposals/',
+    # The repo index is the map every gate reads: a pick replaced it with a
+    # 145-line upstream version and dropped the entries for BOOT-PROCEDURE.md,
+    # BOOT-ARGS.md and HARD-RULES.md, which fails check-boot-procedure.py G.
+    'docs/INDEX.md', 'docs/',
     'AGENTS.md', 'README.md', 'README_EN.md', 'CREDITS.md',
     'docs/SCOPE-FREEZE.toml', '.gitignore',
 )

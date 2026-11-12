@@ -69,9 +69,11 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 
 1. **接入构建**：`unixnu` 目前只认 `patches/xnu/series`。要么把 wifi 补丁并进那条系列，
    要么在构建流程里加一个 applier 步骤。
-2. **`0010` 缺失**：README 里说必需的 `0010`（在 `build-xnu-4k-baseline.sh` 加
-   `-force_load libPongWifiNative.a`）在最终系列和本仓里都不存在。
-   没有它，archive 编出来也不会链进内核。
+2. **`0010` 已补（2026-11-12）**：`0010-scripts-build-xnu-wifi-archive.patch`
+   在 `build-xnu-4k-baseline.sh` 的归档块里加 `XNU_PONG_WIFI` 门禁 +
+   `-Wl,-force_load,$PONG_WIFI_ARCHIVE` + 依赖项。写法照抄现有四个 probe 归档
+   （`ADRENO_PROBE` / `PM4_PROBE` / `SMMU4K_PROBE` / `CONSTANT_UPLOADS`）。
+   默认 `XNU_PONG_WIFI=0`，没有 archive 的树照样链接。
 
 ## 已知 bug：refgen 索引写错
 

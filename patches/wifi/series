@@ -7,3 +7,4 @@
 0007-configs-mondrian-wifi-defconfig.patch
 0008-configs-mondrian-wifi-sm8475.patch
 0009-scripts-k60-wifi-build.patch
+0010-scripts-build-xnu-wifi-archive.patch

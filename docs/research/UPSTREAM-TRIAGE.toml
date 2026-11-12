@@ -1081,3 +1081,21 @@ verdict = "not-applicable"
 how = "纯文档"
 reason = "自动记录：UniXNU-mondrian 分支 main"
 date = "2026-11-12"
+
+[[commit]]
+sha = "8cdfcffa0"
+subject = "feat(gpu): decouple the GPU addon mount from the offline broker"
+verdict = "deferred"
+how = "仅研判，未取"
+reason = "本板 Metal 交付链未启用（0404-k60-metal-deploy 未入 patches/xnu/series，无 .publish/.clients 种子），取过来没有可验证的落地路径；恢复 GPU 路线时重评。"
+review_after = "2026-11-20"
+date = "2026-11-13"
+
+[[commit]]
+sha = "6bde2772e"
+subject = "feat(gpu): hand the framebuffer to the Adreno after stage A"
+verdict = "deferred"
+how = "仅研判，未取"
+reason = "同上：Adreno 当前 startup 后仍 no accelerator published，framebuffer 交接的前置条件在板上不成立；恢复 GPU 路线时重评。"
+review_after = "2026-11-20"
+date = "2026-11-13"

@@ -4027,3 +4027,16 @@ if not (framework / 'PrivateHeaders/IOKit/pwr_mgt/IOPMPowerSource.h').exists() a
 直接以 XNU 自己的 `iokit/IOKit/*` 与 `osfmk/*` 头为准，把电池驱动作为
 `patches/xnu/` 里的源码补丁编进内核（`0602-physical-battery.patch` 的方向），
 而不是外部归档。走这条路要先证明它需要的每一个符号在内核里都有定义。
+
+### P-168 追加实测（2026-11-13）
+
+`patches/xnu/0602-k60-physical-battery.patch` 的头部原文写着"The builtin archive
+inherits XNU's real IOPMPowerSource"。这句在本树上不成立：
+`grep -rl 'IOPMPowerSource\|IOPowerSource\|AppleSmartBattery' iokit/ bsd/` 返回
+**零个文件**，`iokit/IOKit/pwr_mgt/IOPM.h` 里也没有该类。也就是说这个类只存在于
+Apple 的 Kernel.framework，不在 XNU 源码里。
+
+因此两条路的真实成本是：
+- 归档路：需要 Kernel.framework（P-168 主体），本机无。
+- 源码路：需要在树里**新写**一个 IOService nub 来发布电池属性，
+  不能"继承"一个不存在的类。这不是补丁，是驱动。

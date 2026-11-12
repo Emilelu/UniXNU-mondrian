@@ -1,7 +1,14 @@
 From: UniXNU contributors
 Subject: [PATCH] k60: start only the authenticated physical battery source
 
-The builtin archive inherits XNU's real IOPMPowerSource. It reads the actual
+The builtin archive was meant to inherit XNU's real IOPMPowerSource. MEASURED
+2026-11-13: this tree has NO IOPMPowerSource, IOPowerSource or AppleSmartBattery
+anywhere under iokit/ or bsd/ (grep returns zero files), and the header
+IOPMPowerSource.h lives in Apple's Kernel.framework, not in XNU source. So the
+in-tree route needs an authored IOService nub, and the archive route needs that
+SDK; see P-168. Nothing below starts a battery until one of the two exists.
+
+The archive reads the actual
 PMIC_RTR_ADSP_APPS protocol over exclusively leased SMEM/GLINK FIFOs and
 publishes only after a valid coherent hardware sample. A missing PAS1 owner
 handoff is logged and leaves battery status unavailable; no fixed percentage,

@@ -5,8 +5,8 @@
 扫完又有新的。做法改成：
   1. 用 .upstream-seen.json 记住每个分支已处理到哪个 SHA
   2. 只拉增量（git log old..new）
-  3. 按路径自动分类：启动链 / 触摸 / GPU / 电池 / 音频 / 文档 / 构建
-  4. 文档类直接标 trivial 不占注意力，硬件类才要求研判
+  3. 按路径自动分类
+  4. **默认该 pick** —— 只有纯文档和纯 CI 才默认不取（铁则 6）
 
 用法：
   python3 scripts/watch-upstream.py            # 增量报告
@@ -32,18 +32,21 @@ REPOS = {
 
 # 路径 -> 类别。顺序有意义：先匹配先生效。
 RULES = [
-    ('boot',    ('patches/xnu/04', 'patches/xnu/039', 'patches/xnu/0600', 'configs/', 'board.toml')),
+    ('boot',    ('patches/xnu/', 'configs/', 'board.toml', 'dts/')),
     ('touch',   ('pong-touch', 'touch.c', 'touch.h', 'goodix')),
     ('gpu',     ('PongAdreno', 'PongMetal', 'NativeMetal', 'adreno', 'metal')),
     ('battery', ('PongPower', 'battery', 'Battmgr', 'PmicGlink', 'QcomGlink', 'Smem')),
     ('audio',   ('audio', 'Adsp', 'Gpr', 'Wcd')),
     ('input',   ('pong_input', 'pong_buttons', 'physical-keys')),
-    ('build',   ('scripts/', 'unixnu/', 'Makefile', '.github/')),
+    ('ufs',     ('NativeUfs', 'ufs', 'RootCommands')),
+    ('usb',     ('usb', 'Dwc3', 'cdc')),
+    ('build',   ('scripts/', 'unixnu/', 'Makefile')),
+    ('ci',      ('.github/',)),
     ('docs',    ('.md', 'docs/')),
 ]
 
-WEIGHT = {'boot': 5, 'touch': 4, 'gpu': 4, 'battery': 4, 'audio': 3,
-          'input': 3, 'build': 2, 'docs': 1, 'other': 2}
+# 只有纯文档 / 纯 CI 才默认不取。其余一律「该 pick」。
+SKIP_CATS = {'docs', 'ci'}
 
 
 def git(d, *args):
@@ -117,10 +120,9 @@ def poll(fetch=True, verbose=True):
                 files = git(d, 'show', '--name-only', '--format=', sha).split('\n')
                 files = [f for f in files if f.strip()]
                 cats = classify(files)
-                weight = max(WEIGHT.get(c, 2) for c in cats)
                 findings.append({
                     'repo': name, 'branch': br, 'sha': sha[:9], 'date': date[:16],
-                    'subject': subj, 'cats': sorted(cats), 'weight': weight,
+                    'subject': subj, 'cats': sorted(cats),
                     'files': files[:8], 'nfiles': len(files),
                 })
             seen[key] = head
@@ -131,24 +133,26 @@ def poll(fetch=True, verbose=True):
         if not findings:
             print('  没有新提交')
             return 0
-        findings.sort(key=lambda x: (-x['weight'], x['date']))
-        hi = [f for f in findings if f['weight'] >= 3]
-        lo = [f for f in findings if f['weight'] < 3]
-        print('  新提交 %d 个（高价值 %d / 低价值 %d）' % (len(findings), len(hi), len(lo)))
-        if hi:
+        findings.sort(key=lambda x: x['date'])
+        pick = [f for f in findings if not (set(f['cats']) <= SKIP_CATS)]
+        skip = [f for f in findings if set(f['cats']) <= SKIP_CATS]
+        print('  新提交 %d 个：该 pick %d / 可略过（纯文档或 CI）%d'
+              % (len(findings), len(pick), len(skip)))
+        if pick:
             print()
-            print('  === 需要研判 ===')
-            for f in hi:
+            print('  === 该 pick ===')
+            for f in pick:
                 print('  %s %s/%s  %s' % (f['sha'], f['repo'][:8], f['branch'][:18], f['date']))
                 print('      %s' % f['subject'][:88])
                 print('      类别 %s  %d 个文件' % (','.join(f['cats']), f['nfiles']))
-                for x in f['files'][:4]:
-                    print('        %s' % x[:76])
-        if lo:
+                for x in f['files'][:3]:
+                    print('        %s' % x[:74])
+                print('      git -C <mirror> show %s' % f['sha'])
+        if skip:
             print()
-            print('  === 可略过 ===')
-            for f in lo:
-                print('  %s %s/%s  %s' % (f['sha'], f['repo'][:8], f['branch'][:18], f['subject'][:60]))
+            print('  === 可略过（纯文档 / CI）===')
+            for f in skip:
+                print('  %s %s/%s  %s' % (f['sha'], f['repo'][:8], f['branch'][:18], f['subject'][:58]))
     return len(findings)
 
 

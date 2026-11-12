@@ -107,7 +107,8 @@ def main():
             print('     %s' % p)
         print()
         print('     每个水位之后的新提交都要在 docs/research/UPSTREAM-TRIAGE.toml')
-        print('     里写一条 [[commit]]，verdict 三选一，deferred 必须写 review_after。')
+        print('     里写一条 [[commit]]。默认 verdict 是 picked；')
+        print('     只有纯文档用 not-applicable，只有物理上套不上我们的树才用 deferred。')
         return 1
 
     picked = sum(1 for v in triaged.values() if v == 'picked')

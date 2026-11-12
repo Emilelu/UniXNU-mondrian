@@ -8,6 +8,9 @@
 #   1. 每个 yibiya 镜像的每个分支，都必须有一条 watermark 记录
 #   2. watermark 之后的新提交，必须逐个写进 [[commit]]
 #   3. verdict 只能是 picked / not-applicable / deferred
+#      默认是 picked —— 上游在修真问题，每个修复都值得取。
+#      not-applicable 只给纯文档；deferred 只给「物理上套不上我们的树」。
+#      「我会写得不一样」不是理由。
 #   4. deferred 必须写 reason 和 review_after（否则等于忘记）
 #
 # scripts/check-upstream-triage.py 会在构建前检查这些。加新镜像时

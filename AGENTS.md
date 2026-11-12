@@ -82,6 +82,15 @@ a violation costs work that cannot be recovered.
    times. Reporting is not following. A deferred commit without a date is a
    forgotten commit.
 
+   **The default verdict is `picked`.** Upstream is fixing real K60 problems and
+   every one of those fixes is worth having; a commit earns `not-applicable`
+   only by being documentation, and `deferred` only by physically not applying
+   to our tree. "I would have written it differently" is not a reason. Where the
+   divergence is broad enough that cherry-picking commit by commit stops making
+   sense, rebase onto the upstream branch and re-apply our additions on top -
+   that is the same rule followed at the right granularity, not an exception to
+   it.
+
 7. **Snapshot before touching anything that boots.** A tag is the only thing
    that makes a change reversible. `git reset --hard` destroyed the eight-step
    table deduplication because there was nothing to reset back to, and

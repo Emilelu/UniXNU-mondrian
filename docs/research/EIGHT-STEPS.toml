@@ -110,7 +110,10 @@ evidence = "方案见 docs/plans/GPU-ENABLE-PLAN.md（47,368 B，6 章节）：�
 
 [hardware.gpu.step.deep]
 done = true
-evidence = "深挖：内核 42 行 result=0 全通（CP ready、GMU firmware/HFI、CX clocks、parent ARC），但 IOAcceleratorES 发布 0 次；插件 94,928 B 已部署且属主 uid=0（K60METALPLUGIN deploy bytes=94928 resid=0 error=0），native Metal entry 0 次。PITFALLS.md 记录 pong_metal=2 绕开注入后 backboardd 0 崩、maxpid 196。"
+evidence = """深挖（2026-11-13 重测，推翻 11-12 结论）：原文写"内核全通但 IOAcceleratorES 发布 0 次"，实际是两个读法错误叠加。
+（1）`PONG ADRENO: startup requested; no accelerator published` 是 drivers/PongAdreno/PongAdrenoPlatform.cpp:411 在 IOSleep(8000) 后打的**横幅**，不是结论；其后 22 个阶段全部 result=0，终态由 51b17c6 新增的一行给出：`PONG ADRENO: startup COMPLETE; hardware armed result=0 a=0x40000007 b=0x20010000`（usblog-20261113-054621:618）。
+（2）drivers/PongAdreno/PongAdrenoNativeGlue.cpp:43-49 只在 `pong_metal==1` 时调用发布器，而 11-11 的可启动参数集用的是 `pong_metal=2`，所以发布器从未被调用；用 pong_metal=1 重启后 `PONG METAL: real IOAcceleratorES provider published for20G81 discovery` 与 `NativeAdreno complete runtime publication status=0x0` 同时出现（usblog-20261113-055021:616-618）。
+（3）剩下的缺口在用户态装载：userland/ui_compat.c:510 打印 software-only 的唯一条件是 MTLCreateSystemDefaultDevice() 返回 nil；日志里 DYLD_INSERT/PongMetal/libpong 零命中，说明 /private/var/pong/PongAdrenoMetal.bundle 从未被 dlopen 过。已记为 P-164/P-167 与 STATUS.md「GPU / Metal」小节。"""
 
 [hardware.gpu.step.verify]
 done = true

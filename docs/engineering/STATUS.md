@@ -166,3 +166,35 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 | `docs/engineering/K60-TOUCH-CHECKLIST.md` | 触摸八步核对清单 |
 | `porting.toml` | 14 个子系统的记录（官网设备页数据源）|
 | `CREDITS.md` | 贡献者与来源 |
+
+## GPU / Metal 现状（2026-11-13 实测，修正旧结论）
+
+三条来自 `E:\k60-work\evidence\usblog-20261113-055021\console.log`：
+
+```
+616: PONG METAL: real IOAcceleratorES provider published for20G81 discovery
+618: PONG METAL: NativeAdreno complete runtime publication status=0x0
+622: PONG ADRENO: startup COMPLETE; hardware armed result=0 a=0x40000007 b=0x20010000
+712: Pong init: native Metal entry enabled for backboardd
+1557: Pong UI: optional camera-filter GPU prewarm skipped (software-only platform)
+```
+
+1. **`pong_metal=1` 不再导致 backboardd 崩溃。** 本文件早前记的
+   "`pong_metal=1` → backboardd crash `-[NSURL fileURLWithPath:]` nil，只有
+   `pong_metal=2` 稳定" 已失效：那次崩溃发生在 Data 卷与 `libSystem` 还加载失败的
+   时期，与取值只是时间上的巧合。取 `=1` 现在能发布 provider、能进
+   `Early boot complete`。
+2. **`pong_metal=2` 时那段发布代码根本不会执行**，所以"看不到 Metal"曾长期被误读
+   为失败；实际是 `PongAdrenoNativeGlue.cpp:43-49` 只在 `metal==1` 时调用
+   `PongAdrenoPublishMetalAccelerator()`。
+3. **用户态仍判定为 software-only**（第 1557 行）。原因在文件部署，不在内核：
+   日志里 `K60METALPLUGIN deploy bytes=94928` 只有 bundle 的**可执行文件**，
+   缺 `Info.plist`、`PongAdrenoMetal.publish`、`PongAdrenoMetal.clients`，
+   以及 `PongMetalBridge.dylib`、`libvulkan_freedreno.dylib`。`PongMetalPlugin.mm:191-200`
+   要求 `.publish` 内容为 `1`、属主 uid 0、组与其他位不可写，否则
+   `selectedClient()` 直接返回 false——这正是 software-only 的来源。
+
+缺失清单与体积：`Info.plist` 695 B、`PongAdrenoMetal.publish` 2 B、
+`PongAdrenoMetal.clients` 数十字节（这三项极小，可用内核 blob 方式部署）；
+`PongMetalBridge.dylib` ≈33 MB、`libvulkan_freedreno.dylib` ≈18 MB（必须走
+文件系统，不可能做成 C 数组）。

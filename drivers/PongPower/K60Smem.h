@@ -12,9 +12,13 @@ extern "C" {
 typedef struct { volatile uint8_t *base; uint32_t size; } K60Smem;
 typedef struct { uint32_t offset, size, cacheline; uint16_t host0, host1; } K60SmemPartition;
 enum { K60SmemOk = 0, K60SmemNoTable = -1, K60SmemNoPartition = -2,
-       K60SmemBadPartition = -3, K60SmemCorrupt = -4, K60SmemMissing = -5 };
+       K60SmemBadPartition = -3, K60SmemCorrupt = -4, K60SmemMissing = -5,
+       K60SmemExists = -6, K60SmemNoSpace = -7 };
 int k60_smem_partition(const K60Smem *, uint16_t, uint16_t, K60SmemPartition *);
 int k60_smem_find(const K60Smem *, const K60SmemPartition *, uint16_t, uint32_t *, uint32_t *);
+/* Appends one item; the entry is complete before the free mark moves over it.
+ * Adapted from pong-power QcomSmem.c qcom_smem_alloc (c37179ed). */
+int k60_smem_alloc(const K60Smem *, const K60SmemPartition *, uint16_t, uint32_t, uint32_t *, uint32_t *);
 #ifdef __cplusplus
 }
 #endif

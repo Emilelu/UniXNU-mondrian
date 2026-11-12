@@ -21,6 +21,16 @@ static void acquire(void)
 #endif
 }
 static uint32_t align_up(uint32_t v, uint32_t n) { return (v + n - 1) & ~(n - 1); }
+static void wr(const K60Smem *s, uint32_t at, uint32_t v)
+{
+    *(volatile uint32_t *)(s->base + at) = v;
+}
+static void release(void)
+{
+#if defined(__aarch64__) && defined(KERNEL)
+    __asm__ volatile("dmb osh" ::: "memory");
+#endif
+}
 static int partition_bounds(const K60Smem *s, const K60SmemPartition *p, uint32_t *up, uint32_t *down)
 {
     if (!s || !s->base || !p || s->size < 8192 || !fits(p->offset, p->size, s->size - 4096) ||
@@ -98,4 +108,44 @@ int k60_smem_find(const K60Smem *s, const K60SmemPartition *p, uint16_t item, ui
         at -= bytes + header;
     }
     return K60SmemMissing;
+}
+
+int k60_smem_alloc(const K60Smem *s, const K60SmemPartition *p, uint16_t item, uint32_t size,
+                   uint32_t *offset, uint32_t *size_out)
+{
+    uint32_t up, down, at, aligned, need, i;
+    int rc;
+
+    if (!s || !s->base || !p || !size) return K60SmemBadPartition;
+    rc = partition_bounds(s, p, &up, &down);
+    if (rc) return rc;
+
+    /* Duplicate items are refused, not merged: the reference allocator returns
+     * Exists so a caller can distinguish "already leased" from "no room". */
+    {
+        uint32_t existing_offset = 0, existing_size = 0;
+        if (k60_smem_find(s, p, item, &existing_offset, &existing_size) == K60SmemOk)
+            return K60SmemExists;
+    }
+
+    at = up;
+    aligned = align_up(size, 8);
+    need = ENTRY + aligned;
+    if (aligned < size) return K60SmemNoSpace;
+    if ((uint64_t)at + need > down) return K60SmemNoSpace;
+    if (at & 7) return K60SmemCorrupt;
+
+    wr(s, p->offset + at, CANARY | ((uint32_t)item << 16));
+    wr(s, p->offset + at + 4, aligned);
+    wr(s, p->offset + at + 8, aligned - size);   /* header padding 0, data padding = align slack */
+    wr(s, p->offset + at + 12, 0);
+    for (i = 0; i < aligned; i += 4) wr(s, p->offset + at + ENTRY + i, 0);
+
+    /* The entry is complete before the free mark moves over it. */
+    release();
+    wr(s, p->offset + 12, at + need);
+
+    if (offset) *offset = p->offset + at + ENTRY;
+    if (size_out) *size_out = aligned - (aligned - size);
+    return K60SmemOk;
 }

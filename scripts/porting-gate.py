@@ -327,11 +327,23 @@ else:
 sec('B', 'init 二进制（★27 / P-94 / P-99）')
 blob = None
 try:
-    s = io.open(REPO + '/patches/xnu/0391-k60-embedded-init.patch',
-                encoding='utf-8', errors='ignore').read()
-    m = re.search(r'k60_init_blob\[K60_INIT_BLOB_LEN\] = \{(.*?)\};', s, re.S)
-    if m:
-        blob = bytes(int(x, 16) for x in re.findall(r'0x([0-9a-f]{2})', m.group(1)))
+    # Judge the patch the series actually applies. 0391 has been out of the
+    # series since the init blob moved into 0401, so testing 0391 by name made
+    # this blocker impossible to clear: the gate demanded a blob from a file
+    # no build consumes (P-104 stale-check).
+    order = io.open(REPO + '/patches/xnu/series', encoding='utf-8').read().split()
+    for name in order:
+        if 'embedded-init' not in name and 'init' not in name:
+            continue
+        path = REPO + '/patches/xnu/' + name
+        if not os.path.exists(path):
+            continue
+        s = io.open(path, encoding='utf-8', errors='ignore').read()
+        m = re.search(r'k60_init_blob\[K60_INIT_BLOB_LEN\] = \{(.*?)\};', s, re.S)
+        if m:
+            blob = bytes(int(x, 16) for x in re.findall(r'0x([0-9a-f]{2})', m.group(1)))
+            INIT_SOURCE = name
+            break
 except Exception:
     pass
 

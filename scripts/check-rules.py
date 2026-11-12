@@ -67,8 +67,16 @@ def run_check(command: str) -> tuple[bool, str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--repo", help="repository to check (default: the one holding this script)")
     parser.add_argument("--only", action="append", default=[])
     args = parser.parse_args()
+
+    if args.repo:
+        global REPO, RULES, PITFALLS, AGENTS
+        REPO = Path(args.repo).resolve()
+        RULES = REPO / "docs" / "engineering" / "RULES.toml"
+        PITFALLS = REPO / "docs" / "engineering" / "PITFALLS.md"
+        AGENTS = REPO / "AGENTS.md"
 
     if not RULES.is_file():
         print(f"❌ 缺少登记表 {RULES.relative_to(REPO)}")

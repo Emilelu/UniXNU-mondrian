@@ -74,4 +74,52 @@ if missing:
 
 print('  ✅ BOOT-ARGS.md 覆盖 config %d / 源码 %d 个参数（已文档化 %d）'
       % (len(cfg), len(src), len(documented)))
+
+# P-156：文档写了范围，配置却越界。2026-11-12 board.toml 里是 k60_touch_se=19，
+# 而驱动只接受 1..7（`if (stage > 7) { printf("unsupported k60_touch_se=…"); return; }`），
+# 于是触摸整条线在 boot 时就被自己的参数关掉了，日志只有一行 unsupported，
+# 而且"正常 UI 启动继续"，看起来像驱动坏了。
+# 文档表格的「范围」列因此成为判据来源：写下来就必须被检查。
+ranges = {}
+for m in re.finditer(r'^\| `([A-Za-z0-9_\-]+)` \|[^|]*\|\s*([^|]+?)\s*\|', doc, re.M):
+    name, spec = m.group(1), m.group(2)
+    lo = hi = None
+    r2 = re.match(r'^(\d+)\.\.(\d+)$', spec)
+    r1 = re.match(r'^≤\s*(\d+)$', spec)
+    if r2:
+        lo, hi = int(r2.group(1)), int(r2.group(2))
+    elif r1:
+        lo, hi = 0, int(r1.group(1))
+    if lo is not None:
+        ranges[name] = (lo, hi)
+
+try:
+    bd2 = tl.load(io.open(os.path.join(ROOT, 'board.toml'), 'rb'))
+    args2 = bd2.get('payload', {}).get('kernel_args', [])
+except Exception:
+    args2 = []
+
+bad = []
+for a in args2:
+    if '=' not in a:
+        continue
+    name, value = a.split('=', 1)
+    if name not in ranges:
+        continue
+    try:
+        number = int(value, 0)
+    except ValueError:
+        continue
+    lo, hi = ranges[name]
+    if not (lo <= number <= hi):
+        bad.append((name, value, lo, hi))
+
+if bad:
+    print('  ❌ board.toml 里 %d 个参数越出 BOOT-ARGS.md 声明范围:' % len(bad))
+    for name, value, lo, hi in bad:
+        print('      %-24s = %s（允许 %d..%d）' % (name, value, lo, hi))
+    sys.exit(1)
+if ranges:
+    print('  ✅ 已声明范围的 %d 个参数都在范围内' % len(ranges))
 sys.exit(0)
+

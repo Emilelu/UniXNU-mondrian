@@ -346,3 +346,17 @@ kind = "hard"
 source = "docs/engineering/HARD-RULES.md:★37"
 statement = "待办与文档里禁止硬编码上游 SHA"
 waiver = "禁止硬编码上游 SHA：可由脚本扫描 docs 里的 40 位十六进制串，但误报率高，待设计允许列表后实现"
+
+[[rule]]
+id = "P-156"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-156"
+statement = "boot-arg 的值必须落在 BOOT-ARGS.md 声明的范围里"
+check = "python3 scripts/check-boot-args.py"
+
+[[rule]]
+id = "hard-38"
+kind = "hard"
+source = "scripts/check-config-consistency.py"
+statement = "生成 .config 必须与所选 defconfig 一致（否则改了 defconfig 也不生效）"
+check = "python3 scripts/check-config-consistency.py"

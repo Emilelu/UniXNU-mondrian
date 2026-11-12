@@ -3868,3 +3868,22 @@ strings 里 "M11HTC":  present      <- 同上
   要么同时删掉等量行。`fix-patch-hunks.py` 只重算 hunk 计数，不会替后续补丁找偏移。
 - **门禁**：`porting-gate.py` 的 `[S]` series 指纹会在补丁内容变化时要求显式
   `--force-new-series`；真正的判据仍是完整构建。
+
+### P-156 ★★ boot-arg 的值越出驱动接受范围，硬件会被自己的参数关掉
+
+- **症状**：串口只有一行
+  `Pong touch: unsupported k60_touch_se=19; normal UI boot continues`，
+  之后再无触摸日志，polls/reports 全 0。看起来像驱动坏了。
+- **根因**：`board.toml` 里写的是 `k60_touch_se=19`（旧编号残留），而驱动
+  `pong_goodix_init()` 只接受 `1..7`：
+  ```
+  (void)PE_parse_boot_argn("k60_touch_se", &stage, sizeof(stage));
+  if (!enabled || !stage) return;
+  if (stage > 7) { printf("Pong touch: unsupported k60_touch_se=%u; ..."); return; }
+  ```
+  越界就 `return`，整条触摸线程不启动；而 `docs/engineering/BOOT-ARGS.md` 的表格
+  早就写着「0..7」——文档对、配置错，没有任何东西在比对它们。
+- **修法**：`board.toml` 改回 `k60_touch_se=6`。
+- **门禁**：`check-boot-args.py` 新增范围校验——把 `BOOT-ARGS.md` 表格里「范围」列
+  的 `A..B` / `≤ N` 解析成判据，逐条比对 `board.toml` 的实参，越界即失败。
+  文档因此变成可执行的：写下来的范围就会被检查。

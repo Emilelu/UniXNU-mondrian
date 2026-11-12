@@ -1,0 +1,24 @@
+--- a/bsd/dev/pong_goodix.c
++++ b/bsd/dev/pong_goodix.c
+@@ -1201,6 +1201,10 @@
+         if (!bitbang_init()) { printf("K60BB init rc=0\n"); return false; }
+         printf("K60BB init rc=1\n");
+         spi_transfer = bitbang_transfer;
++        printf("K60PAD cs=%u miso=%u clk=%u mosi=%u rst=%u\n",
++            (unsigned)gpio_get(PIN_CS), (unsigned)gpio_get(PIN_MISO),
++            (unsigned)gpio_get(PIN_CLK), (unsigned)gpio_get(PIN_MOSI),
++            (unsigned)gpio_get(PIN_RESET));
+     } else {
+         printf("Pong touch: mapping serial engine %#llx after clock checks\n", se_phys);
+         se = ml_io_map(SE_PHYS, SE_SIZE);
+@@ -1214,6 +1218,10 @@
+             printf("Pong touch: %s; use real GPIO SPI, not forced FIFO or guessed DMA\n", problem);
+             if (!bitbang_init()) return false;
+             spi_transfer = bitbang_transfer;
++        printf("K60PAD cs=%u miso=%u clk=%u mosi=%u rst=%u\n",
++            (unsigned)gpio_get(PIN_CS), (unsigned)gpio_get(PIN_MISO),
++            (unsigned)gpio_get(PIN_CLK), (unsigned)gpio_get(PIN_MOSI),
++            (unsigned)gpio_get(PIN_RESET));
+             printf("K60BB transport=bitbang\n");
+         } else if (problem) {
+             printf("Pong touch: GENI unavailable: %s\n", problem);

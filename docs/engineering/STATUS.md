@@ -12,12 +12,12 @@
 > 写死的 SHA 第二天就过时。查最新状态用 `scripts/track-upstream-branches.py`。
 
 
-### 可刷镜像（2026-11-12 07:58）
+### 可刷镜像（2026-11-12 08:29）
 
 ```
-/mnt/e/k60-work/usb-a-stage/out/boot-r42-touch-gpu.img
+/mnt/e/k60-work/usb-a-stage/out/boot-r49-audio-dt.img
 202,362,880 B
-sha256 708527a10577222acfecb2ed00998f01bef2a83040fa37b90da309f2d069f27c
+sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 ```
 
 包含当天全部改动：
@@ -34,6 +34,7 @@ sha256 708527a10577222acfecb2ed00998f01bef2a83040fa37b90da309f2d069f27c
 | UFS 三模式等待 | `native-ufs-wait` |
 | GPU 启动开关 | `pong_adreno_start=1` |
 | GPU Metal 开关 | `pong_metal=1` |
+| 音频 DT 节点 | `pong-audio`（九个待实测项写 0）|
 
 内核 sha256 `c447cefa419a6f6d`，payload 内核 `6dbcc4dc59a484cb`（payload 步骤
 额外打 AppleARMCPU 补丁），212 个补丁。

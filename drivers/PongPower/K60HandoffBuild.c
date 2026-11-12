@@ -4,13 +4,13 @@
 
 #define BAD_PLAN (-8)
 
-static void le32(uint8_t *p, uint32_t v)
+static void hb32(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
-static void le64(uint8_t *p, uint64_t v)
+static void hb64(uint8_t *p, uint64_t v)
 {
-    le32(p, (uint32_t)v); le32(p + 4, (uint32_t)(v >> 32));
+    hb32(p, (uint32_t)v); hb32(p + 4, (uint32_t)(v >> 32));
 }
 static int ring_ok(uint32_t bytes) { return bytes >= 256u && bytes <= 65536u && (bytes & 7u) == 0u; }
 
@@ -64,29 +64,29 @@ int k60_handoff_build(const K60Smem *smem, const K60SmemPartition *part,
         if (lengths[i] < sizes[i]) return K60SmemCorrupt;
     }
 
-    le32(out + 0, K60_HANDOFF_MAGIC);
-    le32(out + 4, K60_HANDOFF_VERSION);
-    le32(out + 8, K60_HANDOFF_BYTES);
-    le32(out + 12, plan->required);
-    le32(out + 16, plan->epoch);
-    le32(out + 20, 0);
-    le64(out + 24, plan->smem_base);
-    le32(out + 32, plan->smem_bytes);
-    le32(out + 36, 0);
-    le64(out + 40, plan->adsp_base);
-    le32(out + 48, plan->adsp_bytes);
-    le32(out + 52, 0);
-    le32(out + 56, offsets[0]);
-    le32(out + 60, plan->desc_bytes);
-    le32(out + 64, offsets[1]);
-    le32(out + 68, plan->tx_bytes);
-    le32(out + 72, offsets[2]);
-    le32(out + 76, plan->rx_bytes);
-    le32(out + 80, plan->host_tx_head);
-    le32(out + 84, plan->host_rx_tail);
-    le32(out + 88, plan->remote_pid);
-    le32(out + 92, plan->smp2p_item);
-    le32(out + 96, plan->remote_restart_flag);
-    le32(out + 100, 0);
+    hb32(out + 0, K60_HANDOFF_MAGIC);
+    hb32(out + 4, K60_HANDOFF_VERSION);
+    hb32(out + 8, K60_HANDOFF_BYTES);
+    hb32(out + 12, plan->required);
+    hb32(out + 16, plan->epoch);
+    hb32(out + 20, 0);   /* high half of the 64-bit epoch */
+    hb64(out + 24, plan->smem_base);
+    hb32(out + 32, plan->smem_bytes);
+    hb32(out + 36, 0);
+    hb64(out + 40, plan->adsp_base);
+    hb32(out + 48, plan->adsp_bytes);
+    hb32(out + 52, 0);
+    hb32(out + 56, offsets[0]);
+    hb32(out + 60, plan->desc_bytes);
+    hb32(out + 64, offsets[1]);
+    hb32(out + 68, plan->tx_bytes);
+    hb32(out + 72, offsets[2]);
+    hb32(out + 76, plan->rx_bytes);
+    hb32(out + 80, plan->host_tx_head);
+    hb32(out + 84, plan->host_rx_tail);
+    hb32(out + 88, plan->remote_pid);
+    hb32(out + 92, plan->smp2p_item);
+    hb32(out + 96, plan->remote_restart_flag);
+    hb32(out + 100, 0);
     return 0;
 }

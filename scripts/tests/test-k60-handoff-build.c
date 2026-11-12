@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include "../../drivers/PongPower/K60BatteryConfig.h"
 #include "../../drivers/PongPower/K60Smem.c"
 #include "../../drivers/PongPower/K60HandoffBuild.c"
 
@@ -29,7 +30,7 @@ int main(void)
     *(uint32_t *)&mem[part + 16] = 0x3c00u;
 
     memset(&plan, 0, sizeof plan);
-    plan.required = 0x7u; plan.epoch = 1793709100u;
+    plan.required = K60AdspHandoffRequired; plan.epoch = 1793709100u;
     plan.smem_base = 0x80900000ull; plan.smem_bytes = 0x200000u;
     plan.adsp_base = 0x9fd00000ull; plan.adsp_bytes = 0x3100000u;
     plan.desc_item = 0x501u; plan.tx_item = 0x502u; plan.rx_item = 0x503u; plan.smp2p_item = 0x504u;
@@ -52,7 +53,7 @@ int main(void)
             {0,  K60_HANDOFF_MAGIC, 0xffffffffu, "magic"},
             {4,  K60_HANDOFF_VERSION, 0xffffffffu, "version"},
             {8,  104u, 0xffffffffu, "bytes"},
-            {12, 0x7u, 0xffffffffu, "flags"},
+            {12, 0xfu, 0xffffffffu, "flags (K60AdspHandoffRequired = all four bits)"},
             {16, 1793709100u, 0xffffffffu, "epoch"},
             {20, 0u, 0xffffffffu, "pad20"},
             {24, 0x80900000u, 0xffffffffu, "smem_base lo"},
@@ -113,6 +114,25 @@ int main(void)
         }
     }
 
+
+    /* The only consumer is K60BatteryConfig.c: if its validator rejects our
+     * lease, nothing downstream ever runs. Feed it the bytes we produced. */
+    {
+        K60BatteryConfig cfg;
+        K60AdspGlinkHandoff parsed;
+        memset(&cfg, 0, sizeof cfg);
+        cfg.smem_base = plan.smem_base; cfg.smem_bytes = plan.smem_bytes;
+        cfg.adsp_base = plan.adsp_base; cfg.adsp_bytes = plan.adsp_bytes;
+        cfg.remote_pid = plan.remote_pid; cfg.smp2p_item = plan.smp2p_item;
+        memset(&parsed, 0xAA, sizeof parsed);
+        rc = k60_adsp_handoff_parse(out, K60_HANDOFF_BYTES, &cfg, &parsed);
+        if (rc != K60ConfigOk) { printf("FAIL validator rc=%d\n", rc); fails++; }
+        else if (parsed.desc_offset != *(uint32_t *)(out + 56) ||
+                 parsed.tx_offset != *(uint32_t *)(out + 64) ||
+                 parsed.rx_offset != *(uint32_t *)(out + 72) ||
+                 parsed.epoch != plan.epoch) { printf("FAIL validator fields\n"); fails++; }
+    }
+
     /* Second build must reuse the same items, not duplicate them. */
     {
         uint8_t out2[K60_HANDOFF_BYTES];
@@ -130,6 +150,6 @@ int main(void)
         if (*(uint32_t *)&mem[part + 12] != up_before) { printf("FAIL partition touched\n"); fails++; }
     }
 
-    printf(fails ? "TESTS FAILED %d\n" : "TESTS OK 9\n", fails);
+    printf(fails ? "TESTS FAILED %d\n" : "TESTS OK 10\n", fails);
     return fails != 0;
 }

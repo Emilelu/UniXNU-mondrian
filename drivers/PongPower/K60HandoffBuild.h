@@ -12,7 +12,9 @@ extern "C" {
 #endif
 
 #define K60_HANDOFF_BYTES 104u
-#define K60_HANDOFF_MAGIC 0x6b363068u /* "k60h" */
+/* K6BH little endian: identical to K60_ADSP_HANDOFF_MAGIC in
+ * K60BatteryConfig.h, because that validator is the only consumer. */
+#define K60_HANDOFF_MAGIC 0x4842364bu
 #define K60_HANDOFF_VERSION 1u
 
 typedef struct {

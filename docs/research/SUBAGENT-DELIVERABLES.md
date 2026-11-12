@@ -27,7 +27,7 @@
 |---|---|---|---|---|---|---|
 | SA-01 | 电池栈构建集成调研 | 2026-11-12 11:35 | `docs/engineering/BATTERY-INTEGRATION.md` | `grep:configs/mondrian_defconfig:CONFIG_XNU_K60_PHYSICAL_BATTERY` | landed | PENDING |
 | SA-02 | 音频/DSP 栈差距调研 | 2026-11-12 11:36 | `docs/research/audio/GAP-ANALYSIS.md` | `grep:docs/research/audio/GAP-ANALYSIS.md:PAS1` | landed | PENDING |
-| SA-03 | WiFi 实现差距调研 | 2026-11-12 11:37 | `docs/research/wifi/GAP-ANALYSIS.md` | `grep:docs/research/wifi/GAP-ANALYSIS.md:refgen` | landed | PENDING |
+| SA-03 | WiFi 实现差距调研 | 2026-11-12 11:37 | `docs/research/wifi/GAP-ANALYSIS.md` | `file:docs/research/wifi/FIRMWARE.md` | landed | PENDING |
 
 ## 已落库并应用
 

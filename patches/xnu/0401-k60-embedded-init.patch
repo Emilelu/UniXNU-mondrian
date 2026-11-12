@@ -115,7 +115,7 @@ diff --git a/bsd/kern/k60_init_blob.h b/bsd/kern/k60_init_blob.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/kern/k60_init_blob.h
-@@ -0,0 +1,4371 @@
+@@ -0,0 +1,2913 @@
 +/* Generated from the Pong init helper (52320 bytes): execs stock /sbin/launchd,
 + * binds the curated job set over /System/Library/LaunchDaemons, and expands
 + * /private/var/pong/boot-jobs.pack. Do not edit. */

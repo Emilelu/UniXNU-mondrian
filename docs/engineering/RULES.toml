@@ -367,3 +367,24 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-157"
 statement = "打开需要外部归档的 CONFIG_*，构建脚本必须真的 -force_load 那个归档"
 waiver = "P-157：需要一张 CONFIG→归档 的映射表才能自动判定；先由八步流程 ⑦ 的 artifact_check 人工核对"
+
+[[rule]]
+id = "P-159"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-159"
+statement = "boot image args have two sources; the kernel-embedded string is not what the firmware passes"
+waiver = "needs a recorded boot-argument configuration and its boot log; the boot-and-capture evidence directory is the natural source"
+
+[[rule]]
+id = "P-160"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-160"
+statement = "the bootable 2026-11-11 argument set differs by pong_metal=2 and an absent k60_touch_se"
+waiver = "needs a recorded boot-argument configuration and its boot log; the boot-and-capture evidence directory is the natural source"
+
+[[rule]]
+id = "P-161"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-161"
+statement = "shared_region and K60DYLD failures also appear on the bootable image"
+waiver = "needs a recorded boot-argument configuration and its boot log; the boot-and-capture evidence directory is the natural source"

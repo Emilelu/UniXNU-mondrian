@@ -3907,3 +3907,21 @@ strings 里 "M11HTC":  present      <- 同上
 - **门禁（未做）**：凡是 `CONFIG_XNU_*_MOUNT`/`_BATTERY` 这类"要链外部归档"的开关，
   应当有检查：开关为 `y` 时，`build-xnu-4k-baseline.sh` 必须出现对应的
   `-force_load`，否则失败。现在的 `check-rules.py` 没有这一类。
+
+## P-159 启动镜像的 args 有两个来源，内核里那一段不是固件传的那一段
+
+从 boot 镜像里扫 `-v native-ufs=1` 得到的字符串是内核内嵌默认值；固件真正传给内核的是 payload 卷里 `EFI/UniXNU/unixnu.toml` 的 `args`。2026-11-12 拿前者当基线做了三轮 A/B，全部无效。取法：`mtype -i IMG@@552960 ::/EFI/UniXNU/unixnu.toml`（偏移是十进制字节数，`@@0x87000` 会报 `init :: non DOS media`）。
+
+**教训**：用 mtype 读 payload 的 unixnu.toml，不要从内核串猜。
+
+## P-160 keep 镜像能启动的唯一差异是 pong_metal=2 与 k60_touch_se 未设
+
+2026-11-11 的可启动镜像 args 是 28 条，含 `pong_metal=2`、`k60_autoreset=300`、`applog=1`，不含 `fb_threads`/`k60_textonly`/`k60_touch_se`。2026-11-12 的镜像把 `pong_metal` 改成 1 并把 `k60_touch_se` 设成 6，结果 SpringBoard 只活 4 行就 exit=255，`cs_invalid_page` 从 1 涨到 11、corpse 从 4 涨到 27；换成 keep 的内核配同样的坏 args 也一样崩，说明不是内核版本问题。
+
+**教训**：board.toml 的 kernel_args 以可启动集合为准，改动必须带一次真实启动对照。
+
+## P-161 shared_region 启动失败与 K60DYLD rc=2 都不是崩溃原因
+
+崩的那次日志有 `shared_region ... vm_shared_region_start_address() failed` 和 `K60DYLD .../dyld_shared_cache_arm64e rc=2`，但可启动的 keep 镜像里同样有这两行。镜像里本来就没有 `dyld_shared_cache_arm64e`（整个镜像只有 `_arm64` 与其子缓存 .01–.42），所以 rc=2 是正常现象。
+
+**教训**：判定回归前先在可启动镜像里找同一条日志。

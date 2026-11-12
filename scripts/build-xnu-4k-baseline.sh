@@ -3,6 +3,14 @@ set -euo pipefail
 trap 'echo "build-xnu-4k-baseline.sh: line $LINENO: $BASH_COMMAND failed" >&2' ERR
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
+# xnu's SETUP tools are host binaries, but MakeInc.cmd resolves HOST_CC with
+# `xcrun -find clang`, which on Linux returns the CLT's Darwin cross clang - it targets
+# arm64e-apple-macos and cannot find <stdio.h>/<libc.h> in the kernel fakeroot. The
+# Linux toolchain installs xnu-host-cc, which builds them with the distribution's clang
+# and the cctools headers; export it (and MIGCOM) the way the framework script does.
+if [ -n "${CLT_PREFIX:-}" ] && [ -x "${CLT_PREFIX}/bin/xnu-host-cc" ]; then
+  export HOST_CC="${CLT_PREFIX}/bin/xnu-host-cc" MIGCOM="${CLT_PREFIX}/libexec/migcom"
+fi
 # Pong iOS 16 derivative of the successfully returned Mac build script.
 # First console build uses MACHINE_CONFIGS=PONG; preserve the original baseline artifact.
 XNU_TAG=${UNIXNU_XNU_TAG:-xnu-8796.141.3}

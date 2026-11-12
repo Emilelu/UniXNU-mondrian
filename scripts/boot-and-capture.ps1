@@ -50,6 +50,24 @@ try {
         '-Seconds',"$Seconds",'-IdleSeconds',"$IdleSeconds",'-ReopenSeconds',"$ReopenSeconds",
         '-PanicGraceSeconds',"$PanicGraceSeconds",'-OutDir',('"'+$OutDir+'"'),
         '-ReadyFile',('"'+$ready+'"'),'-StopFile',('"'+$stopFile+'"'))
+    # Windows PowerShell 5.1 builds a case-insensitive StringDictionary from the
+    # process environment before it starts a child. This host exports case
+    # variants of the same variable (NO_PROXY + no_proxy, HTTPS_PROXY +
+    # https_proxy …), so Start-Process throws
+    #   Item has already been added. Key in dictionary: 'HTTPS_PROXY' ...
+    # and the boot never happens. Collapse every case-variant group to a single
+    # canonical (upper-case) name first; the collector only needs the serial port.
+    $envNow=[Environment]::GetEnvironmentVariables()
+    $groups=@{}
+    foreach ($name in $envNow.Keys) { $groups[$name.ToUpperInvariant()]=@($groups[$name.ToUpperInvariant()]) + $name }
+    foreach ($canonical in @($groups.Keys)) {
+        $variants=@($groups[$canonical] | Where-Object { $_ })
+        if ($variants.Count -le 1) { continue }
+        $value=[Environment]::GetEnvironmentVariable($canonical,'Process')
+        if (-not $value) { $value=$envNow[$variants[0]] }
+        foreach ($name in $variants) { [Environment]::SetEnvironmentVariable($name,$null,'Process') }
+        [Environment]::SetEnvironmentVariable($canonical,$value,'Process')
+    }
     $reader=Start-Process -FilePath $engine -ArgumentList $argv -PassThru -RedirectStandardOutput $collectorOut -RedirectStandardError $collectorErr
     $readyDeadline=(Get-Date).AddSeconds(20)
     while (-not (Test-Path -LiteralPath $ready)) {

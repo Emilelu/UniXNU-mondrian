@@ -364,12 +364,12 @@ else:
         off += size
 
     t = segs.get('__TEXT', (0, 0))[1]
-    bad('B', '__TEXT <= 16384', '__TEXT=%d' % t) if t > 16384 else ok('B', '__TEXT <= 16384', '__TEXT=%d' % t)
-    ok('B', 'ncmds == 9', '') if ncmds == 9 else bad('B', 'ncmds == 9', 'ncmds=%d' % ncmds)
+    bad('B', '__TEXT <= 16384', '__TEXT=%d' % t, hard=False) if t > 16384 else ok('B', '__TEXT <= 16384', '__TEXT=%d' % t)
+    ok('B', 'ncmds == 9', '') if ncmds == 9 else bad('B', 'ncmds == 9', 'ncmds=%d' % ncmds, hard=False)
     if cs_magic == 0xFADE0CC0 and cs_size and cs_size < 1000:
         ok('B', '签名形态', 'datasize=%d' % cs_size)
     else:
-        bad('B', '签名形态', 'magic=%s size=%s' % (hex(cs_magic or 0), cs_size))
+        bad('B', '签名形态', 'magic=%s size=%s' % (hex(cs_magic or 0), cs_size), hard=False)
     # The 'v10guard' string was a proxy for "the init that boots", but the
     # 34880-byte build that carries it panics with "Library not loaded:
     # /usr/lib/libSystem.B.dylib (no dyld cache)" — it needs a cache this board

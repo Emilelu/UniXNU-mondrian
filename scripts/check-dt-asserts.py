@@ -54,6 +54,34 @@ def is_frozen(node, areas):
     return False
 
 
+
+def board_properties(repo, node):
+    """board.toml 里 [adt.arm-io.<node>] 的属性集合。
+
+    2026-11-12 起 board.toml 是唯一真源（1e1a70e 让 [adt.arm-io.*] 真正生效），
+    DTS 里不再重复声明这些节点。所以属性可能来自两处之一。
+    """
+    try:
+        import tomllib
+    except ImportError:
+        return set()
+    p = os.path.join(repo, 'board.toml')
+    if not os.path.isfile(p):
+        return set()
+    try:
+        cfg = tomllib.load(open(p, 'rb'))
+    except Exception:
+        return set()
+    table = cfg.get('adt', {}).get('arm-io', {}).get(node)
+    if not isinstance(table, dict):
+        return set()
+    props = set()
+    for typed, vals in table.items():
+        if isinstance(vals, dict):
+            props |= set(vals.keys())
+    return props
+
+
 def dts_properties(text, node):
     """返回 dts 里 <node> { ... } 块的属性名集合。"""
     m = re.search(r'^\t%s\s*\{(.*?)^\t\};' % re.escape(node), text, re.M | re.S)
@@ -69,16 +97,37 @@ def dts_properties(text, node):
 
 
 def driver_dt_reads(patch_text):
-    """从驱动补丁里提取 (节点路径, 属性名) 对。
+    """从驱动补丁里提取必需和可选两类 DT 属性。
 
-    识别两种写法：
-      property(entry,"avdd-gpio",&avdd_gpio,4)
-      property(e,"core-base",&c,8)
+    判据（P-147 修正）：`property()` 出现在 `configuration()` 的 return 链里
+    才是必需的 —— 缺了它整个函数返回 false，后面的诊断全不执行。
+    出现在赋值语句里的是可选 —— 例如 bitbang-pins 是 GPIO 回退路径的开关，
+    缺了只是关掉那条路，不影响其余流程。
+
+    必需：
+        return property(entry,"spi-base",&se_phys,8) && property(entry,"pins",...)
+    可选：
+        bitbang_wiring = property(entry, "bitbang-pins", bitbang_pins, sizeof(...));
     """
-    reads = set()
-    for m in re.finditer(r'property\s*\(\s*\w+\s*,\s*"([^"]+)"', patch_text):
-        reads.add(m.group(1))
-    return reads
+    required, optional = set(), set()
+    # 找 configuration() 函数体
+    m = re.search(r'^\+?configuration\s*\([^)]*\)\s*\n?\{', patch_text, re.M)
+    body = patch_text
+    if m:
+        start = m.end()
+        # 到下一个顶层函数为止
+        m2 = re.search(r'\n\+?\}', patch_text[start:])
+        body = patch_text[start:start + (m2.end() if m2 else 8000)]
+
+    for line in body.split('\n'):
+        raw = line[1:] if line.startswith('+') else line
+        if 'property(' not in raw:
+            continue
+        # 赋值形式 -> 可选
+        is_assign = bool(re.match(r'\s*\w+\s*=\s*property\s*\(', raw))
+        for mm in re.finditer(r'property\s*\(\s*\w+\s*,\s*"([^"]+)"', raw):
+            (optional if is_assign else required).add(mm.group(1))
+    return required, optional
 
 
 def main():
@@ -111,24 +160,29 @@ def main():
                 print('  %-14s 补丁不存在，跳过' % node)
             continue
         text = io.open(p, encoding='utf-8', errors='ignore').read()
-        reads = driver_dt_reads(text)
-        if not reads:
+        reads, optional = driver_dt_reads(text)
+        if not reads and not optional:
             if a.verbose:
                 print('  %-14s 补丁里没有 property(...) 调用' % node)
             continue
-        props = dts_properties(dts, node)
-        if props is None:
-            problems.append('%s: dts 里没有这个节点，但驱动会查它' % node)
+        from_dts = dts_properties(dts, node) or set()
+        from_toml = board_properties(repo, node)
+        props = from_dts | from_toml
+        if not props:
+            problems.append('%s: dts 和 board.toml 都没有这个节点，但驱动会查它' % node)
             continue
         checked += 1
         missing = sorted(reads - props)
+        missing_opt = sorted(optional - props)
         if missing:
             if is_frozen(node, areas):
                 warns.append('%s: 缺属性 %s（该区域已冻结，只警告）' % (node, ', '.join(missing)))
             else:
                 problems.append('%s: dts 节点缺属性 %s' % (node, ', '.join(missing)))
         elif a.verbose:
-            print('  %-14s 断言 %d 个属性，dts 全部具备' % (node, len(reads)))
+            print('  %-14s 必需 %d 个 / 可选 %d 个（dts %d + toml %d）' % (node, len(reads), len(optional), len(from_dts), len(from_toml)))
+            if missing_opt:
+                print('              可选属性未声明（不影响启动）: %s' % ', '.join(missing_opt))
 
     for w in warns:
         print('  ⚠️  %s' % w)

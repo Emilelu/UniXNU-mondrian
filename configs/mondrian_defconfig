@@ -69,4 +69,4 @@ CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=n
 # archive recipes that profiles/arch/arm64/configs/common.config enables.
 CONFIG_XNU_BUILD_ARCHIVES=y
 # K60 PMIC-GLINK battery: registers only after an authenticated PAS1 lease
-CONFIG_XNU_K60_PHYSICAL_BATTERY=y
+# CONFIG_XNU_K60_PHYSICAL_BATTERY is not set

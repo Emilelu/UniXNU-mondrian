@@ -43,6 +43,7 @@ ITEMS = [
     'scripts',
     'kits',
     'configs',
+    'mac-build',
 ]
 
 

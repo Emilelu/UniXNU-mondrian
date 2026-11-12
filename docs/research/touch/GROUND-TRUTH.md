@@ -63,3 +63,25 @@ remaining permutations cannot change a permanently-high line.
 Vote `pm8350c_l2` from the kernel before the first frame. Requires an SPMI
 write path, which the tree does not have yet; the arbiter read path is proven
 and the write is the same command word with bit 27 cleared.
+
+## SPMI write-path findings (2026-11-13, measured on device)
+
+Every line below came off the serial console; nothing here is inferred.
+
+| Target | Read | Write | Evidence |
+|---|---|---|---|
+| TLMM GPIO page (via `ml_io_map`) | ok | ok | `K60CFG gpio same b=0x84 a=0x84`, no abort |
+| SPMI core `0xc400000+0x1008` | `0x3` | data abort | `K60KEXC pc=…b9a8 lr=…b99c` |
+| SPMI core `0xc400000+0x1400` | `0x19b00` | data abort | `K60KEXC pc=…b9f0 lr=…b9a0` |
+| SPMI observer `0xc440000` | ok | ok | command issued, status polled |
+| channel `sid1/apid0x9b` (0x19b) | `v=0` | n/a | `K60CFG ap st=0x1 v=0` (DONE) |
+| channel `sid2/apid0xc2` (0x1c2) | `v=0` | n/a | `K60REG type st=0x8 val=0` (DROPPED) |
+
+Conclusions that stand:
+
+- `wr()` is sound and `ml_io_map()` mappings are writable — proven by the GPIO write-back.
+- The SPMI command path (observer window, command word `(1u<<27)|reg<<4|(count-1)`, status poll on `+0x08`, data at `+0x18`) is correct — proven by `DONE` on the AP's own channel.
+- The PMIC channel returns `DROPPED`, i.e. it is not owned by the AP execution environment.
+- Changing ownership needs a write to the core window, and every such write faults. This is a bus-level refusal, not a code defect.
+
+Not yet determined: whether the configuration window `0xc42d000` accepts writes; if it does, ownership can be set there. If it does not, the rail must be enabled from the firmware side before hand-off.

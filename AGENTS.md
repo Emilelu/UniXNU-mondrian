@@ -44,9 +44,34 @@ a violation costs work that cannot be recovered.
    (`AdrenoMetal`) and an A740 kernel driver (`Adreno740`); we hand-wrote
    equivalents before discovering them.
 
+5. **The repository is the only source of truth; the build input is its mirror.**
+   `E:\hackios\UniXNU-mondrian` and `/opt/k60/trees/usb-cdc-mainline/device`
+   hold the same files, and only one direction of copying is allowed:
+   repository → build input, through `scripts/sync-device-input.py`. Editing
+   under `/opt` is lost on the next clone, and a file that exists in only one of
+   the two places is invisible to whoever reads the other. This has cost real
+   work three times: the `0403` firmware patch lived only in the build input, the
+   `pong-touch`/`pong-buttons` DT nodes existed in the build input while the
+   repository's `mondrian.dts` was a 2,364-byte stub, and the eight-step table
+   deduplication was written, verified in the rendered README, and then destroyed
+   by a `git reset --hard`.
+
+   Three corollaries, each learned the hard way:
+
+   - **`git reset --hard` before `git status` is data loss.** Uncommitted work
+     does not survive it, and nothing warns. Run `git status --porcelain` and
+     commit or stash first.
+   - **`git pull --rebase` replays every commit after the reset point**, so a
+     local revert is an opinion until it is pushed. The `0403` revert was undone
+     this way one round after it was made.
+   - **Scratch is for drafts, not deliverables.** A script that passes a check
+     belongs in `scripts/` in the same turn; `check-dt-asserts.py` sat in the
+     workspace for hours while every build ran without it.
+
 The check before every build: `git status --porcelain` is empty on the source
-tree, and the branch is level with its remote. The gates below then run
-automatically and must all pass.
+tree, the branch is level with its remote, and
+`python3 scripts/sync-device-input.py --check` reports no drift. The gates below
+then run automatically and must all pass.
 
 ## Gates
 
@@ -57,7 +82,10 @@ Four checks run before `build` or `flash`; any failure aborts.
 | Research | `python3 scripts/research-gate.py` | Every source in `docs/research/SOURCES.toml` has `examined` plus a written `finding` |
 | Eight-step | `python3 scripts/eight-step-gate.py --build` / `--flash` | ①–⑥ for build, ①–⑦ plus the ⑧ prediction for flash |
 | Porting | `python3 scripts/porting-gate.py --quick` | `porting.toml` matches the official schema; the README table matches the data |
-| Docs | `python3 scripts/check-docs.py` | Link integrity, INDEX coverage, root-doc links, section order, bilingual parity |
+| Docs | `python3 scripts/check-docs.py` | Link integrity, INDEX coverage, root-doc links, section order, bilingual |
+| Scope freeze | `python3 scripts/check-scope-freeze.py` | Nothing under a frozen path in `docs/SCOPE-FREEZE.toml` changed since its baseline; frozen areas warn instead of fail |
+| DT asserts | `python3 scripts/check-dt-asserts.py` | Every `property(entry,"X",...)` a driver patch reads exists in `dts/mondrian.dts`; a missing one means the driver returns false and its diagnostics never run (P-147) |
+| Input sync | `python3 scripts/sync-device-input.py --check` | The build input matches the repository; nothing exists in only one of them (iron rule 5) | parity |
 
 `scripts/porting-gate.py` hosts sections `[T]` (docs), `[R]` (porting schema),
 `[Q]` (patch structure), `[P]` (protocol assertion) and `[S]` (series fingerprint).

@@ -24,13 +24,10 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **audio** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 进行中 |
 | **battery** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | — | 可刷机（⑦ 已核验） |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
-| UFS / 存储 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
-| 显示 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
-| 固件 / 启动 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
-| WiFi / 蓝牙 / USB | — | — | — | — | — | — | — | — | planned |
-| 音频 | — | — | — | — | — | — | — | — | planned |
+| 蓝牙 | — | — | — | — | — | — | — | — | planned |
+| USB | — | — | — | — | — | — | — | — | planned |
 | 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 

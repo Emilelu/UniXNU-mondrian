@@ -176,7 +176,7 @@ kernel_args = [
   "pong_init_path=/private/var/pong/init", "epoch=1793709100", "k60_fontscale=3",
   "k60_skip_firmware_mount=1", "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
   "xpcproxy_idversion=1", "k60_init_blob=1", "k60_launchd_cache=1", "k60_entitlement_allow=1",
-  "k60_skip_iosurface=1", "k60_panic_reset=1", "k60_touch_se=6", "pong_adreno_start=1",
+  "k60_skip_iosurface=1", "k60_panic_reset=1", "k60_touch_se=19", "pong_adreno_start=1",
   "pong_metal=1",
 ]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a

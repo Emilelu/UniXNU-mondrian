@@ -31,15 +31,15 @@ HEADS_ZH = ['① 同型', '② 官方', '③ 反编译', '④ 广域', '⑤ 方�
 HEADS_EN = ['① Same model', '② Official', '③ Reverse', '④ Wide search', '⑤ Plan', '⑥ Deep dive', '⑦ Local verify', '⑧ On device']
 
 # 未建立八步记录的硬件（诚实显示为 —，本身说明流程没走到）
+# 只能放 EIGHT-STEPS.toml 里没有的项。2026-11-12：这里曾同时列着
+# 「UFS / 存储 / 显示 / 固件启动 / 音频」，而 storage / display / bootchain /
+# audio 早已进了 EIGHT-STEPS.toml，于是表格出现重复行。见铁则 5 与 P-148。
 UNTRACKED = [
     ('CPU', 'device-verified'),
-    ('UFS / 存储', 'device-verified'),
-    ('显示', 'device-verified'),
-    ('固件 / 启动', 'device-verified'),
     ('电源', 'device-verified'),
     ('诊断', 'device-verified'),
-    ('WiFi / 蓝牙 / USB', 'planned'),
-    ('音频', 'planned'),
+    ('蓝牙', 'planned'),
+    ('USB', 'planned'),
     ('基带', 'planned'),
     ('DSP', 'planned'),
 ]

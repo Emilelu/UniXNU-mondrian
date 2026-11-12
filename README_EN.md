@@ -24,13 +24,10 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **audio** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
 | **battery** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | — | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| UFS / 存储 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| 显示 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| 固件 / 启动 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| WiFi / 蓝牙 / USB | — | — | — | — | — | — | — | — | planned |
-| 音频 | — | — | — | — | — | — | — | — | planned |
+| 蓝牙 | — | — | — | — | — | — | — | — | planned |
+| USB | — | — | — | — | — | — | — | — | planned |
 | 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 

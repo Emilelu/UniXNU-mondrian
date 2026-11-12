@@ -3723,3 +3723,38 @@ strings 里 "M11HTC":  present      <- 同上
 - [ ] `PongAudio`（将来实现时）
 
 **每个新驱动在写 `configuration()` 时，必须同时给 `check-dt-asserts.py` 加一条对应规则。**
+
+### P-148 ★★★ 三份副本 + reset/rebase = 反复丢数据，而且没有门禁
+
+- **症状**：同一个文件存在于三个地方，靠手工 `cp` 同步：
+  ```
+  E:\hackios\UniXNU-mondrian          仓库（版本控制）
+  /opt/k60/trees/usb-cdc-mainline/device  构建输入（构建实际读的）
+  <workspace>/scratch                    草稿
+  ```
+  任何一次「我改了一处，忘了另一处」都产生静默分歧。
+- **已经实际丢掉的东西**：
+  1. `0403-k60-goodix-fw.patch`（1.2 MB 触摸固件）只存在于构建输入，仓库里没有
+  2. `pong-touch` / `pong-buttons` DT 节点只在构建输入，仓库版 `mondrian.dts` 是
+     2,364 字节的空壳，一次 clean 就会把节点全带走
+  3. 八步表去重改好、README 也重新生成并验证过，**然后 `git reset --hard` 一执行就没了**
+  4. `check-dt-asserts.py` 在 scratch 里放了几小时，期间每次构建都没跑它
+- **三个独立机制，每个都够致命**：
+  | 机制 | 后果 |
+  |---|---|
+  | 手工 `cp` 双向同步 | 分歧无声累积，没有任何提示 |
+  | `git reset --hard` | 未提交的工作直接消失，不警告 |
+  | `git pull --rebase` | 把本地回退重新拉回来 —— 0403 的回退就是这么被撤销的 |
+- **教训**：
+  > **同一个文件存在两处，就一定会分歧。**
+  > **回退只有在 push 之后才算数。**
+  > **在 scratch 里跑通的东西，必须在同一轮搬进 `scripts/`。**
+- **已加铁则**：`AGENTS.md` 铁则 5 —— 仓库是唯一真源，构建输入是它的镜像，
+  方向只有一个（repository → build input），唯一允许的搬运工具是
+  `scripts/sync-device-input.py`。附三条推论：reset 前先 `git status`；
+  `pull --rebase` 会重放回退前的提交；scratch 只放草稿。
+- **已加门禁**：`scripts/sync-device-input.py --check`
+  - 逐文件比对仓库与构建输入
+  - 构建输入里多出来的补丁直接删（真源是仓库）
+  - 有差异就失败，已挂进 `clean_build.sh`，在其它门禁之前
+  - 构建前先自动同步一次，再检查，所以失败意味着「连自动同步都没救回来」

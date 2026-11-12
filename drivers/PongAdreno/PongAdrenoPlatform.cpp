@@ -408,7 +408,11 @@ static void run(void *,wait_result_t)
     // Delay optional hardware work until the console and normal desktop boot
     // can record a refused monitor request without losing the working chain.
     IOSleep(8000);
-    record("startup requested; no accelerator published",0);
+    /* This is a start banner, not a verdict. It used to say "no accelerator
+     * published", which every reader took as the outcome while the 22 startup
+     * stages below all reported result=0. A log line that describes the wrong
+     * moment costs more than no line at all (P-164). */
+    record("startup begin; 22 stages follow",0);
     /* APSS RSC is a plain MMIO window on this board. Upstream's driver
      * initialized on hardware with a direct mapping (its 22-step startup
      * reported result=0 for every step, including "parent ARC votes"), while

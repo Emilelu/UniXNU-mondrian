@@ -3952,3 +3952,18 @@ strings 里 "M11HTC":  present      <- 同上
 下拉全 0，据此把"时钟太快/模式不对/片选错/复位没松"整类猜测一次性排除，直接定位到
 供电缺失。检查方式：`grep 'K60BB frame' <usblog>/console.log` 看两种偏置下的
 `miso` 计数是否分别等于位数的全 1 与 0。
+
+## P-164 写在启动开头的横幅会被当成结论
+
+`drivers/PongAdreno/PongAdrenoPlatform.cpp:411` 曾打印
+`PONG ADRENO: startup requested; no accelerator published`，而这句话出现在
+`run()` 的**开头**——其后的 22 个启动阶段全部 `result=0`（PAS13 ZAP 认证、
+CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过）。日志读者
+（包括本项目多轮内部结论）把它当成结果，于是"GPU 没启动"这个错误判断被反复继承。
+
+判定方式：`grep -an 'PONG ADRENO' <usblog>/console.log | tail` 看**最后**一条
+阶段记录，而不是 `sort -u` 或开头几条。当前日志的最后一条是
+`CP/user-client startup result=0 a=0x40000007 b=0x20010000`。
+
+规则：横幅只描述"现在开始做什么"，结论必须由最后一个阶段的 result 或一条明确的
+"published/failed" 行给出。

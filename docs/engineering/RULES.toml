@@ -404,3 +404,12 @@ statement = "A single SPI line reading all ones or all zeros proves nothing; sam
 waiver = """Needs an automated two-boot comparison: the same image must be built with PULL_UP and with
 PULL_DOWN and both console logs must be read for the `K60BB frame` miso counts. Until a runner
 does that, the manual procedure and its evidence table live in docs/research/touch/GROUND-TRUTH.md."""
+
+[[rule]]
+id = "P-164"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-164"
+statement = "A banner printed at the start of a bring-up path must not name an outcome; the verdict is the last stage record or an explicit published/failed line."
+waiver = """Needs a textual rule over driver sources: any record() whose text contains 'no ', 'not ' or
+'failed' must not appear in the first statement of a run() function. Checkable once the log texts
+are listed in a table; today the rule is enforced by review."""

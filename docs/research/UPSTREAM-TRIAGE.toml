@@ -27,91 +27,91 @@ updated = "2026-11-12"
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "main"
-watermark = "e6c4c6055"
+watermark = "e6c4c6055f38a9c11f6e40796cac793d92d6c41c"
 note = "CI 与文档，无硬件内容"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "fix/touch-gpu-bringup"
-watermark = "81dd415e5"
+watermark = "81dd415e584a0b4b54bf7c63df3269717cb6abb3"
 note = "触摸/GPU 主线分支，已部分采纳（见 cc584ca）"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "fix/boot-v4-repack"
-watermark = "f44574515"
+watermark = "3fc3881811e26147343eab4dd48e788897cc8313"
 note = "v4 打包偏移修复，我们不适用"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "fix/ui-startup-blob"
-watermark = "2917907d5"
+watermark = "2917907d5ef4af9ffd1b560bcaeba302456a00d3"
 note = "launchd / UI 库，未评估"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "fix/k60-measured-high-window"
-watermark = "2d29a2fba"
+watermark = "2d29a2fba4f4643d616d16badde8f0a0c65a130a"
 note = "内存窗口，未评估"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "feat/first-frame-20261107"
-watermark = "70a1e4ca3"
+watermark = "70a1e4ca361a1116bc0ec1563bac74771c79f81c"
 note = "首帧，未评估"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "chore/archive-darwin24-main-20261103"
-watermark = "10d1be3b9"
+watermark = "10d1be3b9fad72abc890f5c17566951599e06616"
 note = "归档分支，不取"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "upstream-fix"
-watermark = "522c6ead7"
+watermark = "522c6ead7e1f60ed52f7c68f004a06c347b4009f"
 note = "launchd helper，未评估"
 
 [[branch]]
 repo = "yibiya/UniXNU"
 mirror = "references/yibiya-unixnu-upstream"
 branch = "main"
-watermark = "982e41f08"
+watermark = "982e41f084b23d32ba7f574462f0e724fee5ac03"
 note = "框架主线"
 
 [[branch]]
 repo = "yibiya/UniXNU"
 mirror = "references/yibiya-unixnu-upstream"
 branch = "fix/k60-input-adt"
-watermark = "569b80eea"
+watermark = "569b80eea6ba3c0d71023ae63dbec0a084316a16"
 note = "[adt.arm-io.*] 生成器修复，对触摸/按键 DT 直接相关"
 
 [[branch]]
 repo = "yibiya/UniXNU"
 mirror = "references/yibiya-unixnu-upstream"
 branch = "fix/ufs-data-payload"
-watermark = "9a32b6122"
+watermark = "9a32b612214e3bd3399355256c24387547b3d132"
 note = "UFS Data 不该挂 ram seed，我们 config 两个都开了"
 
 [[branch]]
 repo = "yibiya/UniXNU"
 mirror = "references/yibiya-unixnu-upstream"
 branch = "feat/smp-0340"
-watermark = "4d6d0e4a1"
+watermark = "4d6d0e4a1a0241528ad058cb772519e24fb8459f"
 note = "SMP，未评估"
 
 [[branch]]
 repo = "yibiya/uefi-mondrian"
 mirror = "references/yibiya-uefi-upstream"
 branch = "main"
-watermark = "4a6966b35"
+watermark = "4a6966b351d3fe76a57be400bd7a9ff9b3628f9f"
 note = "Mu_Basecore 版本重钉，固件自 11-02 未重建"
 
 # ---------------------------------------------------------------- 逐提交研判

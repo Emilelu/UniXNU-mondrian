@@ -207,7 +207,7 @@ def record_triage(entries, applied_shas):
             r'(\[\[branch\]\]\nrepo = "%s"\nmirror = "[^"]*"\nbranch = "%s"\nwatermark = ")([0-9a-f]+)(")'
             % (re.escape(repo_name), re.escape(branch)))
         def repl(m, sha=sha):
-            return m.group(1) + sha + m.group(4)
+            return m.group(1) + sha + m.group(3)
         t = pat.sub(repl, t, count=1)
 
     # 为未在台账里的提交补记录

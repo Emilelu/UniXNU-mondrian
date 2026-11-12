@@ -1,0 +1,29 @@
+--- a/bsd/dev/pong_goodix.c
++++ b/bsd/dev/pong_goodix.c
+@@ -1189,7 +1189,9 @@
+ {
+     if (touch_stage == 7) {
+         printf("Pong touch: GPIO-only identification, no GCC or serial-engine accesses\n");
+-        if (!bitbang_init()) return false;
++        printf("K60BB init call\n");
++        if (!bitbang_init()) { printf("K60BB init rc=0\n"); return false; }
++        printf("K60BB init rc=1\n");
+         spi_transfer = bitbang_transfer;
+     } else {
+         printf("Pong touch: mapping serial engine %#llx after clock checks\n", se_phys);
+@@ -1204,6 +1206,7 @@
+             printf("Pong touch: %s; use real GPIO SPI, not forced FIFO or guessed DMA\n", problem);
+             if (!bitbang_init()) return false;
+             spi_transfer = bitbang_transfer;
++            printf("K60BB transport=bitbang\n");
+         } else if (problem) {
+             printf("Pong touch: GENI unavailable: %s\n", problem);
+             return false;
+@@ -1211,6 +1214,7 @@
+             spi_transfer = geni_transfer;
+         }
+     }
++    printf("K60BB probe start\n");
+     if (!goodix_probe(true)) {
+         printf("Pong touch: identification failed; retained IOVDD is unverified, no /dev/pong-touch\n");
+         return false;

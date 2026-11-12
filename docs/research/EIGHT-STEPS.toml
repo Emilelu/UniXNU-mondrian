@@ -418,3 +418,15 @@ catalog_result = "components.toml 无电池组件；官方实现全在 UniXNU-sh
 [hardware.battery.step.plan]
 done = true
 evidence = "方案受硬前置约束，解锁链必须是 PAS1（ADSP 认证与启动）-> GLINK 通道 -> PMIC GLINK -> 电池协议 -> IOPMPowerSource。任何跳过前两层的做法只会得到 physical transport initialization rejected（K60Battery::begin 的失败分支）。K60AdspGlinkHandoff 要求四个标志全真（Authenticated/ResourcesHeld/GlinkExclusive/FreshHostFifos = 0xf），且头文件明确由平台或 loader 的 PAS1 owner 提供，配置生成器不得伪造。因此先做音频的 DSP 传输，两者共用同一套 PAS1+SMEM+SMP2P+GLINK 基础设施。详见 docs/research/battery/RESEARCH.md。"
+
+[hardware.battery.step.deep]
+done = true
+evidence = "深挖结论有三条。一，电流符号是唯一的隐性错误源：官方明确要求使用前确认目标协议的符号，因此实现必须把它参数化（sign=+1 正值充电 / -1 正值放电），不能硬编码方向；scripts/tests/test-battery-units.py 用不变量固定了这一点（符号翻转后绝对值不变）。二，每次只能保留一个未完成请求，处理其超时后再推进刷新周期 —— 并发请求会让协议状态机失去对齐。三，固件负责充电控制时必须保留其所有权，驱动只做测量值发布；主机控制的充电器需要独立的控制协议、限值和温控策略，这是另一条产品线。见 docs/research/battery/RESEARCH.md。"
+
+[hardware.battery.step.verify]
+done = false
+local_verified = true
+evidence = "离线部分已完成：scripts/tests/test-battery-units.py 27/27 通过（2026-11-12），固定了官方 power 页第 4 节列出的四个转换与电流符号 —— 微伏转毫伏、微安转毫安、0.01% 转百分比、秒转分钟，外加符号翻转后绝对值不变的不变量。仍缺上机：真实电量计读数与 Android 侧对比。"
+static_check = "转换函数按官方描述实现：四舍五入到最近整数；剩余时间向上取整，宁可多报不可少报。电流符号按协议参数化，不硬编码方向。"
+unit_test = "scripts/tests/test-battery-units.py：27 个用例覆盖电压/电流/容量/时间的边界（0、499/500、49/50、60/61、负数）与符号不变量，全部通过。"
+artifact_check = "不适用：本步验证的是纯算术，产物里没有可核对的字符串。"

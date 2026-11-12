@@ -40,7 +40,7 @@ id = "iron-4"
 kind = "iron"
 source = "AGENTS.md:iron-4"
 statement = "Check the official component catalog before writing a driver."
-check = "python3 scripts/porting-gate.py --quick"
+check = "python3 scripts/porting-gate.py --quick ${K60_PORTING_ARGS:-}"
 
 [[rule]]
 id = "iron-5"
@@ -324,7 +324,7 @@ id = "hard-33"
 kind = "hard"
 source = "docs/engineering/HARD-RULES.md:★33"
 statement = "porting.toml 按官方规范维护，改动后必须跑 schema 门禁"
-check = "python3 scripts/porting-gate.py --quick"
+check = "python3 scripts/porting-gate.py --quick ${K60_PORTING_ARGS:-}"
 
 [[rule]]
 id = "hard-34"

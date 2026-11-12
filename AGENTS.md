@@ -68,6 +68,20 @@ a violation costs work that cannot be recovered.
      belongs in `scripts/` in the same turn; `check-dt-asserts.py` sat in the
      workspace for hours while every build ran without it.
 
+6. **Following upstream means judging every commit, not reporting that one
+   exists.** `scripts/track-upstream-branches.py` says what changed; that is not
+   the end of the job. Each branch carries a watermark in
+   [`docs/research/UPSTREAM-TRIAGE.toml`](docs/research/UPSTREAM-TRIAGE.toml),
+   and every commit after it gets a verdict - `picked` (with how), or
+   `not-applicable` (with why), or `deferred` (with why and when to look again).
+   `scripts/check-upstream-triage.py` fails the build while anything past a
+   watermark is unjudged.
+
+   This rule exists because the alternative already happened: the same commits
+   were rediscovered round after round, discussed each time, and adopted zero
+   times. Reporting is not following. A deferred commit without a date is a
+   forgotten commit.
+
 The check before every build: `git status --porcelain` is empty on the source
 tree, the branch is level with its remote, and
 `python3 scripts/sync-device-input.py --check` reports no drift. The gates below

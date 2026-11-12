@@ -1,0 +1,195 @@
+# 上游提交研判台账
+#
+# 为什么有这张表：报告「有新提交」不等于跟进。只有每个提交都被判过
+# （取 / 不适用 / 暂缓）并写下理由，跟进才算闭环。没有台账，同样几个提交
+# 会被反复"发现"、反复讨论、永远不落地。
+#
+# 规则（AGENTS.md 铁则 6）：
+#   1. 每个 yibiya 镜像的每个分支，都必须有一条 watermark 记录
+#   2. watermark 之后的新提交，必须逐个写进 [[commit]]
+#   3. verdict 只能是 picked / not-applicable / deferred
+#   4. deferred 必须写 reason 和 review_after（否则等于忘记）
+#
+# scripts/check-upstream-triage.py 会在构建前检查这些。加新镜像时
+# 也要在这里加一条 [[branch]]，否则门禁会报"未登记分支"。
+#
+# 最后更新：2026-11-12
+
+[meta]
+updated = "2026-11-12"
+
+# ---------------------------------------------------------------- 分支水位
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "main"
+watermark = "e6c4c6055"
+note = "CI 与文档，无硬件内容"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "fix/touch-gpu-bringup"
+watermark = "81dd415e5"
+note = "触摸/GPU 主线分支，已部分采纳（见 cc584ca）"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "fix/boot-v4-repack"
+watermark = "1e0030e1e"
+note = "v4 打包偏移修复，我们不适用"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "fix/ui-startup-blob"
+watermark = "2917907d5"
+note = "launchd / UI 库，未评估"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "fix/k60-measured-high-window"
+watermark = "2d29a2fba"
+note = "内存窗口，未评估"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "feat/first-frame-20261107"
+watermark = "70a1e4ca3"
+note = "首帧，未评估"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "chore/archive-darwin24-main-20261103"
+watermark = "10d1be3b9"
+note = "归档分支，不取"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+mirror = "references/yibiya-upstream"
+branch = "upstream-fix"
+watermark = "522c6ead7"
+note = "launchd helper，未评估"
+
+[[branch]]
+repo = "yibiya/UniXNU"
+mirror = "references/yibiya-unixnu-upstream"
+branch = "main"
+watermark = "982e41f08"
+note = "框架主线"
+
+[[branch]]
+repo = "yibiya/UniXNU"
+mirror = "references/yibiya-unixnu-upstream"
+branch = "fix/k60-input-adt"
+watermark = "569b80eea"
+note = "[adt.arm-io.*] 生成器修复，对触摸/按键 DT 直接相关"
+
+[[branch]]
+repo = "yibiya/UniXNU"
+mirror = "references/yibiya-unixnu-upstream"
+branch = "fix/ufs-data-payload"
+watermark = "a1b4bc9f5"
+note = "UFS Data 不该挂 ram seed，我们 config 两个都开了"
+
+[[branch]]
+repo = "yibiya/UniXNU"
+mirror = "references/yibiya-unixnu-upstream"
+branch = "feat/smp-0340"
+watermark = "4d6d0e4a1"
+note = "SMP，未评估"
+
+[[branch]]
+repo = "yibiya/uefi-mondrian"
+mirror = "references/yibiya-uefi-upstream"
+branch = "main"
+watermark = "4a6966b35"
+note = "Mu_Basecore 版本重钉，固件自 11-02 未重建"
+
+# ---------------------------------------------------------------- 逐提交研判
+
+[[commit]]
+sha = "c80e0e1"
+subject = "fix(input): adapt real Goodix and HID to K60"
+verdict = "picked"
+how = "手工重写（cc584ca），非 git cherry-pick"
+reason = "触摸驱动从 5,452 行缩到 1,039 行，采用其实现；同时改 userland/touch.c 与 touch.h"
+date = "2026-11-11"
+
+[[commit]]
+sha = "04a819c"
+subject = "fix(touch,gpu): adopt the upstream handshake, config download"
+verdict = "picked"
+how = "手工重写（d82c26e / 9e4811e / be12a79 / 86446b2）"
+reason = "启动选项握手、config 下载、坐标模式三段，按官方 goodix_brl_hw.c 实现"
+date = "2026-11-12"
+
+[[commit]]
+sha = "04bda86"
+subject = "fix(touch,power): land the handshake, config download and battery link"
+verdict = "picked"
+how = "部分采纳"
+reason = "确认 1488 字节 config 匹配本机（config_id 0x640fdf7d, version 0x46）；电池部分因缺 ADSP PAS1 未取"
+date = "2026-11-12"
+
+[[commit]]
+sha = "81dd415"
+subject = "fix(board): run the touch driver at its publishing stage"
+verdict = "not-applicable"
+reason = "我们 board.toml 第 179 行已有 k60_touch_se=6，无需再加；实测该 stage 会让内核挂死，已改回 19"
+date = "2026-11-12"
+
+[[commit]]
+sha = "ffb9fb7"
+subject = "fix(bootimg): align v4 payloads after header page"
+verdict = "picked"
+how = "取其测试思路，重写为 scripts/tests/test-bootimg-layout.py"
+reason = "修复本身不适用：我们的 mkbootimg.py 第 130 行已有 pad_file(output, 4096)，实测 header_size=1584 但 section 从 4096 开始、签名区 4096 全零、长度自洽。但该提交附带的 scripts/test-repack-boot.py（77 行回归测试）是我们缺的：我们没有任何测试验证 boot.img 布局。已按同样思路写出 test-bootimg-layout.py，固定四件事（v4 头部/section 偏移/gzip+DTB 结构/签名区），并用 --selftest 证明它能抓到 P-149 形态。三个真实镜像验证：keep DTB=1866 OK、r54-fixed DTB=2925 OK、r52 DTB=480692 被正确判为 P-149。"
+date = "2026-11-12"
+
+[[commit]]
+sha = "b1d07d3"
+subject = "docs(boot): record v4 packaging regression"
+verdict = "not-applicable"
+reason = "文档提交，对应 ffb9fb7 的问题我们不存在"
+date = "2026-11-12"
+
+[[commit]]
+sha = "1e0030e"
+subject = "docs(boot): record persistent Data loader conflict"
+verdict = "deferred"
+reason = "描述 persistent Data loader 冲突，与 fix/ufs-data-payload 同源；等 5fba86d 评估完一起处理"
+review_after = "2026-11-13"
+
+[[commit]]
+sha = "5fba86d"
+subject = "fix(payload): omit ram seed for persistent UFS Data"
+verdict = "deferred"
+reason = "我们 configs/mondrian_defconfig 同时有 CONFIG_XNU_OWNER_DATA_MOUNT=y 和 CONFIG_XNU_OWNER_DATA_UFS=y；需先确认哪个生效、payload 是否挂了不该挂的 initrd（我们镜像 ramdisk 192 MiB）"
+review_after = "2026-11-13"
+
+[[commit]]
+sha = "a1b4bc9"
+subject = "docs(payload): distinguish UFS and memory Data"
+verdict = "deferred"
+reason = "同 5fba86d"
+review_after = "2026-11-13"
+
+[[commit]]
+sha = "1e1a70e"
+subject = "fix(adt): preserve configured arm-io metadata"
+verdict = "deferred"
+reason = "让 [adt.arm-io.*] 生效，可治本解决 board.toml 的 avdd-gpio / max-x / max-y 被忽略；但触摸冻结中，且需先决定 DTS 与 board.toml 谁是真源"
+review_after = "2026-11-13"
+
+[[commit]]
+sha = "569b80e"
+subject = "docs(adt): document absolute peripheral metadata"
+verdict = "deferred"
+reason = "同 1e1a70e"
+review_after = "2026-11-13"

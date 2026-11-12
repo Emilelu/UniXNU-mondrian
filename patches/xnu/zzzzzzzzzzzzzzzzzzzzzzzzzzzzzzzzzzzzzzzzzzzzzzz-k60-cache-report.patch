@@ -52,7 +52,7 @@ index 1161432..9e5f967 100644
  #include <kdp/kdp_dyld.h>
  
  #if SYSV_SHM
-@@ -1825,10 +1868,34 @@ proc_handle_critical_exit(proc_t p, int rv)
+@@ -1825,10 +1868,30 @@ proc_handle_critical_exit(proc_t p, int rv)
  		panic_with_options(0, NULL, DEBUGGER_OPTION_INITPROC_PANIC, "%s -- no exit reason available -- (signal %d, exit status %d %s)",
  		    prefix_str, WTERMSIG(rv), WEXITSTATUS(rv), ((proc_getcsflags(p) & CS_KILLED) ? "CS_KILLED" : ""));
  	} else {
@@ -61,22 +61,18 @@ index 1161432..9e5f967 100644
 +			int k60_p[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 +
 +			k60_probe_dyld_cache(k60_p);
-+			printf("K60CACHE st=%d err=%d mnt=%d ro=%d un=%d\n",
-+			    native_owner_cache_stage, native_owner_cache_status,
-+			    native_owner_cache_mount_status, native_owner_cache_readonly,
-+			    native_owner_cache_native_union);
-+			printf("K60CACHE rr=%d ca=%d\n",
-+			    native_owner_cache_root_recheck, native_owner_cache_authorized);
-+			printf("K60PATH p0=%d p1=%d p2=%d p3=%d\n",
-+			    k60_p[0], k60_p[1], k60_p[2], k60_p[3]);
-+			printf("K60PATH p4=%d p5=%d p6=%d p7=%d\n",
-+			    k60_p[4], k60_p[5], k60_p[6], k60_p[7]);
 +			panic_with_options(0, NULL, DEBUGGER_OPTION_INITPROC_PANIC, "%s %s -- exit reason namespace %d subcode 0x%llx description: %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s"
-+			    ""
++			    " || CACHE st=%d err=%d mnt=%d ro=%d un=%d rr=%d ca=%d"
++			    " || PATHS p0=%d p1=%d p2=%d p3=%d p4=%d p5=%d p6=%d p7=%d",
 +			    ((proc_getcsflags(p) & CS_KILLED) ? "CS_KILLED" : ""),
 +			    prefix_str, p->p_exit_reason->osr_namespace, p->p_exit_reason->osr_code,
 +			    exit_reason_desc ? exit_reason_desc : "none",
 +			    native_owner_cache_stage, native_owner_cache_status,
++			    native_owner_cache_mount_status, native_owner_cache_readonly,
++			    native_owner_cache_native_union, native_owner_cache_root_recheck,
++			    native_owner_cache_authorized,
++			    k60_p[0], k60_p[1], k60_p[2], k60_p[3],
++			    k60_p[4], k60_p[5], k60_p[6], k60_p[7]);
 +		}
 +#else
  		panic_with_options(0, NULL, DEBUGGER_OPTION_INITPROC_PANIC, "%s %s -- exit reason namespace %d subcode 0x%llx description: %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s",

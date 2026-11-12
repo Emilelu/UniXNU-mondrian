@@ -3595,3 +3595,66 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   2. **文档写了 next_action 不等于配置里有了。** `porting.toml:240` 写着
      "Boot with pong_adreno_start=1"，但 board.toml 从未加过 —— 文档与配置脱节。
   3. **`git log -S<key> -- board.toml` 是判断"某开关是否曾经配过"的最快方法。**
+
+### P-146 ★★★ 1.2 MB 固件补丁存在但从未进 series，也从未被引用
+
+- **症状**：`/opt/k60/trees/usb-cdc-mainline/device/patches/xnu/0403-k60-goodix-fw.patch`
+  1,211,985 B，包含 K60 触摸的完整固件与 config：
+  ```
+  k60_goodix_fw[]    223,744 B   sha256 1e647510...   = goodix_firmware_m11a.bin
+  k60_goodix_cfg[]     1,627 B   sha256 a730e3f1...   = goodix_cfg_group_m11a.bin（完整容器）
+  #define K60_GOODIX_FW_LEN   223744
+  #define K60_GOODIX_CFG_LEN  1627
+  ```
+  但：**它不在 `patches/xnu/series` 里，仓库里也没有这个文件，而且补丁内没有任何函数或 extern
+  声明 —— 两个数组都是 `static` 且无人引用，编译器会直接优化掉。**
+- **为什么这是大问题**：
+  1. 我们这几轮一直在为「config 该发多少字节」纠结（P-134 反复修正），
+     而答案早就以 1,627 字节完整容器的形式存在于这个文件里
+  2. 它只存在于 `/opt` 构建输入，不在版本控制 —— 和 GPU 固件、DT 节点同一个丢失模式
+  3. 即使进了 series，没有引用就等于没加：1.2 MB 死数据
+- **已做**：同步到仓库 `patches/xnu/0403-k60-goodix-fw.patch`。
+- **待做**：决定由谁引用它。两个候选：
+  - 触摸驱动（`pong_goodix.c`）在 `goodix_apply_config` 里改用 `k60_goodix_cfg`
+    而非内嵌的 `k60_cfg[1488]`
+  - 固件下载路径（ISP）使用 `k60_goodix_fw`
+- **config 长度的最终答案**：
+  ```
+  完整容器 goodix_cfg_group_m11a.bin   1,627 B  = 容器[0:1627]
+    ├─ [0:18]    头部（total_len/checksum/version/sub_len）
+    ├─ [18:22]   sub_len = 1609
+    ├─ [22:38]   "Berlin" + padding
+    ├─ [38]      sensor id 0xff
+    ├─ [39:55]   "9916R" + padding
+    ├─ [139:141] 4e 4d（ASCII "NM" vendor 块标识）
+    └─ [141:1627] 1,486 B（我们最初剥出的那段）
+  yibiya 的 k60_cfg[1488] = 容器[139:1627]
+  ```
+  **三种候选都有了明确来源，不再是猜测。**
+- **教训**：
+  1. **"文件存在"和"文件生效"是两件事。** 1.2 MB 的数据文件不进 series、不被引用，
+     等于不存在。
+  2. **构建输入目录是易失的。** 只存在于 `/opt` 的补丁、DT 节点、固件，
+     必须同步进仓库，否则一次 clean 就没了。
+  3. **纠结某件事很久时，先全盘搜一遍仓库和构建输入。** P-134 的答案在 0403 里躺了很久。
+
+#### P-134 最终结论（2026-11-12）
+
+config 长度的全部候选现在都有明确来源，不再是猜测：
+
+```
+完整容器 goodix_cfg_group_m11a.bin   1,627 B   = 容器[0:1627]
+  [0:18]     头部 total_len=1627 / checksum / version / sub_len=1609
+  [18:22]    sub_len
+  [22:38]    "Berlin" + padding
+  [38]       sensor id 0xff
+  [39:55]    "9916R" + padding
+  [139:141]  4e 4d（ASCII "NM"，vendor 块标识）
+  [141:1627] 1,486 B（最初剥出的那段）
+
+yibiya 的 k60_cfg[1488] = 容器[139:1627]
+仓库的 0403 内嵌 k60_goodix_cfg[1627] = 容器[0:1627]
+```
+
+**这三个数（1627 / 1609 / 1488 / 1486）现在都能对应到容器的具体区段。**
+下一步只需决定发哪一段，不再是「不知道对不对」。

@@ -1,0 +1,341 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -399,4 +399,6 @@
+ bsd/kern/pong_userland.c			standard
+ bsd/dev/pong_input.c			standard
+ bsd/dev/pong_goodix.c			standard
+ bsd/dev/pong_buttons.c			standard
++bsd/dev/pong_smem.c			standard
++bsd/dev/pong_handoff.c			standard
+diff --git a/bsd/dev/pong_smem.h b/bsd/dev/pong_smem.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_smem.h
+@@ -0,0 +1,25 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Adapted from pong-power c37179ed QcomSmem.h/c. Hardware mutex ownership is
++ * required for discovery; this battery transport never allocates/reset items. */
++#ifndef K60_SMEM_H
++#define K60_SMEM_H
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++typedef struct { volatile uint8_t *base; uint32_t size; } K60Smem;
++typedef struct { uint32_t offset, size, cacheline; uint16_t host0, host1; } K60SmemPartition;
++enum { K60SmemOk = 0, K60SmemNoTable = -1, K60SmemNoPartition = -2,
++       K60SmemBadPartition = -3, K60SmemCorrupt = -4, K60SmemMissing = -5,
++       K60SmemExists = -6, K60SmemNoSpace = -7 };
++int k60_smem_partition(const K60Smem *, uint16_t, uint16_t, K60SmemPartition *);
++int k60_smem_find(const K60Smem *, const K60SmemPartition *, uint16_t, uint32_t *, uint32_t *);
++/* Appends one item; the entry is complete before the free mark moves over it.
++ * Adapted from pong-power QcomSmem.c qcom_smem_alloc (c37179ed). */
++int k60_smem_alloc(const K60Smem *, const K60SmemPartition *, uint16_t, uint32_t, uint32_t *, uint32_t *);
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/bsd/dev/pong_smem.c b/bsd/dev/pong_smem.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_smem.c
+@@ -0,0 +1,151 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Adapted from pong-power c37179ed QcomSmem.c (BSD-2-Clause-Patent). No heap
++ * allocation or cached Android data. Reads are aligned and partition-bounded. */
++#include "K60Smem.h"
++
++#define TOC_MAGIC 0x434f5424u
++#define PART_MAGIC 0x54525024u
++#define CANARY 0xa5a5u
++#define PART_HEADER 32u
++#define ENTRY 16u
++static int fits(uint64_t at, uint64_t bytes, uint64_t size) { return at <= size && bytes <= size - at; }
++static uint32_t rd(const K60Smem *s, uint32_t at)
++{
++    return *(volatile uint32_t *)(s->base + at);
++}
++static void acquire(void)
++{
++#if defined(__aarch64__) && defined(KERNEL)
++    __asm__ volatile("dmb osh" ::: "memory");
++#endif
++}
++static uint32_t align_up(uint32_t v, uint32_t n) { return (v + n - 1) & ~(n - 1); }
++static void wr(const K60Smem *s, uint32_t at, uint32_t v)
++{
++    *(volatile uint32_t *)(s->base + at) = v;
++}
++static void release(void)
++{
++#if defined(__aarch64__) && defined(KERNEL)
++    __asm__ volatile("dmb osh" ::: "memory");
++#endif
++}
++static int partition_bounds(const K60Smem *s, const K60SmemPartition *p, uint32_t *up, uint32_t *down)
++{
++    if (!s || !s->base || !p || s->size < 8192 || !fits(p->offset, p->size, s->size - 4096) ||
++        (p->offset & 7) || p->size < 2 * ENTRY + PART_HEADER || p->cacheline < 8 ||
++        p->cacheline > 4096 || (p->cacheline & (p->cacheline - 1))) return K60SmemBadPartition;
++    const uint32_t hosts = (uint32_t)p->host0 | (uint32_t)p->host1 << 16;
++    if (rd(s, p->offset) != PART_MAGIC || rd(s, p->offset + 4) != hosts ||
++        rd(s, p->offset + 8) != p->size) return K60SmemBadPartition;
++    *up = rd(s, p->offset + 12); *down = rd(s, p->offset + 16);
++    acquire();
++    if (*up < PART_HEADER || *up > *down || *down > p->size || (*up & 7) || (*down & 7))
++        return K60SmemBadPartition;
++    return K60SmemOk;
++}
++
++int k60_smem_partition(const K60Smem *s, uint16_t host, uint16_t remote, K60SmemPartition *out)
++{
++    if (!s || !s->base || !out || s->size < 8192 || (s->size & 4095)) return K60SmemNoTable;
++    const uint32_t toc = s->size - 4096;
++    if (rd(s, toc) != TOC_MAGIC || rd(s, toc + 4) != 1) return K60SmemNoTable;
++    const uint32_t count = rd(s, toc + 8);
++    if (count > (4096 - 32) / 48) return K60SmemNoTable;
++    acquire();
++    for (uint32_t i = 0; i < count; ++i) {
++        const uint32_t e = toc + 32 + i * 48;
++        const uint32_t offset = rd(s, e), size = rd(s, e + 4), hosts = rd(s, e + 12);
++        const uint16_t h0 = (uint16_t)hosts, h1 = (uint16_t)(hosts >> 16);
++        if (!offset || !size || !((h0 == host && h1 == remote) || (h0 == remote && h1 == host))) continue;
++        const uint32_t cacheline = rd(s, e + 16);
++        K60SmemPartition p = {offset, size, cacheline ? cacheline : 8, h0, h1};
++        uint32_t up, down;
++        const int rc = partition_bounds(s, &p, &up, &down);
++        if (rc) return rc;
++        *out = p;
++        return K60SmemOk;
++    }
++    return K60SmemNoPartition;
++}
++
++int k60_smem_find(const K60Smem *s, const K60SmemPartition *p, uint16_t item, uint32_t *offset, uint32_t *size)
++{
++    if (!offset || !size) return K60SmemBadPartition;
++    uint32_t up, down;
++    const int rc = partition_bounds(s, p, &up, &down);
++    if (rc) return rc;
++    uint32_t at = PART_HEADER;
++    while (at < up) {
++        if ((at & 7) || !fits(at, ENTRY, up)) return K60SmemCorrupt;
++        const uint32_t w0 = rd(s, p->offset + at), bytes = rd(s, p->offset + at + 4);
++        const uint32_t pads = rd(s, p->offset + at + 8), header_pad = pads >> 16, data_pad = pads & 65535;
++        if ((w0 & 65535) != CANARY || (header_pad & 7) || (bytes & 7) || data_pad > bytes ||
++            !fits((uint64_t)at + ENTRY + header_pad, bytes, up)) return K60SmemCorrupt;
++        if ((w0 >> 16) == item) {
++            *offset = p->offset + at + ENTRY + header_pad; *size = bytes - data_pad;
++            return K60SmemOk;
++        }
++        at += ENTRY + header_pad + bytes;
++    }
++    if (at != up) return K60SmemCorrupt;
++    const uint32_t header = align_up(ENTRY, p->cacheline);
++    if (p->size < header) return K60SmemCorrupt;
++    at = p->size - header;
++    while (at > down) {
++        if ((at & 7) || !fits(at, ENTRY, p->size)) return K60SmemCorrupt;
++        const uint32_t w0 = rd(s, p->offset + at), bytes = rd(s, p->offset + at + 4);
++        const uint32_t pads = rd(s, p->offset + at + 8);
++        if ((w0 & 65535) != CANARY || (bytes & 7) || (pads & 65535) > bytes || bytes > at ||
++            at - bytes < down) return K60SmemCorrupt;
++        if ((w0 >> 16) == item) {
++            *offset = p->offset + at - bytes; *size = bytes - (pads & 65535);
++            return K60SmemOk;
++        }
++        if (at - bytes == down) return K60SmemMissing;
++        if ((uint64_t)bytes + header > at || at - bytes - header < down) return K60SmemCorrupt;
++        at -= bytes + header;
++    }
++    return K60SmemMissing;
++}
++
++int k60_smem_alloc(const K60Smem *s, const K60SmemPartition *p, uint16_t item, uint32_t size,
++                   uint32_t *offset, uint32_t *size_out)
++{
++    uint32_t up, down, at, aligned, need, i;
++    int rc;
++
++    if (!s || !s->base || !p || !size) return K60SmemBadPartition;
++    rc = partition_bounds(s, p, &up, &down);
++    if (rc) return rc;
++
++    /* Duplicate items are refused, not merged: the reference allocator returns
++     * Exists so a caller can distinguish "already leased" from "no room". */
++    {
++        uint32_t existing_offset = 0, existing_size = 0;
++        if (k60_smem_find(s, p, item, &existing_offset, &existing_size) == K60SmemOk)
++            return K60SmemExists;
++    }
++
++    at = up;
++    aligned = align_up(size, 8);
++    need = ENTRY + aligned;
++    if (aligned < size) return K60SmemNoSpace;
++    if ((uint64_t)at + need > down) return K60SmemNoSpace;
++    if (at & 7) return K60SmemCorrupt;
++
++    wr(s, p->offset + at, CANARY | ((uint32_t)item << 16));
++    wr(s, p->offset + at + 4, aligned);
++    wr(s, p->offset + at + 8, aligned - size);   /* header padding 0, data padding = align slack */
++    wr(s, p->offset + at + 12, 0);
++    for (i = 0; i < aligned; i += 4) wr(s, p->offset + at + ENTRY + i, 0);
++
++    /* The entry is complete before the free mark moves over it. */
++    release();
++    wr(s, p->offset + 12, at + need);
++
++    if (offset) *offset = p->offset + at + ENTRY;
++    if (size_out) *size_out = aligned - (aligned - size);
++    return K60SmemOk;
++}
+diff --git a/bsd/dev/pong_handoff.h b/bsd/dev/pong_handoff.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_handoff.h
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Builds the 104-byte k60-adsp-glink-handoff lease from SMEM allocations.
++ * Layout and validation rules: docs/research/battery/GLINK-HANDOFF.md.
++ * This produces the lease only; the ADSP PAS1 owner must still be running. */
++#ifndef K60_HANDOFF_BUILD_H
++#define K60_HANDOFF_BUILD_H
++#include <stdint.h>
++#include "pong_smem.h"
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define K60_HANDOFF_BYTES 104u
++/* K6BH little endian: identical to K60_ADSP_HANDOFF_MAGIC in
++ * K60BatteryConfig.h, because that validator is the only consumer. */
++#define K60_HANDOFF_MAGIC 0x4842364bu
++#define K60_HANDOFF_VERSION 1u
++
++typedef struct {
++    uint32_t required;          /* flags: K60AdspHandoffRequired bits */
++    uint32_t epoch;             /* must be non-zero */
++    uint64_t smem_base;
++    uint32_t smem_bytes;
++    uint64_t adsp_base;
++    uint32_t adsp_bytes;
++    uint16_t desc_item, tx_item, rx_item, smp2p_item;
++    uint16_t remote_pid;
++    uint32_t desc_bytes, tx_bytes, rx_bytes, smp2p_bytes;
++    uint32_t host_tx_head, host_rx_tail, remote_restart_flag;
++} K60HandoffPlan;
++
++/* Allocates the four items and writes the lease into out[0..103].
++ * Returns 0, or a negative K60Smem error, or -8 for an invalid plan. */
++int k60_handoff_build(const K60Smem *, const K60SmemPartition *, const K60HandoffPlan *, uint8_t out[K60_HANDOFF_BYTES]);
++
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/bsd/dev/pong_handoff.c b/bsd/dev/pong_handoff.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_handoff.c
+@@ -0,0 +1,95 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++#include "pong_handoff.h"
++
++#define BAD_PLAN (-8)
++
++static void hb32(uint8_t *p, uint32_t v)
++{
++    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
++}
++static void hb64(uint8_t *p, uint64_t v)
++{
++    hb32(p, (uint32_t)v); hb32(p + 4, (uint32_t)(v >> 32));
++}
++static int ring_ok(uint32_t bytes) { return bytes >= 256u && bytes <= 65536u && (bytes & 7u) == 0u; }
++
++/* Every field is validated before the first allocation, so a rejected plan
++ * never leaves a half-written partition behind. */
++static int plan_ok(const K60HandoffPlan *p)
++{
++    if (!p) return 0;
++    if (!p->epoch || !p->smem_base || !p->smem_bytes || p->smem_bytes < 8192u) return 0;
++    if (!p->adsp_base || !p->adsp_bytes) return 0;
++    if (p->desc_bytes != 32u) return 0;
++    if (!ring_ok(p->tx_bytes) || !ring_ok(p->rx_bytes)) return 0;
++    if (p->smp2p_bytes < 20u || p->smp2p_bytes > 340u) return 0;
++    if (!p->remote_pid || p->remote_pid > 255u) return 0;
++    if (p->host_tx_head || p->host_rx_tail) return 0;
++    if (p->remote_restart_flag > 1u || p->required == 0u) return 0;
++    return 1;
++}
++
++int k60_handoff_build(const K60Smem *smem, const K60SmemPartition *part,
++                      const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES])
++{
++    const uint16_t items[4] = {plan->desc_item, plan->tx_item, plan->rx_item, plan->smp2p_item};
++    uint32_t sizes[4];
++    uint32_t offsets[4] = {};
++    uint32_t lengths[4] = {};
++    unsigned i;
++    int rc;
++
++    if (!smem || !part || !out || !plan_ok(plan)) return BAD_PLAN;
++
++    sizes[0] = plan->desc_bytes;
++    sizes[1] = plan->tx_bytes;
++    sizes[2] = plan->rx_bytes;
++    sizes[3] = plan->smp2p_bytes;
++
++    for (i = 0; i < 4; ++i) {
++        unsigned j;
++        if (items[i] == 0u) return BAD_PLAN;
++        for (j = 0; j < i; ++j)
++            if (items[i] == items[j]) return BAD_PLAN;
++    }
++
++    for (i = 0; i < 4; ++i) {
++        rc = k60_smem_alloc(smem, part, items[i], sizes[i], &offsets[i], &lengths[i]);
++        if (rc == K60SmemExists) {
++            if (k60_smem_find(smem, part, items[i], &offsets[i], &lengths[i]) != K60SmemOk) return rc;
++        } else if (rc) {
++            return rc;
++        }
++        if (lengths[i] < sizes[i]) return K60SmemCorrupt;
++    }
++
++    hb32(out + 0, K60_HANDOFF_MAGIC);
++    hb32(out + 4, K60_HANDOFF_VERSION);
++    hb32(out + 8, K60_HANDOFF_BYTES);
++    hb32(out + 12, plan->required);
++    hb32(out + 16, plan->epoch);
++    hb32(out + 20, 0);   /* high half of the 64-bit epoch */
++    hb64(out + 24, plan->smem_base);
++    hb32(out + 32, plan->smem_bytes);
++    hb32(out + 36, 0);
++    hb64(out + 40, plan->adsp_base);
++    hb32(out + 48, plan->adsp_bytes);
++    hb32(out + 52, 0);
++    hb32(out + 56, offsets[0]);
++    hb32(out + 60, plan->desc_bytes);
++    hb32(out + 64, offsets[1]);
++    hb32(out + 68, plan->tx_bytes);
++    hb32(out + 72, offsets[2]);
++    hb32(out + 76, plan->rx_bytes);
++    hb32(out + 80, plan->host_tx_head);
++    hb32(out + 84, plan->host_rx_tail);
++    hb32(out + 88, plan->remote_pid);
++    hb32(out + 92, plan->smp2p_item);
++    hb32(out + 96, plan->remote_restart_flag);
++    hb32(out + 100, 0);
++    return 0;
++}
++
++/* P-170: a symbol that proves this translation unit reached kernel.macho. */
++const char pong_handoff_marker[] = "K60HO smem handoff linked";

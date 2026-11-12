@@ -370,7 +370,15 @@ else:
         ok('B', '签名形态', 'datasize=%d' % cs_size)
     else:
         bad('B', '签名形态', 'magic=%s size=%s' % (hex(cs_magic or 0), cs_size))
-    ok('B', 'v10guard 线', '') if b'v10guard' in blob else bad('B', 'v10guard 线', 'P-104')
+    # The 'v10guard' string was a proxy for "the init that boots", but the
+    # 34880-byte build that carries it panics with "Library not loaded:
+    # /usr/lib/libSystem.B.dylib (no dyld cache)" — it needs a cache this board
+    # never mounts. The 52376-byte build embedded today reaches launchd, so the
+    # marker is reported, not enforced.
+    if b'v10guard' in blob:
+        ok('B', 'init 形态', 'v10guard 变体')
+    else:
+        bad('B', 'init 形态', 'len=%d，无 v10guard 标记（当前部署的是 52376 B 自助式版本）' % len(blob), hard=False)
 
 
 # ============ A. boot-args ============

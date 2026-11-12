@@ -4040,3 +4040,22 @@ Apple 的 Kernel.framework，不在 XNU 源码里。
 - 归档路：需要 Kernel.framework（P-168 主体），本机无。
 - 源码路：需要在树里**新写**一个 IOService nub 来发布电池属性，
   不能"继承"一个不存在的类。这不是补丁，是驱动。
+## P-169 自己写的常量不算数：生产者必须过消费者的解析器
+
+`K60HandoffBuild` 第一版用自造 magic `0x6b363068`（"k60h"）、flags 写 `0x7`，
+并按 `u32 + pad` 布局写 `epoch`/`smem_bytes`/`adsp_bytes`。这些都能通过我自己的
+字段表断言——因为那张表也是我按同一份理解写的。
+
+接上唯一消费者 `K60BatteryConfig.c:54 k60_adsp_handoff_parse()` 之后立刻暴露：
+- magic 必须是 `K60_ADSP_HANDOFF_MAGIC 0x4842364b`（"K6BH"）；
+- flags 必须等于 `K60AdspHandoffRequired`（实测 **0xf**，四位全置，不是 0x7）；
+- `epoch`(`+16`)、`smem_bytes`(`+32`)、`adsp_bytes`(`+48`) 都是 **64 位**读取，
+  `u32 + 0` 只是数值恰好兼容，超过 4 GiB 就会静默截断。
+
+规则：**生成任何二进制结构的代码，必须有一个测试把产物交给真正的解析方**。
+自证式字段表能抓位移错误，抓不到"我定义的常量不是对方定义的常量"。
+
+落地：`scripts/tests/test-k60-handoff-build.c` 现在链接真的
+`K60BatteryConfig.c`（独立编译单元，避开 `fits`/`le32` 重名），
+断言 `k60_adsp_handoff_parse(out, 104, &cfg, &parsed) == K60ConfigOk`
+且回读偏移与 epoch 一致。

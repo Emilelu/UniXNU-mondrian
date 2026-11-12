@@ -1,0 +1,32 @@
+# 范围冻结
+#
+# 用户明确说过「不要动 X」时，在这里登记。scripts/check-scope-freeze.py 会在构建前
+# 检查这些路径有没有被改动，改了就直接失败。
+#
+# 为什么需要这张表（2026-11-12）：用户说过不要碰触摸和 GPU，我仍然改了
+# dts/mondrian.dts 的 pong-touch 节点和触摸补丁 —— 因为「不要动」只存在于对话里，
+# 门禁看不见。规则写在对话里等于没写。
+#
+# 解除冻结：删掉对应区域，或在对话里取得用户明确同意后再删。
+
+[frozen.touch]
+reason = "用户要求：暂不修改触摸相关代码与 DT"
+baseline = "8d3bcad"
+paths = [
+  "dts/mondrian.dts",
+  "patches/xnu/*pong-touch*",
+  "patches/xnu/*0403-k60-goodix*",
+  "userland/touch.c",
+  "userland/touch.h",
+]
+
+[frozen.gpu]
+reason = "用户要求：暂不修改 GPU 相关代码与开关"
+baseline = "8d3bcad"
+paths = [
+  "drivers/PongAdreno/*",
+  "drivers/PongMetal/*",
+  "patches/xnu/*pong-gpu*",
+  "patches/xnu/*pong-adreno*",
+  "patches/xnu/*pong-metal*",
+]

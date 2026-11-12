@@ -395,3 +395,12 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-162"
 statement = "A patch must be a diff git can parse: hunk counts, a trailing newline, no stray blank context line, and no net-delete arithmetic."
 check = "python3 scripts/check-patch-apply.py"
+
+[[rule]]
+id = "P-163"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-163"
+statement = "A single SPI line reading all ones or all zeros proves nothing; sample it with pull-up and pull-down, and only a level that does not follow the bias is a real driver."
+waiver = """Needs an automated two-boot comparison: the same image must be built with PULL_UP and with
+PULL_DOWN and both console logs must be read for the `K60BB frame` miso counts. Until a runner
+does that, the manual procedure and its evidence table live in docs/research/touch/GROUND-TRUTH.md."""

@@ -4059,3 +4059,22 @@ Apple 的 Kernel.framework，不在 XNU 源码里。
 `K60BatteryConfig.c`（独立编译单元，避开 `fits`/`le32` 重名），
 断言 `k60_adsp_handoff_parse(out, 104, &cfg, &parsed) == K60ConfigOk`
 且回读偏移与 epoch 一致。
+## P-170 新写的驱动源码没有被任何构建步骤引用
+
+`drivers/PongPower/K60Smem.c`、`K60HandoffBuild.c`、`K60BatteryConfig.c` 都通过了
+主机侧测试（`TESTS OK 10`），但：
+
+```
+grep -n 'PongPower\|K60Smem\|K60Handoff' scripts/build-xnu-4k-baseline.sh \
+    patches/xnu/0602-k60-physical-battery.patch
+→ 零命中
+```
+
+也就是说这三个文件**没有被编进内核**。内核链接只吃 `$ROOT/build/<name>/lib<Name>.a`
+这类归档（`KERNEL_EXTRA_ARCHIVES` + `-Wl,-force_load`），而 `build/smem-handoff/`
+根本不存在。测试通过只证明逻辑对，不证明它跑在设备上。
+
+规则：**主机测试通过 ≠ 已进内核**。新增驱动源码必须同时落三件事：
+① 在 `scripts/build-xnu-4k-baseline.sh` 里产出归档；② 加入 `KERNEL_EXTRA_ARCHIVES`
+并 `-force_load`；③ 有一个能被 `strings kernel.macho` 或上机日志验证的标记字符串。
+缺第 ③ 条时，"没看到日志"无法区分"没跑"和"跑了没输出"。

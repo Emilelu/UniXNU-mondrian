@@ -452,3 +452,10 @@ source = "docs/engineering/PITFALLS.md:P-169"
 statement = "A structure producer must be proven against the real consumer parser in a test; a self-authored field table cannot catch a wrong constant or a 32/64-bit mismatch."
 waiver = """Waiver: checkable once every producer/consumer pair in drivers/ is listed
 with its round-trip test, so the gate can require one per pair."""
+
+[[rule]]
+id = "P-170"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-170"
+statement = "A new driver source is not in the kernel until the build script produces its archive, force-loads it, and leaves a string that proves it ran."
+waiver = """Waiver: checkable once drivers/ carries a manifest of {source -> archive -> force_load flag -> marker string}."""

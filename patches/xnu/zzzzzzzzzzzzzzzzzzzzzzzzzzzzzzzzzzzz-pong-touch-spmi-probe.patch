@@ -1,11 +1,13 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -641,6 +641,68 @@
+@@ -641,6 +641,82 @@
  
  /* Declared ahead of its definition: goodix_apply_config resets the chip
   * through it so the SPI mode is re-confirmed on that path too. */
-+/* Walk the whole SPMI map table (every slave id) and report the channels that
-+ * answer with a real peripheral type: the regulators are not all on sid 2. */
++/* The reference recipe reads the map table at core+0x900 with a length taken
++ * from core+0x04 and core+0x08. Our 0x2000 walk produced 24 sid-2 channels but
++ * did not contain PPID 0x241 (PM8350C LDO2), so walk the reference layout and
++ * report the index (apid) of every sid-2 entry, including 0x241. */
 +#define SPMI_CORE_PHYS     0xc400000UL
 +#define SPMI_OBSERVER_PHYS 0xc440000UL
 +
@@ -16,60 +18,72 @@
 +    return *(volatile uint32_t *)(spmi_core + off);
 +}
 +
-+static uint32_t spmi_read(uint32_t ppid, uint32_t reg)
++static uint32_t spmi_read_apid(uint32_t apid, uint32_t reg)
 +{
-+    vm_offset_t ch = spmi_obs + 0x20u * ppid;
-+    uint32_t st = 0;
++    vm_offset_t off = spmi_obs + 0x20u * apid;
++    uint32_t st = 0, got = 0;
 +
-+    wr(ch + 0x00, (15u << 27) | ((reg & 0xffu) << 4) | 0u);
-+    for (uint32_t k = 0; k < 2000; k++) {
-+        st = *(volatile uint32_t *)(ch + 0x08);
-+        if (st & 0x1u) {
++    wr(off + 0x18, 0);
++    wr(off + 0x00, (1u << 27) | ((reg & 0xffu) << 4));
++    for (uint32_t w = 0; w < 2000; w++) {
++        st = *(volatile uint32_t *)(off + 0x08);
++        if (st & 1u) {
++            got = *(volatile uint32_t *)(off + 0x18);
 +            break;
 +        }
 +    }
-+    if (st != 0x1u) {
-+        return 0xee00u | st;
-+    }
-+    return *(volatile uint32_t *)(ch + 0x18) & 0xffu;
++    return st == 1u ? (got & 0xffu) : (0xee00u | st);
 +}
 +
 +static void spmi_probe(void)
 +{
-+    uint32_t live = 0;
++    uint32_t n0, n1, total, sid2 = 0, found = 0, apid241 = 0xffffffffu;
 +
 +    if (!spmi_core) {
 +        spmi_core = ml_io_map(SPMI_CORE_PHYS, 0x3000);
 +        spmi_obs = ml_io_map(SPMI_OBSERVER_PHYS, 0x80000);
 +    }
 +    if (!spmi_core || !spmi_obs) {
-+        printf("K60SPMI map failed\n");
++        printf("K60LDO map failed\n");
 +        return;
 +    }
-+    for (uint32_t n = 0; n < 758; n++) {
-+        uint32_t ppid = (spmi_rd(0x2000 + 4 * n) >> 8) & 0xfff;
-+        uint32_t t;
++    n0 = spmi_rd(0x04) & 0x3ffu;
++    n1 = spmi_rd(0x08) & 0x3ffu;
++    total = n0 + n1;
++    printf("K60LDO rev=12 n0=%u n1=%u total=%u\n", n0, n1, total);
++    if (total > 1024u) {
++        total = 1024u;
++    }
++    for (uint32_t i = 0; i < total; i++) {
++        uint32_t m = spmi_rd(0x900u + 4u * i);
++        uint32_t p;
 +
-+        if ((ppid >> 8) == 0) {
++        if (!m) {
 +            continue;
 +        }
-+        t = spmi_read(ppid, 0x04);
-+        if (t == 0xee03u || t == 0 || t == 0xffu || t == 0xeeu) {
++        p = (m >> 8) & 0xfffu;
++        if ((p >> 8) != 2) {
 +            continue;
 +        }
-+        printf("K60T rev=10 p=%#x t=%#x s=%#x r=%#x\n", ppid, t,
-+            spmi_read(ppid, 0x05), spmi_read(ppid, 0x00));
-+        if (++live >= 28) {
-+            break;
++        sid2++;
++        if (p == 0x241u) {
++            apid241 = i;
++            found = 1;
++        }
++        if (sid2 <= 12) {
++            printf("K60LDO i=%u p=%#x\n", i, p);
 +        }
 +    }
-+    printf("K60CFG rev=10 live=%u\n", live);
++    printf("K60LDO rev=12 sid2=%u apid241=%d\n", sid2, (int)(found ? (int)apid241 : -1));
++    if (found) {
++        printf("K60LDO en87=%#x\n", spmi_read_apid(apid241, 0x87u));
++    }
 +}
 +
  static void touch_reset(void);
  
  static bool
-@@ -1209,6 +1271,7 @@
+@@ -1209,6 +1285,7 @@
              return false;
          }
          bool gpio_spi;

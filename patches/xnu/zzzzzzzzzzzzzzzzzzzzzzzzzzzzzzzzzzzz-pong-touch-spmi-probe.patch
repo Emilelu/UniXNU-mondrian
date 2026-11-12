@@ -1,12 +1,9 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -660,6 +660,52 @@
-     printf("K60SPMI ver=%#x channels=%u\n", spmi_rd(0x000), spmi_rd(0x004) & 0x7ff);
-     printf("K60SPMI map0=%#x map1=%#x map2=%#x\n",
-         spmi_rd(0x900), spmi_rd(0x904), spmi_rd(0x908));
-+    printf("K60SPMI obs_status0=%#x\n", spmi_obs_rd(0, 0x08));
-+}
-+
+@@ -641,6 +641,41 @@
+ 
+ /* Declared ahead of its definition: goodix_apply_config resets the chip
+  * through it so the SPI mode is re-confirmed on that path too. */
 +/* Read-only view of the SPMI arbiter. pong_buttons.c proves the observer
 + * window answers on this board; this asks the same window for the arbiter's
 + * own identity so a later regulator vote can trust the mapping. */
@@ -37,23 +34,15 @@
 +        return;
 +    }
 +    printf("K60SPMI ver=%#x channels=%u\n", spmi_rd(0x000), spmi_rd(0x004) & 0x7ff);
-+    {
-+        uint32_t nz = 0, s0 = 0, s1 = 0, s2 = 0;
-+        for (uint32_t n = 0; n < 64; n++) {
-+            uint32_t v = spmi_rd(0x900 + 4 * n);
-+            if (v) {
-+                if (!nz) s0 = v;
-+                else if (nz == 1) s1 = v;
-+                else if (nz == 2) s2 = v;
-+                nz++;
-+            }
-+        }
-+        printf("K60SPMI mapped=%u/64 first=%#x %#x %#x\n", nz, s0, s1, s2);
-+    }
-     printf("K60SPMI obs_status0=%#x\n", spmi_obs_rd(0, 0x08));
- }
++    printf("K60SPMI map0=%#x map1=%#x map2=%#x\n",
++        spmi_rd(0x900), spmi_rd(0x904), spmi_rd(0x908));
++    printf("K60SPMI obs_status0=%#x\n", spmi_obs_rd(0, 0x08));
++}
++
+ static void touch_reset(void);
  
-@@ -1231,7 +1277,8 @@
+ static bool
+@@ -1209,7 +1244,8 @@
              return false;
          }
          bool gpio_spi;

@@ -3,6 +3,14 @@ set -euo pipefail
 trap 'echo "build-xnu-4k-baseline.sh: line $LINENO: $BASH_COMMAND failed" >&2' ERR
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
+# xnu's SETUP tools are host binaries, but MakeInc.cmd resolves HOST_CC with
+# `xcrun -find clang`, which on Linux returns the CLT's Darwin cross clang - it targets
+# arm64e-apple-macos and cannot find <stdio.h>/<libc.h> in the kernel fakeroot. The
+# Linux toolchain installs xnu-host-cc, which builds them with the distribution's clang
+# and the cctools headers; export it (and MIGCOM) the way the framework script does.
+if [ -n "${CLT_PREFIX:-}" ] && [ -x "${CLT_PREFIX}/bin/xnu-host-cc" ]; then
+  export HOST_CC="${CLT_PREFIX}/bin/xnu-host-cc" MIGCOM="${CLT_PREFIX}/libexec/migcom"
+fi
 # Pong iOS 16 derivative of the successfully returned Mac build script.
 # First console build uses MACHINE_CONFIGS=PONG; preserve the original baseline artifact.
 XNU_TAG=${UNIXNU_XNU_TAG:-xnu-8796.141.3}
@@ -206,17 +214,9 @@ if [ ! -d refer/libplatform/.git ]; then
 fi
 export KERNEL_SDKROOT=$ROOT/.cache/fakeroot
 mkdir -p "$KERNEL_SDKROOT/usr/local/include/kernel" "$ROOT/build/xnu/obj/EXPORT_HDRS/libsa"
-# ditto(1) is a macOS tool that merges directory trees. GNU cp has no merge mode,
-# so on Linux use the same "copy over, keep both" semantics with cp -R.
-if command -v ditto >/dev/null 2>&1; then
-  DITTO=ditto
-else
-  DITTO_FALLBACK() { mkdir -p "$2" && cp -R "$1/." "$2/"; }
-fi
-ditto_or_copy() { if [ "${DITTO:-}" = ditto ]; then ditto "$1" "$2"; else DITTO_FALLBACK "$1" "$2"; fi; }
-ditto_or_copy refer/libplatform/include "$KERNEL_SDKROOT/usr/local/include"
-ditto_or_copy refer/libplatform/private "$KERNEL_SDKROOT/usr/local/include"
-ditto_or_copy refer/libplatform/private/platform "$KERNEL_SDKROOT/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform"
+ditto refer/libplatform/include "$KERNEL_SDKROOT/usr/local/include"
+ditto refer/libplatform/private "$KERNEL_SDKROOT/usr/local/include"
+ditto refer/libplatform/private/platform "$KERNEL_SDKROOT/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform"
 if [ ! -d refer/libdispatch/.git ]; then
   git clone --depth 1 --branch "$LIBDISPATCH_TAG" https://github.com/apple-oss-distributions/libdispatch.git refer/libdispatch
 fi
@@ -238,20 +238,11 @@ PY
 if [ ! -f "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ] || \
    [ .cache/xnu-work/pexpert/pexpert/arm64/board_config.h -nt "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ] || \
    [ .cache/xnu-work/pexpert/pexpert/arm64/PONG.h -nt "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ]; then
-  # MakeInc.top derives the host figures from /usr/sbin/sysctl and sw_vers, which
-  # do not exist (or mean something else) on Linux. The SETUP tools also need the
-  # host deployment target: without it their Makefiles pass an empty
-  # -mmacosx-version-min and clang refuses to compile them.
   make -C .cache/xnu-work installhdrs SDKROOT=macosx ARCH_CONFIGS=ARM64 \
     MACHINE_CONFIGS=PONG KERNEL_CONFIGS=DEVELOPMENT \
     RC_DARWIN_KERNEL_VERSION="$XNU_DARWIN" RC_ProjectSourceVersion="$XNU_VERSION" \
     MAKEJOBS=-j"${JOBS:-4}" OBJROOT="$ROOT/build/xnu/obj" \
-    SYMROOT="$ROOT/build/xnu/sym" DSTROOT="$KERNEL_SDKROOT" \
-    MEMORY_SIZE="$(awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo)" \
-    SYSCTL_HW_PHYSICALCPU="$(nproc)" \
-    SYSCTL_HW_LOGICALCPU="$(nproc)" \
-    HOST_CC="${CLT_PREFIX:-/opt/unixnu-linux/CommandLineTools/usr}/bin/xnu-host-cc" \
-    HOST_OS_VERSION="${HOST_OS_VERSION:-14.6}"
+    SYMROOT="$ROOT/build/xnu/sym" DSTROOT="$KERNEL_SDKROOT"
   touch "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers"
 fi
 # The Pong provider scripts that this script runs (build-pong-platform-macos.py,
@@ -438,7 +429,6 @@ fi
 if [ "$NATIVE_VIRTIO_CONSOLE" = 1 ]; then
   PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_NATIVE_VIRTIO_CONSOLE=1"
 fi
-
 EXTRA_MAKE_ARGS+=("KernelConfigTables.cpo_CFLAGS_ADD=$PERSONALITY_CFLAGS")
 TRUST_CACHE_MODE=${XNU_TRUST_CACHE_RUNTIME:-0}
 if [ "$TRUST_CACHE_MODE" != 0 ] && [ "$TRUST_CACHE_MODE" != 1 ]; then
@@ -573,7 +563,7 @@ if [ "$(cat "$SHENG_PMGR_STAMP" 2>/dev/null || echo 0)" != "$SHENG_PMGR" ]; then
   rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/bsd_init.o"
   printf '%s\n' "$SHENG_PMGR" > "$SHENG_PMGR_STAMP"
 fi
-EXTRA_MAKE_ARGS+=("bsd_init.o_CFLAGS_ADD=-DXNU_K60_PHYSICAL_BATTERY=${XNU_K60_PHYSICAL_BATTERY:-0} -DXNU_SHENG_PMGR=$SHENG_PMGR -DXNU_VERIFIED_ROOT_PROBE=$OWNER_ROOT_PROBE -DXNU_OWNER_ROOT_AUDIT=$OWNER_ROOT_AUDIT -DXNU_OWNER_ROOT_TRUST=$OWNER_ROOT_TRUST -DXNU_ADRENO_FIRMWARE_PROBE=$ADRENO_FIRMWARE_PROBE -DXNU_ADRENO_PM4_PROBE=$ADRENO_PM4_PROBE -DXNU_SMMU4K_PROBE=$SMMU4K_PROBE -DXNU_CONSTANT_UPLOADS_PROBE=$CONSTANT_UPLOADS_PROBE -DXNU_NATIVE_LEGACY_DISPLAY=${XNU_NATIVE_LEGACY_DISPLAY:-0} -DXNU_NATIVE_OFFLINE_GPU=$NATIVE_OFFLINE_GPU")
+EXTRA_MAKE_ARGS+=("bsd_init.o_CFLAGS_ADD=-DXNU_SHENG_PMGR=$SHENG_PMGR -DXNU_VERIFIED_ROOT_PROBE=$OWNER_ROOT_PROBE -DXNU_OWNER_ROOT_AUDIT=$OWNER_ROOT_AUDIT -DXNU_OWNER_ROOT_TRUST=$OWNER_ROOT_TRUST -DXNU_ADRENO_FIRMWARE_PROBE=$ADRENO_FIRMWARE_PROBE -DXNU_ADRENO_PM4_PROBE=$ADRENO_PM4_PROBE -DXNU_SMMU4K_PROBE=$SMMU4K_PROBE -DXNU_CONSTANT_UPLOADS_PROBE=$CONSTANT_UPLOADS_PROBE -DXNU_NATIVE_LEGACY_DISPLAY=${XNU_NATIVE_LEGACY_DISPLAY:-0} -DXNU_NATIVE_OFFLINE_GPU=$NATIVE_OFFLINE_GPU")
 NATIVE_MOBILE_DISPLAY=${XNU_NATIVE_MOBILE_DISPLAY:-0}
 if [ "$NATIVE_MOBILE_DISPLAY" != 0 ] && [ "$NATIVE_MOBILE_DISPLAY" != 1 ]; then
   echo 'XNU_NATIVE_MOBILE_DISPLAY must be 0 or 1' >&2
@@ -622,7 +612,7 @@ if [ "$OWNER_BOOT_MANIFEST" = 1 ] && [ "$OWNER_CACHE_STARTUP" != 1 ]; then
   echo 'Owner boot metadata requires real authenticated owner root/cache startup' >&2
   exit 1
 fi
-EXTRA_MAKE_ARGS+=("IOKitBSDInit.cpo_CFLAGS_ADD=-DXNU_K60_PHYSICAL_BATTERY=${XNU_K60_PHYSICAL_BATTERY:-0} -DXNU_OWNER_BOOT_MANIFEST=$OWNER_BOOT_MANIFEST")
+EXTRA_MAKE_ARGS+=("IOKitBSDInit.cpo_CFLAGS_ADD=-DXNU_OWNER_BOOT_MANIFEST=$OWNER_BOOT_MANIFEST")
 OWNER_MANIFEST_STAMP=$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/.owner-boot-manifest-mode
 if [ "$(cat "$OWNER_MANIFEST_STAMP" 2>/dev/null || echo 0)" != "$OWNER_BOOT_MANIFEST" ]; then
   rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/iokit/DEVELOPMENT/IOKitBSDInit.cpo"
@@ -1112,18 +1102,7 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   if [ -n "${XNU_BOOTSTRAP:-}" ]; then
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
-    BOOT_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE"
-    # The bootstrap pass also links, and IOKitBSDInit references the battery
-    # entry point whenever the switch is on, so this pass needs the archive too.
-    if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
-      K60_BATTERY_ARCHIVE=${XNU_K60_PHYSICAL_BATTERY_ARCHIVE:-$ROOT/build/k60-physical-battery/libK60PhysicalBattery.a}
-      if [ ! -f "$K60_BATTERY_ARCHIVE" ]; then
-        echo "XNU_K60_PHYSICAL_BATTERY=1 but $K60_BATTERY_ARCHIVE is missing" >&2
-        exit 1
-      fi
-      BOOT_ARCHIVES="$BOOT_ARCHIVES -Wl,-force_load,$K60_BATTERY_ARCHIVE"
-    fi
-    EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$BOOT_ARCHIVES")
+    EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE")
   fi
 fi
 if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
@@ -1166,21 +1145,6 @@ PY_RAM_BLOCK_BINDINGS
       PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$RAM_BLOCK_ARCHIVE"
     fi
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $RAM_BLOCK_ARCHIVE"
-  fi
-  # K60 PMIC-GLINK/IOPMPowerSource. XNU_BOOTSTRAP is set only for the first
-  # pass; this branch is the one that links the kernel that ships, so the
-  # archive has to be added here. It registers only after the platform
-  # supplies an authenticated exclusive PAS1/SMEM/GLINK lease, so linking it
-  # starts no firmware and publishes no synthetic battery.
-  echo "K60DIAG switch=${XNU_K60_PHYSICAL_BATTERY:-unset} boot=${XNU_BOOTSTRAP:-unset} plat=${ARM_DT_PLATFORM:-unset}" >&2
-  if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
-    K60_BATTERY_ARCHIVE=${XNU_K60_PHYSICAL_BATTERY_ARCHIVE:-$ROOT/build/k60-physical-battery/libK60PhysicalBattery.a}
-    if [ ! -f "$K60_BATTERY_ARCHIVE" ]; then
-      echo "XNU_K60_PHYSICAL_BATTERY=1 but $K60_BATTERY_ARCHIVE is missing" >&2
-      exit 1
-    fi
-    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$K60_BATTERY_ARCHIVE"
-    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $K60_BATTERY_ARCHIVE"
   fi
   EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$PLATFORM_ARCHIVES")
   EXTRA_MAKE_ARGS+=("XNU_EXTERNAL_KERNEL_ARCHIVES=$PLATFORM_DEPENDENCIES")
@@ -1280,11 +1244,6 @@ make -C .cache/xnu-work "${XNU_BUILD_TARGET:-build}" SDKROOT="${XNU_SDKROOT:-iph
   DEPLOYMENT_LINKER_FLAGS="-Wl,-ios_version_min,${UNIXNU_IOS_TARGET:-16.0}" \
   RC_DARWIN_KERNEL_VERSION="$XNU_DARWIN" RC_ProjectSourceVersion="$XNU_VERSION" \
   BUILD_LTO=0 BOUND_CHECKS=0 BUILD_WERROR="${XNU_BUILD_WERROR:-0}" MAKEJOBS=-j"${JOBS:-4}" \
-  MEMORY_SIZE="$(awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo)" \
-  SYSCTL_HW_PHYSICALCPU="$(nproc)" \
-  SYSCTL_HW_LOGICALCPU="$(nproc)" \
-  HOST_OS_VERSION="${HOST_OS_VERSION:-14.6}" \
-  HOST_CC="${CLT_PREFIX:-/opt/unixnu-linux/CommandLineTools/usr}/bin/xnu-host-cc" \
   RC_NONARCH_CFLAGS="$EXTRA_CFLAGS" "${EXTRA_MAKE_ARGS[@]}" \
   OBJROOT="$ROOT/build/xnu/ios-obj" SYMROOT="$ROOT/build/xnu/ios-sym" DSTROOT="$ROOT/build/xnu/ios-dst"
 if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ] && [ "$CRYPTO_BOOTSTRAP_MODE" = source ]; then

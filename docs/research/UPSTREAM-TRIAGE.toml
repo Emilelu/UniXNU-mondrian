@@ -27,7 +27,7 @@ updated = "2026-11-12"
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "main"
-watermark = "e6c4c6055f38a9c11f6e40796cac793d92d6c41c"
+watermark = "d855ce2d430be0042babb193cd461a052a601e2a"
 note = "CI 与文档，无硬件内容"
 
 [[branch]]
@@ -41,7 +41,7 @@ note = "触摸/GPU 主线分支，已部分采纳（见 cc584ca）"
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "fix/boot-v4-repack"
-watermark = "5ee976f531d53a648e797ae76d3022d093564f52"
+watermark = "7b66697dd22eeab378e534e2192060d339b2e7e4"
 note = "v4 打包偏移修复，我们不适用"
 
 [[branch]]
@@ -272,4 +272,812 @@ subject = "docs(ui): record verified wallpaper recovery image"
 verdict = "picked"
 how = "文件级提取（pick-upstream.py）"
 reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"
+
+[[commit]]
+sha = "8e691d5d2"
+subject = "fix(input): publish PMIC key arbiter node"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"
+
+[[commit]]
+sha = "2d6b86e05"
+subject = "fix(input): supply measured GPIO touch pin roles"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"
+
+[[commit]]
+sha = "9c9d5f52e"
+subject = "fix(input): stop reporting volume keys from PON status"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"
+
+[[commit]]
+sha = "7b66697dd"
+subject = "fix(input): publish all three PMIC keys"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 fix/boot-v4-repack"
+date = "2026-11-12"
+
+[[commit]]
+sha = "0d757719b"
+subject = "docs(drivers): order the driver map per the requested sections"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "a2bb27aaa"
+subject = "docs(drivers): map all 16 official driver guides to K60"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "31eefaeff"
+subject = "docs(research): read every device page N-Z"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "db94d5283"
+subject = "docs(devices): diff the mzyxsl K60 port"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "a91fdf50c"
+subject = "docs(research): verify the Chinese documentation mirror"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "f09f36004"
+subject = "docs(state): record the TWRP and Windows-git rules"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "dd2555818"
+subject = "docs(touch): plan the Goodix port from the marble/fuxi references"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "3ace22d6d"
+subject = "fix(adt): publish the K60 touch panel maxima"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "873ba9316"
+subject = "feat(kernel): embed the K60 init helper into the kernel image"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "955a58d20"
+subject = "fix(0391): mirror the proven 0340 vnode write block; add post-compaction ledger"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "230046d7d"
+subject = "docs(ledger): record the 15 regressions and the correct next path"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "be3673773"
+subject = "k60: touch/keys bring-up, GPU scanout rebase, 8-step research docs"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "77bb520b5"
+subject = "k60: freeze patch series; drop GPU scanout until archive link is fixed"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-08"
+
+[[commit]]
+sha = "6c1e1f165"
+subject = "k60(touch): embed Goodix GT9916 firmware extracted from the device"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "2901026b5"
+subject = "docs(readme): rewrite for the 2026-11-09 iOS 16.6.1 state"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "7da999e63"
+subject = "fix(input): three-part root-cause fix for keys/touch not running"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "bbf83286b"
+subject = "fix(input): bump pong_buttons.c new-file hunk to 150 added lines (thread_t re-ad"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "abd9eaaa0"
+subject = "feat(patches): stage BT/audio/120Hz patch sets (0500-0506) verified in combo aga"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "19faa19b7"
+subject = "fix(bt): add weak kernel stubs for armcpu_spi_* and native_gpu_addon_stage so th"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "c3d5c63b5"
+subject = "feat(wifi): stage PongWifi final patch series (0001-0009) into patches/wifi/"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "1605750dc"
+subject = "feat(patches): stage memory 8GiB and UFS concurrent patch sets for version contr"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "7e13afd8c"
+subject = "fix(input): keys driver now runs - gate + PONG define + GPU-before-touch order"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "9c325b7f5"
+subject = "fix(touch): gate the SE path behind k60_touch_se=1; DT verification now passes"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "03c7c3dc1"
+subject = "feat(reset): automatic return to fastboot verified on device - no key press need"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "2c9eac9e8"
+subject = "fix(repro): make the public repo buildable - 8 patches from issue #2 investigati"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "1e93ab89c"
+subject = "chore(repo): drop dangling NativeMetal submodule declaration; archive 8-step aud"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "1285ccf0a"
+subject = "feat(display): 120Hz effective with BT and audio patches in the same kernel"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "807e0d933"
+subject = "fix(series): drop never-committed 0403 patch reference; add ops docs and hard ru"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "0fd703c8a"
+subject = "fix(data): align Data volume UUID with the committed seed and fail the build on "
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "da9d98d51"
+subject = "docs(touch): FDT pin truth, PMIC SPMI path, pitfalls P-63..P-70 and stage ladder"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-09"
+
+[[commit]]
+sha = "47f33678a"
+subject = "fix(xnu): shared-cache root layout, console perms and boot-script fixes"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "960081419"
+subject = "fix(data): repair zeroed resource-fork blocks from the pristine IPSW"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "53ef046a2"
+subject = "feat(data): 2 GiB Data window installer"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "6295ab449"
+subject = "fix(data): bind the kernel to the 2 GiB seed volume UUID"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "13f2f3eac"
+subject = "fix(os-window): repair resource forks zeroed by the window copy"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "2b1120040"
+subject = "docs(state): record the resource-fork root cause and the two build-order defects"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "9639e5d9d"
+subject = "docs(state): record the verified boot after the fork repair"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "212a12b42"
+subject = "fix(board): disable the bring-up watchdogs"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "d29bce7e2"
+subject = "docs(state): the fastboot returns were the 300 s bring-up watchdogs"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "c40738505"
+subject = "docs(state): second resource-fork pass and its verified result"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "7041358df"
+subject = "fix(diagnostics): compare whole resource forks, not only all-zero blocks"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "74be7da32"
+subject = "docs(state): the dyld/UIKit absence was an OS-vs-SystemOS misread"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "640e02c44"
+subject = "fix(init): point dyld at the union-mounted shared cache"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "97debfb95"
+subject = "feat(data): stream the 2 GiB seed into the resized window"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "792157f1f"
+subject = "build(drivers): restore the NativeMetal submodule at da7aedd"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "69b7cfda5"
+subject = "feat(diagnostics): read the shared-region start address for pid 26"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "b80924d93"
+subject = "feat(boot): ship the helper and the curated job set in the kernel"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "3aa279fca"
+subject = "fix(init): keep the job archive reader in step with the records"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "c3d390ae6"
+subject = "fix(init): read the archive fields at their real offsets"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "522c6ead7"
+subject = "fix(prelink): give launchd the helper it needs to reach the main queue"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-10"
+
+[[commit]]
+sha = "f291b523e"
+subject = "fix(userland): defer SpringBoard preferences"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "ac5481d76"
+subject = "fix(userland): rebuild the deployed UI blob"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "b8d6ab949"
+subject = "fix(boot): retain candidate userland preparation"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "c6e555c18"
+subject = "fix(userland): embed the rebuilt UI library"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "6c4681169"
+subject = "docs(boot): record the current UI library cutover"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "06fc98a1e"
+subject = "fix(boot): retain event publisher job contracts"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "5198a6799"
+subject = "fix(boot): restore selected event publishers"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "2917907d5"
+subject = "docs(boot): record Firehose and publisher evidence"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "8839ef8a5"
+subject = "chore(build): record cand7 archive inputs"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-11"
+
+[[commit]]
+sha = "2994f1fd8"
+subject = "fix(input): supply actual K60 touch metadata"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "6565837d3"
+subject = "fix(gpu): use monitor access for K60 RSC"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "4eb839519"
+subject = "fix(gpu): map only consumed GCC pages"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "c80e0e1c9"
+subject = "fix(input): adapt real Goodix and HID to K60"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "5d2d07e8e"
+subject = "docs(bringup): record desktop and real hardware"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "61544e3f6"
+subject = "fix(gpu): link actual scanout and mailbox"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "208869cc5"
+subject = "chore(build): record actual Adreno flag input"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "04a819c4b"
+subject = "fix(touch,gpu): adopt the upstream handshake, config download and direct RSC acc"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "1b097285c"
+subject = "docs(porting): record the adopted touch and GPU upstream findings"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "0eb295a02"
+subject = "build(gpu): compile the iOS Metal stack on a Linux host"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "97551c889"
+subject = "docs(porting): claim the in-progress power sources and the GPU build result"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "d997c6b0f"
+subject = "fix(display): keep retained layers and blend them correctly"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "04bda86f2"
+subject = "fix(touch,power): land the handshake, config download and battery link"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "81dd415e5"
+subject = "fix(board): run the touch driver at its publishing stage"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "ffb9fb70a"
+subject = "fix(bootimg): align v4 payloads after header page"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "b1d07d37a"
+subject = "docs(boot): record v4 packaging regression"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "1e0030e1e"
+subject = "docs(boot): record persistent Data loader conflict"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "810eecb9e"
+subject = "docs(boot): record ADT contract omissions"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "5abea9af3"
+subject = "docs(boot): record unchanged-kernel recovery candidate"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "e7391cb02"
+subject = "fix(ui): keep initial native lockscreen locked"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "f44574515"
+subject = "docs(input): record live transport and lockscreen state"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "0a5474b6d"
+subject = "docs(input): distinguish code inclusion from reports"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "ea885aaa0"
+subject = "docs(debug): record connected CDC capabilities"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "7a0f7b22a"
+subject = "fix(touch): use actual config staging buffer"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "e98c2908f"
+subject = "docs(touch): record actual config staging evidence"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "83bb1181f"
+subject = "fix(input): select native no-home gesture policy"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "99abc1752"
+subject = "fix(wallpaper): select genuine stock via native API"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "3ba274688"
+subject = "docs(ui): record native gesture and wallpaper contracts"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "7a91ff587"
+subject = "docs(input): qualify native gesture provenance"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "7bb1fd297"
+subject = "fix(debug): expose bounded native UI console sink"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "3fc388181"
+subject = "docs(debug): qualify selected native UI sink"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "8e691d5d2"
+subject = "fix(input): publish PMIC key arbiter node"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "2d6b86e05"
+subject = "fix(input): supply measured GPIO touch pin roles"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "9c9d5f52e"
+subject = "fix(input): stop reporting volume keys from PON status"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "7b66697dd"
+subject = "fix(input): publish all three PMIC keys"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "ca208ba5d"
+subject = "merge: carry the verified 2026-11-12 bring-up onto main"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "25d621b2f"
+subject = "feat(gpu): start Adreno 730 and make the scanout gate readable"
+verdict = "picked"
+how = "文件级提取（pick-upstream.py）"
+reason = "自动记录：UniXNU-mondrian 分支 main"
+date = "2026-11-12"
+
+[[commit]]
+sha = "d855ce2d4"
+subject = "docs(gpu): record why the R1 gate needs the board"
+verdict = "not-applicable"
+how = "纯文档"
+reason = "自动记录：UniXNU-mondrian 分支 main"
 date = "2026-11-12"

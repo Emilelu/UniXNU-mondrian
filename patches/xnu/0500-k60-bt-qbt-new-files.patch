@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/qbt_k60.c
-@@ -0,0 +1,1230 @@
+@@ -0,0 +1,1249 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/*
 + * qbt_k60.c - Redmi K60 (mondrian / SM8475 / "cape") Bluetooth board backend
@@ -458,14 +458,24 @@
 +        k60_write32(&k60.gcc, base + 0x10, (~d_val) & width_mask);
 +    }
 +    k60_write32(&k60.gcc, base + 0x4, (cfg & ~mask) | value);
-+    IODelay(10);
-+    return 0;
++    /* CMD_UPDATE BIT(0) of CMD_RCGR+0 latches the new config; poll clear
++     * (clk-rcg2.c:111-135 update_config). */
++    k60_write32(&k60.gcc, base, 1u);
++    for (unsigned i = 0; i < 500; i++) {
++        if (!(k60_read32(&k60.gcc, base) & 1u)) return 0;
++        IODelay(1);
++    }
++    return -ETIMEDOUT;
 +}
 +
 +static int k60_gcc_wait_halt(uint32_t halt_reg) {
 +    for (unsigned i = 0; i < 1000; i++) {
++        uint32_t v = k60_read32(&k60.gcc, halt_reg);
++        /* HWCG_EN BIT(1): hardware-gated branches idle with both bits set;
++         * Linux clk_branch_in_hwcg_mode() returns without waiting. */
++        if (v & (1u << 1)) return 0;
 +        /* CBCR_CLK_OFF = BIT(31); 0 means running (clk-branch.h:42). */
-+        if (!(k60_read32(&k60.gcc, halt_reg) & (1u << 31))) return 0;
++        if (!(v & (1u << 31))) return 0;
 +        IODelay(1);
 +    }
 +    return -ETIMEDOUT;
@@ -481,6 +491,15 @@
 +        k60_write32(&k60.gcc, K60_GCC_QUPV3_WRAP2_VOTE,
 +                    k60_read32(&k60.gcc, K60_GCC_QUPV3_WRAP2_VOTE) | K60_GCC_VOTE_ALL);
 +        int e;
++        char dbg[160];
++        snprintf(dbg, sizeof(dbg),
++            "clocks vote cbcr core=%#x core2x=%#x m=%#x s=%#x se=%#x",
++            k60_read32(&k60.gcc, K60_GCC_WRAP2_CORE_HALT),
++            k60_read32(&k60.gcc, K60_GCC_WRAP2_CORE_2X_HALT),
++            k60_read32(&k60.gcc, K60_GCC_WRAP2_M_AHB_HALT),
++            k60_read32(&k60.gcc, K60_GCC_WRAP2_S_AHB_HALT),
++            k60_read32(&k60.gcc, K60_GCC_WRAP2_SE20_HALT));
++        k60_log(NULL, 1, dbg);
 +        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_CORE_HALT))) return e;
 +        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_CORE_2X_HALT))) return e;
 +        if ((e = k60_gcc_wait_halt(K60_GCC_WRAP2_M_AHB_HALT))) return e;

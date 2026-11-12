@@ -56,10 +56,13 @@ REPOS = {
 # 永不覆盖的路径（构建产物 / 许可证 / 我们自己的门禁与文档）
 SKIP_PATHS = (
     'LICENSE', 'COPYING',
-    # The board contract is ours: a pick once replaced board.toml with a version
-    # whose kernel_args lose SpringBoard (P-160), and the same wholesale
-    # extraction would silently undo any argument or geometry decision.
+    # The board contract is ours: a pick replaced board.toml with a version
+    # whose kernel_args lose SpringBoard (P-160).
     'board.toml', 'configs/mondrian_defconfig', 'dts/mondrian.dts',
+    # patches/ carries local blob work (0340 embeds a 1 MB dylib); P-151
+    # measured a pick shrinking it by 426 KB. Read the upstream diff and copy
+    # deliberately, never wholesale.
+    'patches/',
     'scripts/check-', 'scripts/tests/', 'scripts/watch-upstream.py',
     'scripts/pick-upstream.py', 'scripts/sync-device-input.py',
     'docs/research/', 'docs/engineering/', 'docs/proposals/',

@@ -59,3 +59,57 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 ```
 
 > 原补丁与原始 `new/` 文件保留在 `patches/original/` 供对照；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。
+
+---
+
+## 接线状态（2026-11-12 核实，SA-03）
+
+**这 9 个补丁此前从未被应用** —— 全仓没有任何 `series` 或 applier 引用 `patches/wifi`。
+本目录现在有 `series`（0001-0009），但要真正生效还需要两步：
+
+1. **接入构建**：`unixnu` 目前只认 `patches/xnu/series`。要么把 wifi 补丁并进那条系列，
+   要么在构建流程里加一个 applier 步骤。
+2. **`0010` 已补（2026-11-12）**：`0010-scripts-build-xnu-wifi-archive.patch`
+   在 `build-xnu-4k-baseline.sh` 的归档块里加 `XNU_PONG_WIFI` 门禁 +
+   `-Wl,-force_load,$PONG_WIFI_ARCHIVE` + 依赖项。写法照抄现有四个 probe 归档
+   （`ADRENO_PROBE` / `PM4_PROBE` / `SMMU4K_PROBE` / `CONSTANT_UPLOADS`）。
+   默认 `XNU_PONG_WIFI=0`，没有 archive 的树照样链接。
+
+## 已知 bug：refgen 索引写错
+
+`PongWifiPlatform.cpp:221`（在 `0001` 补丁里）：
+
+```c
+gcc.w(0x7b04c, (1u << 8) | 11u);
+```
+
+`11` 是 **Pong 的** refgen 索引。K60 profile 的 100 MHz 在 **index 10**
+（index 11 全 0），而 `0009` 的脚本也断言 `[10]`。
+
+**首次 bring-up 必选错父时钟，链路训练会失败。**
+
+`:335` 的 `gcc.w(0x7b04c, 1)` 也要按 K60 重算。
+
+**已修（2026-11-12）**：`0001` 补丁第 1495 行 `(1u<<8)|11u` → `(1u<<8)|10u`。
+
+`:335` 的 `gcc.w(0x7b04c, 1)` 仍然未动 —— 那一处写的是另一个寄存器位的使能，
+不是 refgen 索引，但它的位含义也要按 K60 的 RCG 表重算。等能读到 K60 的
+GCC 时钟树（Android 侧 `/sys/kernel/debug/clk/` 或 live FDT）再定。
+
+## RSC 策略（2026-11-12 决定）
+
+`0003` 原本只有一档：`k60_wifi_rsc=1` 才投票，默认全关。
+现在拆成两档，因为**探针和投票的风险不同**：
+
+| 值 | 行为 |
+|---|---|
+| 不设 / 0 | 完全不碰 RSC，`supplies()` fail-safe |
+| **1** | **只读探针**：`rsc.open(0x17a20000,0x10000)` 读一次 TCS4，打印值，**拒绝一切投票** |
+| **2** | 允许投票（前提是探针读到合理的 TCS4，非 0 / 非 0xFFFFFFFF）|
+
+判据来自 `0003` 自己的注释：`K60-TOUCH-PARAMS.md:120,174` 说在 RSC 电源/互联域
+未证明可用时访问会**硬挂整机**。而「读一次」的失败是可观察的（拿到 0 或 0xffffffff），
+「写一次」的失败不是。所以先给一个只读档。
+
+**证据缺口**：触摸驱动只 `ml_io_map` 了 `0x17a20000`（`Pong touch: DIAG mapped ... rsc=`），
+没有任何代码真的**读**过它。所以「映射安全」不等于「读取安全」，第一档仍需实测。

@@ -55,6 +55,47 @@ def is_frozen(node, areas):
 
 
 
+
+def profile_properties(repo, node):
+    """框架 OS profile 里 [adt.arm-io.<node>] 的属性集合。
+
+    2026-11-12 三方分工确立后，SoC 级契约由 profile.toml 提供：
+      profile.toml   SoC 级（pong-touch 基础字段、pong-buttons）
+      board.toml     板级覆盖（avdd-gpio、compatible、max-x/y）
+      dts            板级独有（pong-audio、ufshc）
+    profile 是框架仓库的一部分，路径按优先级查找。
+    """
+    CANDIDATES = [
+        '/opt/k60/trees/k60build/profiles/os',
+        '/mnt/e/hackios/UniXNU/profiles/os',
+        os.path.join(repo, '..', 'UniXNU', 'profiles', 'os'),
+    ]
+    try:
+        import tomllib
+    except ImportError:
+        return set()
+    for base in CANDIDATES:
+        if not os.path.isdir(base):
+            continue
+        for prof in sorted(os.listdir(base)):
+            p = os.path.join(base, prof, 'profile.toml')
+            if not os.path.isfile(p):
+                continue
+            try:
+                cfg = tomllib.load(open(p, 'rb'))
+            except Exception:
+                continue
+            table = cfg.get('adt', {}).get('arm-io', {}).get(node)
+            if isinstance(table, dict):
+                props = set()
+                for typed, vals in table.items():
+                    if isinstance(vals, dict):
+                        props |= set(vals.keys())
+                if props:
+                    return props
+    return set()
+
+
 def board_properties(repo, node):
     """board.toml 里 [adt.arm-io.<node>] 的属性集合。
 
@@ -167,9 +208,10 @@ def main():
             continue
         from_dts = dts_properties(dts, node) or set()
         from_toml = board_properties(repo, node)
-        props = from_dts | from_toml
+        from_prof = profile_properties(repo, node)
+        props = from_dts | from_toml | from_prof
         if not props:
-            problems.append('%s: dts 和 board.toml 都没有这个节点，但驱动会查它' % node)
+            problems.append('%s: dts / board.toml / profile.toml 三处都没有，但驱动会查它' % node)
             continue
         checked += 1
         missing = sorted(reads - props)
@@ -180,7 +222,7 @@ def main():
             else:
                 problems.append('%s: dts 节点缺属性 %s' % (node, ', '.join(missing)))
         elif a.verbose:
-            print('  %-14s 必需 %d 个 / 可选 %d 个（dts %d + toml %d）' % (node, len(reads), len(optional), len(from_dts), len(from_toml)))
+            print('  %-14s 必需 %d / 可选 %d（dts %d + board %d + profile %d）' % (node, len(reads), len(optional), len(from_dts), len(from_toml), len(from_prof)))
             if missing_opt:
                 print('              可选属性未声明（不影响启动）: %s' % ', '.join(missing_opt))
 

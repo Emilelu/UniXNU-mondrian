@@ -388,3 +388,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-161"
 statement = "shared_region and K60DYLD failures also appear on the bootable image"
 waiver = "needs a recorded boot-argument configuration and its boot log; the boot-and-capture evidence directory is the natural source"
+
+[[rule]]
+id = "P-162"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-162"
+statement = "A patch must be a diff git can parse: hunk counts, a trailing newline, no stray blank context line, and no net-delete arithmetic."
+check = "python3 scripts/check-patch-apply.py"

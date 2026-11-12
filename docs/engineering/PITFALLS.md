@@ -3925,3 +3925,20 @@ strings 里 "M11HTC":  present      <- 同上
 崩的那次日志有 `shared_region ... vm_shared_region_start_address() failed` 和 `K60DYLD .../dyld_shared_cache_arm64e rc=2`，但可启动的 keep 镜像里同样有这两行。镜像里本来就没有 `dyld_shared_cache_arm64e`（整个镜像只有 `_arm64` 与其子缓存 .01–.42），所以 rc=2 是正常现象。
 
 **教训**：判定回归前先在可启动镜像里找同一条日志。
+
+## P-162 · 补丁必须是 git 能解析的 diff
+
+四条独立的坑，指向同一个后果：`git apply` 在编译已经跑起来之后才拒绝补丁。
+
+1. hunk 计数与 body 行数不符（增删行后没重算 `@@ -a,b +c,d @@`）。
+2. 文件末尾缺 `\n`，git 少数一行，报 `corrupt patch at line <最后一行+1>`。
+3. 尾部留了一个空 context 行，计数器把它算进 body。
+4. 净减行编辑：删掉的 `+` 行多于新增，重算后仍然对不上。
+
+2026-11-12 的实例：`patches/xnu-ipados18/0245-k60-cpu-clusters.patch` 缺少结尾换行，
+在树里躺了很久，谁改到它谁才会发现。补一个字节后 `git apply --numstat` 通过。
+
+检查：`python3 scripts/check-patch-apply.py`（默认只查相对 HEAD 改动过的补丁）。
+
+修法优先级：**先试补结尾换行** → 再 `scripts/recount_hunks.py` → 两者都无效时，
+不要继续原地增删，改为**新写一个独立补丁**，让老补丁保持原样。

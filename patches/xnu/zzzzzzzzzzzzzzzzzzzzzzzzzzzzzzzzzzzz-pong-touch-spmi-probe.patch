@@ -1,12 +1,11 @@
 --- a/bsd/dev/pong_goodix.c
 +++ b/bsd/dev/pong_goodix.c
-@@ -641,6 +641,71 @@
+@@ -641,6 +641,68 @@
  
  /* Declared ahead of its definition: goodix_apply_config resets the chip
   * through it so the SPI mode is re-confirmed on that path too. */
-+/* Read-only look at the SPMI arbiter. pong_buttons.c proves the observer
-+ * window answers on this board; this asks that same window for the arbiter's
-+ * identity and for the channel map, which a later regulator vote depends on. */
++/* Read-only look at the SPMI arbiter: identity, the map table at core+0x2000,
++ * and one register read per PM8350C (sid 2) channel through the observer. */
 +#define SPMI_CORE_PHYS     0xc400000UL
 +#define SPMI_OBSERVER_PHYS 0xc440000UL
 +
@@ -17,14 +16,11 @@
 +    return *(volatile uint32_t *)(spmi_core + off);
 +}
 +
-+static uint32_t spmi_obs_rd(uint32_t ch, uint32_t off)
-+{
-+    return *(volatile uint32_t *)(spmi_obs + 0x80u * ch + off);
-+}
-+
 +static void spmi_probe(void)
 +{
-+    uint32_t nz = 0, s0 = 0, s1 = 0, s2 = 0;
++    uint32_t found = 0, first = 0, second = 0, third = 0;
++    uint32_t ppids[6];
++    uint32_t np = 0;
 +
 +    if (!spmi_core) {
 +        spmi_core = ml_io_map(SPMI_CORE_PHYS, 0x3000);
@@ -36,47 +32,48 @@
 +        return;
 +    }
 +    printf("K60SPMI ver=%#x channels=%u\n", spmi_rd(0x000), spmi_rd(0x004) & 0x7ff);
-+    {
-+        uint32_t n = 0, q[6] = { 0, 0, 0, 0, 0, 0 };
++    for (uint32_t n = 0; n < 758 && np < 6; n++) {
++        uint32_t v = spmi_rd(0x2000 + 4 * n);
++        uint32_t ppid = (v >> 8) & 0xfff;
 +
-+        for (uint32_t i = 0; i < 758; i++) {
-+            uint32_t ppid = spmi_rd(0x2000 + 4 * i) >> 8;
-+
-+            if ((ppid >> 8) != 2u) {
-+                continue;
-+            }
-+            if (n < 6) {
-+                q[n] = ppid;
-+            }
-+            n++;
++        if ((ppid >> 8) != 2) {
++            continue;
 +        }
-+        printf("K60CFG rev=4 t2 n=%u\n", n);
-+        for (uint32_t i = 0; i < 6; i++) {
-+            uint32_t st = 0, pp = q[i];
-+
-+            if (!pp) {
-+                continue;
-+            }
-+            wr(spmi_obs + 0x20u * pp + 0x00, (15u << 27) | (0x04u << 4) | 0u);
-+            for (uint32_t k = 0; k < 2000 && !(st & 0x1u); k++) {
-+                st = *(volatile uint32_t *)(spmi_obs + 0x20u * pp + 0x08);
-+            }
-+            printf("K60CFG q=%#x st=%#x v=%#x\n", pp, st,
-+                   *(volatile uint32_t *)(spmi_obs + 0x20u * pp + 0x18) & 0xffu);
++        if (found == 0) {
++            first = ppid;
++        } else if (found == 1) {
++            second = ppid;
++        } else if (found == 2) {
++            third = ppid;
 +        }
++        ppids[np++] = ppid;
++        found++;
 +    }
++    printf("K60CFG rev=4 n=%u p=%#x,%#x,%#x\n", found, first, second, third);
++    for (uint32_t i = 0; i < np; i++) {
++        vm_offset_t ch = spmi_obs + 0x20u * ppids[i];
++        uint32_t st = 0;
++
++        wr(ch + 0x00, (15u << 27) | (0x04u << 4) | 0u);
++        for (uint32_t k = 0; k < 2000; k++) {
++            st = *(volatile uint32_t *)(ch + 0x08);
++            if (st & 0x1u) {
++                break;
++            }
++        }
++        printf("K60CFG q=%#x st=%#x v=%#x\n", ppids[i], st,
++            *(volatile uint32_t *)(ch + 0x18));
 +    }
-+    printf("K60SPMI obs_status0=%#x\n", spmi_obs_rd(0, 0x08));
 +}
 +
  static void touch_reset(void);
  
  static bool
-@@ -1209,6 +1274,7 @@
+@@ -1209,6 +1271,7 @@
              return false;
          }
          bool gpio_spi;
-+    spmi_probe();
++        spmi_probe();
          const char *problem = geni_spi_init(spi_hz, &gpio_spi);
          if (gpio_spi) {
              printf("Pong touch: %s; use real GPIO SPI, not forced FIFO or guessed DMA\n", problem);

@@ -469,6 +469,10 @@ static void run(void *,wait_result_t)
     if(cp_status)record("GX clock state after CP failure",rd(windows[PongGpuClock],0x90a8),
         (uint64_t(rd(windows[PongGpuClock],0))<<32)|rd(windows[PongGpuClock],0x1000),
         (uint64_t(rd(windows[PongGpuClock],4))<<32)|rd(windows[PongGpuClock],0x1004));
+    /* One explicit verdict so no reader has to infer the outcome from a banner
+     * or from the last stage that happened to print (P-164). */
+    record(cp_status?"startup FAILED at CP/user-client":"startup COMPLETE; hardware armed",
+        cp_status,gr.core_version,gr.hfi_version);
 }
 static void worker(void *parameter,wait_result_t result)
 {

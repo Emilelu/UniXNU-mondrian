@@ -1,0 +1,28 @@
+--- a/bsd/dev/pong_goodix.c
++++ b/bsd/dev/pong_goodix.c
+@@ -571,6 +571,7 @@
+     if (!length || length > 1032) return false;
+     /* Mode 0, MSB first, with CS held for the entire Berlin frame. The
+      * explicit half-cycle delays bound GPIO SPI to at most 500 kHz. */
++    uint32_t miso_high = 0;
+     gpio_set(PIN_CS, false);
+     sleep_us(1);
+     for (uint32_t i = 0; i < length; i++) {
+@@ -581,6 +582,7 @@
+             gpio_set(PIN_CLK, true);
+             sleep_us(1);
+             in = (uint8_t)(in << 1 | gpio_get(PIN_MISO));
++            if (gpio_get(PIN_MISO)) miso_high++;
+             gpio_set(PIN_CLK, false);
+         }
+         if (rx) rx[i] = in;
+@@ -590,6 +592,9 @@
+     }
+     sleep_us(1);
+     gpio_set(PIN_CS, true);
++    printf("K60BB frame len=%u rx0=%#x rx1=%#x miso=%u\n",
++        (unsigned)length, (unsigned)(rx ? rx[0] : 0),
++        (unsigned)(rx && length > 1 ? rx[1] : 0), (unsigned)miso_high);
+     return true;   /* clocks ran, not a chip ACK: probe/checksum is required */
+ }
+ 

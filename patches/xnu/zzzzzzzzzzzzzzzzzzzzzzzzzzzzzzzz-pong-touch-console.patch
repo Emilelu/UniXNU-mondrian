@@ -13,10 +13,10 @@ index f4e322e..59abe6a 100644
  bsd/kern/kern_exec.c			standard
 diff --git a/bsd/dev/pong_goodix.c b/bsd/dev/pong_goodix.c
 new file mode 100644
-index 0000000..b033b90
+index 0000000..47949a3
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1323 @@
+@@ -0,0 +1,1337 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -878,17 +878,36 @@ index 0000000..b033b90
 +	return ack == 0x80;
 +}
 +
++/* The official driver waits for the firmware to reach state 0x80 after
++ * each config-stage command (goodix_brl_hw.c:448-466, 484-489). The ack
++ * byte only proves the frame arrived; state proves it was applied. */
++static bool
++goodix_wait_status(const char *what)
++{
++	uint8_t ack[8];
++
++	for (unsigned t = 0; t < 20; t++) {
++		if (goodix_read(command_address, ack, sizeof(ack)) && ack[0] == 0x80) {
++			printf("goodix: %s state=80\n", what);
++			return true;
++		}
++		sleep_ms(20);
++	}
++	printf("goodix: %s state never reached 0x80\n", what);
++	return false;
++}
++
 +static bool
 +goodix_apply_config(uint32_t fw_buffer)
 +{
 +	unsigned off = 0, bad = 0;
-+	const uint8_t coordinate = 0x00;
 +
 +	if (!fw_buffer) {
 +		printf("goodix: CFG skip (IC-info reports no fw_buffer)\n");
 +		return false;
 +	}
 +	if (!goodix_command(4, 0x04, NULL, 0, "CFG-START")) return false;
++	if (!goodix_wait_status("CFG-START")) return false;
 +	while (off < sizeof(k60_cfg)) {
 +		unsigned chunk = sizeof(k60_cfg) - off < 64 ? sizeof(k60_cfg) - off : 64;
 +		uint8_t back[64];
@@ -899,14 +918,14 @@ index 0000000..b033b90
 +	printf("goodix: CFG-DL wrote=%u/%u bad=%u\n", off, (unsigned)sizeof(k60_cfg), bad);
 +	if (off != sizeof(k60_cfg) || bad) return false;
 +	if (!goodix_command(4, 0x05, NULL, 0, "CFG-WRITE")) return false;
++	if (!goodix_wait_status("CFG-WRITE")) return false;
 +	if (!goodix_command(4, 0x06, NULL, 0, "CFG-EXIT")) return false;
-+	/* Same reset path as everywhere else, so the SPI mode is re-confirmed
-+	 * before the coordinate-mode command and the re-probe that follows.
-+	 * The official driver reselects at brl_reset:322 and brl_reset_after:120
-+	 * for exactly this reason. */
-+	touch_reset();
-+	if (!goodix_command(5, 0x90, &coordinate, 1, "COORD-MODE")) return false;
-+	sleep_ms(50);
++	if (!goodix_wait_status("CFG-EXIT")) return false;
++	/* brl_send_config() ends with a 100 ms settle and nothing else
++	 * (goodix_brl_hw.c:553-556). Resetting here would discard the 1488
++	 * bytes just written to the RAM window at fw_buffer_addr, which is
++	 * exactly what kept the chip in raw-frame mode with no contacts. */
++	sleep_ms(100);
 +	return true;
 +}
 +
@@ -1260,16 +1279,11 @@ index 0000000..b033b90
 +        goto out;
 +    }
 +    /* The chip asks for its scan configuration after every reset and will not
-+     * report a contact until it has one. goodix_apply_config also ends by
-+     * switching to coordinate mode (command 0x90), which is the difference
-+     * between raw frames and touch points. It resets the chip itself, so the
-+     * ABI has to be re-read afterwards. */
++     * report a contact until it has one. goodix_apply_config writes it to the
++     * RAM window and lets the firmware settle for 100 ms, exactly as
++     * brl_send_config() does; any reset here would discard the config. */
 +    if (!goodix_apply_config(fw_buffer_address)) {
 +        printf("Pong touch: config download failed; no input device published\n");
-+        goto out;
-+    }
-+    if (!goodix_probe(true)) {
-+        printf("Pong touch: identification lost after config reset\n");
 +        goto out;
 +    }
 +    if (!pong_touch_device_ready()) {

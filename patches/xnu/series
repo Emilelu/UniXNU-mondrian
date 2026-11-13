@@ -203,6 +203,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0501-k60-bt-qbt-bsd-conf.patch
 0502-k60-bt-qbt-bsd-init.patch
 0507-k60-bt-readonly-probe.patch
+0508-k60-bt-s2-smmu-rcg-reset.patch
 0503-k60-audio-aw882xx.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch

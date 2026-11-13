@@ -13,10 +13,9 @@ index f4e322e..59abe6a 100644
  bsd/kern/kern_exec.c			standard
 diff --git a/bsd/dev/pong_goodix.c b/bsd/dev/pong_goodix.c
 new file mode 100644
-index 0000000..47949a3
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1351 @@
+@@ -0,0 +1,1276 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -147,7 +146,12 @@ index 0000000..47949a3
 +gpio_configure(unsigned pin, unsigned function, unsigned pull, unsigned ma, bool output)
 +{
 +	uint32_t value = pull | function << 2 | (ma / 2 - 1) << 6 | (output ? 1u << 9 : 0);
-+	wr(GPIO_CFG(pin), (rd(GPIO_CFG(pin)) & ~0x3ffu) | value);
++    uint32_t before = rd(GPIO_CFG(pin));
++    value |= before & ~0x3ffu;
++    /* Cape pinctrl claims APPS control when the pad supports eGPIO. */
++    if (before & (1u << 11)) value |= 1u << 12;
++    wr(GPIO_CFG(pin), value);
++    printf("Pong touch: GPIO%u cfg=%#x -> %#x io=%#x\n", pin, before, rd(GPIO_CFG(pin)), rd(GPIO_IO(pin)));
 +}
 +
 +static void
@@ -584,6 +588,16 @@ index 0000000..47949a3
 +    return true;
 +}
 +
++/* GPIO runs far faster than a Berlin-D samples; 2 us per half period is
++ * the measured working rate (see the two prior bring-ups). */
++static uint32_t bb_delay_us = 2;
++
++static void
++bb_half_delay(void)
++{
++    if (bb_delay_us) sleep_us(bb_delay_us);
++}
++
 +static bool
 +bitbang_transfer(const uint8_t *tx, uint8_t *rx, uint32_t length)
 +{
@@ -591,14 +605,14 @@ index 0000000..47949a3
 +    /* Mode 0, MSB first, with CS held for the entire Berlin frame. The
 +     * explicit half-cycle delays bound GPIO SPI to at most 500 kHz. */
 +    gpio_set(PIN_CS, false);
-+    sleep_us(1);
++    bb_half_delay();
 +    for (uint32_t i = 0; i < length; i++) {
 +        uint8_t out = tx ? tx[i] : 0, in = 0;
 +        for (int bit = 7; bit >= 0; bit--) {
 +            gpio_set(PIN_MOSI, (out >> bit) & 1);
-+            sleep_us(1);
++            bb_half_delay();
 +            gpio_set(PIN_CLK, true);
-+            sleep_us(1);
++            bb_half_delay();
 +            in = (uint8_t)(in << 1 | gpio_get(PIN_MISO));
 +            gpio_set(PIN_CLK, false);
 +        }
@@ -607,7 +621,7 @@ index 0000000..47949a3
 +         * whole transfer. CS stays asserted while this thread yields. */
 +        if (i && (i & 63u) == 63u) sleep_ms(1);
 +    }
-+    sleep_us(1);
++    bb_half_delay();
 +    gpio_set(PIN_CS, true);
 +    return true;   /* clocks ran, not a chip ACK: probe/checksum is required */
 +}
@@ -619,40 +633,22 @@ index 0000000..47949a3
 +	return false;
 +}
 +
-+static bool (*spi_transfer)(const uint8_t *tx, uint8_t *rx, uint32_t length) = spi_transfer_unset;
++static bool (*spi_transfer)(const uint8_t *tx, uint8_t *rx, uint32_t length) =
++    spi_transfer_unset;
 +
 +/* ---- the Goodix chip ------------------------------------------------------------------------------- */
 +
 +#define GOODIX_FW_VERSION       0x10014         /* 28 bytes */
-+/* Berlin A SPI mode select. brl_reset ends with this call
-+ * (goodix_brl_hw.c:322); without it the chip stays in whatever mode the
-+ * previous transfer left it in and later reads come back stale. */
-+#define GOODIX_SPI_MODE_REG         0xC900
-+#define GOODIX_SPI_NORMAL_MODE_0    0x01
-+/* Berlin-D answers no register until the boot-option handshake has run:
-+ * write eight 0xAA to 0x10000 and require the same eight bytes back. It is
-+ * also the only independent proof of the MISO/MOSI/CLK/CS assignment.
-+ * (goodix_brl_hw.c:78-106 brl_dev_confirm; BOOTOPTION_ADDR + DEV_CONFIRM_VAL) */
-+#define GOODIX_BOOTOPTION_ADDR      0x10000
-+#define GOODIX_DEV_CONFIRM_VAL      0xAA
 +#define GOODIX_IC_INFO          0x10070         /* a 16-bit length, then that many bytes */
 +#define GOODIX_MAX_READ         1024
 +#define GOODIX_MAX_TOUCHES      10
 +#define GOODIX_STATUS_TOUCH     0x80
 +#define GOODIX_STATUS_REQUEST   0x40
 +#define GOODIX_REQUEST_RESET    3
-+/* The chip asks for a config with code 0x01 after a reset
-+ * (goodix_brl_hw.c:1206, BRL_REQUEST_CODE_CONFIG). We have no config to
-+ * send yet, so the request is only counted and logged; a silent drop here
-+ * would look exactly like a chip that simply never reports a touch. */
-+#define GOODIX_REQUEST_CONFIG   1
 +
 +static uint8_t spi_tx[8 + GOODIX_MAX_READ], spi_rx[8 + GOODIX_MAX_READ];
 +static uint32_t touch_address, command_address, fw_buffer_address;
 +
-+/* Declared ahead of its definition: goodix_apply_config resets the chip
-+ * through it so the SPI mode is re-confirmed on that path too. */
-+static void touch_reset(void);
 +
 +static bool
 +goodix_read(uint32_t address, uint8_t *data, uint32_t length)
@@ -722,6 +718,97 @@ index 0000000..47949a3
 +	return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
 +}
 +
++static void
++touch_reset(void)
++{
++	gpio_set(PIN_RESET, false);
++	sleep_ms(2);
++	gpio_set(PIN_RESET, true);
++	sleep_ms(100);
++}
++
++/* Is the chip there and running its firmware? Finds where it keeps the touch report. */
++static bool
++goodix_probe(bool verbose)
++{
++    static uint8_t info[GOODIX_MAX_READ];
++    uint8_t version[28];
++    uint32_t length, offset;
++    touch_address = command_address = fw_buffer_address = 0;
++
++    /* The actual K60 Berlin-D driver reads identity after reset/full boot;
++     * Berlin-A's SPI-select and clock-trim sequence does not apply. */
++    if (!goodix_read(GOODIX_FW_VERSION, version, sizeof(version))) {
++        printf("goodix: firmware-version SPI transfer failed at %#x\n", GOODIX_FW_VERSION);
++        return false;
++    }
++    if (goodix_dummy_data(version, sizeof(version))) {
++        printf("goodix: firmware-version contains only bus default bytes, no chip response\n");
++        return false;
++    }
++    if (!goodix_checksum_ok(version, sizeof(version))) {
++        printf("goodix: firmware-version checksum invalid (tail %02x %02x)\n", version[26], version[27]);
++        return false;
++    }
++    if (verbose) printf("goodix: chip \"%.6s\", firmware \"%.8s\" %02x.%02x.%02x.%02x, sensor %u\n",
++        (const char *)version, (const char *)version + 10, version[18], version[19], version[20], version[21], version[23]);
++
++    if (!goodix_read(GOODIX_IC_INFO, info, 2)) {
++        printf("goodix: IC-info length transfer failed\n");
++        return false;
++    }
++    length = le16(info);
++    if (length < 2 + 16 + 10 + 4 + 5 + 52 + 2 || length >= GOODIX_MAX_READ) {
++        printf("goodix: IC-info length %u is outside the Berlin description bounds\n", length);
++        return false;
++    }
++    if (!goodix_read(GOODIX_IC_INFO, info, length)) {
++        printf("goodix: IC-info transfer failed (%u bytes)\n", length);
++        return false;
++    }
++    if (le16(info) != length || goodix_dummy_data(info, length) || !goodix_checksum_ok(info, length)) {
++        printf("goodix: IC-info length/dummy/checksum validation failed (%u bytes)\n", length);
++        return false;
++    }
++    /* Linux Berlin ABI: length + version(16) + features(10) + four counts,
++     * then active-scan/mutual/self-TX/self-RX/stylus u16 frequency lists. */
++    uint32_t end = length - 2;  /* exclude the checksum from every bounds test */
++    offset = 2 + 16 + 10 + 4;
++    for (unsigned i = 0; i < 5; i++) {
++        if (offset >= end) {
++            printf("goodix: IC-info list %u has no count\n", i);
++            return false;
++        }
++        uint32_t bytes = 2u * info[offset++];
++        if (bytes > end - offset) {
++            printf("goodix: IC-info list %u overruns description\n", i);
++            return false;
++        }
++        offset += bytes;
++    }
++    if (offset > end || end - offset < 52) {
++        printf("goodix: IC-info misc is truncated (length %u, offset %u)\n", length, offset);
++        return false;
++    }
++    uint32_t address = le32(info + offset + 44), command = le32(info + offset);
++    uint16_t head = le16(info + offset + 48), point = le16(info + offset + 50);
++    if (!address || address > 0xffffffffu - (8 + 8 * GOODIX_MAX_TOUCHES + 2) || head != 8 || point != 8) {
++        printf("goodix: unsupported report ABI address=%#x head=%u point=%u\n", address, head, point);
++        return false;
++    }
++    /* misc+52/+54 are reserved1/reserved2 in the Berlin wire ABI, NOT axes.
++     * K60's raw limits remain the validated ADT 14400x32000. */
++    fw_buffer_address = le32(info + offset + 18);
++    touch_address = address;
++    command_address = command;
++    if (verbose) printf("goodix: IC-info length=%u misc=%u touch=%#x command=%#x head=%u point=%u raw axes=%ux%u\n",
++        length, offset, touch_address, command_address, head, point, max_x, max_y);
++    return true;
++}
++
++
++/* Vendor command block: state(0), ack(0), len(2), payload; the checksum is
++ * the little-endian sum of buf[2..len-1] and lands in buf[len], buf[len+1]. */
 +static const uint8_t k60_cfg[1488] = {
 +0x4e,0x4d,0x00,0x00,0x00,0x00,0x00,0x00,0x39,0x39,0x31,0x36,
 +0x52,0x00,0x00,0x00,0x05,0x80,0x02,0x63,0x4d,0x31,0x31,0x48,
@@ -885,197 +972,36 @@ index 0000000..47949a3
 +	return ack == 0x80;
 +}
 +
-+/* The official driver waits for the firmware to reach state 0x80 after
-+ * each config-stage command (goodix_brl_hw.c:448-466, 484-489). The ack
-+ * byte only proves the frame arrived; state proves it was applied. */
-+static bool
-+goodix_wait_status(const char *what)
-+{
-+	uint8_t ack[8];
-+
-+	for (unsigned t = 0; t < 20; t++) {
-+		if (goodix_read(command_address, ack, sizeof(ack)) && ack[0] == 0x80) {
-+			printf("goodix: %s state=80\n", what);
-+			return true;
-+		}
-+		sleep_ms(20);
-+	}
-+	printf("goodix: %s state never reached 0x80\n", what);
-+	return false;
-+}
-+
 +static bool
 +goodix_apply_config(uint32_t fw_buffer)
 +{
 +	unsigned off = 0, bad = 0;
++	const uint8_t coordinate = 0x00;
 +
 +	if (!fw_buffer) {
 +		printf("goodix: CFG skip (IC-info reports no fw_buffer)\n");
 +		return false;
 +	}
 +	if (!goodix_command(4, 0x04, NULL, 0, "CFG-START")) return false;
-+	if (!goodix_wait_status("CFG-START")) return false;
 +	while (off < sizeof(k60_cfg)) {
 +		unsigned chunk = sizeof(k60_cfg) - off < 64 ? sizeof(k60_cfg) - off : 64;
 +		uint8_t back[64];
 +		if (!goodix_write(fw_buffer + off, k60_cfg + off, chunk)) { bad++; break; }
-+		if (goodix_read(fw_buffer + off, back, chunk) && memcmp(back, k60_cfg + off, chunk) != 0) bad++;
++		if (!goodix_read(fw_buffer + off, back, chunk) || memcmp(back, k60_cfg + off, chunk) != 0) bad++;
 +		off += chunk;
 +	}
 +	printf("goodix: CFG-DL wrote=%u/%u bad=%u\n", off, (unsigned)sizeof(k60_cfg), bad);
 +	if (off != sizeof(k60_cfg) || bad) return false;
 +	if (!goodix_command(4, 0x05, NULL, 0, "CFG-WRITE")) return false;
-+	if (!goodix_wait_status("CFG-WRITE")) return false;
 +	if (!goodix_command(4, 0x06, NULL, 0, "CFG-EXIT")) return false;
-+	if (!goodix_wait_status("CFG-EXIT")) return false;
-+	/* brl_send_config() ends with a 100 ms settle and nothing else
-+	 * (goodix_brl_hw.c:553-556). Resetting here would discard the 1488
-+	 * bytes just written to the RAM window at fw_buffer_addr, which is
-+	 * exactly what kept the chip in raw-frame mode with no contacts. */
-+	sleep_ms(100);
-+	return true;
-+}
-+
-+/* Boot-option handshake, from goodix_brl_hw.c:78-106. Three attempts with a
-+ * 5 ms gap, because the chip needs a moment after reset before it answers. */
-+static bool
-+goodix_dev_confirm(void)
-+{
-+    uint8_t tx[8], rx[8];
-+    memset(tx, GOODIX_DEV_CONFIRM_VAL, sizeof(tx));
-+    for (unsigned attempt = 0; attempt < 3; attempt++) {
-+        memset(rx, 0, sizeof(rx));
-+        if (!goodix_write(GOODIX_BOOTOPTION_ADDR, tx, sizeof(tx))) return false;
-+        if (!goodix_read(GOODIX_BOOTOPTION_ADDR, rx, sizeof(rx))) return false;
-+        if (memcmp(tx, rx, sizeof(tx)) == 0) {
-+            printf("goodix: device confirm OK (0x10000 = 8 x 0xAA)\n");
-+            return true;
-+        }
-+        printf("goodix: device confirm mismatch %02x %02x (attempt %u)\n",
-+            rx[0], rx[1], attempt);
-+        sleep_ms(5);
-+    }
-+    printf("goodix: device confirm FAILED; check AVDD(GPIO71)/IOVDD/RESET/SPI\n");
-+    return false;
-+}
-+
-+/* Berlin A SPI mode select, from goodix_brl_hw.c:54-74. Write the mode,
-+ * read it back, and only accept a matching read. brl_reset ends with this
-+ * (goodix_brl_hw.c:322) because the chip does not reliably stay in normal
-+ * mode across a reset. */
-+static bool
-+spi_mode_select(void)
-+{
-+    const uint8_t want = GOODIX_SPI_NORMAL_MODE_0;
-+    for (unsigned i = 0; i < 5; i++) {
-+        uint8_t got = 0;
-+        if (!goodix_write(GOODIX_SPI_MODE_REG, &want, 1)) continue;
-+        if (goodix_read(GOODIX_SPI_MODE_REG, &got, 1) && got == want) return true;
-+    }
-+    printf("goodix: SPI mode select failed, chip never echoed %#x\n", want);
-+    return false;
-+}
-+
-+static void
-+touch_reset(void)
-+{
 +	gpio_set(PIN_RESET, false);
 +	sleep_ms(2);
 +	gpio_set(PIN_RESET, true);
 +	sleep_ms(100);
-+	/* Before bring_up() selects a transport there is no bus to ask
-+	 * for SPI mode on; goodix_write() through a NULL pointer aborted
-+	 * the kernel at touch_reset+0x14c. */
-+	if (spi_transfer == spi_transfer_unset) {
-+		printf("Pong touch: reset only; serial transport not selected yet\n");
-+		return;
-+	}
-+	(void)spi_mode_select();
++	if (!goodix_command(5, 0x90, &coordinate, 1, "COORD-MODE")) return false;
++	sleep_ms(50);
++	return true;
 +}
-+
-+/* Is the chip there and running its firmware? Finds where it keeps the touch report. */
-+static bool
-+goodix_probe(bool verbose)
-+{
-+    static uint8_t info[GOODIX_MAX_READ];
-+    uint8_t version[28];
-+    uint32_t length, offset;
-+    touch_address = command_address = 0;
-+
-+    /* Nothing below can work before the handshake: the chip ignores every
-+     * register read until it has answered eight 0xAA at 0x10000. */
-+    if (!goodix_dev_confirm()) return false;
-+    if (!goodix_read(GOODIX_FW_VERSION, version, sizeof(version))) {
-+        printf("goodix: firmware-version SPI transfer failed at %#x\n", GOODIX_FW_VERSION);
-+        return false;
-+    }
-+    if (goodix_dummy_data(version, sizeof(version))) {
-+        printf("goodix: firmware-version contains only bus default bytes, no chip response\n");
-+        return false;
-+    }
-+    if (!goodix_checksum_ok(version, sizeof(version))) {
-+        printf("goodix: firmware-version checksum invalid (tail %02x %02x)\n", version[26], version[27]);
-+        return false;
-+    }
-+    if (verbose) printf("goodix: chip \"%.6s\", firmware \"%.8s\" %02x.%02x.%02x.%02x, sensor %u\n",
-+        (const char *)version, (const char *)version + 10, version[18], version[19], version[20], version[21], version[23]);
-+
-+    if (!goodix_read(GOODIX_IC_INFO, info, 2)) {
-+        printf("goodix: IC-info length transfer failed\n");
-+        return false;
-+    }
-+    length = le16(info);
-+    if (length < 2 + 16 + 10 + 4 + 5 + 52 + 2 || length >= GOODIX_MAX_READ) {
-+        printf("goodix: IC-info length %u is outside the Berlin description bounds\n", length);
-+        return false;
-+    }
-+    if (!goodix_read(GOODIX_IC_INFO, info, length)) {
-+        printf("goodix: IC-info transfer failed (%u bytes)\n", length);
-+        return false;
-+    }
-+    if (le16(info) != length || goodix_dummy_data(info, length) || !goodix_checksum_ok(info, length)) {
-+        printf("goodix: IC-info length/dummy/checksum validation failed (%u bytes)\n", length);
-+        return false;
-+    }
-+    /* Linux Berlin ABI: length + version(16) + features(10) + four counts,
-+     * then active-scan/mutual/self-TX/self-RX/stylus u16 frequency lists. */
-+    uint32_t end = length - 2;  /* exclude the checksum from every bounds test */
-+    offset = 2 + 16 + 10 + 4;
-+    for (unsigned i = 0; i < 5; i++) {
-+        if (offset >= end) {
-+            printf("goodix: IC-info list %u has no count\n", i);
-+            return false;
-+        }
-+        uint32_t bytes = 2u * info[offset++];
-+        if (bytes > end - offset) {
-+            printf("goodix: IC-info list %u overruns description\n", i);
-+            return false;
-+        }
-+        offset += bytes;
-+    }
-+    if (offset > end || end - offset < 52) {
-+        printf("goodix: IC-info misc is truncated (length %u, offset %u)\n", length, offset);
-+        return false;
-+    }
-+    uint32_t address = le32(info + offset + 44), command = le32(info + offset);
-+    /* misc+18 is fw_buffer_addr: the config download window.
-+     * Without it goodix_apply_config cannot run at all. */
-+    uint32_t buffer = le32(info + offset + 18);
-+    uint16_t head = le16(info + offset + 48), point = le16(info + offset + 50);
-+    if (!address || address > 0xffffffffu - (8 + 8 * GOODIX_MAX_TOUCHES + 2) || head != 8 || point != 8) {
-+        printf("goodix: unsupported report ABI address=%#x head=%u point=%u\n", address, head, point);
-+        return false;
-+    }
-+    /* misc+52/+54 are reserved1/reserved2 in the Berlin wire ABI, NOT axes.
-+     * K60's raw limits remain the validated ADT 14400x32000. */
-+    touch_address = address;
-+    fw_buffer_address = buffer;
-+    command_address = command;
-+    if (verbose) printf("goodix: IC-info length=%u misc=%u touch=%#x command=%#x head=%u point=%u raw axes=%ux%u\n",
-+        length, offset, touch_address, command_address, head, point, max_x, max_y);
-+    return true;
-+}
-+
 +
 +/* Which fingers were down in the last report, and where. */
 +static struct {
@@ -1148,7 +1074,7 @@ index 0000000..47949a3
 +goodix_poll(void)
 +{
 +    static uint8_t report[8 + 8 * GOODIX_MAX_TOUCHES + 2];
-+    static unsigned complaints, configRequests;
++    static unsigned complaints;
 +    const uint8_t zero = 0;
 +    const uint32_t first = 8 + 8 * 2 + 2;
 +    bool valid = true, reset = false;
@@ -1173,13 +1099,7 @@ index 0000000..47949a3
 +            if (valid && count && !goodix_checksum_ok(report + 8, 8 * count + 2)) valid = false;
 +            if (valid && !goodix_contacts_valid(report + 8, count)) valid = false;
 +        }
-+        if (report[0] & GOODIX_STATUS_REQUEST) {
-+           reset = report[2] == GOODIX_REQUEST_RESET;
-+           if (report[2] == GOODIX_REQUEST_CONFIG && configRequests++ < 8) {
-+               printf("goodix: chip requested a config (code %#x); none available yet\n",
-+                   report[2]);
-+           }
-+       }
++        if (report[0] & GOODIX_STATUS_REQUEST) reset = report[2] == GOODIX_REQUEST_RESET;
 +    }
 +    if (!goodix_write(touch_address, &zero, 1)) {
 +        if (complaints++ < 8) printf("goodix: report status clear failed\n");
@@ -1230,8 +1150,12 @@ index 0000000..47949a3
 +            spi_transfer = geni_transfer;
 +        }
 +    }
++    /* Actual K60 goodix_core.ko: Berlin-D releases RESET, waits 100 ms,
++     * then reads identity. There is no boot-option write/read prerequisite. */
++    gpio_set(PIN_RESET, true);
++    sleep_ms(100);
 +    if (!goodix_probe(true)) {
-+        printf("Pong touch: identification failed; retained IOVDD is unverified, no /dev/pong-touch\n");
++        printf("Pong touch: chip identity unavailable; no /dev/pong-touch\n");
 +        return false;
 +    }
 +    return true;
@@ -1257,7 +1181,6 @@ index 0000000..47949a3
 +    gpio_configure(PIN_INT, 0, PULL_UP, 8, false);
 +    gpio_output(PIN_RESET, false, PULL_UP, 8);
 +    io_supply_on();
-+    touch_reset();
 +    if (touch_stage == 2) {
 +        printf("Pong touch: stage 2 GPIO/AVDD complete; retained IOVDD not measured\n");
 +        goto out;
@@ -1268,8 +1191,11 @@ index 0000000..47949a3
 +            printf("Pong touch: stage %u clocks complete; no serial-engine access\n", touch_stage);
 +            goto out;
 +        }
++        sleep_ms(2); /* minimum asserted-reset duration before transport setup */
 +        for (unsigned i = 0; i < 3; i++) gpio_configure(pins[i], PIN_FUNCTION_SPI, PULL_NONE, 6, false);
 +        gpio_configure(PIN_CS, PIN_FUNCTION_SPI, PULL_UP, 6, false);
++    } else {
++        sleep_ms(2);
 +    }
 +    if (!bring_up()) {
 +        printf("Pong touch: Goodix initialization failed; normal UI boot continues\n");
@@ -1286,18 +1212,17 @@ index 0000000..47949a3
 +        printf("Pong touch: controller failed identification after resume reset\n");
 +        goto out;
 +    }
-+
 +    const uint8_t clear = 0;
 +    if (!goodix_write(touch_address, &clear, 1)) {
 +        printf("Pong touch: cannot clear the resumed report status\n");
 +        goto out;
 +    }
-+    /* The chip asks for its scan configuration after every reset and will not
-+     * report a contact until it has one. goodix_apply_config writes it to the
-+     * RAM window and lets the firmware settle for 100 ms, exactly as
-+     * brl_send_config() does; any reset here would discard the config. */
 +    if (!goodix_apply_config(fw_buffer_address)) {
 +        printf("Pong touch: config download failed; no input device published\n");
++        goto out;
++    }
++    if (!goodix_probe(true)) {
++        printf("Pong touch: identification lost after config reset\n");
 +        goto out;
 +    }
 +    if (!pong_touch_device_ready()) {
@@ -1367,7 +1292,6 @@ index 0000000..47949a3
 +    }
 +}
 +#endif /* PONG */
-+
 diff --git a/bsd/dev/pong_input.c b/bsd/dev/pong_input.c
 new file mode 100644
 index 0000000..57e74e5

@@ -4290,3 +4290,23 @@ allowing (remove VALID) page`，而 `KXPC 1 launchd pc=0x10086b158` 正好落在
 - 怀疑这类补丁时不要逐个 hunk 读，直接 `git show <boot-proven>:<patch> > 当前文件` 整文件回退，
   一次启动就能定性（本次省掉了 27 个文件逐个试的成本）。
 
+
+
+### P-181 构建失败时旧 kernel.macho 还在，grep 一行日志会把它当成新产物
+
+`mk_cut.sh` 里的 `./unixnu build kernel … | grep '== kernel:' || exit 1` 是个假门禁：
+bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile records`，
+所以即使后面的链接失败、`kernel.macho` 还是上一次构建的旧文件，脚本也会继续打包并“成功”出镜像。
+代价：11-13 下午连续五次“二分结果”其实都是同一个 11-11 allold 内核，得出了“0340 是元凶”的错误结论。
+
+真正的根因同时被掩盖：`bsd/dev/pong_adsp_*.c` 没有列进 `bsd/conf/files`，链接报
+`Undefined symbols for architecture arm64: "_k60_adsp_note_window" … "_k60_adsp_probe_from_handoff"`。
+
+现在的规则：
+
+- `scripts/build-xnu-4k-baseline.sh` 在最终 `make` 之前调用 `scripts/append-conffiles.py`，
+  把 in-tree 驱动加进生成的 `conf/files`，失败即退出；
+- 任何构建脚本都必须检查 `unixnu` 的**退出码**，并用“构建开始前 touch 的标记文件”比较
+  `kernel.macho` 的 mtime（`test "$M/kernel/kernel.macho" -nt "$MARK"`），不能只看文件存在；
+- 判定新内核是否进镜像，用 `strings -a kernel.macho | grep -c '<本次新增的字符串>'`，
+  再 `mdir`/`mcopy` 出 boot.img 里的 kernel 比对 sha256（P-177 的配方）。

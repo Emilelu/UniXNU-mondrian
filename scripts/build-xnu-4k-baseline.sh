@@ -1242,6 +1242,16 @@ for argument in sys.argv[1:]:
             raise SystemExit('Conflicting per-object flag assignments: ' + key)
         seen.add(key)
 PY_OBJECT_FLAGS
+# P-171: add the in-tree driver sources to the generated conf/files before the
+# final link. A patch cannot anchor this file because the tree is re-seeded on
+# every build; the list lives in scripts/append-conffiles.py.
+if [ -f "$ROOT/scripts/append-conffiles.py" ]; then
+  python3 "$ROOT/scripts/append-conffiles.py" "$ROOT" || {
+    echo "build-xnu: append-conffiles failed" >&2
+    exit 1
+  }
+fi
+
 make -C .cache/xnu-work "${XNU_BUILD_TARGET:-build}" SDKROOT="${XNU_SDKROOT:-iphoneos}" ARCH_CONFIGS=ARM64 \
   MACHINE_CONFIGS=PONG KERNEL_CONFIGS=DEVELOPMENT \
   ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64 LARGE_MEMORY_DEFINE=-UARM_LARGE_MEMORY \

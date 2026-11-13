@@ -85,16 +85,25 @@ before the fatal access survives in the capture.
 `n > stageLimit`. `stageLimit` comes from the boot arg `k60_wifi_stage`
 (absent or 0 = run everything). Each stage adds exactly one class of MMIO:
 
-| stage | boundary in `coldLink()` |
+| stage | boundary |
 | --- | --- |
 | 1 | TLMM pinmux for PERST/WAKE/WLAN_EN (GPIO 94/95/96/80) |
-| 2 | PMIC rails through RPMh/RSC and cmd-db (`supplies()`) |
-| 3 | GCC PCIe0 GDSC, refgen and NoC votes |
-| 4 | PARF/DBI/PHY/ATU host MMIO windows |
-| 5 | 82-entry vendor QMP PHY table |
-| 6 | PERST release and LTSSM link training |
-| 7 | APPSSMMU SID 1c01 exclusive 4K context (`isolation()`) |
-| 8 | PARF MSI0 to GIC SPI140 attach (`armcpu_spi_attach`) |
+| 2 | SPMI controller and PMIC page (`pmicOpen()`) |
+| 3 | cmd-db window at 0x80860000 and the per-rail lookup |
+| 4 | First RPMh/RSC vote (rails, then mx/cx parents, xo, SN7 NoC) |
+| 5 | GCC PCIe0 GDSC, refgen and NoC votes |
+| 6 | PARF/DBI/PHY/ATU host MMIO windows |
+| 7 | 82-entry vendor QMP PHY table |
+| 8 | PERST release and LTSSM link training |
+| 9 | APPSSMMU SID 1c01 exclusive 4K context (`isolation()`) |
+| 10 | PARF MSI0 to GIC SPI140 attach (`armcpu_spi_attach`) |
+
+Stages 2-4 split `supplies()` on purpose: the SPMI controller, the cmd-db
+window and the very first RSC write are three different power domains, and the
+first failed boot (`k60_wifi_rsc=1`, whose "read-only" probe still issues RSC
+MMIO reads) most likely died on the third one. With `k60_wifi_rsc` absent,
+`pong_rpmh_vote()` returns before it opens the RSC, so stage 3 alone never
+touches it.
 
 A held-back stage logs `PongWifi: stage N (…) held back by k60_wifi_stage=M`
 and `coldLink()` returns false, so `worker()` takes its normal

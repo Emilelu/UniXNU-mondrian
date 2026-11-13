@@ -4128,3 +4128,13 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 - 为什么不能 pick：本地 `scripts/build-xnu-4k-baseline.sh` 是 67,777 B 的 K60 fork（含 `HOST_CC` 与 conf/files 钩子），上游是 44,810 B；`patches/` 已在 `SKIP_PATHS` 内，整文件 pick 只会取到脚本，得到一个"半合并"状态——脚本被换掉而补丁没换。
 - 处理：判为**不可合（文件级）**。语义（门变量改名 + 0398 增加 `/private/var/ngpu` 目录）单独手工移植，且必须与 `patches/` 同步。
 - 判据：pick 前先看 `git show --stat`；只要同时命中 `SKIP_PATHS` 与不在其中的文件，就是半合并，必须拒绝。
+
+### P-173 用错误的产物路径推翻一个正确的实现
+
+- 现象：`pong_adsp_image.o` 明明存在，但连续两轮判为“未编译”，因为查的是
+  `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/pong_adsp_image.o`，实际产物在
+  `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/pong_adsp_image.o`。
+- 代价：为此把一个本来正确的 `conf/files` 钩子当成失效，删掉补丁里的 hunk、改脚本、重构建三轮。
+- 规则：判断“产物不存在”之前，先用 `find … -name <artifact>` 确认路径形状；`ls | grep`
+  这类复合命令在内联 shell 里必须先验证变量确实展开（本机 PowerShell 会吞掉 `$`）。
+- 同族：P-163（单次读数不足以判定）。观测方法本身必须先被验证。

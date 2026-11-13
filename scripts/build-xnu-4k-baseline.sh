@@ -1151,6 +1151,17 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $UFS_ARCHIVE"
   fi
+  if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+    # scripts/build-battery-archive.sh builds this from the captured FDT plus
+    # the vendor module. MEASURED 2026-11-14: adding it only to
+    # KERNEL_EXTRA_ARCHIVES is useless here, because that whole block sits
+    # inside the XNU_SOURCE_CORECRYPTO14 branch and the generated .config
+    # resolves that symbol to n (P-190).
+    BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
+    test -f "$BATTERY_ARCHIVE"
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
+    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $BATTERY_ARCHIVE"
+  fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a
     RAM_BLOCK_OBJECT=$ROOT/build/native-ram-block/NativeRamBlock.o

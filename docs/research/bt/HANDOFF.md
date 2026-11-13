@@ -61,8 +61,10 @@ printing a mark before every single access.
    `mtype -i <payload.img> ::/EFI/UniXNU/unixnu.toml`).
 5. Device: attach the CDC-ACM capture **before** any `fastboot boot` (AGENTS.md iron rule 8: console
    VID_1209&PID_0001, usbser.sys, port only from `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM\Device\USBSER000`,
-   DTR raised), boot the **same image twice** with `k60bt=1 k60bt_stage=1 k60bt_warm=1` (optionally
-   `k60bt_delay=20 k60bt_step=6`), then `python3 scripts/record-boot.py --evidence <dir>`.
+   DTR raised), then boot the **same image** three times, adding risk each time (S1-PROBE-SPEC.md §4):
+   `k60bt=1 k60bt_stage=1 k60bt_warm=1 k60bt_delay=20 k60bt_step=1` (map only, cannot hang) →
+   `… k60bt_step=4` (GCC only, no GENI) → `… k60bt_step=6` (first GENI read).
+   Stop the ladder wherever the board dies. Record with `python3 scripts/record-boot.py --image … --log <dir>/console.log`.
    Judge only `capture.json` `verdict`/`panicMarker` (never logstat.py panic counts).
    Read the verdict off the **last `probe: …` line** in the console (S1-PROBE-SPEC.md §5); if it stops
    at an `sX` step, re-boot once with `k60bt_step` one lower to prove that access is the fatal one.

@@ -109,9 +109,12 @@ python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
 ```
 
 - `k60bt_warm=1` 是必须的：0500 的 `k60_bt_power_on()` 在 `!k60.warm_boot` 时直接返回 `-EOPNOTSUPP`。S1 不碰电源，但保留该参数以保持与后续阶段一致。
-- 建议的两次：
-  - **A1 / A2**：`k60bt_delay=20 k60bt_step=6`（两次同参，铁律 5 要求的「同一镜像两次」）；
-  - **B**（只在 A 挂死时做）：把 `k60bt_step` 降到死点前一步，验证「去掉那次访问机器就不死」——这是把死因锁定到单条 load 的最强证据，而且能给出一条**健康启动 + 完整时钟读数**的记录。
+- **三次的排法（同一镜像，铁律 5；逐级加码，前一级不死才做下一级）**：
+  - **A1 `k60bt_step=1`**（先做，零 MMIO 读）：只做 s1 的三次 `k60_map`。证明参数解析、worker、20 s 延迟、打点、控制台排空全通，并给出 `probe: s1 mapped gcc=… uart=… qup=…` 的真实 VA。
+  - **A2 `k60bt_step=4`**（只碰 GCC，**不碰 GENI**）：s2 GPLL0 投票+锁轮询、s3 QUPV3_2 投票、s4 五个 halt 读数。若这一级能跑完，说明「GCC 窗口可访问、投票写有效」，把怀疑范围压到 GENI 窗口本身；若这一级就死，问题在 GCC/NoC 而不是 SE20。
+  - **A3 `k60bt_step=6`**（决定性）：第一次读 GENI（s5 的 `0x040`）。活下来 → SE20 可达，进 S2；死在 `probe: s5 read se status` 之前 → **GENI 首访即死**，与触摸/音频同因。
+  - **B（只在某一级挂死时做）**：把 `k60bt_step` 降到死点前一步，验证「去掉那次访问机器就不死」，把死因锁到单条 load。
+- 为什么值得拆成三级：S1a 已经用掉一次「0 字节日志 + 物理断电」，而 A1/A2 都是低风险启动，能把「管道问题」「GCC/NoC 问题」「GENI 问题」三者彻底分开；每次只多花一次安全启动，却能把后续 S2 的返工可能性砍掉一大半。
 
 ## 5. 判据（只读 capture.json 的 `verdict` / `panicMarker`，不看 logstat.py 的 panic 计数）
 

@@ -1116,3 +1116,453 @@ verdict = "deferred"
 reason = "同上：新增的是上游 0610-k60-metal-plugin-deploy.patch 与 scripts/gen-k60-metal-blob.py，我们的 0610-k60-metal-seeds.patch 已用另一条机制满足 PongMetalPlugin 的 publish/clients 要求；物理上无法直接 apply 到不存在的文件"
 review_after = "2026-12-15"
 date = "2026-11-13"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+branch = "chore/archive-stale-clone-wip"
+mirror = "references/yibiya-upstream"
+watermark = "ac5481d765"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+branch = "docs/k60-gpu-repair-plan-20261112"
+mirror = "references/yibiya-upstream"
+watermark = "7b66697dd2"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+branch = "fix/goodix-reset-handshake"
+mirror = "references/yibiya-upstream"
+watermark = "22785bd3c7"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+branch = "fix/metal-client-timing"
+mirror = "references/yibiya-upstream"
+watermark = "22785bd3c7"
+
+[[branch]]
+repo = "yibiya/UniXNU-mondrian"
+branch = "fix/metal-deploy-scratch"
+mirror = "references/yibiya-upstream"
+watermark = "22785bd3c7"
+
+[[commit]]
+sha = "4d088d8bf4c295199937cf733eed6f9b699268ad"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: chore: archive superseded working-tree edits from the stale clone. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "3c456d5fa582d16240b7a7a937929d80560e64ba"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): plan staged K60 hardware recovery"
+
+[[commit]]
+sha = "00505e0c1527776d7c04f047078cd0185f97f33d"
+verdict = "not-applicable"
+reason = "Documentation only: docs(k60): finalize morning verification handoff"
+
+[[commit]]
+sha = "215fb9b3595eb4681d3a5d725c23bc3a2d65ec14"
+verdict = "not-applicable"
+reason = "Documentation only: docs(k60): record real HID and panel progress"
+
+[[commit]]
+sha = "a61c68d38e9ad5e90c020eaf975a1cdf6bc6cad4"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): record integrated verification image"
+
+[[commit]]
+sha = "ef2389b608ecf85aafb33e56cfb1192d3a2ec8f7"
+verdict = "not-applicable"
+reason = "Documentation only: docs(input): record HID and panel repair contracts"
+
+[[commit]]
+sha = "deacd3a91633c098c07c86ce7f75ce0cc4fa62ef"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(display): restore inherited frame cadence. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "5bdd3a423d39998316d75e80fa33aa4654e2ed7e"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(input): load real HID framework for consumers. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "ae96f86d9f60db28b1b51e3413351149ee46c830"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(input): preserve volume-key failure recovery. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "f8c49f8dba3ce3d2e028f30e9d08ecdb8e8f2d03"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record IOVDD repair image"
+
+[[commit]]
+sha = "e72c735ba84b4cdc357209c2b5932542207f9aa9"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(touch): initialize RPMh mutex inside kernel. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "71d8941eac8467026e0221293f2e446a377b370b"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record proven VRM request contract"
+
+[[commit]]
+sha = "d82df471cfb5bda1ac87eb54309747d5e9f9a305"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(touch): request actual IOVDD through RPMh. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "615ab18e988d96c4fcbec092ae896fe011fd177e"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(boot): restore unattended fastboot recovery. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "98fcdb41014478004b14e21adf0802163ac8f17a"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record observer image provenance"
+
+[[commit]]
+sha = "ec82bc9f8ca5a5c1b24848c6d640bb2eeaef18dc"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record bounded observer experiment"
+
+[[commit]]
+sha = "fb74efc9b7764597a45e44ef6902fbd91b251c01"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: debug(touch): sample PMIC state via shared observer. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "67bb90fd23958f99bb88ac4420fe017eb57f3d56"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record pad transitions and no response"
+
+[[commit]]
+sha = "add6fe63595be1a461ce2e8f84dd57717896cb50"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record GPIO probe build provenance"
+
+[[commit]]
+sha = "3cf75ef30dba317baa637291ed692b742a258603"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): bound regulator measurement claims"
+
+[[commit]]
+sha = "9bcc95f6014e00f5ec0fb7c2105d25e0f1ed5b3d"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record failed identity and safe probe"
+
+[[commit]]
+sha = "a105641acac2cb035a03a35282cb3ba40b5bf64e"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: debug(touch): sample known output pads. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "bae9df2ed044ad85db71b19d802bd67c2057464f"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record target protocol evidence"
+
+[[commit]]
+sha = "98ce70b5d433cc1ef434a710fb1bc3059d011876"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(touch): match actual Berlin D power-on. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "1010e8b3939a14201e4bc01424861b0cee6e4245"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): replace invalid GPIO role inference"
+
+[[commit]]
+sha = "2d3d0232dc4d5927120a4fa4df06d4f39b0c1c3c"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(touch): use documented SM8475 SPI roles. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "4d829535f90754b31ee9f185a7d20b40f49ef280"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record failed corrected handshake"
+
+[[commit]]
+sha = "e6a63f50446c0616455fdbf32ba5dc827ec8cf63"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): qualify handshake and pad proof"
+
+[[commit]]
+sha = "5a71f9e76f9dddd18e2cf1c2d7fdd0482c67460a"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(touch): keep boot confirmation in power-on. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "3cace738f520ae749334d3d2457f748a0a1cc4e2"
+verdict = "not-applicable"
+reason = "Documentation only: docs(touch): record live handshake failure"
+
+[[commit]]
+sha = "713654e8b21466d642f3b751c35bd96556563c8e"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(touch): prepare SPI before boot handshake. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "75bd5920e7a0b12e26cd6440a270a89f73ddd9b0"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): record missing probe connection"
+
+[[commit]]
+sha = "b33b0f094b74dd73c3b2583537dd8610f7c09b75"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): record guarded cadence build"
+
+[[commit]]
+sha = "de671a18d7e64a725a182bb72b61b33c5abd1a37"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): track guarded hardware probe"
+
+[[commit]]
+sha = "09a83f1bc45fe40f84e9bd688dec1bc2965605e9"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): record read-only counter guards"
+
+[[commit]]
+sha = "fcc998f009867f248551d7c5faa9f71171059645"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(display): observe guarded panel counters. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "4f1752f46760cfb964a777a053d907dd395b7934"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): align frontend status with hardware"
+
+[[commit]]
+sha = "6d0bada0c9f8a550635c67722aab2be11ef7a6a4"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record verified once policy repair"
+
+[[commit]]
+sha = "aef98f8221bca9de41ded625f38dbd795bd24b7e"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record once policy repair build"
+
+[[commit]]
+sha = "e5875fb949ee41953d9a9715370f12dd440380fd"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record dispatch generation root cause"
+
+[[commit]]
+sha = "044f0dd31133be5c15e498745f3008f2a59b619e"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): trust dispatch once completion contract. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "9515106665965903511341b2ae1848d2a1f0c376"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record RGB probe build verification"
+
+[[commit]]
+sha = "a1b999f6b158265d2ab81b5b6e205eb9b5dec7fd"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): describe bounded RGB observations"
+
+[[commit]]
+sha = "69571c30756e2bf14ae4be2734c34e1ce256629c"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): observe completed RGB frame cadence. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "c8cfc14a8447671ccc17ddbf89c491d67f941d66"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record unchanged visible cadence"
+
+[[commit]]
+sha = "414ccbaba354056a2f5c35271c08f2381db746e0"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): expose native client timing evidence. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "1710b3c434f63742c5ceccc69cd5bf589acd4b63"
+verdict = "not-applicable"
+reason = "Documentation only: merge: carry the verified GPU deployment and performance work"
+
+[[commit]]
+sha = "b57630a78ee62130e68b4a37766de1b7fa99e130"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record fragmented cache batch proof"
+
+[[commit]]
+sha = "edd5e601a7da6cf2eef4ac5495ae7739d0cd6106"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: perf(gpu): batch cache maintenance across spans. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "fb26fcd65dc0dabc90229d7317ccb2fd8db237c3"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): preserve read-only Data diagnostics. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "c80b157ede84bac4f465fbd50766f53809fbfe16"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record deployment repair criteria"
+
+[[commit]]
+sha = "bd5b50f597fc21fd6d7949ef2aaa2c103d6b7568"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): deploy with mapped scratch and real dirs. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "75bd5920e7a0b12e26cd6440a270a89f73ddd9b0"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): record missing probe connection"
+
+[[commit]]
+sha = "b33b0f094b74dd73c3b2583537dd8610f7c09b75"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): record guarded cadence build"
+
+[[commit]]
+sha = "de671a18d7e64a725a182bb72b61b33c5abd1a37"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): track guarded hardware probe"
+
+[[commit]]
+sha = "09a83f1bc45fe40f84e9bd688dec1bc2965605e9"
+verdict = "not-applicable"
+reason = "Documentation only: docs(display): record read-only counter guards"
+
+[[commit]]
+sha = "fcc998f009867f248551d7c5faa9f71171059645"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(display): observe guarded panel counters. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "4f1752f46760cfb964a777a053d907dd395b7934"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): align frontend status with hardware"
+
+[[commit]]
+sha = "6d0bada0c9f8a550635c67722aab2be11ef7a6a4"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record verified once policy repair"
+
+[[commit]]
+sha = "aef98f8221bca9de41ded625f38dbd795bd24b7e"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record once policy repair build"
+
+[[commit]]
+sha = "e5875fb949ee41953d9a9715370f12dd440380fd"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record dispatch generation root cause"
+
+[[commit]]
+sha = "044f0dd31133be5c15e498745f3008f2a59b619e"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): trust dispatch once completion contract. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "9515106665965903511341b2ae1848d2a1f0c376"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record RGB probe build verification"
+
+[[commit]]
+sha = "a1b999f6b158265d2ab81b5b6e205eb9b5dec7fd"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): describe bounded RGB observations"
+
+[[commit]]
+sha = "69571c30756e2bf14ae4be2734c34e1ce256629c"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): observe completed RGB frame cadence. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "c8cfc14a8447671ccc17ddbf89c491d67f941d66"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record unchanged visible cadence"
+
+[[commit]]
+sha = "414ccbaba354056a2f5c35271c08f2381db746e0"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): expose native client timing evidence. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "1710b3c434f63742c5ceccc69cd5bf589acd4b63"
+verdict = "not-applicable"
+reason = "Documentation only: merge: carry the verified GPU deployment and performance work"
+
+[[commit]]
+sha = "b57630a78ee62130e68b4a37766de1b7fa99e130"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record fragmented cache batch proof"
+
+[[commit]]
+sha = "edd5e601a7da6cf2eef4ac5495ae7739d0cd6106"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: perf(gpu): batch cache maintenance across spans. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "fb26fcd65dc0dabc90229d7317ccb2fd8db237c3"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): preserve read-only Data diagnostics. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "c80b157ede84bac4f465fbd50766f53809fbfe16"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record deployment repair criteria"
+
+[[commit]]
+sha = "bd5b50f597fc21fd6d7949ef2aaa2c103d6b7568"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): deploy with mapped scratch and real dirs. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "b57630a78ee62130e68b4a37766de1b7fa99e130"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record fragmented cache batch proof"
+
+[[commit]]
+sha = "edd5e601a7da6cf2eef4ac5495ae7739d0cd6106"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: perf(gpu): batch cache maintenance across spans. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "fb26fcd65dc0dabc90229d7317ccb2fd8db237c3"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): preserve read-only Data diagnostics. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"
+
+[[commit]]
+sha = "c80b157ede84bac4f465fbd50766f53809fbfe16"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record deployment repair criteria"
+
+[[commit]]
+sha = "bd5b50f597fc21fd6d7949ef2aaa2c103d6b7568"
+verdict = "deferred"
+reason = "Code on a touch/GPU/display line: fix(gpu): deploy with mapped scratch and real dirs. Re-judge once the touch and GPU candidates are through the eight steps."
+review_after = "2026-11-21"

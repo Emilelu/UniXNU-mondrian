@@ -82,6 +82,17 @@ board_dir() {
 M=$(board_dir)
 KERNEL=$M/kernel/kernel.macho
 
+# The kernel script looks for the wifi archive at $ROOT/build/pong-wifi, where
+# ROOT is the *build tree*, not this checkout. Point it at the archive this
+# checkout built so the two cannot silently diverge, and say so when it is
+# missing instead of failing 13 minutes in with `test -f ... failed`.
+if grep -q '^CONFIG_XNU_PONG_WIFI=y' "$M/.config" 2>/dev/null; then
+    WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-$REPO/build/pong-wifi/libPongWifiNative.a}
+    [ -f "$WIFI_ARCHIVE" ] || die "CONFIG_XNU_PONG_WIFI=y but $WIFI_ARCHIVE missing; run scripts/build-wifi-archive.sh first"
+    export XNU_PONG_WIFI_ARCHIVE=$WIFI_ARCHIVE
+    echo "build-strict: wifi archive $WIFI_ARCHIVE"
+fi
+
 # --- frozen inputs -----------------------------------------------------------
 # Every file that can change the kernel is hashed before the build; a later
 # boot is only comparable if the same list hashes the same.

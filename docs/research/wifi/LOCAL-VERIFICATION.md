@@ -249,7 +249,8 @@ bootExitCode=0, returnedToFastboot=true`。同一 supervisor、同一 fd、同�
 | archive | `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` 11,941,816 B（05:18） |
 | kernel.macho | 65,863,680 B，sha256 `f19ba0b37b9f7f30e49c0249cd4e9a397100df9dfd95da4788d0ab6488ec9bfc`（05:21） |
 | linkarchives 证据 | 含 `-Wl,-force_load,/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` |
-| boot.img | `/mnt/e/k60-work/artifacts/wifi-20261114d/boot.img` 201,887,744 B，sha256 `4b5c7dfd0e74dbf7efa61247e27754b24f11b0df068129a82adfac3e7549abc7` |
+| boot.img（stage=1） | `/mnt/e/k60-work/artifacts/wifi-20261114d/boot.img` 201,887,744 B，sha256 `4b5c7dfd0e74dbf7efa61247e27754b24f11b0df068129a82adfac3e7549abc7` |
+| boot.img（同内核对照） | `/mnt/e/k60-work/artifacts/wifi-20261114e/boot.img`，sha256 `a6eb8d5aabebc9382ab5687059cf28dc2e52854f34873d731be1fe8167979e3f`，args 尾部 `pong_wifi=0` |
 | args | `… applog=1 pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` |
 | 构建日志 | `/mnt/e/k60-work/evidence/wifi-trial/{build-stage-archive.log,tree-stage.log,kernel-stage.log,payload-stage1.log,bootimg-stage1.log}` |
 | 构建脚本 | `E:\k60-work\evidence\wifi-trial\{build-stage-archive.sh,build-stage-kernel.sh,mkboot-stage1.sh}` |
@@ -260,6 +261,9 @@ docs/engineering/RULES.toml`）。
 
 ### 5.4 上机顺序（每步一次 boot）
 
+0. **先跑对照 `wifi-20261114e`（同一个 65.8 MB 内核、`pong_wifi=0`）**：
+   它只回答一个问题——镜像能不能起来、控制台有没有。起不来就说明问题在
+   镜像/装载层（尺寸、UEFI 堆），与 WiFi 无关；起来了才轮得到下面几步。
 1. `k60_wifi_stage=1`：只碰 TLMM。期望日志：`console up after … ms` →
    `stage 1 (TLMM pinmux …)` → `stage 2 (…) held back by k60_wifi_stage=1` →
    `WiFi initialization stopped; normal iOS boot continues, DMA retained`。

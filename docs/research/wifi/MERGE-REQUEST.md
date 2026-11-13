@@ -244,10 +244,28 @@ Undefined symbols for architecture arm64:
 
 ## 9. 上机阻塞：设备自 04:50 起不再枚举
 
-2026-11-14 04:50 之后 `adb devices` 与 `fastboot devices` 全空，
-`Get-PnpDevice -PresentOnly` 里没有任何 `VID_2717`/`VID_18D1`/`VID_1209` 在线项，
-同机 peer 线（`usblog-20261114-bts1b-run1`）也在同一时刻掉到 `port-not-observed`。
-**需要人工长按电源键约 10 秒强制重启**，之后才能继续阶梯上机。
+2026-11-14 04:50 之后 `adb devices` 与 `fastboot devices` 一直全空，
+`Get-PnpDevice -PresentOnly` 里没有任何 `VID_2717`/`VID_18D1`/`VID_1209` 在线项
+（只剩键盘/摄像头/蓝牙/读卡器），`HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` 里也只剩
+`BthModem0/1` 的 COM3/COM4，没有 `USBSER000`。同机 peer 线
+（`usblog-20261114-bts1b-run1`）在同一时刻掉到 `port-not-observed`、`bytes=0`，
+说明是整机状态而不是某一张镜像。**需要人工长按电源键约 10 秒强制重启**。
+
+等待期间已经把三族阶梯全部构建并逐张验证完，设备一回来就能连续跑：
+
+| 族 | 镜像 | 内核 | 证明什么 |
+| --- | --- | --- | --- |
+| 库存基线 | `wifi-20261115z0` | 54,181,888 B 无 WiFi 代码 | 这台手机能不能启动这张 FD |
+| 小固件 | `wifi-20261115t0…t8` | 54,804,480 B，23 字节占位固件 | 11.2 MB blob 是不是元凶 |
+| 真固件 | `wifi-20261115a…g` + `p` | 65,978,368 B，六文件包 | 真正的分级 bring-up |
+
+17 张全部通过 `verify-boot-image.py` 与 `argcheck1.py`（命令行 574–606 字节，
+都在 DarwinBoot 的 607 字节上限内）。runner 是
+`E:\k60-work\evidence\wifi-trial\ladder5-run.ps1`，顺序
+`z0 → t0 → t1 → t3 → t4 → t5 → t6 → t7 → t8 → a → b → c → p → d → e → f → g`，
+首张零字节控制台就停（`z0` 零字节则以 exit 13 收尾，说明与 WiFi 无关）。
+判读表见 `STAGE-BRINGUP.md` §6，装载规则见同文 §7。
+---
 ---
 
 ## 10. `docs/engineering/BOOT-ARGS.md` —— 9 个 WiFi boot-arg 未登记（hard-8 / P-156）

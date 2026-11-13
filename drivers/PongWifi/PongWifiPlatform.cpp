@@ -27,6 +27,7 @@ void pong_wifi_net_failed(void);
 int nw_wifi_firmware_error(void);
 void PongWifiNetStaticInit(void);
 bool pong_ufs_ready(void);
+bool k60_usblog_console_up(void);
 bool pong_rpmh_vote(uint32_t,uint32_t);
 bool pong_smmu_lease_lock(void);
 void pong_smmu_lease_unlock(void);
@@ -62,6 +63,16 @@ uint64_t initDeadline;
 uint64_t now() {uint64_t ns=0;absolutetime_to_nanoseconds(mach_absolute_time(),&ns);return ns/1000000;}
 bool progressDiagnostic;
 void progress(unsigned phase) {if(progressDiagnostic){pong_wifi_progress[0]=phase;pong_wifi_progress[1]=now();pong_wifi_progress[2]++;}}
+// Bring-up staging. Every stage below adds exactly one class of MMIO access, so
+// a boot that dies still narrows the fault to one block. Absent boot arg means
+// run every stage; k60_wifi_stage=N stops before stage N+1.
+unsigned stageLimit=~0u;
+bool stageOpen(unsigned n,const char *what) {
+ static bool read;
+ if(!read){read=true;uint32_t s=0;if(PE_parse_boot_argn("k60_wifi_stage",&s,sizeof s)&&s)stageLimit=s;}
+ if(n>stageLimit){IOLog("PongWifi: stage %u (%s) held back by k60_wifi_stage=%u\n",n,what,stageLimit);return false;}
+ IOLog("PongWifi: stage %u (%s)\n",n,what);return true;
+}
 void log(int level,const char *s) {if(level<7)IOLog("PongWifi[%d]: %s\n",level,s);}
 bool fail(const char *s) {log(3,s);return false;}
 void clean(void *p,size_t n) {uintptr_t a=reinterpret_cast<uintptr_t>(p)&~uintptr_t(63),e=reinterpret_cast<uintptr_t>(p)+n;for(;a<e;a+=64)__asm__ volatile("dc civac,%0"::"r"(a):"memory");__asm__ volatile("dsb sy":::"memory");}
@@ -172,15 +183,25 @@ bool bcmVote(const uint8_t *copy,const char *name) {
  }return fail("PCIe NoC SN7 cmd-db resource absent");
 }
 bool supplies() {
- if(!pmicOpen()||!db.open(0x80860000,0x20000))return false;
+ // Three rungs, because each can hang the interconnect on its own when the
+ // block it touches is not powered: the SPMI controller, the cmd-db window,
+ // then the first RPMh write through the RSC.
+ if(!stageOpen(2,"SPMI controller and PMIC page"))return false;
+ if(!pmicOpen())return false;
+ if(!stageOpen(3,"cmd-db window and rail lookup"))return false;
+ if(!db.open(0x80860000,0x20000))return false;
  uint8_t *copy=static_cast<uint8_t *>(IOMallocData(0x20000));if(!copy)return false;
  for(unsigned i=0;i<0x20000;i+=4){unsigned v=db.r(i);memcpy(copy+i,&v,4);}
- bool ok=true;
- for(const auto &r:kPongWifiRails) {QcomRpmhResource res={};if(qcom_cmd_db_find(copy,0x20000,r.name,&res)){ok=fail("required SM8475 rail missing in cmd-db");break;}
+ const unsigned railCount=unsigned(sizeof kPongWifiRails/sizeof kPongWifiRails[0]);
+ if(railCount>8){IOFreeData(copy,0x20000);return fail("unexpected WLAN rail count");}
+ QcomRpmhResource res[8]={};bool ok=true;
+ for(unsigned i=0;i<railCount;i++)if(qcom_cmd_db_find(copy,0x20000,kPongWifiRails[i].name,&res[i])){ok=fail("required SM8475 rail missing in cmd-db");break;}
+ if(ok&&!stageOpen(4,"RPMh/RSC votes for every rail"))ok=false;
+ for(unsigned i=0;ok&&i<railCount;i++) {
   // These are dedicated WLAN supplies, retained until endpoint reset. Their
   // minimum setpoints and maximum bounds are taken from this phone's DT.
-  if(!pong_rpmh_vote(res.address+8,7)||!pong_rpmh_vote(res.address,r.mv)||!pong_rpmh_vote(res.address+4,1)){ok=false;break;}
-  if(!railReady(r)){ok=fail("physical WLAN supply did not follow RPMh request");break;}
+  if(!pong_rpmh_vote(res[i].address+8,7)||!pong_rpmh_vote(res[i].address,kPongWifiRails[i].mv)||!pong_rpmh_vote(res[i].address+4,1)){ok=false;break;}
+  if(!railReady(kPongWifiRails[i])){ok=fail("physical WLAN supply did not follow RPMh request");break;}
  }
  // Retain the actual highest allowed ARC parent votes, as the GPU owner
  // does; never lower a shared CX/MX vote inherited from another consumer.
@@ -199,6 +220,7 @@ bool coldLink() {
  // pci-msm asserts endpoint reset first and accesses PARF only after its
  // regulator/clock/reset sequence has completed.
  log(6,"PCIe0 cold start; power and bus clocks precede host MMIO");
+ if(!stageOpen(1,"TLMM pinmux for PERST/WAKE/WLAN_EN"))return false;
  pin(94,1u|1u<<9,0);pin(95,3u|1u<<2,-1);pin(96,3u,-1);
  pin(80,1u|1u<<9,0);IOSleep(150);
  if(!supplies())return false;
@@ -211,6 +233,7 @@ bool coldLink() {
  // A temporary boot can inherit the previous OS's suspended PIPE mux and
  // vote. Park on the real TCXO parent with the branch disabled before
  // resetting the core. Do not clock an uninitialized PHY from its output.
+ if(!stageOpen(5,"GCC PCIe0 GDSC, refgen and NoC votes"))return false;
  gcc.w(0x62008,gcc.r(0x62008)&~(1u<<4));
  gcc.w(0x7b060,(gcc.r(0x7b060)&~3u)|2u);
  // This votable GDSC also has a separate APSS collapse vote. It is at
@@ -224,8 +247,10 @@ bool coldLink() {
  // Mixing an early external parent with a stopped PIPE loses that clock
  // throughout core/PHY reset and the PCS/PIPE hand-off.
  gcc.w(0x7b068,1);gcc.w(0x7b064,gcc.r(0x7b064)|1);
- // pci-msm indexes max-clock-frequency-hz after TWO pipe-clock slots:
- // refgen is index 11, 100 MHz, during initial training. qcom,bw-scale
+ // pci-msm indexes max-clock-frequency-hz after TWO pipe-clock slots. On K60
+ // the live FDT puts pcie_phy_refgen_clk at clock-names[8] and 100 MHz at
+ // max-clock-frequency-hz[10] (Pong has the same clock at [11]; the K60 array
+ // is one entry shorter), so the RCG source index below is 10. qcom,bw-scale
  // selects 19.2 MHz only after a real Gen1/Gen2 link is negotiated.
  // Retain the native initial clock and advertised speed from core reset.
  gcc.w(0x62018,gcc.r(0x62018)|1u); // GPLL0_OUT_MAIN, 600 MHz
@@ -245,6 +270,7 @@ bool coldLink() {
  // pcie_0_phy_pipe_reset entry: PHY_BCR resets the programmed PCS/SERDES.
  // Complete both resets before loading the vendor PHY sequence.
  reset(0x7c01c);
+ if(!stageOpen(6,"PARF/DBI/PHY/ATU host MMIO windows"))return false;
  if(!parf.open(0x1c00000,0x3000))return false;
  hostMmioReady=true;
  parf.w(0x1b0,parf.r(0x1b0)&~(1u<<8));
@@ -267,6 +293,7 @@ bool coldLink() {
  parf.w(0x2b0,0);parf.w(0x20,parf.r(0x20)&~(1u<<5));
  parf.w(0x1a8,parf.r(0x1a8)|(1u<<31));
  // Entire vendor PHY table from Pong DT, including power/reset/start entries.
+ if(!stageOpen(7,"82-entry vendor QMP PHY table"))return false;
  for(const auto &e:kPongWifiPhy){
   if(e.off==0x200&&!(e.value&1))gcc.w(0x7b060,gcc.r(0x7b060)&~3u);
   phy.w(e.off,e.value);if(e.delay)IODelay(e.delay);
@@ -329,6 +356,7 @@ bool coldLink() {
    enableWlan();
    IOLog("PongWifi: retry uses Pong pci-msm full PHY reset/table/PIPE sequence\n");
   }
+  if(!stageOpen(8,"PERST release and LTSSM link training"))return false;
   IOSleep(kPongPcieEpLatencyMs);
   // PCIe CEM requires at least 100ms stable power/refclk before PERST#.
   IOSleep(100);pin(94,1u|1u<<9,1);IODelay(kPongPciePerstDelayUs);
@@ -619,14 +647,25 @@ void irq(void *) {
 }
 void worker(void *,wait_result_t) {
  uint32_t diagnostic=0;progressDiagnostic=PE_parse_boot_argn("pong_wifi_diag",&diagnostic,sizeof diagnostic)&&diagnostic==1;
+ // P-49: a register access to a block whose clock or power domain is not up
+ // hangs the interconnect, and the phone dies before k60_usblog_start() has
+ // printed anything, so the failure leaves no console at all. Nothing in this
+ // worker may touch MMIO until the USB console is actually running; otherwise a
+ // WiFi fault is indistinguishable from a boot that never reached the kernel.
+ unsigned n=0,c=0;for(;c<240&&!k60_usblog_console_up();c++)IOSleep(500);
+ if(c==240){fail("console never came up; WiFi skipped before any MMIO");goto done;}
+ IOLog("PongWifi: console up after %u ms; starting cold link\n",c*500);
  // UFS owns another SID on the same APPSSMMU: serialize initial bank lease.
- unsigned n=0;for(;n<180&&!pong_ufs_ready();n++)IOSleep(500);
+ for(;n<180&&!pong_ufs_ready();n++)IOSleep(500);
  if(n==180){fail("UFS prerequisites absent; WiFi skipped");goto done;}
  IOSleep(2000);
- if(!coldLink()||!isolation())goto done;
+ if(!coldLink())goto done;
+ if(!stageOpen(9,"APPSSMMU SID 1c01 exclusive 4K context"))goto done;
+ if(!isolation())goto done;
  // nw_abi.h requires events before start/step. Early station completion
  // must not be lost while the board is still waiting for its hardware MAC.
  if(!pong_wifi_net_prepare()){fail("network event setup failed");goto done;}
+ if(!stageOpen(10,"PARF MSI0 to GIC SPI140 attach"))goto done;
  dbi.w(MsiEnable,0);dbi.w(MsiMask,~0u);dbi.w(MsiStatus,~0u);
  dbi.w(MsiAddressLo,unsigned(Iova+0x40));dbi.w(MsiAddressHi,unsigned((Iova+0x40)>>32));
  parf.w(0x22c,0);parf.w(0x228,ParfMsi0);

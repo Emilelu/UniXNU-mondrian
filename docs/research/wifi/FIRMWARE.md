@@ -158,3 +158,60 @@ Windows 侧 adb 必须用 Windows 路径（WSL 的 `/mnt/e` 路径会报
 sha256sum /mnt/e/k60-work/firmware/qca6490-wifi/*
 # 对照 §1 表格四行
 ```
+
+---
+
+## 8. 板级数据（BDF）缺口 —— 通往"扫到 AP"的最后一块固件
+
+PWF2 包现在只有四个文件（amss / amss20 / m3 / regdb）。**ath11k 还需要一份
+board data（`bdwlan*`）才能过 WMI 初始化**，而它不在包里。
+
+请求路径（逐行核对过）：
+
+- `scripts/build-k60-ath11k.py:97-113` 把 `core.c` 里
+  `bd->fw = ath11k_core_firmware_request(ab, name);` 前面插了一段：
+  当 `name` 是 `ATH11K_DEFAULT_BOARD_FILE`（`board-2.bin`，这台机器的
+  firmware 分区里没有这种容器）时，就按**真实的 QMI board/chip id** 拼名字：
+  `chip_id & 0x10` 决定前缀 `bdwlang`/`bdwlan`，`board_id == 0xff` → `%s.elf`、
+  `< 0xff` → `%s.e%02x`、否则 `%s%02x.e%02x`，并在请求**之前**打一行
+  `ath11k_info(ab, "Pong: actual QMI board firmware %s\n", name)`。
+- `drivers/PongWifi/PongWifiPlatform.cpp:538-546` 的 `fwGet()` 按**文件名**在
+  PWF2 里查找（`name` 取路径最后一段；`amss.bin` 在 TCSR HW major == 2 时换成
+  `amss20.bin`）。文件不在包里就返回 `-1`，ath11k 的 board data 加载失败。
+
+因此：
+
+1. `stage=8` 那次上机**一定会打印我们需要哪一个 BDF**（`Pong: actual QMI board
+   firmware bdwlan.eXX`），紧接着才会因为包里没有它而失败。这行日志就是选择依据，
+   不需要猜（proprietary-files.txt 明确禁止乱挑 bdwlan）。
+2. 拿到名字后回 Android 用 adb pull 那一个文件（或整套 `bdwlan.*`/`bdwlang.*`），
+   放进 `/mnt/e/k60-work/firmware/qca6490-wifi/`，重编 archive + 内核。注意
+   `build-k60-wifi-native.py` 会把目录里**所有**文件打进 PWF2，所以目录要保持
+   "只放需要的"。
+3. 本机已有两个可直接用的候选（真机 pull，未打包）：
+   `bdwlan.elf` 59,932 B `2ddf43c01f2ef490cd5128c56e6ef0f8704dbc675a351ea37d8ae6eb93404231`、
+   `bdwlang.elf` 59,936 B `895d5028b5a40f9e0ca84c0f3ac9619d5f99f97d0f36031310f2638f4c7e002b`，
+   位于 `/mnt/e/k60-work/firmware/qca6490/`。它们覆盖 `board_id == 0xff` 的情况；
+   设备上还有 `bdwlan.e01..ee1` 约 160 个分片（未 pull）。
+4. stages 1–8 的 host 侧流程都不需要 BDF，BDF 只在最后一级 `ath11k start`
+   之后才被请求，届时按上面第 1 步读日志再补（六文件包见 §9）。
+
+## 9. 六文件包（含板级数据）已预构建
+
+上面的第 3 步已经做了：`/mnt/e/k60-work/firmware/qca6490-wifi-bdf/` 里放了
+六个文件（四个原样 + `bdwlan.elf` + `bdwlang.elf`），用它编出的 archive 是
+`/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a`（12,066,184 B，
+`build-report.json` 记 `firmware_files=6, firmware_bytes=11,189,974`）。
+配方：`E:\k60-work\evidence\wifi-trial\build-bdf-archive.sh`（archive）、
+`build-bdf-kernel.sh`（内核）。
+
+这两份 BDF 覆盖 `board_id == 0xff` 的情形。若上机日志里的
+`Pong: actual QMI board firmware` 打出的是 `bdwlan.eXX` / `bdwlang.eXX`
+而不是 `.elf`，说明真机 board id 不是 0xff，需要回 Android
+`adb pull /vendor/firmware_mnt/image/qca6490/<那个文件>` 再重编——
+依然不需要猜，名字由日志给出。
+
+注意：加上 BDF 后 PWF2 从 11,067,094 B 变成 11,189,974 B，内核
+`__TEXT` 段相应变长（见 `LOCAL-VERIFICATION.md` 的段表），但离 DarwinBoot 的
+254 MiB 上限仍然极远。
+

@@ -508,3 +508,10 @@ kind = "hard"
 statement = "A file committed as LF must not be re-committed as CRLF; the diff must show the real change, not every line."
 check = "python3 scripts/check-line-endings.py"
 note = "2026-11-14: an edit from Windows turned a 37-line change in AGENTS.md into 366 insertions and 366 deletions."
+
+[[rule]]
+id = "P-188"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-188"
+statement = "A file that a builder rewrites is not an input: compare the volatile fields, do not copy the old product back."
+check = "python3 scripts/sync-device-input.py --check"

@@ -4437,3 +4437,24 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 
 **教训**：写文件时用 `write` 工具（写 UTF-8 LF），不要用 PowerShell 重定向；
 提交前看 `git diff --stat` 的增删行数是否和改动规模相符 —— 不相符就是换行符或编码翻转。
+
+## P-188 — a file that is both an input and a build product
+
+`mac-build/native-ufs/bindings.json` is read by five builders
+(`build-pong-ram-block-macos.py:60`, `build-pong-prelinked-boot.py:72`,
+`build-pong-adreno-platform.py:96`, `build-pong-adreno-platform-linux.py:122`,
+`build-ios16-corecrypto-candidate.py:155`), but
+`scripts/bind-ios16-storage.py:71` rewrites its `compiled_object_sha256` with
+the hash of the object it just compiled. The repository holds
+`398c213998ae87b5...`; after one build the build input holds
+`ffd03ef6d43a502e...`.
+
+`scripts/sync-device-input.py` compared mac-build files byte for byte, so
+every build made iron-5 fail, and the only way to make it pass was to copy
+the old product back over the repository — which is how a stale artefact
+turns into a fake input.
+
+Fixed by `same_file()`: for the paths listed in `VOLATILE_JSON_FIELDS` the
+comparison drops the volatile keys and compares the parsed JSON instead.
+Add a path there whenever a new "input" turns out to carry a build-time hash;
+do not add a whole file to `MAC_BUILD_PRODUCTS` unless nothing reads it.

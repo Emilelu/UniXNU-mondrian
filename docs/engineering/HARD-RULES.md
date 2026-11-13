@@ -1120,15 +1120,15 @@ grep -nE '\b[0-9a-f]{7,40}\b' docs/plans/*.md | grep -v 'revision\|cherry picked
 ---
 
 # 第二章 规则正文（按编号）
-## 铁则 1（HR-01）：**访问 RSC/RPMh 前必须确认 `ml_io_map` 成功 —— 原「RSC 禁止访问」是误诊**
+## 铁则 1（HR-01）：**RSC/RPMh 访问需按设备证据与授权评估；当前触摸任务仍禁止新增访问**
 
-> **2026-11-09 22:40 重大更正**：实测证明 RSC（`0x17a00000`）**完全可以安全读写**。
+> **证据修订**：旧文把一次映射日志和 `rails on` 文本扩张成“RSC 完全可以安全读写”。该启动日志只能证明软件打印了非零映射地址和供电成功文本，且之后继续输出启动日志；其后 BRL dev-confirm 三次读零。旧镜像/源码配对与 RPMh ACK 证据未恢复，因此不证明写事务成功、安全性、PMIC 状态或触摸端电压。此处历史日志不是访问授权；当前触摸任务继续遵守 `docs/ops/HARD-RULES.md` 的 RSC 禁止门禁，任何例外需 Lead 明确裁定。
 
-### 原错误结论（已作废）
-> "RSC（`0x17a00000`/`0x17a20000`）首读整机死，禁止访问"
+### 现行访问门禁（本条不撤销）
+`docs/ops/HARD-RULES.md` 的 RSC 禁止访问规则仍然有效。本节的后续日志只记录软件在某次旧启动中打印了非零映射地址；它没有验证映射后的访问安全性，也不授权读写。更早的 data-abort 记录和这次日志缺少可核验的同一源码/镜像配对，冲突待 Lead 在单独授权审查中解决。
 
-### 真相
-驱动代码里：
+### 旧源码推断（来源未与 2026-11-09 启动绑定）
+旧源码审查认为某工作树的 `rsc` 未映射、空指针写会触发 data abort；该推断不能直接解释 22:40 启动，因该次 capture 指向的镜像当前已被覆盖，且没有对应 manifest/源码修订。保留旧代码片段仅作历史说明：
 ```c
 static vm_offset_t tlmm, gcc, se, rsc, cmd_db;
 ...
@@ -1139,36 +1139,32 @@ cmd_db = ml_io_map_wcomb(CMD_DB_PHYS, CMD_DB_SIZE);
 // ❌ 没有 rsc = ml_io_map(RSC_PHYS, RSC_SIZE);
 ```
 
-**`rsc` 全局变量永远是 0**，于是：
+**在上述未绑定启动的旧源码快照中，`rsc` 被推断未初始化**，于是该快照的写路径可能：
 ```c
 #define TCS(reg)  (rsc + 0xd00 + (reg))
-wr(TCS(TCS_CONTROL), ...);   // 写物理地址 0xd00 -> data abort
+wr(TCS(TCS_CONTROL), ...);   // 若该快照的 rsc=0，则写入低地址；实际异常未与此源码/镜像配对
 ```
 
-**这不是「RSC 危险」，这是「空指针解引用」。**
+这只是对某个未绑定源码快照的假设性故障解释；它不推翻现行 RSC 访问禁令，也不证明任意 RSC MMIO 安全。
 
-### 实测证据（2026-11-09 22:40，内核 `d2eda50a`，镜像 `9d03cc26`）
+### 历史日志（2026-11-09 22:40；capture 声明镜像 SHA `9D03CC266D3CE625577B7BE4EB7768139E22B492F3557818C7C042C0F4981A11`；源码未核实）
 ```
-Pong touch: stage10 rsc=0xfffffff188f59000 cmd_db=0xfffffff188f69000   ← 映射成功
-goodix: rails on (ldoc2=0x42c00, AVDD gpio71=1)                        ← RPMh 写成功
-系统正常到用户态，131,988 B 日志，无挂死
+Pong touch: stage10 rsc=0xfffffff188f59000 cmd_db=0xfffffff188f69000   ← 该次日志报告非零映射地址，不等于访问许可/安全证明
+goodix: rails on (ldoc2=0x42c00, AVDD gpio71=1)                        ← 软件日志声明；不是 ACK/电压读回证据
+同一日志随后三次 `dev_confirm` 均读回 `00 00 00 00` 并失败；能继续启动不证明 RPMh 写成功或芯片端供电。capture 标记 budget 截断，未到完整采集。
 ```
 
-### 新铁则
-1. **访问任何 MMIO 前必须先检查 `ml_io_map()` 返回值非 0**；
-   返回 0 → 立刻打印并 `return`，**绝不能继续用该指针**。
-2. **RSC/RPMh 是合法可用的**。RSC 基址：
+### 门禁与待核验资料
+1. 映射非零只证明映射函数返回非零地址，不证明随后 MMIO 读取/写入安全；本条不是访问许可。
+2. 以下设备树 RSC 拓扑仅供 Lead 在已授权的独立审查中核实，不授权本任务映射或访问：
    - `rsc@17a00000`，`reg = <0x17a00000 0x10000 0x17a10000 0x10000 0x17a20000 0x10000 0x17a30000 0x10000>`
    - `reg-names = "drv-0","drv-1","drv-2","drv-3"`
    - **`qcom,drv-id = <0x02>` → APPS 用 DRV 2 = `0x17a20000`**
    - `qcom,tcs-offset = <0xd00>`
-3. 写 RPMh 前确认 `TCS_STATUS` 空闲，按 `rpmh_write()` 的完整序列
-   （清 trigger/enable → 写 MSGID/ADDR/DATA → WAIT_FOR_COMPLETION → CMD_ENABLE → trigger → 轮询 IRQ_STATUS → 清理）。
+3. 历史源码中的事务流程片段不能作为当前可执行流程；不得在本任务中访问 RSC/RPMh。需要恢复此能力时，先由 Lead 核实实际 SoC 文档、映像源码与 host/runtime 测试覆盖并明确批准。
 
-### 教训
-**「某地址不能访问」的结论，必须先排除「映射失败返回 0」这一层。**
-一个未初始化的指针会让任何地址看起来都"致命"。这与 HR-14（存在≠完成）同源：
-**把「表观现象」当成「根因」。**
+### 证据边界
+映射返回值可以帮助解释旧日志，但非零指针不证明映射后的 MMIO 允许或安全。遵守 `docs/ops/HARD-RULES.md` 的访问门禁；没有 Lead 明确授权和新安全审查，不新增 RSC 映射或访问。历史日志的表观成功不能代替源码、协议、ACK 与实测证据。
 
 ## 铁则 2（HR-02）：**GENI 控制器（SPI/I2C）访问前必须完成完整前置序列**
 

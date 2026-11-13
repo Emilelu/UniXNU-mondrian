@@ -4205,3 +4205,13 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 
 规则：`PACKAGES_PATH` 有同名 package 时，先出现的赢，而且不会有任何警告；
 凡是本仓库 vendored 的平台包，必须排在 `{tree}/package` 之前。
+
+### P-176 追加：FD 修好之后的 panic 不是 FD
+
+同一内核（keep 的 ）、同一组参数，分别用旧 FD 和新 FD 打包启动，
+控制台统计完全一致：、、
+，panic 都是
+。
+今天所有镜像（含 keep 内核对、无 Data seed 的）都是 SB=7 同一个 panic，
+而 11-11 的 keep 镜像 SB=129 —— 说明剩下的阻塞在 payload 的 ADT/DTB 或用户态，
+与固件卷无关。判定 FD 是否修好，只看“内核有没有被加载”，不要拿 SB 数量当 FD 的指标。

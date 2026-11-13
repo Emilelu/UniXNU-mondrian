@@ -100,7 +100,7 @@ Four checks run automatically before build or flash; any failure aborts:
 |---|---|---|
 | Framework | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU) (official upstream [UniXNU/UniXNU](https://github.com/UniXNU/UniXNU)) | `unixnu` command, shared scripts, component catalog |
 | SoC | [Emilelu/UniXNU-sm8475-common](https://github.com/Emilelu/UniXNU-sm8475-common) | `soc.toml`, `configs/sm8475.config`, `dts/sm8475.dtsi` |
-| Device | This repository | `board.toml`, `dts/mondrian.dts`, `patches/xnu/` |
+| Device | [Emilelu/UniXNU-mondrian](https://github.com/Emilelu/UniXNU-mondrian) (this repository) | `board.toml`, `dts/mondrian.dts`, `patches/xnu/` |
 | Firmware | [uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium build tree |
 
 ## Branches

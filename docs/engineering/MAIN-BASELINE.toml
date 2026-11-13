@@ -26,7 +26,6 @@ note = "最后一次确认能进 SpringBoard 的构建：2026-11-11 23:32 的 ke
 
 [[entry]]
 sha = "683e746"
-tag = "boot-proven-20261113"
 kernel_sha256 = "unknown-see-console"
 image = "E:/k60-work/usb-a-stage/out/boot-curfix.img"
 image_sha256 = "074b8b502ccbe5e936d623ee7cedfb210b6d8a2b688a2d0ae62dc8e385d182c9"
@@ -41,7 +40,7 @@ note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181�
 
 [[entry]]
 sha = "532a3d3"
-tag = "none"
+tag = "boot-proven-20261113"
 kernel_sha256 = "6eca5da0fefedd5a5223fdef0fb624a6b4a5ab39292cd242492f9abeab391f14"
 image = "E:/k60-work/usb-a-stage/out/boot-fixinit2.img"
 image_sha256 = "2926b334bf1f2f982d512b86e831870c84eb7eb24daac34e1d65a1343a09921d"

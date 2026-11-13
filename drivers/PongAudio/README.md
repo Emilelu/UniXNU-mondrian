@@ -25,7 +25,7 @@ question in `docs/research/audio/AMPS.md`.
 | `PongAudioRegs.h` | Every K60 AP-side constant the probe uses, each tagged with its provenance: **L** live FDT (`E:/k60-work/scratch/audio-work/live-fdt.dts`), **G** `gcc-sm8450.c`, **S** the Pong reference tree, **M** mainline `geni-se.h`/`i2c-qcom-geni.c`, **H** `hakios.speaker.c`. No address appears without a tag. |
 | `PongAudioGeniI2c.h` / `.c` | The GENI I2C transport from `references/pong-power/GeniI2c.c`, logic kept verbatim, symbols renamed to `pong_geni_*` so it cannot collide with the Pong copy. One transfer at a time; the caller feeds `M_IRQ` status in until done. |
 | `PongAudioAmp.c` | The probe. Boot-arg gated, read-only against the amplifiers, prints evidence with the `PongAudio: amp ...` prefix. |
-| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine and the register map (99 assertions). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
+| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine and the register map (109 assertions). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
 | `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
 
 ## What it does, in order
@@ -92,13 +92,13 @@ and checks the exact command words the engine would see:
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 99 cases
+# TESTS OK 109 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 99 cases buy, given that nothing can be measured on hardware yet:
+What the 109 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase
@@ -108,6 +108,9 @@ What the 99 cases buy, given that nothing can be measured on hardware yet:
   against `PongAudioAmp.c`'s assembly, so `0x1321` proves out as `0x2113`;
 - every failure path has a named outcome (`ErrBus`, `ErrState`, `ErrTimeout`,
   `ErrNoData`) and the timeout ladder is cancel-then-abort, not spin;
+- one dead amplifier cannot be blamed on the other: a start while the machine is
+  stuck in `Cancelling` is refused, and the two-to-three step ladder back to Idle
+  (what `bus_recover()` does before every read) is asserted from both phases;
 - the register map — `0x0f100000` TLMM base, GPIO 88 at `0x0f158000`, three
   one-page GCC windows covering `0x2e014`/`0x33280`/`0x3328c`/`0x62010`, the
   `0xc86a` fault mask — is asserted arithmetically rather than trusted.

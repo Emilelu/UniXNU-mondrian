@@ -46,9 +46,11 @@ chain pre-image. `.../tree/.cache/xnu-work` (the build cache of
 `/tmp/usb-cdc-mainline/out3/...`) holds a `bsd/conf/files` that already has the
 `k60_usblog` / `k60_uilib` / `k60_console_export` trio, which is exactly what
 0501 anchors on. In a scratch copy of that state, 0501 → 0505 → this patch
-applies in order with **rc=0 and no fuzz** — offsets only (+6 for
-`bsd/conf/files`, +15 for `bsd/kern/bsd_init.c`) — and the four new files come
-out byte-identical to `drivers/PongAudio/`. Transcript below.
+applies in order with **rc=0 and no rejects**. 0505 itself lands with
+`fuzz 1 (offset -19 lines)` — that fuzz belongs to 0505's own anchor, not to
+this patch; **this patch applies with no fuzz**, offsets only (+6 for
+`bsd/conf/files`, +15 for `bsd/kern/bsd_init.c`). The four new files come out
+byte-identical to `drivers/PongAudio/`. Transcript below.
 
 Verification performed (transcript in `E:/k60-work/evidence/`, reproducible with
 `make-audio-patch.sh`):
@@ -74,6 +76,9 @@ Real chain apply (`patch -p1 --forward`, `set -o pipefail`, no rejects, rc=0):
 bsd/dev/k60_usblog.c				standard
 bsd/dev/k60_uilib.c		standard
 bsd/dev/k60_console_export.c	standard
+
+### 0505's own hunk head (pre-existing fuzz, not ours)
+bsd/kern/bsd_init.c: Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines).
 
 ### after 0501 + 0505 (conf/files)
 111:bsd/dev/qbt_k60.c			standard

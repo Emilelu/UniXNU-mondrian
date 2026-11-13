@@ -147,21 +147,36 @@ VA macro `MCLK_CONTROL 0x000`、`FS_CNT_CONTROL 0x004`、`TOP_CFG0 0x080`。
 
 - `IO_MAP_SIZE = 8 MiB`（`/opt/k60/trees/lead-device/osfmk/arm/io_map.c:66`），`kmem_suballoc` 在 :76，
   `ml_io_map` 走 :128，空间不足直接 panic（`KERN_NO_SPACE`）。
-- 已占用：usblog ≈ 2 MiB、touch ≈ 0.7 MiB。
-- 音频侧建议预算（**按页映射，不整块**）：
+- **`io_map()` 自己处理未对齐地址，但按整页记账**（`io_map.c:95-99`、`:141` 逐字）：
+  `start_offset = phys_addr - trunc_page(phys_addr)`、`alloc_size = round_page(size + start_offset)`，
+  函数末尾 `return start + start_offset;`。所以「请求 0x1000」实际从 8 MiB 里拿走**一整页**（arm64 页 = 16 KiB），
+  返回的指针已含页内偏移。按 4 KiB 记账会把预算低估 4 倍——这是本表此前的错误，已改。
+- 已占用：usblog ≈ 2 MiB、touch ≈ 0.7 MiB（同一套记账规则）。
 
-| 窗口 | 大小 | 说明 |
+已落地的功放探针（`drivers/PongAudio/PongAudioAmp.c`，代码里的实际映射）：
+
+| 窗口 | 请求 | 实占（16 KiB 页） |
 |---|---|---|
-| va_macro | 0x1000 | 1 页 |
-| tx_macro | 0x1000 | 1 页 |
-| va_swr_master | 0x2000 | 2 页（Pong 用 0x10000，浪费 56 KiB，不建议） |
-| lpi_pinctrl | 0x17000 | 5 页（LPI GPIO0/1/2/14 各一页 + slew 一页，可缩到 5 页） |
-| slew | 0x1000 | 1 页 |
-| GCC | 0x4000 | 只映射用到的 vote/RCG 页 |
-| TLMM | 每 GPIO 1 页 | GPIO43/1/3/52/56/57 = 6 页 |
-| GENI SE15 | 0x4000 | 1 页（I2C 功放） |
+| TLMM 8 个 pad（GPIO 1/3/43/52/56/57/63/88） | 8 × 0x1000 | 128 KiB |
+| GCC 三窗口（0x2e000 / 0x33000 / 0x62000） | 3 × 0x1000 | 48 KiB |
+| GENI SE15（0x880000） | 0x4000 | 16 KiB |
+| 合计 | | **192 KiB = 0x30000** |
 
-合计 ≈ 0x2A000 ≈ 168 KiB，**在 8 MiB 内安全**（对比 0504 骨架曾经要 2 MiB 的 SMEM 窗口而把总占用顶爆）。
+可省未省：GPIO 0–3 落在同一个 16 KiB 页里，1/3 各映一次等于重复占用；改成按页去重可省 32 KiB，
+但那是优化，不属于只读探针的目标。
+
+未来 codec 侧（等 PRM/ADSP 解除阻塞后才映射）：
+
+| 窗口 | 物理基址 | 请求 | 实占 |
+|---|---|---|---|
+| va_macro | 0x033f0000 | 0x1000 | 16 KiB |
+| tx_macro | 0x03220000 | 0x1000 | 16 KiB |
+| va_swr_master | 0x033b0000 | 0x2000 | 16 KiB（Pong 用 0x10000，浪费 48 KiB，不建议） |
+| lpi_pinctrl | 0x03440000 | 0x17000 | 96 KiB（0x17000 向上取整到页） |
+| slew | 0x034da000 | 0x1000 | 16 KiB |
+| 合计 | | | **160 KiB = 0x28000** |
+
+两段合计 **352 KiB**，在 8 MiB 内仍有充裕余量（对比 0504 骨架曾要 2 MiB 的 SMEM 窗口把总占用顶爆）。
 
 ## 8. 待实测清单（⑧ 上机时要回答的问题）
 

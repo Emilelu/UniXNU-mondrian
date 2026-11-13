@@ -28,15 +28,16 @@ import subprocess
 import sys
 import time
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
-WORK = '/mnt/e/k60-work'
-SERIES = WORK + '/scratch/SERIES-FINAL.txt'
+# 门禁评判的必须是正在构建的那棵树：仓库路径自相对解析，构建输入/输出与
+# series 副本都跟随 build-strict.sh 导出的同一组环境变量（默认值与历史行为一致）。
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WORK = os.environ.get('K60_WORK', '/mnt/e/k60-work')
+SERIES = os.environ.get('K60_SERIES_FINAL', WORK + '/scratch/SERIES-FINAL.txt')
 PACK = WORK + '/scratch/packv15.sh'
-XNU_WORK = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-            'ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work')
-KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-          'ipados-16.6.1-20G81/mondrian/kernel/kernel.macho')
-DEV = '/tmp/usb-cdc-mainline/device/patches/xnu'
+BUILD_OUT = os.environ.get('K60_OUT', '/opt/k60/trees/k60build/out-baseline')
+XNU_WORK = BUILD_OUT + '/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work'
+KERNEL = BUILD_OUT + '/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho'
+DEV = os.environ.get('K60_DEVICE_INPUT', '/opt/k60/trees/usb-cdc-mainline/device') + '/patches/xnu'
 LEDGER = WORK + '/ledger.jsonl'
 
 QUICK = '--quick' in sys.argv

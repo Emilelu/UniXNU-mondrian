@@ -25,7 +25,7 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches/xnu/series"
-INPUT = pathlib.Path("/tmp/usb-cdc-mainline/device/patches/xnu/series")
+INPUT = pathlib.Path(os.environ.get("K60_DEVICE_INPUT", "/opt/k60/trees/usb-cdc-mainline/device")) / "patches/xnu/series"
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
 ARTIFACTS = pathlib.Path(os.environ.get("K60_ARTIFACTS", "/mnt/e/k60-work/artifacts"))
 DEFAULT_LOGS = [

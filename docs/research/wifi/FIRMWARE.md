@@ -1,52 +1,160 @@
 # qca6490 WiFi 固件清单
 
-> 从设备 `/vendor/firmware_mnt/image/qca6490/` 只读提取，2026-11-12
-> 设备：Redmi K60（23013RK75C）/ mondrian / SM8475
-> 提取方式：`adb pull`，未修改设备
+> 来源：设备 `/vendor/firmware_mnt/image/qca6490/` 只读 `adb pull`，2026-11-14
+> 设备：Redmi K60（23013RK75C）/ mondrian / SM8475 / 序列号 6033dbec
+> 提取方式：设备启动到 Android 后 `adb pull`，未挂载、未写入任何分区
 
 ---
 
-## 文件
+## 1. PWF2 打包实际需要的 4 个文件
+
+`scripts/build-k60-wifi-native.py` 的 `--firmware` 硬校验要求这 4 个文件同时存在，
+缺一即 `raise 'Actual Pong modem firmware required'`：
 
 | 文件 | 大小 | sha256 |
 |---|---|---|
-| `amss.bin` | 5470128 | `a626cfc1882b3e386154fac655652005e8f20ff0176b4c63de99cd082d5d75c2` |
-| `amss20.bin` | 5296128 | `903c378a972b4294fef5c926e34c2cfb03eb042f6a1e38101f0073b33792df86` |
-| `Data.msc` | 889524 | `31d5fee12d94bf86841c4c06d3460959373f3468ea4ca0f13d7da67de739a0cc` |
-| `Data20.msc` | 916071 | `3c87a16e6c6814b5356ead716b87af5c14c32efba113fe51b2600e44ad126c41` |
+| `amss.bin` | 5,470,128 | `a626cfc1882b3e386154fac655652005e8f20ff0176b4c63de99cd082d5d75c2` |
+| `amss20.bin` | 5,296,128 | `903c378a972b4294fef5c926e34c2cfb03eb042f6a1e38101f0073b33792df86` |
+| `m3.bin` | 266,684 | `ad234ac8879e29a113893b87dc90335cff8eb89717580d5a06a49e7b9e322ed7` |
+| `regdb.bin` | 24,278 | `06810e85c94c8f412c4e72cb38546cac90db7fdbadd45aae00f977f862d38a7b` |
 
-**合计 12,571,851 B**
+**合计 11,067,094 B** —— 与 `build-report.json` 里 `firmware_bytes=11067094` 逐字节吻合。
 
-本地存放位置（不在仓库里，因为文件太大）：`<workspace>/firmware/qca6490/`
+本地存放（不进仓库，体积太大）：
 
----
+- 干净四文件目录（**打包必须用这个**）：`E:\k60-work\firmware\qca6490-wifi\`
+- 完整原始提取目录（222 个文件）：`E:\k60-work\firmware\qca6490\`
 
-## 用途
-
-| 文件 | 用途 |
-|---|---|
-| `amss.bin` | ath11k 主固件（`fw_get("amss.bin")`）|
-| `amss20.bin` | 备用/第二版固件 |
-| `Data.msc` | 校准/board data |
-| `Data20.msc` | 备用 board data |
-
-PWF2 打包格式（magic `0x32465750`）由 `PongWifiFirmware.cpp` 解析。
-`build-k60-wifi` 会把它们打成 `PongWifiFirmware.bin`。
+**为什么要单独建干净目录**：`build-k60-wifi-native.py` 会把 `--firmware` 目录下
+**所有**文件都打进 PWF2 包。直接指向原始目录会得到 13,029,078 B / 10 个文件的包，
+把无关的 `Data.msc`、`bd_*.elf` 全塞进内核镜像。
 
 ---
 
-## 还缺什么
+## 2. PWF2 包结构（实测，可作 ⑦ 产物检查判据）
 
-`bd_*.elf` 共 42 个（蓝牙固件，每个约 60 KB）没有提取 —— 那是蓝牙移植用的，
-WiFi 不需要。需要时再取。
+生成物 `PongWifiFirmware.bin` 11,067,094 B，头部布局：
 
----
+```
+offset 0   : magic "PWF2"          (4 B)
+offset 4   : count = 4             (u32 LE)
+offset 8   : 4 × 40 B 条目         (name[32] / offset u32 / size u32)
+offset 4096: 第一个 payload（4 KiB 对齐起点）
+```
 
-## 验证方式
+头长度 = `(8 + 4*40 + 4095) & ~4095` = **4096**。实测条目：
+
+| name | offset | size |
+|---|---|---|
+| `amss.bin` | 4096 | 5,470,128 |
+| `amss20.bin` | 5,476,352 | 5,296,128 |
+| `m3.bin` | 10,772,480 | 266,684 |
+| `regdb.bin` | 11,042,816 | 24,278 |
+
+校验方式：
 
 ```bash
-sha256sum <workspace>/firmware/qca6490/*
+python3 - <<'PY'
+import struct
+b = open('/opt/k60/trees/k60build/wifi/native-real/PongWifiFirmware.bin','rb').read()
+assert b[:4] == b'PWF2', b[:4]
+n, = struct.unpack_from('<I', b, 4)
+for i in range(n):
+    name, off, size = struct.unpack_from('<32sII', b, 8 + i*40)
+    print(name.rstrip(b'\0').decode(), off, size, b[off:off+4].hex())
+PY
 ```
-对照上表。
 
-设备上原始位置的权限是 `-r--r----- system system`，普通 adb 可读。
+内核侧消费者：`PongWifiPlatform.cpp` `loadFirmware()` —— 校验 magic `PWF2`，
+按 40 字节条目查名字，`memcpy` off/len。符号 `_pong_wifi_firmware` /
+`_pong_wifi_firmware_end` 由 `PongWifiFirmware.s` 的
+`.section __TEXT,__const` + `.incbin` 提供。
+
+---
+
+## 3. 每个文件在 ath11k 里的角色
+
+K60 的 PCI 端点 `0x1103` 在 Linux `ath11k/pci.c` 里就是 **WCN6855**：
+
+```
+drivers/net/wireless/ath/ath11k/pci.c:32   #define WCN6855_DEVICE_ID 0x1103
+drivers/net/wireless/ath/ath11k/pci.c:1024 case WCN6855_DEVICE_ID:
+drivers/net/wireless/ath/ath11k/pci.c:1321 MODULE_FIRMWARE(ATH11K_FW_DIR "/WCN6855/hw2.0/*")
+```
+
+所以走 **hw2.0 固件集**：
+
+| 文件 | 角色 |
+|---|---|
+| `amss.bin` | MHI 主固件（QMI `fw_get`），ath11k 把它经 MHI 下载进 QCA6490 |
+| `amss20.bin` | 第二版 AMSS，`ath11k_core_firmware_request` 按 board/chip id 选择 |
+| `m3.bin` | M3 协处理器固件，MHI 启动序列里第一个被加载的镜像 |
+| `regdb.bin` | 监管域数据库（regulatory.db 的 QCA 变体），决定可用信道/功率 |
+
+**board data 不在这 4 个里**：ath11k WCN6855 的 board data 是 `bdwlan.*`
+（BDF）。设备上有 `bdwlan.elf` 59,932 B（sha256
+`2ddf43c01f2ef490cd5128c56e6ef0f8704dbc675a351ea37d8ae6eb93404231`）与
+`bdwlang.elf` 59,936 B（sha256
+`895d5028b5a40f9e0ca84c0f3ac9619d5f99f97d0f36031310f2638f4c7e002b`），
+另有 `bdwlan.e01`..`ee1` 约 160 个变体。
+
+Pong 路线**不从这 4 个文件取 BDF**：`build-k60-ath11k.py` 在 `core.c` 里按
+QMI 返回的 board_id/chip_id 现场拼文件名（`id==0xff` → `"%s.elf"`；
+`id<0xff` → `"%s.e%02x"`；否则 `"%s%02x.e%02x"`），文件名再由
+`PongAth11k.c` 的固件查找钩子解析。**不允许随便挑一个 bdwlan 文件冒充 BDF**
+（见 `drivers/PongWifi/proprietary-files.txt` 注释：No fabricated MAC/calibration）。
+
+---
+
+## 4. 原始提取目录里的其它文件（不进 PWF2）
+
+| 文件 | 大小 | 用途 |
+|---|---|---|
+| `Data.msc` | 889,524 | **modem 数据，不是 WiFi 校准**（旧版本本文档写错） |
+| `Data20.msc` | 916,071 | 同上，第二版 |
+| `regdb_xiaomi.bin` | 24,278 | 小米改版 regdb（sha256 `b7647cde6c6b157c11d2ed54f4da74abce653a3d70456e52665292369e560588`）|
+| `bdwlan.elf` / `bdwlang.elf` | 59,932 / 59,936 | BDF，见上 |
+| `bdwlan.e01`..`ee1` | ~160 个 | BDF 变体 |
+| `bd_*.elf` | 42 个，各约 60 KB | 蓝牙固件，WiFi 不需要 |
+
+设备上原始权限 `-r--r----- system system`，普通 adb 可读。
+
+---
+
+## 5. 备用固件源（未采用，仅记录）
+
+`https://raw.githubusercontent.com/armbian/firmware/master/ath11k/WCN6855/hw2.0/`
+提供 `amss.bin` 4,988,928 / `board-2.bin` 6,429,240 / `m3.bin` 266,684 /
+`regdb.bin` 24,310 / `Notice.txt` 152,394，均 HTTP 200。
+
+**未采用理由**：`m3.bin` 大小与真机一致（266,684）但 `regdb.bin` 不同
+（24,310 vs 真机 24,278），`amss.bin` 也小 480 KB。真机固件优先——它是这台
+设备 vendor 分区里实际在跑的版本。
+
+---
+
+## 6. 取固件为什么只能走 adb
+
+| 途径 | 结果 |
+|---|---|
+| `adb pull`（Android 在线） | ✅ 成功，222 文件 |
+| `fastboot fetch <part> <out>` | ❌ `Unable to get max-fetch-size. Device does not support fetch command.` |
+| 挂载 modem 分区 | ❌ 违反铁则 4（绝不写设备分区） |
+| stock ROM / vendor.img 解包 | ❌ 本机无任何归档 |
+
+→ 取固件的唯一合法途径是**把设备启动到 Android 再 `adb pull`**，不改分区。
+Windows 侧 adb 必须用 Windows 路径（WSL 的 `/mnt/e` 路径会报
+`cannot create file/directory`）：
+
+```bash
+./adb.exe pull /vendor/firmware_mnt/image/qca6490/m3.bin 'E:\k60-work\firmware\qca6490\m3.bin'
+```
+
+---
+
+## 7. 验证方式
+
+```bash
+sha256sum /mnt/e/k60-work/firmware/qca6490-wifi/*
+# 对照 §1 表格四行
+```

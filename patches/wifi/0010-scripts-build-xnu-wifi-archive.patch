@@ -7,16 +7,21 @@ kernel, so without a force_load the archive is inert: the driver compiles, the
 symbols exist on disk, and the kernel has none of them.
 
 This adds the archive the same way every other probe archive is added - a
-KERNEL_EXTRA_ARCHIVES entry with -Wl,-force_load plus a dependency so make
-rebuilds when the archive changes. The gate is XNU_PONG_WIFI, which defaults to
-0, so a tree that has not built the archive still links.
+force_load entry plus a dependency so make relinks when the archive changes. The
+gate is XNU_PONG_WIFI, which defaults to 0, so a tree that has not built the
+archive still links.
+
+The kernel is linked from one of two mutually exclusive archive sets.
+KERNEL_EXTRA_ARCHIVES belongs to the CONFIG_XNU_SOURCE_CORECRYPTO14 branch; the
+mondrian defconfig leaves that unset (the key is present twice, "y" first and
+"n" last, and the parser keeps the last one), so the kernel actually links
+through PLATFORM_ARCHIVES.  Adding the archive to only one set silently yields a
+kernel without the driver, which is what the first version of this patch did.
+Both branches carry it.
 
 --- a/scripts/build-xnu-4k-baseline.sh
 +++ b/scripts/build-xnu-4k-baseline.sh
-@@ -902,9 +902,15 @@
-   if [ "$CONSTANT_UPLOADS_PROBE" = 1 ]; then
-     CONSTANT_UPLOADS_ARCHIVE=$ROOT/build/constant-uploads-probe/libConstantUploadsProbe.a
-     test -f "$CONSTANT_UPLOADS_ARCHIVE"
+@@ -919,6 +919,12 @@
      KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$CONSTANT_UPLOADS_ARCHIVE"
      KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $CONSTANT_UPLOADS_ARCHIVE"
    fi
@@ -29,3 +34,16 @@ rebuilds when the archive changes. The gate is XNU_PONG_WIFI, which defaults to
    if [ "${XNU_ARMVIRT_PLATFORM:-0}" = 1 ]; then
      ARMVIRT_ARCHIVE=$ROOT/build/armvirt-platform/libArmVirtPlatform.a
      test -f "$ARMVIRT_ARCHIVE"
+@@ -1134,6 +1140,12 @@
+     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
+     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $UFS_ARCHIVE"
+   fi
++  if [ "${XNU_PONG_WIFI:-0}" = 1 ]; then
++    PONG_WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-$ROOT/build/pong-wifi/libPongWifiNative.a}
++    test -f "$PONG_WIFI_ARCHIVE"
++    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$PONG_WIFI_ARCHIVE"
++    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $PONG_WIFI_ARCHIVE"
++  fi
+   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
+     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a
+     RAM_BLOCK_OBJECT=$ROOT/build/native-ram-block/NativeRamBlock.o

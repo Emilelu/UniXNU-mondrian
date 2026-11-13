@@ -552,7 +552,7 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | **UFS PHY 基址 0x1d80000**（不是 SM8450 的 0x1d87000） | `docs/liuqin-hardware.md:23`（另 `board.toml:103`） | `:9577` `/soc/ufsphy_mem@1d80000`、`:9578` `reg=<0x1d80000 0x2000>` |
 | UFS PHY compatible `qcom,ufs-phy-qmp-v4-cape` | `docs/liuqin-hardware.md:23` | `:9587` |
 | UFS PHY 供电 vdda-phy / vdda-pll | — | `:9588` `vdda-phy-supply=<0x232>`、`:9589` `vdda-pll-supply=<0x233>`、`:9590` max 0x30188 µA、`:9591` max 0x5c94 µA |
-| UFS 控制器 0x1d84000（+ ICE 0x1d88000 / HWKM 0x1d90000），4096 B 扇区 | `docs/liuqin-hardware.md:4` | `:9593-9596` `reg=<0x1d84000 0x3000 0x1d88000 0x8000 0x1d90000 0x9000>`、`reg-names=ufs_mem,ufs_ice,ufs_ice_hwkm` |
+| UFS 控制器 0x1d84000（+ ICE 0x1d88000 / HWKM 0x1d90000） | —（liuqin 只核了扇区大小：`docs/liuqin-hardware.md:4`，1TB SK Hynix HN8T35DZHKX079、4096 B 逻辑/物理扇区） | `:9593-9596` `reg=<0x1d84000 0x3000 0x1d88000 0x8000 0x1d90000 0x9000>`、`reg-names=ufs_mem,ufs_ice,ufs_ice_hwkm` |
 | UFS 中断 GIC SPI 0x109（265）level high | — | `:9597` `interrupts=<0 0x109 4>` |
 | UFS 通路亲和 `prime-mask 0x70` / `silver-mask 0xf`、lanes 2 | — | `:9601-9603` |
 | **PMIC 家族 = pm8350 / pm8350b / pm8350c / pm8450 / pmk8350 / pmr735a**（SM8450 waipio 那套，**不是** SM8550 那套） | `docs/liuqin-hardware.md:22` | `:8121` `pmk8350@0`、`:8535` `pm8350@1`、`:8576` `pm8350c@2`、`:8808` `pm8350b@3`、`:8973` `pmr735a@4`、`:8998` `pmr735b@5`、`:9022` `pm8450@7` |

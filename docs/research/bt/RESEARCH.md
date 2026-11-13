@@ -278,9 +278,14 @@ required = [
 ```
 3. **EIGHT-STEPS.toml 增 `[hardware.bluetooth]`**（现有只有 touch/gpu/storage）：`same_model/official/decompile/wide/plan = true`（证据指向本文与 §1/§2/§3/§4），`deep/verify = false`，`verify.local_verified = false`。
 4. **`docs/plans/BT-AUDIO-PORT-PLAN.md` §1.4/§1.5 需修订**：其「自写 IOSerialFamily + HCI + btstack」结论与 §3 的二进制证据、与官方 QcaBluetooth 组件冲突，应改为「UART.SK + 官方组件 + 用户态 bluetoothd」。该文件不在本线写权限内。
-5. **代码归属决定**：BT 代码已在 `patches/xnu/0500-0502b`（series:201-204）里编译进内核，本线**不**新建 `drivers/PongBt/`/`patches/bt/`（避免 P-170「新源文件没人引用」类假进展）。S1/S2 探针建议直接改 0500 内的 `qbt_k60.c`，由 Lead 或本线在获得授权后提交。
+5. **代码归属决定**：BT 代码已在 `patches/xnu/0500-0502b`（series:201-204）里编译进内核，本线**不**新建 `drivers/PongBt/`（避免 P-170「新源文件没人引用」类假进展）。S1 探针放在 `patches/bt/`，`patches/bt/README.md` 明确写「未接构建」，补丁实际改的是 0500 内的 `bsd/dev/qbt_k60.c`；接线由 Lead 选 §6 的 A/B 之一。
 6. **固件获取**需要一次 Android 启动（只读 adb），或由 Lead 从 factory image 解包；本机当前在 fastboot。
 7. **20G81 用户态适配**需要 LAN Mac 的 iOS SDK（`libpong-ui.dylib` 之外还有签名工具链），按 AGENT-bt.txt 的约定由 Lead 在 Mac 侧执行。
+
+8. **构建前必须先换基线（本线实测，2026-11-14）**：`feat/bt-research` 从 `f119a80` 切出，在该基线上 `python3 scripts/eight-step-gate.py --build` **是红的**：`硬件项: 5 个（touch, gpu, storage, display, bootchain）`、`通过 27 项检查`、`问题 3 处: touch :: ④ 广域 / ⑤ 方案 / ⑥ 深挖 未标记 done=true`。同一条命令在 `feat/pmic-rail`（`4f90f12`，比本线多 4 条 RULES、EIGHT-STEPS 改 32 行）上通过。**结论：BT 构建前先把本分支 rebase/merge 到当前集成线（≥`4f90f12`），否则 iron-3 会拦构建，且原因不在 BT。**
+   - 同一基线状态下在 `k60-bt` 跑 `python3 scripts/check-rules.py` 另有 2 项红：`P-165/P-166 构建输入序列与仓库不一致：只在仓库有 [3 条 zzzz…pong-touch-*-probe.patch]`。这 7 条 `zzzz…pong-touch-*` 探针在 `f119a80` 的 series 里已存在，而 `/opt/k60/trees/k60build` 的构建输入未同步；与本线 5 个新文件无关（`git diff --stat f119a80 HEAD` 只增 `docs/research/bt/*` 与 `patches/bt/*`，未改 series / EIGHT-STEPS / SOURCES）。
+   - 按铁则 8 报备：这两条是**基线门禁问题**，不要为了让门禁变绿去改判定；`research-gate.py`（32 项）与 `check-docs.py`（187 项）在 `f119a80` 上均已通过。
+9. **S1 探针已过 ⑦ 本地静态检查**：补丁 `patches/bt/0001-k60-bt-readonly-probe.patch` sha256 `c94e1530820ce74faeae188bd4285c319e9d18d2f243aabf612863f2d16fa347`；对 0500 抽出的 `bsd/dev/qbt_k60.c` 执行 `git apply --check` 通过；用 out3 构建记录的 `.CFLAGS` 跑 `clang -target arm64-apple-ios16.0 -fsyntax-only` **0 error**。细节与日志路径见 `S1-PROBE-SPEC.md` §8。
 
 ---
 

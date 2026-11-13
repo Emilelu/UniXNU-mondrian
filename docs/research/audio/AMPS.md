@@ -374,6 +374,32 @@ bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_
 2. I2C 引脚是否已被 Android 配好（A7 读回即可知，若已配好就不要重配）。
 3. 功放供电是否已使能（DT 无供电属性，只能读回判断；**读不到 ID 时优先怀疑没供电**）。
 
+### ⑧ 的判据（用两份历史 capture.json 校准，2026-11-14）
+
+`capture.json` 里**没有** `verdict` 字段。能判的是这几个键，由
+`scripts/capture-k60-usblog.ps1` 调 `Get-K60CaptureVerdict`（`scripts/k60-capture-state.ps1`）算出：
+`state`（`captured` / `captured-truncated` / …）、`complete`、`stopReason`（`budget` /
+`fastboot-return` / …）、`panicMarker`、`resetMarker`、`lastError`、`portSeen` / `portOpened` /
+`openErrors`。
+
+对照组（同一天、同采集器，一次好一次坏）：
+
+| 证据目录 | 关键字段 | 真实结果 |
+| --- | --- | --- |
+| `E:\k60-work\evidence\usblog-20261113-noinitblob\capture.json` | `state: captured-truncated`、`complete: false`、`stopReason: budget`、`panicMarker: "K60PANIC"` | **正常启动**（SB=129） |
+| `E:\k60-work\evidence\usblog-20261113-rev0340\capture.json` | `state: captured`、`complete: true`、`stopReason: fastboot-return`、`panicMarker: "K60PANIC"`、`openErrors: 24` | **坏启动**（SB=7） |
+
+两条要点：
+
+1. `panicMarker` 只是「采集器曾经搜过这个标记名」，**好坏两次启动取值完全相同**，把它当
+   「发生了 panic」会一律误判；`complete: true` 也不代表内核好（坏的那次反而是 true）。
+   健康启动本身就会打印横幅 `K60PANIC: restart windows ready`（`usblog-20261113-noinitblob/console.log:477`），
+   这也是 `scratch/logstat.py` 的 panic 计数不可用的原因。
+2. 本子任务的成败**不看** `state`/`complete`，只看 `console.log` 里 `PongAudio:` 的行：
+   ① `amp probe start`（探针真的跑了）；② `gcc wrapper2 … clocks` / `se15 ready`（总线可用）；
+   ③ `amp0/amp1 … id=0x…`（读到了 ID）；④ `amp probe done found=2/2 … failed=0 timeouts=0`（成功）。
+   只有 ④ 出现且两颗 ID 都在已知表里，才算 ⑧ 成立；`state` 只用来解释「为什么没跑起来」。
+
 阻塞（不属于本子任务）：
 - 播放通路（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。
 - 功放的 `aw882xx_acf.bin` 配置档（Android `/vendor/etc/aw882xx_acf.bin`）本机没有，

@@ -210,3 +210,42 @@ Undefined symbols for architecture arm64:
   `patches/xnu/series`。→ 改 `patches/wifi` 不会触发冻结校验，但也不会被记录进
   `build-manifest.json` 的 series 字段。**这是可观测性缺口，建议 Lead 决定是否
   扩展 freeze 清单。**
+
+---
+
+## 8. `docs/research/EIGHT-STEPS.toml` —— WiFi 的 ③ 与 ⑦ 已具备证据
+
+**文件**：`docs/research/EIGHT-STEPS.toml`（共享仓 `UniXNU-mondrian`，当前由 touch 线持有，故此处只给片段）
+**位置**：`[hardware.wifi.step.decompile]` 与 `[hardware.wifi.step.verify]`
+
+```diff
+--- a/docs/research/EIGHT-STEPS.toml
++++ b/docs/research/EIGHT-STEPS.toml
+@@ [hardware.wifi.step.decompile]
+-done = false
+-evidence = "K60 的 PCI device id / BAR0 / subsystem_device / PCIe0 GDSC 偏移 / SPMI 通道号均未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
++done = true
++evidence = "2026-11-14 用实机 live FDT（E:\\k60-work\\reports\\live-6033dbec-fdt.dtb，dtc 反编译 34801 行）逐节点实测并逐条对照 drivers/PongWifi/PongWifiPlatform.cpp：端点 17CB:1103 来自 /soc/mhi_qrtr_cnss 的 qcom,dev-id=<0x1103> 与 PongWifiPlatform.cpp:356 的 cfg.r(0)==0x110317cb；BAR0 0x60200000 来自 /soc/qcom,pcie@1c00000 的 ranges（mem32 段 0x60200000 + 0x100000）与 :368 的 bar.open(0x60200000,0x200000)；IOVA 0xA0000000 来自 cnss_pci_iommu_group 的 qcom,iommu-dma-addr-pool=<0xa0000000 0x10000000> 与 :40 的 constexpr Iova；MSI 来自 msi-map=<0 0x237 0x5980 1 …> 加 :42 的 PcieGlobalIntid=32+140 / ParfMsi0=1u<<23；SID 来自 iommu-map=<0 0x5b 0x1c00 1 …>（qcom,smmu-sid-base=<0x1c00>）；refgen 100 MHz 是 max-clock-frequency-hz 的 index 10（clock_names[8]=pcie_phy_refgen_clk），:233 已用 (1u<<8)|10u；GDSC 折叠票 0x162128 bit0（非 Sheng 的 0x152020）。82 项 PHY 表与 Pong 逐 cell 相同（different=0）。全套出处见 docs/research/wifi/GAP-ANALYSIS.md 的 ③ 表。"
+@@ [hardware.wifi.step.verify]
+-done = false
+-evidence = "未做。"
++done = true
++local_verified = true
++evidence = "三类本地核验齐全：static_check（补丁全量 git apply --check、符号面 341→31→1→0 收敛、十处 stage 门逐行核对）、unit_test（PWF2 四文件与六文件包逐条 offset/size/sha256 校验，自写 LC_SEGMENT_64 解析器比对内核内嵌 blob）、artifact_check（scripts/verify-boot-image.py 七项全过；kernel.macho 里 _pong_wifi_start_optional / _pong_wifi_firmware(_end) / _pong_smmu_lease_lock(unlock) 全部存在，llvm-nm -u 无 pong 未定义符号）。台账见 docs/research/wifi/LOCAL-VERIFICATION.md。"
++static_check = "archive 符号面 341→31→1→0；0010 双 hunk 覆盖 KERNEL_EXTRA_ARCHIVES 与 PLATFORM_ARCHIVES 两条互斥路径；十处 stage 门行号与源码一致（见 LOCAL-VERIFICATION.md §2）。"
++unit_test = "PWF2 六条目 offset/size/sha256 全部与源文件一致，内核内嵌固件与包逐字节相同（LOCAL-VERIFICATION.md §3）。"
++artifact_check = "verify-boot-image: OK；linkarchives 含 -Wl,-force_load,…/libPongWifiNative.a；kernel.macho 65,978,368 B（LOCAL-VERIFICATION.md §4）。"
+```
+
+`[hardware.wifi.step.device]` 保持 `done = false`：⑧ 尚未取得任何一次带 WiFi 的启动证据
+（见 `STAGE-BRINGUP.md` §5 与下节）。
+
+---
+
+## 9. 上机阻塞：设备自 04:50 起不再枚举
+
+2026-11-14 04:50 之后 `adb devices` 与 `fastboot devices` 全空，
+`Get-PnpDevice -PresentOnly` 里没有任何 `VID_2717`/`VID_18D1`/`VID_1209` 在线项，
+同机 peer 线（`usblog-20261114-bts1b-run1`）也在同一时刻掉到 `port-not-observed`。
+**需要人工长按电源键约 10 秒强制重启**，之后才能继续阶梯上机。
+

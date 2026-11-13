@@ -473,3 +473,43 @@ no console — in that case nothing about WiFi can be blamed.
 Two facts make the tiny family worth its build time: the archive is 892,616 B
 instead of 12,066,184 B, and the kernel is 54,804,480 B instead of 65,978,368 B,
 i.e. only 622,592 B above the kernel that has booted this phone dozens of times.
+
+### 5.13 What each ladder image actually carries
+
+A boot image can pass `verify-boot-image.py` and still carry a stale kernel, so
+two independent checks were run over the ladder itself.
+
+**Kernel slot (shim + firmware volume + kernel DTB).** Identical across the
+proven peer image and the WiFi images, byte for byte:
+
+| image | inflated slot | FD sha256 | kernel DTB |
+| --- | --- | --- | --- |
+| `rail-20261114i` (proven, 220 KB console) | 3,145,840 B | `cf4485712c2999c1` | 4,024 B `2d044eaa08b7e58c` |
+| `wifi-20261114a` | 3,145,840 B | `cf4485712c2999c1` | 4,024 B `2d044eaa08b7e58c` |
+| `wifi-20261115a` | 3,145,840 B | `cf4485712c2999c1` | 4,024 B `2d044eaa08b7e58c` |
+| `wifi-20261115t0` | 3,145,840 B | `cf4485712c2999c1` | 4,024 B `2d044eaa08b7e58c` |
+
+So the firmware volume and the device tree the phone boots are exactly the ones
+that have already produced a console on this hardware. The only variable in the
+ladder is the payload.
+
+**Kernel inside the payload.** Extracted with
+`mtype -i <ramdisk> ::EFI/UniXNU/Payloads/kernel.macho` after splitting the v4
+header (`ramdisk offset = 4096 + page_up(kernel_size)`), then searched for the
+gate strings:
+
+| image | kernel.macho | sha256 | console-up | stage-held | RSC-probe | board-fw |
+| --- | --- | --- | --- | --- | --- | --- |
+| `wifi-20261115a` | 65,978,368 B | `e273b64968b64048` | 1 | 1 | 1 | 1 |
+| `wifi-20261115g` | 65,978,368 B | `e273b64968b64048` | 1 | 1 | 1 | 1 |
+| `wifi-20261115t0` | 54,804,480 B | `62999b5b88f89eed` | 1 | 1 | 1 | 1 |
+
+Every rung therefore really does contain the console gate and the staging
+predicate. That is the precondition for reading a zero-byte console as "the gate
+never opened" rather than "the gate was not in the image".
+
+Scripts: `E:\k60-work\evidence\wifi-trial\verify-embedded.py` and `cmpkern.py`.
+The payload kernel sha256 differs from the build product (`73c33075` for the
+six-file kernel) because `unixnu build payload` rewrites the Mach-O on the way
+into the FAT volume; `verify-boot-image.py` compares against the manifest, which
+records the post-payload value.

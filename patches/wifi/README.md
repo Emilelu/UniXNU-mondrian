@@ -27,7 +27,19 @@ done
 | 0008 | `0008-configs-mondrian-wifi-sm8475.patch` | 新增 K60 board profile（82 PHY、6 rails、refgen index 10） | `new/configs/mondrian-wifi-sm8475.json` |
 | 0009 | `0009-scripts-k60-wifi-build.patch` | 新增 4 个脚本，并修正 `build-k60-ath11k.py` 与 Ath12kWifi `28de7b91` 的兼容性（见下） | `new/scripts/*` |
 | 0010 | `0010-scripts-build-xnu-4k-baseline-wifi.patch` | `build-xnu-4k-baseline.sh` 构建并 `-force_load` `libPongWifiNative.a` | `0004-build-xnu-4k-baseline` |
-| optional/0011 | `optional/0011-board-toml-pong-wifi-arg-OPTIONAL.patch` | `board.toml` `kernel_args` 加 `pong_wifi=1`，仅临时 fastboot 镜像 | `0006-board-toml` |
+| 0011 | `0011-drivers-PongWifi-k60-bringup-stages.patch` | `PongWifiPlatform.cpp` 加 USB 控制台门与十级 `k60_wifi_stage` 门（`5483a39` + `1cc4892` + `309e96c`） | 无（2026-11-14 上机失败后新增） |
+| optional/0012 | `optional/0011-board-toml-pong-wifi-arg-OPTIONAL.patch` | `board.toml` `kernel_args` 加 `pong_wifi=1`，仅临时 fastboot 镜像 | `0006-board-toml` |
+
+## 系列与仓库当前树的漂移（2026-11-14 复核）
+
+`series` 现在 11 个补丁，在**干净的 device 基线**（`/opt/k60-work/impl/wifi/repo`，无
+`drivers/PongWifi`）上逐个 `git apply` 全部成功，应用后 14 个 `drivers/PongWifi` 文件与仓库
+HEAD **逐字节相同**（`SAME` × 14，见 `docs/research/wifi/MERGE-REQUEST.md` §12）。
+
+但同一份系列**不能**直接打在仓库 HEAD 上：`f4717ef` 已经把 0001/0002/0003 的内容提交进
+`drivers/PongWifi`，0004–0010 的内容也已在 `drivers/NativeUfs`、`drivers/ArmDTPlatform`、
+`scripts/`、`configs/` 里，所以会报 `already exists in working directory` /
+`patch does not apply`。系列只用于**向上游 device 树移植**，不用于本仓库自举。
 
 > `0010` 还包含一个集成修复：`K60_WIFI_SHENG` 支持从 `PONG_SHENG_ROOT` 回退，并在调用
 > `build-k60-wifi-native.py` 前 `export PONG_SHENG_ROOT="$K60_WIFI_SHENG"`，否则该脚本的

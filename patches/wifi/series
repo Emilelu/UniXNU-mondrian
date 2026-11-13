@@ -8,3 +8,4 @@
 0008-configs-mondrian-wifi-sm8475.patch
 0009-scripts-k60-wifi-build.patch
 0010-scripts-build-xnu-wifi-archive.patch
+0011-drivers-PongWifi-k60-bringup-stages.patch

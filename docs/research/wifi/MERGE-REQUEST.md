@@ -368,6 +368,27 @@ scripts/tests/test-build-strict-gates.py
 
 **对 WiFi 线的实际影响**：`iron-3` 会让 `scripts/build-strict.sh` 拒绝构建（它硬跑
 `eight-step-gate.py --build`），`iron-4`/`iron-5` 会让 `flash.sh` 的四道门报红。
+
+## 12. `patches/wifi/series` 漂移已补齐：新增 0011
+
+2026-11-14 复核发现系列只到 0010，而仓库里 `drivers/PongWifi/PongWifiPlatform.cpp`
+在 `5483a39` / `1cc4892` / `309e96c` 三次提交后已经多出 USB 控制台门、十级
+`k60_wifi_stage` 门与 refgen 注释修正 —— 也就是说**系列落后于代码 240 行**，
+任何人按系列把 WiFi 移植到上游 device 树都会拿到没有门控的版本，正好会重现
+04:48 那次 0 字节控制台。
+
+- 新增 `patches/wifi/0011-drivers-PongWifi-k60-bringup-stages.patch`（141 行，
+  49 增 10 删），只改 `drivers/PongWifi/PongWifiPlatform.cpp`。
+- `patches/wifi/series` 追加该行，现 11 个补丁。
+- 复核方法（可重跑）：把 `/mnt/e/k60-work/impl/wifi/repo`（干净的 device 基线，
+  没有 `drivers/PongWifi`）复制到 `/tmp`，按 `series` 顺序 `git apply` 全部 11 个，
+  然后与仓库 HEAD 逐文件比对 → **14 个 `drivers/PongWifi` 文件全部 `SAME`**，
+  脚本 `E:\k60-work\evidence\wifi-trial\verify-series-repro.sh`。
+- 同一份系列**不能**直接打在仓库 HEAD 上（0001–0010 的内容已由 `f4717ef` 提交，
+  会报 `already exists in working directory` / `patch does not apply`）。系列只用于
+  向上游 device 树移植，这一点已写进 `patches/wifi/README.md`。
+- `scripts/check-patch-apply.py` 仍绿（P-162：只有改动过的补丁才校验）。
+
 因此 WiFi 的 ⑦ 产物是用 `UNIXNU_SKIP_GATES=1` 的试构建路径出的，
 ⑧ 上机走的是唯一 supervisor `scripts/boot-and-capture.ps1`（不经过 `flash.sh`）。
 **这两点必须在正式合并前由 Lead 决定**：要么把 touch 的 ④⑤⑥⑦ 补齐让 `iron-3` 转绿，

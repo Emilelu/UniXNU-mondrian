@@ -261,18 +261,29 @@ docs/engineering/RULES.toml`）。
 
 ### 5.4 上机顺序（每步一次 boot）
 
-0. **先跑对照 `wifi-20261114e`（同一个 65.8 MB 内核、`pong_wifi=0`）**：
-   它只回答一个问题——镜像能不能起来、控制台有没有。起不来就说明问题在
-   镜像/装载层（尺寸、UEFI 堆），与 WiFi 无关；起来了才轮得到下面几步。
-1. `k60_wifi_stage=1`：只碰 TLMM。期望日志：`console up after … ms` →
-   `stage 1 (TLMM pinmux …)` → `stage 2 (…) held back by k60_wifi_stage=1` →
-   `WiFi initialization stopped; normal iOS boot continues, DMA retained`。
-   这一步不碰 PMIC/GCC/PARF，理论上不可能挂死。
-2. `k60_wifi_stage=3 k60_wifi_rsc=1`：加 rail（只读 RSC 探针）与 GCC 时钟/GDSC。
-3. `k60_wifi_stage=6`：host MMIO、PHY 表、PERST、链路训练；成功标志
-   `QCA6490 PCIe0 link and BAR established, bus master held off` 与
-   `QCA6490 PCI subsystem=10817cb`。
-4. `k60_wifi_stage=8 k60_wifi_rsc=2`：SMMU + MSI attach + `ath11k start`。
+两个正交的轴：`k60_wifi_stage`（放到第几级）与 `k60_wifi_rsc`
+（0/缺省 = 完全不动 RSC；1 = 只读探针；2 = 允许投票）。
+**这一点很关键**：`pong_rpmh_vote()` 在 `k60_wifi_rsc` 缺省时**在打开 RSC 之前
+就返回 false**，所以「stage=2 + 无 rsc」只碰 SPMI 与 cmd-db，不碰 RSC。
+
+0. **对照 `wifi-20261114e`**（`pong_wifi=0`，同一个 65.8 MB 内核）：
+   只回答「镜像能不能起来、控制台有没有」。起不来就是镜像/装载层问题
+   （尺寸、UEFI DXE 堆），与 WiFi 无关。
+1. **`wifi-20261114d`**（`stage=1`）：只碰 TLMM。期望 `stage 1 (TLMM pinmux …)`
+   → `stage 2 (…) held back` → `WiFi initialization stopped…`。
+2. **`wifi-20261114i`**（`stage=2`，无 rsc）：加 SPMI/PMIC 打开与 cmd-db 读取，
+   投票被拒 → `physical WLAN supply did not follow RPMh request`，**全程不碰 RSC**。
+   过不了这级就说明问题在 SPMI 或 cmd-db（0x80860000）。
+3. `stage=2 k60_wifi_rsc=1`：**只多一步 RSC 读探针**（`rsc.open(0x17a20000,0x10000)`
+   后读 id/caps/TCS4）。首轮挂死用的正是 `rsc=1`——它的「只读」探针仍然是 RSC MMIO
+   读，而 `pong_rpmh_vote()` 自己的注释就写着「对未上电的 RSC 做读会挂死互连」，
+   所以这一级是当前最强嫌疑点。挂了就说明必须找到 RSC 上电的证据才能继续。
+4. **`wifi-20261114f`**（`stage=3 k60_wifi_rsc=1`）：加 GCC/GDSC/refgen。
+5. **`wifi-20261114g`**（`stage=6 k60_wifi_rsc=1`）：host MMIO、PHY 表、PERST、
+   链路训练；成功标志 `QCA6490 PCIe0 link and BAR established, bus master held off`
+   与 `QCA6490 PCI subsystem=10817cb`。
+6. **`wifi-20261114h`**（`stage=8 k60_wifi_rsc=2`）：SMMU SID 1c01 + MSI attach
+   + `ath11k start`（这一级必须真投票，否则 supplies 过不去）。
 
 ### 5.5 当前阻塞
 
@@ -290,6 +301,7 @@ docs/engineering/RULES.toml`）。
 | `wifi-20261114f` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=3` | `c4490e741746d525c774c03e…` |
 | `wifi-20261114g` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=6` | `907dac42f3707751702fb73d…` |
 | `wifi-20261114h` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | `f48c2f38565d83d7b4769b92…` |
+| `wifi-20261114i` | `pong_wifi=1 k60_wifi_stage=2`（无 rsc 参数） | `4da49b403f473f74f9d966d8…` |
 
 五个镜像共用同一个 staged 内核（`f19ba0b3…`）与同一个 fd（`cf448571…`）；
 每题目录都有 `build-manifest.json`，`python3 scripts/verify-boot-image.py

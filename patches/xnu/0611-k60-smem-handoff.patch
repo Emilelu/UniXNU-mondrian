@@ -1,10 +1,7 @@
 diff --git a/bsd/conf/files b/bsd/conf/files
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -399,4 +399,6 @@
- bsd/kern/pong_userland.c			standard
- bsd/dev/pong_input.c			standard
- bsd/dev/pong_goodix.c			standard
+@@ -402,1 +402,3 @@
  bsd/dev/pong_buttons.c			standard
 +bsd/dev/pong_smem.c			standard
 +bsd/dev/pong_handoff.c			standard

@@ -25,6 +25,10 @@
  * Same shape in the K60 touch driver: patches/xnu/zzzz*pong-touch-console.patch:137
  *        ml_io_map(TLMM_PHYS + gpio_offset + 0x1000 * pin, IO_PAGE_SIZE).
  */
+/* One 4 KiB register window. io_map() rounds every mapping up to the arm64
+ * 16 KiB page (osfmk/arm/io_map.c:88-142), so one window costs four pages of
+ * the 8 MiB kernel-wide io_submap - see SOUNDWIRE.md section 7. */
+#define PONG_AUDIO_WINDOW_SIZE      0x00001000u
 #define PONG_AUDIO_TLMM_PHYS        0x0f000000u
 #define PONG_AUDIO_TLMM_GPIO_OFF    0x00100000u
 #define PONG_AUDIO_GPIO_STRIDE      0x00001000u

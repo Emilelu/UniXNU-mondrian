@@ -5,7 +5,7 @@ One patch, one purpose: put the AP-side amplifier probe from
 
 | File | What it does |
 | --- | --- |
-| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. |
+| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 45,655 bytes, 7 hunks. |
 | `series` | The intended order inside this directory. |
 
 `drivers/PongAudio/tests/` is deliberately **not** in the patch. It is a host-side

@@ -23,9 +23,10 @@ question in `docs/research/audio/AMPS.md`.
 | File | Contents |
 | --- | --- |
 | `PongAudioRegs.h` | Every K60 AP-side constant the probe uses, each tagged with its provenance: **L** live FDT (`E:/k60-work/scratch/audio-work/live-fdt.dts`), **G** `gcc-sm8450.c`, **S** the Pong reference tree, **M** mainline `geni-se.h`/`i2c-qcom-geni.c`, **H** `hakios.speaker.c`. No address appears without a tag. |
+| `PongAudioPlan.h` | The probe's decision helpers as pure functions: pad addressing and the pad config word, the CBCR "running" test, GCC window routing, DFS-level acceptance, the AW882xx byte order and the chip-id table. No MMIO, no kernel headers — which is why every one of those choices is pinned by the host test instead of at boot. |
 | `PongAudioGeniI2c.h` / `.c` | The GENI I2C transport from `references/pong-power/GeniI2c.c`, logic kept verbatim, symbols renamed to `pong_geni_*` so it cannot collide with the Pong copy. One transfer at a time; the caller feeds `M_IRQ` status in until done. |
 | `PongAudioAmp.c` | The probe. Boot-arg gated, read-only against the amplifiers, prints evidence with the `PongAudio: amp ...` prefix. |
-| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine and the register map (109 assertions). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
+| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h` (147 assertions). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
 | `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
 
 ## What it does, in order
@@ -92,13 +93,13 @@ and checks the exact command words the engine would see:
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 109 cases
+# TESTS OK 147 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 109 cases buy, given that nothing can be measured on hardware yet:
+What the 147 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase
@@ -113,10 +114,17 @@ What the 109 cases buy, given that nothing can be measured on hardware yet:
   (what `bus_recover()` does before every read) is asserted from both phases;
 - the register map — `0x0f100000` TLMM base, GPIO 88 at `0x0f158000`, three
   one-page GCC windows covering `0x2e014`/`0x33280`/`0x3328c`/`0x62010`, the
-  `0xc86a` fault mask — is asserted arithmetically rather than trusted.
+  `0xc86a` fault mask — is asserted arithmetically rather than trusted;
+- the decisions the probe makes before it touches a register are pinned too: the
+  pad config word (pull / function / drive / output, upper bits preserved, APPS
+  ownership only when the eGPIO bit says so), which of the three GCC windows holds
+  an offset (and that one word past a window is outside), whether a DFS level is
+  the undivided reference, and that an unknown chip id stays `unknown`.
 
-`PongAudioAmp.c` itself cannot be host-compiled (kernel headers), so its
-correctness rests on the syntax-check pass plus these register assertions.
+`PongAudioAmp.c` itself cannot be host-compiled (kernel headers). That is why its
+pure parts live in `PongAudioPlan.h`: the arithmetic and the branch decisions are
+host-proven, and what remains in the `.c` is MMIO sequencing, which only the
+syntax check and a boot can speak to.
 
 The tests are **not** in `patches/audio/`: they are a repo-side check, not a
 kernel file, and shipping them into `bsd/dev/` would only slow the build.

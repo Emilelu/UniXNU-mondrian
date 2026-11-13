@@ -16,6 +16,10 @@
  *   - stuck-bus recovery: a refused start while the machine is stuck, and the
  *     three-step ladder that returns it to Idle (what PongAudioAmp.c does
  *     before every transfer so one dead amplifier cannot fail the other).
+ *   - every decision helper in PongAudioPlan.h: pad addressing and the pad
+ *     config word, the CBCR "running" test, GCC window routing, DFS level
+ *     acceptance, and the chip-id table. Those are the parts of the probe that
+ *     decide what to write, so they are pinned here rather than at boot.
  *
  * Run: drivers/PongAudio/tests/run-tests.sh
  */
@@ -23,6 +27,7 @@
 #include <string.h>
 
 #include "PongAudioGeniI2c.h"
+#include "PongAudioPlan.h"
 #include "PongAudioRegs.h"
 
 static int fails;
@@ -363,15 +368,9 @@ poll_cases(void)
 /* ---- the AW882xx chip id byte order -------------------------------------- */
 
 /* The part sends the high byte first; GENI packs the first byte of a FIFO word
- * into bits 7:0 (PongAudioGeniI2c.h:85). PongAudioAmp.c:453 therefore decodes
- * with ((rx & 0xff) << 8) | ((rx >> 8) & 0xff). Both halves are pinned here so
- * a change on either side shows up as a failure rather than a wrong chip name. */
-static uint16_t
-decode_amp_value(uint32_t rx)
-{
-	return (uint16_t)(((rx & 0xffu) << 8) | ((rx >> 8) & 0xffu));
-}
-
+ * into bits 7:0 (PongAudioGeniI2c.h). PongAudioPlan.h decodes it; the encoder
+ * here is the inverse, so a change on either side shows up as a failure rather
+ * than a wrong chip name. */
 static uint32_t
 encode_amp_value(uint16_t value)
 {
@@ -387,10 +386,15 @@ chip_id_cases(void)
 	unsigned i;
 
 	for (i = 0; i < sizeof ids / sizeof ids[0]; ++i) {
-		expect(decode_amp_value(encode_amp_value(ids[i])) == ids[i],
+		expect(pong_audio_amp_value(encode_amp_value(ids[i])) == ids[i],
 		    "chip id survives the byte order");
 	}
-	expect_eq(decode_amp_value(0x1321u), 0x2113u, "AW88261 from FIFO word 0x1321");
+	expect_eq(pong_audio_amp_value(0x1321u), 0x2113u,
+	    "AW88261 from FIFO word 0x1321");
+	expect(strcmp(pong_audio_amp_name(0x2113u), "AW88261") == 0,
+	    "the known part is named");
+	expect(strcmp(pong_audio_amp_name(0x1234u), "unknown") == 0,
+	    "an unknown id is not guessed into a part");
 }
 
 /* ---- stuck-bus recovery --------------------------------------------------- */
@@ -437,6 +441,93 @@ recovery_cases(void)
 	expect_eq(bus.timeouts, 1u, "only the live transfer was counted");
 }
 
+/* ---- decision helpers ---------------------------------------------------- */
+
+/* These are the probe's choices, not the engine's: which pad address to map,
+ * what config word to write, whether a branch clock is running, which GCC
+ * window holds an offset, whether a DFS level is usable, and what to call a
+ * chip. Every one of them is a pure function over numbers, so the whole set is
+ * provable here (eight-step step 4 "verify"). */
+static void
+plan_cases(void)
+{
+	uint32_t delta = 0;
+	uint32_t cfg;
+
+	/* Pad addressing: the GPIO block is TLMM base + 0x100000, one 0x1000
+	 * block per pad (S:PongAudio.cpp:120-129). */
+	expect_eq(pong_audio_pad_phys(1u), 0x0f101000u, "amp0 reset pad address");
+	expect_eq(pong_audio_pad_phys(3u), 0x0f103000u, "amp1 reset pad address");
+	expect_eq(pong_audio_pad_phys(43u), 0x0f12b000u, "codec reset pad address");
+	expect_eq(pong_audio_pad_phys(88u), 0x0f158000u, "amp0 irq pad address");
+	expect_eq(pong_audio_pad_phys(88u) - pong_audio_pad_phys(1u), 87u * 0x1000u,
+	    "pads are one 0x1000 block apart");
+	expect(pong_audio_pad_phys(118u) + 0x1000u <= 0x0f000000u + 0x1000000u,
+	    "every pad stays inside the pinctrl node window");
+
+	/* Pad config: pull [1:0], function [5:2], drive [8:6], output [9]. The
+	 * upper bits survive, and APPS ownership is only claimed when the pad
+	 * says an eGPIO exists (touch patch:148-166). */
+	cfg = pong_audio_pad_config(0u, PONG_AUDIO_GPIO_PULL_UP,
+	    PONG_AUDIO_GPIO_FN_QUP15, 2u, false);
+	expect_eq(cfg, 3u | (1u << 2), "i2c pad: pull-up, qup15, no drive");
+	cfg = pong_audio_pad_config(0u, PONG_AUDIO_GPIO_PULL_NONE,
+	    PONG_AUDIO_GPIO_FN_GPIO, 16u, true);
+	expect_eq(cfg, (7u << 6) | (1u << 9), "reset pad: 16 mA, output, no pull");
+	expect_eq(pong_audio_pad_config(0xfffff800u, 0u, 0u, 2u, false) & 0xfffff800u,
+	    0xfffff800u, "bits above the documented field survive");
+	expect_eq(pong_audio_pad_config(PONG_AUDIO_GPIO_EGPIO_EXISTS, 0u, 0u, 2u, false),
+	    PONG_AUDIO_GPIO_EGPIO_EXISTS | PONG_AUDIO_GPIO_APPS_CTRL,
+	    "APPS ownership only when the pad has an eGPIO");
+	expect_eq(pong_audio_pad_config(0u, 0u, 0u, 0u, false), 0u,
+	    "a zero drive does not go negative");
+	expect_eq(pong_audio_pad_config(0u, 0u, 0u, 3u, false), 0u,
+	    "3 mA rounds down to the 2 mA field value");
+	expect_eq(pong_audio_pad_config(0u, 0u, 0u, 4u, false), 1u << 6,
+	    "4 mA is the next field step");
+	expect_eq(pong_audio_pad_config(0u, 0u, 0u, 16u, false), 7u << 6,
+	    "16 mA is the top of the field");
+
+	expect_eq(pong_audio_pad_function(0x3u | (1u << 2)), 1u, "reads the function");
+	expect_eq(pong_audio_pad_output(1u << 9), 1u, "reads the output bit");
+	expect_eq(pong_audio_pad_output(1u << 8), 0u, "drive bit is not the output bit");
+	expect_eq(pong_audio_pad_out_high(2u), 1u, "reads the out-high bit");
+
+	/* CBCR: a hardware-gated branch reports CLK_OFF while it is running, so
+	 * the halt test has to accept HWCG (clk-branch.c:50-59). */
+	expect(pong_audio_cbcr_running(0u), "a branch with no halt bit is running");
+	expect(pong_audio_cbcr_running(PONG_AUDIO_CBCR_HWCG), "hw-gated branch is running");
+	expect(pong_audio_cbcr_running(PONG_AUDIO_CBCR_CLK_OFF | PONG_AUDIO_CBCR_HWCG),
+	    "hw-gated branch with CLK_OFF still runs");
+	expect(!pong_audio_cbcr_running(PONG_AUDIO_CBCR_CLK_OFF),
+	    "a halted branch with no hwcg is not running");
+
+	/* GCC window routing: three one-page windows, and nothing else. */
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_RCG_SE15, &delta), 0u,
+	    "the SE15 RCG lives in the rcg window");
+	expect_eq(delta, PONG_AUDIO_GCC_RCG_SE15 - PONG_AUDIO_GCC_RCG_WIN, "rcg delta");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_CBC_CORE, &delta), 1u,
+	    "wrap2_core CBCR lives in the cbc window");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_VOTE_WRAP2, &delta), 2u,
+	    "the wrapper-2 vote register lives in the vote window");
+	expect_eq(delta, PONG_AUDIO_GCC_VOTE_WRAP2 - PONG_AUDIO_GCC_VOTE_WIN, "vote delta");
+	expect_eq((unsigned)pong_audio_gcc_window(0x00000000u, &delta), (unsigned)-1,
+	    "offset 0 is outside every window");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_VOTE_WRAP2 + 0x1000u, &delta),
+	    (unsigned)-1, "one page past the vote window is outside");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_VOTE_WIN + 0xffcu, &delta), 2u,
+	    "the last word of the vote window is inside");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_RCG_WIN - 4u, &delta),
+	    (unsigned)-1, "one word before the rcg window is outside");
+
+	/* DFS level: reference source, no divider (touch patch:313-324). */
+	expect(pong_audio_dfs_level_ok(0u), "an all-zero level is the reference");
+	expect(pong_audio_dfs_level_ok(1u), "m/n of one is still no divider");
+	expect(!pong_audio_dfs_level_ok(2u), "m/n of two divides");
+	expect(!pong_audio_dfs_level_ok(1u << 8), "a non-reference source is refused");
+	expect(!pong_audio_dfs_level_ok(1u << 12), "a pre-divider is refused");
+}
+
 int
 main(void)
 {
@@ -447,6 +538,7 @@ main(void)
 	failure_cases();
 	poll_cases();
 	recovery_cases();
+	plan_cases();
 	chip_id_cases();
 
 	if (fails) {

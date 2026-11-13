@@ -1,0 +1,278 @@
+# WiFi 本地验证（⑦）证据台账
+
+状态：**⑦ 已完成**（静态检查 + 离线单测 + 产物检查三类齐全）。
+⑧ 上机尚未拿到控制台证据，见本文末尾「待补」。
+
+本文件只记录**可复现的实测事实**，每条都给出命令或文件位置。
+所有路径以 WSL 视图为准（`/mnt/e` = `E:\`）。
+
+---
+
+## 0. 构建环境（可复现的最小命令）
+
+两条 archive 必须先编，再进内核。**两条都不能省**：
+
+```bash
+# ① Linux ath11k 侧（libPongAth11k.a）
+cd /mnt/e/hackios/k60-wifi
+export PONG_SHENG_ROOT=/mnt/e/k60-work/impl/wifi/work/src/UniXNU-sheng
+export UNIXNU_SDKROOT=$T/.cache/fakeroot          # T = 下面内核构建树里的 tree
+export PATH="/opt/unixnu-linux/CommandLineTools/usr/bin:/opt/unixnu-linux/llvm/bin:/usr/lib/llvm-18/bin:$PATH"
+python3 scripts/build-k60-ath11k.py --linux /home/emilelu/wifi-inputs/linux \
+    --shared $PONG_SHENG_ROOT/drivers/Ath12kWifi --output-dir /opt/k60/trees/k60build/wifi/ath11k
+
+# ② 板级 + 固件打包（libPongWifiNative.a）
+python3 scripts/build-k60-wifi-native.py --tree $T \
+    --ath11k /opt/k60/trees/k60build/wifi/ath11k/libPongAth11k.a \
+    --firmware /mnt/e/k60-work/firmware/qca6490-wifi \
+    --output-dir /opt/k60/trees/k60build/wifi/native-real
+```
+
+两个必须记住的坑（都踩过）：
+
+1. `--tree` 必须指**已构建 out 目录里的 tree**，即
+   `/opt/k60/trees/k60build/out-wifi/mondrian/ipados-16.6.1-20G81/mondrian/tree`。
+   传仓库根会报 `fatal error: 'IOKit/IOLib.h' file not found`（builder 用
+   `a.tree/'.cache/fakeroot/...'` 拼 Kernel.framework 头路径）。
+2. `--firmware` 必须指**干净的四文件目录**（`/mnt/e/k60-work/firmware/qca6490-wifi`：
+   amss.bin / amss20.bin / m3.bin / regdb.bin）。指向设备原目录会把 222 个文件
+   全部打进 PWF2 包（实测 13,029,078 B、10 个文件）。
+
+## 1. 静态检查（static_check）
+
+### 1.1 archive 符号面
+
+`libPongWifiNative.a` 11,939,808 B（`/opt/k60/trees/k60build/wifi/native-real/`）：
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 未定义符号只允许 13 个白名单 | `llvm-nm -u libPongAth11k.a` | 仅 `_PongWifiRandom` + 12 个 libc（`build-k60-ath11k.py` 内建断言，否则 raise `unimplemented ath11k imports`） |
+| archive 自身定义 | `llvm-nm --defined-only libPongWifiNative.a` | `T _pong_smmu_lease_lock` / `T _pong_smmu_lease_unlock` / `T _pong_wifi_start_optional` / `S _pong_wifi_firmware` / `S _pong_wifi_firmware_end` / `T _pong11_pong_ath11k_pci_init` |
+| 跨 archive 缺口 | 341 未定义 → 与 kernel.macho 47806 定义比对 → 31 → 与自身 3362 定义比对 | 只剩 `_pong_ufs_ready`，由 `libNativeUfs.a`（0004 补丁后）提供：`0000000000003188 T _pong_ufs_ready` |
+
+### 1.2 内核符号面（决定性）
+
+内核 `kernel.macho` 65,863,680 B，sha256
+`0fa28b37b78e1a66f36989eb110b7e6ad0673001dfec339b123a8cdd17633977`（trial4）。
+
+```
+fffffff00856e8dc S _pong_wifi_start_optional
+fffffff0085721f4 S _pong_smmu_lease_lock
+fffffff008572228 S _pong_smmu_lease_unlock
+fffffff00854f244 S _pong11_pong_ath11k_pci_init
+fffffff007096000 S _pong_wifi_firmware
+fffffff007b23ed6 S _pong_wifi_firmware_end
+```
+
+- `llvm-nm -u kernel.macho | grep -E '_pong|nw_wifi'` → **0 条**（无缺失符号）。
+- 链接真的带了 archive：
+  `tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.link/mach.development.pong.linkarchives`
+  内含 `-Wl,-force_load,/opt/k60/trees/k60build/wifi/native-real/libPongWifiNative.a`。
+- **判据不要用 `grep kernel.log force_load`**：make 不回显该变量，log 里计数恒为 0，
+  会被误判成"没链进去"。
+
+### 1.3 为什么 0010 必须是双 hunk
+
+`scripts/build-xnu-4k-baseline.sh` 有两条互斥的归档装配路径：
+
+| 路径 | 变量 | 触发条件 | 位置 |
+|---|---|---|---|
+| A | `KERNEL_EXTRA_ARCHIVES` | `XNU_SOURCE_CORECRYPTO14=1` | :892–:1077 |
+| B | `PLATFORM_ARCHIVES` | `-z XNU_BOOTSTRAP` && `ARM_DT_PLATFORM=1` && `XNU_SOURCE_CORECRYPTO14 != 1` | :1120–:1162 |
+
+mondrian 走 **B**：`.config` 里 `CONFIG_XNU_SOURCE_CORECRYPTO14` 出现两次
+（:2 `=y`、:88 `=n`），`config.py parse_config()` 后者覆盖前者 → False。
+只改 A 会得到"编译全过、链接报三个未定义符号"的内核（trial3 实测症状）。
+
+## 2. 离线单测（unit_test）
+
+`E:\k60-work\evidence\wifi-trial\test_pwf2.py`，日志
+`E:\k60-work\evidence\wifi-trial\test-pwf2.log`，**PASS / 0 failures**。
+
+覆盖项：
+
+1. PWF2 头：magic `PWF2`、count=4、头长 `(8+4*40+4095)&~4095 = 4096`。
+2. 四个条目 4 KiB 对齐 + 名字/偏移/大小：
+
+   | 条目 | offset | size | sha256 |
+   |---|---|---|---|
+   | amss.bin | 0x1000 (4,096) | 5,470,128 | a626cfc1… |
+   | amss20.bin | 0x539000 (5,476,352) | 5,296,128 | 903c378a… |
+   | m3.bin | 0xa46000 (10,772,480) | 266,684 | ad234ac8… |
+   | regdb.bin | 0xa88000 (11,042,816) | 24,278 | 06810e85… |
+
+3. 每一片的 sha256 与 `/mnt/e/k60-work/firmware/qca6490-wifi/<name>` **逐字节相同**。
+4. blob 总长 11,067,094 B。
+5. Mach-O 解析（自写 LC_SEGMENT_64 遍历）：
+   `_pong_wifi_firmware = 0xfffffff007096000`、
+   `_pong_wifi_firmware_end = 0xfffffff007b23ed6`，
+   span = **11,067,094** 恰等于 blob。
+6. 内核文件偏移 `0x92000` 处的内嵌字节 sha256 = `d1d7a9f9…`，与
+   `PongWifiFirmware.bin` 完全一致 → 固件真的被链进内核，不是只放在旁边。
+
+## 3. 产物检查（artifact_check）
+
+### 3.1 boot.img
+
+| 项 | 值 |
+|---|---|
+| 路径 | `/mnt/e/k60-work/artifacts/wifi-20261114a/boot.img` |
+| 大小 | 201,887,744 B |
+| sha256 | `1bf90492b89b4f898b8163a7946c8bdf18ab56b25ff1711e15c3bfe5a6a1a481` |
+| payload.img | 201,326,592 B，sha256 `9a82302b4388ecdb5bf1634ce74cd632643355074eb88648b76cd4f21ba3641b` |
+| payload 内 kernel.macho | sha256 `2aff1a647009e452a0826e72a24252f27d8aa900c7ca702d8a1b2ec606e8f17f` |
+| fd | `touch-20261114d-cf4485712c29.fd`，sha256 `cf4485712c29…` |
+| 头 | v4、header_size 1584、kernel_size 550,932、ramdisk_size = payload |
+
+**注意**：payload 步骤会 patch 内核，所以 `payload 内 kernel.macho` 的 sha256
+（2aff1a64…）与构建产出的 `kernel.macho`（0fa28b37…）**本来就不相等**，
+不要拿这两个互相比对。
+
+### 3.2 verify-boot-image.py
+
+`python3 scripts/verify-boot-image.py --manifest /mnt/e/k60-work/artifacts/wifi-20261114a/build-manifest.json`
+→ `verify-boot-image: OK`（VERIFY_RC=0）。七项全过：
+
+1. ANDROID! magic + v4 + header_size 1584
+2. kernel 槽单 gzip member、112 B BootShim、FD sha256 == manifest
+3. 尾部 FDT 长度一致且 ≤ 65536
+4. ramdisk 槽 == payload.img
+5. payload FAT 里 `EFI/UniXNU/Payloads/kernel.macho` == manifest.components.payload_kernel
+6. payload 内 `unixnu.toml` 的 args 与 manifest 一致
+7. 策略项：无 `pong_adsp=1`（该参数会让 boot 被拒）
+
+manifest 由 `E:\k60-work\evidence\wifi-trial\mkmanifest.py` 生成（因为这张
+boot.img 不是 build-strict.sh 出的，没有自动 manifest）。
+
+### 3.3 内核启动参数（payload.json 实测，顺序即实际顺序）
+
+```
+-v native-ufs=1 pong_allow_unauthenticated_root=1 debug=0x140 cs_enforcement_disable=1
+pong_software_keybag=1 disable_exc_resource=1 pong_ufs_readwrite=1 k60_console_export=1
+k60_usblog=2 pong_data_mount=1 pong_data_rw=1 amfi_get_out_of_my_way=1
+pong_init_path=/private/var/pong/init epoch=1793709100 k60_fontscale=3
+k60_skip_firmware_mount=1 k60_tolerate_cache_loader=1 launchd_unsecure_cache=1
+xpcproxy_idversion=1 k60_init_blob=1 k60_launchd_cache=1 k60_entitlement_allow=1
+k60_skip_iosurface=1 k60_panic_reset=1 pong_adreno_start=1 pong_metal=2
+k60_autoreset=300 applog=1 pong_wifi=1 k60_wifi_rsc=1
+```
+
+两个 WiFi 参数是**追加**的，不覆盖 board.toml 的既有 args（payload.py 按名字去重后
+再拼 extra）。`k60_autoreset=300` 意味着每轮观察窗口约 5 分钟。
+
+## 4. ⑧ 上机（device）
+
+### 4.1 期望的控制台标志（判读用，全部来自 PongWifiPlatform.cpp）
+
+按执行顺序：
+
+| 阶段 | 日志文本 | 源码位置 |
+|---|---|---|
+| 参数门 | 无 `pong_wifi=1` 时完全静默 | `pong_wifi_start_optional()` |
+| UFS 前置 | `UFS prerequisites absent; WiFi skipped` | `worker()` 的 180×500 ms 等待 |
+| RSC 探针 | `PongWifi: RSC probe open=%d TCS4=0x%08x (level %u)` | `pong_rpmh_vote()` |
+| RSC 只读 | `RSC probe-only mode; votes stay disabled` | 同上（`k60_wifi_rsc=1`） |
+| RSC 可投 | `SM8475 WLAN rail requests acknowledged` | `supplies()` 末尾 |
+| 链路 | `QCA6490 PCIe0 link and BAR established, bus master held off` | `coldLink()` |
+| SMMU | `exclusive SID1c01 native4K DMA and retained MSI landing page established` | `isolation()` |
+| MSI 布防 | `DesignWare MSI receiver armed on Pong PCIe0 SPI140` | `worker()` |
+| 中断 | `QCA6490 MSI delivered by GIC` | 主循环首次 `msiArrivals` 非零 |
+| 固件 | `PongWifi: ath11k start failed=%d`（失败才打） | 主循环 |
+| 扫描 | `QCA6490 station ready; starting actual scan` | MAC 就绪后 |
+| 周期 | `PongWifi: runtime state=%u scans=%u BSS=%u frames=%u MSI=%u receiver=%x dma-mib=%lu` | 每 15 s |
+
+**关键安全性质**：`fail()` 只 `log(3,...)` 不 panic
+（`bool fail(const char *s){log(3,s);return false;}`），所以 WiFi 任何一步失败
+都只是"WiFi 没起来"，正常 iOS 启动继续。
+
+### 4.2 已知上机风险
+
+- `drivers/ArmCpu/ArmCpu.cpp:403` `if(!owner)panic("ArmCpu: unowned SPI %u",intid);`
+  → 若 SPI 140 的中断在 `armcpu_spi_attach(172,...)` 成功之前到达，会 panic。
+  `ArmCpu` 的 SPI 槽只有 4 个（`static SpiOwner gSpi[4]`），已用 332（GPU），
+  WiFi 用 172，剩 2 个。
+- 设备被多条线（usb / rail / bt）高频轮占，且每轮 `k60_autoreset=300` 自动回
+  fastboot；supervisor 在 fastboot 不可见时**立刻退出不等待**
+  （`throw "target 6033dbec is not in fastboot"`），所以必须"看到 fastboot 的那
+  一瞬间就 boot"。
+
+### 4.3 待补
+
+- 一次完整的 `usblog-*` 控制台证据（含 `pong_wifi=1` 与 `k60_wifi_rsc`），
+  按 §4.1 的表格逐条判读。
+- 拿到之后才能把 `docs/research/EIGHT-STEPS.toml` 的 `[hardware.wifi]`
+  从 `status="parked"` 改成 `active` 并填 ③⑦⑧ 的 evidence。
+
+---
+
+## 5. 第一次上机之后：分级门控版（⑧ 进行中）
+
+### 5.1 第一次上机的结果
+
+| 镜像 | args | 结果 |
+|---|---|---|
+| `wifi-20261114a/boot.img` `1bf90492…` | `pong_wifi=1 k60_wifi_rsc=1` | `port-not-observed`，`bytes=0`，设备自行回 fastboot |
+| `wifi-20261114b/boot.img` `cf1d1ed8…` | `pong_wifi=1 k60_wifi_rsc=2` | 已构建，未上机（设备随后失联） |
+| `wifi-20261114c/boot.img` `622a1fd6…` | `pong_wifi=0`（对照） | 已构建，未上机 |
+
+证据 `/mnt/e/k60-work/evidence/usblog-20261114-wifi-b`：`capture.json` 是
+`portSeen=false, portOpened=false, openErrors=0, stopReason="fastboot-return"`，
+`console.log` 0 字节；`boot.json` 却是 `captureArmed=true, bootAccepted=true,
+bootExitCode=0, returnedToFastboot=true`。同一 supervisor、同一 fd、同一设备
+在 5 分钟前的 `usblog-20261114-raili` 拿到 220,576 字节 → 不是抓取链路问题。
+
+原因分析见 `STAGE-BRINGUP.md`：`ArmDTPlatform::configure()` 里的
+`pong_wifi_start_optional()` 比 `bsd_init.c:1341` 的 `k60_usblog_start()` 早
+约 180 行执行，worker 在控制台存在之前就去访问 TLMM / PMIC / GCC / PARF，
+一旦某个 GDSC 或时钟没起来就是 P-49 那种"互连挂死 + 0 日志 + 看门狗复位"。
+
+### 5.2 加了两道默认安全的门
+
+1. **控制台门（永久生效）**：worker 在**任何** MMIO 之前等
+   `k60_usblog_console_up()`（`bsd/dev/k60_usblog.c:1594-1598`，
+   即 `us >= 4`，控制台打完 `K60 USBLOG: running (DSTS …)` 之后为真），
+   最多等 240×500 ms = 120 s；等不到就
+   `console never came up; WiFi skipped before any MMIO` 并退出。
+   该符号已在 kernel.macho 里（`ffffff…07f687f0 S _k60_usblog_console_up`），
+   archive 直接链接即可。**从此 WiFi 若挂死，日志里一定留下最后一条 stage 行。**
+2. **分级门 `k60_wifi_stage`**：`stageOpen(n, what)` 打印
+   `PongWifi: stage %u (%s)`；`n > stageLimit` 时打印
+   `PongWifi: stage %u (%s) held back by k60_wifi_stage=%u` 并返回 false。
+   缺省/0 = 全跑。八个阶段：1 TLMM pinmux、2 PMIC rails(RPMh/RSC/cmd-db)、
+   3 GCC GDSC/refgen/NoC、4 PARF/DBI/PHY/ATU、5 82 项 PHY 表、
+   6 PERST+LTSSM、7 APPSSMMU SID 1c01、8 PARF MSI0→SPI140 attach。
+
+### 5.3 分级版产物（已构建，等设备）
+
+| 项 | 值 |
+|---|---|
+| archive | `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` 11,941,816 B（05:18） |
+| kernel.macho | 65,863,680 B，sha256 `f19ba0b37b9f7f30e49c0249cd4e9a397100df9dfd95da4788d0ab6488ec9bfc`（05:21） |
+| linkarchives 证据 | 含 `-Wl,-force_load,/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` |
+| boot.img | `/mnt/e/k60-work/artifacts/wifi-20261114d/boot.img` 201,887,744 B，sha256 `4b5c7dfd0e74dbf7efa61247e27754b24f11b0df068129a82adfac3e7549abc7` |
+| args | `… applog=1 pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` |
+| 构建日志 | `/mnt/e/k60-work/evidence/wifi-trial/{build-stage-archive.log,tree-stage.log,kernel-stage.log,payload-stage1.log,bootimg-stage1.log}` |
+| 构建脚本 | `E:\k60-work\evidence\wifi-trial\{build-stage-archive.sh,build-stage-kernel.sh,mkboot-stage1.sh}` |
+
+`unixnu build payload` / `bootimg` 同样要过 `gates.py`，在 `wifi-device`
+上必须带 `UNIXNU_SKIP_GATES=1`（否则 `build refused: … has no
+docs/engineering/RULES.toml`）。
+
+### 5.4 上机顺序（每步一次 boot）
+
+1. `k60_wifi_stage=1`：只碰 TLMM。期望日志：`console up after … ms` →
+   `stage 1 (TLMM pinmux …)` → `stage 2 (…) held back by k60_wifi_stage=1` →
+   `WiFi initialization stopped; normal iOS boot continues, DMA retained`。
+   这一步不碰 PMIC/GCC/PARF，理论上不可能挂死。
+2. `k60_wifi_stage=3 k60_wifi_rsc=1`：加 rail（只读 RSC 探针）与 GCC 时钟/GDSC。
+3. `k60_wifi_stage=6`：host MMIO、PHY 表、PERST、链路训练；成功标志
+   `QCA6490 PCIe0 link and BAR established, bus master held off` 与
+   `QCA6490 PCI subsystem=10817cb`。
+4. `k60_wifi_stage=8 k60_wifi_rsc=2`：SMMU + MSI attach + `ath11k start`。
+
+### 5.5 当前阻塞
+
+自 04:50 起手机既不枚举 ADB 也不枚举 fastboot，`Get-PnpDevice` 里也没有任何
+`VID_2717`/`VID_18D1`/`VID_1209` 在线项 → 需要人工长按电源约 10 s 强制重启。
+分级内核已就绪，设备一回来即可执行 §5.4 的第 1 步（脚本
+`race-boot2.ps1` 会每 0.7 s 抢 fastboot 窗口）。

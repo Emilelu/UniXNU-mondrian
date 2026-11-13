@@ -4208,10 +4208,15 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 
 ### P-176 追加：FD 修好之后的 panic 不是 FD
 
-同一内核（keep 的 ）、同一组参数，分别用旧 FD 和新 FD 打包启动，
-控制台统计完全一致：、、
-，panic 都是
-。
-今天所有镜像（含 keep 内核对、无 Data seed 的）都是 SB=7 同一个 panic，
-而 11-11 的 keep 镜像 SB=129 —— 说明剩下的阻塞在 payload 的 ADT/DTB 或用户态，
-与固件卷无关。判定 FD 是否修好，只看“内核有没有被加载”，不要拿 SB 数量当 FD 的指标。
+同一内核（keep 的 `kernel.macho`）、同一组参数，分别用旧 FD 和新 FD 打包启动，控制台统计完全一致：
+
+- `usblog-20261113-oldfd2`（旧 FD）：`lines=2185 KX=9 SB=7`
+- `usblog-20261113-orderfd2`（新 FD）：`lines=2145 KX=8 SB=7`
+- `usblog-20261113-orderfd-keepk`（新 FD + keep 内核）：`lines=2071 KX=8 SB=7`
+
+三者的 panic 都是 `initproc exited -- exit reason namespace 2 subcode 0xb description: none`。
+2026-11-13 当天所有镜像（含 keep 内核、含无 Data seed 的 `boot-noseed.img`）都是 SB=7 同一个 panic，
+而 11-11 23:32 的 keep 镜像 SB=129 —— 所以剩下的阻塞在 payload 的 ADT/DTB 或用户态，与固件卷无关。
+
+规则：判定 FD 是否修好，只看「内核有没有被加载」（控制台出现内核自身打印），
+不要用 SpringBoard 行数当 FD 的指标；两条链要分开记录、分开验证。

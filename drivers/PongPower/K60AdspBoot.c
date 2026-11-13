@@ -138,7 +138,13 @@ k60_adsp_md_window(uint64_t *base, uint64_t *size)
 	uint32_t i;
 
 	if (k60_md_size != 0) {
-		*base = k60_md_base;
+		/* memdev converts the physical base to a kernel VA in place before it
+		 * prints (measured: 0xfffffff0083b5000 for the 0x83b5000 window). This
+		 * platform maps physical memory at 0xfffffff000000000, so subtract that
+		 * base to recover the address ml_io_map wants. A bitmask looked right
+		 * and was wrong: the 36-bit mask kept three nibbles of the VA base and
+		 * produced 0xfff0083b5, which panicked at far 0x0fff0085b3. */
+		*base = k60_md_base - 0xfffffff000000000ULL;
 		*size = k60_md_size;
 		return 0;
 	}

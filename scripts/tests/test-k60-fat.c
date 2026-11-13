@@ -21,28 +21,28 @@ static void expect(int cond, const char *what)
 static void parse_cases(void)
 {
 	uint64_t base = 0, size = 0;
-	const char *args = "-v kextlog=0xfff pmd0=0x83b5000@0x2000000 other=1";
+	const char *args = "-v kextlog=0xfff pmd0=0x83b5000.0x2000000 other=1";
 
 	expect(k60_md_parse(args, strlen(args), "pmd0", &base, &size) == 0,
 	    "parse pmd0");
 	expect(base == 0x83b5000ull, "base value");
 	expect(size == 0x2000000ull, "size value");
 
-	expect(k60_md_parse("-v vmd0=1073741824@33554432",
-	    strlen("-v vmd0=1073741824@33554432"), "vmd0", &base,
+	expect(k60_md_parse("-v vmd0=1073741824.33554432",
+	    strlen("-v vmd0=1073741824.33554432"), "vmd0", &base,
 	    &size) == 0, "parse vmd0 decimal");
 	expect(base == 1073741824ull, "decimal base");
 	expect(size == 33554432ull, "decimal size");
 
-	expect(k60_md_parse("-v pmd0=0x1000@0x2000",
-	    strlen("-v pmd0=0x1000@0x2000"), "vmd0", &base, &size)
+	expect(k60_md_parse("-v pmd0=0x1000.0x2000",
+	    strlen("-v pmd0=0x1000.0x2000"), "vmd0", &base, &size)
 	    != 0, "wrong key is not accepted");
 	expect(k60_md_parse("-v pmd0=0x1000", strlen("-v pmd0=0x1000"), "pmd0", &base, &size) != 0,
-	    "missing @size is rejected");
+	    "missing size is rejected");
 	expect(k60_md_parse("-v pmd0=@0x2000", strlen("-v pmd0=@0x2000"), "pmd0", &base, &size) != 0,
 	    "missing base is rejected");
-	expect(k60_md_parse("pmd0=0x1000@0x2000x",
-	    strlen("pmd0=0x1000@0x2000x"), "pmd0", &base, &size) != 0,
+	expect(k60_md_parse("pmd0=0x1000.0x2000x",
+	    strlen("pmd0=0x1000.0x2000x"), "pmd0", &base, &size) != 0,
 	    "trailing junk is rejected");
 }
 

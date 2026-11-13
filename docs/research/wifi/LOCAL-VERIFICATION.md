@@ -382,6 +382,24 @@ archive 里存在 `PongWifi: stage %u (%s)`、`held back by k60_wifi_stage=%u`�
 `_k60_usblog_console_up`、`_pong_ufs_ready` 四个（都由内核提供），
 源码里 `stageOpen(` 共 11 处（1 处定义 + 10 处调用）。
 
+
+### 5.10 合规阶梯内核的符号面（上机前最后一次静态核对）
+
+对 `out-wifi/…/kernel/kernel.macho`（sha256 `73c33075…`，65,978,368 B）
+跑 `/usr/lib/llvm-18/bin/llvm-nm -a`，四个上机必需的符号都在：
+
+```
+fffffff00874a07c b __ZZ24pong_wifi_start_optionalE7started
+fffffff007f847f0 S _k60_usblog_console_up
+fffffff00858deb4 S _pong_smmu_lease_lock
+fffffff00852c0c8 S _pong_ufs_ready
+fffffff00858a8dc S _pong_wifi_start_optional
+```
+
+即：ArmDTPlatform 的 hook 入口、控制台门依赖的 `k60_usblog_console_up`、
+worker 的 UFS 门 `pong_ufs_ready`、以及 NativeUfs 侧要的 SMMU 租约锁全部解析成功，
+`llvm-nm -u` 里没有任何 `_pong`/`_nw_wifi` 未定义符号。
+
 上机脚本 `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1`
 （`-RaceSeconds 5400 -Seconds 150 -Tag ladder4`）：每 0.7 s 抢一次
 fastboot 窗口，命中后按 a→g 顺序逐张 boot，每张把结果写进

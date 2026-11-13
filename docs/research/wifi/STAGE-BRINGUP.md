@@ -199,6 +199,34 @@ rung for the phone to come back to fastboot and stops on the first timeout).
 Never `fastboot flash`; always `fastboot boot`, always with the collector
 armed first (`docs/engineering/BOOT-PROCEDURE.md`).
 
+
+## 6. How to read each rung's capture
+
+Run `python3 E:\k60-work\evidence\wifi-trial\analyze-ladder.py <evidence dir>`
+(it prints the capture verdict plus an ordered timeline of the PongWifi markers).
+The verdict decides the next move:
+
+| capture verdict | what it means | next move |
+| --- | --- | --- |
+| `port-not-observed`, `bytes=0`, `stop=fastboot-return` | nothing reached the console. Check `argcheck1.py` **first** — a >607-byte command line produces exactly this. If the length is fine, the kernel died before `k60_usblog_start` | boot the control rung `a`; if `a` also gives 0 bytes, the fault is in the image, not in WiFi |
+| `captured-…`, console has `console up after N ms` then `stage 1 (…)` … | the worker is alive and the gates work | read the timeline: the **last** `stage N` line names the last block that survived; the rung that died is N+1 |
+| console has `stage N (…) held back by k60_wifi_stage=M` | this rung ran exactly what it was asked to and stopped cleanly | the rung passed: move up one rung |
+| `WiFi initialization stopped; normal iOS boot continues, DMA retained` | the worker took its `done` path — iOS kept booting | expected ending for every rung below 10 |
+| `QCA6490 PCI subsystem=10817cb` + `link and BAR established` | ③'s endpoint facts are confirmed on real hardware | stage 8 passed; the next rung exercises SMMU/MSI |
+| `Pong: actual QMI board firmware <name>` then `ath11k start failed` | firmware asked for a `bdwlan*` file that is not in PWF2 | that name **is** the board-data selection evidence (`FIRMWARE.md` §8); pull exactly that file from `/vendor/firmware_mnt/image/qca6490/` |
+| `PongWifi: firmware <name> bytes=<n>` | the PWF2 lookup worked and the blob was handed to ath11k | keep reading towards `ath11k start` |
+| `QCA6490 station ready` + `runtime state=…` | station up, scan issued | ⑧ target reached; record the boot and update the eight-step table |
+| `panic(` / `K60CACHE FAIL` in the console | a real panic, not an interconnect hang | the panic text is in the console; fix that, do not widen the ladder |
+
+Two rules that have already cost a boot each:
+
+1. **Never trust a 0-byte console as "the kernel hung" until `argcheck1.py`
+   passes.** The 607-byte limit is enforced before the kernel is read.
+2. **Never boot an image whose `build-manifest.json` payload sha256 does not
+   match the payload that was current when it was built** — `unixnu build
+   payload` overwrites one shared `payload.img`, so a manifest built after the
+   next rung's payload will describe the wrong bytes.
+
 ## 5. Blocking issue right now
 
 Since 04:50 the phone enumerates neither ADB nor fastboot, and

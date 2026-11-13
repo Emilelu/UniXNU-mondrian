@@ -472,10 +472,23 @@ try:
         ok('X', '补丁全域同步', '')
     elif nbad > 2:
         bad('X', '%d 个未同步' % nbad, '只列前 2')
-    a = io.open(SERIES, encoding='utf-8', errors='ignore').read()
     b = io.open(REPO + '/patches/xnu/series', encoding='utf-8', errors='ignore').read()
     c = io.open(DEV + '/series', encoding='utf-8', errors='ignore').read()
-    ok('X', 'series 三处一致', '') if a == b == c else bad('X', 'series 三处一致', '不一致')
+    # The build consumes DEV/series. The scratch mirror used to be the third
+    # opinion, but it is a single file shared by every checkout: with five
+    # agents working at once, another agent's line appeared in it and this
+    # rule failed a tree that was perfectly consistent (2026-11-14). Compare
+    # the two copies that matter and report scratch drift separately.
+    if b == c:
+        ok('X', 'series 仓库与构建输入一致', '')
+    else:
+        bad('X', 'series 仓库与构建输入一致', '不一致')
+    try:
+        a = io.open(SERIES, encoding='utf-8', errors='ignore').read()
+        if a != b:
+            ok('X', 'scratch 镜像漂移', '仅供参考：%s 与仓库不同' % SERIES)
+    except OSError:
+        pass
 except Exception as e:
     bad('X', '同步检查', str(e))
 

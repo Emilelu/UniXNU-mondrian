@@ -19,7 +19,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 构建输入镜像。默认是共享目录；并行工作时用 K60_DEVICE_INPUT 指向自己的一份，
 # 否则谁最后同步谁就决定了别人构建用的补丁集（P-184 同类问题）。
 DEV = os.environ.get('K60_DEVICE_INPUT') or '/opt/k60/trees/usb-cdc-mainline/device'
-SCRATCH_SERIES = '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
+# 单一工作树时才写这份共享镜像。多 agent 并行时每人有自己的 K60_DEVICE_INPUT，
+# 若仍写同一个文件，最后同步的人就决定了别人 porting-gate 看到的 series
+# （2026-11-14 五个 agent 同时工作后实测：BT 的 0507 出现在 Lead 的树里）。
+SCRATCH_SERIES = os.environ.get('K60_SERIES_MIRROR') or '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
 
 # 仓库里需要镜像到构建输入的条目（相对路径）
 
@@ -133,7 +136,7 @@ def main():
     # series 也镜像到 scratch（一份只读副本，供别的脚本查）
     try:
         s = open(os.path.join(REPO, 'patches/xnu/series'), encoding='utf-8').read()
-        if not a.check:
+        if not a.check and not os.environ.get('K60_DEVICE_INPUT'):
             os.makedirs(os.path.dirname(SCRATCH_SERIES), exist_ok=True)
             open(SCRATCH_SERIES, 'w', encoding='utf-8', newline='\n').write(s)
     except OSError:

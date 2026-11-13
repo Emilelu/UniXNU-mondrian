@@ -46,6 +46,22 @@ ITEMS = [
     'mac-build',
 ]
 
+# mac-build 里既有输入也有产物。build-xnu-4k-baseline.sh 会调用
+# scripts/build-pong-platform-macos.py 等脚本，把 .a / build.log /
+# build-report.json 写进 *构建输入* 的 mac-build/ 下（PONG_NATIVE_DRIVER_SOURCE
+# 就是 device 目录）。这些是每轮构建的产物，不是输入：把它们算进同步，
+# 每次构建完 iron-5 都会报漂移，而“修”法只能是把产物覆盖回仓库 —— 那是拿
+# 旧产物冒充新输入。真正的输入只有 bindings.json 与 storage-abi/interface-audit.json。
+MAC_BUILD_PRODUCTS = ('.a', '.o', '.dylib')
+MAC_BUILD_PRODUCT_NAMES = ('build.log', 'build-report.json')
+
+
+def is_build_product(rel):
+    if not rel.startswith('mac-build/'):
+        return False
+    base = os.path.basename(rel)
+    return base in MAC_BUILD_PRODUCT_NAMES or base.endswith(MAC_BUILD_PRODUCTS)
+
 
 def walk_files(root, rel):
     """返回 rel 下所有文件（相对 rel 的路径）。"""
@@ -57,7 +73,10 @@ def walk_files(root, rel):
         dirnames[:] = [d for d in dirnames if d not in ('.git', '__pycache__', 'build')]
         for f in filenames:
             full = os.path.join(dirpath, f)
-            out.append(os.path.relpath(full, root))
+            relpath = os.path.relpath(full, root)
+            if is_build_product(relpath):
+                continue
+            out.append(relpath)
     return out
 
 

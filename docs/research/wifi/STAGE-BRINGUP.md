@@ -112,19 +112,45 @@ is returned, and the log ends with
 `WiFi initialization stopped; normal iOS boot continues, DMA retained`
 (`fail()` never panics).
 
-## 4. Boot plan (increasing risk, one boot per step)
+## 4. Boot ladder (increasing risk, one boot per step)
 
-1. `pong_wifi=1 k60_wifi_stage=1` — proves the console gate and the stage
-   plumbing with a single TLMM write. Must print
-   `console up after …`, `stage 1 (TLMM pinmux …)`,
-   `stage 2 (…) held back`, and the clean stop line.
-2. `k60_wifi_stage=3 k60_wifi_rsc=1` — adds rails (read-only RSC probe) and the
-   GCC clock/GDSC sequence.
-3. `k60_wifi_stage=6` — host MMIO windows, PHY table, PERST and link training.
-   Success is `QCA6490 PCIe0 link and BAR established, bus master held off`
-   and `QCA6490 PCI subsystem=10817cb`.
-4. `k60_wifi_stage=8 k60_wifi_rsc=2` — SMMU context plus MSI attach, then
-   `ath11k start`.
+All seven images were built from the same ten-stage kernel
+(`kernel.macho` sha256 `f430c2177cf1636e6265ef6a7c729802d3847dd518bfdb62efb78f30841197ef`,
+archive `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a`
+11,943,304 B) and each passed `scripts/verify-boot-image.py`. Build recipe:
+`E:\k60-work\evidence\wifi-trial\mkboot-ladder.sh`.
+
+| image | boot-args | what it must prove |
+| --- | --- | --- |
+| `wifi-20261115a` `a261340b…` | `pong_wifi=0` | control: this kernel still boots and gives a console |
+| `wifi-20261115b` `493fab93…` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` | console gate + stage plumbing, one TLMM write only |
+| `wifi-20261115c` `1126de64…` | `pong_wifi=1 k60_wifi_stage=3` | SPMI/PMIC page and cmd-db read, **no RSC access at all** |
+| `wifi-20261115d` `410e02e8…` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=4` | first RSC read (probe-only mode) |
+| `wifi-20261115e` `e45e50d9…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | real rail votes plus GCC GDSC/refgen |
+| `wifi-20261115f` `c7c39525…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | host MMIO, PHY table, PERST, link training |
+| `wifi-20261115g` `4173014a…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10` | SMMU context, MSI attach, `ath11k start` |
+
+Stop the ladder at the first image that loses the console: the rung that was
+new in that image is the one that hangs the interconnect. A successful rung
+prints its `stage N (…)` line, then the `held back` line for N+1, then
+`WiFi initialization stopped; normal iOS boot continues, DMA retained`.
+
+Milestones inside the ladder:
+
+- stage 3 clean ⇒ the cmd-db/SPMI path is safe before any RPMh traffic.
+- stage 4 clean ⇒ the RSC probe in `k60_wifi_rsc=1` mode is safe; if stage 4
+  dies while stage 3 lives, the RSC is the killer and the rail votes must be
+  restructured before any further attempt.
+- stage 8 clean ⇒ `QCA6490 PCIe0 link and BAR established, bus master held off`
+  and `QCA6490 PCI subsystem=10817cb` appear, i.e. the endpoint is enumerated
+  and the 17CB:1103 / BAR0 0x60200000 / IOVA 0xA0000000 facts from ③ are
+  confirmed on the device.
+- stage 10 is the first rung that can reach firmware load; expect it to stop at
+  the missing board data file (see `FIRMWARE.md` §8) and to log the exact
+  `bdwlan*` name ath11k asked for.
+
+Runner: `E:\k60-work\evidence\wifi-trial\ladder-run.ps1` (races fastboot,
+then walks the table in order, writing `E:\k60-work\evidence\usblog-wifi-ladder-<tag>`).
 
 Never `fastboot flash`; always `fastboot boot`, always with the collector
 armed first (`docs/engineering/BOOT-PROCEDURE.md`).

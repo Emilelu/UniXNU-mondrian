@@ -16,7 +16,9 @@ import sys
 
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEV = '/opt/k60/trees/usb-cdc-mainline/device'
+# 构建输入镜像。默认是共享目录；并行工作时用 K60_DEVICE_INPUT 指向自己的一份，
+# 否则谁最后同步谁就决定了别人构建用的补丁集（P-184 同类问题）。
+DEV = os.environ.get('K60_DEVICE_INPUT') or '/opt/k60/trees/usb-cdc-mainline/device'
 SCRATCH_SERIES = '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
 
 # 仓库里需要镜像到构建输入的条目（相对路径）

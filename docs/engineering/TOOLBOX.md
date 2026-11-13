@@ -37,6 +37,8 @@
 
 | 工具 | 路径 | 用途 |
 |---|---|---|
+| **build-strict.sh** | `scripts/build-strict.sh` | **唯一允许的实验构建入口**（P-181）：先跑 `eight-step-gate.py --build`，红了直接停；再真实传 `unixnu` 退出码；`--fd` 必填并归档；要求 `kernel.macho` 新于本轮 marker；写 `build-manifest.json`。用法 `scripts/build-strict.sh <tag> --fd <file.fd> [--kernel-arg K=V]` |
+| **verify-boot-image.py** | `scripts/verify-boot-image.py` | 构建后**实物校验**：从 boot.img 里读回 kernel/FD/DTB/payload kernel 并逐个比对 manifest 的 SHA；`--manifest <tag>/build-manifest.json`。自测 `python3 scripts/tests/test-verify-boot-image.py` |
 | buildv15.sh | `<workspace>/scratch/buildv15.sh` | 构建内核（≈200s） |
 | packv15.sh | `<workspace>/scratch/packv15.sh` | 打包 boot.img |
 | **SERIES-FINAL.txt** | `<workspace>/scratch/SERIES-FINAL.txt` | **补丁顺序真相源**（P-90：改仓库 series 无效） |

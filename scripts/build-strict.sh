@@ -66,6 +66,19 @@ SERIES_COUNT=$(grep -c . "$REPO/patches/xnu/series")
 
 echo "build-strict: tag=$TAG series=$SERIES_COUNT frozen=$FROZEN_SHA"
 
+# --- eight-step gate ---------------------------------------------------------
+# Iron rule 3: a build is only allowed when the eight-step evidence is complete.
+# static_check / unit_test / artifact_check are fields of docs/research/
+# EIGHT-STEPS.toml and only eight-step-gate.py evaluates them -- neither this
+# script nor `unixnu` used to look at them, so a build could pass with the
+# evidence missing. Run it first, keep its verdict, and refuse to build on red.
+if ! python3 "$REPO/scripts/eight-step-gate.py" --build > "$LOGS/eight-step.log" 2>&1; then
+    tail -30 "$LOGS/eight-step.log" >&2
+    die "eight-step gate refused this build (see $LOGS/eight-step.log)"
+fi
+EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
+echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
+
 # --- kernel ------------------------------------------------------------------
 touch "$MARK"; sleep 2
 if ! "$BUILD/unixnu" build kernel -D "$DEV" --out "$OUT" > "$LOGS/kernel.log" 2>&1; then
@@ -138,6 +151,8 @@ m = {
     "repo": {"branch": "$GIT_BRANCH", "head": "$GIT_HEAD", "dirty_files": $GIT_DIRTY},
     "series": {"count": $SERIES_COUNT, "sha256": "$SERIES_SHA"},
     "frozen": {"list_sha256": "$FROZEN_SHA", "file": "frozen-before.txt"},
+    "gates": {"eight_step": "passed", "eight_step_log": "$LOGS/eight-step.log",
+              "eight_step_sha256": "$(sha_or_empty "$LOGS/eight-step.log")"},
     "components": {
         "kernel_built": "$KERNEL_SHA",
         "payload": "$PAYLOAD_SHA",

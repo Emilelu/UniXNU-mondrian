@@ -151,7 +151,7 @@ python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
 | A1 | `bt-s1c-a1-20261114a` | 1 | 40 | `18dcc4e432d5b04cced79c142ef93c40162914620c7112659872b348f8f516d2` | `10f75e16be38830e…` |
 | A2 | `bt-s1c-a2-20261114a` | 4 | 40 | `09f85292c31bf5e108a61ec6fcf6adfe114cf51fda77bd5789c667d4f5a4e22f` | `19cb31b7b81d5bec…` |
 | A3 | `bt-s1c-a3-20261114a` | 5 | 40 | `e8422218a2c29ea29accd71ceb3f665ba2f0093b15bfb135b484c86d98953eb0` | `f8bafe4be368f97d…` |
-| A4 | 待建 | 7 | 40 | — | — |
+| A4 | `bt-s1c-a4-20261114a` | 7 | 40 | `9407288ea9077b841eae6227e3144809663a0fe0912ac31a9b3a95c1d1cdec3c` | `cf28f72203e2a0a5…` |
 | A5 | `bt-s1c-20261114b` | 9 | 40 | `1ece32145836d1f28295fad8789981cb074a213abcab8f8f3ba1da6dc4ae9c8c` | `b6244168…` |
 
 （`bt-s1c-20261114a` 是 step 默认 9、delay 20 的那一份，`ed59f007…`，仅留档。）

@@ -327,3 +327,20 @@ their branches and the reasoning behind every adopted change.
 违反实例（本次自查）：`bf487cc`、`c2fa573`、`234574a`、`d1843c2`、`20ce047`、
 `8206fb4` 直接把补丁序列与驱动源码的改动提交到 `main`，其中多轮只做到 `BUILD OK`，
 没有一次上机。见 P-174。
+
+### 铁则 10 — 环境不进仓库
+
+外部机器（局域网里的 Mac、构建服务器、路由器）的**地址与口令不是项目的一部分**。
+仓库是公开的、历史是永久的：一次 push 就把整条历史发出去，事后删除文件也收不回
+别人已经克隆的副本。
+
+- 文档里只写占位符：`<user>@<mac-host>`、`sshpass -p <password>`、`<local-dir>`
+- 真实地址/口令放仓库之外的本地文件（`E:\k60-work\` 或 `~/.k60-env`），
+  并用 `source` 引入；不要写进任何 `docs/`、`scripts/`、`board.toml`
+- 提交前自查：`python3 scripts/check-secrets.py`
+- 门禁：`scripts/check-secrets.py`（注册为 `iron-10`）
+
+违反实例（2026-11-14 自查）：`docs/engineering/HARD-RULES.md` 的 ★7 探活命令
+把 Mac 的地址与口令原样写进了正文，并随 `2e44f46` 进入公开历史。已改成占位符，
+口令另行更换。
+

@@ -1,0 +1,55 @@
+Gate fix for Lead: give research-gate.py and check-docs.py the same repo switch
+check-rules.py already has, and make research-gate print its problems.
+
+Why (evidence, 2026-11-14):
+- scripts/research-gate.py:34 and scripts/check-docs.py:24 both hardcode
+  REPO = '/mnt/e/hackios/UniXNU-mondrian', the shared checkout owned by touch-agent.
+  Any other line that runs them gets the main checkout's numbers, not its own:
+  in /mnt/e/hackios/k60-refmine the shipped scripts report "32 reference sources"
+  and "187 items" while the same scripts pointed at that tree report
+  "50 reference sources" and "189 items".
+- scripts/research-gate.py:88 calls check() without verbose, so the problems list
+  is never printed: a failing run emits only "结论: ❌ 研究完整性未通过" with no reason.
+  scripts/check-rules.py:75-79 already accepts --repo, so the pattern exists.
+
+Verified with this patch applied to copies in /mnt/e/k60-work/scratch/refmine/gate:
+  K60_REPO=/mnt/e/hackios/k60-refmine python3 fixed-research-gate.py
+    -> 已考察 50 个参考源 / 结论: ✅ 研究完整性通过 / rc=0
+  K60_REPO=/mnt/e/hackios/k60-refmine python3 fixed-check-docs.py
+    -> 共检查 189 项 / 结论: ✅ 文档一致性通过 / rc=0
+With K60_REPO unset both keep the current behaviour (main checkout), so applying
+this changes no existing result.
+
+Apply from the repository root with:  git apply docs/research/evidence/gate-repo-switch.diff
+
+--- a/scripts/research-gate.py
++++ b/scripts/research-gate.py
+@@ -31,7 +31,7 @@
+     except ImportError:
+         tomllib = None
+ 
+-REPO = '/mnt/e/hackios/UniXNU-mondrian'
++REPO = os.environ.get('K60_REPO', '/mnt/e/hackios/UniXNU-mondrian')
+ SOURCES = os.path.join(REPO, 'docs', 'research', 'SOURCES.toml')
+ 
+ 
+@@ -85,7 +85,7 @@
+ 
+ 
+ if __name__ == '__main__':
+-    ok, probs = check()
++    ok, probs = check(verbose=True)
+     print()
+     print('结论: %s' % ('✅ 研究完整性通过' if ok else '❌ 研究完整性未通过'))
+     sys.exit(0 if ok else 1)
+--- a/scripts/check-docs.py
++++ b/scripts/check-docs.py
+@@ -21,7 +21,7 @@
+ 
+ from pathlib import Path
+ 
+-REPO = '/mnt/e/hackios/UniXNU-mondrian'
++REPO = os.environ.get('K60_REPO', '/mnt/e/hackios/UniXNU-mondrian')
+ FILES = [
+     REPO + '/README.md',
+     REPO + '/README_EN.md',

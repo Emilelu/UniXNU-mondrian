@@ -37,7 +37,7 @@ new file mode 100644
 +/* Copyright (c) 2026, UniXNU contributors. */
 +/* Adapted from pong-power c37179ed QcomSmem.c (BSD-2-Clause-Patent). No heap
 + * allocation or cached Android data. Reads are aligned and partition-bounded. */
-+#include "K60Smem.h"
++#include "pong_smem.h"
 +
 +#define TOC_MAGIC 0x434f5424u
 +#define PART_MAGIC 0x54525024u

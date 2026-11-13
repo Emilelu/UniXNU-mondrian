@@ -9,6 +9,7 @@
 """
 import argparse
 import filecmp
+import json
 import os
 import shutil
 import subprocess
@@ -60,12 +61,36 @@ ITEMS = [
 MAC_BUILD_PRODUCTS = ('.a', '.o', '.dylib')
 MAC_BUILD_PRODUCT_NAMES = ('build.log', 'build-report.json')
 
+# bindings.json 是输入，但里面有构建时会被重写的字段：scripts/bind-ios16-storage.py
+# 每轮把 compiled_object_sha256 换成当轮编译对象的哈希。整文件逐字节比较会让
+# iron-5 在每次构建后都报漂移，而“修”法只能拿旧产物覆盖仓库。所以这类文件
+# 按去掉易变字段后的 JSON 比较（P-188）。
+VOLATILE_JSON_FIELDS = {
+    'mac-build/native-ufs/bindings.json': ('compiled_object_sha256',),
+}
+
 
 def is_build_product(rel):
     if not rel.startswith('mac-build/'):
         return False
     base = os.path.basename(rel)
     return base in MAC_BUILD_PRODUCT_NAMES or base.endswith(MAC_BUILD_PRODUCTS)
+
+
+def same_file(src, dst):
+    """比较两个文件是否算“已一致”，对已知易变字段按语义比较。"""
+    volatile = VOLATILE_JSON_FIELDS.get(src)
+    if volatile and os.path.exists(dst):
+        try:
+            a = json.loads(open(src, encoding='utf-8').read())
+            b = json.loads(open(dst, encoding='utf-8').read())
+        except (OSError, ValueError):
+            return filecmp.cmp(src, dst, shallow=False)
+        for key in volatile:
+            a.pop(key, None)
+            b.pop(key, None)
+        return a == b
+    return filecmp.cmp(src, dst, shallow=False)
 
 
 def walk_files(root, rel):
@@ -102,7 +127,7 @@ def main():
         for rel in walk_files(REPO, item):
             s = os.path.join(REPO, rel)
             d = os.path.join(DEV, rel)
-            if os.path.exists(d) and filecmp.cmp(s, d, shallow=False):
+            if os.path.exists(d) and same_file(rel, d):
                 same += 1
                 continue
             if a.check:

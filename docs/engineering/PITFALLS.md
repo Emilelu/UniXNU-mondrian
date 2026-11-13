@@ -4220,3 +4220,56 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 
 规则：判定 FD 是否修好，只看「内核有没有被加载」（控制台出现内核自身打印），
 不要用 SpringBoard 行数当 FD 的指标；两条链要分开记录、分开验证。
+
+### P-177 `--kernelcache` 不换内核，`--kernel` 才换
+
+现象：把「已知可启动内核」换进我们自己的打包里做对照，连做三次都仍然 panic，
+于是错误地得出「内核无罪」。真实原因是 `unixnu build payload` 收下了 `--kernelcache`
+却仍把构建目录里的 `kernel.macho` 打进 payload。
+
+依据：`unixnu build payload --help` 同时有 `--kernelcache FILE`（原始解压内核缓存，
+给 prelink / trust cache 用）和 `--kernel FILE`（真正打进 payload 的内核）。
+
+规则：凡是要换内核做对照，必须用 `--kernel`；打包后必须从镜像里把内核抽出来核对：
+
+```
+mdir  -i <img>@@<fat> ::/EFI/UniXNU/PAYLOADS/
+mcopy -o -i <img>@@<fat> ::/EFI/UniXNU/PAYLOADS/kernel.macho /tmp/k.bin
+sha256sum /tmp/k.bin
+```
+
+大小/哈希与源文件一致才算换成功。本次实测：keep 内核 54,280,192 B（`ce97b50a…`），
+我们构建的内核 54,525,952 B —— 只看 `unixnu` 的退出码会漏掉这个差别。
+
+### P-178 上机对照：一次只换一个产物，且每个产物都要有可验证的替换入口
+
+本次把「11-11 能进系统的 keep 镜像」逐项搬进当前构建，得到下面的矩阵（每行都是一次真实启动）：
+
+| 替换项 | 入口 | 结果 |
+|---|---|---|
+| 固件卷 FD `cf448571…` | `bootimg --fd FILE` | 仍 `initproc exited` panic |
+| ADT 15,304 B | 打包后 `mcopy` 覆盖 payload 内 `EFI/UniXNU/PAYLOADS/kernel.macho.adt` | 仍 panic |
+| DTB 1,866 B | `bootimg --dtb FILE` | 仍 panic（镜像大小回到 201,883,648） |
+| `METAL/` 目录 | 从 keep 镜像里 `mdeltree` 删掉 | 仍能进系统 SB=133 |
+| 内核 `ce97b50a…` | `build payload --kernel FILE`（见 P-177） | **进系统 SB=133** |
+
+规则：任何「某组件无罪」的结论必须附「该组件确实被换掉了」的证据（大小或 sha256 或独有字符串），
+否则一律记为未测。`cs_invalid_page`、`shared_region`、`K60DYLD` 这类日志在能进系统的镜像里也会出现，
+不能拿它们当回归判据；判据只能是启动后的 SpringBoard 行数与是否 panic。
+
+### P-179 `initproc exited … ns=2 code=0xb` 是 SIGSEGV，不是 AMFI 拒绝 exec
+
+`bsd/sys/reason.h` 的命名空间表：`OS_REASON_SIGNAL = 2`、`OS_REASON_CODESIGNING = 3`、
+`OS_REASON_EXEC = 9`，而 `EXEC_EXIT_REASON_SECURITY_POLICY = 8`。
+
+- `KX! 18 1 launchd exit=0 sig=11 r=1 ns=2 code=0xb` → 信号命名空间 + 11 号信号 = SIGSEGV，
+  即 launchd 自己段错误，initproc 死亡才触发 panic；
+- AMFI 拒绝 exec 会是 `ns=9 code=0x8`，或者 `ns=3`（codesigning），不是 `ns=2`。
+
+它仍然接在 codesign 链上：同一份日志里 `CODE SIGNING: cs_invalid_page(0x10086b000): p=1[launchd] …
+allowing (remove VALID) page`，而 `KXPC 1 launchd pc=0x10086b158` 正好落在那一页。
+但 keep 内核每次启动也会报一个 cs_invalid 页（`0x1003a5000` / `0x1009a8000`，随加载地址变化），
+照样进系统 —— 所以「有一页被 remove VALID」本身不致命，致命的是进程后来执行到了那一页。
+
+规则：看到 `ns=2` 先按信号解码（`sig=` 字段），不要直接归因 AMFI；要判断是不是 AMFI 拒绝，
+看 `ns=9 code=8`。

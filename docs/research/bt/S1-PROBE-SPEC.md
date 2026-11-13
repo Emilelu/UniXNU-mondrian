@@ -1,6 +1,6 @@
 # S1 只读探针规格（k60bt_stage=1）
 
-状态：**S1a 上机一次 → 0 字节日志、板子挂死，不可判定**（§0）；**S1c 已生成、语法通过，待接线构建与上机**（§0.1）。
+状态：**S1a 上机一次 → 0 字节日志、板子挂死，不可判定**（§0）；**S1c 已接线、已构建（`bt-s1c-20261114a`）、待上机**（§0.1）。
 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch`
 （13,001 B / 280 行 / 36 个打点，sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1`），
 接在 `patches/xnu/series:205`（0502 之后、0503 之前）。
@@ -38,7 +38,7 @@
 | 相对 S1b | 步数 6 → **9**：新增 `s5`（只读 SE20 RCG 三个寄存器）、`s6`（置 `CMD_ROOT_EN` 并轮询 `CMD_ROOT_OFF` 清零）、`s7`（把 CFG 写成 TCXO/1 并 `CMD_UPDATE` 锁存）；原 GENI 读顺延为 `s8`/`s9` |
 | 打点数 | 36 个 `probe: ` 打点（S1b 为 25） |
 | 验证 | `EXTRACT_OK`（与 `8451c870…` 逐字节一致）、`APPLY_CHECK_OK`、`clang -fsyntax-only` PASS（§8） |
-| 构建 | **未构建**：等 S1c 补丁进 `patches/xnu/series`（已在该位置）+ 镜像重打 |
+| 构建 | **已构建**：`/mnt/e/k60-work/artifacts/bt-s1c-20261114a/`，boot.img `ed59f0075cc51e3ed810b17828122e93ddfd9a01a182cd418b0666d57dadd512`，内核 `ea79897cacb3142e9c58730befadc7a4c140278f3a82774ae3c5732b693b36f2`，payload 内核 `111aa459…`，`verify-boot-image: OK`，series 224，`repo head c2a0a63`，`dirty_files 0` |
 | 上机状态 | **未上机**：板子自 S1a 起处于 USB 掉线挂死，必须先物理断电复位 |
 
 ## 1. 目的

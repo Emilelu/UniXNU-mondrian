@@ -4437,3 +4437,43 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 
 **教训**：写文件时用 `write` 工具（写 UTF-8 LF），不要用 PowerShell 重定向；
 提交前看 `git diff --stat` 的增删行数是否和改动规模相符 —— 不相符就是换行符或编码翻转。
+
+### P-190 — 归档加进 `KERNEL_EXTRA_ARCHIVES` 却没进内核：那块代码在死分支里
+
+**现象**：`configs/mondrian_defconfig` 打开 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`，
+`scripts/build-xnu-4k-baseline.sh` 里两处接线都写了（`PERSONALITY_CFLAGS` 加
+`-DXNU_K60_PHYSICAL_BATTERY=1`、`KERNEL_EXTRA_ARCHIVES` 加
+`-Wl,-force_load,$BATTERY_ARCHIVE`），构建成功、`verify-boot-image.py` 通过，
+但内核里 `strings kernel.macho | grep -c K60Battery` = **0**、`nm | grep k60_physical_battery_start` = **0**。
+归档本身没问题（`llvm-ar t` 七个成员、`strings` 里 114 处 `K60Battery`）。
+
+**原因**：`KERNEL_EXTRA_ARCHIVES` 的**整段**（第 898–1092 行）嵌在
+`if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then … fi` 里面。而生成的
+`.config` 第 2 行是 `CONFIG_XNU_SOURCE_CORECRYPTO14=y`、第 88 行是
+`=n` —— `unixnu/scripts/unixnu/config.py:82-107` 的 `parse_config()` 让**后出现的赋值覆盖前面的**
+（这是 defconfig 片段拼接的正常语义），所以 `xnu_env()` 传给构建脚本的是 `XNU_SOURCE_CORECRYPTO14=0`，
+整段被跳过。**这个板子真正生效的链接列表是 `PLATFORM_ARCHIVES`**（第 1150 行起，
+条件 `[ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]`），
+`ArmDTPlatform`、`ArmCpu`、`NativeUfs`、`NativeRamBlock` 都在那里加。
+所以「归档加进 `KERNEL_EXTRA_ARCHIVES`」在这个板子上是**空操作**。
+
+**修法**：把电池归档加进 `PLATFORM_ARCHIVES`（同时更新 `PLATFORM_DEPENDENCIES`），
+保留 `KERNEL_EXTRA_ARCHIVES` 那一份给未来重新启用 source-corecrypto 的配置用。
+
+**怎么避免再踩**：
+1. 加任何 `-Wl,-force_load` 归档后，**必须验证符号真的进了内核**：
+   `llvm-nm-18 $M/kernel/kernel.macho | grep -c <symbol>`，不能只看 `test -f` 通过和构建成功。
+2. 判断"我加的这行到底会不会执行"要读**外层条件**，不是只读相邻几行 —— 用
+   `awk` 打印整段的 `if`/`fi` 骨架（`awk 'NR>=898 && NR<=1100 && (/^if /||/^  if /||/^fi$/)'`）。
+3. 同一个 `.config` 里出现两次同名 `CONFIG_` 时，**最后一次生效**；`check-config-consistency.py`
+   把这种重复作为 note 打印出来（`duplicate CONFIG_XNU_SOURCE_CORECRYPTO14: line 2 has y; line 88 has n`），
+   看到这类 note 就要想到"构建脚本里用这个符号分支的代码可能整段不执行"。
+
+**同一 bug 的第二种形状（2026-11-14，由门禁自测抓出）**：`scripts/check-kernel-archives.py`
+第一版把两个键写成 `ARM_DT_PLATFORM` / `XNU_ARMCPU`，而生成的键是
+`CONFIG_XNU_ARM_DT_PLATFORM` / `CONFIG_XNU_ARMCPU`。`enabled()` 对认不出的名字只返回 False，
+于是门禁**静默跳过**了它本该守的四个归档里的两个，还打印 `✅ … 2 enabled archive(s)`。
+认不出名字就跳过的门禁比没有门禁更糟。修法：每个键都从真实 `.config` 行抄；
+跳过时打印 `skip: CONFIG_… is not enabled`；新增
+`scripts/tests/test-check-kernel-archives.py`（5 个用例）第 1 个断言
+`EXPECTED` 里每个键都真实存在于 `configs/mondrian_defconfig`。

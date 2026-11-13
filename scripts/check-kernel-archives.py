@@ -27,11 +27,16 @@ DEFAULT_OUT = Path(os.environ.get("K60_OUT") or "/opt/k60/trees/k60build/out-bas
 NM_CANDIDATES = ("/usr/bin/llvm-nm-18", "/usr/bin/llvm-nm", "llvm-nm-18", "llvm-nm", "nm")
 
 # (config symbol, archive path relative to the built tree, symbol substring)
+# The first field is the config key WITHOUT the CONFIG_ prefix. Measured
+# 2026-11-14: writing "ARM_DT_PLATFORM" here silently skipped the entry, because
+# the generated key is CONFIG_XNU_ARM_DT_PLATFORM -- a gate that skips what it
+# cannot name is worse than no gate, so every key below is copied from a real
+# .config line and the count is printed on success.
 EXPECTED = (
     ("XNU_K60_PHYSICAL_BATTERY", "build/k60-battery/libK60PhysicalBattery.a", "k60_physical_battery_start"),
     ("XNU_NATIVE_UFS", "build/native-ufs/libNativeUfs.a", "NativeUfs5start"),
     ("XNU_ARMCPU", "build/armcpu/libArmCpu.a", "ArmCpu10prepareGic"),
-    ("ARM_DT_PLATFORM", "build/armdt-platform/libArmDTPlatform.a", "ArmDTPlatform"),
+    ("XNU_ARM_DT_PLATFORM", "build/armdt-platform/libArmDTPlatform.a", "ArmDTPlatform"),
     ("XNU_NATIVE_ADRENO", "build/native-adreno/libNativeAdreno.a", "NativeAdreno"),
 )
 
@@ -107,12 +112,19 @@ def main(argv: list[str] | None = None) -> int:
     checked = 0
     for symbol, rel, needle in EXPECTED:
         if not enabled(config, symbol):
+            print(f"skip: CONFIG_{symbol} is not enabled in {config.name}")
             continue
         checked += 1
         # build-strict.sh points the battery archive at the checkout that built
         # it, because that archive is not produced inside the tree.
         override = os.environ.get("XNU_K60_BATTERY_ARCHIVE") if symbol == "XNU_K60_PHYSICAL_BATTERY" else None
-        archive = Path(override) if override else tree / rel
+        if override:
+            archive = Path(override)
+        elif symbol == "XNU_K60_PHYSICAL_BATTERY" and (REPO / rel).is_file():
+            # This archive is built into the checkout, not into the tree.
+            archive = REPO / rel
+        else:
+            archive = tree / rel
         if not archive.is_file():
             problems.append(f"CONFIG_{symbol}=y but {archive} is missing")
             continue

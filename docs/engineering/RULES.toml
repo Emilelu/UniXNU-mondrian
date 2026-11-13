@@ -508,3 +508,10 @@ kind = "hard"
 statement = "A file committed as LF must not be re-committed as CRLF; the diff must show the real change, not every line."
 check = "python3 scripts/check-line-endings.py"
 note = "2026-11-14: an edit from Windows turned a 37-line change in AGENTS.md into 366 insertions and 366 deletions."
+
+[[rule]]
+id = "P-190"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-190"
+statement = "force_load 归档必须验证符号真的进了内核；门禁表里的键必须来自真实 .config 行"
+check = "python3 scripts/check-kernel-archives.py"

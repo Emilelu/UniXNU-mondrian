@@ -170,6 +170,9 @@ k60_rail_probe(void)
 	if (rc != K60RpmhOk) {
 		printf("K60RAIL ldoc2 not found rc=%d\n", rc);
 	} else {
+		uint32_t index = 0;
+		int li = k60_rpmh_level_index(&res, 1800, &index);
+
 		/* The level table did not look like millivolts, so dump the bytes
 		 * that produced it instead of guessing a different field layout.
 		 * ldoc2 lives in a different slave than the clock resources, so walk

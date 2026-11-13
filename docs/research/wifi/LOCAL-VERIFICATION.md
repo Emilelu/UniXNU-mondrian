@@ -320,27 +320,60 @@ payload 内 kernel、unixnu.toml args 七项）。构建脚本
 ### 5.7 十级阶梯（当前有效的一套，取代 §5.6 的八级）
 
 `supplies()` 被拆成 stage 2/3/4 之后总级数变成十级，§5.6 的八级镜像随之作废
-（仅留作历史对照）。十级内核：`kernel.macho` 65,863,680 B sha256
-`f430c2177cf1636e6265ef6a7c729802d3847dd518bfdb62efb78f30841197ef`，
-archive `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` 11,943,304 B。
-构建脚本 `E:\k60-work\evidence\wifi-trial\mkboot-ladder.sh`。
+（仅留作历史对照）。
 
-| 目录 | args 尾部 | boot.img sha256（前 32 位） |
-|---|---|---|
-| `wifi-20261115a` | `pong_wifi=0` | `a261340bca82390b1ab17f7e43178966` |
-| `wifi-20261115b` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` | `493fab938505ca0206d459ba7668a410` |
-| `wifi-20261115c` | `pong_wifi=1 k60_wifi_stage=3` | `1126de64a2a76d1d59387396796a5315` |
-| `wifi-20261115d` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=4` | `410e02e8ac7bdd4abac9d145d9ef180e` |
-| `wifi-20261115e` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | `e45e50d9e361663b276a2be2b368d8d4` |
-| `wifi-20261115f` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | `c7c3952546712a66bc6ee4f7d0137101` |
-| `wifi-20261115g` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10` | `4173014a5890a8c91aa2e6af004399f1` |
-| `wifi-20261115h` | 同 g，但 PWF2 含 `bdwlan.elf`/`bdwlang.elf` | `20908a032ad1e1a469cd635f8a441108` |
-
-a–g 共用 `f430c217…` 内核；h 用六文件固件包编出的内核
+**第一版十级阶梯（`wifi-20261115a…h`，内核 `f430c217…`）已整体作废**：
+它们的命令行是 619–620 字节，超过 DarwinBoot 的 607 字节上限，见 §5.8。
+唯一仍然有效的是 `wifi-20261115h` 用的六文件固件内核
 `73c33075d44d231360f26b771bae5bd3ae893ae5fd9865cf8ffcb73f342cfc75`
 （65,978,368 B，`_pong_wifi_firmware` fffffff007094000 →
-`_pong_wifi_firmware_end` fffffff007b3fed6，span 11,189,974）。
-八张镜像全部 `verify-boot-image: OK`。
+`_pong_wifi_firmware_end` fffffff007b3fed6，span 11,189,974），
+archive `/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a` 12,066,184 B。
+
+### 5.8 合规阶梯（a–g，唯一可上机的一套）
+
+七张镜像全部用上面那个六文件内核重出，并且每张都跑了
+`argcheck1.py`（解 boot v4 头 → ramdisk 槽 → `mtype` 读
+`::EFI/UniXNU/unixnu.toml` → 正则取 `args`，上限 607）。构建脚本
+`E:\k60-work\evidence\wifi-trial\mkboot-ladder4.sh`，命令里带
+`TRIM="--kernel-arg epoch=1 --kernel-arg debug=1"`（让出 25 字节）。
+
+| 目录 | args 尾部 | 长度 | boot.img sha256（前 32 位） |
+|---|---|---|---|
+| `wifi-20261115a` | `pong_wifi=0` | 574 | `4cd551960ee327b3a56093b0e963d203` |
+| `wifi-20261115b` | `pong_wifi=1 k60_wifi_stage=1` | 591 | `22edfa7137a5f98dfeacc92a018dd59e` |
+| `wifi-20261115c` | `pong_wifi=1 k60_wifi_stage=3` | 591 | `97d122d5f588961f0ea91f77b562c3a0` |
+| `wifi-20261115d` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=4` | 606 | `dfb916fcd924d002cd3a91e783158d59` |
+| `wifi-20261115e` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | 606 | `922627bfba06e1e8d69a281a4f6c5de4` |
+| `wifi-20261115f` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | 606 | `418d07ecc277d01a6e97694df220d671` |
+| `wifi-20261115g` | `pong_wifi=1 k60_wifi_rsc=2`（全十级） | 589 | `f27b9cb8df73ae435629a7ee068351af` |
+
+七张全部 `verify-boot-image: OK` 且 `argcheck1.py` 全部 ok。
+`wifi-20261115h`（620 字节）**不得上机**：它会在 DarwinBoot 里被直接拒绝，
+表现为 `port-not-observed` + 0 字节控制台，看起来像内核挂死但内核根本没被装载。
+
+### 5.9 为什么 607 是硬线（这条以前被漏掉）
+
+`uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8`
+`#define DARWIN_BOOT_LINE_LENGTH 608`，
+`DarwinBoot.c:678-684`：
+
+```c
+if ((Index >= sizeof (CommandLine) - 1) || (Request->BootArgs[Index] > 0x7f)) {
+  return EFI_BAD_BUFFER_SIZE;
+}
+```
+
+即**长度 ≥ 607 或含任何 >0x7f 的字节**都直接返回，且这个返回发生在
+`ReadFile`/`ParseKernel` 之前 —— 屏幕停在 REQUEST 阶段，串口一个字节都没有，
+设备自己回 fastboot。board.toml 现有 29 项占 575 字节，
+`pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10` 要再加 45。
+
+旁证：bt 线 `usblog-20261114-bts1b-run1` 的 args 是 610 字节，正好是
+`state=port-not-observed, bytes=0, stopReason=port-timeout`。
+框架侧 `payload.py:30-38 check_args()` 只拦 >1000，注释里的
+「DarwinBoot copies the command line into a 1024-byte buffer」是过时的，
+不会替我们拦住 607–1000。
 
 静态门禁（`E:\k60-work\evidence\wifi-trial\static-stage-gates.log`）：
 archive 里存在 `PongWifi: stage %u (%s)`、`held back by k60_wifi_stage=%u`、
@@ -349,8 +382,9 @@ archive 里存在 `PongWifi: stage %u (%s)`、`held back by k60_wifi_stage=%u`�
 `_k60_usblog_console_up`、`_pong_ufs_ready` 四个（都由内核提供），
 源码里 `stageOpen(` 共 11 处（1 处定义 + 10 处调用）。
 
-上机脚本 `E:\k60-work\evidence\wifi-trial\ladder-run.ps1`：每 0.7 s 抢一次
-fastboot 窗口，命中后按 a→h 顺序逐张 boot，每张把结果写进
-`E:\k60-work\evidence\usblog-wifi-ladder-<tag>`，并在每轮之后等设备回 fastboot
-（最多 180 s）；任何一张没回来就停下，那说明该级新增的寄存器访问挂了互连。
+上机脚本 `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1`
+（`-RaceSeconds 5400 -Seconds 150 -Tag ladder4`）：每 0.7 s 抢一次
+fastboot 窗口，命中后按 a→g 顺序逐张 boot，每张把结果写进
+`E:\k60-work\evidence\usblog-<stamp>-ladder4`，并在每轮之后等设备回 fastboot
+（最多 240 s）；任何一张没回来就停下，那说明该级新增的寄存器访问挂了互连。
 

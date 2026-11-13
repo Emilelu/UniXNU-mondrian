@@ -31,7 +31,7 @@ except ImportError:
     except ImportError:
         tomllib = None
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCES = os.path.join(REPO, 'docs', 'research', 'SOURCES.toml')
 
 

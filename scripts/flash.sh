@@ -15,7 +15,7 @@ SECS="${2:-220}"
 ADB=/mnt/d/Android/platform-tools/adb.exe
 FB=/mnt/d/Android/platform-tools/fastboot.exe
 SERIAL="${K60_SERIAL:-6033dbec}"
-REPO=/mnt/e/hackios/UniXNU-mondrian
+REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d /tmp/k60flash.XXXXXX) || exit 1
 trap 'rm -rf "$WORK"' EXIT
 PG_ARGS="--quick"

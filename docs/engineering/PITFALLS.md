@@ -4353,3 +4353,34 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 证据：`E:\k60-work\evidence\usblog-20261113-allold2`（SB=129）、
 `usblog-20261113-cut0401b`（SB=133）、`usblog-20261113-noinitblob`（SB=129）、
 对照组 `usblog-20261113-rev0340`（SB=7）。
+
+### P-183 门禁脚本把主工作区写死，于是每个 worktree 都在评判别人的数据
+
+`scripts/` 里曾有 11 个脚本用 `REPO = '/mnt/e/hackios/UniXNU-mondrian'` 定位仓库根。
+多 worktree 并行（每个 agent 一条分支）之后，这句话的含义变成了「永远读主工作区」，
+于是一个分支自己的数据永远进不了判定：
+
+- `eight-step-gate.py`：音频线在自己的 worktree 里 ①–⑥ 全部 `done = true`、36 项检查全过，
+  门禁仍报「touch ④⑤⑥ 未标记 done=true，禁止构建」——它读的是主工作区的
+  `EIGHT-STEPS.toml`，而主工作区当时在触摸分支上。
+- `sync-device-input.py`：在分支里跑它，写进 `/opt/k60/trees/usb-cdc-mainline/device`
+  的是**主工作区**的 `patches/xnu/series`，于是分支新增的补丁永远进不了构建输入；
+  `check-build-applied.py` 再拿固定输入副本比对，P-165/P-166 长期误红。
+- `render-eight-step-table.py --apply`：把主工作区的旧八步数据渲染进**当前** README。
+- `check-build-freshness.py` / `check-adsp-claims.py` / `research-gate.py` / `flash.sh`
+  同理：判定对象永远是主工作区。
+
+2026-11-14 音频线的实际代价：两次 strict 构建被拒
+（`unixnu: build refused: the compliance registry failed`，红项 iron-4 / hard-33 / P-165 / P-166），
+排查一个多小时才确认红项与音频本身无关；同一脚本换上自相对写法后，同一棵树当场
+`✅ 八步流程通过（可以构建）`、36 项检查全过。
+
+现在的规则：
+
+- 判定/构建类脚本一律从脚本自身位置推导仓库根：Python 用
+  `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`，
+  shell 用 `REPO=$(cd "$(dirname "$0")/.." && pwd)`；
+- 确实要跨树操作的工具（`pick-upstream.py` 这种把仓库名映射到路径的）必须写进
+  `scripts/check-repo-paths.py` 的 `ALLOW` 并说明理由；
+- 门禁脚本不提供 `K60_REPO` 之类的环境变量口子：要换树就换 worktree，不要换环境；
+- 门禁：`python3 scripts/check-repo-paths.py`（P-183）。

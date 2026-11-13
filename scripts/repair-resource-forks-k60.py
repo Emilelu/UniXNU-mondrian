@@ -19,7 +19,7 @@ Destination: the raw APFS os-window.img, patched block by block.
 """
 import sys, struct, os
 
-APFS_TOOLS = '/mnt/e/hackios/UniXNU-mondrian/tools/apfs'
+APFS_TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools', 'apfs')
 sys.path.insert(0, APFS_TOOLS)
 import apfs
 

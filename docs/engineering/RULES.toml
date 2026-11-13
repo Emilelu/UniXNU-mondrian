@@ -480,3 +480,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-180"
 statement = "An embedded binary blob inside a patch is code: a changed blob needs a fresh on-device boot and an updated blob_sha256 baseline before it may land on main."
 check = "python3 scripts/check-blob-patches.py"
+
+[[rule]]
+id = "P-183"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-183"
+statement = "A gate or build script must locate the repository from its own path; a hardcoded primary-checkout path makes every worktree judge someone else's data."
+check = "python3 scripts/check-repo-paths.py"

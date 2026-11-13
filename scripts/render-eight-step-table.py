@@ -21,7 +21,7 @@ except ImportError:
     except ImportError:
         tomllib = None
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO, 'docs', 'research', 'EIGHT-STEPS.toml')
 README = os.path.join(REPO, 'README.md')
 README_EN = os.path.join(REPO, 'README_EN.md')

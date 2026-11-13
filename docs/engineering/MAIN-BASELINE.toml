@@ -52,3 +52,9 @@ note = "2026-11-13 双启动通过：0616 把旧 34,904 字节 init 助手写回
 "patches/xnu/0340-k60-uilib-deploy.patch" = "72371a041569b55d0441bef4b0f944121fbbeca8b409d4e296ae992cfe4a962f"
 "patches/xnu/0391-k60-embedded-init.patch" = "accaab23221b52318f130708de961bff42a496c5605a6daacbe0e2e81c89371d"
 "patches/xnu/0401-k60-embedded-init.patch" = "4327b48e26f7ff5e8aa425a61a9f5769062b582febfa38932af427a59c2c0476"
+
+[[entry]]
+sha = "b5f9973"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "只改构建工具（scripts/build-strict.sh 改成先跑八步门禁、manifest 记 gates、新增 scripts/tests/test-build-strict-gates.py）与 docs/engineering/TOOLBOX.md；不进镜像，产物与 532a3d3 相同，故不重复上机。此条存在是因为该提交碰了 scripts/build- 前缀（铁则 9），不是因为它改变了可启动产物。"

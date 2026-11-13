@@ -60,6 +60,20 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 
 查不到时，按第 2 节的仓库清单去找对应仓库，`grep -rn` 之后再回来补一条。
 
+### 1.4 与其它文档的分工（别在这里重复写别人的内容）
+
+| 想知道 | 去哪 | 本文件负责的部分 |
+|---|---|---|
+| 每个子系统必须读哪几个文件、读了没 | [`SOURCES.toml`](SOURCES.toml) | 只补「某个事实在第几行」；本文件新增的 18 条 required 就是第 16 节的表 |
+| 八步流程走到哪一步、能不能构建 | [`EIGHT-STEPS.toml`](EIGHT-STEPS.toml)、`scripts/eight-step-gate.py` | 提供每一步需要的硬件事实，不判定流程状态 |
+| 上游 13 个分支哪些提交取过、为什么不取 | [`UPSTREAM-TRIAGE.toml`](UPSTREAM-TRIAGE.toml)、[`../reference/BRANCHES.md`](../reference/BRANCHES.md) | 只写「这个分支里有什么本板可用的值」 |
+| 历次 subagent 交付了什么、落在哪个 commit | [`SUBAGENT-DELIVERABLES.md`](SUBAGENT-DELIVERABLES.md) | 只写「这条事实的出处」 |
+| 各子系统已经得出的结论 | [`wifi/RESEARCH.md`](wifi/RESEARCH.md)、[`audio/RESEARCH.md`](audio/RESEARCH.md)、[`battery/RESEARCH.md`](battery/RESEARCH.md) | 提供结论背后那一行的原始出处 |
+| 踩过的坑、铁则、工具用法 | [`../engineering/PITFALLS.md`](../engineering/PITFALLS.md)、[`../engineering/HARD-RULES.md`](../engineering/HARD-RULES.md)、[`../engineering/TOOLBOX.md`](../engineering/TOOLBOX.md) | 第 14 节只记「参考仓库与本板的矛盾」，不重复通用坑 |
+| 本地已有哪些资产（驱动、固件、反汇编） | [`../engineering/LOCAL-ASSETS.md`](../engineering/LOCAL-ASSETS.md) | 第 15 节只记「参考仓库里缺什么」 |
+
+**写入规则**：本文件只写「仓库 + 分支 + 文件:行 + 事实 + 可信度」。任何需要判断、决策、计划的内容都不写在这里，写到上面那些文件去。
+
 ---
 
 ## 2. 参考仓库清单（实测 2026-11-14）

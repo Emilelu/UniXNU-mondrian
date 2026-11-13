@@ -20,6 +20,12 @@
 | `gpu-keys-notes.txt` | `GPUKEYS.txt` | GPU 与实体键 |
 | `springboard-truth.txt` | `SBTRUTH.txt` | SpringBoard 在 20G81 上的真实依赖 |
 
+## 非原始输出
+
+| 文件 | 内容 |
+|---|---|
+| `gate-repo-switch.diff` | 2026-11-14 refmine 线提交的门禁修复补丁：`scripts/research-gate.py` 与 `scripts/check-docs.py` 都硬编码了主 checkout，任何其它线跑它们得到的是别人的数字；`research-gate.py:88` 还漏传 verbose 导致问题永不打印。`scripts/` 不在该线写作用域内，所以以 diff 形式交给 Lead（`git apply --check` 已通过） |
+
 ## 注意
 
 这些是**原始输出**，没有整理过结论。要用于决策前先读一遍并提炼到对应的

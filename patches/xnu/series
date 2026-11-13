@@ -196,12 +196,6 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-scanout.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-only-display.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-source-row-pitch.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch
-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-bitbang-probe.patch
-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-frame-probe.patch
-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-miso-pull.patch
-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-spmi-probe.patch
-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-reset-level.patch
-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-pad-level.patch
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0334b-k60-autoreset.patch
 0500-k60-bt-qbt-new-files.patch

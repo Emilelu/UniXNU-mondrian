@@ -65,24 +65,50 @@ def newest_log() -> pathlib.Path | None:
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _stamp_matches(stamp: pathlib.Path) -> bool:
+    """True when every patch in the stamp has the same bytes as this checkout."""
+    try:
+        record = json.loads(stamp.read_text(encoding="utf-8"))
+        applied = record["patches"]
+    except (ValueError, KeyError, OSError):
+        return False
+    want = series_entries()
+    if len(applied) != len(want):
+        return False
+    for index, entry in enumerate(applied):
+        repo = REPO / "patches/xnu" / want[index]
+        if not repo.is_file():
+            return False
+        if hashlib.sha256(repo.read_bytes()).hexdigest() != entry.get("sha256"):
+            return False
+    return True
+
+
 def stamp_path() -> pathlib.Path | None:
-    """The newest `<out>/*/*/*/xnu-inputs.json` written by the driver."""
-    if not os.environ.get("K60_OUT"):
-        newest = None
+    """The newest build stamp that this checkout can actually vouch for.
+
+    A stamp only says "these patch bytes were applied". Several checkouts and
+    several output trees share the machine, so the newest stamp may belong to a
+    different branch: picking it blindly turned a clean tree into a false red
+    (P-189). Choose the newest stamp whose recorded patch bytes equal this
+    checkout's series, and fall back to the newest one so the caller can report
+    the real mismatch instead of silence.
+    """
+    stamps = []
+    if os.environ.get("K60_OUT"):
+        out = pathlib.Path(os.environ["K60_OUT"])
+        if out.is_dir():
+            stamps = [p for p in out.rglob("xnu-inputs.json") if p.is_file()]
+    else:
         for root in OUT_ROOTS:
-            # 目录层级随配置而变（out-baseline/mondrian/<sdk>/<board>/ 是五层，
-            # <out>/mondrian/<sdk>/<board>/ 是四层），用递归匹配而不是数层数。
-            for p in root.rglob('xnu-inputs.json'):
-                if p.is_file() and (newest is None or p.stat().st_mtime > newest.stat().st_mtime):
-                    newest = p
-        if newest is not None:
-            return newest
-    if not BUILD_OUT.is_dir():
-        return None
-    stamps = [p for p in BUILD_OUT.glob("*/*/*/xnu-inputs.json") if p.is_file()]
+            stamps.extend(p for p in root.rglob("xnu-inputs.json") if p.is_file())
     if not stamps:
         return None
-    return max(stamps, key=lambda p: p.stat().st_mtime)
+    stamps.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for stamp in stamps:
+        if _stamp_matches(stamp):
+            return stamp
+    return stamps[0]
 
 
 def applied_count(log: pathlib.Path) -> int:

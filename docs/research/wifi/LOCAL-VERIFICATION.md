@@ -238,9 +238,13 @@ bootExitCode=0, returnedToFastboot=true`。同一 supervisor、同一 fd、同�
 2. **分级门 `k60_wifi_stage`**：`stageOpen(n, what)` 打印
    `PongWifi: stage %u (%s)`；`n > stageLimit` 时打印
    `PongWifi: stage %u (%s) held back by k60_wifi_stage=%u` 并返回 false。
-   缺省/0 = 全跑。八个阶段：1 TLMM pinmux、2 PMIC rails(RPMh/RSC/cmd-db)、
-   3 GCC GDSC/refgen/NoC、4 PARF/DBI/PHY/ATU、5 82 项 PHY 表、
-   6 PERST+LTSSM、7 APPSSMMU SID 1c01、8 PARF MSI0→SPI140 attach。
+   缺省/0 = 全跑。十个阶段：1 TLMM pinmux、2 SPMI+PMIC page、
+   3 cmd-db 窗口与 rail 查找、4 首个 RPMh/RSC 投票（含 mx/cx/xo/SN7）、
+   5 GCC GDSC/refgen/NoC、6 PARF/DBI/PHY/ATU、7 82 项 PHY 表、
+   8 PERST+LTSSM、9 APPSSMMU SID 1c01、10 PARF MSI0→SPI140 attach。
+   **2/3/4 是把 `supplies()` 拆开**：SPMI 控制器、cmd-db 窗口、第一次 RSC 写
+   属于三个不同的电源域；`k60_wifi_rsc` 缺省时 `pong_rpmh_vote()` 在打开 RSC
+   之前就返回，所以只到 stage 3 时完全不碰 RSC。
 
 ### 5.3 分级版产物（已构建，等设备）
 

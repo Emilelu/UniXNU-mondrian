@@ -73,16 +73,37 @@ Expected log shape on a working bus:
 PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)
 PongAudio: amp pin gpio=... cfg=... io=...
 PongAudio: amp gcc vote 0x... -> 0x... readback 0x...
-PongAudio: amp gcc clk wrap2_core halt=... running=1
+PongAudio: amp gcc clk wrap2_core halt=0x... running=1
 PongAudio: amp se15 fw=0x... proto=3 disabled=... clock=... scl=...
 PongAudio: amp se15 ready config=0x... status=0x... level=N
 PongAudio: amp reset amp0 gpio=1 ...
 PongAudio: amp0 addr=0x34 id=0x2113 chip=AW88261 status=... faults=... pll=1
-PongAudio: amp probe done found=2/2 transfers=... failed=0 timeouts=0 stray=0 gcc_misses=0
+PongAudio: amp probe done found=2/2 transfers=... failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0
 ```
 
 Failure is diagnostic, not fatal: the probe returns a count and never panics, so
 the rest of the boot is unaffected either way.
+
+## Judging a capture
+
+Iron rule 5 asks for the same image booted twice with the console armed before
+each boot, and a claim that reads the two captures by eye is where step 8 goes
+wrong. Two scripts make that mechanical:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/boot-audio-twice.ps1 `
+    -Image E:\k60-work\artifacts\audio-probe-<tag>\boot.img `
+    -EvidenceRoot E:\k60-work\evidence\audio-probe-<tag>
+```
+
+`boot-audio-twice.ps1` refuses to start unless the target is already in fastboot,
+checks that both runs booted the same SHA-256, and hands both evidence
+directories to `scripts/judge-audio-capture.py`. The judge reads only the
+`PongAudio:` lines of each `console.log`: exit 0 means both amplifiers were
+identified with `failed=0 timeouts=0 recovered=0`, 1 means the probe ran and
+failed, 2 means it never ran at all. `capture.json` is printed for context and
+never decides the verdict — `panicMarker` reads `K60PANIC` on good and bad boots
+alike, and `complete: true` has been seen on a broken boot.
 
 ## Host tests
 

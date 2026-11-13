@@ -14,6 +14,10 @@
 #ifdef KERNEL
 #include <pexpert/pexpert.h>
 #include <machine/machine_routines.h>
+/* printf() lives here, not in pexpert.h: without it the kernel build stops at
+ * "call to undeclared function 'printf'" (the host test never sees this file's
+ * KERNEL branch, so only a real build catches it). */
+#include <sys/systm.h>
 
 extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size,
     unsigned int flags);

@@ -793,7 +793,7 @@ diff --git a/bsd/dev/pong_pmic_rail.c b/bsd/dev/pong_pmic_rail.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_pmic_rail.c
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,201 @@
 +/*
 + * The pm8350c_l2 rail lives behind the applications RSC: the AP has no SPMI
 + * channel for PPID 0x241 (the kernel's SPMI probe answered apid=-1), so a
@@ -810,6 +810,10 @@ new file mode 100644
 +#ifdef KERNEL
 +#include <pexpert/pexpert.h>
 +#include <machine/machine_routines.h>
++/* printf() lives here, not in pexpert.h: without it the kernel build stops at
++ * "call to undeclared function 'printf'" (the host test never sees this file's
++ * KERNEL branch, so only a real build catches it). */
++#include <sys/systm.h>
 +
 +extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size,
 +    unsigned int flags);

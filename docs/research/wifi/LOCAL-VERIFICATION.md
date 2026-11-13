@@ -330,9 +330,9 @@ payload 内 kernel、unixnu.toml args 七项）。构建脚本
 `_pong_wifi_firmware_end` fffffff007b3fed6，span 11,189,974），
 archive `/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a` 12,066,184 B。
 
-### 5.8 合规阶梯（a–g，唯一可上机的一套）
+### 5.8 合规阶梯（a–g 加 p，唯一可上机的一套）
 
-七张镜像全部用上面那个六文件内核重出，并且每张都跑了
+八张镜像全部用上面那个六文件内核重出，并且每张都跑了
 `argcheck1.py`（解 boot v4 头 → ramdisk 槽 → `mtype` 读
 `::EFI/UniXNU/unixnu.toml` → 正则取 `args`，上限 607）。构建脚本
 `E:\k60-work\evidence\wifi-trial\mkboot-ladder4.sh`，命令里带
@@ -343,12 +343,13 @@ archive `/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a` 12,066,184
 | `wifi-20261115a` | `pong_wifi=0` | 574 | `4cd551960ee327b3a56093b0e963d203` |
 | `wifi-20261115b` | `pong_wifi=1 k60_wifi_stage=1` | 591 | `22edfa7137a5f98dfeacc92a018dd59e` |
 | `wifi-20261115c` | `pong_wifi=1 k60_wifi_stage=3` | 591 | `97d122d5f588961f0ea91f77b562c3a0` |
+| `wifi-20261115p` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=4` | 606 | `c470091a5a37c0580a482b7e7c97490a` |
 | `wifi-20261115d` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=4` | 606 | `dfb916fcd924d002cd3a91e783158d59` |
 | `wifi-20261115e` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | 606 | `922627bfba06e1e8d69a281a4f6c5de4` |
 | `wifi-20261115f` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | 606 | `418d07ecc277d01a6e97694df220d671` |
 | `wifi-20261115g` | `pong_wifi=1 k60_wifi_rsc=2`（全十级） | 589 | `f27b9cb8df73ae435629a7ee068351af` |
 
-七张全部 `verify-boot-image: OK` 且 `argcheck1.py` 全部 ok。
+八张全部 `verify-boot-image: OK` 且 `argcheck1.py` 全部 ok。
 `wifi-20261115h`（620 字节）**不得上机**：它会在 DarwinBoot 里被直接拒绝，
 表现为 `port-not-observed` + 0 字节控制台，看起来像内核挂死但内核根本没被装载。
 

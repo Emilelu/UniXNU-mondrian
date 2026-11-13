@@ -137,11 +137,11 @@ so this does not disturb the argument sequence. Do **not** try
 `scale >= 2 && scale <= 4` and silently ignores 0.
 
 Measured with `E:\k60-work\evidence\wifi-trial\argcheck1.py` (limit 607):
-574 / 591 / 591 / 606 / 606 / 606 / 589 — all compliant.
+574 / 591 / 591 / 606 / 606 / 606 / 606 / 589 — all compliant.
 
-### 4.1 The seven rungs
+### 4.1 The eight rungs
 
-All seven images share one kernel: `kernel.macho` sha256
+All eight images share one kernel: `kernel.macho` sha256
 `73c33075d44d231360f26b771bae5bd3ae893ae5fd9865cf8ffcb73f342cfc75`,
 65,978,368 B, whose PWF2 payload is the **six-file** pack
 (`_pong_wifi_firmware` `fffffff007094000` … `_pong_wifi_firmware_end`
@@ -155,6 +155,7 @@ Build recipe: `E:\k60-work\evidence\wifi-trial\mkboot-ladder4.sh`.
 | `wifi-20261115a` `4cd55196…` | `pong_wifi=0` | 574 | control: this kernel still boots and gives a console |
 | `wifi-20261115b` `22edfa71…` | `pong_wifi=1 k60_wifi_stage=1` | 591 | console gate + stage plumbing, one TLMM write only |
 | `wifi-20261115c` `97d122d5…` | `pong_wifi=1 k60_wifi_stage=3` | 591 | SPMI/PMIC page and cmd-db read, **no RSC access at all** |
+| `wifi-20261115p` `c470091a…` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=4` | 606 | the RSC **read** alone: probe succeeds, every vote is refused |
 | `wifi-20261115d` `dfb916fc…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=4` | 606 | first RSC probe **and** the rail votes |
 | `wifi-20261115e` `922627bf…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | 606 | plus GCC GDSC/refgen/NoC |
 | `wifi-20261115f` `418d07ec…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | 606 | plus host MMIO, PHY table, PERST, link training |
@@ -177,10 +178,12 @@ prints its `stage N (…)` line, then the `held back` line for N+1, then
 Milestones inside the ladder:
 
 - stage 3 clean ⇒ the cmd-db/SPMI path is safe before any RPMh traffic.
-- stage 4 clean ⇒ both the RSC probe and the first rail votes are safe. If
-  stage 4 dies while stage 3 lives, the RSC is the killer: drop back to
-  `k60_wifi_rsc=1` (probe only, no votes) to separate the read from the write,
-  and restructure the rail votes before any further attempt.
+- stage 4 clean ⇒ both the RSC probe and the first rail votes are safe. Rung
+  `p` already splits that pair: it runs stage 4 with `k60_wifi_rsc=1`, so the
+  probe reads `0x17a20000` and then every vote is refused. `p` clean ⇒ the
+  read is safe and the fault (if any) is in the write. `p` dies ⇒ the plain
+  read of the RSC window is the killer, and no voting scheme can be attempted
+  before the RSC power/NoC domain is proven some other way.
 - stage 8 clean ⇒ `QCA6490 PCIe0 link and BAR established, bus master held off`
   and `QCA6490 PCI subsystem=10817cb` appear, i.e. the endpoint is enumerated
   and the 17CB:1103 / BAR0 0x60200000 / IOVA 0xA0000000 facts from ③ are
@@ -191,7 +194,7 @@ Milestones inside the ladder:
   name ath11k asked for — that name is the board selection evidence
   (`FIRMWARE.md` §8/§9).
 
-Runner: `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1 -RaceSeconds 5400 -Seconds 150 -Tag ladder4`
+Runner: `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1 -RaceSeconds 7200 -Seconds 150 -Tag ladder5`
 (races fastboot every 0.7 s, then walks the table in order, writing
 `E:\k60-work\evidence\usblog-<stamp>-ladder4`; it waits up to 240 s after each
 rung for the phone to come back to fastboot and stops on the first timeout).

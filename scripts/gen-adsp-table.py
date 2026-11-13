@@ -4,7 +4,7 @@ Input: a directory with adsp.mdt and adsp.b00..b25 (pulled from the device).
 Output: a header with one 24-byte row per PT_LOAD segment plus the base/size facts,
 so the loader never parses ELF at boot and cannot disagree with the test.
 
-Run: python3 scripts/gen-adsp-table.py /mnt/e/k60-work/firmware/adsp /tmp/pong_adsp_table.h
+Run: python3 scripts/gen-adsp-table.py /mnt/e/k60-work/firmware/adsp drivers/PongPower/pong_adsp_table.h
 """
 
 import struct

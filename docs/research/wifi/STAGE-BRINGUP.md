@@ -203,40 +203,59 @@ Never `fastboot flash`; always `fastboot boot`, always with the collector
 armed first (`docs/engineering/BOOT-PROCEDURE.md`).
 
 
-### 4.2 Fallback: the size bisect rungs
+### 4.2 Three families of rungs, cheapest question first
 
-Rung `a` already answers "does this 65.9 MB kernel boot at all?", because it is
-the same kernel with the WiFi worker switched off. Only if `a` also returns a
-zero-byte console do the two size-bisect rungs matter. Both are built from a
-second kernel whose PWF2 pack is four 23-byte synthetic files, so the kernel is
-54,804,480 B (only 622,592 B above the proven 54,181,888 B baseline) instead of
-65,978,368 B:
+A zero-byte console has three candidate causes and the ladder answers them in
+order of cost, not in order of risk:
 
-| image | boot-args | len | what it must prove |
+| family | kernel | firmware in the pack | the question it answers |
 | --- | --- | --- | --- |
-| `wifi-20261115t0` `6b21772f…` | `pong_wifi=0` | 574 | the WiFi code linked into the kernel is harmless when its worker never runs |
-| `wifi-20261115t1` `3de009f2…` | `pong_wifi=1 k60_wifi_stage=1` | 591 | stage 1 alone (TLMM pinmux for PERST/WAKE/WLAN_EN) is safe |
+| `z0` | 54,181,888 B stock baseline, no WiFi code | none | can this phone boot this FD at all |
+| `t*` | 54,804,480 B, WiFi linked | four 23-byte placeholders | is the 11.2 MB blob what breaks the boot |
+| `a`…`g` | 65,978,368 B, WiFi linked | the real six-file pack | the actual staged bring-up |
 
-Kernel sha256 `92fad10599f5ded612426e555093d20e9ac9f4a9ae641da73aa60a56185059cd`,
-archive `/opt/k60/trees/k60build/wifi/native-tiny/libPongWifiNative.a` 892,616 B,
-firmware `/mnt/e/k60-work/impl/wifi/work/fake-fw/` (synthetic — these two images
-can prove a point about the boot path but **cannot** reach a real firmware load).
-Recipes: `build-tiny-archive.sh`, `build-tiny-kernel.sh`, `mkboot-tiny.sh`.
+`z0` is `/opt/k60/trees/k60build/backup-baseline/kernel.macho.baseline` (sha256
+`cc7541cd…`) with the same FD, DTB and payload path as everything else, 575-byte
+command line. If **it** gives no console, nothing about WiFi can be blamed and
+the runner stops with exit 13.
 
-Reading the pair:
+The `t*` family is the same archive rebuilt against
+`/mnt/e/k60-work/impl/wifi/work/fake-fw/` (four 23-byte files), giving
+`kernel.macho` 54,804,480 B sha256
+`92fad10599f5ded612426e555093d20e9ac9f4a9ae641da73aa60a56185059cd` — only
+622,592 B above the baseline, i.e. the driver code without the blob. Archive
+`/opt/k60/trees/k60build/wifi/native-tiny/libPongWifiNative.a` 892,616 B.
+Recipes: `build-tiny-archive.sh`, `build-tiny-kernel.sh`, `mkboot-tiny.sh`,
+`mkboot-tiny-ladder.sh`. **These images can never reach a real firmware load**;
+`t8` is expected to fail at the hand-off, and that failure is itself the proof
+that the staged code reached it.
 
-- `t0` boots, `a` did not ⇒ the 11.2 MB of embedded firmware is what breaks the
-  boot, not the driver code. Two mechanisms fit and §7 says why both are live:
-  the Mach-O layout moves every segment by 11.2 MB, **and** the kernel image
-  stays allocated in the DXE heap while `AllocateWindow` asks for its
-  contiguous 256 MB, so a bigger image leaves less room for that request. The
-  next move is a firmware pack loaded from the FAT payload instead of being
-  linked into `__TEXT,__const`.
-- `t0` also fails ⇒ the WiFi archive itself (or its `ArmDTPlatform` hook) breaks
-  a 54.8 MB kernel; compare against a stock 54,181,888 B baseline image booted
-  with the same arguments.
-- `t1` dies while `t0` lives ⇒ stage 1's four TLMM pin writes are the killer, and
-  nothing past stage 1 can be attempted until the TLMM window is proven.
+| image | boot-args (after the two overrides) | len | what it must prove |
+| --- | --- | --- | --- |
+| `wifi-20261115t0` `6b21772f…` | `pong_wifi=0` | 574 | the linked WiFi code is harmless when its worker never runs |
+| `wifi-20261115t1` `3de009f2…` | `pong_wifi=1 k60_wifi_stage=1` | 591 | stage 1 alone (TLMM pinmux) is safe |
+| `wifi-20261115t3` `b44d0a94…` | `… k60_wifi_stage=3` | 591 | SPMI/PMIC and cmd-db, still no RSC |
+| `wifi-20261115t4` `afb3e9a9…` | `… k60_wifi_rsc=1 k60_wifi_stage=4` | 606 | the RSC read alone |
+| `wifi-20261115t5` `e4f788fd…` | `… k60_wifi_rsc=2 k60_wifi_stage=4` | 606 | the first real RPMh vote |
+| `wifi-20261115t6` `c96635d6…` | `… k60_wifi_rsc=2 k60_wifi_stage=5` | 606 | GCC GDSC/refgen/NoC |
+| `wifi-20261115t7` `39492308…` | `… k60_wifi_rsc=2 k60_wifi_stage=8` | 606 | host MMIO, PHY table, PERST, link training |
+| `wifi-20261115t8` `0e438b04…` | `… k60_wifi_rsc=2` (all stages) | 589 | SMMU, MSI, `ath11k start`, then the synthetic firmware fails |
+
+Reading the families:
+
+- `z0` fails ⇒ device or FD, not WiFi. Stop.
+- `z0` lives, `t0` fails ⇒ the WiFi archive or its `ArmDTPlatform` hook breaks a
+  kernel that is only 0.6 MB bigger than the proven one. Then the fault is in
+  the hook itself (thread creation, `pong_rpmh_init`), not in any MMIO.
+- `t0` lives, `t1` fails ⇒ stage 1's four TLMM pin writes are the killer.
+- every `t*` lives but `a`/`b` fail ⇒ the 11.2 MB blob is the difference. Two
+  mechanisms fit and §7 says why both are live: the Mach-O layout moves every
+  segment by 11.2 MB, **and** the kernel image is still resident in the DXE heap
+  when `AllocateWindow` asks for its contiguous 256 MB. The next move is a
+  firmware pack loaded from the FAT payload instead of linked into
+  `__TEXT,__const`.
+- a `t*` rung fails where the matching `a`…`g` rung also fails ⇒ the staged MMIO
+  access, not the image size. That is the rung the ladder is really about.
 
 
 ## 7. Loader facts checked while the phone was dark
@@ -264,8 +283,14 @@ These were read out of `/mnt/e/hackios/uefi-mondrian` and they constrain what a
   the baseline 54.2 MB image the same request leaves ~11.7 MB more headroom.
   `MemoryMapLib.c:83` gives the DXE heap 384 MB (`0xC7000000` + `0x18000000`)
   and `:76-82` records that a 320 MB heap already failed once with
-  `biggest run 0xF0A0000`, so headroom is not obviously ample. This is the
-  second reason the size-bisect rungs exist.
+  `biggest run 0xF0A0000`.
+  **But the heap is not the only candidate**: `AllocateWindow` walks every
+  `EfiConventionalMemory` descriptor, and `MemoryMapLib.c:94` publishes
+  `{"XNU High Arena", 0x900000000, 0x140000000}` — 8 GiB of conventional
+  memory — so the 256 MB request has somewhere to go even with a 65.9 MB image
+  still resident. A window failure is therefore *possible but not the leading
+  explanation*, and the size-bisect rungs are about Mach-O layout and segment
+  placement more than about heap exhaustion.
 - **A window failure is visible on the panel, not on serial**:
   `AllocateWindow` prints `DARWINBOOT: no window 0x%lx, biggest run 0x%lx at
   0x%lx` to the advanced logger and draws `NO WINDOW …` / `FREE …` lines

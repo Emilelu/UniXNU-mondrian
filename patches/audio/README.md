@@ -8,6 +8,13 @@ One patch, one purpose: put the AP-side amplifier probe from
 | `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. |
 | `series` | The intended order inside this directory. |
 
+`drivers/PongAudio/tests/` is deliberately **not** in the patch. It is a host-side
+check (`cc` against the state machine, no kernel headers), so it belongs to the
+repo's test story, not to a file list that ends up compiled into `bsd/dev/`.
+Running it is described in `drivers/PongAudio/README.md` and `AMPS.md` section 6.1;
+it covers the ⑦ unit-test column of the eight-step gate without changing what the
+kernel builds.
+
 ## Ordering is not optional
 
 The patch must be applied **after `patches/xnu/0505-k60-audio-integration.patch`**:

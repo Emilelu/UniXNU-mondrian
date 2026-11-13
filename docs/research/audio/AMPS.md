@@ -182,12 +182,44 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15），无 reject，四个新文件与 `drivers/PongAudio/` 逐字节相同。完整 transcript 见 `patches/audio/README.md`。
 - 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。
 
+### 6.1 宿主单测（八步 ⑦ 的本地核验，99 例）
+
+`drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
+用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
+`PongAudioAmp.c` 依赖内核头，不能宿主编译，所以它的寄存器表正确性靠 `PongAudioRegs.h` 的断言覆盖。
+
+```
+# Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/run-tests.sh'
+# → TESTS OK 99 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+```
+
+覆盖范围：
+
+| 组 | 断言内容 |
+| --- | --- |
+| `register_map_cases` | `TLMM_PHYS+GPIO_OFF == 0x0f100000`；GPIO88 寄存器地址 `0x0f158000` 落在 `pinctrl@f000000` 的 `0x1000000` 窗口内；GCC 三个 1 页窗口分别覆盖 `RCG_SE15 0x2e014` / `CBC_CORE 0x33280` / `CBC_CORE_2X 0x3328c` / `VOTE_WRAP2 0x62010`；`AW_SYSST_FAULTS == 0xc86a`；`PLLS|CLKS == 0x11`；`PWDN|AMPPD|HMUTE == 0x103`；codec reset GPIO 43；TX core clock id `0x30c` |
+| `prepare_cases` | 可用引擎返回 0 且 `config == (3<<24)|0x21`；逐条断言 `DMA_MODE=0`、`TX_PACK0=0x7f8fe`、`TX_PACK1=0xffefe`、`RX_PACK0/1` 同值、`BYTE_GRAN=0`、`M_IRQ_CLEAR=0xffffffff`、`M_IRQ_EN==WANTED`、`SE_IRQ_EN` 追加 `SE_M_IRQ_EN`；四个拒绝条件（proto≠I2C / `IF_DISABLE&1` / `CLK_CFG` 无 bit0 / `SCL_COUNTERS==0`）各自返回 -1 |
+| `write_cases` | `phase=TxWait`、`TX_LEN=2`、`M_CMD0 == (OP_WRITE<<27)|(0x34<<9)`、`TX_WATERMARK=1`；忙时第二次 start 返回 -1；只收 `TX_WATERMARK` → Pending 且 FIFO 写 1 word `0x3421`（byte0 在 bits7:0）；再收 `CMD_DONE` → Done |
+| `read_cases` | 首命令带 `STOP_STRETCH`、`TX_LEN=1`；写阶段 `CMD_DONE` → **Pending**（不是完成）且 `phase=ReadDone`、`RX_LEN=2`、`M_CMD0 == (OP_READ<<27)|(0x34<<9)` 无 stop；`RX_FIFO_STATUS=2` + `RX_FIFO=0x1321` → `bus.rx=0x1321`、`bus.data=0x21`；RX FIFO 空 → `ErrNoData` |
+| `failure_cases` | `M_ERRORS` 位 → Failed + `ErrBus` + `error_status` 保留；TxWait 阶段直接 `CMD_DONE` → `ErrState`；Idle 收中断 → `stray++` 且 Pending；超时阶梯 Cancelling(写 CANCEL) → Aborting(写 ABORT) → Failed(`ErrTimeout`)；写 9 字节 / 写 0 字节 / 5 字节指针 / 读 5 字节全部 -1 |
+| `poll_cases` | poll 读到 `TX_WATERMARK` 后写同值 `M_IRQ_CLEAR` 并推进到 `WriteDone` |
+| `chip_id_cases` | `decode_amp_value(encode_amp_value(id)) == id` 对 9 个已知 ID 全成立；`decode_amp_value(0x1321) == 0x2113`（AW88261），公式与 `PongAudioAmp.c:453` 的大端拼装一致 |
+
+踩坑记录：Windows 侧 `cc` 不存在（第一次跑直接 `command not found`）；测试里若只定义不使用的辅助函数，`-Werror` 会因 `-Wunused-function` 失败——本例把三处 `expect_eq` 改成 `expect` 后才通过。
+
 ### 需要 Lead 合并的部分（本子任务写作用域之外）
 
 1. `scratch/SERIES-FINAL.txt` 追加 `patches/audio/0001-k60-audio-amp-probe.patch`（P-90：补丁顺序真相源在那里，只改仓库里的 `series` 不生效）；
 2. `board.toml` → `[kernel] kernel_args` 追加 `pong_audio_probe=1`——不加则补丁完全惰性（一次 boot-arg 查询后返回）；
 3. `docs/INDEX.md` §3 按既有格式追加 `audio/CODEC.md`、`audio/SOUNDWIRE.md`、`audio/AMPS.md` 三行（`check-docs.py` 只强制顶层文件，但仓库惯例是登记）；
-4. `docs/research/EIGHT-STEPS.toml` 新增 `[hardware.audio]` 段：①–⑥ `done = true`、`verify.local_verified = true`（编译 + 门禁）、`device.done = false`（未上机）。
+4. `docs/research/EIGHT-STEPS.toml` 的 `[hardware.audio]` 段**已经存在**（`:353-386`，`status = "parked"`、
+   `parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"`、①–⑥ `done = true`、
+   ⑦⑧ `done = false`）→ **不要新增**，改为：`parked_why` 删掉、`status` 改 `"active"`，并把 ⑦ `verify` 补成
+   `done = true` + `local_verified = true` + `static_check` / `unit_test` / `artifact_check` 三字段
+   （`scripts/eight-step-gate.py:119-123` 要求三者都非空），⑧ 保持 `done = false`（未上机）。
+   整段替换稿见下面片段 4。注：`eight-step-gate.py:91` 只对 `status == "active"` 的硬件做硬检查，所以这次改 `parked`→`active`
+   会把音频线正式纳入 build/flash 门禁——⑦ 的三字段就是为此准备的。
 
 ### 合并申请的精确片段（照抄即可）
 
@@ -213,7 +245,8 @@ pong_audio_probe=1
 | [`audio/AMPS.md`](research/audio/AMPS.md) | **音频功放侧**：AW882xx 判定、GENI I2C 路径、只读探针方案 A1–A7 |
 ```
 
-4）`docs/research/EIGHT-STEPS.toml` 新增段（字段名照 `[hardware.touch]` / `[hardware.gpu]` 的既有写法）：
+4）`docs/research/EIGHT-STEPS.toml:353-386` 整段替换（**不是新增**：该段已在，当前 `status = "parked"`）。
+原来的 `parked_why` 行删掉，`status` 改 `"active"`，⑦ 补 `done/local_verified/static_check/unit_test/artifact_check`：
 
 ```toml
 [hardware.audio]
@@ -249,7 +282,9 @@ evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io
 [hardware.audio.step.verify]
 done = true
 local_verified = true
-evidence = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 通过；check-docs.py 通过；补丁 patch -p1 --dry-run 与 git apply --check 双向通过"
+static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；check-docs.py exit 0"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 99 cases（GENI 状态机 prepare/write/read/failure/poll 与寄存器表断言，见 AMPS.md §6.1）"
+artifact_check = "patches/audio/0001 已双向自检：patch -p1 --dry-run 与 git apply --check 都过；并在真实链（缓存 xnu-work 的 bsd/conf/files + bsd/kern/bsd_init.c）上按 0501 → 0505 → 本补丁 patch -p1 --forward rc=0、无 fuzz 无 reject，落地后四个新文件与 drivers/PongAudio/ 用 cmp 逐字节相同（transcript 见 patches/audio/README.md）"
 
 [hardware.audio.step.device]
 done = false

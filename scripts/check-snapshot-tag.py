@@ -41,9 +41,76 @@ def git(*args):
 
 
 def is_pushed(tag):
+    """True/False when the remote answered, None when it could not be reached.
+
+    Returning False on a network failure asserts a fact nobody measured: on
+    2026-11-13 the local proxy answered DNS with a fake address and every TLS
+    handshake died, so this gate claimed boot-proven-20261113 was not pushed
+    while it had been pushed hours earlier. An unreachable remote is its own
+    outcome, not a missing tag (P-183).
+    """
     r = subprocess.run(['git', 'ls-remote', '--tags', 'origin', 'refs/tags/' + tag],
                        capture_output=True, text=True, cwd=REPO)
+    if r.returncode != 0:
+        return None
     return bool((r.stdout or '').strip())
+
+
+BASELINE = os.path.join(REPO, 'docs', 'engineering', 'MAIN-BASELINE.toml')
+
+
+def tag_commit(tag):
+    return git('rev-list', '-n', '1', tag)
+
+
+def _baseline_text():
+    try:
+        return open(BASELINE, encoding='utf-8').read()
+    except OSError:
+        return ''
+
+
+def recorded_push(tag):
+    """Return the recorded push timestamp for `tag` at its current commit, or ''."""
+    text = _baseline_text()
+    sha = tag_commit(tag)
+    block = None
+    for chunk in re.split(r'^\[\[(?:baseline|entry)\]\]\s*$', text, flags=re.M):
+        if re.search(r'^tag\s*=\s*"%s"\s*$' % re.escape(tag), chunk, flags=re.M):
+            block = chunk
+            break
+    if block is None:
+        return ''
+    m = re.search(r'^tag_pushed\s*=\s*"([^"]+)"\s*$', block, flags=re.M)
+    if not m:
+        return ''
+    # A confirmation only counts for the commit the tag pointed at back then.
+    m2 = re.search(r'^tag_commit\s*=\s*"([0-9a-f]{40})"\s*$', block, flags=re.M)
+    if m2 and sha and m2.group(1) != sha:
+        return ''
+    return m.group(1)
+
+
+def note_push(tag):
+    """Record that `tag` was verified on the remote, once, next to its entry."""
+    text = _baseline_text()
+    if not text:
+        return
+    sha = tag_commit(tag)
+    if not sha or recorded_push(tag):
+        return
+    stamp = datetime.datetime.now().astimezone().isoformat(timespec='seconds')
+    out, done = [], False
+    for line in text.splitlines():
+        out.append(line)
+        m = re.match(r'^tag\s*=\s*"(.*)"\s*$', line)
+        if m and m.group(1) == tag and not done:
+            out.append('tag_commit = "%s"' % sha)
+            out.append('tag_pushed = "%s"' % stamp)
+            done = True
+    if done:
+        open(BASELINE, 'w', encoding='utf-8').write('\n'.join(out) + '\n')
+        print('  ℹ️  已记录 %s 于 %s 确认推送（%s）' % (tag, stamp, sha[:12]))
 
 
 def baseline_entries():
@@ -112,8 +179,23 @@ def check():
         problems.append('没有 boot-proven-* tag：没有任何一个「上过机证明能启动」的锚点')
     else:
         latest = sorted(proven)[-1]
-        if not is_pushed(latest):
+        pushed = is_pushed(latest)
+        if pushed is True:
+            note_push(latest)
+        elif pushed is False:
             problems.append('%s 没有推到远端（丢了就没法回退）' % latest)
+        else:
+            # Offline is not the same as unpushed, and a gate that turns red on
+            # the network teaches people to bypass gates. Accept a previously
+            # recorded confirmation for THIS tag sha, and say when it was made;
+            # with no record there is nothing to stand on, so fail (P-183).
+            stamp = recorded_push(latest)
+            if stamp:
+                print('  ⚠️  %s 的远端状态本次无法核实（git ls-remote 失败），'
+                      '沿用 %s 的已推送确认' % (latest, stamp))
+            else:
+                problems.append('%s 从未确认推送过，且本次 git ls-remote 失败（网络或代理不可达）'
+                                '——恢复网络后重跑本门禁' % latest)
 
     for e in baseline_entries():
         tag = e.get('tag')
@@ -128,12 +210,13 @@ def check():
         print('     tag 规则见 AGENTS.md 铁则 7 与 docs/engineering/TAGS.md')
         return 1
 
-    print('  ✅ 快照策略通过：%d 个 tag（boot-proven %d / 基线 %d / 版本 %d），最近 boot-proven %s 已推送'
+    print('  ✅ 快照策略通过：%d 个 tag（boot-proven %d / 基线 %d / 版本 %d），最近 boot-proven %s%s'
           % (len(tags),
              len([t for t in tags if t.startswith('boot-proven-')]),
              len([t for t in tags if t.startswith('snap-r')]),
              len([t for t in tags if t.startswith('v')]),
-             sorted(proven)[-1]))
+             sorted(proven)[-1],
+             '（远端未核实）' if is_pushed(sorted(proven)[-1]) is None else ' 已推送'))
     return 0
 
 

@@ -41,6 +41,8 @@ note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181�
 [[entry]]
 sha = "532a3d3"
 tag = "boot-proven-20261113"
+tag_commit = "532a3d31243cecf9b331c8afa006211766b07332"
+tag_pushed = "2026-11-13 push -f origin boot-proven-20261113 reported 6f93e8f...8050035"
 kernel_sha256 = "6eca5da0fefedd5a5223fdef0fb624a6b4a5ab39292cd242492f9abeab391f14"
 image = "E:/k60-work/usb-a-stage/out/boot-fixinit2.img"
 image_sha256 = "2926b334bf1f2f982d512b86e831870c84eb7eb24daac34e1d65a1343a09921d"
@@ -58,3 +60,9 @@ sha = "b5f9973"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "只改构建工具（scripts/build-strict.sh 改成先跑八步门禁、manifest 记 gates、新增 scripts/tests/test-build-strict-gates.py）与 docs/engineering/TOOLBOX.md；不进镜像，产物与 532a3d3 相同，故不重复上机。此条存在是因为该提交碰了 scripts/build- 前缀（铁则 9），不是因为它改变了可启动产物。"
+
+[[entry]]
+sha = "3d1fff3"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "只改构建工具（scripts/build-strict.sh 的 manifest 改从 payload 镜像读回 ADT 与 args）；不进镜像，产物与 b5f9973 相同，故不重复上机。登记原因是该提交碰了 scripts/build- 前缀（铁则 9）。"

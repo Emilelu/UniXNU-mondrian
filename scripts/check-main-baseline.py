@@ -29,7 +29,15 @@ def main():
     problems, notes = [], []
 
     if head not in known:
-        problems.append("HEAD %s 不在 MAIN-BASELINE.toml 里：每次落到 main 都要登记 sha/tag/kernel/state（铁则 9）" % head)
+        # 文档与门禁自身的提交不需要登记；只有会改变镜像的路径才需要。
+        touched = [f for f in git("show", "--name-only", "--format=", head).splitlines()]
+        risky = [f for f in touched if f.startswith(RISKY)]
+        if risky:
+            problems.append(
+                "HEAD %s 改了会进镜像的路径（%s），却没有在 MAIN-BASELINE.toml 登记 sha/tag/kernel/state（铁则 9）"
+                % (head, ", ".join(risky[:4])))
+        else:
+            notes.append("HEAD %s 只动文档/门禁，免登记" % head)
 
     anchor = None
     for m in re.finditer(r'^anchor\s*=\s*"([^"]+)"', text, re.M):

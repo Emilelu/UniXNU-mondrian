@@ -216,4 +216,5 @@ print("build-strict: manifest", out)
 PY
 
 echo "build-strict: boot.img $BOOT_SHA"
+python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

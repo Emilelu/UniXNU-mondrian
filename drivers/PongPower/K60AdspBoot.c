@@ -11,6 +11,10 @@
 
 #include <pexpert/pexpert.h>
 #include <sys/systm.h>
+#include <sys/vnode.h>
+#include <sys/namei.h>
+#include <sys/uio.h>
+#include <sys/fcntl.h>
 
 int
 k60_adsp_bring_up(void *window, size_t window_bytes, K60AdspRead read)
@@ -71,11 +75,32 @@ k60_adsp_bring_up(void *window, size_t window_bytes, K60AdspRead read)
  * is present, because the firmware reader does not exist yet: the point of
  * this probe is to make the plan run in a real boot and to name the first
  * failing layer instead of leaving the whole path untested. */
+/* The payload volume is a memory disk the kernel already mounts as msdos at
+ * /private/var/pong/md0 for the Metal delivery, so the same handle can carry
+ * the ADSP segments. Path is fixed; a missing file names itself. */
 static int
-k60_adsp_no_reader(const char *part, void *dst, uint32_t bytes)
+k60_adsp_ramdisk_reader(const char *part, void *dst, uint32_t bytes)
 {
-	printf("K60PAS no reader for %s (%u bytes)\n", part, bytes);
-	return -1;
+	char path[128];
+	vfs_context_t ctx = vfs_context_current();
+	struct vnode *vp = NULL;
+	int resid = 0;
+	int error;
+
+	snprintf(path, sizeof(path), "/private/var/pong/md0/ADSP/%s", part);
+	error = vnode_lookup(path, 0, &vp, ctx);
+	if (error != 0) {
+		printf("K60PAS lookup %s err=%d\n", path, error);
+		return -1;
+	}
+	error = vn_rdwr(UIO_READ, vp, (caddr_t)dst, (int)bytes, 0,
+	    UIO_SYSSPACE, 0, vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
+	vnode_put(vp);
+	if (error != 0 || resid != 0) {
+		printf("K60PAS read %s err=%d resid=%d\n", part, error, resid);
+		return -1;
+	}
+	return 0;
 }
 
 int
@@ -88,7 +113,7 @@ k60_adsp_probe_from_handoff(void)
 	}
 	printf("K60PAS probe begin\n");
 	return k60_adsp_bring_up((void *)(uintptr_t)K60_ADSP_BASE,
-	    (size_t)K60_ADSP_WINDOW, k60_adsp_no_reader);
+	    (size_t)K60_ADSP_WINDOW, k60_adsp_ramdisk_reader);
 }
 
 #endif /* !K60_HOST_TEST */

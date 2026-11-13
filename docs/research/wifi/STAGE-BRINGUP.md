@@ -226,13 +226,56 @@ Recipes: `build-tiny-archive.sh`, `build-tiny-kernel.sh`, `mkboot-tiny.sh`.
 Reading the pair:
 
 - `t0` boots, `a` did not ⇒ the 11.2 MB of embedded firmware is what breaks the
-  boot, not the driver code. Then the next move is a firmware pack that is
-  loaded from the FAT payload instead of being linked into `__TEXT,__const`.
+  boot, not the driver code. Two mechanisms fit and §7 says why both are live:
+  the Mach-O layout moves every segment by 11.2 MB, **and** the kernel image
+  stays allocated in the DXE heap while `AllocateWindow` asks for its
+  contiguous 256 MB, so a bigger image leaves less room for that request. The
+  next move is a firmware pack loaded from the FAT payload instead of being
+  linked into `__TEXT,__const`.
 - `t0` also fails ⇒ the WiFi archive itself (or its `ArmDTPlatform` hook) breaks
   a 54.8 MB kernel; compare against a stock 54,181,888 B baseline image booted
   with the same arguments.
 - `t1` dies while `t0` lives ⇒ stage 1's four TLMM pin writes are the killer, and
   nothing past stage 1 can be attempted until the TLMM window is proven.
+
+
+## 7. Loader facts checked while the phone was dark
+
+These were read out of `/mnt/e/hackios/uefi-mondrian` and they constrain what a
+"no console at all" capture can mean.
+
+- **Command line ≤ 607 bytes** (`DarwinBoot.c:678-684`, `BootArgs.h:8`). Over
+  the limit the request is refused before `ReadFile`, so the kernel is never
+  loaded and nothing reaches the console.
+- **Kernel read cap is 128 MB** (`DarwinBoot.c:699`, `SIZE_128MB`), ADT and
+  trust cache are capped at 16 MB. Our 65.9 MB kernel is not near the cap.
+- **Segment sanity** (`ParseKernel`, `DarwinBoot.c:140-205`): each
+  `LC_SEGMENT_64` must satisfy `filesize <= vmsize`, `vmsize <= 256 MB`,
+  `fileoff + filesize <= file size`; `LC_MAIN` must point into a file-backed
+  executable segment; segments may not overlap; and
+  `Kernel.End - Kernel.Base` must stay under 254 MB. A local reimplementation of
+  those rules (`E:\k60-work\evidence\wifi-trial\parsecheck.py`) passes both the
+  65.9 MB WiFi kernel (span 78,213,120 B) and the 54.2 MB baseline
+  (66,301,952 B), with zero overlaps, so the WiFi kernel is **not** malformed.
+- **Order matters for the heap question**: `AllocateWindow` runs at
+  `DarwinBoot.c:751`, the kernel image buffer is released only at
+  `DarwinBoot.c:818`. So at the moment the firmware asks for one contiguous
+  `WINDOW_SIZE` (256 MB) run, the 65.9 MB image is **still** allocated. With
+  the baseline 54.2 MB image the same request leaves ~11.7 MB more headroom.
+  `MemoryMapLib.c:83` gives the DXE heap 384 MB (`0xC7000000` + `0x18000000`)
+  and `:76-82` records that a 320 MB heap already failed once with
+  `biggest run 0xF0A0000`, so headroom is not obviously ample. This is the
+  second reason the size-bisect rungs exist.
+- **A window failure is visible on the panel, not on serial**:
+  `AllocateWindow` prints `DARWINBOOT: no window 0x%lx, biggest run 0x%lx at
+  0x%lx` to the advanced logger and draws `NO WINDOW …` / `FREE …` lines
+  (`DarwinBoot.c:488-512`). A zero-byte serial capture is consistent with that
+  path, which is why the phone's screen (not the console) is the tie-breaker.
+- **A good DarwinBoot run does talk on serial**: `DARWINBOOT: ARM64 va=… pa=…
+  args=… entry=… owned=…`, `DARWINBOOT: command line: …`,
+  `inputs validated; exiting boot services` (`DarwinBoot.c:845-851`). Seeing
+  those lines but no kernel output would move the fault into XNU's own early
+  boot instead of the firmware.
 
 ## 6. How to read each rung's capture
 

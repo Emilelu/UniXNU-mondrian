@@ -214,7 +214,7 @@ S1c 的核心判据是「最后一行打点」——因为打点在访问**之�
 
 ## 9. 交接（Lead 执行）
 
-1. 构建并上机（§4）。**先物理断电复位**：S1a 那次把板子留在挂死状态。
+1. 上机（§4）。**先物理断电复位**：S1a 那次把板子留在挂死状态。五级镜像已全部构建并 `verify-boot-image: OK`（§4.1），无需再构建。
 2. 按 A1→A2→A3→A4→A5 逐级上机，把每级最后一行 `probe: sX …` 与 `capture.json` 的 `verdict`/`panicMarker` 回填本文件 §0 与 §5。
 3. 结论回填：`docs/research/GENI-ACCESS-PRECONDITIONS.md`（触摸/音频共用同一前提）、`docs/research/bt/06-DEEP-DIVE.md`（F2/F3 的结论行）、`docs/research/bt/RESEARCH.md` §5.4。
 4. 若 A5 判「根时钟已开仍首访即死」→ 本线停在这里，写 blocker；若通过 → 进 S2（引脚 mux + RCG 3.0 Mbaud + 引擎准备，见 `RESEARCH.md` §5）。

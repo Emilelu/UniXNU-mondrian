@@ -248,4 +248,48 @@ Undefined symbols for architecture arm64:
 `Get-PnpDevice -PresentOnly` 里没有任何 `VID_2717`/`VID_18D1`/`VID_1209` 在线项，
 同机 peer 线（`usblog-20261114-bts1b-run1`）也在同一时刻掉到 `port-not-observed`。
 **需要人工长按电源键约 10 秒强制重启**，之后才能继续阶梯上机。
+---
+
+## 10. `docs/engineering/BOOT-ARGS.md` —— 9 个 WiFi boot-arg 未登记（hard-8 / P-156）
+
+**文件**：`docs/engineering/BOOT-ARGS.md`（不在 wifi 写作用域）
+**判据**：`scripts/check-boot-args.py` 要求 `drivers/` 里每个
+`PE_parse_boot_argn("…")` 的键都在 BOOT-ARGS.md 里有 `### \`name\`` 或
+`| \`name\` |` 条目。实测缺 9 个，导致 `check-rules.py` 的 `hard-8` 与 `P-156` 失败。
+
+**完整替换文本已备好**：`E:\k60-work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`（135 行）。
+它做四件事：
+
+1. 修正字节预算。现有文字写「上限 608 字节，当前 30 项 591，余 17」——
+   **两个数都错**。真判据是 `DarwinBoot.c:678-684`：
+   `if ((Index >= sizeof (CommandLine) - 1) || (Request->BootArgs[Index] > 0x7f)) return EFI_BAD_BUFFER_SIZE;`
+   而 `BootArgs.h:8` 的 `DARWIN_BOOT_LINE_LENGTH` 是 608 → **合法上限 607**，
+   且出现任何非 ASCII 字节同样直接返回。这个返回发生在 `ReadFile`/`ParseKernel` **之前**，
+   屏幕停在 REQUEST 阶段、**串口一个字节都没有**、设备自己回 fastboot。
+   实测 board.toml 当前 29 项 = 575 字节。
+   （旁证：bt 线 `usblog-20261114-bts1b-run1` 的 args 是 610 字节，正是 0 字节 +
+   `port-not-observed`。框架 `payload.py:30-38 check_args()` 只拦 >1000，
+   注释里的「1024-byte buffer」是过时的，不会替我们拦住 607–1000。）
+
+2. 补 9 行表格（`| 参数 | 所属 | 接受值 | 未设时 | 陷阱 |`）：
+   `pong_wifi`(==1) / `k60_wifi_rsc`(0..2) / `k60_wifi_stage`(0..10) /
+   `pong_wifi_dma_mib`(64..128) / `pong_wifi_diag` / `pong_wifi_test` /
+   `pong_wifi_alt` / `pong_wifi_band`(0/2/5) / `pong_wifi_cycle`。
+   第三列必须是 `N..M` 或 `≤N` 形式——`check-boot-args.py` 只解析这两种才会把它当
+   范围判据去校验 board.toml 的值（P-156 的机制）。
+
+3. 补 9 段 `### \`name\`` 逐个说明（所属 / 接受值 / 未设时 / 作用 / 陷阱 / 源码行号）。
+
+4. 源码出处全部核实过：
+   `PongWifiPlatform.cpp:72`(stage)、`:408`(dma_mib)、`:572`(test)、`:573`(alt)、
+   `:574`(band)、`:647`(diag)、`:716`(pong_wifi)、`:744`(rsc)、
+   `PongWifiNet.cpp:890`(diag)、`:892-893`(test && cycle)。
+
+**顺带记一个上机约束**（与 §5 的阶梯镜像直接相关）：board.toml 的 575 字节里，
+`pong_wifi=1` 要 11 字节、`k60_wifi_rsc=2` 再加 16、`k60_wifi_stage=10` 再加 18，
+合起来 620 > 607。**阶梯镜像必须同时覆盖两个让位项**：`epoch=1`（省 15）与
+`debug=1`（省 10，等价 `debug=0x1`）——`--kernel-arg` 是按名覆盖，不会触发 P-166 序列检查。
+`k60_fontscale=0` **不能**用来让位：`video_console.c:2844` 要求 `scale >= 2 && scale <= 4`，
+0 会被忽略、字节照旧。
+
 

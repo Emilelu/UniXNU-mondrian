@@ -114,22 +114,60 @@ is returned, and the log ends with
 
 ## 4. Boot ladder (increasing risk, one boot per step)
 
-All seven images were built from the same ten-stage kernel
-(`kernel.macho` sha256 `f430c2177cf1636e6265ef6a7c729802d3847dd518bfdb62efb78f30841197ef`,
-archive `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a`
-11,943,304 B) and each passed `scripts/verify-boot-image.py`. Build recipe:
-`E:\k60-work\evidence\wifi-trial\mkboot-ladder.sh`.
+### 4.0 The command line must stay under 607 bytes
 
-| image | boot-args | what it must prove |
-| --- | --- | --- |
-| `wifi-20261115a` `a261340b…` | `pong_wifi=0` | control: this kernel still boots and gives a console |
-| `wifi-20261115b` `493fab93…` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` | console gate + stage plumbing, one TLMM write only |
-| `wifi-20261115c` `1126de64…` | `pong_wifi=1 k60_wifi_stage=3` | SPMI/PMIC page and cmd-db read, **no RSC access at all** |
-| `wifi-20261115d` `410e02e8…` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=4` | first RSC read (probe-only mode) |
-| `wifi-20261115e` `e45e50d9…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | real rail votes plus GCC GDSC/refgen |
-| `wifi-20261115f` `c7c39525…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | host MMIO, PHY table, PERST, link training |
-| `wifi-20261115g` `4173014a…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10` | SMMU context, MSI attach, `ath11k start` |
-| `wifi-20261115h` `20908a03…` | same as g | same as g, but with `bdwlan.elf`/`bdwlang.elf` inside PWF2 (six files, 11,189,974 B; kernel `73c33075…` 65,978,368 B) |
+`DarwinBoot.c:678-684` rejects the boot request when the command line is
+`>= sizeof (CommandLine) - 1` (i.e. 607 characters) **or contains any byte
+above 0x7f**, and it does so before `ReadFile`/`ParseKernel`. A rejected
+request prints nothing to the serial console and returns the phone to
+fastboot — indistinguishable from an early kernel hang except that the kernel
+was never loaded at all. `BootArgs.h:8` sets `DARWIN_BOOT_LINE_LENGTH 608`.
+
+`board.toml`'s 29 arguments already occupy 575 bytes, so
+`pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10` (+45) would be 620 and be
+rejected. The ladder therefore also overrides two baseline arguments to buy
+the space back:
+
+- `epoch=1` instead of `epoch=1793709100` (saves 15)
+- `debug=1` instead of `debug=0x140` (saves 10, same value)
+
+`unixnu build payload --kernel-arg` overrides by name (`payload.py:119-122`),
+so this does not disturb the argument sequence. Do **not** try
+`k60_fontscale=0`: `osfmk/console/video_console.c:2844` requires
+`scale >= 2 && scale <= 4` and silently ignores 0.
+
+Measured with `E:\k60-work\evidence\wifi-trial\argcheck1.py` (limit 607):
+574 / 591 / 591 / 606 / 606 / 606 / 589 — all compliant.
+
+### 4.1 The seven rungs
+
+All seven images share one kernel: `kernel.macho` sha256
+`73c33075d44d231360f26b771bae5bd3ae893ae5fd9865cf8ffcb73f342cfc75`,
+65,978,368 B, whose PWF2 payload is the **six-file** pack
+(`_pong_wifi_firmware` `fffffff007094000` … `_pong_wifi_firmware_end`
+`fffffff007b3fed6`, span 11,189,974 B — see `FIRMWARE.md` §9). Archive:
+`/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a` 12,066,184 B.
+Each image passed `scripts/verify-boot-image.py` **and** `argcheck1.py`.
+Build recipe: `E:\k60-work\evidence\wifi-trial\mkboot-ladder4.sh`.
+
+| image | boot-args (after the two overrides) | len | what it must prove |
+| --- | --- | --- | --- |
+| `wifi-20261115a` `4cd55196…` | `pong_wifi=0` | 574 | control: this kernel still boots and gives a console |
+| `wifi-20261115b` `22edfa71…` | `pong_wifi=1 k60_wifi_stage=1` | 591 | console gate + stage plumbing, one TLMM write only |
+| `wifi-20261115c` `97d122d5…` | `pong_wifi=1 k60_wifi_stage=3` | 591 | SPMI/PMIC page and cmd-db read, **no RSC access at all** |
+| `wifi-20261115d` `dfb916fc…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=4` | 606 | first RSC probe **and** the rail votes |
+| `wifi-20261115e` `922627bf…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | 606 | plus GCC GDSC/refgen/NoC |
+| `wifi-20261115f` `418d07ec…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | 606 | plus host MMIO, PHY table, PERST, link training |
+| `wifi-20261115g` `f27b9cb8…` | `pong_wifi=1 k60_wifi_rsc=2` (all stages) | 589 | plus SMMU context, MSI attach, `ath11k start`, firmware load |
+
+Every rung already carries `bdwlan.elf`/`bdwlang.elf`, so image `g` can get
+past the board-data request when the real board id is `0xff`; if it is not, the
+log names the exact `bdwlan*` file ath11k wanted and that name is the board
+selection evidence (`FIRMWARE.md` §8).
+
+`wifi-20261115h` (`20908a03…`, 620 bytes) is **superseded and must not be
+booted**: it exceeds the 607-byte limit and would be rejected before the kernel
+loads, producing a silent `port-not-observed` capture.
 
 Stop the ladder at the first image that loses the console: the rung that was
 new in that image is the one that hangs the interconnect. A successful rung
@@ -139,21 +177,24 @@ prints its `stage N (…)` line, then the `held back` line for N+1, then
 Milestones inside the ladder:
 
 - stage 3 clean ⇒ the cmd-db/SPMI path is safe before any RPMh traffic.
-- stage 4 clean ⇒ the RSC probe in `k60_wifi_rsc=1` mode is safe; if stage 4
-  dies while stage 3 lives, the RSC is the killer and the rail votes must be
-  restructured before any further attempt.
+- stage 4 clean ⇒ both the RSC probe and the first rail votes are safe. If
+  stage 4 dies while stage 3 lives, the RSC is the killer: drop back to
+  `k60_wifi_rsc=1` (probe only, no votes) to separate the read from the write,
+  and restructure the rail votes before any further attempt.
 - stage 8 clean ⇒ `QCA6490 PCIe0 link and BAR established, bus master held off`
   and `QCA6490 PCI subsystem=10817cb` appear, i.e. the endpoint is enumerated
   and the 17CB:1103 / BAR0 0x60200000 / IOVA 0xA0000000 facts from ③ are
   confirmed on the device.
 - stage 10 is the first rung that can reach firmware load. Image `g` carries the
-  four-file PWF2 and will stop at the missing board data file (see `FIRMWARE.md`
-  §8) after logging the exact `bdwlan*` name ath11k asked for; image `h`
-  already carries `bdwlan.elf`/`bdwlang.elf` (`FIRMWARE.md` §9), so it can get
-  past board data when the real board id is 0xff.
+  six-file PWF2, so it either passes board data (real board id `0xff` ⇒
+  `bdwlan.elf`/`bdwlang.elf`) or stops right after logging the exact `bdwlan*`
+  name ath11k asked for — that name is the board selection evidence
+  (`FIRMWARE.md` §8/§9).
 
-Runner: `E:\k60-work\evidence\wifi-trial\ladder-run.ps1` (races fastboot,
-then walks the table in order, writing `E:\k60-work\evidence\usblog-wifi-ladder-<tag>`).
+Runner: `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1 -RaceSeconds 5400 -Seconds 150 -Tag ladder4`
+(races fastboot every 0.7 s, then walks the table in order, writing
+`E:\k60-work\evidence\usblog-<stamp>-ladder4`; it waits up to 240 s after each
+rung for the phone to come back to fastboot and stops on the first timeout).
 
 Never `fastboot flash`; always `fastboot boot`, always with the collector
 armed first (`docs/engineering/BOOT-PROCEDURE.md`).

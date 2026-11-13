@@ -87,6 +87,13 @@ PAYLOAD=$M/payload/payload.img
 ADT=$M/payload/kernel.macho.adt
 [ -s "$PAYLOAD" ] || die "payload.img missing"
 PAYLOAD_SHA=$(sha256sum "$PAYLOAD" | cut -d' ' -f1)
+# The kernel inside the payload is not the built kernel: the payload step patches
+# it. verify-boot-image.py compares the kernel it reads back out of the FAT with
+# this value, so record it here rather than leaving the field empty.
+PAYLOAD_KERNEL_SHA=$(mtype -i "$PAYLOAD" ::EFI/UniXNU/Payloads/kernel.macho 2>/dev/null \
+    | sha256sum | cut -d' ' -f1)
+[ -n "$PAYLOAD_KERNEL_SHA" ] || die "cannot read Payloads/kernel.macho out of the payload (mtools?)"
+echo "build-strict: payload kernel $PAYLOAD_KERNEL_SHA"
 
 # --- boot image --------------------------------------------------------------
 FD_ARCH=$ART/fd/$TAG-$(sha256sum "$FD" | cut -c1-12).fd
@@ -134,7 +141,7 @@ m = {
     "components": {
         "kernel_built": "$KERNEL_SHA",
         "payload": "$PAYLOAD_SHA",
-        "payload_kernel": None,
+        "payload_kernel": "$PAYLOAD_KERNEL_SHA",
         "adt": "$(sha_or_empty "$ADT")",
         "dtb": "$(sha_or_empty "$DTB")",
         "fd": "$FD_SHA",

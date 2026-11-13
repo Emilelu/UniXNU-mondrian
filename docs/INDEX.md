@@ -83,6 +83,9 @@ docs/
 | `10-SE-HANG-ROUND3.md` | SE 挂死第三轮诊断 |
 | `wifi/RESEARCH.md` | **WiFi 八步 ①②③**：Pong 同 SoC 同芯片的 PCIe0 冷启动、PWF2 固件包、K60 本机真值 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
+| `audio/CODEC.md` | **音频 codec 侧**：WCD938x 同型判定、live FDT 逐条、供电 rail 表、DT 映射表 |
+| `audio/SOUNDWIRE.md` | **音频 SoundWire 侧**：宏与 SWR master 地址、寄存器表、PRM 前置、io_submap 预算 |
+| `audio/AMPS.md` | **音频功放侧**：AW882xx 判定、GENI I2C 路径、只读探针方案 A1–A7 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |

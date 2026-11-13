@@ -280,3 +280,24 @@ docs/engineering/RULES.toml`）。
 `VID_2717`/`VID_18D1`/`VID_1209` 在线项 → 需要人工长按电源约 10 s 强制重启。
 分级内核已就绪，设备一回来即可执行 §5.4 的第 1 步（脚本
 `race-boot2.ps1` 会每 0.7 s 抢 fastboot 窗口）。
+
+### 5.6 分级镜像阶梯（全部已构建，全部通过 verify-boot-image.py）
+
+| 目录 | args 尾部 | boot.img sha256 |
+|---|---|---|
+| `wifi-20261114e` | `pong_wifi=0` | `a6eb8d5aabebc9382ab5687059cf28dc2e52854f34873d731be1fe8167979e3f` |
+| `wifi-20261114d` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` | `4b5c7dfd0e74dbf7efa61247e27754b24f11b0df068129a82adfac3e7549abc7` |
+| `wifi-20261114f` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=3` | `c4490e741746d525c774c03e…` |
+| `wifi-20261114g` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=6` | `907dac42f3707751702fb73d…` |
+| `wifi-20261114h` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | `f48c2f38565d83d7b4769b92…` |
+
+五个镜像共用同一个 staged 内核（`f19ba0b3…`）与同一个 fd（`cf448571…`）；
+每题目录都有 `build-manifest.json`，`python3 scripts/verify-boot-image.py
+--manifest <dir>/build-manifest.json` 全部 `OK`（v4 头、shim、FD、FDT、payload、
+payload 内 kernel、unixnu.toml args 七项）。构建脚本
+`E:\k60-work\evidence\wifi-trial\mkboot-stages.sh`。
+
+**payload 是共享产物**：`unixnu build payload` 每次覆盖
+`out-wifi/…/payload/payload.img`，所以每张 boot.img 必须在它自己那次 payload
+之后立刻 bootimg 并生成 manifest，否则 manifest 里的 `payload` 会与下一张串味。
+

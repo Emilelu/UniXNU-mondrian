@@ -248,7 +248,10 @@ static uint8_t composite[]={9,2,98,0,3,1,0,0xc0,50, …};
 
 ## 9. P0 设计（只读、可验证）
 
-**插入点**：`k60_usblog.c` 的 `ud_hb()`（`:1673`）循环体内，每 2 s 一次（与现有节拍一致，不新增线程）。
+**插入点**：原计划塞进 `ud_hb()`（`:1673`）的循环体，实测该函数是**整函数压在一行**（全函数体一个逻辑行），
+任何插入都会产生上千字符的两行 diff，评审无法阅读。实际实现退一步：新增独立的 `usb_hb()` 线程
+（`patches/usb/0405-k60-usb-heartbeat.patch` 第一个 hunk），由 `ud_worker()` 在 `ud.started = true; us = 4;`
+之后启动（第二个 hunk）。既有函数体**一个字符都没改**，只多一个只读线程，节拍仍为 2 s。
 
 **读取集合**（全部只读）：
 
@@ -271,12 +274,18 @@ static uint8_t composite[]={9,2,98,0,3,1,0,0xc0,50, …};
 4. 不改 `ud` 的任何状态字段（`configured`/`dtr`/`failed` 只读不写）。
 5. 打印用 `printf`，与现有 `K60 USBLOG:` 行同格式，前缀单独用 `K60 USBHB:` 便于日志过滤与计数。
 
-**预期输出**（每 2 s 一行）：
+**实际输出**（每 2 s 两行，交替）：
 
 ```
-K60 USBHB: DSTS 0x00020001 DCTL 0x10f00000 DALEPENA 0x0000000f GEVNTSIZ 0x80001000 GEVNTCOUNT 0x00000000
+K60 USBHB: DSTS 0x00020001 spd 1 halt 0 DCTL 0x80000000 run 1 csft 0 DALEPENA 0x00000003 GEVNTSIZ 0x80001000 GEVNTCOUNT 0x00000004
 K60 USBHB: GDSC 0xf822f000 QSCRATCH HS 0x10100000 SS 0x01000000
 ```
+
+`spd` 是 `DSTS[2:0]`、`halt` 是 `DSTS_DEVCTRLHLT(1<<22)`、`run`/`csft` 是 `DCTL[31]/[30]`，都只是把已有寄存器
+的位摊平成可 diff 的字段，不引入任何新常量。GCC 那一路用 `USBHB_GDSCR_PAGE_PA = GCC_PA + 0x49000`
+（`0x00149000`，页对齐）单独 map 4 KiB，与触摸线 `docs/research/touch/05-plan.md` 拆 GCC 子窗口的做法一致；
+QSCRATCH 因为 worker 里的映射（`:1810`）是局部的，心跳自己再 map 一次 0x100 字节。映射失败只打一行
+`K60 USBHB: gcc window map failed; GDSC field omitted` / `… qscratch map failed; VBUS field omitted`，不重试。
 
 **上机验证判据**：
 
@@ -304,3 +313,63 @@ K60 USBHB: GDSC 0xf822f000 QSCRATCH HS 0x10100000 SS 0x01000000
 | AppleUSBXDCI 加载序列 | `references/UniXNU-sheng/package/UsbProbe.cpp:16-47` |
 | AppleUSBXDCI vtable ABI | `references/UniXNU-sheng/scripts/gen-usb27-abi.py` |
 | GLINK 传输层可复用 | `drivers/PongPower/K60PmicGlink.h`、`QcomGlink.h` |
+
+---
+
+## 11. P0 上机结果（2026-11-14，tag `usb-20261114b`）
+
+**构建**：分支 `feat/usb-console`，head `0b00bc7`（manifest 记录 dirty=0），series 230 条，
+sha256 `c21618e49643513a0fe42609de45ba688afb3691338e07657cfc644927426389`，
+八步门禁 `通过 30 项检查`，`scripts/verify-boot-image.py` → `verify-boot-image: OK`。
+
+| 组件 | SHA-256 |
+|---|---|
+| kernel | `f46e6128b7b97391b3c5695f1e5261236e189c68d7bd28f49ca44b6ab73da492`（54181888 B） |
+| boot.img | `ef0e905f473a598244df456c7dfc81901038c560d00afb9897bb4f24a6969640` |
+| payload | `fe89663f0ac68ab981645d5349cbf2f6ca1eb2746452965596b58621f78e240b` |
+| Payloads/kernel.macho | `49ffc428f06dfb2eb690b89b93f79e5ab958099c8af47bf89fa3ca0ee848b6c4` |
+| ADT | `18a514e7775a3afbb59ead3af687be1563cf6f036486345116340cdc3b025c1a` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
+
+manifest：`E:/k60-work/artifacts/usb-20261114b/build-manifest.json`；boot.img：
+`E:/k60-work/artifacts/usb-20261114b/boot.img`。
+
+**两次 `fastboot boot` 同一镜像**：
+
+| # | 证据目录 | console.log | capture.json | 心跳行 |
+|---|---|---|---|---|
+| 1 | `E:/k60-work/evidence/usblog-20261114-usb-hb1/` | 251274 B，sha256 `8BC69E2F…1FEFAD62` | `captured-budget-complete` / complete=true / stopReason=budget / panicMarker=null / resetMarker=`K60 USBLOG: restart reason published` | 300 |
+| 2 | `E:/k60-work/evidence/usblog-20261114-usb-hb2/` | 258773 B，sha256 `0BEBFCB9…380FEDB1` | 同上（openErrors=3） | 300 |
+
+两次都进账本：`scripts/record-boot.py` → `✅ recorded series 2e90b3e865611f67 (230 patches)`，
+SpringBoard 行数 130 / 134。300 s 后 `K60AUTORESET: 300 s since boot` 自动回 fastboot（boot-arg 既有行为）。
+
+**稳定段数值**（第 1 次，150 个采样里 149 个完全一致）：
+
+```
+K60 USBHB: DSTS 0x0083xxxx spd 0 halt 0 DCTL 0x80000000 run 1 csft 0 DALEPENA 0x0000002f GEVNTSIZ 0x80001000 GEVNTCOUNT 0x00000000
+K60 USBHB: GDSC 0xf822f000 QSCRATCH HS 0x10100000 SS 0x01000000
+```
+
+（`0x0083xxxx` 是 `DSTS` 的高位随时间滚动，低 3 位恒 0；两次上机都是同一个模式。）
+
+**心跳真正证明的动态事实**：
+
+1. 第一条心跳（hb1 `console.log:259`）：`DSTS 0x00020001 spd 1`、`DALEPENA 0x00000003`、
+   `GEVNTCOUNT 0x00000004` —— 枚举尚未完成、事件环里还有 4 个未处理事件。**这是过去"开机打印一次"
+   的探针看不到的时刻。**
+2. `DALEPENA` 依次 `0x00000003` → `0x0000000f` → `0x0000002f` 后稳定（ep0 + 4 个非 0 端点使能）。
+3. `GEVNTCOUNT` 只在枚举瞬间非零（0x4 / 0x8 / 0xc），稳定段恒 0：事件环被控制台 gadget 正常排空，
+   没有事件堆积，也就没有"控制器卡死"。
+4. `halt=0`、`run=1`、`csft=0` 全程成立：300 s 内没有掉进 halt，也没有触发软复位。
+5. `GDSC 0xf822f000`（bit31=1）与 `QSCRATCH HS 0x10100000`（VBUS override 仍在）全程不变，
+   与 §2 的一次性探针读数完全一致 —— 说明"启动那一刻对、之后被关掉"这种怀疑可以排除。
+
+**行为未变的证据**：同一日志里 `K60 USBLOG: st=4 ev=… cfg=1 dtr=1 fl=0` 两次各 279 行，
+与基线 `usblog-20261114-touchd` 同构；采集工具本身走这条 CDC 通路取日志，能采到日志即证明
+控制台收发未退化。
+
+**结论**：P0 落地并两次上机验证，控制器在 300 s 运行期稳定，P1（复合描述符）从此有动态观测手段。
+**下一步（P1）**：在 0405 之上把配置描述符改成 CDC IAD + 第二接口（`PongUsbDevice.h:60,66-69` 的形态），
+判据是主机侧接口数 2→3 且 `K60 USBHB` 行不断流；再往后才是 mux（P2）与 UCSI/Type-C（P3）。

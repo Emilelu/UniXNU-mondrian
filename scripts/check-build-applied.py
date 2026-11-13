@@ -28,6 +28,12 @@ SERIES = REPO / "patches/xnu/series"
 INPUT = pathlib.Path(os.environ.get(
     "K60_DEVICE_INPUT", "/opt/k60/trees/usb-cdc-mainline/device")) / "patches/xnu/series"
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
+# 一棵树可以有多个输出目录（mondrian_defconfig -> mondrian/，
+# mondrian_wifi_defconfig -> mondrian_wifi/），而 K60_OUT 只指向其中一个。
+# 不设 K60_OUT 时如果只看 out-baseline，读到的就是别的配置留下的旧存根，
+# 于是"构建应用了 230 个补丁但 series 列了 223 个"这种假红。改成在所有
+# 输出目录里取最新的那份存根（P-189）。
+OUT_ROOTS = [pathlib.Path('/opt/k60/trees')]
 ARTIFACTS = pathlib.Path(os.environ.get("K60_ARTIFACTS", "/mnt/e/k60-work/artifacts"))
 DEFAULT_LOGS = [
     pathlib.Path("/mnt/e/k60-work/scratch/BUILD_V15.txt"),
@@ -61,6 +67,16 @@ def newest_log() -> pathlib.Path | None:
 
 def stamp_path() -> pathlib.Path | None:
     """The newest `<out>/*/*/*/xnu-inputs.json` written by the driver."""
+    if not os.environ.get("K60_OUT"):
+        newest = None
+        for root in OUT_ROOTS:
+            # 目录层级随配置而变（out-baseline/mondrian/<sdk>/<board>/ 是五层，
+            # <out>/mondrian/<sdk>/<board>/ 是四层），用递归匹配而不是数层数。
+            for p in root.rglob('xnu-inputs.json'):
+                if p.is_file() and (newest is None or p.stat().st_mtime > newest.stat().st_mtime):
+                    newest = p
+        if newest is not None:
+            return newest
     if not BUILD_OUT.is_dir():
         return None
     stamps = [p for p in BUILD_OUT.glob("*/*/*/xnu-inputs.json") if p.is_file()]

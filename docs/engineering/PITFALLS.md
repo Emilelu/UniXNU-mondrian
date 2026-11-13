@@ -4458,3 +4458,20 @@ Fixed by `same_file()`: for the paths listed in `VOLATILE_JSON_FIELDS` the
 comparison drops the volatile keys and compares the parsed JSON instead.
 Add a path there whenever a new "input" turns out to carry a build-time hash;
 do not add a whole file to `MAC_BUILD_PRODUCTS` unless nothing reads it.
+
+## P-189 — one checkout, several output trees
+
+`unixnu` names the output directory after the defconfig
+(`mondrian_defconfig` -> `mondrian/`, `mondrian_wifi_defconfig` ->
+`mondrian_wifi/`), and `scripts/check-build-applied.py` defaulted to the
+single path `/opt/k60/trees/k60build/out-baseline`. Once a second output tree
+existed, the checker read the *other* configuration's stale
+`xnu-inputs.json` and reported "构建应用了 230 个补丁，但 series 列了 223 个"
+— a hard red that had nothing to do with the tree being checked. Setting
+`K60_OUT` made it pass, which is the tell: the failure was in how the stamp
+was located, not in the build.
+
+Fixed by searching every `xnu-inputs.json` under `/opt/k60/trees` with
+`rglob` and taking the newest, but only when `K60_OUT` is unset — an explicit
+`K60_OUT` must still mean "this tree and no other", otherwise a stale stamp
+from a sibling output could vouch for a broken build.

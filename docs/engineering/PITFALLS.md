@@ -4421,3 +4421,19 @@ fakeroot 用 `cp -a` 从已知好的输出树补齐（它是纯构建产物，�
 
 教训：`git worktree` 给你的是**代码隔离**，不是**环境隔离**。新树第一次构建前，
 先跑一次"环境齐备性检查"，否则会把环境缺失误判成代码 bug，浪费整轮构建。
+
+## P-186 — 从 Windows 编辑会让整文件换行符翻转
+
+**现象**：一次 37 行的 `AGENTS.md` 修改，`git show --stat` 报 `366 insertions(+), 366 deletions(-)`。
+`grep -c $'\r'` 在旧版本是 0、新版本是 366 —— 整个文件被从 LF 改成了 CRLF。
+
+**原因**：文件是在 Windows 侧写出的（编辑器/PowerShell 重定向默认 CRLF），而仓库里这个文件是 LF。
+git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被埋在 700 多行噪声里，而且以后每次合并
+都会整文件冲突。
+
+**处置**：`scripts/check-line-endings.py` 只报**翻转**（HEAD 是纯 LF、工作区出现 CRLF），
+不碰仓库里历史上就已经是 CRLF 的 73 个文件 —— 那些要单独一次提交统一，不能混在功能提交里。
+`.gitattributes` 补了 `* text=auto eol=lf` 和常见文本扩展名，让 checkout 时就统一。
+
+**教训**：写文件时用 `write` 工具（写 UTF-8 LF），不要用 PowerShell 重定向；
+提交前看 `git diff --stat` 的增删行数是否和改动规模相符 —— 不相符就是换行符或编码翻转。

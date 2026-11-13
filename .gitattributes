@@ -2,3 +2,18 @@
 *.dts text eol=lf
 *.py text eol=lf
 *.sh text eol=lf
+*.ps1 text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.cpp text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.txt text eol=lf
+
+# Anything edited from Windows arrives with CRLF. Without these rules a
+# one-line edit rewrites every line of the file and every later merge conflicts
+# on the whole file — AGENTS.md did exactly that on 2026-11-14 (366 lines
+# rewritten, 37 lines of real change).
+* text=auto eol=lf

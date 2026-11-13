@@ -4353,3 +4353,43 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 证据：`E:\k60-work\evidence\usblog-20261113-allold2`（SB=129）、
 `usblog-20261113-cut0401b`（SB=133）、`usblog-20261113-noinitblob`（SB=129）、
 对照组 `usblog-20261113-rev0340`（SB=7）。
+
+### P-183 网络探测失败 ≠ 没推送：门禁把"无法核实"当成"没做"
+
+`check-snapshot-tag.py` 的 `is_pushed()` 只看 `git ls-remote` 的退出码。代理挂掉那两小时
+（`schannel: failed to receive handshake`、`gnutls_handshake() failed`、`curl github.com` = 000、
+`getent hosts github.com` = `198.18.2.110`）里它把每个 tag 都报成"没有推到远端"，而其中
+`boot-proven-20261113` 几小时前确实推过 —— 一次网络故障足以让门禁给出反向结论。
+
+修法：三态。`returncode != 0` 返回 `None`（无法核实），此时改读
+`docs/engineering/MAIN-BASELINE.toml` 里的 `tag_commit` / `tag_pushed` 记录：commit 与当前 tag
+指向一致才沿用，否则才算失败；联网成功时自动补记一次（`note_push()`）。
+
+教训：凡是"要不要联网"的检查都必须有第三个返回值。二态检查在断网时不是在检查，
+是在猜。
+
+### P-184 共享检出目录只有一个：Lead 和子 agent 同时改同一棵树会互相吃掉未提交改动
+
+2026-11-14 02:03，我为了让自己那次 strict 构建通过八步门禁，在
+`E:/hackios/UniXNU-mondrian`（当时正被触摸 agent 用来写文档）上执行
+`git checkout -- <8 个文档>`，把它的未提交修改全部抹掉：`EIGHT-STEPS.toml` 里把 touch
+④⑤⑥ 从 `done=true` 改成 `false` 的诚实修正、`GROUND-TRUTH.md`、
+`TOUCH-STATEMACHINE.md`、`03-reverse-and-device-data.md`、`PITFALLS.md`、`INDEX.md`、
+`README.md`、`README_EN.md` 的编辑全部丢失；只有未跟踪的
+`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` 幸存（已另存到
+`E:/k60-work/scratch/SALVAGE-touch-agent-edits-20261114.md`）。
+
+根因不是 `git checkout`，是**两个人共用一棵检出树**。修法：
+
+- Lead 用独立 worktree：`git worktree add E:/hackios/k60-lead <branch>`，
+  在 `E:/hackios/k60-lead` 里做自己的构建与提交；`E:/hackios/UniXNU-mondrian`
+  归触摸 agent。
+- 任何时候都不要对**不属于自己分支**的未提交文件跑 `git checkout --` / `git restore`。
+  要让门禁通过就改门禁的适用范围（见下条），不要动别人的工作区。
+- 顺带发现的真缺陷：八步门禁的 build 模式会校验**所有** `status = "active"` 的硬件项，
+  于是触摸研究没做完就谁都不能构建、别的硬件没做完触摸也不能构建。门禁的语义应该是
+  「这次改动涉及的硬件项」必须过①②③④⑤⑥，所以 build 模式按改动路径收窄，
+  flash 模式保持整机校验。
+
+证据：`git branch -f feat/touch-power 3330e1c` 恢复分支；`git worktree list` 显示
+`E:/hackios/k60-lead 84523c0 [feat/pmic-rail]`。

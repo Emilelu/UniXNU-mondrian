@@ -15,7 +15,7 @@ import re
 import subprocess
 import sys
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLAIMS = REPO + '/docs/research/audio/ADSP-CLAIMS.toml'
 EVIDENCE = '/mnt/e/k60-work/evidence'
 GUARDED = ('drivers/PongPower/K60Adsp', 'drivers/PongPower/K60Fat',

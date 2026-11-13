@@ -44,6 +44,8 @@ LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
 export K60_REPO=$REPO
+# 声明本次构建针对哪些硬件项（八步门禁按它收窄），并原样写进 manifest。
+export K60_EIGHT_STEP_ITEMS="${K60_EIGHT_STEP_ITEMS:-}"
 # Tell the registry a build is running: a stale patch stamp then means
 # "this run will rewrite it", not "somebody edited patches and never built".
 # Without this the P-165 preflight refuses the very rebuild that refreshes it.
@@ -166,6 +168,7 @@ m = {
     "repo": {"branch": "$GIT_BRANCH", "head": "$GIT_HEAD", "dirty_files": $GIT_DIRTY},
     "series": {"count": $SERIES_COUNT, "sha256": "$SERIES_SHA"},
     "frozen": {"list_sha256": "$FROZEN_SHA", "file": "frozen-before.txt"},
+    "eight_step_items": "${K60_EIGHT_STEP_ITEMS:-all}",
     "gates": {"eight_step": "passed", "eight_step_log": "$LOGS/eight-step.log",
               "eight_step_sha256": "$(sha_or_empty "$LOGS/eight-step.log")"},
     "components": {

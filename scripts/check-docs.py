@@ -21,7 +21,7 @@ import sys
 
 from pathlib import Path
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILES = [
     REPO + '/README.md',
     REPO + '/README_EN.md',

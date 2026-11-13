@@ -14,6 +14,7 @@
 
 [hardware.touch]
 status = "active"
+paths = ["drivers/PongPower/", "patches/xnu/zzzz", "patches/xnu/0399", "board.toml"]
 name = "触摸（Goodix GT9916R / BERLIN）"
 
 [hardware.touch.step.same_model]
@@ -75,6 +76,7 @@ failure = "0x10308 首字节仍为 0x00（官方判定 invalid touch head），�
 
 [hardware.gpu]
 status = "active"
+paths = ["drivers/PongAdreno/", "drivers/PongMetal/", "patches/xnu/0600", "patches/xnu/0610", "patches/xnu/0404", "patches/xnu/zzy"]
 name = "GPU（Adreno 730v3 / Metal）"
 
 [hardware.gpu.step.same_model]
@@ -141,6 +143,7 @@ failure = "出现 crashed: backboardd 或 IOAcceleratorES 发布 0 次且 native
 
 [hardware.storage]
 status = "active"
+paths = ["drivers/NativeUfs/", "patches/xnu/0302", "patches/xnu/0300"]
 why = "UFS / APFS 三窗（OS / SystemOS / Data）"
 
 [hardware.storage.step.same_model]
@@ -187,6 +190,7 @@ success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs�
 failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
 [hardware.display]
 status = "active"
+paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
 why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"
 
 [hardware.display.step.same_model]
@@ -233,6 +237,7 @@ success = "K60 DISPLAY: first frame presented (swap 1) 且 K60 PANEL: bring-up c
 failure = "只有 PANEL 没有 first frame，或首帧后 vcputc 继续在画面上刷字符（说明没释放 boot console）"
 [hardware.bootchain]
 status = "active"
+paths = ["patches/xnu/0401", "patches/xnu/0616", "patches/xnu/0394", "patches/xnu/0398", "patches/xnu/0402", "patches/xnu/offline-owner"]
 why = "UEFI -> UniXNU loader -> XNU -> launchd"
 
 [hardware.bootchain.step.same_model]
@@ -279,6 +284,7 @@ success = "Pong init: exec original /sbin/launchd 出现，且 launchd 后最大
 failure = "init 未执行到 launchd，或 launchd 起后立即 panic / 卡在 prelink 阶段"
 [hardware.buttons]
 status = "parked"
+paths = ["drivers/PongPower/K60Buttons", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
 why = "实体键（电源/音量）"
 
@@ -321,6 +327,7 @@ prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppi
 
 [hardware.wifi]
 status = "parked"
+paths = ["patches/wifi/"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
 why = "WiFi（QCA6490 / WCN6855）"
 
@@ -357,6 +364,7 @@ evidence = "从未上机。"
 
 [hardware.audio]
 status = "parked"
+paths = ["drivers/PongAudio/", "patches/xnu/0611", "patches/xnu/0612", "patches/xnu/0613", "patches/xnu/0614", "patches/xnu/0615"]
 parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
 why = "音频（WCD938x + ADSP + AudioReach/PRM）"
 
@@ -392,6 +400,7 @@ evidence = "从未上机。"
 
 [hardware.battery]
 status = "planned"
+paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60Smem", "patches/xnu/0602"]
 parked_why = "尚未开始，见各步 evidence"
 why = "电池 / 充电（IOPMPowerSource）"
 

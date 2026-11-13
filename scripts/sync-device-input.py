@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEV = '/opt/k60/trees/usb-cdc-mainline/device'
 SCRATCH_SERIES = '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
 

@@ -515,3 +515,38 @@ The payload kernel sha256 differs from the build product (`73c33075` for the
 six-file kernel) because `unixnu build payload` rewrites the Mach-O on the way
 into the FAT volume; `verify-boot-image.py` compares against the manifest, which
 records the post-payload value.
+
+### 5.14 Every ladder artifact still matches its own manifest (17/17)
+
+The ladder was rebuilt several times while the phone was dark, and each rebuild
+overwrites the shared `out-wifi/.../payload/payload.img`. A manifest that was
+written one build late would silently point a rung at a kernel it does not
+carry. `E:\k60-work\evidence\wifi-trial\check-artifacts.py` re-derives three
+facts straight from the bytes on disk and compares them with
+`build-manifest.json`:
+
+1. `fd.bin` sha256 vs `components.fd`;
+2. the kernel inside the boot ramdisk
+   (`mtype -i <ramdisk> ::EFI/UniXNU/Payloads/kernel.macho`) vs
+   `components.payload_kernel`;
+3. `unixnu.toml`'s `args` vs `kernel_args`, plus the 607-byte ceiling.
+
+Result for all 17 rungs (`z0 t0 t1 t3 t4 t5 t6 t7 t8 a b c p d e f g`):
+
+```
+wifi-20261115z0      OK  args=575     wifi-20261115a       OK  args=574
+wifi-20261115t0      OK  args=574     wifi-20261115b       OK  args=591
+wifi-20261115t1      OK  args=591     wifi-20261115c       OK  args=591
+wifi-20261115t3      OK  args=591     wifi-20261115p       OK  args=606
+wifi-20261115t4      OK  args=606     wifi-20261115d       OK  args=606
+wifi-20261115t5      OK  args=606     wifi-20261115e       OK  args=606
+wifi-20261115t6      OK  args=606     wifi-20261115f       OK  args=606
+wifi-20261115t7      OK  args=606     wifi-20261115g       OK  args=589
+wifi-20261115t8      OK  args=589
+MISMATCHES 0
+```
+
+So the ladder is internally consistent at the byte level before it is spent on a
+boot: the fd is the proven `cf4485712c29`, every rung's manifest names the
+kernel the ramdisk really holds, and no rung is over the loader's command-line
+limit.

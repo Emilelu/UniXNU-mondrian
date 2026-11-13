@@ -203,6 +203,37 @@ Never `fastboot flash`; always `fastboot boot`, always with the collector
 armed first (`docs/engineering/BOOT-PROCEDURE.md`).
 
 
+### 4.2 Fallback: the size bisect rungs
+
+Rung `a` already answers "does this 65.9 MB kernel boot at all?", because it is
+the same kernel with the WiFi worker switched off. Only if `a` also returns a
+zero-byte console do the two size-bisect rungs matter. Both are built from a
+second kernel whose PWF2 pack is four 23-byte synthetic files, so the kernel is
+54,804,480 B (only 622,592 B above the proven 54,181,888 B baseline) instead of
+65,978,368 B:
+
+| image | boot-args | len | what it must prove |
+| --- | --- | --- | --- |
+| `wifi-20261115t0` `6b21772f…` | `pong_wifi=0` | 574 | the WiFi code linked into the kernel is harmless when its worker never runs |
+| `wifi-20261115t1` `3de009f2…` | `pong_wifi=1 k60_wifi_stage=1` | 591 | stage 1 alone (TLMM pinmux for PERST/WAKE/WLAN_EN) is safe |
+
+Kernel sha256 `92fad10599f5ded612426e555093d20e9ac9f4a9ae641da73aa60a56185059cd`,
+archive `/opt/k60/trees/k60build/wifi/native-tiny/libPongWifiNative.a` 892,616 B,
+firmware `/mnt/e/k60-work/impl/wifi/work/fake-fw/` (synthetic — these two images
+can prove a point about the boot path but **cannot** reach a real firmware load).
+Recipes: `build-tiny-archive.sh`, `build-tiny-kernel.sh`, `mkboot-tiny.sh`.
+
+Reading the pair:
+
+- `t0` boots, `a` did not ⇒ the 11.2 MB of embedded firmware is what breaks the
+  boot, not the driver code. Then the next move is a firmware pack that is
+  loaded from the FAT payload instead of being linked into `__TEXT,__const`.
+- `t0` also fails ⇒ the WiFi archive itself (or its `ArmDTPlatform` hook) breaks
+  a 54.8 MB kernel; compare against a stock 54,181,888 B baseline image booted
+  with the same arguments.
+- `t1` dies while `t0` lives ⇒ stage 1's four TLMM pin writes are the killer, and
+  nothing past stage 1 can be attempted until the TLMM window is proven.
+
 ## 6. How to read each rung's capture
 
 Run `python3 E:\k60-work\evidence\wifi-trial\analyze-ladder.py <evidence dir>`

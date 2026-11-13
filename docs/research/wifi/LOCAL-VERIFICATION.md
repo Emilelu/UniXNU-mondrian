@@ -401,6 +401,42 @@ fffffff00858a8dc S _pong_wifi_start_optional
 worker 的 UFS 门 `pong_ufs_ready`、以及 NativeUfs 侧要的 SMMU 租约锁全部解析成功，
 `llvm-nm -u` 里没有任何 `_pong`/`_nw_wifi` 未定义符号。
 
+
+
+### 5.11 Second kernel: the firmware-size bisect (54.8 MB instead of 65.9 MB)
+
+The 65,978,368 B kernel is 11.8 MB larger than the proven 54,181,888 B
+baseline, and all of that growth is the PWF2 blob inside `__TEXT,__const`
+(`_pong_wifi_firmware` … `_pong_wifi_firmware_end`, span 11,189,974 B). That
+alone changes the Mach-O layout enough to move every later segment, so "the
+kernel no longer boots" and "the WiFi code touches a dead interconnect" are two
+different faults that the first failed boot could not separate.
+
+To separate them without touching the source, the same archive was rebuilt
+against a synthetic firmware directory
+(`/mnt/e/k60-work/impl/wifi/work/fake-fw/`, four 23-byte placeholder files):
+
+- `build-tiny-archive.sh` → `/opt/k60/trees/k60build/wifi/native-tiny/libPongWifiNative.a`
+  892,616 B (vs 12,066,184 B for the six-file pack);
+- `build-tiny-kernel.sh` → `kernel.macho` 54,804,480 B sha256
+  `92fad10599f5ded612426e555093d20e9ac9f4a9ae641da73aa60a56185059cd`, i.e.
+  only **622,592 B** above the baseline — the driver code itself, not the blob;
+- `mkboot-tiny.sh` → two images, both `verify-boot-image: OK` and both under the
+  607-byte command-line limit:
+
+| image | args tail | len | sha256 |
+| --- | --- | --- | --- |
+| `wifi-20261115t0` | `pong_wifi=0 epoch=1 debug=1` | 574 | `6b21772f3af9b52a034873789e97bc643f6a5a60e942dd1e34ef940ddc2a2d4f` |
+| `wifi-20261115t1` | `pong_wifi=1 k60_wifi_stage=1 epoch=1 debug=1` | 591 | `3de009f2cc68f373ec8ad54ec029a78aba6bbcd944065fc6a7723a4eaa989a14` |
+
+These two cannot reach a real firmware load (the pack is synthetic), so they are
+diagnostic only. Their meaning is spelled out in `STAGE-BRINGUP.md` §4.2.
+
+The canonical six-file kernel is preserved outside the build tree as
+`/opt/k60/trees/k60build/wifi/kernel-bdf-73c33075.macho` (65,978,368 B, sha256
+`73c33075…`), because `unixnu build kernel` overwrites
+`out-wifi/…/kernel/kernel.macho` in place and the tiny build replaced it.
+
 上机脚本 `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1`
 （`-RaceSeconds 5400 -Seconds 150 -Tag ladder4`）：每 0.7 s 抢一次
 fastboot 窗口，命中后按 a→g 顺序逐张 boot，每张把结果写进

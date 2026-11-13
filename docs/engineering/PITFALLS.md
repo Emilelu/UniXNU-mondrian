@@ -4121,3 +4121,10 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 `E:\k60-work\scratch\append_conffiles.py` 就是该模式：每秒重读，看到
 `bsd/dev/pong_buttons.c\t\t\tstandard` 才插入 `pong_smem.c` / `pong_handoff.c`，
 已插入则直接返回。
+
+### P-172 上游 commits 不能整文件 pick 到本地 K60 fork 的构建脚本
+
+- 现象：`8cdfcffa0 feat(gpu): decouple the GPU addon mount from the offline broker` 只改三处：`patches/xnu/series`、`patches/xnu/zzy-native-gpu-addon-mount.patch`、`scripts/build-xnu-4k-baseline.sh`（把 `XNU_NATIVE_OFFLINE_GPU` 门改成 `XNU_GPU_ADDON`）。
+- 为什么不能 pick：本地 `scripts/build-xnu-4k-baseline.sh` 是 67,777 B 的 K60 fork（含 `HOST_CC` 与 conf/files 钩子），上游是 44,810 B；`patches/` 已在 `SKIP_PATHS` 内，整文件 pick 只会取到脚本，得到一个"半合并"状态——脚本被换掉而补丁没换。
+- 处理：判为**不可合（文件级）**。语义（门变量改名 + 0398 增加 `/private/var/ngpu` 目录）单独手工移植，且必须与 `patches/` 同步。
+- 判据：pick 前先看 `git show --stat`；只要同时命中 `SKIP_PATHS` 与不在其中的文件，就是半合并，必须拒绝。

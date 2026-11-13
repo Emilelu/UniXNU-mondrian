@@ -4176,3 +4176,32 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 2. 再确认读的位置对不对——同一函数在不同时间点返回不同内容，这一点在没有实证之前
    很容易被当成解析 bug（本人已经为此烧掉三次构建）。
 3. 解析器本身可用宿主测试证明（`scripts/tests/test-k60-fat.c` 8 例），不要靠上机反复试。
+
+## P-176 FD 编出来找不到 payload：`{tree}/package` 里的旧 UniXNUPkg 顶掉了 vendored 副本
+
+症状：任何重新构建的 `SILICIUM_UEFI.fd` 启动后停在固件的 `UNIXNU: config: no boot entry found` /
+`menu: default 0 'exit'`，而 2026-11-11 的旧 FD 正常。
+
+根因不在 Mu_Basecore 的 pin，也不在 MuPatches：`board.toml [firmware].packages` 里
+`{tree}/package` 排在 `{uefi}/Platforms/Xiaomi` 前面，而 tree 里那份 `UniXNUPkg` 是从
+`E:\hackios\UniXNU\package` 复制来的旧副本。EDK II 按 PACKAGES_PATH 顺序解析
+`UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf`，于是整个 FD 的 UniXNUPkg
+驱动都编译自框架仓库的旧源码——包括负责把 initrd 发布成块设备的 `UniXNURamDiskDxe`。
+旧副本缺少本仓库版本里的 initrd 追踪/映射检查，发布路径不同，固件就拿不到 payload FAT。
+
+怎么证明（下次直接照做，别再烧构建）：
+1. 取旧 FD 与任意新 FD，解出 LZMA 的 DXE 卷（`lzma.decompress(body, format=lzma.FORMAT_ALONE)`，
+   section body 从 `section+24` 开始），按 FFS 遍历 98 个文件；文件数一样、GUID 一样，
+   只有 5 个大小变了。
+2. 用 `strings` 对比 `75CA63AD-FBAE-4A06-92A0-F937C671251D`（UniXNURamDiskDxe）：
+   新 FD 里有 `rounded to 0x%lx bytes`、没有 `selfread`、没有 `not inside mapped memory`——
+   与本仓库 `Platforms/Xiaomi/UniXNUPkg/.../UniXNURamDiskDxe.c` 对不上，却与
+   `E:\hackios\UniXNU\package\UniXNUPkg\...` 完全一致。这就是「编的不是这份源码」的铁证。
+3. `--dry-run` 打印的 `tree` 是 `out-baseline/.../tree`，`{tree}/package/UniXNUPkg` 正是那份旧副本。
+
+修法：把 `"{uefi}/Platforms/Xiaomi"` 移到 `"{tree}/package"` 之前（`board.toml [firmware].packages`），
+同步到设备输入后重建。验证：反编译新 FD 能看到 `selfread`；`fastboot boot` 后内核能跑起来
+（不再是固件菜单），旧 FD 与新 FD 的 UniXNURamDiskDxe/UniXNU 大小完全一致。
+
+规则：`PACKAGES_PATH` 有同名 package 时，先出现的赢，而且不会有任何警告；
+凡是本仓库 vendored 的平台包，必须排在 `{tree}/package` 之前。

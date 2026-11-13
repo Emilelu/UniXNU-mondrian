@@ -311,8 +311,8 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
 
 | 步骤 | 结果 |
 | --- | --- |
-| `build-strict.sh audio-probe-20261114e` | `series=230 frozen=344863b6…`、`kernel 044b62d49e0c1ea0… 54181888 bytes`、`boot.img d44c5cea201e591bf5fd7cc8db19280c4c2bf636baff2851ece1f0c019c540ed` |
-| `verify-boot-image.py --manifest …/audio-probe-20261114e/build-manifest.json` | `verify-boot-image: OK` |
+| `build-strict.sh audio-probe-20261114g` | `series=230 frozen=52de0e1d…`、`kernel 849ac4370e741930… 54181888 bytes`、`boot.img bedb656364657476194809051885dd497a4db2ea329f003cfdc389650e580aa2` |
+| `verify-boot-image.py --manifest …/audio-probe-20261114g/build-manifest.json` | `verify-boot-image: OK` |
 | 证明确实进了内核（P-170） | `bsd/conf/files:120-121` = `PongAudioGeniI2c.c` / `PongAudioAmp.c`；`…/bsd/DEVELOPMENT/PongAudioAmp.o` 存在；`kernel.macho` 里 `PongAudio` 字符串 **36** 处；`bsd_init.c:1369-1370` 有调用 |
 | payload args 尾部 | `… applog=1 pong_audio_probe=1` |
 
@@ -349,7 +349,7 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
 | `check-tmp-artifacts.py` | ✅ |
 | `eight-step-gate.py --build` | ✅ 36 项（6 个硬件项，audio 在内） |
 | `porting-gate.py --quick` | ✅ rc=0 |
-| `check-repo-paths.py` | ✅ 125 个脚本，1 个跨树工具已登记（P-183） |
+| `check-repo-paths.py` | ✅ 126 个脚本，1 个跨树工具已登记（P-183） |
 | `check-rules.py` | ✅ 0 失败（66 条登记 / 37 条 waiver） |
 
 复现命令（四个 `K60_*` 必须同时给，缺一个就会读到共享副本）：
@@ -364,12 +364,14 @@ bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_
 
 ## 7. 待实测 / 阻塞
 
-镜像已就绪：`/mnt/e/k60-work/artifacts/audio-probe-20261114e/boot.img`
-（sha256 `d44c5cea201e591b…019c540ed`，`verify-boot-image: OK`），manifest 记 `repo.head 7f45fcc`、
-`dirty_files 0`、`series 230 / 37b91dbe…`、`frozen 344863b6…`、`kernel_args ["pong_audio_probe=1"]`。
+镜像已就绪：`/mnt/e/k60-work/artifacts/audio-probe-20261114g/boot.img`
+（sha256 `bedb656364657476194809051885dd497a4db2ea329f003cfdc389650e580aa2`，`verify-boot-image: OK`），
+manifest 记 `repo.head 034f5b5`、`dirty_files 0`、`series 230 / 37b91dbe…`、`frozen 52de0e1d…`、
+`kernel_args ["pong_audio_probe=1"]`；kernel `849ac437…`、payload `177d211e…`、dtb `2d044eaa…`、fd `cf448571…`。
 
 镜像必须与 HEAD 同步：每改一次 `scripts/` 或补丁，冻结清单（`frozen`）就变，旧镜像的清单对不上
-`check-build-freshness`。当前有效版本是 `e`（`repo.head 7f45fcc`）；`d`（`bb4c1e0`）与 `c`（更早）都已过期。
+`check-build-freshness`。`g` 是当前有效版本；`f` 因为构建途中改了 `scripts/` 被 `build-strict.sh` 的冻结检查作废，
+`e`（`7f45fcc`）、`d`（`bb4c1e0`）、`c` 都更旧。
 
 缺的只是设备：2026-11-14 05:20 与 05:38 两次实测 `fastboot devices` 与 `adb devices` 都为空，
 主机 PnP 里也没有 `VID_1209&PID_0001`（`NO-ANDROID-USB-DEVICE`）——手机不在 USB 上（关机或拔线），

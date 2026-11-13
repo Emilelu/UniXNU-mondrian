@@ -306,7 +306,7 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
 
 ### 构建与镜像（本次实际产物，2026-11-14 05:19）
 
-第一次 strict 构建被三处门禁脚本的**硬编码路径**挡住（判的不是正在构建的这棵树），与音频补丁无关；
+第一次 strict 构建被门禁脚本的**硬编码路径**挡住（判的不是正在构建的这棵树），与音频补丁无关；
 修完脚本后同一条命令一次通过：
 
 | 步骤 | 结果 |
@@ -316,13 +316,25 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
 | 证明确实进了内核（P-170） | `bsd/conf/files:120-121` = `PongAudioGeniI2c.c` / `PongAudioAmp.c`；`…/bsd/DEVELOPMENT/PongAudioAmp.o` 存在；`kernel.macho` 里 `PongAudio` 字符串 **36** 处；`bsd_init.c:1369-1370` 有调用 |
 | payload args 尾部 | `… applog=1 pong_audio_probe=1` |
 
-修复的三处脚本硬编码（问题相同：门禁读的不是正在构建的树）：
+修复的脚本硬编码（问题相同：门禁读的不是正在构建的树）。`scripts/` 里共**九个**脚本把
+`/mnt/e/hackios/UniXNU-mondrian` 写死成仓库根，全部改成从脚本自身位置推导：
 
-1. `scripts/eight-step-gate.py:41` `REPO` → 自相对（`os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`）。
-2. `scripts/sync-device-input.py:19-20` → `K60_DEVICE_INPUT` / `K60_SERIES_FINAL` 可覆盖，默认值不变。
-3. `scripts/porting-gate.py:31-40`、`scripts/check-build-applied.py:28` → 仓库自相对，`DEV` / `SERIES` / `XNU_WORK` / `KERNEL`
-   跟随 `K60_*`；顺带把 `/tmp/usb-cdc-mainline/device` 默认值换成持久路径
-   `/opt/k60/trees/usb-cdc-mainline/device`（同一目录，符合铁则 1）。
+1. `scripts/eight-step-gate.py:41` → 自相对（`os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`）；
+   这是「音频线 ①–⑥ 全通过却被判禁止构建」的直接原因。
+2. `scripts/sync-device-input.py:18-20` → 仓库自相对，并让 `K60_DEVICE_INPUT` / `K60_SERIES_FINAL` 可覆盖。
+3. `scripts/porting-gate.py:31-40` → 仓库自相对，`BUILD_OUT`（`K60_OUT`）、`DEV`（`K60_DEVICE_INPUT`）、
+   `SERIES`（`K60_SERIES_FINAL`）跟随环境；`XNU_WORK` / `KERNEL` 由 `BUILD_OUT` 拼。
+4. `scripts/check-build-applied.py:28` → `INPUT` 跟随 `K60_DEVICE_INPUT`；顺带把默认值从
+   `/tmp/usb-cdc-mainline/device` 换成持久路径 `/opt/k60/trees/usb-cdc-mainline/device`
+   （软链指向同一个目录，符合铁则 1 的 `check-tmp-artifacts`）。
+5. `scripts/check-docs.py:24`、`scripts/render-eight-step-table.py:24`、
+   `scripts/research-gate.py:34`、`scripts/check-build-freshness.py:30`、
+   `scripts/check-adsp-claims.py:18`、`scripts/repair-resource-forks-k60.py:22`、
+   `scripts/flash.sh:18` → 同一处写法一并自相对化。
+
+新增门禁 `scripts/check-repo-paths.py`（P-183）：任何脚本再写死主工作区路径、
+或任何判定/构建脚本丢掉「从自身位置推导根」的写法，直接 FAIL；确实跨树的工具
+（`pick-upstream.py` 把仓库名映射到路径）列在 `ALLOW` 里并写明理由。
 
 构建输入用私有树 `/opt/k60/trees/usb-cdc-mainline/audio-device`（从共享树 `rsync`，series 230 行、含
 `../audio/0001-k60-audio-amp-probe.patch`），输出用私有 `/opt/k60/trees/k60build/out-audio`；
@@ -337,7 +349,8 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
 | `check-tmp-artifacts.py` | ✅ |
 | `eight-step-gate.py --build` | ✅ 36 项（6 个硬件项，audio 在内） |
 | `porting-gate.py --quick` | ✅ rc=0 |
-| `check-rules.py` | ✅ 0 失败（65 条登记 / 37 条 waiver） |
+| `check-repo-paths.py` | ✅ 125 个脚本，1 个跨树工具已登记（P-183） |
+| `check-rules.py` | ✅ 0 失败（66 条登记 / 37 条 waiver） |
 
 复现命令（四个 `K60_*` 必须同时给，缺一个就会读到共享副本）：
 

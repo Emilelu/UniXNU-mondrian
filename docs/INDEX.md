@@ -86,6 +86,7 @@ docs/
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 | `11-KEY-EVIDENCE-RING.md` | 关键证据闭环清单 |
 | `GENI-ACCESS-PRECONDITIONS.md` | GENI 引擎可访问性前置条件 |
+| [`REFERENCE-INDEX.md`](research/REFERENCE-INDEX.md) | **参考仓库事实索引（人读）**：42 个参考仓库逐条 文件:行 + 可信度，按供电/音频/WiFi/触摸/显示/GPU/存储/USB/电池分区；机器可读部分同源进 `SOURCES.toml` |
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。
 > 两者冲突时以 `EIGHT-STEPS.toml` 为准。

@@ -1,0 +1,686 @@
+# REFERENCE-INDEX.md —— 参考仓库事实索引
+
+> 建立于 2026-11-14，分支 `feat/research-refindex`。只读产出：本文件不包含任何从参考仓库拷来的代码，只有「事实 + 出处（文件:行）」和可信度。
+> 目的：把散落在 42 个参考仓库里的**同型号/同 SoC 事实**抽成可检索索引，让每一条硬件结论都能被追问到「某文件某行」，而不是「某人记得」。
+
+---
+
+## 0. 为什么需要这份文件
+
+2026-11-12 的事实核查已经发现过一次：同 SoC 兄弟移植的 `wave12c-electrical.md` 在本地躺了两天没人打开，
+却去抄了同一仓库里另一台机器（POCO X5 Pro）的驱动。根因不是「不知道要读」，是**没有清单 + 没有强制**。
+`SOURCES.toml` 解决了「每个子系统必须读哪几个文件」，但没有解决「一个寄存器地址在哪个仓库第几行」——
+后者才是真正卡住供电/音频/WiFi 三条线的东西。本文件补的就是后者。
+
+三条使用原则：
+
+1. **先查这里，再翻仓库。** 这里没有的，才去仓库里找；找到后请补一条进来。
+2. **每条事实都带可信度。** 「同 SoC 异板」不等于「本板」，抄地址之前先看第 4 节的交叉验证矩阵。
+3. **只读。** 参考仓库是证据，不是代码来源。不要把它们的 `.cpp` 拷进我们的树。
+
+---
+
+## 1. 读法
+
+### 1.1 路径映射（重要，不看清会白跑）
+
+本索引里的路径有三种前缀，含义完全不同：
+
+| 写法 | 实际位置 | 说明 |
+|---|---|---|
+| `references/...` | `/mnt/e/k60-work/references/...`（Windows: `E:/k60-work/references/...`） | 参考仓库快照。**本仓库树内没有 `references/` 目录**，`research-gate.py` 靠 `alt = os.path.join('/mnt/e/k60-work', path)` 回退才能找到 |
+| `E:/hackios/...` | 主工作区仓库 | 只出现在本文件正文；**不能写进 `SOURCES.toml` 的 `path`**（两种回退都不覆盖，gate 会判文件不存在） |
+| `docs/...`、`scripts/...` | 本仓库 | 我们自己的树 |
+
+本板一手数据的两个来源，路径固定：
+
+- `E:/k60-work/reports/live-6033dbec-fdt.dtb` —— 设备 6033dbec 于 2026-11-02 从 adb 导出的 **live merged FDT**（已含 dtbo 应用后的节点），919,210 B，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`。
+- `E:/k60-work/scratch/refmine/fdt_dump.txt` —— 上面那份 DTB 的解析结果（30,596 行），本索引引用的行号都指这个文件。解析器是 `E:/k60-work/scratch/refmine/fdt_dump.py`（本机没有 dtc、没有 Python libfdt，只能自己按 FDT 结构解）。
+
+### 1.2 可信度分级
+
+| 级别 | 含义 | 采信规则 |
+|---|---|---|
+| **本板实测** | 从 6033dbec 这台机器直接导出/实测（live FDT、uefi-mondrian 的 MemoryMapLib 实测注释、串口日志） | 可直接用 |
+| **官方** | UniXNU / UniXNU-docs / uefi 上游的正式记录 | 可用，但注意官方记录里的设备页多数是各 fork 自报，不是官方验证 |
+| **同SoC异板·已上机** | phk110-port、UniXNU-zizhan 这类同 SM8475 且已在本机跑通 | 地址可作强候选，**必须**与本板 DT 对一遍 |
+| **同SoC异板** | pong-*、ShengUfs、UniXNU-sheng 等 SM8475 兄弟移植 | 只能作候选；已发现至少三处地址在本板是错的（见 14.1、14.3、14.4） |
+| **反编译/推断** | 从 `.ko`、二进制、或从别的板推出来的 | 必须上机验证，不得直接进代码 |
+
+### 1.3 怎么查
+
+```bash
+cd /mnt/e/hackios/k60-refmine
+grep -n '0x17a20000' docs/research/REFERENCE-INDEX.md     # 按地址查
+grep -n 'RPMh\|RSC' docs/research/REFERENCE-INDEX.md       # 按主题查
+grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
+```
+
+查不到时，按第 2 节的仓库清单去找对应仓库，`grep -rn` 之后再回来补一条。
+
+---
+
+## 2. 参考仓库清单（实测 2026-11-14）
+
+任务书里写的是 23 个；**实测为 42 个唯一仓库名**（`/mnt/e/hackios` 15 个 + `/mnt/e/k60-work/references` 31 个，其中 5 个在两处各有一份快照、1 个是空仓库）。
+差异原因是清单本身已过期：`yibiya-*`、`ios-sweet-k60`、`phk110-port` 这批 K60 专属资产是 11-10 之后才进 workspace 的。
+
+关键词命中用 `git ls-files | grep -c` 统计（mondrian / sm8475+taro / k60），用来判断「这个仓库到底有没有本板字样」。
+
+### 2.1 /mnt/e/hackios —— 主工作区
+
+| 仓库 | 分支 | HEAD | 文件 | 脏 | 命中(mondrian/sm8475/k60) | 用途 |
+|---|---|---|---|---|---|---|
+| Device-Binaries | main | d3f7cb72 | 22004 | 3172 | — | 二进制资产（固件、panel XML、bootloader 件）。698 MB，未系统挖掘 |
+| QcaBluetooth | main | 986d631 | 46 | 0 | 0/0/0 | 蓝牙 GENI/tty 传输完整实现（`src/qbt_*`）。**唯一副本，workspace 里没有** |
+| QcomGeniSpi | main | eac47ba | 6 | 0 | 0/0/0 | GENI SPI 驱动范本（`GeniSpi.c` 15,536 B） |
+| UniXNU | main | e3982fc | 1485 | 13 | 13/0/1 | 官方组件体系；`devices.toml:1585-1598` 是 mondrian 的官方记录 |
+| UniXNU-docs | HEAD 分离 | 066c8d8 | 1080 | 0 | — | 官方文档站源 |
+| UniXNU-liuqin | main | 907b8e9 | 105 | 0 | — | 他人 fork，未挖 |
+| UniXNU-mondrian | feat/touch-power | b18fe3b | 890 | 0 | 5/1/213 | **本板主 checkout，归 touch-agent**，不是参考仓库 |
+| UniXNU-pong | main | e0ee6df | 406 | 9 | 0/7/0 | Pong 板级；`configs/pong-wifi-sm8475.json` 有 PCI 参数 |
+| UniXNU-sheng | main | a68ee4e | 435 | 0 | 0/0/0 | Sheng 板级；`drivers/` 7 个、`package/` 100+ 个 Probe |
+| UniXNU-sm8475-common | main | c5b50c3 | 8 | 7 | 0/2/0 | **SoC 层唯一共享包**：`dts/sm8475.dtsi`、`soc.toml` |
+| UniXNU-zizhan | main | 034a0b0 | 615 | 0 | 0/9/0 | 同 SoC 已上机跑通 GPU+WiFi 的板，最佳对照 |
+| pong-power | main | c37179e | 36 | 0 | — | **旧快照**（见 2.3） |
+| pong-wifi | main | d2e33ca | 13 | 0 | — | **旧快照**（见 2.3） |
+| uefi-mondrian | main | 9b79562 | 1063 | 6 | 25/1/6 | **本板固件**；`MemoryMapLib.c` 是 2026-10-27 实测的保留区表 |
+| uefi-pong | main | 997ae23 | 1046 | 12 | 0/1/0 | Pong 固件；`Platforms/Nothing/pongPkg` 只有 11 个文件，是 mondrianPkg 的模板 |
+
+### 2.2 /mnt/e/k60-work/references —— 参考快照
+
+| 仓库 | 分支 | HEAD | 文件 | 用途 |
+|---|---|---|---|---|
+| AdrenoMetal | main | 73d582f | 110 | Metal 后端 + Adreno 插件 |
+| ShengUfs | main | b6fe07b | 35 | 官方 UFS 实现（`NativeUfs.cpp` 148,723 B）+ 12 个测试 |
+| UniXNU | feat/ipados27-gpu-parity | c93e965 | 1077 | 官方组件（GPU parity 分支） |
+| UniXNU-pong | latest | e0ee6df | 406 | 同 2.1 |
+| UniXNU-pong-upstream | main | 08c1f94 | 508 | Pong 上游化后的版本 |
+| UniXNU-sheng | main | 1108068 | 521 | Sheng 板级（比 hackios 那份新） |
+| UniXNU-sheng-upstream | main | 1108068 | 521 | 同上，同一 HEAD |
+| UniXNU-sm8550-common | main | 2dc650c | 29 | SM8550 共享包；`ShengGmu.c` 等可对照 GPU/GMU |
+| UniXNU-upstream | main | 7d85ede | 2140 | 官方最新；mondrian 命中 18 条，但**没有 K60 硬件实现** |
+| darwin-xnu-build | main | 6639065 | 43 | XNU 构建脚本 |
+| ios-sweet | main | 45263be | 141 | sweet（SM7325）移植基线 |
+| ios-sweet-k60 | main | 886101c | 358 | **K60 专属**：`xnu/patches/0091-0107`、触摸测试台、`k60install` |
+| phk110-port | phk110-port | a7d4575 | 2100 | **同 SoC 异板（OnePlus Ace 2 / PHK110，已上机）**，59 篇 wave 文档，密度最高 |
+| pong-adreno | port/ios18e-native-302 | 5bc6f4c | 118 | Adreno 7 系 GPU 完整实现 |
+| pong-adreno-metal | main | 418c550 | 106 | Metal 侧 |
+| pong-arm-cpu | main | ac65513 | 6 | CPU 启动 |
+| pong-arm-dt-platform | main | 09ecfcf | 5 | ADT 平台 |
+| pong-boot-capture | main | af2c5ca | 4 | 启动抓取 |
+| pong-darwin-boot24 | main | 86d300d | 20 | DarwinBoot24 |
+| pong-metal | port/ios18e-native-302 | 0b3b34a | 27 | `NativeBridgeMetalFrontend.mm` 225,616 B |
+| pong-power | port/ios18e-native-302 | c117a67 | 38 | **新快照**：ADSP/Audio/WCD938x/Backlight/RPMh |
+| pong-ram-block | main | eebcdb6 | 8 | 内存盘 |
+| pong-ufs | port/ios18e-native-302 | 138a9fb | 14 | UFS 传输 + GPT/three-window |
+| pong-unixnu-upstream | main | 1a01c2a | 673 | 上游化 |
+| pong-usb | port/ios18e-native-302 | 37e0ed4 | 8 | DWC3 寄存器表 |
+| pong-wifi | port/ios18e-native-302 | 20e1e5b | 14 | **新快照**：QCA6490 PCIe/CNSS |
+| uefi-pong | main | 997ae23 | 1046 | 同 2.1 |
+| yibiya-uefi-upstream | main | 4a6966b | 1063 | yibiya 的 uefi 上游 |
+| yibiya-unixnu-upstream | main | 982e41f | 1486 | yibiya 的 unixnu 上游；K60 相关只有 device-records 与 `mondrian_defconfig` |
+| yibiya-upstream | upstream-fix | 522c6ea | 732 | **K60 专属资产最集中**：164 条 mondrian 命中，含 `K60-TOUCH-PARAMS.md`、`0210-0250` 补丁 |
+| UniXNU-ruby | — | — | **0** | ⚠ **空仓库**。`docs/engineering/LOCAL-ASSETS.md` 把它当 catalog 是错的 |
+
+### 2.3 两处同名不同快照（引用前必须确认用哪一份）
+
+`pong-power` 与 `pong-wifi` 在 `/mnt/e/hackios` 和 `/mnt/e/k60-work/references` 各有一份，**内容不同，references 那份更全**：
+
+| 文件 | hackios 版 | references 版 |
+|---|---|---|
+| `PongAdsp.cpp` | 33,318 B | 34,547 B |
+| `PongAudio.cpp` | 28,254 B | 29,263 B |
+| `PongIOAudio2.h` | 22,298 B | 23,857 B |
+| `PongWcd938.h` | 不存在 | 6,262 B |
+| `PongWifiFirmware.cpp` | 不存在 | 3,984 B |
+
+**本索引一律引用 `references/` 那份**（分支 `port/ios18e-native-302`）。行号只对那一份有效。
+
+## 3. 供电 / RPMh / SPMI / PMIC
+
+优先级最高的线：触摸、音频、WiFi、电池全部卡在「能不能投票成功」上。
+
+### 3.1 RPMh RSC 与 TCS
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-power | `PongPlatformResources.cpp:68` | `IODeviceMemory::withRange(0x17a20000, 0x10000)` —— RSC 映射基址 | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:79` | `constexpr unsigned ActiveTcs=0xd00+4*0x2a0;` —— **用 DRV slot 4**，不是 2 | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:123` | `constexpr unsigned b = 0xd00 + 4 * 0x2a0, other = 0xd00 + 3 * 0x2a0;` | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:129-131` | 能力检查：`caps=rd(0xc); count=(caps>>12)&63; ncpt=(caps>>27)&31;` 判据 `((rd(0)>>16)&255)>=3 \|\| count<8 \|\| ncpt<1 \|\| !rd(b+0x18)` → `fail("active TCS4 unavailable")` | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:136` | `return fail("conflicting RPMh transaction");` —— 上一笔未 retire 就再投，直接拒绝 | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:138` | `wr(0xd00, rd(0xd00) & ~(1u << 4));` 清 trigger | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:139-143` | **原文注释**：`Hardware requirement: clear trigger, read it back, then clear AMC enable and read it back. Clearing both in one posted write violates Nothing's __tcs_set_trigger ordering and can lose the next trigger.` 代码：`control=rd(b+0x14)&~(1u<<24); if(!controlWrite(control)\|\|!controlWrite(control&~(1u<<16))) return fail("TCS4 trigger/enable clear not acknowledged");` | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:144-149` | `wr(b+0x1c, 0); wr(0xd08, 1u<<4);` 然后 `while(rd(0xd04)&(1u<<4))` 等完成 | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:150` | 写投票内容：`wr(b+0x30,0x10108); wr(b+0x34,addr); wr(b+0x38,value);` | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:151-154` | `wr(b+0x10,1); wr(b+0x1c,1);` → 回读校验 → `wr(b+0x14,(1u<<16)\|(1u<<24));` 触发 | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:96-108` | retireVote 完成判据：`status=rd(ActiveTcs+0x3c)`、`idle=rd(ActiveTcs+0x18)`、`rd(ActiveTcs+0x1c)==1 && rd(ActiveTcs+0x34)==addr && rd(ActiveTcs+0x38)==value`，外加 `pendingVote.progressed \|\| (rd(0xd04)&(1u<<4))`；收尾 `wr(ActiveTcs+0x1c,0); wr(0xd08,1u<<4);` | 同SoC异板 |
+| pong-power | `PongPlatformResources.cpp:159-169` | 导出 `extern "C" void pong_rpmh_init(void)` / `extern "C" bool pong_rpmh_vote(uint32_t address, uint32_t value)`；:170-173 `pong_qup5_lock/unlock`；:174 `pong_smmu_lease_lock` | 同SoC异板 |
+| live FDT | `fdt_dump.txt:4698` | `rsc@17a00000`：`reg=<0x17a00000 0x10000 0x17a10000 0x10000 0x17a20000 0x10000 0x17a30000 0x10000>`，`reg-names=drv-0..drv-3`，**`qcom,drv-id=<2>`** → APPS RSC = **0x17a20000** | 本板实测 |
+| phk110-port | `wave12-touch-buttons.md:67` | 同结论：apps_rsc 0x17a00000 + drv-id 2 → 0x17a20000，tcs-offset 0xd00 | 同SoC异板·已上机 |
+
+⚠ **K60 侧最贵的教训**：`references/ios-sweet-k60/xnu/patches/0246-k60-touch-skip-rpmh.patch` 的注释写着
+「这台机器上 RSC 一个寄存器都读不得：首次读 TCS 就整机死」，`0248-k60-rsc-address-probe.patch` 因此只做只读探针。
+根因（XPU / 电源域 / 互连）至今未定 —— 见 14.1。**在这条未解之前，任何「照着 Pong 写 RPMh 投票」的代码都不要上机。**
+
+### 3.2 cmd-db（RPMh 资源名 → 地址）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| live FDT | `fdt_dump.txt:58` | `aop_cmd_db_region@80860000`，`compatible=qcom,cmd-db`，`reg=<0 0x80860000 0 0x20000>` | 本板实测 |
+| uefi-mondrian | `MemoryMapLib.c:14` | `{"aop_cmd_db_region", 0x80860000, 0x00020000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK_XN}`（表头注释 :7 写明 2026-10-27 实测生成） | 本板实测 |
+| pong-power | `PongAdsp.cpp:44` | `kCmdDb=0x80860000, kCmdDbSize=0x20000` | 同SoC异板 |
+| pong-power | `PongWcd938.h:34` | `qcom_cmd_db_find(db,0x20000,"smpb10",&resource)` —— 按资源名查 B 轨（WCD 的 1.8 V） | 同SoC异板 |
+
+⚠ K60 侧 **cmd-db 从未在运行时读过**（`K60-TOUCH-PARAMS.md` ⑤ 未决项），magic 与 entry 布局都未验证。
+
+### 3.3 SPMI 仲裁器（PMIC 寄存器访问）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| live FDT | `fdt_dump.txt:8106` | `qcom,spmi@c42d000`，`reg-names=cnfg,core,chnls,obsrvr,intr`，`reg=<0xc42d000 0x4000 0xc400000 0x3000 0xc500000 0x400000 0xc440000 0x80000 0xc4c0000 0x10000>` | 本板实测 |
+| ios-sweet-k60 | `xnu/patches/0101-k60-spmi-arbiter-addresses.patch:7-9` | 被替换掉的 sweet 旧值：`KEYS_CORE_PA 0x0c440000` / `KEYS_OBS_PA 0x0e600000` / `KEYS_CNFG_PA 0x0c40a000` | 反编译/推断 |
+| ios-sweet-k60 | 同上 `:12` | 注释原文给出上面那张 reg 表，并说明「sweet 的常量在这台机器上指向无关块，keys 驱动会读到垃圾或把总线挂住」 | 本板实测（引 live FDT） |
+| ios-sweet-k60 | 同上 `:16-19` | 新值：`KEYS_CORE_PA 0x0c400000` / `KEYS_OBS_PA 0x0c440000` / `KEYS_CNFG_PA 0xc42d000` / `KEYS_PON_RT 0x0810` | 本板实测 |
+| uefi-mondrian | `MemoryMapLib.c:65` | `{"PMIC ARB SPMI", 0x0C400000, 0x2800000, AddDev, MMAP_IO, UNCACHEABLE, MmIO, UNCACHED_UNBUFFERED_XN}` | 本板实测 |
+| phk110-port | `wave12-touch-buttons.md:80` | taro 的 SPMI 表：cnfg/core/chnls/obsrvr/intr = 0xc42d000 / 0xc400000 / 0xc500000 / 0xc440000 / 0xc4c0000 | 同SoC异板·已上机 |
+| phk110-port | `wave12-touch-buttons.md:175` | 上机日志行 `buttons_core=0xc400000 buttons_cnfg=0xc42d000 buttons_obs=0xc440000` | 同SoC异板·已上机 |
+
+**这是本索引里交叉验证最硬的一条**：K60 的 live FDT、sweet-k60 的补丁、phk110 的上机日志三处独立吻合。
+但注意 `phk110 wave12:81` 的另一半警告：redwood 的 `core=0xc440000` 在 taro 上**恰好是 obsrvr 的基址**——照抄别的板会踩到别人的块。
+
+### 3.4 PMIC 按键 / PON
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| live FDT | `fdt_dump.txt:8121` `:8127` `:8133` `:8138` | `pmk8350@0` → `pon_hlos@1300` → `pwrkey` / `resin` | 本板实测 |
+| phk110-port | `wave12-touch-buttons.md:74-76` | 电源键 = PMK8350 PON（slave 0，peripheral 0x13）KPDPWR_N bit 0x80；音量上 = 同块 RESIN_N bit 0x40；音量下 = PM8350 GPIO6（slave 1，pinctrl@8800，peripheral 0x18d）active low | 同SoC异板·已上机 |
+| ios-sweet-k60 | `0101-...patch:19` | `KEYS_PON_RT 0x0810`、`KEYS_GPIO_RT 0xc110`、`KEYS_NO_APID 0xffff` | 本板实测 |
+
+---
+
+## 4. 音频（ADSP / PAS / GLINK / AudioReach / WCD938x / AW882xx）
+
+### 4.1 ADSP PAS 与保留内存
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-power | `PongAdsp.cpp:43` | `kSmem=0x80900000, kSmemSize=0x200000, kMutex=0x1f40000+3*0x1000, kAoss=0xc300000` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:44` | `kRscDrv=0x17a20000, kRscTcs=0xd00, kCmdDb=0x80860000, kCmdDbSize=0x20000` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:45` | **`kAdspBase=0x85700000, kAdspSize=0x2800000`**、`kDtbBase=0x9e980000, kDtbSize=0x80000` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:46` | `kPasAdsp=1, kPasDtb=36, kRemotePid=2, kItemIn=443, kItemOut=429, kItemCrash=423` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:319` | `scm(QCOM_SCM_PAS_INIT_IMAGE, qcom_scm_args(2, QCOM_SCM_VAL, QCOM_SCM_RW, 0), pas, phys, 0)` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:320-321` | relocatable 时再 `QCOM_SCM_PAS_MEM_SETUP(..., base, qcom_mdt_span(&image.mdt))` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:537` | `if (qcom_mdt_span(&adsp.mdt)>kAdspSize) fail(StFirmware,-7);` —— 固件 span 必须小于保留区 | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:581` `:519-520` | `QCOM_SCM_PAS_AUTH_AND_RESET` / `QCOM_SCM_PAS_SHUTDOWN` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:199` | `qcom_smp2p_find_in(&view, "slave-kernel")` | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:202-204` | AOSS 就绪校验：`rd(gAoss,0)==0x4d41494c`（"MAIL"）且 `rd(gAoss,0xc)==0xffff` | 同SoC异板 |
+| **uefi-mondrian** | `MemoryMapLib.c:34` | `{"adsp_region", 0x9FD00000, 0x03100000, ...}` —— 与 Pong 的 0x85700000 **不同板不同址** | **本板实测** |
+| UniXNU-zizhan | `docs/devices/zizhan.md:55` | 原文：`ADSP uses 0x9fd00000+0x3100000, versus Pong 0x85700000+0x2800000. SMEM, IPCC, AOSS and cmd-db addresses agree.` —— 与 K60 完全一致 | 同SoC异板·已上机 |
+
+**结论：ADSP 三件事必须一起改**——基址 0x9fd00000、尺寸 0x3100000、DTB 位置随 adsp_region 走。
+Pong 的 0x85700000 在 K60 上是 `video_region`（见 12.1），照抄会写坏视频固件区。
+
+### 4.2 GLINK / GPR / SMEM
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-power | `QcomGlink.c:104` | `qcom_glink_channel(g, name, intent_size, intent_count, storage, ...)` | 同SoC异板 |
+| pong-power | `QcomGlink.c:107` | `intent_count > QCOM_GLINK_MAX_LOCAL_INTENTS` 直接返回 0 | 同SoC异板 |
+| pong-power | `QcomGlink.c:4` | 注释：发送方留 8 字节使满 FIFO 不显空，另留 16 字节给 READ_NOTIF | 同SoC异板 |
+| pong-power | `QcomGlink.c:341-342` | 注释：小 intent 表被 idle 小包占满时仍要保留大 intent（图命令需要更大 intent） | 同SoC异板 |
+| pong-power | `QcomSmem.c:81` | `header = align_up(ENTRY, p->cacheline), last = rd(smem, p->offset + 16)` —— SMEM 条目布局 | 同SoC异板 |
+| pong-power | `ShengGpr.c:12-14` | GPR 头布局：word0 = version 3:0 \| header size in words 7:4 \| packet size in bytes 31:8；word1 = dst domain 7:0 \| src domain 15:8 | 同SoC异板 |
+| pong-power | `PongAdsp.cpp:142-143` | `kickGlink()` 打 `QCOM_IPCC_CLIENT_LPASS / QCOM_IPCC_SIGNAL_GLINK_QMP`；`kickSmp2p()` 打 `SMP2P` | 同SoC异板 |
+| live FDT | `fdt_dump.txt:9272` | `ipcc@ed18000` | 本板实测 |
+| live FDT | `fdt_dump.txt:9281` `:9301` `:9320` `:9327` `:9342` | `remoteproc-adsp@03000000` → `glink-edge` → `pmic_glink_rpmsg` / `qcom,gpr` / `q6prm` | 本板实测 |
+
+### 4.3 AudioReach 参数 ID 与 GPR 打包
+
+`references/pong-power/ShengAudioReach.c`（17,656 B）是唯一一份把 AudioReach 参数 ID 写全的参考：
+
+| 参数 | ID |
+|---|---|
+| `PARAM_SG_CONFIG` | 0x08001001 |
+| `PARAM_CONTAINER_CONFIG` | 0x08001000 |
+| `PARAM_MODULE_LIST` / `_PROP` / `_CONN` | 0x08001002 / 0x08001003 / 0x08001004 |
+| `PARAM_SG_LIST` / `PROP_SG_PERF` / `_DIRECTION` / `_SCENARIO` | 0x08001005 / 0x0800100E / 0x0800100F / 0x08001010 |
+| `PROP_CONT_CAPS` / `_POS` / `_STACK` / `_DOMAIN` / `PROP_PORT_INFO` | 0x08001011 / 12 / 13 / 14 / 15 |
+| `PARAM_I2S_INTF` / `PARAM_HW_EP_MF` / `PARAM_FRAME_SIZE_FACTOR` | 0x08001019 / 0x08001017 / 0x08001018 |
+| `PARAM_PCM_OUTPUT` / `PARAM_MEDIA_FORMAT` | 0x08001008 / 0x0800100C |
+| `PARAM_CODEC_DMA_INTF` / `PARAM_HW_EP_POWER_MODE` | 0x08001063 / 0x08001176 |
+| `CONTAINER_GC` / `MEDIA_PCM` | 0x0B001001 / 0x09001000 |
+
+| 仓库 | 文件:行 | 事实 |
+|---|---|---|
+| pong-power | `ShengAudioReach.c:64` | GPR 打包顺序：`put32(w,0); put32(w,ADSP\|APPS<<8); put32(w,port); put32(w,dst); put32(w,token); put32(w,opcode);` |
+| pong-power | `ShengAudioReach.c:126` 起 | 导出 `ar_open_speaker_device` / `ar_open_playback_stream` / `ar_open_mic_device` / `ar_open_capture_stream` / `ar_config_speaker_device` / `ar_config_mic_device` / `ar_config_playback_stream` |
+
+### 4.4 WCD938x codec
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-power | `PongWcd938.h:34` | cmd-db 查 `smpb10`（PM8350 S10B 供 WCD RXTX/buck/IO 1.8 V），然后 `vote(resource.address+8,7) && vote(resource.address,1800) && vote(resource.address+4,1)` | 同SoC异板 |
+| pong-power | `PongWcd938.h:76` | MMIO：`va_macro 0x033f0000(0x1000)`、`tx_macro 0x03220000(0x1000)`、`lpass_lpi 0x03440000(0x17000)`、`lpi_slew 0x034da000(0x1000)`、`swr_master 0x033b0000(0x10000)` | 同SoC异板 |
+| pong-power | `PongWcd938.h:88` | `version=swr.r(0); v17 = version==0x01070000u` —— SoundWire v1.7 判据 | 同SoC异板 |
+| pong-power | `PongWcd938.h:111` | 从机 ID 匹配 `(id & 0xffffffffffff) == 0x000d01170223`（DTS `reg=<0x0d 0x01170223>`） | 同SoC异板 |
+| pong-power | `PongWcd938.h:73` | `prmClock(AR_CLK_TX_CORE_MCLK, 19200000)` 必须先 ACK 才能碰 macro/bus | 同SoC异板 |
+| pong-power | `PongWcd938.h:20` | 时钟速率表 `{rate, rate==19200000?9600000:19200000}` | 同SoC异板 |
+| live FDT | `fdt_dump.txt:19556` | `spf_core_platform` → `lpass-cdc` 节点存在 | 本板实测 |
+
+SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCommand 0x320 / readFifo 0x334；v2: 0x5050 / 0x5024 / 0x5040），
+**K60 到底是 v1.7 还是 v2 未验证** —— 这是音频线第一个要测的东西。
+
+### 4.5 AW882xx smart PA（K60 独有，Pong 没有）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| live FDT | `fdt_dump.txt:11228` `:11240` | `aw882xx_smartpa@34` 与 `aw882xx_smartpa@35` 两个节点（I2C 地址 0x34 / 0x35） | **本板实测** |
+| pong-power | `PongAudio.cpp:29` 起 | Pong 音频栈没有 AW882xx 任何痕迹（`grep -i aw882` 空） | 同SoC异板 |
+
+→ **这是参考仓库覆盖不到的一块**。Pong 只有 WCD938x，K60 多了两颗 AW882xx；
+`docs/research/audio/RESEARCH.md` 已把它列为「额外驱动」，但没有任何参考实现。见第 15 节缺口。
+
+---
+
+## 5. WiFi / 蓝牙共用射频（QCA6490）
+
+### 5.1 PCIe 端点与 BAR
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-wifi | `PongWifiPci.cpp:117` | 端点身份：`read32(0) != 0x110317cb \|\| read32(0x2c) != 0x010817cb` → QCA6490 设备/子系统 ID（vendor 0x17cb） | 同SoC异板 |
+| pong-wifi | `PongWifiPci.cpp:120` | BAR 判据：`(bar & 0xfffffff0) == 0x60200000`、`(bar & 1)` 未置、`(bar & 6) == 4`（64 位） | 同SoC异板 |
+| pong-wifi | `PongWifiPci.cpp:134` | `bar.open(0x60200000, 0x200000)` —— BAR0 = 2 MiB | 同SoC异板 |
+| pong-wifi | `PongWifiPlatform.cpp:344` | 二次校验，失败信息 `QCA6490 endpoint identity mismatch` | 同SoC异板 |
+| pong-wifi | `PongWifiPlatform.cpp:339` | 注释：真实范围是 `0x60200000..0x63ffffff`，**不是 Sheng 的 0x60300000** | 同SoC异板 |
+| pong-wifi | `PongWifiPlatform.cpp:350` | ATU 映射序列：`atu.w(b,0); atu.w(b+8,0x60200000); atu.w(b+12,0); atu.w(b+16,0x63ffffff); atu.w(b+20,0x60200000); atu.w(b+24,0); atu.w(b+4,0x80000000);` | 同SoC异板 |
+| pong-wifi | `PongWifiPlatform.cpp:538` | `mapPhys` 只允许 pa ∈ [0x60200000, 0x60400000) | 同SoC异板 |
+| UniXNU-pong | `configs/pong-wifi-sm8475.json` | 板级 PCI 参数：vendor 0x17CB / device 0x1103 / subsystem_device 264 / BAR0 0x60200000 2 MiB | 同SoC异板 |
+| live FDT | `fdt_dump.txt:16407` | `pcie@1c00000` | 本板实测 |
+| live FDT | `fdt_dump.txt:10479` | `cnss-qca6490@b0000000` —— **K60 的 WiFi 是 QCA6490，与 Pong 同款** | 本板实测 |
+
+### 5.2 电源时序与 XO latch（最容易漏的坑）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-wifi | `PongWifiPlatform.cpp:196` | 注释原文：`QCA6490 CNSS2: assert XO_CLK before WLAN_EN and keep the latch` | 同SoC异板 |
+| pong-wifi | `PongWifiPlatform.cpp:177` | 注释：真正的 PCIe ref_clk_src 是 **RPMH_CXO_CLK**，不只是 GCC CLKREF_EN | 同SoC异板 |
+| pong-wifi | `PongWifiPlatform.cpp:71-72` | Nothing 的 `msm_pinmux_set_mux` 用 bit12 声明 EGPIO 能力脚；**GPIO204（QCA6490 XO latch）报 PRESENT bit11** | 同SoC异板 |
+| live FDT | `fdt_dump.txt:1138` `:3613` | `bt_qca6490` 节点；`cnss_pins` / `cnss_wlan_en_active` pinctrl 组 | 本板实测 |
+
+### 5.3 固件包
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-wifi | `PongWifiFirmware.cpp:15` | 固件路径 `/pong/firmware/qca6490.pwf`（板名硬编码，K60 必须改） | 同SoC异板 |
+| pong-wifi | `PongWifiFirmware.cpp:60` | 导出 `pong_wifi_firmware_get(name, &data, &bytes)` | 同SoC异板 |
+| pong-wifi | `proprietary-files.txt:3-8` | 需要的镜像：`image/qca6490/{amss.bin, amss20.bin, m3.bin, regdb.bin, bdwlan.*, bdwlang.*}` | 同SoC异板 |
+
+⚠ **`PongWifiFirmware.cpp` 只在 `references/` 那份快照里存在**（hackios 版没有），见 2.3。
+
+---
+
+## 6. 触摸（GENI SPI / Goodix m11a / TLMM）
+
+本板触摸的一手真值全在 live FDT 与 `yibiya-upstream/docs/plans/K60-TOUCH-PARAMS.md`（267 行）里。
+
+### 6.1 节点与属性（live FDT，本板实测）
+
+| `fdt_dump.txt` 行 | 节点/属性 | 值 |
+|---|---|---|
+| `:10729` | `soc/spi@990000` | `compatible=qcom,spi-geni`，`reg=<0x990000 0x4000>`，`interrupts=<0 0x25d 4>`（GIC SPI 605，level-high），`spi-max-frequency=0x2faf080`（50 MHz 控制器上限），`clock-names=se-clk,m-ahb,s-ahb`，`clocks=<0x24 0x5e 0x24 0x86 0x24 0x87>`，`phandle=0x35b` |
+| `:10748` | `xiaomi_touch@0` | `compatible="xiaomi,m11a-spi"`（**不是 `goodix,*`**），`reg=<0>`（CS0），`spi-max-frequency=0xe4e1c0`（15 MHz），`interrupt-parent=0x3c`（TLMM），`interrupts=<0x15 0x2008>`（GPIO 21），`pinctrl-0=0x585`，`pinctrl-1=<0x2f1 0x2f0>` |
+| `:10748` | 电源/GPIO | `goodix,avdd-gpio=<0x3c 0x47 0x0>`（GPIO 71 高有效）、`goodix,iovdd-name="vdd"`、`vdd-supply=0x301`（**pm8350c_l2 / ldoc2**）、`goodix,irq-gpio=<0x3c 0x15 0x2008>`、`goodix,reset-gpio=<0x3c 0x14 0x0>`（GPIO 20，低有效）、`goodix,irq-flags=0x2`（下降沿） |
+| `:10748` | 坐标 | `goodix,panel-max-x=0x3840`(14400)、`panel-max-y=0x7d00`(32000)、`panel-max-w=0xff`、`panel-max-p=0x1000`；`panel=<0x6a3 0x697>` |
+| `:10748` | 固件 | `goodix,firmware-name=goodix_firmware_m11a`、`goodix,config-name=goodix_cfg_group_m11a`、`touch-expert-array=<2 3 2 2 4 3 3 2 3 3 4 2>` |
+| `:1182` | `soc/pinctrl@f000000` | `compatible=qcom,cape-pinctrl`，`reg=<0xf000000 0x1000000>`，`phandle=0x3c` |
+| `:727` | `clock-controller@3d90000` | GPUCC（与触摸无关，列在此备查） |
+
+引脚组（`K60-TOUCH-PARAMS.md` 与 live FDT 一致）：
+
+| 组 | phandle | 内容 |
+|---|---|---|
+| `mi_ts_spi_active` | 0x581 | GPIO 16/17/18，function=qup4，drive-strength 6，bias-disable |
+| `mi_ts_cs_active` | 0x582 | GPIO 19，qup4，ds 6，pull-up |
+| `mi_ts_spi_sleep` / `mi_ts_cs_suspend` | 0x583 / 0x584 | 同脚切回 gpio |
+| `mi_ts_active` | 0x585 | GPIO 21、20，gpio 模式，ds 8，pull-up |
+| `ts_int_suspend` / `ts_reset_suspend` | 0x2f1 / 0x2f0 | GPIO 21 / 20，ds 2，pull-down |
+
+### 6.2 驱动需要的 9 个 ADT 属性（pong schema，K60 DT 里没有）
+
+| 属性 | 值 | 可信度 | 备注 |
+|---|---|---|---|
+| `spi-base` | 0x00990000 | 高 | 与 live FDT 一致 |
+| `tlmm-base` | 0x0f000000 | 高 | **必须与 `gpio-offset` 相加**得 0x0f100000 |
+| `gcc-base` | 0x00100000 | 高 | cape GCC，size 0x1f4200 |
+| `rsc-base` | 0x17a20000 | 高（地址）/ **可访问性为零** | 填 drv-2 不是 drv-0；见 14.1 |
+| `cmd-db-base` | 0x80860000 | 高（地址） | 运行时从未读过 |
+| `gpio-offset` | 0x00100000 | 中 | pong schema 推导，K60 DT 无此属性 |
+| `pins` | `<16 17 18 19 21 20>` | 高 | 顺序 = MISO/MOSI/CLK/CS/INT/RESET（**角色未逐线确认**） |
+| `max-x` / `max-y` | 14400 / 32000 raw | 中 | 面板是 1440x3200，raw 是 10 倍量级；单位待核 |
+
+三个必踩的坑（`K60-TOUCH-PARAMS.md` 原文）：
+
+1. `tlmm-base` 与 `gpio-offset` 是**相加**关系。写 `tlmm-base=0x0f100000` 就必须把 `gpio-offset` 设为 0。
+2. `rsc-base` 填 **0x17a20000**（drv-2），不是 0x17a00000（drv-0）；pong 的 TCS 计算 `rsc + 0xd00 + reg` 直接以 drv-2 为基址。
+3. `max-x/max-y` 的 14400/32000 是 Goodix raw，**不是**面板像素；pong 原值 1080/2412 是面板像素，混用会把触摸点缩到左上角。
+
+### 6.3 同 SoC 异板的 GENI SPI 对照
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| phk110-port | `wave12-touch-buttons.md:58` | PHK110 的触摸：QUPV3 wrap1 **SE4**，控制器 `0x09900000` size 0x4000，GIC SPI 0x25d=605 level-high，节点 `/soc/spi@990000/synaptics_tcm_hbp@0` | 同SoC异板·已上机 |
+| phk110-port | 同上 `:133-137` | TLMM 0x0f100000：MISO=16 / MOSI=17 / CLK=18 / CS=19（function 1 = qup4），INT=21 输入，RESET=20 低有效，VDD 负载开关=97 高开 | 同SoC异板·已上机 |
+| phk110-port | 同上 `:141` | GENI SPI 用 FIFO 轮询，`touch_spi_hz` 默认 10 MHz | 同SoC异板·已上机 |
+| phk110-port | 同上 `:106-108` | `drivers/input/hakios.goodix.c`（1538 行）是完整范本：TLMM 直写 + RPMh 调压 + GCC 投票开 GENI 时钟（DFS 预设表）+ FIFO 轮询 + 125 Hz 轮询 INT | 同SoC异板·已上机 |
+| QcomGeniSpi | `GeniSpi.c:9-13` | SE 初始化清中断：`SE_GSI_EVENT_EN=0`，再清 M/S/DMA TX/DMA RX 的 IRQ 全 1 | 范本代码 |
+
+⚠ PHK110 的触摸芯片是 **Synaptics TCM**，K60 是 **Goodix**。总线/时钟/引脚可直接参考，协议层（v2 头 CRC-6、v1 裸帧 0xA5..0x5A）**不能**照搬。
+
+### 6.4 K60 侧触摸已经失败过的 8 个补丁（不要再走一遍）
+
+全部在 `references/ios-sweet-k60/xnu/patches/`，作者结论是「触摸仍未修好」：
+
+| 补丁 | 做了什么 | 结局 |
+|---|---|---|
+| `0240-k60-touch-pins-rpmh` | TLMM/GCC/SE/RSC/cmd-db 全套地址 + GPIO 16-21/71 + IOVDD ldoc2 1800 mV mode 7 | 头部自称 drv-2 可读 `DRV_ID=0x20700`，但 0246 说首读 TCS 整机死 —— **两者矛盾未定因** |
+| `0241-k60-touch-geni-spi` | GCC 投票、halt、RCG、SPI 4 MHz、packing；三道闸门（vote 回读 / halt bit31 全清 / root clock 非 ROOT_OFF） | **stage 3/4/5 从未在真机执行** |
+| `0242-k60-touch-goodix` | Berlin 读 `0xf1+4` 地址、写 `0xf0`；GT9xx 0x8140/0x814e/0x8150 双 ABI | **全仓库没有任何一条真机 `K60 TOUCH: ID:` 日志** |
+| `0243-k60-touch-hid-thread` | 分级 stage 1-5，默认 stage 2 | 未跑到 stage 5 |
+| `0244-k60-rpmh-slot-probe` | 只读打印 TCS ctrl/enable/status/irqen | 只读安全 |
+| `0245-k60-touch-irq-pullup-pins` | IRQ pull-down 改 pull-up | 未解决 |
+| `0246-k60-touch-skip-rpmh` | 加 `k60rpmhoff=1` **整段跳过 RSC 投票** | **绕过不是修复**（注释：RSC 一个寄存器都读不得） |
+| `0248-k60-rsc-address-probe` | `k60rscprobe=1` 只读探针，读 0x20000/0x20d00/0x20d14/0x20d1c/0x20d20/0x21000 | 只读安全 |
+
+首次上机参数（`K60-TOUCH-PARAMS.md` ④）：`k60touchstage=4 k60rpmhoff=1 k60touchdelay=8 k60touchhz=4000000`。
+**不要**加 `k60rscprobe=1`；**不要**在 `k60rpmhoff=0` 时用 stage≥2。
+
+stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 protocol 1 (SPI=1)`、`se4 spi cfg word 0x4 mclk 0x51`、
+`se4 status 0x0 fifo 64 words`、`abi berlin selected, axes 14400 x 32000, panel 1440 x 3200`、`stage 4: goodix id ok, abi 1`。
+失败分支：`pins failed` / `clocks not ready stopping before SE` / `abi none: the chip answers neither framing`（先怀疑 IOVDD）。
+
+## 7. 显示 / 背光
+
+### 7.1 面板与画布（K60 自己的契约）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| yibiya-upstream | `patches/xnu/0210-k60-display-native-canvas.patch:12-16` | 原文注释：`The panel is 1440 x 3200, DSC video mode, 60 Hz. CoreAnimation takes its canvas from the mode this display publishes; a canvas that is not the panel's own pixel grid -- an iPhone-shaped 1125 x 2436, or the 1170 x 2532 of the 8 Plus class -- makes WindowServer's BoundingPathBitmap assert... So on this board the canvas is the panel` | 本板（K60 补丁） |
+| yibiya-upstream | 同上 `:22-23` | `#define K60_PANEL_WIDTH 1440` / `#define K60_PANEL_HEIGHT 3200`，tunable `k60_panel` 默认 1 | 本板 |
+| yibiya-upstream | 同上（`k60PanelNative()`） | 要求 `vinfo.v_width==1440 && vinfo.v_height==3200`，命中时打印 `K60 DISPLAY: fbwidth/fbheight/fbscale refused, the canvas is the panel` | 本板 |
+| UniXNU-zizhan | `docs/devices/zizhan.md:97` | 同 SoC 异板：SimpleFbDxe framebuffer=0xb8000000、**2160x1916**、继承 cont_splash_region —— **分辨率不同，不能套用** | 同SoC异板·已上机 |
+
+### 7.2 背光（Pong 的 NT37705，K60 待定）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-power | `PongBacklight.cpp:2` | `// Pong NT37705 DCS brightness.` | 同SoC异板 |
+| pong-power | `PongBacklight.cpp:336` | 控制器判据 `board.version != 1 \|\| board.base != 0xae94000 \|\| board.span != 0x400` → **背光控制器基址 0x0ae94000（0x400）** | 同SoC异板 |
+| pong-power | `PongBacklight.cpp:135` `:141` `:321` | DCS 包常量 `0x80370002`、`0xa0060052`、`0xc0390003` + `0xff000051 \| (wire<<8)` | 同SoC异板 |
+| pong-power | `PongBacklight.cpp:171` | `// NT37705 returns DBV most-significant byte first.` | 同SoC异板 |
+| pong-power | `PongBacklight.cpp:238` | 淡入淡出：`fadeStart=nowNs(); fadeDuration=(latest & 0xffff)*1000000ULL;` | 同SoC异板 |
+| pong-power | `PongBacklight.cpp:218` | 成功日志 `PongBacklight: NT37705 DCS service ready, level=%u max=%u, readback PASS` | 同SoC异板 |
+
+⚠ **K60 的背光面板型号未知**。`uefi-mondrian/Include/RAW.inc:1-5` 明确写着：`SecParti.cfg` 与约 72 个 `Panel_*.xml` 是 pong 的通用显示库，**没有一个匹配 K60 面板**。
+启用厂商显示驱动前，必须先从 K60 的 `dispdcbx` 分区或设备树提取 panel XML。见第 15 节缺口。
+
+---
+
+## 8. GPU / Adreno
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-adreno | `PongAdrenoRegisters.h:1` | 头注释：`Register facts from NothingOSS SM8475 gen7_reg.h. Dword offsets.` | 同SoC异板 |
+| pong-adreno | `PongAdrenoRegisters.h:3-14` | GMU 寄存器（dword 偏移）：`GMU_CM3_BOOT_CONFIG 0x1f801`、`GMU_CM3_CFG 0x1f82d`、`GMU_CM3_FW_INIT_RESULT 0x1f81c`、`GMU_CM3_SYSRESET 0x1f800`、`GMU_HFI_CTRL_STATUS 0x1f980`、`GMU_HFI_CTRL_INIT 0x1f986`、`GMU_AHB_FENCE_RANGE_0 0x23b11` | 同SoC异板 |
+| pong-adreno | `PongAdrenoGmu.c:11` | GMU 映射窗口 `{0x03d00000,0x40000},{0x03d68000,0x37000},{0x03d50000,0x10000}` | 同SoC异板 |
+| pong-adreno | `PongAdrenoGmu.c:50` | `if(reg==GEN7_GMU_CM3_FW_INIT_RESULT && (v&0xe00)) return PongGpuIo;` —— 固件初始化失败位 | 同SoC异板 |
+| pong-adreno | `PongAdrenoPlatform.cpp:318` `:326` | GPU 寄存器基址 `0x03d00000 + reg*4` | 同SoC异板 |
+| pong-adreno | `PongAdrenoPlatform.cpp:291` | GPU SMMU 基址 `0x03da0000` | 同SoC异板 |
+| pong-adreno | `PongAdrenoPlatform.cpp:279` | IOVA 表 `{0x4000, 0x60000000, 0x60002000, 0x60006000}`（cache/dummy/hfi/logmem） | 同SoC异板 |
+| pong-adreno | `PongAdrenoPlatform.cpp:207` | 注释：Shared ASID 命名空间，reserve 1 给 GMU、2 给 GPU，互相独立 | 同SoC异板 |
+| pong-adreno | `PongAdrenoPlatform.cpp:344` | `map(gcc,0x100000,0x1f4200) && map(rsc,0x17a20000,0x10000) && map(db,0x80860000,0x20000)` —— GPU 也用同一组窗口 | 同SoC异板 |
+| pong-adreno | `PongAdrenoClocks.c:2` `:79` `:96` `:119` | 注释：Cape 时钟与 GDSC 事实来自 Nothing 的 `gpucc-waipio.c`；`qcom,cape-gpucc` DT 节点；HFI START 后 GMU 固件接管使能/改频；电源状态在独立的 `HW_CTRL 0x953c`，**不是 GDSCR bit31** | 同SoC异板 |
+| pong-adreno | `PongAdrenoScanout.cpp:43` | `extern "C" void pong_scanout_initialize(address,bytes,stride,width,height)` | 同SoC异板 |
+| live FDT | `fdt_dump.txt:727` | `clock-controller@3d90000`（GPUCC） | 本板实测 |
+| live FDT | `fdt_dump.txt:10523` `:10876` | `qupv3_0_geni_se@9c0000` / `qupv3_1_geni_se@ac0000`（GPU 无关，列此备查） | 本板实测 |
+
+⚠ **`PongAdrenoPlatform.cpp:181` 的时钟校验在本板不成立**：
+`return !parents_ready || !(rd(gcc,0)&0x80000000) || rate!=600000000;` —— 它硬要求 600 MHz，而 K60 的 Adreno 最高 900 MHz。照抄会让 GPU 启动直接判失败。
+
+---
+
+## 9. 存储（UFS）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-ufs | `PongUfsTransport.cpp:157` | UFS host controller 基址 `0x01d84000`（0x3000） | 同SoC异板 |
+| pong-ufs | `PongUfsTransport.cpp:190` | APPS SMMU `0x15000000`（0x100000） | 同SoC异板 |
+| pong-ufs | `PongUfsTransport.cpp:219-238` | 初始化序列：QUERY power mode → SCSI `0xd0` START STOP UNIT → TEST UNIT READY 轮询 → READ CAPACITY，**要求 blockSize==4096** 否则 `unsupported LUN geometry` | 同SoC异板 |
+| pong-ufs | `PongUfsTransport.cpp:54-55` | LUN0 4K LBA 范围 `0x413248 .. 0x75a40ea` | 同SoC异板 |
+| pong-ufs | `PongUfsTransport.cpp:240` | 就绪日志 `PONG_UFS: transport ready LUN=0 block=4096 blocks=%llu; WRITE(10) FUA=%s; writes stay inside declared SHNGROOT windows` | 同SoC异板 |
+| pong-ufs | `RootLayout.h:67` | GPT 头校验 `le32(gScratch)!=0x20494645("EFI ") \|\| le32(+4)!=0x54524150("PART") \|\| le32(+84)!=128` | 同SoC异板 |
+| pong-ufs | `RootLayout.h:72` | 分区项大小 `0x00010000`，headerBytes ∈ [92, 4096] | 同SoC异板 |
+| pong-ufs | `RootLayout.h:157` | 窗口 magic `0x474e4853` / `0x544f4f52` = `"SHNGROOT"` | 同SoC异板 |
+| uefi-mondrian | `MemoryMapLib.c:111` | `{"SMMU", 0x15000000, 0x00200000, ...}` —— **K60 的 SMMU 窗口是 2 MiB，Pong 驱动只映射 1 MiB** | **本板实测** |
+| yibiya-upstream | `configs/mondrian_defconfig:28` | `CONFIG_XNU_NATIVE_UFS=y`；`:46` `CONFIG_XNU_OWNER_DATA_VOLUME_UUID="E313398B-D70A-4EB8-9425-4B1A7BE3E1F5"`；`:55` `CONFIG_XNU_PONG_RAMOOPS_CONSOLE=y` | 本板 |
+| UniXNU-mondrian-mzyxsl | `docs/devices/mondrian-mzyxsl.md` | 官方记录里的 `board.toml [userdata]`：**first_lba 53342976 / last_lba 61731583 / lba_bytes 4096**，窗口 OS + Cryptex1,SystemOS | 官方（fork 自报） |
+| ShengUfs | `NativeUfs.cpp`（148,723 B） | 官方完整实现，但**硬编码 SM8550**，不能整体替换；`RootCommands.h`（29,932 B）与 `tests/` 下 12 个测试是移植范本 | 官方 |
+
+---
+
+## 10. USB（DWC3）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-usb | `Dwc3Registers.h:9-14` | 分区：XHCI 0x0000、GLOBALS 0xC100..0xC6FF、DEVICE 0xC700..0xCBFF、OTG 0xCC00 | 同SoC异板 |
+| pong-usb | `Dwc3Registers.h:17-22` | `GSBUSCFG0 0xC100`、`GCTL 0xC110`、`GEVTEN 0xC114`、`GSTS 0xC118`、`GSNPSID 0xC120`、`GUID 0xC128` | 同SoC异板 |
+| pong-usb | `Dwc3Registers.h:87-88` | `GSNPSID_MASK 0xFFFF0000`、`GSNPSID_DWC_USB3 0x55330000` | 同SoC异板 |
+| uefi-mondrian | `MemoryMapLib.c:108` | `{"USB", 0x0A600000, 0x00200000, AddDev, MMAP_IO, ...}` | **本板实测** |
+| uefi-mondrian | `FdtBlob/Source.txt` | DTB 由 `sm8450-mainline/linux` 的 `tyalie` 分支编译，含 `usb-role-switch`，第 1003 行加入以修 USB OTG Mode | 本板（固件注释） |
+| phk110-port | `wave13-usb-host.md`（216 行） | Windows → libusb → loader USB gadget `18d1:d00d` 的完整工具链 | 同SoC异板·已上机 |
+
+---
+
+## 11. 电池 / launchd
+
+### 11.1 PMIC GLINK 电池
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| pong-power | `ShengBattmgr.c:1` | 注释：`NothingOSS qti_battery_charger.c standard property IDs; no Xiaomi extensions or charger writes.` | 同SoC异板 |
+| pong-power | `ShengBattmgr.c:5` | 属性 ID：`TEMP=12`（deci-C）、`CHG_COUNTER=14` | 同SoC异板 |
+| pong-power | `ShengBattmgr.c:215` | 注释：`0xe0004000 + n`: host 0 / DCP 4 / CDP 5 / unknown 7 / Type-C 9 / PD 10 | 同SoC异板 |
+| pong-power | `ShengBattmgr.c:219` | `case 1: return 0xe0004000u;`（host）；`:219-224` 完整映射 | 同SoC异板 |
+| pong-power | `ShengBattmgr.c:70` | 请求包 `put32(out+12, 0); /* battery 0 */` | 同SoC异板 |
+| pong-power | `ShengBattmgr.c:55` 起 | 导出 `sheng_battmgr_init/enable_request/refresh/next/timeout/receive` | 同SoC异板 |
+| UniXNU-mondrian | `docs/research/battery/RESEARCH.md` | 解锁链 PAS1 → GLINK → PMIC GLINK → 电池协议 → IOPMPowerSource，**跳不过去**；官方 power 页给了六步流程与单位转换 | 官方 + 本项目调研 |
+
+⚠ `ShengBattmgr.c` 明确写着「无小米扩展、无充电写入」——**K60 是小米机器**，充电器协议（PD/PPS、Mi Turbo Charge）大概率不同。
+
+### 11.2 launchd / hw.target
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| phk110-port | `wave20-launchd.md` | 根因链：dyld 内嵌 libignition 启动时 `sysctlbyname("hw.target")`，`kern_mib.c:502-508` 在 `PEGetTargetName` 返回 false 时直接 `return EINVAL(22)`，libignition 拿到非 0 errno 即让 launchd 退场。`PEGetTargetName` 走 `IOPlatformExpert.cpp:944` → `IODTPlatformExpert`，DT 根无 `model` 属性时失败。双层修复：loader 用真身份（`xnuloader/mkidentity.sh`）+ 内核加 `hw_target` boot-arg fallback | 同SoC异板·已上机 |
+
+## 12. 本板真值汇总（可直接引用，最高可信度）
+
+来源：`uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c`（2026-10-27 实测生成）+ 设备 6033dbec 的 live FDT。
+
+### 12.1 DDR 保留区（会挡住别人写代码的那些）
+
+| 名称 | 基址 | 大小 | 行 |
+|---|---|---|---|
+| `video_region` | 0x85700000 | 0x00700000 | `MemoryMapLib.c:22` |
+| `adsp_region` | **0x9FD00000** | **0x03100000** | `:34` |
+| `SMEM` | 0x80900000 | 0x00200000 | `:19` |
+| `aop_cmd_db_region` | 0x80860000 | 0x00020000 | `:14` |
+| `ramoops` | 0xA7000000 | 0x00400000 | `:38` |
+| `ABL Staging` | 0xA8300000 | 0x0FD00000 | `:51`（注释 :39-50 解释 ABL 在此停 DTB 与拼接 initrd，无 descriptor 时 level-2 translation fault） |
+| `Display Reserved` | 0xB8000000 | 0x02B00000 | `:52` |
+| `Kernel` | 0xBB000000 | 0x0C000000 | `:75` |
+| `DXE Heap` | 0xC7000000 | 0x18000000 | `:83`（注释 :76-82：DarwinBoot 要一段连续 256 MiB，320 MiB 堆时报 biggest run 0xF0A0000） |
+| `XNU High Arena` | 0x900000000 | 0x140000000 | `:94`（注释 :85-93：高 DDR 在 >= 0x800000000，`[0x100000000,0x800000000)` 是空洞，只暴露实测连续的 8 GiB） |
+
+### 12.2 寄存器区窗口
+
+| 名称 | 基址 | 大小 | 行 | 与本文其它章节的关系 |
+|---|---|---|---|---|
+| `QUP` | 0x00800000 | 0x00300000 | `:103` | 触摸 SPI 0x990000 在其内 |
+| `USB` | 0x0A600000 | 0x00200000 | `:108` | 第 10 节 |
+| `AOSS` | 0x0B000000 | 0x04000000 | `:109` | 第 4.1 节 `kAoss=0xc300000` 在其内 |
+| `TLMM` | 0x0F000000 | 0x01000000 | `:110` | 第 6 节 gpio |
+| `SMMU` | 0x15000000 | 0x00200000 | `:111` | 第 9 节 |
+| `APSS_HM` | 0x17000000 | 0x02000000 | `:112` | RSC 0x17a00000 在其内 |
+| `PMIC ARB SPMI` | 0x0C400000 | 0x2800000 | `:65` | 第 3.3 节 |
+
+### 12.3 固件与启动配置
+
+| 文件:行 | 事实 |
+|---|---|
+| `MemoryMapLib.c:63` | `UEFI FD 0xA7400000 + 0x300000`（与 `Resources/Configs/mondrian.toml:11-13` 一致） |
+| `Resources/Configs/mondrian.toml:9` | 注释：K60 UEFI FD 挪到 0xA7400000，ramoops 占 0xA7000000，冲突规避 |
+| `Resources/Configs/mondrian.toml:26-27` | `[boot_image] header_version = 4`（K60 stock boot.img 为 v4）；`:18-20` kernel gzip + `append_dtb = true` |
+| `Include/RAW.inc:1-5` | 注释原文：`the SecParti.cfg and the ~72 Panel_*.xml below are the pong generic display library (Binaries/pong/RawFiles). None match the K60 1440x3200 panel; they are inert today... Before enabling a vendor display driver, replace them with the K60 panel XML extracted from the K60 dispdcbx partition or device tree.` |
+| `FdtBlob/Source.txt` | DTB 来自 `sm8450-mainline/linux` 的 `tyalie` 分支，含 `usb-role-switch`，第 1003 行加入以修 USB OTG Mode |
+
+### 12.4 高频 FDT 节点（`fdt_dump.txt` 行号）
+
+| 行 | 节点 | 用途 |
+|---|---|---|
+| `:58` | `aop_cmd_db_region@80860000` | cmd-db |
+| `:84` | `smem_region@80900000` | SMEM |
+| `:727` | `clock-controller@3d90000` | GPUCC |
+| `:1138` | `bt_qca6490` | 蓝牙 |
+| `:1182` | `pinctrl@f000000` | TLMM（phandle 0x3c） |
+| `:3613` | `cnss_pins` / `cnss_wlan_en_active` | WiFi 电源脚 |
+| `:4698` | `rsc@17a00000` | RPMh RSC |
+| `:8106` | `qcom,spmi@c42d000` | SPMI 仲裁器 |
+| `:8121` `:8127` | `pmk8350@0` / `pon_hlos@1300` | 按键 PON |
+| `:9272` | `ipcc@ed18000` | IPCC |
+| `:9281` `:9301` `:9320` `:9327` `:9342` | `remoteproc-adsp@03000000` → `glink-edge` → `pmic_glink_rpmsg` / `qcom,gpr` / `q6prm` | ADSP 链 |
+| `:10479` | `cnss-qca6490@b0000000` | WiFi |
+| `:10523` `:10876` | `qupv3_0_geni_se@9c0000` / `qupv3_1_geni_se@ac0000` | GENI SE |
+| `:10729` | `spi@990000` | 触摸 SPI |
+| `:10748` | `xiaomi_touch@0` | 触摸本体 |
+| `:10774` | `i2c@994000`（`fsa4480@42`、`eusb2_repeater@4f`） | USB Type-C 开关 |
+| `:11228` `:11240` | `aw882xx_smartpa@34` / `@35` | Smart PA |
+| `:16407` | `pcie@1c00000` | WiFi PCIe |
+| `:19556` | `spf_core_platform` → `lpass-cdc` | 音频 codec |
+
+---
+
+## 13. 官方记录（UniXNU 仓库，可信但需辨别）
+
+| 仓库 | 文件:行 | 事实 | 可信度 |
+|---|---|---|---|
+| UniXNU | `devices.toml:1585-1598` | `[[device]] name=mondrian repository=Emilelu/UniXNU-mondrian format=2 revision=c39ff292... board=mondrian soc=SM8475 os_profile=ipados-16.6.1-20G81 components=[ArmDTPlatform,ArmCpu,XnuPrelink,PongUfs] record_state=available`；另有 3 个 fork 记录（mondrian-mzyxsl :1600、mondrian-wohusaixing :1616、mondrian-xtom0706 :1631） | 官方（fork 自报） |
+| UniXNU | `docs/devices/mondrian.md` | 状态表：Configuration=implemented、Firmware and boot=device-verified、CPU and interrupts=implemented、Memory and DMA=implemented、**Storage/Display/Input/GPU/Network/Audio/Power 全部 planned**、Image assembly=host-verified、Diagnostics=device-verified | 官方 |
+| UniXNU | `docs/devices/mondrian.md:102` | device 证据原文：`Darwin 24 loader boots the board every time: green bar from Entry.S, then the upstream probe's blue and magenta bars at the kernel entry and just before the MMU comes on.` 命令 `scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc8.img`，revision `d2af811a...` | 官方（fork 自报，已上机） |
+| UniXNU | `docs/devices/mondrian-mzyxsl.md:37-126` | 四层合并顺序 profiles/arch/arm64 → **UniXNU-sm8475-common** 的 `soc.toml` → OS profile → `board.toml`；feeds 五条 pin（xnu 8796.141.3=1b191cb5 等）；OS profile 取 iPad7,1/16.6.1/20G81（chip 32785=0x8011、board 12）；`board.toml [userdata]` first_lba 53342976 / last_lba 61731583 / lba_bytes 4096；patches/xnu/series 98 条 | 官方（fork 自报） |
+| UniXNU | `docs/devices/mondrian-mzyxsl.md:107-111` | 三条硬事实：① loader 只在 RAM 装 `UniXNULoader` 协议并在 unload 时恢复，**不写任何固件变量或分区**（fastboot boot 只读 bring-up 的前提）；② DarwinBoot 必须在 EL1 跑（`DarwinCurrentEl()!=4` 即 `EFI_UNSUPPORTED`），从 EL2 起的 payload 永远到不了 XNU；③ 绿条是 trampoline 不是内核 | 官方（fork 自报） |
+| UniXNU | `docs/devices/zizhan.md:55` `:97` `:138-154` | 同 SoC 已上机板：ADSP 0x9fd00000+0x3100000 与 Pong 不同；SimpleFbDxe framebuffer 0xb8000000 **2160x1916**；SM8475 四 A510+三 A710+一 X2、GICv3、19.2 MHz timer、PSCI；`PONG_ADT_CLUSTERS=1`；`pong_fast_pri=47、pong_fast_cpu=7`；`ml-timeout-lock-panic-scale=40`、`interrupt-masked-debug-mode=1` | 同SoC异板·已上机 |
+| UniXNU | `kits/` | 官方只有 6 个 kit：AdrenoFirmware、AdrenoPM4、AirNir、ArmSmmu4K、VerifiedRoot、XnuPrelink —— **没有音频/触摸/WiFi kit** | 官方 |
+| yibiya-unixnu-upstream | `docs/devices/mondrian*.md` | 上游化仓库里 K60 相关只有设备记录与 `pong-driver/configs/mondrian_defconfig`，**没有硬件实现** | 官方 |
+
+---
+
+## 14. 已知矛盾与坑（照抄会坏）
+
+### 14.1 RSC「可读」与「一读就死」互相矛盾（最贵的一条）
+
+- `references/ios-sweet-k60/xnu/patches/0240-k60-touch-pins-rpmh.patch` 头部自称 2026-10-31 在 drv-2 读到 `DRV_ID=0x20700`。
+- 同一批的 `0246-k60-touch-skip-rpmh.patch` 注释写：**「这台机器上 RSC 一个寄存器都读不得：首次读 TCS 就整机死」**，并加了 `k60rpmhoff=1` 整段跳过。
+- `0248-k60-rsc-address-probe.patch` 因此只做只读探针（`k60rscprobe=1`）。
+
+**结论：K60 的 RPMh 可访问性未定，根因（XPU / 电源域 / 互连）未证明。**
+任何依赖 RPMh 投票的子系统（触摸 IOVDD、音频 ADSP LCX/LMX、GPU、WiFi ref_clk）在做之前，必须先有一个「只读、可回滚」的 RSC 探针结论。
+这是本项目**当前最大的单点阻塞**。
+
+### 14.2 ADSP 基址与 Pong 不同
+
+Pong `PongAdsp.cpp:45` 用 `0x85700000`；K60 的 `0x85700000` 是 **video_region**（`MemoryMapLib.c:22`），ADSP 在 **0x9FD00000 + 0x3100000**（`:34`）。
+UniXNU-zizhan 已上机的同 SoC 记录给出同样结论（`docs/devices/zizhan.md:55`）。**照抄 Pong 会把 ADSP 固件写进视频固件区。**
+
+### 14.3 GPU 时钟校验写死 600 MHz
+
+`pong-adreno/PongAdrenoPlatform.cpp:181`：`return !parents_ready || !(rd(gcc,0)&0x80000000) || rate!=600000000;`
+K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必须改成读本板 OPP 表。
+
+### 14.4 WiFi BAR 范围两个版本
+
+`pong-wifi/PongWifiPlatform.cpp:339` 注释：真实范围 `0x60200000..0x63ffffff`，**不是 Sheng 的 0x60300000**；`:538` 的 `mapPhys` 也只放行 `[0x60200000, 0x60400000)`。
+引用时务必确认用的是 references 那份新快照（见 2.3）。
+
+### 14.5 pong TCS 槽位是 4，不是 2
+
+`PongPlatformResources.cpp:79` 用 `0xd00+4*0x2a0`（DRV slot 4），而 live FDT 声明的 `qcom,drv-id=<2>`。
+两者不冲突（drv-id 指本核的 DRV，slot 4 指该 DRV 里用的 TCS 编号），但**混着抄会算错地址**。
+
+### 14.6 Pong 的背光/面板库没有一个匹配 K60
+
+`uefi-mondrian/Include/RAW.inc:1-5` 原文已说明：约 72 个 `Panel_*.xml` 全是 pong 的，**没有 K60 的 1440x3200 面板**。
+
+### 14.7 工具链缺口
+
+- 本机**没有 dtc**（`command -v dtc` 为空）、**没有 fdtdump**、Python **没有 libfdt**（`import fdt` → ModuleNotFoundError）。
+- `python3` 是 **Windows 侧解释器**：它读不了 `/mnt/e/...`（FileNotFoundError），必须写 `E:/...` 或先 `cd` 到 `/mnt/e` 再用相对路径。
+- `research-gate.py`、`check-docs.py` 的 `REPO` 都硬编码 `/mnt/e/hackios/UniXNU-mondrian`（主 checkout，归 touch-agent）。在 worktree 里跑它们，校验的其实是主 checkout 的文件。
+- `research-gate.py:88` 调用 `check()` 时没传 `verbose`，所以 problems 列表永远不打印，只输出一行结论。**脚本缺陷，按铁则⑧不得私改**。
+
+---
+
+## 15. 覆盖缺口（下一个人该挖的）
+
+| 缺口 | 影响 | 建议动作 |
+|---|---|---|
+| **AW882xx smart PA 无任何参考实现** | 音频线（K60 独有） | 从 `Device-Binaries` 找 aw882xx 固件/驱动，或从 Android 侧 `aw882xx_dl.bin` 与 mi 的 ACDB 逆推 |
+| **K60 panel XML 未提取** | 显示/背光 | 从 `dispdcbx` 分区或 live FDT 提；`RAW.inc:1-5` 已明确必须换 |
+| **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*` |
+| **`Device-Binaries` 698 MB 未系统挖掘** | 全部 | 至少把 `Binaries/` 下的 panel/固件索引出来 |
+| **`UniXNU-liuqin`（105 文件）未看过** | 未知 | 先 `git ls-files` 看有没有 SM8475 相关 |
+| **RSC 可访问性根因未定** | 所有供电相关 | 见 14.1，优先 |
+| **Goodix 芯片型号未确认** | 触摸 | DT 只写 `xiaomi,m11a-spi`；需要读 IC info 或从 Android 侧 dmesg 确认 |
+| **`UniXNU-ruby` 是空仓库** | 文档错误 | `docs/engineering/LOCAL-ASSETS.md` 把它当 catalog，应删掉或标注为空 |
+
+---
+
+## 16. 机器可读部分
+
+本文件的人读事实已同步成 `SOURCES.toml` 的 **17 条新 `required` 条目**（2026-11-14 追加）：
+
+| 子系统 | 变化 | 条数 |
+|---|---|---|
+| `power` | **新建**段（RSC/TCS、SPMI、cmd-db、live FDT） | 4 |
+| `display` | **新建**段（面板画布契约、120Hz timing、NT37705 背光） | 3 |
+| `usb` | **新建**段（DWC3 偏移、eUSB2 PHY、Type-C mux） | 3 |
+| `bluetooth` | **新建**段（QCA6490 路线、K60 的 BT 节点） | 2 |
+| `audio` | 补充 AudioReach 参数 ID、GLINK intent 约束、ADSP 保留区 | 3 |
+| `wifi` | 补充 PCIe 端点识别、K60 cnss 节点 | 2 |
+
+追加后全文件 11 个子系统、49 条 `required`（原 7 个子系统、32 条）。查法：
+
+```bash
+python3 scripts/research-gate.py        # 校验每个 path 存在、examined 非空、finding >= 20 字
+```
+
+**路径规则（写 `path` 前先看这条）**：gate 只试两种解析——
+① `os.path.join(REPO, path)`（REPO 是本仓库，如 `docs/research/...`）；
+② `os.path.join('/mnt/e/k60-work', path)`（如 `references/...`、`reports/...`）。
+所以 `path` **不能写 `E:/hackios/...`**。本索引里 `E:/k60-work/reports/live-6033dbec-fdt.dtb` 之所以能当 `path`，是因为它同时是 `reports/live-6033dbec-fdt.dtb`（回退②命中）。
+
+蓝牙的唯一实现副本 `E:/hackios/QcaBluetooth` 不在上述两种回退内，**进不了 gate**，只能在本文件第 5 节以事实形式记录。这是已知的结构性限制。
+另外 `research-gate.py:88` 未传 `verbose` 导致 problems 永不打印，验证时若只有一行结论而看不到细节，把脚本 `sed` 换 `REPO` 到本地副本跑（不要改仓库里的脚本，铁则⑧）。
+
+---
+
+## 17. 维护规则
+
+1. **新增一条事实** = 一行表格：仓库 | 文件:行 | 事实 | 可信度。缺一列不收。
+2. **行号必须实测过。** 不许写「大概是」；`grep -n` 出来的才算。
+3. **换分支/换快照要重验行号。** 本索引的行号绑定 2.2 节列出的 HEAD（尤其 `pong-power@c117a67`、`pong-wifi@20e1e5b`、`phk110-port@a7d4575`、`yibiya-upstream@522c6ea`）。
+4. **可信度降级要写原因。** 例如「同SoC异板」被你实测否定后，改成「本板实测（否定 X）」并保留出处。
+5. **矛盾不合并，并列写。** 见 14.1：两个补丁互相矛盾时，两条都留，标未定因。
+

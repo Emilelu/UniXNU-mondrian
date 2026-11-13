@@ -241,3 +241,117 @@ path = "references/phk110-port/docs/phk110/waves/wave20-launchd.md"
 why = "同 SoC 的 hw.target 根因与双层修复"
 examined = "2026-11-12"
 finding = """同 SoC 的 hw.target 根因链：dyld 内嵌 libignition 启动时 sysctlbyname("hw.target")，kern_mib.c:502-508 在 PEGetTargetName 返回 false 时直接 return EINVAL(22)，libignition 拿到非 0 errno 即让 launchd 退场。PEGetTargetName 走 IOPlatformExpert.cpp:944 -> IODTPlatformExpert，DT 根无 model 属性时失败。双层修复：loader 用真身份（xnuloader/mkidentity.sh 喂本机 DT）+ 内核加 hw_target boot-arg fallback。"""
+[subsystem.power]
+why = "供电 / RPMh / SPMI / PMIC：RSC 与 TCS 的原始投票序列、cmd-db、SPMI 仲裁器地址、PON 按键。K60 当前最大单点阻塞（RSC 一读就死）必须对照这一段"
+
+[[subsystem.power.required]]
+path = "references/pong-power/PongPlatformResources.cpp"
+why = "RPMh RSC 映射与 TCS 原始投票序列；讨论 K60 RSC 可访问性时先读这段顺序"
+examined = "2026-11-14"
+finding = """APPS RSC 映射 0x17a20000 + 0x10000（:68），投票槽固定用 DRV slot 4：ActiveTcs = 0xd00 + 4*0x2a0（:79）。rawVote 写序列（:150-154）：先 b+0x30=0x10108、b+0x34=地址、b+0x38=值，再 b+0x10=1、b+0x1c=1，最后 b+0x14=(1<<16)|(1<<24) 触发。硬件要求（:139-143）：清 trigger 后必须读回，再清 AMC enable 并读回，两次分开写；一次 posted write 清两个会违反 __tcs_set_trigger 顺序并丢下一次触发。retireVote 完成判据（:96-108）：status=rd(ActiveTcs+0x3c)、idle=rd(+0x18)、rd(+0x1c)==1、rd(+0x34)==addr、rd(+0x38)==value。能力检查（:129-131）：(rd(0)>>16)&255>=3 且 count>=8 且 ncpt>=1，否则 fail("active TCS4 unavailable")。导出 pong_rpmh_init / pong_rpmh_vote（:159-169）。"""
+
+[[subsystem.power.required]]
+path = "references/ios-sweet-k60/xnu/patches/0101-k60-spmi-arbiter-addresses.patch"
+why = "K60 live FDT 的 SPMI 仲裁器地址，纠正 sweet 的旧常量"
+examined = "2026-11-14"
+finding = """注释原文给出 K60（SM8475）live FDT 的 SPMI reg-names = cnfg, core, chnls, obsrvr, intr；reg = <0xc42d000 0x4000 0xc400000 0x3000 0xc500000 0x400000 0xc440000 0x80000 0xc4c0000 0x10000>。sweet 的旧常量 0xc40a000 / 0xc440000 / 0xe600000 在本板指向无关块，keys 驱动会读到垃圾或把总线挂死。修正后 KEYS_CORE_PA=0x0c400000、KEYS_OBS_PA=0x0c440000、KEYS_CNFG_PA=0x0c42d000、KEYS_PON_RT=0x0810、KEYS_GPIO_RT=0xc110、KEYS_NO_APID=0xffff。"""
+
+[[subsystem.power.required]]
+path = "references/phk110-port/docs/phk110/waves/wave12-touch-buttons.md"
+why = "同 SoC 异板的 SPMI / RSC / GCC 真值，用来交叉验证 K60 自己的表"
+examined = "2026-11-14"
+finding = """taro 的 SPMI 仲裁器 reg-names cnfg,core,chnls,obsrvr,intr = 0xc42d000 / 0xc400000 / 0xc500000 / 0xc440000 / 0xc4c0000，qcom,ee=0；与 K60 live FDT 完全一致，可作跨板交叉验证。同时提醒：redwood 的 core=0xc440000 在 taro 恰是 obsrvr 基址，地址必须整表换。apps_rsc=/soc/rsc@17a00000，drv-id=2 → APPS RSC=0x17a20000，tcs-offset 0xd00。cape GCC 的 SE 时钟索引是 0x5e/0x86/0x87，不等于 mainline sm8450 的 94/118/119，所以 cape GCC 不能用 sm8450 表。"""
+
+[[subsystem.power.required]]
+path = "reports/live-6033dbec-fdt.dtb"
+why = "K60 本机 live merged FDT（2026-11-02 从 serial 6033dbec 的 adb 导出，已含 dtbo），本板最高可信度的一手寄存器/保留区事实"
+examined = "2026-11-14"
+finding = """919,210 B，FDT v17。rsc@17a00000 四段 reg（drv-0..3 各 0x10000）且 qcom,drv-id=2；spmi@c42d000 五段 reg 与 0101 补丁一致；aop_cmd_db_region@80860000 = <0 0x80860000 0 0x20000>；clock-controller@100000 = qcom,cape-gcc，reg <0x100000 0x1f4200>；pinctrl@f000000 = qcom,cape-pinctrl，reg <0xf000000 0x1000000>。解析工具见 E:/k60-work/scratch/refmine/fdt_dump.py（本机无 dtc / libfdt，只能按 FDT 结构自解析）。"""
+
+[[subsystem.audio.required]]
+path = "references/pong-power/ShengAudioReach.c"
+why = "AudioReach / GPR 的参数 ID 与打包格式，ADSP 音频服务的最小可用子集"
+examined = "2026-11-14"
+finding = """参数 ID 表（:7-29）：PARAM_CONTAINER_CONFIG=0x08001000、PARAM_SG_CONFIG=0x08001001、PARAM_MODULE_LIST=0x08001002、PARAM_MODULE_PROP=0x08001003、PARAM_MODULE_CONN=0x08001004、PARAM_SG_LIST=0x08001005、PARAM_I2S_INTF=0x08001019、PARAM_CODEC_DMA_INTF=0x08001063、PROP_SG_PERF=0x0800100E、PROP_CONT_CAPS=0x08001011、PROP_PORT_INFO=0x08001015、PARAM_HW_EP_POWER_MODE=0x08001176；容器 CONTAINER_GC=0x0B001001、MEDIA_PCM=0x09001000。GPR 头打包（:61-64）：put32(w,0); put32(w, GPR_DOMAIN_ADSP | GPR_DOMAIN_APPS<<8); put32(w,port); put32(w,dst); put32(w,token); put32(w,opcode)。导出 ar_open_speaker_device / ar_open_playback_stream / ar_open_mic_device / ar_open_capture_stream / ar_config_*（:126-221）。"""
+
+[[subsystem.audio.required]]
+path = "references/pong-power/QcomGlink.c"
+why = "GLINK 的 intent / FIFO 布局约束，ADSP 通信层"
+examined = "2026-11-14"
+finding = """发送方必须留 8 字节，满 FIFO 时才不会显空；另外留 16 字节给 READ_NOTIF（:4）。qcom_glink_channel(g, name, intent_size, intent_count, storage, ...) 在 intent_count > QCOM_GLINK_MAX_LOCAL_INTENTS 时返回 0（:104-107）。intent 包把尺寸写在 put32(m+8, c->intent_size)（:158）。小 intent 表被 idle 小包占满时仍要保留大 intent，图命令需要更大的 intent（:341-342）。"""
+
+[[subsystem.audio.required]]
+path = "reports/live-6033dbec-fdt.dtb"
+why = "K60 的 ADSP 保留区与 Pong 完全不同，音频线最容易照抄错这一条"
+examined = "2026-11-14"
+finding = """本板 adsp_region = 0x9FD00000 + 0x03100000（与 zizhan 一致），而 Pong 用 0x85700000 + 0x2800000；0x85700000 在 K60 是 video_region（0x700000）。ADSP 链的节点在 FDT 里是 remoteproc-adsp@03000000 → glink-edge → pmic_glink_rpmsg / qcom,gpr / q6prm；ipcc@ed18000；spf_core_platform → lpass-cdc；双 smart PA aw882xx_smartpa@34 与 @35（K60 独有，Pong 没有）。"""
+
+[[subsystem.wifi.required]]
+path = "references/pong-wifi/PongWifiPci.cpp"
+why = "QCA6490 的 PCIe 端点识别与 BAR 映射，WiFi 冷启动第一步"
+examined = "2026-11-14"
+finding = """端点身份：p->config.read32(0) 必须等于 0x110317cb 且 read32(0x2c) 等于 0x010817cb，否则直接失败（:117）。BAR0 必须满足 (bar & 0xfffffff0) == 0x60200000 且 (bar & 1)==0 且 (bar & 6)==4（:120）。MSI capability 的 (value & 0xff) == 0x05 才算找到（:130）。最后 p->bar.open(0x60200000, 0x200000)（:134）。这套判据的前提是 SMMU stream / MSI 映射已经由更早的固件阶段建立。"""
+
+[[subsystem.wifi.required]]
+path = "reports/live-6033dbec-fdt.dtb"
+why = "K60 自己的 WiFi/BT 节点与引脚，不能照抄 Pong 的 GPIO"
+examined = "2026-11-14"
+finding = """cnss-qca6490@b0000000（无 WPSS 节点，走 PCIe0 pcie@1c00000 + MHI + QRTR）；cnss_pins / cnss_wlan_en_active 在 pinctrl 里；bt_qca6490 独立成节点。Pong 平台用 GPIO204 做 QCA6490 XO latch，K60 的引脚必须按本 FDT 取，不能沿用 Pong 的编号。"""
+
+[subsystem.display]
+why = "显示 / 背光：K60 的面板画布契约、120Hz 面板真值、Pong 的 NT37705 背光实现（K60 面板待定）"
+
+[[subsystem.display.required]]
+path = "references/yibiya-upstream/patches/xnu/0210-k60-display-native-canvas.patch"
+why = "K60 面板的 CoreAnimation 画布契约：画布必须等于面板像素网格，否则 WindowServer 断言"
+examined = "2026-11-14"
+finding = """注释原文（:12-17）：面板是 1440 x 3200，DSC video mode，60 Hz；CoreAnimation 的画布取自显示发布的分辨率，非面板原生网格（iPhone 形状的 1125x2436 或 8 Plus 类 1170x2532）会让 WindowServer 的 BoundingPathBitmap 断言，所以本板画布就是面板本身，fbwidth/fbheight/fbscale 被拒绝而不是被采纳。常量 K60_PANEL_WIDTH=1440、K60_PANEL_HEIGHT=3200（:22-23）；k60PanelNative() 要求 vinfo.v_width==1440 且 v_height==3200（:31）；不匹配时打印 K60 DISPLAY: fbwidth/fbheight/fbscale refused, the canvas is the panel（:49）。"""
+
+[[subsystem.display.required]]
+path = "references/yibiya-upstream/docs/plans/K60-120HZ-PLAN.md"
+why = "K60 面板（Sharp QHD AMOLED）的 120Hz timing 实测值，取自 dtbo 的 qcom,mdss_dsi_sharp_qhd_cmd 节点"
+examined = "2026-11-14"
+finding = """两个常见误解的纠正：K60 不是 LTPO（Sharp QHD AMOLED，LTPS 背板）；不是只能 60Hz，面板 dtbo 原生提供 120Hz timing@0。刷新率是 60 与 120 两档固定切换，没有 90Hz 档也没有自适应。timing@0（120Hz）与 timing@1（60Hz）唯一必改项是 panel-framerate（0x78=120 vs 0x3c=60）；panel-width 0x2d0=720、panel-height 0xc30=3120 是 DSC 压缩后的值（实际 1440x3200）；h-front-porch 0x48=72、h-back-porch 0x14=20、h-pulse-width 0x04。"""
+
+[[subsystem.display.required]]
+path = "references/pong-power/PongBacklight.cpp"
+why = "同 SoC 的 DCS 背光实现范本（NT37705），K60 面板不同但控制路径结构可借"
+examined = "2026-11-14"
+finding = """Pong 的背光控制器基址 0x0ae94000、span 0x400（:336 的 board 校验），DCS 包形如 {0x80370002}、{0xa0060052}、{0xc0390003, 0xff000051|(wire<<8)}（:135/:141/:321）。亮度读回是 DBV 高位在前（:171），GET(52) 返回 12-bit SET(51) 电平（:178）。淡入淡出用纳秒时钟：fadeDuration=(latest&0xffff)*1000000ULL（:237-238）。K60 面板不是 NT37705，只能借控制流不能借面板常量。"""
+
+[subsystem.usb]
+why = "USB：DWC3 寄存器分区与同 SoC 的 PHY / Type-C mux 实现，fastboot boot 之外唯一的调试通道"
+
+[[subsystem.usb.required]]
+path = "references/pong-usb/Dwc3Registers.h"
+why = "DWC3 寄存器分区与 GCTL 位定义（Pong 实测偏移）"
+examined = "2026-11-14"
+finding = """寄存器分区（:9-14）：XHCI 0x0000、GLOBALS 0xC100..0xC6FF、DEVICE 0xC700..0xCBFF、OTG 0xCC00。关键偏移：GSBUSCFG0=0xC100、GCTL=0xC110、GEVTEN=0xC114、GSTS=0xC118、GSNPSID=0xC120、GUID=0xC128（:17-22）。GCTL 位：CORESOFTRESET=(1<<11)、PRTCAP(n)=((n)&(3<<12))>>12、PRTCAPDIR(n)=(n<<12)、PRTCAP_HOST=1。注意这些是相对 DWC3 基址的偏移，K60 的基址窗口在 MemoryMapLib.c 里是 USB 0x0A600000 + 0x200000。"""
+
+[[subsystem.usb.required]]
+path = "references/pong-usb/PongUsbPhy.h"
+why = "同 SoC 的 eUSB2 / combo PHY 上电与轮询写法"
+examined = "2026-11-14"
+finding = """头注释写明寄存器事实来自 Linux drivers/usb/phy/phy-msm-snps-eusb2.c 与 repeater-i2c-eusb2.c（:3）。实现范式：phyWait(m, off, mask, value, ms) 轮询到 (m.r(off)&mask)==value 才算成功（:19），phyMask(off,mask,value) 做读改写（:23），失败统一走 phyFail 打 PongUSB: board PHY unavailable: <reason>（:18）。K60 可以借这套轮询/超时结构，但寄存器偏移必须重新取证。"""
+
+[[subsystem.usb.required]]
+path = "references/pong-usb/PongUsbMux.h"
+why = "USB Type-C 角色切换（mux 通知）在 XNU 侧怎么发布给上层服务"
+examined = "2026-11-14"
+finding = """pong_usb_mux_publish / pong_usb_mux_session(online) / pong_usb_mux_receive 是导出接口（:136/:151/:161）。角色事件用 messageClients(0xe3ff8201u, ...) 广播（:158），注释指出这是 22H374 mux_notification_handler 的 configured/unconfigured 事件（:156）。本地 socket 走 127.0.0.1 且端口按大端交换（:62）。K60 的 Type-C 开关在 FDT 里是 i2c@994000 下的 fsa4480@42 与 eusb2_repeater@4f，接法不同，只能借事件模型。"""
+
+[subsystem.bluetooth]
+why = "蓝牙：K60 用 QCA6490（同 WiFi 芯片，走 PCIe/MHI），与 phk110 的 WCN6750/WPSS 路线完全不同，现有参考里没有可照抄的 BT 实现"
+
+[[subsystem.bluetooth.required]]
+path = "references/phk110-port/docs/phk110/waves/wave1-hwmap.md"
+why = "同 SoC 的蓝牙方案对照：说明为什么 K60 不能沿用 phk110 的 BT 路线"
+examined = "2026-11-14"
+finding = """phk110（redwood）的蓝牙是 WCN6750，走 WPSS（Hexagon）PIL 加载 wpss.mdt，GPIO 84/85/86，状态 missing，只做过只读侦察（:47-48/:145/:172）。K60 的 WiFi/BT 是 QCA6490，无 WPSS 节点，走 PCIe0 + MHI + QRTR（:145-146）。结论：redwood 的 WPSS bring-up 对 K60 整条废弃，蓝牙随 WiFi 一起走 PCIe 上电 + ath11k_pci + qca6490 固件族；BT 侧的 HCI 传输（GENI SE）与 phk110 不是同一子系统。"""
+
+[[subsystem.bluetooth.required]]
+path = "reports/live-6033dbec-fdt.dtb"
+why = "K60 自己的蓝牙节点与使能脚；BT 实现必须以这张表为准"
+examined = "2026-11-14"
+finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 E:/hackios/QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具），该仓库不在 research-gate 的两种路径回退范围内，因此不能作为本文件的 path，只能在此说明并写进 REFERENCE-INDEX.md。"""
+

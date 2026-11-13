@@ -74,6 +74,7 @@ docs/
 | `01-same-hardware.md` | 触摸调研 ① 同型 |
 | `02-official-docs.md` | 触摸调研 ② 官方 |
 | `03-reverse-and-device-data.md` | 触摸调研 ③ 反编译/取证 |
+| `13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` | 触摸阶段一：根因候选与区分性测试矩阵 |
 | `04-device-data.md` | 触摸调研 ④ 设备数据 |
 | `05-plan.md` | 触摸调研 ⑤ 方案 |
 | `06-deep-dive.md` | 触摸调研 ⑥ 深挖 |

@@ -1,0 +1,42 @@
+# K60 Goodix stage-one root-cause matrix (2026-11-14)
+
+Status: read-only evidence review. This document prioritizes discriminating tests; it does not establish a root cause or authorize touch-code, DT, firmware, build, or device changes.
+
+## Current observation
+
+The reviewed candidate is E:\k60-work\artifacts\touch-20261114d\boot.img, SHA-256 98e0ed2d74802852352f2cbc07e83fff1350c29d4fc4486a61b9d80b1610e1aa, source e0825c66ea858bc991e2176ca1c0c3f8fab457a8, with 223 recorded patches. It is a single diagnostic boot, not the released double-boot baseline. Console: E:\k60-work\evidence\usblog-20261114-touchd\console.log, 222,647 bytes, SHA-256 A97874A8078787BE556F264BAF24F87CA4357429C30664A9CB910FCB2E60D78B. Capture metadata says captured-budget-complete, stopReason=budget, panicMarker=null. SpringBoard reached 133 lines.
+
+Console lines 650-670: driver requires retained pm8350c_l2 IOVDD but makes no rail-vote or power-good claim; AVDD GPIO71 is enabled; GPIO16-19 are configured; SE4 reports firmware 0x102/protocol 1/interface 1; FIFO is disabled and GPIO SPI is selected; firmware-version read contains only bus-default bytes; chip identity is unavailable, /dev/pong-touch is not published, and initialization fails. Line 2103 reports HID service timeout. This proves failure before device publication in this candidate. It does not prove missing IOVDD, physical lane roles, chip power state, or a specific reset/transport fault. The poll/report loop was not reached. This one healthy diagnostic boot is not touch proof or the double-boot release baseline.
+
+Manifest E:\k60-work\artifacts\touch-20261114d\build-manifest.json: image SHA 98e0ed2d74802852352f2cbc07e83fff1350c29d4fc4486a61b9d80b1610e1aa; raw kernel cc7541cd6bf82d352095130f815f19f6fe45c0b986fbeae4833fd9b61ba86fb2; payload kernel 50b22e26b87b25da2019a375b88fa4e4be161cf09c9844cf324a18826315426a; ADT 395edf00c14fe53713ff0678ff350099d67b43a7826c8876b22b566facd1b786; payload b93a8f04213421189e46a6f0c95cf6c5a01ee56165d255202fac7d85a51297c0; FD cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f; 223 patches.
+
+## Evidence boundaries
+
+- Android reported pm8350c_l2 enabled at 1.8 V. This is not a measurement of rail voltage at the panel during XNU handoff or this boot. The current console explicitly leaves retained IOVDD unverified.
+- Historical all-ones and bias-following samples used the former tuple MISO17/MOSI18/CLK16/CS19. They show sampled line values followed configured bias in that setup; they do not establish the current tuple, prove an unpowered controller, or exclude clock, mode, CS, reset, protocol, or wiring faults.
+- Live FDT identifies a QUP4 pinctrl group GPIO16-19, not each pad's SPI signal role. Current tuple MISO16/MOSI17/CLK18/CS19 remains an unverified candidate until a valid response is observed.
+- Current driver releases reset, waits 100 ms, then reads version/IC info without BRL dev-confirm at 0x10000. Official Goodix code documents that handshake for Berlin-D, but no exact source lineage between that reference and the K60 Android module has been proven. The local KO strings are not call-order evidence.
+- No valid powered BRL frame has been captured. The historical 0x10308/0x10309 offset question is neither reproduced nor resolved on this candidate.
+
+## Discriminating test matrix
+
+All hardware acquisition and firmware/provider investigation remain Lead-owned. These are test designs, not device instructions to this agent. Do not perform blind pin permutations, guessed MMIO/SPMI/RPMh writes, or timing changes without a sourced limit and measured waveform.
+
+| Candidate | Current evidence and uncertainty | Discriminating test | Distinguishing result |
+|---|---|---|---|
+| IOVDD/provider handoff | Android reported pm8350c_l2 at 1.8 V; XNU candidate explicitly says retained rail unverified. Bias-following is not a voltage measurement. | Lead correlates this boot with provider vote/ACK and retention; where authorized, measure IOVDD at a documented test point through reset release and probe. | Stable measured 1.8 V weakens this candidate; absent/unstable voltage or missing provider handoff strengthens it. A software request alone is not voltage proof. |
+| SPI lane role or board routing | FDT proves only GPIO16-19/QUP4 pad group. Current MISO16/MOSI17/CLK18/CS19 tuple has no valid response; old tuple evidence is historical. | Obtain the exact SM8475 alternate-function table, board routing and connector orientation; compare pad-to-QUP signals. Lead captures one known transaction with CS, SCK, MOSI, MISO observable. | Only source-backed routed signals plus a valid response establish roles. Pad mux readback does not. No blind permutation scan. |
+| Reset, power sequence, BRL handshake | Driver asserts reset low for 2 ms, releases it and waits 100 ms; it omits dev-confirm. Official Goodix and separate Xiaomi vendor references document 8 x 0xAA at 0x10000 with readback/retries and power sequencing. They do not prove this omission is the cause. | After rail and lane roles are independently established, capture reset/AVDD/IOVDD timing and run bounded write/read handshake; log bytes, retries and outcome, then version and IC-info checksums. | Exact 8-byte echo followed by valid version/IC-info checksums shows bus/application path is alive. Failed echo with measured rails and known wiring narrows the fault. A write without readback is not confirmation. |
+| SPI transport/waveform | Candidate falls back to GPIO SPI because FIFO interface is disabled. Source half-cycle timing does not prove actual frequency; GPIO config readback does not prove physical transitions. | Capture actual SCK, mode-0 edges, CS assertion/hold, MOSI frame and MISO samples for a bounded register read; compare sourced BRL framing. | Matching measured waveform and a valid non-default response weakens this candidate. Missing edges, CS gaps, wrong sample edge or default data indicate a transport/electrical discrepancy. |
+| Configuration and frame parsing | No valid identity or IC info; config and poll were not reached. | After valid identity, compare config IDs; if needed record command ACK/state, buffer readback and EXIT. Then capture a valid raw touch frame/checksum and only then compare 0x10308/0x10309. | Valid IC info and raw frame provide a basis for config/parser tests. Do not change old offset from static or unpowered bytes. |
+| Polling and publication | No /dev/pong-touch, heartbeat, or accepted report on this candidate. | Once a valid controller is identified and input published, use a bounded heartbeat counting only accepted frames; capture known touches and visible response. | Final device criterion remains console Pong touch: POLL hb int=1 ... reports>0, three samples with cumulative reports strictly increasing, valid coordinates (raw 14400x32000; normalized 0..65535; mapped to 1440x3200), visible screen response and Lead video. This matrix does not meet that criterion. |
+
+## Reference provenance
+
+E:\k60-work\impl\touch-protocol\EVIDENCE.md records Goodix official repository https://github.com/goodix/goodix_ts_berlin at revision 6c4b81587d43 (v1.4.17). Its Berlin hardware reference documents 8-byte 0xAA dev-confirm with readback/retries and power-on order. The separate Xiaomi marble-s-oss source is vendor comparison code, not Goodix official and not proven exact K60 source. Linux mainline is an independent protocol comparison. The current header of docs/engineering/TOUCH-STATEMACHINE.md distinguishes Goodix upstream, Xiaomi vendor, Linux mainline and local patch sources; it does not claim exact K60 module lineage.
+
+Scratch module E:\k60-work\scratch\goodix_core.ko is 614,896 bytes, SHA-256 381b1969f45a65b5922387091b6a8e8bacd452ab5b135eab3824b079c6e6b977. Available ELF metadata identifies AArch64 ELF64 and 5.10.160 GKI vermagic; strings include GT9916/BRL names and a Xiaomi source path. Acquisition provenance and source/build commit are not established. Strings do not prove call order, behavior, or that this exact module was loaded on the device.
+
+## Conclusion
+
+Supported conclusion: this candidate failed to obtain a valid Goodix identity before device publication. Power/handoff, physical lane roles, reset/protocol, and transport remain competing explanations. Configuration, frame-offset, and polling hypotheses are downstream and untested. Keep root cause open; this document does not authorize implementation or device action.

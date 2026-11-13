@@ -22,31 +22,26 @@ evidence = "同型号 mondrian 在 unixnu.com/devices/mondrian-mzyxsl 记录 Inp
 
 [hardware.touch.step.official]
 done = true
-evidence = "官方移植指南 https://unixnu.com/zh/porting/input 给出总线/传感器协议/引脚/中断/固件/触点ID/坐标映射七项；官方 Goodix Berlin 驱动 goodix_brl_hw.c 提供 brl_send_config 与 brld_get_framedata 的完整流程，见 docs/engineering/TOUCH-STATEMACHINE.md。"
+evidence = "Goodix upstream Berlin source is recorded at E:/k60-work/impl/touch-protocol/EVIDENCE.md (revision 6c4b81587d43); Linux mainline is a separate comparison, and marble-s-oss is Xiaomi vendor code, not Goodix upstream. Provenance caveat and candidate init comparison: docs/engineering/TOUCH-STATEMACHINE.md and docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md."
 
 [hardware.touch.step.decompile]
 done = true
-evidence = "Android 实机取证写入 docs/engineering/ANDROID-HW-TRUTH.md：IOVDD = pm8350c_l2 1.8V、AVDD 非 pm8350c_l3；DT 节点 compatible = xiaomi,m11a-spi。K60-TOUCH-DT-EVIDENCE.md 记录 /proc/device-tree/soc/spi@990000/xiaomi_touch@0/ 全部属性。2026-11-11 实测纠正协议结论：BRL 0x10000 读出 BERLIN 9916R 05.80.02.63，GTP 0x8140 全 0（见 P-129）。"
+evidence = "Android firmware/config bytes and BERLIN/9916R identity are documented in docs/research/touch/03-reverse-and-device-data.md; live FDT properties are in docs/engineering/K60-TOUCH-DT-EVIDENCE.md. Current touch-20261114d console lines 668-670 has bus-default version bytes and no chip identity; current initialization therefore remains unverified. Scratch KO strings/metadata do not prove exact source lineage or call order (matrix: docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md)."
 
 [hardware.touch.step.wide]
-done = true
+done = false
 catalog_checked = true
-evidence = "同 SoC SM8475 兄弟移植 references/phk110-port/docs/phk110/waves/wave12c-electrical.md 记录触摸 PASS 全流程（20ms 节拍 + 分帧收割）；wave12b-probe-verdict.md 记录软件链 1-4 环闭环；wave12-touch-buttons.md 记录 cape/sm8475 的 GCC 与 mainline sm8450 不同（m/s_ahb FDT 索引 134/135 vs 118/119）。同外设芯片参考 references/phk110-port/drivers/input/hakios.goodix.c 是 POCO X5 Pro(redwood/SM8350) 的，机型不同已标注。"
-catalog_result = """逐个核对 UniXNU/components.toml 25 个组件中与触摸相关的 4 个：
-- QcomGeniSpi（drivers/QcomGeniSpi/GeniSpi.c，revision eac47bae）：【可直接用】GENI SPI 控制器，含 transfer_dma() 路径；GeniSpi.c:80 明确 fifo_disabled 时只要 use_dma 就继续，且 GeniSpi.c:113-118 有完整的 DMA 模式切换。这正是我们卡住的『FIFO 被禁只能退回 bitbang』问题的官方解。verified_devices 为空，需自行验证。
-- ShengNovatekTouch：不可用，是 Novatek NT36532 协议，我们是 Goodix GT9916R。
-- ShengHidInput：可参考架构（NativeHidInput.cpp 通过 IOHIDDevice 上报），但依赖 ShengNovatekTouch，需换成我们的 Goodix 源。
-- AdrenoMetal / Adreno740：与触摸无关。
-结论：QcomGeniSpi 应当作为 SPI 层的首选实现，替换我们的手写 bitbang。"""
+evidence = "Historical breadth references at references/phk110-port and the local component catalog are recorded, but their electrical result is for a different board and does not establish this unit. Current competing hypotheses and needed cross-checks are listed in docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md. Complete current same-SoC/board routing and source-provenance review before treating this step as done."
+catalog_result = """Catalog inspection found QcomGeniSpi, ShengNovatekTouch, ShengHidInput and unrelated components. QcomGeniSpi has a DMA implementation in its source, but the K60 candidate logs SE FIFO disabled and takes GPIO SPI fallback; no candidate evidence demonstrates that DMA is enabled, compatible, or a drop-in fix. ShengNovatekTouch is for a different protocol/device; ShengHidInput is an architecture reference only. No catalog component is established as a ready K60 Goodix solution. Broader electrical/source comparison remains open."""
 
 
 [hardware.touch.step.plan]
-done = true
-evidence = "方案：保持 BRL 协议（P-129 实测结论）；轮询节拍按同 SoC 实测从 2ms 改为 20ms（PITFALLS.md P-129）；config 下发走官方 brl_send_config 路径；报告从 frame_data_addr 读取并要求 byte0 & 0x80。改动落在 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch。"
+done = false
+evidence = "The current plan is staged by evidence: first discriminate rail/provider handoff, lane roles, reset/BRL handshake and transport waveform, then test configuration/frame parsing and add bounded reporting. The touch-20261114d console only reaches failed identification (lines 668-670); no root cause or implementation path has yet been proven. See docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md. Do not treat the old 20ms or 0x10308 claims as current proof."
 
 [hardware.touch.step.deep]
-done = true
-evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）与 PITFALLS.md P-122/P-124。2026-11-12 离线单测进一步定位：0x10400 的帧是 framedata(rawdata)，其 frame_head 16 字节校验通过而 8 字节触点头校验不通过；0x10308 首字节恒 0x00，官方 brl_event_handler:1188 判定为 invalid touch head。地址与解析均正确，问题在芯片不产生触点报告。下一项测量：确认 config 是否真正启用了上报模式，以及 data_en(0x00000701) 的 rawdata 位是否需要清除。"
+done = false
+evidence = "The current driver and official/Xiaomi/mainline references were compared with explicit source limits in docs/engineering/TOUCH-STATEMACHINE.md and docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md. Current boot did not identify the chip, so configuration, raw frame layout and old 0x10308/0x10309 offset remain untested on a powered valid BRL frame."
 
 [hardware.touch.step.verify]
 done = false
@@ -65,11 +60,11 @@ previous_artifact_check = """对当时产物 kernel.macho（sha256 d9d5093e…�
 
 [hardware.touch.step.device]
 done = false
-evidence = "尚未在 20ms 节拍版本上做真机验证。历史状态：usblog-20261111-233246 记录 GTP 探针全 0、触点计数恒 0、backboardd 0 崩、最大 pid 196。"
+evidence = "Current reviewed candidate touch-20261114d had one healthy diagnostic boot (SpringBoard 133 lines, no actual panic marker), but console lines 668-670 report bus-default version bytes, no chip identity, and initialization failure before /dev/pong-touch publication; polling was not reached. See docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md. This is not touch proof; step 8 remains incomplete."
 
 [hardware.touch.step.device.prediction]
-success = "Pong touch: POLL hb 里 reports 与 touches 随手指触摸增长（reports>0），且 0x10308 首字节非 0x00 并通过 8 字节 U8_LE 校验"
-failure = "0x10308 首字节仍为 0x00（官方判定 invalid touch head），或 POLL hb 连续三个心跳 reports=0(+0) touches=0(+0)"
+success = "Console has Pong touch: POLL hb int=1 ... reports>0; three consecutive cumulative report samples strictly increase and correlate with valid raw 14400x32000/normalized 0..65535 coordinates mapped to 1440x3200; visible touch response and Lead video. See docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md."
+failure = "No valid chip identity/publication, no poll heartbeat, reports remain zero or do not increase during known touches, invalid/out-of-range coordinates, no visible response, or actual panic/initproc failure. Do not use historical 0x10308 bytes as the sole failure criterion."
 
 # ---------------------------------------------------------------- GPU
 

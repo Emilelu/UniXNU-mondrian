@@ -389,6 +389,35 @@ scripts/tests/test-build-strict-gates.py
   向上游 device 树移植，这一点已写进 `patches/wifi/README.md`。
 - `scripts/check-patch-apply.py` 仍绿（P-162：只有改动过的补丁才校验）。
 
+## 13. 顺带发现：别的线有 12 张镜像超过 DarwinBoot 的 607 字节命令行上限
+
+跑 ' + BT + 'E:\k60-work\evidence\wifi-trial\check-artifacts.py' + BT + ' 时，它顺手校验了
+' + BT + 'E:\k60-work\artifacts\*' + BT + ' 下所有镜像。结果里有 12 张**不是 WiFi 的**镜像
+命令行超限（判据见 §10 与 ' + BT + 'STAGE-BRINGUP.md' + BT + ' §7：' + BT + 'DarwinBoot.c:678-684' + BT + ' 在
+' + BT + 'ReadFile' + BT + ' 之前就 ' + BT + 'return EFI_BAD_BUFFER_SIZE' + BT + '）：
+
+| 镜像 | args 长度 |
+| --- | --- |
+| ' + BT + 'bt-s1-20261114b' + BT + ' | 610 |
+| ' + BT + 'bt-s1b-20261114a' + BT + ' | 610 |
+| ' + BT + 'bt-s1c-20261114a' + BT + ' | 610 |
+| ' + BT + 'bt-s1c-20261114b' + BT + ' | 638 |
+| ' + BT + 'bt-s1c-a1-20261114a' + BT + ' … ' + BT + 'bt-s1c-a4-20261114a' + BT + ' | 638（各 4 张） |
+| ' + BT + 'wifi-20261114f' + BT + ' / ' + BT + 'g' + BT + ' / ' + BT + 'h' + BT + ' | 619 / 619 / 620（WiFi 自己的旧图，已作废） |
+
+这条**解释了蓝牙线 04:51 那次 ' + BT + 'usblog-20261114-bts1b-run1' + BT + ' 的
+' + BT + 'state=port-not-observed, bytes=0, stopReason=port-timeout' + BT + '**：镜像
+' + BT + 'bt-s1-20261114b' + BT + ' 是 610 字节，内核根本没被装载，所以串口一个字节都不会有。
+同一天 04:43 的 ' + BT + 'rail-20261114i' + BT + '（575 字节）能拿到 220,576 字节控制台，
+差别就在这里，不是抓取链路、也不是内核。
+
+建议：其它线在下次上机前用 ' + BT + 'argcheck1.py' + BT + ' 过一遍自己的镜像
+（' + BT + 'python3 E:\k60-work\evidence\wifi-trial\argcheck1.py <boot.img> …' + BT + '，上限 607），
+并考虑把 ' + BT + 'payload.py' + BT + ' 的 ' + BT + 'check_args()' + BT + ' 上限从 1000 改成 607 ——
+那里现在注释写的是「DarwinBoot copies the command line into a 1024-byte buffer」，
+与 ' + BT + 'DarwinBoot.c' + BT + ' 的 608 不符，所以 ' + BT + 'unixnu' + BT + ' 不会替任何人拦住 607–1000 的参数。
+
+
 因此 WiFi 的 ⑦ 产物是用 `UNIXNU_SKIP_GATES=1` 的试构建路径出的，
 ⑧ 上机走的是唯一 supervisor `scripts/boot-and-capture.ps1`（不经过 `flash.sh`）。
 **这两点必须在正式合并前由 Lead 决定**：要么把 touch 的 ④⑤⑥⑦ 补齐让 `iron-3` 转绿，

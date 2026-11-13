@@ -53,3 +53,11 @@ scope = ["docs/research/reference"]
 path = "/mnt/e/hackios/k60-audio"
 owner = "audio-agent"
 scope = ["drivers/PongAudio", "docs/research/audio"]
+
+# The Lead's wifi integration tree (2026-11-14). Separate from /mnt/e/hackios/k60-wifi,
+# which belongs to the wifi agent: the Lead merges the agent's branch here to run the
+# strict build and the on-device boot without touching the agent's work.
+[[tree]]
+path = "/mnt/e/hackios/k60-wifi-lead"
+owner = "lead"
+scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]

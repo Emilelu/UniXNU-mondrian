@@ -278,3 +278,78 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 **当前状态（2026-11-13）**：探针能从 `memdev` 拿到 md0 的几何，但 `vmd0` 记的是固件
 虚拟地址，XNU 读不到（`esr 0x96000010`，见 `docs/research/audio/ADSP-MD0.md`）。
 所以 `pong_adsp=1` 目前只用于诊断，不能作为可用的音频/电池前提。
+
+## WiFi（`drivers/PongWifi/`）
+只有构建时 `CONFIG_XNU_PONG_WIFI=y` 才存在这些参数；默认构建里 `pong_wifi_start_optional()` 不参与链接。
+### `pong_wifi`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不起 WiFi） |
+| 取值 | 0 / 1 |
+| 来源 | drivers/PongWifi/PongWifiPlatform.cpp:679 `pong_wifi_start_optional()` |
+| 作用 | 1 = 启动 WiFi worker（先 `pong_rpmh_init()`，再起内核线程）。必须同时构建时打开 `CONFIG_XNU_PONG_WIFI=y`，否则归档根本没链进内核，这个参数无效。 |
+### `k60_wifi_rsc`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不碰 RSC） |
+| 取值 | 0 / 1 / 2 |
+| 来源 | drivers/PongWifi/PongWifiPlatform.cpp:707 |
+| 作用 | WiFi 侧 RPMh 投票闸门。1 = 只做只读探针（读 RSC id/caps/idle/status 并打印）；2 = 探针通过后允许投票。默认 0，因为 RSC 电源域在本板从未被证明，写错会硬挂。 |
+### `pong_wifi_dma_mib`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 64 |
+| 取值 | 64 / 128 |
+| 来源 | drivers/PongWifi/PongWifiPlatform.cpp:382 |
+| 作用 | WiFi DMA arena 预算（MiB）。只接受 64 或 128，其它值直接 `fail("WiFi DMA budget must be 64 or 128 MiB")`。128 会先试 128，失败后回退 64。 |
+### `pong_wifi_diag`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0 |
+| 取值 | 0 / 1 |
+| 来源 | drivers/PongWifi/PongWifiPlatform.cpp:621、PongWifiNet.cpp:890 |
+| 作用 | 1 = 逐步打印 WiFi 进度（每个阶段一行），用于定位卡在哪一步。不影响功能路径。 |
+### `pong_wifi_test`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0 |
+| 取值 | 0 / 1 |
+| 来源 | drivers/PongWifi/PongWifiPlatform.cpp:546、PongWifiNet.cpp:892 |
+| 作用 | 1 = 打开关联测试（需要仓库内有私有 SSID/口令 fixture，缺失时打印 `WiFi association test SKIP: no private network fixture` 并跳过）。 |
+### `pong_wifi_alt`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0 |
+| 取值 | 0 / 1 |
+| 来源 | drivers/PongWifi/PongWifiPlatform.cpp:547 |
+| 作用 | 仅在 `pong_wifi_test=1` 时有效：1 = 用备用关联路径（第二条扫描/认证序列）。 |
+### `pong_wifi_band`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不限） |
+| 取值 | 0 / 2 / 5 |
+| 来源 | drivers/PongWifi/PongWifiPlatform.cpp:548 |
+| 作用 | 仅在 `pong_wifi_test=1` 时有效：限定首次关联的频段。其它值打印 `WiFi association test SKIP: band must be 0, 2 or 5` 并关闭测试。 |
+### `pong_wifi_cycle`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0 |
+| 取值 | 0 / 1 |
+| 来源 | drivers/PongWifi/PongWifiNet.cpp:893 |
+| 作用 | 仅在 `pong_wifi_test=1` 时有效：1 = 断链后自动重连循环（`pong_wifi_test_reconnect()`）。 |

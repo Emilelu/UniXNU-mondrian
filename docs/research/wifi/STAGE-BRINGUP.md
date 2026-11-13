@@ -353,3 +353,23 @@ Since 04:50 the phone enumerates neither ADB nor fastboot, and
 `Get-PnpDevice` has no live `VID_2717`/`VID_18D1`/`VID_1209` entry, so no boot
 can be attempted until the phone is power-cycled by hand (hold power ~10 s).
 The staged kernel is ready and waiting for that.
+
+Everything that can be prepared without the phone is prepared and byte-checked:
+
+- 17 rungs exist and every one matches its own `build-manifest.json` on fd,
+  ramdisk kernel and command line (see `LOCAL-VERIFICATION.md` §5.14).
+- The runner `E:\k60-work\evidence\wifi-trial\ladder5-run.ps1` polls
+  `fastboot devices` every 0.7 s, converts an ADB device to the bootloader
+  first, and walks control → stage 1 → 3 → 4(rsc=1) → 4(rsc=2) → 5 → 8 → all.
+  It waits for the device to return to fastboot after **every** rung including
+  the control one, and stops on the first zero-byte console so a silent rung is
+  never followed by another boot.
+- Resume command:
+  `powershell -File E:\k60-work\evidence\wifi-trial\ladder5-run.ps1 -RaceSeconds 7200 -Seconds 150 -Tag ladder9`
+
+When ADB comes back, pull the board data **before** the next boot, so the
+`Pong: actual QMI board firmware <name>` line from stage 10 can be matched
+against files that are already local:
+`bash E:\k60-work\evidence\wifi-trial\pull-board-data.sh 6033dbec`
+(it lists `/vendor/firmware_mnt/image/qca6490`, pulls only the `bdwlan*`
+entries into `E:\k60-work\firmware\qca6490-board`, and prints their sha256).

@@ -353,3 +353,21 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 | 取值 | 0 / 1 |
 | 来源 | drivers/PongWifi/PongWifiNet.cpp:893 |
 | 作用 | 仅在 `pong_wifi_test=1` 时有效：1 = 断链后自动重连循环（`pong_wifi_test_reconnect()`）。 |
+
+### `k60_wifi_stage`
+
+| 项 | 值 |
+| --- | --- |
+| 类型 | uint32 |
+| 默认 | 0（未设置 = 不限制，跑完所有 stage） |
+| 取值 | 0..N；`N` 表示"执行到第 N 个 stage 为止，第 N+1 个及之后被拦下" |
+| 来源 | `drivers/PongWifi/PongWifiPlatform.cpp:72`（`PE_parse_boot_argn("k60_wifi_stage", …)`） |
+
+**作用**：wifi 点亮是分 stage 加 MMIO 访问的，每个 stage 只加一类访问，所以某一版
+如果启动即死，可以用这个参数把故障锁到具体 block —— 被拦下的 stage 会打印
+`PongWifi: stage %u (%s) held back by k60_wifi_stage=%u`，不会静默跳过。
+不设或设 0 表示跑完所有 stage（默认行为，与未引入该参数前一致）。
+
+**为什么必须文档化**：`scripts/check-boot-args.py`（hard-8 / P-156）要求源码里每个
+`PE_parse_boot_argn()` 的键都在本文件有条目 —— 2026-11-14 wifi agent 引入该键时
+门禁立刻变红，正是它该有的行为。

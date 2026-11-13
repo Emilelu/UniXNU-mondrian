@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# System-wide git guard (installed at /usr/local/bin/git, ahead of /usr/bin/git).
+#
+# Installed after 2026-11-14: the Lead ran `git checkout --` in a shared checkout
+# and destroyed eight uncommitted files of a teammate's work; seven were
+# unrecoverable. A repository-local script cannot prevent that, because the
+# person running the destructive command chooses whether to use it. This one is
+# not optional: every `git` in this WSL goes through it.
+#
+# Behaviour for the commands that discard uncommitted work
+# (checkout -- <path>, checkout -f, restore, reset --hard, clean -f*, stash):
+#
+#   1. Take a complete restorable snapshot of the repository first.
+#   2. If the repository is registered in docs/engineering/TREE-OWNERS.toml and
+#      the current actor (K60_AGENT_ID, default "lead") is NOT the owner, refuse.
+#   3. Otherwise allow, printing where the snapshot went.
+#
+# Escape hatch for a genuinely intentional discard:
+#   K60_I_OWN_THIS_TREE=1 git checkout -- file      (still snapshots first)
+#
+# Everything else execs straight through with no measurable overhead.
+set -uo pipefail
+
+REAL_GIT=/usr/bin/git
+[ -x "$REAL_GIT" ] || REAL_GIT=$(command -v git.real 2>/dev/null || echo /bin/git)
+
+verb=${1:-}
+dangerous=0
+
+# `git -C path checkout -- file` and `git --git-dir=... reset --hard` put global
+# options before the verb. Skip them, otherwise the guard is trivially bypassed.
+# GLOBALS keeps the prefix so repository discovery happens in the same tree the
+# real git would have used; without it `git -C /somewhere checkout -- f` runs
+# rev-parse in the caller's cwd, finds no repository, and falls through.
+GLOBALS=()
+shift_globals() {
+    local args=("$@")
+    local i=0
+    while [ $i -lt ${#args[@]} ]; do
+        case "${args[$i]}" in
+            -C|-c|--git-dir|--work-tree|--namespace|--exec-path)
+                GLOBALS+=("${args[$i]}" "${args[$((i + 1))]}")
+                i=$((i + 2)) ;;
+            --git-dir=*|--work-tree=*|--namespace=*|--exec-path=*|-c=*)
+                GLOBALS+=("${args[$i]}")
+                i=$((i + 1)) ;;
+            --no-pager|--paginate|--bare|--no-replace-objects|--literal-pathspecs|\
+            --glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks)
+                GLOBALS+=("${args[$i]}")
+                i=$((i + 1)) ;;
+            *)
+                VERB="${args[$i]}"
+                return ;;
+        esac
+    done
+}
+# Note: no command substitution here. `verb=$(shift_globals ...)` would run the
+# function in a subshell and throw away GLOBALS, which silently disabled the
+# ownership check for every `git -C <path> checkout -- <file>` invocation.
+VERB=""
+shift_globals "$@"
+verb=$VERB
+
+case "$verb" in
+    restore|stash) dangerous=1 ;;
+    reset|clean)
+        for arg in "$@"; do
+            case "$arg" in
+                --hard|--hard=*|-f|-fd|-fdx|-xfd|--force) dangerous=1 ;;
+            esac
+        done
+        ;;
+    checkout)
+        for arg in "$@"; do
+            case "$arg" in
+                --|-f|--force) dangerous=1 ;;
+            esac
+        done
+        ;;
+esac
+
+[ "$dangerous" = 1 ] || exec "$REAL_GIT" "$@"
+
+ROOT=$("$REAL_GIT" "${GLOBALS[@]}" rev-parse --show-toplevel 2>/dev/null || true)
+[ -n "$ROOT" ] || exec "$REAL_GIT" "$@"
+
+DIRTY=$("$REAL_GIT" -C "$ROOT" status --porcelain 2>/dev/null | head -40)
+if [ -z "$DIRTY" ]; then
+    # Nothing to lose.
+    exec "$REAL_GIT" "$@"
+fi
+
+# ---------------------------------------------------------------- snapshot first
+SNAP_DIR=${K60_SNAPSHOT_DIR:-/mnt/e/k60-work/scratch/snapshots}
+SNAP=""
+if [ -f "$ROOT/scripts/snapshot-worktree.py" ]; then
+    SNAP=$(K60_SNAPSHOT_DIR="$SNAP_DIR" python3 "$ROOT/scripts/snapshot-worktree.py" \
+               --repo "$ROOT" --quiet 2>/dev/null || true)
+fi
+if [ -z "$SNAP" ]; then
+    # Fall back to a self-contained snapshot so the guarantee never depends on
+    # the repository having the tool.
+    SNAP="$SNAP_DIR/$(date +%Y%m%d-%H%M%S)-$(basename "$ROOT")-fallback"
+    mkdir -p "$SNAP/untracked" 2>/dev/null || SNAP=""
+    if [ -n "$SNAP" ]; then
+        "$REAL_GIT" -C "$ROOT" diff HEAD --binary > "$SNAP/tracked.patch" 2>/dev/null
+        "$REAL_GIT" -C "$ROOT" diff --cached --binary > "$SNAP/staged.patch" 2>/dev/null
+        printf '%s\n' "$DIRTY" > "$SNAP/status.txt"
+        "$REAL_GIT" -C "$ROOT" ls-files --others --exclude-standard -z 2>/dev/null \
+            | while IFS= read -r -d '' rel; do
+                  mkdir -p "$SNAP/untracked/$(dirname "$rel")" 2>/dev/null
+                  cp -a "$ROOT/$rel" "$SNAP/untracked/$rel" 2>/dev/null
+              done
+    fi
+fi
+
+if [ -n "$SNAP" ]; then
+    echo "git-guard: snapshot -> $SNAP" >&2
+else
+    echo "git-guard: WARNING could not snapshot $ROOT before '$*'" >&2
+fi
+
+# ---------------------------------------------------------------- ownership
+if [ "${K60_I_OWN_THIS_TREE:-}" = "1" ]; then
+    exec "$REAL_GIT" "$@"
+fi
+
+OWNERS="$ROOT/docs/engineering/TREE-OWNERS.toml"
+if [ -f "$OWNERS" ]; then
+    ACTOR=${K60_AGENT_ID:-lead}
+    OWNER=$(python3 - "$OWNERS" "$ROOT" <<'PY' 2>/dev/null || true
+import sys, tomllib, pathlib
+owners = pathlib.Path(sys.argv[1])
+here = pathlib.Path(sys.argv[2]).as_posix()
+try:
+    table = tomllib.loads(owners.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+for entry in table.get("tree", []):
+    path = str(entry.get("path", "")).rstrip("/")
+    if path and (here == path or here.startswith(path + "/")):
+        print(entry.get("owner", ""))
+        break
+PY
+)
+    if [ -n "$OWNER" ] && [ "$OWNER" != "$ACTOR" ]; then
+        {
+            echo "git-guard: REFUSED '$*'"
+            echo "git-guard: $ROOT belongs to '$OWNER', this actor is '$ACTOR'"
+            echo "git-guard: and it holds $(printf '%s\n' "$DIRTY" | wc -l) uncommitted path(s):"
+            printf '%s\n' "$DIRTY" | head -10 | sed 's/^/    /'
+            echo "git-guard: the changes are in the snapshot above, but do not rely on that."
+            echo "git-guard: work in your own checkout (git worktree add <path> <branch>), or"
+            echo "git-guard: override deliberately with K60_I_OWN_THIS_TREE=1."
+        } >&2
+        exit 2
+    fi
+fi
+
+exec "$REAL_GIT" "$@"

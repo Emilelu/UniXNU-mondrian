@@ -26,3 +26,30 @@ note = "Framework. Push to remote `fork`, never to `origin`."
 [[tree]]
 path = "/mnt/e/hackios/uefi-mondrian"
 owner = "lead"
+
+# The five delegated lines (2026-11-14). Each agent gets its own worktree; the
+# shared checkout /mnt/e/hackios/UniXNU-mondrian stays with the touch agent.
+[[tree]]
+path = "/mnt/e/hackios/k60-wifi"
+owner = "wifi-agent"
+scope = ["patches/wifi", "drivers/PongWifi", "docs/research/wifi"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-bt"
+owner = "bt-agent"
+scope = ["drivers/PongBluetooth", "docs/research/bluetooth"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-usb"
+owner = "usb-agent"
+scope = ["drivers/PongUsb", "docs/research/usb"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-refmine"
+owner = "refmine-agent"
+scope = ["docs/research/reference"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-audio"
+owner = "audio-agent"
+scope = ["drivers/PongAudio", "docs/research/audio"]

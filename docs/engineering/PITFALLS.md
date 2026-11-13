@@ -4393,3 +4393,31 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 
 证据：`git branch -f feat/touch-power 3330e1c` 恢复分支；`git worktree list` 显示
 `E:/hackios/k60-lead 84523c0 [feat/pmic-rail]`。
+
+### P-185 新检出缺的不是代码，是"只在构建副本里才存在"的工具链与 fakeroot
+
+从 `main` 切一个 `git worktree` 出来，代码是全的，构建却会在第三步莫名其妙地 127 / 找不到头文件：
+
+- `scripts/build-firehose.sh:24` 调 `xcodebuild`。`xcodebuild` / `xcrun` / `clang` 这些 Darwin 工具在 Linux 上靠
+  `scripts/linux/` 的 13 个 shim 顶替。这些 shim **在框架仓库 `E:/hackios/UniXNU` 里是被跟踪的**，
+  但设备仓库没有它们，构建副本 `/opt/k60/trees/k60build/scripts/linux/` 是从框架同步过去的。
+  一个只有设备仓库的新 worktree 因此完全没有 shim → `xcodebuild: command not found` → `bash failed (127)`。
+- 同一棵新树第一次构建时，`tree/.cache/fakeroot/` 是空的。`libfirehose_kernel.a`（40,480 B）、
+  `usr/include/` 的 42 个头（含 `Availability.h`）、`usr/local/include/kernel/os/` 都缺，
+  于是 `build-pong-platform-macos.py` 编译 `ArmDTPlatform.cpp` 时报
+  `mach/arm/vm_types.h:76:10: fatal error: 'Availability.h' file not found`。
+
+两者都不是代码问题，**是"工作树 ≠ 构建环境"**。诊断顺序固定为：
+
+```bash
+# 1) shim 在不在
+ls "$BUILD/scripts/linux" | wc -l        # 期望 13
+# 2) fakeroot 齐不齐（拿一个已知能构建的 out 目录做基准）
+diff -rq "$GOOD_OUT/.../tree/.cache/fakeroot" "$NEW_OUT/.../tree/.cache/fakeroot"
+```
+
+修法：shim 从框架同步（`sync-device-input.py` 的 `FRAMEWORK_PAIRS` 覆盖 `scripts/linux`）；
+fakeroot 用 `cp -a` 从已知好的输出树补齐（它是纯构建产物，可以直接复制）。
+
+教训：`git worktree` 给你的是**代码隔离**，不是**环境隔离**。新树第一次构建前，
+先跑一次"环境齐备性检查"，否则会把环境缺失误判成代码 bug，浪费整轮构建。

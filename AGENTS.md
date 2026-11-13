@@ -344,3 +344,23 @@ their branches and the reasoning behind every adopted change.
 把 Mac 的地址与口令原样写进了正文，并随 `2e44f46` 进入公开历史。已改成占位符，
 口令另行更换。
 
+### 铁则 11 — 一个检出只有一个主人
+
+2026-11-14 的事故：Lead 为了让自己那条门禁变绿，在**共用的**设备检出里执行了
+`git checkout -- <8 个文件>`，把触摸 agent 正在改的 8 个文件抹掉，其中 7 个无法恢复。
+这不是"手滑"，是**在别人的目录里做不可逆操作**。
+
+规则：
+
+1. 每个检出在 `docs/engineering/TREE-OWNERS.toml` 里登记唯一主人。Lead 用
+   `E:/hackios/k60-lead`（`git worktree`），**不再写**共用检出。
+2. 破坏性命令（`checkout -- <path>`、`restore`、`reset --hard`、`clean -f`、`stash`）
+   一律走 `scripts/git-safe.sh`：它先做完整快照（`scripts/snapshot-worktree.py` →
+   `E:/k60-work/scratch/snapshots/<时间戳>-<树名>/`，含 `tracked.patch`、`staged.patch`、
+   `untracked/` 和 `restore.sh`），再在非自有检出上直接拒绝；只有显式
+   `K60_I_OWN_THIS_TREE=1` 才放行，且放行前快照已经写完。
+   所以这个坑要再发生，需要**两个独立错误同时成立**，而且即使发生也能用
+   `bash <快照>/restore.sh` 原样恢复。
+3. 需要干净的树来构建时，换自己的 worktree 或收窄门禁范围（`K60_EIGHT_STEP_ITEMS`），
+   **绝不**靠清理共用树。
+4. 提交前跑 `python3 scripts/check-tree-owner.py`；它在共用检出有他人未提交改动时报错。

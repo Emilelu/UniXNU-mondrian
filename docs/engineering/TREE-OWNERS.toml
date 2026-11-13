@@ -1,0 +1,28 @@
+# Which checkout belongs to whom.
+#
+# One working tree, one owner. The Lead never edits the shared checkout and no
+# agent ever runs a destructive git command in somebody else's tree. P-184 is
+# what happens when that rule is missing: `git checkout --` in the shared
+# checkout silently discarded eight uncommitted files an agent was editing.
+#
+# `scripts/check-tree-owner.py` reads this file and refuses to let an actor work
+# in a tree it does not own when that tree has uncommitted changes.
+
+[[tree]]
+path = "/mnt/e/hackios/UniXNU-mondrian"
+owner = "touch-agent"
+note = "Shared device checkout. Only the touch agent works here. Lead must use its own worktree."
+
+[[tree]]
+path = "/mnt/e/hackios/k60-lead"
+owner = "lead"
+note = "Lead worktree (feat/pmic-rail). Lead's only writable checkout."
+
+[[tree]]
+path = "/mnt/e/hackios/UniXNU"
+owner = "lead"
+note = "Framework. Push to remote `fork`, never to `origin`."
+
+[[tree]]
+path = "/mnt/e/hackios/uefi-mondrian"
+owner = "lead"

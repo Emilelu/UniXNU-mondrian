@@ -55,6 +55,11 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 [ -d "$DEV" ] || die "device input $DEV missing"
 [ -d "$BUILD" ] || die "build tree $BUILD missing"
 
+# A fresh worktree has the code but not the environment (P-185): no Darwin tool
+# shims and an empty fakeroot. Name the missing piece now instead of discovering
+# it 13 minutes into the build as `xcodebuild: command not found`.
+python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
+
 M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
 KERNEL=$M/kernel/kernel.macho
 

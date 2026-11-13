@@ -7,6 +7,7 @@
 #ifndef K60_HOST_TEST
 
 #include <pexpert/pexpert.h>
+#include <sys/systm.h>
 
 static int k60_scm_called;
 
@@ -27,7 +28,7 @@ k60_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c,
 
 	__asm__ volatile("smc #0"
 	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
-	    : "+r"(x4), "+r"(x5), "+r"(x6), "+r"(x7)
+	    : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
 	    : "memory");
 
 	k60_scm_called = 1;

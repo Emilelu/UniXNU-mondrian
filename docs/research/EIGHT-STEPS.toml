@@ -401,6 +401,10 @@ evidence = "本子任务只核验了 AP 侧只读探针（功放 chip id / 引�
 done = false
 evidence = "从未上机。"
 
+[hardware.audio.step.device.prediction]
+success = "PongAudio: amp probe done found=2/2 ... 且 amp0/amp1 的 chip id 在已知表（0x2113 AW88261 等），failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0"
+failure = "amp0/amp1 任一 addr=0x34/0x35 no answer after 3 reads（总线或供电未就绪）、或 se15 no DFS level / i2c pads 失败（GCC wrapper2 投票或引脚复用未生效）、或 recovered>0（总线被前一颗功放拖住）、或出现 panic（io_submap 打满 / LPASS 访问无时钟）"
+
 [hardware.battery]
 status = "planned"
 parked_why = "尚未开始，见各步 evidence"

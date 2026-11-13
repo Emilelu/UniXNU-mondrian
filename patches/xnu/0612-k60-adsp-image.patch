@@ -167,15 +167,3 @@ index 0000000..1111111
 +    { 0x88d17000UL,        0,  7245824, ((const char *)0) }, /* segment 24 */
 +};
 +
-diff --git a/bsd/conf/files b/bsd/conf/files
---- a/bsd/conf/files
-+++ b/bsd/conf/files
-@@ -84,5 +84,8 @@
- bsd/nfs/gss/ccrypto.c			optional nfsserver
- bsd/kern/netboot.c			optional config_netboot
- 
- bsd/dev/dtrace/dtrace.c			optional config_dtrace
- bsd/dev/dtrace/lockprof.c		optional config_dtrace
-+bsd/dev/pong_smem.c			standard
-+bsd/dev/pong_handoff.c			standard
-+bsd/dev/pong_adsp_image.c			standard

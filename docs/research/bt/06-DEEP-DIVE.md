@@ -21,19 +21,19 @@ Reference copies used for every claim: `docs/research/bt/evidence/linux-geni-se-
 ## 0. Verdict
 
 The backend is structurally faithful: every register offset, bit and buffer-geometry rule that
-I could check against a local source **matches** (§2, V1–V11). But three deviations sit exactly
-on the S2 power path and are decidable only from device reads:
+I could check against a local source **matches** (§2, V1–V11). One deviation still blocks S2, one
+blocked S1 and is now fixed in the probe, and one was resolved offline on 2026-11-14:
 
 | id | deviation | reach |
 |----|-----------|-------|
-| **F1** | GENI DMA address is the *virtual* pointer; SMMU stream 0x483 is neither bypassed nor configured | blocks S2 |
-| **F2** | `G_MANUAL_RFR` (0x2ac) is written with a value the component never uses | blocks S2 |
-| **F3** | `k60_stop_engine()` polls offset 0xe40, which exists in no GENI header | blocks S2 |
-| **F11** | the SE20 RCG root is never enabled (`CMD_ROOT_EN`/`CMD_ROOT_OFF` missing) | blocks S1, mandatory for S2 |
+| **F1** | GENI DMA address is the *virtual* pointer; SMMU stream 0x483 is neither bypassed nor configured | blocks S2 — **fix plan settled** (§F1: reuse the `k60_usblog.c` planner + `kmem_alloc_contig` pattern, inside `patches/bt/`) |
+| **F2** | `G_MANUAL_RFR` (0x2ac) is written with a value the component never uses | **resolved**: it is `0x80000001` in the official sheng backend (`BluetoothProbe.cpp:202`), decoded = manual RFR + RTS ready |
+| **F3** | `k60_stop_engine()` polls offset 0xe40, which exists in no GENI header | blocks S2 (decided by the S1 `rsvd_e40` read) |
+| **F11** | the SE20 RCG root is never enabled (`CMD_ROOT_EN`/`CMD_ROOT_OFF` missing) | blocked S1; probe rungs s6/s7 now perform the enable, S2 needs the same code in the real path |
 
-Consequence: do **not** go to S2 (first real power-on) until S1 has returned the four extra
-register reads added in §5 and the three RCG rungs that decide F11. Two of the first three
-deviations are then decided from one boot.
+Consequence: do **not** go to S2 (first real power-on) until S1 has returned the `rsvd_e40` read that
+decides F3 and the RCG rungs that decide F11. F1's fix is already designed and needs no device data;
+F2 needs no work at all.
 
 ## 1. What `main` already carries
 
@@ -101,13 +101,33 @@ touches the engine (`docs/porting/bluetooth.md:45-62`, step 1). On K60 nothing d
 nothing proves the pages are contiguous either.
 
 Severity: blocking. If the SMMU translates, the very first `G_RX_DMA_LEN` write faults; if it
-does not, non-contiguous pages corrupt RX silently. Fix belongs to S2 (`patches/bt/`), options:
-(a) reuse the Pong SMMU bypass helpers if they expose SID 0x483, (b) allocate with
-`IOMallocContiguous`/`kmem_alloc_contig` + bypass, (c) stage the 32 KiB block from UEFI like
-`NativeRamBlock` does. S1 cannot decide this — but S1's `fifo_if_disabled`/protocol reads prove
-the engine is reachable, which is the precondition for trying.
+does not, non-contiguous pages corrupt RX silently. Fix belongs to S2 (`patches/bt/`).
 
-### F2 — `G_MANUAL_RFR` written with an unexplained value (blocks S2)
+**Fix plan (settled 2026-11-14 from this tree's own working code, no new evidence needed):**
+`bsd/dev/k60_usblog.c` already carries a working apps_smmu bypass planner and already allocates
+DMA correctly — `smmu_plan_bank()` / `smmu_plan()` / `smmu_configure()` / `smmu_usb_bypass()`
+(`patches/xnu/0300-k60-usblog-ep0.patch:288-523`, a 1:1 C port of `drivers/NativeUfs/SmmuTakeover.h`),
+with the allocation pattern
+
+```c
+/* 0300:1236-1246 */
+if (kmem_alloc_contig(kernel_map, &ud.dma, UD_SIZE, PAGE_MASK, 0, 0,
+    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) { … }
+ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)ud.dma);
+ud.dma_pa = ptoa_64(pn);
+```
+
+That path is proven on this board: the CDC console it feeds is the same console every boot log in
+`/mnt/e/k60-work/evidence/` comes from, and its SMMU dump prints a live `sCR0 0x00200406`
+(`console.log:246`). BT's stream is 0x483 (FDT `iommus = <0x5b 0x483 0>`, `mondrian.dts:10715`), so S2
+must call the same planner with `stream = 0x483`. The helpers are `static` inside `k60_usblog.c`, so
+the two options are (a) lift them into a shared `bsd/dev/k60_smmu.c` and add it to `bsd/conf/files`
+(**Lead scope** — the build file list is outside this line), or (b) duplicate them inside
+`qbt_k60.c` (**inside this line's write scope**, `patches/bt/`, no build-list change). (b) is the
+low-risk default and is what S2 will do. S1 cannot decide this — but S1's `fifo_if_disabled`/protocol
+reads prove the engine is reachable, which is the precondition for trying.
+
+### F2 — `G_MANUAL_RFR` written with an unexplained value (**resolved 2026-11-14**)
 
 ```c
 /* 0500:764-766 */
@@ -123,10 +143,24 @@ wr(g, G_MANUAL_RFR, ready && g->flow ? 0 : G_RFR_OFF);   /* G_RFR_OFF = 0x800000
 ```
 
 so 0 is "ready" and `0x80000002` is "manual, not ready". `0x80000001` is a third state that
-appears in neither source. Worse, if bit 31 is the manual-mode enable and bit 0 is the assertion
-level, this value advertises **ready** while the UART clock is gated — the opposite of what the
-comment wants (the controller must be blocked so the 0xFD wake byte stays pending, while its edge
-is caught on GPIO79). The deep dive cannot settle it from paper: read 0x2ac (S1 extended, §5).
+appears in neither source.
+
+**RESOLVED 2026-11-14 — the value is the official board backend's own write, not an invention:**
+
+```cpp
+// UniXNU-sheng/package/BluetoothProbe.cpp:201-202  (sheng = SM8550/WCN7850, boots on iPadOS 27)
+/* Leave RTS ready so the controller can send its IBS wake indication. */
+uwr(nullptr,0x2ac,0x80000001u);
+```
+
+The comment and the call site are identical to 0500's, so 0500 copied it from a backend that is
+proven on hardware. Decoded against Linux's own field names (`qcom_geni_serial.c:64-66`:
+`UART_MANUAL_RFR_EN` BIT(31), `UART_RFR_NOT_READY` BIT(1), `UART_RFR_READY` BIT(0)), the value is
+"manual RFR enabled, RTS asserted (ready)" — which is exactly what the gated-clock state wants: RTS
+stays ready so the controller may start sending, its first byte is the 0xFD wake indication, and the
+falling edge on GPIO79 wakes the host. The component's `G_RFR_OFF = 0x80000002` is "enabled, not
+ready" and is only used while the component itself is running. **Severity downgraded blocking →
+verified (A-level, official same-chip backend).** S1's 0x2ac read stays in the probe as a record.
 
 ### F3 — `k60_stop_engine()` polls an undefined offset (blocks S2)
 

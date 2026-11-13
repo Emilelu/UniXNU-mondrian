@@ -301,7 +301,7 @@ required = [
    - 同一基线状态下在 `k60-bt` 跑 `python3 scripts/check-rules.py` 另有 2 项红：`P-165/P-166 构建输入序列与仓库不一致：只在仓库有 [3 条 zzzz…pong-touch-*-probe.patch]`。这 7 条 `zzzz…pong-touch-*` 探针在 `f119a80` 的 series 里已存在，而 `/opt/k60/trees/k60build` 的构建输入未同步；与本线 5 个新文件无关（`git diff --stat f119a80 HEAD` 只增 `docs/research/bt/*` 与 `patches/bt/*`，未改 series / EIGHT-STEPS / SOURCES）。
    - 按铁则 8 报备：这两条是**基线门禁问题**，不要为了让门禁变绿去改判定；`research-gate.py`（32 项）与 `check-docs.py`（187 项）在 `f119a80` 上均已通过。
 9. **S1 探针已过 ⑦ 本地静态检查**：补丁 `patches/bt/0001-k60-bt-readonly-probe.patch` sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1`（13,001 B / 280 行 / 2 hunk，36 个打点、9 个子步）；对 0500 抽出的完整树执行 `git apply --check` 通过，再用 out3 构建记录的 `.CFLAGS` 跑 `clang -target arm64-apple-ios16.0 -fsyntax-only` **0 error**。细节与日志路径见 `S1-PROBE-SPEC.md` §8。
-10. **⑥ 深挖已完成，结论是「S1 必须先跑，且 S1 扩大了」**：逐行评审见 `docs/research/bt/06-DEEP-DIVE.md`。S2 之前必须由 S1 的寄存器读数定性 F1/F2/F3（DMA 物理地址、RFR 值、0xe40 轮询），以及 2026-11-14 新增的 **F11**（0500 的 `k60_gcc_set_se_rate()` 从不置 `CMD_ROOT_EN`/从不轮询 `CMD_ROOT_OFF`，SE20 根时钟可能一直是关的——这是 S1a 零字节日志的头号嫌疑，触摸线的健康启动正是完整走了这条序列）；其中 F1 的正确修法（SMMU bypass + 连续物理页）属于 S2 代码工作，F2/F3 可能只需改两行，但**都不允许在无设备读数的情况下猜**。
+10. **⑥ 深挖已完成，结论是「S1 必须先跑，且 S1 扩大了」**：逐行评审见 `docs/research/bt/06-DEEP-DIVE.md`。2026-11-14 又用离线证据关掉两条：**F2 已解除**（`0x80000001` 不是自创值，官方 sheng 后端 `UniXNU-sheng/package/BluetoothProbe.cpp:202` 写的就是它，按 Linux `qcom_geni_serial.c:64-66` 的位定义解出来是「手动 RFR + RTS ready」，正是门控时钟下想要的状态）；**F1 的修法已定**（复用本树 `bsd/dev/k60_usblog.c` 里已在 K60 上跑通的 `smmu_plan`/`smmu_configure` + `kmem_alloc_contig`/`pmap_find_phys` 模式，把 stream 换成 FDT 的 `0x483`；助手是 `static`，所以在 `patches/bt/` 内复制一份即可，不动 `bsd/conf/files`）。仍需设备读数定性的只剩 **F3**（`0xe40` 轮询，S1 的 `rsvd_e40` 读数直接判定）与 **F11**（SE20 根时钟，S1 的 s5/s6/s7 三级判定）。
 
 ---
 

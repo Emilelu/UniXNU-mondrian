@@ -100,7 +100,7 @@
 | `GENI_IF_DISABLE_RO = 0x064`，`FIFO_IF_DISABLE = BIT(0)` | `:81`、`:129-130` | FIFO 接口是否可用 |
 | `GENI_FW_REVISION_RO = 0x068`，协议字段 `GENMASK(15,8)` | `:82`、`:132-134` | 协议必须 = 2，否则组件 `prepare()` 返回 `-ENXIO` |
 | `QUP_HW_VER_REG = 0x0004`（wrapper），期望 `QUP_SE_VERSION_2_5 = 0x20050000` | `linux-qcom-geni-se-v6.6.c:114`、`linux-geni-se-v6.6.h:287` | 决定 16x 还是 32x 过采样 |
-| `G_MANUAL_RFR = 0x2AC`，组件只用 0 / `G_RFR_OFF = 0x80000002` | 官方组件 `src/qbt_geni_regs.h:30,80`；`src/qbt_geni.c:18-21` | **F2**：0500:766 写了 `0x80000001`，既非 ready 也非 not-ready |
+| `G_MANUAL_RFR = 0x2AC`，组件只用 0 / `G_RFR_OFF = 0x80000002` | 官方组件 `src/qbt_geni_regs.h:30,80`；`src/qbt_geni.c:18-21`；官方 sheng 后端 `UniXNU-sheng/package/BluetoothProbe.cpp:201-202` | **F2 已解除**：`0x80000001` 是官方后端的原值，Linux `qcom_geni_serial.c:64-66` 解为「手动 RFR + RTS ready」；本行读数仅作记录 |
 | `SE_DMA_TX_IRQ_STAT = 0xC40` / `SE_DMA_RX_IRQ_STAT = 0xD40`，reset-done = BIT(3) | `linux-geni-se-v6.6.h`（`TX_RESET_DONE`/`RX_RESET_DONE`） | S2 若重写 stop_engine，必须用这两个位 |
 | `0xE40`（无名字） | **两边都没有定义**：mainline 头文件从 `SE_HW_PARAM_1 0xe28` 直接结束，`qbt_geni_regs.h` 亦无 | **F3**：0500:631/639 轮询它；若读出非零，`stop_engine()` 恒定 `-ETIMEDOUT` |
 | `SE20_RCG_CMD = 0x2E618`（`gcc_qupv3_wrap2_s5_clk_src.cmd_rcgr`） | vendor `k60-android-gcc-waipio.c:1370-1387`（`mnd_width 16`、`hid_width 5`、`clk_rcg2_ops`、`enable_safe_config`） | RCG 命令寄存器：`CMD_UPDATE`/`CMD_ROOT_EN`/`CMD_ROOT_OFF` |

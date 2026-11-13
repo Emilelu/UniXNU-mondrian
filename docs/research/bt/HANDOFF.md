@@ -28,10 +28,10 @@ audio I2C on 0x880000. BT sits in the same QUPV3_2 wrapper. So the only question
 "can SE20 be touched at all". S1 maps GCC/SE20/wrapper, takes the five QUPV3_2 votes, and performs
 nine **loads**. No pin mux, no BT_EN pulse, no DMA, no interrupt.
 
-Secondary purpose: decide the two deviations that would otherwise be debugged as mysterious
-power failures — `G_MANUAL_RFR` (0x2ac) written as `0x80000001` (F2), and `k60_stop_engine()`
-polling the undefined offset 0xe40 (F3, would return `-ETIMEDOUT` deterministically if it reads
-non-zero).
+Secondary purpose: decide the deviation that would otherwise be debugged as a mysterious power
+failure — `k60_stop_engine()` polling the undefined offset 0xe40 (F3, returns `-ETIMEDOUT`
+deterministically if it reads non-zero). (F2, the `G_MANUAL_RFR` value, was resolved offline on
+2026-11-14: `0x80000001` is the official sheng backend's own write, `BluetoothProbe.cpp:202`.)
 
 **Measured result of the first attempt (S1a, 2026-11-14 04:51):** image `bt-s1-20261114b`
 (`boot_img 2fef132a…`) booted with `k60bt=1 k60bt_stage=1 k60bt_warm=1`, fastboot accepted it, and

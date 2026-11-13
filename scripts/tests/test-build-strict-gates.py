@@ -52,6 +52,7 @@ def case_red_gate_stops_the_build():
         (repo / "dts").mkdir()
         (repo / "patches" / "xnu").mkdir(parents=True)
         shutil.copy(SCRIPT, repo / "scripts" / "build-strict.sh")
+        (repo / "scripts" / "check-build-env.py").write_text("import sys\nsys.exit(0)\n")
         (repo / "board.toml").write_text("# stub\n")
         (repo / "dts" / "mondrian.dts").write_text("// stub\n")
         (repo / "patches" / "xnu" / "series").write_text("")
@@ -95,6 +96,67 @@ def case_red_gate_stops_the_build():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_env_reaches_the_gate():
+    """The registry runs as a child; it must see the tree being built.
+
+    2026-11-14: build-strict.sh read K60_DEVICE_INPUT/K60_OUT but never
+    exported them. unixnu then ran check-rules.py against the default mirror,
+    computed a different series fingerprint, and refused the build with
+    iron-4/hard-33 for a difference that did not exist.
+    """
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="k60-strict-"))
+    try:
+        repo = tmp / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        (repo / "dts").mkdir()
+        (repo / "patches" / "xnu").mkdir(parents=True)
+        shutil.copy(SCRIPT, repo / "scripts" / "build-strict.sh")
+        (repo / "scripts" / "check-build-env.py").write_text("import sys\nsys.exit(0)\n")
+        (repo / "board.toml").write_text("# stub\n")
+        (repo / "dts" / "mondrian.dts").write_text("// stub\n")
+        (repo / "patches" / "xnu" / "series").write_text("")
+        (repo / "scripts" / "eight-step-gate.py").write_text(
+            "import os,pathlib,sys\n"
+            "pathlib.Path(%r).write_text("
+            "os.environ.get('K60_DEVICE_INPUT','') + '|' + "
+            "os.environ.get('K60_OUT','') + '|' + "
+            "os.environ.get('K60_REPO',''))\n"
+            "sys.exit(1)\n" % str(tmp / "env.txt"))
+
+        build = tmp / "build"
+        build.mkdir()
+        (build / "unixnu").write_text("#!/bin/sh\nexit 0\n")
+        (build / "unixnu").chmod(0o755)
+        fd = tmp / "keep.fd"
+        fd.write_bytes(b"_FVH" + b"\0" * 60)
+
+        device = tmp / "mydevice"
+        out = tmp / "myout"
+        device.mkdir()
+        out.mkdir()
+        (tmp / "art").mkdir()
+
+        env = dict(os.environ)
+        env.pop("UNIXNU_SKIP_GATES", None)
+        env["K60_BUILD_TREE"] = str(build)
+        env["K60_DEVICE_INPUT"] = str(device)
+        env["K60_OUT"] = str(out)
+        env["K60_ARTIFACTS"] = str(tmp / "art")
+
+        subprocess.run(["bash", str(repo / "scripts" / "build-strict.sh"),
+                        "envcase", "--fd", str(fd)],
+                       capture_output=True, text=True, env=env)
+        seen = (tmp / "env.txt").read_text().split("|")
+        check("K60_DEVICE_INPUT reaches the gate", seen[0] == str(device),
+              "%r" % seen[0])
+        check("K60_OUT reaches the gate", len(seen) > 1 and seen[1] == str(out),
+              "%r" % (seen[1] if len(seen) > 1 else ""))
+        check("K60_REPO reaches the gate", len(seen) > 2 and seen[2] == str(repo),
+              "%r" % (seen[2] if len(seen) > 2 else ""))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def case_skip_gates_still_refused():
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="k60-strict-"))
     try:
@@ -112,14 +174,14 @@ def case_skip_gates_still_refused():
 
 def main():
     for case in (case_gate_runs_before_kernel, case_red_gate_stops_the_build,
-                 case_skip_gates_still_refused):
+                 case_env_reaches_the_gate, case_skip_gates_still_refused):
         print(case.__name__)
         case()
     print()
     if FAILS:
         print("TESTS FAILED: %d" % len(FAILS))
         return 1
-    print("TESTS OK 3 cases (0 failure(s))")
+    print("TESTS OK 4 cases (0 failure(s))")
     return 0
 
 

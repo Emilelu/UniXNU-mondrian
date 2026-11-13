@@ -44,6 +44,11 @@ LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
 export K60_REPO=$REPO
+# The registry runs as a child process. If these are not exported it falls back
+# to the default mirror/tree, judges a different series than the one being built,
+# and fails iron-4/hard-33 for a difference that does not exist (2026-11-14).
+export K60_DEVICE_INPUT=$DEV
+export K60_OUT=$OUT
 # 声明本次构建针对哪些硬件项（八步门禁按它收窄），并原样写进 manifest。
 export K60_EIGHT_STEP_ITEMS="${K60_EIGHT_STEP_ITEMS:-}"
 # Tell the registry a build is running: a stale patch stamp then means

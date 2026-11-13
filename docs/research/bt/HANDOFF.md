@@ -1,7 +1,8 @@
 # Handoff — K60 Bluetooth line (state at 2026-11-14)
 
 This file is the single-page handoff from the `feat/bt-research` line to the integrated line.
-Nothing here is build-wired: the branch adds only `docs/research/bt/*` and `patches/bt/*`.
+The branch adds `docs/research/bt/*` and `patches/bt/*`; the one wiring edit outside that scope is
+`patches/xnu/series:205` + `patches/xnu/0507-k60-bt-readonly-probe.patch` (see §3).
 
 Branch: `feat/bt-research` (worktree `E:/hackios/k60-bt`), base `f119a80` (= `main` at the time
 of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (S1 spec),
@@ -14,8 +15,8 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 |---|---|---|
 | `docs/research/bt/RESEARCH.md` | ①同型/②官方/③反编译/④广域 evidence tables, the seven answers (UART SE20 0x894000, IRQ 587 + GPIO79 wake IRQ 208, 3.0 Mbaud, H4 + IBS wake byte 0xFD, CTS/RTS/TX/RX = 76/77/78/79, BT_EN 81, SW_CTRL 82, XO 204), firmware expectations, WiFi/BT single-chip boundary, S1–S6 plan | done |
 | `docs/research/bt/06-DEEP-DIVE.md` | ⑥ line-by-line review of `patches/xnu/0500`'s `bsd/dev/qbt_k60.c` (1,249 lines, sha256 `8451c870…`): 11 verified items V1–V11, 10 deviations F1–F10 | done |
-| `docs/research/bt/S1-PROBE-SPEC.md` | S1 read-only probe: 9 reads, boot args, verdict table (incl. F2/F3 rows), device procedure, wiring options | done, statically verified |
-| `patches/bt/0001-k60-bt-readonly-probe.patch` | 2 hunks on `bsd/dev/qbt_k60.c`: `k60_bt_probe()` + `k60bt_stage=1` early return. sha256 `95e4b098e552619db135b455af5dbec96eae4450a2a8cdae1c6c61ce658ed8a3` | **not build-wired** |
+| `docs/research/bt/S1-PROBE-SPEC.md` | **S1b** read-only probe: 20 s console delay, 25 marks printed *before* each access, six bisectable steps (`k60bt_step`), verdict table keyed on "last mark printed", F2/F3 rows, device procedure | done, statically verified |
+| `patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch` | 2 hunks on `bsd/dev/qbt_k60.c`: `k60_bt_probe(step)` + delayed `k60bt_stage=1` early return. sha256 `6136fc67c849a95277296477284811210a7c69d13264e19483179f9c4c52fc96` (8,331 B / 192 lines) | **build-wired** (`patches/xnu/series:205`) |
 | `docs/research/bt/FIRMWARE.md` | **measured** BT firmware: `/vendor/bt_firmware/image/`, 113 files / 1,063,407 B, `hpbtfw20.tlv` 201,560 B + `hpbtfw21.tlv` 146,068 B + `hpnv20*`/`hpnv21*`, per-file SHA-256, `btqca.c` name selection, staging plan | done (M) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring options A/B | done |
 
@@ -32,28 +33,41 @@ power failures — `G_MANUAL_RFR` (0x2ac) written as `0x80000001` (F2), and `k60
 polling the undefined offset 0xe40 (F3, would return `-ETIMEDOUT` deterministically if it reads
 non-zero).
 
+**Measured result of the first attempt (S1a, 2026-11-14 04:51):** image `bt-s1-20261114b`
+(`boot_img 2fef132a…`) booted with `k60bt=1 k60bt_stage=1 k60bt_warm=1`, fastboot accepted it, and
+then **zero console bytes** appeared: `capture.json` state `port-not-observed`, `bytes=0`,
+`panicMarker=null`. Afterwards the board answers neither `adb` nor `fastboot` and exposes no USB
+device at all — the "USB-down hang, physical power cycle only" state of `scripts/k60-device.sh`.
+The same kernel without `k60bt` (`bt-s1-20261114a`, `boot_img 7b6b02fc…`) reached userland
+normally, so the hang belongs to the `k60bt=1` path, not to the build. The attempt is therefore
+**indeterminate**: it says "something in the BT start path kills the machine before the console
+enumerates", not which register did it. That is exactly what S1b fixes by sleeping 20 s first and
+printing a mark before every single access.
+
 ## 3. Lead actions, in order
 
-1. **Rebase/merge `feat/bt-research` onto the integrated line ≥ `4f90f12`** (feat/pmic-rail).
-   On `f119a80` the build gate is red for touch, not for BT:
-   `eight-step-gate.py --build` → `硬件项: 5 个`, `通过 27 项检查`,
-   `问题 3 处: touch :: ④ 广域 / ⑤ 方案 / ⑥ 深挖 未标记 done=true`.
-2. **Wire the probe**, option A (preferred): fold the two hunks of
-   `patches/bt/0001-k60-bt-readonly-probe.patch` into
-   `patches/xnu/0500-k60-bt-qbt-new-files.patch` — 0500 creates a new file, so `patches/xnu/series`
-   and `check-build-applied.py` are untouched. Option B: new `patches/xnu/0503-…` + one series
-   line + `sync-device-input.py`.
+1. **Done already:** `feat/bt-research` was rebased onto the integrated line `63eb384` (feat/pmic-rail)
+   and the probe was wired as `patches/xnu/0507-k60-bt-readonly-probe.patch` + `patches/xnu/series:205`
+   (option B), then `sync-device-input.py` was run so the build mirror matches. On the rebased branch
+   `eight-step-gate.py --build` reports `硬件项: 5 个`, `通过 30 项检查`, `✅ 八步流程通过`.
+2. **PHYSICAL POWER CYCLE FIRST.** The S1a boot (`k60bt=1`) hung the board before the USB gadget
+   enumerated: no `adb`, no `fastboot`, no USB device. `scripts/k60-device.sh` documents this as the
+   one state no script can leave. Hold power until it is off, then boot it back to Android/fastboot.
 3. **Register the BT hardware item** so the gate can see ①–⑥ (see §4 for the exact TOML).
 4. Build: `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
-   `python3 scripts/eight-step-gate.py --build` → `bash scripts/build-strict.sh` →
-   `python3 scripts/verify-boot-image.py <boot.img>`.
+   `bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_stage=1
+   --kernel-arg k60bt_warm=1` → `python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json`.
+   Expect the payload TOML to end with the three `k60bt` args (check with
+   `mtype -i <payload.img> ::/EFI/UniXNU/unixnu.toml`).
 5. Device: attach the CDC-ACM capture **before** any `fastboot boot` (AGENTS.md iron rule 8: console
    VID_1209&PID_0001, usbser.sys, port only from `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM\Device\USBSER000`,
-   DTR raised), boot the **same image twice** with boot args
-   `k60bt=1 k60bt_stage=1 k60bt_warm=1`, then `python3 scripts/record-boot.py --evidence <dir>`.
+   DTR raised), boot the **same image twice** with `k60bt=1 k60bt_stage=1 k60bt_warm=1` (optionally
+   `k60bt_delay=20 k60bt_step=6`), then `python3 scripts/record-boot.py --evidence <dir>`.
    Judge only `capture.json` `verdict`/`panicMarker` (never logstat.py panic counts).
-6. Feed the S1 result back into `docs/research/GENI-ACCESS-PRECONDITIONS.md` (the touch and audio
-   lines share this precondition) and into `06-DEEP-DIVE.md` F2/F3.
+   Read the verdict off the **last `probe: …` line** in the console (S1-PROBE-SPEC.md §5); if it stops
+   at an `sX` step, re-boot once with `k60bt_step` one lower to prove that access is the fatal one.
+6. Feed the result back into `docs/research/GENI-ACCESS-PRECONDITIONS.md` (the touch and audio lines
+   share this precondition), `06-DEEP-DIVE.md` F2/F3 and `RESEARCH.md` §5.4.
 
 ## 4. Gate snippets (outside this line's write scope)
 

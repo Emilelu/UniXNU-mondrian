@@ -169,7 +169,7 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 
 | 阶段 | 内容 | 产物 | 判定（读 capture.json 的 verdict/panicMarker，不看 logstat） | 预估 |
 |---|---|---|---|---|
-| **S1** 只读探针 | `k60bt=1 k60bt_stage=1`：只做 GCC 5 位投票 + halt 轮询，然后**只读 9 个寄存器**（`SE_GENI_STATUS`+0x040 ×2、`GENI_IF_DISABLE_RO`+0x064、`GENI_FW_REVISION_RO`+0x068、`QUP_HW_VER`wrapper+0x004、SE20 CBCR、`G_MANUAL_RFR`+0x2ac、`SE_DMA_TX/RX_IRQ_STAT`0xc40/0xd40、保留位 0xe40 —— 后四个专为判定 ⑥ 的 F2/F3），printf 后直接 return。不建 DMA、不碰 UART 中断、不拉 BT_EN | 内核补丁 `patches/bt/0001-k60-bt-readonly-probe.patch`（改 0500 的 `bsd/dev/qbt_k60.c`，未接构建） | 打印出数值 → SE20 可达，进 S2；零日志死机 → 与触摸同因（NoC/ICC 假设），**本线在此停**，把结论回填 GENI-ACCESS-PRECONDITIONS.md | 0.5 d 离线 + 1 次上机 |
+| **S1** 只读探针（S1b） | `k60bt=1 k60bt_stage=1`：先 `IOSleep(k60bt_delay)`（默认 20 s，上限 120 s）等 CDC 控制台活着，再**每次访问之前打一行点**（共 25 个打点），分 6 个可分子步（`k60bt_step`）：s1 map → s2 GPLL0 投票+锁轮询 → s3 QUPV3_2 5 位投票 → s4 逐个读 5 个 halt 寄存器 → s5 读 SE 身份 4 个 + wrapper 版本 → s6 读 0x2ac/0xc40/0xd40/0xe40 与复读状态。不建 DMA、不碰 UART 中断、不拉 BT_EN | 内核补丁 `patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507`（**已接入 series:205**） | 出现 `probe: done` → SE20 可达，进 S2；停在某行 `probe: sX` → **那一行就是死因**（S1a 那种 0 字节日志不再重演），据此判定 NoC/时钟/单条 load | 0.5 d 离线 + 2 次上机 |
 | **S2** 时钟+引脚+引擎 | `k60bt=1 k60bt_stage=2`：S1 全部 + 引脚 mux（76/77/78/79 → qup20，2 mA；sleep 态 79 → gpio）+ SE20 RCG 设 48 MHz/16x/3.0 Mbaud + wrapper 协议检查（期望 PROTOCOL 2）。**不拉 BT_EN** | 同上扩展 | 无死机且 `uart_speed(3000000)` 返回 0 → 进 S3 | 1 d + 1 次 |
 | **S3** 上电时序 | `k60bt=1 k60bt_stage=3`：加 XO(GPIO204) → 100-200 µs → BT_EN(81) 高 → 4-6 ms → **保持高**；然后 115200 下读 HCI Reset 的 event。断电路径先 XO 保持 2-5 ms 再降 | 同上 + 电源回调 | 收到 `0e 04 01 03 0c 00` 之类 Command Complete → 芯片活了；无响应 → 分「XO 无效 / BT_EN 极性 / 电源轨未开」三支（§8 I-1） | 1-2 d + 2 次 |
 | **S4** 固件下载 | `k60bt=1 k60bt_stage=4`：`qbt_boot(3000000, addr)` 走 QCA TLV（0xFC00 家族）+ NVM，固件从 `/private/var/ngpu/firmware/qca/` 读；失败回落 115200 并打印 rom_ver/soc_id | 同上 + staging 实测固件（`hpbtfw20.tlv`/`hpbtfw21.tlv` + `hpnv20*`/`hpnv21*`，见 `FIRMWARE.md` §5） | `kern.qbt_firmware` 有非空名字、`kern.qbt_boot` state=2 → 进 S5 | 2-3 d + 2 次 |
@@ -196,8 +196,16 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 
 - 规格：`docs/research/bt/S1-PROBE-SPEC.md`（寄存器出处、boot args、判据表、上机步骤、接线选项）。
 - ⑥ 深挖：`docs/research/bt/06-DEEP-DIVE.md`——对 0500 的 `bsd/dev/qbt_k60.c`（1,249 行，抽取值 sha256 `8451c870…`）逐行对照 Linux GENI/clk 源与官方 QcaBluetooth，给出**已验证 11 项（V1–V11）**与**偏差 10 项（F1–F10）**。其中三项必须在 S2 前定性：**F1** GENI DMA 拿虚拟地址当物理地址、SMMU 流 0x483 未 bypass；**F2** 0x2ac（`G_MANUAL_RFR`）被写成组件从不使用的 `0x80000001`（组件只写 0 或 `0x80000002`）；**F3** `k60_stop_engine()` 轮询的 0xe40 在两个 GENI 头文件里都不存在，若读出非零会恒定 `-ETIMEDOUT`。
-- 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch`（4,174 B / 80 行，2 个 hunk，sha256 `95e4b098…`）——S1 只读 9 个寄存器，其中 0x2ac / 0xe40 / 0xc40 / 0xd40 四个读专为 F2/F3 设计，一次上机即可判定。
-- **它还没有进入构建**：`scripts/check-patch-series.py:24` 与 `scripts/check-build-applied.py:27` 只读 `patches/xnu/series`，`patches/bt/` 不在构建路径里。接线二选一见 `patches/bt/README.md` 与 SPEC §6（属于 Lead 写权限）。
+- 补丁（S1b）：`patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch`（8,331 B / 192 行，sha256 `6136fc67…`）——先延迟 20 s 让控制台活着，再在每个寄存器访问**之前**打点，6 个可分子步；0x2ac / 0xe40 / 0xc40 / 0xd40 的读专为 F2/F3 设计。
+- **已接入构建**：`patches/xnu/0507-k60-bt-readonly-probe.patch` + `patches/xnu/series:205`（0502 之后、0503 之前），`patches/bt/` 仍只作本线存档；接线选项 A/B 的讨论保留在 `patches/bt/README.md` 与 SPEC §6。
+
+### 5.4 S1a 上机实测（2026-11-14 04:51）：不可判定，但换来一条硬事实
+
+镜像 `bt-s1-20261114b`（boot_img `2fef132a…`，内核 `78bf1986…`）带 `k60bt=1 k60bt_stage=1 k60bt_warm=1` 上机：fastboot 接受，`capture.json` = `port-not-observed`、`bytes=0`、`portOpened=false`、`panicMarker=null`，随后板子既不在 `adb` 也不在 `fastboot`，Windows PnP 里没有任何 Qualcomm/CDC 设备——`scripts/k60-device.sh` 记录的「USB 掉线挂死，只能物理断电」。
+
+- **可判定的一条**：同一颗内核在**不带** `k60bt` 的镜像（`bt-s1-20261114a`，boot_img `7b6b02fc…`）里正常跑到用户态（`captured-budget-complete`，3,192 行）。所以挂死属于 `k60bt=1` 这条路径，不是构建问题。
+- **不可判定的**：控制台 0 字节，没有任何 `[bluetooth]` 行，无法知道死在哪次访问——因为 `qbt_k60_start()` 紧跟在 `k60_usblog_start()` 之后执行，USB gadget 还没枚举完。这正是 S1b 先延迟 20 s、再逐访问打点的原因。
+- **顺带拿到的 iOS 侧事实**：那次成功的启动里 `bluetoothd` 已经起来，反复打印 `Unable to match bluetooth service in device tree.` / `Not a valid MAC address (all 00s).` / `bluetoothd: No bluetooth on this device.` —— 20G81 只有用户态栈，且要求设备树里存在 `bluetooth` 节点与非零 MAC（与 §2/§3 结论一致，现在有设备侧证据）。
 
 ---
 
@@ -312,7 +320,7 @@ ls -l /mnt/e/k60-work/firmware/qca6490/
 - 硬参数（UART/IRQ/引脚/GPIO/流控/协议/速率）**全部有 M 级证据**，不需要再猜任何地址或引脚。
 - 软件栈有**官方组件 + 已 staged 的内核补丁**，本线的工作不是从零写驱动，而是「分级验证 + 固件 + 用户态」。
 - 最大风险不在蓝牙本身，而在 **QUPV3_2 的首次 GENI 访问**（与触摸/音频同一类死机）。因此 S1 必须先做、必须能一读就退。
-- 下一步（本线）：**S1 只读探针**——但改 0500 需要 Lead 授权写 patches/xnu/；若未授权，本线交付即本文 + §9 交接项。
+- 下一步（本线）：**S1b 只读探针已接入构建**，等一次物理断电复位后的上机；判据看「最后一行 `probe: sX`」（§5.4 记录 S1a 的 0 字节日志）。
 
 ## 12. 证据来源清单（SOURCES 口径）
 

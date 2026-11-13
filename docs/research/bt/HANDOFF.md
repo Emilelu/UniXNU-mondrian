@@ -55,17 +55,18 @@ be judged dead on their own.
    enumerated: no `adb`, no `fastboot`, no USB device. `scripts/k60-device.sh` documents this as the
    one state no script can leave. Hold power until it is off, then boot it back to Android/fastboot.
 3. **Register the BT hardware item** so the gate can see ①–⑥ (see §4 for the exact TOML).
-4. Build (**done**: tag `bt-s1c-20261114a`, boot.img `ed59f007…`, kernel `ea79897c…`, `verify-boot-image: OK`; rebuild only if the probe changes again): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
+4. Build (**done — all five rung images are built and verified**, see the table in `S1-PROBE-SPEC.md` §4.1; rebuild only if the probe changes again): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
    `bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_stage=1
    --kernel-arg k60bt_warm=1` → `python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json`.
    Expect the payload TOML to end with the three `k60bt` args (check with
    `mtype -i <payload.img> ::/EFI/UniXNU/unixnu.toml`).
 5. Device: attach the CDC-ACM capture **before** any `fastboot boot` (AGENTS.md iron rule 8: console
    VID_1209&PID_0001, usbser.sys, port only from `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM\Device\USBSER000`,
-   DTR raised), then boot the **same image** up to five times, adding risk each time (S1-PROBE-SPEC.md §4):
-   `k60bt=1 k60bt_stage=1 k60bt_warm=1 k60bt_delay=20 k60bt_step=1` (map only, cannot hang) →
-   `… k60bt_step=4` (GCC only, no GENI) → `… k60bt_step=5` (first RCG read) →
-   `… k60bt_step=7` (first RCG writes) → `… k60bt_step=9` (first GENI read).
+   DTR raised), then boot the rungs in order, adding risk each time (S1-PROBE-SPEC.md §4/§4.1). Each rung
+   is its own image because `k60bt_*` lives in the payload command line, not in the kernel:
+   `bt-s1c-a1-20261114a` (step 1, maps only, cannot hang) → `bt-s1c-a2-20261114a` (step 4, GCC only) →
+   `bt-s1c-a3-20261114a` (step 5, first RCG read) → `bt-s1c-a4-20261114a` (step 7, first RCG writes) →
+   `bt-s1c-20261114b` (step 9, first GENI read). All five carry `k60bt_delay=40`.
    Stop the ladder wherever the board dies. Record with `python3 scripts/record-boot.py --image … --log <dir>/console.log`.
    Judge only `capture.json` `verdict`/`panicMarker` (never logstat.py panic counts).
    Read the verdict off the **last `probe: …` line** in the console (S1-PROBE-SPEC.md §5); if it stops

@@ -304,15 +304,15 @@ success = "日志顺序为 amp probe start → gcc vote/clk → se15 ready → a
 failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分别指向 GCC 投票、引脚复用、功放供电（DT 无供电属性，读不到 ID 优先怀疑没供电）"
 ```
 
-### 构建与镜像（本次实际产物，2026-11-14 05:19）
+### 构建与镜像（本次实际产物，2026-11-14 05:38）
 
 第一次 strict 构建被门禁脚本的**硬编码路径**挡住（判的不是正在构建的这棵树），与音频补丁无关；
 修完脚本后同一条命令一次通过：
 
 | 步骤 | 结果 |
 | --- | --- |
-| `build-strict.sh audio-probe-20261114c` | `series=230 frozen=3fedf0d2…`、`kernel c99298e87f02f94e… 54181888 bytes`、`boot.img b8a22a0e98ca06baa24fe97ec65e0aeb9b3343057a2e06d6bc973c33e345cb4e` |
-| `verify-boot-image.py --manifest …/audio-probe-20261114c/build-manifest.json` | `verify-boot-image: OK` |
+| `build-strict.sh audio-probe-20261114d` | `series=230 frozen=f73c9ef1…`、`kernel 8e5a00268bf736e7… 54181888 bytes`、`boot.img 7185f044431f7dbaaa3115fb99d1505b46f8c9770692be494bce9294e394cc13` |
+| `verify-boot-image.py --manifest …/audio-probe-20261114d/build-manifest.json` | `verify-boot-image: OK` |
 | 证明确实进了内核（P-170） | `bsd/conf/files:120-121` = `PongAudioGeniI2c.c` / `PongAudioAmp.c`；`…/bsd/DEVELOPMENT/PongAudioAmp.o` 存在；`kernel.macho` 里 `PongAudio` 字符串 **36** 处；`bsd_init.c:1369-1370` 有调用 |
 | payload args 尾部 | `… applog=1 pong_audio_probe=1` |
 
@@ -364,8 +364,15 @@ bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_
 
 ## 7. 待实测 / 阻塞
 
-镜像已就绪：`/mnt/e/k60-work/artifacts/audio-probe-20261114c/boot.img`（sha256 `b8a22a0e…45cb4e`，
-`verify-boot-image: OK`）。缺的只是设备：2026-11-14 05:20 实测 `fastboot devices` 与 `adb devices` 都为空，
+镜像已就绪：`/mnt/e/k60-work/artifacts/audio-probe-20261114d/boot.img`
+（sha256 `7185f044431f7dba…4e394cc13`，`verify-boot-image: OK`），manifest 记 `repo.head bb4c1e0`、
+`dirty_files 0`、`series 230 / 37b91dbe…`、`frozen f73c9ef1…`、`kernel_args ["pong_audio_probe=1"]`。
+
+上一版 `audio-probe-20261114c`（`boot.img b8a22a0e…`）是从更早的 HEAD 出的，之后 `39a783c` / `53c7223` /
+`bb4c1e0` 动了 `scripts/`，它的冻结清单已过期——**上机必须用 `d` 这一版**，否则 `check-build-freshness`
+比对不上。
+
+缺的只是设备：2026-11-14 05:20 与 05:38 两次实测 `fastboot devices` 与 `adb devices` 都为空，
 主机 PnP 里也没有 `VID_1209&PID_0001`（`NO-ANDROID-USB-DEVICE`）——手机不在 USB 上（关机或拔线），
 所以两次 `fastboot boot` 还没法开始。
 

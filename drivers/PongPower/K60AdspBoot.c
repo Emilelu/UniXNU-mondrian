@@ -96,7 +96,32 @@ k60_adsp_md_window(uint64_t *base, uint64_t *size)
 		printf("K60PAS no boot arguments\n");
 		return -1;
 	}
-	if (k60_md_parse(args, 256, "pmd0", base, size) != 0) {
+	/* memdev.c only ever looks at the first 256 bytes, so print the same
+	 * window in four short pieces: one long line is truncated by the console
+	 * and tells us nothing (P-163's sibling trap). */
+	{
+		char piece[68];
+		uint32_t part;
+
+		for (part = 0; part < 9; part++) {
+			size_t i;
+
+			for (i = 0; i < 64; i++) {
+				char ch = args[part * 64 + i];
+
+				piece[i] = (ch == '\0') ? 0 : ch;
+				if (ch == '\0') {
+					break;
+				}
+			}
+			piece[i] = '\0';
+			printf("K60ARGS %u: %s\n", part, piece);
+			if (i < 64) {
+				break;
+			}
+		}
+	}
+	if (k60_md_parse(args, 608, "pmd0", base, size) != 0) {
 		printf("K60PAS no pmd0 boot argument; the ramdisk has no known base\n");
 		return -1;
 	}

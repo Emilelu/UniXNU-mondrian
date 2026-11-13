@@ -165,7 +165,7 @@ diff --git a/bsd/dev/pong_adsp_boot.c b/bsd/dev/pong_adsp_boot.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_adsp_boot.c
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,191 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* ADSP bring-up order: prove the image table is sane, copy it into the
 + * carveout, let the secure monitor authenticate, then hand the span to the
@@ -264,7 +264,32 @@ new file mode 100644
 +		printf("K60PAS no boot arguments\n");
 +		return -1;
 +	}
-+	if (k60_md_parse(args, 256, "pmd0", base, size) != 0) {
++	/* memdev.c only ever looks at the first 256 bytes, so print the same
++	 * window in four short pieces: one long line is truncated by the console
++	 * and tells us nothing (P-163's sibling trap). */
++	{
++		char piece[68];
++		uint32_t part;
++
++		for (part = 0; part < 9; part++) {
++			size_t i;
++
++			for (i = 0; i < 64; i++) {
++				char ch = args[part * 64 + i];
++
++				piece[i] = (ch == '\0') ? 0 : ch;
++				if (ch == '\0') {
++					break;
++				}
++			}
++			piece[i] = '\0';
++			printf("K60ARGS %u: %s\n", part, piece);
++			if (i < 64) {
++				break;
++			}
++		}
++	}
++	if (k60_md_parse(args, 608, "pmd0", base, size) != 0) {
 +		printf("K60PAS no pmd0 boot argument; the ramdisk has no known base\n");
 +		return -1;
 +	}
@@ -377,7 +402,7 @@ new file mode 100644
 +int k60_fat_find(const void *base, const K60FatVolume *vol,
 +    const char *dir, const char *name, uint32_t *offset, uint32_t *length);
 +
-+/* Reads the "<key>=<base>@<size>" form memdev.c accepts, so the same boot
++/* Reads the "<key>=<base>.<size>" form memdev.c accepts (it writes '.'), so the same boot
 + * argument that creates md0 also tells us where its bytes live. Numbers may be
 + * decimal or 0x-prefixed hex. Returns 0 on success. */
 +int k60_md_parse(const char *args, size_t args_len, const char *key,
@@ -388,7 +413,7 @@ diff --git a/bsd/dev/pong_fat.c b/bsd/dev/pong_fat.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_fat.c
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,269 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +
 +#include <string.h>
@@ -642,7 +667,9 @@ new file mode 100644
 +		if (parse_number(&tok, tok_end, base) != 0) {
 +			continue;
 +		}
-+		if (tok >= tok_end || *tok != '@') {
++		/* memdev.c spells the separator '.', not '@': accepting both keeps
++		 * the parser usable for a hand-written argument too. */
++		if (tok >= tok_end || (*tok != '.' && *tok != '@')) {
 +			continue;
 +		}
 +		tok++;

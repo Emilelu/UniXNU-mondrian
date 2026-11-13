@@ -251,7 +251,9 @@ k60_md_parse(const char *args, size_t args_len, const char *key,
 		if (parse_number(&tok, tok_end, base) != 0) {
 			continue;
 		}
-		if (tok >= tok_end || *tok != '@') {
+		/* memdev.c spells the separator '.', not '@': accepting both keeps
+		 * the parser usable for a hand-written argument too. */
+		if (tok >= tok_end || (*tok != '.' && *tok != '@')) {
 			continue;
 		}
 		tok++;

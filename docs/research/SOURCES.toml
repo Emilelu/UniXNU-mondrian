@@ -299,7 +299,7 @@ examined = "2026-11-14"
 finding = """cnss-qca6490@b0000000（无 WPSS 节点，走 PCIe0 pcie@1c00000 + MHI + QRTR）；cnss_pins / cnss_wlan_en_active 在 pinctrl 里；bt_qca6490 独立成节点。Pong 平台用 GPIO204 做 QCA6490 XO latch，K60 的引脚必须按本 FDT 取，不能沿用 Pong 的编号。"""
 
 [subsystem.display]
-why = "显示 / 背光：K60 的面板画布契约、120Hz 面板真值、Pong 的 NT37705 背光实现（K60 面板待定）"
+why = "显示 / 背光：K60 的面板身份与 timing（live FDT）、画布契约、Pong 的 DCS 背光实现（K60 面板走 DCS）"
 
 [[subsystem.display.required]]
 path = "references/yibiya-upstream/patches/xnu/0210-k60-display-native-canvas.patch"
@@ -311,13 +311,21 @@ finding = """注释原文（:12-17）：面板是 1440 x 3200，DSC video mode�
 path = "references/yibiya-upstream/docs/plans/K60-120HZ-PLAN.md"
 why = "K60 面板（Sharp QHD AMOLED）的 120Hz timing 实测值，取自 dtbo 的 qcom,mdss_dsi_sharp_qhd_cmd 节点"
 examined = "2026-11-14"
-finding = """两个常见误解的纠正：K60 不是 LTPO（Sharp QHD AMOLED，LTPS 背板）；不是只能 60Hz，面板 dtbo 原生提供 120Hz timing@0。刷新率是 60 与 120 两档固定切换，没有 90Hz 档也没有自适应。timing@0（120Hz）与 timing@1（60Hz）唯一必改项是 panel-framerate（0x78=120 vs 0x3c=60）；panel-width 0x2d0=720、panel-height 0xc30=3120 是 DSC 压缩后的值（实际 1440x3200）；h-front-porch 0x48=72、h-back-porch 0x14=20、h-pulse-width 0x04。"""
+finding = """两个常见误解的纠正：K60 不是 LTPO（Sharp QHD AMOLED，LTPS 背板）；不是只能 60Hz，dtbo 原生提供 120Hz timing@0。刷新率是 60 与 120 两档固定切换，没有自适应。timing@0（120Hz）与 timing@1（60Hz）唯一必改项是 panel-framerate（0x78=120 vs 0x3c=60）；panel-width 0x2d0=720、panel-height 0xc30=3120 是 DSC 压缩后的值；h-front-porch 0x48=72、h-back-porch 0x14=20、h-pulse-width 0x04。
+
+⚠ 重要限定（2026-11-14 逐值核对）：这份文档的表格读自 dtbo 的 qcom,mdss_dsi_sharp_qhd_cmd 节点，对应 live FDT 里 fdt_dump.txt:22033 的 qcom,mdss_dsi_sharp_qhd_plus_dsc_cmd（phandle 0x6a4，Sharp qhd 通用面板）。K60 实际启用的面板是 m11a（bootargs msm_drm.dsi_display0=qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd:），其 timing 是三档 60/90/120、未压缩 1440x3200、slice-width 0x2d0、h-front-porch 0x8、v-front-porch 0x10、topology <2 2 1>、单 DSI。所以本文件的数值只能当「Sharp 参考面板」，不能当 m11a 的 120Hz 参数。"""
 
 [[subsystem.display.required]]
 path = "references/pong-power/PongBacklight.cpp"
 why = "同 SoC 的 DCS 背光实现范本（NT37705），K60 面板不同但控制路径结构可借"
 examined = "2026-11-14"
 finding = """Pong 的背光控制器基址 0x0ae94000、span 0x400（:336 的 board 校验），DCS 包形如 {0x80370002}、{0xa0060052}、{0xc0390003, 0xff000051|(wire<<8)}（:135/:141/:321）。亮度读回是 DBV 高位在前（:171），GET(52) 返回 12-bit SET(51) 电平（:178）。淡入淡出用纳秒时钟：fadeDuration=(latest&0xffff)*1000000ULL（:237-238）。K60 面板不是 NT37705，只能借控制流不能借面板常量。"""
+
+[[subsystem.display.required]]
+path = "reports/live-6033dbec-fdt.dtb"
+why = "K60 面板身份与显示供电的一手真值：m11a 节点、三档 timing、DSC 参数、5 条供电轨、DSI ctrl/phy/MDP 基址"
+examined = "2026-11-14"
+finding = """设备 6033dbec 的 live merged FDT（919,210 B，2026-11-02 adb 导出，已含 dtbo；文本解析见 scratch/refmine/fdt_dump.txt）。bootargs 第 13 行 msm_drm.dsi_display0=qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd: 表明实际启用面板是 m11a（phandle 0x6a3，fdt_dump.txt:27733），而 dsi-display-primary 的 qcom,dsi-default-panel=<0x697>（:28881）指向 visionox r66451 视频面板（:22521），不是本机在用的那个。m11a 节点：panel-type=dsi_cmd_mode、bpp=0x18、dsi-ctrl-num=0 / dsi-phy-num=0（单 DSI）、mi,panel-id=<0x4d313141 0x420200>（M11AB+0x02）、brightness-max 0xfff、hbm-bl-max 0x7ff、bl-inverted-dbv、bl-pmic-control-type="bl_ctrl_dcs"（背光走 DCS，不是 Pong 的 NT37705 独立控制器）、platform-reset-gpio=<&tlmm 0 0>（GPIO 0）、esd-err-irq-gpio=<&tlmm 0x74 0x2008>（GPIO 116 下降沿）、reset-sequence=<1 11 0 1 1 11>。timing 三档：timing@0 0x3c=60（:27813）、timing@1 0x5a=90（:27910）、timing@2 0x78=120（:28007），三档都是 0x5a0x0xc80=1440x3200、topology <2 2 1>、panel-clockrate 0x47868c00=1.2 GHz、DSC bit-per-pixel 8 / bit-per-component 0xa / slice-width 0x2d0 / slice-height 0x20 / dsc-version 0x12，且 timing-switch-command 三档各不相同（98 B）。面板供电 5 轨：vddio 1.8V=pm8350c_l12（ldoc12, phandle 0x30a）、vddd 1.07V=display_panel_vddd（GPIO 66 开关）、vci 2.7V=pm8350c_l13（ldoc13, 0x30b）、extvdd 1.2V=pm8350b_l1（ldod1, 0x30e）、avdd 5.5V=display_gpio_regulator@1（GPIO 186）——其中 3 条是 RPMh LDO 投票，与 RSC 不可访问的阻塞点同源。DSI ctrl0 reg 0xae94000+0x400 / 0xaf0f000+0x4 / 0xae36000+0x300，DSI phy0 reg 0xae94400+0xa00 / 0xae94900+0x400 / 0xae94200+0xa0，MDP 0xae00000+0x84000。触摸节点 :10771 与 thermal/charge-screen :28986/:28990 都用 panel=<0x6a3 0x697>，换面板必须同步改触摸的 panel 引用。"""
 
 [subsystem.usb]
 why = "USB：DWC3 寄存器分区与同 SoC 的 PHY / Type-C mux 实现，fastboot boot 之外唯一的调试通道"

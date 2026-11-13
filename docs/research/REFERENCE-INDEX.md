@@ -413,8 +413,68 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 | yibiya-upstream | 同上 `:22-23` | `#define K60_PANEL_WIDTH 1440` / `#define K60_PANEL_HEIGHT 3200`，tunable `k60_panel` 默认 1 | 本板 |
 | yibiya-upstream | 同上（`k60PanelNative()`） | 要求 `vinfo.v_width==1440 && vinfo.v_height==3200`，命中时打印 `K60 DISPLAY: fbwidth/fbheight/fbscale refused, the canvas is the panel` | 本板 |
 | UniXNU-upstream | `docs/devices/zizhan.md:104` | 同 SoC 异板：SimpleFbDxe framebuffer=0xb8000000、**2160x1916**、继承 cont_splash_region —— **分辨率不同，不能套用** | 同SoC异板·已上机 |
+| 本板 | `fdt_dump.txt:13` | bootargs `msm_drm.dsi_display0=qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd:` → **设备实际启用 m11a 面板（phandle 0x6a3）**；`dsi-display-primary` 的 `qcom,dsi-default-panel=<0x697>`（`:28881`）是 visionox r66451 视频面板（`:22521`，1440x2340），**不是本机在用的那个** | 本板实测 |
+| 本板 | `fdt_dump.txt:27733-27811` | m11a 节点：`panel-type="dsi_cmd_mode"`、`bpp=0x18`、`dsi-ctrl-num=0`/`dsi-phy-num=0`（单 DSI）、`mi,panel-id=<0x4d313141 0x420200>`（`M11AB`+0x02）、`brightness-max=0xfff`、`hbm-bl-max=0x7ff`、`bl-inverted-dbv`、`bl-pmic-control-type="bl_ctrl_dcs"`、`platform-reset-gpio=<&tlmm 0 0>`（GPIO 0）、`esd-err-irq-gpio=<&tlmm 0x74 0x2008>`（GPIO 116）、`reset-sequence=<1 11 0 1 1 11>` | 本板实测 |
 
-### 7.2 背光（Pong 的 NT37705，K60 待定）
+### 7.2 面板节点（live FDT，本板实测）
+
+**决定性证据：设备实际启用的面板是 m11a，不是通用参考面板。** bootargs（`fdt_dump.txt:13`）写着 `msm_drm.dsi_display0=qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd:`；而 `dsi-display-primary` 的 `qcom,dsi-default-panel=<0x697>`（`:28881`）指向的是 visionox r66451 视频面板（`:22521` `qcom,mdss_dsi_visionox_r66451_fhd_plus_video`，1440x2340）。**照 `dsi-default-panel` 写代码会选错面板。**
+
+| 属性 | 值 | 行 |
+|---|---|---|
+| `qcom,mdss-dsi-panel-name` | `xiaomi 42 02 0a cmd mode dsc dsi panel` | `:27811` |
+| `qcom,mdss-dsi-panel-type` | `dsi_cmd_mode`（**command mode，不是 video mode**） | `:27810` |
+| `qcom,mdss-dsi-bpp` | 0x18 = 24 | `:27807` |
+| `qcom,dsi-phy-num` / `qcom,dsi-ctrl-num` | 0 / 0 → **单 DSI**（对照 sharp_qhd 是 <0 1>/<0 1>） | `:27802-27803` |
+| `mi,panel-id` | `<0x4d313141 0x420200>` = ASCII `M11AB` + 0x02 | `:27771` |
+| `qcom,mdss-brightness-max-level` / `bl-max-level` / `bl-min-level` | 0xfff / 0xfff / 0x1 | `:27739-27741` |
+| `mi,hbm-bl-max-level` | 0x7ff（HDR 高亮上限，普通上限 0xfff） | `:27765` |
+| `mi,normal-max-brightness-clone` / `mi,max-brightness-clone` | 0x1fff / 0x3fff | `:27769-27770` |
+| `qcom,mdss-dsi-bl-pmic-control-type` | `bl_ctrl_dcs`（**背光走 DCS 命令，不是独立背光控制器**） | `:27742` |
+| `qcom,mdss-dsi-bl-inverted-dbv` | DBV 反相 | `:27780` |
+| `qcom,platform-reset-gpio` | `<&tlmm 0 0>` = **GPIO 0** | `:27738` |
+| `mi,esd-err-irq-gpio` | `<&tlmm 0x74 0x2008>` = **GPIO 116**，下降沿 | `:27772` |
+| `qcom,mdss-dsi-reset-sequence` | `<1 11 0 1 1 11>`（三组 电平/延时 ms） | `:27791` |
+| TE | `te-using-te-pin` + `te-pin-select=1` + `te-dcs-command=1` + `wr-mem-start=0x2c`/`continue=0x3c`；TE 脚是 `dsi-display-primary` 的 `qcom,platform-te-gpio=<&tlmm 0x56 0>` = **GPIO 86** | `:27783-27788`、`:28884` |
+| 物理尺寸 | `pan-physical-height-dimension=0x609`、`width=0x2b7`（单位 0.1 mm → 约 154.5 x 69.5 mm） | `:27789-27790` |
+| `qcom,bl-update-flag` | `delay_until_first_frame`（首帧前不写亮度） | `:27779` |
+
+### 7.3 面板 timing（live FDT，三档 60 / 90 / 120）
+
+| timing 节点 | 行 | `panel-framerate` | `panel-width` | `panel-height` | `display-topology` | `phy-timings`(14B) | `mdp-transfer-time-us` |
+|---|---|---|---|---|---|---|---|
+| `timing@0` | `:27813` | 0x3c = **60** | 0x5a0 = 1440 | 0xc80 = 3200 | <2 2 1> | `00270a0a1b250a0b0b0a0204200f` | 0x1c84 = 7300 |
+| `timing@1` | `:27910` | 0x5a = **90** | 0x5a0 | 0xc80 | <2 2 1> | `00270a0a1b250a0b0b0a0204200f` | 0x1c84 |
+| `timing@2` | `:28007` | 0x78 = **120** | 0x5a0 | 0xc80 | <2 2 1> | `00270a0a1b250a0b0b0a0204200f` | 0x1c84 |
+
+三档共用的参数（`timing@0` 的 `:27890-27907`，另两档同值）：`v-pulse-width=0xe`、`v-front-porch=0x10`、`v-back-porch=0x6`、`h-pulse-width=0xc`、`h-back-porch=0x8`、`h-front-porch=0x8`、`h-sync-skew=0`、`panel-clockrate=0x47868c00`（**1.2 GHz**）、`panel-jitter=<5 1>`。
+DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`、`bit-per-component=0xa`、`slice-per-pkt=0x2`、`slice-width=0x2d0`、`slice-height=0x20`、`scr-version=0x0`、`dsc-version=0x12`、`compression-mode="dsc"`。
+命令包：on-command **1534 B**（`:27889`）、off-command 18 B `390000001400022800390000006400021000`（`:27888`）、timing-switch-command **98 B 且三档各不相同**（`:27885` / `:27982` / `:28079`）。
+
+### 7.4 面板供电链（live FDT）
+
+`qcom,panel-supply-entries = <0x6a2>`（`:27743`）→ `/soc/dsi_panel_pwr_supply_M11a`（`:28938`）三条 entry；再叠加 `dsi-display-primary` 的 4 个 regulator（`:28874-28877`）与一个 GPIO 开关。
+
+| 轨 | 电压 | 由谁提供 | 行 |
+|---|---|---|---|
+| `vddio` | 1,800,000 µV（0x1b7740） | `pm8350c_l12` = **rpmh-regulator-ldoc12**，phandle 0x30a，`init-mode=4` | supply-entry@0 `:28942-28951`；regulator `:5224-5231` |
+| `vddd` | 1,070,000 µV（0x1053b0） | `display_panel_vddd`（gpio-regulator，**GPIO 66** 高有效，`regulator-boot-on`） | supply-entry@1 `:28952-28961`；regulator `:28974-28982` |
+| `vci` | 3,000,000 µV（0x2dc6c0） | `pm8350c_l13` = **rpmh-regulator-ldoc13**，phandle 0x30b，`init-mode=4` | supply-entry@2 `:28962-28972`；regulator `:5240-5247` |
+| `extvdd` | 1,200,000 µV（0x124f80） | `pm8350b_l1` = **rpmh-regulator-ldod1**，phandle 0x30e | `:28875`；regulator `:5282-5289` |
+| `avdd`（`display_gpio_regulator@1`） | 5,500,000 µV（0x53ec60） | GPIO **186**（0xba）高有效，`ramp-delay=0xe9`（233 µs），`proxy-consumer-enable` | `:28912-28925` |
+
+时序（supply-entry）：`vddio` post-on 0x14=20 ms / post-off 0xa=10 ms、enable-load 0x493e0；`vci` pre-on 0xa=10 ms / post-on 0xf=15 ms。
+**这 5 条轨里有 3 条是 RPMh LDO 投票** → 与第 3 节、第 14.1 节同一个阻塞点：RSC 不可访问之前，面板供电只能在 bootloader 已开的状态下沿用。
+
+### 7.5 DSI 控制器 / PHY / MDP 基址（live FDT）
+
+| 块 | 基址与长度 | 关键属性 | 行 |
+|---|---|---|---|
+| DSI ctrl0 | `0xae94000+0x400`、`0xaf0f000+0x4`、`0xae36000+0x300` | `qcom,dsi-ctrl-hw-v2.6`、`vdda-1p2-supply=0x233`、`interrupts=<4 0>` | `:28107-28120` |
+| DSI phy0 | `0xae94400+0xa00`、`0xae94900+0x400`、`0xae94200+0xa0` | `qcom,dsi-phy-v4.3.2`、`pll-label="dsi_pll_5nm"`、`vdda-0p9-supply=0x232`、`platform-regulator-settings=1d1d1d1d1d`、`platform-lane-config=<0xa0a 0xa0a 0xa0a 0xa0a 0x8a8a>` | `:28161-28176` |
+| MDP | `0xae00000+0x84000`、`0xaeb0000+0x2008`、`0xaeac000+0x800` | `/soc/qcom,mdss_mdp@ae00000` | `:21793`、`:21958` |
+
+### 7.6 背光（K60 走 DCS；Pong 的 NT37705 只作结构参照）
 
 | 仓库 | 文件:行 | 事实 | 可信度 |
 |---|---|---|---|
@@ -425,8 +485,7 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 | pong-power | `PongBacklight.cpp:238` | 淡入淡出：`fadeStart=nowNs(); fadeDuration=(latest & 0xffff)*1000000ULL;` | 同SoC异板 |
 | pong-power | `PongBacklight.cpp:218` | 成功日志 `PongBacklight: NT37705 DCS service ready, level=%u max=%u, readback PASS` | 同SoC异板 |
 
-⚠ **K60 的背光面板型号未知**。`uefi-mondrian/Include/RAW.inc:1-5` 明确写着：`SecParti.cfg` 与约 72 个 `Panel_*.xml` 是 pong 的通用显示库，**没有一个匹配 K60 面板**。
-启用厂商显示驱动前，必须先从 K60 的 `dispdcbx` 分区或设备树提取 panel XML。见第 15 节缺口。
+⚠ **K60 的面板身份已确定，但厂商 panel XML 仍未提取。** 面板 = xiaomi **m11a**（`mi,panel-id` = `M11AB`/0x42/0x02），1440x3200、DSC、command mode、单 DSI、三档 60/90/120。`uefi-mondrian/Include/RAW.inc:1-5` 说的「约 72 个 `Panel_*.xml` 全是 pong 的、没有一个匹配 K60」依然成立（`Device-Binaries` 里 2,117 个 `Panel_*.xml` 也无一匹配，见 15 节）。启用厂商显示驱动前仍需从 `dispdcbx` 分区提 XML。
 
 ---
 
@@ -571,6 +630,14 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 | `:11228` `:11240` | `aw882xx_smartpa@34` / `@35` | Smart PA |
 | `:16407` | `pcie@1c00000` | WiFi PCIe |
 | `:19556` | `spf_core_platform` → `lpass-cdc` | 音频 codec |
+| `:21793` `:21958` | `qcom,mdss_mdp@ae00000`（reg 0xae00000+0x84000 等） | 显示 MDP |
+| `:22033` | `qcom,mdss_dsi_sharp_qhd_plus_dsc_cmd`（phandle 0x6a4） | 通用参考面板，**yibiya 120Hz 文档抄的是这个** |
+| `:22521` | `qcom,mdss_dsi_visionox_r66451_fhd_plus_video`（phandle 0x697） | `dsi-default-panel` 指向它，**本机并未启用** |
+| `:27733` | `qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd`（phandle 0x6a3） | **K60 实际面板**，见 7.2–7.5 |
+| `:28107` `:28161` | `mdss_dsi_ctrl0@ae94000` / `mdss_dsi_phy0@ae94900` | DSI 控制器 / PHY |
+| `:28872` | `qcom,dsi-display-primary` | 面板与 regulator/TE 的绑定点 |
+| `:28938` | `dsi_panel_pwr_supply_M11a` | 面板三条 supply entry |
+| `:28912` | `display_gpio_regulator@1`（avdd，GPIO 186） | 面板 avdd 开关 |
 
 ---
 
@@ -626,7 +693,24 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 `uefi-mondrian/Include/RAW.inc:1-5` 原文已说明：约 72 个 `Panel_*.xml` 全是 pong 的，**没有 K60 的 1440x3200 面板**。
 
-### 14.7 工具链缺口
+### 14.7 yibiya 的 120Hz 文档引用的是通用 Sharp 面板，不是 K60 的 m11a
+
+`references/yibiya-upstream/docs/plans/K60-120HZ-PLAN.md` 的 timing 表读自 `D:\Android\k60-ios\dtb\dtbo_a_fdt15.dtb` 的 `qcom,mdss_dsi_sharp_qhd_cmd` 节点。逐值核对后确认：它引用的就是 live FDT 里 `fdt_dump.txt:22033` 那个 `qcom,mdss_dsi_sharp_qhd_plus_dsc_cmd`（phandle 0x6a4，panel-name `Sharp qhd cmd mode dsi panel`）。
+
+| 项目 | yibiya 文档 / sharp_qhd 节点 | **live FDT 的 m11a 节点（本机在用）** |
+|---|---|---|
+| 档位 | 2 档（120 / 60） | **3 档（60 / 90 / 120）** |
+| panel-width / height | 0x2d0=720 / 0xc30=3120（DSC 压缩后） | **0x5a0=1440 / 0xc80=3200（未压缩）** |
+| dsc-slice-width / height | 0x168=360 / 0x8 | **0x2d0=720 / 0x20=32** |
+| dsc bit-per-component | 0x8 | **0xa** |
+| h-front-porch / v-front-porch | 0x48=72 / 0x27=39 | **0x8 / 0x10** |
+| mdp-transfer-time-us | 0x1efd=7933 | **0x1c84=7300** |
+| display-topology | <2 2 **2**> | <2 2 **1**> |
+| 单/双 DSI | 双（`dsi-ctrl-num=<0 1>`） | **单（`dsi-ctrl-num=0`）** |
+
+**结论：120Hz 计划的数值不能直接搬。** 要做 120Hz 必须用 m11a 节点的 `timing@2`（`:28007`）与其 98 字节 `timing-switch-command`（`:28079`），不是 sharp 节点的 68 字节命令。
+
+### 14.8 工具链缺口
 
 - 本机**没有 dtc**（`command -v dtc` 为空）、**没有 fdtdump**、Python **没有 libfdt**（`import fdt` → ModuleNotFoundError）。
 - `python3` 是 **Windows 侧解释器**：它读不了 `/mnt/e/...`（FileNotFoundError），必须写 `E:/...` 或先 `cd` 到 `/mnt/e` 再用相对路径。
@@ -640,7 +724,9 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | 缺口 | 影响 | 建议动作 |
 |---|---|---|
 | **AW882xx smart PA 无任何参考实现** | 音频线（K60 独有） | 从 `Device-Binaries` 找 aw882xx 固件/驱动，或从 Android 侧 `aw882xx_dl.bin` 与 mi 的 ACDB 逆推 |
-| **K60 panel XML 未提取** | 显示/背光 | 从 `dispdcbx` 分区或 live FDT 提；`RAW.inc:1-5` 已明确必须换 |
+| **K60 panel XML 未提取** | 显示/背光 | 面板身份已定（m11a，见 7.2），但 XML 仍未提。`Device-Binaries` 的 2,117 个 `Panel_*.xml` 已逐个查过，无一匹配 m11a。只能从 `dispdcbx` 分区或 Android 侧 `/vendor/etc/display` 提 |
+| **m11a 的 90Hz 档用途未知** | 显示 | `timing@1`（0x5a=90）在 live FDT 里存在但 MIUI 侧是否使用未验证；做 120Hz 时要决定是否同时暴露 90 |
+| **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1；RSC 不可访问（14.1）前只能沿用 bootloader 状态 |
 | **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*` |
 | **`Device-Binaries` 698 MB 未系统挖掘** | 全部 | 至少把 `Binaries/` 下的 panel/固件索引出来 |
 | **`UniXNU-liuqin`（105 文件）未看过** | 未知 | 先 `git ls-files` 看有没有 SM8475 相关 |
@@ -652,18 +738,18 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 ## 16. 机器可读部分
 
-本文件的人读事实已同步成 `SOURCES.toml` 的 **17 条新 `required` 条目**（2026-11-14 追加）：
+本文件的人读事实已同步成 `SOURCES.toml` 的 **18 条新 `required` 条目**（2026-11-14 追加）：
 
 | 子系统 | 变化 | 条数 |
 |---|---|---|
 | `power` | **新建**段（RSC/TCS、SPMI、cmd-db、live FDT） | 4 |
-| `display` | **新建**段（面板画布契约、120Hz timing、NT37705 背光） | 3 |
+| `display` | **新建**段（面板画布契约、120Hz 参考面板 timing、DCS 背光、**m11a 面板与供电 live FDT**） | 4 |
 | `usb` | **新建**段（DWC3 偏移、eUSB2 PHY、Type-C mux） | 3 |
 | `bluetooth` | **新建**段（QCA6490 路线、K60 的 BT 节点） | 2 |
 | `audio` | 补充 AudioReach 参数 ID、GLINK intent 约束、ADSP 保留区 | 3 |
 | `wifi` | 补充 PCIe 端点识别、K60 cnss 节点 | 2 |
 
-追加后全文件 11 个子系统、49 条 `required`（原 7 个子系统、32 条）。查法：
+追加后全文件 11 个子系统、50 条 `required`（原 7 个子系统、32 条）。查法：
 
 ```bash
 python3 scripts/research-gate.py        # 校验每个 path 存在、examined 非空、finding >= 20 字

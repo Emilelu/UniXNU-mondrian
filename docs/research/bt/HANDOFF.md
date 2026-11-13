@@ -55,7 +55,7 @@ be judged dead on their own.
    enumerated: no `adb`, no `fastboot`, no USB device. `scripts/k60-device.sh` documents this as the
    one state no script can leave. Hold power until it is off, then boot it back to Android/fastboot.
 3. **Register the BT hardware item** so the gate can see ①–⑥ (see §4 for the exact TOML).
-4. Build (**S1c needs a rebuild**: the probe patch changed to sha256 `05dd342b…`, 280 lines, 9 steps): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
+4. Build (**done**: tag `bt-s1c-20261114a`, boot.img `ed59f007…`, kernel `ea79897c…`, `verify-boot-image: OK`; rebuild only if the probe changes again): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
    `bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_stage=1
    --kernel-arg k60bt_warm=1` → `python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json`.
    Expect the payload TOML to end with the three `k60bt` args (check with

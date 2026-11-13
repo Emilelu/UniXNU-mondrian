@@ -269,18 +269,30 @@ FORK = "https://github.com/Emilelu/UniXNU"
 
 
 def check_readme_links(verbose=True):
-    """README 里的框架链接必须指向工作用的 fork。
+    """README 里的仓库链接必须指向我们自己的仓库。
 
-    官方仓库只能作为「官方/上游」出现在同一行里，否则读者会照着 README 去
-    克隆一个我们没有写权限的仓库（用户 2026-11-13 明确要求）。
+    两类错误都会让读者克隆错仓库：
+      - 框架：官方 UniXNU/UniXNU 只能作为「官方/上游」标注出现，工作用的是 fork；
+      - 本项目自有仓库（UniXNU-mondrian / UniXNU-sm8475-common / uefi-mondrian）
+        必须指向 Emilelu，不能写成 UniXNU 组织（2026-11-13 用户：UniXNU-sm8475-common
+        是我的仓库，README 里链接错了，其他同类问题也要修）。
     """
+    own = ("UniXNU-mondrian", "UniXNU-sm8475-common", "uefi-mondrian")
     bad = []
-    for name in ("README.md", "README_EN.md"):
+    for name in ("README.md", "README_EN.md", "CREDITS.md"):
         f = Path(REPO) / name
         if not f.is_file():
             continue
         for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            # bare UniXNU/UniXNU only: UniXNU-sm8475-common is a different repo
+            for repo in own:
+                wrong = "github.com/UniXNU/%s" % repo
+                right = "github.com/Emilelu/%s" % repo
+                if wrong in line and right not in line:
+                    bad.append("%s:%d %s 指向 UniXNU 组织，应指向 Emilelu" % (name, i, repo))
+            # the bare-framework rule only applies to README files: CREDITS has a
+            # dedicated "official" section where listing UniXNU/UniXNU is correct
+            if name == "CREDITS.md":
+                continue
             if not re.search(r'UniXNU/UniXNU(?![A-Za-z0-9._-])', line):
                 continue
             marked = any(k in line for k in ("官方", "上游", "official", "upstream"))

@@ -86,9 +86,10 @@ def make_tag():
         if entry.get(key):
             msg.append('%s: %s' % (key, entry[key]))
     msg.append('tagged: %s' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
-    tmp = '/tmp/boot-proven-msg.txt'
-    open(tmp, 'w', encoding='utf-8').write('\n'.join(msg) + '\n')
-    git('tag', '-f', name, '-F', tmp)
+    args = ['tag', '-f', name]
+    for line in msg:
+        args += ['-m', line]
+    git(*args)
     print('  ✅ 已打 tag %s' % name)
     r = subprocess.run(['git', 'push', '-f', 'origin', name], capture_output=True, text=True, cwd=REPO)
     print('  ✅ 已推送' if r.returncode == 0 else '  ⚠️ 推送失败（本地 tag 仍有效）')

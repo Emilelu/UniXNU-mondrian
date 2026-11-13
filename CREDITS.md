@@ -113,7 +113,7 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | `UniXNU/UniXNU-pong` | 官方 Pong 设备仓库 |
 | `UniXNU/UniXNU-sheng` | 官方 sheng 设备（SM8550，Novatek 触摸 + GPU 调度） |
 | `UniXNU/UniXNU-zizhan` | 同 SoC SM8475 设备（ST FTS 触摸 + Adreno 730） |
-| `UniXNU/UniXNU-sm8475-common` | SM8475 SoC 公共层 |
+| `Emilelu/UniXNU-sm8475-common` | SM8475 SoC 公共层（本项目的 SoC 仓库） |
 | `UniXNU/UniXNU-sm8550-common` | SM8550 SoC 公共层（`Sm8550Platform` 组件） |
 | `UniXNU/Adreno740` | A740 内核 GPU 驱动（`NativeAdrenoService.cpp` 分层参考） |
 | `UniXNU/AdrenoMetal` | Metal 前端（`NativeAdrenoMetalPlugin.mm` / `NativeBridgeMetalFrontend.mm` / `NativeMetalBridge.rs`），与我们 `PongMetal` 同架构 |

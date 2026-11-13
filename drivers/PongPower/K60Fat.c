@@ -27,45 +27,48 @@ static int
 name_matches(const uint8_t *entry, const char *want)
 {
 	char flat[13];
+	char needle[13];
 	int n = 0;
+	int m = 0;
 
 	for (int i = 0; i < 8; i++) {
 		char c = (char)entry[i];
 
-		if (c == ' ') {
-			continue;
+		if (c != ' ') {
+			flat[n++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
 		}
-		flat[n++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
 	}
 	if (entry[8] != ' ') {
 		for (int i = 8; i < 11; i++) {
 			char c = (char)entry[i];
 
-			if (c == ' ') {
-				continue;
+			if (c != ' ') {
+				flat[n++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
 			}
-			flat[n++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
 		}
 	}
 	flat[n] = '\0';
 
-	for (int i = 0; want[i] != '\0'; i++) {
+	/* the dot is a display convention, never a stored byte */
+	for (int i = 0; want[i] != '\0' && m < 12; i++) {
 		char c = want[i];
 
 		if (c == '.') {
 			continue;
 		}
-		if (c >= 'a' && c <= 'z') {
-			c = (char)(c - 32);
-		}
-		if (flat[i] != c) {
+		needle[m++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
+	}
+	needle[m] = '\0';
+
+	if (n != m) {
+		return 0;
+	}
+	for (int i = 0; i < n; i++) {
+		if (flat[i] != needle[i]) {
 			return 0;
 		}
-		if (flat[i] == '\0') {
-			break;
-		}
 	}
-	return flat[n] == '\0';
+	return 1;
 }
 
 /* Walks the directory whose first cluster is `start`, returning the entry. */

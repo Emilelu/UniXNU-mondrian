@@ -66,4 +66,29 @@ k60_adsp_bring_up(void *window, size_t window_bytes, K60AdspRead read)
 	return K60PasOk;
 }
 
+
+/* Called from the Data-mount path (patch 0614). Off unless the boot argument
+ * is present, because the firmware reader does not exist yet: the point of
+ * this probe is to make the plan run in a real boot and to name the first
+ * failing layer instead of leaving the whole path untested. */
+static int
+k60_adsp_no_reader(const char *part, void *dst, uint32_t bytes)
+{
+	printf("K60PAS no reader for %s (%u bytes)\n", part, bytes);
+	return -1;
+}
+
+int
+k60_adsp_probe_from_handoff(void)
+{
+	int enabled = 0;
+
+	if (!PE_parse_boot_argn("pong_adsp", &enabled, sizeof(enabled)) || enabled == 0) {
+		return 0;
+	}
+	printf("K60PAS probe begin\n");
+	return k60_adsp_bring_up((void *)(uintptr_t)K60_ADSP_BASE,
+	    (size_t)K60_ADSP_WINDOW, k60_adsp_no_reader);
+}
+
 #endif /* !K60_HOST_TEST */

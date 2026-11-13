@@ -126,6 +126,22 @@ if [ "${K60_I_OWN_THIS_TREE:-}" = "1" ]; then
 fi
 
 OWNERS="$ROOT/docs/engineering/TREE-OWNERS.toml"
+if [ ! -f "$OWNERS" ]; then
+    # A worktree created from an older commit has no owner table of its own. The
+    # table describes the whole family of checkouts, so fall back to the copy the
+    # installer keeps at a fixed path — otherwise the guard is silent in exactly
+    # the checkouts that need it most (a fresh agent worktree).
+    for candidate in \
+        "${K60_TREE_OWNERS:-}" \
+        /mnt/e/k60-work/TREE-OWNERS.toml \
+        "$(dirname "$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo /x)")/docs/engineering/TREE-OWNERS.toml"
+    do
+        if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+            OWNERS="$candidate"
+            break
+        fi
+    done
+fi
 if [ -f "$OWNERS" ]; then
     ACTOR=${K60_AGENT_ID:-lead}
     OWNER=$(python3 - "$OWNERS" "$ROOT" <<'PY' 2>/dev/null || true
@@ -151,7 +167,8 @@ PY
             printf '%s\n' "$DIRTY" | head -10 | sed 's/^/    /'
             echo "git-guard: the changes are in the snapshot above, but do not rely on that."
             echo "git-guard: work in your own checkout (git worktree add <path> <branch>), or"
-            echo "git-guard: override deliberately with K60_I_OWN_THIS_TREE=1."
+            echo "git-guard: if this tree IS yours, set K60_AGENT_ID=$OWNER (currently '${ACTOR}')."
+            echo "git-guard: to discard deliberately anyway: K60_I_OWN_THIS_TREE=1 git ..."
         } >&2
         exit 2
     fi

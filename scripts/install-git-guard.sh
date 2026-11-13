@@ -45,6 +45,18 @@ fi
 install -m 0755 "$ROOT/scripts/git-guard" "$GUARD"
 echo "installed $GUARD"
 
+# The guard reads the owner table from the tree it is running in. A worktree cut
+# from a commit older than TREE-OWNERS.toml has no copy, so keep one at a fixed
+# path and let the guard fall back to it.
+OWNERS_SRC="$ROOT/docs/engineering/TREE-OWNERS.toml"
+OWNERS_DST=/mnt/e/k60-work/TREE-OWNERS.toml
+if [ -f "$OWNERS_SRC" ]; then
+    install -m 0644 "$OWNERS_SRC" "$OWNERS_DST"
+    echo "installed $OWNERS_DST"
+else
+    echo "warning: $OWNERS_SRC missing; worktrees without a copy get no ownership check" >&2
+fi
+
 resolved=$(command -v git || true)
 if [ "$resolved" != "$GUARD" ]; then
     echo "warning: git resolves to $resolved, not $GUARD" >&2

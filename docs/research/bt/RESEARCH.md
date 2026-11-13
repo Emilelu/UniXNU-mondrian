@@ -20,12 +20,12 @@
 | SW_CTRL | qcom,bt-sw-ctrl-gpio = <&tlmm 82 0>（射频开关归属，与 WLAN 共用） | M | FDT :1277；CNSS :10042-10080 |
 | XO 时钟 | qcom,xo-clk-gpio = <&tlmm 204 0>；**先拉 XO 再拉 BT_EN，掉电前保持 2-5 ms** | M | FDT :1280；vendor btpower.c:423-460 |
 | bt_wake | 控制器→主机 = **GPIO79**（sleep 态把 RX 切回 gpio 作唤醒源）；主机→控制器**无独立引脚**（K60 DT 未给 qcom,btwake_gpio）→ 用 **IBS wake byte 0xFD** | M | FDT :11049、:4220-4227、qcom,wakeup-byte=<0xfd>；btpower.c:1026 |
-| 固件 | rampatch + NVM 两个文件，QCA TLV 厂商命令下载；**最可能** qca/htbtfw21.tlv + qca/htnv21.bin（%02x = rom_ver，预期 0x21）——**未在设备分区核实** | C | vendor btqca.c:483-487、:509-515；btqca.h:125-133 |
+| 固件 | rampatch + NVM 两个文件，QCA TLV 厂商命令下载。**实测（2026-11-14）**：在 `/vendor/bt_firmware/image/`，113 文件 / 1,063,407 B；rampatch `hpbtfw20.tlv` 201,560 B / `hpbtfw21.tlv` 146,068 B；NVM `hpnv20*`（20）+ `hpnv21*`（90）。走的是 `qca/hpbtfw%02x.tlv` + `qca/hpnv…` 回退名（rom_ver 待 HCI 确认） | **M** | 设备 adb 实测，见 `FIRMWARE.md`；btqca.c:822-852、:715-745、:915-921 |
 | 下载协议 | **H4**（type 0x01 cmd / 0x02 ACL / 0x04 event / 0x03 SCO）+ QCA 厂商 TLV 命令（0xFC00 家族）+ **IBS 带内睡眠**（0xFD WAKE_IND / 0xFE SLEEP_IND / 0xFC WAKE_ACK）。**不是 H5**（无 3 线 h5 帧，流控是硬件 CTS/RTS） | M | vendor hci_qca.c:1200-1203、:42-48、:1751-1764；FDT qcom,wakeup-byte=0xfd |
 | 与 WiFi 同一颗芯片？ | **是**。单颗 QCA6490：WLAN 走 PCIe0 + cnss，BT 走 SE20 UART；GPIO80/81/82/204 与 S10/S11/PM8350C S1/S12/PMR735A L7 全部共享 | M | FDT CNSS :10042-10080 与 BT 节点 :1270-1295 逐项重名 |
 
 > 一句话：K60 蓝牙不是「没资料」，而是「参数齐了、代码已 staged、只差分级上机验证 + 固件 + 用户态」。
-> 真正的未知只剩三项：SE20 的 GENI 访问是否仍会把机器打死（§5.1）、固件真实文件名（§7）、20G81 bluetoothd 适配点（§5.6）。
+> 真正的未知只剩两项：SE20 的 GENI 访问是否仍会把机器打死（§5.1）、20G81 bluetoothd 适配点（§5.6）。固件文件名/大小已实测（§7、`FIRMWARE.md`）。
 
 ---
 
@@ -98,7 +98,7 @@ AGENT-bt.txt 说这条线「完全没开始」—— 对**能用的驱动**成�
 | DMA SID | Apps SMMU 0x423 | Apps SMMU **0x483** | FDT :10707-10720 |
 | 引脚 | CTS/RTS/TX/RX = 76/77/78/79；BT_EN 81；唤醒源 79 | 完全相同（76/77/78/79、BT_EN 81、唤醒 79） | FDT M |
 | 串口时钟 | 51.2 MHz、16x、**3.2 Mbaud** | 源 48 MHz、16x、**3.0 Mbaud**（115200 → 3000000） | vendor M + geni.c:57 |
-| 固件 | hmtbtfw20.tlv + hmtnv20.bin | qca/htbtfw21.tlv + qca/htnv21.bin（**C，待核**） | §7 |
+| 固件 | hmtbtfw20.tlv + hmtnv20.bin | `hpbtfw20.tlv` 201,560 B / `hpbtfw21.tlv` 146,068 B + `hpnv20*`/`hpnv21*`（**M，实测**） | §7、`FIRMWARE.md` |
 
 `docs/porting/bluetooth.md:42-43`：UART 需要 boot firmware 的 **PROTOCOL 2 microcode**，powerOn 在引擎报告其它协议时返回 ENXIO。
 `:45-62` 的上电顺序（直接照抄为 K60 的 S3 阶段）：① map 资源 + `smmu_plan_bypass`/`smmu_configure_bypass` 建 32 KiB DMA（持 AppsSmmuLock）；② 取蓝牙电源票；③ **BT_EN 拉低保持 100 ms** 后开串口时钟；④ 查 QUP 版本与协议并准备引擎；⑤ 挂 UART 中断 + 唤醒中断；⑥ 拉高 BT_EN 等 **60 ms**，再开 pin pulls；⑦ `qbt_geni_start` 然后 `qbt_boot(rate, address)`。关电相反并释放票，返回首个错误到 `qbt_transport_power_result`。
@@ -169,10 +169,10 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 
 | 阶段 | 内容 | 产物 | 判定（读 capture.json 的 verdict/panicMarker，不看 logstat） | 预估 |
 |---|---|---|---|---|
-| **S1** 只读探针 | `k60bt=1 k60bt_stage=1`：只做 GCC 5 位投票 + halt 轮询，然后**一次**读 `GENI_FW_REVISION_RO`(SE20+0x068) 与 `GENI_STATUS`(+0x040)，printf 后直接 return。不建 DMA、不碰 UART 中断、不拉 BT_EN | 内核补丁（改 0500 的 qbt_k60.c，或新增 `k60_bt_probe.c`） | 打印出数值 → SE20 可达，进 S2；零日志死机 → 与触摸同因（NoC/ICC 假设），**本线在此停**，把结论回填 GENI-ACCESS-PRECONDITIONS.md | 0.5 d 离线 + 1 次上机 |
+| **S1** 只读探针 | `k60bt=1 k60bt_stage=1`：只做 GCC 5 位投票 + halt 轮询，然后**只读 9 个寄存器**（`SE_GENI_STATUS`+0x040 ×2、`GENI_IF_DISABLE_RO`+0x064、`GENI_FW_REVISION_RO`+0x068、`QUP_HW_VER`wrapper+0x004、SE20 CBCR、`G_MANUAL_RFR`+0x2ac、`SE_DMA_TX/RX_IRQ_STAT`0xc40/0xd40、保留位 0xe40 —— 后四个专为判定 ⑥ 的 F2/F3），printf 后直接 return。不建 DMA、不碰 UART 中断、不拉 BT_EN | 内核补丁 `patches/bt/0001-k60-bt-readonly-probe.patch`（改 0500 的 `bsd/dev/qbt_k60.c`，未接构建） | 打印出数值 → SE20 可达，进 S2；零日志死机 → 与触摸同因（NoC/ICC 假设），**本线在此停**，把结论回填 GENI-ACCESS-PRECONDITIONS.md | 0.5 d 离线 + 1 次上机 |
 | **S2** 时钟+引脚+引擎 | `k60bt=1 k60bt_stage=2`：S1 全部 + 引脚 mux（76/77/78/79 → qup20，2 mA；sleep 态 79 → gpio）+ SE20 RCG 设 48 MHz/16x/3.0 Mbaud + wrapper 协议检查（期望 PROTOCOL 2）。**不拉 BT_EN** | 同上扩展 | 无死机且 `uart_speed(3000000)` 返回 0 → 进 S3 | 1 d + 1 次 |
 | **S3** 上电时序 | `k60bt=1 k60bt_stage=3`：加 XO(GPIO204) → 100-200 µs → BT_EN(81) 高 → 4-6 ms → **保持高**；然后 115200 下读 HCI Reset 的 event。断电路径先 XO 保持 2-5 ms 再降 | 同上 + 电源回调 | 收到 `0e 04 01 03 0c 00` 之类 Command Complete → 芯片活了；无响应 → 分「XO 无效 / BT_EN 极性 / 电源轨未开」三支（§8 I-1） | 1-2 d + 2 次 |
-| **S4** 固件下载 | `k60bt=1 k60bt_stage=4`：`qbt_boot(3000000, addr)` 走 QCA TLV（0xFC00 家族）+ NVM，固件从 `/private/var/ngpu/firmware/qca/` 读；失败回落 115200 并打印 rom_ver/soc_id | 同上 + 4 个 bd_*.elf/firmware 文件部署 | `kern.qbt_firmware` 有非空名字、`kern.qbt_boot` state=2 → 进 S5 | 2-3 d + 2 次 |
+| **S4** 固件下载 | `k60bt=1 k60bt_stage=4`：`qbt_boot(3000000, addr)` 走 QCA TLV（0xFC00 家族）+ NVM，固件从 `/private/var/ngpu/firmware/qca/` 读；失败回落 115200 并打印 rom_ver/soc_id | 同上 + staging 实测固件（`hpbtfw20.tlv`/`hpbtfw21.tlv` + `hpnv20*`/`hpnv21*`，见 `FIRMWARE.md` §5） | `kern.qbt_firmware` 有非空名字、`kern.qbt_boot` state=2 → 进 S5 | 2-3 d + 2 次 |
 | **S5** UART.SK 通道 | `k60bt=1`（去掉 stage，全速）：`kern_nexus_controller_register_provider` 注册 `com.apple.uart.sk.bluetooth`，用 BlueTool 读 `kern.qbt_power_on` 触发上电 | 0500 已有骨架，补 provider 语义 | 用户态能 open 通道、能收发 H4 | 2-3 d + 1-2 次 |
 | **S6** 用户态 bluetoothd | 20G81 的 BlueTool/bluetoothd 适配：定位 20G81 bluetoothd 的补丁点（sheng 是 24A446，哈希锁死）、签名、`/usr/lib/QcaBTType0.dylib`、`/private/etc/bluetool` | `patches/bt/` + runtime 补丁 | `[bluetooth]` 日志出现 state=2 error=0、bluetoothd 起一次、`bluetoothctl`/设置里能看到适配器 | 3-10 d（最大不确定） |
 
@@ -213,17 +213,13 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 
 ## 7. 固件：已知、未知、取法
 
-**已知（M/A）**：QCA 需要 rampatch + NVM 两个 TLV 文件，按 rom_ver 选名；K60 vendor 树只编译 QCA6390 一种 soc type，命名习惯 `qca/htbtfw%02x.tlv` + `qca/htnv%02x.bin`（btqca.c:483-487、:509-515），rom_ver 预期 **0x21**。
+**已实测（M，2026-11-14 Android 启动只读 adb）**：BT 固件在 **`/vendor/bt_firmware/image/`**（不在 `firmware_mnt/image/qca6490`），共 **113 个文件 / 1,063,407 B**，已全部拉到 `E:/k60-work/firmware/qca6490-bt/` 并逐个哈希。rampatch 实测为 `hpbtfw20.tlv`（201,560 B）与 `hpbtfw21.tlv`（146,068 B），NVM 为 `hpnv20*`（20 个）+ `hpnv21*`（90 个，含 `g` 与 sony 变体）。**旧推断的 `htbtfw21.tlv`/`htnv21.bin` 作废。** 完整表见 `docs/research/bt/FIRMWARE.md`。
+**命名逻辑（A，0500 内 `bsd/dev/qbt/btqca.c`）**：WCN6855 分支先请求 `qca/wcnhpbtfw%02x.tlv`（:822-824），失败回退 `qca/hpbtfw%02x.tlv`（:847-852）；NVM 先 `wcnhpnv`（:884-888），失败回退 `hpnv`（:915-921），板级名 `qca/<stem><rom_ver:02x><g?>.b<bid:02x>`（:715-745）。本机固件只有 `hp*` 拼写 ⇒ 走**回退名**，正好是 0500 `k60_firmware_get()` alias（:924-960）覆盖的路径。
 **已在本机（M）**：`/mnt/e/k60-work/firmware/qca6490/` 只有 WiFi 侧 amss.bin/amss20.bin/Data.msc/Data20.msc；`docs/research/wifi/FIRMWARE.md:353-` 记录 `bd_m11agf.elf` 60,000 B 是本机 BT BDF（板级数据文件），**不是** TLV rampatch/NVM。
-**未知（C）**：① 设备上真实的 rampatch/NVM 文件名与大小；② 是否需要 `qca/` 子目录前缀；③ `bd_m11agf.elf` 是否需要一起落到固件目录（Android 里 bd_*.elf 由 btpower/btqca 之外的路径加载）。
-**取法（只读，需一次 Android 启动）**：
-```bash
-adb devices                     # 需要 Android 回来，当前 6033dbec 在 fastboot
-adb shell ls -l /vendor/firmware_mnt/image/qca6490/ | head -60
-adb shell 'ls -l /vendor/firmware_mnt/image/qca6490/*.tlv /vendor/firmware_mnt/image/qca6490/*.bin 2>/dev/null'
-adb shell 'dmesg | grep -i -E "bluetooth|hci_qca|btqca|btpower" | head -40'
-```
-拿不到 Android 时的降级路径：从本机 IPSW/firmware 包或 Android factory image 里解出 `qca/htbtfw*.tlv`/`htnv*.bin`（linux-firmware 上游已有 `hpbtfw21.tlv` 163,332 B、`wcnhpbtfw21.tlv` 152,784 B，但那是 PC/其它机型包，**必须核对 rom_ver 与 soc_id 后再用**）。
+**已核实（M）**：① 文件名/大小见上表；② reader 会剥掉 `qca/` 前缀再拼根（`qbt_k60.c:867-874`），故 iOS 落盘为 `/private/var/ngpu/firmware/qca/hpbtfw20.tlv`，不需要多一层 `qca`；③ `bd_*.elf` 是 WiFi 板级数据，**不要**混进 BT 固件目录。
+**仍未知（C）**：本机真实 `rom_ver`（0x20 还是 0x21）与 board id —— 需 HCI 起来后由 `btqca` 打印 `QCA controller version`/`Downloading qca/…`。保底：staging 同时放两套 rampatch 与 `hpnv20*`+`hpnv21*` 全量（约 1.06 MB），运行时按名取。
+**取法**：已完成（2026-11-14 一次 Android 启动 + 只读 `adb pull`）。复现命令、设备侧证据（dumpsys OFF→ON 但无 `hci0`、VINTF 缺 IBluetoothHci）、staging 方案（`firmware/bluetooth/manifest.json` + `scripts/stage-bluetooth-firmware.py` + `board.toml [payload.runtime]`）全部写在 `docs/research/bt/FIRMWARE.md` §2/§5/§7。
+**注意**：不要把厂商固件提交进仓库（sheng 也是外部固件仓 + hash pin）；本机来源目录 `/mnt/e/k60-work/firmware/qca6490-bt`。
 
 ### 7.1 与 WiFi 的边界（写给 WiFi 线）
 
@@ -246,8 +242,8 @@ adb shell 'dmesg | grep -i -E "bluetooth|hci_qca|btqca|btpower" | head -40'
 | ID | 未核实 | 方法 | 影响 |
 |---|---|---|---|
 | I-1 | BT 电源轨是否已由 boot firmware/PMIC 默认开（S1/S2/S3 是否需要显式 RPMH 投票） | S3 阶段失败时读 PMIC 或看 shen 的 wcn_power 票语义；先假设「默认开」，不写 PMIC 代码（避免猜电压） | S3 可能全灭 |
-| I-2 | 固件真实文件名/大小 | §7 的 adb 命令 | S4 直接失败 |
-| I-3 | rom_ver 是否 0x21 | S3 收到 HCI event 后读 `qca_read_soc_version` 结果并打印 | 选错固件 → TLV 校验失败 |
+| I-2 | ~~固件真实文件名/大小~~ **已核实 2026-11-14**（113 文件 / 1,063,407 B，见 `FIRMWARE.md`） | 已用只读 adb 完成 | — |
+| I-3 | 本机 rom_ver（0x20/0x21）与 board id（文件集已两套齐备） | S3 收到 HCI event 后读 `qca_read_soc_version` 并打印 | 选错固件 → TLV 校验失败（已用双份 staging 兜底） |
 | I-4 | boot firmware 是否给 SE20 分了 PROTOCOL 2 microcode | S2 打印 `GENI_PROTOCOL`；ENXIO 即无 | S2/S3 卡住 |
 | I-5 | SE20 首次访问是否死机（NoC/ICC） | S1 | 决定整条线是否可行 |
 | I-6 | 20G81 bluetoothd/BlueTool 的补丁点与哈希 | 对 20G81 的 bluetoothd 做与 native-ios27.md 相同的定位；需要 LAN Mac 与 iOS SDK 签名 | S6 不可完成 |
@@ -274,13 +270,14 @@ bluetooth {
 [subsystem.bluetooth]
 name = "Bluetooth (QCA6490 over GENI UART SE20)"
 required = [
-  { path = "docs/research/bt/RESEARCH.md", examined = "FDT 全节点/厂商 btpower+hci_qca+btqca/官方 QcaBluetooth/20G81 kernelcache/0500 补丁", finding = "UART=QUPV3_2 SE20 @0x894000 IRQ587、115200→3000000、4 线 RTS/CTS、BT_EN=GPIO81、XO=GPIO204、H4+IBS 0xFD、固件 qca/htbtfw21.tlv+htnv21.bin(C)" },
+  { path = "docs/research/bt/RESEARCH.md", examined = "FDT 全节点/厂商 btpower+hci_qca+btqca/官方 QcaBluetooth/20G81 kernelcache/0500 补丁", finding = "UART=QUPV3_2 SE20 @0x894000 IRQ587、115200→3000000、4 线 RTS/CTS、BT_EN=GPIO81、XO=GPIO204、H4+IBS 0xFD、固件 hpbtfw20/21.tlv+hpnv20*/hpnv21*(M)" },
+  { path = "docs/research/bt/FIRMWARE.md", examined = "设备只读 adb：/vendor/bt_firmware/image 清单、113 文件逐个 sha256、btqca.c 选名逻辑、qbt_k60.c 白名单与 alias", finding = "BT 固件在 /vendor/bt_firmware/image，113 文件 / 1,063,407 B；rampatch hpbtfw20.tlv 201,560 B + hpbtfw21.tlv 146,068 B；NVM hpnv20*/hpnv21*；走 hp* 回退名，与 0500 alias 一致" },
 ]
 ```
 3. **EIGHT-STEPS.toml 增 `[hardware.bluetooth]`**（现有只有 touch/gpu/storage）：`same_model/official/decompile/wide/plan = true`（证据指向本文与 §1/§2/§3/§4），`deep/verify = false`，`verify.local_verified = false`。
 4. **`docs/plans/BT-AUDIO-PORT-PLAN.md` §1.4/§1.5 需修订**：其「自写 IOSerialFamily + HCI + btstack」结论与 §3 的二进制证据、与官方 QcaBluetooth 组件冲突，应改为「UART.SK + 官方组件 + 用户态 bluetoothd」。该文件不在本线写权限内。
 5. **代码归属决定**：BT 代码已在 `patches/xnu/0500-0502b`（series:201-204）里编译进内核，本线**不**新建 `drivers/PongBt/`（避免 P-170「新源文件没人引用」类假进展）。S1 探针放在 `patches/bt/`，`patches/bt/README.md` 明确写「未接构建」，补丁实际改的是 0500 内的 `bsd/dev/qbt_k60.c`；接线由 Lead 选 §6 的 A/B 之一。
-6. **固件获取**需要一次 Android 启动（只读 adb），或由 Lead 从 factory image 解包；本机当前在 fastboot。
+6. **固件获取已完成**（2026-11-14 Android 启动只读 adb，113 文件已落到 `E:/k60-work/firmware/qca6490-bt/`，清单与哈希见 `docs/research/bt/FIRMWARE.md`）。剩余属 Lead 写权限：`firmware/bluetooth/manifest.json` + `scripts/stage-bluetooth-firmware.py` + `board.toml [payload.runtime] bluetooth_tool/bluetooth_target="ios20"`，**不要**把厂商固件提交进仓库。
 7. **20G81 用户态适配**需要 LAN Mac 的 iOS SDK（`libpong-ui.dylib` 之外还有签名工具链），按 AGENT-bt.txt 的约定由 Lead 在 Mac 侧执行。
 
 8. **构建前必须先换基线（本线实测，2026-11-14）**：`feat/bt-research` 从 `f119a80` 切出，在该基线上 `python3 scripts/eight-step-gate.py --build` **是红的**：`硬件项: 5 个（touch, gpu, storage, display, bootchain）`、`通过 27 项检查`、`问题 3 处: touch :: ④ 广域 / ⑤ 方案 / ⑥ 深挖 未标记 done=true`。同一条命令在 `feat/pmic-rail`（`4f90f12`，比本线多 4 条 RULES、EIGHT-STEPS 改 32 行）上通过。**结论：BT 构建前先把本分支 rebase/merge 到当前集成线（≥`4f90f12`），否则 iron-3 会拦构建，且原因不在 BT。**

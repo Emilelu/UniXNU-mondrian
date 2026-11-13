@@ -304,7 +304,12 @@ def main():
             '-I' + str(framework / 'Headers'), '-I' + str(framework / 'PrivateHeaders'),
             '-I' + str(out), '-I' + str(source)]
         objects = []
-        for file in ('K60BatteryConfig.c', 'K60Smem.c', 'QcomGlink.c', 'K60Battmgr.c',
+        # K60Smem.c is NOT built here: bsd/dev/pong_smem.c (patch 0611) already
+        # supplies k60_smem_partition/find/alloc to the kernel, and force-loading
+        # a second copy fails the link with three duplicate symbols (P-190).
+        # The archive therefore references the kernel's copy, exactly like the
+        # other in-tree consumers do.
+        for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file
             obj = out / (path.stem + '.o')

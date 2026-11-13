@@ -466,9 +466,11 @@ DarwinBoot limit). The `z0` image reuses the stock baseline kernel, which is the
 strongest control available: it contains no PongWifi code at all.
 
 Runner: `E:\k60-work\evidence\wifi-trial\ladder5-run.ps1`, which walks
-`z0 → t0 → t1 → t3 → t4 → t5 → t6 → t7 → t8 → a → b → c → p → d → e → f → g`
-and stops on the first zero-byte console (exit 12), or exit 13 if even `z0` has
-no console — in that case nothing about WiFi can be blamed.
+`a → b → c → p → d → e → f → g` and stops on the first zero-byte console
+(exit 12). The `t*` rungs and `z0` are held back as a fallback: they are only
+booted when the control image `a` is itself silent, in which case the walk
+continues `z0 → t0 → t1` and a silent `z0` ends with exit 13 (the phone or the
+FD is at fault, and no WiFi conclusion is available).
 
 Two facts make the tiny family worth its build time: the archive is 892,616 B
 instead of 12,066,184 B, and the kernel is 54,804,480 B instead of 65,978,368 B,

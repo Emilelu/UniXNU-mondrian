@@ -407,6 +407,13 @@ bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_
    ③ `amp0/amp1 … id=0x…`（读到了 ID）；④ `amp probe done found=2/2 … failed=0 timeouts=0`（成功）。
    只有 ④ 出现且两颗 ID 都在已知表里，才算 ⑧ 成立；`state` 只用来解释「为什么没跑起来」。
 
+判据已做成工具，不再靠人眼读 json：`scripts/judge-audio-capture.py <证据目录>…`
+（宿主单测 `scripts/tests/test-judge-audio-capture.py` 用合成采集钉住三种结局与两个陷阱：
+`panicMarker` 带 K60PANIC 的健康启动仍判 SUCCESS、`complete: true` 救不回静默功放、
+未知 chip id 即使 `found=2/2` 也判失败、缺 `console.log` 判「探针没跑」）。
+两个历史目录跑出来的都是「probe never ran」——它们本来就早于本探针，说明工具不会把
+「没跑」误读成「失败」或「成功」。
+
 阻塞（不属于本子任务）：
 - 播放通路（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。
 - 功放的 `aw882xx_acf.bin` 配置档（Android `/vendor/etc/aw882xx_acf.bin`）本机没有，

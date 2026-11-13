@@ -359,9 +359,13 @@ done = false
 evidence = "从未上机。"
 
 [hardware.audio]
-status = "parked"
-parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
+status = "active"
+name = "音频（WCD938x codec + SoundWire + AW882xx 功放）"
 why = "音频（WCD938x + ADSP + AudioReach/PRM）"
+# 2026-11-14：从 parked 改 active。原 parked_why（PAS1 owner 缺失、io_submap 8 MiB）
+# 仍是整条音频线的阻塞点，但本子任务把能在 AP 侧独立完成的部分做完并本地核验了：
+# 功放侧只读探针（GENI I2C 读 chip id）+ 三份寄存器级研究文档 + 147 例宿主单测，
+# 见 docs/research/audio/{CODEC,SOUNDWIRE,AMPS}.md 与 drivers/PongAudio/。
 
 [hardware.audio.step.same_model]
 done = true
@@ -386,8 +390,12 @@ evidence = "四步方案见 docs/research/audio/RESEARCH.md 的 ⑤ 节。第一
 done = true
 evidence = "离线深挖三条结论。一，DT 节点已建（2026-11-12）：dts/mondrian.dts 新增 pong-audio 节点（文件 2,364 -> 4,569 B）。非零值只写有依据的（rsc-base 0x17a20000 与 cmd-db-base 0x80860000 与 pong-touch 共用、adsp-base 0x0a000000/0x01c00000 来自 Pong 的 PAS1 工作、timebase-hz 19200000 与 SM8550 相同、coreaudio-assumed-hz 24000000、period-buffer-limit 0x100000000）；九个待实测项一律写 0（tx-master-base / codec-reset-gpio / codec-i2c-address / amp-i2c-address / tx-core-clock-id / codec-supply-rail / mic-bias / mic-adc / swr-device-index），并在注释里规定「0 表示待实测，驱动必须拒绝并点名，不得当成默认值」——猜 I2C 地址、GPIO 或时钟 ID 会得到「报告成功但不出声」的设备，这是最难从日志读出的失败。同时发现并修复一个更大的问题：仓库版 DT 只有 2,364 B、不含 pong-touch/pong-buttons（那些节点只存在于 /opt 构建输入里，随时可能像 GPU 固件一样丢失），已用构建版覆盖并回写。dtc 编译验证 2,925 B，反编译确认 pong-audio/pong-touch/pong-buttons/ufshc 四个节点与全部关键属性都在。二，五条 SM8550 硬事实里两条对 SM8475 直接适用：周期缓冲区必须放在 4 GiB 以下（DSP 收 32 位地址、高 32 位放流索引 0x1001&0xf），以及时基 19.2 MHz 时必须修正 CoreAudio 假定的 24 MHz 常量 —— 后者若不修正会得到「能出声但 IO 周期长 25%、播放录音都卡顿」的假成功。三，K60 有独立的 aw882xx smart PA（Pong 用 CS35L43），这是 sheng 没有的额外驱动，必须在 DT 与代码里单独处理。详见 docs/research/audio/RESEARCH.md。"
 [hardware.audio.step.verify]
-done = false
-evidence = "未做。"
+done = true
+local_verified = true
+static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 147 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数，见 docs/research/audio/AMPS.md §6.1）"
+artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:117-120、bsd_init.c:1357-1358，五个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
+evidence = "本子任务只核验了 AP 侧只读探针（功放 chip id / 引脚回读 / GENI 引擎）；codec 与播放通路的核验要等 ADSP PAS1，见 AMPS.md §7。"
 
 [hardware.audio.step.device]
 done = false

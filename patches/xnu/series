@@ -211,6 +211,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0503-k60-audio-aw882xx.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch
+../audio/0001-k60-audio-amp-probe.patch
 0506-k60-120hz-refresh.patch
 0392-k60-weak-scanout-stubs.patch
 0399-k60-shared-cache-root-layout.patch

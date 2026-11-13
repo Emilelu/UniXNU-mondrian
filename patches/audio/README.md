@@ -60,8 +60,8 @@ numbers are approximate.** Both `patch(1)` and `git apply` locate hunks by
 context, so this is safe.
 
 The synthesis was later replaced by a real end-to-end apply against a genuine
-chain pre-image. `.../tree/.cache/xnu-work` (the build cache of
-`/tmp/usb-cdc-mainline/out3/...`) holds a `bsd/conf/files` that already has the
+chain pre-image. The build cache `.../tree/.cache/xnu-work` of the usb-cdc
+mainline build tree holds a `bsd/conf/files` that already has the
 `k60_usblog` / `k60_uilib` / `k60_console_export` trio, which is exactly what
 0501 anchors on. In a scratch copy of that state, 0501 → 0505 → this patch
 applies in order with **rc=0 and no rejects**. 0505 itself lands with

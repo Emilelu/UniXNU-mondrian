@@ -140,6 +140,8 @@ python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
   - **A4 `k60bt_step=7`**（第一次写 RCG）：s6 打开根、s7 把 CFG 写 TCXO/1 并锁存。跑完 → SE20 根时钟可控；这一步之后 GENI 就绪条件与触摸线对齐。
   - **A5 `k60bt_step=9`**（决定性）：s8 第一次读 GENI（0x040）。活下来 → SE20 可达，进 S2；死在 `probe: s8 read se status` 之前 → **在根时钟已开的条件下 GENI 首访仍死**，那才是真的「与触摸/音频同因」，写 blocker。
   - **B（只在某一级挂死时做）**：把 `k60bt_step` 降到死点前一步，验证「去掉那次访问机器就不死」，把死因锁到单条 load。
+- **每一级都要单独打一次镜像**：`k60bt_*` 是内核命令行参数，而命令行由 **payload** 步骤写进 `EFI/UniXNU/unixnu.toml`（`scripts/unixnu/payload.py:119-124` 合并、`:254` 落盘），`unixnu bootimg` 完全不处理 `--kernel-arg`。所以「同一镜像逐级加码」在本项目里做不到字面意义上的同镜像：必须按级重打（每次 `build-strict.sh` 约 6 分钟，内核增量编译），并把每级的 boot.img sha256 与 `k60bt_step` 一起记账。铁律 5 的「同一镜像两次」应理解为**同一份构建产物启动两次**，与这里的「每级一份产物」不冲突：每级各跑一次，若该级出现异常再原地重跑一次。
+- 已备好的镜像：`bt-s1c-20261114a`（step 未指定 → 默认 9，`k60bt_delay=20`）、`bt-s1c-20261114b`（`k60bt_delay=40 k60bt_step=9`）、`bt-s1c-a1-20261114a`（`k60bt_delay=40 k60bt_step=1`）。上机从 A1 开始。
 - 为什么值得拆成五级：S1a 已经用掉一次「0 字节日志 + 物理断电」，而 A1/A2/A3 都是低风险启动（A3 甚至只读），能把「管道问题」「GCC/NoC 问题」「RCG 根时钟问题」「GENI 问题」四者彻底分开；每级只多花一次安全启动。
 
 ## 5. 判据（只读 capture.json 的 `verdict` / `panicMarker`，不看 logstat.py 的 panic 计数）

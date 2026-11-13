@@ -426,7 +426,11 @@ manifest 记 `repo.head 034f5b5`、`dirty_files 0`、`series 230 / 37b91dbe…`�
 第二次前等设备回 fastboot，最后把两个目录交给 judge 并以它的退出码退出。
 两次结果合并时**按严重度排序而不是取 exit code 最大值**（`severity()`：失败 1 重于没跑 2 重于成功 0）——
 直接 `max()` 会让「探针没跑」盖住「跑了但失败」，正好把最有用的证据藏起来。
-无设备实测：脚本解析通过、退出码 1、零证据目录 —— 拒绝而不是半启动。
+无设备实测：脚本解析通过、退出码 1、零证据目录 —— 拒绝而不是半启动
+（`boot-audio-twice.ps1 -Image …/audio-probe-20261114g/boot.img -EvidenceRoot …/preflight-g2`，
+输出 `target 6033dbec is not in fastboot; nothing was booted`，证据目录 0 个文件）。
+`scripts/tests/test-judge-audio-capture.py` 已在 `porting.toml` 的 audio 区段登记（`scripts/tests/*audio*`），
+否则 `check-porting-paths.py` 会报「no area claims tracked path」。
 
 阻塞（不属于本子任务）：
 - 播放通路（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。

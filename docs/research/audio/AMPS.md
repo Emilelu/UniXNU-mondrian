@@ -225,7 +225,8 @@ wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/r
    `parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"`、①–⑥ `done = true`、
    ⑦⑧ `done = false`）→ **不要新增**，改为：`parked_why` 删掉、`status` 改 `"active"`，并把 ⑦ `verify` 补成
    `done = true` + `local_verified = true` + `static_check` / `unit_test` / `artifact_check` 三字段
-   （`scripts/eight-step-gate.py:119-123` 要求三者都非空），⑧ 保持 `done = false`（未上机）。
+   （`scripts/eight-step-gate.py:119-123` 要求三者都非空），⑧ 保持 `done = false`（未上机），但要补
+   `[hardware.audio.step.device.prediction]` 的 `success` / `failure` 两行（`flash` 模式硬要求，见 `scripts/eight-step-gate.py:135-141`）——`feat/audio-merge` 已补，实测 `--flash` → `通过 48 项检查`、exit 0。
    整段替换稿见下面片段 4。注：`eight-step-gate.py:91` 只对 `status == "active"` 的硬件做硬检查，所以这次改 `parked`→`active`
    会把音频线正式纳入 build/flash 门禁——⑦ 的三字段就是为此准备的。
 

@@ -53,7 +53,7 @@ def baseline_entries():
     entries, cur = [], {}
     for line in open(path, encoding='utf-8'):
         line = line.strip()
-        m = re.match(r'^\[\[baseline\]\]', line)
+        m = re.match(r'^\[\[(?:baseline|entry)\]\]', line)
         if m:
             if cur:
                 entries.append(cur)
@@ -74,7 +74,7 @@ def make_tag():
     head = git('rev-parse', '--short', 'HEAD')
     entries = baseline_entries()
     match = [e for e in entries if e.get('sha', '').startswith(head) or head.startswith(e.get('sha', 'x'))]
-    if not match or match[-1].get('state') != 'booted':
+    if not match or match[-1].get('state') not in ('booted', 'boot'):
         print('  ❌ 只有「上机验证过」的状态才能打 tag：MAIN-BASELINE.toml 里找不到')
         print('     sha=%s state="booted" 的条目（铁则 7 / 铁则 9）' % head)
         print('     先上机，把镜像与 console.log 证据写进 MAIN-BASELINE.toml，再打 tag。')

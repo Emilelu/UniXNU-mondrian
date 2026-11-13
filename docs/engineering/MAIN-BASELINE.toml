@@ -9,3 +9,13 @@ tag = "snap-r177"
 kernel_sha256 = "1d70ee524188f9301fb68344b4efdfde80b7ba82afa1e344af7ed292c4b925d0"
 state = "build-only"
 note = "fix(gpu): keep the addon patch out of the series until its hunk is re-anchored —— 未上机；GPU addon 补丁已移出序列"
+
+[[entry]]
+sha = "29827f5"
+tag = "boot-proven-20261111"
+kernel_sha256 = "ce97b50aad24c63030921c093e530cc537cf323892fc55c0218c21e6539ea09d"
+image = "E:/k60-work/usb-a-stage/out/keep-a6165f2404568c1d.img"
+image_sha256 = "a6165f2404568c1d"
+console = "E:/k60-work/evidence/usblog-20261113-keepctrl/console.log (3307 lines, SpringBoard 133); also usblog-20261112-204720 (2654 lines, SpringBoard 129)"
+state = "booted"
+note = "最后一次确认能进 SpringBoard 的构建：2026-11-11 23:32 的 keep 镜像；此后到 13ac2b5 之间的补丁改动会让 launchd 在 KX 阶段 SIGSEGV（P-179），正在二分"

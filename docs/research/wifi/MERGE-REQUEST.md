@@ -265,7 +265,7 @@ Undefined symbols for architecture arm64:
 `z0 → t0 → t1 → t3 → t4 → t5 → t6 → t7 → t8 → a → b → c → p → d → e → f → g`，
 首张零字节控制台就停（`z0` 零字节则以 exit 13 收尾，说明与 WiFi 无关）。
 判读表见 `STAGE-BRINGUP.md` §6，装载规则见同文 §7。
----
+
 ---
 
 ## 10. `docs/engineering/BOOT-ARGS.md` —— 9 个 WiFi boot-arg 未登记（hard-8 / P-156）

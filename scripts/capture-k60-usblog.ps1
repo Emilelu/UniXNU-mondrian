@@ -48,7 +48,7 @@ $sp = $null; $sw = $null; $portSeen = $false; $portOpened = $false; $bytes = [lo
 $openErrors = 0; $lastError = $null; $panicMarker = $null; $resetMarker = $null
 $tail = ''; $stopReason = 'waiting'; $start = Get-Date; $captureStart = $null
 $lastData = $null; $lostAt = $null; $reopenCount = 0
-$panicMarkers = @('panic(', 'K60PANIC', 'K60CACHE FAIL', 'initproc exited')
+$panicMarkers = $script:K60PanicMarkers
 $resetMarkers = @('PSCI SYSTEM_RESET to fastboot', 'K60 USBLOG: restart reason published')
 try {
     $sw = [System.IO.StreamWriter]::new($log, $false, $utf8)
@@ -90,7 +90,7 @@ try {
                 $sw.Write($chunk); $sw.Flush(); $lastData = Get-Date
                 $tail += $chunk
                 if ($tail.Length -gt 16000) { $tail = $tail.Substring($tail.Length - 16000) }
-                if (-not $panicMarker) { foreach ($marker in $panicMarkers) { if ($tail.Contains($marker)) { $panicMarker = $marker; Write-CaptureEvent 'panic-marker' $marker; break } } }
+                if (-not $panicMarker) { $hit = Get-K60PanicMarker $tail; if ($hit) { $panicMarker = $hit; Write-CaptureEvent 'panic-marker' $hit } }
                 if (-not $resetMarker) { foreach ($marker in $resetMarkers) { if ($tail.Contains($marker)) { $resetMarker = $marker; Write-CaptureEvent 'reset-marker' $marker; break } } }
             }
         } catch [System.TimeoutException] {

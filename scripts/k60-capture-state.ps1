@@ -26,3 +26,16 @@ function Get-K60CaptureVerdict {
     if ($PortSeen) { return [pscustomobject]@{ state = 'port-open-failed'; complete = $false } }
     return [pscustomobject]@{ state = 'port-not-observed'; complete = $false }
 }
+
+# Pure panic-marker classification. `K60PANIC: restart windows ready` is a boot
+# banner from the heartbeat (0334b), not a panic: treating it as one made every
+# budget-stopped capture look like a crash and blocked the double-boot gate.
+$script:K60PanicMarkers = @('panic(', 'K60PANIC: ring kept', 'K60CACHE FAIL', 'initproc exited')
+function Get-K60PanicMarker {
+    param([string]$Text)
+    if (-not $Text) { return $null }
+    foreach ($marker in $script:K60PanicMarkers) {
+        if ($Text.Contains($marker)) { return $marker }
+    }
+    return $null
+}

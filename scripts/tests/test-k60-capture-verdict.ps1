@@ -25,3 +25,20 @@ foreach ($case in $cases) {
 }
 if ($failed) { Write-Host "$failed case(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host 'All capture classifier cases passed.'
+
+# Marker classification: the restart-windows banner must not count as a panic.
+$markerCases = @(
+    @{name='restart-windows-banner-is-not-a-panic'; text='K60PANIC: restart windows ready'; want=$null},
+    @{name='ring-kept-is-a-panic';                  text='K60PANIC: ring kept; restart reason -> bootloader'; want='K60PANIC: ring kept'},
+    @{name='initproc-exited-is-a-panic';            text='initproc exited -- exit reason namespace 2 subcode 0xb'; want='initproc exited'},
+    @{name='plain-panic-is-a-panic';                text='panic(cpu 0 caller 0xfffffff007): test'; want='panic('}
+)
+foreach ($case in $markerCases) {
+    $got = Get-K60PanicMarker $case.text
+    if ($got -ne $case.want) {
+        Write-Host ("FAIL {0}: got '{1}' want '{2}'" -f $case.name, $got, $case.want)
+        $failed++
+    } else {
+        Write-Host ("ok   {0} -> {1}" -f $case.name, $got)
+    }
+}

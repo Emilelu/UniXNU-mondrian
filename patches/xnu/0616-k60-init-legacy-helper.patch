@@ -2915,7 +2915,7 @@
 +    0x39,0x5b,0x99,0x51,0x6b,0x42,0x27,0x00,
 +};
 --- a/bsd/kern/kern_exec.c	2026-11-13 18:31:13.517648069 +0800
-+++ b/bsd/kern/kern_exec.c	2026-11-13 19:15:29.985006900 +0800
++++ b/bsd/kern/kern_exec.c	2026-11-13 19:50:02.729406053 +0800
 @@ -8150,6 +8150,7 @@
  
  #include "k60_launchd_cache.h"
@@ -2964,12 +2964,16 @@
  static int
  load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
-@@ -8573,7 +8607,7 @@
+@@ -8573,9 +8607,9 @@
  		}
  		if (PE_parse_boot_argn("k60_init_blob", &k60_blob, sizeof(k60_blob)) && k60_blob) {
  			int k60_init_resid = 0;
 -			int k60_init_err = k60_install_embedded_init(&k60_init_resid);
+-			printf("K60INIT: embedded helper write=%d resid=%d len=%d\n",
+-			    k60_init_err, k60_init_resid, K60_INIT_BLOB_LEN);
 +			int k60_init_err = k60_install_legacy_init(&k60_init_resid);
- 			printf("K60INIT: embedded helper write=%d resid=%d len=%d\n",
- 			    k60_init_err, k60_init_resid, K60_INIT_BLOB_LEN);
++			printf("K60INIT: legacy helper write=%d resid=%d len=%d\n",
++			    k60_init_err, k60_init_resid, K60_INIT_LEGACY_LEN);
  		}
+ 		printf("Pong init: loading helper %s\n", pong_init_path);
+ 		error = load_init_program_at_path(p, (user_addr_t)scratch_addr, pong_init_path, init_envp);

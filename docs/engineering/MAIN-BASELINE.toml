@@ -31,8 +31,23 @@ kernel_sha256 = "unknown-see-console"
 image = "E:/k60-work/usb-a-stage/out/boot-curfix.img"
 image_sha256 = "074b8b502ccbe5e936d623ee7cedfb210b6d8a2b688a2d0ae62dc8e385d182c9"
 console = "E:/k60-work/evidence/usblog-20261113-curfix/console.log (3360 lines, SpringBoard 133, no initproc panic)"
+state = "build-only"
+note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181），不能证明这个提交构建的镜像可启动；真正的双启动证据记在 532a3d3 那条"
+
+[entry.blob_sha256]
+"patches/xnu/0340-k60-uilib-deploy.patch" = "72371a041569b55d0441bef4b0f944121fbbeca8b409d4e296ae992cfe4a962f"
+"patches/xnu/0391-k60-embedded-init.patch" = "accaab23221b52318f130708de961bff42a496c5605a6daacbe0e2e81c89371d"
+"patches/xnu/0401-k60-embedded-init.patch" = "4327b48e26f7ff5e8aa425a61a9f5769062b582febfa38932af427a59c2c0476"
+
+[[entry]]
+sha = "532a3d3"
+tag = "none"
+kernel_sha256 = "6eca5da0fefedd5a5223fdef0fb624a6b4a5ab39292cd242492f9abeab391f14"
+image = "E:/k60-work/usb-a-stage/out/boot-fixinit2.img"
+image_sha256 = "2926b334bf1f2f982d512b86e831870c84eb7eb24daac34e1d65a1343a09921d"
+console = "E:/k60-work/evidence/usblog-20261113-fixinit2d/console.log (3191 lines, SpringBoard 133, captured-budget-complete true); E:/k60-work/evidence/usblog-20261113-fixinit2e/console.log (3296 lines, SpringBoard 129, captured-budget-complete true); 中间夹一次 keep 归一 usblog-20261113-normalize4 (3448 lines, SpringBoard 129)"
 state = "booted"
-note = "0340 回退到 11-11 的 libpong-ui.dylib 后，当前全部补丁（含 ADSP 0611-0615）构建的镜像进入 SpringBoard；这是 2026-11-13 的最新可启动基线（P-180）"
+note = "2026-11-13 双启动通过：0616 把旧 34,904 字节 init 助手写回 /private/var/pong/init（日志 K60INIT legacy bytes=34904 resid=0 error=0），launchd 不再 SIGSEGV。此后的 09f8505/312087b/532a3d3 只动构建工具与采集判定，不进镜像。"
 
 [entry.blob_sha256]
 "patches/xnu/0340-k60-uilib-deploy.patch" = "72371a041569b55d0441bef4b0f944121fbbeca8b409d4e296ae992cfe4a962f"

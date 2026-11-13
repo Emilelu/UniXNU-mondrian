@@ -195,7 +195,8 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 ### 5.3 S1 的落地物（本线已产出）
 
 - 规格：`docs/research/bt/S1-PROBE-SPEC.md`（寄存器出处、boot args、判据表、上机步骤、接线选项）。
-- 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch`（2,939 B，2 个 hunk，对 0500 提取出的 `bsd/dev/qbt_k60.c` 执行 `git apply --check` 通过）。
+- ⑥ 深挖：`docs/research/bt/06-DEEP-DIVE.md`——对 0500 的 `bsd/dev/qbt_k60.c`（1,249 行，抽取值 sha256 `8451c870…`）逐行对照 Linux GENI/clk 源与官方 QcaBluetooth，给出**已验证 11 项（V1–V11）**与**偏差 10 项（F1–F10）**。其中三项必须在 S2 前定性：**F1** GENI DMA 拿虚拟地址当物理地址、SMMU 流 0x483 未 bypass；**F2** 0x2ac（`G_MANUAL_RFR`）被写成组件从不使用的 `0x80000001`（组件只写 0 或 `0x80000002`）；**F3** `k60_stop_engine()` 轮询的 0xe40 在两个 GENI 头文件里都不存在，若读出非零会恒定 `-ETIMEDOUT`。
+- 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch`（4,174 B / 80 行，2 个 hunk，sha256 `95e4b098…`）——S1 只读 9 个寄存器，其中 0x2ac / 0xe40 / 0xc40 / 0xd40 四个读专为 F2/F3 设计，一次上机即可判定。
 - **它还没有进入构建**：`scripts/check-patch-series.py:24` 与 `scripts/check-build-applied.py:27` 只读 `patches/xnu/series`，`patches/bt/` 不在构建路径里。接线二选一见 `patches/bt/README.md` 与 SPEC §6（属于 Lead 写权限）。
 
 ---
@@ -285,7 +286,8 @@ required = [
 8. **构建前必须先换基线（本线实测，2026-11-14）**：`feat/bt-research` 从 `f119a80` 切出，在该基线上 `python3 scripts/eight-step-gate.py --build` **是红的**：`硬件项: 5 个（touch, gpu, storage, display, bootchain）`、`通过 27 项检查`、`问题 3 处: touch :: ④ 广域 / ⑤ 方案 / ⑥ 深挖 未标记 done=true`。同一条命令在 `feat/pmic-rail`（`4f90f12`，比本线多 4 条 RULES、EIGHT-STEPS 改 32 行）上通过。**结论：BT 构建前先把本分支 rebase/merge 到当前集成线（≥`4f90f12`），否则 iron-3 会拦构建，且原因不在 BT。**
    - 同一基线状态下在 `k60-bt` 跑 `python3 scripts/check-rules.py` 另有 2 项红：`P-165/P-166 构建输入序列与仓库不一致：只在仓库有 [3 条 zzzz…pong-touch-*-probe.patch]`。这 7 条 `zzzz…pong-touch-*` 探针在 `f119a80` 的 series 里已存在，而 `/opt/k60/trees/k60build` 的构建输入未同步；与本线 5 个新文件无关（`git diff --stat f119a80 HEAD` 只增 `docs/research/bt/*` 与 `patches/bt/*`，未改 series / EIGHT-STEPS / SOURCES）。
    - 按铁则 8 报备：这两条是**基线门禁问题**，不要为了让门禁变绿去改判定；`research-gate.py`（32 项）与 `check-docs.py`（187 项）在 `f119a80` 上均已通过。
-9. **S1 探针已过 ⑦ 本地静态检查**：补丁 `patches/bt/0001-k60-bt-readonly-probe.patch` sha256 `c94e1530820ce74faeae188bd4285c319e9d18d2f243aabf612863f2d16fa347`；对 0500 抽出的 `bsd/dev/qbt_k60.c` 执行 `git apply --check` 通过；用 out3 构建记录的 `.CFLAGS` 跑 `clang -target arm64-apple-ios16.0 -fsyntax-only` **0 error**。细节与日志路径见 `S1-PROBE-SPEC.md` §8。
+9. **S1 探针已过 ⑦ 本地静态检查**：补丁 `patches/bt/0001-k60-bt-readonly-probe.patch` sha256 `95e4b098e552619db135b455af5dbec96eae4450a2a8cdae1c6c61ce658ed8a3`（4,174 B / 80 行 / 2 hunk，9 次只读）；对 0500 抽出的完整树执行 `git apply --check` 通过，再用 out3 构建记录的 `.CFLAGS` 跑 `clang -target arm64-apple-ios16.0 -fsyntax-only` **0 error**。细节与日志路径见 `S1-PROBE-SPEC.md` §8。
+10. **⑥ 深挖已完成，结论是「S1 必须先跑，且 S1 扩大了」**：逐行评审见 `docs/research/bt/06-DEEP-DIVE.md`。S2 之前必须由 S1 的寄存器读数定性 F1/F2/F3（DMA 物理地址、RFR 值、0xe40 轮询）；其中 F1 的正确修法（SMMU bypass + 连续物理页）属于 S2 代码工作，F2/F3 可能只需改两行，但**都不允许在无设备读数的情况下猜**。
 
 ---
 

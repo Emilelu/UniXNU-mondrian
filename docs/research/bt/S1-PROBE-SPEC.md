@@ -1,38 +1,45 @@
 # S1 只读探针规格（k60bt_stage=1）
 
-状态：规格 + 可直接应用的补丁已完成，**未合入构建**。补丁：`patches/bt/0001-k60-bt-readonly-probe.patch`（2,939 B，2 个 hunk，`git apply --check` 通过）。
+状态：规格 + 可直接应用的补丁已完成，**未合入构建**。补丁：`patches/bt/0001-k60-bt-readonly-probe.patch`（4,174 B / 80 行 / 2 个 hunk，sha256 `95e4b098e552619db135b455af5dbec96eae4450a2a8cdae1c6c61ce658ed8a3`）。
 上游计划：`docs/research/bt/RESEARCH.md` §5（阶段 S1）与 §8（I-5）。
+⑥ 深挖依据：`docs/research/bt/06-DEEP-DIVE.md`（F1–F3 就是本规格多读 4 个寄存器的原因）。
 
 ## 1. 目的
 
-回答唯一一个决定整条线生死的问题：**在这台 K60 上，对 QUPV3_2 / SE20 窗口的第一次寄存器访问会不会像触摸（QUP0 SE4）和音频（I2C）那样零日志打死机器。**
+回答唯一一个决定整条线生死的问题：**在这台 K60 上，对 QUPV3_2 / SE20 窗口的第一次寄存器访问会不会像触摸（QUP0 SE4）和音频（I2C）那样零日志打死机器。** 顺手把 ⑥ 深挖留下的两个可机械判定的偏差（F2/F3）一起判掉。
 
 - 支撑事实（M）：`docs/research/GENI-ACCESS-PRECONDITIONS.md` 记录两次独立复现，控制台 0 字节。
-- 反面证据（本轮新增）：mainline SM8450 GCC 只建模 4 个 GDSC（`linux-gcc-sm8450-v6.6.c:3235-3239`），vendor `k60-android-gcc-waipio.c` 全文无 `gdsc`；因此 sheng 的 `gcc_qupv3_wrap0_gdscr` **不适用于 SM8475**，首要怀疑改为 wrapper 声明的 NoC/interconnect（FDT `qmondrian.dts:10707-10720` 的 `interconnect-names="qup-core","snoc-llcc","qup-ddr"`，本 port 无 ICC 框架）。
+- 反面证据：mainline SM8450 GCC 只建模 4 个 GDSC（`linux-gcc-sm8450-v6.6.c:3235-3239`），vendor `k60-android-gcc-waipio.c` 全文无 `gdsc`；因此 sheng 的 `gcc_qupv3_wrap0_gdscr` **不适用于 SM8475**，首要怀疑改为 wrapper 声明的 NoC/interconnect（live FDT `mondrian.dts:10707-10720` 的 `interconnect-names="qup-core","snoc-llcc","qup-ddr"`，本 port 无 ICC 框架）。
 
 ## 2. 变更（补丁内容）
 
 对 `bsd/dev/qbt_k60.c`（由 `patches/xnu/0500-k60-bt-qbt-new-files.patch` 创建，1,249 行）做两处插入：
 
-1. 在 `static int k60_bt_power_on(void)` 之前插入 4 个寄存器常量 + `k60_bt_probe()`：
+1. 在 `static int k60_bt_power_on(void)` 之前插入 8 个寄存器常量 + `k60_bt_probe()`：
    - `k60_map()` GCC（0x00100000）、SE20（0x00894000）、wrapper（0x008C0000）；**不 map** TLMM/GIC/SMMU；
    - `k60_serial_clock(true)`（现成函数，0500 内：GPLL0 投票 + 5 个 QUPV3_2 分支投票 + halt 轮询 + CBCR 打印）；
-   - 4 次只读：`SE_GENI_STATUS`、`GENI_IF_DISABLE_RO`、`GENI_FW_REVISION_RO`、`QUP_HW_VER_REG`，外加 `K60_GCC_WRAP2_SE20_HALT`；
-   - 用 `k60_log()` 打印一行，返回 0。
+   - **9 次只读**（无写、无中断、无 DMA）：
+     - 身份 4 读：`SE_GENI_STATUS` 0x040、`GENI_IF_DISABLE_RO` 0x064、`GENI_FW_REVISION_RO` 0x068、wrapper `QUP_HW_VER_REG` 0x004；
+     - 偏差判定 4 读：`G_MANUAL_RFR` 0x2AC（F2）、`SE_DMA_TX_IRQ_STAT` 0xC40、`SE_DMA_RX_IRQ_STAT` 0xD40（S2 的 reset-done 基线）、**未命名 0xE40**（F3）；
+     - 复读 1：`SE_GENI_STATUS` 再读一次（确认无命令变成 active）；
+   - 用 `k60_log()` 打印两行，返回 0。
 2. 在 `k60_worker()` 里 `int e = k60_bt_power_on();` 之前插入：
    `if (k60.stage == 1) { int p = k60_bt_probe(); k60_power_result(true, p); return; }`
    —— 这样 S1 在 worker 线程里跑完即退出，**不进入** `k60_bt_power_on()` 的 GPIO/XO/BT_EN/DMA/中断路径。
 
 ## 3. 寄存器与字段的出处（不允许猜）
 
-| 值 | 出处 |
-|---|---|
-| `SE_GENI_STATUS = 0x040` | `linux-geni-se-v6.6.h:78` |
-| `GENI_IF_DISABLE_RO = 0x064`，`FIFO_IF_DISABLE = BIT(0)` | `:81`、`:129-130` |
-| `GENI_FW_REVISION_RO = 0x068`，协议字段 `GENMASK(15,8)` | `:82`、`:132-134` |
-| `QUP_HW_VER_REG = 0x0004`（wrapper），期望 `QUP_SE_VERSION_2_5 = 0x20050000` | `linux-qcom-geni-se-v6.6.c:114`、`linux-geni-se-v6.6.h:287` |
-| SE20 = wrapper 0x8C0000 的第 6 个 SE（0x894000） | live FDT `mondrian.dts:10707-10720`、`:11041`、别名 `:21484` |
-| GCC QUPV3_2 vote 0x62010、SE20 halt 0x2E610、core 0x33280、core_2x 0x3328C、m_ahb 0x2E004、s_ahb 0x2E008 | 0500:109-124；vendor `k60-android-gcc-waipio.c:1371,3075` |
+| 值 | 出处 | 读它的原因 |
+|---|---|---|
+| `SE_GENI_STATUS = 0x040` | `linux-geni-se-v6.6.h:78` | 判定引擎是否 idle（M/S active = BIT(0)/BIT(12)） |
+| `GENI_IF_DISABLE_RO = 0x064`，`FIFO_IF_DISABLE = BIT(0)` | `:81`、`:129-130` | FIFO 接口是否可用 |
+| `GENI_FW_REVISION_RO = 0x068`，协议字段 `GENMASK(15,8)` | `:82`、`:132-134` | 协议必须 = 2，否则组件 `prepare()` 返回 `-ENXIO` |
+| `QUP_HW_VER_REG = 0x0004`（wrapper），期望 `QUP_SE_VERSION_2_5 = 0x20050000` | `linux-qcom-geni-se-v6.6.c:114`、`linux-geni-se-v6.6.h:287` | 决定 16x 还是 32x 过采样 |
+| `G_MANUAL_RFR = 0x2AC`，组件只用 0 / `G_RFR_OFF = 0x80000002` | 官方组件 `src/qbt_geni_regs.h:30,80`；`src/qbt_geni.c:18-21` | **F2**：0500:766 写了 `0x80000001`，既非 ready 也非 not-ready |
+| `SE_DMA_TX_IRQ_STAT = 0xC40` / `SE_DMA_RX_IRQ_STAT = 0xD40`，reset-done = BIT(3) | `linux-geni-se-v6.6.h`（`TX_RESET_DONE`/`RX_RESET_DONE`） | S2 若重写 stop_engine，必须用这两个位 |
+| `0xE40`（无名字） | **两边都没有定义**：mainline 头文件从 `SE_HW_PARAM_1 0xe28` 直接结束，`qbt_geni_regs.h` 亦无 | **F3**：0500:631/639 轮询它；若读出非零，`stop_engine()` 恒定 `-ETIMEDOUT` |
+| SE20 = wrapper 0x8C0000 的第 6 个 SE（0x894000） | live FDT `mondrian.dts:10707-10720`、`:11041`、别名 `:21484` | 窗口身份 |
+| GCC QUPV3_2 vote 0x62010、SE20 halt 0x2E610、core 0x33280、core_2x 0x3328C、m_ahb 0x2E004、s_ahb 0x2E008 | 0500:109-124；vendor `k60-android-gcc-waipio.c:1371,3075` | 投票与 halt 判定 |
 
 ## 4. 上机步骤（严格执行，顺序不可换）
 
@@ -64,11 +71,17 @@ python3 scripts/record-boot.py --evidence <evidence-dir>
 
 | 观察 | 结论 | 下一步 |
 |---|---|---|
-| 控制台出现 `[bluetooth] clocks vote ...` 与 `[bluetooth] probe: se20 status=... fwrev=... proto=... qup_hw=... se_halt=...`，机器正常跑完 | **SE20 可达** | 进 S2（引脚 mux + 3.0 Mbaud + 引擎准备） |
-| `[bluetooth] probe: mapped ...` 之后**任何日志都没有**，控制台 0 字节 | 首次访问即死机（与触摸/音频同因） | 停线；把结果回填 `GENI-ACCESS-PRECONDITIONS.md`；检查项：wrapper NoC/ICC、GDSC（备选）、SE 时钟边界 |
-| 停在 `[bluetooth] clocks vote ...` 之后（halt 轮询超时） | 时钟分支不响应 | 检查 GPLL0 是否锁（`gcc+0x0` BIT(31)）、vote 位是否被 firmware 覆盖 |
-| `[bluetooth] probe: map failed` | `ml_io_map` 拒绝该窗口 | 说明窗口已被其它驱动占用或未在设备树 enabled |
+| 出现 `[bluetooth] clocks vote ...` 与两行 `[bluetooth] probe: se20 ...`，机器正常跑完 | **SE20 可达** | 进 S2（引脚 mux + 3.0 Mbaud + 引擎准备） |
+| `[bluetooth] probe: mapped ...` 之后**任何日志都没有**，控制台 0 字节 | 首次访问即死机（与触摸/音频同因） | 停线；回填 `GENI-ACCESS-PRECONDITIONS.md`；检查项：wrapper NoC/ICC、GDSC（备选）、SE 时钟边界 |
+| 停在 `[bluetooth] clocks vote ...` 之后（halt 轮询超时） | 时钟分支不响应 | 查 GPLL0 是否锁（`gcc+0x0` BIT(31)）、vote 位是否被 firmware 覆盖 |
+| `[bluetooth] probe: map failed` | `ml_io_map` 拒绝该窗口 | 窗口被其它驱动占用或未在设备树 enabled |
 | `proto` 字段 ≠ 2 | boot firmware 没给 SE20 的 PROTOCOL 2 microcode | 与 `docs/porting/bluetooth.md:42-43` 的 ENXIO 情形一致，S3 前必须先解决 |
+| `rsvd_e40` 非 0 | **F3 成立**：`stop_engine()` 会恒定 `-ETIMEDOUT` | 先按 Linux 的 `TX/RX_RESET_DONE`(0xc40/0xd40 BIT(3)) 重写 `stop_engine()`，再谈 S2 |
+| `rsvd_e40` = 0 | F3 不成立（轮询恒假，等于没有等待） | S2 仍需把等待换成 `TX/RX_RESET_DONE`，但不再阻塞 |
+| `rfr` = `80000002` | 复位/投票后的自然值与组件 "not ready" 编码一致 → F2 的板级写值必须重推 | S2 用组件编码（ready=0 / not-ready=`80000002`），删掉 0500:766 的第三值 |
+| `rfr` 其他值 | 该寄存器语义与组件假设不同 | 保留现场，先读 `qbt_geni.c` 的 rfr 用法再定 |
+| `dma_tx` / `dma_rx` = 0 | 无残留 DMA 状态 | S2 的 reset-done 等待从 0 开始 |
+| `status2` 与 `status` 不同 | 两次读之间引擎状态变化（不该发生） | 说明有其它 agent/固件在动 SE20，先查归属 |
 
 `qup_hw` 期望 `2005xxxx`（QUP_SE_VERSION_2_5）。若不是，说明 wrapper 版本与官方组件假设不符，S2 的引擎序列要按实际版本重查。
 
@@ -82,19 +95,21 @@ python3 scripts/record-boot.py --evidence <evidence-dir>
 ## 7. 风险与回滚
 
 - 全部新增行为在 `k60bt=1` 且 `k60bt_stage=1` 时才执行；默认启动（不带 boot-arg）完全不进 S1 代码路径。
-- S1 不写任何设备分区、不碰 `/dev/block/sda38`、不改 PMIC/RPMh；只读 GCC/UART/wrapper 寄存器。
+- S1 不写任何设备分区、不碰 `/dev/block/sda38`、不改 PMIC/RPMh；只读 GCC/UART/wrapper 寄存器（9 次 load）与一次 GPLL0/5 分支投票（这一步在 0500 的既有路径里，非新增）。
 - 回滚 = 从 `patches/xnu/series` 去掉该补丁（或把 stage 恢复为默认 1 之外的完整路径）。
+
 ## 8. ⑦ 本地验证（已做，未构建、未上机）
 
 | 项 | 命令 / 依据 | 结果 |
 |---|---|---|
-| 补丁 SHA-256 | `sha256sum patches/bt/0001-k60-bt-readonly-probe.patch` | `c94e1530820ce74faeae188bd4285c319e9d18d2f243aabf612863f2d16fa347` |
-| 补丁可应用 | 从 `patches/xnu/0500` 抽出 `bsd/dev/qbt_k60.c` 到独立 repo 后 `git apply --check` | `APPLY_CHECK_OK`（实际 apply 后 `grep -c k60_bt_probe` = 2） |
+| 补丁 SHA-256 | `sha256sum patches/bt/0001-k60-bt-readonly-probe.patch` | `95e4b098e552619db135b455af5dbec96eae4450a2a8cdae1c6c61ce658ed8a3` |
+| 补丁可应用 | 还原 0500 的完整 `bsd/` 树（1,249 行 `qbt_k60.c`，sha256 `8451c870…`）后 `git apply --check` | `APPLY_CHECK_OK`；apply 后 `grep -c` 命中 9 读相关行 |
 | 语法检查 | `/opt/unixnu-linux/llvm/bin/clang -target arm64-apple-ios16.0 <out3 .CFLAGS> -fsyntax-only -I bsd/dev/qbt -I bsd/dev/qbt/shim bsd/dev/qbt_k60.c` | **PASS，0 error**；日志 `E:/k60-work/scratch/bt-s1/bsd/dev/qbt_k60.syntax.log` |
 | 同法复核未改源 | 同上，`bsd/dev/qbt/qbt_core.c` | PASS；日志 `E:/k60-work/scratch/bt-s1/bsd/dev/qbt/qbt_core.syntax.log` |
+| 生成脚本 | `E:/k60-work/scratch/bt-s1/extend.py` + `extend.sh`（可重放） | 结果 `/mnt/e/k60-work/scratch/bt-s1/0001-new.patch` |
 
 - flags 来源：`/opt/k60/trees/usb-cdc-mainline/out3/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/.CFLAGS`；复跑脚本 `E:/k60-work/scratch/bt-s1/check.py`（只把含空格的 `CONFIG_NMBCLUSTERS` 归一为 1024，与 `impl/bt/verify/syntax_check.py` 同法）。
-- 探针只增加 MMIO 读取与一次 printf，不含算术/越界写；`k60_gcc_wait_halt` 的超时路径未改。
+- 探针只增加 MMIO 读取与两次 printf，不含算术/越界写；`k60_gcc_wait_halt` 的超时路径未改。
 
 ## 9. 交接（Lead 执行）
 
@@ -102,5 +117,4 @@ python3 scripts/record-boot.py --evidence <evidence-dir>
 2. **先换基线**：本分支基于 `f119a80`，在该基线上 `eight-step-gate.py --build` 因 touch ④⑤⑥ 未标记而红（详见 `RESEARCH.md` §9 第 8 条）；rebase 到 ≥`4f90f12` 的集成线后再构建。
 3. `scripts/build-strict.sh` → `scripts/verify-boot-image.py`。
 4. 上机：先接 CDC-ACM 抓取（AGENTS.md 铁则 8），两次 `fastboot boot` 同一镜像，boot-args `k60bt=1 k60bt_stage=1 k60bt_warm=1` → `scripts/record-boot.py`；只读 `capture.json` 的 `verdict`/`panicMarker` 判死。
-5. 把 S1 结果回填 `docs/research/GENI-ACCESS-PRECONDITIONS.md`（触摸/音频共用同一前提：首访是否挂死）。
-
+5. 把 S1 结果回填 `docs/research/GENI-ACCESS-PRECONDITIONS.md`（触摸/音频共用同一前提：首访是否挂死）与 `06-DEEP-DIVE.md`（F2/F3 的结论行）。

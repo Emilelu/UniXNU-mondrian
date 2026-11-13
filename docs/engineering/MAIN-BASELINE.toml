@@ -40,9 +40,6 @@ note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181�
 
 [[entry]]
 sha = "532a3d3"
-tag = "boot-proven-20261113"
-tag_commit = "532a3d31243cecf9b331c8afa006211766b07332"
-tag_pushed = "2026-11-13 push -f origin boot-proven-20261113 reported 6f93e8f...8050035"
 kernel_sha256 = "6eca5da0fefedd5a5223fdef0fb624a6b4a5ab39292cd242492f9abeab391f14"
 image = "E:/k60-work/usb-a-stage/out/boot-fixinit2.img"
 image_sha256 = "2926b334bf1f2f982d512b86e831870c84eb7eb24daac34e1d65a1343a09921d"
@@ -66,3 +63,20 @@ sha = "3d1fff3"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "只改构建工具（scripts/build-strict.sh 的 manifest 改从 payload 镜像读回 ADT 与 args）；不进镜像，产物与 b5f9973 相同，故不重复上机。登记原因是该提交碰了 scripts/build- 前缀（铁则 9）。"
+
+[[entry]]
+sha = "96d2515"
+tag = "boot-proven-20261113"
+tag_commit = "96d2515709cffcdeeff9a46f4555a39b2bfb8ad6"
+tag_pushed = "2026-11-13 push -f origin boot-proven-20261113 reported 6f93e8f...8050035"
+kernel_sha256 = "0b660f498021b097eb28c4055c95d6337e8591cd363b8cd92a7108697c390ed7"
+image = "E:/k60-work/artifacts/base-20261113f/boot.img"
+image_sha256 = "fe8b12c90b145fca664086c578b8b482fe6bf69de361d2ea8260858c8f30d945"
+console = "E:/k60-work/evidence/usblog-20261113-basef2/console.log (3327 lines, SpringBoard 129, captured-budget-complete true); E:/k60-work/evidence/usblog-20261113-basef4/console.log (3351 lines, SpringBoard 129, captured-budget-complete true); keep 归一 E:/k60-work/evidence/usblog-20261113-norm5/console.log (3460 lines, SpringBoard 133)"
+state = "booted"
+note = "2026-11-13 22:04/22:08 strict 构建 base-20261113f 双启动通过（scripts/build-strict.sh，八步门禁 30 项通过、verify-boot-image OK、manifest 记录 payload_args 与从 payload 读回的 ADT 550f472f）。日志证据：K60INIT legacy bytes=34904 resid=0 error=0，K60LC len=10294，无 initproc exited、无 K60PANIC: ring kept。此条取代 532a3d3：那个 kernel 由 194,147 字节的 0616 编出，而 312087b 改了同一补丁的 printf 文案（219 字节），本次是新产物自己的上机证明。"
+
+[entry.blob_sha256]
+"patches/xnu/0340-k60-uilib-deploy.patch" = "72371a041569b55d0441bef4b0f944121fbbeca8b409d4e296ae992cfe4a962f"
+"patches/xnu/0391-k60-embedded-init.patch" = "accaab23221b52318f130708de961bff42a496c5605a6daacbe0e2e81c89371d"
+"patches/xnu/0401-k60-embedded-init.patch" = "4327b48e26f7ff5e8aa425a61a9f5769062b582febfa38932af427a59c2c0476"

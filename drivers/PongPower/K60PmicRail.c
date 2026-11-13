@@ -171,38 +171,47 @@ k60_rail_probe(void)
 		printf("K60RAIL ldoc2 not found rc=%d\n", rc);
 	} else {
 		/* The level table did not look like millivolts, so dump the bytes
-		 * that produced it instead of guessing a different field layout. */
+		 * that produced it instead of guessing a different field layout.
+		 * ldoc2 lives in a different slave than the clock resources, so walk
+		 * every slave the header declares. */
 		{
-			const uint8_t *slave = bytes + 8;
-			uint32_t heads = 144u + le16(slave + 2);
-			uint32_t data = 144u + le16(slave + 4);
-			uint32_t count = le16(slave + 6);
-			uint32_t e;
+			uint32_t s;
 
-			printf("K60RAIL slave id=%u heads=%u data=%u count=%u\n",
-			    le16(slave), heads, data, count);
-			for (e = 0; e < count && e < 40; e++) {
-				const uint8_t *en = bytes + heads + 24 * e;
-				printf("K60RAIL e%u id=%c%c%c%c%c%c%c%c addr=%#x len=%u off=%u\n",
-				    e, en[0], en[1], en[2], en[3], en[4], en[5], en[6], en[7],
-				    le32(en + 16), le16(en + 20), le16(en + 22));
-				if (en[0] == 'l' && en[1] == 'd' && en[2] == 'o' &&
-				    en[3] == 'c' && en[4] == '2') {
-					uint32_t at = data + le16(en + 22);
-					uint32_t n = le16(en + 20);
-					uint32_t i;
+			for (s = 0; s < 8; s++) {
+				const uint8_t *slave = bytes + 8 + 16 * s;
+				uint32_t id = le16(slave);
+				uint32_t heads, data, count, e;
 
+				if (id == 0) {
+					break;
+				}
+				heads = 144u + le16(slave + 2);
+				data = 144u + le16(slave + 4);
+				count = le16(slave + 6);
+				printf("K60RAIL slave%u id=%u heads=%u data=%u count=%u\n",
+				    s, id, heads, data, count);
+				for (e = 0; e < count && e < 40; e++) {
+					const uint8_t *en = bytes + heads + 24 * e;
+					uint32_t at, n, i;
+
+					printf("K60RAIL s%u e%u id=%c%c%c%c%c%c%c%c "
+					    "addr=%#x len=%u off=%u\n", s, e,
+					    en[0], en[1], en[2], en[3], en[4], en[5], en[6], en[7],
+					    le32(en + 16), le16(en + 20), le16(en + 22));
+					if (en[0] != 'l' || en[1] != 'd' || en[2] != 'o' ||
+					    en[3] != 'c' || en[4] != '2') {
+						continue;
+					}
+					at = data + le16(en + 22);
+					n = le16(en + 20);
 					printf("K60RAIL ldoc2 aux at=%u len=%u:", at, n);
-					for (i = 0; i < n && i < 16; i++) {
+					for (i = 0; i < n && i < 32; i++) {
 						printf(" %02x", bytes[at + i]);
 					}
 					printf("\n");
 				}
 			}
 		}
-		uint32_t index = 0;
-		int li = k60_rpmh_level_index(&res, 1800, &index);
-
 		printf("K60RAIL ldoc2 address=%#x levels=%u idx1800=%d->%u",
 		    res.address, res.level_count, li, index);
 		for (unsigned i = 0; i < res.level_count && i < 8; i++) {

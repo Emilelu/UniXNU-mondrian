@@ -17,7 +17,9 @@ import re
 import sys
 
 MARK_START = "PongAudio: amp probe start"
-MARK_BUS = ("PongAudio: gcc wrapper2", "PongAudio: se15 ready")
+# These are the literal prefixes of the two printf() calls in PongAudioAmp.c
+# ("amp gcc clk %s halt=..." at :286 and "amp se15 ready config=..." at :419).
+MARK_BUS = ("PongAudio: amp gcc clk", "PongAudio: amp se15 ready")
 MARK_ID = re.compile(r"PongAudio: amp(\d) .*id=0x([0-9a-fA-F]{4})")
 MARK_DONE = re.compile(
     r"PongAudio: amp probe done found=(\d+)/(\d+) .*failed=(\d+) timeouts=(\d+)"

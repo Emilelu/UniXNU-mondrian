@@ -95,6 +95,21 @@ fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 
+# The battery class lives in a host-built archive that the kernel script only
+# force-loads when the defconfig asks for it. Build it here so a battery-enabled
+# configuration cannot reach the link step without its archive (P-157).
+BATTERY_ON=$(sed -n 's/^CONFIG_XNU_K60_PHYSICAL_BATTERY=y$/1/p' "$M/.config" | head -1)
+if [ -n "$BATTERY_ON" ]; then
+    echo "build-strict: battery archive requested by the defconfig"
+    if ! bash "$REPO/scripts/build-battery-archive.sh" "$REPO/build/k60-battery" \
+            > "$LOGS/battery-archive.log" 2>&1; then
+        tail -20 "$LOGS/battery-archive.log" >&2
+        die "battery archive build failed (see $LOGS/battery-archive.log)"
+    fi
+    export XNU_K60_BATTERY_ARCHIVE=$REPO/build/k60-battery/libK60PhysicalBattery.a
+    echo "build-strict: battery archive $(sha256sum "$XNU_K60_BATTERY_ARCHIVE" | cut -d' ' -f1)"
+fi
+
 # --- kernel ------------------------------------------------------------------
 touch "$MARK"; sleep 2
 if ! "$BUILD/unixnu" build kernel -D "$DEV" --out "$OUT" > "$LOGS/kernel.log" 2>&1; then

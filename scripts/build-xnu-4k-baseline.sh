@@ -427,6 +427,12 @@ fi
 if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
   PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_NATIVE_UFS=1"
 fi
+if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+  # The call site in iokit/bsddev/IOKitBSDInit.cpp is compiled with this flag;
+  # the archive is force-loaded below. Without both halves the class is dead
+  # code, which is how it stayed inert for a day (P-157).
+  PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_K60_PHYSICAL_BATTERY=1"
+fi
 NATIVE_VIRTIO_CONSOLE=${XNU_NATIVE_VIRTIO_CONSOLE:-0}
 if [ "$NATIVE_VIRTIO_CONSOLE" != 0 ] && [ "$NATIVE_VIRTIO_CONSOLE" != 1 ]; then
   echo 'XNU_NATIVE_VIRTIO_CONSOLE must be 0 or 1' >&2
@@ -950,6 +956,17 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then
     test -f "$ADRENO_ARCHIVE"
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ADRENO_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ADRENO_ARCHIVE"
+  fi
+  if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+    # scripts/build-k60-physical-battery.py produces this archive on the host
+    # from the captured FDT plus the vendor module; the kernel gets the
+    # IOPMPowerSource subclass and the GLINK client. The archive is a build
+    # input, so a missing one must stop the build rather than silently ship a
+    # kernel without the battery class (P-157).
+    BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
+    test -f "$BATTERY_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $BATTERY_ARCHIVE"
   fi
   if [ "$NATIVE_MOBILE_DISPLAY" = 1 ]; then
     MOBILE_DISPLAY_ARCHIVE=$ROOT/build/native-mobile-display/libNativeMobileDisplay.late.a

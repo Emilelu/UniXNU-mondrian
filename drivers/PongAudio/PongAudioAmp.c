@@ -349,6 +349,41 @@ se_wr(void *ctx, uint32_t reg, uint32_t value)
 }
 
 static PongGeniI2c bus;
+static unsigned bus_recoveries;
+
+/* A transfer whose cancel is never acknowledged leaves the state machine in
+ * Cancelling or Aborting, where every later start is refused as busy - and the
+ * second amplifier would then be blamed for the first one's timeout. Walk the
+ * documented ladder (header: "cancel, then abort an unacknowledged cancel")
+ * back to Idle before starting anything. Three steps is the longest path:
+ * TxWait/WriteDone/ReadDone -> Cancelling -> Aborting -> Idle. */
+static void
+bus_recover(void)
+{
+
+	unsigned steps = 0;
+
+
+
+	while (steps < 3u && pong_geni_busy(&bus)) {
+
+		(void)pong_geni_timeout(&bus);
+
+		++steps;
+
+	}
+
+	if (steps) {
+
+		++bus_recoveries;
+
+		printf("PongAudio: amp bus recovered a stuck transfer in %u step(s) err=%u\n",
+
+		    steps, bus.error);
+
+	}
+
+}
 
 /* Engine bring-up: mainline geni_se_init() (qcom-geni-se.c:316-352 - keep the
  * clocks on, keep GSI events off, default IO output control, force default),
@@ -441,6 +476,7 @@ amp_read(uint8_t address, uint8_t reg, uint16_t *value)
 	const uint8_t pointer = reg;
 	int result;
 
+	bus_recover();
 	bus.address = address;
 	bus.error = PongGeniOk;
 	if (pong_geni_start_read_bytes(&bus, &pointer, 1, 2) != 0) {
@@ -579,8 +615,9 @@ pong_audio_amp_probe(void)
 	found0 = amp_probe_one(0, PONG_AUDIO_AMP_ADDR0, released0);
 	found1 = amp_probe_one(1, PONG_AUDIO_AMP_ADDR1, released1);
 
-	printf("PongAudio: amp probe done found=%u/2 transfers=%u failed=%u timeouts=%u stray=%u gcc_misses=%u\n",
-	    found0 + found1, bus.done, bus.failed, bus.timeouts, bus.stray, gcc_misses);
+	printf("PongAudio: amp probe done found=%u/2 transfers=%u failed=%u timeouts=%u stray=%u recovered=%u gcc_misses=%u\n",
+	    found0 + found1, bus.done, bus.failed, bus.timeouts, bus.stray, bus_recoveries,
+	    gcc_misses);
 	return (int)(found0 + found1);
 }
 

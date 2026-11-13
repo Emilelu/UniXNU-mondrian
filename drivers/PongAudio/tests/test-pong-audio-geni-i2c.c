@@ -13,6 +13,9 @@
  *   - failure paths: bus error bits, empty RX FIFO, CMD_DONE in TxWait, and the
  *     cancel -> abort -> timeout ladder.
  *   - the byte order the AW882xx chip id arrives in.
+ *   - stuck-bus recovery: a refused start while the machine is stuck, and the
+ *     three-step ladder that returns it to Idle (what PongAudioAmp.c does
+ *     before every transfer so one dead amplifier cannot fail the other).
  *
  * Run: drivers/PongAudio/tests/run-tests.sh
  */
@@ -390,6 +393,50 @@ chip_id_cases(void)
 	expect_eq(decode_amp_value(0x1321u), 0x2113u, "AW88261 from FIFO word 0x1321");
 }
 
+/* ---- stuck-bus recovery --------------------------------------------------- */
+
+/* PongAudioAmp.c walks the timeout ladder back to Idle before every transfer.
+ * Without that step an unanswered cancel leaves the engine in Cancelling, and
+ * the next start is refused as busy - the second amplifier would then be
+ * blamed for the first one's timeout. These cases pin both halves: that a
+ * stuck machine really refuses work, and that the ladder clears it within the
+ * three steps the driver allows. */
+static void
+recovery_cases(void)
+{
+
+	const uint8_t pointer = 0x00;
+	unsigned steps;
+
+	bus_reset();
+	(void)pong_geni_start_read_bytes(&bus, &pointer, 1, 2);
+	(void)pong_geni_timeout(&bus);
+	expect_eq(bus.phase, PongGeniCancelling, "stuck after an unanswered cancel");
+	expect_eq((unsigned long)pong_geni_start_read_bytes(&bus, &pointer, 1, 2),
+	    (unsigned long)-1, "a stuck bus refuses the next start");
+	expect(pong_geni_busy(&bus) != 0, "the bus reports busy while stuck");
+
+	for (steps = 0; steps < 3u && pong_geni_busy(&bus); ++steps) {
+		(void)pong_geni_timeout(&bus);
+	}
+	expect_eq(steps, 2u, "two more steps clear a stuck cancel");
+	expect_eq(bus.phase, PongGeniIdle, "idle again after recovery");
+	expect_eq(bus.timeouts, 1u, "recovery steps do not invent timeouts");
+	expect_eq((unsigned long)pong_geni_start_read_bytes(&bus, &pointer, 1, 2), 0ul,
+	    "the bus takes a transfer again after recovery");
+
+	/* The longest path: a live transfer needs cancel, abort, then the give-up
+	 * that returns to Idle. Three steps is exactly what bus_recover() allows. */
+	bus_reset();
+	(void)pong_geni_start_write(&bus, AW_REG_ID, 0x55);
+	for (steps = 0; steps < 5u && pong_geni_busy(&bus); ++steps) {
+		(void)pong_geni_timeout(&bus);
+	}
+	expect_eq(steps, 3u, "three steps is the longest ladder");
+	expect_eq(bus.phase, PongGeniIdle, "idle after the longest ladder");
+	expect_eq(bus.timeouts, 1u, "only the live transfer was counted");
+}
+
 int
 main(void)
 {
@@ -399,6 +446,7 @@ main(void)
 	read_cases();
 	failure_cases();
 	poll_cases();
+	recovery_cases();
 	chip_id_cases();
 
 	if (fails) {

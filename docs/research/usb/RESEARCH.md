@@ -188,6 +188,14 @@ static uint8_t composite[]={9,2,98,0,3,1,0,0xc0,50, …};
 **不采用**：直接照搬 pong-usb 的 Apple VID/PID（`0x05ac`）作为 K60 默认身份。
 那会把调试设备伪装成 Apple 设备，且与"同型证据"无关——pong-usb 自己也把它限制在 opt-in 函数里。
 
+### 6.4 参考仓可移植性判定（任务书第③步）
+
+| 参考仓 | 里面有什么 | 判定 |
+|---|---|---|
+| `references/phk110-port/drivers/core/` | 只有 6 个文件：`conf`、`hakios.platform.c`、`hakios.socinfo.c`、`hakios.stubs.c`、`hakios.stubs.cpp`、`hakios.version.c`；`grep -ril "usb\|dwc3\|otg"` **零命中** | **不可移植**——不是"难"，是这个目录里没有任何 USB 控制器 / PHY / 角色切换代码。它是 SM7150 HAKIOS 时代的平台胶水，与本任务无关。 |
+| `references/UniXNU-sheng/package/` | USB 相关只有一个 `UsbProbe.cpp`（47 行，见 §7.1）——"已存在驱动"的加载入口胶水（`qcom_dwc3_bring_up` → `OSKextLoadKextWithIdentifier("com.apple.driver.AppleUSBXDCI")`）；真正的控制器驱动 `QcomDwc3.cpp` **不在本仓** | **胶水可抄、驱动本体不可抄**。这恰好解释了为什么 P0/P1 走 DWC3 原生路径（本仓 `0300-k60-usblog-ep0.patch` 已有 1386 行同 SoC 控制器代码），而不是直接接 AppleUSBXDCI。 |
+| 本仓 `patches/xnu/0300-k60-usblog-ep0.patch` | 1339 行 `bsd/dev/k60_usblog.c` + `bsd/conf/files` + `arm_init.c` 调用；同 SoC（SM8475）真机验证过 | **唯一真正可复用的控制器代码**，P0 心跳就加在它上面（§9/§11）。 |
+
 ---
 
 ## 7. IOUSBHost 侧要加的 hook（终态，非本轮）

@@ -97,16 +97,27 @@ if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
     die "payload build failed (see $LOGS/payload.log)"
 fi
 PAYLOAD=$M/payload/payload.img
-ADT=$M/payload/kernel.macho.adt
 [ -s "$PAYLOAD" ] || die "payload.img missing"
 PAYLOAD_SHA=$(sha256sum "$PAYLOAD" | cut -d' ' -f1)
-# The kernel inside the payload is not the built kernel: the payload step patches
-# it. verify-boot-image.py compares the kernel it reads back out of the FAT with
-# this value, so record it here rather than leaving the field empty.
+# The payload step stages EFI/UniXNU/Payloads/ in a temporary directory and then
+# packs it into the FAT; nothing is left behind at $M/payload/kernel.macho.adt.
+# Read the ADT and the kernel back OUT of the payload image, which is also what
+# verify-boot-image.py does, so the manifest records the artefacts that actually
+# shipped rather than a staging path that no longer exists.
 PAYLOAD_KERNEL_SHA=$(mtype -i "$PAYLOAD" ::EFI/UniXNU/Payloads/kernel.macho 2>/dev/null \
     | sha256sum | cut -d' ' -f1)
 [ -n "$PAYLOAD_KERNEL_SHA" ] || die "cannot read Payloads/kernel.macho out of the payload (mtools?)"
 echo "build-strict: payload kernel $PAYLOAD_KERNEL_SHA"
+ADT_SHA=$(mtype -i "$PAYLOAD" ::EFI/UniXNU/Payloads/kernel.macho.adt 2>/dev/null \
+    | sha256sum | cut -d' ' -f1)
+[ -n "$ADT_SHA" ] || die "cannot read Payloads/kernel.macho.adt out of the payload (mtools?)"
+echo "build-strict: payload adt $ADT_SHA"
+# The arguments the firmware will actually pass: the payload TOML, not
+# board.toml, is what the loader reads (P-159).
+PAYLOAD_ARGS=$(mtype -i "$PAYLOAD" ::/EFI/UniXNU/unixnu.toml 2>/dev/null \
+    | sed -n 's/^args[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' | head -1)
+[ -n "$PAYLOAD_ARGS" ] || die "cannot read the boot arguments out of the payload TOML"
+echo "build-strict: payload args $PAYLOAD_ARGS"
 
 # --- boot image --------------------------------------------------------------
 FD_ARCH=$ART/fd/$TAG-$(sha256sum "$FD" | cut -c1-12).fd
@@ -157,7 +168,7 @@ m = {
         "kernel_built": "$KERNEL_SHA",
         "payload": "$PAYLOAD_SHA",
         "payload_kernel": "$PAYLOAD_KERNEL_SHA",
-        "adt": "$(sha_or_empty "$ADT")",
+        "adt": "$ADT_SHA",
         "dtb": "$(sha_or_empty "$DTB")",
         "fd": "$FD_SHA",
         "fd_path": "$FD_ARCH",
@@ -165,6 +176,7 @@ m = {
         "boot_img_path": "$RUN/boot.img",
     },
     "kernel_args": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
+    "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
     "logs": "$LOGS",
 }
 out.write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")

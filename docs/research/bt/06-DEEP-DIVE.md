@@ -29,9 +29,11 @@ on the S2 power path and are decidable only from device reads:
 | **F1** | GENI DMA address is the *virtual* pointer; SMMU stream 0x483 is neither bypassed nor configured | blocks S2 |
 | **F2** | `G_MANUAL_RFR` (0x2ac) is written with a value the component never uses | blocks S2 |
 | **F3** | `k60_stop_engine()` polls offset 0xe40, which exists in no GENI header | blocks S2 |
+| **F11** | the SE20 RCG root is never enabled (`CMD_ROOT_EN`/`CMD_ROOT_OFF` missing) | blocks S1, mandatory for S2 |
 
 Consequence: do **not** go to S2 (first real power-on) until S1 has returned the four extra
-register reads added in §5. Two of the three deviations are then decided from one boot.
+register reads added in §5 and the three RCG rungs that decide F11. Two of the first three
+deviations are then decided from one boot.
 
 ## 1. What `main` already carries
 
@@ -212,6 +214,47 @@ transport; keep it power-path-only.
 a source. They only affect log cadence and when the UART.SK channel is torn down, not
 correctness.
 
+### F11 — the SE20 RCG root is never enabled (blocks S1, new 2026-11-14)
+
+```c
+/* 0500:435-466, k60_gcc_set_se_rate() — the whole enable tail */
+k60_write32(&k60.gcc, base + 0x8, m);
+k60_write32(&k60.gcc, base + 0xc, (~n_minus_m) & 0xffff);
+k60_write32(&k60.gcc, base + 0x10, (~d_val) & 0xffff);
+k60_write32(&k60.gcc, base + 0x4, (cfg & ~mask) | value);
+k60_write32(&k60.gcc, base, 1u);              /* CMD_UPDATE only */
+```
+
+Linux `clk_rcg2_is_enabled()` (`clk-rcg2.c:64-75`) defines "RCG on" as `(cmd & CMD_ROOT_OFF) == 0`,
+and `clk_rcg2_set_force_enable()` (`:981-1002`) turns a root on by writing `CMD_ROOT_EN` BIT(1)
+and polling that predicate for up to 500 µs. `update_config()` (`:111-135`) only *latches* a
+config. 0500 does the latch and nothing else: it never sets `CMD_ROOT_EN` and never checks
+`CMD_ROOT_OFF`, so the SE20 root clock can still be gated at the moment the first SE register is
+read. Bit definitions: `CMD_UPDATE` BIT(0), `CMD_ROOT_EN` BIT(1), `CMD_ROOT_OFF` BIT(31)
+(`clk-rcg2.c:24-31`); the register is `K60_GCC_WRAP2_SE20_CMD_RCGR` 0x2e618 (`0500:122`), which the
+vendor table confirms as `gcc_qupv3_wrap2_s5_clk_src.cmd_rcgr` with `enable_safe_config = true`
+and `HW_CLK_CTRL_MODE` (`k60-android-gcc-waipio.c:1370-1387`).
+
+Why this is a real candidate for the S1a zero-byte death: the touch line's healthy boot does the
+full sequence before it maps the SE — `CMD_ROOT_EN` → wait `ROOT_OFF` clear → write CFG →
+`ROOT_EN|UPDATE` → wait `UPDATE|ROOT_OFF` → CBCR readiness loop → *then* `ml_io_map`
+(`patches/xnu/zzzz…-pong-touch-console.patch:307-339`), and its console shows the SE4 identity
+reads succeeding (`console.log:661-663`). K60's BT path skips all of that.
+
+Severity: blocking for S1 (it may be the hang) and mandatory for S2. The S1c probe therefore
+adds three read/write rungs that isolate it: s5 reads CMD/CFG/DFSR and decodes `ROOT_OFF` /
+`ROOT_EN` / `UPDATE`; s6 sets `ROOT_EN` and polls `ROOT_OFF`; s7 writes CFG and latches
+`ROOT_EN|UPDATE`. Rung A3 (step=5) alone answers "was the root off before we touched anything?".
+
+### F12 — no CBCR readiness poll before the first SE access (medium, new 2026-11-14)
+
+The touch line waits for each branch's CBCR to report running (`cbcr_running(v) = !(v & CLK_OFF) || (v & HWCG)`,
+2000 × 10 µs, `…-pong-touch-console.patch:253-260,342-358`) before it maps the SE. 0500 polls the
+five halt registers *before* the RCG is configured (`0500:481-513`), so a branch that was merely
+idle-and-hw-gated passes, and nothing re-checks after `k60_gcc_set_se_rate()`. Cheap fix in S2:
+repeat the five halt reads after the rate write and log them (the probe's s4 already establishes
+the baseline values).
+
 ## 4. Deliberately absent (dependencies, not defects)
 
 | item | why absent | owner |
@@ -224,20 +267,33 @@ correctness.
 
 ## 5. What this changes for S1
 
-S1 as staged (`patches/bt/0001-k60-bt-readonly-probe.patch`, sha256 `c94e1530…f347`) reads
-`status 0x40`, `FIFO_IF_DISABLE 0x64`, `FW_REVISION 0x68`, wrapper `0x4`, `se_halt`. That is
-enough for the GENI-reachability question, but not for F2/F3. The same boot can answer both with
-two more read-only loads, so patch 0001 was extended to log:
+The probe has been rewritten twice since the first draft; the current artefact is **S1c**:
+`patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch`
+(13,001 B / 280 lines, sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1`,
+`git apply --check` OK, `clang -fsyntax-only` clean). It delays `k60bt_delay` (default 20 s, cap
+120 s) so the CDC console is alive, prints a mark before every access (36 marks), and splits the
+work into nine `k60bt_step` rungs:
 
-| register | offset | decides |
-|----------|--------|---------|
-| `G_MANUAL_RFR` | 0x2ac | F2: value after reset/clock vote. If it reads `0`, 0x80000001 is an assertion; if `0x80000002`, the board write must be re-derived |
-| `0xe40` (unnamed) | 0xe40 | F3: `0` → stop_engine's poll is benign; non-zero → `stop_engine` must be rewritten to the Linux `TX/RX_RESET_DONE` predicate before S2 |
-| `SE_DMA_TX_IRQ_STAT` / `SE_DMA_RX_IRQ_STAT` | 0xc40 / 0xd40 | gives S2 the reset-done bits baseline |
-| `GENI_STATUS` (again, after the clock vote) | 0x40 | proves no command is active before S2 aborts anything |
+| step | what it does | decides |
+|------|--------------|---------|
+| s1 | map GCC / UART / wrapper only, zero MMIO | plumbing (boot args, worker, delay, marks, console drain) |
+| s2 | GPLL0 vote + lock poll | PLL path |
+| s3 | QUPV3_2 vote 0x62010, read-back | vote register accepted |
+| s4 | read the five halt registers | branch CBCR baseline (F5) |
+| s5 | **read-only** SE20 RCG: CMD 0x2e618, CFG +0x4, DFSR +0x14, decode ROOT_OFF/ROOT_EN/UPDATE | **F11** — was the root gated before we touched anything |
+| s6 | set `CMD_ROOT_EN`, poll `ROOT_OFF` clear (500 × 1 µs) | **F11** — does the root come on at all |
+| s7 | write CFG = `(cfg &amp; ~0x371f)` + `BIT(20)` + `1`, then latch `ROOT_EN` and `UPDATE`, poll | **F11** — first writes to the RCG |
+| s8 | SE identity: 0x040, 0x064, 0x068, 0x2ac, wrapper 0x004 | GENI reachability + **F2** |
+| s9 | 0xc40, 0xd40, 0xe40, 0x040 again | **F3** and the S2 reset-done baseline |
 
-Those four reads are pure loads; they cannot hang the machine any more than the existing probe
-reads. The verdict table in `S1-PROBE-SPEC.md` §5 was extended with the new rows.
+Rung ladder on device (same image, stop where the board dies): A1 `k60bt_step=1`, A2 `=4`,
+A3 `=5`, A4 `=7`, A5 `=9`; if A4 dies, B = `=6` proves s7's CFG write is the killer. The verdict
+table and the exact boot commands live in `S1-PROBE-SPEC.md` §4/§5; the register provenance is
+§3 there and §2 here.
+
+Reads at s8/s9 are pure loads; they cannot hang the machine any more than the identity reads.
+What is new is that the ladder now separates "GENI is unreachable" from "the RCG root was never
+turned on" — the touch line proves the latter is a real failure mode on this SoC.
 
 ## 6. How to reproduce this review
 

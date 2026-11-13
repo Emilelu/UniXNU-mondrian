@@ -14,11 +14,11 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | artefact | content | status |
 |---|---|---|
 | `docs/research/bt/RESEARCH.md` | ①同型/②官方/③反编译/④广域 evidence tables, the seven answers (UART SE20 0x894000, IRQ 587 + GPIO79 wake IRQ 208, 3.0 Mbaud, H4 + IBS wake byte 0xFD, CTS/RTS/TX/RX = 76/77/78/79, BT_EN 81, SW_CTRL 82, XO 204), firmware expectations, WiFi/BT single-chip boundary, S1–S6 plan | done |
-| `docs/research/bt/06-DEEP-DIVE.md` | ⑥ line-by-line review of `patches/xnu/0500`'s `bsd/dev/qbt_k60.c` (1,249 lines, sha256 `8451c870…`): 11 verified items V1–V11, 10 deviations F1–F10 | done |
-| `docs/research/bt/S1-PROBE-SPEC.md` | **S1b** read-only probe: 20 s console delay, 25 marks printed *before* each access, six bisectable steps (`k60bt_step`), verdict table keyed on "last mark printed", F2/F3 rows, device procedure | done, statically verified |
-| `patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch` | 2 hunks on `bsd/dev/qbt_k60.c`: `k60_bt_probe(step)` + delayed `k60bt_stage=1` early return. sha256 `6136fc67c849a95277296477284811210a7c69d13264e19483179f9c4c52fc96` (8,331 B / 192 lines) | **build-wired** (`patches/xnu/series:205`) |
+| `docs/research/bt/06-DEEP-DIVE.md` | ⑥ line-by-line review of `patches/xnu/0500`'s `bsd/dev/qbt_k60.c` (1,249 lines, sha256 `8451c870…`): 11 verified items V1–V11, 12 deviations F1–F12 (F11/F12 added 2026-11-14: the SE20 RCG root is never enabled; no CBCR readiness poll) | done |
+| `docs/research/bt/S1-PROBE-SPEC.md` | **S1c** read-only probe: 20 s console delay, 36 marks printed *before* each access, nine bisectable steps (`k60bt_step` 1–9), including the three SE20 RCG-root rungs that decide F11; verdict table keyed on "last mark printed", F2/F3 rows, five-rung device ladder | done, statically verified |
+| `patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch` | 2 hunks on `bsd/dev/qbt_k60.c`: `k60_bt_probe(step)` + delayed `k60bt_stage=1` early return. sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1` (13,001 B / 280 lines) | **build-wired** (`patches/xnu/series:205`) |
 | `docs/research/bt/FIRMWARE.md` | **measured** BT firmware: `/vendor/bt_firmware/image/`, 113 files / 1,063,407 B, `hpbtfw20.tlv` 201,560 B + `hpbtfw21.tlv` 146,068 B + `hpnv20*`/`hpnv21*`, per-file SHA-256, `btqca.c` name selection, staging plan | done (M) |
-| `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring options A/B | done |
+| `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring status (option B used, option A kept as an alternative) | done |
 
 ## 2. Why S1 first
 
@@ -41,8 +41,9 @@ device at all — the "USB-down hang, physical power cycle only" state of `scrip
 The same kernel without `k60bt` (`bt-s1-20261114a`, `boot_img 7b6b02fc…`) reached userland
 normally, so the hang belongs to the `k60bt=1` path, not to the build. The attempt is therefore
 **indeterminate**: it says "something in the BT start path kills the machine before the console
-enumerates", not which register did it. That is exactly what S1b fixes by sleeping 20 s first and
-printing a mark before every single access.
+enumerates", not which register did it. That is exactly what S1c fixes by sleeping 20 s first,
+printing a mark before every single access, and splitting the clock path into rungs that can each
+be judged dead on their own.
 
 ## 3. Lead actions, in order
 
@@ -54,16 +55,17 @@ printing a mark before every single access.
    enumerated: no `adb`, no `fastboot`, no USB device. `scripts/k60-device.sh` documents this as the
    one state no script can leave. Hold power until it is off, then boot it back to Android/fastboot.
 3. **Register the BT hardware item** so the gate can see ①–⑥ (see §4 for the exact TOML).
-4. Build (**done once**: tag `bt-s1b-20261114a`, boot.img `a9fe69b9…`, `verify-boot-image: OK`; rebuild only if the patch changes): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
+4. Build (**S1c needs a rebuild**: the probe patch changed to sha256 `05dd342b…`, 280 lines, 9 steps): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
    `bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_stage=1
    --kernel-arg k60bt_warm=1` → `python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json`.
    Expect the payload TOML to end with the three `k60bt` args (check with
    `mtype -i <payload.img> ::/EFI/UniXNU/unixnu.toml`).
 5. Device: attach the CDC-ACM capture **before** any `fastboot boot` (AGENTS.md iron rule 8: console
    VID_1209&PID_0001, usbser.sys, port only from `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM\Device\USBSER000`,
-   DTR raised), then boot the **same image** three times, adding risk each time (S1-PROBE-SPEC.md §4):
+   DTR raised), then boot the **same image** up to five times, adding risk each time (S1-PROBE-SPEC.md §4):
    `k60bt=1 k60bt_stage=1 k60bt_warm=1 k60bt_delay=20 k60bt_step=1` (map only, cannot hang) →
-   `… k60bt_step=4` (GCC only, no GENI) → `… k60bt_step=6` (first GENI read).
+   `… k60bt_step=4` (GCC only, no GENI) → `… k60bt_step=5` (first RCG read) →
+   `… k60bt_step=7` (first RCG writes) → `… k60bt_step=9` (first GENI read).
    Stop the ladder wherever the board dies. Record with `python3 scripts/record-boot.py --image … --log <dir>/console.log`.
    Judge only `capture.json` `verdict`/`panicMarker` (never logstat.py panic counts).
    Read the verdict off the **last `probe: …` line** in the console (S1-PROBE-SPEC.md §5); if it stops

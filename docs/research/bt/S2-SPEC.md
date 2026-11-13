@@ -64,6 +64,23 @@ F1 的修法不依赖任何设备读数（0300 已在本板跑通、流号来自
 没有猜测成分；把它们先做进补丁，S1c 阶梯一旦证明「SE20 可达」，S2 就不必再等一轮构建。反过来，
 如果 S1c 死在 s5/s6/s7（RCG 三档），这版 `k60_gcc_set_se_rate()` 正好是要复用的代码，改起来只需调一处。
 
+## 4.1 已构建的镜像（2026-11-14）
+
+| tag | boot.img sha256 | kernel | 用途 |
+|---|---|---|---|
+| `bt-s2-20261114b` | `c3ea7b6079bb94cc18dfb86e4ba3f80710d5607433f08974c84a5a29052c76be` | `138385e92767a6bb2faa5f9918b1b68c68062de29ad76817303a6f9765a8ab4a` | **不带任何 `k60bt` 参数**：用来证明 0508 对普通启动完全惰性（BT 线程不启动，新代码一行都不执行） |
+
+其余哈希：payload `f4ce3db51caedecbca66bb477493e3be67e980d33e62284e9ba27fc996569a4d`、
+payload kernel `ec2b35a828e0b9a64a885eaca679f1bf27f778cb310aafa60edaf3ae15421e5e`、
+adt `56c6d450755ddf9e4e6b6aa389e7398f1db41bc249d8a4b8e90e189d67e7eacb`、
+dtb `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`、
+fd `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`；
+series 225 条 `7e5e3e4eb931829383948c0425c088888a9393813bc8051c84c69568458a3bdd`；
+`repo head a415e1f`、`dirty_files 0`；`verify-boot-image: OK`。
+
+**上机顺序（板子物理断电复位后）**：先 boot `bt-s2-20261114b`（无参数，一次普通启动，证明 0508 惰性）→
+再按 S1c 五档阶梯（a1→a5，见 `S1-PROBE-SPEC.md` §4.1）。前者的判据只有一条：跑到用户态、控制台无 panic。
+
 ## 5. ⑦ 本地验证记录
 
 | 项 | 结果 |
@@ -73,6 +90,8 @@ F1 的修法不依赖任何设备读数（0300 已在本板跑通、流号来自
 | 补丁 | 18,393 B / 391 行，sha256 `c4bf1ded55fe9bd03b7c10943ed41fff47464037c06c893b6dfd0984f02fd4f2` |
 | `git apply --check` | `APPLY_CHECK_OK`（在干净树上重放 0500 + 0507 + 0508） |
 | `clang -fsyntax-only` | `PASS bsd/dev/qbt_k60.c rc=0`（`BT_ROOT=/tmp/bt-s2-check`，`.CFLAGS` 取自 out3 的 `DEVELOPMENT_ARM64_PONG`） |
+| 主机测试分支 | `clang -std=gnu11 -DK60_BT_HOST_TEST -fsyntax-only` rc=0，只有 2 条既有 warning（`armcpu_spi_mask` 恒真、`K60_QUP_HW_VER_REG` 与 0500 重复定义），都来自 0500/0507，非本次引入 |
+| 内核构建 | `bt-s2-20261114b` 构建通过（kernel 54,177,792 B，series 225），`verify-boot-image: OK` |
 | 打点数 | 36 个 `probe: ` 打点保持不动（0507 的阶梯不受影响） |
 
 ## 6. 风险与回滚

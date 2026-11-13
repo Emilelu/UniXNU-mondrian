@@ -32,6 +32,8 @@
 | `E:/hackios/...` | 主工作区仓库 | 只出现在本文件正文；**不能写进 `SOURCES.toml` 的 `path`**（两种回退都不覆盖，gate 会判文件不存在） |
 | `docs/...`、`scripts/...` | 本仓库 | 我们自己的树 |
 
+设备页（`docs/devices/*.md`，本索引第 13 节）**不在本仓库**，也不在 `/mnt/e/hackios/UniXNU`：它们在 `references/UniXNU-upstream/docs/devices/`（上游文档树，由各 fork 的 `porting.toml` 生成）。`/mnt/e/hackios/UniXNU` 只有 `devices.toml` 与 `kits/`。
+
 本板一手数据的两个来源，路径固定：
 
 - `E:/k60-work/reports/live-6033dbec-fdt.dtb` —— 设备 6033dbec 于 2026-11-02 从 adb 导出的 **live merged FDT**（已含 dtbo 应用后的节点），919,210 B，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`。
@@ -217,7 +219,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 | pong-power | `PongAdsp.cpp:199` | `qcom_smp2p_find_in(&view, "slave-kernel")` | 同SoC异板 |
 | pong-power | `PongAdsp.cpp:202-204` | AOSS 就绪校验：`rd(gAoss,0)==0x4d41494c`（"MAIL"）且 `rd(gAoss,0xc)==0xffff` | 同SoC异板 |
 | **uefi-mondrian** | `MemoryMapLib.c:34` | `{"adsp_region", 0x9FD00000, 0x03100000, ...}` —— 与 Pong 的 0x85700000 **不同板不同址** | **本板实测** |
-| UniXNU-zizhan | `docs/devices/zizhan.md:55` | 原文：`ADSP uses 0x9fd00000+0x3100000, versus Pong 0x85700000+0x2800000. SMEM, IPCC, AOSS and cmd-db addresses agree.` —— 与 K60 完全一致 | 同SoC异板·已上机 |
+| UniXNU-upstream | `docs/devices/zizhan.md:55` | 原文：`ADSP uses 0x9fd00000+0x3100000, versus Pong 0x85700000+0x2800000. SMEM, IPCC, AOSS and cmd-db addresses agree.` —— 与 K60 完全一致 | 同SoC异板·已上机 |
 
 **结论：ADSP 三件事必须一起改**——基址 0x9fd00000、尺寸 0x3100000、DTB 位置随 adsp_region 走。
 Pong 的 0x85700000 在 K60 上是 `video_region`（见 12.1），照抄会写坏视频固件区。
@@ -410,7 +412,7 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 | yibiya-upstream | `patches/xnu/0210-k60-display-native-canvas.patch:12-16` | 原文注释：`The panel is 1440 x 3200, DSC video mode, 60 Hz. CoreAnimation takes its canvas from the mode this display publishes; a canvas that is not the panel's own pixel grid -- an iPhone-shaped 1125 x 2436, or the 1170 x 2532 of the 8 Plus class -- makes WindowServer's BoundingPathBitmap assert... So on this board the canvas is the panel` | 本板（K60 补丁） |
 | yibiya-upstream | 同上 `:22-23` | `#define K60_PANEL_WIDTH 1440` / `#define K60_PANEL_HEIGHT 3200`，tunable `k60_panel` 默认 1 | 本板 |
 | yibiya-upstream | 同上（`k60PanelNative()`） | 要求 `vinfo.v_width==1440 && vinfo.v_height==3200`，命中时打印 `K60 DISPLAY: fbwidth/fbheight/fbscale refused, the canvas is the panel` | 本板 |
-| UniXNU-zizhan | `docs/devices/zizhan.md:97` | 同 SoC 异板：SimpleFbDxe framebuffer=0xb8000000、**2160x1916**、继承 cont_splash_region —— **分辨率不同，不能套用** | 同SoC异板·已上机 |
+| UniXNU-upstream | `docs/devices/zizhan.md:104` | 同 SoC 异板：SimpleFbDxe framebuffer=0xb8000000、**2160x1916**、继承 cont_splash_region —— **分辨率不同，不能套用** | 同SoC异板·已上机 |
 
 ### 7.2 背光（Pong 的 NT37705，K60 待定）
 
@@ -465,7 +467,7 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 | pong-ufs | `RootLayout.h:157` | 窗口 magic `0x474e4853` / `0x544f4f52` = `"SHNGROOT"` | 同SoC异板 |
 | uefi-mondrian | `MemoryMapLib.c:111` | `{"SMMU", 0x15000000, 0x00200000, ...}` —— **K60 的 SMMU 窗口是 2 MiB，Pong 驱动只映射 1 MiB** | **本板实测** |
 | yibiya-upstream | `configs/mondrian_defconfig:28` | `CONFIG_XNU_NATIVE_UFS=y`；`:46` `CONFIG_XNU_OWNER_DATA_VOLUME_UUID="E313398B-D70A-4EB8-9425-4B1A7BE3E1F5"`；`:55` `CONFIG_XNU_PONG_RAMOOPS_CONSOLE=y` | 本板 |
-| UniXNU-mondrian-mzyxsl | `docs/devices/mondrian-mzyxsl.md` | 官方记录里的 `board.toml [userdata]`：**first_lba 53342976 / last_lba 61731583 / lba_bytes 4096**，窗口 OS + Cryptex1,SystemOS | 官方（fork 自报） |
+| UniXNU-upstream | `docs/devices/mondrian-mzyxsl.md:45`（另见 `:249`） | 官方记录里的 `board.toml [userdata]`：**first_lba 53342976 / last_lba 61731583 / lba_bytes 4096**，窗口 OS + Cryptex1,SystemOS | 官方（fork 自报） |
 | ShengUfs | `NativeUfs.cpp`（148,723 B） | 官方完整实现，但**硬编码 SM8550**，不能整体替换；`RootCommands.h`（29,932 B）与 `tests/` 下 12 个测试是移植范本 | 官方 |
 
 ---
@@ -572,16 +574,17 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 
 ---
 
-## 13. 官方记录（UniXNU 仓库，可信但需辨别）
+## 13. 官方记录（`UniXNU` 的登记表 + `references/UniXNU-upstream` 的设备页，可信但需辨别）
 
 | 仓库 | 文件:行 | 事实 | 可信度 |
 |---|---|---|---|
 | UniXNU | `devices.toml:1585-1598` | `[[device]] name=mondrian repository=Emilelu/UniXNU-mondrian format=2 revision=c39ff292... board=mondrian soc=SM8475 os_profile=ipados-16.6.1-20G81 components=[ArmDTPlatform,ArmCpu,XnuPrelink,PongUfs] record_state=available`；另有 3 个 fork 记录（mondrian-mzyxsl :1600、mondrian-wohusaixing :1616、mondrian-xtom0706 :1631） | 官方（fork 自报） |
-| UniXNU | `docs/devices/mondrian.md` | 状态表：Configuration=implemented、Firmware and boot=device-verified、CPU and interrupts=implemented、Memory and DMA=implemented、**Storage/Display/Input/GPU/Network/Audio/Power 全部 planned**、Image assembly=host-verified、Diagnostics=device-verified | 官方 |
-| UniXNU | `docs/devices/mondrian.md:102` | device 证据原文：`Darwin 24 loader boots the board every time: green bar from Entry.S, then the upstream probe's blue and magenta bars at the kernel entry and just before the MMU comes on.` 命令 `scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc8.img`，revision `d2af811a...` | 官方（fork 自报，已上机） |
-| UniXNU | `docs/devices/mondrian-mzyxsl.md:37-126` | 四层合并顺序 profiles/arch/arm64 → **UniXNU-sm8475-common** 的 `soc.toml` → OS profile → `board.toml`；feeds 五条 pin（xnu 8796.141.3=1b191cb5 等）；OS profile 取 iPad7,1/16.6.1/20G81（chip 32785=0x8011、board 12）；`board.toml [userdata]` first_lba 53342976 / last_lba 61731583 / lba_bytes 4096；patches/xnu/series 98 条 | 官方（fork 自报） |
-| UniXNU | `docs/devices/mondrian-mzyxsl.md:107-111` | 三条硬事实：① loader 只在 RAM 装 `UniXNULoader` 协议并在 unload 时恢复，**不写任何固件变量或分区**（fastboot boot 只读 bring-up 的前提）；② DarwinBoot 必须在 EL1 跑（`DarwinCurrentEl()!=4` 即 `EFI_UNSUPPORTED`），从 EL2 起的 payload 永远到不了 XNU；③ 绿条是 trampoline 不是内核 | 官方（fork 自报） |
-| UniXNU | `docs/devices/zizhan.md:55` `:97` `:138-154` | 同 SoC 已上机板：ADSP 0x9fd00000+0x3100000 与 Pong 不同；SimpleFbDxe framebuffer 0xb8000000 **2160x1916**；SM8475 四 A510+三 A710+一 X2、GICv3、19.2 MHz timer、PSCI；`PONG_ADT_CLUSTERS=1`；`pong_fast_pri=47、pong_fast_cpu=7`；`ml-timeout-lock-panic-scale=40`、`interrupt-masked-debug-mode=1` | 同SoC异板·已上机 |
+| UniXNU-upstream | `docs/devices/mondrian.md` | 只有 7 行的 hub 页：链到 `Emilelu/UniXNU-mondrian`，要求先把 porting.toml 补齐才发布子系统记录；唯一结论句是 `Emilelu/UniXNU-mondrian/storage: implemented work needs evidence`（**与 ZxbMsl 页的 storage=planned 矛盾**） | 官方 |
+| UniXNU-upstream | `docs/devices/mondrian-zxbmsl160918.md:13-27` | 状态表（**ZxbMsl160918 fork 自报**）：Configuration=implemented、Firmware and boot=device-verified、CPU and interrupts=implemented、Memory and DMA=implemented、**Storage/Display/Input/GPU/Network/Audio/Power 全部 planned**、Image assembly=host-verified、Diagnostics=device-verified | 官方 |
+| UniXNU-upstream | `docs/devices/mondrian-zxbmsl160918.md:102` | device 证据原文：`Darwin 24 loader boots the board every time: green bar from Entry.S, then the upstream probe's blue and magenta bars at the kernel entry and just before the MMU comes on.` 命令 `scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc8.img`，revision `d2af811a...` | 官方（fork 自报，已上机） |
+| UniXNU-upstream | `docs/devices/mondrian-mzyxsl.md:37-46` | 四层合并顺序 profiles/arch/arm64 → **UniXNU-sm8475-common** 的 `soc.toml` → OS profile → `board.toml`；feeds 五条 pin（xnu 8796.141.3=1b191cb5 等）；OS profile 取 iPad7,1/16.6.1/20G81（chip 32785=0x8011、board 12）；`board.toml [userdata]` first_lba 53342976 / last_lba 61731583 / lba_bytes 4096；patches/xnu/series 98 条 | 官方（fork 自报） |
+| UniXNU-upstream | `docs/devices/mondrian-mzyxsl.md:107-111` | 三条硬事实：① loader 只在 RAM 装 `UniXNULoader` 协议并在 unload 时恢复，**不写任何固件变量或分区**（fastboot boot 只读 bring-up 的前提）；② DarwinBoot 必须在 EL1 跑（`DarwinCurrentEl()!=4` 即 `EFI_UNSUPPORTED`），从 EL2 起的 payload 永远到不了 XNU；③ 绿条是 trampoline 不是内核 | 官方（fork 自报） |
+| UniXNU-upstream | `docs/devices/zizhan.md:55` `:104` `:147-153` | 同 SoC 已上机板：ADSP 0x9fd00000+0x3100000 与 Pong 不同；SimpleFbDxe framebuffer 0xb8000000 **2160x1916**；SM8475 四 A510+三 A710+一 X2、GICv3、19.2 MHz timer、PSCI；`PONG_ADT_CLUSTERS=1`；`pong_fast_pri=47、pong_fast_cpu=7`；`ml-timeout-lock-panic-scale=40`、`interrupt-masked-debug-mode=1` | 同SoC异板·已上机 |
 | UniXNU | `kits/` | 官方只有 6 个 kit：AdrenoFirmware、AdrenoPM4、AirNir、ArmSmmu4K、VerifiedRoot、XnuPrelink —— **没有音频/触摸/WiFi kit** | 官方 |
 | yibiya-unixnu-upstream | `docs/devices/mondrian*.md` | 上游化仓库里 K60 相关只有设备记录与 `pong-driver/configs/mondrian_defconfig`，**没有硬件实现** | 官方 |
 
@@ -602,7 +605,7 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 ### 14.2 ADSP 基址与 Pong 不同
 
 Pong `PongAdsp.cpp:45` 用 `0x85700000`；K60 的 `0x85700000` 是 **video_region**（`MemoryMapLib.c:22`），ADSP 在 **0x9FD00000 + 0x3100000**（`:34`）。
-UniXNU-zizhan 已上机的同 SoC 记录给出同样结论（`docs/devices/zizhan.md:55`）。**照抄 Pong 会把 ADSP 固件写进视频固件区。**
+UniXNU-upstream 的 zizhan 设备记录给出同样结论（`docs/devices/zizhan.md:55`）。**照抄 Pong 会把 ADSP 固件写进视频固件区。**
 
 ### 14.3 GPU 时钟校验写死 600 MHz
 

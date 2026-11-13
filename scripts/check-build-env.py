@@ -20,7 +20,31 @@ from pathlib import Path
 
 BUILD = Path(os.environ.get("K60_BUILD_TREE", "/opt/k60/trees/k60build"))
 OUT = Path(os.environ.get("K60_OUT", str(BUILD / "out-baseline")))
-M = OUT / "mondrian/ipados-16.6.1-20G81/mondrian"
+
+
+def board_dir(out: Path) -> Path:
+    """The directory `unixnu` builds this configuration into.
+
+    It is named after the defconfig, not after the board: `mondrian_defconfig`
+    builds into `mondrian/`, `mondrian_wifi_defconfig` into `mondrian_wifi/`.
+    Hardcoding `mondrian` made every alternative configuration look like an
+    unbuilt tree. Prefer an explicit K60_BOARD_DIR, then the only configured
+    candidate, then the historical name.
+    """
+    explicit = os.environ.get("K60_BOARD_DIR")
+    if explicit:
+        return Path(explicit)
+    candidates = sorted(
+        p for p in out.glob("mondrian/ipados-*/*") if p.is_dir() and (p / ".config").is_file()
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        return max(candidates, key=lambda p: (p / ".config").stat().st_mtime)
+    return out / "mondrian/ipados-16.6.1-20G81/mondrian"
+
+
+M = board_dir(OUT)
 FAKEROOT = M / "tree/.cache/fakeroot"
 
 # The Darwin tools Linux does not have. `xcodebuild` is the one that fails last

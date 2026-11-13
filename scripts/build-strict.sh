@@ -65,7 +65,21 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 # it 13 minutes into the build as `xcodebuild: command not found`.
 python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
-M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
+# The build directory is named after the defconfig, not the board: the default
+# configuration builds into `mondrian/`, the wifi one into `mondrian_wifi/`.
+# Ask unixnu where it put the .config instead of assuming the name.
+board_dir() {
+    if [ -n "${K60_BOARD_DIR:-}" ]; then
+        echo "$K60_BOARD_DIR"
+        return
+    fi
+    local found
+    found=$(ls -d "$OUT"/mondrian/ipados-*/*/. 2>/dev/null | sed 's:/$::' | while read -r d; do
+        [ -f "$d/.config" ] && echo "$d"
+    done | head -1)
+    echo "${found:-$OUT/mondrian/ipados-16.6.1-20G81/mondrian}"
+}
+M=$(board_dir)
 KERNEL=$M/kernel/kernel.macho
 
 # --- frozen inputs -----------------------------------------------------------

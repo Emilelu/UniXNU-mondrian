@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
-/* SM8475 cold GMU startup. The GPU SMMU and active TCS3 have one owner.
- * K60 cannot safely access APSS RSC from EL1: all TCS operations use the
- * documented Qualcomm secure I/O service, which can reject protected access.
+/* SM8475 cold GMU startup and K60 touch IOVDD preparation. APSS DRV2
+ * uses the target-successful direct RSC mapping and one serialized TCS3 lease.
  * Do not steal a live master, a busy TCS or unrelated stream/context bank.
  */
 #include <IOKit/IOLib.h>
@@ -12,19 +11,24 @@
 #include <kern/task.h>
 #include <libkern/c++/OSSharedPtr.h>
 #include <pexpert/pexpert.h>
+#include <sys/errno.h>
 #include "PongAdrenoGmu.h"
 #include "PongAdrenoClocks.h"
 #include "PongAdrenoSmmu.h"
 #include "PongAdrenoRegisters.h"
 #include "PongAdrenoCp.h"
+#include "PongAdrenoPower.h"
 
 extern "C" const uint8_t PongAdrenoGmuFirmware[];
 extern "C" const size_t PongAdrenoGmuFirmwareBytes;
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
+extern "C" void pong_rpmh_lock(void);
+extern "C" void pong_rpmh_unlock(void);
 namespace {
-struct Mapping {OSSharedPtr<IOMemoryMap> keep;uintptr_t cpu=0;size_t bytes=0;uint64_t physical=0;bool secure=false;};
+struct Mapping {OSSharedPtr<IOMemoryMap> keep;uintptr_t cpu=0;size_t bytes=0;};
 struct Memory {IOBufferMemoryDescriptor *keep=nullptr;uint8_t *cpu=nullptr;uint64_t pa=0;size_t bytes=0;};
 static Mapping windows[PongGpuWindowCount],gcc,gcc_vote,gcc_branches,rsc,db;
+static bool tcs3_quarantined;
 static Memory cache,dummy,hfi,logmem,tables;
 static PongClockState clocks;
 static PongGpuGmuDevice gmu;
@@ -39,34 +43,12 @@ static ArmSmmu4KContextConfig config;
 static ArmSmmu4KIo smmu_io;
 static uint64_t bank_offset;
 static unsigned parents_ready,attempted;
-static bool secure_io_failed;
+static bool io_failed;
 static void record(const char *phase,unsigned result,uint64_t a=0,uint64_t b=0)
 {
     char text[240];int n=snprintf(text,sizeof(text),
         "PONG ADRENO: %s result=%u a=0x%llx b=0x%llx\n",phase,result,a,b);
     if(n>0){IOLog("%s",text);pong_ramoops_diagnostic_write(text,n<(int)sizeof(text)?n:(int)sizeof(text)-1);}
-}
-static uint64_t microseconds();
-/* Qualcomm TZ_IO_ACCESS_READ/WRITE, scm_sip_interface.h and qcom_scm.c.
- * No EL1 load/store is issued to RSC. Reject transport/service failures;
- * interrupted calls resume with the vendor's A6 cookie, within a time bound. */
-static bool secure_io(bool write,uint64_t address,uint32_t *value)
-{
-    if(address<0x17a20000ULL || address>0x17a2fffcULL || (address&3))return false;
-    const uint64_t function=write?0xc2000502ULL:0xc2000501ULL;
-    uint64_t first=function,a6=0,begin=microseconds();
-    for(unsigned resumes=0;resumes<1000 && microseconds()-begin<1000000;resumes++) {
-        register uint64_t x0 asm("x0")=first,x1 asm("x1")=write?2:1;
-        register uint64_t x2 asm("x2")=address,x3 asm("x3")=write?*value:0;
-        register uint64_t x4 asm("x4")=0,x5 asm("x5")=0,x6 asm("x6")=a6,x7 asm("x7")=0;
-        asm volatile("smc #0":"+r"(x0),"+r"(x1),"+r"(x2),"+r"(x3),"+r"(x4),"+r"(x5),"+r"(x6),"+r"(x7)
-            ::"x8","x9","x10","x11","x12","x13","x14","x15","x16","x17","memory");
-        if(x0==1){first=1;a6=x6;continue;}
-        if(x0!=0){record(write?"secure RSC write refused":"secure RSC read refused",1,address,x0);return false;}
-        if(!write)*value=uint32_t(x1);
-        return true;
-    }
-    record("secure RSC call timed out",1,address);return false;
 }
 static bool map(Mapping &m,uint64_t physical,size_t bytes)
 {
@@ -76,6 +58,15 @@ static bool map(Mapping &m,uint64_t physical,size_t bytes)
     if(!m.keep)return false;
     m.cpu=m.keep->getVirtualAddress();m.bytes=bytes;return m.cpu!=0;
 }
+/* Called only under rsc_lock, including from touch before the optional GPU
+ * thread exists. Reuse these retained mappings; never map DRV0 at17a00000.
+ * Target GPU ARC votes succeeded through17a20000, while secure I/O refused. */
+static int init_power()
+{
+    if(!db.cpu && !map(db,0x80860000,0x20000))return ENXIO;
+    if(!rsc.cpu && !map(rsc,0x17a20000,0x10000))return ENXIO;
+    return 0;
+}
 static Mapping *gcc_mapping(size_t &at)
 {
     size_t page=at&~size_t(4095);at&=4095;
@@ -84,26 +75,24 @@ static Mapping *gcc_mapping(size_t &at)
 static uint32_t gcc_read(size_t at)
 {
     Mapping *m=gcc_mapping(at);
-    if(!m){secure_io_failed=true;return 0;}
+    if(!m){io_failed=true;return 0;}
     return *reinterpret_cast<volatile uint32_t *>(m->cpu+at);
 }
 static void gcc_write(size_t at,uint32_t value)
 {
     Mapping *m=gcc_mapping(at);
-    if(!m){secure_io_failed=true;return;}
+    if(!m){io_failed=true;return;}
     *reinterpret_cast<volatile uint32_t *>(m->cpu+at)=value;
     __asm__ volatile("dsb sy":::"memory");
 }
-static uint32_t rd(const Mapping &m,size_t at)
+static uint32_t rd(const Mapping &m,size_t at,bool *failed=&io_failed)
 {
-    if(m.bytes<4 || (at&3) || at>m.bytes-4){secure_io_failed=true;return 0;}
-    if(m.secure){if(secure_io_failed)return 0;uint32_t value=0;if(!secure_io(false,m.physical+at,&value))secure_io_failed=true;return value;}
+    if(m.bytes<4 || (at&3) || at>m.bytes-4){*failed=true;return 0;}
     return *reinterpret_cast<volatile uint32_t *>(m.cpu+at);
 }
-static void wr(const Mapping &m,size_t at,uint32_t value)
+static void wr(const Mapping &m,size_t at,uint32_t value,bool *failed=&io_failed)
 {
-    if(m.bytes<4 || (at&3) || at>m.bytes-4){secure_io_failed=true;return;}
-    if(m.secure){if(!secure_io_failed && !secure_io(true,m.physical+at,&value))secure_io_failed=true;return;}
+    if(m.bytes<4 || (at&3) || at>m.bytes-4){*failed=true;return;}
     __asm__ volatile("dsb sy":::"memory");*reinterpret_cast<volatile uint32_t *>(m.cpu+at)=value;__asm__ volatile("dsb sy":::"memory");
 }
 static int barrier(void *){__asm__ volatile("dsb sy":::"memory");return 0;}
@@ -130,12 +119,12 @@ static bool allocate(Memory &m,size_t bytes)
     if(!m.cpu || !m.pa || (m.pa&4095) || contiguous<bytes || m.pa+bytes>UINT64_C(1)<<36)return false;
     bzero(m.cpu,bytes);clean(m.cpu,bytes);return true;
 }
-static bool poll(const Mapping &m,size_t at,uint32_t mask,uint32_t wanted,unsigned us)
+static bool poll(const Mapping &m,size_t at,uint32_t mask,uint32_t wanted,unsigned us,bool *failed=&io_failed)
 {
     uint64_t begin=microseconds();
     for(unsigned n=0;n<us && microseconds()-begin<us;n++) {
-        uint32_t current=rd(m,at);
-        if(secure_io_failed)return false;
+        uint32_t current=rd(m,at,failed);
+        if(*failed)return false;
         if((current&mask)==wanted)return true;IODelay(1);
     }
     return false;
@@ -159,10 +148,11 @@ static unsigned required_corner(const PongPowerResource &rail,unsigned minimum)
 }
 static bool vote_parents(const PongPowerInputs &in)
 {
-    // Pong live DT: APSS DRV2, TCS layout sleep0..2, active3..4, wake5..6.
-    // Only active TCS3 is leased here. Sleep/wake and other drivers are intact.
+    // TCS3 is the target-successful firmware/XNU lease, not a DT ACTIVE claim.
+    // Android DT allocates active0..2, sleep3..4, wake5..6. Do not expand it.
+    if(tcs3_quarantined){record("SKIP quarantined TCS3",1);return false;}
     uint32_t caps=rd(rsc,0xc);
-    if(secure_io_failed)return false;
+    if(io_failed)return false;
     // DRV_NUM_TCS_SHIFT6 * Pong drv-id2. DT reserves eight TCSes including
     // fast-path7. NCPT is the actual five-bit per-TCS command capacity.
     unsigned count=(caps>>12)&63,ncpt=(caps>>27)&31;
@@ -177,14 +167,14 @@ static bool vote_parents(const PongPowerInputs &in)
     for(unsigned tcs=3;tcs<=4;tcs++) for(unsigned command=0;command<ncpt;command++) {
         size_t slot=0xd00+tcs*0x2a0+0x34+20*command;
         uint32_t address=rd(rsc,slot),value=rd(rsc,slot+4);
-        if(secure_io_failed)return false;
+        if(io_failed)return false;
         const PongPowerResource *rail=address==in.cx.address?&in.cx:address==in.mx.address?&in.mx:nullptr;
         if(!rail)continue;
         if(value>=rail->bytes/2 || value>=16){record("SKIP unknown retained ARC index",1,address,value);return false;}
         if(address==in.cx.address && value>cx)cx=value;
         if(address==in.mx.address && value>mx)mx=value;
     }
-    // Check active TCS4 as well: the AOP must never receive concurrent
+    // Check neighboring TCS4 as well: the AOP must never receive concurrent
     // commands for the same ARC address. Preserve all foreign in-flight work.
     const size_t other=0xd00+4*0x2a0;
     if(!rd(rsc,other+0x18)) {
@@ -229,22 +219,110 @@ static bool vote_parents(const PongPowerInputs &in)
         if(commands && idle && (progressed || (rd(rsc,0xd04)&(1u<<3)))){complete=true;break;}
         IODelay(10);
     }
-    if(!complete || secure_io_failed){record("FAIL ARC completion",1,(uint64_t(first)<<32)|second,idle);return false;}
+    if(!complete || io_failed){record("FAIL ARC completion",1,(uint64_t(first)<<32)|second,idle);return false;}
     wr(rsc,base+0x1c,0);wr(rsc,0xd08,1u<<3);
     // Clear only the completed transaction's trigger, matching vendor reclaim.
     // Keep the acknowledged votes and parent resources retained.
     wr(rsc,base+0x14,rd(rsc,base+0x14)&~(1u<<24));
     record("parent ARC votes acknowledged",0,mx,cx);
-    return !secure_io_failed;
+    return !io_failed;
+}
+/* Caller holds rsc_lock for the whole claim/program/ACK/reclaim sequence.
+ * Local bounds status keeps a failed optional GPU operation from poisoning
+ * this independent rail preparation. Only the captured ldoc2 resource is used. */
+static int vote_touch(const PongPowerResource &rail)
+{
+    if(tcs3_quarantined)return EIO;
+    // ARC reuse overwrites the command slots, not their acknowledged VRM vote.
+    static uint32_t retained_voltage=1800;
+    bool failed=false;
+    uint32_t caps=rd(rsc,0xc,&failed);
+    unsigned count=(caps>>12)&63,ncpt=(caps>>27)&31;
+    if(failed)return EIO;
+    if(count<8 || ncpt<2)return ENXIO;
+    if(ncpt>16)return EINVAL; // A TCS has at most sixteen20-byte slots.
+    const size_t base=0xd00+3*0x2a0,other=0xd00+4*0x2a0;
+    uint32_t idle=rd(rsc,base+0x18,&failed),control=rd(rsc,base+0x14,&failed);
+    uint32_t enabled=rd(rsc,base+0x1c,&failed);
+    if(failed)return EIO;
+    // Idle alone cannot authorize erasing an armed or unexplained old lease.
+    if(!idle || enabled || (control&(1u<<24)))return EBUSY;
+    uint32_t voltage=retained_voltage;
+    for(unsigned tcs=3;tcs<=4;tcs++) for(unsigned command=0;command<ncpt;command++) {
+        size_t slot=0xd00+tcs*0x2a0+0x34+20*command;
+        uint32_t address=rd(rsc,slot,&failed),value=rd(rsc,slot+4,&failed);
+        if(failed)return EIO;
+        // Retained data survives CMD_ENABLE clearing. Never lower an existing
+        // request, and refuse values outside the proven board rail limits.
+        if(address==rail.address) {
+            if(value<1800 || value>1980)return EINVAL;
+            if(value>voltage)voltage=value;
+        } else if(address==rail.address+4 && value>1)return EINVAL;
+    }
+    uint32_t other_idle=rd(rsc,other+0x18,&failed);
+    uint32_t other_enabled=rd(rsc,other+0x1c,&failed);
+    if(failed)return EIO;
+    if(other_enabled&~((1u<<ncpt)-1))return EINVAL;
+    if(!other_idle && !other_enabled)return EBUSY; // Unknown in-flight addresses.
+    for(unsigned i=0;i<ncpt;i++)if(other_enabled&(1u<<i)) {
+        uint32_t address=rd(rsc,other+0x34+20*i,&failed);
+        if(failed)return EIO;
+        if(address==rail.address || address==rail.address+4)return EBUSY;
+    }
+    // Same target-successful TCS3 transitions as the existing ARC writer.
+    // Any failure after modifying the lease leaves it quarantined, even if
+    // hardware later goes idle; never reclaim an unacknowledged transaction.
+    tcs3_quarantined=true;
+    wr(rsc,0xd00,rd(rsc,0xd00,&failed)&~(1u<<3),&failed);
+    control&=~(1u<<24);wr(rsc,base+0x14,control,&failed);
+    if(!poll(rsc,base+0x14,~0u,control,500,&failed))return failed?EIO:ETIMEDOUT;
+    control&=~(1u<<16);wr(rsc,base+0x14,control,&failed);
+    if(!poll(rsc,base+0x14,~0u,control,500,&failed))return failed?EIO:ETIMEDOUT;
+    wr(rsc,base+0x1c,0,&failed);wr(rsc,0xd08,1u<<3,&failed);
+    if(!poll(rsc,0xd04,1u<<3,0,500,&failed))return failed?EIO:ETIMEDOUT;
+    const uint32_t addresses[]={rail.address,rail.address+4},values[]={voltage,1};
+    for(unsigned i=0;i<2;i++) {
+        wr(rsc,base+0x30+20*i,0x10108,&failed);
+        wr(rsc,base+0x34+20*i,addresses[i],&failed);
+        wr(rsc,base+0x38+20*i,values[i],&failed);
+    }
+    wr(rsc,base+0x10,3,&failed);wr(rsc,base+0x1c,3,&failed);
+    wr(rsc,base+0x14,1u<<16,&failed);
+    if(!poll(rsc,base+0x14,~0u,1u<<16,500,&failed))return failed?EIO:ETIMEDOUT;
+    wr(rsc,base+0x14,(1u<<16)|(1u<<24),&failed);
+    // IRQ3 stays masked. Both ISSUED|COMPL statuses and actual idle are
+    // required, with fresh progress or freshly asserted cleared completion.
+    bool complete=false,progressed=false;uint32_t first=0,second=0;
+    uint64_t began=microseconds();
+    for(unsigned n=0;n<10000 && microseconds()-began<100000;n++) {
+        first=rd(rsc,base+0x3c,&failed);second=rd(rsc,base+0x50,&failed);
+        idle=rd(rsc,base+0x18,&failed);
+        if(failed)return EIO;
+        bool commands=(first&0x10100)==0x10100 && (second&0x10100)==0x10100;
+        if(!commands || !idle)progressed=true;
+        if(commands && idle && (progressed || (rd(rsc,0xd04,&failed)&(1u<<3)))){complete=true;break;}
+        IODelay(10);
+    }
+    if(!complete || failed) {
+        record("FAIL touch VRM completion",1,(uint64_t(first)<<32)|second,idle);
+        return failed?EIO:ETIMEDOUT;
+    }
+    wr(rsc,base+0x1c,0,&failed);wr(rsc,0xd08,1u<<3,&failed);
+    wr(rsc,base+0x14,rd(rsc,base+0x14,&failed)&~(1u<<24),&failed);
+    if(failed)return EIO;
+    retained_voltage=voltage;
+    tcs3_quarantined=false;
+    record("touch IOVDD VRM acknowledged",0,rail.address,voltage);
+    return 0;
 }
 static int clock_read(void *,PongClockWindow w,size_t at,uint32_t *v)
 {
-    if(w==PongClockGcc){*v=gcc_read(at);return secure_io_failed?1:0;}
+    if(w==PongClockGcc){*v=gcc_read(at);return io_failed?1:0;}
     const Mapping &m=windows[PongGpuClock];if(m.bytes<4 || at>m.bytes-4)return 1;*v=rd(m,at);return 0;
 }
 static int clock_write(void *,PongClockWindow w,size_t at,uint32_t v)
 {
-    if(w==PongClockGcc){gcc_write(at,v);return secure_io_failed?1:0;}
+    if(w==PongClockGcc){gcc_write(at,v);return io_failed?1:0;}
     const Mapping &m=windows[PongGpuClock];if(m.bytes<4 || at>m.bytes-4)return 1;wr(m,at,v);return 0;
 }
 static int clock_prerequisite(void *)
@@ -252,7 +330,7 @@ static int clock_prerequisite(void *)
     // GCC fixed LUCID_EVO GPLL0, actual L/alpha/lock, TCXO19.2MHz from DT.
     // Its hardware-decoded rate must be600MHz; no A740 PLL is programmed.
     uint64_t rate=19200000ULL*((gcc_read(0x10)&0xffff)*65536ULL+(gcc_read(0x14)&0xffff))/65536;
-    return secure_io_failed || !parents_ready || !(gcc_read(0)&0x80000000) || rate!=600000000;
+    return io_failed || !parents_ready || !(gcc_read(0)&0x80000000) || rate!=600000000;
 }
 static int smmu_read(void *,size_t at,uint32_t *v)
 {const Mapping &m=windows[PongGpuSmmu];if((at&3)||at>m.bytes-4)return 1;*v=rd(m,at);return 0;}
@@ -405,31 +483,31 @@ static int cp_write(void *,uint32_t reg,uint32_t value)
 }
 static void run(void *,wait_result_t)
 {
-    // Delay optional hardware work until the console and normal desktop boot
-    // can record a refused monitor request without losing the working chain.
+    // Delay optional GPU work until the console and normal desktop boot can
+    // record startup failures without losing the working chain.
     IOSleep(8000);
     /* This is a start banner, not a verdict. It used to say "no accelerator
      * published", which every reader took as the outcome while the 22 startup
      * stages below all reported result=0. A log line that describes the wrong
      * moment costs more than no line at all (P-164). */
     record("startup begin; 22 stages follow",0);
-    /* APSS RSC is a plain MMIO window on this board. Upstream's driver
-     * initialized on hardware with a direct mapping (its 22-step startup
-     * reported result=0 for every step, including "parent ARC votes"), while
-     * routing the same accesses through the Qualcomm secure-I/O service was
-     * refused by the monitor with -2 before any vote was written. Use the
-     * direct window and keep the SMC helper out of this path. */
-    rsc.physical=0x17a20000;rsc.bytes=0x10000;rsc.secure=false;
     if(!map(gcc,0x100000,0x1000)||!map(gcc_vote,0x162000,0x1000)||
-        !map(gcc_branches,0x181000,0x1000)||!map(db,0x80860000,0x20000))
+        !map(gcc_branches,0x181000,0x1000))
         {record("SKIP resource mapping",1);return;}
-    if(!map(rsc,0x17a20000,0x10000))
-        {record("SKIP RSC map",1);return;}
-    PongPowerInputs inputs={};auto input_status=PongAdrenoReadPowerInputs(
-        reinterpret_cast<const uint8_t *>(db.cpu),db.bytes,PongAdrenoChipId,&inputs);
+    PongPowerInputs inputs={};
+    pong_rpmh_lock();
+    int mapping_status=init_power();
+    PongPowerStatus input_status=PongPowerSuccess;bool voted=false;
+    if(!mapping_status) {
+        input_status=PongAdrenoReadPowerInputs(reinterpret_cast<const uint8_t *>(db.cpu),
+            db.bytes,PongAdrenoChipId,&inputs);
+        if(!input_status)voted=vote_parents(inputs);
+    }
+    if(voted)parents_ready=1;
+    pong_rpmh_unlock();
+    if(mapping_status){record("SKIP power mapping",mapping_status);return;}
     if(input_status){record("SKIP command-db",input_status);return;}
-    if(!vote_parents(inputs)){record("FAIL parent votes",1);return;}
-    parents_ready=1;
+    if(!voted){record("FAIL parent votes",1);return;}
     // GPUCC register interface must be clocked before even reading GPUCC.
     gcc_write(0x81004,gcc_read(0x81004)|1);IODelay(10);
     if(!(gcc_read(0x81004)&1)){record("FAIL CFG AHB",1);return;}
@@ -480,6 +558,20 @@ static void worker(void *parameter,wait_result_t result)
     thread_terminate(current_thread());
     thread_block(THREAD_CONTINUE_NULL);
 }
+}
+extern "C" int pong_touch_iovdd_enable(void)
+{
+    pong_rpmh_lock();
+    int result=init_power();
+    if(!result) {
+        PongPowerResource rail={};
+        auto status=PongAdrenoReadTouchPowerResource(reinterpret_cast<const uint8_t *>(db.cpu),
+            db.bytes,&rail);
+        result=status==PongPowerMissing?ENXIO:status?EINVAL:vote_touch(rail);
+    }
+    pong_rpmh_unlock();
+    if(result)record("touch IOVDD VRM refused",result);
+    return result;
 }
 extern "C" void pong_adreno_start_optional(void)
 {

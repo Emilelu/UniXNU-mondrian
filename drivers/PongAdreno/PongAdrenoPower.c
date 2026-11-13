@@ -21,20 +21,28 @@ static int name_is(const uint8_t *p,const char *name)
     }
     return 1;
 }
-PongPowerStatus PongAdrenoReadPowerInputs(const uint8_t *db,size_t bytes,
-    uint32_t chip,PongPowerInputs *out)
+static PongPowerStatus read_rows(const uint8_t *db,size_t bytes,
+    size_t headers[8],size_t sizes[8],size_t aux[8],unsigned *rows)
 {
-    if (!db || !out || chip!=0x07030002 || bytes!=0x20000) return PongPowerArgument;
-    if (!le32(db) || le32(db+4)!=0x0c0330db) return PongPowerCorrupt;
-    size_t headers[8],sizes[8],aux[8];unsigned rows=0;
+    *rows=0;
     for (unsigned i=0;i<8;i++) {
         const uint8_t *r=db+8+16*i;
         if (!le16(r)) break;
         headers[i]=144u+le16(r+2);sizes[i]=(size_t)le16(r+6)*24;
         aux[i]=144u+le16(r+4);
         if (!extent(headers[i],sizes[i],bytes) || !extent(aux[i],0,bytes)) return PongPowerCorrupt;
-        ++rows;
+        ++*rows;
     }
+    return PongPowerSuccess;
+}
+PongPowerStatus PongAdrenoReadPowerInputs(const uint8_t *db,size_t bytes,
+    uint32_t chip,PongPowerInputs *out)
+{
+    if (!db || !out || chip!=0x07030002 || bytes!=0x20000) return PongPowerArgument;
+    if (!le32(db) || le32(db+4)!=0x0c0330db) return PongPowerCorrupt;
+    size_t headers[8],sizes[8],aux[8];unsigned rows=0;
+    PongPowerStatus status=read_rows(db,bytes,headers,sizes,aux,&rows);
+    if (status) return status;
     const char *names[]={"gfx.lvl","mx.lvl","cx.lvl","SH0","MC0","ACV","CN0"};
     PongPowerResource resources[7]={{0}};unsigned seen=0;
     for (unsigned i=0;i<rows;i++) for (size_t at=headers[i];at<headers[i]+sizes[i];at+=24) {
@@ -54,6 +62,35 @@ PongPowerStatus PongAdrenoReadPowerInputs(const uint8_t *db,size_t bytes,
     if (seen!=0x7f) return PongPowerMissing;
     *out=(PongPowerInputs){chip,le32(db),resources[0],resources[1],resources[2],
         resources[3],resources[4],resources[5],resources[6]};
+    return PongPowerSuccess;
+}
+PongPowerStatus PongAdrenoReadTouchPowerResource(const uint8_t *db,size_t bytes,
+    PongPowerResource *out)
+{
+    if (!db || !out || bytes!=0x20000) return PongPowerArgument;
+    if (!le32(db) || le32(db+4)!=0x0c0330db) return PongPowerCorrupt;
+    size_t headers[8],sizes[8],aux[8];unsigned rows=0,seen=0;
+    PongPowerStatus status=read_rows(db,bytes,headers,sizes,aux,&rows);
+    if (status) return status;
+    PongPowerResource resource={0};
+    for (unsigned i=0;i<rows;i++) for (size_t at=headers[i];at<headers[i]+sizes[i];at+=24) {
+        const uint8_t *entry=db+at;
+        if (!name_is(entry,"ldoc2")) continue;
+        if (seen++) return PongPowerDuplicate;
+        const uint8_t *row=db+8+16*i;
+        uint32_t address=le32(entry+16);
+        size_t len=le16(entry+20),start=aux[i]+le16(entry+22);
+        /* Captured VRM v1.0 resource only. Its AUX bytes are an identity,
+         * not a PMIC SID/peripheral address or an ARC corner table. */
+        if (le16(row)!=4 || le16(row+8)!=0x0100 || address!=0x42c00 ||
+            ((address>>16)&7)!=4 || len!=4 || !extent(start,len,bytes)) return PongPowerCorrupt;
+        for (unsigned j=0;j<rows;j++)
+            if (start<headers[j]+sizes[j] && headers[j]<start+len) return PongPowerCorrupt;
+        if (db[start]!=0x01 || db[start+1]!=0x2a || db[start+2] || db[start+3]) return PongPowerCorrupt;
+        resource=(PongPowerResource){address,db+start,len};
+    }
+    if (!seen) return PongPowerMissing;
+    *out=resource;
     return PongPowerSuccess;
 }
 static unsigned rail_count(const PongPowerResource *r)

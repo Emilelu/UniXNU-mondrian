@@ -15,7 +15,7 @@ diff --git a/bsd/dev/pong_goodix.c b/bsd/dev/pong_goodix.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1276 @@
+@@ -0,0 +1,1290 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -23,6 +23,7 @@ new file mode 100644
 +#if defined(PONG)
 +#include <kern/clock.h>
 +#include <kern/thread.h>
++#include <kern/locks.h>
 +#include <libkern/libkern.h>
 +#include <mach/mach_types.h>
 +#include <pexpert/pexpert.h>
@@ -33,6 +34,12 @@ new file mode 100644
 +
 +extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 +extern kern_return_t thread_terminate(thread_t thread);
++extern int pong_touch_iovdd_enable(void);
++/* Kernel-private startup declarations are unavailable in archive SDK headers. */
++static LCK_GRP_DECLARE(rpmh_group, "pong-rpmh");
++static LCK_MTX_DECLARE(rpmh_lock, &rpmh_group);
++void pong_rpmh_lock(void) { lck_mtx_lock(&rpmh_lock); }
++void pong_rpmh_unlock(void) { lck_mtx_unlock(&rpmh_lock); }
 +
 +static vm_offset_t gpio_pages[7], gcc_qup, gcc_core, gcc_vote, gcc_pll, se;
 +static uint64_t tlmm_phys, gcc_phys, se_phys;
@@ -175,16 +182,23 @@ new file mode 100644
 +
 +/* ---- K60 supplies ------------------------------------------------------------------------------- */
 +
-+static void
++static bool
 +io_supply_on(void)
 +{
 +    /* AVDD is a load-switch GPIO. IOVDD is pm8350c_l2 at 1.8 V, not the
-+     * Pong ldoc3/ldoc12 pair. No RSC, TCS or command-database access is safe
-+     * on this board. Retained IOVDD is a prerequisite, NOT measured power. */
-+    printf("Pong touch: require retained pm8350c_l2 IOVDD 1.8 V; no rail vote or power-good claim\n");
++     * Pong ldoc3/ldoc12 pair. The AP has no SPMI channel for PPID 0x241, so
++     * the rail is requested from the RPMh RSC (apps_rsc drv-2, TCS3) through
++     * the shared serialized owner. RESET stays asserted if the request fails:
++     * a chip that answers on an unpowered rail would be a different chip. */
++    int error = pong_touch_iovdd_enable();
++    if (error) {
++        printf("Pong touch: ldoc2 RPMh request failed err=%d; RESET held low\n", error);
++        return false;
++    }
 +    gpio_output(avdd_gpio, true, PULL_NONE, 6);
 +    sleep_ms(15);
 +    printf("Pong touch: AVDD GPIO%u enabled, IRQ=%u (level only)\n", avdd_gpio, gpio_get(PIN_INT));
++    return true;
 +}
 +
 +/* ---- clocks (GCC) -------------------------------------------------------------------------------- */
@@ -1180,9 +1194,9 @@ new file mode 100644
 +    wr(GPIO_IRQ_STATUS(PIN_INT), 0);
 +    gpio_configure(PIN_INT, 0, PULL_UP, 8, false);
 +    gpio_output(PIN_RESET, false, PULL_UP, 8);
-+    io_supply_on();
++    if (!io_supply_on()) goto out;
 +    if (touch_stage == 2) {
-+        printf("Pong touch: stage 2 GPIO/AVDD complete; retained IOVDD not measured\n");
++        printf("Pong touch: stage 2 GPIO/AVDD/RPMh complete; chip not identified\n");
 +        goto out;
 +    }
 +    if (touch_stage != 7) {

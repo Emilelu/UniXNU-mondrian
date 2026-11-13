@@ -15,9 +15,10 @@ import subprocess
 import sys
 
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
-DEV = '/opt/k60/trees/usb-cdc-mainline/device'
-SCRATCH_SERIES = '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 构建输入与 scratch 副本都可被环境变量覆盖，便于在独立分支上做不污染共享树的构建
+DEV = os.environ.get('K60_DEVICE_INPUT', '/opt/k60/trees/usb-cdc-mainline/device')
+SCRATCH_SERIES = os.environ.get('K60_SERIES_FINAL', '/mnt/e/k60-work/scratch/SERIES-FINAL.txt')
 
 # 仓库里需要镜像到构建输入的条目（相对路径）
 

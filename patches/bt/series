@@ -5,3 +5,4 @@
 # or add a patches/xnu/0503 entry plus a series line (option B); see
 # docs/research/bt/S1-PROBE-SPEC.md section 6.
 0001-k60-bt-readonly-probe.patch
+0002-k60-bt-s2-smmu-rcg-reset.patch

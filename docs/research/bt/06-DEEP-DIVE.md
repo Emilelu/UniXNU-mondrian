@@ -26,14 +26,15 @@ blocked S1 and is now fixed in the probe, and one was resolved offline on 2026-1
 
 | id | deviation | reach |
 |----|-----------|-------|
-| **F1** | GENI DMA address is the *virtual* pointer; SMMU stream 0x483 is neither bypassed nor configured | blocks S2 — **fix plan settled** (§F1: reuse the `k60_usblog.c` planner + `kmem_alloc_contig` pattern, inside `patches/bt/`) |
+| **F1** | GENI DMA address is the *virtual* pointer; SMMU stream 0x483 is neither bypassed nor configured | **fixed in `0508`** (§F1: the `k60_usblog.c` planner + `kmem_alloc_contig` ported into `qbt_k60.c`, `patches/bt/0002`) |
 | **F2** | `G_MANUAL_RFR` (0x2ac) is written with a value the component never uses | **resolved**: it is `0x80000001` in the official sheng backend (`BluetoothProbe.cpp:202`), decoded = manual RFR + RTS ready |
-| **F3** | `k60_stop_engine()` polls offset 0xe40, which exists in no GENI header | blocks S2 (decided by the S1 `rsvd_e40` read) |
-| **F11** | the SE20 RCG root is never enabled (`CMD_ROOT_EN`/`CMD_ROOT_OFF` missing) | blocked S1; probe rungs s6/s7 now perform the enable, S2 needs the same code in the real path |
+| **F3** | `k60_stop_engine()` polls offset 0xe40, which exists in no GENI header | **fixed in `0508`**: polls `TX_RESET_DONE`/`RX_RESET_DONE` of 0xc40/0xd40 instead |
+| **F11** | the SE20 RCG root is never enabled (`CMD_ROOT_EN`/`CMD_ROOT_OFF` missing) | **fixed in `0508`** for the real path (S1c rungs s6/s7 still decide whether it was the S1a hang) |
 
-Consequence: do **not** go to S2 (first real power-on) until S1 has returned the `rsvd_e40` read that
-decides F3 and the RCG rungs that decide F11. F1's fix is already designed and needs no device data;
-F2 needs no work at all.
+Consequence: F1, F3, F11 and F12 are now fixed offline in `patches/xnu/0508` (spec:
+`docs/research/bt/S2-SPEC.md`), so S2 no longer waits on device data. S1c still runs first because it is
+the cheap, non-destructive way to learn **where** the S1a death happens; its RCG rungs also tell us
+whether F11 was the cause.
 
 ## 1. What `main` already carries
 
@@ -80,7 +81,7 @@ source is armed, which is exactly the `clock` contract in `include/qbt.h`.
 
 ## 3. Deviations
 
-### F1 — GENI DMA uses the virtual address (blocks S2)
+### F1 — GENI DMA uses the virtual address (fixed in `0508`)
 
 ```c
 /* 0500:1025-1028 */
@@ -127,6 +128,13 @@ the two options are (a) lift them into a shared `bsd/dev/k60_smmu.c` and add it 
 low-risk default and is what S2 will do. S1 cannot decide this — but S1's `fifo_if_disabled`/protocol
 reads prove the engine is reachable, which is the precondition for trying.
 
+**Fix landed (2026-11-14, `patches/xnu/0508`):** option (b) — `qbt_k60.c` now carries
+`k60_smmu_plan_bank()` / `k60_smmu_plan()` / `k60_smmu_configure()` / `k60_smmu_bypass()`, the same
+algorithm with `struct k60_region` accessors and the stream pinned to `K60_BT_SMMU_SID 0x483`, plus the
+`#ifdef KERNEL` branch in `k60_bt_power_on()` that allocates the 32 KiB area with `kmem_alloc_contig()`,
+derives the PA with `pmap_find_phys()`/`ptoa_64()`, and aborts (with `kmem_free`) if the bypass readback
+fails. Two `[bluetooth] smmu …` log lines report the plan and the read-back state.
+
 ### F2 — `G_MANUAL_RFR` written with an unexplained value (**resolved 2026-11-14**)
 
 ```c
@@ -162,7 +170,7 @@ falling edge on GPIO79 wakes the host. The component's `G_RFR_OFF = 0x80000002` 
 ready" and is only used while the component itself is running. **Severity downgraded blocking →
 verified (A-level, official same-chip backend).** S1's 0x2ac read stays in the probe as a record.
 
-### F3 — `k60_stop_engine()` polls an undefined offset (blocks S2)
+### F3 — `k60_stop_engine()` polls an undefined offset (fixed in `0508`)
 
 ```c
 /* 0500:631, 639 */
@@ -179,6 +187,11 @@ registers commonly do), `k60_stop_engine()` takes the abort branch, runs the abo
 **always** returns `-ETIMEDOUT` from the second loop — `k60_bt_power_on()` fails and the earlier
 stage would print `power=1 result=-110`. That failure mode is indistinguishable from a real
 power/clock bug, so it must be excluded before S2.
+
+**Fix landed (2026-11-14, `patches/xnu/0508`):** `k60_stop_engine()` now reads
+`K60_SE_DMA_TX_IRQ_STAT`/`K60_SE_DMA_RX_IRQ_STAT` for the busy decision, resets the two FSMs through
+`K60_SE_DMA_TX_FSM_RST`/`K60_SE_DMA_RX_FSM_RST`, and polls `K60_TX_RESET_DONE`/`K60_RX_RESET_DONE`
+BIT(3) — the Linux sequence. 0xe40 is no longer read anywhere in the file.
 
 ### F4 — SE20 RCG divider width and duty are unverified (medium)
 
@@ -248,7 +261,7 @@ transport; keep it power-path-only.
 a source. They only affect log cadence and when the UART.SK channel is torn down, not
 correctness.
 
-### F11 — the SE20 RCG root is never enabled (blocks S1, new 2026-11-14)
+### F11 — the SE20 RCG root is never enabled (fixed in `0508`, new 2026-11-14)
 
 ```c
 /* 0500:435-466, k60_gcc_set_se_rate() — the whole enable tail */
@@ -280,7 +293,12 @@ adds three read/write rungs that isolate it: s5 reads CMD/CFG/DFSR and decodes `
 `ROOT_EN` / `UPDATE`; s6 sets `ROOT_EN` and polls `ROOT_OFF`; s7 writes CFG and latches
 `ROOT_EN|UPDATE`. Rung A3 (step=5) alone answers "was the root off before we touched anything?".
 
-### F12 — no CBCR readiness poll before the first SE access (medium, new 2026-11-14)
+**Fix landed (2026-11-14, `patches/xnu/0508`):** `k60_gcc_set_se_rate()` performs the enable itself —
+read CMD, if `ROOT_OFF` then write `ROOT_EN` and poll 500×1 µs, write CFG, then latch
+`(cmd & ~ROOT_OFF) | ROOT_EN | UPDATE` and poll until neither bit is set. The S1c rungs stay useful:
+they are the only way to learn whether the root really was off at the moment of the S1a death.
+
+### F12 — no CBCR readiness poll before the first SE access (fixed in `0508`, medium, new 2026-11-14)
 
 The touch line waits for each branch's CBCR to report running (`cbcr_running(v) = !(v & CLK_OFF) || (v & HWCG)`,
 2000 × 10 µs, `…-pong-touch-console.patch:253-260,342-358`) before it maps the SE. 0500 polls the
@@ -288,6 +306,10 @@ five halt registers *before* the RCG is configured (`0500:481-513`), so a branch
 idle-and-hw-gated passes, and nothing re-checks after `k60_gcc_set_se_rate()`. Cheap fix in S2:
 repeat the five halt reads after the rate write and log them (the probe's s4 already establishes
 the baseline values).
+
+**Fix landed (2026-11-14, `patches/xnu/0508`):** `k60_gcc_set_se_rate()` now ends with
+`return k60_gcc_wait_halt(K60_GCC_WRAP2_SE20_HALT)`, so a rate that never reaches the SE20 branch is a
+returned error instead of a silent success.
 
 ## 4. Deliberately absent (dependencies, not defects)
 
@@ -297,7 +319,7 @@ the baseline values).
 | board-local BT address | weak `k60_bt_local_address()` (`0500:269,275`); `qbt_boot` rejects all-zero | board integration (`dts/mondrian.dts` ADT node) |
 | DT node for the controller | `dts/mondrian.dts` has no `bluetooth` node; properties would be dead (P-147 class) | Lead (handoff in `RESEARCH.md` §9) |
 | BlueTool / Type0 staging | needs the iOS-SDK toolchain + 20G81 `bluetoothd` hash | LAN Mac, S5 |
-| SMMU stream 0x483 | see F1 | S2 |
+| SMMU stream 0x483 | see F1 — **now installed by `0508`** (`k60_smmu_bypass`) | done in `patches/bt/0002` |
 
 ## 5. What this changes for S1
 

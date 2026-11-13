@@ -1,0 +1,391 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index c20d6e6..1b9f945 100644
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -48,6 +48,12 @@
+ #include <kern/thread.h>
+ #include <pexpert/pexpert.h>
+ #include <IOKit/IOLib.h>
++#include <mach/vm_param.h>
++#include <mach/vm_statistics.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++/* vm/pmap.h does not expose this one in the BSD compilation unit. */
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ #else /* K60_BT_HOST_TEST: minimal host shims so this file can be syntax- and
+        * unit-checked without the XNU SDK.  None of these stubs touch hardware. */
+ #include <errno.h>
+@@ -120,6 +126,26 @@ static inline void IOFreeData(void *p, size_t n) { (void)n; free(p); }
+ #define K60_GCC_WRAP2_S_AHB_HALT    0x0002E008u
+ #define K60_GCC_WRAP2_SE20_HALT     0x0002E610u  /* 0x2e610: gcc_qupv3_wrap2_s5_clk halt */
+ #define K60_GCC_WRAP2_SE20_CMD_RCGR 0x0002E618u  /* 0x2e618: gcc_qupv3_wrap2_s5_clk_src */
++/* clk-rcg2.c:24-31 command bits; is_enabled() (:64-75) is "ROOT_OFF clear",
++ * set_force_enable() (:981-1002) writes ROOT_EN then polls is_enabled, and
++ * update_config() (:111-135) writes CMD_UPDATE then polls it clear. */
++#define K60_RCG_CMD_UPDATE          (1u << 0)
++#define K60_RCG_CMD_ROOT_EN         (1u << 1)
++#define K60_RCG_CMD_ROOT_OFF        (1u << 31)
++/* DMA FSM reset + done bits used by k60_stop_engine (F3):
++ * linux-geni-se-v6.6.h:106 SE_DMA_TX_FSM_RST 0xc58, :110 SE_DMA_RX_FSM_RST 0xd58,
++ * :240 TX_RESET_DONE BIT(3), :246 RX_RESET_DONE BIT(3). */
++#define K60_SE_DMA_TX_FSM_RST       0x0C58u
++#define K60_SE_DMA_RX_FSM_RST       0x0D58u
++#define K60_TX_RESET_DONE           (1u << 3)
++#define K60_RX_RESET_DONE           (1u << 3)
++/* The 0507 probe block defines these further down the file, but
++ * k60_stop_engine() runs earlier, so repeat them here verbatim; an
++ * identical macro redefinition is legal C. */
++#define K60_SE_GENI_STATUS          0x040u
++#define K60_SE_DMA_TX_IRQ_STAT      0xC40u
++#define K60_SE_DMA_RX_IRQ_STAT      0xD40u
++static int k60_gcc_wait_halt(uint32_t halt_reg);
+ 
+ /* E-GCC-06: SM8450 QUP SE clock table (gcc_qupv3_wrap0_s0_clk_src), Hz.
+  * K60 Android gcc-waipio.c:776-788 has the identical list.  It deliberately
+@@ -343,6 +369,225 @@ static void __attribute__((unused)) k60_unmap(struct k60_region *r) {
+     (void)r;
+ }
+ 
++/* ------------------------------------------------------------------------- */
++/* apps_smmu bypass for the QUPV3_2 stream (F1)                              */
++/* ------------------------------------------------------------------------- */
++/*
++ * The live device tree binds the wrapper to the apps SMMU:
++ *   qcom,qupv3_2_geni_se@8c0000 { iommus = <&apps_smmu 0x483 0>; ... }
++ * (mondrian.dts:10707-10720), so every GENI DMA descriptor is translated.
++ * bsd/dev/k60_usblog.c (patches/xnu/0300) already installs a bypass context
++ * for the DWC3 stream 0 on this exact board and the UFS driver does the same
++ * for stream 0xe0; this is that planner, reduced to one stream and to the
++ * struct k60_region accessors.  Sources: drivers/NativeUfs/SmmuTakeover.h
++ * (SMMUv2 planner) and ArmSmmu4KProgram.c:77-78 (stage-2-only bank rejection).
++ */
++#define K60_APPS_SMMU_BASE          0x15000000u
++#define K60_APPS_SMMU_SIZE          0x00100000u
++#define K60_BT_SMMU_SID             0x483u
++#define K60_SMMU_BANKS              78u   /* upper bound; IDR1.NUMCB wins */
++#define K60_SMMU_GROUPS             120u  /* upper bound; IDR0.NUMSMRG wins */
++#define K60_SMMU_IDR0               0x020u
++#define K60_SMMU_IDR1               0x024u
++#define K60_SMMU_IDR2               0x028u
++#define K60_SMMU_SMR(n)             (0x800u + 4u * (n))
++#define K60_SMMU_S2CR(n)            (0xc00u + 4u * (n))
++#define K60_SMMU_CBAR(n)            (0x1000u + 4u * (n))
++#define K60_SMMU_CBA2R(n)           (0x1800u + 4u * (n))
++
++struct k60_smmu_plan {
++    unsigned slot, bank, pages;
++    uint32_t smr, s2cr, previous_bank;
++    int reuse, migrate;
++    const char *error;
++};
++
++static unsigned k60_smmu_addr_bits(unsigned code) {
++    switch (code) {
++    case 0: return 32; case 1: return 36; case 2: return 40;
++    case 3: return 42; case 4: return 44; case 5: return 48;
++    default: return 0;
++    }
++}
++
++static void k60_smmu_plan_bank(uint16_t stream, uint64_t dma, uint64_t bytes,
++                               unsigned owned_banks, unsigned owned_groups,
++                               unsigned bank_from_top, struct k60_smmu_plan *p) {
++    memset(p, 0, sizeof(*p));
++    p->slot = 0xffffffffU;
++    p->previous_bank = 0xffffffffU;
++    uint32_t idr0 = k60_read32(&k60.smmu, K60_SMMU_IDR0);
++    uint32_t idr2 = k60_read32(&k60.smmu, K60_SMMU_IDR2);
++    unsigned count = idr0 & 255u;
++    if (!(idr0 & (1u << 30)) || !(idr2 & (1u << 12))) {
++        p->error = "SMMU AArch64 stage 1 unsupported";
++        return;
++    }
++    for (unsigned shift = 0; shift <= 8; shift += 4) {
++        unsigned bits = k60_smmu_addr_bits((idr2 >> shift) & 15u);
++        if (!bits || !bytes || dma >= (1ULL << bits) || bytes > (1ULL << bits) - dma) {
++            p->error = "DMA exceeds SMMU address width";
++            return;
++        }
++    }
++    uint32_t idr1 = k60_read32(&k60.smmu, K60_SMMU_IDR1);
++    unsigned banks = idr1 & 255u;
++    if (!owned_banks || !owned_groups || !banks || !count) {
++        p->error = "empty SMMU ownership/capability range";
++        return;
++    }
++    if (banks > owned_banks) banks = owned_banks;
++    if (count > owned_groups) count = owned_groups;
++    p->pages = 1u << (((idr1 >> 28) & 7u) + 1u);
++    if ((idr1 >> 31) || !count || p->pages > 128u || banks < 2u || banks > 128u ||
++        (p->pages + banks) * 4096u > 0x100000u) {
++        p->error = "unsupported SMMU geometry";
++        return;
++    }
++    if (count > 128u) {
++        p->error = "unsupported stream-match group count";
++        return;
++    }
++    if (bank_from_top >= banks - 1u) {
++        p->error = "no free context bank";
++        return;
++    }
++    p->bank = banks - 1u - bank_from_top;
++    if (p->bank < ((idr1 >> 16) & 255u)) {   /* stage-2-only bank */
++        p->error = "context bank is stage-2 only";
++        return;
++    }
++    unsigned matches = 0;
++    for (unsigned i = 0; i < count; i++) {
++        uint32_t smr = k60_read32(&k60.smmu, K60_SMMU_SMR(i));
++        if (!(smr & 0x80000000u)) {
++            if (!p->reuse && !p->migrate) p->slot = i;
++            continue;
++        }
++        uint32_t s2cr = k60_read32(&k60.smmu, K60_SMMU_S2CR(i));
++        uint32_t mask = (smr >> 16) & 0x7fffu;
++        int match = ((smr ^ stream) & 0xffffu & ~mask) == 0;
++        int translate = ((s2cr >> 16) & 3u) == 0;
++        unsigned mapped_bank = s2cr & 255u;
++        int our_bank = translate && mapped_bank == p->bank;
++        if (match) {
++            ++matches;
++            if (matches > 1u || mask || !translate || mapped_bank >= banks) {
++                p->slot = i;
++                p->smr = smr;
++                p->s2cr = s2cr;
++                p->error = "conflicting bluetooth stream mapping";
++                return;
++            }
++            p->reuse = our_bank;
++            p->migrate = !our_bank;
++            p->previous_bank = mapped_bank;
++            p->slot = i;
++            p->smr = smr;
++            p->s2cr = s2cr;
++        } else if (our_bank) {
++            p->slot = i;
++            p->smr = smr;
++            p->s2cr = s2cr;
++            p->error = "reserved context bank already used";
++            return;
++        }
++    }
++    uint32_t sctlr = k60_read32(&k60.smmu, (p->pages + p->bank) * 4096u);
++    if ((sctlr & 1u) || (p->reuse && (sctlr ||
++        k60_read32(&k60.smmu, K60_SMMU_CBAR(p->bank)) != 0x10000u ||
++        (k60_read32(&k60.smmu, K60_SMMU_CBA2R(p->bank)) & ~1u)))) {
++        p->error = "reserved context bank not bypass";
++        return;
++    }
++    if (p->slot == 0xffffffffU) p->error = "no free stream-match group";
++}
++
++static int k60_smmu_retryable(const char *error) {
++    return !strcmp(error, "reserved context bank already used") ||
++           !strcmp(error, "reserved context bank not bypass");
++}
++
++static void k60_smmu_plan(uint16_t stream, uint64_t dma, uint64_t bytes,
++                          unsigned owned_banks, unsigned owned_groups,
++                          struct k60_smmu_plan *p) {
++    k60_smmu_plan_bank(stream, dma, bytes, owned_banks, owned_groups, 0, p);
++    if (!p->error || !k60_smmu_retryable(p->error)) return;
++    struct k60_smmu_plan first = *p;
++    for (unsigned attempt = 1; attempt < 8; attempt++) {
++        k60_smmu_plan_bank(stream, dma, bytes, owned_banks, owned_groups, attempt, p);
++        if (!p->error) return;
++        if (!k60_smmu_retryable(p->error)) break;
++    }
++    *p = first;
++}
++
++/* Every write is read back; a mismatch aborts before any DMA is enabled. */
++static const char *k60_smmu_configure(const struct k60_smmu_plan *p, uint16_t stream) {
++    unsigned cb = (p->pages + p->bank) * 4096u;
++    if (p->error) return p->error;
++    if (!p->reuse) k60_write32(&k60.smmu, cb, 0);
++    if (k60_read32(&k60.smmu, cb) != 0) return "SMMU bypass disable readback";
++    if (k60_read32(&k60.smmu, K60_SMMU_CBA2R(p->bank)) != 1u)
++        k60_write32(&k60.smmu, K60_SMMU_CBA2R(p->bank), 1u);
++    if (!p->reuse) k60_write32(&k60.smmu, K60_SMMU_CBAR(p->bank), 0x10000u);
++    if (k60_read32(&k60.smmu, K60_SMMU_CBA2R(p->bank)) != 1u ||
++        k60_read32(&k60.smmu, K60_SMMU_CBAR(p->bank)) != 0x10000u ||
++        k60_read32(&k60.smmu, cb) != 0) {
++        return "SMMU VA64 bypass readback";
++    }
++    if (!p->reuse) {
++        k60_write32(&k60.smmu, K60_SMMU_S2CR(p->slot), p->bank);
++        if (k60_read32(&k60.smmu, K60_SMMU_S2CR(p->slot)) != p->bank)
++            return "SMMU stream context readback";
++        if (!p->migrate)
++            k60_write32(&k60.smmu, K60_SMMU_SMR(p->slot), 0x80000000u | stream);
++    }
++    if (k60_read32(&k60.smmu, K60_SMMU_SMR(p->slot)) != (0x80000000u | stream) ||
++        k60_read32(&k60.smmu, K60_SMMU_S2CR(p->slot)) != p->bank) {
++        return "SMMU stream mapping readback";
++    }
++    return NULL;
++}
++
++/* Install the bypass context for the BT stream.  On any failure nothing
++ * DMA-capable is enabled and the caller must not start the controller. */
++static int k60_smmu_bypass(uint64_t dma, uint64_t bytes) {
++    int e = k60_map(&k60.smmu, K60_APPS_SMMU_BASE, K60_APPS_SMMU_SIZE);
++    if (e) return e;
++    struct k60_smmu_plan plan;
++    k60_smmu_plan(K60_BT_SMMU_SID, dma, bytes, K60_SMMU_BANKS, K60_SMMU_GROUPS, &plan);
++    char line[192];
++    if (plan.error) {
++        snprintf(line, sizeof(line), "smmu plan failed sid %#x: %s",
++                 K60_BT_SMMU_SID, plan.error);
++        k60_log(NULL, 1, line);
++        return -EIO;
++    }
++    snprintf(line, sizeof(line),
++             "smmu plan sid %#x slot %u bank %u firmware-bank %u action %s dma %#llx",
++             K60_BT_SMMU_SID, plan.slot, plan.bank, plan.previous_bank,
++             plan.migrate ? "migrate" : plan.reuse ? "reuse" : "install",
++             (unsigned long long)dma);
++    k60_log(NULL, 1, line);
++    const char *why = k60_smmu_configure(&plan, K60_BT_SMMU_SID);
++    snprintf(line, sizeof(line),
++             "smmu sid %#x slot %u bank %u SMR %#x S2CR %#x CBAR %#x CBA2R %#x SCTLR %#x",
++             K60_BT_SMMU_SID, plan.slot, plan.bank,
++             k60_read32(&k60.smmu, K60_SMMU_SMR(plan.slot)),
++             k60_read32(&k60.smmu, K60_SMMU_S2CR(plan.slot)),
++             k60_read32(&k60.smmu, K60_SMMU_CBAR(plan.bank)),
++             k60_read32(&k60.smmu, K60_SMMU_CBA2R(plan.bank)),
++             k60_read32(&k60.smmu, (plan.pages + plan.bank) * 4096u));
++    k60_log(NULL, 1, line);
++    if (why) {
++        snprintf(line, sizeof(line), "smmu configure failed: %s", why);
++        k60_log(NULL, 1, line);
++        return -EIO;
++    }
++    return 0;
++}
++
+ /* ------------------------------------------------------------------------- */
+ /* TLMM / GPIO helpers                                                        */
+ /* ------------------------------------------------------------------------- */
+@@ -454,12 +699,35 @@ static int k60_gcc_set_se_rate(uint32_t hz) {
+         k60_write32(&k60.gcc, base + 0xc, (~n_minus_m) & width_mask);
+         k60_write32(&k60.gcc, base + 0x10, (~d_val) & width_mask);
+     }
++    /* F11: the RCG root must be ON before its output can clock the SE.  Linux
++     * clk_rcg2_is_enabled() is "CMD_ROOT_OFF clear" (clk-rcg2.c:64-75) and
++     * clk_rcg2_set_force_enable() writes CMD_ROOT_EN then polls it (:981-1002);
++     * the touch backend does the same for QUP0 SE4 before its first SE read
++     * (patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch:307-339).
++     * The skeleton only ever wrote CMD_UPDATE, so the SE20 root could still be
++     * off while the engine was being programmed. */
++    uint32_t cmd = k60_read32(&k60.gcc, base);
++    if (cmd & K60_RCG_CMD_ROOT_OFF) {
++        k60_write32(&k60.gcc, base, cmd | K60_RCG_CMD_ROOT_EN);
++        unsigned spins = 0;
++        for (; spins < 500; spins++) {
++            cmd = k60_read32(&k60.gcc, base);
++            if (!(cmd & K60_RCG_CMD_ROOT_OFF)) break;
++            IODelay(1);
++        }
++        if (cmd & K60_RCG_CMD_ROOT_OFF) return -ETIMEDOUT;
++    }
+     k60_write32(&k60.gcc, base + 0x4, (cfg & ~mask) | value);
+-    /* CMD_UPDATE BIT(0) of CMD_RCGR+0 latches the new config; poll clear
+-     * (clk-rcg2.c:111-135 update_config). */
+-    k60_write32(&k60.gcc, base, 1u);
++    /* CMD_UPDATE BIT(0) latches the new config (clk-rcg2.c:111-135); ROOT_EN
++     * stays set so the root cannot drop while the config is latched. */
++    k60_write32(&k60.gcc, base, (cmd & ~K60_RCG_CMD_ROOT_OFF) |
++                K60_RCG_CMD_ROOT_EN | K60_RCG_CMD_UPDATE);
+     for (unsigned i = 0; i < 500; i++) {
+-        if (!(k60_read32(&k60.gcc, base) & 1u)) return 0;
++        uint32_t v = k60_read32(&k60.gcc, base);
++        if (!(v & (K60_RCG_CMD_UPDATE | K60_RCG_CMD_ROOT_OFF))) {
++            /* F12: the branch must also be running before the SE is touched. */
++            return k60_gcc_wait_halt(K60_GCC_WRAP2_SE20_HALT);
++        }
+         IODelay(1);
+     }
+     return -ETIMEDOUT;
+@@ -628,15 +896,30 @@ static unsigned k60_qup_sampling(void) {
+ static int k60_stop_engine(void) {
+     k60_irq_mask(NULL, true);
+     k60_uart_write(NULL, 0xe1c, 0); /* G_IRQ_EN */
+-    if ((k60_uart_read(NULL, 0x40) & 0x1001u) || (k60_uart_read(NULL, 0xe40) & 3u)) {
++    /* F3: 0xe40 is defined by neither linux-geni-se-v6.6.h (which ends at
++     * SE_HW_PARAM_1 0xe28) nor qbt_geni_regs.h, and the skeleton polled it as
++     * if it held the DMA FSM reset status.  Linux instead reads the done bits
++     * out of the DMA IRQ status registers: TX_RESET_DONE / RX_RESET_DONE are
++     * BIT(3) of SE_DMA_TX_IRQ_STAT 0xc40 / SE_DMA_RX_IRQ_STAT 0xd40
++     * (linux-geni-se-v6.6.h:106-110, :240-246; qcom_geni_serial.c:1004-1010). */
++    uint32_t dma_tx = k60_uart_read(NULL, K60_SE_DMA_TX_IRQ_STAT);
++    uint32_t dma_rx = k60_uart_read(NULL, K60_SE_DMA_RX_IRQ_STAT);
++    if ((k60_uart_read(NULL, K60_SE_GENI_STATUS) & 0x1001u) || dma_tx || dma_rx) {
+         k60_uart_write(NULL, 0x604, 2); /* G_M_CTRL abort */
+         k60_uart_write(NULL, 0x634, 2); /* G_S_CTRL abort */
+         unsigned i = 0;
+-        for (; i < 1000 && (k60_uart_read(NULL, 0x40) & 0x1001u); i++) IODelay(1);
++        for (; i < 1000 && (k60_uart_read(NULL, K60_SE_GENI_STATUS) & 0x1001u); i++)
++            IODelay(1);
+         if (i == 1000) return -ETIMEDOUT;
+-        k60_uart_write(NULL, 0xc58, 1); /* G_TX_RESET */
+-        k60_uart_write(NULL, 0xd58, 1); /* G_RX_RESET */
+-        for (i = 0; i < 1000 && (k60_uart_read(NULL, 0xe40) & 3u); i++) IODelay(1);
++        k60_uart_write(NULL, K60_SE_DMA_TX_FSM_RST, 1); /* 0xc58 */
++        k60_uart_write(NULL, K60_SE_DMA_RX_FSM_RST, 1); /* 0xd58 */
++        for (i = 0; i < 1000 &&
++             !(k60_uart_read(NULL, K60_SE_DMA_TX_IRQ_STAT) & K60_TX_RESET_DONE); i++)
++            IODelay(1);
++        if (i == 1000) return -ETIMEDOUT;
++        for (i = 0; i < 1000 &&
++             !(k60_uart_read(NULL, K60_SE_DMA_RX_IRQ_STAT) & K60_RX_RESET_DONE); i++)
++            IODelay(1);
+         if (i == 1000) return -ETIMEDOUT;
+     }
+     k60_uart_write(NULL, 0x618, UINT32_MAX);
+@@ -1249,13 +1532,40 @@ static int k60_bt_power_on(void) {
+     if (e) return e;
+     if (!k60.dma_base) {
+         k60.dma_bytes = K60_DMA_BYTES;
++#ifdef KERNEL
++        /* F1: GENI takes physical addresses, so the buffer must be physically
++         * contiguous and the apps_smmu stream must be bypassed.  Both steps are
++         * the ones bsd/dev/k60_usblog.c already uses on this board for the DWC3
++         * stream (patches/xnu/0300, kmem_alloc_contig + pmap_find_phys +
++         * smmu_usb_bypass); here they are applied to stream 0x483. */
++        vm_offset_t dma = 0;
++        if (kmem_alloc_contig(kernel_map, &dma, k60.dma_bytes, PAGE_MASK, 0, 0,
++                              KMA_DATA | KMA_ZERO | KMA_PERMANENT,
++                              VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++            k60.dma_base = NULL;
++            return -ENOMEM;
++        }
++        ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)dma);
++        if (!pn) {
++            kmem_free(kernel_map, dma, k60.dma_bytes);
++            k60.dma_base = NULL;
++            return -ENOMEM;
++        }
++        k60.dma_base = (void *)dma;
++        k60.dma_pa = ptoa_64(pn);
++        e = k60_smmu_bypass(k60.dma_pa, k60.dma_bytes);
++        if (e) {
++            kmem_free(kernel_map, dma, k60.dma_bytes);
++            k60.dma_base = NULL;
++            k60.dma_pa = 0;
++            return e;
++        }
++#else
++        /* Host build: no MMU, no SMMU, no DMA. */
+         k60.dma_base = IOMallocData(k60.dma_bytes);
+         if (!k60.dma_base) return -ENOMEM;
+-        /* TODO: replace with a physically contiguous allocation and map the
+-         * QUPV3_2 SMMU stream (FDT iommus = <&apps_smmu 0x483 0>).
+-         * The skeleton assumes a 1:1 PA here; if the SMMU is translating,
+-         * this address is wrong and GENI DMA will fault. */
+         k60.dma_pa = (uint64_t)(uintptr_t)k60.dma_base;
++#endif
+     }
+     /* Keep UART pins parked while the controller is held in reset. */
+     k60_uart_pins_idle();

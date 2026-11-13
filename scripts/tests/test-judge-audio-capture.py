@@ -99,9 +99,17 @@ def bom_case():
     expect(code == 2, "a missing directory is not a success")
 
 
+def severity_case():
+    """Two runs are combined by need, not by numeric max: failure outranks absent."""
+    expect(mod.severity(1) > mod.severity(2), "a failed run outranks a run that never started")
+    expect(mod.severity(2) > mod.severity(0), "a run that never started outranks success")
+    expect(mod.severity(0) == 0, "success is the least severe")
+
+
 def main():
     cases()
     bom_case()
+    severity_case()
     if fails:
         print("TESTS FAILED %d case(s)" % fails)
         return 1

@@ -86,6 +86,16 @@ def judge(lines, meta):
     return (0 if good else 1), report
 
 
+def severity(code):
+    """Rank the three outcomes by how much attention they need.
+
+    max() over the raw exit codes would be wrong: a run that never reached the probe
+    (2) would outrank a run where the probe ran and failed (1), and the combined
+    verdict would then hide the more useful evidence. A failure is the worse news.
+    """
+    return {0: 0, 1: 2, 2: 1}.get(code, 2)
+
+
 def main(argv):
     if len(argv) < 2:
         sys.stderr.write("usage: judge-audio-capture.py <evidence-dir> [...]\n")
@@ -97,7 +107,8 @@ def main(argv):
         print("== %s" % directory)
         for line in report:
             print("   " + line)
-        worst = max(worst, code)
+        if severity(code) > severity(worst):
+            worst = code
     return worst
 
 

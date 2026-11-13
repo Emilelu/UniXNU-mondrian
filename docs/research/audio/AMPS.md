@@ -304,18 +304,57 @@ success = "日志顺序为 amp probe start → gcc vote/clk → se15 ready → a
 failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分别指向 GCC 投票、引脚复用、功放供电（DT 无供电属性，读不到 ID 优先怀疑没供电）"
 ```
 
-### 门禁现状（对比 main f119a80 基线）
+### 构建与镜像（本次实际产物，2026-11-14 05:19）
 
-| 检查 | 本分支 | main 基线 | 归因 |
-| --- | --- | --- | --- |
-| `check-docs.py` | ✅ 187 项通过 | ✅ | — |
-| `check-boot-args.py` | ❌ 缺 `pong_audio_probe` 一行 | ✅ | **本次引入**，补上片段 1 即绿 |
-| `porting-gate.py --quick` `[X]` | ❌ `zzzz… 未同步 58532 vs 62104`、`series 三处一致 不一致` | ❌ 同样两条 | 环境漂移（他人 touch 补丁），非本次引入 |
-| `eight-step-gate.py --build` | ❌ touch ④⑤⑥ 未 done | ❌ 同样三条 | 触摸线（他 agent），非本次引入 |
-| `check-rules.py` | ❌ 5 条（= 上面 3 类之和） | ❌ 3 条 | 见上 |
-| `sync-device-input.py --check` | ✅ | ✅ | — |
+第一次 strict 构建被三处门禁脚本的**硬编码路径**挡住（判的不是正在构建的这棵树），与音频补丁无关；
+修完脚本后同一条命令一次通过：
+
+| 步骤 | 结果 |
+| --- | --- |
+| `build-strict.sh audio-probe-20261114c` | `series=230 frozen=3fedf0d2…`、`kernel c99298e87f02f94e… 54181888 bytes`、`boot.img b8a22a0e98ca06baa24fe97ec65e0aeb9b3343057a2e06d6bc973c33e345cb4e` |
+| `verify-boot-image.py --manifest …/audio-probe-20261114c/build-manifest.json` | `verify-boot-image: OK` |
+| 证明确实进了内核（P-170） | `bsd/conf/files:120-121` = `PongAudioGeniI2c.c` / `PongAudioAmp.c`；`…/bsd/DEVELOPMENT/PongAudioAmp.o` 存在；`kernel.macho` 里 `PongAudio` 字符串 **36** 处；`bsd_init.c:1369-1370` 有调用 |
+| payload args 尾部 | `… applog=1 pong_audio_probe=1` |
+
+修复的三处脚本硬编码（问题相同：门禁读的不是正在构建的树）：
+
+1. `scripts/eight-step-gate.py:41` `REPO` → 自相对（`os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`）。
+2. `scripts/sync-device-input.py:19-20` → `K60_DEVICE_INPUT` / `K60_SERIES_FINAL` 可覆盖，默认值不变。
+3. `scripts/porting-gate.py:31-40`、`scripts/check-build-applied.py:28` → 仓库自相对，`DEV` / `SERIES` / `XNU_WORK` / `KERNEL`
+   跟随 `K60_*`；顺带把 `/tmp/usb-cdc-mainline/device` 默认值换成持久路径
+   `/opt/k60/trees/usb-cdc-mainline/device`（同一目录，符合铁则 1）。
+
+构建输入用私有树 `/opt/k60/trees/usb-cdc-mainline/audio-device`（从共享树 `rsync`，series 230 行、含
+`../audio/0001-k60-audio-amp-probe.patch`），输出用私有 `/opt/k60/trees/k60build/out-audio`；
+**共享 device 树与 `scratch/SERIES-FINAL.txt` 都没有被写入**。
+
+### 门禁现状（本分支 + 构建环境，2026-11-14 05:20 实测）
+
+| 检查 | 结果 |
+| --- | --- |
+| `check-docs.py` | ✅ 187 项 |
+| `check-boot-args.py` | ✅ |
+| `check-tmp-artifacts.py` | ✅ |
+| `eight-step-gate.py --build` | ✅ 36 项（6 个硬件项，audio 在内） |
+| `porting-gate.py --quick` | ✅ rc=0 |
+| `check-rules.py` | ✅ 0 失败（65 条登记 / 37 条 waiver） |
+
+复现命令（四个 `K60_*` 必须同时给，缺一个就会读到共享副本）：
+
+```
+cd <本 worktree>
+K60_DEVICE_INPUT=/opt/k60/trees/usb-cdc-mainline/audio-device \
+K60_OUT=/opt/k60/trees/k60build/out-audio \
+K60_SERIES_FINAL=/mnt/e/k60-work/scratch/audio-work/SERIES-FINAL.txt \
+bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_probe=1
+```
 
 ## 7. 待实测 / 阻塞
+
+镜像已就绪：`/mnt/e/k60-work/artifacts/audio-probe-20261114c/boot.img`（sha256 `b8a22a0e…45cb4e`，
+`verify-boot-image: OK`）。缺的只是设备：2026-11-14 05:20 实测 `fastboot devices` 与 `adb devices` 都为空，
+主机 PnP 里也没有 `VID_1209&PID_0001`（`NO-ANDROID-USB-DEVICE`）——手机不在 USB 上（关机或拔线），
+所以两次 `fastboot boot` 还没法开始。
 
 待实测（⑧）：
 1. chip ID 到底是哪一颗（A5）。

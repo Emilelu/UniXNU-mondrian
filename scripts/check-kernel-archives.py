@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         checked += 1
         # build-strict.sh points the battery archive at the checkout that built
         # it, because that archive is not produced inside the tree.
-        override = os.environ.get(f"XNU_{symbol}_ARCHIVE") if symbol == "XNU_K60_PHYSICAL_BATTERY" else None
+        override = os.environ.get("XNU_K60_BATTERY_ARCHIVE") if symbol == "XNU_K60_PHYSICAL_BATTERY" else None
         archive = Path(override) if override else tree / rel
         if not archive.is_file():
             problems.append(f"CONFIG_{symbol}=y but {archive} is missing")

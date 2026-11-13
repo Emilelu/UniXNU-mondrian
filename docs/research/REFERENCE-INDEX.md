@@ -777,6 +777,15 @@ python3 scripts/research-gate.py        # 校验每个 path 存在、examined �
 蓝牙的唯一实现副本 `E:/hackios/QcaBluetooth` 不在上述两种回退内，**进不了 gate**，只能在本文件第 5 节以事实形式记录。这是已知的结构性限制。
 另外 `research-gate.py:88` 未传 `verbose` 导致 problems 永不打印，验证时若只有一行结论而看不到细节，把脚本 `sed` 换 `REPO` 到本地副本跑（不要改仓库里的脚本，铁则⑧）。
 
+**这两个缺陷的修复补丁已经写好**，放在 `docs/research/evidence/` 下，因为 `scripts/` 不属于本线的写作用域（铁则⑧：不改判据；但这是脚本缺陷，不是判据）：
+
+| 补丁 | 用在 | 改什么 | 验证 |
+|---|---|---|---|
+| `gate-repo-switch.diff` | 主检出（`/mnt/e/hackios/UniXNU-mondrian`）与任何仍是 `REPO = '/mnt/e/hackios/UniXNU-mondrian'` 的树 | `research-gate.py:34` 与 `check-docs.py:24` 各加 `K60_REPO` 开关；`research-gate.py:88` 补 `verbose=True` | `git apply --check` 通过 |
+| `gate-repo-switch-lead.diff` | Lead 检出 `/mnt/e/hackios/k60-lead`（分支 `feat/pmic-rail`） | 只改 `research-gate.py` 两行——那棵树的 `check-docs.py:24` 已经是 `REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` 自定位 | `git apply --check` 通过；`K60_REPO` 不设时与未改副本输出逐字相同 |
+
+两份不能互换：主检出那份在 k60-lead 上报 `patch failed: scripts/check-docs.py:21`，反过来同理。两份都不设 `K60_REPO` 时行为与现状一致，所以应用它们不改变任何既有门禁结果。
+
 ---
 
 ## 17. 维护规则

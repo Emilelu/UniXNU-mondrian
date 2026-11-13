@@ -10,6 +10,12 @@ cd "$ROOT"
 # and the cctools headers; export it (and MIGCOM) the way the framework script does.
 if [ -n "${CLT_PREFIX:-}" ] && [ -x "${CLT_PREFIX}/bin/xnu-host-cc" ]; then
   export HOST_CC="${CLT_PREFIX}/bin/xnu-host-cc" MIGCOM="${CLT_PREFIX}/libexec/migcom"
+  # K60: bsd/conf/files entries for in-tree drivers cannot be anchored in a patch
+  # because the tree is rebuilt each run (P-171). The build driver supplies a hook
+  # that runs here - after every patch is applied and before make reads conf/files.
+  if [ -n "${K60_CONF_FILES_HOOK:-}" ] && [ -f "${K60_CONF_FILES_HOOK}" ]; then
+    python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || echo "K60: conf/files hook failed"
+  fi
 fi
 # Pong iOS 16 derivative of the successfully returned Mac build script.
 # First console build uses MACHINE_CONFIGS=PONG; preserve the original baseline artifact.

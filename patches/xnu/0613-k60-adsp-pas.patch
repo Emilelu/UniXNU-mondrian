@@ -366,7 +366,7 @@ new file mode 100644
 +		 * kmem_alloc(...33554432...) failed 3. The unmappable variant
 +		 * allocates from kernel_map instead (io_map.c:128). */
 +		vm_offset_t ram = ml_io_map_unmappable((vm_offset_t)base,
-+		    (vm_size_t)size, 0x4 /* VM_WIMG_IO */);
++		    (vm_size_t)size, 0x2 /* VM_WIMG_DEFAULT: both windows are DDR, not device memory */);
 +
 +		if (ram == 0) {
 +			printf("K60PAS cannot map the ramdisk phys %#llx\n",
@@ -388,7 +388,7 @@ new file mode 100644
 +	    k60_fat_vol.root_cluster, k60_fat_vol.clusters);
 +
 +	window = ml_io_map_unmappable((vm_offset_t)K60_ADSP_BASE,
-+	    (vm_size_t)K60_ADSP_WINDOW, 0x4 /* VM_WIMG_IO */);
++	    (vm_size_t)K60_ADSP_WINDOW, 0x2 /* VM_WIMG_DEFAULT: both windows are DDR, not device memory */);
 +	if (window == 0) {
 +		printf("K60PAS cannot map the carveout\n");
 +		return -1;

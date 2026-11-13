@@ -77,3 +77,23 @@ K60PANICARGS kmem_alloc(0xfffffff16bfb9240, 33554432, 0x100021): failed with 3 @
 
 `ml_io_map_unmappable(phys, size, VM_WIMG_IO)` 走 `kmem_alloc(kernel_map, ...)`（同一文件
 :128），kernel_map 足够大，是这条路上唯一可行的映射方式。
+
+
+## 映射属性：DDR 必须是 cacheable，不是 device
+
+`osfmk/arm/memory_types.h` 的定义：
+
+```c
+#define VM_WIMG_DEFAULT  (VM_MEM_COHERENT)                                        // 0x2
+#define VM_WIMG_IO       (VM_MEM_COHERENT | VM_MEM_NOT_CACHEABLE | VM_MEM_GUARDED) // 0x7
+```
+
+我先按「IO 空间」传了 `0x4`（既不是 DEFAULT 也不是 IO，只有 GUARDED 位），
+`pmap_map` 出来的属性非法，第一次读 FAT 引导签名就 **synchronous external abort**：
+
+```
+esr: 0x96000010   far: 0xfffffff90efbf1fe   (mapped base + 0x1FE)
+```
+
+ramdisk 与 ADSP carveout 都是 DDR，正确属性是 `VM_WIMG_DEFAULT`（0x2）；只有真正的
+寄存器/设备窗口才用 `VM_WIMG_IO`（0x7）。

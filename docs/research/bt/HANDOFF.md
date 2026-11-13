@@ -16,6 +16,7 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `docs/research/bt/06-DEEP-DIVE.md` | ⑥ line-by-line review of `patches/xnu/0500`'s `bsd/dev/qbt_k60.c` (1,249 lines, sha256 `8451c870…`): 11 verified items V1–V11, 10 deviations F1–F10 | done |
 | `docs/research/bt/S1-PROBE-SPEC.md` | S1 read-only probe: 9 reads, boot args, verdict table (incl. F2/F3 rows), device procedure, wiring options | done, statically verified |
 | `patches/bt/0001-k60-bt-readonly-probe.patch` | 2 hunks on `bsd/dev/qbt_k60.c`: `k60_bt_probe()` + `k60bt_stage=1` early return. sha256 `95e4b098e552619db135b455af5dbec96eae4450a2a8cdae1c6c61ce658ed8a3` | **not build-wired** |
+| `docs/research/bt/FIRMWARE.md` | **measured** BT firmware: `/vendor/bt_firmware/image/`, 113 files / 1,063,407 B, `hpbtfw20.tlv` 201,560 B + `hpbtfw21.tlv` 146,068 B + `hpnv20*`/`hpnv21*`, per-file SHA-256, `btqca.c` name selection, staging plan | done (M) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring options A/B | done |
 
 ## 2. Why S1 first
@@ -101,6 +102,7 @@ required = [
   "docs/research/bt/RESEARCH.md",
   "docs/research/bt/06-DEEP-DIVE.md",
   "docs/research/bt/S1-PROBE-SPEC.md",
+  "docs/research/bt/FIRMWARE.md",
   "docs/research/bt/evidence/k60-android-btpower.c",
   "docs/research/bt/evidence/k60-android-hci_qca.c",
   "docs/research/bt/evidence/linux-geni-se-v6.6.h",
@@ -115,10 +117,17 @@ and are resolvable by `research-gate.py` through its `/mnt/e/k60-work` root.)
 
 ## 5. Still blocked from this line
 
-- **Firmware**: `/vendor/firmware_mnt/image/qca6490/` holds 42 `bd_*.elf` (~60 KB each; this unit
-  uses `bd_m11agf.elf`, 60,000 B) plus the WiFi `amss*.bin`/`Data*.msc` already copied to
-  `E:/k60-work/firmware/qca6490/`. The BT TLV names (`htbtfw21.tlv` + `htnv21.bin` expected) are
-  **not** verifiable offline; listing requires one Android boot with read-only adb.
+- **Firmware — RESOLVED 2026-11-14** (no longer blocked): a read-only Android session located the
+  BT files in `/vendor/bt_firmware/image/` (**not** `firmware_mnt/image/qca6490`, which only holds the
+  WiFi `amss*.bin`/`Data*.msc` and 42 `bd_*.elf` board-data files). **113 files / 1,063,407 B** were
+  pulled to `E:/k60-work/firmware/qca6490-bt/` and hashed. Rampatch is `hpbtfw20.tlv` (201,560 B) and
+  `hpbtfw21.tlv` (146,068 B); NVM is `hpnv20*` (20 files) + `hpnv21*` (90 files). The old
+  `htbtfw21.tlv`/`htnv21.bin` guess is **void** — the device set uses the `hp*` fallback names, which is
+  exactly what `k60_firmware_get()`'s alias path (0500:924-960) covers. Full table + hashes + staging
+  plan: `docs/research/bt/FIRMWARE.md`. Remaining is Lead write scope: `firmware/bluetooth/manifest.json`,
+  `scripts/stage-bluetooth-firmware.py` (K60 regex `(wcn)?hp(btfw|nv)…`, allow `g` and `.bXXXX`), and
+  `board.toml [payload.runtime] bluetooth_tool/bluetooth_target="ios20"`. Do **not** commit the vendor
+  firmware into the repo (sheng pins an external firmware repo by hash instead).
 - **Userland**: `BlueTool`/`QcaBTType0.dylib`/`bluetoothd` patching for 20G81 needs the iOS SDK
   on the LAN Mac (per AGENT-bt.txt), and the adapter is locked to the 24A446 hash in sheng's
   `native-ios27.md` — 20G81 patch sites must be re-located.

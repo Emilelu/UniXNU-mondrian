@@ -317,3 +317,40 @@ payload 内 kernel、unixnu.toml args 七项）。构建脚本
 `out-wifi/…/payload/payload.img`，所以每张 boot.img 必须在它自己那次 payload
 之后立刻 bootimg 并生成 manifest，否则 manifest 里的 `payload` 会与下一张串味。
 
+### 5.7 十级阶梯（当前有效的一套，取代 §5.6 的八级）
+
+`supplies()` 被拆成 stage 2/3/4 之后总级数变成十级，§5.6 的八级镜像随之作废
+（仅留作历史对照）。十级内核：`kernel.macho` 65,863,680 B sha256
+`f430c2177cf1636e6265ef6a7c729802d3847dd518bfdb62efb78f30841197ef`，
+archive `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` 11,943,304 B。
+构建脚本 `E:\k60-work\evidence\wifi-trial\mkboot-ladder.sh`。
+
+| 目录 | args 尾部 | boot.img sha256（前 32 位） |
+|---|---|---|
+| `wifi-20261115a` | `pong_wifi=0` | `a261340bca82390b1ab17f7e43178966` |
+| `wifi-20261115b` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` | `493fab938505ca0206d459ba7668a410` |
+| `wifi-20261115c` | `pong_wifi=1 k60_wifi_stage=3` | `1126de64a2a76d1d59387396796a5315` |
+| `wifi-20261115d` | `pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=4` | `410e02e8ac7bdd4abac9d145d9ef180e` |
+| `wifi-20261115e` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | `e45e50d9e361663b276a2be2b368d8d4` |
+| `wifi-20261115f` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | `c7c3952546712a66bc6ee4f7d0137101` |
+| `wifi-20261115g` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10` | `4173014a5890a8c91aa2e6af004399f1` |
+| `wifi-20261115h` | 同 g，但 PWF2 含 `bdwlan.elf`/`bdwlang.elf` | `20908a032ad1e1a469cd635f8a441108` |
+
+a–g 共用 `f430c217…` 内核；h 用六文件固件包编出的内核
+`73c33075d44d231360f26b771bae5bd3ae893ae5fd9865cf8ffcb73f342cfc75`
+（65,978,368 B，`_pong_wifi_firmware` fffffff007094000 →
+`_pong_wifi_firmware_end` fffffff007b3fed6，span 11,189,974）。
+八张镜像全部 `verify-boot-image: OK`。
+
+静态门禁（`E:\k60-work\evidence\wifi-trial\static-stage-gates.log`）：
+archive 里存在 `PongWifi: stage %u (%s)`、`held back by k60_wifi_stage=%u`、
+`console up after %u ms`、`console never came up; WiFi skipped before any MMIO`
+四组字符串，未定义符号只有 `_PongWifiRandom`、`_PE_parse_boot_argn`、
+`_k60_usblog_console_up`、`_pong_ufs_ready` 四个（都由内核提供），
+源码里 `stageOpen(` 共 11 处（1 处定义 + 10 处调用）。
+
+上机脚本 `E:\k60-work\evidence\wifi-trial\ladder-run.ps1`：每 0.7 s 抢一次
+fastboot 窗口，命中后按 a→h 顺序逐张 boot，每张把结果写进
+`E:\k60-work\evidence\usblog-wifi-ladder-<tag>`，并在每轮之后等设备回 fastboot
+（最多 180 s）；任何一张没回来就停下，那说明该级新增的寄存器访问挂了互连。
+

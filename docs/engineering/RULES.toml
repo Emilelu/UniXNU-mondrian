@@ -473,3 +473,10 @@ kind = "iron"
 source = "AGENTS.md:铁则 9"
 statement = "main 只放可启动基线；未上机的改动走分支，且每个 main 提交都要在 MAIN-BASELINE.toml 登记"
 check = "python3 scripts/check-main-baseline.py"
+
+[[rule]]
+id = "P-180"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-180"
+statement = "An embedded binary blob inside a patch is code: a changed blob needs a fresh on-device boot and an updated blob_sha256 baseline before it may land on main."
+check = "python3 scripts/check-blob-patches.py"

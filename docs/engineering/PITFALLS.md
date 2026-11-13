@@ -4273,3 +4273,20 @@ allowing (remove VALID) page`，而 `KXPC 1 launchd pc=0x10086b158` 正好落在
 
 规则：看到 `ns=2` 先按信号解码（`sig=` 字段），不要直接归因 AMFI；要判断是不是 AMFI 拒绝，
 看 `ns=9 code=8`。
+
+### P-180 补丁里的嵌入 blob 是代码：行数没变也可能是整段二进制换了
+
+`patches/xnu/0340-k60-uilib-deploy.patch` 在 11-11 之后从 629,034 B 涨到 1,052,856 B，
+`kern_exec.c` 的部署钩子逐字节相同，变的只是 `bsd/dev/k60_uilib.c` 里那份内嵌的
+`libpong-ui.dylib`。整目录二分证明：旧版能进系统（SpringBoard 133 行），新版在 launchd
+阶段 `initproc exited … ns=2 code=0xb`（7 行）；**只回退 0340** 就恢复到 129 行。
+
+规则：
+
+- `0340/0391/0401` 这类带 C 数组的补丁，**diff 大小、hunk 数、`check-patch-apply` 全部通过都不算验证**，
+  唯一判据是一张能进系统的启动镜像；
+- 任何对这三个补丁的改动，在合回 `main` 前必须更新 `docs/engineering/MAIN-BASELINE.toml`
+  的 `[entry.blob_sha256]`，门禁 `scripts/check-blob-patches.py` 会比对；
+- 怀疑这类补丁时不要逐个 hunk 读，直接 `git show <boot-proven>:<patch> > 当前文件` 整文件回退，
+  一次启动就能定性（本次省掉了 27 个文件逐个试的成本）。
+

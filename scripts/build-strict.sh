@@ -44,6 +44,10 @@ LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
 export K60_REPO=$REPO
+# Tell the registry a build is running: a stale patch stamp then means
+# "this run will rewrite it", not "somebody edited patches and never built".
+# Without this the P-165 preflight refuses the very rebuild that refreshes it.
+export K60_BUILD_IN_PROGRESS=1
 
 mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 [ -d "$DEV" ] || die "device input $DEV missing"

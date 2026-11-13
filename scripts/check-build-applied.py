@@ -25,13 +25,17 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches/xnu/series"
-INPUT = pathlib.Path("/tmp/usb-cdc-mainline/device/patches/xnu/series")
+INPUT = pathlib.Path(os.environ.get(
+    "K60_DEVICE_INPUT", "/opt/k60/trees/usb-cdc-mainline/device")) / "patches/xnu/series"
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
 ARTIFACTS = pathlib.Path(os.environ.get("K60_ARTIFACTS", "/mnt/e/k60-work/artifacts"))
 DEFAULT_LOGS = [
     pathlib.Path("/mnt/e/k60-work/scratch/BUILD_V15.txt"),
 ]
 LOG_GLOBS = ["*/logs/kernel.log"]
+# build-strict.sh exports this for the whole run. A stale stamp then means
+# "this build is about to rewrite it", not "somebody forgot to build".
+IN_PROGRESS = os.environ.get("K60_BUILD_IN_PROGRESS") == "1"
 
 
 def series_entries() -> list[str]:
@@ -92,20 +96,32 @@ def check_stamp(stamp: pathlib.Path, quiet: bool) -> int:
         print(f"❌ P-165 构建应用了 {len(applied)} 个补丁，但 series 列了 {len(want)} 个")
         print(f"   构建记录 {stamp}")
         print("   说明序列里有补丁的上下文对不上；它和它之后的补丁都没有进树（P-165）。")
-        return 1
+        return 0 if IN_PROGRESS else 1
 
-    # Same count is not enough: the bytes must be the ones this checkout holds.
+    # Compare the stamp with THIS checkout, not with itself: the recorded sha
+    # only proves the build input has not changed since, which a stale mirror
+    # satisfies happily.
     stale = []
-    for entry in applied:
-        path = pathlib.Path(entry.get("path", ""))
-        if not path.is_file():
-            stale.append(f"{path.name}: 文件不存在")
+    for index, entry in enumerate(applied):
+        name = want[index]
+        repo = REPO / "patches/xnu" / name
+        if not repo.is_file():
+            stale.append(f"{name}: 仓库里没有这个补丁")
             continue
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != entry.get("sha256"):
-            stale.append(f"{path.name}: 构建时 {entry.get('sha256', '?')[:12]} 现在是 {actual[:12]}")
+        now = hashlib.sha256(repo.read_bytes()).hexdigest()
+        if now != entry.get("sha256"):
+            stale.append(f"{name}: 构建时 {entry.get('sha256', '?')[:12]} 现在 {now[:12]}")
+            continue
+        built = pathlib.Path(entry.get("path", ""))
+        if built.is_file() and hashlib.sha256(built.read_bytes()).hexdigest() != now:
+            stale.append(f"{name}: 构建输入副本与仓库不一致")
     if stale:
-        print(f"❌ P-165 构建用的补丁内容与仓库不一致（{len(stale)} 个）：")
+        if IN_PROGRESS:
+            print(f"⚠️  P-165 补丁集已改（{len(stale)} 个），本次构建会重新生成记录：")
+            for line in stale[:5]:
+                print(f"   {line}")
+            return 0
+        print(f"❌ P-165 上次构建用的补丁内容与仓库不一致（{len(stale)} 个）：")
         for line in stale[:5]:
             print(f"   {line}")
         print(f"   构建记录 {stamp}；需要重新构建才能证明这棵树来自当前补丁集。")

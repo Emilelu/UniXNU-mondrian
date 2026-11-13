@@ -247,8 +247,10 @@ bool coldLink() {
  // Mixing an early external parent with a stopped PIPE loses that clock
  // throughout core/PHY reset and the PCS/PIPE hand-off.
  gcc.w(0x7b068,1);gcc.w(0x7b064,gcc.r(0x7b064)|1);
- // pci-msm indexes max-clock-frequency-hz after TWO pipe-clock slots:
- // refgen is index 11, 100 MHz, during initial training. qcom,bw-scale
+ // pci-msm indexes max-clock-frequency-hz after TWO pipe-clock slots. On K60
+ // the live FDT puts pcie_phy_refgen_clk at clock-names[8] and 100 MHz at
+ // max-clock-frequency-hz[10] (Pong has the same clock at [11]; the K60 array
+ // is one entry shorter), so the RCG source index below is 10. qcom,bw-scale
  // selects 19.2 MHz only after a real Gen1/Gen2 link is negotiated.
  // Retain the native initial clock and advertised speed from core reset.
  gcc.w(0x62018,gcc.r(0x62018)|1u); // GPLL0_OUT_MAIN, 600 MHz

@@ -84,3 +84,23 @@ python3 scripts/record-boot.py --evidence <evidence-dir>
 - 全部新增行为在 `k60bt=1` 且 `k60bt_stage=1` 时才执行；默认启动（不带 boot-arg）完全不进 S1 代码路径。
 - S1 不写任何设备分区、不碰 `/dev/block/sda38`、不改 PMIC/RPMh；只读 GCC/UART/wrapper 寄存器。
 - 回滚 = 从 `patches/xnu/series` 去掉该补丁（或把 stage 恢复为默认 1 之外的完整路径）。
+## 8. ⑦ 本地验证（已做，未构建、未上机）
+
+| 项 | 命令 / 依据 | 结果 |
+|---|---|---|
+| 补丁 SHA-256 | `sha256sum patches/bt/0001-k60-bt-readonly-probe.patch` | `c94e1530820ce74faeae188bd4285c319e9d18d2f243aabf612863f2d16fa347` |
+| 补丁可应用 | 从 `patches/xnu/0500` 抽出 `bsd/dev/qbt_k60.c` 到独立 repo 后 `git apply --check` | `APPLY_CHECK_OK`（实际 apply 后 `grep -c k60_bt_probe` = 2） |
+| 语法检查 | `/opt/unixnu-linux/llvm/bin/clang -target arm64-apple-ios16.0 <out3 .CFLAGS> -fsyntax-only -I bsd/dev/qbt -I bsd/dev/qbt/shim bsd/dev/qbt_k60.c` | **PASS，0 error**；日志 `E:/k60-work/scratch/bt-s1/bsd/dev/qbt_k60.syntax.log` |
+| 同法复核未改源 | 同上，`bsd/dev/qbt/qbt_core.c` | PASS；日志 `E:/k60-work/scratch/bt-s1/bsd/dev/qbt/qbt_core.syntax.log` |
+
+- flags 来源：`/opt/k60/trees/usb-cdc-mainline/out3/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/.CFLAGS`；复跑脚本 `E:/k60-work/scratch/bt-s1/check.py`（只把含空格的 `CONFIG_NMBCLUSTERS` 归一为 1024，与 `impl/bt/verify/syntax_check.py` 同法）。
+- 探针只增加 MMIO 读取与一次 printf，不含算术/越界写；`k60_gcc_wait_halt` 的超时路径未改。
+
+## 9. 交接（Lead 执行）
+
+1. 按 §6 选项 A 或 B 把补丁接进构建（`patches/xnu/` 与 `patches/xnu/series` 属 Lead 写权限）。
+2. **先换基线**：本分支基于 `f119a80`，在该基线上 `eight-step-gate.py --build` 因 touch ④⑤⑥ 未标记而红（详见 `RESEARCH.md` §9 第 8 条）；rebase 到 ≥`4f90f12` 的集成线后再构建。
+3. `scripts/build-strict.sh` → `scripts/verify-boot-image.py`。
+4. 上机：先接 CDC-ACM 抓取（AGENTS.md 铁则 8），两次 `fastboot boot` 同一镜像，boot-args `k60bt=1 k60bt_stage=1 k60bt_warm=1` → `scripts/record-boot.py`；只读 `capture.json` 的 `verdict`/`panicMarker` 判死。
+5. 把 S1 结果回填 `docs/research/GENI-ACCESS-PRECONDITIONS.md`（触摸/音频共用同一前提：首访是否挂死）。
+

@@ -170,6 +170,36 @@ k60_rail_probe(void)
 	if (rc != K60RpmhOk) {
 		printf("K60RAIL ldoc2 not found rc=%d\n", rc);
 	} else {
+		/* The level table did not look like millivolts, so dump the bytes
+		 * that produced it instead of guessing a different field layout. */
+		{
+			const uint8_t *slave = bytes + 8;
+			uint32_t heads = 144u + le16(slave + 2);
+			uint32_t data = 144u + le16(slave + 4);
+			uint32_t count = le16(slave + 6);
+			uint32_t e;
+
+			printf("K60RAIL slave id=%u heads=%u data=%u count=%u\n",
+			    le16(slave), heads, data, count);
+			for (e = 0; e < count && e < 40; e++) {
+				const uint8_t *en = bytes + heads + 24 * e;
+				printf("K60RAIL e%u id=%c%c%c%c%c%c%c%c addr=%#x len=%u off=%u\n",
+				    e, en[0], en[1], en[2], en[3], en[4], en[5], en[6], en[7],
+				    le32(en + 16), le16(en + 20), le16(en + 22));
+				if (en[0] == 'l' && en[1] == 'd' && en[2] == 'o' &&
+				    en[3] == 'c' && en[4] == '2') {
+					uint32_t at = data + le16(en + 22);
+					uint32_t n = le16(en + 20);
+					uint32_t i;
+
+					printf("K60RAIL ldoc2 aux at=%u len=%u:", at, n);
+					for (i = 0; i < n && i < 16; i++) {
+						printf(" %02x", bytes[at + i]);
+					}
+					printf("\n");
+				}
+			}
+		}
 		uint32_t index = 0;
 		int li = k60_rpmh_level_index(&res, 1800, &index);
 

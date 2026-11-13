@@ -459,3 +459,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-170"
 statement = "A new driver source is not in the kernel until the build script produces its archive, force-loads it, and leaves a string that proves it ran."
 waiver = """Waiver: checkable once drivers/ carries a manifest of {source -> archive -> force_load flag -> marker string}."""
+
+[[rule]]
+id = "P-171"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-171"
+statement = "A patch that edits a build-time file must anchor on a repository-stable source; a tree produced by a previous build cannot predict the next build's intermediate state."
+waiver = """Waiver: checkable once every series patch's anchors are declared as {patch, file, anchor-source}, so the gate can reject anchors taken from .cache/."""

@@ -4099,3 +4099,25 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 ① 作为 `bsd/dev/pong_smem.c` / `bsd/dev/pong_handoff.c` 由补丁加入；
 ② `bsd/conf/files` 加 `dev/pong_smem.c   optional pong_touch`（或新建 config 依赖）；
 ③ 保持 `K60HO ` 前缀短标记，`strings kernel.macho` 必须能查到。
+## P-171 用构建后产物反推构建期中间态，是一条死循环
+
+`0611-k60-smem-handoff.patch` 需要在 `bsd/conf/files` 里加两行。三次尝试全部
+`error: patch failed: bsd/conf/files:399`：
+
+1. 锚定 `bsd/dev/pong_buttons.c` 前三行（3 行上下文）→ 402 处失败；
+2. 同锚点单行上下文 → 402 处失败；
+3. 从"构建成功后的树"逐字节重新生成（`repr()` 比对确认制表符一致、无 CRLF）→ 399 处失败。
+
+原因是每次失败构建都会 `rm -rf tree/`，所以我能读到的永远是**上一次成功**的树，
+而要修的是**下一次构建过程中**的树。拿 A 时刻的字节去补 B 时刻的洞，永远对不上。
+
+规则：**改构建期文件的补丁，锚点必须来自代码仓库里的稳定源**（例如
+`bsd/dev/pong_goodix.c` 这类由补丁确定生成的源），不能来自 `.cache/xnu-work`。
+
+落地做法（已验证 `BUILD OK`）：把这类插入从系列补丁里拿出来，交给构建驱动在
+补丁阶段之后执行，并且**轮询等待锚点出现**——树刚解包时 `pong_buttons.c` 那行还不存在，
+固定等待或立刻执行都会得到 `anchor missing`。
+
+`E:\k60-work\scratch\append_conffiles.py` 就是该模式：每秒重读，看到
+`bsd/dev/pong_buttons.c\t\t\tstandard` 才插入 `pong_smem.c` / `pong_handoff.c`，
+已插入则直接返回。

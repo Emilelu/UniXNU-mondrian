@@ -443,3 +443,33 @@ fastboot 窗口，命中后按 a→g 顺序逐张 boot，每张把结果写进
 `E:\k60-work\evidence\usblog-<stamp>-ladder4`，并在每轮之后等设备回 fastboot
 （最多 240 s）；任何一张没回来就停下，那说明该级新增的寄存器访问挂了互连。
 
+### 5.12 The small-kernel ladder (54.8 MB) and the stock control
+
+`STAGE-BRINGUP.md` §4.2 splits the boot question into three families. Two of
+them were built here; the third is the pre-existing stock baseline.
+
+| image | kernel | args tail | len | sha256 |
+| --- | --- | --- | --- | --- |
+| `wifi-20261115z0` | 54,181,888 B stock `cc7541cd…` | *(baseline)* | 575 | `b64e5074f16108e7e77c5e6b38f29ae176ffdc0e8c2c641c04d73625ba975c6b` |
+| `wifi-20261115t0` | 54,804,480 B `92fad105…` | `pong_wifi=0` | 574 | `6b21772f3af9b52a034873789e97bc643f6a5a60e942dd1e34ef940ddc2a2d4f` |
+| `wifi-20261115t1` | same | `pong_wifi=1 k60_wifi_stage=1` | 591 | `3de009f2cc68f373ec8ad54ec029a78aba6bbcd944065fc6a7723a4eaa989a14` |
+| `wifi-20261115t3` | same | `k60_wifi_stage=3` | 591 | `b44d0a94e8f295645aa5e8171e587b290688686d86239ad7a7af9cf55c70b5c6` |
+| `wifi-20261115t4` | same | `k60_wifi_rsc=1 k60_wifi_stage=4` | 606 | `afb3e9a9369fc6cdb1a6d54d281a5835d2493d69057456a7693040d5a9e477a1` |
+| `wifi-20261115t5` | same | `k60_wifi_rsc=2 k60_wifi_stage=4` | 606 | `e4f788fd8783411a073e1aca2f7c6c13ad33fd8355916476e5366286b92d12b7` |
+| `wifi-20261115t6` | same | `k60_wifi_rsc=2 k60_wifi_stage=5` | 606 | `c96635d65774f1a491c39d78d408054a3d41b802d89e6b5c9f46852cef0d0a6c` |
+| `wifi-20261115t7` | same | `k60_wifi_rsc=2 k60_wifi_stage=8` | 606 | `39492308c5238dee0ecbe9a746a390b0293e95839819c338df7e1ff111e2f8c6` |
+| `wifi-20261115t8` | same | `k60_wifi_rsc=2` (all) | 589 | `0e438b04897df724a87dfeb899c7e3f3fb81fd84c8673ca5acf010bf7df8d5d4` |
+
+All nine passed `verify-boot-image.py`, and every rung passed `argcheck1.py`
+(574 / 591 / 591 / 606 / 606 / 606 / 606 / 589 bytes, all under the 607-byte
+DarwinBoot limit). The `z0` image reuses the stock baseline kernel, which is the
+strongest control available: it contains no PongWifi code at all.
+
+Runner: `E:\k60-work\evidence\wifi-trial\ladder5-run.ps1`, which walks
+`z0 → t0 → t1 → t3 → t4 → t5 → t6 → t7 → t8 → a → b → c → p → d → e → f → g`
+and stops on the first zero-byte console (exit 12), or exit 13 if even `z0` has
+no console — in that case nothing about WiFi can be blamed.
+
+Two facts make the tiny family worth its build time: the archive is 892,616 B
+instead of 12,066,184 B, and the kernel is 54,804,480 B instead of 65,978,368 B,
+i.e. only 622,592 B above the kernel that has booted this phone dozens of times.

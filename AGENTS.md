@@ -304,3 +304,19 @@ python3 scripts/porting-gate.py --quick
 `scripts/k60-sync-refs.sh` covers the reference trees. `CREDITS.md` lists every
 external source and what was taken from it. `docs/audits/FORK-REVIEW.md` records
 their branches and the reasoning behind every adopted change.
+
+### 铁则 9 — main 只放可启动基线，实验走分支
+
+`main` 是**稳定可启动基线**，不是工作区。任何未经过上机验证的改动（内核补丁序列、
+构建脚本、`board.toml`/configs、`drivers/` 源码）都必须先落在分支上：
+
+- 分支命名沿用上游习惯：`feat/…`、`fix/…`、`test/…`、`chore/…`
+- 合回 `main` 的条件：`BUILD OK` **且**上机通过（八步流程 ⑧），或该条目在
+  `docs/engineering/MAIN-BASELINE.toml` 里显式登记为 `build-only` 并写明欠账
+- 每个落在 `main` 的提交必须有对应的 `snap-rN` 快照 tag（铁则 7），并在
+  `MAIN-BASELINE.toml` 登记：`sha`、`tag`、`kernel_sha256`、`state`
+- 门禁：`scripts/check-main-baseline.py`（注册为 `iron-9`）
+
+违反实例（本次自查）：`bf487cc`、`c2fa573`、`234574a`、`d1843c2`、`20ce047`、
+`8206fb4` 直接把补丁序列与驱动源码的改动提交到 `main`，其中多轮只做到 `BUILD OK`，
+没有一次上机。见 P-174。

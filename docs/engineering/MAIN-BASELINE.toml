@@ -1,0 +1,11 @@
+# main 基线的登记簿（铁则 9）
+# state: boot = 上机通过；build-only = 只过了构建；unverified = 未验证
+version = 1
+anchor = """bf487cc"""
+
+[[entry]]
+sha = "bf487cc"
+tag = "snap-r177"
+kernel_sha256 = "1d70ee524188f9301fb68344b4efdfde80b7ba82afa1e344af7ed292c4b925d0"
+state = "build-only"
+note = "fix(gpu): keep the addon patch out of the series until its hunk is re-anchored —— 未上机；GPU addon 补丁已移出序列"

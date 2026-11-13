@@ -4138,3 +4138,13 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 - 规则：判断“产物不存在”之前，先用 `find … -name <artifact>` 确认路径形状；`ls | grep`
   这类复合命令在内联 shell 里必须先验证变量确实展开（本机 PowerShell 会吞掉 `$`）。
 - 同族：P-163（单次读数不足以判定）。观测方法本身必须先被验证。
+
+### P-174 main 被当成工作区：实验性改动直接压在稳定基线上
+
+- 现象：`bf487cc`、`c2fa573`、`234574a`、`d1843c2`、`20ce047`、`8206fb4` 直接提交到 `main`，
+  其中补丁序列（`patches/xnu/`）、构建脚本（`scripts/build-xnu-4k-baseline.sh`）、驱动源码
+  （`drivers/PongPower/`）都属于未上机验证的改动。
+- 代价：`main` 上的"Docker 基线"含义失效——任何一次 `snap-r*` 都无法回答"这条能不能起系统"。
+- 规则：见铁则 9。分支命名 `feat/…`/`fix/…`/`test/…`/`chore/…`；合回 `main` 需 `BUILD OK` +
+  上机，或在 `docs/engineering/MAIN-BASELINE.toml` 登记 `state = "build-only"` 并接受可见欠账。
+- 门禁：`scripts/check-main-baseline.py`（`iron-9`）。

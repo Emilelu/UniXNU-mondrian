@@ -402,16 +402,27 @@ bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_
    健康启动本身就会打印横幅 `K60PANIC: restart windows ready`（`usblog-20261113-noinitblob/console.log:477`），
    这也是 `scratch/logstat.py` 的 panic 计数不可用的原因。
 2. 本子任务的成败**不看** `state`/`complete`，只看 `console.log` 里 `PongAudio:` 的行：
-   ① `amp probe start`（探针真的跑了）；② `gcc wrapper2 … clocks` / `se15 ready`（总线可用）；
+   ① `amp probe start`（探针真的跑了）；② `amp gcc clk …` / `amp se15 ready …`（总线可用）；
    ③ `amp0/amp1 … id=0x…`（读到了 ID）；④ `amp probe done found=2/2 … failed=0 timeouts=0`（成功）。
    只有 ④ 出现且两颗 ID 都在已知表里，才算 ⑧ 成立；`state` 只用来解释「为什么没跑起来」。
 
 判据已做成工具，不再靠人眼读 json：`scripts/judge-audio-capture.py <证据目录>…`
+（它匹配的是驱动里 `printf` 的真实前缀：`amp probe start`（`PongAudioAmp.c:551`）、
+`amp gcc clk`（`:286`）、`amp se15 ready`（`:419`）、`amp<N> … id=0x…`（`:526`）、
+`amp probe done`（`:583`）；退出码 0 = 两颗都识别且 `failed=0 timeouts=0 recovered=0`，
+1 = 跑了但失败，2 = 根本没跑）
 （宿主单测 `scripts/tests/test-judge-audio-capture.py` 用合成采集钉住三种结局与两个陷阱：
 `panicMarker` 带 K60PANIC 的健康启动仍判 SUCCESS、`complete: true` 救不回静默功放、
 未知 chip id 即使 `found=2/2` 也判失败、缺 `console.log` 判「探针没跑」）。
 两个历史目录跑出来的都是「probe never ran」——它们本来就早于本探针，说明工具不会把
 「没跑」误读成「失败」或「成功」。
+
+铁则 5 的「同一镜像两次 boot」也做成了机械执行器：
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/boot-audio-twice.ps1 -Image <boot.img> -EvidenceRoot <目录>`。
+它先确认 `6033dbec` 已在 fastboot（不在就 `throw`，不写任何 `boot.json`），再跑两次
+`boot-and-capture.ps1`，每次校验 `boot.json` 的 `imageSha256` 与入参一致（不一致就拒绝），
+第二次前等设备回 fastboot，最后把两个目录交给 judge 并以它的退出码退出。
+无设备实测：脚本解析通过、退出码 1、零证据目录 —— 拒绝而不是半启动。
 
 阻塞（不属于本子任务）：
 - 播放通路（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。

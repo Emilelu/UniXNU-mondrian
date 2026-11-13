@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
+#include <string.h>
+
 #include "K60Fat.h"
 
 static uint32_t
@@ -170,4 +172,96 @@ k60_fat_find(const void *base, const K60FatVolume *vol,
 	*offset = (vol->data_start + (cluster - 2) * vol->sectors_per_cluster) *
 	    vol->bytes_per_sector;
 	return 0;
+}
+
+static int
+parse_number(const char **pp, const char *end, uint64_t *out)
+{
+	const char *p = *pp;
+	uint64_t v = 0;
+	int digits = 0;
+
+	if (p + 1 < end && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+		p += 2;
+		while (p < end) {
+			unsigned d;
+			if (*p >= '0' && *p <= '9') {
+				d = (unsigned)(*p - '0');
+			} else if (*p >= 'a' && *p <= 'f') {
+				d = (unsigned)(*p - 'a') + 10u;
+			} else if (*p >= 'A' && *p <= 'F') {
+				d = (unsigned)(*p - 'A') + 10u;
+			} else {
+				break;
+			}
+			v = (v << 4) | d;
+			digits++;
+			p++;
+		}
+	} else {
+		while (p < end && *p >= '0' && *p <= '9') {
+			v = v * 10u + (uint64_t)(*p - '0');
+			digits++;
+			p++;
+		}
+	}
+	if (digits == 0) {
+		return K60FatNoEntry;
+	}
+	*out = v;
+	*pp = p;
+	return 0;
+}
+
+int
+k60_md_parse(const char *args, size_t args_len, const char *key,
+    uint64_t *base, uint64_t *size)
+{
+	const char *p = args;
+	const char *end = args + args_len;
+	size_t key_len;
+
+	if (args == NULL || key == NULL || base == NULL || size == NULL) {
+		return K60FatBadArg;
+	}
+	key_len = 0;
+	while (key[key_len] != '\0') {
+		key_len++;
+	}
+
+	while (p < end) {
+		const char *tok = p;
+		const char *tok_end;
+
+		while (p < end && *p != ' ') {
+			p++;
+		}
+		tok_end = p;
+		while (p < end && *p == ' ') {
+			p++;
+		}
+
+		if ((size_t)(tok_end - tok) <= key_len + 1) {
+			continue;
+		}
+		if (strncmp(tok, key, key_len) != 0 || tok[key_len] != '=') {
+			continue;
+		}
+		tok += key_len + 1;
+		if (parse_number(&tok, tok_end, base) != 0) {
+			continue;
+		}
+		if (tok >= tok_end || *tok != '@') {
+			continue;
+		}
+		tok++;
+		if (parse_number(&tok, tok_end, size) != 0) {
+			continue;
+		}
+		if (tok != tok_end) {
+			continue;
+		}
+		return 0;
+	}
+	return K60FatNoEntry;
 }

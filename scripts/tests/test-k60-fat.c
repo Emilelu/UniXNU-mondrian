@@ -1,10 +1,50 @@
-/* Host test: parse the real ADSP ramdisk and compare two segments byte for
- * byte against the files pulled off the device. */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
+/* Host test: the boot-argument form that creates md0, and the FAT lookup that
+ * follows it. Both run against strings and the real ramdisk image. */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "K60Fat.h"
+
+static int fails;
+
+static void expect(int cond, const char *what)
+{
+	if (!cond) {
+		printf("FAIL %s\n", what);
+		fails++;
+	}
+}
+
+static void parse_cases(void)
+{
+	uint64_t base = 0, size = 0;
+	const char *args = "-v kextlog=0xfff pmd0=0x83b5000@0x2000000 other=1";
+
+	expect(k60_md_parse(args, strlen(args), "pmd0", &base, &size) == 0,
+	    "parse pmd0");
+	expect(base == 0x83b5000ull, "base value");
+	expect(size == 0x2000000ull, "size value");
+
+	expect(k60_md_parse("-v vmd0=1073741824@33554432",
+	    strlen("-v vmd0=1073741824@33554432"), "vmd0", &base,
+	    &size) == 0, "parse vmd0 decimal");
+	expect(base == 1073741824ull, "decimal base");
+	expect(size == 33554432ull, "decimal size");
+
+	expect(k60_md_parse("-v pmd0=0x1000@0x2000",
+	    strlen("-v pmd0=0x1000@0x2000"), "vmd0", &base, &size)
+	    != 0, "wrong key is not accepted");
+	expect(k60_md_parse("-v pmd0=0x1000", strlen("-v pmd0=0x1000"), "pmd0", &base, &size) != 0,
+	    "missing @size is rejected");
+	expect(k60_md_parse("-v pmd0=@0x2000", strlen("-v pmd0=@0x2000"), "pmd0", &base, &size) != 0,
+	    "missing base is rejected");
+	expect(k60_md_parse("pmd0=0x1000@0x2000x",
+	    strlen("pmd0=0x1000@0x2000x"), "pmd0", &base, &size) != 0,
+	    "trailing junk is rejected");
+}
 
 static uint8_t *slurp(const char *path, size_t *size)
 {
@@ -29,68 +69,41 @@ static uint8_t *slurp(const char *path, size_t *size)
 	return buf;
 }
 
-static int check(const uint8_t *img, const K60FatVolume *vol, const char *name,
-    const char *ref_path)
+static void image_case(const char *img_path, const char *fw_dir)
 {
+	size_t size = 0;
+	uint8_t *img = slurp(img_path, &size);
+	K60FatVolume vol;
 	uint32_t off = 0, len = 0;
+	char ref_path[512];
 	uint8_t *ref;
 	size_t ref_len = 0;
-	int rc;
 
-	rc = k60_fat_find(img, vol, "ADSP", name, &off, &len);
-	if (rc != 0) {
-		printf("FAIL find %s rc=%d\n", name, rc);
-		return 1;
+	if (img == NULL) {
+		printf("SKIP image case (no %s)\n", img_path);
+		return;
 	}
+	expect(k60_fat_open(img, size, &vol) == 0, "open the volume");
+	expect(k60_fat_find(img, &vol, "ADSP", "adsp.b01", &off, &len) == 0,
+	    "find adsp.b01");
+
+	snprintf(ref_path, sizeof(ref_path), "%s/adsp.b01", fw_dir);
 	ref = slurp(ref_path, &ref_len);
-	if (ref == NULL) {
-		printf("SKIP %s (no reference)\n", name);
-		return 0;
-	}
-	if (ref_len != len || memcmp(img + off, ref, len) != 0) {
-		printf("FAIL %s len=%u ref=%zu match=no\n", name, len, ref_len);
+	if (ref != NULL) {
+		expect(ref_len == len && memcmp(img + off, ref, len) == 0,
+		    "adsp.b01 bytes match");
 		free(ref);
-		return 1;
 	}
-	printf("ok %s len=%u\n", name, len);
-	free(ref);
-	return 0;
+	free(img);
 }
 
 int main(int argc, char **argv)
 {
-	size_t size = 0;
-	uint8_t *img;
-	K60FatVolume vol;
-	int fails = 0;
-	int rc;
-
-	if (argc < 3) {
-		printf("usage: %s <ramdisk.img> <firmware-dir>\n", argv[0]);
-		return 2;
+	parse_cases();
+	if (argc >= 3) {
+		image_case(argv[1], argv[2]);
 	}
-	img = slurp(argv[1], &size);
-	if (img == NULL) {
-		printf("FAIL read %s\n", argv[1]);
-		return 2;
-	}
-	rc = k60_fat_open(img, size, &vol);
-	if (rc != 0) {
-		printf("FAIL open rc=%d\n", rc);
-		return 1;
-	}
-	printf("volume bps=%u spc=%u root=%u clusters=%u\n",
-	    vol.bytes_per_sector, vol.sectors_per_cluster, vol.root_cluster,
-	    vol.clusters);
-
-	char path[512];
-	for (int i = 0; i < 2; i++) {
-		const char *name = i == 0 ? "adsp.b01" : "adsp.mdt";
-
-		snprintf(path, sizeof(path), "%s/%s", argv[2], name);
-		fails += check(img, &vol, name, path);
-	}
-	free(img);
-	printf("%s\n", fails == 0 ? "TESTS OK 2 segments" : "TESTS FAILED");
+	printf("%s (%d failure(s))\n", fails == 0 ? "TESTS OK 8 cases" : "TESTS FAILED",
+	    fails);
 	return fails == 0 ? 0 : 1;
 }

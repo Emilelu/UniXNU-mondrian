@@ -38,4 +38,10 @@ int k60_fat_open(const void *base, size_t size, K60FatVolume *vol);
 int k60_fat_find(const void *base, const K60FatVolume *vol,
     const char *dir, const char *name, uint32_t *offset, uint32_t *length);
 
+/* Reads the "<key>=<base>@<size>" form memdev.c accepts, so the same boot
+ * argument that creates md0 also tells us where its bytes live. Numbers may be
+ * decimal or 0x-prefixed hex. Returns 0 on success. */
+int k60_md_parse(const char *args, size_t args_len, const char *key,
+    uint64_t *base, uint64_t *size);
+
 #endif /* K60_FAT_H */

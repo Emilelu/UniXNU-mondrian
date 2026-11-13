@@ -180,7 +180,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。四个新文件与 `drivers/PongAudio/` 逐字节相同。完整 transcript 见 `patches/audio/README.md`。
-- 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。
+- 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。**守卫本身也验证过**：`E:/k60-work/scratch/audio-work/probe-pong.c` 只做 `#if !defined(PONG) #error`，用同一套 flags 编译得到 `PASS: probe-pong.c`，即 `PONG` 由 `board_config.h` 定义、探针不是死代码（这是「静默不跑」这类故障的必要前提）。
 
 ### 6.1 宿主单测（八步 ⑦ 的本地核验，109 例）
 
@@ -216,7 +216,7 @@ wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/r
 
 ### 需要 Lead 合并的部分（本子任务写作用域之外）
 
-1. `scratch/SERIES-FINAL.txt` 追加 `patches/audio/0001-k60-audio-amp-probe.patch`（P-90：补丁顺序真相源在那里，只改仓库里的 `series` 不生效）；
+1. **登记到序列**：在 `patches/xnu/series` 的 `0505-k60-audio-integration.patch` 之后追加一行 `../audio/0001-k60-audio-amp-probe.patch`，然后跑 `python3 scripts/sync-device-input.py`。依据（读代码所得，与 P-90 的表述不一致，落地前请核对行号）：`scripts/sync-device-input.py:131-138` 是**把 `patches/xnu/series` 写进** `scratch/SERIES-FINAL.txt`（方向是 repo → scratch），而 `scripts/porting-gate.py` 要求三份一致（repo series == SERIES-FINAL == `device/series`）；`patches/` 整棵树都在 `sync-device-input.py:35-47` 的镜像清单里，所以 `../audio/…` 这条相对路径成立；框架按 `path = series.parent / entry` 解析并 `git apply`（`/mnt/e/hackios/UniXNU/scripts/unixnu/patches.py:23,59`），`scripts/check-porting-paths.py` 用同样的相对解析做存在性检查。**这条链已用 `git apply` 实测**（0500→0502b→0501→0502→0503→0504→0505→本补丁，全部 rc=0、零 fuzz、零 reject，见 `patches/audio/README.md`）；
 2. `board.toml` → `[kernel] kernel_args` 追加 `pong_audio_probe=1`——不加则补丁完全惰性（一次 boot-arg 查询后返回）；
 3. `docs/INDEX.md` §3 按既有格式追加 `audio/CODEC.md`、`audio/SOUNDWIRE.md`、`audio/AMPS.md` 三行（`check-docs.py` 只强制顶层文件，但仓库惯例是登记）；
 4. `docs/research/EIGHT-STEPS.toml` 的 `[hardware.audio]` 段**已经存在**（`:353-386`，`status = "parked"`、
@@ -288,9 +288,9 @@ evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io
 [hardware.audio.step.verify]
 done = true
 local_verified = true
-static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；check-docs.py exit 0"
+static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
 unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 109 cases（GENI 状态机 prepare/write/read/failure/poll/recovery 与寄存器表断言，见 AMPS.md §6.1）"
-artifact_check = "patches/audio/0001 已双向自检：patch -p1 --dry-run 与 git apply --check 都过；并在真实链（缓存 xnu-work 的 bsd/conf/files + bsd/kern/bsd_init.c）上按 0501 → 0505 → 本补丁 patch -p1 --forward 全部 rc=0、无 reject；本补丁只有一个 hunk 级别的行偏移、无 fuzz（0505 自身在该前映像上有 fuzz 1，与本补丁无关）；落地后四个新文件与 drivers/PongAudio/ 用 cmp 逐字节相同（transcript 见 patches/audio/README.md）"
+artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:117-120、bsd_init.c:1357-1358，四个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
 
 [hardware.audio.step.device]
 done = false

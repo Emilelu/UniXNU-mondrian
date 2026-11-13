@@ -23,9 +23,27 @@ both of its non-file hunks are anchored on lines that 0505 introduces
 `bsd/kern/bsd_init.c`). Applying it earlier fails cleanly rather than silently
 patching the wrong place.
 
-The authoritative order for a build is `<workspace>/scratch/SERIES-FINAL.txt`,
-not the in-repo `series` file (P-90). Adding the patch there is a Lead action
-because `scratch/` is outside this task's write scope.
+Wiring it into a build is a Lead action (both files are outside this task's
+write scope). The mechanism, read from the scripts rather than assumed:
+
+- `patches/xnu/series` is copied **into** `scratch/SERIES-FINAL.txt` by
+  `scripts/sync-device-input.py:131-138`, so the in-repo series is the file to edit
+  and the scratch copy is regenerated; `scripts/porting-gate.py` then demands all
+  three copies agree (repo series == `scratch/SERIES-FINAL.txt` == `device/series`).
+  This reads differently from the P-90 wording, so whoever wires it should confirm
+  against those line numbers before editing the wrong copy.
+- The whole `patches/` tree is mirrored to the build input (`ITEMS` in
+  `sync-device-input.py:35-47`), so an entry may point outside `patches/xnu/`:
+  the framework resolves `path = series.parent / entry` and applies it by absolute
+  path (`/mnt/e/hackios/UniXNU/scripts/unixnu/patches.py:23,59`). The verified
+  entry form is therefore:
+
+  ```
+  ../audio/0001-k60-audio-amp-probe.patch
+  ```
+
+  `scripts/check-porting-paths.py` resolves the same relative way, so the entry and
+  the file it points at are checked by the same gate.
 
 ## How the hunks were generated, and why they can be trusted
 
@@ -113,8 +131,41 @@ same PongAudioRegs.h / PongAudioGeniI2c.h / PongAudioGeniI2c.c / PongAudioAmp.c
 ```
 
 Note for whoever wires the series: 0501 needs 0300/0243/0340 (the `k60_*` conf
-lines) applied first, and this patch needs 0505. Sequence in
-`scratch/SERIES-FINAL.txt` must keep 0501 → 0505 → `patches/audio/0001*.patch`.
+lines) applied first, and this patch needs 0505. The entry must sit after 0505 in
+the series, i.e. after `0505-k60-audio-integration.patch`.
+
+### Framework mechanism (`git apply` on a fresh clone) — verified end to end
+
+The framework applies the series with `git apply` on a fresh XNU clone, resolving
+each entry as `series.parent / entry` (`/mnt/e/hackios/UniXNU/scripts/unixnu/patches.py:23`).
+So the real question is not `patch(1)` but whether the whole chain applies under
+`git apply`. It does: in a scratch copy of the build-cache `bsd/` (a tree with the
+`k60_usblog` trio and nothing else from 05xx), the bsd-only part of the series
+applies in order — **all rc=0, zero fuzz, zero rejects, ours included**:
+
+```
+--- 0500  (0500-k60-bt-qbt-new-files.patch)   rc=0
+--- 0502b (0502b-k60-bt-qbt-kernel-stubs.patch) rc=0
+--- 0501  (0501-k60-bt-qbt-bsd-conf.patch)    rc=0
+--- 0502  (0502-k60-bt-qbt-bsd-init.patch)    rc=0
+--- 0503  (0503-k60-audio-aw882xx.patch)      rc=0
+--- 0504  (0504-k60-audio-pong-audio.patch)   rc=0
+--- 0505  (0505-k60-audio-integration.patch)  rc=0
+--- ../audio/0001-k60-audio-amp-probe.patch   rc=0
+
+### landing
+117:bsd/dev/aw882xx.c			standard
+118:bsd/dev/pong_audio.c			standard
+119:bsd/dev/PongAudioGeniI2c.c		standard
+120:bsd/dev/PongAudioAmp.c			standard
+1357:		extern int pong_audio_amp_probe(void);
+1358:		(void)pong_audio_amp_probe();
+identical: PongAudioRegs.h / PongAudioGeniI2c.h / PongAudioGeniI2c.c / PongAudioAmp.c
+```
+
+Reproduce with `E:/k60-work/scratch/audio-work/gitchain-verify.sh`. Note that the
+`patch(1)` run further above exercised a shorter chain (0501 → 0505 without 0502),
+which is why 0505 showed `fuzz 1` there; under the full chain 0505 applies cleanly.
 
 ## Testing it
 

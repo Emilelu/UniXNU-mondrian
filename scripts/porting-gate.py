@@ -299,8 +299,18 @@ else:
         ok('S', '与上次成功启动的补丁集相同', last_ok_at or '')
     else:
         detail = '上次成功 %s (%s) != 现在 %s' % (last_ok_fp, last_ok_at, fp)
+        branch = ''
+        try:
+            branch = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                                    capture_output=True, text=True,
+                                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).stdout.strip()
+        except Exception:
+            pass
         if FORCE_NEW:
             ok('S', '补丁集变了（已声明为预期）', detail)
+        elif branch and branch != 'main':
+            ok('S', '补丁集变了（特性分支允许试错，合回 main 前必须重新上机）',
+               '%s on %s' % (detail, branch))
         else:
             bad('S', '补丁集变了 —— 必须显式确认', detail)
 

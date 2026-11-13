@@ -24,27 +24,34 @@ def entries(text):
 
 def main():
     head = git("rev-parse", "--short", "HEAD").strip()
+    # Iron rule 9 guards main, not the branch a developer happens to sit on:
+    # on feat/... the unregistered work is expected and the gate must look at
+    # main instead of failing the checkout (false red on every branch build).
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").strip()
+    target = head
+    if branch not in ("main", "HEAD"):
+        target = git("rev-parse", "--short", "main").strip()
+        print("ℹ️  iron-9  在分支 %s 上，按 main (%s) 校验" % (branch, target))
     text = BOOK.read_text() if BOOK.is_file() else ""
     known = {e["sha"]: e for e in entries(text)}
     problems, notes = [], []
 
-    if head not in known:
+    if target not in known:
         # 文档与门禁自身的提交不需要登记；只有会改变镜像的路径才需要。
-        # 只有“新增或修改”风险路径才需要登记；删除只会缩小 main 的表面，不构成风险。
-        touched = [f for f in git("show", "--name-only", "--diff-filter=ACMR", "--format=", head).splitlines()]
+        touched = [f for f in git("show", "--name-only", "--format=", target).splitlines()]
         risky = [f for f in touched if f.startswith(RISKY)]
         if risky:
             problems.append(
-                "HEAD %s 改了会进镜像的路径（%s），却没有在 MAIN-BASELINE.toml 登记 sha/tag/kernel/state（铁则 9）"
-                % (head, ", ".join(risky[:4])))
+                "%s 改了会进镜像的路径（%s），却没有在 MAIN-BASELINE.toml 登记 sha/tag/kernel/state（铁则 9）"
+                % (target, ", ".join(risky[:4])))
         else:
-            notes.append("HEAD %s 只动文档/门禁，免登记" % head)
+            notes.append("%s 只动文档/门禁，免登记" % target)
 
     anchor = None
     for m in re.finditer(r'^anchor\s*=\s*"([^"]+)"', text, re.M):
         anchor = m.group(1)
     if anchor:
-        risky = [l for l in git("log", "--oneline", "%s..HEAD" % anchor).splitlines()]
+        risky = [l for l in git("log", "--oneline", "%s..%s" % (anchor, target)).splitlines()]
         if risky:
             touched = set()
             for c2 in risky:

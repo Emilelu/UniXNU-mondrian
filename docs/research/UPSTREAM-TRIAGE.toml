@@ -1099,3 +1099,20 @@ how = "仅研判，未取"
 reason = "同上：Adreno 当前 startup 后仍 no accelerator published，framebuffer 交接的前置条件在板上不成立；恢复 GPU 路线时重评。"
 review_after = "2026-11-20"
 date = "2026-11-13"
+
+
+[[commit]]
+sha = "22785bd3c"
+subject = "fix(gpu): create the addon directories before deploying into"
+verdict = "deferred"
+reason = "这条改的是上游自己的 patches/xnu/0610-k60-metal-plugin-deploy.patch；我们的树没有这个文件，本地等价实现是 0610-k60-metal-seeds.patch（内核在 Data 挂载时写 .publish/.clients），套上去会形成两条部署路径"
+review_after = "2026-12-15"
+date = "2026-11-13"
+
+[[commit]]
+sha = "4727ae3b6"
+subject = "feat(gpu): carry the Adreno Metal plugin inside the kernel"
+verdict = "deferred"
+reason = "同上：新增的是上游 0610-k60-metal-plugin-deploy.patch 与 scripts/gen-k60-metal-blob.py，我们的 0610-k60-metal-seeds.patch 已用另一条机制满足 PongMetalPlugin 的 publish/clients 要求；物理上无法直接 apply 到不存在的文件"
+review_after = "2026-12-15"
+date = "2026-11-13"

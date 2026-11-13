@@ -223,3 +223,6 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0610-k60-metal-seeds.patch
 0611-k60-smem-handoff.patch
 0612-k60-adsp-image.patch
+0613-k60-adsp-pas.patch
+0614-k60-adsp-call-site.patch
+0615-k60-md-window.patch

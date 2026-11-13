@@ -1,0 +1,68 @@
+# ADSP 层的逐条依据（八步 ① 同型号 + ③ 参考实现）
+#
+# 为什么要有这张表：2026-11-13 我在同一层上连着改了三次（分隔符 → 设备树 →
+# memdev 钩子），每次都能过 research-gate，因为它只问「有没有 RESEARCH.md」。
+# 用户点破了这一点：「没找到同芯片可 100% 执行的方法怎么又擅自改来改去」。
+# 所以把「依据」写成机器能核对的断言：claim + 同芯片实现的 file:line。
+#
+# 规则：动 drivers/PongPower/K60*Adsp* 或 patches/xnu/061[1-9]* 之前，凡是这次
+# 会依赖的行为，必须在这里有一行 verified = true，且 evidence 指向的本地文件里
+# 真的能找到 evidence_needle。找不到就是没依据，禁止继续。
+
+version = 1
+
+[[claim]]
+topic = "PAS 的 SMC 调用号"
+claim = "fn = (1<<30)|(2<<24)|(svc<<8)|cmd，PAS 的 INIT_IMAGE/AUTH_AND_RESET/SHUTDOWN 分别算出 0x42000201/0x42000205/0x42000206"
+evidence = "/mnt/e/k60-work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c"
+evidence_needle = "QCOM_SCM_PAS_INIT_IMAGE) == 0x42000201"
+verified = true
+
+[[claim]]
+topic = "PAS 的参数打包"
+claim = "args = count&0xf | t0<<4 | t1<<6 | t2<<8，两个参数且都是 VAL 时等于 0x82"
+evidence = "/mnt/e/k60-work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c"
+evidence_needle = "QCOM_SCM_RW, 0) == 0x82u"
+verified = true
+
+[[claim]]
+topic = "ADSP 固件的段布局"
+claim = "adsp.mdt 的 24 个 PT_LOAD 段落在 0x86300000..0x89400000，拷贝 23,494,284 B + bss 25,925,684 B，adsp.b10 落在非对齐地址 0x86e0b2c0 必须逐字节拷贝"
+evidence = "docs/research/audio/ADSP-PAS1.md"
+evidence_needle = "0x86e0b2c0"
+verified = true
+
+[[claim]]
+topic = "SMEM 分配器的条目格式"
+claim = "条目 = CANARY | item<<16（高 16 位是 item），按 8 字节对齐，分配指针只在条目写完之后前进"
+evidence = "/mnt/e/k60-work/references/pong-power/QcomSmem.c"
+evidence_needle = "CANARY"
+verified = true
+
+[[claim]]
+topic = "md0 的地址形态"
+claim = "memdev.c 把物理基址就地转成内核虚拟地址后才打印，因此它交给回调的 base 是 0xfffffff0083b5000 这种形态；物理地址需要去掉 0xfffffff000000000 基址"
+evidence = "usblog-20261113-115118"
+evidence_needle = "K60PAS md0 window noted 0xfffffff0083b5"
+verified = true
+
+[[claim]]
+topic = "md0 的地址形态"
+claim = "vmd0= 的值是内核 VA（物理 + 0xfffffff000000000），memdev 存的是 VA 页号并以 base << 12 打印，因此 phys = (va_pages - 0xfffffff000000) << 12，换算必须在页单位上做"
+evidence = "docs/research/audio/ADSP-MD0.md"
+evidence_needle = "0xfffffff0083b5000"
+verified = true
+
+[[claim]]
+topic = "md0 与 ADSP carveout 的映射方式"
+claim = "这两个物理窗口在 bsd_init 阶段都没有页表，必须先用 ml_io_map(phys, size) 换成内核 VA 才能读写；直接读 VA 会 esr 0x96000004 / translation fault level 0"
+evidence = "docs/research/audio/ADSP-MD0.md"
+evidence_needle = "translation fault, level 0"
+verified = true
+
+[[claim]]
+topic = "大窗口的映射预算"
+claim = "ml_io_map 从 io_submap 分配，而 IO_MAP_SIZE 只有 8 MiB（osfmk/arm/io_map.c:65），32 MiB ramdisk 和 51 MiB ADSP carveout 必须用 ml_io_map_unmappable（走 kernel_map，io_map.c:128）"
+evidence = "docs/research/audio/ADSP-MD0.md"
+evidence_needle = "IO_MAP_SIZE"
+verified = true

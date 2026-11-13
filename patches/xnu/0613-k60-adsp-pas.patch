@@ -1,0 +1,726 @@
+diff --git a/bsd/dev/pong_adsp_pas.h b/bsd/dev/pong_adsp_pas.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_adsp_pas.h
+@@ -0,0 +1,63 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* PAS (peripheral authentication service) calls for the K60 ADSP.
++ *
++ * The encoders are pure arithmetic and are covered by a host test; the SMC
++ * itself is the only part that needs the device, and it follows the shape the
++ * reference implementation uses: 64-bit standard call, SiP owner, service 2.
++ */
++#ifndef K60_ADSP_PAS_H
++#define K60_ADSP_PAS_H
++
++#include <stdint.h>
++
++#define K60_SCM_SVC_PIL 0x02u
++#define K60_SCM_PAS_INIT_IMAGE 0x01u
++#define K60_SCM_PAS_MEM_SETUP 0x02u
++#define K60_SCM_PAS_AUTH_AND_RESET 0x05u
++#define K60_SCM_PAS_SHUTDOWN 0x06u
++
++#define K60_SCM_VAL 0u
++#define K60_SCM_RW 2u
++
++#define K60_PAS_ADSP 1u
++#define K60_ADSP_LOAD_BASE 0x86300000ull
++#define K60_ADSP_LOAD_SPAN 0x3100000ull
++
++/* Function id: SMC64 | SiP owner | service | command. */
++static inline uint32_t
++k60_scm_fn(uint32_t svc, uint32_t cmd)
++{
++	return (1u << 30) | (2u << 24) | ((svc & 0xffu) << 8) | (cmd & 0xffu);
++}
++
++/* Argument-type word: count in bits 3:0, type i in bits 5+2i:4+2i. */
++static inline uint32_t
++k60_scm_args(unsigned count, unsigned t0, unsigned t1, unsigned t2)
++{
++	return (count & 0xfu) | ((t0 & 3u) << 4) | ((t1 & 3u) << 6) | ((t2 & 3u) << 8);
++}
++
++/* A call succeeded only when both result registers are zero: x0 alone reports
++ * the transport, x1 carries the payload verdict. */
++static inline int
++k60_scm_ok(uint64_t x0, uint64_t x1)
++{
++	return x0 == 0 && x1 == 0;
++}
++
++enum {
++	K60PasOk = 0,
++	K60PasDenied = -1,
++	K60PasBadArg = -2,
++};
++
++int k60_adsp_auth_and_reset(void);
++int k60_adsp_init_image(uint64_t phys);
++int k60_adsp_mem_setup(uint64_t base, uint64_t span);
++int k60_adsp_shutdown(void);
++
++/* True when the kernel glue reached the secure monitor at least once; the
++ * boot log uses it to separate "SCM refused" from "SCM never called". */
++int k60_adsp_scm_tried(void);
++
++#endif /* K60_ADSP_PAS_H */
+diff --git a/bsd/dev/pong_adsp_pas.c b/bsd/dev/pong_adsp_pas.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_adsp_pas.c
+@@ -0,0 +1,90 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* PAS calls for the K60 ADSP: the SMC glue only. The encoders live in the
++ * header so a host test can prove them without the device. */
++
++#include "pong_adsp_pas.h"
++
++#ifndef K60_HOST_TEST
++
++#include <pexpert/pexpert.h>
++#include <sys/systm.h>
++
++static int k60_scm_called;
++
++/* R8..x7 are the SMCCC argument registers; the secure monitor writes both the
++ * result (x0) and the payload status (x1) back through the same registers. */
++static int
++k60_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c,
++    uint64_t *rx0, uint64_t *rx1)
++{
++	register uint64_t x0 __asm__("x0") = fn;
++	register uint64_t x1 __asm__("x1") = arginfo;
++	register uint64_t x2 __asm__("x2") = a;
++	register uint64_t x3 __asm__("x3") = b;
++	register uint64_t x4 __asm__("x4") = c;
++	register uint64_t x5 __asm__("x5") = 0;
++	register uint64_t x6 __asm__("x6") = 0;
++	register uint64_t x7 __asm__("x7") = 0;
++
++	__asm__ volatile("smc #0"
++	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
++	    : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
++	    : "memory");
++
++	k60_scm_called = 1;
++	*rx0 = x0;
++	*rx1 = x1;
++	return k60_scm_ok(x0, x1) ? K60PasOk : K60PasDenied;
++}
++
++static int
++k60_pas_call(uint32_t cmd, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c)
++{
++	uint64_t x0 = 0, x1 = 0;
++	int r = k60_scm_call(k60_scm_fn(K60_SCM_SVC_PIL, cmd), arginfo, a, b, c, &x0, &x1);
++
++	if (r != K60PasOk) {
++		printf("K60PAS cmd=%#x rc=%d x0=%#llx x1=%#llx\n", cmd, r,
++		    (unsigned long long)x0, (unsigned long long)x1);
++	}
++	return r;
++}
++
++int
++k60_adsp_auth_and_reset(void)
++{
++	printf("K60PAS auth_and_reset pas=%u\n", K60_PAS_ADSP);
++	return k60_pas_call(K60_SCM_PAS_AUTH_AND_RESET, k60_scm_args(1, 0, 0, 0),
++	    K60_PAS_ADSP, 0, 0);
++}
++
++int
++k60_adsp_init_image(uint64_t phys)
++{
++	return k60_pas_call(K60_SCM_PAS_INIT_IMAGE,
++	    k60_scm_args(2, K60_SCM_VAL, K60_SCM_RW, 0), K60_PAS_ADSP, phys, 0);
++}
++
++int
++k60_adsp_mem_setup(uint64_t base, uint64_t span)
++{
++	printf("K60PAS mem_setup base=%#llx span=%#llx\n",
++	    (unsigned long long)base, (unsigned long long)span);
++	return k60_pas_call(K60_SCM_PAS_MEM_SETUP, k60_scm_args(3, 0, 0, 0),
++	    K60_PAS_ADSP, base, span);
++}
++
++int
++k60_adsp_shutdown(void)
++{
++	return k60_pas_call(K60_SCM_PAS_SHUTDOWN, k60_scm_args(1, 0, 0, 0),
++	    K60_PAS_ADSP, 0, 0);
++}
++
++int
++k60_adsp_scm_tried(void)
++{
++	return k60_scm_called;
++}
++
++#endif /* !K60_HOST_TEST */
+diff --git a/bsd/dev/pong_adsp_boot.c b/bsd/dev/pong_adsp_boot.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_adsp_boot.c
+@@ -0,0 +1,232 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* ADSP bring-up order: prove the image table is sane, copy it into the
++ * carveout, let the secure monitor authenticate, then hand the span to the
++ * DSP. Every step prints its own verdict so a single boot log says which
++ * layer refused. */
++
++#include "pong_adsp_pas.h"
++#include "pong_adsp_image.h"
++#include "pong_fat.h"
++
++#ifndef K60_HOST_TEST
++
++#include <pexpert/pexpert.h>
++#include <pexpert/device_tree.h>
++#include <sys/systm.h>
++#include <sys/vnode.h>
++#include <sys/namei.h>
++#include <sys/uio.h>
++#include <sys/fcntl.h>
++
++/* osfmk/arm/machine_routines.h:703; declaring it here keeps the
++ * include path out of the leaky kernel header set. */
++extern vm_offset_t ml_io_map(vm_offset_t phys, vm_size_t size);
++extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
++
++int
++k60_adsp_bring_up(void *window, size_t window_bytes, K60AdspRead read)
++{
++	K60AdspPlan plan;
++	uint32_t i;
++	int rc;
++
++	rc = k60_adsp_plan(&plan);
++	if (rc != 0) {
++		printf("K60PAS plan rc=%d\n", rc);
++		return rc;
++	}
++	printf("K60PAS plan rows=%u copied=%u zeroed=%u base=%#x window=%#x\n",
++	    plan.segments, plan.copied, plan.zeroed, plan.base, plan.window);
++
++	rc = k60_adsp_copy(window, window_bytes, read);
++	if (rc != 0) {
++		printf("K60PAS copy rc=%d\n", rc);
++		return rc;
++	}
++	printf("K60PAS copy ok\n");
++
++	rc = k60_adsp_auth_and_reset();
++	if (rc != K60PasOk) {
++		printf("K60PAS auth refused rc=%d\n", rc);
++		return rc;
++	}
++	printf("K60PAS auth ok\n");
++
++	for (i = 0; i < K60_ADSP_SEGMENTS; i++) {
++		const K60AdspSegment *s = &k60_adsp_segments[i];
++
++		if (s->bytes == 0) {
++			continue;
++		}
++		rc = k60_adsp_init_image((uint64_t)s->paddr);
++		if (rc != K60PasOk) {
++			printf("K60PAS init seg=%u addr=%#x bytes=%u rc=%d\n",
++			    i, s->paddr, s->bytes, rc);
++			return rc;
++		}
++	}
++	printf("K60PAS init all segments ok\n");
++
++	rc = k60_adsp_mem_setup((uint64_t)K60_ADSP_BASE, (uint64_t)K60_ADSP_WINDOW);
++	if (rc != K60PasOk) {
++		printf("K60PAS mem_setup refused rc=%d\n", rc);
++		return rc;
++	}
++	printf("K60PAS mem_setup ok base=%#x span=%#x\n",
++	    (unsigned)K60_ADSP_BASE, (unsigned)K60_ADSP_WINDOW);
++	return K60PasOk;
++}
++
++
++/* Called from the Data-mount path (patch 0614). Off unless the boot argument
++ * is present, so the shipped baseline never takes this path. */
++/* This XNU has no msdos filesystem and 0404's mount never ran, so the old
++ * /private/var/pong/md0 path could never resolve. md0 is a contiguous block
++ * device whose base and size the firmware already wrote into the
++ * [pv]md0=<base>@<size> token that bsd/dev/memdev.c consumes, so we parse the
++ * same token and walk the FAT volume ourselves. */
++static K60FatVolume k60_fat_vol;
++static const void *k60_fat_base;
++static int k60_fat_ready;
++
++/* PE_boot_args() returns the kernel-embedded default string, not what the
++ * firmware hands over, so the md token is not visible here (measured: the
++ * printed string has no pong_adsp either, yet PE_parse_boot_argn finds it).
++ * The loader writes the ramdisk span into /chosen instead. */
++static int
++k60_dt_cell(const void *prop, uint32_t length, uint64_t *out)
++{
++	if (prop == NULL || out == NULL) {
++		return -1;
++	}
++	if (length == 8) {
++		const uint32_t *w = (const uint32_t *)prop;
++
++		*out = ((uint64_t)w[0] << 32) | (uint64_t)w[1];
++		return 0;
++	}
++	if (length == 4) {
++		*out = (uint64_t)*(const uint32_t *)prop;
++		return 0;
++	}
++	return -1;
++}
++
++/* PE_boot_args() hands back the kernel-embedded default string, so it never
++ * carries the loader's md token (measured: it lacks pong_adsp too, yet
++ * PE_parse_boot_argn finds that key). PE_parse_boot_argn reads the buffer the
++ * firmware actually filled, which is where memdev.c found md0. */
++/* memdev.c calls this the moment it registers md0: the only place where the
++ * ramdisk geometry is still live (P-175). */
++static uint64_t k60_md_base;
++static uint64_t k60_md_size;
++
++void
++k60_adsp_note_window(uint64_t base, uint64_t size)
++{
++	k60_md_base = base;
++	k60_md_size = size;
++	printf("K60PAS md0 window noted %#llx..%#llx\n",
++	    (unsigned long long)base, (unsigned long long)(base + size));
++}
++
++static int
++k60_adsp_md_window(uint64_t *base, uint64_t *size)
++{
++	if (k60_md_size != 0) {
++		/* mdevadd() takes PAGE NUMBERS, and for a vmd entry it keeps the value
++		 * the loader wrote verbatim: 0xfffffff0083b5, i.e. the kernel VA page
++		 * of the physical 0x83b5 page (memdev prints it as base << 12 =
++		 * FFFFFFF0083B5000). Undo the VA offset in PAGE units -- subtracting
++		 * the byte constant from a page number underflows, which is exactly how
++		 * the previous attempt produced phys 0x10000fff0083b5 and faulted at
++		 * far 0xfffffff8dd67b5b3. */
++		const uint64_t va_pages = 0xfffffff000000000ULL >> 12;
++
++		*base = (k60_md_base - va_pages) << 12;
++		*size = k60_md_size << 12;
++		return 0;
++	}
++	printf("K60PAS md0 was never registered\n");
++	return -1;
++}
++
++static int
++k60_adsp_ramdisk_reader(const char *part, void *dst, uint32_t bytes)
++{
++	uint32_t offset = 0, length = 0;
++	int rc;
++
++	if (!k60_fat_ready) {
++		printf("K60PAS fat volume not opened\n");
++		return -1;
++	}
++	rc = k60_fat_find(k60_fat_base, &k60_fat_vol, "ADSP", part, &offset,
++	    &length);
++	if (rc != 0) {
++		printf("K60PAS fat find %s rc=%d\n", part, rc);
++		return -1;
++	}
++	if (length != bytes) {
++		printf("K60PAS fat size %s have=%u want=%u\n", part, length, bytes);
++		return -1;
++	}
++	memcpy(dst, (const uint8_t *)k60_fat_base + offset, (size_t)length);
++	return 0;
++}
++
++int
++k60_adsp_probe_from_handoff(void)
++{
++	uint64_t base = 0, size = 0;
++	vm_offset_t window;
++	int enabled = 0;
++
++	if (!PE_parse_boot_argn("pong_adsp", &enabled, sizeof(enabled)) || enabled == 0) {
++		return 0;
++	}
++	printf("K60PAS probe begin\n");
++	if (k60_adsp_md_window(&base, &size) != 0) {
++		return -1;
++	}
++	/* memdev records md0 as a KERNEL VA (the firmware passes vmd0=... that
++	 * way), and that VA range is not mapped, so reading it faults at level 0
++	 * (esr 0x96000004). Map the physical window instead. */
++	{
++		/* ml_io_map() allocates from io_submap, which is 8 MiB kernel-wide
++		 * (osfmk/arm/io_map.c:65); a 32 MiB request panics with
++		 * kmem_alloc(...33554432...) failed 3. The unmappable variant
++		 * allocates from kernel_map instead (io_map.c:128). */
++		vm_offset_t ram = ml_io_map_unmappable((vm_offset_t)base,
++		    (vm_size_t)size, 0x2 /* VM_WIMG_DEFAULT: both windows are DDR, not device memory */);
++
++		if (ram == 0) {
++			printf("K60PAS cannot map the ramdisk phys %#llx\n",
++			    (unsigned long long)base);
++			return -1;
++		}
++		k60_fat_base = (const void *)(uintptr_t)ram;
++		printf("K60PAS ramdisk phys %#llx mapped at %#llx size %#llx\n",
++		    (unsigned long long)base, (unsigned long long)ram,
++		    (unsigned long long)size);
++	}
++	if (k60_fat_open(k60_fat_base, (size_t)size, &k60_fat_vol) != 0) {
++		printf("K60PAS fat open failed; not a readable volume\n");
++		return -1;
++	}
++	k60_fat_ready = 1;
++	printf("K60PAS fat open ok bps=%u spc=%u root=%u clusters=%u\n",
++	    k60_fat_vol.bytes_per_sector, k60_fat_vol.sectors_per_cluster,
++	    k60_fat_vol.root_cluster, k60_fat_vol.clusters);
++
++	window = ml_io_map_unmappable((vm_offset_t)K60_ADSP_BASE,
++	    (vm_size_t)K60_ADSP_WINDOW, 0x2 /* VM_WIMG_DEFAULT: both windows are DDR, not device memory */);
++	if (window == 0) {
++		printf("K60PAS cannot map the carveout\n");
++		return -1;
++	}
++	return k60_adsp_bring_up((void *)window, (size_t)K60_ADSP_WINDOW,
++	    k60_adsp_ramdisk_reader);
++}
++
++#endif /* !K60_HOST_TEST */
+diff --git a/bsd/dev/pong_fat.h b/bsd/dev/pong_fat.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_fat.h
+@@ -0,0 +1,47 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Read-only FAT32 lookup for the payload memory disk. XNU has no msdos
++ * filesystem, so the ADSP segments are reached by walking the volume the same
++ * way an installer would: BPB, FAT chain, 8.3 directory entries. */
++
++#ifndef K60_FAT_H
++#define K60_FAT_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++enum {
++	K60FatBadArg = -1,
++	K60FatNoBpb = -2,
++	K60FatNoEntry = -3,
++	K60FatBadChain = -4,
++};
++
++typedef struct {
++	uint32_t bytes_per_sector;
++	uint32_t sectors_per_cluster;
++	uint32_t reserved_sectors;
++	uint32_t fats;
++	uint32_t fat_sectors;
++	uint32_t root_cluster;
++	uint32_t total_sectors;
++	uint32_t data_start;      /* sector offset of cluster 2 */
++	uint32_t cluster_bytes;
++	uint32_t clusters;
++} K60FatVolume;
++
++/* Parses the BPB. `size` is the usable byte count of the image. */
++int k60_fat_open(const void *base, size_t size, K60FatVolume *vol);
++
++/* Finds `dir` (may be "" for the root) then `name`, 8.3 or long, into
++ * (offset, length) relative to `base`. Both are compared case-insensitively
++ * with the dot dropped, so "adsp.b01" matches the entry "ADSP    B01". */
++int k60_fat_find(const void *base, const K60FatVolume *vol,
++    const char *dir, const char *name, uint32_t *offset, uint32_t *length);
++
++/* Reads the "<key>=<base>.<size>" form memdev.c accepts (it writes '.'), so the same boot
++ * argument that creates md0 also tells us where its bytes live. Numbers may be
++ * decimal or 0x-prefixed hex. Returns 0 on success. */
++int k60_md_parse(const char *args, size_t args_len, const char *key,
++    uint64_t *base, uint64_t *size);
++
++#endif /* K60_FAT_H */
+diff --git a/bsd/dev/pong_fat.c b/bsd/dev/pong_fat.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_fat.c
+@@ -0,0 +1,269 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++
++#include <string.h>
++
++#include "pong_fat.h"
++
++static uint32_t
++le16(const uint8_t *p)
++{
++	return (uint32_t)p[0] | ((uint32_t)p[1] << 8);
++}
++
++static uint32_t
++le32(const uint8_t *p)
++{
++	return le16(p) | (le16(p + 2) << 16);
++}
++
++static uint32_t
++fat_entry(const void *base, const K60FatVolume *vol, uint32_t cluster)
++{
++	const uint8_t *p = (const uint8_t *)base;
++	uint32_t fat_off = vol->reserved_sectors * vol->bytes_per_sector;
++
++	return le32(p + fat_off + cluster * 4u) & 0x0fffffffu;
++}
++
++static int
++name_matches(const uint8_t *entry, const char *want)
++{
++	char flat[13];
++	char needle[13];
++	int n = 0;
++	int m = 0;
++
++	for (int i = 0; i < 8; i++) {
++		char c = (char)entry[i];
++
++		if (c != ' ') {
++			flat[n++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
++		}
++	}
++	if (entry[8] != ' ') {
++		for (int i = 8; i < 11; i++) {
++			char c = (char)entry[i];
++
++			if (c != ' ') {
++				flat[n++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
++			}
++		}
++	}
++	flat[n] = '\0';
++
++	/* the dot is a display convention, never a stored byte */
++	for (int i = 0; want[i] != '\0' && m < 12; i++) {
++		char c = want[i];
++
++		if (c == '.') {
++			continue;
++		}
++		needle[m++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
++	}
++	needle[m] = '\0';
++
++	if (n != m) {
++		return 0;
++	}
++	for (int i = 0; i < n; i++) {
++		if (flat[i] != needle[i]) {
++			return 0;
++		}
++	}
++	return 1;
++}
++
++/* Walks the directory whose first cluster is `start`, returning the entry. */
++static int
++walk_dir(const void *base, const K60FatVolume *vol, uint32_t start,
++    const char *name, uint32_t *first_cluster, uint32_t *length, int *is_dir)
++{
++	const uint8_t *p = (const uint8_t *)base;
++	uint32_t cluster = start;
++	uint32_t guard = 0;
++
++	while (cluster >= 2 && cluster < vol->clusters + 2) {
++		uint32_t base_off = (vol->data_start +
++		    (cluster - 2) * vol->sectors_per_cluster) * vol->bytes_per_sector;
++
++		for (uint32_t off = 0; off + 32 <= vol->cluster_bytes; off += 32) {
++			const uint8_t *e = p + base_off + off;
++
++			if (e[0] == 0x00) {
++				return K60FatNoEntry;
++			}
++			/* deleted, long-name fragment, or volume label */
++			if (e[0] == 0xe5 || (e[11] & 0x0f) == 0x0f || (e[11] & 0x08)) {
++				continue;
++			}
++			if (name_matches(e, name)) {
++				*first_cluster = (le16(e + 20) << 16) | le16(e + 26);
++				*length = le32(e + 28);
++				*is_dir = (e[11] & 0x10) != 0;
++				return 0;
++			}
++		}
++		cluster = fat_entry(base, vol, cluster);
++		if (++guard > 65536u) {
++			return K60FatBadChain;
++		}
++	}
++	return K60FatNoEntry;
++}
++
++int
++k60_fat_open(const void *base, size_t size, K60FatVolume *vol)
++{
++	const uint8_t *p = (const uint8_t *)base;
++
++	if (base == NULL || vol == NULL || size < 1024) {
++		return K60FatBadArg;
++	}
++	if (p[510] != 0x55 || p[511] != 0xaa) {
++		return K60FatNoBpb;
++	}
++	vol->bytes_per_sector = le16(p + 11);
++	vol->sectors_per_cluster = p[13];
++	vol->reserved_sectors = le16(p + 14);
++	vol->fats = p[16];
++	vol->fat_sectors = le32(p + 36);
++	vol->root_cluster = le32(p + 44);
++	vol->total_sectors = le32(p + 32);
++	if (!vol->bytes_per_sector || !vol->sectors_per_cluster || !vol->fats ||
++	    !vol->fat_sectors) {
++		return K60FatNoBpb;
++	}
++	vol->cluster_bytes = vol->bytes_per_sector * vol->sectors_per_cluster;
++	vol->data_start = vol->reserved_sectors + vol->fats * vol->fat_sectors;
++	vol->clusters = (vol->total_sectors - vol->data_start) /
++	    vol->sectors_per_cluster;
++	if (vol->clusters == 0) {
++		return K60FatNoBpb;
++	}
++	return 0;
++}
++
++int
++k60_fat_find(const void *base, const K60FatVolume *vol,
++    const char *dir, const char *name, uint32_t *offset, uint32_t *length)
++{
++	uint32_t cluster = vol->root_cluster;
++	uint32_t len = 0;
++	int is_dir = 0;
++	int rc;
++
++	if (dir != NULL && dir[0] != '\0') {
++		rc = walk_dir(base, vol, cluster, dir, &cluster, &len, &is_dir);
++		if (rc != 0) {
++			return rc;
++		}
++		if (!is_dir) {
++			return K60FatNoEntry;
++		}
++	}
++	rc = walk_dir(base, vol, cluster, name, &cluster, &len, &is_dir);
++	if (rc != 0) {
++		return rc;
++	}
++	if (is_dir) {
++		return K60FatNoEntry;
++	}
++	*length = len;
++	*offset = (vol->data_start + (cluster - 2) * vol->sectors_per_cluster) *
++	    vol->bytes_per_sector;
++	return 0;
++}
++
++static int
++parse_number(const char **pp, const char *end, uint64_t *out)
++{
++	const char *p = *pp;
++	uint64_t v = 0;
++	int digits = 0;
++
++	if (p + 1 < end && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
++		p += 2;
++		while (p < end) {
++			unsigned d;
++			if (*p >= '0' && *p <= '9') {
++				d = (unsigned)(*p - '0');
++			} else if (*p >= 'a' && *p <= 'f') {
++				d = (unsigned)(*p - 'a') + 10u;
++			} else if (*p >= 'A' && *p <= 'F') {
++				d = (unsigned)(*p - 'A') + 10u;
++			} else {
++				break;
++			}
++			v = (v << 4) | d;
++			digits++;
++			p++;
++		}
++	} else {
++		while (p < end && *p >= '0' && *p <= '9') {
++			v = v * 10u + (uint64_t)(*p - '0');
++			digits++;
++			p++;
++		}
++	}
++	if (digits == 0) {
++		return K60FatNoEntry;
++	}
++	*out = v;
++	*pp = p;
++	return 0;
++}
++
++int
++k60_md_parse(const char *args, size_t args_len, const char *key,
++    uint64_t *base, uint64_t *size)
++{
++	const char *p = args;
++	const char *end = args + args_len;
++	size_t key_len;
++
++	if (args == NULL || key == NULL || base == NULL || size == NULL) {
++		return K60FatBadArg;
++	}
++	key_len = 0;
++	while (key[key_len] != '\0') {
++		key_len++;
++	}
++
++	while (p < end) {
++		const char *tok = p;
++		const char *tok_end;
++
++		while (p < end && *p != ' ') {
++			p++;
++		}
++		tok_end = p;
++		while (p < end && *p == ' ') {
++			p++;
++		}
++
++		if ((size_t)(tok_end - tok) <= key_len + 1) {
++			continue;
++		}
++		if (strncmp(tok, key, key_len) != 0 || tok[key_len] != '=') {
++			continue;
++		}
++		tok += key_len + 1;
++		if (parse_number(&tok, tok_end, base) != 0) {
++			continue;
++		}
++		/* memdev.c spells the separator '.', not '@': accepting both keeps
++		 * the parser usable for a hand-written argument too. */
++		if (tok >= tok_end || (*tok != '.' && *tok != '@')) {
++			continue;
++		}
++		tok++;
++		if (parse_number(&tok, tok_end, size) != 0) {
++			continue;
++		}
++		if (tok != tok_end) {
++			continue;
++		}
++		return 0;
++	}
++	return K60FatNoEntry;
++}

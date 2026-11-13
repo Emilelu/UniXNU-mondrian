@@ -95,9 +95,9 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 | 层 | 仓库 | 内容 |
 |---|---|---|
-| 框架 | [UniXNU/UniXNU](https://github.com/UniXNU/UniXNU) | `unixnu` 命令、共享脚本、组件目录 |
-| SoC | [UniXNU-sm8475-common](https://github.com/UniXNU/UniXNU-sm8475-common) | `soc.toml`、`configs/sm8475.config`、`dts/sm8475.dtsi` |
-| 设备 | 本仓库 | `board.toml`、`dts/mondrian.dts`、`patches/xnu/` |
+| 框架 | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU)（官方上游 [UniXNU/UniXNU](https://github.com/UniXNU/UniXNU)） | `unixnu` 命令、共享脚本、组件目录 |
+| SoC | [Emilelu/UniXNU-sm8475-common](https://github.com/Emilelu/UniXNU-sm8475-common) | `soc.toml`、`configs/sm8475.config`、`dts/sm8475.dtsi` |
+| 设备 | [Emilelu/UniXNU-mondrian](https://github.com/Emilelu/UniXNU-mondrian)（本仓库） | `board.toml`、`dts/mondrian.dts`、`patches/xnu/` |
 | 固件 | [uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium 构建树 |
 
 ## 分支

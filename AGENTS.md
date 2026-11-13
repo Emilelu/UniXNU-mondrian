@@ -91,17 +91,24 @@ a violation costs work that cannot be recovered.
    that is the same rule followed at the right granularity, not an exception to
    it.
 
-7. **Snapshot before touching anything that boots.** A tag is the only thing
-   that makes a change reversible. `git reset --hard` destroyed the eight-step
-   table deduplication because there was nothing to reset back to, and
-   `git pull --rebase` resurrected the reverted `0403` patch because the revert
-   had not been pushed. Both were one tag away from being harmless.
+7. **Tags mark proven states, not progress.** A tag is a rollback anchor, so
+   it is only worth having when it points at something we verified. Three kinds
+   of tag are allowed, and nothing else:
 
-   Run `python3 scripts/check-snapshot-tag.py --tag` before any change under
-   `patches/xnu/`, `configs/`, `board.toml`, `dts/` or `drivers/`. The gate
-   refuses to tag a dirty tree - a tag that does not contain the work is a lie -
-   and it fails the build when the newest `snap-*` tag is unpushed or when
-   boot-relevant files have changed since it.
+   - `boot-proven-YYYYMMDD` - an image built from this commit reached
+     SpringBoard on the device. The tag message must carry the image path,
+     size and sha256 plus the console log it was proven with.
+   - `snap-rN` - the commit registered as the `main` baseline in
+     `docs/engineering/MAIN-BASELINE.toml` (iron rule 9).
+   - `vX.Y.Z-...` - a release milestone referenced by the READMEs.
+
+   Per-commit and per-round snapshot tags are forbidden: on 2026-11-13 the repo
+   had 134 tags of which 126 were noise, which makes the useful ones unfindable
+   (user: "打了一堆tag 到底哪些有用的？没用的就删掉 后面也不要乱加 只加有用的").
+   The rollback anchor for day-to-day work is the pushed commit (iron rule 2),
+   not a tag - `python3 scripts/check-snapshot-tag.py --tag` now refuses to
+   create anything unless the tree is clean and `MAIN-BASELINE.toml` lists HEAD
+   with `state = "booted"`.
 
 8. **A boot without the serial console is a blind experiment.** Every
    `fastboot boot` must run with the CDC-ACM capture already attached, before
@@ -313,7 +320,7 @@ their branches and the reasoning behind every adopted change.
 - 分支命名沿用上游习惯：`feat/…`、`fix/…`、`test/…`、`chore/…`
 - 合回 `main` 的条件：`BUILD OK` **且**上机通过（八步流程 ⑧），或该条目在
   `docs/engineering/MAIN-BASELINE.toml` 里显式登记为 `build-only` 并写明欠账
-- 每个落在 `main` 的提交必须有对应的 `snap-rN` 快照 tag（铁则 7），并在
+- 每个落在 `main` 的提交必须在 `MAIN-BASELINE.toml` 登记，且只有「上机验证过」或「main 基线」两种状态才打 tag（铁则 7），并在
   `MAIN-BASELINE.toml` 登记：`sha`、`tag`、`kernel_sha256`、`state`
 - 门禁：`scripts/check-main-baseline.py`（注册为 `iron-9`）
 

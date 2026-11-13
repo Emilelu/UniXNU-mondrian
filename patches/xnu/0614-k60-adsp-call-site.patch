@@ -1,0 +1,19 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7818,14 +7818,16 @@
+ 	printf("K60DATA mount returned error=%d result=%d rw=%u\n", error, result, k60_data_rw);
+ 	if (error) goto done;
+ 	k60_data_mounted = 1;
+ 	/* 0340: place the UI compatibility library on the Data volume */
+ 	{
+ 		extern int k60_uilib_deploy(void);
++		extern int k60_adsp_probe_from_handoff(void);
+ 
+ 		(void)k60_uilib_deploy();
++	k60_adsp_probe_from_handoff();
+ 		{
+ 			extern int k60_metal_seeds_deploy(void);
+ 
+ 			(void)k60_metal_seeds_deploy();
+ 		}
+ 	}

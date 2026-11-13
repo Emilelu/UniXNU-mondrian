@@ -4148,3 +4148,145 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 - 规则：见铁则 9。分支命名 `feat/…`/`fix/…`/`test/…`/`chore/…`；合回 `main` 需 `BUILD OK` +
   上机，或在 `docs/engineering/MAIN-BASELINE.toml` 登记 `state = "build-only"` 并接受可见欠账。
 - 门禁：`scripts/check-main-baseline.py`（`iron-9`）。
+## P-175 内核命令行在开机过程中会被换掉——找 `pmd0` 必须在 md0 创建之前读
+
+现象：`memdev.c:499` 只用 `PE_boot_args()` 的前 256 字节，却成功建出了
+`Added memory device md0/rmd0 (02000000/0E000000) at FFFFFFF0083B5000 for 0000000002000000`；
+而在 Data 挂载之后（`kern_exec.c:7818` 之后）用同一个函数打印出来的整串参数里，
+**没有 `pmd0`，连 `pong_adsp=1` 都没有**。
+
+这是两次读取拿到两份内容，不是解析错。可复现的证据：
+
+```
+usblog-20261113-112128   K60ARGS 0..8  → "-v native-ufs=1 … k60_autoreset=300 applog=1 "
+usblog-20261113-113932   K60PAS no md boot argument（同一位置，PE_parse_boot_argn 三个键全空）
+usblog-20261113-113932   Added memory device md0/rmd0 … at FFFFFFF0083B5000 for 0x2000000
+```
+
+结论：`PE_boot_args()` 在 bsd 后期读到的是**已经被替换过的**命令行（NVRAM / launchd
+boot-args 那一层），md0 建立时的原始串已经不在那儿了。
+
+规则：任何依赖固件命令行（`pmd0`、`vmd0`、`initrd` 之类）的解析，必须放在
+**设备初始化之前**（`bsd_init` 里 md 设备创建之前，或更早的 `kernel_bootstrap`），
+不能放在 Data 挂载之后。想验证就先在最早期打印一次，和 `md0` 那一行对齐。
+
+排查顺序（下次别再走一遍）：
+1. 先确认目标 token 到底在不在**命令行的原始串**里——`grep -a pmd0` 引导日志里
+   `Added memory device` 这一行就是存在性证明，不要拿后期打印去反证。
+2. 再确认读的位置对不对——同一函数在不同时间点返回不同内容，这一点在没有实证之前
+   很容易被当成解析 bug（本人已经为此烧掉三次构建）。
+3. 解析器本身可用宿主测试证明（`scripts/tests/test-k60-fat.c` 8 例），不要靠上机反复试。
+
+## P-176 FD 编出来找不到 payload：`{tree}/package` 里的旧 UniXNUPkg 顶掉了 vendored 副本
+
+症状：任何重新构建的 `SILICIUM_UEFI.fd` 启动后停在固件的 `UNIXNU: config: no boot entry found` /
+`menu: default 0 'exit'`，而 2026-11-11 的旧 FD 正常。
+
+根因不在 Mu_Basecore 的 pin，也不在 MuPatches：`board.toml [firmware].packages` 里
+`{tree}/package` 排在 `{uefi}/Platforms/Xiaomi` 前面，而 tree 里那份 `UniXNUPkg` 是从
+`E:\hackios\UniXNU\package` 复制来的旧副本。EDK II 按 PACKAGES_PATH 顺序解析
+`UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf`，于是整个 FD 的 UniXNUPkg
+驱动都编译自框架仓库的旧源码——包括负责把 initrd 发布成块设备的 `UniXNURamDiskDxe`。
+旧副本缺少本仓库版本里的 initrd 追踪/映射检查，发布路径不同，固件就拿不到 payload FAT。
+
+怎么证明（下次直接照做，别再烧构建）：
+1. 取旧 FD 与任意新 FD，解出 LZMA 的 DXE 卷（`lzma.decompress(body, format=lzma.FORMAT_ALONE)`，
+   section body 从 `section+24` 开始），按 FFS 遍历 98 个文件；文件数一样、GUID 一样，
+   只有 5 个大小变了。
+2. 用 `strings` 对比 `75CA63AD-FBAE-4A06-92A0-F937C671251D`（UniXNURamDiskDxe）：
+   新 FD 里有 `rounded to 0x%lx bytes`、没有 `selfread`、没有 `not inside mapped memory`——
+   与本仓库 `Platforms/Xiaomi/UniXNUPkg/.../UniXNURamDiskDxe.c` 对不上，却与
+   `E:\hackios\UniXNU\package\UniXNUPkg\...` 完全一致。这就是「编的不是这份源码」的铁证。
+3. `--dry-run` 打印的 `tree` 是 `out-baseline/.../tree`，`{tree}/package/UniXNUPkg` 正是那份旧副本。
+
+修法：把 `"{uefi}/Platforms/Xiaomi"` 移到 `"{tree}/package"` 之前（`board.toml [firmware].packages`），
+同步到设备输入后重建。验证：反编译新 FD 能看到 `selfread`；`fastboot boot` 后内核能跑起来
+（不再是固件菜单），旧 FD 与新 FD 的 UniXNURamDiskDxe/UniXNU 大小完全一致。
+
+规则：`PACKAGES_PATH` 有同名 package 时，先出现的赢，而且不会有任何警告；
+凡是本仓库 vendored 的平台包，必须排在 `{tree}/package` 之前。
+
+### P-176 追加：FD 修好之后的 panic 不是 FD
+
+同一内核（keep 的 `kernel.macho`）、同一组参数，分别用旧 FD 和新 FD 打包启动，控制台统计完全一致：
+
+- `usblog-20261113-oldfd2`（旧 FD）：`lines=2185 KX=9 SB=7`
+- `usblog-20261113-orderfd2`（新 FD）：`lines=2145 KX=8 SB=7`
+- `usblog-20261113-orderfd-keepk`（新 FD + keep 内核）：`lines=2071 KX=8 SB=7`
+
+三者的 panic 都是 `initproc exited -- exit reason namespace 2 subcode 0xb description: none`。
+2026-11-13 当天所有镜像（含 keep 内核、含无 Data seed 的 `boot-noseed.img`）都是 SB=7 同一个 panic，
+而 11-11 23:32 的 keep 镜像 SB=129 —— 所以剩下的阻塞在 payload 的 ADT/DTB 或用户态，与固件卷无关。
+
+规则：判定 FD 是否修好，只看「内核有没有被加载」（控制台出现内核自身打印），
+不要用 SpringBoard 行数当 FD 的指标；两条链要分开记录、分开验证。
+
+### P-177 `--kernelcache` 不换内核，`--kernel` 才换
+
+现象：把「已知可启动内核」换进我们自己的打包里做对照，连做三次都仍然 panic，
+于是错误地得出「内核无罪」。真实原因是 `unixnu build payload` 收下了 `--kernelcache`
+却仍把构建目录里的 `kernel.macho` 打进 payload。
+
+依据：`unixnu build payload --help` 同时有 `--kernelcache FILE`（原始解压内核缓存，
+给 prelink / trust cache 用）和 `--kernel FILE`（真正打进 payload 的内核）。
+
+规则：凡是要换内核做对照，必须用 `--kernel`；打包后必须从镜像里把内核抽出来核对：
+
+```
+mdir  -i <img>@@<fat> ::/EFI/UniXNU/PAYLOADS/
+mcopy -o -i <img>@@<fat> ::/EFI/UniXNU/PAYLOADS/kernel.macho /tmp/k.bin
+sha256sum /tmp/k.bin
+```
+
+大小/哈希与源文件一致才算换成功。本次实测：keep 内核 54,280,192 B（`ce97b50a…`），
+我们构建的内核 54,525,952 B —— 只看 `unixnu` 的退出码会漏掉这个差别。
+
+### P-178 上机对照：一次只换一个产物，且每个产物都要有可验证的替换入口
+
+本次把「11-11 能进系统的 keep 镜像」逐项搬进当前构建，得到下面的矩阵（每行都是一次真实启动）：
+
+| 替换项 | 入口 | 结果 |
+|---|---|---|
+| 固件卷 FD `cf448571…` | `bootimg --fd FILE` | 仍 `initproc exited` panic |
+| ADT 15,304 B | 打包后 `mcopy` 覆盖 payload 内 `EFI/UniXNU/PAYLOADS/kernel.macho.adt` | 仍 panic |
+| DTB 1,866 B | `bootimg --dtb FILE` | 仍 panic（镜像大小回到 201,883,648） |
+| `METAL/` 目录 | 从 keep 镜像里 `mdeltree` 删掉 | 仍能进系统 SB=133 |
+| 内核 `ce97b50a…` | `build payload --kernel FILE`（见 P-177） | **进系统 SB=133** |
+
+规则：任何「某组件无罪」的结论必须附「该组件确实被换掉了」的证据（大小或 sha256 或独有字符串），
+否则一律记为未测。`cs_invalid_page`、`shared_region`、`K60DYLD` 这类日志在能进系统的镜像里也会出现，
+不能拿它们当回归判据；判据只能是启动后的 SpringBoard 行数与是否 panic。
+
+### P-179 `initproc exited … ns=2 code=0xb` 是 SIGSEGV，不是 AMFI 拒绝 exec
+
+`bsd/sys/reason.h` 的命名空间表：`OS_REASON_SIGNAL = 2`、`OS_REASON_CODESIGNING = 3`、
+`OS_REASON_EXEC = 9`，而 `EXEC_EXIT_REASON_SECURITY_POLICY = 8`。
+
+- `KX! 18 1 launchd exit=0 sig=11 r=1 ns=2 code=0xb` → 信号命名空间 + 11 号信号 = SIGSEGV，
+  即 launchd 自己段错误，initproc 死亡才触发 panic；
+- AMFI 拒绝 exec 会是 `ns=9 code=0x8`，或者 `ns=3`（codesigning），不是 `ns=2`。
+
+它仍然接在 codesign 链上：同一份日志里 `CODE SIGNING: cs_invalid_page(0x10086b000): p=1[launchd] …
+allowing (remove VALID) page`，而 `KXPC 1 launchd pc=0x10086b158` 正好落在那一页。
+但 keep 内核每次启动也会报一个 cs_invalid 页（`0x1003a5000` / `0x1009a8000`，随加载地址变化），
+照样进系统 —— 所以「有一页被 remove VALID」本身不致命，致命的是进程后来执行到了那一页。
+
+规则：看到 `ns=2` 先按信号解码（`sig=` 字段），不要直接归因 AMFI；要判断是不是 AMFI 拒绝，
+看 `ns=9 code=8`。
+
+### P-180 补丁里的嵌入 blob 是代码：行数没变也可能是整段二进制换了
+
+`patches/xnu/0340-k60-uilib-deploy.patch` 在 11-11 之后从 629,034 B 涨到 1,052,856 B，
+`kern_exec.c` 的部署钩子逐字节相同，变的只是 `bsd/dev/k60_uilib.c` 里那份内嵌的
+`libpong-ui.dylib`。整目录二分证明：旧版能进系统（SpringBoard 133 行），新版在 launchd
+阶段 `initproc exited … ns=2 code=0xb`（7 行）；**只回退 0340** 就恢复到 129 行。
+
+规则：
+
+- `0340/0391/0401` 这类带 C 数组的补丁，**diff 大小、hunk 数、`check-patch-apply` 全部通过都不算验证**，
+  唯一判据是一张能进系统的启动镜像；
+- 任何对这三个补丁的改动，在合回 `main` 前必须更新 `docs/engineering/MAIN-BASELINE.toml`
+  的 `[entry.blob_sha256]`，门禁 `scripts/check-blob-patches.py` 会比对；
+- 怀疑这类补丁时不要逐个 hunk 读，直接 `git show <boot-proven>:<patch> > 当前文件` 整文件回退，
+  一次启动就能定性（本次省掉了 27 个文件逐个试的成本）。
+

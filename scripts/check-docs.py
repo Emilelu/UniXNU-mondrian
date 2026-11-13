@@ -19,6 +19,8 @@ import os
 import re
 import sys
 
+from pathlib import Path
+
 REPO = '/mnt/e/hackios/UniXNU-mondrian'
 FILES = [
     REPO + '/README.md',
@@ -262,12 +264,49 @@ def check_no_hardcoded_sha(verbose=True):
     return problems, counted
 
 
+OFFICIAL = "https://github.com/UniXNU/UniXNU"
+FORK = "https://github.com/Emilelu/UniXNU"
+
+
+def check_readme_links(verbose=True):
+    """README 里的仓库链接必须指向我们自己的仓库。
+
+    两类错误都会让读者克隆错仓库：
+      - 框架：官方 UniXNU/UniXNU 只能作为「官方/上游」标注出现，工作用的是 fork；
+      - 本项目自有仓库（UniXNU-mondrian / UniXNU-sm8475-common / uefi-mondrian）
+        必须指向 Emilelu，不能写成 UniXNU 组织（2026-11-13 用户：UniXNU-sm8475-common
+        是我的仓库，README 里链接错了，其他同类问题也要修）。
+    """
+    own = ("UniXNU-mondrian", "UniXNU-sm8475-common", "uefi-mondrian")
+    bad = []
+    for name in ("README.md", "README_EN.md", "CREDITS.md"):
+        f = Path(REPO) / name
+        if not f.is_file():
+            continue
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            for repo in own:
+                wrong = "github.com/UniXNU/%s" % repo
+                right = "github.com/Emilelu/%s" % repo
+                if wrong in line and right not in line:
+                    bad.append("%s:%d %s 指向 UniXNU 组织，应指向 Emilelu" % (name, i, repo))
+            # the bare-framework rule only applies to README files: CREDITS has a
+            # dedicated "official" section where listing UniXNU/UniXNU is correct
+            if name == "CREDITS.md":
+                continue
+            if not re.search(r'UniXNU/UniXNU(?![A-Za-z0-9._-])', line):
+                continue
+            marked = any(k in line for k in ("官方", "上游", "official", "upstream"))
+            if FORK not in line and not marked:
+                bad.append("%s:%d 链接到官方仓库但没有标注 fork/官方" % (name, i))
+    return bad, 2
+
+
 def run(verbose=True):
     all_problems = []
     total = 0
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
                check_root_docs_linked, check_section_order, check_no_hardcoded_sha,
-               check_bilingual, check_freshness):
+               check_bilingual, check_freshness, check_readme_links):
         p, n = fn(verbose)
         all_problems += p
         total += n

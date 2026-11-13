@@ -65,9 +65,14 @@ patches = [
 ]
 packages = [
   "{uefi}",
+  # UniXNUPkg must come from this repo's vendored copy, not from {tree}/package:
+  # the tree stages the framework's older package, and with it first in
+  # PACKAGES_PATH EDK II silently compiled that copy into the FD (its
+  # UniXNURamDiskDxe lacks the initrd tracing added here, which is how the
+  # difference was found). Keep the platform root ahead of {tree}/package.
+  "{uefi}/Platforms/Xiaomi",
   "{tree}/package",
   "{edk2}",
-  "{uefi}/Platforms/Xiaomi",
   "{uefi}/Common/Mu",
   "{uefi}/Common/Mu_OEM_Sample",
   "{uefi}/Silicon/Qualcomm",

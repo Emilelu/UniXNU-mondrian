@@ -264,3 +264,17 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 
 所以 `k60_battery=0` 是彻底关掉，`k60_battery=1`（默认）是"有租约才启动"。
 没有第三个状态 —— 不存在"强制启动"的开关。
+
+### `pong_adsp`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不探测） |
+| 取值 | 0 / 1 |
+| 来源 | `drivers/PongPower/K60AdspBoot.c`（`PE_parse_boot_argn("pong_adsp", &enabled, sizeof(enabled))`）|
+| 作用 | 1 = 启动 ADSP PAS1 探针：读取 24 段镜像、算 SMC 参数、打印每一段的 `rc` |
+
+**当前状态（2026-11-13）**：探针能从 `memdev` 拿到 md0 的几何，但 `vmd0` 记的是固件
+虚拟地址，XNU 读不到（`esr 0x96000010`，见 `docs/research/audio/ADSP-MD0.md`）。
+所以 `pong_adsp=1` 目前只用于诊断，不能作为可用的音频/电池前提。

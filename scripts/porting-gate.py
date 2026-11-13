@@ -31,22 +31,22 @@ import time
 # 从脚本位置推仓库根。写死路径会让门禁去量另一棵检出树（P-184/P-185），
 # 报出来的『未同步』其实是两个 worktree 之间的差异。
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WORK = '/mnt/e/k60-work'
+WORK = os.environ.get("K60_WORK", "/mnt/e/k60-work")
 # 真相源是 board.toml 的 patch_series（device:patches/xnu/series）。
 # SERIES-FINAL.txt 只是 P-90 时代的 scratch 副本，早已漂移（227 vs 223），
 # 用它算指纹会量到一个没人构建的序列（P-194）。
-SERIES = REPO + '/patches/xnu/series'
+SERIES = REPO + "/patches/xnu/series"
 if not os.path.exists(SERIES):
-    SERIES = WORK + '/scratch/SERIES-FINAL.txt'
-PACK = WORK + '/scratch/packv15.sh'
-XNU_WORK = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-            'ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work')
-KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-          'ipados-16.6.1-20G81/mondrian/kernel/kernel.macho')
+    SERIES = WORK + "/scratch/SERIES-FINAL.txt"
+PACK = WORK + "/scratch/packv15.sh"
+# 构建输出跟随 build-strict.sh 导出的 K60_OUT，默认与历史行为一致。
+BUILD_OUT = os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline")
+XNU_WORK = BUILD_OUT + "/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work"
+KERNEL = BUILD_OUT + "/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho"
 # 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
 # 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
-DEV = (os.environ.get('K60_DEVICE_INPUT')
-       or '/opt/k60/trees/usb-cdc-mainline/device') + '/patches/xnu'
+DEV = (os.environ.get("K60_DEVICE_INPUT")
+       or "/opt/k60/trees/usb-cdc-mainline/device") + "/patches/xnu"
 LEDGER = WORK + '/ledger.jsonl'
 
 QUICK = '--quick' in sys.argv

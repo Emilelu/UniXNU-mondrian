@@ -1,28 +1,32 @@
-# patches/bt — Bluetooth line patches (staged, not build-wired)
+# patches/bt — Bluetooth line patches
 
-These patches are **not applied by the build**. `scripts/check-patch-series.py:24` and
-`scripts/check-build-applied.py:27` read only `patches/xnu/series`, and the build mirrors
-`patches/xnu` into the build input. A patch living here is a reviewed artefact for the Lead,
-not a change that reaches the kernel image.
+`scripts/check-patch-series.py:24` and `scripts/check-build-applied.py:27` read only
+`patches/xnu/series`, and the build mirrors `patches/xnu` into the build input — so a patch that
+lives **only** here never reaches the kernel image. This directory is the line's own archive; the
+copy that builds is `patches/xnu/0507-k60-bt-readonly-probe.patch`, wired at
+`patches/xnu/series:205` (after `0502`, before `0503`), byte-identical to the file below
+(same sha256).
 
 | Patch | Purpose | Applies to |
 |---|---|---|
-| `0001-k60-bt-readonly-probe.patch` | Adds `k60_bt_probe()` and a `k60bt_stage=1` early return to `bsd/dev/qbt_k60.c`: maps GCC/UART/wrapper, enables the serial clock (GPLL0 + five votes + halt poll), then performs nine read-only GENI loads (identity: 0x40/0x64/0x68/wrapper 0x4; deviation-deciding: `G_MANUAL_RFR` 0x2ac, DMA status 0xc40/0xd40, unnamed 0xe40, then 0x40 again) and returns before any pin muxing, BT_EN pulse, DMA setup or interrupt installation. | the `bsd/dev/qbt_k60.c` created by `patches/xnu/0500-k60-bt-qbt-new-files.patch` |
+| `0001-k60-bt-readonly-probe.patch` | Adds `k60_bt_probe(unsigned step)` and a `k60bt_stage=1` early return to `bsd/dev/qbt_k60.c`. It sleeps `k60bt_delay` (default 20 s, cap 120 s) so the CDC console is up, prints a mark before every access (36 marks), and walks nine `k60bt_step` rungs: s1 map GCC/UART/wrapper (zero MMIO); s2 GPLL0 vote + lock poll; s3 QUPV3_2 vote 0x62010 + read-back; s4 five halt reads; **s5 read-only SE20 RCG (CMD 0x2e618, CFG, DFSR, decode ROOT_OFF/ROOT_EN/UPDATE)**; **s6 set `CMD_ROOT_EN` and poll `ROOT_OFF` clear**; **s7 write CFG then latch `ROOT_EN`/`UPDATE`**; s8 GENI identity 0x040/0x064/0x068/0x2ac + wrapper 0x004; s9 0xc40/0xd40/0xe40/0x040 again. Returns before any pin muxing, BT_EN pulse, DMA setup or interrupt installation. | the `bsd/dev/qbt_k60.c` created by `patches/xnu/0500-k60-bt-qbt-new-files.patch` |
 
 Verified with `git apply --check` against the full `bsd/` tree extracted from 0500 (`qbt_k60.c` 1,249 lines, sha256
 `8451c8706ecf75a79fba49ba7e3bda769ee73fcac5f357a46c9d484df3878748`), then `clang -fsyntax-only` with the out3
-`.CFLAGS`: 0 error. Patch sha256 `95e4b098e552619db135b455af5dbec96eae4450a2a8cdae1c6c61ce658ed8a3` (4,174 B, 80 lines).
-The three deviations the extra reads decide are F1–F3 in `docs/research/bt/06-DEEP-DIVE.md`.
+`.CFLAGS`: 0 error. Patch sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1` (13,001 B, 280 lines, 36 marks, 8 step gates).
+The deviations these rungs decide are F1–F3 and F11/F12 in `docs/research/bt/06-DEEP-DIVE.md`; F11 (the SE20 RCG root is never enabled by 0500) is the leading explanation for the S1a zero-byte death.
 Rationale, boot commands, expected console lines and verdict table:
 `docs/research/bt/S1-PROBE-SPEC.md`.
 
-## Wiring options for the Lead
+## Wiring status
 
-- **A (preferred, no series change):** fold the two hunks into
-  `patches/xnu/0500-k60-bt-qbt-new-files.patch`. 0500 creates a new file, so editing its body
-  keeps `patches/xnu/series` untouched and `check-build-applied.py` keeps matching.
-- **B (separate patch):** add `0503-k60-bt-readonly-probe.patch` under `patches/xnu/`, append
-  `0503-k60-bt-readonly-probe.patch` to `patches/xnu/series`, then run
-  `python3 scripts/sync-device-input.py` and `python3 scripts/check-rules.py`.
+Wired with **option B**: a separate patch `patches/xnu/0507-k60-bt-readonly-probe.patch` appended
+to `patches/xnu/series` at line 205 (numbered 0507, not 0503, because the integrated series
+already uses 0503–0506 for audio and the 120 Hz clock). After editing the series, both
+`K60_DEVICE_INPUT=<mirror> python3 scripts/sync-device-input.py` and
+`python3 scripts/check-rules.py` must run, otherwise iron-4/hard-33 (`series 三处一致`) and
+P-165/P-166 (`check-build-applied.py`) go red.
 
-Neither option is inside this line's write scope, so both are handed to the Lead.
+Option A (fold the hunks into `0500`) remains valid and would keep `series` untouched, since 0500
+creates the file it patches. It was not used because the probe is expected to be rewritten again
+after the ladder returns data.

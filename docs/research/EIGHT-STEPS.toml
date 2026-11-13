@@ -49,22 +49,19 @@ done = true
 evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）与 PITFALLS.md P-122/P-124。2026-11-12 离线单测进一步定位：0x10400 的帧是 framedata(rawdata)，其 frame_head 16 字节校验通过而 8 字节触点头校验不通过；0x10308 首字节恒 0x00，官方 brl_event_handler:1188 判定为 invalid touch head。地址与解析均正确，问题在芯片不产生触点报告。下一项测量：确认 config 是否真正启用了上报模式，以及 data_en(0x00000701) 的 rawdata 位是否需要清除。"
 
 [hardware.touch.step.verify]
-done = true
-local_verified = true
-evidence = "三类本地核验齐全（静态对照 + 离线单测 + 产物检查），并据此定位并修复了两个真实缺陷：config 写进芯片 RAM 后被自作主张的 CFG-RESET 作废（官方 brl_send_config 之后只有 msleep(100)，见 docs/engineering/TOUCH-STATEMACHINE.md:142-154）；以及只查 ack 字节、从不查 cmd_ack.state（同文件 :219-241）。修复提交 f240ead，产物 kernel.macho sha256 d9d5093e8a41975d1a51f4f0dca6f50bc2acaf81015e3918b4139e87923a7c18。"
-static_check = """逐行对照官方状态机（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表）：
+done = false
+local_verified = false
+superseded = "2026-11-14: the evidence below describes the 2026-11-12 kernel d9d5093e (pre-merge driver). The current candidate is touch-20261114d / kernel cc7541cd6bf82d35 with the merged Berlin D driver and the 16/17/18/19 lane map, and it has NOT re-passed step 7. Step 7 is therefore open until the new route gets static_check + unit_test + artifact_check of its own. Raised by the touch plan review (v15) and registered here by the Lead."
+previous_evidence = "三类本地核验齐全（静态对照 + 离线单测 + 产物检查），并据此定位并修复了两个真实缺陷：config 写进芯片 RAM 后被自作主张的 CFG-RESET 作废（官方 brl_send_config 之后只有 msleep(100)，见 docs/engineering/TOUCH-STATEMACHINE.md:142-154）；以及只查 ack 字节、从不查 cmd_ack.state（同文件 :219-241）。修复提交 f240ead，产物 kernel.macho sha256 d9d5093e8a41975d1a51f4f0dca6f50bc2acaf81015e3918b4139e87923a7c18。"
+previous_static_check = """逐行对照官方状态机（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表）：
 - 上电轨 iovdd 3ms → avdd 15ms、reset 释放后 4ms、100ms 静置：一致。
-- 0xC900 是 Berlin-A 专属（goodix_brl_hw.c:59-61 在 Berlin-D 直接 return）：本版已不再写该寄存器。
-- 0x90/0x81 进 rawdata 只在容值测试路径（goodix_brl_hw.c:1313），且必定配 0x90/0x00 退出：本版启动路径已无 rawdata 入口。
+- 0xC900 是 Berlin-A 专属（goodix_brl_hw.c:59-61 在 Berlin-D 直接 return）：当版已不再写该寄存器。
+- 0x90/0x81 进 rawdata 只在容值测试路径（goodix_brl_hw.c:1313），且必定配 0x90/0x00 退出：当版启动路径已无 rawdata 入口。
 - config：CFG-START(0x04) → 写 fw_buffer_addr(0x1205c) 每 64B 回读 → CFG-WRITE(0x05) → CFG-EXIT(0x06) → msleep(100)，与 brl_send_config 一致（goodix_brl_hw.c:493-560）。
-- 每条 config 命令之后等 cmd_ack.state == 0x80（goodix_brl_hw.c:448-466、484-489），最长 20×20ms=400ms —— 新增 goodix_wait_status()。
+- 每条 config 命令之后等 cmd_ack.state == 0x80（goodix_brl_hw.c:448-466、484-489），最长 20×20ms=400ms —— 当版新增 goodix_wait_status()。
 - 报告读取：touch_data_addr 起 26 字节，pre_buf[0]==0 直接返回（goodix_brl_hw.c:1179-1188）；状态字节 0x80 触点为 GOODIX_TOUCH_EVENT，清标志写 0。与官方一致。"""
-unit_test = """scripts/tests/test-brl-parse.py 10/11 通过（唯一失败是测试用例构造错误，非驱动缺陷）：全零帧/空帧→无事件；1/2/5/10 触点→count 正确；超上限 15→拒绝；头部校验错→拒绝；RESET→reset=True。帧格式用真实日志帧交叉验证过：0x10400 的帧若按 8 字节触点头校验失败（cal=0x2B1 vs r=0x0108），按 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a），证明它是 rawdata 帧而非触点报告 —— 这正是本次修复要消除的形态。"""
-artifact_check = """对最终产物 kernel.macho（sha256 d9d5093e…，2026-11-12 15:16 构建）做符号与字符串检查：
-- 'state never reached 0x80' 1 处、'state=80' 1 处 → goodix_wait_status 已编入。
-- 'CFG-START' 1 处、'CFG-EXIT' 1 处 → config 三阶段仍在。
-- 'COORD-MODE' 0 处、'identification lost after config reset' 0 处 → 自作主张的 0x90/0x00 与 config 后硬复位已彻底移除。
-结论：代码路径与设计一致，产物可上机。"""
+previous_unit_test = """scripts/tests/test-brl-parse.py 10/11 通过（唯一失败是测试用例构造错误，非驱动缺陷）：全零帧/空帧→无事件；1/2/5/10 触点→count 正确；超上限 15→拒绝；头部校验错→拒绝；RESET→reset=True。帧格式用真实日志帧交叉验证过：0x10400 的帧若按 8 字节触点头校验失败（cal=0x2B1 vs r=0x0108），按 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a），证明它是 rawdata 帧而非触点报告。"""
+previous_artifact_check = """对当时产物 kernel.macho（sha256 d9d5093e…，2026-11-12 15:16 构建）做符号与字符串检查：'state never reached 0x80' 1 处、'state=80' 1 处、'CFG-START' 1 处、'CFG-EXIT' 1 处；'COORD-MODE' 0 处、'identification lost after config reset' 0 处。"""
 
 [hardware.touch.step.device]
 done = false

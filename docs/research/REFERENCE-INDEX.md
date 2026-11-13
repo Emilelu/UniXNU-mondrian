@@ -92,7 +92,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 | QcomGeniSpi | main | eac47ba | 6 | 0 | 0/0/0 | GENI SPI 驱动范本（`GeniSpi.c` 15,536 B） |
 | UniXNU | main | e3982fc | 1485 | 13 | 13/0/1 | 官方组件体系；`devices.toml:1585-1598` 是 mondrian 的官方记录 |
 | UniXNU-docs | HEAD 分离 | 066c8d8 | 1080 | 0 | — | 官方文档站源 |
-| UniXNU-liuqin | main | 907b8e9 | 105 | 0 | — | 他人 fork，未挖 |
+| UniXNU-liuqin | main | 907b8e9 | 105 | 0 | — | **Xiaomi Pad 6 Pro / liuqin / SM8475（cape）**，由 sheng 派生，不能构建。`docs/liuqin-hardware.md` 是从 stock 固件核实的板级真值，与 K60 逐条交叉验证（见 9.1） |
 | UniXNU-mondrian | feat/touch-power | b18fe3b | 890 | 0 | 5/1/213 | **本板主 checkout，归 touch-agent**，不是参考仓库 |
 | UniXNU-pong | main | e0ee6df | 406 | 9 | 0/7/0 | Pong 板级；`configs/pong-wifi-sm8475.json` 有 PCI 参数 |
 | UniXNU-sheng | main | a68ee4e | 435 | 0 | 0/0/0 | Sheng 板级；`drivers/` 7 个、`package/` 100+ 个 Probe |
@@ -543,6 +543,31 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | UniXNU-upstream | `docs/devices/mondrian-mzyxsl.md:45`（另见 `:249`） | 官方记录里的 `board.toml [userdata]`：**first_lba 53342976 / last_lba 61731583 / lba_bytes 4096**，窗口 OS + Cryptex1,SystemOS | 官方（fork 自报） |
 | ShengUfs | `NativeUfs.cpp`（148,723 B） | 官方完整实现，但**硬编码 SM8550**，不能整体替换；`RootCommands.h`（29,932 B）与 `tests/` 下 12 个测试是移植范本 | 官方 |
 
+### 9.1 跨板交叉验证：liuqin（同 SM8475，Xiaomi Pad 6 Pro）
+
+`UniXNU-liuqin` 是另一块 SM8475 板，板级数值从 stock 固件与其 live FDT 核实过，**和 K60 自己的 live FDT 逐条吻合**，所以下面这几条从「单点」升到「两处独立来源一致」。
+
+| 事实 | liuqin 出处 | K60 侧出处（`fdt_dump.txt` 行号） |
+|---|---|---|
+| **UFS PHY 基址 0x1d80000**（不是 SM8450 的 0x1d87000） | `docs/liuqin-hardware.md:23`（另 `board.toml:103`） | `:9577` `/soc/ufsphy_mem@1d80000`、`:9578` `reg=<0x1d80000 0x2000>` |
+| UFS PHY compatible `qcom,ufs-phy-qmp-v4-cape` | `docs/liuqin-hardware.md:23` | `:9587` |
+| UFS PHY 供电 vdda-phy / vdda-pll | — | `:9588` `vdda-phy-supply=<0x232>`、`:9589` `vdda-pll-supply=<0x233>`、`:9590` max 0x30188 µA、`:9591` max 0x5c94 µA |
+| UFS 控制器 0x1d84000（+ ICE 0x1d88000 / HWKM 0x1d90000），4096 B 扇区 | `docs/liuqin-hardware.md:4` | `:9593-9596` `reg=<0x1d84000 0x3000 0x1d88000 0x8000 0x1d90000 0x9000>`、`reg-names=ufs_mem,ufs_ice,ufs_ice_hwkm` |
+| UFS 中断 GIC SPI 0x109（265）level high | — | `:9597` `interrupts=<0 0x109 4>` |
+| UFS 通路亲和 `prime-mask 0x70` / `silver-mask 0xf`、lanes 2 | — | `:9601-9603` |
+| **PMIC 家族 = pm8350 / pm8350b / pm8350c / pm8450 / pmk8350 / pmr735a**（SM8450 waipio 那套，**不是** SM8550 那套） | `docs/liuqin-hardware.md:22` | `:8121` `pmk8350@0`、`:8535` `pm8350@1`、`:8576` `pm8350c@2`、`:8808` `pm8350b@3`、`:8973` `pmr735a@4`、`:8998` `pmr735b@5`、`:9022` `pm8450@7` |
+| ADSP 保留区 `0x9fd00000 + 0x3100000` | `docs/liuqin-hardware.md:21` | `MemoryMapLib.c:34`（`{"adsp_region", 0x9FD00000, 0x03100000, ...}`） |
+| ramoops `0xa7000000 + 0x400000` | `docs/liuqin-hardware.md:19` | `MemoryMapLib.c:38` |
+| xbl_ramdump `0xa6b80000+0x280000` / xbl_sc `0xa6e00000+0x40000` | `docs/liuqin-hardware.md:20` | `MemoryMapLib.c:35-36` |
+| ABL splash framebuffer `0xb8000000 + 0x2b00000`（45 MiB） | `docs/liuqin-hardware.md:18`（`board.toml` 同值） | `MemoryMapLib.c:52` Display Reserved |
+| UEFI FD 窗口 `0xA7000000 + 0x400000`（+ Reserved `0xA7400000+0x200000`） | `docs/liuqin-hardware.md:36` | K60 是 `Resources/Configs/mondrian.toml:9-13` 的 `0xA7400000 + 0x300000` —— **K60 把 FD 挪开以避开 ramoops**，布局不同但都自洽 |
+| DXE Heap `0xF8000000 + 0x7C00000` | `docs/liuqin-hardware.md:40` | K60 是 `0xC7000000 + 0x18000000`（`MemoryMapLib.c:83`）—— **不同板不同值，不能互抄** |
+| 共享 IMEM `0x146AA000`、`UefiMemUseThreshold 0x1900`、`SecPagePoolCount 0x800`、NumCpus 8 | `docs/liuqin-hardware.md:41/:43` | `ConfigurationMapLib.c` 同名项同值 |
+
+**怎么用**：UFS 那几条以前只有 Pong 的控制器地址（`PongUfsTransport.cpp:157` 的 `0x01d84000`）可参照，现在 PHY 基址 0x1d80000 与 `qmp-v4-cape` compatible 有第二份独立确认，写驱动时可直接用。反过来 **DXE Heap / Kernel 预留区不要跨板抄**（liuqin 0xF8000000 vs K60 0xC7000000）。
+
+**顺带线索**：liuqin 的面板 XML 名是 `Panel_M81_42_02_0b_dualdsi_dsc_lcd_video.xml`（`docs/liuqin-hardware.md:44`），和 K60 的 `M11a_42_02_0a` 是同一套 mi 命名法（`<项目>_<42>_<02>_<0a/0b>`），找 K60 面板 XML 时可按这个形状搜。
+
 ---
 
 ## 10. USB（DWC3）
@@ -598,6 +623,8 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | `Kernel` | 0xBB000000 | 0x0C000000 | `:75` |
 | `DXE Heap` | 0xC7000000 | 0x18000000 | `:83`（注释 :76-82：DarwinBoot 要一段连续 256 MiB，320 MiB 堆时报 biggest run 0xF0A0000） |
 | `XNU High Arena` | 0x900000000 | 0x140000000 | `:94`（注释 :85-93：高 DDR 在 >= 0x800000000，`[0x100000000,0x800000000)` 是空洞，只暴露实测连续的 8 GiB） |
+
+其中 `adsp_region`、`ramoops`、`xbl_ramdump`/`xbl_sc`、`Display Reserved` 四条在 liuqin（另一块 SM8475 板，Xiaomi Pad 6 Pro）的 stock 固件里是**同值**，属跨板交叉验证，见 9.1。`DXE Heap` 与 `Kernel` 则**不同板不同值**，不要跨板抄。
 
 ### 12.2 寄存器区窗口
 
@@ -743,7 +770,6 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1；RSC 不可访问（14.1）前只能沿用 bootloader 状态 |
 | **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*` |
 | **`Device-Binaries` 698 MB 未系统挖掘** | 全部 | 至少把 `Binaries/` 下的 panel/固件索引出来 |
-| **`UniXNU-liuqin`（105 文件）未看过** | 未知 | 先 `git ls-files` 看有没有 SM8475 相关 |
 | **RSC 可访问性根因未定** | 所有供电相关 | 见 14.1，优先 |
 | **Goodix 芯片型号未确认** | 触摸 | DT 只写 `xiaomi,m11a-spi`；需要读 IC info 或从 Android 侧 dmesg 确认 |
 | **`UniXNU-ruby` 是空仓库** | 文档错误 | `docs/engineering/LOCAL-ASSETS.md` 把它当 catalog，应删掉或标注为空 |
@@ -774,7 +800,9 @@ python3 scripts/research-gate.py        # 校验每个 path 存在、examined �
 ② `os.path.join('/mnt/e/k60-work', path)`（如 `references/...`、`reports/...`）。
 所以 `path` **不能写 `E:/hackios/...`**。本索引里 `E:/k60-work/reports/live-6033dbec-fdt.dtb` 之所以能当 `path`，是因为它同时是 `reports/live-6033dbec-fdt.dtb`（回退②命中）。
 
-蓝牙的唯一实现副本 `E:/hackios/QcaBluetooth` 不在上述两种回退内，**进不了 gate**，只能在本文件第 5 节以事实形式记录。这是已知的结构性限制。
+不在上述两种回退内的仓库有两个，它们**进不了 gate**，只能在本文件正文以事实形式记录（已知的结构性限制）：
+- `E:/hackios/QcaBluetooth`（蓝牙的唯一实现副本）—— 见第 5 节；
+- `E:/hackios/UniXNU-liuqin`（Xiaomi Pad 6 Pro，同 SM8475）—— 见 2.1 与 9.1。
 另外 `research-gate.py:88` 未传 `verbose` 导致 problems 永不打印，验证时若只有一行结论而看不到细节，把脚本 `sed` 换 `REPO` 到本地副本跑（不要改仓库里的脚本，铁则⑧）。
 
 **这两个缺陷的修复补丁已经写好**，放在 `docs/research/evidence/` 下，因为 `scripts/` 不属于本线的写作用域（铁则⑧：不改判据；但这是脚本缺陷，不是判据）：

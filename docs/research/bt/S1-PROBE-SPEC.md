@@ -144,6 +144,18 @@ python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
 - 已备好的镜像：`bt-s1c-20261114a`（step 未指定 → 默认 9，`k60bt_delay=20`）、`bt-s1c-20261114b`（`k60bt_delay=40 k60bt_step=9`）、`bt-s1c-a1-20261114a`（`k60bt_delay=40 k60bt_step=1`）。上机从 A1 开始。
 - 为什么值得拆成五级：S1a 已经用掉一次「0 字节日志 + 物理断电」，而 A1/A2/A3 都是低风险启动（A3 甚至只读），能把「管道问题」「GCC/NoC 问题」「RCG 根时钟问题」「GENI 问题」四者彻底分开；每级只多花一次安全启动。
 
+### 4.1 已构建的阶梯镜像（每级一份产物）
+
+| 级 | tag | `k60bt_step` | `k60bt_delay` | boot.img sha256 | 内核 sha256 |
+|---|---|---|---|---|---|
+| A1 | `bt-s1c-a1-20261114a` | 1 | 40 | `18dcc4e432d5b04cced79c142ef93c40162914620c7112659872b348f8f516d2` | `7ebbd916fafdaa18d4a7cf5b71bee4357…` |
+| A2 | `bt-s1c-a2-20261114a` | 4 | 40 | `09f85292c31bf5e108a61ec6fcf6adfe114cf51fda77bd5789c667d4f5a4e22f` | 见 manifest |
+| A3 | `bt-s1c-a3-20261114a` | 5 | 40 | 见 manifest | 见 manifest |
+| A4 | 待建 | 7 | 40 | — | — |
+| A5 | `bt-s1c-20261114b` | 9 | 40 | `1ece32145836d1f28295fad8789981cb074a213abcab8f8f3ba1da6dc4ae9c8c` | `b6244168…` |
+
+（`bt-s1c-20261114a` 是 step 默认 9、delay 20 的那一份，`ed59f007…`，仅留档。）
+
 ## 5. 判据（只读 capture.json 的 `verdict` / `panicMarker`，不看 logstat.py 的 panic 计数）
 
 S1c 的核心判据是「最后一行打点」——因为打点在访问**之前**，所以最后一条 `probe: sX …` 就是死因。

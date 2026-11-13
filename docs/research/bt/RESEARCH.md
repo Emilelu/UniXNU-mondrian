@@ -192,6 +192,14 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 
 ---
 
+### 5.3 S1 的落地物（本线已产出）
+
+- 规格：`docs/research/bt/S1-PROBE-SPEC.md`（寄存器出处、boot args、判据表、上机步骤、接线选项）。
+- 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch`（2,939 B，2 个 hunk，对 0500 提取出的 `bsd/dev/qbt_k60.c` 执行 `git apply --check` 通过）。
+- **它还没有进入构建**：`scripts/check-patch-series.py:24` 与 `scripts/check-build-applied.py:27` 只读 `patches/xnu/series`，`patches/bt/` 不在构建路径里。接线二选一见 `patches/bt/README.md` 与 SPEC §6（属于 Lead 写权限）。
+
+---
+
 ## 6. ⑧ 上机验收标准（写死在 S6 之前）
 
 1. 控制台出现 `[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0 firmware=<非空> speed=3000000`（0500:2479 已有该 printf）。

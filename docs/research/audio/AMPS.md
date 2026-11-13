@@ -422,6 +422,8 @@ bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_
 它先确认 `6033dbec` 已在 fastboot（不在就 `throw`，不写任何 `boot.json`），再跑两次
 `boot-and-capture.ps1`，每次校验 `boot.json` 的 `imageSha256` 与入参一致（不一致就拒绝），
 第二次前等设备回 fastboot，最后把两个目录交给 judge 并以它的退出码退出。
+两次结果合并时**按严重度排序而不是取 exit code 最大值**（`severity()`：失败 1 重于没跑 2 重于成功 0）——
+直接 `max()` 会让「探针没跑」盖住「跑了但失败」，正好把最有用的证据藏起来。
 无设备实测：脚本解析通过、退出码 1、零证据目录 —— 拒绝而不是半启动。
 
 阻塞（不属于本子任务）：

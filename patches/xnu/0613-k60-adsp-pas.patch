@@ -165,7 +165,7 @@ diff --git a/bsd/dev/pong_adsp_boot.c b/bsd/dev/pong_adsp_boot.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_adsp_boot.c
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,232 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* ADSP bring-up order: prove the image table is sane, copy it into the
 + * carveout, let the secure monitor authenticate, then hand the span to the
@@ -189,6 +189,7 @@ new file mode 100644
 +/* osfmk/arm/machine_routines.h:703; declaring it here keeps the
 + * include path out of the leaky kernel header set. */
 +extern vm_offset_t ml_io_map(vm_offset_t phys, vm_size_t size);
++extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
 +
 +int
 +k60_adsp_bring_up(void *window, size_t window_bytes, K60AdspRead read)
@@ -300,45 +301,21 @@ new file mode 100644
 +static int
 +k60_adsp_md_window(uint64_t *base, uint64_t *size)
 +{
-+	static const char *const keys[] = { "pmd0", "vmd0", "rmd0" };
-+	char value[64];
-+	char token[96];
-+	uint32_t i;
-+
 +	if (k60_md_size != 0) {
-+		/* memdev converts the physical base to a kernel VA in place before it
-+		 * prints (measured: 0xfffffff0083b5000 for the 0x83b5000 window). This
-+		 * platform maps physical memory at 0xfffffff000000000, so subtract that
-+		 * base to recover the address ml_io_map wants. A bitmask looked right
-+		 * and was wrong: the 36-bit mask kept three nibbles of the VA base and
-+		 * produced 0xfff0083b5, which panicked at far 0x0fff0085b3. */
-+		*base = k60_md_base - 0xfffffff000000000ULL;
-+		*size = k60_md_size;
++		/* mdevadd() takes PAGE NUMBERS, and for a vmd entry it keeps the value
++		 * the loader wrote verbatim: 0xfffffff0083b5, i.e. the kernel VA page
++		 * of the physical 0x83b5 page (memdev prints it as base << 12 =
++		 * FFFFFFF0083B5000). Undo the VA offset in PAGE units -- subtracting
++		 * the byte constant from a page number underflows, which is exactly how
++		 * the previous attempt produced phys 0x10000fff0083b5 and faulted at
++		 * far 0xfffffff8dd67b5b3. */
++		const uint64_t va_pages = 0xfffffff000000000ULL >> 12;
++
++		*base = (k60_md_base - va_pages) << 12;
++		*size = k60_md_size << 12;
 +		return 0;
 +	}
-+
-+	for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
-+		int n;
-+
-+		value[0] = '\0';
-+		if (!PE_parse_boot_argn(keys[i], value, sizeof(value)) ||
-+		    value[0] == '\0') {
-+			continue;
-+		}
-+		printf("K60PAS %s=%s\n", keys[i], value);
-+		n = snprintf(token, sizeof(token), "pmd0=%s", value);
-+		if (n <= 0 || (size_t)n >= sizeof(token)) {
-+			continue;
-+		}
-+		if (k60_md_parse(token, (size_t)n, "pmd0", base, size) == 0) {
-+			printf("K60PAS ramdisk base %#llx size %#llx\n",
-+			    (unsigned long long)*base,
-+			    (unsigned long long)*size);
-+			return 0;
-+		}
-+		printf("K60PAS %s=%s is not <base>.<size>\n", keys[i], value);
-+	}
-+	printf("K60PAS no md boot argument; the ramdisk has no known base\n");
++	printf("K60PAS md0 was never registered\n");
 +	return -1;
 +}
 +
@@ -380,7 +357,27 @@ new file mode 100644
 +	if (k60_adsp_md_window(&base, &size) != 0) {
 +		return -1;
 +	}
-+	k60_fat_base = (const void *)(uintptr_t)base;
++	/* memdev records md0 as a KERNEL VA (the firmware passes vmd0=... that
++	 * way), and that VA range is not mapped, so reading it faults at level 0
++	 * (esr 0x96000004). Map the physical window instead. */
++	{
++		/* ml_io_map() allocates from io_submap, which is 8 MiB kernel-wide
++		 * (osfmk/arm/io_map.c:65); a 32 MiB request panics with
++		 * kmem_alloc(...33554432...) failed 3. The unmappable variant
++		 * allocates from kernel_map instead (io_map.c:128). */
++		vm_offset_t ram = ml_io_map_unmappable((vm_offset_t)base,
++		    (vm_size_t)size, 0x4 /* VM_WIMG_IO */);
++
++		if (ram == 0) {
++			printf("K60PAS cannot map the ramdisk phys %#llx\n",
++			    (unsigned long long)base);
++			return -1;
++		}
++		k60_fat_base = (const void *)(uintptr_t)ram;
++		printf("K60PAS ramdisk phys %#llx mapped at %#llx size %#llx\n",
++		    (unsigned long long)base, (unsigned long long)ram,
++		    (unsigned long long)size);
++	}
 +	if (k60_fat_open(k60_fat_base, (size_t)size, &k60_fat_vol) != 0) {
 +		printf("K60PAS fat open failed; not a readable volume\n");
 +		return -1;
@@ -390,8 +387,8 @@ new file mode 100644
 +	    k60_fat_vol.bytes_per_sector, k60_fat_vol.sectors_per_cluster,
 +	    k60_fat_vol.root_cluster, k60_fat_vol.clusters);
 +
-+	window = ml_io_map((vm_offset_t)K60_ADSP_BASE,
-+	    (vm_size_t)K60_ADSP_WINDOW);
++	window = ml_io_map_unmappable((vm_offset_t)K60_ADSP_BASE,
++	    (vm_size_t)K60_ADSP_WINDOW, 0x4 /* VM_WIMG_IO */);
 +	if (window == 0) {
 +		printf("K60PAS cannot map the carveout\n");
 +		return -1;

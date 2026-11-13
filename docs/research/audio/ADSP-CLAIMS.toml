@@ -45,3 +45,24 @@ claim = "memdev.c 把物理基址就地转成内核虚拟地址后才打印，�
 evidence = "usblog-20261113-115118"
 evidence_needle = "K60PAS md0 window noted 0xfffffff0083b5"
 verified = true
+
+[[claim]]
+topic = "md0 的地址形态"
+claim = "vmd0= 的值是内核 VA（物理 + 0xfffffff000000000），memdev 存的是 VA 页号并以 base << 12 打印，因此 phys = (va_pages - 0xfffffff000000) << 12，换算必须在页单位上做"
+evidence = "docs/research/audio/ADSP-MD0.md"
+evidence_needle = "0xfffffff0083b5000"
+verified = true
+
+[[claim]]
+topic = "md0 与 ADSP carveout 的映射方式"
+claim = "这两个物理窗口在 bsd_init 阶段都没有页表，必须先用 ml_io_map(phys, size) 换成内核 VA 才能读写；直接读 VA 会 esr 0x96000004 / translation fault level 0"
+evidence = "docs/research/audio/ADSP-MD0.md"
+evidence_needle = "translation fault, level 0"
+verified = true
+
+[[claim]]
+topic = "大窗口的映射预算"
+claim = "ml_io_map 从 io_submap 分配，而 IO_MAP_SIZE 只有 8 MiB（osfmk/arm/io_map.c:65），32 MiB ramdisk 和 51 MiB ADSP carveout 必须用 ml_io_map_unmappable（走 kernel_map，io_map.c:128）"
+evidence = "docs/research/audio/ADSP-MD0.md"
+evidence_needle = "IO_MAP_SIZE"
+verified = true

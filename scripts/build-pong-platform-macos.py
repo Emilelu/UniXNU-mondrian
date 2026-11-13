@@ -36,6 +36,7 @@ def main():
         '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1',
         '-DARM64_BOARD_CONFIG_PONG=1', '-Xclang', '-target-feature', '-Xclang', '+pan',
         '-DXNU_PONG_ADRENO_PLATFORM='+env.get('XNU_PONG_ADRENO_PLATFORM','0'),
+        '-DXNU_PONG_WIFI='+env.get('XNU_PONG_WIFI','0'),
         '-I' + str(framework / 'PrivateHeaders'), '-I' + str(framework / 'Headers'),
         '-Wno-deprecated-declarations', '-c', str(source), '-o', str(obj)]
     result = subprocess.run(command, capture_output=True, text=True, env=env)

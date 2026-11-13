@@ -114,7 +114,7 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 
 ### 官方文档
 
-`https://unixnu.com/zh/porting/network`（待读，④ 阶段补）
+`https://unixnu.com/zh/porting/network` —— 2026-11-12 已读，要点见本文件 §④ 节。
 
 ---
 
@@ -138,13 +138,34 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 | `Data20.msc` | 916,071 |
 | `bd_m11agf.elf`（蓝牙）| 60,000 |
 
-### 待补的 ③ 项
+### ③ 已补齐：K60 本机真值（2026-11-14，live FDT 反编译）
 
-- [ ] K60 的 **PCI 设备 ID**（`lspci` 或 `/sys/bus/pci/devices/*/`）
-- [ ] K60 的 **BAR0 基址与大小**
-- [ ] K60 的 **subsystem_device**（Pong 是 264，K60 可能不同）
-- [ ] K60 的 **PCIe0 GDSC 偏移**（Pong 注释说 SM8475 是 `7b004`）
-- [ ] K60 的 **PMIC SPMI 通道号**（Pong 用 SPMI 观察者读，K60 可能不同）
+来源：`dtc -I dtb -O dts E:\k60-work\reports\live-6033dbec-fdt.dtb`（34,801 行），
+逐项出处与完整证据表见 `docs/research/wifi/GAP-ANALYSIS.md` §2。
+
+| 项 | 真值 | 出处 |
+|---|---|---|
+| PCI 设备 ID | `17CB:1103` | FDT `/soc/mhi_qrtr_cnss` `qcom,dev-id = <0x1103>`；代码 `PongWifiPlatform.cpp:356` `cfg.r(0)!=0x110317cb` |
+| BAR0 基址 / 大小 | `0x60200000` / 2 MiB | FDT `ranges` mem32 段；代码 `:368` `bar.open(0x60200000,0x200000)` |
+| subsystem_device | **不作为门禁**（Pong 板级 264 / zizhan 实测 0x010817cb 不一致但链路正常）| zizhan porting.toml 实测；K60 profile 记 0/0 |
+| PCIe0 GDSC 偏移 | `0x7b004`（SM8475 单 GDSC，无 SM8550 的 PHY GDSC）| Pong 注释 + `PongWifiPlatform.cpp:221` |
+| PMIC SPMI 通道 | core `0xC400000` / cfg `0xC42D000` / obs `0xC440000` | `PongWifiPlatform.cpp:163` |
+| IOVA 池 | `0xA0000000` + 256 MiB | FDT `cnss_pci_iommu_group` `qcom,iommu-dma-addr-pool = <0xa0000000 0x10000000>` |
+| SID | root `0x1C00` / BDF 0x100 → `0x1C01` | FDT `iommu-map` + `qcom,smmu-sid-base = <0x1c00>` |
+| MSI | PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)，**不走 ITS** | FDT `interrupt-map` 首项 GIC 侧 `0x8c=140`；代码 `:42` `PcieGlobalIntid = 32+140` |
+| refgen 时钟索引 | `[10]` = 100 MHz | FDT `max-clock-frequency-hz` 第 10 项 `0x5f5e100`；`clock-names[8]="pcie_phy_refgen_clk"` |
+| PCIe PHY 表 | 82 组三元组，与 Pong **逐 cell 相同**（different=0）| FDT `qcom,phy-sequence`；`PongWifiPlatform.cpp` `kPongWifiPhy[]` |
+| GPIO | perst 94 / wake 96 / wlan-en 80 / bt-en 81 / sw-ctrl 82 / xo-clk 204 | FDT `perst-gpio`、`wake-gpio`、`/soc/qcom,cnss-qca6490@b0000000` |
+| 电源 rail | 6 条：`smpe2`/`smpb11`/`smpb10`/`smpc1`/`smpb12`/`ldoe7`（无 Pong 的 `smpe3`）| FDT `*-supply` phandle + `configs/mondrian-wifi-sm8475.json` |
+
+**关键判定：不走 ITS。** DT 里存在 `msi-controller@17140000`（`arm,gic-v3-its`，
+别名 `gic_its`），`msi-map` 也指向它，但 Pong 的实现完全绕开 ITS：
+PARF 置 `MSI0`（`1u<<23`）→ DesignWare 写 MSI 到 `Iova+0x40` → PARF 翻译成
+SPI 140 → GIC INTID 172。所以 `armcpu_spi_attach(172,...)` 是唯一中断路径。
+
+**上机风险**：`drivers/ArmCpu/ArmCpu.cpp:403` 有
+`if(!owner) panic("ArmCpu: unowned SPI %u", intid);` —— SPI 172 必须先 publish
+owner，否则 `armcpu_spi_attach` 直接 panic。
 
 ---
 

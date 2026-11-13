@@ -194,10 +194,28 @@ Milestones inside the ladder:
   name ath11k asked for — that name is the board selection evidence
   (`FIRMWARE.md` §8/§9).
 
-Runner: `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1 -RaceSeconds 7200 -Seconds 150 -Tag ladder5`
-(races fastboot every 0.7 s, then walks the table in order, writing
-`E:\k60-work\evidence\usblog-<stamp>-ladder4`; it waits up to 240 s after each
-rung for the phone to come back to fastboot and stops on the first timeout).
+Runner: `E:\k60-work\evidence\wifi-trial\ladder5-run.ps1`
+(parameters `-RaceSeconds`, `-Seconds`, `-Tag`). It races fastboot every 0.7 s,
+converting an ADB-visible phone to the bootloader first, then boots in this
+order:
+
+| order | image | stage |
+| --- | --- | --- |
+| 1 | `a` | control, `pong_wifi=0` |
+| 2 | `b` | stage 1, TLMM pinmux |
+| 3 | `c` | stage 3, SPMI/PMIC + cmd-db, no RSC |
+| 4 | `p` | stage 4 with `k60_wifi_rsc=1`, RSC read only |
+| 5 | `d` | stage 4 with `k60_wifi_rsc=2`, first RPMh vote |
+| 6 | `e` | stage 5, GCC GDSC/refgen/NoC |
+| 7 | `f` | stage 8, host MMIO, PHY table, PERST, LTSSM |
+| 8 | `g` | all stages, SMMU, MSI attach, `ath11k start` |
+
+It stops at the first zero-byte console (exit 12) so that rung can be inspected
+before another boot is spent, and waits up to 240 s after each surviving rung
+for the phone to come back to fastboot (exit 11 otherwise). **Only if `a` itself
+is silent** does it fall back to the size bisect in §4.2, `z0 → t0 → t1`; a
+silent `z0` ends with exit 13, meaning the phone or the FD is at fault and no
+WiFi conclusion is available.
 
 Never `fastboot flash`; always `fastboot boot`, always with the collector
 armed first (`docs/engineering/BOOT-PROCEDURE.md`).

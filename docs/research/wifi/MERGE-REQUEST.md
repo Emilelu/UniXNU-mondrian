@@ -292,4 +292,47 @@ Undefined symbols for architecture arm64:
 `k60_fontscale=0` **不能**用来让位：`video_console.c:2844` 要求 `scale >= 2 && scale <= 4`，
 0 会被忽略、字节照旧。
 
+---
+
+## 11. `scripts/check-rules.py` 现状：8 条失败里只有 2 条是 WiFi 的
+
+在 `/mnt/e/hackios/k60-wifi` 跑 `python3 scripts/check-rules.py --repo /mnt/e/hackios/k60-wifi`：
+登记 65 条、执行 19 个不同命令、**失败 8 条**、waiver 37 条。
+
+| 规则 | 失败原因 | 归属 | 处理 |
+| --- | --- | --- | --- |
+| `hard-8` | `pong_wifi_test (drivers/)` | **WiFi** | 见 §10，补 BOOT-ARGS.md 即可 |
+| `P-156` | `pong_wifi_test (drivers/)` | **WiFi** | 同上 |
+| `iron-3` | `eight-step-gate.py --build` 红在 touch 的 ④⑤⑥⑦ | touch 线 | 不是 WiFi：`[hardware.wifi]` 是 `status="parked"`，门禁只硬检查 active 项 |
+| `iron-4` | `porting-gate.py --quick` 报 `[X] series 三处一致 不一致` | 共享仓 series | `SERIES-FINAL.txt` / 仓库 / 构建输入三份 `patches/xnu/series` 文本不一致，要 Lead 收敛 |
+| `iron-5` | `sync-device-input.py --check` 报 11 个文件待同步 | 共享仓 | 见下 |
+| `P-165`/`P-166` | 仓库有 3 个 `zzzz…-pong-touch-*.patch`、构建输入没有 | touch 线 | 清理 touch 的临时补丁 |
+| `hard-33` | 输出里的 `=====` 分隔线被当失败行 | 检查器自身 | 与 WiFi 无关，属 check-rules 的解析瑕疵 |
+
+`iron-5` 的 11 个待同步文件（`sync-device-input.py --check` 原文）：
+
+```
+patches/xnu/0613-k60-adsp-pas.patch
+patches/xnu/0614-k60-adsp-call-site.patch
+scripts/append-conffiles.py
+scripts/build-strict.sh
+scripts/check-adsp-claims.py
+scripts/check-build-freshness.py
+scripts/check-docs.py
+scripts/eight-step-gate.py
+scripts/porting-gate.py
+scripts/sync-device-input.py
+scripts/tests/test-build-strict-gates.py
+```
+
+这 11 个都不在 WiFi 写作用域（`patches/xnu/` 与 `scripts/` 是共享资产），
+而且同步它们会改到别的线正在用的构建输入，所以留给 Lead 统一处理。
+
+**对 WiFi 线的实际影响**：`iron-3` 会让 `scripts/build-strict.sh` 拒绝构建（它硬跑
+`eight-step-gate.py --build`），`iron-4`/`iron-5` 会让 `flash.sh` 的四道门报红。
+因此 WiFi 的 ⑦ 产物是用 `UNIXNU_SKIP_GATES=1` 的试构建路径出的，
+⑧ 上机走的是唯一 supervisor `scripts/boot-and-capture.ps1`（不经过 `flash.sh`）。
+**这两点必须在正式合并前由 Lead 决定**：要么把 touch 的 ④⑤⑥⑦ 补齐让 `iron-3` 转绿，
+要么为 WiFi 的试构建路径留下明确记录（现记在 `LOCAL-VERIFICATION.md` §5.8 与本文 §5）。
+
 

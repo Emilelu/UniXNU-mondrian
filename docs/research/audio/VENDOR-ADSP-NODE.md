@@ -159,3 +159,30 @@ Build the real Darwin22 Kernel SDK before this archive
 四道节点检查（adsp / smem / ipcc / battery-charger）、glink-edge 的
 `host0/ADSP2/IPCC3/0` 结构校验、smp2p 的 `remote-pid=2 local-pid=0` 全部通过，
 构建器已经生成配置源文件，只差 Kernel SDK 才能编译成归档（`P-157` 的下一步）。
+
+## 实测：ADSP 固件段的物理地址不在 adsp_region 里（2026-11-13）
+
+设备 `/vendor/firmware_mnt/image/` 拉下 28 个文件，合计 23,505,092 B：
+
+```
+adsp.mdt   5,404 B (ELF32, e_phnum = 26)
+adsp.b00  884   b01   6,952   b02 3,216,484   b03   25,720   b04   34,632
+adsp.b05  710,336   b06   220   b07   4,892   b08 2,306,824   b09  237,576
+adsp.b10  720   b11   9,960   b12 131,232   b13   83,220   b14 3,167,652
+adsp.b15  108,732   b16   280   b17 185,008   b18 11,511,192   b19  503,816
+adsp.b20  1,936   b21 201,084   b22 103,736   b23  942,080   b25    4,520
+adspr.jsn 513, adspua.jsn 703
+```
+
+解析 `adsp.mdt` 的程序头（`e_phoff=52`, `e_phentsize=32`, `e_phnum=26`）：
+段的 `p_paddr` 起于 **`0x86300000`**（b01），随后 `0x86302000`、`0x86614000`、
+`0x8661b000`、`0x86624000` …… 最高到 `0x89400000` 附近。
+
+**结论：`0x9FD00000`（vendor DTB 的 `adsp_region`）不是固件装载目标。**
+26 段里落在 `0x9FD00000..0xA2E00000` 的数量是 **0**。之前 `GLINK-HANDOFF.md`
+里"firmware 到 `adsp_region@9fd00000`"这句是错的，必须改为按 `adsp.mdt` 的
+`p_paddr` 装载（基址 `0x86300000`，跨度约 `0x3100000` 以内但基址不同）。
+
+这也解释了为什么不能照抄 GPU 的 PAS 目标地址：PAS 的 `mem_setup` 参数用的是
+固件段表里的地址，而不是 DTB 的 `adsp_region`——后者是 Linux remoteproc 的
+carveout 记账，二者不可混用。

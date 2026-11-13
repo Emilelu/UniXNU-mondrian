@@ -1,10 +1,3 @@
-diff --git a/bsd/conf/files b/bsd/conf/files
---- a/bsd/conf/files
-+++ b/bsd/conf/files
-@@ -402,1 +402,3 @@
- bsd/dev/pong_buttons.c			standard
-+bsd/dev/pong_smem.c			standard
-+bsd/dev/pong_handoff.c			standard
 diff --git a/bsd/dev/pong_smem.h b/bsd/dev/pong_smem.h
 new file mode 100644
 --- /dev/null

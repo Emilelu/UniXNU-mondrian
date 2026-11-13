@@ -6,7 +6,7 @@
  * so a wrong offset, a wrong magic or a wrong entry size fails on the host
  * instead of on the phone.
  *
- *   cc -std=c11 -O1 -I drivers/PongPower -o /tmp/railtest \
+ *   cc -std=c11 -O1 -I drivers/PongPower -o build/railtest \
  *      scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c
  */
 #include <stdint.h>

@@ -8,6 +8,7 @@ $cases=@(
     @{name='opened-without-bytes';                   want='opened-no-data';     complete=$false; a=@{PortSeen=$true; PortOpened=$true; Bytes=0;    StopReason='budget';         DataRecent=$false;PanicSeen=$false}},
     @{name='complete-normal-capture';                want='captured';           complete=$true;  a=@{PortSeen=$true; PortOpened=$true; Bytes=91673;StopReason='idle';           DataRecent=$false;PanicSeen=$false}},
     @{name='budget-truncation-is-labelled';          want='captured-truncated'; complete=$false; a=@{PortSeen=$true; PortOpened=$true; Bytes=91673;StopReason='budget';         DataRecent=$true; PanicSeen=$false}},
+    @{name='budget-after-springboard-is-complete'; want='captured-budget-complete'; complete=$true; a=@{PortSeen=$true; PortOpened=$true; Bytes=223481;StopReason='budget'; DataRecent=$true; PanicSeen=$false; BootComplete=$true}},
     @{name='fastboot-return-after-panic';            want='captured';           complete=$true;  a=@{PortSeen=$true; PortOpened=$true; Bytes=5000; StopReason='fastboot-return';DataRecent=$false;PanicSeen=$true}},
     @{name='fastboot-return-without-panic';          want='captured-disconnected';complete=$false;a=@{PortSeen=$true;PortOpened=$true;Bytes=90000;StopReason='fastboot-return';DataRecent=$false;PanicSeen=$false}},
     @{name='collector-error-with-text';              want='captured-error';     complete=$false; a=@{PortSeen=$true; PortOpened=$true; Bytes=1200; StopReason='collector-error';DataRecent=$false;PanicSeen=$false}}

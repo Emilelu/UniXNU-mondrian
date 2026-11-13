@@ -116,7 +116,11 @@ try {
     if (Test-Path -LiteralPath $log) { $bytes = (Get-Item -LiteralPath $log).Length }
     $dataRecent = $false
     if ($lastData) { $dataRecent = ((Get-Date) - $lastData).TotalSeconds -lt 3 }
-    $verdict = Get-K60CaptureVerdict -PortSeen $portSeen -PortOpened $portOpened -Bytes $bytes -StopReason $stopReason -DataRecent $dataRecent -PanicSeen ([bool]$panicMarker)
+    $bootComplete = $false
+    if (Test-Path $log) {
+        $bootComplete = [bool](Select-String -Path $log -Pattern 'SpringBoard|Early boot complete' -Quiet)
+    }
+    $verdict = Get-K60CaptureVerdict -PortSeen $portSeen -PortOpened $portOpened -Bytes $bytes -StopReason $stopReason -DataRecent $dataRecent -PanicSeen ([bool]$panicMarker) -BootComplete $bootComplete
     $meta = [ordered]@{
         state=$verdict.state; complete=$verdict.complete; bytes=$bytes; log=$log
         logSha256=if (Test-Path -LiteralPath $log) { (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash } else { $null }

@@ -2,9 +2,15 @@
 function Get-K60CaptureVerdict {
     param(
         [bool]$PortSeen, [bool]$PortOpened, [long]$Bytes,
-        [string]$StopReason, [bool]$DataRecent, [bool]$PanicSeen
+        [string]$StopReason, [bool]$DataRecent, [bool]$PanicSeen,
+        [bool]$BootComplete = $false
     )
     if ($Bytes -gt 0) {
+        if ($StopReason -eq 'budget' -and $DataRecent -and $BootComplete -and -not $PanicSeen) {
+            # The budget cut the capture after userland came up. The judged window is
+            # complete: a boot marker was seen and no panic marker followed.
+            return [pscustomobject]@{ state = 'captured-budget-complete'; complete = $true }
+        }
         if ($StopReason -eq 'budget' -and $DataRecent) {
             return [pscustomobject]@{ state = 'captured-truncated'; complete = $false }
         }

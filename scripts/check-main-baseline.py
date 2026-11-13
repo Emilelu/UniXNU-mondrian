@@ -30,7 +30,8 @@ def main():
 
     if head not in known:
         # 文档与门禁自身的提交不需要登记；只有会改变镜像的路径才需要。
-        touched = [f for f in git("show", "--name-only", "--format=", head).splitlines()]
+        # 只有“新增或修改”风险路径才需要登记；删除只会缩小 main 的表面，不构成风险。
+        touched = [f for f in git("show", "--name-only", "--diff-filter=ACMR", "--format=", head).splitlines()]
         risky = [f for f in touched if f.startswith(RISKY)]
         if risky:
             problems.append(

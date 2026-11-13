@@ -226,3 +226,4 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0613-k60-adsp-pas.patch
 0614-k60-adsp-call-site.patch
 0615-k60-md-window.patch
+0616-k60-init-legacy-helper.patch

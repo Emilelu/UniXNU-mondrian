@@ -4310,3 +4310,46 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
   `kernel.macho` 的 mtime（`test "$M/kernel/kernel.macho" -nt "$MARK"`），不能只看文件存在；
 - 判定新内核是否进镜像，用 `strings -a kernel.macho | grep -c '<本次新增的字符串>'`，
   再 `mdir`/`mcopy` 出 boot.img 里的 kernel 比对 sha256（P-177 的配方）。
+
+### P-182 内核会在 launchd 之前往 Data 分区写持久文件，换回旧内核仍会被新文件毒死
+
+`kern_exec.c` 的 `load_init_program_at_path()` 在 exec `/private/var/pong/init` 之前，
+会从内核镜像里取出内嵌 blob 写到 Data 卷：
+
+- `/private/var/pong/init`（PID 1 助手，`k60_init_blob.h`）
+- `/private/var/pong/boot-jobs.pack`（`k60_bootjobs_blob.h`）
+- `/private/var/pong/var.pack`（`k60_varpack_blob.h`）
+- `/private/var/pong/xpc/launchd.plist`（`k60_launchd_cache.h`，0394）
+
+这些写入发生在用户态起来之前，而且**覆盖式写入**。2026-11-13 的实测代价：
+
+1. 11-11 的 `keep` 镜像一直能进 SpringBoard（SB=133）。
+2. 11-12/13 的新内核把 0401 的新助手（52,320 B，比 11-11 的 35,160 B 大）写进 Data。
+3. 之后**任何**镜像启动都 `initproc exited -- exit reason namespace 2 subcode 0xb`、SB=7，
+   包括把 0340/0394/0401/0398 逐个回退的镜像 —— 因为毒在磁盘上，不在内核里。
+4. 再启一次 11-11 的 allold 镜像（老内核会把 init 重写回 35,160 B 老版本）→ 又正常。
+5. 紧接着再启之前失败的 `boot-cut0401.img`（不含 0401 写入）→ **SB=133 正常**。
+6. 当前内核 + `--kernel-arg k60_init_blob=0`（不重写 init）→ **SB=129 正常**。
+
+所以判定“某个补丁是否导致启动回归”时，必须先把这四个文件归一到已知良好版本，
+否则单变量回退的结论全部无效（P-177/P-178 的替身陷阱之外，又多了一层）。
+
+现在的规则：
+
+- 每次上机前后记录这四个文件的 sha256；两次对比不在同一状态下的启动结果不可比；
+- 归一方法：启动一次 11-11 `keep-a6165f2404568c1d.img`（老内核重写老 init），
+  或本轮镜像显式 `k60_init_blob=0` 且确认磁盘上已是好的助手；
+- 改动这些 blob（0401/0394）必须在提交信息里写明“会重写 Data 侧持久文件”，
+  并附新旧 blob 的长度与 sha256；
+- 新助手必须先在**已有 Data 状态**上验证两次启动，不能只测空 Data。
+
+**修复方式（2026-11-13）**：`0401` 保持不动，新增 `patches/xnu/0616-k60-init-legacy-helper.patch`
+在 0401 之后把 installer 调用换成只写 `/private/var/pong/init` 的旧助手版本
+（`k60_init_legacy.h`，34,904 B；实测日志 `K60INIT legacy bytes=34904 resid=0 error=0`），
+门禁仍是 `k60_init_blob`；`boot-jobs.pack` / `var.pack` 保持**保留状态**，不再重写。
+换掉旧补丁整体回退的方案不可行：`git show 29827f5:patches/xnu/0391-k60-embedded-init.patch`
+覆盖 0401 后 `kern_exec.c` 上下文已被 0394/0398 改动，`patch does not apply`。
+
+证据：`E:\k60-work\evidence\usblog-20261113-allold2`（SB=129）、
+`usblog-20261113-cut0401b`（SB=133）、`usblog-20261113-noinitblob`（SB=129）、
+对照组 `usblog-20261113-rev0340`（SB=7）。

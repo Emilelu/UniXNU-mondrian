@@ -35,14 +35,25 @@ def main() -> int:
 
     added = []
     block = ANCHOR
+    dropped = []
     for entry in ENTRIES:
         name = entry.split("\t")[0]
+        if not (tree / ".cache/xnu-work" / name).is_file():
+            if name in text:
+                lines = [ln for ln in text.splitlines() if ln.split("\t")[0] != name]
+                text = "\n".join(lines) + "\n"
+                dropped.append(name)
+            continue
         if name in text:
             continue
         block = block + "\n" + entry
         added.append(name)
 
+    if dropped:
+        print("conffiles: dropped absent %s" % ", ".join(dropped))
     if not added:
+        if dropped:
+            conf.write_text(text)
         print("conffiles: all entries already listed")
         return 0
 

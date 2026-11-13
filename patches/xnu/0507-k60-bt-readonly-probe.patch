@@ -1,0 +1,80 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index 4b07f72..d816259 100755
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -1004,6 +1004,62 @@ static void k60_xo_release(void) {
+     k60_gpio_output(K60_BT_XO_GPIO, false, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
+ }
+ 
++/* GENI SE register offsets (read-only probe): linux-geni-se-v6.6.h:78-86
++ * SE_GENI_STATUS=0x40, GENI_IF_DISABLE_RO=0x64, GENI_FW_REVISION_RO=0x68; the
++ * protocol field is FW_REV_PROTOCOL bits 15:8 (:132-134).  The wrapper HW
++ * version register is 0x4 (qcom-geni-se.c:114) and SW expects 0x20050000
++ * (QUP_SE_VERSION_2_5, linux-geni-se-v6.6.h:287). */
++#define K60_SE_GENI_STATUS       0x040u
++#define K60_GENI_IF_DISABLE_RO   0x064u
++#define K60_GENI_FW_REVISION_RO  0x068u
++#define K60_QUP_HW_VER_REG       0x004u
++/* Additional read-only loads that decide the two deviations found by the 6th
++ * step review (docs/research/bt/06-DEEP-DIVE.md F2/F3): the manual-RTS value
++ * the backend writes at 0x2ac, and the unnamed 0xe40 offset its stop_engine()
++ * polls.  The DMA IRQ status registers give S2 its reset-done baseline. */
++#define K60_G_MANUAL_RFR         0x2ACu
++#define K60_SE_DMA_TX_IRQ_STAT   0xC40u
++#define K60_SE_DMA_RX_IRQ_STAT   0xD40u
++#define K60_SE_RSVD_0E40         0xE40u
++
++/* Stage 1: prove that SE20 answers a register read before any pin muxing,
++ * BT_EN pulse, DMA setup or interrupt is installed.  On the K60 the touch
++ * (QUP0 SE4) and audio (I2C) lines both died with a zero-byte console at the
++ * first GENI register access, so this stage deliberately stops after nine
++ * reads (four identity, five deviation-deciding); see docs/research/GENI-ACCESS-PRECONDITIONS.md and
++ * docs/research/bt/S1-PROBE-SPEC.md. */
++static int k60_bt_probe(void) {
++    int e = k60_map(&k60.gcc, K60_GCC_BASE, K60_GCC_SIZE);
++    if (!e) e = k60_map(&k60.uart, K60_BT_UART_BASE, K60_BT_UART_SIZE);
++    if (!e) e = k60_map(&k60.qup, K60_BT_QUP_WRAPPER_BASE, K60_BT_QUP_WRAPPER_SIZE);
++    if (e) { k60_log(NULL, 1, "probe: map failed"); return e; }
++    char line[192];
++    snprintf(line, sizeof(line), "probe: mapped gcc=%p uart=%p qup=%p",
++             (void *)k60.gcc.va, (void *)k60.uart.va, (void *)k60.qup.va);
++    k60_log(NULL, 1, line);
++    e = k60_serial_clock(true);   /* GPLL0 + five votes + halt poll, already logged */
++    if (e) { k60_log(NULL, 1, "probe: serial clock failed"); return e; }
++    uint32_t status = k60_read32(&k60.uart, K60_SE_GENI_STATUS);
++    uint32_t ifdis  = k60_read32(&k60.uart, K60_GENI_IF_DISABLE_RO);
++    uint32_t fwrev  = k60_read32(&k60.uart, K60_GENI_FW_REVISION_RO);
++    uint32_t hwver  = k60_read32(&k60.qup, K60_QUP_HW_VER_REG);
++    uint32_t rfr    = k60_read32(&k60.uart, K60_G_MANUAL_RFR);
++    uint32_t dmatx  = k60_read32(&k60.uart, K60_SE_DMA_TX_IRQ_STAT);
++    uint32_t dmarx  = k60_read32(&k60.uart, K60_SE_DMA_RX_IRQ_STAT);
++    uint32_t rsvd   = k60_read32(&k60.uart, K60_SE_RSVD_0E40);
++    uint32_t status2 = k60_read32(&k60.uart, K60_SE_GENI_STATUS);
++    snprintf(line, sizeof(line),
++             "probe: se20 status=%08x fwrev=%08x proto=%u fifo_if_disabled=%u qup_hw=%08x se_halt=%08x",
++             status, fwrev, (fwrev >> 8) & 0xffu, ifdis & 1u, hwver,
++             k60_read32(&k60.gcc, K60_GCC_WRAP2_SE20_HALT));
++    k60_log(NULL, 1, line);
++    snprintf(line, sizeof(line),
++             "probe: se20 rfr=%08x dma_tx=%08x dma_rx=%08x rsvd_e40=%08x status2=%08x",
++             rfr, dmatx, dmarx, rsvd, status2);
++    k60_log(NULL, 1, line);
++    return 0;
++}
++
+ static int k60_bt_power_on(void) {
+     if (k60.powered) return 0;
+     if (!k60.warm_boot) {
+@@ -1147,6 +1203,12 @@ static void k60_worker(void *arg, wait_result_t wait_result) {
+     while (&native_gpu_addon_stage && native_gpu_addon_stage < 1)
+         k60_wait_until(NULL, k60_now_ns(NULL) + 10000000ULL);
+ #endif
++    if (k60.stage == 1) {
++        /* Stage 1 stops here on purpose: read-only SE20 probe. */
++        int p = k60_bt_probe();
++        k60_power_result(true, p);
++        return;
++    }
+     int e = k60_bt_power_on();
+     if (!e) {
+         /* The local address comes from the board identity hook (in the real

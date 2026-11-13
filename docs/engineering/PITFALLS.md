@@ -4148,3 +4148,31 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 - 规则：见铁则 9。分支命名 `feat/…`/`fix/…`/`test/…`/`chore/…`；合回 `main` 需 `BUILD OK` +
   上机，或在 `docs/engineering/MAIN-BASELINE.toml` 登记 `state = "build-only"` 并接受可见欠账。
 - 门禁：`scripts/check-main-baseline.py`（`iron-9`）。
+## P-175 内核命令行在开机过程中会被换掉——找 `pmd0` 必须在 md0 创建之前读
+
+现象：`memdev.c:499` 只用 `PE_boot_args()` 的前 256 字节，却成功建出了
+`Added memory device md0/rmd0 (02000000/0E000000) at FFFFFFF0083B5000 for 0000000002000000`；
+而在 Data 挂载之后（`kern_exec.c:7818` 之后）用同一个函数打印出来的整串参数里，
+**没有 `pmd0`，连 `pong_adsp=1` 都没有**。
+
+这是两次读取拿到两份内容，不是解析错。可复现的证据：
+
+```
+usblog-20261113-112128   K60ARGS 0..8  → "-v native-ufs=1 … k60_autoreset=300 applog=1 "
+usblog-20261113-113932   K60PAS no md boot argument（同一位置，PE_parse_boot_argn 三个键全空）
+usblog-20261113-113932   Added memory device md0/rmd0 … at FFFFFFF0083B5000 for 0x2000000
+```
+
+结论：`PE_boot_args()` 在 bsd 后期读到的是**已经被替换过的**命令行（NVRAM / launchd
+boot-args 那一层），md0 建立时的原始串已经不在那儿了。
+
+规则：任何依赖固件命令行（`pmd0`、`vmd0`、`initrd` 之类）的解析，必须放在
+**设备初始化之前**（`bsd_init` 里 md 设备创建之前，或更早的 `kernel_bootstrap`），
+不能放在 Data 挂载之后。想验证就先在最早期打印一次，和 `md0` 那一行对齐。
+
+排查顺序（下次别再走一遍）：
+1. 先确认目标 token 到底在不在**命令行的原始串**里——`grep -a pmd0` 引导日志里
+   `Added memory device` 这一行就是存在性证明，不要拿后期打印去反证。
+2. 再确认读的位置对不对——同一函数在不同时间点返回不同内容，这一点在没有实证之前
+   很容易被当成解析 bug（本人已经为此烧掉三次构建）。
+3. 解析器本身可用宿主测试证明（`scripts/tests/test-k60-fat.c` 8 例），不要靠上机反复试。

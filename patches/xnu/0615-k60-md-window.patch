@@ -1,0 +1,19 @@
+--- a/bsd/dev/memdev.c	2026-11-13 11:43:30.150787505 +0800
++++ b/bsd/dev/memdev.c	2026-11-13 11:43:30.149748979 +0800
+@@ -707,6 +707,16 @@
+ 		mdev[devid].mdFlags |= mdPhys;                          /* Show that we are in physical memory */
+ 	}
+ 	mdev[devid].mdFlags |= mdInited;                                        /* Show we are all set up */
++	{
++		/* K60: the ADSP ramdisk lives in md0; pass its geometry straight to
++		 * the loader instead of re-parsing an argument string that bsd later
++		 * replaces (P-175). */
++		extern void k60_adsp_note_window(uint64_t, uint64_t);
++
++		if (devid == 0) {
++			k60_adsp_note_window(base, size);
++		}
++	}
+ 	printf("Added memory device md%x/rmd%x (%08X/%08X) at %016llX for %016llX\n",
+ 	    devid, devid, mdev[devid].mdBDev, mdev[devid].mdCDev, base << 12, (uint64_t)size << 12);
+ 	return mdev[devid].mdBDev;

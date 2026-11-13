@@ -115,6 +115,20 @@ k60_dt_cell(const void *prop, uint32_t length, uint64_t *out)
  * carries the loader's md token (measured: it lacks pong_adsp too, yet
  * PE_parse_boot_argn finds that key). PE_parse_boot_argn reads the buffer the
  * firmware actually filled, which is where memdev.c found md0. */
+/* memdev.c calls this the moment it registers md0: the only place where the
+ * ramdisk geometry is still live (P-175). */
+static uint64_t k60_md_base;
+static uint64_t k60_md_size;
+
+void
+k60_adsp_note_window(uint64_t base, uint64_t size)
+{
+	k60_md_base = base;
+	k60_md_size = size;
+	printf("K60PAS md0 window noted %#llx..%#llx\n",
+	    (unsigned long long)base, (unsigned long long)(base + size));
+}
+
 static int
 k60_adsp_md_window(uint64_t *base, uint64_t *size)
 {
@@ -122,6 +136,12 @@ k60_adsp_md_window(uint64_t *base, uint64_t *size)
 	char value[64];
 	char token[96];
 	uint32_t i;
+
+	if (k60_md_size != 0) {
+		*base = k60_md_base;
+		*size = k60_md_size;
+		return 0;
+	}
 
 	for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
 		int n;

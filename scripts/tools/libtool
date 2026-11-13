@@ -1,0 +1,18 @@
+#!/bin/bash
+# libtool(1) shim for building Mach-O archives on Linux.
+#
+# scripts/build-k60-wifi-native.py calls `xcrun libtool -static -o out.a *.o`
+# the way Xcode does. Linux has no libtool, but LLVM ships llvm-libtool-darwin,
+# which writes the same BSD archive format and understands the same flags.
+# Anything else (llvm-libtool-darwin only implements -static/-o) is refused
+# loudly instead of being silently reinterpreted.
+set -u
+
+for arg in "$@"; do
+    case "$arg" in
+        -static|-o|-D|-no_warning_for_no_symbols) ;;
+        -*) echo "libtool-shim: unsupported option $arg" >&2; exit 2 ;;
+    esac
+done
+
+exec /usr/bin/llvm-libtool-darwin-18 "$@"

@@ -1,0 +1,285 @@
+# 扬声器功放 — K60 (SM8475 / cape) 判定与纯 AP 只读路径
+
+> 目标子系统：扬声器功放（AW882xx / WSA883x 判定）、GENI I2C、GCC 时钟、TLMM
+> 日期：2026-11-14
+> 状态：① 同型 ✅ ② 官方 ⚠️ ③ 反编译 ✅ ④ 广域 ✅ ⑤ 方案 ✅ ⑥ 深挖 ✅ ⑦ 本机验证 ⏳ ⑧ 上机 ❌
+
+## 1. 结论
+
+1. **K60 的扬声器功放是 Awinic AW882xx 系列（两颗），不是 WSA883x。**
+   live FDT 里 `wsa-macro@3240000` 与 `wsa2-macro@31E0000` **都是 `status = "disabled"`**
+   （`live-fdt.dts:23475-23502`、:23532-23559），其下的 `wsa883x@02170221/222` 自然也不生效；
+   真正挂在总线上的是 `i2c@880000` 下的 `aw882xx_smartpa@34` / `@35`（`live-fdt.dts:13318-13341`）。
+2. **两颗功放的 I2C 地址是 0x34（左/ch0）与 0x35（右/ch1）**，走 **QUPV3 wrapper 2 的 SE0**
+   （`i2c@880000` = 主线 `sm8450.dtsi:981-999` 的 `i2c15`，clocks = `GCC_QUPV3_WRAP2_S0_CLK`）。
+3. **具体是哪一颗 AW882xx（AW88261 / AW88262 / AW88395 …）尚未确定** —— DT 只写 `awinic,aw882xx_smartpa`。
+   必须靠**读寄存器 0x00 的 chip ID** 才能定（AW88261 = `0x2113`）。**这是本子任务唯一能在 ADSP 之前完成的实机验证。**
+4. **K60 与 phk110 的功放板级差异很大，时序不能照抄**：
+
+| 项目 | phk110（POCO X5 Pro） | K60（mondrian） |
+|---|---|---|
+| 型号 | AW88261 ×2（chip ID `0x2113`） | AW882xx ×2（型号待读） |
+| I2C 总线 | 串行引擎 3（GPIO12 data / GPIO13 clock） | QUPV3 wrapper2 SE0（0x880000），GPIO56 SCL / GPIO57 SDA |
+| I2C 地址 | 0x34 / 0x35 | 0x34 / 0x35 |
+| reset 引脚 | **两颗都没有** | **@34 = GPIO1，@35 = GPIO3**（`live-fdt.dts:13322/13335`） |
+| sound-channel | @35 = ch0（左），@34 = ch1 | **@34 = ch0，@35 = ch1**（`:13325/13338`，相反） |
+| spksw | — | @34 有 `spksw-gpio = GPIO52`；@35 **没有** |
+| IRQ | — | @34 = GPIO88，@35 = GPIO63，flags 0x2008 |
+
+→ **reset 引脚与 sound-channel 都相反**，直接搬 phk110 的 `prepare()` 会把左右声道弄反、并跳过必要的复位。
+
+## 2. live FDT 逐条（③ 反编译）
+
+### 2.1 `i2c@880000`（`live-fdt.dts:13301-13342`）
+
+| 属性 | 值 |
+|---|---|
+| `compatible` | `qcom,i2c-geni` |
+| `reg` | `<0x880000 0x4000>` |
+| `interrupts` | `<0 0x175 4>`（GIC SPI 373） |
+| `pinctrl-0` | `<0x100>`（active 组） |
+| alias | `qupv3_se15_i2c = "/soc/i2c@880000"`（:33889、:34286） |
+
+引脚（`live-fdt.dts:3562-3593` `qupv3_se15_i2c_pins`，phandle 0x2da）：
+active phandle **0x100**：pins `"gpio56"` `"gpio57"`，function `"qup15"`，`drive-strength = <2>`（2 mA），`bias-pull-up`；
+sleep phandle 0x101：function `"gpio"`，2 mA，`bias-disable`。
+
+> 主线 `pinctrl-sm8450.c:1472-1473`：`[56] = PINGROUP(56, qup15, ibi_i3c, …)`、`[57] = PINGROUP(57, qup15, ibi_i3c, …)`
+> → **qup15 是 function 1**（`PINGROUP` 里第一个可选 function 的索引为 1）。
+> 与 Pong 的写法 `pin(n, 3u | (1u << 2), -1)` 一致：`[1:0] = 3`（pull-up）、`[5:2] = 1`（function 1）。
+
+### 2.2 `aw882xx_smartpa@34`（`:13318-13329`）
+
+| 属性 | 值 |
+|---|---|
+| `compatible` | `awinic,aw882xx_smartpa` |
+| `reg` | `0x34` |
+| `irq-gpio` | `<0x3c 0x58 0x2008>` → phandle 0x3c（TLMM）、**GPIO88**、flags 0x2008 |
+| `reset-gpio` | `<0x3c 0x01 0x00>` → **GPIO1** |
+| `dc-flag` / `sync-flag` | 0 / 1 |
+| `sound-channel` | 0 |
+| `aw-cali-mode` | `"aw_none "` |
+| `spksw-gpio` | `<0x3c 0x34 0x00>` → **GPIO52** |
+| 供电属性 | **无**（没有 `vdd-supply` 之类） |
+
+### 2.3 `aw882xx_smartpa@35`（`:13331-13341`）
+
+同形状，差异：`reg = 0x35`、`irq-gpio` → **GPIO63**、`reset-gpio` → **GPIO3`、`sound-channel = 1`、
+**没有 `spksw-gpio`**、也没有供电属性。
+
+> **没有供电属性 = DT 不声明功放供电**，说明它由 boot 链/PMIC 默认态提供（Pong 与 touch 的注释都是这个口径）。
+> 上机必须先读回 rail 状态，**不许**假定已通电就写功放寄存器。
+
+## 3. 总线侧：GCC 时钟（⑥ 深挖，源 = `gcc-sm8450.c`）
+
+`/home/emilelu/k60tmp/gcc-sm8450.c`（3,487 行，与主线 `/home/emilelu/wifi-inputs/linux/drivers/clk/qcom/gcc-sm8450.c` 的 qupv3 段一致）。
+
+| 时钟 | `halt_reg`(CBCR) | `enable_reg`（AP 投票寄存器） | `enable_mask` | 行 |
+|---|---|---|---|---|
+| `gcc_qupv3_wrap2_core_clk` | 0x33280 | **0x62010** | BIT(0) | :2404-2409 |
+| `gcc_qupv3_wrap_2_s_ahb_clk` | 0x2e008 | **0x62010** | BIT(1) | :2618-2625 |
+| `gcc_qupv3_wrap_2_m_ahb_clk` | 0x2e004 | **0x62010** | BIT(2) | :2603-2610 |
+| `gcc_qupv3_wrap2_core_2x_clk` | 0x3328c | **0x62010** | BIT(3) | :2391-2396 |
+| `gcc_qupv3_wrap2_s0_clk` | **0x2e00c** | **0x62010** | BIT(4) | :2417-2422 |
+| `gcc_qupv3_wrap2_s0_clk_src` | —（RCG） | cmd_rcgr **0x2e014** | — | :888-896 |
+
+- **wrapper2 的投票寄存器是 0x62010，不是 0x62008**（0x62008 是 wrapper0/wrapper1 的）。
+  touch 驱动用的是 wrapper0 SE4，所以它的 0x62008 不能照抄。
+- `BRANCH_HALT_VOTED`（`clk-branch.c:50-59`）：halt 判据是 CBCR 的 `CLK_OFF` 位；**硬件时钟门控生效时
+  CBCR 会报 CLK_OFF**，所以「CLK_OFF == 0」是假阴性判据（PITFALLS 已记录同一坑）。
+- RCG 偏移（`clk-rcg2.c` + touch 补丁算术交叉验证）：`CFG = cmd_rcgr + 0x4`、
+  `SE_CMD_DFSR = cmd_rcgr + 0x14`、`SE_PERF_CFG(l) = cmd_rcgr + 0x1c + 4l`、
+  `SE_PERF_M_DFSR(l) = cmd_rcgr + 0x5c + 4l`、`SE_PERF_N_DFSR(l) = cmd_rcgr + 0x9c + 4l`。
+- GPLL0：`enable_reg 0x62018` BIT(0)；PLL_MODE 在 `+0x0`，lock 位 BIT(31)（`gcc-sm8450.c:50-55`）。
+
+### 3.1 Pong 的总线初始化（`PongAudio.cpp:130-144`，形状可复用，索引要换）
+
+```
+gcc.w(0x62008, gcc.r(0x62008) | (15u<<18) | (1u<<27));       // ← K60 必须换成 0x62010 且重新选 bit
+gates[] = {0x3314c, 0x33140, 0x28004, 0x28008, 0x28610};      // ← Pong 的 wrapper1 SE5，K60 不适用
+i2cPins = {48, 49}; pin(n, 3u | (1u<<2), -1);                 // ← K60 是 {56, 57}
+se.open(0xa94000, 0x4000); proto = (se.r(0x68) >> 8) & 0xff;  // ← K60 是 0x880000
+level: for i<8: cfg = gcc.r(0x28618 + 0x1c + 4i); 选档        // ← K60 是 0x2e014 + 0x1c + 4i
+se.w(0x28, se.r(0x28)|0x7f); se.w(0xe30, se.r(0xe30)|15);
+se.w(0x24, 0x7f); se.w(0x20, 1); se.w(0xe18, 0);
+se.w(0x7c, level); se.w(0x48, 0x21);                          // GENI_SER_M_CLK_CFG
+se.w(0x278, (5u<<20)|(11u<<10)|22);                           // SCL counters: hs 5 / fs 11 / 22
+```
+
+> **K60 上必须改的四处**：投票寄存器 0x62008→0x62010、SE 基址 0xa94000→0x880000、
+> RCG 0x28618→0x2e014、引脚 48/49→56/57。其余（GENI 寄存器偏移、SCL 计数器、DFS 选档算法）可直接复用。
+
+## 4. 功放寄存器表（AW882xx 家族，源 = `hakios.speaker.c:355-401`）
+
+这些偏移在 **AW882xx 整个家族**上位置相同（phk110 的驱动注释明确说「registers that every chip of the family
+has at the same place and that reading does not change」，`hakios.speaker.c:1118`）。
+
+| 偏移 | 名称 | 语义 |
+|---|---|---|
+| **0x00** | `AW_ID` | **读 = chip ID；写 `0x55aa` = 软复位** |
+| 0x01 | `AW_SYSST` | 状态（见下方位定义） |
+| 0x02 | `AW_SYSINT` | 中断状态（读即清除） |
+| 0x03 | `AW_SYSINTM` | 中断屏蔽（默认 `0xffff`） |
+| 0x04 | `AW_SYSCTRL` | bit0 `PWDN`、bit1 `AMPPD`、bit8 `HMUTE`、bit14 `ULS_HMUTE` |
+| 0x05 | `AW_SYSCTRL2` | `[9:0]` 音量衰减：`[9:6]` 6 dB 步进、`[5:0]` 1/8 dB |
+| 0x06 | — | I2S control |
+| 0x08 | `AW_I2SCTRL3` | bit6 `TXEN` |
+| 0x14 | `AW_DBGCTRL` | bit3 `EF_OR`（fuse 两份副本 or/and 选择） |
+| 0x21 | `AW_VBAT` | `[9:0]` 电池电压：× 6025 / 1023 mV |
+| 0x22 | `AW_TEMP` | `[9:0]` 温度（℃，二补数） |
+| 0x23 | `AW_PVDD` | `[9:0]` boost 供电 |
+| 0x24 / 0x25 | `AW_ISNDAT` / `AW_VSNDAT` | 电流/电压采样 |
+| 0x50 | `AW_VSNTM1` | 校准值 = `8192 × (1000 + icalk) / (1000 + vcalk)` |
+| 0x78 / 0x79 / 0x7c / 0x7d | `AW_EFRH4/EFRH3/EFRL4/EFRL3` | fuse（算 icalk/vcalk） |
+
+状态位（`AW_SYSST`）：`PLLS 1<<0`、`OTHS 1<<1`、`OCDS 1<<3`、`CLKS 1<<4`、`NOCLKS 1<<5`、`WDS 1<<6`、
+`SWS 1<<8`、`BSTS 1<<9`、`BSTOCS 1<<11`、`UVLS 1<<14`、`OVP2S 1<<15`；
+`PLL_CHECK = CLKS|PLLS`；`FAULTS = OVP2S|UVLS|BSTOCS|WDS|NOCLKS|OCDS|OTHS`。
+
+chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 0x2049 AW88395 / 0x2055 AW88256 /
+0x2066 AW88166 / 0x2071 AW88350 / **0x2113 AW88261** / 0x2183 AW88399 / 0x2308 AW88230。
+
+### 4.1 读写事务（`PongAudio.cpp:108-110`）
+
+```
+读：写 1 字节 {reg}（带 stop）→ 读 2 字节 → value = (rx[0] << 8) | rx[1]     // 高字节先到（大端）
+写：写 3 字节 {reg, value>>8, value}
+地址 = 0x34 + amp（0/1）→ 与 K60 的 0x34/0x35 完全同形状
+```
+
+## 5. 纯 AP 只读验证方案（本子任务可独立完成的部分）
+
+**不碰 LPASS、不需要 ADSP。** 全部是 AP 自己的寄存器：
+
+| 步骤 | 动作 | 判据 |
+|---|---|---|
+| A1 | 映射 GCC 0x100000 一页（0x62010/0x62018 所在页），投 GPLL0 与 wrapper2 五个 bit | 回读 0x62010 的 bit0..4 全为 1 |
+| A2 | 映射 TLMM GPIO56/57 页（`0xf000000 + 0x100000 + 0x1000*n`），配 function 1 / 2 mA / pull-up | 回读 config `[5:2] == 1` |
+| A3 | 映射 GENI SE15 0x880000 一页，读 `GENI_FW_REVISION_RO(0x68)` | `(v >> 8) & 0xff == 3`（I2C） |
+| A4 | 按 §3.1 形状初始化 GENI（换掉四处索引），选 DFS 档 | `SE_GENI_STATUS(0x40)` 无 error 位 |
+| A5 | 对 0x34 / 0x35 各发一次「写 1 字节 reg=0x00 + 读 2 字节」 | 得到 chip ID；0x2113 → AW88261 |
+| A6 | 只读 fuse 0x78/0x79/0x7c/0x7d 与 0x01/0x04/0x06 | 打印原始值，**不解释、不写** |
+| A7 | 打印 GPIO1/3/43/52/88/63 的 config/IO 原始值 | 记录 Android 退出时的引脚状态 |
+
+失败即停（不重试、不写任何功放寄存器）。**A5 的结果直接决定「移植哪份驱动」这个硬问题。**
+
+## 6. 已交付代码
+
+`drivers/PongAudio/`（4 个源文件 + 1 个说明，均 BSD-2-Clause-Patent）：
+
+| 文件 | 内容 |
+| --- | --- |
+| `PongAudioRegs.h` | 上面全部地址/偏移/位定义，每条带来源标注（L = `live-fdt.dts`、G = `gcc-sm8450.c`、S = Pong 参考树、M = 主线 `geni-se.h`/`i2c-qcom-geni.c`、H = `hakios.speaker.c`） |
+| `PongAudioGeniI2c.h` / `.c` | Pong `GeniI2c.c` 的移植，符号改 `pong_geni_*` 避免与 Pong 副本冲突，状态机逻辑逐字保留 |
+| `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
+| `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
+
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（41 KB，6 段）+ `patches/audio/series`。
+
+- 4 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
+- `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
+- `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
+- **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15），无 reject，四个新文件与 `drivers/PongAudio/` 逐字节相同。完整 transcript 见 `patches/audio/README.md`。
+- 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。
+
+### 需要 Lead 合并的部分（本子任务写作用域之外）
+
+1. `scratch/SERIES-FINAL.txt` 追加 `patches/audio/0001-k60-audio-amp-probe.patch`（P-90：补丁顺序真相源在那里，只改仓库里的 `series` 不生效）；
+2. `board.toml` → `[kernel] kernel_args` 追加 `pong_audio_probe=1`——不加则补丁完全惰性（一次 boot-arg 查询后返回）；
+3. `docs/INDEX.md` §3 按既有格式追加 `audio/CODEC.md`、`audio/SOUNDWIRE.md`、`audio/AMPS.md` 三行（`check-docs.py` 只强制顶层文件，但仓库惯例是登记）；
+4. `docs/research/EIGHT-STEPS.toml` 新增 `[hardware.audio]` 段：①–⑥ `done = true`、`verify.local_verified = true`（编译 + 门禁）、`device.done = false`（未上机）。
+
+### 合并申请的精确片段（照抄即可）
+
+1）`docs/engineering/BOOT-ARGS.md` 的「一览」表加一行——**这是门禁硬要求**：`scripts/check-boot-args.py:47` 会扫 `drivers/**` 里所有 `PE_parse_boot_argn` 的 key，`PongAudioAmp.c` 新增了一个，缺行会让 hard-8（★8 boot-args）与 P-156 同时变红（实测输出：`❌ BOOT-ARGS.md 缺少 1 个参数: pong_audio_probe (drivers/)`）：
+
+```markdown
+| `pong_audio_probe` | 音频 / 功放 | 必须 == 1 | 未设 = 不探测 | 只读探测两颗 AW882xx（GENI I2C 读 chip id/状态）；只写 TLMM/GCC/GENI 自身，不写功放寄存器 |
+```
+
+长度核对：`porting-gate.py --quick` 的 `[A] length` 现在是 575/608，追加 ` pong_audio_probe=1` 共 19 字节 → 594，既 ≤ 600（porting-gate 门禁）也 ≤ 608（★8 硬上限），**不需要为它腾位置**。
+
+2）`board.toml` → `[kernel] kernel_args` 加一个 token：
+
+```toml
+pong_audio_probe=1
+```
+
+3）`docs/INDEX.md` §3 加三行：
+
+```markdown
+| [`audio/CODEC.md`](research/audio/CODEC.md) | **音频 codec 侧**：WCD938x 同型判定、live FDT 逐条、供电 rail 表、DT 映射表 |
+| [`audio/SOUNDWIRE.md`](research/audio/SOUNDWIRE.md) | **音频 SoundWire 侧**：宏与 SWR master 地址、寄存器表、PRM 前置、io_submap 预算 |
+| [`audio/AMPS.md`](research/audio/AMPS.md) | **音频功放侧**：AW882xx 判定、GENI I2C 路径、只读探针方案 A1–A7 |
+```
+
+4）`docs/research/EIGHT-STEPS.toml` 新增段（字段名照 `[hardware.touch]` / `[hardware.gpu]` 的既有写法）：
+
+```toml
+[hardware.audio]
+status = "active"
+name = "音频（WCD938x codec + SoundWire + AW882xx 功放）"
+
+[hardware.audio.step.same_model]
+done = true
+evidence = "三平台同 WCD938x，SoundWire TX 枚举 ID 均为 0x000d01170223；功放同为 Awinic 家族（phk110 = AW88261 0x2113）。见 CODEC.md / AMPS.md"
+
+[hardware.audio.step.official]
+done = true
+evidence = "主线 gcc-sm8450.c / geni-se.h / i2c-qcom-geni.c / clk-rcg2.c 逐条比对，寄存器与位域全部有出处（AMPS.md §3）"
+
+[hardware.audio.step.decompile]
+done = true
+evidence = "live-fdt.dts（DTB sha256 95c02052…f29fdac8）解出宏/SWR/I2C/引脚/reset 的全部地址与中断；UEFI DTB 的音频节点被裁剪，取不到地址（CODEC.md §3、SOUNDWIRE.md §2）"
+
+[hardware.audio.step.wide]
+done = true
+catalog_checked = true
+catalog_result = "参考实现 pong-power（同 SM8475）与 phk110（WCD938x + AW88261）都没有 K60 的 vendor audio-kernel 源码；本机无 adsp.mbn、无 aw882xx_acf.bin"
+evidence = "GAP-ANALYSIS.md / RESEARCH.md / EVIDENCE.md"
+
+[hardware.audio.step.plan]
+done = true
+evidence = "先做纯 AP 只读验证（功放 chip id、供电、引脚回读），codec 侧等 ADSP PRM；AMPS.md §5 A1–A7"
+
+[hardware.audio.step.deep]
+done = true
+evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io_submap 8 MiB 预算（SOUNDWIRE.md §3–§5）"
+
+[hardware.audio.step.verify]
+done = true
+local_verified = true
+evidence = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 通过；check-docs.py 通过；补丁 patch -p1 --dry-run 与 git apply --check 双向通过"
+
+[hardware.audio.step.device]
+done = false
+evidence = "未上机。需要 Lead 先加 pong_audio_probe=1 并出镜像；本子任务不刷机（铁则 4/5）"
+
+[hardware.audio.step.device.prediction]
+success = "日志顺序为 amp probe start → gcc vote/clk → se15 ready → amp0/amp1 id=0x… → amp probe done found=2/2 failed=0 timeouts=0"
+failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分别指向 GCC 投票、引脚复用、功放供电（DT 无供电属性，读不到 ID 优先怀疑没供电）"
+```
+
+### 门禁现状（对比 main f119a80 基线）
+
+| 检查 | 本分支 | main 基线 | 归因 |
+| --- | --- | --- | --- |
+| `check-docs.py` | ✅ 187 项通过 | ✅ | — |
+| `check-boot-args.py` | ❌ 缺 `pong_audio_probe` 一行 | ✅ | **本次引入**，补上片段 1 即绿 |
+| `porting-gate.py --quick` `[X]` | ❌ `zzzz… 未同步 58532 vs 62104`、`series 三处一致 不一致` | ❌ 同样两条 | 环境漂移（他人 touch 补丁），非本次引入 |
+| `eight-step-gate.py --build` | ❌ touch ④⑤⑥ 未 done | ❌ 同样三条 | 触摸线（他 agent），非本次引入 |
+| `check-rules.py` | ❌ 5 条（= 上面 3 类之和） | ❌ 3 条 | 见上 |
+| `sync-device-input.py --check` | ✅ | ✅ | — |
+
+## 7. 待实测 / 阻塞
+
+待实测（⑧）：
+1. chip ID 到底是哪一颗（A5）。
+2. I2C 引脚是否已被 Android 配好（A7 读回即可知，若已配好就不要重配）。
+3. 功放供电是否已使能（DT 无供电属性，只能读回判断；**读不到 ID 时优先怀疑没供电**）。
+
+阻塞（不属于本子任务）：
+- 播放通路（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。
+- 功放的 `aw882xx_acf.bin` 配置档（Android `/vendor/etc/aw882xx_acf.bin`）本机没有，
+  phk110 的驱动缺它就无法做 Music profile 初始化（`hakios.sound.c:1403-1405` 报错文本可证）。
+  → 需要 Lead 从 K60 的 vendor 分区取；否则只能走「软复位 + 最小寄存器」路线。

@@ -55,6 +55,7 @@
 
 #include "PongAudioRegs.h"
 #include "PongAudioGeniI2c.h"
+#include "PongAudioPlan.h"
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 
@@ -63,7 +64,7 @@ extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
  * compiles under -Wmissing-prototypes without a second header. */
 int pong_audio_amp_probe(void);
 
-#define PONG_AUDIO_IO_PAGE      0x1000UL
+#define PONG_AUDIO_IO_PAGE      ((vm_offset_t)PONG_AUDIO_WINDOW_SIZE)
 #define PONG_AUDIO_PIN_COUNT    8u
 
 /* ---- accessors ---------------------------------------------------------- */
@@ -108,8 +109,7 @@ pads_map(void)
 	vm_offset_t phys;
 
 	for (i = 0; i < PONG_AUDIO_PIN_COUNT; ++i) {
-		phys = PONG_AUDIO_TLMM_PHYS + PONG_AUDIO_TLMM_GPIO_OFF +
-		    (vm_offset_t)PONG_AUDIO_GPIO_STRIDE * probe_pads[i];
+		phys = (vm_offset_t)pong_audio_pad_phys(probe_pads[i]);
 		pad_window[i] = ml_io_map(phys, PONG_AUDIO_IO_PAGE);
 		if (!pad_window[i]) {
 			printf("PongAudio: amp probe pad map failed gpio=%u phys=0x%x\n",
@@ -134,25 +134,6 @@ pads_report(void)
 	}
 }
 
-/* Preserves the bits outside the documented 10-bit field, and declares APPS
- * ownership only when the eGPIO-exists bit says so (touch patch:148-166). */
-static uint32_t
-pad_config(uint32_t current, uint32_t pull, uint32_t function, uint32_t drive_ma, bool output)
-{
-	uint32_t next = current & ~0x3ffu;
-
-	next |= pull & 0x3u;
-	next |= (function & 0xfu) << 2;
-	next |= ((drive_ma / 2u) - (drive_ma >= 2u ? 1u : 0u)) << 6;
-	if (output) {
-		next |= 1u << 9;
-	}
-	if (current & PONG_AUDIO_GPIO_EGPIO_EXISTS) {
-		next |= PONG_AUDIO_GPIO_APPS_CTRL;
-	}
-	return next;
-}
-
 /* I2C pads belong to the QUP15 function with a pull-up; the bus is idle-high.
  * If the firmware already left them there, do not rewrite them. */
 static bool
@@ -165,18 +146,18 @@ i2c_pads_take(void)
 
 	for (i = 0; i < 2; ++i) {
 		current = rd(pad_window[pads[i]]);
-		if (((current >> 2) & 0xfu) == PONG_AUDIO_GPIO_FN_QUP15) {
+		if (pong_audio_pad_function(current) == PONG_AUDIO_GPIO_FN_QUP15) {
 			printf("PongAudio: amp i2c pad gpio=%u already qup15 cfg=0x%08x\n",
 			    probe_pads[pads[i]], current);
 			continue;
 		}
-		next = pad_config(current, PONG_AUDIO_GPIO_PULL_UP,
+		next = pong_audio_pad_config(current, PONG_AUDIO_GPIO_PULL_UP,
 		    PONG_AUDIO_GPIO_FN_QUP15, 2u, false);
 		wr(pad_window[pads[i]], next);
 		readback = rd(pad_window[pads[i]]);
 		printf("PongAudio: amp i2c pad gpio=%u cfg=0x%08x -> 0x%08x readback=0x%08x\n",
 		    probe_pads[pads[i]], current, next, readback);
-		ready = ready && ((readback >> 2) & 0xfu) == PONG_AUDIO_GPIO_FN_QUP15;
+		ready = ready && pong_audio_pad_function(readback) == PONG_AUDIO_GPIO_FN_QUP15;
 	}
 	return ready;
 }
@@ -191,13 +172,13 @@ amp_reset_release(unsigned index, const char *name)
 	const uint32_t io = rd(pad_window[index] + PONG_AUDIO_GPIO_IO);
 	uint32_t next;
 
-	if ((current & (1u << 9)) && (io & 2u)) {
+	if (pong_audio_pad_output(current) && pong_audio_pad_out_high(io)) {
 		printf("PongAudio: amp reset %s gpio=%u already released cfg=0x%08x io=0x%08x\n",
 		    name, probe_pads[index], current, io);
 		return false;
 	}
 	wr(pad_window[index] + PONG_AUDIO_GPIO_IO, 2u);
-	next = pad_config(current, PONG_AUDIO_GPIO_PULL_NONE,
+	next = pong_audio_pad_config(current, PONG_AUDIO_GPIO_PULL_NONE,
 	    PONG_AUDIO_GPIO_FN_GPIO, 16u, true);
 	wr(pad_window[index], next);
 	printf("PongAudio: amp reset %s gpio=%u released by this probe cfg=0x%08x -> 0x%08x\n",
@@ -230,25 +211,33 @@ gcc_map(void)
 static vm_offset_t
 gcc_window(uint32_t offset)
 {
-	if (offset >= PONG_AUDIO_GCC_RCG_WIN && offset < PONG_AUDIO_GCC_RCG_WIN + PONG_AUDIO_IO_PAGE) {
-		return gcc_rcg + (offset - PONG_AUDIO_GCC_RCG_WIN);
+	uint32_t delta = 0;
+	const int index = pong_audio_gcc_window(offset, &delta);
+
+	if (index == 0) {
+		return gcc_rcg + delta;
 	}
-	if (offset >= PONG_AUDIO_GCC_CBC_WIN && offset < PONG_AUDIO_GCC_CBC_WIN + PONG_AUDIO_IO_PAGE) {
-		return gcc_cbc + (offset - PONG_AUDIO_GCC_CBC_WIN);
+	if (index == 1) {
+		return gcc_cbc + delta;
 	}
-	if (offset >= PONG_AUDIO_GCC_VOTE_WIN && offset < PONG_AUDIO_GCC_VOTE_WIN + PONG_AUDIO_IO_PAGE) {
-		return gcc_vote + (offset - PONG_AUDIO_GCC_VOTE_WIN);
+	if (index == 2) {
+		return gcc_vote + delta;
 	}
-	gcc_misses++;
 	return 0;
 }
 
+/* A miss is counted once, in the accessor: a failed read and a failed write are
+ * both evidence, and counting twice would inflate the probe's own report. */
 static uint32_t
 gcc_read(uint32_t offset)
 {
 	const vm_offset_t address = gcc_window(offset);
 
-	return address ? rd(address) : 0u;
+	if (!address) {
+		++gcc_misses;
+		return 0u;
+	}
+	return rd(address);
 }
 
 static void
@@ -256,19 +245,11 @@ gcc_write(uint32_t offset, uint32_t value)
 {
 	const vm_offset_t address = gcc_window(offset);
 
-	if (address) {
-		wr(address, value);
-	} else {
-		gcc_misses++;
+	if (!address) {
+		++gcc_misses;
+		return;
 	}
-}
-
-/* A branch clock is running when the hardware gating branch is active or the
- * clock-off bit is clear (clk-branch.c:50-59; TouchProbe.cpp:406). */
-static bool
-cbcr_running(uint32_t value)
-{
-	return !(value & PONG_AUDIO_CBCR_CLK_OFF) || (value & PONG_AUDIO_CBCR_HWCG);
+	wr(address, value);
 }
 
 /* wrapper 2: core, core_2x, m_ahb, s_ahb, s0. The same five clocks Pong votes
@@ -298,13 +279,13 @@ gcc_wrapper2_on(void)
 
 	for (i = 0; i < sizeof clocks / sizeof clocks[0]; ++i) {
 		value = gcc_read(clocks[i].halt);
-		for (n = 0; n < 100u && !cbcr_running(value); ++n) {
+		for (n = 0; n < 100u && !pong_audio_cbcr_running(value); ++n) {
 			wait_us(100);
 			value = gcc_read(clocks[i].halt);
 		}
 		printf("PongAudio: amp gcc clk %s halt=0x%08x running=%u\n",
-		    clocks[i].name, value, cbcr_running(value) ? 1u : 0u);
-		if (!cbcr_running(value)) {
+		    clocks[i].name, value, pong_audio_cbcr_running(value) ? 1u : 0u);
+		if (!pong_audio_cbcr_running(value)) {
 			return false;
 		}
 	}
@@ -323,7 +304,7 @@ gcc_se15_dfs_level(void)
 	for (i = 0; i < PONG_AUDIO_GCC_DFS_LEVELS; ++i) {
 		cfg = gcc_read(PONG_AUDIO_GCC_RCG_SE15 + 0x1cu + 4u * i);
 		printf("PongAudio: amp gcc dfs level=%u cfg=0x%08x\n", i, cfg);
-		if (((cfg >> 8) & 7u) == 0u && ((cfg >> 12) & 3u) == 0u && (cfg & 31u) <= 1u) {
+		if (pong_audio_dfs_level_ok(cfg)) {
 			return i;
 		}
 	}
@@ -486,7 +467,7 @@ amp_read(uint8_t address, uint8_t reg, uint16_t *value)
 	if (result != PongGeniDone) {
 		return result == PongGeniFailed ? -(int)bus.error - 10 : -1;
 	}
-	*value = (uint16_t)(((bus.rx & 0xffu) << 8) | ((bus.rx >> 8) & 0xffu));
+	*value = pong_audio_amp_value(bus.rx);
 	return 0;
 }
 
@@ -501,23 +482,6 @@ amp_read_or(uint8_t address, uint8_t reg, uint16_t fallback)
 		    address, reg, result, bus.error, bus.error_status);
 	}
 	return value;
-}
-
-static const char *
-amp_name(uint16_t chip_id)
-{
-	switch (chip_id) {
-	case 0x2113: return "AW88261";
-	case 0x2013: return "AW88264";
-	case 0x2032: return "AW88266";
-	case 0x2049: return "AW88395";
-	case 0x2055: return "AW88256";
-	case 0x2066: return "AW88166";
-	case 0x2071: return "AW88350";
-	case 0x2183: return "AW88399";
-	case 0x2308: return "AW88230";
-	default: return "unknown";
-	}
 }
 
 static unsigned
@@ -560,7 +524,8 @@ amp_probe_one(unsigned index, uint8_t address, bool reset_by_us)
 	l3 = amp_read_or(address, AW_REG_EFRL3, 0xffffu);
 
 	printf("PongAudio: amp%u addr=0x%x id=0x%04x chip=%s status=0x%04x faults=0x%04x pll=%u\n",
-	    index, address, chip, amp_name(chip), status, (unsigned)(status & AW_SYSST_FAULTS),
+	    index, address, chip, pong_audio_amp_name(chip), status,
+	    (unsigned)(status & AW_SYSST_FAULTS),
 	    (unsigned)((status & (AW_SYSST_CLKS | AW_SYSST_PLLS)) == (AW_SYSST_CLKS | AW_SYSST_PLLS)));
 	printf("PongAudio: amp%u mask=0x%04x ctrl=0x%04x i2s=0x%04x dbg=0x%04x vbat=0x%04x pvdd=0x%04x temp=0x%04x\n",
 	    index, mask, control, i2s, debug, vbat, pvdd, temp);

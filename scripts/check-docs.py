@@ -19,6 +19,8 @@ import os
 import re
 import sys
 
+from pathlib import Path
+
 REPO = '/mnt/e/hackios/UniXNU-mondrian'
 FILES = [
     REPO + '/README.md',
@@ -262,12 +264,37 @@ def check_no_hardcoded_sha(verbose=True):
     return problems, counted
 
 
+OFFICIAL = "https://github.com/UniXNU/UniXNU"
+FORK = "https://github.com/Emilelu/UniXNU"
+
+
+def check_readme_links(verbose=True):
+    """README 里的框架链接必须指向工作用的 fork。
+
+    官方仓库只能作为「官方/上游」出现在同一行里，否则读者会照着 README 去
+    克隆一个我们没有写权限的仓库（用户 2026-11-13 明确要求）。
+    """
+    bad = []
+    for name in ("README.md", "README_EN.md"):
+        f = Path(REPO) / name
+        if not f.is_file():
+            continue
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            # bare UniXNU/UniXNU only: UniXNU-sm8475-common is a different repo
+            if not re.search(r'UniXNU/UniXNU(?![A-Za-z0-9._-])', line):
+                continue
+            marked = any(k in line for k in ("官方", "上游", "official", "upstream"))
+            if FORK not in line and not marked:
+                bad.append("%s:%d 链接到官方仓库但没有标注 fork/官方" % (name, i))
+    return bad, 2
+
+
 def run(verbose=True):
     all_problems = []
     total = 0
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
                check_root_docs_linked, check_section_order, check_no_hardcoded_sha,
-               check_bilingual, check_freshness):
+               check_bilingual, check_freshness, check_readme_links):
         p, n = fn(verbose)
         all_problems += p
         total += n

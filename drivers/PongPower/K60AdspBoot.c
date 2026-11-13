@@ -11,6 +11,7 @@
 #ifndef K60_HOST_TEST
 
 #include <pexpert/pexpert.h>
+#include <pexpert/device_tree.h>
 #include <sys/systm.h>
 #include <sys/vnode.h>
 #include <sys/namei.h>
@@ -87,47 +88,64 @@ static K60FatVolume k60_fat_vol;
 static const void *k60_fat_base;
 static int k60_fat_ready;
 
+/* PE_boot_args() returns the kernel-embedded default string, not what the
+ * firmware hands over, so the md token is not visible here (measured: the
+ * printed string has no pong_adsp either, yet PE_parse_boot_argn finds it).
+ * The loader writes the ramdisk span into /chosen instead. */
+static int
+k60_dt_cell(const void *prop, uint32_t length, uint64_t *out)
+{
+	if (prop == NULL || out == NULL) {
+		return -1;
+	}
+	if (length == 8) {
+		const uint32_t *w = (const uint32_t *)prop;
+
+		*out = ((uint64_t)w[0] << 32) | (uint64_t)w[1];
+		return 0;
+	}
+	if (length == 4) {
+		*out = (uint64_t)*(const uint32_t *)prop;
+		return 0;
+	}
+	return -1;
+}
+
+/* PE_boot_args() hands back the kernel-embedded default string, so it never
+ * carries the loader's md token (measured: it lacks pong_adsp too, yet
+ * PE_parse_boot_argn finds that key). PE_parse_boot_argn reads the buffer the
+ * firmware actually filled, which is where memdev.c found md0. */
 static int
 k60_adsp_md_window(uint64_t *base, uint64_t *size)
 {
-	const char *args = PE_boot_args();
+	static const char *const keys[] = { "pmd0", "vmd0", "rmd0" };
+	char value[64];
+	char token[96];
+	uint32_t i;
 
-	if (args == NULL) {
-		printf("K60PAS no boot arguments\n");
-		return -1;
-	}
-	/* memdev.c only ever looks at the first 256 bytes, so print the same
-	 * window in four short pieces: one long line is truncated by the console
-	 * and tells us nothing (P-163's sibling trap). */
-	{
-		char piece[68];
-		uint32_t part;
+	for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+		int n;
 
-		for (part = 0; part < 9; part++) {
-			size_t i;
-
-			for (i = 0; i < 64; i++) {
-				char ch = args[part * 64 + i];
-
-				piece[i] = (ch == '\0') ? 0 : ch;
-				if (ch == '\0') {
-					break;
-				}
-			}
-			piece[i] = '\0';
-			printf("K60ARGS %u: %s\n", part, piece);
-			if (i < 64) {
-				break;
-			}
+		value[0] = '\0';
+		if (!PE_parse_boot_argn(keys[i], value, sizeof(value)) ||
+		    value[0] == '\0') {
+			continue;
 		}
+		printf("K60PAS %s=%s\n", keys[i], value);
+		n = snprintf(token, sizeof(token), "pmd0=%s", value);
+		if (n <= 0 || (size_t)n >= sizeof(token)) {
+			continue;
+		}
+		if (k60_md_parse(token, (size_t)n, "pmd0", base, size) == 0) {
+			printf("K60PAS ramdisk base %#llx size %#llx\n",
+			    (unsigned long long)*base,
+			    (unsigned long long)*size);
+			return 0;
+		}
+		printf("K60PAS %s=%s is not <base>.<size>\n", keys[i], value);
 	}
-	if (k60_md_parse(args, 608, "pmd0", base, size) != 0) {
-		printf("K60PAS no pmd0 boot argument; the ramdisk has no known base\n");
-		return -1;
-	}
-	printf("K60PAS pmd0 base=%#llx size=%#llx\n",
-	    (unsigned long long)*base, (unsigned long long)*size);
-	return 0;
+	printf("K60PAS no md boot argument; the ramdisk has no known base\n");
+	return -1;
 }
 
 static int

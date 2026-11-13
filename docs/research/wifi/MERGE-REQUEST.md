@@ -311,6 +311,25 @@ Undefined symbols for architecture arm64:
 `k60_fontscale=0` **不能**用来让位：`video_console.c:2844` 要求 `scale >= 2 && scale <= 4`，
 0 会被忽略、字节照旧。
 
+5. **离线验证过这个片段确实能关掉 hard-8 与 P-156**（脚本
+   `E:\k60-work\evidence\wifi-trial\simulate-bootargs.py`，直接复刻
+   `check-boot-args.py` 的两段逻辑，把片段追加在现有 BOOT-ARGS.md 之后跑）：
+
+   ```
+   current            documented=40 missing=9 ['k60_wifi_rsc', 'k60_wifi_stage', 'pong_wifi',
+                      'pong_wifi_alt', 'pong_wifi_band', 'pong_wifi_cycle',
+                      'pong_wifi_diag', 'pong_wifi_dma_mib', 'pong_wifi_test']
+   with fragment      documented=49 missing=0
+   range rows parsed: {'k60_touch_se': (0, 7), 'k60touchhz': (0, 15000000), 'touch_flip': (0, 3),
+                       'k60_wifi_rsc': (0, 2), 'k60_wifi_stage': (0, 10), 'pong_wifi_dma_mib': (64, 128)}
+   board.toml out of declared range: none
+   RC=0
+   ```
+
+   即：9 个缺口全补上，且新登记的三条范围判据（`k60_wifi_rsc` 0..2、`k60_wifi_stage` 0..10、
+   `pong_wifi_dma_mib` 64..128）对 board.toml 现值全部通过。片段全文在
+   `E:\k60-work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`。
+
 ---
 
 ## 11. `scripts/check-rules.py` 现状：8 条失败里只有 2 条是 WiFi 的

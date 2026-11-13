@@ -1,0 +1,7 @@
+# Bluetooth line patch series (feat/bt-research).
+# NOT wired into the build yet: scripts/check-patch-series.py:24 and
+# scripts/check-build-applied.py:27 only read patches/xnu/series.  The Lead must
+# merge this change into patches/xnu/0500-k60-bt-qbt-new-files.patch (option A)
+# or add a patches/xnu/0503 entry plus a series line (option B); see
+# docs/research/bt/S1-PROBE-SPEC.md section 6.
+0001-k60-bt-readonly-probe.patch

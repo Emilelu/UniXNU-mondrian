@@ -129,6 +129,7 @@ archive `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a`
 | `wifi-20261115e` `e45e50d9…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=5` | real rail votes plus GCC GDSC/refgen |
 | `wifi-20261115f` `c7c39525…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=8` | host MMIO, PHY table, PERST, link training |
 | `wifi-20261115g` `4173014a…` | `pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10` | SMMU context, MSI attach, `ath11k start` |
+| `wifi-20261115h` `20908a03…` | same as g | same as g, but with `bdwlan.elf`/`bdwlang.elf` inside PWF2 (six files, 11,189,974 B; kernel `73c33075…` 65,978,368 B) |
 
 Stop the ladder at the first image that loses the console: the rung that was
 new in that image is the one that hangs the interconnect. A successful rung
@@ -145,9 +146,11 @@ Milestones inside the ladder:
   and `QCA6490 PCI subsystem=10817cb` appear, i.e. the endpoint is enumerated
   and the 17CB:1103 / BAR0 0x60200000 / IOVA 0xA0000000 facts from ③ are
   confirmed on the device.
-- stage 10 is the first rung that can reach firmware load; expect it to stop at
-  the missing board data file (see `FIRMWARE.md` §8) and to log the exact
-  `bdwlan*` name ath11k asked for.
+- stage 10 is the first rung that can reach firmware load. Image `g` carries the
+  four-file PWF2 and will stop at the missing board data file (see `FIRMWARE.md`
+  §8) after logging the exact `bdwlan*` name ath11k asked for; image `h`
+  already carries `bdwlan.elf`/`bdwlang.elf` (`FIRMWARE.md` §9), so it can get
+  past board data when the real board id is 0xff.
 
 Runner: `E:\k60-work\evidence\wifi-trial\ladder-run.ps1` (races fastboot,
 then walks the table in order, writing `E:\k60-work\evidence\usblog-wifi-ladder-<tag>`).

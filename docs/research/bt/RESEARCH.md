@@ -205,6 +205,8 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 
 - **可判定的一条**：同一颗内核在**不带** `k60bt` 的镜像（`bt-s1-20261114a`，boot_img `7b6b02fc…`）里正常跑到用户态（`captured-budget-complete`，3,192 行）。所以挂死属于 `k60bt=1` 这条路径，不是构建问题。
 - **不可判定的**：控制台 0 字节，没有任何 `[bluetooth]` 行，无法知道死在哪次访问——因为 `qbt_k60_start()` 紧跟在 `k60_usblog_start()` 之后执行，USB gadget 还没枚举完。这正是 S1b 先延迟 20 s、再逐访问打点的原因。
+构建侧已就绪：`bt-s1b-20261114a`（boot.img `a9fe69b9…`，内核 `356bd849…`，`verify-boot-image: OK`，payload 行尾带三个 `k60bt` 参数），只等板子物理断电复位后上机。
+
 - **顺带拿到的 iOS 侧事实**：那次成功的启动里 `bluetoothd` 已经起来，反复打印 `Unable to match bluetooth service in device tree.` / `Not a valid MAC address (all 00s).` / `bluetoothd: No bluetooth on this device.` —— 20G81 只有用户态栈，且要求设备树里存在 `bluetooth` 节点与非零 MAC（与 §2/§3 结论一致，现在有设备侧证据）。
 
 ---

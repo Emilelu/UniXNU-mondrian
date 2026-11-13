@@ -1,6 +1,6 @@
 # S1 只读探针规格（k60bt_stage=1）
 
-状态：**S1a 已构建、已上机一次 → 0 字节控制台、板子挂死，不可判定**（§0 实测记录）；**S1b 已重新生成并接入构建**。
+状态：**S1a 已上机一次 → 0 字节控制台、板子挂死，不可判定**（§0）；**S1b 已生成、接入构建并构建完成**（§0.1，镜像 `bt-s1b-20261114a`），待物理断电复位后上机。
 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch`（8,331 B / 192 行 / 25 个打点，sha256 `6136fc67c849a95277296477284811210a7c69d13264e19483179f9c4c52fc96`），接在 `patches/xnu/series:205`（0502 之后、0503 之前）。
 上游计划：`docs/research/bt/RESEARCH.md` §5（阶段 S1）与 §8（I-5）。
 ⑥ 深挖依据：`docs/research/bt/06-DEEP-DIVE.md`（F1–F3 就是本规格多读 4 个寄存器的原因）。
@@ -25,6 +25,20 @@
    `Not a valid MAC address (all 00s).` / `bluetoothd: No bluetooth on this device.`
    —— 与 `RESEARCH.md` §2/§3 一致：20G81 只有用户态栈，且它要求设备树里有一个 `bluetooth` 节点 + 非零 MAC 才会继续。
 4. **所以 S1b 的目标不是「再读一遍寄存器」，而是「让死机点可观测」**：先等控制台真的活着并能排空，再在**每一次寄存器访问之前**打一行点。
+
+### 0.1 S1b 镜像（2026-11-14 05:23 构建完成，尚未上机）
+
+| 项 | 值 |
+|---|---|
+| 构建 tag | `bt-s1b-20261114a`，仓库 head `7d06d1b`（dirty 0，series 224） |
+| boot.img | `/mnt/e/k60-work/artifacts/bt-s1b-20261114a/boot.img`，201,887,744 B，sha256 `a9fe69b9e10030039878086cf4f594b20b19fdc432811e2de61ca73fb9e56a9c` |
+| 内核 | `kernel_built 356bd8493d69333d19ac2c6b33cbc7efc22d91554469f63382f452cea620a00d`（54,173,696 B） |
+| payload | `8cb0c26a5cd0ea312de96bd3acf12c471194511f3c6d4b9d9ac2766192c844f3`；ADT `9ab17e468f5fc5390328b03f672236997f2eea7c22b1ac0f4548ccd8ac461c1e` |
+| boot args | payload 行尾 `… applog=1 k60bt=1 k60bt_stage=1 k60bt_warm=1`（manifest 记录的 `kernel_args` 三项齐全） |
+| 校验 | `scripts/verify-boot-image.py --manifest …` → `verify-boot-image: OK` |
+| 上机状态 | **未上机**：板子自 S1a 起处于 USB 掉线挂死，必须先物理断电复位 |
+
+同一镜像可加 `k60bt_delay=20 k60bt_step=6`（默认即此值）或把 step 调低做二分。
 
 ## 1. 目的
 

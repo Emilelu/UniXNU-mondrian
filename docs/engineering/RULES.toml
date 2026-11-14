@@ -560,3 +560,10 @@ source = "scripts/check-rule-registry.py"
 statement = "规则登记表的 id 必须唯一，且 id 必须与它声明的来源一致：P-186 不能挂在 hard-34 名下，hard-NN 必须有对应的 ★NN 小节"
 check = "python3 scripts/tests/test-rule-registry.py"
 note = "2026-11-14: 换行符规则被登记成 hard-34，而 hard-34 已被 HARD-RULES.md 的「协议/型号只能实测确认」占用；check-rules.py 用集合做覆盖检查，所以重复 id 既不报错也不可见，--only hard-34 会静默跑两条不同检查。"
+
+[[rule]]
+id = "P-195"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-195"
+statement = "vnode_open with O_CREAT creates a regular file; a directory needs the mkdir syscall."
+check = "python3 scripts/check-blob-patches.py"

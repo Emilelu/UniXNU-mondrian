@@ -294,3 +294,24 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 **当前状态（2026-11-13）**：探针能从 `memdev` 拿到 md0 的几何，但 `vmd0` 记的是固件
 虚拟地址，XNU 读不到（`esr 0x96000010`，见 `docs/research/audio/ADSP-MD0.md`）。
 所以 `pong_adsp=1` 目前只用于诊断，不能作为可用的音频/电池前提。
+
+### `sheng-gpu-addon`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不做任何 union 挂载） |
+| 取值 | 0 / 1 |
+| 来源 | `patches/xnu/zzy-native-gpu-addon-mount.patch`（`PE_parse_boot_argn("sheng-gpu-addon", &enabled, sizeof(enabled))`，`native_gpu_addon_prepare()`），实现在 `bsd/kern/kern_exec.c` |
+| 作用 | 1 = 在 Data 卷挂载成功、launchd 启动**之前**，把 `/private/var/ngpu/addons` 只读 union 到 `/System/Library/Extensions`、把 `/private/var/ngpu/daemons` union 到 `/System/Library/LaunchDaemons` |
+
+**为什么需要它**：`0610-k60-metal-plugin-deploy.patch` 把 51,278,451 字节的 Metal 插件
+（`PongAdrenoMetal.bundle` 含 `PongMetalBridge.dylib` 33,146,048 B 与
+`libvulkan_freedreno.dylib` 18,036,688 B）从内核写到 `/private/var/ngpu/addons`，但 Metal 的
+原始发现路径只查 `/System/Library/Extensions/<name>.bundle`。没有这个 union，插件落在 Data 卷上
+也永远不被加载，用户态继续打印 `software-only platform`（`userland/ui_compat.c:510`）。
+
+**默认关闭的理由**：它改写的是 sealed 系统目录的可见性，任何异常都会影响 launchd 与所有进程；
+先按 opt-in 上机验证（判据：`native_gpu_addon_prepare` 打印挂载成功 + 不再出现
+`software-only platform` + 出现 `[direct scanout]`），确认无副作用后再评估是否改成默认。
+缺目录或挂载被拒只打印失败，不会 panic。

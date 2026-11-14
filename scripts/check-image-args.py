@@ -46,6 +46,7 @@ ALLOWED_ADDITIONS = {
     "pong_wifi_diag", "pong_wifi_test", "pong_wifi_alt", "pong_wifi_band",
     "pong_wifi_cycle", "k60bt", "k60bt_stage", "k60bt_warm",
     "pong_audio_probe", "pong_rail_probe", "pong_adsp", "pong_touch_se",
+    "sheng-gpu-addon",
 }
 
 # Values that are never acceptable in an experiment image, with the reason.

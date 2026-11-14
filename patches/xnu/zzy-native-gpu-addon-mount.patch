@@ -1,11 +1,11 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index 35c58d2..c0300ef 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7193,6 +7193,82 @@ uint64_t native_owner_data_seed_base, native_owner_data_seed_size;
+@@ -7689,6 +7689,82 @@
+ uint64_t native_owner_data_seed_base, native_owner_data_seed_size;
  uint8_t native_owner_data_seed_sha256[32];
  char native_owner_data_device_path[64];
- 
++
 +/* Boot-time read-only union views of owner-provided GPU addon content over sealed system directories, mounted after the Data mount and
 + * before launchd starts: the Adreno Metal plugin bundle over /System/Library/Extensions (the original Metal discovery loads
 + * /System/Library/Extensions/<MetalPluginName>.bundle) and an owner launchd job over /System/Library/LaunchDaemons (a process outside
@@ -81,12 +81,11 @@ index 35c58d2..c0300ef 100644
 +	    "/System/Library/LaunchDaemons/com.apple.backboardd.plist",
 +	    "/System/Library/LaunchDaemons/org.blu-sharky.adrenoprobed.plist", &native_gpu_addon2_stage, &native_gpu_addon2_status);
 +}
-+
- static int
- native_owner_data_prepare(proc_t p, user_addr_t scratch)
- {
-@@ -7250,6 +7326,7 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
- 	if (actual != device || (vfs_flags(data_mount) & MNT_RDONLY) ||
+ 
+ extern void IOSleep(unsigned int);
+ 
+@@ -8156,6 +8232,7 @@
+ 	if (actual != device ||
  	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
  	if (!error) native_owner_data_stage = 4;
 +	if (!error) native_gpu_addon_prepare(p, scratch);

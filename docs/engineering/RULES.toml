@@ -552,3 +552,11 @@ source = "scripts/check-repo-paths.py"
 statement = "scripts/ 里禁止硬编码本仓库检出路径：仓库根必须来自 K60_REPO 或脚本自身位置，兄弟检出路径只能作为可覆盖的默认值"
 check = "python3 scripts/check-repo-paths.py"
 note = "2026-11-14: usb / audio / refmine 三条线各自踩过「脚本写死主检出、在 worktree 里跑就写错树」的坑并各打一份互不相同的补丁；六个脚本统一为 K60_REPO + 脚本位置回退，由 check-repo-paths.py 守住。"
+
+[[rule]]
+id = "hard-40"
+kind = "hard"
+source = "scripts/check-rule-registry.py"
+statement = "规则登记表的 id 必须唯一，且 id 必须与它声明的来源一致：P-186 不能挂在 hard-34 名下，hard-NN 必须有对应的 ★NN 小节"
+check = "python3 scripts/tests/test-rule-registry.py"
+note = "2026-11-14: 换行符规则被登记成 hard-34，而 hard-34 已被 HARD-RULES.md 的「协议/型号只能实测确认」占用；check-rules.py 用集合做覆盖检查，所以重复 id 既不报错也不可见，--only hard-34 会静默跑两条不同检查。"

@@ -1,4 +1,4 @@
-# 扬声器功放 — K60 (SM8475 / cape) 判定与纯 AP 只读路径
+# 扬声器功放 — K60 (SM8475 / cape) 判定、纯 AP 只读路径与寄存器回放层
 
 > 目标子系统：扬声器功放（AW882xx / WSA883x 判定）、GENI I2C、GCC 时钟、TLMM
 > 日期：2026-11-14
@@ -205,22 +205,22 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioPlan.h` | 探针的判定逻辑做成纯函数：pad 地址与 pad 配置字、CBCR「是否在跑」判据、GCC 四窗口路由（含 GPLL0 的 PLL 窗口）、DFS 档可用性、AW882xx 字节序与 chip id 表。无 MMIO、无内核头 → 这些判定由宿主单测钉住，而不是靠上机试 |
 | `PongAudioAcf.h` | A5 的落点：AW88261 配置档（ACF）的读取与校验做成纯函数 —— 头判据、按 `dev_index + profile + kind` 定位块、两种和校验、16×16 寄存器对表、双 PA 通道映射、fuse → icalk/vcalk → vcalb。无 MMIO、无内核头，见 §8.8 |
 | `PongAudioGeniI2c.h` / `.c` | Pong `GeniI2c.c` 的移植，符号改 `pong_geni_*` 避免与 Pong 副本冲突，状态机逻辑逐字保留 |
-| `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
+| `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；然后对每颗应答的功放跑一遍**回放层**（软复位 + 57 对 Music profile + fuse 算的 vcalb + 静音音量，见 §9）；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
-补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（48,264 B，1,272 行，7 段，sha256 `d2ede261372b1f11…264d1765`）+ `patches/audio/series`。
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（78,394 B，2,070 行，10 段，sha256 `d85264ca07cd0f91…13d0`）+ `patches/audio/series`。
 
-- 5 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
+- 8 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
-- **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。五个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 不在其中：内核侧还没有 `.c` include 它，见 §6.1）。完整 transcript 见 `patches/audio/README.md`。
-- 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。**守卫本身也验证过**：`E:/k60-work/scratch/audio-work/probe-pong.c` 只做 `#if !defined(PONG) #error`，用同一套 flags 编译得到 `PASS: probe-pong.c`，即 `PONG` 由 `board_config.h` 定义、探针不是死代码（这是「静默不跑」这类故障的必要前提）。
+- **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。八个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 仍不在其中：内核侧还没有 `.c` include 它；`PongAudioAcf.h`/`PongAudioAmpProfile.h`/`PongAudioAmpReplay.h` **在**，被 `PongAudioAmp.c` include，见 §9）。完整 transcript 见 `patches/audio/README.md`。
+- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) 镜像 j 的内核构建（build-manifest `kernel_built`）证明旧 5 文件在真实 kernel flags 下编译通过；(b) 回放层全部语义在宿主侧被 584/602 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，535 例；带真实 ACF 时 548 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，584 例；带真实 ACF 时 602 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
-`PongAudioAmp.c` 依赖内核头，不能宿主编译；所以它的**判定逻辑**被抽到 `PongAudioPlan.h`（纯函数、无 MMIO），由单测逐条钉住，留在 `.c` 里的只剩 MMIO 时序——那部分只能靠语法检查与一次上机说话。
+`PongAudioAmp.c` 依赖内核头，不能宿主编译；所以它的**判定逻辑**被抽到 `PongAudioPlan.h`，**写寄存器的语义**被抽到 `PongAudioAcf.h` / `PongAudioAmpProfile.h` / `PongAudioAmpReplay.h`（三者均纯函数、无 MMIO，见 §8.8 与 §9），由单测逐条钉住，留在 `.c` 里的只剩 MMIO 时序与打印——那部分只能靠上机说话。
 
 codec 半（LPASS 宏 / SoundWire / WCD938x）走同一条路：`PongCodecPlan.h` 把「硬件可达之前就能定下来的决策」
 写成纯函数——控制器版本判定、两套读事务寄存器组、事务号与命令字、FIFO 满判定、回包匹配、枚举位图与
@@ -255,9 +255,9 @@ slave id 是两次普通寄存器读（`0x530+8n` / `0x534+8n`，S:`PongWcd938.h
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 535 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# → TESTS OK 584 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
 # 带上真实 ACF（它不入库）：PONG_ACF_FILE=<aw882xx_acf.bin> sh drivers/PongAudio/tests/run-tests.sh
-# → TESTS OK 548 cases
+# → TESTS OK 602 cases
 ```
 
 覆盖范围：
@@ -306,7 +306,7 @@ wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/t
 1）`docs/engineering/BOOT-ARGS.md` 的「一览」表加一行——**这是门禁硬要求**：`scripts/check-boot-args.py:47` 会扫 `drivers/**` 里所有 `PE_parse_boot_argn` 的 key，`PongAudioAmp.c` 新增了一个，缺行会让 hard-8（★8 boot-args）与 P-156 同时变红（实测输出：`❌ BOOT-ARGS.md 缺少 1 个参数: pong_audio_probe (drivers/)`）：
 
 ```markdown
-| `pong_audio_probe` | 音频 / 功放 | 必须 == 1 | 未设 = 不探测 | 只读探测两颗 AW882xx（GENI I2C 读 chip id/状态）；只写 TLMM/GCC/GENI 自身，不写功放寄存器 |
+| `pong_audio_probe` | 音频 / 功放 | 必须 == 1 | 未设 = 不探测 | 探测两颗 AW882xx：先只读（GENI I2C 读 chip id/状态），再回放 Music profile（写寄存器，功放保持掉电+静音，见 AMPS §9）；另写 TLMM/GCC/GENI 自身 |
 ```
 
 长度核对：`porting-gate.py --quick` 的 `[A] length` 现在是 575/608，追加 ` pong_audio_probe=1` 共 19 字节 → 594，既 ≤ 600（porting-gate 门禁）也 ≤ 608（★8 硬上限），**不需要为它腾位置**。
@@ -322,7 +322,7 @@ pong_audio_probe=1
 ```markdown
 | [`audio/CODEC.md`](research/audio/CODEC.md) | **音频 codec 侧**：WCD938x 同型判定、live FDT 逐条、供电 rail 表、DT 映射表 |
 | [`audio/SOUNDWIRE.md`](research/audio/SOUNDWIRE.md) | **音频 SoundWire 侧**：宏与 SWR master 地址、寄存器表、PRM 前置、io_submap 预算 |
-| [`audio/AMPS.md`](research/audio/AMPS.md) | **音频功放侧**：AW882xx 判定、GENI I2C 路径、只读探针方案 A1–A7 |
+| [`audio/AMPS.md`](research/audio/AMPS.md) | **音频功放侧**：AW882xx 判定、GENI I2C 路径、探针方案 A1–A7、上机 run 1、A5 选型与 ACF 配置档（§8）、回放层（§9） |
 ```
 
 4）`docs/research/EIGHT-STEPS.toml:353-386` 整段替换（**不是新增**：该段已在，当前 `status = "parked"`）。
@@ -363,7 +363,7 @@ evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io
 done = true
 local_verified = true
 static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
-unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 535 cases（带真实 ACF 时 548 cases）（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire/WCD938x/LPI/slew 决策 + PongCodecSwr.c 的初始化序列与读事务状态机 + PongCodecLpi.c 的五步 pad/slew 顺序 + PongCodecMacro.c 的 VA/TX 宏九步时钟门表 + PongCodecProbe.c 的整条 codec 启动编排，见 AMPS.md §6.1）"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 584 cases（带真实 ACF 时 602 cases）（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongAudioAcf.h 的 ACF 读取与校验 + PongAudioAmpProfile.h/PongAudioAmpReplay.h 的回放语义 + PongCodecPlan.h 的 SoundWire/WCD938x/LPI/slew 决策 + PongCodecSwr.c 的初始化序列与读事务状态机 + PongCodecLpi.c 的五步 pad/slew 顺序 + PongCodecMacro.c 的 VA/TX 宏九步时钟门表 + PongCodecProbe.c 的整条 codec 启动编排，见 AMPS.md §6.1 与 §9.3）"
 artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:119-120、bsd_init.c:1357-1358，五个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
 
 [hardware.audio.step.device]
@@ -492,7 +492,7 @@ scripts/build-strict.sh audio-probe-20261114j \
 驱动日志（`console.log:191-220`，逐字）：
 
 ```
-PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)
+PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)   ← run 1 时的旧 banner；当前代码 banner 见 §9.2
 PongAudio: amp gcc gpll0 vote=0x00000001 mode=0xe0000005 locked=1
 PongAudio: amp gcc vote 0x0 -> 0x1f readback 0x1f
 PongAudio: amp gcc clk wrap2_core halt=0x00004220 running=1
@@ -724,7 +724,13 @@ phk110 `hakios.speaker.c:430-431` 写得很清楚：
 而本仓库的探针把 `0x34` 叫作 **amp0**、`0x35` 叫作 **amp1**（`PongAudioRegs.h` 的 `PONG_AUDIO_AMP_ADDR0/1`）。
 → **探针的 amp0 要吃 ACF 的 `dev_index 1` 那份 profile**。移植时若按「amp0 → dev0」直觉写，两颗会各自加载对方的标定，
 症状是「能出声但音量和保护点都不对」，属于最难从日志看出来的那类错误。
-这条映射已做成纯函数 `pong_acf_channel_for_addr()`（`0x35→0`、`0x34→1`、其余 `0xff`），由宿主单测钉住。
+> **⚠️ 警告（写驱动前必读，Lead 2026-11-14 点名要求显眼处）**：`ACF dev_index` 与探针编号是**两套编号**——
+> **`0x35 ↔ dev_index 0 ↔ 探针 amp1`，`0x34 ↔ dev_index 1 ↔ 探针 amp0`，方向相反**。
+> 按探针编号直接选 profile 表会让两颗各自加载**对方的**标定（音量曲线、温度/电压保护点全错），
+> 症状是「能出声但保护与音量都不对」，属于最难从日志看出的失败。这条映射已做成纯函数
+> `pong_acf_channel_for_addr()`（`0x35→0`、`0x34→1`、其余 `0xff`）与
+> `pong_amp_profile_for_addr()`（`0x35→dev0 表`、`0x34→dev1 表`、其余 `NULL`），由宿主单测钉住；
+> `amp_replay_one()` 只按 **I2C 地址**选表，从不按探针编号。
 
 ### 8.6 写入语义：照抄 mainline 的 `reg_update`，不要照抄 ACF 里的字面值
 
@@ -787,16 +793,87 @@ phk110 `hakios.speaker.c:430-431` 写得很清楚：
 
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 535 cases
+# → TESTS OK 584 cases
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && PONG_ACF_FILE=/mnt/e/k60-work/scratch/audio-work/refs/acf/aw882xx_acf.bin sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 548 cases
+# → TESTS OK 602 cases
 ```
 
-`PongAudioAcf.h` **不进补丁**（与 `PongCodecPlan.h` 同理）：内核侧还没有 `.c` include 它。等真正写寄存器的驱动落地时一起入补丁。
+`PongAudioAcf.h` **现在进补丁了**（回放层让 `PongAudioAmp.c` include 它，见 §9）；`PongCodecPlan.h` 仍不进（内核侧还没有 `.c` include 它）。
 
 ### 8.9 A5 之后还差什么
 
-1. **真正写寄存器的驱动**（soft reset → 57 对 → `0x50` → TX）：它的前置是 PAS1/TDM 通路，属于 Lead 的线；
-   代码本身可以现在就写，但没有时钟与音频帧，写进去的是一台「配置正确但不出声」的功放 —— 那正是 §4 警告的假成功。
+1. **真正写寄存器的驱动**（soft reset → 57 对 → `0x50` → TX）：写路径本身已作为**回放层**落地（§9，`PongAudioAmpReplay.h` + `PongAudioAmp.c` 的 `amp_replay_one`），但没有时钟与音频帧、不走 start 序列，写进去的是一台「配置正确但不出声」的功放 —— 那正是 §4 警告的假成功；完整驱动的 start/monitor 等 PAS1/TDM 通路（Lead 的线）。
 2. **ACF 的构建期抓取**：按 `proprietary-files.txt` 的先例加一条，避免 `*.bin` 入库。
 3. **run 2**：⑧ 仍缺第二次 boot，须用户与 Lead 批准后单独执行（§7.3 第 1 条）。
+
+## 9. 回放层：把 ACF 的寄存器语义接到 0503 的 GENI 传输层
+
+§8 的结论是「语义层自己写」。这一节是它的**执行部分**：语义不再是文档里的表，而是探针在
+`pong_audio_probe=1` 下真的走一遍、并把每一次写入与回读都打进日志的代码。**没有新增调用点**
+（仍然是 `bsd_init.c` 里那一段），也不依赖 PAS1：功放挂在 AP 自己的 QUPV3 wrapper 2 上，写它不需要 DSP。
+
+### 9.1 三个新文件与它们的分工
+
+| 文件 | 内容 | 为什么是纯函数 |
+| --- | --- | --- |
+| `drivers/PongAudio/PongAudioAmpProfile.h` | 两份 Music profile：`pong_amp_profile_dev0` / `pong_amp_profile_dev1`，各 57 对 `(reg, val)`（`PONG_AMP_PROFILE_PAIRS`），外加 `pong_amp_profile_for_addr(addr)`：`0x35→dev0`、`0x34→dev1`、其余 `NULL` | 表是**生成**的（`E:/k60-work/scratch/audio-work/gen-profile-header.py`，脚本自带 checksum/count 断言），不是手抄；生成物入库、blob 不入库（`.gitignore` 忽略 `*.bin`） |
+| `drivers/PongAudio/PongAudioAmpReplay.h` | 回放顺序：`pong_replay_steps(pairs) = pairs + 3`、`pong_replay_at(profile,pairs,index,…)` 逐步产出动作（`PongReplayWrite` / `Sysctrl` / `TxOff` / `Vcalb` / `Volume`）、`pong_replay_sysctrl(acf,hw)`、`pong_replay_db_to_reg()`、`pong_replay_volume()` | 「写什么、按什么顺序、哪几位保留硬件值」全部是算术；留在 `.c` 里的只有 MMIO 与打印 |
+| `PongAudioAmp.c` 的 `amp_write()` / `profile_reg()` / `amp_replay_one()` | 3 字节写 `{reg, val>>8, val}`（AW882xx 是 16 位寄存器 + 16 位值，走 `pong_geni_start_write_bytes`），每步写完立刻回读并打印 | 只剩传输与日志 |
+
+每颗功放 **60 步**：0 = 软复位（`0x00 ← 0x55aa`），1..57 = Music profile 的 57 对，58 = `0x50 ← vcalb`，
+59 = `0x05 ← 静音音量`。四类特例（§8.6）全部落在 `pong_replay_at()` 里：`0x04` 返回 `PongReplaySysctrl`
+（值由 `pong_replay_sysctrl()` 与硬件回读合并）、`0x08` 返回 `PongReplayTxOff`（值已清 bit6）、
+`0x50` 与 `reg >= 0x70` 一律拒绝（由第 58 步单独写）。
+
+### 9.2 日志形状（上机时要看到的）
+
+banner 已改成不再自称只读：
+
+```
+PongAudio: amp probe start (read pass first, then a replay pass that writes the tuning table; AMPS.md A1-A7 and section 9)
+...
+PongAudio: amp0 replay 00 reg=0x00 wrote=0x55aa read=0x0000
+PongAudio: amp0 replay 01 reg=0x03 wrote=0xffff read=0xffff
+PongAudio: amp0 replay 02 reg=0x04 wrote=0x7343 read=0x7343 (three bits kept from hw)
+PongAudio: amp0 replay 05 reg=0x06 wrote=0x38e8 read=0x38e8
+PongAudio: amp0 replay 07 reg=0x08 wrote=0x00f6 read=0x00f6
+PongAudio: amp0 replay 58 reg=0x50 wrote=0x2052 read=0x2052
+PongAudio: amp0 replay 59 reg=0x05 wrote=0x1bc0 read=0x1bc0
+PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 transfers=...
+```
+
+- 每次写后都读回；不等时该行末尾打印 ` differs`，读失败打印 `read=failed` 并计入 `failed`。
+- `amp0` 用 `dev_index 1` 的表、`amp1` 用 `dev_index 0` 的表（§8.5）——日志里两颗写出的 `0x06` 分别是
+  `0x38e8` 与 `0x34e8`、`0x05` 分别是 `0x1bc0` 与 `0x13c0`（同为静音，保留的高 6 位来自各自硬件回读）。
+  这两处一对上，就证明表选对了。
+- `scripts/judge-audio-capture.py` 不需要改：`MARK_START` 是前缀匹配，`MARK_ID` 要求 `id=0x`，
+  `MARK_DONE` 要求 `amp probe done found=`——回放行不会误命中。
+
+### 9.3 宿主侧钉住了什么（584 例 / 带真实 ACF 602 例）
+
+`replay_cases()` 新增 49 条断言，关键几条：
+
+| 断言 | 防的是什么 |
+| --- | --- |
+| `pong_amp_profile_for_addr(0x35)` 指向 dev0 表、`0x34` 指向 dev1 表、`0x36` 为 `NULL`；且 `pong_acf_channel_for_addr` 给出 `0x35→0 / 0x34→1` | **按探针编号选表**（§8.5 那个陷阱）。两条函数必须同时成立，否则「0x34 是 amp0」的直觉会悄悄赢 |
+| 两张表都 57 对、寄存器顺序完全相同、**恰好 5 个值不同**（`0x05/0x06/0x07/0x08/0x0f`），`0x14` 两侧都是 `0xc003`，`0x50` 两侧都不在表里 | 抄错表、或把「两颗共用一张表」当成优化 |
+| 第 0 步是 `0x00 ← 0x55aa`、第 1 步是 `0x03 ← 0xffff`、第 58 步 `Vcalb→0x50`、第 59 步 `Volume→0x05`、60 越界拒绝 | 顺序被「顺手」改掉 |
+| `pong_replay_sysctrl(0x3240, 0x3343) == 0x7343`（硬件在掉电态：保留 PWDN/AMPPD/HMUTE）与 `(0x3240, 0x0000) == 0x7240`（硬件在运行态：**不能顺手把它关掉**） | 把 ACF 的 `0x3240` 直接写进去——那会覆盖硬件当前的三位 |
+| `0x08` 步动作是 `TxOff` 且值是 `0x00b6`（`0x00f6` 清掉 bit6） | 把 profile 阶段当成「打开 TX」 |
+| 手编表里出现 `0x50` 或 `reg >= 0x70` 时 `pong_replay_at` 返回 false | 绕过 `0x50` 由 fuse 计算这条规则 |
+| `pong_replay_db_to_reg(720) == 0x3c0`、`pong_replay_volume(0x1811) == 0x1bc0` | 音量编码（`((v/48)<<6)|(v%48)`，高 6 位保留硬件） |
+| `PONG_ACF_FILE` 存在时，两张编译进代码的表与真实 blob **逐对相等**（`bad0 == 0 && bad1 == 0`） | 生成器与 blob 漂移 |
+
+### 9.4 这一层故意**不**做的事
+
+- **不走 start 序列**：没有 `pwd(false)` → `check_syspll` → `amppd(false)` → `check_sysst` → `tx_enable`（§8.6）。
+  没有 bit clock 时那几步只会失败，然后把芯片退回掉电——白写一遍还多一类噪声。
+- **不开 TX、不解静音**：profile 阶段清 `I2SCTRL3` 的 TXEN，`ULS_HMUTE` 被强制置 1，音量写的是 `MUTE_VOL`。
+  两颗芯片跑完仍是「配置正确但不出声」。
+- **不读 ACF 文件**：表在编译期就在代码里（`PongAudioAmpProfile.h`），因为内核侧没有文件系统可用；
+  ACF 的构建期抓取仍是 §8.9 第 2 条。
+- **不碰 LPASS**：TDM/MI2S 前端与 ADSP 图是 Lead 的 PAS1 线。
+
+这一层的意义是：等 PAS1 与 TDM 通路到位时，「写寄存器」这段不再是未验证的新代码，而是已经在设备上
+跑过一遍、每一步都有回读记录的东西；剩下的只是把它接到 start 序列与音频帧上。
+

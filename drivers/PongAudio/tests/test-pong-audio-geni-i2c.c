@@ -28,6 +28,8 @@
 #include <string.h>
 
 #include "PongAudioAcf.h"
+#include "PongAudioAmpProfile.h"
+#include "PongAudioAmpReplay.h"
 #include "PongAudioGeniI2c.h"
 #include "PongAudioPlan.h"
 #include "PongAudioRegs.h"
@@ -1807,6 +1809,209 @@ acf_cases(void)
 	}
 }
 
+/* ---- replay plan (PongAudioAmpReplay.h, PongAudioAmpProfile.h) ----------- */
+
+static uint16_t
+replay_value(const uint16_t *profile, uint8_t reg)
+{
+	uint32_t i;
+
+	for (i = 0; i < PONG_AMP_PROFILE_PAIRS; ++i) {
+		if (profile[i * 2u] == reg) {
+			return profile[i * 2u + 1u];
+		}
+	}
+	return 0xffffu;
+}
+
+static uint32_t
+replay_step(const uint16_t *profile, uint8_t reg)
+{
+	uint32_t i;
+
+	for (i = 0; i < PONG_AMP_PROFILE_PAIRS; ++i) {
+		if (profile[i * 2u] == reg) {
+			return i + 1u;
+		}
+	}
+	return 0xffffffffu;
+}
+
+static void
+replay_cases(void)
+{
+	uint8_t action = 0xff, reg = 0xff;
+	uint16_t value = 0;
+	uint32_t step;
+
+	/* Which half belongs to which address. This is the trap that would load
+	 * each amplifier with the other one's calibration: the probe calls 0x34
+	 * "amp0", the tuning file calls it dev_index 1. */
+	expect(pong_amp_profile_for_addr(PONG_AUDIO_AMP_ADDR1) == pong_amp_profile_dev0,
+	    "0x35 takes dev_index 0's half");
+	expect(pong_amp_profile_for_addr(PONG_AUDIO_AMP_ADDR0) == pong_amp_profile_dev1,
+	    "0x34 takes dev_index 1's half");
+	expect(pong_amp_profile_for_addr(0x36u) == 0, "an unknown address has no table");
+	expect_eq(pong_acf_channel_for_addr(PONG_AUDIO_AMP_ADDR1), 0ul,
+	    "0x35 is dev_index 0");
+	expect_eq(pong_acf_channel_for_addr(PONG_AUDIO_AMP_ADDR0), 1ul,
+	    "0x34 is dev_index 1, not 0");
+	expect_eq(PONG_AMP_PROFILE_PAIRS, 57ul, "each half carries 57 register pairs");
+
+	/* Step order: reset, the pairs in file order, vcalb, the volume. */
+	expect_eq(pong_replay_steps(PONG_AMP_PROFILE_PAIRS), 60ul,
+	    "one amplifier takes 60 steps");
+	expect(pong_replay_at(pong_amp_profile_dev0, PONG_AMP_PROFILE_PAIRS, 0u,
+	    &action, &reg, &value), "step 0 is in the plan");
+	expect_eq(action, (unsigned long)PongReplayWrite, "step 0 is a plain write");
+	expect_eq(reg, 0x00ul, "step 0 writes register 0");
+	expect_eq(value, 0x55aaul, "step 0 is the soft reset");
+	expect(pong_replay_at(pong_amp_profile_dev0, PONG_AMP_PROFILE_PAIRS, 1u,
+	    &action, &reg, &value), "step 1 is in the plan");
+	expect_eq(reg, 0x03ul, "step 1 is the table's first register");
+	expect_eq(value, 0xfffful, "step 1 carries the table's first value");
+
+	/* The four registers that cannot be written literally. */
+	step = replay_step(pong_amp_profile_dev0, 0x04u);
+	expect(step != 0xffffffffu, "the table names SYSCTRL");
+	expect(pong_replay_at(pong_amp_profile_dev0, PONG_AMP_PROFILE_PAIRS, step,
+	    &action, &reg, &value), "the SYSCTRL step is in the plan");
+	expect_eq(action, (unsigned long)PongReplaySysctrl,
+	    "SYSCTRL goes through the read-merge");
+	expect_eq(value, 0x3240ul, "the merge starts from the file's literal");
+	expect_eq(pong_replay_sysctrl(value, 0x3343u), 0x7343ul,
+	    "the merge keeps a powered-down part powered down");
+	expect_eq(pong_replay_sysctrl(value, 0x0000u), 0x7240ul,
+	    "the merge does not power down a running part");
+
+	step = replay_step(pong_amp_profile_dev0, 0x08u);
+	expect(step != 0xffffffffu, "the table names I2SCTRL3");
+	expect(pong_replay_at(pong_amp_profile_dev0, PONG_AMP_PROFILE_PAIRS, step,
+	    &action, &reg, &value), "the I2SCTRL3 step is in the plan");
+	expect_eq(action, (unsigned long)PongReplayTxOff,
+	    "I2SCTRL3 is a transmit-off write");
+	expect_eq(value, 0x00b6ul, "the transmit enable bit is cleared from 0x00f6");
+
+	expect(pong_replay_at(pong_amp_profile_dev0, PONG_AMP_PROFILE_PAIRS, 58u,
+	    &action, &reg, &value), "step 58 is in the plan");
+	expect_eq(action, (unsigned long)PongReplayVcalb, "step 58 is the computed vcalb");
+	expect_eq(reg, 0x50ul, "vcalb goes to VSNTM1");
+	expect(pong_replay_at(pong_amp_profile_dev0, PONG_AMP_PROFILE_PAIRS, 59u,
+	    &action, &reg, &value), "step 59 is in the plan");
+	expect_eq(action, (unsigned long)PongReplayVolume, "step 59 is the volume");
+	expect_eq(reg, 0x05ul, "the volume goes to SYSCTRL2");
+	expect(!pong_replay_at(pong_amp_profile_dev0, PONG_AMP_PROFILE_PAIRS, 60u,
+	    &action, &reg, &value), "the plan ends after 60 steps");
+
+	/* Volume arithmetic: muted is 720 eighths of a dB, the top six bits of the
+	 * register survive the write. */
+	expect_eq(pong_replay_db_to_reg(PONG_REPLAY_MUTE_VOL), 0x03c0ul,
+	    "the mute volume encodes to 0x3c0");
+	expect_eq(pong_replay_volume(0x1811u), 0x1bc0ul,
+	    "the volume write keeps the register's top six bits");
+
+	/* A hand-edited table must not be able to reach these two. */
+	{
+		static const uint16_t bad[4] = { 0x50u, 0x0000u, 0x70u, 0x0000u };
+
+		expect(!pong_replay_at(bad, 2u, 1u, &action, &reg, &value),
+		    "a table that names VSNTM1 is refused");
+		expect(!pong_replay_at(bad, 2u, 2u, &action, &reg, &value),
+		    "a table that names 0x70 is refused");
+	}
+
+	/* The two halves are independently calibrated: same 57 registers in the
+	 * same order, five values different. */
+	{
+		static const uint8_t five[5] = { 0x05u, 0x06u, 0x07u, 0x08u, 0x0fu };
+		uint32_t i;
+		unsigned differing = 0, order = 0;
+
+		for (i = 0; i < PONG_AMP_PROFILE_PAIRS; ++i) {
+			if (pong_amp_profile_dev0[i * 2u] != pong_amp_profile_dev1[i * 2u]) {
+				++order;
+			}
+			if (pong_amp_profile_dev0[i * 2u + 1u] !=
+			    pong_amp_profile_dev1[i * 2u + 1u]) {
+				++differing;
+			}
+		}
+		expect_eq(order, 0ul, "both halves list the same registers in the same order");
+		expect_eq(differing, 5ul, "the two halves differ in exactly five values");
+		for (i = 0; i < 5u; ++i) {
+			expect(replay_value(pong_amp_profile_dev0, five[i]) !=
+			    replay_value(pong_amp_profile_dev1, five[i]),
+			    "each of the five known registers differs between the halves");
+		}
+		expect_eq(replay_value(pong_amp_profile_dev0, 0x14u), 0xc003ul,
+		    "dev_index 0 carries the tuning file's DBGCTRL");
+		expect_eq(replay_value(pong_amp_profile_dev1, 0x14u), 0xc003ul,
+		    "dev_index 1 carries the same DBGCTRL");
+		expect_eq(replay_value(pong_amp_profile_dev0, 0x50u), 0xfffful,
+		    "VSNTM1 is absent from the table, as in the file");
+	}
+
+	/* What the two fuse words of run 1 turn into. The amp at 0x34 is
+	 * dev_index 1 and gets its own ratio; so does the one at 0x35. */
+	{
+		uint16_t vcalb = 0;
+
+		expect(pong_acf_vcalb(0xc003u, 0x83fdu, 0x5bf3u, 0x83fdu, 0x5bf3u, &vcalb),
+		    "the amp at 0x34 gives a usable ratio");
+		expect_eq(vcalb, 0x2052ul, "the amp at 0x34 wants 0x2052 in VSNTM1");
+		expect(pong_acf_vcalb(0xc003u, 0x8009u, 0x5bf7u, 0x8009u, 0x5bf7u, &vcalb),
+		    "the amp at 0x35 gives a usable ratio");
+		expect_eq(vcalb, 0x2094ul, "the amp at 0x35 wants 0x2094 in VSNTM1");
+	}
+
+	/* With the blob present, the compiled table must equal it pair for pair. */
+	{
+		const char *path = getenv("PONG_ACF_FILE");
+		FILE *f;
+
+		if (path != 0 && (f = fopen(path, "rb")) != 0) {
+			static uint8_t real[4096];
+			size_t got = fread(real, 1, sizeof(real), f);
+			uint32_t off0 = 0, off1 = 0, size0 = 0, size1 = 0;
+			int have0, have1;
+
+			fclose(f);
+			expect(got > 0x400u, "the real blob is longer than its header");
+			expect(pong_acf_header_ok(real, (uint32_t)got),
+			    "the real blob's header is accepted");
+			have0 = pong_acf_find(real, (uint32_t)got, 0u,
+			    PONG_ACF_PROFILE_MUSIC, PONG_ACF_KIND_REGS, &off0, &size0);
+			have1 = pong_acf_find(real, (uint32_t)got, 1u,
+			    PONG_ACF_PROFILE_MUSIC, PONG_ACF_KIND_REGS, &off1, &size1);
+			expect(have0 && have1, "the blob carries both Music blocks");
+			if (have0 && have1) {
+				uint32_t i;
+				unsigned bad0 = 0, bad1 = 0;
+
+				for (i = 0; i < PONG_AMP_PROFILE_PAIRS; ++i) {
+					uint16_t breg = 0;
+					uint16_t bval = 0;
+
+					if (!pong_acf_pair_at(real + off0, size0, i, &breg, &bval) ||
+					    breg != pong_amp_profile_dev0[i * 2u] ||
+					    bval != pong_amp_profile_dev0[i * 2u + 1u]) {
+						++bad0;
+					}
+					if (!pong_acf_pair_at(real + off1, size1, i, &breg, &bval) ||
+					    breg != pong_amp_profile_dev1[i * 2u] ||
+					    bval != pong_amp_profile_dev1[i * 2u + 1u]) {
+						++bad1;
+					}
+				}
+				expect_eq(bad0, 0ul,
+				    "dev_index 0's compiled table equals the blob, pair for pair");
+				expect_eq(bad1, 0ul,
+				    "dev_index 1's compiled table equals the blob, pair for pair");
+			}
+		}
+	}
+}
+
 int
 main(void)
 {
@@ -1819,6 +2024,7 @@ main(void)
 	recovery_cases();
 	plan_cases();
 	acf_cases();
+	replay_cases();
 	chip_id_cases();
 	codec_cases();
 	swr_cases();

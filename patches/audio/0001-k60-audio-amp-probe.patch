@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/PongAudioRegs.h
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,162 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * K60 (Redmi K60 / mondrian / SM8475 / "cape") audio register map for the
@@ -105,8 +105,9 @@
 + * L:13331-13341  aw882xx_smartpa@35 (sound-channel 1, no spksw-gpio)
 + * H:355-401      register file, identical offsets across the AW882xx family
 + * H:340-350      chip id table
-+ * Read-only contract: only the registers below are read; this probe writes no
-+ * amplifier register at all.
++ * Read/write: the probe only reads the registers below. The replay pass that
++ * follows it (PongAudioAmpReplay.h) writes the tuning table, so the two write
++ * targets are named here as well.
 + */
 +#define PONG_AUDIO_AMP_ADDR0        0x34u
 +#define PONG_AUDIO_AMP_ADDR1        0x35u
@@ -114,6 +115,7 @@
 +#define AW_REG_SYSST                0x01u
 +#define AW_REG_SYSINTM              0x03u   /* mask, readable */
 +#define AW_REG_SYSCTRL              0x04u
++#define AW_REG_SYSCTRL2             0x05u   /* volume, top six bits kept */
 +#define AW_REG_I2SCTRL              0x06u
 +#define AW_REG_DBGCTRL              0x14u
 +#define AW_REG_VBAT                 0x21u
@@ -611,7 +613,7 @@
 
 --- /dev/null
 +++ b/bsd/dev/PongAudioAmp.c
-@@ -0,0 +1,626 @@
+@@ -0,0 +1,783 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * K60 (Redmi K60 / mondrian / SM8475 / "cape") speaker amplifier probe.
@@ -625,20 +627,27 @@
 + * decides which amplifier driver the port needs, which is the open question in
 + * docs/research/audio/AMPS.md.
 + *
-+ * WHAT IT WRITES (every other access is a read):
++ * WHAT IT WRITES:
 + *   - TLMM: GPIO56/57 -> QUP15 function, pull-up, 2 mA, only when they are not
 + *     already there;
 + *   - TLMM: GPIO1/GPIO3 (the two amplifier reset lines) -> released (high),
 + *     only when they are not already released;
 + *   - GCC:  the wrapper-2 branch votes and the SE15 DFS level;
-+ *   - GENI: the engine's own configuration registers.
-+ * No amplifier register is written. Leaving the amplifiers out of reset while
-+ * no bit clock runs is the state the Android boot loader leaves them in too; a
-+ * chip without a clock stays muted, and the fault bits are read and printed,
-+ * never acted on.
++ *   - GENI: the engine's own configuration registers;
++ *   - amplifiers: the replay pass. Once the read-only probe has answered for a
++ *     part, that part is soft reset and loaded with its own "Music" profile -
++ *     the 57 register pairs of the phone's ACF tuning file, transcribed into
++ *     PongAudioAmpProfile.h - and then given the fuse-derived vcalb and the
++ *     mute volume. Every write is printed next to its read-back, so one boot
++ *     says exactly which register accepts what.
++ *     The pass leaves both chips powered down and muted: the SYSCTRL merge
++ *     keeps PWDN/AMPPD/HMUTE at whatever the hardware says and forces
++ *     ULS_HMUTE, and the transmit enable bit is cleared. No bit clock runs, so
++ *     nothing here can reach the speaker.
 + *
-+ * WHAT IT DOES NOT DO: no LPASS access, no ADSP/PAS1/GPR call, no amplifier
-+ * init, no software reset, no ACF profile. Those are blocked (AMPS.md section 7).
++ * WHAT IT DOES NOT DO: no LPASS access, no ADSP/PAS1/GPR call, no ACF file read
++ * at boot (both profiles are compiled in), no PLL or SYSST wait, no playback.
++ * Those need the ADSP and stay blocked (AMPS.md sections 7 and 9).
 + *
 + * GATING: the probe runs only when the image is booted with pong_audio_probe=1.
 + * Without the argument this file is inert: one boot-arg lookup and a return. The
@@ -670,6 +679,9 @@
 +#include "PongAudioRegs.h"
 +#include "PongAudioGeniI2c.h"
 +#include "PongAudioPlan.h"
++#include "PongAudioAcf.h"
++#include "PongAudioAmpProfile.h"
++#include "PongAudioAmpReplay.h"
 +
 +extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 +
@@ -1179,6 +1191,145 @@
 +	return 1;
 +}
 +
++/* ---- tuning replay ------------------------------------------------------ */
++
++static unsigned replay_written, replay_mismatched, replay_failed;
++
++/* One amplifier register write: the AW882xx 3-byte form, register then the
++ * value big-endian (AMPS.md section 4.1, S:PongAudio.cpp:108-110). */
++static int
++amp_write(uint8_t address, uint8_t reg, uint16_t value)
++{
++	const uint8_t bytes[3] = { reg, (uint8_t)(value >> 8), (uint8_t)value };
++	int result;
++
++	bus_recover();
++	bus.address = address;
++	bus.error = PongGeniOk;
++	if (pong_geni_start_write_bytes(&bus, bytes, 3) != 0) {
++		return -1;
++	}
++	result = transfer_run();
++	if (result != PongGeniDone) {
++		return result == PongGeniFailed ? -(int)bus.error - 10 : -1;
++	}
++	return 0;
++}
++
++/* The value the tuning file carries for one register, or 0xffff when it does
++ * not name it. */
++static uint16_t
++profile_reg(const uint16_t *profile, uint8_t reg)
++{
++	uint32_t i;
++
++	for (i = 0; i < PONG_AMP_PROFILE_PAIRS; ++i) {
++		if (profile[i * 2u] == reg) {
++			return profile[i * 2u + 1u];
++		}
++	}
++	return 0xffffu;
++}
++
++/* One amplifier, one full replay: soft reset, the profile, vcalb, the mute
++ * volume - every step written, read back and printed. The profile is chosen by
++ * I2C address, not by this probe's index: 0x34 is the ACF's dev_index 1
++ * (AMPS.md section 8.5). */
++static unsigned
++amp_replay_one(unsigned index, uint8_t address)
++{
++	const uint16_t *profile = pong_amp_profile_for_addr(address);
++	const uint32_t pairs = PONG_AMP_PROFILE_PAIRS;
++	const uint32_t steps = pong_replay_steps(PONG_AMP_PROFILE_PAIRS);
++	uint16_t vcalb = 0, readback = 0, write_value;
++	uint8_t action, reg;
++	uint16_t value;
++	uint32_t step;
++	unsigned ok = 0;
++	bool have_vcalb;
++
++	if (profile == 0) {
++		printf("PongAudio: amp%u addr=0x%x has no profile\n", index, address);
++		return 0;
++	}
++	have_vcalb = pong_acf_vcalb(profile_reg(profile, AW_REG_DBGCTRL),
++	    amp_read_or(address, AW_REG_EFRH4, 0xffffu),
++	    amp_read_or(address, AW_REG_EFRH3, 0xffffu),
++	    amp_read_or(address, AW_REG_EFRL4, 0xffffu),
++	    amp_read_or(address, AW_REG_EFRL3, 0xffffu), &vcalb);
++	printf("PongAudio: amp%u replay start dev_index=%u dbg=0x%04x vcalb=%s0x%04x steps=%u\n",
++	    index, (unsigned)pong_acf_channel_for_addr(address),
++	    profile_reg(profile, AW_REG_DBGCTRL), have_vcalb ? "" : "refused ", vcalb,
++	    steps);
++
++	for (step = 0; step < steps; ++step) {
++		if (!pong_replay_at(profile, pairs, step, &action, &reg, &value)) {
++			printf("PongAudio: amp%u replay refused step %u\n", index, step);
++			++replay_failed;
++			break;
++		}
++		write_value = value;
++		switch (action) {
++		case PongReplaySysctrl:
++			if (amp_read(address, reg, &readback) != 0) {
++				printf("PongAudio: amp%u replay cannot read 0x%02x before the merge\n",
++				    index, reg);
++				++replay_failed;
++				return ok;
++			}
++			write_value = pong_replay_sysctrl(value, readback);
++			break;
++		case PongReplayVcalb:
++			if (!have_vcalb) {
++				printf("PongAudio: amp%u replay stops at vcalb: no usable fuse ratio\n",
++				    index);
++				++replay_failed;
++				return ok;
++			}
++			write_value = vcalb;
++			break;
++		case PongReplayVolume:
++			if (amp_read(address, reg, &readback) != 0) {
++				printf("PongAudio: amp%u replay cannot read 0x%02x for the volume merge\n",
++				    index, reg);
++				++replay_failed;
++				return ok;
++			}
++			write_value = pong_replay_volume(readback);
++			break;
++		default:
++			break;
++		}
++		if (amp_write(address, reg, write_value) != 0) {
++			printf("PongAudio: amp%u replay write failed step=%u reg=0x%02x value=0x%04x err=%u\n",
++			    index, step, reg, write_value, bus.error);
++			++replay_failed;
++			return ok;
++		}
++		++replay_written;
++		if (step == 0u) {
++			/* M: aw88261.c:1056-1060 the chip settles after the soft reset
++			 * before the table is loaded. */
++			wait_us(2000);
++		}
++		if (amp_read(address, reg, &readback) != 0) {
++			printf("PongAudio: amp%u replay %02u reg=0x%02x wrote=0x%04x read=failed\n",
++			    index, step, reg, write_value);
++			++replay_failed;
++			return ok;
++		}
++		if (readback != write_value && action != PongReplaySysctrl) {
++			++replay_mismatched;
++		}
++		printf("PongAudio: amp%u replay %02u reg=0x%02x wrote=0x%04x read=0x%04x%s%s\n",
++		    index, step, reg, write_value, readback,
++		    readback == write_value ? "" : " differs",
++		    action == PongReplaySysctrl ? " (three bits kept from hw)" : "");
++		++ok;
++	}
++	return ok;
++}
++
 +/* ---- entry point -------------------------------------------------------- */
 +
 +int
@@ -1186,14 +1337,14 @@
 +{
 +	uint32_t mode = 0;
 +	unsigned level = 0xffu;
-+	unsigned found0, found1;
++	unsigned found0, found1, replay0, replay1;
 +	bool released0, released1;
 +
 +	if (!PE_parse_boot_argn("pong_audio_probe", &mode, sizeof mode) || mode != 1u) {
 +		return 0;
 +	}
 +
-+	printf("PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)\n");
++	printf("PongAudio: amp probe start (read pass first, then a replay pass that writes the tuning table; AMPS.md A1-A7 and section 9)\n");
 +
 +	if (!pads_map()) {
 +		return -1;
@@ -1231,13 +1382,660 @@
 +	found0 = amp_probe_one(0, PONG_AUDIO_AMP_ADDR0, released0);
 +	found1 = amp_probe_one(1, PONG_AUDIO_AMP_ADDR1, released1);
 +
++	/* The replay pass runs in the same gated call: only a part that answered
++	 * gets written, and each one gets its own ACF half. It adds no call site -
++	 * bsd_init.c still calls pong_audio_amp_probe() once. */
++	replay0 = found0 ? amp_replay_one(0, PONG_AUDIO_AMP_ADDR0) : 0u;
++	replay1 = found1 ? amp_replay_one(1, PONG_AUDIO_AMP_ADDR1) : 0u;
++
 +	printf("PongAudio: amp probe done found=%u/2 transfers=%u failed=%u timeouts=%u stray=%u recovered=%u gcc_misses=%u\n",
 +	    found0 + found1, bus.done, bus.failed, bus.timeouts, bus.stray, bus_recoveries,
 +	    gcc_misses);
++	printf("PongAudio: amp replay done amp0=%u amp1=%u written=%u mismatched=%u failed=%u transfers=%u\n",
++	    replay0, replay1, replay_written, replay_mismatched, replay_failed, bus.done);
 +	return (int)(found0 + found1);
 +}
 +
 +#endif /* PONG */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAcf.h
+@@ -0,0 +1,305 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * Pure reader for the Awinic ACF tuning file (aw882xx_acf.bin) and the
++ * decisions that follow from one.
++ *
++ * Why this file exists. On hardware both amplifiers answered chip id 0x2113
++ * (AW88261, docs/research/audio/AMPS.md section 7.2), which settles which part
++ * sits on the board but not which driver to port: every vendor tree drives this
++ * part from a per-project ACF blob rather than from a register table, and the
++ * K60's own blob was found on the device at /vendor/firmware/aw882xx_acf.bin
++ * (3440 bytes, sha256 ce0e16d22380565114f56e6a02e4f85959160baccc6c163df6ecaf9db20cbf9e).
++ * The A5 answer is therefore "port the ACF-driven shape and load the blob the
++ * phone already ships", not "copy another board's register table".
++ *
++ * Everything here is a plain function over a byte buffer: no MMIO, no kernel
++ * headers, so the host unit test (drivers/PongAudio/tests) can pin it. Layout
++ * facts, each read from a source and quoted by line:
++ *   D: aw88395_data_type.h:19-21        ACF_FILE_ID, header field offsets
++ *   H: hakios.speaker.c:543             dde stride = entry_size / entries
++ *   H: hakios.speaker.c:594-599         pairs at +0x40, LE16 reg + LE16 val
++ *   H: hakios.speaker.c:604-611         per-block checksum ranges
++ *   H: hakios.speaker.c:430-431         I2C 0x35 is dev_index 0, 0x34 is 1
++ *   H: hakios.speaker.c:455-524         monitor table offsets and row layout
++ *   M: aw88261.c:420-434,437-449,470    SYSCTRL / DBGCTRL / I2SCTRL3 write rules
++ *   M: aw88261.c:358-391                vcalb from the four fuse reads
++ *
++ * This header is deliberately not part of patches/audio yet: nothing in the XNU
++ * tree includes it, exactly like PongCodecPlan.h. When a kernel .c starts to
++ * include it, add it to NEW_FILES in the patch generator or the build will not
++ * see it.
++ */
++#ifndef PONG_AUDIO_ACF_H
++#define PONG_AUDIO_ACF_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++/* D: aw88395_data_type.h:19 ACF_FILE_ID. */
++#define PONG_ACF_MAGIC            0x0a15f908u
++/* D: aw88395_data_type.h:33-38 the dde entry fields this reader uses. */
++#define PONG_ACF_DDE_DEV_INDEX    20u
++#define PONG_ACF_DDE_PROFILE      26u
++#define PONG_ACF_DDE_KIND         28u
++#define PONG_ACF_DDE_LENGTH       32u
++#define PONG_ACF_DDE_OFFSET       36u
++/* H: hakios.speaker.c:405-406 kind 4 = register block, kind 10 = monitor table. */
++#define PONG_ACF_KIND_REGS        4u
++#define PONG_ACF_KIND_MONITOR     10u
++/* H: hakios.speaker.c:404 ACF_PROFILE_MUSIC is profile 0. */
++#define PONG_ACF_PROFILE_MUSIC    0u
++/* H: hakios.speaker.c:408 ACF_BLOCK_HEADER = 0x3c: the pair count sits at the
++ * end of that fixed header and the pairs start one word (0x40) in. */
++#define PONG_ACF_BLOCK_HEADER     0x3cu
++#define PONG_ACF_PAIRS_AT         0x40u
++#define PONG_ACF_DATA_LENGTH      0x10u
++/* H: hakios.speaker.c:594-599 both words must say "16-bit registers, 16-bit
++ * values" before the payload is read as pairs. */
++#define PONG_ACF_REG_BITS_WORD    0x20u
++#define PONG_ACF_VAL_BITS_WORD    0x24u
++#define PONG_ACF_BITS_16X16       2u
++
++/* Register words the write pass must treat specially (M: aw88261.c:420-470). */
++#define PONG_ACF_REG_ID           0x00u   /* soft reset; never taken from a profile */
++#define PONG_ACF_REG_SYSCTRL      0x04u
++#define PONG_ACF_REG_SYSCTRL2     0x05u   /* carries the volume; rewritten last */
++#define PONG_ACF_REG_I2SCTRL3     0x08u
++#define PONG_ACF_REG_DBGCTRL      0x14u
++#define PONG_ACF_REG_VSNTM1       0x50u   /* computed from the fuses, skipped here */
++#define PONG_ACF_REG_LIMIT        0x70u   /* H: refusal at or above this in the pass */
++
++/* SYSCTRL bits and the mask the merge preserves (M: aw88261.h:119-240). */
++#define PONG_ACF_SYSCTRL_PWDN     (1u << 0)
++#define PONG_ACF_SYSCTRL_AMPPD    (1u << 1)
++#define PONG_ACF_SYSCTRL_HMUTE    (1u << 8)
++#define PONG_ACF_SYSCTRL_ULS_HMUTE (1u << 14)
++#define PONG_ACF_SYSCTRL_KEEP     (PONG_ACF_SYSCTRL_PWDN | PONG_ACF_SYSCTRL_AMPPD | \
++    PONG_ACF_SYSCTRL_HMUTE)
++/* M: aw88261.h:240-247 I2STXEN sits in I2SCTRL3 bit 6. */
++#define PONG_ACF_I2STXEN          (1u << 6)
++/* M: aw88261.h:348-352 EF_DBMD_MASK 0xfff7 / OR_VALUE 0x0008. */
++#define PONG_ACF_EF_DBMD_MASK     0xfff7u
++#define PONG_ACF_EF_OR_VALUE      0x0008u
++
++/* M: aw88261.c:358-391 vcalb = (1 << 13) * (1000 + icalk) / (1000 + vcalk), with
++ * the fuse fields signed 10-bit values (M: aw88261.h:114-117, 364-368). */
++#define PONG_ACF_FUSE_BITS        0x3ffu
++#define PONG_ACF_FUSE_SIGN        0x200u
++#define PONG_ACF_CABL_BASE        1000
++#define PONG_ACF_VCAL_FACTOR      (1 << 13)
++
++static inline uint16_t
++pong_acf_le16(const uint8_t *p)
++{
++	return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
++}
++
++static inline uint32_t
++pong_acf_le32(const uint8_t *p)
++{
++	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
++	    ((uint32_t)p[3] << 24);
++}
++
++/* A header is usable only if the magic matches and the dde table divides evenly
++ * into entries of at least 0x30 bytes (H: hakios.speaker.c:525-534). A malformed
++ * file must be refused before any field in the table is trusted. */
++static inline bool
++pong_acf_header_ok(const uint8_t *buf, uint32_t len)
++{
++	uint32_t entry_size, entries, table_at;
++
++	if (buf == 0 || len < 0x60u) {
++		return false;
++	}
++	if (pong_acf_le32(buf) != PONG_ACF_MAGIC) {
++		return false;
++	}
++	entry_size = pong_acf_le32(buf + 0x34u);
++	entries = pong_acf_le32(buf + 0x38u);
++	table_at = pong_acf_le32(buf + 0x3cu);
++	if (entries == 0u || entry_size % entries != 0u || entry_size / entries < 0x30u) {
++		return false;
++	}
++	if (table_at < 0x50u || table_at + entry_size > len) {
++		return false;
++	}
++	return true;
++}
++
++/* One dde entry is entry_size / entries bytes apart (H: hakios.speaker.c:543). */
++static inline uint32_t
++pong_acf_stride(const uint8_t *buf)
++{
++	return pong_acf_le32(buf + 0x34u) / pong_acf_le32(buf + 0x38u);
++}
++
++static inline uint32_t
++pong_acf_count(const uint8_t *buf)
++{
++	return pong_acf_le32(buf + 0x38u);
++}
++
++/* Find the block for one amplifier. The bus and address fields in the real file
++ * are 0xffff (unset), so dev_index - the driver's channel - is the only key;
++ * M: aw88395_lib.c:535 compares it against aw_dev->channel for the same reason. */
++static inline bool
++pong_acf_find(const uint8_t *buf, uint32_t len, uint32_t dev_index,
++    uint32_t profile, uint32_t kind, uint32_t *off_out, uint32_t *size_out)
++{
++	uint32_t table_at, stride, entries, i;
++
++	if (!pong_acf_header_ok(buf, len)) {
++		return false;
++	}
++	table_at = pong_acf_le32(buf + 0x3cu);
++	stride = pong_acf_stride(buf);
++	entries = pong_acf_count(buf);
++	for (i = 0u; i < entries; i++) {
++		const uint8_t *e = buf + table_at + i * stride;
++		uint32_t off, size;
++
++		if (pong_acf_le16(e + PONG_ACF_DDE_DEV_INDEX) != dev_index ||
++		    pong_acf_le16(e + PONG_ACF_DDE_PROFILE) != profile ||
++		    pong_acf_le32(e + PONG_ACF_DDE_KIND) != kind) {
++			continue;
++		}
++		off = pong_acf_le32(e + PONG_ACF_DDE_OFFSET);
++		size = pong_acf_le32(e + PONG_ACF_DDE_LENGTH);
++		if (off < 0x50u || size < 0x40u || off + size > len) {
++			return false;
++		}
++		*off_out = off;
++		*size_out = size;
++		return true;
++	}
++	return false;
++}
++
++/* Checksum: a register block covers block[4 : 0x3c + data_length], a monitor
++ * block covers block[4 : length] (H: hakios.speaker.c:604-611), and the stored
++ * value is the LE32 at offset 0. Hashing the whole block instead - the obvious
++ * first guess - makes all ten blocks of the K60 file look corrupt. */
++static inline uint32_t
++pong_acf_checksum(const uint8_t *block, uint32_t size, uint32_t kind)
++{
++	uint32_t end = size;
++	uint32_t sum = 0;
++	uint32_t i;
++
++	if (kind == PONG_ACF_KIND_REGS) {
++		end = PONG_ACF_BLOCK_HEADER + pong_acf_le32(block + PONG_ACF_DATA_LENGTH);
++	}
++	if (end > size) {
++		return 0u;
++	}
++	for (i = 4u; i < end; i++) {
++		sum += block[i];
++	}
++	return sum;
++}
++
++static inline bool
++pong_acf_block_ok(const uint8_t *block, uint32_t size, uint32_t kind)
++{
++	return pong_acf_checksum(block, size, kind) == pong_acf_le32(block);
++}
++
++/* A register block is read as pairs only when it declares 16-bit registers with
++ * 16-bit values and the count accounts for the whole payload. */
++static inline bool
++pong_acf_pairs_ok(const uint8_t *block, uint32_t size)
++{
++	uint32_t count, data_length;
++
++	if (pong_acf_le32(block + PONG_ACF_REG_BITS_WORD) != PONG_ACF_BITS_16X16 ||
++	    pong_acf_le32(block + PONG_ACF_VAL_BITS_WORD) != PONG_ACF_BITS_16X16) {
++		return false;
++	}
++	count = pong_acf_le32(block + PONG_ACF_BLOCK_HEADER);
++	data_length = pong_acf_le32(block + PONG_ACF_DATA_LENGTH);
++	if (count == 0u || count * 4u + 4u != data_length) {
++		return false;
++	}
++	return PONG_ACF_PAIRS_AT + count * 4u <= size;
++}
++
++static inline uint32_t
++pong_acf_pair_count(const uint8_t *block)
++{
++	return pong_acf_le32(block + PONG_ACF_BLOCK_HEADER);
++}
++
++/* Pairs are little endian and kept in file order: some registers only latch when
++ * written after others, so the order is part of the data, not an artefact. */
++static inline bool
++pong_acf_pair_at(const uint8_t *block, uint32_t size, uint32_t index,
++    uint16_t *reg_out, uint16_t *val_out)
++{
++	if (!pong_acf_pairs_ok(block, size) || index >= pong_acf_pair_count(block)) {
++		return false;
++	}
++	*reg_out = pong_acf_le16(block + PONG_ACF_PAIRS_AT + index * 4u);
++	*val_out = pong_acf_le16(block + PONG_ACF_PAIRS_AT + index * 4u + 2u);
++	return true;
++}
++
++/* Which half of the ACF belongs to an amplifier. H: hakios.speaker.c:430-431
++ * documents that on this board I2C 0x35 carries sound-channel 0 (slot 0, left)
++ * and 0x34 the other, while the probe labels 0x34 "amp0"; the two numbering
++ * schemes do not coincide, so a lookup must never go by the probe's index.
++ * Returns 0xff for an address that is not one of the two. */
++static inline uint8_t
++pong_acf_channel_for_addr(uint16_t addr)
++{
++	switch (addr) {
++	case 0x35u: return 0u;
++	case 0x34u: return 1u;
++	default: return 0xffu;
++	}
++}
++
++/* M: aw88261.c:437-443 the efuse checksum direction follows DBGCTRL: OR when
++ * (value & ~EF_DBMD_MASK) == OR_VALUE, AND otherwise. The K60 blob writes
++ * 0x14 = 0xc003 and the probe read back 0xa003, so this board takes AND. */
++static inline bool
++pong_acf_ef_or(uint16_t dbgctrl)
++{
++	return (dbgctrl & (uint16_t)~PONG_ACF_EF_DBMD_MASK) == PONG_ACF_EF_OR_VALUE;
++}
++
++/* M: aw88261.h:114-117 + aw88261.c:316-341 each fuse byte holds one signed
++ * 10-bit value; OR combines the two halves when the board check is the OR kind,
++ * AND otherwise. */
++static inline int
++pong_acf_fuse_value(uint16_t hi, uint16_t lo, bool ef_or)
++{
++	uint32_t bits = ef_or ?
++	    ((uint32_t)hi | (uint32_t)lo) & PONG_ACF_FUSE_BITS :
++	    ((uint32_t)hi & (uint32_t)lo) & PONG_ACF_FUSE_BITS;
++
++	if ((bits & PONG_ACF_FUSE_SIGN) != 0u) {
++		return PONG_ACF_CABL_BASE + (int)bits - 0x400;
++	}
++	return PONG_ACF_CABL_BASE + (int)bits;
++}
++
++/* M: aw88261.c:358-391 the value the driver must write to VSNTM1. Both fuse
++ * values are base-1000, so the ratio is taken over those and scaled by 1 << 13.
++ * A non-positive value would divide by zero or invert the ratio: refuse rather
++ * than write garbage into a register that sets the speaker's calibration. */
++static inline bool
++pong_acf_vcalb(uint16_t dbgctrl, uint16_t efrh4, uint16_t efrh3,
++    uint16_t efrl4, uint16_t efrl3, uint16_t *out)
++{
++	bool ef_or = pong_acf_ef_or(dbgctrl);
++	int icalk = pong_acf_fuse_value(efrh4, efrl4, ef_or);
++	int vcalk = pong_acf_fuse_value(efrh3, efrl3, ef_or);
++
++	if (vcalk <= 0 || icalk <= 0) {
++		return false;
++	}
++	*out = (uint16_t)((PONG_ACF_VCAL_FACTOR * (uint32_t)icalk) / (uint32_t)vcalk);
++	return true;
++}
++#endif /* PONG_AUDIO_ACF_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAmpProfile.h
+@@ -0,0 +1,172 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * The two AW88261 "Music" register profiles of the K60, transcribed from the
++ * phone's own ACF tuning file.
++ *
++ * Where the numbers come from. The blob lives on the device at
++ * /vendor/firmware/aw882xx_acf.bin (3,440 bytes, sha256
++ * ce0e16d22380565114f56e6a02e4f85959160baccc6c163df6ecaf9db20cbf9e) and is not stored here: .gitignore
++ * excludes *.bin and the file is Awinic/Xiaomi tuning data, not ours. What the kernel needs at boot is the register pairs,
++ * so this header carries them, generated by
++ * E:/k60-work/scratch/audio-work/gen-profile-header.py from that exact blob:
++ *
++ *   dev_index 0, profile 0 (Music), kind 4: offset 0x3f4, 292 bytes, 57 pairs
++ *   dev_index 1, profile 0 (Music), kind 4: offset 0x944, 292 bytes, 57 pairs
++ *
++ * Each block's own checksum was verified before it was read. Do not edit these
++ * arrays: the host test (drivers/PongAudio/tests) compares them against the
++ * blob whenever PONG_ACF_FILE points at it, so a hand edit fails the test
++ * instead of silently changing what the amplifiers are tuned to.
++ *
++ * WHICH TABLE BELONGS TO WHICH AMPLIFIER. Not the probe's numbering. In the
++ * ACF, dev_index 0 is the part on I2C 0x35 and dev_index 1 the part on 0x34
++ * (docs/research/audio/AMPS.md section 8.5, H: hakios.speaker.c:430-431),
++ * while this probe calls 0x34 "amp0". Use pong_amp_profile_for_addr(), never
++ * the probe index. Loading the other half's table is a calibration mismatch,
++ * not a crash: the speaker still plays, just not to its own tuning.
++ *
++ * The two tables differ in 5 registers (0x05, 0x06, 0x07, 0x08, 0x0f).
++ * Everything else is identical, which is exactly why a single shared table
++ * looks plausible and is wrong.
++ */
++#ifndef PONG_AUDIO_AMP_PROFILE_H
++#define PONG_AUDIO_AMP_PROFILE_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define PONG_AMP_PROFILE_PAIRS 57u
++
++static const uint16_t pong_amp_profile_dev0[PONG_AMP_PROFILE_PAIRS * 2u] = {
++	0x0003, 0xffff,	/* 01: reg 0x03 */
++	0x0004, 0x3240,	/* 02: reg 0x04 */
++	0x0005, 0x1811,	/* 03: reg 0x05 */
++	0x0006, 0x34e8,	/* 04: reg 0x06 */
++	0x0007, 0x3020,	/* 05: reg 0x07 */
++	0x0008, 0x00f6,	/* 06: reg 0x08 */
++	0x0009, 0x6672,	/* 07: reg 0x09 */
++	0x000a, 0x0964,	/* 08: reg 0x0a */
++	0x000b, 0x2590,	/* 09: reg 0x0b */
++	0x000c, 0x1c64,	/* 10: reg 0x0c */
++	0x000d, 0x005b,	/* 11: reg 0x0d */
++	0x000e, 0x4a9b,	/* 12: reg 0x0e */
++	0x000f, 0x5064,	/* 13: reg 0x0f */
++	0x0010, 0xd008,	/* 14: reg 0x10 */
++	0x0011, 0x1f20,	/* 15: reg 0x11 */
++	0x0012, 0x002b,	/* 16: reg 0x12 */
++	0x0013, 0x2102,	/* 17: reg 0x13 */
++	0x0014, 0xc003,	/* 18: reg 0x14 */
++	0x0015, 0x0643,	/* 19: reg 0x15 */
++	0x0016, 0x000a,	/* 20: reg 0x16 */
++	0x0030, 0x866d,	/* 21: reg 0x30 */
++	0x0031, 0x7193,	/* 22: reg 0x31 */
++	0x0032, 0x4306,	/* 23: reg 0x32 */
++	0x0033, 0x689b,	/* 24: reg 0x33 */
++	0x0034, 0x90dc,	/* 25: reg 0x34 */
++	0x0035, 0xd508,	/* 26: reg 0x35 */
++	0x0036, 0xa835,	/* 27: reg 0x36 */
++	0x0037, 0xf184,	/* 28: reg 0x37 */
++	0x0038, 0x0800,	/* 29: reg 0x38 */
++	0x003a, 0x8884,	/* 30: reg 0x3a */
++	0x003b, 0x0666,	/* 31: reg 0x3b */
++	0x003c, 0x0ed2,	/* 32: reg 0x3c */
++	0x003d, 0x0663,	/* 33: reg 0x3d */
++	0x003e, 0x01ae,	/* 34: reg 0x3e */
++	0x003f, 0x0505,	/* 35: reg 0x3f */
++	0x0040, 0xffa0,	/* 36: reg 0x40 */
++	0x0051, 0x00f3,	/* 37: reg 0x51 */
++	0x0052, 0x3ee8,	/* 38: reg 0x52 */
++	0x0053, 0x8005,	/* 39: reg 0x53 */
++	0x0054, 0x1748,	/* 40: reg 0x54 */
++	0x0055, 0x0202,	/* 41: reg 0x55 */
++	0x0056, 0x3800,	/* 42: reg 0x56 */
++	0x0057, 0x84c9,	/* 43: reg 0x57 */
++	0x0058, 0x41d6,	/* 44: reg 0x58 */
++	0x0059, 0x0000,	/* 45: reg 0x59 */
++	0x005a, 0x0000,	/* 46: reg 0x5a */
++	0x005b, 0x01c0,	/* 47: reg 0x5b */
++	0x005c, 0x0049,	/* 48: reg 0x5c */
++	0x0060, 0x0fcd,	/* 49: reg 0x60 */
++	0x0061, 0x796c,	/* 50: reg 0x61 */
++	0x0062, 0x4a40,	/* 51: reg 0x62 */
++	0x0063, 0x6077,	/* 52: reg 0x63 */
++	0x0064, 0x0053,	/* 53: reg 0x64 */
++	0x0065, 0x5ca1,	/* 54: reg 0x65 */
++	0x0066, 0x40f9,	/* 55: reg 0x66 */
++	0x0067, 0x508e,	/* 56: reg 0x67 */
++	0x0068, 0x0048	/* 57: reg 0x68 */
++};
++
++static const uint16_t pong_amp_profile_dev1[PONG_AMP_PROFILE_PAIRS * 2u] = {
++	0x0003, 0xffff,	/* 01: reg 0x03 */
++	0x0004, 0x3240,	/* 02: reg 0x04 */
++	0x0005, 0x0811,	/* 03: reg 0x05 */
++	0x0006, 0x38e8,	/* 04: reg 0x06 */
++	0x0007, 0x3111,	/* 05: reg 0x07 */
++	0x0008, 0x00f7,	/* 06: reg 0x08 */
++	0x0009, 0x6672,	/* 07: reg 0x09 */
++	0x000a, 0x0964,	/* 08: reg 0x0a */
++	0x000b, 0x2590,	/* 09: reg 0x0b */
++	0x000c, 0x1c64,	/* 10: reg 0x0c */
++	0x000d, 0x005b,	/* 11: reg 0x0d */
++	0x000e, 0x4a9b,	/* 12: reg 0x0e */
++	0x000f, 0x5264,	/* 13: reg 0x0f */
++	0x0010, 0xd008,	/* 14: reg 0x10 */
++	0x0011, 0x1f20,	/* 15: reg 0x11 */
++	0x0012, 0x002b,	/* 16: reg 0x12 */
++	0x0013, 0x2102,	/* 17: reg 0x13 */
++	0x0014, 0xc003,	/* 18: reg 0x14 */
++	0x0015, 0x0643,	/* 19: reg 0x15 */
++	0x0016, 0x000a,	/* 20: reg 0x16 */
++	0x0030, 0x866d,	/* 21: reg 0x30 */
++	0x0031, 0x7193,	/* 22: reg 0x31 */
++	0x0032, 0x4306,	/* 23: reg 0x32 */
++	0x0033, 0x689b,	/* 24: reg 0x33 */
++	0x0034, 0x90dc,	/* 25: reg 0x34 */
++	0x0035, 0xd508,	/* 26: reg 0x35 */
++	0x0036, 0xa835,	/* 27: reg 0x36 */
++	0x0037, 0xf184,	/* 28: reg 0x37 */
++	0x0038, 0x0800,	/* 29: reg 0x38 */
++	0x003a, 0x8884,	/* 30: reg 0x3a */
++	0x003b, 0x0666,	/* 31: reg 0x3b */
++	0x003c, 0x0ed2,	/* 32: reg 0x3c */
++	0x003d, 0x0663,	/* 33: reg 0x3d */
++	0x003e, 0x01ae,	/* 34: reg 0x3e */
++	0x003f, 0x0505,	/* 35: reg 0x3f */
++	0x0040, 0xffa0,	/* 36: reg 0x40 */
++	0x0051, 0x00f3,	/* 37: reg 0x51 */
++	0x0052, 0x3ee8,	/* 38: reg 0x52 */
++	0x0053, 0x8005,	/* 39: reg 0x53 */
++	0x0054, 0x1748,	/* 40: reg 0x54 */
++	0x0055, 0x0202,	/* 41: reg 0x55 */
++	0x0056, 0x3800,	/* 42: reg 0x56 */
++	0x0057, 0x84c9,	/* 43: reg 0x57 */
++	0x0058, 0x41d6,	/* 44: reg 0x58 */
++	0x0059, 0x0000,	/* 45: reg 0x59 */
++	0x005a, 0x0000,	/* 46: reg 0x5a */
++	0x005b, 0x01c0,	/* 47: reg 0x5b */
++	0x005c, 0x0049,	/* 48: reg 0x5c */
++	0x0060, 0x0fcd,	/* 49: reg 0x60 */
++	0x0061, 0x796c,	/* 50: reg 0x61 */
++	0x0062, 0x4a40,	/* 51: reg 0x62 */
++	0x0063, 0x6077,	/* 52: reg 0x63 */
++	0x0064, 0x0053,	/* 53: reg 0x64 */
++	0x0065, 0x5ca1,	/* 54: reg 0x65 */
++	0x0066, 0x40f9,	/* 55: reg 0x66 */
++	0x0067, 0x508e,	/* 56: reg 0x67 */
++	0x0068, 0x0048	/* 57: reg 0x68 */
++};
++
++/* I2C address -> the ACF half that belongs to it. 0x35 is dev_index 0 and
++ * 0x34 is dev_index 1 (see the warning above); anything else gets nothing. */
++static inline const uint16_t *
++pong_amp_profile_for_addr(uint16_t addr)
++{
++	switch (addr) {
++	case 0x35u: return pong_amp_profile_dev0;
++	case 0x34u: return pong_amp_profile_dev1;
++	default: return 0;
++	}
++}
++
++#endif /* PONG_AUDIO_AMP_PROFILE_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAmpReplay.h
+@@ -0,0 +1,150 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * The ordered write plan for one AW88261: what to write, in what order, and
++ * which registers cannot be written with the value the tuning file literally
++ * contains.
++ *
++ * Why a plan and not a loop. Mainline's aw88261_dev_reg_update()
++ * (M: aw88261.c:393-490) is not "write 57 pairs": four of them are special.
++ *
++ *   0x04 SYSCTRL   three bits (PWDN, AMPPD, HMUTE) must keep whatever the
++ *                  hardware currently says, so the write needs a read first;
++ *                  ULS_HMUTE is then forced on. Writing the ACF's 0x3240
++ *                  literally would clear the amplifier's power-down state.
++ *   0x08 I2SCTRL3  the transmit enable bit is cleared, whatever the file says.
++ *   0x05 SYSCTRL2  carries the volume; mainline rewrites it after the table
++ *                  with the mute volume, keeping the top six bits.
++ *   0x50 VSNTM1    absent from the file and computed from the fuse reads.
++ *
++ * Everything else is a straight 3-byte I2C write of (register, value). Keeping
++ * that decision in a pure function means the host test can pin every step of
++ * the sequence, and the kernel file only moves bytes.
++ *
++ * Order is part of the data: registers latch against each other, so the plan
++ * follows the file's order and appends the two computed writes at the end, the
++ * same order mainline uses (table, then vcalb, then volume).
++ *
++ * Pure: no MMIO, no kernel headers.
++ */
++#ifndef PONG_AUDIO_AMP_REPLAY_H
++#define PONG_AUDIO_AMP_REPLAY_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "PongAudioAcf.h"
++
++/* M: aw88261.c:1056 + aw88261.h:385 a soft reset is a plain write of 0x55aa to
++ * register 0, and the chip needs the documented settling time before the table
++ * is loaded (M: aw88261.c:1056-1060). */
++#define PONG_REPLAY_RESET_REG     0x00u
++#define PONG_REPLAY_RESET_VALUE   0x55aau
++
++/* M: aw88261.h:242-243, 387-395 volume is 10 bits: a 6-bit step count in dB
++ * steps of 48 (six dB in eighths) and a 6-bit remainder; 720 is "muted". */
++#define PONG_REPLAY_MUTE_VOL      (90u * 8u)
++#define PONG_REPLAY_VOL_STEP      (6u * 8u)
++#define PONG_REPLAY_VOL_MASK      0x03ffu
++#define PONG_REPLAY_VOL_KEEP      0xfc00u
++
++/* What the transport has to do for one step. */
++enum {
++	PongReplayWrite,    /* write *value as is */
++	PongReplaySysctrl,  /* read 0x04, merge with pong_replay_sysctrl(), write */
++	PongReplayTxOff,    /* *value already has the transmit enable bit cleared */
++	PongReplayVcalb,    /* write pong_acf_vcalb()'s result */
++	PongReplayVolume    /* read 0x05, write pong_replay_volume() of that */
++};
++
++/* One reset, one step per register pair, then vcalb and the volume. */
++static inline uint32_t
++pong_replay_steps(uint32_t pairs)
++{
++	return pairs + 3u;
++}
++
++/* The step at an index, or false when the index is past the plan or names a
++ * register the pass must not write. *value is the value the transport should
++ * write, except for PongReplaySysctrl (the file's literal, to be merged),
++ * PongReplayVcalb and PongReplayVolume (computed by the transport). */
++static inline bool
++pong_replay_at(const uint16_t *profile, uint32_t pairs, uint32_t index,
++    uint8_t *action, uint8_t *reg, uint16_t *value)
++{
++	uint16_t r, v;
++
++	if (profile == 0 || index >= pong_replay_steps(pairs)) {
++		return false;
++	}
++	if (index == 0u) {
++		*action = PongReplayWrite;
++		*reg = PONG_REPLAY_RESET_REG;
++		*value = PONG_REPLAY_RESET_VALUE;
++		return true;
++	}
++	if (index <= pairs) {
++		r = profile[(index - 1u) * 2u];
++		v = profile[(index - 1u) * 2u + 1u];
++		/* The file never carries these two, but a hand-edited table must
++		 * not be able to smuggle them into the pass. */
++		if (r == PONG_ACF_REG_VSNTM1 || r >= PONG_ACF_REG_LIMIT) {
++			return false;
++		}
++		*reg = (uint8_t)r;
++		if (r == PONG_ACF_REG_SYSCTRL) {
++			*action = PongReplaySysctrl;
++			*value = v;
++		} else if (r == PONG_ACF_REG_I2SCTRL3) {
++			*action = PongReplayTxOff;
++			*value = (uint16_t)(v & (uint16_t)~PONG_ACF_I2STXEN);
++		} else {
++			*action = PongReplayWrite;
++			*value = v;
++		}
++		return true;
++	}
++	if (index == pairs + 1u) {
++		*action = PongReplayVcalb;
++		*reg = (uint8_t)PONG_ACF_REG_VSNTM1;
++		*value = 0u;
++		return true;
++	}
++	*action = PongReplayVolume;
++	*reg = (uint8_t)PONG_ACF_REG_SYSCTRL2;
++	*value = 0u;
++	return true;
++}
++
++/* M: aw88261.c:420-434. PWDN, AMPPD and HMUTE come from the hardware, every
++ * other bit from the file, and ULS_HMUTE is forced on. The read is not an
++ * optimisation: without it the write would clear the power-down state that the
++ * chip is in and start an amplifier that has no bit clock. */
++static inline uint16_t
++pong_replay_sysctrl(uint16_t acf_value, uint16_t hw_value)
++{
++	uint16_t v = (uint16_t)((acf_value & (uint16_t)~PONG_ACF_SYSCTRL_KEEP) |
++	    (hw_value & PONG_ACF_SYSCTRL_KEEP));
++
++	v &= (uint16_t)~PONG_ACF_SYSCTRL_ULS_HMUTE;
++	v |= PONG_ACF_SYSCTRL_ULS_HMUTE;
++	return v;
++}
++
++/* M: aw88261.h:387-395 DB_TO_REG_VAL. */
++static inline uint16_t
++pong_replay_db_to_reg(uint32_t db)
++{
++	return (uint16_t)(((db / PONG_REPLAY_VOL_STEP) << 6) +
++	    (db % PONG_REPLAY_VOL_STEP));
++}
++
++/* M: aw88261.c:28-46 the volume write keeps the register's top six bits and
++ * replaces the ten that carry the attenuation. */
++static inline uint16_t
++pong_replay_volume(uint16_t hw_sysctrl2)
++{
++	return (uint16_t)((pong_replay_db_to_reg(PONG_REPLAY_MUTE_VOL) &
++	    PONG_REPLAY_VOL_MASK) | (hw_sysctrl2 & PONG_REPLAY_VOL_KEEP));
++}
++
++#endif /* PONG_AUDIO_AMP_REPLAY_H */
 
 --- a/bsd/conf/files
 +++ b/bsd/conf/files

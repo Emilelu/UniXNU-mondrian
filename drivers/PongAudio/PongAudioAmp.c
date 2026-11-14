@@ -11,20 +11,27 @@
  * decides which amplifier driver the port needs, which is the open question in
  * docs/research/audio/AMPS.md.
  *
- * WHAT IT WRITES (every other access is a read):
+ * WHAT IT WRITES:
  *   - TLMM: GPIO56/57 -> QUP15 function, pull-up, 2 mA, only when they are not
  *     already there;
  *   - TLMM: GPIO1/GPIO3 (the two amplifier reset lines) -> released (high),
  *     only when they are not already released;
  *   - GCC:  the wrapper-2 branch votes and the SE15 DFS level;
- *   - GENI: the engine's own configuration registers.
- * No amplifier register is written. Leaving the amplifiers out of reset while
- * no bit clock runs is the state the Android boot loader leaves them in too; a
- * chip without a clock stays muted, and the fault bits are read and printed,
- * never acted on.
+ *   - GENI: the engine's own configuration registers;
+ *   - amplifiers: the replay pass. Once the read-only probe has answered for a
+ *     part, that part is soft reset and loaded with its own "Music" profile -
+ *     the 57 register pairs of the phone's ACF tuning file, transcribed into
+ *     PongAudioAmpProfile.h - and then given the fuse-derived vcalb and the
+ *     mute volume. Every write is printed next to its read-back, so one boot
+ *     says exactly which register accepts what.
+ *     The pass leaves both chips powered down and muted: the SYSCTRL merge
+ *     keeps PWDN/AMPPD/HMUTE at whatever the hardware says and forces
+ *     ULS_HMUTE, and the transmit enable bit is cleared. No bit clock runs, so
+ *     nothing here can reach the speaker.
  *
- * WHAT IT DOES NOT DO: no LPASS access, no ADSP/PAS1/GPR call, no amplifier
- * init, no software reset, no ACF profile. Those are blocked (AMPS.md section 7).
+ * WHAT IT DOES NOT DO: no LPASS access, no ADSP/PAS1/GPR call, no ACF file read
+ * at boot (both profiles are compiled in), no PLL or SYSST wait, no playback.
+ * Those need the ADSP and stay blocked (AMPS.md sections 7 and 9).
  *
  * GATING: the probe runs only when the image is booted with pong_audio_probe=1.
  * Without the argument this file is inert: one boot-arg lookup and a return. The
@@ -56,6 +63,9 @@
 #include "PongAudioRegs.h"
 #include "PongAudioGeniI2c.h"
 #include "PongAudioPlan.h"
+#include "PongAudioAcf.h"
+#include "PongAudioAmpProfile.h"
+#include "PongAudioAmpReplay.h"
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 
@@ -565,6 +575,145 @@ amp_probe_one(unsigned index, uint8_t address, bool reset_by_us)
 	return 1;
 }
 
+/* ---- tuning replay ------------------------------------------------------ */
+
+static unsigned replay_written, replay_mismatched, replay_failed;
+
+/* One amplifier register write: the AW882xx 3-byte form, register then the
+ * value big-endian (AMPS.md section 4.1, S:PongAudio.cpp:108-110). */
+static int
+amp_write(uint8_t address, uint8_t reg, uint16_t value)
+{
+	const uint8_t bytes[3] = { reg, (uint8_t)(value >> 8), (uint8_t)value };
+	int result;
+
+	bus_recover();
+	bus.address = address;
+	bus.error = PongGeniOk;
+	if (pong_geni_start_write_bytes(&bus, bytes, 3) != 0) {
+		return -1;
+	}
+	result = transfer_run();
+	if (result != PongGeniDone) {
+		return result == PongGeniFailed ? -(int)bus.error - 10 : -1;
+	}
+	return 0;
+}
+
+/* The value the tuning file carries for one register, or 0xffff when it does
+ * not name it. */
+static uint16_t
+profile_reg(const uint16_t *profile, uint8_t reg)
+{
+	uint32_t i;
+
+	for (i = 0; i < PONG_AMP_PROFILE_PAIRS; ++i) {
+		if (profile[i * 2u] == reg) {
+			return profile[i * 2u + 1u];
+		}
+	}
+	return 0xffffu;
+}
+
+/* One amplifier, one full replay: soft reset, the profile, vcalb, the mute
+ * volume - every step written, read back and printed. The profile is chosen by
+ * I2C address, not by this probe's index: 0x34 is the ACF's dev_index 1
+ * (AMPS.md section 8.5). */
+static unsigned
+amp_replay_one(unsigned index, uint8_t address)
+{
+	const uint16_t *profile = pong_amp_profile_for_addr(address);
+	const uint32_t pairs = PONG_AMP_PROFILE_PAIRS;
+	const uint32_t steps = pong_replay_steps(PONG_AMP_PROFILE_PAIRS);
+	uint16_t vcalb = 0, readback = 0, write_value;
+	uint8_t action, reg;
+	uint16_t value;
+	uint32_t step;
+	unsigned ok = 0;
+	bool have_vcalb;
+
+	if (profile == 0) {
+		printf("PongAudio: amp%u addr=0x%x has no profile\n", index, address);
+		return 0;
+	}
+	have_vcalb = pong_acf_vcalb(profile_reg(profile, AW_REG_DBGCTRL),
+	    amp_read_or(address, AW_REG_EFRH4, 0xffffu),
+	    amp_read_or(address, AW_REG_EFRH3, 0xffffu),
+	    amp_read_or(address, AW_REG_EFRL4, 0xffffu),
+	    amp_read_or(address, AW_REG_EFRL3, 0xffffu), &vcalb);
+	printf("PongAudio: amp%u replay start dev_index=%u dbg=0x%04x vcalb=%s0x%04x steps=%u\n",
+	    index, (unsigned)pong_acf_channel_for_addr(address),
+	    profile_reg(profile, AW_REG_DBGCTRL), have_vcalb ? "" : "refused ", vcalb,
+	    steps);
+
+	for (step = 0; step < steps; ++step) {
+		if (!pong_replay_at(profile, pairs, step, &action, &reg, &value)) {
+			printf("PongAudio: amp%u replay refused step %u\n", index, step);
+			++replay_failed;
+			break;
+		}
+		write_value = value;
+		switch (action) {
+		case PongReplaySysctrl:
+			if (amp_read(address, reg, &readback) != 0) {
+				printf("PongAudio: amp%u replay cannot read 0x%02x before the merge\n",
+				    index, reg);
+				++replay_failed;
+				return ok;
+			}
+			write_value = pong_replay_sysctrl(value, readback);
+			break;
+		case PongReplayVcalb:
+			if (!have_vcalb) {
+				printf("PongAudio: amp%u replay stops at vcalb: no usable fuse ratio\n",
+				    index);
+				++replay_failed;
+				return ok;
+			}
+			write_value = vcalb;
+			break;
+		case PongReplayVolume:
+			if (amp_read(address, reg, &readback) != 0) {
+				printf("PongAudio: amp%u replay cannot read 0x%02x for the volume merge\n",
+				    index, reg);
+				++replay_failed;
+				return ok;
+			}
+			write_value = pong_replay_volume(readback);
+			break;
+		default:
+			break;
+		}
+		if (amp_write(address, reg, write_value) != 0) {
+			printf("PongAudio: amp%u replay write failed step=%u reg=0x%02x value=0x%04x err=%u\n",
+			    index, step, reg, write_value, bus.error);
+			++replay_failed;
+			return ok;
+		}
+		++replay_written;
+		if (step == 0u) {
+			/* M: aw88261.c:1056-1060 the chip settles after the soft reset
+			 * before the table is loaded. */
+			wait_us(2000);
+		}
+		if (amp_read(address, reg, &readback) != 0) {
+			printf("PongAudio: amp%u replay %02u reg=0x%02x wrote=0x%04x read=failed\n",
+			    index, step, reg, write_value);
+			++replay_failed;
+			return ok;
+		}
+		if (readback != write_value && action != PongReplaySysctrl) {
+			++replay_mismatched;
+		}
+		printf("PongAudio: amp%u replay %02u reg=0x%02x wrote=0x%04x read=0x%04x%s%s\n",
+		    index, step, reg, write_value, readback,
+		    readback == write_value ? "" : " differs",
+		    action == PongReplaySysctrl ? " (three bits kept from hw)" : "");
+		++ok;
+	}
+	return ok;
+}
+
 /* ---- entry point -------------------------------------------------------- */
 
 int
@@ -572,14 +721,14 @@ pong_audio_amp_probe(void)
 {
 	uint32_t mode = 0;
 	unsigned level = 0xffu;
-	unsigned found0, found1;
+	unsigned found0, found1, replay0, replay1;
 	bool released0, released1;
 
 	if (!PE_parse_boot_argn("pong_audio_probe", &mode, sizeof mode) || mode != 1u) {
 		return 0;
 	}
 
-	printf("PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)\n");
+	printf("PongAudio: amp probe start (read pass first, then a replay pass that writes the tuning table; AMPS.md A1-A7 and section 9)\n");
 
 	if (!pads_map()) {
 		return -1;
@@ -617,9 +766,17 @@ pong_audio_amp_probe(void)
 	found0 = amp_probe_one(0, PONG_AUDIO_AMP_ADDR0, released0);
 	found1 = amp_probe_one(1, PONG_AUDIO_AMP_ADDR1, released1);
 
+	/* The replay pass runs in the same gated call: only a part that answered
+	 * gets written, and each one gets its own ACF half. It adds no call site -
+	 * bsd_init.c still calls pong_audio_amp_probe() once. */
+	replay0 = found0 ? amp_replay_one(0, PONG_AUDIO_AMP_ADDR0) : 0u;
+	replay1 = found1 ? amp_replay_one(1, PONG_AUDIO_AMP_ADDR1) : 0u;
+
 	printf("PongAudio: amp probe done found=%u/2 transfers=%u failed=%u timeouts=%u stray=%u recovered=%u gcc_misses=%u\n",
 	    found0 + found1, bus.done, bus.failed, bus.timeouts, bus.stray, bus_recoveries,
 	    gcc_misses);
+	printf("PongAudio: amp replay done amp0=%u amp1=%u written=%u mismatched=%u failed=%u transfers=%u\n",
+	    replay0, replay1, replay_written, replay_mismatched, replay_failed, bus.done);
 	return (int)(found0 + found1);
 }
 

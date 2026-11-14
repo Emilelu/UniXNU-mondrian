@@ -102,8 +102,9 @@
  * L:13331-13341  aw882xx_smartpa@35 (sound-channel 1, no spksw-gpio)
  * H:355-401      register file, identical offsets across the AW882xx family
  * H:340-350      chip id table
- * Read-only contract: only the registers below are read; this probe writes no
- * amplifier register at all.
+ * Read/write: the probe only reads the registers below. The replay pass that
+ * follows it (PongAudioAmpReplay.h) writes the tuning table, so the two write
+ * targets are named here as well.
  */
 #define PONG_AUDIO_AMP_ADDR0        0x34u
 #define PONG_AUDIO_AMP_ADDR1        0x35u
@@ -111,6 +112,7 @@
 #define AW_REG_SYSST                0x01u
 #define AW_REG_SYSINTM              0x03u   /* mask, readable */
 #define AW_REG_SYSCTRL              0x04u
+#define AW_REG_SYSCTRL2             0x05u   /* volume, top six bits kept */
 #define AW_REG_I2SCTRL              0x06u
 #define AW_REG_DBGCTRL              0x14u
 #define AW_REG_VBAT                 0x21u

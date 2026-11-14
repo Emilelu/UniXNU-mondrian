@@ -5,7 +5,7 @@ One patch, one purpose: put the AP-side amplifier probe from
 
 | File | What it does |
 | --- | --- |
-| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 48,264 bytes, 1,272 lines, 7 hunks, sha256 `d2ede261372b1f11447742e6df43980f7a2fabe06c9158ea5b05b351264d1765`. `PongCodecPlan.h` is deliberately absent: no kernel `.c` includes it yet, so it would be dead weight in the tree. |
+| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 78,394 bytes, 2,070 lines, 10 hunks, sha256 `d85264ca07cd0f91e5df74e523f14dd53c17b088398237061e9ae750dbd013d0`. `PongCodecPlan.h` is deliberately absent: no kernel `.c` includes it yet, so it would be dead weight in the tree. |
 | `series` | The intended order inside this directory. |
 
 `drivers/PongAudio/tests/` is deliberately **not** in the patch. It is a host-side

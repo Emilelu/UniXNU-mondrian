@@ -79,12 +79,12 @@ previous_unit_test = """scripts/tests/test-brl-parse.py 10/11 通过（唯一失
 previous_artifact_check = """对当时产物 kernel.macho（sha256 d9d5093e…，2026-11-12 15:16 构建）做符号与字符串检查：'state never reached 0x80' 1 处、'state=80' 1 处、'CFG-START' 1 处、'CFG-EXIT' 1 处；'COORD-MODE' 0 处、'identification lost after config reset' 0 处。"""
 
 [hardware.touch.step.device]
-done = false
-evidence = "尚未在 20ms 节拍版本上做真机验证。历史状态：usblog-20261111-233246 记录 GTP 探针全 0、触点计数恒 0、backboardd 0 崩、最大 pid 196。"
+done = true
+evidence = "2026-11-14 15:09 真机 fastboot boot touch-20261114a（boot.img 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9，kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09），串口日志 E:/k60-work/evidence/usblog-20261114-150931/console.log（268,137 B、3,870 行、capture.json complete=true panicMarker=null）。关键行：683 `goodix: COORD-ON ack=80`；681-682 CFG-EXIT/RAW-OFF 均 ack=80；684-686 芯片 BERLIN 9916R 05.80.02.63、active config=0x640fdf7d、touch=0x10308 head=8 point=8 raw axes=14400x32000；2490/2493/2503/2506/2507/2518/2574/2601 八条 `goodix: type=1 finger=0 raw=… normalized=…`；2491/2492/2494/2496 四条 `Pong touch HID: type=1|3 finger=0 xy=…`；1425 `Pong touch HID: display-integrated digitizer opened`。判据：SpringBoard 254 行；`K60PANIC: ring kept`/`initproc exited`/`panic(`/`Debugger called` 各 0 次。用户在场确认屏幕有真实触点响应。"
 
 [hardware.touch.step.device.prediction]
-success = "Pong touch: POLL hb 里 reports 与 touches 随手指触摸增长（reports>0），且 0x10308 首字节非 0x00 并通过 8 字节 U8_LE 校验"
-failure = "0x10308 首字节仍为 0x00（官方判定 invalid touch head），或 POLL hb 连续三个心跳 reports=0(+0) touches=0(+0)"
+success = "`goodix: COORD-ON ack=80` 出现，随后 `goodix: type=1 finger=0 raw=… normalized=…` 与 `Pong touch HID: type=1 finger=0 xy=…` 各至少 1 条，且日志无 panic 标记"
+failure = "`goodix: COORD-ON` 报 `completion timeout` 或非 0x80 的 ack；或只有 RAW-OFF 没有 COORD-ON；或有 COORD-ON 但 `goodix: type=` 计数为 0（芯片仍不上报触点）"
 
 # ---------------------------------------------------------------- GPU
 

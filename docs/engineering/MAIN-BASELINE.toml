@@ -106,3 +106,15 @@ sha = "92c9251"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "修 scripts/gen-k60-metal-blob.py 的 k60_metal_blob_len：原来只加 body 原始大小，漏掉 .p2align 3 的填充，于是最后一项 PongAdrenoMetal.publish 的 offset 越出容器长度，真机报 K60METAL entry 5 body out of range / deploy files=5/6 error=22（P-196）。改为用同一个 cursor 算长度，并新增 scripts/check-metal-blob.py 门禁与 8 例测试。登记原因是该提交碰了 scripts/build- 与 patches 相邻的生成链（铁则 9）。欠账：修好后的镜像尚未上机，判据是 K60METAL deploy files=6/6 且不再出现 software-only platform。"
+
+[[entry]]
+sha = "f02acff"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "修 scripts/build-strict.sh 的两处门禁死锁：一是 ROOT 从未定义，set -u 下每次 strict build 写完 boot.img 后都以 ROOT unbound variable 退出，好镜像被报成失败构建，改为 METAL_BLOB 变量；二是 P-194 的 newest_manifest 在首构建时无清单可比，改为 skip，既不算通过也不算失败。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：无，门禁本身不进镜像内容。"
+
+[[entry]]
+sha = "277e09e"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "bt 线 S4a 的 addon 通道：scripts/make-bt-firmware-addon.py 打 NGPUADD2 容器，内核没链 zlib 所以记录不压缩；build-strict.sh 增加 --gpu-addon 转给 payload 步骤并把 sha256 与大小记进 manifest；.gitignore 只保留 firmware/bluetooth/manifest.json。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：bt-s4a-20261114f 上机，判据 addon loaded bytes records 1027584 106。"

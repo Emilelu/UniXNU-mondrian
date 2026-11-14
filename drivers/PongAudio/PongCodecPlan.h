@@ -220,6 +220,18 @@ pong_codec_lpi_pad_config(uint32_t old, unsigned index)
  * first and the slew register last, in one pass, which is why the sequencer
  * in PongCodecLpi.c does the accumulation rather than this header.
  */
+/* S:PongWcd938.h:84-86  the VA and TX macro clock gates are nine
+ * read-modify-writes, and each of them is "clear these bits, then set those".
+ * Expressing them as (old & ~clear) | set is what lets the sequencer in
+ * PongCodecMacro.c stay a table walk instead of nine hand-written lines: a
+ * table can be read against the reference side by side, nine lines cannot.
+ */
+static inline uint32_t
+pong_codec_macro_value(uint32_t old, uint32_t clear, uint32_t set)
+{
+	return (old & ~clear) | set;
+}
+
 static inline unsigned
 pong_codec_lpi_slew_shift(unsigned index)
 {

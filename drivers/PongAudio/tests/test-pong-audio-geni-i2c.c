@@ -32,6 +32,7 @@
 #include "PongCodecPlan.h"
 #include "PongCodecSwr.h"
 #include "PongCodecLpi.h"
+#include "PongCodecMacro.h"
 
 static int fails;
 static int cases;
@@ -1094,6 +1095,119 @@ lpi_cases(void)
 	expect(!pong_codec_lpi_done(0), "a null sequencer is not done");
 }
 
+/* The VA and TX macros are separate mappings; the fake keeps them separate so a
+ * step written to the wrong macro cannot pass by accident. */
+typedef struct {
+	uint32_t va[0x100];
+	uint32_t tx[0x100];
+	unsigned va_writes, tx_writes;
+	uint32_t va_last_reg, tx_last_reg;
+} FakeMacro;
+
+static uint32_t
+fake_macro_read(void *ctx, uint32_t reg)
+{
+	uint32_t *bank = (uint32_t *)ctx;
+
+	return bank[reg & 0xffu];
+}
+
+static void
+fake_macro_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	uint32_t *bank = (uint32_t *)ctx;
+
+	bank[reg & 0xffu] = value;
+}
+
+static void
+macro_cases(void)
+{
+	static FakeMacro f;
+	PongCodecMacroIo io;
+	PongCodecMacro m;
+	PongCodecMacroStep e;
+	unsigned steps;
+
+	/* Nine steps, and the table is readable without running it. */
+	expect_eq((unsigned long)PONG_CODEC_MACRO_STEPS, 9ul, "the sequence is nine steps");
+	expect(!pong_codec_macro_plan(9u, &e), "step 9 does not exist");
+	expect(!pong_codec_macro_plan(0u, 0), "a null step is refused");
+	expect(pong_codec_macro_plan(0u, &e), "step 0 exists");
+	expect_eq((unsigned long)e.tx, 0ul, "step 0 is a VA macro write");
+	expect_eq((unsigned long)e.reg, 0x0ul, "step 0 writes MCLK_CONTROL");
+	expect_eq((unsigned long)e.set, 1ul, "step 0 enables the VA MCLK");
+	expect(pong_codec_macro_plan(7u, &e), "step 7 exists");
+	expect_eq((unsigned long)e.tx, 1ul, "step 7 is the first TX macro write");
+	expect_eq((unsigned long)e.reg, 0x0ul, "step 7 writes TX MCLK_CONTROL");
+
+	/* Bit surgery is clear-then-set, and both halves are independent. */
+	expect_eq((unsigned long)pong_codec_macro_value(0xfu, 0x2u, 0x1u), 0xdul,
+	    "clearing bit 1 and setting bit 0 keeps the rest");
+	expect_eq((unsigned long)pong_codec_macro_value(0u, 0u, 0x3u), 0x3ul, "nothing cleared");
+	expect_eq((unsigned long)pong_codec_macro_value(0xfu, 0xfu, 0u), 0ul, "everything cleared");
+	expect_eq((unsigned long)pong_codec_macro_value(0x2u, 0x2u, 0x2u), 0x2ul,
+	    "a bit that is cleared and set ends up set");
+
+	memset(&f, 0, sizeof(f));
+	io.va.read = fake_macro_read;
+	io.va.write = fake_macro_write;
+	io.va.ctx = f.va;
+	io.tx.read = fake_macro_read;
+	io.tx.write = fake_macro_write;
+	io.tx.ctx = f.tx;
+
+	/* Reset values this project has never seen: start from something non-zero so
+	 * the read-modify-write is actually exercised. */
+	f.va[0x00] = 0xfffffff0u;
+	f.va[0x04] = 0xfffffffcu;
+	f.va[0x80] = 0xfffffffdu;
+	f.va[0x08] = 0xfffffffcu;
+	f.tx[0x00] = 0xfffffff0u;
+	f.tx[0x04] = 0xfffffff0u;
+
+	pong_codec_macro_start(&m, &io);
+	expect(!pong_codec_macro_done(&m), "a fresh sequencer is not done");
+	expect_eq((unsigned long)m.step, 0ul, "a fresh sequencer starts at step 0");
+
+	steps = 0;
+	while (pong_codec_macro_step(&m)) {
+		if (++steps > 12u) {
+			break;
+		}
+	}
+	expect_eq((unsigned long)steps, 8ul, "eight steps report more work, the ninth finishes");
+	expect(pong_codec_macro_done(&m), "the sequencer reports done");
+	expect_eq((unsigned long)m.writes, 9ul, "nine writes, one per step");
+
+	/* The VA macro takes seven of the nine, TX the last two. */
+	expect_eq((unsigned long)f.va[0x00], 0xfffffff1ul, "VA MCLK enabled, upper bits kept");
+	expect_eq((unsigned long)f.va[0x04], 0xfffffffdu, "VA FS_CNT ends with bit 1 clear, bit 0 set");
+	expect_eq((unsigned long)f.va[0x80], 0xfffffffful, "VA TOP_CFG0 gains bit 1");
+	expect_eq((unsigned long)f.va[0x08], 0xfffffffdu, "VA SWR_CONTROL ends with bit 1 clear, bit 0 set");
+	expect_eq((unsigned long)f.tx[0x00], 0xfffffff1ul, "TX MCLK enabled");
+	expect_eq((unsigned long)f.tx[0x04], 0xfffffff1ul, "TX FS_CNT enabled");
+
+	/* Each step records what it read and what it wrote, so the boot log can show
+	 * the reset values instead of assuming them. */
+	expect_eq((unsigned long)m.old[0], 0xfffffff0ul, "step 0 remembers the reset value");
+	expect_eq((unsigned long)m.now[0], 0xfffffff1ul, "step 0 remembers what it wrote");
+	expect_eq((unsigned long)m.old[1], 0xfffffffcul, "step 1 read after step 0 wrote");
+	expect_eq((unsigned long)m.now[2], 0xfffffffdu, "step 2 cleared bit 1 of the value step 1 wrote");
+
+	/* Stepping a finished sequencer writes nothing more. */
+	expect(!pong_codec_macro_step(&m), "a finished sequencer reports no more work");
+	expect_eq((unsigned long)m.writes, 9ul, "and writes nothing more");
+
+	/* Without callbacks it does nothing instead of faulting. */
+	pong_codec_macro_start(&m, 0);
+	expect(!pong_codec_macro_step(&m), "a sequencer without callbacks does nothing");
+	expect(!pong_codec_macro_done(&m), "and is not done");
+	pong_codec_macro_start(0, &io);
+	expect(!pong_codec_macro_done(0), "a null sequencer is not done");
+	expect(!pong_codec_macro_plan(0u, 0), "a null plan output is refused");
+}
+
 int
 main(void)
 {
@@ -1109,6 +1223,7 @@ main(void)
 	codec_cases();
 	swr_cases();
 	lpi_cases();
+	macro_cases();
 
 	if (fails) {
 		printf("TESTS FAILED %d of %d\n", fails, cases);

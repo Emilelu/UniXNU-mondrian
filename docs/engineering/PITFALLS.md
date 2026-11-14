@@ -4857,3 +4857,47 @@ return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), ...}
 
 **Check.** `python3 -c "import json;print(sorted(json.load(open('<tag>/build-manifest.json'))))"`
 —— 缺 `series` 就是 trial 级。
+
+## P-202 — 构建时静默丢掉特性，以及门禁去评一个旧文件
+
+两条都是 2026-11-15 thermal 线当"环境坑"报上来的，核完发现是 main 自己的 bug。
+
+**现象 A：`build-strict.sh` 在没有 `.config` 时静默关掉两个特性。**
+脚本头部的 Guarantees 明写 "no silent fallbacks"，但第 106 行与第 124 行是
+`GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)` 与
+`BATTERY_ON=$(sed -n ... CONFIG_XNU_K60_PHYSICAL_BATTERY ...)`。`.config` 不存在时
+`sed` 只往 stderr 打 `sed: can't read …/.config`，两条命令都返回空串 → 两个 `if`
+都不进 → 内核既没有 Metal 插件也没有电池归档，而脚本照样一路走到 `verify-boot-image: OK`。
+`build-strict.sh` 自己从不生成 `.config`（`grep defconfig` 只有两行注释/echo），
+所以"全新 `K60_OUT`"这条正常路径必然踩到。实测症状：thermal 线 rebase 后首次构建
+被 hard-38 拒（`CONFIG_XNU_GPU_ADDON missing from generated config …; expected y`），
+audio 线 `audio-probe-20261115l` 的 `payload_kernel` 只有 54,181,888 B 而带
+GPU_ADDON 的应是 105 MB 级 —— 它就是这张坑的产物，且 manifest 里连
+`kernel_args_requested` 键都没有（旧版脚本）。
+
+修法：在 `M=`/`KERNEL=` 之后加一条硬失败
+`[ -f "$M/.config" ] || die "no $M/.config; generate it first: …unixnu defconfig …"`。
+
+**现象 B：`check-kernel-archives.py` 的 `find_kernel()` 拿"路径排序第一个"当本次内核。**
+`for board in sorted(base.glob("*/")): for candidate in sorted(board.glob("*/kernel/kernel.macho"))`
+—— 上一次构建留下的 `kernel.macho` 会被当成这一次的，于是 P-190 报
+`CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol is in kernel.macho`
+（brightness-1 实测），而真正的原因是它在评旧文件。`build-strict.sh:259` 显式传
+`--kernel "$KERNEL"` 所以主路径不受影响，但**单独跑门禁时它评的不是你以为的文件**。
+thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 skip 分支 ——
+一个门禁把人逼到"把文件挪走让它跳过"，说明门禁判据错了。
+
+修法：按 `st_mtime` 取最新，多于一个时往 stderr 打一行提示并点名，提醒调用者用
+`--kernel` 明确指定。
+
+**教训.**
+- "silent fallback" 不是靠注释禁止的：只要有一条 `sed` 读不到文件就返回空串，
+  特性就静默消失。凡是从文件读配置决定"要不要做某件事"，文件缺失必须是硬失败。
+- 门禁的输入来源必须比它检查的内容更可信。用 `sorted()` 猜哪个是本次产物，
+  等于把门禁的判决建立在文件名顺序上。
+- 被门禁逼出来的"绕过手法"（挪走文件让它 skip）是门禁设计错误的强信号，
+  不是使用者的纪律问题。
+
+**Check.** `bash -n scripts/build-strict.sh && grep -c 'no \$M/.config' scripts/build-strict.sh`
+—— 必须为 1；`python3 -c "import ast,sys;src=open('scripts/check-kernel-archives.py').read();print('st_mtime' in src)"`
+—— 必须为 True。

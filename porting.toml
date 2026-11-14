@@ -210,14 +210,26 @@ procedure = [
 findings = [
   "The port currently has no baseband support at all; Android modem stack is untouched.",
   "Recording it as planned rather than not-applicable keeps the gap visible.",
+  "The baseband is a PAS remote processor inside the SM8475 package, not a board-level external modem: MSS MMIO sits at 0x04080000, and modem.mdt is a QDSP6 ELF32 (e_machine 0xA4) whose 30 PT_LOAD segments span exactly 0x8bc00000..0x9ee00000, the DT-declared mpss_region carveout of 0x13200000 bytes. The only two PCIe devices on the board are the Qualcomm root port and the QCA6490 WLAN.",
+  "Scope is L1 firmware load plus L2 QRTR enumeration only. The IPA/QMAP data path, the EFS/NV responder, mbn selection and IMS are out of scope: the IPA ring geometry is driver code rather than DT, and the EFS responder is an Android userspace daemon (tftp_server, pid 2027).",
+  "Roughly two thirds of L1 already exists as ADSP code and needs a second instance rather than new theory: K60AdspPas.c carries the PAS SCM sequence, K60AdspImage.c parses the ELF32 segment table, K60Smem.c owns SMEM, and QcomGlink.c implements GLINK but with QCOM_GLINK_MAX_CHANNELS hard-coded to 1 and shaped for the PMIC endpoint.",
+  "The modem QRTR transport is GLINK over SMEM on the IPCRTR channel, not MHI: DT declares qcom,glink-channels = \"IPCRTR\" with three intent groups, while mhi_qrtr_cnss carries qcom,dev-id 0x1103, which is the QCA6490 WLAN endpoint.",
 ]
 completion = [
   "A device boot shows the modem enumerated over QRTR with a readable firmware revision.",
 ]
 limits = [
-  "Nothing has been measured on this board beyond the Android-side inventory.",
+  "Nothing has been measured on this board beyond the Android-side inventory and the DT read.",
+  "No X65 marketing-model string exists in the DT or in the firmware; the DT only carries the codename cape, so the X65 name rests on Qualcomm platform naming and is not used as DT evidence.",
+  "Android's own qrtr-lookup returns only its header row from a KernelSU shell, so the L2 acceptance test must be defined as receiving a servreg reply to a NEW_LOOKUP, not as listing a service table.",
 ]
 next_action = [
-  "Read the Android modem partitions before writing any cellular code.",
+  "Resolve why qrtr-lookup enumerates nothing on the Android side before writing any cellular code, because the L2 acceptance test depends on that answer.",
+  "Add the mpss_region, remoteproc-mss, modem glink-edge and qcom,ipa nodes to dts/mondrian.dts by copying bytes from the live FDT, with no driver enabled yet.",
+  "Generalize QcomGlink to carry the IPCRTR channel, then load modem.mdt over PAS as a second instance of the ADSP loader, checking first whether the modem is already running after a warm switch from Android.",
 ]
-evidence = []
+evidence = [
+  { kind = "device", reference = "docs/research/cellular/01-ANDROID-INVENTORY.md", command = "adb -s 6033dbec shell 'su -c \"ls -l /vendor/firmware_mnt/image/\"' ; adb -s 6033dbec shell getprop | grep -i baseband ; adb -s 6033dbec shell 'su -c \"od -An -tx1 -N 52 /vendor/firmware_mnt/image/modem.mdt\"'", revision = "90d82717b075b0226048f3894c5c65330c7266d5", result = "modem_a is /dev/block/sde7 at 389120 KiB (380 MiB, fastboot agrees: 0x17C00000) and is mounted read-only vfat at /vendor/firmware_mnt. Its image directory holds 30 modem.* files totalling 109072529 bytes (104.02 MiB); modem.b14, b21 and b30 are absent because those segments are pure bss. modem.mdt is ELF32 little-endian, e_type 2, e_machine 0xA4 (QDSP6, not AArch64), e_entry 0x8bc00000, e_phoff 52, e_phentsize 32, e_phnum 32. gsm.version.baseband reads MPSS.DE.2.0.c1-CN-Jan 13 2026-02:08:51 twice, once per SIM slot, and matches mbn_build_utc.txt 1768269985 (2026-01-13T02:06:25Z) to within 2.5 minutes." },
+  { kind = "device", reference = "docs/research/cellular/02-DT-TRUTH.md", command = "adb -s 6033dbec shell 'su -c \"od -An -tx1 /sys/firmware/devicetree/base/soc/remoteproc-mss@04080000/reg\"' ; .../reserved-memory/mpss_region@8bc00000/reg ; .../glink-edge/qcom,modem_qrtr/qcom,glink-channels ; 'su -c \"ls /sys/bus/pci/devices/\"'", revision = "90d82717b075b0226048f3894c5c65330c7266d5", result = "The live FDT is 919210 bytes (sha256 da19d6bb1423e571c2fff93ef341e2d6b7b8b6668512da7a981551de32c4b941). remoteproc-mss@04080000 is qcom,cape-modem-pas at 0x04080000/0x10000, status ok, with cx-supply PM8350C S6 and mx-supply PM8350C S4, memory-region pointing at mpss_region 0x8bc00000 size 0x13200000 and at linux,cma, IPCC signals fatal 0, handover 1, ready 2, stop-ack 3, shutdown-ack 7, and glink-edge transport smem with remote-pid 1 and child qcom,modem_qrtr whose qcom,glink-channels is IPCRTR with intents (0x800,5) (0x2000,3) (0x4400,2). Only two PCIe devices exist: 0000:00:00.0 17cb:0110 root port and 0000:01:00.0 17cb:1103 QCA6490 WLAN, so mhi_qrtr_cnss with dev-id 0x1103 is WLAN and not the modem." },
+  { kind = "device", reference = "docs/research/cellular/03-SCOPE.md", command = "adb -s 6033dbec shell 'su -c \"grep -i qipcrtr /proc/net/protocols\"' ; 'su -c \"ls /sys/class/remoteproc/\"' ; 'su -c \"/vendor/bin/qrtr-lookup 0 1\"' ; getprop | grep init.svc", revision = "90d82717b075b0226048f3894c5c65330c7266d5", result = "AF_QIPCRTR is registered by module qrtr (size 888, 0 sockets at sample time) and qrtr-ns runs as pid 1974 with fds 0-2 on /dev/null and fd 3 on socket:[60178]; there is no /dev/qrtr node, no /dev/socket/qrtr socket and ss -x shows nothing, so QRTR is a kernel protocol family and not a unix socket. remoteproc2 is 4080000.remoteproc-mss running modem.mdt, bound to qcom_q6v5_pas. qrtr-lookup prints only its header row for every argument tried, which is recorded as an unresolved blocker rather than as proof that the modem registers no services." },
+]

@@ -528,7 +528,7 @@ evidence = """方案见 docs/research/springboard/WALLPAPER-CHAIN.md §4。F1（
 
 [hardware.springboard.step.deep]
 done = true
-evidence = """深挖五条结论：一，两行 SKIP 是 init 的两道 guard 在 mount 之前 continue（userland/init.c@2101281:368-371、:373-378），与 bindfs 能力无关，日志不能证明 bindfs 好坏。二，设备 init 无 wallpaper_directory()（HEAD userland/init.c:368-375 才有），故 /private/var/pong/stock-wallpaper 永不创建。三，纯黑主因是设备 UI 库不含壁纸选择代码（ui_compat.c@50f4644），不是 SpringBoard 崩。四，桌面小组件主因是 userland/build.py:40-45 BOOT_SKIP 跳过 com.apple.chronod（widget extension discovery repeatedly times out before the first UI）。五，"换壁纸后进不去系统"缺当次日志，候选机制 A（WallpaperKit 写 Data 侧 store 后启动期读不到资产）与 B（views 的 mount 阶段 hang，先例 docs/reference/ISSUES.md:325-327 v7probe 第 5 条）待日志裁决。六，0616 顶掉 0401 调用点使 F2 的 blob 成为死代码（P-182/P-197），判断 blob 是否生效必须 grep 镜像而不是看补丁是否应用。"""
+evidence = """深挖五条结论：一，两行 SKIP 是 init 的两道 guard 在 mount 之前 continue（userland/init.c@2101281:368-371、:373-378），与 bindfs 能力无关，日志不能证明 bindfs 好坏。二，设备 init 无 wallpaper_directory()（HEAD userland/init.c:368-375 才有），故 /private/var/pong/stock-wallpaper 永不创建。三，纯黑主因是设备 UI 库不含壁纸选择代码（ui_compat.c@50f4644），不是 SpringBoard 崩。四，桌面小组件主因是 userland/build.py:40-45 BOOT_SKIP 跳过 com.apple.chronod（widget extension discovery repeatedly times out before the first UI）。五，"换壁纸后进不去系统"缺当次日志，候选机制 A（WallpaperKit 写 Data 侧 store 后启动期读不到资产）与 B（views 的 mount 阶段 hang，先例 docs/reference/ISSUES.md:325-327 v7probe 第 5 条）待日志裁决。六，0616 顶掉 0401 调用点使 F2 的 blob 成为死代码（P-182/P-198），判断 blob 是否生效必须 grep 镜像而不是看补丁是否应用。"""
 
 [hardware.springboard.step.verify]
 done = true

@@ -4717,7 +4717,59 @@ total = len(head) + sum(size for _, size, _ in files)
 `python3 scripts/tests/test-check-metal-blob.py`；真机判据
 `K60METAL deploy files=6/6`。
 
-## P-197 — 后加的补丁可以把前面补丁的 blob 变成链接器垃圾
+## P-197 — 固件没实现的能力，不能写成"已经做了"
+
+**现象.** 蓝牙 S4 方案（让固件把 `<kernel>.gpuaddon` 拷进 boot window 并在
+`/chosen/memory-map/GpuAddon` 发布运行地址）连飞两次都失败，日志只有一行
+`[bluetooth] addon: unusable range 0 0`
+（`usblog-20261115-012913/console.log:192`）。容器确实在 payload 里：
+`mdir -i boot.img@@557056 -/ ::/EFI/UniXNU/PAYLOADS` 列出
+`kernel.macho.gpuaddon 1027584`，ADT 里也确实有 `GpuAddon` 属性名。于是三轮
+排查都花在参数、容器格式、内核 reader 上。
+
+**根因.** 那句"DarwinBoot 已经把 … 拷进 boot window（DarwinBoot.c:588-651）"
+是**假设，不是实测**。实测：
+
+```
+$ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
+（零命中）
+```
+
+`Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c` 的 ADT 扫描器只处理八个
+属性：`name`、`RAMDisk`、`PackedRAMDisk`、`darwinboot-memory-ranges`、
+`pong-allocatable-ram`、`pong-audio-dma`、`TrustCache`、
+`darwinboot-memory-size` —— 没有 `GpuAddon`。原文 588-651 行是
+`WritePongRam`/`Boot` 的开头，与 addon 无关。而
+`scripts/unixnu/devicetree.py:339` 的
+`mappings += [('GpuAddon', bytes(16))] if addon else []`
+只写了一个 16 字节占位，等固件回填 paddr/length。固件不认 → 全零 → 内核
+`range->paddr == 0` → `k60_addon_note("unusable range", 0, 0)`。
+
+**为什么没被门禁拦到.** 框架生成的 ADT 里属性名是对的，`verify-boot-image.py`
+只比对文件哈希，`mdir` 只证明容器在 payload 里。三者都真，合起来却不足以让
+内核看到它——**"文件在镜像里"和"内核能读到"之间隔着固件这一步**，而没有任何
+门禁检查固件那一侧。
+
+**修法.** ① `scripts/make-bt-firmware-addon.py` 的 docstring 改成实测结论
+（打包器仍然正确，但明确写"当前固件不会发布这个 range"）；② 要让 S4 真正
+可用，得在 `uefi-mondrian` 的 `DarwinBoot.c` 的 ADT 扫描器里加一个 `GpuAddon`
+分支（从 payload FAT 读 `<kernel>.gpuaddon` → 分配页 → 回填 16 字节），或改用
+别的载体（Data seed / 内核内嵌 blob，后者有 `k60_metal_blob.s` 先例）。
+
+**教训.**
+- 跨仓能力必须跨仓验证：写"固件已经做了 X"之前，先在**固件仓**里
+  `git grep` 一次 X。同一个词在三个仓里出现，不等于三处都实现了。
+- 三件真事凑不成一件真结论：属性名对、容器在、哈希对，都不能推出"内核读得到"。
+  中间那一步（固件回填）必须有独立的可观测证据。
+- 零值是最贵的失败形态：`unusable range 0 0` 只说"值是零"，不说"谁没填"。
+  看到零先问"这一步该由谁填"，再问"那个代码存在吗"。
+- 一处错误注释会传染：`patches/bt/0004` 与 `patches/xnu/0510` 的补丁注释也抄了
+  同一个假设，两份补丁一起把假前提变成了"设计依据"。
+
+**Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
+必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
+真机判据仍是 `addon: loaded bytes records 1027584 106`。
+## P-198 — 后加的补丁可以把前面补丁的 blob 变成链接器垃圾
 
 **现象.** `patches/xnu/0401-k60-embedded-init.patch` 的 `k60_init_blob`（52,456 B）与
 `k60_varpack_blob`（14,636 B）编进内核后，镜像里
@@ -4738,7 +4790,7 @@ v24dp init。
 blob 不生效）；生效判据是镜像里有 `K60WALL` 串、上机日志 `K60WALL catalogue bytes=772 resid=0
 error=0`。
 
-## P-198 — `check-tree-owner` 默认把操作者当成 lead
+## P-199 — `check-tree-owner` 默认把操作者当成 lead
 
 **现象.** 子代理在自己名下的 checkout 里跑 `scripts/check-rules.py`，其它 77 条全绿，只有
 `iron-11` 报 `/mnt/e/hackios/k60-springboard belongs to springboard-agent, not lead, and holds 1

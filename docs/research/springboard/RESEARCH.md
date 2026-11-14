@@ -113,5 +113,5 @@ CarKit soft link（已定位：公开路径不存在，20G81 只有 PrivateFrame
 - `patches/xnu/0618-k60-wallpaper-seed.patch:33/40/45/51/58` K60WALL 五条日志。
 - `userland/init-v24dp.c:328-357` 两道 guard 与 boot view 日志（0616 部署谱系）。
 - `userland/ui_compat.c:636/642/659/686/720/729/733/737/738/741` 壁纸选择日志与 SKIP 分支。
-- `patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978` installer 替换（P-182/P-197）。
-- `docs/ops/PITFALLS.md:325-341` P-27；`:1132-1139` P-75；`docs/engineering/PITFALLS.md` P-197。
+- `patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978` installer 替换（P-182/P-198）。
+- `docs/ops/PITFALLS.md:325-341` P-27；`:1132-1139` P-75；`docs/engineering/PITFALLS.md` P-198。

@@ -474,3 +474,61 @@ Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like '*VID_1209&PID_0
 判据 5 的原始输出要存进证据目录（`host-pnp.txt`）：「接口数 2→3」在设备侧日志里只能间接看到
 （wLength 98 + DALEPENA 0xef），直接证据必须来自主机侧。
 
+
+## 13. P1 第二次上机：0407 端点/FIFO 诊断（usb-20261114d）
+
+### 13.1 为什么先做诊断而不是继续加功能
+
+`usb-20261114c`（含 0406）上机结果：设备**枚举成功并持续存在**（Windows 侧 `USB\VID_1209&PID_0001\0001`，Class Ports，Service usbser，COM5），但 300 s 采集 **0 字节**（`capture.json` state `opened-no-data`、bytes 0、panicMarker null）。这不是「设备没起来」，而是 gadget 自身不发数据。
+
+唯一的静默返回点是控制台发送门的入口：
+
+```c
+if (!ud.configured || !ud.dtr || ud.failed) return;   /* k60_usblog.c:1332 附近 */
+```
+
+主机已置 DTR（采集脚本打开端口即拉 DTR），`configured` 也由 SET_CONFIGURATION 置位，所以最可能是 **`ud.failed = true`**。0406 引入的失败源只有一处：把 `ud_endpoint(6, 2, ud.packet)` / `ud_endpoint(7, 2, ud.packet)` 串进同一个 `||` 链，任一非零即 `ud.failed = true; return;`。
+
+机制假设（**尚未证实**）：EP7 是 IN 端点，`DEPCFG` 的 p0 里 FIFO 号 = `ep >> 1` = 3（EP3→1、EP5→2），若该 core 的 TX FIFO 只有 0..2，则 `SETEPCONFIG` 返回非零状态。同 SoC 参考 `PongUsbDevice.h:200-211` 确实也开 6/7 并 `DALEPENA |= 0xc0`，但它的 `muxEnabled` 路径未必在 K60 的 core 配置上跑过 —— 参考实现不能替代本机寄存器证据（铁律 3）。
+
+因此本轮**不引入任何新的硬件假设**，只做两件事：把失败语义从「杀死控制台」改成「打印并降级」，以及把判定 FIFO 预算所需的只读寄存器打进日志。一次上机同时拿到「ep6/ep7 返回值」和「FIFO 配置」，把「描述符错」与「端点错」分开。
+
+### 13.2 改动（`patches/usb/0407-k60-usb-endpoint-diag.patch`）
+
+只改 `bsd/dev/k60_usblog.c`，26 insertions / 9 deletions：
+
+1. **失败语义分离**：EP2/EP3/EP5（控制台必需）仍硬失败并 `ud.failed = true`；EP6/EP7 改成可选，返回码存进局部变量，失败只打印不置 `ud.failed`。
+2. **DALEPENA 条件置位**：基线 `| 0x2c`；仅当 `ep6 == 0 && ep7 == 0` 时才 `| 0xc0`，避免使能一个没配好的端点。
+3. **证据行**：`K60 USBLOG: composite cfg <n> bytes ep6 <r> ep7 <r> DALEPENA 0x%08x`。
+4. **probe 只读快照**：新增一行 `K60 USBLOG: DWC3 GHWPARAMS1 0x… GHWPARAMS3 0x… GTXFIFOSIZ 0x… 0x… 0x… 0x…`（0xC144 / 0xC14C / 0xC300..0xC30C）。
+
+寄存器语义的**证据来源**是同仓参考 UEFI 栈（不是猜测）：`references/uefi-pong/Silicon/Samsung/SamsungPkg/Include/Device/Dwc3.h:141-144`
+
+```c
+#define DWC3_GHWPARAMS3_HSPHY_IFC(n)   (((n) & (3 << 2)) >> 2)
+#define DWC3_GHWPARAMS3_NUM_EPS(n)     (((n) & (0x3F << 12)) >> 12)
+#define DWC3_GHWPARAMS3_NUM_IN_EPS(n)  (((n) & (0x1F << 18)) >> 18)
+#define DWC3_GTXFIFOSIZ(n)             (0xC300 + ((n) * 0x04))
+```
+
+以及 `Dwc3Core.c:267-269` 用 `GHWPARAMS3_NUM_EPS` 决定物理端点数的既有用法。`GTXFIFOSIZ(n)` 高 16 位是深度（256 B 单位），低 16 位是起始地址 —— 端点 `DEPCFG` 里写的 FIFO 号必须落在这个表里。
+
+### 13.3 判据（usb-20261114d）
+
+| # | 判据 | 通过条件 |
+|---|---|---|
+| 1 | 控制台恢复 | `grep -c 'K60 USBLOG'` ≥ 250，且出现 `K60 USBHB:` 心跳 |
+| 2 | 端点真值 | 日志出现 `composite cfg 98 bytes ep6 <r> ep7 <r> DALEPENA 0x…` |
+| 3 | FIFO 真值 | 日志出现 `DWC3 GHWPARAMS1 … GHWPARAMS3 … GTXFIFOSIZ …` |
+| 4 | 端点预算自洽 | `(GHWPARAMS3 >> 12) & 0x3f` ≥ 8 且 `(GHWPARAMS3 >> 18) & 0x1f` ≥ 4（EP6 是 OUT、EP7 是 IN，各占一个） |
+| 5 | 采集链路 | `capture.json` = `captured-budget-complete`，`panicMarker` null |
+
+判据 1 若仍不成立（依旧 0 字节），则 `ud.failed` 的假设被否证，下一轮改为在 `ud_console()` 入口打印三个门变量的实时值，而不是继续猜。
+
+### 13.4 已知的后续缺陷（本轮不修，登记在此）
+
+`ud_trb_for()` 只有 4 个槽：`0 → UD_TRB_OUT`、`1 → UD_TRB_IN`、`2 → UD_TRB_RX`、`default → UD_TRB_TX`。EP6/EP7 一旦真正开始搬数据会与 EP3 共用 `UD_TRB_TX`。真正启用 vendor 功能（P2）之前必须先把 TRB 槽扩成 8 个，并补 `PongUsbDevice.h:123-140` 的 `transferResource` / `ENDTRANSFER` 收尾逻辑。本轮 0407 只配置端点、不发起任何传输，因此该缺陷不触发。
+
+### 13.5 与 §12.3 的关系
+
+§12.3 原计划把「设备描述符 class 改 `0xEF/0x02/0x01`」作为 0407。诊断优先级更高，该单变量改动顺延为 **0408**，等本轮拿到 ep6/ep7 与 FIFO 真值后再做。

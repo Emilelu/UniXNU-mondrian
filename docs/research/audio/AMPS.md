@@ -927,3 +927,18 @@ wsl.exe -e bash -lc cd /mnt/e/hackios/k60-audio-merge && python3 scripts/judge-a
 表对调失败并点名 `dev_index` 与那个寄存器值；单条回读不符、`written=119`、`mismatched=2`、少一条 step、
 出现 `TODO` 行、`vcalb` 被 refused 全部判失败；常量（60 步、`{0:1, 1:0}`、两组 marker、`0x3c0`）也一起断言，
 所以改表或改判据都过不了 `TESTS OK`。
+
+### 9.7 一个已修掉的静默故障：GPR 的 GET_SPF_STATE 拿错了 opcode
+
+0504 骨架里 `GPR_OP_APM_GET_SPF_STATE` 曾写成 `0x0100100D`。这个值在 ADSP 的 APM 命令表里不是「取 SPF 状态」，
+而是 `APM_CMD_SHARED_MEM_UNMAP_REGIONS`（`/home/emilelu/wifi-inputs/linux/sound/soc/qcom/qdsp6/audioreach.h:62`）——
+也就是说，这个包发出去会让 DSP **解映射一段共享内存**，而不是回答「你起来了吗」。它的破坏是静默的：
+应答会以 `GPR_BASIC_RSP_RESULT` 回来、状态码甚至是 0，于是探针会认为 APM 在线，
+而之后所有依赖那块共享内存的 GPR 通信（AudioReach 的 graph open / set-param 全走共享内存）都会失败，
+失败点还落在几百行之后，看起来与这里无关。
+
+- 真值：`APM_CMD_GET_SPF_STATE = 0x01001021`（`audioreach.h:38`），应答 `0x02001007`（`:39`）；
+- 同批修正的还有两处：`GPR_VERSION` `3u → 0u`（`include/linux/soc/qcom/apr.h:104` `GPR_PKT_VER 0x0`；
+  版本放在 header 低 4 位，DSP 只认 0）、`GPR_OP_BASIC_RESULT` `0x02000002u → 0x02001005u`（`apr.h:108`）；
+- 修正方式：`diff -u` 重生成补丁（不手写 hunk，P-155），`check-patch-apply.py` 通过（P-162），
+  宿主 `afe_gpr_cases()` 用三条断言把这三个值钉死（改回旧值即红）。详见 `PAS1-AUDIO-REQUIREMENTS.md` §1.3。

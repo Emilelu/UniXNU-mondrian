@@ -54,6 +54,14 @@ path = "/mnt/e/hackios/k60-audio"
 owner = "audio-agent"
 scope = ["drivers/PongAudio", "docs/research/audio"]
 
+# The audio line moved here on 2026-11-14 after the rebase onto main; the
+# older k60-audio checkout above keeps the pre-merge branch (feat/audio-codec).
+[[tree]]
+path = "/mnt/e/hackios/k60-audio-merge"
+owner = "audio-agent"
+scope = ["drivers/PongAudio", "docs/research/audio", "patches/audio", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505"]
+note = "Merge worktree (feat/audio-merge): the line that carries the amp probe, the ACF reader and the AFE encoder."
+
 [[tree]]
 path = "/mnt/e/hackios/k60-thermal"
 owner = "thermal-agent"

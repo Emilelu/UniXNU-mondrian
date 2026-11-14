@@ -32,7 +32,7 @@
 | `pong_init_path` | 启动链 | 路径 | 代码默认 | — |
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
-| `pong_audio_probe` | 音频 / 功放 | 必须 == 1 | 未设 = 不探测 | 只读探测两颗 AW882xx（GENI I2C 读 chip id/状态）；只写 TLMM/GCC/GENI 自身，不写功放寄存器 |
+| `pong_audio_probe` | 音频 / 功放 | 必须 == 1 | 未设 = 不探测 | 先只读探测两颗 AW882xx（GENI I2C 读 chip id/状态），再跑一遍**回放层**：软复位 + 57 对 Music profile + fuse 算出的 vcalb + 静音音量，每次写都回读并打印（`AMPS.md` §9）。功放保持掉电与静音（PWDN/AMPPD/HMUTE 保留硬件值、ULS_HMUTE 强制置位、TXEN 清零），没有 bit clock 所以不会出声 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
 | `k60_usblog` | 调试 | 0/1/2 | 代码默认 | `0300-k60-usblog-ep0.patch` USB 日志级别 | 刷机时的主要日志通道 |

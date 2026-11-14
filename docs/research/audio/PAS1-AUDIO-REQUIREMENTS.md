@@ -222,6 +222,9 @@ status = "proven"
    （契约第 3 条），不是「publish 之后只许一个 consumer」。契约第 7 条把 GLINK「交给既有 consumer」，且**没有成功后的 release 入口**——
    音频也不需要 release。正确读法是「单实例多槽」，而不是「第二个实例不许进」。provider 不需要为音频新增任何 API、锁或 worker。
 
+   契约文件第 7 条已按此改写（「提交成功后 GLINK 交给既有 consumer」= 交给同一个实例上的既有与新增槽，
+   不是「只许一个通道」），见 `docs/research/battery/PAS1-PROVIDER-CONTRACT.md`（adsp-handoff 线维护，§ 号以其定稿为准）。
+
 4. **发包时机**：AFE 参数（`TDMS.md` §3 的六步、`PongAudioAfe.h` 的字节）在 **publish 之后由 consumer 发**，
    provider 不替任何消费者发协议包、不解析 GPR、不碰 `adsp_apps` 通道内容。provider 的交付物只有三样：
    ADSP 在跑（PAS1 认证与 load 完成）、GLINK FIFO 可用（SMP2P 443 ready）、`/chosen/k60-adsp-glink-handoff` 的 104 字节属性就位。

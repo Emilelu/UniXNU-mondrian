@@ -150,15 +150,15 @@ evidence = []
 id = "power"
 status = "planned"
 components = []
-paths = ["drivers/PongPower/**", "package/*Battery*", "package/*Battmgr*", "package/*Power*", "package/*PlatformPower*", "package/QcomQmp*", "package/QcomRpmh*", "package/QcomScm.h", "scripts/*power*", "scripts/*battery*", "scripts/*pmgr*"]
+paths = ["drivers/PongPower/**", "package/*Battery*", "package/*Battmgr*", "package/*Power*", "package/*PlatformPower*", "package/QcomQmp*", "package/QcomRpmh*", "package/QcomScm.h", "scripts/*power*", "scripts/*battery*", "scripts/*pmgr*", "scripts/tests/test-k60-owner-*", "scripts/tests/run-k60-handoff-host.sh"]
 inputs = ["Identify the power hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for power."]
 procedure = ["Follow the power stage in the porting guide and record the actual commands."]
-findings = ["PMIC/PON basic path works: K60KeypadDeviceLib runs on SPMI PON/GPIO (docs/archive/HANDOFF-2026-10-31.md:55), and the PMIC SDAM7100 restart-reason write succeeds with `PMIC restart reason primed for fastboot` (docs/archive/HANDOFF-k60-work-2026-11-06.md:210).", "Battery/charger are not implemented: docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:67 records `K60 未开始` for battery and charging."]
+findings = ["PMIC/PON historical observations are recorded in docs/archive/HANDOFF-2026-10-31.md:55 and docs/archive/HANDOFF-k60-work-2026-11-06.md:210; they do not prove battery GLINK ownership.", "2026-11-15: five injected PAS1-owner stages and a persistent wrapper pass 77 named host scenarios around real MDT/SMEM/build/parser code. Exact required=15, independent public facts/internal stage mask, poisoned uncertain shutdown and retained published ownership are enforced; see docs/research/battery/PAS1-PROVIDER-CONTRACT.md."]
 completion = ["Declared power controls and battery readings match observations; each claimed sleep/resume transition restores its dependent peripherals."]
-limits = ["drivers/PongPower is an in-progress port of the vendor PMIC GLINK battery path: the SMEM/GLINK transport, battmgr packet layer, property decoder and the IOPMPowerSource provider exist, but the generated protocol header is not produced yet and nothing is compiled or linked. A live ADSP owns PAS1 on this board and no firmware-owned fresh GLINK handoff has been established, so the service is designed to register only after a validated hardware sample; it is not published today."]
-next_action = ["Inventory the required power inputs before implementation."]
-evidence = []
+limits = ["Power status remains planned. Host orchestration and arm64 SDK syntax are validated, but no production image reader, serialized/coherent SCM/PAS or audited resource/reset/exclusion/mapping/TCSR backend is installed. No kernel/image build, real PAS1 start, GLINK transaction or battery sample is claimed. Missing backend fails before SMEM/TCSR mapping; flags15 and a valid blob are not hardware evidence."]
+next_action = ["Lead integrates an immutable early image carrier and complete audited platform ops before the first runtime attempt; then independently authorize full-series/kernel link and artifact checks, followed by hardware proof. Preserve default-off 0619 and do not bypass poisoned or retained ownership semantics."]
+evidence = [{ kind = "source", reference = "docs/research/battery/PAS1-PROVIDER-CONTRACT.md", result = "Five-stage API, 77 host test paths, failure/lock/lifetime boundaries and uninstalled production backend are documented; hardware verification remains false." }]
 
 [[area]]
 id = "packaging"

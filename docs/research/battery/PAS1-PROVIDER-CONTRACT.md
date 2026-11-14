@@ -1,86 +1,96 @@
-# PAS1 provider 调用契约
+# PAS1 provider 五阶段调用契约
 
-> 2026-11-15；供 Lead/ADSP、audio、battery、charger 共同评审。当前分支没有满足本契约的真实 provider；这仍是共享阻塞项。本文登记既有 API 和未来实现必须满足的条件，不新增 provider、默认参数、内核构建或设备操作。
+> 2026-11-15；本分支已实现可注入的五阶段编排和持久 owner wrapper，宿主覆盖 77 个场景。真实 carrier、SCM/PAS、资源及硬件互斥后端未安装；未证明 PAS1、GLINK、电池、充电或音频可用。0619 仅留分支，不并 main。
 
-本文件以 [K60AdspOwner.h](../../../drivers/PongPower/K60AdspOwner.h)、[当前缺省实现](../../../drivers/PongPower/K60AdspOwner.c)、[runtime](../../../drivers/PongPower/K60HandoffRuntime.cpp) 和 [publisher](../../../drivers/PongPower/K60HandoffPublish.c) 为准。启动顺序见 [INTEGRATION-ORDER.md](INTEGRATION-ORDER.md)，调用点前置条件见 [HANDOFF-PUBLISH.md](HANDOFF-PUBLISH.md#调用点契约)。0619 仅留试验分支，最终 provider 与调用点由 Lead 集成。
+源码以 [K60AdspOwnerStages.h](../../../drivers/PongPower/K60AdspOwnerStages.h)、[五阶段实现](../../../drivers/PongPower/K60AdspOwnerStages.c)、[持久 wrapper](../../../drivers/PongPower/K60AdspOwner.c) 和 [runtime](../../../drivers/PongPower/K60HandoffRuntime.cpp) 为准。调用点见 [INTEGRATION-ORDER.md](INTEGRATION-ORDER.md)，台账见 [HANDOFF-PUBLISH.md](HANDOFF-PUBLISH.md)。
 
-## 入口与参数
-
-这些是当前 C ABI；C++ 调用者通过头文件的 extern "C" 使用。不得把旧 PAS 诊断函数的返回值直接当作这些入口的成功结果。
+## 入口、参数与返回
 
 ~~~c
-typedef struct {
-    uint32_t version, bytes, flags, epoch;
-    void *token;
-} K60AdspOwnerLease;
+int k60_owner_claim(K60OwnerSession *session,
+    const K60BatteryConfig *config, const K60OwnerOps *ops, void *context);
+int k60_owner_prepare_pas1(K60OwnerSession *session);
+int k60_owner_auth_and_start(K60OwnerSession *session);
+int k60_owner_build_handoff(K60OwnerSession *session,
+    const K60HandoffPlan *plan);
+int k60_owner_publish(K60OwnerSession *session,
+    const K60OwnerPublishOps *ops, void *context);
+void k60_owner_abort(K60OwnerSession *session);
 
-#define K60_ADSP_OWNER_VERSION 1u
-#define K60_ADSP_OWNER_UNAVAILABLE (-1000)
-
+typedef int (*k60_owner_image_reader)(void *context, K60OwnerImage *image);
+int k60_adsp_owner_install(const K60OwnerOps *ops, void *context);
 int k60_adsp_owner_acquire(const K60BatteryConfig *config,
-                           K60AdspOwnerLease *lease);
+    K60AdspOwnerLease *lease);
 int k60_adsp_owner_revalidate(const K60AdspOwnerLease *lease);
 void k60_adsp_owner_abort(const K60AdspOwnerLease *lease);
-int k60_adsp_handoff_publish(void);
+int k60_adsp_owner_publish(const K60AdspOwnerLease *lease,
+    const K60OwnerPublishOps *ops, void *context);
 ~~~
 
-| 函数 | 参数与调用边界 | 返回语义/责任 |
-|---|---|---|
-| k60_adsp_owner_acquire | config 是已解析并做过 XNU RAM 重叠拒绝的本板配置；lease 是调用方清零的可写输出。此时 root/Data 尚未挂载，runtime 尚未映射 SMEM/TCSR；不持 TCSR 或 registry property 锁。 | 只有已认证并启动 PAS1、资源持续持有、fresh FIFO 与排他 token/epoch 全部成立才可返回 0。其余情况非零，禁止制造 flags/epoch/token。缺省实现清零非空 lease 并返回 -1000。 |
-| k60_adsp_owner_revalidate | lease 必须来自同一成功 acquire，token 仍被 pin；调用期间不持 TCSR 或 registry property 锁。 | 0 表示同一当前启动/配置/几何的所有权仍有效且资源未释放；任何非零均中止交接。必须只读、非阻塞，不重启、补投票、重取租约或开启 GLINK worker。缺省返回 -1000。 |
-| k60_adsp_owner_abort | 仅用于属性成功提交之前的失败清理；runtime 在 TCSR 解锁后调用。 | void，无成功返回码。先停止并隔离本 provider 的活动，再安全撤销其取得的资源；不能留下有效旧 token。缺省未取得资源，因此为空操作。成功提交后绝不调用。 |
-| k60_adsp_handoff_publish | 无参数；由 IOKitBSDInit 的默认关闭门控在 IOBSD/电池入口之前同步调用。 | 返回 K60Publish* 阶段码，成功为 0。当前缺省 owner 路径返回 K60PublishPasFailed (-42)，不是原样返回 provider 的 -1000。 |
+Session 一次清零，之后不复制、不重置 live 状态；只有 API 可改动它。config/ops 在 claim 中复制，context、reader 缓冲、metadata 和排他 cookie 必须具有持久生命周期并满足不重叠约束。生产 wrapper 使用静态 session，不依赖 runtime 的栈上 lease。API 以非阻塞 CAS 串行化；重入/并发调用拒绝，忙时 abort 不介入。软件 gate 不等于 TCSR，也不代替真实平台排他所有权。
 
-未来 acquire 若部分失败，必须自行清理全部已取得资源，或返回一个仍可由 abort 安全清理的真实 token。当前 runtime 仅在失败 lease.token 非空时调用 abort；失败且 token 为空时，不能遗留资源或工作线程。此要求是接入条件，不是当前缺省实现已经完成硬件清理的证据。
+| 阶段 | 执行条件和行为 | 返回及后置条件 | 宿主测试 |
+|---|---|---|---|
+| 1 k60_owner_claim | Empty；核对本板配置和完整 ops/version/sizeof，available 必须为 1；reader pin 固件并完成真实 MDT 解析，再取得非零当前启动 epoch/cookie、资源和 stopped/live 证明，之后才 map SMEM、短暂探测 TCSR。 | 成功 0，Claimed；不分配 FIFO，不返回 lease。缺依赖/错误几何/忙 mutex 为 -1000。失败取得的锁不会多解锁；映射基址须 8 字节对齐、大小精确。 | [claim](../../../scripts/tests/test-k60-owner-claim.c)：17 场景 |
+| 2 k60_owner_prepare_pas1 | Claimed 且 live/stopped；在短 TCSR 内发现 host0/ADSP2 partition，拒绝既有 478/479/480，分配精确 32/4096/4096 字节 fresh host items；不创建远端 443。 | 成功 0，Prepared；只增加真实 FreshHostFifos 依据。失败 -1000。部分 allocator 改动不回滚、不当作可重试 fresh 状态。 | [prepare](../../../scripts/tests/test-k60-owner-prepare.c)：11 场景 |
+| 3 k60_owner_auth_and_start | Prepared、排他且 PAS stopped；一次 INIT_IMAGE(header+hash metadata) → 可重定位时 MEM_SETUP(物理 region/span) → 每段 COPY/BSS/CACHE → AUTH_AND_RESET。reader bytes 必须一直被 pin。 | 成功 0，Started，才设置 public Authenticated bit0；仍无 lease。失败 -1000，无有效 lease；AUTH 已尝试则 shutdown 后独立确认 stopped，不能确认时 Poisoned 并保留资源。 | [auth](../../../scripts/tests/test-k60-owner-auth.c)：12 场景 |
+| 4 k60_owner_build_handoff | Started 且 public facts 精确 15；plan.required 精确 15、epoch 匹配。ready callback 后短锁发现 partition/真实 443/全零 descriptor/精确 items，解锁重验 live；最终短锁只 build_existing+self-parse，再解锁核对 offsets/epoch/restart。 | 成功 0，Built，才产生 native lease 并设置内部 build/self-parse bit1。required=14 返回 -47；缺 partition -45，不写 /chosen；其余见下表。 | [build](../../../scripts/tests/test-k60-owner-build.c)：15 场景 |
+| 5 k60_owner_publish | Built；/chosen registry root 就绪、无已有属性、owner live；再次 ready/restart、自解析同一 blob/epoch，再调用原子 no-clobber commit。root 不是已挂载 rootfs。 | 成功 0，Published，当前启动 epoch 的 104 字节记录已提交；没有成功后的 release 路径。已有属性 -41，root 不就绪 -43；commit 失败 -48。 | [publish](../../../scripts/tests/test-k60-owner-publish.c)：22 场景 |
 
-## Lease 成功条件
+阶段诊断格式为 K60ADSP owner stage=%d rc=%d。日志及 report observer 在 TCSR 释放后执行；report 不得重新进入硬件事务。忙时 API gate 的拒绝不进入阶段主体。无效/陈旧阶段入口拒绝而不拆除已有 Built/Published 状态。
 
-| 字段 | runtime 的必要检查 | provider 必须证明的事实 |
-|---|---|---|
-| version / bytes | version == 1；bytes == sizeof(K60AdspOwnerLease) | 这是当前进程/内核内的 native ABI，不能把结构体直接当作 104 字节线格式，也不能硬编码跨架构 sizeof。 |
-| flags | 精确 K60AdspHandoffRequired == 15 | bit0 Authenticated、bit1 ResourcesHeld、bit2 GlinkExclusive、bit3 FreshHostFifos 分别都有真实依据。数字 15 本身不是依据。 |
-| epoch | uint32_t 且非零 | 绑定当前启动、板级配置、SMEM items 几何和同一个 token；不能使用常量占位、旧启动或重启后的租约。序列化记录中的 epoch 字段为 64 位，本入口目前只提供 32 位 epoch。 |
-| token | 非空，后续 revalidate 一直有效 | 由 provider 持有的真实、不提前过期的排他所有权；不是随意非空地址。runtime 的栈上 lease 副本会在返回时消失，provider 必须自行保证 token/资源的持久生命周期。 |
+## 注入后端与 Lead-owned carrier
 
-板级输入来自 K60BatteryConfig：SMEM 0x80900000/0x200000、ADSP 0x9fd00000/0x3100000、mutex 0x1f4100c、IPCC 0xed18000/0x1000、remote PID 2、client 3/signal 0、desc/TX/RX/SMP2P items 478/479/480/443、protocol 1。provider 必须绑定传入的实际配置，不得另用旧固定 carveout 或其他板参数。
+K60OwnerOps version=1，bytes=sizeof(K60OwnerOps)。除 available/stopped/live 必须精确返回 1 表示已证明的事实外，返回 int 的回调以 0 成功、非零失败；锁忙不可冒充成功。失败的 acquisition callback 必须自行事务性清理，不得把部分资源隐藏在失败返回中。
 
-## 所有权与发布时序
+| 注入组 | 接口与义务 |
+|---|---|
+| 准备状态 | available(context, config) 无副作用，覆盖 SCM、投票、reset/exclusion 及 carrier 可用性；不是“DSP 正在运行”的别名。未就绪必须先于任何 SMEM/TCSR map/访问返回。 |
+| 固件 | image_reader(context, image) 由 Lead 提供；成功须给非空 handle、MDT、可写且不别名的 metadata/capacity，以及所需 piece callback/context。MDT 和全部 .bNN 稳定、不可变并 pin 至 image_close；必须覆盖实际 load，而非只覆盖 parser 调用。失败 transactional。 |
+| 持续排他 | exclusive(context, config, &epoch, &cookie) 返回真实非零 cookie/当前启动 epoch；resources(context,cookie) 保留 power/XO/interconnect。live(context,cookie,epoch) 只读、非阻塞，绑定同一配置/几何/启动。禁止 reset/restart、并行 GLINK worker、掉票或 token 过期跨越解锁窗口。 |
+| stopped 与映射 | stopped(context,cookie) 独立证明 PAS stopped；未知/正在运行拒绝 takeover。map_smem(context,config,&smem) 只在上述依赖和 stopped 证明后执行；返回精确 0x200000 大小、8 字节对齐映射。lock/unlock 是真实 TCSR 短锁，不是长期软件 lease。 |
+| PAS/装载 | init_image(context,metadata,bytes)、mem_setup(context,base,span)、load(context,destination,bytes,copy_bytes,zero_bytes)、auth_and_reset(context)、shutdown(context)。load 必须写入规划的 ADSP 物理区域并完成 BSS 清零及 cache 同步，AUTH 之前全部完成；不能仅处理 host 缓冲就声称装载。安全后端负责 SCM 串行化、interrupted resume/busy 处理、coherent metadata 和有界事务。 |
+| ready | ready(context,config,smem,&bytes,&restart) 有界等待真实 slave-kernel；每次 discovery 自己取得/释放短 TCSR，sleep 只在解锁后。要求 state&2 且 !(state&1)，保持 restart 一致；不能创建 443 或伪造 ready。具体时限由未来平台后端落实，本轮未安装硬件 polling 实现。 |
+| registry | K60OwnerPublishOps 的 root_ready(context)、exists(context)、commit(context,blob,bytes)；commit 原子无覆盖且失败不得先写属性。runtime 先分配 OSData，commit 内 append/self-parse 后 runPropertyAction 检查/设置。 |
 
-1. 门控通过后，runtime 取得不可回收的 startup owner=1 claim，验证配置/重叠和 /chosen，拒绝重复属性并预分配 OSData。acquire 的固件载体、SCM 和资源依赖必须已可用；不能等 vfs_mountroot 或 Data 挂载。
-2. provider 在 PAS1 stopped 的安全准备阶段准备新鲜、精确的 host desc/TX/RX items（32/4096/4096 字节）及零 host indices；认证、启动 PAS1，并持续持有 power/XO/interconnect 等所需资源。SMEM 准备须有正确互斥；不能清除运行中 DSP 的进展，也不能创建 item 443 冒充远端 ready。纯 MDT 解析结果不是认证完成。
-3. acquire 返回后，provider 排斥其他 GLINK worker、复位/重启和资源撤销路径。pin 必须覆盖所有 revalidate 之间的解锁窗口；一次瞬时检查成功不足以满足此契约。
-4. publisher 经 o->pas 重验，再以短 TCSR 锁发现 host0/ADSP2 partition 和 slave-kernel；要求 (state & 2u) != 0、(state & 1u) == 0，保存并复核 restart。每次 ready 最多 2000 ms、间隔 20 ms；每次 mutex 尝试最多 1000 us、间隔 10 us，不是整个交接总共 2 秒。
-5. 最终 TCSR 临界区内复查 partition、ready/restart、全零 32 字节 descriptor 及既有 items，调用 k60_handoff_build_existing() 并 self-parse。同一锁不得由外层预持；builder 自身不锁。plan.required 必须精确 15、epoch 非零；live 路径不分配或清零 FIFO。
-6. 解锁后再次重验 owner 和 ready/restart，对精确 104 字节 OSData 自解析，在 runPropertyAction 中原子检查/提交 /chosen/k60-adsp-glink-handoff。成功必须早于 k60_physical_battery_start()，因此也早于 vfs_mountroot()。
-7. 提交前失败，对已取得的 owner 执行 abort；提交成功后，GLINK 交给既有 consumer，provider 不再运行竞争 worker，资源/token/epoch 必须持续保留。本 API 没有成功后的 release 入口；不能按普通临时探针退出而掉票或复位 DSP。重启恢复协议仍须另行设计，当前没有自动恢复保证。
+未自动安装旧 K60AdspPas/K60AdspBoot 的 raw SMC 路径：其一次调用不能提供完整 SCM 事务、coherence、资源或 stopped 证明，旧 AUTH-before-INIT 顺序也未复用。真实后端仍由 Lead/ADSP 接入，测试 fake 不安装到生产入口。
 
-Provider callback、registry commit、OSData 分配和 sleep 均不在最终 TCSR 临界区内。TCSR 不会冻结 DSP，restart 检查也不能保证未来不崩溃。当前全零 descriptor 策略可能拒绝真实远端进展，不能为让发布成功而清零它。
+## 公共 flags 与内部完成位
 
-## PAS 未就绪与失败的可观察结果
+K60AdspOwnerLease 保持 uint32_t version, bytes, flags, epoch 加 void *token；version=1、bytes 使用 native sizeof。104 字节 little-endian wire record 的 epoch 是 64 位，不能直接序列化 native struct。
 
-以下默认 provider 场景以电池宏启用、门控成功、无预存属性、runtime 前置检查通过为条件；它们是源码预期，不是本轮上机观察。
+| mask | 固定语义 |
+|---|---|
+| 公共 flags bit0/bit1/bit2/bit3 | Authenticated / ResourcesHeld / GlinkExclusive / FreshHostFifos；精确合计 15，各项来自对应成功事件。bit1 始终是 ResourcesHeld。 |
+| session.completed | Claim=1、Build/self-parse=2、Prepare=4、Auth=8、Publish=16；仅软件内部进度，绝不转换为公共硬件事实。 |
+| epoch / token | 非零当前启动 epoch，绑定 cookie、板级配置和 items；native token 指向持久 session。revalidate 同时验证真实 backend live，不能仅凭非空地址或数字 15 授权。 |
 
-| 情况 | 返回/日志 | 发布和后续行为 |
-|---|---|---|
-| 缺省 provider / acquire 不可用 | acquire 清零 lease，返回 -1000；runtime 记录 K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published，返回 -42。 | runtime 未到 SMEM/TCSR 映射；不新增属性。原有 IOBSD/电池顺序继续。 |
-| acquire 返回 0 但 lease 字段无效或首次 revalidate 非零 | runtime 返回 -42；同一日志的 rc 仍取 acquire 返回值，因此可能显示 rc=0。 | 这不是成功；有 token 时调用 abort，不发布。诊断时不能只看日志中的 rc=0。 |
-| 成功 acquire 后，o->pas 重验失败 | publisher stage=-42，result.detail 保存 callback 的非零 rc。 | 不继续 ready/build/property；runtime 对已取得 owner 执行 abort。 |
-| owner 有效但 SMP2P 不 ready、reset、超时或 restart 改变 | publisher stage=K60PublishNotReady (-43)。若只在最终 property callback 的复核失败，则外层 stage=K60PublishPropertyFailed (-48)。 | 无新属性；最终锁已释放后 abort。缺省 -1000 在更早一步失败，不能误写成已经轮询到 -43。 |
-| 无属性而一次性电池入口执行 | consumer 得到 K60ConfigNoOwnership (-4)，记录 K60Battery: blocked rc=-4: no authenticated exclusive PAS1/SMEM/GLINK platform handoff; no MMIO, FIFO writes or power-source publication。 | consumer 在传输映射/电源源发布前退出；后到属性不会自动重试。此结论只覆盖这条受检路径。 |
-| 已有属性或 startup claim 已占用 | 返回 K60PublishExists (-41)，早于 acquire；保留既有属性。 | 不能声称本次新发布，也不能凭重复退出判定既有属性有效。早期尝试失败仍保留 startup claim，排斥晚期诊断。 |
-| opt-in 关闭 / 电池宏关闭 | 调用点不进入 publisher；电池宏关闭时连参数解析也被编译掉。 | 14 项宿主 dispatch 用 spy 检查此边界，不证明其他 boot 模块没有 SMEM 访问。 |
+固定板级输入为 SMEM 0x80900000/0x200000、ADSP 0x9fd00000/0x3100000、mutex 0x1f4100c、IPCC 0xed18000、remote PID2、client3/signal0、478/479/480/443、protocol1；runtime 在 provider 有副作用之前拒绝 XNU RAM 重叠。没有另取旧 carveout 或合成 epoch。
 
-门控检查的是 PE_parse_boot_argn 成功且 unsigned 解析结果等于 1，不是原始字符串必须恰为 pong_handoff_publish=1；裸参数和四字节截断语义见集成顺序文档。没有修改 board 默认参数或镜像白名单。
+## 锁、失败和终态
 
-## 当前实现缺口与验收边界
+逻辑软件 lease 覆盖阶段 2–4 及阶段 5 的 commit；不能在阶段间释放 votes/exclusion。短 TCSR 分别保护 stopped allocation、SMEM discovery 及最终序列化。最终区间只执行 k60_handoff_build_existing()+k60_adsp_handoff_parse()，不执行 PAS/owner callback、OSData/registry 操作、sleep 或日志。builder 自身不锁，不能外层预持同一个不可重入锁调用阶段 API，也不包裹旧 aggregate k60_handoff_publish()；旧 helper 保留单独宿主测试，runtime 不再通过它发布。
 
-- 当前 K60AdspOwner.c 只实现 -1000 缺省路径，没有早期固件 carrier/reader、已审计的 SCM/PAS 事务与 metadata 一致性、资源/复位 provider、fresh FIFO 准备或成功后持久排他所有权。Lead/ADSP 的 PAS/boot 工作须按本契约逐项接入；仅有函数符号或诊断返回 0 不满足要求。
-- 此缺口共同阻塞 battery/charger 的真实 GLINK 和依赖 ADSP 的 audio 路径。本契约不宣称其余音频/充电功能已具备，其他各自依赖仍须验证。
-- 0619 重编号后先运行 check-patch-apply.py，再运行 14 项宿主场景：5 个局部 fixture 补丁段 fuzz 0、3 份 canonical mirrors 一致。前者仅检查 git apply 解析语法，后者是受限 predecessor fixture，不是完整 series 干净重放、内核链接、PAS1 启动或 GLINK 报文证据。
-- 完成标准仍是独立记录真实认证/启动、持续资源、排他 token/epoch、SMP2P ready/non-reset、104 字节发布、consumer 采用以及真实 GLINK 事务；不能用 host PASS、合法 blob、发布日志或一次 SMC 返回代替。后续构建和设备验证必须另获授权，本轮均未执行。
+提交前经 fail()/abort 处理的事务失败会清除可用 lease；无效参数/缺少 callback、忙 gate 或陈旧阶段等入口拒绝不进入清理，保留已有 Built lease/resources。AUTH 已尝试时执行 shutdown 并独立证明 stopped；只有确认安全才 unmap → image_close → resources_release → exclusive_release，各已取得资源只释放一次。shutdown/stopped 不确定时进入 Poisoned，保留排他、votes、映射和 reader 状态，拒绝重试；不能宣称硬件已停止。未尝试 AUTH 也要求 stopped 证明后才释放。
 
-## 编号与证据台账
+commit 与 Published 状态切换受同一非阻塞 API gate 保护；重入 abort/publish 不能在属性成功后撤销资源。Published 后 abort 是 no-op，资源/token 持续保留。新启动、DSP crash/reset 后的恢复协议未实现。
 
-按 Lead 本轮编号决定：已构建归档的 thermal-20261115a 保留 0617，springboard 保留 0618，本线仅将原 handoff 补丁改为 0619；不改动其他线补丁，也不并 main。0619 补丁正文保持 SHA-256 b7eb981351f828023af827a649dc77a93146ac26ac14117de43e9482fcf3508b。
+## 返回与可观察结果
 
-本轮离线记录位于 E:/k60-work/artifacts/adsp-handoff-0619-20261115/：patch-apply.log 为改动补丁语法检查，integration.log 为 14 项 dispatch/5 段 fuzz 0/3 镜像检查，owner.log 为本线作用域检查。八步台账的 verify/local_verified/device 继续为 false。未生成 kernel/image，也未执行设备、boot 或串口操作。
+| 层/情况 | 结果 |
+|---|---|
+| 未安装 ops/image_reader 或平台不可用 | wrapper acquire 清零 lease，返回 -1000；尚未 SMEM/TCSR mapping。runtime 在前置检查通过时映射为 -42，不新增属性。 |
+| 阶段 1–3 失败 | -1000；阶段 4 的 lock/partition/dirty/build/ready 分别为 -44/-45/-46/-47/-43，owner 失效 -42。阶段 4 无 property callback，不能写 /chosen。 |
+| acquire 内阶段 4 失败 | acquire 保留其错误码；runtime 当前统一映射 acquire/revalidate 失败为 -42。日志 rc 取 acquire 结果，若 acquire=0 而 revalidate 失败可显示 rc=0，仍不是成功。 |
+| 阶段 5 | 无效参数 -40；已有属性/原子重复 race -41；初始 lease/live 检查失效 -42；root/ready/restart 不就绪 -43；最终 blob 自解析/epoch/live 复核失败 -47（该最终 live 失效也返回 -47）；其他 commit 失败 -48；成功 0。runtime 保留这些 publish 返回码。 |
+| 缺属性的一次性 consumer | consumer 在映射前返回 K60ConfigNoOwnership(-4)，不自动等待晚到属性；当前默认门控保持关闭。已有属性提前重复退出保持原值，不能证明其有效。 |
+
+默认关闭门控仍是 PE_parse_boot_argn 成功且 unsigned 结果为 1；不是严格原始字符串匹配。裸参数/四字节截断 caveat 及 14 个 parser-stub dispatch 测试见集成顺序。未改 board 参数/白名单。
+
+## 验证路径与剩余阻塞
+
+五个宿主测试共 77 场景（17/11/12/15/22），使用 [共享 fixture](../../../scripts/tests/test-k60-owner-fixture.h) 注入 fake carrier/PAS/资源/registry，运行真实 MDT、SMEM allocator、build-existing、consumer parser 和持久 wrapper。覆盖 required14、缺 partition、AUTH 失败/Poisoned、错 epoch/token、重入/陈旧阶段、配置栈寿命、8 字节对齐、重复属性、root 未就绪及成功后不释放。它们验证编排和失败边界，不验证硬件。
+
+执行 [run-k60-handoff-host.sh](../../../scripts/tests/run-k60-handoff-host.sh)；本轮证据在 E:/k60-work/artifacts/adsp-owner-stages-20261115/final-host/host-tests.log。另有 49 publisher、10 builder、16 MDT、21 通知资格、27 单位转换、14 dispatch、5 个局部 patch sections fuzz0/3 canonical mirrors，以及 SDK 语法检查。不是完整 series 重放、整核链接、PAS1 认证或 GLINK 报文证明。
+
+五阶段实现替代了“只有缺省 stub”的软件缺口；生产后端和 Lead-owned carrier 仍未安装，battery/audio/charger 的真实 PAS1/GLINK 共享阻塞未解除。verify/local_verified/device 维持 false；未执行内核/镜像构建、设备、boot 或串口操作。编号仍为 thermal0617、springboard0618、本线 handoff0619；本轮 builder 精确 required=15 的变更另有新 patch hash，不能沿用重编号时旧 hash。

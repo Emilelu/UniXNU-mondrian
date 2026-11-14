@@ -1,83 +1,83 @@
 # ADSP handoff 集成顺序
 
-> 2026-11-15；离线集成交付。0619 保留在 feat/adsp-handoff-owner，暂不并 main。真实 PAS1 provider 与最终调用点由 Lead/ADSP、charger 线共同评审；本文不证明 ADSP、音频或电池链路可用。
+> 2026-11-15；0619 仅留 feat/adsp-handoff-owner，不并 main。五阶段软件编排已实现并通过注入测试；真实 carrier/平台后端仍由 Lead/ADSP 接入，不证明 PAS1、GLINK、音频、电池或充电可用。
 
-调用前置条件见 [HANDOFF-PUBLISH.md 的调用点契约](HANDOFF-PUBLISH.md#调用点契约)，provider 接口见 [PAS1-PROVIDER-CONTRACT.md](PAS1-PROVIDER-CONTRACT.md)。上一轮已完成默认关闭门控；本轮按 Lead 编号决定将原 handoff 补丁从 0617 改为 0619，series 原第 225 行原位替换，不改变其他项顺序。已构建归档的 thermal-20261115a 保留 0617，springboard 保留 0618。不改 provider、默认参数、SMEM 算法或 0614，不生成内核/镜像，不接触设备。
+调用前置条件见 [HANDOFF-PUBLISH.md](HANDOFF-PUBLISH.md#调用点契约)，完整签名、返回码和 callback 责任见 [PAS1-PROVIDER-CONTRACT.md](PAS1-PROVIDER-CONTRACT.md)。编号保持 thermal0617、springboard0618、handoff0619；未改默认参数、白名单或其他线补丁，未做内核/镜像构建和设备操作。
 
 ## Boot 时间轴
 
-下图是本分支候选路径，不是已合入 main 的时序。所有六步均须在同步调用返回前完成或失败退出；失败不发布属性，随后允许原有启动流程继续。
+本分支候选路径如下。同步调用必须在一次性 consumer 之前完成或失败；任一步失败停止交接并继续原有 IOBSD/battery 顺序，不制造属性。
 
-default-off gate 在 IOKitBSDInit() 内、任何交接调用之前读取；局部变量初始化为 0，只有 PE_parse_boot_argn() 返回成功且值精确等于 1 才进入发布器。
-
-```mermaid
+~~~mermaid
 flowchart TD
-    A["bsd_init()"] --> B["bsd_autoconf(): kminit() / pseudo devices"]
+    A["bsd_init()"] --> B["bsd_autoconf(): kminit / pseudo devices"]
     B --> C["IOKitBSDInit()"]
-    C --> G{"pong_handoff_publish 解析成功且 == 1?"}
-    G -- 否 --> I["IOService::publishResource(IOBSD)"]
-    G -- 是 --> P["1 PAS1: acquire + revalidate pinned owner"]
-    P --> S["2 SMP2P: state & 2, !(state & 1); capture restart"]
-    S --> L["3 TCSR: final critical-section lock"]
-    L --> M["4 k60_smem_partition(s, 0, 2): recheck ready / restart"]
-    M --> H["5 k60_handoff_build_existing(): flags 15 / epoch != 0 / self-parse"]
-    H --> U["6 unlock; revalidate; atomically set /chosen property"]
+    C --> G{"pong_handoff_publish 解析成功且 ==1?"}
+    G -- 否 --> I["publishResource(IOBSD)"]
+    G -- 是 --> P["runtime: claim / config overlap / chosen / OSData preflight"]
+    P --> O["stages1–3: claim → stopped FIFO prepare → PAS auth/start"]
+    O --> S["stage4: SMP2P ready/non-reset + short discovery lock"]
+    S --> H["stage4 final TCSR: build_existing + self-parse"]
+    H --> U["unlock; stage5 ready/epoch + atomic chosen commit"]
     U --> I
-    I --> K["k60_physical_battery_start(): one-shot consumer"]
-    K --> R["return to bsd_init(); setconf() / IOFindBSDRoot()"]
+    I --> K["k60_physical_battery_start(): one-shot"]
+    K --> R["return; setconf / IOFindBSDRoot"]
     R --> V["vfs_mountroot()"]
-```
+~~~
 
-六步主线：PAS1 → SMP2P ready/non-reset → 最终 TCSR 临界区 → SMEM partition → existing-only build → 解锁后写 /chosen。图中省略了各步失败到 IOBSD 的边：任一步失败都必须停止本次交接，不能伪造成功后继续下一步。
+概念六步仍是 PAS1 → SMP2P ready/non-reset → 最终 TCSR → SMEM partition/build → 解锁 → /chosen。实际实现另有 stopped 准备和短 discovery 锁，不能把箭头误读为首次 SMEM 访问无锁，或在生产后端未就绪前先 map。
 
-**锁的实际嵌套边界：** 第 2 步的 ready() 为读取 item 443，已经短暂执行 lock → k60_smem_partition → k60_handoff_remote_ready → unlock；读取前绝不是无锁。第 3–5 步是第二段最终临界区，第 6 步发布前还会重复一次带锁的 ready discovery。不得为迎合箭头顺序而把首次 SMEM 读取挪到锁外，也不得带着同一个不可重入 TCSR 锁调用 k60_handoff_publish()。
+## 五阶段与六步对应的函数边界
 
-## 六步的函数前后界限
-
-| 步骤 | 当前分支函数/责任 | 必须在其后发生 | 必须在其前完成 |
+| 顺序/概念 | 当前函数与边界 | 必须先满足 | 必须早于 |
 |---|---|---|---|
-| 1 PAS1 | k60_adsp_handoff_publish() 先验证板级范围、重复属性并预分配 OSData，再调用 k60_adsp_owner_acquire()/revalidate()。Owner 须在 DSP stopped 时准备新 FIFO，认证/启动 PAS1，持续持有资源与排他 token。 | opt-in 门控成功；早期固件载体及资源 provider 已可用。 | runtime 映射 SMEM/TCSR、ready() 及所有后续步骤；绝不能等 rootfs 提供 ADSP 固件。 |
-| 2 SMP2P | k60_handoff_publish() 的 o->pas、o->ready；runtime ready() 在短锁内查 partition 和 item 443，要求 slave-kernel 的 (state & 2u) != 0 且 (state & 1u) == 0，保存 restart。 | 真实 owner 成功且被 pin；合法映射已建立。 | 第 3 步最终锁；超时/失配时不 build、不 publish。 |
-| 3 TCSR | 发布器调用 o->lock(ctx)，runtime lock() 有界取得硬件 mutex。调用者提供回调，builder 自身不锁。 | 第 2 步 ready 成功；上一次 discovery 已解锁。 | 第 4 步读分区、fresh descriptor 检查及第 5 步 existing-only build。 |
-| 4 SMEM partition | k60_smem_partition(s, 0, 2, &part)；在锁内复核 ready/restart、32 字节全零 descriptor 和既有 items。 | 第 3 步锁成功。 | 构造 K60HandoffPlan / 调用 build；失败的所有 acquired-lock 路径均解锁。 |
-| 5 build | k60_handoff_build_existing()，随后 k60_adsp_handoff_parse()，核对 desc/TX/RX 精确 32/4096/4096。plan.required == K60AdspHandoffRequired == 15；epoch 非零且属于同一 pinned owner。 | 第 4 步有效；临界区仍保持。 | o->unlock(ctx)；不得调用 allocating builder、清零活环或重置索引来修饰失败。 |
-| 6 /chosen | 先 unlock，再复核 owner 和 ready/restart；追加精确 104 字节、再次自解析，runPropertyAction 原子检查重复并 setProperty。成功后不 abort owner。 | 第 5 步成功、TCSR 已释放。owner callback、等待和 registry commit 都不得夹在第 3–5 步锁内。 | 发布器同步返回，然后 publishResource(IOBSD)、k60_physical_battery_start()；因此也早于 setconf()/IOFindBSDRoot()/vfs_mountroot()。 |
+| runtime preflight | k60_adsp_handoff_publish：永久 startup owner1 claim；生成配置、XNU RAM overlap、/chosen duplicate 检查；预分配 OSData。 | 默认关闭门控成功；电池宏启用。 | provider 有副作用、SMEM/TCSR map。 |
+| 阶段1 claim | k60_owner_claim：完整 available/backend/reader、MDT验证、排他 cookie/epoch、资源和 stopped/live 证明，再 map 和短 TCSR probe。 | Lead 的早期 carrier/SCM/资源路径已经可用；不得等待 rootfs。 | FIFO 准备和任何 PAS 写操作；缺依赖 -1000 早于 mapping。 |
+| 阶段2 stopped prepare | k60_owner_prepare_pas1：短 TCSR 下 partition 查找，fresh478/479/480分配32/4096/4096；拒绝旧 host items，不创建443。 | 逻辑排他 lease 持续；PAS stopped。 | AUTH/start。partial失败不可重试为fresh。 |
+| 阶段3 / 六步1 PAS1 | k60_owner_auth_and_start：INIT metadata一次 → reloc MEM_SETUP → COPY/BSS/CACHE → AUTH_AND_RESET。 | stopped/资源/排他有效；reader bytes pin到load；实际物理装载和cache同步由后端完成。 | public Authenticated bit0、ready；此时仍无 native lease。 |
+| 阶段4 / 六步2 SMP2P | k60_owner_build_handoff 调 ready；backend自己短锁发现443，再由core短锁复核partition/ready/restart/全零descriptor/items。 | PAS成功且public facts15；plan.required15/epoch匹配。 | 最终序列化锁；不通过则不build、不写chosen。 |
+| 阶段4 / 六步3–5 | 解锁重验 live，再 lock；只 k60_handoff_build_existing + consumer self-parse；unlock后核对offsets/epoch/restart。builder本身不锁。 | discovery已解锁、逻辑lease仍pin；final TCSR成功。 | 内部build/self-parse bit1及native lease；公共bit1始终ResourcesHeld。 |
+| 阶段5 / 六步6 | k60_owner_publish：registry root/exists、owner live、ready/restart和blob/epoch检查，runtime commit内append/self-parse并runPropertyAction原子无覆盖写104字节。 | final TCSR已释放；callback不执行于该临界区。 | 同步返回、IOBSD、physical battery，因此也早于setconf/root挂载。 |
 
-ready() 每轮 polling 最多 2000 ms、间隔 20 ms；每次 TCSR lock 最多 1000 us、重试间隔 10 us。ready 会被多次调用，不能把单次 polling 上限误写成整个交接全局只耗时 2 秒。每次 sleep 前已解锁。TCSR 只串行化主机 SMEM 访问，不会冻结 DSP；restart 复核不能保证未来不崩溃。
+生产 wrapper 的 k60_adsp_owner_acquire 顺序执行阶段1–4，并为stage4 plan先调用一次ready；k60_adsp_owner_publish执行阶段5。runtime不再自己map/ready，也不走旧aggregate k60_handoff_publish；不得外层持同一不可重入TCSR后调用阶段API。
 
-## 电池入口与 root 挂载的边界
+## 逻辑所有权与短锁
 
-- inspected XNU 路径是 bsd_init() → bsd_autoconf() → IOKitBSDInit()，返回 bsd_init() 后才 setconf()/IOFindBSDRoot() → vfs_mountroot()。因此选定的六步都位于 root 挂载之前，普通 rootfs/Data 文件读取不能充当前置固件载体。
-- 本分支 k60_physical_battery_start() 先置 attempted，再读取 /chosen/k60-adsp-glink-handoff；无属性或解析失败就返回，不会为晚到的属性自动重试。异步派发、vfs_mountroot 之后或 Data-mount 钩子不能补救本次启动。
-- 这只说明现有 consumer 代码要求的时序，不说明真实 provider/consumer 已完成集成。当前默认 owner 返回 -1000，在 runtime 的 SMEM/TCSR 映射前失败；成功日志或合法 blob 都不是 GLINK 通信/电池读数证明。
-- 启用早期试验会取得不可回收的 startup owner=1 claim，即使随后失败也排斥晚期诊断 owner=2。门控必须放在调用发布器之前，不能先 claim、map、ready 再检查参数。参数关闭时，晚期诊断保持其原有门控行为。
+软件排他 session 从claim持续覆盖阶段2–4和stage5 commit；copy配置/ops且context/reader持久，不能使用runtime栈寿命作为资源寿命。短TCSR分别用于probe、stopped allocation、ready discovery、core discovery和final build/parse；每次成功取得才恰好解锁一次。ready回调必须有界、只在解锁后sleep，未来硬件后端需落实时限，本轮没有可运行的真实polling实现。
+
+最终TCSR区只包含build_existing+self-parse，不包含PAS/owner callback、日志、sleep、OSData或registry操作。核心stage诊断为 K60ADSP owner stage=%d rc=%d，解锁后才输出。TCSR不冻结DSP；逻辑平台排他契约必须覆盖所有解锁窗口，restart检查不能防止未来崩溃。
+
+AUTH尝试后失败必须shutdown并独立证明stopped才释放；无法确认则Poisoned保留votes/exclusion/map/reader，不重试。成功commit与Published转换受同一非阻塞API gate保护；重入abort不能掉票或复位已发布DSP，成功后没有release路径。
+
+## 电池入口与 root 挂载
+
+- 检查的XNU顺序是bsd_init → bsd_autoconf → IOKitBSDInit，返回后才setconf/IOFindBSDRoot → vfs_mountroot。registry root指/chosen可用，绝不是rootfs已挂载。
+- consumer先置attempted再读属性；无属性/无效属性返回后不会为晚到属性重试。Data-mount、root后文件读取或异步补发均太晚。
+- 未安装backend时acquire=-1000，runtime前置检查通过后返回-42且不map；无属性consumer在transport之前blocked=-4。这是源码与host边界，不是设备观察。
+- 早期启用尝试永久占用startup owner1，即使失败也排斥late owner2；gate关闭不取该claim，晚期诊断保留自身策略。原有属性提前duplicate退出并保留，不能据此证明其有效。
 
 ## 默认关闭和宿主断言
 
-0619 的 IOKitBSDInit() 候选调用点仅在 XNU 的 PE_parse_boot_argn() 返回成功且写入的 unsigned 值等于 1 时调用 k60_adsp_handoff_publish()；这里检查解析结果，不要求原始 token 字面恰为 pong_handoff_publish=1。检查的 XNU parser 会把裸 pong_handoff_publish 视为 1，四字节输出还会截断较大数值，例如 4294967297 也会写入 1。缺参、解析失败（即使 parser 向输出写了 1），或解析结果为 0、2、UINT32_MAX 均不调用发布器。XNU_K60_PHYSICAL_BATTERY=0 时连参数解析都被编译掉。未修改 board.toml 默认参数或镜像参数白名单；未来若要制作 opt-in 镜像，应先由 Lead 审查登记参数，再走规范镜像 gate，不得绕过白名单。
+PE_parse_boot_argn必须返回成功且写入unsigned==1才调用；局部初值0。检查的XNU parser把裸pong_handoff_publish视为1，四字节还会截断4294967297为1，因此不是严格原始token字符串检查。缺参/解析失败（即使写1）或结果0/2/UINT32_MAX拒绝；电池宏0时连parser都编译掉。未修改board默认参数或镜像白名单。
 
-[test-k60-handoff-integration.py](../../../scripts/tests/test-k60-handoff-integration.py) 将 0619 以 fuzz=0 应用到临时 predecessor fixture，提取**应用后的真实 IOKitBSDInit() 函数体**，分别按电池宏 0/1 编译运行。7 场景 × 2 配置 = 14 项：关闭路径的发布器调用、SMEM/TCSR/PAS/startup claim 计数均为 0；开启路径会触达这些 spy，证明断言不是空跑，并检查 publisher → IOBSD → battery 顺序；provider 返回 -1000 也不会阻断原有 IOBSD/battery 调用顺序。
+[test-k60-handoff-integration.py](../../../scripts/tests/test-k60-handoff-integration.py) 将0619以fuzz0应用到临时predecessor fixture，提取应用后的真实IOKitBSDInit函数体，7场景×电池宏0/1=14。关闭路径publisher/SMEM/TCSR/PAS/claim spy为0；开启路径非空跑，且provider错误时仍保持publisher→IOBSD→battery。parser为stub，不覆盖原始boot-string或硬件，也不证明其他boot模块不访问SMEM。5补丁段/3 canonical mirrors通过；late fixture按当前0614重建，不是完整series重放。
 
-宿主 fixture 替代了 parser；14 项证明解析返回值到调用点的分派行为，不覆盖原始 boot-string 的解析。这里证明的是新增交接调用点不会进入任何 downstream 交接访问，spy 不执行硬件访问。它不是“整个 boot 的其他模块都不访问 SMEM”的证明：已有 /chosen 属性的电池 consumer 或另行启用的旧诊断仍属于各自策略；也不是硬件 tracer、完整内核链接或整条 series replay。缓存中的旧 late hook 与本分支 0614 不同，fixture 的 late 段按当前 0614 postimage 重建。
-
-0619 重编号后先通过 check-patch-apply.py（只检查 git apply 解析语法），再通过局部 fixture 的 14 项宿主场景、5 个补丁段 fuzz 0 和 3 个 canonical mirrors。记录：E:/k60-work/artifacts/adsp-handoff-0619-20261115/integration.log；SHA-256 b8118e6bc6d1f9e537c72e96706d519007b96955f507c5b33a3c063fef3e30d7。结果与上一轮相同，不是完整 series replay、真实 PAS1 或 GLINK 功能证明。没有运行 build-strict、内核编译/链接、生成镜像或设备/串口操作。
+新增五阶段host77场景（17/11/12/15/22）使用fake carrier/PAS/资源/registry和真实MDT/SMEM/build/parser。详见 [测试入口](../../../scripts/tests/run-k60-handoff-host.sh) 及provider契约。当前日志 E:/k60-work/artifacts/adsp-owner-stages-20261115/final-host/host-tests.log；不生成内核/镜像，不证明实际PAS启动或GLINK通信。
 
 ## 未来集成者检查清单
 
-- [ ] 0619 仅留试验分支；与真实 PAS1 provider、charger consumer 一起评审。0617 留给已构建归档的 thermal，0618 留给 springboard，不能重编号/覆盖他线补丁。
-- [ ] 核对目标 XNU 的 bsd_init/bsd_autoconf/IOKitBSDInit/setconf 调用顺序，确认六步早于一次性电池入口及 vfs_mountroot；provider 不依赖未挂载的 root/Data。
-- [ ] 所有到 k60_adsp_handoff_publish() 的试验入口均经过默认 0、parse-success 且精确 ==1 的 gate；无旁路调用；没有静态初始化、预读 SMEM 或提前 claim。
-- [ ] 先证明真实 PAS1 认证、固件装载、持续资源和排他 token/epoch；flags=15/epoch!=0 只是必要数据条件，不能冒充所有权。
-- [ ] 第 2 步 discovery 的短锁、第 3–5 步最终锁和第 6 步复核短锁均完整配对；无 provider callback、OSData 分配、registry commit 或 sleep 位于最终锁内。
-- [ ] item 443 的 ready/non-reset 和 restart 一致，host0/ADSP2 partition 与 478/479/480 几何完全匹配；拒绝缺项/脏 descriptor/已进展环，不现场分配或清零。
-- [ ] plan.required 精确 15、epoch 非零绑定本次启动和配置；build_existing 与 consumer self-parse 对同一 104 字节通过。
-- [ ] 成功属性在 IOBSD/battery 前原子可见；失败不发布；成功后不 abort/reset/释放 provider；确认早期失败排斥晚期 owner 的行为可接受。
-- [ ] 重跑宿主关闭路径零访问、开启路径可达、失败路径顺序和 0619 canonical mirrors/fuzz=0 检查；后续完整内核链接/镜像核验单独记录，不能沿用本次宿主结果。
-- [ ] 只有用户和 Lead 明确授权后才 boot；以真实 PAS1、持续资源、SMP2P、consumer 发现及 GLINK 报文证据判定集成，不能仅凭发布日志。
+- [ ] 0619仅留分支；与Lead-owned carrier及真实平台后端共同评审，保持thermal0617/springboard0618。
+- [ ] 逐项安装完整ops与reader，先available/stopped/排他证明再map；真实SCM序列化/resume/busy/coherence和COPY/BSS/cache到物理ADSP区域落实。
+- [ ] 五阶段同步完成早于IOBSD/一次性battery/root挂载，入口均先过默认关闭gate，无提前claim/map旁路。
+- [ ] 当前启动cookie/epoch、资源和逻辑lease跨越阶段2–4及stage5；不把内部build bit1当public ResourcesHeld。
+- [ ] short锁配对；final只有build+selfparse；ready/日志/睡眠/registry均在final之外。
+- [ ] stopped时仅fresh host478/479/480；不创建443、不清零活环；required精确15、epoch/几何/ready/restart一致。
+- [ ] AUTH失败可安全shutdown+stopped；不确定Poisoned保留资源；原子发布成功后无abort/release/reset路径。
+- [ ] 重跑77阶段/14dispatch/5段fuzz0/3mirrors，再单独授权完整series/kernel链接和产物核验。
+- [ ] 只有用户与Lead明确授权才boot；以真实PAS1、持续资源、SMP2P、consumer发现和GLINK报文判定，不凭日志或合法blob。
 
-## 本次检查的源码定位
+## 检查的源码位置
 
-- 本分支 [0619 调用点补丁](../../../patches/xnu/0619-k60-adsp-glink-handoff.patch)、[K60HandoffRuntime.cpp](../../../drivers/PongPower/K60HandoffRuntime.cpp)、[K60HandoffPublish.c](../../../drivers/PongPower/K60HandoffPublish.c)、[K60HandoffBuild.c](../../../drivers/PongPower/K60HandoffBuild.c)、[K60Battery.cpp](../../../drivers/PongPower/K60Battery.cpp)。
-- 只读缓存位于 /opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work：bsd/kern/bsd_init.c 的 bsd_autoconf 调用约 908–909 行、函数体约 1305–1321 行、setconf/vfs_mountroot 约 983–994 行、IOFindBSDRoot 约 1370–1375 行；iokit/bsddev/IOKitBSDInit.cpp 约 109–126 行。缓存用于定位/fixture，行号会随补丁变化，不宣称该缓存整体等于本分支。
-- 检查时缓存 bsd_init.c SHA-256 e75e23c6be6a60121e11bf9e5501c39ef0bd40e19898c223a5b48b02d2f50bdb；IOKitBSDInit.cpp SHA-256 9bb81ab81d076304e338e23ef294046276792ab8c6e3e56ea6441f5a5bc5df09。
-- 同一缓存 pexpert/gen/bootargs.c 约 140–144 行为成功数值拷贝，378–379 行为四字节截断，485–486 行为裸参数值 1；SHA-256 1431f1f8aacae240b87bd29cd91905784c968f8014784201b3ed862bdb1b4ed9。
+本分支 [0619](../../../patches/xnu/0619-k60-adsp-glink-handoff.patch)、[runtime](../../../drivers/PongPower/K60HandoffRuntime.cpp)、[stages](../../../drivers/PongPower/K60AdspOwnerStages.c)、[builder](../../../drivers/PongPower/K60HandoffBuild.c) 与 [consumer](../../../drivers/PongPower/K60Battery.cpp)。只读缓存 /opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work 用于定位/fixture，不宣称整体等于分支。
+
+缓存bsd/kern/bsd_init.c约908–909/1305–1321/983–994/1370–1375行对应autoconf/IOKitBSDInit/root顺序，SHA e75e23c6be6a60121e11bf9e5501c39ef0bd40e19898c223a5b48b02d2f50bdb；IOKitBSDInit.cpp SHA 9bb81ab81d076304e338e23ef294046276792ab8c6e3e56ea6441f5a5bc5df09。pexpert/gen/bootargs.c约140–144/378–379/485–486行对应数值copy/四字节截断/裸参数1，SHA1431f1f8aacae240b87bd29cd91905784c968f8014784201b3ed862bdb1b4ed9。

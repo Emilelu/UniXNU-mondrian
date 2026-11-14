@@ -877,3 +877,44 @@ manifest：`/mnt/e/k60-work/artifacts/usb-20261114f/build-manifest.json`
 用户 m01929：“禁止擅自 boot”。两张镜像、脚本（`boot0407e.sh` / `boot0408f.sh`）与证据目录都已就绪，
 设备 `6033dbec` 停在 fastboot，本轮**没有**任何 `fastboot boot` / `boot-and-capture.ps1` 进程。
 批准后**只需跑 f**（`E:/k60-work/scratch/usb/boot0408f.sh`），预计 300 s 采集 + 约 2 min 起机。
+
+## 19. 判据执行器：`docs/research/usb/analyze-capture.py`
+
+§13.3 / §16.3 / §18.3 的判据此前只写在文档里，每次上机都要手工 `grep`。本节把它变成一个只读脚本，
+上机后一条命令出结论：
+
+```
+python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-<stamp>
+```
+
+退出码 0 = 无 FAIL，1 = 有 FAIL，2 = 用法/证据目录错误。脚本**只读**，不修改证据。
+
+### 19.1 三个必须编码进脚本的坑（都是本轮实际踩到的）
+
+| 坑 | 现象 | 处理 |
+| --- | --- | --- |
+| PowerShell 写 JSON 带 UTF-8 BOM | `json.load` 抛 `Unexpected UTF-8 BOM (decode using utf-8-sig)` | 所有 JSON 读取统一 `encoding="utf-8-sig"` |
+| 一次心跳打印**两行** | `K60 USBHB` 行数 = 2 × tick 数（`DSTS` 行 + `GDSC/QSCRATCH` 行）；hb1 里 300 行 = 148 tick | 只数 `^K60 USBHB: DSTS` |
+| 0 字节采集没有描述符信息 | 判据 3/4 会误报 FAIL | 采集 0 字节或缺 98 字节配置请求时，判据 3/4 报 **SKIP**（附原因），不计入失败 |
+
+### 19.2 校准（用已有证据反向验证）
+
+| 证据 | 结果 | 说明 |
+| --- | --- | --- |
+| `usblog-20261114-usb-hb1`（P0，0405） | **ALL PASS**（4 pass / 0 fail / 2 skip） | 279 行 `K60 USBLOG`、148 tick（320 s 采集，期望 160，±10% 内）、`panicMarker=null` |
+| `usblog-20261114-usb-hb2`（P0，0405） | **ALL PASS**（4 / 0 / 2） | 与 hb1 同镜像，可重复性确认 |
+| `usblog-20261114-usb-c1`（P1，0406） | **FAIL**（0 / 4 / 2） | 0 字节、无心跳、`state=opened-no-data` —— 正是 §13 要诊断的现象，脚本判 FAIL 正确 |
+
+判据 3/4 在 hb1/hb2 上是 SKIP（镜像早于 0406，主机从未请求 98 字节配置），在 c1 上也是 SKIP（0 字节，
+镜像根本没说话）—— 这两种 SKIP 的原因文本不同，便于区分"镜像没这段代码"和"镜像没出声"。
+
+### 19.3 上机后的用法
+
+`usb-20261114f` 上机后：
+
+```
+python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-20261114-usb-f1
+```
+
+期望：6 条全 PASS（判据 3 要求 `NUM_EPS ≥ 8` 且 `NUM_IN_EPS ≥ 4`；判据 4 要求 `ep6=0 ep7=0 DALEPENA=0x000000ef`）。
+任一条 FAIL 时脚本会把寄存器原值和期望值并排打印，可直接对照 §18.3 判读。

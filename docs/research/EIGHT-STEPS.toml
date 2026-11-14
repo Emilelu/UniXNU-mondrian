@@ -304,7 +304,7 @@ why = "实体键（电源/音量）"
 
 [hardware.buttons.step.same_model]
 done = true
-evidence = "参考 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch 与 pong 的按键实现。"
+evidence = "同型基线是 UniXNU-pong 的 246 行中断版 pong_buttons.c（K60 现为其 16 ms 轮询子集），逐行对照见 docs/research/buttons/04-WIDE.md:101；寄存器语义另由官方 ButtonProbe.cpp:26-31 与 K60 live FDT 反编译交叉确认，见 docs/research/buttons/02-OFFICIAL.md:42 与 docs/research/buttons/03-REVERSE.md:40。"
 
 [hardware.buttons.step.official]
 done = true
@@ -329,17 +329,20 @@ done = true
 evidence = "深挖结论：configuration() 原本把 7 个以上条件 OR 在一起静默返回 false，无法判断 DT 节点缺失、属性缺失还是值不匹配。2026-11-12 改为逐条件检查并各自打印：Pong keys: DT node / missing <prop> / unexpected bases / ppid mismatch / PMIC windows mapped，实现见 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch，见 P-142。"
 
 [hardware.buttons.step.verify]
-done = false
+done = true
 local_verified = true
-evidence = "本地产物核查通过：kernel.macho sha256 345d44c4 里 Pong keys: missing 命中 7 次，DT node / unexpected bases / ppid mismatch / PMIC windows mapped 各 1 次（2026-11-12）。仍缺上机：按键事件是否真的上报。"
-static_check = "configuration() 的每个条件都有独立分支与日志；与 DT 侧 /arm-io/pong-buttons 的属性名逐一对应（core-base / cnfg-base / observer-base / ee / pon-ppid / volume-up-ppid）。"
-unit_test = "无独立单测：DT 属性存在性只能在目标机判定。"
-artifact_check = "产物字符串核对通过（见 evidence）。"
+evidence = "上机证据来自两次独立启动，均跑通完整链路：usblog-20261110-135459/console.log:244 打印 arbiter v7 channels=768 PON=407 GPIO6=434，:1495 打印 Pong keys HID: physical side/volume consumer opened，:2411 起到 :2557 共 10 条 Pong keys: N down|up 与 10 条 Pong keys HID: key=N down=0|1 sent=1（电源 key=0 三组、音量减 key=2、音量加 key=1，按下与释放成对）；usblog-20261110-160036/console.log:244 同一 arbiter 行，:1602 HID opened，:2912-2974 共 6 条同类事件（key=0 两组、key=2 一组）。两次采集的镜像 sha256 不同（AE40B03C… 与 8F3E63DB…），capture.json 的 panicMarker/resetMarker 均为 null。另 2026-11-14 的 usblog-20261114-usb-hb1/console.log:215 与 :240 复现了 DT 映射与 arbiter 两行（该轮无按键按下）。三类核查见下。"
+static_check = "configuration() 的每个条件都有独立分支与日志；与 DT 侧 /arm-io/pong-buttons 的属性名逐一对应（core-base / cnfg-base / observer-base / ee / pon-ppid / volume-up-ppid）。上机日志里 Pong keys: missing 与 DT node / unexpected bases / ppid mismatch 三类失败串在 234 次 arbiter 行中零出现，说明六个属性在运行时全部命中。"
+unit_test = "离线可判定的部分已单测：docs/research/buttons/tools/adt-inspect.py 解析三份真实 ADT（consumed 与文件长度相等）；把 patches/buttons/board-toml-adt-buttons.diff 打进 board.toml 后用 unixnu.devicetree.generate() 重生成 ADT，/device-tree/buttons 的 button-names 为 hold/voldown/volup 三个以 NUL 分隔的串、home-button-type=0x2 与 /device-tree/arm-io/pong-buttons 六属性全部命中。DT 属性是否被驱动接受只能在目标机判定。"
+artifact_check = "产物字符串核对通过：kernel.macho sha256 345d44c4 里 Pong keys: missing 命中 7 次、DT node / unexpected bases / ppid mismatch / PMIC windows mapped 各 1 次（2026-11-12）；2026-11-14 又逐节点核对 ADT（sha256 18a514e7…，15,736 B，含 /arm-io/pong-buttons 六属性）。"
 
 [hardware.buttons.step.device]
-done = false
-evidence = "STATUS.md:24 标 🔄：驱动已编译/链接/调用，但 configuration() 结果不可观测。"
-prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppid 与 volume-up-ppid）；按下电源或音量键时应看到按键事件上报。若出现 Pong keys: DT node 或 missing <prop>，说明 DT 侧属性缺失，需核对 /arm-io/pong-buttons 节点。"
+done = true
+evidence = "真机三键均可用：usblog-20261108-180257/console.log:229 的 arbiter 行尾 power=1 up=1 down=1（三键都被识别为 usable），usblog-20261110-135459/console.log:2411-2557 与 usblog-20261110-160036/console.log:2912-2974 分别记录 10 条与 6 条按下/释放事件，覆盖电源、音量加、音量减。STATUS.md:24 的 🔄 指 configuration() 结果不可观测，该缺口已由 2026-11-12 的逐条件诊断打印补上。"
+
+[hardware.buttons.step.device.prediction]
+success = "启动日志出现 Pong keys: PMIC windows mapped, pon-ppid=0x13 volume-up-ppid=0x18d 与 Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1，随后每次按下与释放各产生一条 Pong keys: <0|1|2> down|up 与一条 Pong keys HID: key=<0|1|2> down=<0|1> sent=1。"
+failure = "日志出现 Pong keys: DT node /arm-io/pong-buttons not found、Pong keys: missing <prop> 或 Pong keys: unexpected bases，说明 ADT 侧节点缺失或取值不符（按 patches/buttons/README.md 的 board.toml diff 补 [adt.arm-io.pong-buttons.*]）；出现 Pong keys HID: verified PMIC input unavailable; SKIP 说明 /dev/pong-buttons 未就绪；arbiter 行尾任一键为 0 说明该外设校验失败。"
 
 [hardware.wifi]
 status = "parked"

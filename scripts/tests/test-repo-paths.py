@@ -86,6 +86,45 @@ def imported_root(script, cwd, env):
     return result, (lines[-1] if lines else '')
 
 
+PROBE_DRIVER = '''import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location('k60_script', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(repr(eval(sys.argv[2], vars(module))))
+'''
+
+
+def probe(script, expression, cwd, env):
+    driver = Path(cwd) / '_expr.py'
+    driver.write_text(PROBE_DRIVER, encoding='utf-8')
+    result = run([sys.executable, driver, script, expression], cwd=cwd, env=env)
+    lines = result.stdout.strip().splitlines()
+    return result, (lines[-1] if lines else '')
+
+
+FRESHNESS = ROOT / 'scripts' / 'check-build-freshness.py'
+BUILD_ENV = ROOT / 'scripts' / 'check-build-env.py'
+DT_ASSERTS = ROOT / 'scripts' / 'check-dt-asserts.py'
+SYNC_INPUT = ROOT / 'scripts' / 'sync-device-input.py'
+
+
+def sibling_repo(tmp, name):
+    """一棵临时检出，脚本放在 scripts/ 下，兄弟检出建在它的父目录旁边。"""
+    repo = tmp / name
+    (repo / 'scripts').mkdir(parents=True)
+    (tmp / 'UniXNU' / 'scripts' / 'linux').mkdir(parents=True, exist_ok=True)
+    (tmp / 'uefi-mondrian').mkdir(parents=True, exist_ok=True)
+    return repo
+
+
+def copied(repo, source):
+    target = repo / 'scripts' / source.name
+    shutil.copy2(source, target)
+    return target
+
+
 def test_env_override(tmp):
     repo = tmp / 'override'
     (repo / 'scripts').mkdir(parents=True)
@@ -253,6 +292,60 @@ def test_real_repo():
           'the real checkout is green', out[-400:])
 
 
+
+def test_sibling_defaults(tmp):
+    """兄弟检出路径不再是写死的字面量，而是从本仓库根的父目录推出来。"""
+    repo = sibling_repo(tmp, 'siblings')
+    script = copied(repo, FRESHNESS)
+    result, out = probe(script, '(FW_REPO, UEFI)', tmp, clean_env())
+    expected = (str((tmp / 'UniXNU').resolve()), str((tmp / 'uefi-mondrian').resolve()))
+    check(result.returncode == 0 and out == repr(expected),
+          'check-build-freshness.py derives the sibling checkouts from the repo root', out)
+
+    env = clean_env(K60_FRAMEWORK_REPO=str(tmp / 'fw-elsewhere'),
+                    K60_UEFI_REPO=str(tmp / 'uefi-elsewhere'))
+    result, out = probe(script, '(FW_REPO, UEFI)', tmp, env)
+    expected = (str(tmp / 'fw-elsewhere'), str(tmp / 'uefi-elsewhere'))
+    check(result.returncode == 0 and out == repr(expected),
+          'check-build-freshness.py honours K60_FRAMEWORK_REPO / K60_UEFI_REPO', out)
+
+
+def test_build_env_sibling(tmp):
+    repo = sibling_repo(tmp, 'build-env')
+    script = copied(repo, BUILD_ENV)
+    result, out = probe(script, '(str(REPO), str(FW_REPO))', tmp, clean_env())
+    expected = (str(repo.resolve()), str((tmp / 'UniXNU').resolve()))
+    check(result.returncode == 0 and out == repr(expected),
+          'check-build-env.py names the shims by a derived path', out)
+    check('hackios' not in script.read_text(encoding='utf-8'),
+          'check-build-env.py no longer prints a hardcoded shim path')
+
+
+def test_sync_framework_pair(tmp):
+    repo = sibling_repo(tmp, 'sync-input')
+    script = copied(repo, SYNC_INPUT)
+    result, out = probe(script, 'FRAMEWORK_PAIRS[0][0]', tmp, clean_env())
+    expected = str((tmp / 'UniXNU' / 'scripts' / 'unixnu').resolve())
+    check(result.returncode == 0 and out == repr(expected),
+          'sync-device-input.py syncs the framework copy from a derived path', out)
+
+
+PROFILE = ('[adt.arm-io.zz-test-node]\n'
+           + 'uint32 = { "avdd-gpio" = 71, "max-x" = 14400 }\n')
+
+
+def test_dt_asserts_profile(tmp):
+    repo = sibling_repo(tmp, 'dt-asserts')
+    script = copied(repo, DT_ASSERTS)
+    profiles = tmp / 'UniXNU' / 'profiles' / 'os' / 'pong'
+    profiles.mkdir(parents=True)
+    (profiles / 'profile.toml').write_text(PROFILE, encoding='utf-8')
+    result, out = probe(script, "sorted(profile_properties(%r, 'zz-test-node'))" % str(repo),
+                        tmp, clean_env())
+    check(result.returncode == 0 and out == repr(['avdd-gpio', 'max-x']),
+          'check-dt-asserts.py reads the profile from the sibling framework checkout', out)
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix='k60-repo-paths-'))
     try:
@@ -265,6 +358,10 @@ def main():
         test_rejects_hardcode(tmp)
         test_allows_prose(tmp)
         test_sibling_warning(tmp)
+        test_sibling_defaults(tmp)
+        test_build_env_sibling(tmp)
+        test_sync_framework_pair(tmp)
+        test_dt_asserts_profile(tmp)
         test_three_worktrees(tmp)
         test_canonical_line()
         test_real_repo()

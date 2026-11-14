@@ -15,7 +15,8 @@ import subprocess
 import sys
 
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.abspath(os.environ.get('K60_REPO')
+                      or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 构建输入镜像。默认是共享目录；并行工作时用 K60_DEVICE_INPUT 指向自己的一份，
 # 否则谁最后同步谁就决定了别人构建用的补丁集（P-184 同类问题）。
 DEV = os.environ.get('K60_DEVICE_INPUT') or '/opt/k60/trees/usb-cdc-mainline/device'
@@ -33,8 +34,11 @@ SCRATCH_SERIES = os.environ.get('K60_SERIES_MIRROR') or '/mnt/e/k60-work/scratch
 # 构建副本里的 build-xnu-4k-baseline.sh / linux/setup-toolchain.py 带有本地适配
 # （工具链路径、macOS/Linux 分支），用仓库版覆盖会让宿主编译找不到 stdio.h。
 # 2026-11-12 踩过：同步整个 scripts/ 之后内核构建报 'stdio.h' file not found。
+# 框架检出与本仓库同级；K60_FRAMEWORK_REPO 可覆盖（hard-39）
+FRAMEWORK_SRC = os.path.abspath(os.environ.get('K60_FRAMEWORK_REPO')
+                               or os.path.join(os.path.dirname(REPO), 'UniXNU'))
 FRAMEWORK_PAIRS = [
-    ('/mnt/e/hackios/UniXNU/scripts/unixnu', '/opt/k60/trees/k60build/scripts/unixnu'),
+    (os.path.join(FRAMEWORK_SRC, 'scripts/unixnu'), '/opt/k60/trees/k60build/scripts/unixnu'),
 ]
 
 ITEMS = [

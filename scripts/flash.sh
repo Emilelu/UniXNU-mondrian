@@ -15,7 +15,8 @@ SECS="${2:-220}"
 ADB=/mnt/d/Android/platform-tools/adb.exe
 FB=/mnt/d/Android/platform-tools/fastboot.exe
 SERIAL="${K60_SERIAL:-6033dbec}"
-REPO=/mnt/e/hackios/UniXNU-mondrian
+# 本仓库根：默认是脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
+REPO="${K60_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 WORK=$(mktemp -d /tmp/k60flash.XXXXXX) || exit 1
 trap 'rm -rf "$WORK"' EXIT
 PG_ARGS="--quick"

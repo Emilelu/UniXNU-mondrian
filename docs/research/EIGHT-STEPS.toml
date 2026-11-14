@@ -352,7 +352,7 @@ artifact_check = "verify-boot-image: OK；linkarchives 含 -Wl,-force_load,.../l
 
 [hardware.wifi.step.device]
 done = false
-evidence = "从未上机。"
+evidence = "2026-11-14 04:48 首次上机（wifi-20261114a，pong_wifi=1 k60_wifi_rsc=1，602 字节命令行）：supervisor 抓到 fastboot 窗口，fastboot 报 Sending/Booting OKAY，但 85 s 内 CDC-ACM 控制台一次都没枚举，capture.json state=port-not-observed bytes=0，设备自行回 fastboot（E:/k60-work/evidence/usblog-20261114-wifi-b）。同日 04:43 的 rail 镜像在同一 supervisor 下拿到 220,576 字节，故抓取链路无问题。此后设备自 04:50 起不再枚举（adb/fastboot 全空），⑧ 停在这里。已加控制台门（等 k60_usblog_console_up()）与十级 k60_wifi_stage 门控，使下一次上机不会再静默；待机恢复后用 ladder6-run.ps1 先跑控制级 a 再跑全十级 g。"
 
 [hardware.audio]
 status = "parked"

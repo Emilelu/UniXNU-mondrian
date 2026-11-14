@@ -120,6 +120,39 @@ sheng 的 ADT 节点（`dts/sheng.dts:17-25`）是 `transport-encoding = <1>`（
    两者都给最稳（`devicetree.py:372-387` 会把 `[adt.arm-io.*]` 表导出成 `/arm-io` 子节点；
    `dts/mondrian.dts` 里加 `unixnu,adt-name` 节点是另一条等价路径）。
 
+## 4.1 已构建镜像（2026-11-14）
+
+| 项 | 值 |
+|---|---|
+| tag | `bt-s3-20261114a` |
+| boot.img | 201,887,744 B，sha256 `4b865f94deeb9427004f8ca84c7b55516462cbdfc1ef9330c50dacda25985c14` |
+| kernel_built | `e3965c37cd118043ad7dfd3e9621eeb4f4fade8c4aaa4bef737320fde5c62ed5`（54,181,888 B） |
+| payload / payload_kernel | `31bb9202dc5bb58e907c1d8c330116c948f27046bc126624ba1d83a7da504a21` / `d7594962450973aaaa5e8352cec976c709814777d379c44089a67983dff859a2` |
+| adt | `7ad7f4a695756927f42fe47b047ac4e0020bdf5353f193e6d99258c2a2d912f7` |
+| series | 226 条，sha256 `97da5eb2d8013e290a846697855c84924d1c105008f7b9fa91c9107b9139665a` |
+| repo | head `81f3946`，dirty_files 0 |
+| kernel_args | `k60bt=1 k60bt_stage=1 k60bt_warm=1 k60bt_step=1 k60bt_delay=40` |
+| 校验 | `verify-boot-image: OK` |
+
+**这一版把 §4 第 1 条的「种子」解决了，但走的是环境变量路线**：
+构建时带 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001`（与 `scripts/adt-generate.py:22` 同一个种子），
+实测产出的 ADT 里 `/chosen/unique-chip-id = 01 00 00 00 54 30 36 4b`（小端 0x4B36305400000001）、
+`/chosen/chip-id = 15 80 00 00`（0x00008015，即 board.toml 的 `chip_id = "8015"`）。
+所以 `k60_bt_local_address()` 在这版镜像里**有种子可用**，控制台应出现
+`K60 BT: published local address 02:xx:xx:xx:xx:xx` 而不是 `no platform identity`。
+把种子固化进 `board.toml`（`unique_chip_id` 键）或给 `build-strict.sh` 加转发，仍是 Lead 的待办。
+
+**编译进内核的证据**（不只看 `git apply`）：`iokit/DEVELOPMENT/MiniBluetooth.cpo` 存在，
+且 `kernel/kernel.macho` 与 `payload` 里的 `Payloads/kernel.macho` 都能 `strings` 到
+`K60 BT: no platform identity (%d); bluetooth not published` /
+`K60 BT: no /arm-io node; bluetooth not published` /
+`K60 BT: could not create /arm-io/bluetooth` 三条新字符串。
+
+**仍缺的一件（Lead 写权限）**：ADT 的 `/arm-io` 下依然没有 `bluetooth` 子节点
+（实测 `/arm-io` 子节点只有 intc / pong-audio / pong-buttons / pong-touch / ufshc）。
+本补丁在 IORegistry 里建节点，够 bluetoothd 的 `IODeviceTree` 平面用；
+若要 DT 二进制里也有，按 §4 第 3 条加 `[adt.arm-io.bluetooth.*]`。
+
 ## 5. 预期控制台输出与判据
 
 成功（有种子）：

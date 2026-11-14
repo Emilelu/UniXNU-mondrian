@@ -65,6 +65,8 @@ live FDT 副本：`/mnt/e/k60-work/scratch/audio-work/live-fdt.dts`（34,801 行
 - 端口参数与服务参数的区别（afe_service_param :387 / afe_port_param :405）：端口参数包前 2 字节填 PORT、+2 填长度，走 `SET_PARAM_V2`；
   服务级参数（时钟、组）走 `SVC_CMD_SET_PARAM`。
 
+- **这些包已经编码成字节流**：`drivers/PongAudio/PongAudioAfe.h`（纯函数；GPR 24 字节头、svc/port 两种 set-param 信封、上面五个参数结构与 DEVICE_START，另有 57 对 profile 的三字节写流）。宿主 `afe_cases()` 钉住每个字段的偏移、端序与拒绝路径。它**不进 `patches/audio`**：还没有内核 `.c` include 它。
+
 ## 4. phk110 的参数值（移植 GPR/APM 时要换成 K60 DT 的值，见 §5）
 
 | 参数 | phk110（redwood）| K60 live FDT |
@@ -123,6 +125,13 @@ mainline `aw88261.c:1177-1186` 把 DT 的 audio-channel 读进 `aw_dev->channel`
 4. io_submap：PRI_TDM 的 LPAIF 寄存器窗**不在** `PongCodecPlan.h` 现有五窗里（va/tx/va_swr/lpi/slew）；
    若走「AP 侧直配引脚 + AFE 参数」的混合方案，TLMM 用现有 `PONG_AUDIO_TLMM_PHYS` 窗即可，无需新增 LPAIF 窗。
 5. slot 数/位宽与 slot mapping 的 offsets 必须与 AFE 参数一致，否则两颗 PA 交换声道（§6 的映射陷阱会放大成听感错误）。
+
+### 8.1 三块补充（详见 `PAS1-AUDIO-REQUIREMENTS.md`）
+
+- **GPR/APM 注册与 GLINK 独占**：音频在 publish **之后**作为 consumer 开 `adsp_apps`（intent 512×20、APM 端口 1），不做第二个 owner；与 `K60AdspOwnerLease` 的 bit2 `GlinkExclusive` 不冲突（契约第 7 条「GLINK 交给既有 consumer」）。但 `QcomGlink.h:17` 的 `QCOM_GLINK_MAX_CHANNELS 1u` 必须扩到 2，且**不能另起实例**（FIFO 是共享物理资源）。
+- **降级**：照 `PongCodecProbe.c:37-41` 的具名错误范式，handoff / lease / epoch / APM / AFE 五级各有枚举；PAS1 没好之前零寄存器访问（含 TLMM 引脚复用）。
+- **AFE 参数时序**：acquire 之后、publish **之后**（consumer 侧）。acquire 与 publish 之间是 provider 临界区，发参数即违反独占；且 GLINK 的 adopt 依据 `/chosen/k60-adsp-glink-handoff`（104 B）publish 时才出现。
+- **协议选择**：K60 走 24 字节 GPR（域 2/3、APM 端口 1、通道 `adsp_apps`），不是 phk110 的 12 字节 APR（域 4/5、通道 `apr_audio_svc`）；`sm8450.dtsi:2813` 只有 `adsp_apps`。
 
 ## 9. 与 AMPS.md 的衔接
 

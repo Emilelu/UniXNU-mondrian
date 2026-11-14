@@ -34,7 +34,8 @@ question in `docs/research/audio/AMPS.md`.
 | `PongAudioAcf.h` | The A5 answer as pure functions: the AW88261 tuning file (ACF) header checks, block lookup by `dev_index + profile + kind`, the two checksum ranges, the 16x16 register-pair table, the two-amplifier channel mapping, and fuse -> icalk/vcalk -> vcalb. No MMIO, no kernel headers; see `docs/research/audio/AMPS.md` section 8. |
 | `PongAudioAmpProfile.h` | The two Music profiles, 57 register pairs each, generated from the real ACF blob by `E:/k60-work/scratch/audio-work/gen-profile-header.py` (the script asserts the checksum and the pair count before it writes). `pong_amp_profile_for_addr()` maps `0x35` to the dev0 table and `0x34` to the dev1 table — the address, never the probe's index, because the two numbering systems are inverted (AMPS.md section 8.5). The blob itself is not in the repo: `.gitignore` drops `*.bin`. |
 | `PongAudioAmpReplay.h` | The write pass as pure functions: 60 steps per amplifier (soft reset, 57 profile pairs, the fuse-derived vcalb, the mute volume), the mainline semantics for the four special registers, the SYSCTRL merge that keeps the hardware's PWDN/AMPPD/HMUTE, and the volume encoding. No MMIO, no kernel headers. |
-| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h`, `PongCodecPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h` and `PongAudioAmpReplay.h` (584 assertions; 602 when `PONG_ACF_FILE` points at the real tuning blob). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
+| `PongAudioAfe.h` | The DSP side of the speaker path, as bytes: the 24-byte GPR header, the two set-parameter envelopes (service scoped and port scoped), the five AFE parameter structures of TDMS.md section 3 and DEVICE_START, plus the three-byte amplifier write stream. Pure packing - no MMIO, no kernel headers, nothing sent - so the host test can read every offset and byte order before a GPR transport exists. Not in `patches/audio`: no kernel `.c` includes it yet. |
+| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h`, `PongCodecPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h` and `PongAudioAfe.h` (709 assertions; 727 when `PONG_ACF_FILE` points at the real tuning blob). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
 | `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
 
 ## What it does, in order
@@ -146,13 +147,13 @@ and checks the exact command words the engine would see:
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 584 cases
+# TESTS OK 709 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 584 cases buy, given that nothing can be measured on hardware yet:
+What the 709 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase
@@ -175,8 +176,8 @@ What the 584 cases buy, given that nothing can be measured on hardware yet:
   the undivided reference, and that an unknown chip id stays `unknown`.
 
 `PongAudioAmp.c` itself cannot be host-compiled (kernel headers). That is why its
-pure parts live in `PongAudioPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`
-and `PongAudioAmpReplay.h`: the arithmetic, the branch decisions and now the whole
+pure parts live in `PongAudioPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`,
+`PongAudioAmpReplay.h` and `PongAudioAfe.h`: the arithmetic, the branch decisions and now the whole
 write semantics (what the replay pass writes, in what order, and what it keeps
 from the hardware) are host-proven, and what remains in the `.c` is MMIO
 sequencing, which only a boot can speak to.

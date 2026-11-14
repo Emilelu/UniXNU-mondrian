@@ -1,0 +1,304 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index ee12fba..fbdf0ef 100755
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -47,6 +47,7 @@
+ #include <kern/clock.h>
+ #include <kern/thread.h>
+ #include <pexpert/pexpert.h>
++#include <pexpert/device_tree.h>
+ #include <IOKit/IOLib.h>
+ #include <mach/vm_param.h>
+ #include <mach/vm_statistics.h>
+@@ -292,7 +293,6 @@ extern IOReturn armcpu_spi_attach(uint32_t intid, bool edge,
+  * The skeleton also writes GICD_ISENABLER/ICENABLER directly, so this is a
+  * belt-and-braces call only. */
+ extern IOReturn armcpu_spi_mask(uint32_t intid, bool masked) __attribute__((weak));
+-extern int k60_bt_local_address(uint8_t address[6]) __attribute__((weak));
+ extern volatile int native_gpu_addon_stage __attribute__((weak));
+ 
+ /* K60_BT_STUBS: ArmCpu.cpp is not linked into this kernel config, and the
+@@ -313,13 +313,53 @@ armcpu_spi_mask(uint32_t intid, bool masked)
+ }
+ volatile int native_gpu_addon_stage = 1;
+ 
+-/* Fail-closed default; a board-specific file may provide a strong definition
+- * that reads /chosen/unique-chip-id (see REPORT.md integration notes). */
+-__attribute__((weak)) int
++/* Board identity: /chosen/unique-chip-id hashed with a fixed domain gives a
++ * stable, locally administered address.  Same construction as the sheng
++ * reference (BluetoothProbe.cpp address()): FNV-1a over "unixnu-bluetooth",
++ * then every seed byte.  Without a seed this fails closed, so qbt_boot never
++ * receives an all-zero address. */
++#define K60_BT_MAC_DOMAIN "unixnu-bluetooth"
++#define K60_BT_FNV_OFFSET 0xcbf29ce484222325ULL
++#define K60_BT_FNV_PRIME  0x100000001b3ULL
++
++int
+ k60_bt_local_address(uint8_t address[6])
+ {
+-    (void)address;
+-    return -ENOENT;
++    DTEntry chosen = NULL;
++    void *value = NULL;
++    unsigned int length = 0;
++    const uint8_t *seed;
++    uint64_t hash = K60_BT_FNV_OFFSET;
++    bool nonzero = false;
++    unsigned int i;
++
++    if (address == NULL) {
++        return -EINVAL;
++    }
++    if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess) {
++        return -ENOENT;
++    }
++    if (SecureDTGetProperty(chosen, "unique-chip-id", &value, &length) != kSuccess ||
++        value == NULL || length < 8) {
++        return -ENOENT;
++    }
++    seed = (const uint8_t *)value;
++    for (i = 0; i < sizeof(K60_BT_MAC_DOMAIN) - 1; i++) {
++        hash = (hash ^ (uint64_t)(uint8_t)K60_BT_MAC_DOMAIN[i]) * K60_BT_FNV_PRIME;
++    }
++    for (i = 0; i < length; i++) {
++        nonzero = nonzero || seed[i] != 0;
++        hash = (hash ^ (uint64_t)seed[i]) * K60_BT_FNV_PRIME;
++    }
++    if (!nonzero) {
++        return -ENOENT;
++    }
++    for (i = 0; i < 6; i++) {
++        address[i] = (uint8_t)(hash >> (i * 8));
++    }
++    /* Locally administered, unicast. */
++    address[0] = (uint8_t)((address[0] & 0xfeu) | 0x02u);
++    return 0;
+ }
+ #else
+ static uint32_t k60_host_pages[0x4000 / 4];
+@@ -1731,12 +1771,12 @@ static void k60_worker(void *arg, wait_result_t wait_result) {
+     }
+     int e = k60_bt_power_on();
+     if (!e) {
+-        /* The local address comes from the board identity hook (in the real
+-         * board integration: /chosen/unique-chip-id hashed with a fixed
+-         * domain, same approach as sheng BluetoothProbe.cpp:222-264).  If the
+-         * hook is absent, qbt_boot rejects the all-zero address. */
++        /* The local address is derived from /chosen/unique-chip-id with a
++         * fixed domain, the same construction as sheng BluetoothProbe.cpp
++         * address().  Without a platform seed it fails closed, so qbt_boot
++         * never receives an all-zero address. */
+ #ifdef KERNEL
+-        e = k60_bt_local_address ? k60_bt_local_address(k60.address) : -ENOENT;
++        e = k60_bt_local_address(k60.address);
+ #else
+         e = -ENOENT;
+ #endif
+diff --git a/iokit/Kernel/MiniBluetooth.cpp b/iokit/Kernel/MiniBluetooth.cpp
+new file mode 100644
+index 0000000..9c10292
+--- /dev/null
++++ b/iokit/Kernel/MiniBluetooth.cpp
+@@ -0,0 +1,164 @@
++/*
++ * Bluetooth publication for the Pong port.
++ *
++ * bluetoothd on this build looks for a device-tree child of /arm-io whose
++ * device_type is "bluetooth", and for an IOService carrying the same name.
++ * When neither exists it prints "No bluetooth on this device" and gives up,
++ * which is exactly what the K60 console shows today.  This file publishes
++ * both and stamps the stable local address that bsd/dev/qbt_k60.c derives
++ * from /chosen/unique-chip-id.
++ *
++ * Everything is gated on the k60bt boot argument, so booting the same image
++ * without it leaves the registry exactly as it is today.
++ */
++#include <pexpert/arm64/board_config.h>
++
++#include <IOKit/IOService.h>
++
++#if !defined(XNU_K60_BT_PUBLISH)
++#define XNU_K60_BT_PUBLISH 1
++#endif
++
++#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL && XNU_K60_BT_PUBLISH
++
++#include <IOKit/IOLib.h>
++#include <IOKit/IODeviceTreeSupport.h>
++#include <IOKit/IOKitKeys.h>
++#include <libkern/c++/OSData.h>
++#include <libkern/c++/OSDictionary.h>
++#include <pexpert/pexpert.h>
++#include <sys/systm.h>
++
++extern "C" int k60_bt_local_address(uint8_t address[6]);
++
++#define K60_BT_TRANSPORT_ENCODING 1u
++#define K60_BT_TRANSPORT_SPEED    3200000u
++
++class K60BluetoothRadio : public IOService
++{
++	OSDeclareDefaultStructors(K60BluetoothRadio);
++
++public:
++	bool start(IOService * provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(K60BluetoothRadio, IOService);
++
++bool
++K60BluetoothRadio::start(IOService * provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	registerService();
++	return true;
++}
++
++/* Device-tree integers are raw little-endian bytes; publish them the same way. */
++static void
++k60_bt_number_property(IORegistryEntry * entry, const char * key, uint32_t value)
++{
++	entry->setProperty(key, &value, sizeof(value));
++}
++
++/* /arm-io/bluetooth, created when the device tree does not carry it yet. */
++static IORegistryEntry *
++k60_bt_node(IORegistryEntry * armio)
++{
++	IORegistryEntry * node = IORegistryEntry::fromPath("/arm-io/bluetooth", gIODTPlane);
++
++	if (node != NULL) {
++		return node;
++	}
++	node = OSTypeAlloc(IORegistryEntry);
++	if (node == NULL) {
++		return NULL;
++	}
++	if (!node->init()) {
++		node->release();
++		return NULL;
++	}
++	node->setName("bluetooth");
++	node->setProperty("device_type", "bluetooth");
++	node->setProperty("compatible", "qcom,wcn7850-bt");
++	node->setProperty("unixnu,adt-name", "bluetooth");
++	k60_bt_number_property(node, "transport-encoding", K60_BT_TRANSPORT_ENCODING);
++	k60_bt_number_property(node, "transport-speed", K60_BT_TRANSPORT_SPEED);
++	if (!node->attachToParent(armio, gIODTPlane)) {
++		node->release();
++		return NULL;
++	}
++	return node;
++}
++
++void
++MiniBluetoothPublishStub(IOService * provider)
++{
++	static bool published;
++	uint32_t enabled = 0;
++	uint8_t address[6];
++	IORegistryEntry * armio;
++	IORegistryEntry * node;
++	IORegistryEntry * chosen;
++	K60BluetoothRadio * radio;
++	int error;
++
++	if (published) {
++		return;
++	}
++	if (!PE_parse_boot_argn("k60bt", &enabled, sizeof(enabled)) || enabled == 0) {
++		return;
++	}
++	error = k60_bt_local_address(address);
++	if (error != 0) {
++		IOLog("K60 BT: no platform identity (%d); bluetooth not published\n", error);
++		return;
++	}
++	armio = IORegistryEntry::fromPath("/arm-io", gIODTPlane);
++	if (armio == NULL) {
++		IOLog("K60 BT: no /arm-io node; bluetooth not published\n");
++		return;
++	}
++	node = k60_bt_node(armio);
++	if (node == NULL) {
++		IOLog("K60 BT: could not create /arm-io/bluetooth\n");
++		armio->release();
++		return;
++	}
++	node->setProperty("local-mac-address", address, sizeof(address));
++	chosen = IORegistryEntry::fromPath("/chosen", gIODTPlane);
++	if (chosen != NULL) {
++		chosen->setProperty("mac-address-bluetooth0", address, sizeof(address));
++		chosen->release();
++	}
++	radio = OSTypeAlloc(K60BluetoothRadio);
++	if (radio != NULL && radio->init()) {
++		radio->setName("bluetooth");
++		radio->setProperty("device_type", "bluetooth");
++		k60_bt_number_property(radio, "transport-encoding", K60_BT_TRANSPORT_ENCODING);
++		k60_bt_number_property(radio, "transport-speed", K60_BT_TRANSPORT_SPEED);
++		radio->setProperty("local-mac-address", address, sizeof(address));
++		if (radio->attach(provider) && radio->start(provider)) {
++			published = true;
++		} else {
++			radio->release();
++		}
++	} else if (radio != NULL) {
++		radio->release();
++	}
++	node->release();
++	armio->release();
++	IOLog("K60 BT: %s local address %02x:%02x:%02x:%02x:%02x:%02x\n",
++	    published ? "published" : "failed to publish",
++	    address[0], address[1], address[2], address[3], address[4], address[5]);
++}
++
++#else /* !(PONG && development && XNU_K60_BT_PUBLISH) */
++
++void
++MiniBluetoothPublishStub(IOService * provider)
++{
++	(void)provider;
++}
++
++#endif /* PONG && development && XNU_K60_BT_PUBLISH */
+diff --git a/iokit/Kernel/MiniDrivers.h b/iokit/Kernel/MiniDrivers.h
+index f855666..25ceacf 100755
+--- a/iokit/Kernel/MiniDrivers.h
++++ b/iokit/Kernel/MiniDrivers.h
+@@ -17,6 +17,7 @@ bool MiniIOSurfaceStart(IOService * provider);
+ void MiniIOMobileFramebufferStart(IOService * provider);
+ void MiniAcceleratorPublishStub(IOService * provider);
+ void MiniAppleKeyStoreStart(void);
++void MiniBluetoothPublishStub(IOService * provider);
+ /* A network hardware stand-in is not part of the Pong port. */
+ 
+ #endif /* _IOKIT_MINIDRIVERS_H */
+diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
+index 078011b..6c64e1a 100755
+--- a/iokit/Kernel/MiniIOSurface.cpp
++++ b/iokit/Kernel/MiniIOSurface.cpp
+@@ -2214,6 +2214,8 @@ native_pong_ui_services_start(void)
+ #if XNU_K60_ACCEL_STUB
+ 	MiniAcceleratorPublishStub(provider);
+ #endif
++
++	MiniBluetoothPublishStub(provider);
+ }
+ 
+ #endif /* Pong development IOSurface */
+diff --git a/iokit/conf/files b/iokit/conf/files
+index 5b3dd51..bdbba91 100755
+--- a/iokit/conf/files
++++ b/iokit/conf/files
+@@ -83,6 +83,7 @@ iokit/Kernel/MiniIOSurface.cpp			optional iokitcpp
+ iokit/Kernel/MiniIOMobileFramebuffer.cpp		optional iokitcpp
+ iokit/Kernel/MiniAcceleratorES.cpp		optional iokitcpp
+ iokit/Kernel/MiniAppleKeyStore.cpp			optional iokitcpp
++iokit/Kernel/MiniBluetooth.cpp			optional iokitcpp
+ iokit/Kernel/IOPlatformIO.cpp				optional iokitcpp
+ 
+ iokit/Kernel/IOCPU.cpp					optional iokitcpp

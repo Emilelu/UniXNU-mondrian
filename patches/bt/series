@@ -1,8 +1,8 @@
 # Bluetooth line patch series (feat/bt-research).
-# NOT wired into the build yet: scripts/check-patch-series.py:24 and
-# scripts/check-build-applied.py:27 only read patches/xnu/series.  The Lead must
-# merge this change into patches/xnu/0500-k60-bt-qbt-new-files.patch (option A)
-# or add a patches/xnu/0503 entry plus a series line (option B); see
-# docs/research/bt/S1-PROBE-SPEC.md section 6.
+# scripts/check-patch-series.py:24 and scripts/check-build-applied.py:27 only read
+# patches/xnu/series, so every patch here is mirrored into patches/xnu and wired there.
+# 0001 -> patches/xnu/0507 (series:205), 0002 -> patches/xnu/0508 (series:206),
+# 0003 -> patches/xnu/0509 (series:207). See docs/research/bt/HANDOFF.md section 1.
 0001-k60-bt-readonly-probe.patch
 0002-k60-bt-s2-smmu-rcg-reset.patch
+0003-k60-bt-s3-identity-publish.patch

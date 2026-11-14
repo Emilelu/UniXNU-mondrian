@@ -13,7 +13,7 @@
 | 2 | `K60WALL catalogue open/read/create error=…` | 一条都不出现 | §1 |
 | 3 | `Pong init: optional boot view SKIP …stock-wallpaper` | **消失** | §2（目录/属主） |
 | 4 | `Pong init: wallpaper aliases SKIP` | **消失** | §2（guard 二段） |
-| 5 | `Pong UI: wallpaper existing-content=…` → `asset present=…` → `submitting genuine wallpaper 7410` | 三行依次出现 | §3 |
+| 5 | `Pong UI: wallpaper existing-content=…` → `asset present=…` → `submitting genuine wallpaper 7410` | 三行依次出现（无 `k60_wallpaper_reset` 的正常镜像停在第一行属正确，记 N-A） | §3 |
 | 6 | 屏幕像素 | WWDC 2022 壁纸可见 | §4 半成功汇总 |
 
 半成功（例如 1 成立但 3/4 仍在）走 §4，不要跳过前面的行直接看后面。

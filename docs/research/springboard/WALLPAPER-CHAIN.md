@@ -108,7 +108,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 | 判据 | 当前 | 依据 |
 |---|---|---|
-| 上机日志不再有 wallpaper SKIP | ⏳ 待上机（F2 已实施：var.skel 建两目录 + 0401 换 HEAD init；host 侧两条 SKIP 的前提已消除，见 §4/§5.3） | `gpu-keys-notes.txt:19-20`、§5.3 |
+| 上机日志不再有 wallpaper SKIP | ⏳ 待上机（F3 已实施：0617 让内核在 launchd 前建两目录并把 `Collections~ipad.plist` 写进目标目录；F2 被 0616 顶掉不生效，见 §4/§5.4） | `gpu-keys-notes.txt:19-20`、§4、§5.4 |
 | SpringBoard 后壁纸可见 | ⏳ 待上机（springboard-20261114c 已把壁纸选择代码编进镜像，`strings boot.img` 自证；需 `k60_wallpaper_reset=1` 一次） | P-75 全黑；§5.1 |
 | 换壁纸重启能进系统 | 未验证 | 无当次日志 |
 
@@ -134,11 +134,24 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - ⚠ **上机预期**：i=4（stock 视图）若 bindfs 在 Data 目录上成功，则 `wallpaper_aliases()` 产出 4 条别名并打印 `genuine stock wallpaper aliases=4 result=0`；i=5 要覆盖 `/Library/Wallpaper`（密封 OS 根）仍可能 `result=-1 errno=1`（P-27），但这只是 `boot view` 行，不是 SKIP，且 OS 窗本身已有完整 `/Library/Wallpaper` 供 WallpaperKit 读取。
 - **回滚**：`git revert` 本提交即可回到 52,376 B / 14,526 B 的旧 blob。
 
-### F3（不建议现在做）— 删除 views 表 wallpaper 两条（改 init）
+### F2 复查（2026-11-15，结论：不生效）
+
+- **0616 把 0401 的 installer 调用整个换掉**：`patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978` 把 `k60_install_embedded_init(&k60_init_resid)` 换成只写 `/private/var/pong/init` 的 `k60_install_legacy_init()`，其 `k60_init_legacy` = 34,904 B，与 `userland/init-history/init-v24dp.bin` 逐字节相同（sha256 `1671eb78…`，ncmds=9）。`docs/engineering/PITFALLS.md:4314-4351`（P-182）记录 52,320 B 新助手写进 Data 后任何镜像都 `initproc exited`，所以 0401 的 52 KB blob 被弃用。
+- **后果**：0401 的 `k60_init_blob` 数组因无人引用被链接器丢弃（`grep -a -c "genuine stock wallpaper aliases" kernel.macho` = 0），`k60_varpack_blob` 也不再写盘 ⇒ **F2 的 52,456 B init 与 14,636 B varpack 在 springboard-20261114d 里是死代码**，上机日志仍会打 v24dp 的 `wallpaper aliases SKIP (stock view unavailable)`。F2 的 `init_blob` 工具链与测试保留（可复用），但**不能作为本问题的修复**。
+- **不能把调用点改回去**：那会重演 P-182（新助手必须先在已有 Data 状态上验证两次启动）。
+
+### F3（已实施）— 内核在 launchd 前预置壁纸视图（真正生效项）
+
+- **机制**：新增 `patches/xnu/0617-k60-wallpaper-seed.patch`，在 `native_owner_data_prepare()` 的 `k60_mkdir_paths[]` 末尾加三条（`/private/var/pong/stock-wallpaper`、`…/Collections`、`/private/var/pong/Wallpaper`），并在 mkdir 循环后调用 `k60_wallpaper_stage()`：用 `vnode_open`/`vn_rdwr` 把真实的 `/Library/Wallpaper/Collections/Collections~ipad.plist`（772 B）复制到 `/private/var/pong/stock-wallpaper/Collections/Collections~ipad.plist`。
+- **为什么这样就够**：0616 跑的 v24dp init 的两道壁纸守卫（`userland/init-v24dp.c:328-343`、`:344-348`）检查的正是这个目标路径上的 plist；文件存在后 i=4 的 stock 视图 bind 才能继续，i=5 的 `/Library/Wallpaper` 覆盖即使仍 `result=-1 errno=1`（密封根，P-27）也不再打印 SKIP。
+- **判据**：日志出现 `K60WALL catalogue bytes=772 resid=0 error=0` 与 `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0`，且不再出现 `wallpaper aliases SKIP` / `optional boot view SKIP`。
+- **不改 init**：完全避开 P-182 的 52 KB 助手风险；init 仍是那枚 34,904 B 的验证过二进制。
+
+### F4（不建议现在做）— 删除 views 表 wallpaper 两条（改 init）
 
 - 需重编 init blob（52,376 B）并重嵌 0401；host 可编译（HEAD 52,456 B / 2101281 52,320 B，LC 序列一致），但 WSL 的 `codesign` 是 no-op shim，`native_init_signature` 要求 4K 页签名 ⇒ **不能 host 完成**。上机风险最高，且对像素无帮助（PosterBoard 直接读 `/Library/Wallpaper`）。仅作为清理死代码的后续项。
 
-### F4（小组件）— 恢复 chronod 需单独立项
+### F5（小组件）— 恢复 chronod 需单独立项
 
 - 去掉 `build.py:40-45` 的 BOOT_SKIP 会回到 v80 REC 记录的"反复启动、永不 check-in、被杀"循环；建议先修 widget 扩展发现超时再恢复，不在本线最小修复内。
 
@@ -187,7 +200,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 1. **找 Lead 引用的 console.log**（528-529/2241/2247/2257）——本工作区无此文件，需 Lead 提供路径；否则"换壁纸进不去系统"只能停留在候选机制。
 2. 设备上 bindfs 的实际返回值需 `Pong init: boot view … result=` 行确认（P-27 是另一次量测）。
-3. F2 已实施（§4/§5.3），与 F1 一起进 springboard-20261114d 镜像；上机后按 §3 三行判据核对，重点抓 `Pong init: boot view …` 与 `genuine stock wallpaper aliases=` 两行。
+3. F2 复查：0616 把 0401 的 installer 调用换成 34,904 B 旧助手（P-182），F2 的 52,456 B init 与 varpack 是死代码（§4 F2 复查）。生效项是 F3（0617：内核预置目录 + 复制 catalog），与 F1 一起进 springboard-20261114e；上机后按 §3 三行判据核对，重点抓 `K60WALL catalogue …` 与 `Pong init: boot view …` 两组日志。
 4. 上机（交 Lead，用户明确同意后执行）：刷 0340 新 blob + `k60_wallpaper_reset=1` 启动一次；抓 `Pong UI: wallpaper …` 与 `Pong init: boot view …` 两组日志。
 
 ---
@@ -200,7 +213,9 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - `userland/ui_compat.c:628-661` existing_wallpaper；`:669-741` select_initial_wallpaper；`:690` 7410 路径；`:707/716-717` 资产校验。
 - `userland/build.py:40-45` BOOT_SKIP chronod；`:73-110` native_init_signature；`:178` BOOT_SKIP 日志；`:251-341` data_seed；`:338` 65,536 上限；`:365-393` compile_ui；`:395-413` embed_ui_library；`:416-423` ui 子命令；`:429-548` init_blob（PONGJOB1 split/join、embedded_blob、replace_embedded_array、compile_init_linux）；`:50-64` EXTRA 与 `scripts/gen-var-skel.py:28-44` 必须一致。
 - `patches/xnu/0340-k60-uilib-deploy.patch:22-24` 声明与 blob；`:9520` k60_uilib_deploy；`:9541-9546` vn_rdwr/日志；`:9557-9559` 调用点。
-- `patches/xnu/0401-k60-embedded-init.patch:62-67` boot-jobs 写盘；`:69-86` var.pack 写盘；`:104-112` k60_init_blob 门控与 helper exec；`:122-123` `K60_INIT_BLOB_LEN 52456` 与数组；`:24138-24139` `K60_VARPACK_LEN 14636` 与数组。
+- `patches/xnu/0401-k60-embedded-init.patch:62-67` boot-jobs 写盘；`:69-86` var.pack 写盘；`:104-112` k60_init_blob 门控与 helper exec；`:122-123` `K60_INIT_BLOB_LEN 52456` 与数组；`:24138-24139` `K60_VARPACK_LEN 14636` 与数组（以上 blob 自 0616 起不再被调用，P-182）。
+- `patches/xnu/0616-k60-init-legacy-helper.patch:5-6` `K60_INIT_LEGACY_LEN 34904`；`:2923` 头文件 include；`:2937-2961` `k60_install_legacy_init()` 只写 `/private/var/pong/init`；`:2967-2978` 把 0401 的调用点替换掉。
+- `patches/xnu/0617-k60-wallpaper-seed.patch` 全文 88 行：`k60_wallpaper_stage()`（读 772 B catalog 写目标）、`k60_mkdir_paths[]` 三条壁纸目录、mkdir 循环后的调用。
 - `scripts/tests/test-init-blob.py`（新增）16 用例：数组长度/hunk 行数/PONGJOB1 往返/var.skel 壁纸目录/init Mach-O 形态。
 - `docs/research/evidence/gpu-keys-notes.txt:19-20` 两行 SKIP 原文。
 - `docs/research/evidence/springboard-truth.txt:109-113` 三条 SpringBoard 噪声；`:116/121` launchd sig=11 / K60PANICARGS。
@@ -216,7 +231,9 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 | 文件 | 变更 | 说明 |
 |---|---|---|
 | `patches/xnu/0340-k60-uilib-deploy.patch` | `k60_uilib_blob` 113,904 B → 113,472 B | 部署 HEAD `ui_compat.c`（含壁纸选择）；host 重编并嵌入，签名 4K 页校验通过 |
-| `patches/xnu/0401-k60-embedded-init.patch` | `k60_init_blob` 52,376 B → 52,456 B；`k60_varpack_blob` 14,526 B → 14,636 B | 换 HEAD `init.c`（`wallpaper_directory`/`wallpaper_aliases`）+ 新 var.skel；hunk 4378/1225 同步 |
+| `patches/xnu/0401-k60-embedded-init.patch` | `k60_init_blob` 52,376 B → 52,456 B；`k60_varpack_blob` 14,526 B → 14,636 B | 换 HEAD `init.c`（`wallpaper_directory`/`wallpaper_aliases`）+ 新 var.skel；hunk 4378/1225 同步。**注意：自 0616 起该 blob 的 installer 不再被调用，本行改动不生效（P-182）** |
+| `patches/xnu/0617-k60-wallpaper-seed.patch` | 新增 88 行 | 内核在 launchd 前建壁纸两目录并把 `Collections~ipad.plist` 复制进目标（生效项） |
+| `patches/xnu/series` | +1 行 | 0616 之后追加 0617 |
 | `scripts/gen-var-skel.py` | EXTRA +2 目录 | `/private/var/pong/{stock-wallpaper,Wallpaper}` 0755 root:root |
 | `userland/build.py` | +130 行 | `init_blob` 子命令：PONGJOB1 读写、数组替换、Linux init 编译 |
 | `scripts/tests/test-init-blob.py` | 新增 | 0401 三个 blob 与 hunk 的回归测试（16 用例） |

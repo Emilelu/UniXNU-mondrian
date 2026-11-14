@@ -4716,3 +4716,25 @@ total = len(head) + sum(size for _, size, _ in files)
 **Check.** `python3 scripts/check-metal-blob.py` 与
 `python3 scripts/tests/test-check-metal-blob.py`；真机判据
 `K60METAL deploy files=6/6`。
+
+## P-197 — 后加的补丁可以把前面补丁的 blob 变成链接器垃圾
+
+**现象.** `patches/xnu/0401-k60-embedded-init.patch` 的 `k60_init_blob`（52,456 B）与
+`k60_varpack_blob`（14,636 B）编进内核后，镜像里
+`grep -a -c "genuine stock wallpaper aliases" kernel.macho` = 0，上机跑的还是 34,904 B 的
+v24dp init。
+
+**根因.** `patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978` 把
+`k60_install_embedded_init(&k60_init_resid)` 整个换成了 `k60_install_legacy_init()`（P-182 的
+修法），0401 的两个数组只剩声明、没有引用点，被链接器当死代码丢掉。series 里两条补丁都
+"应用成功"，门禁只查补丁能不能打上，不查数组有没有人用。
+
+**修法/教训.** 改嵌入 blob 前先 grep 系列尾部有没有补丁替换调用点；判断一个 blob 是否生效
+看镜像（`grep -a` 内核/镜像里的字符串）而不是看补丁是否应用。真正生效的壁纸修复走内核数据侧
+（`0617-k60-wallpaper-seed.patch`：`k60_mkdir_paths[]` 加目录 + `k60_wallpaper_stage()` 复制
+`Collections~ipad.plist`）。
+
+**Check.** `grep -a -c "genuine stock wallpaper aliases" <kernel.macho>` 应为 0（0616 起该
+blob 不生效）；生效判据是镜像里有 `K60WALL` 串、上机日志 `K60WALL catalogue bytes=772 resid=0
+error=0`。
+

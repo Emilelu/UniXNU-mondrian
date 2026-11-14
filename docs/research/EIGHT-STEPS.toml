@@ -284,10 +284,10 @@ evidence = "深挖三个坑：int-229 类名不能叫 AppleARMBacklight（重名
 [hardware.brightness.step.verify]
 done = true
 local_verified = true
-evidence = "host 单测 scripts/check-brightness-encoder.py 全绿（0..255 DBV 端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且精确落点）；静态检查 scripts/eight-step-gate.py 与 scripts/check-porting-paths.py 通过；产物见构建日志与 llvm-nm。"
+evidence = "host 单测 scripts/check-brightness-encoder.py 全绿（0..255 DBV 端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且精确落点）；scripts/eight-step-gate.py --build 通过（通过 6 项检查）；scripts/check-porting-paths.py 仍红，但 45 条全是本线未触碰的既有路径未认领（如 scripts/watch-upstream.py），与本线无关；产物级核对见 artifact_check。"
 static_check = "drivers/PongAdreno/K60Backlight.cpp 用与 PongAdreno 其它对象相同的 kernel 旗标编译（scripts/build-pong-adreno-platform.py:84 的 names 列表已加入 K60Backlight），并复用 PongAdrenoScanout.cpp:19 的归档内引用模式，无新增跨归档符号。"
 unit_test = "python3 scripts/check-brightness-encoder.py：编译 drivers/PongAdreno/K60BacklightCodec.h + 断言，覆盖 0..255 DBV 换算与 FadePeriod 渐变序列，全部通过（输出 all brightness encoder checks passed）。"
-artifact_check = "scripts/build-strict.sh 产物 kernel.macho 中 llvm-nm 必须出现 _k60_backlight_start 与 _native_backlight_stats，且字符串含 K60 BACKLIGHT: published。"
+artifact_check = "对象级已验证：用内核真旗标（arm64-apple-ios16.0 -mkernel -ffreestanding -fno-exceptions -fno-rtti -Os -DKERNEL=1，fakeroot Kernel.framework 头）单独编译 drivers/PongAdreno/K60Backlight.cpp 通过，xcrun nm 产出 _k60_backlight_start 与 _native_backlight_stats。整机 kernel.macho 级核对仍待构建：scripts/build-strict.sh 被跨线 P-194 死锁挡住（最新 manifest 来自 feat/gpu-yibiya 的 224 条序列），产物须含 _k60_backlight_start 与字符串 K60 BACKLIGHT: published，见 docs/research/display/HANDOFF-20261114.md。"
 
 [hardware.brightness.step.device]
 done = false

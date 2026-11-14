@@ -129,8 +129,14 @@ def main() -> int:
     # series and still disagrees is a real lie and stays a failure.
     manifest = newest_manifest()
     if manifest is None:
-        check("a build manifest is available to compare against", False,
-              "no build-manifest.json under " + " or ".join(MANIFEST_DIRS))
+        # A branch that has never been built has no manifest of its own, and the
+        # first build is what writes one. Failing here is the same P-165
+        # deadlock one level up: the check would block the build that creates
+        # the record it demands. Nothing can disagree with a record that does
+        # not exist yet, so this is a skip, not a pass and not a failure.
+        print("skip the manifest comparison: no build manifest recorded from "
+              + (_current_branch() or "this checkout")
+              + "; the first build writes one")
     else:
         data = json.loads(manifest.read_text(encoding="utf-8"))
         recorded = data.get("series", {})

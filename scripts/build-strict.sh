@@ -252,8 +252,9 @@ python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL"
 # else inspects that generated table, and on 2026-11-14 its length constant
 # omitted the alignment padding between bodies, so the device rejected the
 # last file with "entry 5 body out of range" (P-196).
-if [ -f "$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s" ]; then
-  python3 "$REPO/scripts/check-metal-blob.py" "$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s" \
+METAL_BLOB=$M/tree/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s
+if [ -f "$METAL_BLOB" ]; then
+  python3 "$REPO/scripts/check-metal-blob.py" "$METAL_BLOB" \
       | tee "$LOGS/metal-blob.log" || die "the Metal plugin container is inconsistent (P-196)"
 fi
 # The command line in the image must be the board contract plus declared

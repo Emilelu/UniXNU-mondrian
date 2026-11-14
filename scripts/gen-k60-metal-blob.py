@@ -115,7 +115,11 @@ def emit_source(files, output: Path) -> None:
     for _, _, path in files:
         lines.append('    .incbin "%s"' % path)
         lines.append('    .p2align 3')
-    total = len(head) + sum(size for _, size, _ in files)
+    # `cursor` is head + every body rounded up to ALIGN, which is exactly the
+    # byte count the assembler emits (each .incbin is followed by .p2align 3).
+    # Summing the raw sizes instead undercounts by the padding between bodies,
+    # and the kernel then rejects the last entry as out of range.
+    total = cursor
     lines += ['', '.globl _k60_metal_blob_len', '.p2align 3', '_k60_metal_blob_len:',
               '    .quad %d' % total]
     # Modes travel as a halfword table so the kernel does not need a second name

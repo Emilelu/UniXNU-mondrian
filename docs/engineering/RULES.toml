@@ -567,3 +567,11 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-195"
 statement = "vnode_open with O_CREAT creates a regular file; a directory needs the mkdir syscall."
 check = "python3 scripts/check-blob-patches.py"
+
+[[rule]]
+id = "P-196"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-196"
+statement = "A generated container's length constant must include the alignment padding between its bodies."
+check = "python3 scripts/tests/test-check-metal-blob.py"
+

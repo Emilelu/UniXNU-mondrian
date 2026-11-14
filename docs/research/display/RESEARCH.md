@@ -101,7 +101,7 @@ DSC（`:27871-27879`）：`bit-per-pixel=0x8`、`bit-per-component=0xa`、`slice
 | `avdd` | 5.5 V | `display_gpio_regulator@1`，**GPIO 186**，`ramp-delay=233 µs`，`proxy-consumer-enable` | `:28912-28925` |
 
 时序：`vddio` post-on 20 ms / post-off 10 ms、enable-load 0x493e0；`vci` pre-on 10 ms / post-on 15 ms（`:28942-28972`）。
-**阻塞点**：3 条 RPMh LDO（ldoc12 / ldoc13 / ldod1）在 RSC 可访问之前无法由 AP 侧投票，只能沿用 bootloader 已开状态（REFERENCE-INDEX 第 3 节与 14.1）。
+**阻塞点（2026-11-14 修正）**：3 条 RPMh LDO（ldoc12 / ldoc13 / ldod1）的阻塞**不是**「RSC 不可访问」—— drv-2（`0x17a20000`）已被实测证明可读可写（49 个 boot，`caps=0x800c8104`、ACTIVE TCS4 投票 48/49 成功，见 REFERENCE-INDEX 3.1 / 14.1）。真正缺的是这 3 条轨的 **cmd-db 资源地址与投票参数**（本板未取）；在那之前面板供电只能沿用 bootloader 已开状态。
 
 ## 6. DSI / PHY / MDP 基址
 

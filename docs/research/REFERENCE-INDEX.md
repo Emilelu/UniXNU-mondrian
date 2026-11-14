@@ -178,7 +178,26 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 
 ⚠ **K60 侧最贵的教训**：`references/ios-sweet-k60/xnu/patches/0246-k60-touch-skip-rpmh.patch` 的注释写着
 「这台机器上 RSC 一个寄存器都读不得：首次读 TCS 就整机死」，`0248-k60-rsc-address-probe.patch` 因此只做只读探针。
-根因（XPU / 电源域 / 互连）至今未定 —— 见 14.1。**在这条未解之前，任何「照着 Pong 写 RPMh 投票」的代码都不要上机。**
+
+**本板实测复核（2026-11-14，全量扫 582 个 boot 目录，脚本 `E:/k60-work/scratch/refmine/rsc_audit3.py`）**——
+上面那条「一读就死」**只对 drv-0（`0x17a00000`）成立**，drv-2 早已可读可写：
+
+| 事实 | 证据（`E:/k60-work/evidence/` 下） | 次数 |
+|---|---|---|
+| `goodix: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1` | `usblog-20261110-191312/console.log:627,629` 起 | **49 个 boot** |
+| `goodix: rails written iovdd=0x42c00 avdd=0x40f00 (ldoc3)` + `rails on (ldoc2=0x42c00, AVDD gpio71=1)` —— TCS4 投票真的下发并被接受 | 同上 `:630-631` | **48 / 49** |
+| `RPMh: timeout waiting for the request` | 只有 `usblog-20261110-190459/console.log`（P-87 那一轮，完成判据错用 IRQ_STATUS） | **1 次** |
+| `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255` | 每个带 caps 的 boot 都读到（与 6.0 的 71 次统计互证） | **49 / 49** |
+| panicMarker 非空 | `usblog-20261112-204720`、`usblog-20261113-keepctrl`、`-nometal`、`-normalize2`、`-normalize3`（stopReason 全是 `budget`） | **5 / 49**，且 caps 行之后 50–100 行才 panic，`normalize*` 是 GPU/display 实验 |
+| `Pong touch: DIAG mapped … rsc=0xfffffff188f59000` | 最早 `usblog-20261109-174913` | 142 个 boot |
+
+**所以「RSC 不可访问」不能再当成整体阻塞**：APPS RSC（drv-2）自 2026-11-10 19:13 起每次 boot 都能读、能写
+ACTIVE TCS4。仍未定的三件见 14.1；**给其它线的操作结论是：只用 drv-2 的 `+0xd00 + 4*0x2a0`，
+不要碰 drv-0（`0x17a00000`）与 drv-3（`0x17a30000`）**。
+
+⚠ **引用注意**：`goodix: I/O supply on (1.8 V)` 在本板 49 个 boot 里**一次都没有** —— 那是 phk110 驱动的文本
+（`forks-review/hakios-xnu-kernel/drivers/input/hakios.goodix.c:268`），我们改写成 `rails written …` + `rails on …`。
+**不要把 phk110 的日志行当成 K60 的证据。**
 
 ### 3.2 cmd-db（RPMh 资源名 → 地址）
 
@@ -399,7 +418,7 @@ Pong touch: Goodix initialization failed; normal UI boot continues
 | `spi-base` | 0x00990000 | 高 | 与 live FDT 一致 |
 | `tlmm-base` | 0x0f000000 | 高 | **必须与 `gpio-offset` 相加**得 0x0f100000 |
 | `gcc-base` | 0x00100000 | 高 | cape GCC，size 0x1f4200 |
-| `rsc-base` | 0x17a20000 | 高（地址）/ **可访问性为零** | 填 drv-2 不是 drv-0；见 14.1 |
+| `rsc-base` | 0x17a20000 | 高（地址）/ **可访问性已实测** | 填 drv-2 不是 drv-0；drv-2 可读可写（49 个 boot，见 3.1 / 14.1），**drv-0/drv-3 禁止碰** |
 | `cmd-db-base` | 0x80860000 | 高（地址） | 运行时从未读过 |
 | `gpio-offset` | 0x00100000 | 中 | pong schema 推导，K60 DT 无此属性 |
 | `pins` | `<16 17 18 19 21 20>` | 高 | 顺序 = MISO/MOSI/CLK/CS/INT/RESET（**角色未逐线确认**） |
@@ -508,7 +527,7 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | `avdd`（`display_gpio_regulator@1`） | 5,500,000 µV（0x53ec60） | GPIO **186**（0xba）高有效，`ramp-delay=0xe9`（233 µs），`proxy-consumer-enable` | `:28912-28925` |
 
 时序（supply-entry）：`vddio` post-on 0x14=20 ms / post-off 0xa=10 ms、enable-load 0x493e0；`vci` pre-on 0xa=10 ms / post-on 0xf=15 ms。
-**这 5 条轨里有 3 条是 RPMh LDO 投票** → 与第 3 节、第 14.1 节同一个阻塞点：RSC 不可访问之前，面板供电只能在 bootloader 已开的状态下沿用。
+**这 5 条轨里有 3 条是 RPMh LDO 投票** → 阻塞点**不是**「RSC 不可访问」（drv-2 已实测可读写，见 3.1 / 14.1），而是「这 3 条轨的 cmd-db 资源地址与投票参数还没从本板取到」；在拿到之前，面板供电只能沿用 bootloader 已开状态。
 
 ### 7.5 DSI 控制器 / PHY / MDP 基址（live FDT）
 
@@ -800,11 +819,33 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 
 - `references/ios-sweet-k60/xnu/patches/0240-k60-touch-pins-rpmh.patch` 头部自称 2026-10-31 在 drv-2 读到 `DRV_ID=0x20700`。
 - 同一批的 `0246-k60-touch-skip-rpmh.patch` 注释写：**「这台机器上 RSC 一个寄存器都读不得：首次读 TCS 就整机死」**，并加了 `k60rpmhoff=1` 整段跳过。
-- `0248-k60-rsc-address-probe.patch` 因此只做只读探针（`k60rscprobe=1`）。
+- `0248-k60-rsc-address-probe.patch` 因此只做只读探针（`k60rscprobe=1`）。**它的注释给出了矛盾的确切范围**（`:30-33`）：
+  `0x17a00000`（drv-0）一读就 external abort，`0x17a30000`（drv-3）读了会挂，所以只探中间的 drv-2。
 
-**结论：K60 的 RPMh 可访问性未定，根因（XPU / 电源域 / 互连）未证明。**
-任何依赖 RPMh 投票的子系统（触摸 IOVDD、音频 ADSP LCX/LMX、GPU、WiFi ref_clk）在做之前，必须先有一个「只读、可回滚」的 RSC 探针结论。
-这是本项目**当前最大的单点阻塞**。
+**2026-11-14 实测复核**（全量 582 个 boot 目录，脚本 `E:/k60-work/scratch/refmine/rsc_audit3.py`，明细表见 3.1）：
+
+| 观察 | 数字 |
+|---|---|
+| 带 `goodix: RPMh caps=` 的 boot | 49 |
+| 其中 TCS4 投票被接受（打出 `rails on (ldoc2=0x42c00…)`） | 48 |
+| 其中 `RPMh: timeout waiting` | 1（`usblog-20261110-190459`，P-87 的 IRQ_STATUS 判据错误那一轮） |
+| 其中 panicMarker 非空 | 5（`normalize*` / `keepctrl` / `nometal`；stopReason 全是 `budget`，caps 行之后 50–100 行才 panic） |
+| 读到 `goodix: chip "BERLIN" … "9916R"` | 49 / 49 |
+| `k60rscprobe` 只读探针真的跑过 | **0 次**（582 个 boot 全无 `K60 TOUCH: rsc probe` 行） |
+
+**结论（替换旧结论「根因未定，是最大单点阻塞」）**：
+1. **`0x17a20000`（drv-2 / APPS RSC）可读可写**：自 `usblog-20261110-191312`（2026-11-10 19:13）起，每次 boot 都读到
+   `caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1`，且 ACTIVE TCS4 投票 48/49 成功。
+2. **「一读就死」只对 drv-0（`0x17a00000`）成立**，drv-3（`0x17a30000`）按 0248 注释也会挂 —— 这**不是** RSC 整体不可访问。
+3. **仍未定**：drv-0 / drv-3 那次致死实验的差异（窗口大小？drv 选错？还是当时 `ml_io_map` 返回 0 造成空指针解引用——
+   HR-01 记过同类误诊）**没有留日志**：`k60rscprobe` 在 582 个 boot 里 0 次出现，所以这条**无法再用现有证据闭合**，
+   要用就得重做一次带日志的只读探针（只在 drv-0/drv-3 上，且先把地址刷盘）。
+4. 曾被归到这条下面的两个问题**与 RSC 无关**：`0x10308` 帧区仍静态（触摸 checklist 第 6 条 FAIL，SPI 已证通）；
+   5 次 panic 都在 GPU/display 的 `normalize*` 实验里，与 RSC 访问无时间相关性。
+
+**给其它线的可操作结论**：触摸 IOVDD（pm8350c ldoc2）这条 RPMh 路径**已被实测证明能通**，不必再等「RSC 解禁」；
+但**只用 drv-2 的 `+0xd00 + 4*0x2a0`（ACTIVE TCS4）**，不碰 drv-0/drv-3。音频 ADSP LCX/LMX、GPU、WiFi ref_clk
+用的是各自的 RSC/BCM 投票，仍需各自单独验证（本表只证明「RSC 这个块能读写」，不证明那几条轨的投票参数对）。
 
 ### 14.2 ADSP 基址与 Pong 不同
 
@@ -867,10 +908,10 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | ~~**AW882xx smart PA 无任何参考实现**~~ **型号已定（2026-11-14）** | 音频线（K60 独有） | 两颗都是 **AW88261（0x2113）**，真机只读读数见 4.5。剩下的是**寄存器序列与保护策略**（无 datasheet）。~~从 `Device-Binaries` 找 aw882xx 固件~~ **已证伪**：该仓库 `git ls-files | grep -ci aw88` = 0，也零个 bdwlan/amss/.pwf |
 | ~~**K60 panel XML 未提取**~~ **已闭合（2026-11-14）** | 显示/背光 | `Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（sha256 `65cd6826…`）就是 m11a 的厂商 XML，静态字段与 live FDT 逐项一致；但 init 序列是**同族不同修订**（129 包 vs 135 包，LCS 125 包相同、3 处差异），要用得先补差异。详见 7.7 与 `display/RESEARCH.md` 1.1 |
 | **m11a 的 90Hz 档用途未知** | 显示 | `timing@1`（0x5a=90）在 live FDT 里存在但 MIUI 侧是否使用未验证；做 120Hz 时要决定是否同时暴露 90 |
-| **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1；RSC 不可访问（14.1）前只能沿用 bootloader 状态 |
+| **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1。**阻塞点已修正**：不是 RSC 不可访问（drv-2 实测可读写，见 3.1 / 14.1），而是这 3 条轨的 cmd-db 资源地址与投票参数本板未取；在拿到之前只能沿用 bootloader 状态 |
 | **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*`。**2026-11-14 补：所有参考仓库都没有这些文件** —— `Device-Binaries` 的 `git ls-files` 里 bdwlan/amss/.pwf 命中数为 0；`QcaBluetooth` 是纯源码仓库（46 个 tracked 文件，HEAD `986d631`，唯一与固件相关的只有 `shim/linux/firmware.h`）。所以只能从设备分区取，别再翻参考仓库 |
 | ~~**`Device-Binaries` 698 MB 未系统挖掘**~~ **已普查（2026-11-14）** | 全部 | 651 MB / 9,707 文件 / **78 个机型目录**已全部定性（机型 → `Build/<Family>`）：Palima=b4q/marble/pong/senna_a/senna_bc，Waipio=gts8p/ingres/r0q，Netrani=garnet，Kailua=aston/b5q/dm2q/gts9wifi/nuwa/nx729j/qrd8550/salami，Pakala=annibale/dodge/pagani/onyx，其余为 SM8250/SM8150/SM8350/SDM845 等老平台。**没有任何 SM8475/taro 机型** → 它不能给本板 UEFI 提供同 SoC 参考；唯一可用的产出是 `RawFiles`（面板 XML，见 7.7）与跨板布局对照（见 memory/RESEARCH.md 第 3 节）。74 份 `uefiplat.cfg` 中**没有一份**含 K60 的 `0xC7000000`（DXE Heap）或 `0x85700000`（video_region） |
-| **RSC 可访问性根因未定** | 所有供电相关 | 见 14.1，优先 |
+| ~~**RSC 可访问性根因未定**~~ **已缩小（2026-11-14）** | 所有供电相关 | drv-2（`0x17a20000`）**实测可读可写**：49 个 boot 读到 `caps=0x800c8104`、ACTIVE TCS4 投票 48/49 成功（3.1 / 14.1）。「一读就死」只对 drv-0（`0x17a00000`）与 drv-3（`0x17a30000`）成立，而那两次实验**没有留日志**（`k60rscprobe` 在 582 个 boot 里 0 次）。剩下的是「禁止碰 drv-0/drv-3」，不是整体阻塞 |
 | ~~**Goodix 芯片型号未确认**~~ **已闭合（2026-11-14）** | 触摸 | 真机日志 71 次读到 `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`（61 个 boot 目录，型号串完全一致），三源一致 → **GT9916R BerlinD**，见 6.0。仍缺的是初始化失败根因，不是型号 |
 | **`UniXNU-ruby` 不是空仓库、但不是 git 仓库**（2026-11-14 更正） | 文档错误 | `references/UniXNU-ruby/` 只有一个 `porting.toml`（246 行 / 15,547 B，`soc = "MT6877"`、`os_profile = "ios-16.7.16-20H392"`，自述 *selects no UniXNU components*）。它**有内容**，只是不是 git 仓库、不是构建树 —— 原表述「空仓库」不准 |
 
@@ -878,11 +919,11 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 ## 16. 机器可读部分
 
-本文件的人读事实已同步成 `SOURCES.toml` 的 **20 条新 `required` 条目**（2026-11-14 追加；最近 2 条是本轮的真机日志）：
+本文件的人读事实已同步成 `SOURCES.toml` 的 **21 条新 `required` 条目**（2026-11-14 追加；最近 3 条是真机日志）：
 
 | 子系统 | 变化 | 条数 |
 |---|---|---|
-| `power` | **新建**段（RSC/TCS、SPMI、cmd-db、live FDT） | 4 |
+| `power` | **新建**段（RSC/TCS、SPMI、cmd-db、live FDT）；**新增 RSC 可访问性实测日志**（3.1 / 14.1） | 5 |
 | `touch` | 新增 K60 芯片身份真机日志（6.0） | 1 |
 | `display` | **新建**段（面板画布契约、120Hz 参考面板 timing、DCS 背光、**m11a 面板与供电 live FDT**） | 4 |
 | `usb` | **新建**段（DWC3 偏移、eUSB2 PHY、Type-C mux） | 3 |
@@ -890,7 +931,7 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | `audio` | 补充 AudioReach 参数 ID、GLINK intent 约束、ADSP 保留区；**新增 AW88261 实机只读读数**（4.5） | 4 |
 | `wifi` | 补充 PCIe 端点识别、K60 cnss 节点 | 2 |
 
-追加后全文件 11 个子系统、52 条 `required`（原 7 个子系统、32 条）。查法：
+追加后全文件 11 个子系统、**53** 条 `required`（原 7 个子系统、32 条）。查法：
 
 ```bash
 python3 scripts/research-gate.py        # 校验每个 path 存在、examined 非空、finding >= 20 字

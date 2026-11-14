@@ -398,7 +398,7 @@ else:
     if b'v10guard' in blob:
         ok('B', 'init 形态', 'v10guard 变体')
     else:
-        bad('B', 'init 形态', 'len=%d，无 v10guard 标记（当前部署的是 52376 B 自助式版本）' % len(blob), hard=False)
+        bad('B', 'init 形态', 'len=%d，无 v10guard 标记（当前部署的是 %d B 自助式版本）' % (len(blob), len(blob)), hard=False)
 
 
 # ============ A. boot-args ============

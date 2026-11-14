@@ -61,6 +61,8 @@ EXTRA = [
     ('root/Library/Caches', 0o700, 0, 0), ('root/Library/Preferences', 0o700, 0, 0),
     ('root/Library/Logs', 0o700, 0, 0), ('db/timezone', 0o755, 0, 0),
     ('cores', 0o1775, 0, 0),
+    # Wallpaper view mount points; mirrors scripts/gen-var-skel.py.
+    ('pong/stock-wallpaper', 0o755, 0, 0), ('pong/Wallpaper', 0o755, 0, 0),
 ]
 TRIGGERS = ('RunAtLoad', 'KeepAlive', 'StartInterval', 'StartCalendarInterval',
             'WatchPaths', 'QueueDirectories', 'StartOnMount', 'LaunchEvents')
@@ -424,6 +426,128 @@ def ui(a):
 
 
 
+PONGJOB_MAGIC = b'PONGJOB1'
+
+
+def split_boot_jobs(blob):
+    """Parse a PONGJOB1 archive into records so one entry can be replaced."""
+    if blob[:8] != PONGJOB_MAGIC:
+        raise RuntimeError('varpack is not a PONGJOB1 archive')
+    count = struct.unpack_from('<I', blob, 8)[0]
+    offset, records = 12, []
+    for _ in range(count):
+        mode, uid, gid, size, nlen, dlen = struct.unpack_from('<IIIIII', blob, offset)
+        offset += 24
+        name = blob[offset:offset + nlen]; offset += nlen
+        link = blob[offset:offset + dlen]; offset += dlen
+        data = blob[offset:offset + size]; offset += size
+        records.append(dict(mode=mode, uid=uid, gid=gid, name=name, link=link, data=data))
+    if offset != len(blob):
+        raise RuntimeError(f'varpack has {len(blob) - offset} trailing bytes')
+    return records
+
+
+def join_boot_jobs(records):
+    out = bytearray(PONGJOB_MAGIC + struct.pack('<I', len(records)))
+    for r in records:
+        out += struct.pack('<IIIIII', r['mode'], r['uid'], r['gid'],
+                           len(r['data']), len(r['name']), len(r['link']))
+        out += r['name'] + r['link'] + r['data']
+    return bytes(out)
+
+
+def embedded_blob(patch, header):
+    """Extract one k60_*_blob array back out of a kernel patch."""
+    begin = patch.index(f'new file mode 100644\n--- /dev/null\n+++ b/{header}\n')
+    array = patch.index('static const unsigned char k60_', begin)
+    end = patch.index('+};\n', array) + len('+};\n')
+    rows = [line[1:].strip() for line in patch[array:end].splitlines()
+            if line.startswith('+') and line[1:].strip().startswith('0x')]
+    data = bytearray()
+    for row in rows:
+        data += bytes(int(item, 16) for item in row.rstrip(',').split(','))
+    return bytes(data)
+
+
+def replace_embedded_array(patch, header, define, declaration, payload):
+    """Swap one array body plus its length define, keeping the new-file hunk honest."""
+    begin = patch.index(declaration + '\n')
+    end = patch.index('+};\n', begin) + len('+};\n')
+    rows = [declaration]
+    rows.extend('+    ' + ','.join(f'0x{byte:02x}' for byte in payload[i:i + 12]) + ','
+                for i in range(0, len(payload), 12))
+    rows.append('+};')
+    patch = patch[:begin] + '\n'.join(rows) + '\n' + patch[end:]
+    marker = f'+#define {define} '
+    line_start = patch.index(marker)
+    line_end = patch.index('\n', line_start)
+    patch = patch[:line_start] + f'{marker}{len(payload)}' + patch[line_end:]
+    lines = patch.splitlines()
+    plus = next(i for i, line in enumerate(lines) if line == f'+++ b/{header}')
+    hunk = next(i for i in range(plus, len(lines)) if lines[i].startswith('@@ -0,0 +1,'))
+    stop = next((i for i in range(hunk + 1, len(lines))
+                 if lines[i].startswith(('--- a/', 'diff --git'))), len(lines))
+    lines[hunk] = f'@@ -0,0 +1,{sum(line.startswith("+") for line in lines[hunk + 1:stop])} @@'
+    return '\n'.join(lines) + '\n'
+
+
+def compile_init_linux(out, sdk, compiler='clang-18', linker='ld64.lld-18'):
+    """Compile the static init with a Linux clang/LLD pair, as the board builds it."""
+    sdk = sdk.resolve()
+    sdk_version = json.loads((sdk / 'SDKSettings.json').read_text())['Version']
+    destination = out / 'init.bin'
+    cmd = [compiler, '-target', 'arm64-apple-ios16.6.1', '-isysroot', str(sdk), '-Os', '-static',
+           '-nostdlib', '-ffreestanding', '-fno-stack-protector', '-fno-stack-check',
+           '-fno-builtin', '-Wall', '-Wextra', '-Werror',
+           '-I' + str(USERLAND / 'libmini'), '-Wl,-e,_start',
+           '-Wl,-pagezero_size,0x100000000', '-Wl,-no_fixup_chains',
+           f'--ld-path={shutil.which(linker) or linker}',
+           f'-Wl,-platform_version,ios,16.6.1,{sdk_version}',
+           str(USERLAND / 'libmini/start.S'), str(USERLAND / 'libmini/mini.c'),
+           str(USERLAND / 'init.c'), '-o', str(destination)]
+    run(cmd)
+    data = destination.read_bytes()
+    if len(data) < 32 or struct.unpack_from('<I', data)[0] != 0xfeedfacf:
+        raise RuntimeError('compiled init is not a thin 64-bit Mach-O')
+    (out / 'init-compile-command.json').write_text(json.dumps(cmd, indent=2) + '\n')
+    return destination, struct.unpack_from('<I', data, 16)[0]
+
+
+def init_blob(a):
+    """Refresh the 0401 init image and, optionally, the var.skel inside its varpack."""
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    destination, ncmds = compile_init_linux(out, a.sdk, a.compiler, a.linker)
+    init_data = destination.read_bytes()
+    patch_path = PROJECT / 'patches/xnu/0401-k60-embedded-init.patch'
+    patch = patch_path.read_text()
+    record = dict(bytes=len(init_data), ncmds=ncmds)
+    if a.var_skel is not None:
+        skeleton = a.var_skel.resolve().read_bytes()
+        if len(skeleton) > 65536:
+            raise RuntimeError('var.skel exceeds the 65536-byte init buffer')
+        records = split_boot_jobs(embedded_blob(patch, 'bsd/kern/k60_varpack_blob.h'))
+        replaced = 0
+        for entry in records:
+            if entry['name'] == b'pong/etc/var.skel':
+                entry['data'] = skeleton; replaced += 1
+        if replaced != 1:
+            raise RuntimeError(f'varpack carries {replaced} var.skel entries')
+        varpack = join_boot_jobs(records)
+        patch = replace_embedded_array(patch, 'bsd/kern/k60_varpack_blob.h',
+                                       'K60_VARPACK_LEN',
+                                       '+static const unsigned char k60_varpack_blob[K60_VARPACK_LEN] = {',
+                                       varpack)
+        record.update(varpack_bytes=len(varpack), var_skel_bytes=len(skeleton))
+    patch = replace_embedded_array(patch, 'bsd/kern/k60_init_blob.h', 'K60_INIT_BLOB_LEN',
+                                   '+static const unsigned char k60_init_blob[K60_INIT_BLOB_LEN] = {',
+                                   init_data)
+    patch_path.write_text(patch)
+    record['patch'] = str(patch_path)
+    dump(out / 'init-blob.json', record)
+    print(f'{destination} -> {patch_path}')
+
+
 def launchd_cache(a):
     """Keep selected jobs' event-publisher contracts in the deployed cache."""
     patch = PROJECT / 'patches/xnu/0394-k60-launchd-cache.patch'
@@ -632,6 +756,12 @@ def main():
     sdk.add_argument('--sdk', type=Path, help='real iOS SDK for a Linux clang/LLD build')
     s.add_argument('--compiler', default='clang-18')
     s.add_argument('--linker', default='ld64.lld-18')
+    s = sub.add_parser('init_blob', help='refresh the 0401 static init and its Data varpack')
+    s.add_argument('--out', type=Path, required=True)
+    s.add_argument('--sdk', type=Path, required=True, help='real iOS SDK for a Linux clang/LLD build')
+    s.add_argument('--compiler', default='clang-18')
+    s.add_argument('--linker', default='ld64.lld-18')
+    s.add_argument('--var-skel', type=Path, help='new /pong/etc/var.skel to embed in the varpack')
     s = sub.add_parser('launchd_cache', help='retain event publishers in the selected service cache')
     s.add_argument('--jobs', type=Path, required=True, help='prepared 20G81 LaunchDaemons directory')
     s.add_argument('--out', type=Path, required=True)

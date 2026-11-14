@@ -102,12 +102,17 @@ echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 # a missing directory is a hard failure rather than a silent skip.
 GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)
 if [ -n "$GPU_ADDON" ]; then
-  PLUGIN_DIR=${K60_METAL_PLUGIN_DIR:-/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin}
-  if [ ! -d "$PLUGIN_DIR" ]; then
-    die "CONFIG_XNU_GPU_ADDON=y needs the Metal bundle; $PLUGIN_DIR is missing"
+  PLUGIN_SRC=${K60_METAL_PLUGIN_SRC:-/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin}
+  PLUGIN_DIR=$REPO/build/metal-plugin
+  # The macOS build writes a real bundle; the blob generator reads a flat
+  # directory. Stage it instead of teaching the generator two layouts.
+  if ! bash "$REPO/scripts/stage-metal-plugin.sh" "$PLUGIN_SRC" "$PLUGIN_DIR" \
+          > "$LOGS/metal-plugin.log" 2>&1; then
+    tail -5 "$LOGS/metal-plugin.log"
+    die "CONFIG_XNU_GPU_ADDON=y needs the Metal bundle; $PLUGIN_SRC is unusable"
   fi
   export K60_METAL_PLUGIN_DIR=$PLUGIN_DIR
-  echo "build-strict: metal plugin $PLUGIN_DIR"
+  echo "build-strict: metal plugin $(cat "$LOGS/metal-plugin.log")"
 fi
 
 # The battery class lives in a host-built archive that the kernel script only

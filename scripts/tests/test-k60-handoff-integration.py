@@ -34,6 +34,104 @@ def sections(text):
         yield path, ''.join(body[:stop])
 
 
+def check_default_off_callsite(early, root):
+    """Execute the patched IOKitBSDInit body; the access stubs never use MMIO."""
+    start = early.index('kern_return_t\nIOKitBSDInit(')
+    end = early.index('\n}\n', start) + 3
+    body = early[start:end]
+    compiler = shutil.which('c++') or shutil.which('clang++')
+    if not compiler:
+        raise SystemExit('a host C++ compiler is required for call-site assertions')
+    fixture = r'''
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#define IOPOLLED_COREFILE 0
+using kern_return_t = int;
+constexpr int kIOReturnSuccess = 0;
+static bool present;
+static unsigned parsed, parse_calls, publish_calls, smem_accesses;
+static unsigned tcsr_accesses, pas_calls, startup_claims, battery_calls;
+static unsigned event_count, events[4];
+static int publisher_result;
+static void reset(bool found, unsigned value, int result = 0) {
+    present = found; parsed = value; publisher_result = result;
+    parse_calls = publish_calls = smem_accesses = tcsr_accesses = pas_calls = 0;
+    startup_claims = battery_calls = event_count = 0;
+}
+extern "C" bool PE_parse_boot_argn(const char *name, void *value, int bytes) {
+    assert(std::strcmp(name, "pong_handoff_publish") == 0);
+    assert(bytes == int(sizeof(unsigned)));
+    assert(*static_cast<unsigned *>(value) == 0u);
+    ++parse_calls;
+    /* Also exercise a parser that writes a value but returns false. */
+    *static_cast<unsigned *>(value) = parsed;
+    return present;
+}
+extern "C" int k60_adsp_handoff_publish(void) {
+    ++publish_calls;
+    /* Non-vacuous access boundary: an enabled dispatch reaches every spy.
+     * These represent the publisher's downstream effects, not real hardware. */
+    ++startup_claims; ++pas_calls; ++tcsr_accesses; ++smem_accesses;
+    events[event_count++] = 1;
+    return publisher_result;
+}
+struct IOService {
+    static void publishResource(const char *name) {
+        assert(std::strcmp(name, "IOBSD") == 0);
+        events[event_count++] = 2;
+    }
+};
+extern "C" void k60_physical_battery_start(void) {
+    ++battery_calls; events[event_count++] = 3;
+}
+'''
+    cases = r'''
+static void check(bool found, unsigned value, bool enabled, int result = 0) {
+    reset(found, value, result);
+    assert(IOKitBSDInit() == kIOReturnSuccess);
+#if XNU_K60_PHYSICAL_BATTERY
+    assert(parse_calls == 1u && battery_calls == 1u);
+    assert(publish_calls == unsigned(enabled));
+    assert(smem_accesses == unsigned(enabled));
+    assert(tcsr_accesses == unsigned(enabled));
+    assert(pas_calls == unsigned(enabled));
+    assert(startup_claims == unsigned(enabled));
+    assert(event_count == (enabled ? 3u : 2u));
+    unsigned next = 0;
+    if (enabled) assert(events[next++] == 1u);
+    assert(events[next++] == 2u && events[next++] == 3u);
+#else
+    (void)enabled;
+    assert(!parse_calls && !publish_calls && !smem_accesses && !tcsr_accesses);
+    assert(!pas_calls && !startup_claims && !battery_calls);
+    assert(event_count == 1u && events[0] == 2u);
+#endif
+}
+int main() {
+    check(false, 0u, false);
+    check(false, 1u, false);
+    check(true, 0u, false);
+    check(true, 2u, false);
+    check(true, UINT32_MAX, false);
+    check(true, 1u, true);
+    check(true, 1u, true, -1000);
+    std::puts("PASS: 7 call-site cases; disabled path has zero SMEM/TCSR/PAS/claim access");
+}
+'''
+    for physical_battery in (0, 1):
+        source = root / ('callsite-' + str(physical_battery) + '.cpp')
+        binary = source.with_suffix('')
+        source.write_text(fixture + '\n' + body + '\n' + cases)
+        subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                        '-DXNU_K60_PHYSICAL_BATTERY=' + str(physical_battery),
+                        str(source), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)
+    print('TESTS OK: exact patched call site, 14 host cases across battery on/off')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--xnu', required=True, type=Path)
@@ -77,6 +175,8 @@ def main():
         early = (root / TARGETS[3]).read_text()
         assert early.index('(void)k60_adsp_handoff_publish();') < early.index('IOService::publishResource("IOBSD")')
         assert early.index('IOService::publishResource("IOBSD")') < early.index('\n\tk60_physical_battery_start();')
+        assert '#include <pexpert/pexpert.h>' in early
+        check_default_off_callsite(early, root)
         assert 'if (k60_adsp_startup_claim(2u))' in late.read_text()
         assert late.read_text().count('(void)k60_adsp_probe_from_handoff();') == 1
         print('TESTS OK: 5 integration sections, 3 canonical mirrors, early order and late exclusion')

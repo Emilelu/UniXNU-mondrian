@@ -319,7 +319,7 @@ new file mode 100644
 +}
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -109,10 +109,14 @@
+@@ -109,10 +109,18 @@
  #if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
  extern "C" void k60_physical_battery_start(void);
 +extern "C" int k60_adsp_handoff_publish(void);
@@ -329,7 +329,11 @@ new file mode 100644
  IOKitBSDInit( void )
  {
 +#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
-+	(void)k60_adsp_handoff_publish();
++	unsigned pong_handoff_publish = 0;
++	if (PE_parse_boot_argn("pong_handoff_publish", &pong_handoff_publish,
++	    sizeof(pong_handoff_publish)) && pong_handoff_publish == 1u) {
++		(void)k60_adsp_handoff_publish();
++	}
 +#endif
  	IOService::publishResource("IOBSD");
  

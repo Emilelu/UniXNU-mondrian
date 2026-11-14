@@ -19,5 +19,6 @@ cc=${CC:-cc}
 	-o "$out" \
 	"$here/test-pong-audio-geni-i2c.c" \
 	"$driver/PongAudioGeniI2c.c" \
-	"$driver/PongCodecSwr.c"
+	"$driver/PongCodecSwr.c" \
+	"$driver/PongCodecLpi.c"
 exec "$out"

@@ -14,6 +14,7 @@ These tests pin three things:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -43,7 +44,6 @@ def series_names(path: pathlib.Path) -> list[str]:
 
 def fingerprint(names: list[str], base: pathlib.Path) -> str:
     """Mirror the scripts' sha256(names + sizes)[:16]."""
-    import hashlib
     h = hashlib.sha256()
     for n in names:
         h.update(n.encode())
@@ -53,13 +53,33 @@ def fingerprint(names: list[str], base: pathlib.Path) -> str:
     return h.hexdigest()[:16]
 
 
+def manifest_series(path: pathlib.Path) -> tuple[int, str]:
+    try:
+        recorded = json.loads(path.read_text(encoding="utf-8")).get("series", {})
+    except (ValueError, OSError):
+        return (-1, "")
+    return (recorded.get("count", -1), str(recorded.get("sha256") or ""))
+
+
 def newest_manifest() -> pathlib.Path | None:
-    best = None
-    for root in MANIFEST_DIRS:
-        for p in pathlib.Path(root).glob("*/build-manifest.json"):
-            if best is None or p.stat().st_mtime > best.stat().st_mtime:
-                best = p
-    return best
+    """The newest manifest this checkout can vouch for.
+
+    Several checkouts share one artifacts directory, so the newest manifest may
+    describe another branch's series and turn a clean tree red (P-189). Prefer
+    the newest manifest whose recorded series matches this checkout; fall back
+    to the newest one so a real mismatch is still reported.
+    """
+    candidates = [p for root in MANIFEST_DIRS
+                  for p in pathlib.Path(root).glob("*/build-manifest.json")]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    want = (len(series_names(SERIES)),
+            hashlib.sha256(SERIES.read_bytes()).hexdigest() if SERIES.is_file() else "")
+    for path in candidates:
+        if manifest_series(path) == want:
+            return path
+    return candidates[0]
 
 
 def main() -> int:

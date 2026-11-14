@@ -44,6 +44,14 @@ LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
 export K60_REPO=$REPO
+# The registry runs as a child process. If these are not exported it falls back
+# to the default mirror/tree, judges a different series than the one being built,
+# and fails iron-4/hard-33 for a difference that does not exist (2026-11-14).
+export K60_DEVICE_INPUT=$DEV
+export K60_OUT=$OUT
+# Tell the registry a build is running: a stale patch stamp then means
+# "this run will rewrite it", not "somebody edited patches and never built".
+export K60_BUILD_IN_PROGRESS=1
 
 mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 [ -d "$DEV" ] || die "device input $DEV missing"

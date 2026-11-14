@@ -8,3 +8,4 @@
 - [01-ANDROID-INVENTORY.md](cellular/01-ANDROID-INVENTORY.md) — Android 侧 modem 取证：分区布局、104.02 MiB `modem.*` 固件、`MPSS.DE.2.0.c1-CN` 版本串、AF_QIPCRTR 而非 unix socket、IPA 与 MHI 的归属、EFS/NV 在裸 `modemst` 分区
 - [02-DT-TRUTH.md](cellular/02-DT-TRUTH.md) — 活 FDT 字节级取证：`remoteproc-mss@04080000`（`qcom,cape-modem-pas`）、`mpss_region` 0x8bc00000/0x13200000 与 `modem.mdt` 段表严丝合缝、GLINK `IPCRTR` 通道与 intents、IPA 节点、QRTR 三个传输节点谁属于谁
 - [03-SCOPE.md](cellular/03-SCOPE.md) — 范围判定：L1 固件加载 + L2 QRTR 枚举在范围内（PAS/GLINK 已有 70% 代码），IPA 数据面/EFS/mbn/IMS 明确排除；含双系统残留风险；原 `qrtr-lookup` 未解项已澄清（modem 侧 36 个 QMI 服务在应答）
+- [04-DT-NODES.md](cellular/04-DT-NODES.md) — 补 DT 取证：四个 modem/IPA 节点按活 FDT 逐字面量抄进 `dts/mondrian.dts`（229–390 行，12 个节点），四条机械改写逐条对照，ADT 掩码 `random-seed` 后与基线逐字节相同的受控实验，以及“启动行为不变”的诚实边界

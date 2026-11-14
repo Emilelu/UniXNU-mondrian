@@ -2,13 +2,19 @@
 
 > 取证对象：设备实机 `/sys/firmware/devicetree/base`（活 FDT）
 > 全量 FDT dump：`su -c 'cat /sys/firmware/fdt'` = **919,210 字节**，
-> sha256 `da19d6bb1423e571c2fff93ef341e2d6b7b8b6668512da7a981551de32c4b941`
+> sha256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`
+>
+> **2026-11-14 更正**：本文初稿记的 sha256 `da19d6bb…c4b941` **不可复现**（全盘搜 919,210 字节的
+> 文件只有 `E:\k60-work\reports\live-6033dbec-fdt.dtb` 一份，其 sha256 为 `95c02052…fdac8`；
+> `grep -r da19d6bb /e/k60-work` 零命中）。尺寸 919,210 是对的，摘要值当初算错了。
+> 所有以 `95c02052…` 为准；细节见 `04-DT-NODES.md` §2。
 > 交叉校验：`E:\hackios\uefi-mondrian\Platforms\Xiaomi\mondrianPkg\FdtBlob\sm8475-xiaomi-mondrian.dtb`
 > = 480,692 字节，md5 `a977423fca405512f6d333a955c9f970`（同源不同构建，见 §8）
 >
-> **方法说明**：本机没有 `dtc`，也没有 `fdtdump`，python 无 `libfdt`。
-> 所以本文件**不做反编译**，全部用 `od -An -tx1` 读原始字节后**按大端 cell 手工解析**。
-> 每条都给出节点路径 + 属性名 + 字节原文。
+> **方法说明**：本文全部用 `od -An -tx1` 读原始字节后**按大端 cell 手工解析**，
+> 每条都给出节点路径 + 属性名 + 字节原文 —— 这样即使没有反编译器也能复核。
+> （写作当时本机确实没有 `dtc`；后来在 WSL 里装了 DTC 1.7.0，用它反编译的结果与手工解析逐条一致，
+> 见 `04-DT-NODES.md` §2 与 §3。手工解析的结论不需要改。）
 
 ---
 
@@ -376,16 +382,18 @@ With usb-role-switch; added on line 1003 to fix USB OTG Mode
 ```
 
 - 厂商 DTB：480,692 B，md5 `a977423fca405512f6d333a955c9f970`
-- 活 FDT：919,210 B，sha256 `da19d6bb...c4b941`（**更大**，因为运行时会注入 `__symbols__`、
+- 活 FDT：919,210 B，sha256 `95c02052...fdac8`（**更大**，因为运行时会注入 `__symbols__`、
   `chosen`、`firmware`、`memory` 等节点，并可能被 bootloader 打过补丁）
 
 **取证时以活 FDT 为准**，厂商 DTB 仅作交叉参考 —— 两者不是同一份二进制。
 
 ---
 
-## 9. 仓库里的 `dts/mondrian.dts` 缺什么
+## 9. 仓库里的 `dts/mondrian.dts` —— 缺什么，以及已经补了什么
 
-本仓 `dts/mondrian.dts`（198 行，已全文读过）现有节点：
+### 9.1 当时的缺口（2026-11-14 上午）
+
+本仓 `dts/mondrian.dts` 当时 198 行，节点只有：
 `memory@900000000`、`ufs@1d84000`、`pong-audio`、`smem-region@80900000`、
 `tcsr` syscon@1f40000、`hwlock`、`smem`、`ipcc` mailbox@ed18000、
 `adsp-region@9fd00000`、`remoteproc-adsp@3000000`、`smp2p-adsp`、`pmic-glink`、`battery-charger`。
@@ -393,10 +401,24 @@ With usb-role-switch; added on line 1003 to fix USB OTG Mode
 **完全没有**：`mpss_region`、`ipa_fw_region`、`ipa_gsi_region`、`remoteproc-mss`、
 `qcom,ipa`、`smp2p-modem`、`glink-edge`（modem 侧）。
 
-这正好印证 `porting.toml` 里 cellular area 的 configuration 断言
+这正好印证 `porting.toml` 里 cellular area 当时的 configuration 断言
 "dts/mondrian.dts does not describe the modem memory regions, QRTR transport or IPA queues"。
-→ 要动 cellular，**第一步是把 §1/§2/§4 的节点补进 `dts/mondrian.dts`**，
+→ 要动 cellular，第一步是把 §1/§2/§4 的节点补进 `dts/mondrian.dts`，
 并且必须从活 FDT 抄字节，不能凭记忆写。
+
+### 9.2 已经补了什么（2026-11-14，Lead 批准后执行）
+
+**已补**：`mpss-region@8bc00000`、`remoteproc-mss@4080000`（含 modem `glink-edge`、
+`qcom,modem_qrtr`、`qcom,modem_ds`）、`qcom,ipa@3e00000`（含 5 个子节点），
+共 12 个节点，追加在文件末尾的第三个 `/ { }` 块（`dts/mondrian.dts` 229–390 行）。
+
+**仍然没有**（有意不补）：`ipa_fw_region`、`ipa_gsi_region`、`linux,cma`、`smp2p-modem`、
+apps-smmu、rpmh 时钟控制器、PM8350C regulator —— 它们不在 Lead 批准的四个节点里，
+而且补它们需要连带补一整套时钟/电源/IOMMU 框架，超出"只做文档性 DT"的边界。
+
+**这批节点是文档性质的**：不带 `status`、不带 `unixnu,adt-name`，所以不进 ADT、不会被任何驱动 probe。
+完整的抄录对照、四条机械改写、逐属性省略表，以及"ADT 掩码 random-seed 后逐字节不变"的受控实验，
+全部在 **`docs/research/cellular/04-DT-NODES.md`**。
 
 ---
 
@@ -471,7 +493,7 @@ modem_a (sde7, 380 MiB, 只读 vfat @ /vendor/firmware_mnt)
 
 | 缺项 | 为什么缺 | 怎么补 |
 |---|---|---|
-| 反编译后的 `.dts` 文本 | 本机无 `dtc`/`fdtdump`，python 无 `libfdt` | 装 `device-tree-compiler`，或 `pip install libfdt`，再 `dtc -I fs -O dts /sys/firmware/devicetree/base` |
+| ~~反编译后的 `.dts` 文本~~ | **已补**：WSL 里装了 DTC 1.7.0，`dtc -I dtb -O dts` 反编译出 18,920 行，sha256 `26b99d68…2d7027` | 见 `04-DT-NODES.md` §2 |
 | IPA 每个通道的 ring 数/深度 | DT 不描述，由 `ipa-hw-ver=0x16` 在驱动代码里决定 | 从官方 `ipa_reg_v4_11`（或对应版本）寄存器表取 |
 | GLINK FIFO 在 SMEM 里的具体偏移 | DT 只给 SMEM 区基址，FIFO 由 GLINK 协议在 SMEM 内动态协商 | 读 SMEM 头部（`SMEM_FIRST_VALID_ENTRY`）+ `smem_alloc` 结果 |
 | `qcom,modem_qrtr` 的 `qcom,intents` 是否还有别的组 | 只读到 3 组 | 需要 GLINK 通道建立后从对端通告里核对 |
@@ -484,7 +506,7 @@ modem_a (sde7, 380 MiB, 只读 vfat @ /vendor/firmware_mnt)
 ```bash
 export K60_AGENT_ID=cellular-agent
 adb -s 6033dbec shell 'su -c "cat /sys/firmware/fdt"' > /tmp/k60-live.fdt   # 919210 B
-sha256sum /tmp/k60-live.fdt    # da19d6bb...c4b941
+sha256sum /tmp/k60-live.fdt    # 95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8
 
 B=/sys/firmware/devicetree/base
 adb -s 6033dbec shell "su -c 'ls $B/reserved-memory/'"

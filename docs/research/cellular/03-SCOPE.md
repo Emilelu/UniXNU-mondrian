@@ -36,7 +36,9 @@
 
 - XNU 侧 grep `qrtr|qmi|baseband|cellular` → **只有 WiFi 的 MHI QRTR**（`patches/wifi/0001-*.patch`
   里的 `nw_qrtr_mhi_register`），**modem 路径零代码**。
-- DT 侧 `dts/mondrian.dts` 198 行里 **没有** `mpss_region`/`remoteproc-mss`/`qcom,ipa`/modem `glink-edge`。
+- DT 侧 `dts/mondrian.dts`（写作时 198 行）**没有** `mpss_region`/`remoteproc-mss`/`qcom,ipa`/modem `glink-edge`。
+  → **2026-11-14 已补**（229–390 行，12 个节点，纯文档性质、不进 ADT），见 `04-DT-NODES.md`。
+  补 DT **不改变**本节结论：设备树里有描述，不等于 XNU 能枚举 modem。
 - 也就是说：**从"设备树有描述"到"XNU 能枚举 modem"之间，目前是 0 行代码的距离**。
   如果把它标成 `not-applicable`，这条 0 行代码的鸿沟就会从看板上消失。
 
@@ -218,9 +220,12 @@ modem 固件、EFS/NV、SIM 身份都在 Android 侧（`porting.toml:198` 的 in
 1. ~~先解未解项：`qrtr-lookup` 为什么列不出服务~~ **已完成**（§3.1）：
    结果写在 `/data/vendor/qrtr/qrtr-lookup.txt`，modem 侧 36 个服务在应答。
    **L2 验收判据据此定稿**：XNU 侧 `NEW_LOOKUP` 收到 node 0 的 20 字节应答且服务号 ∈ {21,1,11,3,16}。
-2. **补 DT**：把 `02-DT-TRUTH.md` §1/§2/§4 的节点（`mpss_region`、`remoteproc-mss`、
-   modem `glink-edge`、`qcom,ipa`）按活 FDT 的字节抄进 `dts/mondrian.dts`。
-   **这一步只加节点、不启驱动**，可以独立验证（`dtc` 编译通过 + 与活 FDT 逐字节比对）。
+2. ~~**补 DT**：把 `02-DT-TRUTH.md` §1/§2/§4 的节点（`mpss_region`、`remoteproc-mss`、
+   modem `glink-edge`、`qcom,ipa`）按活 FDT 的字节抄进 `dts/mondrian.dts`。~~
+   **已完成（2026-11-14）**：12 个节点写在 `dts/mondrian.dts` 229–390 行，不带 `status`、
+   不带 `unixnu,adt-name`；dtc 1.7.0 零警告；受控实验证明 ADT 掩码 `random-seed` 后与基线逐字节相同，
+   DTB 只多 12 个节点、零删除、零属性变更。证据与复现命令在 `04-DT-NODES.md`。
+   **注意**：这一步只让设备树"说得出硬件"，XNU 仍然一行 cellular 代码都没有。
 3. **多通道化 GLINK**：把 `QCOM_GLINK_MAX_CHANNELS = 1` 改掉，先只加 `IPCRTR` 一条，
    用 Android 侧同名通道的存在作为对照。
 4. **PAS 加载 modem**：照 `K60AdspPas.c` 写第二实例，carveout `0x8bc00000`/`0x13200000`，

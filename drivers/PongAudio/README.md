@@ -169,6 +169,14 @@ sequencing, which only a boot can speak to.
 The tests are **not** in `patches/audio/`: they are a repo-side check, not a
 kernel file, and shipping them into `bsd/dev/` would only slow the build.
 
+## Build result (2026-11-14, image k)
+
+`audio-probe-20261114k` is the first kernel build that carries the replay layer:
+8-file patch `d85264ca…`, patch order `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe`
+(`kernel.log:228-231`), `kernel.macho` sha256 `0640f6c7…` (54,181,888 B), `verify-boot-image: OK`.
+The manifest is `/mnt/e/k60-work/artifacts/audio-probe-20261114k/build-manifest.json`;
+`boot.img` sha256 `f34f33e3…`. That is the image to use for the pending run 2.
+
 ## On-device result (2026-11-14, run 1 of 2)
 
 Booted `audio-probe-20261114j/boot.img` (sha256 `877d0a9d…c35723ef2`) once with the

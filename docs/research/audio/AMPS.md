@@ -214,7 +214,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。八个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 仍不在其中：内核侧还没有 `.c` include 它；`PongAudioAcf.h`/`PongAudioAmpProfile.h`/`PongAudioAmpReplay.h` **在**，被 `PongAudioAmp.c` include，见 §9）。完整 transcript 见 `patches/audio/README.md`。
-- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) 镜像 j 的内核构建（build-manifest `kernel_built`）证明旧 5 文件在真实 kernel flags 下编译通过；(b) 回放层全部语义在宿主侧被 584/602 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
+- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) **镜像 k 的内核构建**证明 8 文件补丁（含回放层）在真实 kernel flags 下编译通过（`audio-probe-20261114k`，`kernel.log:228-231` 的 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe` 顺序，`kernel.macho` sha256 `0640f6c7…`，见 §9.5）；(b) 回放层全部语义在宿主侧被 584/602 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
 
 ### 6.1 宿主单测（八步 ⑦ 的本地核验，584 例；带真实 ACF 时 602 例）
 
@@ -876,4 +876,17 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 
 这一层的意义是：等 PAS1 与 TDM 通路到位时，「写寄存器」这段不再是未验证的新代码，而是已经在设备上
 跑过一遍、每一步都有回读记录的东西；剩下的只是把它接到 start 序列与音频帧上。
+
+### 9.5 构建核验（镜像 k）
+
+`audio-probe-20261114k` 是回放层第一次进内核构建：HEAD `ec95bc6`、8 文件补丁 `d85264ca…`、
+`scripts/build-strict.sh` 全流程通过（八步 36 项、`verify-boot-image: OK`）。
+
+- `kernel.log:228-231` 补丁顺序 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe`；
+- `kernel.macho` sha256 `0640f6c79c88b559a2a08c0cee23e5bbb9eb659c5072c1d93270af5ca7ada4ca`（54,181,888 B）；
+- manifest `/mnt/e/k60-work/artifacts/audio-probe-20261114k/build-manifest.json`：`repo.head ec95bc6`、
+  `dirty_files 0`、`payload f3a6eafb…`、`payload_kernel 18e04ebb…`、`adt 2b1552ac…`、`dtb 2d044eaa…`、
+  `fd 4bbe7601…`、`boot_img f34f33e3…`；
+- 这就是 §6 第 4 条那条无法复现的 `-fsyntax-only` 的替代证据：回放层是在真实内核 flags 下编过的；
+- **`f34f33e3…` 的 `boot.img` 就是 run 2 要用的镜像**（run 2 未批准，不 boot）。
 

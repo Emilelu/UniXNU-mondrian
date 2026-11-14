@@ -9,17 +9,19 @@
 ## 1. Pong WiFi 源码全貌
 
 位置：`references/pong-wifi/`（子模块仓，分支 `origin/port/ios18e-native-302`，HEAD `20e1e5b`），14 文件。
-**5 个实现文件共 1,919 行**：
+**5 个实现文件共 1,771 行**（2026-11-14 实测 `wc -l`：617+779+137+76+162；原写 1,919 是误计）：
 
 | 文件 | 大小 | 行数 | 作用 |
 |---|---|---|---|
-| `PongWifiPlatform.cpp` | 40,764 B | 617 | **PCIe0 冷启动全流程**（`coldLink()` 有完整 **46 步寄存器序列 + 82 条 PHY 表**）|
+| `PongWifiPlatform.cpp` | 40,764 B | 617 | **PCIe0 冷启动全流程**（`coldLink()` 有完整 **82 条 PHY 表**；「46 步寄存器序列」查无出处，见 §1 末）|
 | `PongWifiNet.cpp` | 47,656 B | 779 | `IO80211Controller` / `IO80211Interface` / `Pong80211UserClient` + Apple80211 ioctl |
 | `PongWifiPci.cpp` | 6,010 B | 137 | 只读接管 |
 | `PongWifiFirmware.cpp` | 3,984 B | 76 | PWF2 加载 |
 | `ath11k/PongAth11k.c` | 7,248 B | 162 | `nw_wifi_start` / `nw_wifi_step` |
 
-46 步寄存器序列与 82 条 PHY 表已全部提取，地址换算成绝对地址。
+82 条 PHY 表已提取并换算成绝对地址（出处：K60 live FDT `qcom,phy-sequence` = 984 B，984/12 = 82 项，`fdt_dump.txt:16463`）。
+
+**「46 步寄存器序列」这个数字查无出处**：`PongWifiPlatform.cpp` 全文 `log(` 只有 14 次、无「46」字面，`impl/wifi` 全树 grep「46 步 / 46 steps」0 命中。写作「coldLink() 的寄存器写入序列」即可，不要保留具体步数。
 
 ## 2. 端点与平台地址（实测值）
 
@@ -31,6 +33,15 @@ SID        root 0x1C00 / BDF100 → 0x1C01
 IOVA       0xA0000000（DT pool 256 MiB，代码用 64 MiB arena）
 MSI        PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)，不是 ITS
 ```
+
+**每一项的出处（2026-11-14 回溯）**：
+
+- `17CB:1103` —— Pong `configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`；**K60 上未实测**。间接佐证：K60 live FDT `/soc/mhi_qrtr_cnss` 的 `qcom,dev-id = <0x1103>`（`docs/plans/WIFI-PORT-PLAN.md:202-203`）。
+- `subsys 17CB:0108` —— `PongWifiPlatform.cpp:344` 的校验值 `cfg.r(0x2c)!=0x010817cb`。
+- `BAR0 0x60200000` —— `PongWifiPlatform.cpp:354` `bar.open(0x60200000,0x200000)`；K60 live FDT `pcie@1c00000` 的 `ranges` 32 位窗是 `0x60200000 + 0x100000`（1 MiB），64 位窗 `0x60300000 + 0x3d00000`，`qcom,slv-addr-space-size = 0x4000000`。**基址有 DT 佐证；「2 MiB」只来自 Pong 代码。**
+- `SID 0x1C00 / 0x1C01` —— live FDT `qcom,smmu-sid-base = <0x1c00>`、`iommu-map = <0x0 0x5b 0x1c00 0x1 0x100 0x5b 0x1c01 0x1>`（`fdt_dump.txt:16446-16447`）。
+- `IOVA 0xA0000000` —— Pong `PongWifiPlatform.cpp:43`；K60 live FDT `qcom,iommu-dma-addr-pool = <0xa0000000 0x10000000>`（`fdt_dump.txt:16482`，256 MiB pool），代码用 64 MiB arena（`:46`）。
+- `MSI SPI140 / INTID 172` —— Pong `PongWifiPlatform.cpp:45` `PcieGlobalIntid=32+140, ParfMsi0=1u<<23`；K60 live FDT `interrupt-map` 实测 child_int 0→SPI140（+32 = GIC 172），脚本 `scratch/refmine/imap2.py`。
 
 | 窗口 | 基址 | 大小 |
 |---|---|---|
@@ -48,7 +59,7 @@ MSI        PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)，不是 ITS
 
 ## 3. ⚠️ 重大发现：我们不是「没有」，是「有但从未应用」
 
-`patches/wifi/` 已有 **0001-0009 共 9 个补丁，232 KB**，含：
+`patches/wifi/` 已有 **0001-0010 共 10 个补丁，合计 211,731 B（206.8 KiB）**，含：
 - 14 个 PongWifi 文件
 - K60 profile
 - 4 个构建脚本
@@ -62,8 +73,8 @@ MSI        PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)，不是 ITS
 
 | 问题 | 证据 | 后果 |
 |---|---|---|
-| **没有任何 series/applier 引用 `patches/wifi`** | 全仓 grep | **永不应用** |
-| README 说必需的 `0010`（`build-xnu-4k-baseline` 加 `-force_load libPongWifiNative.a`）**在最终系列和本仓里都不存在** | grep 0010 | 就算编出 archive 也不链进内核 |
+| **没有 applier 脚本读 `patches/wifi/series`** | `scripts/` 全域 grep `patches/wifi` 0 命中 | 系列文件存在也**不会自动应用** |
+| ~~README 说必需的 `0010` 不存在~~ **已补**：`0010-scripts-build-xnu-wifi-archive.patch`（1,629 B）与 `patches/wifi/series`（10 行）都已落库（提交 `4fe2f52`） | `ls patches/wifi`、`git log` | 仍需人工按 series 应用；README 表格里的旧名 `0010-scripts-build-xnu-4k-baseline-wifi.patch` 与实际文件名不一致 |
 | 工作树里 `drivers/PongWifi`、`configs/mondrian-wifi-sm8475.json`、`nw_abi.h` 都不存在 | `ls` | 补丁从未落盘 |
 
 **这和 `0403` 是同一个模式**：数据在，没人引用，等于不存在。
@@ -135,12 +146,12 @@ bd_m11agf.elf      60,000
 |---|---|---|
 | 1 | 修 refgen 索引并参数化 | 一行 bug，不修必然失败 |
 | 2 | 决定 RSC 策略 | 只读探针 or 信任 bootloader 已上电的 fallback |
-| 3 | 补 `0010` force_load + 建 `patches/wifi/series` | 否则 232 KB 永远不生效 |
+| 3 | 写一个读 `patches/wifi/series` 的 applier | 系列与 `0010` 都已落库，但没有脚本应用它 |
 | 4 | 从设备提固件生成真 PWF2 | 只读提取，设备在线时可做 |
 
 ## 结论
 
-**WiFi 是三块空白区里最接近可用的**：代码有了（1,919 行）、补丁有了（232 KB）、
+**WiFi 是三块空白区里最接近可用的**：代码有了（1,771 行）、补丁有了（211,731 B）、
 主机侧编译过了，只差**接进系列 + 修一个索引 + 拿固件**。
 
 这是「有但没接线」的典型，和 `0403` 固件补丁、`1e1a70e` ADT 修复同一个模式。

@@ -1,0 +1,1006 @@
+diff --git a/docs/research/display/BRIGHTNESS-PLAN.md b/docs/research/display/BRIGHTNESS-PLAN.md
+new file mode 100644
+index 00000000..89cb7f82
+--- /dev/null
++++ b/docs/research/display/BRIGHTNESS-PLAN.md
+@@ -0,0 +1,214 @@
++# K60 亮度方案（BRIGHTNESS-PLAN）
++
++> 目标：把显示线从「面板点亮（0x51 0xff 一次性）」推进到「OS 级亮度服务」——iOS 滑块真正改变
++> 面板亮度，且 IORegistry 里能读到发布/请求/回读/失败计数。
++> 八步：本文覆盖 ②官方 / ③反编译（参考实现）/ ④广查 / ⑤方案；⑥深挖与⑦验证见 §7 与
++> `scripts/check-brightness-encoder.py`；⑧上机由 Lead 执行。
++> 本文所有结论都带 `文件:行` 引用；未经引用的推测一律标注「待验证」。
++
++## 1. 结论先行
++
++K60 **没有独立背光 IC**：live FDT 里只有 `pm8350c` 的 `lcd_backlight_ctrl` GPIO 使能，亮度只能走
++面板的 **DSI DCS 0x51（online DBV）**——这是显示线既有的唯一硬件通路
++（`docs/research/display/RESEARCH.md:75-77`：`bl_ctrl_dcs`、`bl-inverted-dbv`、
++`qcom,bl-update-flag=delay_until_first_frame`）。
++
++现状缺口（已核实，不再重复调研）：
++
++| 事实 | 引用 |
++|---|---|
++| `pong_panel_set_brightness(level)` 已实现（DCS 0x51），返回 0 成功 | `drivers/PongAdreno/PongDsiPanel.cpp:247-260` |
++| 该函数**全仓零调用者** | 全仓 grep `pong_panel_set_brightness` 只命中定义与头文件 |
++| 启动时只发一次 `0x51 0xff`，之后亮度恒为最大 | `drivers/PongAdreno/PongDsiPanel.cpp:236-243` |
++| iOS 侧没有任何亮度属性/服务，滑块无效果 | `docs/engineering/PITFALLS.md:808-821`（P-62） |
++
++所以本线要补的不是硬件驱动，而是 **OS 与面板之间的两层**：面向 CoreBrightness 的**服务层**
++（发布 IODisplayParameters、接收 `setProperties`）与把 OS 域编码成 DBV 的**编码层**
++（`0..2047 → 0..255`、FadePeriod → 线性渐变序列）。这正是官方指南
++`docs/zh/porting/display.md:80-114`（§3/§4）对「DSI 命令背光」设备的原话要求：**必须在面向 OS
++的亮度服务下实现传输与编码两层**。
++
++## 2. ②官方：指南到底要求什么
++
++`E:/hackios/UniXNU/docs/zh/porting/display.md:80-114`：
++
++- §3：先按硬件选择**传输**（I2C / DSI 命令 / PWM）并按其目标**编码**；参考实现
++  `package/AppleARMBacklight.cpp`（KTZ8866 + GENI I2C）与 `package/GeniI2c.h`（GENI 状态机）。
++  复用前必须记录：控制器数量、寄存器编码、亮度范围、I2C 引脚/从地址/时钟、中断、供电顺序。
++- §3 末句（对本线是硬约束）：**「DSI 命令或 PWM 背光的设备必须在面向 OS 的亮度服务下实现传输与
++  编码两层」**。
++- §4 五步：①板级引擎映射/时钟投票/中断路由；②实现目标控制器的亮度**编码、写入与回读**（按面板
++  连接匹配控制器数量与更新顺序）；③传输完成或取消后才发起下一次，服务请求在**工作循环**处理，
++  确认失败处理后再启用渐变调光；④**发布的属性必须与系统接受的请求匹配**——iPadOS 17 用
++  `IODisplayParameters` 亮度范围 + `backlight-control` + `brightness` + `FadePeriod`，
++  iPadOS 27 还要毫尼特、滑块表、校准参数与 `brightness-nits`；⑤构建服务与注册封装。
++- 验收（`display.md:108-114` 原文）：最低/中间/最高设置有对应回读与**可见**亮度、渐变调光完成、
++  超时计数稳定；参考实现用 `native_backlight_stats` 记录**发布、请求、回读、中断、失败**；
++  控制器写入与系统 UI 调整要分别验证。
++
++## 3. ③反编译/参考实现：`AppleARMBacklight.cpp` 给了什么、K60 不要什么
++
++参考实现 `E:/hackios/UniXNU-sheng/package/AppleARMBacklight.cpp`（468 行，类名 `ShengBacklight`）。
++
++### 3.1 必须照抄的 OS 契约
++
++| 契约 | 参考实现位置 | K60 怎么做 |
++|---|---|---|
++| CoreBrightness 按 `backlight-control=true` 找服务，从 `IODisplayParameters.brightness` 读 min/max | `:350-366`（publishFirst） | 同：`setProperty("backlight-control", true)` + 发布 `IODisplayParameters` |
++| 下发形式 `{brightness, FadePeriod(16.16 秒)}` 走 `setProperties` | `:422-448` | 同：override `IORegistryEntry::setProperties`（`iokit/IOKit/IORegistryEntry.h:655-661` 是虚函数） |
++| 亮度域 `kMaxLevel=2047`、FadePeriod 上限 5000ms、步长 16ms | `:31-32` | 同，常量进 `K60BacklightCodec.h` |
++| iPadOS 27：`brightness-nits`（signed 16.16）+ 毫尼特/滑块表/校准参数 | `:265-313`、`:422-430` | 同（见 §4 产物 A） |
++| 不阻塞 backboardd 亮度线程：请求进原子字 + 1µs 定时器，工作循环取走 | `:400-428`（int-277/278 教训） | 同 |
++| 渐变在工作循环的定时器里逐 16ms 线性插值 | `fadeStep`/`beginFade` | 同（编码进 codec 的 `fadeLevel/fadeDbv`） |
++
++### 3.2 必须避开的坑（原文注释）
++
++- **int-229 类名重名**：不能叫 `AppleARMBacklight`，`AppleARMPlatform` 已定义该类，重名注册即
++  panic（`AppleARMBacklight.cpp:9-12`）。K60 的平台类是 `ArmDTPlatform : IODTPlatformExpert`
++  （`drivers/ArmDTPlatform/ArmDTPlatform.cpp:39,53`），**不是** `AppleARMPlatform`，但预链接镜像里
++  确实带着官方 `AppleARMBacklight` 类（`kernel.macho` 里有
++  `AppleARMBacklight::setBacklightEnableGated` 等符号串），所以重名风险同样存在 → 我们的类叫
++  `K60Backlight`。
++- **int-236 只发 `backlight-control` 不满足类一致性**：CoreBrightness 只有在
++  `IOObjectConformsTo(service, "AppleARMBacklight")` 成立时才把它当内置屏背光，进而启动 libEDR
++  server；否则 QuartzCore 的同步发送持显示服务锁阻塞，**屏幕停止更新**（`:352-360` 注释）。P-62
++  当年就是因为这个坑才刻意不发布 `backlight-control`。
++  → K60 必须**同时**做 `backlight-control` 与 impersonate（§3.3）。
++- **int-275/276 沙箱拒绝对非该类服务设 FadePeriod**：backboardd profile 只允许对
++  `AppleARMBacklight` 设亮度键，deny 日志原文
++  `deny iokit-set-properties iokit-class:ShengBacklight property:FadePeriod`（`:315-330` 注释）。
++  → 必须 impersonate + `setProperty("NativeSandboxGrantProcess","backboardd")`。
++
++### 3.3 impersonate 的机制（K60 照抄形态）
++
++`AppleARMBacklight.cpp:315-345`：`OSSymbol::withCString("AppleARMBacklight")` →
++`OSMetaClass::getMetaClassWithName` 取官方元类；arm64e 分支只置标志由手写 `getMetaClass()` 应答；
++否则复制 vtable（`kSlots=320`）、把槽位 `kGetMetaClass=7` 换成返回官方元类的函数、`dmb ish` 后换掉
++实例的 vtable 指针。
++
++K60 的内核**不是 arm64e**：`scripts/build-xnu-4k-baseline.sh:1257` 的
++`ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64`，`__has_feature(ptrauth_calls)` 为假 →
++走 vtable 复制分支即可，类定义仍可用标准 `OSDefineMetaClassAndStructors`（实例 vtable 槽 7 已被
++换掉，`OSDynamicCast` 到 `K60Backlight` 会失败，所以事件源回调一律 `static_cast`）。
++
++### 3.4 K60 **不需要**的部分
++
++| 参考实现的东西 | 为什么 K60 不需要 |
++|---|---|
++| GENI I2C 状态机（`GeniI2c.h` 120 行：`GENI_M_CMD0 0x600`、`GENI_M_IRQ_STATUS 0x610`、`GENI_TX_FIFO 0x700`…） | 没有背光 IC，没有 I2C 从地址 0x11 |
++| GCC 时钟投票 `kGccVote=0x52008` / `kVoteBits` / `kHalt[]` | 走 DSI 命令 FIFO，DSI 控制器已在扫描出图时上电 |
++| SPI 中断挂接 `kSpi[2]={354,466}`、250ms 重试 240 次 | DSI DMA 完成是轮询等待，已有 25ms 超时（`PongDsiPanel.cpp:107-190`） |
++| 双引擎（两颗 KTZ8866） | 单 DSI、单面板 |
++
++## 4. K60 需要的四个产物
++
++### 产物 A：参数发布（OS 契约层）
++
++在服务 `start()` 里、**`registerService()` 之前**发布（顺序照 `drivers/PongPower/K60Battery.cpp`
++的 `publish()` 注释：「All initial properties must enter the IORegistry before a client can discover
++the service.」）：
++
++```
++IODisplayParameters = {
++  brightness            = { min: 0, max: 2047, value: <当前 level> }
++  BrightnessMilliNits   = { min: 2000, max: 500000, value: level*500*1000/2047 }
++}
++backlight-marketing-table       = int32[3] { 2<<16, 140<<16, 500<<16 }
++LmaxProduct                     = 4 字节 16.16（500<<16）
++LminProduct / LmidProduct       = OSNumber(2) / OSNumber(140)
++backlight-calibration-parameters = { lMin/lMid/lMaxProduct, lMin/lMid/lMaxPanel }（nits<<16）
++backlight-control               = true          （impersonate 成功且 k60_backlight_control!=0 才发）
++NativeSandboxGrantProcess       = "backboardd"  （同上，int-275/276）
++```
++
++依据：`AppleARMBacklight.cpp:265-313`（publish/publishCalibration）、`:350-366`（publishFirst）。
++
++### 产物 B：服务（工作循环 + 请求落地 + 渐变）
++
++- 类 `K60Backlight : public IOService`（`OSDeclareDefaultStructors`/`OSDefineMetaClassAndStructors`）。
++- `setProperties(OSObject*)` override：先 `brightness-nits`，否则 `brightness`+`FadePeriod`，
++  编码成 `goal` 与 `milliseconds`（用 codec 的 `levelFromNits`/`fadeMsFromFixed`），写原子字
++  `gRequest = 1ull<<63 | goal<<16 | ms` 后 `request->setTimeoutUS(1)`，**不阻塞调用线程**。
++- 工作循环上的 `requestFired` 取走请求 → `beginFade`；`fadeStep` 每 16ms 用 `fadeDbv()` 算目标
++  DBV 并调用 `pong_panel_set_brightness(dbv)`（同一静态归档内直接调用，无链接问题）。
++- 计数：`native_backlight_stats[16]` 与 `native_backlight_request[6]`，语义见 §5。
++
++### 产物 C：注册封装（启动钩子 + boot-arg）
++
++- 入口 `void k60_backlight_start(void)`，幂等（`__atomic_exchange_n(&attempted,1u,...)`）。
++- boot-arg：`k60_backlight`（默认 1，0 = 完全不启动）、`k60_backlight_control`（默认 1，
++  0 = 不发 `backlight-control`/`NativeSandboxGrantProcess`，P-62 的降级开关）、
++  `k60_backlight_invert`（默认 0，反相 DBV 兜底）。
++- 调用点：`drivers/PongAdreno/PongAdrenoScanout.cpp:42` 的 `pong_scanout_initialize()` 里、
++  `pong_panel_bringup()` 成功之后。**理由（决定性）**：`PongAdrenoScanout.cpp:10-19` 注释说明
++  `pong_panel_bringup` 必须从本 TU 调用才能把 `PongDsiPanel.o` 拉进静态归档；亮度服务与
++  `PongDsiPanel.o` 同在 `libPongAdrenoPlatform.a`，从这里启动同样不受归档扫描顺序影响，
++  且不需要像 0393 那样在 `MiniIOSurface.cpp` 里再开一个 extern（`patches/xnu/0393-k60-panel-bringup.patch`）。
++
++### 产物 D：DCS 编码器（host 可验证）
++
++`drivers/PongAdreno/K60BacklightCodec.h`（纯头文件，无 IOKit 依赖）：
++
++- `dbvFromLevel(level)`：`0 → 0`（真关屏），`1..2047 → 1..255`，线性、单调、亮档永不为 0。
++- `levelFromDbv(dbv)`：逆变换，用于把回读值报回 OS 域（往返在一个 DBV 步内闭合）。
++- `levelFromNits(fixed16_16)`：iPadOS 27 的 `brightness-nits`。
++- `fadeMsFromFixed(fixed)`：FadePeriod（16.16 秒）→ 毫秒，上限 5000。
++- `fadeLevel(from,to,elapsed,period)` / `fadeDbv(...)`：渐变序列，不越界、正好落在 `to`。
++- `applyInvert(dbv, invert)`：`bl-inverted-dbv` 兜底。
++
++单测：`scripts/check-brightness-encoder.py`（编译上述头 + 断言，见 §7）。
++
++## 5. 计数语义（验收判据的落点）
++
++`native_backlight_stats[16]`（沿用参考实现的下标，K60 用不到的位置写 -1 或 0 并在注释里说明）：
++
++| 下标 | 语义 | K60 来源 |
++|---|---|---|
++| 0 | 阶段：1 已挂接、2 工作循环就绪、3 已发布、4 已以 AppleARMBacklight 发布、负数=失败步 | 同参考 |
++| 1 | 亮度请求数 | `setProperties` 每次命中 +1 |
++| 2 | 最后写入的 level | `fadeStep` |
++| 3 | 回读 level | `pong_panel_brightness()` 反算（见下） |
++| 4 | 回读 DBV | `pong_panel_brightness()` |
++| 5 | 传输错误数 | `pong_panel_set_brightness()` 返回非 0 |
++| 6-9 | GENI 专用 | K60 恒 -1 |
++| 10-12 | 中断相关 | K60 恒 -1 / 0（无中断） |
++| 13 | 超时数 | DSI DMA 超时由 `PongDsiPanel.cpp` 的 `dsi_failures` 计，本服务转记 |
++| 14 | 挂接尝试 | K60 恒 1 |
++| 15 | 完成的写入数 | 成功写入次数 |
++
++**回读的诚实说明**：DCS 0x51 是只写命令，面板没有对应的读回命令，K60 也没有背光 IC 寄存器可读。
++所以「回读」只能是**已成功写入的 DBV 的软件记录**（`PongDsiPanel.cpp:255` 的
++`panel_brightness`），而不是从面板读回的真实值。本方案在 stats 里把「请求值」（[1]）与
++「已写入值」（[2]/[4]）分开计数，避免把请求误当回读。真机验收时 min/mid/max 三档的
++「回读值不同」判据按此解释：**不同且与请求一致**，可见变化由人眼确认。
++
++## 6. 与 P-62 / int-236 的关系（为什么现在可以做）
++
++P-62（`docs/engineering/PITFALLS.md:808-821`）当时的结论是「只加 `k60_panel_brightness` boot-arg、
++刻意不发布 `backlight-control`」，因为 int-236 的教训是「只发 backlight-control 而不满足
++`IOObjectConformsTo(service,"AppleARMBacklight")` → 屏幕停止更新」。
++
++本方案把两者一起做：`backlight-control` **只在 impersonate 成功时**才发（`control == 1 &&
++impersonate()`），与参考实现 `AppleARMBacklight.cpp:360` 完全同构；impersonate 失败则退化成
++P-62 的旧行为（只发 `IODisplayParameters`，不声明 backlight-control），屏幕不会停更。
++额外留 `k60_backlight_control=0` 作为一键回退。
++
++## 7. 验证计划
++
++| 层次 | 手段 | 产物 |
++|---|---|---|
++| 编码器（host） | `python3 scripts/check-brightness-encoder.py`：0..255 映射端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且落点精确 | 本目录 + 脚本输出 |
++| 静态（host） | `scripts/build-pong-adreno-platform.py` 编译新增源文件（arm64 kernel target）；`scripts/check-porting-paths.py`；`scripts/eight-step-gate.py --build` | 构建日志 |
++| 产物（host） | `scripts/build-strict.sh` 产出 `kernel.macho`，`llvm-nm` 必须出现 `_k60_backlight_start`、`_native_backlight_stats` | `build-manifest.json` + nm 输出 |
++| 真机（Lead） | ①上电后 `ioreg -l | grep -i backlight` 能看到 `backlight-control` 与 `IODisplayParameters`；②拖动亮度滑块，日志/计数变化；③`native_backlight_stats[1]` 递增；④min/mid/max 三档 `stats[2]/[4]` 不同且屏上可见；⑤渐变（FadePeriod）无跳变；⑥屏幕不停更（int-236 回归项） | 交给 Lead 执行，本线**禁止自行 boot** |
++
++## 8. 开放问题（诚实标注，勿当结论）
++
++1. 面板 live FDT 的 `bl-max=0xfff`（12 位）与 bring-up 实发的 `0x51 0xff`（8 位）不一致：
++   本方案按 **8 位 DBV** 实现（与既有 `pong_panel_set_brightness` 的 0..255 契约一致）。若真机上
++   8 位域过粗（255 档在暗端可见跳变），再评估 0x51 双字节 12 位写入——**待验证**，需要面板
++   spec 或真机实验，不在本次改动内。
++2. `bl-inverted-dbv` 是否在本面板上真的生效：bring-up 发 `0xff` 后面板亮，说明默认不反相；
++   仍留 `k60_backlight_invert` 兜底，**待真机验证**。
++3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
++   仅由 host 单测覆盖，**待未来系统验证**。
+diff --git a/drivers/PongAdreno/K60Backlight.cpp b/drivers/PongAdreno/K60Backlight.cpp
+new file mode 100644
+index 00000000..bbf28de5
+--- /dev/null
++++ b/drivers/PongAdreno/K60Backlight.cpp
+@@ -0,0 +1,417 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/*
++ * K60Backlight.cpp - the OS facing half of the K60 brightness service.
++ *
++ * K60 has no backlight IC: brightness is the panel's DSI DCS 0x51 online DBV,
++ * already implemented by pong_panel_set_brightness() in PongDsiPanel.cpp:247.
++ * What was missing is a service CoreBrightness can talk to. This file is the
++ * structure of UniXNU-sheng/package/AppleARMBacklight.cpp with the hardware
++ * layer removed: no I2C engines, no GENI state machine, no interrupts, because
++ * the transport is the DSI command FIFO that already works.
++ *
++ * Contract (docs/zh/porting/display.md:80-114, AppleARMBacklight.cpp:350-448):
++ *   CoreBrightness/backboardd looks for a service with backlight-control = true,
++ *   reads min/max from IODisplayParameters.brightness, and sends
++ *   {brightness, FadePeriod (16.16 seconds)} through setProperties. iPadOS 27
++ *   sends brightness-nits (signed 16.16) instead and ramps by itself.
++ *
++ * Two traps from the reference implementation, both avoided here:
++ *   int-229 the class cannot be named AppleARMBacklight (the prelinked kernel
++ *          already carries that class; a duplicate name panics on registration),
++ *          so it is K60Backlight and impersonates the metaclass instead.
++ *   int-236 publishing backlight-control without IOObjectConformsTo(service,
++ *          "AppleARMBacklight") makes CoreBrightness skip the libEDR server and
++ *          QuartzCore blocks with the display lock held: the screen stops
++ *          updating. backlight-control is therefore only published when the
++ *          impersonation succeeded (same rule as AppleARMBacklight.cpp:360).
++ *
++ * Counting follows the reference layout; see docs/research/display/
++ * BRIGHTNESS-PLAN.md section 5 for the index table.
++ */
++#include <IOKit/IOService.h>
++#include <IOKit/IOLib.h>
++#include <IOKit/IOWorkLoop.h>
++#include <IOKit/IOTimerEventSource.h>
++#include <IOKit/IOPlatformExpert.h>
++#include <kern/clock.h>
++#include <libkern/c++/OSData.h>
++#include <libkern/c++/OSDictionary.h>
++#include <libkern/c++/OSNumber.h>
++#include <libkern/c++/OSSymbol.h>
++#include <libkern/libkern.h>
++#include <pexpert/pexpert.h>
++
++#include "K60BacklightCodec.h"
++
++/* Same archive: PongDsiPanel.o is linked in through this reference, which is why
++ * this service lives in drivers/PongAdreno rather than in the xnu tree. */
++extern "C" int pong_panel_set_brightness(uint32_t level);
++extern "C" uint32_t pong_panel_brightness(void);
++
++/* [0] stage (1 attached, 2 work loop ready, 3 published, 4 published as
++ * AppleARMBacklight, negative: the step that failed), [1] brightness requests,
++ * [2] last level written, [3] level read back, [4] DBV read back, [5] failed
++ * writes, [6]..[12] GENI/interrupt slots that K60 does not have (-1),
++ * [13] timeouts (-1: counted inside PongDsiPanel.cpp), [14] attach tries,
++ * [15] completed writes. */
++extern "C" {volatile int32_t native_backlight_stats[16];}
++/* [0] last level asked for, [1] its fade in milliseconds, [2] request timer
++ * runs, [3] fades begun from a request, [4] [5] interrupts (unused, -1). */
++extern "C" {volatile int32_t native_backlight_request[6];}
++
++namespace {
++/* The newest request, goal << 16 | milliseconds, bit 63 set while the work loop
++ * has not taken it yet. */
++volatile uint64_t gRequest;
++
++bool bootArg(const char *name, uint32_t &value)
++{
++    uint32_t parsed = value;
++    if (!PE_parse_boot_argn(name, &parsed, sizeof(parsed))) return false;
++    value = parsed;
++    return true;
++}
++}
++
++class K60Backlight final : public IOService
++{
++    OSDeclareDefaultStructors(K60Backlight)
++
++public:
++    bool startService(void);
++    void stop(IOService *provider) override;
++    void free(void) override;
++    IOReturn setProperties(OSObject *properties) override;
++
++private:
++    IOWorkLoop *loop = nullptr;
++    IOTimerEventSource *requestTimer = nullptr;
++    IOTimerEventSource *fadeTimer = nullptr;
++    bool requestAdded = false, fadeAdded = false;
++    bool published = false, stopped = false, impersonated = false;
++    bool invert = false;
++    uint32_t level = 0, from = 0, to = 0, periodMs = 0;
++    uint64_t start = 0;
++
++    static const OSMetaClass *gAppleClass;
++
++    static const OSMetaClass *appleMetaClass(const OSMetaClassBase *);
++    bool impersonate(void);
++    void publish(uint32_t value);
++    void publishCalibration(void);
++    void publishFirst(void);
++    void beginFade(uint32_t goal, uint32_t milliseconds);
++    bool writeLevel(uint32_t value);
++    static void requestAction(OSObject *owner, IOTimerEventSource *timer);
++    static void fadeAction(OSObject *owner, IOTimerEventSource *timer);
++    static IOReturn beginAction(OSObject *owner, void *, void *, void *, void *);
++};
++
++OSDefineMetaClassAndStructors(K60Backlight, IOService)
++
++const OSMetaClass *K60Backlight::gAppleClass = nullptr;
++
++/* The metaclass the sandbox and IOObjectConformsTo are asked about once the
++ * instance's vtable slot 7 points here (see impersonate). A member so it can
++ * reach the private gAppleClass, exactly as the reference implementation does. */
++const OSMetaClass *K60Backlight::appleMetaClass(const OSMetaClassBase *)
++{
++    return gAppleClass;
++}
++
++bool K60Backlight::impersonate(void)
++{
++    enum {kSlots = 320, kGetMetaClass = 7};
++    const OSSymbol *name = OSSymbol::withCString("AppleARMBacklight");
++    gAppleClass = name ? OSMetaClass::getMetaClassWithName(name) : nullptr;
++    OSSafeReleaseNULL(name);
++    if (!gAppleClass) return false;
++#if __has_feature(ptrauth_calls)
++    /* arm64e signs vtable entries, so a copied vtable would not authenticate;
++     * that build would need the hand written getMetaClass() of the reference
++     * implementation. This kernel is built for arm64 (build-xnu-4k-baseline.sh
++     * ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64), so refuse rather than
++     * pretend: without impersonation the service simply does not claim
++     * backlight-control (int-236 stays avoided). */
++    return false;
++#else
++    uintptr_t *copy = static_cast<uintptr_t *>(IOMalloc(kSlots * sizeof(uintptr_t)));
++    if (!copy) return false;
++    memcpy(copy, *reinterpret_cast<uintptr_t **>(this), kSlots * sizeof(uintptr_t));
++    copy[kGetMetaClass] = reinterpret_cast<uintptr_t>(&appleMetaClass);
++    __asm__ volatile("dmb ish" ::: "memory");
++    *reinterpret_cast<uintptr_t **>(this) = copy;
++    return true;
++#endif
++}
++
++void K60Backlight::publish(uint32_t value)
++{
++    OSDictionary *brightness = OSDictionary::withCapacity(3);
++    OSDictionary *milliNits = OSDictionary::withCapacity(3);
++    OSDictionary *parameters = OSDictionary::withCapacity(2);
++    OSNumber *min = OSNumber::withNumber(0ULL, 32);
++    OSNumber *max = OSNumber::withNumber((uint64_t)k60backlight::kMaxLevel, 32);
++    OSNumber *cur = OSNumber::withNumber((uint64_t)value, 32);
++    OSNumber *nitsMin = OSNumber::withNumber((uint64_t)k60backlight::kMinNits * 1000, 32);
++    OSNumber *nitsMax = OSNumber::withNumber((uint64_t)k60backlight::kMaxNits * 1000, 32);
++    OSNumber *nitsCur = OSNumber::withNumber((uint64_t)k60backlight::milliNitsFromLevel(value), 32);
++    if (!brightness || !milliNits || !parameters || !min || !max || !cur ||
++        !nitsMin || !nitsMax || !nitsCur) goto done;
++    brightness->setObject("min", min);
++    brightness->setObject("max", max);
++    brightness->setObject("value", cur);
++    milliNits->setObject("min", nitsMin);
++    milliNits->setObject("max", nitsMax);
++    milliNits->setObject("value", nitsCur);
++    parameters->setObject("brightness", brightness);
++    parameters->setObject("BrightnessMilliNits", milliNits);
++    setProperty("IODisplayParameters", parameters);
++done:
++    OSSafeReleaseNULL(nitsCur);
++    OSSafeReleaseNULL(nitsMax);
++    OSSafeReleaseNULL(nitsMin);
++    OSSafeReleaseNULL(cur);
++    OSSafeReleaseNULL(max);
++    OSSafeReleaseNULL(min);
++    OSSafeReleaseNULL(parameters);
++    OSSafeReleaseNULL(milliNits);
++    OSSafeReleaseNULL(brightness);
++}
++
++/* The slider table and calibration points iPadOS 27 asks for. The panel's
++ * luminance has not been measured, so these set the slider's scale, not an
++ * absolute brightness (same disclosure as the reference implementation). */
++void K60Backlight::publishCalibration(void)
++{
++    const int32_t table[3] = {(int32_t)(k60backlight::kMinNits << 16),
++                              (int32_t)(k60backlight::kMidNits << 16),
++                              (int32_t)(k60backlight::kMaxNits << 16)};
++    if (OSData *marketing = OSData::withBytes(table, sizeof(table))) {
++        setProperty("backlight-marketing-table", marketing);
++        marketing->release();
++    }
++    if (OSData *lmax = OSData::withBytes(&table[2], sizeof(table[2]))) {
++        setProperty("LmaxProduct", lmax);
++        lmax->release();
++    }
++    if (OSNumber *number = OSNumber::withNumber((uint64_t)k60backlight::kMinNits, 32)) {
++        setProperty("LminProduct", number);
++        number->release();
++    }
++    if (OSNumber *number = OSNumber::withNumber((uint64_t)k60backlight::kMidNits, 32)) {
++        setProperty("LmidProduct", number);
++        number->release();
++    }
++    OSDictionary *calibration = OSDictionary::withCapacity(6);
++    if (!calibration) return;
++    const struct {const char *key; uint32_t nits;} fields[] = {
++        {"lMinProduct", k60backlight::kMinNits}, {"lMidProduct", k60backlight::kMidNits},
++        {"lMaxProduct", k60backlight::kMaxNits}, {"lMinPanel", k60backlight::kMinNits},
++        {"lMidPanel", k60backlight::kMidNits}, {"lMaxPanel", k60backlight::kMaxNits}};
++    for (const auto &field : fields) {
++        if (OSNumber *number = OSNumber::withNumber((uint64_t)field.nits << 16, 32)) {
++            calibration->setObject(field.key, number);
++            number->release();
++        }
++    }
++    setProperty("backlight-calibration-parameters", calibration);
++    calibration->release();
++}
++
++/* One DCS 0x51 write. The panel has no read back command, so the value reported
++ * as read back is the one this service last wrote successfully
++ * (PongDsiPanel.cpp:255), not a measurement. */
++bool K60Backlight::writeLevel(uint32_t value)
++{
++    const uint32_t dbv = k60backlight::applyInvert(k60backlight::dbvFromLevel(value), invert);
++    if (pong_panel_set_brightness(dbv)) {
++        __atomic_fetch_add(&native_backlight_stats[5], 1, __ATOMIC_RELAXED);
++        return false;
++    }
++    __atomic_fetch_add(&native_backlight_stats[15], 1, __ATOMIC_RELAXED);
++    native_backlight_stats[2] = (int32_t)value;
++    const uint32_t written = pong_panel_brightness();
++    native_backlight_stats[4] = (int32_t)written;
++    native_backlight_stats[3] = (int32_t)k60backlight::levelFromDbv(written);
++    return true;
++}
++
++void K60Backlight::beginFade(uint32_t goal, uint32_t milliseconds)
++{
++    if (!fadeTimer) return;
++    fadeTimer->cancelTimeout();
++    from = level;
++    to = k60backlight::clampLevel((int64_t)goal);
++    periodMs = milliseconds;
++    clock_get_uptime(&start);
++    fadeAction(this, fadeTimer);
++}
++
++void K60Backlight::fadeAction(OSObject *owner, IOTimerEventSource *sender)
++{
++    K60Backlight *self = static_cast<K60Backlight *>(owner);   /* see impersonate() */
++    if (!self || self->stopped) return;
++    uint64_t now = 0, elapsedNs = 0;
++    clock_get_uptime(&now);
++    absolutetime_to_nanoseconds(now - self->start, &elapsedNs);
++    const uint32_t elapsedMs = elapsedNs > 0xffffffffull ? 0xffffffffu : (uint32_t)(elapsedNs / 1000000ull);
++    const uint32_t next = k60backlight::fadeLevel(self->from, self->to, elapsedMs, self->periodMs);
++    if (next != self->level) {
++        self->writeLevel(next);
++        self->level = next;
++    }
++    if (next != self->to) sender->setTimeoutMS(k60backlight::kStepMs);
++}
++
++void K60Backlight::requestAction(OSObject *owner, IOTimerEventSource *sender)
++{
++    (void)sender;
++    K60Backlight *self = static_cast<K60Backlight *>(owner);
++    if (!self || self->stopped) return;
++    __atomic_fetch_add(&native_backlight_request[2], 1, __ATOMIC_RELAXED);
++    const uint64_t request = __atomic_exchange_n(&gRequest, 0ull, __ATOMIC_ACQUIRE);
++    if (!(request >> 63)) return;
++    __atomic_fetch_add(&native_backlight_request[3], 1, __ATOMIC_RELAXED);
++    self->beginFade((uint32_t)(request >> 16) & 0xffff, (uint32_t)request & 0xffff);
++}
++
++/* The reference waits for both engines to answer a level read first; here the
++ * panel is already lit by bring-up, so the published value is whatever DBV the
++ * panel was left at (0xff, PongDsiPanel.cpp:236). */
++void K60Backlight::publishFirst(void)
++{
++    published = true;
++    level = from = to = k60backlight::levelFromDbv(pong_panel_brightness());
++    native_backlight_stats[2] = (int32_t)level;
++    native_backlight_stats[3] = (int32_t)level;
++    native_backlight_stats[4] = (int32_t)pong_panel_brightness();
++    /* int-236: only claim backlight-control when the conformance query will
++     * answer AppleARMBacklight. k60_backlight_control=0 is the escape hatch. */
++    uint32_t control = 1;
++    bootArg("k60_backlight_control", control);
++    if (control && impersonate()) {
++        impersonated = true;
++        setProperty("NativeSandboxGrantProcess", "backboardd");
++        setProperty("backlight-control", true);
++    }
++    publishCalibration();
++    publish(level);
++    registerService();
++    native_backlight_stats[0] = impersonated ? 4 : 3;
++    IOLog("K60 BACKLIGHT: published level %u dbv 0x%x control %d%s\n", level,
++          pong_panel_brightness(), (int)impersonated,
++          impersonated ? "" : " (no AppleARMBacklight conformance)");
++}
++
++IOReturn K60Backlight::setProperties(OSObject *properties)
++{
++    OSDictionary *dictionary = OSDynamicCast(OSDictionary, properties);
++    if (!dictionary) return kIOReturnBadArgument;
++    uint32_t goal;
++    uint32_t milliseconds = 0;
++    if (OSNumber *nits = OSDynamicCast(OSNumber, dictionary->getObject("brightness-nits"))) {
++        /* iPadOS 27: signed 16.16 nits, ramped by the caller. */
++        goal = k60backlight::levelFromNits((int32_t)nits->unsigned32BitValue());
++    } else if (OSNumber *brightness = OSDynamicCast(OSNumber, dictionary->getObject("brightness"))) {
++        OSNumber *fadePeriod = OSDynamicCast(OSNumber, dictionary->getObject("FadePeriod"));
++        goal = k60backlight::clampLevel((int64_t)(int32_t)brightness->unsigned32BitValue());
++        if (fadePeriod)
++            milliseconds = k60backlight::fadeMsFromFixed((uint64_t)fadePeriod->unsigned32BitValue());
++    } else {
++        return kIOReturnSuccess;
++    }
++    __atomic_fetch_add(&native_backlight_stats[1], 1, __ATOMIC_RELAXED);
++    native_backlight_request[0] = (int32_t)goal;
++    native_backlight_request[1] = (int32_t)milliseconds;
++    /* Hand the request to the work loop instead of blocking backboardd's
++     * brightness thread here (int-277/int-278 in the reference). */
++    __atomic_store_n(&gRequest,
++                     (1ull << 63) | ((uint64_t)goal << 16) | (uint64_t)(milliseconds & 0xffff),
++                     __ATOMIC_RELEASE);
++    if (requestTimer) requestTimer->setTimeoutUS(1);
++    publish(goal);
++    return kIOReturnSuccess;
++}
++
++bool K60Backlight::startService(void)
++{
++    native_backlight_stats[0] = 1;
++    for (int i = 6; i <= 12; ++i) native_backlight_stats[i] = -1;
++    native_backlight_stats[13] = -1;
++    native_backlight_stats[14] = 1;
++    native_backlight_request[4] = -1;
++    native_backlight_request[5] = -1;
++    uint32_t invertArg = 0;
++    invert = bootArg("k60_backlight_invert", invertArg) && invertArg != 0;
++    loop = IOWorkLoop::workLoop();
++    requestTimer = IOTimerEventSource::timerEventSource(this, requestAction);
++    fadeTimer = IOTimerEventSource::timerEventSource(this, fadeAction);
++    if (!loop || !requestTimer || !fadeTimer) return false;
++    if (loop->addEventSource(requestTimer) != kIOReturnSuccess) return false;
++    requestAdded = true;
++    if (loop->addEventSource(fadeTimer) != kIOReturnSuccess) return false;
++    fadeAdded = true;
++    native_backlight_stats[0] = 2;
++    /* Publish from the work loop so the first setProperties cannot race the
++     * IORegistry publication. */
++    loop->runAction(beginAction, this);
++    return true;
++}
++
++IOReturn K60Backlight::beginAction(OSObject *owner, void *, void *, void *, void *)
++{
++    K60Backlight *self = static_cast<K60Backlight *>(owner);   /* see impersonate() */
++    if (!self || self->published) return kIOReturnSuccess;
++    self->publishFirst();
++    return kIOReturnSuccess;
++}
++
++void K60Backlight::stop(IOService *provider)
++{
++    stopped = true;
++    if (fadeTimer) fadeTimer->cancelTimeout();
++    if (requestTimer) requestTimer->cancelTimeout();
++    if (loop) {
++        if (fadeAdded) {loop->removeEventSource(fadeTimer); fadeAdded = false;}
++        if (requestAdded) {loop->removeEventSource(requestTimer); requestAdded = false;}
++    }
++    OSSafeReleaseNULL(fadeTimer);
++    OSSafeReleaseNULL(requestTimer);
++    OSSafeReleaseNULL(loop);
++    IOService::stop(provider);
++}
++
++void K60Backlight::free(void)
++{
++    OSSafeReleaseNULL(fadeTimer);
++    OSSafeReleaseNULL(requestTimer);
++    OSSafeReleaseNULL(loop);
++    IOService::free();
++}
++
++/* Entry point, called from pong_scanout_initialize() once the panel is out of
++ * sleep (same archive, so PongDsiPanel.o is already linked in). */
++extern "C" void k60_backlight_start(void)
++{
++    static unsigned attempted;
++    uint32_t enabled = 1;
++    bootArg("k60_backlight", enabled);
++    if (!enabled || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
++    IOService *provider = IOService::getPlatform();
++    K60Backlight *service = new K60Backlight;
++    bool attached = false;
++    if (provider && service && service->init()) attached = service->attach(provider);
++    if (!attached || !service->startService()) {
++        if (service) {
++            if (attached) service->stop(provider);
++            if (attached) service->detach(provider);
++            service->release();
++        }
++        native_backlight_stats[0] = -1;
++        IOLog("K60 BACKLIGHT: service setup rejected; brightness stays at bring-up value\n");
++        return;
++    }
++    /* The service retains its own owner reference for the epoch; there is no
++     * unload path, matching the reference implementation. */
++}
+diff --git a/drivers/PongAdreno/K60BacklightCodec.h b/drivers/PongAdreno/K60BacklightCodec.h
+new file mode 100644
+index 00000000..74021012
+--- /dev/null
++++ b/drivers/PongAdreno/K60BacklightCodec.h
+@@ -0,0 +1,131 @@
++// SPDX-License-Identifier: APSL-2.0
++//
++// K60BacklightCodec.h - the encoding half of the K60 brightness service.
++//
++// K60 has no backlight IC: the panel takes its brightness as the DSI DCS 0x51
++// long write (online DBV), which drivers/PongAdreno/PongDsiPanel.cpp:247 already
++// sends. What was missing is the *encoding* layer between the domain the OS talks
++// in and the 8 bit DBV the panel takes, so it lives here, free of IOKit, and is
++// unit tested on the host by scripts/check-brightness-encoder.py.
++//
++// Two domains:
++//   OS   : 0..kMaxLevel (2047), the scale CoreBrightness/backboardd uses, see
++//          UniXNU-sheng/package/AppleARMBacklight.cpp kMaxLevel.
++//   panel: 0..0xff, the byte carried in DCS 0x51. 0 means "off", 1 is the
++//          dimmest lit step, 0xff is the brightest.
++// The live FDT also advertises bl-max = 0xfff / bl-min = 0x1 (docs/research/
++// display/RESEARCH.md:76), but that is the vendor 12 bit domain; the 0x51 write
++// that actually lights this panel is 8 bit (0x51 0xff at bring-up, PongDsiPanel.cpp:236).
++
++#ifndef K60_BACKLIGHT_CODEC_H
++#define K60_BACKLIGHT_CODEC_H
++
++#include <stdint.h>
++
++namespace k60backlight {
++
++enum : uint32_t {
++    kMaxLevel = 2047,   // OS brightness domain, matches AppleARMBacklight kMaxLevel
++    kMinNits = 2,       // calibration points published to CoreBrightness
++    kMidNits = 140,
++    kMaxNits = 500,
++    kMaxFadeMs = 5000,  // a FadePeriod longer than this is clamped
++    kStepMs = 16,       // fade step cadence
++    kMaxDbv = 0xff,     // panel DBV domain carried by DCS 0x51
++    kMinDbvOn = 1,      // dimmest value that still lights the panel
++};
++
++// Clamp a raw request into the OS domain.
++static inline uint32_t clampLevel(int64_t level)
++{
++    if (level <= 0) return 0;
++    if (level >= (int64_t)kMaxLevel) return kMaxLevel;
++    return (uint32_t)level;
++}
++
++// BrightnessMilliNits reported next to the level, same formula as the reference
++// implementation (value * kMaxNits * 1000 / kMaxLevel).
++static inline uint32_t milliNitsFromLevel(uint32_t level)
++{
++    const uint64_t nits = (uint64_t)clampLevel((int64_t)level) * (uint64_t)kMaxNits * 1000ull;
++    return (uint32_t)(nits / (uint64_t)kMaxLevel);
++}
++
++// brightness-nits request (signed 16.16 fixed point nits) -> OS level.
++// Anything at or below zero is "off"; otherwise scale to the panel's nits and
++// never hand back a lit level of 0.
++static inline uint32_t levelFromNits(int32_t fixedNits)
++{
++    if (fixedNits <= 0) return 0;
++    const uint64_t scale = (uint64_t)kMaxNits << 16;
++    const uint64_t scaled = ((uint64_t)(uint32_t)fixedNits * (uint64_t)kMaxLevel + scale / 2) / scale;
++    if (scaled < (uint64_t)kMinDbvOn) return kMinDbvOn;
++    if (scaled > (uint64_t)kMaxLevel) return kMaxLevel;
++    return (uint32_t)scaled;
++}
++
++// FadePeriod arrives as 16.16 fixed point seconds; the service works in ms.
++static inline uint32_t fadeMsFromFixed(uint64_t fixedSeconds)
++{
++    const uint64_t ms = (fixedSeconds * 1000ull) >> 16;
++    return (uint32_t)(ms > (uint64_t)kMaxFadeMs ? (uint64_t)kMaxFadeMs : ms);
++}
++
++// Linear interpolation used by the fade timer: the level to show elapsedMs into
++// a fade from -> to lasting periodMs. Never overshoots and lands exactly on to.
++static inline uint32_t fadeLevel(uint32_t from, uint32_t to, uint32_t elapsedMs, uint32_t periodMs)
++{
++    const uint32_t a = clampLevel((int64_t)from);
++    const uint32_t b = clampLevel((int64_t)to);
++    if (periodMs == 0 || elapsedMs >= periodMs) return b;
++    const int64_t delta = (int64_t)b - (int64_t)a;
++    return (uint32_t)((int64_t)a + delta * (int64_t)elapsedMs / (int64_t)periodMs);
++}
++
++// OS level -> panel DBV. Level 0 is a real 0 (panel off), every lit level maps
++// to at least kMinDbvOn so a dim screen never goes black.
++static inline uint32_t dbvFromLevel(uint32_t level)
++{
++    const uint32_t clamped = clampLevel((int64_t)level);
++    if (clamped == 0) return 0;
++    const uint32_t span = kMaxDbv - kMinDbvOn;                 // 254
++    const uint32_t steps = (clamped * span + kMaxLevel / 2) / kMaxLevel;
++    return kMinDbvOn + steps;
++}
++
++// Panel DBV -> OS level, the inverse used to report a read-back value.
++static inline uint32_t levelFromDbv(uint32_t dbv)
++{
++    if (dbv == 0) return 0;
++    const uint32_t d = dbv > kMaxDbv ? kMaxDbv : dbv;
++    const uint32_t span = kMaxDbv - kMinDbvOn;                 // 254
++    const uint32_t steps = ((d - kMinDbvOn) * kMaxLevel + span / 2) / span;
++    if (steps < kMinDbvOn) return kMinDbvOn;
++    return steps > kMaxLevel ? kMaxLevel : steps;
++}
++
++// Some panels wire DBV inverted (live FDT bl-inverted-dbv, RESEARCH.md:77).
++// K60 sends 0xff at bring-up and the panel comes up bright, so the default is
++// not inverted; the boot-arg k60_backlight_invert flips this if a board turns
++// out the other way round.
++static inline uint32_t applyInvert(uint32_t dbv, bool invert)
++{
++    return invert ? (kMaxDbv - dbv) : dbv;
++}
++
++// One step of the fade, in DBV, for the transport to hand to the panel.
++static inline uint32_t fadeDbv(uint32_t fromLevel, uint32_t toLevel, uint32_t elapsedMs,
++                               uint32_t periodMs, bool invert)
++{
++    return applyInvert(dbvFromLevel(fadeLevel(fromLevel, toLevel, elapsedMs, periodMs)), invert);
++}
++
++// Number of fade steps (including the one at elapsed 0) before the fade lands.
++static inline uint32_t fadeStepCount(uint32_t periodMs)
++{
++    return periodMs / kStepMs + 1;
++}
++
++} // namespace k60backlight
++
++#endif // K60_BACKLIGHT_CODEC_H
+diff --git a/drivers/PongAdreno/PongAdrenoScanout.cpp b/drivers/PongAdreno/PongAdrenoScanout.cpp
+index 8029a028..332d6a8c 100644
+--- a/drivers/PongAdreno/PongAdrenoScanout.cpp
++++ b/drivers/PongAdreno/PongAdrenoScanout.cpp
+@@ -18,6 +18,10 @@
+  */
+ extern "C" bool pong_panel_bringup(void);
+ extern "C" void pong_ramoops_diagnostic_write(const char *,int);
++/* The OS facing brightness service (K60Backlight.cpp, same archive): it is
++ * started from here for the same reason pong_panel_bringup is - a reference in
++ * this translation unit is what pulls those objects into the static archive. */
++extern "C" void k60_backlight_start(void);
+ namespace {
+ IOLock *scanout_gate;
+ IOMemoryDescriptor *scanout;
+@@ -40,6 +44,9 @@ extern "C" void pong_scanout_initialize(uint64_t address,size_t bytes,uint32_t s
+     /* K60: bring the panel out of Sleep Out before any scanout is offered,
+      * independent of whether the GPU scanout path itself is enabled. */
+     if(!pong_panel_bringup())IOLog("K60 DISPLAY: panel bring-up failed; continuing with canvas only\n");
++    /* Brightness only makes sense once the panel is out of sleep; the service
++     * publishes IODisplayParameters and answers CoreBrightness from here on. */
++    else k60_backlight_start();
+     unsigned enabled=0;
+     if(scanout_gate || !PE_parse_boot_argn("pong_gpu_scanout",&enabled,sizeof(enabled)) || enabled!=1)return;
+     if(!address || (address&4095) || !width || !height || stride<uint64_t(width)*4 ||
+diff --git a/scripts/build-pong-adreno-platform-linux.py b/scripts/build-pong-adreno-platform-linux.py
+index a08b7852..d1d8ef90 100644
+--- a/scripts/build-pong-adreno-platform-linux.py
++++ b/scripts/build-pong-adreno-platform-linux.py
+@@ -107,7 +107,7 @@ def main():
+         '-c',str(source/'PongAdrenoPlatform.cpp'),'-o',str(obj)]
+     subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
+     cpp_template=cmd.copy()
+-    names=['PongAdrenoCp','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator','PongDsiPanel']+['submit/'+n for n in [
++    names=['PongAdrenoCp','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator','PongDsiPanel','K60Backlight']+['submit/'+n for n in [
+         'NativeAdrenoBoard','NativeAdrenoClient','NativeAdrenoPublish','NativeAdrenoRing','NativeAdrenoCpInit','NativeAdrenoTimer','NativeAdrenoIrq','NativeAdrenoPwrup',
+         'NativeAdrenoCpu','NativeAdrenoMemory','NativeAdrenoSmmuMemory',
+         'NativeAdrenoSmmuContext','NativeAdrenoVm','NativeAdrenoSubmit','NativeAdrenoUserClient']]
+diff --git a/scripts/build-pong-adreno-platform.py b/scripts/build-pong-adreno-platform.py
+index 527292b2..bae29b84 100644
+--- a/scripts/build-pong-adreno-platform.py
++++ b/scripts/build-pong-adreno-platform.py
+@@ -81,7 +81,7 @@ def main():
+         '-c',str(source/'PongAdrenoPlatform.cpp'),'-o',str(obj)]
+     subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
+     cpp_template=cmd.copy()
+-    names=['PongAdrenoCp','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator','PongDsiPanel']+['submit/'+n for n in [
++    names=['PongAdrenoCp','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator','PongDsiPanel','K60Backlight']+['submit/'+n for n in [
+         'NativeAdrenoBoard','NativeAdrenoClient','NativeAdrenoPublish','NativeAdrenoRing','NativeAdrenoCpInit','NativeAdrenoTimer','NativeAdrenoIrq','NativeAdrenoPwrup',
+         'NativeAdrenoCpu','NativeAdrenoMemory','NativeAdrenoSmmuMemory',
+         'NativeAdrenoSmmuContext','NativeAdrenoVm','NativeAdrenoSubmit','NativeAdrenoUserClient']]
+diff --git a/scripts/check-brightness-encoder.py b/scripts/check-brightness-encoder.py
+new file mode 100644
+index 00000000..abb112df
+--- /dev/null
++++ b/scripts/check-brightness-encoder.py
+@@ -0,0 +1,168 @@
++#!/usr/bin/env python3
++"""Host check for the K60 brightness encoder (drivers/PongAdreno/K60BacklightCodec.h).
++
++The K60 panel takes its brightness as the DSI DCS 0x51 byte (online DBV); the OS
++talks in a 0..2047 level plus a 16.16 FadePeriod. Everything between the two is
++pure arithmetic, so it is verified here on the host: no hardware, no IOKit.
++
++What is asserted:
++  * 0..255 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
++    the DBV -> level inverse round trips within one step.
++  * brightness-nits requests (iPadOS 27 form): 2 / 140 / 500 nits map to the
++    calibration points, <= 0 maps to off, and the result never exceeds the level
++    domain.
++  * FadePeriod: 16.16 seconds -> milliseconds, clamped at 5000 ms.
++  * The fade sequence: monotonic, starts at "from", lands exactly on "to", and
++    the step count matches the 16 ms cadence.
++
++Run: python3 scripts/check-brightness-encoder.py
++"""
++
++import os
++import shutil
++import subprocess
++import sys
++import tempfile
++
++REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++HEADER = os.path.join(REPO, "drivers", "PongAdreno", "K60BacklightCodec.h")
++
++HARNESS = r"""
++#include <stdio.h>
++#include <stdint.h>
++#include "K60BacklightCodec.h"
++
++using namespace k60backlight;
++
++static int failures;
++
++static void check(bool ok, const char *what, long got, long want)
++{
++    if (!ok) {
++        printf("FAIL %s: got %ld want %ld\n", what, got, want);
++        ++failures;
++    }
++}
++
++int main(void)
++{
++    /* --- 0..255 DBV conversion ------------------------------------------- */
++    check(dbvFromLevel(0) == 0, "dbv(0) is off", dbvFromLevel(0), 0);
++    check(dbvFromLevel(kMaxLevel) == kMaxDbv, "dbv(max) is 0xff", dbvFromLevel(kMaxLevel), kMaxDbv);
++    check(dbvFromLevel(1) >= kMinDbvOn, "dbv(1) still lit", dbvFromLevel(1), kMinDbvOn);
++    check(dbvFromLevel(1) < dbvFromLevel(64), "dbv monotonic low", dbvFromLevel(1), dbvFromLevel(64));
++    check(dbvFromLevel(2000) > dbvFromLevel(1024), "dbv monotonic high", dbvFromLevel(2000), dbvFromLevel(1024));
++
++    int prev = -1;
++    for (uint32_t level = 0; level <= kMaxLevel; ++level) {
++        const uint32_t dbv = dbvFromLevel(level);
++        check((int)dbv >= prev, "dbv non-decreasing", (long)dbv, prev);
++        check(dbv <= kMaxDbv, "dbv in range", dbv, kMaxDbv);
++        if (level) check(dbv >= kMinDbvOn, "lit level has lit dbv", dbv, kMinDbvOn);
++        prev = (int)dbv;
++    }
++
++    /* Every DBV step is reachable from some level, and the inverse round trips
++       back into the same DBV (one DBV step is ~8 levels, so compare on DBV). */
++    for (uint32_t dbv = kMinDbvOn; dbv <= kMaxDbv; ++dbv) {
++        const uint32_t back = dbvFromLevel(levelFromDbv(dbv));
++        check(back == dbv, "dbv/level round trip", back, dbv);
++    }
++    check(levelFromDbv(0) == 0, "level(0) is off", levelFromDbv(0), 0);
++    check(levelFromDbv(kMaxDbv) == kMaxLevel, "level(0xff) is max", levelFromDbv(kMaxDbv), kMaxLevel);
++
++    /* Clamping of out-of-range requests. */
++    check(clampLevel(-5) == 0, "clamp low", clampLevel(-5), 0);
++    check(clampLevel(99999) == kMaxLevel, "clamp high", clampLevel(99999), kMaxLevel);
++
++    /* --- brightness-nits (iPadOS 27 form) -------------------------------- */
++    check(levelFromNits(0) == 0, "nits 0 is off", levelFromNits(0), 0);
++    check(levelFromNits(-(1 << 16)) == 0, "nits negative is off", levelFromNits(-(1 << 16)), 0);
++    check(levelFromNits(kMinNits << 16) == 8, "nits min", levelFromNits(kMinNits << 16), 8);
++    check(levelFromNits(kMidNits << 16) == 573, "nits mid", levelFromNits(kMidNits << 16), 573);
++    check(levelFromNits(kMaxNits << 16) == kMaxLevel, "nits max", levelFromNits(kMaxNits << 16), kMaxLevel);
++    check(levelFromNits((kMaxNits + 100) << 16) == kMaxLevel, "nits above max clamps", levelFromNits((kMaxNits + 100) << 16), kMaxLevel);
++    check(levelFromNits(1 << 8) >= kMinDbvOn, "tiny nits still lit", levelFromNits(1 << 8), kMinDbvOn);
++
++    /* MilliNits reported next to the level. */
++    check(milliNitsFromLevel(0) == 0, "mNits 0", milliNitsFromLevel(0), 0);
++    check(milliNitsFromLevel(kMaxLevel) == (long)kMaxNits * 1000, "mNits max", milliNitsFromLevel(kMaxLevel), (long)kMaxNits * 1000);
++    check(milliNitsFromLevel(1024) == 250122, "mNits half", milliNitsFromLevel(1024), 250122);
++
++    /* --- FadePeriod: 16.16 seconds -> milliseconds ----------------------- */
++    check(fadeMsFromFixed(0) == 0, "fade 0", fadeMsFromFixed(0), 0);
++    check(fadeMsFromFixed((uint64_t)1 << 16) == 1000, "fade 1s", fadeMsFromFixed((uint64_t)1 << 16), 1000);
++    check(fadeMsFromFixed((uint64_t)1 << 15) == 500, "fade 0.5s", fadeMsFromFixed((uint64_t)1 << 15), 500);
++    check(fadeMsFromFixed((uint64_t)10 << 16) == kMaxFadeMs, "fade clamps at 5s", fadeMsFromFixed((uint64_t)10 << 16), kMaxFadeMs);
++
++    /* --- The fade sequence ---------------------------------------------- */
++    const uint32_t from = 200, to = 1800, period = 512;
++    check(fadeLevel(from, to, 0, period) == from, "fade starts at from", fadeLevel(from, to, 0, period), from);
++    check(fadeLevel(from, to, period, period) == to, "fade lands on to", fadeLevel(from, to, period, period), to);
++    check(fadeLevel(from, to, period * 2, period) == to, "fade does not overshoot", fadeLevel(from, to, period * 2, period), to);
++    check(fadeLevel(from, to, 0, 0) == to, "zero period jumps", fadeLevel(from, to, 0, 0), to);
++    check(fadeLevel(to, from, 256, period) == 1000, "fade downwards", fadeLevel(to, from, 256, period), 1000);
++
++    prev = -1;
++    for (uint32_t ms = 0; ms <= period; ms += kStepMs) {
++        const uint32_t level = fadeLevel(from, to, ms, period);
++        check((int)level >= prev, "fade monotonic", (long)level, prev);
++        prev = (int)level;
++    }
++    check(fadeStepCount(512) == 33, "step count", fadeStepCount(512), 33);
++    check(fadeStepCount(0) == 1, "step count zero period", fadeStepCount(0), 1);
++
++    /* A fade in DBV never goes dark on the way down to a lit level. */
++    for (uint32_t ms = 0; ms <= period; ms += kStepMs) {
++        const uint32_t dbv = fadeDbv(to, from, ms, period, false);
++        check(dbv >= kMinDbvOn, "fade dbv stays lit", dbv, kMinDbvOn);
++        check(dbv <= kMaxDbv, "fade dbv in range", dbv, kMaxDbv);
++    }
++    /* Fading all the way to off does reach 0 at the end. */
++    check(fadeDbv(800, 0, 512, 512, false) == 0, "fade to off ends at 0", fadeDbv(800, 0, 512, 512, false), 0);
++
++    /* Inverted wiring flips the byte. */
++    check(applyInvert(0xff, true) == 0, "invert 0xff", applyInvert(0xff, true), 0);
++    check(applyInvert(0x00, true) == 0xff, "invert 0x00", applyInvert(0x00, true), 0xff);
++    check(applyInvert(0x40, false) == 0x40, "no invert", applyInvert(0x40, false), 0x40);
++
++    if (failures) {printf("%d check(s) failed\n", failures); return 1;}
++    printf("all brightness encoder checks passed\n");
++    return 0;
++}
++"""
++
++
++def compiler():
++    for candidate in ("g++", "clang++", "c++"):
++        path = shutil.which(candidate)
++        if path:
++            return path
++    raise SystemExit("no C++ compiler found (need g++ or clang++)")
++
++
++def main():
++    if not os.path.exists(HEADER):
++        raise SystemExit("missing %s" % HEADER)
++    work = tempfile.mkdtemp(prefix="k60-brightness-")
++    src = os.path.join(work, "harness.cpp")
++    exe = os.path.join(work, "harness")
++    with open(src, "w") as handle:
++        handle.write(HARNESS)
++    build = subprocess.run(
++        [compiler(), "-std=gnu++17", "-Wall", "-Wextra", "-Werror", "-O1",
++         "-I", os.path.dirname(HEADER), src, "-o", exe],
++        capture_output=True, text=True)
++    if build.returncode:
++        print(build.stdout + build.stderr)
++        raise SystemExit("harness did not compile")
++    run = subprocess.run([exe], capture_output=True, text=True)
++    sys.stdout.write(run.stdout)
++    sys.stderr.write(run.stderr)
++    if run.returncode:
++        raise SystemExit("brightness encoder checks failed")
++    print("check-brightness-encoder: ok")
++
++
++if __name__ == "__main__":
++    main()
+\ No newline at end of file

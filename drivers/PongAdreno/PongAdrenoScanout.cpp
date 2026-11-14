@@ -18,6 +18,10 @@
  */
 extern "C" bool pong_panel_bringup(void);
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
+/* The OS facing brightness service (K60Backlight.cpp, same archive): it is
+ * started from here for the same reason pong_panel_bringup is - a reference in
+ * this translation unit is what pulls those objects into the static archive. */
+extern "C" void k60_backlight_start(void);
 namespace {
 IOLock *scanout_gate;
 IOMemoryDescriptor *scanout;
@@ -40,6 +44,9 @@ extern "C" void pong_scanout_initialize(uint64_t address,size_t bytes,uint32_t s
     /* K60: bring the panel out of Sleep Out before any scanout is offered,
      * independent of whether the GPU scanout path itself is enabled. */
     if(!pong_panel_bringup())IOLog("K60 DISPLAY: panel bring-up failed; continuing with canvas only\n");
+    /* Brightness only makes sense once the panel is out of sleep; the service
+     * publishes IODisplayParameters and answers CoreBrightness from here on. */
+    else k60_backlight_start();
     unsigned enabled=0;
     if(scanout_gate || !PE_parse_boot_argn("pong_gpu_scanout",&enabled,sizeof(enabled)) || enabled!=1)return;
     if(!address || (address&4095) || !width || !height || stride<uint64_t(width)*4 ||

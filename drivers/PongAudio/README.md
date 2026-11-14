@@ -72,6 +72,7 @@ Expected log shape on a working bus:
 ```
 PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)
 PongAudio: amp pin gpio=... cfg=... io=...
+PongAudio: amp gcc gpll0 vote=0x... mode=0x... locked=1
 PongAudio: amp gcc vote 0x... -> 0x... readback 0x...
 PongAudio: amp gcc clk wrap2_core halt=0x... running=1
 PongAudio: amp se15 fw=0x... proto=3 disabled=... clock=... scl=...
@@ -114,13 +115,13 @@ and checks the exact command words the engine would see:
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 147 cases
+# TESTS OK 157 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 147 cases buy, given that nothing can be measured on hardware yet:
+What the 157 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase

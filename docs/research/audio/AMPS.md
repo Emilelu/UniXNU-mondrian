@@ -90,7 +90,10 @@ sleep phandle 0x101：function `"gpio"`，2 mA，`bias-disable`。
 - RCG 偏移（`clk-rcg2.c` + touch 补丁算术交叉验证）：`CFG = cmd_rcgr + 0x4`、
   `SE_CMD_DFSR = cmd_rcgr + 0x14`、`SE_PERF_CFG(l) = cmd_rcgr + 0x1c + 4l`、
   `SE_PERF_M_DFSR(l) = cmd_rcgr + 0x5c + 4l`、`SE_PERF_N_DFSR(l) = cmd_rcgr + 0x9c + 4l`。
-- GPLL0：`enable_reg 0x62018` BIT(0)；PLL_MODE 在 `+0x0`，lock 位 BIT(31)（`gcc-sm8450.c:50-55`）。
+- GPLL0：`enable_reg 0x62018` BIT(0)；PLL_MODE 在 `+0x0`，lock 位 BIT(31)（`gcc-sm8450.c:50-55`、
+  `clk-alpha-pll.c:17` `PLL_MODE(p) = p->offset + 0x0`、`:34` `PLL_LOCK_DET BIT(31)`）。
+  SE15 的父源是 `gcc_parent_map_0`（`gcc-sm8450.c:184-194`）= BI_TCXO / GPLL0_OUT_MAIN / GPLL0_OUT_EVEN，
+  所以「GPLL0 没锁就投票分支」确实可能让总线挂死——这不是形式主义，见 §3.2。
 
 ### 3.1 Pong 的总线初始化（`PongAudio.cpp:130-144`，形状可复用，索引要换）
 
@@ -108,6 +111,35 @@ se.w(0x278, (5u<<20)|(11u<<10)|22);                           // SCL counters: h
 
 > **K60 上必须改的四处**：投票寄存器 0x62008→0x62010、SE 基址 0xa94000→0x880000、
 > RCG 0x28618→0x2e014、引脚 48/49→56/57。其余（GENI 寄存器偏移、SCL 计数器、DFS 选档算法）可直接复用。
+> Pong 自己也没有投 GPLL0——它在 `:130` 之前就假定 GPLL0 已被更早的启动路径打开，**这一点不能照抄**（见 §3.2）。
+
+### 3.2 HR-02 合规：访问 GENI 前的完整前置序列
+
+`docs/ops/HARD-RULES.md:76-116` 的 HR-02（铁则 2）规定：碰 GENI 控制器前必须按序完成
+「GPLL0 投票 + 等 lock → QUP 分支投票 → 等分支时钟离 off（判据含 HWCG）→ 配 TLMM 引脚 →
+映射 SE/wrapper 两个窗 → 检查 IF_DISABLE」。违反的后果是整机死、零控制台输出；
+2026-11-09 已经因音频 I2C 0x880000 发生过一次同型事故。
+
+本分支的实现逐条对应（`drivers/PongAudio/PongAudioAmp.c`）：
+
+| HR-02 步骤 | 本分支位置 | 依据 |
+|---|---|---|
+| 1. GPLL0 投票 + 等 lock | `gcc_gpll0_on()`：先读 `0x62018`，未置 BIT(0) 则写回，然后轮询 `PLL_MODE` 的 BIT(31) 最多 1000×10 µs；失败则 `amp probe stop: GPLL0 not locked` 并返回 | `gcc-sm8450.c:50-62`（enable_reg 0x62018 / enable_mask BIT(0) / offset 0x0 / LUCID_EVO）、`clk-alpha-pll.c:17,34`（PLL_MODE = offset+0x0、PLL_LOCK_DET = BIT(31)）、touch 补丁 `:212-217,:289-294` 的同一写法 |
+| 2. QUP 分支投票 | `gcc_wrapper2_on()` 写 `0x62010 |= 0x1f` 并回读打印 | `gcc-sm8450.c:2391-2422,2603-2625`（wrapper2 五个 branch 的 enable_reg 都是 0x62010） |
+| 3. 等分支离 off（含 HWCG） | 逐个 CBCR 轮询 `pong_audio_cbcr_running()` = `!(v & CLK_OFF) || (v & HWCG)`，最多 100×100 µs | `clk-branch.c:50-59` `BRANCH_HALT_VOTED`；HWCG 时 CBCR 会报 CLK_OFF，只判 CLK_OFF==0 是假阴性 |
+| 4. 配 TLMM 引脚 | `i2c_pads_take()`（GPIO56/57 → function 1 / pull-up / 2 mA，已是 fn1 就不写）在 `se15_open()` **之前**调用 | `live-fdt.dts:3562-3593`（qup15 组）、`pinctrl-sm8450.c:1472-1473`（`[56] = PINGROUP(56, qup15, ibi_i3c, …)`） |
+| 5. 映射 SE + wrapper | `pads_map()` 最先，`gcc_map()` 四页，`se15_open()` 里 `ml_io_map(0x880000, 0x4000)` | `live-fdt.dts:13301-13342`、`osfmk/arm/io_map.c:66,88-142`（8 MiB io_submap，按 16 KiB 页记账） |
+| 6. IF_DISABLE / FIFO 模式 | `se15_open()` 读 `0x68` 校验 proto==3，`pong_geni_prepare()` 校验 `IF_DISABLE&1`、`CLK_CFG` bit0、`SCL_COUNTERS != 0`，任一不满足返回 -1（不硬闯） | 主线 `qcom-geni-se.c:316-352`、`geni-se.h:78-122` |
+
+顺序在代码里是硬的：`pong_audio_amp_probe()` 依次 `pads_map → gcc_map → gcc_gpll0_on → gcc_wrapper2_on →
+i2c_pads_take → se15_open`，任何一步 false 就 `return -1`，**不会带着未锁的 PLL 去碰分支，也不会在总线不可用时释放功放 reset**。
+`bus_recover()`（`bcb8279` 引入）只做状态机阶梯（`pong_geni_timeout` × ≤3 回 Idle），不碰任何 GCC 寄存器，
+因此不会绕开上述序列。
+
+GPLL0 的 lock 位与 enable 位**不在同一页**（`0x62018` 在 vote 窗口、`PLL_MODE` 在 GCC+0x0），所以 GCC 映射从三页扩成四页：
+`PongAudioRegs.h` 新增 `PONG_AUDIO_GCC_PLL_WIN 0x0`、`PONG_AUDIO_GCC_PLL0_ENABLE 0x62018`、
+`PONG_AUDIO_GCC_PLL0_MODE 0x0`、`PONG_AUDIO_GCC_PLL0_VOTE (1u<<0)`、`PONG_AUDIO_GCC_PLL_LOCK_DET (1u<<31)`；
+`pong_audio_gcc_window()` 由 0/1/2 扩成 0/1/2/**3**（3 = PLL 窗口），四页合计 64 KiB。
 
 ## 4. 功放寄存器表（AW882xx 家族，源 = `hakios.speaker.c:355-401`）
 
@@ -153,7 +185,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 
 | 步骤 | 动作 | 判据 |
 |---|---|---|
-| A1 | 映射 GCC 0x100000 一页（0x62010/0x62018 所在页），投 GPLL0 与 wrapper2 五个 bit | 回读 0x62010 的 bit0..4 全为 1 |
+| A1 | 映射 GCC 0x100000 的四页（GCC+0x0 PLL_MODE、+0x2e000 RCG、+0x33000 CBCR、+0x62000 vote），**先投 GPLL0 并等 lock，再投 wrapper2 五个 bit**（HR-02 顺序，见 §3.2） | `PongAudio: amp gcc gpll0 … locked=1` 后回读 0x62010 的 bit0..4 全为 1 |
 | A2 | 映射 TLMM GPIO56/57 页（`0xf000000 + 0x100000 + 0x1000*n`），配 function 1 / 2 mA / pull-up | 回读 config `[5:2] == 1` |
 | A3 | 映射 GENI SE15 0x880000 一页，读 `GENI_FW_REVISION_RO(0x68)` | `(v >> 8) & 0xff == 3`（I2C） |
 | A4 | 按 §3.1 形状初始化 GENI（换掉四处索引），选 DFS 档 | `SE_GENI_STATUS(0x40)` 无 error 位 |
@@ -175,7 +207,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
-补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（45,655 B，1,218 行，7 段）+ `patches/audio/series`。
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（48,264 B，1,272 行，7 段，sha256 `d2ede261372b1f11…264d1765`）+ `patches/audio/series`。
 
 - 5 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
@@ -183,7 +215,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。四个新文件与 `drivers/PongAudio/` 逐字节相同。完整 transcript 见 `patches/audio/README.md`。
 - 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。**守卫本身也验证过**：`E:/k60-work/scratch/audio-work/probe-pong.c` 只做 `#if !defined(PONG) #error`，用同一套 flags 编译得到 `PASS: probe-pong.c`，即 `PONG` 由 `board_config.h` 定义、探针不是死代码（这是「静默不跑」这类故障的必要前提）。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，147 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，157 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
@@ -191,22 +223,22 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
-wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 147 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
+# → TESTS OK 157 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
 ```
 
 覆盖范围：
 
 | 组 | 断言内容 |
 | --- | --- |
-| `register_map_cases` | `TLMM_PHYS+GPIO_OFF == 0x0f100000`；GPIO88 寄存器地址 `0x0f158000` 落在 `pinctrl@f000000` 的 `0x1000000` 窗口内；GCC 三个 1 页窗口分别覆盖 `RCG_SE15 0x2e014` / `CBC_CORE 0x33280` / `CBC_CORE_2X 0x3328c` / `VOTE_WRAP2 0x62010`；`AW_SYSST_FAULTS == 0xc86a`；`PLLS|CLKS == 0x11`；`PWDN|AMPPD|HMUTE == 0x103`；codec reset GPIO 43；TX core clock id `0x30c` |
+| `register_map_cases` | `TLMM_PHYS+GPIO_OFF == 0x0f100000`；GPIO88 寄存器地址 `0x0f158000` 落在 `pinctrl@f000000` 的 `0x1000000` 窗口内；GCC 四个 1 页窗口分别覆盖 `RCG_SE15 0x2e014` / `CBC_CORE 0x33280` / `CBC_CORE_2X 0x3328c` / `VOTE_WRAP2 0x62010`；`AW_SYSST_FAULTS == 0xc86a`；`PLLS|CLKS == 0x11`；`PWDN|AMPPD|HMUTE == 0x103`；codec reset GPIO 43；TX core clock id `0x30c` |
 | `prepare_cases` | 可用引擎返回 0 且 `config == (3<<24)|0x21`；逐条断言 `DMA_MODE=0`、`TX_PACK0=0x7f8fe`、`TX_PACK1=0xffefe`、`RX_PACK0/1` 同值、`BYTE_GRAN=0`、`M_IRQ_CLEAR=0xffffffff`、`M_IRQ_EN==WANTED`、`SE_IRQ_EN` 追加 `SE_M_IRQ_EN`；四个拒绝条件（proto≠I2C / `IF_DISABLE&1` / `CLK_CFG` 无 bit0 / `SCL_COUNTERS==0`）各自返回 -1 |
 | `write_cases` | `phase=TxWait`、`TX_LEN=2`、`M_CMD0 == (OP_WRITE<<27)|(0x34<<9)`、`TX_WATERMARK=1`；忙时第二次 start 返回 -1；只收 `TX_WATERMARK` → Pending 且 FIFO 写 1 word `0x3421`（byte0 在 bits7:0）；再收 `CMD_DONE` → Done |
 | `read_cases` | 首命令带 `STOP_STRETCH`、`TX_LEN=1`；写阶段 `CMD_DONE` → **Pending**（不是完成）且 `phase=ReadDone`、`RX_LEN=2`、`M_CMD0 == (OP_READ<<27)|(0x34<<9)` 无 stop；`RX_FIFO_STATUS=2` + `RX_FIFO=0x1321` → `bus.rx=0x1321`、`bus.data=0x21`；RX FIFO 空 → `ErrNoData` |
 | `failure_cases` | `M_ERRORS` 位 → Failed + `ErrBus` + `error_status` 保留；TxWait 阶段直接 `CMD_DONE` → `ErrState`；Idle 收中断 → `stray++` 且 Pending；超时阶梯 Cancelling(写 CANCEL) → Aborting(写 ABORT) → Failed(`ErrTimeout`)；写 9 字节 / 写 0 字节 / 5 字节指针 / 读 5 字节全部 -1 |
 | `poll_cases` | poll 读到 `TX_WATERMARK` 后写同值 `M_IRQ_CLEAR` 并推进到 `WriteDone` |
 | `recovery_cases` | 卡死状态机拒绝新传输（`start` 返回 -1）；从 Cancelling 再走 2 步、从 TxWait 走 3 步即回到 Idle 并可再发传输——`PongAudioAmp.c` 的 `bus_recover()` 每次读寄存器前都走这段阶梯 |
-| `plan_cases` | `pong_audio_pad_phys` 四个实测点（GPIO1 `0x0f101000`、GPIO3 `0x0f103000`、GPIO43 `0x0f12b000`、GPIO88 `0x0f158000`）与 0x1000 步进；pad 配置字（pull/function/drive/output 位域、高位保留、eGPIO→APPS 所有权、drive 向下取整不越界）；`pong_audio_cbcr_running` 的四种组合（含「HWCG 时 CLK_OFF 置位仍算在跑」）；GCC 三窗口路由（含窗口前后一字的边界）；DFS 档判定五例 |
+| `plan_cases` | `pong_audio_pad_phys` 四个实测点（GPIO1 `0x0f101000`、GPIO3 `0x0f103000`、GPIO43 `0x0f12b000`、GPIO88 `0x0f158000`）与 0x1000 步进；pad 配置字（pull/function/drive/output 位域、高位保留、eGPIO→APPS 所有权、drive 向下取整不越界）；`pong_audio_cbcr_running` 的四种组合（含「HWCG 时 CLK_OFF 置位仍算在跑」）；GCC 四窗口路由（含窗口前后一字的边界、`0x62018` 必须落 vote 窗口而 `PLL_MODE` 落 PLL 窗口）；GPLL0 五个常量值；DFS 档判定五例 |
 | `chip_id_cases` | `pong_audio_amp_value(encode_amp_value(id)) == id` 对 9 个已知 ID 全成立；`pong_audio_amp_value(0x1321) == 0x2113`（AW88261），与 `PongAudioAmp.c` 的大端拼装一致；未知 ID 必须回落 `"unknown"` 而不是猜一个型号 |
 
 踩坑记录：Windows 侧 `cc` 不存在（第一次跑直接 `command not found`）；测试里若只定义不使用的辅助函数，`-Werror` 会因 `-Wunused-function` 失败——本例把三处 `expect_eq` 改成 `expect` 后才通过。
@@ -292,7 +324,7 @@ evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io
 done = true
 local_verified = true
 static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
-unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 147 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数，见 AMPS.md §6.1）"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 157 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数，见 AMPS.md §6.1）"
 artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:117-120、bsd_init.c:1357-1358，四个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
 
 [hardware.audio.step.device]

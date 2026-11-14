@@ -30,6 +30,7 @@ def expect(cond, what):
 HEALTHY = [
     "K60PANIC: restart windows ready",
     "PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)",
+    "PongAudio: amp gcc gpll0 vote=0x00000001 mode=0x80000000 locked=1",
     "PongAudio: amp gcc clk core halt=0x00000002 running=1",
     "PongAudio: amp se15 ready config=0x03000021 status=0x00000000 level=2",
     "PongAudio: amp0 addr=0x34 id=0x2113 chip=AW88261",
@@ -54,8 +55,8 @@ def cases():
     expect(code == 0, "healthy capture is SUCCESS even with panicMarker set and complete=false")
     expect(any("SUCCESS" in l for l in report), "healthy report names SUCCESS")
     expect(any("amp0=0x2113(AW88261)" in l for l in report), "known chip id is named")
-    expect(any("bus ready" in l and l.strip().endswith("2 line(s)") for l in report),
-           "the two real bus lines are recognised")
+    expect(any("bus ready" in l and l.strip().endswith("3 line(s)") for l in report),
+           "the three real bus lines are recognised")
 
     code, _ = mod.judge(SILENT, {"state": "captured", "complete": True,
                                  "panicMarker": "K60PANIC"})

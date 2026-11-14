@@ -76,6 +76,16 @@
 #define PONG_AUDIO_GCC_CBC_S0       0x0002e00cu
 #define PONG_AUDIO_GCC_RCG_SE15     0x0002e014u
 #define PONG_AUDIO_GCC_DFS_LEVELS   8u           /* touch patch:313-324 walks 8 DFS levels */
+
+/* GPLL0 (G:gcc-sm8450.c:50-62): the PLL block starts at GCC+0x0, its enable vote is
+ * a bit inside 0x62018, PLL_MODE is offset 0x0 of that block and the lock
+ * indication is BIT(31) (M:clk-alpha-pll.c:17-34, PLL_LOCK_DET). HR-02 step 1
+ * requires this vote and the lock wait before any QUP branch is touched. */
+#define PONG_AUDIO_GCC_PLL_WIN       0x00000000u   /* GCC+0x0: PLL_MODE, one page */
+#define PONG_AUDIO_GCC_PLL0_ENABLE   0x00062018u   /* in the vote window, delta 0x18 */
+#define PONG_AUDIO_GCC_PLL0_MODE     0x00000000u   /* in the PLL window, delta 0x0 */
+#define PONG_AUDIO_GCC_PLL0_VOTE     (1u << 0)
+#define PONG_AUDIO_GCC_PLL_LOCK_DET  (1u << 31)
 #define PONG_AUDIO_CBCR_CLK_OFF     (1u << 31)   /* clk-branch.c:50-59 halt test */
 #define PONG_AUDIO_CBCR_HWCG        (1u << 1)    /* "running" when HW gating is on */
 

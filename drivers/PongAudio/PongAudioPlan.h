@@ -77,13 +77,20 @@ pong_audio_cbcr_running(uint32_t value)
 	    (value & PONG_AUDIO_CBCR_HWCG);
 }
 
-/* Which of the three one-page GCC windows holds an offset: 0 = RCG window,
- * 1 = CBCR window, 2 = vote window, -1 = outside all three. *delta receives
- * the offset inside the chosen window. Three windows are 48 KiB of the 8 MiB
- * kernel-wide io_submap (osfmk/arm/io_map.c:66), not Pong's 640 KiB block. */
+/* Which one-page GCC window holds an offset: 0 = RCG window, 1 = CBCR window,
+ * 2 = vote window, 3 = PLL window, -1 = outside all four. *delta receives the
+ * offset inside the chosen window. Four windows are 64 KiB of the 8 MiB
+ * kernel-wide io_submap (osfmk/arm/io_map.c:66), not Pong's 640 KiB block.
+ * The PLL window is separate because HR-02 step 1 wants GPLL0 voted and locked
+ * before any QUP branch: the vote bit sits in the vote window, the lock bit
+ * does not. */
 static inline int
 pong_audio_gcc_window(uint32_t offset, uint32_t *delta)
 {
+	if (offset < PONG_AUDIO_GCC_PLL_WIN + PONG_AUDIO_WINDOW_SIZE) {
+		*delta = offset - PONG_AUDIO_GCC_PLL_WIN;
+		return 3;
+	}
 	if (offset >= PONG_AUDIO_GCC_RCG_WIN &&
 	    offset < PONG_AUDIO_GCC_RCG_WIN + PONG_AUDIO_WINDOW_SIZE) {
 		*delta = offset - PONG_AUDIO_GCC_RCG_WIN;

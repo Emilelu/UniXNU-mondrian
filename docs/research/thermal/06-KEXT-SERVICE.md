@@ -7,8 +7,10 @@
 
 **本篇的诚实边界**：服务已经能编译、符号已核验、219 个内核导入全部在 `all-kpi.exp` 里；
 三处集成（内核链接行、启动钩子、ADT tsens 节点）已于 2026-11-14 由 Lead 落进仓库源码，
-但全部默认关闭（`XNU_PONG_THERMAL=0`），从未用 `=1` 真正构建过内核，也从未上机，
-所以 step ⑤ 仍是 `done = false`。三处落地的现状见 §6。
+默认关闭（`XNU_PONG_THERMAL=0`）；同日用 `=1` 真构建过一次内核并核验：`kernel.macho`
+sha256 `cb35295c1ea81fbe4935309e45e2548b0aa8b6ca6e4e12367292c87d4192d0e3`（54,190,080 B）
+含 8 条 `K60Thermal: ` 日志串与 `_k60_thermal_start` / `_k60tsens_read_controller` / `_k60tl_step` 符号，
+对照组 `=n` 的 `1ebb6052…` 三项全为 0。**唯一剩下的缺口是没有上机**（step ⑧）。三处落地的现状见 §6。
 
 ---
 
@@ -133,7 +135,7 @@ build-thermal-kext: BUILD OK
 
 ## 6. 还差什么（step ⑤ 为何仍是 done = false）
 
-1. ~~没有内核链接行~~ **已落地（2026-11-14，Lead，位置修正过一次）**：`scripts/build-xnu-4k-baseline.sh:1137-1148`
+1. ~~没有内核链接行~~ **已落地（2026-11-14，Lead，位置修正过一次）**：`scripts/build-xnu-4k-baseline.sh:1137-1154`
    新增 `XNU_PONG_THERMAL` 块，默认关闭；打开时调 `scripts/build-thermal-kext.sh --no-export-list` 并对
    `build/thermal-kext/libK60ThermalKext.a` 做 `-Wl,-force_load` + 进 `PLATFORM_DEPENDENCIES`。
    第一版误插在 `KERNEL_EXTRA_ARCHIVES` 区（`if XNU_SOURCE_CORECRYPTO14 = 1` 的死分支里，本板该值为 `n`），

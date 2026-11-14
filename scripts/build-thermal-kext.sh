@@ -31,9 +31,15 @@
 #   K60_XNU_CLANG     C++ compiler (default /opt/unixnu-linux/llvm/bin/clang++)
 #   K60_LLVM_AR       archiver (default llvm-ar next to the compiler)
 #   K60_LLVM_NM       nm (default llvm-nm next to the compiler)
+#   K60_THERMAL_SOURCES  directory holding K60Tsens.c/K60ThermalLevel.c/
+#                        K60ThermalService.cpp/Info.plist (default
+#                        $ROOT/drivers/PongThermal). The kernel build passes the
+#                        device checkout here, because its assembled tree only
+#                        links the drivers that components.toml selects.
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SOURCES=${K60_THERMAL_SOURCES:-$ROOT/drivers/PongThermal}
 OUT=$ROOT/build/thermal-kext
 TREE=${K60_XNU_TREE:-/mnt/e/hackios/UniXNU/out/mondrian/tree}
 TARGET=arm64-apple-ios16.6.1
@@ -95,6 +101,7 @@ mkdir -p "$OUT" || die "cannot create $OUT"
 LIB=$OUT/libK60ThermalKext.a
 
 echo "build-thermal-kext: tree    $TREE"
+echo "build-thermal-kext: sources $SOURCES"
 echo "build-thermal-kext: clang++ $CXX"
 echo "build-thermal-kext: target  $TARGET"
 
@@ -128,7 +135,7 @@ COMMON="-target $TARGET -isysroot $FR
         $FR_INCLUDES $EH_INCLUDES
         -I$SRC_TREE/iokit -I$SRC_TREE/osfmk -I$SRC_TREE/bsd
         -I$SRC_TREE/libkern -I$SRC_TREE/pexpert -I$SRC_TREE/EXTERNAL_HEADERS
-        -I$ROOT/drivers/PongThermal"
+        -I$SOURCES"
 # Same include path, C dialect for the two readers.
 COMMON_C="-target $TARGET -isysroot $FR
         -ffreestanding -fno-builtin -fno-stack-protector -std=gnu11 -O2
@@ -137,19 +144,18 @@ COMMON_C="-target $TARGET -isysroot $FR
         $FR_INCLUDES $EH_INCLUDES
         -I$SRC_TREE/iokit -I$SRC_TREE/osfmk -I$SRC_TREE/bsd
         -I$SRC_TREE/libkern -I$SRC_TREE/pexpert -I$SRC_TREE/EXTERNAL_HEADERS
-        -I$ROOT/drivers/PongThermal"
+        -I$SOURCES"
 
 OBJS=""
-for src in drivers/PongThermal/K60Tsens.c drivers/PongThermal/K60ThermalLevel.c \
-           drivers/PongThermal/K60ThermalService.cpp; do
-    [ -f "$ROOT/$src" ] || die "missing $src"
+for src in K60Tsens.c K60ThermalLevel.c K60ThermalService.cpp; do
+    [ -f "$SOURCES/$src" ] || die "missing $SOURCES/$src"
     obj=$OUT/$(basename "${src%.*}").o
     case "$src" in
         *.cpp) compiler=$CXX; flags=$COMMON ;;
         *)     compiler=$CC;  flags=$COMMON_C ;;
     esac
     # shellcheck disable=SC2086
-    "$compiler" $flags -c "$ROOT/$src" -o "$obj" || die "compile failed: $src"
+    "$compiler" $flags -c "$SOURCES/$src" -o "$obj" || die "compile failed: $src"
     file "$obj" | grep -q "Mach-O" || die "$obj is not Mach-O"
     OBJS="$OBJS $obj"
 done
@@ -215,10 +221,10 @@ cat > "$MANIFEST" <<EOF
   "target": "$TARGET",
   "compiler": "$CLANG_VERSION",
   "xnu_tree": "$TREE",
-  "sources": ["drivers/PongThermal/K60Tsens.c", "drivers/PongThermal/K60ThermalLevel.c", "drivers/PongThermal/K60ThermalService.cpp"],
+  "sources": ["$SOURCES/K60Tsens.c", "$SOURCES/K60ThermalLevel.c", "$SOURCES/K60ThermalService.cpp"],
   "archive": "$LIB",
   "archive_sha256": "$A_SHA",
-  "info_plist": "$ROOT/drivers/PongThermal/Info.plist",
+  "info_plist": "$SOURCES/Info.plist",
   "required_symbols": "$(echo $WANT)",
   "defined_symbols": $(echo "$DEFINED" | wc -l),
   "kernel_imports": $IMPORTED,

@@ -40,6 +40,8 @@
 | `launchd_unsecure_cache` | 启动链 | 真值 | 代码默认 | 允许未签名 launchd 缓存 | 与 `k60_launchd_cache` 同用 |
 | `k60_tolerate_cache_loader` | 启动链 | 真值 | 关闭 | `0314-k60-kern-exit-tolerate-and-clean.patch` 容忍缓存加载器失败 | — |
 | `k60_entitlement_allow` | 安全 | 真值 | 关闭 | `0330-k60-entitlement-allow.patch` 放宽 entitlement 检查 | — |
+| `k60-thermal` | 热管理 | 真值 | 1（开） | 发布 mTPL 的 IOKit 服务开关；`k60-thermal=0` 让 `k60_thermal_start()` 直接返回，不起两个 tsens 控制器 |
+| `pong_thermal` | 热管理 | 真值 | 1（开） | 内核内建 tsens 驱动（`bsd/dev/pong_thermal.c`）开关；0 则只留启动日志，不读传感器、不起轮询线程 |
 | `k60_skip_iosurface` | GPU/IOKit | 真值 | 关闭 | `0332-k60-skip-prelinked-load.patch` 跳过预链接的 IOSurface 加载 | P-13x：避免第二个 IOSurfaceRoot |
 | `k60_skip_firmware_mount` | 存储 | 真值 | 关闭 | `0320-k60-skip-firmware-mount.patch` 跳过 firmware 分区挂载 | 加快启动 |
 | `k60_panic_reset` | 诊断 | 真值 | 关闭 | `0334-k60-panic-reset-fastboot.patch` panic 后自动重启 | 调试循环用 |

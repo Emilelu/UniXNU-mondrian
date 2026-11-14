@@ -414,7 +414,7 @@ evidence = "从未上机。"
 
 [hardware.battery]
 status = "active"
-paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60AdspOwner", "drivers/PongPower/K60AdspMdt", "drivers/PongPower/K60AdspStartup", "drivers/PongPower/K60Smem", "patches/xnu/0602", "patches/xnu/0617"]
+paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60AdspOwner", "drivers/PongPower/K60AdspMdt", "drivers/PongPower/K60AdspStartup", "drivers/PongPower/K60Smem", "patches/xnu/0602", "patches/xnu/0619"]
 parked_why = ""
 why = "电池 / 充电（IOPMPowerSource）"
 
@@ -437,7 +437,7 @@ catalog_checked = true
 catalog_result = "components.toml 无电池组件；官方实现全在 UniXNU-sheng 板级 package/（ShengBattmgr.h/.c、ShengBattery.cpp、BatteryProbe.cpp），另有 Linux qcom_battmgr.c 作协议变体参考。不可当组件复用。详见 docs/research/battery/RESEARCH.md。"
 [hardware.battery.step.plan]
 done = true
-evidence = "0617仅留分支；IOKitBSDInit中先检查默认关闭的pong_handoff_publish，解析成功且精确等于1才取持续持有的PAS1 owner，再检查SMP2P ready且非reset、持TCSR发现SMEM、existing-only构建并自解析，解锁后原子发布104字节OSData，早于IOBSD和电池启动。flags必须等于15、epoch非零；旧Data-mount诊断以共享原子claim排除。当前具体owner返回-1000，不伪造租约，真实认证启动仍为显式依赖。见 docs/research/battery/HANDOFF-PUBLISH.md 和 patches/xnu/0617-k60-adsp-glink-handoff.patch。"
+evidence = "0619仅留分支；IOKitBSDInit中先检查默认关闭的pong_handoff_publish，解析成功且精确等于1才取持续持有的PAS1 owner，再检查SMP2P ready且非reset、持TCSR发现SMEM、existing-only构建并自解析，解锁后原子发布104字节OSData，早于IOBSD和电池启动。flags必须等于15、epoch非零；旧Data-mount诊断以共享原子claim排除。当前具体owner返回-1000，不伪造租约，真实认证启动仍为显式依赖。见 docs/research/battery/HANDOFF-PUBLISH.md 和 patches/xnu/0619-k60-adsp-glink-handoff.patch。"
 
 [hardware.battery.step.deep]
 done = true
@@ -446,9 +446,9 @@ evidence = "深挖早期root不可用、旧PAS诊断不等于所有权、活DSP�
 [hardware.battery.step.verify]
 done = false
 local_verified = false
-evidence = "2026-11-14宿主与语法/局部集成核验已通过，仍待隔离严格构建、整核链接与最终产物核验，故本步保持false，不把算术测试替代交接链验证。当前provider显式缺失；见 docs/research/battery/HANDOFF-PUBLISH.md。"
-static_check = "K60HandoffRuntime.cpp在Darwin22 arm64 SDK语法检查通过；独立只读审查无剩余critical；0617五个补丁段fuzz0局部fixture及三个canonical镜像一致。不是完整series干净重放。"
-unit_test = "49项publisher、10项builder、absent-provider、early/late两进程claim、16项MDT方法（含变异与捕获分段固件）、21项通知资格和27项battery-units通过，C宿主编译-Wall -Wextra -Werror。另新增0617应用后真实IOKitBSDInit函数体的14项宿主场景（电池宏0/1），缺参/解析失败或解析结果为0/2/UINT32_MAX时无publisher及SMEM/TCSR/PAS/claim spy访问；parser为stub，不覆盖原始boot-string，也不是硬件访问证明。见 scripts/tests/run-k60-handoff-host.sh、docs/research/battery/HANDOFF-PUBLISH.md 和 docs/research/battery/INTEGRATION-ORDER.md。"
+evidence = "2026-11-15按Lead决定将handoff改为0619（thermal保留0617、springboard保留0618）；先通过补丁解析及14项宿主/5段fuzz0/3镜像，再登记PAS1-PROVIDER-CONTRACT.md。离线核验不是完整series重放、真实PAS1启动或GLINK功能证明。当前无满足契约的provider，仍为battery/audio/charger共享阻塞；整核链接与产物/设备核验均未完成，verify/local_verified/device保持false。见 docs/research/battery/HANDOFF-PUBLISH.md 和 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"
+static_check = "K60HandoffRuntime.cpp在Darwin22 arm64 SDK语法检查通过；独立只读审查无剩余critical；0619五个补丁段fuzz0局部fixture及三个canonical镜像一致。不是完整series干净重放。"
+unit_test = "49项publisher、10项builder、absent-provider、early/late两进程claim、16项MDT方法（含变异与捕获分段固件）、21项通知资格和27项battery-units通过，C宿主编译-Wall -Wextra -Werror。另新增0619应用后真实IOKitBSDInit函数体的14项宿主场景（电池宏0/1），缺参/解析失败或解析结果为0/2/UINT32_MAX时无publisher及SMEM/TCSR/PAS/claim spy访问；parser为stub，不覆盖原始boot-string，也不是硬件访问证明。见 scripts/tests/run-k60-handoff-host.sh、docs/research/battery/HANDOFF-PUBLISH.md 和 docs/research/battery/INTEGRATION-ORDER.md。"
 artifact_check = "待隔离build-strict.sh整核链接、符号/字符串和boot manifest核验；尚未生成新镜像，不冒称通过。"
 
 [hardware.battery.step.device]
@@ -457,4 +457,4 @@ evidence = "本任务未启动设备、未访问串口。默认PAS1 owner返回-
 
 [hardware.battery.step.device.prediction]
 success = "仅未来Lead获准上机且接入真实provider后，验证PAS1认证/资源持续持有、SMP2P ready非reset、104字节flags15发布、consumer发现及真实GLINK报文；发布日志本身不是电池成功。"
-failure = "当前预期K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published，且无handoff属性；任何超时/脏descriptor/重复发布均保持blocked。见 docs/research/battery/HANDOFF-PUBLISH.md。"
+failure = "宏启用、门控成功、无已有属性且前置检查通过时，缺省owner预期记录K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published，runtime返回-42且不新增属性；无属性consumer blocked rc=-4。已有属性保持原样，重复退出不证明其有效。非上机观察；见 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"

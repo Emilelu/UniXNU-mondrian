@@ -1,8 +1,8 @@
 # ADSP handoff 集成顺序
 
-> 2026-11-15；离线集成交付。0617 保留在 feat/adsp-handoff-owner，暂不并 main。真实 PAS1 provider 与最终调用点由 Lead/ADSP、charger 线共同评审；本文不证明 ADSP、音频或电池链路可用。
+> 2026-11-15；离线集成交付。0619 保留在 feat/adsp-handoff-owner，暂不并 main。真实 PAS1 provider 与最终调用点由 Lead/ADSP、charger 线共同评审；本文不证明 ADSP、音频或电池链路可用。
 
-调用前置条件见 [HANDOFF-PUBLISH.md 的调用点契约](HANDOFF-PUBLISH.md#调用点契约)。本轮只给现有 0617 候选钩子加默认关闭的门控，不改 provider、SMEM 算法、0614 或补丁顺序，不生成内核或镜像，不接触设备。
+调用前置条件见 [HANDOFF-PUBLISH.md 的调用点契约](HANDOFF-PUBLISH.md#调用点契约)，provider 接口见 [PAS1-PROVIDER-CONTRACT.md](PAS1-PROVIDER-CONTRACT.md)。上一轮已完成默认关闭门控；本轮按 Lead 编号决定将原 handoff 补丁从 0617 改为 0619，series 原第 225 行原位替换，不改变其他项顺序。已构建归档的 thermal-20261115a 保留 0617，springboard 保留 0618。不改 provider、默认参数、SMEM 算法或 0614，不生成内核/镜像，不接触设备。
 
 ## Boot 时间轴
 
@@ -54,17 +54,17 @@ ready() 每轮 polling 最多 2000 ms、间隔 20 ms；每次 TCSR lock 最多 1
 
 ## 默认关闭和宿主断言
 
-0617 的 IOKitBSDInit() 候选调用点仅在 XNU 的 PE_parse_boot_argn() 返回成功且写入的 unsigned 值等于 1 时调用 k60_adsp_handoff_publish()；这里检查解析结果，不要求原始 token 字面恰为 pong_handoff_publish=1。检查的 XNU parser 会把裸 pong_handoff_publish 视为 1，四字节输出还会截断较大数值，例如 4294967297 也会写入 1。缺参、解析失败（即使 parser 向输出写了 1），或解析结果为 0、2、UINT32_MAX 均不调用发布器。XNU_K60_PHYSICAL_BATTERY=0 时连参数解析都被编译掉。未修改 board.toml 默认参数或镜像参数白名单；未来若要制作 opt-in 镜像，应先由 Lead 审查登记参数，再走规范镜像 gate，不得绕过白名单。
+0619 的 IOKitBSDInit() 候选调用点仅在 XNU 的 PE_parse_boot_argn() 返回成功且写入的 unsigned 值等于 1 时调用 k60_adsp_handoff_publish()；这里检查解析结果，不要求原始 token 字面恰为 pong_handoff_publish=1。检查的 XNU parser 会把裸 pong_handoff_publish 视为 1，四字节输出还会截断较大数值，例如 4294967297 也会写入 1。缺参、解析失败（即使 parser 向输出写了 1），或解析结果为 0、2、UINT32_MAX 均不调用发布器。XNU_K60_PHYSICAL_BATTERY=0 时连参数解析都被编译掉。未修改 board.toml 默认参数或镜像参数白名单；未来若要制作 opt-in 镜像，应先由 Lead 审查登记参数，再走规范镜像 gate，不得绕过白名单。
 
-[test-k60-handoff-integration.py](../../../scripts/tests/test-k60-handoff-integration.py) 将 0617 以 fuzz=0 应用到临时 predecessor fixture，提取**应用后的真实 IOKitBSDInit() 函数体**，分别按电池宏 0/1 编译运行。7 场景 × 2 配置 = 14 项：关闭路径的发布器调用、SMEM/TCSR/PAS/startup claim 计数均为 0；开启路径会触达这些 spy，证明断言不是空跑，并检查 publisher → IOBSD → battery 顺序；provider 返回 -1000 也不会阻断原有 IOBSD/battery 调用顺序。
+[test-k60-handoff-integration.py](../../../scripts/tests/test-k60-handoff-integration.py) 将 0619 以 fuzz=0 应用到临时 predecessor fixture，提取**应用后的真实 IOKitBSDInit() 函数体**，分别按电池宏 0/1 编译运行。7 场景 × 2 配置 = 14 项：关闭路径的发布器调用、SMEM/TCSR/PAS/startup claim 计数均为 0；开启路径会触达这些 spy，证明断言不是空跑，并检查 publisher → IOBSD → battery 顺序；provider 返回 -1000 也不会阻断原有 IOBSD/battery 调用顺序。
 
 宿主 fixture 替代了 parser；14 项证明解析返回值到调用点的分派行为，不覆盖原始 boot-string 的解析。这里证明的是新增交接调用点不会进入任何 downstream 交接访问，spy 不执行硬件访问。它不是“整个 boot 的其他模块都不访问 SMEM”的证明：已有 /chosen 属性的电池 consumer 或另行启用的旧诊断仍属于各自策略；也不是硬件 tracer、完整内核链接或整条 series replay。缓存中的旧 late hook 与本分支 0614 不同，fixture 的 late 段按当前 0614 postimage 重建。
 
-宿主记录：E:/k60-work/artifacts/adsp-handoff-optin-20261115/integration.log；SHA-256 b8118e6bc6d1f9e537c72e96706d519007b96955f507c5b33a3c063fef3e30d7。结果：14 项宿主场景、5 个补丁段、3 个 canonical mirrors 均通过。没有运行 build-strict、内核编译/链接、生成镜像或设备/串口操作。
+0619 重编号后先通过 check-patch-apply.py（只检查 git apply 解析语法），再通过局部 fixture 的 14 项宿主场景、5 个补丁段 fuzz 0 和 3 个 canonical mirrors。记录：E:/k60-work/artifacts/adsp-handoff-0619-20261115/integration.log；SHA-256 b8118e6bc6d1f9e537c72e96706d519007b96955f507c5b33a3c063fef3e30d7。结果与上一轮相同，不是完整 series replay、真实 PAS1 或 GLINK 功能证明。没有运行 build-strict、内核编译/链接、生成镜像或设备/串口操作。
 
 ## 未来集成者检查清单
 
-- [ ] 0617 仅留试验分支；与真实 PAS1 provider、charger consumer 一起评审。0618 留给 springboard，不能重编号/覆盖他线补丁。
+- [ ] 0619 仅留试验分支；与真实 PAS1 provider、charger consumer 一起评审。0617 留给已构建归档的 thermal，0618 留给 springboard，不能重编号/覆盖他线补丁。
 - [ ] 核对目标 XNU 的 bsd_init/bsd_autoconf/IOKitBSDInit/setconf 调用顺序，确认六步早于一次性电池入口及 vfs_mountroot；provider 不依赖未挂载的 root/Data。
 - [ ] 所有到 k60_adsp_handoff_publish() 的试验入口均经过默认 0、parse-success 且精确 ==1 的 gate；无旁路调用；没有静态初始化、预读 SMEM 或提前 claim。
 - [ ] 先证明真实 PAS1 认证、固件装载、持续资源和排他 token/epoch；flags=15/epoch!=0 只是必要数据条件，不能冒充所有权。
@@ -72,12 +72,12 @@ ready() 每轮 polling 最多 2000 ms、间隔 20 ms；每次 TCSR lock 最多 1
 - [ ] item 443 的 ready/non-reset 和 restart 一致，host0/ADSP2 partition 与 478/479/480 几何完全匹配；拒绝缺项/脏 descriptor/已进展环，不现场分配或清零。
 - [ ] plan.required 精确 15、epoch 非零绑定本次启动和配置；build_existing 与 consumer self-parse 对同一 104 字节通过。
 - [ ] 成功属性在 IOBSD/battery 前原子可见；失败不发布；成功后不 abort/reset/释放 provider；确认早期失败排斥晚期 owner 的行为可接受。
-- [ ] 重跑宿主关闭路径零访问、开启路径可达、失败路径顺序和 0617 canonical mirrors/fuzz=0 检查；后续完整内核链接/镜像核验单独记录，不能沿用本次宿主结果。
+- [ ] 重跑宿主关闭路径零访问、开启路径可达、失败路径顺序和 0619 canonical mirrors/fuzz=0 检查；后续完整内核链接/镜像核验单独记录，不能沿用本次宿主结果。
 - [ ] 只有用户和 Lead 明确授权后才 boot；以真实 PAS1、持续资源、SMP2P、consumer 发现及 GLINK 报文证据判定集成，不能仅凭发布日志。
 
 ## 本次检查的源码定位
 
-- 本分支 [0617 调用点补丁](../../../patches/xnu/0617-k60-adsp-glink-handoff.patch)、[K60HandoffRuntime.cpp](../../../drivers/PongPower/K60HandoffRuntime.cpp)、[K60HandoffPublish.c](../../../drivers/PongPower/K60HandoffPublish.c)、[K60HandoffBuild.c](../../../drivers/PongPower/K60HandoffBuild.c)、[K60Battery.cpp](../../../drivers/PongPower/K60Battery.cpp)。
+- 本分支 [0619 调用点补丁](../../../patches/xnu/0619-k60-adsp-glink-handoff.patch)、[K60HandoffRuntime.cpp](../../../drivers/PongPower/K60HandoffRuntime.cpp)、[K60HandoffPublish.c](../../../drivers/PongPower/K60HandoffPublish.c)、[K60HandoffBuild.c](../../../drivers/PongPower/K60HandoffBuild.c)、[K60Battery.cpp](../../../drivers/PongPower/K60Battery.cpp)。
 - 只读缓存位于 /opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work：bsd/kern/bsd_init.c 的 bsd_autoconf 调用约 908–909 行、函数体约 1305–1321 行、setconf/vfs_mountroot 约 983–994 行、IOFindBSDRoot 约 1370–1375 行；iokit/bsddev/IOKitBSDInit.cpp 约 109–126 行。缓存用于定位/fixture，行号会随补丁变化，不宣称该缓存整体等于本分支。
 - 检查时缓存 bsd_init.c SHA-256 e75e23c6be6a60121e11bf9e5501c39ef0bd40e19898c223a5b48b02d2f50bdb；IOKitBSDInit.cpp SHA-256 9bb81ab81d076304e338e23ef294046276792ab8c6e3e56ea6441f5a5bc5df09。
 - 同一缓存 pexpert/gen/bootargs.c 约 140–144 行为成功数值拷贝，378–379 行为四字节截断，485–486 行为裸参数值 1；SHA-256 1431f1f8aacae240b87bd29cd91905784c968f8014784201b3ed862bdb1b4ed9。

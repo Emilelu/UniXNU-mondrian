@@ -1287,3 +1287,63 @@ payload 实参 **30 项 589 字节**，末项就是 `k60_usbvend=2`（`usb-20261
 
 也就是说：**除白名单这一条外部依赖外，h2 镜像自身完全合规**。合并片段见
 `docs/research/usb/IMAGE-ARGS-usb.fragment.md`（commit `f043b38`），Lead 合并后重跑同一条命令即应 OK。
+## 23.10 合并前的 rebase 与 usb-20261115a 构建（2026-11-15 00:00–00:35）
+
+Lead（m04369）要求：本线 series 在合并前必须 rebase 到当前 `origin/main`（224 条）并清掉 6 个已退役的 touch 探针补丁与旧 `0610-k60-metal-seeds`，否则 iron-4/P-165 全红。执行结果：
+
+| 项目 | rebase 前 | rebase 后 |
+| --- | --- | --- |
+| 分支 HEAD | `987e0e9` | `877e375` |
+| 领先 origin/main | 28 提交（含 1 个重复） | 25 提交 |
+| `patches/xnu/series` | 235 行，sha `2b66c5f4…9c7e84` | 230 行，sha `34a6ce22…baaca` |
+| 与 main 的 series 差异 | +6 探针 +6 usb +旧 metal | 仅 `../usb/0405..0410` 六行 |
+
+- 冲突全部在 `scripts/` 下（7 个文件），一律取 main 版：main 已包含等价实现（`scripts/porting-gate.py:33` 仓库根解析、`:39` series 真相源改为仓库、`:48` `K60_DEVICE_INPUT` 默认值；`scripts/sync-device-input.py:18/:22/:26`；`scripts/build-strict.sh:145-157` 的 `PAYLOAD_ARGS_CMD`/`PAYLOAD_ARGS` 两级数组）。本线的 `f9359f9`/`934420b`/`0b00bc7`/`239a277` 因此成为空提交或被跳过。
+- 备份分支 `backup/usb-console-prerebase` = `987e0e9`，可随时回溯。
+- rebase 后同步与门禁：`sync-device-input.py` 718 文件一致，`--check` rc=0，三处 series sha 均为 `34a6ce22…baaca`；`porting-gate.py --quick` ✅（7 警告，均为账本/时间类）；`check-docs.py` ✅ 187 项。
+- `check-secrets.py`（iron-10）曾因 `docs/research/usb/RESEARCH.md:1175` 写了真实 LAN 登录目标而红，改为 `ssh <user>@<mac-host>` 占位符后 ✅（943 个受管文件）。
+- `check-rules.py` 剩 3 条红全部是**陈旧构建记录**，靠一次新构建清除：`hard-38`（`/opt/k60/trees/usb-out` 的 `.config` 仍是 2026-11-12 18:49:44 生成，缺 rebase 后 `configs/mondrian_defconfig:27` 的 `CONFIG_XNU_GPU_ADDON=y` 与 `:78` 的 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`）、`P-165`/`P-166`（`xnu-inputs.json` 记录 235 个补丁，而 series 现为 230）。
+- 因此 rebase 后立即以同一套参数（`--fd …cf4485712c29.fd --kernel-arg k60_usbvend=2`）重建 `usb-20261115a`：既是 P-165/P-166/hard-38 的清除手段，也是"rebase 后的树确实能编过"的证据。
+
+### 23.10.1 构建前必须修的两个环境问题（都不是代码问题）
+
+**(a) hard-38：`/opt/k60/trees/usb-out` 的 `.config` 是 2026-11-12 的旧代（99 行）**
+- 该 `.config` 缺 `CONFIG_XNU_GPU_ADDON`，且 `CONFIG_XNU_K60_PHYSICAL_BATTERY` 为 n；rebase 后 `configs/mondrian_defconfig:27` 要求前者=y、`:78` 要求后者=y ⇒ 门禁拒绝。
+- 显式重生成：`/opt/k60/trees/k60build/unixnu defconfig mondrian_defconfig -D /opt/k60/trees/usb-device --out /opt/k60/trees/usb-out` → `== configuration mondrian_defconfig -> …/mondrian/.config`，文件从 99 行变 105 行，`CONFIG_XNU_GPU_ADDON=y`（:54）、`CONFIG_XNU_K60_PHYSICAL_BATTERY=y`（:105）。
+- 重生成后 `check-config-consistency.py`：`PASS: 54 explicit defconfig symbols match`（3 条 fragment 覆盖 note 属正常：NATIVE_AES / SOURCE_CORECRYPTO14 / SOURCE_PTHREAD）。
+
+**(b) P-190 的鸡生蛋：旧 kernel.macho 是旧 `.config` 编出来的，没有电池符号**
+- 预检报 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol is in kernel.macho`。这正是 P-190 的自然形态：配置刚打开、内核还是旧的。
+- 处理：把旧 `$M/kernel/kernel.macho` 改名为 `kernel.macho.prebattery`，让 `scripts/check-kernel-archives.py:101-111` 走它文档里写的「configured but not built; nothing to inspect」分支；构建后该门禁在 `scripts/build-strict.sh:250` 以新内核复检，结果 `✅ kernel archives: 4 enabled archive(s) all present in kernel.macho`。
+
+**(c) 一个跨树残留对象：`pong_pmic_rail.o` 的 `.d` 指向 out-baseline**
+- 现象：`make[7]: *** No rule to make target /opt/k60/trees/k60build/out-baseline/…/bsd/dev/pong_pmic_rail.c, needed by pong_pmic_rail.o`。
+- 根因：`tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/pong_pmic_rail.d` 是 `cp -a` 复制 out-baseline 时带来的旧依赖记录（绝对路径指向 out-baseline），而 out-baseline 已被其它线清过，那个路径不存在。整个 `ios-obj` 里只有这 1 个 `.d` 引用了 out-baseline。
+- 处理：删除 `pong_pmic_rail.o` 与 `pong_pmic_rail.d`，让 make 从本树的 `bsd/dev/pong_pmic_rail.c`（2026-11-15 00:24 由 06xx 电池补丁落到树里）重新编译。
+
+### 23.10.2 usb-20261115a 构建结果（BUILD_EXIT=0）
+
+| 项目 | 值 |
+| --- | --- |
+| 构建时间 | 2026-11-15T00:35:19+08:00 |
+| series | 230 条，sha256 `34a6ce2227f57bbe31674262352b0051be27f875768e73aabcf2505b1ebbaaca` |
+| frozen | `0403a1758d5a10261a2d9730fda45aa29091ba50b661397a4bf2b5def6ba78cb` |
+| kernel_built | `9d2371101baa419e2357e1dc4e196ecf15cb0e30def962d137f31ee8e75e5838`（105476096 B） |
+| payload | `1b160abec98033dcec13a96a61d33959ffe2322fcb9f294e532ee9fa3c638ce0` |
+| payload kernel | `727306427ce30a053de038b64f8c1a27c5f5de89493219ad7743673ffad761b8` |
+| ADT | `253b5ce23bb0635350ddc8d1156acaafd8f8cb9c9e5b6ef6b84696b33e833e2c` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（未变） |
+| FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`（未变） |
+| **boot.img** | **`704fa9b2bb5ae52798406bc4a219c47efc3ba73f72bfb94a36cd12ae7535ff6f`**（201887744 B） |
+| manifest | `/mnt/e/k60-work/artifacts/usb-20261115a/build-manifest.json` |
+| 请求参数 | `k60_usbvend=2`；payload 30 项 589 B（末尾 `k60_usbvend=2`） |
+
+- 门禁：`eight-step` 30 项通过；`verify-boot-image.py --manifest` → `verify-boot-image: OK`；`check-image-args.py` → `image-arg-audit: OK (30 arguments, 589 bytes)`；`check-rules.py` → **登记 78 条、失败 0、waiver 37、结论 ✅**（rebase 前的 3 条陈旧记录全部清除）。
+- 补丁入镜像的证据：`strings kernel.macho` 命中 68 条 `K60 USBLOG`，含 `K60 USBLOG: echo %u bytes on ep%u (total %u)` 与 `K60 USBLOG: vendor IN start failed (%u bytes)`（0410 独有）。
+- **内核从 54 MB 变 105 MB**：因为 `.config` 重新生成后 `CONFIG_XNU_GPU_ADDON=y`，`scripts/build-strict.sh` 会 stage Metal plugin（`build/metal-plugin`，51278451 B、6 文件）并以 `k60_metal_blob.s` 嵌入内核（`✅ container table is self-consistent`）。这是当前 main 的 defconfig 契约，不是本线新增内容；usb-20261114h2 的 54 MB 内核反而是旧 `.config` 少编了 GPU addon 的产物。
+
+### 23.10.3 与 usb-20261114h2 的关系
+
+- h2 的 `repo.head = 3af05f7`，与 main 的 merge-base 是 `f119a80`：它建立在 main 之后 11 个提交之前，**不含** `3c69c80`（board.toml `owned_memory_size` 4.75→4.5 GiB 的内存窗口修复）与 `92c9251`（Metal container padding，P-196）等。
+- usb-20261115a 是 rebase 后（`877e375`）的产物：含 main 的全部 11 个提交，series 230 条与仓库完全一致，且 `.config` 与 defconfig 一致。
+- 若 Lead 的上机队列仍用 h2，需要知道这一 provenance 差异；usb-20261115a 提供同一份 0410 代码但基线更新、配置完整。

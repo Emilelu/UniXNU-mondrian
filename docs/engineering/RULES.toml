@@ -522,7 +522,7 @@ id = "P-191"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-191"
 statement = "查表函数在输入超出表的表达能力时必须返回失败，不能沿用成功码。"
-check = "cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o build/railtest scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c && ./build/railtest"
+check = 'd=$(mktemp -d) && cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o "$d/railtest" scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c && "$d/railtest"; rc=$?; rm -rf "$d"; exit $rc'
 
 [[rule]]
 id = "P-192"

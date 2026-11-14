@@ -167,7 +167,95 @@ Because the kernel size, the firmware blob and the window all match mhi5 and
 only the boot argument differs, z0 is the controlled test of "driver versus
 blob" that the plan needs.
 
-## 4. Evidence index
+## 4. T2 contingency: move the firmware blob out of `__TEXT` (planned, not started)
+
+Written on 2026-11-15 at the Lead's request so the fix is ready the moment
+T0 comes back silent. **Nothing here has been built or flown.**
+
+### 4.1 The change is one line
+
+`scripts/build-k60-wifi-native.py:102` emits the assembly that carries the
+11,189,974-byte PWF2 container into the kernel:
+
+```python
+asm.write_text('.section __TEXT,__const\n.p2align 12\n.globl _pong_wifi_firmware\n'
+               '_pong_wifi_firmware:\n.incbin "'+str(pack)+'"\n'
+               '.globl _pong_wifi_firmware_end\n_pong_wifi_firmware_end:\n')
+```
+
+Change the section name only — `.section __DATA,__const` (or
+`__DATA,__data`) — and keep `.p2align 12` so the container stays 4 KiB
+aligned. There is no kernel linker script to touch: Mach-O assigns a section
+to a segment by the name the input object declares, and the wifi archive is
+pulled in with `-Wl,-force_load` (`scripts/build-xnu-4k-baseline.sh:1153`
+and `:1186`) which does not constrain layout.
+
+The C side needs no change at all. `PongWifiPlatform.cpp:35` declares
+`extern const uint8_t pong_wifi_firmware[], pong_wifi_firmware_end[]` and
+`fwGet()` (`:554-556`) only does pointer arithmetic inside that range
+(`*data = pong_wifi_firmware + off`); it never writes. Moving the bytes to a
+writable segment is harmless because nothing writes them.
+
+### 4.2 The precedent is already in this tree and it boots
+
+The 51 MB Metal blob takes exactly this route:
+`scripts/gen-k60-metal-blob.py:109-119` emits `.data` + `.globl
+_k60_metal_blob` + `.incbin`, and it lands in `__DATA,__data`. The image
+built from it (`gpu-20261114t`) reaches SpringBoard. So a large read-only
+blob in `__DATA` is a proven layout on this board, not an experiment.
+
+### 4.3 The segment budget checks out
+
+Measured with `mcopy` on the payload kernel (script
+`E:/k60-work/scratch/prec.py`):
+
+| segment / section | gpu-20261114t (boots) | wifi-20261116mhi5 (silent) |
+|---|---|---|
+| `__TEXT` vmsize | 0x1a4000 | 0xc64000 |
+| `__TEXT,__const` | 0x86028 | **0xb38ed6** |
+| `__DATA` vmsize / filesize | 0x3278000 / 0x3130000 | 0x32b0000 / 0x3130000 |
+| `__DATA,__data` | 0x3110d08 | 0x31111f0 |
+
+- Moving 11.19 MiB into `__DATA` takes its vmsize from 52.9 MiB to about
+  64 MiB. DarwinBoot rejects a segment only above `WINDOW_SIZE` = 256 MiB
+  (`DarwinBoot.c:168`), and the whole-image span only above 254 MiB
+  (`:195-196`; mhi5's span is 123.6 MB), so both limits stay far away.
+- The **file** does not grow: the same bytes simply live in a different
+  segment, so the 117,305,344-byte total is unchanged. That matters because
+  the loader reads the kernel through `ReadFile (Root, Request->KernelPath,
+  SIZE_128MB, ...)` (`DarwinBoot.c:699`) — a 128 MiB hard ceiling that
+  mhi5 already sits 10.7 MB under. Any T2 variant that *adds* bytes instead
+  of relocating them would eat into that margin.
+- `__DATA`'s vmsize exceeds its filesize by `__common` 0x95a18 plus
+  `__bss` 0xe96220 (zero-fill, no file cost), which is why the segment can
+  grow without the file growing.
+- XNU maps segments by name in `arm_vm_init.c` (`:1415` RNX for
+  `segTEXTB`, `:1432` RWNX for `segDATAB`), with no hard-coded size
+  limit; the assertions at `:2306-2308` only check that adjacent segments
+  stay contiguous, which a section move inside `__DATA` preserves.
+
+### 4.4 What T2 would and would not prove
+
+- If the T2 image boots, the killer is *residency of the blob in
+  `__TEXT`* — the loader copying or mapping a 128 MiB image whose first
+  read-only pages are 11 MB of opaque firmware — and not the firmware
+  content or the wifi driver.
+- If the T2 image is also silent, S1 is falsified and the remaining suspect
+  is the loader/heap interaction (S2), which then needs the `NO WINDOW`
+  diagnostic line rather than another placement guess.
+
+### 4.5 Option B: read the firmware from the Data volume at runtime
+
+Considered and deferred. `/private/var` lives on the Data volume, and the
+metal plugin patch (`patches/xnu/0610-k60-metal-plugin-deploy.patch`) notes
+that no host tool available here can write into it, which is why the Metal
+blob went into the kernel instead. A Data-volume firmware would need a new
+write path in the loader or the ramdisk — the "register a reserved region,
+write it from the loader, rebuild the FD" work in `uefi-mondrian` that the
+Lead scoped for T2 — and it costs a full FD rebuild per firmware change.
+It stays the fallback if `__DATA` placement turns out to be insufficient.
+
+## 5. Evidence index
 
 - Flights: `/mnt/e/k60-work/evidence/usblog-20261115-002243` (mhi4),
   `usblog-20261115-002804` (mhi3); healthy peers

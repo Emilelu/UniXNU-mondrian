@@ -216,23 +216,29 @@ git diff --stat f119a80 HEAD -- docs/research/bt patches/bt
 sha256sum patches/bt/0001-k60-bt-readonly-probe.patch
 ```
 
-## 7. S4 hand-over: five Lead-scope patches (all `git apply --check` clean at `b29726d`)
+## 7. S4 hand-over: three Lead-scope patches (all `git apply --check` clean at `b29726d`)
 
 Every patch below lives outside this line's write scope (`scripts/`, `.gitignore`) and is delivered as a
 file, not committed here. Paths are on this host; `sha256` is the first 16 hex digits of the patch file.
+
+**Lead ruling 2026-11-14 21:19:** 0001–0003 are accepted and the Lead merges them. **0004 and 0005 are
+withdrawn** — the Lead already wrote stronger fixes for the same two gates on `feat/gpu-yibiya` and will
+land them on `main`: P-190 becomes *symbol is the criterion* (`if any(needle in name for name in symbols)`,
+independent of whether the archive file exists) and P-194 filters manifests by the **branch** a manifest
+recorded, which needs no `git show` call. Both are better shapes than mine; do not merge 0004/0005.
 
 | patch | bytes | what it does | sha256 |
 | --- | --- | --- | --- |
 | `/mnt/e/k60-work/scratch/bt-s4/lead/bt-lead-0001.patch` | 4,858 | new `scripts/make-bt-firmware-addon.py`: packs the whitelisted QCA set into the `NGPUADD2` container DarwinBoot already carries (`qca/` prefix, uncompressed records, manifest-checked bytes+sha256) | `9118fe9e79f85abf` |
 | `…/bt-lead-0002.patch` | 2,842 | `scripts/build-strict.sh`: `--gpu-addon <file>` forwarding into the payload step, its existence check, a `gpu addon` log line, and `gpu_addon`/`gpu_addon_path` in the manifest | `765a5271139125e8` |
 | `…/bt-lead-0003.patch` | 424 | `.gitignore`: keep `/firmware/` ignored but track `firmware/bluetooth/manifest.json` | `0c4d3b8c555f3836` |
-| `…/bt-lead-0004.patch` | 1,687 | `scripts/check-kernel-archives.py`: while `K60_BUILD_IN_PROGRESS=1`, a force-loaded archive whose symbol is not in the kernel **yet** is a warning, not a failure (P-190 is only decidable after the link) | `f2c37e69f958e6bb` |
-| `…/bt-lead-0005.patch` | 5,941 | `scripts/tests/test-series-source.py`: scope the manifest comparison to this checkout and compare each manifest to the series blob at **its own** recorded head (P-194) | `01b744f4ac6bd96f` |
+| ~~`…/bt-lead-0004.patch`~~ | 1,687 | **withdrawn** — P-190 in-progress exemption; superseded by the Lead's symbol-as-criterion fix | `f2c37e69f958e6bb` |
+| ~~`…/bt-lead-0005.patch`~~ | 5,941 | **withdrawn** — P-194 manifest scoping by recorded head; superseded by the Lead's branch-filter fix | `01b744f4ac6bd96f` |
 
-### Why 0004 and 0005 are needed at all
+### The two gates that block every line (diagnosis only; the Lead owns the fix)
 
 The merge of `origin/main` (`b29726d`) brought two gates that no single line can satisfy, so every
-line is red before it builds:
+line is red before it builds. The analysis below is why they are red; the fix is not mine to ship:
 
 - **P-190** — `check-kernel-archives.py` demands that a configured force-load archive's symbol is already
   in `kernel.macho`. Before a build the kernel is by definition older than the archive that build is
@@ -248,31 +254,41 @@ line is red before it builds:
   recorded must equal the series that build actually applied* — and reads that series with
   `git show <head>:patches/xnu/series`.
 
-### Validation (both patches installed, then reverted; tree left clean, `porcelain=0`)
+### Evidence that the diagnosis is right (and that this line's records are honest)
+
+With the withdrawn patches installed the two gates went green (`P-190 ✅ kernel archives: 4 enabled
+archive(s) all present`, `P-194 ✅ TESTS OK 11 cases (0 failure(s))`), which proves the reds were the
+sampling scope and not this line's build records. Independently, **all 24 manifests this line has ever
+produced** satisfy `recorded sha256 == sha256(git show <head>:patches/xnu/series)` — the series a build
+recorded always equals the series that commit actually applied.
+
+Measured on the unpatched tree at `e909d32` (so the numbers a reader will reproduce until the Lead's
+fixes reach `main`):
 
 ```
-P-190  ✅ kernel archives: 4 enabled archive(s) all present in kernel.macho
-P-194  ✅ TESTS OK 11 cases (0 failure(s))
+P-190  FAIL: CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol is in
+       kernel.macho; build/k60-battery/libK60PhysicalBattery.a was force-loaded into a branch that
+       does not run (P-190)
+P-194  FAIL gpu-20261114n: manifest patch count equals the series — manifest 224 vs series 227
+       FAIL gpu-20261114n: manifest series sha256 equals the file
+       TESTS OK 0 cases (2 failure(s))
 ```
 
-With `K60_BUILD_IN_PROGRESS=1` the archive gate prints
-`warn: CONFIG_XNU_K60_PHYSICAL_BATTERY=y but build/k60-battery/libK60PhysicalBattery.a is not in kernel.macho yet; this build links it (P-190)`
-and returns 0; **without** the variable it still returns 1, so the exemption exists only inside a build.
-P-194 goes from 3 FAILs to 11 PASSes, and every one of this line's 24 manifests was independently checked
-to satisfy `recorded sha256 == sha256(git show <head>:patches/xnu/series)` (all 24 matched).
+### Hand-over state (who does what next)
 
-The only reds left after installing both patches are the "tracked files modified but not committed"
-family (`hard-5`, `hard-10`, `hard-11`, `iron-5`) — they describe the two uncommitted patch files
-themselves and disappear once the Lead commits them.
+Lead, already committed to doing it: merge 0001–0003; land the symbol-as-criterion P-190 fix and the
+branch-filter P-194 fix on `main`; add `k60bt_step`/`k60bt_delay` to `check-image-args.py`
+`ALLOWED_ADDITIONS` and document the five `k60bt_*` names in `docs/engineering/BOOT-ARGS.md`; open a
+device window when the board is available.
 
-### Still needed from the Lead before a positive S4 image
+This line, next in order:
 
-1. Merge 0001–0003 and rebuild `bt-s4a-20261114c` with `--gpu-addon out/pong-bt-firmware.bin`; that image
-   prints `addon: loaded bytes records 1027584 106` (S4a) and `addon: serving 201560 0` (S4b).
-2. Merge 0004–0005 so the registry stops refusing every line's build.
-3. `scripts/check-image-args.py`: add `k60bt_step` and `k60bt_delay` to `ALLOWED_ADDITIONS`, and document
-   all five `k60bt_*` names in `docs/engineering/BOOT-ARGS.md` (it currently has none). Until then the
-   ladder images cannot pass the gate even though they fit the 607-byte ceiling at 596 bytes.
-4. `docs/research/EIGHT-STEPS.toml`: add the `[hardware.bluetooth]` block from §4 above — the BT line has
-   no ledger entry at all, so `K60_EIGHT_STEP_ITEMS=bluetooth` is rejected by `eight-step-gate.py`.
+1. Wait for `main` to carry the Lead's gate fixes, then `git rebase`/merge `main` into `feat/bt-research`.
+2. Rebuild the positive S4 sample with `--gpu-addon out/pong-bt-firmware.bin`; success is
+   `addon: loaded bytes records 1027584 106` in the console (S4a) and `addon: serving 201560 0` (S4b).
+3. Keep the device ladder parked until the Lead opens a window: negative control `bt-s4-20261114b`
+   (583 B, passes `check-image-args.py`), the c-series ladder `a1/a4/a5/a7/a9` (596 B), `s3a`/`s3b`,
+   then `s4a`/`s4b`/`s4c`.
+4. `docs/research/EIGHT-STEPS.toml` still needs the `[hardware.bluetooth]` block from §4 — it is Lead
+   scope, and without it `K60_EIGHT_STEP_ITEMS=bluetooth` is rejected by `eight-step-gate.py`.
 

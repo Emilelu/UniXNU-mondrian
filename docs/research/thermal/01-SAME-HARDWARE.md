@@ -127,6 +127,13 @@ grep -c -iE 'calib|qfprom|efuse' /tmp/mondrian.dts     -> 0
 | QMI 远端（modem/ADSP 上报） | 25 | `<0x5c n>`（`qmi-ts-sensors`，mondrian.dts:16774-16788） |
 | mx-pe | 1 | `<0x85>`（单 cell，mondrian.dts:8335） |
 
+> **58 是 DT 描述数，不是运行时 zone 数。** 设备 6033dbec 上实际注册了 **84** 个 thermal zone
+> （`/sys/class/thermal/thermal_zone0..83`）：32 AP tsens + 25 QMI + 6 PMIC(spmi-temp-alarm)
+> + 8 BCL + 9 小米虚拟(mi_thermal_interface) + `socd` + 3 电池。多出来的 26 个来自 dtbo overlay
+> 与厂商 ko，不在主 DTB；而 DT 里的 `mx-pe` 是 `status = "disabled"`（mondrian.dts:8336），
+> 运行时不存在。**两个数字都对，但不是同一个量，不能互相校验**；能互相校验的只有 AP 的 32 个
+> （见 `docs/research/thermal/04-ANDROID-EVIDENCE.md` §1、§2）。
+
 ### 5.1 AP tsens 的 32 个 zone（温度值均为 m°C 十六进制解码）
 
 | zone | 行 | 传感器 | trip 温度（按 DTS 顺序） | cooling-maps |

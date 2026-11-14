@@ -16,6 +16,10 @@
 | `K60WALL catalogue create error=<errno>` | 目标目录不存在或不可写：0618 的 mkdir 三条没生效（看 `K60DATA mkdir ok=N/M` 的 M 与清单），报 errno 与 ok 计数。 |
 | 一条 K60WALL 都没有 | 0618 补丁没进内核：核对镜像 tag 是否 ≥ springboard-20261114e，再核对 boot.img 的 strings 里 K60WALL 计数（应 =5）。 |
 
+**拷贝缓冲上限已核实（2026-11-15，回应 Lead m01914 a）**：0618 的 `static char k60_wall_buf[8192]` 是硬上限，读满时 `resid != 0` 走 `rejected`（fail-closed，不会截断写出）。
+实测 20G81 的 `Collections~ipad.plist` 就是 **772 B**（`7z l -slt /opt/k60/osroot/os.raw` 的 `Size = 772`，Packed Size 也是 772），远低于 8 KiB ⇒ **本镜像不会命中 `size=… rejected`**；该分支只在换别的 OS 窗、且 catalog 涨过 8 KiB 时才需要改缓冲策略。
+`vn_rdwr` 的 `resid` 语义已核（`/opt/k60/trees/springboard-out/feeds/xnu-c465a9f8/bsd/vfs/vfs_vnops.c:1013-1015`：`*aresid = uio_resid(auio)`，即未传输字节数），所以 `resid=0` 等价于「一次读完」，`bytes=772 resid=0` 是唯一成功形态。
+
 ## 2. 判定 —— v24dp init 的壁纸视图（0616 谱系）
 
 | 日志行原文 | 结论 |

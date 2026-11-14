@@ -497,7 +497,13 @@ artifact_check = """build-strict 已跑通（tag cellular-l1-20261114d，exit 0�
 2) 段表真的进了内核镜像——`strings -a kernel/kernel.macho | grep -c 'modem.b'` = 27，且列出的名字正好是 b01..b13、b15..b20、b22..b29，缺的正是 b14/b21/b30 三个纯 bss 行（part 为 ((const char *)0)），说明编译器把生成的表原样编进去了而不是丢弃。
 3) kernel.macho 的 sha256 与 build-strict 打印的 kernel 值一致（b7dadeb5…），产物与日志不是两份东西。
 仍未做：没有调用点，故本版内核不会在启动时打印任何 K60MODEM 日志——调用点与 PAS 握手是 L2（见 05-MODEM-IMAGE.md 第 11 节）。
-L2 增量（2026-11-14）：scripts/tests/test-k60-modem-pas.c 输出 TESTS OK 5 groups (fn, args, ok, carrier, constants)；test-k60-modem-image.py 扩展后同时校验 0621 的三份 new file 与 repo 逐字节一致、kern_exec.c 调用点与锚行存在；0621 对 0614 之后的 kern_exec.c（备份 sha256 c4d91d027780f5aa…）patch --dry-run --fuzz=0 通过。L2 的 build-strict 产物核验待跑：cellular-l2-20261114a。"""
+L2 增量（2026-11-14，tag cellular-l2-20261114d，exit 0）：`build-strict: kernel e02afc77fa76d78d99a4683343af5a3937d22577840d0e64b409941508213ac9 105480192 bytes`、`payload kernel d6f682485e44e5acbe7689f1d4e922d2acb7e4e023cb028f1b7f18ec824e0631`、`payload adt 102145f09232304ecb6749701c904e00403407621ca990b16acf51f77982af75`、`boot.img 8f9f5c95d2c77158a94c3c8647fbed23f87e49c2c4c3d80bff9320931be60172`、`✅ kernel archives: 4 enabled archive(s) all present in kernel.macho`；series=226（sha256 8141680f933021a2f53b68fe44125e9f14d43a9d62d68940a7aee8308f3c8039）、frozen=b0b1a721fc81c177f7e2e5b9dd8e5424aa621bbd4941b6a836718069b4d46f89，manifest /mnt/e/k60-work/artifacts/cellular-l2-20261114d/build-manifest.json。
+L2 产物内部核验（不只看退出码）：1) 调用点真的进了树——tree/.cache/xnu-work/bsd/kern/kern_exec.c:7929 是 `extern int k60_modem_probe_from_handoff(void);`、:7931 是 `(void)k60_modem_probe_from_handoff();`，0621 的 hunk 在 226 条 series 里排最后一条且被应用。
+2) 三个源文件真的被编译——tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/ 下有 pong_modem_image.o、pong_modem_pas.o、pong_modem_boot.o（以及 .d）；tree/.cache/xnu-work/bsd/conf/files:408-410 是 `bsd/dev/pong_modem_image.c`、`bsd/dev/pong_modem_pas.c`、`bsd/dev/pong_modem_boot.c` 三条 standard（append-conffiles.py 生效）。
+3) 日志字符串进了内核镜像——`strings -a kernel/kernel.macho | grep -c 'K60MODEM'` = 17，命中 plan/copy/auth_reset/init_image/mem_setup 五步的成功与失败行以及 `K60MODEM scm cmd=%#x rc=%d x0=%#llx x1=%#llx`、`K60MODEM carrier absent: no modem image staged at %#x`、`K60MODEM pas skipped, nothing was handed to the secure monitor`。
+4) 段表仍在内核里——`strings -a kernel/kernel.macho | grep -c 'modem.b'` = 27（b01..b13、b15..b20、b22..b29，缺三个纯 bss 行）。
+5) 磁盘 kernel.macho 的 sha256 与 build-strict 打印值一致（e02afc77…），且 `check-metal-blob.py` 报 `container table is self-consistent`、`check-image-args.py` 报 `OK (29 arguments, 575 bytes)`。
+注意：`scripts/build-strict.sh:255` 用了未定义的 `$ROOT`（由 92c9251 引入，`set -u` 下直接 exit 1），本次构建是靠 `export ROOT=<OUT>/mondrian/ipados-16.6.1-20G81/mondrian/tree` 绕过；该脚本缺陷属 main 侧，本线未改。"""
 
 [hardware.cellular.step.device]
 done = false

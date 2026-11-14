@@ -1,0 +1,353 @@
+From: UniXNU contributors
+Subject: [PATCH] k60: publish only a pinned early PAS1 GLINK owner lease
+
+Missing platform ownership is a dependency failure, never a synthetic lease.
+The live publisher references the kernel existing-only serializer and never
+allocates or resets DSP rings. Early and late PAS attempts share one claim.
+
+diff --git a/bsd/dev/pong_handoff.c b/bsd/dev/pong_handoff.c
+--- a/bsd/dev/pong_handoff.c
++++ b/bsd/dev/pong_handoff.c
+@@ -1,95 +1,106 @@
+-/* SPDX-License-Identifier: BSD-2-Clause-Patent */
+-/* Copyright (c) 2026, UniXNU contributors. */
+-#include "pong_handoff.h"
+-
+-#define BAD_PLAN (-8)
+-
+-static void hb32(uint8_t *p, uint32_t v)
+-{
+-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+-}
+-static void hb64(uint8_t *p, uint64_t v)
+-{
+-    hb32(p, (uint32_t)v); hb32(p + 4, (uint32_t)(v >> 32));
+-}
+-static int ring_ok(uint32_t bytes) { return bytes >= 256u && bytes <= 65536u && (bytes & 7u) == 0u; }
+-
+-/* Every field is validated before the first allocation, so a rejected plan
+- * never leaves a half-written partition behind. */
+-static int plan_ok(const K60HandoffPlan *p)
+-{
+-    if (!p) return 0;
+-    if (!p->epoch || !p->smem_base || !p->smem_bytes || p->smem_bytes < 8192u) return 0;
+-    if (!p->adsp_base || !p->adsp_bytes) return 0;
+-    if (p->desc_bytes != 32u) return 0;
+-    if (!ring_ok(p->tx_bytes) || !ring_ok(p->rx_bytes)) return 0;
+-    if (p->smp2p_bytes < 20u || p->smp2p_bytes > 340u) return 0;
+-    if (!p->remote_pid || p->remote_pid > 255u) return 0;
+-    if (p->host_tx_head || p->host_rx_tail) return 0;
+-    if (p->remote_restart_flag > 1u || p->required == 0u) return 0;
+-    return 1;
+-}
+-
+-int k60_handoff_build(const K60Smem *smem, const K60SmemPartition *part,
+-                      const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES])
+-{
+-    const uint16_t items[4] = {plan->desc_item, plan->tx_item, plan->rx_item, plan->smp2p_item};
+-    uint32_t sizes[4];
+-    uint32_t offsets[4] = {};
+-    uint32_t lengths[4] = {};
+-    unsigned i;
+-    int rc;
+-
+-    if (!smem || !part || !out || !plan_ok(plan)) return BAD_PLAN;
+-
+-    sizes[0] = plan->desc_bytes;
+-    sizes[1] = plan->tx_bytes;
+-    sizes[2] = plan->rx_bytes;
+-    sizes[3] = plan->smp2p_bytes;
+-
+-    for (i = 0; i < 4; ++i) {
+-        unsigned j;
+-        if (items[i] == 0u) return BAD_PLAN;
+-        for (j = 0; j < i; ++j)
+-            if (items[i] == items[j]) return BAD_PLAN;
+-    }
+-
+-    for (i = 0; i < 4; ++i) {
+-        rc = k60_smem_alloc(smem, part, items[i], sizes[i], &offsets[i], &lengths[i]);
+-        if (rc == K60SmemExists) {
+-            if (k60_smem_find(smem, part, items[i], &offsets[i], &lengths[i]) != K60SmemOk) return rc;
+-        } else if (rc) {
+-            return rc;
+-        }
+-        if (lengths[i] < sizes[i]) return K60SmemCorrupt;
+-    }
+-
+-    hb32(out + 0, K60_HANDOFF_MAGIC);
+-    hb32(out + 4, K60_HANDOFF_VERSION);
+-    hb32(out + 8, K60_HANDOFF_BYTES);
+-    hb32(out + 12, plan->required);
+-    hb32(out + 16, plan->epoch);
+-    hb32(out + 20, 0);   /* high half of the 64-bit epoch */
+-    hb64(out + 24, plan->smem_base);
+-    hb32(out + 32, plan->smem_bytes);
+-    hb32(out + 36, 0);
+-    hb64(out + 40, plan->adsp_base);
+-    hb32(out + 48, plan->adsp_bytes);
+-    hb32(out + 52, 0);
+-    hb32(out + 56, offsets[0]);
+-    hb32(out + 60, plan->desc_bytes);
+-    hb32(out + 64, offsets[1]);
+-    hb32(out + 68, plan->tx_bytes);
+-    hb32(out + 72, offsets[2]);
+-    hb32(out + 76, plan->rx_bytes);
+-    hb32(out + 80, plan->host_tx_head);
+-    hb32(out + 84, plan->host_rx_tail);
+-    hb32(out + 88, plan->remote_pid);
+-    hb32(out + 92, plan->smp2p_item);
+-    hb32(out + 96, plan->remote_restart_flag);
+-    hb32(out + 100, 0);
+-    return 0;
+-}
+-
+-/* P-170: a symbol that proves this translation unit reached kernel.macho. */
+-const char pong_handoff_marker[] = "K60HO smem handoff linked";
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++#include "pong_handoff.h"
++
++#define BAD_PLAN (-8)
++
++static void hb32(uint8_t *p, uint32_t v)
++{
++    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
++}
++static void hb64(uint8_t *p, uint64_t v)
++{
++    hb32(p, (uint32_t)v); hb32(p + 4, (uint32_t)(v >> 32));
++}
++static int ring_ok(uint32_t bytes) { return bytes >= 256u && bytes <= 65536u && (bytes & 7u) == 0u; }
++
++/* Every field is validated before the first allocation, so a rejected plan
++ * never leaves a half-written partition behind. */
++static int plan_ok(const K60HandoffPlan *p)
++{
++    if (!p) return 0;
++    if (!p->epoch || !p->smem_base || !p->smem_bytes || p->smem_bytes < 8192u) return 0;
++    if (!p->adsp_base || !p->adsp_bytes) return 0;
++    if (p->desc_bytes != 32u) return 0;
++    if (!ring_ok(p->tx_bytes) || !ring_ok(p->rx_bytes)) return 0;
++    if (p->smp2p_bytes < 20u || p->smp2p_bytes > 340u) return 0;
++    if (!p->remote_pid || p->remote_pid > 255u) return 0;
++    if (p->host_tx_head || p->host_rx_tail) return 0;
++    if (p->remote_restart_flag > 1u || p->required == 0u) return 0;
++    return 1;
++}
++
++static int build(const K60Smem *smem, const K60SmemPartition *part,
++                 const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES], int existing)
++{
++    uint16_t items[4];
++    uint32_t sizes[4];
++    uint32_t offsets[4] = {};
++    uint32_t lengths[4] = {};
++    unsigned i;
++    int rc;
++
++    if (!smem || !part || !out || !plan_ok(plan)) return BAD_PLAN;
++
++    items[0] = plan->desc_item; items[1] = plan->tx_item;
++    items[2] = plan->rx_item; items[3] = plan->smp2p_item;
++    sizes[0] = plan->desc_bytes;
++    sizes[1] = plan->tx_bytes;
++    sizes[2] = plan->rx_bytes;
++    sizes[3] = plan->smp2p_bytes;
++
++    for (i = 0; i < 4; ++i) {
++        unsigned j;
++        if (items[i] == 0u) return BAD_PLAN;
++        for (j = 0; j < i; ++j)
++            if (items[i] == items[j]) return BAD_PLAN;
++    }
++
++    for (i = 0; i < 4; ++i) {
++        rc = existing ? k60_smem_find(smem, part, items[i], &offsets[i], &lengths[i]) :
++            k60_smem_alloc(smem, part, items[i], sizes[i], &offsets[i], &lengths[i]);
++        if (rc == K60SmemExists) {
++            if (k60_smem_find(smem, part, items[i], &offsets[i], &lengths[i]) != K60SmemOk) return rc;
++        } else if (rc) {
++            return rc;
++        }
++        if (lengths[i] < sizes[i] || (existing && lengths[i] != sizes[i])) return K60SmemCorrupt;
++    }
++
++    hb32(out + 0, K60_HANDOFF_MAGIC);
++    hb32(out + 4, K60_HANDOFF_VERSION);
++    hb32(out + 8, K60_HANDOFF_BYTES);
++    hb32(out + 12, plan->required);
++    hb32(out + 16, plan->epoch);
++    hb32(out + 20, 0);   /* high half of the 64-bit epoch */
++    hb64(out + 24, plan->smem_base);
++    hb32(out + 32, plan->smem_bytes);
++    hb32(out + 36, 0);
++    hb64(out + 40, plan->adsp_base);
++    hb32(out + 48, plan->adsp_bytes);
++    hb32(out + 52, 0);
++    hb32(out + 56, offsets[0]);
++    hb32(out + 60, plan->desc_bytes);
++    hb32(out + 64, offsets[1]);
++    hb32(out + 68, plan->tx_bytes);
++    hb32(out + 72, offsets[2]);
++    hb32(out + 76, plan->rx_bytes);
++    hb32(out + 80, plan->host_tx_head);
++    hb32(out + 84, plan->host_rx_tail);
++    hb32(out + 88, plan->remote_pid);
++    hb32(out + 92, plan->smp2p_item);
++    hb32(out + 96, plan->remote_restart_flag);
++    hb32(out + 100, 0);
++    return 0;
++}
++
++int k60_handoff_build(const K60Smem *s, const K60SmemPartition *p,
++    const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES])
++{ return build(s,p,plan,out,0); }
++
++int k60_handoff_build_existing(const K60Smem *s, const K60SmemPartition *p,
++    const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES])
++{ return build(s,p,plan,out,1); }
++
++/* P-170: retain the existing linked-translation-unit marker. */
++const char pong_handoff_marker[] = "K60HO smem handoff linked";
+diff --git a/bsd/dev/pong_handoff.h b/bsd/dev/pong_handoff.h
+--- a/bsd/dev/pong_handoff.h
++++ b/bsd/dev/pong_handoff.h
+@@ -1,40 +1,45 @@
+-/* SPDX-License-Identifier: BSD-2-Clause-Patent */
+-/* Copyright (c) 2026, UniXNU contributors. */
+-/* Builds the 104-byte k60-adsp-glink-handoff lease from SMEM allocations.
+- * Layout and validation rules: docs/research/battery/GLINK-HANDOFF.md.
+- * This produces the lease only; the ADSP PAS1 owner must still be running. */
+-#ifndef K60_HANDOFF_BUILD_H
+-#define K60_HANDOFF_BUILD_H
+-#include <stdint.h>
+-#include "pong_smem.h"
+-#ifdef __cplusplus
+-extern "C" {
+-#endif
+-
+-#define K60_HANDOFF_BYTES 104u
+-/* K6BH little endian: identical to K60_ADSP_HANDOFF_MAGIC in
+- * K60BatteryConfig.h, because that validator is the only consumer. */
+-#define K60_HANDOFF_MAGIC 0x4842364bu
+-#define K60_HANDOFF_VERSION 1u
+-
+-typedef struct {
+-    uint32_t required;          /* flags: K60AdspHandoffRequired bits */
+-    uint32_t epoch;             /* must be non-zero */
+-    uint64_t smem_base;
+-    uint32_t smem_bytes;
+-    uint64_t adsp_base;
+-    uint32_t adsp_bytes;
+-    uint16_t desc_item, tx_item, rx_item, smp2p_item;
+-    uint16_t remote_pid;
+-    uint32_t desc_bytes, tx_bytes, rx_bytes, smp2p_bytes;
+-    uint32_t host_tx_head, host_rx_tail, remote_restart_flag;
+-} K60HandoffPlan;
+-
+-/* Allocates the four items and writes the lease into out[0..103].
+- * Returns 0, or a negative K60Smem error, or -8 for an invalid plan. */
+-int k60_handoff_build(const K60Smem *, const K60SmemPartition *, const K60HandoffPlan *, uint8_t out[K60_HANDOFF_BYTES]);
+-
+-#ifdef __cplusplus
+-}
+-#endif
+-#endif
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Builds the 104-byte k60-adsp-glink-handoff lease from SMEM allocations.
++ * Layout and validation rules: docs/research/battery/GLINK-HANDOFF.md.
++ * This produces the lease only; the ADSP PAS1 owner must still be running. */
++#ifndef K60_HANDOFF_BUILD_H
++#define K60_HANDOFF_BUILD_H
++#include <stdint.h>
++#include "pong_smem.h"
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define K60_HANDOFF_BYTES 104u
++/* K6BH little endian: identical to K60_ADSP_HANDOFF_MAGIC in
++ * K60BatteryConfig.h, because that validator is the only consumer. */
++#define K60_HANDOFF_MAGIC 0x4842364bu
++#define K60_HANDOFF_VERSION 1u
++
++typedef struct {
++    uint32_t required;          /* flags: K60AdspHandoffRequired bits */
++    uint32_t epoch;             /* must be non-zero */
++    uint64_t smem_base;
++    uint32_t smem_bytes;
++    uint64_t adsp_base;
++    uint32_t adsp_bytes;
++    uint16_t desc_item, tx_item, rx_item, smp2p_item;
++    uint16_t remote_pid;
++    uint32_t desc_bytes, tx_bytes, rx_bytes, smp2p_bytes;
++    uint32_t host_tx_head, host_rx_tail, remote_restart_flag;
++} K60HandoffPlan;
++
++/* PAS owner preparation only: ADSP must be stopped before allocating/zeroing
++ * the host FIFOs. Allocates the four items and writes out[0..103].
++ * Returns 0, or a negative K60Smem error, or -8 for an invalid plan. */
++int k60_handoff_build(const K60Smem *, const K60SmemPartition *, const K60HandoffPlan *, uint8_t out[K60_HANDOFF_BYTES]);
++
++/* Running-DSP publication: all items must already exist at exactly the planned
++ * sizes. Reads SMEM and serializes out only; never allocates or resets a FIFO. */
++int k60_handoff_build_existing(const K60Smem *, const K60SmemPartition *, const K60HandoffPlan *, uint8_t out[K60_HANDOFF_BYTES]);
++
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/bsd/dev/pong_adsp_startup.c b/bsd/dev/pong_adsp_startup.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_adsp_startup.c
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Shared early/late startup exclusion. Never clear uncertain ownership. */
++static unsigned startup_owner;
++int k60_adsp_startup_claim(unsigned owner)
++{
++    return (owner == 1u || owner == 2u) &&
++        __sync_bool_compare_and_swap(&startup_owner, 0u, owner);
++}
++int k60_adsp_handoff_owner_active(void)
++{
++    return __atomic_load_n(&startup_owner, __ATOMIC_ACQUIRE) == 1u;
++}
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -109,10 +109,14 @@
+ #if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
+ extern "C" void k60_physical_battery_start(void);
++extern "C" int k60_adsp_handoff_publish(void);
+ #endif
+ 
+ kern_return_t
+ IOKitBSDInit( void )
+ {
++#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
++	(void)k60_adsp_handoff_publish();
++#endif
+ 	IOService::publishResource("IOBSD");
+ 
+ #if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7839,8 +7839,13 @@
+ 	{
+ 		extern int k60_adsp_probe_from_handoff(void);
++		extern int k60_adsp_startup_claim(unsigned);
+ 		extern int k60_rail_probe(void);
+ 		int pong_rail_probe = 0;
+ 
+-		(void)k60_adsp_probe_from_handoff();
++		if (k60_adsp_startup_claim(2u)) {
++			(void)k60_adsp_probe_from_handoff();
++		} else {
++			printf("K60PAS legacy startup excluded by earlier ADSP owner/attempt\n");
++		}
+ 		if (PE_parse_boot_argn("pong_rail_probe", &pong_rail_probe,
+ 		    sizeof (pong_rail_probe)) && pong_rail_probe != 0) {

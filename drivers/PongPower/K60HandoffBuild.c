@@ -30,10 +30,10 @@ static int plan_ok(const K60HandoffPlan *p)
     return 1;
 }
 
-int k60_handoff_build(const K60Smem *smem, const K60SmemPartition *part,
-                      const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES])
+static int build(const K60Smem *smem, const K60SmemPartition *part,
+                 const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES], int existing)
 {
-    const uint16_t items[4] = {plan->desc_item, plan->tx_item, plan->rx_item, plan->smp2p_item};
+    uint16_t items[4];
     uint32_t sizes[4];
     uint32_t offsets[4] = {};
     uint32_t lengths[4] = {};
@@ -42,6 +42,8 @@ int k60_handoff_build(const K60Smem *smem, const K60SmemPartition *part,
 
     if (!smem || !part || !out || !plan_ok(plan)) return BAD_PLAN;
 
+    items[0] = plan->desc_item; items[1] = plan->tx_item;
+    items[2] = plan->rx_item; items[3] = plan->smp2p_item;
     sizes[0] = plan->desc_bytes;
     sizes[1] = plan->tx_bytes;
     sizes[2] = plan->rx_bytes;
@@ -55,13 +57,14 @@ int k60_handoff_build(const K60Smem *smem, const K60SmemPartition *part,
     }
 
     for (i = 0; i < 4; ++i) {
-        rc = k60_smem_alloc(smem, part, items[i], sizes[i], &offsets[i], &lengths[i]);
+        rc = existing ? k60_smem_find(smem, part, items[i], &offsets[i], &lengths[i]) :
+            k60_smem_alloc(smem, part, items[i], sizes[i], &offsets[i], &lengths[i]);
         if (rc == K60SmemExists) {
             if (k60_smem_find(smem, part, items[i], &offsets[i], &lengths[i]) != K60SmemOk) return rc;
         } else if (rc) {
             return rc;
         }
-        if (lengths[i] < sizes[i]) return K60SmemCorrupt;
+        if (lengths[i] < sizes[i] || (existing && lengths[i] != sizes[i])) return K60SmemCorrupt;
     }
 
     hb32(out + 0, K60_HANDOFF_MAGIC);
@@ -90,3 +93,14 @@ int k60_handoff_build(const K60Smem *smem, const K60SmemPartition *part,
     hb32(out + 100, 0);
     return 0;
 }
+
+int k60_handoff_build(const K60Smem *s, const K60SmemPartition *p,
+    const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES])
+{ return build(s,p,plan,out,0); }
+
+int k60_handoff_build_existing(const K60Smem *s, const K60SmemPartition *p,
+    const K60HandoffPlan *plan, uint8_t out[K60_HANDOFF_BYTES])
+{ return build(s,p,plan,out,1); }
+
+/* P-170: retain the existing linked-translation-unit marker. */
+const char pong_handoff_marker[] = "K60HO smem handoff linked";

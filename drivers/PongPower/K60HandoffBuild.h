@@ -30,9 +30,14 @@ typedef struct {
     uint32_t host_tx_head, host_rx_tail, remote_restart_flag;
 } K60HandoffPlan;
 
-/* Allocates the four items and writes the lease into out[0..103].
+/* PAS owner preparation only: ADSP must be stopped before allocating/zeroing
+ * the host FIFOs. Allocates the four items and writes out[0..103].
  * Returns 0, or a negative K60Smem error, or -8 for an invalid plan. */
 int k60_handoff_build(const K60Smem *, const K60SmemPartition *, const K60HandoffPlan *, uint8_t out[K60_HANDOFF_BYTES]);
+
+/* Running-DSP publication: all items must already exist at exactly the planned
+ * sizes. Reads SMEM and serializes out only; never allocates or resets a FIFO. */
+int k60_handoff_build_existing(const K60Smem *, const K60SmemPartition *, const K60HandoffPlan *, uint8_t out[K60_HANDOFF_BYTES]);
 
 #ifdef __cplusplus
 }

@@ -88,7 +88,7 @@ struct Entry {char name[32];uint32_t offset,bytes;};
 }
 ```
 
-**NVIDIA/K60 需要核对 `subsystem_device`** —— Pong 是 264，K60 可能不同。
+**`subsystem_device` 已核对** —— Pong 264，K60 实测同为 264（2026-11-14，`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）。
 
 ---
 
@@ -148,9 +148,9 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 
 ### 待补的 ③ 项
 
-- [ ] K60 的 **PCI 设备 ID**（`lspci` 或 `/sys/bus/pci/devices/*/`）
-- [ ] K60 的 **BAR0 基址与大小**
-- [ ] K60 的 **subsystem_device**（Pong 是 264，K60 可能不同）
+- [x] K60 的 **PCI 设备 ID** —— 实测 `0x17CB:0x1103`（sysfs `vendor/device`；`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）
+- [x] K60 的 **BAR0 基址与大小** —— 实测 `0x60200000-0x603fffff`，2 MiB（`resource.txt`、`iomem-pci.txt`）
+- [x] K60 的 **subsystem_device** —— 实测 `0x0108`（264），与 Pong 相同（`pci-identity.txt`）
 - [ ] K60 的 **PCIe0 GDSC 偏移**（Pong 注释说 SM8475 是 `7b004`）
 - [ ] K60 的 **PMIC SPMI 通道号**（Pong 用 SPMI 观察者读，K60 可能不同）
 
@@ -171,7 +171,7 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
    ATU 映射、DBI 预设。失败模式是"链路起不来"，没有任何日志。
 2. **固件必须从 K60 自己的 Android 分区提取**（`amd.bin` / `amss.bin` / `bd_m11agf.elf`），
    不能用 Pong 的。
-3. **`subsystem_device` 可能不同**。如果不同，PCIe 设备枚举会失败。
+3. **`subsystem_device` 已实测相同**（`0x0108`/264）；换板或换批次时仍需核对，不同则 PCIe 设备枚举会失败。
 4. **PWF2 打包工具需要先实现**（Pong 的打包脚本在 `scripts/build-pong-wifi-native.py`）。
 
 ---
@@ -267,7 +267,7 @@ WiFi 是 P3（新子系统），低于：
 |---|---|---|
 | SoC | SM8550 | **SM8475（与 Pong 相同）** |
 | 芯片 | WCN7850（ath12k 族）| **QCA6490 / WCN6855（ath11k 族）** |
-| 端点 ID | `17cb:1107` | 预期 `17cb:1103`（Pong 配置 device=4355=0x1103，待实测）|
+| 端点 ID | `17cb:1107` | **实测 `17cb:1103`**（2026-11-14；与 Pong 配置 device=4355 一致；证据 `E:/k60-work/evidence/pci-id-20261114/`）|
 | MSI | SPI 141 | 待实测 |
 | 板级实现 | sheng 的 `WifiProbe.cpp` + `WifiNet.cpp` | **Pong 的 `PongWifiPlatform.cpp`（40,764 B，同 SoC 同芯片）** |
 
@@ -319,7 +319,7 @@ Pong 用 PWF2 包（`/pong/firmware/qca6490.pwf`，magic `0x32465750`）。
 
 ## ⑥ 深挖待办
 
-- [ ] K60 的端点 ID、BAR0、subsystem_device（实测）
+- [x] K60 的端点 ID、BAR0、subsystem_device（已实测：`17CB:1103` / `0x60200000` 2 MiB / `0x0108`；`E:/k60-work/evidence/pci-id-20261114/`）
 - [ ] K60 的 MSI 目标（官方参考是 SPI 141，K60 待测）
 - [ ] K60 的六路 PMU 电源与 RPMh 请求（Pong 用 SPMI 观察者，K60 待核对）
 - [ ] `nw_abi.h` 是否覆盖 WCN6855（决定第二步走 A 还是 B）
@@ -419,4 +419,4 @@ int (*fw_get)(const char *name, const uint8_t **data, size_t *size);  // 按路�
 
 - **「MhiBoot 0 字节 = 窗口抢内存」**：本文与 `GAP-ANALYSIS.md`、`FIRMWARE.md` 都没有这条表述，`MhiBoot` 在 `E:/hackios` 全树 0 命中（只在官方驱动表 `docs/porting/drivers.md:44` 作为组件名出现）。该结论只存在于运行时记忆与 `E:/k60-work/evidence/wifi-trial/` 的 QEMU 实验，**不是本文档的结论**。
 - `nw_abi.h` / `nw_wifi.c` 的 f6bf561 版本：本机不可复核（见 ⑤ 第二步开头注）。
-- K60 的端点 ID、subsystem_device、MSI INTID 仍无实测：目前 1103/0108/172 分别来自 Pong 代码、Pong 代码、live FDT `interrupt-map`。
+- K60 的端点 ID、subsystem_device 已于 2026-11-14 实测（`17CB:1103`、`17CB:0108`/264；证据 `E:/k60-work/evidence/pci-id-20261114/`）；**MSI INTID 172 仍只有 live FDT `interrupt-map` 推导**（SPI140+32），而运行时 `/proc/interrupts` 显示 ITS-MSI 524289..524306（32 向量）供 mhi/ce/dp 使用——实际 MSI 路由待复核。

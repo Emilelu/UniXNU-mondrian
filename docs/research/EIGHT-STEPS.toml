@@ -355,7 +355,7 @@ evidence = "官方组件 Ath12kWifi 面向 ath12k（qcc2072/qcn9274/wcn7850）�
 
 [hardware.wifi.step.decompile]
 done = false
-evidence = "K60 的 PCI device id / BAR0 / subsystem_device / PCIe0 GDSC 偏移 / SPMI 通道号均未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
+evidence = "K60 的 PCI device id / BAR0 / subsystem_device 已于 2026-11-14 实测（17CB:1103 / 0x60200000-0x603fffff 2 MiB / 0x0108，证据 E:/k60-work/evidence/pci-id-20261114/）；PCIe0 GDSC 偏移 / SPMI 通道号仍未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
 
 [hardware.wifi.step.wide]
 done = true

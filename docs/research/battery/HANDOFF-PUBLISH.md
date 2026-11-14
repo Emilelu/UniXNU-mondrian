@@ -23,6 +23,19 @@ Board configuration remains generated from the captured FDT, not duplicated in t
 
 The early hook in `IOKitBSDInit()` runs before the `IOBSD` publish and physical battery start. A Data-mount hook is too late. The old diagnostic loader is not a provider: a disabled diagnostic returning zero does not prove authentication, held votes, fresh FIFO ownership or flags 15. The early attempt excludes that loader even when the early attempt fails. The compiled provider intentionally fails before SMEM/TCSR mappings, rather than guessing an early firmware/PAS path that depends on an unavailable root filesystem.
 
+## 调用点契约
+
+Integration ownership: Lead will land the kernel call point with the PAS1 provider after the battery/owner boundary is settled. The 0617 branch hook is a proposed implementation, not an established main call site or proof of a running provider. Keep 0617 off main until that integration is agreed.
+
+| Condition | Required responsibility and failure behavior |
+|---|---|
+| PAS1 ownership and flags | The owner must prepare fresh host FIFOs while PAS1 is stopped, authenticate and start PAS1, retain the necessary resources and pin exclusive ownership. The live publisher constructs `plan.required == K60AdspHandoffRequired == 15`; numeric flags alone do not prove those facts. The current generic builder only rejects zero required flags, so a future caller must enforce exact 15 and consumer validation. |
+| Epoch | Pass a nonzero epoch bound to the current boot, board configuration, item geometry and pinned owner token; revalidate ownership throughout publication. A zero or stale epoch cannot be published. |
+| TCSR/SMEM | Supply working lock/unlock operations for the TCSR hardware mutex. In the current publisher, `k60_handoff_publish()` itself invokes those caller-supplied callbacks before partition discovery, rechecking readiness and `k60_handoff_build_existing()`; the builder does not lock. Do not enter the publisher already holding that same non-reentrant mutex. Release it on every post-acquisition exit, before owner callbacks and registry property publication. |
+| Startup order | The final integration must complete the handoff publication attempt before `k60_physical_battery_start()`, so the consumer sees a valid property if publication succeeds. The exact main call site is owned by Lead together with the PAS1 provider; a Data-mount hook is too late. |
+| Ready and item state | Require real SMP2P ready/non-reset and consistent restart state, the host0/ADSP2 partition, existing descriptor/TX/RX items of exact sizes 32/4096/4096, and the current conservative fresh descriptor policy. Missing, stale, dirty or invalid state fails closed; do not allocate or reset live rings to fabricate readiness. |
+| Commit and failure | Preflight duplicate property, self-parse the exact 104-byte result, unlock before atomically checking/setting the property, and keep the owner pinned after success. Abort the acquired owner on pre-publication failure; never publish on provider failure or treat a disabled probe as success. |
+
 ## Six-step state machine
 
 1. Parse the generated board config; reject any SMEM, ADSP, mutex or IPCC overlap with XNU RAM before invoking a side-effect-capable owner. Reject an existing `/chosen/k60-adsp-glink-handoff`. Allocate OSData before taking the hardware mutex.

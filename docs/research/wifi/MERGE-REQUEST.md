@@ -502,5 +502,66 @@ XNU 可管理内存就少 256 MiB**。4.5 GiB 仍是原版 Pong board（`UniXNU-
 建议批准的最小验证集：`wifi-20261116a2q`（控制）→ `wifi-20261116h3q-g`（全级），
 每张约 2 分钟；控制镜像有控制台而 h3q-g 静默，才说明窗口不是唯一因素。
 
+## 15. MHI 握手现在有日志了（11 条，已进内核）
+
+两次上机都是 0 字节控制台，而 `PongWifi: stage N` 本应出现——说明 **MHI 启动链
+（stage 门之后到 `nw_wifi_start` 返回之间）原本一条日志都没有**。三层原因：
+
+1. `ath11k_dbg()` 在这个构建里编译为空：`build-k60-ath11k.py` 没有
+   `-DCONFIG_ATH11K_DEBUG`，`ath` 源文件列表也不含 `debug.c`，于是
+   `ath11k/debug.h:96-101` 的 `#else` 分支把 `__ath11k_dbg` 变成 `return 0`。
+2. shim 把 `dev_dbg`/`pr_debug` 映射成 `lx_log(7)`（`shim/include/lx_os.h:99-110`），
+   而 `PongWifiPlatform.cpp:76` 的 `log()` 丢弃 level 7。
+3. 只有 `dev_err/warn/info`（3/4/6）与本仓的 `ath11k_err/warn/info`
+   （`PongAth11k.c:111-121`）能上控制台。
+
+修法：在 `scripts/build-k60-ath11k.py` 里以「断言 needle 唯一 + 替换」的方式注入
+11 条 `ath11k_info`/`dev_info`，不手改 Linux 树。覆盖点包括
+`ath11k_mhi_register`（前后）、`ath11k_mhi_start`（timeout/prepare/sync）、
+`mhi_fw_load_handler`（BHI 序列号、`skip_req_fw`、READY 前）以及
+`mhi_ready_state_transition` 的两个 poll（MHICTRL reset / MHISTATUS ready）
+与 READY 达成。**「设备到底有没有响应 MHI」现在有明确判据**：控制台会先打
+`Pong MHI: polling MHICTRL reset mask 0x2 for N ms`，失败再跟
+`Device failed to clear MHI Reset`。
+
+验证：`libPongAth11k.a` 728,624 → 730,120 B，`libPongWifiNative.a`
+12,067,744 B，两者 `strings | grep -c "Pong MHI"` = 11；未定义符号
+`llvm-nm -u -j` 前后都是 348 个、`comm` 双向空（没有引入新依赖）。
+细节见 `LOCAL-VERIFICATION.md` §5.17。
+
+## 16. `build-strict.sh` 现在真的跑得通了（五个阻塞 + 两条新门禁）
+
+这条线此前**从未跑通严格构建**，原因全在脚本与构建输入，不在 WiFi 代码：
+
+| # | 阻塞 | 修法 | 提交 |
+|---|---|---|---|
+| 1 | `check-build-applied.py` / `porting-gate.py` / `sync-device-input.py` 硬编码别的线路径（`/tmp/usb-cdc-mainline/device`、`/mnt/e/hackios/UniXNU-mondrian`、`scratch/SERIES-FINAL.txt`） | 照搬 Lead 版：`REPO` 由 `__file__` 推导、`DEV` 走 `K60_DEVICE_INPUT`、`SERIES` 走仓库 `patches/xnu/series`、新增 `K60_BUILD_IN_PROGRESS`；`build-strict.sh` 补三个 export | `f8207ea` |
+| 2 | 构建输入 `/opt/k60/trees/k60-wifi-device` 不是 git 仓库 → `feeds.py:208` `fatal: not a git repository` | 在其中 `git init` + 提交 904 个文件 | — |
+| 3 | 缺 `<device>/.cache/firmware/k60-gpu/` → `build-pong-adreno-platform-linux.py:91` `FileNotFoundError` | 从 `wifi-device` 拷入 5 个文件 | — |
+| 4 | `mac-build/native-ufs/bindings.json` 的 `compiled_object_sha256` 过期（`f4717ef` 改了 `PongUfsTransport.cpp` 却没重生成）→ iron-5 恒红 | 按当前源码重新生成并提交（全仓无消费方，`bindings` 字典逐字节相同） | `1149bf5` |
+| 5 | `--kernel-arg` 只传给 `build bootimg`，而 loader 读的是 payload TOML（P-159）→ 第一张「成功」镜像**没有** `pong_wifi=1` | payload 与 bootimg 都转发；manifest 记 `kernel_args_requested` | `aaec637` |
+
+同一提交移植了 Lead 的两道门禁：`scripts/check-kernel-archives.py`（P-190，
+`-Wl,-force_load` 落在死分支时驱动静默缺失）与 `scripts/check-image-args.py`
+（从 boot.img 读回命令行，拒绝超 607 B、`debug=1`/`epoch=1`、替换 board 值、
+未登记追加）。
+
+**可交付镜像 `wifi-20261116mhi3`**（已构建、已过三道门、未上机）：
+
+```
+kernel   85e1fe175d5e64c82f4ab3c383f403836294626f2bdd1e609b350a666f749188 65978368 B
+args     30 项 / 587 B（末尾 pong_wifi=1）
+boot.img 615a05ce93aa77b1f59a7e98caf77d4406abc4dd7905d8de4e0be710eb51f00a
+kernel archives: 3 enabled archive(s) all present
+image-arg-audit: OK (30 arguments, 587 bytes)
+verify-boot-image: OK
+```
+
+内核里 11 条 `Pong MHI` 格式串齐全，`_pong_wifi_start_optional` /
+`_nw_wifi_start` / `_pong11_pong_ath11k_pci_init` / `_armcpu_spi_attach` 符号都在。
+上机读法见 `LOCAL-VERIFICATION.md` §5.19。
+
+**当前阻塞不变**：用户禁飞令（m05362）——镜像与脚本就绪，上机须用户与 Lead 双同意。
+
 
 

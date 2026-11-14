@@ -331,5 +331,15 @@ This line, next in order:
    `step.plan` / `step.verify` / `step.device.prediction` / `paths` / `parked_why` in
    `docs/research/EIGHT-STEPS.toml` and the P-197 `Check` line in `docs/engineering/PITFALLS.md`.
    `git apply --check` passes on `ccd4dfc`; `render-eight-step-table.py --check` stays consistent
-   because only `done`/evidence text changed, not the table cells.
+   because only `done`/evidence text changed, not the table cells. The Lead landed it as `626cc9b`
+   (split: PITFALLS hand-replaced, EIGHT-STEPS applied), so the branch now carries main's version verbatim.
+5. **Ledger follow-up for the pair (Lead, one-line patch).** `626cc9b` still names `bt-s4b-20261115a`
+   (superseded) and `bt-s4-20261114b` (old baseline) as the S4 samples. This line exported the correction
+   rather than editing the shared contract: `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-pair.patch`
+   (7,728 B, sha256 `93791005ac92b8f01b4c8bc2a0160792090b12c05349627cdcfa8da3a223920d`, 1 file, +3/−3)
+   — it rewrites `parked_why`, `step.plan`'s S4 sentence and `step.verify`'s evidence to the controlled
+   pair `bt-s4b-20261115b` / `bt-s4c-20261115a`. Validated in a scratch repo seeded from `origin/main`:
+   `render-eight-step-table.py --check` consistent, `eight-step-gate.py --build` 30 checks rc=0,
+   `--flash` rc=0, `K60_EIGHT_STEP_ITEMS=bluetooth --build` 6 checks rc=0. `git apply --check` passes on
+   this branch (whose `EIGHT-STEPS.toml` is byte-identical to `origin/main`).
 

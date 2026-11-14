@@ -12,3 +12,7 @@
 - [02-DT-TRUTH.md](cellular/02-DT-TRUTH.md) — 活 FDT 字节级取证：`remoteproc-mss@04080000`（`qcom,cape-modem-pas`）、`mpss_region` 0x8bc00000/0x13200000 与 `modem.mdt` 段表严丝合缝、GLINK `IPCRTR` 通道与 intents、IPA 节点、QRTR 三个传输节点谁属于谁
 - [03-SCOPE.md](cellular/03-SCOPE.md) — 范围判定：L1 固件加载 + L2 QRTR 枚举在范围内（PAS/GLINK 已有 70% 代码），IPA 数据面/EFS/mbn/IMS 明确排除；含双系统残留风险；原 `qrtr-lookup` 未解项已澄清（modem 侧 36 个 QMI 服务在应答）
 - [04-DT-NODES.md](cellular/04-DT-NODES.md) — 补 DT 取证：四个 modem/IPA 节点按活 FDT 逐字面量抄进 `dts/mondrian.dts`（229–390 行，12 个节点），四条机械改写逐条对照，ADT 掩码 `random-seed` 后与基线逐字节相同的受控实验，以及“启动行为不变”的诚实边界
+- [05-MODEM-IMAGE.md](cellular/05-MODEM-IMAGE.md) — modem 镜像段表：`modem.mdt` 32 个 phdr 里 30 个 PT_LOAD 的 paddr/filesz/memsz 全表、11 处空洞合计等于 0x000C1000 余量、b14/b21/b30 纯 bss、PAS id = 4 的双来源、`K60ModemImage` 的四类校验与按字节搬运
+- [06-MODEM-PAS.md](cellular/06-MODEM-PAS.md) — PAS 握手：peripheral=4 的 SMC 编码器、`AUTH_AND_RESET`→逐段 `INIT_IMAGE`→`MEM_SETUP` 顺序、109 MB 无法嵌内核故改用 `modem.b01` 前 16 B 签名做在位自检、`carrier absent` 时绝不盲发 SMC
+- [07-QRTR-ENUMERATION.md](cellular/07-QRTR-ENUMERATION.md) — QRTR 只读枚举：32 B 头 + 20 B control 的线格式、`NEW_LOOKUP(0x0a)` 判据、SMEM/GLINK/SMP2P 常量（item 478/479/480、SMP2P 435）、`pong_modem>=2` 门控、fresh FIFO 才 adopt
+- [08-QRTR-SERVICES.md](cellular/08-QRTR-SERVICES.md) — 上机比对用的服务号清单：node 0 全量 37 行（22 有名 / 15 `<unknown>`）、五个判据号 21/1/11/3/16 与 DIAG 4097 的特殊性、判据矩阵与三步比对流程

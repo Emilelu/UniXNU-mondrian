@@ -454,7 +454,7 @@ artifact_check = "不适用：本步验证的是纯算术，产物里没有可�
 [hardware.ios-profile]
 status = "planned"
 paths = ["docs/research/ios-profile", "docs/research/SOURCES.toml", "docs/research/EIGHT-STEPS.toml"]
-parked_why = "用户只要求可行性报告（不写代码）：①~⑦ 的调研部分已完成，⑧ 上机与任何 profile/board.toml 改动都未开始，等 Lead 决定是否立项。"
+parked_why = "用户只要求可行性报告（不写代码）：①~⑦ 的调研部分已完成，⑧ 上机与任何 profile/board.toml 改动都未开始。2026-11-14 Lead 决定：结论归档、暂不立项，等基带（QcomBaseband）就绪后再评估。"
 why = "OS profile 可行性：电话/短信/基带是否需要 iOS 而非 iPadOS（只调研，不改 board.toml、不动 profiles/）"
 
 [hardware.ios-profile.step.same_model]

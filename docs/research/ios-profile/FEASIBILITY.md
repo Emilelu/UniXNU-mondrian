@@ -3,6 +3,7 @@
 **结论层。** 证据行在 `evidence/telephony-inventory.txt`、`evidence/abi-and-kernel.txt`、`evidence/data-volume.txt` 与下列 file:line 引用。
 调研问题（用户原话）：电话/短信/基带需要 iOS 而不是 iPadOS —— 换 OS profile 值不值得、卡在哪。
 本报告只做调研，不改 board.toml、不动 profiles/。
+**2026-11-14 Lead 决定：结论已归档，暂不立项，等基带（QcomBaseband）就绪后再评估。**
 
 ## 0. 一页结论
 

@@ -102,8 +102,15 @@ PongThermal: little=60000 big=67000 gpu=53000 npu=49000 ddr=52000 mC
 
 ## 5 仍未完成
 
-1. **从未构建过含本补丁的内核**：`build-strict` 目前被环境问题挡住（见 §6），`kernel.macho` 里
-   还没有 `PongThermal: ` 串。
+1. ~~**从未构建过含本补丁的内核**~~ **已构建（2026-11-14 20:38）**：`build-strict.sh thermal-20261114c`
+   在自己的构建树（`K60_DEVICE_INPUT=/opt/k60/trees/thermal-device`、`K60_OUT=/opt/k60/trees/thermal-out`）
+   里跑通全链（八步门禁 30 项 → 补丁应用 230/230 → 内核 → 合规门禁 → payload → bootimg）：
+   `kernel.macho` 54,173,696 B，sha256 `ed0bfe2327ea55244eb95b3313264404dd43fb1d4b0caa68846dc729853331d1`，
+   `strings | grep -c 'PongThermal: '` = **10**（§3.1 预言的全部串都在），
+   `llvm-nm` 有 `_pong_thermal_init`/`_pong_thermal_worker`/`_pong_thermal_sample`/`_pong_thermal_sensors`/
+   `_pong_thermal_controllers` 五个符号；payload kernel sha256 `827797e6ae11174908c3c161b67a1c30614b8fb6fbabf0f1b4675f1eaebe935e`，
+   boot.img sha256 `09a38cb7085eef1aa97bcf8810b5b456906dbc524cd21349638e8d51a3c952f1`，
+   manifest `/mnt/e/k60-work/artifacts/thermal-20261114c/build-manifest.json`。
 2. **从未上机**：`SROT_HW_VER`/`SROT_CTRL` 的现场值、32 路 `VALID` 原始字都还没有。
 3. **没有压力等级**：in-tree 驱动只打日志，不发布 `mTPL`；那部分仍归 kext 路线（`06`/`07` 篇）。
 4. **没有 trip 编程与冷却设备**：本板 AP 侧 trip 全是被动 trip，且 `polling-delay` 多为 0，

@@ -383,6 +383,46 @@ Everything that can be prepared without the phone is prepared and byte-checked:
 - Resume command:
   `powershell -File E:\k60-work\evidence\wifi-trial\ladder6-run.ps1 -RaceSeconds 7200 -Seconds 180 -Tag ladder9`
 
+
+## 8. Why a silent boot leaves no log anywhere (checked 2026-11-14)
+
+It is tempting to assume the previous boot can be recovered from the ramoops
+ring at `0xA7000000` after a hang. It cannot, and the reason is in the
+firmware, not in XNU.
+
+- XNU keeps its console mirror there: `osfmk/arm64/pong_ramoops_console.h`
+  `PONG_RAMOOPS_PHYS_BASE 0xA7000000ULL`, `PONG_RAMOOPS_CONSOLE_BYTES 0x00200000U`,
+  header `{sig=0x43474244, start, size}` then a 2 MiB ring.
+- `osfmk/arm/arm_init.c:328 pong_ramoops_console_init()` reads that header and,
+  when it is still valid, copies up to 48 KiB (`K60_PREVLOG_BYTES`) of the
+  previous epoch into `k60_prevlog_buf`; `k60_prevlog_dump()` replays it as
+  `K60PREV begin ... / K60PREV end`. It then zeroes the header and restarts the
+  ring for this boot.
+- **UEFI destroys the header before XNU ever runs.**
+  `Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib/FrameBufferSerialPortLib.c:243-272`
+  mirrors the firmware log into the same region: `RAMOOPS_BASE 0xA7000000u`,
+  `RAMOOPS_SIG 0x43455343u`, `RAMOOPS_LIMIT 0x200000u`, and `RamoopsInit()`
+  writes `Hdr[0]=RAMOOPS_SIG; Hdr[1]=0; Hdr[2]=0;` then
+  `ZeroMem(0xA7000010, 0x200000-0x10)` on the first serial write of every boot
+  (`mRamoopsReady` is a per-boot static). So by the time XNU looks, the magic is
+  `0x43455343`, not `0x43474244`, and the payload is firmware text.
+- Measured: `K60PREV none (first boot after power cycle)` appears in **409**
+  captured consoles under `E:\k60-work\evidence`, and `K60PREV begin` appears
+  in **zero** of them. No capture in the whole archive has ever replayed a
+  previous boot.
+
+Consequences for this bring-up:
+
+1. A boot that dies before `k60_usblog_console_up()` returns produces **no
+   evidence at all** - not on USB, not in ramoops. That is exactly what
+   `usblog-20261114-wifi-b` shows (`bytes=0`, `portSeen=false`).
+2. Therefore the only defence is to log **before** the first risky MMIO, which
+   is what the console gate plus `k60_wifi_stage` do (section 3). The gate is
+   not a convenience, it is the only instrumentation that survives.
+3. Do not spend another boot hoping to read the dead boot out of pstore;
+   `docs/archive/HANDOFF-2026-10-30-EVENING.md` section 5.1 and
+   `D-2026-11-04-01` already settled this, and the firmware ordering above
+   explains why it can never work.
 When ADB comes back, pull the board data **before** the next boot, so the
 `Pong: actual QMI board firmware <name>` line from stage 10 can be matched
 against files that are already local:

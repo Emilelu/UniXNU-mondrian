@@ -2,10 +2,10 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 index b7d7ea1..200adc8 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -406,6 +406,7 @@ bsd/dev/pong_adsp_boot.c			standard
- bsd/dev/pong_adsp_pas.c			standard
- bsd/dev/pong_adsp_image.c			standard
- bsd/dev/pong_fat.c			standard
+@@ -400,6 +400,7 @@ bsd/dev/pong_input.c			standard
+ bsd/dev/pong_input.c			standard
+ bsd/dev/pong_goodix.c			standard
+ bsd/dev/pong_buttons.c			standard
 +bsd/dev/pong_thermal.c			standard
  bsd/kern/kern_event.c			standard
  bsd/kern/kern_control.c			optional networking

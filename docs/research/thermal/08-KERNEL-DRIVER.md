@@ -22,22 +22,27 @@
 
 | 段 | 目标 | 内容 | hunk 头 |
 | --- | --- | --- | --- |
-| 1 | `bsd/conf/files` | 在 `bsd/dev/pong_fat.c\t\t\tstandard` 之后插 `bsd/dev/pong_thermal.c\t\t\tstandard` | `@@ -406,6 +406,7 @@` |
+| 1 | `bsd/conf/files` | 在 `bsd/dev/pong_buttons.c\t\t\tstandard` 之后插 `bsd/dev/pong_thermal.c\t\t\tstandard` | `@@ -400,6 +400,7 @@` |
 | 2 | `bsd/kern/bsd_init.c` | 在 `\t\tpong_buttons_init();` 之后插 `K60_PONG_LOCAL` 注释 + `extern void pong_thermal_init(void);` + 调用 | `@@ -1161,6 +1161,10 @@` |
 | 3 | `bsd/dev/pong_thermal.c` | 新文件，232 行（仓库母本 `drivers/PongThermal/pong_thermal.c` 的逐字副本） | new file mode 100644 |
 | 4 | `bsd/sys/pong_thermal.h` | 新文件，198 行（母本 `drivers/PongThermal/K60ThermalKernel.h`） | new file mode 100644 |
 
 `patches/xnu/series` 第 230 行登记本补丁，排在 `0616-k60-init-legacy-helper.patch` 之后 ——
-因为它的两个锚点（`pong_fat.c` 那行、`pong_buttons_init()` 那行）由**更早的补丁**生成，
+因为它的两个锚点（`pong_buttons.c` 那行、`pong_buttons_init()` 那行）由**更早的补丁**生成，
 必须等它们全部落地后本补丁才能干净应用。
 
 ### 2.1 为什么锚点能用（P-171 的边界）
 
 P-171 说「改构建期文件的补丁，锚点必须来自代码仓库里的稳定源」，不能来自 `.cache/xnu-work`。
-本条补丁的两个锚点都是**补丁自己生成的稳定行**：`bsd/dev/pong_fat.c` 由 fat 线补丁加入，
-`pong_buttons_init()` 由按键线补丁加入，两者都写死在 series 里、每次构建都从 `refer/xnu` 干净 clone
+本条补丁的两个锚点都是**补丁自己生成的稳定行**：`bsd/dev/pong_buttons.c` 由按键线补丁加入，
+`pong_buttons_init()` 由同一个补丁加入，两者都写死在 series 里、每次构建都从 `refer/xnu` 干净 clone
 再按序应用，因此它们在下一次构建里必然出现且字节相同。这与 P-171 的失败案例（锚在
 「上一次成功构建后的树」的随机行）不是一回事。
+
+**第一次尝试的教训（已修正）**：最初的 hunk 锚在 `bsd/dev/pong_fat.c` 之后，而那行不是 series 的产物 ——
+它是 `K60_CONF_FILES_HOOK`（`build-xnu-4k-baseline.sh:11-19`）在 format-1 构建路径里追加的，
+build-strict 走的 unixnu 路径根本不跑该 hook。结果 `git apply` 在 `bsd/conf/files:406` 直接失败，
+日志 `error: patch failed: bsd/conf/files:406 / patch does not apply`。锚点必须选 series 内补丁确实写入的行。
 
 ### 2.2 应用链
 

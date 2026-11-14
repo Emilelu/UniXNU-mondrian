@@ -3,7 +3,7 @@
 > 本文件收纳 README 里的详细状态表与阶段性变更摘要。
 > README 只保留设备身份、八步进度、仓库结构与构建入口。
 
-本轮更新时间：2026-11-12
+本轮更新时间：2026-11-14
 
 ---
 
@@ -12,13 +12,20 @@
 > 写死的 SHA 第二天就过时。查最新状态用 `scripts/track-upstream-branches.py`。
 
 
-### 可刷镜像（2026-11-12 08:29）
+### 可刷镜像（2026-11-14 15:09，真机验证）
 
 ```
-/mnt/e/k60-work/usb-a-stage/out/boot-r49-audio-dt.img
-202,362,880 B
-sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
+/mnt/e/k60-work/artifacts/touch-20261114a/boot.img
+201,887,744 B
+sha256 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9
+kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 ```
+
+这一版同时带 GPU addon（Metal 插件 51,278,451 B）、iOS `buttons` 节点与
+触摸坐标使能。上机日志 `E:\k60-work\evidence\usblog-20261114-150931\console.log`：
+3,870 行、SpringBoard 254、八条真实触点、四条 HID 派发、无 panic 标记。
+`MAIN-BASELINE.toml` 记在 `0143b46` 条目下；此后到 `143f3ff` 只改文档、
+门禁与测试脚本，内核输入逐字节不变。
 
 包含当天全部改动：
 
@@ -28,7 +35,7 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 | 触摸 SPI 模式选择 | `SPI mode select failed` |
 | 触摸 config 请求检测 | `chip requested a config` |
 | 触摸 config 下载 | `CFG-DL wrote=N/1488 bad=0` |
-| 触摸坐标模式切换 | `COORD-MODE ack=80` |
+| 触摸坐标使能 | `RAW-OFF ack=80` 后必须出现 `COORD-ON ack=80` |
 | 实体键逐条件诊断 | `Pong keys: missing <prop>` |
 | GPU 八条发布诊断 | `accelerator not published` / `publish skipped` |
 | UFS 三模式等待 | `native-ufs-wait` |
@@ -36,8 +43,9 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 | GPU Metal 开关 | `pong_metal=1` |
 | 音频 DT 节点 | `pong-audio`（九个待实测项写 0）|
 
-内核 sha256 `c447cefa419a6f6d`，payload 内核 `6dbcc4dc59a484cb`（payload 步骤
-额外打 AppleARMCPU 补丁），212 个补丁。
+> 上面这张表是 2026-11-12 那一版的判据。当前（2026-11-14）镜像为
+> `touch-20261114a`，内核 `c78a5cc9…`，223 个补丁，判据以
+> [`docs/research/touch/08-on-device.md`](../research/touch/08-on-device.md) 第 7 轮为准。
 
 **此前的最新镜像是 `boot-v15-20261108.img`（2026-11-11），不含以上任何一项。**
 

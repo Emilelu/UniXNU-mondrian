@@ -283,8 +283,8 @@ $ llvm-objdump -d --start-address=0x2660 --stop-address=0x2678 qti_battery_charg
 | `0x43` | 响应 | 完成 `bcdev+0xf8` | `0x22ec` |
 | `0x44` | 响应 | 存 `data+0xc` → `bcdev+0x314` | `0x230c` |
 | `0x48` | 响应 | 完成（与 0x04 同尾） | 02 §4 |
-| `0x50` | 请求 | 小米扩展（XM prop map） | 02 §4 |
-| `0x51` | 响应 | 32 B 拷入 `bcdev+0x620` 指向的缓冲 | `0x2324` |
+| `0x50` | 请求→响应 | 小米扩展 GET（XM prop map 187 项）；响应 52 B → 拷 32 B 到 `+0x620`、32 B → 拷 16 B 到 `+0x628`、116 B → 拷 96 B 到 `+0x1f0` | `0x2324` |
+| `0x51` | 请求→响应 | 小米扩展 SET；响应走通用 ack 分支 | `0x2168` |
 
 `0x22ac` 原始片段：
 

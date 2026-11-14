@@ -13,7 +13,7 @@
 | 2 | `0x37` / `0x48` 语义 | `0x37` = **shutdown 命令**，12 B，仅 `(x1 & ~2) == 1`（重启）时发；`0x48` **不是 rx opcode**——主跳转表把它映射到 `0x24a8`（`Unknown opcode: %u.`），只发不收 | `0x2850`、`.rodata+0x9` 表项、`0x24a8` |
 | 3 | type 字段 1/2 语义 | `1` = REQ_RESP（属性 GET/SET、0x40/0x41/0x44、ship mode、shutdown）；`2` = NOTIFY（订阅 28 B、subsys-up 28 B） | `0x11dc`、`0x15a0`、`0x4120` 逐帧比对 |
 | 4 | `check_status_work` 的 4 条请求 | ① usb GET idx0(ONLINE) ② wls GET idx0(ONLINE) ③ 任一在线 → battery GET idx4(CAPACITY) ④ 电量 ≤99% → battery GET idx7(VOLTAGE_NOW)，与 DT `qcom,shutdown-voltage` 比较后置 `+0x6fa` | `0x156c` 全函数，4 处 relocation 均 `.text+0x688` |
-| 5 | `0x40/0x42/0x43/0x44/0x51` 语义 | **都不是通知**，是 REQ_RESP：`0x40`=无线固件握手（24 B 发/16 B 收，`+0xc==1` 置 `+0x30f`）、`0x41`=固件分片（144 B，直接 `pmic_glink_write`）、`0x42/0x43`=两阶段完成量（`+0x118`/`+0xf8`）、`0x44`=版本读取（12 B 请求，回包存 `+0x314`）、`0x51`=小米域 SET（回包 32 B 拷到 `bcdev+0x620`） | 逐分支 asm |
+| 5 | `0x40/0x42/0x43/0x44/0x51` 语义 | **都不是通知**，是 REQ_RESP：`0x40`=无线固件握手（24 B 发/16 B 收，`+0xc==1` 置 `+0x30f`）、`0x41`=固件分片（144 B，直接 `pmic_glink_write`）、`0x42/0x43`=两阶段完成量（`+0x118`/`+0xf8`）、`0x44`=版本读取（12 B 请求，回包存 `+0x314`）、`0x50`=小米域 GET（回包 52/32/116 B 拷到 `+0x620`/`+0x628`/`+0x1f0`）、`0x51`=小米域 SET 应答（走通用 `0x2168`） | 逐分支 asm |
 
 新增发现：
 
@@ -300,7 +300,7 @@
 
 回包分支 `0x230c`：`2310: cmp x2,#0x10`、`2314: b.ne 0x2580`、`2318: ldr w8,[x20,#0xc]`、`231c: str w8,[x19,#0x314]`（无条件存）、`2320: b 0x2464`。
 
-### 5.5 `0x51` = 小米域 SET（回包 32 B）
+### 5.5 `0x50` = 小米域 GET（回包 32/16/96 B），`0x51` = SET 应答
 
 ```
     2324: d503249f     	bti	j

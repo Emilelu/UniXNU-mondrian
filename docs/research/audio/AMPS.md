@@ -381,7 +381,7 @@ P-183 已被另一条「网络探测失败 ≠ 没推送」占用）：任何脚
 `../audio/0001-k60-audio-amp-probe.patch`），输出用私有 `/opt/k60/trees/k60build/out-audio`；
 **共享 device 树与 `scratch/SERIES-FINAL.txt` 都没有被写入**。
 
-### 门禁现状（本分支 + 构建环境，2026-11-14 11:45 实测，已并入 main 的门禁工具）
+### 门禁现状（本分支 + 构建环境，2026-11-14 12:52 实测，已并入 main 的门禁工具）
 
 | 检查 | 结果 |
 | --- | --- |
@@ -391,7 +391,21 @@ P-183 已被另一条「网络探测失败 ≠ 没推送」占用）：任何脚
 | `eight-step-gate.py --build` | ✅ 36 项（6 个硬件项，audio 在内） |
 | `porting-gate.py --quick` | ✅ rc=0 |
 | `check-repo-paths.py` | ✅ 135 个脚本，2 个跨树工具已登记（P-191） |
-| `check-rules.py` | ✅ 0 失败（66 条登记 / 37 条 waiver） |
+| `check-rules.py` | ✅ **0 失败**（71 条登记 / 37 条 waiver / 执行 25 个命令，`RC=0`） |
+| `check-line-endings.py` / `check-build-freshness.py` | ✅ |
+
+`check-rules.py` 只有把 `K60_DEVICE_INPUT` 指向私有输入才是这个结果：用默认的共享
+`/opt/k60/trees/usb-cdc-mainline/device` 会红 5 条（iron-4 / iron-5 / hard-33 / P-165 / P-166），
+原因是那份副本还留着 BT 线的 `0507`–`0510` 四个补丁、没有 touch 线的六个探针与本补丁——
+**是共享副本漂移，不是本树的问题**。判据：`diff patches/xnu/series <共享输入>/patches/xnu/series`
+非空、而与 `audio-device` 的同一份 diff 为空。
+
+`iron-5` 还要求构建输入与仓库**逐文件**一致（`sync-device-input.py --check` 检查 709 个文件），
+所以改过 `drivers/PongAudio/**` 或 `patches/audio/**` 之后要先跑一次同步，否则它会点名具体文件：
+
+```
+K60_DEVICE_INPUT=/opt/k60/trees/usb-cdc-mainline/audio-device python3 scripts/sync-device-input.py
+```
 
 复现命令（四个 `K60_*` 必须同时给，缺一个就会读到共享副本）：
 

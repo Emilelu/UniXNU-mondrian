@@ -151,8 +151,10 @@ for kv in "${KARGS[@]:-}"; do
     [ -n "$kv" ] || continue
     PAYLOAD_ARGS_CMD+=(--kernel-arg "$kv")
 done
+PAYLOAD_ARGS=()
+[ ${#PAYLOAD_ARGS_CMD[@]} -eq 0 ] || PAYLOAD_ARGS=("${PAYLOAD_ARGS_CMD[@]}")
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
-        "${PAYLOAD_ARGS_CMD[@]:-}" > "$LOGS/payload.log" 2>&1; then
+        ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
     die "payload build failed (see $LOGS/payload.log)"
 fi

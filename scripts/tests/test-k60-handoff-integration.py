@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check 0617 against the exact supported predecessor sections, without a build.
+"""Check 0619 against the exact supported predecessor sections, without a build.
 
---xnu is an existing pre-0617 patched tree for handoff.c/h and IOKitBSDInit.
+--xnu is an existing pre-0619 patched tree for handoff.c/h and IOKitBSDInit.
 The late hook fixture is the exact 0614 postimage, since old global build trees
 may contain obsolete late hooks. This is not a full kernel-series replay.
 """
@@ -152,7 +152,7 @@ def main():
         predecessor = (REPO / 'patches/xnu/0614-k60-adsp-call-site.patch').read_text().splitlines(keepends=True)
         late.write_text(''.join(line[1:] for line in predecessor[3:]
                                if line.startswith((' ', '+'))))
-        patch = REPO / 'patches/xnu/0617-k60-adsp-glink-handoff.patch'
+        patch = REPO / 'patches/xnu/0619-k60-adsp-glink-handoff.patch'
         touched = []
         for target, text in sections(patch.read_text()):
             (root / target).parent.mkdir(parents=True, exist_ok=True)

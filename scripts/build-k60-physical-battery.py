@@ -335,7 +335,7 @@ def main():
         # The archive therefore references the kernel's copy, exactly like the
         # other in-tree consumers do.
         # SMEM, handoff serialization and startup arbitration are kernel objects
-        # (0611/0617), not duplicate archive members (P-190).
+        # (0611/0619), not duplicate archive members (P-190).
         for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
                      'K60AdspOwner.c', 'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):

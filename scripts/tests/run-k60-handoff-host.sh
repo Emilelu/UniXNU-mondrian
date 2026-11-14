@@ -2,8 +2,8 @@
 # Offline only: never accesses a device or physical memory.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-OUT=${1:?usage: run-k60-handoff-host.sh DURABLE_OUTPUT PRE_0617_XNU_TREE}
-XNU=${2:?a supported pre-0617 .cache/xnu-work tree is required}
+OUT=${1:?usage: run-k60-handoff-host.sh DURABLE_OUTPUT PRE_0619_XNU_TREE}
+XNU=${2:?a supported pre-0619 .cache/xnu-work tree is required}
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 exec > >(tee "$OUT/host-tests.log") 2>&1

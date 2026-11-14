@@ -223,3 +223,4 @@ zzy-native-gpu-addon-mount.patch
 0615-k60-md-window.patch
 0616-k60-init-legacy-helper.patch
 ../usb/0405-k60-usb-heartbeat.patch
+../usb/0406-k60-usb-composite.patch

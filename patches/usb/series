@@ -3,3 +3,4 @@
 # lives there as `../usb/<name>.patch`; this file records the line's own order.
 # Every patch here must also be appended to patches/xnu/series (merge fragment).
 0405-k60-usb-heartbeat.patch
+0406-k60-usb-composite.patch

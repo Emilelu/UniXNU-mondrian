@@ -1,0 +1,76 @@
+diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
+index 830da0e..579f568 100644
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -1103,7 +1103,9 @@ ud_reset_endpoints(void)
+ 
+ /* Descriptors. VID 0x1209 / PID 0x0001 = pid.codes test ID, not a product.
+  * CDC-ACM (PongUsbDevice.h:54-58): IF0 communications (interrupt 0x82) +
+- * IF1 data (bulk 0x81 IN = console TX, 0x01 OUT = host RX drain). */
++ * IF1 data (bulk 0x81 IN = console TX, 0x01 OUT = host RX drain).
++ * 0406 adds IF2: a vendor-specific function on EP 0x03/0x83 so the device
++ * enumerates as two functions instead of one (P1, RESEARCH.md §12). */
+ static uint8_t ud_dev_desc[18] = {
+ 	/* 0307: class 02 / subclass 02 in the device descriptor so Windows
+ 	 * binds inbox usbser.sys by compatible ID USB\Class_02&SubClass_02
+@@ -1113,7 +1115,10 @@ static uint8_t ud_dev_desc[18] = {
+ 	0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 3, 1,
+ };
+ static const uint8_t ud_cfg_template[] = {
+-	9, 2, 67, 0, 2, 1, 0, 0xc0, 50,                 /* 2 interfaces, self-powered, 100 mA */
++	9, 2, 98, 0, 3, 1, 0, 0xc0, 50,                 /* 3 interfaces, self-powered, 100 mA */
++	/* 0406: interface association so the two CDC interfaces read as one
++	 * function (USB IAD ECN, usb.org; PongUsbDevice.h:66-69 same-SoC layout). */
++	8, 11, 0, 2, 2, 2, 1, 0,                        /* IAD: IF0..IF1 = CDC-ACM */
+ 	9, 4, 0, 0, 1, 2, 2, 1, 0,                      /* IF0: CDC comm, 1 endpoint */
+ 	5, 0x24, 0, 0x10, 1,                            /* CDC header */
+ 	5, 0x24, 1, 0, 1,                               /* call management */
+@@ -1123,6 +1128,11 @@ static const uint8_t ud_cfg_template[] = {
+ 	9, 4, 1, 0, 2, 10, 0, 0, 0,                     /* IF1: CDC data, 2 endpoints */
+ 	7, 5, 0x81, 2, 64, 0, 0,                        /* EP 0x81 bulk IN */
+ 	7, 5, 0x01, 2, 64, 0, 0,                        /* EP 0x01 bulk OUT */
++	/* 0406: second function, vendor-specific, same physical endpoints the
++	 * same-SoC mux uses (PongUsbDevice.h:69-74): EP 0x03 OUT / 0x83 IN. */
++	9, 4, 2, 0, 2, 0xff, 0xfe, 2, 0,                /* IF2: vendor, 2 endpoints */
++	7, 5, 0x03, 2, 64, 0, 0,                        /* EP 0x03 bulk OUT */
++	7, 5, 0x83, 2, 64, 0, 0,                        /* EP 0x83 bulk IN */
+ };
+ static const char *const ud_strings[] = { NULL, "unixnu", "K60 XNU console", "0001" };
+ 
+@@ -1215,7 +1225,8 @@ ud_setup(void)
+ 	} else if (type == 0x02 && req == 1 && !value && !length) {
+ 		/* CLEAR_FEATURE(ENDPOINT_HALT) on a data endpoint */
+ 		unsigned ep = ((index & 15) << 1) | ((index >> 7) & 1);
+-		if (index > 0x8f || (index & 0x70) || (ep != 2 && ep != 3 && ep != 5)) {
++		if (index > 0x8f || (index & 0x70) ||
++		    (ep != 2 && ep != 3 && ep != 5 && ep != 6 && ep != 7)) {
+ 			ok = false;
+ 		} else {
+ 			(void)ud_epcmd(ep, DEPCMD_CLEARSTALL, 0, 0, 0);
+@@ -1228,14 +1239,23 @@ ud_setup(void)
+ 		} else {
+ 			ud.configured = value != 0;
+ 			if (ud.configured) {
+-				/* physical EP2 = bulk OUT, EP3 = bulk IN, EP5 = interrupt IN */
++				/* physical EP2 = bulk OUT, EP3 = bulk IN, EP5 = interrupt IN,
++				 * EP6 = bulk OUT and EP7 = bulk IN for the vendor function
++				 * (PongUsbDevice.h:200-211 enables 6/7 the same way). */
+ 				if (ud_endpoint(2, 2, ud.packet) ||
+ 				    ud_endpoint(3, 2, ud.packet) ||
+-				    ud_endpoint(5, 3, 16)) {
++				    ud_endpoint(5, 3, 16) ||
++				    ud_endpoint(6, 2, ud.packet) ||
++				    ud_endpoint(7, 2, ud.packet)) {
+ 					ud.failed = true;
+ 					return;
+ 				}
+-				dwc_wr(DALEPENA, dwc_rd(DALEPENA) | 0x2c);
++				dwc_wr(DALEPENA, dwc_rd(DALEPENA) | 0xec);
++				/* 0406 evidence: the host took the 3-interface
++				 * configuration and the controller enabled all five
++				 * non-control endpoints. */
++				printf("K60 USBLOG: composite cfg %u bytes DALEPENA 0x%08x\n",
++				    (unsigned)sizeof(ud_cfg_template), dwc_rd(DALEPENA));
+ 			} else {
+ 				ud.dtr = false;
+ 				ud.tx_active = ud.rx_active = false;

@@ -87,7 +87,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 
 | 仓库 | 分支 | HEAD | 文件 | 脏 | 命中(mondrian/sm8475/k60) | 用途 |
 |---|---|---|---|---|---|---|
-| Device-Binaries | main | d3f7cb72 | 22004 | 3172 | — | 二进制资产（固件、panel XML、bootloader 件）。698 MB，未系统挖掘 |
+| Device-Binaries | main | d3f7cb72 | 22004 | 3172 | — | 二进制资产（固件、panel XML、bootloader 件）。**已普查（见第 15 节）**：78 个机型目录全部映射到 `Build/<Family>`，**无任何 SM8475/taro**；74 份 `uefiplat.cfg` 无一含本板 DXE Heap/video_region；零个 aw88/bdwlan/amss/.pwf |
 | QcaBluetooth | main | 986d631 | 46 | 0 | 0/0/0 | 蓝牙 GENI/tty 传输完整实现（`src/qbt_*`）。**唯一副本，workspace 里没有** |
 | QcomGeniSpi | main | eac47ba | 6 | 0 | 0/0/0 | GENI SPI 驱动范本（`GeniSpi.c` 15,536 B） |
 | UniXNU | main | e3982fc | 1485 | 13 | 13/0/1 | 官方组件体系；`devices.toml:1585-1598` 是 mondrian 的官方记录 |
@@ -137,7 +137,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 | yibiya-uefi-upstream | main | 4a6966b | 1063 | yibiya 的 uefi 上游 |
 | yibiya-unixnu-upstream | main | 982e41f | 1486 | yibiya 的 unixnu 上游；K60 相关只有 device-records 与 `mondrian_defconfig` |
 | yibiya-upstream | upstream-fix | 522c6ea | 732 | **K60 专属资产最集中**：164 条 mondrian 命中，含 `K60-TOUCH-PARAMS.md`、`0210-0250` 补丁 |
-| UniXNU-ruby | — | — | **0** | ⚠ **空仓库**。`docs/engineering/LOCAL-ASSETS.md` 把它当 catalog 是错的 |
+| UniXNU-ruby | — | — | **0** | ⚠ **不是 git 仓库**：目录里只有一个 `porting.toml`（246 行 / 15,547 B，`soc = "MT6877"`、`os_profile = "ios-16.7.16-20H392"`，自述 *selects no UniXNU components and does not claim a UniXNU UEFI or format-2 build*）。「空仓库」的旧说法不准：**有内容**，只是不是构建树，不能当 catalog 引用 |
 
 ### 2.3 两处同名不同快照（引用前必须确认用哪一份）
 
@@ -294,9 +294,15 @@ SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCo
 |---|---|---|---|
 | live FDT | `fdt_dump.txt:11228` `:11240` | `aw882xx_smartpa@34` 与 `aw882xx_smartpa@35` 两个节点（I2C 地址 0x34 / 0x35） | **本板实测** |
 | pong-power | `PongAudio.cpp:29` 起 | Pong 音频栈没有 AW882xx 任何痕迹（`grep -i aw882` 空） | 同SoC异板 |
+| **本板实测（2026-11-14）** | `evidence/audio-probe-j/run1/console.log:214-220` | **型号已定：两颗都是 AW88261（chip ID `0x2113`）**。`amp0 addr=0x34 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0`、`mask=0xffff ctrl=0x3343 i2s=0x04e8 dbg=0xa003 vbat=0x0263 pvdd=0x0263 temp=0x0019`、`vcal=0x2000 fuse=0x83fd/0x5bf3/0x83fd/0x5bf3`；amp1 同（`fuse=0x8009/0x5bf7/0x8009/0x5bf7`）；`amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0` | **本板实测（只读）** |
 
-→ **这是参考仓库覆盖不到的一块**。Pong 只有 WCD938x，K60 多了两颗 AW882xx；
-`docs/research/audio/RESEARCH.md` 已把它列为「额外驱动」，但没有任何参考实现。见第 15 节缺口。
+只读探针的前置条件也一并测得（`console.log:191-213`）：amp 相关 GPIO 为 **1 / 3 / 43 / 52 / 56 / 57 / 63 / 88**；`gcc gpll0 vote=0x00000001 mode=0xe0000005 locked=1`、`gcc vote 0x0 -> 0x1f readback 0x1f`；wrap2_core / core_2x / m_ahb / s_ahb / s0 的 halt 分别 `0x4220 / 0x4220 / 0x0 / 0x80000002 / 0x4220` 且 `running=1`；I2C pad GPIO56/57 由 `cfg=0x1` 改到 `0x7`；`se15 fw=0x00000303 proto=3 disabled=0x0 clock=0x11`；`se15 ready config=0x03000021 status=0x0 level=0`；reset amp0=GPIO1 / amp1=GPIO3 由探针释放（`0x1 -> 0x3c0`）。
+镜像 `E:/k60-work/artifacts/audio-probe-20261114j/boot.img` sha256 `877D0A9D08AE0BFF591CCB6D470A47EAC46BDFA26A0D0FF4376A711C35723EF2`，serial 6033dbec，`bootAccepted=true`，capture 以 budget 结束（非 panic）。第二次 boot `bootAccepted=false`，无证据。
+
+→ **参考仓库仍然覆盖不到实现**（Pong 只有 WCD938x），但「是哪颗芯片」这个缺口**已经闭合**：
+音频线 `docs/research/audio/AMPS.md:15-16` 把它列为「ADSP 之前唯一可完成的实机验证（AW88261 = 0x2113）」，
+`drivers/PongAudio/PongAudioPlan.h:129` 的 `case 0x2113: return "AW88261"` 现已被真机证实。
+剩下的缺口是**寄存器序列/保护策略**，不是型号。
 
 ---
 
@@ -341,6 +347,28 @@ SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCo
 ## 6. 触摸（GENI SPI / Goodix m11a / TLMM）
 
 本板触摸的一手真值全在 live FDT 与 `yibiya-upstream/docs/plans/K60-TOUCH-PARAMS.md`（267 行）里。
+
+### 6.0 芯片身份：Goodix **GT9916R BerlinD**（2026-11-14 三源一致，已闭合）
+
+真机日志直接读出了芯片身份，不是推断：
+
+```
+K60S19: bitbang dev_confirm -> OK
+goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255
+goodix: touch report at 0x10308, coordinates up to 1440 x 3200
+K60S19: bitbang goodix_probe -> OK
+Pong touch: Goodix initialization failed; normal UI boot continues
+```
+
+| 证据 | 文件:行 | 事实 |
+|---|---|---|
+| 本板实测 | `evidence/usblog-20261110-152720/console.log:692-698` | 先 `device confirm mismatch aa aa aa aa (attempt 0)` → `device confirm OK (0x10000 = 8 x 0xAA)` → 读到 `chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`，report 地址 `0x10308`，坐标上限 1440x3200 |
+| 覆盖范围 | 61 个 boot 目录 / 71 次出现 | 全量扫描 2,468 个 evidence 文件；型号串**每次都完全一致**（BERLIN / 9916R / 05.80.02.63 / sensor 255），不是一次性噪声 |
+| report 地址稳定性 | 69 次 `0x10308`、1 次 `0x10400` | 唯一那次是 `usblog-20261110-174720:703-705`：`goodix: misc candidates +0=0x10174 +12=0x10218 +24=0x10400 +44=0x10308` → `using touch_address=0x10400 (misc+24), alt=0x10308 (misc+44)`，之后固定回 0x10308 |
+| 同款芯片（异板） | `references/ruby-bringup/docs/touch-goodix-9916r.md:16-17` | ruby（MT6877）也是 **GT9916R BerlinD**，ROM PID `BERLIN` / patch PID `9916R` 从 `0x10014` 读出 |
+| 固件二进制 | `docs/research/touch/03-reverse-and-device-data.md:42-46` | `goodix_firmware_m11a.bin` 头部 offset 0x08 = `"BERLIN"`、0x10 = `"9916R"` |
+
+**但识别成功 ≠ 初始化成功**：同一份日志的下一行就是 `Pong touch: Goodix initialization failed`；全量扫描里另有 5 次 `goodix: firmware-version contains only bus default bytes, no chip response` 与 5 次 `Pong touch: chip identity unavailable; no /dev/pong-touch`。所以第 6.4 节「触摸仍未修好」的结论**成立**，只是失败点不在识别芯片，而在初始化序列/供电。
 
 ### 6.1 节点与属性（live FDT，本板实测）
 
@@ -403,7 +431,7 @@ SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCo
 |---|---|---|
 | `0240-k60-touch-pins-rpmh` | TLMM/GCC/SE/RSC/cmd-db 全套地址 + GPIO 16-21/71 + IOVDD ldoc2 1800 mV mode 7 | 头部自称 drv-2 可读 `DRV_ID=0x20700`，但 0246 说首读 TCS 整机死 —— **两者矛盾未定因** |
 | `0241-k60-touch-geni-spi` | GCC 投票、halt、RCG、SPI 4 MHz、packing；三道闸门（vote 回读 / halt bit31 全清 / root clock 非 ROOT_OFF） | **stage 3/4/5 从未在真机执行** |
-| `0242-k60-touch-goodix` | Berlin 读 `0xf1+4` 地址、写 `0xf0`；GT9xx 0x8140/0x814e/0x8150 双 ABI | **全仓库没有任何一条真机 `K60 TOUCH: ID:` 日志** |
+| `0242-k60-touch-goodix` | Berlin 读 `0xf1+4` 地址、写 `0xf0`；GT9xx 0x8140/0x814e/0x8150 双 ABI | **全仓库没有任何一条真机 `K60 TOUCH: ID:` 日志**（该前缀确实为零；但另一条路径 `goodix: chip ...` 有 71 次真机输出，见 6.0 —— 这条补丁的失败原因不是识别不到芯片） |
 | `0243-k60-touch-hid-thread` | 分级 stage 1-5，默认 stage 2 | 未跑到 stage 5 |
 | `0244-k60-rpmh-slot-probe` | 只读打印 TCS ctrl/enable/status/irqen | 只读安全 |
 | `0245-k60-touch-irq-pullup-pins` | IRQ pull-down 改 pull-up | 未解决 |
@@ -836,32 +864,33 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 | 缺口 | 影响 | 建议动作 |
 |---|---|---|
-| **AW882xx smart PA 无任何参考实现** | 音频线（K60 独有） | 从 `Device-Binaries` 找 aw882xx 固件/驱动，或从 Android 侧 `aw882xx_dl.bin` 与 mi 的 ACDB 逆推 |
+| ~~**AW882xx smart PA 无任何参考实现**~~ **型号已定（2026-11-14）** | 音频线（K60 独有） | 两颗都是 **AW88261（0x2113）**，真机只读读数见 4.5。剩下的是**寄存器序列与保护策略**（无 datasheet）。~~从 `Device-Binaries` 找 aw882xx 固件~~ **已证伪**：该仓库 `git ls-files | grep -ci aw88` = 0，也零个 bdwlan/amss/.pwf |
 | ~~**K60 panel XML 未提取**~~ **已闭合（2026-11-14）** | 显示/背光 | `Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（sha256 `65cd6826…`）就是 m11a 的厂商 XML，静态字段与 live FDT 逐项一致；但 init 序列是**同族不同修订**（129 包 vs 135 包，LCS 125 包相同、3 处差异），要用得先补差异。详见 7.7 与 `display/RESEARCH.md` 1.1 |
 | **m11a 的 90Hz 档用途未知** | 显示 | `timing@1`（0x5a=90）在 live FDT 里存在但 MIUI 侧是否使用未验证；做 120Hz 时要决定是否同时暴露 90 |
 | **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1；RSC 不可访问（14.1）前只能沿用 bootloader 状态 |
-| **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*` |
+| **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*`。**2026-11-14 补：所有参考仓库都没有这些文件** —— `Device-Binaries` 的 `git ls-files` 里 bdwlan/amss/.pwf 命中数为 0；`QcaBluetooth` 是纯源码仓库（46 个 tracked 文件，HEAD `986d631`，唯一与固件相关的只有 `shim/linux/firmware.h`）。所以只能从设备分区取，别再翻参考仓库 |
 | ~~**`Device-Binaries` 698 MB 未系统挖掘**~~ **已普查（2026-11-14）** | 全部 | 651 MB / 9,707 文件 / **78 个机型目录**已全部定性（机型 → `Build/<Family>`）：Palima=b4q/marble/pong/senna_a/senna_bc，Waipio=gts8p/ingres/r0q，Netrani=garnet，Kailua=aston/b5q/dm2q/gts9wifi/nuwa/nx729j/qrd8550/salami，Pakala=annibale/dodge/pagani/onyx，其余为 SM8250/SM8150/SM8350/SDM845 等老平台。**没有任何 SM8475/taro 机型** → 它不能给本板 UEFI 提供同 SoC 参考；唯一可用的产出是 `RawFiles`（面板 XML，见 7.7）与跨板布局对照（见 memory/RESEARCH.md 第 3 节）。74 份 `uefiplat.cfg` 中**没有一份**含 K60 的 `0xC7000000`（DXE Heap）或 `0x85700000`（video_region） |
 | **RSC 可访问性根因未定** | 所有供电相关 | 见 14.1，优先 |
-| **Goodix 芯片型号未确认** | 触摸 | DT 只写 `xiaomi,m11a-spi`；需要读 IC info 或从 Android 侧 dmesg 确认 |
-| **`UniXNU-ruby` 是空仓库** | 文档错误 | `docs/engineering/LOCAL-ASSETS.md` 把它当 catalog，应删掉或标注为空 |
+| ~~**Goodix 芯片型号未确认**~~ **已闭合（2026-11-14）** | 触摸 | 真机日志 71 次读到 `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`（61 个 boot 目录，型号串完全一致），三源一致 → **GT9916R BerlinD**，见 6.0。仍缺的是初始化失败根因，不是型号 |
+| **`UniXNU-ruby` 不是空仓库、但不是 git 仓库**（2026-11-14 更正） | 文档错误 | `references/UniXNU-ruby/` 只有一个 `porting.toml`（246 行 / 15,547 B，`soc = "MT6877"`、`os_profile = "ios-16.7.16-20H392"`，自述 *selects no UniXNU components*）。它**有内容**，只是不是 git 仓库、不是构建树 —— 原表述「空仓库」不准 |
 
 ---
 
 ## 16. 机器可读部分
 
-本文件的人读事实已同步成 `SOURCES.toml` 的 **18 条新 `required` 条目**（2026-11-14 追加）：
+本文件的人读事实已同步成 `SOURCES.toml` 的 **20 条新 `required` 条目**（2026-11-14 追加；最近 2 条是本轮的真机日志）：
 
 | 子系统 | 变化 | 条数 |
 |---|---|---|
 | `power` | **新建**段（RSC/TCS、SPMI、cmd-db、live FDT） | 4 |
+| `touch` | 新增 K60 芯片身份真机日志（6.0） | 1 |
 | `display` | **新建**段（面板画布契约、120Hz 参考面板 timing、DCS 背光、**m11a 面板与供电 live FDT**） | 4 |
 | `usb` | **新建**段（DWC3 偏移、eUSB2 PHY、Type-C mux） | 3 |
 | `bluetooth` | **新建**段（QCA6490 路线、K60 的 BT 节点） | 2 |
-| `audio` | 补充 AudioReach 参数 ID、GLINK intent 约束、ADSP 保留区 | 3 |
+| `audio` | 补充 AudioReach 参数 ID、GLINK intent 约束、ADSP 保留区；**新增 AW88261 实机只读读数**（4.5） | 4 |
 | `wifi` | 补充 PCIe 端点识别、K60 cnss 节点 | 2 |
 
-追加后全文件 11 个子系统、50 条 `required`（原 7 个子系统、32 条）。查法：
+追加后全文件 11 个子系统、52 条 `required`（原 7 个子系统、32 条）。查法：
 
 ```bash
 python3 scripts/research-gate.py        # 校验每个 path 存在、examined 非空、finding >= 20 字

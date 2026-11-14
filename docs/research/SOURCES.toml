@@ -67,6 +67,13 @@ why = "P-129：不能从驱动名推断协议；同 SoC 兄弟移植优先级最
 examined = "2026-11-12"
 finding = """P-129 记录了本次协议翻转全过程：不能从驱动文件名/模块名推断协议，只能实测寄存器。P-126 记录 Python 转义会静默破坏补丁。P-127 记录"补丁在树里不等于补丁已应用"。P-117/P-118 记录嵌入式 init 的 __TEXT 页边界和 boot-args 缺失导致 0 字节日志。"""
 
+[[subsystem.touch.required]]
+path = "evidence/usblog-20261110-152720/console.log"
+why = "★ K60 触摸芯片身份的真机日志（GT9916R BerlinD，61 个 boot 目录里 71 次一致）"
+examined = "2026-11-14"
+finding = """K60 触摸芯片身份的真机证据，不需要推断：先 goodix: device confirm mismatch aa aa aa aa（attempt 0），再 device confirm OK（0x10000 = 8 x 0xAA），然后 goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255，report 地址 0x10308、坐标上限 1440x3200。全量扫描 2,468 个 evidence 文件，61 个 boot 目录共 71 次出现该行且型号串完全一致，其中 69 次 report 地址 0x10308、1 次 0x10400（usblog-20261110-174720 的 misc 候选自动选择）。结论：K60 = Goodix GT9916R BerlinD，与 ruby（MT6877）同款，固件二进制头 offset 0x08/0x10 也独立印证。但识别成功不等于初始化成功：同一日志下一行就是 Goodix initialization failed，另有 5 次 firmware-version 只有总线默认字节、5 次 chip identity unavailable。失败点不在识别，在初始化序列/供电。"""
+
+
 [subsystem.storage]
 why = "UFS：控制器初始化、命令队列、根卷发布、已验证表缓存"
 
@@ -225,6 +232,12 @@ path = "docs/research/audio/RESEARCH.md"
 why = "本次 ①②③ 调研记录"
 examined = "2026-11-12"
 finding = """本次 ①②③ 调研。① 同型：Pong 有约 107 KB 的完整音频栈（ADSP 34 KB + Audio 29 KB + IOAudio2 24 KB + WCD938x 6 KB + Service 7 KB）。② 官方：components.toml 25 个组件里没有音频组件，官方唯一的音频代码在 UniXNU-sheng 的板级实现里，参考链只能是 Pong + UniXNU-sheng + NothingOSS audio-kernel。③ 反编译：K60 与 Pong 同为 SM8475，codec 大概率也是 WCD938x，但必须实测；K60 还有独立的 aw882xx smart PA，Pong 可能没有，这是额外驱动。"""
+
+[[subsystem.audio.required]]
+path = "evidence/audio-probe-j/run1/console.log"
+why = "★ K60 双 AW882xx 的实机只读读数（型号已定为 AW88261 / 0x2113）"
+examined = "2026-11-14"
+finding = """K60 双 smart PA 的实机只读探针输出（镜像 boot.img sha256 877d0a9d…，serial 6033dbec，bootAccepted=true，capture 以 budget 结束非 panic）。型号已定：amp0 addr=0x34 id=0x2113 chip=AW88261、amp1 addr=0x35 同，两颗都是 AW88261。关键读数：status=0x0000 faults=0x0000 pll=0、mask=0xffff ctrl=0x3343 i2s=0x04e8 dbg=0xa003 vbat=0x0263 pvdd=0x0263 temp=0x0019、vcal=0x2000、fuse 各 4 个字（amp0 0x83fd/0x5bf3/0x83fd/0x5bf3，amp1 0x8009/0x5bf7/0x8009/0x5bf7），收尾 found=2/2 transfers=28 failed=0 timeouts=0 stray=0。前置条件：amp GPIO 1/3/43/52/56/57/63/88；gpll0 vote=0x1 mode=0xe0000005 locked=1；gcc vote 0x0→0x1f 回读 0x1f；wrap2 五个时钟 running=1；SE15 fw=0x303 proto=3、ready config=0x03000021；reset GPIO1/GPIO3 由探针释放。意义：把「具体是哪颗 AW882xx」这个 ADSP 之前的唯一可做验证闭合了，剩下的是寄存器序列与保护策略。"""
 
 
 [subsystem.battery]

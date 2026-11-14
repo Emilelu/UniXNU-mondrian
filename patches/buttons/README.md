@@ -1,21 +1,24 @@
 # K60 按键线的板级配置记录（board.toml）
 
-> 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支，已 rebase 到 `origin/main` = `9176f5c`。
+> 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支，已 rebase 到 `origin/main` = `314497d`。
 > 本目录只放**本线（buttons）**的产出。内核侧按键驱动
 > （`patches/xnu/zzzz…-pong-physical-keys.patch`）由触摸线持有，本线不改。
 > `board.toml` 属 **Lead 写作用域**，本线只记录结论，不落盘。
 
-## 现状（2026-11-14，本线收工）
+## 现状（2026-11-14 结案，两段都已在仓库里）
 
-- `[adt.buttons.*]` 已由 Lead 落进 `board.toml:268-276`（main `174fb69`）：`:268` `.string`
+- `[adt.buttons.*]` 由 Lead 落进 `board.toml:268-276`（main `174fb69`）：`:268` `.string`
   （`compatible="buttons"`、`device_type="buttons"`）、`:272` `.strings`
   （`button-names=["hold","voldown","volup"]`）、`:275` `.u32`（`home-button-type=2`）。
+- `[adt.arm-io.pong-buttons.*]` 由 Lead 落进 `board.toml:267-280`（main `5cd8924` "fix(adt): own
+  the pong-buttons node instead of a build-copy edit"）：`.u64` 三个基址 + `.u32` `ee`/`pon-ppid`/
+  `volume-up-ppid`。仓库自此自洽，不再依赖构建机 profile 的未提交改动。
 - 本目录原先的 `board-toml-adt-buttons.diff` **已按 Lead 指示删除**，本线不再交 diff。
   删除前它已被改成纯追加（只补 `[adt.arm-io.pong-buttons.*]`），因为旧版同时含
   `[adt.buttons.*]`，与 main 的段重复 —— 那种 diff `git apply --check` 会**通过**，但打完
   `tomllib` 直接报 `Cannot declare ('adt','buttons','string') twice`。
   **教训：`git apply --check` 不能当验收，打完必须解析一次 TOML。**
-- 仍待落盘（Lead 写作用域，本线只记录取值）：`[adt.arm-io.pong-buttons.*]`，六个常量见下节。
+- 下面两节保留取值来源与推导，供复核用；**不需要再落盘**。
 
 ## 为什么不是补丁 `scripts/make-pong-adt.py`
 
@@ -68,12 +71,9 @@ MobileGestalt 从 `/buttons` 读 `button-names` 与 `home-button-type`
   `pm8350 gpio6`（`gpios=<0x57b 0x06 0x01>`，ACTIVE_LOW）= 音量加
 - yibiya `board.toml:271-281`（提交 `8e691d5`）：同六个值
 
-要写进 `board.toml` 的内容（与 yibiya 同值；`compatible` 可选，驱动从不读它）：
+落盘内容（与 yibiya 同值；Lead 落盘时**没有**写 `compatible` —— 驱动从不读它，见 `board.toml:273-280`）：
 
 ```toml
-[adt.arm-io.pong-buttons.string]
-compatible = "pong,pm8350-keys"
-
 [adt.arm-io.pong-buttons.u64]
 core-base = "0xc400000"
 cnfg-base = "0xc42d000"
@@ -81,25 +81,23 @@ observer-base = "0xc440000"
 
 [adt.arm-io.pong-buttons.u32]
 ee = 0
-pon-ppid = 19
-volume-up-ppid = 397
+pon-ppid = "0x013"
+volume-up-ppid = "0x18d"
 ```
 
-## 复现性缺口（未闭合，交 Lead）
+## 复现性（已闭合）
 
-- 用**仓库里的** `board.toml` 直接生成 ADT（`unixnu.devicetree.generate()`）得 14,348 B / 22 节点：
-  `/device-tree/buttons` **在**（`174fb69` 生效）、`/device-tree/arm-io/pong-buttons` **不在**。
-  补上上节六行后是 14,716 B / 23 节点，两个节点**都在**（本线已端到端验证过）。
-- 2026-11-14 的上机镜像（`E:/k60-work/artifacts/usb-20261114b`，ADT sha256 `18a514e7…`）里
-  `/arm-io/pong-buttons` **存在**、`/buttons` **不存在**。来源已查明：WSL 框架树
-  `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` 有该节点
-  （只有 `.u64`/`.u32`，没有 `.string`），而该文件是 `git status` 里的 ` M`（**未提交**）。
-  即：那一次能通按键，靠的是这处本地未提交改动。
-- 所以「换机重建还能通按键」目前**不成立**：会退回 `Pong keys: DT node /arm-io/pong-buttons not found`。
-  修法二选一：把这六行落进 `board.toml`，或落进 OS profile（`merge()` 顺序是
-  arch → soc → os profile → board，board 覆盖 profile；取值相同则无副作用）。
+- 仓库 `board.toml` 现自带两段，用 `unixnu.devicetree.generate()` 重生成 ADT 得
+  **14,660 B / 23 节点**：`/device-tree/buttons`（`button-names` = `hold / voldown / volup`、
+  `home-button-type=0x2`）与 `/device-tree/arm-io/pong-buttons`（六属性）**同时存在**。
+  干净重建不再需要任何构建机本地改动。
+- 历史（已不再依赖）：2026-11-14 的上机镜像（`E:/k60-work/artifacts/usb-20261114b`，
+  ADT sha256 `18a514e7…`）里只有 `/arm-io/pong-buttons`、没有 `/buttons`，其节点来自 WSL 框架树
+  `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` 的未提交改动。
+  `5cd8924` 把这六行搬进 `board.toml` 后该依赖消失（`merge()` 顺序 arch → soc → os profile → board，
+  board 覆盖 profile；取值相同无副作用）。
 
-## 验收（落盘后）
+## 验收（复核用）
 
 1. 重新生成一次 ADT（`make ... adt` 或整机构建），并解析一次 TOML 确认没重复表：
    `python3 -c "import tomllib;print(sorted(tomllib.load(open('board.toml','rb'))['adt']))"`

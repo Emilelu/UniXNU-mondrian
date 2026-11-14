@@ -79,9 +79,11 @@
 | boot arg | `buttons=1`（页面）/ `sheng-buttons=1`（源码） | `pong_buttons=1`，默认开 | `board.toml` 默认 boot-arg |
 | 音量加来源 | PM8550 GPIO6（SID1） | PM8350 GPIO6（SID1），低有效 | 见 ③ live FDT |
 
-## ADT 里 `/arm-io/pong-buttons` 的实际来源（2026-11-14 复核）
+## ADT 里 `/arm-io/pong-buttons` 的来源（2026-11-14 结案）
 
-2026-11-14 上机镜像的运行时 DT **确实**带 `/arm-io/pong-buttons`（六个属性齐全、**无 `compatible`**），但 `board.toml` 与 `dts/mondrian.dts` 里都找不到它。逐层核对结果：
+**已闭合**：`[adt.arm-io.pong-buttons.*]` 已由 Lead 落进 `board.toml:267-280`（main `5cd8924` "fix(adt): own the pong-buttons node instead of a build-copy edit"），仓库自此自洽。用仓库 `board.toml` 直接跑 `unixnu.devicetree.generate()` 重生成 ADT 得 **14,660 B / 23 节点**，`/device-tree/arm-io/pong-buttons` 六属性齐全（core-base `0xc400000` / cnfg-base `0xc42d000` / observer-base `0xc440000` / ee `0x0` / pon-ppid `0x13` / volume-up-ppid `0x18d`），`/device-tree/buttons` 同时存在。
+
+以下三行是**历史取证**，解释 11-14 那次上机镜像为什么能通按键（该镜像的节点来自本地未提交改动，已不再是当前依赖）：
 
 | # | 核查对象 | 结果 |
 |---|---|---|
@@ -91,13 +93,13 @@
 
 合并顺序决定了它能生效：`scripts/unixnu/profiles.py` 的 `load()` 按 arch → soc → **os profile** → `board.toml` 依次 `merge()`，后者覆盖前者。所以 11-14 镜像按键能通，靠的是这处**本地未提交的 profile 改动**，不是任何仓库里的提交。
 
-复现该构建必须先落这 6 行 profile（或在 `board.toml` 用 `[adt.arm-io.pong-buttons.*]` 覆盖，见 `patches/buttons/README.md`）；否则运行时退回 `Pong keys: missing/incompatible DT; SKIP`。`dts/` 侧曾被删过一次：`10649b3`（"fix(adt): let each of the three sources own its own fields"，在 HEAD 祖先链上）把该节点从 DTS 移除，理由是「Configured arm-io child duplicates an exported hardware node」——profile 已带全部六个属性。
+该本地改动当时的后果是：干净重建会退回 `Pong keys: DT node /arm-io/pong-buttons not found`。`5cd8924` 把这六行搬进 `board.toml` 后，该缺口关闭（`devicetree.py` 会 merge `[adt.arm-io.*]`，board 覆盖 profile，取值相同无副作用）。`dts/` 侧曾被删过一次：`10649b3`（"fix(adt): let each of the three sources own its own fields"，在 HEAD 祖先链上）把该节点从 DTS 移除，理由是「Configured arm-io child duplicates an exported hardware node」——profile 已带全部六个属性。
 
 ## 缺口
 
 - ✅ K60 的 ADT **已有** `/buttons` 节点（2026-11-14 复核，原缺口已闭合）：`board.toml:268-276` 的 `[adt.buttons.string/.strings/.u32]` 由 main `174fb69` 落盘。
   - 发射链：`board.toml:1` 是 `schema_version = 2`，ADT 由 `scripts/unixnu/devicetree.py` 的 `generate()` 生成，`/buttons` 只在 `[adt].buttons` 存在时发射（`devicetree.py:388-390`）；`scripts/make-pong-adt.py:240` 属 schema_version 1 的遗留工具，**本机不会被调用**，改它是死代码（`payload.py:231-236`）。
-  - 实测：用 `unixnu.devicetree.generate()` 重生成 ADT 得 14,716 B / 23 节点，`/device-tree/buttons` 带 `compatible=buttons`、`device_type=buttons`、`button-names=686f6c6400766f6c646f776e00766f6c757000`（`hold\0voldown\0volup\0`）、`home-button-type=0x2`。
+  - 实测：用 `unixnu.devicetree.generate()` 重生成 ADT 得 14,660 B / 23 节点（`board.toml` 含 `5cd8924` 的 pong-buttons 段），`/device-tree/buttons` 带 `compatible=buttons`、`device_type=buttons`、`button-names=686f6c6400766f6c646f776e00766f6c757000`（`hold\0voldown\0volup\0`）、`home-button-type=0x2`。
   - 取值照抄 yibiya `board.toml:256-264`；`opposed-power-vol-buttons` 在 `UniXNU-docs` 里 grep 不到、yibiya 也无先例，**不写入**。
 - ◐ 官方参考实现的中断路径（PDC + SPI 481 + `armPeripheral`）只读了源码，**未在 K60 上验证**；K60 当前走轮询，中断是可选增强。
 - ◐ 官方页写的 boot arg 名是 `buttons=1`，源码读的是 `sheng-buttons=1`；两者不一致是板级命名差异，K60 用 `pong_buttons`，不冲突但需在 ⑦ 里如实记录。

@@ -129,6 +129,12 @@ PongThermal: level 0/3 nominal (domains 0/3); closest ddr 45.0 C, 45.0 C below t
 建议实际用 **+50000 / +75000 / +85000**：读数会漂 ±2℃，留 5℃ 余量比卡在边界上好判。
 三档各自应伴随一行 `PongThermal: level N/3 … published as Thermal_Level_Warning=N`（发布层只在等级变化时发）。
 
+**`pong_thermal_bias` 是构建期参数，不是运行期参数。** `build-strict.sh --kernel-arg pong_thermal_bias=<mC>`
+把它写进 payload 的 `unixnu.toml`（`payload.py:130-133` 对 `--kernel-arg` 给的名字会剥掉 board 值再追加），
+固件只读那份 TOML 传给内核（P-159），镜像头 `cmdline` 里的东西固件不用。所以**每一档 = 一次构建 + 一次上机**，
+不是拿一张镜像飞三次改参数。已按此出一张 `thermal-20261115b`（`--kernel-arg pong_thermal_bias=85000`），
+对应上表第三行；若 85000 没推到 `level 3/3`，再回头构建 50000 与 75000 两档。
+
 「只在等级变化时发」是设计，不是丢行：`pong_thermal_pm.cpp:87-89` 里 `pong_thermal_pm_have_last && level == last`
 就直接 return。所以冷机全程 0 档、208 轮采样，日志里**恰好只有一条** published 行 ——
 `CRITERIA.toml` 的 `published.line` 因此写 `min = 1, max = 1`：少一条是发布层没跑，

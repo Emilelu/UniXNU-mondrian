@@ -220,6 +220,21 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    **仍未上机验证等级随负载变化** —— `LEVEL-MAP.md` §5 给出 `pong_thermal_bias` 的 1/2/3 三档验证法与判据。
 5. **没有 trip 编程与冷却设备**：本板 AP 侧 trip 全是被动 trip，且 `polling-delay` 多为 0，
    真要控温需要自己起策略，属后续工作。
+6. **bias 三档验证只出了第一张（2026-11-15 03:00，`thermal-20261115b`）**：rebase 到 `main` 344e47d 后
+   重新构建，`--kernel-arg pong_thermal_bias=85000` 写进 payload 的 `unixnu.toml`（`payload.py:130-133`，
+   固件只读那份 TOML，P-159；镜像头 cmdline 不生效），因此**每一档都要单独构建**，不是拿一张镜像飞三次。
+   `kernel.macho` 105,500,672 B、sha256 `d193f75c0ca64d239cb054128d3fff08d3e2a6da82528acecd0d635786255ff1`，
+   `strings | grep -c 'PongThermal: '` 仍为 **15**（与 `thermal-20261115a` 相同），
+   payload kernel `b6b860dd…`、boot.img `ba8b5c9e…`，manifest
+   `/mnt/e/k60-work/artifacts/thermal-20261115b/build-manifest.json`（`kernel_args_requested` 里有
+   `pong_thermal_bias=85000`）。**尚未上机**；判据是 `LEVEL-MAP.md` §5.2 第三行（`level 3/3 trapping`
+   + `published as Thermal_Level_Warning=3`），由 `scripts/check-thermal-log.py --profile bias-85000` 判。
+   内核体积从 `thermal-20261115a` 的 54 MB 涨到 105 MB，原因是 rebase 后 defconfig 打开
+   `CONFIG_XNU_GPU_ADDON=y`（Metal 插件 51,278,451 B 被 `.incbin` 进内核）与
+   `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`；**这个体积在 4.5 GiB 窗口里已经跑过**——
+   `gpu-20261114t`（`usblog-20261114-235957`）用的就是 105,476,096 B 的内核，日志里
+   `K60RV 1 launchd[1] mem=4608 actual=4608 managed=4608`、`K60METAL deploy files=6/6 error=0`，
+   `bootAccepted=true`。所以体积本身不是新风险。
 
 ## 6 构建阻塞（2026-11-14，环境而非代码）
 

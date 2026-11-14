@@ -188,24 +188,26 @@ amp_reset_release(unsigned index, const char *name)
 
 /* ---- GCC ---------------------------------------------------------------- */
 
-static vm_offset_t gcc_rcg, gcc_cbc, gcc_vote;
+static vm_offset_t gcc_pll, gcc_rcg, gcc_cbc, gcc_vote;
 static unsigned gcc_misses;
 
 static bool
 gcc_map(void)
 {
+	gcc_pll = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_PLL_WIN, PONG_AUDIO_IO_PAGE);
 	gcc_rcg = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_RCG_WIN, PONG_AUDIO_IO_PAGE);
 	gcc_cbc = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_CBC_WIN, PONG_AUDIO_IO_PAGE);
 	gcc_vote = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_VOTE_WIN, PONG_AUDIO_IO_PAGE);
-	if (!gcc_rcg || !gcc_cbc || !gcc_vote) {
-		printf("PongAudio: amp probe gcc map failed rcg=%lx cbc=%lx vote=%lx\n",
-		    (unsigned long)gcc_rcg, (unsigned long)gcc_cbc, (unsigned long)gcc_vote);
+	if (!gcc_pll || !gcc_rcg || !gcc_cbc || !gcc_vote) {
+		printf("PongAudio: amp probe gcc map failed pll=%lx rcg=%lx cbc=%lx vote=%lx\n",
+		    (unsigned long)gcc_pll, (unsigned long)gcc_rcg, (unsigned long)gcc_cbc,
+		    (unsigned long)gcc_vote);
 		return false;
 	}
 	return true;
 }
 
-/* Three one-page windows instead of Pong's 640 KiB block: io_submap is 8 MiB
+/* Four one-page windows instead of Pong's 640 KiB block: io_submap is 8 MiB
  * kernel-wide (osfmk/arm/io_map.c:66) and must stay shared with everything
  * else. */
 static vm_offset_t
@@ -222,6 +224,9 @@ gcc_window(uint32_t offset)
 	}
 	if (index == 2) {
 		return gcc_vote + delta;
+	}
+	if (index == 3) {
+		return gcc_pll + delta;
 	}
 	return 0;
 }
@@ -252,9 +257,35 @@ gcc_write(uint32_t offset, uint32_t value)
 	wr(address, value);
 }
 
+/* HR-02 step 1: vote GPLL0 and wait for its lock before touching any QUP
+ * branch. The enable bit is in the vote window (G:gcc-sm8450.c:50-62,
+ * enable_reg 0x62018 BIT(0)); the lock indication is PLL_MODE BIT(31)
+ * (M:clk-alpha-pll.c:17-34, PLL_LOCK_DET) in the PLL window. Voting a branch
+ * whose source is not locked is exactly how the earlier GENI attempts hung the
+ * bus with no console output (HARD-RULES HR-02, 2026-11-09 audio I2C). */
+static bool
+gcc_gpll0_on(void)
+{
+	const uint32_t vote = gcc_read(PONG_AUDIO_GCC_PLL0_ENABLE);
+	uint32_t mode;
+	unsigned n;
+
+	if ((vote & PONG_AUDIO_GCC_PLL0_VOTE) == 0u) {
+		gcc_write(PONG_AUDIO_GCC_PLL0_ENABLE, vote | PONG_AUDIO_GCC_PLL0_VOTE);
+	}
+	mode = gcc_read(PONG_AUDIO_GCC_PLL0_MODE);
+	for (n = 0; n < 1000u && (mode & PONG_AUDIO_GCC_PLL_LOCK_DET) == 0u; ++n) {
+		wait_us(10);
+		mode = gcc_read(PONG_AUDIO_GCC_PLL0_MODE);
+	}
+	printf("PongAudio: amp gcc gpll0 vote=0x%08x mode=0x%08x locked=%u\n",
+	    vote, mode, (mode & PONG_AUDIO_GCC_PLL_LOCK_DET) ? 1u : 0u);
+	return (mode & PONG_AUDIO_GCC_PLL_LOCK_DET) != 0u;
+}
+
 /* wrapper 2: core, core_2x, m_ahb, s_ahb, s0. The same five clocks Pong votes
  * for on wrapper 1 (S:PongAudio.cpp:130-133), with the wrapper-2 enable
- * register. */
+ * register. Called only after gcc_gpll0_on() has proved the source is locked. */
 static bool
 gcc_wrapper2_on(void)
 {
@@ -556,6 +587,12 @@ pong_audio_amp_probe(void)
 	pads_report();
 
 	if (!gcc_map()) {
+		return -1;
+	}
+	/* HR-02 step 1 before step 2: no QUP branch is voted while its source may be
+	 * unlocked. Order is vote GPLL0, wait for lock, then vote the branches. */
+	if (!gcc_gpll0_on()) {
+		printf("PongAudio: amp probe stop: GPLL0 not locked\n");
 		return -1;
 	}
 	if (!gcc_wrapper2_on()) {

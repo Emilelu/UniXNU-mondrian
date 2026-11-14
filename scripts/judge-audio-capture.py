@@ -17,9 +17,12 @@ import re
 import sys
 
 MARK_START = "PongAudio: amp probe start"
-# These are the literal prefixes of the two printf() calls in PongAudioAmp.c
-# ("amp gcc clk %s halt=..." at :286 and "amp se15 ready config=..." at :419).
-MARK_BUS = ("PongAudio: amp gcc clk", "PongAudio: amp se15 ready")
+# Literal prefixes of three printf() calls in PongAudioAmp.c: the GPLL0 lock
+# report (HR-02 step 1), the per-clock CBCR report (step 3) and the serial
+# engine report (step 5). Counting them separately is what tells a capture
+# "GPLL0 never locked" from "branch never left halt" from "engine unusable".
+MARK_BUS = ("PongAudio: amp gcc gpll0", "PongAudio: amp gcc clk",
+            "PongAudio: amp se15 ready")
 MARK_ID = re.compile(r"PongAudio: amp(\d) .*id=0x([0-9a-fA-F]{4})")
 MARK_DONE = re.compile(
     r"PongAudio: amp probe done found=(\d+)/(\d+) .*failed=(\d+) timeouts=(\d+)"

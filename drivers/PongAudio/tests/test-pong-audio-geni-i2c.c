@@ -502,7 +502,7 @@ plan_cases(void)
 	expect(!pong_audio_cbcr_running(PONG_AUDIO_CBCR_CLK_OFF),
 	    "a halted branch with no hwcg is not running");
 
-	/* GCC window routing: three one-page windows, and nothing else. */
+	/* GCC window routing: four one-page windows, and nothing else. */
 	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_RCG_SE15, &delta), 0u,
 	    "the SE15 RCG lives in the rcg window");
 	expect_eq(delta, PONG_AUDIO_GCC_RCG_SE15 - PONG_AUDIO_GCC_RCG_WIN, "rcg delta");
@@ -511,14 +511,29 @@ plan_cases(void)
 	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_VOTE_WRAP2, &delta), 2u,
 	    "the wrapper-2 vote register lives in the vote window");
 	expect_eq(delta, PONG_AUDIO_GCC_VOTE_WRAP2 - PONG_AUDIO_GCC_VOTE_WIN, "vote delta");
-	expect_eq((unsigned)pong_audio_gcc_window(0x00000000u, &delta), (unsigned)-1,
-	    "offset 0 is outside every window");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_PLL0_ENABLE, &delta), 2u,
+	    "the GPLL0 enable vote sits in the vote window, not the PLL window");
+	expect_eq(delta, PONG_AUDIO_GCC_PLL0_ENABLE - PONG_AUDIO_GCC_VOTE_WIN,
+	    "GPLL0 enable delta inside the vote window");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_PLL0_MODE, &delta), 3u,
+	    "PLL_MODE lives in the PLL window");
+	expect_eq(delta, 0u, "PLL_MODE is offset 0 of the PLL block");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_PLL_WIN + 0xffcu, &delta), 3u,
+	    "the last word of the PLL window is inside");
+	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_PLL_WIN + 0x1000u, &delta),
+	    (unsigned)-1, "one page past the PLL window is outside");
 	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_VOTE_WRAP2 + 0x1000u, &delta),
 	    (unsigned)-1, "one page past the vote window is outside");
 	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_VOTE_WIN + 0xffcu, &delta), 2u,
 	    "the last word of the vote window is inside");
 	expect_eq((unsigned)pong_audio_gcc_window(PONG_AUDIO_GCC_RCG_WIN - 4u, &delta),
 	    (unsigned)-1, "one word before the rcg window is outside");
+	expect_eq((unsigned)pong_audio_gcc_window(0x00001000u, &delta), (unsigned)-1,
+	    "one page past the PLL window is outside even though it is below the RCG");
+	expect_eq(PONG_AUDIO_GCC_PLL0_ENABLE, 0x00062018u, "GPLL0 enable is GCC+0x62018");
+	expect_eq(PONG_AUDIO_GCC_PLL0_MODE, 0x00000000u, "PLL_MODE is GCC+0x0");
+	expect_eq(PONG_AUDIO_GCC_PLL0_VOTE, 1u, "GPLL0 vote is BIT(0) of the enable reg");
+	expect_eq(PONG_AUDIO_GCC_PLL_LOCK_DET, 0x80000000u, "PLL lock is BIT(31)");
 
 	/* DFS level: reference source, no divider (touch patch:313-324). */
 	expect(pong_audio_dfs_level_ok(0u), "an all-zero level is the reference");

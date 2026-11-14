@@ -130,6 +130,8 @@ adb shell 'cat /sys/devices/platform/goodix_ts.0/read_cfg'
 > **脚本里不许写死检出路径**（hard-39）。统一写法：Python `REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])`；
 > shell `REPO="${K60_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"`。
 > 不设 `K60_REPO` 时根就是脚本所在的检出：主检出里跑 = 主检出，worktree 里跑 = worktree。
+> 兄弟检出（`UniXNU`、`uefi-mondrian`）默认取本仓库根的父目录，可分别用 `K60_FRAMEWORK_REPO` / `K60_UEFI_REPO` 覆盖。
+> 只剩 `build-strict.sh:159-160` 两处写死 `uefi-mondrian`：那是构建入口的固定路径，改了会让 manifest 失真，所以 checker 只报 WARN。
 
 | 工具 | 路径 | 用途 |
 |---|---|---|

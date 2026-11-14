@@ -419,6 +419,8 @@ stage 4 的验收日志（前缀 `K60 TOUCH:`）：`se4 fw 0x102 version 2 proto
 
 ## 7. 显示 / 背光
 
+> **结论层**：`docs/research/display/RESEARCH.md` —— 面板 m11a / DSI / MDP / 5 条供电轨的可执行结论与缺口清单。本节 7.2–7.6 是它的证据行；改结论时两边一起改。
+
 ### 7.1 面板与画布（K60 自己的契约）
 
 | 仓库 | 文件:行 | 事实 | 可信度 |
@@ -528,6 +530,8 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 
 ## 9. 存储（UFS）
 
+> **结论层**：`docs/research/storage/RESEARCH.md` —— UFS PHY / 控制器 / 中断的候选值与「哪些不能跨板抄」。本节 9.1 是双源交叉验证的证据行。
+
 | 仓库 | 文件:行 | 事实 | 可信度 |
 |---|---|---|---|
 | pong-ufs | `PongUfsTransport.cpp:157` | UFS host controller 基址 `0x01d84000`（0x3000） | 同SoC异板 |
@@ -606,6 +610,8 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | phk110-port | `wave20-launchd.md` | 根因链：dyld 内嵌 libignition 启动时 `sysctlbyname("hw.target")`，`kern_mib.c:502-508` 在 `PEGetTargetName` 返回 false 时直接 `return EINVAL(22)`，libignition 拿到非 0 errno 即让 launchd 退场。`PEGetTargetName` 走 `IOPlatformExpert.cpp:944` → `IODTPlatformExpert`，DT 根无 `model` 属性时失败。双层修复：loader 用真身份（`xnuloader/mkidentity.sh`）+ 内核加 `hw_target` boot-arg fallback | 同SoC异板·已上机 |
 
 ## 12. 本板真值汇总（可直接引用，最高可信度）
+
+> **结论层**：`docs/research/memory/RESEARCH.md` —— DDR 保留区、寄存器窗口，以及**跨板边界**（哪些值绝不可跨板抄）。本节是它的证据行。
 
 来源：`uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c`（2026-10-27 实测生成）+ 设备 6033dbec 的 live FDT。
 
@@ -755,8 +761,10 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 - 本机**没有 dtc**（`command -v dtc` 为空）、**没有 fdtdump**、Python **没有 libfdt**（`import fdt` → ModuleNotFoundError）。
 - `python3` 是 **Windows 侧解释器**：它读不了 `/mnt/e/...`（FileNotFoundError），必须写 `E:/...` 或先 `cd` 到 `/mnt/e` 再用相对路径。
-- `research-gate.py`、`check-docs.py` 的 `REPO` 都硬编码 `/mnt/e/hackios/UniXNU-mondrian`（主 checkout，归 touch-agent）。在 worktree 里跑它们，校验的其实是主 checkout 的文件。
-- `research-gate.py:88` 调用 `check()` 时没传 `verbose`，所以 problems 列表永远不打印，只输出一行结论。**脚本缺陷，按铁则⑧不得私改**。
+- **`research-gate.py:34` 仍是 `REPO = '/mnt/e/hackios/UniXNU-mondrian'`**（2026-11-14 在 `origin/main` = `90d8271` 上实测）。在任何 worktree 里跑它，校验的都是主 checkout 的 `SOURCES.toml`（32 条），不是本树追加后的 50 条。本线自检一律用「复制到 scratch、只把 `REPO` 换成本树路径」的副本跑，不动仓库里的脚本（铁则⑧）。
+- `check-docs.py:24` 在 `origin/main` 上**已改成自定位**（`REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`），所以在哪棵树跑就读哪棵树。
+- **更正（2026-11-14）**：这里先前写过「`research-gate.py:88` 未传 `verbose`，problems 永不打印」——**这条是错的**，`def check(verbose=True)` 的缺省就是 True（`research-gate.py:38`），problems 会打印。结论撤回，对应补丁也撤回（见第 16 节）。
+- 一次修好全部 9 个脚本、并新增 `scripts/check-repo-paths.py` 防回归的提交是 **`39a783c`**（`fix(scripts): judge the tree a gate lives in, and gate the pattern (P-183)`），它只在 `feat/audio-merge` 上，**没有进 main**。
 
 ---
 
@@ -765,7 +773,7 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | 缺口 | 影响 | 建议动作 |
 |---|---|---|
 | **AW882xx smart PA 无任何参考实现** | 音频线（K60 独有） | 从 `Device-Binaries` 找 aw882xx 固件/驱动，或从 Android 侧 `aw882xx_dl.bin` 与 mi 的 ACDB 逆推 |
-| **K60 panel XML 未提取** | 显示/背光 | 面板身份已定（m11a，见 7.2），但 XML 仍未提。`Device-Binaries` 的 2,117 个 `Panel_*.xml` 已逐个查过，无一匹配 m11a。只能从 `dispdcbx` 分区或 Android 侧 `/vendor/etc/display` 提 |
+| **K60 panel XML 未提取** | 显示/背光 | 面板身份已定（m11a，见 7.2），但 XML 仍未提。`Device-Binaries` 的 2,117 个 `Panel_*.xml` 已逐个查过，无一匹配 m11a。只能从 `dispdcbx` 分区或 Android 侧 `/vendor/etc/display` 提。**2026-11-14 Lead 已把这条指派给 display/GPU 线（yibiya），本线不再跟踪** |
 | **m11a 的 90Hz 档用途未知** | 显示 | `timing@1`（0x5a=90）在 live FDT 里存在但 MIUI 侧是否使用未验证；做 120Hz 时要决定是否同时暴露 90 |
 | **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1；RSC 不可访问（14.1）前只能沿用 bootloader 状态 |
 | **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*` |
@@ -803,16 +811,9 @@ python3 scripts/research-gate.py        # 校验每个 path 存在、examined �
 不在上述两种回退内的仓库有两个，它们**进不了 gate**，只能在本文件正文以事实形式记录（已知的结构性限制）：
 - `E:/hackios/QcaBluetooth`（蓝牙的唯一实现副本）—— 见第 5 节；
 - `E:/hackios/UniXNU-liuqin`（Xiaomi Pad 6 Pro，同 SM8475）—— 见 2.1 与 9.1。
-另外 `research-gate.py:88` 未传 `verbose` 导致 problems 永不打印，验证时若只有一行结论而看不到细节，把脚本 `sed` 换 `REPO` 到本地副本跑（不要改仓库里的脚本，铁则⑧）。
+**软 blocker 的处理（2026-11-14）**：Lead 已决定由 Lead 侧加第三回退前缀或 `K60_REPO` 环境变量覆盖，本线按铁则⑧**不自己改 gate**；这条限制同时写进 `SOURCES.toml` 的文件头注释（那里是给写 `path` 的人看的，见本轮提交）。
 
-**这两个缺陷的修复补丁已经写好**，放在 `docs/research/evidence/` 下，因为 `scripts/` 不属于本线的写作用域（铁则⑧：不改判据；但这是脚本缺陷，不是判据）：
-
-| 补丁 | 用在 | 改什么 | 验证 |
-|---|---|---|---|
-| `gate-repo-switch.diff` | 主检出（`/mnt/e/hackios/UniXNU-mondrian`）与任何仍是 `REPO = '/mnt/e/hackios/UniXNU-mondrian'` 的树 | `research-gate.py:34` 与 `check-docs.py:24` 各加 `K60_REPO` 开关；`research-gate.py:88` 补 `verbose=True` | `git apply --check` 通过 |
-| `gate-repo-switch-lead.diff` | Lead 检出 `/mnt/e/hackios/k60-lead`（分支 `feat/pmic-rail`） | 只改 `research-gate.py` 两行——那棵树的 `check-docs.py:24` 已经是 `REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` 自定位 | `git apply --check` 通过；`K60_REPO` 不设时与未改副本输出逐字相同 |
-
-两份不能互换：主检出那份在 k60-lead 上报 `patch failed: scripts/check-docs.py:21`，反过来同理。两份都不设 `K60_REPO` 时行为与现状一致，所以应用它们不改变任何既有门禁结果。
+**两份门禁补丁已撤回（2026-11-14）**：`docs/research/evidence/gate-repo-switch.diff` 与 `gate-repo-switch-lead.diff` 已删除，`evidence/README.md` 的登记行同步移除。Lead 的决定是「REPO 硬编码已由 USB 线在 main 上统一解决，不采用这两份补丁」。核对结果**只成立一半**：`check-docs.py:24` 确已自定位；`research-gate.py:34` 在 `origin/main`（`90d8271`）上**仍是硬编码**（实测见 14.8）。修它的正规路径不是本线的 diff，而是把 **`39a783c`**（P-183，含 `scripts/check-repo-paths.py` 防回归）从 `feat/audio-merge` 合进 main。另：原补丁声称的「`:88` 漏传 verbose 导致 problems 永不打印」是误判，已在 14.8 撤回。
 
 ---
 

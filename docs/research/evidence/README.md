@@ -22,10 +22,7 @@
 
 ## 非原始输出
 
-| 文件 | 内容 |
-|---|---|
-| `gate-repo-switch-lead.diff` | 同一修复在 Lead 检出（`/mnt/e/hackios/k60-lead`，分支 `feat/pmic-rail`）的版本：那棵树的 `check-docs.py:24` 已经是 `REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` 自定位，所以只需要改 `research-gate.py` 两行。用 `git apply --check` 验证过：上面那份在主检出可用、在这棵树上 `patch failed: scripts/check-docs.py:21`；这份反之。`K60_REPO` 不设时行为与现状一致（实测修好与未修的两个副本输出逐字相同："已考察 32 个参考源 / ✅"——32 是主检出 `SOURCES.toml` 的条数；把 `K60_REPO` 指到 refmine 则是 50 条，那 18 条是这条线新加的） |
-| `gate-repo-switch.diff` | 2026-11-14 refmine 线提交的门禁修复补丁：`scripts/research-gate.py` 与 `scripts/check-docs.py` 都硬编码了主 checkout，任何其它线跑它们得到的是别人的数字；`research-gate.py:88` 还漏传 verbose 导致问题永不打印。`scripts/` 不在该线写作用域内，所以以 diff 形式交给 Lead（`git apply --check` 已通过） |
+（空）2026-11-14 撤回了两份门禁补丁 `gate-repo-switch.diff` / `gate-repo-switch-lead.diff` 并删除文件：Lead 决定不采用（理由与本线的核对结果见 `REFERENCE-INDEX.md` 第 16 节）。这里只放原始输出。
 
 ## 注意
 

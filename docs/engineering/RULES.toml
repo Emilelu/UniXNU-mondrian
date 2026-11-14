@@ -581,3 +581,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-197"
 statement = "A firmware capability must be proven in the firmware repo before a comment can claim it."
 check = "python3 scripts/check-docs.py"
+
+[[rule]]
+id = "P-200"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-200"
+statement = "boot.json kernel_sha256 hashes the firmware slot; the XNU kernel identity lives in build-manifest payload_kernel."
+check = "python3 scripts/check-docs.py"

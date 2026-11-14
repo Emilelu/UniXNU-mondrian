@@ -4769,3 +4769,56 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 **Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
 必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
 真机判据仍是 `addon: loaded bytes records 1027584 106`。
+
+## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
+
+**现象.** 2026-11-15 两个 agent 拿 `boot.json` 比对镜像，得出互相矛盾的结论：
+一方说「mhi3/mhi4 的内核逐字节相同，所以变量只有内存窗口」，另一方说「内核
+不同」。两边都没量错文件，是**字段名错了**。
+
+**实测.** `E:\k60-work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
+`kernel_sha256` **全是** `83b52b566b9cd0e0a2f13854f7da4c67…`：
+
+```
+wifi-20261116a2        83b52b56…   manifest.payload_kernel e273b649…
+wifi-20261116mhi4      83b52b56…   manifest.payload_kernel e24a58f1…
+wifi-20261116mhi5      83b52b56…   manifest.payload_kernel ac7a152f…
+springboard-20261115a  83b52b56…   manifest.payload_kernel 50a81744…
+thermal-20261115a      83b52b56…   manifest.payload_kernel 7bb198a0…
+brightness-9           83b52b56…   manifest.payload_kernel 1c5ca5d4…
+gpu-20261114t          83b52b56…   manifest.payload_kernel cafdb5df…
+touch-20261114a        83b52b56…   manifest.payload_kernel e849ae6b…
+```
+
+**根因.** 框架 `scripts/unixnu/bootimg.py:161` 写的是
+
+```python
+return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), ...}
+```
+
+这里的 `kernel` 是 **boot image 的 kernel 槽** = `gzip(112 字节 shim + 3,145,728 字节固件卷) + 4,024 字节 DTB`。
+固件卷一直是 `cf448571…`，shim 是确定的，所以这个哈希对所有用同一固件卷的镜像
+恒等。**真正的 XNU 内核在 ramdisk FAT 的 `EFI/UniXNU/Payloads/kernel.macho` 里**，
+它的哈希在 `build-manifest.json` 的 `components.payload_kernel`。
+
+**为什么没被门禁拦到.** 字段名 `kernel_sha256` 看起来就是内核；`verify-boot-image.py`
+比对的是 manifest 里正确的那个键，所以门禁一直绿。两边都对，但人是按字段名理解的。
+
+**修法.** ① 比内核身份一律用 `build-manifest.json` 的 `components.payload_kernel`
+（或 `mcopy` 出 payload 里的 `kernel.macho` 直接 `sha256sum`），**不要用 `boot.json`
+的 `kernel_sha256`**；② `boot.json` 那个字段应理解为「固件槽哈希」，它有用处
+（证明两张镜像用的是同一个 FD），但和内核无关；③ 需要内核身份时补一条
+`payload_kernel_sha256` 字段，别指望读的人自己分辨。
+
+**教训.**
+- 字段名是一种断言。叫 `kernel_sha256` 却量固件卷，等于在误导每一个读它的人，
+  而且不会有任何门禁报错。
+- 两个 agent 得出矛盾结论时，先查「各自量的到底是哪个文件」，再谈谁对——
+  这次两边都没错，错的是命名。
+- 「所有镜像这个值都一样」本身就是可疑信号：镜像内容明明不同，怎么可能同一个哈希。
+  看到跨镜像恒等的哈希，第一反应应该是「这量的是共同部分」。
+- 三方对账法：`boot.json`（槽哈希）× `build-manifest.json`（payload 内核哈希）×
+  `mcopy` 出来的实际文件（地面真值）。三者对不上时，以地面真值为准。
+
+**Check.** 比内核身份时 `python3 -c "import json;print(json.load(open('<tag>/build-manifest.json'))['components']['payload_kernel'])"`，
+或直接 `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho k && sha256sum k`。

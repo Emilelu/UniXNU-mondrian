@@ -129,17 +129,3 @@ unsigned k60tl_step(K60TlState *state, const int32_t *milli_c)
     }
     return worst;
 }
-
-/* IOPM.h:764 normal, :765 danger, :768 warning, :769 trap. Sleeping is never reported on
- * this board, so it shares the trap value; an out-of-range level is treated as nominal. */
-unsigned k60tl_platform_value(unsigned level)
-{
-    switch (level) {
-    case K60TlNominal:  return 0u;    /* kIOPMThermalLevelNormal */
-    case K60TlModerate: return 5u;    /* kIOPMThermalLevelDanger */
-    case K60TlHeavy:    return 100u;  /* kIOPMThermalLevelWarning */
-    case K60TlTrapping: return 110u;  /* kIOPMThermalLevelTrap */
-    case K60TlSleeping: return 110u;  /* never produced: no trip point stands for it */
-    default:            return 0u;
-    }
-}

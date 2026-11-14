@@ -2,21 +2,24 @@
 """Check that patches/xnu/0617-k60-thermal-tsens.patch carries the thermal driver.
 
 The kernel cannot include drivers/PongThermal, so the shipping copies live inside the
-patch as bsd/dev/pong_thermal.c, bsd/dev/pong_thermal_level.c, bsd/dev/pong_thermal_pm.cpp,
-bsd/sys/pong_thermal.h and bsd/sys/pong_thermal_level.h. Those copies must be
-byte-identical to the master copies in the repository, otherwise the code that is tested
-is not the code that ships (P-190: verify the artifacts, not the file names).
+patch as bsd/dev/pong_thermal{,_level,_zones,_pm}.c(pp) and bsd/sys/pong_thermal{,_level,
+_zones}.h. Those copies must be byte-identical to the master copies in the repository,
+otherwise the code that is tested is not the code that ships (P-190: verify the artifacts,
+not the file names).
 
 Checks:
   1. the patch exists, is registered in patches/xnu/series, and is the last entry
-  2. the patch adds the five files, and every reconstructed body matches its master
-  3. the patch registers all three new sources in bsd/conf/files, including the first
+  2. the patch adds the seven files, and every reconstructed body matches its master
+  3. the patch registers all four new sources in bsd/conf/files, including the first
      .cpp the bsd component ever built
   4. the patch calls pong_thermal_init() from bsd/kern/bsd_init.c
   5. the driver never writes a register: no store through the mapped pointers
      (P-190 read-only guarantee, checked mechanically)
   6. the publisher uses the one thermal entry point that exists, under the one key that
      moves IOPMrootDomain::thermalWarningState, and installs no actuator
+  7. the ladder stays the board DTS's own trips: 32 rows, each row's tiers and
+     temperatures ascending, no zone invented and none of the two non-temperature zones,
+     and the published number is the level itself rather than a remapped Apple value
 
 Usage: scripts/check-thermal-kernel-patch.py [--repo DIR] [--quiet]
 Exit code 0 when every check passes.
@@ -34,17 +37,22 @@ FILES = (
     ("bsd/dev/pong_thermal.c", os.path.join("drivers", "PongThermal", "pong_thermal.c")),
     ("bsd/dev/pong_thermal_level.c",
      os.path.join("drivers", "PongThermal", "K60ThermalLevel.c")),
+    ("bsd/dev/pong_thermal_zones.c",
+     os.path.join("drivers", "PongThermal", "K60ThermalZones.c")),
     ("bsd/dev/pong_thermal_pm.cpp",
      os.path.join("drivers", "PongThermal", "pong_thermal_pm.cpp")),
     ("bsd/sys/pong_thermal.h",
      os.path.join("drivers", "PongThermal", "K60ThermalKernel.h")),
     ("bsd/sys/pong_thermal_level.h",
      os.path.join("drivers", "PongThermal", "K60ThermalLevel.h")),
+    ("bsd/sys/pong_thermal_zones.h",
+     os.path.join("drivers", "PongThermal", "K60ThermalZones.h")),
 )
 DEV_PATH = FILES[0][0]
 MASTER_DEV = FILES[0][1]
 PM_PATH = "bsd/dev/pong_thermal_pm.cpp"
 LEVEL_PATH = "bsd/dev/pong_thermal_level.c"
+ZONES_PATH = "bsd/dev/pong_thermal_zones.c"
 
 problems = []
 notes = []
@@ -139,11 +147,13 @@ def check_registration(sections):
         problems.append("patch does not touch bsd/conf/files")
     else:
         joined = "".join(conf["lines"])
-        for path in (DEV_PATH, LEVEL_PATH, PM_PATH):
+        wanted = (DEV_PATH, LEVEL_PATH, ZONES_PATH, PM_PATH)
+        for path in wanted:
             if path not in joined:
                 problems.append("bsd/conf/files does not register %s" % path)
-        if all(path in joined for path in (DEV_PATH, LEVEL_PATH, PM_PATH)):
-            notes.append("conf/files registers the driver, the level module and the publisher")
+        if all(path in joined for path in wanted):
+            notes.append("conf/files registers the driver, the level module, the ladder "
+                         "and the publisher")
         # .cpp needs %CXXFILES in bsd/conf/Makefile.template, which the tree has had
         # since before this port (bsd/conf/Makefile.template:72).
         if PM_PATH in joined and ".cpp" not in joined:
@@ -206,6 +216,12 @@ def check_publisher(repo):
         problems.append("%s does not fetch the root domain through IOService" % PM_PATH)
     # An actuator would touch a clock, a regulator or a trip register. None of that
     # belongs here: docs/research/thermal/TRIP-DESIGN.md section 3.5 is the decision.
+    if "k60tl_platform_value" in code:
+        problems.append("%s still remaps the level to an Apple pressure value; the "
+                        "decision in LEVEL-MAP.md section 4 is to publish the board level"
+                        % PM_PATH)
+    if not re.search(r"value\s*=\s*\(uint32_t\)\s*level\s*;", code):
+        problems.append("%s does not publish the level itself" % PM_PATH)
     for pattern, what in (
             (r"\bsetFrequency\b", "a clock write"),
             (r"\bml_io_map\b", "an MMIO mapping"),
@@ -215,6 +231,56 @@ def check_publisher(repo):
             problems.append("%s installs %s; this layer only reports" % (PM_PATH, what))
     else:
         notes.append("publisher uses systemPowerEventOccurred under the warning key, no actuator")
+
+
+ROW = re.compile(r"\{\s*([23]),\s*\{\s*\{\s*(\d+),\s*(\d+)\s*\},\s*"
+                 r"\{\s*(\d+),\s*(\d+)\s*\},\s*\{\s*(\d+),\s*(\d+)\s*\}\s*\}\s*\}")
+NAME = re.compile(r"/\*\s*tsens([01])\[(\d+)\]\s+(\S+?):")
+
+
+def check_zones(repo):
+    """The ladder must be the DTS's own passive trips, and nothing invented."""
+    path = os.path.join(repo, "drivers", "PongThermal", "K60ThermalZones.c")
+    if not os.path.exists(path):
+        return
+    body = read(path)
+    code = "\n".join(line for line in body.splitlines()
+                     if not line.strip().startswith(("*", "/*", "//")))
+    if "k60tz_table[K60TzZones]" not in code:
+        problems.append("K60ThermalZones.c does not size its table to K60TzZones")
+    if "k60tl_input_level" not in code:
+        problems.append("K60ThermalZones.c duplicates the trip arithmetic instead of "
+                        "reusing k60tl_input_level")
+    rows = ROW.findall(code)
+    if len(rows) != 32:
+        problems.append("K60ThermalZones.c has %d zone rows, expected 32" % len(rows))
+    for index, row in enumerate(rows):
+        tiers = int(row[0])
+        warmly = [(int(row[1]), int(row[2])), (int(row[3]), int(row[4])),
+                  (int(row[5]), int(row[6]))]
+        used = warmly[:tiers]
+        for tier, (milli_c, hysteresis) in enumerate(used, 1):
+            if milli_c <= 0:
+                problems.append("zone row %d tier %d has no temperature" % (index, tier))
+            if hysteresis <= 0:
+                problems.append("zone row %d tier %d has no hysteresis" % (index, tier))
+            if tier > 1 and milli_c <= used[tier - 2][0]:
+                problems.append("zone row %d trips do not ascend" % index)
+        if any(milli_c != 0 or hysteresis != 0 for milli_c, hysteresis in warmly[tiers:]):
+            problems.append("zone row %d has data past its tier count" % index)
+    names = NAME.findall(body)
+    if len(names) != 32:
+        problems.append("K60ThermalZones.c names %d zones, expected 32" % len(names))
+    seen = [name for _, _, name in names]
+    for slot, (controller, index, name) in enumerate(names):
+        if int(index) != slot % 16 or int(controller) != slot // 16:
+            problems.append("zone row %d is labelled tsens%s[%s]" % (slot, controller, index))
+    for invented in ("mx-pe", "isense_trim"):
+        if invented in seen:
+            problems.append("K60ThermalZones.c keeps %s, whose trips are not temperatures"
+                            % invented)
+    if len(rows) == 32 and len(names) == 32 and not problems:
+        notes.append("ladder: 32 DTS zones, trips ascending, no non-temperature zone")
 
 
 def main():
@@ -234,6 +300,7 @@ def main():
         check_registration(sections)
     check_read_only(repo)
     check_publisher(repo)
+    check_zones(repo)
 
     if not args.quiet:
         for note in notes:

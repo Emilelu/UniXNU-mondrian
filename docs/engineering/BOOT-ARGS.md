@@ -52,6 +52,7 @@
 | `k60_entitlement_allow` | 安全 | 真值 | 关闭 | `0330-k60-entitlement-allow.patch` 放宽 entitlement 检查 | — |
 | `k60-thermal` | 热管理 | 真值 | 1（开） | 发布 mTPL 的 IOKit 服务开关；`k60-thermal=0` 让 `k60_thermal_start()` 直接返回，不起两个 tsens 控制器 |
 | `pong_thermal` | 热管理 | 真值 | 1（开） | 内核内建 tsens 驱动（`bsd/dev/pong_thermal.c`）开关；0 则只留启动日志，不读传感器、不起轮询线程 |
+| `pong_thermal_bias` | 热管理 | 任意 int32（mC） | 0（不加） | 只给验证等级阶梯用：给所有有效读数加固定偏移；改变上报值、不改变硬件读数，也不是标定 |
 | `k60_skip_iosurface` | GPU/IOKit | 真值 | 关闭 | `0332-k60-skip-prelinked-load.patch` 跳过预链接的 IOSurface 加载 | P-13x：避免第二个 IOSurfaceRoot |
 | `k60_skip_firmware_mount` | 存储 | 真值 | 关闭 | `0320-k60-skip-firmware-mount.patch` 跳过 firmware 分区挂载 | 加快启动 |
 | `k60_panic_reset` | 诊断 | 真值 | 关闭 | `0334-k60-panic-reset-fastboot.patch` panic 后自动重启 | 调试循环用 |
@@ -327,3 +328,21 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 先按 opt-in 上机验证（判据：`native_gpu_addon_prepare` 打印挂载成功 + 不再出现
 `software-only platform` + 出现 `[direct scanout]`），确认无副作用后再评估是否改成默认。
 缺目录或挂载被拒只打印失败，不会 panic。
+
+### `pong_thermal_bias`
+
+| 项 | 值 |
+|---|---|
+| 类型 | int32（毫摄氏度） |
+| 默认 | 0（不加偏移） |
+| 来源 | `drivers/PongThermal/pong_thermal.c`（`PE_parse_boot_argn("pong_thermal_bias", &pong_thermal_bias_mc, sizeof(pong_thermal_bias_mc))`）|
+| 作用 | 非 0 时给每一路有效读数加这个偏移，再算五域温度与 zone 等级 |
+
+**为什么存在**：本板冷机读数 40–56℃（`docs/research/thermal/08-KERNEL-DRIVER.md` §5 的首次上机日志），
+离最低被动档 90℃ 还差 34℃，跑任何负载都到不了 level 1，等级阶梯就永远只能验 0 档。
+`pong_thermal_bias=50000` 把 45℃ 的板子抬到 95℃、`=75000` 抬到 120℃、`=85000` 抬到 130℃，
+于是 1/2/3 三档都能在冷机上看到（逐档算式见 `docs/research/thermal/LEVEL-MAP.md` §5.2）。
+**它不改硬件**：读窗口仍是只读，偏移只作用于内存里的读数；日志会打
+`PongThermal: bias N mC added to every reading (validation only)`，看到这行就说明数据是人为抬过的。
+**不要把它当标定**：本板没有 `qcom,tsens-calibration`，真正的标定系数不在 DT 里
+（`docs/research/thermal/01-SAME-HARDWARE.md` §4）。

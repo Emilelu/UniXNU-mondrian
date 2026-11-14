@@ -9,7 +9,8 @@
  *
  * What it does: maps the two TM windows and the two SROT windows, reads the
  * hardware version and the enable bit, then samples all 32 sensors once a second,
- * prints the five pressure-level domains and hands the resulting level to
+ * prints the five pressure-level domains and the board DTS's own zone level
+ * (bsd/dev/pong_thermal_zones.c, 0..3), and hands that level to
  * bsd/dev/pong_thermal_pm.cpp, which publishes it through IOPMrootDomain. It never
  * writes a register, never touches an interrupt, and never programs a trip point:
  * those need calibration coefficients this board does not expose
@@ -27,6 +28,7 @@
 #include <pexpert/pexpert.h>
 #include <sys/pong_thermal.h>
 #include <sys/pong_thermal_level.h>
+#include <sys/pong_thermal_zones.h>
 #include <sys/systm.h>
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
@@ -39,6 +41,28 @@ extern void pong_thermal_pm_publish(unsigned int level);
 #define PONG_THERMAL_WINDOW     0x1000UL
 #define PONG_THERMAL_POLL_MS    1000
 #define PONG_THERMAL_HEARTBEAT  30   /* poll rounds between unconditional lines */
+
+/* A synthetic offset added to every reading, from the boot-arg pong_thermal_bias (mC).
+ * Zero unless the booter asks for it: it exists so a cold board (40-56 C in the first
+ * boot, docs/research/thermal/08-KERNEL-DRIVER.md section 5) can still prove that the
+ * zone ladder publishes 1, 2 and 3, which no load this port can create will reach.
+ * It changes what is reported, never what is read from the hardware. */
+static int32_t pong_thermal_bias_mc;
+
+static void
+pong_thermal_bias(int32_t milli_c[PONG_THERMAL_SENSOR_COUNT])
+{
+	unsigned i;
+
+	if (pong_thermal_bias_mc == 0) {
+		return;
+	}
+	for (i = 0; i < PONG_THERMAL_SENSOR_COUNT; i++) {
+		if (milli_c[i] != INT32_MIN) {
+			milli_c[i] += pong_thermal_bias_mc;
+		}
+	}
+}
 
 struct pong_thermal_controller {
 	uint64_t tm_phys;
@@ -145,25 +169,47 @@ pong_thermal_dump(void)
 	}
 }
 
-/* Five pressure-level domains, hottest sensor of each. The macOS side reads the
- * same five groups (docs/research/thermal/05-PRESSURE-LEVEL.md section 2). */
+/* One line about the published level: the board level, the coarser five-domain level for
+ * comparison, and the zone closest to its next trip, which is the number a boot at 45 C
+ * can actually show moving (docs/research/thermal/LEVEL-MAP.md section 5.2). */
 static void
-pong_thermal_domains(int32_t domains[PONG_THERMAL_DOMAINS])
+pong_thermal_level_line(unsigned zone_level, unsigned domain_level,
+    const int32_t milli_c[PONG_THERMAL_SENSOR_COUNT])
 {
-	int32_t milli_c[PONG_THERMAL_SENSOR_COUNT];
+	struct K60TzClosest closest;
 
-	pong_thermal_read_all(milli_c);
-	pong_thermal_domain_max(milli_c, domains);
+	if (k60tz_closest(milli_c, &closest) != 0) {
+		printf("PongThermal: level %u/3 %s (domains %u/3); no zone has a reading\n",
+		    zone_level, k60tl_level_name(zone_level), domain_level);
+		return;
+	}
+	if (closest.margin_mc < 0) {
+		printf("PongThermal: level %u/3 %s (domains %u/3); closest %s %d.%d C, every tier crossed\n",
+		    zone_level, k60tl_level_name(zone_level), domain_level,
+		    k60tz_name(closest.slot), (int)(closest.milli_c / 1000),
+		    (int)((closest.milli_c < 0 ? -closest.milli_c : closest.milli_c) % 1000) / 100);
+		return;
+	}
+	printf("PongThermal: level %u/3 %s (domains %u/3); closest %s %d.%d C, %d.%d C below tier %u\n",
+	    zone_level, k60tl_level_name(zone_level), domain_level,
+	    k60tz_name(closest.slot), (int)(closest.milli_c / 1000),
+	    (int)((closest.milli_c < 0 ? -closest.milli_c : closest.milli_c) % 1000) / 100,
+	    (int)(closest.margin_mc / 1000), (int)(closest.margin_mc % 1000) / 100,
+	    (unsigned)closest.next_tier + 1u);
 }
 
 static void
 pong_thermal_worker(void *arg, wait_result_t result)
 {
+	int32_t milli_c[PONG_THERMAL_SENSOR_COUNT];
 	int32_t domains[PONG_THERMAL_DOMAINS];
 	int32_t previous[PONG_THERMAL_DOMAINS];
 	K60TlState level_state;
+	K60TzState zone_state;
 	uint64_t deadline;
-	unsigned round = 0, i;
+	unsigned round = 0, level_round = 0, i;
+	unsigned reported = 0;
+	int reported_once = 0;
 
 	(void)arg;
 	(void)result;
@@ -171,11 +217,14 @@ pong_thermal_worker(void *arg, wait_result_t result)
 		previous[i] = INT32_MIN;
 	}
 	memset(&level_state, 0, sizeof(level_state));
+	memset(&zone_state, 0, sizeof(zone_state));
 	for (;;) {
 		bool changed = false;
-		unsigned level;
+		unsigned level, zone_level;
 
-		pong_thermal_domains(domains);
+		pong_thermal_read_all(milli_c);
+		pong_thermal_bias(milli_c);
+		pong_thermal_domain_max(milli_c, domains);
 		for (i = 0; i < PONG_THERMAL_DOMAINS; i++) {
 			/* one-degree bucket: a quieter log than 32 lines a second */
 			if (domains[i] == INT32_MIN || previous[i] == INT32_MIN ||
@@ -191,11 +240,20 @@ pong_thermal_worker(void *arg, wait_result_t result)
 			    domains[PONG_THERMAL_DOMAIN_GPU], domains[PONG_THERMAL_DOMAIN_NPU],
 			    domains[PONG_THERMAL_DOMAIN_DDR]);
 		}
-		/* Hysteresis lives in k60tl_step: a trip already crossed is released only
-		 * below its temperature minus the DT's hysteresis. Publishing is a no-op
+		/* Hysteresis lives in k60tl_step and k60tz_step: a trip already crossed is
+		 * released only below its temperature minus the DT's hysteresis. The published
+		 * number is the board DTS's own ladder (bsd/dev/pong_thermal_zones.c); the five
+		 * domain level is kept in the line as the coarser view. Publishing is a no-op
 		 * until the root domain exists, and after that only on a level change. */
 		level = k60tl_step(&level_state, domains);
-		pong_thermal_pm_publish(level);
+		zone_level = k60tz_step(&zone_state, milli_c);
+		if (!reported_once || zone_level != reported || ++level_round >= PONG_THERMAL_HEARTBEAT) {
+			level_round = 0;
+			reported = zone_level;
+			reported_once = 1;
+			pong_thermal_level_line(zone_level, level, milli_c);
+		}
+		pong_thermal_pm_publish(zone_level);
 		clock_interval_to_deadline(PONG_THERMAL_POLL_MS, NSEC_PER_MSEC, &deadline);
 		assert_wait_deadline((event_t)pong_thermal_controllers, THREAD_UNINT, deadline);
 		(void)thread_block(THREAD_CONTINUE_NULL);
@@ -215,6 +273,12 @@ pong_thermal_init(void)
 	if (enabled == 0) {
 		printf("PongThermal: disabled by boot-arg pong_thermal=0\n");
 		return;
+	}
+	(void)PE_parse_boot_argn("pong_thermal_bias", &pong_thermal_bias_mc,
+	    sizeof(pong_thermal_bias_mc));
+	if (pong_thermal_bias_mc != 0) {
+		printf("PongThermal: bias %d mC added to every reading (validation only)\n",
+		    pong_thermal_bias_mc);
 	}
 	for (c = 0; c < PONG_THERMAL_CONTROLLERS; c++) {
 		struct pong_thermal_controller *ctl = &pong_thermal_controllers[c];

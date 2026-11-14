@@ -6,11 +6,14 @@
  * it into the XNU tree verbatim as bsd/dev/pong_thermal_pm.cpp;
  * scripts/check-thermal-kernel-patch.py fails when the two copies differ.
  *
- * What it does: hands the board's pressure level (nominal / moderate / heavy /
- * trapping, computed by bsd/dev/pong_thermal_level.c) to the one thermal entry
- * point this kernel already has, IOPMrootDomain::systemPowerEventOccurred, under
- * the key kIOPMThermalLevelWarningKey. It installs no actuator and programs no
- * clock: docs/research/thermal/TRIP-DESIGN.md section 3.5 is the decision record.
+ * What it does: hands the board's own thermal level (0..3, computed by
+ * bsd/dev/pong_thermal_zones.c from the passive trips of the board DTS) to the one
+ * thermal entry point this kernel already has,
+ * IOPMrootDomain::systemPowerEventOccurred, under the key
+ * kIOPMThermalLevelWarningKey. It installs no actuator and programs no clock:
+ * docs/research/thermal/TRIP-DESIGN.md section 3.5 is the decision record, and
+ * docs/research/thermal/LEVEL-MAP.md section 4 records why the published number is
+ * the board's ladder and not one of Apple's OSThermalPressureLevel values.
  *
  * Why this is C++: systemPowerEventOccurred takes an OSSymbol and an OSObject,
  * which only exist in C++. bsd/conf/files had no .cpp before this file; the
@@ -62,11 +65,11 @@ static const OSSymbol *pong_thermal_pm_key;
 static unsigned int pong_thermal_pm_last_level;
 static int pong_thermal_pm_have_last;
 
-/* The level-to-value table lives in bsd/dev/pong_thermal_level.c (k60tl_platform_value),
- * where scripts/tests/test-k60-thermal-level.c can check it on the host against
- * iokit/IOKit/pwr_mgt/IOPM.h:763-772. Only the two platform values, 100 and 110, move
- * IOPMrootDomain::thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134); the
- * others are recorded in the "Power Status" dictionary and broadcast (:8172-8188). */
+/* The value published is the level itself, 0..3. IOPMrootDomain records every value under
+ * the key in the "Power Status" dictionary and broadcasts it (:8172-8188), but only 100 and
+ * 110 move thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134). 0..3 are
+ * therefore pure telemetry: this phase reports, it does not act. LEVEL-MAP.md section 4
+ * records what each Apple value means and what it would take to publish one of them. */
 
 /* Called once per sampling round by the worker in bsd/dev/pong_thermal.c.
  *
@@ -94,7 +97,7 @@ pong_thermal_pm_publish(unsigned int level)
 			return;
 		}
 	}
-	value = (uint32_t)k60tl_platform_value(level);
+	value = (uint32_t)level;
 	/* withNumber hands back a retained object; the root domain keeps its own
 	 * reference in the "Power Status" dictionary (:8172), so this one is dropped
 	 * right after the call, as overload one does (:8103-8116). */

@@ -1,12 +1,13 @@
 diff --git a/bsd/conf/files b/bsd/conf/files
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -400,6 +400,9 @@
+@@ -400,6 +400,10 @@
  bsd/dev/pong_input.c			standard
  bsd/dev/pong_goodix.c			standard
  bsd/dev/pong_buttons.c			standard
 +bsd/dev/pong_thermal.c			standard
 +bsd/dev/pong_thermal_level.c		standard
++bsd/dev/pong_thermal_zones.c		standard
 +bsd/dev/pong_thermal_pm.cpp		standard
  bsd/kern/kern_event.c			standard
  bsd/kern/kern_control.c			optional networking
@@ -30,7 +31,7 @@ new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/bsd/dev/pong_thermal.c
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,312 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* Copyright (c) 2026, UniXNU contributors. */
 +/* Pong SM8475 thermal sensors: read-only tsens v2 reader for the XNU kernel.
@@ -42,7 +43,8 @@ index 0000000..0000000
 + *
 + * What it does: maps the two TM windows and the two SROT windows, reads the
 + * hardware version and the enable bit, then samples all 32 sensors once a second,
-+ * prints the five pressure-level domains and hands the resulting level to
++ * prints the five pressure-level domains and the board DTS's own zone level
++ * (bsd/dev/pong_thermal_zones.c, 0..3), and hands that level to
 + * bsd/dev/pong_thermal_pm.cpp, which publishes it through IOPMrootDomain. It never
 + * writes a register, never touches an interrupt, and never programs a trip point:
 + * those need calibration coefficients this board does not expose
@@ -60,6 +62,7 @@ index 0000000..0000000
 +#include <pexpert/pexpert.h>
 +#include <sys/pong_thermal.h>
 +#include <sys/pong_thermal_level.h>
++#include <sys/pong_thermal_zones.h>
 +#include <sys/systm.h>
 +
 +extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
@@ -72,6 +75,28 @@ index 0000000..0000000
 +#define PONG_THERMAL_WINDOW     0x1000UL
 +#define PONG_THERMAL_POLL_MS    1000
 +#define PONG_THERMAL_HEARTBEAT  30   /* poll rounds between unconditional lines */
++
++/* A synthetic offset added to every reading, from the boot-arg pong_thermal_bias (mC).
++ * Zero unless the booter asks for it: it exists so a cold board (40-56 C in the first
++ * boot, docs/research/thermal/08-KERNEL-DRIVER.md section 5) can still prove that the
++ * zone ladder publishes 1, 2 and 3, which no load this port can create will reach.
++ * It changes what is reported, never what is read from the hardware. */
++static int32_t pong_thermal_bias_mc;
++
++static void
++pong_thermal_bias(int32_t milli_c[PONG_THERMAL_SENSOR_COUNT])
++{
++	unsigned i;
++
++	if (pong_thermal_bias_mc == 0) {
++		return;
++	}
++	for (i = 0; i < PONG_THERMAL_SENSOR_COUNT; i++) {
++		if (milli_c[i] != INT32_MIN) {
++			milli_c[i] += pong_thermal_bias_mc;
++		}
++	}
++}
 +
 +struct pong_thermal_controller {
 +	uint64_t tm_phys;
@@ -178,25 +203,47 @@ index 0000000..0000000
 +	}
 +}
 +
-+/* Five pressure-level domains, hottest sensor of each. The macOS side reads the
-+ * same five groups (docs/research/thermal/05-PRESSURE-LEVEL.md section 2). */
++/* One line about the published level: the board level, the coarser five-domain level for
++ * comparison, and the zone closest to its next trip, which is the number a boot at 45 C
++ * can actually show moving (docs/research/thermal/LEVEL-MAP.md section 5.2). */
 +static void
-+pong_thermal_domains(int32_t domains[PONG_THERMAL_DOMAINS])
++pong_thermal_level_line(unsigned zone_level, unsigned domain_level,
++    const int32_t milli_c[PONG_THERMAL_SENSOR_COUNT])
 +{
-+	int32_t milli_c[PONG_THERMAL_SENSOR_COUNT];
++	struct K60TzClosest closest;
 +
-+	pong_thermal_read_all(milli_c);
-+	pong_thermal_domain_max(milli_c, domains);
++	if (k60tz_closest(milli_c, &closest) != 0) {
++		printf("PongThermal: level %u/3 %s (domains %u/3); no zone has a reading\n",
++		    zone_level, k60tl_level_name(zone_level), domain_level);
++		return;
++	}
++	if (closest.margin_mc < 0) {
++		printf("PongThermal: level %u/3 %s (domains %u/3); closest %s %d.%d C, every tier crossed\n",
++		    zone_level, k60tl_level_name(zone_level), domain_level,
++		    k60tz_name(closest.slot), (int)(closest.milli_c / 1000),
++		    (int)((closest.milli_c < 0 ? -closest.milli_c : closest.milli_c) % 1000) / 100);
++		return;
++	}
++	printf("PongThermal: level %u/3 %s (domains %u/3); closest %s %d.%d C, %d.%d C below tier %u\n",
++	    zone_level, k60tl_level_name(zone_level), domain_level,
++	    k60tz_name(closest.slot), (int)(closest.milli_c / 1000),
++	    (int)((closest.milli_c < 0 ? -closest.milli_c : closest.milli_c) % 1000) / 100,
++	    (int)(closest.margin_mc / 1000), (int)(closest.margin_mc % 1000) / 100,
++	    (unsigned)closest.next_tier + 1u);
 +}
 +
 +static void
 +pong_thermal_worker(void *arg, wait_result_t result)
 +{
++	int32_t milli_c[PONG_THERMAL_SENSOR_COUNT];
 +	int32_t domains[PONG_THERMAL_DOMAINS];
 +	int32_t previous[PONG_THERMAL_DOMAINS];
 +	K60TlState level_state;
++	K60TzState zone_state;
 +	uint64_t deadline;
-+	unsigned round = 0, i;
++	unsigned round = 0, level_round = 0, i;
++	unsigned reported = 0;
++	int reported_once = 0;
 +
 +	(void)arg;
 +	(void)result;
@@ -204,11 +251,14 @@ index 0000000..0000000
 +		previous[i] = INT32_MIN;
 +	}
 +	memset(&level_state, 0, sizeof(level_state));
++	memset(&zone_state, 0, sizeof(zone_state));
 +	for (;;) {
 +		bool changed = false;
-+		unsigned level;
++		unsigned level, zone_level;
 +
-+		pong_thermal_domains(domains);
++		pong_thermal_read_all(milli_c);
++		pong_thermal_bias(milli_c);
++		pong_thermal_domain_max(milli_c, domains);
 +		for (i = 0; i < PONG_THERMAL_DOMAINS; i++) {
 +			/* one-degree bucket: a quieter log than 32 lines a second */
 +			if (domains[i] == INT32_MIN || previous[i] == INT32_MIN ||
@@ -224,11 +274,20 @@ index 0000000..0000000
 +			    domains[PONG_THERMAL_DOMAIN_GPU], domains[PONG_THERMAL_DOMAIN_NPU],
 +			    domains[PONG_THERMAL_DOMAIN_DDR]);
 +		}
-+		/* Hysteresis lives in k60tl_step: a trip already crossed is released only
-+		 * below its temperature minus the DT's hysteresis. Publishing is a no-op
++		/* Hysteresis lives in k60tl_step and k60tz_step: a trip already crossed is
++		 * released only below its temperature minus the DT's hysteresis. The published
++		 * number is the board DTS's own ladder (bsd/dev/pong_thermal_zones.c); the five
++		 * domain level is kept in the line as the coarser view. Publishing is a no-op
 +		 * until the root domain exists, and after that only on a level change. */
 +		level = k60tl_step(&level_state, domains);
-+		pong_thermal_pm_publish(level);
++		zone_level = k60tz_step(&zone_state, milli_c);
++		if (!reported_once || zone_level != reported || ++level_round >= PONG_THERMAL_HEARTBEAT) {
++			level_round = 0;
++			reported = zone_level;
++			reported_once = 1;
++			pong_thermal_level_line(zone_level, level, milli_c);
++		}
++		pong_thermal_pm_publish(zone_level);
 +		clock_interval_to_deadline(PONG_THERMAL_POLL_MS, NSEC_PER_MSEC, &deadline);
 +		assert_wait_deadline((event_t)pong_thermal_controllers, THREAD_UNINT, deadline);
 +		(void)thread_block(THREAD_CONTINUE_NULL);
@@ -248,6 +307,12 @@ index 0000000..0000000
 +	if (enabled == 0) {
 +		printf("PongThermal: disabled by boot-arg pong_thermal=0\n");
 +		return;
++	}
++	(void)PE_parse_boot_argn("pong_thermal_bias", &pong_thermal_bias_mc,
++	    sizeof(pong_thermal_bias_mc));
++	if (pong_thermal_bias_mc != 0) {
++		printf("PongThermal: bias %d mC added to every reading (validation only)\n",
++		    pong_thermal_bias_mc);
 +	}
 +	for (c = 0; c < PONG_THERMAL_CONTROLLERS; c++) {
 +		struct pong_thermal_controller *ctl = &pong_thermal_controllers[c];
@@ -284,7 +349,7 @@ new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/bsd/dev/pong_thermal_level.c
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,131 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* Copyright (c) 2026, UniXNU contributors. */
 +/* Data and arithmetic for the board's thermal pressure level. No register, no IOKit, no
@@ -416,26 +481,217 @@ index 0000000..0000000
 +    }
 +    return worst;
 +}
+diff --git a/bsd/dev/pong_thermal_zones.c b/bsd/dev/pong_thermal_zones.c
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/bsd/dev/pong_thermal_zones.c
+@@ -0,0 +1,199 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Data and arithmetic for the board's own thermal ladder. No register, no IOKit, no
++ * allocation: the whole file runs on the host (scripts/tests/test-k60-thermal-zones.c).
++ *
++ * Every row below is one zone of /thermal-zones in the decompiled board DTS
++ * (mondrian.dts:6643-8422), reduced to the passive trips that zone raises: ascending, with
++ * the hysteresis the DT gives each one, duplicates by temperature removed (a zone that
++ * carries both a thermal-engine and a thermal-hal copy of a trip has one temperature). The
++ * comment above each row cites the DTS line of every trip it keeps, plus any active trip
++ * the zone also has, which this layer does not use (active trips drive the modem gateway
++ * cooling devices, docs/research/thermal/TRIP-DESIGN.md section 2.2).
++ *
++ * Only the tsens-backed zones are here, in the driver's sensor order; LEVEL-MAP.md
++ * section 2 lists what is left out and why. */
++#if defined(KERNEL)
++#include <sys/pong_thermal_zones.h>
++#else
++#include "K60ThermalZones.h"
++#endif
 +
-+/* IOPM.h:764 normal, :765 danger, :768 warning, :769 trap. Sleeping is never reported on
-+ * this board, so it shares the trap value; an out-of-range level is treated as nominal. */
-+unsigned k60tl_platform_value(unsigned level)
++static const K60TzZone k60tz_table[K60TzZones] = {
++	/* tsens0[0] aoss-0: 115000/5000 @7121, 125000/1000 @7115 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens0[1] cpuss-0: 115000/5000 @7142, 125000/1000 @7136 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens0[2] cpuss-1: 115000/5000 @7163, 125000/1000 @7157 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens0[3] cpuss-2: 115000/5000 @7184, 125000/1000 @7178 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens0[4] cpuss-3: 115000/5000 @7205, 125000/1000 @7199 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens0[5] cpu-1-0: 110000/10000 @7238, 115000/5000 @7232, 125000/1000 @7220 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[6] cpu-1-1: 110000/10000 @7272, 115000/5000 @7266, 125000/1000 @7254 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[7] cpu-1-2: 110000/10000 @7306, 115000/5000 @7300, 125000/1000 @7288 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[8] cpu-1-3: 110000/10000 @7348, 115000/5000 @7342, 125000/1000 @7330 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[9] cpu-1-4: 110000/10000 @7390, 115000/5000 @7384, 125000/1000 @7372 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[10] cpu-1-5: 110000/10000 @7432, 115000/5000 @7426, 125000/1000 @7414 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[11] cpu-1-6: 110000/10000 @7474, 115000/5000 @7468, 125000/1000 @7456 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[12] cpu-1-7: 110000/10000 @7516, 115000/5000 @7510, 125000/1000 @7498 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[13] cpu-1-8: 110000/10000 @7558, 115000/5000 @7552, 125000/1000 @7540 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[14] gpuss-0: 95000/5000 @7600, 115000/5000 @7594, 125000/1000 @7582 */
++	{ 3, { { 95000, 5000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens0[15] gpuss-1: 95000/5000 @7642, 115000/5000 @7636, 125000/1000 @7624 */
++	{ 3, { { 95000, 5000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[0] aoss-1: 115000/5000 @7672, 125000/1000 @7666 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens1[1] cpu-0-0: 110000/10000 @7705, 115000/5000 @7699, 125000/1000 @7687 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[2] cpu-0-1: 110000/10000 @7747, 115000/5000 @7741, 125000/1000 @7729 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[3] cpu-0-2: 110000/10000 @7789, 115000/5000 @7783, 125000/1000 @7771 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[4] cpu-0-3: 110000/10000 @7831, 115000/5000 @7825, 125000/1000 @7813 */
++	{ 3, { { 110000, 10000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[5] nspss-0: 95000/5000 @7873, 115000/5000 @7867, 125000/1000 @7855 */
++	{ 3, { { 95000, 5000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[6] nspss-1: 95000/5000 @7915, 115000/5000 @7909, 125000/1000 @7897 */
++	{ 3, { { 95000, 5000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[7] nspss-2: 95000/5000 @7957, 115000/5000 @7951, 125000/1000 @7939 */
++	{ 3, { { 95000, 5000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[8] video: 115000/5000 @7987, 125000/1000 @7981 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens1[9] ddr: 90000/5000 @8008, 115000/5000 @8015, 125000/1000 @8002 */
++	{ 3, { { 90000, 5000 }, { 115000, 5000 }, { 125000, 1000 } } },
++	/* tsens1[10] mdmss-0: 115000/5000 @8068, 125000/1000 @8048 active 102000 @8054, 105000 @8061 not used */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens1[11] mdmss-1: 115000/5000 @8131, 125000/1000 @8111 active 102000 @8117, 105000 @8124 not used */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens1[12] mdmss-2: 115000/5000 @8194, 125000/1000 @8174 active 102000 @8180, 105000 @8187 not used */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens1[13] mdmss-3: 115000/5000 @8257, 125000/1000 @8237 active 102000 @8243, 105000 @8250 not used */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens1[14] camera-0: 115000/5000 @8306, 125000/1000 @8300 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++	/* tsens1[15] camera-1: 115000/5000 @8327, 125000/1000 @8321 */
++	{ 2, { { 115000, 5000 }, { 125000, 1000 }, { 0, 0 } } },
++};
++
++/* The DTS name of each zone, in the same order. scripts/tests/test-k60-thermal-zones.c
++ * checks these against the sensor table in pong_thermal.h, which names the same zones. */
++static const char *const k60tz_names[K60TzZones] = {
++	"aoss-0", "cpuss-0", "cpuss-1", "cpuss-2",
++	"cpuss-3", "cpu-1-0", "cpu-1-1", "cpu-1-2",
++	"cpu-1-3", "cpu-1-4", "cpu-1-5", "cpu-1-6",
++	"cpu-1-7", "cpu-1-8", "gpuss-0", "gpuss-1",
++	"aoss-1", "cpu-0-0", "cpu-0-1", "cpu-0-2",
++	"cpu-0-3", "nspss-0", "nspss-1", "nspss-2",
++	"video", "ddr", "mdmss-0", "mdmss-1",
++	"mdmss-2", "mdmss-3", "camera-0", "camera-1",
++};
++
++const K60TzZone *
++k60tz_zone(unsigned slot)
 +{
-+    switch (level) {
-+    case K60TlNominal:  return 0u;    /* kIOPMThermalLevelNormal */
-+    case K60TlModerate: return 5u;    /* kIOPMThermalLevelDanger */
-+    case K60TlHeavy:    return 100u;  /* kIOPMThermalLevelWarning */
-+    case K60TlTrapping: return 110u;  /* kIOPMThermalLevelTrap */
-+    case K60TlSleeping: return 110u;  /* never produced: no trip point stands for it */
-+    default:            return 0u;
-+    }
++	return slot < K60TzZones ? &k60tz_table[slot] : (const K60TzZone *)0;
++}
++
++const char *
++k60tz_name(unsigned slot)
++{
++	return slot < K60TzZones ? k60tz_names[slot] : "?";
++}
++
++unsigned
++k60tz_zone_level(uint8_t crossed_before, int32_t milli_c, unsigned slot,
++    uint8_t *crossed_after)
++{
++	const K60TzZone *zone = k60tz_zone(slot);
++	unsigned after = 0;
++	unsigned level;
++
++	if (crossed_after != (uint8_t *)0) {
++		*crossed_after = 0;
++	}
++	if (zone == (const K60TzZone *)0) {
++		return 0;
++	}
++	level = k60tl_input_level(crossed_before, milli_c, zone->trips, zone->tiers, &after);
++	if (crossed_after != (uint8_t *)0) {
++		*crossed_after = (uint8_t)after;
++	}
++	return level;
++}
++
++unsigned
++k60tz_step(K60TzState *state, const int32_t *milli_c)
++{
++	unsigned worst = 0;
++
++	for (unsigned slot = 0; slot < K60TzZones; slot++) {
++		const int32_t mc = milli_c != (const int32_t *)0 ? milli_c[slot] : K60TL_NO_READING;
++		const uint8_t before = state != (K60TzState *)0 ? state->crossed[slot] : 0u;
++		uint8_t after = 0;
++		const unsigned level = k60tz_zone_level(before, mc, slot, &after);
++
++		if (state != (K60TzState *)0) {
++			state->crossed[slot] = after;
++		}
++		if (level > worst) {
++			worst = level;
++		}
++	}
++	return worst;
++}
++
++int
++k60tz_closest(const int32_t *milli_c, struct K60TzClosest *out)
++{
++	int found = 0;
++	int32_t best_margin = 0;
++
++	if (out == (struct K60TzClosest *)0) {
++		return -1;
++	}
++	out->milli_c = K60TL_NO_READING;
++	out->margin_mc = 0;
++	out->slot = 0;
++	out->level = 0;
++	out->next_tier = 0;
++	if (milli_c == (const int32_t *)0) {
++		return -1;
++	}
++	for (unsigned slot = 0; slot < K60TzZones; slot++) {
++		const K60TzZone *zone = &k60tz_table[slot];
++		const int32_t mc = milli_c[slot];
++		unsigned level;
++		int32_t margin;
++
++		if (mc == K60TL_NO_READING) {
++			continue;
++		}
++		level = k60tz_zone_level(0u, mc, slot, (uint8_t *)0);
++		if (level >= zone->tiers) {
++			margin = -1;
++		} else {
++			margin = zone->trips[level].milli_c - mc;
++		}
++		if (found == 0 || margin < best_margin) {
++			found = 1;
++			best_margin = margin;
++			out->milli_c = mc;
++			out->margin_mc = margin;
++			out->slot = (uint8_t)slot;
++			out->level = (uint8_t)level;
++			out->next_tier = (uint8_t)(level < zone->tiers ? level : zone->tiers - 1u);
++		}
++	}
++	return found != 0 ? 0 : -1;
 +}
 diff --git a/bsd/dev/pong_thermal_pm.cpp b/bsd/dev/pong_thermal_pm.cpp
 new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/bsd/dev/pong_thermal_pm.cpp
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,116 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* Copyright (c) 2026, UniXNU contributors. */
 +/* Pong SM8475 thermal pressure level: the publisher.
@@ -444,11 +700,14 @@ index 0000000..0000000
 + * it into the XNU tree verbatim as bsd/dev/pong_thermal_pm.cpp;
 + * scripts/check-thermal-kernel-patch.py fails when the two copies differ.
 + *
-+ * What it does: hands the board's pressure level (nominal / moderate / heavy /
-+ * trapping, computed by bsd/dev/pong_thermal_level.c) to the one thermal entry
-+ * point this kernel already has, IOPMrootDomain::systemPowerEventOccurred, under
-+ * the key kIOPMThermalLevelWarningKey. It installs no actuator and programs no
-+ * clock: docs/research/thermal/TRIP-DESIGN.md section 3.5 is the decision record.
++ * What it does: hands the board's own thermal level (0..3, computed by
++ * bsd/dev/pong_thermal_zones.c from the passive trips of the board DTS) to the one
++ * thermal entry point this kernel already has,
++ * IOPMrootDomain::systemPowerEventOccurred, under the key
++ * kIOPMThermalLevelWarningKey. It installs no actuator and programs no clock:
++ * docs/research/thermal/TRIP-DESIGN.md section 3.5 is the decision record, and
++ * docs/research/thermal/LEVEL-MAP.md section 4 records why the published number is
++ * the board's ladder and not one of Apple's OSThermalPressureLevel values.
 + *
 + * Why this is C++: systemPowerEventOccurred takes an OSSymbol and an OSObject,
 + * which only exist in C++. bsd/conf/files had no .cpp before this file; the
@@ -500,11 +759,11 @@ index 0000000..0000000
 +static unsigned int pong_thermal_pm_last_level;
 +static int pong_thermal_pm_have_last;
 +
-+/* The level-to-value table lives in bsd/dev/pong_thermal_level.c (k60tl_platform_value),
-+ * where scripts/tests/test-k60-thermal-level.c can check it on the host against
-+ * iokit/IOKit/pwr_mgt/IOPM.h:763-772. Only the two platform values, 100 and 110, move
-+ * IOPMrootDomain::thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134); the
-+ * others are recorded in the "Power Status" dictionary and broadcast (:8172-8188). */
++/* The value published is the level itself, 0..3. IOPMrootDomain records every value under
++ * the key in the "Power Status" dictionary and broadcasts it (:8172-8188), but only 100 and
++ * 110 move thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134). 0..3 are
++ * therefore pure telemetry: this phase reports, it does not act. LEVEL-MAP.md section 4
++ * records what each Apple value means and what it would take to publish one of them. */
 +
 +/* Called once per sampling round by the worker in bsd/dev/pong_thermal.c.
 + *
@@ -532,7 +791,7 @@ index 0000000..0000000
 +			return;
 +		}
 +	}
-+	value = (uint32_t)k60tl_platform_value(level);
++	value = (uint32_t)level;
 +	/* withNumber hands back a retained object; the root domain keeps its own
 +	 * reference in the "Power Status" dictionary (:8172), so this one is dropped
 +	 * right after the call, as overload one does (:8103-8116). */
@@ -758,7 +1017,7 @@ new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/bsd/sys/pong_thermal_level.h
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,80 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* Copyright (c) 2026, UniXNU contributors. */
 +/* The board's temperatures as macOS's thermal pressure level (OSThermalPressureLevel).
@@ -829,16 +1088,116 @@ index 0000000..0000000
 + * NULL for a stateless query. */
 +unsigned k60tl_step(K60TlState *state, const int32_t *milli_c);
 +
-+/* The number IOPMrootDomain understands for this level (iokit/IOKit/pwr_mgt/IOPM.h:763-772):
-+ * nominal 0, moderate 5, heavy 100, trapping 110. Only 100 and 110 move
-+ * IOPMrootDomain::thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134); 0 and 5 are
-+ * recorded in the "Power Status" dictionary and broadcast, but change no policy. That
-+ * asymmetry is Apple's and it is why heavy, not moderate, is the first level with an effect.
-+ * bsd/dev/pong_thermal_pm.cpp hands this number to systemPowerEventOccurred under
-+ * kIOPMThermalLevelWarningKey; keeping the numbers here is what makes them host-testable. */
-+unsigned k60tl_platform_value(unsigned level);
++/* This module stops at the level. What the number published to IOPMrootDomain is, and why
++ * it is the board's own 0..3 ladder rather than one of Apple's OSThermalPressureLevel
++ * values, is docs/research/thermal/LEVEL-MAP.md section 4: the zone ladder of
++ * bsd/dev/pong_thermal_zones.c is what bsd/dev/pong_thermal_pm.cpp hands to
++ * systemPowerEventOccurred. */
 +
 +#ifdef __cplusplus
 +}
 +#endif
 +#endif /* K60_THERMAL_LEVEL_H */
+diff --git a/bsd/sys/pong_thermal_zones.h b/bsd/sys/pong_thermal_zones.h
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/bsd/sys/pong_thermal_zones.h
+@@ -0,0 +1,97 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* The board DTS's own thermal ladder: one zone per tsens sensor, and the levels each
++ * zone can reach.
++ *
++ * The board declares 154 trip points under /thermal-zones (mondrian.dts:6643-8422); 146
++ * are passive and 8 are active. Every zone that reads a tsens sensor directly raises its
++ * own short ladder of passive trips: the thermal-engine and thermal-hal copies, the reset
++ * monitor, and for the CPU clusters the emergency shutdown trip. This module keeps that
++ * ladder, one row per sensor in the order the driver samples them (tsens0 idx 0..15 then
++ * tsens1 idx 0..15), so the level it reports is the board's own number and not a table
++ * invented here.
++ *
++ * What a level means (docs/research/thermal/LEVEL-MAP.md section 3):
++ *   0  no passive trip of this zone is crossed
++ *   1  the zone's lowest passive trip is crossed
++ *   2  its second one is crossed
++ *   3  its third one is crossed (zones with two trips stop at 2)
++ * A crossed trip is released only below its temperature minus the DT hysteresis, the
++ * thermal core's rule; k60tl_input_level in pong_thermal_level.h does that arithmetic and
++ * is reused here rather than duplicated.
++ *
++ * The board level is the highest zone level. Two kinds of DTS zone are deliberately not
++ * in the table: the 25 zones that read the QMI proxy (thermal-sensors = <0x5c ...>,
++ * phandle 0x5c is qmi-ts-sensors at mondrian.dts:16774), whose temperatures come from the
++ * modem and are not in any window this kernel maps; and the two zones whose "trips" are
++ * not temperatures at all (mx-pe, passive 1/2/3 with status = "disabled" at
++ * mondrian.dts:8336; isense_trim, passive 2 at :8397). LEVEL-MAP.md section 2 lists both.
++ *
++ * The same file ships twice: as this master copy and as bsd/sys/pong_thermal_zones.h
++ * inside patches/xnu/0617-k60-thermal-tsens.patch, where the level header is
++ * bsd/sys/pong_thermal_level.h. scripts/check-thermal-kernel-patch.py fails when the two
++ * copies differ. */
++#ifndef K60_THERMAL_ZONES_H
++#define K60_THERMAL_ZONES_H
++
++#include <stdint.h>
++#if defined(KERNEL)
++#include <sys/pong_thermal_level.h>
++#else
++#include "K60ThermalLevel.h"
++#endif
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* One row per sampled sensor, in the driver's sensor order. */
++enum { K60TzZones = 32, K60TzTiers = 3 };
++
++/* The passive trips of one zone ascending by temperature, each with the DT hysteresis.
++ * A zone with fewer trips than K60TzTiers leaves the rest at zero and reports tiers. */
++typedef struct {
++	uint8_t tiers;
++	K60TlTrip trips[K60TzTiers];
++} K60TzZone;
++
++/* Trips crossed per zone at the last step, so a trip is only released below its
++ * temperature minus hysteresis. */
++typedef struct {
++	uint8_t crossed[K60TzZones];
++} K60TzState;
++
++/* The zone closest to its next trip. The sampler logs this, because a boot at 45 C still
++ * has to show how far the board is from level 1 (LEVEL-MAP.md section 5.2). */
++struct K60TzClosest {
++	int32_t milli_c;   /* the reading */
++	int32_t margin_mc; /* mC left before the next trip; -1 when every trip is crossed */
++	uint8_t slot;      /* sensor slot 0..31 */
++	uint8_t level;     /* that zone's level now */
++	uint8_t next_tier; /* index into the zone's trips, clamped to tiers - 1 */
++};
++
++/* The row of one sensor and the board DTS's name for its zone ("cpu-1-0", "ddr", ...).
++ * NULL and "?" for an out-of-range slot. */
++const K60TzZone *k60tz_zone(unsigned slot);
++const char *k60tz_name(unsigned slot);
++
++/* The level of one zone given how many of its trips were crossed before, with the new
++ * count in *crossed_after (may be NULL). A missing reading gives level 0 and forgets the
++ * crossings, so an unreadable sensor can neither raise the level nor hold it up. */
++unsigned k60tz_zone_level(uint8_t crossed_before, int32_t milli_c, unsigned slot,
++    uint8_t *crossed_after);
++
++/* One sampling round over all 32 zones; milli_c[slot] is that sensor's reading or
++ * K60TL_NO_READING. Returns the board level 0..3. state may be NULL for a stateless
++ * query. */
++unsigned k60tz_step(K60TzState *state, const int32_t *milli_c);
++
++/* The zone closest to its next trip. Returns 0 and fills *out when at least one sensor has
++ * a reading, -1 otherwise. */
++int k60tz_closest(const int32_t *milli_c, struct K60TzClosest *out);
++
++#ifdef __cplusplus
++}
++#endif
++#endif /* K60_THERMAL_ZONES_H */

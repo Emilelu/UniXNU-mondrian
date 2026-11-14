@@ -16,21 +16,23 @@
 | 依赖 macOS 侧 | 是（归档由 Xcode SDK 编） | 否（CLT clang 即可，P-170） |
 
 所以 in-tree 路线是「先让 32 路读数在真机上可见」的最短路径：它不需要 Lead 级的三处集成，
-也不需要 iPhoneOS SDK。压力等级与 `mTPL` 发布仍归 kext 路线。
+也不需要 iPhoneOS SDK。压力等级已在这一层发布（§3）；`mTPL` 仍归 kext 路线。
 
-## 2 补丁结构（`patches/xnu/0617-k60-thermal-tsens.patch`，7 段）
+## 2 补丁结构（`patches/xnu/0617-k60-thermal-tsens.patch`，9 段）
 
 | 段 | 目标 | 内容 | hunk 头 |
 | --- | --- | --- | --- |
-| 1 | `bsd/conf/files` | 在 `bsd/dev/pong_buttons.c\t\t\tstandard` 之后插三行：`pong_thermal.c`、`pong_thermal_level.c`、`pong_thermal_pm.cpp` | `@@ -400,6 +400,9 @@` |
+| 1 | `bsd/conf/files` | 在 `bsd/dev/pong_buttons.c\t\t\tstandard` 之后插四行：`pong_thermal.c`、`pong_thermal_level.c`、`pong_thermal_zones.c`、`pong_thermal_pm.cpp` | `@@ -400,6 +400,10 @@` |
 | 2 | `bsd/kern/bsd_init.c` | 在 `\t\tpong_buttons_init();` 之后插 `K60_PONG_LOCAL` 注释 + `extern void pong_thermal_init(void);` + 调用 | `@@ -1161,6 +1161,10 @@` |
-| 3 | `bsd/dev/pong_thermal.c` | 新文件，248 行（母本 `drivers/PongThermal/pong_thermal.c` 的逐字副本） | new file mode 100644 |
-| 4 | `bsd/dev/pong_thermal_level.c` | 新文件，145 行（母本 `K60ThermalLevel.c`：trip 表与等级算术） | new file mode 100644 |
-| 5 | `bsd/dev/pong_thermal_pm.cpp` | 新文件，113 行（母本 `pong_thermal_pm.cpp`：发布层） | new file mode 100644 |
-| 6 | `bsd/sys/pong_thermal.h` | 新文件，198 行（母本 `K60ThermalKernel.h`） | new file mode 100644 |
-| 7 | `bsd/sys/pong_thermal_level.h` | 新文件，83 行（母本 `K60ThermalLevel.h`） | new file mode 100644 |
+| 3 | `bsd/dev/pong_thermal.c` | 新文件，312 行（母本 `drivers/PongThermal/pong_thermal.c` 的逐字副本） | new file mode 100644 |
+| 4 | `bsd/dev/pong_thermal_level.c` | 新文件，131 行（母本 `K60ThermalLevel.c`：五域等级算术） | new file mode 100644 |
+| 5 | `bsd/dev/pong_thermal_zones.c` | 新文件，199 行（母本 `K60ThermalZones.c`：DTS 自己的 32 个 zone 的被动档） | new file mode 100644 |
+| 6 | `bsd/dev/pong_thermal_pm.cpp` | 新文件，116 行（母本 `pong_thermal_pm.cpp`：发布层） | new file mode 100644 |
+| 7 | `bsd/sys/pong_thermal.h` | 新文件，198 行（母本 `K60ThermalKernel.h`） | new file mode 100644 |
+| 8 | `bsd/sys/pong_thermal_level.h` | 新文件，80 行（母本 `K60ThermalLevel.h`） | new file mode 100644 |
+| 9 | `bsd/sys/pong_thermal_zones.h` | 新文件，97 行（母本 `K60ThermalZones.h`：zone 表的数据结构） | new file mode 100644 |
 
-第 5 段是**本树 `bsd/conf/files` 里第一个 `.cpp`**。构建系统本来就支持：`makedefs/MakeInc.rule:423-428`
+第 6 段是**本树 `bsd/conf/files` 里第一个 `.cpp`**。构建系统本来就支持：`makedefs/MakeInc.rule:423-428`
 的 P_RULE 注释写明「generate .co from .cp or .cpo from .cpp」，`SETUP/config/mkmakefile.c:252-254`
 处理 `%CXXFILES` 时只比较文件名末字符，`bsd/conf/Makefile.template:72` 就有 `%CXXFILES` 钩子
 （与 `iokit/conf/Makefile.template:54` 同构，`iokit/conf/files:13-22` 已有 10 条 `.cpp`）。
@@ -62,7 +64,7 @@ build-strict 走的 unixnu 路径根本不跑该 hook。结果 `git apply` 在 `
 因此 hunk 上下文必须精确 —— 本地验证方式：在一棵「已打完 229 个补丁」的树上跑
 `git apply --check`（本补丁 2026-11-14 实测 `APPLY_CHECK_OK`）。
 
-## 3 驱动本体（`bsd/dev/pong_thermal.c`，232 行）
+## 3 驱动本体（`bsd/dev/pong_thermal.c`，312 行）
 
 ```
 pong_thermal_init()                        // bsd_init.c 在 pong_buttons_init() 之后调用
@@ -78,7 +80,9 @@ pong_thermal_worker()                      // 1 s 一轮
   ├─ assert_wait_deadline((event_t)pong_thermal_controllers, THREAD_UNINT, deadline)
   ├─ thread_block(THREAD_CONTINUE_NULL)
   ├─ 每轮重采样；任一分域温度变化 ≥ 1 ℃ 或满 30 轮时打一行 little/big/gpu/npu/ddr
-  └─ level = k60tl_step(&state, domains); pong_thermal_pm_publish(level)   // 每轮都调
+  ├─ level = k60tl_step(&state, domains)                 // 五域等级（粗视图，只进日志）
+  ├─ zone_level = k60tz_step(&zone_state, milli_c)       // DTS 32 zone 的等级 0..3（发布这个）
+  └─ pong_thermal_pm_publish(zone_level)                 // 每轮都调
 ```
 
 发布层（`bsd/dev/pong_thermal_pm.cpp`，C++，本树 `bsd` 的第一个 `.cpp`）：
@@ -88,7 +92,7 @@ pong_thermal_pm_publish(level)             // 由 worker 每轮调用，不在 b
   ├─ 与上次发布过的等级相同 → 直接返回（去重，等级不变不打扰 root domain）
   ├─ root = IOService::getPMRootDomain();  NULL → 返回（此时 IOKit 还没起来，不是错误）
   ├─ key 懒创建一次：OSSymbol::withCStringNoCopy(kIOPMThermalLevelWarningKey)
-  ├─ value = k60tl_platform_value(level)   // 0 / 5 / 100 / 110
+  ├─ value = (uint32_t)level               // 0..3，板子自己的档位，见下表
   ├─ number = OSNumber::withNumber(value, 32)
   ├─ root->systemPowerEventOccurred(key, number)   // 唯一的 thermal 入口
   └─ number->release(); printf("PongThermal: level %s (%u) published as %s=%u")
@@ -99,17 +103,21 @@ pong_thermal_pm_publish(level)             // 由 worker 每轮调用，不在 b
 `gRootDomain` 由 `IOPMrootDomain::start()` 赋值（`iokit/Kernel/IOPMrootDomain.cpp:1519`、`:1526`），
 所以 init 那一刻 `getPMRootDomain()` 必然是 NULL。第一次成功的发布就是发布层真正上线的时刻。
 
-**等级到平台值的映射**（`k60tl_platform_value`，在 `bsd/dev/pong_thermal_level.c` 里，可被 host 测试）：
+**发布的数值是板子自己的档位 0..3，不再映射到 Apple 的 0/5/100/110**（决策与理由见
+`LEVEL-MAP.md` §4）。`0..3` 直接来自 `bsd/dev/pong_thermal_zones.c` 里 DTS 的被动 trip：
+32 个 tsens zone 各带 2 或 3 档被动 trip（同温度的重复 trip 去重后），最高 zone 胜出。
 
-| 等级 | 平台值 | 常量 | `thermalWarningState` |
+| 板子档位 | 含义 | 发出去的值 | `thermalWarningState` |
 | --- | --- | --- | --- |
-| nominal | 0 | `kIOPMThermalLevelNormal` | 0 |
-| moderate | 5 | `kIOPMThermalLevelDanger` | 0（只进 "Power Status" 字典并广播） |
-| heavy | 100 | `kIOPMThermalLevelWarning` | **1** |
-| trapping | 110 | `kIOPMThermalLevelTrap` | **1** |
+| 0 | 没有任何被动 trip 被越过 | 0 | 0 |
+| 1 | 某个 zone 的最低温被动 trip 被越过 | 1 | 0（只进 "Power Status" 字典并广播，`IOPMrootDomain.cpp:8172-8188`） |
+| 2 | 某个 zone 的第二档被越过 | 2 | 0（同上） |
+| 3 | 某个 zone 的第三档被越过 | 3 | 0（同上） |
 
-只有 100 与 110 会改状态机（`IOPMrootDomain.cpp:8133-8134`），5 只被记录并广播（`:8172-8188`）。
-这个不对称是 Apple 的，不是我们选的；所以「第一个有实际效果的等级」是 heavy 而不是 moderate。
+只有 100 与 110 会改状态机（`IOPMrootDomain.cpp:8133-8134`），而这两个值要求「CPU 到 110/115/125℃」
+与「GPU/NPU 到 95℃、DDR 到 90℃」同时成立；DTS 的档位彼此并不齐（95℃ 在 GPU 是第 1 档、在 CPU 只是第 2 档；
+110℃ 在 CPU 是第 1 档、在 GPU 是第 3 档），硬映射就得在本层发明一条跨传感器的混合规则。
+所以这一版发 0..3：**纯遥测，不触发任何动作**。`LEVEL-MAP.md` §4 记录了什么条件下才值得改发 100/110。
 **这一层只上报**：不装执行器、不写时钟、不碰 trip —— 决策记录见 `TRIP-DESIGN.md` §3.5。
 
 寄存器语义与 `06` 篇完全一致（同一张 32 项表、同一套解码）：
@@ -147,11 +155,13 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
 | 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (11 checks)` |
 | 补丁可应用性 | 在已打完 229 个补丁的树上 `git apply --check` | `APPLY_CHECK_OK` |
 
-`check-thermal-kernel-patch.py` 做 11 项：从 patch 重建五个新文件并与 `drivers/PongThermal/`
-母本逐字节比对；series 登记且为最后一行；`conf/files` 三条登记（含 `.cpp` 保留扩展名）；
+`check-thermal-kernel-patch.py` 做 14 项：从 patch 重建七个新文件并与 `drivers/PongThermal/`
+母本逐字节比对；series 登记且为最后一行；`conf/files` 四条登记（含 `.cpp` 保留扩展名）；
 `bsd_init.c` 的 extern 与调用都在；母本里没有「经映射指针的写」；发布层用的是
-`systemPowerEventOccurred` + `kIOPMThermalLevelWarningKey` + `getPMRootDomain`，且没有
-`setFrequency` / `ml_io_map` / MSR 写 / trip 写（即没有偷偷变成执行器）。任何一项不成立就退出非零。
+`systemPowerEventOccurred` + `kIOPMThermalLevelWarningKey` + `getPMRootDomain`、发的就是 level 本身，
+且没有 `setFrequency` / `ml_io_map` / MSR 写 / trip 写（即没有偷偷变成执行器）；zone 表恰好 32 行、
+每行档数 2 或 3、温度与滞回递增、tag 是 `tsens<控制器>[<索引>]`、不含 `mx-pe` 与 `isense_trim`
+（这两个 zone 的 trip 不是温度）。任何一项不成立就退出非零。
 
 ## 5 仍未完成
 
@@ -164,7 +174,15 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `_pong_thermal_controllers` 五个符号；payload kernel sha256 `827797e6ae11174908c3c161b67a1c30614b8fb6fbabf0f1b4675f1eaebe935e`，
    boot.img sha256 `09a38cb7085eef1aa97bcf8810b5b456906dbc524cd21349638e8d51a3c952f1`，
    manifest `/mnt/e/k60-work/artifacts/thermal-20261114c/build-manifest.json`。
-2. **从未上机**：`SROT_HW_VER`/`SROT_CTRL` 的现场值、32 路 `VALID` 原始字都还没有。
+2. ~~**从未上机**~~ **已上机（2026-11-15 00:39，`thermal-20261114f`）**：
+   `/mnt/e/k60-work/evidence/usblog-20261115-003922/console.log` 里有控制器行
+   `PongThermal: tsens0 tm=0xc263000 srot=0xc222000 ver=2.8.0 ctrl=0x9d67fff9 enabled=1`（行 215）
+   与 `tsens1 …`（行 225）、31 行传感器读数（40–43℃）、208 行五域温度行（随负载从 41–45℃ 升到 56℃），
+   以及 1 行 `PongThermal: level nominal (0) published as Thermal_Level_Warning=0`（行 340）。
+   两个缺口要下一轮复核：`tsens0[3] cpuss-2 zone27` 这一行在 console 里没有单独出现
+   （`grep -a cpuss-2` 零命中，可能是该路无有效读数、也可能是串口吞行）；
+   现场离最低档 90℃ 还差 34℃，所以 level 全程 nominal —— 这正是 `LEVEL-MAP.md` §5 要用
+   `pong_thermal_bias` 验证 1/2/3 三档的理由。
 3. ~~**没有压力等级**~~ **已有发布层，且已进内核**：三档压力等级经 `IOPMrootDomain::systemPowerEventOccurred`
    发布（`bsd/dev/pong_thermal_pm.cpp`，键 `kIOPMThermalLevelWarningKey`）。
    `build-strict.sh thermal-20261114f`（2026-11-15 00:17）跑通全链：`kernel.macho` 54,173,696 B、

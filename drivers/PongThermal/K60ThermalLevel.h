@@ -68,14 +68,11 @@ unsigned k60tl_input_level(unsigned crossed_before, int32_t milli_c,
  * NULL for a stateless query. */
 unsigned k60tl_step(K60TlState *state, const int32_t *milli_c);
 
-/* The number IOPMrootDomain understands for this level (iokit/IOKit/pwr_mgt/IOPM.h:763-772):
- * nominal 0, moderate 5, heavy 100, trapping 110. Only 100 and 110 move
- * IOPMrootDomain::thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134); 0 and 5 are
- * recorded in the "Power Status" dictionary and broadcast, but change no policy. That
- * asymmetry is Apple's and it is why heavy, not moderate, is the first level with an effect.
- * bsd/dev/pong_thermal_pm.cpp hands this number to systemPowerEventOccurred under
- * kIOPMThermalLevelWarningKey; keeping the numbers here is what makes them host-testable. */
-unsigned k60tl_platform_value(unsigned level);
+/* This module stops at the level. What the number published to IOPMrootDomain is, and why
+ * it is the board's own 0..3 ladder rather than one of Apple's OSThermalPressureLevel
+ * values, is docs/research/thermal/LEVEL-MAP.md section 4: the zone ladder of
+ * bsd/dev/pong_thermal_zones.c is what bsd/dev/pong_thermal_pm.cpp hands to
+ * systemPowerEventOccurred. */
 
 #ifdef __cplusplus
 }

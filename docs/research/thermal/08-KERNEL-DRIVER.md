@@ -127,6 +127,18 @@ PongThermal: little=60000 big=67000 gpu=53000 npu=49000 ddr=52000 mC
 结论：这些都不是补丁或驱动的问题，而是「本地工作树尚未提交 + 构建输入没指对」造成的。
 提交并重新同步 `K60_DEVICE_INPUT` 后重跑即可。
 
+### 6.1 修完上面这批之后又撞到的四个坑（同样与驱动代码无关）
+
+| 现象 | 根因 | 修法 |
+| --- | --- | --- |
+| `unixnu: XNU patch …/0617-k60-thermal-tsens.patch: git failed (1): error: patch failed: bsd/conf/files:406` | 第一段 hunk 锚在 `bsd/dev/pong_fat.c`，那行是 `K60_CONF_FILES_HOOK`（`build-xnu-4k-baseline.sh:11-19`）在 format-1 路径追加的；build-strict 走 unixnu，不跑该 hook | 改锚到 `bsd/dev/pong_buttons.c`（series 内补丁确实写入的行），`git apply --check` 通过 |
+| `feeds.toml needs a source with kind = "soc" and name = "sm8475"` | `scripts/sync-device-input.py` 不复制 `feeds.toml` | `cp /opt/k60/trees/usb-cdc-mainline/device/feeds.toml /opt/k60/trees/thermal-device/` |
+| `bash: …/scripts/build-battery-archive.sh: No such file or directory` | 从 `lead-out` 复制的 `.config` 里 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y` | 删 `.config` 后 `unixnu defconfig` 重生成（§7 第 2 步） |
+| `FileNotFoundError: …/thermal-device/.cache/firmware/k60-gpu/gmu_gen70000.bin` | `sync-device-input.py` 也不复制 `.cache/firmware`（GPU 固件由 `build-pong-adreno-platform-linux.py:91` 读取） | `rsync -a /opt/k60/trees/usb-cdc-mainline/device/.cache/firmware/ /opt/k60/trees/thermal-device/.cache/firmware/`（152 KB） |
+
+这四条都是「自建构建输入目录比共享目录少了非仓库内容」这一类问题。下次从零建目录时，
+`feeds.toml` 与 `.cache/firmware/` 要一起拷，否则会在链接前十几分钟才失败。
+
 ## 7 复现命令
 
 ```bash

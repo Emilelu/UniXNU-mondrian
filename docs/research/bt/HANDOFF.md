@@ -104,16 +104,20 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
    (b) `scripts/build-strict.sh` 增加 `--gpu-addon <file>` 并转发给 `unixnu build payload`，同时写进 manifest 的 `components`——精确 diff 见 `S4-SPEC.md` §5.3；
    (c) `.gitignore` 给 `firmware/bluetooth/manifest.json` 开否定规则（只有 bytes+sha256，可以入库）——见 `S4-SPEC.md` §5.4。
    固件源是 `E:/k60-work/firmware/qca6490-bt`（113 文件 / 1,063,407 B），白名单筛出 106 条 / 1,022,742 B，容器 1,027,584 B。
-10. **命令行门禁要补两个参数名（Lead scope）**：`scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`
-    （该文件 :44-48）目前是 `… "k60bt", "k60bt_stage", "k60bt_warm", …`，没有本阶梯用的 `k60bt_step`
-    与 `k60bt_delay`。所以 `bt-s1c-a1…a5-20261114c` 这五份**长度合规（596 B）但会被该门禁拒**
-    （实测：`image-arg-audit: REFUSED — argument k60bt_step is not in board.toml kernel_args and is not a
-    declared addition`）。把两个名字加进 `ALLOWED_ADDITIONS` 后，五份全部 `OK (31 arguments, 596 bytes)`。
-    已用一份只加这两个名字的 gate 副本（`/tmp/gateiso/g.py`）实测：`bt-s1c-a1…a5-20261114c` 五份全部
-    `image-arg-audit: OK (31 arguments, 596 bytes)`。
-    同一处注释要求「每个名字都要写进 `docs/engineering/BOOT-ARGS.md`」，而该文件目前**没有任何 `k60bt` 条目**
-    （`grep -n k60bt docs/engineering/BOOT-ARGS.md` → 空），五个 `k60bt*` 名字需要一起补上文档。
-11. **把 `origin/main` 合进 `feat/bt-research`（Lead scope）**：main 比本分支多 4 个提交
+10. **命令行门禁的两个参数名 —— 本线已自行补齐（2026-11-14 23:22，commit `7d01f9e`）**：
+    Lead 在 `295b44a` 里补了 `k60bt_delay`/`k60bt_step`/`k60bt_warm` 三条 BOOT-ARGS 文档，并明确「剩下的你补」。
+    本线补的两处是：(a) `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS` 增加 `"k60bt_step", "k60bt_delay",`
+    （现在在 :48）；(b) `docs/engineering/BOOT-ARGS.md` 补 `k60bt`（总线开关，`0500-k60-bt-qbt-new-files.patch:1221`）
+    与 `k60bt_stage`（默认已是 1，阶梯镜像应省略以省 17 B）两行一览 + 两段逐个说明。
+    实测：`bt-s1c-a1-20261114c` → `image-arg-audit: OK (31 arguments, 596 bytes)`，
+    `bt-s4a-20261114c` → `OK (30 arguments, 583 bytes)`。加名字前它是
+    `REFUSED — argument k60bt_step is not in board.toml kernel_args and is not a declared addition`。
+    **为什么 k60bt_stage 要从阶梯里删掉**：`qbt_k60.c` 的 `qbt_k60_start()` 先置 `k60.stage = 1` 再解析
+    `k60bt_stage`，所以 `k60bt_stage=1` 是纯冗余的 17 B；607 B 上限下它和 `k60bt_step` 不能共存。
+11. ~~**把 `origin/main` 合进 `feat/bt-research`（Lead scope）**~~ —— **本线已自行完成（2026-11-14 22:0x，
+    merge commit `b29726d`，之后又 rebase 到 `f02acff`/current `main`）**。冲突只有一处
+    `scripts/build-strict.sh`（两边都在给 payload 步转发 `--kernel-arg`），按 main 的 `PAYLOAD_ARGS` 形式解决。
+    原文保留供追溯：main 比本分支多 4 个提交
     （`90d8271` merge feat/gate-fixes、`3f55e32`、`2050064`、`7fa8110`，含 `scripts/check-image-args.py`）。
     本地 `git merge origin/main` 在 `docs/engineering/PITFALLS.md`、`docs/engineering/RULES.toml`、
     `docs/engineering/TREE-OWNERS.toml`（add/add）与 `scripts/sync-device-input.py` 上冲突——这四处都是

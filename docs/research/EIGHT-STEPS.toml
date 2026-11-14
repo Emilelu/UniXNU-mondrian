@@ -433,7 +433,7 @@ artifact_check = "不适用：本步验证的是纯算术，产物里没有可�
 
 [hardware.thermal]
 status = "planned"
-parked_why = "第二阶段（2026-11-14）已写出只读驱动与主机单测并通过，但从未进内核、从未上机；⑦⑧ 需 Lead 批准后才能开"
+parked_why = "第二阶段（2026-11-14）已写出只读驱动、压力等级与发布 mTPL 的 IOKit 服务，全部离线编译并核验符号，但产物没有内核链接行、没有启动钩子、ADT 里没有 tsens 节点，也从未上机；⑦⑧ 需 Lead 批准后才能开"
 why = "热管理 / tsens-v2（AP 侧 2 个控制器 × 16 个传感器 = 32 个，另有 QMI 远端 25 个热区不可达）"
 
 [hardware.thermal.step.same_model]
@@ -456,7 +456,7 @@ catalog_result = "UniXNU/components.toml 的 25 个组件里没有任何 thermal
 
 [hardware.thermal.step.plan]
 done = false
-evidence = "改动清单已落地为代码（docs/research/thermal/03-REVERSE.md §5 的 13 条复用清单 + 04 篇 §10 的对应关系）：新增 drivers/PongThermal/K60Tsens.h 与 K60Tsens.c，接口是纯函数 k60tsens_status_to_mc / k60tsens_decode / k60tsens_decode_hw_ver / k60tsens_ctrl_enabled 与 MMIO 读 k60tsens_read / k60tsens_read_controller / k60tsens_trdy，外加 32 项板级表 k60tsens_sensor_table；日志格式定为每传感器一行 \"tsens<ctrl>[<idx>] <name> <mC> flags=0x<..>\"（与同族 ThermalProbe.cpp:195-224 的采样循环同构）。仍未 done：与 IOPMrootDomain 压力通知的对接只完成了数据与算术那一半 —— drivers/PongThermal/K60ThermalLevel.{h,c} 把 32 个传感器映射成 5 个域（little/big/gpu/npu/ddr）并按各域 trip 算出 OSThermalPressureLevel，阈值逐条取自本板 DT（cpu 110/10、115/5、125/1；gpu 95/5；npu 95/5；ddr 90/5，行号见 docs/research/thermal/05-PRESSURE-LEVEL.md §2），但发布 mTPL 的 IOKit 服务（AppleSMCSensorDispatcher + user client）尚未写；且 XNU 侧 IODeviceMemory 映射代码按 Lead 边界留到 ⑦⑧，故 ⑤ 只算「接口定稿」不算完成。"
+evidence = "改动清单已落地为代码（docs/research/thermal/03-REVERSE.md §5 的 13 条复用清单 + 04 篇 §10 的对应关系）：新增 drivers/PongThermal/K60Tsens.h 与 K60Tsens.c，接口是纯函数 k60tsens_status_to_mc / k60tsens_decode / k60tsens_decode_hw_ver / k60tsens_ctrl_enabled 与 MMIO 读 k60tsens_read / k60tsens_read_controller / k60tsens_trdy，外加 32 项板级表 k60tsens_sensor_table；日志格式定为每传感器一行 \"tsens<ctrl>[<idx>] <name> <mC> flags=0x<..>\"（与同族 ThermalProbe.cpp:195-224 的采样循环同构）。仍未 done：与 IOPMrootDomain 压力通知的对接只完成了数据与算术那一半 —— drivers/PongThermal/K60ThermalLevel.{h,c} 把 32 个传感器映射成 5 个域（little/big/gpu/npu/ddr）并按各域 trip 算出 OSThermalPressureLevel，阈值逐条取自本板 DT（cpu 110/10、115/5、125/1；gpu 95/5；npu 95/5；ddr 90/5，行号见 docs/research/thermal/05-PRESSURE-LEVEL.md §2），发布 mTPL 的 IOKit 服务已写：drivers/PongThermal/K60ThermalService.{h,c} 实现 K60ThermalSensor（两个实例，各映射 TM+SROT 只读窗口，1 s 采样 16 路）、AppleSMCSensorDispatcher（按类名供 thermalmonitord 查找，挂两个控制器并把 32 路折叠成 5 个压力域）与 AppleSMCSensorDispatcherUserClient（selector 0/1/2/3，dispatch 表 1/60/60/88 字节，initWithTask 校验 com.apple.private.smcsensor.user-access），另有 drivers/PongThermal/Info.plist 与 scripts/build-thermal-kext.sh；脚本用已构建的 XNU 树（.cache/fakeroot + .cache/xnu-work + EXPORT_HDRS + all-kpi.exp）编译并核验：159 个已定义符号、10 个必需符号全在、218 个内核导入全部在 all-kpi.exp 内、BUILD OK。仍不算完成的三处：没有内核链接行（libK60ThermalKext.a 未进 build-xnu-4k-baseline.sh 的 KERNEL_EXTRA_ARCHIVES）、k60_thermal_start 没有调用者（ArmDTPlatform 钩子未加，见 06-KEXT-SERVICE.md §6）、ADT 里没有 tsens 节点（make-pong-adt.py:235-248 只有 gic/pong-touch/pong-buttons，且 ranges 只覆盖 0x17000000+0x02000000，0xc263000 不在窗口内），因此 Info.plist 的两条 IONameMatch 现在匹配不到 nub，服务靠入口函数自建。详见 docs/research/thermal/06-KEXT-SERVICE.md §2-§6。"
 
 [hardware.thermal.step.deep]
 done = false
@@ -465,13 +465,14 @@ evidence = "不确定项尚未消解：SROT_CTRL bit0（TSENS_EN）是否被 XBL
 [hardware.thermal.step.verify]
 done = false
 local_verified = false
-evidence = "主机侧已核验、内核侧未核验，故 local_verified 保持 false。已做：scripts/tests/test-k60-thermal-tsens.c 用假 TM 窗口驱动 drivers/PongThermal/K60Tsens.c，16 组断言全过（cc -std=c11 -O1 -Wall -Wextra -I drivers/PongThermal，输出 TESTS OK 16），覆盖 0xa0+4n 字索引、12 位符号扩展（-40.0℃ 与 -10.0℃）、VALID 缺失、越界拒绝（±160.1℃ 与 -40.1℃）、每控制器 valid 计数、TM_TRDY、32 项表的长度/名字/zone 号；static_check：驱动不写任何寄存器（全文无对 volatile 的写）、不开中断、不碰 SROT。补：scripts/build-thermal-driver.sh 已把同一源文件交叉编译成 Mach-O arm64 目标文件并用 llvm-nm 验过符号（见下方 artifact_check）。补二：压力等级模块同样有两道离线核验 —— scripts/tests/test-k60-thermal-level.c 72 项断言全过（TESTS OK 72），且交叉编译成 Mach-O arm64 目标文件后 6 个必需符号全在、0 个未定义符号。仍缺：没有内核链接行、没有 IODeviceMemory 映射代码，产物不是可启动产物，故 local_verified 仍为 false。"
+evidence = "主机侧已核验、内核侧未核验，故 local_verified 保持 false。已做：scripts/tests/test-k60-thermal-tsens.c 用假 TM 窗口驱动 drivers/PongThermal/K60Tsens.c，16 组断言全过（cc -std=c11 -O1 -Wall -Wextra -I drivers/PongThermal，输出 TESTS OK 16），覆盖 0xa0+4n 字索引、12 位符号扩展（-40.0℃ 与 -10.0℃）、VALID 缺失、越界拒绝（±160.1℃ 与 -40.1℃）、每控制器 valid 计数、TM_TRDY、32 项表的长度/名字/zone 号；static_check：驱动不写任何寄存器（全文无对 volatile 的写）、不开中断、不碰 SROT。补：scripts/build-thermal-driver.sh 已把同一源文件交叉编译成 Mach-O arm64 目标文件并用 llvm-nm 验过符号（见下方 artifact_check）。补二：压力等级模块同样有两道离线核验 —— scripts/tests/test-k60-thermal-level.c 72 项断言全过（TESTS OK 72），且交叉编译成 Mach-O arm64 目标文件后 6 个必需符号全在、0 个未定义符号。补三：内核态服务也已离线核验 —— scripts/build-thermal-kext.sh 把 K60Tsens.c / K60ThermalLevel.c / K60ThermalService.cpp 三个源编成 Darwin 归档 libK60ThermalKext.a（sha256 e9ff5845a74e457e7a8ffdca743dd5fec941b2170d03d98577642f09a626e82f），159 个已定义符号、10 个必需符号全在，且 218 个未定义导入逐个在 build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/all-kpi.exp 里（P-181/P-182：验符号不验文件名）。仍缺：产物没有内核链接行（未进 KERNEL_EXTRA_ARCHIVES）、k60_thermal_start 没有调用者、ADT 里没有 tsens 节点，故 local_verified 仍为 false。"
 artifact_check = """scripts/build-thermal-driver.sh 用 /opt/unixnu-linux/llvm/bin/clang（clang 24.0.0git，-target arm64-apple-ios16.6.1，-ffreestanding）把 drivers/PongThermal/K60Tsens.c 交叉编译成 Mach-O arm64 产物并验符号（2026-11-14 构建，命令可复现）：
 - 产物：build/thermal/K60Tsens.o（sha256 6facc0fc99950163beb352b52f97118a6076b52275b1e92bd9d6b001e7edc091）、build/thermal/libK60Thermal.a（sha256 12d85ed0dd23d983509a3338000f84508ebc3e9efbd8df949e2ff69865722910），`file` 判定 Mach-O。
 - 符号：llvm-nm --defined-only 命中 10 个必需符号（_k60tsens_status_to_mc / _status_flags / _decode / _decode_hw_ver / _ctrl_enabled / _read / _read_controller / _trdy / _sensor_table / _sensor_name），llvm-nm -u 为空（0 个未定义符号，即 P-181/P-182 要求的形态）。
 - 只读数据：llvm-size -A 报 __const 512 B = 32 项 × 16 B，32 项板级表确已编入（Mach-O nlist 不带 size，故以段长代替符号大小）。
 - 段布局：__text 564 B、__cstring 250 B、__const 512 B。
 - 清单：build/thermal/thermal-manifest.json 记录 target/compiler/sha256/符号表；/build/ 已被 .gitignore 忽略，产物不入库，脚本入库。
+- 第三个产物：build/thermal-kext/libK60ThermalKext.a（sha256 e9ff5845a74e457e7a8ffdca743dd5fec941b2170d03d98577642f09a626e82f），由 scripts/build-thermal-kext.sh 用 /opt/unixnu-linux/llvm/bin/clang++ 针对已构建的本板 XNU 树（.cache/fakeroot 作 isysroot、.cache/xnu-work 作源码头、build/xnu/ios-obj/EXPORT_HDRS 作生成头）编译三个源并归档：defined 159 symbols、10 个必需符号全在、218 kernel imports 全部在 all-kpi.exp 内，清单 build/thermal-kext/thermal-kext-manifest.json。
 - 第二个产物：build/thermal/K60ThermalLevel.o（同一 clang、同一 target、同一组 -Werror 选项），llvm-nm --defined-only 命中 6 个必需符号（_k60tl_trips / _input_name / _level_name / _input_of_sensor / _input_level / _step），llvm-nm -u 为空，llvm-size -A 报 __const 248 B（四张 trip 表 + 32 字节传感器映射 + 名字表）；主机单测 scripts/tests/test-k60-thermal-level.c 输出 TESTS OK 72。
 缺：该目标文件没有内核链接行、没有 IODeviceMemory 映射代码，不是可启动产物 —— ⑦ 的"产物"仍差内核集成，故 done 与 local_verified 保持 false。"""
 

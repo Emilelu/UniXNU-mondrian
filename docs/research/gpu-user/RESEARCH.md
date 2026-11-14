@@ -68,19 +68,23 @@ clients 逐行匹配 `getprogname()`；否则 `selectedClient()` 返回 false。
 
 1. **修 `k60_metal_mkdir`**（`patches/xnu/0610-k60-metal-plugin-deploy.patch`）：
    放弃 `vnode_open(path, O_CREAT, 0755, ...)`（它建普通文件），改为
-   `copyout(path, scratch + 0xC00, strlen(path) + 1)` + `struct mkdir_args` +
+   `copyout(path, scratch + 0x400, len)` + `struct mkdir_args` +
    `mkdir(p, &args, &ret)`，EEXIST 视为成功；`k60_metal_deploy` 签名改
    `(proc_t p, user_addr_t scratch)`，由 `native_owner_data_prepare` 传入。
-   补丁行号：`:72` 签名、`:79` copyout、`:85` mkdir、`:93` deploy 签名、
-   `:117-120` 四个固定目录、`:176` 逐 `/` 前缀。
-2. **保持 kern_exec.c 净 +9 行不变**（P-155）：0610 的 hunk 仍是
-   `@@ -7824,6 +7824,15 @@`，只把 `extern` 与调用两行文本改成带参数版本
-   （`:231`/`:233`）。0614 的 hunk 上下文逐字依赖这两行，故 0614 用
-   `diff -u` 重锚（新 hunk `@@ -7833,6 +7833,19 @@`，仍 22 行）。
-3. **zzy 补丁重锚并入 series**：在「224 条中除 0610/0614 外全部应用」的树上，
-   先 `git apply -C0` 应用旧 zzy，再逐文件 `diff -u` 生成新 zzy（174 行），
-   追加到 `patches/xnu/series` 末尾（第 224 行）。它改的 `osfmk/kern/startup.c`
-   与 `bsd/miscfs/bindfs/*` 的上下文补丁都在 series:26/49/54，位于末尾之前，安全。
+   上一版 `vnode_open(O_CREAT)` 误建的普通文件会挡住 mkdir，所以同一函数先用
+   `unlink(p, &remove_args, &removed)` 清掉它并打印
+   `K60METAL removed a stale file at …`。
+   补丁行号：`:75` 签名、`:79` `scratch + 0x400`、`:88` copyout、`:99` unlink、
+   `:105` mkdir、`:113` deploy 签名、`:137-140` 四个固定目录、`:196` 逐 `/` 前缀。
+2. **保持 kern_exec.c 净 +9 行不变**（P-155）：0610 的 hunk 是
+   `@@ -7820,8 +7820,17 @@`，只把 `extern` 与调用两行文本改成带参数版本
+   （`:250`/`:252`）。0614 的 hunk 上下文逐字依赖这两行，其 hunk 为
+   `@@ -7832,6 +7832,19 @@`，行号由 `diff -u` 算出而非手写。
+3. **zzy 补丁重锚并入 series**：在「223 条中除 0610/0614 外全部应用」的树上，
+   先 `git apply -C0` 应用旧 zzy，再逐文件 `diff -u` 生成新 zzy（168 行）。
+   上游 `feat/gpu-yibiya` 合并后它落在 `patches/xnu/series:215`（0398 之后、0600 之前），
+   而它改的 `osfmk/kern/startup.c` 与 `bsd/miscfs/bindfs/*` 的上下文补丁在
+   series:26/49/54，都在它之前，故安全。
 4. **打开开关**：`board.toml` 加 `sheng-gpu-addon=1`（zzy 的唯一运行时开关，
    `patches/xnu/zzy-native-gpu-addon-mount.patch:69`），并把 `pong_metal` 从 2 改成 1
    （P-144：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:30,44` 只在 ==1 时发布
@@ -93,8 +97,10 @@ clients 逐行匹配 `getprogname()`；否则 `selectedClient()` 返回 false。
   的地址空间——这决定了 `k60_metal_deploy` 必须收 `proc_t p` 与 `scratch`。
 - `scratch` 只有 1 页（`bsd/kern/kern_exec.c:8448-8452`，
   `mach_vm_allocate_kernel(map, &scratch_addr, map_page_size, ...)`，arm64 页 16 KB）。
-  已占偏移：0x100-0x200、0x400-0x600、0x600-0x900（含 0398 的 0x400 与 zzy 的
-  0x400/0x600）。空闲安全区从 0xC00 起 → 本线用 `scratch + 0xC00`。
+  已占偏移：0x100-0x200（mount_args）、0x400（0398 的 mkdir 名字区，本线沿用）、
+  0x400/0x600（zzy 的两次 union 挂载，每次占 offset..offset+0x100+size）、
+  0x600-0x900（0600/0602 等路径与 body 区）。1 页 16 KB 内仍有 0xC00 以上的余量，
+  但本线按 0398 的同型写法复用 `scratch + 0x400`（同一步骤内串行，不重叠）。
 - 放弃 `VNOP_MKDIR` 手工 `componentname` 路线（先例 `bsd/vfs/vfs_xattr.c:1100-1185`）：
   include 依赖重、未上机验证；syscall 路线已被 0398 真机实证。
 - `PongMetalPlugin` 的 `selectedClient()` 只认 `/System/Library/Extensions` 与
@@ -109,17 +115,21 @@ clients 逐行匹配 `getprogname()`；否则 `selectedClient()` 返回 false。
 本地（不刷机）能证明的：
 
 - 干净 clone（xnu feed `1b191cb58250`）按 series 逐条 `git apply`：224/224 全过；
-  新 zzy 单独 `git apply --check` rc=0，旧 zzy 在同树 rc=1（证明重锚必要）。
+  重锚后的 zzy 单独 `git apply --check` rc=0，旧 zzy 在同树 rc=1（证明重锚必要）。
+  这套改动已随上游 `feat/gpu-yibiya` 合入 main（0610 254 行、series 224 条、zzy 在
+  `series:215`），本线不再重复携带。
 - 终态断言：`bsd/dev/k60_metal.c` 含 `mkdir(p, &args, &ret)`、不含
   `vnode_open(path, O_CREAT, 0755`；`kern_exec.c` 含
   `native_gpu_addon_prepare(p, scratch)` 与 `(void)k60_metal_deploy(p, scratch)`；
   `bindfs.h` 含 `BINDM_FORCE_ROOT`。
 - 仓库门禁：`scripts/check-patch-apply.py` ✅（P-162 四种翻车形状）；
-  `scripts/check-patch-series.py` 40 补丁净 +1708（无基线跳过）；
-  `scripts/check-boot-args.py` ✅ 30 config / 42 documented。
+  `scripts/check-boot-args.py` ✅ 30 config / 42 documented；
+  `scripts/check-metal-blob.py` ✅（P-196：容器长度必须含 body 间 `.p2align 3` 填充，
+  真机症状是 `deploy files=5/6 error=22` + `entry 5 body out of range`）。
 
 只有上机能证明的：`K60METAL deploy files=6/6 error=0`、`MTLCreateSystemDefaultDevice`
 非 nil（不再打印 `software-only platform`）、`Pong Metal: real GPU scanout worker ready status=0x0`。
+P-196 之后还要确认不再出现 `K60METAL entry 5 body out of range` 与 `removed a stale file` 的循环重试。
 
 ## ⑧ 上机（device）
 

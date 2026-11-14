@@ -1,18 +1,21 @@
 diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
-index fbdf0ef..a76fc5f 100644
+index fbdf0ef..07ff31d 100644
 --- a/bsd/dev/qbt_k60.c
 +++ b/bsd/dev/qbt_k60.c
-@@ -55,6 +55,9 @@
+@@ -55,6 +55,12 @@
  #include <vm/vm_kern.h>
  /* vm/pmap.h does not expose this one in the BSD compilation unit. */
  extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
-+/* vm/pmap.h does not expose this one in the BSD compilation unit either;
-+ * kern_trustcache.c:773 declares it the same way. */
++#if defined(__arm64__)
++/* Neither the typedef nor the prototype reaches this compilation unit;
++ * bsd/kern/kern_trustcache.c:772-773 declares both the same way. */
++typedef uint64_t pmap_paddr_t __kernel_ptr_semantics;
 +extern vm_map_address_t phystokv(pmap_paddr_t pa);
++#endif
  #else /* K60_BT_HOST_TEST: minimal host shims so this file can be syntax- and
         * unit-checked without the XNU SDK.  None of these stubs touch hardware. */
  #include <errno.h>
-@@ -184,6 +187,21 @@ static const struct k60_se_rate k60_se_rates[] = {
+@@ -184,6 +190,21 @@ static const struct k60_se_rate k60_se_rates[] = {
   * holds the verified copies; see EVIDENCE.md §4.4. */
  #define K60_BT_FIRMWARE_ROOT        "/private/var/ngpu/firmware/qca"
  
@@ -34,7 +37,7 @@ index fbdf0ef..a76fc5f 100644
  /* E-GENI-04/E-GENI-05: QUP wrapper HW version decides 32x vs 16x sampling. */
  #define K60_QUP_HW_VER_REG          0x00000004u
  #define K60_QUP_VERSION_2_5         0x20050000u
-@@ -1190,7 +1208,168 @@ static bool k60_firmware_name_ok(const char *name) {
+@@ -1190,7 +1211,168 @@ static bool k60_firmware_name_ok(const char *name) {
      return false;
  }
  
@@ -203,7 +206,7 @@ index fbdf0ef..a76fc5f 100644
  /* VFS reader for the Data-addon firmware.  Modeled on the sheng board reader
   * (BluetoothFirmware.c:25-51): vnode_open + vnode_getattr + vn_rdwr, with a
   * 4 MiB bound and a short-read check.  The Data addon must be mounted; the
-@@ -1198,6 +1377,9 @@ static bool k60_firmware_name_ok(const char *name) {
+@@ -1198,6 +1380,9 @@ static bool k60_firmware_name_ok(const char *name) {
  static int k60_bt_firmware_read(const char *name, uint8_t **data, size_t *size) {
      if (!data || !size || !name) return EINVAL;
      *data = NULL; *size = 0;
@@ -213,7 +216,7 @@ index fbdf0ef..a76fc5f 100644
      /* Runtime-first path is the verified Data-addon copy.  The Android paths
       * are fallbacks for a development build that mounts the vendor/modem
       * partition read-only; they are never required on a normal boot. */
-@@ -1849,6 +2031,9 @@ void qbt_k60_start(void) {
+@@ -1849,6 +2034,9 @@ void qbt_k60_start(void) {
       * so PM8350 S10/S11/S12, PM8350C S1 and PMR735A L7 are already on. */
      k60.warm_boot = PE_parse_boot_argn("k60bt_warm", &warm, sizeof(warm)) && warm != 0;
  #ifdef KERNEL
@@ -223,7 +226,7 @@ index fbdf0ef..a76fc5f 100644
      thread_t thread = NULL;
      if (kernel_thread_start(k60_worker, NULL, &thread) == KERN_SUCCESS)
          thread_deallocate(thread);
-@@ -1858,13 +2043,61 @@ void qbt_k60_start(void) {
+@@ -1858,13 +2046,61 @@ void qbt_k60_start(void) {
  }
  
  #ifdef K60_BT_HOST_TEST

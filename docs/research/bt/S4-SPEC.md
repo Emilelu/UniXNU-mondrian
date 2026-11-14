@@ -64,14 +64,17 @@ b'NGPUADD2' + u32 count + u32 0 + u64 total(= 24 + len(body))
 | 项 | 值 |
 |---|---|
 | 文件 | `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch`（字节相同） |
-| 大小 / 行数 | 12,776 B / 288 行，**234 增 / 1 删**，只动 `bsd/dev/qbt_k60.c` |
-| sha256 | `6a089c2525b419eb603b79228549d2c7a3630e5fa852ef2b19556ed84fd1e4e7` |
+| 大小 / 行数 | 12,877 B / 291 行，**237 增 / 1 删**，只动 `bsd/dev/qbt_k60.c` |
+| sha256 | `4d6e3c1a89b60a55cc146294ec4e9abcfac4521aed0d3787da20df5e22218b04` |
 | 接线 | `patches/xnu/series:208`（紧跟 `0509`，早于 audio 组） |
 | 依赖 | 必须在 `0500`/`0507`/`0508`/`0509` 之后（基线就是打完全系列后的 `qbt_k60.c`） |
 
 改动五处：
 
-1. `extern vm_map_address_t phystokv(pmap_paddr_t pa);`（`vm/pmap.h` 不导出，和 `kern_trustcache.c:773` 一样自己声明）。
+1. `#if defined(__arm64__)` 里 `typedef uint64_t pmap_paddr_t __kernel_ptr_semantics;` + `extern vm_map_address_t phystokv(pmap_paddr_t pa);`
+   —— `pmap_paddr_t` 的 typedef 在 `osfmk/arm/pmap_public.h:40`，被 `MACH_KERNEL_PRIVATE` 挡住，BSD 编译单元看不到，
+   所以必须像 `bsd/kern/kern_trustcache.c:772-773` 那样连 typedef 一起声明（**第一版只写了 extern，真机构建在
+   `qbt_k60.c:60: error: unknown type name 'pmap_paddr_t'` 处失败，host 测试发现不了这一类**）。
 2. 容器常量 `K60_BT_ADDON_MAGIC/HEADER/MAX_BYTES/MAX_NAME`。
 3. 纯解析器 `k60_addon_find()` + 内核装载器 `k60_bt_addon_load()` + 单条读取 `k60_bt_addon_read()`。
 4. `k60_bt_firmware_read()` **先**试 addon，再走 vnode 根（`/private/var/ngpu/firmware/qca` → `/vendor/firmware` …）。
@@ -284,7 +287,13 @@ if __name__ == '__main__':
    → `addon 1,027,584 B`（106 条 / 1,022,742 B 固件），sha256 `febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037`；
    再用同一个 `qbt_k60.c` 的 `k60_addon_find()` 逐条比对源文件字节：
    `addon check: 106 records verified, 0 bad`（另加"不存在的名字"和"坏魔数"两条否定用例）。
-4. 门禁：`check-docs.py` 绿；`check-rules.py` 在提交前只有 hard-10/hard-11/hard-33/P-165/P-166
+4. **第一次真机构建失败的教训**（2026-11-14 10:29，`bt-s4-20261114a`）：host 测试全绿，但内核构建报
+   `bsd/dev/qbt_k60.c:60:34: error: unknown type name 'pmap_paddr_t'` 与 `:1323:39: error: use of undeclared identifier 'pmap_paddr_t'`。
+   原因：`pmap_paddr_t` 的 typedef 在 `osfmk/arm/pmap_public.h:40`，被 `MACH_KERNEL_PRIVATE` 挡住；`vm/pmap.h`
+   只给了 `pmap_find_phys` 的原型。修法就是照 `kern_trustcache.c:772-773` 连 typedef 一起声明。
+   **结论：凡是从别的编译单元抄 extern，必须同时确认它用到的 typedef 在这个单元可见**；host 测试
+   （`-DK60_BT_HOST_TEST` 走的是 shim 分支）永远不会发现内核侧的 include 缺口，只有真构建能发现。
+5. 门禁：`check-docs.py` 绿；`check-rules.py` 在提交前只有 hard-10/hard-11/hard-33/P-165/P-166
    这几条"未提交/未同步构建输入"的预期红（提交并 `sync-device-input.py` 后复验）。
 
 ## 7 上机阶梯（板子回来后）

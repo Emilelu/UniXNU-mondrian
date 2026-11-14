@@ -85,6 +85,14 @@
 | C 视图挂上但 UI 库跳过 | `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0` + `Pong UI: genuine wallpaper bootstrap SKIP (native 20G81 WallpaperKit ABI unavailable)`（或其余三种 SKIP） | `half` | 视图链通了，壁纸选择没跑：ABI 不符 ⇒ 改 ui_compat 的 ABI 表；`required 7410 metadata/assets unavailable` ⇒ 资产名不匹配（对照 §3）；`manager/URL unavailable` / `bundle rejected` ⇒ WallpaperKit 侧对象构造失败。 |
 | D 全部通过但像素黑 | 无 SKIP、`submitting genuine wallpaper 7410` 与 `native wallpaper completion returned` 都在 | `success`（机器侧） | 机器判据已全过，剩下是 PosterBoard/compositing 层 —— 转 §5 与 WALLPAPER-CHAIN §2.6；像素只能靠截图确认。 |
 
+**形态 A 的结案条件（Lead m02136 裁定）**：若 `K60WALL catalogue bytes=772 resid=0 error=0` 成立、失败项**只有**第 3/4 步（两条视图 SKIP），而第 5 步已经 `submitting genuine wallpaper 7410`，判定器会额外打印一行
+
+```txt
+closure: steps 3-4 cover the bindfs overlay only; userland/ui_compat.c:690 submits 7410 from the OS window. If the screenshot shows the wallpaper, close the case -- do not build F2.
+```
+
+因为 UI 库挑壁纸读的是 **OS 窗** `/Library/Wallpaper/Stills/iPad/7410.…`，不经过 `/private/var/pong/stock-wallpaper` 这条 bindfs 视图 ⇒ 视图挂不上不代表壁纸黑。截图可见就**结案**，不要再做 F2/F4；截图仍黑才转 §3 查 UI 库分支。
+
 **无 reset 参数的正常镜像**：`Pong UI: wallpaper existing-content=1 restore-stock=0` 之后整段不出现是**正确行为**（保留用户壁纸），判定器记为 `N-A` 而不是 FAIL。
 
 **升级路径**：`success` + 像素可见 ⇒ 立即出常规镜像 springboard-20261115b（无 `k60_wallpaper_reset`），并把 0618 注释里「每次启动重选」改为「仅验证镜像使用」（Lead m01858）；`half` 按上表 A/B/C 分支处置；`dead` ⇒ 镜像没带 0618（先核 tag 与 `strings` 计数）。

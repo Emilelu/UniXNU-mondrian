@@ -21,6 +21,13 @@ Verdict:
   half    -- the fix partly engaged (some steps pass, some fail); never skip ahead
   dead    -- no K60WALL line at all: the 0618 seed never ran in this image
 
+One half shape needs a second line: when the seed landed (step 1 PASS) and the
+only failures are steps 3 and 4 -- the bindfs overlay views -- the judge also
+prints a `closure:` line.  The UI library submits wallpaper 7410 straight out
+of the OS window (userland/ui_compat.c:690), never through the overlay, so a
+dead view does not by itself mean a black wallpaper.  If the screenshot shows
+the wallpaper, that half is the end of the case and F2 must not be built.
+
 Pure reader: no writes, no device.  Run:
 
     python3 scripts/judge-wallpaper-log.py <console.log> [--quiet]
@@ -102,6 +109,26 @@ def judge(lines):
     return out
 
 
+VIEW_STEPS = ('3 ', '4 ')
+
+
+def closure(rows):
+    """Return a closure note when the only failures are the two overlay views.
+
+    Steps 3 and 4 describe the bindfs view /Library/Wallpaper <-> the Data-side
+    stock-wallpaper directory.  The UI library reads the OS window directly, so
+    these two failing while the seed and the submission both pass is a shape
+    that a screenshot can close for good.
+    """
+    if rows[0][1] != 'PASS':
+        return None
+    failing = [step for step, state, _, _ in rows if state == 'FAIL']
+    if not failing or not all(step.startswith(VIEW_STEPS) for step in failing):
+        return None
+    return ('steps 3-4 cover the bindfs overlay only; userland/ui_compat.c:690 submits 7410 from '
+            'the OS window. If the screenshot shows the wallpaper, close the case -- do not build F2.')
+
+
 def verdict(rows):
     """dead = the 0618 seed never ran; half = partly engaged; success = 1-4 hold."""
     states = [s for _, s, _, _ in rows]
@@ -137,6 +164,9 @@ def main(argv):
                 line += f'  ({goto})'
             print(line)
     print(f'verdict: {final}')
+    note = closure(rows)
+    if note:
+        print(f'closure: {note}')
     return 0 if final in ('success', 'half') else 1
 
 

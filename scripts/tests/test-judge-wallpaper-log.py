@@ -61,6 +61,17 @@ Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper (source/tar
 Pong init: wallpaper aliases SKIP (stock view unavailable)
 """
 
+VIEWS_FAIL_PIXELS_DECIDE = """K60WALL catalogue bytes=772 resid=0 error=0
+Pong init: HackiOS userland adapter / iOS 16.6.1 20G81 / static arm64
+Pong init: boot view /private/var/pong/boot-jobs -> /pong/LaunchDaemons result=-1 errno=1
+Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper (source/target unavailable)
+Pong init: wallpaper aliases SKIP (stock view unavailable)
+Pong UI: wallpaper existing-content=1 restore-stock=1 (1=present -1=unavailable)
+Pong UI: genuine wallpaper asset 7410.WWDC_2022.thumbnail-1024w-1366h@2x~ipad.heic present=1
+Pong UI: submitting genuine wallpaper 7410 native lock+home path=/Library/Wallpaper/Stills/iPad/7410.WWDC_2022-1024w-1366h@2x~ipad.wallpaper
+Pong UI: native wallpaper completion returned; visual pixels remain to be observed
+"""
+
 VIEWS_OK_UI_SKIP = """K60WALL catalogue bytes=772 resid=0 error=0
 Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0
 Pong init: boot view /private/var/pong/Wallpaper -> /Library/Wallpaper result=0 errno=0
@@ -133,6 +144,24 @@ def main():
     Path(eyes_path).unlink(missing_ok=True)
     check('EYES 6 screen pixels' in eyes.stdout and 'PASS 6' not in eyes.stdout,
           'step 6 stays EYES on a full success', eyes.stdout[:200])
+
+    # The one half shape a screenshot can close: the seed landed, the only failures
+    # are the two overlay views, and the wallpaper was still submitted from the OS
+    # window. The judge must say so instead of sending the reader to F2.
+    with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False, encoding='utf-8') as handle:
+        handle.write(VIEWS_FAIL_PIXELS_DECIDE)
+        closure_path = handle.name
+    closed = subprocess.run([sys.executable, str(JUDGE), closure_path], capture_output=True, text=True)
+    Path(closure_path).unlink(missing_ok=True)
+    check('verdict: half' in closed.stdout and 'closure:' in closed.stdout
+          and 'close the case' in closed.stdout,
+          'views failing after a submitted wallpaper prints the closure note',
+          closed.stdout[-300:])
+
+    # The same failures without a submission are ordinary work, not a closure.
+    code, verdict, output = run(SEED_OK_GUARD_STILL)
+    check(verdict == 'half' and 'closure:' not in output,
+          'no closure note when the wallpaper was never submitted', output[-200:])
 
     # A log with no wallpaper text at all must not be reported as success.
     expect('nothing here\n', 'dead', 'an empty log is dead, not success')

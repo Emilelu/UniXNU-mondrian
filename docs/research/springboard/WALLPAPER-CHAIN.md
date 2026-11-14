@@ -146,6 +146,10 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - **为什么这样就够**：0616 跑的 v24dp init 的两道壁纸守卫（`userland/init-v24dp.c:328-343`、`:344-348`）检查的正是这个目标路径上的 plist；文件存在后 i=4 的 stock 视图 bind 才能继续，i=5 的 `/Library/Wallpaper` 覆盖即使仍 `result=-1 errno=1`（密封根，P-27）也不再打印 SKIP。
 - **判据**：日志出现 `K60WALL catalogue bytes=772 resid=0 error=0` 与 `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0`，且不再出现 `wallpaper aliases SKIP` / `optional boot view SKIP`。
 - **不改 init**：完全避开 P-182 的 52 KB 助手风险；init 仍是那枚 34,904 B 的验证过二进制。
+- **因果边界（重要）**：F3 的直接效果是**让两条 SKIP 消失**，不是"让壁纸出现"。像素链走的是另一条路——
+  `userland/ui_compat.c:690` 用 OS 窗的 `/Library/Wallpaper/Stills/iPad/7410.…` 直接提交，不经过这条视图。
+  所以 F3 与 F1 的像素效果彼此独立：F3 消除日志噪声、恢复 PosterBoard 读 `/Library/Wallpaper/` 的别名路径；
+  像素由 F1 决定。两者都过才谈得上"换壁纸可用"。
 
 ### F4（设计稿，未实施）— 视图挂载返回 EPERM 时怎么办
 
@@ -174,6 +178,8 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
   只打日志、不当作失败），或直接删掉两条 views。host 可编译（HEAD 52,456 B / 2101281 52,320 B，LC 序列一致），
   但 WSL 的 `codesign` 是 no-op shim、`native_init_signature` 要求 4K 页签名，且 0616 规定设备跑的是
   34,904 B 的 v24dp —— 换 blob 就是重演 P-182 的风险面，必须先在已有 Data 状态上验证两次启动。
+
+**结案条件（Lead m02136）**：a 的 verdict 若为 `half`、失败项只有两条视图 SKIP、而第 5 步已提交 7410 且**像素可见** ⇒ 直接结案，F4 不实施、0618 不再改。判定器在这种情况下会打印 `closure:` 行（`scripts/judge-wallpaper-log.py` 的 `closure()`）。
 
 **为什么现在不实施**：errno 还没实测。P-27 说 errno=1 是 EPERM，但如果 a 的日志给出 errno=30 或别的值，
 结论会变（可能是写权限/挂载点属性问题），改法也不同。等 a 的日志落地再按上面第 2/3 步分叉。

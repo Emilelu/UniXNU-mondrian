@@ -4738,3 +4738,25 @@ v24dp init。
 blob 不生效）；生效判据是镜像里有 `K60WALL` 串、上机日志 `K60WALL catalogue bytes=772 resid=0
 error=0`。
 
+## P-198 — `check-tree-owner` 默认把操作者当成 lead
+
+**现象.** 子代理在自己名下的 checkout 里跑 `scripts/check-rules.py`，其它 77 条全绿，只有
+`iron-11` 报 `/mnt/e/hackios/k60-springboard belongs to springboard-agent, not lead, and holds 1
+uncommitted path(s)`，看起来像"别人占了我的树"，实际那 1 个未提交文件就是自己刚改的。
+
+**根因.** `scripts/check-tree-owner.py:44` `ACTOR = os.environ.get("K60_AGENT_ID", "lead")`：没设
+环境变量时一律当成 lead。子代理的对话里没有这个变量，于是每一次带未提交改动的门禁运行都会把
+自己认成入侵者。`build-strict.sh` 也不设置它，所以"改完文件直接构建"同样会被拦（铁则只要求
+构建前先提交，这条规则因此是双保险，但报错指向的 actor 是错的）。
+
+**修法/教训.** 子代理跑门禁或构建时显式带上自己的身份：
+
+```sh
+export K60_AGENT_ID=springboard-agent
+```
+
+看到 `belongs to <自己>, not lead` 时先怀疑环境变量，不要去找 lead 要人。
+
+**Check.** `K60_AGENT_ID=<线名>-agent python3 scripts/check-tree-owner.py` 在干净树上退出 0，在
+自己名下带未提交改动时也退出 0；不带变量时才报上面那条。
+

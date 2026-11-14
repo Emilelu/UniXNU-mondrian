@@ -220,10 +220,10 @@ index 00000000..89cb7f82
 +   仅由 host 单测覆盖，**待未来系统验证**。
 diff --git a/drivers/PongAdreno/K60Backlight.cpp b/drivers/PongAdreno/K60Backlight.cpp
 new file mode 100644
-index 00000000..bbf28de5
+index 00000000..baebf92b
 --- /dev/null
 +++ b/drivers/PongAdreno/K60Backlight.cpp
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,457 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/*
 + * K60Backlight.cpp - the OS facing half of the K60 brightness service.
@@ -248,8 +248,11 @@ index 00000000..bbf28de5
 + *   int-236 publishing backlight-control without IOObjectConformsTo(service,
 + *          "AppleARMBacklight") makes CoreBrightness skip the libEDR server and
 + *          QuartzCore blocks with the display lock held: the screen stops
-+ *          updating. backlight-control is therefore only published when the
-+ *          impersonation succeeded (same rule as AppleARMBacklight.cpp:360).
++ *          updating. brightness-4 measured exactly that shape on device
++ *          (control 1, four backboardd SIGSEGV, no first frame), so the
++ *          property is now off by default: k60_backlight_conform=1 asks for it
++ *          and the kernel side of the conformance query must then really
++ *          answer AppleARMBacklight (conformsToAppleBacklight).
 + *
 + * Counting follows the reference layout; see docs/research/display/
 + * BRIGHTNESS-PLAN.md section 5 for the index table.
@@ -282,7 +285,8 @@ index 00000000..bbf28de5
 + * [15] completed writes. */
 +extern "C" {volatile int32_t native_backlight_stats[16];}
 +/* [0] last level asked for, [1] its fade in milliseconds, [2] request timer
-+ * runs, [3] fades begun from a request, [4] [5] interrupts (unused, -1). */
++ * runs, [3] fades begun from a request, [4] conformance AppleARMBacklight
++ * (0 no, 1 yes), [5] backlight-control published (0 no, 1 yes). */
 +extern "C" {volatile int32_t native_backlight_request[6];}
 +
 +namespace {
@@ -315,6 +319,7 @@ index 00000000..bbf28de5
 +    IOTimerEventSource *fadeTimer = nullptr;
 +    bool requestAdded = false, fadeAdded = false;
 +    bool published = false, stopped = false, impersonated = false;
++    bool conformed = false, control = false;
 +    bool invert = false;
 +    uint32_t level = 0, from = 0, to = 0, periodMs = 0;
 +    uint64_t start = 0;
@@ -323,6 +328,7 @@ index 00000000..bbf28de5
 +
 +    static const OSMetaClass *appleMetaClass(const OSMetaClassBase *);
 +    bool impersonate(void);
++    bool conformsToAppleBacklight(void);
 +    void publish(uint32_t value);
 +    void publishCalibration(void);
 +    void publishFirst(void);
@@ -369,6 +375,18 @@ index 00000000..bbf28de5
 +    *reinterpret_cast<uintptr_t **>(this) = copy;
 +    return true;
 +#endif
++}
++
++/* The same walk user space does in IOObjectConformsTo(): IOKitLib asks for the
++ * class name, then for each superclass name. In the kernel that is
++ * OSMetaClass::checkMetaCast(), which starts at getMetaClass() (vtable slot 7)
++ * and follows superClassLink (OSMetaClass.cpp:1381-1402). It therefore answers
++ * exactly one question: did impersonate() really take effect on this object?
++ * A failed vtable swap leaves slot 7 pointing at K60Backlight, whose chain is
++ * IOService, so the cast returns null. */
++bool K60Backlight::conformsToAppleBacklight(void)
++{
++    return gAppleClass && metaCast("AppleARMBacklight") != nullptr;
 +}
 +
 +void K60Backlight::publish(uint32_t value)
@@ -512,22 +530,44 @@ index 00000000..bbf28de5
 +    native_backlight_stats[2] = (int32_t)level;
 +    native_backlight_stats[3] = (int32_t)level;
 +    native_backlight_stats[4] = (int32_t)pong_panel_brightness();
-+    /* int-236: only claim backlight-control when the conformance query will
-+     * answer AppleARMBacklight. k60_backlight_control=0 is the escape hatch. */
-+    uint32_t control = 1;
-+    bootArg("k60_backlight_control", control);
-+    if (control && impersonate()) {
-+        impersonated = true;
-+        setProperty("NativeSandboxGrantProcess", "backboardd");
-+        setProperty("backlight-control", true);
++    /* int-236, measured on brightness-4: that image published backlight-control
++     * (log said control 1) and backboardd then took four SIGSEGV faults while
++     * SpringBoard stopped after seven lines and never presented a frame. The
++     * impersonation had succeeded, so "did the vtable swap work" is not enough
++     * of a gate - the property itself is what hurt. It is therefore opt-in:
++     *
++     *   k60_backlight_control=1  ask for backlight-control (default 0);
++     *   conformsToAppleBacklight()  and the kernel side of IOObjectConformsTo
++     *                               must really answer AppleARMBacklight.
++     *
++     * With the default, the service still publishes IODisplayParameters and
++     * accepts brightness/FadePeriod requests, so a level can be driven from
++     * either side, and nothing that walks the registry is told a backlight
++     * control exists. */
++    uint32_t controlArg = 0;
++    if (bootArg("k60_backlight_control", controlArg) && controlArg) {
++        impersonated = impersonate();
++        conformed = impersonated && conformsToAppleBacklight();
++        if (conformed) {
++            control = true;
++            setProperty("NativeSandboxGrantProcess", "backboardd");
++            setProperty("backlight-control", true);
++        }
 +    }
 +    publishCalibration();
 +    publish(level);
 +    registerService();
-+    native_backlight_stats[0] = impersonated ? 4 : 3;
++    native_backlight_stats[0] = control ? 4 : 3;
++    /* [4] conformance answer, [5] control published: both were unused (-1) and
++     * are what an on-device log has to show to tell "pretending" from
++     * "conforming" (see STATS-INDEX.md). */
++    native_backlight_request[4] = conformed ? 1 : 0;
++    native_backlight_request[5] = control ? 1 : 0;
++    IOLog("K60 BACKLIGHT: conformance AppleARMBacklight=%d control=%d\n",
++          (int)conformed, (int)control);
 +    IOLog("K60 BACKLIGHT: published level %u dbv 0x%x control %d%s\n", level,
-+          pong_panel_brightness(), (int)impersonated,
-+          impersonated ? "" : " (no AppleARMBacklight conformance)");
++          pong_panel_brightness(), (int)control,
++          control ? "" : " (no AppleARMBacklight conformance)");
 +}
 +
 +IOReturn K60Backlight::setProperties(OSObject *properties)

@@ -160,6 +160,9 @@ NativeSandboxGrantProcess       = "backboardd"  （同上，int-275/276）
 
 ## 5. 计数语义（验收判据的落点）
 
+> 逐槽位的权威表（22 个索引 + 三种启动配置的预期值）已拆到
+> `docs/research/display/STATS-INDEX.md`；本节只保留设计理由。
+
 `native_backlight_stats[16]`（沿用参考实现的下标，K60 用不到的位置写 -1 或 0 并在注释里说明）：
 
 | 下标 | 语义 | K60 来源 |

@@ -279,7 +279,7 @@ evidence = "方案与四产物（参数发布/服务/注册封装/DCS 编码器�
 
 [hardware.brightness.step.deep]
 done = true
-evidence = "深挖三个坑：int-229 类名不能叫 AppleARMBacklight（重名注册 panic）、int-236 只发 backlight-control 不满足 IOObjectConformsTo 会让屏幕停更、int-275/276 沙箱拒绝非该类服务的 FadePeriod；对策是 impersonate vtable 槽 7（drivers/PongAdreno/K60Backlight.cpp:140-170）且只在 impersonate 成功时发 backlight-control。"
+evidence = "深挖三个坑：int-229 类名不能叫 AppleARMBacklight（重名注册 panic）、int-236 只发 backlight-control 不满足 IOObjectConformsTo 会让屏幕停更、int-275/276 沙箱拒绝非该类服务的 FadePeriod；对策是 impersonate vtable 槽 7（drivers/PongAdreno/K60Backlight.cpp:140-160）。int-236 已在 brightness-4 上机复现（control 1 之后 backboardd 4 次 SIGSEGV、SpringBoard 停在 7 行、无 first frame），故 backlight-control 改为默认关闭（drivers/PongAdreno/K60Backlight.cpp:322 只在 k60_backlight_control=1 时申请），且必须 metaCast(\"AppleARMBacklight\")（内核侧 IOObjectConformsTo，drivers/PongAdreno/K60Backlight.cpp:161）为真才发，结果记入 native_backlight_request[4]/[5]，语义表见 docs/research/display/STATS-INDEX.md。"
 
 [hardware.brightness.step.verify]
 done = true
@@ -294,8 +294,8 @@ done = false
 evidence = "待上机：由 Lead 在用户同意后执行，判据见 docs/research/display/BRIGHTNESS-PLAN.md:190（ioreg 能看到 backlight-control/IODisplayParameters、native_backlight_stats 发布/请求/回读/失败计数、min/mid/max 三档回读不同且屏上可见、渐变无跳变、屏幕不停更）。"
 
 [hardware.brightness.step.device.prediction]
-success = "启动后 IORegistry 里出现 K60Backlight 服务：backlight-control=true、IODisplayParameters.brightness{min 0,max 2047}；拖 iOS 亮度滑块时 native_backlight_stats[1] 递增、[2]/[4] 跟随变化，min/mid/max 三档 DBV 不同且屏幕可见变暗/变亮，FadePeriod 渐变平滑，屏幕持续更新"
-failure = "只有 K60 BACKLIGHT: published 但滑块无效（CoreBrightness 没接管，检查 backlight-control/impersonate），或滑块一动屏幕停更（int-236 回归：impersonate 失败却发了 backlight-control），或 stats[5] 递增（DCS 0x51 写失败）"
+success = "默认镜像（不带 backlight 参数）：日志出现 K60 BACKLIGHT: conformance AppleARMBacklight=0 control=0 与 published level 2047 dbv 0xff control 0；IORegistry 有 K60Backlight 且带 IODisplayParameters.brightness{min 0,max 2047}、不带 backlight-control；SpringBoard 日志 > 100 行、出现 K60 DISPLAY: first frame presented、backboardd 无段错误；native_backlight_stats[0]=3、[1] 随请求递增、[5]=0、[15] 递增，native_backlight_request[4]=[5]=0；三档 min/mid/max 的 stats[2]/stats[4] 互不相同且屏上可见；FadePeriod 渐变平滑；屏幕持续更新。第二段（可选）k60_backlight_control=1 时 conformance=1 control=1、stats[0]=4"
+failure = "只有 K60 BACKLIGHT: published 但滑块无效（CoreBrightness 没接管，因为默认不发 backlight-control，属预期；要验证接管需 k60_backlight_control=1），或 k60_backlight_control=1 时 backboardd 再崩/屏幕停更（int-236 回归），或 stats[5] 递增（DCS 0x51 写失败），或 conformance=1 但 control=0（metaCast 与 setProperty 不一致）"
 
 [hardware.bootchain]
 status = "active"

@@ -1,30 +1,21 @@
-# K60 按键线的板级配置建议（board.toml）
+# K60 按键线的板级配置记录（board.toml）
 
 > 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支，已 rebase 到 `origin/main` = `9176f5c`。
 > 本目录只放**本线（buttons）**的产出。内核侧按键驱动
 > （`patches/xnu/zzzz…-pong-physical-keys.patch`）由触摸线持有，本线不改。
-> `board.toml` 属 **Lead 写作用域**，本线只交 diff 建议，不落盘。
+> `board.toml` 属 **Lead 写作用域**，本线只记录结论，不落盘。
 
-## 文件
+## 现状（2026-11-14，本线收工）
 
-| # | 文件 | 作用 | 验证状态 |
-|---|---|---|---|
-| — | `board-toml-adt-buttons.diff` | 给 `board.toml` **追加** `[adt.arm-io.pong-buttons.*]`（PMIC 仲裁器六个常量）。`[adt.buttons.*]` 已由 main `174fb69` 落盘（`board.toml:268-276`），本 diff 不再包含 | `git apply --check` 通过、`tomllib` 解析通过、重生成 ADT 得 14,716 B / 23 节点（见下） |
-
-应用方式（由 Lead 执行）：
-
-```bash
-cd /mnt/e/hackios/k60-buttons      # 或 k60-usb，两仓 board.toml 目前逐字节相同
-git apply --check patches/buttons/board-toml-adt-buttons.diff
-git apply         patches/buttons/board-toml-adt-buttons.diff
-python3 -c "import tomllib;print(sorted(tomllib.load(open('board.toml','rb'))['adt']))"
-```
-
-**必须做第三步**：2026-11-14 上一版 diff 同时含 `[adt.buttons.*]`，而 main 已自带该段，
-只做 `git apply` 会让 `board.toml` 出现两组同名表，`tomllib` 直接报
-`Cannot declare ('adt', 'buttons', 'string') twice` —— 而 `git apply --check` 是**通过**的。
-所以 `git apply --check` 不能当作验收，必须解析一次 TOML。本版已改为纯追加（只在文件末尾
-`:276` 之后加 `[adt.arm-io.pong-buttons.*]`），实测三项都过。
+- `[adt.buttons.*]` 已由 Lead 落进 `board.toml:268-276`（main `174fb69`）：`:268` `.string`
+  （`compatible="buttons"`、`device_type="buttons"`）、`:272` `.strings`
+  （`button-names=["hold","voldown","volup"]`）、`:275` `.u32`（`home-button-type=2`）。
+- 本目录原先的 `board-toml-adt-buttons.diff` **已按 Lead 指示删除**，本线不再交 diff。
+  删除前它已被改成纯追加（只补 `[adt.arm-io.pong-buttons.*]`），因为旧版同时含
+  `[adt.buttons.*]`，与 main 的段重复 —— 那种 diff `git apply --check` 会**通过**，但打完
+  `tomllib` 直接报 `Cannot declare ('adt','buttons','string') twice`。
+  **教训：`git apply --check` 不能当验收，打完必须解析一次 TOML。**
+- 仍待落盘（Lead 写作用域，本线只记录取值）：`[adt.arm-io.pong-buttons.*]`，六个常量见下节。
 
 ## 为什么不是补丁 `scripts/make-pong-adt.py`
 
@@ -44,7 +35,7 @@ for name in ('defaults', 'options', 'product', 'buttons'):
 即 `/buttons` **只在 `[adt].buttons` 存在时发射**；`/arm-io/*` 只认 `[adt.arm-io.*]`（`devicetree.py:384`）。
 所以两段都必须写进 `board.toml`。
 
-## `[adt.buttons.*]` 的理由
+## `[adt.buttons.*]` 的理由（已落盘）
 
 MobileGestalt 从 `/buttons` 读 `button-names` 与 `home-button-type`
 （`UniXNU-docs/docs/zh/guide/mobilegestalt.md:26-27`、`docs/zh/porting/device-tree.md:223`）。
@@ -61,7 +52,7 @@ MobileGestalt 从 `/buttons` 读 `button-names` 与 `home-button-type`
 **不写** `opposed-power-vol-buttons`：`UniXNU-docs` 里 grep 不到该键、yibiya 的 board.toml 也没有，
 只有 pong/zizhan 的旧 ADT 脚本用过，缺依据。
 
-## `[adt.arm-io.pong-buttons.*]` 的理由
+## `[adt.arm-io.pong-buttons.*]` 的理由（**仍未落盘**）
 
 `bsd/dev/pong_buttons.c` 的 `configuration()` 用 `SecureDTLookupEntry(NULL,"/arm-io/pong-buttons")`
 查节点，并逐属性校验六个值（`patches/xnu/zzzz…-pong-physical-keys.patch:173-199`）：
@@ -77,33 +68,41 @@ MobileGestalt 从 `/buttons` 读 `button-names` 与 `home-button-type`
   `pm8350 gpio6`（`gpios=<0x57b 0x06 0x01>`，ACTIVE_LOW）= 音量加
 - yibiya `board.toml:271-281`（提交 `8e691d5`）：同六个值
 
-`compatible = "pong,pm8350-keys"` 是**可选**的：驱动从不读 `compatible`
-（`zzzz…-pong-physical-keys.patch:172-199` 只读六个属性），2026-11-14 上机镜像的 ADT 里该节点
-**没有** `compatible` 也正常工作。写它只为与 yibiya 对齐、便于人读。
+要写进 `board.toml` 的内容（与 yibiya 同值；`compatible` 可选，驱动从不读它）：
 
-## 现状与必要说明（2026-11-14 复核）
+```toml
+[adt.arm-io.pong-buttons.string]
+compatible = "pong,pm8350-keys"
 
-- `board.toml`（276 行）`grep '^\[adt'` 有 `pong-touch` 四段 + `[adt.buttons.*]` 三段（`:268` `.string`、
-  `:272` `.strings`、`:275` `.u32`，由 main `174fb69` 落盘）；**仍没有** `[adt.arm-io.pong-buttons.*]`，
-  这正是本 diff 唯一还在补的内容。
-- 用仓库里的 `board.toml` 直接生成 ADT（`unixnu.devicetree.generate()`）得 14,348 B / 22 节点：
-  `/device-tree/buttons` **在**、`/device-tree/arm-io/pong-buttons` **不在**；
-  打完本 diff 后是 14,716 B / 23 节点，两个节点**都在**。
-- 但 2026-11-14 的上机镜像（`E:/k60-work/artifacts/usb-20261114b`，ADT sha256 `18a514e7…`）里
+[adt.arm-io.pong-buttons.u64]
+core-base = "0xc400000"
+cnfg-base = "0xc42d000"
+observer-base = "0xc440000"
+
+[adt.arm-io.pong-buttons.u32]
+ee = 0
+pon-ppid = 19
+volume-up-ppid = 397
+```
+
+## 复现性缺口（未闭合，交 Lead）
+
+- 用**仓库里的** `board.toml` 直接生成 ADT（`unixnu.devicetree.generate()`）得 14,348 B / 22 节点：
+  `/device-tree/buttons` **在**（`174fb69` 生效）、`/device-tree/arm-io/pong-buttons` **不在**。
+  补上上节六行后是 14,716 B / 23 节点，两个节点**都在**（本线已端到端验证过）。
+- 2026-11-14 的上机镜像（`E:/k60-work/artifacts/usb-20261114b`，ADT sha256 `18a514e7…`）里
   `/arm-io/pong-buttons` **存在**、`/buttons` **不存在**。来源已查明：WSL 框架树
   `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` 有该节点
-  （`["adt"."arm-io"."pong-buttons"]`，只有 `.u64`/`.u32`，没有 `.string`），而该文件是
-  `git status` 里的 ` M`（**未提交**）。即：那一次能通按键，靠的是这处本地未提交改动。
-- 因此本 diff 的作用是**把该配置从「WSL 里的未提交改动」变成「仓库里可复现的板级契约」**：
-  不落它，换机重建会退回 `Pong keys: DT node /arm-io/pong-buttons not found`。
-  若 Lead 先更新了 OS profile，请确认两处取值一致（`merge()` 顺序是 arch → soc → os profile → board，
-  board 覆盖 profile，值相同则无副作用；本 diff 多给的 `compatible` 驱动不读，仅对齐 yibiya）。
+  （只有 `.u64`/`.u32`，没有 `.string`），而该文件是 `git status` 里的 ` M`（**未提交**）。
+  即：那一次能通按键，靠的是这处本地未提交改动。
+- 所以「换机重建还能通按键」目前**不成立**：会退回 `Pong keys: DT node /arm-io/pong-buttons not found`。
+  修法二选一：把这六行落进 `board.toml`，或落进 OS profile（`merge()` 顺序是
+  arch → soc → os profile → board，board 覆盖 profile；取值相同则无副作用）。
 
-## 验收
+## 验收（落盘后）
 
-1. 落盘后重新生成一次 ADT（`make ... adt` 或整机构建）。本线已端到端跑过一次：
-   `unixnu.devicetree.generate('/mnt/e/k60-work/candidates/4g-quiet/hardware.dtb', board.toml)`
-   → `bytes=14716 nodes=23 consumed=14716`。
+1. 重新生成一次 ADT（`make ... adt` 或整机构建），并解析一次 TOML 确认没重复表：
+   `python3 -c "import tomllib;print(sorted(tomllib.load(open('board.toml','rb'))['adt']))"`
 2. 用 `docs/research/buttons/tools/adt-inspect.py` 检查：
 
    ```bash
@@ -111,16 +110,17 @@ MobileGestalt 从 `/buttons` 读 `button-names` 与 `home-button-type`
    python3 docs/research/buttons/tools/adt-inspect.py <kernel.macho.adt> --path /device-tree/arm-io/pong-buttons
    ```
 
-   期望：`/device-tree/buttons` 的 `button-names` = `hold\0voldown\0volup\0`、`home-button-type` = 2；
-   `/device-tree/arm-io/pong-buttons` 六个属性齐全。
+   期望：`/device-tree/buttons` 的 `button-names` = `hold / voldown / volup`（NUL 分隔）、
+   `home-button-type` = 2；`/device-tree/arm-io/pong-buttons` 六个属性齐全。
 3. 上机日志应出现 `Pong keys: PMIC windows mapped, pon-ppid=0x13 volume-up-ppid=0x18d`
    （已有 234 次记录，见 `docs/research/buttons/03-REVERSE.md`）。
 
-## 未包含（交 Lead 决策）
+## 未包含（Lead 决定暂不做）
 
 - **长按电源键复位钩子**：zizhan 的 `patches/xnu-ipados18/0010-pong-power-key-reset.patch` 给
   `bsd/dev/pong_buttons.c` 加了 `pong_button_reset_hook`（长按 3 s 调平台 reset，boot-arg
   `pong_button_reset` 可调）。K60 的 `bsd/dev/pong_buttons.c` 由
-  `patches/xnu/zzzz…-pong-physical-keys.patch` 提供，在触摸线写作用域内，本线不改。
+  `patches/xnu/zzzz…-pong-physical-keys.patch` 提供，在触摸线写作用域内；2026-11-14 Lead 决定
+  等触摸线空闲再协调，本线不做。
 - **内核侧中断路径**：pong 的 246 行中断版（PDC pin1 → SPI 481）需要在 `pong_buttons.c` 里加
   `channels`/`pdc` 窗口映射与 `armcpu_spi_attach`，同样落在上述被占用的补丁里。

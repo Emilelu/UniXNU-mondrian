@@ -432,4 +432,75 @@ scripts/tests/test-build-strict-gates.py
 **这两点必须在正式合并前由 Lead 决定**：要么把 touch 的 ④⑤⑥⑦ 补齐让 `iron-3` 转绿，
 要么为 WiFi 的试构建路径留下明确记录（现记在 `LOCAL-VERIFICATION.md` §5.8 与本文 §5）。
 
+## 14. 65.9 MB 内核静默的根因：4.75 GiB 窗口把 arena 吃光了（要 Lead 改 board.toml:231）
+
+两次 65.9 MB 内核上机（`wifi-20261115a` 574 B、合规 `wifi-20261115h2` 602 B）都是
+0 字节控制台 + 回 fastboot。之前怀疑过的三条都不是原因：607 字节门（h2 是 602 B）、
+`epoch=1`（全树无消费点）、`debug=1`（DB_HALT 只在已进调试器时才停等）。
+真正的原因是**装载窗口和内核镜像抢同一段连续内存**，用 QEMU 复现并定量确认：
+
+- `DarwinBoot.c:607` `AllocateWindow(&Kernel, WindowSize, &Address)` 一次性申请
+  整块 `darwinboot-memory-size`（本板 4.75 GiB）；`FreePool(Image)` 在 `:656`，
+  **在窗口申请之后** → 内核镜像那时还占着 DXE 池。
+- 因此可用最大连续 run = `arena − 内核镜像 − 其它`。镜像大 11.8 MB，可用 run 就少 11.8 MB。
+- QEMU 实测（`qemu-window-probe.sh`，判据 `inputs validated; exiting boot services`）：
+
+| 内核 | 窗口 | 失败 | 成功 |
+| --- | --- | --- | --- |
+| `z0` 54,181,888 B | 4.75 GiB | 5102 MB | **5104 MB** |
+| `t0c` 54,804,480 B | 4.75 GiB | 5104 MB | **5108 MB** |
+| `a2` 65,978,368 B | 4.75 GiB | 5112 MB | **5116 MB** |
+| `h3w` 65,978,368 B | 4.6875 GiB | 5040 MB | **5052 MB** |
+| `h3q` 65,978,368 B | 4.5 GiB | 4848 MB | **4860 MB** |
+
+- 拟合：`所需 RAM ≈ 窗口 + 内核大小 + 177 MiB`（五行都在 1 MiB 内）。
+- 手机侧：arena `[0x900000000,0xa40000000)` = `0x140000000` = 5120 MB；
+  65.9 MB 内核需 4864 + 62.9 + 177 = **5104 MiB → 只剩 16 MB 余量，等于零**；
+  54.2 MB 内核需 5021 MiB → 能启动。这解释了「同一天 54 MB 镜像全都有控制台、
+  65.9 MB 镜像两次都 0 字节」的全部数据点。
+- 屏幕上看不到 `NO WINDOW …` 是因为它走 `DiagDraw` + `DEBUG`，都不进 USB 控制台
+  （见 `STAGE-BRINGUP.md` §8），手机只是安静地回 fastboot。
+
+**要 Lead 合并的改动（`board.toml` 在 wifi agent 写作用域外）：**
+
+```diff
+--- a/board.toml
++++ b/board.toml
+@@ -228,7 +228,7 @@
+ # Firmware exposes only measured arena [0x900000000,0xa40000000); screen
+ # reports mem=actual=managed=4096 MiB. Service exits continue; SpringBoard is
+ # pending. devicetree.py emits darwinboot-memory-size from this key.
+-"owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)
++"owned_memory_size" = "0x120000000"  # 4.5 GiB window: 4.75 GiB leaves <16 MB of arena for a 65.9 MB kernel (LOCAL-VERIFICATION 5.16)
+```
+
+代价明确：`DarwinBoot.c:636-637` 把 `Args->MemorySize` 直接写成 `WindowSize`，
+`arm_vm_init.c:1844-1860` 又把它当成 XNU 的 `mem_size`，所以**窗口少 256 MiB，
+XNU 可管理内存就少 256 MiB**。4.5 GiB 仍是原版 Pong board（`UniXNU-pong/board.toml:152`
+= 4 GiB）的 1.125 倍，可以接受；若想省内存，4.625 GiB 也够（QEMU 实测阈值 4988 MB，
+比 4.75 GiB 的 5116 MB 低 128 MB）。
+
+**已经按新窗口造好的镜像**（都通过 `check-image-args.py`，命令行一字未改，
+只改 `kernel.macho.adt` 里 8 字节的 `darwinboot-memory-size`）：
+
+| 镜像 | 窗口 | 参数 | boot.img sha256 |
+| --- | --- | --- | --- |
+| `wifi-20261116a2q`（控制，`pong_wifi=0`） | 4.5 GiB | 30 / 587 B | `6ef27b95c9a8bcf9` |
+| `wifi-20261116a2r`（控制） | 4.625 GiB | 30 / 587 B | `0b4b0abb54daf5b1` |
+| `wifi-20261116h3q-g`（`rsc=2`） | 4.5 GiB | 31 / 602 B | `1abcfcea4459b21b` |
+| `wifi-20261116h3r-g`（`rsc=2`） | 4.625 GiB | 31 / 602 B | `b5beb5d9568843a3` |
+| `wifi-20261116h3q-s1`（`stage=1`） | 4.5 GiB | 31 / 604 B | `92b7b9ff80e7efc3` |
+| `wifi-20261116h3r-s1`（`stage=1`） | 4.625 GiB | 31 / 604 B | `be75dd3dff58d33f` |
+
+工具：`E:\k60-work\evidence\wifi-trial\patchadt.py <boot.img> <window_bytes>`（改窗口）、
+`readwindow.py <boot.img>`（回读）、`qemu-window-probe.sh <tag> <mem_mb>…`（测阈值）、
+`qemu-winsize.sh <tag> <bytes>…`（扫窗口）。全部细节见 `LOCAL-VERIFICATION.md` §5.16。
+
+**当前阻塞**：这些镜像一张都没飞过——用户 11:05 下了禁飞令
+（「禁止擅自boot 如果你的任务只剩boot了就停下来汇报 经过我和lead同意后才行」），
+所以 §14 的结论全部来自 QEMU 复现 + 定量模型，还需要一次真实上机确认。
+建议批准的最小验证集：`wifi-20261116a2q`（控制）→ `wifi-20261116h3q-g`（全级），
+每张约 2 分钟；控制镜像有控制台而 h3q-g 静默，才说明窗口不是唯一因素。
+
+
 

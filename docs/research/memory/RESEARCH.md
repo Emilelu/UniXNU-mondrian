@@ -50,8 +50,8 @@
 | `xbl_ramdump` / `xbl_sc` | **可抄（两板同值）** | `liuqin-hardware.md:20` ↔ `MemoryMapLib.c:35-36` |
 | `Display Reserved` 0xB8000000+0x2B00000 | **可抄（两板同值）** | `liuqin-hardware.md:18` ↔ `MemoryMapLib.c:52` |
 | `DXE Heap` | **绝不可抄**：K60 `0xC7000000+0x18000000` vs liuqin `0xF8000000+0x7C00000` | `MemoryMapLib.c:83` ↔ `liuqin-hardware.md:40` |
-| `Kernel` 0xBB000000+0xC000000 | **绝不可抄**：liuqin 的 Kernel 预留值本索引未取证，凡对照必重新取证 | `MemoryMapLib.c:75` |
-| `UEFI FD` 窗口 | **形状可抄、位置不可抄**：K60 挪到 `0xA7400000+0x300000` 以避开 ramoops（`Resources/Configs/mondrian.toml:9-13`），liuqin 是 `0xA7000000+0x400000`（+ Reserved `0xA7400000+0x200000`） | 两板都自洽，但布局不同 |
+| `Kernel` 0xBB000000+0xC000000 | **绝不可抄**：K60 `0xBB000000+0x0C000000` vs liuqin `0xA8000000+0x10000000`，差 0x13000000 | `MemoryMapLib.c:75` ↔ `liuqin-hardware.md:39` |
+| `UEFI FD` 窗口 | **形状可抄、位置不可抄**：K60 挪到 `0xA7400000+0x300000` 以避开 ramoops（`uefi-mondrian/Resources/Configs/mondrian.toml:9-13`，注意**不在** `mondrianPkg/` 下），liuqin 是 `0xA7000000+0x400000`（+ Reserved `0xA7400000+0x200000`） | 两板都自洽，但布局不同 |
 | `SMMU` 窗口 | **长度不可抄**：K60 2 MiB（`MemoryMapLib.c:111`），Pong 驱动映射 1 MiB | `PongUfsTransport.cpp:190` |
 | ADSP 基址 | **不可抄 Pong 的**：K60 `0x9FD00000`，Pong 是另一个值（REFERENCE-INDEX 14.2） | 两处独立记录 |
 
@@ -73,7 +73,7 @@
 
 ### 5.2 本板跑的是编进固件的 mainline 派生 DTB，不是厂商 DTB
 
-`mondrian.fdf:114` 把 `mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`（480,692 B，sha256 `d09f4f10bb84d0e5481433b61bc969ea31b793ead394da18a5363d2e9d4b655c`）作为 `FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326` / `SECTION UI = "DeviceTreeBlob"` 编进固件，由 `EmbeddedPkg/Drivers/DtPlatformDxe` 消费；`FdtBlob/Source.txt` 写明它来自 `https://github.com/sm8450-mainline/linux` 的 `tyalie` 分支，并加了 `usb-role-switch`（第 1003 行）修 USB OTG Mode。
+`mondrian.fdf:114` 把 `mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`（480,692 B，sha256 `d09f4f10bb84d0e5481433b61bc969ea31b793ead394da18a5363d2e9d4b655c`）作为 `FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326` / `SECTION UI = "DeviceTreeBlob"` 编进固件，由 `EmbeddedPkg/Drivers/DtPlatformDxe` 消费；`FdtBlob/Source.txt`（全文仅 2 行）写明它来自 `https://github.com/sm8450-mainline/linux` 的 `tyalie` 分支，并加了 `usb-role-switch` 修 USB OTG Mode——注意原文 `Source.txt:2` 的措辞是 `With usb-role-switch; added on line 1003 to fix USB OTG Mode`，其中的 **1003 是上游 DTS 的行号，不是 `Source.txt` 的行号**（该文件只有 2 行，别去 grep `Source.txt:1003`）。
 
 ### 5.3 两棵 DTB 的差异：保留区可互换，面板不可
 

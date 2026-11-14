@@ -918,3 +918,46 @@ python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-202
 
 期望：6 条全 PASS（判据 3 要求 `NUM_EPS ≥ 8` 且 `NUM_IN_EPS ≥ 4`；判据 4 要求 `ep6=0 ep7=0 DALEPENA=0x000000ef`）。
 任一条 FAIL 时脚本会把寄存器原值和期望值并排打印，可直接对照 §18.3 判读。
+
+## 20. 上机结果决策树（`usb-20261114f` → 下一步补丁）
+
+§18.3 的六条判据给出一组读数，本节把这组读数映射到**具体的下一个补丁**。
+所有分支都只依赖 0407 打印的两个真值：`GHWPARAMS3` 的端点预算、`composite cfg` 行的 `ep6/ep7` 返回值。
+
+### 20.1 期望值是怎么算出来的（不是猜的）
+
+| 量 | 期望 | 推导 |
+| --- | --- | --- |
+| `DALEPENA` | `0x000000ef` | 复位后 `0x3`（bit0 EP0 + bit1 EP1）→ `ud_endpoint(2/3/5)` 成功后 `|= 0x2c`（bit2/3/5）→ EP6/EP7 都成功再 `|= 0xc0`（bit6/7）= `0b1110_1111` |
+| `ep6` | `0` | `ud_endpoint(6, 2, packet)` 的返回值；`-1` 表示 `DEPCMD_SETEPCONFIG` 或 `SETTRANSFRESOURCE` 报错（`k60_usblog.c` 的 `ud_epcmd_full` 打印 `ep6 cmd 0x1 status N`） |
+| `ep7` | `0` | 同上，但 EP7 是 IN 端点，`p0 |= (7>>1)<<17` = FIFO 3 |
+| `NUM_EPS` | `≥ 8` | `(GHWPARAMS3>>12)&0x3f`，同 SoC UEFI `Dwc3Core.c:266-273` 用的就是这两位 |
+| `NUM_IN_EPS` | `≥ 4` | `(GHWPARAMS3>>18)&0x1f`（`Dwc3.h:144`） |
+
+### 20.2 分支表
+
+| 分支 | 读数 | 结论 | 下一个补丁 |
+| --- | --- | --- | --- |
+| **A** | `NUM_EPS≥8`、`NUM_IN_EPS≥4`、`ep6=0`、`ep7=0`、`DALEPENA=0xef`、控制台活着 | 复合设备在**端点层面**成立，`usb-20261114c` 的 0 字节不是端点配置失败造成的 | **0409** = vendor 端点回环（P2-b）：EP6 OUT 收到的字节从 EP7 IN 回送，主机侧用 `IF2` 的 bulk 对验证 |
+| **B** | `ep6=0` 但 `ep7≠0`，且 `GTXFIFOSIZ3 = 0` | EP7 的 FIFO 3 在这颗 core 上**没实现**；IN 端点的 FIFO 号是软件选的（`ud_endpoint` 里的 `(ep>>1)<<17`），可以改 | **0409** = 给 EP7 指定一个 `GTXFIFOSIZ(n)≠0` 的 FIFO 号（候选由打印值决定），**一次只改这一个变量** |
+| **C** | `ep6≠0` | EP6 是 OUT 端点、不需要 FIFO，它失败只能是端点号越界（`Dwc3Endpoint.c:176` 的 `PhysEpNum >= NumPhysicalEps` 分支） | **0409** = 把 vendor 功能从 EP6/EP7 下移到 `NUM_EPS` 允许的号段；同时把 `ud_cfg_template` 里的端点号一起改（描述符与 `ud_endpoint` 必须同时改，否则主机会等一个不存在的端点） |
+| **D** | `NUM_EPS < 8` | 这颗 core 的物理端点少于 8 个，EP6/EP7 根本不存在 | **0409** = 去掉 IF2 的两个端点，退回 IAD + CDC（2 接口）复合；P2-b 在这颗 core 上不可行，写进 RESEARCH 作为定论，并转 0410（device class） |
+| **E** | 又回到 0 字节（`state=opened-no-data`） | 0407 的「可选端点」没有救回控制台 → 失败点不在 EP6/EP7，而在 0406 的描述符本身 | 先上 **`usb-20261114e`**（0407 无 0408）隔离 0408；仍 0 字节则回退到 `usb-20261114b`（无 0406）并重新设计 IF2 |
+
+分支 A 是唯一能直接推进到 P2-b 的；B/C/D 都要求**先读打印值再决定参数**，这正是不允许猜寄存器的原因。
+
+### 20.3 0410（device class）的定位
+
+§12.3 把 device descriptor 的 class 从 `02/02/00` 改成 `EF/02/01` 留成单独一步。它**不依赖**上面任何一个分支，因此编号取 **0410**（0409 留给分支 A/B/C/D 选出的那一步，避免两个补丁抢同一个号）：
+
+- 现状：class `02/02` 让 Windows 把**整个设备**当串口（`usb-20261114c` 主机侧只有一个 devnode、`CompatibleIds` 是 `USB\Class_02&SubClass_02`，没有 `MI_00..02`）。
+- 改成 `EF/02/01` 后，Windows 走 `usbccgp`，把 IF0+IF1（IAD 已声明）交给 `usbser.sys`，IF2 交给 vendor 驱动 —— 这是 IAD 生效的**必要条件**。
+- 风险：一旦 `usbccgp` 不绑，控制台会**整条消失**（不是降级）。所以它必须在分支 A 之后单独上机，且要准备好回退镜像。
+
+草稿已生成并本地验证（**未入库、未进 series**）：`E:/k60-work/scratch/usb/0410-k60-usb-device-class-composite.patch`（22 行，只改 `ud_dev_desc[18]` 的 3 个字节 `2, 2, 0` → `0xef, 0x02, 0x01`）；对 post-0408 源 `patch -p1 --dry-run` → `APPLY_OK`。是否入库由 §20.2 的分支结论决定（分支 D 会先走它，其余分支先走 0409）。
+
+### 20.4 当前状态
+
+- 镜像 `usb-20261114f` 已构建、门禁全绿、**未上机**（用户 m01929 禁止擅自 boot）。
+- 脚本 `E:/k60-work/scratch/usb/boot0408f.sh` 就绪；执行后先跑 `docs/research/usb/analyze-capture.py` 再按本节分支表决策。
+

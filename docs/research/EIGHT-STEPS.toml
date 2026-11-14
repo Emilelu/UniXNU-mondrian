@@ -249,6 +249,54 @@ evidence = "STATUS.md:20 `K60 DISPLAY: first frame presented (swap 1)`；STATUS.
 [hardware.display.step.device.prediction]
 success = "K60 DISPLAY: first frame presented (swap 1) 且 K60 PANEL: bring-up complete 同时出现"
 failure = "只有 PANEL 没有 first frame，或首帧后 vcputc 继续在画面上刷字符（说明没释放 boot console）"
+[hardware.brightness]
+status = "active"
+paths = ["drivers/PongAdreno/K60Backlight.cpp", "drivers/PongAdreno/K60BacklightCodec.h", "scripts/check-brightness-encoder.py", "patches/display/"]
+why = "OS 级亮度服务：发布 IODisplayParameters 让 CoreBrightness 驱动面板 DCS 0x51 在线 DBV（K60 无背光 IC）"
+
+[hardware.brightness.step.same_model]
+done = true
+evidence = "同型通路已存在：drivers/PongAdreno/PongDsiPanel.cpp:247 的 pong_panel_set_brightness() 发 DCS 0x51，drivers/PongAdreno/PongDsiPanel.cpp:236 在 bring-up 时发 0x51 0xff；缺的只是调用者，见 docs/research/display/BRIGHTNESS-PLAN.md:24。"
+
+[hardware.brightness.step.official]
+done = true
+evidence = "官方指南 docs/zh/porting/display.md:80-114（§3/§4）：DSI 命令背光必须在面向 OS 的亮度服务下实现传输与编码两层；iPadOS 17 用 IODisplayParameters 亮度范围 + backlight-control + brightness + FadePeriod，iPadOS 27 还要毫尼特/滑块表/校准参数/brightness-nits。"
+
+[hardware.brightness.step.decompile]
+done = true
+evidence = "参考实现 UniXNU-sheng/package/AppleARMBacklight.cpp:422-448 的 setProperties 契约（brightness+FadePeriod / brightness-nits）、:350-366 的 publishFirst、:315-345 的 impersonate；K60 版把硬件层换成 PongDsiPanel，见 drivers/PongAdreno/K60Backlight.cpp:1-30。"
+
+[hardware.brightness.step.wide]
+done = true
+evidence = "广查 UniXNU/components.toml 与 kits/ 均无 backlight 组件（porting.toml:83 的 display 区只列 package/*Backlight* 参考文件），故按指南 §3 自建；参考实现的 GENI I2C/KTZ8866 层对 K60 不适用（无背光 IC），差异表见 docs/research/display/BRIGHTNESS-PLAN.md:88。"
+
+catalog_checked = true
+catalog_result = "components.toml 无背光组件、kits/ 无背光 kit；官方仓库里 package/AppleARMBacklight.cpp 与 package/GeniI2c.h 是 sheng 板（KTZ8866）的参考实现，只能借 OS 契约与传输/编码分层结构，硬件层必须按 K60 的 DCS 0x51 重写。"
+
+[hardware.brightness.step.plan]
+done = true
+evidence = "方案与四产物（参数发布/服务/注册封装/DCS 编码器）写在 docs/research/display/BRIGHTNESS-PLAN.md:100；接线点选 drivers/PongAdreno/PongAdrenoScanout.cpp:42 的 pong_scanout_initialize，与 pong_panel_bringup 同归档，避免 0395 那种跨归档链接问题。"
+
+[hardware.brightness.step.deep]
+done = true
+evidence = "深挖三个坑：int-229 类名不能叫 AppleARMBacklight（重名注册 panic）、int-236 只发 backlight-control 不满足 IOObjectConformsTo 会让屏幕停更、int-275/276 沙箱拒绝非该类服务的 FadePeriod；对策是 impersonate vtable 槽 7（drivers/PongAdreno/K60Backlight.cpp:140-170）且只在 impersonate 成功时发 backlight-control。"
+
+[hardware.brightness.step.verify]
+done = true
+local_verified = true
+evidence = "host 单测 scripts/check-brightness-encoder.py 全绿（0..255 DBV 端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且精确落点）；静态检查 scripts/eight-step-gate.py 与 scripts/check-porting-paths.py 通过；产物见构建日志与 llvm-nm。"
+static_check = "drivers/PongAdreno/K60Backlight.cpp 用与 PongAdreno 其它对象相同的 kernel 旗标编译（scripts/build-pong-adreno-platform.py:84 的 names 列表已加入 K60Backlight），并复用 PongAdrenoScanout.cpp:19 的归档内引用模式，无新增跨归档符号。"
+unit_test = "python3 scripts/check-brightness-encoder.py：编译 drivers/PongAdreno/K60BacklightCodec.h + 断言，覆盖 0..255 DBV 换算与 FadePeriod 渐变序列，全部通过（输出 all brightness encoder checks passed）。"
+artifact_check = "scripts/build-strict.sh 产物 kernel.macho 中 llvm-nm 必须出现 _k60_backlight_start 与 _native_backlight_stats，且字符串含 K60 BACKLIGHT: published。"
+
+[hardware.brightness.step.device]
+done = false
+evidence = "待上机：由 Lead 在用户同意后执行，判据见 docs/research/display/BRIGHTNESS-PLAN.md:190（ioreg 能看到 backlight-control/IODisplayParameters、native_backlight_stats 发布/请求/回读/失败计数、min/mid/max 三档回读不同且屏上可见、渐变无跳变、屏幕不停更）。"
+
+[hardware.brightness.step.device.prediction]
+success = "启动后 IORegistry 里出现 K60Backlight 服务：backlight-control=true、IODisplayParameters.brightness{min 0,max 2047}；拖 iOS 亮度滑块时 native_backlight_stats[1] 递增、[2]/[4] 跟随变化，min/mid/max 三档 DBV 不同且屏幕可见变暗/变亮，FadePeriod 渐变平滑，屏幕持续更新"
+failure = "只有 K60 BACKLIGHT: published 但滑块无效（CoreBrightness 没接管，检查 backlight-control/impersonate），或滑块一动屏幕停更（int-236 回归：impersonate 失败却发了 backlight-control），或 stats[5] 递增（DCS 0x51 写失败）"
+
 [hardware.bootchain]
 status = "active"
 paths = ["patches/xnu/0401", "patches/xnu/0616", "patches/xnu/0394", "patches/xnu/0398", "patches/xnu/0402", "patches/xnu/offline-owner"]

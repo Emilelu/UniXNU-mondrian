@@ -28,6 +28,7 @@
 | SA-01 | 电池栈构建集成调研 | 2026-11-12 11:35 | `docs/engineering/BATTERY-INTEGRATION.md` | `grep:configs/mondrian_defconfig:CONFIG_XNU_K60_PHYSICAL_BATTERY` | landed | PENDING |
 | SA-02 | 音频/DSP 栈差距调研 | 2026-11-12 11:36 | `docs/research/audio/GAP-ANALYSIS.md` | `grep:docs/research/audio/GAP-ANALYSIS.md:PAS1` | landed | PENDING |
 | SA-03 | WiFi 实现差距调研 | 2026-11-12 11:37 | `docs/research/wifi/GAP-ANALYSIS.md` | `file:docs/research/wifi/FIRMWARE.md` | landed | PENDING |
+| SA-04 | thermal 线同型号/官方/反编译/广查四步调研 | 2026-11-14 12:50 | `docs/research/thermal/04-ANDROID-EVIDENCE.md` | `file:drivers/PongThermal/K60Tsens.c` | landed | bdf2d5c |
 | SA-CONFIG-CONSISTENCY | defconfig vs generated .config checker | 2026-11-12 19:35 | `docs/research/evidence/SA-CONFIG-CONSISTENCY.md` | `grep:docs/research/evidence/SA-CONFIG-CONSISTENCY.md:.config` | landed | `faacc2d` |
 | SA-BOOT-EVIDENCE | boot evidence audit: battery image reached SpringBoard, k60_touch_se=19 killed touch | 2026-11-12 19:35 | `docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md` | `grep:docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md:k60_touch_se` | landed | `faacc2d` |
 

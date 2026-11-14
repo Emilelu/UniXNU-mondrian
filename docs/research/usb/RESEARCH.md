@@ -693,3 +693,72 @@ P2 的第一版只做**回环**（EP6 OUT 收到的字节从 EP7 IN 回给主机
 
 P2-a 是**纯结构性**改动，不含新的硬件假设，因此可以在拿到 0407 数据后立刻做；
 P2-b 依赖 0407 证明 EP6/EP7 确实可配置。
+
+## 16. P2-a 落地：8 槽 TRB、传输资源收尾（`patches/usb/0408-k60-usb-p2-structure.patch`）
+
+§15 把 P2 拆成三件：(a) TRB 槽 4→8，(b) `transferResource` + `ENDTRANSFER` 收尾，(c) vendor 端点回环。
+本节只做 (a) 和 (b) —— 两者都是**纯结构性**改动，不引入任何新的硬件假设，因此不需要 0407 的上机数据就能先落地；
+(c) 仍然要等 `usb-20261114e` 证明 EP6/EP7 能配置成功（§13.3 判据 2）。
+
+### 16.1 改动（10 处锚点，全部在 `bsd/dev/k60_usblog.c`）
+
+| # | 位置 | 改动 |
+| --- | --- | --- |
+| R1 | DMA 布局常量 | 新增 `UD_TRB_EP4 0x1300` / `UD_TRB_EP5 0x1340` / `UD_TRB_EP6 0x1380` / `UD_TRB_EP7 0x13c0` / `UD_VEND_RX 0x6000` / `UD_VEND_TX 0x7000` |
+| R2 | `ud_trb_for()` | `case 3..7` 各回自己的槽；`default` 不再是"ep 3 兜底"（8 个物理端点以外不会出现） |
+| R3 | 命令常量 | 新增 `DEPCMD_ENDTRANSFER 8`、`DEPCMD_FORCERM (1u<<11)`、`DEPCMD_PARAM(x) ((uint32_t)(x)<<16)` |
+| R4 | `struct ud` | 新增 `uint8_t transferResource[8]` |
+| R5 | `ud_epcmd()` | 拆成 `ud_epcmd_full(ep, command, p0,p1,p2)` + 一层薄包装 `ud_epcmd()`（ENDTRANSFER 需要把 PARAM 与 FORCERM 一起 OR 进命令字，原签名只接受纯命令号） |
+| R6 | `ud_start()` | STARTTRANSFER 成功后读 `(DEPCMD(ep) >> 16) & 0x7f` 存进 `transferResource[ep]` |
+| R7 | 新增 `ud_end_transfers()` | 对每个非零资源发 `ENDTRANSFER | FORCERM | PARAM(res)`，成功后清 0 |
+| R8 | `ud_reset_endpoints()` | 在 `DALEPENA = 0` 之前调用 R7 |
+| R9 | SET_CONFIGURATION 的 deconfigure 分支 | 调用 R7（端点仍然使能，资源需要显式收尾） |
+| R10 | 设备事件 type 0（disconnect） | 调用 R7 |
+
+`git diff --stat`: 1 file changed, 55 insertions(+), 6 deletions(-)。
+
+### 16.2 为什么这样改（证据，不是猜测）
+
+- **TRB 槽必须按物理端点分**：原实现 `default: return UD_TRB_TX` 让 ep3 与 ep>=4 写同一个 16 字节 TRB，
+  一旦 vendor 端点真的发起传输就会互相踩。新偏移全部落在既有空洞里（现有占用到 `0x5000+0x1000 = 0x6000`，
+  `UD_SIZE = 0x8000`），**没有移动任何既有偏移** —— 0307 特意给 `UD_TRB_IN` / `UD_TRB_RX`
+  分了独立 cache line（`0x10c0` / `0x3040`），挪动会重新引入伪共享。
+- **资源号必须从寄存器读回**：`references/pong-usb/PongUsbDevice.h:130`
+  `transferResource[ep] = uint8_t((core.r(DWC3_DEPCMD(ep)) >> 16) & 0x7f);` —— 同 SoC 参考实现就是这么做的。
+- **ENDTRANSFER 的命令字**：`PongUsbDevice.h:136`
+  `DWC3_DEPCMD_ENDTRANSFER | (1u << 11) | DWC3_DEPCMD_PARAM(transferResource[ep])`，
+  注释原文「DWC3 requires DEPENDXFER for real active resources before RunStop0；HIPRI_FORCERM11 +
+  actual STARTTRANSFER resource index; no guessed id」。宏值来自 `references/pong-usb/Dwc3Registers.h:98-108`
+  （`CMDACT 1<<10` / `PARAM(x) (x)<<16` / `SETTRANSFRESOURCE 0x02` / `STARTTRANSFER 0x06` / `ENDTRANSFER 0x08`）。
+- **失败要容忍**：已经完成的传输资源在控制器侧可能已经回收，此时 ENDTRANSFER 会返回非零状态。
+  `ud_epcmd_full` 会把状态码打印成 `K60 USBLOG: ep%u cmd 0x%x status %u`（`cmd & 0xf` = 8 即可识别），
+  但 `ud_end_transfers()` 本身不置 `ud.failed` —— 收尾失败不应该杀掉控制台。
+
+### 16.3 上机判据（下一次带 0408 的镜像）
+
+| # | 判据 | 判读方式 |
+| --- | --- | --- |
+| 1 | 控制台**完全不变** | `console.log` 里 `K60 USBLOG` 行数不少于 usb-20261114c 同级水平（≥250），`setup 80 06 0200 len 98` 仍出现 |
+| 2 | 心跳不断流 | 每 2 s 一行 `K60 USBHB`，总数 ≈ 时长÷2s ±10% |
+| 3 | 收尾不报错 | 出现 `bus reset` / `disconnect` 时**不应**伴随 `ep%u cmd 0x8 status` 之外的异常；允许出现该行（说明资源确实存在过） |
+| 4 | 采集仍完整 | `capture.json` `state = captured-budget-complete`、`complete = true`、`panicMarker = null` |
+
+判据 1、2、4 是回归判据（与 §13.3 的 1、5 同构）；判据 3 是本补丁新增的观测点。
+**注意**：0408 不改变任何描述符、端点使能位或 PHY 配置，因此主机侧设备树（`MI_00..02` 子节点）不会因为 0408 而变化 ——
+那仍然是 §12.3 留给 0409（device class `0xEF/0x02/0x01`）的变量。
+
+### 16.4 与 0407 的关系（为什么 0408 不能替代上机）
+
+0407 提供的是**运行时真值**：EP6/EP7 的 `SETEPCONFIG` 返回值、`GHWPARAMS1/GHWPARAMS3` 的物理端点/FIFO 预算、
+`GTXFIFOSIZ0..3` 的实际划分。0408 只在代码层面保证"如果 EP6/EP7 能配起来，它们的 TRB 不会互相踩、
+重新配置时资源会被正确收尾"。两者正交：0408 可以独立构建和上机（它不依赖 0407 的日志内容），
+但 **P2-b（vendor 回环）必须同时有 0407 的成功结论**，否则回环会挂在不可配置的端点上。
+
+### 16.5 构建与门禁（tag `usb-20261114f`，待构建）
+
+`patches/xnu/series` 现 233 行（末三行 = `../usb/0406`、`../usb/0407`、`../usb/0408`），
+三处 series 指纹一致：`sha256 18d72571e489bccf1e1d5e9b6134dba0ab24add21be0e554b064cf051f6ecefe`。
+`porting-gate.py --quick` ✅ 通过（7 项警告，均为"第一次跑/内核新鲜度"类），`check-docs.py` ✅ 187 项通过。
+
+**构建输入必须用本线私有树** `/opt/k60/trees/usb-device`：共享的 `/opt/k60/trees/usb-cdc-mainline/device`
+已被其他线覆写过两次（§14.1），每次都会让 bootimg 阶段因为 series 不一致被拒。

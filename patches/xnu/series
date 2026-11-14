@@ -225,3 +225,4 @@ zzy-native-gpu-addon-mount.patch
 ../usb/0405-k60-usb-heartbeat.patch
 ../usb/0406-k60-usb-composite.patch
 ../usb/0407-k60-usb-endpoint-diag.patch
+../usb/0408-k60-usb-p2-structure.patch

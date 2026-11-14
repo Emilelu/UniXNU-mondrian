@@ -89,22 +89,37 @@
 
 ```
 $ llvm-objdump -dr --start-address=0xa90 --stop-address=0xad8 qti_battery_charger_main_m81.ko
-    a90: 90000008   adrp x8, ...   R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x259a
-    a94: 91000008   add  x8, x8, #0x0
-                                 R_AARCH64_ADD_ABS_LO12_NC   .rodata+0x259a
-    a98: f9000288   str  x8, [x20]            ; client->name
-    a9c: 52800028   mov  w8, #0x1
-    aa0: b9000a88   str  w8, [x20, #0x8]      ; client->id = 0x800a
-    aa4: 52800008   mov  w8, #0x800a
-    ...
-    ac8: 94000000   bl   ...   R_AARCH64_CALL26  pmic_glink_register_client
+     a90: adrp x9, ...      R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x259a
+     a94: adrp x10, ...     R_AARCH64_ADR_PREL_PG_HI21  battery_chg_callback....cfi_jt
+     a98: adrp x11, ...     R_AARCH64_ADR_PREL_PG_HI21  battery_chg_state_cb....cfi_jt
+     a9c: mov  w23, #0x1
+     aa0: mov  w8, #0x800a                    ; client id
+     aa4: add  x9, x9, #0x0
+                            R_AARCH64_ADD_ABS_LO12_NC   .rodata+0x259a
+     aa8: add  x10, x10, #0x0
+                            R_AARCH64_ADD_ABS_LO12_NC   battery_chg_callback....cfi_jt
+     aac: add  x11, x11, #0x0
+                            R_AARCH64_ADD_ABS_LO12_NC   battery_chg_state_cb....cfi_jt
+     ab0: add  x1, sp, #0x8                   ; &client（栈上）
+     ab8: str  w23, [x20, #0x240]             ; bcdev->state = 1
+     abc: str  x19, [x20]                     ; bcdev->dev
+     ac0: str  w8,  [sp, #0x10]               ; client.id   = 0x800a
+     ac4: str  x9,  [sp, #0x8]                ; client.name = "battery_charger"
+     ac8: stp  x20, x10, [sp, #0x18]          ; client.priv + client.callback
+     acc: str  x11, [sp, #0x28]               ; client.state_cb
+     ad0: bl   ...          R_AARCH64_CALL26  pmic_glink_register_client
 ```
+
+> 注意：client 结构体建在栈上（`add x1, sp, #0x8` 作为第一参数传给
+> `pmic_glink_register_client`），五个字依次是 name / id / priv / callback / state_cb。
+> 这解释了为什么 `.ko` 不需要 `devm_pmic_glink_client_alloc()`——它自己管生命周期。
 
 `.rodata+0x259a` 处字节：
 
 ```
-$ llvm-readelf -x .rodata qti_battery_charger_main_m81.ko
-0x00002590 ... 62617474 6572795f 63686172 67657200   battery_charger\0
+$ llvm-readelf -x .rodata qti_battery_charger_main_m81.ko | grep -A1 '0x00002590'
+0x00002590 5f63616c 6c626163 6b006261 74746572 _callback.batter
+0x000025a0 795f6368 61726765 72004572 ...      y_charger.Er
 ```
 
 | 字段 | 值 | 来源 |
@@ -152,18 +167,20 @@ struct qcom_battmgr_message {            /* :125-136 */
 
 ```
 $ llvm-objdump -d --start-address=0x21cc --stop-address=0x2238 qti_battery_charger_main_m81.ko
-    21cc: bti j
-    21d0: cmp x2, #0x90          ; 144 B
-    21d4: ldr x8, [x19, #0x140]
-    21dc: ldp x10, x9, [x20, #0x20]
-    21e0: ldp x12, x11, [x20, #0x10]   ; 从 data+0x10 起
-    21e4: stp x10, x9, [x8, #0x20]
-    21e8: stp x12, x11, [x8, #0x10]
-    ...
-    2224: ldr x0, [x19, #0x140]
-    2228: bl  strcmp              ; 与 .rodata+0x1aee = "Debug_Board" 比较
+    21cc: cmp  x2, #0x90              ; 144 B = 12 头 + 128 Model + 4
+    21d0: b.ne 0x234c                 ; 长度不符 → 走 0x234c 的 24/32/52 B 分支
+    21d4: ldr  x8, [x19, #0x140]      ; bcdev->model_buf
+    21d8: cbz  x8, 0x234c
+    21dc: ldp  x10, x9,  [x20, #0x20]
+    21e0: ldp  x12, x11, [x20, #0x10] ; 从 data+0x10 起（跳过 12 B 头 + property）
+    21ec: stp  x10, x9,  [x8, #0x10]
+    21f0: stp  x12, x11, [x8]
+    ...                               ; 共 8 组 ldp/stp = 128 B
+    2224: ldr  x0, [x19, #0x140]
+    2228: bl   strcmp                 ; 第二参 .rodata+0x1aee = "Debug_Board"
+    222c: cmp  w0, #0x0
     2230: cset w8, eq
-    2234: strb w8, [x19, #0x30e]  ; +0x30e = 板名是否 Debug_Board
+    2234: strb w8, [x19, #0x30e]      ; +0x30e = (板名 == "Debug_Board")
 ```
 
 ### 3.3 完成语义
@@ -172,17 +189,29 @@ $ llvm-objdump -d --start-address=0x21cc --stop-address=0x2238 qti_battery_charg
 
 ```
 $ llvm-objdump -dr --start-address=0x6d0 --stop-address=0x74c qti_battery_charger_main_m81.ko
-     6d0: add x19, x20, #0xa8
-     6d8: bl  ...   R_AARCH64_CALL26  mutex_lock
-     6dc: str wzr, [x20, #0xd8]!      ; 清 completion
-     6e0: ldur x0, [x20, #-0x38]      ; pmic_glink client 句柄
-     6ec: bl  ...   R_AARCH64_CALL26  pmic_glink_write
-     6f4: cbnz w0, 0x708
-     6f8: mov w1, #0xfa               ; 250 jiffies
-     700: bl  ...   R_AARCH64_CALL26  wait_for_completion_timeout
-     704: cbz w0, 0x72c
+     6d0: add  x19, x20, #0xa8            ; bcdev+0xa8 = 请求互斥量
+     6d4: mov  x0, x19
+     6d8: bl   ...   R_AARCH64_CALL26  mutex_lock
+     6dc: str  wzr, [x20, #0xd8]!         ; 清 completion（bcdev+0xd8）
+     6e0: ldur x0, [x20, #-0x38]          ; pmic_glink client 句柄
+     6e4: mov  w2, w21                    ; len
+     6e8: mov  x1, x22                    ; data
+     6ec: bl   ...   R_AARCH64_CALL26  pmic_glink_write
+     6f0: mov  w21, w0
+     6f4: cbnz w0, 0x708                  ; 写失败 → 直接解锁返回
+     6f8: mov  w1, #0xfa                  ; 250 jiffies
+     6fc: mov  x0, x20
+     700: bl   ...   R_AARCH64_CALL26  wait_for_completion_timeout
+     704: cbz  w0, 0x72c                  ; 超时 → 0x72c
+     708: mov  x0, x19
+     70c: bl   ...   R_AARCH64_CALL26  mutex_unlock
+     710: mov  w0, w21
      ...
-     748: mov w21, #-0x6e             ; -110
+     72c: adrp x0, ...  R_AARCH64_ADR_PREL_PG_HI21  .rodata+0xe75
+     730: adrp x1, ...  R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x1c26
+     73c: bl   ...   R_AARCH64_CALL26  printk
+     744: bl   ...   R_AARCH64_CALL26  mutex_unlock
+     748: mov  w21, #-0x6e                ; -110 = -ETIMEDOUT
 ```
 
 响应侧统一走 `0x2464` 完成尾：
@@ -207,18 +236,23 @@ $ llvm-objdump -d --start-address=0x2464 --stop-address=0x2488 qti_battery_charg
 
 ```
 $ llvm-objdump -dr --start-address=0x24c8 --stop-address=0x2514 qti_battery_charger_main_m81.ko
-    24cc: cmp x2, #0x10              ; 16 B
-    24d4: ldr w2, [x20, #0xc]        ; notification code 在 +0xc
-    24d8: adrp x0, ...   R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x2489
-    24e8: bl  printk                 ; 先打印
-    24f0: sub w8, w9, #0x30
-    24f4: cmp w8, #0x20
-    24f8: b.hi 0x2660                ; >0x50 走另一条
-    24fc: adrp x9, ...   R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x57   ; 第二张表
-    2504: adr x10, 0x2470
+    24c8: bti  j
+    24cc: cmp  x2, #0x10                 ; 负载必须是 16 B
+    24d0: b.ne 0x25b0
+    24d4: ldr  w2, [x20, #0xc]           ; notification code 在 +0xc
+    24d8: adrp x0, ...  R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x2489
+    24dc: adrp x1, ...  R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x14cc
+    24e8: bl   ...   R_AARCH64_CALL26  printk   ; 先无条件打印通知码
+    24ec: ldr  w9, [x20, #0xc]
+    24f0: sub  w8, w9, #0x30             ; 索引 = code - 0x30
+    24f4: cmp  w8, #0x20                 ; 0x30..0x50
+    24f8: b.hi 0x2660                    ; >0x50 走另一条
+    24fc: adrp x9, ...  R_AARCH64_ADR_PREL_PG_HI21  .rodata+0x57  ; 第二张表
+    2500: add  x9, x9, #0x0
+    2504: adr  x10, 0x2470               ; 表基址 0x2470
     2508: ldrb w11, [x9, x8]
-    250c: add x10, x10, x11, lsl #2
-    2510: br  x10
+    250c: add  x10, x10, x11, lsl #2
+    2510: br   x10
 ```
 
 `0x2660` 只认 `0x80`：
@@ -256,13 +290,13 @@ $ llvm-objdump -d --start-address=0x2660 --stop-address=0x2678 qti_battery_charg
 
 ```
 $ llvm-objdump -d --start-address=0x22ac --stop-address=0x22c8 qti_battery_charger_main_m81.ko
-    22ac: bti j
-    22b0: cmp x2, #0x10
+    22ac: bti  j
+    22b0: cmp  x2, #0x10                 ; 负载必须是 16 B
     22b4: b.ne 0x255c
-    22b8: ldr w8, [x20, #0xc]
-    22bc: cmp w8, #0x1
-    22c0: b.ne 0x2464
-    22c4: strb w8, [x19, #0x30f]
+    22b8: ldr  w8, [x20, #0xc]           ; data+0xc
+    22bc: cmp  w8, #0x1
+    22c0: b.ne 0x2464                    ; 不是 1 也照样 complete
+    22c4: strb w8, [x19, #0x30f]         ; 只有 ==1 才置位
 ```
 
 ---
@@ -277,9 +311,9 @@ $ llvm-objdump -d --start-address=0x22ac --stop-address=0x22c8 qti_battery_charg
 | 订阅帧 | 28 B，type=2 | 28 B，type=2 | 28 B，type=2 |
 | 通知帧 | 16 B | 16 B | 16 B（`bytes != 16` 拒收） |
 | Model 响应 | 132 B 负载 | 144 B 总长（12+128+4 对齐） | `16 + 128` |
-| battery prop map | 20 项（`sm8350_bat_prop_map`） | 25 项 | 18 字段 |
+| battery prop map | 19 项（`sm8350_bat_prop_map`，`:401-421`） | 25 项 | 18 字段 |
 | usb prop map | 7 项 | 13 项 | 5 字段 |
-| wls prop map | 7 项（上游另有 5 项 map） | 7 项 | 1 字段 |
+| wls prop map | 5 项（`sm8350_wls_prop_map`，`:839-845`） | 7 项 | 1 字段 |
 | 小米扩展 | 无 | `xm_prop_map` 187 项 + `0x50`/`0x51` | 无 |
 | 超时 | 由 `pmic_glink` 核心 | 250 jiffies → `-110` | `poisoned` 标记 |
 
@@ -399,7 +433,7 @@ KO=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
 
 # 客户端名与 id
 llvm-objdump -dr --start-address=0xa90 --stop-address=0xad8 $KO
-llvm-readelf -x .rodata $KO | sed -n '2,8p'        # 0x259a = battery_charger
+llvm-readelf -x .rodata $KO | grep -A1 '0x00002590'  # 0x259a = battery_charger
 
 # 通道名不在模块里
 strings -a $KO | grep -c PMIC_RTR_ADSP_APPS        # 0

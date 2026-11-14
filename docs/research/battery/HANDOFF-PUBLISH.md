@@ -1,0 +1,79 @@
+# K60 ADSP GLINK handoff publisher
+
+> As of 2026-11-14. Implementation and offline verification only; no device boot.
+> A real retained PAS1 owner is still a dependency. This change must not be reported as a working ADSP, audio, or battery link.
+
+## Contract and evidence
+
+The requested specification was read in full from the charger worktree: `E:/hackios/k60-charger/docs/research/battery/HANDOFF-PUBLISH-SPEC.md` (439 lines, SHA-256 `b0848254d498003f05d7400aecf86bbad27c8034c874b9d269f8f5db90c1b220`). The local consumer contract is [GLINK-HANDOFF.md](GLINK-HANDOFF.md); its older statements about missing allocators/producers are historical, not the status of this revision.
+
+Board configuration remains generated from the captured FDT, not duplicated in the publisher: SMEM `0x80900000/0x200000`, ADSP `0x9fd00000/0x3100000`, IPCC `0xed18000/0x1000`, mutex `0x1f4100c`, remote PID 2, IPCC client 3/signal 0, items desc/tx/rx/SMP2P `478/479/480/443`, protocol 1. `K60BatteryConfig.c` and the consumer revalidate the lease. The serialized property is exactly 104 little-endian bytes, flags exactly `K60AdspHandoffRequired` (15), with a nonzero owner epoch.
+
+## Implementation boundaries
+
+| File | Responsibility |
+|---|---|
+| `drivers/PongPower/K60AdspOwner.h` | Retained ownership contract: authenticate/start PAS1, retain resource votes, prepare fresh FIFOs while stopped, pin a token/epoch and exclude competing workers/reset paths. |
+| `drivers/PongPower/K60AdspOwner.c` | Concrete fail-closed default provider; returns `K60_ADSP_OWNER_UNAVAILABLE` (-1000), clears the lease, performs no mapping, SMC, reset or vote. It is not a PAS1 implementation. |
+| `drivers/PongPower/K60AdspMdt.c/.h` | Pure ELF32LE metadata/relocation preparation, with no device effects or authenticated ownership claim. |
+| `drivers/PongPower/K60HandoffPublish.c/.h` | Host-testable discovery/validation and existing-only serialization; no live FIFO allocation, clearing, index reset or adoption of dirty descriptors. |
+| `drivers/PongPower/K60HandoffRuntime.cpp` | Early kernel adapter, physical-range checks, bounded discovery/mutex waits, exact OSData allocation, consumer self-parse and atomic registry commit. |
+| `drivers/PongPower/K60AdspStartup.c` | One persistent atomic claim shared by early handoff and late diagnostic startup; neither path can race the other into effects. |
+| `patches/xnu/0617-k60-adsp-glink-handoff.patch` | Append-only kernel integration and canonical C source mirrors. Existing protected blobs, arguments and preceding series order are unchanged. |
+
+The early hook in `IOKitBSDInit()` runs before the `IOBSD` publish and physical battery start. A Data-mount hook is too late. The old diagnostic loader is not a provider: a disabled diagnostic returning zero does not prove authentication, held votes, fresh FIFO ownership or flags 15. The early attempt excludes that loader even when the early attempt fails. The compiled provider intentionally fails before SMEM/TCSR mappings, rather than guessing an early firmware/PAS path that depends on an unavailable root filesystem.
+
+## Six-step state machine
+
+1. Parse the generated board config; reject any SMEM, ADSP, mutex or IPCC overlap with XNU RAM before invoking a side-effect-capable owner. Reject an existing `/chosen/k60-adsp-glink-handoff`. Allocate OSData before taking the hardware mutex.
+2. Acquire and revalidate an authenticated, pinned PAS1 owner token. The provider must already have prepared exact fresh desc(32 B)/TX(4096 B)/RX(4096 B) items while the DSP was stopped and retained all required votes. Missing provider is a hard dependency, never a synthetic lease.
+3. Poll the real remote SMP2P item for at most 2000 ms (20 ms sleeps), requiring `slave-kernel` with `(state & 2) != 0` and `(state & 1) == 0`. Capture and recheck the restart flag. Discovery briefly holds the same TCSR mutex; it does not manufacture item 443 to manufacture readiness.
+4. Acquire the TCSR mutex for at most 1000 us (10 us retries), locate the host0/ADSP2 SMEM partition, recheck readiness/restart and require an exact all-zero 32-byte descriptor. This strict freshness policy may reject genuine remote progress; it never clears that progress.
+5. Call `k60_handoff_build_existing()` with flags 15, nonzero epoch, exact item sizes and zero host indices, then self-parse with `k60_adsp_handoff_parse()`. The original allocating builder is retained for stopped-DSP owner preparation; it is never used by live publication. Missing or larger existing items fail instead of creating/resetting them.
+6. Release TCSR, revalidate pinned ownership and readiness/restart again, append exactly 104 bytes to OSData, self-parse the actual bytes, and atomically check/set the property under `runPropertyAction`. No allocation, callback into the owner, or registry publication occurs while the caller holds TCSR. Failure aborts an acquired owner before publication. Success never aborts/releases the pinned resource ownership. No software check promises immunity to a future DSP crash.
+
+## Notification qualification
+
+The local generator now accepts qualification only for a complete, unambiguous paired TX/RX capture. Reference evidence was inspected at `E:/hackios/k60-charger/docs/research/charger/03-REVERSE.md`: `battery_chg_write` at 0x688 has state/debug-board/block-TX gates and may return zero without transmitting (lines 142-178); `battery_chg_subsys_up_work` at 0x11b0 sends `{owner=0x800a,type=2,opcode=4}` plus 16 zero payload bytes, exactly 28 B (lines 270-288). A successful return or a callback completion is therefore not a wire ACK proof.
+
+The 24-byte property request and 16-byte opcode-7 notification are not subscription ACK evidence. Malformed hex, truncation, wrong owner/opcode, orphan RX, repeated or ambiguous TX/RX sequences are rejected by `test-k60-notification-qualification.py`. Without a qualifying real capture, notification reply type/length remain 0/0 and subscription stays disabled. Existing compatibility alternatives are not promoted to measured facts. Current sign likewise remains unqualified without charging/discharging wire evidence.
+
+## Offline verification (2026-11-14)
+
+- `scripts/tests/run-k60-handoff-host.sh <durable-output> <pre-0617 .cache/xnu-work>` runs the complete offline suite and records `host-tests.log`. The latest complete run is `E:/k60-work/artifacts/adsp-handoff-host-20261114t2150/host-tests.log` from the dedicated checkout (5818 bytes, SHA-256 `8dd3502ff62cf9ac696ab6498f127193f0b3b4a73e0448f67f979f5ba26e8b3e`). Publisher: 49 checks pass, including PAS failure, not-ready/reset states 0/1/3 versus ready state 2, invalid SMP2P metadata, lock/partition failures, descriptor freshness, duplicates, exact flags/epoch, consumer parse and release-before-property behavior. The existing builder has 10 passing cases.
+- `test-k60-adsp-owner.c`: absent provider fails closed; `test-k60-adsp-startup.c` in two fresh processes: early and late owners each win once, invalid/repeated/competing claims fail.
+- `test-k60-adsp-mdt.py`: 16 test methods pass, including malformed headers/hash/segments, exact split-file lengths, region/overlap failures and the captured 26-header image; metadata is untouched and the output plan is zero on tested error paths.
+- `test-k60-notification-qualification.py`: 21 cases pass. `test-battery-units.py`: 27 cases pass. Host C tests compile with `-Wall -Wextra -Werror`.
+- `test-k60-handoff-integration.py --xnu <pre-0617 .cache/xnu-work>`: five patch sections apply with fuzz 0; three embedded C/header mirrors match canonical sources; early/consumer and late-arbitration ordering pass. This is a scoped predecessor fixture (the late hunk is reconstructed from current 0614), NOT a full clean replay of every kernel patch.
+- Staged whitespace verification passes for actual added source lines and all other files. A literal git diff --cached --check of the new unified-patch file reports ten required context-marker lines (blank context and a context space before original tabs); those context bytes are preserved, and all 174 added source lines have no trailing whitespace or space-before-tab issue. Patch application is separately covered by the integration test. No whitespace or release gate configuration was changed.
+- `K60HandoffRuntime.cpp`: arm64 Apple kernel SDK syntax check passes using the existing fakeroot as `-isysroot`; two existing framework private-header warnings remain. This is not a kernel link or runtime proof. A read-only independent review found no blocking source issue in the revision inspected; real PAS1 ownership remains unimplemented.
+
+Full clean-series compilation/linking and artifact inspection are pending. Step 7 stays incomplete until those checks pass; step 8 remains false. No device, serial or boot operation is authorized or performed by this task.
+
+## PAS1 firmware preparation and remaining platform gaps
+
+The captured firmware is ELF32 little-endian Hexagon ET_EXEC. `E:/k60-work/firmware/adsp/adsp.mdt` is 5404 bytes, SHA-256 `1238098817957c4d3cd0995fd413332751ac8082ea315e6e1d9bdb247cadc694`. It has 26 program headers, 24 load segments, and a 4520-byte hash segment at header 25. The 884-byte header prefix plus this hash forms the PAS metadata. The packed hash matches `adsp.b25`; pure-BSS header 24 needs no `.b24` file.
+
+All captured load segments have Qualcomm relocatable bit 27. Their linked interval is `[0x86300000,0x89400000)`, span `0x3100000`. Relocation into the generated board carveout yields `[0x9fd00000,0xa2e00000)`. The different linked and board bases are therefore not, by themselves, a fixed-address conflict. The old generated table drops these flags and cannot substitute for MDT preparation.
+
+`K60AdspMdt.c/.h` is a pure preparation API. It validates ELF/header bounds, hash selection, source sizes, uniform relocation, segment overlap and carveout fit, then produces metadata and a copy/BSS plan using caller-owned buffers. It performs no payload copy to physical memory, mapping, SMC, authentication, vote, reset or lease publication. All input buffers must remain stable for the call, including during callbacks; output plan and metadata must be disjoint from one another, the MDT and every borrowed source buffer. Input sources may alias one another. These caller preconditions are explicit and are not checked at runtime. Independent review found no unconditional memory-safety blocker under those preconditions; regressions include address endpoints, exact callbacks, packed metadata precedence, truncated contained-range fallback and 64-header bounds. The returned plan is not an authenticated or persistent ownership token. Any future loader must bind copying/authentication to the same validated bytes. This module is tested offline and is not yet connected to the kernel archive or the absent owner.
+
+The Qualcomm sequence was checked against primary Linux v6.1 [mdt_loader.c](https://github.com/torvalds/linux/blob/v6.1/drivers/soc/qcom/mdt_loader.c) and [qcom_q6v5_pas.c](https://github.com/torvalds/linux/blob/v6.1/drivers/remoteproc/qcom_q6v5_pas.c): INIT_IMAGE consumes header/hash metadata, MEM_SETUP describes the physical carveout for relocatable images, segments are loaded, and resources are prepared before AUTH_AND_RESET and the bounded ready wait. The PAS recipe in the external specification at line 87 and the legacy late loader's AUTH-before-INIT order must not be copied. The external owner's document and the legacy implementation were not changed here. Linux's normal handover/release lifetime is not proof of this handoff contract's indefinite retained votes.
+
+A real owner is still blocked by the absence of an early firmware carrier/reader, coherent SCM metadata and a validated serialized PAS transport, audited clocks/power/bandwidth/reset providers, and exclusive pinned ownership across startup and publication. The loader's optional RAMDisk mechanism is only a possible carrier; it does not currently supply these ADSP files. No undocumented RSC/SPMI vote path is introduced. The default provider continues to return -1000 before MMIO.
+
+## Release-gate status (2026-11-14)
+
+The original shared checkout was preserved. Under the Lead authorization relayed by the user, work is now isolated in `E:/hackios/k60-adsp-handoff`, branch `feat/adsp-handoff-owner`, with the exact-scope registry owner `adsp-handoff-agent`. Other owners and gate assertions are unchanged. A verified pre-checkpoint snapshot is at `E:/k60-work/scratch/snapshots/20261114-215345-k60-adsp-handoff` (10 tracked paths plus 17 untracked files); its tracked.patch SHA-256 is `b7ba4644437f35322b75fa339315c23bcbb1442ec84ea13fc460a8e423e5382b`.
+
+The private build-input mirror `/opt/k60/trees/adsp-handoff-20261114t2145-device` was first inspected with --check, then synchronized through the canonical sync script; the subsequent check reports 725 identical covered files. This is not proof of a complete fresh device input: the current sync ITEMS omits feeds.toml and unixnu.lock. Canonical defconfig against that mirror fails with `unixnu: feeds.toml needs a source with kind = "soc" and name = "sm8475"`, despite the source checkout containing the pinned SoC feed. No manual mirror copy or unrelated sync-script change was used to conceal the gap. The shared framework CLI sources were compared before synchronization and were identical, excluding generated Python caches. No shared build output was reused as a candidate artifact.
+
+As checked at 21:55 +08:00 on November 14, origin/main is still `9176f5c1540a452387cb961beb7ba1a3cc75ac5b`; the Lead-designated gate fixes are on origin/feat/gpu-yibiya `fe210a8d2e83b9772b437b4c39b1e1718ef201ea` and have not landed on main. Rebase and strict build therefore remain pending. The earlier full-registry failure log is historical evidence at `E:/k60-work/artifacts/adsp-handoff-host-20261114t1946/release-rules.log` (13 failed entries); it is not a claim about the now-corrected ownership/private mirror, nor an all-green release. P-193/P-194 assertions are not weakened locally. The verified implementation is source checkpoint `afb4fb6041856f0d75eb5c409ee71c563f6d86a0` (`feat(power): add fail-closed ADSP handoff publisher`), not an all-green release. After the fixes land, rebase, resolve the canonical feed-mirroring gap, revalidate isolated input/configuration, rerun the entire rule registry, commit and push the resulting source, then build with unique K60_DEVICE_INPUT/K60_OUT and an explicit archived FD.
+
+No strict kernel build, kernel link, image verification or device boot is claimed for this source checkpoint. Step 7 and step 8 remain incomplete.
+
+## Expected runtime evidence and remaining dependency
+
+With the default provider, expect `K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published`, followed by the existing battery blocked path. There must be no handoff property and no claim that ADSP/GLINK works. This is the expected negative result, not a functional success.
+
+A future audited provider must implement the entire retained ownership contract before replacing the default. Then independently prove PAS1 authentication/start, retained resource ownership, ready/non-reset SMP2P, fresh exact SMEM items, successful `published authenticated PAS1 ... bytes=104 flags=15`, and consumer discovery plus real GLINK transactions. Only a Lead-authorized boot may establish those facts. Image delivery must use unique `K60_DEVICE_INPUT` and `K60_OUT`, the strict builder, explicit archived FD and a complete manifest; no stale kernel or hardware-tested label is acceptable.

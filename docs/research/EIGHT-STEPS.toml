@@ -413,22 +413,22 @@ done = false
 evidence = "从未上机。"
 
 [hardware.battery]
-status = "planned"
-paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60Smem", "patches/xnu/0602"]
-parked_why = "尚未开始，见各步 evidence"
+status = "active"
+paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60AdspOwner", "drivers/PongPower/K60AdspMdt", "drivers/PongPower/K60AdspStartup", "drivers/PongPower/K60Smem", "patches/xnu/0602", "patches/xnu/0617"]
+parked_why = ""
 why = "电池 / 充电（IOPMPowerSource）"
 
 [hardware.battery.step.same_model]
 done = true
-evidence = "参考 yibiya 04bda86 的 K60Battery.cpp（446 行）+ K60BatteryConfig.h/c + K60BatterySmoke.c；我们仓库没有 PongPower 目录。"
+evidence = "已比对 yibiya 04bda86 的 K60Battery/Config/Smoke 与当前 drivers/PongPower/K60Battery.cpp、K60PmicGlink.cpp、K60HandoffBuild.c。当前仓库已有消费者、SMEM 分配器和序列化器；缺的是可认证并持续持有资源的早期 PAS1 owner，不再沿用无 PongPower 目录的历史描述。见 docs/research/battery/HANDOFF-PUBLISH.md。"
 
 [hardware.battery.step.official]
 done = true
-evidence = "官方 ABI 是 IOPMPowerSource；K60Battery 直接继承它并实现 initProperties/publish/updateAdapter。"
+evidence = "官方 ABI 是 IOPMPowerSource；当前 drivers/PongPower/K60Battery.cpp 直接继承并实现属性发布，IOKit的IORegistryEntry/OSData用于chosen属性。具体时序与字段经本机消费者校验；见 docs/research/battery/HANDOFF-PUBLISH.md 和 docs/research/battery/RESEARCH.md。"
 
 [hardware.battery.step.decompile]
-done = false
-evidence = "未做。"
+done = true
+evidence = "已读 charger 工作树 docs/research/charger/03-REVERSE.md 的原始反汇编：0x688 写路径的 state/debug-board/block-TX 闸门可静默返回零；0x11b0 的订阅 TX 是 owner0x800a/type2/op4 加16字节零，共28字节。24字节属性请求与16字节op7通知不是订阅ACK。此证据仅支持报文资格审查，不证明本机PAS1启动或收到ACK；本机资源另由生成器的FDT断言固定。见 docs/research/battery/HANDOFF-PUBLISH.md。"
 
 [hardware.battery.step.wide]
 done = true
@@ -437,16 +437,24 @@ catalog_checked = true
 catalog_result = "components.toml 无电池组件；官方实现全在 UniXNU-sheng 板级 package/（ShengBattmgr.h/.c、ShengBattery.cpp、BatteryProbe.cpp），另有 Linux qcom_battmgr.c 作协议变体参考。不可当组件复用。详见 docs/research/battery/RESEARCH.md。"
 [hardware.battery.step.plan]
 done = true
-evidence = "方案受硬前置约束，解锁链必须是 PAS1（ADSP 认证与启动）-> GLINK 通道 -> PMIC GLINK -> 电池协议 -> IOPMPowerSource。任何跳过前两层的做法只会得到 physical transport initialization rejected（K60Battery::begin 的失败分支）。K60AdspGlinkHandoff 要求四个标志全真（Authenticated/ResourcesHeld/GlinkExclusive/FreshHostFifos = 0xf），且头文件明确由平台或 loader 的 PAS1 owner 提供，配置生成器不得伪造。因此先做音频的 DSP 传输，两者共用同一套 PAS1+SMEM+SMP2P+GLINK 基础设施。详见 docs/research/battery/RESEARCH.md。"
+evidence = "实现顺序为 IOKitBSDInit 中先取持续持有的PAS1 owner，再检查SMP2P ready且非reset、持TCSR发现SMEM、existing-only构建并自解析，解锁后原子发布104字节OSData，早于IOBSD和电池启动。flags必须等于15、epoch非零；旧Data-mount诊断以共享原子claim排除。当前具体owner返回-1000，不伪造租约，真实认证启动仍为显式依赖。见 docs/research/battery/HANDOFF-PUBLISH.md 和 patches/xnu/0617-k60-adsp-glink-handoff.patch。"
 
 [hardware.battery.step.deep]
 done = true
-evidence = "深挖结论有三条。一，电流符号是唯一的隐性错误源：官方明确要求使用前确认目标协议的符号，因此实现必须把它参数化（sign=+1 正值充电 / -1 正值放电），不能硬编码方向；scripts/tests/test-battery-units.py 用不变量固定了这一点（符号翻转后绝对值不变）。二，每次只能保留一个未完成请求，处理其超时后再推进刷新周期 —— 并发请求会让协议状态机失去对齐。三，固件负责充电控制时必须保留其所有权，驱动只做测量值发布；主机控制的充电器需要独立的控制协议、限值和温控策略，这是另一条产品线。见 docs/research/battery/RESEARCH.md。"
+evidence = "深挖早期root不可用、旧PAS诊断不等于所有权、活DSP环不可清零、发布后不可abort；K60AdspOwner.h要求配置绑定token/epoch和持续votes。另按Linux v6.1 MDT/PAS原始实现核对metadata->INIT_IMAGE->MEM_SETUP->load->AUTH_AND_RESET顺序，捕获ELF的24个load均可重定位：0x86300000链接基准映射到0x9fd00000/0x3100000。纯K60AdspMdt准备器完成16项宿主测试但不认证/启动DSP；真实早期固件carrier/SCM与资源provider仍缺失。见 docs/research/battery/HANDOFF-PUBLISH.md。"
 
 [hardware.battery.step.verify]
 done = false
-local_verified = true
-evidence = "离线部分已完成：scripts/tests/test-battery-units.py 27/27 通过（2026-11-12），固定了官方 power 页第 4 节列出的四个转换与电流符号 —— 微伏转毫伏、微安转毫安、0.01% 转百分比、秒转分钟，外加符号翻转后绝对值不变的不变量。仍缺上机：真实电量计读数与 Android 侧对比。"
-static_check = "转换函数按官方描述实现：四舍五入到最近整数；剩余时间向上取整，宁可多报不可少报。电流符号按协议参数化，不硬编码方向。"
-unit_test = "scripts/tests/test-battery-units.py：27 个用例覆盖电压/电流/容量/时间的边界（0、499/500、49/50、60/61、负数）与符号不变量，全部通过。"
-artifact_check = "不适用：本步验证的是纯算术，产物里没有可核对的字符串。"
+local_verified = false
+evidence = "2026-11-14宿主与语法/局部集成核验已通过，仍待隔离严格构建、整核链接与最终产物核验，故本步保持false，不把算术测试替代交接链验证。当前provider显式缺失；见 docs/research/battery/HANDOFF-PUBLISH.md。"
+static_check = "K60HandoffRuntime.cpp在Darwin22 arm64 SDK语法检查通过；独立只读审查无剩余critical；0617五个补丁段fuzz0局部fixture及三个canonical镜像一致。不是完整series干净重放。"
+unit_test = "49项publisher、10项builder、absent-provider、early/late两进程claim、16项MDT方法（含变异与捕获分段固件）、21项通知资格和27项battery-units通过，C宿主编译-Wall -Wextra -Werror。见 scripts/tests/run-k60-handoff-host.sh 与 docs/research/battery/HANDOFF-PUBLISH.md。"
+artifact_check = "待隔离build-strict.sh整核链接、符号/字符串和boot manifest核验；尚未生成新镜像，不冒称通过。"
+
+[hardware.battery.step.device]
+done = false
+evidence = "本任务未启动设备、未访问串口。默认PAS1 owner返回-1000，不能声称ADSP/电池/音频可用。"
+
+[hardware.battery.step.device.prediction]
+success = "仅未来Lead获准上机且接入真实provider后，验证PAS1认证/资源持续持有、SMP2P ready非reset、104字节flags15发布、consumer发现及真实GLINK报文；发布日志本身不是电池成功。"
+failure = "当前预期K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published，且无handoff属性；任何超时/脏descriptor/重复发布均保持blocked。见 docs/research/battery/HANDOFF-PUBLISH.md。"

@@ -117,3 +117,11 @@ scope = ["userland", "docs/research/springboard", "patches/xnu"]
 path = "/mnt/e/hackios/k60-ios-profile"
 owner = "ios-profile-agent"
 scope = ["docs/research/ios-profile"]
+
+# Explicit Lead authorization relayed by the user on 2026-11-14.
+# Dedicated checkout; the shared touch checkout and other owners are unchanged.
+[[tree]]
+path = "/mnt/e/hackios/k60-adsp-handoff"
+owner = "adsp-handoff-agent"
+scope = ["drivers/PongPower", "patches/xnu/0617-k60-adsp-glink-handoff.patch", "patches/xnu/series", "scripts/append-conffiles.py", "scripts/build-k60-physical-battery.py", "scripts/tests/run-k60-handoff-host.sh", "scripts/tests/test-k60-adsp-mdt.py", "scripts/tests/test-k60-adsp-owner.c", "scripts/tests/test-k60-adsp-startup.c", "scripts/tests/test-k60-handoff-integration.py", "scripts/tests/test-k60-handoff-publish.c", "scripts/tests/test-k60-notification-qualification.py", "docs/research/battery", "docs/research/EIGHT-STEPS.toml", "docs/INDEX.md", "README.md", "README_EN.md", "docs/engineering/TREE-OWNERS.toml"]
+note = "ADSP handoff producer and notification qualification. Ownership registration is explicitly authorized out-of-scope work; no device, boot or serial access. Gate assertions and other owners are not changed."

@@ -891,4 +891,37 @@ ath11k: Pong MHI powered up: ee=.. state=.. serial=..
 **当前状态**：镜像与脚本已就绪，**上机被用户的禁飞令阻塞**（m05362：禁止自行 boot，
 必须用户与 Lead 双方同意后才执行）。
 
+### 5.20 受控对照镜像对 `mhi3` / `mhi4`：唯一的变量是窗口
+
+Lead 在 `3c69c80`（已进 main）把 board 契约改成 4.5 GiB，本线 `f93c340` 原样 cherry-pick
+（窗口是 board 契约，不由单线 fork），然后用**同一个内核归档、同一条命令行**重出
+`wifi-20261116mhi4`，与 4.75 GiB 的 `mhi3` 组成受控对照。
+
+| | `wifi-20261116mhi3` | `wifi-20261116mhi4` |
+|---|---|---|
+| ADT `darwinboot-memory-size` | `0x130000000`（4.75 GiB） | `0x120000000`（4.5 GiB） |
+| kernel.macho sha256 | `83b52b566b9cd0e0a2f13854f7da4c67175c956d798d009dcf94fc5d7cb7707c` | **同左，逐字节相同** |
+| payload args | 30 项 / 587 B（末尾 `pong_wifi=1`） | **同左** |
+| boot.img | `615a05ce93aa77b1f59a7e98caf77d4406abc4dd7905d8de4e0be710eb51f00a` | `34688ecc0b544d6df97833f8c1e167f4f254ffd9b7855eebccf6e229a11c06f3` |
+| 镜像大小 | 201,887,744 B | 201,887,744 B |
+| `Pong MHI` 格式串 | 11 | 11 |
+
+两张镜像的内核与命令行完全一致，**只有 ADT 里那 8 字节窗口值不同**——所以两张的
+控制台差异只能归因于窗口，不会混入代码或参数差异。
+
+**判据（两张相同）**：看到 `Pong MHI: polling MHICTRL reset mask 0x2 for N ms` 之后
+**不能**出现 `Device failed to clear MHI Reset`；随后应出现
+`Pong MHI: reset cleared, polling MHISTATUS ready bit` 与
+`Pong MHI: device in READY state`。
+
+- `mhi4`（4.5 GiB）出现完整握手、`mhi3`（4.75 GiB）仍然 0 字节
+  → 窗口是静默的唯一根因，`3c69c80` 是必要修复。
+- 两张都出现完整握手 → 窗口本来就不够但没到临界，MHI 另有问题，继续按 §5.19 的
+  判读顺序往下走。
+- 两张都 0 字节 → 窗口与 MHI 日志都不是主因，回到 §5.16 的 arena 模型重新标定。
+
+**上机顺序建议**：先 `mhi4`（修好的那一侧），再 `mhi3`（对照）。每张约 2 分钟，
+中间必须回到 fastboot 再飞下一张。
+
+
 

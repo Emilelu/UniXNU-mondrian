@@ -1257,3 +1257,33 @@ main 在 2026-11-14 22:18–22:28 连落两笔未登记的风险路径提交（`
 **注意**：main 上已有等价修复（`5248ebf` "build: hand --kernel-arg to the payload step, not only to bootimg"
 与 `1381863` "Fix the empty payload argument expansion"，含 `scripts/tests/test-build-strict-gates.py` 用例）。
 本线落后 main 11 个提交、没有这两个提交，才自己写了一份等价实现；合并 main 时应**取 main 的版本**。
+
+### 23.9 mode-2 镜像 `usb-20261114h2` 的验证结果
+
+构建：`BUILD_EXIT=0`，`2026-11-14T23:32:36+08:00`，`series=235`，
+`frozen=59b3dd08a302e64a3f6a20599d43830108c18ea05d3190ec6412b5c45e0dc7d9`，
+eight-step 30 项通过，工作区 `dirty_files=0`，`head=3af05f7`。
+
+| 组件 | SHA-256 |
+| --- | --- |
+| boot.img | `8ec672a8ca3cb58aa82dbdbf566fbfc6b98ab7bac9665fc487c0b000a1b88c40` |
+| kernel (built) | `42fc248133da3ea6ff139d74d0e1ae9f1fd7ad850a30a7706d9957efb60b9327`（54165504 B） |
+| payload | `b3ca112381fc5739b334785bdf47b7d083269b5f5aad542cdfa91df914a04876` |
+| payload kernel | `bd282e7248157eec18ffbae85f9e4ca7b233cf93ec9cf06ffcf69a130e0d06cd` |
+| ADT | `a545c18fe53ab47fe06a0725302c983840df7bc8c70a5c193045840e0c670d02` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（未变） |
+| FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`（未变） |
+
+`verify-boot-image.py --manifest` → `verify-boot-image: OK`。
+payload 实参 **30 项 589 字节**，末项就是 `k60_usbvend=2`（`usb-20261114h` 是 29 项 575 字节）。
+内核字符串实测含 `K60 USBLOG: echo %u bytes on ep%u (total %u)` 与
+`K60 USBLOG: vendor IN start failed (%u bytes)`（修正后的三参数版本）。
+
+参数审计（`k60-lead/scripts/check-image-args.py`，`--board` 显式指向本线 `board.toml`）：
+
+-- 现状（白名单尚未合并）：`image-arg-audit: REFUSED`，唯一问题就是
+  `argument k60_usbvend is not in board.toml kernel_args and is not a declared addition`；
+-- 把 `k60_usbvend` 加进 `ALLOWED_ADDITIONS` 的本地副本：`image-arg-audit: OK (30 arguments, 589 bytes)`，rc=0。
+
+也就是说：**除白名单这一条外部依赖外，h2 镜像自身完全合规**。合并片段见
+`docs/research/usb/IMAGE-ARGS-usb.fragment.md`（commit `f043b38`），Lead 合并后重跑同一条命令即应 OK。

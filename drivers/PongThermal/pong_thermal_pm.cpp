@@ -30,7 +30,25 @@
 
 #include <IOKit/IOService.h>
 #include <IOKit/pwr_mgt/IOPM.h>
+
+/* RootDomain.h pulls IOPMPrivate.h in its XNU_KERNEL_PRIVATE section
+ * (iokit/IOKit/pwr_mgt/RootDomain.h:37-39), and iokit/IOKit/pwr_mgt/Makefile
+ * lists IOPMPrivate.h in NOT_EXPORT_HEADERS, so the exported copy under
+ * EXPORT_HDRS/iokit/IOKit/pwr_mgt/ does not carry it and a bsd object cannot
+ * see it (bsd's INCFLAGS only reach EXPORT_HDRS, EXTERNAL_HEADERS and the
+ * fakeroot usr/local/include tree). Rather than copy a header into the build
+ * output or widen the upstream export list, close the private section for the
+ * length of this one include: the declarations this file needs, class
+ * IOPMrootDomain (:151) and both systemPowerEventOccurred overloads (:177-183),
+ * sit outside XNU_KERNEL_PRIVATE. The two headers RootDomain.h includes
+ * unconditionally are taken first so the window only covers RootDomain.h
+ * itself. */
+#include <IOKit/IOBufferMemoryDescriptor.h>
+#include <sys/vnode.h>
+#undef XNU_KERNEL_PRIVATE
 #include <IOKit/pwr_mgt/RootDomain.h>
+#define XNU_KERNEL_PRIVATE 1
+
 #include <libkern/c++/OSNumber.h>
 #include <libkern/c++/OSSymbol.h>
 #include <sys/pong_thermal_level.h>

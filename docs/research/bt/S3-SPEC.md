@@ -158,8 +158,13 @@ sheng 的 ADT 节点（`dts/sheng.dts:17-25`）是 `transport-encoding = <1>`（
 成功（有种子）：
 
 ```
-K60 BT: published local address 02:xx:xx:xx:xx:xx
+K60 BT: published local address ee:98:c5:8a:6b:4e
 ```
+
+种子里程碑：本次构建用的种子是 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001`（与 `scripts/adt-generate.py:22` 同一个），
+所以 MAC 是**可提前算出来的**：FNV-1a(`"unixnu-bluetooth"` 域 + 8 字节小端种子) = `0xd92b4e6b8ac598ef`，
+取低 6 字节并置本地管理位（`addr[0] = (addr[0] & 0xfe) | 0x02`）得到 `ee:98:c5:8a:6b:4e`。
+上机时若打印出别的值，说明种子没进 ADT 或域字符串被改了。
 
 然后 bluetoothd 那几行应当**变化**：不再出现 `Unable to match bluetooth service in device tree.` /
 `Not a valid MAC address (all 00s).` / `No bluetooth on this device.`。
@@ -210,4 +215,13 @@ K60 BT: no platform identity (-2); bluetooth not published
 
 S3 **不能**跳过 S1c/S2 单独上机：它只解决「用户态看得见」，不解决「GENI 能不能碰」。
 推荐顺序：S1c 五档阶梯（A1→A5）→ `bt-s2-20261114b`（无参数，证明 0508 惰性）→ 带 `k60bt=1`
-的 S3 镜像（本补丁）→ 看 `K60 BT:` 与 bluetoothd 三行是否变化。
+的 S3 镜像 → 看 `K60 BT:` 与 bluetoothd 三行是否变化。
+
+两个 S3 镜像的分工：
+
+| 镜像 | 参数 | 走哪条路径 | 看什么 |
+|---|---|---|---|
+| `bt-s3-20261114a` | `k60bt_stage=1 k60bt_step=1 k60bt_delay=40` | 只跑探针 s1 + 发布钩子 | `K60 BT: published local address ee:98:c5:8a:6b:4e`，无 GENI 访问（不会挂） |
+| `bt-s3-20261114b` | `k60bt_stage=2` | 真实路径：上电 → 取 MAC → `qbt_boot()` | 是否死在 GENI/时钟路径（先跑完 A1→A5 才有意义） |
+
+stage=1 那一档**故意不碰 GENI**：它只证明「发布钩子被调用 + 身份算对了」，把 S3 与 S1/S2 的硬件风险彻底分开。

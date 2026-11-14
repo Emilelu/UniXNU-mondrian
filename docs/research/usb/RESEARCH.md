@@ -532,3 +532,57 @@ if (!ud.configured || !ud.dtr || ud.failed) return;   /* k60_usblog.c:1332 附�
 ### 13.5 与 §12.3 的关系
 
 §12.3 原计划把「设备描述符 class 改 `0xEF/0x02/0x01`」作为 0407。诊断优先级更高，该单变量改动顺延为 **0408**，等本轮拿到 ep6/ep7 与 FIFO 真值后再做。
+
+## 14. P1 构建记录：usb-20261114e（等待上机授权）
+
+### 14.1 为什么重建（不是代码问题）
+
+`usb-20261114d` 的内核阶段已经成功，但 bootimg 阶段被合规登记表拒绝：
+`unixnu: bootimg refused: the compliance registry failed`，失败项 `iron-4 / iron-5 (0510-k60-bt-firmware-addon.patch) / hard-33 / P-165 / P-166`，
+明细是「只在仓库有 zzzz…-pong-touch-bitbang-probe.patch 等三个，只在输入有 0507/0508/0509 三个 bt 补丁」。
+根因是共享构建输入树 `/opt/k60/trees/usb-cdc-mainline/device` 在本线同步后 8 分钟被别的线（bt/touch）覆写，
+与本线的 0406/0407 无关。
+
+解法：本线改用私有构建输入树 `/opt/k60/trees/usb-device`，先镜像再构建：
+
+```
+export K60_DEVICE_INPUT=/opt/k60/trees/usb-device
+export K60_SERIES_FINAL=/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt
+python3 scripts/sync-device-input.py      # 同步 4 个文件（0406 / 0407 / patches/usb/series / patches/xnu/series）
+python3 scripts/porting-gate.py --quick   # ✅ 门禁通过（6 项警告）
+```
+
+同步后 series 三处一致：仓库 / SERIES-FINAL / 构建输入均为 232 行、sha256 `ca9dc29d58e24e0d…`。
+
+### 14.2 产物
+
+| 项 | SHA-256 |
+| --- | --- |
+| kernel（built） | `93463ccedf7f3770e3ea0e424fb3970491dea1eaa2d170877179cc61b3cf5e0c` |
+| boot.img | `2e900d32be2078d24bda3f4df3ce4b622685dc618de2ebe9e3b6a063b266ebf4` |
+| payload | `9dd7841329ffa119ba990097d27fdadcc0214675e209af4b3bafdcaf325e9db3` |
+| payload kernel | `973cb28345583fa1ef7388adade8ed2e59300eb275b6d07bd6fb2329d8586b19` |
+| ADT | `5d5bfc5a3dced62cced72930884b3f390865c391faf00271d66812ab82dd8620` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
+| series（232 条） | `ca9dc29d58e24e0df2d3f886cf5b54c470ad4936f6e555b67d20f630c0c38528` |
+
+manifest：`E:/k60-work/artifacts/usb-20261114e/build-manifest.json`（kernel 54181888 B，series 232 条，
+frozen `317469bc3c078b97…`）。
+
+### 14.3 构建期门禁
+
+| 门 | 结果 |
+| --- | --- |
+| `build-strict.sh`（含 eight-step-gate --build） | ✅ 通过 30 项，`BUILD_EXIT=0` |
+| `verify-boot-image.py --manifest` | ✅ `verify-boot-image: OK` |
+| `check-rules.py` | ✅ 登记 65 条、失败 0、waiver 37 |
+| `check-docs.py` | ✅ 187 项通过 |
+| `check-image-args.py --image` | ✅ `OK (29 arguments, 575 bytes)` |
+
+### 14.4 上机计划（待用户与 Lead 批准，未执行）
+
+镜像已就绪但**未 boot**。获准后按 RESEARCH.md §13.3 的五条判据执行：
+`fastboot boot usb-20261114e/boot.img` → 300 s 采集 → 第 70 s / 130 s 两次主机侧 `Get-PnpDevice` 采样，
+重点读 `composite cfg 98 bytes ep6 %d ep7 %d DALEPENA 0x%08x` 这一行与新增的 `GHWPARAMS1/3 GTXFIFOSIZ` 行。
+脚本已备好：`E:/k60-work/scratch/usb/boot0407e.sh`（门禁四连 + boot + 双采样），**当前未运行**。

@@ -465,7 +465,14 @@ evidence = "不确定项尚未消解：SROT_CTRL bit0（TSENS_EN）是否被 XBL
 [hardware.thermal.step.verify]
 done = false
 local_verified = false
-evidence = "主机侧已核验、内核侧未核验，故 local_verified 保持 false。已做：scripts/tests/test-k60-thermal-tsens.c 用假 TM 窗口驱动 drivers/PongThermal/K60Tsens.c，16 组断言全过（cc -std=c11 -O1 -Wall -Wextra -I drivers/PongThermal，输出 TESTS OK 16），覆盖 0xa0+4n 字索引、12 位符号扩展（-40.0℃ 与 -10.0℃）、VALID 缺失、越界拒绝（±160.1℃ 与 -40.1℃）、每控制器 valid 计数、TM_TRDY、32 项表的长度/名字/zone 号；static_check：驱动不写任何寄存器（全文无对 volatile 的写）、不开中断、不碰 SROT。缺：产物从未被链接进内核（无 llvm-nm 可验的符号），也无 IODeviceMemory 映射代码，因此 ⑦ 的 artifact_check 无对象。"
+evidence = "主机侧已核验、内核侧未核验，故 local_verified 保持 false。已做：scripts/tests/test-k60-thermal-tsens.c 用假 TM 窗口驱动 drivers/PongThermal/K60Tsens.c，16 组断言全过（cc -std=c11 -O1 -Wall -Wextra -I drivers/PongThermal，输出 TESTS OK 16），覆盖 0xa0+4n 字索引、12 位符号扩展（-40.0℃ 与 -10.0℃）、VALID 缺失、越界拒绝（±160.1℃ 与 -40.1℃）、每控制器 valid 计数、TM_TRDY、32 项表的长度/名字/zone 号；static_check：驱动不写任何寄存器（全文无对 volatile 的写）、不开中断、不碰 SROT。补：scripts/build-thermal-driver.sh 已把同一源文件交叉编译成 Mach-O arm64 目标文件并用 llvm-nm 验过符号（见下方 artifact_check）。仍缺：没有内核链接行、没有 IODeviceMemory 映射代码，产物不是可启动产物，故 local_verified 仍为 false。"
+artifact_check = """scripts/build-thermal-driver.sh 用 /opt/unixnu-linux/llvm/bin/clang（clang 24.0.0git，-target arm64-apple-ios16.6.1，-ffreestanding）把 drivers/PongThermal/K60Tsens.c 交叉编译成 Mach-O arm64 产物并验符号（2026-11-14 构建，命令可复现）：
+- 产物：build/thermal/K60Tsens.o（sha256 6facc0fc99950163beb352b52f97118a6076b52275b1e92bd9d6b001e7edc091）、build/thermal/libK60Thermal.a（sha256 12d85ed0dd23d983509a3338000f84508ebc3e9efbd8df949e2ff69865722910），`file` 判定 Mach-O。
+- 符号：llvm-nm --defined-only 命中 10 个必需符号（_k60tsens_status_to_mc / _status_flags / _decode / _decode_hw_ver / _ctrl_enabled / _read / _read_controller / _trdy / _sensor_table / _sensor_name），llvm-nm -u 为空（0 个未定义符号，即 P-181/P-182 要求的形态）。
+- 只读数据：llvm-size -A 报 __const 512 B = 32 项 × 16 B，32 项板级表确已编入（Mach-O nlist 不带 size，故以段长代替符号大小）。
+- 段布局：__text 564 B、__cstring 250 B、__const 512 B。
+- 清单：build/thermal/thermal-manifest.json 记录 target/compiler/sha256/符号表；/build/ 已被 .gitignore 忽略，产物不入库，脚本入库。
+缺：该目标文件没有内核链接行、没有 IODeviceMemory 映射代码，不是可启动产物 —— ⑦ 的"产物"仍差内核集成，故 done 与 local_verified 保持 false。"""
 
 [hardware.thermal.step.device]
 done = false

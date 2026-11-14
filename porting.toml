@@ -261,7 +261,7 @@ completion = [
   "A device boot prints 32 timestamped samples, every sensor reports VALID with a value inside -40..160 C, and two consecutive samples of the same sensor differ by less than 20 C.",
 ]
 limits = [
-  "drivers/PongThermal is host-compiled and unit-tested only: it has never been linked into an XNU kernel or run on a device. Threshold programming, interrupts, the 25 QMI zones and every cooling-device action remain out of scope until the read path is device-verified.",
+  "drivers/PongThermal is built and verified offline only: scripts/build-thermal-driver.sh cross-compiles it into a Mach-O arm64 object (build/thermal/K60Tsens.o, sha256 6facc0fc, 0 undefined symbols, 10 required symbols present, __const 512 B = 32 entries), but it has never been linked into an XNU kernel or run on a device. Threshold programming, interrupts, the 25 QMI zones and every cooling-device action remain out of scope until the read path is device-verified.",
   "The SROT block has never been read on this board, so TSENS_EN (SROT_CTRL bit 0) and SROT_HW_VER are still unverified; upstream refuses to probe when TSENS_EN is 0 (tsens.c:974-979), and reading it needs kernel-mode MMIO that Android does not expose (docs/research/thermal/04-ANDROID-EVIDENCE.md §9).",
 ]
 next_action = [
@@ -273,6 +273,7 @@ evidence = [
   { kind = "source", reference = "docs/research/thermal/03-REVERSE.md", result = "How UniXNU-sheng (SM8550) and phk110-port (SM6375, 27/27 sensors measured on hardware) read tsens, the three-platform comparison, the 13-item reuse list, and the two forensic gaps that keep step 3 open." },
   { kind = "source", reference = "docs/research/thermal/04-ANDROID-EVIDENCE.md", result = "Live evidence from device 6033dbec: 84 runtime zones versus 58 DT zones, zones 24..55 matching the DT sensor indices, live trips equal to the DT trips, and the reverse-engineered qcom_tsens.ko whose regfield table and adc=0 conversion path confirm 0xa0+4n and the x100 deci-Celsius decode." },
   { kind = "artifact", reference = "drivers/PongThermal/K60Tsens.c", result = "Read-only tsens reader: 32-entry board table, TM_Sn_STATUS decode with 12-bit sign extension, VALID gating and -40..160 C plausibility window; writes no register, takes no interrupt and never touches SROT." },
+  { kind = "artifact", reference = "scripts/build-thermal-driver.sh", result = "Cross-builds drivers/PongThermal/K60Tsens.c to a Mach-O arm64 object and static archive with clang -target arm64-apple-ios16.6.1 and verifies it: 10 required symbols defined, 0 undefined, __const 512 B (32-entry board table), sha256 written to build/thermal/thermal-manifest.json. It does not link into the kernel, so the kernel integration still belongs to step 8." },
   { kind = "test", reference = "scripts/tests/test-k60-thermal-tsens.c", result = "Host test with a fake TM window: 16 assertion groups covering conversion, negative sign extension, VALID and out-of-range rejection, 0xa0+4n indexing, per-controller valid counts, TRDY, and the table length/names/zone ids; prints TESTS OK 16." },
 ]
 

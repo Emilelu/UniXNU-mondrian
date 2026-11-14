@@ -228,7 +228,11 @@ trust_cache_sha256 = []
 # Firmware exposes only measured arena [0x900000000,0xa40000000); screen
 # reports mem=actual=managed=4096 MiB. Service exits continue; SpringBoard is
 # pending. devicetree.py emits darwinboot-memory-size from this key.
-"owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)
+# 2026-11-14: 4.75 GiB -> 4.5 GiB. The Wi-Fi line's budget model shows a
+# 65.9 MB kernel with the 51 MB Metal plugin inside leaves ~16 MiB of
+# headroom at 4.75 GiB, and MHI needs a DMA arena on top of that. The
+# window is a board contract, so it moves once here for every line.
+"owned_memory_size" = "0x120000000"  # 4.5 GiB window (256 MiB below the 4.75 GiB step)
 
 # K60 live FDT: xiaomi_touch@0 on QUP0 SE4. These absolute resources are
 # metadata for the board-started driver, not an incomplete interrupt mapping.

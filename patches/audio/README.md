@@ -5,7 +5,7 @@ One patch, one purpose: put the AP-side amplifier probe from
 
 | File | What it does |
 | --- | --- |
-| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 45,655 bytes, 7 hunks. |
+| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 48,264 bytes, 1,272 lines, 7 hunks, sha256 `d2ede261372b1f11447742e6df43980f7a2fabe06c9158ea5b05b351264d1765`. `PongCodecPlan.h` is deliberately absent: no kernel `.c` includes it yet, so it would be dead weight in the tree. |
 | `series` | The intended order inside this directory. |
 
 `drivers/PongAudio/tests/` is deliberately **not** in the patch. It is a host-side
@@ -67,7 +67,7 @@ mainline build tree holds a `bsd/conf/files` that already has the
 applies in order with **rc=0 and no rejects**. 0505 itself lands with
 `fuzz 1 (offset -19 lines)` — that fuzz belongs to 0505's own anchor, not to
 this patch; **this patch applies with no fuzz**, offsets only (+6 for
-`bsd/conf/files`, +15 for `bsd/kern/bsd_init.c`). The four new files come out
+`bsd/conf/files`, +15 for `bsd/kern/bsd_init.c`). The five new files come out
 byte-identical to `drivers/PongAudio/`. Transcript below.
 
 Verification performed (transcript in `E:/k60-work/evidence/`, reproducible with
@@ -75,6 +75,7 @@ Verification performed (transcript in `E:/k60-work/evidence/`, reproducible with
 
 ```
 checking file bsd/dev/PongAudioRegs.h
+checking file bsd/dev/PongAudioPlan.h
 checking file bsd/dev/PongAudioGeniI2c.h
 checking file bsd/dev/PongAudioGeniI2c.c
 checking file bsd/dev/PongAudioAmp.c
@@ -82,6 +83,7 @@ checking file bsd/conf/files
 checking file bsd/kern/bsd_init.c
 git apply --check OK
 identical: bsd/dev/PongAudioRegs.h
+identical: bsd/dev/PongAudioPlan.h
 identical: bsd/dev/PongAudioGeniI2c.h
 identical: bsd/dev/PongAudioGeniI2c.c
 identical: bsd/dev/PongAudioAmp.c
@@ -106,6 +108,7 @@ bsd/kern/bsd_init.c: Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines).
 
 ### MINE
 patching file bsd/dev/PongAudioRegs.h
+patching file bsd/dev/PongAudioPlan.h
 patching file bsd/dev/PongAudioGeniI2c.h
 patching file bsd/dev/PongAudioGeniI2c.c
 patching file bsd/dev/PongAudioAmp.c
@@ -115,18 +118,18 @@ patching file bsd/kern/bsd_init.c
 Hunk #1 succeeded at 1337 (offset 15 lines).
 rc=0
 
-### result: conf/files 117-120, bsd_init.c 1336-1348
-bsd/dev/aw882xx.c			standard
-bsd/dev/pong_audio.c			standard
-bsd/dev/PongAudioGeniI2c.c		standard
-bsd/dev/PongAudioAmp.c			standard
+### result: conf/files 119-120, bsd_init.c 1357-1358
+117	bsd/dev/aw882xx.c			standard
+118	bsd/dev/pong_audio.c			standard
+119	bsd/dev/PongAudioGeniI2c.c		standard
+120	bsd/dev/PongAudioAmp.c			standard
 1336		extern int pong_audio_bootstrap(void);
 1337		(void)pong_audio_bootstrap();
-1346		extern int pong_audio_amp_probe(void);
-1347		(void)pong_audio_amp_probe();
+1357		extern int pong_audio_amp_probe(void);
+1358		(void)pong_audio_amp_probe();
 
 ### cmp bsd/dev/PongAudio* vs drivers/PongAudio/
-same PongAudioRegs.h / PongAudioGeniI2c.h / PongAudioGeniI2c.c / PongAudioAmp.c
+same PongAudioRegs.h / PongAudioPlan.h / PongAudioGeniI2c.h / PongAudioGeniI2c.c / PongAudioAmp.c
 ### rejects: none
 ```
 

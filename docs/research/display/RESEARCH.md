@@ -38,16 +38,21 @@ bpp 8、bpc 10、`DSIBitClockFrequency=1200000000`（= `panel-clockrate=0x47868c
 （DTB 的 `reset-sequence=<1 11 0 1 1 11>` 是另一种编码，不能按字面换算）。
 
 **但 init 序列不能直接烧。** XML `DSIInitSequence` 131 行里有 2 行 `FF <ms>` 延迟——DTB 把延迟放进
-**前一个包的 wait 字节**（7 字节头 `<type> 00 00 <wait> <len_hi> <len_lo>`），合并后 XML = **129 包**；
-live FDT `timing@0` 是 **135 包**。LCS：**125 包相同，3 处差异**——删 3 包（`39 f055aa520801`、
-`15 6f02`、`15 d22a`）、插 9 包（`39 f055aa520801`、`39 d20000000015`、`15 6f05`、`39 d2010000`、
-`15 6f0e`、`39 d20000101332`、`39 e480030000000000000033`、`15 6f0a`、`39 e4800300100053`）、
-改 1 包类型（`39 6f46` → `15 6f46`）。延迟语义的独立佐证：DTB `off-command` 解出 wait=20 ms 发 `0x28`、
-wait=100 ms 发 `0x10`，正好对应 XML `DSITermSequence` 的 `05 28 / FF 14 / 05 10 / FF 64`。
+**前一个包的 wait 字节**（7 字节头 `<dtype> <last> <vc> <ack> <wait> <dlen_hi> <dlen_lo>`，wait 在 0 基索引 4），
+合并后 XML = **129 包**；live FDT `timing@0` 是 **135 包**。LCS：**125 包相同，3 个编辑块**——
+删 3 包（`39 f055aa520801`、`15 6f02`、`15 d22a`）、插 9 包（`39 f055aa520801`、`39 d20000000015`、
+`15 6f05`、`39 d2010000`、`15 6f0e`、`39 d20000101332`、`39 e480030000000000000033`、`15 6f0a`、
+`39 e4800300100053`）、改 1 包类型（`39 6f46` → `15 6f46`），外加 2 处只是「XML 的 `FF <ms>` 延迟并进
+前一个包的 wait 字节」的编码差异（不是实质差异）。延迟语义的独立佐证：DTB `off-command`
+`39 00 00 00 14 00 02 28 00` 解出 wait=20 ms 发 `0x28`、`... 64 00 02 10 00` wait=100 ms 发 `0x10`，
+正好对应 XML `DSITermSequence` 的 `05 28 / FF 14 / 05 10 / FF 64`。
 
-全仓 2,117 个 XML 用同一套 wait-aware LCS 打分，第二名 `nuwa/RawFiles/Panel_M11_42_02_0a_dsc_cmd.xml`
-是 125/134 但 6 处差异，其余全部 ≤4 包相同 → **marble 这份最接近本板，但仍是另一个修订**。
-结论：拿它当"面板规格来源"可以，拿它当"init 串"不行；要烧必须先补上那 3 处差异（或从 `dispdcbx` 提真串）。
+全仓 2,117 个 XML 用同一套 wait-aware LCS 打分（2026-11-14 复核）：第二名
+`nuwa/RawFiles/Panel_M11_42_02_0a_dsc_cmd.xml`（136 行 → 合并延迟后 134 包）同样**相同 125 包、但 6 个编辑块**，其余全部
+≤4 包相同 → **marble 这份与 nuwa 打平在 125 包，marble 编辑块更少**。两份都只匹配 60 Hz 档的
+`2f02`/`8b00`/`df21`，即都是 **60 Hz 修订**。
+结论：拿它们当"面板规格来源"可以，当"init 串"不行；要烧必须先补差异（marble 3 块、nuwa 6 块），
+或从 `dispdcbx` 分区提真串。
 
 ## 2. 画布契约（WindowServer 会 assert，不是可选项）
 
@@ -88,6 +93,11 @@ DSC（`:27871-27879`）：`bit-per-pixel=0x8`、`bit-per-component=0xa`、`slice
 命令包：on-command **1534 B**（`:27889`）；off-command 18 B（`:27888`）；**timing-switch-command 98 B 且三档各不相同**（`:27885` / `:27982` / `:28079`）。
 → 做帧率切换必须用 m11a 自己的 98 B 命令，**不能用 sharp 节点的 68 B**（见第 7 节第 1 条）。
 
+**三档只差 6 个字节**（逐包比对，三档均 135 包 / 1534 B）：`#56 15 2f` = `02`/`01`/`00`（60/90/120）、
+`#59 15 8b` = `00`/`10`/`00`、`#64 15 df` = `21`/`20`/`20`，外加 3 个**包头**字节（`#19`、`#27`、`#51`）。
+timing-switch-command（10 包）与 flat-mode on/off（各 116 B）同样只差 `2f`/`8b`/`df` 三个值。
+→ **90 Hz 在驱动侧没有额外工作量**：同一套 init，选 `timing@1` 即可。
+
 ## 5. 面板供电：5 条轨，其中 3 条是 RPMh LDO
 
 `qcom,panel-supply-entries = <0x6a2>`（`:27743`）→ `/soc/dsi_panel_pwr_supply_M11a`（`:28938`）；再叠加 `dsi-display-primary` 的 4 个 regulator（`:28874-28877`）与一个 GPIO 开关。
@@ -117,18 +127,18 @@ DSC（`:27871-27879`）：`bit-per-pixel=0x8`、`bit-per-component=0xa`、`slice
 ## 7. 绝不可抄（已经踩过的）
 
 1. **yibiya 的 120Hz 文档数值不能搬**：`references/yibiya-upstream/docs/plans/K60-120HZ-PLAN.md` 的 timing 表读自 `qcom,mdss_dsi_sharp_qhd_cmd`（live FDT `:22033`）——720x3120 DSC 压缩、双 DSI、2 档、68 B timing-switch；本机是 1440x3200 未压缩、单 DSI、3 档、98 B。逐值对照见 REFERENCE-INDEX 14.7。
-2. **Pong 的面板库没有一个匹配 K60**：`uefi-mondrian/Include/RAW.inc:1-5` 原文说明约 72 个 `Panel_*.xml` 全是 pong 的——这条对 pong 那个库成立。但「`Device-Binaries` 里 2,117 个也无一匹配 m11a」**已于 2026-11-14 推翻**：m11a 的 XML 在 `marble/RawFiles/` 下，见 1.1。它的 init 序列仍是同族不同修订，**不能直接烧**（3 处差异，见 1.1）。
+2. **Pong 的面板库没有一个匹配 K60**：`uefi-mondrian/Include/RAW.inc:1-5` 原文说明约 72 个 `Panel_*.xml` 全是 pong 的——这条对 pong 那个库成立。但「`Device-Binaries` 里 2,117 个也无一匹配 m11a」**已于 2026-11-14 推翻**：m11a 的 XML 在 `marble/RawFiles/` 下，见 1.1。它的 init 序列仍是同族不同修订，**不能直接烧**（marble 3 个编辑块，见 1.1）。
 3. **zizhan 的 framebuffer 分辨率不能套**（见第 2 节）。
 
 ## 8. 缺口与下一步
 
 | 缺口 | 状态 |
 |---|---|
-| ~~K60 厂商 panel XML 未找到~~ **已找到（1.1）** | `/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（无 `references/` 软链）。静态规格可信，init 序列差 3 处（129 包 vs 135 包） |
-| **init 串的 3 处差异要不要补** | 未决。补了等于用公开 XML 的修订版烧本机面板，风险自负；不补就得从 `dispdcbx` 分区提真串。做 120Hz / 首帧点亮前必须先定 |
+| ~~K60 厂商 panel XML 未找到~~ **已找到（1.1）** | `/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（无 `references/` 软链）。静态规格可信，init 序列差 3 个编辑块（129 包 vs 135 包） |
+| **init 串的差异要不要补** | 未决。补了等于用公开 XML 的修订版烧本机面板，风险自负；不补就得从 `dispdcbx` 分区提真串。marble 3 块、nuwa 6 块，两份都只有 60 Hz 修订。做 120Hz / 首帧点亮前必须先定 |
 | XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算 | 两种编码方式不同（`5 1000 1000 10000 0` vs `<1 11 0 1 1 11>`），未建立映射；上电时序以 DTB 为准 |
-| `timing@1`（90 Hz）MIUI 侧是否使用 | 未知；做 120Hz 时要决定是否同时暴露 90 |
-| 面板供电真上电验证 | 卡在 RSC（3 条 RPMh LDO）；在此之前无法自证 |
+| ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧：492 个 boot 中 452 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（272 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
+| 面板供电真上电验证 | 3 条 RPMh LDO 的 cmd-db 资源地址与投票参数未取（RSC drv-2 已实测可读写，不是 RSC 阻塞）；在此之前无法自证 |
 
 ## 9. 交叉引用
 

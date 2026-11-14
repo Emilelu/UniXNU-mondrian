@@ -142,6 +142,9 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
 ```
 
 判据：出现任意一行 `published as Thermal_Level_Warning=` 即证明发布层接通了 root domain；
+同等级只发一次是设计（`pong_thermal_pm.cpp:87-89` 的 `have_last && level == last` 直接 return），
+所以冷机 208 轮采样恰好只有一条；`CRITERIA.toml` 的 `published.line` 因此写 `min = 1, max = 1`，
+多一条才是去重坏了；
 若串口里 36 行都在、却一行 `published as` 都没有，说明 `getPMRootDomain()` 一直是 NULL
 （IOKit 没走到 `IOPMrootDomain::start`），这本身就是一条有价值的结论。
 

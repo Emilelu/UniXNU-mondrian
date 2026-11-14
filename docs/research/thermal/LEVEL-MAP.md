@@ -129,6 +129,11 @@ PongThermal: level 0/3 nominal (domains 0/3); closest ddr 45.0 C, 45.0 C below t
 建议实际用 **+50000 / +75000 / +85000**：读数会漂 ±2℃，留 5℃ 余量比卡在边界上好判。
 三档各自应伴随一行 `PongThermal: level N/3 … published as Thermal_Level_Warning=N`（发布层只在等级变化时发）。
 
+「只在等级变化时发」是设计，不是丢行：`pong_thermal_pm.cpp:87-89` 里 `pong_thermal_pm_have_last && level == last`
+就直接 return。所以冷机全程 0 档、208 轮采样，日志里**恰好只有一条** published 行 ——
+`CRITERIA.toml` 的 `published.line` 因此写 `min = 1, max = 1`：少一条是发布层没跑，
+多一条才说明去重坏了（同等级发两次）。bias 档中途真跨档时会合法地多出一条，那是信息不是误报。
+
 ### 5.3 判据表
 
 人眼版（下表）；同一批判据的可机读版本在 `docs/research/thermal/CRITERIA.toml`（34 条），
@@ -148,6 +153,7 @@ python3 scripts/check-thermal-log.py --self-test           # 自测：干净的�
 | --- | --- |
 | `level 1/2/3` 与 `published as …=1/2/3` 同时出现 | 阶梯与发布层都正确 |
 | `level` 变了但 `published` 没变 | 发布去重正常（只在等级变化时发），看是否有多次变化 |
+| 冷机日志里 published 行多于 1 条 | 去重坏了（同等级重复发布）—— `published.line` 的 `max = 1` 会挂 |
 | 全程 `level 0/3` 但 `closest` 有读数 | 阶梯在跑，只是没到档（冷机正常） |
 | 没有 `closest` 行 | 32 路全部无读数 —— 异常，先查控制器行与传感器行 |
 | `bias` 行不出现 | boot-arg 没传进去（检查拼写与 boot-args 长度预算） |

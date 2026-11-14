@@ -1182,5 +1182,13 @@ Windows 工作机无 libusb/pyusb/gcc；mode 1 的裸端点验证只能走
 - `sync-device-input.py` 同步 3 个文件（0410 patch + 两个 series）。
 - porting-gate --quick ✅（series 三处一致 PASS，7 项警告均为已知类别）；
   check-docs ✅ 187 项；eight-step-gate --build ✅ 30 项。
-- 构建：usb-20261114h，私有树 `K60_OUT=/opt/k60/trees/usb-out`
+- 构建：usb-20261114h 成功（BUILD_EXIT=0），私有树 `K60_OUT=/opt/k60/trees/usb-out`
   （`cp -a` 自 out-baseline，17 GB；0408 教训：共享 OUT 树被 bt/display 线覆写）。
+  - kernel（built）`2cac20d9e4f0a971daebc3a74f0160c8784bad1101bc93b16355d32ef897548a` 54165504 B；payload `c2a5cba5f12e6641b90c33f784a76bf973e8ce7488c6f768300103f017770a70`；payload kernel `e1317b9e9143911ff78c24e3c7b08c970ac45c89236ffe3e5a70b17f97643c31`；
+    boot.img `796f1c505f3d145af0de7902061b9c54b6cba24c66d81d64ddc65dbcfccf8285`；ADT `3897fb97…4efd734`，DTB `2d044eaa…f33cd`（未变），FD `cf448571…95d0f`（复用）。
+  - `logs/kernel.log:252` = `== kernel: patch 0410-k60-usb-vendor-loopback.patch`；
+    `strings kernel.macho` 命中三条 0410 打印（echo / cfg / vendor IN start failed）。
+  - `verify-boot-image.py --manifest` → OK；image-arg-audit OK（29 arguments, 575 bytes）。
+  - 构建途中两次失败均为 iron-2（补丁/文档改动未提交），commit 后即过；
+    另一次是 `vend_pending`/`vend_sent`/`vend_packets` 三字段漏出 struct ud（编译错 `no member named vend_pending`，kernel-bootstrap.log:30306 起），补齐后过。
+

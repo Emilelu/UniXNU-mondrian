@@ -38,10 +38,12 @@ OUT=$ROOT/build/thermal-kext
 TREE=${K60_XNU_TREE:-/mnt/e/hackios/UniXNU/out/mondrian/tree}
 TARGET=arm64-apple-ios16.6.1
 
+ALLOW_NO_KPI=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) shift; OUT=$1 ;;
         --tree) shift; TREE=$1 ;;
+        --no-export-list) ALLOW_NO_KPI=1 ;;
         *) echo "build-thermal-kext: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -57,7 +59,14 @@ KPI=$TREE/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/all-kpi.exp
 [ -d "$FR" ] || die "no fakeroot in $TREE (has that tree been built?)"
 [ -d "$EH" ] || die "no EXPORT_HDRS in $TREE"
 [ -d "$SRC_TREE" ] || die "no .cache/xnu-work in $TREE"
-[ -f "$KPI" ] || die "no all-kpi.exp in $TREE (the kernel export list is the point of this script)"
+if [ ! -f "$KPI" ]; then
+    if [ "$ALLOW_NO_KPI" = 1 ]; then
+        echo "build-thermal-kext: WARNING: no all-kpi.exp in $TREE; skipping the import pre-flight." >&2
+        echo "build-thermal-kext: WARNING: only do this when the archive is linked into this kernel, because the linker is then the authority." >&2
+    else
+        die "no all-kpi.exp in $TREE (pass --no-export-list only when the build will link this archive into the kernel)"
+    fi
+fi
 
 pick() {
     if [ -n "$1" ] && [ -x "$1" ]; then echo "$1"; return 0; fi
@@ -160,17 +169,27 @@ echo "build-thermal-kext: defined $(echo "$DEFINED" | wc -l) symbols, all $(echo
 UNDEF=$("$NM" -u "$LIB" 2>/dev/null | awk 'NF{print $NF}' | sort -u)
 # all-kpi.exp is a linker -exported_symbols_list: one symbol per line, some lines
 # indented, with '#' comments. Normalise it once, then compare fixed strings.
-EXPORTS=$OUT/kernel-exports.txt
-sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$KPI" | grep -v '^#' | grep -v '^$' | sort -u > "$EXPORTS"
-UNRESOLVED=""
 IMPORTED=0
-for sym in $UNDEF; do
-    if echo "$DEFINED" | grep -qxF "$sym"; then continue; fi
-    IMPORTED=$((IMPORTED + 1))
-    grep -qxF -- "$sym" "$EXPORTS" || UNRESOLVED="$UNRESOLVED $sym"
-done
-[ -z "$UNRESOLVED" ] || die "symbols the kernel does not export:$UNRESOLVED"
-echo "build-thermal-kext: $IMPORTED kernel imports, all exported by the kernel"
+ALL_EXPORTED=unchecked
+if [ -f "$KPI" ]; then
+    EXPORTS=$OUT/kernel-exports.txt
+    sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$KPI" | grep -v '^#' | grep -v '^$' | sort -u > "$EXPORTS"
+    UNRESOLVED=""
+    for sym in $UNDEF; do
+        if echo "$DEFINED" | grep -qxF "$sym"; then continue; fi
+        IMPORTED=$((IMPORTED + 1))
+        grep -qxF -- "$sym" "$EXPORTS" || UNRESOLVED="$UNRESOLVED $sym"
+    done
+    [ -z "$UNRESOLVED" ] || die "symbols the kernel does not export:$UNRESOLVED"
+    ALL_EXPORTED=true
+    echo "build-thermal-kext: $IMPORTED kernel imports, all exported by the kernel"
+else
+    for sym in $UNDEF; do
+        if echo "$DEFINED" | grep -qxF "$sym"; then continue; fi
+        IMPORTED=$((IMPORTED + 1))
+    done
+    echo "build-thermal-kext: $IMPORTED kernel imports, export list not available (pre-flight skipped)" >&2
+fi
 
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d" " -f1; else shasum -a 256 "$1" | cut -d" " -f1; fi; }
 A_SHA=$(sha "$LIB")
@@ -189,7 +208,7 @@ cat > "$MANIFEST" <<EOF
   "required_symbols": "$(echo $WANT)",
   "defined_symbols": $(echo "$DEFINED" | wc -l),
   "kernel_imports": $IMPORTED,
-  "kernel_imports_all_exported": true,
+  "kernel_imports_all_exported": "$ALL_EXPORTED",
   "kernel_export_list": "$KPI"
 }
 EOF

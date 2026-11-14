@@ -159,3 +159,7 @@ build-thermal-kext: BUILD OK
 `K60Thermal: service started, 2 controllers, 32 sensors`（`:413-414`）。
 若 SROT 映射失败会先打印 `K60Thermal: window 1 at 0x... did not map`（`:92-95`）——
 这比"device not enabled"更早一步。
+
+> 上面第 1～3 条的逐条落地清单（链接行插入点、钩子代码、ADT 节点与 ranges 缺口、
+> 以及冷树上 `all-kpi.exp` 不存在时 `build-thermal-kext.sh --no-export-list` 的由来）见
+> `docs/research/thermal/07-INTEGRATION.md`。

@@ -20,5 +20,6 @@ cc=${CC:-cc}
 	"$here/test-pong-audio-geni-i2c.c" \
 	"$driver/PongAudioGeniI2c.c" \
 	"$driver/PongCodecSwr.c" \
-	"$driver/PongCodecLpi.c"
+	"$driver/PongCodecLpi.c" \
+	"$driver/PongCodecMacro.c"
 exec "$out"

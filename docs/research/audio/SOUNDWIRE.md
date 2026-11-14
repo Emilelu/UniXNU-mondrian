@@ -147,6 +147,11 @@ VA macro `MCLK_CONTROL 0x000`、`FS_CNT_CONTROL 0x004`、`TOP_CFG0 0x080`。
 > **这是「用法级」序列，不是 vendor 完整序列**：读-改-写依赖寄存器复位值，而 K60 的复位值未实测。
 > 上机第一步必须**先只读打印这些寄存器的原始值**，再决定是否照抄。
 
+这段顺序**已经落地**为 `drivers/PongAudio/PongCodecMacro.{h,c}`，并且正是按上面那条警告设计的：
+九步是一张表（宏 / 寄存器 / 清哪些位 / 置哪些位），每步都重新读，且把**读到的旧值与写回的新值**都记下来
+（`old[9]` / `now[9]`）。首次上机因此可以直接打印「这一步读到的复位值是什么」，而不是照抄一个假设。
+VA 与 TX 是两个映射，回调也是两对；顺序仍是 VA 先、TX 后，`SWR_CONTROL` 的置位与清位在 VA 内部完成。
+
 ## 7. io_submap 预算（P-58/P-59/P-63 的教训）
 
 - `IO_MAP_SIZE = 8 MiB`（`/opt/k60/trees/lead-device/osfmk/arm/io_map.c:66`），`kmem_suballoc` 在 :76，
@@ -197,7 +202,7 @@ VA macro `MCLK_CONTROL 0x000`、`FS_CNT_CONTROL 0x004`、`TOP_CFG0 0x080`。
   （版本判定 → FIFO 满则拒绝且不写命令 → 写命令 → 轮询 → 校验事务号 → 收数据/中止），并在读到版本之后
   补上参考实现那段控制器初始化（两版本共有 + v1.7 / v2 各自追加，v2 还要等 `0x5064` bit0）；
   `PongCodecLpi.{h,c}` 负责 §5 的四个 pad 与 slew 的写入顺序。
-  `PongCodecPlan.h` 提供寄存器号与判定，宿主单测（当前 407 例中的 `swr_cases` 与 `lpi_cases`）钉住全部转移。
+  `PongCodecPlan.h` 提供寄存器号与判定，宿主单测（当前 442 例中的 `swr_cases`、`lpi_cases` 与 `macro_cases`）钉住全部转移。
   **它们不碰 MMIO**：真正的 `read/write` 回调要等 PAS1 起来、拿到 PRM 投票之后才能接上。
 - 本文件只交付「地址/寄存器/时序的形状」，不交付「可运行的 SoundWire 驱动」。
   可运行的只读部分在 `drivers/PongAudio/`（见 `AMPS.md`，纯 AP 路径，不碰 LPASS）。

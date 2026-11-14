@@ -227,3 +227,4 @@ zzy-native-gpu-addon-mount.patch
 ../usb/0407-k60-usb-endpoint-diag.patch
 ../usb/0408-k60-usb-p2-structure.patch
 ../usb/0409-k60-usb-console-restore.patch
+../usb/0410-k60-usb-vendor-loopback.patch

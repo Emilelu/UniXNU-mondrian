@@ -155,7 +155,64 @@ failure = "出现 crashed: backboardd 或 IOAcceleratorES 发布 0 次且 native
 # 未验证的一律 done=false，不做任何推断。
 # ---------------------------------------------------------------------------
 
-[hardware.storage]
+
+# ---------------------------------------------------------------------------
+# 2026-11-14: gpu-user 线 —— Metal 插件部署链（k60-gpu-user 树，分支 feat/gpu-user）
+# 目标：MTLCreateSystemDefaultDevice() 非 nil，合成器不再走 CPU 软件路径。
+# ---------------------------------------------------------------------------
+
+[hardware.gpu-user]
+status = "active"
+paths = ["patches/xnu/0610", "patches/xnu/0614", "patches/xnu/zzy", "patches/xnu/series", "board.toml", "docs/engineering/BOOT-ARGS.md"]
+name = "GPU 用户态部署链（Metal 插件 / sheng-gpu-addon overlay）"
+
+[hardware.gpu-user.step.same_model]
+done = true
+evidence = "同型号 mondrian 的 unixnu.com/devices/mondrian-mzyxsl 记录 GPU 从未出帧；本机内核侧 Adreno 22 步序列已全 result=0（`PONG ADRENO: startup COMPLETE; hardware armed result=0`，docs/engineering/STATUS.md:227），缺口收敛在用户态插件部署链，与本线 targets 一致。"
+
+[hardware.gpu-user.step.official]
+done = true
+evidence = "官方 GPU 移植指南 https://unixnu.com/zh/porting/gpu 第四节『构建加入 Metal』要求把 Metal bundle 放进 /System/Library/Extensions 供 MetalPluginName 发现；官方 AdrenoMetal（drivers/AdrenoMetal，revision 454ff2ce）同样是『插件被发现后 metal2vulkan 转发』的架构，本线把 bundle 放上该路径。"
+
+[hardware.gpu-user.step.decompile]
+done = true
+evidence = "反编译/取证三层：真机日志 /mnt/e/k60-work/evidence/usblog-20261114-150931/console.log:480-481 `K60METAL open …/Info.plist error=20`（ENOTDIR）+ `deploy files=0/6 error=20`；:484 `K60DATA mkdir ok=1/36 [... ngpu=17 …]`（17=EEXIST，syscall 在同一点可用）；PongAdrenoMetal.bundle 装载门禁 PongMetalPlugin.mm:165-192（publish/clients 属主 uid 0、mode 022 位必须清零）。0610 的 vnode_open(O_CREAT) 建的是普通文件，与 error=20 完全吻合。"
+
+[hardware.gpu-user.step.wide]
+done = true
+catalog_checked = true
+evidence = "同仓库交叉核对：mkdir 正宗模式在 patches/xnu/0398-k60-pong-runtime-directories.patch:5-18（copyout 到 scratch+0x400 后调 mkdir(p,&args,&ret)，真机 K60DATA mkdir ok=1/36 实证）；bison 的补丁历史里 zzy-native-gpu-addon-mount.patch 被 bf487cc 移出 series（hunk 锚点漂移 497 行），与 P-155（docs/engineering/PITFALLS.md:3857）完全同型；P-190（:4441）说明构建侧只认 series 内补丁，这正是 native_gpu_addon_mount 符号数为 0 的原因。"
+catalog_result = "components.toml/参考树核对：AdrenoMetal 与 Adreno740 结论见 [hardware.gpu].step.wide（官方层用 metal2vulkan + Turnip，本线不改）；UniXNU-sheng-upstream 的 GPU 调度实现与本线无关；bindfs 是 XNU 原生 miscfs，MNT_UNION+bindfs 组合在本树有 zzzz…-pong-upstream-oct22 同型先例（该补丁未入 series，无冲突）。"
+
+[hardware.gpu-user.step.plan]
+done = true
+evidence = "方案（docs/research/gpu-user/RESEARCH.md §5）：① 修 0610 的 k60_metal_mkdir——放弃 vnode_open(O_CREAT)，改为 copyout(path, scratch+0xC00, len+1) + struct mkdir_args{path,mode} + mkdir(p,&args,&ret)，与 0398 同型（EEXIST→0）；k60_metal_deploy 签名改 (proc_t p, user_addr_t scratch)，kern_exec.c 调用点保持净 +9 行不变（P-155）。② zzy 补丁按 P-155 用 diff -u 从「224 条中除 0610/0614 外全部应用」的树重新生成（不许手写 hunk），追加进 series 末尾（startup.c/bindfs 上下文都在 series:26/49/54 之后，安全）。③ board.toml 加 sheng-gpu-addon=1、pong_metal 2→1（593/608 字节，P-144）。"
+
+[hardware.gpu-user.step.deep]
+done = true
+evidence = "深挖定案（详见 docs/research/gpu-user/RESEARCH.md §3-§4）：mkdir1at 是 static（bsd/vfs/vfs_syscalls.c:9827），不能直接调用；但 mkdir syscall 包装（:9988）在 native_owner_data_prepare 时机已被 0398 真机实证可用，故选 syscall 路线而非手工 NDINIT/VNOP_MKDIR（vfs_xattr.c:1100 先例 include 太重、未上机验证）。scratch 只 1 页 16KB（kern_exec.c:8448 mach_vm_allocate_kernel(map_page_size)），已用偏移 0x100-0x200/0x400-0x900，0xC00 起空闲 → k60_metal_mkdir 用 scratch+0xC00。0614 的 hunk 上下文逐字依赖 0610 的 extern/(void) 两行，故两行文本同步改签名后用 diff -u 重锚（P-155/P-162）。"
+
+[hardware.gpu-user.step.verify]
+done = true
+local_verified = true
+evidence = "本地核验全部通过：干净 clone 逐条 git apply 224/224 ok（含新 0610/0614/zzy）；scripts/check-patch-apply.py ✅（P-162）；check-patch-series.py 40 补丁净 +1708 无基线跳过 rc=0；check-boot-args.py ✅ 30 config / 42 documented；终态断言：k60_metal.c 含 mkdir(p,&args,&ret) 不含 vnode_open(path, O_CREAT, 0755，kern_exec.c 含 native_gpu_addon_prepare(p, scratch) 与 (void)k60_metal_deploy(p, scratch)，bindfs.h 含 BINDM_FORCE_ROOT。"
+static_check = """补丁逐字节核验（P-155/P-162）：
+- 新 0610（237 行）：k60_metal_mkdir(proc_t p, user_addr_t scratch, const char *path) 用 copyout+mkdir（patches/xnu/0610-k60-metal-plugin-deploy.patch:72/:79/:85），deploy 签名 :93，kern_exec hunk @@ -7824,6 +7824,15 @@ 净 +9 不变（:222），extern/(void) 两行新签名 :231/:233。
+- 新 0614（22 行）：hunk @@ -7833,6 +7833,19 @@，上下文锚在新签名两行上，ADSP 块 13 行原文不变。
+- 新 zzy（174 行）：kern_exec 两 hunk @@ -7392,6 +7392,82 @@ / @@ -8156,6 +8232,7 @@（旧 -7193/-7250 已漂移 497 行，diff -u 重算）；bindfs 三文件与 startup.c hunk 与旧版语义逐字一致（BINDM_FORCE_ROOT :152、entitlement 绕行 :113、getattr root 归属 :133）。
+- boot-args 契约：board.toml kernel_args 30 项 593 B ≤ 608（tomllib 实测）；sheng-gpu-addon=1 走 board 契约无需改 check-image-args.py 白名单（scripts/check-image-args.py:44-49 只约束镜像多出的 key）。"""
+unit_test = "离线验证以补丁应用矩阵代替单测：干净 clone（xnu feed 1b191cb58250）按 series 逐条 git apply 224 条全过（TOTAL ok=224 bad=0），zzy 单独 git apply --check rc=0；旧 zzy 在同树 rc=1（error: patch does not apply）证明重锚是必要的。0610 修复断言：应用后 bsd/dev/k60_metal.c 含 'mkdir(p, &args, &ret)' 且不含 'vnode_open(path, O_CREAT, 0755'。"
+artifact_check = "待 build-strict 产物后回填（kernel.macho llvm-nm native_gpu_addon_mount 符号 ≥1、strings PongMetalBridge.dylib ≥1、boot.img sha256）。"
+
+[hardware.gpu-user.step.device]
+done = false
+evidence = "未上机（用户铁则：禁止自行 boot，镜像就绪后交 Lead，由 Lead 在用户明确同意后执行）。构建后此处置入：镜像 tag/boot.img sha256/串口日志 usblog-YYYYMMDD-HHMMSS。"
+
+[hardware.gpu-user.step.device.prediction]
+success = "日志依次出现：K60DATA mount returned error=0 → K60METAL deploy files=6/6 error=0 → PONG METAL: real IOAcceleratorES provider published for20G81 discovery → Pong init: native Metal entry enabled for backboardd → Pong Metal: real GPU scanout worker ready status=0x0；不再出现 software-only platform（userland/ui_compat.c:510）"
+failure = "K60METAL deploy files=0/6 或 open error=20（mkdir 修复未生效）；或 deploy 6/6 但 PONG METAL: real IOAcceleratorES provider published 缺失（pong_metal≠1 或 PongAdrenoCPReady 未置位）；或 provider published 但 PongMetalPlugin selectedClient() 拒绝（publish/clients 属主或 mode 不对，PongMetalPlugin.mm:165-192）；或 sheng-gpu-addon 挂载失败仅记录在 native_gpu_addon_stage/status 全局变量（docs/plans/GPU-ENABLE-PLAN.md:540，串口不可见）——此时查 K60METAL 后续 Pong Metal: 行缺如。"
+
+# ---------------------------------------------------------------------------\n[hardware.storage]
 status = "active"
 paths = ["drivers/NativeUfs/", "patches/xnu/0302", "patches/xnu/0300"]
 why = "UFS / APFS 三窗（OS / SystemOS / Data）"

@@ -99,8 +99,18 @@ KERNEL_SHA=$(sha256sum "$KERNEL" | cut -d' ' -f1)
 echo "build-strict: kernel $KERNEL_SHA $(stat -c %s "$KERNEL") bytes"
 
 # --- payload -----------------------------------------------------------------
+# --kernel-arg has to reach THIS step: the payload's unixnu.toml is what the
+# firmware passes to the kernel (P-159), and payload.py only overrides a board
+# argument for names it is given. Forwarding the flag to bootimg alone produced
+# an image whose command line was identical to a build without it (measured
+# 2026-11-14: pong_wifi=1 never reached the image).
+PAYLOAD_ARGS=()
+for kv in "${KARGS[@]:-}"; do
+    [ -n "$kv" ] || continue
+    PAYLOAD_ARGS+=(--kernel-arg "$kv")
+done
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
-        > "$LOGS/payload.log" 2>&1; then
+        ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
     die "payload build failed (see $LOGS/payload.log)"
 fi
@@ -183,7 +193,7 @@ m = {
         "boot_img": "$BOOT_SHA",
         "boot_img_path": "$RUN/boot.img",
     },
-    "kernel_args": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
+    "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
     "logs": "$LOGS",
 }
@@ -192,4 +202,12 @@ print("build-strict: manifest", out)
 PY
 
 echo "build-strict: boot.img $BOOT_SHA"
+python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" \
+    || die "a force-loaded archive did not reach the kernel (P-190)"
+# The command line in the image must be the board contract plus declared
+# additions. On 2026-11-14 two hand-packaged images silently replaced
+# debug=0x140 with debug=1 (DB_HALT) and ran 610 bytes over the 607-byte
+# DarwinBoot ceiling; both boots produced zero console bytes.
+python3 "$REPO/scripts/check-image-args.py" --image "$RUN/boot.img" --board "$REPO/board.toml" \
+    | tee "$LOGS/image-args.log" || die "the boot image command line is not the board contract (check-image-args.py)"
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

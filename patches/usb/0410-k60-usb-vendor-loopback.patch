@@ -267,7 +267,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
 +					ud.vend_bytes += got;
 +					if (ud.vend_packets < 8 || (ud.vend_packets % 64) == 0) {
 +						printf("K60 USBLOG: echo %u bytes on ep%u (total %u)\n",
-+						    got, ud.vend_bytes);
++						    got, ep, ud.vend_bytes);
 +					}
 +				}
 +			}

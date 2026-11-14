@@ -137,6 +137,8 @@
 
 与上游 `qcom_battmgr_enable_worker()`（`drivers_power_supply_qcom_battmgr.c:1286-1299`，`.hdr.type = PMIC_GLINK_NOTIFY`、`.hdr.opcode = BATTMGR_REQUEST_NOTIFICATION`）**逐字节一致**。
 
+**应答侧已定值**：ADSP 固件的 opcode 4 handler（`0x60155910`）回的**不是** type 2，而是 16 B `{owner=0x800a, type=1, opcode=4, result}`。因此 `K60_BATTERY_NOTIFY_REPLY_TYPE = 1`、`_BYTES = 16` —— 逐指令证据与穷举反证见 `06-SUBSCRIPTION-CONSTANT.md`。上表 type 2 只描述**请求**方向。
+
 ## 4. 未决 4：`check_status_work` 的 4 条请求
 
 函数 `battery_chg_check_status_work` `0x156c`（`0x1f8` B）。帧基址 `sp`，`+0xc` 恒 0，`+0x10` 是下标；4 次 `bl` 全部重定位到 `.text+0x688`（`battery_chg_write`）。

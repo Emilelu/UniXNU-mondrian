@@ -221,3 +221,51 @@ next_action = [
   "Read the Android modem partitions before writing any cellular code.",
 ]
 evidence = []
+
+[[area]]
+id = "thermal"
+status = "planned"
+components = []
+paths = [
+  "docs/research/thermal/**",
+  "docs/research/EIGHT-STEPS.toml",
+  "porting.toml",
+  "drivers/PongThermal/**",
+  "patches/thermal/**",
+  "scripts/build-thermal*.sh",
+  "scripts/tests/test-k60-thermal*.c",
+]
+inputs = [
+  "The SoC exposes two AP tsens-v2 controllers at 0xc263000 and 0xc265000 with 16 sensors each; the count comes from #qcom,sensors (mondrian.dts:16441, :16451) and is capped at 16 by the binding (qcom-tsens.yaml:209-214).",
+  "A second sensor source is the remote QMI path: 25 of the 58 thermal zones read phandle 0x5c (mondrian.dts:16774-16788), which needs QRTR/GLINK that this port does not have.",
+  "The board DTB describes no clocks and no nvmem calibration cells, so the controller must already be enabled and calibrated by XBL before XNU runs.",
+]
+configuration = [
+  "board.toml declares no thermal component; the board DTB is the only configuration surface for tsens today.",
+  "mondrian.dts:16438-16456 describes both controllers (TM window 0x1ff, SROT window 0x1ff, uplow/critical interrupts, phandles 0x5d/0x6b); mondrian.dts:6643-8422 describes the 58 thermal zones and their cooling maps.",
+]
+procedure = [
+  "Re-derive every register offset from the mainline driver instead of copying it: tsens-v2.c:12-27 lists TM_Sn_STATUS at 0xa0 + 4n and the SROT block at 0x0/0x4, and docs/research/thermal/02-OFFICIAL-DOCS.md §2 tabulates the result.",
+  "Generate the 32-entry sensor table from the board DTB with a patched dt-thermal.py rather than transcribing it by hand (docs/research/thermal/03-REVERSE.md §3).",
+  "Keep the read path read-only: poll TM_Sn_STATUS, decode LAST_TEMP[11:0] with bit 11 sign extension, require VALID[21], clamp to -40..160 C, and log samples with the zone name and index.",
+]
+findings = [
+  "Both controllers expose 16 sensors each, not the 8 the original brief assumed: 2x16 = 32 AP sensors plus 25 remote QMI zones and one config-only zone (docs/research/thermal/01-SAME-HARDWARE.md §5).",
+  "The board DTB carries no calibration data: grepping the decompiled DTS for calib/qfprom/efuse returns nothing, and the upstream calibrationless path (tsens.c:131-152) still works because tsens-v2 status words already hold deci-Celsius (tsens-v2.c:31-39, tsens.c:346-347).",
+  "Only 32 of the 58 zones are reachable from the OS; every AP-side trip is passive (the only active trips are modem-side mdmss ones), so a driver must do its own polling because polling-delay is 0 for most zones (docs/research/thermal/01-SAME-HARDWARE.md §6).",
+]
+completion = [
+  "A device boot prints 32 timestamped samples, every sensor reports VALID with a value inside -40..160 C, and two consecutive samples of the same sensor differ by less than 20 C.",
+]
+limits = [
+  "No driver code exists yet: drivers/PongThermal holds a placeholder only, and nothing here is compiled or linked. Threshold programming, interrupts, the 25 QMI zones and every cooling-device action remain out of scope until the read path is device-verified.",
+]
+next_action = [
+  "Review the three research documents in docs/research/thermal/, then write the read-only PongThermal driver and prove the offsets with a host test before any device boot.",
+]
+evidence = [
+  { kind = "source", reference = "docs/research/thermal/01-SAME-HARDWARE.md", result = "Controller bases, SROT windows, the 32-sensor index map, the 58-zone and cooling-map inventory, and the statement that the board DTB has no calibration node, each with mondrian.dts line numbers." },
+  { kind = "source", reference = "docs/research/thermal/02-OFFICIAL-DOCS.md", result = "Register offsets from tsens-v2.c:12-27, status bit fields from tsens-v2.c:94-101, the deci-Celsius conversion from tsens.c:346-347, and the binding example that matches this board at qcom-tsens.yaml:382-396." },
+  { kind = "source", reference = "docs/research/thermal/03-REVERSE.md", result = "How UniXNU-sheng (SM8550) and phk110-port (SM6375, 27/27 sensors measured on hardware) read tsens, the three-platform comparison, the 13-item reuse list, and the two forensic gaps that keep step 3 open." },
+]
+

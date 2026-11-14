@@ -24,6 +24,11 @@ extern "C" bool pong_cpu_start(IOService *platform);
 #if XNU_PONG_ADRENO_PLATFORM
 extern "C" void pong_adreno_start_optional(void);
 #endif
+#if XNU_PONG_THERMAL
+// PongThermal: creates the two tsens sensors and publishes the mTPL pressure
+// level (drivers/PongThermal/K60ThermalService.cpp, docs/research/thermal/07-INTEGRATION.md).
+extern "C" int k60_thermal_start(void);
+#endif
 
 // Observation counters describe actual published nubs, not started drivers.
 extern "C" {
@@ -223,6 +228,11 @@ bool ArmDTPlatform::configure (IOService *provider)
   registerService ();
 #if XNU_PONG_ADRENO_PLATFORM
   pong_adreno_start_optional();
+#endif
+#if XNU_PONG_THERMAL
+  if (k60_thermal_start() != 0) {
+    IOLog("ArmDTPlatform: thermal service start failed\n");
+  }
 #endif
   return true;
 }

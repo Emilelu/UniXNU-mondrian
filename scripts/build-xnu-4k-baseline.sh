@@ -931,6 +931,16 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ARM_DT_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ARM_DT_ARCHIVE"
   fi
+  # PongThermal: read-only tsens driver, pressure level and the mTPL publishing
+  # IOKit service. The archive is built here with the same clang recipe as the
+  # other platform archives (scripts/build-thermal-kext.sh, docs/research/thermal/07-INTEGRATION.md).
+  if [ "${XNU_PONG_THERMAL:-0}" = 1 ]; then
+    K60_XNU_TREE=$ROOT bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
+    THERMAL_ARCHIVE=$ROOT/build/thermal-kext/libK60ThermalKext.a
+    test -f "$THERMAL_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$THERMAL_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $THERMAL_ARCHIVE"
+  fi
   if [ "${XNU_ARMCPU:-0}" = 1 ]; then
     ARMCPU_ARCHIVE=$ROOT/build/armcpu/libArmCpu.a
     test -f "$ARMCPU_ARCHIVE"

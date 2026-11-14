@@ -55,6 +55,34 @@ owner = "audio-agent"
 scope = ["drivers/PongAudio", "docs/research/audio"]
 
 [[tree]]
+path = "/mnt/e/hackios/k60-thermal"
+owner = "thermal-agent"
+scope = ["drivers/PongThermal", "docs/research/thermal"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-cellular"
+owner = "cellular-agent"
+scope = ["drivers/PongCellular", "docs/research/cellular", "patches/cellular", "patches/xnu/0620-k60-modem-image.patch", "patches/xnu/0621-k60-modem-pas.patch"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-charger"
+owner = "charger-agent"
+scope = ["drivers/PongPower", "docs/research/charger"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-buttons"
+owner = "buttons-agent"
+scope = ["drivers/PongButtons", "docs/research/buttons"]
+
+# Repo-hygiene line (2026-11-14). Owns the checkout-path gate (hard-39) and the
+# six scripts that used to hardcode the shared checkout.
+[[tree]]
+path = "/mnt/e/hackios/k60-hygiene"
+owner = "hygiene-agent"
+scope = ["scripts", "docs/engineering", "docs/engineering/TOOLBOX.md"]
+note = "Repo-hygiene worktree (feat/repo-hygiene). Pure code, no device work."
+
+[[tree]]
 path = "/mnt/e/hackios/k60-gates"
 owner = "lead"
 scope = ["scripts", "docs/engineering", "AGENTS.md"]
@@ -64,7 +92,25 @@ path = "/mnt/e/hackios/k60-wifi-lead"
 owner = "lead"
 scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]
 
+# The four lines opened on 2026-11-14 for the capabilities the official
+# drivers page names but no existing line covered: display/brightness,
+# GPU userland, SpringBoard stability, and the iOS-profile feasibility study.
 [[tree]]
-path = "/mnt/e/hackios/k60-cellular"
-owner = "cellular-agent"
-scope = ["drivers/PongCellular", "docs/research/cellular", "patches/cellular", "patches/xnu/0620-k60-modem-image.patch"]
+path = "/mnt/e/hackios/k60-display"
+owner = "display-agent"
+scope = ["drivers/PongDisplay", "patches/display", "docs/research/display"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-gpu-user"
+owner = "gpu-user-agent"
+scope = ["patches/xnu", "docs/research/gpu"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-springboard"
+owner = "springboard-agent"
+scope = ["userland", "docs/research/springboard"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-ios-profile"
+owner = "ios-profile-agent"
+scope = ["docs/research/ios-profile"]

@@ -21,7 +21,11 @@ from datetime import datetime
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = "/mnt/e/k60-work"
-SERIES = WORK + "/scratch/SERIES-FINAL.txt"
+# Keep this identical to porting-gate.py: the fingerprint must describe
+# the series the build actually applied (P-194).
+SERIES = os.path.join(REPO, "patches/xnu/series")
+if not os.path.exists(SERIES):
+    SERIES = WORK + "/scratch/SERIES-FINAL.txt"
 LEDGER = WORK + "/ledger.jsonl"
 
 # Same list the capture classifier uses; "restart windows ready" is a banner.

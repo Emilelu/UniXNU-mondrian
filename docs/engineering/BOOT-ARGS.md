@@ -265,6 +265,22 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 所以 `k60_battery=0` 是彻底关掉，`k60_battery=1`（默认）是"有租约才启动"。
 没有第三个状态 —— 不存在"强制启动"的开关。
 
+### `pong_rail_probe`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不探测，任何启动都不映射 RSC） |
+| 取值 | 0 / 1 |
+| 来源 | `patches/xnu/0614-k60-adsp-call-site.patch`（`PE_parse_boot_argn("pong_rail_probe", &pong_rail_probe, sizeof(pong_rail_probe))`），实现在 `drivers/PongPower/K60PmicRail.c` |
+| 作用 | 1 = 在 Data 卷挂载成功后**只读**一次 RPMh `cmd-db` 与 DRV-2 的 `0x17a20000`，打印 `K60RAIL` 三行（cmd-db magic、ldoc2 地址与电平、RSC 布局） |
+
+**为什么默认关闭**：`docs/ops/HARD-RULES.md` 的 HR-01 规定默认不得访问 RSC —— 2026-11-09 有两次
+早期启动阶段首读即整机死（零控制台）。2026-11-14 的 `rail-20261114h` 证明**Data 挂载之后只读**不会死
+（`E:\k60-work\evidence\usblog-20261114-railh\console.log:477-479`，3,366 行、129 行 SpringBoard、
+`panicMarker=null`），但一次存活不足以改成默认。所以：只读、单次、必须显式开启；**写 TCS 与
+`CONTROL_TRIGGER` 仍然全面禁止**，供电投票等 ABL 方案。
+
 ### `pong_adsp`
 
 | 项 | 值 |

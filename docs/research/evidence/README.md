@@ -20,6 +20,10 @@
 | `gpu-keys-notes.txt` | `GPUKEYS.txt` | GPU 与实体键 |
 | `springboard-truth.txt` | `SBTRUTH.txt` | SpringBoard 在 20G81 上的真实依赖 |
 
+## 非原始输出
+
+（空）2026-11-14 撤回了两份门禁补丁 `gate-repo-switch.diff` / `gate-repo-switch-lead.diff` 并删除文件：Lead 决定不采用（理由与本线的核对结果见 `REFERENCE-INDEX.md` 第 16 节）。这里只放原始输出。
+
 ## 注意
 
 这些是**原始输出**，没有整理过结论。要用于决策前先读一遍并提炼到对应的

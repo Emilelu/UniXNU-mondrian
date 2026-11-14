@@ -80,3 +80,17 @@ note = "2026-11-13 22:04/22:08 strict 构建 base-20261113f 双启动通过（sc
 "patches/xnu/0340-k60-uilib-deploy.patch" = "72371a041569b55d0441bef4b0f944121fbbeca8b409d4e296ae992cfe4a962f"
 "patches/xnu/0391-k60-embedded-init.patch" = "accaab23221b52318f130708de961bff42a496c5605a6daacbe0e2e81c89371d"
 "patches/xnu/0401-k60-embedded-init.patch" = "4327b48e26f7ff5e8aa425a61a9f5769062b582febfa38932af427a59c2c0476"
+
+[[entry]]
+sha = "0143b46"
+kernel_sha256 = "c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09"
+image = "E:/k60-work/artifacts/touch-20261114a/boot.img"
+image_sha256 = "0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9"
+console = "E:/k60-work/evidence/usblog-20261114-150931/console.log (3870 lines, SpringBoard 254, captured-budget-complete true, panicMarker null, resetMarker null)"
+state = "booted"
+note = "2026-11-14 15:09 触摸真机通过：goodix COORD-ON ack=80 之后出现 8 条真实触点与 4 条 HID 派发（type=1/3），日志无 panic、无 initproc exited、无 K60PANIC: ring kept、K60RAIL 0（rail 探针默认关闭）。真因是配置完成后只发了 0x90/0x00 关闭 raw 帧，从未发 0x91/0x01 打开坐标上报。此镜像同时带 GPU addon（metal plugin 51,278,451 B）与 iOS buttons 节点。0143b46 之后的提交只改文档、门禁与测试脚本，内核输入逐字节不变，故本条目覆盖分支顶端。"
+
+[entry.blob_sha256]
+"patches/xnu/0340-k60-uilib-deploy.patch" = "72371a041569b55d0441bef4b0f944121fbbeca8b409d4e296ae992cfe4a962f"
+"patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch" = "46859581bd63d3dfebd85fedbb59416ab8620b99709dfe953b57dd85e4932143"
+"patches/xnu/0610-k60-metal-plugin-deploy.patch" = "76ea30e5019eed68e7cf6dafe8d8fbacabeba19f783df2e13dd756bce28dfae4"

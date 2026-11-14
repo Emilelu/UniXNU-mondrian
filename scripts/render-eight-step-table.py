@@ -12,6 +12,7 @@
 import io
 import os
 import sys
+from pathlib import Path
 
 try:
     import tomllib
@@ -23,7 +24,7 @@ except ImportError:
 
 # 仓库根：默认本脚本所在的检出（在 worktree 里跑就用 worktree），K60_REPO 可覆盖。
 # 硬编码共享树会让 worktree 的 --check 去校验别的树，改了本树的 TOML 也看不见。
-REPO = os.environ.get('K60_REPO') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
 DATA = os.path.join(REPO, 'docs', 'research', 'EIGHT-STEPS.toml')
 README = os.path.join(REPO, 'README.md')
 README_EN = os.path.join(REPO, 'README_EN.md')

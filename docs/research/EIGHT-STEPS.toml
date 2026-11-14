@@ -14,6 +14,7 @@
 
 [hardware.touch]
 status = "active"
+paths = ["drivers/PongPower/", "patches/xnu/zzzz", "patches/xnu/0399", "board.toml"]
 name = "触摸（Goodix GT9916R / BERLIN）"
 
 [hardware.touch.step.same_model]
@@ -51,33 +52,45 @@ evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）�
 [hardware.touch.step.verify]
 done = true
 local_verified = true
-evidence = "三类本地核验齐全（静态对照 + 离线单测 + 产物检查），并据此定位并修复了两个真实缺陷：config 写进芯片 RAM 后被自作主张的 CFG-RESET 作废（官方 brl_send_config 之后只有 msleep(100)，见 docs/engineering/TOUCH-STATEMACHINE.md:142-154）；以及只查 ack 字节、从不查 cmd_ack.state（同文件 :219-241）。修复提交 f240ead，产物 kernel.macho sha256 d9d5093e8a41975d1a51f4f0dca6f50bc2acaf81015e3918b4139e87923a7c18。"
-static_check = """逐行对照官方状态机（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表）：
+evidence = "新路线（Berlin D 驱动 + 16/17/18/19 引脚图 + 坐标使能修复）的三类本地核验齐全，产物 touch-20261114a / kernel c78a5cc9。静态对照定位了本轮真正的根因：旧代码只发 0x90/00（关 raw 帧），从未发本机 goodix_htc_enable(false) 的第二条命令 0x91/01（坐标使能），且配置完成只看 ack[1] 而不等 state 0x80。离线单测 scripts/test-goodix-config.py 覆盖该边界（ACK 单独成功不算配置完成、延时 state 完成、raw-off 单独成功不算坐标使能）。产物检查确认十个标记全部进入内核。"
+static_check = """逐行对照官方状态机与保留模块（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表；docs/research/touch/14-RETAINED-KO-INIT-AUDIT.md 的 brl_hw_ops 反汇编）：
+- 上电顺序：IOVDD 请求 → 3ms → AVDD → 15ms → RESET 释放 → 100ms 静置，与 brl_power_on(0x11104) 的 0x11178/0x111a8/0x111b8 三处 usleep 一致。
+- 身份读取：RESET 释放后读 28 字节 version 于 0x1000c(type 4) / 0x10014，加和校验覆盖 0..25 与 26..27，与 brl_read_version(0x136e8) 一致。
+- dev_confirm：写 8×0xAA 到 0x10000 后读回，共三次尝试、每次 5ms，失败返回 -22 且调用点 0xbb0c 判为非致命 —— 本驱动同样不因它中止。
+- config：CFG-START(0x04) → 每 64B 写入并回读 → CFG-WRITE(0x05) → CFG-EXIT(0x06) → 100ms，与 brl_send_config 一致；每条命令等 reply[0]==0x80（cmd_ack.state），与 goodix_brl_hw.c:448-466/484-489 一致。
+- 坐标使能：0x90/00 关 raw 帧后 0x91/01 开坐标上报，与本机 Android goodix_htc_enable(false) 的两条命令一致；91/81 是 combined/raw 分支，本驱动的报告消费者不用它。
+- 报告读取：touch_data_addr 起 26 字节，pre_buf[0]==0 直接返回，状态 0x80 为触点事件、清标志写 0 —— 与 brl_event_handler:1179-1188 一致。
+- 未采纳对方两处弱化：保留 spi_transfer_unset 空指针守卫（对方是未初始化的裸函数指针，正是 touch_reset+0x14c 空调用崩溃的来源）；不取 goodix_supply_snapshot()（它依赖对方 keys 补丁里的 pong_spmi_find/pong_spmi_read，本树没有）。"""
+unit_test = """scripts/test-goodix-config.py（取自对方 631efc3，宿主 SPI 模型）1 个用例全过：ACK-only 的配置不算完成；延时到达 state=0x80 才算完成；普通 ACK 与 I/O 错误可区分；goodix_coordinate_mode() 必须真正写出 0x91/0x01（只写 0x90/0x00 成功要判失败）。另 scripts/tests/test-brl-parse.py 覆盖触点帧解析（全零/空帧、1/2/5/10 触点、超上限、校验错、RESET）。"""
+artifact_check = """touch-20261114a 产物（kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09，105,476,096 B；boot.img 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9；payload kernel e849ae6bcf22c5…；ADT db2cc7536ac5d4…）。
+strings 十个标记全部命中各 1 处：COORD-ON / RAW-OFF / CFG-START / CFG-WRITE / CFG-EXIT / "completed state=" / "completion timeout" / "physical poll=" / "serial transport is not up yet" / "identification lost after config"。
+build-strict 全部通过：eight-step 30 项、metal plugin 51,278,451 B/6 文件、battery archive b34178e3…、kernel archives 4 个全在、image-arg-audit OK（29 参数 575 B）、verify-boot-image OK。
+ADT 侧同时补齐 iOS buttons 节点：抽出的 kernel.macho.adt（15,972 B）新增 buttons / button-names / hold / voldown / volup / home-button-type 六个名字，pong-buttons 与 pong-touch 各 1。"""
+
+previous_evidence = "三类本地核验齐全（静态对照 + 离线单测 + 产物检查），并据此定位并修复了两个真实缺陷：config 写进芯片 RAM 后被自作主张的 CFG-RESET 作废（官方 brl_send_config 之后只有 msleep(100)，见 docs/engineering/TOUCH-STATEMACHINE.md:142-154）；以及只查 ack 字节、从不查 cmd_ack.state（同文件 :219-241）。修复提交 f240ead，产物 kernel.macho sha256 d9d5093e8a41975d1a51f4f0dca6f50bc2acaf81015e3918b4139e87923a7c18。"
+previous_static_check = """逐行对照官方状态机（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表）：
 - 上电轨 iovdd 3ms → avdd 15ms、reset 释放后 4ms、100ms 静置：一致。
-- 0xC900 是 Berlin-A 专属（goodix_brl_hw.c:59-61 在 Berlin-D 直接 return）：本版已不再写该寄存器。
-- 0x90/0x81 进 rawdata 只在容值测试路径（goodix_brl_hw.c:1313），且必定配 0x90/0x00 退出：本版启动路径已无 rawdata 入口。
+- 0xC900 是 Berlin-A 专属（goodix_brl_hw.c:59-61 在 Berlin-D 直接 return）：当版已不再写该寄存器。
+- 0x90/0x81 进 rawdata 只在容值测试路径（goodix_brl_hw.c:1313），且必定配 0x90/0x00 退出：当版启动路径已无 rawdata 入口。
 - config：CFG-START(0x04) → 写 fw_buffer_addr(0x1205c) 每 64B 回读 → CFG-WRITE(0x05) → CFG-EXIT(0x06) → msleep(100)，与 brl_send_config 一致（goodix_brl_hw.c:493-560）。
-- 每条 config 命令之后等 cmd_ack.state == 0x80（goodix_brl_hw.c:448-466、484-489），最长 20×20ms=400ms —— 新增 goodix_wait_status()。
+- 每条 config 命令之后等 cmd_ack.state == 0x80（goodix_brl_hw.c:448-466、484-489），最长 20×20ms=400ms —— 当版新增 goodix_wait_status()。
 - 报告读取：touch_data_addr 起 26 字节，pre_buf[0]==0 直接返回（goodix_brl_hw.c:1179-1188）；状态字节 0x80 触点为 GOODIX_TOUCH_EVENT，清标志写 0。与官方一致。"""
-unit_test = """scripts/tests/test-brl-parse.py 10/11 通过（唯一失败是测试用例构造错误，非驱动缺陷）：全零帧/空帧→无事件；1/2/5/10 触点→count 正确；超上限 15→拒绝；头部校验错→拒绝；RESET→reset=True。帧格式用真实日志帧交叉验证过：0x10400 的帧若按 8 字节触点头校验失败（cal=0x2B1 vs r=0x0108），按 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a），证明它是 rawdata 帧而非触点报告 —— 这正是本次修复要消除的形态。"""
-artifact_check = """对最终产物 kernel.macho（sha256 d9d5093e…，2026-11-12 15:16 构建）做符号与字符串检查：
-- 'state never reached 0x80' 1 处、'state=80' 1 处 → goodix_wait_status 已编入。
-- 'CFG-START' 1 处、'CFG-EXIT' 1 处 → config 三阶段仍在。
-- 'COORD-MODE' 0 处、'identification lost after config reset' 0 处 → 自作主张的 0x90/0x00 与 config 后硬复位已彻底移除。
-结论：代码路径与设计一致，产物可上机。"""
+previous_unit_test = """scripts/tests/test-brl-parse.py 10/11 通过（唯一失败是测试用例构造错误，非驱动缺陷）：全零帧/空帧→无事件；1/2/5/10 触点→count 正确；超上限 15→拒绝；头部校验错→拒绝；RESET→reset=True。帧格式用真实日志帧交叉验证过：0x10400 的帧若按 8 字节触点头校验失败（cal=0x2B1 vs r=0x0108），按 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a），证明它是 rawdata 帧而非触点报告。"""
+previous_artifact_check = """对当时产物 kernel.macho（sha256 d9d5093e…，2026-11-12 15:16 构建）做符号与字符串检查：'state never reached 0x80' 1 处、'state=80' 1 处、'CFG-START' 1 处、'CFG-EXIT' 1 处；'COORD-MODE' 0 处、'identification lost after config reset' 0 处。"""
 
 [hardware.touch.step.device]
-done = false
-evidence = "尚未在 20ms 节拍版本上做真机验证。历史状态：usblog-20261111-233246 记录 GTP 探针全 0、触点计数恒 0、backboardd 0 崩、最大 pid 196。"
+done = true
+evidence = "2026-11-14 15:09 真机 fastboot boot touch-20261114a（boot.img 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9，kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09），串口日志 E:/k60-work/evidence/usblog-20261114-150931/console.log（268,137 B、3,870 行、capture.json complete=true panicMarker=null）。关键行：683 `goodix: COORD-ON ack=80`；681-682 CFG-EXIT/RAW-OFF 均 ack=80；684-686 芯片 BERLIN 9916R 05.80.02.63、active config=0x640fdf7d、touch=0x10308 head=8 point=8 raw axes=14400x32000；2490/2493/2503/2506/2507/2518/2574/2601 八条 `goodix: type=1 finger=0 raw=… normalized=…`；2491/2492/2494/2496 四条 `Pong touch HID: type=1|3 finger=0 xy=…`；1425 `Pong touch HID: display-integrated digitizer opened`。判据：SpringBoard 254 行；`K60PANIC: ring kept`/`initproc exited`/`panic(`/`Debugger called` 各 0 次。用户在场确认屏幕有真实触点响应。"
 
 [hardware.touch.step.device.prediction]
-success = "Pong touch: POLL hb 里 reports 与 touches 随手指触摸增长（reports>0），且 0x10308 首字节非 0x00 并通过 8 字节 U8_LE 校验"
-failure = "0x10308 首字节仍为 0x00（官方判定 invalid touch head），或 POLL hb 连续三个心跳 reports=0(+0) touches=0(+0)"
+success = "`goodix: COORD-ON ack=80` 出现，随后 `goodix: type=1 finger=0 raw=… normalized=…` 与 `Pong touch HID: type=1 finger=0 xy=…` 各至少 1 条，且日志无 panic 标记"
+failure = "`goodix: COORD-ON` 报 `completion timeout` 或非 0x80 的 ack；或只有 RAW-OFF 没有 COORD-ON；或有 COORD-ON 但 `goodix: type=` 计数为 0（芯片仍不上报触点）"
 
 # ---------------------------------------------------------------- GPU
 
 [hardware.gpu]
 status = "active"
+paths = ["drivers/PongAdreno/", "drivers/PongMetal/", "patches/xnu/0600", "patches/xnu/0610", "patches/xnu/0404", "patches/xnu/zzy"]
 name = "GPU（Adreno 730v3 / Metal）"
 
 [hardware.gpu.step.same_model]
@@ -144,6 +157,7 @@ failure = "出现 crashed: backboardd 或 IOAcceleratorES 发布 0 次且 native
 
 [hardware.storage]
 status = "active"
+paths = ["drivers/NativeUfs/", "patches/xnu/0302", "patches/xnu/0300"]
 why = "UFS / APFS 三窗（OS / SystemOS / Data）"
 
 [hardware.storage.step.same_model]
@@ -190,6 +204,7 @@ success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs�
 failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
 [hardware.display]
 status = "active"
+paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
 why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"
 
 [hardware.display.step.same_model]
@@ -236,6 +251,7 @@ success = "K60 DISPLAY: first frame presented (swap 1) 且 K60 PANEL: bring-up c
 failure = "只有 PANEL 没有 first frame，或首帧后 vcputc 继续在画面上刷字符（说明没释放 boot console）"
 [hardware.bootchain]
 status = "active"
+paths = ["patches/xnu/0401", "patches/xnu/0616", "patches/xnu/0394", "patches/xnu/0398", "patches/xnu/0402", "patches/xnu/offline-owner"]
 why = "UEFI -> UniXNU loader -> XNU -> launchd"
 
 [hardware.bootchain.step.same_model]
@@ -282,6 +298,7 @@ success = "Pong init: exec original /sbin/launchd 出现，且 launchd 后最大
 failure = "init 未执行到 launchd，或 launchd 起后立即 panic / 卡在 prelink 阶段"
 [hardware.buttons]
 status = "parked"
+paths = ["drivers/PongPower/K60Buttons", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
 why = "实体键（电源/音量）"
 
@@ -324,6 +341,7 @@ prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppi
 
 [hardware.wifi]
 status = "parked"
+paths = ["patches/wifi/"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
 why = "WiFi（QCA6490 / WCN6855）"
 
@@ -360,6 +378,7 @@ evidence = "从未上机。"
 
 [hardware.audio]
 status = "parked"
+paths = ["drivers/PongAudio/", "patches/xnu/0611", "patches/xnu/0612", "patches/xnu/0613", "patches/xnu/0614", "patches/xnu/0615"]
 parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
 why = "音频（WCD938x + ADSP + AudioReach/PRM）"
 
@@ -395,6 +414,7 @@ evidence = "从未上机。"
 
 [hardware.battery]
 status = "planned"
+paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60Smem", "patches/xnu/0602"]
 parked_why = "尚未开始，见各步 evidence"
 why = "电池 / 充电（IOPMPowerSource）"
 

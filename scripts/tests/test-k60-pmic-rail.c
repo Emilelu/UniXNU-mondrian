@@ -103,9 +103,14 @@ main(void)
 
 	CHECK(k60_cmd_db_find(db, sizeof(db), "ldoc2", &res) == K60RpmhOk);
 	CHECK(k60_rpmh_level_index(&res, 0, &index) == K60RpmhOk && index == 0);
+	CHECK(k60_rpmh_level_index(&res, 1400, &index) == K60RpmhOk && index == 0);
 	CHECK(k60_rpmh_level_index(&res, 1800, &index) == K60RpmhOk && index == 2);
 	CHECK(k60_rpmh_level_index(&res, 1801, &index) == K60RpmhOk && index == 3);
-	CHECK(k60_rpmh_level_index(&res, 9999, &index) == K60RpmhOk && index == 3);
+	/* A level the table cannot express must not look like a success: a
+	 * caller would otherwise vote the top corner believing it asked for
+	 * 1800 mV (touch agent review, 2026-11-14). */
+	CHECK(k60_rpmh_level_index(&res, 9999, &index) == K60RpmhNoLevel);
+	CHECK(index == 3);
 
 	/* Bad magic, short buffer, entry counts that overrun the buffer. */
 	put32(db + 4, 0xdeadbeef);

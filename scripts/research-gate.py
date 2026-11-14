@@ -21,6 +21,7 @@
 """
 import io
 import os
+from pathlib import Path
 import sys
 
 try:
@@ -31,8 +32,20 @@ except ImportError:
     except ImportError:
         tomllib = None
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+# 仓库根：默认本脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
+REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
 SOURCES = os.path.join(REPO, 'docs', 'research', 'SOURCES.toml')
+
+# 参考源搜索前缀。SOURCES.toml 里的 path 相对这些前缀之一；顺序即优先级。
+#   REPO            -- 本仓库内的文件（docs/、references/ 的本地副本）
+#   /mnt/e/k60-work -- 参考仓库的规范检出位置
+#   /mnt/e/hackios  -- 直接从上游 clone 的参考仓库（QcaBluetooth、UniXNU-liuqin 等）
+REFERENCE_PREFIXES = (
+    str(REPO),
+    '/mnt/e/k60-work',
+    '/mnt/e/hackios',
+)
+
 
 
 def check(verbose=True):
@@ -54,12 +67,13 @@ def check(verbose=True):
             finding = item.get('finding', '')
             label = '%s :: %s' % (sub, os.path.basename(path))
 
-            # 1) 文件必须在本地存在
-            full = os.path.join(REPO, path)
-            alt = os.path.join('/mnt/e/k60-work', path)
-            exists = os.path.exists(full) or os.path.exists(alt)
-            if not exists:
-                problems.append('%s 文件不存在: %s' % (label, path))
+            # 1) 文件必须在本地存在（按 REFERENCE_PREFIXES 逐个试）
+            tried = [os.path.join(prefix, path) for prefix in REFERENCE_PREFIXES]
+            if not any(os.path.exists(candidate) for candidate in tried):
+                problems.append(
+                    '%s 文件不存在: %s（已试 %d 个前缀）'
+                    % (label, path, len(tried))
+                )
                 continue
 
             # 2) 必须标记已考察
@@ -85,7 +99,8 @@ def check(verbose=True):
 
 
 if __name__ == '__main__':
-    ok, probs = check()
+    # 失败时必须把问题列表打出来：门禁不能只给结论。
+    ok, probs = check(verbose=True)
     print()
     print('结论: %s' % ('✅ 研究完整性通过' if ok else '❌ 研究完整性未通过'))
     sys.exit(0 if ok else 1)

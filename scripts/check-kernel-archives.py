@@ -126,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"skip: CONFIG_{symbol} is not enabled in {config.name}")
             continue
         checked += 1
+        # The verdict is the symbol in the kernel: that is what P-190 is about.
+        # The archive on disk is only evidence for *why* a symbol is missing, so
+        # this check still works in a checkout that never built anything.
+        if any(needle in name for name in symbols):
+            continue
         # build-strict.sh points the battery archive at the checkout that built
         # it, because that archive is not produced inside the tree.
         override = os.environ.get("XNU_K60_BATTERY_ARCHIVE") if symbol == "XNU_K60_PHYSICAL_BATTERY" else None
@@ -137,9 +142,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             archive = tree / rel
         if not archive.is_file():
-            problems.append(f"CONFIG_{symbol}=y but {archive} is missing")
-            continue
-        if not any(needle in name for name in symbols):
+            problems.append(
+                f"CONFIG_{symbol}=y but {archive} is missing, so {rel} could never "
+                f"have been force-loaded (P-190)"
+            )
+        else:
             problems.append(
                 f"CONFIG_{symbol}=y but no {needle} symbol is in {kernel.name}; "
                 f"{rel} was force-loaded into a branch that does not run (P-190)"

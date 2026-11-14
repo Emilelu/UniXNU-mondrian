@@ -10,7 +10,9 @@
 # This rewrites both sides to the /mnt/e form. Idempotent.
 set -euo pipefail
 
-MAIN=${1:-/mnt/e/hackios/UniXNU-mondrian}
+# 默认修复本脚本所在的检出；在 worktree 里跑时把主检出路径当第一个参数传进来，或设 K60_REPO。
+REPO="${K60_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+MAIN="${1:-$REPO}"
 HACK=$(cd "$MAIN/.." && pwd)
 WT_DIR="$MAIN/.git/worktrees"
 

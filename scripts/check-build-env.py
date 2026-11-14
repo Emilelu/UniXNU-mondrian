@@ -18,6 +18,10 @@ import os
 import sys
 from pathlib import Path
 
+REPO = Path(os.environ.get("K60_REPO") or Path(__file__).resolve().parents[1])
+# The framework checkout sits next to this one; K60_FRAMEWORK_REPO moves it (hard-39).
+FW_REPO = Path(os.environ.get("K60_FRAMEWORK_REPO") or REPO.parent / "UniXNU")
+
 BUILD = Path(os.environ.get("K60_BUILD_TREE", "/opt/k60/trees/k60build"))
 OUT = Path(os.environ.get("K60_OUT", str(BUILD / "out-baseline")))
 M = OUT / "mondrian/ipados-16.6.1-20G81/mondrian"
@@ -54,8 +58,9 @@ def main() -> int:
                 problems.append("{} is missing (Darwin tool shim)".format(shims / name))
         if len(have) < len(SHIMS):
             problems.append(
-                "{} has {} of {} shims; copy the rest from "
-                "E:/hackios/UniXNU/scripts/linux".format(shims, len(have), len(SHIMS))
+                "{} has {} of {} shims; copy the rest from {}".format(
+                    shims, len(have), len(SHIMS), FW_REPO / "scripts/linux"
+                )
             )
 
     if not FAKEROOT.is_dir():

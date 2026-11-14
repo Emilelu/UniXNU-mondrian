@@ -81,16 +81,24 @@ def has_reference(text):
 # 一次构建只针对某些硬件项时，用 K60_EIGHT_STEP_ITEMS 明确声明（逗号分隔）。
 # 默认不声明 = 校验全部 active 项（整机口径），所以不会因为漏写而变松。
 # build-strict.sh 会把这个值写进 build-manifest.json，谁放窄了范围是可审计的。
-def declared_items(hw):
+def declared_items(hw, all_items=None):
+    """Items this build is working on, or None for the whole-device default.
+
+    A parked or planned item may be declared: a line that is actively being
+    worked on must be able to build without waiting for an unrelated line to
+    go green (P-192).  The declared item is then held to the same evidence
+    rules as an active one, so this narrows scope without loosening it.
+    """
     raw = (os.environ.get("K60_EIGHT_STEP_ITEMS") or "").strip()
     if not raw:
         return None
     names = [n.strip() for n in raw.split(",") if n.strip()]
-    unknown = [n for n in names if n not in hw]
+    pool = dict(all_items or hw)
+    unknown = [n for n in names if n not in pool]
     if unknown:
         raise SystemExit("K60_EIGHT_STEP_ITEMS 里有不存在的硬件项: %s（可选: %s）"
-                         % (", ".join(unknown), ", ".join(hw)))
-    return {n: hw[n] for n in names}
+                         % (", ".join(unknown), ", ".join(pool)))
+    return {n: pool[n] for n in names}
 
 
 def validate(mode='build', verbose=True):
@@ -117,10 +125,12 @@ def validate(mode='build', verbose=True):
     # build 模式可以用 K60_EIGHT_STEP_ITEMS 收窄到本次真正在修的硬件项；
     # 不声明就还是整机口径。flash 模式永远整机。
     if mode == 'build':
-        scoped = declared_items(hw)
+        scoped = declared_items(hw, hw_all)
         if scoped is not None:
             if verbose:
-                print('  声明范围: %s（K60_EIGHT_STEP_ITEMS）' % ', '.join(scoped))
+                names = ', '.join('%s[%s]' % (k, v.get('status', 'active'))
+                                  for k, v in scoped.items())
+                print('  声明范围: %s（K60_EIGHT_STEP_ITEMS）' % names)
             hw = scoped
 
     for name, body in hw.items():

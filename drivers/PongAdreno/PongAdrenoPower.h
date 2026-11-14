@@ -33,6 +33,19 @@ typedef struct {
  */
 PongPowerStatus PongAdrenoReadPowerInputs(const uint8_t *,size_t,uint32_t chip_id,
     PongPowerInputs *);
+/* Exact captured ldoc2 VRM v1.0 identity only: slave4, address0x42c00,
+ * four AUX bytes01 2a 00 00. Like GPU inputs, output borrows immutable db.
+ */
+PongPowerStatus PongAdrenoReadTouchPowerResource(const uint8_t *,size_t,
+    PongPowerResource *);
+/* Serialized APSS DRV2/TCS3 voltage+enable transaction, independent of GPU
+ * startup. Zero means both new commands acknowledged and TCS idle; it does
+ * not mean PMIC observer validation or a ready touch controller. No mode vote.
+ * ENXIO: mapping/resource/capacity unavailable; EINVAL: corrupt/unknown data;
+ * EBUSY: occupied/conflicting lease; ETIMEDOUT: transition/completion timeout;
+ * EIO: failed transaction remains quarantined. Never clears unknown in-flight work.
+ */
+int pong_touch_iovdd_enable(void);
 /* CPU serialization only: actual gfx/mx/cx aux corners and SH0/MC0/ACV/CN0
  * addresses/aux are required. Rounded primary voltage determines the secondary
  * dependency, and every Pong GPU level gets its actual CX vote. Average DDR

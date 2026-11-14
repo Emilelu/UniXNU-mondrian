@@ -3,7 +3,7 @@
 > 本文件收纳 README 里的详细状态表与阶段性变更摘要。
 > README 只保留设备身份、八步进度、仓库结构与构建入口。
 
-本轮更新时间：2026-11-12
+本轮更新时间：2026-11-14
 
 ---
 
@@ -12,13 +12,20 @@
 > 写死的 SHA 第二天就过时。查最新状态用 `scripts/track-upstream-branches.py`。
 
 
-### 可刷镜像（2026-11-12 08:29）
+### 可刷镜像（2026-11-14 15:09，真机验证）
 
 ```
-/mnt/e/k60-work/usb-a-stage/out/boot-r49-audio-dt.img
-202,362,880 B
-sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
+/mnt/e/k60-work/artifacts/touch-20261114a/boot.img
+201,887,744 B
+sha256 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9
+kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 ```
+
+这一版同时带 GPU addon（Metal 插件 51,278,451 B）、iOS `buttons` 节点与
+触摸坐标使能。上机日志 `E:\k60-work\evidence\usblog-20261114-150931\console.log`：
+3,870 行、SpringBoard 254、八条真实触点、四条 HID 派发、无 panic 标记。
+`MAIN-BASELINE.toml` 记在 `0143b46` 条目下；此后到 `143f3ff` 只改文档、
+门禁与测试脚本，内核输入逐字节不变。
 
 包含当天全部改动：
 
@@ -28,7 +35,7 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 | 触摸 SPI 模式选择 | `SPI mode select failed` |
 | 触摸 config 请求检测 | `chip requested a config` |
 | 触摸 config 下载 | `CFG-DL wrote=N/1488 bad=0` |
-| 触摸坐标模式切换 | `COORD-MODE ack=80` |
+| 触摸坐标使能 | `RAW-OFF ack=80` 后必须出现 `COORD-ON ack=80` |
 | 实体键逐条件诊断 | `Pong keys: missing <prop>` |
 | GPU 八条发布诊断 | `accelerator not published` / `publish skipped` |
 | UFS 三模式等待 | `native-ufs-wait` |
@@ -36,8 +43,9 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 | GPU Metal 开关 | `pong_metal=1` |
 | 音频 DT 节点 | `pong-audio`（九个待实测项写 0）|
 
-内核 sha256 `c447cefa419a6f6d`，payload 内核 `6dbcc4dc59a484cb`（payload 步骤
-额外打 AppleARMCPU 补丁），212 个补丁。
+> 上面这张表是 2026-11-12 那一版的判据。当前（2026-11-14）镜像为
+> `touch-20261114a`，内核 `c78a5cc9…`，223 个补丁，判据以
+> [`docs/research/touch/08-on-device.md`](../research/touch/08-on-device.md) 第 7 轮为准。
 
 **此前的最新镜像是 `boot-v15-20261108.img`（2026-11-11），不含以上任何一项。**
 
@@ -52,7 +60,7 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 | 锁屏 / SpringBoard | ✅ | `Pong UI: 20G81 compatibility library entered SpringBoard` |
 | launchd 稳定 | ✅ | `0394` 精选缓存（22 个核心 job）已并入 `0391`，写 `/private/var/pong/xpc/launchd.plist` |
 | 实体键（电源/音量） | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `_pong_buttons_init`），`configuration()` 结果不可观测 |
-| 触摸 | 🔄 | 见下方「触摸」专节 |
+| 触摸 | ✅ | 单指已真机验证，见下方「触摸」专节 |
 | GPU（Adreno 730v3） | 🔄 | 见下方「GPU」专节 |
 | WiFi / 蓝牙 / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
 
@@ -61,13 +69,23 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 - **协议**：BRL。`0x10000` 稳定读出 `BERLIN 9916R 05.80.02.63`；GTP 寄存器
   `0x8140` / `0x8047` / `0x804E` / `0x814E` 全部返回 0（2026-11-11 实测，
   见 P-129）。
-- **当前卡点**：SPI 全通、config `state=80`、芯片有中断与原始帧，
-  但触点计数恒为 0。
+- **2026-11-14 结论：单指触摸已通过真机验证。** 镜像 `touch-20261114a`
+  （`boot.img` `0b2003f4…`、内核 `c78a5cc9…`）启动后 `goodix: COORD-ON ack=80`，
+  随后八条 `goodix: type=1 finger=0 raw=… normalized=…` 与四条
+  `Pong touch HID: type=1|3` 派发；日志 268,137 B / SpringBoard 254 行 /
+  无 panic 标记，用户在场确认屏幕响应。证据
+  `E:\k60-work\evidence\usblog-20261114-150931\console.log`，记录见
+  [`docs/research/touch/08-on-device.md`](../research/touch/08-on-device.md) 第 7 轮。
+- **真因**：旧代码只发 `0x90/0x00`（关 raw 帧），从未发本机 Android
+  `goodix_htc_enable(false)` 的第二条 `0x91/0x01`（坐标上报使能）；且配置完成
+  只看 `ack[1]`、不等 `reply[0] == 0x80`，没写完的配置看起来已完成。
+- **尚未验收**：两点同时按下的触点 ID 稳定性与独立 release、屏幕边缘手势、
+  手指移动时的持续帧率、息屏 `tap-to-wake`；`0x10308` 头长度取自 `misc+48`
+  仍是推断（保留模块只证明 `misc+44` 与 `misc+50`）。
 - **2026-11-12 变更**：触摸驱动整体换成 yibiya `fix/touch-gpu-bringup`
   分支的干净实现（47,040 B / 1,039 行，替换原有的 239,781 B / 5,452 行
   诊断版）。新实现使用真实触摸坐标范围 `14400×32000`、显式
   `bitbang-pins` 角色元组、`k60_touch_se=5 k60_touch_rcg=1`。
-- **未验证**：⑧ 上机。
 
 ### GPU
 

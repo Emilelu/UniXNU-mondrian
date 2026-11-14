@@ -19,6 +19,12 @@ CONFIG_XNU_NATIVE_CS_HASH_CACHE=y
 CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
 CONFIG_XNU_NATIVE_OFFLINE_GPU=n
+# The Adreno Metal bundle has to appear under /System/Library/Extensions, which
+# is a sealed read-only volume on this board; zzy-native-gpu-addon-mount unions
+# /private/var/ngpu/addons over it at boot. The gate used to be
+# XNU_NATIVE_OFFLINE_GPU, which forces NATIVE_VIRTIO_CONSOLE and publishes an
+# unrelated offline GPU broker; it is now its own switch (yibiya 8cdfcffa).
+CONFIG_XNU_GPU_ADDON=y
 CONFIG_XNU_NATIVE_PAN=y
 # The UFS Data window replaces the memory-backed scratch disk: the build
 # refuses DATA_UFS together with NativeRamBlock, and mounting APFS on the
@@ -69,4 +75,4 @@ CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=n
 # archive recipes that profiles/arch/arm64/configs/common.config enables.
 CONFIG_XNU_BUILD_ARCHIVES=y
 # K60 PMIC-GLINK battery: registers only after an authenticated PAS1 lease
-# CONFIG_XNU_K60_PHYSICAL_BATTERY is not set
+CONFIG_XNU_K60_PHYSICAL_BATTERY=y

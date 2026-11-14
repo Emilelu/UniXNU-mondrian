@@ -393,7 +393,7 @@ evidence = "离线深挖三条结论。一，DT 节点已建（2026-11-12）：d
 done = true
 local_verified = true
 static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
-unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 330 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire 读事务/枚举位图/LPI pad/窗口预算决策 + PongCodecSwr.c 的读事务状态机 65 例，见 docs/research/audio/AMPS.md §6.1）"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 371 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire 读事务/枚举位图/LPI pad/窗口预算决策 + PongCodecSwr.c 的初始化序列与读事务状态机，见 docs/research/audio/AMPS.md §6.1）"
 artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:119-120、bsd_init.c:1357-1358（117-118 是 0505 的 aw882xx/pong_audio），五个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
 evidence = "本子任务只核验了 AP 侧只读探针（功放 chip id / 引脚回读 / GENI 引擎）；codec 与播放通路的核验要等 ADSP PAS1，见 AMPS.md §7。"
 

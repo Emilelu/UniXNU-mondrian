@@ -299,6 +299,56 @@ $ llvm-objdump -d --start-address=0x22ac --stop-address=0x22c8 qti_battery_charg
     22c4: strb w8, [x19, #0x30f]         ; 只有 ==1 才置位
 ```
 
+### 3.6 属性域：wire `prop_id` 是「map 下标」，不是 map 里的值
+
+probe 在 `0x7c4`–`0x83c` 为四个域各建一条 5 字段记录：
+
+| 域 | map 指针（只读） | 运行时副本 | 条目数 | GET | SET |
+|---|---|---|---|---|---|
+| battery | `bcdev+0x150` ← `.rodata+0x2d68` | `+0x158` | `+0x160` = 25 | `+0x164` = `0x30` | `+0x168` = `0x31` |
+| usb | `bcdev+0x188` ← `.rodata+0x2dcc` | `+0x190` | `+0x198` = 13 | `+0x19c` = `0x32` | `+0x1a0` = `0x33` |
+| wireless | `bcdev+0x1c0` ← `.rodata+0x2e00` | `+0x1c8` | `+0x1d0` = 7 | `+0x1d4` = `0x34` | `+0x1d8` = `0x35` |
+| xiaomi | `bcdev+0x1f8` ← `.rodata+0x2e1c` | `+0x200` | `+0x208` = 187 | `+0x20c` = `0x50` | `+0x210` = `0x51` |
+
+`battery_psy_get_prop`（`0x32a8`）先拿 psy 属性枚举在 map 里**线性搜索**，命中后用**下标**当 `prop_id` 发请求：
+
+```
+$ llvm-objdump -dr --start-address=0x32e4 --stop-address=0x3374 qti_battery_charger_main_m81.ko
+    32e4: ldr  w8, [x0, #0x160]        ; 条目数（battery = 25）
+    32fc: ldr  x9, [x20, #0x150]       ; map 指针
+    3304: ldr  w10, [x9, x22, lsl #2]  ; map[i]
+    3308: cmp  w10, w21                ; == 调用方给的 psy 属性？
+    330c: b.eq 0x3344                  ; 命中，i 即下标
+    3318: b.ne 0x3304                  ; 继续扫
+    3344: tbnz w22, #0x1f, 0x33a8
+    3348: mov  x8, #0x800a
+    334c: movk x8, #0x1, lsl #32       ; {owner=0x800a, type=1}
+    3350: stp  wzr, w22, [sp, #0xc]    ; +0xc = 0，+0x10 = 下标
+    335c: ldr  w8, [x20, #0x164]       ; GET opcode
+    3364: mov  w2, #0x18               ; 24 B
+    336c: str  w8, [sp, #0x8]          ; +0x8 = opcode
+    3370: bl   battery_chg_write
+```
+
+回包侧对称：`+0xc` 当下标做边界检查、`+0x10` 当值写进 `*_prop_cache`（`0x23a4`–`0x23bc`）：
+
+```
+    23a4: ldr  w8, [x20, #0xc]         ; prop_id = 下标
+    23a8: ldr  w9, [x19, #0x198]       ; 该域条目数
+    23ac: cmp  w8, w9
+    23b0: b.hs 0x2470                  ; 越界丢弃
+    23b4: ldr  w9, [x20, #0x10]        ; value
+    23b8: ldr  x10, [x19, #0x190]      ; 运行时副本
+```
+
+结论：
+
+1. **wire `prop_id` = 该域 map 数组的下标**（`0..count-1`）；map 里的值才是 `enum power_supply_property`。
+2. 服务端回 `0x30`/`0x32`/`0x34` 时，`+0xc` 必须**原样回显请求里的下标**；`.ko` 用它做边界检查后写
+   `bcdev+0x158/0x190/0x1c8/0x200[下标]`。
+3. map 里的枚举值是**小米扩展过的 `power_supply.h`** 排序，不是上游 `sm8350_*_prop_map` 的取值
+   （例如 battery `map[4] = 0x2e`、`map[13] = 0x33`，上游枚举没有这些下标）。要把「下标 → 属性名」
+   钉死，需要小米内核的 `power_supply.h`，本仓没有——这是 `04-PROP-MAP.md` 的取证边界。
 ---
 
 ## 4. 三方对照

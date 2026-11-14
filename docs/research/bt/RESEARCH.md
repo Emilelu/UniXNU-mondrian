@@ -224,7 +224,8 @@ S1a 之后读到的**反面证据**：`E:/k60-work/evidence/usblog-20261114-touc
 
 S3 照 sheng `BluetoothProbe.cpp:222-264` 的做法补齐（同一域 `unixnu-bluetooth`、同一 FNV-1a 常量、同一 `(addr[0] & 0xfe) | 2` 本地管理位），并照本树 `publishDisplayNode()`（`…-pong-hackios-ui-foundation.patch:3330-3365`）的写法把节点挂到 `/arm-io`。挂在 `native_pong_ui_services_start()` 里是因为 `bsd_init.c` 的 `bsd_autoconf()` 中它比 `k60_usblog_start()`/`qbt_k60_start()` 更早，而 bluetoothd 要再晚约 850 行控制台（`console.log:995`）。
 
-**当前仍缺平台种子**：`board.toml:218` 只有 `chip_id = "8015"`，没有 `unique_chip_id`，构建出的 `hardware.dtb` 里没有 `/chosen/unique-chip-id`，所以现在上机只会打印 `K60 BT: no platform identity (-2); bluetooth not published`（fail closed，行为与今天一致）。补种子的两条路写在 `S3-SPEC.md` §4。
+**平台种子在 `bt-s3-20261114a` 里已解决，但走的是环境变量路线**：`board.toml:218` 仍只有 `chip_id = "8015"`，没有 `unique_chip_id`；构建时带 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001`（与 `scripts/adt-generate.py:22` 同一个种子），实测 ADT 里 `/chosen/unique-chip-id = 010000005430364b`（小端 0x4B36305400000001）、`chip-id = 15800000`（0x8015）。所以这版镜像上机应打印 `K60 BT: published local address 02:…`。把种子固化进 `board.toml` 或给 `build-strict.sh` 加 `--unique-chip-id` 转发仍是 Lead 待办；种子定下后不要改，否则 MAC 变化、配对作废。详见 `S3-SPEC.md` §4/§4.1。
+**ADT 里仍没有 `/arm-io/bluetooth` 节点**（实测 `/arm-io` 子节点只有 intc / pong-audio / pong-buttons / pong-touch / ufshc），节点是补丁在 IORegistry 里建的；要让 DT 二进制里也有，按 `S3-SPEC.md` §4 第 3 条加 `[adt.arm-io.bluetooth.*]`。
 
 ---
 
@@ -312,7 +313,7 @@ required = [
    - 按铁则 8 报备：这两条是**基线门禁问题**，不要为了让门禁变绿去改判定；`research-gate.py`（32 项）与 `check-docs.py`（187 项）在 `f119a80` 上均已通过。
 9. **S1 探针已过 ⑦ 本地静态检查**：补丁 `patches/bt/0001-k60-bt-readonly-probe.patch` sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1`（13,001 B / 280 行 / 2 hunk，36 个打点、9 个子步）；对 0500 抽出的完整树执行 `git apply --check` 通过，再用 out3 构建记录的 `.CFLAGS` 跑 `clang -target arm64-apple-ios16.0 -fsyntax-only` **0 error**。细节与日志路径见 `S1-PROBE-SPEC.md` §8。
 10. **⑥ 深挖的 F1/F3/F11/F12 已在离线状态修完**（2026-11-14，`patches/xnu/0508`，见 `S2-SPEC.md`）：SMMU 流 0x483 的 bypass planner + `kmem_alloc_contig`/`pmap_find_phys` 落在 `qbt_k60.c` 内（选项 b，不动 `bsd/conf/files`）；`k60_gcc_set_se_rate()` 补 `CMD_ROOT_EN`/`ROOT_OFF` 并返回 halt 轮询；`k60_stop_engine()` 改用 0xc40/0xd40 的 `RESET_DONE`。⑦ 记录：`git apply --check` 通过、`clang -fsyntax-only` 0 error。
-12. **S3 身份与发布已接入构建**（2026-11-14，`patches/xnu/0509` + `series:207`，见 `S3-SPEC.md`）：`bsd/dev/qbt_k60.c` 的弱 `k60_bt_local_address()` 变强（`/chosen/unique-chip-id` → FNV-1a → 本地管理 MAC），新增 `iokit/Kernel/MiniBluetooth.cpp` 发布 `/arm-io/bluetooth` 节点与 `bluetooth` IOService，整条路径 `k60bt=1` 门控。⑦ 记录：干净树 `git apply --check` OK；`clang -fsyntax-only` 两个文件均 0 error。**需要 Lead 在 `board.toml` 给 `unique_chip_id`（或构建时设 `UNIXNU_UNIQUE_CHIP_ID`），否则只会打印 `no platform identity`**；`transport-speed` 暂照 sheng 写 3200000，S5 实测 `ctl_register … speed=` 后按真值改一行。
+12. **S3 身份与发布已接入构建**（2026-11-14，`patches/xnu/0509` + `series:207`，见 `S3-SPEC.md`）：`bsd/dev/qbt_k60.c` 的弱 `k60_bt_local_address()` 变强（`/chosen/unique-chip-id` → FNV-1a → 本地管理 MAC），新增 `iokit/Kernel/MiniBluetooth.cpp` 发布 `/arm-io/bluetooth` 节点与 `bluetooth` IOService，整条路径 `k60bt=1` 门控。⑦ 记录：干净树 `git apply --check` OK；`clang -fsyntax-only` 两个文件均 0 error。**种子已在 `bt-s3-20261114a` 里用 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 解决**（ADT 实测 `unique-chip-id=0x4B36305400000001`、`chip-id=0x8015`），把种子固化进 `board.toml`/给 `build-strict.sh` 加转发仍是 Lead 待办；`transport-speed` 暂照 sheng 写 3200000，S5 实测 `ctl_register … speed=` 后按真值改一行。镜像：`bt-s3-20261114a` boot.img sha256 `4b865f94…5c14`，kernel `e3965c37…2ed5`，`verify-boot-image: OK`，`MiniBluetooth.cpo` 已编译进内核且 kernel.macho 里能 `strings` 到三条 `K60 BT:` 新串。
 11. **⑥ 深挖已完成，结论是「S1 必须先跑，且 S1 扩大了」**：逐行评审见 `docs/research/bt/06-DEEP-DIVE.md`。2026-11-14 又用离线证据关掉两条：**F2 已解除**（`0x80000001` 不是自创值，官方 sheng 后端 `UniXNU-sheng/package/BluetoothProbe.cpp:202` 写的就是它，按 Linux `qcom_geni_serial.c:64-66` 的位定义解出来是「手动 RFR + RTS ready」，正是门控时钟下想要的状态）；**F1 的修法已定**（复用本树 `bsd/dev/k60_usblog.c` 里已在 K60 上跑通的 `smmu_plan`/`smmu_configure` + `kmem_alloc_contig`/`pmap_find_phys` 模式，把 stream 换成 FDT 的 `0x483`；助手是 `static`，所以在 `patches/bt/` 内复制一份即可，不动 `bsd/conf/files`）。F3 与 F11 随后也按源码证据直接修进 `0508`（不再等设备读数），S1c 的 `rsvd_e40` 与 s5/s6/s7 三档现在用来回答「S1a 到底死在哪一步」，而不是「要不要修」。
 
 ---
@@ -342,7 +343,8 @@ ls -l /mnt/e/k60-work/firmware/qca6490/
 - 软件栈有**官方组件 + 已 staged 的内核补丁**，本线的工作不是从零写驱动，而是「分级验证 + 固件 + 用户态」。
 - 最大风险不在蓝牙本身，而在 **QUPV3_2 的首次 GENI 访问**（与触摸/音频同一类死机）。因此 S1 必须先做、必须能一读就退。
 - 下一步（本线）：**S1c 只读探针已接入构建**（`patches/xnu/0507` + `series:205`，9 子步 / 36 打点），**S2 前置修复也已接入**（`patches/xnu/0508` + `series:206`，修 F1/F11/F3/F12，见 `S2-SPEC.md`），**S3 身份与发布也已接入**（`patches/xnu/0509` + `series:207`，见 `S3-SPEC.md`），等一次物理断电复位后的五档上机；判据看「最后一行 `probe: sX`」（§5.4 记录 S1a 的 0 字节日志，§5.5 记录触摸线反证与 RCG 假设，§5.6 记录 S3 的三处缺失）。
-- 阻塞项不在代码：S3 的 MAC 需要 `board.toml` 里的 `unique_chip_id`（Lead 写权限），`transport-speed` 的 3200000/3000000 之争要等 S5 实测。
+- 阻塞项不在代码：S3 的 MAC 需要平台种子（`bt-s3-20261114a` 已用 `UNIXNU_UNIQUE_CHIP_ID` 绕过，固化到 `board.toml` 是 Lead 待办），`transport-speed` 的 3200000/3000000 之争要等 S5 实测。
+- 门禁现状（2026-11-14 08:38）：`check-rules.py` 69 条全绿（0 失败 / 37 waiver）。关键教训：**`iron-4` 与 `hard-33` 会因为 `/mnt/e/k60-work/scratch/SERIES-FINAL.txt` 过期而变红**——它由 `sync-device-input.py` 在**非 `--check`** 模式下重写（`sync-device-input.py:133-140`），所以每轮提交后必须跑一次真同步（`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`），而不是只跑 `--check`。
 
 ## 12. 证据来源清单（SOURCES 口径）
 

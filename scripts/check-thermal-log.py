@@ -16,6 +16,8 @@ Exit code 0 only when every required criterion of the selected profile passes.
 An advisory criterion prints a warning and never changes the exit code.
 """
 import argparse
+import json
+import os
 import re
 import sys
 import tomllib
@@ -122,7 +124,27 @@ CHECKS = {"count": check_count, "each": check_each,
           "coverage": check_coverage, "pair": check_pair}
 
 
-def print_ladder_hint(document, lines, failures):
+def image_of(log_path):
+    """The image name and digest recorded beside a captured log, if any.
+
+    record-boot writes boot.json next to console.log with the path it booted;
+    the file starts with a BOM because PowerShell wrote it, so decode as
+    utf-8-sig. The tag is the artifact directory name, which is what the
+    ladder hint needs: thermal-20261115a and later carry the zone ladder.
+    """
+    boot = os.path.join(os.path.dirname(os.path.abspath(log_path)), "boot.json")
+    try:
+        with open(boot, "rb") as handle:
+            document = json.loads(handle.read().decode("utf-8-sig", "replace"))
+    except (OSError, ValueError):
+        return None
+    image = str(document.get("image") or document.get("tag") or "?")
+    tag = os.path.basename(os.path.dirname(image.replace(chr(92), "/"))) or image
+    digest = str(document.get("imageSha256") or document.get("kernel_sha256") or "?")
+    return tag, image, digest[:16]
+
+
+def print_ladder_hint(document, lines, failures, log_path=None):
     """Distinguish a broken ladder from a kernel that has no ladder yet."""
     if not failures:
         return
@@ -136,11 +158,18 @@ def print_ladder_hint(document, lines, failures):
             return
         print("       note: no \"level N/3\" line at all. Every kernel before thermal-20261115a")
         print("       prints only the publisher line, so these criteria are not applicable.")
-        print("       Check boot.json for the image tag before reading this as a defect.")
+        image = image_of(log_path) if log_path else None
+        if image is not None:
+            tag, path, digest = image
+            print("       this log came from image %s (%s, boot.img sha256 %s...)" % (tag, path, digest))
+            print("       confirm the tag first: a ladder kernel is thermal-20261115a or later.")
+        else:
+            print("       no boot.json beside the log; check the image tag before reading this")
+            print("       as a defect.")
         return
 
 
-def evaluate(document, lines, profile, verbose=True):
+def evaluate(document, lines, profile, verbose=True, log_path=None):
     failures = []
     advisories = []
     passed = 0
@@ -171,7 +200,7 @@ def evaluate(document, lines, profile, verbose=True):
     if verbose:
         for criterion, _ in failures + advisories:
             print("       %s: %s" % (criterion["title"], criterion.get("why", "")))
-        print_ladder_hint(document, lines, failures)
+        print_ladder_hint(document, lines, failures, log_path)
         print("  %d passed, %d failed, %d advisory, %d outside profile %r" % (passed, len(failures), len(advisories), skipped, profile))
     return failures, advisories
 
@@ -246,6 +275,11 @@ def self_test():
     lines = fabricate("cold")
     lines[-1] = "PongThermal: level nominal (0) published as Thermal_Level_Warning=9"
     expect("published value out of range", lines, "cold", False)
+    # The publisher dedupes on the level (pong_thermal_pm.cpp:87-89), so a second
+    # line at the same level means the dedupe broke, not that a sample was lost.
+    lines = fabricate("cold")
+    lines.append(lines[-1])
+    expect("the same level published twice", lines, "cold", False)
     lines = fabricate("cold")
     lines[-1] = "PongThermal: level nominal (1) published as Thermal_Level_Warning=1"
     expect("name and value disagree", lines, "cold", False)
@@ -300,7 +334,8 @@ def main():
         return 2
     if not args.quiet:
         print("thermal criteria: %s (%d lines, profile %s)" % (path, len(lines), profile))
-    failures, advisories = evaluate(document, lines, profile, verbose=not args.quiet)
+    failures, advisories = evaluate(document, lines, profile, verbose=not args.quiet,
+                                     log_path=path)
     if failures:
         print("FAILED: %d required criterion/criteria failed (profile %s)" % (len(failures), profile))
         return 1

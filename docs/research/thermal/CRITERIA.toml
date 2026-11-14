@@ -126,7 +126,8 @@ severity = "required"
 kind = "count"
 pattern = '^PongThermal: level (?:nominal|moderate|heavy|trapping) \([0-3]\) published as Thermal_Level_Warning=[0-3]$'
 min = 1
-why = "pong_thermal_pm.cpp:112，只在等级变化时打（:87-89 去重）。没有它有两种可能：等级全程没变而第一轮 getPMRootDomain() 还是 NULL（root domain 在 IOKitBSDInit 之后才存在，08 篇 §7.4 第 1 条），或发布路径报错。先看有没有 level 行 —— 有 level 无 published 就是发布层没跑。"
+max = 1
+why = "pong_thermal_pm.cpp:112，只在等级变化时打（:87-89：pong_thermal_pm_have_last && level == last 就 return）。同等级只发一次是设计，不是丢行 —— 所以 min=1 证明发布层跑过，max=1 证明去重生效。冷机全程 0 档，恰好只该有一条。少一条：等级全程没变而第一轮 getPMRootDomain() 还是 NULL（root domain 在 IOKitBSDInit 之后才存在，08 篇 §7.4 第 1 条），或发布路径报错；先看有没有 level 行，有 level 无 published 就是发布层没跑。多一条：先去对照 level 行是否真的变了 —— bias 档中途真跨档时会合法地多出一条，那是信息不是误报；等级没变却发了两条，才是去重坏了（last_level/have_last 没记住）。"
 
 [[criterion]]
 id = "published.consistent"

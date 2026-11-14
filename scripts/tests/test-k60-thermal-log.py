@@ -73,6 +73,13 @@ def main():
         if criterion.get("kind", "count") == "count":
             check("min" in criterion or "max" in criterion, "%s: count needs min or max" % name)
 
+    published = [criterion for criterion in criteria if criterion.get("id") == "published.line"]
+    check(len(published) == 1, "published.line must exist exactly once")
+    if published:
+        check(published[0].get("min") == 1 and published[0].get("max") == 1,
+              "published.line must be min = 1 and max = 1: the publisher dedupes on the level,"
+              " so a cold boot produces exactly one line")
+
     result = subprocess.run([sys.executable, str(READER), "--self-test"],
                             capture_output=True, text=True)
     check(result.returncode == 0,

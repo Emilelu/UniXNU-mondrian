@@ -155,6 +155,8 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
 | 等级阶梯单测 | 同法 `test-k60-thermal-zones.c` | `TESTS OK 478` |
 | 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (14 checks)` |
 | 补丁可应用性 | 在已打完 229 个补丁的树上 `git apply --check` | `APPLY_CHECK_OK` |
+| 上机判据可机读 | `python3 scripts/check-thermal-log.py --self-test` | `self-test OK`（干净日志过、每处改动挂） |
+| 判据对真机日志 | `python3 scripts/check-thermal-log.py --log /mnt/e/k60-work/evidence/usblog-20261115-003922/console.log` | 17 过 / 4 挂，挂的正是 `level.line` 等只适用于 `thermal-20261115a` 之后的判据（该镜像还没有阶梯），脚本自己打出这条 note |
 
 `check-thermal-kernel-patch.py` 做 14 项：从 patch 重建七个新文件并与 `drivers/PongThermal/`
 母本逐字节比对；series 登记且为最后一行；`conf/files` 四条登记（含 `.cpp` 保留扩展名）；
@@ -180,8 +182,16 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `PongThermal: tsens0 tm=0xc263000 srot=0xc222000 ver=2.8.0 ctrl=0x9d67fff9 enabled=1`（行 215）
    与 `tsens1 …`（行 225）、31 行传感器读数（40–43℃）、208 行五域温度行（随负载从 41–45℃ 升到 56℃），
    以及 1 行 `PongThermal: level nominal (0) published as Thermal_Level_Warning=0`（行 340）。
-   两个缺口要下一轮复核：`tsens0[3] cpuss-2 zone27` 这一行在 console 里没有单独出现
-   （`grep -a cpuss-2` 零命中，可能是该路无有效读数、也可能是串口吞行）；
+   `tsens0[3] cpuss-2 zone27` 这一行没有出现，**已查清是控制台丢行，不是传感器故障**：
+   对该 console.log 逐字节搜索，`cpuss-2`、`tsens0[3]`、`zone27` 三个串的计数都是 0，
+   既不是行被截断，也没有 `no-valid-reading` 行（那一串全文同样零命中）；原始字节里
+   `tsens0[2] cpuss-1 zone26 42.2 C\n` 之后直接跟着 `Pong keys: PMIC windows mapped, …\n`
+   （`pong_buttons.c` 的线程），再是 `tsens0[4] cpuss-3 zone28 41.0 C` —— 也就是
+   `pong_thermal_init` 的 dump 序列与 `pong_buttons_init` 起的线程并发，
+   `osfmk/console/serial_console.c:598` 的 `console_write_unbuffered` 不保证整行原子性，
+   两行交错时丢的是整行。判据因此按「31 或 32 行」写（`CRITERIA.toml` 的 `sensor.lines`），
+   丢哪一路由 `sensor.coverage` 报出来；下一轮若要确认，同时 grep `tsens0\[3\]` 与
+   `no-valid-reading` 两个模式即可分清「丢行」与「无读数」；
    现场离最低档 90℃ 还差 34℃，所以 level 全程 nominal —— 这正是 `LEVEL-MAP.md` §5 要用
    `pong_thermal_bias` 验证 1/2/3 三档的理由。
 3. ~~**没有压力等级**~~ **已有发布层，且已进内核**：三档压力等级经 `IOPMrootDomain::systemPowerEventOccurred`

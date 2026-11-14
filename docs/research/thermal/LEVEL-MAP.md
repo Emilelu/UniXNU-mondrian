@@ -131,6 +131,19 @@ PongThermal: level 0/3 nominal (domains 0/3); closest ddr 45.0 C, 45.0 C below t
 
 ### 5.3 判据表
 
+人眼版（下表）；同一批判据的可机读版本在 `docs/research/thermal/CRITERIA.toml`（34 条），
+由 `scripts/check-thermal-log.py` 施加到日志上，不用再逐行对着看：
+
+```sh
+python3 scripts/check-thermal-log.py                      # 取最新的 usblog-*/console.log
+python3 scripts/check-thermal-log.py --log <console.log>   # 指定一份
+python3 scripts/check-thermal-log.py --profile cold        # 强制 profile（默认从 bias 行推断）
+python3 scripts/check-thermal-log.py --self-test           # 自测：干净的日志必须过、每一处改动必须挂
+```
+
+退出码 0 只在所选 profile 的 required 判据全过时给出；advisory 只打印不改变退出码。
+每条判据 = 正则 + 期望 + 失败解释（`why` 字段就是下表「先查哪里」那一列）。
+
 | 现象 | 判定 |
 | --- | --- |
 | `level 1/2/3` 与 `published as …=1/2/3` 同时出现 | 阶梯与发布层都正确 |
@@ -138,6 +151,7 @@ PongThermal: level 0/3 nominal (domains 0/3); closest ddr 45.0 C, 45.0 C below t
 | 全程 `level 0/3` 但 `closest` 有读数 | 阶梯在跑，只是没到档（冷机正常） |
 | 没有 `closest` 行 | 32 路全部无读数 —— 异常，先查控制器行与传感器行 |
 | `bias` 行不出现 | boot-arg 没传进去（检查拼写与 boot-args 长度预算） |
+| 32 路里少 1 路 | 控制台并发丢行，不是传感器故障（`08-KERNEL-DRIVER.md` §5 第 2 条已查实 cpuss-2 那一路） |
 
 ### 5.4 不要做的
 
@@ -194,6 +208,10 @@ cc -std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongThermal \
    scripts/tests/test-k60-thermal-zones.c -o build/thermal/test-zones && build/thermal/test-zones
 # 补丁与母本一致性（14 项，含 zone 表检查）
 python3 scripts/check-thermal-kernel-patch.py
+# 判据表本身能不能失败（干净日志必须过、每处改动必须挂）
+python3 scripts/check-thermal-log.py --self-test
+# 把判据施加到一份真实日志上
+python3 scripts/check-thermal-log.py --log /mnt/e/k60-work/evidence/usblog-20261115-003922/console.log
 ```
 
 ## 8 与其它文档的关系

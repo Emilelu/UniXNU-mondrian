@@ -18,5 +18,6 @@ cc=${CC:-cc}
 "$cc" -std=gnu11 -Wall -Wextra -Werror -I"$driver" \
 	-o "$out" \
 	"$here/test-pong-audio-geni-i2c.c" \
-	"$driver/PongAudioGeniI2c.c"
+	"$driver/PongAudioGeniI2c.c" \
+	"$driver/PongCodecSwr.c"
 exec "$out"

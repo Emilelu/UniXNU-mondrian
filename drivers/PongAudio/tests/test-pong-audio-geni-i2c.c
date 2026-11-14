@@ -30,6 +30,7 @@
 #include "PongAudioPlan.h"
 #include "PongAudioRegs.h"
 #include "PongCodecPlan.h"
+#include "PongCodecSwr.h"
 
 static int fails;
 static int cases;
@@ -713,6 +714,171 @@ codec_cases(void)
 	expect(used > 0u, "the windows add up to something");
 }
 
+/* ---- fake SoundWire master ---------------------------------------------- */
+
+typedef struct {
+	uint32_t regs[0x2000];
+	uint32_t writes, last_write_reg, last_write_value;
+} FakeSwr;
+
+static uint32_t
+fake_swr_read(void *ctx, uint32_t reg)
+{
+	FakeSwr *f = (FakeSwr *)ctx;
+
+	return f->regs[reg & 0x1fffu];
+}
+
+static void
+fake_swr_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeSwr *f = (FakeSwr *)ctx;
+
+	f->regs[reg & 0x1fffu] = value;
+	f->writes++;
+	f->last_write_reg = reg;
+	f->last_write_value = value;
+}
+
+static void
+swr_cases(void)
+{
+	FakeSwr f;
+	PongSwrIo io;
+	PongSwr s;
+	unsigned i;
+
+	io.read = fake_swr_read;
+	io.write = fake_swr_write;
+	io.ctx = &f;
+
+	/* v1.7: the expected K60 controller (W:2.1's interrupt pair matches it). */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	expect_eq((unsigned long)pong_swr_probe(&s, &io), 0ul, "probe accepts v1.7");
+	expect_eq((unsigned long)s.version, (unsigned long)PongSwrV17, "version is v1.7");
+	expect_eq(s.regs.read_command, 0x320u, "v1.7 read command register");
+	expect_eq(s.regs.fifo_status, 0x328u, "v1.7 fifo status register");
+	expect_eq(s.regs.read_fifo, 0x334u, "v1.7 read fifo register");
+	expect_eq(s.state, (unsigned long)PongSwrIdle, "probe leaves the machine idle");
+	expect(!pong_swr_busy(&s), "nothing outstanding after probe");
+
+	/* v2 keeps the mainline defaults. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x02010000u;
+	expect_eq((unsigned long)pong_swr_probe(&s, &io), 0ul, "probe accepts v2");
+	expect_eq(s.regs.read_command, 0x5024u, "v2 read command register");
+	expect_eq(s.regs.fifo_status, 0x5050u, "v2 fifo status register");
+	expect_eq(s.regs.read_fifo, 0x5040u, "v2 read fifo register");
+
+	/* An unknown controller stops the codec half; it must not guess a group. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x03000000u;
+	expect_eq((unsigned long)pong_swr_probe(&s, &io), (unsigned long)-1,
+	    "probe refuses an unknown controller");
+	expect_eq(s.error, (unsigned long)PongSwrErrVersion, "unknown version is named");
+	expect_eq(f.writes, 0ul, "an unknown controller is not written to");
+
+	/* FIFO full: nothing is written, so no orphan command can be left behind. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	(void)pong_swr_probe(&s, &io);
+	f.regs[s.regs.fifo_status] = 8u << 8;
+	f.writes = 0;
+	expect_eq((unsigned long)pong_swr_read_start(&s, 1u, 0x3000u), (unsigned long)-1,
+	    "a full command FIFO refuses the read");
+	expect_eq(s.error, (unsigned long)PongSwrErrFifo, "the refusal is named");
+	expect_eq(f.writes, 0ul, "a refused read writes no command");
+	expect_eq(s.state, (unsigned long)PongSwrIdle, "a refused read leaves it idle");
+
+	/* The happy path: command word, transaction id, response collection. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	(void)pong_swr_probe(&s, &io);
+	f.writes = 0;
+	expect_eq((unsigned long)pong_swr_read_start(&s, 1u, 0x3000u), 0ul,
+	    "a read starts");
+	expect_eq(s.txn, 1ul, "the first transaction id is 1");
+	expect_eq(f.last_write_reg, 0x320u, "the command goes to the read command register");
+	expect_eq(f.last_write_value, (1ul << 24) | (1ul << 20) | (1ul << 16) | 0x3000ul,
+	    "the command word carries opcode, device, id and register");
+	expect(pong_swr_busy(&s), "the machine is busy while awaiting a response");
+
+	expect_eq((unsigned long)pong_swr_read_start(&s, 1u, 0x3000u), (unsigned long)-1,
+	    "a second read is refused while one is outstanding");
+	expect_eq(s.error, (unsigned long)PongSwrErrBusy, "the refusal is named busy");
+
+	/* No response yet: bits 20:16 of the fifo status are zero. */
+	expect_eq((unsigned long)pong_swr_read_poll(&s), (unsigned long)PongSwrPending,
+	    "an empty response queue is pending, not failed");
+
+	/* The response carries our transaction id in bits 11:8. */
+	f.regs[s.regs.fifo_status] = 1u << 16;
+	f.regs[s.regs.read_fifo] = (1u << 8) | 0x5au;
+	expect_eq((unsigned long)pong_swr_read_poll(&s), (unsigned long)PongSwrDone,
+	    "a matching response completes the read");
+	expect_eq(s.data, 0x5aul, "the data byte is taken from bits 7:0");
+	expect_eq(s.state, (unsigned long)PongSwrIdle, "a completed read leaves it idle");
+	expect_eq(s.aborts, 0ul, "a clean read aborts nothing");
+
+	/* Someone else's answer: abort, never retry under the same id. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	(void)pong_swr_probe(&s, &io);
+	(void)pong_swr_read_start(&s, 2u, 0x3000u);
+	f.regs[s.regs.fifo_status] = 1u << 16;
+	f.regs[s.regs.read_fifo] = (9u << 8) | 0x11u;
+	expect_eq((unsigned long)pong_swr_read_poll(&s), (unsigned long)PongSwrFailed,
+	    "a foreign transaction id fails the read");
+	expect_eq(s.error, (unsigned long)PongSwrErrTxn, "the failure is named");
+	expect_eq(f.last_write_reg, PONG_SWR_ABORT, "a foreign response aborts the transaction");
+	expect_eq(f.last_write_value, 1ul, "the abort is a one written to 0x308");
+	expect_eq(s.aborts, 1ul, "the abort is counted");
+	expect_eq(s.state, (unsigned long)PongSwrIdle, "an aborted read leaves it idle");
+
+	/* Deadline: abort and count it. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	(void)pong_swr_probe(&s, &io);
+	(void)pong_swr_read_start(&s, 1u, 0x3000u);
+	expect_eq((unsigned long)pong_swr_read_timeout(&s), (unsigned long)-1,
+	    "a timed-out read reports failure");
+	expect_eq(s.error, (unsigned long)PongSwrErrTimeout, "the timeout is named");
+	expect_eq(s.timeouts, 1ul, "the timeout is counted");
+	expect_eq(f.last_write_reg, PONG_SWR_ABORT, "a timeout aborts the transaction");
+	expect_eq(s.state, (unsigned long)PongSwrIdle, "an aborted read leaves it idle");
+	expect_eq((unsigned long)pong_swr_read_timeout(&s), (unsigned long)-1,
+	    "a timeout with nothing outstanding is refused");
+	expect_eq(s.error, (unsigned long)PongSwrErrState, "that refusal is named");
+
+	/* The enumerator: enable, latch the bitmap, then the per-slave reads. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	(void)pong_swr_probe(&s, &io);
+	f.regs[PONG_SWR_SLAVE_STATUS] = (3u << 2) | (1u << 4);
+	expect_eq((unsigned long)pong_swr_enumerate_start(&s), 0ul, "enumeration starts");
+	expect_eq(f.regs[PONG_SWR_ENUMERATOR_CFG], 1ul, "enumeration is enabled first");
+	expect_eq(s.slave_status, (3ul << 2) | (1ul << 4), "the slave bitmap is latched");
+	expect(pong_swr_slave_at(&s, 1u), "slave 1 is present");
+	expect(pong_swr_slave_at(&s, 2u), "slave 2 is present");
+	expect(!pong_swr_slave_at(&s, 3u), "slave 3 is absent");
+
+	/* Transaction ids walk 1..14 and never repeat while one is outstanding. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	(void)pong_swr_probe(&s, &io);
+	for (i = 0u; i < 14u; i++) {
+		(void)pong_swr_read_start(&s, 1u, 0x3000u);
+		expect_eq(s.txn, (unsigned long)(i + 1u), "the transaction id walks 1..14");
+		f.regs[s.regs.fifo_status] = 1u << 16;
+		f.regs[s.regs.read_fifo] = ((uint32_t)(i + 1u) << 8);
+		(void)pong_swr_read_poll(&s);
+	}
+	(void)pong_swr_read_start(&s, 1u, 0x3000u);
+	expect_eq(s.txn, 1ul, "the transaction id wraps back to 1 after 14");
+	expect_eq(s.reads, 15ul, "every started read is counted");
+}
+
 int
 main(void)
 {
@@ -726,6 +892,7 @@ main(void)
 	plan_cases();
 	chip_id_cases();
 	codec_cases();
+	swr_cases();
 
 	if (fails) {
 		printf("TESTS FAILED %d of %d\n", fails, cases);

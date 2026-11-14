@@ -8,10 +8,12 @@
  * scripts/check-thermal-kernel-patch.py fails when the two copies differ.
  *
  * What it does: maps the two TM windows and the two SROT windows, reads the
- * hardware version and the enable bit, then samples all 32 sensors once a second
- * and prints the five pressure-level domains. It never writes a register, never
- * touches an interrupt, and never programs a trip point: those need calibration
- * coefficients this board does not expose (docs/research/thermal/01 section 4).
+ * hardware version and the enable bit, then samples all 32 sensors once a second,
+ * prints the five pressure-level domains and hands the resulting level to
+ * bsd/dev/pong_thermal_pm.cpp, which publishes it through IOPMrootDomain. It never
+ * writes a register, never touches an interrupt, and never programs a trip point:
+ * those need calibration coefficients this board does not expose
+ * (docs/research/thermal/01 section 4).
  *
  * Register map: mainline Linux drivers/thermal/qcom/tsens-v2.c:12-27, 94-101.
  * Board addresses: DTB /soc/thermal-sensor@c263000 and @c265000, reg[0] = TM and
@@ -24,9 +26,15 @@
 #include <libkern/libkern.h>
 #include <pexpert/pexpert.h>
 #include <sys/pong_thermal.h>
+#include <sys/pong_thermal_level.h>
 #include <sys/systm.h>
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+
+/* bsd/dev/pong_thermal_pm.cpp: hands one pressure level to IOPMrootDomain. It returns
+ * without doing anything until IOKit has a root domain, which is why it is called every
+ * round rather than once from pong_thermal_init. */
+extern void pong_thermal_pm_publish(unsigned int level);
 
 #define PONG_THERMAL_WINDOW     0x1000UL
 #define PONG_THERMAL_POLL_MS    1000
@@ -153,6 +161,7 @@ pong_thermal_worker(void *arg, wait_result_t result)
 {
 	int32_t domains[PONG_THERMAL_DOMAINS];
 	int32_t previous[PONG_THERMAL_DOMAINS];
+	K60TlState level_state;
 	uint64_t deadline;
 	unsigned round = 0, i;
 
@@ -161,8 +170,10 @@ pong_thermal_worker(void *arg, wait_result_t result)
 	for (i = 0; i < PONG_THERMAL_DOMAINS; i++) {
 		previous[i] = INT32_MIN;
 	}
+	memset(&level_state, 0, sizeof(level_state));
 	for (;;) {
 		bool changed = false;
+		unsigned level;
 
 		pong_thermal_domains(domains);
 		for (i = 0; i < PONG_THERMAL_DOMAINS; i++) {
@@ -180,6 +191,11 @@ pong_thermal_worker(void *arg, wait_result_t result)
 			    domains[PONG_THERMAL_DOMAIN_GPU], domains[PONG_THERMAL_DOMAIN_NPU],
 			    domains[PONG_THERMAL_DOMAIN_DDR]);
 		}
+		/* Hysteresis lives in k60tl_step: a trip already crossed is released only
+		 * below its temperature minus the DT's hysteresis. Publishing is a no-op
+		 * until the root domain exists, and after that only on a level change. */
+		level = k60tl_step(&level_state, domains);
+		pong_thermal_pm_publish(level);
 		clock_interval_to_deadline(PONG_THERMAL_POLL_MS, NSEC_PER_MSEC, &deadline);
 		assert_wait_deadline((event_t)pong_thermal_controllers, THREAD_UNINT, deadline);
 		(void)thread_block(THREAD_CONTINUE_NULL);

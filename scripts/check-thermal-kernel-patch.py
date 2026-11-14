@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Check that patches/xnu/0617-k60-thermal-tsens.patch carries the thermal driver.
 
-The kernel cannot include drivers/PongThermal, so the shipping copies of the
-driver live inside the patch as bsd/dev/pong_thermal.c and bsd/sys/pong_thermal.h.
-Those copies must be byte-identical to the master copies in the repository,
-otherwise the code that is tested is not the code that ships (P-190: verify the
-artifacts, not the file names).
+The kernel cannot include drivers/PongThermal, so the shipping copies live inside the
+patch as bsd/dev/pong_thermal.c, bsd/dev/pong_thermal_level.c, bsd/dev/pong_thermal_pm.cpp,
+bsd/sys/pong_thermal.h and bsd/sys/pong_thermal_level.h. Those copies must be
+byte-identical to the master copies in the repository, otherwise the code that is tested
+is not the code that ships (P-190: verify the artifacts, not the file names).
 
 Checks:
   1. the patch exists, is registered in patches/xnu/series, and is the last entry
-  2. the patch adds bsd/dev/pong_thermal.c and bsd/sys/pong_thermal.h, and both
-     reconstructed bodies match drivers/PongThermal/{pong_thermal.c,K60ThermalKernel.h}
-  3. the patch registers bsd/dev/pong_thermal.c in bsd/conf/files
+  2. the patch adds the five files, and every reconstructed body matches its master
+  3. the patch registers all three new sources in bsd/conf/files, including the first
+     .cpp the bsd component ever built
   4. the patch calls pong_thermal_init() from bsd/kern/bsd_init.c
   5. the driver never writes a register: no store through the mapped pointers
      (P-190 read-only guarantee, checked mechanically)
+  6. the publisher uses the one thermal entry point that exists, under the one key that
+     moves IOPMrootDomain::thermalWarningState, and installs no actuator
 
 Usage: scripts/check-thermal-kernel-patch.py [--repo DIR] [--quiet]
 Exit code 0 when every check passes.
@@ -26,10 +28,23 @@ import re
 import sys
 
 PATCH_NAME = "0617-k60-thermal-tsens.patch"
-DEV_PATH = "bsd/dev/pong_thermal.c"
-HDR_PATH = "bsd/sys/pong_thermal.h"
-MASTER_DEV = os.path.join("drivers", "PongThermal", "pong_thermal.c")
-MASTER_HDR = os.path.join("drivers", "PongThermal", "K60ThermalKernel.h")
+
+# (path inside the kernel tree, master copy in this repository)
+FILES = (
+    ("bsd/dev/pong_thermal.c", os.path.join("drivers", "PongThermal", "pong_thermal.c")),
+    ("bsd/dev/pong_thermal_level.c",
+     os.path.join("drivers", "PongThermal", "K60ThermalLevel.c")),
+    ("bsd/dev/pong_thermal_pm.cpp",
+     os.path.join("drivers", "PongThermal", "pong_thermal_pm.cpp")),
+    ("bsd/sys/pong_thermal.h",
+     os.path.join("drivers", "PongThermal", "K60ThermalKernel.h")),
+    ("bsd/sys/pong_thermal_level.h",
+     os.path.join("drivers", "PongThermal", "K60ThermalLevel.h")),
+)
+DEV_PATH = FILES[0][0]
+MASTER_DEV = FILES[0][1]
+PM_PATH = "bsd/dev/pong_thermal_pm.cpp"
+LEVEL_PATH = "bsd/dev/pong_thermal_level.c"
 
 problems = []
 notes = []
@@ -87,7 +102,7 @@ def check_series(repo):
 
 
 def check_bodies(repo, sections):
-    for path, master in ((DEV_PATH, MASTER_DEV), (HDR_PATH, MASTER_HDR)):
+    for path, master in FILES:
         section = sections.get(path)
         if section is None:
             problems.append("patch does not add %s" % path)
@@ -124,10 +139,15 @@ def check_registration(sections):
         problems.append("patch does not touch bsd/conf/files")
     else:
         joined = "".join(conf["lines"])
-        if "bsd/dev/pong_thermal.c" not in joined:
-            problems.append("bsd/conf/files does not register bsd/dev/pong_thermal.c")
-        else:
-            notes.append("conf/files registers bsd/dev/pong_thermal.c")
+        for path in (DEV_PATH, LEVEL_PATH, PM_PATH):
+            if path not in joined:
+                problems.append("bsd/conf/files does not register %s" % path)
+        if all(path in joined for path in (DEV_PATH, LEVEL_PATH, PM_PATH)):
+            notes.append("conf/files registers the driver, the level module and the publisher")
+        # .cpp needs %CXXFILES in bsd/conf/Makefile.template, which the tree has had
+        # since before this port (bsd/conf/Makefile.template:72).
+        if PM_PATH in joined and ".cpp" not in joined:
+            problems.append("the .cpp entry lost its extension")
 
     init = sections.get("bsd/kern/bsd_init.c")
     if init is None:
@@ -168,6 +188,35 @@ def check_read_only(repo):
         notes.append("driver performs no store through the mapped windows")
 
 
+def check_publisher(repo):
+    """The publisher must use the existing entry point and install no actuator."""
+    master_path = os.path.join(repo, os.path.join("drivers", "PongThermal",
+                                                  "pong_thermal_pm.cpp"))
+    if not os.path.exists(master_path):
+        return
+    body = read(master_path)
+    code = "\n".join(line for line in body.splitlines()
+                     if not line.strip().startswith(("*", "/*", "//")))
+    if "systemPowerEventOccurred" not in code:
+        problems.append("%s never calls systemPowerEventOccurred" % PM_PATH)
+    if "kIOPMThermalLevelWarningKey" not in code:
+        problems.append("%s does not publish under kIOPMThermalLevelWarningKey "
+                        "(the only key IOPMrootDomain::setThermalState reacts to)" % PM_PATH)
+    if "getPMRootDomain" not in code:
+        problems.append("%s does not fetch the root domain through IOService" % PM_PATH)
+    # An actuator would touch a clock, a regulator or a trip register. None of that
+    # belongs here: docs/research/thermal/TRIP-DESIGN.md section 3.5 is the decision.
+    for pattern, what in (
+            (r"\bsetFrequency\b", "a clock write"),
+            (r"\bml_io_map\b", "an MMIO mapping"),
+            (r"\bwrmsr\b|\bmsr_write\b", "an MSR write"),
+            (r"\btrip\b\s*=", "a trip register write")):
+        if re.search(pattern, code):
+            problems.append("%s installs %s; this layer only reports" % (PM_PATH, what))
+    else:
+        notes.append("publisher uses systemPowerEventOccurred under the warning key, no actuator")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -184,6 +233,7 @@ def main():
         check_bodies(repo, sections)
         check_registration(sections)
     check_read_only(repo)
+    check_publisher(repo)
 
     if not args.quiet:
         for note in notes:

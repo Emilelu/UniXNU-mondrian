@@ -91,3 +91,26 @@ scope = ["scripts", "docs/engineering", "AGENTS.md"]
 path = "/mnt/e/hackios/k60-wifi-lead"
 owner = "lead"
 scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]
+
+# The four lines opened on 2026-11-14 for the capabilities the official
+# drivers page names but no existing line covered: display/brightness,
+# GPU userland, SpringBoard stability, and the iOS-profile feasibility study.
+[[tree]]
+path = "/mnt/e/hackios/k60-display"
+owner = "display-agent"
+scope = ["drivers/PongDisplay", "patches/display", "docs/research/display"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-gpu-user"
+owner = "gpu-user-agent"
+scope = ["patches/xnu", "docs/research/gpu"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-springboard"
+owner = "springboard-agent"
+scope = ["userland", "docs/research/springboard"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-ios-profile"
+owner = "ios-profile-agent"
+scope = ["docs/research/ios-profile"]

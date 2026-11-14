@@ -430,6 +430,12 @@ scripts/build-strict.sh audio-probe-20261114j \
 （`e889324`）取代，`f` 因为构建途中改了 `scripts/` 被冻结检查作废，`e`/`d`/`c` 更旧。
 补丁应用顺序已在 `kernel.log:228-233` 证实：`0503 → 0504 → 0505 → 0001-k60-audio-amp-probe → 0506`。
 
+`j` 之后唯一的内核侧改动是 `eb5f0c7`（`PongCodecPlan.h` + 宿主单测 + 文档）。冻结清单是
+`find board.toml dts patches/xnu scripts`——**不含 `drivers/`**（那只是补丁的源，真正进树的是
+`patches/audio/0001`，而本次没有重新生成它），所以重算 `frozen-before` 仍是 `1da672a9…`，
+与 `j` 的清单逐行相同。**run 2 必须继续用 `j`，不要为这次改动重建镜像**：重建会得到一个新 sha，
+而铁则 5 要的是同一个镜像两次 boot。
+
 ### 7.2 第一次上机（run 1 of 2，2026-11-14 12:10）
 
 证据目录 `E:\k60-work\evidence\audio-probe-j\run1`（`console.log` 222,415 B / 3,333 行、

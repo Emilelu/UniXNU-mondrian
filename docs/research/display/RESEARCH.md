@@ -20,6 +20,35 @@
 `qcom,mdss_dsi_visionox_r66451_fhd_plus_video`（`:22521`，1440x2340），**那不是本机在用的面板**。
 判据只认 bootargs 的 `msm_drm.dsi_display0`。
 
+### 1.1 厂商 panel XML：已找到，但是同族不同修订（2026-11-14）
+
+`/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`
+（4,799 B / 203 行 / sha256 `65cd6826a2abcce28db60b7d82ab34aa9fa8ecd2aa82f5fc4f21f9853b4be482`，
+引入提交 `a1501e0c`，2026-10-04）。**注意它没有 `references/` 软链**（`/mnt/e/k60-work/references/` 里
+没有 `Device-Binaries`），只能按上面的绝对路径读。**它也不在仓库根，而在 `marble/` 子目录下**——先前「2,117 个
+`Panel_*.xml` 无一匹配」是方法错误（只按根目录与命名猜，没跑 `git ls-files | grep -i m11a`）。
+全仓 2,117 个里文件名含 `m11a` 的**恰好 1 个**。
+
+**静态字段与 live FDT 逐项一致**（可放心用它读面板规格）：分辨率 1440x3200、porch
+hfp/hbp/hsync = 8/8/12、vfp/vbp/vsync = 16/6/14、DSC Major1/Minor2、slice 720x32、slice-per-pkt 2、
+bpp 8、bpc 10、`DSIBitClockFrequency=1200000000`（= `panel-clockrate=0x47868c00`）、`DSILanes=4`
+（与 `lane-0..3-state` 四条一致；单 DSI 控制器仍可用 4 lane，与 `dsi-ctrl-num=0` 不矛盾）、
+`mi,panel-id` 与文件名 `M11a_42_02_0a` 一致。XML 分四组：`Active Timing`、`Display Interface`、
+`DSI Interface`、`Backlight Configuration`；`DisplayResetInfo = 5 1000 1000 10000 0`
+（DTB 的 `reset-sequence=<1 11 0 1 1 11>` 是另一种编码，不能按字面换算）。
+
+**但 init 序列不能直接烧。** XML `DSIInitSequence` 131 行里有 2 行 `FF <ms>` 延迟——DTB 把延迟放进
+**前一个包的 wait 字节**（7 字节头 `<type> 00 00 <wait> <len_hi> <len_lo>`），合并后 XML = **129 包**；
+live FDT `timing@0` 是 **135 包**。LCS：**125 包相同，3 处差异**——删 3 包（`39 f055aa520801`、
+`15 6f02`、`15 d22a`）、插 9 包（`39 f055aa520801`、`39 d20000000015`、`15 6f05`、`39 d2010000`、
+`15 6f0e`、`39 d20000101332`、`39 e480030000000000000033`、`15 6f0a`、`39 e4800300100053`）、
+改 1 包类型（`39 6f46` → `15 6f46`）。延迟语义的独立佐证：DTB `off-command` 解出 wait=20 ms 发 `0x28`、
+wait=100 ms 发 `0x10`，正好对应 XML `DSITermSequence` 的 `05 28 / FF 14 / 05 10 / FF 64`。
+
+全仓 2,117 个 XML 用同一套 wait-aware LCS 打分，第二名 `nuwa/RawFiles/Panel_M11_42_02_0a_dsc_cmd.xml`
+是 125/134 但 6 处差异，其余全部 ≤4 包相同 → **marble 这份最接近本板，但仍是另一个修订**。
+结论：拿它当"面板规格来源"可以，拿它当"init 串"不行；要烧必须先补上那 3 处差异（或从 `dispdcbx` 提真串）。
+
 ## 2. 画布契约（WindowServer 会 assert，不是可选项）
 
 `references/yibiya-upstream/patches/xnu/0210-k60-display-native-canvas.patch:12-16` 原文注释：面板是 1440 x 3200、DSC video mode、60 Hz；CoreAnimation 的画布取自显示发布的 mode，
@@ -88,19 +117,21 @@ DSC（`:27871-27879`）：`bit-per-pixel=0x8`、`bit-per-component=0xa`、`slice
 ## 7. 绝不可抄（已经踩过的）
 
 1. **yibiya 的 120Hz 文档数值不能搬**：`references/yibiya-upstream/docs/plans/K60-120HZ-PLAN.md` 的 timing 表读自 `qcom,mdss_dsi_sharp_qhd_cmd`（live FDT `:22033`）——720x3120 DSC 压缩、双 DSI、2 档、68 B timing-switch；本机是 1440x3200 未压缩、单 DSI、3 档、98 B。逐值对照见 REFERENCE-INDEX 14.7。
-2. **Pong 的面板库没有一个匹配 K60**：`uefi-mondrian/Include/RAW.inc:1-5` 原文说明约 72 个 `Panel_*.xml` 全是 pong 的；`Device-Binaries` 里 2,117 个 `Panel_*.xml` 也无一匹配 m11a（REFERENCE-INDEX 14.6 / 15）。
+2. **Pong 的面板库没有一个匹配 K60**：`uefi-mondrian/Include/RAW.inc:1-5` 原文说明约 72 个 `Panel_*.xml` 全是 pong 的——这条对 pong 那个库成立。但「`Device-Binaries` 里 2,117 个也无一匹配 m11a」**已于 2026-11-14 推翻**：m11a 的 XML 在 `marble/RawFiles/` 下，见 1.1。它的 init 序列仍是同族不同修订，**不能直接烧**（3 处差异，见 1.1）。
 3. **zizhan 的 framebuffer 分辨率不能套**（见第 2 节）。
 
 ## 8. 缺口与下一步
 
 | 缺口 | 状态 |
 |---|---|
-| K60 厂商 panel XML（`dispdcbx` 分区或 Android 侧 `/vendor/etc/display`） | **2026-11-14 Lead 指派给 display/GPU 线（yibiya）**，本线不再跟踪。命名形状可参考 liuqin 的 `Panel_M81_42_02_0b_dualdsi_dsc_lcd_video.xml`（`references/UniXNU-liuqin/docs/liuqin-hardware.md:44`） |
+| ~~K60 厂商 panel XML 未找到~~ **已找到（1.1）** | `/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（无 `references/` 软链）。静态规格可信，init 序列差 3 处（129 包 vs 135 包） |
+| **init 串的 3 处差异要不要补** | 未决。补了等于用公开 XML 的修订版烧本机面板，风险自负；不补就得从 `dispdcbx` 分区提真串。做 120Hz / 首帧点亮前必须先定 |
+| XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算 | 两种编码方式不同（`5 1000 1000 10000 0` vs `<1 11 0 1 1 11>`），未建立映射；上电时序以 DTB 为准 |
 | `timing@1`（90 Hz）MIUI 侧是否使用 | 未知；做 120Hz 时要决定是否同时暴露 90 |
 | 面板供电真上电验证 | 卡在 RSC（3 条 RPMh LDO）；在此之前无法自证 |
 
 ## 9. 交叉引用
 
-- 证据行：[`../REFERENCE-INDEX.md`](../REFERENCE-INDEX.md) 第 7 节（7.2 节点 / 7.3 timing / 7.4 供电 / 7.5 基址 / 7.6 背光）、14.6、14.7
+- 证据行：[`../REFERENCE-INDEX.md`](../REFERENCE-INDEX.md) 第 7 节（7.2 节点 / 7.3 timing / 7.4 供电 / 7.5 基址 / 7.6 背光 / **7.7 厂商 panel XML 逐包比对**）、14.6、14.7
 - 本板 `Display Reserved 0xB8000000+0x2B00000` 与 `video_region 0x85700000+0x700000`：[`memory/RESEARCH.md`](../memory/RESEARCH.md)
 - 门禁数据源：`docs/research/SOURCES.toml` 的 `[subsystem.display]`、`[subsystem.gpu]`

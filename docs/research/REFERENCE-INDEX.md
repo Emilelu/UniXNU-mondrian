@@ -501,7 +501,40 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | pong-power | `PongBacklight.cpp:238` | 淡入淡出：`fadeStart=nowNs(); fadeDuration=(latest & 0xffff)*1000000ULL;` | 同SoC异板 |
 | pong-power | `PongBacklight.cpp:218` | 成功日志 `PongBacklight: NT37705 DCS service ready, level=%u max=%u, readback PASS` | 同SoC异板 |
 
-⚠ **K60 的面板身份已确定，但厂商 panel XML 仍未提取。** 面板 = xiaomi **m11a**（`mi,panel-id` = `M11AB`/0x42/0x02），1440x3200、DSC、command mode、单 DSI、三档 60/90/120。`uefi-mondrian/Include/RAW.inc:1-5` 说的「约 72 个 `Panel_*.xml` 全是 pong 的、没有一个匹配 K60」依然成立（`Device-Binaries` 里 2,117 个 `Panel_*.xml` 也无一匹配，见 15 节）。启用厂商显示驱动前仍需从 `dispdcbx` 分区提 XML。
+✅ **K60 的面板 XML 已找到（2026-11-14 更正本节与 14.6 / 15 节）。** 面板 = xiaomi **m11a**（`mi,panel-id` = `M11AB`/0x42/0x02），1440x3200、DSC、command mode、单 DSI、三档 60/90/120。厂商 XML 在 `Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml` —— **它不在仓库根，而在 `marble/`（Xiaomi 13）子目录下**；先前「2,117 个无一匹配」是只按根目录/命名猜的方法错误（没跑 `git ls-files | grep -i m11a`）。逐包比对见 7.7。
+
+### 7.7 K60 的厂商面板 XML（2026-11-14 找到并逐包比对）
+
+| 项 | 值 |
+|---|---|
+| 路径 | `Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml` |
+| 大小 / 行数 / sha256 | 4,799 B / 203 行 / `65cd6826a2abcce28db60b7d82ab34aa9fa8ecd2aa82f5fc4f21f9853b4be482` |
+| 引入提交 | `a1501e0c2e642d6ac0d8f52c85af2a67b75a7799` "gts9wifi: Initial support (#202)"（2026-10-04） |
+| 仓库 | `Device-Binaries` HEAD `d3f7cb72`（main）；`git ls-files "*/RawFiles/Panel_*.xml"` = **2,117** 个，文件名含 `m11a` 的**恰好 1 个** |
+| 为什么以前没找到 | 它不在仓库根，而在 `marble/` 目录下；先前只按根目录与命名猜，没做 `git ls-files | grep -i m11a` |
+
+**XML 静态字段与 live FDT 逐项一致**（这是「就是这块面板」的依据）：
+
+| 字段 | XML | live FDT（`timing@0`） |
+|---|---|---|
+| 分辨率 | H=1440 / V=3200 | `panel-width=0x5a0` / `panel-height=0xc80` |
+| porch | hfp=8 hbp=8 hsync=12 / vfp=16 vbp=6 vsync=14 | `h-front-porch=0x8` `h-back-porch=0x8` `h-pulse-width=0xc` / `v-front-porch=0x10` `v-back-porch=0x6` `v-pulse-width=0xe` |
+| DSC | Major=1 Minor=2 / slice 720x32 / per-pkt 2 / bpp 8 / bpc 10 | `dsc-version=0x12` / `slice-width=0x2d0` `slice-height=0x20` `slice-per-pkt=0x2` `bit-per-pixel=0x8` `bit-per-component=0xa` |
+| 时钟 | `DSIBitClockFrequency=1200000000` | `panel-clockrate=0x47868c00` = 1,200,000,000 |
+| lane | `DSILanes=4` | `lane-0..3-state` 四条齐全 |
+| 面板 ID | 文件名 `M11a_42_02_0a` | `mi,panel-id=<0x4d313141 0x420200>` = `M11AB` + 0x42 + 0x02 |
+
+**逐包比对结论：同族但不同修订，不能直接当 init 串用。** XML `DSIInitSequence` 有 131 行，其中 2 行是 `FF <ms>` 延迟——DTB 把延迟放进**前一个包的 wait 字节**（7 字节头 `<type> 00 00 <wait> <len_hi> <len_lo>`，wait 在偏移 4、长度是 16 位大端在偏移 5-6），合并后 XML = **129 包**。对 live FDT `timing@0` 的 135 包做 LCS：**125 包完全相同，只有 3 处差异**：
+
+| 差异 | XML | live FDT |
+|---|---|---|
+| 删 3 包 | `39 f055aa520801`、`15 6f02`、`15 d22a`（第 17–19 包） | — |
+| 插 9 包 | — | `39 f055aa520801`、`39 d20000000015`、`15 6f05`、`39 d2010000`、`15 6f0e`、`39 d20000101332`、`39 e480030000000000000033`、`15 6f0a`、`39 e4800300100053`（第 42–50 包） |
+| 改 1 包类型 | `39 6f46`（长写） | `15 6f46`（短写） |
+
+延迟语义的独立佐证：DTB `off-command` = `39 00 00 00 14 00 02 28 00` + `39 00 00 00 64 00 02 10 00`，即 wait=20 ms 后发 `0x28`、wait=100 ms 后发 `0x10`；XML `DSITermSequence` 正是 `05 28 / FF 14 / 05 10 / FF 64`。
+
+全仓 2,117 个 XML 用同一套 wait-aware LCS 打分，第二名是 `nuwa/RawFiles/Panel_M11_42_02_0a_dsc_cmd.xml`（125/134，但有 6 处差异），其余全部 ≤4 包相同。→ **marble 这份是本板最接近的公开 XML**，但 init 序列仍是另一个修订；要用它必须先补上表里 3 处差异。
 
 ---
 
@@ -736,9 +769,11 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 `PongPlatformResources.cpp:79` 用 `0xd00+4*0x2a0`（DRV slot 4），而 live FDT 声明的 `qcom,drv-id=<2>`。
 两者不冲突（drv-id 指本核的 DRV，slot 4 指该 DRV 里用的 TCS 编号），但**混着抄会算错地址**。
 
-### 14.6 Pong 的背光/面板库没有一个匹配 K60
+### 14.6 Pong 的面板库不匹配 K60 —— 但 K60 自己的 XML 在 Device-Binaries 里（已更正）
 
-`uefi-mondrian/Include/RAW.inc:1-5` 原文已说明：约 72 个 `Panel_*.xml` 全是 pong 的，**没有 K60 的 1440x3200 面板**。
+`uefi-mondrian/Include/RAW.inc:1-5` 原文说约 72 个 `Panel_*.xml` 全是 pong 的、没有 K60 的 1440x3200 面板——**这一条对 pong 那个库成立**。
+
+**2026-11-14 更正**：`Device-Binaries` 里**有** K60 的 m11a XML，只是不在仓库根，而在 `marble/RawFiles/` 下：`Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（4,799 B / 203 行 / sha256 `65cd6826a2abcce28db60b7d82ab34aa9fa8ecd2aa82f5fc4f21f9853b4be482`，引入提交 `a1501e0c`，2026-10-04）。全仓 `Panel_*.xml` 共 **2,117** 个，文件名含 `m11a` 的**恰好 1 个**。先前「2,117 个无一匹配」是**方法错误**：只按根目录与命名猜，没做 `git ls-files | grep -i m11a`。逐包比对与 3 处差异见 7.7。
 
 ### 14.7 yibiya 的 120Hz 文档引用的是通用 Sharp 面板，不是 K60 的 m11a
 
@@ -773,7 +808,7 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | 缺口 | 影响 | 建议动作 |
 |---|---|---|
 | **AW882xx smart PA 无任何参考实现** | 音频线（K60 独有） | 从 `Device-Binaries` 找 aw882xx 固件/驱动，或从 Android 侧 `aw882xx_dl.bin` 与 mi 的 ACDB 逆推 |
-| **K60 panel XML 未提取** | 显示/背光 | 面板身份已定（m11a，见 7.2），但 XML 仍未提。`Device-Binaries` 的 2,117 个 `Panel_*.xml` 已逐个查过，无一匹配 m11a。只能从 `dispdcbx` 分区或 Android 侧 `/vendor/etc/display` 提。**2026-11-14 Lead 已把这条指派给 display/GPU 线（yibiya），本线不再跟踪** |
+| ~~**K60 panel XML 未提取**~~ **已闭合（2026-11-14）** | 显示/背光 | `Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（sha256 `65cd6826…`）就是 m11a 的厂商 XML，静态字段与 live FDT 逐项一致；但 init 序列是**同族不同修订**（129 包 vs 135 包，LCS 125 包相同、3 处差异），要用得先补差异。详见 7.7 与 `display/RESEARCH.md` 1.1 |
 | **m11a 的 90Hz 档用途未知** | 显示 | `timing@1`（0x5a=90）在 live FDT 里存在但 MIUI 侧是否使用未验证；做 120Hz 时要决定是否同时暴露 90 |
 | **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1；RSC 不可访问（14.1）前只能沿用 bootloader 状态 |
 | **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*` |

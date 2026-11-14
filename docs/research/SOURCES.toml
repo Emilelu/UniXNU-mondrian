@@ -21,6 +21,10 @@
 #   所以下面这些仓库的 path 一定判「文件不存在」，只能写进 REFERENCE-INDEX.md 正文：
 #     - /mnt/e/hackios/QcaBluetooth   （蓝牙唯一实现副本，见 REFERENCE-INDEX 第 5 节）
 #     - /mnt/e/hackios/UniXNU-liuqin  （Xiaomi Pad 6 Pro，同 SM8475，见 2.1 与 9.1）
+#     - /mnt/e/hackios/Device-Binaries （K60 厂商 panel XML 唯一副本：
+#         marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml，见 REFERENCE-INDEX 7.7
+#         与 docs/research/display/RESEARCH.md 1.1；本仓库里没有 references/ 目录，
+#         所以 display 子系统下面不能给它写 required 条目，只能靠正文与本文注释）
 #   处理：Lead 侧加第三回退前缀或 K60_REPO 环境变量覆盖；本线不改 gate（铁则⑧）。
 # ---------------------------------------------------------------------------
 

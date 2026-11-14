@@ -906,6 +906,8 @@ Lead 在 `3c69c80`（已进 main）把 board 契约改成 4.5 GiB，本线 `f93c
 | 镜像大小 | 201,887,744 B | 201,887,744 B |
 | `Pong MHI` 格式串 | 11 | 11 |
 
+两张的 `boot.json` 逐字段比对**只差 `image_sha256` 一项**（`kernel_sha256`、
+`dtb_sha256`、`fd_sha256`、`ramdisk_bytes`、`header_version` 全部相同），也就是说
 两张镜像的内核与命令行完全一致，**只有 ADT 里那 8 字节窗口值不同**——所以两张的
 控制台差异只能归因于窗口，不会混入代码或参数差异。
 

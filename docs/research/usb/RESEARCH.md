@@ -961,3 +961,94 @@ python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-202
 - 镜像 `usb-20261114f` 已构建、门禁全绿、**未上机**（用户 m01929 禁止擅自 boot）。
 - 脚本 `E:/k60-work/scratch/usb/boot0408f.sh` 就绪；执行后先跑 `docs/research/usb/analyze-capture.py` 再按本节分支表决策。
 
+
+## 21. 0409 控制台恢复镜像 usb-20261114g（诊断优先）
+
+### 21.1 为什么先恢复控制台
+
+两张复合描述符镜像（`usb-20261114c` = 0406；`usb-20261114f` = 0406+0407+0408）在主机侧都正常枚举：
+Windows 建出 `USB\VID_1209&PID_0001\0001`，`Service=usbser`，`FriendlyName=USB Serial Device (COM5)`，
+采集器能看到 COM5、能打开、DTR 置位，但 300 s 采集窗口内 **0 字节**（`capture.json` state =
+`opened-no-data`、`bytes=0`、`logSha256=E3B0C442…` 即空文件）。而 67 字节两接口时代的两张镜像
+（`usb-20261114b`、两次上机 251274 B / 258773 B，K60 USBLOG 279 行、心跳 148 tick）都正常。
+
+⇒ 设备能起来（用户 m02429/m02433 确认镜像进了系统、300 s 后回 fastboot 是 `k60_autoreset=300`
+的设计行为），失败点在 gadget 自身：**控制台没有数据**。而没有控制台就永远读不到 0407 想拿的
+`GHWPARAMS1/GHWPARAMS3/GTXFIFOSIZ0..3` 与 `ep6/ep7` 返回值，P2 的端点预算判据无法成立。
+所以下一步必须先恢复一个能出字节的控制台，把"诊断"和"复合描述符"两个变量分开。
+
+### 21.2 0409 改了什么
+
+`patches/usb/0409-k60-usb-console-restore.patch`（35 行，只改 `bsd/dev/k60_usblog.c` 的
+`ud_cfg_template[]`）：
+
+| 项 | 0406（复合） | 0409（恢复） |
+| --- | --- | --- |
+| 配置描述符长度 | 98 字节 | **67 字节** |
+| bNumInterfaces | 3 | **2** |
+| IAD (8, 11, …) | 有 | 无 |
+| IF0/IF1 | CDC comm / CDC data | CDC comm / CDC data（不变） |
+| IF2 | vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN | 无 |
+
+保留不动（关键）：
+
+- 0407 的 `ud_endpoint(6, 2, ud.packet)` / `ud_endpoint(7, 2, ud.packet)` 仍会在 SET_CONFIGURATION 里执行，
+  失败只打印、不置 `ud.failed`；
+- 打印 `K60 USBLOG: composite cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x` 仍在，
+  于是这张镜像**同时**给出「控制台是否恢复」与「EP6/EP7 是否可配置」两件事；
+- 0407 的 `GHWPARAMS1/GHWPARAMS3/GTXFIFOSIZ` probe 打印仍在。
+
+字节自检（`E:/k60-work/scratch/usb/check0409.py`）：67 B、10 个描述符全部长度自洽
+（config 9 / IF0 9 class 2/2/1 / CS_INTERFACE 5+5+4+5 / EP 0x82 int 16 / IF1 9 class 10/0/0 /
+EP 0x81 bulk 64 / EP 0x01 bulk 64），`bNumInterfaces=2`。
+
+### 21.3 构建 usb-20261114g
+
+- 提交 `9ce7d2c` "feat(usb): restore the two-interface console descriptor for diagnosis (0409)"，
+  分支 `feat/usb-console`，工作区干净。
+- series：`patches/xnu/series` 234 行，末行 `../usb/0409-k60-usb-console-restore.patch`；
+  三处指纹一致 `88846d3552c8b0042bfef9ae092c5d32cf92bb6c3edd8c181e841b10cf2bac0e`
+  （仓库 / `/opt/k60/trees/usb-device` / `SERIES-FINAL.txt`）。
+- 构建环境：`K60_DEVICE_INPUT=/opt/k60/trees/usb-device`（私有树）、
+  `K60_SERIES_FINAL=/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt`。
+- 产物（`/mnt/e/k60-work/artifacts/usb-20261114g/build-manifest.json`）：
+
+| 产物 | SHA-256 |
+| --- | --- |
+| kernel（built） | `438de64f08af16c5c227817a86eef87b1c0a9c042e18d946036904c33d5ed8ae`（54181888 B） |
+| boot.img | `3cba15c8a119606fd16125e2455b820c087e7ca3c4044711e0d4081e98faf695` |
+| payload | `5841d4893962c63a86e4e6e5d77feba786466c1e06673f09c7b7a1e31d997c9a` |
+| payload kernel | `ac001a5c19e3423d189b6cf64fa963673d81c3b1c468059224d3fc7aed6e4f06` |
+| ADT | `2d37bd30c67e3d9c4031e6655f48557a55e6ca845bff631eb6beced05b87ef42` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（未变） |
+| FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
+| frozen list | `2e1ddcdf35e2925db781b6764b3381117a421fb23c37c0579a6106f069a3e9f9` |
+
+- 门禁：eight-step `--build` 通过 30 项；`verify-boot-image.py --manifest` → `OK`；
+  `check-image-args.py` → `image-arg-audit: OK (29 arguments, 575 bytes)`；
+  `check-rules.py` 登记 65 条 / 失败 0 / waiver 37；`check-docs.py` 187 项通过；
+  `porting-gate.py --quick` ✅ 通过（7 警告）。
+- 补丁进镜像证明：`logs/kernel.log` 中 234 条 `== kernel: patch`，USB 线依次
+  0405 / 0406 / 0407 / 0408 / **0409**；构建缓存源码
+  `/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/bsd/dev/k60_usblog.c`
+  73313 B，`:1182` 是 `9, 2, 67, 0, 2, 1, 0, 0xc0, 50`，`9, 2, 98` 命中 0，
+  `:1320` 仍是 `composite cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x`。
+
+### 21.4 上机判据（由 Lead 执行）
+
+| # | 判据 | 期望 |
+| --- | --- | --- |
+| 1 | 控制台恢复 | `K60 USBLOG` ≥ 250 行，`setup 80 06 0100 len 64` 出现，**不再**出现 `setup 80 06 0200 len 98` |
+| 2 | 心跳 | 每 2 s 一行 `K60 USBHB`，tick ≈ 采集秒数 ÷ 2（±10%） |
+| 3 | 物理端点预算 | `(GHWPARAMS3 >> 12) & 0x3f` = NUM_EPS，`(>> 18) & 0x1f` = NUM_IN_EPS |
+| 4 | FIFO 表 | `GTXFIFOSIZ0..3` 四个值（决定 EP6/EP7 的 FIFO 号是否合法） |
+| 5 | EP6/EP7 | `composite cfg 67 bytes ep6 0 ep7 0 DALEPENA 0x000000ef`（EP6/EP7 成功）或非零返回值（失败，按 §20.2 分支 B/C） |
+| 6 | 采集完整 | `capture.json` = `captured-budget-complete`、`complete=true`、`panicMarker=null` |
+
+判读命令：`python3 docs/research/usb/analyze-capture.py <evidence-dir>`（判据 3/4/5 需要人工看寄存器原值，
+执行器只覆盖 1/2/6 与"是否出现 98 字节请求"）。
+
+### 21.5 权限边界
+
+上机权限只保留给 Lead（用户 2026-11-14 明确要求）：本线只产出镜像、脚本与判据，
+`fastboot boot` 与 `boot-and-capture.ps1` 由 Lead 执行。设备 `6033dbec` 本轮停在 fastboot 未动。

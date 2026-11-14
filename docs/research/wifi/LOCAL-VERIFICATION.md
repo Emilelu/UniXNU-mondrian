@@ -189,8 +189,22 @@ k60_autoreset=300 applog=1 pong_wifi=1 k60_wifi_rsc=1
 
 - `drivers/ArmCpu/ArmCpu.cpp:403` `if(!owner)panic("ArmCpu: unowned SPI %u",intid);`
   → 若 SPI 140 的中断在 `armcpu_spi_attach(172,...)` 成功之前到达，会 panic。
-  `ArmCpu` 的 SPI 槽只有 4 个（`static SpiOwner gSpi[4]`），已用 332（GPU），
-  WiFi 用 172，剩 2 个。
+
+  槽位账目（逐个查过源码与实机日志，2026-11-14）：
+
+  | 消费者 | INTID | 出处 | 本内核里会不会注册 |
+  |---|---|---|---|
+  | PongWifi PCIe0 MSI | 172（32+140） | `drivers/PongWifi/PongWifiPlatform.cpp:43`、`:673` | 会，`pong_wifi=1` 时 |
+  | PongAdreno CP | 332（300+32） | `drivers/PongAdreno/PongAdrenoCp.cpp:388` | 会，`pong_adreno_start=1` 已在 args 里；实机日志 `PONG ADRENO: GPU IRQ332 owner result=0 a=0xa003` 证明它真的注册成功 |
+  | BT UART | 587 | `bsd/dev/qbt_k60.c:1077` | **不会**：`qbt_k60_start()` 先看 `k60bt`（`qbt_k60.c:1236`），我们的 kernel args 里没有 `k60bt`，所以 worker 根本不启动 |
+  | BT TLMM wake | 208 | `bsd/dev/qbt_k60.c:1083` | 同上，不会 |
+
+  所以 4 个槽里实际只用 2 个（172、332），不会撞 `ArmCpu.cpp:435` 的
+  `if(!result && used>=4)result=kIOReturnNoResources;`。而且那条保护本身是**干净失败**
+  （返回错误码、不 panic），真正的 panic 只来自 `:403`：某个已使能的 SPI 在没有人
+  `armcpu_spi_attach` 之前就触发。我们这条路径上唯一的风险窗口是 172 自己的 MSI 在
+  attach 之前到达，而 `worker()` 是先 `dbi.w(MsiEnable,0)` 再 attach、attach 成功后才
+  重新 `MsiEnable=~0u`（`PongWifiPlatform.cpp:669-675`），窗口是关的。
 - 设备被多条线（usb / rail / bt）高频轮占，且每轮 `k60_autoreset=300` 自动回
   fastboot；supervisor 在 fastboot 不可见时**立刻退出不等待**
   （`throw "target 6033dbec is not in fastboot"`），所以必须"看到 fastboot 的那

@@ -122,6 +122,21 @@ failed, 2 means it never ran at all. `capture.json` is printed for context and
 never decides the verdict — `panicMarker` reads `K60PANIC` on good and bad boots
 alike, and `complete: true` has been seen on a broken boot.
 
+Add `--replay` to judge the replay pass as well:
+
+```
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && python3 scripts/judge-audio-capture.py --replay E:/k60-work/evidence/audio-probe-k/run1'
+```
+
+The replay half asks for 60 steps per amplifier — 120 writes and 120 readbacks —
+each amplifier carrying the table its I2C address belongs to (0x34 is `dev_index 1`,
+0x35 is `dev_index 0`), no `differs` line, no placeholder `AW882XX_TODO` driver,
+and a tally of `amp0=60 amp1=60 written=120 mismatched=0 failed=0`. It prints
+`REPLAY VERDICT: SUCCESS - 120 writes, 120 readbacks, both halves on the right amplifier`,
+or `REPLAY VERDICT: FAILED (N problem(s))` with one line per problem. A log with no
+replay pass at all (image j) reports `the replay pass never ran` and exits 2, which is
+why run 1's evidence still judges SUCCESS without the flag.
+
 ## Host tests
 
 `PongAudioGeniI2c.c` is a state machine fed by scratchpad-only MMIO, so it can be

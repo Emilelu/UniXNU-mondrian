@@ -846,8 +846,8 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `amp0` 用 `dev_index 1` 的表、`amp1` 用 `dev_index 0` 的表（§8.5）——日志里两颗写出的 `0x06` 分别是
   `0x38e8` 与 `0x34e8`、`0x05` 分别是 `0x1bc0` 与 `0x13c0`（同为静音，保留的高 6 位来自各自硬件回读）。
   这两处一对上，就证明表选对了。
-- `scripts/judge-audio-capture.py` 不需要改：`MARK_START` 是前缀匹配，`MARK_ID` 要求 `id=0x`，
-  `MARK_DONE` 要求 `amp probe done found=`——回放行不会误命中。
+- `scripts/judge-audio-capture.py` 的**探针**判据不需要改（`MARK_START` 是前缀匹配、`MARK_ID` 要求 `id=0x`
+  且 `MARK_DONE` 要求 `amp probe done found=`，回放行不会误命中）；**回放判据**由同一脚本的 `--replay` 承担，见 §9.6。
 
 ### 9.3 宿主侧钉住了什么（584 例 / 带真实 ACF 602 例）
 
@@ -890,3 +890,40 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - 这就是 §6 第 4 条那条无法复现的 `-fsyntax-only` 的替代证据：回放层是在真实内核 flags 下编过的；
 - **`f34f33e3…` 的 `boot.img` 就是 run 2 要用的镜像**（run 2 未批准，不 boot）。
 
+### 9.6 run 2 的判据（可执行）
+
+Lead 定的 ⑧ 判据是四条：**PongAudioAmp 120 写 + 120 读全对**、**日志里没有 `AW882XX_TODO` 占位驱动**、
+**ACF 编号与 I2C 地址按 §8.5 交叉验证**、以及回放确实跑过。它已经不是一个说法，而是
+`scripts/judge-audio-capture.py --replay`：拿证据目录跑一遍，退出码就是结论。
+
+```
+wsl.exe -e bash -lc cd /mnt/e/hackios/k60-audio-merge && python3 scripts/judge-audio-capture.py --replay /mnt/e/k60-work/evidence/audio-probe-k/run1
+```
+
+不带 `--replay` 时行为与以前完全一致（只判探针），所以 run 1 的证据照旧是 SUCCESS；带 `--replay` 时把回放结论并进去，
+两者按 `severity()` 取更严重者（失败 1 重于没跑 2 重于成功 0）。
+
+| 检查 | 判据 | 抓的是什么 |
+| --- | --- | --- |
+| 起始行 | 每颗功放**恰好一条** `amp<N> replay start dev_index=… vcalb=… steps=60` | 同一颗跑了两遍 / 一颗没跑 |
+| 编号交叉验证 | `dev_index` 必须等于 `{amp0: 1, amp1: 0}` | 按探针编号选表（§8.5 的陷阱），换了表立刻红 |
+| vcalb | 不得是 `refused` | fuse 读不到却悄悄写 0 |
+| 步数 | 每颗 60 条 `replay NN reg=… wrote=… read=…`，编号 0..59 齐全 | 中途放弃 / 少写一步 |
+| 首尾 | 第 0 步 `0x00←0x55aa`、第 58 步 `0x50←vcalb`、第 59 步 `0x05←静音音量`（低 10 位 `0x3c0`） | 顺序被改、0x50 被当成普通表项 |
+| 表选对了 | `0x06/0x07/0x0f` 三个 marker 必须等于各自那一半的值（dev0 `0x34e8/0x3020/0x5064`、dev1 `0x38e8/0x3111/0x5264`） | 两张表对调（数值只差 5 个寄存器，肉眼看不出） |
+| TXEN | `0x08` 必须等于 `0x00b6` / `0x00b7`（bit6 已清） | profile 阶段把 TX 打开了 |
+| 回读 | 任何一行带 `differs` 即失败 | 写进去没生效还报成功 |
+| 驱动自己的账 | `amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0` | 打印与行为不一致 |
+| 占位驱动 | 任何含 `TODO` 且含 `AW882xx/aw882xx/PongAudio` 的行即失败 | 跑成了 0503 的 `AW882XX_TODO` 骨架（它由 `pong_aw882xx` 单独门控，不该出现） |
+
+通过时最后一行是 `REPLAY VERDICT: SUCCESS - 120 writes, 120 readbacks, both halves on the right amplifier`；
+不通过是 `REPLAY VERDICT: FAILED (N problem(s))` 加 N 条明细，每条点名是哪颗、哪一步、期望与实测。
+
+无设备自检：拿 run 1（镜像 j，没有回放层）跑 `--replay` → `REPLAY VERDICT: the replay pass never ran`、退出码 2，
+而同一目录不带开关仍是 `VERDICT: SUCCESS - amplifiers identified`（退出码 0）——新判据既不会把旧证据误判成失败，
+也不会把「没跑」读成「跑对了」。
+
+判据本身也有宿主单测：`scripts/tests/test-judge-audio-capture.py` 用合成日志钉住——完整回放 SUCCESS；
+表对调失败并点名 `dev_index` 与那个寄存器值；单条回读不符、`written=119`、`mismatched=2`、少一条 step、
+出现 `TODO` 行、`vcalb` 被 refused 全部判失败；常量（60 步、`{0:1, 1:0}`、两组 marker、`0x3c0`）也一起断言，
+所以改表或改判据都过不了 `TESTS OK`。

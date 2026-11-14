@@ -402,8 +402,8 @@ done = false
 evidence = "run 1 of 2 已完成（2026-11-14 12:10，镜像 audio-probe-20261114j boot.img sha256 877d0a9d…c35723ef2，证据 E:/k60-work/evidence/audio-probe-j/run1）：capture.json state=captured-budget-complete complete=true panicMarker=null，console.log 3333 行，PongAudio 探针完整跑完，judge-audio-capture.py 判 SUCCESS - amplifiers identified（exit 0）；amp0/amp1 都是 AW88261 id=0x2113，found=2/2 failed=0 timeouts=0 recovered=0。铁则 5 要求同一镜像两次 boot；boot-audio-twice.ps1 在 run 1 结束后自动进了 run 2（12:15:50 起、12:15:57 fastboot 报 Booting OKAY），但作业在 run 2 抓取期间被用户叫停（用户 2026-11-14：禁止擅自 boot），run2/console.log 为 0 字节、无 capture.json，因此不构成第二次证据，⑧ 仍为 done=false；run 2 需用户与 Lead 批准后单独执行。详见 docs/research/audio/AMPS.md §7.2/§7.3。"
 
 [hardware.audio.step.device.prediction]
-success = "PongAudio: amp probe done found=2/2 ... 且 amp0/amp1 的 chip id 在已知表（0x2113 AW88261 等），failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0"
-failure = "amp0/amp1 任一 addr=0x34/0x35 no answer after 3 reads（总线或供电未就绪）、或 se15 no DFS level / i2c pads 失败（GCC wrapper2 投票或引脚复用未生效）、或 recovered>0（总线被前一颗功放拖住）、或出现 panic（io_submap 打满 / LPASS 访问无时钟）"
+success = "PongAudio: amp probe done found=2/2 ... 且 amp0/amp1 的 chip id 在已知表（0x2113 AW88261 等），failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0；回放层再判 scripts/judge-audio-capture.py --replay exit 0：每颗 60 步（0=0x00<-0x55aa、1..57=Music profile、58=0x50<-vcalb、59=0x05<-静音音量），120 写 + 120 回读全对（无 differs）、amp0 拿 dev_index 1 的表（0x06=0x38e8）而 amp1 拿 dev_index 0 的表（0x06=0x34e8）、amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0，且日志里没有 AW882XX_TODO 占位驱动"
+failure = "amp0/amp1 任一 addr=0x34/0x35 no answer after 3 reads（总线或供电未就绪）、或 se15 no DFS level / i2c pads 失败（GCC wrapper2 投票或引脚复用未生效）、或 recovered>0（总线被前一颗功放拖住）、或出现 panic（io_submap 打满 / LPASS 访问无时钟）；回放层判据失败：任一 replay 行带 differs（写进去没生效）、两颗的 dev_index 对调（0x06 写出 0x34e8 与 0x38e8 互换，见 AMPS §8.5）、步数不是 60 或 tally 不是 written=120 mismatched=0 failed=0、vcalb 被 refused、或日志里出现 AW882XX_TODO（跑成了 0503 的占位骨架）"
 
 [hardware.battery]
 status = "planned"

@@ -32,6 +32,8 @@ $markerCases = @(
     @{name='ring-kept-is-a-panic';                  text='K60PANIC: ring kept; restart reason -> bootloader'; want='K60PANIC: ring kept'},
     @{name='initproc-exited-is-a-panic';            text='initproc exited -- exit reason namespace 2 subcode 0xb'; want='initproc exited'},
     @{name='plain-panic-is-a-panic';                text='panic(cpu 0 caller 0xfffffff007): test'; want='panic('}
+    @{name='debugger-called-is-a-panic';            text='Debugger called: <assertion failure>'; want='Debugger called'}
+    @{name='cache-fail-is-a-panic';                 text='K60CACHE FAIL: no launchd cache'; want='K60CACHE FAIL'}
 )
 foreach ($case in $markerCases) {
     $got = Get-K60PanicMarker $case.text

@@ -31,17 +31,17 @@ subsys     17CB:0108
 BAR0       0x60200000 / 2 MiB
 SID        root 0x1C00 / BDF100 → 0x1C01
 IOVA       0xA0000000（DT pool 256 MiB，代码用 64 MiB arena）
-MSI        PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)，不是 ITS
+MSI        Pong: PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)；K60 运行时: ITS-MSI 32 向量（299-330）
 ```
 
-**每一项的出处（2026-11-14 回溯）**：
+**每一项的出处（2026-11-14 回溯；端点 ID / BAR0 为实机实测）**：
 
-- `17CB:1103` —— Pong `configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`；**K60 上未实测**。间接佐证：K60 live FDT `/soc/mhi_qrtr_cnss` 的 `qcom,dev-id = <0x1103>`（`docs/plans/WIFI-PORT-PLAN.md:202-203`）。
-- `subsys 17CB:0108` —— `PongWifiPlatform.cpp:344` 的校验值 `cfg.r(0x2c)!=0x010817cb`。
-- `BAR0 0x60200000` —— `PongWifiPlatform.cpp:354` `bar.open(0x60200000,0x200000)`；K60 live FDT `pcie@1c00000` 的 `ranges` 32 位窗是 `0x60200000 + 0x100000`（1 MiB），64 位窗 `0x60300000 + 0x3d00000`，`qcom,slv-addr-space-size = 0x4000000`。**基址有 DT 佐证；「2 MiB」只来自 Pong 代码。**
+- `17CB:1103` —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/{vendor,device}` = `0x17cb`/`0x1103`，配置空间 0x00 = `cb 17 03 11`（`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`、`config64-attempt2.txt`）。Pong 侧：`configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`。
+- `subsys 17CB:0108` —— **K60 实测**：`subsystem_device` = `0x0108`（264），配置空间 0x2c = `cb 17 08 01`（同上证据）。Pong 侧：`PongWifiPlatform.cpp:344` 的校验值 `cfg.r(0x2c)!=0x010817cb`（`PongWifiPci.cpp:117` 同值）。
+- `BAR0 0x60200000` / **2 MiB** —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/resource` 第 1 行 `0x0000000060200000 0x00000000603fffff 0x0000000000140204`（2 MiB），`/proc/iomem` 为 `60200000-603fffff : 0000:01:00.0`（`E:/k60-work/evidence/pci-id-20261114/resource.txt`、`iomem-pci.txt`）。Pong 代码：`PongWifiPlatform.cpp:354` `bar.open(0x60200000,0x200000)`。**基址与大小均有实测。**
 - `SID 0x1C00 / 0x1C01` —— live FDT `qcom,smmu-sid-base = <0x1c00>`、`iommu-map = <0x0 0x5b 0x1c00 0x1 0x100 0x5b 0x1c01 0x1>`（`fdt_dump.txt:16446-16447`）。
 - `IOVA 0xA0000000` —— Pong `PongWifiPlatform.cpp:43`；K60 live FDT `qcom,iommu-dma-addr-pool = <0xa0000000 0x10000000>`（`fdt_dump.txt:16482`，256 MiB pool），代码用 64 MiB arena（`:46`）。
-- `MSI SPI140 / INTID 172` —— Pong `PongWifiPlatform.cpp:45` `PcieGlobalIntid=32+140, ParfMsi0=1u<<23`；K60 live FDT `interrupt-map` 实测 child_int 0→SPI140（+32 = GIC 172），脚本 `scratch/refmine/imap2.py`。
+- `MSI SPI140 / INTID 172` —— Pong `PongWifiPlatform.cpp:45` `PcieGlobalIntid=32+140, ParfMsi0=1u<<23`；K60 live FDT `interrupt-map` 解析 child_int 0→SPI140（+32 = GIC 172），脚本 `scratch/refmine/imap2.py`。**注意**：K60 运行时 `/proc/interrupts` 显示该端点实际使用 ITS-MSI 524289..524306（32 向量）供 `mhi`/`pci0_wlan_ce_*`/`pci0_wlan_grp_dp_*`（`interrupts.txt`、`msi_irqs.txt`）；「PARF MSI0→SPI140」是静态 DT 推导，实际 MSI 路由需再核。
 
 | 窗口 | 基址 | 大小 |
 |---|---|---|

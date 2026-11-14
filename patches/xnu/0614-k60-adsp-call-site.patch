@@ -1,9 +1,9 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -7832,6 +7832,19 @@
- 		extern int k60_metal_deploy(void);
+ 		extern int k60_metal_deploy(proc_t, user_addr_t);
  
- 		(void)k60_metal_deploy();
+ 		(void)k60_metal_deploy(p, scratch);
 +	}
 +	/* 0614: bring up the ADSP and read the touch rail once Data is mounted.
 +	 * The rail probe is opt-in (HR-01): an ordinary boot never maps 0x17a20000. */

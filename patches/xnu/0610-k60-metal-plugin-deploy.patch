@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/k60_metal.c
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,216 @@
 +/*
 + * 0610: deploy the Adreno Metal plugin onto the Data volume.
 + *
@@ -31,6 +31,7 @@
 +#include <sys/systm.h>
 +#include <sys/proc.h>
 +#include <sys/namei.h>
++#include <sys/sysproto.h>
 +#include <sys/fcntl.h>
 +#include <pexpert/pexpert.h>
 +
@@ -59,34 +60,57 @@
 +	    ((uint32_t) p[2] << 16) | ((uint32_t) p[3] << 24);
 +}
 +
-+/* Create every directory on the way to path, ignoring EEXIST. */
-+/* 0398 creates /private/var/ngpu and its addons/ and daemons/ subdirectories
-+ * in the same prepare step, before this runs; the deploy only has to make sure
-+ * the bundle directory itself exists. mkdir has no prototype any shipped header
-+ * declares, so use the vnode path that 0340 already compiles against. */
++/* Create one directory, ignoring EEXIST.
++ *
++ * vnode_open(path, O_CREAT, ...) does NOT create a directory - it creates a
++ * regular file, so the first "PongAdrenoMetal.bundle" became a file and every
++ * child open then failed with ENOTDIR(20). The tree already has the working
++ * pattern in 0215/0222/0234 and in 0398's k60_mkdir_paths loop: copy the path
++ * out to the prepare scratch page and call the mkdir syscall itself.
++ *
++ * scratch + 0x400 is free here: 0340's uilib deploy uses +0x600 and +0x700,
++ * 0394's launchd cache uses +0x800 and +0x900, and the mount args at the top
++ * of the function use +0x100..+0x300. */
 +static int
-+k60_metal_mkdir(const char *path, vfs_context_t ctx)
++k60_metal_mkdir(const char *path, proc_t p, user_addr_t scratch)
 +{
-+	vnode_t vp = NULLVP;
-+	int error = vnode_lookup(path, 0, &vp, ctx);
++	struct mkdir_args args;
++	struct unlink_args remove_args;
++	user_addr_t name = scratch + 0x400;
++	int32_t ret = 0;
++	int32_t removed = 0;
++	size_t len = strlen(path) + 1;
++	int error;
 +
-+	if (error == 0) {
-+		vnode_put(vp);
++	if (len > 0x200) {
++		return ENAMETOOLONG;
++	}
++	if ((error = copyout(path, name, len)) != 0) {
++		return error;
++	}
++
++	/* Repair state a previous build left behind: until 2026-11-14 this helper
++	 * used vnode_open(O_CREAT), which created a regular FILE where a directory
++	 * belongs, and that file survives on the Data volume across boots. mkdir
++	 * then answers EEXIST and every child open dies with ENOTDIR(20), which is
++	 * exactly what usblog-20261114-212253 showed. unlink() refuses a directory,
++	 * so this only ever removes the stale file. */
++	remove_args.path = name;
++	if (unlink(p, &remove_args, &removed) == 0) {
++		printf("K60METAL removed a stale file at %s\n", path);
++	}
++
++	args.path = name;
++	args.mode = 0755;
++	error = mkdir(p, &args, &ret);
++	if (error == EEXIST) {
 +		return 0;
 +	}
-+	if (error != ENOENT) {
-+		return error;
-+	}
-+	error = vnode_open(path, O_CREAT, 0755, 0, &vp, ctx);
-+	if (error) {
-+		return error;
-+	}
-+	vnode_close(vp, 0, ctx);
-+	return 0;
++	return error;
 +}
 +
 +int
-+k60_metal_deploy(void)
++k60_metal_deploy(proc_t p, user_addr_t scratch)
 +{
 +	static int done;
 +	const unsigned char *blob = k60_metal_blob;
@@ -110,10 +134,10 @@
 +	}
 +
 +	ctx = vfs_context_current();
-+	(void) k60_metal_mkdir(K60_METAL_ROOT, ctx);
-+	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons", ctx);
-+	(void) k60_metal_mkdir(K60_METAL_ROOT "/daemons", ctx);
-+	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons/PongAdrenoMetal.bundle", ctx);
++	(void) k60_metal_mkdir(K60_METAL_ROOT, p, scratch);
++	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons", p, scratch);
++	(void) k60_metal_mkdir(K60_METAL_ROOT "/daemons", p, scratch);
++	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons/PongAdrenoMetal.bundle", p, scratch);
 +
 +	for (index = 0; index < count; index++) {
 +		const unsigned char *entry = blob + 8 + index * 10;
@@ -169,7 +193,7 @@
 +				continue;
 +			}
 +			*slash = '\0';
-+			(void) k60_metal_mkdir(path, ctx);
++			(void) k60_metal_mkdir(path, p, scratch);
 +			*slash = '/';
 +		}
 +
@@ -200,7 +224,6 @@
  bsd/dev/k60_uilib.c		standard
 +bsd/dev/k60_metal.c		standard
  bsd/dev/k60_console_export.c	standard
-
 --- a/osfmk/conf/files.arm64
 +++ b/osfmk/conf/files.arm64
 @@ -21,4 +21,5 @@
@@ -209,7 +232,6 @@
  osfmk/arm64/WKdmDecompress_4k.s	standard
 +osfmk/arm64/k60_metal_blob.s	standard
  osfmk/arm64/WKdmCompress_4k.s	standard
-
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -7820,8 +7820,17 @@
@@ -225,8 +247,8 @@
 +	 * zzy-native-gpu-addon-mount unions /private/var/ngpu/addons during the
 +	 * same prepare step. */
 +	{
-+		extern int k60_metal_deploy(void);
++		extern int k60_metal_deploy(proc_t, user_addr_t);
 +
-+		(void)k60_metal_deploy();
++		(void)k60_metal_deploy(p, scratch);
 +	}
  	native_owner_data_stage = 3;

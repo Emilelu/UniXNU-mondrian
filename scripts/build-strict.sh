@@ -248,6 +248,14 @@ PY
 
 echo "build-strict: boot.img $BOOT_SHA"
 python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
+# The Metal plugin travels inside the kernel as a K60M container. Nothing
+# else inspects that generated table, and on 2026-11-14 its length constant
+# omitted the alignment padding between bodies, so the device rejected the
+# last file with "entry 5 body out of range" (P-196).
+if [ -f "$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s" ]; then
+  python3 "$REPO/scripts/check-metal-blob.py" "$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s" \
+      | tee "$LOGS/metal-blob.log" || die "the Metal plugin container is inconsistent (P-196)"
+fi
 # The command line in the image must be the board contract plus declared
 # additions.  On 2026-11-14 two hand-packaged images silently replaced
 # debug=0x140 with debug=1 (DB_HALT) and ran 610 bytes over the 607-byte

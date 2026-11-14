@@ -7,7 +7,7 @@
 # any existing file. Two boots were judged on artifacts that never changed.
 #
 # Usage:
-#   scripts/build-strict.sh <tag> --fd <file.fd> [--kernel-arg NAME=VALUE ...]
+#   scripts/build-strict.sh <tag> --fd <file.fd> [--gpu-addon <file>] [--kernel-arg NAME=VALUE ...]
 #
 # Guarantees:
 #   * passes the real exit code of every stage (no pipe into grep)
@@ -22,10 +22,12 @@ die() { echo "build-strict: FATAL: $*" >&2; exit 1; }
 TAG=${1:?usage: build-strict.sh <tag> --fd <file.fd> [--kernel-arg K=V ...]}
 shift
 FD=""
+ADDON=""
 KARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --fd) FD=${2:?--fd needs a file}; shift 2 ;;
+        --gpu-addon) ADDON=${2:?--gpu-addon needs a file}; shift 2 ;;
         --kernel-arg) KARGS+=("${2:?--kernel-arg needs NAME=VALUE}"); shift 2 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -33,6 +35,7 @@ done
 [ -z "${UNIXNU_SKIP_GATES:-}" ] || die "UNIXNU_SKIP_GATES is set; strict builds run every gate"
 [ -n "$FD" ] || die "--fd is required; a build must name the firmware volume it packs"
 [ -f "$FD" ] || die "--fd $FD does not exist"
+[ -z "$ADDON" ] || [ -f "$ADDON" ] || die "--gpu-addon $ADDON does not exist"
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 DEV=${K60_DEVICE_INPUT:-/opt/k60/trees/usb-cdc-mainline/device}
@@ -153,6 +156,9 @@ for kv in "${KARGS[@]:-}"; do
 done
 PAYLOAD_ARGS=()
 [ ${#PAYLOAD_ARGS_CMD[@]} -eq 0 ] || PAYLOAD_ARGS=("${PAYLOAD_ARGS_CMD[@]}")
+if [ -n "$ADDON" ]; then
+    PAYLOAD_ARGS+=(--gpu-addon "$ADDON")
+fi
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
         ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
@@ -180,6 +186,7 @@ PAYLOAD_ARGS=$(mtype -i "$PAYLOAD" ::/EFI/UniXNU/unixnu.toml 2>/dev/null \
     | sed -n 's/^args[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' | head -1)
 [ -n "$PAYLOAD_ARGS" ] || die "cannot read the boot arguments out of the payload TOML"
 echo "build-strict: payload args $PAYLOAD_ARGS"
+[ -z "$ADDON" ] || echo "build-strict: gpu addon $(sha256sum "$ADDON" | cut -d' ' -f1) $(stat -c %s "$ADDON") bytes"
 
 # --- boot image --------------------------------------------------------------
 FD_ARCH=$ART/fd/$TAG-$(sha256sum "$FD" | cut -c1-12).fd
@@ -237,6 +244,8 @@ m = {
         "fd_path": "$FD_ARCH",
         "boot_img": "$BOOT_SHA",
         "boot_img_path": "$RUN/boot.img",
+        "gpu_addon": "$(sha_or_empty "$ADDON")",
+        "gpu_addon_path": "${ADDON:-}",
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",

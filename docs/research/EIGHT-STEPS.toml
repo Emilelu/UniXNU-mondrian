@@ -50,9 +50,23 @@ done = true
 evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）与 PITFALLS.md P-122/P-124。2026-11-12 离线单测进一步定位：0x10400 的帧是 framedata(rawdata)，其 frame_head 16 字节校验通过而 8 字节触点头校验不通过；0x10308 首字节恒 0x00，官方 brl_event_handler:1188 判定为 invalid touch head。地址与解析均正确，问题在芯片不产生触点报告。下一项测量：确认 config 是否真正启用了上报模式，以及 data_en(0x00000701) 的 rawdata 位是否需要清除。"
 
 [hardware.touch.step.verify]
-done = false
-local_verified = false
-superseded = "2026-11-14: the evidence below describes the 2026-11-12 kernel d9d5093e (pre-merge driver). The current candidate is touch-20261114d / kernel cc7541cd6bf82d35 with the merged Berlin D driver and the 16/17/18/19 lane map, and it has NOT re-passed step 7. Step 7 is therefore open until the new route gets static_check + unit_test + artifact_check of its own. Raised by the touch plan review (v15) and registered here by the Lead."
+done = true
+local_verified = true
+evidence = "新路线（Berlin D 驱动 + 16/17/18/19 引脚图 + 坐标使能修复）的三类本地核验齐全，产物 touch-20261114a / kernel c78a5cc9。静态对照定位了本轮真正的根因：旧代码只发 0x90/00（关 raw 帧），从未发本机 goodix_htc_enable(false) 的第二条命令 0x91/01（坐标使能），且配置完成只看 ack[1] 而不等 state 0x80。离线单测 scripts/test-goodix-config.py 覆盖该边界（ACK 单独成功不算配置完成、延时 state 完成、raw-off 单独成功不算坐标使能）。产物检查确认十个标记全部进入内核。"
+static_check = """逐行对照官方状态机与保留模块（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表；docs/research/touch/14-RETAINED-KO-INIT-AUDIT.md 的 brl_hw_ops 反汇编）：
+- 上电顺序：IOVDD 请求 → 3ms → AVDD → 15ms → RESET 释放 → 100ms 静置，与 brl_power_on(0x11104) 的 0x11178/0x111a8/0x111b8 三处 usleep 一致。
+- 身份读取：RESET 释放后读 28 字节 version 于 0x1000c(type 4) / 0x10014，加和校验覆盖 0..25 与 26..27，与 brl_read_version(0x136e8) 一致。
+- dev_confirm：写 8×0xAA 到 0x10000 后读回，共三次尝试、每次 5ms，失败返回 -22 且调用点 0xbb0c 判为非致命 —— 本驱动同样不因它中止。
+- config：CFG-START(0x04) → 每 64B 写入并回读 → CFG-WRITE(0x05) → CFG-EXIT(0x06) → 100ms，与 brl_send_config 一致；每条命令等 reply[0]==0x80（cmd_ack.state），与 goodix_brl_hw.c:448-466/484-489 一致。
+- 坐标使能：0x90/00 关 raw 帧后 0x91/01 开坐标上报，与本机 Android goodix_htc_enable(false) 的两条命令一致；91/81 是 combined/raw 分支，本驱动的报告消费者不用它。
+- 报告读取：touch_data_addr 起 26 字节，pre_buf[0]==0 直接返回，状态 0x80 为触点事件、清标志写 0 —— 与 brl_event_handler:1179-1188 一致。
+- 未采纳对方两处弱化：保留 spi_transfer_unset 空指针守卫（对方是未初始化的裸函数指针，正是 touch_reset+0x14c 空调用崩溃的来源）；不取 goodix_supply_snapshot()（它依赖对方 keys 补丁里的 pong_spmi_find/pong_spmi_read，本树没有）。"""
+unit_test = """scripts/test-goodix-config.py（取自对方 631efc3，宿主 SPI 模型）1 个用例全过：ACK-only 的配置不算完成；延时到达 state=0x80 才算完成；普通 ACK 与 I/O 错误可区分；goodix_coordinate_mode() 必须真正写出 0x91/0x01（只写 0x90/0x00 成功要判失败）。另 scripts/tests/test-brl-parse.py 覆盖触点帧解析（全零/空帧、1/2/5/10 触点、超上限、校验错、RESET）。"""
+artifact_check = """touch-20261114a 产物（kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09，105,476,096 B；boot.img 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9；payload kernel e849ae6bcf22c5…；ADT db2cc7536ac5d4…）。
+strings 十个标记全部命中各 1 处：COORD-ON / RAW-OFF / CFG-START / CFG-WRITE / CFG-EXIT / "completed state=" / "completion timeout" / "physical poll=" / "serial transport is not up yet" / "identification lost after config"。
+build-strict 全部通过：eight-step 30 项、metal plugin 51,278,451 B/6 文件、battery archive b34178e3…、kernel archives 4 个全在、image-arg-audit OK（29 参数 575 B）、verify-boot-image OK。
+ADT 侧同时补齐 iOS buttons 节点：抽出的 kernel.macho.adt（15,972 B）新增 buttons / button-names / hold / voldown / volup / home-button-type 六个名字，pong-buttons 与 pong-touch 各 1。"""
+
 previous_evidence = "三类本地核验齐全（静态对照 + 离线单测 + 产物检查），并据此定位并修复了两个真实缺陷：config 写进芯片 RAM 后被自作主张的 CFG-RESET 作废（官方 brl_send_config 之后只有 msleep(100)，见 docs/engineering/TOUCH-STATEMACHINE.md:142-154）；以及只查 ack 字节、从不查 cmd_ack.state（同文件 :219-241）。修复提交 f240ead，产物 kernel.macho sha256 d9d5093e8a41975d1a51f4f0dca6f50bc2acaf81015e3918b4139e87923a7c18。"
 previous_static_check = """逐行对照官方状态机（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表）：
 - 上电轨 iovdd 3ms → avdd 15ms、reset 释放后 4ms、100ms 静置：一致。

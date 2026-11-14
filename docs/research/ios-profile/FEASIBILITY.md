@@ -45,7 +45,7 @@
 | [adt.product.string] idiom (:96) | pad | phone（影响 SpringBoard 习惯与 artwork） | phone | ADT artwork-device-idiom |
 | [adt.product.bytes] product-id (:108) | e9fefef6…（J120 表项） | 必须换成 n104 的 product-id | d221 的 product-id | profile.toml:105-106 注释：MGGetProductType 查表 |
 | display-scale (:88) | 3（1440x3200→480x1066.67 pt） | 重算 | 重算 | :84-87 注释 |
-| root_match_volume_uuid (board.toml:52 附近 [payload.adt]) | C5DAF029…（iPad OS 卷） | dbff1cb9-4016-4cd8-88f5-f6b13f3c1080 | 2e97a025-6bdf-4c98-a08c-6bd8ffcb1a46（实测） | launchd root-matching（make-pong-adt.py:162-165）；三卷 UUID 见 evidence/abi-and-kernel.txt:10、:23、:95 |
+| root_match_volume_uuid（board.toml:219，[payload.adt]） | C5DAF029-2070-4F68-B3CC-1D1320344CF0（iPad OS 卷） | dbff1cb9-4016-4cd8-88f5-f6b13f3c1080 | 2e97a025-6bdf-4c98-a08c-6bd8ffcb1a46（实测） | launchd root-matching（make-pong-adt.py:162-165）；三卷 UUID 见 evidence/abi-and-kernel.txt:10、:23、:94 |
 
 **iPhone 侧没有现成 profile 可抄**：devices.toml:890 出现过 `os_profile = "ios-16.7.16-20H392"`（fuxi-star-mailaz, SM8550），但其 profile 目录在上游不存在（devices.toml:494 record_error），社区设备记录（UniXNU-docs/docs/.vitepress/device-records/nx769j.toml:6,17）的做法是 profile 放设备仓库 `os-profiles/<name>/`、构建前装进 UniXNU checkout——即 iOS profile 在社区也是自己写，没有官方模板。macOS profile 模板亦不可用（profiles/os/macos-27.3-26C5035r 在当前 checkout 不存在）。
 
@@ -99,7 +99,7 @@ evidence/abi-and-kernel.txt:55-64（三份解压内核 strings 计数）：
 见 `evidence/data-volume.txt`（33 行）。private/var 顶层 28 项、mobile/Library 子项**两侧零差异**（:4-11）；SMS/CallHistory/手机偏好库两侧都不在系统卷（首启由 daemon 创建，:13-17）；wireless/baseband_data、msgs/bounds、protected/trustd 等种子锚点两侧都有（:19-27）。
 
 - Data 种子管线（make-data-seed.py:40 复制 OS 卷 private/var；k60-make-data-seed.py:110-116 --profile 默认 ipados-16.6.1-20G81/profile.toml 且 darwin-only）**对 iOS 卷同样适用**，只需 --profile 指向 iOS profile。
-- 唯一要改的是卷身份：board.toml [payload.adt] root_match_volume_uuid（现指向 iPad 卷 C5DAF029…，卷 UUID 实测见 evidence/abi-and-kernel.txt:10 vs :23）与 configs/mondrian_defconfig:54 CONFIG_XNU_OWNER_DATA_VOLUME_UUID（PONG APFS window media uuid，首启后由内核侧接管，与 OS 卷 UUID 无关——但仍需按 userdata 重建流程复核）。
+- 唯一要改的是卷身份：board.toml:219 [payload.adt] root_match_volume_uuid（现指向 iPad 卷 C5DAF029…，三卷 UUID 实测见 evidence/abi-and-kernel.txt:10、:23、:94）与 configs/mondrian_defconfig:54 CONFIG_XNU_OWNER_DATA_VOLUME_UUID（PONG APFS window media uuid，首启后由内核侧接管，与 OS 卷 UUID 无关——但仍需按 userdata 重建流程复核）。
 - 容量：iPad OS+SystemOS 6.44 GiB、iOS 7.28 GiB，userdata 窗口 454.26 GiB（scripts/build-userdata.py:19-21 FIRST_LBA=0x413248、LAST_LBA=0x75A40EA）——**容量不是卡点**。
 
 ## 4. 问题 ④：换 iOS 需要哪几步、证据来源、预计风险、哪一步卡死
@@ -110,7 +110,7 @@ evidence/abi-and-kernel.txt:55-64（三份解压内核 strings 计数）：
 | --- | --- | --- | --- |
 | S1 | 选机型：arm64 → A11（iPhone10,1/10,3/10,6, d2xxap）；arm64e → iPhone12,1 或任意 A12+ | api.ipsw.me 设备表（本报告 §1.4）；evidence/abi-and-kernel.txt:28-33、:50-53 | 低。arm64e 要连 profiles/arch/arm64e 一起换（§1.3），构建基座变化大 |
 | S2 | 写 profiles/os/ios-16.6.1-20G81/（profile.toml + configs/ios.config + patches/xnu/series），字段值按 §1.2 表 | 模板 = ipados-16.6.1-20G81/profile.toml 全文；BuildManifest identity（/tmp/ev/BuildManifest.plist 已解出）；profiles.py:19-27 证明目录名可直接选中 | 中。prelink roots 33 项按 iPad 20G81 kernelcache 调出（profile.toml:33），iPhone 内核的组件集合不同，roots/slide/early_security_init 要重调 |
-| S3 | board.toml os_profile 切换 + [payload.adt] 身份（model/target-type/compatible/product-id/idiom/display-scale/root_match_volume_uuid） | board.toml:7、:52 附近；profile.toml:54-57、:88、:96、:108；make-pong-adt.py:150-174 | 中。product-id 必须查 libMobileGestalt 产品表（profile.toml:105-106 注释），填错=音频路由等全部退化 |
+| S3 | board.toml os_profile 切换 + [payload.adt] 身份（model/target-type/compatible/product-id/idiom/display-scale/root_match_volume_uuid） | board.toml:7（os_profile）、:218-219（chip_id / root_match_volume_uuid）；profile.toml:54-57、:88、:96、:108；make-pong-adt.py:150-174 | 中。product-id 必须查 libMobileGestalt 产品表（profile.toml:105-106 注释），填错=音频路由等全部退化 |
 | S4 | [ipsw] 五元组换 iPhone 值 + [ipsw.sha256] pin | ipsw.py:100-102（无 [ipsw] 直接报错）、:121-128（版本/product/DeviceClass/ApChipID/ApBoardID 四重校验）、:141-168（sidecar + sha256 pin） | 低。纯数据，BuildManifest 已解出（iPhone12,1 ApChipID 0x8030/ApBoardID 0x04；A11 ApChipID 0x8015/ApBoardID 0x0E） |
 | S5 | 构建链路径去硬编码：build-strict.sh:68 `M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian`；check-build-env.py:27、check-config-consistency.py:28 的 K60_SDK_RELATIVE；k60-make-data-seed.py:110 --profile 默认值 | build-strict.sh:66-70 实读；scripts/check-*.py 实读 | 低-中。7 处字符串替换，漏一处=gate 报 stale/missing |
 | S6 | prelink 重调：kernelcache_sha256 换 iPhone/A11 内核；slide 重推（autoslide 依赖 native 段表）；early_security_init 若 iPhone 内核要求则补 | kernel.py:192-224（pin 校验 :204-206）；emit_prelink_autoslide.py（K60 __DATA 0x150000 vs 20G81 0xb0000 的教训） | **高**。iPhone 内核是 arm64e（subtype 0x2，abi-and-kernel.txt:52）——K60 内核 arm64 与 arm64e kernelcache **不能混装**（prelink 组件 ABI 必须一致）；A11 内核是 arm64（:53）才与 K60 内核同类 |

@@ -1,4 +1,4 @@
-# Handoff — K60 Bluetooth line (state at 2026-11-14)
+# Handoff — K60 Bluetooth line (state at 2026-11-15)
 
 This file is the single-page handoff from the `feat/bt-research` line to the integrated line.
 The branch adds `docs/research/bt/*` and `patches/bt/*`; the only edits outside that scope are the four
@@ -23,10 +23,12 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `docs/research/bt/S2-SPEC.md` | S2 spec: how `0508` fixes F1 (SMMU stream 0x483 bypass + contiguous DMA), F11 (SE20 RCG root enable), F3 (0xc40/0xd40 RESET_DONE instead of the undefined 0xe40) and F12 (CBCR halt after the rate write); expected console lines and verdict table | done, statically verified |
 | `patches/bt/0002-k60-bt-s2-smmu-rcg-reset.patch` = `patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch` | 6 hunks on `bsd/dev/qbt_k60.c`: `k60_smmu_plan_bank`/`k60_smmu_plan`/`k60_smmu_configure`/`k60_smmu_bypass` + `kmem_alloc_contig`/`pmap_find_phys` DMA path, RCG root enable, reset-done polling. sha256 `c4bf1ded55fe9bd03b7c10943ed41fff47464037c06c893b6dfd0984f02fd4f2` (18,393 B / 391 lines) | **build-wired** (`patches/xnu/series:206`) |
 | `docs/research/bt/S4-SPEC.md` | S4 spec: why the firmware must ride the boot image (Data seed absent, no zlib, no `.incbin`, NGPUADD2 has no kernel consumer), the DarwinBoot `GpuAddon` channel with line-level evidence, the container format, the kernel reader, the **Lead-scope build fragments** (`scripts/make-bt-firmware-addon.py` in full, `build-strict.sh` diff, `.gitignore`), the offline verification and the S4a–S4c device ladder | done, offline-verified |
-| `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch` | 1 file (237 ins / 1 del): NGPUADD2 parser `k60_addon_find()`, kernel snapshot `k60_bt_addon_load()` (SecureDT `chosen/memory-map/GpuAddon` + `phystokv`), `k60_bt_addon_read()`, and `k60_bt_firmware_read()` trying the addon first. sha256 `4d6e3c1a89b60a55cc146294ec4e9abcfac4521aed0d3787da20df5e22218b04` (12,877 B / 291 lines) | **build-wired** (`patches/xnu/series:208`) |
+| `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch` | **rewritten 2026-11-15 for P-197**: 2 files (289 ins / 1 del): NGPUADD2 parser `k60_addon_find()`, `k60_bt_addon_load_blob()` reading the linked `k60_bt_blob` / `k60_bt_blob_len` (the new primary carrier), the old SecureDT `chosen/memory-map/GpuAddon` path kept as fallback, `k60_bt_addon_read()`, and `k60_bt_firmware_read()` trying the addon first; `osfmk/conf/files.arm64` gains `osfmk/arm64/k60_bt_blob.s`. sha256 `316148931ab11fa9fbd79fbe7b878960e702b39d5e89babd0daa806655fccc96` (15,672 B) | **build-wired** (`patches/xnu/series:208`) |
+| `scripts/gen-k60-bt-blob.py`, `scripts/tests/test-k60-bt-blob.py` | the blob generator (`.incbin` + length constant, one-byte stub when no container) and its host test (9 fixtures, including the P-196 "length forgot the padding" case); `scripts/build-xnu-4k-baseline.sh:311-324` runs the generator inside the xnu build, `scripts/build-strict.sh` gained `--bt-blob` | done (`ccd4dfc`) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring status (option B used, option A kept as an alternative) | done |
 | image `bt-s4-20261114b` (`boot.img` `82ff78b4…`, 201,887,744 B) | the first build that contains `0510`: `build-strict.sh` exit 0, `verify-boot-image.py` OK, `kernel_built 9e8ae410…`, `payload 570f61e9…`, `adt 079cf3c7…`; `strings kernel.macho` shows `NGPUADD2` / `loaded bytes records` / `no GpuAddon property`. **No `--gpu-addon`** (Lead scope), so the addon cell is absent and this image is the negative control for S4 | built, not booted |
-| image `bt-s4a-20261114c` (`boot.img` `f886223a…`, 201,887,744 B) | the first **positive** S4 image: built with `--gpu-addon out/pong-bt-firmware.bin` (sha256 `febdc20d…`) through a scratch copy of `build-strict.sh` at `/tmp/bt-s4a/scripts/` (= repo file + `bt-lead-0002.patch`), `K60_OUT=/opt/k60/trees/k60build/bt-out-s1c`, `--kernel-arg k60bt=1` → 583 B / 30 args. `build-strict.sh` exit 0, `verify-boot-image.py` OK, `check-image-args.py` OK. `kernel_built ba805e4c…`, `payload 1e62d481…`, `payload_kernel a92d7b1e…`, `adt c304361e…`; payload FAT carries `kernel.macho.gpuaddon` 1,027,584 B (byte-identical to the packer output) and the ADT holds exactly one `GpuAddon` cell. See `S4-SPEC.md` §6.2 | built, not booted |
+| image `bt-s4b-20261115a` (`boot.img` `7ee92d51…`, 201,887,744 B) | **the positive S4 image to fly** (P-197 carrier): built with main's own `build-strict.sh --bt-blob out/pong-bt-firmware.bin` (sha256 `febdc20d…`) and `--kernel-arg k60bt=1` (583 B / 30 args); `kernel_built 4fce5d35…` (106,541,056 B, +1,032,192 B for the embedded container), `payload 3f7ae2c2…`, `payload_kernel c0e7da70…`, `adt 69c0c97f…`; ``llvm-nm`` shows `_k60_bt_blob` at `fffffff0071b8818` and `_k60_bt_blob_len` at `fffffff0072b3618` (Δ = 1,027,584), and those bytes in `kernel.macho` hash-equal the packer output. `--gpu-addon` deliberately NOT passed. See `S4-SPEC.md` §6.4 | built, not booted |
+| image `bt-s4a-20261114c` (`boot.img` `f886223a…`, 201,887,744 B) — **void since P-197** | the first **positive** S4 image: built with `--gpu-addon out/pong-bt-firmware.bin` (sha256 `febdc20d…`) through a scratch copy of `build-strict.sh` at `/tmp/bt-s4a/scripts/` (= repo file + `bt-lead-0002.patch`), `K60_OUT=/opt/k60/trees/k60build/bt-out-s1c`, `--kernel-arg k60bt=1` → 583 B / 30 args. `build-strict.sh` exit 0, `verify-boot-image.py` OK, `check-image-args.py` OK. `kernel_built ba805e4c…`, `payload 1e62d481…`, `payload_kernel a92d7b1e…`, `adt c304361e…`; payload FAT carries `kernel.macho.gpuaddon` 1,027,584 B (byte-identical to the packer output) and the ADT holds exactly one `GpuAddon` cell. See `S4-SPEC.md` §6.2 | built, not booted |
 | images `bt-s1c-a1…a5-20261114c` (`boot.img` `6848bf1d…`, `2d969773…`, `ac55aa27…`, `7171f4dd…`, `87832493…`) | the S1c ladder rebuilt **in an isolated output tree** at **596 B / 31 arguments** each (`k60bt=1 k60bt_step=1/4/5/7/9`), `check-image-args.py` OK on all five, `verify-boot-image.py` OK on all five; the five kernels are byte-identical except Mach-O `LC_UUID` / build timestamp / `_PrelinkKCID` (45–48 bytes), so only the command line varies — see `S1-PROBE-SPEC.md` §4.1 and §4.3. Built, not booted. The earlier `…-20261114b` five are **void**: built in the shared `out-baseline` tree, their kernel differs by 9,070,788 bytes because other lines' patches were compiled in (§4.3). |
 | image `bt-s2-20261114b` (`boot.img` `c3ea7b60…`) | control boot on the returned board: 224,240 B console, `panicMarker=null`, normal `k60_autoreset` reset, zero `K60 BT`/`addon:` lines. `record-boot.py` recorded series `f1c22d7d05bb1b17` (227 patches) | booted, healthy |
 
@@ -71,7 +73,9 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
 2. **PHYSICAL POWER CYCLE FIRST.** The S1a boot (`k60bt=1`) hung the board before the USB gadget
    enumerated: no `adb`, no `fastboot`, no USB device. `scripts/k60-device.sh` documents this as the
    one state no script can leave. Hold power until it is off, then boot it back to Android/fastboot.
-3. **Register the BT hardware item** so the gate can see ①–⑥ (see §4 for the exact TOML).
+3. ~~**Register the BT hardware item** so the gate can see ①–⑥~~ —— **已完成（Lead 合为 `8a497a4`，
+   2026-11-15）**：`docs/research/EIGHT-STEPS.toml:342` 现在有 `[hardware.bluetooth]`（`status = "parked"`），
+   `K60_EIGHT_STEP_ITEMS=bluetooth` 可用。见 §4。
 4. **S3 身份与发布已就位**：`patches/xnu/0509-k60-bt-s3-identity-publish.patch` 在 `series:207`（`0508` 之后、`0503` 之前），把弱 `k60_bt_local_address()` 换成读 `/chosen/unique-chip-id` 的强定义，并在 `native_pong_ui_services_start()` 里发布 `/arm-io/bluetooth` 节点、两处 MAC 与 `bluetooth` IOService（全部 `k60bt=1` 门控）。**镜像已构建两个**：`bt-s3-20261114a`（`k60bt_stage=1`，只跑探针 s1 + 发布钩子，boot.img sha256 `4b865f94deeb9427004f8ca84c7b55516462cbdfc1ef9330c50dacda25985c14`，kernel `e3965c37…2ed5`，adt `7ad7f4a6…12f7`）与 `bt-s3-20261114b`（`k60bt_stage=2`，真实路径：上电 → 取 MAC → `qbt_boot()`，boot.img `fb2b9bb3ea622f432253ba82a2e2c18eb2f6e5b0e380915b6110cde56218d6d5`，kernel `7aab2f21…cdf1`，adt `b623d7c3…eb8e`）；两者 series 226 / `97da5eb2…665a`，`verify-boot-image: OK`，`MiniBluetooth.cpo` 已编译、kernel.macho 里能 `strings` 到三条 `K60 BT:` 串。
 构建时用 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 绕过了种子缺失：ADT 实测 `/chosen/unique-chip-id=0x4B36305400000001`、`chip-id=0x8015`，所以这版会打印 `K60 BT: published local address 02:…` 而不是 `no platform identity`。**把种子固化下来仍是 Lead 待办**：给 `[payload."adt"]` 加 `"unique_chip_id" = "required"` 并在每次构建设 `UNIXNU_UNIQUE_CHIP_ID=<hex>`（`build-strict.sh` 继承调用者环境，`payload.py:160-163` 会读它），或给 `build-strict.sh` 加 `--unique-chip-id` 转发。种子定下后**不要改**（否则 MAC 变化、配对作废）。
 **ADT 里仍没有 `/arm-io/bluetooth` 节点**（`/arm-io` 子节点只有 intc/pong-audio/pong-buttons/pong-touch/ufshc），节点目前由补丁在 IORegistry 里建；要让 DT 二进制里也有，加 `[adt.arm-io.bluetooth.string]` + `[adt.arm-io.bluetooth.u32]`（TOML 见 `S3-SPEC.md` §4 第 3 条）。详见 `S3-SPEC.md` §4/§4.1。
@@ -99,7 +103,8 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
    at an `sX` step, re-boot once with `k60bt_step` one lower to prove that access is the fatal one.
 8. Feed the result back into `docs/research/GENI-ACCESS-PRECONDITIONS.md` (the touch and audio lines
    share this precondition), `06-DEEP-DIVE.md` F2/F3 and `RESEARCH.md` §5.4.
-9. **S4 构建侧要合并三处**（内核侧已就位：`patches/xnu/0510` 在 `series:208`，对缺失单元静默降级，所以现在合并也不会改变任何现有镜像）。三处补丁已用临时副本**端到端验证过**：`bt-s4a-20261114c` 就是经 `/tmp/bt-s4a/scripts/build-strict.sh` 构建出来的，可以直接合：
+9. ~~**S4 构建侧要合并三处**~~ —— **已合（Lead：`277e09e` + `dbc2cd5`，2026-11-15）**；本分支重基后这三个文件与 main 逐字节相同。
+   原文保留供追溯（当时内核侧已就位：`patches/xnu/0510` 在 `series:208`，对缺失单元静默降级，所以当时合并也不会改变任何现有镜像；三处补丁已用临时副本**端到端验证过**）：
    (a) 新文件 `scripts/make-bt-firmware-addon.py`——全文与实测输出见 `S4-SPEC.md` §5.2；
    (b) `scripts/build-strict.sh` 增加 `--gpu-addon <file>` 并转发给 `unixnu build payload`，同时写进 manifest 的 `components`——精确 diff 见 `S4-SPEC.md` §5.3；
    (c) `.gitignore` 给 `firmware/bluetooth/manifest.json` 开否定规则（只有 bytes+sha256，可以入库）——见 `S4-SPEC.md` §5.4。
@@ -133,7 +138,9 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
 
 ## 4. Gate snippets (outside this line's write scope)
 
-**已产出可落地补丁（2026-11-15）**：`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`
+**已落地（Lead 合为 `8a497a4`，2026-11-15）**：`[hardware.bluetooth]` 现在就在
+`docs/research/EIGHT-STEPS.toml:342`，本分支不再携带该补丁。原始补丁（留档）：
+`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`
 （12,132 B，sha256 `7a31315374545bc458861d67b69dc00b4772b9a55c9bfbd1ea89eaa01a35f48f`）——
 `docs/research/EIGHT-STEPS.toml` 新增 `[hardware.bluetooth]`（`status = "parked"`，48 行）、
 `scripts/render-eight-step-table.py` 删掉 `UNTRACKED` 里的 `('蓝牙', 'planned')`、
@@ -290,21 +297,34 @@ P-194  FAIL gpu-20261114n: manifest patch count equals the series — manifest 2
 
 ### Hand-over state (who does what next)
 
-Lead, already committed to doing it: merge 0001–0003; land the symbol-as-criterion P-190 fix and the
-branch-filter P-194 fix on `main`; add `k60bt_step`/`k60bt_delay` to `check-image-args.py`
-`ALLOWED_ADDITIONS` and document the five `k60bt_*` names in `docs/engineering/BOOT-ARGS.md`; open a
-device window when the board is available.
+**State 2026-11-15 03:30 — everything the Lead owed this line has landed.** Merged on `main`:
+`277e09e`+`dbc2cd5` (the three build fragments), the symbol-as-criterion P-190 fix, the branch-filter
+P-194 fix, `8a497a4` (`[hardware.bluetooth]` ledger), `344e47d` (P-197). This line added
+`k60bt_step`/`k60bt_delay` to `ALLOWED_ADDITIONS` (`7d01f9e`) and the `k60bt`/`k60bt_stage` rows to
+`BOOT-ARGS.md`, and switched the S4 carrier to a kernel-embedded blob (`ccd4dfc`).
+
+Lead, remaining: open a device window and fly **two** images — the negative control
+`bt-s4-20261114b` (`82ff78b4…`, 583 B) and the positive `bt-s4b-20261115a` (`7ee92d51…`, 583 B,
+embedded blob). Do **not** queue the `a1/a4/a5/a7/a9` ladder before the S4 result: the ladder verifies
+the same firmware-load path, and the carrier change invalidates its criteria.
 
 This line, next in order:
 
-1. Wait for `main` to carry the Lead's gate fixes, then `git rebase`/merge `main` into `feat/bt-research`.
-2. Rebuild the positive S4 sample with `--gpu-addon out/pong-bt-firmware.bin`; success is
-   `addon: loaded bytes records 1027584 106` in the console (S4a) and `addon: serving 201560 0` (S4b).
+1. ~~Wait for `main` to carry the Lead's gate fixes, then rebase.~~ Done: `df82dfe` → `ccd4dfc`.
+2. ~~Rebuild the positive S4 sample with `--gpu-addon`.~~ Superseded by P-197: the positive sample is
+   now `bt-s4b-20261115a`, built with `--bt-blob out/pong-bt-firmware.bin`; success is
+   `[bluetooth] addon: linked blob bytes=1027584 records=106` (S4a) and `addon: serving 201560 0` (S4b).
+   The old `--gpu-addon` images are void, and their measured `addon: unusable range 0 0` is the P-197
+   device evidence.
 3. Keep the device ladder parked until the Lead opens a window: negative control `bt-s4-20261114b`
-   (583 B, passes `check-image-args.py`), the c-series ladder `a1/a4/a5/a7/a9` (596 B), `s3a`/`s3b`,
-   then `s4a`/`s4b`/`s4c`.
-4. `docs/research/EIGHT-STEPS.toml` still needs the `[hardware.bluetooth]` block — **done as a patch**
-   (`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`, §4). Until the Lead lands it,
-   `K60_EIGHT_STEP_ITEMS=bluetooth` is still rejected by `eight-step-gate.py`; the whole-device
-   verdict (build 30 / flash 40 checks) is unaffected because a parked item is not hard-checked.
+   (583 B, passes `check-image-args.py`), positive `bt-s4b-20261115a`, then — only after the S4 verdict —
+   the c-series ladder `a1/a4/a5/a7/a9` (596 B), `s3a`/`s3b`.
+4. ~~`docs/research/EIGHT-STEPS.toml` needs the `[hardware.bluetooth]` block.~~ Landed on `main` as
+   `8a497a4`. The criteria still name the old carrier's line, so this line exported the update as a
+   patch instead of editing the shared contract: `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-blob.patch`
+   (10,117 B, sha256 `539473c2e2ab2578cbdcb1212047e2ed88a08f3616bd3e569841d79e0258cdc3`) — it rewrites
+   `step.plan` / `step.verify` / `step.device.prediction` / `paths` / `parked_why` in
+   `docs/research/EIGHT-STEPS.toml` and the P-197 `Check` line in `docs/engineering/PITFALLS.md`.
+   `git apply --check` passes on `ccd4dfc`; `render-eight-step-table.py --check` stays consistent
+   because only `done`/evidence text changed, not the table cells.
 

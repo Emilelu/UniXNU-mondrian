@@ -1,15 +1,16 @@
-# S4 — 蓝牙固件随启动镜像下发（boot-image addon）
+# S4 — 蓝牙固件随内核下发（kernel-embedded blob）
 
-状态（2026-11-14 10:20）：**内核侧已交付并离线验证**（`patches/bt/0004` = `patches/xnu/0510`，`patches/xnu/series:208`）；
-**构建侧未合并**（`scripts/` 属 Lead 写权限，片段见 §5）；**上机未验证**——板子不在（`fastboot devices` 为空，
-`adb devices` 只有表头），S4 的 ⑦ 仍然是 `done = false`。
+状态（2026-11-15 03:26）：**通道已换**。原方案（payload 的 `<kernel>.gpuaddon` 槽 + DarwinBoot 拷进 boot
+window + `/chosen/memory-map/GpuAddon`）被真机否证（P-197：固件根本没有这个拷贝器，两次上机都只有一行
+`addon: unusable range 0 0`）。现在固件走 Metal 那条已验证的路：**`.incbin` 汇编嵌进内核**，
+镜像 `bt-s4b-20261115a` 已构建并离线核验（`boot.img` `7ee92d51…`），**上机仍未做**，⑦ 仍是 `done = false`。
 
 ## 0 一句话
 
-S4 不需要把 106 个 QCA 文件写进 `/private/var/ngpu/firmware/qca`：把固件按 `make-gpu-addon.py` 的
-NGPUADD2 容器塞进启动镜像的 `<kernel>.gpuaddon` 槽，DarwinBoot 会把它复制进 boot window 并把运行时物理地址
-写进 `/chosen/memory-map/GpuAddon`，内核在 `bsd/dev/qbt_k60.c` 里用 `phystokv` 直接读。整条链路**不需要**
-改固件、不需要 Data seed、不需要 zlib、不需要新 DXE。
+S4 不需要把 106 个 QCA 文件写进 `/private/var/ngpu/firmware/qca`，也不需要固件配合：`scripts/gen-k60-bt-blob.py`
+把 NGPUADD2 容器写成 `k60_bt_blob.s`（`.incbin` + 长度常量），`0510` 把这个文件编进内核，
+`k60_bt_addon_load()` 优先读链接进来的 `k60_bt_blob`，读不到才回落老的 devicetree 路径。
+整条链路**不需要**改固件、不需要 Data seed、不需要 zlib、不需要新 DXE。
 
 ## 1 为什么这是唯一可行的通道（排除表）
 
@@ -25,7 +26,12 @@ NGPUADD2 容器塞进启动镜像的 `<kernel>.gpuaddon` 槽，DarwinBoot 会把
 
 真正的通道是**启动镜像**本身：DarwinBoot 已经从 payload FAT 里读 `<kernel>.gpuaddon`。
 
-## 2 通道机制（逐行证据）
+## 2 旧通道机制（**已被 P-197 否证，留档对照**）
+
+> 下面六条是 2026-11-14 的"逐行证据"，其中第 3–4 条是**假设**：`DarwinBoot.c:588-651` 里没有
+> 任何 `addon` 字样（`git grep -ci 'addon' HEAD` 在 uefi-mondrian 零命中），那 64 行是
+> `WritePongRam` 与启动流程。真机证据：`usblog-20261115-012913/console.log:192` 只有
+> `[bluetooth] addon: unusable range 0 0`——ADT 单元存在但从未被填过地址。见 `PITFALLS.md:4720`（P-197）。
 
 1. 构建期 `payload.py:215`：`if addon: shutil.copyfile(addon, payloads/'kernel.macho.gpuaddon')`。
 2. `payload.py:224`：`generate(dtb, ctx.board, unique_chip_id=seed, data=..., trust=..., addon=bool(addon), ...)`；
@@ -59,17 +65,23 @@ b'NGPUADD2' + u32 count + u32 0 + u64 total(= 24 + len(body))
 命名：容器内路径为 `qca/<name>`（如 `qca/hpbtfw20.tlv`），内核按 basename 匹配，同时剥掉请求里的 `qca/` 前缀，
 所以 `ka60_firmware_get()` 传入的 `qca/hpbtfw20.tlv`、`hpbtfw20.tlv` 都能命中。
 
-## 4 内核侧交付：`patches/bt/0004` = `patches/xnu/0510`
+## 4 内核侧交付：`patches/bt/0004` = `patches/xnu/0510`（2026-11-15 改为内嵌 blob）
 
 | 项 | 值 |
 |---|---|
 | 文件 | `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch`（字节相同） |
-| 大小 / 行数 | 12,877 B / 291 行，**237 增 / 1 删**，只动 `bsd/dev/qbt_k60.c` |
-| sha256 | `4d6e3c1a89b60a55cc146294ec4e9abcfac4521aed0d3787da20df5e22218b04` |
+| 大小 / 行数 | 15,672 B，**289 增 / 1 删**，动两个文件：`bsd/dev/qbt_k60.c` 与 `osfmk/conf/files.arm64` |
+| sha256 | `316148931ab11fa9fbd79fbe7b878960e702b39d5e89babd0daa806655fccc96` |
 | 接线 | `patches/xnu/series:208`（紧跟 `0509`，早于 audio 组） |
-| 依赖 | 必须在 `0500`/`0507`/`0508`/`0509` 之后（基线就是打完全系列后的 `qbt_k60.c`） |
+| 依赖 | 必须在 `0500`/`0507`/`0508`/`0509` 之后（基线就是打完全系列后的 `qbt_k60.c`）；`osfmk/conf/files.arm64` 的新行插在 `WKdmCompress_4k.s` 之后，所以 `0610` 的 conf hunk 仍能干净应用（实测 `APPLY_610_CONF_OK`） |
 
-改动五处：
+**这个补丁是怎么重做出来的**（可复现）：`0510` 只改 `bsd/dev/qbt_k60.c`，所以在空仓库里按序
+`git apply --include='bsd/dev/qbt_k60.c'` 打 `0500`→`0501`→`0502b`→`0507`→`0508`→`0509` 得到 1871 行的基线，
+再把旧 `0510` 打上去（`git apply -R --check` 通过即证明基线精确），然后在新基线上写内嵌 blob 的改动，
+`git diff` 导出。主机侧用 `gcc -fsyntax-only -DK60_BT_HOST_TEST` 编译过（只剩两条既有的
+`K60_QUP_HW_VER_REG` 重定义警告）。
+
+改动六处：
 
 1. `#if defined(__arm64__)` 里 `typedef uint64_t pmap_paddr_t __kernel_ptr_semantics;` + `extern vm_map_address_t phystokv(pmap_paddr_t pa);`
    —— `pmap_paddr_t` 的 typedef 在 `osfmk/arm/pmap_public.h:40`，被 `MACH_KERNEL_PRIVATE` 挡住，BSD 编译单元看不到，
@@ -78,18 +90,27 @@ b'NGPUADD2' + u32 count + u32 0 + u64 total(= 24 + len(body))
 2. 容器常量 `K60_BT_ADDON_MAGIC/HEADER/MAX_BYTES/MAX_NAME`。
 3. 纯解析器 `k60_addon_find()` + 内核装载器 `k60_bt_addon_load()` + 单条读取 `k60_bt_addon_read()`。
 4. `k60_bt_firmware_read()` **先**试 addon，再走 vnode 根（`/private/var/ngpu/firmware/qca` → `/vendor/firmware` …）。
-5. `qbt_k60_start()` 里在起线程前 `(void)k60_bt_addon_load()`：DarwinBoot 的 window 是 `EfiLoaderCode`
-   内存，VM 之后可能回收，所以在 `bsd_init` 就快照一份（1 MB 以内）。
+5. `qbt_k60_start()` 里在起线程前 `(void)k60_bt_addon_load()`：不管走哪条通道，都在 `bsd_init`
+   就把固件准备好，工作线程起来时直接可用。
+6. **新增（2026-11-15）内嵌 blob 通道**：`extern const uint8_t k60_bt_blob[];` +
+   `extern const uint64_t k60_bt_blob_len;`（由 `k60_bt_blob.s` 提供），
+   `k60_bt_addon_load_blob()` 校验长度/魔数/头部后把 `k60_addon_copy` 直接指向这段只读数据
+   （**不拷贝、不释放**），成功即返回；`k60_addon_copy` 因此从 `uint8_t *` 变成 `const uint8_t *`。
+   `k60_bt_addon_load()` 在 `k60_addon_status = -ENOENT` 之后第一件事就是调它，
+   读不到（`k60_bt_blob_len == 0`，即构建时没带 `--bt-blob`）才走老的 devicetree 路径——
+   所以负向对照仍然打印 `addon: no GpuAddon property`。
 
 日志（全部走 `k60_log`，即 `[bluetooth] ...`，level ≤ 3 才打印）：
 
 | 行 | 含义 |
 |---|---|
-| `addon: loaded bytes records 1027584 106` | 成功：容器已快照，106 条记录 |
+| `addon: linked blob bytes=1027584 records=106` | **新**成功行：内嵌 blob 已校验并接管（`k60_addon_loaded()`） |
+| `addon: loaded bytes records 1027584 106` | 旧通道成功行（devicetree 路径，留作回退） |
 | `addon: serving 201560 0` | 命中一条（例：`hpbtfw20.tlv` 201,560 B） |
 | `addon: no GpuAddon property` | ADT 没这个单元（构建时没带 `--gpu-addon`），属正常降级 |
-| `addon: unusable range …` / `bad header …` | DarwinBoot 写了单元但内容不合格 |
-| `addon: bad magic` / `no kernel mapping` / `no memory for the copy` | 容器或内存异常 |
+| `addon: blob bad magic` / `blob bad header` / `bad blob length` | 内嵌容器与长度常量不一致（构建期 `test-k60-bt-blob.py` 本应先拦住） |
+| `addon: unusable range …` / `bad header …` | 旧通道：DarwinBoot 写了单元但内容不合格（P-197 的实测症状） |
+| `addon: bad magic` / `no kernel mapping` / `no memory for the copy` | 旧通道：容器或内存异常 |
 
 ## 5 构建侧（Lead 权限，未合并）
 
@@ -288,6 +309,22 @@ if __name__ == '__main__':
 | `/mnt/e/k60-work/scratch/bt-s4/lead/bt-lead-0003.patch` | `.gitignore` | §5.4 的 `firmware/bluetooth/` 例外 |
 
 三份都已在真实仓库上 `git apply --check` 通过；`0002` 还额外做了端到端验证（§6.2）。
+**这三份已经由 Lead 合进 `main`**（`277e09e` + `dbc2cd5`），本分支重基后与之逐字节相同，不再作为待办。
+
+### 5.6 内嵌 blob 的构建侧（2026-11-15，已提交 `ccd4dfc`）
+
+Lead 在 P-197 之后直接指派本线做这一步，所以 `scripts/` 的这三处由本分支提交（不再是仓库外补丁）：
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/gen-k60-bt-blob.py`（新，6,794 B） | 把 NGPUADD2 容器写成 `.section __DATA,__const` + `.globl _k60_bt_blob` + `.p2align 3` + `.incbin "<绝对路径>"` + `.globl _k60_bt_blob_len` + `.quad <total>`；**不带 `--container` 时写一字节桩 + `.quad 0`**，让其它线的构建完全不受影响（内核看到长度 0 就回落到 devicetree 路径） |
+| `scripts/tests/test-k60-bt-blob.py`（新，12,159 B） | 9 条夹具用例 + 真实产物模式 `--assembly <file> [--container <file>]`：核对长度常量 = 容器字节数、头部 total/count 自洽、每条记录 8 字节对齐且在界内、记录恰好铺满容器、`packed == size`（内核没有 zlib） |
+| `scripts/build-xnu-4k-baseline.sh`（:311-324） | 在 metal blob 块之后新增 `0510` 的生成块：`K60_BT_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_bt_blob.s`，只在 `patches/xnu/0510-…` 存在时执行；`K60_BT_BLOB` 非空且文件存在才传 `--container`。生成器用 `"$ROOT/scripts/gen-k60-bt-blob.py"`（树内脚本，不写死别的检出路径，P-193） |
+| `scripts/build-strict.sh` | 新参数 `--bt-blob <file>`（用法行 + 解析分支 + 存在性校验）；kernel 步骤前 `export K60_BT_BLOB` 并打印 `build-strict: bt blob <sha256> <bytes> bytes`；manifest 的 `components` 增加 `bt_blob` / `bt_blob_path`；boot.img 之后用 `test-k60-bt-blob.py --assembly <生成的 .s> --container <输入容器>` 核对这一对（失败即 `die`） |
+
+生成位置为什么是 `$ROOT/.cache/xnu-work`：`unixnu build kernel` 调的是 **device mirror**（`K60_DEVICE_INPUT`）里的
+`scripts/build-xnu-4k-baseline.sh`，那里的 `$ROOT` 就是镜像根；metal 的 `.s` 也写在同一个目录
+（`build-xnu-4k-baseline.sh:305`），所以两者共用一条已被验证的路径。
 
 ## 6 离线验证（已完成，2026-11-14 10:20）
 
@@ -336,7 +373,8 @@ if __name__ == '__main__':
 
 ## 6.2 正向镜像（已构建，2026-11-14 13:43–13:49）
 
-用 §5.2 的打包器 + §5.3 的 `--gpu-addon` 开关做了**带固件的正向镜像**。因为 `scripts/build-strict.sh`
+用 §5.2 的打包器 + §5.3 的 `--gpu-addon` 开关做了**带固件的正向镜像**（**2026-11-15 起作废**：P-197 之后
+固件不再走 payload 的 addon 槽，见 §6.4）。因为 `scripts/build-strict.sh`
 的改动属 Lead 权限，本次构建用的是**仓库外的临时副本**：`/tmp/bt-s4a/scripts/build-strict.sh`
 （= 仓库原文件 + `bt-lead-0002.patch`，只把 `REPO` 指回 `/mnt/e/hackios/k60-bt`）。
 
@@ -392,10 +430,14 @@ bash /tmp/bt-s4a/scripts/build-strict.sh bt-s4a-20261114c \
 
 ## 6.3 重基后的正向镜像（2026-11-14 23:47–23:57，`bt-s4a-20261114f`）
 
+> **已作废（2026-11-15）**：P-197 证明固件不填 `GpuAddon` 单元，所以这一族镜像的期望行
+> `addon: loaded bytes records …` 永远不会出现，实测只有 `addon: unusable range 0 0`。
+> 当前正向镜像是 §6.4 的 `bt-s4b-20261115a`。本节留作"通道为什么换"的对照记录。
+
 `main` 在 22:51–23:36 之间又落了三个门禁提交（`314497d`、`f02acff`，后者修了
 `build-strict.sh` 里 `$ROOT`/`$M` 的 P-196 误判与 P-194 的"第一次构建没有 manifest"死锁），
-本分支 `git rebase origin/main` 后重建成 `bt-s4a-20261114f`。**这是当前唯一推荐上机的 S4a 镜像**：
-`bt-s4a-20261114c` 构建于重基之前（series 227，且当时 `P-190`/`iron-9` 尚未被 main 修好）。
+本分支 `git rebase origin/main` 后重建成 `bt-s4a-20261114f`。它在 2026-11-14 晚间是推荐上机的 S4a 镜像
+（`c` 构建于更早的重基之前，series 227）；2026-11-15 起被 §6.4 取代。
 
 命令与 §6.2 相同，只是 harness 换成 `/tmp/bt-rb/scripts/build-strict.sh`（= 重基后的仓库文件 +
 `bt-lead-0002.patch`，`REPO` 指回 `/mnt/e/hackios/k60-bt`），tag 用 `bt-s4a-20261114f`。
@@ -433,26 +475,72 @@ but not built`），构建后判 `✅ kernel archives: 4 enabled archive(s) all 
 而 `llvm-nm-18 kernel.macho | grep -c k60_physical_battery_start` = 2。所以那条红是"树里的内核早于
 `3c0e1e3`"，不是代码缺陷；把旧内核挪走后注册表即转绿（`失败 0 条`）。
 
+## 6.4 内嵌 blob 的正向镜像（2026-11-15 03:26，`bt-s4b-20261115a`）
+
+P-197 之后 S4 换了通道（§0/§2），`bt-s4a-*` 这一族**全部作废**：它们的 addon 只存在于 payload 槽里，
+而固件不填那个槽。新镜像是 `bt-s4b-20261115a`，固件真的在 `.text` 旁边的 `__DATA,__const` 里。
+
+命令（用 **main 自己的** `scripts/build-strict.sh`，没有本地补丁）：
+
+```sh
+K60_OUT=/opt/k60/trees/k60build/bt-out-s1c \
+K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device \
+bash scripts/build-strict.sh bt-s4b-20261115a \
+  --fd /mnt/e/k60-work/artifacts/fd/bt-s2-20261114b-cf4485712c29.fd \
+  --bt-blob /mnt/e/hackios/k60-bt/out/pong-bt-firmware.bin \
+  --kernel-arg k60bt=1
+```
+
+结果：退出码 0，`eight-step 通过 30 项检查` → `bt blob febdc20d… 1027584 bytes` →
+`kernel 4fce5d35…`（106,541,056 B，比 `f` 大 1,032,192 B ≈ 容器 + 对齐）→
+`✅ kernel archives: 4/4` → `✅ k60_metal_blob.s` / `✅ k60_bt_blob.s: container table is self-consistent` →
+`image-arg-audit: OK (30 arguments, 583 bytes)` → `verify-boot-image.py --manifest` `OK`。
+series 228，`frozen b7572a96695a82d3d9f8a82931c8b312d791d1d07193fa78b5610e14bd51b009`。
+
+| 项 | 值 |
+|---|---|
+| boot.img | `7ee92d515715de56d2845f632369203faac12df0090f0fbe1bcc606eb43d925d`（201,887,744 B） |
+| kernel_built | `4fce5d35578edb80150d27ebb06791fb90407b82cb3a5eb8350151679ba66d02`（106,541,056 B） |
+| payload | `3f7ae2c29402e7d9290c4fc5973d23e56e7ac19840c715a4131a7153bf97da3d` |
+| payload_kernel | `c0e7da70b9f5f4d040a3c89a58aa9ae9a31be27a6774a7b257ff61d514579517` |
+| adt | `69c0c97fdf476ed3925ee8bf4d978501e9a492d2f16b4d34f6500af243a24fb0` |
+| dtb / fd | `2d044eaa…33cd` / `cf448571…5d0f`（与前几版相同） |
+| bt_blob | `febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037`（1,027,584 B） |
+| bt_blob_path | `/mnt/e/hackios/k60-bt/out/pong-bt-firmware.bin` |
+| gpu_addon | 空——**故意不传** `--gpu-addon`，证明固件只走内核内嵌这一条 |
+
+四项独立核对，证明 blob 真的在核心里：
+
+1. `llvm-nm-18 kernel.macho` → `fffffff0071b8818 S _k60_bt_blob` 与
+   `fffffff0072b3618 S _k60_bt_blob_len`，两地址相差 1,027,584 = 容器字节数。
+2. 在 `kernel.macho` 里按字节搜容器的前 4 KiB → 偏移 1,787,928；把该偏移起的 1,027,584 字节取出来算
+   sha256 = `febdc20d…` = 打包器输出（逐字节相同）。
+3. `strings kernel.macho` 命中 `addon: blob bad magic` 与 `linked blob`（新代码路径真的编进去了）。
+4. `python3 scripts/tests/test-k60-bt-blob.py --assembly <tree 的 k60_bt_blob.s> --container <容器>`
+   → `✅ … container table is self-consistent`；`verify-boot-image.py --manifest` `OK`。
+
 ## 7 上机阶梯（板子回来后）
 
-前提：用带 `--gpu-addon` 的构建（§6.2 的 `bt-s4a-20261114c`），启动参数只需 `k60bt=1`（583 B）。
-S4 的负向对照仍要用 §6 第 6 条的 `bt-s4-20261114b`（`k60bt=1`、无 addon）。
+前提：启动参数只需 `k60bt=1`（583 B）。正向镜像用 §6.4 的 **`bt-s4b-20261115a`**（内嵌 blob）；
+负向对照仍用 `bt-s4-20261114b`（`k60bt=1`、构建时既没 `--bt-blob` 也没 `--gpu-addon`，所以
+`k60_bt_blob_len == 0`，走回落路径）。
 
 | 级 | 镜像 | 参数 | 期望（关键行） |
 |---|---|---|---|
-| S4- | `bt-s4-20261114b` | `k60bt=1` | 负向对照：`K60 BT: addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |
-| S4a | **`bt-s4a-20261114f`** | `k60bt=1` | `K60 BT: addon: loaded bytes records 1027584 106` |
-| S4b | **`bt-s4a-20261114f`** | `k60bt=1` | `K60 BT: addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
-| S4c | **`bt-s4a-20261114f`** | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764 的等价行），拿到 rom_ver/board-id |
+| S4- | `bt-s4-20261114b` | `k60bt=1` | 负向对照：`[bluetooth] addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |
+| S4a | **`bt-s4b-20261115a`** | `k60bt=1` | `[bluetooth] addon: linked blob bytes=1027584 records=106` |
+| S4b | **`bt-s4b-20261115a`** | `k60bt=1` | `[bluetooth] addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
+| S4c | **`bt-s4b-20261115a`** | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764），拿到 rom_ver/board-id |
 
-（`bt-s4a-20261114c` 已被 `f` 取代：`c` 构建于重基前，series 227；`f` 是 series 228、重基到含
-P-190/P-194 修复的 main 之后的正向镜像，见 §6.3。两者命令行相同、都是 583 B。）
+（`bt-s4a-20261114c`/`f`/`bt-s4a-20261115a` 全部作废：它们把固件放在 payload 的
+`kernel.macho.gpuaddon` 槽里，而固件从不填那个槽（P-197）。它们的实测结果**不是**失败，而是
+`addon: unusable range 0 0`——那正是 P-197 的真机证据。）
 
-S4a 与 S4b 用同一个镜像：`loaded` 在 `qbt_k60_start()` 里就打（`k60_bt_addon_load()`），
+S4a 与 S4b 用同一个镜像：`linked blob` 在 `qbt_k60_start()` 里就打（`k60_bt_addon_load_blob()`），
 `serving` 要等 qbt 真正取固件才打，是同一轮启动里的前后两段，不是两次构建。
 
 判定：只认 `capture.json` 的 `verdict`/`panicMarker`；控制台 0 字节时用 `0331` 的 K60PREV 重放读上一轮尾巴。
-失败即回退到不带 `--gpu-addon` 的构建（内核代码对缺失单元是静默降级，见 §4 日志表）。
+失败即回退到不带 `--bt-blob` 的构建（内核代码对缺失 blob 是静默降级，见 §4 日志表）。
 
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
@@ -464,7 +552,8 @@ touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery�
 
 **补丁**：`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`（12,132 B，sha256
 `7a31315374545bc458861d67b69dc00b4772b9a55c9bfbd1ea89eaa01a35f48f`），4 个文件
-（+50/−3）：
+（+50/−3）。**Lead 已于 2026-11-15 合为 `8a497a4`**（`[hardware.bluetooth]` 现在在
+`docs/research/EIGHT-STEPS.toml:342`），本分支不再携带该补丁：
 
 | 文件 | 改动 |
 |---|---|
@@ -485,9 +574,17 @@ touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery�
 
 **⑤ 方案里写进去的阶梯判据**（这是 Lead 要的"把 step-5 判据放进片段"）：五档 `k60bt=1 k60bt_step=N`
 （1→4→5→7→9，每份 596 B）与"最后一行打点即死因"的判死表，以及 S4 三级
-（负向 `addon: no GpuAddon property` / 正向 `addon: loaded bytes records 1027584 106` →
+（负向 `addon: no GpuAddon property` / 正向 `addon: linked blob bytes=1027584 records=106` →
 `serving 201560 0` → `QCA controller version 0x…`）全部逐字写进 `[hardware.bluetooth.step.plan]`
 与 `step.device.prediction`。
+
+> 合进 main 的那一版写的是旧通道的正向判据 `addon: loaded bytes records 1027584 106`。
+> P-197 之后正向镜像换成内嵌 blob，判据行改成 `addon: linked blob bytes=1027584 records=106`。
+> `docs/research/EIGHT-STEPS.toml` 与 `docs/engineering/PITFALLS.md`（P-197 的 Check 行）都**不在本线写权限内**，
+> 所以这三处判据改动同样导出成补丁交给 Lead：
+> `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-blob.patch`（10,117 B，sha256
+> `539473c2e2ab2578cbdcb1212047e2ed88a08f3616bd3e569841d79e0258cdc3`），在 `ccd4dfc` 上
+> `git apply --check` 通过。本分支只保留 `docs/research/bt/*` 里的同名说明。
 
 **旧的草案（已作废，留档对照）**——注意它 `status = "research"` 不是合法状态值，且 evidence 只有
 章节号、没有 file:line 锚点，会被 `has_reference()` 判成"缺可核查引用"：
@@ -532,13 +629,15 @@ evidence = "S1c/S2/S3/S4 not yet run on device; images bt-s1c-*/bt-s2-20261114b 
 
 | 风险 | 影响 | 处置 |
 |---|---|---|
-| 构建时带了 addon 但 ADT 没单元（老 `devicetree.py`） | DarwinBoot `EFI_COMPROMISED_DATA`，**开不了机** | `devicetree.py:339` 已按 `addon=bool(addon)` 自动生成；构建前用 `make-bt-firmware-addon.py --list` 确认文件存在即可 |
-| boot window 余量 | `WINDOW_SIZE = SIZE_256MB`，内核 + ADT + ramdisk + trust + addon 1 MB | 余量充足；`Used > WindowSize - BLOCK_SIZE` 时 DarwinBoot 自己报 `EFI_BAD_BUFFER_SIZE` |
-| 快照占 1 MB 内核内存 | 可忽略 | `IOMallocData` 一次性，不释放 |
+| 旧通道：构建时带了 addon 但 ADT 没单元（老 `devicetree.py`） | 已无关——P-197 之后固件不再走 ADT 单元 | 保留 `--gpu-addon` 只为对照；正向镜像不传它 |
+| 内核体积 +1,032,192 B（容器 + 对齐） | 内核 106,541,056 B，仍在 boot window 内 | 实测 `verify-boot-image` OK；要收窄时按 §10 第 3 条砍到 3–4 个文件 |
+| 内嵌 blob 头部与长度常量不一致 | 内核打印 `blob bad magic`/`blob bad header` 并静默回落到旧路径 | 构建期 `test-k60-bt-blob.py` 先拦（9 条夹具，含 P-196 那类"长度没算 padding"的用例） |
 | 命名/压缩不匹配 | 解析器 fail closed | 打包器与解析器共用同一白名单正则，坏名字在构建期就报错 |
 
 ## 10 下一步
 
-1. Lead 合并 §5.2/§5.3/§5.4（`scripts/` + `.gitignore`）。
-2. 板子回来后按 §7 跑 S4a→S4c，把 `capture.json` 与关键行写进本文 §7 与 `HANDOFF.md` 的账本。
-3. 拿到 `rom_ver`/`board-id` 后把 §5.1 的 106 文件清单收窄到实际需要的 3–4 个（可省 900 KB）。
+1. ~~Lead 合并 §5.2/§5.3/§5.4~~——已合（`277e09e` + `dbc2cd5`）；内嵌 blob 的三处构建侧改动由本线提交（`ccd4dfc`）。
+2. 板子回来后按 §7 跑 S4-（负向）与 S4a→S4c（`bt-s4b-20261115a`），把 `capture.json` 与关键行写进本文 §7 与 `HANDOFF.md` 的账本。
+3. 拿到 `rom_ver`/`board-id` 后把 §5.1 的 106 文件清单收窄到实际需要的 3–4 个（可省 900 KB 内核体积）。
+4. S4 出结果**之后**才排 S1c 阶梯（a1/a4/a5/a7/a9）——阶梯验的是同一条 addon 取固件路径，
+   通道换了，它的判据也跟着变，先跑会白烧一次窗口。

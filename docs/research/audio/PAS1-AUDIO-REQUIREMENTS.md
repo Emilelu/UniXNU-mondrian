@@ -68,20 +68,20 @@ provider 的产物是「ADSP 在跑 + GLINK 可用」两件事；剩下全是 co
 一句话给 provider 实现者：**音频不做第二个 GLINK owner；音频是 publish 之后的 consumer，
 复用同一个 QcomGlink 实例的第二个通道槽，发包前 revalidate。**
 
-### 1.3 GPR 常量真值 vs 0504 现值（三处必须修）
+### 1.3 GPR 常量真值 vs 0504 现值（三处已于 2026-11-15 修正）
 
-| 常量 | mainline 真值 | `ShengGpr.h` | 0504 现值 | 判定 |
+| 常量 | mainline 真值 | `ShengGpr.h` | 0504 现值（已修正） | 判定 |
 |---|---|---|---|---|
-| `GPR_VERSION` | `GPR_PKT_VER 0x0`（`apr.h:104`） | `0u` | **`3u`**（0504:121） | 0504 错：头低 4 位是版本，DSP 只认 0 |
-| `GPR_OP_BASIC_RESULT` | `GPR_BASIC_RSP_RESULT 0x02001005`（`apr.h:108`） | `0x02001005u` | **`0x02000002u`**（0504:127） | 0504 错 |
-| `GPR_OP_APM_GET_SPF_STATE` | `APM_CMD_GET_SPF_STATE 0x01001021`（`audioreach.h:38`） | `0x01001021u` | **`0x0100100Du`**（0504:128） | 0504 错：`0x0100100D` 实为 `APM_CMD_SHARED_MEM_UNMAP_REGIONS`（`audioreach.h:62`） |
+| `GPR_VERSION` | `GPR_PKT_VER 0x0`（`apr.h:104`） | `0u` | `0u`（0504:121） | 已修正；曾为 `3u`——头低 4 位是版本，DSP 只认 0 |
+| `GPR_OP_BASIC_RESULT` | `GPR_BASIC_RSP_RESULT 0x02001005`（`apr.h:108`） | `0x02001005u` | `0x02001005u`（0504:127） | 已修正；曾为 `0x02000002u` |
+| `GPR_OP_APM_GET_SPF_STATE` | `APM_CMD_GET_SPF_STATE 0x01001021`（`audioreach.h:38`） | `0x01001021u` | `0x01001021u`（0504:128） | 已修正；曾为 `0x0100100Du`，那是 `APM_CMD_SHARED_MEM_UNMAP_REGIONS`（`audioreach.h:62`） |
 | `GPR_HEADER_BYTES` | 24（`sizeof(struct gpr_hdr)`） | `24u` | `24u`（0504:122） | 一致 |
 | `GPR_DOMAIN_ADSP` / `APPS` | 2 / 3（`qcom,gpr.h:9-10`） | `2u` / `3u` | `2u` / `3u`（0504:124-125） | 一致 |
 | `GPR_PORT_APM` | 1（`audioreach.h:41`） | `1u` | `1u`（0504:126） | 一致 |
 | APM 应答 | `APM_CMD_RSP_GET_SPF_STATE 0x02001007`（`audioreach.h:39`） | `0x02001007u` | 同 | 一致 |
 | 最大包 | — | `GPR_MAX_PACKET 512u` | 同 | 一致（`adsp_apps` intent 也是 512 B） |
 
-修正属 0504 / 音频线 scope；本轮代码冻结，**只登记不动补丁**。
+**已修正**（2026-11-15，Lead 批准的定向解冻）：`patches/xnu/0504-k60-audio-pong-audio.patch` 由 `diff -u` 重新生成，只动这三行常量，补丁仍是 973 行 / 29,471 B（三处等长替换，sha256 `d2642742010209693ded8c4a36a9c94f949757ada91651d218deded40bc99963`），`scripts/check-patch-apply.py` 通过（P-162）。宿主侧由 `drivers/PongAudio/tests/test-pong-audio-geni-i2c.c` 的 `afe_gpr_cases()` 钉死三值：`PONG_AFE_GPR_VERSION == 0`、`PONG_AFE_GPR_BASIC_RSP_RESULT == 0x02001005`、`PONG_AFE_GPR_APM_GET_SPF_STATE == 0x01001021`，改回旧值即红（`PongAudioAfe.h:88-95` 是这些常量的宿主副本）。
 
 ---
 
@@ -193,24 +193,46 @@ status = "pending"
 
 [[requirement]]
 id = "gpr-constants-fix"
-claim = "0504 的三处 GPR 常量必须按 mainline 修正（VERSION 0 / BASIC_RESULT 0x02001005 / GET_SPF_STATE 0x01001021）"
-evidence = "apr.h:104,108; audioreach.h:38,39,62; ShengGpr.h:14,19,20; 本文 §1.3"
-status = "pending"
+claim = "0504 的三处 GPR 常量已按 mainline 修正（VERSION 0 / BASIC_RESULT 0x02001005 / GET_SPF_STATE 0x01001021），宿主断言钉死"
+evidence = "apr.h:104,108; audioreach.h:38,39,62; ShengGpr.h:14,19,20; 0504:121,127,128; PongAudioAfe.h:88-95; test-pong-audio-geni-i2c.c afe_gpr_cases(); 本文 §1.3"
+status = "proven"
 ```
 
 ---
 
 ### 4.1 编码器（已落地）
 
-`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 125 条断言（总 709 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
+`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 128 条断言（总 712 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
 
-## 5. 交付边界
+## 5. provider 必须为 audio 保证什么（交给 provider 实现者的四条）
 
-- 本文是**需求文档**，不是实现：不改 0504 常量（§1.3）、不加 `PongAudioErr*` 枚举（§2）、不动 `QcomGlink`（§1.2）。
-  全部落在代码解冻后的音频线 scope。
+这四条是 §1.2 的落地版：每一条都能被实现者当成验收项，也能被 audio 侧当成失败原因。
+
+1. **单实例多槽**：provider 不需要为音频新开 `QcomGlink` 实例。要求是把 `drivers/PongPower/QcomGlink.h:17` 的
+   `QCOM_GLINK_MAX_CHANNELS` 从 `1u` 扩到 `2u`（`:77` 的 `channel[QCOM_GLINK_MAX_CHANNELS]` 随之变成两槽），
+   由同一个实例、同一个 `qcom_glink_poll()` 循环服务两个通道。**另起实例是错的**：一对 SMEM FIFO 是共享物理资源，
+   `qcom_glink_adopt()`（`QcomGlink.h:86`）采纳的是同一份 APSS 索引已归零的 FIFO，两个实例会互相踢坏 intent 计数。
+
+2. **建槽时机**：`qcom_glink_channel()` 必须在 DSP 发来 OPEN **之前**调用。`QcomGlink.c:331-364` 的 `case QCOM_GLINK_OPEN`
+   按名字在 `channel[]` 里找已 used 的同名槽，找不到就 `unknown_opens++`、把名字记进 `last_unknown`、`note_unknown()` 后**丢弃**；
+   找到才回 `QCOM_GLINK_OPEN_ACK` 并置 `remote_open`。所以音频侧在 publish 返回后立刻建 `adsp_apps`（512 B × 20 intent）槽，
+   provider 只需保证 publish 成功时 FIFO 已就位、远端已 ready（SMP2P item 443）。
+
+3. **独占语义改写**：`lease.flags` 的 bit2 `GlinkExclusive` 约束的是 **acquire 持有期内的 provider 自己**
+   （契约第 3 条），不是「publish 之后只许一个 consumer」。契约第 7 条把 GLINK「交给既有 consumer」，且**没有成功后的 release 入口**——
+   音频也不需要 release。正确读法是「单实例多槽」，而不是「第二个实例不许进」。provider 不需要为音频新增任何 API、锁或 worker。
+
+4. **发包时机**：AFE 参数（`TDMS.md` §3 的六步、`PongAudioAfe.h` 的字节）在 **publish 之后由 consumer 发**，
+   provider 不替任何消费者发协议包、不解析 GPR、不碰 `adsp_apps` 通道内容。provider 的交付物只有三样：
+   ADSP 在跑（PAS1 认证与 load 完成）、GLINK FIFO 可用（SMP2P 443 ready）、`/chosen/k60-adsp-glink-handoff` 的 104 字节属性就位。
+
+## 6. 交付边界
+
+- 本文是**需求文档**，不是实现：不加 `PongAudioErr*` 枚举（§2）、不动 `QcomGlink`（§1.2，扩槽属 provider 与音频的共同 scope，见 §5 第 1 条）。
+  0504 的三处 GPR 常量已在 2026-11-15 的定向解冻里修正（§1.3），除此之外 0504 未动。
 - battery 契约文件（`PAS1-PROVIDER-CONTRACT.md`、`INTEGRATION-ORDER.md`、`HANDOFF-PUBLISH.md`、`GLINK-HANDOFF.md`）
   属 adsp-handoff 线 scope，本文只引用。
 - 与 `TDMS.md` 的分工：TDMS 管**硬件事实**（引脚/参数/编号），本文管**对 provider 的依赖与时序**（服务注册/降级/AFE 时序）。
 
 ---
-来源：Lead m06642 指令；行号实测于 2026-11-15。live FDT 副本 `/mnt/e/k60-work/scratch/audio-work/live-fdt.dts`（34,801 行，不入仓库）。
+来源：Lead m06642 / m07111 指令；行号实测于 2026-11-15。live FDT 副本 `/mnt/e/k60-work/scratch/audio-work/live-fdt.dts`（34,801 行，不入仓库）。

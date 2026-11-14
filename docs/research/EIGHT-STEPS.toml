@@ -308,7 +308,7 @@ evidence = "参考 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-k
 
 [hardware.buttons.step.official]
 done = true
-evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。详见 docs/research/buttons/02-OFFICIAL.md。"
+evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。官方还要求 ADT 的 /buttons 节点提供 button-names 与 home-button-type（mobilegestalt.md:26-27），K60 的 scripts/make-pong-adt.py 缺该节点，补丁 patches/buttons/0001-adt-buttons-node.patch 已备并通过 git apply --check。详见 docs/research/buttons/02-OFFICIAL.md。"
 
 [hardware.buttons.step.decompile]
 done = true

@@ -98,5 +98,5 @@ SPMI 中断说明符是 `<USID periph irq type>`：`<0x00 0x13 0x07 0x03>` = SID
 
 - ❌ **DTBO 未取得**：K60 的 `dtbo.img` / `/proc/device-tree` 原始输出没有留档，live FDT 是 AP 侧视角的合并结果；UEFI 注释写「live DT dtbo0」说明按键节点来自 dtbo0，但该分区镜像本身没保存。影响：无法核对 overlays 里是否还有第二份 gpio-keys 或 status 覆盖。
 - ◐ **Android 侧 `/sys/class/input` 与 `dmesg` 未留档**：`gpio-keys` 的实际注册名、`/proc/bus/input/devices` 的键位表没抓。当前映射靠 DT + UEFI 实测两源，足够，但少了第三源。
-- ❌ `/buttons` 节点缺失（见 ② 缺口）—— 属于 ADT 生成器问题，不是反编译问题。
+- ❌ `/buttons` 节点缺失（见 ② 缺口）—— 属于 ADT 生成器问题，不是反编译问题；补丁 `patches/buttons/0001-adt-buttons-node.patch` 已备（`git apply --check` 通过）。
 - ◐ PON 的 PBS 页（`pon_pbs@800`，`0x0810`）在 K60 上不可由 AP 读取：`0x0810` 落在 `pon_pbs` 页而非 `pon_hlos`，这是 sweet 板驱动（`0060-sweet-keys-touch-drivers.patch:58` `KEYS_PON_RT 0x0810`）在 K60 上失效的根因；K60 读的是 `pon_hlos` 页内的 `0x10`（整地址 `0x1310`）。

@@ -31,7 +31,7 @@
 
 | 要求 | 出处 | K60 现状 |
 |---|---|---|
-| `/buttons` 节点提供 `button-names`（`hold`/`voldown`/`volup`，无 Home 键则省略 `menu`）与 `home-button-type=2` | `mobilegestalt.md:26-27`、`device-tree.md:223` | ❌ 缺：`scripts/make-pong-adt.py:240` 只生成 `pong-buttons`，没有 `node('buttons')`（对比 pong `make-pong-adt-ipados18.py:303`、zizhan 同文件 :332、liuqin `make-liuqin-adt.py:176`） |
+| `/buttons` 节点提供 `button-names`（`hold`/`voldown`/`volup`，无 Home 键则省略 `menu`）与 `home-button-type=2` | `mobilegestalt.md:26-27`、`device-tree.md:223` | ❌ 缺：`scripts/make-pong-adt.py:240` 只生成 `pong-buttons`，没有 `node('buttons')`（对比 pong `make-pong-adt-ipados18.py:303`、zizhan 同文件 :332、liuqin `make-liuqin-adt.py:176`）；补丁 `patches/buttons/0001-adt-buttons-node.patch` 已备 |
 | 启动菜单的按键语义（上下/Enter/任意键） | `boot.md:57-64` | 由 UEFI Keypad 链提供（`K60KeypadDeviceLib`），不是内核侧 |
 | 官方参考实现用 boot arg 开关（sheng 是 `sheng-buttons=1`，页面写 `buttons=1`） | `input.md:77`；`ButtonProbe.cpp:214` `sheng_buttons_probe()` | K60 用 `pong_buttons=1`（默认开），见 `board.toml` 默认 boot-arg |
 
@@ -81,7 +81,7 @@
 
 ## 缺口
 
-- ❌ K60 的 ADT **没有** `/buttons` 节点（`scripts/make-pong-adt.py:240` 只生成 `pong-buttons`），MobileGestalt 读不到 `button-names`/`home-button-type`。修法在 `make-pong-adt.py` 里加 `node('buttons', …)`，参照 pong/zizhan/liuqin 的写法 —— 该文件不在本线写作用域，交 Lead。
+- ❌ K60 的 ADT **没有** `/buttons` 节点（`scripts/make-pong-adt.py:240` 只生成 `pong-buttons`），MobileGestalt 读不到 `button-names`/`home-button-type`。**补丁已备好**：`patches/buttons/0001-adt-buttons-node.patch`（在 `node('options')` 与 `node('product', …)` 之间插入 `node('buttons', …)`，写法照 pong `make-pong-adt-ipados18.py:301-307`，含 `opposed-power-vol-buttons=1`）。`git apply --check` 通过、打补丁后 `py_compile` 通过，但 `scripts/` 不在本线写作用域，由 Lead 决定是否合入。
 - ◐ 官方参考实现的中断路径（PDC + SPI 481 + `armPeripheral`）只读了源码，**未在 K60 上验证**；K60 当前走轮询，中断是可选增强。
 - ◐ 官方页写的 boot arg 名是 `buttons=1`，源码读的是 `sheng-buttons=1`；两者不一致是板级命名差异，K60 用 `pong_buttons`，不冲突但需在 ⑦ 里如实记录。
 - ❌ 官方无 PMK8350/PM8350 的公开寄存器手册（Qualcomm NDA）；寄存器语义只能以 mainline `spmi-pmic-arb.c`、`pinctrl-spmi-gpio.c`、`pm8941-pwrkey.c` 与官方 `ButtonProbe.cpp` 三处交叉为依据（见 ③）。

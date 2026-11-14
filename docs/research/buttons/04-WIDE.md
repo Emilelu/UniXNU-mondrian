@@ -111,4 +111,4 @@
 - ❌ `d22ap` / `taro` 两个规范点名的 SM8475 代号本地无检出，社区 `qiumochen/UniXNU-zizhan` 也未 clone —— 但 SM8475 侧已有 4 个源（pong / zizhan / phk110 / sweet-k60），结论不受影响。
 - ◐ 官方 `ButtonProbe.cpp` 的**中断路径**（PDC pin1 + SPI 481 + `armPeripheral` 8 步）只在 sheng（SM8550）上验证过，K60 未验证；K60 现走轮询，中断是可选增强。
 - ◐ K60 **没有** zizhan 那样的长按电源键复位钩子，运行中的 iOS 无法靠按键回到 fastboot。属能力缺口，不在本线写作用域（`patches/xnu/` 由触摸线持有），报 Lead。
-- ❌ K60 的 ADT 缺 `/buttons` 节点（见 ② 与 ③），pong/zizhan/liuqin 都有 —— 修法在 `scripts/make-pong-adt.py`，不在本线写作用域。
+- ❌ K60 的 ADT 缺 `/buttons` 节点（见 ② 与 ③），pong/zizhan/liuqin 都有 —— 修法在 `scripts/make-pong-adt.py`，不在本线写作用域；已按 pong 的写法产出 `patches/buttons/0001-adt-buttons-node.patch`（`git apply --check` 通过、打后 `py_compile` 通过），交 Lead 决定合入。

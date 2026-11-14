@@ -211,6 +211,29 @@ board data（`bdwlan*`）才能过 WMI 初始化**，而它不在包里。
 `adb pull /vendor/firmware_mnt/image/qca6490/<那个文件>` 再重编——
 依然不需要猜，名字由日志给出。
 
+### 9.1 拿到 BDF 名字之后：一条命令重编
+
+名字由日志给出（`Pong: actual QMI board firmware bdwlan.eXX`），接下来的重编已经脚本化，不需要手改目录：
+
+```
+bash E:\k60-work\evidence\wifi-trial\pull-board-data.sh 6033dbec      # 只在手机能 adb 时
+bash E:\k60-work\evidence\wifi-trial\mkboot-bdf-add.sh bdwlan.e1a bdf1
+```
+
+`mkboot-bdf-add.sh` 做的事（全部在 WSL 里跑，`UNIXNU_SKIP_GATES=1`）：
+
+1. 以六文件包 `/mnt/e/k60-work/firmware/qca6490-wifi-bdf/` 为底，把
+   `/mnt/e/k60-work/firmware/qca6490-board/<名字>` 拷进去，得到
+   `qca6490-wifi-bdf-<tag>/`（`build-k60-wifi-native.py` 会把目录里所有文件打进 PWF2，所以**只放需要的**）；
+2. 重编 archive 到 `wifi/native-<tag>/`；
+3. 重链内核（先删 `mach.development.pong` 强制重链），打印新内核 sha256 与大小；
+4. `unixnu build payload` + `unixnu bootimg`，只追加 `--kernel-arg pong_wifi=1 --kernel-arg k60_wifi_rsc=2`
+   （**不带 k60_wifi_stage**，命令行 602 字节，低于 607 硬线）；
+5. 用 `payload.json` 的完整 `kernel_args` 写 manifest，再跑 `verify-boot-image.py` +
+   `argcheck1.py` + `check-artifacts.py` + `sha256sum`。
+
+名字不在本地时脚本直接退出（`MISSING ... -- run: bash pull-board-data.sh 6033dbec`，退出码 2），
+不会编出一个缺 BDF 的镜像冒充成功。
 注意：加上 BDF 后 PWF2 从 11,067,094 B 变成 11,189,974 B，内核
 `__TEXT` 段相应变长（见 `LOCAL-VERIFICATION.md` 的段表），但离 DarwinBoot 的
 254 MiB 上限仍然极远。

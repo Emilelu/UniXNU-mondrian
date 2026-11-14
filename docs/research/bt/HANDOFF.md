@@ -26,7 +26,7 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch` | 1 file (237 ins / 1 del): NGPUADD2 parser `k60_addon_find()`, kernel snapshot `k60_bt_addon_load()` (SecureDT `chosen/memory-map/GpuAddon` + `phystokv`), `k60_bt_addon_read()`, and `k60_bt_firmware_read()` trying the addon first. sha256 `4d6e3c1a89b60a55cc146294ec4e9abcfac4521aed0d3787da20df5e22218b04` (12,877 B / 291 lines) | **build-wired** (`patches/xnu/series:208`) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring status (option B used, option A kept as an alternative) | done |
 | image `bt-s4-20261114b` (`boot.img` `82ff78b4…`, 201,887,744 B) | the first build that contains `0510`: `build-strict.sh` exit 0, `verify-boot-image.py` OK, `kernel_built 9e8ae410…`, `payload 570f61e9…`, `adt 079cf3c7…`; `strings kernel.macho` shows `NGPUADD2` / `loaded bytes records` / `no GpuAddon property`. **No `--gpu-addon`** (Lead scope), so the addon cell is absent and this image is the negative control for S4 | built, not booted |
-| images `bt-s1c-a1…a5-20261114b` (`boot.img` `d7136c8b…`, `76608a73…`, `27a747d9…`, `28921286…`, `7f9afb99…`) | the S1c ladder rebuilt at **596 B / 31 arguments** each (`k60bt=1 k60bt_step=1/4/5/7/9`), `check-image-args.py` OK on all five, `verify-boot-image.py` OK on all five; kernel/payload/ADT hashes in `S1-PROBE-SPEC.md` §4.1. Built, not booted. |
+| images `bt-s1c-a1…a5-20261114c` (`boot.img` `6848bf1d…`, `2d969773…`, `ac55aa27…`, `7171f4dd…`, `87832493…`) | the S1c ladder rebuilt **in an isolated output tree** at **596 B / 31 arguments** each (`k60bt=1 k60bt_step=1/4/5/7/9`), `check-image-args.py` OK on all five, `verify-boot-image.py` OK on all five; the five kernels are byte-identical except Mach-O `LC_UUID` / build timestamp / `_PrelinkKCID` (45–48 bytes), so only the command line varies — see `S1-PROBE-SPEC.md` §4.1 and §4.3. Built, not booted. The earlier `…-20261114b` five are **void**: built in the shared `out-baseline` tree, their kernel differs by 9,070,788 bytes because other lines' patches were compiled in (§4.3). |
 | image `bt-s2-20261114b` (`boot.img` `c3ea7b60…`) | control boot on the returned board: 224,240 B console, `panicMarker=null`, normal `k60_autoreset` reset, zero `K60 BT`/`addon:` lines. `record-boot.py` recorded series `f1c22d7d05bb1b17` (227 patches) | booted, healthy |
 
 ## 2. Why S1 first
@@ -75,7 +75,7 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
 构建时用 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 绕过了种子缺失：ADT 实测 `/chosen/unique-chip-id=0x4B36305400000001`、`chip-id=0x8015`，所以这版会打印 `K60 BT: published local address 02:…` 而不是 `no platform identity`。**把种子固化下来仍是 Lead 待办**：给 `[payload."adt"]` 加 `"unique_chip_id" = "required"` 并在每次构建设 `UNIXNU_UNIQUE_CHIP_ID=<hex>`（`build-strict.sh` 继承调用者环境，`payload.py:160-163` 会读它），或给 `build-strict.sh` 加 `--unique-chip-id` 转发。种子定下后**不要改**（否则 MAC 变化、配对作废）。
 **ADT 里仍没有 `/arm-io/bluetooth` 节点**（`/arm-io` 子节点只有 intc/pong-audio/pong-buttons/pong-touch/ufshc），节点目前由补丁在 IORegistry 里建；要让 DT 二进制里也有，加 `[adt.arm-io.bluetooth.string]` + `[adt.arm-io.bluetooth.u32]`（TOML 见 `S3-SPEC.md` §4 第 3 条）。详见 `S3-SPEC.md` §4/§4.1。
 5. **S2 前置修复已就位**：`patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch` 在 `series:206`（`0507` 之后、`0503` 之前），修 F1/F11/F3/F12，`git apply --check` 与 `clang -fsyntax-only` 均通过；下一个镜像会自动带上它，不需要额外动作。
-6. Build (**done — all five rung images are built and verified at 596 B each**, see the table in `S1-PROBE-SPEC.md` §4.1; rebuild only if the probe changes again): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
+6. Build (**done — all five rung images `bt-s1c-a1…a5-20261114c` are built and verified at 596 B each**, see the table in `S1-PROBE-SPEC.md` §4.1; rebuild only if the probe changes again). **Always build with a line-private output tree**: `K60_OUT=/opt/k60/trees/k60build/bt-out-s1c K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device` — the default `out-baseline` is shared and other lines' patches end up in the kernel (§4.3): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
    `bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_step=<N>`
    → `python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json`
    → `python3 scripts/check-image-args.py --image <artifact>/boot.img --board board.toml` (must print OK;
@@ -87,9 +87,11 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
    VID_1209&PID_0001, usbser.sys, port only from `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM\Device\USBSER000`,
    DTR raised), then boot the rungs in order, adding risk each time (S1-PROBE-SPEC.md §4/§4.1). Each rung
    is its own image because `k60bt_*` lives in the payload command line, not in the kernel:
-   `bt-s1c-a1-20261114b` (step 1, maps only, cannot hang) → `bt-s1c-a2-20261114b` (step 4, GCC only) →
-   `bt-s1c-a3-20261114b` (step 5, first RCG read) → `bt-s1c-a4-20261114b` (step 7, first RCG writes) →
-   `bt-s1c-a5-20261114b` (step 9, first GENI read). All five carry `k60bt=1 k60bt_step=N` only (596 B).
+   `bt-s1c-a1-20261114c` (step 1, maps only, cannot hang) → `bt-s1c-a2-20261114c` (step 4, GCC only) →
+   `bt-s1c-a3-20261114c` (step 5, first RCG read) → `bt-s1c-a4-20261114c` (step 7, first RCG writes) →
+   `bt-s1c-a5-20261114c` (step 9, first GENI read). All five carry `k60bt=1 k60bt_step=N` only (596 B).
+   **Do not use the `…-20261114b` five** — they were built in the shared `out-baseline` tree and their kernels
+   contain other lines' patches (9,070,788-byte difference, `S1-PROBE-SPEC.md` §4.3).
    Stop the ladder wherever the board dies. Record with `python3 scripts/record-boot.py --image … --log <dir>/console.log`.
    Judge only `capture.json` `verdict`/`panicMarker` (never logstat.py panic counts).
    Read the verdict off the **last `probe: …` line** in the console (S1-PROBE-SPEC.md §5); if it stops
@@ -103,9 +105,11 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
    固件源是 `E:/k60-work/firmware/qca6490-bt`（113 文件 / 1,063,407 B），白名单筛出 106 条 / 1,022,742 B，容器 1,027,584 B。
 10. **命令行门禁要补两个参数名（Lead scope）**：`scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`
     （该文件 :44-48）目前是 `… "k60bt", "k60bt_stage", "k60bt_warm", …`，没有本阶梯用的 `k60bt_step`
-    与 `k60bt_delay`。所以 `bt-s1c-a1…a5-20261114b` 这五份**长度合规（596 B）但会被该门禁拒**
+    与 `k60bt_delay`。所以 `bt-s1c-a1…a5-20261114c` 这五份**长度合规（596 B）但会被该门禁拒**
     （实测：`image-arg-audit: REFUSED — argument k60bt_step is not in board.toml kernel_args and is not a
     declared addition`）。把两个名字加进 `ALLOWED_ADDITIONS` 后，五份全部 `OK (31 arguments, 596 bytes)`。
+    已用一份只加这两个名字的 gate 副本（`/tmp/gateiso/g.py`）实测：`bt-s1c-a1…a5-20261114c` 五份全部
+    `image-arg-audit: OK (31 arguments, 596 bytes)`。
     同一处注释要求「每个名字都要写进 `docs/engineering/BOOT-ARGS.md`」，而该文件目前**没有任何 `k60bt` 条目**
     （`grep -n k60bt docs/engineering/BOOT-ARGS.md` → 空），五个 `k60bt*` 名字需要一起补上文档。
 11. **把 `origin/main` 合进 `feat/bt-research`（Lead scope）**：main 比本分支多 4 个提交
@@ -113,6 +117,14 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
     本地 `git merge origin/main` 在 `docs/engineering/PITFALLS.md`、`docs/engineering/RULES.toml`、
     `docs/engineering/TREE-OWNERS.toml`（add/add）与 `scripts/sync-device-input.py` 上冲突——这四处都是
     Lead/共享范围，本线不自行解冲突（已 `git merge --abort`，HEAD 保持 `9beffa5`）。
+12. **构建输出树必须按线隔离（Lead scope，脚本改动）**：`scripts/build-strict.sh:40` 的 `OUT` 默认是
+    `$BUILD/out-baseline`，而该目录被所有线共用。2026-11-14 12:24 的 `xnu-inputs.json` 记录 232 个补丁
+    （本线 227 个 + 别线的 `0405/0406/0407` 与六个 `zzzz…-pong-touch-*`），本线 `0507–0510` 一个都没进树，
+    于是同一次阶梯的五个内核在两份输出树之间差了 9,070,788 字节（`S1-PROBE-SPEC.md` §4.3）。
+    建议：(a) `build-strict.sh` 要求显式 `K60_OUT`（或按 tag 派生），并把它写进 manifest；
+    (b) `scripts/check-build-applied.py:52-59` 在没有 stamp 时不要回退去读全项目最新的 `kernel.log`——
+    那会把别线的构建当成本线的记录（本次 P-165/P-166 就是这样红的）。本线现用
+    `K60_OUT=/opt/k60/trees/k60build/bt-out-s1c`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`。
 
 ## 4. Gate snippets (outside this line's write scope)
 

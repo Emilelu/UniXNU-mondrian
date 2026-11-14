@@ -1,6 +1,6 @@
 # S1 只读探针规格（k60bt_stage=1）
 
-状态：**S1a 上机一次 → 0 字节日志、板子挂死，不可判定**（§0）；**S1c 已接线、阶梯已重建（`bt-s1c-a1…a5-20261114b`，每份 596 B 命令行）、待上机**（§0.1、§4.1）。
+状态：**S1a 上机一次 → 0 字节日志、板子挂死，不可判定**（§0）；**S1c 已接线、阶梯已在隔离输出树重建（`bt-s1c-a1…a5-20261114c`，每份 596 B 命令行，五份内核代码字节级一致）、待上机**（§0.1、§4.1、§4.3）。
 
 **2026-11-14 11:00 根因更正（Lead 定位，已本地复核）**：S1a/S1b 的 0 字节日志**不是**探针读坏了寄存器，而是内核命令行超长——`k60bt=1 k60bt_stage=1 k60bt_warm=1` 叠在 29 个板级参数上共 **610 B**，超过 DarwinBoot 的 **607 B** 上限（`uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8` `DARWIN_BOOT_LINE_LENGTH 608`、`DarwinBoot.c:678-684` 返回 `EFI_BAD_BUFFER_SIZE`），固件根本没进内核。所以「首访 GENI 就挂死」既未被证实也未被否证。详见 §4.2。
 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch`
@@ -145,24 +145,46 @@ python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
   - **A5 `k60bt_step=9`**（决定性）：s8 第一次读 GENI（0x040）。活下来 → SE20 可达，进 S2；死在 `probe: s8 read se status` 之前 → **在根时钟已开的条件下 GENI 首访仍死**，那才是真的「与触摸/音频同因」，写 blocker。
   - **B（只在某一级挂死时做）**：把 `k60bt_step` 降到死点前一步，验证「去掉那次访问机器就不死」，把死因锁到单条 load。
 - **每一级都要单独打一次镜像**：`k60bt_*` 是内核命令行参数，而命令行由 **payload** 步骤写进 `EFI/UniXNU/unixnu.toml`（`scripts/unixnu/payload.py:119-124` 合并、`:254` 落盘），`unixnu bootimg` 完全不处理 `--kernel-arg`。所以「同一镜像逐级加码」在本项目里做不到字面意义上的同镜像：必须按级重打（每次 `build-strict.sh` 约 6 分钟，内核增量编译），并把每级的 boot.img sha256 与 `k60bt_step` 一起记账。铁律 5 的「同一镜像两次」应理解为**同一份构建产物启动两次**，与这里的「每级一份产物」不冲突：每级各跑一次，若该级出现异常再原地重跑一次。
-- 上机用的镜像是 §4.1 的 `bt-s1c-a1…a5-20261114b` 五份（每份 596 B 命令行、`check-image-args.py` 全 OK）。旧的 `…-20261114a` 系列（638 B 命令行）**全部作废**，不得上机。
+- 上机用的镜像是 §4.1 的 `bt-s1c-a1…a5-20261114c` 五份（每份 596 B 命令行、`check-image-args.py` 全 OK）。旧的 `…-20261114a` 系列（638 B 命令行）与 `…-20261114b` 系列（共享输出树，内核混入别线补丁，见 §4.3）**全部作废**，不得上机。
 - 为什么值得拆成五级：S1a 已经用掉一次「0 字节日志 + 物理断电」，而 A1/A2/A3 都是低风险启动（A3 甚至只读），能把「管道问题」「GCC/NoC 问题」「RCG 根时钟问题」「GENI 问题」四者彻底分开；每级只多花一次安全启动。
 
 ### 4.1 已构建的阶梯镜像（每级一份产物）
 
-2026-11-14 12:28 用 `build-strict.sh` 重建（每级一份产物，命令行 `k60bt=1 k60bt_step=N` = **596 B / 31 参数**，`check-image-args.py` 五份全 `OK`，`verify-boot-image.py` 五份全 `OK`）：
+2026-11-14 13:27 在**隔离输出树**里用 `build-strict.sh` 重建（`K60_OUT=/opt/k60/trees/k60build/bt-out-s1c`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`；每级一份产物，命令行 `k60bt=1 k60bt_step=N` = **596 B / 31 参数**；`check-image-args.py` 五份全 `OK (31 arguments, 596 bytes)`，`verify-boot-image.py` 五份全 `OK`）：
 
 | 级 | tag | `k60bt_step` | boot.img sha256 | 内核 sha256 | payload sha256 |
 |---|---|---|---|---|---|
-| A1 | `bt-s1c-a1-20261114b` | 1 | `d7136c8bb3a5e4d45ec421bc020391ae0ab0e88a4f87212111c587e83b48c638` | `028840f44b90f0ceabb995db3b5330d85aac8c2df92c04dbcb0ee232ba1a88ee` | `8d8096a2d81fbe972c1bf4010d98852f100336b3894a69be7c7acc4d46bf4636` |
-| A2 | `bt-s1c-a2-20261114b` | 4 | `76608a7352cec73017c7a114ea03777f5a831f29b4f58b9e1e9fbc094dd830eb` | `ce87386369b22151c7518d993432c34c385ec8195ed63799c9259c90c00cea1a` | `dc719990021ce5c2d82766e07eda92cf23ce937e2a1a74d1d5718c6fd2379605` |
-| A3 | `bt-s1c-a3-20261114b` | 5 | `27a747d9d3bdd15707c6fbf56beb98aa343163f057509c9fdbb76092bc4f3d20` | `3ddbe94ddf624a96a440fd72bcdb16a45bfa518c726f3ef4cbab1d54a6726888` | `f690a9b7cbb3aff620e4371ab014d976662023b335eead0da4ec3039c4748468` |
-| A4 | `bt-s1c-a4-20261114b` | 7 | `28921286a3ddfae64993075d47a0ffd6becbc8dbf039fab144bd3938eaba2adc` | `1b16e6b6c552febe7b119062f0d885d7e811938e4afc12381561dc75bf48abd1` | `921a3061bcce9e48640c7ecadf69333455e61a9e655f13075f02c29680439ede` |
-| A5 | `bt-s1c-a5-20261114b` | 9 | `7f9afb9928cf57bf4f7d2632750741352adfcc55199df5d19470644aec98b608` | `d55b05db18434508331c9b51281d8bc1fc53fa3f31fe70c002792e49376f969b` | `f90e4bd09ecccd9d896c2834e74319d510a36a8b2b5cb5b66f2f792336e3b620` |
+| A1 | `bt-s1c-a1-20261114c` | 1 | `6848bf1da9922a9a7e6fbb16f57740aa5d3e43008cbef5dffbf2ef5927816e99` | `9b5f1a72ccd266beaae1e8c522ed2db1af11872f60db10b86915bd23020381a3` | `ef84219355e4d2b1e6cb07783938feaa0be65e898ed7a6a06ba03a3715d0d413` |
+| A2 | `bt-s1c-a2-20261114c` | 4 | `2d9697732a94db29b8478eb40892b293f04140101876f2d22cc92a71001971ee` | `972deee91d1f8ff7a2f1ec5257276ec2ad0b30802d8d814bc029eb8a0c524536` | `8f0c30febec230ab0706d6a89501c62caef5a7f73d81be6a47ab0ac03dc50a20` |
+| A3 | `bt-s1c-a3-20261114c` | 5 | `ac55aa27f07bd133f75a68e5d6f63c17497b31215ce6572d1d4e702b869f949a` | `3b1eb75298c9f8d40b1da83068878135a427978c17d145b0b5e5d696a56497e9` | `1cdf07df6303d1d82a0a90653162cf3d9e01ea9a8a42430b2fb0a35305f9379a` |
+| A4 | `bt-s1c-a4-20261114c` | 7 | `7171f4dd385cca02766754b451c12a7bd222aff70f42880b607dda4920ba461e` | `f366c6c64ee1ceceb289d46f59bc914a4bf2c5d7131c01fcc8b612db321a83e4` | `2827ff6bb03e7fd199c6c2160294bdf44c8d51df979bb5ae51c4c4e963b54882` |
+| A5 | `bt-s1c-a5-20261114c` | 9 | `87832493ffe4ddf3e7c469b607d41a73584b1935819a926fe57f0da1820ff8dc` | `100509c6b6b8b452467414788d55ed1a2360af2c8d51eb89e60b96c9a056b3df` | `a01f652de54d3b3af2870662adacc36d89d154a71bb77a9a3d6ba3cffbf7f3f8` |
 
-ADT sha256 依次为 `691c7817…`、`318648e6…`、`5840dccc…`、`18eddf48…`、`4d795288…`（每级不同，因为命令行不同）。manifest 在 `/mnt/e/k60-work/artifacts/<tag>/build-manifest.json`。
+ADT sha256 依次为 `7fe89f0e…`、`9fb92a17…`、`42db9c8e…`、`3c8cdcad…`、`1452867a…`（每级不同，因为命令行不同）。`payload_kernel` 依次为 `ec5a7619…`、`11403172…`、`a0d951df…`、`1c74683b…`、`969f1cda…`。manifest 在 `/mnt/e/k60-work/artifacts/<tag>/build-manifest.json`。
 
-（旧 `…-20261114a` 系列 boot.img 全部超长命令行，仅留档，见 §4.2。）
+（旧 `…-20261114a` 系列 boot.img 全部超长命令行，见 §4.2；`…-20261114b` 系列五份**作废**，原因见 §4.3。）
+
+### 4.3 为什么必须用隔离输出树（`…-20261114b` 五份作废）
+
+`build-strict.sh` 的 `OUT` 默认是 `$BUILD/out-baseline`（`scripts/build-strict.sh:40`），而 `/opt/k60/trees/k60build/out-baseline` 是**所有线共用**的输出树。2026-11-14 12:24 那份 `xnu-inputs.json` 记录了 **232** 个补丁：除了本线的 227 个，还多出 `0405-k60-usb-heartbeat.patch`、`0406-k60-usb-composite.patch`、`0407-k60-usb-endpoint-diag.patch` 和六个 `zzzz…-pong-touch-*.patch`（都是别的线通过共享镜像 `/opt/k60/trees/usb-cdc-mainline/device` 塞进来的），而本线的 `0507/0508/0509/0510` 一个都没进树。`check-rules.py` 的 P-165/P-166 当时就是这样红的。
+
+**字节级证据（`…-20261114b` 不能用作控制实验）**：拿同一级 a1 的两份镜像比内核——
+
+| 对比 | 内核字节数 | 差异 |
+|---|---|---|
+| `bt-s1c-a1-20261114b` vs `bt-s1c-a1-20261114c` | 54,190,080 vs 54,185,984 | **9,070,788 字节不同**（5.5 万段，含 `__TEXT` 段大小差异）→ 编进内核的代码不同，b 系列混入了别线的补丁 |
+
+**隔离后的控制实验（c 系列成立）**：五份 c 系列内核**字节数完全相同**（54,185,984），两两相比只差 **45–48 字节**、固定 4 段：
+
+| 偏移 | 内容 | 为什么不同 |
+|---|---|---|
+| 4960–4975 | Mach-O `LC_UUID`（`cmd 0x1b` 的 16 字节 uuid，load command 起点 4952） | 链接器每次生成新 UUID |
+| 415583 / 415682 | `__DATE__/__TIME__` 字符串（`…: Sat Nov 14 12:59:49 CST 2026 …`） | 构建时刻 |
+| 54185176 | 尾部 `_PrelinkKCID` 的 base64 | 由上面两项派生 |
+
+也就是说：**c 系列五份镜像的内核代码完全一致，唯一的变量就是命令行的 `k60bt_step`**，这才是一次受控的阶梯。教训：**不要用内核 sha256 相等来证明「同一个内核」**——先比字节数，再按段看差异；构建必须给每条线自己的 `K60_OUT`，否则共享 `out-baseline` 会把别线的补丁编进来。
+
+**门禁口径**：`scripts/check-rules.py` 必须带着与构建相同的 `K60_OUT` 运行。默认 `out-baseline` 时 P-165/P-166 会因为别线的 233 个补丁而红；`K60_OUT=/opt/k60/trees/k60build/bt-out-s1c` 时 P-165/P-166 为 ✅「序列里 227 个补丁全部应用且内容与仓库一致」。这是一条 Lead 待办：`build-strict.sh` 应要求显式 `K60_OUT`（或按 tag 派生），`check-build-applied.py` 也不该在缺 stamp 时去读全项目最新的 `kernel.log`（`scripts/check-build-applied.py:52-59`）——那会把别线的构建当成本线的记录。
 
 ## 4.2 命令行长度上限（2026-11-14 根因）
 
@@ -184,7 +206,7 @@ S1a（`bt-s1-20261114b`）与 S1b 的两次 0 字节日志，根因**不是**探
 | `bt-s1c-20261114b`、`bt-s1c-a{1,2,3,4}-20261114a` | 638 B | REFUSED（且 `k60bt_delay`/`k60bt_step` 未在 ALLOWED_ADDITIONS 里） |
 | `bt-s2-20261114b` | 575 B | OK |
 | `bt-s4-20261114b` | 583 B | OK（30 参数） |
-| `bt-s1c-a{1,2,3,4,5}-20261114b`（本表 §4.1） | 596 B | OK（31 参数） |
+| `bt-s1c-a{1,2,3,4,5}-20261114b`、`…-20261114c`（本表 §4.1） | 596 B | OK（31 参数） |
 
 字节预算（上限 607，板级 575，余量 32 B）：
 
@@ -259,7 +281,7 @@ S1c 的核心判据是「最后一行打点」——因为打点在访问**之�
 
 ## 9. 交接（Lead 执行）
 
-1. 上机（§4）。**先物理断电复位**：S1a 那次把板子留在挂死状态。五级镜像已全部构建并 `verify-boot-image: OK`（§4.1），无需再构建。
+1. 上机（§4）。**先物理断电复位**：S1a 那次把板子留在挂死状态。五级镜像 `bt-s1c-a1…a5-20261114c` 已全部构建并 `verify-boot-image: OK`（§4.1），无需再构建；`…-20261114b` 五份作废（§4.3）。
 2. 按 A1→A2→A3→A4→A5 逐级上机，把每级最后一行 `probe: sX …` 与 `capture.json` 的 `verdict`/`panicMarker` 回填本文件 §0 与 §5。
 3. 结论回填：`docs/research/GENI-ACCESS-PRECONDITIONS.md`（触摸/音频共用同一前提）、`docs/research/bt/06-DEEP-DIVE.md`（F2/F3 的结论行）、`docs/research/bt/RESEARCH.md` §5.4。
 4. 若 A5 判「根时钟已开仍首访即死」→ 本线停在这里，写 blocker；若通过 → 进 S2（引脚 mux + RCG 3.0 Mbaud + 引擎准备，见 `RESEARCH.md` §5）。

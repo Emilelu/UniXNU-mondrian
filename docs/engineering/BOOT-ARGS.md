@@ -4,7 +4,8 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 591 字节，余 17。
+**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 593 字节，余 15
+（`scripts/check-image-args.py:40` 的镜像上限是 607，按它算余 14）。
 
 ## 一览
 
@@ -18,6 +19,7 @@
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
+| `sheng-gpu-addon` | GPU / Metal | 必须 == 1 | 未设 = 不挂 overlay | 只挂 overlay，不发布 accelerator；pong_metal 仍必须 == 1（P-144） |
 | `pong_ufs_readwrite` | 存储 | 真值 | 只读 | 写盘会改动 Data 卷 |
 | `native-ufs` | 存储 | 任意 | 代码默认 | board.toml 已设 native-ufs=1 |
 | `native-ufs-probe` | 存储 | 任意 | 代码默认 | — |
@@ -82,6 +84,18 @@
 - **作用**：PongAdrenoScanout.cpp:44 才能走 GPU scanout
 - **陷阱**：官方 next_action 要求先确认 accelerator 已发布再开它
 - **源码**：`drivers/PongAdreno/PongAdrenoScanout.cpp:44`
+
+### `sheng-gpu-addon`
+
+- **所属**：GPU / Metal
+- **接受值**：必须 == 1
+- **未设时**：未设 = 不挂 overlay，`/System/Library/Extensions` 保持 sealed 只读卷
+- **作用**：`patches/xnu/zzy-native-gpu-addon-mount.patch:66` 的 `native_gpu_addon_prepare()` 在 Data 卷挂好之后、launchd 启动之前，把 `/private/var/ngpu/addons` 以 `MNT_RDONLY|MNT_UNION` bindfs 挂到 `/System/Library/Extensions`（:74），把 `/private/var/ngpu/daemons` 挂到 `/System/Library/LaunchDaemons`（:78）。插件只经 `MetalPluginName` 到 `/System/Library/Extensions/PongAdrenoMetal.bundle` 这条路径被发现，sealed 卷本身不可写，所以必须靠这个 overlay
+- **陷阱**：它只负责「让 bundle 可见」，不负责发布 accelerator——`pong_metal` 仍必须 == 1（P-144）。挂载失败不 panic，只把错误写进 `native_gpu_addon_stage`/`native_gpu_addon_status` 全局变量，**串口日志里看不到**（`docs/plans/GPU-ENABLE-PLAN.md:540`），判据只能靠后续 `Pong Metal:` 行。挂载点必须是 0398 已经建好的 `/private/var/ngpu/addons`，否则 `vnode_lookup` 在 stage 1 就返回
+- **源码**：`patches/xnu/zzy-native-gpu-addon-mount.patch:69`
+- **源码**：`patches/xnu/zzy-native-gpu-addon-mount.patch:74`
+- **源码**：`patches/xnu/zzy-native-gpu-addon-mount.patch:78`
+- **源码**：`patches/xnu/zzy-native-gpu-addon-mount.patch:90`
 
 ### `pong_gpu_pool_mib`
 

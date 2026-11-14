@@ -4731,7 +4731,7 @@ v24dp init。
 
 **修法/教训.** 改嵌入 blob 前先 grep 系列尾部有没有补丁替换调用点；判断一个 blob 是否生效
 看镜像（`grep -a` 内核/镜像里的字符串）而不是看补丁是否应用。真正生效的壁纸修复走内核数据侧
-（`0617-k60-wallpaper-seed.patch`：`k60_mkdir_paths[]` 加目录 + `k60_wallpaper_stage()` 复制
+（`0618-k60-wallpaper-seed.patch`：`k60_mkdir_paths[]` 加目录 + `k60_wallpaper_stage()` 复制
 `Collections~ipad.plist`）。
 
 **Check.** `grep -a -c "genuine stock wallpaper aliases" <kernel.macho>` 应为 0（0616 起该

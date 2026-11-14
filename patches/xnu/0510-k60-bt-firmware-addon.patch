@@ -1,0 +1,288 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index fbdf0ef..a76fc5f 100644
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -55,6 +55,9 @@
+ #include <vm/vm_kern.h>
+ /* vm/pmap.h does not expose this one in the BSD compilation unit. */
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
++/* vm/pmap.h does not expose this one in the BSD compilation unit either;
++ * kern_trustcache.c:773 declares it the same way. */
++extern vm_map_address_t phystokv(pmap_paddr_t pa);
+ #else /* K60_BT_HOST_TEST: minimal host shims so this file can be syntax- and
+        * unit-checked without the XNU SDK.  None of these stubs touch hardware. */
+ #include <errno.h>
+@@ -184,6 +187,21 @@ static const struct k60_se_rate k60_se_rates[] = {
+  * holds the verified copies; see EVIDENCE.md §4.4. */
+ #define K60_BT_FIRMWARE_ROOT        "/private/var/ngpu/firmware/qca"
+ 
++/* S4: the boot-image firmware addon.  DarwinBoot copies <kernel>.gpuaddon out
++ * of the payload FAT into the boot window and publishes its runtime address in
++ * /chosen/memory-map/GpuAddon (DarwinBoot.c:588-651).  A bring-up build has no
++ * Data seed at all (payload.json data_ramdisk_sha256 = null), so the Data addon
++ * path above cannot resolve and the boot image is the only firmware source that
++ * exists.  Container = make-gpu-addon.py's header (magic, u32 count, u32
++ * reserved, u64 total) then per-file records {u32 nameLen, u32 mode, u64 size,
++ * u64 packedSize, name padded to 8, data padded to 8}.  BT records are stored
++ * uncompressed: this kernel has no zlib (libkern/conf/files declares
++ * "options zlib" but the PONG build enables neither the option nor the source). */
++#define K60_BT_ADDON_MAGIC          "NGPUADD2"
++#define K60_BT_ADDON_HEADER         24u
++#define K60_BT_ADDON_MAX_BYTES      (4u * 1024u * 1024u)
++#define K60_BT_ADDON_MAX_NAME       160u
++
+ /* E-GENI-04/E-GENI-05: QUP wrapper HW version decides 32x vs 16x sampling. */
+ #define K60_QUP_HW_VER_REG          0x00000004u
+ #define K60_QUP_VERSION_2_5         0x20050000u
+@@ -1190,7 +1208,168 @@ static bool k60_firmware_name_ok(const char *name) {
+     return false;
+ }
+ 
++/* ---- boot-image firmware addon container (S4) -------------------------- *
++ * Pure parsing so the host build can unit-test it; only fetching the container
++ * (device tree + phystokv) is kernel-only.  A match points into blob[].
++ */
++static uint32_t k60_addon_get32(const uint8_t *p) {
++    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
++           ((uint32_t)p[3] << 24);
++}
++static uint64_t k60_addon_get64(const uint8_t *p) {
++    return (uint64_t)k60_addon_get32(p) |
++           ((uint64_t)k60_addon_get32(p + 4) << 32);
++}
++
++/* Returns 0 and points *data at the record, or -ENOENT / -EINVAL. */
++static int k60_addon_find(const uint8_t *blob, size_t bytes, const char *name,
++                          const uint8_t **data, size_t *size) {
++    const char *want;
++    uint32_t index, count;
++    size_t off;
++
++    if (!blob || !name || !data || !size) return -EINVAL;
++    *data = NULL;
++    *size = 0;
++    if (bytes < K60_BT_ADDON_HEADER ||
++        bytes > (size_t)K60_BT_ADDON_MAX_BYTES) return -ENOENT;
++    if (memcmp(blob, K60_BT_ADDON_MAGIC, 8) != 0) return -ENOENT;
++    count = k60_addon_get32(blob + 8);
++    if (k60_addon_get64(blob + 16) != (uint64_t)bytes || count == 0)
++        return -ENOENT;
++    want = strncmp(name, "qca/", 4) ? name : name + 4;
++    off = K60_BT_ADDON_HEADER;
++    for (index = 0; index < count; index++) {
++        uint32_t nameLen;
++        uint64_t raw, packed;
++        size_t nameBytes, dataBytes, recordBytes;
++        const char *entry, *slash;
++
++        if (off + 24u > bytes) break;
++        nameLen = k60_addon_get32(blob + off);
++        raw = k60_addon_get64(blob + off + 8);
++        packed = k60_addon_get64(blob + off + 16);
++        if (nameLen < 2 || nameLen > K60_BT_ADDON_MAX_NAME) break;
++        nameBytes = ((size_t)nameLen + 7u) & ~(size_t)7u;
++        dataBytes = ((size_t)packed + 7u) & ~(size_t)7u;
++        recordBytes = 24u + nameBytes + dataBytes;
++        if (off + recordBytes > bytes) break;
++        entry = (const char *)(blob + off + 24u);
++        if (entry[nameLen - 1] != 0) break;
++        slash = k60_strrchr(entry, '/');
++        if (!strcmp(slash ? slash + 1 : entry, want) && raw > 0 &&
++            raw <= (uint64_t)K60_BT_ADDON_MAX_BYTES) {
++            /* A compressed record cannot be served: this kernel has no zlib. */
++            if (packed != raw) return -ENOENT;
++            *data = (const uint8_t *)(blob + off + 24u + nameBytes);
++            *size = (size_t)raw;
++            return 0;
++        }
++        off += recordBytes;
++    }
++    return -ENOENT;
++}
++
+ #ifdef KERNEL
++/* ---- boot-image firmware addon, kernel side (S4) ----------------------- *
++ * The container is snapshotted once, in bsd_init, because the DarwinBoot
++ * window is EfiLoaderCode memory that the VM system may hand out later.
++ * Every failure path only logs; the vnode reader below still runs.
++ */
++static uint8_t *k60_addon_copy;
++static size_t k60_addon_bytes;
++static int k60_addon_status = 1;   /* 1: not tried, 0: loaded, <0: absent */
++
++static void k60_addon_note(const char *what, uint64_t a, uint64_t b) {
++    char line[128];
++    snprintf(line, sizeof(line), "addon: %s %llu %llu", what,
++             (unsigned long long)a, (unsigned long long)b);
++    k60_log(NULL, 1, line);
++}
++
++static int k60_bt_addon_load(void) {
++    DTEntry mapEntry = NULL;
++    const void *value = NULL;
++    unsigned int length = 0;
++    const DTMemoryMapRange *range;
++    const uint8_t *base;
++    uint8_t *copy;
++    uint32_t count;
++    uint64_t total;
++
++    if (k60_addon_status == 0) return 0;
++    if (k60_addon_status < 0) return k60_addon_status;
++    k60_addon_status = -ENOENT;
++    if (SecureDTLookupEntry(NULL, "chosen/memory-map", &mapEntry) != kSuccess) {
++        k60_log(NULL, 3, "addon: no chosen/memory-map");
++        return k60_addon_status;
++    }
++    if (SecureDTGetProperty(mapEntry, "GpuAddon", &value, &length) != kSuccess ||
++        value == NULL) {
++        k60_log(NULL, 3, "addon: no GpuAddon property");
++        return k60_addon_status;
++    }
++    if (length < sizeof(DTMemoryMapRange)) {
++        k60_log(NULL, 1, "addon: short GpuAddon property");
++        return k60_addon_status;
++    }
++    range = (const DTMemoryMapRange *)value;
++    if (range->paddr == 0 || range->length < K60_BT_ADDON_HEADER ||
++        range->length > K60_BT_ADDON_MAX_BYTES) {
++        k60_addon_note("unusable range", (uint64_t)range->paddr,
++                       (uint64_t)range->length);
++        return k60_addon_status;
++    }
++    base = (const uint8_t *)phystokv((pmap_paddr_t)range->paddr);
++    if (base == NULL) {
++        k60_log(NULL, 1, "addon: no kernel mapping");
++        return k60_addon_status;
++    }
++    if (memcmp(base, K60_BT_ADDON_MAGIC, 8) != 0) {
++        k60_log(NULL, 1, "addon: bad magic");
++        return k60_addon_status;
++    }
++    total = k60_addon_get64(base + 16);
++    count = k60_addon_get32(base + 8);
++    if (total != (uint64_t)range->length || count == 0) {
++        k60_addon_note("bad header", total, (uint64_t)count);
++        return k60_addon_status;
++    }
++    copy = IOMallocData((size_t)range->length);
++    if (copy == NULL) {
++        k60_log(NULL, 1, "addon: no memory for the copy");
++        return k60_addon_status;
++    }
++    memcpy(copy, base, (size_t)range->length);
++    k60_addon_copy = copy;
++    k60_addon_bytes = (size_t)range->length;
++    k60_addon_status = 0;
++    k60_addon_note("loaded bytes records", (uint64_t)k60_addon_bytes,
++                   (uint64_t)count);
++    return 0;
++}
++
++/* One record lookup; a match is copied out so firmware_put() can free it like
++ * any other firmware buffer. */
++static int k60_bt_addon_read(const char *name, uint8_t **data, size_t *size) {
++    const uint8_t *hit = NULL;
++    size_t hitBytes = 0;
++    uint8_t *out;
++    int e;
++
++    if (!name || !data || !size) return -EINVAL;
++    if (k60_bt_addon_load() != 0) return -ENOENT;
++    e = k60_addon_find(k60_addon_copy, k60_addon_bytes, name, &hit, &hitBytes);
++    if (e) return e;
++    out = IOMallocData(hitBytes);
++    if (out == NULL) return -ENOMEM;
++    memcpy(out, hit, hitBytes);
++    *data = out;
++    *size = hitBytes;
++    k60_addon_note("serving", (uint64_t)hitBytes, 0);
++    return 0;
++}
++
+ /* VFS reader for the Data-addon firmware.  Modeled on the sheng board reader
+  * (BluetoothFirmware.c:25-51): vnode_open + vnode_getattr + vn_rdwr, with a
+  * 4 MiB bound and a short-read check.  The Data addon must be mounted; the
+@@ -1198,6 +1377,9 @@ static bool k60_firmware_name_ok(const char *name) {
+ static int k60_bt_firmware_read(const char *name, uint8_t **data, size_t *size) {
+     if (!data || !size || !name) return EINVAL;
+     *data = NULL; *size = 0;
++    /* The boot image comes first: a bring-up build has no Data seed, and the
++     * addon snapshot is already in kernel memory. */
++    if (!k60_bt_addon_read(name, data, size)) return 0;
+     /* Runtime-first path is the verified Data-addon copy.  The Android paths
+      * are fallbacks for a development build that mounts the vendor/modem
+      * partition read-only; they are never required on a normal boot. */
+@@ -1849,6 +2031,9 @@ void qbt_k60_start(void) {
+      * so PM8350 S10/S11/S12, PM8350C S1 and PMR735A L7 are already on. */
+     k60.warm_boot = PE_parse_boot_argn("k60bt_warm", &warm, sizeof(warm)) && warm != 0;
+ #ifdef KERNEL
++    /* Snapshot the boot-image firmware addon now, before the worker runs: the
++     * DarwinBoot window is EfiLoaderCode memory that the VM system may reuse. */
++    (void)k60_bt_addon_load();
+     thread_t thread = NULL;
+     if (kernel_thread_start(k60_worker, NULL, &thread) == KERN_SUCCESS)
+         thread_deallocate(thread);
+@@ -1858,13 +2043,61 @@ void qbt_k60_start(void) {
+ }
+ 
+ #ifdef K60_BT_HOST_TEST
+-/* Tiny host self-check for the clock arithmetic.  Not built into the kernel. */
++/* Minimal NGPUADD2 writer so the parser above can be tested on the host. */
++static size_t host_addon_build(uint8_t *out, size_t cap) {
++    static const char *names[] = { "firmware/qca/hpbtfw20.tlv",
++                                   "qca/hpnv20.bin" };
++    static const uint8_t payload[2][5] = { { 1, 2, 3, 4, 5 },
++                                           { 9, 8, 7, 6, 5 } };
++    size_t off = 24, i;
++    memcpy(out, K60_BT_ADDON_MAGIC, 8);
++    out[8] = (uint8_t)(sizeof(names) / sizeof(names[0]));
++    out[9] = out[10] = out[11] = 0;
++    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
++        size_t nameLen = strlen(names[i]) + 1;
++        size_t nameBytes = (nameLen + 7u) & ~(size_t)7u;
++        size_t dataBytes = (5u + 7u) & ~(size_t)7u;
++        if (off + 24 + nameBytes + dataBytes > cap) return 0;
++        memset(out + off, 0, 24 + nameBytes + dataBytes);
++        out[off + 0] = (uint8_t)nameLen;
++        out[off + 4] = 0xed;                     /* mode bits, ignored */
++        out[off + 8] = 5;                        /* size */
++        out[off + 16] = 5;                       /* packed size, stored */
++        memcpy(out + off + 24, names[i], nameLen);
++        memcpy(out + off + 24 + nameBytes, payload[i], 5);
++        off += 24 + nameBytes + dataBytes;
++    }
++    return off;
++}
++
++/* Tiny host self-check for the clock arithmetic and the addon parser.  Not
++ * built into the kernel. */
+ int main(void) {
++    static uint8_t blob[512];
++    const uint8_t *hit = NULL;
++    size_t bytes = 0, total = 0;
+     uint32_t hz = 0;
+     if (k60_geni_source_hz(115200, 16, &hz) || hz != 7372800u) return 1;
+     if (k60_geni_source_hz(3000000, 16, &hz) || hz != 48000000u) return 1;
+     if (k60_geni_source_hz(3200000, 16, &hz) != -ERANGE) return 1;
+     if (k60_geni_source_hz(4000000, 16, &hz) || hz != 64000000u) return 1;
++    total = host_addon_build(blob, sizeof(blob));
++    if (!total) return 2;
++    blob[16] = (uint8_t)(total & 0xff);
++    blob[17] = (uint8_t)((total >> 8) & 0xff);
++    blob[18] = (uint8_t)((total >> 16) & 0xff);
++    if (k60_addon_find(blob, total, "qca/hpbtfw20.tlv", &hit, &bytes) ||
++        bytes != 5 || hit[0] != 1) return 3;
++    if (k60_addon_find(blob, total, "qca/hpnv20.bin", &hit, &bytes) ||
++        bytes != 5 || hit[0] != 9) return 4;
++    if (k60_addon_find(blob, total, "qca/hpnv21.bin", &hit, &bytes) != -ENOENT)
++        return 5;
++    if (k60_addon_find(blob, total - 4, "qca/hpbtfw20.tlv", &hit, &bytes) != -ENOENT)
++        return 6;
++    blob[0] = 'X';
++    if (k60_addon_find(blob, total, "qca/hpbtfw20.tlv", &hit, &bytes) != -ENOENT)
++        return 7;
++    blob[0] = 'N';
+     printf("qbt_k60 host checks passed\n");
+     return 0;
+ }

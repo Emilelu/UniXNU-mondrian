@@ -1,8 +1,8 @@
 # Handoff — K60 Bluetooth line (state at 2026-11-14)
 
 This file is the single-page handoff from the `feat/bt-research` line to the integrated line.
-The branch adds `docs/research/bt/*` and `patches/bt/*`; the one wiring edit outside that scope is
-`patches/xnu/series:205` + `patches/xnu/0507-k60-bt-readonly-probe.patch` (see §3).
+The branch adds `docs/research/bt/*` and `patches/bt/*`; the only edits outside that scope are the four
+`patches/xnu/05xx` twins wired at `patches/xnu/series:205-208` (see §3).
 
 Branch: `feat/bt-research` (worktree `E:/hackios/k60-bt`), base `f119a80` (= `main` at the time
 of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (S1 spec),
@@ -22,6 +22,8 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `patches/bt/0003-k60-bt-s3-identity-publish.patch` = `patches/xnu/0509-k60-bt-s3-identity-publish.patch` | 5 files (198 ins / 11 del): strong `k60_bt_local_address()` (SecureDT `/chosen/unique-chip-id` + FNV-1a), new `iokit/Kernel/MiniBluetooth.cpp` (164 lines) publishing the `/arm-io/bluetooth` node, both MAC properties and a `bluetooth` IOService, plus `MiniDrivers.h`/`MiniIOSurface.cpp`/`iokit/conf/files` wiring. sha256 `429630d61fcd06554cc8094ca3381ec49d0485f8c8b025d60f7a5fe8c1208edf` (10,265 B / 304 lines) | **build-wired** (`patches/xnu/series:207`) |
 | `docs/research/bt/S2-SPEC.md` | S2 spec: how `0508` fixes F1 (SMMU stream 0x483 bypass + contiguous DMA), F11 (SE20 RCG root enable), F3 (0xc40/0xd40 RESET_DONE instead of the undefined 0xe40) and F12 (CBCR halt after the rate write); expected console lines and verdict table | done, statically verified |
 | `patches/bt/0002-k60-bt-s2-smmu-rcg-reset.patch` = `patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch` | 6 hunks on `bsd/dev/qbt_k60.c`: `k60_smmu_plan_bank`/`k60_smmu_plan`/`k60_smmu_configure`/`k60_smmu_bypass` + `kmem_alloc_contig`/`pmap_find_phys` DMA path, RCG root enable, reset-done polling. sha256 `c4bf1ded55fe9bd03b7c10943ed41fff47464037c06c893b6dfd0984f02fd4f2` (18,393 B / 391 lines) | **build-wired** (`patches/xnu/series:206`) |
+| `docs/research/bt/S4-SPEC.md` | S4 spec: why the firmware must ride the boot image (Data seed absent, no zlib, no `.incbin`, NGPUADD2 has no kernel consumer), the DarwinBoot `GpuAddon` channel with line-level evidence, the container format, the kernel reader, the **Lead-scope build fragments** (`scripts/make-bt-firmware-addon.py` in full, `build-strict.sh` diff, `.gitignore`), the offline verification and the S4a–S4c device ladder | done, offline-verified |
+| `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch` | 1 file (234 ins / 1 del): NGPUADD2 parser `k60_addon_find()`, kernel snapshot `k60_bt_addon_load()` (SecureDT `chosen/memory-map/GpuAddon` + `phystokv`), `k60_bt_addon_read()`, and `k60_bt_firmware_read()` trying the addon first. sha256 `6a089c2525b419eb603b79228549d2c7a3630e5fa852ef2b19556ed84fd1e4e7` (12,776 B / 288 lines) | **build-wired** (`patches/xnu/series:208`) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring status (option B used, option A kept as an alternative) | done |
 
 ## 2. Why S1 first
@@ -81,6 +83,11 @@ be judged dead on their own.
    at an `sX` step, re-boot once with `k60bt_step` one lower to prove that access is the fatal one.
 8. Feed the result back into `docs/research/GENI-ACCESS-PRECONDITIONS.md` (the touch and audio lines
    share this precondition), `06-DEEP-DIVE.md` F2/F3 and `RESEARCH.md` §5.4.
+9. **S4 构建侧要合并三处**（内核侧已就位：`patches/xnu/0510` 在 `series:208`，对缺失单元静默降级，所以现在合并也不会改变任何现有镜像）：
+   (a) 新文件 `scripts/make-bt-firmware-addon.py`——全文与实测输出见 `S4-SPEC.md` §5.2；
+   (b) `scripts/build-strict.sh` 增加 `--gpu-addon <file>` 并转发给 `unixnu build payload`，同时写进 manifest 的 `components`——精确 diff 见 `S4-SPEC.md` §5.3；
+   (c) `.gitignore` 给 `firmware/bluetooth/manifest.json` 开否定规则（只有 bytes+sha256，可以入库）——见 `S4-SPEC.md` §5.4。
+   固件源是 `E:/k60-work/firmware/qca6490-bt`（113 文件 / 1,063,407 B），白名单筛出 106 条 / 1,022,742 B，容器 1,027,584 B。
 
 ## 4. Gate snippets (outside this line's write scope)
 

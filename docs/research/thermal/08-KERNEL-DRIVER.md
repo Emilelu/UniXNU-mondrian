@@ -165,9 +165,17 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    boot.img sha256 `09a38cb7085eef1aa97bcf8810b5b456906dbc524cd21349638e8d51a3c952f1`，
    manifest `/mnt/e/k60-work/artifacts/thermal-20261114c/build-manifest.json`。
 2. **从未上机**：`SROT_HW_VER`/`SROT_CTRL` 的现场值、32 路 `VALID` 原始字都还没有。
-3. ~~**没有压力等级**~~ **已有发布层（离线）**：三档压力等级经 `IOPMrootDomain::systemPowerEventOccurred`
-   发布（`bsd/dev/pong_thermal_pm.cpp`，键 `kIOPMThermalLevelWarningKey`）。仍未验证的是
-   **非 Apple kext 侧调用者上机是否无害**，以及 `thermalmonitord` 是否真会消费 —— 见 §7.4。
+3. ~~**没有压力等级**~~ **已有发布层，且已进内核**：三档压力等级经 `IOPMrootDomain::systemPowerEventOccurred`
+   发布（`bsd/dev/pong_thermal_pm.cpp`，键 `kIOPMThermalLevelWarningKey`）。
+   `build-strict.sh thermal-20261114f`（2026-11-15 00:17）跑通全链：`kernel.macho` 54,173,696 B、
+   sha256 `e6557350fe37af880883ef3d24b3e20d2c5eff704e0f8c5e6975ade09b22ddce`，
+   `strings | grep -c 'PongThermal: '` = **11**（比上一版多出的正是
+   `PongThermal: level %s (%u) published as %s=%u`），`strings` 里同时出现
+   `_pong_thermal_pm_publish` 与 `Thermal_Level_Warning`；payload kernel sha256
+   `d923f2b2a059a96a737a7cc70288d8ed2f440f90c739c161f4b1694b15cd4bbc`、
+   boot.img sha256 `adc796b63bad27821c491ddfb8ab7da8f6496b4ffd1b0b2e366ee6a301dc5d59`、
+   manifest `/mnt/e/k60-work/artifacts/thermal-20261114f/build-manifest.json`。
+   仍未验证的是**非 Apple kext 侧调用者上机是否无害**，以及 `thermalmonitord` 是否真会消费 —— 见 §7.4。
    注意这仍不是 `mTPL`：`mTPL` 是 SMC 键，需要 `AppleSMCSensorDispatcher`，属 kext 路线（`06`/`07` 篇）。
 4. **没有 trip 编程与冷却设备**：本板 AP 侧 trip 全是被动 trip，且 `polling-delay` 多为 0，
    真要控温需要自己起策略，属后续工作。
@@ -221,6 +229,11 @@ make[7]: *** [.../bsd/DEVELOPMENT/Makefile:3201: pong_thermal_pm.cpo] Error 1
 | 手工检查为何没发现 | 上一轮的 `-fsyntax-only` 脚本额外加了 `-I$W/iokit` 与 `-I$FR/…/PrivateHeaders`，**多给的 `-I` 掩盖了真实构建失败**。教训：手工语法检查必须逐字复刻 make 的 `INCFLAGS` |
 | 修法 | 在母本里对这一个 include 关掉 private 段：先 `#include <IOKit/IOBufferMemoryDescriptor.h>` 与 `<sys/vnode.h>`（`RootDomain.h:31-35` 无条件 include 的那两个），再 `#undef XNU_KERNEL_PRIVATE`、`#include <IOKit/pwr_mgt/RootDomain.h>`、`#define XNU_KERNEL_PRIVATE 1`。需要的声明（`class IOPMrootDomain` :151、两个 `systemPowerEventOccurred` :177-183）都在 private 段之外 |
 | 否决的两个替代 | 把 `IOPMPrivate.h` 拷进 `EXPORT_HDRS`（能编过，但每次重建树就消失，且违背上游 `NOT_EXPORT_HEADERS` 的意图）；给 `pong_thermal_pm.cpo_INCFLAGS` 加 `-I$(SRCROOT)/iokit`（`MakeInc.rule:427` 支持 per-object 追加，但要改 `bsd/conf/Makefile.template`，影响面比一个 include 窗口大） |
+
+修完之后 `build-strict.sh thermal-20261114f`（2026-11-15 00:17）一次通过：
+compliance 门禁 → 八步门禁 30 项 → 230/230 补丁 → 内核 `e6557350…` → payload → bootimg，
+最后一行为 `✅ kernel archives: 3 enabled archive(s) all present in kernel.macho`。
+`pong_thermal_pm.cpo` 这次真的编进了内核（§5 第 3 条的 strings 与符号证据）。
 
 ## 7 复现命令
 

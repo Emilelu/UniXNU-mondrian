@@ -4,4 +4,7 @@
 - [ADSP-CARRIER.md](audio/ADSP-CARRIER.md) — ADSP 固件载体决策：固定物理地址 + ADT 常量，已排除的三条路
 - [ADSP-CLAIMS.toml](audio/ADSP-CLAIMS.toml) — 8 条可核对断言，`scripts/check-adsp-claims.py` 逐条校验
 - [GLINK-HANDOFF.md](battery/GLINK-HANDOFF.md) — 104 字节 `k60-adsp-glink-handoff` lease 的字节布局与生产者要求
+- [display/RESEARCH.md](display/RESEARCH.md) — 显示结论层：面板 m11a（1440x3200 / DSC cmd / 单 DSI / 三档 60·90·120）、5 条供电轨、DSI/MDP 基址、绝不可抄的 Sharp/zizhan 数值
+- [storage/RESEARCH.md](storage/RESEARCH.md) — 存储结论层：UFS PHY `0x1d80000` + `qmp-v4-cape`、控制器/ICE/HWKM、与 liuqin 的双源交叉验证、只读待核对项
+- [memory/RESEARCH.md](memory/RESEARCH.md) — 内存布局结论层：DDR 保留区与寄存器窗口，以及**跨板边界**（DXE Heap / Kernel 绝不可跨板抄）
 - [POWER-RPMH-LDOC2.md](touch/POWER-RPMH-LDOC2.md) — `pm8350c_l2`（触摸 IOVDD 1.8 V）如何从 AP 侧通过 RPMh TCS3 投票点亮：硬件常量、v2 寄存器布局、11 步投票序列、ACK 之后的 observer 验证、Berlin D 上电时序、SPI 引脚角色、八个已知陷阱

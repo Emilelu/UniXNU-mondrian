@@ -50,6 +50,29 @@
 | `k60_backlight_control=1` | 4 | 1 | 1 | 同上，但 `conformance …=1 control=1`；**brightness-4 就是这一行之后 backboardd 连崩 4 次**，所以默认关 |
 | `k60_backlight=0` | 未初始化（0） | -1 | -1 | 服务完全不启动，屏幕停在 bring-up 的 0xff |
 
+## brightness-9 与 brightness-4 的唯一差异（为什么两张都要飞）
+
+两张图的**唯一差别**是 `k60_backlight_control` 的默认值，以及随之生效的 conformance 门：
+
+| | brightness-4 | brightness-9 |
+|---|---|---|
+| `k60_backlight_control` | 1（当时是默认值） | 0（现在是默认值，图里没传参） |
+| 是否 impersonate | 是 | 否 |
+| 是否发 `backlight-control` | 是（日志 `control 1`） | 否（`control 0`） |
+| stats[0] | 4 | 3 |
+| request[4] / [5] | （旧图无此槽位） | 0 / 0 |
+| backboardd | 4 次 `sig=11`，SpringBoard 停在 7 行，无 first frame | 待测 |
+
+除此之外代码路径完全相同（同一份 K60Backlight.cpp、同一条 DCS 0x51 写入、
+同一个 pong_metal=2 启动参数、同一批 series 224 条）。所以：
+
+- **9 崩 → 崩因不在背光发布层**：它在 4 上唯一多做的一件事（发 control）已经被关掉，
+  剩下的共同项就是 metal blob 那侧（0610 挂载 / pong_metal=2），与背光无关。
+- **9 不崩、10 崩 → 崩因就是「发 control 本身」**：9 和 10 之间只差
+  `k60_backlight_control=1` 这一个 kernel-arg（30 args / 599 字节 vs 29 args / 575 字节）。
+- 参照点：gpu-20261114t（`pong_metal=1`）崩了 16 次。9 是 `pong_metal=2` + `control=0`，
+  是唯一能把「metal 侧」和「背光发布层」分开的一张对照图。
+
 ## 诚实说明：「回读」是什么
 
 DCS 0x51（`set_display_brightness`）是单向命令，面板没有对应的读回命令；

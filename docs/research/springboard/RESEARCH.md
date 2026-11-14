@@ -18,6 +18,8 @@
 
 半成功（例如 1 成立但 3/4 仍在）走 §4，不要跳过前面的行直接看后面。
 
+**不要手读**：`python3 scripts/judge-wallpaper-log.py <console.log>` 按上表六步逐条判（`PASS/FAIL/N-A/EYES` + `success/half/dead`），规则与本文表格同源。
+
 ## 1. 判定 —— 0618 内核种子（K60WALL）
 
 | 日志行原文 | 结论 |
@@ -72,10 +74,20 @@
 
 ## 4. 半成功汇总与升级路径
 
-- **只过 §1**（K60WALL 成功）：OS 窗源可达 ⇒ 0618 机制正确；SKIP 仍在 ⇒ 卡点在 init guard/bindfs（P-27），转 F4（重编 init，避开 P-182 的验证流程）。
-- **§1+§2 过、§3 不过**：视图链通了，壁纸选择没跑 ⇒ 查 UI 库注入与 k60_ui_springboard/k60_wallpaper_reset。
-- **§1-§3 全过但像素仍黑**：PosterBoard/compositing 层问题 —— 转 §5 小组件链与 WALLPAPER-CHAIN §2.6。
-- **全过且像素可见**：立即出常规镜像 springboard-20261115b（无 k60_wallpaper_reset），并把 0618 注释里"每次启动重选"的说明改为"仅验证镜像使用"（Lead m01858 指示）。
+**判定器**：`python3 scripts/judge-wallpaper-log.py <console.log>` 按 §0 六步逐条输出 `PASS/FAIL/N-A/EYES` 与最终 verdict（`success` / `half` / `dead`），每条 FAIL 打印「去 §几」。纯读文件、无副作用；回归测试 `python3 scripts/tests/test-judge-wallpaper-log.py`（11 例，含两份真实旧日志作负样本）。
+
+四种半成功形态（**按日志字面量匹配，判定器用的就是这些串**）：
+
+| 形态 | 确切日志行 | verdict | 判读与处置 |
+|---|---|---|---|
+| A 种子生效但 guard 仍拒 | `K60WALL catalogue bytes=772 resid=0 error=0` + `Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper (source/target unavailable)` | `half` | 复制与 mkdir 都生效，卡点在 init guard（目录属主/权限）或 bindfs。先看有没有 `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=… errno=…`：没有 ⇒ 卡在 guard 的 lstat/stat，查 `K60DATA mkdir ok=N/M` 与目录属主（应 0:0 / 0755）；有且 `result=-1 errno=1` ⇒ P-27，转 F4。K60WALL 成功本身就是「OS 窗壁纸源可达」的首次实证，不回滚 0618。 |
+| B 目录被拒（缓冲/长度） | `K60WALL catalogue size=8192 resid=4096 rejected` 或 `K60WALL catalogue open error=2` / `read error=…` / `create error=…` | `half` | 772 B 实测不会命中 `size=… rejected`（§1 注记）；`open error=2` ⇒ OS 窗没有该 plist（与 §2.3 矛盾，重查镜像）；`create error` ⇒ 三条 mkdir 没生效。报 errno + `K60DATA` 计数。 |
+| C 视图挂上但 UI 库跳过 | `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0` + `Pong UI: genuine wallpaper bootstrap SKIP (native 20G81 WallpaperKit ABI unavailable)`（或其余三种 SKIP） | `half` | 视图链通了，壁纸选择没跑：ABI 不符 ⇒ 改 ui_compat 的 ABI 表；`required 7410 metadata/assets unavailable` ⇒ 资产名不匹配（对照 §3）；`manager/URL unavailable` / `bundle rejected` ⇒ WallpaperKit 侧对象构造失败。 |
+| D 全部通过但像素黑 | 无 SKIP、`submitting genuine wallpaper 7410` 与 `native wallpaper completion returned` 都在 | `success`（机器侧） | 机器判据已全过，剩下是 PosterBoard/compositing 层 —— 转 §5 与 WALLPAPER-CHAIN §2.6；像素只能靠截图确认。 |
+
+**无 reset 参数的正常镜像**：`Pong UI: wallpaper existing-content=1 restore-stock=0` 之后整段不出现是**正确行为**（保留用户壁纸），判定器记为 `N-A` 而不是 FAIL。
+
+**升级路径**：`success` + 像素可见 ⇒ 立即出常规镜像 springboard-20261115b（无 `k60_wallpaper_reset`），并把 0618 注释里「每次启动重选」改为「仅验证镜像使用」（Lead m01858）；`half` 按上表 A/B/C 分支处置；`dead` ⇒ 镜像没带 0618（先核 tag 与 `strings` 计数）。
 
 ## 5. 桌面小组件（挂账，不在本线）
 

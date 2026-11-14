@@ -63,3 +63,10 @@ scope = ["scripts", "docs/engineering", "AGENTS.md"]
 path = "/mnt/e/hackios/k60-wifi-lead"
 owner = "lead"
 scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]
+
+# New line (2026-11-14): thermal / tsens research. Owns its own worktree; the
+# two registration files are append-only for this actor.
+[[tree]]
+path = "/mnt/e/hackios/k60-thermal"
+owner = "thermal-agent"
+scope = ["drivers/PongThermal", "docs/research/thermal", "patches/thermal", "docs/research/EIGHT-STEPS.toml", "porting.toml"]

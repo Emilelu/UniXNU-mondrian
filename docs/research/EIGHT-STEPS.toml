@@ -284,10 +284,10 @@ evidence = "深挖三个坑：int-229 类名不能叫 AppleARMBacklight（重名
 [hardware.brightness.step.verify]
 done = true
 local_verified = true
-evidence = "host 单测 scripts/check-brightness-encoder.py 全绿（0..255 DBV 端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且精确落点）；scripts/eight-step-gate.py --build 通过（通过 6 项检查）；scripts/build-strict.sh brightness-4 全流程通过（kernel 6c7a623a5e9287642d8475b0cd66d0d5d8a624fb1b03d7f557a10867e1d32db5，boot.img e41eb797050ff0cce3131092d029dea49a3b86505db4bb8a91d60d7fa20aaafb）；构建后 scripts/check-rules.py 失败 0 条（78 条登记、31 个命令、waiver 37）；产物级核对见 artifact_check。"
+evidence = "host 单测 scripts/check-brightness-encoder.py 全绿（0..255 DBV 端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且精确落点）；scripts/eight-step-gate.py --build 通过（通过 6 项检查）；scripts/build-strict.sh brightness-6 全流程通过（kernel 488a1d8f9319e27141c2da191f8219c63c18d8224b7901bd2a89fdb8d0e45689，boot.img 30ccafb3ff7dfa46d5d192300b9284e6050f1257eede35dc6e863e62a0c16f2c）；构建后 scripts/check-rules.py 失败 0 条（78 条登记、31 个命令、waiver 37）；产物级核对见 artifact_check。"
 static_check = "drivers/PongAdreno/K60Backlight.cpp 用与 PongAdreno 其它对象相同的 kernel 旗标编译（scripts/build-pong-adreno-platform.py:84 的 names 列表已加入 K60Backlight），并复用 PongAdrenoScanout.cpp:19 的归档内引用模式，无新增跨归档符号。"
 unit_test = "python3 scripts/check-brightness-encoder.py：编译 drivers/PongAdreno/K60BacklightCodec.h + 断言，覆盖 0..255 DBV 换算与 FadePeriod 渐变序列，全部通过（输出 all brightness encoder checks passed）。"
-artifact_check = "整机级已验证：scripts/build-strict.sh brightness-4 构建成功，kernel.macho 105500672 bytes（sha256 6c7a623a5e9287642d8475b0cd66d0d5d8a624fb1b03d7f557a10867e1d32db5）；nm 命中 _k60_backlight_start（0xfffffff007a59b34）、_native_backlight_stats（0xfffffff00ac563c8）、_pong_panel_set_brightness；strings 命中 2 条 K60 BACKLIGHT（published / service setup rejected）；check-kernel-archives.py 4 个归档全在 kernel.macho；verify-boot-image OK；boot.img sha256 e41eb797050ff0cce3131092d029dea49a3b86505db4bb8a91d60d7fa20aaafb。"
+artifact_check = "整机级已验证：scripts/build-strict.sh brightness-6（基线 dbc2cd5）构建成功，kernel.macho 105500672 bytes（sha256 488a1d8f9319e27141c2da191f8219c63c18d8224b7901bd2a89fdb8d0e45689）；nm 命中 _k60_backlight_start（0xfffffff007a59b34）、_native_backlight_stats（0xfffffff00ac563c8）、_pong_panel_set_brightness；strings 命中 2 条 K60 BACKLIGHT（published / service setup rejected）；check-kernel-archives.py 4 个归档全在 kernel.macho；verify-boot-image OK；boot.img sha256 30ccafb3ff7dfa46d5d192300b9284e6050f1257eede35dc6e863e62a0c16f2c。"
 
 [hardware.brightness.step.device]
 done = false

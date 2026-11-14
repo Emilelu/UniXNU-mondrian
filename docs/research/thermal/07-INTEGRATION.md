@@ -64,6 +64,34 @@ fi
 - `-Wl,-force_load` 不能省：静态归档里没有其它目标文件引用 `k60_thermal_start` 时，ld 不会拉入成员，
   这正是 P-190 说的"归档必须验符号"的另一半——链接也要强制加载。
 
+### 3.1 已离线验证这条链接行
+
+`scripts/build-thermal-link-check.sh`（本线新增）用 ld64 的 `-r` 部分链接把这条链接行的语义先证明一遍，
+不需要整棵内核重编：
+
+- 造一个五行 caller（`extern "C" int k60_thermal_start(void);` + 一个调用它的探针函数），
+  等价于 §4 的 ArmDTPlatform 钩子——真实钩子所在文件不在本线写作用域，故用同符号的替身。
+- 对照组：`ld -r caller.o` 不加 `-force_load` → `_k60_thermal_start` 仍然未定义（证明这个标志是必需的，
+  不是装饰）。
+- 实验组：`ld -r caller.o -force_load libK60ThermalKext.a` → `_k60_thermal_start` 已解析，
+  且合并对象里 218 个归档导入逐个在 `all-kpi.exp` 内，0 个未解析。
+
+实测输出（2026-11-14，`build/thermal-link-check/`）：
+
+```
+build-thermal-link-check: control OK (k60_thermal_start still undefined without the flag)
+build-thermal-link-check: -force_load resolved k60_thermal_start
+build-thermal-link-check: 218 archive imports, all in all-kpi.exp
+build-thermal-link-check: LINK OK
+```
+
+一个附带观察（重要，避免过度解读这个判据）：`ArmDTPlatform.cpp` 自己的 237 个导入里有 51 个
+`IOPlatformExpert::` 成员**不在** `all-kpi.exp`（例如 `__ZN16IOPlatformExpert14getChipSetTypeEv`），
+而该归档早就挂在内核链接行里、内核也构建成功。原因：`all-kpi.exp` 是**给 kext 用的导出白名单**，
+而 `-force_load` 进来的归档是**内核本体的一部分**，它的导入由内核自己的目标文件解析，不受该白名单约束。
+所以"218 个导入全在 all-kpi.exp"是一个**比链接器要求更严**的充分条件（这也是当初选它的原因：
+离线就能给出结论），但不能反过来说"不在表里就一定链接失败"。
+
 ## 4 改动二：启动钩子
 
 `drivers/ArmDTPlatform/ArmDTPlatform.cpp:23` 之后加：

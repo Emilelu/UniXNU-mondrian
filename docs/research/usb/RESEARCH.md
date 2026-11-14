@@ -1192,3 +1192,48 @@ Windows 工作机无 libusb/pyusb/gcc；mode 1 的裸端点验证只能走
   - 构建途中两次失败均为 iron-2（补丁/文档改动未提交），commit 后即过；
     另一次是 `vend_pending`/`vend_sent`/`vend_packets` 三字段漏出 struct ud（编译错 `no member named vend_pending`，kernel-bootstrap.log:30306 起），补齐后过。
 
+
+### 23.6 `0410` 的一处日志缺陷与修复（commit `36d1e73`）
+
+`0410` 的 echo 打印写成
+
+```c
+printf("K60 USBLOG: echo %u bytes on ep%u (total %u)\n",
+    got, ud.vend_bytes);            /* 三个转换符，两个实参 */
+```
+
+第三个 `%u` 从可变参数的栈/寄存器里取值，打印出的端点号与累计字节都是垃圾值。发现方式是给整份
+`k60_usblog.c` 做机械体检：剥掉字符串与注释后按顶层逗号切参数，统计格式串里的转换符个数与实参个数
+（脚本 `E:/k60-work/scratch/usb/fmtcheck.py`，只做这一件事）。**全文件 2263 行只有这一处不匹配**，
+说明 `0300`/`0405`–`0409` 里既有的打印都是配平的，缺陷是 `0410` 新引入的。
+
+修复后重新生成补丁：`mkpatch0410.sh` 用 `diff -u` 产出 14 个 hunk（11861 B，sha256
+`3ce625370d6a195f5756f51b913fbf21f4403190b8d27adac38803cbd654f766`），并在 `/tmp/p0410` 里用
+`patch -p1` 打过一遍、`cmp` 与源文件 **IDENTICAL**。`sync-device-input.py` 把新补丁同步进
+`/opt/k60/trees/usb-device`（686 个文件已一致，只此 1 个变化），`porting-gate.py --quick` ✅。
+
+**已构建的 `usb-20261114h` 不受影响**：它是 mode 0，`SET_CONFIGURATION` 不会配 EP6/EP7，
+`ud.vend_ok` 恒为 false，`ud_vendor()` 第一行就返回，这条打印永远不执行。缺陷只在 mode 1/2 可见。
+
+### 23.7 构建阻塞：iron-9（跨线，不是本线改动引起）
+
+想产出 mode 2 镜像 `usb-20261114h2` 时被 compliance registry 拒，`kernel.log` 全文只有一行：
+
+```
+❌ iron-9   结论: ❌ main 基线登记不完整
+```
+
+`scripts/check-main-baseline.py` 在 `feat/*` 分支上校验的是 **main 的 HEAD**（`:30-34`），
+要求它要么在 `docs/engineering/MAIN-BASELINE.toml` 的某个 `[[entry]]` 里，要么没动 `RISKY` 路径
+（`:8` = `patches/`、`drivers/`、`scripts/build-`、`board.toml`、`configs/`）。实测：
+
+```
+ℹ️  iron-9  在分支 feat/usb-console 上，按 main (92c9251) 校验
+❌ iron-9  92c9251 改了会进镜像的路径（scripts/build-strict.sh），却没有在 MAIN-BASELINE.toml 登记 sha/tag/kernel/state（铁则 9）
+```
+
+main 在 2026-11-14 22:18–22:28 连落两笔未登记的风险路径提交（`3c69c80` board.toml 内存窗口、
+`92c9251` Metal container padding），book 仍是 7 条 entry（anchor `bf487cc`）。
+`docs/engineering/MAIN-BASELINE.toml` 不在 usb 线写作用域，**只能由 gates 线在 main 侧登记**；
+登记条目与验证脚本已备好（`E:/k60-work/scratch/usb/entry.toml` + `verify_entry.py`）。
+在它被登记之前，**任何分线的 `scripts/build-strict.sh` 都会在 registry 阶段被拒**，与本线改动无关。

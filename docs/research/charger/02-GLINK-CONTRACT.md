@@ -2,13 +2,14 @@
 
 > 目标：回答“K60 侧要提供什么，`qti_battery_charger_main_m81.ko` 才能跑起来”。
 > 地址约定同 01：`.text` 内偏移直接写 `0x...`，其它节写 `节名:0x..`；行内 `\x01` 是 printk 级别字节。
+> 本文的 opcode/属性细节已由 `04-PROP-MAP.md` 与 `05-OPEN-QUESTIONS.md` 细化并订正；L1 服务层契约见 `../battery/PMIC-GLINK-SERVICE.md`。
 
 ## 0. 结论摘要
 
 1. **.ko 完全不接触 GLINK 环 / SMEM / SMP2P。** 它只调用 3 个 `pmic_glink_*` 内核符号，是标准的 **pmic_glink 客户端**（动态注册），协议消息就是 `pmic_glink_write()` 的缓冲区。
 2. 客户端身份：**name=`battery_charger`**（`.rodata:0x259a`）、**id=`0x800a`**（u32）；probe 注册成功后立刻把 `bcdev->state` 置 1，等 `state_cb(1)` 到来才 queue `battery_chg_subsys_up_work`。
 3. 消息 = **16 字节头 + payload**：`+0 owner(u32)`、`+4 type(u32)`、`+8 opcode(u32)`、`+0xc` 在请求侧恒 0、在响应侧是 `prop_id`。rx 侧只校验 `opcode(+8)` 与总长度，**不校验 owner/type**。
-4. opcode 空间很小：`0x04`（subsys up）、`0x30/0x32/0x34/0x50`（GET 属性，按域）、`0x31/0x33/0x35/0x51`（SET 属性）、`0x36`（ship mode）、`0x40/0x42/0x43/0x44`（通知），其余落进 Unknown opcode / Incorrect response length 分支。
+4. opcode 空间很小：`0x04`（subsys up / 订阅通知）、`0x30/0x32/0x34/0x50`（GET 属性，按域）、`0x31/0x33/0x35/0x51`（SET 属性）、`0x36`（ship mode）、`0x37`（shutdown）、`0x40`（无线固件握手）、`0x41`（固件分片，**只发不收**）、`0x42/0x43`（无线升级两阶段完成量）、`0x44`（固件版本读取），其余落进 Unknown opcode / Incorrect response length 分支。逐条语义见 `05-OPEN-QUESTIONS.md`。
 5. **现有 104 字节 `k60-adsp-glink-handoff` 只覆盖 L0 传输层（GLINK 环 + SMEM + SMP2P），缺 L1 pmic_glink 服务层**（客户端注册表、按 id 路由、request/response 完成语义、通知下发）。要让此 .ko 在 K60 上工作，必须再定义 L1 契约（§7 给出最小字段集与 opcode 集）。
 
 ## 1. 事实：没有「裸 GLINK」痕迹
@@ -134,7 +135,8 @@ rx 侧统一从 `data+0xc` 读 `prop_id`、`data+0x10` 读 `value`、`data+0x14`
 | `0x43` | `0x10` | `data+0xc==1` → `complete(bcdev+0xf8)` | `0x22ec` |
 | `0x44` | `0x10` | `bcdev+0x314 = data+0xc` | `0x230c` |
 | `0x51` | `0x34`→拷 32 B；`0x20`→拷 16 B | `memcpy(bcdev+0x620 / +0x628, data+0x10, …)` | `0x2324` |
-| `0x04`/`0x36`/`0x37`/`0x48` | 任意 | 只 `complete(bcdev+0xd8)` | `0x2464` |
+| `0x04`/`0x36`/`0x37`/`0x47` | 任意 | 只 `complete(bcdev+0xd8)` | `0x2464` |
+| `0x48` | 任意 | **未识别**：打印 `Unknown opcode: %u.` 后返回 0，**不 complete** | `0x24a8` |
 
 `0x30` 分支原文（证明 16 字节头 + 128 字节负载）：
 
@@ -177,11 +179,12 @@ rx 侧从不读 `data+0`/`data+4`，所以 peer 回复时可以照抄请求的 o
 | `0x34` | 发→收 | 收 24/32/52 | `prop_id` → `wls_prop_cache[]` | GET wireless prop |
 | `0x35` | 发→收 | 收 24/32/52 | 读 rc 报错 | SET wireless prop 应答 |
 | `0x36` | 发→收 | 发 16 | ship mode 请求 | rx 侧同 `0x04` |
-| `0x40` | 只收 | 16 | `bcdev+0x30f = (data+0xc == 1)` | 通知：使能/在位状态 |
+| `0x40` | 发→收 | 发 24 / 收 16 | `bcdev+0x30f = (data+0xc == 1)` | 无线固件握手（版本 + 结果码），回包置放行旗标 |
+| `0x41` | 只发 | 144 | 无（直接 `pmic_glink_write`，等 `bcdev+0xf8`） | 无线固件分片推送：12 B 头 + 128 B 分片 + 4 B 片序 |
 | `0x42` | 只收 | 16 | `complete(bcdev+0x118)` | 通知：固件/VDM 事件 |
 | `0x43` | 只收 | 16 | `complete(bcdev+0xf8)` | 通知 |
-| `0x44` | 只收 | 16 | `bcdev+0x314 = data+0xc` | 通知：typec/端口状态 |
-| `0x48` | 收（预留） | 任意 | 只 complete | — |
+| `0x44` | 发→收 | 发 12 / 收 16 | `bcdev+0x314 = data+0xc` | 无线固件版本读取（debugfs `wireless_fw_version`） |
+| `0x48` | — | — | **未识别**（主跳转表落默认项） | 不存在；`0x47` 才是「只 complete」 |
 | `0x50` | 发→收 | 收 24 | 读 rc 报错 | GET xiaomi prop（187 项） |
 | `0x51` | 发→收 | 收 52 或 32 | 拷 32/16 B → `bcdev+0x620/+0x628` | SET xiaomi prop / 大块数据 |
 | 其它 | — | — | `.rodata:0x24b0` `Unknown opcode: %u`、`.rodata:0xa1c` `Incorrect response length %zu for opcode %#x` | 默认分支 |
@@ -282,11 +285,11 @@ probe 为四个域各建一份 `{只读映射表指针, kmalloc 运行时副本,
 
 ## 8. 未决问题
 
-1. **头第 4 字不对称**：请求侧 `+0xc` 恒 0 而 `prop_id` 在 `+0x10`；rx 侧却把 `+0xc` 当 `prop_id`。可能是 vendor 的请求/响应结构体不同，也可能 `+0xc` 是另一字段。**需真机/固件确认**，否则服务端的属性会错位。
-2. **`type` 语义未知**：只有 subsys-up 首条用 `2`，其余 `1`；rx 不校验，无法反推。
-3. **通道名/服务名/GUID/端口** 不在 .ko 内，须从 ADSP 固件（`adsp.mbn` 字符串）、`pmic_glink.c` 源码或 ADT 取证。
-4. `0x37`、`0x48` 在 rx 跳转表里只 complete，语义未知；`0x40/0x42/0x43/0x44` 的具体含义需结合等待者（`bcdev+0x118`、`bcdev+0xf8`、`bcdev+0x314`）反推。
-5. `prop_id → psy 属性` 的映射方向（wire→psy 还是 psy→wire）还需用 `battery_props`/`usb_props`/`wls_props` 数组交叉验证；本文按“wire prop_id 即索引”叙述。
+1. ~~头第 4 字不对称~~ → 已在 `05-OPEN-QUESTIONS.md` §1 结案：请求 `+0xc` 是上游 `struct qcom_battmgr_property_request` 里的 `__le32 battery` 槽位（单电池恒 0），`+0x10` 才是 **map 下标**；响应 `+0xc` 直接是下标。不对称是协议设计，不是解析错误。
+2. ~~`type` 语义未知~~ → 已结案：`1` = `PMIC_GLINK_REQ_RESP`（所有属性 GET/SET 与 0x40/0x41/0x44/ship mode/shutdown），`2` = `PMIC_GLINK_NOTIFY`（订阅 `{0x800a,2,0x04,…}` 28 B 与 subsys-up），与上游 `qcom_battmgr_enable_worker()` 逐字节一致（`05-OPEN-QUESTIONS.md` §3）。
+3. **通道名/服务名/GUID/端口** 不在 .ko 内——但已在 ADSP 固件分片 `adsp.b14`/`adsp.b17` 里找到 `PMIC_RTR_ADSP_APPS`、`/dev/ipc_router`、`IPCRTR_RDR`、`pmic_glink.c` 的日志串，说明服务端在 ADSP 侧、通道名即 `PMIC_RTR_ADSP_APPS`。仍缺 AP 侧 ipc_router 端口号与 ADSP 侧 battery 服务的 opcode 表。详见 `docs/research/battery/PMIC-GLINK-SERVICE.md` §5。
+4. ~~`0x37`、`0x48` 语义未知~~ → 已在 `05-OPEN-QUESTIONS.md` 结案：`0x37` 是 **shutdown 命令**（`battery_chg_shutdown` 0x2830 发 12 B，仅重启时发）；`0x48` **不是 rx opcode**，主跳转表落默认项 `0x24a8`（`Unknown opcode: %u.`），「只 complete」的是 `0x47`。`0x40/0x42/0x43/0x44/0x51` 也已逐条结案。
+5. ~~`prop_id → psy 属性` 方向待验证~~ → 已由 `04-PROP-MAP.md` 钉死：**wire prop_id = 该域 map 数组的下标**（决定性证据是 `battery_psy_set_prop` property `0x21` 分支把常量 10 写进 `+0x10`，而 `battery_prop_map[10] = 0x21`），map 里的值才是 `enum power_supply_property`。
 6. 若要走路线 A，K60 内核必须提供 `vermagic 5.10.160-gki` 对应的 `pmic_glink`/`power_supply` 符号（含 `__versions` CRC），否则只能走路线 B。
 
 ## 9. 复现命令

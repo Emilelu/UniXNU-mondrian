@@ -433,7 +433,7 @@ artifact_check = "不适用：本步验证的是纯算术，产物里没有可�
 
 [hardware.thermal]
 status = "planned"
-parked_why = "第一阶段（2026-11-14）只做只读研究与登记；驱动代码属第二阶段，按 Lead 指令暂不写"
+parked_why = "第二阶段（2026-11-14）已写出只读驱动与主机单测并通过，但从未进内核、从未上机；⑦⑧ 需 Lead 批准后才能开"
 why = "热管理 / tsens-v2（AP 侧 2 个控制器 × 16 个传感器 = 32 个，另有 QMI 远端 25 个热区不可达）"
 
 [hardware.thermal.step.same_model]
@@ -446,7 +446,7 @@ evidence = "官方移植指南没有 thermal 子系统页：E:/k60-work/referenc
 
 [hardware.thermal.step.decompile]
 done = false
-evidence = "本机 Android 侧取证未做，缺两样：K60 vendor kernel 的 tsens 驱动本体（需从 boot/vendor_boot 或 ko 取，本阶段未取）、以及 /vendor/etc/thermal-engine*.conf（解释 125/115/110℃ 这些 trip 在 Android 侧的真实用途）。已完成的只有 live FDT 反编译（DTB sha256 516ac7d55c94cde466e57d2e0efb9014fd1cc3534210c80ef20dd5510146f16a，/mnt/e/k60-work/scratch/mondrian.dts 共 21954 行），那是 ③ 的第 1 项，不等于 ③ 走完。"
+evidence = "第二阶段补齐了两项，但 ③ 仍差最后一项。已取得：一，K60 vendor kernel 的 tsens 驱动本体 —— qcom_tsens.ko，77928 B，sha256 22334f6d246cf1b67e238027a2d04ac19b588d47d73301bb7577c2dc9c6981a9，not stripped，从 vendor_boot ramdisk（lib/modules/）只读取出，不在 /vendor 与 /vendor_dlkm 的 314 个 ko 里；其 .rodata tsens_v2_regfields（:0xff0）逐传感器给出 LAST_TEMP off=0xa0+4n、width=0x0b，与 tsens-v2.c:94-101 相同，.text:0x588 get_temp_tsens_valid 走 adc=0 分支（tbnz bit1 → lsl/asr 符号扩展 → ×100），与 tsens.c:346-347 同路；标定代码（9 处 qfprom_read 重定位、3 处 nvmem_cell_*）在 ko 里存在但本板无 nvmem 节点（DT grep qfprom|efuse|nvmem 零命中，活节点 /proc/device-tree/soc/thermal-sensor@c263000/ 无 nvmem-cells）故不走。二，厂商用户侧配置：thermal-engine.conf 84 B 内容为 \"# File empty by default\"（本机用 thermald），thermald-devices.conf 明文已取；thermal-map/normal/phone.conf 是厂商加密二进制，未解。三，vendor_boot 的 DTB 反编译与 UEFI DTB 只差根节点 3 行（model/compatible/msm-id），thermal 事实同源。四，运行时 84 个 zone 中 32 个 AP tsens 全部有读数且顺序与 DT 索引一致。仍缺（因此 done=false）：SROT 现场值（SROT_HW_VER 与 SROT_CTRL bit0=TSENS_EN）从未被读过 —— Android 不暴露内核态 MMIO，只能等 ⑦⑧ 阶段由我们自己的驱动读；以及 32 个 STATUS 的原始 VALID 位快照（Android 只给换算后温度）。全部细节与复现命令见 docs/research/thermal/04-ANDROID-EVIDENCE.md §4-§5、§9。"
 
 [hardware.thermal.step.wide]
 done = true
@@ -456,7 +456,7 @@ catalog_result = "UniXNU/components.toml 的 25 个组件里没有任何 thermal
 
 [hardware.thermal.step.plan]
 done = false
-evidence = "复用清单已成型（docs/research/thermal/03-REVERSE.md §5：13 条，1-9 可复用或需改参数、10-13 明确排除），但还不是第 ⑤ 步要求的改动清单：缺「新增哪个文件、暴露什么接口、日志格式、如何与将来的 IOPMrootDomain 压力通知对接」的具体方案。drivers/PongThermal 目前只有占位说明，等 Lead 批准进入第二阶段再写。"
+evidence = "改动清单已落地为代码（docs/research/thermal/03-REVERSE.md §5 的 13 条复用清单 + 04 篇 §10 的对应关系）：新增 drivers/PongThermal/K60Tsens.h 与 K60Tsens.c，接口是纯函数 k60tsens_status_to_mc / k60tsens_decode / k60tsens_decode_hw_ver / k60tsens_ctrl_enabled 与 MMIO 读 k60tsens_read / k60tsens_read_controller / k60tsens_trdy，外加 32 项板级表 k60tsens_sensor_table；日志格式定为每传感器一行 \"tsens<ctrl>[<idx>] <name> <mC> flags=0x<..>\"（与同族 ThermalProbe.cpp:195-224 的采样循环同构）。仍未 done：与 IOPMrootDomain 压力通知的对接（ThermalLevel 那条线）没有设计，且 XNU 侧 IODeviceMemory 映射代码按 Lead 边界留到 ⑦⑧，故 ⑤ 只算「接口定稿」不算完成。"
 
 [hardware.thermal.step.deep]
 done = false
@@ -465,7 +465,7 @@ evidence = "不确定项尚未消解：SROT_CTRL bit0（TSENS_EN）是否被 XBL
 [hardware.thermal.step.verify]
 done = false
 local_verified = false
-evidence = "没有可核验的产物：本阶段不写驱动代码，故无静态对照与单测对象。已做的只是与上游源码逐行对齐（docs/research/thermal/02-OFFICIAL-DOCS.md §2 的偏移表每一行都能在 tsens-v2.c:12-27 找到出处），那属于 ② 的证据，不算 ⑦。"
+evidence = "主机侧已核验、内核侧未核验，故 local_verified 保持 false。已做：scripts/tests/test-k60-thermal-tsens.c 用假 TM 窗口驱动 drivers/PongThermal/K60Tsens.c，16 组断言全过（cc -std=c11 -O1 -Wall -Wextra -I drivers/PongThermal，输出 TESTS OK 16），覆盖 0xa0+4n 字索引、12 位符号扩展（-40.0℃ 与 -10.0℃）、VALID 缺失、越界拒绝（±160.1℃ 与 -40.1℃）、每控制器 valid 计数、TM_TRDY、32 项表的长度/名字/zone 号；static_check：驱动不写任何寄存器（全文无对 volatile 的写）、不开中断、不碰 SROT。缺：产物从未被链接进内核（无 llvm-nm 可验的符号），也无 IODeviceMemory 映射代码，因此 ⑦ 的 artifact_check 无对象。"
 
 [hardware.thermal.step.device]
 done = false

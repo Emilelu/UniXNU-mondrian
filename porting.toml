@@ -253,19 +253,26 @@ findings = [
   "Both controllers expose 16 sensors each, not the 8 the original brief assumed: 2x16 = 32 AP sensors plus 25 remote QMI zones and one config-only zone (docs/research/thermal/01-SAME-HARDWARE.md §5).",
   "The board DTB carries no calibration data: grepping the decompiled DTS for calib/qfprom/efuse returns nothing, and the upstream calibrationless path (tsens.c:131-152) still works because tsens-v2 status words already hold deci-Celsius (tsens-v2.c:31-39, tsens.c:346-347).",
   "Only 32 of the 58 zones are reachable from the OS; every AP-side trip is passive (the only active trips are modem-side mdmss ones), so a driver must do its own polling because polling-delay is 0 for most zones (docs/research/thermal/01-SAME-HARDWARE.md §6).",
+  "The DT zone count and the runtime zone count are different quantities: the board DTB describes 58 thermal zones, while the running Android system registers 84 (32 AP tsens + 25 QMI + 6 PMIC + 8 BCL + 9 Xiaomi virtual + socd + 3 battery), so only the 32 AP sensors can be cross-checked between the two (docs/research/thermal/04-ANDROID-EVIDENCE.md §1).",
+  "The live zone list confirms 2x16 = 32 AP sensors and matches the DT thermal-sensor-cells indices one by one (zones 24..55), which is an independent second source for the sensor table used by drivers/PongThermal/K60Tsens.c (docs/research/thermal/04-ANDROID-EVIDENCE.md §2).",
+  "The vendor tsens driver is a loadable module recovered from the vendor_boot ramdisk (qcom_tsens.ko, 77928 B, not stripped); its .rodata tsens_v2_regfields table independently repeats TM_Sn_STATUS = 0xa0 + 4n with width 12, and its get_temp_tsens_valid takes the adc=0 branch that multiplies the sign-extended status word by 100 (docs/research/thermal/04-ANDROID-EVIDENCE.md §5).",
 ]
 completion = [
   "A device boot prints 32 timestamped samples, every sensor reports VALID with a value inside -40..160 C, and two consecutive samples of the same sensor differ by less than 20 C.",
 ]
 limits = [
-  "No driver code exists yet: drivers/PongThermal holds a placeholder only, and nothing here is compiled or linked. Threshold programming, interrupts, the 25 QMI zones and every cooling-device action remain out of scope until the read path is device-verified.",
+  "drivers/PongThermal is host-compiled and unit-tested only: it has never been linked into an XNU kernel or run on a device. Threshold programming, interrupts, the 25 QMI zones and every cooling-device action remain out of scope until the read path is device-verified.",
+  "The SROT block has never been read on this board, so TSENS_EN (SROT_CTRL bit 0) and SROT_HW_VER are still unverified; upstream refuses to probe when TSENS_EN is 0 (tsens.c:974-979), and reading it needs kernel-mode MMIO that Android does not expose (docs/research/thermal/04-ANDROID-EVIDENCE.md §9).",
 ]
 next_action = [
-  "Review the three research documents in docs/research/thermal/, then write the read-only PongThermal driver and prove the offsets with a host test before any device boot.",
+  "Get Lead approval for steps 7 and 8, then boot the read-only driver on device 6033dbec and confirm SROT_CTRL bit 0, SROT_HW_VER and VALID on all 32 sensors before any threshold or interrupt work.",
 ]
 evidence = [
   { kind = "source", reference = "docs/research/thermal/01-SAME-HARDWARE.md", result = "Controller bases, SROT windows, the 32-sensor index map, the 58-zone and cooling-map inventory, and the statement that the board DTB has no calibration node, each with mondrian.dts line numbers." },
   { kind = "source", reference = "docs/research/thermal/02-OFFICIAL-DOCS.md", result = "Register offsets from tsens-v2.c:12-27, status bit fields from tsens-v2.c:94-101, the deci-Celsius conversion from tsens.c:346-347, and the binding example that matches this board at qcom-tsens.yaml:382-396." },
   { kind = "source", reference = "docs/research/thermal/03-REVERSE.md", result = "How UniXNU-sheng (SM8550) and phk110-port (SM6375, 27/27 sensors measured on hardware) read tsens, the three-platform comparison, the 13-item reuse list, and the two forensic gaps that keep step 3 open." },
+  { kind = "source", reference = "docs/research/thermal/04-ANDROID-EVIDENCE.md", result = "Live evidence from device 6033dbec: 84 runtime zones versus 58 DT zones, zones 24..55 matching the DT sensor indices, live trips equal to the DT trips, and the reverse-engineered qcom_tsens.ko whose regfield table and adc=0 conversion path confirm 0xa0+4n and the x100 deci-Celsius decode." },
+  { kind = "artifact", reference = "drivers/PongThermal/K60Tsens.c", result = "Read-only tsens reader: 32-entry board table, TM_Sn_STATUS decode with 12-bit sign extension, VALID gating and -40..160 C plausibility window; writes no register, takes no interrupt and never touches SROT." },
+  { kind = "test", reference = "scripts/tests/test-k60-thermal-tsens.c", result = "Host test with a fake TM window: 16 assertion groups covering conversion, negative sign extension, VALID and out-of-range rejection, 0xa0+4n indexing, per-controller valid counts, TRDY, and the table length/names/zone ids; prints TESTS OK 16." },
 ]
 

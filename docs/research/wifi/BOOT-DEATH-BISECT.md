@@ -249,8 +249,12 @@ imageSha256 join 零命中。它的两个兄弟：
 
 绕行的理由现在已经消失：触摸线全绿、flash gate 不再挡，`eight-step-gate.py --build` 能过。
 以后同类对照镜像必须走 `scripts/build-strict.sh`，否则 manifest 证明不了
-「series / board.toml / args 到底是什么」。这条记为 **P-199 的候选**，待 Lead 在
-`docs/engineering/PITFALLS.md` 落号。
+「series / board.toml / args 到底是什么」。这条教训已按
+[docs/engineering/PITFALLS.md](../../engineering/PITFALLS.md) 的 **P-201**（「绕过
+build-strict.sh 造的对照镜像，证据等级自动降一级」，main `1d10955`）落号；判定器与
+对账脚本看到没有 `series` 键的 manifest，把结论降级成「结构性观察」，不许当作
+「变量已隔离」的证据。a2 在队列里的位置由正式重出的对照镜像（同一套当前树、走
+`build-strict.sh`、`pong_wifi=0`）顶替，a2 降级为「体积相同但身份不可复核」的旁证。
 
 a2 仍然可用的部分（实测，可直接当判据）：`boot.img` sha256 `0a1c2ec0…`、
 payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、

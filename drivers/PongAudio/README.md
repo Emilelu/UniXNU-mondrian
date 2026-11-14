@@ -151,6 +151,29 @@ syntax check and a boot can speak to.
 The tests are **not** in `patches/audio/`: they are a repo-side check, not a
 kernel file, and shipping them into `bsd/dev/` would only slow the build.
 
+## On-device result (2026-11-14, run 1 of 2)
+
+Booted `audio-probe-20261114j/boot.img` (sha256 `877d0a9d…c35723ef2`) once with the
+CDC-ACM console armed. The probe completed and both amplifiers answered:
+
+```
+PongAudio: amp gcc gpll0 vote=0x00000001 mode=0xe0000005 locked=1
+PongAudio: amp se15 ready config=0x03000021 status=0x00000000 level=0
+PongAudio: amp0 addr=0x34 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp1 addr=0x35 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0
+```
+
+`scripts/judge-audio-capture.py` judged `SUCCESS - amplifiers identified` (exit 0).
+Both parts are **AW88261** (`0x2113`), the same part the phk110 reference uses; both
+were still in power-down (`ctrl=0x3343`, PWDN and AMPPD set) because this probe is
+read-only. `vbat`/`pvdd` read `0x0263` and `status=0x0000`, so the amplifiers are
+powered even though the device tree carries no supply node.
+
+Iron rule 5 wants the same image booted twice. Run 2 needs the user's and the Lead's
+approval (the user's standing instruction is that nobody boots the device on their
+own initiative), so the evidence set is one run, not two — see `AMPS.md` section 7.3.
+
 ## What it does not do
 
 No LPASS register is touched. That is not an omission — the PRM votes and the

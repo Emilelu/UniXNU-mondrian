@@ -399,7 +399,7 @@ evidence = "本子任务只核验了 AP 侧只读探针（功放 chip id / 引�
 
 [hardware.audio.step.device]
 done = false
-evidence = "从未上机。"
+evidence = "run 1 of 2 已完成（2026-11-14 12:10，镜像 audio-probe-20261114j boot.img sha256 877d0a9d…c35723ef2，证据 E:/k60-work/evidence/audio-probe-j/run1）：capture.json state=captured-budget-complete complete=true panicMarker=null，console.log 3333 行，PongAudio 探针完整跑完，judge-audio-capture.py 判 SUCCESS - amplifiers identified（exit 0）；amp0/amp1 都是 AW88261 id=0x2113，found=2/2 failed=0 timeouts=0 recovered=0。铁则 5 要求同一镜像两次 boot，run 2 需用户与 Lead 批准后才能执行（用户 2026-11-14：禁止擅自 boot），因此 ⑧ 仍为 done=false。详见 docs/research/audio/AMPS.md §7.2/§7.3。"
 
 [hardware.audio.step.device.prediction]
 success = "PongAudio: amp probe done found=2/2 ... 且 amp0/amp1 的 chip id 在已知表（0x2113 AW88261 等），failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0"

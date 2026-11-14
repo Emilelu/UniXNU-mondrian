@@ -396,26 +396,94 @@ K60_SERIES_FINAL=/mnt/e/k60-work/scratch/audio-work/SERIES-FINAL.txt \
 bash scripts/build-strict.sh <tag> --fd <…silicon.fd> --kernel-arg pong_audio_probe=1
 ```
 
-## 7. 待实测 / 阻塞
+## 7. 上机结果与剩余阻塞
 
-镜像已就绪：`/mnt/e/k60-work/artifacts/audio-probe-20261114g/boot.img`
-（sha256 `bedb656364657476194809051885dd497a4db2ea329f003cfdc389650e580aa2`，`verify-boot-image: OK`），
-manifest 记 `repo.head 034f5b5`、`dirty_files 0`、`series 230 / 37b91dbe…`、`frozen 52de0e1d…`、
-`kernel_args ["pong_audio_probe=1"]`；kernel `849ac437…`、payload `177d211e…`、dtb `2d044eaa…`、fd `cf448571…`。
+### 7.1 有效镜像（`j`，与当前 HEAD 同步）
+
+`/mnt/e/k60-work/artifacts/audio-probe-20261114j/boot.img`
+（sha256 `877d0a9d08ae0bff591ccb6d470a47eac46bdfa26a0d0ff4376a711c35723ef2`，`verify-boot-image: OK`），
+manifest `/mnt/e/k60-work/artifacts/audio-probe-20261114j/build-manifest.json` 记
+`repo.head e6351d8`、`dirty_files 0`、`series 230 / 37b91dbe…`、`frozen 1da672a9…`、
+`kernel_args ["pong_audio_probe=1"]`；kernel `3c8853c8…`、payload `8c617c72…`、
+payload_kernel `e34316b4…`、adt `ea5f4131…`、dtb `2d044eaa…`、fd `4bbe7601…`。
+
+构建命令（私有树，共享镜像零写入）：
+
+```
+cd /mnt/e/hackios/k60-audio-merge
+K60_DEVICE_INPUT=/opt/k60/trees/usb-cdc-mainline/audio-device \
+K60_OUT=/opt/k60/trees/k60build/out-audio \
+scripts/build-strict.sh audio-probe-20261114j \
+  --fd /mnt/e/hackios/uefi-mondrian/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd \
+  --kernel-arg pong_audio_probe=1
+```
 
 镜像必须与 HEAD 同步：每改一次 `scripts/` 或补丁，冻结清单（`frozen`）就变，旧镜像的清单对不上
-`check-build-freshness`。`g` 是当前有效版本；`f` 因为构建途中改了 `scripts/` 被 `build-strict.sh` 的冻结检查作废，
-`e`（`7f45fcc`）、`d`（`bb4c1e0`）、`c` 都更旧。
+`check-build-freshness`。`j` 是当前有效版本；`g`（`034f5b5`，`frozen 52de0e1d…`）已被 GPLL0 合规改动
+（`e889324`）取代，`f` 因为构建途中改了 `scripts/` 被冻结检查作废，`e`/`d`/`c` 更旧。
+补丁应用顺序已在 `kernel.log:228-233` 证实：`0503 → 0504 → 0505 → 0001-k60-audio-amp-probe → 0506`。
 
-缺的只是设备：2026-11-14 05:20 与 05:38 两次实测 `fastboot devices` 与 `adb devices` 都为空，
-主机 PnP 里也没有 `VID_1209&PID_0001`（`NO-ANDROID-USB-DEVICE`）——手机不在 USB 上（关机或拔线），
-所以两次 `fastboot boot` 还没法开始。
+### 7.2 第一次上机（run 1 of 2，2026-11-14 12:10）
 
-待实测（⑧）：
-1. chip ID 到底是哪一颗（A5）。
-2. I2C 引脚是否已被 Android 配好（A7 读回即可知，若已配好就不要重配）。
-3. 功放供电是否已使能（DT 无供电属性，只能读回判断；**读不到 ID 时优先怀疑没供电**）。
+证据目录 `E:\k60-work\evidence\audio-probe-j\run1`（`console.log` 222,415 B / 3,333 行、
+`capture.json` state=`captured-budget-complete`、`complete: true`、`stopReason: budget`、
+`panicMarker: null`、`portSeen`/`portOpened` 都是 true、`boot.json` 记 `bootAccepted: true` / `bootExitCode: 0`）。
+`scripts/judge-audio-capture.py` 判 **`VERDICT: SUCCESS - amplifiers identified`**（exit 0）。
 
+驱动日志（`console.log:191-220`，逐字）：
+
+```
+PongAudio: amp probe start (amplifiers are read-only; AMPS.md A1-A7)
+PongAudio: amp gcc gpll0 vote=0x00000001 mode=0xe0000005 locked=1
+PongAudio: amp gcc vote 0x0 -> 0x1f readback 0x1f
+PongAudio: amp gcc clk wrap2_core halt=0x00004220 running=1
+PongAudio: amp gcc clk wrap2_core_2x halt=0x00004220 running=1
+PongAudio: amp gcc clk wrap2_m_ahb halt=0x00000000 running=1
+PongAudio: amp gcc clk wrap2_s_ahb halt=0x80000002 running=1
+PongAudio: amp gcc clk wrap2_s0 halt=0x00004220 running=1
+PongAudio: amp i2c pad gpio=56 cfg=0x00000001 -> 0x00000007 readback=0x00000007
+PongAudio: amp i2c pad gpio=57 cfg=0x00000001 -> 0x00000007 readback=0x00000007
+PongAudio: amp se15 fw=0x00000303 proto=3 disabled=0x00000000 clock=0x00000011 scl=0x00000000
+PongAudio: amp gcc dfs level=0 cfg=0x00000001
+PongAudio: amp se15 ready config=0x03000021 status=0x00000000 level=0
+PongAudio: amp reset amp0 gpio=1 released by this probe cfg=0x00000001 -> 0x000003c0
+PongAudio: amp reset amp1 gpio=3 released by this probe cfg=0x00000001 -> 0x000003c0
+PongAudio: amp0 addr=0x34 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp0 mask=0xffff ctrl=0x3343 i2s=0x04e8 dbg=0xa003 vbat=0x0263 pvdd=0x0263 temp=0x0019
+PongAudio: amp0 vcal=0x2000 fuse=0x83fd/0x5bf3/0x83fd/0x5bf3
+PongAudio: amp1 addr=0x35 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp1 mask=0xffff ctrl=0x3343 i2s=0x04e8 dbg=0xa003 vbat=0x0263 pvdd=0x0263 temp=0x0019
+PongAudio: amp1 vcal=0x2000 fuse=0x8009/0x5bf7/0x8009/0x5bf7
+PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0
+```
+
+这一轮把 §5 的三个待实测项全部答掉：
+
+| 待实测项 | 实测结论 | 依据 |
+| --- | --- | --- |
+| A5 chip ID 是哪一颗 | **两颗都是 Awinic AW88261（`0x2113`）**，与 phk110 同型号 | `amp0/amp1 addr=… id=0x2113 chip=AW88261` |
+| A7 I2C 引脚是否已被 Android 配好 | **没有**：两颗引脚进内核时 `cfg=0x00000001`（function 0 = GPIO、2 mA、no-pull），是本探针改成 `0x00000007`（function 1 = qup15、pull-up、2 mA）后读回一致 | `amp i2c pad gpio=56/57 cfg=0x00000001 -> 0x00000007 readback=0x00000007` |
+| 功放供电是否已使能 | **是**：`vbat=0x0263`（0x263×6025/1023 ≈ 2.56 V）、`pvdd=0x0263`、`status=0x0000`（`UVLS` 1<<14 与 `BSTOCS`、`NOCLKS` 全为 0） | `amp<N> … status=0x0000 faults=0x0000 … vbat=0x0263 pvdd=0x0263` |
+
+附带得到的事实：
+- `ctrl=0x3343` 的 bit0（`PWDN`）与 bit1（`AMPPD`）都是 1 → 芯片当前处于 power-down / amp power-down，
+  即 **Android 关机后留下的状态**，符合「只读探针不初始化」的设计（§4 的 power-down 位定义）。
+- `pll=0`、`i2s=0x04e8`（`TXEN` 1<<6 = 0）→ 没有 TDM 时钟，功放未启动，符合预期。
+- `transfers=28`（2 颗 ×（1 次 ID 读 + 13 个只读寄存器））、`failed=0 timeouts=0 stray=0 recovered=0
+  gcc_misses=0` → GENI 状态机与总线恢复路径在真实硬件上一次故障都没触发。
+- 两颗 fuse 不同（`0x83fd/0x5bf3` vs `0x8009/0x5bf7`）而 `vcal` 都是 `0x2000`（= 8192，即 icalk == vcalk），
+  说明出厂标定存在且两颗独立，可用于后续 §4 的 `vcalb` 计算。
+
+### 7.3 剩余阻塞（⑧ 仍未完成）
+
+1. **run 2 未执行**：铁则 5 要求同一镜像两次 `fastboot boot`，本轮只完成 run 1。
+   按用户 2026-11-14 的明确要求（「禁止擅自 boot」），run 2 必须等用户与 Lead 批准后再跑：
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/boot-audio-twice.ps1 -Image E:\k60-work\artifacts\audio-probe-20261114j\boot.img -EvidenceRoot E:\k60-work\evidence\audio-probe-j2`
+   （必须是新证据目录，脚本拒绝复用已有 `boot.json` 的目录）。
+2. **播放通路**（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。
+3. **`aw882xx_acf.bin` 配置档**本机没有（Android `/vendor/etc/aw882xx_acf.bin`），
+   phk110 的驱动缺它无法做 Music profile 初始化（`hakios.sound.c:1403-1405` 报错文本可证）。
+   → 需要 Lead 从 K60 的 vendor 分区取；否则只能走「软复位 + 最小寄存器」路线。
 ### ⑧ 的判据（用两份历史 capture.json 校准，2026-11-14）
 
 `capture.json` 里**没有** `verdict` 字段。能判的是这几个键，由

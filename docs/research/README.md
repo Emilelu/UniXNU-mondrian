@@ -16,3 +16,4 @@
 - [06-MODEM-PAS.md](cellular/06-MODEM-PAS.md) — PAS 握手：peripheral=4 的 SMC 编码器、`AUTH_AND_RESET`→逐段 `INIT_IMAGE`→`MEM_SETUP` 顺序、109 MB 无法嵌内核故改用 `modem.b01` 前 16 B 签名做在位自检、`carrier absent` 时绝不盲发 SMC
 - [07-QRTR-ENUMERATION.md](cellular/07-QRTR-ENUMERATION.md) — QRTR 只读枚举：32 B 头 + 20 B control 的线格式、`NEW_LOOKUP(0x0a)` 判据、SMEM/GLINK/SMP2P 常量（item 478/479/480、SMP2P 435）、`pong_modem>=2` 门控、fresh FIFO 才 adopt
 - [08-QRTR-SERVICES.md](cellular/08-QRTR-SERVICES.md) — 上机比对用的服务号清单：node 0 全量 37 行（22 有名 / 15 `<unknown>`）、五个判据号 21/1/11/3/16 与 DIAG 4097 的特殊性、判据矩阵与三步比对流程
+- [09-QRTR-VERDICT-EXAMPLES.md](cellular/09-QRTR-VERDICT-EXAMPLES.md) — 判决日志样例：十种结果各配一段从 printf 格式串推出来的日志（已标明非实测）、行序契约、哪些失败分支没有 verdict 行、抓日志自查命令

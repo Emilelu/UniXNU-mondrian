@@ -4608,3 +4608,63 @@ if not any(os.path.exists(candidate) for candidate in tried):
      并且留一个能在没有该文件时降级的回退。
   3. P-90 的结论（"改仓库 series 无效"）在 format 2 之后已经反转。pitfall 也会过期，
      引用旧 pitfall 当依据之前先确认它描述的世界还在不在。
+
+## P-195 — `vnode_open(path, O_CREAT, …)` creates a file, not a directory
+
+**Symptom.** The Adreno Metal plugin never reached the Data volume. Every boot
+printed, and nothing else:
+
+```
+K60METAL open /private/var/ngpu/addons/PongAdrenoMetal.bundle/Info.plist error=20
+K60METAL deploy files=0/6 error=20
+```
+
+**Cause.** `patches/xnu/0610-k60-metal-plugin-deploy.patch` had
+
+```c
+error = vnode_open(path, O_CREAT, 0755, 0, &vp, ctx);
+vnode_close(vp, 0, ctx);
+```
+
+in `k60_metal_mkdir()`. `vnode_open` with `O_CREAT` creates a **regular file**;
+there is no "directory" flag to pass it. So the first call created
+`/private/var/ngpu/addons/PongAdrenoMetal.bundle` as a plain file, and every
+later `vnode_open("…/PongAdrenoMetal.bundle/Info.plist")` failed with
+`ENOTDIR` (20). The bundle — including `PongMetalBridge.dylib` (33 MB) and
+`libvulkan_freedreno.dylib` (18 MB) — therefore never landed, `zzy-native-gpu-addon-mount`
+had no source directory to union, and Metal stayed on the software path
+(`Pong UI: optional camera-filter GPU prewarm skipped (software-only platform)`).
+
+**Fix.** Call the `mkdir` syscall, which the tree already does in four places
+(`0215`, `0222`, `0234`, and `0398`'s `k60_mkdir_paths` loop):
+
+```c
+copyout(path, name, strlen(path) + 1);       /* name = scratch + 0x400 */
+args.path = name;
+args.mode = 0755;
+error = mkdir(p, &args, &ret);
+if (error == EEXIST) return 0;
+```
+
+`struct mkdir_args` comes from `<sys/sysproto.h>`; `copyout` from
+`<libkern/copyio.h>`, which `<sys/systm.h>` already pulls in.
+
+**Why it went unnoticed.** `0610`'s own log line reports the failure
+(`error=20`, `files=0/6`), but no gate compared "files written" against
+"entries in the blob", and the deploy prints a summary rather than a verdict.
+The GPU bring-up line right before it (`PONG ADRENO: startup COMPLETE;
+hardware armed result=0`) reads like success, so the deploy's zero looked like
+a cosmetic warning.
+
+**Lessons.**
+1. A "mkdir" helper that only calls `vnode_lookup` then `vnode_open(O_CREAT)`
+   is wrong by construction. Search the tree for an existing `mkdir(p, …)`
+   call before inventing one.
+2. `scratch + 0x400` is a shared page: check who else claims the offset
+   (`+0x100..+0x300` mount args, `+0x400` 0398 mkdir paths, `+0x600/+0x700`
+   0340 uilib, `+0x800/+0x900` 0394 launchd cache) before reusing it.
+3. A deploy function must report a verdict, not a summary: `files=0/N` should
+   be an error the caller prints as failure.
+
+**Check.** `python3 scripts/check-blob-patches.py` (P-180) plus the boot-time
+criterion "no `K60METAL … error=20` and `deploy files=6/6`".

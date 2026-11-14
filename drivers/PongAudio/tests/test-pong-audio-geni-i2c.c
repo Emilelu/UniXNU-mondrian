@@ -33,6 +33,7 @@
 #include "PongCodecSwr.h"
 #include "PongCodecLpi.h"
 #include "PongCodecMacro.h"
+#include "PongCodecProbe.h"
 
 static int fails;
 static int cases;
@@ -1208,6 +1209,355 @@ macro_cases(void)
 	expect(!pong_codec_macro_plan(0u, 0), "a null plan output is refused");
 }
 
+/* ---- the whole codec half, in order ------------------------------------- */
+
+/* One fake covering all four blocks the codec probe touches, because the point
+ * of the probe is the order: a fake per block could not show that the pads were
+ * written before the controller was read. */
+typedef struct {
+	uint32_t pads[16];
+	uint32_t slew;
+	uint32_t va[0x100];        /* indexed by register: 0x00, 0x04, 0x08, 0x80 */
+	uint32_t tx[0x100];
+	uint32_t swr[0x8000];
+	/* What the one slave answers when asked for its id halves and identity
+	 * bytes. A table rather than an address trick: the register numbers of
+	 * two different slaves overlap in their low bits, so decoding the
+	 * command is the only honest way to answer it. */
+	uint32_t slave_id_lo[16];
+	uint32_t slave_id_hi[16];
+	uint32_t slave_id_lo_byte[16];
+	uint32_t slave_id_hi_byte[16];
+	uint32_t swr_command;      /* the last command word written */
+	uint32_t swr_pending;      /* a response is waiting to be collected */
+	uint32_t swr_response;
+	unsigned swr_silent;       /* never answers: drives the timeout path */
+	unsigned writes;
+} FakeCodec;
+
+static uint32_t
+fake_codec_lpi_read(void *ctx, uint32_t reg)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	return f->pads[(reg / 0x1000u) % 16u];
+}
+
+static void
+fake_codec_lpi_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	f->pads[(reg / 0x1000u) % 16u] = value;
+	f->writes++;
+}
+
+static uint32_t
+fake_codec_slew_read(void *ctx, uint32_t reg)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	(void)reg;
+	return f->slew;
+}
+
+static void
+fake_codec_slew_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	(void)reg;
+	f->slew = value;
+	f->writes++;
+}
+
+static uint32_t
+fake_codec_va_read(void *ctx, uint32_t reg)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	return f->va[reg & 0xffu];
+}
+
+static void
+fake_codec_va_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	f->va[reg & 0xffu] = value;
+	f->writes++;
+}
+
+static uint32_t
+fake_codec_tx_read(void *ctx, uint32_t reg)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	return f->tx[reg & 0xffu];
+}
+
+static void
+fake_codec_tx_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+
+	f->tx[reg & 0xffu] = value;
+	f->writes++;
+}
+
+/* The master answers as soon as it is asked: the command word is decoded when
+ * it is written and the answer is staged, so one poll is enough. Real hardware
+ * needs polls in between, which is what swr_silent exercises. */
+/* What one slave answers for one register. Only the four registers the probe
+ * asks for are modelled; anything else reads back as zero, which is what a
+ * slave that has nothing to say would return. */
+static uint32_t
+fake_codec_answer(FakeCodec *f, unsigned device, unsigned reg)
+{
+	if (device > 15u)
+		return 0u;
+	if (reg == 0x530u + 8u * device)
+		return f->slave_id_lo[device];
+	if (reg == 0x534u + 8u * device)
+		return f->slave_id_hi[device];
+	if (reg == 0x50u)
+		return f->slave_id_lo_byte[device];
+	if (reg == 0x51u)
+		return f->slave_id_hi_byte[device];
+	return 0u;
+}
+
+static uint32_t
+fake_codec_swr_read(void *ctx, uint32_t reg)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+	uint32_t off = reg & 0x7fffu;
+
+	if (off == 0x328u || off == 0x5050u)
+		return f->swr_pending ? (1u << 16) : 0u;
+	if (off == 0x334u || off == 0x5040u) {
+		f->swr_pending = 0u;
+		return f->swr_response;
+	}
+	return f->swr[off];
+}
+
+static void
+fake_codec_swr_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeCodec *f = (FakeCodec *)ctx;
+	uint32_t off = reg & 0x7fffu;
+
+	f->swr[off] = value;
+	f->writes++;
+	if (off == 0x320u || off == 0x5024u) {
+		/* Decode the command the way the master would: device in 23:20,
+		 * transaction id in 19:16, register in 15:0. The answer table is
+		 * the "slave answers" half of the fake, addressed by device. */
+		unsigned device = (value >> 20) & 0xfu;
+		unsigned txn = (value >> 16) & 0xfu;
+		unsigned reg_no = value & 0xffffu;
+
+		f->swr_command = value;
+		if (f->swr_silent)
+			return;
+		f->swr_response = (txn << 8) | (fake_codec_answer(f, device, reg_no) & 0xffu);
+		f->swr_pending = 1u;
+	}
+}
+
+/* A slave's 64-bit id is two registers and its identity two more, so the fake
+ * is handed all four at once. */
+static void
+fake_codec_set_slave(FakeCodec *f, unsigned n, uint64_t id, unsigned identity)
+{
+	/* The id halves are ordinary registers: the reference reads them
+	 * directly (S:PongWcd938.h:108-109), not through a read transaction. */
+	f->swr[0x530u + 8u * n] = (uint32_t)(id & 0xffffffffu);
+	f->swr[0x534u + 8u * n] = (uint32_t)(id >> 32);
+	f->slave_id_lo[n] = (uint32_t)(id & 0xffffffffu);
+	f->slave_id_hi[n] = (uint32_t)(id >> 32);
+	f->slave_id_lo_byte[n] = identity & 0xffu;
+	f->slave_id_hi_byte[n] = (identity >> 8) & 0xffu;
+}
+
+static void
+probe_io_fill(PongCodecProbeIo *io, FakeCodec *f)
+{
+	io->lpi.read = fake_codec_lpi_read;
+	io->lpi.write = fake_codec_lpi_write;
+	io->lpi.ctx = f;
+	io->lpi.slew_read = fake_codec_slew_read;
+	io->lpi.slew_write = fake_codec_slew_write;
+	io->lpi.slew_ctx = f;
+	io->macro.va.read = fake_codec_va_read;
+	io->macro.va.write = fake_codec_va_write;
+	io->macro.va.ctx = f;
+	io->macro.tx.read = fake_codec_tx_read;
+	io->macro.tx.write = fake_codec_tx_write;
+	io->macro.tx.ctx = f;
+	io->swr.read = fake_codec_swr_read;
+	io->swr.write = fake_codec_swr_write;
+	io->swr.ctx = f;
+}
+
+/* Steps until the machine stops and reports how it stopped. */
+static int
+probe_run(PongCodecProbe *p, unsigned limit)
+{
+	unsigned i;
+
+	for (i = 0u; i < limit; i++) {
+		int r = pong_codec_probe_step(p);
+
+		if (r == PongCodecProbeDone || r == PongCodecProbeFailed)
+			return r;
+	}
+	return PongCodecProbeRunning;
+}
+
+static void
+probe_cases(void)
+{
+	static FakeCodec f;
+	PongCodecProbeIo io;
+	PongCodecProbe p;
+	unsigned writes;
+
+	probe_io_fill(&io, &f);
+
+	/* The gate: without the three LPASS votes nothing is touched at all. */
+	memset(&f, 0, sizeof(f));
+	expect_eq((unsigned long)pong_codec_probe_start(&p, &io, false, 8u),
+	    (unsigned long)-1, "a shut LPASS gate refuses the start");
+	expect_eq(p.error, (unsigned long)PongCodecProbeErrLpass, "the refusal is named");
+	expect_eq((unsigned long)f.writes, 0ul, "a shut gate writes nothing");
+	expect(pong_codec_probe_failed(&p), "the machine reports the failure");
+	expect_eq(pong_codec_probe_step(&p), PongCodecProbeFailed,
+	    "stepping a refused machine keeps failing");
+
+	/* Incomplete callbacks are refused before anything is read. */
+	{
+		PongCodecProbeIo partial;
+
+		memset(&partial, 0, sizeof(partial));
+		partial.lpi = io.lpi;
+		expect_eq((unsigned long)pong_codec_probe_start(&p, &partial, true, 8u),
+		    (unsigned long)-1, "missing callbacks refuse the start");
+	}
+
+	/* The happy path: v1.7, slave 1 carries the WCD938x id. */
+	memset(&f, 0, sizeof(f));
+	f.swr[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	f.swr[PONG_SWR_SLAVE_STATUS] = 1u << 2;      /* slave 1 present */
+	fake_codec_set_slave(&f, 1u, PONG_SWR_WCD938X_ID, 0x1234u);
+	f.pads[0] = 0xffffffffu;
+	expect_eq((unsigned long)pong_codec_probe_start(&p, &io, true, 8u), 0ul,
+	    "the probe starts with the gate open");
+	expect_eq((unsigned long)pong_codec_probe_step(&p), (unsigned long)PongCodecProbeRunning,
+	    "the first step is the first LPI pad");
+	/* (0xffffffff & ~0x3f) | (1 << 2) | 0: function 1, no bus-hold on clock. */
+	expect_eq((unsigned long)f.pads[0], 0xffffffc4ul,
+	    "pad 0 is written first, before any macro or controller access");
+	expect_eq((unsigned long)pong_codec_probe_step(&p), (unsigned long)PongCodecProbeRunning,
+	    "the second step is the second pad");
+	expect_eq((unsigned long)f.va[0x00], 0ul,
+	    "no macro register is written while the pads are still being programmed");
+
+	expect_eq((unsigned long)probe_run(&p, 200u), (unsigned long)PongCodecProbeDone,
+	    "the machine finishes");
+	expect(pong_codec_probe_done(&p), "it reports done");
+	expect(!pong_codec_probe_failed(&p), "and no error");
+	expect_eq(p.stage, (unsigned long)PongCodecStageFinished, "the stage is finished");
+	expect_eq(p.found_slave, 1ul, "the codec was found on slave 1");
+	expect(p.found_id == PONG_SWR_WCD938X_ID, "the full 64-bit id was reassembled");
+	expect_eq(p.identity, 0x1234ul, "the identity is low byte first");
+	/* Only the identity bytes are read transactions; the two id halves are
+	 * plain register reads, as the reference does them. */
+	expect_eq(p.reads, 2ul, "two read transactions: the two identity bytes");
+	expect_eq(p.timeouts, 0ul, "no timeout on the happy path");
+
+	/* The order the log will show: every pad, then the slew value, then the
+	 * macro gates, and only then the controller. */
+	expect_eq((unsigned long)f.pads[1], 0x6ul, "pad 1: function 1 plus the data bus-hold bit");
+	expect_eq((unsigned long)f.pads[2], 0x6ul, "pad 2: same");
+	expect_eq((unsigned long)f.pads[14], 0x6ul, "pad 14: same");
+	expect_eq((unsigned long)f.slew, 0x55ul, "the slew register is written last, two bits per pin");
+	expect_eq((unsigned long)f.va[0x00], 1ul, "VA MCLK is gated");
+	expect_eq((unsigned long)f.tx[0x00], 1ul, "TX MCLK is gated after VA");
+	expect(f.swr[PONG_SWR_ENABLE] != 0ul, "the controller was enabled before enumerating");
+
+	/* Stepping a finished machine touches nothing. */
+	writes = f.writes;
+	expect_eq(pong_codec_probe_step(&p), PongCodecProbeDone,
+	    "a finished machine reports done");
+	expect_eq((unsigned long)f.writes, (unsigned long)writes,
+	    "and writes nothing more");
+
+	/* A bitmap with no slave stops the machine instead of guessing. */
+	memset(&f, 0, sizeof(f));
+	f.swr[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	f.swr[PONG_SWR_SLAVE_STATUS] = 0u;
+	(void)pong_codec_probe_start(&p, &io, true, 8u);
+	expect_eq((unsigned long)probe_run(&p, 200u), (unsigned long)PongCodecProbeFailed,
+	    "an empty bitmap fails the probe");
+	expect_eq(p.error, (unsigned long)PongCodecProbeErrNotFound, "the cause is named");
+
+	/* A slave that is present but is not the codec is not configured. */
+	memset(&f, 0, sizeof(f));
+	f.swr[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	f.swr[PONG_SWR_SLAVE_STATUS] = 1u << 2;
+	fake_codec_set_slave(&f, 1u, 0x000d01179999ull, 0x1234u);
+	(void)pong_codec_probe_start(&p, &io, true, 8u);
+	expect_eq((unsigned long)probe_run(&p, 200u), (unsigned long)PongCodecProbeFailed,
+	    "another slave id is not the codec");
+	expect_eq(p.error, (unsigned long)PongCodecProbeErrNotFound, "and is reported as absent");
+
+	/* A silent master: the poll budget runs out and the transaction is aborted
+	 * rather than left in flight. */
+	memset(&f, 0, sizeof(f));
+	f.swr[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	f.swr[PONG_SWR_SLAVE_STATUS] = 1u << 2;
+	fake_codec_set_slave(&f, 1u, PONG_SWR_WCD938X_ID, 0x1234u);
+	f.swr_silent = 1u;
+	(void)pong_codec_probe_start(&p, &io, true, 4u);
+	expect_eq((unsigned long)probe_run(&p, 200u), (unsigned long)PongCodecProbeFailed,
+	    "a silent master fails the probe");
+	expect_eq(p.error, (unsigned long)PongCodecProbeErrTimeout, "the cause is a timeout");
+	expect(p.timeouts > 0ul, "the timeout is counted");
+	expect_eq((unsigned long)f.swr[PONG_SWR_ABORT], 1ul,
+	    "the outstanding transaction is aborted, not left in flight");
+
+	/* An unknown controller stops the machine at the version read. */
+	memset(&f, 0, sizeof(f));
+	f.swr[PONG_SWR_COMP_HW_VERSION] = 0x03000000u;
+	(void)pong_codec_probe_start(&p, &io, true, 8u);
+	expect_eq((unsigned long)probe_run(&p, 200u), (unsigned long)PongCodecProbeFailed,
+	    "an unknown controller fails the probe");
+	expect_eq(p.error, (unsigned long)PongCodecProbeErrSwr, "the cause is the controller");
+
+	/* v2 has to wait for its execution environment before enumerating. */
+	memset(&f, 0, sizeof(f));
+	f.swr[PONG_SWR_COMP_HW_VERSION] = 0x02010000u;
+	f.swr[PONG_SWR_V2_ENV_STATUS] = PONG_SWR_V2_ENV_READY;
+	f.swr[PONG_SWR_SLAVE_STATUS] = 1u << 2;
+	fake_codec_set_slave(&f, 1u, PONG_SWR_WCD938X_ID, 0x5678u);
+	(void)pong_codec_probe_start(&p, &io, true, 8u);
+	expect_eq((unsigned long)probe_run(&p, 300u), (unsigned long)PongCodecProbeDone,
+	    "a v2 controller finishes once its environment is up");
+	expect_eq(p.identity, 0x5678ul, "v2 reads the identity the same way");
+	expect_eq((unsigned long)f.swr[PONG_SWR_V2_ENV_CTRL], 1ul,
+	    "v2 brings its environment up");
+
+	/* v2 that never comes up is a timeout, not a silent success. */
+	memset(&f, 0, sizeof(f));
+	f.swr[PONG_SWR_COMP_HW_VERSION] = 0x02010000u;
+	(void)pong_codec_probe_start(&p, &io, true, 4u);
+	expect_eq((unsigned long)probe_run(&p, 200u), (unsigned long)PongCodecProbeFailed,
+	    "a v2 environment that never comes up fails");
+	expect_eq(p.error, (unsigned long)PongCodecProbeErrTimeout, "and is a timeout");
+}
+
 int
 main(void)
 {
@@ -1224,6 +1574,7 @@ main(void)
 	swr_cases();
 	lpi_cases();
 	macro_cases();
+	probe_cases();
 
 	if (fails) {
 		printf("TESTS FAILED %d of %d\n", fails, cases);

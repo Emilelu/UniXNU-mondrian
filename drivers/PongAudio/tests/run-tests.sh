@@ -21,5 +21,6 @@ cc=${CC:-cc}
 	"$driver/PongAudioGeniI2c.c" \
 	"$driver/PongCodecSwr.c" \
 	"$driver/PongCodecLpi.c" \
-	"$driver/PongCodecMacro.c"
+	"$driver/PongCodecMacro.c" \
+	"$driver/PongCodecProbe.c"
 exec "$out"

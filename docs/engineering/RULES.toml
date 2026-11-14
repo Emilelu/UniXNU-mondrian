@@ -515,3 +515,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-190"
 statement = "force_load 归档必须验证符号真的进了内核；门禁表里的键必须来自真实 .config 行"
 check = "python3 scripts/check-kernel-archives.py"
+
+[[rule]]
+id = "P-193"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-193"
+statement = "门禁不许写死检出路径；参考源按前缀元组解析，失败信息必须说明试过几个前缀"
+check = "python3 scripts/tests/test-research-gate-prefixes.py"

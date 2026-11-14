@@ -4477,3 +4477,50 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 跳过时打印 `skip: CONFIG_… is not enabled`；新增
 `scripts/tests/test-check-kernel-archives.py`（5 个用例）第 1 个断言
 `EXPECTED` 里每个键都真实存在于 `configs/mondrian_defconfig`。
+
+### P-193 — 门禁把仓库根写成字面路径、把参考源搜索写死两个前缀：在 worktree 里校验别人的文件，还永远拒绝合法的参考仓库
+
+**症状**：refmine 线要把 `QcaBluetooth` 与 `UniXNU-liuqin` 写进
+`docs/research/SOURCES.toml` 的 `required`，`scripts/research-gate.py` 永远报
+`文件不存在`，只能把结论留在散文里、进不了门禁。同时每个 worktree 跑这个门禁，
+校验的都是 `/mnt/e/hackios/UniXNU-mondrian` 那棵树的文件，不是自己这棵。
+
+**根因**（两处，同一形状）：
+
+```python
+REPO = '/mnt/e/hackios/UniXNU-mondrian'          # 字面路径
+full = os.path.join(REPO, path)
+alt = os.path.join('/mnt/e/k60-work', path)       # 只有两个前缀
+exists = os.path.exists(full) or os.path.exists(alt)
+```
+
+1. `REPO` 是写死的共享检出。十一个 worktree 里只有一个是那个路径，其余全部在
+   校验别人的文件 —— 门禁绿了不代表自己这棵树没问题。
+2. 参考源只认「本仓检出」和 `/mnt/e/k60-work`。`/mnt/e/hackios` 下直接 clone 的
+   `QcaBluetooth`、`UniXNU-liuqin` 永远解析不到，于是**合法的参考源被门禁拒绝**，
+   而不是被记录。
+
+**修法**：
+
+```python
+REPO = os.environ.get('K60_REPO') or str(Path(__file__).resolve().parents[1])
+REFERENCE_PREFIXES = (str(REPO), '/mnt/e/k60-work', '/mnt/e/hackios')
+...
+tried = [os.path.join(prefix, path) for prefix in REFERENCE_PREFIXES]
+if not any(os.path.exists(candidate) for candidate in tried):
+    problems.append('%s 文件不存在: %s（已试 %d 个前缀）' % (label, path, len(tried)))
+```
+
+失败信息带上「试了几个前缀」，下次加参考仓库时一眼能看出是漏了前缀还是文件真没了。
+
+**怎么避免再踩**：
+
+1. 任何门禁脚本里出现 `/mnt/e/hackios/…` 这种字面检出路径，都是 bug。
+   `scripts/check-repo-paths.py`（hygiene 线）现在会报 ERROR。
+2. 参考源解析写成**前缀元组**，不是两次 `os.path.exists` 的 `or`。新增参考仓库
+   只改元组，不改查找逻辑。
+3. 门禁的失败信息必须说明「试过什么」。只写「文件不存在」的报错，会让人以为是
+   文件的问题而不是门禁的问题 —— 这条和 P-190 的「认不出名字就静默跳过」是同一个
+   教训的两种形状。
+4. 每个门禁都要有一个从**别的 worktree** 跑的用例，否则字面路径 bug 永远不会暴露。
+   见 `scripts/tests/test-research-gate-prefixes.py`（5 个用例）。

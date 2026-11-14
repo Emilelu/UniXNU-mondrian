@@ -823,3 +823,57 @@ manifest：`/mnt/e/k60-work/artifacts/usb-20261114f/build-manifest.json`
 `-OutDir E:\k60-work\evidence\usblog-20261114-usb-f1 -Serial 6033dbec`
 → 第 70 s / 130 s 各采一次 `host-pnp.ps1` → 收 supervisor rc。
 判据见 §16.3（回归性质：控制台不变、心跳不断流、收尾不报错、采集完整）。
+
+## 18. 静态复核：`usb-20261114f` 一张镜像同时回答 0407 与 0408
+
+### 18.1 关键发现：不需要两次上机
+
+`usb-20261114f` 的 series 是 233 条，**0405 / 0406 / 0407 / 0408 四条全部在镜像里**
+（`logs/kernel.log:247-250`）。对构建产物 `kernel.macho`
+（`/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho`，
+54181888 B，`sha256 784dec66458c40af…` 与 manifest 的 `kernel_built` 一致）做 `strings -a` 复核：
+
+| 检查项 | 结果 |
+| --- | --- |
+| `K60 USBLOG` 格式串总数 | 66 |
+| 0407 的 `DWC3 GHWPARAMS1 0x%08x GHWPARAMS3 …` | ✅ 命中 1 |
+| 0407 的 `composite cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x` | ✅ 命中 |
+| 0408 的 `K60 USBLOG: ep%u cmd 0x%x status %u` / `… timeout` | ✅ 命中（`ud_epcmd_full` 改名后仍在） |
+
+⇒ **一次上机（f）就能同时拿到**：
+1. 0407 的运行时真值 —— `GHWPARAMS1/GHWPARAMS3`、`GTXFIFOSIZ0..3`、`ep6/ep7` 的 `SETEPCONFIG` 返回值；
+2. 0408 的结构回归 —— 8 槽 TRB + 资源收尾是否破坏控制台/心跳。
+
+原本准备的两张镜像（e = 0407、f = 0408）**可以只上 f**，e 留作 0407 单独隔离用的备份
+（若 f 出现异常需要把 0408 这个变量排除时再上）。
+
+### 18.2 补丁静态复核（153 行 diff，逐处确认无越界）
+
+| 检查点 | 结论 |
+| --- | --- |
+| DMA 偏移是否重叠 | `UD_TRB_EP4..EP7 = 0x1300/0x1340/0x1380/0x13c0` 位于 `UD_DATA 0x1100`（512 B，到 `0x1300` 为止）与 `UD_TRB_TX 0x3000` 之间，**无重叠**；`UD_VEND_RX 0x6000` / `UD_VEND_TX 0x7000` 各 4 KiB，上界 `0x8000 = UD_SIZE`，**不越界** |
+| 既有偏移是否被移动 | 未移动任何一个（`UD_TRB_IN 0x10c0` / `UD_TRB_RX 0x3040` 保持 0307 的独立 cache line） |
+| `ud_epcmd` 语义是否改变 | 否：新 `ud_epcmd_full` 与原实现逐行等价（只把形参 `cmd` 改名 `command`），`ud_epcmd` 变成一行转发；所有既有调用点行为不变 |
+| `ud_start` 是否新增失败路径 | 否：`rc == 0 && ep < 8` 才读资源号，读的是只读的 `DEPCMD` 状态位，不写寄存器 |
+| `ud_end_transfers` 失败是否杀控制台 | 否：`(void)ud_epcmd_full(...)` 丢弃返回值，不置 `ud.failed`；最坏情况是打印一行 `ep%u cmd 0x8 status %u` |
+| 三处调用点的时序 | `ud_reset_endpoints()` 在 `DALEPENA = 0` **之前**；deconfigure 分支在清 `dtr/tx/rx/log_ready` 之前；disconnect 分支同理 —— 都是“端点仍使能时收尾”，符合 `PongUsbDevice.h:136` 的注释（before RunStop0） |
+| 是否有新的 MMIO 假设 | 无。所有寄存器偏移都来自已上机验证过的既有代码或 `Dwc3Registers.h` |
+
+### 18.3 合并后的上机判据（一次上机，六条）
+
+| # | 判据 | 来源 | 判读 |
+| --- | --- | --- | --- |
+| 1 | 控制台不断流 | 回归 | `console.log` 里 `K60 USBLOG` ≥250 行，`setup 80 06 0100 len 64` 与 `setup 80 06 0200 len 98` 都出现 |
+| 2 | 心跳不断流 | 回归 | 每 2 s 一行 `K60 USBHB`，总数 ≈ 时长 ÷ 2 s ±10% |
+| 3 | **物理端点预算** | 0407 | `K60 USBLOG: DWC3 GHWPARAMS1 0x… GHWPARAMS3 0x… GTXFIFOSIZ …` 出现；`(GHWPARAMS3>>12)&0x3f ≥ 8`（否则 EP6/EP7 物理上不存在）、`(GHWPARAMS3>>18)&0x1f ≥ 4` |
+| 4 | **EP6/EP7 配置结果** | 0407 | `K60 USBLOG: composite cfg 98 bytes ep6 0 ep7 0 DALEPENA 0x000000ef` —— `ep6/ep7` 都是 0 才能进 P2-b 回环；非 0 则说明 FIFO 或端点号越界，P2-b 需要改端点分配 |
+| 5 | 收尾不报错 | 0408 | 允许出现 `ep%u cmd 0x8 status %u`（说明资源确实存在过），但不应出现 `ud.failed` 之后的控制台中断 |
+| 6 | 采集完整 | 回归 | `capture.json` `state = captured-budget-complete`、`complete = true`、`panicMarker = null` |
+
+判据 3 和 4 是**新信息**，只有 0407 的打印能给出；判据 1、2、5、6 是 0408 的回归面。这也是为什么 f 一张镜像足够。
+
+### 18.4 仍未执行的唯一原因
+
+用户 m01929：“禁止擅自 boot”。两张镜像、脚本（`boot0407e.sh` / `boot0408f.sh`）与证据目录都已就绪，
+设备 `6033dbec` 停在 fastboot，本轮**没有**任何 `fastboot boot` / `boot-and-capture.ps1` 进程。
+批准后**只需跑 f**（`E:/k60-work/scratch/usb/boot0408f.sh`），预计 300 s 采集 + 约 2 min 起机。

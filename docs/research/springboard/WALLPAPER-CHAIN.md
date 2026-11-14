@@ -147,9 +147,36 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - **判据**：日志出现 `K60WALL catalogue bytes=772 resid=0 error=0` 与 `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0`，且不再出现 `wallpaper aliases SKIP` / `optional boot view SKIP`。
 - **不改 init**：完全避开 P-182 的 52 KB 助手风险；init 仍是那枚 34,904 B 的验证过二进制。
 
-### F4（不建议现在做）— 删除 views 表 wallpaper 两条（改 init）
+### F4（设计稿，未实施）— 视图挂载返回 EPERM 时怎么办
 
-- 需重编 init blob（52,376 B）并重嵌 0401；host 可编译（HEAD 52,456 B / 2101281 52,320 B，LC 序列一致），但 WSL 的 `codesign` 是 no-op shim，`native_init_signature` 要求 4K 页签名 ⇒ **不能 host 完成**。上机风险最高，且对像素无帮助（PosterBoard 直接读 `/Library/Wallpaper`）。仅作为清理死代码的后续项。
+**触发条件**：springboard-20261115a 的日志里 K60WALL 成功（`bytes=772 resid=0 error=0`），但出现
+`Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=-1 errno=1`。
+此时 F3 已把「目录不存在」这一层消掉，剩下的 -1/errno=1 就是 P-27（`docs/engineering/PITFALLS.md:325-337`：
+密封只读根上的目录无法被 bindfs 覆盖，五个视图全部如此）。
+
+**先做判定，再决定改不改代码**（这一步不需要新镜像）：
+
+1. 看 `Pong UI: submitting genuine wallpaper 7410 …` 是否出现、像素是否可见。
+   `userland/ui_compat.c:690` 用的路径是 **OS 窗的 `/Library/Wallpaper/Stills/iPad/7410.…`**，
+   不经过 `/private/var/pong/stock-wallpaper` 这条视图。视图是给 PosterBoard 读 `/Library/Wallpaper/`
+   的别名用的；壁纸选择本身不依赖它。
+2. 若像素可见 ⇒ **接受视图不可用**，把 §3 判据第 1 条（"日志无 wallpaper SKIP"）降级为"非目标"，
+   只保留 `K60DATA mkdir` + `K60WALL` + `Pong UI` 三组判据；0618 不必再改。
+3. 若像素仍黑且日志停在 `existing-content=1` ⇒ 先查 §3 的 UI 库分支（F1 是否注入、boot-arg 是否生效），
+   不要先怀疑视图——F1 路径与视图无交集。
+
+**只有当 PosterBoard 侧报缺素材时**才需要动代码，两个候选：
+
+- **F4a（低风险）**：把 0618 的复制范围从 `Collections~ipad.plist` 扩到 PosterBoard 实际读取的最小集合
+  （`Collections/` 目录下的 `*.wallpaperCollection` 与 `Stills/iPad/` 里 `DefaultWallpapers~ipad.plist`
+  引用到的 bundle）。仍是内核侧 `vn_rdwr` 复制，不碰 init blob，但要把 8 KiB 缓冲改成按文件长度分配。
+- **F4b（高风险，最后手段）**：重编 init blob 让 v24dp 的 wallpaper 视图改成 best-effort（`result=-1` 时
+  只打日志、不当作失败），或直接删掉两条 views。host 可编译（HEAD 52,456 B / 2101281 52,320 B，LC 序列一致），
+  但 WSL 的 `codesign` 是 no-op shim、`native_init_signature` 要求 4K 页签名，且 0616 规定设备跑的是
+  34,904 B 的 v24dp —— 换 blob 就是重演 P-182 的风险面，必须先在已有 Data 状态上验证两次启动。
+
+**为什么现在不实施**：errno 还没实测。P-27 说 errno=1 是 EPERM，但如果 a 的日志给出 errno=30 或别的值，
+结论会变（可能是写权限/挂载点属性问题），改法也不同。等 a 的日志落地再按上面第 2/3 步分叉。
 
 ### F5（小组件）— 恢复 chronod 需单独立项
 

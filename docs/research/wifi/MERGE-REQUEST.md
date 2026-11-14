@@ -215,7 +215,9 @@ Undefined symbols for architecture arm64:
 
 ## 8. `docs/research/EIGHT-STEPS.toml` —— WiFi 的 ③ 与 ⑦ 已具备证据
 
-**文件**：`docs/research/EIGHT-STEPS.toml`（共享仓 `UniXNU-mondrian`，当前由 touch 线持有，故此处只给片段）
+**文件**：`docs/research/EIGHT-STEPS.toml`（共享仓 `UniXNU-mondrian`）
+
+**状态：已落地**（共享仓 `UniXNU-mondrian` 分支 `feat/touch-power`）：**222b76b** 把 `[hardware.wifi.step.decompile]` 与 `[hardware.wifi.step.verify]` 改成 `done = true`（并加 `local_verified` / `static_check` / `unit_test` / `artifact_check`），**a76d2bf** 把 `[hardware.wifi.step.device]` 的 evidence 从「从未上机」改成 04:48 那次 port-not-observed 的完整事实（仍 `done = false`，⑧ 未达成）。两次提交都只动 `docs/research/EIGHT-STEPS.toml` 的 wifi 段：用 `git apply --cached` 只暂存 wifi hunk 再提交，touch 线的未提交改动不受影响。以下为原始片段，保留作归档。
 **位置**：`[hardware.wifi.step.decompile]` 与 `[hardware.wifi.step.verify]`
 
 ```diff

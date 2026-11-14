@@ -229,6 +229,13 @@ default:    /* 未注册 owner：计数，不猜 */ break;
 > `grep -rn 'k60-adsp-glink-handoff' drivers/ patches/` 只有消费点）。
 > 所以 §6 的分流点可以在主机上写好、审完，但**运行时仍要等 PAS1/ADSP**。
 
+**共享通道提示（2026-11-14，Lead 确认）：** 这条 `PMIC_RTR_ADSP_APPS` GLINK 通道
+是**多条线共用**的——owner 32778（`PMIC_GLINK_OWNER_BATTMGR`）是电池/charger 线，
+owner 32779（`PMIC_GLINK_OWNER_USBC`）才是 UCSI（主线 `pmic_glink.h:11-13`）。
+charger/ADSP 线在 `K60Battmgr.c:149` 之后加自己的处理时，**不要把非 32778 的消息
+继续静默丢弃**——32779 分支是 UCSI 线的入口，`default` 分支只计数。
+分流实现见上面 `switch (le32(data))` 代码块；改 `receive()` 前先与两条线对齐。
+
 ## 7. 主机侧自测（可回归）
 
 `docs/research/usb/ucsi-host-selftest.c`（287 行，C11，零依赖，不接触设备）：

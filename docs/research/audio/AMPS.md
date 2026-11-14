@@ -476,8 +476,11 @@ PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 rec
 
 ### 7.3 剩余阻塞（⑧ 仍未完成）
 
-1. **run 2 未执行**：铁则 5 要求同一镜像两次 `fastboot boot`，本轮只完成 run 1。
-   按用户 2026-11-14 的明确要求（「禁止擅自 boot」），run 2 必须等用户与 Lead 批准后再跑：
+1. **run 2 没有有效证据**：铁则 5 要求同一镜像两次 `fastboot boot`，本轮只有 run 1 算数。
+   需要说明的是：`boot-audio-twice.ps1` 在 run 1 结束后**自动**进了 run 2（`12:15:50` 建目录、
+   `12:15:57` `fastboot` 报 `Booting OKAY`），但作业在 run 2 的抓取期间被用户叫停（「禁止擅自 boot」），
+   因此 `run2/console.log` 是 **0 字节**、`capture.json` 根本没生成、`boot.json` 记 `bootAccepted: false`。
+   这一轮**不构成**第二次证据，⑧ 仍按未完成记。run 2 必须等用户与 Lead 批准后单独跑：
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/boot-audio-twice.ps1 -Image E:\k60-work\artifacts\audio-probe-20261114j\boot.img -EvidenceRoot E:\k60-work\evidence\audio-probe-j2`
    （必须是新证据目录，脚本拒绝复用已有 `boot.json` 的目录）。
 2. **播放通路**（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。

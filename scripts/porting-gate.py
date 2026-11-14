@@ -28,7 +28,9 @@ import subprocess
 import sys
 import time
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+# 从脚本位置推仓库根。写死路径会让门禁去量另一棵检出树（P-184/P-185），
+# 报出来的『未同步』其实是两个 worktree 之间的差异。
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = '/mnt/e/k60-work'
 SERIES = WORK + '/scratch/SERIES-FINAL.txt'
 PACK = WORK + '/scratch/packv15.sh'
@@ -36,7 +38,10 @@ XNU_WORK = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
             'ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work')
 KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
           'ipados-16.6.1-20G81/mondrian/kernel/kernel.macho')
-DEV = '/tmp/usb-cdc-mainline/device/patches/xnu'
+# 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
+# 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
+DEV = (os.environ.get('K60_DEVICE_INPUT')
+       or '/opt/k60/trees/usb-cdc-mainline/device') + '/patches/xnu'
 LEDGER = WORK + '/ledger.jsonl'
 
 QUICK = '--quick' in sys.argv
@@ -467,10 +472,23 @@ try:
         ok('X', '补丁全域同步', '')
     elif nbad > 2:
         bad('X', '%d 个未同步' % nbad, '只列前 2')
-    a = io.open(SERIES, encoding='utf-8', errors='ignore').read()
     b = io.open(REPO + '/patches/xnu/series', encoding='utf-8', errors='ignore').read()
     c = io.open(DEV + '/series', encoding='utf-8', errors='ignore').read()
-    ok('X', 'series 三处一致', '') if a == b == c else bad('X', 'series 三处一致', '不一致')
+    # The build consumes DEV/series. The scratch mirror used to be the third
+    # opinion, but it is a single file shared by every checkout: with five
+    # agents working at once, another agent's line appeared in it and this
+    # rule failed a tree that was perfectly consistent (2026-11-14). Compare
+    # the two copies that matter and report scratch drift separately.
+    if b == c:
+        ok('X', 'series 仓库与构建输入一致', '')
+    else:
+        bad('X', 'series 仓库与构建输入一致', '不一致')
+    try:
+        a = io.open(SERIES, encoding='utf-8', errors='ignore').read()
+        if a != b:
+            ok('X', 'scratch 镜像漂移', '仅供参考：%s 与仓库不同' % SERIES)
+    except OSError:
+        pass
 except Exception as e:
     bad('X', '同步检查', str(e))
 

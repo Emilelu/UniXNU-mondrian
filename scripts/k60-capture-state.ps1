@@ -30,7 +30,9 @@ function Get-K60CaptureVerdict {
 # Pure panic-marker classification. `K60PANIC: restart windows ready` is a boot
 # banner from the heartbeat (0334b), not a panic: treating it as one made every
 # budget-stopped capture look like a crash and blocked the double-boot gate.
-$script:K60PanicMarkers = @('panic(', 'K60PANIC: ring kept', 'K60CACHE FAIL', 'initproc exited')
+# `Debugger called:` is how an assert or a data abort announces itself before
+# the backtrace; the word `panic(` never appears in that path (2026-11-13).
+$script:K60PanicMarkers = @('panic(', 'Debugger called', 'K60PANIC: ring kept', 'K60CACHE FAIL', 'initproc exited')
 function Get-K60PanicMarker {
     param([string]$Text)
     if (-not $Text) { return $null }

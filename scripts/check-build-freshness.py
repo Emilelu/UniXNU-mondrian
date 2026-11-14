@@ -27,7 +27,7 @@ import os
 import subprocess
 import sys
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW_REPO = '/mnt/e/hackios/UniXNU'
 FW_COPY = '/opt/k60/trees/k60build'
 UEFI = '/mnt/e/hackios/uefi-mondrian'

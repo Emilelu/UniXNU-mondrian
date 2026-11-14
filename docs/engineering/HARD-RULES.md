@@ -113,7 +113,7 @@ cat file.c
 ```bash
 # 任何依赖外部机器（Mac / 设备 / 网络）的操作前必须先探
 fastboot devices || adb devices
-sshpass -p 1015 ssh -o ConnectTimeout=8 Emilelu@192.168.31.205 'echo OK'
+ssh -o ConnectTimeout=8 <user>@<mac-host> 'echo OK'   # 地址与口令只在本地记录，不进仓库（铁则 10）
 ```
 探活失败 → 换路径或等待，**不要在离线机器上排计划**。
 

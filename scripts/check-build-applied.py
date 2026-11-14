@@ -25,13 +25,23 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches/xnu/series"
-INPUT = pathlib.Path("/tmp/usb-cdc-mainline/device/patches/xnu/series")
+INPUT = pathlib.Path(os.environ.get(
+    "K60_DEVICE_INPUT", "/opt/k60/trees/usb-cdc-mainline/device")) / "patches/xnu/series"
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
+# 一棵树可以有多个输出目录（mondrian_defconfig -> mondrian/，
+# mondrian_wifi_defconfig -> mondrian_wifi/），而 K60_OUT 只指向其中一个。
+# 不设 K60_OUT 时如果只看 out-baseline，读到的就是别的配置留下的旧存根，
+# 于是"构建应用了 230 个补丁但 series 列了 223 个"这种假红。改成在所有
+# 输出目录里取最新的那份存根（P-189）。
+OUT_ROOTS = [pathlib.Path('/opt/k60/trees')]
 ARTIFACTS = pathlib.Path(os.environ.get("K60_ARTIFACTS", "/mnt/e/k60-work/artifacts"))
 DEFAULT_LOGS = [
     pathlib.Path("/mnt/e/k60-work/scratch/BUILD_V15.txt"),
 ]
 LOG_GLOBS = ["*/logs/kernel.log"]
+# build-strict.sh exports this for the whole run. A stale stamp then means
+# "this build is about to rewrite it", not "somebody forgot to build".
+IN_PROGRESS = os.environ.get("K60_BUILD_IN_PROGRESS") == "1"
 
 
 def series_entries() -> list[str]:
@@ -55,14 +65,50 @@ def newest_log() -> pathlib.Path | None:
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _stamp_matches(stamp: pathlib.Path) -> bool:
+    """True when every patch in the stamp has the same bytes as this checkout."""
+    try:
+        record = json.loads(stamp.read_text(encoding="utf-8"))
+        applied = record["patches"]
+    except (ValueError, KeyError, OSError):
+        return False
+    want = series_entries()
+    if len(applied) != len(want):
+        return False
+    for index, entry in enumerate(applied):
+        repo = REPO / "patches/xnu" / want[index]
+        if not repo.is_file():
+            return False
+        if hashlib.sha256(repo.read_bytes()).hexdigest() != entry.get("sha256"):
+            return False
+    return True
+
+
 def stamp_path() -> pathlib.Path | None:
-    """The newest `<out>/*/*/*/xnu-inputs.json` written by the driver."""
-    if not BUILD_OUT.is_dir():
-        return None
-    stamps = [p for p in BUILD_OUT.glob("*/*/*/xnu-inputs.json") if p.is_file()]
+    """The newest build stamp that this checkout can actually vouch for.
+
+    A stamp only says "these patch bytes were applied". Several checkouts and
+    several output trees share the machine, so the newest stamp may belong to a
+    different branch: picking it blindly turned a clean tree into a false red
+    (P-189). Choose the newest stamp whose recorded patch bytes equal this
+    checkout's series, and fall back to the newest one so the caller can report
+    the real mismatch instead of silence.
+    """
+    stamps = []
+    if os.environ.get("K60_OUT"):
+        out = pathlib.Path(os.environ["K60_OUT"])
+        if out.is_dir():
+            stamps = [p for p in out.rglob("xnu-inputs.json") if p.is_file()]
+    else:
+        for root in OUT_ROOTS:
+            stamps.extend(p for p in root.rglob("xnu-inputs.json") if p.is_file())
     if not stamps:
         return None
-    return max(stamps, key=lambda p: p.stat().st_mtime)
+    stamps.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for stamp in stamps:
+        if _stamp_matches(stamp):
+            return stamp
+    return stamps[0]
 
 
 def applied_count(log: pathlib.Path) -> int:
@@ -92,20 +138,32 @@ def check_stamp(stamp: pathlib.Path, quiet: bool) -> int:
         print(f"❌ P-165 构建应用了 {len(applied)} 个补丁，但 series 列了 {len(want)} 个")
         print(f"   构建记录 {stamp}")
         print("   说明序列里有补丁的上下文对不上；它和它之后的补丁都没有进树（P-165）。")
-        return 1
+        return 0 if IN_PROGRESS else 1
 
-    # Same count is not enough: the bytes must be the ones this checkout holds.
+    # Compare the stamp with THIS checkout, not with itself: the recorded sha
+    # only proves the build input has not changed since, which a stale mirror
+    # satisfies happily.
     stale = []
-    for entry in applied:
-        path = pathlib.Path(entry.get("path", ""))
-        if not path.is_file():
-            stale.append(f"{path.name}: 文件不存在")
+    for index, entry in enumerate(applied):
+        name = want[index]
+        repo = REPO / "patches/xnu" / name
+        if not repo.is_file():
+            stale.append(f"{name}: 仓库里没有这个补丁")
             continue
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != entry.get("sha256"):
-            stale.append(f"{path.name}: 构建时 {entry.get('sha256', '?')[:12]} 现在是 {actual[:12]}")
+        now = hashlib.sha256(repo.read_bytes()).hexdigest()
+        if now != entry.get("sha256"):
+            stale.append(f"{name}: 构建时 {entry.get('sha256', '?')[:12]} 现在 {now[:12]}")
+            continue
+        built = pathlib.Path(entry.get("path", ""))
+        if built.is_file() and hashlib.sha256(built.read_bytes()).hexdigest() != now:
+            stale.append(f"{name}: 构建输入副本与仓库不一致")
     if stale:
-        print(f"❌ P-165 构建用的补丁内容与仓库不一致（{len(stale)} 个）：")
+        if IN_PROGRESS:
+            print(f"⚠️  P-165 补丁集已改（{len(stale)} 个），本次构建会重新生成记录：")
+            for line in stale[:5]:
+                print(f"   {line}")
+            return 0
+        print(f"❌ P-165 上次构建用的补丁内容与仓库不一致（{len(stale)} 个）：")
         for line in stale[:5]:
             print(f"   {line}")
         print(f"   构建记录 {stamp}；需要重新构建才能证明这棵树来自当前补丁集。")

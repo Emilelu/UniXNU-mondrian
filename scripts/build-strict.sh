@@ -44,10 +44,26 @@ LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
 export K60_REPO=$REPO
+# The registry runs as a child process. If these are not exported it falls back
+# to the default mirror/tree, judges a different series than the one being built,
+# and fails iron-4/hard-33 for a difference that does not exist (2026-11-14).
+export K60_DEVICE_INPUT=$DEV
+export K60_OUT=$OUT
+# 声明本次构建针对哪些硬件项（八步门禁按它收窄），并原样写进 manifest。
+export K60_EIGHT_STEP_ITEMS="${K60_EIGHT_STEP_ITEMS:-}"
+# Tell the registry a build is running: a stale patch stamp then means
+# "this run will rewrite it", not "somebody edited patches and never built".
+# Without this the P-165 preflight refuses the very rebuild that refreshes it.
+export K60_BUILD_IN_PROGRESS=1
 
 mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 [ -d "$DEV" ] || die "device input $DEV missing"
 [ -d "$BUILD" ] || die "build tree $BUILD missing"
+
+# A fresh worktree has the code but not the environment (P-185): no Darwin tool
+# shims and an empty fakeroot. Name the missing piece now instead of discovering
+# it 13 minutes into the build as `xcodebuild: command not found`.
+python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
 M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
 KERNEL=$M/kernel/kernel.macho
@@ -78,6 +94,21 @@ if ! python3 "$REPO/scripts/eight-step-gate.py" --build > "$LOGS/eight-step.log"
 fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
+
+# The battery class lives in a host-built archive that the kernel script only
+# force-loads when the defconfig asks for it. Build it here so a battery-enabled
+# configuration cannot reach the link step without its archive (P-157).
+BATTERY_ON=$(sed -n 's/^CONFIG_XNU_K60_PHYSICAL_BATTERY=y$/1/p' "$M/.config" | head -1)
+if [ -n "$BATTERY_ON" ]; then
+    echo "build-strict: battery archive requested by the defconfig"
+    if ! bash "$REPO/scripts/build-battery-archive.sh" "$REPO/build/k60-battery" \
+            > "$LOGS/battery-archive.log" 2>&1; then
+        tail -20 "$LOGS/battery-archive.log" >&2
+        die "battery archive build failed (see $LOGS/battery-archive.log)"
+    fi
+    export XNU_K60_BATTERY_ARCHIVE=$REPO/build/k60-battery/libK60PhysicalBattery.a
+    echo "build-strict: battery archive $(sha256sum "$XNU_K60_BATTERY_ARCHIVE" | cut -d' ' -f1)"
+fi
 
 # --- kernel ------------------------------------------------------------------
 touch "$MARK"; sleep 2
@@ -162,6 +193,7 @@ m = {
     "repo": {"branch": "$GIT_BRANCH", "head": "$GIT_HEAD", "dirty_files": $GIT_DIRTY},
     "series": {"count": $SERIES_COUNT, "sha256": "$SERIES_SHA"},
     "frozen": {"list_sha256": "$FROZEN_SHA", "file": "frozen-before.txt"},
+    "eight_step_items": "${K60_EIGHT_STEP_ITEMS:-all}",
     "gates": {"eight_step": "passed", "eight_step_log": "$LOGS/eight-step.log",
               "eight_step_sha256": "$(sha_or_empty "$LOGS/eight-step.log")"},
     "components": {
@@ -184,4 +216,5 @@ print("build-strict: manifest", out)
 PY
 
 echo "build-strict: boot.img $BOOT_SHA"
+python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

@@ -45,6 +45,7 @@ ALLOWED_ADDITIONS = {
     "pong_wifi", "k60_wifi_rsc", "k60_wifi_stage", "pong_wifi_dma_mib",
     "pong_wifi_diag", "pong_wifi_test", "pong_wifi_alt", "pong_wifi_band",
     "pong_wifi_cycle", "k60bt", "k60bt_stage", "k60bt_warm",
+    "k60bt_step", "k60bt_delay",
     "pong_audio_probe", "pong_rail_probe", "pong_adsp", "pong_touch_se",
     "sheng-gpu-addon",
 }

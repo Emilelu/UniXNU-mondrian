@@ -10,6 +10,8 @@
 
 | 参数 | 所属 | 接受值 | 未设时 | 陷阱 |
 |---|---|---|---|---|
+| `k60bt` | 蓝牙 | 真值 | 关闭 = 整条蓝牙线不跑 | `0500-k60-bt-qbt-new-files.patch:1221`；这是整条线的总开关，缺它 `qbt_k60_start()` 在 `bsd_init` 里立刻返回，`0508` 的 SMMU/RCG 修复也就不会执行 |
+| `k60bt_stage` | 蓝牙 | 1 = 只读探针，2 = 上电+固件下载 | 1 | `0500:1226`；默认就是 1，所以 `k60bt_stage=1` 是冗余的 17 字节，阶梯镜像应直接省略；0 会让 `qbt_k60_start()` 立刻退出 |
 | `k60bt_delay` | 蓝牙 | 秒，上限 `K60_PROBE_MAX_DELAY_SECS` | `K60_PROBE_DELAY_SECS` | `0507-k60-bt-readonly-probe.patch:251`；只在 `k60.stage == 1` 时生效，让探针等 CDC 控制台开始收流后再碰 SE/GCC 寄存器，否则第一次访问就崩、日志留不下来 |
 | `k60bt_step` | 蓝牙 | 1..`K60_PROBE_MAX_STEP` | `K60_PROBE_MAX_STEP` | `0507:252`；小于 1 或大于上限都被夹回范围，用来把探针停在指定步而不是跑完 |
 | `k60bt_warm` | 蓝牙 | 真值 | 关闭 | `0510-k60-bt-firmware-addon.patch:221`；声明 PM8350 S10/S11/S12、PM8350C S1、PMR735A L7 已经上电，驱动不再自己投票 |
@@ -204,6 +206,37 @@
 - **未设时**：不重启
 - **作用**：无人值守自检后自动重启
 - **陷阱**：手动测试时是浪费的 23 字节，可让位给 GPU 开关
+
+### `k60bt`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不启动蓝牙线） |
+| 取值 | 1 |
+| 来源 | `patches/xnu/0500-k60-bt-qbt-new-files.patch:1221`（`PE_parse_boot_argn("k60bt", &enabled, sizeof(enabled))`），入口 `qbt_k60_start()`，由 `0502-k60-bt-qbt-bsd-init.patch` 在 `bsd_init.c` 里调用 |
+| 作用 | 1 = 启动蓝牙 worker 线程；之后的行为由 `k60bt_stage` 决定 |
+
+**为什么必须显式开启**：`qbt_k60_start()` 第一件事就是读它，读不到就 `k60.started = 0` 返回。
+所以不带 `k60bt=1` 的镜像里，`0507`/`0508`/`0509`/`0510` 全部是**死代码** ——
+`bt-s2-20261114b` 就是这样一个负向对照：控制台里一条 `K60 BT` 都没有。
+这也是 S4 负向对照 `bt-s4-20261114b` 要带 `k60bt=1` 的原因：只有进了这条线，`addon: no GpuAddon property`
+才会出现。
+
+### `k60bt_stage`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 1（只读探针） |
+| 取值 | 1 / 2 |
+| 来源 | `patches/xnu/0500-k60-bt-qbt-new-files.patch:1226`（`qbt_k60_start()` 里 `k60.stage = 1;` 之后覆盖），判定点在 `qbt_k60.c` 的 worker |
+| 作用 | 1 = 只碰寄存器、逐步打印 `probe:` 标记后返回，不写固件；2 = 走完整路径：`k60_bt_power_on()` → `k60_bt_local_address()` → `qbt_boot()` 下载 rampatch/NVM → 健康轮询 |
+| 陷阱 | 默认值就是 1，**阶梯镜像不需要写 `k60bt_stage=1`**（省 17 字节，607 上限很紧）；写 0 会让整个 worker 不启动 |
+
+**stage 1 与 stage 2 的判据完全不同**：stage 1 只看 `probe:` 标记走到第几步（`k60bt_step` 可截断），
+即使崩在某个寄存器上也已经证明前面的步是安全的；stage 2 必须看到 `QCA controller version 0x…`
+才算固件下载成功。
 
 ## 三个 GPU 开关的相互关系
 

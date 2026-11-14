@@ -42,6 +42,9 @@ FRAMEWORK_PAIRS = [
 ]
 
 ITEMS = [
+    # Fresh device inputs need both feed declarations and their resolved pins.
+    'feeds.toml',
+    'unixnu.lock',
     'board.toml',
     'porting.toml',
     'local.toml',

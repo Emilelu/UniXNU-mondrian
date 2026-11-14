@@ -1172,7 +1172,7 @@ mode 2 的价值：**不用 libusb 就能验证回环机制**——主机打开 
 ### 23.4 主机侧工具现实（不隐瞒）
 
 Windows 工作机无 libusb/pyusb/gcc；mode 1 的裸端点验证只能走
-(a) LAN 上的 Mac（`ssh emilelu@192.168.31.204`，IOKit user client）或
+(a) LAN 上的 Mac（`ssh <user>@<mac-host>`，IOKit user client）或
 (b) WSL usbip 附接。mode 2 不需要任何特殊工具。
 
 ### 23.5 构建与验证状态

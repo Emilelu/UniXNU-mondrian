@@ -13,9 +13,10 @@ index f4e322e..59abe6a 100644
  bsd/kern/kern_exec.c			standard
 diff --git a/bsd/dev/pong_goodix.c b/bsd/dev/pong_goodix.c
 new file mode 100644
+index 0000000..b033b90
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1341 @@
+@@ -0,0 +1,1375 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -602,13 +603,12 @@ new file mode 100644
 +    return true;
 +}
 +
-+/* Stage 7 only: exercise the known output pads while Goodix is held in reset.
++/* Stage 7 only: exercise known output pads while Goodix is held in reset.
 + * IO bit 1 is the latch, bit 0 the sampled pad; neither is a chip ACK. */
 +static void
 +bitbang_pad_probe(void)
 +{
 +    const unsigned outputs[] = { PIN_CS, PIN_CLK, PIN_MOSI };
-+
 +    printf("Pong touch: pad probe RESET cfg=%#x io=%#x (must remain low)\n",
 +        rd(GPIO_CFG(PIN_RESET)), rd(GPIO_IO(PIN_RESET)));
 +    for (unsigned i = 0; i < 3; i++) {
@@ -687,6 +687,7 @@ new file mode 100644
 +
 +static uint8_t spi_tx[8 + GOODIX_MAX_READ], spi_rx[8 + GOODIX_MAX_READ];
 +static uint32_t touch_address, command_address, fw_buffer_address;
++static uint32_t fw_buffer_capacity;
 +
 +
 +static bool
@@ -773,7 +774,7 @@ new file mode 100644
 +    static uint8_t info[GOODIX_MAX_READ];
 +    uint8_t version[28];
 +    uint32_t length, offset;
-+    touch_address = command_address = fw_buffer_address = 0;
++    touch_address = command_address = fw_buffer_address = fw_buffer_capacity = 0;
 +
 +    /* The actual K60 Berlin-D driver reads identity after reset/full boot;
 +     * Berlin-A's SPI-select and clock-trim sequence does not apply. */
@@ -830,7 +831,7 @@ new file mode 100644
 +        }
 +        offset += bytes;
 +    }
-+    if (offset > end || end - offset < 52) {
++    if (offset > end || end - offset < 64) {
 +        printf("goodix: IC-info misc is truncated (length %u, offset %u)\n", length, offset);
 +        return false;
 +    }
@@ -843,6 +844,7 @@ new file mode 100644
 +    /* misc+52/+54 are reserved1/reserved2 in the Berlin wire ABI, NOT axes.
 +     * K60's raw limits remain the validated ADT 14400x32000. */
 +    fw_buffer_address = le32(info + offset + 18);
++    fw_buffer_capacity = le16(info + offset + 22);
 +    touch_address = address;
 +    command_address = command;
 +    if (verbose) printf("goodix: active config=%#x version=%u fw-state=%#x/%u fw-buffer=%#x/%u\n",
@@ -982,26 +984,26 @@ new file mode 100644
 +0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 +0x02,0x71,0x02,0x72,0x02,0x73,0x02,0x74,0x57,0x94,0x42,0x00,
 +};
-+
++/* Command ACK accepts a request; config state completes it separately. */
 +static uint8_t
 +goodix_command_ack(void)
 +{
-+	uint8_t ack[8];
-+	uint8_t last = 0xff;
-+	for (unsigned t = 0; t < 20; t++) {
-+		if (goodix_read(command_address, ack, sizeof(ack))) {
-+			last = ack[1];
-+			if (last != 0x00 && last != 0xff) break;
-+		}
-+		sleep_ms(20);
-+	}
-+	return last;
++    uint8_t ack[16];
++    uint8_t last = 0xff;
++    for (unsigned t = 0; t < 20; t++) {
++        if (!goodix_read(command_address, ack, sizeof(ack))) return 0xff;
++        last = ack[1];
++        if (last == 0x80) { sleep_ms(2); return last; }
++        if (last != 0x00 && last != 0x02) return last;
++        sleep_ms(1);
++    }
++    return last;
 +}
 +
 +static bool
 +goodix_command(uint8_t len, uint8_t cmd, const uint8_t *data, uint32_t bytes, const char *what)
 +{
-+	uint8_t frame[8] = { 0 };
++    uint8_t frame[16] = { 0 };
 +	uint32_t sum = (uint32_t)len + cmd;
 +
 +	if (!command_address || bytes + 4 > (uint32_t)sizeof(frame) - 2) return false;
@@ -1020,16 +1022,47 @@ new file mode 100644
 +}
 +
 +static bool
++goodix_config_command(uint8_t cmd, const char *what)
++{
++    uint8_t reply[16];
++    if (!goodix_command(4, cmd, NULL, 0, what)) return false;
++    for (unsigned t = 0; t < 20; t++) {
++        if (!goodix_read(command_address, reply, sizeof(reply))) return false;
++        if (reply[0] == 0x80) {
++            printf("goodix: %s completed state=%02x ack=%02x\n", what, reply[0], reply[1]);
++            return true;
++        }
++        sleep_ms(20);
++    }
++    printf("goodix: %s completion timeout state=%02x ack=%02x\n", what, reply[0], reply[1]);
++    return false;
++}
++/* Actual K60 goodix_htc_enable(false), coordinate-only mode:
++ * stop raw frames (90/00), then enable touch coordinates (91/01).
++ * 91/81 belongs to the nonzero host-mode branch; its report ABI is unqualified. */
++static bool
++goodix_coordinate_mode(void)
++{
++    const uint8_t raw_off = 0, coordinates_on = 1;
++    if (!goodix_command(5, 0x90, &raw_off, 1, "RAW-OFF")) return false;
++    if (!goodix_command(5, 0x91, &coordinates_on, 1, "COORD-ON")) return false;
++    sleep_ms(50);
++    return true;
++}
++
++
++static bool
 +goodix_apply_config(uint32_t fw_buffer)
 +{
 +	unsigned off = 0, bad = 0;
-+	const uint8_t coordinate = 0x00;
++    bool committed = false;
 +
-+	if (!fw_buffer) {
-+		printf("goodix: CFG skip (IC-info reports no fw_buffer)\n");
-+		return false;
-+	}
-+	if (!goodix_command(4, 0x04, NULL, 0, "CFG-START")) return false;
++    if (!fw_buffer || sizeof(k60_cfg) > fw_buffer_capacity ||
++        fw_buffer > 0xffffffffu - sizeof(k60_cfg)) {
++        printf("goodix: CFG invalid buffer address=%#x capacity=%u\n", fw_buffer, fw_buffer_capacity);
++        return false;
++    }
++    if (!goodix_config_command(0x04, "CFG-START")) return false;
 +	while (off < sizeof(k60_cfg)) {
 +		unsigned chunk = sizeof(k60_cfg) - off < 64 ? sizeof(k60_cfg) - off : 64;
 +		uint8_t back[64];
@@ -1038,16 +1071,14 @@ new file mode 100644
 +		off += chunk;
 +	}
 +	printf("goodix: CFG-DL wrote=%u/%u bad=%u\n", off, (unsigned)sizeof(k60_cfg), bad);
-+	if (off != sizeof(k60_cfg) || bad) return false;
-+	if (!goodix_command(4, 0x05, NULL, 0, "CFG-WRITE")) return false;
-+	if (!goodix_command(4, 0x06, NULL, 0, "CFG-EXIT")) return false;
-+	gpio_set(PIN_RESET, false);
-+	sleep_ms(2);
-+	gpio_set(PIN_RESET, true);
-+	sleep_ms(100);
-+	if (!goodix_command(5, 0x90, &coordinate, 1, "COORD-MODE")) return false;
-+	sleep_ms(50);
-+	return true;
++    if (off == sizeof(k60_cfg) && !bad)
++        committed = goodix_config_command(0x05, "CFG-WRITE");
++    /* EXIT ends a begun configuration transaction even after transfer failure. */
++    bool exited = goodix_config_command(0x06, "CFG-EXIT");
++    if (!committed || !exited) return false;
++    /* Configuration transfer does not use the firmware ISP reset path. */
++    sleep_ms(100);
++    return goodix_coordinate_mode();
 +}
 +
 +/* Which fingers were down in the last report, and where. */
@@ -1132,7 +1163,9 @@ new file mode 100644
 +    if (!touch_address) return false; /* failed re-identification must not read address zero */
 +    if (!goodix_read(touch_address, report, first)) return false;
 +    /* Bounded physical acquisition evidence, independent of the IRQ line.
-+     * The header is read before any status ACK and no contact is synthesized. */
++     * The header is read before any status ACK and no contact is synthesized.
++     * Header only: reading fw_state/diff here raced the status clear and cost
++     * 2 header and 6 contact checksums on yibiya's verified run. */
 +    if (observations < 40 && (polls < 4 || !(polls & 127u) || report[0] != last_status)) {
 +        printf("goodix: physical poll=%u irq=%u reset=%u avdd=%u header=%02x %02x %02x %02x %02x %02x %02x %02x checksum=%u\n",
 +            polls, gpio_get(PIN_INT), gpio_get(PIN_RESET), gpio_get(avdd_gpio),
@@ -1142,6 +1175,7 @@ new file mode 100644
 +    }
 +    polls++;
 +    last_status = report[0];
++    if (!report[0]) return true;  /* no event does NOT mean all contacts lifted */
 +    if (!report[0]) return true;  /* no event does NOT mean all contacts lifted */
 +    if (!goodix_checksum_ok(report, 8)) {
 +        if (complaints++ < 8) printf("goodix: invalid report header checksum\n");
@@ -1174,13 +1208,12 @@ new file mode 100644
 +         * before another read; never preserve stuck HID fingers across reset. */
 +        goodix_release();
 +        touch_reset();
-+        if (!goodix_probe(true)) return false;
++        if (!goodix_probe(true) || !goodix_coordinate_mode()) return false;
 +        return goodix_write(touch_address, &zero, 1);
 +    }
 +    if (report[0] & GOODIX_STATUS_TOUCH) goodix_report(report + 8, count);
 +    return true;
 +}
-+
 +
 +/* Existing Pong transport, K60 resources and no firmware upload. */
 +static bool
@@ -1287,7 +1320,7 @@ new file mode 100644
 +        goto out;
 +    }
 +    if (!goodix_probe(true)) {
-+        printf("Pong touch: identification lost after config reset\n");
++        printf("Pong touch: identification lost after config apply\n");
 +        goto out;
 +    }
 +    if (!pong_touch_device_ready()) {
@@ -1357,7 +1390,8 @@ new file mode 100644
 +    }
 +}
 +#endif /* PONG */
-
++
++
 diff --git a/bsd/dev/pong_input.c b/bsd/dev/pong_input.c
 new file mode 100644
 index 0000000..57e74e5

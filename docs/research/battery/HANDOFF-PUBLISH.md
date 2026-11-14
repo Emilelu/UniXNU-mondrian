@@ -1,6 +1,6 @@
 # K60 ADSP GLINK handoff publisher
 
-> As of 2026-11-14. Implementation and offline verification only; no device boot.
+> As of 2026-11-15. Implementation and offline verification only; no device boot.
 > A real retained PAS1 owner is still a dependency. This change must not be reported as a working ADSP, audio, or battery link.
 
 ## Contract and evidence
@@ -21,7 +21,7 @@ Board configuration remains generated from the captured FDT, not duplicated in t
 | `drivers/PongPower/K60AdspStartup.c` | One persistent atomic claim shared by early handoff and late diagnostic startup; neither path can race the other into effects. |
 | `patches/xnu/0617-k60-adsp-glink-handoff.patch` | Append-only kernel integration and canonical C source mirrors. Existing protected blobs, arguments and preceding series order are unchanged. |
 
-The early hook in `IOKitBSDInit()` runs before the `IOBSD` publish and physical battery start. A Data-mount hook is too late. The old diagnostic loader is not a provider: a disabled diagnostic returning zero does not prove authentication, held votes, fresh FIFO ownership or flags 15. The early attempt excludes that loader even when the early attempt fails. The compiled provider intentionally fails before SMEM/TCSR mappings, rather than guessing an early firmware/PAS path that depends on an unavailable root filesystem.
+The branch-only early hook in `IOKitBSDInit()` is default-off: it calls the publisher only if `PE_parse_boot_argn("pong_handoff_publish", ...)` succeeds and the parsed unsigned value is exactly `1`. The local value starts at zero, and the gate precedes the startup claim, PAS owner, SMEM/TCSR mapping and discovery. When enabled, it completes before the `IOBSD` publish and physical battery start. See [INTEGRATION-ORDER.md](INTEGRATION-ORDER.md) for the boot timeline, lock-discovery nuance, one-shot consumer and future checklist. A Data-mount hook is too late. The old diagnostic loader is not a provider: a disabled diagnostic returning zero does not prove authentication, held votes, fresh FIFO ownership or flags 15. An enabled early attempt excludes that loader even when the attempt fails; a disabled early gate does not take the startup claim or change the late diagnostic policy. The compiled provider intentionally fails before SMEM/TCSR mappings, rather than guessing an early firmware/PAS path that depends on an unavailable root filesystem.
 
 ## 调用点契约
 
@@ -51,7 +51,9 @@ The local generator now accepts qualification only for a complete, unambiguous p
 
 The 24-byte property request and 16-byte opcode-7 notification are not subscription ACK evidence. Malformed hex, truncation, wrong owner/opcode, orphan RX, repeated or ambiguous TX/RX sequences are rejected by `test-k60-notification-qualification.py`. Without a qualifying real capture, notification reply type/length remain 0/0 and subscription stays disabled. Existing compatibility alternatives are not promoted to measured facts. Current sign likewise remains unqualified without charging/discharging wire evidence.
 
-## Offline verification (2026-11-14)
+## Offline verification
+
+On 2026-11-15 the exact patched `IOKitBSDInit()` body passed 14 host cases across physical-battery macro 0/1. Absent argument, parser failure (including a written value 1), 0, 2 and UINT32_MAX have zero publisher/SMEM/TCSR/PAS/startup-claim spy calls; a successful parse with unsigned value 1 reaches the spies and precedes IOBSD/battery even when the stub returns -1000. The parser is stubbed; these cases do not validate raw boot-string parsing. Five patch sections apply with fuzz 0 and three canonical mirrors match. Evidence: `E:/k60-work/artifacts/adsp-handoff-optin-20261115/integration.log`, SHA-256 `b8118e6bc6d1f9e537c72e96706d519007b96955f507c5b33a3c063fef3e30d7`. This proves the new call-site boundary, not all other boot paths or hardware access; see the linked integration-order document. No kernel/image build was performed.
 
 - `scripts/tests/run-k60-handoff-host.sh <durable-output> <pre-0617 .cache/xnu-work>` runs the offline suite and records `host-tests.log`. After the feed-sync fix and rebase, the latest run is `E:/k60-work/artifacts/adsp-handoff-retest-20261114t2320/host/host-tests.log` (5818 bytes, SHA-256 `d3d968a9d9f2f6008b56dedb74f62f007eb1116b32942f2eb986cd3084840433`). It passes publisher (49), builder (10), absent-owner and startup arbitration, MDT (16), notification (21), battery-unit (27), and integration-fixture tests (five patch sections, three canonical mirrors, fuzz 0); arm64 Apple SDK syntax passes with two existing framework warnings. This fixture is not a full clean-series kernel compile or link.
 - `test-k60-adsp-owner.c`: absent provider fails closed; `test-k60-adsp-startup.c` in two fresh processes: early and late owners each win once, invalid/repeated/competing claims fail.
@@ -89,6 +91,6 @@ No strict kernel build, kernel link, image verification or device boot is claime
 
 ## Expected runtime evidence and remaining dependency
 
-With the default provider, expect `K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published`, followed by the existing battery blocked path. There must be no handoff property and no claim that ADSP/GLINK works. This is the expected negative result, not a functional success.
+With the opt-in argument absent, this hook does not enter the handoff publisher. Assuming the physical-battery consumer is enabled, no handoff property already exists and earlier runtime preflight checks pass, `pong_handoff_publish=1` with the default provider reaches `K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published`, followed by the existing battery blocked path. This hook publishes no new property. A pre-existing property is preserved and causes an earlier duplicate exit before the provider runs; this task does not establish its validity. No negative or duplicate result proves that ADSP/GLINK works.
 
 A future audited provider must implement the entire retained ownership contract before replacing the default. Then independently prove PAS1 authentication/start, retained resource ownership, ready/non-reset SMP2P, fresh exact SMEM items, successful `published authenticated PAS1 ... bytes=104 flags=15`, and consumer discovery plus real GLINK transactions. Only a Lead-authorized boot may establish those facts. Image delivery must use unique `K60_DEVICE_INPUT` and `K60_OUT`, the strict builder, explicit archived FD and a complete manifest; no stale kernel or hardware-tested label is acceptable.

@@ -202,6 +202,16 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - 前两次构建失败教训：iron-2 会拦"未提交就构建"，所以 0618 与文档必须先提交（commit `3e09ce3` fix(xnu)、`2202042` docs）再启动构建；P-194 在 series 变更后需 `touch patches/xnu/series` 让旧 manifest 判 stale（否则 springboard-20261114d 的 manifest 224≠225 报真红）。
 - **未上机**（铁则），判据见 §3。
 
+### 5.5 验证镜像（2026-11-15 01:44，springboard-20261115a，带 k60_wallpaper_reset=1）
+
+- 重命名：`patches/xnu/0617-k60-wallpaper-seed.patch` → `0618-k60-wallpaper-seed.patch`（0617 已归 ADSP glink handoff，cellular 占 0620-0622；Lead 指示），series 第 225 行同步。
+- 命令：同上 §5.4 加 `--kernel-arg k60_wallpaper_reset=1`；BUILD_EXIT=0，series=225，frozen=`8cfac80e…`。
+- 产物：`/mnt/e/k60-work/artifacts/springboard-20261115a/{boot.img 201,887,744 B, boot.json, build-manifest.json, logs/}`，fd `fd/springboard-20261115a-cf4485712c29.fd`；kernel 105,484,288 B（sha256 `6817ffde…`）；boot.img sha256 `5c6ce1d474ce6e4f19deb00dec38deb87a9e03b642b55e89ad5b6e815a73c2f5`。
+- args 自证：`image-arg-audit: OK (30 arguments, 597 bytes)`（575 + 22 = 597 ≤ 607 字节预算），`manifest.kernel_args_requested = ["k60_wallpaper_reset=1"]`，镜像内 `strings -a boot.img | grep -c "applog=1 k60_wallpaper_reset=1"` = 1。
+- 镜像自证：`K60WALL` = 5、`Pong UI:` = 39；`verify-boot-image.py` OK。
+- **该参数每次启动都会恢复 stock 壁纸**，因此这只是一张验证镜像；验证通过后需出一张不带该参数的常规镜像。
+- **未上机**（铁则）。
+
 ---
 
 ## 6. 未决问题 / 下一步

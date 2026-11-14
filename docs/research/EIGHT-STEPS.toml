@@ -492,7 +492,7 @@ artifact_check = """0618：88 行 / 3,409 B，临时 git 仓库 git apply --chec
 
 [hardware.springboard.step.device]
 done = false
-evidence = "未上机（铁则：禁止自行 boot，交 Lead 在用户明确同意后执行）。上机计划：刷 springboard-20261114e（含新 0340 + 0618）+ 恢复镜像 args 带 k60_wallpaper_reset=1 恰好一次（porting.toml:90 的 cand19 先例），抓 K60WALL catalogue 行、Pong init: boot view 行与 Pong UI 壁纸三行日志；判据是日志不再出现 wallpaper aliases SKIP / optional boot view SKIP（v24dp 无 aliases 函数，不要等 genuine stock wallpaper aliases= 行）。"
+evidence = "未上机（铁则：禁止自行 boot，交 Lead 在用户明确同意后执行）。上机计划：刷 springboard-20261115a（含新 0340 + 0618，已用 --kernel-arg k60_wallpaper_reset=1 构建，args 30 个 597 字节；manifest.kernel_args_requested 自证），抓 K60WALL catalogue 行、Pong init: boot view 行与 Pong UI 壁纸三行日志；判据是日志不再出现 wallpaper aliases SKIP / optional boot view SKIP（v24dp 无 aliases 函数，不要等 genuine stock wallpaper aliases= 行）。"
 
 [hardware.springboard.step.device.prediction]
 success = "日志出现 K60WALL catalogue bytes=772 resid=0 error=0 且无 wallpaper aliases SKIP / optional boot view SKIP；Pong UI: wallpaper existing-content=-1 restore-stock=1 -> Pong UI: genuine wallpaper asset ... present=1 -> Pong UI: submitting genuine wallpaper 7410 native lock+home path=...，解锁后锁屏/主屏可见 WWDC 2022 壁纸；下一次普通启动 existing!=0 保留该壁纸。"

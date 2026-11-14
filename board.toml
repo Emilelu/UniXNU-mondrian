@@ -259,6 +259,23 @@ pins = "100000001100000012000000130000001500000014000000"
 # wrong, not that this order is wrong.
 bitbang-pins = "10000000110000001200000013000000"
 
+# The PMIC key driver (patches/xnu/zzzz...-pong-physical-keys.patch) looks
+# /arm-io/pong-buttons up by exact name and asserts all six values. Until now
+# the node existed only as an uncommitted edit in the build-copy profile, so a
+# clean rebuild printed "Pong keys: DT node /arm-io/pong-buttons not found".
+# Values are the SM8475 SPMI addresses the driver already uses: PON at
+# 0xc400000, the PM8350 GPIO block at 0xc42d000 and the observer at 0xc440000;
+# pon-ppid 0x13 is the power key and volume-up-ppid 0x18d the volume-up key.
+[adt.arm-io.pong-buttons.u64]
+core-base = "0xc400000"
+cnfg-base = "0xc42d000"
+observer-base = "0xc440000"
+
+[adt.arm-io.pong-buttons.u32]
+ee = 0
+pon-ppid = "0x013"
+volume-up-ppid = "0x18d"
+
 # iOS buttons node. devicetree.py emits `buttons` only when board.toml carries
 # [adt.buttons.*]; without it userland cannot map the PMIC keys even though the
 # kernel driver already reports them ("Pong keys: arbiter v7 ... power=1 up=1

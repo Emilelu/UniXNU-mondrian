@@ -27,6 +27,7 @@
 """
 import io
 import os
+import subprocess
 import re
 import sys
 
@@ -38,6 +39,8 @@ except ImportError:
     except ImportError:
         tomllib = None
 
+# 从脚本位置推仓库根，而不是写死一个检出路径：Lead 与触摸 agent 各有自己的
+# worktree（P-184），写死路径会让一方的门禁去读另一方的树。
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO, 'docs', 'research', 'EIGHT-STEPS.toml')
 
@@ -75,6 +78,21 @@ def has_reference(text):
     return any(re.search(p, text) for p in pats)
 
 
+# 一次构建只针对某些硬件项时，用 K60_EIGHT_STEP_ITEMS 明确声明（逗号分隔）。
+# 默认不声明 = 校验全部 active 项（整机口径），所以不会因为漏写而变松。
+# build-strict.sh 会把这个值写进 build-manifest.json，谁放窄了范围是可审计的。
+def declared_items(hw):
+    raw = (os.environ.get("K60_EIGHT_STEP_ITEMS") or "").strip()
+    if not raw:
+        return None
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    unknown = [n for n in names if n not in hw]
+    if unknown:
+        raise SystemExit("K60_EIGHT_STEP_ITEMS 里有不存在的硬件项: %s（可选: %s）"
+                         % (", ".join(unknown), ", ".join(hw)))
+    return {n: hw[n] for n in names}
+
+
 def validate(mode='build', verbose=True):
     """mode: 'build' | 'flash'"""
     if tomllib is None:
@@ -95,6 +113,15 @@ def validate(mode='build', verbose=True):
                if v.get('status', 'active') != 'active'}
     if not hw:
         return False, ['EIGHT-STEPS.toml 里没有 [hardware.*] 条目']
+
+    # build 模式可以用 K60_EIGHT_STEP_ITEMS 收窄到本次真正在修的硬件项；
+    # 不声明就还是整机口径。flash 模式永远整机。
+    if mode == 'build':
+        scoped = declared_items(hw)
+        if scoped is not None:
+            if verbose:
+                print('  声明范围: %s（K60_EIGHT_STEP_ITEMS）' % ', '.join(scoped))
+            hw = scoped
 
     for name, body in hw.items():
         steps = body.get('step', {})

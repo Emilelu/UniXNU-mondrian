@@ -327,3 +327,40 @@ their branches and the reasoning behind every adopted change.
 违反实例（本次自查）：`bf487cc`、`c2fa573`、`234574a`、`d1843c2`、`20ce047`、
 `8206fb4` 直接把补丁序列与驱动源码的改动提交到 `main`，其中多轮只做到 `BUILD OK`，
 没有一次上机。见 P-174。
+
+### 铁则 10 — 环境不进仓库
+
+外部机器（局域网里的 Mac、构建服务器、路由器）的**地址与口令不是项目的一部分**。
+仓库是公开的、历史是永久的：一次 push 就把整条历史发出去，事后删除文件也收不回
+别人已经克隆的副本。
+
+- 文档里只写占位符：`<user>@<mac-host>`、`sshpass -p <password>`、`<local-dir>`
+- 真实地址/口令放仓库之外的本地文件（`E:\k60-work\` 或 `~/.k60-env`），
+  并用 `source` 引入；不要写进任何 `docs/`、`scripts/`、`board.toml`
+- 提交前自查：`python3 scripts/check-secrets.py`
+- 门禁：`scripts/check-secrets.py`（注册为 `iron-10`）
+
+违反实例（2026-11-14 自查）：`docs/engineering/HARD-RULES.md` 的 ★7 探活命令
+把 Mac 的地址与口令原样写进了正文，并随 `2e44f46` 进入公开历史。已改成占位符，
+口令另行更换。
+
+### 铁则 11 — 一个检出只有一个主人
+
+2026-11-14 的事故：Lead 为了让自己那条门禁变绿，在**共用的**设备检出里执行了
+`git checkout -- <8 个文件>`，把触摸 agent 正在改的 8 个文件抹掉，其中 7 个无法恢复。
+这不是"手滑"，是**在别人的目录里做不可逆操作**。
+
+规则：
+
+1. 每个检出在 `docs/engineering/TREE-OWNERS.toml` 里登记唯一主人。Lead 用
+   `E:/hackios/k60-lead`（`git worktree`），**不再写**共用检出。
+2. 破坏性命令（`checkout -- <path>`、`restore`、`reset --hard`、`clean -f`、`stash`）
+   一律走 `scripts/git-safe.sh`：它先做完整快照（`scripts/snapshot-worktree.py` →
+   `E:/k60-work/scratch/snapshots/<时间戳>-<树名>/`，含 `tracked.patch`、`staged.patch`、
+   `untracked/` 和 `restore.sh`），再在非自有检出上直接拒绝；只有显式
+   `K60_I_OWN_THIS_TREE=1` 才放行，且放行前快照已经写完。
+   所以这个坑要再发生，需要**两个独立错误同时成立**，而且即使发生也能用
+   `bash <快照>/restore.sh` 原样恢复。
+3. 需要干净的树来构建时，换自己的 worktree 或收窄门禁范围（`K60_EIGHT_STEP_ITEMS`），
+   **绝不**靠清理共用树。
+4. 提交前跑 `python3 scripts/check-tree-owner.py`；它在共用检出有他人未提交改动时报错。

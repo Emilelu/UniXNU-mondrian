@@ -14,6 +14,7 @@ also flags conflicting fragment overrides in concatenated generated files.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -21,8 +22,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_DEFCONFIG = REPO / "configs" / "mondrian_defconfig"
-DEFAULT_OUT = Path("/opt/k60/trees/k60build/out-baseline")
-K60_CONFIG_RELATIVE = Path("mondrian/ipados-16.6.1-20G81/mondrian/.config")
+# The output tree moves with the checkout: the Lead, wifi and shared trees all
+# build the same defconfig into different directories (P-187, P-189).
+DEFAULT_OUT = Path(os.environ.get("K60_OUT") or "/opt/k60/trees/k60build/out-baseline")
+K60_SDK_RELATIVE = Path("ipados-16.6.1-20G81")
 ASSIGNMENT = re.compile(r"CONFIG_(\w+)=(.*)")
 DISABLED = re.compile(r"#\s*CONFIG_(\w+) is not set")
 NUMBER = re.compile(r"-?(0x[0-9a-fA-F]+|\d+)")
@@ -141,6 +144,21 @@ def compare_configs(
             )
     return problems
 
+def resolve_generated(out: Path) -> Path:
+    """Find the generated .config under out/mondrian/<sdk>/<board>/.
+
+    unixnu names the board directory after the defconfig (mondrian_defconfig ->
+    mondrian/, mondrian_wifi_defconfig -> mondrian_wifi/), so a pinned path
+    silently checks the wrong tree (P-187).
+    """
+    base = out / "mondrian" / K60_SDK_RELATIVE
+    if not base.is_dir():
+        return base / "mondrian" / ".config"
+    found = sorted(p for p in base.glob("*/.config") if p.is_file())
+    if not found:
+        return base / "mondrian" / ".config"
+    return found[0]
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -165,13 +183,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     target.add_argument(
         "--out", type=Path, default=DEFAULT_OUT,
-        help=f"K60 output root; appends {K60_CONFIG_RELATIVE.as_posix()}",
+        help="K60 output root; the board directory is discovered under it",
     )
     args = parser.parse_args(argv)
     defconfig = args.defconfig.expanduser()
     config = (
         args.config if args.config is not None
-        else args.out / K60_CONFIG_RELATIVE
+        else resolve_generated(args.out)
     ).expanduser()
     expected, source_problems, _ = read_config(defconfig, "defconfig", True)
     actual, generated_problems, generated_notes = read_config(config, "generated config", False)

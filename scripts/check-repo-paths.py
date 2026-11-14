@@ -29,6 +29,7 @@ SELF = Path(__file__).name
 # 确实需要跨树的工具：写死目标树是正确的
 ALLOW = {
     "pick-upstream.py": "把仓库名映射到本地路径，天生跨树；写死目标树正是它的职责",
+    "repair-worktrees.sh": "修复主检出与各 worktree 之间 gitfile 的路径形式，参数就是目标主检出；写死默认值正是它的职责",
 }
 
 # 这些脚本必须自带「从自身位置推导根」的写法

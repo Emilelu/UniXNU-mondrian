@@ -364,15 +364,17 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
    `scripts/check-adsp-claims.py:18`、`scripts/repair-resource-forks-k60.py:22`、
    `scripts/flash.sh:18` → 同一处写法一并自相对化。
 
-新增门禁 `scripts/check-repo-paths.py`（P-183）：任何脚本再写死主工作区路径、
+新增门禁 `scripts/check-repo-paths.py`（**P-191**，编号在合入 main 时改过一次：main 上的
+P-183 已被另一条「网络探测失败 ≠ 没推送」占用）：任何脚本再写死主工作区路径、
 或任何判定/构建脚本丢掉「从自身位置推导根」的写法，直接 FAIL；确实跨树的工具
-（`pick-upstream.py` 把仓库名映射到路径）列在 `ALLOW` 里并写明理由。
+（`pick-upstream.py` 把仓库名映射到路径、`repair-worktrees.sh` 的参数就是目标主检出）
+列在 `ALLOW` 里并写明理由。
 
 构建输入用私有树 `/opt/k60/trees/usb-cdc-mainline/audio-device`（从共享树 `rsync`，series 230 行、含
 `../audio/0001-k60-audio-amp-probe.patch`），输出用私有 `/opt/k60/trees/k60build/out-audio`；
 **共享 device 树与 `scratch/SERIES-FINAL.txt` 都没有被写入**。
 
-### 门禁现状（本分支 + 构建环境，2026-11-14 05:20 实测）
+### 门禁现状（本分支 + 构建环境，2026-11-14 11:45 实测，已并入 main 的门禁工具）
 
 | 检查 | 结果 |
 | --- | --- |
@@ -381,7 +383,7 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
 | `check-tmp-artifacts.py` | ✅ |
 | `eight-step-gate.py --build` | ✅ 36 项（6 个硬件项，audio 在内） |
 | `porting-gate.py --quick` | ✅ rc=0 |
-| `check-repo-paths.py` | ✅ 126 个脚本，1 个跨树工具已登记（P-183） |
+| `check-repo-paths.py` | ✅ 135 个脚本，2 个跨树工具已登记（P-191） |
 | `check-rules.py` | ✅ 0 失败（66 条登记 / 37 条 waiver） |
 
 复现命令（四个 `K60_*` 必须同时给，缺一个就会读到共享副本）：

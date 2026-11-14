@@ -134,7 +134,8 @@ rx 侧统一从 `data+0xc` 读 `prop_id`、`data+0x10` 读 `value`、`data+0x14`
 | `0x42` | `0x10` | `data+0xc==1` → `complete(bcdev+0x118)` | `0x22cc` |
 | `0x43` | `0x10` | `data+0xc==1` → `complete(bcdev+0xf8)` | `0x22ec` |
 | `0x44` | `0x10` | `bcdev+0x314 = data+0xc` | `0x230c` |
-| `0x51` | `0x34`→拷 32 B；`0x20`→拷 16 B | `memcpy(bcdev+0x620 / +0x628, data+0x10, …)` | `0x2324` |
+| `0x50` | `0x34`(52)→拷 32 B 到 `+0x620`；`0x20`(32)→拷 16 B 到 `+0x628`；`0x74`(116)→拷 96 B 到 `+0x1f0` | `memcpy(…, data+0x10, …)` | `0x2324` |
+| `0x51` | `0x18`(24)→读 rc；`0x20`/`0x34`→只 complete | 通用 SET 应答 | `0x2168` |
 | `0x04`/`0x36`/`0x37`/`0x47` | 任意 | 只 `complete(bcdev+0xd8)` | `0x2464` |
 | `0x48` | 任意 | **未识别**：打印 `Unknown opcode: %u.` 后返回 0，**不 complete** | `0x24a8` |
 
@@ -185,8 +186,8 @@ rx 侧从不读 `data+0`/`data+4`，所以 peer 回复时可以照抄请求的 o
 | `0x43` | 只收 | 16 | `complete(bcdev+0xf8)` | 通知 |
 | `0x44` | 发→收 | 发 12 / 收 16 | `bcdev+0x314 = data+0xc` | 无线固件版本读取（debugfs `wireless_fw_version`） |
 | `0x48` | — | — | **未识别**（主跳转表落默认项） | 不存在；`0x47` 才是「只 complete」 |
-| `0x50` | 发→收 | 收 24 | 读 rc 报错 | GET xiaomi prop（187 项） |
-| `0x51` | 发→收 | 收 52 或 32 | 拷 32/16 B → `bcdev+0x620/+0x628` | SET xiaomi prop / 大块数据 |
+| `0x50` | 发→收 | 收 52 → 拷 32 B 到 `+0x620`；收 32 → 拷 16 B 到 `+0x628`；收 116 → 拷 96 B 到 `+0x1f0` | GET xiaomi prop（187 项，运行期填充） |
+| `0x51` | 发→收 | 收 24 → 读 rc；收 32/52 → 只 complete | SET xiaomi prop 应答（走通用 `0x2168` 分支） |
 | 其它 | — | — | `.rodata:0x24b0` `Unknown opcode: %u`、`.rodata:0xa1c` `Incorrect response length %zu for opcode %#x` | 默认分支 |
 
 跳转表在 `.rodata:0x9`（78 字节，索引 `opcode-4`，目标 = `0x2168 + byte*4`），逐项换算见 03 §4。

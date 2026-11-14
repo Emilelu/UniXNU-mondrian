@@ -4,7 +4,15 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 591 字节，余 17。
+**硬限制：command line 607 字节**（含空格分隔）。判据在
+`uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8`
+（`DARWIN_BOOT_LINE_LENGTH 608`）与 `DarwinBoot.c:678-684`：
+`if ((Index >= sizeof (CommandLine) - 1) || (Request->BootArgs[Index] > 0x7f)) return EFI_BAD_BUFFER_SIZE;`
+—— 即长度 ≥607 或含非 ASCII 时 DarwinBoot 在 ReadFile/ParseKernel 之前直接返回，
+屏幕停在 REQUEST 阶段，**串口一个字节都不会出现**，设备自己回 fastboot。
+2026-11-14 的 bt 线 `usblog-20261114-bts1b-run1`（610 字节）就是这样 0 字节的。
+实测 board.toml 当前 29 项 575 字节（`unixnu build payload` 会按名覆盖后重新拼接）。
+`payload.py:30-38 check_args()` 只拦 >1000，注释里的「1024-byte buffer」是过时的。
 
 ## 一览
 
@@ -48,6 +56,15 @@
 | `pong_data_mount` | 存储 | 真值 | 关闭 | `offline-owner-systemos-mount.patch` 挂 Data 卷 | 与 `pong_data_rw` 同用 |
 | `pong_data_rw` | 存储 | 真值 | 只读 | `offline-owner-systemos-mount.patch` Data 卷可写 | 写盘会改动 Data |
 | `xpcproxy_idversion` | 启动链 | 真值 | 关闭 | `zzzz…-pong-hackios-launchd-exec.patch` xpcproxy 版本兼容 | — |
+| `pong_wifi` | WiFi | 必须 == 1 | 未设 = 不启动 | 缺它则 `pong_wifi_start_optional()` 只做 `pong_rpmh_init()` 就返回，日志里没有报错 |
+| `k60_wifi_rsc` | WiFi | 0..2 | 0 = 不动 RSC | 1 = 只读探针 TCS4 后拒绝投票；2 = 允许 RPMh 投票。默认 fail-safe，因为对未上电 RSC 写入会挂死整机（K60-TOUCH-PARAMS.md:120,174） |
+| `k60_wifi_stage` | WiFi | 0..10 | 0 = 跑全部 | 只跑到第 N 级就停，用于把早期挂死收敛到一个 MMIO 块；超范围值等于全跑 |
+| `pong_wifi_dma_mib` | WiFi | 64..128 | 64 | 只接受 64/128，其它值 `return fail("WiFi DMA budget must be 64 or 128 MiB")` 后整条线停 |
+| `pong_wifi_diag` | WiFi | 真值 | 关闭 | 打开 progressDiagnostic，把 stage 进度写进 `pong_wifi_progress[]` |
+| `pong_wifi_test` | WiFi | 真值 | 关闭 | 关联测试：拿到 MAC 后主动连接 fixture 里的 AP |
+| `pong_wifi_alt` | WiFi | 真值 | 关闭 | 只有 `pong_wifi_test=1` 时才用；选「备用网络」那一组 fixture，不是 SSID 文本 |
+| `pong_wifi_band` | WiFi | 0..5 | 0 = 不限 | 只接受 0/2/5；其它值打 `WiFi association test SKIP: band must be 0, 2 or 5` 并关掉整条测试 |
+| `pong_wifi_cycle` | WiFi | 真值 | 关闭 | 与 `pong_wifi_test=1` **同时**满足才开 gCycleTest（`PongWifiNet.cpp:892-893` 是 `&&` 串联） |
 
 ## 逐个说明
 
@@ -202,6 +219,86 @@
 - **作用**：无人值守自检后自动重启
 - **陷阱**：手动测试时是浪费的 23 字节，可让位给 GPU 开关
 
+### `pong_wifi`
+
+- **所属**：WiFi
+- **接受值**：必须 == 1
+- **未设时**：不启动（`pong_wifi_start_optional()` 只做 `pong_rpmh_init()` 就返回）
+- **作用**：通过后 `kernel_thread_start(worker)` 起 QCA6490 bring-up 线程
+- **陷阱**：worker 比 `k60_usblog_start()`（`bsd_init.c:1341`）早约 180 行运行；在控制台起来之前碰未上时钟的外设会挂死整机、串口 0 字节（P-49）。驱动侧已有 `k60_usblog_console_up()` 门，但仍应配合 `k60_wifi_stage` 逐级放行
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:716`
+
+### `k60_wifi_rsc`
+
+- **所属**：WiFi
+- **接受值**：0..2
+- **未设时**：0（RSC 完全不动）
+- **作用**：1 = 只读探针 `0x17a20000` 的 TCS4 并打印 `RSC probe id/caps/tcs4Idle/tcs4Status`，然后拒绝所有投票；2 = 探针通过后允许 `rawVote()` 走 RPMh
+- **陷阱**：探针本身就是 RSC MMIO 读；RSC 电源域未证明时会挂死整机而不是返回错误。默认 0 是有意的 fail-safe
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:744`
+
+### `k60_wifi_stage`
+
+- **所属**：WiFi
+- **接受值**：0..10
+- **未设时**：0（跑全部十级）
+- **作用**：`stageOpen()` 逐级放行：1 TLMM pinmux、2 SPMI/PMIC page、3 cmd-db、4 RPMh/RSC 投票、5 GCC GDSC/refgen、6 PARF/DBI/PHY/ATU、7 82 项 PHY 表、8 PERST/LTSSM、9 SMMU SID 1c01、10 MSI attach
+- **陷阱**：每级在碰寄存器之前就打 `PongWifi: stage N (…)`，被挡的级打 `held back by k60_wifi_stage=N`；最后一条 stage 行就是死掉的那一块的入口
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:69`
+
+### `pong_wifi_dma_mib`
+
+- **所属**：WiFi
+- **接受值**：64..128
+- **未设时**：64
+- **作用**：选择 WiFi DMA arena 大小
+- **陷阱**：只接受 64/128，其它值直接 `fail("WiFi DMA budget must be 64 or 128 MiB")` 后整条线停
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:408`
+
+### `pong_wifi_diag`
+
+- **所属**：WiFi
+- **接受值**：真值
+- **未设时**：关闭
+- **作用**：打开 progressDiagnostic，把 stage 进度写进 `pong_wifi_progress[]`
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:647`、`drivers/PongWifi/PongWifiNet.cpp:890`
+
+### `pong_wifi_test`
+
+- **所属**：WiFi
+- **接受值**：真值
+- **未设时**：关闭
+- **作用**：拿到 station MAC 后主动关联测试 AP
+- **陷阱**：没有真实 board data（BDF）时连不上，日志停在 `Pong: actual QMI board firmware` 之后
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:572`、`drivers/PongWifi/PongWifiNet.cpp:892`
+
+### `pong_wifi_alt`
+
+- **所属**：WiFi
+- **接受值**：真值
+- **未设时**：关闭
+- **作用**：关联测试里选用「备用网络」那一组 fixture（`alternate` 标志），不是 SSID 文本
+- **陷阱**：SSID/PSK 来自构建期注入的私有 fixture（`PongWifiTestInputs.h`，0600）；缺 fixture 时打 `WiFi association test SKIP: no private network fixture` 并关掉整条测试
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:573`
+
+### `pong_wifi_band`
+
+- **所属**：WiFi
+- **接受值**：0 / 2 / 5
+- **未设时**：0（不限）
+- **作用**：限定关联测试频段
+- **陷阱**：其它值打 `WiFi association test SKIP: band must be 0, 2 or 5` 并关掉整条测试
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:574`
+
+### `pong_wifi_cycle`
+
+- **所属**：WiFi
+- **接受值**：真值（必须 == 1）
+- **未设时**：关闭
+- **作用**：在 `pong_wifi_test=1` **同时**成立时才把 `gCycleTest` 置真，跑断连/重连生命周期测试
+- **陷阱**：两个参数是 `&&` 关系，只给 `pong_wifi_cycle=1` 不会有任何动作
+- **源码**：`drivers/PongWifi/PongWifiNet.cpp:892`
+
 ## 三个 GPU 开关的相互关系
 
 ```
@@ -216,13 +313,17 @@ pong_gpu_scanout=1     -> 只有在 accelerator 已发布之后才应该打开
 ## 字节预算
 
 ```
-上限 608
-当前 30 项 591，余 17
-pong_metal=1        需 13  -> 超限 7
-pong_gpu_scanout=1  需 19  -> 超限 14
+上限 607（DarwinBoot.c:681）
+board.toml 当前 29 项 575，余 32
+pong_wifi=1                                   +12 -> 587
+pong_wifi=1 k60_wifi_rsc=2                    +27 -> 602
+pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10  +45 -> 620 超限
 ```
 
-候选让位项：`k60_selftest_reboot=300`（23 字节，手动测试不需要）。
+让位项（实测）：`epoch=1793709100` 改 `epoch=1` 省 9 字节，`debug=0x140` 改 `debug=1` 省 4 字节，
+两项合起来正好把 620 压到 607 以下（实测 589）。`k60_fontscale=0` **不是**让位项：
+`osfmk/console/video_console.c:2844` 要求 scale 在 2..4，0 会被忽略且长度不变。
+`k60_selftest_reboot=300`（23 字节）在未配置时本来就不在 board.toml 里。
 
 ## 当前状态（2026-11-12）
 

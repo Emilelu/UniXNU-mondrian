@@ -215,7 +215,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。五个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 不在其中：内核侧还没有 `.c` include 它，见 §6.1）。完整 transcript 见 `patches/audio/README.md`。
 - 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。**守卫本身也验证过**：`E:/k60-work/scratch/audio-work/probe-pong.c` 只做 `#if !defined(PONG) #error`，用同一套 flags 编译得到 `PASS: probe-pong.c`，即 `PONG` 由 `board_config.h` 定义、探针不是死代码（这是「静默不跑」这类故障的必要前提）。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，442 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，486 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
@@ -241,13 +241,20 @@ pad 与 slew 是两个不同的映射（`0x03440000` 与 `0x034da000`），所�
  于是「复位值是否与参考假设一致」变成一个可回答的问题，而不是被隐藏。每步都重新读，因为第二步写的就是第一步
  写过的那个寄存器，不是「拼一个值写三次」。
 
-`PongCodecPlan.h`、`PongCodecSwr.*`、`PongCodecLpi.*` 与 `PongCodecMacro.*` **都不进补丁**：内核侧还没有任何 `.c` include 它们（只有宿主测试用），
+`PongCodecProbe.h` / `PongCodecProbe.c` 是 codec 半的总编排器：把「LPI pad/slew → VA/TX 宏时钟门 →
+控制器探测与初始化 → 枚举 → slave id → codec identity」这整条顺序串起来，自己拥有顺序、轮询预算与
+「什么时候算失败」。`pong_codec_probe_start()` 在 `pong_codec_may_touch_lpass()` 的三票（macro/dcodec/0x30c）
+不全时直接拒绝、**一个寄存器都不碰**；`pong_codec_probe_step()` 一步只做一个动作（一个 pad 的读改写、
+一个宏门、一次寄存器访问或一次轮询），所以调用方可以把它放进任何不阻塞的循环，也能在上机时逐步打日志。
+slave id 是两次普通寄存器读（`0x530+8n` / `0x534+8n`，S:`PongWcd938.h:108-109`），只有 codec 自己的
+`0x50/0x51` 才走读事务——这一点被单测抓住过一次（最初把 slave id 也当成了读事务）。
+`PongCodecPlan.h`、`PongCodecSwr.*`、`PongCodecLpi.*`、`PongCodecMacro.*` 与 `PongCodecProbe.*` **都不进补丁**：内核侧还没有任何 `.c` include 它们（只有宿主测试用），
 补丁只装内核真正编译的文件。等 PAS1 起来、有 `.c` 调用它们时再一起入补丁。
 
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 442 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# → TESTS OK 486 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
 ```
 
 覆盖范围：
@@ -266,6 +273,7 @@ wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/t
 | `swr_cases` | 假 128 KiB 寄存器窗（v2 的寄存器在 0x5000 以上，窗口必须够大）驱动的初始化序列与整条读事务：两版本共有的 `0x008/0x101c/0x500/0x1048/0x018`、v1.7 的 `0x314/0x1044/0x208/0x210` 与执行环境 1→2→3、v2 的 `0x5060/0x5008/0x5004` 与等 `0x5064` bit0 就绪、v1.7 与 v2 各自的寄存器组、未知版本拒绝且**不写任何寄存器**、FIFO 满时拒绝且**不写命令**、命令字 `1<<24|1<<20|1<<16|0x3000`、忙时第二次 start 被拒、空回包队列 → Pending、匹配回包 → Done 且 `data=0x5a`、外来事务号 → Failed + 写 `0x308<-1` + `aborts=1`、超时 → Failed + `timeouts=1` + 中止、枚举使能先写 `0x500<-1` 再锁存位图（slave1/2 在、slave3 不在）、事务号走 2..14、1 后回到 2 且 `reads` 计数正确 |
 | `lpi_cases` | 两个映射分开的假窗（pad 块 16 页 + slew 块一个寄存器，slew 写落到 pad 0 会立刻显形）：slew 每 pin 2 bit 从 bit 0 起（pin 14 在 bit 6）、电平 1 = 清掉该对的两位后置低位（`0xaaaaaaaa` 的四个字段全变 `0x55`，高位保留）；四个 pad 是 0/1/2/14 而不是 0..3；五步顺序严格为 pin0→pin1→pin2→pin14→slew，且只写 5 次（4 pad + 1 slew）；pad 值 = `(old&~0x3f)|4|(i?2:0)`（pin 1 的原有高位保留）；`done()` 在第五步后才 true，完成后重复 step 不再写；slew 已是电平 1 时保持不变；无回调时不动寄存器也不崩 |
 | `macro_cases` | 九步表的形状与内容（步数 9、越界与空指针被拒、step 0 是 VA `0x00` 置 bit0、step 7 是第一笔 TX 写）；`(old&~clear)|set` 四种组合（含「同一位既清又置，最终为置」）；假的两块宏窗各从非零复位值起跑，九步后 VA `0x00/0x04/0x80/0x08` 与 TX `0x00/0x04` 的最终值逐条对上；每步都记下读到的旧值与写回的新值（`old[0]` 是复位值、`old[1]` 是 step 0 写完之后的值）；完成后重复 step 不再写；无回调或空序列器不动寄存器也不崩 |
+| `probe_cases` | 假的 pad/slew 窗 + 两块宏窗 + 128 KiB 控制器窗组成的 `FakeCodec` 驱动整条顺序：LPASS 三票不全 → 拒启动且**零写入**；回调不全 → 拒启动；v1.7 快乐路径（pad 全部先于宏、宏全部先于控制器；pad0 从 `0xffffffff` 得 `0xffffffc4`、其余 pad 得 `0x6`、slew `0x55`、VA/TX `0x00` 置 bit0、只有 identity 两个字节计 `reads`、`found_slave=1`、identity `0x1234`）；空位图 → `ErrNotFound`；位图上有别的 slave 但 id 不匹配 → `ErrNotFound`；控制器完全不应答 → `ErrTimeout` 且真的写了 `0x308<-1`；未知控制器版本 → `ErrSwr`；v2 快乐路径（等 `0x5064` bit0 后才枚举、identity `0x5678`）；v2 环境起不来 → `ErrTimeout`；走到 Done 后继续 step 不再写任何寄存器 |
 | `chip_id_cases` | `pong_audio_amp_value(encode_amp_value(id)) == id` 对 9 个已知 ID 全成立；`pong_audio_amp_value(0x1321) == 0x2113`（AW88261），与 `PongAudioAmp.c` 的大端拼装一致；未知 ID 必须回落 `"unknown"` 而不是猜一个型号 |
 
 踩坑记录：Windows 侧 `cc` 不存在（第一次跑直接 `command not found`）；测试里若只定义不使用的辅助函数，`-Werror` 会因 `-Wunused-function` 失败——本例把三处 `expect_eq` 改成 `expect` 后才通过。
@@ -351,7 +359,7 @@ evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io
 done = true
 local_verified = true
 static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
-unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 442 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire/WCD938x/LPI/slew 决策 + PongCodecSwr.c 的初始化序列与读事务状态机 + PongCodecLpi.c 的五步 pad/slew 顺序 + PongCodecMacro.c 的 VA/TX 宏九步时钟门表，见 AMPS.md §6.1）"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 486 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire/WCD938x/LPI/slew 决策 + PongCodecSwr.c 的初始化序列与读事务状态机 + PongCodecLpi.c 的五步 pad/slew 顺序 + PongCodecMacro.c 的 VA/TX 宏九步时钟门表 + PongCodecProbe.c 的整条 codec 启动编排，见 AMPS.md §6.1）"
 artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:119-120、bsd_init.c:1357-1358，五个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
 
 [hardware.audio.step.device]

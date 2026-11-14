@@ -202,7 +202,9 @@ VA 与 TX 是两个映射，回调也是两对；顺序仍是 VA 先、TX 后，
   （版本判定 → FIFO 满则拒绝且不写命令 → 写命令 → 轮询 → 校验事务号 → 收数据/中止），并在读到版本之后
   补上参考实现那段控制器初始化（两版本共有 + v1.7 / v2 各自追加，v2 还要等 `0x5064` bit0）；
   `PongCodecLpi.{h,c}` 负责 §5 的四个 pad 与 slew 的写入顺序。
-  `PongCodecPlan.h` 提供寄存器号与判定，宿主单测（当前 442 例中的 `swr_cases`、`lpi_cases` 与 `macro_cases`）钉住全部转移。
+  `PongCodecPlan.h` 提供寄存器号与判定，宿主单测（当前 486 例中的 `swr_cases`、`lpi_cases`、`macro_cases` 与 `probe_cases`）钉住全部转移。
+  `PongCodecProbe.{h,c}` 把这三段与枚举、slave id、codec identity 串成一条可逐步推进的启动序列；
+  三票（macro / dcodec / `0x30c`）不全时它一个寄存器都不碰。顺序已全部落地，只差真正的回调。
   **它们不碰 MMIO**：真正的 `read/write` 回调要等 PAS1 起来、拿到 PRM 投票之后才能接上。
 - 本文件只交付「地址/寄存器/时序的形状」，不交付「可运行的 SoundWire 驱动」。
   可运行的只读部分在 `drivers/PongAudio/`（见 `AMPS.md`，纯 AP 路径，不碰 LPASS）。

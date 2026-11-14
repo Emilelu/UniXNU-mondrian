@@ -29,8 +29,9 @@ question in `docs/research/audio/AMPS.md`.
 | `PongCodecSwr.h` / `PongCodecSwr.c` | One read transaction on the LPASS VA SoundWire master, as a state machine: read `COMP_HW_VERSION`, pick the register group, compose the command word, refuse when the FIFO is full, collect the response only when its transaction id is ours, and abort on a foreign id or a deadline. The enumerator step is here too. Same split as the GENI machine: no waiting inside, the caller owns the deadline. |
 | `PongCodecLpi.h` / `PongCodecLpi.c` | The LPI pads and the slew block as a five-step sequencer: pins 0, 1, 2 and 14 are read-modify-written one at a time, and the slew register is written once, after all four — the order the reference uses (S:`PongWcd938.h:80-82`). Pads and slew live at different addresses, so the callbacks are two pairs; one pair would let a slew write land on pad 0. No waiting inside, like the other two machines. |
 | `PongCodecMacro.h` / `PongCodecMacro.c` | The VA and TX macro clock gates as a nine-row table walk (S:`PongWcd938.h:84-86`): each row names the macro, the register, the bits to clear and the bits to set, and every step re-reads because a later step writes a register an earlier one already wrote. It is a table rather than nine lines because these are read-modify-writes over reset values this project has never seen on K60 — the boot log can then print what each step actually read, so the first run answers that question instead of assuming it. |
+| `PongCodecProbe.h` / `PongCodecProbe.c` | The codec half's whole start-up order in one place: LPI pads and slew, then the VA/TX macro gates, then the SoundWire probe, its initialisation sequence and environment wait, then enumeration, slave ids and the codec identity. It owns the ordering, the poll budget and the definition of failure; `pong_codec_probe_start()` refuses outright — without touching a single register — unless all three LPASS votes are in, and each `step()` does exactly one thing so the caller can log every step on the first run. The slave ids are ordinary register reads (`0x530+8n`, `0x534+8n`); only the codec's own `0x50`/`0x51` use a read transaction. |
 | `PongCodecPlan.h` | The codec half's decisions, as pure functions, written before the hardware is reachable: SoundWire controller version, per-version read-transaction register group, transaction id and command word, FIFO-full test, response matching, the enumerator bitmap and slave-id layout, the LPI pad words, the five LPASS windows with their io_submap cost, and the one predicate that says whether the ADSP has granted the two PRM votes plus the `0x30c` clock. No MMIO, no kernel headers — pinned by the host test now, so the eventual on-device read is a thin loop over proven numbers. |
-| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h` and `PongCodecPlan.h` (442 assertions). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
+| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h` and `PongCodecPlan.h` (486 assertions). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
 | `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
 
 ## What it does, in order
@@ -117,15 +118,15 @@ exercised without a device. The test drives the register file through `PongGeniI
 and checks the exact command words the engine would see:
 
 ```
-wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/run-tests.sh'
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 442 cases
+# TESTS OK 486 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 442 cases buy, given that nothing can be measured on hardware yet:
+What the 486 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase

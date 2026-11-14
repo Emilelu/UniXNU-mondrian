@@ -381,3 +381,96 @@ K60 USBHB: GDSC 0xf822f000 QSCRATCH HS 0x10100000 SS 0x01000000
 **结论**：P0 落地并两次上机验证，控制器在 300 s 运行期稳定，P1（复合描述符）从此有动态观测手段。
 **下一步（P1）**：在 0405 之上把配置描述符改成 CDC IAD + 第二接口（`PongUsbDevice.h:60,66-69` 的形态），
 判据是主机侧接口数 2→3 且 `K60 USBHB` 行不断流；再往后才是 mux（P2）与 UCSI/Type-C（P3）。
+
+---
+
+## 12. P1 设计：复合描述符（CDC-ACM IAD + 第二功能）
+
+### 12.1 目标与判据
+
+P1 只做**一件事**：让主机看到的配置从「1 个功能 / 2 个接口 / 4 个非 0 端点」变成
+「2 个功能 / 3 个接口 / 5 个非 0 端点」，并且控制台不断流。ADSP 侧（UCSI、mux）不在这一步。
+
+判据（**全部满足才算通过**，缺一即按失败处理并回滚）：
+
+| # | 判据 | 观测点 |
+|---|---|---|
+| 1 | 设备侧收到 98 字节配置描述符请求 | `console.log` 出现 `setup 80 06 0200 00 00 98`（P0 是 `98`→`67` 那条线：`GET_DESCRIPTOR(CONFIG)` 的 wLength 变成 98） |
+| 2 | 五个非 0 端点全部使能 | 新增打印 `K60 USBLOG: composite cfg 98 bytes DALEPENA 0x000000ef` |
+| 3 | 控制台未退化 | 同一日志里 `K60 USBLOG: st=4 ev=… cfg=1 dtr=1 fl=0` 行数与基线同量级（≥270 行） |
+| 4 | 心跳不断流 | `grep -c 'K60 USBHB:'` ≈ 采集时长 / 2 s（±10%） |
+| 5 | 主机侧出现 3 个接口 | Windows `Get-PnpDevice` 出现 `USB\VID_1209&PID_0001&MI_00/01/02` 子节点（§12.5） |
+| 6 | 采集链路仍工作 | `capture.json` 仍为 `captured-budget-complete`，`panicMarker` 仍为 null |
+
+判据 1–4、6 由设备侧日志给出；判据 5 必须在**同一台主机、同一根线**上采，且在设备枚举后
+30 s 内取（自动复位 300 s 后设备回 fastboot）。
+
+### 12.2 改动（`patches/usb/0406-k60-usb-composite.patch`）
+
+只改 `bsd/dev/k60_usblog.c`，26 insertions / 6 deletions：
+
+1. `ud_cfg_template[]` 67 → 98 字节，`bNumInterfaces` 2 → 3；CDC 两接口前插入 **IAD**
+   （`8, 11, 0, 2, 2, 2, 1, 0`：firstInterface 0 / interfaceCount 2 / class 2-2-1）；
+   末尾追加 **IF2 = vendor specific**（`0xff/0xfe/0x02`）+ `EP 0x03 bulk OUT` + `EP 0x83 bulk IN`。
+2. `SET_CONFIGURATION` 追加 `ud_endpoint(6, 2, ud.packet)` 与 `ud_endpoint(7, 2, ud.packet)`，
+   `DALEPENA` 掩码 `0x2c` → `0xec`（+bit6/7），并打印一行证据。
+3. `CLEAR_FEATURE(ENDPOINT_HALT)` 白名单补 `ep 6/7`（主机可能对任一使能端点发）。
+4. 注释指明本节。
+
+字节布局（`E:/k60-work/scratch/usb/check_desc.py` 逐描述符校验：98 字节、14 个描述符、长度自洽）：
+
+| 偏移 | 长度 | 描述符 | 关键字段 |
+|---|---|---|---|
+| 0 | 9 | config | wTotalLength 98, bNumInterfaces 3, self-powered, 100 mA |
+| 9 | 8 | **IAD** | firstIF 0, count 2, class/subclass/proto 2/2/1 |
+| 17 | 9 | IF0 | class 2/2/1, 1 endpoint |
+| 26 | 5+5+4+5 | CS_INTERFACE | header / call mgmt / ACM / union |
+| 45 | 7 | EP 0x82 | interrupt IN, 16 B, interval 16 |
+| 52 | 9 | IF1 | class 10/0/0, 2 endpoints |
+| 61 | 7 | EP 0x81 | bulk IN 64 B（控制台 TX） |
+| 68 | 7 | EP 0x01 | bulk OUT 64 B（主机 RX drain） |
+| 75 | 9 | **IF2** | class 255/254/2, 2 endpoints |
+| 84 | 7 | **EP 0x03** | bulk OUT 64 B（mux 下行，本阶段不启动传输） |
+| 91 | 7 | **EP 0x83** | bulk IN 64 B（mux 上行，本阶段不启动传输） |
+
+端点号 → 物理端点：`0x82`→5（interrupt IN）、`0x81`→3、`0x01`→2、`0x03`→6、`0x83`→7。
+`DALEPENA 0xec = bit2|bit3|bit5|bit6|bit7`，与 `PongUsbDevice.h:200-211`（`0x2c | 0xc0`）一致。
+
+### 12.3 为什么设备描述符 class 仍是 `02/02/00`（留给 0407 单步）
+
+0307 已把设备级 class/subclass 设成 `02/02`，让 Windows 用兼容 ID 绑 inbox `usbser.sys`。
+复合设备的标准写法是设备级 `0xEF/0x02/0x01` + IAD，但那是**第二个变量**：0406 一旦失败，
+就分不清是「多接口布局」错还是「class 变了导致 usbser 不绑」。所以 0406 只动接口与端点，
+`0xEF/0x02/0x01` 留到 0407 单独验证一次。
+
+K60 版把 vendor 功能放在 **IF2**（CDC 仍在 IF0/IF1，主机侧 COM 口布局不变）；
+同 SoC 的 `PongUsbDevice.h:69-74` 把 mux 放 IF0、CDC 放 IF1/IF2。差异仅此一处，
+目的是把「Windows 是否仍绑 usbser」这个已知风险面压到最小。
+
+### 12.4 风险与回滚
+
+| 风险 | 表现 | 处置 |
+|---|---|---|
+| usbser 拒绝绑定（多接口 + device class 02） | 主机无 COM 口 → 采集为空 | 该次采集按失败处理，`fastboot boot` 回退 `usb-20261114b/boot.img`；主机侧 `Get-PnpDevice` 输出作为唯一证据入证据目录 |
+| 主机对 IF2 vendor 功能发控制请求 | `ud_stall()` 兜底，不影响 EP0 状态机 | 无需改动 |
+| EP6/EP7 `SETEPCONFIG` 失败 | 日志 `K60 USBLOG: ep%u cmd …` 非零 status，`ud.failed=true` | 回滚 0406 |
+| 300 s 自动复位打断采集 | 采集中断 | 既有行为，按 `capture.json` 收口 |
+
+### 12.5 主机侧观测方法（判据 5）
+
+设备枚举后（`fastboot boot` 返回、屏幕亮起 10–30 s 内）在 Windows 侧执行：
+
+```powershell
+Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like '*VID_1209&PID_0001*' } |
+    Select-Object Status, Class, InstanceId | Sort-Object InstanceId
+```
+
+- 单接口设备（P0）只有一条 `USB\VID_1209&PID_0001\…`；
+- 三接口设备（P1）应额外出现 `&MI_00` / `&MI_01` / `&MI_02` 三条子节点（Windows 对多接口设备
+  一律按 `MI_xx` 拆 devnode），CDC 那两条再绑 `usbser.sys` 生成 COM 口；
+- COM 口本身：`[System.IO.Ports.SerialPort]::GetPortNames()`（与 `scripts/capture-k60-usblog.ps1`
+  同一来源），必须仍能看到采集脚本用的那个口。
+
+判据 5 的原始输出要存进证据目录（`host-pnp.txt`）：「接口数 2→3」在设备侧日志里只能间接看到
+（wLength 98 + DALEPENA 0xef），直接证据必须来自主机侧。
+

@@ -31,6 +31,7 @@
 #include "PongAudioRegs.h"
 #include "PongCodecPlan.h"
 #include "PongCodecSwr.h"
+#include "PongCodecLpi.h"
 
 static int fails;
 static int cases;
@@ -942,6 +943,157 @@ swr_cases(void)
 	expect_eq(pong_swr_codec_identity(0x00u, 0x00u), 0ul, "identity of two zeroes is zero");
 }
 
+/* The LPI block and the slew block are separate mappings: pads at 0x03440000
+ * with one page per pin, slew at 0x034da000. The fake keeps them apart too, so
+ * a slew write landing on pad 0 would show up as a wrong pad value. */
+typedef struct {
+	uint32_t pads[16];
+	uint32_t slew;
+	unsigned writes, pad_writes, slew_writes;
+	uint32_t order[8];          /* pin index of each pad write, in order */
+} FakeLpi;
+
+static uint32_t
+fake_lpi_read(void *ctx, uint32_t reg)
+{
+	FakeLpi *f = (FakeLpi *)ctx;
+
+	return f->pads[(reg / PONG_CODEC_LPI_STRIDE) & 15u];
+}
+
+static void
+fake_lpi_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeLpi *f = (FakeLpi *)ctx;
+	unsigned pin = (reg / PONG_CODEC_LPI_STRIDE) & 15u;
+
+	f->pads[pin] = value;
+	if (f->pad_writes < 8u) {
+		f->order[f->pad_writes] = pin;
+	}
+	f->pad_writes++;
+	f->writes++;
+}
+
+static uint32_t
+fake_slew_read(void *ctx, uint32_t reg)
+{
+	FakeLpi *f = (FakeLpi *)ctx;
+
+	(void)reg;
+	return f->slew;
+}
+
+static void
+fake_slew_write(void *ctx, uint32_t reg, uint32_t value)
+{
+	FakeLpi *f = (FakeLpi *)ctx;
+
+	(void)reg;
+	f->slew = value;
+	f->slew_writes++;
+	f->writes++;
+}
+
+static void
+lpi_cases(void)
+{
+	static FakeLpi f;
+	PongCodecLpiIo io;
+	PongCodecLpi l;
+	unsigned i, steps;
+
+	/* The slew block holds two bits per pin starting at bit 0 (S:80-82). */
+	expect_eq((unsigned long)pong_codec_lpi_slew_shift(0u), 0ul, "pin 0 slews at bit 0");
+	expect_eq((unsigned long)pong_codec_lpi_slew_shift(1u), 2ul, "pin 1 slews at bit 2");
+	expect_eq((unsigned long)pong_codec_lpi_slew_shift(3u), 6ul, "pin 14 slews at bit 6");
+	/* Level 1 means the low bit of the pair, with the pair's other bit cleared. */
+	expect_eq((unsigned long)pong_codec_lpi_slew_config(0xaaaaaaaau, 0u), 0xaaaaaaa9ul,
+	    "slew level 1 replaces the 2-bit field");
+	/* Pin 2 sits at bit 4: the pair 11 becomes 01, so 0xffffffff -> 0xffffffdf. */
+	expect_eq((unsigned long)pong_codec_lpi_slew_config(0xffffffffu, 2u), 0xffffffdful,
+	    "slew on pin 2 clears its high bit");
+	expect_eq((unsigned long)pong_codec_lpi_slew_config(0u, 3u), 0x40ul,
+	    "slew on pin 14 sets bit 6 only");
+
+	/* The pins are 0, 1, 2 and 14, not 0..3. */
+	expect_eq((unsigned long)pong_codec_lpi_pin(0u), 0ul, "first pad is pin 0");
+	expect_eq((unsigned long)pong_codec_lpi_pin(1u), 1ul, "second pad is pin 1");
+	expect_eq((unsigned long)pong_codec_lpi_pin(2u), 2ul, "third pad is pin 2");
+	expect_eq((unsigned long)pong_codec_lpi_pin(3u), 14ul, "fourth pad is pin 14");
+	expect_eq((unsigned long)pong_codec_lpi_pin(4u), 0xfffffffful, "a fifth pad does not exist");
+
+	memset(&f, 0, sizeof(f));
+	io.read = fake_lpi_read;
+	io.write = fake_lpi_write;
+	io.ctx = &f;
+	io.slew_read = fake_slew_read;
+	io.slew_write = fake_slew_write;
+	io.slew_ctx = &f;
+
+	/* Pin 1 already carries the function-1 field; the rest is zero. */
+	f.pads[1] = 0xffffffc0u;
+	f.slew = 0xaaaaaaaau;
+	pong_codec_lpi_start(&l, &io);
+	expect(!pong_codec_lpi_done(&l), "a fresh sequencer is not done");
+	expect_eq((unsigned long)l.step, 0ul, "a fresh sequencer starts at step 0");
+
+	/* Five steps: four pads then the slew register, and nothing more. */
+	steps = 0;
+	while (pong_codec_lpi_step(&l)) {
+		if (++steps > 8u) {
+			break;
+		}
+	}
+	expect_eq((unsigned long)steps, 4ul, "four steps report more work, the fifth finishes");
+	expect(pong_codec_lpi_done(&l), "the sequencer reports done");
+	expect_eq((unsigned long)f.writes, 5ul, "four pads and one slew write");
+	expect_eq((unsigned long)f.pad_writes, 4ul, "exactly four pad writes");
+	expect_eq((unsigned long)f.slew_writes, 1ul, "exactly one slew write");
+
+	/* Order matters: all four pads before the slew register. */
+	expect_eq((unsigned long)f.order[0], 0ul, "pin 0 is programmed first");
+	expect_eq((unsigned long)f.order[1], 1ul, "pin 1 second");
+	expect_eq((unsigned long)f.order[2], 2ul, "pin 2 third");
+	expect_eq((unsigned long)f.order[3], 14ul, "pin 14 fourth");
+
+	/* Pad value: function 1 in bits 2-3, bus-hold on the data pins only. */
+	expect_eq((unsigned long)f.pads[0], 0x04ul, "pin 0 keeps function 1 and no bus-hold");
+	expect_eq((unsigned long)f.pads[1], 0xffffffc6ul, "pin 1 keeps its upper bits and gains bus-hold");
+	expect_eq((unsigned long)f.pads[2], 0x06ul, "pin 2 gains bus-hold");
+	expect_eq((unsigned long)f.pads[14], 0x06ul, "pin 14 gains bus-hold");
+	expect_eq((unsigned long)l.pad_old[1], 0xffffffc0ul, "the old pin value is kept for the log");
+
+	/* Slew: every 2-bit field becomes level 1, upper bits untouched. */
+	/* Only the low eight bits are the four fields; 0xaaaaaaaa's pairs 10 become
+	 * 01, which is 0x55, and everything above bit 7 is left as it was. */
+	expect_eq((unsigned long)f.slew, 0xaaaaaa55ul, "all four slew fields become level 1");
+	expect_eq((unsigned long)l.slew_old, 0xaaaaaaaau, "the old slew value is kept for the log");
+
+	/* Stepping a finished sequencer must not write again. */
+	expect(!pong_codec_lpi_step(&l), "a finished sequencer reports no more work");
+	expect(!pong_codec_lpi_step(&l), "and keeps reporting that");
+	expect_eq((unsigned long)f.writes, 5ul, "a finished sequencer writes nothing more");
+
+	/* A slew value that is already level 1 stays as it is. */
+	memset(&f, 0, sizeof(f));
+	f.slew = 0x00000055u;
+	pong_codec_lpi_start(&l, &io);
+	for (i = 0u; i < 8u; i++) {
+		if (!pong_codec_lpi_step(&l)) {
+			break;
+		}
+	}
+	expect_eq((unsigned long)f.slew, 0x00000055ul, "an already programmed slew is left alone");
+
+	/* Without callbacks the sequencer refuses to run instead of faulting. */
+	pong_codec_lpi_start(&l, 0);
+	expect(!pong_codec_lpi_step(&l), "a sequencer without callbacks does nothing");
+	expect(!pong_codec_lpi_done(&l), "and is not done");
+	pong_codec_lpi_start(0, &io);
+	expect(!pong_codec_lpi_done(0), "a null sequencer is not done");
+}
+
 int
 main(void)
 {
@@ -956,6 +1108,7 @@ main(void)
 	chip_id_cases();
 	codec_cases();
 	swr_cases();
+	lpi_cases();
 
 	if (fails) {
 		printf("TESTS FAILED %d of %d\n", fails, cases);

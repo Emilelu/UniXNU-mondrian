@@ -113,6 +113,10 @@ slew 寄存器 0 里对应 2 bit 置 1
 ```
 
 phk110 的等价物（`hakios.mic.c:485-489`）用 `lpi_slew = 0x0355a000`、`swr_pins = {0,1,2,14}`，语义相同。
+
+这段顺序**已经落地**为 `drivers/PongAudio/PongCodecLpi.{h,c}`：五步状态机，step 0–3 逐个读改写 pad，
+step 4 写一次 slew，里面不等待。pad 与 slew 是两个映射（`0x03440000` / `0x034da000`），所以回调是两对，
+不是一对——一对的话一次 slew 写就会落到 pad 0 上。宿主单测 `lpi_cases` 钉住顺序、写次数与两个配置字。
 **K60 的 LPI 基址是 0x03440000（Pong 一致），slew 是 0x034da000（Pong 一致）。**
 
 > ⚠️ 注意 `live-fdt.dts:23336` 的 `va-macro` 有 `qcom,is-used-swr-gpio = 1`，而 `tx-macro` 是 `0`：
@@ -190,8 +194,10 @@ VA macro `MCLK_CONTROL 0x000`、`FS_CNT_CONTROL 0x004`、`TOP_CFG0 0x080`。
 
 - **一切 LPASS 寄存器访问都阻塞在 PRM 投票 → ADSP/PAS1（Lead）。**
 - 已经能落地的是**顺序本身**：`drivers/PongAudio/PongCodecSwr.{h,c}` 把 §3.1 的读事务写成状态机
-  （版本判定 → FIFO 满则拒绝且不写命令 → 写命令 → 轮询 → 校验事务号 → 收数据/中止），
-  `PongCodecPlan.h` 提供寄存器号与判定，宿主单测 65 例钉住全部转移。**它不碰 MMIO**：
-  真正的 `read/write` 回调要等 PAS1 起来、拿到 PRM 投票之后才能接上。
+  （版本判定 → FIFO 满则拒绝且不写命令 → 写命令 → 轮询 → 校验事务号 → 收数据/中止），并在读到版本之后
+  补上参考实现那段控制器初始化（两版本共有 + v1.7 / v2 各自追加，v2 还要等 `0x5064` bit0）；
+  `PongCodecLpi.{h,c}` 负责 §5 的四个 pad 与 slew 的写入顺序。
+  `PongCodecPlan.h` 提供寄存器号与判定，宿主单测（当前 407 例中的 `swr_cases` 与 `lpi_cases`）钉住全部转移。
+  **它们不碰 MMIO**：真正的 `read/write` 回调要等 PAS1 起来、拿到 PRM 投票之后才能接上。
 - 本文件只交付「地址/寄存器/时序的形状」，不交付「可运行的 SoundWire 驱动」。
   可运行的只读部分在 `drivers/PongAudio/`（见 `AMPS.md`，纯 AP 路径，不碰 LPASS）。

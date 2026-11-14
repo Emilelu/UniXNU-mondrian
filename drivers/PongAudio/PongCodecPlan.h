@@ -214,6 +214,26 @@ pong_codec_lpi_pad_config(uint32_t old, unsigned index)
 	return (old & ~0x3fu) | (1u << 2) | (index != 0u ? 2u : 0u);
 }
 
+/* S:PongWcd938.h:80-82  the slew block gives each of the four pins two bits,
+ * pin i at bit 2i, and the reference sets exactly one of the pair (the "slew
+ * level 1" of the original qcom,lpi-slew-offset-tbl). The pads are written
+ * first and the slew register last, in one pass, which is why the sequencer
+ * in PongCodecLpi.c does the accumulation rather than this header.
+ */
+static inline unsigned
+pong_codec_lpi_slew_shift(unsigned index)
+{
+	return index * 2u;
+}
+
+static inline uint32_t
+pong_codec_lpi_slew_config(uint32_t old, unsigned index)
+{
+	unsigned shift = pong_codec_lpi_slew_shift(index);
+
+	return (old & ~(3u << shift)) | (1u << shift);
+}
+
 /* ---- LPASS windows this half needs -------------------------------------
  * W:2 and W:7  five windows, each no larger than its live FDT node range.
  * The SWR master is mapped as 0x2000, not Pong's 0x10000: io_map() charges

@@ -7,7 +7,7 @@ index 59ad9a0..f05bed2 100644
  }
  
 +/*
-+ * 0617: stage the 20G81 wallpaper catalogue in the Data view the 0616 helper
++ * 0618: stage the 20G81 wallpaper catalogue in the Data view the 0616 helper
 + * inspects. The helper guards both wallpaper views with
 + * stat("/private/var/pong/stock-wallpaper/Collections/Collections~ipad.plist")
 + * and skips them while that path is missing - it only appears after the bind
@@ -67,7 +67,7 @@ index 59ad9a0..f05bed2 100644
  			 * helper bind-mounts this directory over it, and both the bind
  			 * source and the cache file 0394 writes must exist first. */
  			"/private/var/pong/xpc",
-+			/* 0617: the 0616 helper needs both wallpaper view roots before it
++			/* 0618: the 0616 helper needs both wallpaper view roots before it
 +			 * runs, and its guard file inside the stock view. The catalogue copy
 +			 * is staged right after this loop. */
 +			"/private/var/pong/stock-wallpaper",
@@ -80,7 +80,7 @@ index 59ad9a0..f05bed2 100644
  			}
  			printf("\n");
  		}
-+		/* 0617: the wallpaper view roots and catalogue must be in place
++		/* 0618: the wallpaper view roots and catalogue must be in place
 +		 * before the helper runs; its guards skip both views otherwise. */
 +		(void)k60_wallpaper_stage();
  		/* This periodic directory/AKS probe is opt-in; it is not watchdogd. */

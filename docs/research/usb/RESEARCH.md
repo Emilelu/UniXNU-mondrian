@@ -762,3 +762,64 @@ P2-b 依赖 0407 证明 EP6/EP7 确实可配置。
 
 **构建输入必须用本线私有树** `/opt/k60/trees/usb-device`：共享的 `/opt/k60/trees/usb-cdc-mainline/device`
 已被其他线覆写过两次（§14.1），每次都会让 bootimg 阶段因为 series 不一致被拒。
+
+## 17. 构建记录：`usb-20261114f`（0408 结构改动）
+
+### 17.1 构建输入
+
+| 项 | 值 |
+| --- | --- |
+| tag | `usb-20261114f` |
+| 分支 / HEAD | `feat/usb-console` / `72393b2`（工作区干净，dirty = 0） |
+| series | 233 条，`sha256 18d72571e489bccf1e1d5e9b6134dba0ab24add21be0e554b064cf051f6ecefe` |
+| frozen | `list_sha256 cfb61522b01990a9049e7c278ea7bbf324f58e548b5bb95d03ea61b756210850` |
+| 构建输入树 | **私有** `/opt/k60/trees/usb-device`（`K60_DEVICE_INPUT`） |
+| SERIES-FINAL | `/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt`（`K60_SERIES_FINAL`） |
+| FD | `/mnt/e/k60-work/artifacts/fd/usb-20261114b-cf4485712c29.fd` |
+
+为什么必须指定这两个环境变量：共享输入树 `/opt/k60/trees/usb-cdc-mainline/device` 已被其他线覆写两次
+（§14.1），`SERIES-FINAL.txt` 的默认路径 `/mnt/e/k60-work/scratch/SERIES-FINAL.txt` 同样是跨线单例。
+两者任一被别的线改写，`porting-gate.py` 的 iron-4 / hard-33 就会因为"三处 series 不一致"直接拒绝构建。
+
+### 17.2 产物（`build-manifest.json`）
+
+| 组件 | SHA-256 |
+| --- | --- |
+| kernel（built） | `784dec66458c40af18ed651b2c2f11f726197edd83f037a00a7a94136a2825e0`（54181888 B） |
+| boot.img | `9bfa7cc39c1e5301e7c1074c164ba0831b9c70aa1813efbf7249779dcff5cbaa` |
+| payload | `20c126e944128ada8c9e59ccd83b606ffdc4d83b52693929d064589e8e3c77d2` |
+| payload kernel | `9a04e745a83474ad2e343499722cc80b837a929d894b2b48994b6540c1dd4b9f` |
+| ADT | `a931d084a15732a69ca25049a61a7dc7220a5acb7a76207990a1fbd309c6481a` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（与 usb-20261114b/c/e 完全相同） |
+| FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
+
+manifest：`/mnt/e/k60-work/artifacts/usb-20261114f/build-manifest.json`
+
+### 17.3 门禁（全绿）
+
+| 门禁 | 结果 |
+| --- | --- |
+| `eight-step-gate.py --build` | ✅ 通过 30 项（`eight_step_sha256 9ea6bd823c148afec8c3e8f9a7f8ce0f1a10693b0e70780aec80ca082a8fbb1e`） |
+| `verify-boot-image.py --manifest` | `verify-boot-image: OK`（rc=0） |
+| `check-image-args.py --image` | `image-arg-audit: OK (29 arguments, 575 bytes)`（rc=0，上限 607 B） |
+| `check-rules.py` | ✅ 登记 65 条 / 失败 0 / waiver 37 |
+| `check-docs.py` | ✅ 187 项通过 |
+
+### 17.4 补丁确实进了镜像
+
+`logs/kernel.log:250` = `== kernel: patch 0408-k60-usb-p2-structure.patch`
+（:247 = 0405、:248 = 0406、:249 = 0407、:250 = 0408，四条按序全部应用）。
+构建缓存源码 `/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/bsd/dev/k60_usblog.c`
+共 **2099 行**（post-0407 基线 2050 行 + 0408 的 55 增 6 删），`transferResource` 命中 4 处、
+`ud_end_transfers` 命中 4 处、`DEPCMD_ENDTRANSFER 8` 在 :920、`UD_TRB_EP7 0x13c0` 在 :948、
+`case 7: return UD_TRB_EP7;` 在 :1055、`ud_end_transfers` 的 ENDTRANSFER 发送在 :1136。
+
+### 17.5 上机计划（**未执行**，等用户批准）
+
+脚本 `E:/k60-work/scratch/usb/boot0408f.sh` 已写好但**没有运行**（用户 m01929「禁止擅自 boot」）。
+批准后的动作序列：门禁四连（`porting-gate --quick` / `eight-step-gate --flash` / `check-boot-procedure` / `research-gate`）
+→ `adb reboot bootloader` 等 fastboot（150 s 上限）→ `boot-and-capture.ps1`
+`-Image E:\k60-work\artifacts\usb-20261114f\boot.img -Seconds 300`
+`-OutDir E:\k60-work\evidence\usblog-20261114-usb-f1 -Serial 6033dbec`
+→ 第 70 s / 130 s 各采一次 `host-pnp.ps1` → 收 supervisor rc。
+判据见 §16.3（回归性质：控制台不变、心跳不断流、收尾不报错、采集完整）。

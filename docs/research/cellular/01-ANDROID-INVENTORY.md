@@ -17,6 +17,7 @@
 | 固件版本？ | `MPSS.DE.2.0.c1-CN-Jan 13 2026-02:08:51`（两路 SIM 各一份） | §4 |
 | QRTR 怎么走？ | **AF_QIPCRTR 套接字**，不是 unix socket；内核模块 `qrtr` 注册协议号 888 | §5 |
 | 用户态 QRTR 守护进程？ | `vendor.qrtr-ns /vendor/bin/qrtr-ns -f`，pid 1974 | §5 |
+| modem 注册了多少 QMI 服务？ | **36 个**（node 0），含 EFS 21 / WDS 1 / UIM 11 / NAS 3 / PDS 16 / DIAG 4097 | §5.4.1 |
 | 有没有 IPA？ | 有。`qcom,ipa@3e00000`，驱动 `ipa`，`/dev/ipa` 存在，`rmnet_ipa0` 在线 | §6 |
 | SIM 身份在哪？ | 两路 SIM 均 `LOADED`，IMEI 在 `persist.radio.imei`；EFS/NV 在 `modemst1/2`（裸分区，未挂载） | §7 |
 | 现在能上网吗？ | 不能。`persist.radio.airplane_mode_on=1` | §7 |
@@ -388,24 +389,126 @@ qrtr-ns 进程的 fd 表（`ls -l /proc/1974/fd`）：
 QRTR 是**内核协议族**，XNU 侧必须自己实现 AF_QIPCRTR 的内核端，
 或者绕过它直接讲 GLINK。
 
-### 5.4 诚实的负面结果：`qrtr-lookup` 列不出服务
+### 5.4 服务枚举：`qrtr-lookup` 的输出去向（本节曾误判，已更正）
+
+**重要更正。** 本文件第一版把 `qrtr-lookup` 判成"在 KernelSU shell 里列不出服务"，
+那是**看错了输出通道**，不是工具失败。事实是：
 
 ```
 $ adb -s 6033dbec shell 'su -c "/vendor/bin/qrtr-lookup"'
-  Service Version Instance Node  Port
-$ adb -s 6033dbec shell 'su -c "/vendor/bin/qrtr-lookup 0 1"'
-  Service Version Instance Node  Port
-$ adb -s 6033dbec shell 'su -c "/vendor/bin/qrtr-lookup 4096"'
-  Service Version Instance Node  Port
+  Service Version Instance Node  Port          ← stdout 只有表头
+$ adb -s 6033dbec shell 'su -c "wc -c /data/vendor/qrtr/qrtr-lookup.txt"'
+8209 /data/vendor/qrtr/qrtr-lookup.txt           ← 表格在这里
+$ adb -s 6033dbec shell 'su -c "ls -l /data/vendor/qrtr/qrtr-lookup.txt"'
+-rw-rw-rw- 1 system system 8209 2026-11-14 11:59 /data/vendor/qrtr/qrtr-lookup.txt
 ```
 
-**只有表头，没有一行数据，rc=0。** 对 0..10、224、225 逐个扫也全是空。
-按厂商工具的正常行为，这里应该列出 `servreg`、`gps_service` 等条目（`modemr.jsn` 里就有）。
+→ **`qrtr-lookup` 把结果写进 `/data/vendor/qrtr/qrtr-lookup.txt`，stdout 只印表头。**
+按 stdout 判断"零命中"是工具用法错误。strace 证据见 §5.5。
 
-结论要写清楚：**在 KernelSU 的 shell 上下文里 `qrtr-lookup` 不是可用的服务枚举器**，
-本文件不据此断言「modem 没有注册服务」。真要枚举，得从 `/vendor/bin/qrtr-lookup`
-的源码（`qrtr_lookup` 用 AF_QIPCRTR + `QRTR_TYPE_NEW_LOOKUP` 广播）去判断是不是
-selinux/命名空间把它挡掉了。**这条留作未解项，写进 03-SCOPE.md 的 open questions。**
+### 5.4.1 modem 侧（node 0）真实注册的 QMI 服务
+
+下面是 `/data/vendor/qrtr/qrtr-lookup.txt` 里 **Node = 0**（modem）的全部条目原文，
+列顺序为 Service / Version / Instance / Node / Port：
+
+```
+    65508       1        0    0    19 <unknown>
+       21       1        0    0    21 Modem embedded file system service
+       24       1        0    0    23 Thermal mitigation device service
+     4097     N/A        1    0    28 DIAG service (MODEM:CMD)
+       23       1        0    0    35 Thermal sensors service
+       36       1        0    0    36 Persistent device configuration service
+       17       1        0    0    54 Specific absorption rate service
+       34       1        0    0    55 Coexistence service
+       85       1        0    0    62 <unknown>
+       76       1        0    0    72 <unknown>
+       50       1        0    0    73 <unknown>
+       12       1        0    0    74 Phonebook Management service
+        3       1        0    0    77 Network Access Service
+       47       1        0    0    79 <unknown>
+       11       1        0    0    80 User Identity Module service
+      228       1        0    0    81 <unknown>
+        1       1        0    0    82 Wireless Data Service
+        4       1        0    0    83 Quality Of Service service
+       26       1        0    0    84 Wireless data administrative service
+        8       1        0    0    85 AT service
+       77       1        0    0    86 <unknown>
+        5       1        0    0    87 Wireless Messaging Service
+       75       1        0    0    91 <unknown>
+       74       1        0    0    92 <unknown>
+       42       1        0    0    94 Data system determination service
+        2       1        0    0    96 Device Management Service
+       48       1        0    0    97 <unknown>
+       68       1        0    0    98 <unknown>
+       73       1        0    0    99 <unknown>
+       78       1        0    0   100 <unknown>
+       29       1        0    0   101 Circuit switched videotelephony service
+        7       1        0    0   102 Authentication service
+       86       1        0    0   103 <unknown>
+       71       1        0    0   104 <unknown>
+       33       1        0    0   105 IMS application service
+       18       1        0    0   107 IMS settings service
+       16       2        0    0   111 Location service (~ PDS v2)
+```
+
+**这就是 completion 判据要的"modem 已枚举"的直接证据**：36 个服务在 node 0 上应答，
+包括 `21 Modem embedded file system service`（EFS 服务，正是 NV 请求的通道）、
+`1 Wireless Data Service`、`11 User Identity Module service`（SIM）、
+`3 Network Access Service`、`16 Location service (~ PDS v2)`。
+这些服务能应答，说明 modem 固件已经**启动完成并跑在 QMI 服务循环里**。
+
+### 5.4.2 AP 侧（node 1）与 DSP 侧（node 5/7/9/10）
+
+Node 1（AP 自己）上关键的是 **service 64 = `Service registry locator service`**（servreg，
+instance 1，port 16481）—— 这就是 `modemr.jsn` 里 `"service":"servreg"` 的主机侧对端：
+
+```
+     1070       1        0    1 16387 <unknown>
+       52       1        1    1 16390 Dynamic Heap Memory Sharing
+       49       1        1    1 16409 IPA control service
+     4097     N/A        0    1 16414 DIAG service (MODEM:CNTL)
+     4097     N/A        2    1 16416 DIAG service (MODEM:DATA)
+     4097     N/A        4    1 16417 DIAG service (MODEM:DCI)
+       64       1        1    1 16481 Service registry locator service
+       14       1        0    1 16486 Remote file system service
+       53       1       16    1 16487 <unknown>
+     4096       1        0    1 16488 <unknown>      （instance 0..10 连续）
+       40       1        0    1 17364 IMS RTP service
+```
+
+Node 5/9/10（ADSP/CDSP/SLPI 一类）上是 `43 Subsystem control`、`66 Service registry notification`、
+`51 CoreSight remote tracing`、`24 Thermal mitigation`、`769 SLIMbus control`、
+`15 Test service`；Node 7 是 WCNSS：`69 ATH10k WLAN firmware service`。
+
+DIAG（4097）在 node 1 上按 instance 分槽：0=MODEM:CNTL、2=MODEM:DATA、4=MODEM:DCI、
+64/66/68=LPASS、128/130/132=WCNSS、192/194/196=SENSORS、256/258/260=CDSP、320/322/324=WDSP。
+这张表本身就是"**modem 与其它子系统都在 QRTR 命名空间里**"的完整证据。
+
+### 5.5 strace 证明 `qrtr-lookup` 走的是 AF_QIPCRTR 广播
+
+```
+$ adb -s 6033dbec shell 'su -c "strace -f -e trace=socket,sendto,recvfrom,openat,chmod /vendor/bin/qrtr-lookup 2>&1 | head -40"'
+socket(AF_QIPCRTR, SOCK_DGRAM, 0)        = 4
+setsockopt(4, SOL_SOCKET, SO_RCVTIMEO, [1], 8) = 0
+sendto(4, "\n\0\0\0\0\0\0\0\1\0\0\0\0\0\0\0\0\0\0\0", 20, 0,
+       {sa_family=AF_QIPCRTR, sa_data="\0\0\1\0\0\0\376\377\377\377"}, 12) = 20
+recvfrom(4, ...) = 20   （重复约 100 次，每次 20 字节）
+openat(AT_FDCWD, "/vendor/lib64/libqrtr.so", O_RDONLY|O_CLOEXEC) = 5
+openat(AT_FDCWD, "/data/vendor/qrtr/qrtr-lookup.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 5
+chmod("/data/vendor/qrtr/qrtr-lookup.txt", 0666) = -1 EPERM (Operation not permitted)
+```
+
+三个结论：
+1. 报文是 `QRTR_TYPE_NEW_LOOKUP`（首字节 `0x0a`）发往 node 0xffffffff（广播），
+   所以它问的是"全网谁在" —— 收到 100 条 20 字节应答，就是上表的来源。
+2. 结果文件是它自己 `O_CREAT` 出来的；`chmod` 在 KernelSU 下必然 `EPERM`，
+   打印 `qrtr-lookup: chmod(): Operation not permitted` 但**不影响结果**。
+3. `getenforce` = `Enforcing`，但**没有**任何 AVC 拒绝 —— 说明这不是 SELinux 问题，
+   第一版的"未解项"结论完全建立在一个错误的观察上。
+
+→ **L2 的验收判据成立且已被 Android 侧证实可行**：只要 XNU 侧能发出
+`QRTR_TYPE_NEW_LOOKUP` 并收到 node 0 的 20 字节应答（服务 21/1/11/3/16 任一），
+就算"modem 枚举成功"；再进一步对 service 64 (servreg) 发 QMI 请求读版本串，即达成 completion。
 
 ---
 
@@ -526,7 +629,7 @@ modem 即使被 PAS 起来也拿不到自己的 NV 数据，会停在「无网�
 
 | 项 | 状态 | 原因 |
 |---|---|---|
-| `qrtr-lookup` 服务枚举 | **失败** | 只输出表头，无数据（§5.4）。不据此下结论 |
+| `qrtr-lookup` 服务枚举 | **成功（曾误判）** | 结果写在 `/data/vendor/qrtr/qrtr-lookup.txt`（8209 B），stdout 只印表头。node 0 上有 36 个 QMI 服务应答（§5.4.1） |
 | `dmesg` 里的 modem 加载日志 | **不可用** | 内核日志被反复的 `Modules linked in:` 崩溃转储污染，定向 grep 全是噪声 |
 | `/sys/kernel/debug/remoteproc/remoteproc2/carveout_memories` | **空** | 该文件可读但内容为空 |
 | `/sys/kernel/debug/remoteproc/remoteproc2/resource_table` | **"No resource table found"** | modem 固件不带 resource table（与 ADSP 不同） |
@@ -550,6 +653,11 @@ adb -s 6033dbec shell 'su -c "od -An -tx1 -N 52 /vendor/firmware_mnt/image/modem
 adb -s 6033dbec shell getprop | grep -iE 'baseband|qrtr|modem'
 adb -s 6033dbec shell 'su -c "grep -i qipcrtr /proc/net/protocols"'
 adb -s 6033dbec shell 'su -c "ls /sys/bus/pci/devices/"'
+
+# QRTR 服务枚举：结果在文件里，不在 stdout
+adb -s 6033dbec shell 'su -c "/vendor/bin/qrtr-lookup"'
+adb -s 6033dbec shell 'su -c "cat /data/vendor/qrtr/qrtr-lookup.txt"'
+adb -s 6033dbec shell 'su -c "strace -f -e trace=socket,sendto,recvfrom,openat,chmod /vendor/bin/qrtr-lookup 2>&1 | head -40"'
 ```
 
 设备若停在 fastboot（`adb devices` 空、`fastboot devices` 有 6033dbec）：

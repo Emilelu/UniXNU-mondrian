@@ -46,6 +46,7 @@
 
 - [ ] `docs/K60-CELLULAR-CHECKLIST.md`（铁则 ★3）
 - [ ] `dts/mondrian.dts` 补上 `mpss_region` / `remoteproc-mss` / modem `glink-edge`（`02-DT-TRUTH.md` §9）
-- [ ] `03-SCOPE.md` §3.1 的未解项（`qrtr-lookup` 空结果）已澄清
+- [x] `03-SCOPE.md` §3.1 的未解项已澄清：`qrtr-lookup` 的表格写在
+      `/data/vendor/qrtr/qrtr-lookup.txt`，modem（node 0）侧 36 个 QMI 服务在应答（`01` §5.4.1）
 
 三条都没满足 → **本目录保持空壳**。

@@ -9,7 +9,9 @@
 
 `docs/research/cellular/03-SCOPE.md` §8 给出的顺序是：
 
-1. 先澄清 Android 侧 `qrtr-lookup` 为什么列不出服务（L2 的验收判据依赖它）
+1. ~~先澄清 Android 侧 `qrtr-lookup` 为什么列不出服务~~ —— **已完成（2026-11-14）**：
+   结果写在 `/data/vendor/qrtr/qrtr-lookup.txt`，modem（node 0）侧 36 个 QMI 服务在应答
+   （`docs/research/cellular/01-ANDROID-INVENTORY.md` §5.4.1）。L2 验收判据据此定稿。
 2. 再把 DT 节点补进 `dts/mondrian.dts`（只加节点，不启驱动）
 3. 然后才多通道化 GLINK
 4. 然后才 PAS 加载 modem

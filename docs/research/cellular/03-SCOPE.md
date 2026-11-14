@@ -75,7 +75,7 @@
 |---|---|---|---|
 | 1. GLINK 通道 `IPCRTR` 建立 | DT: `qcom,glink-channels = "IPCRTR"`、3 组 intents（`0x800×5`、`0x2000×3`、`0x4400×2`） | GLINK 协议已有，多通道化缺 | 对端在通道建立后会发 `OPEN` ack；Android 侧同名通道在 `/sys/class/remoteproc/remoteproc2/.../IPCRTR` 可见（已取证） |
 | 2. AF_QIPCRTR 内核协议 | Linux 里是 `net/qrtr/` 一个独立协议族（`QIPCRTR`，`/proc/net/protocols` 已见） | **缺**（XNU 无此协议族） | 能 `socket(AF_QIPCRTR)` 并收发 |
-| 3. QRTR 名字服务 | 需要 QRTR NS 逻辑（`QRTR_TYPE_NEW_LOOKUP` 广播 → `NEW_SERVER` 回应） | **缺** | 能列出 `servreg`/`gps_service` |
+| 3. QRTR 名字服务 | 需要 QRTR NS 逻辑（`QRTR_TYPE_NEW_LOOKUP` 广播 → `NEW_SERVER` 回应） | **缺** | 能列出 `servreg`/`gps_service`；**基准已实测**：Android 侧同一广播收到 node 0 的 36 条服务应答（`01` §5.4.1） |
 | 4. `servreg` 查询拿版本 | `modemr.jsn` 给出 `soc=msm, domain=modem, subdomain=root_pd, qmi_instance_id=180` | **缺** | 返回 `MPSS.DE.2.0.c1-CN-Jan 13 2026-02:08:51` 或等价版本串 |
 
 **最小可行路径**（建议按这个顺序做，每步都能独立验证）：
@@ -90,17 +90,28 @@
 **关键判断：② 就足以证明"modem 已枚举"。**
 不一定要先做完 ③（完整协议族）才能验证 —— 这也是为什么 completion 判据是合理的、不是空头支票。
 
-### 3.1 一个必须承认的未解项
+### 3.1 曾经的"未解项"已解决：Android 侧服务枚举成立
 
-Android 侧 `qrtr-lookup` 在本会话**列不出任何服务**（`01` §5.4：只有表头，rc=0）。
-可能原因：SELinux（`u:r:ksu:s0` 上下文）、或者 `qrtr-lookup` 依赖的 NS 未响应。
+第一版本文把 Android 的 `qrtr-lookup` 判成"列不出服务"，**那是误判，已更正**
+（`01` §5.4 / §5.5）。真相：`qrtr-lookup` 把表格写进 `/data/vendor/qrtr/qrtr-lookup.txt`，
+stdout 只印表头；strace 显示它 `socket(AF_QIPCRTR, SOCK_DGRAM)` 后广播
+`QRTR_TYPE_NEW_LOOKUP`（`0x0a`）到 node `0xffffffff`，收到约 100 条 20 字节应答。
 
-**这直接影响 L2 的可行性判断**：如果连 Android 自己的工具都列不出服务，
-那"枚举成功"的判据需要重新定义（例如改成"能收到 `servreg` 对 `NEW_LOOKUP` 的回应"，
-而不是"能列出服务表"）。
+**实测结果（`01` §5.4.1）：modem（node 0）上有 36 个 QMI 服务在应答**，包括
+`21 Modem embedded file system service`、`1 Wireless Data Service`、
+`11 User Identity Module service`、`3 Network Access Service`、`16 Location service`、
+`4097 DIAG`。AP（node 1）上有 `64 Service registry locator service`（servreg）。
 
-→ **L2 开工前必须先解决这个未解项**（在 Android 侧用 `strace`/`logcat` 或直接读 `qrtr-lookup` 源码确认）。
-这写进 `next_action`。
+→ **这对 L2 是决定性利好**：
+1. "modem 已枚举"这件事在 Android 侧**现在就有可对照的基准**（同一台设备、同一份固件、
+   同一条 GLINK 通道 `IPCRTR`）。
+2. L2 的验收判据可以定得**比原来更硬**：不是"能收到某个回应"，而是
+   **"XNU 侧发出的 `NEW_LOOKUP` 能收到 node 0 的 20 字节应答，且服务号落在
+   {21, 1, 11, 3, 16} 之内"** —— 与 Android 侧逐项可比。
+3. 判据不再依赖 `qrtr-ns`（Android 的用户态 NS）：裸报文方案（§3 的 ② 路线）
+   直接对着 modem 的 GLINK 通道说话，天然绕开 NS。
+
+**唯一仍未验证的**：XNU 侧能不能把 GLINK `IPCRTR` 通道拉起并收发（§5 的风险 1）。
 
 ---
 
@@ -204,8 +215,9 @@ modem 固件、EFS/NV、SIM 身份都在 Android 侧（`porting.toml:198` 的 in
 
 ## 8. 建议的 next_action（按顺序）
 
-1. **先解未解项**：Android 侧确认 `qrtr-lookup` 为什么列不出服务
-   （`strace -f /vendor/bin/qrtr-lookup` 或读它的源码），否则 L2 的验收判据不成立。
+1. ~~先解未解项：`qrtr-lookup` 为什么列不出服务~~ **已完成**（§3.1）：
+   结果写在 `/data/vendor/qrtr/qrtr-lookup.txt`，modem 侧 36 个服务在应答。
+   **L2 验收判据据此定稿**：XNU 侧 `NEW_LOOKUP` 收到 node 0 的 20 字节应答且服务号 ∈ {21,1,11,3,16}。
 2. **补 DT**：把 `02-DT-TRUTH.md` §1/§2/§4 的节点（`mpss_region`、`remoteproc-mss`、
    modem `glink-edge`、`qcom,ipa`）按活 FDT 的字节抄进 `dts/mondrian.dts`。
    **这一步只加节点、不启驱动**，可以独立验证（`dtc` 编译通过 + 与活 FDT 逐字节比对）。
@@ -226,7 +238,7 @@ modem 固件、EFS/NV、SIM 身份都在 Android 侧（`porting.toml:198` 的 in
 |---|---|
 | X65 型号的直接证据 | **没有**。DT 只有 `cape`，固件不自报。本文只说"X65 级 modem 内置于 SM8475"，不伪造 DT 证据（`02` §10.1） |
 | modem 的 PAS 服务 id | **未确认**。ADSP 的那套不能直接套，需要从 TZ 侧或 Android 的 `qcom_q6v5_pas` 日志确认 |
-| `qrtr-lookup` 空结果的原因 | **未解**（§3.1）。这是 L2 的前置阻塞 |
+| `qrtr-lookup` 的服务表 | **已取到**（`01` §5.4.1，node 0 共 36 项）。原来的空结果是对 stdout 的误读，已更正（§3.1） |
 | IPA ring 几何 | **未取**。DT 不描述，需从 `ipa-hw-ver=0x16` 对应的寄存器表取 |
 | modem 起来后是否需要 EFS 才能"枚举" | **未验证**。理论上不需要（枚举是 QRTR 层），但没有实测 |
 | `mba.mbn` 缺失是否影响加载 | **推测不影响**（新世代单镜像），未实测 |

@@ -31,6 +31,7 @@
 | SA-CONFIG-CONSISTENCY | defconfig vs generated .config checker | 2026-11-12 19:35 | `docs/research/evidence/SA-CONFIG-CONSISTENCY.md` | `grep:docs/research/evidence/SA-CONFIG-CONSISTENCY.md:.config` | landed | `faacc2d` |
 | SA-BOOT-EVIDENCE | boot evidence audit: battery image reached SpringBoard, k60_touch_se=19 killed touch | 2026-11-12 19:35 | `docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md` | `grep:docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md:k60_touch_se` | landed | `faacc2d` |
 | SA-CELLULAR | cellular 线第一阶段只读取证：Android 侧 modem/QRTR/IPA 清单、活 FDT 字节级真相、范围判定、X65 封装归属 | 2026-11-14 11:08 | `docs/research/cellular/02-DT-TRUTH.md` | `grep:porting.toml:0x13200000` | landed | `06e266b` |
+| SA-CELLULAR-QRTR | 更正 cellular 线对 `qrtr-lookup` 的误判：它的服务表写在 `/data/vendor/qrtr/qrtr-lookup.txt` 而非 stdout；modem（node 0）侧 36 个 QMI 服务在应答，L2 验收判据据此定稿 | 2026-11-14 12:00 | `docs/research/cellular/01-ANDROID-INVENTORY.md` | `grep:docs/research/cellular/01-ANDROID-INVENTORY.md:qrtr-lookup.txt` | landed | PENDING |
 
 ## 已落库并应用
 

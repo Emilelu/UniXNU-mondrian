@@ -2,7 +2,8 @@
 #
 # EMPTY BY DESIGN. No cellular code exists yet.
 # See docs/research/cellular/03-SCOPE.md section 8 for the required order:
-#   1. clarify why Android's qrtr-lookup returns no services
+#   1. (DONE 2026-11-14) Android qrtr-lookup enumerates: table lands in
+#      /data/vendor/qrtr/qrtr-lookup.txt, 36 QMI services answer on node 0
 #   2. add the modem/IPA/QRTR nodes to dts/mondrian.dts (nodes only, no driver)
 #   3. generalize QcomGlink to carry the IPCRTR channel
 #   4. load modem.mdt over PAS

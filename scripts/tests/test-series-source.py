@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -53,10 +54,31 @@ def fingerprint(names: list[str], base: pathlib.Path) -> str:
     return h.hexdigest()[:16]
 
 
+def _current_branch() -> str:
+    out = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
+                         capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
 def newest_manifest() -> pathlib.Path | None:
+    """Return the newest build manifest recorded from THIS branch, or None.
+
+    The artifacts directory is shared by every worktree, and all worktrees share
+    one object database, so neither mtime nor "a commit we know" identifies our
+    own build: the newest manifest usually belongs to another line whose series
+    has a different length. The recorded branch is what separates them.
+    """
+    branch = _current_branch()
     best = None
     for root in MANIFEST_DIRS:
         for p in pathlib.Path(root).glob("*/build-manifest.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            recorded = (data.get("repo") or {}).get("branch")
+            if branch and recorded != branch:
+                continue
             if best is None or p.stat().st_mtime > best.stat().st_mtime:
                 best = p
     return best

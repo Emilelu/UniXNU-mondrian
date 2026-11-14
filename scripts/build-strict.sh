@@ -122,8 +122,17 @@ KERNEL_SHA=$(sha256sum "$KERNEL" | cut -d' ' -f1)
 echo "build-strict: kernel $KERNEL_SHA $(stat -c %s "$KERNEL") bytes"
 
 # --- payload -----------------------------------------------------------------
+# --kernel-arg has to reach THIS step: the payload's unixnu.toml is what the
+# firmware passes to the kernel (P-159), and payload.py only overrides a board
+# argument for names it is given.  Forwarding the flag to bootimg alone produced
+# an image whose command line was identical to a build without it.
+PAYLOAD_ARGS_CMD=()
+for kv in "${KARGS[@]:-}"; do
+    [ -n "$kv" ] || continue
+    PAYLOAD_ARGS_CMD+=(--kernel-arg "$kv")
+done
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
-        > "$LOGS/payload.log" 2>&1; then
+        "${PAYLOAD_ARGS_CMD[@]:-}" > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
     die "payload build failed (see $LOGS/payload.log)"
 fi
@@ -207,7 +216,7 @@ m = {
         "boot_img": "$BOOT_SHA",
         "boot_img_path": "$RUN/boot.img",
     },
-    "kernel_args": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
+    "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
     "logs": "$LOGS",
 }

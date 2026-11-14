@@ -157,6 +157,75 @@ def case_env_reaches_the_gate():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_kernel_arg_reaches_the_payload():
+    """--kernel-arg must be handed to `build payload`, which writes the TOML.
+
+    2026-11-14: rail-20261114n and rail-20261114p were built from the same tree
+    with and without --kernel-arg pong_rail_probe=1, and both images carried 29
+    arguments / 575 bytes.  build-strict.sh forwarded KARGS only to bootimg; the
+    argument line the firmware passes comes from the payload TOML, which
+    `unixnu build payload` writes.
+    """
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="k60-strict-"))
+    try:
+        repo = tmp / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        (repo / "dts").mkdir()
+        (repo / "patches" / "xnu").mkdir(parents=True)
+        shutil.copy(SCRIPT, repo / "scripts" / "build-strict.sh")
+        (repo / "scripts" / "check-build-env.py").write_text("import sys\nsys.exit(0)\n")
+        (repo / "board.toml").write_text("# stub\n")
+        (repo / "dts" / "mondrian.dts").write_text("// stub\n")
+        (repo / "patches" / "xnu" / "series").write_text("")
+        (repo / "scripts" / "eight-step-gate.py").write_text("import sys\nsys.exit(0)\n")
+
+        build = tmp / "build"
+        build.mkdir()
+        # Records every invocation, creates the kernel for `build kernel`, and
+        # fails at `build payload` so the test can read what it was given.
+        (build / "unixnu").write_text(
+            "#!/bin/sh\n"
+            "echo \"$@\" >> %s\n"
+            "case \"$1 $2\" in\n"
+            "  'build kernel')\n"
+            "    mkdir -p \"$K60_OUT/mondrian/ipados-16.6.1-20G81/mondrian/kernel\"\n"
+            "    echo kernel > \"$K60_OUT/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho\"\n"
+            "    exit 0 ;;\n"
+            "  'build payload') exit 1 ;;\n"
+            "esac\n"
+            "exit 0\n" % (tmp / "calls.txt"))
+        (build / "unixnu").chmod(0o755)
+
+        fd = tmp / "keep.fd"
+        fd.write_bytes(b"_FVH" + b"\0" * 60)
+        (tmp / "device").mkdir()
+        (tmp / "art").mkdir()
+        out = tmp / "out"
+        (out / "mondrian" / "ipados-16.6.1-20G81" / "mondrian").mkdir(parents=True)
+
+        env = dict(os.environ)
+        env.pop("UNIXNU_SKIP_GATES", None)
+        env["K60_BUILD_TREE"] = str(build)
+        env["K60_DEVICE_INPUT"] = str(tmp / "device")
+        env["K60_ARTIFACTS"] = str(tmp / "art")
+        env["K60_OUT"] = str(out)
+
+        subprocess.run(["bash", str(repo / "scripts" / "build-strict.sh"),
+                        "argcase", "--fd", str(fd),
+                        "--kernel-arg", "pong_rail_probe=1"],
+                       capture_output=True, text=True, env=env)
+
+        calls = (tmp / "calls.txt").read_text().splitlines()
+        payload = [c for c in calls if c.startswith("build payload")]
+        check("the payload step was reached", bool(payload),
+              "%d call(s)" % len(calls))
+        check("--kernel-arg reaches the payload step",
+              bool(payload) and "--kernel-arg pong_rail_probe=1" in payload[0],
+              payload[0] if payload else "")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def case_skip_gates_still_refused():
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="k60-strict-"))
     try:
@@ -174,14 +243,15 @@ def case_skip_gates_still_refused():
 
 def main():
     for case in (case_gate_runs_before_kernel, case_red_gate_stops_the_build,
-                 case_env_reaches_the_gate, case_skip_gates_still_refused):
+                 case_env_reaches_the_gate, case_kernel_arg_reaches_the_payload,
+                 case_skip_gates_still_refused):
         print(case.__name__)
         case()
     print()
     if FAILS:
         print("TESTS FAILED: %d" % len(FAILS))
         return 1
-    print("TESTS OK 4 cases (0 failure(s))")
+    print("TESTS OK 5 cases (0 failure(s))")
     return 0
 
 

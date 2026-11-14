@@ -1122,3 +1122,65 @@ python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/k60-work/scratch/usb/mon
 cc -std=c11 -Wall -Wextra -o /tmp/ucsi-host-selftest docs/research/usb/ucsi-host-selftest.c \
     && /tmp/ucsi-host-selftest
 ```
+
+## 23. 0410：vendor 端点回环（P2-b）
+
+### 23.1 0410 是什么（P2-b：vendor 端点回环）
+
+§15.4(c) 定义的 P2-b 现在有了实现：`patches/usb/0410-k60-usb-vendor-loopback.patch`
+（14 hunks，全部在 `bsd/dev/k60_usblog.c`）。P2-a（8 槽 TRB + `transferResource`/
+`ENDTRANSFER` 收尾）已由 0408 完成，0410 只加回环数据通路，两者判据分开验证。
+
+**单变量原则用 boot arg 控制**（`k60_usbvend`，`k60_usbvend_arg()` 解析，
+`k60_usblog_init()` 里赋值）：
+
+| 值 | 描述符 | 回环位置 | 主机侧验证方法 |
+| --- | --- | --- | --- |
+| 0（默认） | 67 字节两接口 CDC-ACM（0409 原样） | 无 | 与 0409 逐字节同：控制台必须不变 |
+| 1 | 98 字节复合（IAD + IF2 `0xff/0xfe`，EP `0x03` OUT / `0x83` IN） | EP6→EP7 | 需要裸 USB 工具（Windows 无 libusb；用 LAN 上的 Mac + IOKit，或 WSL usbip） |
+| 2 | 67 字节控制台描述符不变 | CDC 数据对 EP2→EP3（`ud_console()` 让位） | 普通 COM 口即可：打开串口发字节，同一口读回应为原样回显 |
+
+mode 2 的价值：**不用 libusb 就能验证回环机制**——主机打开 COM 口，
+写入的字节从 EP2 进、EP3 出，主机读到回显即判据通过；控制台输出在该模式下
+有意让位（`ud_console()` 首行 `|| k60_usbvend_mode == 2` 直接返回）。
+
+### 23.2 实现要点（file:line 见补丁）
+
+- `ud_cfg_vendor[]`：98 字节，逐字节取自 0406 被删的描述符段
+  （`9,2,98,0,3,1,0,0xc0,50` + IAD `8,11,0,2,2,2,1,0` + IF0/IF1 原样 +
+  `9,4,2,0,2,0xff,0xfe,2,0` + EP `0x03`/`0x83` bulk 64）。
+- `ud_configuration()`：`cfg = k60_usbvend_mode == 1 ? ud_cfg_vendor : ud_cfg_template;`。
+- `struct ud` 新增 `vend_ok`/`vend_out_ep`/`vend_in_ep`/`vend_rx_active`/
+  `vend_tx_active`/`vend_zlp`/`vend_pending`/`vend_sent`/`vend_bytes`/`vend_packets`。
+- SET_CONFIGURATION：`vend_ok = (mode==1 && ep6==0 && ep7==0) || mode==2`；
+  三处清零点（deconfigure / `ud_reset_endpoints` / disconnect）同步清 `vend_*`。
+- `ud_vendor()`（主循环 `ud_events(); ud_console(); ud_vendor();` 的第三步）：
+  空闲 arm OUT（`UD_VEND_RX 0x6000`，4096 字节）→ 收到后拷到 `UD_VEND_TX 0x7000`
+  从 IN 端点回发；满包后补 ZLP（Pong `PongUsbDevice.h:256-259` 语义）。
+- 完成事件：OUT 侧 `residual = trb[2] & 0xffffff`，`got = 4096 - residual`；
+  IN 侧完成按满包→ZLP / 短包→计数。
+- 缓冲复用 0408 已布线的 `UD_TRB_EP6 0x1380`/`UD_TRB_EP7 0x13c0`；
+  **0307 特意分开的 cache line 未动**。
+
+### 23.3 判据（沿 §15.5）
+
+- mode 0：控制台与心跳与 0409 完全一致（回归零）。
+- mode 2：主机写 N 字节到 COM 口 → 读回 N 字节回显；
+  日志出现 `K60 USBLOG: echo %u bytes on ep%u (total %u)`。
+- mode 1：主机打开 IF2（vendor 接口）写 → EP7 读回。
+
+### 23.4 主机侧工具现实（不隐瞒）
+
+Windows 工作机无 libusb/pyusb/gcc；mode 1 的裸端点验证只能走
+(a) LAN 上的 Mac（`ssh emilelu@192.168.31.204`，IOKit user client）或
+(b) WSL usbip 附接。mode 2 不需要任何特殊工具。
+
+### 23.5 构建与验证状态
+
+- series 三处一致：仓库 / `/opt/k60/trees/usb-device` / `SERIES-FINAL.txt`
+  均 `2b66c5f4…c7e84`（235 行）；`patches/usb/series` 10 行（0405..0410）。
+- `sync-device-input.py` 同步 3 个文件（0410 patch + 两个 series）。
+- porting-gate --quick ✅（series 三处一致 PASS，7 项警告均为已知类别）；
+  check-docs ✅ 187 项；eight-step-gate --build ✅ 30 项。
+- 构建：usb-20261114h，私有树 `K60_OUT=/opt/k60/trees/usb-out`
+  （`cp -a` 自 out-baseline，17 GB；0408 教训：共享 OUT 树被 bt/display 线覆写）。

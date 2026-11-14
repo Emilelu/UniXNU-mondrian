@@ -48,7 +48,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  #define UD_SIZE         0x8000
  
  static struct {
-@@ -973,6 +992,13 @@
+@@ -973,6 +992,16 @@
  	unsigned    quiet_loops;        /* 0308: poll iterations with no fresh ring data */
  	bool        fatal_seen;         /* 0308: log ended at a fatal event */
  	uint8_t     transferResource[8]; /* P2: resource id STARTTRANSFER returned */
@@ -58,11 +58,14 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
 +	bool        vend_rx_active;     /* 0410: EP6 OUT armed */
 +	bool        vend_tx_active;     /* 0410: EP7 IN armed */
 +	bool        vend_zlp;           /* 0410: last IN was full-length, send ZLP */
++	uint32_t    vend_pending;       /* 0410: bytes waiting for the IN endpoint */
++	uint32_t    vend_sent;          /* 0410: length of the IN transfer in flight */
 +	uint32_t    vend_bytes;         /* 0410: bytes looped back so far */
++	uint32_t    vend_packets;       /* 0410: completed loopback transfers */
  } ud;
  
  static inline void
-@@ -1145,6 +1171,9 @@
+@@ -1145,6 +1174,9 @@
  	ud.configured = ud.dtr = false;
  	ud.tx_active = ud.rx_active = false;
  	ud.log_ready = false;
@@ -72,7 +75,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  	ud_end_transfers();
  	dwc_wr(DALEPENA, 0);
  	if (ud_epcmd(0, DEPCMD_DEPSTARTCFG, 0, 0, 0) ||
-@@ -1190,6 +1219,35 @@
+@@ -1190,6 +1222,35 @@
  	7, 5, 0x81, 2, 64, 0, 0,                        /* EP 0x81 bulk IN */
  	7, 5, 0x01, 2, 64, 0, 0,                        /* EP 0x01 bulk OUT */
  };
@@ -108,7 +111,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  static const char *const ud_strings[] = { NULL, "unixnu", "K60 XNU console", "0001" };
  
  /*
-@@ -1200,8 +1258,11 @@
+@@ -1200,8 +1261,11 @@
  static uint32_t
  ud_configuration(uint8_t *out, int other)
  {
@@ -122,7 +125,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  	if (other) {
  		out[1] = 7;
  	}
-@@ -1317,14 +1378,33 @@
+@@ -1317,14 +1381,33 @@
  						dalep |= 0xc0;
  					}
  					dwc_wr(DALEPENA, dalep);
@@ -158,7 +161,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  			}
  			printf("K60 USBLOG: configured (%u)\n", value);
  			status_only = true;
-@@ -1394,7 +1474,8 @@
+@@ -1394,7 +1477,8 @@
  static void
  ud_console(void)
  {
@@ -168,7 +171,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  		return;
  	}
  	if (!ud.rx_active) {
-@@ -1549,6 +1630,48 @@
+@@ -1549,6 +1633,48 @@
  	}
  }
  
@@ -217,7 +220,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  static void
  ud_event(uint32_t ev)
  {
-@@ -1568,6 +1691,9 @@
+@@ -1568,6 +1694,9 @@
  			ud.configured = ud.dtr = false;
  			ud.tx_active = ud.rx_active = false;
  			ud.log_ready = false;
@@ -227,15 +230,32 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  			printf("K60 USBLOG: disconnect\n");
  		}
  		return;
-@@ -1587,6 +1713,38 @@
+@@ -1576,17 +1705,53 @@
+ 	unsigned type = (ev >> 6) & 0xf;
+ 	unsigned status = (ev >> 12) & 0xf;
+ 	if (ep >= 2) {
++		/* 0410: in echo mode the vendor state machine owns the CDC data
++		 * pair, so the console branches below must stay out of the way. */
++		const bool echo = ud.vend_ok && k60_usbvend_mode == 2;
+ 		if (type == 1) {        /* XferComplete */
+-			if (ep == 3) {
++			if (ep == 3 && !echo) {
+ 				ud.tx_active = false;
+ 				ud.log_cursor = ud.tx_end;
+ 			}
+-			if (ep == 2) {
++			if (ep == 2 && !echo) {
+ 				ud_sync(UD_TRB_RX, 16);         /* HW wrote the TRB back */
+ 				ud_sync(UD_RXDATA, ud.packet);  /* 0319: read the OUT payload */
  				ud_command((const char *)(ud.dma + UD_RXDATA), ud.packet);
  				ud.rx_active = false;
  			}
-+			if (ep == 6 && ud.vend_ok) {
++			if (ep == ud.vend_out_ep && ud.vend_ok) {
 +				/* 0410: the OUT length is the residual the controller
 +				 * wrote back into TRB[2] (pong: PongUsbDevice.h:260-265). */
-+				volatile uint32_t *trb = (volatile uint32_t *)(ud.dma + UD_TRB_EP6);
-+				ud_sync(UD_TRB_EP6, 16);
++				uint32_t trboff = ud_trb_for(ep);
++				volatile uint32_t *trb = (volatile uint32_t *)(ud.dma + trboff);
++				ud_sync(trboff, 16);
 +				uint32_t residual = trb[2] & 0xffffffu;
 +				uint32_t got = residual <= UD_VEND_BYTES ? UD_VEND_BYTES - residual : 0;
 +				ud.vend_rx_active = false;
@@ -251,7 +271,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
 +					}
 +				}
 +			}
-+			if (ep == 7 && ud.vend_ok) {
++			if (ep == ud.vend_in_ep && ud.vend_ok) {
 +				/* 0410: pong:256-259 — a full-length IN needs a ZLP to
 +				 * terminate the host's read, anything else is done. */
 +				ud.vend_tx_active = false;
@@ -266,7 +286,7 @@ diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
  		}
  		return;
  	}
-@@ -2005,6 +2163,7 @@
+@@ -2005,6 +2170,7 @@
  	while (!ud.failed) {
  		ud_events();
  		ud_console();

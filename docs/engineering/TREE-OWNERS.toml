@@ -74,17 +74,20 @@ path = "/mnt/e/hackios/k60-buttons"
 owner = "buttons-agent"
 scope = ["drivers/PongButtons", "docs/research/buttons"]
 
+# Repo-hygiene line (2026-11-14). Owns the checkout-path gate (hard-39) and the
+# six scripts that used to hardcode the shared checkout.
 [[tree]]
 path = "/mnt/e/hackios/k60-hygiene"
 owner = "hygiene-agent"
-scope = ["scripts", "docs/engineering"]
+scope = ["scripts", "docs/engineering", "docs/engineering/TOOLBOX.md"]
+note = "Repo-hygiene worktree (feat/repo-hygiene). Pure code, no device work."
 
 [[tree]]
 path = "/mnt/e/hackios/k60-gates"
 owner = "lead"
-scope = ["scripts", "docs/engineering"]
+scope = ["scripts", "docs/engineering", "AGENTS.md"]
 
 [[tree]]
 path = "/mnt/e/hackios/k60-wifi-lead"
 owner = "lead"
-scope = ["drivers/PongWifi", "configs", "docs/research/wifi"]
+scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]

@@ -98,6 +98,17 @@ def main(argv: list[str] | None = None) -> int:
 
     kernel = args.kernel or find_kernel(args.out)
     if not kernel or not kernel.is_file():
+        # Two different situations share this branch, and they must not be
+        # conflated (measured 2026-11-14 on the gate-fixes checkout):
+        #   * a configured but never-built output tree -- normal before the first
+        #     build, and build-strict.sh runs this gate right after a build, so
+        #     the kernel is always there in the case that matters. Nothing to
+        #     inspect is not the same as an archive going missing.
+        #   * a path that is not an output tree at all -- that is a caller error.
+        configured = list(args.out.glob("mondrian/*/*/.config")) if args.out.is_dir() else []
+        if args.kernel is None and configured:
+            print(f"skip: {args.out} is configured but not built; nothing to inspect")
+            return 0
         print(f"FAIL: no kernel.macho under {args.out}", file=sys.stderr)
         return 2
     tree = kernel.parent.parent / "tree"

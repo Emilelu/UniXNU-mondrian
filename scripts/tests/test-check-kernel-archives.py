@@ -104,7 +104,19 @@ def no_kernel_is_an_error():
     gate = load_gate()
     with tempfile.TemporaryDirectory() as tmp:
         rc = gate.main(["--out", tmp])
-        assert rc == 2, f"expected 2 when no kernel exists, got {rc}"
+        assert rc == 2, f"expected 2 when the path is not an output tree, got {rc}"
+
+
+@case
+def a_configured_but_unbuilt_tree_is_skipped():
+    """A defconfig'ed tree with no kernel yet is not a missing archive."""
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        board = Path(tmp) / "mondrian" / "sdk" / "board"
+        board.mkdir(parents=True)
+        (board / ".config").write_text("CONFIG_XNU_NATIVE_UFS=y\n", encoding="utf-8")
+        rc = gate.main(["--out", tmp])
+        assert rc == 0, f"expected 0 for a configured but unbuilt tree, got {rc}"
 
 
 def main() -> int:

@@ -23,18 +23,22 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 仓库根：默认本脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
+REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
 WORK = '/mnt/e/k60-work'
 
 
 # 三个目标树：每个上游仓库的文件要写到对应的本地仓库，而不是全塞进设备仓库。
 # 2026-11-12 之前只写了设备仓库，导致 yibiya 对 UniXNU 框架和 uefi-mondrian
 # 的提交从来没有进过我们的工作树 —— 镜像在跟，但 pick 没跟。
+# 兄弟检出（UniXNU / uefi-mondrian）与本仓库同在一级目录下；K60_REPO 指到哪个检出，
+# 三个目标就跟着挪。以前这里写死主检出，于是在 worktree 里 pick 会把文件写进主检出。
 TARGETS = {
-    'UniXNU-mondrian': '/mnt/e/hackios/UniXNU-mondrian',
-    'UniXNU':          '/mnt/e/hackios/UniXNU',
-    'uefi-mondrian':   '/mnt/e/hackios/uefi-mondrian',
+    'UniXNU-mondrian': str(REPO),
+    'UniXNU':          str(REPO.parent / 'UniXNU'),
+    'uefi-mondrian':   str(REPO.parent / 'uefi-mondrian'),
 }
 
 # P-151：文件级 pick 是整文件替换。当我们和上游都改过同一个文件时，

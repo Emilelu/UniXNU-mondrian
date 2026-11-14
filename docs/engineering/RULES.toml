@@ -503,8 +503,9 @@ statement = "A fresh worktree has the code but not the toolchain shims or the fa
 check = "python3 scripts/check-build-env.py"
 
 [[rule]]
-id = "hard-34"
-kind = "hard"
+id = "P-186"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-186"
 statement = "A file committed as LF must not be re-committed as CRLF; the diff must show the real change, not every line."
 check = "python3 scripts/check-line-endings.py"
 note = "2026-11-14: an edit from Windows turned a 37-line change in AGENTS.md into 366 insertions and 366 deletions."
@@ -536,3 +537,18 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-194"
 statement = "补丁集指纹必须来自构建实际应用的 series，并与 build-manifest.json 的条数一致"
 check = "python3 scripts/tests/test-series-source.py"
+
+[[rule]]
+id = "P-193"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-193"
+statement = "门禁不许写死检出路径；参考源按前缀元组解析，失败信息必须说明试过几个前缀"
+check = "python3 scripts/tests/test-research-gate-prefixes.py"
+
+[[rule]]
+id = "hard-39"
+kind = "hard"
+source = "scripts/check-repo-paths.py"
+statement = "scripts/ 里禁止硬编码本仓库检出路径：仓库根必须来自 K60_REPO 或脚本自身位置，兄弟检出路径只能作为可覆盖的默认值"
+check = "python3 scripts/check-repo-paths.py"
+note = "2026-11-14: usb / audio / refmine 三条线各自踩过「脚本写死主检出、在 worktree 里跑就写错树」的坑并各打一份互不相同的补丁；六个脚本统一为 K60_REPO + 脚本位置回退，由 check-repo-paths.py 守住。"

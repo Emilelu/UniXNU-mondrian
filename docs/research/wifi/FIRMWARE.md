@@ -234,6 +234,18 @@ bash E:\k60-work\evidence\wifi-trial\mkboot-bdf-add.sh bdwlan.e1a bdf1
 
 名字不在本地时脚本直接退出（`MISSING ... -- run: bash pull-board-data.sh 6033dbec`，退出码 2），
 不会编出一个缺 BDF 的镜像冒充成功。
+
+**整条流水线已用占位名字跑通一次**（2026-11-14 08:28，设备仍失联，纯离线）：
+`bash mkboot-bdf-add.sh bdwlan.elf bdfselftest` →
+
+- archive `wifi/native-bdfselftest/`，PWF2 仍是 6 条目 11,189,974 B（`bdwlan.elf` 覆盖同名）；
+- 内核 65,978,368 B sha256 `3da090a2b67d2dd0933aa780dcd4bacde92154c08fb0beb6a56fc71c60e24102`；
+- `boot.img` 201,887,744 B sha256
+  `5ec6959f9f1c1ef15a31ced2a3d30743427b97f092a016fe0b91d614c7f70cb4`；
+- `verify-boot-image: OK`、`argcheck1.py` 602 字节 ok、`check-artifacts.py` MISMATCHES 0；
+- 内核里 13/13 条 stage 门字符串齐全。
+
+即：只要日志给出名字、且 `qca6490-board/` 里有那个文件，一条命令就能产出可上机的镜像。
 注意：加上 BDF 后 PWF2 从 11,067,094 B 变成 11,189,974 B，内核
 `__TEXT` 段相应变长（见 `LOCAL-VERIFICATION.md` 的段表），但离 DarwinBoot 的
 254 MiB 上限仍然极远。

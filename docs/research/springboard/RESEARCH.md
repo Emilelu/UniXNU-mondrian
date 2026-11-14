@@ -5,6 +5,19 @@
 > 镜像对照：springboard-20261115a（验证镜像，带 `k60_wallpaper_reset=1`）与 springboard-20261114e（常规，无该参数），
 > 两者都含 0340 新 UI 库 + 0618 内核种子；fd `cf4485712c29`。
 
+## 0. 上机读日志顺序（照这个顺序抓，前一条不成立就别看后一条）
+
+| # | 要抓的行 | 必须的结果 | 不成立时去哪 |
+|---|---|---|---|
+| 1 | `K60WALL catalogue bytes=… resid=0 error=0` | `bytes=772 resid=0` | §1 四类失败分支 |
+| 2 | `K60WALL catalogue open/read/create error=…` | 一条都不出现 | §1 |
+| 3 | `Pong init: optional boot view SKIP …stock-wallpaper` | **消失** | §2（目录/属主） |
+| 4 | `Pong init: wallpaper aliases SKIP` | **消失** | §2（guard 二段） |
+| 5 | `Pong UI: wallpaper existing-content=…` → `asset present=…` → `submitting genuine wallpaper 7410` | 三行依次出现 | §3 |
+| 6 | 屏幕像素 | WWDC 2022 壁纸可见 | §4 半成功汇总 |
+
+半成功（例如 1 成立但 3/4 仍在）走 §4，不要跳过前面的行直接看后面。
+
 ## 1. 判定 —— 0618 内核种子（K60WALL）
 
 | 日志行原文 | 结论 |

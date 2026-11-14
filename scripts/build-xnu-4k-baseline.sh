@@ -295,6 +295,19 @@ PY_DRIVER_SOURCE
     echo 'PONG_NATIVE_DRIVER_SOURCE is unset and the device checkout could not be located; the ArmDT/ArmCpu/NativeUfs archives will be skipped and the link will stop on their files' >&2
   fi
 fi
+# 0610: the Adreno Metal plugin travels inside the kernel, because
+# /private/var/ngpu/addons lives on the APFS Data volume and no host tool here
+# can write it. The generator emits an .incbin assembly file so the 51 MB never
+# becomes a 250 MB C literal; K60_METAL_PLUGIN_DIR points at the built bundle.
+K60_METAL_PLUGIN_DIR=${K60_METAL_PLUGIN_DIR:-}
+if [ -n "$K60_METAL_PLUGIN_DIR" ] && [ -d "$K60_METAL_PLUGIN_DIR" ] && \
+   [ -f "patches/xnu/0610-k60-metal-plugin-deploy.patch" ]; then
+  K60_METAL_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s
+  mkdir -p "$(dirname "$K60_METAL_ASM")"
+  python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-metal-blob.py" \
+    --plugin-dir "$K60_METAL_PLUGIN_DIR" --assembly --output "$K60_METAL_ASM" \
+    >&2 || { echo 'k60_metal_blob generation failed' >&2; exit 1; }
+fi
 if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   export PONG_NATIVE_DRIVER_SOURCE
 fi

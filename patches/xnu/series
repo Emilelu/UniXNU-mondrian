@@ -214,7 +214,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0398-k60-pong-runtime-directories.patch
 0600-k60-display-composition.patch
 0602-k60-physical-battery.patch
-0610-k60-metal-seeds.patch
+0610-k60-metal-plugin-deploy.patch
 0611-k60-smem-handoff.patch
 0612-k60-adsp-image.patch
 0613-k60-adsp-pas.patch

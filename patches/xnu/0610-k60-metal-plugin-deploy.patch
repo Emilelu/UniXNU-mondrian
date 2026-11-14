@@ -1,0 +1,232 @@
+--- /dev/null
++++ b/bsd/dev/k60_metal.c
+@@ -0,0 +1,192 @@
++/*
++ * 0610: deploy the Adreno Metal plugin onto the Data volume.
++ *
++ * The plugin is reached only through MetalPluginName ->
++ * /System/Library/Extensions/PongAdrenoMetal.bundle, and that directory is a
++ * sealed read-only volume; zzy-native-gpu-addon-mount unions
++ * /private/var/ngpu/addons over it at boot. The bundle therefore has to exist
++ * on Data, which is APFS inside the unixnu partition - no host tool here can
++ * write it (no APFS userspace driver, TWRP 3.7.1 has no APFS support).
++ *
++ * 0340 and 0394 already write their payloads there after the Data mount
++ * succeeds, so the bytes travel inside kernel.macho. The container is a flat
++ * table produced by scripts/gen-k60-metal-blob.py:
++ *
++ *     u32 magic 'K60M'; u32 count
++ *     count x { u16 name_len; u32 size; u32 offset }   // entries
++ *     count x name (no terminator)
++ *     bodies, 8-byte aligned
++ *
++ * Offsets are from the start of the blob, which is what the generator writes.
++ * A bad magic leaves the volume untouched instead of writing partial files.
++ */
++#include <sys/types.h>
++#include <sys/vnode.h>
++#include <sys/uio.h>
++#include <sys/fcntl.h>
++#include <sys/kauth.h>
++#include <sys/systm.h>
++#include <sys/proc.h>
++#include <sys/namei.h>
++#include <sys/fcntl.h>
++#include <pexpert/pexpert.h>
++
++extern const unsigned char k60_metal_blob[];
++extern const unsigned long long k60_metal_blob_len;
++extern const unsigned short k60_metal_blob_modes[];
++
++#define K60_METAL_ROOT "/private/var/ngpu"
++
++struct k60_metal_entry {
++	uint16_t name_len;
++	uint32_t size;
++	uint32_t offset;
++} __attribute__((packed));
++
++static uint16_t
++k60_metal_le16(const unsigned char *p)
++{
++	return (uint16_t) (p[0] | (p[1] << 8));
++}
++
++static uint32_t
++k60_metal_le32(const unsigned char *p)
++{
++	return (uint32_t) p[0] | ((uint32_t) p[1] << 8) |
++	    ((uint32_t) p[2] << 16) | ((uint32_t) p[3] << 24);
++}
++
++/* Create every directory on the way to path, ignoring EEXIST. */
++/* 0398 creates /private/var/ngpu and its addons/ and daemons/ subdirectories
++ * in the same prepare step, before this runs; the deploy only has to make sure
++ * the bundle directory itself exists. mkdir has no prototype any shipped header
++ * declares, so use the vnode path that 0340 already compiles against. */
++static int
++k60_metal_mkdir(const char *path, vfs_context_t ctx)
++{
++	vnode_t vp = NULLVP;
++	int error = vnode_lookup(path, 0, &vp, ctx);
++
++	if (error == 0) {
++		vnode_put(vp);
++		return 0;
++	}
++	if (error != ENOENT) {
++		return error;
++	}
++	error = vnode_open(path, O_CREAT, 0755, 0, &vp, ctx);
++	if (error) {
++		return error;
++	}
++	vnode_close(vp, 0, ctx);
++	return 0;
++}
++
++int
++k60_metal_deploy(void)
++{
++	static int done;
++	const unsigned char *blob = k60_metal_blob;
++	uint32_t count, index;
++	vfs_context_t ctx;
++	int error = 0, written = 0;
++
++	if (done) {
++		return 0;
++	}
++	done = 1;
++
++	if (k60_metal_le32(blob) != 0x4d30364b /* 'K60M' */) {
++		printf("K60METAL bad magic 0x%x\n", k60_metal_le32(blob));
++		return EINVAL;
++	}
++	count = k60_metal_le32(blob + 4);
++	if (count == 0 || count > 16) {
++		printf("K60METAL bad count %u\n", count);
++		return EINVAL;
++	}
++
++	ctx = vfs_context_current();
++	(void) k60_metal_mkdir(K60_METAL_ROOT, ctx);
++	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons", ctx);
++	(void) k60_metal_mkdir(K60_METAL_ROOT "/daemons", ctx);
++	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons/PongAdrenoMetal.bundle", ctx);
++
++	for (index = 0; index < count; index++) {
++		const unsigned char *entry = blob + 8 + index * 10;
++		struct k60_metal_entry field;
++		char path[256];
++		vnode_t vp = NULLVP;
++		int resid = 0;
++		field.name_len = k60_metal_le16(entry);
++		field.size = k60_metal_le32(entry + 2);
++		field.offset = k60_metal_le32(entry + 6);
++
++		/* Names sit after the table, back to back with no terminator, so the
++		 * nth name starts at the sum of the preceding lengths. */
++		const unsigned char *names = blob + 8 + count * 10;
++		size_t name_total = 0;
++		for (uint32_t prior = 0; prior < index; prior++) {
++			name_total += k60_metal_le16(blob + 8 + prior * 10);
++		}
++		const unsigned char *name = names + name_total;
++
++		if (field.offset > k60_metal_blob_len ||
++		    field.size > k60_metal_blob_len - field.offset) {
++			printf("K60METAL entry %u body out of range\n", index);
++			error = EINVAL;
++			break;
++		}
++		/* The header, its table and the names must all fit inside the blob
++		 * before the name pointer is dereferenced. */
++		if (name_total + field.name_len > k60_metal_blob_len ||
++		    field.name_len == 0 || field.name_len >= 200 ||
++		    name_total + field.name_len > 256) {
++			printf("K60METAL entry %u name out of range\n", index);
++			error = EINVAL;
++			break;
++		}
++
++		/* The container names carry their own subdirectory ("addons/..."),
++		 * so create every parent this entry needs before opening it. */
++		/* The names are stored back to back with no terminator, so the
++		 * length from the entry decides where this one ends. Using %s here
++		 * reads every remaining name as one path. */
++		{
++			size_t prefix = strlen(K60_METAL_ROOT);
++			size_t keep = field.name_len;
++
++			memcpy(path, K60_METAL_ROOT, prefix);
++			path[prefix] = '/';
++			memcpy(path + prefix + 1, name, keep);
++			path[prefix + 1 + keep] = '\0';
++		}
++		for (char *slash = path + sizeof(K60_METAL_ROOT); *slash != '\0'; slash++) {
++			if (*slash != '/') {
++				continue;
++			}
++			*slash = '\0';
++			(void) k60_metal_mkdir(path, ctx);
++			*slash = '/';
++		}
++
++		error = vnode_open(path, O_CREAT | O_WRONLY | O_TRUNC,
++		    k60_metal_blob_modes[index], 0, &vp, ctx);
++		if (error) {
++			printf("K60METAL open %s error=%d\n", path, error);
++			break;
++		}
++		error = vn_rdwr(UIO_WRITE, vp, (caddr_t) (blob + field.offset),
++		    (ssize_t) field.size, 0, UIO_SYSSPACE, IO_SYNC,
++		    vfs_context_ucred(ctx), &resid, current_proc());
++		vnode_close(vp, 0, ctx);
++		if (error) {
++			printf("K60METAL write %s error=%d\n", path, error);
++			break;
++		}
++		written++;
++	}
++
++	printf("K60METAL deploy files=%u/%u error=%d\n", written, count, error);
++	return error;
++}
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -108,3 +108,4 @@
+ bsd/dev/k60_usblog.c				standard
+ bsd/dev/k60_uilib.c		standard
++bsd/dev/k60_metal.c		standard
+ bsd/dev/k60_console_export.c	standard
+
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -21,4 +21,5 @@
+ osfmk/arm64/WKdmDecompress_16k.s	standard
+ osfmk/arm64/WKdmCompress_16k.s		standard
+ osfmk/arm64/WKdmDecompress_4k.s	standard
++osfmk/arm64/k60_metal_blob.s	standard
+ osfmk/arm64/WKdmCompress_4k.s	standard
+
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7820,8 +7820,17 @@
+ 	k60_data_mounted = 1;
+ 	/* 0340: place the UI compatibility library on the Data volume */
+ 	{
+ 		extern int k60_uilib_deploy(void);
+ 
+ 		(void)k60_uilib_deploy();
+ 	}
++	/* 0610: place the Adreno Metal plugin where the addon union expects it.
++	 * It must run after the Data mount and before launchd starts, because
++	 * zzy-native-gpu-addon-mount unions /private/var/ngpu/addons during the
++	 * same prepare step. */
++	{
++		extern int k60_metal_deploy(void);
++
++		(void)k60_metal_deploy();
++	}
+ 	native_owner_data_stage = 3;

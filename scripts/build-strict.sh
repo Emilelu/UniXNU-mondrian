@@ -95,6 +95,21 @@ fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 
+# --- gpu addon (0610) -------------------------------------------------------
+# The Metal plugin travels inside the kernel as an .incbin blob, so the build
+# needs the assembled bundle before the kernel link.  CONFIG_XNU_GPU_ADDON=y
+# without the bundle would link a kernel that references a missing symbol, so
+# a missing directory is a hard failure rather than a silent skip.
+GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)
+if [ -n "$GPU_ADDON" ]; then
+  PLUGIN_DIR=${K60_METAL_PLUGIN_DIR:-/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin}
+  if [ ! -d "$PLUGIN_DIR" ]; then
+    die "CONFIG_XNU_GPU_ADDON=y needs the Metal bundle; $PLUGIN_DIR is missing"
+  fi
+  export K60_METAL_PLUGIN_DIR=$PLUGIN_DIR
+  echo "build-strict: metal plugin $PLUGIN_DIR"
+fi
+
 # The battery class lives in a host-built archive that the kernel script only
 # force-loads when the defconfig asks for it. Build it here so a battery-enabled
 # configuration cannot reach the link step without its archive (P-157).

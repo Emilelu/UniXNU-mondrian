@@ -15,7 +15,7 @@ diff --git a/bsd/dev/pong_goodix.c b/bsd/dev/pong_goodix.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_goodix.c
-@@ -0,0 +1,1290 @@
+@@ -0,0 +1,1341 @@
 +/* Goodix Berlin-D on Redmi K60 / SM8475. Adapted from HackiOS
 + * redwood_goodix.c (APSL 2.0) and the Pong driver. Board resources come
 + * from the K60 live FDT; Berlin framing follows the Linux transport. */
@@ -602,6 +602,31 @@ new file mode 100644
 +    return true;
 +}
 +
++/* Stage 7 only: exercise the known output pads while Goodix is held in reset.
++ * IO bit 1 is the latch, bit 0 the sampled pad; neither is a chip ACK. */
++static void
++bitbang_pad_probe(void)
++{
++    const unsigned outputs[] = { PIN_CS, PIN_CLK, PIN_MOSI };
++
++    printf("Pong touch: pad probe RESET cfg=%#x io=%#x (must remain low)\n",
++        rd(GPIO_CFG(PIN_RESET)), rd(GPIO_IO(PIN_RESET)));
++    for (unsigned i = 0; i < 3; i++) {
++        unsigned pin = outputs[i];
++        uint32_t samples[3];
++        for (unsigned j = 0; j < 3; j++) {
++            bool high = i == 0 ? j != 1 : j == 1;
++            gpio_set(pin, high);
++            sleep_us(2);
++            samples[j] = rd(GPIO_IO(pin));
++        }
++        printf("Pong touch: pad GPIO%u cfg=%#x levels=%s io=%#x,%#x,%#x\n",
++            pin, rd(GPIO_CFG(pin)), i == 0 ? "101" : "010",
++            samples[0], samples[1], samples[2]);
++    }
++}
++
++
 +/* GPIO runs far faster than a Berlin-D samples; 2 us per half period is
 + * the measured working rate (see the two prior bring-ups). */
 +static uint32_t bb_delay_us = 2;
@@ -757,6 +782,11 @@ new file mode 100644
 +        return false;
 +    }
 +    if (goodix_dummy_data(version, sizeof(version))) {
++        if (touch_stage == 7) {
++            printf("goodix: actual firmware bytes");
++            for (unsigned i = 0; i < sizeof(version); i++) printf(" %02x", version[i]);
++            printf("\n");
++        }
 +        printf("goodix: firmware-version contains only bus default bytes, no chip response\n");
 +        return false;
 +    }
@@ -815,6 +845,9 @@ new file mode 100644
 +    fw_buffer_address = le32(info + offset + 18);
 +    touch_address = address;
 +    command_address = command;
++    if (verbose) printf("goodix: active config=%#x version=%u fw-state=%#x/%u fw-buffer=%#x/%u\n",
++        le32(info + 6), info[10], le32(info + offset + 12), le16(info + offset + 16),
++        fw_buffer_address, le16(info + offset + 22));
 +    if (verbose) printf("goodix: IC-info length=%u misc=%u touch=%#x command=%#x head=%u point=%u raw axes=%ux%u\n",
 +        length, offset, touch_address, command_address, head, point, max_x, max_y);
 +    return true;
@@ -1089,6 +1122,8 @@ new file mode 100644
 +{
 +    static uint8_t report[8 + 8 * GOODIX_MAX_TOUCHES + 2];
 +    static unsigned complaints;
++    static unsigned polls, observations;
++    static uint8_t last_status;
 +    const uint8_t zero = 0;
 +    const uint32_t first = 8 + 8 * 2 + 2;
 +    bool valid = true, reset = false;
@@ -1096,6 +1131,17 @@ new file mode 100644
 +
 +    if (!touch_address) return false; /* failed re-identification must not read address zero */
 +    if (!goodix_read(touch_address, report, first)) return false;
++    /* Bounded physical acquisition evidence, independent of the IRQ line.
++     * The header is read before any status ACK and no contact is synthesized. */
++    if (observations < 40 && (polls < 4 || !(polls & 127u) || report[0] != last_status)) {
++        printf("goodix: physical poll=%u irq=%u reset=%u avdd=%u header=%02x %02x %02x %02x %02x %02x %02x %02x checksum=%u\n",
++            polls, gpio_get(PIN_INT), gpio_get(PIN_RESET), gpio_get(avdd_gpio),
++            report[0], report[1], report[2], report[3], report[4], report[5], report[6], report[7],
++            goodix_checksum_ok(report, 8));
++        observations++;
++    }
++    polls++;
++    last_status = report[0];
 +    if (!report[0]) return true;  /* no event does NOT mean all contacts lifted */
 +    if (!goodix_checksum_ok(report, 8)) {
 +        if (complaints++ < 8) printf("goodix: invalid report header checksum\n");
@@ -1143,6 +1189,7 @@ new file mode 100644
 +    if (touch_stage == 7) {
 +        printf("Pong touch: GPIO-only identification, no GCC or serial-engine accesses\n");
 +        if (!bitbang_init()) return false;
++        bitbang_pad_probe();
 +        spi_transfer = bitbang_transfer;
 +    } else {
 +        printf("Pong touch: mapping serial engine %#llx after clock checks\n", se_phys);
@@ -1167,7 +1214,11 @@ new file mode 100644
 +    /* Actual K60 goodix_core.ko: Berlin-D releases RESET, waits 100 ms,
 +     * then reads identity. There is no boot-option write/read prerequisite. */
 +    gpio_set(PIN_RESET, true);
++    if (touch_stage == 7) printf("Pong touch: RESET released cfg=%#x io=%#x\n",
++        rd(GPIO_CFG(PIN_RESET)), rd(GPIO_IO(PIN_RESET)));
 +    sleep_ms(100);
++    if (touch_stage == 7) printf("Pong touch: RESET after100ms io=%#x IRQ=%u MISO=%u\n",
++        rd(GPIO_IO(PIN_RESET)), gpio_get(PIN_INT), gpio_get(PIN_MISO));
 +    if (!goodix_probe(true)) {
 +        printf("Pong touch: chip identity unavailable; no /dev/pong-touch\n");
 +        return false;
@@ -1306,6 +1357,7 @@ new file mode 100644
 +    }
 +}
 +#endif /* PONG */
+
 diff --git a/bsd/dev/pong_input.c b/bsd/dev/pong_input.c
 new file mode 100644
 index 0000000..57e74e5

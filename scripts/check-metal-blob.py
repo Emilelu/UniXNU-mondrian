@@ -12,6 +12,9 @@ Checks, all against the generated .s:
   * every entry's [offset, offset+size) lies inside k60_metal_blob_len
   * entries are ordered, aligned and non-overlapping
   * every name is non-empty and shorter than 200 bytes
+
+The path is always supplied by the caller (build-strict.sh passes the tree copy),
+so this file never names a scratch location of its own (iron rule 1).
 """
 import os
 import struct
@@ -19,14 +22,13 @@ import sys
 from pathlib import Path
 
 REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
-DEFAULT = Path('/tmp/k60metal-probe.s')
 ALIGN = 8
 
 
 def parse_header(path: Path):
     head, incbins = [], 0
     lines = path.read_text().splitlines()
-    for i, line in enumerate(lines):
+    for line in lines:
         stripped = line.strip()
         if stripped.startswith('.byte '):
             head.extend(int(x, 16) for x in stripped[len('.byte '):].split(','))
@@ -81,7 +83,10 @@ def check(path: Path) -> list:
 
 
 def main(argv) -> int:
-    targets = [Path(a) for a in argv[1:]] or [DEFAULT]
+    targets = [Path(a) for a in argv[1:]]
+    if not targets:
+        print('usage: check-metal-blob.py <generated .s> [...]')
+        return 2
     missing = [t for t in targets if not t.is_file()]
     if missing:
         print(f'skip: {missing[0]} not generated yet (nothing to inspect)')

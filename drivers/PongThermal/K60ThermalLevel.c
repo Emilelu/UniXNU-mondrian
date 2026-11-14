@@ -3,7 +3,7 @@
 /* Data and arithmetic for the board's thermal pressure level. No register, no IOKit, no
  * allocation: the whole file runs on the host (scripts/tests/test-k60-thermal-level.c).
  * Threshold provenance is in docs/research/thermal/05-PRESSURE-LEVEL.md §2, one line per
- * number, all from /tmp/mondrian.dts of this board. */
+ * number, all from the decompiled board DTS (docs/research/thermal/01-SAME-HARDWARE.md §5). */
 #include "K60ThermalLevel.h"
 
 /* CPU cluster 0 (cpu-0-0..3): emerg 110 C / 10 C (:7706, :7707), reset-mon 115 C / 5 C

@@ -3,7 +3,7 @@
  * drivers/PongThermal/K60ThermalLevel.c against the trip points of the board DTB and
  * checks the hysteresis, the unreadable-sensor rule and the domain table.
  * Build: cc -std=c11 -O1 -Wall -Wextra -I drivers/PongThermal \
- *        scripts/tests/test-k60-thermal-level.c -o /tmp/k60tl && /tmp/k60tl */
+ *        scripts/tests/test-k60-thermal-level.c -o build/thermal/test-level */
 #include <stdio.h>
 #include <string.h>
 #include "../../drivers/PongThermal/K60ThermalLevel.c"

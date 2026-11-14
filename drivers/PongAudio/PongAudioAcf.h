@@ -62,6 +62,7 @@
 /* Register words the write pass must treat specially (M: aw88261.c:420-470). */
 #define PONG_ACF_REG_ID           0x00u   /* soft reset; never taken from a profile */
 #define PONG_ACF_REG_SYSCTRL      0x04u
+#define PONG_ACF_REG_SYSCTRL2     0x05u   /* carries the volume; rewritten last */
 #define PONG_ACF_REG_I2SCTRL3     0x08u
 #define PONG_ACF_REG_DBGCTRL      0x14u
 #define PONG_ACF_REG_VSNTM1       0x50u   /* computed from the fuses, skipped here */

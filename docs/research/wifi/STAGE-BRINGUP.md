@@ -194,28 +194,43 @@ Milestones inside the ladder:
   name ath11k asked for — that name is the board selection evidence
   (`FIRMWARE.md` §8/§9).
 
-Runner: `E:\k60-work\evidence\wifi-trial\ladder5-run.ps1`
+Runner: `E:\k60-work\evidence\wifi-trial\ladder6-run.ps1`
 (parameters `-RaceSeconds`, `-Seconds`, `-Tag`). It races fastboot every 0.7 s,
-converting an ADB-visible phone to the bootloader first, then boots in this
-order:
+converting an ADB-visible phone to the bootloader first. Because the console
+gate makes a WiFi fault verbose instead of silent, the runner now spends its
+boots in order of information per boot: **control first, then the full ten-stage
+image, and only then the linear ladder**.
+
+| order | image | what one boot buys |
+| --- | --- | --- |
+| 1 | `a` | control, `pong_wifi=0`: does this kernel + firmware pack boot and give a console at all |
+| 2 | `g` | all ten stages: prints `stage N (…)` for every block it enters, so the **last stage line is the block that killed the machine** |
+| 3 | `b` … `f` | only if `g` was silent: the linear ladder bisects which single stage dies |
+
+This inverts the earlier plan on purpose. Walking eight rungs costs eight boots
+and each rung answers one question; a single full-stage boot answers the same
+question for all ten blocks at once, because `stageOpen()` logs before it
+touches anything. The linear ladder is now the fallback, not the main path.
+
+With `g` silent the runner walks the linear fallback:
 
 | order | image | stage |
 | --- | --- | --- |
-| 1 | `a` | control, `pong_wifi=0` |
-| 2 | `b` | stage 1, TLMM pinmux |
-| 3 | `c` | stage 3, SPMI/PMIC + cmd-db, no RSC |
-| 4 | `p` | stage 4 with `k60_wifi_rsc=1`, RSC read only |
-| 5 | `d` | stage 4 with `k60_wifi_rsc=2`, first RPMh vote |
-| 6 | `e` | stage 5, GCC GDSC/refgen/NoC |
-| 7 | `f` | stage 8, host MMIO, PHY table, PERST, LTSSM |
-| 8 | `g` | all stages, SMMU, MSI attach, `ath11k start` |
+| 1 | `b` | stage 1, TLMM pinmux |
+| 2 | `c` | stage 3, SPMI/PMIC + cmd-db, no RSC |
+| 3 | `p` | stage 4 with `k60_wifi_rsc=1`, RSC read only |
+| 4 | `d` | stage 4 with `k60_wifi_rsc=2`, first RPMh vote |
+| 5 | `e` | stage 5, GCC GDSC/refgen/NoC |
+| 6 | `f` | stage 8, host MMIO, PHY table, PERST, LTSSM |
 
 It stops at the first zero-byte console (exit 12) so that rung can be inspected
 before another boot is spent, and waits up to 240 s after each surviving rung
 for the phone to come back to fastboot (exit 11 otherwise). **Only if `a` itself
 is silent** does it fall back to the size bisect in §4.2, `z0 → t0 → t1`; a
 silent `z0` ends with exit 13, meaning the phone or the FD is at fault and no
-WiFi conclusion is available.
+WiFi conclusion is available. If every fallback rung produces a console, the
+runner exits 0 and the fault needs the full stage set — which `g` already
+covered, so that outcome means the capture, not the driver, lost the stage lines.
 
 Never `fastboot flash`; always `fastboot boot`, always with the collector
 armed first (`docs/engineering/BOOT-PROCEDURE.md`).
@@ -358,14 +373,15 @@ Everything that can be prepared without the phone is prepared and byte-checked:
 
 - 17 rungs exist and every one matches its own `build-manifest.json` on fd,
   ramdisk kernel and command line (see `LOCAL-VERIFICATION.md` §5.14).
-- The runner `E:\k60-work\evidence\wifi-trial\ladder5-run.ps1` polls
+- The runner `E:\k60-work\evidence\wifi-trial\ladder6-run.ps1` polls
   `fastboot devices` every 0.7 s, converts an ADB device to the bootloader
-  first, and walks control → stage 1 → 3 → 4(rsc=1) → 4(rsc=2) → 5 → 8 → all.
+  first, then boots control `a` → full ten-stage `g`, and only falls back to the
+  linear `b → c → p → d → e → f` walk if `g` is silent.
   It waits for the device to return to fastboot after **every** rung including
   the control one, and stops on the first zero-byte console so a silent rung is
   never followed by another boot.
 - Resume command:
-  `powershell -File E:\k60-work\evidence\wifi-trial\ladder5-run.ps1 -RaceSeconds 7200 -Seconds 150 -Tag ladder9`
+  `powershell -File E:\k60-work\evidence\wifi-trial\ladder6-run.ps1 -RaceSeconds 7200 -Seconds 180 -Tag ladder9`
 
 When ADB comes back, pull the board data **before** the next boot, so the
 `Pong: actual QMI board firmware <name>` line from stage 10 can be matched

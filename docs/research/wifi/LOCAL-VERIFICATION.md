@@ -437,11 +437,13 @@ The canonical six-file kernel is preserved outside the build tree as
 `73c33075…`), because `unixnu build kernel` overwrites
 `out-wifi/…/kernel/kernel.macho` in place and the tiny build replaced it.
 
-上机脚本 `E:\k60-work\evidence\wifi-trial\ladder4-run.ps1`
-（`-RaceSeconds 5400 -Seconds 150 -Tag ladder4`）：每 0.7 s 抢一次
-fastboot 窗口，命中后按 a→g 顺序逐张 boot，每张把结果写进
-`E:\k60-work\evidence\usblog-<stamp>-ladder4`，并在每轮之后等设备回 fastboot
-（最多 240 s）；任何一张没回来就停下，那说明该级新增的寄存器访问挂了互连。
+上机脚本 `E:\k60-work\evidence\wifi-trial\ladder6-run.ps1`
+（`-RaceSeconds 7200 -Seconds 180 -Tag ladder9`）：每 0.7 s 抢一次
+fastboot 窗口，命中后先 boot 控制镜像 `a`，再 boot 全十级镜像 `g`
+（一次启动就能打出所有 `stage N` 行，最后一条就是挂了的那块），只有
+`g` 也静默时才退回线性阶梯 `b → c → p → d → e → f`。每张把结果写进
+`E:\k60-work\evidence\usblog-<stamp>-<tag>`，并在每轮之后等设备回 fastboot
+（最多 240 s）；任何一张零字节控制台就停下（exit 12）。
 
 ### 5.12 The small-kernel ladder (54.8 MB) and the stock control
 

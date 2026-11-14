@@ -48,6 +48,8 @@ ALLOWED_ADDITIONS = {
     "pong_audio_probe", "pong_rail_probe", "pong_adsp", "pong_touch_se",
     "sheng-gpu-addon", "k60_usbvend",
     "pong_modem", "k60_wallpaper_reset",
+    "k60_backlight", "k60_backlight_control", "k60_backlight_invert",
+    "pong_thermal_bias",
 }
 
 # Values that are never acceptable in an experiment image, with the reason.

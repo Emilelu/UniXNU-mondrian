@@ -212,19 +212,25 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 - 5 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
-- **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。四个新文件与 `drivers/PongAudio/` 逐字节相同。完整 transcript 见 `patches/audio/README.md`。
+- **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。五个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 不在其中：内核侧还没有 `.c` include 它，见 §6.1）。完整 transcript 见 `patches/audio/README.md`。
 - 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。**守卫本身也验证过**：`E:/k60-work/scratch/audio-work/probe-pong.c` 只做 `#if !defined(PONG) #error`，用同一套 flags 编译得到 `PASS: probe-pong.c`，即 `PONG` 由 `board_config.h` 定义、探针不是死代码（这是「静默不跑」这类故障的必要前提）。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，157 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，265 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
 `PongAudioAmp.c` 依赖内核头，不能宿主编译；所以它的**判定逻辑**被抽到 `PongAudioPlan.h`（纯函数、无 MMIO），由单测逐条钉住，留在 `.c` 里的只剩 MMIO 时序——那部分只能靠语法检查与一次上机说话。
 
+codec 半（LPASS 宏 / SoundWire / WCD938x）走同一条路：`PongCodecPlan.h` 把「硬件可达之前就能定下来的决策」
+写成纯函数——控制器版本判定、两套读事务寄存器组、事务号与命令字、FIFO 满判定、回包匹配、枚举位图与
+slave-id 布局、LPI pad 配置字、五个窗口及其 io_submap 页数、以及「两票 PRM + `0x30c` 时钟都到位才许碰 LPASS」
+这一条门。它们全是算术，不碰寄存器，所以现在就能钉死；等 Lead 的 PAS1/PRM 起来，上机代码只是套一层薄循环。
+`PongCodecPlan.h` **不进补丁**：内核侧还没有任何 `.c` include 它（只有宿主测试用），补丁只装内核真正编译的文件。
+
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 157 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# → TESTS OK 265 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
 ```
 
 覆盖范围：
@@ -239,6 +245,7 @@ wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/t
 | `poll_cases` | poll 读到 `TX_WATERMARK` 后写同值 `M_IRQ_CLEAR` 并推进到 `WriteDone` |
 | `recovery_cases` | 卡死状态机拒绝新传输（`start` 返回 -1）；从 Cancelling 再走 2 步、从 TxWait 走 3 步即回到 Idle 并可再发传输——`PongAudioAmp.c` 的 `bus_recover()` 每次读寄存器前都走这段阶梯 |
 | `plan_cases` | `pong_audio_pad_phys` 四个实测点（GPIO1 `0x0f101000`、GPIO3 `0x0f103000`、GPIO43 `0x0f12b000`、GPIO88 `0x0f158000`）与 0x1000 步进；pad 配置字（pull/function/drive/output 位域、高位保留、eGPIO→APPS 所有权、drive 向下取整不越界）；`pong_audio_cbcr_running` 的四种组合（含「HWCG 时 CLK_OFF 置位仍算在跑」）；GCC 四窗口路由（含窗口前后一字的边界、`0x62018` 必须落 vote 窗口而 `PLL_MODE` 落 PLL 窗口）；GPLL0 五个常量值；DFS 档判定五例 |
+| `codec_cases` | SoundWire 版本判定（`0x01070000` → V1.7、高字节 2 → V2、其余 Unknown）；两套读事务寄存器组（V17 `0x320/0x328/0x334`、V2 `0x5024/0x5050/0x5040`）；事务号 `(issued%14)+1` 与命令字 `1<<24 | device<<20 | txn<<16 | reg`；FIFO 满阈值 8；回包事务号匹配与数据取低 8 位；V17 中断掩码 `0xffffffff/0x1dfdfd`；枚举位图每 slave 2 bit 与 `0x530+8n` 的 id 寄存器、`0x000d01170223` 的 WCD938x 判定；LPI 四个 pin 与 pad 配置字；五个 LPASS 窗口（4 KiB 对齐、落在 `0x03100000..0x03600000`）与 **10 页 / 160 KiB** 的 io_submap 账；以及 `pong_codec_may_touch_lpass()` 的三票合取 |
 | `chip_id_cases` | `pong_audio_amp_value(encode_amp_value(id)) == id` 对 9 个已知 ID 全成立；`pong_audio_amp_value(0x1321) == 0x2113`（AW88261），与 `PongAudioAmp.c` 的大端拼装一致；未知 ID 必须回落 `"unknown"` 而不是猜一个型号 |
 
 踩坑记录：Windows 侧 `cc` 不存在（第一次跑直接 `command not found`）；测试里若只定义不使用的辅助函数，`-Werror` 会因 `-Wunused-function` 失败——本例把三处 `expect_eq` 改成 `expect` 后才通过。
@@ -324,8 +331,8 @@ evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io
 done = true
 local_verified = true
 static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
-unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 157 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数，见 AMPS.md §6.1）"
-artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:117-120、bsd_init.c:1357-1358，四个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 265 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire/WCD938x/LPI 决策，见 AMPS.md §6.1）"
+artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:119-120、bsd_init.c:1357-1358，五个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
 
 [hardware.audio.step.device]
 done = false

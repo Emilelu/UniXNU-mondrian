@@ -29,6 +29,7 @@
 #include "PongAudioGeniI2c.h"
 #include "PongAudioPlan.h"
 #include "PongAudioRegs.h"
+#include "PongCodecPlan.h"
 
 static int fails;
 static int cases;
@@ -543,6 +544,175 @@ plan_cases(void)
 	expect(!pong_audio_dfs_level_ok(1u << 12), "a pre-divider is refused");
 }
 
+/* ---- codec-side decisions ------------------------------------------------
+ *
+ * The SoundWire half cannot run on this machine - every LPASS access waits on
+ * two PRM votes from the ADSP (SOUNDWIRE.md section 4) - but every *choice* it
+ * will make is a pure function over numbers, so the choices are pinned here.
+ * That is what makes the eventual on-device read a thin loop instead of a
+ * place where a wrong constant is first discovered on hardware.
+ */
+static void
+codec_cases(void)
+{
+	PongSwrReadRegs regs;
+	uint32_t phys = 0;
+	uint32_t size = 0;
+	uint32_t used = 0;
+	uint32_t cfg;
+	unsigned i;
+
+	/* Controller version: exact v1.7, else major 2, else stop. 0x02010000 is
+	 * a v2 controller and must not be mistaken for v1.7. */
+	expect_eq(pong_swr_version(0x01070000u), PongSwrV17, "0x01070000 is v1.7");
+	expect_eq(pong_swr_version(0x02010000u), PongSwrV2, "major 2 is v2");
+	expect_eq(pong_swr_version(0x02000000u), PongSwrV2, "bare major 2 is v2");
+	expect_eq(pong_swr_version(0x00000000u), PongSwrUnknown, "zero is unknown");
+	expect_eq(pong_swr_version(0x01070001u), PongSwrUnknown,
+	    "a v1.7 variant with another minor is still unknown, not v1.7");
+	expect_eq(pong_swr_version(0x03010000u), PongSwrUnknown, "major 3 is unknown");
+
+	/* Read-transaction register group per version. */
+	regs.read_command = regs.fifo_status = regs.read_fifo = 0u;
+	expect(pong_swr_read_regs(PongSwrV17, &regs), "v1.7 has a read group");
+	expect_eq(regs.read_command, 0x320u, "v1.7 read command register");
+	expect_eq(regs.fifo_status, 0x328u, "v1.7 fifo status register");
+	expect_eq(regs.read_fifo, 0x334u, "v1.7 read fifo register");
+	expect(pong_swr_read_regs(PongSwrV2, &regs), "v2 has a read group");
+	expect_eq(regs.read_command, 0x5024u, "v2 read command register");
+	expect_eq(regs.fifo_status, 0x5050u, "v2 fifo status register");
+	expect_eq(regs.read_fifo, 0x5040u, "v2 read fifo register");
+	expect(!pong_swr_read_regs(PongSwrUnknown, &regs), "an unknown version has no group");
+	expect(!pong_swr_read_regs(PongSwrV17, NULL), "a null out-pointer is refused");
+
+	/* Transaction ids walk 1..14 and then wrap, never 0. */
+	expect_eq(pong_swr_txn_id(0u), 1u, "the first transaction is 1");
+	expect_eq(pong_swr_txn_id(13u), 14u, "the fourteenth transaction is 14");
+	expect_eq(pong_swr_txn_id(14u), 1u, "the fifteenth wraps to 1");
+	expect_eq(pong_swr_txn_id(27u), 14u, "two full laps land on 14 again");
+
+	/* Command word: read flag in bit 24, device, id, register. */
+	expect_eq(pong_swr_read_command(0u, 1u, 0u), (1u << 24) | (1u << 16),
+	    "device 0 id 1 reg 0 keeps the transaction id");
+	expect_eq(pong_swr_read_command(1u, 2u, 0x3456u),
+	    (1u << 24) | (1u << 20) | (2u << 16) | 0x3456u, "device 1 id 2 reg 0x3456");
+	expect_eq(pong_swr_read_command(0xfu, 0xfu, 0xffffu),
+	    0x01ffffffu, "every field at its maximum fills the low 24 bits");
+	expect_eq(pong_swr_read_command(0x10u, 0x10u, 0x10000u),
+	    1u << 24, "out-of-range fields are masked, not shifted in");
+
+	/* FIFO fullness: bits 12:8, full at 8. */
+	expect(!pong_swr_fifo_full(0u), "an empty fifo is not full");
+	expect(!pong_swr_fifo_full(7u << 8), "seven entries still fit");
+	expect(pong_swr_fifo_full(8u << 8), "eight entries are full");
+	expect(pong_swr_fifo_full(0x1fu << 8), "the top of the field is full");
+	expect(!pong_swr_fifo_full(0xffu), "the low byte is not the fill level");
+
+	/* Response matching: id in bits 11:8, payload in bits 7:0. */
+	expect(pong_swr_response_ok(0x00000300u, 3u), "id 3 matches its response");
+	expect(!pong_swr_response_ok(0x00000400u, 3u), "id 4 is somebody else's response");
+	expect(pong_swr_response_ok(0x000003ffu, 3u), "the payload does not affect matching");
+	expect_eq(pong_swr_response_data(0x000003abu), 0xabu, "payload is the low byte");
+	expect_eq(pong_swr_response_data(0xffffffffu), 0xffu, "payload ignores the upper bits");
+
+	/* v1.7 interrupt masks before enumeration. */
+	{
+		uint32_t status = 0u, mask = 0u;
+
+		pong_swr_v17_intr_masks(&status, &mask);
+		expect_eq(status, 0xffffffffu, "v1.7 masks the first line completely");
+		expect_eq(mask, 0x1dfdfdu, "v1.7 mask for the second line");
+		pong_swr_v17_intr_masks(NULL, NULL);
+		expect(1, "null masks are tolerated");
+	}
+
+	/* Enumerator bitmap: slave n occupies bits 2n+1:2n, n from 1 to 11. */
+	expect(!pong_swr_slave_present(0u, 1u), "an empty bitmap has no slaves");
+	expect(pong_swr_slave_present(1u << 2, 1u), "slave 1 in bits 3:2");
+	expect(pong_swr_slave_present(2u << 2, 1u), "a half-set pair still counts");
+	expect(!pong_swr_slave_present(1u << 0, 1u), "bit 0 is the master, not slave 1");
+	expect(pong_swr_slave_present(3u << 22, 11u), "slave 11 in bits 23:22");
+	expect(!pong_swr_slave_present(3u << 22, 0u), "slave 0 does not exist");
+	expect(!pong_swr_slave_present(3u << 22, 12u), "slave 12 does not exist");
+	expect_eq(pong_swr_slave_id_reg(1u), 0x538u, "slave 1 id low word");
+	expect_eq(pong_swr_slave_id_reg(11u), 0x588u, "slave 11 id low word");
+	expect_eq(pong_swr_slave_id(0x01170223u, 0x000du), PONG_SWR_WCD938X_ID,
+	    "the WCD938x id assembles from its two words");
+	expect(pong_swr_is_wcd938x(PONG_SWR_WCD938X_ID), "the WCD938x id is recognised");
+	expect(!pong_swr_is_wcd938x(0x000d01170222ull), "a neighbouring id is not WCD938x");
+	expect_eq(PONG_SWR_WCD938X_ID, 0x000d01170223ull, "WCD938x SoundWire id");
+
+	/* LPI pads: pins 0/1/2/14, function 1, bus-hold on the data lines. */
+	expect_eq(pong_codec_lpi_pin(0u), 0u, "pin 0 carries the clock");
+	expect_eq(pong_codec_lpi_pin(1u), 1u, "pin 1 is data0");
+	expect_eq(pong_codec_lpi_pin(3u), 14u, "pin 3 is data2 on gpio 14");
+	expect_eq(pong_codec_lpi_pin(4u), 0xffffffffu, "there is no fifth LPI pin");
+	expect_eq(pong_codec_lpi_pad_phys(0u), 0x03440000u, "LPI gpio 0 address");
+	expect_eq(pong_codec_lpi_pad_phys(3u), 0x0344e000u, "LPI gpio 14 address");
+	expect_eq(pong_codec_lpi_pad_phys(4u), 0u, "an out-of-range pin maps nothing");
+	cfg = pong_codec_lpi_pad_config(0u, 0u);
+	expect_eq(cfg, 1u << 2, "the clock pad: function 1, no bus hold");
+	cfg = pong_codec_lpi_pad_config(0u, 1u);
+	expect_eq(cfg, (1u << 2) | 2u, "a data pad: function 1 plus bus hold");
+	cfg = pong_codec_lpi_pad_config(0xffffff00u, 1u);
+	expect_eq(cfg, 0xffffff00u | (1u << 2) | 2u, "bits above 5 survive the write");
+	expect_eq(pong_codec_lpi_pad_config(0x3fu, 0u), 1u << 2,
+	    "the function and hold fields are replaced, not or-ed in");
+
+	/* LPASS windows and their io_submap cost. */
+	expect_eq(pong_codec_window_count(), 5u, "the codec half needs five windows");
+	expect(pong_codec_window(0u, &phys, &size), "window 0 exists");
+	expect_eq(phys, 0x033f0000u, "window 0 is the VA macro");
+	expect_eq(size, 0x1000u, "the VA macro is one page");
+	expect(pong_codec_window(1u, &phys, &size), "window 1 exists");
+	expect_eq(phys, 0x03220000u, "window 1 is the TX macro");
+	expect(pong_codec_window(2u, &phys, &size), "window 2 exists");
+	expect_eq(phys, 0x033b0000u, "window 2 is the VA SoundWire master");
+	expect_eq(size, 0x2000u, "the SWR master is mapped as 0x2000, not Pong's 0x10000");
+	expect(pong_codec_window(3u, &phys, &size), "window 3 exists");
+	expect_eq(phys, 0x03440000u, "window 3 is the LPI pinctrl");
+	expect(pong_codec_window(4u, &phys, &size), "window 4 exists");
+	expect_eq(phys, 0x034da000u, "window 4 is the LPI slew block");
+	expect(!pong_codec_window(5u, &phys, &size), "there is no sixth window");
+	expect(pong_codec_window(0u, NULL, NULL), "null out-pointers are tolerated");
+
+	expect_eq(pong_codec_pages(0u), 0u, "zero bytes cost nothing");
+	expect_eq(pong_codec_pages(1u), 1u, "one byte still costs a page");
+	expect_eq(pong_codec_pages(0x4000u), 1u, "exactly one page");
+	expect_eq(pong_codec_pages(0x4001u), 2u, "one byte over rounds up");
+	expect_eq(pong_codec_pages(0x17000u), 6u, "the LPI pinctrl window is six pages");
+
+	/* 0x1000+0x1000+0x2000+0x17000+0x1000 = 0x1b000 bytes, but io_map() charges
+	 * whole pages: 1+1+1+6+1 = 10 pages = 160 KiB. The pinctrl window is the
+	 * expensive one and cannot be shrunk - it spans six pages of live FDT. */
+	expect_eq(pong_codec_window_bytes(), 10u * 0x4000u, "the codec half costs 160 KiB");
+	expect_eq(pong_codec_window_bytes() / 0x4000u, 10u, "ten arm64 pages");
+	expect(pong_codec_budget_ok(192u * 1024u, pong_codec_window_bytes()),
+	    "192 KiB of amplifier mappings leave room for the codec half");
+	expect(!pong_codec_budget_ok(8u * 1024u * 1024u, 1u), "a full submap takes nothing more");
+	expect(!pong_codec_budget_ok(9u * 1024u * 1024u, 0u), "an over-full submap is refused");
+	expect(pong_codec_budget_ok(0u, 8u * 1024u * 1024u), "an empty submap takes the whole budget");
+
+	/* The LPASS gate: all three votes, or nothing. */
+	expect(!pong_codec_may_touch_lpass(false, false, false), "no votes, no access");
+	expect(!pong_codec_may_touch_lpass(true, false, true), "a missing DCODEC vote blocks");
+	expect(!pong_codec_may_touch_lpass(true, true, false), "a missing clock ack blocks");
+	expect(!pong_codec_may_touch_lpass(false, true, true), "a missing MACRO vote blocks");
+	expect(pong_codec_may_touch_lpass(true, true, true), "all three votes allow access");
+
+	/* Every window is inside the LPASS register region and page aligned. */
+	for (i = 0u; i < pong_codec_window_count(); i++) {
+		expect(pong_codec_window(i, &phys, &size), "window enumerates");
+		/* Bases are 4 KiB register aligned, not 16 KiB: the LPI slew block sits
+		 * at 0x034da000, which io_map() rounds up into pages for us. */
+		expect((phys & 0xfffu) == 0u, "window is 4 KiB aligned");
+		expect(phys >= 0x03100000u && phys + size <= 0x03600000u,
+		    "window stays inside the LPASS register region");
+		used += size;
+	}
+	expect(used > 0u, "the windows add up to something");
+}
+
 int
 main(void)
 {
@@ -555,6 +725,7 @@ main(void)
 	recovery_cases();
 	plan_cases();
 	chip_id_cases();
+	codec_cases();
 
 	if (fails) {
 		printf("TESTS FAILED %d of %d\n", fails, cases);

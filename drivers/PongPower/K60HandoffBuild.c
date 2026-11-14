@@ -26,7 +26,7 @@ static int plan_ok(const K60HandoffPlan *p)
     if (p->smp2p_bytes < 20u || p->smp2p_bytes > 340u) return 0;
     if (!p->remote_pid || p->remote_pid > 255u) return 0;
     if (p->host_tx_head || p->host_rx_tail) return 0;
-    if (p->remote_restart_flag > 1u || p->required == 0u) return 0;
+    if (p->remote_restart_flag > 1u || p->required != 15u) return 0;
     return 1;
 }
 

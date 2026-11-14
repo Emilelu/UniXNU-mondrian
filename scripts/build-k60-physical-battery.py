@@ -309,7 +309,8 @@ def main():
         battery_module=str(args.battery_module.resolve()), battery_module_sha256=sha256(args.battery_module),
         checked_module_maps=maps, current_qualification=current_evidence, notification_qualification=notify_evidence,
         required_platform_handoff='K60BatteryConfig.h K6BH v1, authenticated PAS1 owner and exclusive fresh APSS GLINK epoch',
-        firmware_start_implemented=False, synthetic_handoff=False, battery_readings_embedded=False,
+        firmware_start_implemented=False, owner_orchestration_implemented=True,
+        platform_backend_installed=False, synthetic_handoff=False, battery_readings_embedded=False,
         current_sign_qualified=sign != 0, subscription_qualified=notify_bytes != 0,
         hardware_qualified=False, archive_built=False, commands=[])
     if not args.emit_config_only:
@@ -337,7 +338,8 @@ def main():
         # SMEM, handoff serialization and startup arbitration are kernel objects
         # (0611/0619), not duplicate archive members (P-190).
         for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
-                     'K60AdspOwner.c', 'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
+                     'K60AdspOwner.c', 'K60AdspOwnerStages.c', 'K60AdspMdt.c',
+                     'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file
             obj = out / (path.stem + '.o')

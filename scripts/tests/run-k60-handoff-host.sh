@@ -18,8 +18,16 @@ cc "${CFLAGS[@]}" scripts/tests/test-k60-handoff-publish.c \
 cc "${CFLAGS[@]}" scripts/tests/test-k60-handoff-build.c \
   drivers/PongPower/K60BatteryConfig.c -o "$OUT/builder"
 "$OUT/builder"
-cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-owner.c drivers/PongPower/K60AdspOwner.c -o "$OUT/owner"
+OWNER_SOURCES=(drivers/PongPower/K60AdspOwner.c drivers/PongPower/K60AdspOwnerStages.c
+  drivers/PongPower/K60AdspMdt.c drivers/PongPower/K60Smem.c
+  drivers/PongPower/K60HandoffBuild.c drivers/PongPower/K60HandoffPublish.c
+  drivers/PongPower/K60BatteryConfig.c)
+cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-owner.c "${OWNER_SOURCES[@]}" -o "$OUT/owner"
 "$OUT/owner"
+for stage in claim prepare auth build publish; do
+  cc "${CFLAGS[@]}" "scripts/tests/test-k60-owner-$stage.c" "${OWNER_SOURCES[@]}" -o "$OUT/owner-$stage"
+  "$OUT/owner-$stage"
+done
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2

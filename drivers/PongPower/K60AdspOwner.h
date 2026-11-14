@@ -15,8 +15,9 @@ extern "C" {
  * unlocked intervals. On successful publication it stays retained indefinitely.
  * revalidate must be nonblocking/read-only; abort must quiesce the provider on
  * failure. Success transfers GLINK only, never drops the resource votes.
- * The default compiled provider returns UNAVAILABLE before physical mapping.
- * Replacing it requires an audited implementation of this entire contract. */
+ * The staged provider requires installed platform operations and an image reader.
+ * Without them it returns UNAVAILABLE before physical mapping. The persistent
+ * session and injection contract are declared in K60AdspOwnerStages.h. */
 typedef struct {
     uint32_t version, bytes, flags, epoch;
     void *token;

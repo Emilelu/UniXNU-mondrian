@@ -163,10 +163,20 @@ K60MODEM qrtr: verdict ok services=36 node0=36 wanted=5 malformed=0 polls=N
    输出 `TESTS OK 6 groups (lookup, hello, verdict, services, malformed, node)`。
 2. **补丁一致性** `scripts/tests/test-k60-modem-image.py`：把 `0622-k60-modem-qrtr.patch`
    内嵌的五份源码（`pong_modem_qrtr.h/.c`、`qcom_glink.h/.c`、`pong_modem_link.c`）
-   与仓库文件逐字节比对（include 名归一化），防止"内核编译的副本"与"测试的副本"漂移。
-3. **构建期内核**（`docs/research/EIGHT-STEPS.toml` 的 `[hardware.cellular.step.verify]`）：
-   见该段的 artifact_check；本轮镜像的 `kernel.macho` 必须能 grep 到
-   `K60MODEM qrtr` 与 `pong_modem_link.o` / `qcom_glink.o`。
+   与仓库文件逐项比对（include 名归一化 + GLINK 副本按 `k60m_glink_` 改名后比对），
+   防止"内核编译的副本"与"测试的副本"漂移。
+3. **构建期内核**（tag `cellular-l3-20261114d`，exit 0）：kernel.macho
+   `4dde4eaa7de209bc59c7a9a9053a66b3ccbee42b140a0300ef4a578b2ee773bc` 105,500,672 B，
+   `strings | grep -c K60MODEM` = 33（其中 `K60MODEM qrtr` 16 条、`k60m_glink` 16 条），
+   `bsd/DEVELOPMENT/` 下有 `pong_modem_qrtr.o`、`pong_modem_link.o`、`qcom_glink.o`，
+   `bsd/conf/files:408-413` 是六条 standard。完整清单见 `docs/research/EIGHT-STEPS.toml`
+   的 `[hardware.cellular.step.verify]` 的 artifact_check。
+4. **改名原因**（本轮新增，链接期才发现）：`configs/mondrian_defconfig:78` 的
+   `CONFIG_XNU_K60_PHYSICAL_BATTERY=y` 让 build-strict 用 `-Wl,-force_load` 把
+   `libK60PhysicalBattery.a` 整块链进内核，而该归档里已经有 `QcomGlink.o`；0622 的
+   私有副本若仍叫 `qcom_glink_*` 就会撞 8 个全局符号（`_qcom_glink_adopt/_channel/
+   _poll/_reopen/_send/_stop/_rx_avail/_tx_avail`）。修法与 P-190 的 `K60Smem` 同形：
+   内核副本改用 `k60m_glink_` 前缀，`drivers/PongPower/QcomGlink.{c,h}` 一字不动。
 
 ## 7. 边界（L3 明确不做的事）
 

@@ -1,6 +1,6 @@
 # PongCellular — K60（mondrian / SM8475）基带驱动
 
-> 状态：**L1 已编进内核**（2026-11-14，build-strict tag `cellular-l1-20261114d`，kernel.macho `b7dadeb5…` 54,173,696 B）；**L2 已编进内核**（tag `cellular-l2-20261114d`，kernel.macho `e02afc77…` 105,480,192 B，PAS 握手 + `pong_modem` 门控调用点，见 `docs/research/cellular/06-MODEM-PAS.md`）；**L3 已落地待构建**（QRTR 只读枚举，见 `docs/research/cellular/07-QRTR-ENUMERATION.md`）。
+> 状态：**L1 已编进内核**（2026-11-14，build-strict tag `cellular-l1-20261114d`，kernel.macho `b7dadeb5…` 54,173,696 B）；**L2 已编进内核**（tag `cellular-l2-20261114d`，kernel.macho `e02afc77…` 105,480,192 B，PAS 握手 + `pong_modem` 门控调用点，见 `docs/research/cellular/06-MODEM-PAS.md`）；**L3 已编进内核**（tag `cellular-l3-20261114d`，kernel.macho `4dde4eaa…` 105,500,672 B，QRTR 只读枚举 + GLINK 私有副本改名 `k60m_glink_`，见 `docs/research/cellular/07-QRTR-ENUMERATION.md`）。
 > 三个版本默认都完全静默：只有 `pong_modem=1`（PAS）或 `pong_modem=2`（先 QRTR 再 PAS）才会探测；没有载体时在 `carrier absent` 处停下。
 > 产物核验：`conffiles: listed … bsd/dev/pong_modem_image.c …` 出现，且 `strings -a kernel.macho | grep -c 'modem.b'` = 27（30 段减去 b14/b21/b30 三个纯 bss 行）。
 > 取证：`docs/research/cellular/01-ANDROID-INVENTORY.md`、`02-DT-TRUTH.md`、`03-SCOPE.md`、`04-DT-NODES.md`、`05-MODEM-IMAGE.md`。
@@ -21,7 +21,7 @@
 | `K60ModemQrtr.c` | 纯 codec：`k60_qrtr_build_hello/lookup()`、`k60_qrtr_note()`（折叠应答）、`k60_qrtr_wanted()`（21/1/11/3/16） |
 | `K60ModemLink.c` | SMEM 0x80900000 + IPCC 0x0ed18000 + GLINK item 478/479/480/435；`k60_modem_qrtr_probe()` 只读轮询、fresh-FIFO 检查、发 HELLO + NEW_LOOKUP |
 
-进内核的路径：`patches/xnu/0620-k60-modem-image.patch`（L1 三文件）+ `patches/xnu/0621-k60-modem-pas.patch`（L2 三文件 + `kern_exec.c` Data 挂载后调用点）+ `patches/xnu/0622-k60-modem-qrtr.patch`（L3 三文件 + `PongPower/QcomGlink.{c,h}` 的 `bsd/dev` 副本）
+进内核的路径：`patches/xnu/0620-k60-modem-image.patch`（L1 三文件）+ `patches/xnu/0621-k60-modem-pas.patch`（L2 三文件 + `kern_exec.c` Data 挂载后调用点）+ `patches/xnu/0622-k60-modem-qrtr.patch`（L3 三文件 + `PongPower/QcomGlink.{c,h}` 的 `bsd/dev` 副本，符号改名 `k60m_glink_` 以避开电池归档 force-load 的 `qcom_glink_*`）
 + `patches/xnu/series` + `scripts/append-conffiles.py` 的 `bsd/dev/pong_modem_image.c` / `pong_modem_pas.c` / `pong_modem_boot.c` / `pong_modem_qrtr.c` / `pong_modem_link.c` / `qcom_glink.c` 六条目。
 
 宿主验证：

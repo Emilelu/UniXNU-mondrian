@@ -85,7 +85,7 @@ docs/
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `audio/CODEC.md` | **音频 codec 侧**：WCD938x 同型判定、live FDT 逐条、供电 rail 表、DT 映射表 |
 | `audio/SOUNDWIRE.md` | **音频 SoundWire 侧**：宏与 SWR master 地址、寄存器表、PRM 前置、io_submap 预算 |
-| `audio/AMPS.md` | **音频功放侧**：AW882xx 判定、GENI I2C 路径、只读探针方案 A1–A7 |
+| `audio/AMPS.md` | **音频功放侧**：AW882xx 判定、GENI I2C 路径、只读探针方案 A1–A7、上机 run 1、A5 选型与 ACF 配置档（§8） |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 | `11-KEY-EVIDENCE-RING.md` | 关键证据闭环清单 |
 | `GENI-ACCESS-PRECONDITIONS.md` | GENI 引擎可访问性前置条件 |

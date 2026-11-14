@@ -24,8 +24,10 @@
  * Run: drivers/PongAudio/tests/run-tests.sh
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "PongAudioAcf.h"
 #include "PongAudioGeniI2c.h"
 #include "PongAudioPlan.h"
 #include "PongAudioRegs.h"
@@ -1558,6 +1560,253 @@ probe_cases(void)
 	expect_eq(p.error, (unsigned long)PongCodecProbeErrTimeout, "and is a timeout");
 }
 
+
+/* ---- the ACF tuning file --------------------------------------------------
+ *
+ * The amplifier half cannot be ported as a register table: this part is driven
+ * from a per-project blob (docs/research/audio/AMPS.md section 8). The blob is
+ * vendor calibration data and is not stored in this repository - the same rule
+ * as proprietary-files.txt - so the reader is pinned here against a buffer built
+ * to the documented layout, and the real file is checked by pointing this binary
+ * at it with PONG_ACF_FILE.
+ */
+static void
+acf_put32(uint8_t *p, uint32_t v)
+{
+	p[0] = (uint8_t)(v & 0xffu);
+	p[1] = (uint8_t)((v >> 8) & 0xffu);
+	p[2] = (uint8_t)((v >> 16) & 0xffu);
+	p[3] = (uint8_t)((v >> 24) & 0xffu);
+}
+
+static void
+acf_put16(uint8_t *p, uint16_t v)
+{
+	p[0] = (uint8_t)(v & 0xffu);
+	p[1] = (uint8_t)((v >> 8) & 0xffu);
+}
+
+/* Build one register block: checksum, data length, the two "16-bit" words, the
+ * pair count at 0x3c and the pairs at 0x40 - the layout the K60 blob has. */
+static uint32_t
+acf_regs_block(uint8_t *block, const uint16_t *pairs, uint32_t count)
+{
+	uint32_t size = PONG_ACF_PAIRS_AT + count * 4u;
+	uint32_t i, sum;
+
+	memset(block, 0, size);
+	acf_put32(block + PONG_ACF_DATA_LENGTH, 4u + count * 4u);
+	acf_put32(block + PONG_ACF_REG_BITS_WORD, PONG_ACF_BITS_16X16);
+	acf_put32(block + PONG_ACF_VAL_BITS_WORD, PONG_ACF_BITS_16X16);
+	acf_put32(block + PONG_ACF_BLOCK_HEADER, count);
+	for (i = 0u; i < count; i++) {
+		acf_put16(block + PONG_ACF_PAIRS_AT + i * 4u, pairs[i * 2u]);
+		acf_put16(block + PONG_ACF_PAIRS_AT + i * 4u + 2u, pairs[i * 2u + 1u]);
+	}
+	sum = 0u;
+	for (i = 4u; i < size; i++) {
+		sum += block[i];
+	}
+	acf_put32(block, sum);
+	return size;
+}
+
+static void
+acf_cases(void)
+{
+	/* dev0 Music at 0x120, dev1 Music at 0x200, monitor at 0x300, all inside a
+	 * 0x400-byte buffer with a two-entry dde table at 0x50. */
+	static uint8_t buf[0x400];
+	static const uint16_t pairs0[] = { 0x04u, 0x3240u, 0x06u, 0x34e8u, 0x50u, 0x0000u };
+	static const uint16_t pairs1[] = { 0x04u, 0x3240u, 0x06u, 0x38e8u, 0x50u, 0x0000u };
+	uint32_t off = 0, size = 0;
+	uint16_t reg = 0, val = 0, vcalb = 0;
+	uint32_t i;
+	int low = 1000, high = 0;
+
+	/* Header acceptance: magic, an evenly divisible table of >= 0x30-byte
+	 * entries (H: hakios.speaker.c:525-534). */
+	memset(buf, 0, sizeof(buf));
+	expect(!pong_acf_header_ok(0, sizeof(buf)), "no buffer is refused");
+	expect(!pong_acf_header_ok(buf, sizeof(buf)), "a zero magic is refused");
+	expect(!pong_acf_header_ok(buf, 0x40u), "a short buffer is refused");
+	acf_put32(buf, PONG_ACF_MAGIC);
+	acf_put32(buf + 0x34u, 128u);
+	acf_put32(buf + 0x38u, 2u);
+	acf_put32(buf + 0x3cu, 0x50u);
+	expect(pong_acf_header_ok(buf, sizeof(buf)), "the documented header is accepted");
+	expect_eq(pong_acf_stride(buf), 64ul, "two entries of 128 bytes are 64 apart");
+	expect_eq(pong_acf_count(buf), 2ul, "the entry count comes from the header");
+	acf_put32(buf + 0x38u, 0u);
+	expect(!pong_acf_header_ok(buf, sizeof(buf)), "a table with no entries is refused");
+	acf_put32(buf + 0x38u, 3u);
+	expect(!pong_acf_header_ok(buf, sizeof(buf)),
+	    "a table that does not divide evenly is refused");
+	acf_put32(buf + 0x38u, 2u);
+	acf_put32(buf + 0x34u, 0x50u);
+	expect(!pong_acf_header_ok(buf, sizeof(buf)), "entries of 0x28 bytes are too small");
+	acf_put32(buf + 0x34u, 128u);
+	acf_put32(buf + 0x3cu, 0x400u);
+	expect(!pong_acf_header_ok(buf, sizeof(buf)), "a table past the end is refused");
+	acf_put32(buf + 0x3cu, 0x50u);
+
+	/* The blocks, then the dde entries that point at them. */
+	memset(buf + 0x120u, 0, 0x60u);
+	memset(buf + 0x200u, 0, 0x60u);
+	memset(buf + 0x300u, 0, 0x60u);
+	size = acf_regs_block(buf + 0x120u, pairs0, 3u);
+	(void)acf_regs_block(buf + 0x200u, pairs1, 3u);
+	for (i = 0u; i < 2u; i++) {
+		uint8_t *e = buf + 0x50u + i * 64u;
+
+		acf_put16(e + PONG_ACF_DDE_DEV_INDEX, (uint16_t)i);
+		acf_put16(e + PONG_ACF_DDE_PROFILE, PONG_ACF_PROFILE_MUSIC);
+		acf_put32(e + PONG_ACF_DDE_KIND, PONG_ACF_KIND_REGS);
+		acf_put32(e + PONG_ACF_DDE_LENGTH, size);
+		acf_put32(e + PONG_ACF_DDE_OFFSET, i == 0u ? 0x120u : 0x200u);
+	}
+
+	expect(pong_acf_find(buf, sizeof(buf), 0u, PONG_ACF_PROFILE_MUSIC,
+	    PONG_ACF_KIND_REGS, &off, &size), "dev0's Music block is found");
+	expect_eq(off, 0x120ul, "dev0 points where the table says");
+	expect_eq(size, (unsigned long)(PONG_ACF_PAIRS_AT + 12u), "the size is the table's");
+	expect(pong_acf_find(buf, sizeof(buf), 1u, PONG_ACF_PROFILE_MUSIC,
+	    PONG_ACF_KIND_REGS, &off, &size), "dev1's Music block is found");
+	expect_eq(off, 0x200ul, "dev1 has its own block, not dev0's");
+	expect(!pong_acf_find(buf, sizeof(buf), 2u, PONG_ACF_PROFILE_MUSIC,
+	    PONG_ACF_KIND_REGS, &off, &size), "a device not in the table is refused");
+	expect(!pong_acf_find(buf, sizeof(buf), 0u, PONG_ACF_PROFILE_MUSIC,
+	    PONG_ACF_KIND_MONITOR, &off, &size), "the kind is part of the key");
+	expect(!pong_acf_find(0, sizeof(buf), 0u, 0u, PONG_ACF_KIND_REGS, &off, &size),
+	    "no buffer means no block");
+
+	/* Checksums: a register block stops at 0x3c + data_length, so the bytes after
+	 * that inside a larger block are not part of its sum. */
+	expect(pong_acf_block_ok(buf + 0x120u, size, PONG_ACF_KIND_REGS),
+	    "the register block verifies");
+	buf[0x120u + 0x44u] ^= 0x01u;
+	expect(!pong_acf_block_ok(buf + 0x120u, size, PONG_ACF_KIND_REGS),
+	    "one flipped byte in the payload breaks the sum");
+	buf[0x120u + 0x44u] ^= 0x01u;
+	acf_put32(buf + 0x120u + PONG_ACF_DATA_LENGTH, 0x400u);
+	expect(!pong_acf_block_ok(buf + 0x120u, size, PONG_ACF_KIND_REGS),
+	    "a data length past the block is refused, not read out of bounds");
+	acf_put32(buf + 0x120u + PONG_ACF_DATA_LENGTH, 4u + 12u);
+	expect(pong_acf_block_ok(buf + 0x120u, size, PONG_ACF_KIND_REGS),
+	    "restoring the length restores the verdict");
+
+	/* Pairs: 16-bit registers with 16-bit values, the count accounting for the
+	 * whole payload (H: hakios.speaker.c:594-599). */
+	expect(pong_acf_pairs_ok(buf + 0x120u, size), "the block reads as pairs");
+	expect_eq(pong_acf_pair_count(buf + 0x120u), 3ul, "three pairs are declared");
+	expect(pong_acf_pair_at(buf + 0x120u, size, 1u, &reg, &val), "pair 1 is readable");
+	expect_eq(reg, 0x06ul, "pair 1 is I2SCTRL1");
+	expect_eq(val, 0x34e8ul, "pair 1 keeps the blob's value");
+	expect(!pong_acf_pair_at(buf + 0x120u, size, 3u, &reg, &val),
+	    "one pair past the count is refused");
+	acf_put32(buf + 0x120u + PONG_ACF_VAL_BITS_WORD, 1u);
+	expect(!pong_acf_pairs_ok(buf + 0x120u, size), "8-bit values are not read as pairs");
+	acf_put32(buf + 0x120u + PONG_ACF_VAL_BITS_WORD, PONG_ACF_BITS_16X16);
+	acf_put32(buf + 0x120u + PONG_ACF_BLOCK_HEADER, 4u);
+	expect(!pong_acf_pairs_ok(buf + 0x120u, size),
+	    "a count that does not match the data length is refused");
+	acf_put32(buf + 0x120u + PONG_ACF_BLOCK_HEADER, 3u);
+
+	/* Which half belongs to which address: the probe's amp0 is 0x34, which is
+	 * dev_index 1, not 0 (H: hakios.speaker.c:430-431). Getting this backwards
+	 * would load the other amplifier's calibration, so it is pinned. */
+	expect_eq((unsigned long)pong_acf_channel_for_addr(0x35u), 0ul,
+	    "0x35 is sound-channel 0");
+	expect_eq((unsigned long)pong_acf_channel_for_addr(0x34u), 1ul,
+	    "0x34 is sound-channel 1, i.e. the probe's amp0");
+	expect_eq((unsigned long)pong_acf_channel_for_addr(0x36u), 0xfful,
+	    "any other address has no channel");
+
+	/* The efuse direction comes from DBGCTRL (M: aw88261.c:437-443): the K60
+	 * blob writes 0xc003, which is the AND kind. */
+	expect(!pong_acf_ef_or(0xc003u), "0xc003 selects the AND check");
+	expect(!pong_acf_ef_or(0xa003u), "0xa003 also selects the AND check");
+	expect(pong_acf_ef_or(0xc00bu), "the OR bit alone selects the OR check");
+
+	/* The K60's four fuse reads, from run 1 (AMPS.md 7.2), on the AND path. */
+	expect_eq((unsigned long)pong_acf_fuse_value(0x83fdu, 0x83fdu, false), 997ul,
+	    "amp0 icalk is 997");
+	expect_eq((unsigned long)pong_acf_fuse_value(0x5bf3u, 0x5bf3u, false), 987ul,
+	    "amp0 vcalk is 987");
+	expect(pong_acf_vcalb(0xc003u, 0x83fdu, 0x5bf3u, 0x83fdu, 0x5bf3u, &vcalb),
+	    "amp0's vcalb is computable");
+	expect_eq(vcalb, 0x2052u, "amp0 vcalb is 8274 (0x2052)");
+	expect_eq((unsigned long)pong_acf_fuse_value(0x8009u, 0x8009u, false), 1009ul,
+	    "amp1 icalk is 1009");
+	expect_eq((unsigned long)pong_acf_fuse_value(0x5bf7u, 0x5bf7u, false), 991ul,
+	    "amp1 vcalk is 991");
+	expect(pong_acf_vcalb(0xc003u, 0x8009u, 0x5bf7u, 0x8009u, 0x5bf7u, &vcalb),
+	    "amp1's vcalb is computable");
+	expect_eq(vcalb, 0x2094u, "amp1 vcalb is 8340 (0x2094)");
+	/* The OR path on the same reads differs - that is the whole point of the
+	 * direction bit, and why the driver cannot hard-code either one. */
+	expect_eq((unsigned long)pong_acf_fuse_value(0x83fdu, 0x83fdu, true), 997ul,
+	    "with equal halves the OR path agrees, sign bit included");
+	expect_eq((unsigned long)pong_acf_fuse_value(0x0100u, 0x0001u, true), 1257ul,
+	    "the OR path combines two unequal halves");
+	expect_eq((unsigned long)pong_acf_fuse_value(0x0100u, 0x0001u, false), 1000ul,
+	    "the AND path on the same halves collapses to the base");
+	/* No 10-bit fuse value can reach the base, so the guard in pong_acf_vcalb is
+	 * a guard and not a reachable branch; this keeps it that way. */
+	for (i = 0u; i < 0x400u; i++) {
+		int v = pong_acf_fuse_value((uint16_t)i, (uint16_t)i, false);
+
+		if (v < low) {
+			low = v;
+		}
+		if (v > high) {
+			high = v;
+		}
+	}
+	expect_eq((unsigned long)low, 488ul, "the smallest fuse value is 488");
+	expect_eq((unsigned long)high, 1511ul, "the largest fuse value is 1511");
+
+	/* The real blob, when this binary is pointed at it: the copy pulled read-only
+	 * from /vendor/firmware on the device. Its absence is not a failure - the
+	 * blob is not in the repository - but its presence must reproduce the
+	 * numbers in AMPS.md section 8. */
+	{
+		const char *path = getenv("PONG_ACF_FILE");
+		FILE *f;
+
+		if (path != 0 && (f = fopen(path, "rb")) != 0) {
+			static uint8_t real[4096];
+			size_t got = fread(real, 1, sizeof(real), f);
+
+			fclose(f);
+			expect(got > 0x400u, "the real blob is longer than its header");
+			expect(pong_acf_header_ok(real, (uint32_t)got),
+			    "the real blob's header is accepted");
+			expect_eq(pong_acf_count(real), 10ul, "the real blob has ten entries");
+			expect_eq(pong_acf_stride(real), 64ul, "its entries are 64 bytes apart");
+			expect(pong_acf_find(real, (uint32_t)got, 0u, PONG_ACF_PROFILE_MUSIC,
+			    PONG_ACF_KIND_REGS, &off, &size), "dev0's Music block is found");
+			expect(pong_acf_block_ok(real + off, size, PONG_ACF_KIND_REGS),
+			    "dev0's Music block verifies");
+			expect_eq(pong_acf_pair_count(real + off), 57ul,
+			    "dev0's Music profile has 57 register pairs");
+			expect(pong_acf_find(real, (uint32_t)got, 1u, PONG_ACF_PROFILE_MUSIC,
+			    PONG_ACF_KIND_REGS, &off, &size), "dev1's Music block is found");
+			expect(pong_acf_block_ok(real + off, size, PONG_ACF_KIND_REGS),
+			    "dev1's Music block verifies");
+			expect(pong_acf_find(real, (uint32_t)got, 0u, 6u,
+			    PONG_ACF_KIND_REGS, &off, &size), "dev0's profile 6 is found");
+			expect(pong_acf_block_ok(real + off, size, PONG_ACF_KIND_REGS),
+			    "dev0's profile 6 verifies");
+			expect(pong_acf_find(real, (uint32_t)got, 0u, 6u,
+			    PONG_ACF_KIND_MONITOR, &off, &size),
+			    "dev0's monitor block is found");
+			expect(pong_acf_block_ok(real + off, size, PONG_ACF_KIND_MONITOR),
+			    "dev0's monitor block verifies");
+		}
+	}
+}
+
 int
 main(void)
 {
@@ -1569,6 +1818,7 @@ main(void)
 	poll_cases();
 	recovery_cases();
 	plan_cases();
+	acf_cases();
 	chip_id_cases();
 	codec_cases();
 	swr_cases();

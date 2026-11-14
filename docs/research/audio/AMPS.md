@@ -189,20 +189,21 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | A2 | 映射 TLMM GPIO56/57 页（`0xf000000 + 0x100000 + 0x1000*n`），配 function 1 / 2 mA / pull-up | 回读 config `[5:2] == 1` |
 | A3 | 映射 GENI SE15 0x880000 一页，读 `GENI_FW_REVISION_RO(0x68)` | `(v >> 8) & 0xff == 3`（I2C） |
 | A4 | 按 §3.1 形状初始化 GENI（换掉四处索引），选 DFS 档 | `SE_GENI_STATUS(0x40)` 无 error 位 |
-| A5 | 对 0x34 / 0x35 各发一次「写 1 字节 reg=0x00 + 读 2 字节」 | 得到 chip ID；0x2113 → AW88261 |
+| A5 | 对 0x34 / 0x35 各发一次「写 1 字节 reg=0x00 + 读 2 字节」 | 得到 chip ID；0x2113 → AW88261（run 1 实测两颗都是 `0x2113`；选型结论见 §8） |
 | A6 | 只读 fuse 0x78/0x79/0x7c/0x7d 与 0x01/0x04/0x06 | 打印原始值，**不解释、不写** |
 | A7 | 打印 GPIO1/3/43/52/88/63 的 config/IO 原始值 | 记录 Android 退出时的引脚状态 |
 
-失败即停（不重试、不写任何功放寄存器）。**A5 的结果直接决定「移植哪份驱动」这个硬问题。**
+失败即停（不重试、不写任何功放寄存器）。**A5 的结果直接决定「移植哪份驱动」这个硬问题** —— 已由 run 1 与 ACF 解析回答，见 §8。
 
 ## 6. 已交付代码
 
-`drivers/PongAudio/`（4 个源文件 + 1 个说明，均 BSD-2-Clause-Patent）：
+`drivers/PongAudio/`（源文件与说明，均 BSD-2-Clause-Patent）：
 
 | 文件 | 内容 |
 | --- | --- |
 | `PongAudioRegs.h` | 上面全部地址/偏移/位定义，每条带来源标注（L = `live-fdt.dts`、G = `gcc-sm8450.c`、S = Pong 参考树、M = 主线 `geni-se.h`/`i2c-qcom-geni.c`、H = `hakios.speaker.c`） |
-| `PongAudioPlan.h` | 探针的判定逻辑做成纯函数：pad 地址与 pad 配置字、CBCR「是否在跑」判据、GCC 三窗口路由、DFS 档可用性、AW882xx 字节序与 chip id 表。无 MMIO、无内核头 → 这些判定由宿主单测钉住，而不是靠上机试 |
+| `PongAudioPlan.h` | 探针的判定逻辑做成纯函数：pad 地址与 pad 配置字、CBCR「是否在跑」判据、GCC 四窗口路由（含 GPLL0 的 PLL 窗口）、DFS 档可用性、AW882xx 字节序与 chip id 表。无 MMIO、无内核头 → 这些判定由宿主单测钉住，而不是靠上机试 |
+| `PongAudioAcf.h` | A5 的落点：AW88261 配置档（ACF）的读取与校验做成纯函数 —— 头判据、按 `dev_index + profile + kind` 定位块、两种和校验、16×16 寄存器对表、双 PA 通道映射、fuse → icalk/vcalk → vcalb。无 MMIO、无内核头，见 §8.8 |
 | `PongAudioGeniI2c.h` / `.c` | Pong `GeniI2c.c` 的移植，符号改 `pong_geni_*` 避免与 Pong 副本冲突，状态机逻辑逐字保留 |
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
@@ -215,7 +216,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。五个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 不在其中：内核侧还没有 `.c` include 它，见 §6.1）。完整 transcript 见 `patches/audio/README.md`。
 - 编译核验：`PongAudioAmp.c` 与 `PongAudioGeniI2c.c` 都在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过了（`PASS: PongAudioAmp.c` / `PASS: PongAudioGeniI2c.c`），因此 `#if defined(PONG)` 里的代码确实被编译过。**守卫本身也验证过**：`E:/k60-work/scratch/audio-work/probe-pong.c` 只做 `#if !defined(PONG) #error`，用同一套 flags 编译得到 `PASS: probe-pong.c`，即 `PONG` 由 `board_config.h` 定义、探针不是死代码（这是「静默不跑」这类故障的必要前提）。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，486 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，535 例；带真实 ACF 时 548 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
@@ -254,7 +255,9 @@ slave id 是两次普通寄存器读（`0x530+8n` / `0x534+8n`，S:`PongWcd938.h
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 486 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# → TESTS OK 535 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# 带上真实 ACF（它不入库）：PONG_ACF_FILE=<aw882xx_acf.bin> sh drivers/PongAudio/tests/run-tests.sh
+# → TESTS OK 548 cases
 ```
 
 覆盖范围：
@@ -275,6 +278,7 @@ wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/t
 | `macro_cases` | 九步表的形状与内容（步数 9、越界与空指针被拒、step 0 是 VA `0x00` 置 bit0、step 7 是第一笔 TX 写）；`(old&~clear)|set` 四种组合（含「同一位既清又置，最终为置」）；假的两块宏窗各从非零复位值起跑，九步后 VA `0x00/0x04/0x80/0x08` 与 TX `0x00/0x04` 的最终值逐条对上；每步都记下读到的旧值与写回的新值（`old[0]` 是复位值、`old[1]` 是 step 0 写完之后的值）；完成后重复 step 不再写；无回调或空序列器不动寄存器也不崩 |
 | `probe_cases` | 假的 pad/slew 窗 + 两块宏窗 + 128 KiB 控制器窗组成的 `FakeCodec` 驱动整条顺序：LPASS 三票不全 → 拒启动且**零写入**；回调不全 → 拒启动；v1.7 快乐路径（pad 全部先于宏、宏全部先于控制器；pad0 从 `0xffffffff` 得 `0xffffffc4`、其余 pad 得 `0x6`、slew `0x55`、VA/TX `0x00` 置 bit0、只有 identity 两个字节计 `reads`、`found_slave=1`、identity `0x1234`）；空位图 → `ErrNotFound`；位图上有别的 slave 但 id 不匹配 → `ErrNotFound`；控制器完全不应答 → `ErrTimeout` 且真的写了 `0x308<-1`；未知控制器版本 → `ErrSwr`；v2 快乐路径（等 `0x5064` bit0 后才枚举、identity `0x5678`）；v2 环境起不来 → `ErrTimeout`；走到 Done 后继续 step 不再写任何寄存器 |
 | `chip_id_cases` | `pong_audio_amp_value(encode_amp_value(id)) == id` 对 9 个已知 ID 全成立；`pong_audio_amp_value(0x1321) == 0x2113`（AW88261），与 `PongAudioAmp.c` 的大端拼装一致；未知 ID 必须回落 `"unknown"` 而不是猜一个型号 |
+| `acf_cases` | 合成 blob 的六种 header 拒绝（magic / entries 为 0 / 步长不整除 / 步长 < 0x30 / 表越界 / 过短）与接受；`find` 按 `dev_index + profile + kind` 三元组命中（同名不同 dev、kind 参与键、空 buffer）；翻一个字节即校验失败、`data_length` 越界被拒；8 位表头被拒、`count*4+4 != data_length` 被拒；`pair_at` 越界；channel 映射 `0x35→0`、`0x34→1`、其余 `0xff`；`ef_or` 三种 DBGCTRL；**amp0 vcalb `0x2052` / amp1 vcalb `0x2094`**、OR 与 AND 两条路径给出不同结果、10 位有符号值域两端（488 / 1511）；以及 `PONG_ACF_FILE` 存在时对**真实 blob** 的 13 条断言（十条目、步长 64、dev0/dev1 Music 各 57 对且校验通过、monitor 通过） |
 
 踩坑记录：Windows 侧 `cc` 不存在（第一次跑直接 `command not found`）；测试里若只定义不使用的辅助函数，`-Werror` 会因 `-Wunused-function` 失败——本例把三处 `expect_eq` 改成 `expect` 后才通过。
 
@@ -344,7 +348,7 @@ evidence = "live-fdt.dts（DTB sha256 95c02052…f29fdac8）解出宏/SWR/I2C/�
 [hardware.audio.step.wide]
 done = true
 catalog_checked = true
-catalog_result = "参考实现 pong-power（同 SM8475）与 phk110（WCD938x + AW88261）都没有 K60 的 vendor audio-kernel 源码；本机无 adsp.mbn、无 aw882xx_acf.bin"
+catalog_result = "参考实现 pong-power（同 SM8475）与 phk110（WCD938x + AW88261）都没有 K60 的 vendor audio-kernel 源码；adsp.mbn 不在本机（可从手机 /vendor/firmware_mnt/image/adsp.b00-b18 取），aw882xx_acf.bin 已从手机 /vendor/firmware/ 只读取到并解析，见 §8.3"
 evidence = "GAP-ANALYSIS.md / RESEARCH.md / EVIDENCE.md"
 
 [hardware.audio.step.plan]
@@ -359,7 +363,7 @@ evidence = "寄存器级细节：SWR 读事务、fs-gen 序列、PRM 三票、io
 done = true
 local_verified = true
 static_check = "PongAudioAmp.c / PongAudioGeniI2c.c 在真实 XNU bsd 构建目录 -fsyntax-only -Werror -DARM64_BOARD_CONFIG_PONG 全过（PASS: 两个文件）；并用 probe-pong.c 的 #if !defined(PONG) #error 证明该 flags 下 PONG 确实定义（守卫内代码非死代码）；check-docs.py exit 0"
-unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 486 cases（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire/WCD938x/LPI/slew 决策 + PongCodecSwr.c 的初始化序列与读事务状态机 + PongCodecLpi.c 的五步 pad/slew 顺序 + PongCodecMacro.c 的 VA/TX 宏九步时钟门表 + PongCodecProbe.c 的整条 codec 启动编排，见 AMPS.md §6.1）"
+unit_test = "drivers/PongAudio/tests/run-tests.sh → TESTS OK 535 cases（带真实 ACF 时 548 cases）（GENI 状态机 prepare/write/read/failure/poll/recovery + 寄存器表 + PongAudioPlan.h 全部判定函数 + PongCodecPlan.h 的 SoundWire/WCD938x/LPI/slew 决策 + PongCodecSwr.c 的初始化序列与读事务状态机 + PongCodecLpi.c 的五步 pad/slew 顺序 + PongCodecMacro.c 的 VA/TX 宏九步时钟门表 + PongCodecProbe.c 的整条 codec 启动编排，见 AMPS.md §6.1）"
 artifact_check = "patches/audio/0001 三重自检：(a) 生成器自检 patch -p1 --dry-run 与 git apply --check 都过；(b) 真实链 patch -p1：0501→0505→本补丁 rc=0、无 reject（0505 在缺 0502 的短链上带 fuzz 1，与本补丁无关）；(c) 与框架同机制：在构建缓存 bsd/ 上按真实序列 0500→0502b→0501→0502→0503→0504→0505→本补丁 全部 git apply rc=0、零 fuzz、零 reject，落地 conf/files:119-120、bsd_init.c:1357-1358，五个新文件与 drivers/PongAudio/ cmp 逐字节相同（脚本 E:/k60-work/scratch/audio-work/gitchain-verify.sh，transcript 见 patches/audio/README.md）"
 
 [hardware.audio.step.device]
@@ -526,8 +530,9 @@ PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 rec
 - `pll=0`、`i2s=0x04e8`（`TXEN` 1<<6 = 0）→ 没有 TDM 时钟，功放未启动，符合预期。
 - `transfers=28`（2 颗 ×（1 次 ID 读 + 13 个只读寄存器））、`failed=0 timeouts=0 stray=0 recovered=0
   gcc_misses=0` → GENI 状态机与总线恢复路径在真实硬件上一次故障都没触发。
-- 两颗 fuse 不同（`0x83fd/0x5bf3` vs `0x8009/0x5bf7`）而 `vcal` 都是 `0x2000`（= 8192，即 icalk == vcalk），
-  说明出厂标定存在且两颗独立，可用于后续 §4 的 `vcalb` 计算。
+- 两颗 fuse 不同（`0x83fd/0x5bf3` vs `0x8009/0x5bf7`）而 `vcal` 都是 `0x2000`（= 8192）：
+  这不是「两颗标定相同」，而是 `0x50` 的**上电默认值** —— 本次探针把复位线从低拉高后芯片回到默认态，
+  `0x50` 从未被写过。按 §4 的公式复算，amp0 应为 `0x2052`、amp1 应为 `0x2094`，见 §8.7。
 
 ### 7.3 剩余阻塞（⑧ 仍未完成）
 
@@ -539,9 +544,10 @@ PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 rec
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/boot-audio-twice.ps1 -Image E:\k60-work\artifacts\audio-probe-20261114j\boot.img -EvidenceRoot E:\k60-work\evidence\audio-probe-j2`
    （必须是新证据目录，脚本拒绝复用已有 `boot.json` 的目录）。
 2. **播放通路**（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。
-3. **`aw882xx_acf.bin` 配置档**本机没有（Android `/vendor/etc/aw882xx_acf.bin`），
-   phk110 的驱动缺它无法做 Music profile 初始化（`hakios.sound.c:1403-1405` 报错文本可证）。
-   → 需要 Lead 从 K60 的 vendor 分区取；否则只能走「软复位 + 最小寄存器」路线。
+3. **`aw882xx_acf.bin` 配置档**：**已解决**。此前记的路径（`/vendor/etc/`）是错的，实际在
+   `/vendor/firmware/aw882xx_acf.bin`；设备停在 Android 时用 `adb pull` 只读取到（3,440 B，
+   sha256 `ce0e16d22380565114f56e6a02e4f85959160baccc6c163df6ecaf9db20cbf9e`），未 boot、未写设备。
+   十条目、两份 Music profile、monitor 表全部解析且校验通过，见 §8.3–§8.4；解析已做成纯函数（§8.8）。
 ### ⑧ 的判据（用两份历史 capture.json 校准，2026-11-14）
 
 `capture.json` 里**没有** `verdict` 字段。能判的是这几个键，由
@@ -594,6 +600,203 @@ PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 rec
 
 阻塞（不属于本子任务）：
 - 播放通路（TDM/MI2S → 功放）需要 LPASS 音频前端与 ADSP 图 → Lead 的 PAS1 + AudioReach。
-- 功放的 `aw882xx_acf.bin` 配置档（Android `/vendor/etc/aw882xx_acf.bin`）本机没有，
-  phk110 的驱动缺它就无法做 Music profile 初始化（`hakios.sound.c:1403-1405` 报错文本可证）。
-  → 需要 Lead 从 K60 的 vendor 分区取；否则只能走「软复位 + 最小寄存器」路线。
+- 功放的 `aw882xx_acf.bin` 配置档已从手机 `/vendor/firmware/` 只读取到并解析完（§8.3–§8.4），
+  不再是阻塞；剩下的是「等 PAS1/TDM 通路起来再写寄存器」（§8.9）。
+
+## 8. A5 的结论：移植哪份功放驱动
+
+A5（§5）原本只是「读一次 chip id」。它跑通之后，答案不止是型号，还牵出三件事：三份候选源码各自的许可证边界、
+一颗真正能用的驱动需要的那份配置档到底在哪、以及两颗功放为什么**不能共用一张寄存器表**。本节把它们逐条钉死。
+
+### 8.1 A5 已回答的部分（硬件，run 1 实测）
+
+两颗功放都是 **Awinic AW88261**（chip id `0x2113`），与 phk110 同型号：
+
+```
+PongAudio: amp0 addr=0x34 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp1 addr=0x35 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0
+```
+
+所以「移植哪份驱动」不是「哪个型号的驱动」，而是「同一型号的三份实现里，哪一份的**代码**能进这个仓库、
+哪一份只能当**事实来源**」。
+
+### 8.2 三份候选与许可证边界（这是选型的真正约束）
+
+| 候选 | 许可证 | 能拿什么 | 不能拿什么 |
+| --- | --- | --- | --- |
+| `patches/xnu/0503-k60-audio-aw882xx.patch`（本仓库） | BSD-2-Clause-Patent | **GENI 传输层可以留**：`aw882xx_geni_prepare`（`:198`）、`aw882xx_geni_wr`（`:192`）、`aw882xx_geni_rd`（`:186`），含 `IF_DISABLE` / `CLK_CFG` / `SCL_COUNTERS` 四条拒绝条件与 DMA 包长设置 | 寄存器语义层是空壳：`AW882XX_TODO_CHIP_ID_REG 0x0000u`（`:551`），`aw882xx_probe_one`（`:623`）/`aw882xx_start`（`:780`）都没有内容 |
+| mainline `aw88261.c` / `aw88261.h`（`/home/emilelu/wifi-inputs/linux/sound/soc/codecs/`） | **GPL-2.0-only**（各自第 1 行 SPDX） | 事实：寄存器地址与位定义、`check_syspll`/`check_sysst` 的判据、`reg_update` 的写入顺序、vcalb 公式 | 一行代码都不能搬 |
+| phk110 `hakios.speaker.c`（`/mnt/e/k60-work/references/phk110-port/drivers/audio/`） | kernel 侧 **APSL-2.0**（XNU 衍生） | 事实与结构：ACF 解析判据（`:525-640`）、prepare 顺序（`:738`）、monitor 表（`:1004`）、双 PA 通道映射（`:430-431`） | 同样不能搬 |
+
+仓库自己的许可证是 `LICENSE:1-3` 的 **BSD-2-Clause-Patent**，`THIRD_PARTY_NOTICES.md` 只要求保留各组件的 SPDX、
+没有 GPL 兼容条款 —— 所以 GPL-2.0-only 的 mainline 实现和 APSL-2.0 的 phk110 实现**都只能当文档用**。
+
+**结论**：传输层继续用本仓库的 0503 补丁；寄存器语义层按上面两份的事实自己写，写成**纯函数**，
+落点是新文件 `drivers/PongAudio/PongAudioAcf.h`（§8.8）。这样「能不能移植」变成一个可以被宿主单测证明的问题，
+而不是一个需要信任某份外部代码的问题。
+
+### 8.3 ACF 配置档：在手机上，而且不在 `/vendor/etc`
+
+此前 §7.3 与本节都记过「`aw882xx_acf.bin` 本机没有，需要 Lead 从 vendor 分区取」，而且把路径写成
+`/vendor/etc/aw882xx_acf.bin`。两处都错，实测更正：
+
+```
+adb shell 'find /vendor /odm /system -maxdepth 3 -iname "*acf*"'
+# → /vendor/firmware/aw882xx_acf.bin
+adb pull /vendor/firmware/aw882xx_acf.bin   # 只读，未写设备、未 boot
+# → 3,440 B, sha256 ce0e16d22380565114f56e6a02e4f85959160baccc6c163df6ecaf9db20cbf9e
+```
+
+- 设备当时在 Android（`mondrian` / Android 17，`adb shell id` = `uid=0(root)`），因此这次取档**不涉及**任何启动动作。
+- `/vendor/firmware/` 里还有一堆 `*_RTP.bin`（游戏音效），与功放无关；`ls /sys/module | grep aw8` 显示厂商模块 `aw882xx_dlkm` 正在跑，
+  说明 Android 侧确实用它初始化过这两颗。
+- **不进仓库**：`.gitignore` 含 `*.bin`。既有先例是 `proprietary-files.txt`（注释写明「Apple 文件不入库，构建期按 `board.toml` 的
+  iOS 16.6.1 / 20G81 恢复 URL 抓取」）+ `scripts/fetch-ios16-assets.py` / `scripts/verify-firmware.py`，ACF 应走同一条路。
+- 顺带取到的一条：`/vendor/firmware_mnt/image/` 里 `adsp.b00`–`adsp.b18` 齐全（`adsp.b02` 3,216,484 B、`adsp.b18` 11,511,192 B），
+  `CODEC.md:173` 记的「`adsp.mbn` 仍缺」可以从这里补 —— 归 Lead 的 PAS1 线，这里只记位置。
+
+### 8.4 ACF 格式（实测，与 mainline / phk110 的判据逐条对上）
+
+头（LE32）：`id 0x0a15f908`（= `aw88395_data_type.h:19` 的 `ACF_FILE_ID`）、project `M11A`、custom `xiaomi`、
+`entry_size 640 @0x34`、`entries 10 @0x38`、`table_at 0x50 @0x3c`、`hdr_version 1 @0x40`。
+**dde 步长 = `entry_size / entries` = 64**（phk110 `hakios.speaker.c:543` 就是这么算的；把 `entry_size` 直接当步长会读出乱码）。
+
+dde 字段偏移：`name@+4`(16 B)、`dev_index@+20`(u16)、`bus@+22`(u16)、`addr@+24`(u16)、`profile@+26`(u16)、
+**`kind@+28`(u32)**、`length@+32`(u32)、`offset@+36`(u32)。实测 `bus` 与 `addr` **全是 `0xffff`（未填）** →
+**只能靠 `dev_index` 区分两颗，不能靠 I2C 地址**。
+
+十条目（`kind` 4 = 寄存器表、10 = monitor，`profile` 0 = Music，见 `hakios.speaker.c:404-406`）：
+
+| dev_index | profile | kind | 大小 | 偏移 |
+| --- | --- | --- | --- | --- |
+| 0 | 6 | 4 | 292 | `0x2d0` |
+| 0 | **0（Music）** | 4 | 292 | `0x3f4` |
+| 0 | 10 | 4 | 292 | `0x518` |
+| 0 | 1 | 4 | 292 | `0x63c` |
+| 0 | 6 | **10（monitor）** | 192 | `0x760` |
+| 1 | 6 | 4 | 292 | `0x820` |
+| 1 | **0（Music）** | 4 | 292 | `0x944` |
+| 1 | 10 | 4 | 292 | `0xa68` |
+| 1 | 1 | 4 | 292 | `0xb8c` |
+| 1 | 6 | 10 | 192 | `0xcb0` |
+
+**十条校验和全部通过**。规则（phk110 `:604-611`）：寄存器表块 = `sum(block[4 : 0x3c + data_length])`，
+monitor 块 = `sum(block[4 : length])`，与块首的 LE32 比较。早前按 `sum(block[4:length])` 算寄存器表会全红 —— 是算法错，不是文件坏。
+
+Music 块头：`data_length@+0x10 = 232`、`count@+0x3c = 57`（`232 == 4 + 4×57` ✓）、`le32(+0x20)==2 && le32(+0x24)==2`
+（16 位寄存器 × 16 位值），**寄存器对从 `+0x40` 起，LE16 reg + LE16 val**。
+
+dev0 的 57 对（`03=ffff` 起，`0x50` **不在表里**，由 fuse 算）：
+
+```
+03=ffff 04=3240 05=1811 06=34e8 07=3020 08=00f6 09=6672 0a=0964 0b=2590 0c=1c64 0d=005b
+0e=4a9b 0f=5064 10=d008 11=1f20 12=002b 13=2102 14=c003 15=0643 16=000a 30=866d 31=7193
+32=4306 33=689b 34=90dc 35=d508 36=a835 37=f184 38=0800 3a=8884 3b=0666 3c=0ed2 3d=0663
+3e=01ae 3f=0505 40=ffa0 51=00f3 52=3ee8 53=8005 54=1748 55=0202 56=3800 57=84c9 58=41d6
+59=0000 5a=0000 5b=01c0 5c=0049 60=0fcd 61=796c 62=4a40 63=6077 64=0053 65=5ca1 66=40f9
+67=508e 68=0048
+```
+
+**dev1 与 dev0 只差 5 对**：`05 1811→0811`、`06 34e8→38e8`、`07 3020→3111`、`08 00f6→00f7`、`0f 5064→5264`；
+寄存器顺序完全相同。四份寄存器表各自的差异对数：prof6 4 对、prof0 5 对、prof10 **22 对**、prof1 4 对。
+→ **两颗是独立标定的，绝不能共用一张表**；按 `dev_index` 分表是硬要求，不是风格问题。
+
+monitor 表（dev0 与 dev1 **完全相同**）：`temp_count@0x2c / temp_size@0x30 / temp_at@0x34`、
+`vbat_count@0x3c / vbat_size@0x40 / vbat_at@0x44`；实测 4 行 @`0x54`、5 行 @`0x84`，每行 12 B
+（`int16 min`、`int16 max`、`u16 boost`、`u16 less` 单位 1/8 dB、`int32 vmax`）：
+
+| 类型 | 行 |
+| --- | --- |
+| 温度 | `(7,100) less 0`、`(2,5) less 24`、`(-2,0) less 36`、`(-50,-5) less 64` |
+| 电压(mV) | `(4100,5000) less 0`、`(3900,4000) less 4`、`(3700,3800) less 8`、`(3500,3600) less 12`、`(0,3400) less 16` |
+
+### 8.5 两颗的通道映射（最容易搞反的一处）
+
+phk110 `hakios.speaker.c:430-431` 写得很清楚：
+
+```c
+{ .address = 0x35, .device = 0, .where = "0x35, slot 0" },
+{ .address = 0x34, .device = 1, .where = "0x34, slot 1" },
+```
+
+即 **I2C `0x35` ↔ `dev_index 0` ↔ slot 0（左声道）**，**`0x34` ↔ `dev_index 1` ↔ slot 1**。
+而本仓库的探针把 `0x34` 叫作 **amp0**、`0x35` 叫作 **amp1**（`PongAudioRegs.h` 的 `PONG_AUDIO_AMP_ADDR0/1`）。
+→ **探针的 amp0 要吃 ACF 的 `dev_index 1` 那份 profile**。移植时若按「amp0 → dev0」直觉写，两颗会各自加载对方的标定，
+症状是「能出声但音量和保护点都不对」，属于最难从日志看出来的那类错误。
+这条映射已做成纯函数 `pong_acf_channel_for_addr()`（`0x35→0`、`0x34→1`、其余 `0xff`），由宿主单测钉住。
+
+### 8.6 写入语义：照抄 mainline 的 `reg_update`，不要照抄 ACF 里的字面值
+
+`aw88261.c:393-490 aw88261_dev_reg_update()` 逐对写 57 个寄存器，但**有四处不是照写**：
+
+1. `0x04`（SYSCTRL）：先 `amppd_st = reg_val & ~AMPPD_MASK`，读回当前值，只保留 `PWDN|AMPPD|HMUTE` 三位拼进新值，
+   再强制 `ULS_HMUTE = 1`（`:420-434`）。→ **ACF 里的 `04=3240` 不能直接写**，必须走读-改-写语义。
+2. `0x14`（DBGCTRL）：`efcheck_val = reg_val & ~EF_DBMD_MASK`，等于 `OR_VALUE 0x0008` 走 OR 校验，否则走 AND（`:437-443`）。
+   K60 blob 写 `14=c003`、run 1 读回 `a003`，两者都走 **AND**。
+3. `0x08`（I2SCTRL3）：`reg_val &= I2STXEN_MASK; reg_val |= I2STXEN_DISABLE_VALUE` —— **profile 阶段先把 TX 关掉**（`:447-450`）。
+4. `0x50`（VSNTM1）：`continue`，**不写 ACF 的值**；循环结束后统一 `aw88261_dev_set_vcalb()` 算出来再写（§8.7）。
+
+写完再 `set_volume(mute_volume)`。另有一处必须分清：**真正打开 TX 的位在 `I2SCFG1(0x13)` bit6**
+（`aw88261.c:90-98 aw88261_dev_i2s_tx_enable()` 写的是 `AW88261_I2SCFG1_REG`），而 profile 阶段清的是 `I2SCTRL3(0x08)` bit6。
+本仓库 `PongAudioRegs.h` 里的 `AW_REG_I2SCTRL 0x06` 实际是 **I2SCTRL1**，注释语义要按 `aw88261.h:14-70` 校正。
+
+启动顺序（`aw88261_dev_start`，`:547`）也是判据的一部分：`pwd(false)` → 等 2 ms → `check_syspll`
+（要求 `SYSST` 的 `CLKS_STABLE(bit4) | PLLS_LOCKED(bit0)`，失败先试 `PLLCTRL1.CCO_MUX` 切 DIVIDED 再回 BYPASS）
+→ `amppd(false)` → 等 1 ms → `check_sysst`（要求 `BSTS(bit9) | SWS(bit8) | CLKS(bit4) | PLLS(bit0)`）
+→ `i2s_tx_enable(true)` → `uls_hmute(false)` → `mute(false)` → 清中断。任一检查失败都要退回掉电态，而不是继续写。
+
+### 8.7 vcalb：run 1 读到的 `0x2000` 是上电默认值
+
+公式（`aw88261.c:358-391`）：`vcalb = (1 << 13) × (1000 + icalk) / (1000 + vcalk)`，写 `0x50`。
+`icalk` / `vcalk` 来自 4 个 fuse 寄存器（`0x78/0x79/0x7c/0x7d`），字段是**有符号 10 位**：
+`bits & 0x200` 置位时为负（`bits - 0x400`），再 `+1000`。OR / AND 由 `0x14` 的 `EF_DBMD` 位决定（§8.6）。
+
+用 run 1 实测的 fuse 复算（C 程序按 16 位语义跑，不是纸算）：
+
+| 功放 | fuse（`78/79/7c/7d`） | icalk | vcalk | vcalb |
+| --- | --- | --- | --- | --- |
+| amp0（`0x34`，dev_index 1） | `83fd / 5bf3 / 83fd / 5bf3` | −3 → 997 | −13 → 987 | **8274 = `0x2052`** |
+| amp1（`0x35`，dev_index 0） | `8009 / 5bf7 / 8009 / 5bf7` | +9 → 1009 | −9 → 991 | **8340 = `0x2094`** |
+
+而 run 1 读回的 `0x50` 两颗都是 `0x2000`（= 8192，即 `icalk == vcalk` 的默认值）。这不是公式错、也不是读数错：
+**本次探针把两颗的复位线从低拉高**（`PongAudioAmp.c:168-187 amp_reset_release()`，日志 `released by this probe`），
+芯片因此回到上电默认态，`0x50` 从未被写过。同理 `04=0x3343`、`06=0x04e8`、`14=0xa003`、`03=0xffff` 也都是默认值，
+与 ACF 目标态（`04=3240`、`06=34e8`、`14=c003`）不同是必然的。→ **将来驱动必须在 start 之前自己算并写 `0x50`**。
+
+### 8.8 已交付的 host 侧代码
+
+`drivers/PongAudio/PongAudioAcf.h`（304 行，BSD-2-Clause-Patent）把上面 8.3–8.7 全部做成**纯函数**：
+无 MMIO、无内核头，因此每一条都能在构建机上证明，而不是等上机。
+
+| 函数 | 作用 |
+| --- | --- |
+| `pong_acf_header_ok` | magic、`entry_size % entries == 0`、`entry_size/entries >= 0x30`、表在文件内（phk110 `:525-640` 的三条判据） |
+| `pong_acf_stride` / `pong_acf_count` | 步长（真实 64）与条目数（真实 10） |
+| `pong_acf_find` | 按 `dev_index + profile + kind` 三元组定位块（**不是按地址**，ACF 里地址是 `0xffff`） |
+| `pong_acf_checksum` / `pong_acf_block_ok` | 寄存器表与 monitor 块各自的和校验 |
+| `pong_acf_pairs_ok` / `pong_acf_pair_count` / `pong_acf_pair_at` | 16×16 表头自洽、57 对、LE16 取值 |
+| `pong_acf_channel_for_addr` | `0x35→0`、`0x34→1`（§8.5 的映射） |
+| `pong_acf_ef_or` | `0x14` 的 `EF_DBMD` 决定 OR / AND |
+| `pong_acf_fuse_value` | 10 位有符号 fuse 值 → `1000 + icalk` |
+| `pong_acf_vcalb` | 公式 → 待写 `0x50` 的值（amp0 `0x2052` / amp1 `0x2094`） |
+
+宿主用例 `acf_cases()` 把这些钉住：合成 blob 的六种 header 拒绝、find 的三元组语义、翻一个字节即校验失败、
+8 位表拒绝、channel 映射、OR/AND 两条路径、fuse 值域两端（488 / 1511），以及**真实 blob 存在时的 13 条断言**
+（十条目、步长 64、dev0/dev1 Music 各 57 对且校验通过、monitor 通过）。真实 blob 用环境变量喂，因为它不入库：
+
+```
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
+# → TESTS OK 535 cases
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && PONG_ACF_FILE=/mnt/e/k60-work/scratch/audio-work/refs/acf/aw882xx_acf.bin sh drivers/PongAudio/tests/run-tests.sh'
+# → TESTS OK 548 cases
+```
+
+`PongAudioAcf.h` **不进补丁**（与 `PongCodecPlan.h` 同理）：内核侧还没有 `.c` include 它。等真正写寄存器的驱动落地时一起入补丁。
+
+### 8.9 A5 之后还差什么
+
+1. **真正写寄存器的驱动**（soft reset → 57 对 → `0x50` → TX）：它的前置是 PAS1/TDM 通路，属于 Lead 的线；
+   代码本身可以现在就写，但没有时钟与音频帧，写进去的是一台「配置正确但不出声」的功放 —— 那正是 §4 警告的假成功。
+2. **ACF 的构建期抓取**：按 `proprietary-files.txt` 的先例加一条，避免 `*.bin` 入库。
+3. **run 2**：⑧ 仍缺第二次 boot，须用户与 Lead 批准后单独执行（§7.3 第 1 条）。

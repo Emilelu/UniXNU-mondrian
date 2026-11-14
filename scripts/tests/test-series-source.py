@@ -99,6 +99,12 @@ def main() -> int:
           f"{len(names) - len(set(names))} duplicate entries")
 
     # 4. The fingerprint the scripts would compute matches the build manifest.
+    #
+    # A series edited after the newest build makes that manifest stale, and the
+    # rebuild is the fix. Refusing here would be the P-165 deadlock: the gate
+    # would block the very build that refreshes the record. So a manifest older
+    # than the series is reported and skipped; a manifest that is newer than the
+    # series and still disagrees is a real lie and stays a failure.
     manifest = newest_manifest()
     if manifest is None:
         check("a build manifest is available to compare against", False,
@@ -106,13 +112,21 @@ def main() -> int:
     else:
         data = json.loads(manifest.read_text(encoding="utf-8"))
         recorded = data.get("series", {})
-        check(f"{manifest.parent.name}: manifest patch count equals the series",
-              recorded.get("count") == len(names),
-              f"manifest {recorded.get('count')} vs series {len(names)}")
-        check(f"{manifest.parent.name}: manifest series sha256 equals the file",
-              recorded.get("sha256") == __import__("hashlib").sha256(
-                  SERIES.read_bytes()).hexdigest(),
-              "the manifest was built from a different series")
+        digest = __import__("hashlib").sha256(SERIES.read_bytes()).hexdigest()
+        stale = SERIES.stat().st_mtime > manifest.stat().st_mtime
+        agrees = (recorded.get("count") == len(names)
+                  and recorded.get("sha256") == digest)
+        if stale and not agrees:
+            print(f"skip {manifest.parent.name}: the series changed after this "
+                  f"build (manifest {recorded.get('count')}, series "
+                  f"{len(names)}); the next build refreshes it")
+        else:
+            check(f"{manifest.parent.name}: manifest patch count equals the series",
+                  recorded.get("count") == len(names),
+                  f"manifest {recorded.get('count')} vs series {len(names)}")
+            check(f"{manifest.parent.name}: manifest series sha256 equals the file",
+                  recorded.get("sha256") == digest,
+                  "the manifest was built from a different series")
 
     # 5. The scratch copy is either absent or demonstrably stale; if it differs,
     #    the fallback must not be the one in use.

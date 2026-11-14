@@ -132,11 +132,19 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 
 | 文件 | 大小 |
 |---|---|
-| `amss.bin` | 5,47x,xxx |
+| `amss.bin` | 5,470,128 |
 | `amss20.bin` | 5,296,128 |
 | `Data.msc` | 889,524 |
 | `Data20.msc` | 916,071 |
+| `m3.bin` | 266,684 |
+| `regdb.bin` / `regdb_xiaomi.bin` | 24,278 / 24,278 |
+| `bdwlan.elf` / `bdwlang.elf` | 59,932 / 59,936 |
 | `bd_m11agf.elf`（蓝牙）| 60,000 |
+
+> 2026-11-14 复核：本机副本 `firmware/qca6490/` 实为 **10 个文件**（上表逐项实测，sha256 见 `FIRMWARE.md`）。
+> **`bdwlan.elf` 不是「WiFi 不需要」**：`patches/wifi/0009` 的构建脚本硬性要求 board data ——
+> `if not any(f['name'].startswith('bdwlan.') for f in inventory): raise RuntimeError('Missing board data')`，
+> 且 `required=['amss.bin','amss20.bin','m3.bin','regdb.bin']`。
 
 ### 待补的 ③ 项
 
@@ -326,6 +334,8 @@ Pong 用 PWF2 包（`/pong/firmware/qca6490.pwf`，magic `0x32465750`）。
 - `include/nw_abi.h`（f6bf561）
 - `src/nw_wifi.c`（f6bf561）
 
+> 出处状态：**本机不可复核**。`E:/hackios/UniXNU-zizhan` 里 `git log f6bf561` 为空、`git show f6bf561:include/nw_abi.h` 为空，全盘 `find -name nw_abi.h` 0 命中。下列判定按官方文档与 `components.toml` 成立，但两个源文件本身属「自述来源」。
+
 ### 判定依据
 
 `nw_wifi.c` 的启动入口和全部内部实现都绑在 **ath12k WiFi 7**：
@@ -382,3 +392,31 @@ int (*fw_get)(const char *name, const uint8_t **data, size_t *size);  // 按路�
 
 组件用 `fw_get("amss.bin", ...)`、`fw_get("wlan_mac.bin", ...)` —— **只给文件名**，
 不要路径。我们的实现要在 `/vendor/firmware_mnt/image/qca6490/` 里按文件名查找。
+
+---
+
+## ⑦ 出处回溯（2026-11-14，任务 B）
+
+逐条把本文结论对回「文件:行」的结果。**结论未被推翻**，但有三类需要标注：
+
+### 7.1 已核到行的结论
+
+| 结论 | 出处 |
+|---|---|
+| 地址表（GCC/TLMM/PARF/DBI/PHY/ATU/SPMI/cmd-db） | `references/pong-wifi/PongWifiPlatform.cpp` :184 / :236 / :239 / :91 / :94 / :163，逐行命中 |
+| 四条「SM8475 ≠ SM8550」注释 | 同文件 :205 / :207 / :226 / :339-340，逐字命中 |
+| PWF2 格式（magic 0x32465750、64 MiB 上限、Entry 32+4+4） | `PongWifiFirmware.cpp`，与 §① 描述一致 |
+| 板级 JSON（vendor 6091 / device 4355 / bar0 1612709888 / 2097152） | `UniXNU-pong/configs/pong-wifi-sm8475.json` 与 `UniXNU-zizhan/configs/pong-wifi-sm8475.json`，两仓同文件 11,847 B，逐值命中 |
+| `Ath12kWifi` 不适用（ath12k 族 vs ath11k 族） | `E:/hackios/UniXNU/components.toml:473-482`，`hardware = ["ath12k PCI devices", "qcc2072, qcn9274, and wcn7850 build inputs"]` |
+| sheng 参考值 17cb:1107 / SPI 141 | `references/UniXNU-sheng/package/WifiProbe.cpp:7`、`:1065`、`:1068`、`:1091`、`:1236` |
+
+### 7.2 数值修正
+
+- `amss.bin` 原写占位符「5,47x,xxx」→ 实测 **5,470,128**（本机副本 + `docs/engineering/ANDROID-HW-TRUTH.md:107` 同值）。
+- 固件「六文件」口径不成立：构建实际要求 `amss.bin` + `amss20.bin` + `m3.bin` + `regdb.bin` + `bdwlan.*`；`Data.msc`/`Data20.msc` 未被 0009 断言。
+
+### 7.3 无出处 / 不可复核
+
+- **「MhiBoot 0 字节 = 窗口抢内存」**：本文与 `GAP-ANALYSIS.md`、`FIRMWARE.md` 都没有这条表述，`MhiBoot` 在 `E:/hackios` 全树 0 命中（只在官方驱动表 `docs/porting/drivers.md:44` 作为组件名出现）。该结论只存在于运行时记忆与 `E:/k60-work/evidence/wifi-trial/` 的 QEMU 实验，**不是本文档的结论**。
+- `nw_abi.h` / `nw_wifi.c` 的 f6bf561 版本：本机不可复核（见 ⑤ 第二步开头注）。
+- K60 的端点 ID、subsystem_device、MSI INTID 仍无实测：目前 1103/0108/172 分别来自 Pong 代码、Pong 代码、live FDT `interrupt-map`。

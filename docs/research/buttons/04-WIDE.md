@@ -111,5 +111,5 @@
 - ❌ `d22ap` / `taro` 两个规范点名的 SM8475 代号本地无检出，社区 `qiumochen/UniXNU-zizhan` 也未 clone —— 但 SM8475 侧已有 4 个源（pong / zizhan / phk110 / sweet-k60），结论不受影响。
 - ◐ 官方 `ButtonProbe.cpp` 的**中断路径**（PDC pin1 + SPI 481 + `armPeripheral` 8 步）只在 sheng（SM8550）上验证过，K60 未验证；K60 现走轮询，中断是可选增强。
 - ◐ K60 **没有** zizhan 那样的长按电源键复位钩子，运行中的 iOS 无法靠按键回到 fastboot。属能力缺口，不在本线写作用域（`patches/xnu/` 由触摸线持有），报 Lead。
-- ❌ K60 的 ADT 缺 `/buttons` 节点（见 ② 与 ③），pong/zizhan/liuqin 都有 —— 修法在 `board.toml` 的 `[adt.buttons.*]`（`schema_version = 2` 走 `devicetree.py:388-390`，`make-pong-adt.py` 是死代码），`board.toml` 属 Lead 写作用域；本线只交精确 diff 建议，见 `patches/buttons/README.md`。
+- ✅ K60 的 ADT 已有 `/buttons` 节点（2026-11-14 复核，原缺口闭合），与 pong/zizhan/liuqin 对齐 —— 落盘点是 `board.toml:268-276` 的 `[adt.buttons.*]`（`schema_version = 2` 走 `devicetree.py:388-390`，`make-pong-adt.py` 是死代码）。仍待 Lead 落盘的只剩 `/arm-io/pong-buttons` 段，见 `patches/buttons/README.md`。
 - ◐ **同 SoC 三仓的 DT 节点都在 `dts/` 里**（pong `dts/pong.dts:63-68`、zizhan `dts/zizhan.dts:53-60`），K60 却由框架 OS profile 供 `[adt.arm-io.pong-buttons.*]`、`dts/` 侧被 `10649b3` 主动删除（避免与 profile 重复）——这是本线唯一与三仓结构不同的地方，建议 Lead 落 `board.toml` 覆盖时保留 `dts/` 现状，不要再加回 DTS 节点。

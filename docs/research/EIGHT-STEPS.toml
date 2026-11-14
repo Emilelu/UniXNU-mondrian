@@ -297,9 +297,12 @@ evidence = "STATUS.md:18 `Pong init: exec original /sbin/launchd`，最大 pid 1
 success = "Pong init: exec original /sbin/launchd 出现，且 launchd 后最大 pid 持续增长"
 failure = "init 未执行到 launchd，或 launchd 起后立即 panic / 卡在 prelink 阶段"
 [hardware.buttons]
-status = "parked"
-paths = ["drivers/PongPower/K60Buttons", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys"]
-parked_why = "缺设备/缺前置依赖，见各步 evidence"
+# 2026-11-14：八步 done 全 true 且真机三键可用，按 Lead 指示从 parked 升为 implemented。
+# 词汇说明：EIGHT-STEPS 文档化的取值是 active|parked|planned（PITFALLS.md:3445），
+# implemented 来自 porting.toml 的词汇（scripts/porting-gate.py:141）。eight-step-gate.py:119
+# 只对 status == "active" 做硬检查，所以本项今后不再逐条阻断构建；证据仍全在各步里。
+status = "implemented"
+paths = ["patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch", "patches/buttons", "board.toml"]
 why = "实体键（电源/音量）"
 
 [hardware.buttons.step.same_model]
@@ -308,7 +311,7 @@ evidence = "同型基线是 UniXNU-pong 的 246 行中断版 pong_buttons.c（K6
 
 [hardware.buttons.step.official]
 done = true
-evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。官方还要求 ADT 的 /buttons 节点提供 button-names 与 home-button-type（mobilegestalt.md:26-27），K60 的 ADT 缺该节点：board.toml 是 schema_version = 2，ADT 由 devicetree.py:388-390 从 [adt].buttons 发射，改 scripts/make-pong-adt.py 是死代码（payload.py:231-236）。精确的 board.toml diff 见 patches/buttons/board-toml-adt-buttons.diff，已 git apply --check 通过并用 devicetree.generate() 端到端生成过含 /device-tree/buttons 的 ADT。详见 docs/research/buttons/02-OFFICIAL.md:1。"
+evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。官方还要求 ADT 的 /buttons 节点提供 button-names 与 home-button-type（mobilegestalt.md:26-27）。该节点已由 board.toml:268-276 的 [adt.buttons.*] 落盘（main 174fb69），发射点是 devicetree.py:388-390；用 devicetree.generate() 重生成 ADT 得 14,716 B / 23 节点，/device-tree/buttons 的 button-names 为 hold / voldown / volup 三个 NUL 分隔串、home-button-type=0x2 与 /device-tree/arm-io/pong-buttons 六属性同时存在。make-pong-adt.py 在 schema_version = 2 下仍是死代码（payload.py:231-236）。/arm-io/pong-buttons 段的 board.toml diff 见 patches/buttons/board-toml-adt-buttons.diff。详见 docs/research/buttons/02-OFFICIAL.md:1。"
 
 [hardware.buttons.step.decompile]
 done = true
@@ -338,7 +341,7 @@ artifact_check = "产物字符串核对通过：kernel.macho sha256 345d44c4 里
 
 [hardware.buttons.step.device]
 done = true
-evidence = "真机三键均可用：usblog-20261108-180257/console.log:229 的 arbiter 行尾 power=1 up=1 down=1（三键都被识别为 usable），usblog-20261110-135459/console.log:2411-2557 与 usblog-20261110-160036/console.log:2912-2974 分别记录 10 条与 6 条按下/释放事件，覆盖电源、音量加、音量减。STATUS.md:24 的 🔄 指 configuration() 结果不可观测，该缺口已由 2026-11-12 的逐条件诊断打印补上。"
+evidence = "真机三键均可用：usblog-20261108-180257/console.log:229 的 arbiter 行尾 power=1 up=1 down=1（三键都被识别为 usable），usblog-20261110-135459/console.log:2411-2557 与 usblog-20261110-160036/console.log:2912-2974 分别记录 10 条与 6 条按下/释放事件，覆盖电源、音量加、音量减。STATUS.md:62 已于 2026-11-14 由 🔄 改为 ✅：configuration() 结果不可观测的缺口由 2026-11-12 的逐条件诊断打印补上（P-142），三键 usable 与按下/释放事件见上列日志行。"
 
 [hardware.buttons.step.device.prediction]
 success = "启动日志出现 Pong keys: PMIC windows mapped, pon-ppid=0x13 volume-up-ppid=0x18d 与 Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1，随后每次按下与释放各产生一条 Pong keys: <0|1|2> down|up 与一条 Pong keys HID: key=<0|1|2> down=<0|1> sent=1。"

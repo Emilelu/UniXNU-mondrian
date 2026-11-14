@@ -1,6 +1,6 @@
 # K60 按键线的板级配置建议（board.toml）
 
-> 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支（`main` = `a7fbcdb`，含 repo-hygiene 的 `K60_REPO` 修复）。
+> 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支，已 rebase 到 `origin/main` = `9176f5c`。
 > 本目录只放**本线（buttons）**的产出。内核侧按键驱动
 > （`patches/xnu/zzzz…-pong-physical-keys.patch`）由触摸线持有，本线不改。
 > `board.toml` 属 **Lead 写作用域**，本线只交 diff 建议，不落盘。
@@ -9,7 +9,7 @@
 
 | # | 文件 | 作用 | 验证状态 |
 |---|---|---|---|
-| — | `board-toml-adt-buttons.diff` | 给 `board.toml` 插入 `[adt.buttons.*]`（`/buttons` 节点：`button-names`、`home-button-type`）与 `[adt.arm-io.pong-buttons.*]`（PMIC 仲裁器六个常量） | `git apply --check` 通过（见下） |
+| — | `board-toml-adt-buttons.diff` | 给 `board.toml` **追加** `[adt.arm-io.pong-buttons.*]`（PMIC 仲裁器六个常量）。`[adt.buttons.*]` 已由 main `174fb69` 落盘（`board.toml:268-276`），本 diff 不再包含 | `git apply --check` 通过、`tomllib` 解析通过、重生成 ADT 得 14,716 B / 23 节点（见下） |
 
 应用方式（由 Lead 执行）：
 
@@ -17,7 +17,14 @@
 cd /mnt/e/hackios/k60-buttons      # 或 k60-usb，两仓 board.toml 目前逐字节相同
 git apply --check patches/buttons/board-toml-adt-buttons.diff
 git apply         patches/buttons/board-toml-adt-buttons.diff
+python3 -c "import tomllib;print(sorted(tomllib.load(open('board.toml','rb'))['adt']))"
 ```
+
+**必须做第三步**：2026-11-14 上一版 diff 同时含 `[adt.buttons.*]`，而 main 已自带该段，
+只做 `git apply` 会让 `board.toml` 出现两组同名表，`tomllib` 直接报
+`Cannot declare ('adt', 'buttons', 'string') twice` —— 而 `git apply --check` 是**通过**的。
+所以 `git apply --check` 不能当作验收，必须解析一次 TOML。本版已改为纯追加（只在文件末尾
+`:276` 之后加 `[adt.arm-io.pong-buttons.*]`），实测三项都过。
 
 ## 为什么不是补丁 `scripts/make-pong-adt.py`
 
@@ -76,20 +83,27 @@ MobileGestalt 从 `/buttons` 读 `button-names` 与 `home-button-type`
 
 ## 现状与必要说明（2026-11-14 复核）
 
-- `E:/hackios/k60-buttons/board.toml` 与 `E:/hackios/k60-usb/board.toml` 逐字节相同（各 256 行），
-  `grep '^\[adt'` 只有 `pong-touch` 四段，**没有** `[adt.buttons.*]`、**没有** `[adt.arm-io.pong-buttons.*]`。
+- `board.toml`（276 行）`grep '^\[adt'` 有 `pong-touch` 四段 + `[adt.buttons.*]` 三段（`:268` `.string`、
+  `:272` `.strings`、`:275` `.u32`，由 main `174fb69` 落盘）；**仍没有** `[adt.arm-io.pong-buttons.*]`，
+  这正是本 diff 唯一还在补的内容。
+- 用仓库里的 `board.toml` 直接生成 ADT（`unixnu.devicetree.generate()`）得 14,348 B / 22 节点：
+  `/device-tree/buttons` **在**、`/device-tree/arm-io/pong-buttons` **不在**；
+  打完本 diff 后是 14,716 B / 23 节点，两个节点**都在**。
 - 但 2026-11-14 的上机镜像（`E:/k60-work/artifacts/usb-20261114b`，ADT sha256 `18a514e7…`）里
   `/arm-io/pong-buttons` **存在**、`/buttons` **不存在**。来源已查明：WSL 框架树
   `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` 有该节点
   （`["adt"."arm-io"."pong-buttons"]`，只有 `.u64`/`.u32`，没有 `.string`），而该文件是
   `git status` 里的 ` M`（**未提交**）。即：那一次能通按键，靠的是这处本地未提交改动。
-- 因此本 diff 的作用是**把该配置从「WSL 里的未提交改动」变成「仓库里可复现的板级契约」**。
+- 因此本 diff 的作用是**把该配置从「WSL 里的未提交改动」变成「仓库里可复现的板级契约」**：
+  不落它，换机重建会退回 `Pong keys: DT node /arm-io/pong-buttons not found`。
   若 Lead 先更新了 OS profile，请确认两处取值一致（`merge()` 顺序是 arch → soc → os profile → board，
-  board 覆盖 profile，值相同则无副作用）。
+  board 覆盖 profile，值相同则无副作用；本 diff 多给的 `compatible` 驱动不读，仅对齐 yibiya）。
 
 ## 验收
 
-1. 落盘后重新生成一次 ADT（`make ... adt` 或整机构建）。
+1. 落盘后重新生成一次 ADT（`make ... adt` 或整机构建）。本线已端到端跑过一次：
+   `unixnu.devicetree.generate('/mnt/e/k60-work/candidates/4g-quiet/hardware.dtb', board.toml)`
+   → `bytes=14716 nodes=23 consumed=14716`。
 2. 用 `docs/research/buttons/tools/adt-inspect.py` 检查：
 
    ```bash

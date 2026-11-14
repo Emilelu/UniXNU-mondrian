@@ -1,24 +1,11 @@
 diff --git a/board.toml b/board.toml
-index cfb83af..c756cad 100644
+index 4d01391..1a94b9c 100644
 --- a/board.toml
 +++ b/board.toml
-@@ -230,6 +230,38 @@ trust_cache_sha256 = []
- # pending. devicetree.py emits darwinboot-memory-size from this key.
- "owned_memory_size" = "0x130000000"  # 4.75 GiB window (ladder step after 5 GiB NO WINDOW)
+@@ -274,3 +274,21 @@ button-names = ["hold", "voldown", "volup"]
  
-+# Physical keys. MobileGestalt reads /buttons for button-names and
-+# home-button-type (UniXNU-docs/docs/zh/guide/mobilegestalt.md:26-27);
-+# without it the platform falls back to a Home-button iPad. K60 has
-+# power / volume-up / volume-down only, so "menu" is omitted.
-+[adt.buttons.string]
-+compatible = "buttons"
-+device_type = "buttons"
-+
-+[adt.buttons.strings]
-+button-names = ["hold", "voldown", "volup"]
-+
-+[adt.buttons.u32]
-+home-button-type = 2
+ [adt.buttons.u32]
+ home-button-type = 2
 +
 +# PMIC key arbiter. bsd/dev/pong_buttons.c looks up exactly
 +# /arm-io/pong-buttons and rejects any value that differs from these
@@ -37,7 +24,3 @@ index cfb83af..c756cad 100644
 +ee = 0
 +pon-ppid = 19
 +volume-up-ppid = 397
-+
- # K60 live FDT: xiaomi_touch@0 on QUP0 SE4. These absolute resources are
- # metadata for the board-started driver, not an incomplete interrupt mapping.
- [adt.arm-io.pong-touch.string]

@@ -59,7 +59,7 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 | 背光（DCS 0x11/0x29/0x51） | ✅ | `K60 PANEL: bring-up complete` |
 | 锁屏 / SpringBoard | ✅ | `Pong UI: 20G81 compatibility library entered SpringBoard` |
 | launchd 稳定 | ✅ | `0394` 精选缓存（22 个核心 job）已并入 `0391`，写 `/private/var/pong/xpc/launchd.plist` |
-| 实体键（电源/音量） | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `_pong_buttons_init`），`configuration()` 结果不可观测 |
+| 实体键（电源/音量） | ✅ | 三键真机可用（`Pong keys: arbiter v7 … power=1 up=1 down=1`），16 条按下/释放事件覆盖三键，逐条件诊断已消除「结果不可观测」缺口（P-142） |
 | 触摸 | ✅ | 单指已真机验证，见下方「触摸」专节 |
 | GPU（Adreno 730v3） | 🔄 | 见下方「GPU」专节 |
 | WiFi / 蓝牙 / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |

@@ -1,15 +1,16 @@
 # 03 · 关键路径反编译 — init / probe / write / callback / 状态机 / ship mode
 
 > 约定：地址 = 节内偏移（详见 01 §1.2）。所有 `asm` 片段都是 `llvm-objdump -dr` 的**原始输出**（含重定位行），可用 §9 的命令逐字节复现。
+> §8 的未决项已由 `05-OPEN-QUESTIONS.md` 逐条结案；属性映射见 `04-PROP-MAP.md`。
 
 ## 0. 结论摘要
 
 1. 模块骨架极薄：`init_module` 只做 `__platform_driver_register(&battery_chg_driver)`，`cleanup_module` 只做 `platform_driver_unregister`；驱动名 `qti_battery_charger`，of_match 含 `qcom,battery-charger` 等 4 组。
 2. `battery_chg_probe`（`0x754`，0x950 B）是唯一的组装点：`devm_kmalloc(0x738)` 分配 bcdev → 建 4 张 prop map → 注册 pmic_glink client（id `0x800a`）→ 注册 3 个 power_supply（battery/usb/wireless）→ thermal zone → reboot notifier×2 → class `qcom-battery` → debugfs `battery_charger` → 排 4 类 work。
 3. **所有出向报文只有一个出口**：`battery_chg_write`（`0x688`）。它有三道闸门（`state==0`、`bcdev+0x30e`、`bcdev+0x30c`），然后 `pmic_glink_write` + 250 jiffies 等完成，超时返回 `-110`。
-4. rx 由 `battery_chg_callback`（`0x211c`）按 `data+8` 的 opcode 走 78 字节跳转表（`.rodata:0x9`）分发到 11 个有效分支；`0x04/0x36/0x37/0x48` 统一 `complete(&bcdev->wait)`，`0x32/0x34` 把 `prop_id/value` 写进缓存，`0x30` 收 128 B 板名。
+4. rx 由 `battery_chg_callback`（`0x211c`）按 `data+8` 的 opcode 走 78 字节跳转表（`.rodata:0x9`）分发到 11 个有效分支；`0x04/0x36/0x37/0x47` 统一 `complete(&bcdev->wait)`（`0x48` 不在此列——它落在未识别分支 `0x24a8`，见 `05-OPEN-QUESTIONS.md` §2.2），`0x32/0x34` 把 `prop_id/value` 写进缓存，`0x30` 收 128 B 板名。
 5. 状态机由 `battery_chg_state_cb`（GLINK up → queue）驱动 `battery_chg_subsys_up_work`，后者按固定顺序发 4 条请求（subsys-up 握手 → 限流值 → usb 属性 → usb 类型）；`chg_type/ffc/pd_verifed` 等只在调试打印里出现（`.rodata:0x400`、`.rodata:0x904`），不构成独立状态机。
-6. ship mode / shutdown 各是一条 16 字节请求 `{0x800a, 1, 0x36, 0}`，挂在 reboot notifier（优先级 `0xff`）上；`ship_mode` 由 `bcdev-0x13`（即 `bcdev+0x30d` 使能字节）门控。
+6. ship mode 是 16 字节请求 `{0x800a, 1, 0x36, 0}`，由 `bcdev-0x13`（即 `bcdev+0x30d` 使能字节）门控且仅 `x1 == 3` 时发；shutdown 是 **12 字节**请求 `{0x800a, 1, 0x37}`，仅 `(x1 & ~2) == 1`（重启）时发。两者都挂在 reboot notifier（优先级 `0xff`）上。
 
 ## 1. 模块骨架
 
@@ -79,8 +80,8 @@
 | `+0x278` | `update_usb_type_work` | 同上 |
 | `+0x2a8` | `check_status_work` | 同上 |
 | `+0x30c` / `+0x30e` | `block_tx` / `is_not_debug_board` 闸门字节 | `0xea8` debugfs bool / `0x2234` strcmp |
-| `+0x30f` | `pd/attached 通知标志`（`0x40` 置位） | `0x22ac` |
-| `+0x314` | `0x44` 通知写入的端口/typec 值 | `0x230c` |
+| `+0x30f` | 无线固件升级放行旗标（`0x40` 回包置 1，`wireless_fw_update` 清零后轮询） | `0x4130` / `0x22c4` / `0x4178` |
+| `+0x314` | 无线固件版本号 / 升级耗时 ms（`0x44` 回包写入，debugfs 读） | `0x230c` / `0x44d4` |
 | `+0x320` / `+0x338` | `reboot_notifier`（ship_mode / shutdown），优先级 `0xff` | `0xb54` / `0xb70` |
 | `+0x358` / `+0x35c` | 限流值 / usb 限流值（带脏标记） | `0x121c` / `0x1274` |
 | `+0x618` | client 注册成功标志 | `0xb34` `strb w23,[x20,#0x618]` |
@@ -212,12 +213,12 @@
 | `0x37` | 191 | `0x2464` | complete |
 | `0x38–0x3f` | 208 | `0x24a8` | 未知 |
 | `0x40` | 81 | `0x22ac` | `bcdev+0x30f = (data+0xc==1)` |
-| `0x41` | 208 | `0x24a8` | 未知 |
+| `0x41` | 208 | `0x24a8` | 未识别（**该 opcode 只发不收**：`wireless_fw_update` 直接 `pmic_glink_write` 推固件分片，144 B） |
 | `0x42` | 89 | `0x22cc` | `complete(bcdev+0x118)` |
 | `0x43` | 97 | `0x22ec` | `complete(bcdev+0xf8)` |
 | `0x44` | 105 | `0x230c` | `bcdev+0x314 = data+0xc` |
 | `0x45–0x47` | 208 | `0x24a8` | 未知 |
-| `0x48` | 191 | `0x2464` | complete |
+| `0x48` | 208 | `0x24a8` | **未识别**：打印 `Unknown opcode: %u.`，不 complete（`0x47` 才是只 complete） |
 | `0x49–0x50` | 208 | `0x24a8` | 未知（注意：`0x50` 的 GET 应答也走“未知”，即 driver **不解析** `0x50` 响应内容，只 complete） |
 | `0x51` | 111 | `0x2324` | 拷 32/16 B 数据 |
 
@@ -348,9 +349,9 @@ probe 建 `battery_charger` 目录（`.rodata:0x259a`）+ `block_tx` bool（`.ro
 
 ## 8. 未决问题
 
-1. `battery_chg_check_status_work`（`0x156c`）的 4 条 `battery_chg_write` 具体 opcode/长度未逐条展开（本轮只取了调用序列），需要补 `0x156c–0x1764` 的完整反汇编。
+1. ~~`check_status_work` 的 4 条请求未展开~~ → 已在 `05-OPEN-QUESTIONS.md` §4 逐条结案：① usb GET idx0(ONLINE) ② wls GET idx0(ONLINE) ③ 任一在线 → battery GET idx4(CAPACITY) ④ 电量 ≤99% → battery GET idx7(VOLTAGE_NOW)，÷400 后与 DT `qcom,shutdown-voltage` 比较，置 `bcdev+0x6fa`。
 2. `battery_chg_update_usb_type_work` 的 usb_type 分支映射（值 4/5/6/7/8/9 → `POWER_SUPPLY_USB_TYPE_*`）只确认了跳转结构，未逐值确认。
-3. `0x40/0x42/0x43/0x44` 四个通知的真实业务含义（谁在等 `bcdev+0x118` / `bcdev+0xf8`）需结合 `wireless_fw_update`（0x3f44）与 `request_vdm_cmd_show`（0x5808）的等待点确认。
+3. ~~`0x40/0x42/0x43/0x44` 含义未知~~ → 已在 `05-OPEN-QUESTIONS.md` §5 结案：`0x40` = 无线固件握手（`bcdev+0x30f` 放行旗标）、`0x41` = 固件分片推送（等 `bcdev+0xf8`）、`0x42` = 握手完成量（`bcdev+0x118`）、`0x43` = 分片完成量（`bcdev+0xf8`）、`0x44` = 版本读取（`bcdev+0x314`）。
 4. `bcdev+0x30e` 的语义链：`0x30` 响应的 128 B 板名与 `.rodata:0x1aee` `Debug_Board` 比较 → `0x30e`（1 = 非 Debug_Board）→ 与 `0x30c` 一起作为 `battery_chg_write` 的闸门。为什么“非 Debug_Board 且 block_tx”时要静默丢报文，需要结合小米产线逻辑确认。
 5. `ship_mode` 回调里 `x1 == 3` 的 notifier 事件编号与 `struct notifier_block` 的 `SYS_POWER_OFF` 对应关系需与内核版本核对（5.10 的枚举值）。
 

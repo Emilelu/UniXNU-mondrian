@@ -2,6 +2,7 @@
 
 > 阶段一离线反编译产物（不碰设备、不 build）。所有地址都是**可重定位目标文件内的节内偏移**（见 §1.2）。
 > 每条结论都可由 §8 的命令复现；文中 `\x01` 等前缀是 kernel printk 的 KERN_ALERT 级别字节，不是字符串内容。
+> 后续：属性映射见 `04-PROP-MAP.md`，未决结案见 `05-OPEN-QUESTIONS.md`，L1 服务层契约见 `../battery/PMIC-GLINK-SERVICE.md`。
 
 ## 0. 结论摘要
 

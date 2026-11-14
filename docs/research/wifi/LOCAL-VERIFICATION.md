@@ -552,3 +552,50 @@ So the ladder is internally consistent at the byte level before it is spent on a
 boot: the fd is the proven `cf4485712c29`, every rung's manifest names the
 kernel the ramdisk really holds, and no rung is over the loader's command-line
 limit.
+
+### 5.15 The gate is present in every rung, not just the three checked in §5.13
+
+§5.13 sampled three rungs. The full ladder was re-checked afterwards, because a
+stale `payload.img` would make a silent capture mean the wrong thing: a rung with
+no console gate in it would be silent for the old reason, and the ladder would be
+read backwards.
+
+`E:\k60-work\evidence\wifi-trial\preflight-embedded.py` splits the v4 boot header
+(`ramdisk offset = 4096 + page_up(kernel_size)`), extracts
+`::EFI/UniXNU/Payloads/kernel.macho` with `mtype`, and counts five strings. Result
+for all twelve images that can be booted:
+
+```
+image               ramdisk      kernel.macho  sha256        gate held rsc bdf pwf2
+wifi-20261115a      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115b      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115c      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115p      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115d      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115e      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115f      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115g      201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115h2     201326592    65978368      e273b64968b6  1    1    1   1   2
+wifi-20261115z0     201326592    54181888      50b22e26b87b  0    0    0   0   0
+wifi-20261115t0     201326592    54804480      62999b5b88f8  1    1    1   1   2
+wifi-20261115t1     201326592    54804480      62999b5b88f8  1    1    1   1   2
+```
+
+Columns: `gate` = `console up after`, `held` = `held back by k60_wifi_stage`,
+`rsc` = `RSC probe id=0x`, `bdf` = `actual QMI board firmware`, `pwf2` = `PWF2`
+(two hits: the magic check and the lookup).
+
+Two readings that matter:
+
+- **`z0` carries no WiFi code at all** — all five counters are zero. It is the
+  stock-kernel control, so a silent `z0` means the phone or the fd is at fault,
+  never the WiFi driver. That is why the runner exits 13 on it instead of 12.
+- **`t0`/`t1` carry the same gate as the 65.9 MB rungs** (identical payload
+  kernel `62999b5b88f8`), so the size bisect does not confound the gate: a
+  silent `t0` cannot be explained by "the gate is missing from the small kernel".
+
+`wifi-20261115h2` is the six-file-firmware twin of `g` (same payload kernel,
+`pong_wifi=1 k60_wifi_rsc=2`, 602 bytes instead of 589 because it does not carry
+the `epoch=1 debug=1` trim). It exists to prove the BDF files can be packaged and
+still boot as a legal image; `g` is the rung to fly, because it leaves more
+headroom under the 607-byte limit.

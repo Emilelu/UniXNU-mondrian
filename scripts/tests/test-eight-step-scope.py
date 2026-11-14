@@ -39,7 +39,9 @@ def main() -> int:
               forbid_text=None):
         nonlocal failures
         rc, out = run(list(args), items)
-        ok = (rc == want_rc or (want_rc == 0 and rc == 0))
+        # want_rc=None means "the whole-device verdict decides"; the case is
+        # about scoping, not about whether the device is currently green.
+        ok = want_rc is None or rc == want_rc
         if want_text and want_text not in out:
             ok = False
         if forbid_text and forbid_text in out:
@@ -64,8 +66,11 @@ def main() -> int:
     check("an unknown name is refused", 1,
           "不存在的硬件项", items="nosuch")
 
-    check("flash mode ignores the declaration", 1,
-          "八步流程未通过，禁止刷机", args=("--flash",), items="buttons")
+    # The declaration must not narrow flash mode. Whether flash passes depends
+    # on the whole device, so assert on the absence of scoping, not on rc.
+    check("flash mode ignores the declaration", None,
+          "模式: flash", args=("--flash",), items="buttons",
+          forbid_text="声明范围")
 
     if failures:
         print(f"TESTS OK 0 cases ({failures} failure(s))")

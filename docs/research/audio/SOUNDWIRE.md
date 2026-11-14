@@ -189,5 +189,9 @@ VA macro `MCLK_CONTROL 0x000`、`FS_CNT_CONTROL 0x004`、`TOP_CFG0 0x080`。
 ## 9. 阻塞点
 
 - **一切 LPASS 寄存器访问都阻塞在 PRM 投票 → ADSP/PAS1（Lead）。**
+- 已经能落地的是**顺序本身**：`drivers/PongAudio/PongCodecSwr.{h,c}` 把 §3.1 的读事务写成状态机
+  （版本判定 → FIFO 满则拒绝且不写命令 → 写命令 → 轮询 → 校验事务号 → 收数据/中止），
+  `PongCodecPlan.h` 提供寄存器号与判定，宿主单测 65 例钉住全部转移。**它不碰 MMIO**：
+  真正的 `read/write` 回调要等 PAS1 起来、拿到 PRM 投票之后才能接上。
 - 本文件只交付「地址/寄存器/时序的形状」，不交付「可运行的 SoundWire 驱动」。
   可运行的只读部分在 `drivers/PongAudio/`（见 `AMPS.md`，纯 AP 路径，不碰 LPASS）。

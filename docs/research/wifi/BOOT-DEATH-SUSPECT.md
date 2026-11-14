@@ -19,11 +19,18 @@ disprove it; nothing here is a code change.**
   (`portSeen=false` is the device never enumerating CDC-ACM, not a collector
   fault).
 - mhi3 and mhi4 differ **only** in the ADT window (`0x130000000` vs
-  `0x120000000`): payload kernels byte-identical (`83b52b56…`), build args
-  identical, boot.img sizes identical (201,887,744 B). The peer that boots,
-  `bt-s4a-20261114f`, has the same 4.5 GiB window and differs from mhi4 in
-  exactly one boot argument (`k60bt=1` instead of `pong_wifi=1`) — but a
-  different kernel, so it is suggestive, not controlled.
+  `0x120000000`). Kernel identity must be read from
+  `build-manifest.json:components.payload_kernel`, **not** from
+  `boot.json:kernel_sha256` — that field hashes the boot image's kernel slot
+  (gzip of the 112 B shim plus the 3,145,728 B firmware volume, then the DTB),
+  so it is `83b52b56…` on every image that shares the firmware volume (P-200).
+  Measured the right way: mhi3 = `0addbb48…`, mhi4 = `e24a58f1…`, both
+  65,978,368 B, differing in 47 bytes (26 in `__TEXT`, 21 in
+  `__PRELINK_INFO`); `payload.img` is byte-identical and the boot images
+  differ in 324 bytes. The peer that boots, `bt-s4a-20261114f`, has the same
+  4.5 GiB window and differs from mhi4 in exactly one boot argument
+  (`k60bt=1` instead of `pong_wifi=1`) — but a different kernel, so it is
+  suggestive, not controlled.
 
 ## 1. The stale-kernel confound (established, not a suspect)
 
@@ -46,35 +53,60 @@ the first image that tests the current tree.
 
 ## 2. Suspects
 
-### S1. PWF2 firmware blob in `__TEXT,__const` (11.2 MB) — structural, still alive
+### S1. PWF2 firmware blob in `__TEXT,__const` (11.2 MB) — **primary suspect**
 
 - Source: `scripts/build-k60-wifi-native.py:102` emits
   `.section __TEXT,__const` + `.p2align 12` + `.incbin`; the whole PWF2
   container (PongWifiFirmware.bin, 11,189,974 B) lands in the kernel's
   read-only first segment.
-- Measured: mhi5 `__TEXT` vmsize 0xc64000 (12.4 MB) with
-  `__const` 0xb38ed6 (11.2 MB), vs every booting kernel
-  (`bt-s4a`, `touch`, `brightness`, lead-out) at `__TEXT` 0x1a4000
-  (1.6 MB) with `__const` 0x86028 (0.5 MB).
+- Measured on six payload kernels, section table of the `kernel.macho`
+  extracted from each `boot.img` (`E:/k60-work/scratch/constsz.py`):
+
+  | image | kernel bytes | `__TEXT` vmsize | `__const` | PWF2 magic | on device |
+  |---|---|---|---|---|---|
+  | springboard-20261114c | 105,480,192 | 0x1a1321 | 0x85e18 (0.52 MiB) | 0 | SpringBoard |
+  | gpu-20261114t | 105,476,096 | 0x1a100e | 0x86028 (0.52 MiB) | 0 | SpringBoard |
+  | brightness-9 | 105,500,672 | 0x1a1520 | 0x86038 (0.52 MiB) | 0 | SpringBoard |
+  | wifi-20261116mhi5 | 117,305,344 | 0xc61645 | 0xb38ed6 (11.22 MiB) | 2 | untested |
+  | wifi-20261116a2 | 65,978,368 | 0xc60ad5 | 0xb38ed6 (11.22 MiB) | 2 | silent |
+  | wifi-20261116mhi3 | 65,978,368 | 0xc60c11 | 0xb38ed6 (11.22 MiB) | 2 | silent |
+
+  The 11.19 MB delta between the two groups is exactly the firmware blob, and
+  it is the only clean structural difference between kernels that reach
+  SpringBoard and kernels that never print a byte. Inside `__TEXT` the blob is
+  the first thing mapped: `__const` sits at file offset 0x2000
+  (`addr 0xfffffff007006000` for mhi5), with `__cstring` only after it at
+  file offset 0xb3aed6. Every booting kernel starts `__cstring` at 0x89008.
+- **`a2` does not exonerate the blob.** `wifi-20261116a2` carries the same
+  0xb38ed6 `__const`, so whatever it does on device says nothing about S1; it
+  only tests the driver (`pong_wifi=0`, no MHI). The earlier plan "if a2 is
+  silent, move on to residency" was wrong for exactly this reason.
 - Why it could kill: `DarwinBoot.c:195-196` rejects a kernel whose
   Base..End span exceeds `WINDOW_SIZE - 2 MB` — not the binding constraint
   here (mhi5 span 123.6 MB, stale 74.7 MB, both < 254 MB). The sharper risk:
   `AllocateWindow` (`:452-509`) must find `WindowSize` (4.5 GiB)
   **contiguous** in `EfiConventionalMemory` while the loader still holds the
-  whole kernel image in pool; a bigger image shrinks the biggest run.
-- How to disprove: fly mhi5 (same 11.2 MB `__TEXT`). If mhi5 reaches
-  SpringBoard, the blob is exonerated. If mhi5 dies identically, rebuild one
-  image with the firmware moved to `__DATA` (one-line change in
-  `build-k60-wifi-native.py`) and fly it.
+  whole kernel image in one `AllocateZeroPool`; a bigger image shrinks the
+  biggest run (`MemoryMapLib.c:82-88` records a failure at a 320 MiB heap with
+  "biggest run 0xF0A0000").
+- How to disprove: fly T0 `wifi-20261115z0` (`pong_wifi=0`, kernel
+  117,305,344 B, same 0xb38ed6 blob). SpringBoard reached → the driver is
+  exonerated and the blob is still alive as a suspect for mhi5; silent →
+  blob or its residency is the killer, and T2 (blob into `__DATA`, or read
+  from the Data volume at runtime) becomes the next image.
 
-### S2. Window arithmetic with the new kernel size — computed, mhi5 is the test
+### S2. Window arithmetic with the new kernel size — **downgraded to bookkeeping**
 
 - `need ≈ window + kernel_image + fixed` (`LOCAL-VERIFICATION.md`
   §5.16 model, fixed ≈ 177 MB measured on the stale pair). For mhi5 at 4.5 GiB:
   4608 + 112 + 177 = 4897 MB against a 5120 MB arena → slack ≈ +223 MB.
-- The stale pair at 4.5 GiB was 4608 + 63 + 177 = 4848 → slack +272 MB, and
-  **it still died silently**, so window slack alone does not rescue a boot.
-- How to disprove: mhi5 again. Its result also refines the fixed overhead.
+- **Why downgraded:** mhi4 already flew at 4.5 GiB with a 66 MB kernel and
+  ≈ +272 MB of slack, and it was still silent. A model that predicts "safe"
+  for a flight that died cannot be the explanation; keep it only to size the
+  next image.
+- It is not discarded because the loader really does need one contiguous
+  4.5 GiB run, and a bigger kernel image does shrink the heap. But it is now a
+  contributing-factor candidate behind S1, not a peer of it.
 
 ### S3. Retired touch `spmi-probe` patch (Lead's HR-01 hypothesis) — weakened
 
@@ -104,11 +136,36 @@ the first image that tests the current tree.
 
 ## 3. What each next flight decides
 
-| flight | decides | if it boots | if it dies |
-|---|---|---|---|
-| mhi5 (ready, 4.5 GiB) | S1+S2 jointly, and retires the stale confound | blob and window model survive; next step is the MHI handshake logs | rebuild with firmware in `__DATA` (`S1` variant) becomes the next image |
-| firmware-in-`__DATA` rebuild | isolates S1 | blob placement was the killer | S1 falsified; investigate loader/pool (`S2`) with the `NO WINDOW` diag line |
-| `pong_wifi=0` same-kernel control | isolates S4 | wifi driver code implicated | arg/kernel-size interaction implicated |
+Order set by the Lead on 2026-11-15. Both T0 and T1 must come out of
+`scripts/build-strict.sh` — a hand-packed control image carries no series
+fingerprint and proves nothing (P-201).
+
+| order | flight | decides | if it boots | if it dies |
+|---|---|---|---|---|
+| **T0** | `wifi-20261115z0` (ready: `pong_wifi=0`, kernel 117,305,344 B, blob present, 4.5 GiB) | the driver vs the blob: same kernel as mhi5, wifi arg off | driver code is implicated → fly T1 to test the full stack | driver exonerated → the blob or its residency is the killer → go straight to T2 |
+| **T1** | `wifi-20261116mhi5` (ready, 117,305,344 B, `pong_wifi=1`) — only after T0 boots | S1+S2 on the full wifi stack, and retires the stale confound | the MHI handshake logs become the next evidence | blob/loader interaction confirmed without the driver |
+| **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
+
+## 3a. The T0 control image (built 2026-11-15 03:49)
+
+`wifi-20261115z0` — first image of this line that is both a control and a
+`build-strict.sh` artifact, so its manifest carries the series fingerprint
+that `wifi-20261116a2` lacked (P-201):
+
+| field | value |
+|---|---|
+| series | 224 patches, `34cf51e4d10e46eb3514d798a3e3208c3ac7f124dd8a982585e9eea1e8b9c8c0` |
+| `components.payload_kernel` | `ec094bc952930d30f5b18ee43a1e19e0d06898309ec46e80e43121595498ce22` |
+| kernel bytes | 117,305,344 (same size as mhi5, different bytes: the arg is baked into the payload) |
+| `__TEXT` / `__const` | 0xc64000 / `0xb38ed6` (11.22 MiB, PWF2 magic present twice) |
+| `boot.img` | `c2e069f0088a0728e24dbc89338edee2ba9d5f453265d63d42ccb64bc3303728`, 201,887,744 B |
+| ADT window | `0x120000000` (4.5 GiB) |
+| boot args | 30, 587 B, last one `pong_wifi=0` |
+| gates | eight-step passed, kernel archives 4/4, image-arg-audit OK, verify-boot-image OK |
+
+Because the kernel size, the firmware blob and the window all match mhi5 and
+only the boot argument differs, z0 is the controlled test of "driver versus
+blob" that the plan needs.
 
 ## 4. Evidence index
 

@@ -26,8 +26,10 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch` | **rewritten 2026-11-15 for P-197**: 2 files (289 ins / 1 del): NGPUADD2 parser `k60_addon_find()`, `k60_bt_addon_load_blob()` reading the linked `k60_bt_blob` / `k60_bt_blob_len` (the new primary carrier), the old SecureDT `chosen/memory-map/GpuAddon` path kept as fallback, `k60_bt_addon_read()`, and `k60_bt_firmware_read()` trying the addon first; `osfmk/conf/files.arm64` gains `osfmk/arm64/k60_bt_blob.s`. sha256 `316148931ab11fa9fbd79fbe7b878960e702b39d5e89babd0daa806655fccc96` (15,672 B) | **build-wired** (`patches/xnu/series:208`) |
 | `scripts/gen-k60-bt-blob.py`, `scripts/tests/test-k60-bt-blob.py` | the blob generator (`.incbin` + length constant, one-byte stub when no container) and its host test (9 fixtures, including the P-196 "length forgot the padding" case); `scripts/build-xnu-4k-baseline.sh:311-324` runs the generator inside the xnu build, `scripts/build-strict.sh` gained `--bt-blob` | done (`ccd4dfc`) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring status (option B used, option A kept as an alternative) | done |
-| image `bt-s4-20261114b` (`boot.img` `82ff78b4…`, 201,887,744 B) | the first build that contains `0510`: `build-strict.sh` exit 0, `verify-boot-image.py` OK, `kernel_built 9e8ae410…`, `payload 570f61e9…`, `adt 079cf3c7…`; `strings kernel.macho` shows `NGPUADD2` / `loaded bytes records` / `no GpuAddon property`. **No `--gpu-addon`** (Lead scope), so the addon cell is absent and this image is the negative control for S4 | built, not booted |
-| image `bt-s4b-20261115a` (`boot.img` `7ee92d51…`, 201,887,744 B) | **the positive S4 image to fly** (P-197 carrier): built with main's own `build-strict.sh --bt-blob out/pong-bt-firmware.bin` (sha256 `febdc20d…`) and `--kernel-arg k60bt=1` (583 B / 30 args); `kernel_built 4fce5d35…` (106,541,056 B, +1,032,192 B for the embedded container), `payload 3f7ae2c2…`, `payload_kernel c0e7da70…`, `adt 69c0c97f…`; ``llvm-nm`` shows `_k60_bt_blob` at `fffffff0071b8818` and `_k60_bt_blob_len` at `fffffff0072b3618` (Δ = 1,027,584), and those bytes in `kernel.macho` hash-equal the packer output. `--gpu-addon` deliberately NOT passed. See `S4-SPEC.md` §6.4 | built, not booted |
+| image `bt-s4-20261114b` (`boot.img` `82ff78b4…`, 201,887,744 B) | the first build that contains `0510`: `build-strict.sh` exit 0, `verify-boot-image.py` OK, `kernel_built 9e8ae410…`, `payload 570f61e9…`, `adt 079cf3c7…`; `strings kernel.macho` shows `NGPUADD2` / `loaded bytes records` / `no GpuAddon property`. **No `--gpu-addon`** (Lead scope), so the addon cell is absent. It was the negative control until P-201; the controlled one is now `bt-s4c-20261115a` (same HEAD as the positive) | built, not booted |
+| image `bt-s4b-20261115b` (`boot.img` `2402def9…`, 201,887,744 B) | **the positive S4 image to fly** (P-197 carrier, controlled pair): built with main's own `build-strict.sh --bt-blob out/pong-bt-firmware.bin` (sha256 `febdc20d…`) and `--kernel-arg k60bt=1` (583 B / 30 args); `kernel_built e8e0f13b…` (106,541,056 B), `payload 36c7e2c8…`, `payload_kernel 2ed1dc9e…`, `adt 50dfee28…`; `llvm-nm` shows `_k60_bt_blob` @ `fffffff0071b8818` and `_k60_bt_blob_len` @ `fffffff0072b3618` (Δ = 1,027,584), and those bytes in `kernel.macho` hash-equal the packer output. `--gpu-addon` deliberately NOT passed. Same HEAD `68a38f3` and the same 453-entry frozen list as the negative control. See `S4-SPEC.md` §6.5 | built, not booted |
+| image `bt-s4c-20261115a` (`boot.img` `535c395a…`, 201,887,744 B) | **the controlled negative control to fly**: the same command as `bt-s4b-20261115b` with `--bt-blob` omitted, so `gen-k60-bt-blob.py` emitted the one-byte stub and `_k60_bt_blob_len` is 0; `kernel_built 7f049b7c…` (105,508,864 B, 1,032,192 B smaller), `payload_kernel f95eee94…`, `payload 0634b28d…`, `adt 25fa7b08…`; `frozen-before.txt` is byte-identical to the positive's (453 lines, `931d391d…08e`). The container is absent from this kernel (`find` = −1). See `S4-SPEC.md` §6.5 | built, not booted |
+| image `bt-s4b-20261115a` (`boot.img` `7ee92d51…`) — **superseded by `…b`** | the first P-197 positive build, but its frozen list carried two `scripts/__pycache__/*.pyc` entries that cannot be reproduced (`py_compile` is not deterministic), so it is not a controlled pair with the negative control under P-201. See `S4-SPEC.md` §6.4 | void |
 | image `bt-s4a-20261114c` (`boot.img` `f886223a…`, 201,887,744 B) — **void since P-197** | the first **positive** S4 image: built with `--gpu-addon out/pong-bt-firmware.bin` (sha256 `febdc20d…`) through a scratch copy of `build-strict.sh` at `/tmp/bt-s4a/scripts/` (= repo file + `bt-lead-0002.patch`), `K60_OUT=/opt/k60/trees/k60build/bt-out-s1c`, `--kernel-arg k60bt=1` → 583 B / 30 args. `build-strict.sh` exit 0, `verify-boot-image.py` OK, `check-image-args.py` OK. `kernel_built ba805e4c…`, `payload 1e62d481…`, `payload_kernel a92d7b1e…`, `adt c304361e…`; payload FAT carries `kernel.macho.gpuaddon` 1,027,584 B (byte-identical to the packer output) and the ADT holds exactly one `GpuAddon` cell. See `S4-SPEC.md` §6.2 | built, not booted |
 | images `bt-s1c-a1…a5-20261114c` (`boot.img` `6848bf1d…`, `2d969773…`, `ac55aa27…`, `7171f4dd…`, `87832493…`) | the S1c ladder rebuilt **in an isolated output tree** at **596 B / 31 arguments** each (`k60bt=1 k60bt_step=1/4/5/7/9`), `check-image-args.py` OK on all five, `verify-boot-image.py` OK on all five; the five kernels are byte-identical except Mach-O `LC_UUID` / build timestamp / `_PrelinkKCID` (45–48 bytes), so only the command line varies — see `S1-PROBE-SPEC.md` §4.1 and §4.3. Built, not booted. The earlier `…-20261114b` five are **void**: built in the shared `out-baseline` tree, their kernel differs by 9,070,788 bytes because other lines' patches were compiled in (§4.3). |
 | image `bt-s2-20261114b` (`boot.img` `c3ea7b60…`) | control boot on the returned board: 224,240 B console, `panicMarker=null`, normal `k60_autoreset` reset, zero `K60 BT`/`addon:` lines. `record-boot.py` recorded series `f1c22d7d05bb1b17` (227 patches) | booted, healthy |
@@ -303,22 +305,25 @@ P-194 fix, `8a497a4` (`[hardware.bluetooth]` ledger), `344e47d` (P-197). This li
 `k60bt_step`/`k60bt_delay` to `ALLOWED_ADDITIONS` (`7d01f9e`) and the `k60bt`/`k60bt_stage` rows to
 `BOOT-ARGS.md`, and switched the S4 carrier to a kernel-embedded blob (`ccd4dfc`).
 
-Lead, remaining: open a device window and fly **two** images — the negative control
-`bt-s4-20261114b` (`82ff78b4…`, 583 B) and the positive `bt-s4b-20261115a` (`7ee92d51…`, 583 B,
-embedded blob). Do **not** queue the `a1/a4/a5/a7/a9` ladder before the S4 result: the ladder verifies
-the same firmware-load path, and the carrier change invalidates its criteria.
+Lead, remaining: open a device window and fly **two** images — the controlled negative control
+`bt-s4c-20261115a` (`535c395a…`, 583 B, `--bt-blob` omitted so the stub is linked) and the positive
+`bt-s4b-20261115b` (`2402def9…`, 583 B, embedded blob). Both are built from the same HEAD `68a38f3` with a
+byte-identical 453-entry frozen list, so the pair is controlled by construction (P-201). Do **not** queue
+the `a1/a4/a5/a7/a9` ladder before the S4 result: the ladder verifies the same firmware-load path, and the
+carrier change invalidates its criteria.
 
 This line, next in order:
 
 1. ~~Wait for `main` to carry the Lead's gate fixes, then rebase.~~ Done: `df82dfe` → `ccd4dfc`.
 2. ~~Rebuild the positive S4 sample with `--gpu-addon`.~~ Superseded by P-197: the positive sample is
-   now `bt-s4b-20261115a`, built with `--bt-blob out/pong-bt-firmware.bin`; success is
+   now `bt-s4b-20261115b`, built with `--bt-blob out/pong-bt-firmware.bin`; success is
    `[bluetooth] addon: linked blob bytes=1027584 records=106` (S4a) and `addon: serving 201560 0` (S4b).
    The old `--gpu-addon` images are void, and their measured `addon: unusable range 0 0` is the P-197
-   device evidence.
-3. Keep the device ladder parked until the Lead opens a window: negative control `bt-s4-20261114b`
-   (583 B, passes `check-image-args.py`), positive `bt-s4b-20261115a`, then — only after the S4 verdict —
-   the c-series ladder `a1/a4/a5/a7/a9` (596 B), `s3a`/`s3b`.
+   device evidence. Done: `…b` (positive) and `bt-s4c-20261115a` (negative control) form a controlled pair
+   — same HEAD, same 453-entry frozen list, only `--bt-blob` differs (S4-SPEC.md §6.5).
+3. Keep the device ladder parked until the Lead opens a window: negative control `bt-s4c-20261115a`,
+   positive `bt-s4b-20261115b` (both 583 B, both pass `check-image-args.py`), then — only after the S4
+   verdict — the c-series ladder `a1/a4/a5/a7/a9` (596 B), `s3a`/`s3b`.
 4. ~~`docs/research/EIGHT-STEPS.toml` needs the `[hardware.bluetooth]` block.~~ Landed on `main` as
    `8a497a4`. The criteria still name the old carrier's line, so this line exported the update as a
    patch instead of editing the shared contract: `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-blob.patch`

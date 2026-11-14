@@ -1,9 +1,10 @@
 # S4 — 蓝牙固件随内核下发（kernel-embedded blob）
 
-状态（2026-11-15 03:26）：**通道已换**。原方案（payload 的 `<kernel>.gpuaddon` 槽 + DarwinBoot 拷进 boot
+状态（2026-11-15 04:54）：**通道已换**。原方案（payload 的 `<kernel>.gpuaddon` 槽 + DarwinBoot 拷进 boot
 window + `/chosen/memory-map/GpuAddon`）被真机否证（P-197：固件根本没有这个拷贝器，两次上机都只有一行
 `addon: unusable range 0 0`）。现在固件走 Metal 那条已验证的路：**`.incbin` 汇编嵌进内核**，
-镜像 `bt-s4b-20261115a` 已构建并离线核验（`boot.img` `7ee92d51…`），**上机仍未做**，⑦ 仍是 `done = false`。
+镜像 `bt-s4b-20261115b`（受控正向）与 `bt-s4c-20261115a`（同基线负向）已构建并离线核验
+（`boot.img` `2402def9…` / `535c395a…`），**上机仍未做**，⑦ 仍是 `done = false`。
 
 ## 0 一句话
 
@@ -477,6 +478,9 @@ but not built`），构建后判 `✅ kernel archives: 4 enabled archive(s) all 
 
 ## 6.4 内嵌 blob 的正向镜像（2026-11-15 03:26，`bt-s4b-20261115a`）
 
+> **已被 §6.5 取代**：`a` 这一版的冻结输入里混进了两个 `scripts/__pycache__/*.pyc`，与负向对照
+> 的冻结清单不一致，按 P-201 不能当对照判据。上机用 §6.5 的 `bt-s4b-20261115b`。
+
 P-197 之后 S4 换了通道（§0/§2），`bt-s4a-*` 这一族**全部作废**：它们的 addon 只存在于 payload 槽里，
 而固件不填那个槽。新镜像是 `bt-s4b-20261115a`，固件真的在 `.text` 旁边的 `__DATA,__const` 里。
 
@@ -519,18 +523,69 @@ series 228，`frozen b7572a96695a82d3d9f8a82931c8b312d791d1d07193fa78b5610e14bd5
 4. `python3 scripts/tests/test-k60-bt-blob.py --assembly <tree 的 k60_bt_blob.s> --container <容器>`
    → `✅ … container table is self-consistent`；`verify-boot-image.py --manifest` `OK`。
 
+## 6.5 受控对照对（2026-11-15 04:13–04:54，`bt-s4b-20261115b` + `bt-s4c-20261115a`）
+
+P-201 要求一对判据来自同一基线。`bt-s4b-20261115a` 的 `frozen-before.txt` 有 455 条，其中两条是
+`scripts/__pycache__/{pong_adt_contract,research-gate}.cpython-312.pyc`；重编译得到的哈希与记录值不同
+（`py_compile` 非确定性），所以**无法复现**同一份 455 条清单。做法改为：两次构建都用**同一个干净的
+453 条清单**（先删 `__pycache__`，`PYTHONDONTWRITEBYTECODE=1`），于是这一对是**构造上受控**的。
+
+```sh
+# 正向（内嵌固件）
+K60_OUT=/opt/k60/trees/k60build/bt-out-s1c \
+K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device \
+bash scripts/build-strict.sh bt-s4b-20261115b \
+  --fd /mnt/e/k60-work/artifacts/fd/bt-s2-20261114b-cf4485712c29.fd \
+  --bt-blob /mnt/e/hackios/k60-bt/out/pong-bt-firmware.bin \
+  --kernel-arg k60bt=1
+
+# 负向（只少 --bt-blob，其余完全相同）
+K60_OUT=/opt/k60/trees/k60build/bt-out-s1c \
+K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device \
+bash scripts/build-strict.sh bt-s4c-20261115a \
+  --fd /mnt/e/k60-work/artifacts/fd/bt-s2-20261114b-cf4485712c29.fd \
+  --kernel-arg k60bt=1
+```
+
+两次都退出码 0，HEAD 同为 `68a38f3`，series 同为 228（`b31855c9…9dab`），`frozen-before.txt`
+**逐字节相同**（453 行，sha256 `931d391d56c639fe9ea23e3eee66606e6519df4d85d98bdcc9d620001164d08e`）。
+
+| 项 | 正向 `bt-s4b-20261115b` | 负向 `bt-s4c-20261115a` |
+|---|---|---|
+| boot.img | `2402def923f48c4609541655119082b12965b806d41601844560a2e9be3fa14f` | `535c395aa3a695b3554cfac5f87518e42ea37174c1eccc917c7637c04a383101` |
+| kernel_built | `e8e0f13b7bd6f636012a8bb709ac77639a7f4937eb9a2795550d8259fe8481d7`（106,541,056 B） | `7f049b7c5fc5d3d6dbdadd76a033fb80ddfce55d7eeb69417fba0992a1e43ca6`（105,508,864 B） |
+| payload | `36c7e2c8f0f994f1a807540790b62644396dd13719a902ecc022220625f7f238` | `0634b28d187eff4e5512e4ac10b4810a280ecccab83174d6926e737d94bbf62d` |
+| payload_kernel | `2ed1dc9e846e5288a2ef1d7f42ddaf4bb1e6e6cbec2a24f989c1657f255f44ab` | `f95eee9408681b54967f8f3cf4e9e95c8a154a0b0f207274c7fbe95dba029843` |
+| adt | `50dfee28e209e5e35b614bf37b49b3ceb91628480a4863321624f7e20eb217dc` | `25fa7b08622de7e42b767676e1112c0488cf26aa3e0bd40a99183affbf2736c8` |
+| bt_blob | `febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037` | 空（`gen-k60-bt-blob.py` 写一字节桩） |
+| gpu_addon | 空（故意不传） | 空 |
+| 启动参数 | 30 项 / 583 B，`k60bt=1` | 同左 |
+
+内核侧的对照证明：
+
+1. `llvm-nm-18`：正向 `_k60_bt_blob` @ `fffffff0071b8818`、`_k60_bt_blob_len` @ `fffffff0072b3618`，
+   相差 1,027,584 = 容器字节数；负向两者 @ `…8818` / `…8820`，相差 8 = 一字节桩 + 对齐。
+2. 按字节搜容器前 4 KiB：正向在偏移 1,787,928 命中，取 1,027,584 字节算 sha256 = `febdc20d…`（逐字节相同）；
+   负向 `find` 返回 −1，容器**不存在**。
+3. 正向与 `a` 的 payload 内核只差 4 段（(4960,4967)、(4969,4975) 代码签名、412159–412261 两处构建时间戳、
+   (106540248,106540269) `_PrelinkKCID`）——即只差戳；正向与负向差 70,057,045 字节。
+4. 两份 `frozen-before.txt` 逐字节相同（见上），所以"差 1,032,192 B"只可能来自容器本身。
+5. `test-k60-bt-blob.py --assembly` 对两份生成的 `.s` 都报 `container table is self-consistent`；
+   负向那份是 `_k60_bt_blob_len: .quad 0` 的桩，内核 `k60_bt_addon_load_blob()` 见长度 0 即静默回落。
+
 ## 7 上机阶梯（板子回来后）
 
-前提：启动参数只需 `k60bt=1`（583 B）。正向镜像用 §6.4 的 **`bt-s4b-20261115a`**（内嵌 blob）；
-负向对照仍用 `bt-s4-20261114b`（`k60bt=1`、构建时既没 `--bt-blob` 也没 `--gpu-addon`，所以
-`k60_bt_blob_len == 0`，走回落路径）。
+前提：启动参数只需 `k60bt=1`（583 B）。正向镜像用 §6.5 的 **`bt-s4b-20261115b`**（内嵌 blob）；
+负向对照用 §6.5 的 **`bt-s4c-20261115a`**（同一 HEAD、同一冻结清单，只少 `--bt-blob`，所以
+`k60_bt_blob_len == 0`，走回落路径）。`bt-s4-20261114b` 是旧基线（series 227、旧 `build-strict.sh`），
+按 P-201 不再作为对照。
 
 | 级 | 镜像 | 参数 | 期望（关键行） |
 |---|---|---|---|
-| S4- | `bt-s4-20261114b` | `k60bt=1` | 负向对照：`[bluetooth] addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |
-| S4a | **`bt-s4b-20261115a`** | `k60bt=1` | `[bluetooth] addon: linked blob bytes=1027584 records=106` |
-| S4b | **`bt-s4b-20261115a`** | `k60bt=1` | `[bluetooth] addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
-| S4c | **`bt-s4b-20261115a`** | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764），拿到 rom_ver/board-id |
+| S4- | `bt-s4c-20261115a` | `k60bt=1` | 负向对照：`[bluetooth] addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |
+| S4a | **`bt-s4b-20261115b`** | `k60bt=1` | `[bluetooth] addon: linked blob bytes=1027584 records=106` |
+| S4b | **`bt-s4b-20261115b`** | `k60bt=1` | `[bluetooth] addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
+| S4c | **`bt-s4b-20261115b`** | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764），拿到 rom_ver/board-id |
 
 （`bt-s4a-20261114c`/`f`/`bt-s4a-20261115a` 全部作废：它们把固件放在 payload 的
 `kernel.macho.gpuaddon` 槽里，而固件从不填那个槽（P-197）。它们的实测结果**不是**失败，而是
@@ -637,7 +692,7 @@ evidence = "S1c/S2/S3/S4 not yet run on device; images bt-s1c-*/bt-s2-20261114b 
 ## 10 下一步
 
 1. ~~Lead 合并 §5.2/§5.3/§5.4~~——已合（`277e09e` + `dbc2cd5`）；内嵌 blob 的三处构建侧改动由本线提交（`ccd4dfc`）。
-2. 板子回来后按 §7 跑 S4-（负向）与 S4a→S4c（`bt-s4b-20261115a`），把 `capture.json` 与关键行写进本文 §7 与 `HANDOFF.md` 的账本。
+2. 板子回来后按 §7 跑 S4-（`bt-s4c-20261115a`）与 S4a→S4c（`bt-s4b-20261115b`），把 `capture.json` 与关键行写进本文 §7 与 `HANDOFF.md` 的账本。
 3. 拿到 `rom_ver`/`board-id` 后把 §5.1 的 106 文件清单收窄到实际需要的 3–4 个（可省 900 KB 内核体积）。
 4. S4 出结果**之后**才排 S1c 阶梯（a1/a4/a5/a7/a9）——阶梯验的是同一条 addon 取固件路径，
    通道换了，它的判据也跟着变，先跑会白烧一次窗口。

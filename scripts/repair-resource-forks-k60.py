@@ -18,12 +18,17 @@ Source of truth: the IPSW dmg (read via apfs.py, partition-relative blocks).
 Destination: the raw APFS os-window.img, patched block by block.
 """
 import sys, struct, os
+from pathlib import Path
 
-APFS_TOOLS = '/mnt/e/hackios/UniXNU-mondrian/tools/apfs'
+# 仓库根：默认本脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
+REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
+APFS_TOOLS = str(REPO / 'tools' / 'apfs')
 sys.path.insert(0, APFS_TOOLS)
 import apfs
 
-SRC = '/mnt/e/hackios/UniXNU/out/ipsw/20G81/096-57366-083.dmg'
+# 源 IPSW 在兄弟检出 UniXNU 里；K60_IPSW_DMG 可覆盖。
+SRC = os.environ.get('K60_IPSW_DMG') or str(
+    REPO.parent / 'UniXNU' / 'out/ipsw/20G81/096-57366-083.dmg')
 BS = 4096
 
 if len(sys.argv) < 2:

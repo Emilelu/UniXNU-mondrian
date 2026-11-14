@@ -33,7 +33,7 @@ except ImportError:
         tomllib = None
 
 # 仓库根：默认本脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
-REPO = os.environ.get('K60_REPO') or str(Path(__file__).resolve().parents[1])
+REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
 SOURCES = os.path.join(REPO, 'docs', 'research', 'SOURCES.toml')
 
 # 参考源搜索前缀。SOURCES.toml 里的 path 相对这些前缀之一；顺序即优先级。
@@ -99,7 +99,8 @@ def check(verbose=True):
 
 
 if __name__ == '__main__':
-    ok, probs = check()
+    # 失败时必须把问题列表打出来：门禁不能只给结论。
+    ok, probs = check(verbose=True)
     print()
     print('结论: %s' % ('✅ 研究完整性通过' if ok else '❌ 研究完整性未通过'))
     sys.exit(0 if ok else 1)

@@ -12,6 +12,7 @@
 import io
 import os
 import sys
+from pathlib import Path
 
 try:
     import tomllib
@@ -21,7 +22,8 @@ except ImportError:
     except ImportError:
         tomllib = None
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+# 仓库根：默认本脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
+REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
 DATA = os.path.join(REPO, 'docs', 'research', 'EIGHT-STEPS.toml')
 README = os.path.join(REPO, 'README.md')
 README_EN = os.path.join(REPO, 'README_EN.md')

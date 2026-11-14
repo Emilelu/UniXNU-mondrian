@@ -4535,3 +4535,29 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 1. 门禁的"作用域"和"强度"是两件事。挡住无关的人不是严格，是逼人绕过。
 2. 任何"只能整机"的门禁，都要问一句"别人在做别的硬件时怎么构建"。
 3. 绕过门禁的产物必须能被独立审计 —— 审计工具要单独可用，不能只挂在构建器里。
+
+## P-194 — 补丁集指纹量的是 scratch 副本，不是真正被构建的序列
+
+- **现象**：`porting-gate.py` 的 S 段报 `series 指纹 23131cd07c1cb63e (227 条)`，而这次构建的
+  `build-manifest.json` 写着 `series 223`。两个数字都自称"补丁集指纹"，却描述不同的序列。
+- **根因**：`board.toml` 的 `patch_series = ["device:patches/xnu/series"]` 才是构建真正应用的顺序表
+  （`scripts/unixnu/patches.py:12-28` 按它逐条 apply，重复条目直接报错）。而
+  `porting-gate.py:35` 与 `record-boot.py:24` 都写死 `WORK + '/scratch/SERIES-FINAL.txt'`。
+  那份 scratch 副本是 P-90 时代的真相源，此后漂移成 227 条：多出四个蓝牙补丁
+  （`0507`–`0510`）、仍写着已被替换的 `0610-k60-metal-seeds.patch`。
+- **后果**：S 段把"补丁集变了"判成必须显式确认，可它比较的是两个都不参与构建的副本；
+  `record-boot.py` 记进账本的指纹同样是错的，于是"上次成功启动的补丁集"这条基线一直指向
+  一个不存在的序列。这正是 P-90 的反面：当年是改仓库 series 不生效，今天是改仓库 series 生效了，
+  但门禁还在看 scratch。
+- **修复**：两个脚本都改成 `SERIES = <repo>/patches/xnu/series`，文件不存在时才回退到
+  `scratch/SERIES-FINAL.txt`（给没有该文件的旧树用）。改后 `record-boot.py --dry-run` 报
+  `series 932e0cb51d39fb60 (223 patches)`，与 manifest 的 223 一致。
+- **验证**：`python3 scripts/record-boot.py --image … --log … --dry-run` 的条数与
+  `build-manifest.json` 的 `series.count` 必须相等；不相等就说明两个"真相源"又分叉了。
+- **教训**：
+  1. 任何"指纹/基线"都必须来自**构建实际读的那个文件**，不能来自同名的副本。判据很简单：
+     把它和 manifest 里同一个字段对一次，对不上就是 bug。
+  2. 一个文件被两份脚本各自写死路径时，改真相源只会改一半。真相源变更必须同时改所有读者，
+     并且留一个能在没有该文件时降级的回退。
+  3. P-90 的结论（"改仓库 series 无效"）在 format 2 之后已经反转。pitfall 也会过期，
+     引用旧 pitfall 当依据之前先确认它描述的世界还在不在。

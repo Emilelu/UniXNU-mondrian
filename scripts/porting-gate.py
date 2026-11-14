@@ -32,7 +32,12 @@ import time
 # 报出来的『未同步』其实是两个 worktree 之间的差异。
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = '/mnt/e/k60-work'
-SERIES = WORK + '/scratch/SERIES-FINAL.txt'
+# 真相源是 board.toml 的 patch_series（device:patches/xnu/series）。
+# SERIES-FINAL.txt 只是 P-90 时代的 scratch 副本，早已漂移（227 vs 223），
+# 用它算指纹会量到一个没人构建的序列（P-194）。
+SERIES = REPO + '/patches/xnu/series'
+if not os.path.exists(SERIES):
+    SERIES = WORK + '/scratch/SERIES-FINAL.txt'
 PACK = WORK + '/scratch/packv15.sh'
 XNU_WORK = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
             'ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work')

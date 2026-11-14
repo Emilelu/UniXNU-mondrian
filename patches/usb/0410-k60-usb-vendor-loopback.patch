@@ -1,0 +1,276 @@
+diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -175,6 +175,7 @@
+ #define K60_RESTART_REASON_BOOTLOADER 0x77665500u
+ 
+ static int k60_usblog_reset = -1;       /* -1: arg not parsed yet */
++static int k60_usbvend_mode = -1;       /* 0410: -1: arg not parsed yet */
+ 
+ static int
+ k60_usblog_reset_arg(void)
+@@ -495,6 +496,22 @@
+ }
+ 
+ /*
++ * 0410: vendor function selector (P2-b, RESEARCH.md 15.4(c)).
++ * 0 or absent = the two-interface console image that the capture tool reads.
++ * 1 = same image, plus IF2 on EP 0x03/0x83 and an EP6 OUT -> EP7 IN loopback,
++ * so one build covers both the console run and the vendor run and the only
++ * variable between them is this boot argument.
++ */
++static int
++k60_usbvend_arg(void)
++{
++	int enabled = 0;
++
++	PE_parse_boot_argn("k60_usbvend", &enabled, sizeof(enabled));
++	return enabled;
++}
++
++/*
+  * Read-only apps_smmu gate-0 dump: with k60_usblog=1 this is the first
+  * on-device evidence for sCR0/IDRx/GFSR (review items U-A/U-B); no SMMU
+  * write and no DMA is ever made in probe mode.
+@@ -597,6 +614,7 @@
+ k60_usblog_init(void)
+ {
+ 	k60_usblog_mode = k60_usblog_arg();
++	k60_usbvend_mode = k60_usbvend_arg();
+ 	if (!k60_usblog_mode) {
+ 		return;
+ 	}
+@@ -948,6 +966,7 @@
+ #define UD_TRB_EP7      0x13c0          /* P2: vendor bulk IN TRB */
+ #define UD_VEND_RX      0x6000          /* vendor OUT payload, 4 KiB */
+ #define UD_VEND_TX      0x7000          /* vendor IN payload, 4 KiB */
++#define UD_VEND_BYTES   4096            /* 0410: one vendor OUT transfer */
+ #define UD_SIZE         0x8000
+ 
+ static struct {
+@@ -973,6 +992,13 @@
+ 	unsigned    quiet_loops;        /* 0308: poll iterations with no fresh ring data */
+ 	bool        fatal_seen;         /* 0308: log ended at a fatal event */
+ 	uint8_t     transferResource[8]; /* P2: resource id STARTTRANSFER returned */
++	bool        vend_ok;            /* 0410: loopback endpoints configured */
++	unsigned    vend_out_ep;        /* 0410: physical EP that receives */
++	unsigned    vend_in_ep;         /* 0410: physical EP that echoes */
++	bool        vend_rx_active;     /* 0410: EP6 OUT armed */
++	bool        vend_tx_active;     /* 0410: EP7 IN armed */
++	bool        vend_zlp;           /* 0410: last IN was full-length, send ZLP */
++	uint32_t    vend_bytes;         /* 0410: bytes looped back so far */
+ } ud;
+ 
+ static inline void
+@@ -1145,6 +1171,9 @@
+ 	ud.configured = ud.dtr = false;
+ 	ud.tx_active = ud.rx_active = false;
+ 	ud.log_ready = false;
++	ud.vend_ok = ud.vend_rx_active = ud.vend_tx_active = false;
++	ud.vend_zlp = false;
++	ud.vend_pending = ud.vend_sent = 0;
+ 	ud_end_transfers();
+ 	dwc_wr(DALEPENA, 0);
+ 	if (ud_epcmd(0, DEPCMD_DEPSTARTCFG, 0, 0, 0) ||
+@@ -1190,6 +1219,35 @@
+ 	7, 5, 0x81, 2, 64, 0, 0,                        /* EP 0x81 bulk IN */
+ 	7, 5, 0x01, 2, 64, 0, 0,                        /* EP 0x01 bulk OUT */
+ };
++/*
++ * 0410: the 0406 composite (98 bytes) kept for the P2-b loopback run, gated
++ * behind the k60_usbvend boot argument. usb-20261114c and usb-f1 showed this
++ * layout alone silences the console, so it ships only as an opt-in variant of
++ * the same image: with k60_usbvend the host sees the two-interface CDC-ACM
++ * function plus a vendor function on EP 0x03/0x83, and whatever the host
++ * writes to EP 0x03 is sent back on EP 0x83. Without the argument the table
++ * below is never served and the descriptors are byte-identical to 0409.
++ */
++static const uint8_t ud_cfg_vendor[] = {
++	9, 2, 98, 0, 3, 1, 0, 0xc0, 50,                 /* 3 interfaces, self-powered, 100 mA */
++	/* interface association so the two CDC interfaces read as one
++	 * function (USB IAD ECN, usb.org; PongUsbDevice.h:66-69 same-SoC layout). */
++	8, 11, 0, 2, 2, 2, 1, 0,                        /* IAD: IF0..IF1 = CDC-ACM */
++	9, 4, 0, 0, 1, 2, 2, 1, 0,                      /* IF0: CDC comm, 1 endpoint */
++	5, 0x24, 0, 0x10, 1,                            /* CDC header */
++	5, 0x24, 1, 0, 1,                               /* call management */
++	4, 0x24, 2, 2,                                  /* ACM */
++	5, 0x24, 6, 0, 1,                               /* union */
++	7, 5, 0x82, 3, 16, 0, 16,                       /* EP 0x82 interrupt IN, 16 B */
++	9, 4, 1, 0, 2, 10, 0, 0, 0,                     /* IF1: CDC data, 2 endpoints */
++	7, 5, 0x81, 2, 64, 0, 0,                        /* EP 0x81 bulk IN */
++	7, 5, 0x01, 2, 64, 0, 0,                        /* EP 0x01 bulk OUT */
++	/* second function, vendor-specific, same physical endpoints the
++	 * same-SoC mux uses (PongUsbDevice.h:69-74): EP 0x03 OUT / 0x83 IN. */
++	9, 4, 2, 0, 2, 0xff, 0xfe, 2, 0,                /* IF2: vendor, 2 endpoints */
++	7, 5, 0x03, 2, 64, 0, 0,                        /* EP 0x03 bulk OUT */
++	7, 5, 0x83, 2, 64, 0, 0,                        /* EP 0x83 bulk IN */
++};
+ static const char *const ud_strings[] = { NULL, "unixnu", "K60 XNU console", "0001" };
+ 
+ /*
+@@ -1200,8 +1258,11 @@
+ static uint32_t
+ ud_configuration(uint8_t *out, int other)
+ {
+-	uint32_t length = sizeof(ud_cfg_template);
+-	memcpy(out, ud_cfg_template, length);
++	const uint8_t *cfg = k60_usbvend_mode == 1 ? ud_cfg_vendor : ud_cfg_template;
++	uint32_t length = k60_usbvend_mode == 1 ? sizeof(ud_cfg_vendor) : sizeof(ud_cfg_template);
++	/* 0410: mode 1 serves IF2 on EP 0x03/0x83; mode 2 keeps this table and
++	 * echoes on the CDC data pair instead, so a plain COM port can drive it. */
++	memcpy(out, cfg, length);
+ 	if (other) {
+ 		out[1] = 7;
+ 	}
+@@ -1317,14 +1378,33 @@
+ 						dalep |= 0xc0;
+ 					}
+ 					dwc_wr(DALEPENA, dalep);
+-					printf("K60 USBLOG: composite cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x\n",
+-					    (unsigned)sizeof(ud_cfg_template), ep6, ep7, dwc_rd(DALEPENA));
++					/*
++					 * 0410: only the k60_usbvend variant exposes IF2, so only
++					 * it arms the loopback. With the default descriptor the
++					 * vendor endpoints stay configured but idle, which is what
++					 * usb-20261114g did: the console run keeps its single
++					 * variable property.
++					 */
++					ud.vend_ok = (k60_usbvend_mode == 1 && ep6 == 0 && ep7 == 0) ||
++					    k60_usbvend_mode == 2;
++					ud.vend_out_ep = k60_usbvend_mode == 2 ? 2 : 6;
++					ud.vend_in_ep = k60_usbvend_mode == 2 ? 3 : 7;
++					ud.vend_rx_active = ud.vend_tx_active = false;
++					ud.vend_zlp = false;
++					ud.vend_pending = ud.vend_sent = 0;
++					printf("K60 USBLOG: cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x echo %d on %u/%u\n",
++					    (unsigned)(k60_usbvend_mode == 1 ? sizeof(ud_cfg_vendor) :
++					    sizeof(ud_cfg_template)), ep6, ep7, dwc_rd(DALEPENA),
++					    (int)ud.vend_ok, ud.vend_out_ep, ud.vend_in_ep);
+ 				}
+ 			} else {
+ 				ud_end_transfers();
+ 				ud.dtr = false;
+ 				ud.tx_active = ud.rx_active = false;
+ 				ud.log_ready = false;
++				ud.vend_ok = ud.vend_rx_active = ud.vend_tx_active = false;
++				ud.vend_zlp = false;
++				ud.vend_pending = ud.vend_sent = 0;
+ 			}
+ 			printf("K60 USBLOG: configured (%u)\n", value);
+ 			status_only = true;
+@@ -1394,7 +1474,8 @@
+ static void
+ ud_console(void)
+ {
+-	if (!ud.configured || !ud.dtr || ud.failed) {
++	/* 0410: echo mode owns the CDC data pair, so the console must not arm it. */
++	if (!ud.configured || !ud.dtr || ud.failed || k60_usbvend_mode == 2) {
+ 		return;
+ 	}
+ 	if (!ud.rx_active) {
+@@ -1549,6 +1630,48 @@
+ 	}
+ }
+ 
++/*
++ * 0410: P2-b vendor function loopback (RESEARCH.md 15.4(c) and 15.5).
++ *
++ * IF2 exposes EP 0x03 (bulk OUT, physical EP6) and EP 0x83 (bulk IN, physical
++ * EP7), the same pair the same-SoC mux uses (PongUsbDevice.h:69-74). Whatever
++ * the host writes to EP6 is copied to the IN buffer and sent back on EP7, so a
++ * host-side writer/reader pair exercises the whole path at once: descriptor,
++ * endpoint configuration, FIFO budget, TRB handling and both DMA directions.
++ *
++ * The state machine follows pong's mux() (PongUsbDevice.h:308-315) and its
++ * completion handlers (:256-265): one OUT transfer stays armed, the received
++ * length comes from the TRB residual, and a full-length IN is followed by a
++ * zero-length transfer so the host's read terminates.
++ */
++static void
++ud_vendor(void)
++{
++	if (!ud.vend_ok || !ud.configured || ud.failed) {
++		return;
++	}
++	if (!ud.vend_rx_active && !ud.vend_pending && !ud.vend_tx_active && !ud.vend_zlp) {
++		ud.vend_rx_active =
++		    ud_start(ud.vend_out_ep, UD_VEND_RX, UD_VEND_BYTES, TRBCTL_NORMAL) == 0;
++	}
++	if (ud.vend_zlp) {
++		ud.vend_zlp = false;
++		ud.vend_tx_active = ud_start(ud.vend_in_ep, UD_VEND_TX, 0, TRBCTL_NORMAL) == 0;
++		return;
++	}
++	if (ud.vend_tx_active || !ud.vend_pending) {
++		return;
++	}
++	uint32_t n = ud.vend_pending;
++	ud.vend_pending = 0;
++	ud.vend_sent = n;
++	ud.vend_tx_active = ud_start(ud.vend_in_ep, UD_VEND_TX, n, TRBCTL_NORMAL) == 0;
++	if (!ud.vend_tx_active) {
++		ud.vend_sent = 0;
++		printf("K60 USBLOG: vendor IN start failed (%u bytes)\n", n);
++		}
++}
++
+ static void
+ ud_event(uint32_t ev)
+ {
+@@ -1568,6 +1691,9 @@
+ 			ud.configured = ud.dtr = false;
+ 			ud.tx_active = ud.rx_active = false;
+ 			ud.log_ready = false;
++			ud.vend_ok = ud.vend_rx_active = ud.vend_tx_active = false;
++			ud.vend_zlp = false;
++			ud.vend_pending = ud.vend_sent = 0;
+ 			printf("K60 USBLOG: disconnect\n");
+ 		}
+ 		return;
+@@ -1587,6 +1713,38 @@
+ 				ud_command((const char *)(ud.dma + UD_RXDATA), ud.packet);
+ 				ud.rx_active = false;
+ 			}
++			if (ep == 6 && ud.vend_ok) {
++				/* 0410: the OUT length is the residual the controller
++				 * wrote back into TRB[2] (pong: PongUsbDevice.h:260-265). */
++				volatile uint32_t *trb = (volatile uint32_t *)(ud.dma + UD_TRB_EP6);
++				ud_sync(UD_TRB_EP6, 16);
++				uint32_t residual = trb[2] & 0xffffffu;
++				uint32_t got = residual <= UD_VEND_BYTES ? UD_VEND_BYTES - residual : 0;
++				ud.vend_rx_active = false;
++				if (!(status & 1) && !(trb[3] & TRB_HWO) && got) {
++					ud_sync(UD_VEND_RX, UD_VEND_BYTES);
++					memcpy((void *)(ud.dma + UD_VEND_TX),
++					    (const void *)(ud.dma + UD_VEND_RX), got);
++					ud.vend_pending = got;
++					ud.vend_bytes += got;
++					if (ud.vend_packets < 8 || (ud.vend_packets % 64) == 0) {
++						printf("K60 USBLOG: echo %u bytes on ep%u (total %u)\n",
++						    got, ud.vend_bytes);
++					}
++				}
++			}
++			if (ep == 7 && ud.vend_ok) {
++				/* 0410: pong:256-259 — a full-length IN needs a ZLP to
++				 * terminate the host's read, anything else is done. */
++				ud.vend_tx_active = false;
++				if (!(status & 1) && ud.vend_sent && !(ud.vend_sent % ud.packet)) {
++					ud.vend_zlp = true;
++				} else {
++					ud.vend_zlp = false;
++					ud.vend_packets++;
++				}
++				ud.vend_sent = 0;
++			}
+ 		}
+ 		return;
+ 	}
+@@ -2005,6 +2163,7 @@
+ 	while (!ud.failed) {
+ 		ud_events();
+ 		ud_console();
++		ud_vendor();
+ 		if (!ud.ever_connected && !phy_hint && ++idle_loops >= 6000) {
+ 			/* ~60 s of silence after RUN_STOP: review U-D. */
+ 			printf("K60 USBLOG: no USB activity 60 s after RUN_STOP; PHY rails or VBUS path suspect\n");

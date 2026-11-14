@@ -134,12 +134,26 @@ sheng 的 ADT 节点（`dts/sheng.dts:17-25`）是 `transport-encoding = <1>`（
 | kernel_args | `k60bt=1 k60bt_stage=1 k60bt_warm=1 k60bt_step=1 k60bt_delay=40` |
 | 校验 | `verify-boot-image: OK` |
 
+第二个镜像（真实路径，用于 A1→A5 之后）：
+
+| 项 | 值 |
+|---|---|
+| tag | `bt-s3-20261114b` |
+| boot.img | 201,887,744 B，sha256 `fb2b9bb3ea622f432253ba82a2e2c18eb2f6e5b0e380915b6110cde56218d6d5` |
+| kernel_built | `7aab2f215e761b1ba57b3915eeb4a7c6e14c4f2fd4a1d235c37ff0ea4199cdf1`（54,181,888 B） |
+| payload / payload_kernel | `ad254147a81c0a451cdb6da4e91c7aaf24fee12361a311ec99c3aa001a8de037` / `8d08689b6ea053e4dc02ee4b92fae0e6375d3a9afbb6cbf70e9292e82af998ac` |
+| adt | `b623d7c348298d1f34c9da13b4dfa41a117f5ec6d99b5dde91cd20da62a1eb8e` |
+| series | 226 条，sha256 `97da5eb2d8013e290a846697855c84924d1c105008f7b9fa91c9107b9139665a` |
+| repo | head `1a46a83`，dirty_files 0 |
+| kernel_args | `k60bt=1 k60bt_stage=2 k60bt_warm=1`（无 `k60bt_step`/`k60bt_delay`，走真实路径） |
+| 校验 | `verify-boot-image: OK` |
+
 **这一版把 §4 第 1 条的「种子」解决了，但走的是环境变量路线**：
 构建时带 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001`（与 `scripts/adt-generate.py:22` 同一个种子），
 实测产出的 ADT 里 `/chosen/unique-chip-id = 01 00 00 00 54 30 36 4b`（小端 0x4B36305400000001）、
 `/chosen/chip-id = 15 80 00 00`（0x00008015，即 board.toml 的 `chip_id = "8015"`）。
 所以 `k60_bt_local_address()` 在这版镜像里**有种子可用**，控制台应出现
-`K60 BT: published local address 02:xx:xx:xx:xx:xx` 而不是 `no platform identity`。
+`K60 BT: published local address ee:98:c5:8a:6b:4e` 而不是 `no platform identity`（这个 MAC 可以离线算出来，见 §5）。
 把种子固化进 `board.toml`（`unique_chip_id` 键）或给 `build-strict.sh` 加转发，仍是 Lead 的待办。
 
 **编译进内核的证据**（不只看 `git apply`）：`iokit/DEVELOPMENT/MiniBluetooth.cpo` 存在，

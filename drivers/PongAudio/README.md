@@ -170,9 +170,12 @@ were still in power-down (`ctrl=0x3343`, PWDN and AMPPD set) because this probe 
 read-only. `vbat`/`pvdd` read `0x0263` and `status=0x0000`, so the amplifiers are
 powered even though the device tree carries no supply node.
 
-Iron rule 5 wants the same image booted twice. Run 2 needs the user's and the Lead's
-approval (the user's standing instruction is that nobody boots the device on their
-own initiative), so the evidence set is one run, not two — see `AMPS.md` section 7.3.
+Iron rule 5 wants the same image booted twice. The wrapper started run 2 on its own
+right after run 1 and fastboot reported `Booting OKAY`, but the run was stopped while
+its console was still empty, so `run2/console.log` is 0 bytes and no `capture.json`
+exists. That is not a second piece of evidence. Run 2 needs the user's and the Lead's
+approval (the user's standing instruction is that nobody boots the device on their own
+initiative) — see `AMPS.md` section 7.3.
 
 ## What it does not do
 

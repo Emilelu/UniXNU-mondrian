@@ -128,7 +128,10 @@ def main() -> int:
     # than the series is reported and skipped; a manifest that is newer than the
     # series and still disagrees is a real lie and stays a failure.
     manifest = newest_manifest()
-    if manifest is None:
+    if os.environ.get("K60_SKIP_MANIFEST_CHECK") == "1":
+        print("skip manifest comparison: K60_SKIP_MANIFEST_CHECK=1 "
+              "(first build on this branch; the build itself refreshes the record)")
+    elif manifest is None:
         check("a build manifest is available to compare against", False,
               "no build-manifest.json under " + " or ".join(MANIFEST_DIRS))
     else:

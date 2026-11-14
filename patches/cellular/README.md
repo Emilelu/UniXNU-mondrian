@@ -9,6 +9,9 @@
 > **L1 的补丁实际落点**：`patches/xnu/0620-k60-modem-image.patch`（三个 new file：`bsd/dev/pong_modem_image.c`、
 > `bsd/dev/pong_modem_image.h`、`bsd/dev/pong_modem_table.h`），已追加进 `patches/xnu/series`，
 > 并在 `scripts/append-conffiles.py` 里注册了 `bsd/dev/pong_modem_image.c`。
+> **L2 的补丁实际落点**：`patches/xnu/0621-k60-modem-pas.patch`（`bsd/dev/pong_modem_pas.{c,h}` +
+> `bsd/dev/pong_modem_boot.c` + `kern_exec.c` 调用点），同样挂 `patches/xnu/series`；
+> `scripts/append-conffiles.py` 注册 `bsd/dev/pong_modem_pas.c` 与 `bsd/dev/pong_modem_boot.c`。
 
 ## 为什么现在没有补丁
 
@@ -34,11 +37,11 @@
 |---|---|---|
 | 0001 | `0001-dts-mondrian-cellular-nodes.patch` | `dts/mondrian.dts` 加 `mpss_region`/`remoteproc-mss`/modem `glink-edge`/`qcom,ipa` 节点（字节抄自活 FDT） |
 | ~~0002a~~ | **已落地为 `patches/xnu/0620-k60-modem-image.patch`** | modem 镜像段表 + 搬运器（`K60ModemImage.c` / `pong_modem_table.h`） |
-| 0002b | `0002b-drivers-PongCellular-pas.patch` | PAS 握手（`MEM_SETUP`/`INIT_IMAGE`/`AUTH_AND_RESET`，peripheral=4） |
+| ~~0002b~~ | **已落地为 `patches/xnu/0621-k60-modem-pas.patch`** | PAS 握手 + `pong_modem` 门控调用点（`K60ModemPas.{c,h}` / `K60ModemBoot.c` + `kern_exec.c` 锚 `native_owner_data_stage = 3;`） |
 | 0003 | `0003-drivers-PongPower-glink-multichannel.patch` | `QcomGlink.c` 打破 `QCOM_GLINK_MAX_CHANNELS=1`，加 `IPCRTR` 通道 |
 | 0004 | `0004-drivers-PongCellular-qrtr.patch` | QRTR 报文 + `servreg` 查询（L2 完成） |
 
-除 0001（DT 节点，d5a9939）与 0002a（镜像搬运，0620）外，**其余仍是预期，未生成**。
+除 0001（DT 节点，d5a9939）、0002a（镜像搬运，0620）、0002b（PAS 握手，0621）外，**其余仍是预期，未生成**。
 生成前必须先过 `docs/engineering/EIGHT-STEP-SPEC.md` 的 ⑦ 核验门。
 
 ## 禁止事项

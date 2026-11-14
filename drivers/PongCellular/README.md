@@ -1,22 +1,25 @@
 # PongCellular — K60（mondrian / SM8475）基带驱动
 
-> 状态：**L1 已编进内核**（2026-11-14，build-strict tag `cellular-l1-20261114d`，exit 0，kernel.macho `b7dadeb5…` 54,173,696 B）。
-> 本目录当前只有镜像搬运器，**没有调用点、没有 PAS 握手、没有 QRTR**：本版内核启动时不会打印任何 `K60MODEM` 日志。
+> 状态：**L1 已编进内核**（2026-11-14，build-strict tag `cellular-l1-20261114d`，exit 0，kernel.macho `b7dadeb5…` 54,173,696 B）；**L2 已落地待构建**（PAS 握手 + `pong_modem` 门控调用点，见 §0 与 `docs/research/cellular/06-MODEM-PAS.md`）。
+> L1 版内核没有调用点，启动时不会打印任何 `K60MODEM` 日志；L2 版同样默认静默——只有 `pong_modem=1` 才会探测，且没有载体时在 `carrier absent` 处停下。
 > 产物核验：`conffiles: listed … bsd/dev/pong_modem_image.c …` 出现，且 `strings -a kernel.macho | grep -c 'modem.b'` = 27（30 段减去 b14/b21/b30 三个纯 bss 行）。
 > 取证：`docs/research/cellular/01-ANDROID-INVENTORY.md`、`02-DT-TRUTH.md`、`03-SCOPE.md`、`04-DT-NODES.md`、`05-MODEM-IMAGE.md`。
 > 仓库铁则 ★3 的 `docs/K60-CELLULAR-CHECKLIST.md` 尚未建立；本轮 L1 能开工，是因为 Lead 的任务书直接点名要它，
 > 且交付物**不含任何对硬件的写操作**（只做内存搬运与纯算术校验），可在宿主上完整验证。
 
-## 0. 当前代码（3 个文件）
+## 0. 当前代码（6 个文件）
 
 | 文件 | 作用 |
 |---|---|
 | `K60ModemImage.h` | `K60ModemSegment` / `K60ModemPlan` / `K60ModemRead` 与两个入口函数 |
 | `K60ModemImage.c` | `k60_modem_plan()` 校验段表、`k60_modem_copy()` 按字节搬运并逐段清 bss |
 | `pong_modem_table.h` | **生成物**（`scripts/gen-modem-table.py`），30 行段表 + `K60_MODEM_BASE/WINDOW/SEGMENTS` |
+| `K60ModemPas.h` | SMC 编码器（`K60M_SCM_*`）、`K60_PAS_MODEM 4u`、carrier 16 B 签名 `k60_modem_carrier_ok()` |
+| `K60ModemPas.c` | `smc #0` 内联汇编 + 四个 PAS 调用（auth_and_reset / init_image / mem_setup / shutdown），失败行 `K60MODEM scm cmd=… rc=… x0=… x1=…` |
+| `K60ModemBoot.c` | `k60_modem_bring_up()` 五步判决日志 + `k60_modem_probe_from_handoff()`（`pong_modem=1` 门控，默认 0 静默） |
 
-进内核的路径：`patches/xnu/0620-k60-modem-image.patch`（落到 `bsd/dev/pong_modem_image.{c,h}` 与 `bsd/dev/pong_modem_table.h`）
-+ `patches/xnu/series` + `scripts/append-conffiles.py` 的 `bsd/dev/pong_modem_image.c` 条目。
+进内核的路径：`patches/xnu/0620-k60-modem-image.patch`（L1 三文件）+ `patches/xnu/0621-k60-modem-pas.patch`（L2 三文件 + `kern_exec.c` Data 挂载后调用点）
++ `patches/xnu/series` + `scripts/append-conffiles.py` 的 `bsd/dev/pong_modem_image.c` / `pong_modem_pas.c` / `pong_modem_boot.c` 三条目。
 
 宿主验证：
 
@@ -35,7 +38,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 | 层 | 组件 | 复用来源 | 状态 |
 |---|---|---|---|
 | L1 | 镜像段表与搬运（`modem.mdt` → `mpss_region`） | `drivers/PongPower/K60AdspImage.c` 的第二实例 | **已落地**（`K60ModemImage.c`） |
-| L1 | modem PAS 握手（`MEM_SETUP` / `INIT_IMAGE` / `AUTH_AND_RESET`，peripheral=4） | `drivers/PongPower/K60AdspPas.c` | 未开始 |
+| L1 | modem PAS 握手（`MEM_SETUP` / `INIT_IMAGE` / `AUTH_AND_RESET`，peripheral=4） | `drivers/PongPower/K60AdspPas.c` | **已落地**（`K60ModemPas.c` + `K60ModemBoot.c`，`pong_modem` 门控） |
 | L1 | MSS 上电时序（PM8350C S6/S4 + AOSS qmp + IPCC ready） | `drivers/PongPower/` RPMh 投票代码 | 未开始 |
 | L2 | GLINK 多通道化（承载 `IPCRTR`） | `drivers/PongPower/QcomGlink.c`（当前 `MAX_CHANNELS=1`） | 未开始 |
 | L2 | QRTR 协议族 + 名字服务 + `servreg` 查询 | 无（照 Linux `net/qrtr/` 协议定义自研） | 未开始 |
@@ -81,4 +84,6 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
       `/data/vendor/qrtr/qrtr-lookup.txt`，modem（node 0）侧 36 个 QMI 服务在应答（`01` §5.4.1）
 
 第 1 条仍未满足，但 L1 的交付物是「纯宿主可验证的搬运器」，不含任何硬件写操作，因此不阻塞。
-下一步（L2）开工前必须先补 `docs/K60-CELLULAR-CHECKLIST.md`，因为 L2 会真的发 SCM 调用。
+L2 的代码路径**默认完全静默**（`pong_modem` 缺省即不映射不打印不发 SMC），所以“真的发 SCM”
+只发生在 Lead 显式带 `pong_modem=1` 上机的那一刻；CHECKLIST 必须在那之前补齐，且首次上机
+首选预期结果就是 `carrier absent`（见 `06-MODEM-PAS.md` §5）。

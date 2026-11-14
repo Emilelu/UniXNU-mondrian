@@ -294,3 +294,24 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 **当前状态（2026-11-13）**：探针能从 `memdev` 拿到 md0 的几何，但 `vmd0` 记的是固件
 虚拟地址，XNU 读不到（`esr 0x96000010`，见 `docs/research/audio/ADSP-MD0.md`）。
 所以 `pong_adsp=1` 目前只用于诊断，不能作为可用的音频/电池前提。
+
+### `pong_modem`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不探测，不映射 0x8bc00000，不发任何 SMC） |
+| 取值 | 0 / 1 |
+| 来源 | `drivers/PongCellular/K60ModemBoot.c`（`PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled))`），调用点在 `patches/xnu/0621-k60-modem-pas.patch` 往 `bsd/kern/kern_exec.c` 插的 Data 挂载后块 |
+| 作用 | 1 = 启动 modem（MSS）PAS 探针：先 plan 段表，再读 carveout 头页 16 B 签名判断镜像是否已在位，在位则按 auth_reset → 逐段 init_image → mem_setup 顺序发 SMC，每步打印一行 `K60MODEM` 判决 |
+
+**为什么默认关闭**：这是全仓库第一条**会向安全监控器发 SMC 去动 modem** 的路径。设备从 Android
+热重启过来时 modem 已在运行（`/sys/class/remoteproc/4080000.remoteproc-mss/state` = `running`），
+盲发 `PAS_AUTH_AND_RESET` 会重置一台正在工作的调制解调器；而 306 MiB carveout 目前没有任何
+载体把镜像放进去（见 `docs/research/cellular/06-MODEM-PAS.md` §3），所以探针默认应当在
+「carrier absent」这一步就停下。默认 0 保证出厂基线既不碰 carveout 也不碰 SMC。
+
+**判据**：`pong_modem=1` 启动后日志里应当**只有** `K60MODEM` 开头的行，且第一行是
+`K60MODEM probe begin`，接着是 `K60MODEM plan rows=30 ...`。若出现
+`K60MODEM carrier absent`，说明镜像没被放进 carveout —— 这是**预期**结果（L2 没有载体），
+不是失败。

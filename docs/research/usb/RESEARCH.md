@@ -1237,3 +1237,23 @@ main 在 2026-11-14 22:18–22:28 连落两笔未登记的风险路径提交（`
 `docs/engineering/MAIN-BASELINE.toml` 不在 usb 线写作用域，**只能由 gates 线在 main 侧登记**；
 登记条目与验证脚本已备好（`E:/k60-work/scratch/usb/entry.toml` + `verify_entry.py`）。
 在它被登记之前，**任何分线的 `scripts/build-strict.sh` 都会在 registry 阶段被拒**，与本线改动无关。
+
+### 23.8 `--kernel-arg` 曾经静默丢失（`239a277`）
+
+第一次产出 `usb-20261114h2` 时命令行参数是**原封不动的 29 项 575 字节**，`k60_usbvend=2` 没进去，
+但 `build-manifest.json` 的 `kernel_args` 字段却记着 `["k60_usbvend=2"]` —— 也就是说**记录与镜像不一致**。
+
+根因在 `scripts/build-strict.sh`：`--kernel-arg` 只传给了 `unixnu bootimg`（原 `:136-139`），
+而 `bootimg.py` 只把 `--ramdisk` 指向的 payload 重新打包（`bootimg.py:107-114`），**不重建 payload TOML**；
+真正被固件读走的是 payload 里的 `EFI/UniXNU/unixnu.toml`（`build-strict.sh:119-122` 的注释就写着 P-159）。
+给 payload 这一级加参数才有效：`payload.py:130-133` 会 `names = {item.split('=',1)[0] ...}`，
+用同名新值替换 board 里的旧值。
+
+修法（本线 `239a277`）：在 payload 步骤前把 `KARGS` 折成 `PKARGS` 数组并附加到命令尾部。
+改完必须重跑 `scripts/sync-device-input.py`，否则 `iron-5`（`scripts/sync-device-input.py --check`，
+规则 `RULES.toml:46-50`）会因为仓库与私有设备树里的 `scripts/build-strict.sh` 不一致而拒绝构建 ——
+这是本轮唯一一次被 iron-5 拦截，同步后即通过（687 个文件一致）。
+
+**注意**：main 上已有等价修复（`5248ebf` "build: hand --kernel-arg to the payload step, not only to bootimg"
+与 `1381863` "Fix the empty payload argument expansion"，含 `scripts/tests/test-build-strict-gates.py` 用例）。
+本线落后 main 11 个提交、没有这两个提交，才自己写了一份等价实现；合并 main 时应**取 main 的版本**。

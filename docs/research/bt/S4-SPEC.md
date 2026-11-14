@@ -454,16 +454,43 @@ S4a 与 S4b 用同一个镜像：`loaded` 在 `qbt_k60_start()` 里就打（`k60
 判定：只认 `capture.json` 的 `verdict`/`panicMarker`；控制台 0 字节时用 `0331` 的 K60PREV 重放读上一轮尾巴。
 失败即回退到不带 `--gpu-addon` 的构建（内核代码对缺失单元是静默降级，见 §4 日志表）。
 
-## 8 八步账本缺口（必须由 Lead 补）
+## 8 八步账本片段（已产出补丁，Lead 落地）
 
-`docs/research/EIGHT-STEPS.toml` **没有 `[hardware.bluetooth]`** 段：`grep -n '^\[hardware' docs/research/EIGHT-STEPS.toml`
-只列出 touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery；`K60_EIGHT_STEP_ITEMS=bluetooth`
-会被 `scripts/eight-step-gate.py` 直接拒绝（"K60_EIGHT_STEP_ITEMS 里有不存在的硬件项: bluetooth"）。
-但 `docs/research/bt/FIRMWARE.md:34`、`docs/research/bt/HANDOFF.md:90-118` 却声称
-`[hardware.bluetooth.step.*]` 已存在——这是本轮发现的**文档缺陷**：要么条目从未写入，要么被 reset 掉了。
+**缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出
+touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery），于是
+`K60_EIGHT_STEP_ITEMS=bluetooth` 会被 `scripts/eight-step-gate.py` 直接拒绝
+（"K60_EIGHT_STEP_ITEMS 里有不存在的硬件项: bluetooth"）。而 `docs/research/bt/FIRMWARE.md:34`、
+`HANDOFF.md:90-118` 曾声称 `[hardware.bluetooth.step.*]` 已存在——那是文档缺陷：条目从未写入。
 
-建议的 Ledger 片段（放 `[hardware.wifi]` 之前，①–⑥ 引 `RESEARCH.md`/`06-DEEP-DIVE.md`/`S1-PROBE-SPEC.md`/`S2-SPEC.md`/`S3-SPEC.md`/`S4-SPEC.md` 的对应小节，
-⑦ 引本文 §6，⑧ 引 S1c 触摸成功那次上机）：
+**补丁**：`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`（12,132 B，sha256
+`7a31315374545bc458861d67b69dc00b4772b9a55c9bfbd1ea89eaa01a35f48f`），4 个文件
+（+50/−3）：
+
+| 文件 | 改动 |
+|---|---|
+| `docs/research/EIGHT-STEPS.toml` | 新增 `[hardware.bluetooth]` 段 48 行（`status = "parked"`，插在 `[hardware.wifi]` 之前） |
+| `scripts/render-eight-step-table.py` | 从 `UNTRACKED` 删掉 `('蓝牙', 'planned')`，否则表格出现两行蓝牙（P-148 同一个坑） |
+| `README.md` / `README_EN.md` | 用 `render-eight-step-table.py --apply` 重新生成：蓝牙从"—/planned"变成正式行 |
+
+**验证（在 /mnt/e/k60-work/scratch/bt-s4/lead/ledger-repo 里实跑）**：`eight-step-gate.py --build` →
+`5 个（touch, gpu, storage, display, bootchain）通过 30 项` rc=0；`--flash` → `通过 40 项` rc=0
+（parked 项不参与整机口径，所以整机口径没有被放宽）；`K60_EIGHT_STEP_ITEMS=bluetooth ... --build` →
+`声明范围: bluetooth[parked] / 通过 6 项检查` rc=0；`render-eight-step-table.py --check` → 一致。
+
+**状态取值为什么是 `parked` 而不是 `active`**：`active` 会让整机口径立刻要求蓝牙的 ①–⑥ 全部 done
+（那是别的线的门禁负担，也等于把本线的进度绑成全仓库的阻塞项）；`parked` + `parked_why` 才是
+"有镜像、等上机窗口"的准确表述，而且按 P-192 仍可用 `K60_EIGHT_STEP_ITEMS=bluetooth` 单独声明后
+按 active 的证据规则被检查。⑦ 的 `done = false` + `local_verified = true` 与 battery 段同一写法：
+离线三类核验齐全（表格显示 ✅），但上机未做，所以不写 done。
+
+**⑤ 方案里写进去的阶梯判据**（这是 Lead 要的"把 step-5 判据放进片段"）：五档 `k60bt=1 k60bt_step=N`
+（1→4→5→7→9，每份 596 B）与"最后一行打点即死因"的判死表，以及 S4 三级
+（负向 `addon: no GpuAddon property` / 正向 `addon: loaded bytes records 1027584 106` →
+`serving 201560 0` → `QCA controller version 0x…`）全部逐字写进 `[hardware.bluetooth.step.plan]`
+与 `step.device.prediction`。
+
+**旧的草案（已作废，留档对照）**——注意它 `status = "research"` 不是合法状态值，且 evidence 只有
+章节号、没有 file:line 锚点，会被 `has_reference()` 判成"缺可核查引用"：
 
 ```toml
 [hardware.bluetooth]

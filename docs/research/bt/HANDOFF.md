@@ -133,7 +133,17 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
 
 ## 4. Gate snippets (outside this line's write scope)
 
-`docs/research/EIGHT-STEPS.toml` — add next to `[hardware.touch]`:
+**已产出可落地补丁（2026-11-15）**：`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`
+（12,132 B，sha256 `7a31315374545bc458861d67b69dc00b4772b9a55c9bfbd1ea89eaa01a35f48f`）——
+`docs/research/EIGHT-STEPS.toml` 新增 `[hardware.bluetooth]`（`status = "parked"`，48 行）、
+`scripts/render-eight-step-table.py` 删掉 `UNTRACKED` 里的 `('蓝牙', 'planned')`、
+`README.md`/`README_EN.md` 重新生成。已在 scratch 仓库实跑：`--build` 30 项 rc=0、`--flash` 40 项 rc=0、
+`K60_EIGHT_STEP_ITEMS=bluetooth --build` 6 项 rc=0、`render-eight-step-table.py --check` 一致。
+详见 `S4-SPEC.md` §8。
+
+下面的草案已作废（留档）：它 `status = "research"` 不是合法状态值，evidence 只有章节号、
+没有 file:line 锚点，会被 `has_reference()` 判成"缺可核查引用"；`[hardware.bluetooth]` 也不能放在
+`[hardware.touch]` 旁边而不处理 `UNTRACKED` 的重复行（P-148）。
 
 ```toml
 [hardware.bluetooth]
@@ -293,6 +303,8 @@ This line, next in order:
 3. Keep the device ladder parked until the Lead opens a window: negative control `bt-s4-20261114b`
    (583 B, passes `check-image-args.py`), the c-series ladder `a1/a4/a5/a7/a9` (596 B), `s3a`/`s3b`,
    then `s4a`/`s4b`/`s4c`.
-4. `docs/research/EIGHT-STEPS.toml` still needs the `[hardware.bluetooth]` block from §4 — it is Lead
-   scope, and without it `K60_EIGHT_STEP_ITEMS=bluetooth` is rejected by `eight-step-gate.py`.
+4. `docs/research/EIGHT-STEPS.toml` still needs the `[hardware.bluetooth]` block — **done as a patch**
+   (`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`, §4). Until the Lead lands it,
+   `K60_EIGHT_STEP_ITEMS=bluetooth` is still rejected by `eight-step-gate.py`; the whole-device
+   verdict (build 30 / flash 40 checks) is unaffected because a parked item is not hard-checked.
 

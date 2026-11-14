@@ -1,0 +1,88 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 59ad9a0..f05bed2 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7799,6 +7799,60 @@ k60_var_watch(void *arg, wait_result_t wr)
+ 	thread_terminate(current_thread());
+ }
+ 
++/*
++ * 0617: stage the 20G81 wallpaper catalogue in the Data view the 0616 helper
++ * inspects. The helper guards both wallpaper views with
++ * stat("/private/var/pong/stock-wallpaper/Collections/Collections~ipad.plist")
++ * and skips them while that path is missing - it only appears after the bind
++ * the guard is checking. The genuine catalogue is readable on the sealed OS
++ * volume, so copy it in; the bind then serves the real tree and hides the copy.
++ */
++static int
++k60_wallpaper_stage(void)
++{
++	static const char k60_wall_src[] =
++	    "/Library/Wallpaper/Collections/Collections~ipad.plist";
++	static const char k60_wall_dst[] =
++	    "/private/var/pong/stock-wallpaper/Collections/Collections~ipad.plist";
++	static char k60_wall_buf[8192];
++	vnode_t vp = NULLVP;
++	vfs_context_t ctx = vfs_context_current();
++	int error;
++	int resid = 0;
++	int length;
++
++	error = vnode_open(k60_wall_src, O_RDONLY, 0, 0, &vp, ctx);
++	if (error) {
++		printf("K60WALL catalogue open error=%d\n", error);
++		return error;
++	}
++	error = vn_rdwr(UIO_READ, vp, k60_wall_buf, sizeof(k60_wall_buf), 0,
++	    UIO_SYSSPACE, 0, vfs_context_ucred(ctx), &resid, current_proc());
++	vnode_close(vp, 0, ctx);
++	if (error) {
++		printf("K60WALL catalogue read error=%d\n", error);
++		return error;
++	}
++	length = (int)sizeof(k60_wall_buf) - resid;
++	if (length <= 0 || resid != 0) {
++		printf("K60WALL catalogue size=%d resid=%d rejected\n", length, resid);
++		return EINVAL;
++	}
++	error = vnode_open(k60_wall_dst, O_CREAT | O_WRONLY | O_TRUNC, 0644, 0,
++	    &vp, ctx);
++	if (error) {
++		printf("K60WALL catalogue create error=%d\n", error);
++		return error;
++	}
++	resid = 0;
++	error = vn_rdwr(UIO_WRITE, vp, k60_wall_buf, length, 0, UIO_SYSSPACE,
++	    IO_SYNC, vfs_context_ucred(ctx), &resid, current_proc());
++	vnode_close(vp, 0, ctx);
++	printf("K60WALL catalogue bytes=%d resid=%d error=%d\n",
++	    length, resid, error);
++	return error;
++}
++
+ static int
+ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ {
+@@ -7989,6 +8043,12 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 			 * helper bind-mounts this directory over it, and both the bind
+ 			 * source and the cache file 0394 writes must exist first. */
+ 			"/private/var/pong/xpc",
++			/* 0617: the 0616 helper needs both wallpaper view roots before it
++			 * runs, and its guard file inside the stock view. The catalogue copy
++			 * is staged right after this loop. */
++			"/private/var/pong/stock-wallpaper",
++			"/private/var/pong/stock-wallpaper/Collections",
++			"/private/var/pong/Wallpaper",
+ 		};
+ #define K60_MKDIR_PATH_COUNT ((int) (sizeof(k60_mkdir_paths) / sizeof(k60_mkdir_paths[0])))
+ 		unsigned k60_m;
+@@ -8025,6 +8085,9 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 			}
+ 			printf("\n");
+ 		}
++		/* 0617: the wallpaper view roots and catalogue must be in place
++		 * before the helper runs; its guards skip both views otherwise. */
++		(void)k60_wallpaper_stage();
+ 		/* This periodic directory/AKS probe is opt-in; it is not watchdogd. */
+ 		(void)PE_parse_boot_argn("k60_watch", &k60_watch_enabled, sizeof(k60_watch_enabled));
+ 		if (k60_watch_enabled == 1 &&

@@ -450,3 +450,46 @@ evidence = "离线部分已完成：scripts/tests/test-battery-units.py 27/27 �
 static_check = "转换函数按官方描述实现：四舍五入到最近整数；剩余时间向上取整，宁可多报不可少报。电流符号按协议参数化，不硬编码方向。"
 unit_test = "scripts/tests/test-battery-units.py：27 个用例覆盖电压/电流/容量/时间的边界（0、499/500、49/50、60/61、负数）与符号不变量，全部通过。"
 artifact_check = "不适用：本步验证的是纯算术，产物里没有可核对的字符串。"
+
+[hardware.ios-profile]
+status = "planned"
+paths = ["docs/research/ios-profile", "docs/research/SOURCES.toml", "docs/research/EIGHT-STEPS.toml"]
+parked_why = "用户只要求可行性报告（不写代码）：①~⑦ 的调研部分已完成，⑧ 上机与任何 profile/board.toml 改动都未开始，等 Lead 决定是否立项。"
+why = "OS profile 可行性：电话/短信/基带是否需要 iOS 而非 iPadOS（只调研，不改 board.toml、不动 profiles/）"
+
+[hardware.ios-profile.step.same_model]
+done = true
+evidence = """同型对照选 k60-cellular 线已落盘的 modem 形态：modem_a=/dev/block/sde7（380 MiB，只读 vfat 挂 /vendor/firmware_mnt）、modem.* 30 个文件共 109,072,529 B、注册 36 个 QMI 服务（EFS 21/WDS 1/UIM 11/NAS 3/PDS 16/DIAG 4097）、两路 SIM 均 LOADED、EFS/NV 在 modemst1/2 裸分区（/mnt/e/hackios/k60-cellular/docs/research/cellular/01-ANDROID-INVENTORY.md:15-22），且明确 modem 不是外挂 USB/PCIe 设备而是 PAS 远程处理器（同文件:92-130）。同 build（16.6.1/20G81）的 iOS 与 iPadOS 系统卷逐项对比见 docs/research/ios-profile/evidence/telephony-inventory.txt:10-145。"""
+
+[hardware.ios-profile.step.official]
+done = true
+evidence = """官方定义只有两处：board | os_profile | Directory under profiles/os/（/mnt/e/hackios/UniXNU-docs/docs/reference/configuration.md:45），以及 Layers apply as ARM64, SoC, OS, device. Tables merge by key; arrays replace.（同文件:52）。用户提到的 unixnu.com/zh/porting/ os-config 页不存在：该目录 20 个页面实测无 os-config，直接请求返回 404。profile 解析的官方实现：/mnt/e/hackios/UniXNU/scripts/unixnu/profiles.py:19-27 resolve_os() 先按完整目录名匹配（:22-23），短名才走 ipados- 前缀（:24）；load() 只校验目录名与 arch ∈ {arm64, arm64e}（:42-44）。IPSW 校验链：/mnt/e/hackios/UniXNU/scripts/unixnu/ipsw.py:100-102（无 [ipsw] 直接报错）、:121-128（版本/product + DeviceClass/RestoreBehavior/ApChipID/ApBoardID 四重匹配）、:141-168（sidecar + sha256 pin）；内核 pin：kernel.py:204-206。"""
+
+[hardware.ios-profile.step.decompile]
+done = false
+evidence = """未做指令级反编译，也不需要：本线的全部结论由卷清单、APFS 元数据与 Mach-O 文件头得出，不依赖函数体。已做的二进制取证：SpringBoard/launchd/MobilePhone 的 cputype/subtype（docs/research/ios-profile/evidence/abi-and-kernel.txt:28-33、:99-101）、MobilePhone.app 的 44 个 LC_LOAD_DYLIB 依赖闭包（FEASIBILITY.md:2.2 节，44/44 在 iPadOS 卷里都存在）、三份内核的基带符号族 strings 计数（evidence/abi-and-kernel.txt:55-64）。缺的是：MobilePhone.app 与 SpringBoard 的电话门控代码路径没有反汇编核对。"""
+
+[hardware.ios-profile.step.wide]
+done = true
+evidence = """广查四处。一，profiles/os/ 全目录：只有 ipados-16.6.1-20G81、ipados-17.7.11-21H461、ipados-26.5.2-23F84、ipados-27.0.1-24A446 四个（实测 ls），git log --all -- profiles/os 从未出现 ios-*；macOS 模板也不可用（profiles/os/macos-27.3-26C5035r 在当前 checkout 不存在）。二，上游设备登记：devices.toml:890 有 os_profile = "ios-16.7.16-20H392"（fuxi-star-mailaz, SM8550），但该 profile 目录不存在（devices.toml:494 record_error），社区先例是把 profile 放设备仓库 os-profiles/<name>/ 再装进 checkout（UniXNU-docs/docs/.vitepress/device-records/nx769j.toml:6,17）。三，组件目录：components.toml 29 个 [[component]] 里唯一的基带件是 QcomBaseband（:563-581）。四，IPSW 供给：api.ipsw.me 逐机型实测 iPhone10,1/10,3/10,6 有 16.6.1/20G81、iPhone9,x 没有、iPhone11,2/11,8 只有 17.7/21H16（iOS 17.7.11/21H461 不存在，是 iPad 专属）。"""
+catalog_checked = true
+catalog_result = "components.toml 29 个组件中与电话相关的只有 QcomBaseband（:563-581）：kind=driver、scope=modem、QMUX/QRTR + IPA v4.2、os_abi 对 ipados-17.7.11-21H461 AppleBaseband IOUserClient、board_dependencies 含 GLINK/QRTR 与 rmtfs、verified_devices=[]。本线 board.toml:14 components.include 不含它。⇒ 电话能力的缺口在组件层，不在 OS profile 层。"
+
+[hardware.ios-profile.step.plan]
+done = true
+evidence = """S1~S8 八步方案表见 docs/research/ios-profile/FEASIBILITY.md §4.1（每步带证据来源与风险）：S1 选机型（arm64 走 A11、arm64e 走 A12+ 但要连 profiles/arch 一起换）、S2 写 profiles/os/ios-16.6.1-20G81/、S3 board.toml os_profile 与 [payload.adt] 身份、S4 [ipsw] 五元组与 sha256 pin、S5 构建链去硬编码（build-strict.sh:68 写死 ipados-16.6.1-20G81）、S6 prelink 重调（kernel.py:204-206 pin、slide、roots 33 项）、S7 Data 种子与 userdata 重建、S8 上机。卡死点排序见 §4.2，推荐变体见 §4.3（iOS 16.6.1 @ iPhone10,6 D221AP/A11）。"""
+
+[hardware.ios-profile.step.deep]
+done = true
+evidence = """深挖四条。一，ABI 分叉是硬事实：同一 build 20G81，iPhone12,1 卷的 SpringBoard/launchd/MobileSMS subtype = 0x80000002（arm64e PTRAUTH_ABI），iPad7,1 卷同三者 = 0x0（arm64）（evidence/abi-and-kernel.txt:28-33）；内核同理（iPhone12,1 thin 0x2、iPad thin 0x0、A11 thin 0x0，同文件:50-53）；dyld 共享缓存 iPad 是 dyld_shared_cache_arm64.*、iPhone 是 arm64e.*（:66-89）。A11 变体已下载实测为纯 arm64（OS 卷 SydneyG20G81.D22D221OS.apfs、SpringBoard/launchd/MobilePhone 三者 subtype 0x0，同文件:91-104）。二，电话基础设施两侧同构：23 个框架、9 个服务 app、6 个电话 LaunchDaemon 全部 =1，唯一整包差异是 MobilePhone.app（evidence/telephony-inventory.txt:14-29、:97-138）。三，基带与 OS 无关：三份内核 qrtr 计数都是 0，AppleConvergedIPC iPhone11=452/iPad=3/A11=4、AppleBasebandPCI iPad=387/A11=533/iPhone11=5（evidence/abi-and-kernel.txt:55-64）——Apple 的基带驱动是机型绑定 PCIe 专有驱动，K60 的 PAS+QMI/QRTR modem 一个都用不上。四，Data 卷零差异：private/var 顶层 28 项、mobile/Library 子项差集两向皆空，SMS/CallHistory 库两侧都不在系统卷（evidence/data-volume.txt:4-27）。"""
+
+[hardware.ios-profile.step.verify]
+done = false
+local_verified = true
+evidence = """离线核验已完成，仍缺上机。已做：docs/research/SOURCES.toml 新增 [subsystem.ios-profile]（8 条 required，path 全部落在 research-gate.py:43-47 的三个前缀内），PYTHONIOENCODING=utf-8 python3 scripts/research-gate.py 全绿；报告内每条结论都指到 evidence/*.txt 的 file:line 或 UniXNU 源码行号。缺：任何一次真实构建或上机 —— 没有 ios-* profile 落盘，因此没有可上机的产物。"""
+static_check = "证据可复现：卷清单用 7z l -ba -slt <OS.dmg|os.raw>；Mach-O 头用 struct.unpack_from('<III', f, 4)；IPSW 成员用 zip64 远端读取器（尾 4 MiB 找 PK 06 07 → 中央目录 → Range 读成员）；kernelcache 用 IM4P 大端 hdr_len + py-lzfse 解 bvx2。全部命令记在 evidence/*.txt 文件头。"
+artifact_check = "docs/research/ios-profile/FEASIBILITY.md 与三份 evidence/*.txt 已落盘（本段即其八步登记）；research-gate 通过。"
+[hardware.ios-profile.step.device]
+done = false
+evidence = "从未上机。本线是纯调研，没有产物、没有镜像，也没有申请 boot。"
+

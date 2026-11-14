@@ -1,0 +1,104 @@
+# ABI and kernel baseband evidence, generated 2026-11-14T20:56:19+08:00
+
+## volume identity (7z l header)
+-- iPadOS OS volume
+Type = APFS
+Physical Size = 5096079360
+Name = SydneyG20G81.J120J121J207J208OS.apfs
+Cluster Size = 4096
+volume_name: SydneyG20G81.J120J121J207J208OS
+vol_uuid: c5daf02920704f68b3cc1d1320344cf0
+incompatible_features: NORMALIZATION_INSENSITIVE
+num_files: 133773
+num_directories: 111127
+num_symlinks: 1378
+-- iOS OS volume
+Type = Dmg
+Physical Size = 4922702471
+Type = APFS
+Physical Size = 5819596800
+Name = SydneyG20G81.N104OS.apfs
+Cluster Size = 4096
+volume_name: SydneyG20G81.N104OS
+vol_uuid: dbff1cb940164cd888f5f6b13f3c1080
+incompatible_features: NORMALIZATION_INSENSITIVE
+num_files: 139897
+
+## Mach-O headers of the same binaries in both volumes
+ipad       System/Library/CoreServices/SpringBoard.app/SpringBoard          magic 0xfeedfacf cputype 0x100000c subtype 0x0 bytes 112528
+ios        System/Library/CoreServices/SpringBoard.app/SpringBoard          magic 0xfeedfacf cputype 0x100000c subtype 0x80000002 bytes 112528
+ipad       sbin/launchd                                                     magic 0xfeedfacf cputype 0x100000c subtype 0x0 bytes 541600
+ios        sbin/launchd                                                     magic 0xfeedfacf cputype 0x100000c subtype 0x80000002 bytes 558176
+ipad       Applications/MobileSMS.app/MobileSMS                             magic 0xfeedfacf cputype 0x100000c subtype 0x0 bytes 332704
+ios        Applications/MobileSMS.app/MobileSMS                             magic 0xfeedfacf cputype 0x100000c subtype 0x80000002 bytes 349248
+
+## iPhone (iOS 16.6.1 n104ap) MobilePhone.app binary
+MobilePhone magic 0xfeedfacf cputype 0x100000c subtype 0x80000002 bytes 1662496
+-- Info.plist key fields
+  CFBundleIdentifier           'com.apple.mobilephone'
+  CFBundleDisplayName          'Phone'
+  UIDeviceFamily               [1]
+  SBAppTags                    ['any-telephony']
+  UIRequiredDeviceCapabilities ['arm64']
+  MinimumOSVersion             '16.6'
+  DTPlatformVersion            '16.6'
+
+## dyld shared cache names
+-- iPad iOS-like arm64:
+-- iPhone arm64e:
+
+## kernelcache Mach-O headers
+iPad 20G81 (kernelcache.decompressed)                thin  cputype 0x100000c subtype 0x0 bytes 48644096
+iPhone12,1 20G81 (kernelcache.research.iphone12b)    thin  cputype 0x100000c subtype 0x2 bytes 58130432
+iPhone10,6 20G81 (kernelcache.release.iphone10b)     fat   cputype 0x100000c subtype 0x0 bytes 50937856
+
+## kernel baseband symbol family (strings | grep -c, on decompressed kernelcache)
+qrtr                   iPad=0     iPhone11=0     iPhone10,6(A11)=0
+QMIBaseband            iPad=0     iPhone11=0     iPhone10,6(A11)=0
+AppleConvergedIPC      iPad=3     iPhone11=452   iPhone10,6(A11)=4
+AppleBasebandPCI       iPad=387   iPhone11=5     iPhone10,6(A11)=533
+AppleBasebandN71       iPad=8     iPhone11=0     iPhone10,6(A11)=5
+AppleBasebandI19       iPad=0     iPhone11=14    iPhone10,6(A11)=0
+AppleBasebandPCIe      iPad=0     iPhone11=0     iPhone10,6(A11)=0
+commcenter             iPad=12    iPhone11=12    iPhone10,6(A11)=12
+telephonyutilities     iPad=18    iPhone11=18    iPhone10,6(A11)=18
+
+## dyld shared cache (from the SystemOS cryptex listings)
+-- iPadOS cryptex (/tmp/ipad_sysos_list.txt, 92 entries)
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.32
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.35
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.03
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.04
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.05
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.02
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.34
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.33
+-- iOS cryptex (/tmp/ios_sysos_list.txt, 96 entries)
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.33
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.34
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.02
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.05
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.04
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.03
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.35
+Path = System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.32
+-- DriverKit dyld
+Path = System/DriverKit/System/Library/dyld/dyld_shared_cache_arm64.symbols
+Path = System/DriverKit/System/Library/dyld/dyld_shared_cache_arm64
+Path = System/DriverKit/System/Library/dyld/dyld_shared_cache_arm64e.symbols
+Path = System/DriverKit/System/Library/dyld/dyld_shared_cache_arm64e
+
+## iPhone10,6 (A11 / D221AP) 20G81 OS volume, arm64 userland verification
+-- APFS header
+Name = SydneyG20G81.D22D221OS.apfs
+vol_uuid: 2e97a0256bdf4c98a08c6bd8ffcb1a46
+incompatible_features: NORMALIZATION_INSENSITIVE
+num_files: 142350
+num_directories: 136504
+num_symlinks: 2324
+System/Library/CoreServices/SpringBoard.app/SpringBoard    magic 0xfeedfacf cputype 0x100000c subtype 0x0 bytes 112528
+sbin/launchd                                               magic 0xfeedfacf cputype 0x100000c subtype 0x0 bytes 541600
+Applications/MobilePhone.app/MobilePhone                   magic 0xfeedfacf cputype 0x100000c subtype 0x0 bytes 1596528
+listing lines: 7637352
+MobilePhone.app entries: 119
+apps total: 141

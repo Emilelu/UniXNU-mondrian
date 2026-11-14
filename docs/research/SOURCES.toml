@@ -397,3 +397,55 @@ why = "K60 自己的蓝牙节点与使能脚；BT 实现必须以这张表为准
 examined = "2026-11-14"
 finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 E:/hackios/QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具），该仓库不在 research-gate 的两种路径回退范围内，因此不能作为本文件的 path，只能在此说明并写进 REFERENCE-INDEX.md。"""
 
+[subsystem.ios-profile]
+why = "OS profile 可行性：电话/短信/基带是否需要 iOS 而非 iPadOS。只做调研，不改 board.toml、不动 profiles/"
+
+[[subsystem.ios-profile.required]]
+path = "board.toml"
+why = "本线当前 OS 绑定与身份来源：os_profile 决定 kernelcache/ADT/OS/SystemOS/Data 的来源"
+examined = "2026-11-14"
+finding = """board.toml:7 os_profile = "ipados-16.6.1-20G81"；:18 config_fragments 第三个是 "os:configs/ipados.config"；:14 components.include 只有 ArmDTPlatform/ArmCpu/XnuPrelink/PongUfs，不含 QcomBaseband；board 本身没有 [ipsw] 表，IPSW 五元组全部来自 profiles/os/<name>/profile.toml。"""
+
+[[subsystem.ios-profile.required]]
+path = "/mnt/e/hackios/UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml"
+why = "换 iOS 要改的每一个字段的现值与行号（ipsw 五元组、prelink pin、ADT 身份）"
+examined = "2026-11-14"
+finding = """[ipsw] url:12 / product iPad7,1:13 / version 16.6.1:14 / build 20G81:15 / device_class j120ap:16 / chip_id 32785:17 / board_id 12:18 / fetch 四成员:19；[kernel.prelink] kernelcache_sha256 d260defc…:28（iPad 内核 pin）、slide "0":32、roots 33 项:33；[adt.root.string] model iPad7,1:54 / target-type J120:55 / compatible J120AP:57；display-scale 3:88；artwork-device-idiom pad:96；product-id e9fefef6…:108（MGGetProductType 查表，:105-106 注释）。"""
+
+[[subsystem.ios-profile.required]]
+path = "/mnt/e/hackios/UniXNU/scripts/unixnu/ipsw.py"
+why = "换 profile 后 IPSW 校验链：版本/product 与 Erase identity 的四重匹配"
+examined = "2026-11-14"
+finding = """:100-102 无 [ipsw] 直接 raise 'board.toml has no [ipsw]'；:121-123 校验 ProductVersion/ProductBuildVersion 与 product in SupportedProductTypes；:124-128 要求 DeviceClass==device_class 且 RestoreBehavior=='Erase' 且 ApChipID==chip_id 且 ApBoardID==board_id，否则 'no Erase build identity for … in this IPSW'；:141-168 extract() 写 sidecar 并校验 [ipsw.sha256]。⇒ 换 iPhone 必须同时改 product/device_class/chip_id/board_id 四个值。"""
+
+[[subsystem.ios-profile.required]]
+path = "/mnt/e/hackios/UniXNU/components.toml"
+why = "基带驱动组件 QcomBaseband：电话能力的真正缺口所在"
+examined = "2026-11-14"
+finding = """:563-581 [[component]] id="QcomBaseband"：kind=driver、scope=modem、function "Qualcomm baseband IOKit bridge, QMUX/QRTR and IPA v4.2"、os_abi=["ipados-17.7.11-21H461 AppleBaseband IOUserClient"]、board_dependencies 含 "GLINK/QRTR transport and rmtfs" 与 "raw-IP transport on the QRTR/IPA owner thread"、verified_devices=[]。⇒ 换 OS profile 不触碰这一层，电话能力的卡点与 iOS/iPadOS 选择无关。"""
+
+[[subsystem.ios-profile.required]]
+path = "docs/research/ios-profile/evidence/telephony-inventory.txt"
+why = "两卷电话/短信清单逐项对比（本报告 ② 的决定性证据）"
+examined = "2026-11-14"
+finding = """同一 build 16.6.1/20G81：iPadOS 134 个 app / iOS 141 个；MobilePhone.app 在 iPad 卷计数 0、iOS 卷 115 个条目（:31-33）；只在 iOS 的 app 共 10 个（MobilePhone + 9 个 CarPlay/健康/睡眠/支付类，:14-24）；23 个电话框架与 9 个服务 app 两侧全部 =1（:97-130）；六个电话 LaunchDaemon 两侧 =1（:133-138）；Carrier Bundles iPad 3,046 条（根 iPad/）vs iOS 7,140 条（根 iPhone/）（:141-145）。"""
+
+[[subsystem.ios-profile.required]]
+path = "docs/research/ios-profile/evidence/abi-and-kernel.txt"
+why = "两卷 ABI 与内核基带族实测（本报告 ①④ 的决定性证据）"
+examined = "2026-11-14"
+finding = """SpringBoard/launchd/MobileSMS 的 Mach-O 头：iPad 卷 subtype 0x0（arm64），iPhone12,1 卷 0x80000002（arm64e PTRAUTH_ABI）（:28-33）；MobilePhone.app 二进制 arm64e、1,662,496 B，Info.plist SBAppTags=['any-telephony']、UIDeviceFamily=[1]（:36-44）；内核 cputype/subtype：iPad thin 0x100000c/0x0、iPhone12,1 thin 0x2、iPhone10,6 fat 唯一 slice 0x0（:50-53）；基带符号族计数 qrtr 三方皆 0、AppleConvergedIPC iPhone11=452 vs iPad=3 vs A11=4、AppleBasebandPCI iPad=387/A11=533/iPhone11=5（:55-64）；dyld 共享缓存 iPad=arm64.*、iPhone=arm64e.*（:66-89）。"""
+
+[[subsystem.ios-profile.required]]
+path = "docs/research/ios-profile/evidence/data-volume.txt"
+why = "Data 卷（/private/var 种子）两侧对比（本报告 ③）"
+examined = "2026-11-14"
+finding = """private/var 顶层两侧各 28 项且差集为空（:4-7）；mobile/Library 子项差集为空（:9-11）；SMS/CallHistory/手机偏好库两侧计数都是 0，即首启后由 daemon 创建（:13-17）；wireless、wireless/baseband_data、msgs/bounds、protected/trustd、Keychains、MobileDevice/ProvisioningProfiles 两侧都 =1（:19-27）。⇒ Data 卷格式无 iOS/iPadOS 差异，make-data-seed.py 的种子管线对 iOS 卷同样适用。"""
+
+[[subsystem.ios-profile.required]]
+path = "/mnt/e/hackios/k60-cellular/docs/research/cellular/01-ANDROID-INVENTORY.md"
+why = "K60 自己的 modem 形态（PAS 远程处理器 + QMI/QRTR），用来判定 Apple 基带驱动不可复用"
+examined = "2026-11-14"
+finding = """:15 modem_a=/dev/block/sde7（380 MiB，只读 vfat 挂 /vendor/firmware_mnt）；:16 modem.* 30 个文件共 109,072,529 B；:20 modem 注册 36 个 QMI 服务（EFS 21/WDS 1/UIM 11/NAS 3/PDS 16/DIAG 4097）；:22 两路 SIM 均 LOADED、EFS/NV 在 modemst1/2 裸分区；:92-130 明确 modem 不是外挂 USB/PCIe 设备，是 PAS 远程处理器。⇒ Apple 内核的 AppleBasebandPCI/ConvergedIPC 是机型绑定的 PCIe 基带驱动，对 K60 无用。"""
+
+

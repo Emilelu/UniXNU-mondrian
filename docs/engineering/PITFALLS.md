@@ -4768,7 +4768,9 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 
 **Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
 必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
-真机判据仍是 `addon: loaded bytes records 1027584 106`。
+真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
+（旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
+载体实现见 `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
 
 ## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
 

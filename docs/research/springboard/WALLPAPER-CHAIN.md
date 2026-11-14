@@ -194,13 +194,21 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - `scripts/tests/test-init-blob.py`（新增，16 用例）全绿：三个数组长度与 `#define` 一致、PONGJOB1 split/join 往返逐字节、var.skel 唯一且含两条 0755 root:root 壁纸目录、改写数组后三个 hunk 头行数自洽、init 为 thin arm64 MH_EXECUTE ncmds=15。
 - 环境注记：SDK `SDKSettings.json` 的 `Version` 是 16.4，`-platform_version` 第三段必须写 16.4；`ld64.lld-18` 对 `-static` 只告警不实现（加不加产物 sha 相同 `079a087b…`），因此 host 产物不保证与 macOS 产物逐字节一致，但 LC 序列与设备 blob 相同。
 
+### 5.4 strict 构建（2026-11-15 00:49，springboard-20261114e，含 0617）
+
+- 命令：`K60_OUT=/opt/k60/trees/springboard-out K60_DEVICE_INPUT=/opt/k60/trees/springboard-device K60_EIGHT_STEP_ITEMS=springboard K60_ARTIFACTS=/mnt/e/k60-work/artifacts bash scripts/build-strict.sh springboard-20261114e --fd /mnt/e/k60-work/artifacts/fd/gpu-20261114n-cf4485712c29.fd`，BUILD_EXIT=0，series=225（0617 在 series 尾部）。
+- 产物：`/mnt/e/k60-work/artifacts/springboard-20261114e/{boot.img 201,887,744 B, boot.json, build-manifest.json, logs/}` 与 `fd/springboard-20261114e-cf4485712c29.fd`；kernel 105,484,288 B（sha256 `7e289c5a…`）；boot.img sha256 `3748387823d0a86968d54296f1a1941a88ff62f8abbe6fd942a242c27be35954`；`verify-boot-image.py` OK；image-arg-audit OK（29 参数 575 B，无 k60_wallpaper_reset）。
+- 镜像自证：`strings -a boot.img | grep -c "Pong UI:"` = 39（F1 在）、`grep -c "K60WALL"` = 5、`stock-wallpaper/Collections/Collections~ipad.plist` 命中（0617 在）；`genuine stock wallpaper aliases` = 0（0401 blob 不生效，符合 P-197）。
+- 前两次构建失败教训：iron-2 会拦"未提交就构建"，所以 0617 与文档必须先提交（commit `3e09ce3` fix(xnu)、`2202042` docs）再启动构建；P-194 在 series 变更后需 `touch patches/xnu/series` 让旧 manifest 判 stale（否则 springboard-20261114d 的 manifest 224≠225 报真红）。
+- **未上机**（铁则），判据见 §3。
+
 ---
 
 ## 6. 未决问题 / 下一步
 
 1. **找 Lead 引用的 console.log**（528-529/2241/2247/2257）——本工作区无此文件，需 Lead 提供路径；否则"换壁纸进不去系统"只能停留在候选机制。
 2. 设备上 bindfs 的实际返回值需 `Pong init: boot view … result=` 行确认（P-27 是另一次量测）。
-3. F2 复查：0616 把 0401 的 installer 调用换成 34,904 B 旧助手（P-182），F2 的 52,456 B init 与 varpack 是死代码（§4 F2 复查）。生效项是 F3（0617：内核预置目录 + 复制 catalog），与 F1 一起进 springboard-20261114e；上机后按 §3 三行判据核对，重点抓 `K60WALL catalogue …` 与 `Pong init: boot view …` 两组日志。
+3. F2 复查：0616 把 0401 的 installer 调用换成 34,904 B 旧助手（P-182），F2 的 52,456 B init 与 varpack 是死代码（§4 F2 复查、P-197）。生效项是 F3（0617：内核预置目录 + 复制 catalog），与 F1 一起进 springboard-20261114e（§5.4，已构建自证）；上机后按 §3 三行判据核对，重点抓 `K60WALL catalogue …` 与 `Pong init: boot view …` 两组日志。
 4. 上机（交 Lead，用户明确同意后执行）：刷 0340 新 blob + `k60_wallpaper_reset=1` 启动一次；抓 `Pong UI: wallpaper …` 与 `Pong init: boot view …` 两组日志。
 
 ---

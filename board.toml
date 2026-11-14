@@ -258,3 +258,19 @@ pins = "100000001100000012000000130000001500000014000000"
 # only end-to-end proof, so a failed handshake means the pads or the rails are
 # wrong, not that this order is wrong.
 bitbang-pins = "10000000110000001200000013000000"
+
+# iOS buttons node. devicetree.py emits `buttons` only when board.toml carries
+# [adt.buttons.*]; without it userland cannot map the PMIC keys even though the
+# kernel driver already reports them ("Pong keys: arbiter v7 ... power=1 up=1
+# down=1" on 234 boots, with real 0/1/2 down/up events in the logs). Names and
+# order follow the reference boards; home-button-type 2 is the capacitive-home
+# type the pong family uses.
+[adt.buttons.string]
+compatible = "buttons"
+device_type = "buttons"
+
+[adt.buttons.strings]
+button-names = ["hold", "voldown", "volup"]
+
+[adt.buttons.u32]
+home-button-type = 2

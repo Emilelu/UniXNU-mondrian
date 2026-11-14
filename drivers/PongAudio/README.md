@@ -26,6 +26,7 @@ question in `docs/research/audio/AMPS.md`.
 | `PongAudioPlan.h` | The probe's decision helpers as pure functions: pad addressing and the pad config word, the CBCR "running" test, GCC window routing, DFS-level acceptance, the AW882xx byte order and the chip-id table. No MMIO, no kernel headers — which is why every one of those choices is pinned by the host test instead of at boot. |
 | `PongAudioGeniI2c.h` / `.c` | The GENI I2C transport from `references/pong-power/GeniI2c.c`, logic kept verbatim, symbols renamed to `pong_geni_*` so it cannot collide with the Pong copy. One transfer at a time; the caller feeds `M_IRQ` status in until done. |
 | `PongAudioAmp.c` | The probe. Boot-arg gated, read-only against the amplifiers, prints evidence with the `PongAudio: amp ...` prefix. |
+| `PongCodecSwr.h` / `PongCodecSwr.c` | One read transaction on the LPASS VA SoundWire master, as a state machine: read `COMP_HW_VERSION`, pick the register group, compose the command word, refuse when the FIFO is full, collect the response only when its transaction id is ours, and abort on a foreign id or a deadline. The enumerator step is here too. Same split as the GENI machine: no waiting inside, the caller owns the deadline. |
 | `PongCodecPlan.h` | The codec half's decisions, as pure functions, written before the hardware is reachable: SoundWire controller version, per-version read-transaction register group, transaction id and command word, FIFO-full test, response matching, the enumerator bitmap and slave-id layout, the LPI pad words, the five LPASS windows with their io_submap cost, and the one predicate that says whether the ADSP has granted the two PRM votes plus the `0x30c` clock. No MMIO, no kernel headers — pinned by the host test now, so the eventual on-device read is a thin loop over proven numbers. |
 | `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h` and `PongCodecPlan.h` (265 assertions). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
 | `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
@@ -116,13 +117,13 @@ and checks the exact command words the engine would see:
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 265 cases
+# TESTS OK 330 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 265 cases buy, given that nothing can be measured on hardware yet:
+What the 330 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase

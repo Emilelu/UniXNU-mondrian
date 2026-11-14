@@ -32,6 +32,7 @@ WINDOW = 0x13200000          # 306 MiB, exactly the DT reg value
 EXPECTED_LOAD = 30
 EXPECTED_PHNUM = 32
 PATCH = REPO / "patches/xnu/0620-k60-modem-image.patch"
+PATCH_PAS = REPO / "patches/xnu/0621-k60-modem-pas.patch"
 TABLE = REPO / "drivers/PongCellular/pong_modem_table.h"
 
 
@@ -225,6 +226,41 @@ def main(argv):
                                  "different loader than the one tested here"
                                  % (repo_rel, patch_rel))
 
+    # --- 0621 must carry the same PAS sources, including the call site ------
+    if not PATCH_PAS.is_file():
+        problems += fail("%s missing" % PATCH_PAS.relative_to(REPO))
+    else:
+        pas_text = PATCH_PAS.read_text(encoding="utf-8")
+        carried = added_files(pas_text)
+        pas_pairs = [
+            ("drivers/PongCellular/K60ModemPas.h", "bsd/dev/pong_modem_pas.h", {}),
+            ("drivers/PongCellular/K60ModemPas.c", "bsd/dev/pong_modem_pas.c",
+             {'"K60ModemPas.h"': '"pong_modem_pas.h"'}),
+            ("drivers/PongCellular/K60ModemBoot.c", "bsd/dev/pong_modem_boot.c",
+             {'"K60ModemPas.h"': '"pong_modem_pas.h"',
+              '"K60ModemImage.h"': '"pong_modem_image.h"'}),
+        ]
+        for repo_rel, patch_rel, include_map in pas_pairs:
+            local = REPO / repo_rel
+            if patch_rel not in carried:
+                problems += fail("%s does not add %s" % (PATCH_PAS.name, patch_rel))
+                continue
+            if not local.is_file():
+                problems += fail("%s missing" % repo_rel)
+                continue
+            if normalise(local.read_text(encoding="utf-8"), include_map) != normalise(carried[patch_rel], {}):
+                problems += fail("%s and %s differ; the kernel would compile a "
+                                 "different PAS shim than the one tested here"
+                                 % (repo_rel, patch_rel))
+        # The call site is the only thing that makes the code reachable, and it
+        # must hang off a line an earlier patch already put in kern_exec.c.
+        if "bsd/kern/kern_exec.c" not in pas_text:
+            problems += fail("%s carries no kern_exec.c call site" % PATCH_PAS.name)
+        if "k60_modem_probe_from_handoff" not in pas_text:
+            problems += fail("%s never calls the modem probe" % PATCH_PAS.name)
+        if "\tnative_owner_data_stage = 3;" not in pas_text:
+            problems += fail("%s does not anchor on native_owner_data_stage = 3;"
+                             % PATCH_PAS.name)
     print("TESTS OK %d segments, %#x..%#x (%d bytes), base %#x, table+p patch agree"
           % (len(segs), lo, hi, hi - lo, MODEM_BASE))
     if problems:

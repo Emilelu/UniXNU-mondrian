@@ -1,0 +1,364 @@
+diff --git a/bsd/dev/pong_modem_pas.h b/bsd/dev/pong_modem_pas.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_pas.h
+@@ -0,0 +1,104 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* PAS (peripheral authentication service) calls for the K60 modem (MSS).
++ *
++ * Sibling of drivers/PongPower/K60AdspPas.h. The encoders are the same
++ * arithmetic -- SMC64, SiP owner, service 2 -- and are covered by a host test;
++ * only the peripheral id differs, and that difference is the whole point of
++ * this file: the modem is PAS id 4, not the ADSP's 1.
++ *
++ * Why 4 and not a value read from the DT: the live Android DT node
++ * remoteproc-mss@04080000 carries no qcom,pas-id property at all (measured,
++ * od reports "No such file or directory"). 4 comes from the cape platform
++ * default recorded by the Pong ADT generator and from the reference port:
++ *
++ *   E:/k60-work/references/UniXNU-pong-upstream/scripts/make-pong-adt-ipados18.py:320
++ *       ('pong,pas-id', struct.pack('<I', 4))
++ *   E:/k60-work/references/phk110-port/drivers/modem/hakios.mpss.c:1050
++ *       #define PAS_MPSS_DEFAULT 4   -- its comment: dt: qcom,pas-id of qcom,mss
++ *
++ * The IPA on this SoC is PAS id 15 and is out of scope here.
++ *
++ * Sources: docs/research/cellular/06-MODEM-PAS.md.
++ */
++#ifndef K60_MODEM_PAS_H
++#define K60_MODEM_PAS_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60M_SCM_SVC_PIL 0x02u
++#define K60M_SCM_PAS_INIT_IMAGE 0x01u
++#define K60M_SCM_PAS_MEM_SETUP 0x02u
++#define K60M_SCM_PAS_AUTH_AND_RESET 0x05u
++#define K60M_SCM_PAS_SHUTDOWN 0x06u
++
++#define K60M_SCM_VAL 0u
++#define K60M_SCM_RW 2u
++
++/* Peripheral id for the modem (MSS) on SM8475/cape. See the header comment. */
++#define K60_PAS_MODEM 4u
++
++/* Function id: SMC64 | SiP owner | service | command. */
++static inline uint32_t
++k60_modem_scm_fn(uint32_t svc, uint32_t cmd)
++{
++	return (1u << 30) | (2u << 24) | ((svc & 0xffu) << 8) | (cmd & 0xffu);
++}
++
++/* Argument-type word: count in bits 3:0, type i in bits 5+2i:4+2i. */
++static inline uint32_t
++k60_modem_scm_args(unsigned count, unsigned t0, unsigned t1, unsigned t2)
++{
++	return (count & 0xfu) | ((t0 & 3u) << 4) | ((t1 & 3u) << 6) | ((t2 & 3u) << 8);
++}
++
++/* A call succeeded only when both result registers are zero: x0 alone reports
++ * the transport, x1 carries the payload verdict. */
++static inline int
++k60_modem_scm_ok(uint64_t x0, uint64_t x1)
++{
++	return x0 == 0 && x1 == 0;
++}
++
++/* Carrier probe: modem.b01 loads at the carveout base and its first 16 bytes
++ * are the fixed pattern below (dumped from the shipped modem.b01). A staged
++ * image therefore announces itself without any bookkeeping; anything else
++ * means the carveout holds firmware or garbage that is not our image, and the
++ * PAS handshake must not run. */
++static inline int
++k60_modem_carrier_ok(const void *at, size_t bytes)
++{
++	static const uint8_t head[16] = {
++		0x0e, 0xc0, 0x00, 0x58, 0x00, 0xc0, 0x00, 0x58,
++		0x00, 0xc0, 0x00, 0x58, 0x00, 0xc0, 0x00, 0x58,
++	};
++	const uint8_t *p = (const uint8_t *)at;
++	size_t i;
++
++	if (at == NULL || bytes < sizeof(head)) {
++		return 0;
++	}
++	for (i = 0; i < sizeof(head); i++) {
++		if (p[i] != head[i]) {
++			return 0;
++		}
++	}
++	return 1;
++}
++
++enum {
++	K60ModemPasOk = 0,
++	K60ModemPasDenied = -1,
++	K60ModemPasBadArg = -2,
++};
++
++int k60_modem_auth_and_reset(void);
++int k60_modem_init_image(uint64_t phys);
++int k60_modem_mem_setup(uint64_t base, uint64_t span);
++int k60_modem_shutdown(void);
++
++/* True when the kernel glue reached the secure monitor at least once; the
++ * boot log uses it to separate "SCM refused" from "SCM never called". */
++int k60_modem_scm_tried(void);
++
++#endif /* K60_MODEM_PAS_H */
+diff --git a/bsd/dev/pong_modem_pas.c b/bsd/dev/pong_modem_pas.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_pas.c
+@@ -0,0 +1,94 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* PAS calls for the K60 modem: the SMC glue only. The encoders live in the
++ * header so a host test can prove them without the device.
++ *
++ * Every line this file prints starts with K60MODEM: so a boot log can be
++ * filtered for the modem alone. Nothing here runs unless the caller was
++ * reached through the pong_modem boot argument. */
++
++#include "pong_modem_pas.h"
++
++#ifndef K60_HOST_TEST
++
++#include <pexpert/pexpert.h>
++#include <sys/systm.h>
++
++static int k60_modem_scm_called;
++
++/* x0..x7 are the SMCCC argument registers; the secure monitor writes both the
++ * result (x0) and the payload status (x1) back through the same registers. */
++static int
++k60_modem_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
++    uint64_t c, uint64_t *rx0, uint64_t *rx1)
++{
++	register uint64_t x0 __asm__("x0") = fn;
++	register uint64_t x1 __asm__("x1") = arginfo;
++	register uint64_t x2 __asm__("x2") = a;
++	register uint64_t x3 __asm__("x3") = b;
++	register uint64_t x4 __asm__("x4") = c;
++	register uint64_t x5 __asm__("x5") = 0;
++	register uint64_t x6 __asm__("x6") = 0;
++	register uint64_t x7 __asm__("x7") = 0;
++
++	__asm__ volatile("smc #0"
++	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
++	    : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
++	    : "memory");
++
++	k60_modem_scm_called = 1;
++	*rx0 = x0;
++	*rx1 = x1;
++	return k60_modem_scm_ok(x0, x1) ? K60ModemPasOk : K60ModemPasDenied;
++}
++
++static int
++k60_modem_pas_call(uint32_t cmd, uint32_t arginfo, uint64_t a, uint64_t b,
++    uint64_t c)
++{
++	uint64_t x0 = 0, x1 = 0;
++	int r = k60_modem_scm_call(k60_modem_scm_fn(K60M_SCM_SVC_PIL, cmd),
++	    arginfo, a, b, c, &x0, &x1);
++
++	if (r != K60ModemPasOk) {
++		printf("K60MODEM scm cmd=%#x rc=%d x0=%#llx x1=%#llx\n", cmd, r,
++		    (unsigned long long)x0, (unsigned long long)x1);
++	}
++	return r;
++}
++
++int
++k60_modem_auth_and_reset(void)
++{
++	return k60_modem_pas_call(K60M_SCM_PAS_AUTH_AND_RESET,
++	    k60_modem_scm_args(1, 0, 0, 0), K60_PAS_MODEM, 0, 0);
++}
++
++int
++k60_modem_init_image(uint64_t phys)
++{
++	return k60_modem_pas_call(K60M_SCM_PAS_INIT_IMAGE,
++	    k60_modem_scm_args(2, K60M_SCM_VAL, K60M_SCM_RW, 0), K60_PAS_MODEM,
++	    phys, 0);
++}
++
++int
++k60_modem_mem_setup(uint64_t base, uint64_t span)
++{
++	return k60_modem_pas_call(K60M_SCM_PAS_MEM_SETUP,
++	    k60_modem_scm_args(3, 0, 0, 0), K60_PAS_MODEM, base, span);
++}
++
++int
++k60_modem_shutdown(void)
++{
++	return k60_modem_pas_call(K60M_SCM_PAS_SHUTDOWN,
++	    k60_modem_scm_args(1, 0, 0, 0), K60_PAS_MODEM, 0, 0);
++}
++
++int
++k60_modem_scm_tried(void)
++{
++	return k60_modem_scm_called;
++}
++
++#endif /* !K60_HOST_TEST */
+diff --git a/bsd/dev/pong_modem_boot.c b/bsd/dev/pong_modem_boot.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_boot.c
+@@ -0,0 +1,135 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Modem (MSS) bring-up order: prove the image table is sane, copy it into the
++ * mpss carveout when a carrier supplies the bytes, let the secure monitor
++ * authenticate, then hand the span to the modem.
++ *
++ * Every step prints exactly one verdict line, and a failure line names the
++ * step and the return value that refused, so a single boot log says which
++ * layer stopped:
++ *
++ *   K60MODEM plan rows=... copied=... zeroed=... base=... window=...
++ *   K60MODEM copy ok            | K60MODEM copy failed rc=<n>
++ *   K60MODEM auth_reset ok      | K60MODEM auth_reset failed rc=<n>
++ *   K60MODEM init_image ok ...  | K60MODEM init_image failed seg=<n> ... rc=<n>
++ *   K60MODEM mem_setup ok ...   | K60MODEM mem_setup failed rc=<n>
++ *
++ * Off by default: k60_modem_probe_from_handoff() returns before it prints or
++ * maps anything unless the pong_modem boot argument is present and non-zero,
++ * so the shipped baseline never touches 0x8bc00000 and never issues an SMC. */
++
++#include "pong_modem_pas.h"
++#include "pong_modem_image.h"
++
++#ifndef K60_HOST_TEST
++
++#include <pexpert/pexpert.h>
++#include <sys/systm.h>
++
++/* osfmk/arm/machine_routines.h:703; declared here keeps the include path out
++ * of the leaky kernel header set (same choice as K60AdspBoot.c). */
++extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
++
++/* A 4 KiB page is enough to read the carrier signature; the 306 MiB window is
++ * only mapped when a carrier has bytes to copy into it. */
++#define K60_MODEM_PROBE_PAGE 0x1000
++
++int
++k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read)
++{
++	K60ModemPlan plan;
++	uint32_t i, images = 0;
++	int rc;
++
++	rc = k60_modem_plan(&plan);
++	if (rc != 0) {
++		printf("K60MODEM plan failed rc=%d\n", rc);
++		return rc;
++	}
++	printf("K60MODEM plan rows=%u copied=%u zeroed=%u base=%#x window=%#x\n",
++	    plan.segments, plan.copied, plan.zeroed, plan.base, plan.window);
++
++	if (read != NULL) {
++		rc = k60_modem_copy(window, window_bytes, read);
++		if (rc != 0) {
++			printf("K60MODEM copy failed rc=%d\n", rc);
++			return rc;
++		}
++		printf("K60MODEM copy ok\n");
++	} else {
++		/* No carrier: the bytes are already in the carveout, which the
++		 * caller proved by matching the carrier signature. */
++		printf("K60MODEM copy skipped: image already staged at %#x\n",
++		    plan.base);
++	}
++
++	rc = k60_modem_auth_and_reset();
++	if (rc != K60ModemPasOk) {
++		printf("K60MODEM auth_reset failed rc=%d\n", rc);
++		return rc;
++	}
++	printf("K60MODEM auth_reset ok\n");
++
++	for (i = 0; i < K60_MODEM_SEGMENTS; i++) {
++		const K60ModemSegment *s = &k60_modem_segments[i];
++
++		if (s->bytes == 0) {
++			/* Pure bss row: nothing to authenticate for it. */
++			continue;
++		}
++		rc = k60_modem_init_image((uint64_t)s->paddr);
++		if (rc != K60ModemPasOk) {
++			printf("K60MODEM init_image failed seg=%u addr=%#x bytes=%u rc=%d\n",
++			    i, s->paddr, s->bytes, rc);
++			return rc;
++		}
++		images++;
++	}
++	printf("K60MODEM init_image ok segments=%u\n", images);
++
++	rc = k60_modem_mem_setup((uint64_t)K60_MODEM_BASE,
++	    (uint64_t)K60_MODEM_WINDOW);
++	if (rc != K60ModemPasOk) {
++		printf("K60MODEM mem_setup failed rc=%d\n", rc);
++		return rc;
++	}
++	printf("K60MODEM mem_setup ok base=%#x span=%#x\n",
++	    (unsigned)K60_MODEM_BASE, (unsigned)K60_MODEM_WINDOW);
++	return K60ModemPasOk;
++}
++
++/* Called from the Data-mount path (patch 0621). Silent and inert unless
++ * pong_modem is present: an ordinary boot takes the early return on the first
++ * line, so neither the carveout nor the secure monitor is touched. */
++int
++k60_modem_probe_from_handoff(void)
++{
++	vm_offset_t page;
++	int enabled = 0;
++
++	if (!PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled)) ||
++	    enabled == 0) {
++		return 0;
++	}
++	printf("K60MODEM probe begin\n");
++
++	page = ml_io_map_unmappable((vm_offset_t)K60_MODEM_BASE,
++	    (vm_size_t)K60_MODEM_PROBE_PAGE,
++	    0x2 /* VM_WIMG_DEFAULT: the carveout is DDR, not device memory */);
++	if (page == 0) {
++		printf("K60MODEM cannot map the carveout head %#x\n",
++		    (unsigned)K60_MODEM_BASE);
++		return -1;
++	}
++	if (!k60_modem_carrier_ok((const void *)(uintptr_t)page,
++	    K60_MODEM_PROBE_PAGE)) {
++		printf("K60MODEM carrier absent: no modem image staged at %#x\n",
++		    (unsigned)K60_MODEM_BASE);
++		printf("K60MODEM pas skipped, nothing was handed to the secure monitor\n");
++		return 0;
++	}
++	printf("K60MODEM carrier present at %#x\n", (unsigned)K60_MODEM_BASE);
++
++	return k60_modem_bring_up(NULL, 0, NULL);
++}
++
++#endif /* !K60_HOST_TEST */
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7834,2 +7834,10 @@
++	/* 0621: hand the modem carveout to the secure monitor once Data is mounted.
++	 * Inert unless pong_modem is set: the probe returns on its first line without
++	 * mapping 0x8bc00000 or issuing an SMC. */
++	{
++		extern int k60_modem_probe_from_handoff(void);
++
++		(void)k60_modem_probe_from_handoff();
++	}
+ 	native_owner_data_stage = 3;
+ 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());

@@ -304,9 +304,9 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 |---|---|
 | 类型 | uint32 |
 | 默认 | 0（不探测，不映射 0x8bc00000，不发任何 SMC） |
-| 取值 | 0 / 1 |
+| 取值 | 0 / 1 / 2 |
 | 来源 | `drivers/PongCellular/K60ModemBoot.c`（`PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled))`），调用点在 `patches/xnu/0621-k60-modem-pas.patch` 往 `bsd/kern/kern_exec.c` 插的 Data 挂载后块 |
-| 作用 | 1 = 启动 modem（MSS）PAS 探针：先 plan 段表，再读 carveout 头页 16 B 签名判断镜像是否已在位，在位则按 auth_reset → 逐段 init_image → mem_setup 顺序发 SMC，每步打印一行 `K60MODEM` 判决 |
+| 作用 | 1 = 启动 modem（MSS）PAS 探针：先 plan 段表，再读 carveout 头页 16 B 签名判断镜像是否已在位，在位则按 auth_reset → 逐段 init_image → mem_setup 顺序发 SMC，每步打印一行 `K60MODEM` 判决；2 = 在 1 之前先做 QRTR 只读枚举（发一个 HELLO 与一个 `NEW_LOOKUP (0x0a)`，把 node 0 的 `NEW_SERVER` 应答折叠成表），再走 PAS |
 
 **为什么默认关闭**：这是全仓库第一条**会向安全监控器发 SMC 去动 modem** 的路径。设备从 Android
 热重启过来时 modem 已在运行（`/sys/class/remoteproc/4080000.remoteproc-mss/state` = `running`），
@@ -318,6 +318,12 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 `K60MODEM probe begin`，接着是 `K60MODEM plan rows=30 ...`。若出现
 `K60MODEM carrier absent`，说明镜像没被放进 carveout —— 这是**预期**结果（L2 没有载体），
 不是失败。
+
+`pong_modem=2` 的判据是 `K60MODEM qrtr: verdict ok services=N node0=M wanted=K`（其中
+`wanted > 0`，即至少有一条 node 0 的应答属于 EFS 21 / WDS 1 / UIM 11 / NAS 3 / PDS 16）；
+若打印 `K60MODEM qrtr: glink fifo not fresh (...), not adopted`，说明 Android 侧的 GLINK 栈
+仍持有这条 FIFO —— 本实现拒绝 reset 活 FIFO，属设计行为，不是崩溃。详见
+`docs/research/cellular/07-QRTR-ENUMERATION.md`。
 
 ### `sheng-gpu-addon`
 

@@ -10,7 +10,8 @@
 | 项 | 状态 | 出处 |
 | --- | --- | --- |
 | 只读驱动 / 压力等级 / IOKit 服务 | 已写，离线编译并核验符号 | `build/thermal-kext/libK60ThermalKext.a`，sha256 `8fa4bf72e931d3d79e66d281ed43849ab129e36fd0a71b0a272d0fcd6dfbb8d4`，160 defined / 10 required / 219 imports |
-| 内核链接行 | **已落地**（修正过一次位置） | `scripts/build-xnu-4k-baseline.sh:1137-1148`，在 `PLATFORM_ARCHIVES` 块内；`XNU_PONG_THERMAL=1` 时调 `build-thermal-kext.sh --no-export-list` 并 `-Wl,-force_load` |
+| 内核链接行 | **已落地**（修正过一次位置） | `scripts/build-xnu-4k-baseline.sh:1137-1154`，在 `PLATFORM_ARCHIVES` 块内；`XNU_PONG_THERMAL=1` 时调 `build-thermal-kext.sh --no-export-list` 并 `-Wl,-force_load` |
+| 真内核构建（2026-11-14） | **已验**：`=1` 的 kernel.macho sha256 `cb35295c…`（54,190,080 B）含 8 条 `K60Thermal: ` 串与 `_k60_thermal_start` 符号；`=n` 的 `1ebb6052…` 全为 0 | 私有输出根 `/opt/k60/trees/k60build/out-thermal`，`patches applied 223`；`scripts/check-kernel-archives.py --out` 报 ✅ 4 enabled archive(s) all present |
 | 启动钩子（`k60_thermal_start` 的调用者） | **已落地** | `drivers/ArmDTPlatform/ArmDTPlatform.cpp:27-31`（声明）与 `:232-233`（`registerService()` 之后调用） |
 | 开关传递链 | **已补齐** | `configs/mondrian_defconfig:63` `CONFIG_XNU_PONG_THERMAL=n` → `scripts/build-ios16-pong-macos.py:148-151` → `scripts/build-pong-platform-macos.py:41` `-DXNU_PONG_THERMAL=` |
 | 内核归档门禁 | **已加一行** | `scripts/check-kernel-archives.py:43`（`XNU_PONG_THERMAL` → `build/thermal-kext/libK60ThermalKext.a` → `k60_thermal_start`） |
@@ -29,7 +30,7 @@
 - `:221-252` `installhdrs` → 生成 `.cache/fakeroot`（真 Kernel.framework Headers/PrivateHeaders）
 - `:896` `KERNEL_EXTRA_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $CRYPTO_ARCHIVE"`
 - `:928-933`（死的 crypto14 分支内）与 `:1117-1167`（活的 `PLATFORM_ARCHIVES` 块）两处归档范式
-- `:1137-1148` 本线的 thermal 归档块（必须在活分支里，见 §3）
+- `:1137-1154` 本线的 thermal 归档块（必须在活分支里，见 §3）
 - `:1168-1169` `LD_KERNEL_ARCHIVES` / `XNU_EXTERNAL_KERNEL_ARCHIVES` 传给 make
 - `:1280` 附近的 `make -C .cache/xnu-work build`
 
@@ -65,11 +66,15 @@ P-190 原案（"a `-Wl,-force_load` line that sits inside a dead `if` branch is 
 
 正确位置是**活的** `PLATFORM_ARCHIVES` 块（`:1117-1167`，条件
 `[ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]`，
-本板三条全满足），现在落在 `:1137-1148`，在 `XNU_NATIVE_UFS` 之后、`NATIVE_RAM_BLOCK` 之前：
+本板三条全满足），现在落在 `:1137-1154`，在 `XNU_NATIVE_UFS` 之后、`NATIVE_RAM_BLOCK` 之前：
 
 ```bash
 if [ "${XNU_PONG_THERMAL:-0}" = 1 ]; then
-    K60_XNU_TREE=$ROOT bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
+    # 构建树只 symlink components.toml 里登记的 driver，PongThermal 不在其中，
+    # 所以源目录要显式指向设备 checkout（tree 的 patches/xnu 链接解析出来的那个）。
+    K60_XNU_TREE=$ROOT \
+      K60_THERMAL_SOURCES=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}/drivers/PongThermal \
+      bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
     THERMAL_ARCHIVE=$ROOT/build/thermal-kext/libK60ThermalKext.a
     test -f "$THERMAL_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$THERMAL_ARCHIVE"
@@ -196,9 +201,14 @@ thermal-sensor@c265000  compatible=qcom,tsens-v2  pong,tsens-tm-base=0xc265000  
 
 ## 6 验收判据
 
-1. **对照组**：`XNU_PONG_THERMAL=0` 构建一次，产物与上次成功构建逐字节一致（至少 sha256 相同）。
-2. **链接**：`XNU_PONG_THERMAL=1` 构建，ld 不报 unknown symbol；`strings kernel.macho | grep -c 'K60Thermal: '` ≥ 3
-   （短标记思路同 P-170）。
+1. **对照组 —— 已满足（2026-11-14）**：`XNU_PONG_THERMAL=0` 构建得到 kernel.macho sha256
+   `1ebb6052d91da63397722e6e9722f1008fe464c3a67d0d888a4a00c9d6e73187`、54,181,888 B，
+   `strings | grep -c 'K60Thermal: '` 为 0、`llvm-nm | grep -c _k60_thermal_start` 为 0。
+2. **链接 —— 已满足（2026-11-14）**：`XNU_PONG_THERMAL=1` 构建得到 sha256
+   `cb35295c1ea81fbe4935309e45e2548b0aa8b6ca6e4e12367292c87d4192d0e3`、54,190,080 B（比对照组大 8,192 B），
+   `strings | grep -c 'K60Thermal: '` 为 8，`llvm-nm` 命中 `_k60_thermal_start` / `_k60tsens_read_controller` /
+   `_k60tl_step`，`scripts/check-kernel-archives.py --out /opt/k60/trees/k60build/out-thermal` 报
+   `✅ kernel archives: 4 enabled archive(s) all present in kernel.macho`；ld 未报 unknown symbol。
 3. **上机**（需 Lead 批准 ⑦⑧ + 设备 6033dbec + 用户明确同意，入口只能是 `scripts/flash.sh`）：
    串口依次出现
    `K60Thermal: tsens0 mapped, 16 sensors, version a.b.c` /
@@ -211,7 +221,7 @@ thermal-sensor@c265000  compatible=qcom,tsens-v2  pong,tsens-tm-base=0xc265000  
 
 | 改动 | 文件 | 写作用域归属 | 状态 |
 | --- | --- | --- | --- |
-| 链接行 | `scripts/build-xnu-4k-baseline.sh:1137-1148` | 构建线 / Lead | 已由 Lead 落地（2026-11-14），位置修正过一次 |
+| 链接行 | `scripts/build-xnu-4k-baseline.sh:1137-1154` | 构建线 / Lead | 已由 Lead 落地（2026-11-14），位置修正过一次 |
 | 开关传递链 | `scripts/build-pong-platform-macos.py:41`、`configs/mondrian_defconfig:63` | 构建线 / Lead | 已由 Lead 落地（2026-11-14） |
 | 归档门禁 | `scripts/check-kernel-archives.py:43` | 门禁线 / Lead | 已由 Lead 落地（2026-11-14） |
 | 启动钩子 | `drivers/ArmDTPlatform/ArmDTPlatform.cpp:27-31`、`:232-233` | DT 平台线 / Lead | 已由 Lead 落地（2026-11-14） |

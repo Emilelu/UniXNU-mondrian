@@ -1141,7 +1141,12 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     # inside "if [ \"$XNU_SOURCE_CORECRYPTO14\" = 1 ]" and the generated .config
     # resolves that symbol to n for this board, so an archive added there would be
     # force-loaded into a branch that never runs (P-190, scripts/check-kernel-archives.py).
-    K60_XNU_TREE=$ROOT bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
+    # The assembled tree links only the drivers that components.toml selects, so
+    # PongThermal is not under $ROOT/drivers; point the builder at the device
+    # checkout that the tree's own patches/xnu link resolves to.
+    K60_XNU_TREE=$ROOT \
+      K60_THERMAL_SOURCES=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}/drivers/PongThermal \
+      bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
     THERMAL_ARCHIVE=$ROOT/build/thermal-kext/libK60ThermalKext.a
     test -f "$THERMAL_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$THERMAL_ARCHIVE"

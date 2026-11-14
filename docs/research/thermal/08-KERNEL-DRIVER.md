@@ -151,8 +151,9 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
 | --- | --- | --- |
 | 纯算术单测 | `cc -std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongThermal -o build/thermal/test-kernel scripts/tests/test-k60-thermal-kernel.c` | `TESTS OK 264` |
 | 既有解码单测 | 同法 `test-k60-thermal-tsens.c` | `TESTS OK 16` |
-| 压力等级单测 | 同法 `test-k60-thermal-level.c` | `TESTS OK 78` |
-| 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (11 checks)` |
+| 压力等级单测 | 同法 `test-k60-thermal-level.c` | `TESTS OK 72` |
+| 等级阶梯单测 | 同法 `test-k60-thermal-zones.c` | `TESTS OK 478` |
+| 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (14 checks)` |
 | 补丁可应用性 | 在已打完 229 个补丁的树上 `git apply --check` | `APPLY_CHECK_OK` |
 
 `check-thermal-kernel-patch.py` 做 14 项：从 patch 重建七个新文件并与 `drivers/PongThermal/`
@@ -195,7 +196,16 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    manifest `/mnt/e/k60-work/artifacts/thermal-20261114f/build-manifest.json`。
    仍未验证的是**非 Apple kext 侧调用者上机是否无害**，以及 `thermalmonitord` 是否真会消费 —— 见 §7.4。
    注意这仍不是 `mTPL`：`mTPL` 是 SMC 键，需要 `AppleSMCSensorDispatcher`，属 kext 路线（`06`/`07` 篇）。
-4. **没有 trip 编程与冷却设备**：本板 AP 侧 trip 全是被动 trip，且 `polling-delay` 多为 0，
+4. **等级阶梯层已进内核（2026-11-15 01:30，`thermal-20261115a`）**：`build-strict.sh` 全链再次跑通，
+   `kernel.macho` 54,173,696 B、sha256 `153450de9196b99c395f38abc98f990ec0bb389a11196d02b37b8fd813a9a10a`，
+   `strings | grep -c 'PongThermal: '` = **15**，其中新增 `PongThermal: level %u/3 %s (domains %u/3); closest %s %d.%d C, %d.%d C below tier %u`、
+   同前缀的 `every tier crossed` 与 `no zone has a reading` 两个分支、以及 `PongThermal: bias %d mC added to every reading (validation only)`；
+   `strings` 里还能找到 `_k60tz_table`/`_k60tz_step`/`_k60tz_closest`/`_k60tz_zone_level` 与 `_pong_thermal_pm_publish`。
+   payload kernel sha256 `7bb198a0ef1a65217836952c69440c2279fb4d3b3777fae289c94b844c38090f`，
+   boot.img sha256 `2b7973e5e150ac6c112274753bd08ec2c2011f7802411cae3918b890cc07fb25`，
+   manifest `/mnt/e/k60-work/artifacts/thermal-20261115a/build-manifest.json`。
+   **仍未上机验证等级随负载变化** —— `LEVEL-MAP.md` §5 给出 `pong_thermal_bias` 的 1/2/3 三档验证法与判据。
+5. **没有 trip 编程与冷却设备**：本板 AP 侧 trip 全是被动 trip，且 `polling-delay` 多为 0，
    真要控温需要自己起策略，属后续工作。
 
 ## 6 构建阻塞（2026-11-14，环境而非代码）

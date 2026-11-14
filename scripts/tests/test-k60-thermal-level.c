@@ -35,6 +35,16 @@ static void test_tables(void)
     }
     CHECK(k60tl_trips(K60TlInputs) == (const K60TlTrip *)0, "no trips past the last input");
     CHECK(strcmp(k60tl_level_name(K60TlTrapping), "trapping") == 0, "level 3 is trapping");
+
+    /* The numbers IOPMrootDomain understands: IOPM.h:764 normal 0, :765 danger 5,
+     * :768 warning 100, :769 trap 110. Only 100 and 110 move thermalWarningState
+     * (IOPMrootDomain.cpp:8133-8134), which is why heavy and trapping carry them. */
+    CHECK(k60tl_platform_value(K60TlNominal) == 0u, "nominal publishes as normal 0");
+    CHECK(k60tl_platform_value(K60TlModerate) == 5u, "moderate publishes as danger 5");
+    CHECK(k60tl_platform_value(K60TlHeavy) == 100u, "heavy publishes as warning 100");
+    CHECK(k60tl_platform_value(K60TlTrapping) == 110u, "trapping publishes as trap 110");
+    CHECK(k60tl_platform_value(K60TlSleeping) == 110u, "sleeping shares the trap value");
+    CHECK(k60tl_platform_value(9u) == 0u, "an out-of-range level publishes as nominal");
     CHECK(strcmp(k60tl_level_name(9), "?") == 0, "level out of range has no name");
 
     /* The DT numbers themselves: 110/10, 115/5, 125/1 for CPU; 95/5 for GPU and NPU;

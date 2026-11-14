@@ -1,20 +1,20 @@
 diff --git a/bsd/conf/files b/bsd/conf/files
-index b7d7ea1..200adc8 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -400,6 +400,7 @@ bsd/dev/pong_input.c			standard
+@@ -400,6 +400,9 @@
  bsd/dev/pong_input.c			standard
  bsd/dev/pong_goodix.c			standard
  bsd/dev/pong_buttons.c			standard
 +bsd/dev/pong_thermal.c			standard
++bsd/dev/pong_thermal_level.c		standard
++bsd/dev/pong_thermal_pm.cpp		standard
  bsd/kern/kern_event.c			standard
  bsd/kern/kern_control.c			optional networking
  bsd/kern/kern_exec.c			standard
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 0204430..fb40269 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -1161,6 +1161,10 @@ bsd_init(void)
+@@ -1161,6 +1161,10 @@
  	pong_goodix_init();
  		extern void pong_buttons_init(void);
  		pong_buttons_init();
@@ -27,10 +27,10 @@ index 0204430..fb40269 100644
  
 diff --git a/bsd/dev/pong_thermal.c b/bsd/dev/pong_thermal.c
 new file mode 100644
-index 0000000..7200fcb
+index 0000000..0000000
 --- /dev/null
 +++ b/bsd/dev/pong_thermal.c
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,248 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* Copyright (c) 2026, UniXNU contributors. */
 +/* Pong SM8475 thermal sensors: read-only tsens v2 reader for the XNU kernel.
@@ -41,10 +41,12 @@ index 0000000..7200fcb
 + * scripts/check-thermal-kernel-patch.py fails when the two copies differ.
 + *
 + * What it does: maps the two TM windows and the two SROT windows, reads the
-+ * hardware version and the enable bit, then samples all 32 sensors once a second
-+ * and prints the five pressure-level domains. It never writes a register, never
-+ * touches an interrupt, and never programs a trip point: those need calibration
-+ * coefficients this board does not expose (docs/research/thermal/01 section 4).
++ * hardware version and the enable bit, then samples all 32 sensors once a second,
++ * prints the five pressure-level domains and hands the resulting level to
++ * bsd/dev/pong_thermal_pm.cpp, which publishes it through IOPMrootDomain. It never
++ * writes a register, never touches an interrupt, and never programs a trip point:
++ * those need calibration coefficients this board does not expose
++ * (docs/research/thermal/01 section 4).
 + *
 + * Register map: mainline Linux drivers/thermal/qcom/tsens-v2.c:12-27, 94-101.
 + * Board addresses: DTB /soc/thermal-sensor@c263000 and @c265000, reg[0] = TM and
@@ -57,9 +59,15 @@ index 0000000..7200fcb
 +#include <libkern/libkern.h>
 +#include <pexpert/pexpert.h>
 +#include <sys/pong_thermal.h>
++#include <sys/pong_thermal_level.h>
 +#include <sys/systm.h>
 +
 +extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
++
++/* bsd/dev/pong_thermal_pm.cpp: hands one pressure level to IOPMrootDomain. It returns
++ * without doing anything until IOKit has a root domain, which is why it is called every
++ * round rather than once from pong_thermal_init. */
++extern void pong_thermal_pm_publish(unsigned int level);
 +
 +#define PONG_THERMAL_WINDOW     0x1000UL
 +#define PONG_THERMAL_POLL_MS    1000
@@ -186,6 +194,7 @@ index 0000000..7200fcb
 +{
 +	int32_t domains[PONG_THERMAL_DOMAINS];
 +	int32_t previous[PONG_THERMAL_DOMAINS];
++	K60TlState level_state;
 +	uint64_t deadline;
 +	unsigned round = 0, i;
 +
@@ -194,8 +203,10 @@ index 0000000..7200fcb
 +	for (i = 0; i < PONG_THERMAL_DOMAINS; i++) {
 +		previous[i] = INT32_MIN;
 +	}
++	memset(&level_state, 0, sizeof(level_state));
 +	for (;;) {
 +		bool changed = false;
++		unsigned level;
 +
 +		pong_thermal_domains(domains);
 +		for (i = 0; i < PONG_THERMAL_DOMAINS; i++) {
@@ -213,6 +224,11 @@ index 0000000..7200fcb
 +			    domains[PONG_THERMAL_DOMAIN_GPU], domains[PONG_THERMAL_DOMAIN_NPU],
 +			    domains[PONG_THERMAL_DOMAIN_DDR]);
 +		}
++		/* Hysteresis lives in k60tl_step: a trip already crossed is released only
++		 * below its temperature minus the DT's hysteresis. Publishing is a no-op
++		 * until the root domain exists, and after that only on a level change. */
++		level = k60tl_step(&level_state, domains);
++		pong_thermal_pm_publish(level);
 +		clock_interval_to_deadline(PONG_THERMAL_POLL_MS, NSEC_PER_MSEC, &deadline);
 +		assert_wait_deadline((event_t)pong_thermal_controllers, THREAD_UNINT, deadline);
 +		(void)thread_block(THREAD_CONTINUE_NULL);
@@ -263,9 +279,261 @@ index 0000000..7200fcb
 +	}
 +}
 +#endif /* PONG */
+diff --git a/bsd/dev/pong_thermal_level.c b/bsd/dev/pong_thermal_level.c
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/bsd/dev/pong_thermal_level.c
+@@ -0,0 +1,145 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Data and arithmetic for the board's thermal pressure level. No register, no IOKit, no
++ * allocation: the whole file runs on the host (scripts/tests/test-k60-thermal-level.c).
++ * Threshold provenance is in docs/research/thermal/05-PRESSURE-LEVEL.md §2, one line per
++ * number, all from the decompiled board DTS (docs/research/thermal/01-SAME-HARDWARE.md §5). */
++/* The same file ships twice: as this master copy, which the host test compiles with
++ * -I drivers/PongThermal, and as bsd/dev/pong_thermal_level.c inside the kernel patch,
++ * where the header is bsd/sys/pong_thermal_level.h. The guard keeps the two copies
++ * byte-identical, which scripts/check-thermal-kernel-patch.py enforces. */
++#if defined(KERNEL)
++#include <sys/pong_thermal_level.h>
++#else
++#include "K60ThermalLevel.h"
++#endif
++
++/* CPU cluster 0 (cpu-0-0..3): emerg 110 C / 10 C (:7706, :7707), reset-mon 115 C / 5 C
++ * (:7700, :7701), thermal-engine 125 C / 1 C (:7688, :7689). The big cluster
++ * (cpu-1-0..8) has the same three numbers (:7239, :7233, :7221), so both clusters share
++ * one table. */
++static const K60TlTrip k60tl_cpu_trips[K60TlTrips] = {
++    {110000, 10000}, {115000, 5000}, {125000, 1000}
++};
++
++/* GPU: tj 95 C / 5 C (:7601, :7602), reset-mon 115 C / 5 C (:7595, :7596), engine
++ * 125 C / 1 C (:7583, :7584). */
++static const K60TlTrip k60tl_gpu_trips[K60TlTrips] = {
++    {95000, 5000}, {115000, 5000}, {125000, 1000}
++};
++
++/* NPU: junction 95 C / 5 C (:7874, :7875), reset-mon 115 C / 5 C (:7868, :7869),
++ * engine 125 C / 1 C (:7856, :7857). */
++static const K60TlTrip k60tl_npu_trips[K60TlTrips] = {
++    {95000, 5000}, {115000, 5000}, {125000, 1000}
++};
++
++/* DDR: ddr0 90 C / 5 C (:8009, :8010), reset-mon 115 C / 5 C (:8016, :8017), engine
++ * 125 C / 1 C (:8003, :8004). */
++static const K60TlTrip k60tl_ddr_trips[K60TlTrips] = {
++    {90000, 5000}, {115000, 5000}, {125000, 1000}
++};
++
++static const char *const k60tl_input_names[K60TlInputs] = {
++    "cpu-little", "cpu-big", "gpu", "npu", "ddr"
++};
++
++static const char *const k60tl_level_names[5] = {
++    "nominal", "moderate", "heavy", "trapping", "sleeping"
++};
++
++/* tsens0 idx 0..15 then tsens1 idx 0..15 (drivers/PongThermal/K60Tsens.c table order). */
++static const uint8_t k60tl_sensor_input[32] = {
++    K60TlNoInput, K60TlNoInput, K60TlNoInput, K60TlNoInput,          /* aoss-0, cpuss-0..2 */
++    K60TlNoInput,                                                    /* cpuss-3 */
++    K60TlCpuBig, K60TlCpuBig, K60TlCpuBig, K60TlCpuBig,              /* cpu-1-0..3 */
++    K60TlCpuBig, K60TlCpuBig, K60TlCpuBig, K60TlCpuBig,              /* cpu-1-4..7 */
++    K60TlCpuBig,                                                     /* cpu-1-8 */
++    K60TlGpu, K60TlGpu,                                              /* gpuss-0/1 */
++    K60TlNoInput,                                                    /* aoss-1 */
++    K60TlCpuLittle, K60TlCpuLittle, K60TlCpuLittle, K60TlCpuLittle,  /* cpu-0-0..3 */
++    K60TlNpu, K60TlNpu, K60TlNpu,                                    /* nspss-0..2 */
++    K60TlNoInput,                                                    /* video */
++    K60TlDdr,                                                        /* ddr */
++    K60TlNoInput, K60TlNoInput, K60TlNoInput, K60TlNoInput,          /* mdmss-0..3 */
++    K60TlNoInput, K60TlNoInput                                       /* camera-0/1 */
++};
++
++const K60TlTrip *k60tl_trips(unsigned input)
++{
++    switch (input) {
++    case K60TlCpuLittle:
++    case K60TlCpuBig:   return k60tl_cpu_trips;
++    case K60TlGpu:      return k60tl_gpu_trips;
++    case K60TlNpu:      return k60tl_npu_trips;
++    case K60TlDdr:      return k60tl_ddr_trips;
++    default:            return (const K60TlTrip *)0;
++    }
++}
++
++const char *k60tl_input_name(unsigned input)
++{
++    return input < K60TlInputs ? k60tl_input_names[input] : "?";
++}
++
++const char *k60tl_level_name(unsigned level)
++{
++    return level <= K60TlSleeping ? k60tl_level_names[level] : "?";
++}
++
++unsigned k60tl_input_of_sensor(unsigned sensor)
++{
++    return sensor < 32u ? k60tl_sensor_input[sensor] : K60TlNoInput;
++}
++
++unsigned k60tl_input_level(unsigned crossed_before, int32_t milli_c,
++                           const K60TlTrip *trips, unsigned trips_count,
++                           unsigned *crossed_after)
++{
++    unsigned level = 0;
++
++    if (crossed_after != (unsigned *)0) *crossed_after = 0;
++    if (trips == (const K60TlTrip *)0 || trips_count == 0u) return 0;
++    if (milli_c == K60TL_NO_READING) return 0;
++
++    for (unsigned t = 0; t < trips_count; ++t) {
++        /* A trip already crossed is released only below temperature - hysteresis. */
++        const int32_t threshold = crossed_before > t
++            ? trips[t].milli_c - trips[t].hysteresis_mc
++            : trips[t].milli_c;
++        if (milli_c < threshold) break;
++        level = t + 1u;
++    }
++    if (crossed_after != (unsigned *)0) *crossed_after = level;
++    return level;
++}
++
++unsigned k60tl_step(K60TlState *state, const int32_t *milli_c)
++{
++    unsigned worst = K60TlNominal;
++
++    for (unsigned i = 0; i < K60TlInputs; ++i) {
++        const int32_t mc = milli_c != (const int32_t *)0 ? milli_c[i] : K60TL_NO_READING;
++        const unsigned before = state != (K60TlState *)0 ? state->crossed[i] : 0u;
++        unsigned after = 0;
++        const unsigned level = k60tl_input_level(before, mc, k60tl_trips(i),
++                                                 K60TlTrips, &after);
++        if (state != (K60TlState *)0) state->crossed[i] = (uint8_t)after;
++        if (level > worst) worst = level;
++    }
++    return worst;
++}
++
++/* IOPM.h:764 normal, :765 danger, :768 warning, :769 trap. Sleeping is never reported on
++ * this board, so it shares the trap value; an out-of-range level is treated as nominal. */
++unsigned k60tl_platform_value(unsigned level)
++{
++    switch (level) {
++    case K60TlNominal:  return 0u;    /* kIOPMThermalLevelNormal */
++    case K60TlModerate: return 5u;    /* kIOPMThermalLevelDanger */
++    case K60TlHeavy:    return 100u;  /* kIOPMThermalLevelWarning */
++    case K60TlTrapping: return 110u;  /* kIOPMThermalLevelTrap */
++    case K60TlSleeping: return 110u;  /* never produced: no trip point stands for it */
++    default:            return 0u;
++    }
++}
+diff --git a/bsd/dev/pong_thermal_pm.cpp b/bsd/dev/pong_thermal_pm.cpp
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/bsd/dev/pong_thermal_pm.cpp
+@@ -0,0 +1,95 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* Pong SM8475 thermal pressure level: the publisher.
++ *
++ * This file is the master copy. patches/xnu/0617-k60-thermal-tsens.patch carries
++ * it into the XNU tree verbatim as bsd/dev/pong_thermal_pm.cpp;
++ * scripts/check-thermal-kernel-patch.py fails when the two copies differ.
++ *
++ * What it does: hands the board's pressure level (nominal / moderate / heavy /
++ * trapping, computed by bsd/dev/pong_thermal_level.c) to the one thermal entry
++ * point this kernel already has, IOPMrootDomain::systemPowerEventOccurred, under
++ * the key kIOPMThermalLevelWarningKey. It installs no actuator and programs no
++ * clock: docs/research/thermal/TRIP-DESIGN.md section 3.5 is the decision record.
++ *
++ * Why this is C++: systemPowerEventOccurred takes an OSSymbol and an OSObject,
++ * which only exist in C++. bsd/conf/files had no .cpp before this file; the
++ * build system has always supported it (makedefs/MakeInc.rule:423-428 turns
++ * .cpp into .cpo, bsd/conf/Makefile.template:72 has the %CXXFILES hook).
++ *
++ * The call is made from the thermal worker thread, not from the PM work loop.
++ * That is the supported shape: IOPMrootDomain::setThermalState re-dispatches
++ * itself through gIOPMWorkLoop->runAction when it is called outside the gate
++ * (iokit/Kernel/IOPMrootDomain.cpp:8119-8136), and the property update takes
++ * featuresDictLock (:8154-8156). What has not been shown on hardware is that a
++ * non-Apple kext-side caller is harmless; docs/research/thermal/08-KERNEL-DRIVER.md
++ * section 7.4 keeps that as an open question for the first boot. */
++#include <pexpert/arm64/board_config.h>
++
++#if defined(PONG)
++
++#include <IOKit/IOService.h>
++#include <IOKit/pwr_mgt/IOPM.h>
++#include <IOKit/pwr_mgt/RootDomain.h>
++#include <libkern/c++/OSNumber.h>
++#include <libkern/c++/OSSymbol.h>
++#include <sys/pong_thermal_level.h>
++#include <sys/systm.h>
++
++/* The event key, created once. Every IOPMrootDomain key in the tree is made this
++ * way and never released (iokit/Kernel/IOPMrootDomain.cpp:1535-1538). */
++static const OSSymbol *pong_thermal_pm_key;
++
++/* What was last accepted by the root domain, so an unchanged level costs nothing. */
++static unsigned int pong_thermal_pm_last_level;
++static int pong_thermal_pm_have_last;
++
++/* The level-to-value table lives in bsd/dev/pong_thermal_level.c (k60tl_platform_value),
++ * where scripts/tests/test-k60-thermal-level.c can check it on the host against
++ * iokit/IOKit/pwr_mgt/IOPM.h:763-772. Only the two platform values, 100 and 110, move
++ * IOPMrootDomain::thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134); the
++ * others are recorded in the "Power Status" dictionary and broadcast (:8172-8188). */
++
++/* Called once per sampling round by the worker in bsd/dev/pong_thermal.c.
++ *
++ * Before IOKit has started there is no root domain: bsd_init calls
++ * pong_thermal_init (bsd/kern/bsd_init.c:1166-1167) long before IOKitBSDInit
++ * (:1325), so the first rounds return here and the first successful call is the
++ * moment the publisher goes live. A missing root domain is not an error. */
++extern "C" void
++pong_thermal_pm_publish(unsigned int level)
++{
++	IOPMrootDomain *root;
++	OSNumber *number;
++	uint32_t value;
++
++	if (pong_thermal_pm_have_last && level == pong_thermal_pm_last_level) {
++		return;
++	}
++	root = IOService::getPMRootDomain();
++	if (root == NULL) {
++		return;
++	}
++	if (!pong_thermal_pm_key) {
++		pong_thermal_pm_key = OSSymbol::withCStringNoCopy(kIOPMThermalLevelWarningKey);
++		if (!pong_thermal_pm_key) {
++			return;
++		}
++	}
++	value = (uint32_t)k60tl_platform_value(level);
++	/* withNumber hands back a retained object; the root domain keeps its own
++	 * reference in the "Power Status" dictionary (:8172), so this one is dropped
++	 * right after the call, as overload one does (:8103-8116). */
++	number = OSNumber::withNumber((unsigned long long)value, 32);
++	if (number == NULL) {
++		return;
++	}
++	(void)root->systemPowerEventOccurred(pong_thermal_pm_key, (OSObject *)number);
++	number->release();
++	pong_thermal_pm_last_level = level;
++	pong_thermal_pm_have_last = 1;
++	printf("PongThermal: level %s (%u) published as %s=%u\n",
++	    k60tl_level_name(level), level, kIOPMThermalLevelWarningKey, value);
++}
++
++#endif /* PONG */
 diff --git a/bsd/sys/pong_thermal.h b/bsd/sys/pong_thermal.h
 new file mode 100644
-index 0000000..6eb1f6c
+index 0000000..0000000
 --- /dev/null
 +++ b/bsd/sys/pong_thermal.h
 @@ -0,0 +1,198 @@
@@ -467,3 +735,92 @@ index 0000000..6eb1f6c
 +}
 +
 +#endif /* _SYS_PONG_THERMAL_H_ */
+diff --git a/bsd/sys/pong_thermal_level.h b/bsd/sys/pong_thermal_level.h
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/bsd/sys/pong_thermal_level.h
+@@ -0,0 +1,83 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++/* The board's temperatures as macOS's thermal pressure level (OSThermalPressureLevel).
++ *
++ * This is the half of the thermal line that does not touch hardware: the mapping from
++ * the 32 tsens sensors to five frequency/voltage domains and from those domains to the
++ * pressure level macOS acts on. Every threshold here is a trip point of the board DTB,
++ * cited by line in docs/research/thermal/05-PRESSURE-LEVEL.md; nothing is invented.
++ *
++ * The consumer side is macOS's: thermalmonitord copies the SMC key 'mTPL' into the
++ * notification com.apple.system.thermalpressurelevel once a second (ThermalLevel.h:6-25
++ * of the UniXNU-sheng port, which read that out of thermalmonitord of 27.3 26C5035r).
++ * Publishing that service needs IOKit and a kernel link, so it stays out of this file:
++ * here are the data and the arithmetic a host test can run, as in the reference port. */
++#ifndef K60_THERMAL_LEVEL_H
++#define K60_THERMAL_LEVEL_H
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* OSThermalPressureLevel (libkern/OSThermalNotification.h). Sleeping is never reported:
++ * no trip point of this board stands for it. */
++enum { K60TlNominal = 0, K60TlModerate = 1, K60TlHeavy = 2, K60TlTrapping = 3,
++       K60TlSleeping = 4 };
++
++/* The domains. Two CPU clusters, the GPU, the NPU and DDR: the five groups whose trip
++ * points differ on this board (docs/research/thermal/01-SAME-HARDWARE.md §5.1). */
++enum { K60TlInputs = 5,
++       K60TlCpuLittle = 0, K60TlCpuBig = 1, K60TlGpu = 2, K60TlNpu = 3, K60TlDdr = 4 };
++
++/* Three trip points per input: the domain's own warning trip, its reset-monitor trip and
++ * the board-wide thermal-engine trip. Ascending, each with the DT's hysteresis. */
++enum { K60TlTrips = 3 };
++
++/* A reading that does not exist. A sensor without a reading counts as nominal and
++ * forgets what it had crossed, so an unreadable sensor can neither raise the level nor
++ * hold it up (ThermalLevel.h:56-59). */
++#define K60TL_NO_READING INT32_MIN
++
++typedef struct { int32_t milli_c, hysteresis_mc; } K60TlTrip;
++
++/* Sensor index (0..31, the K60TsensTable order: tsens0 idx 0..15 then tsens1 0..15) to
++ * the domain it feeds, or K60TlNoInput for sensors the level does not use (aoss, cpuss,
++ * video, mdmss, camera: they have trips but no cooling action on this board). */
++enum { K60TlNoInput = 0xffu };
++
++typedef struct {
++    uint8_t crossed[K60TlInputs]; /* trip points crossed per input at the last step */
++} K60TlState;
++
++/* The trip table of one input, and its name. NULL / "?" for an out-of-range input. */
++const K60TlTrip *k60tl_trips(unsigned input);
++const char *k60tl_input_name(unsigned input);
++const char *k60tl_level_name(unsigned level);
++unsigned k60tl_input_of_sensor(unsigned sensor);
++
++/* The level of one input given how many of its trips were crossed before. A trip stays
++ * crossed until the reading falls below its temperature less its hysteresis, which is
++ * the thermal core's rule (ThermalLevel.h:73-83). Returns the new count (0..3) and
++ * writes it to *crossed_after when that is not NULL. */
++unsigned k60tl_input_level(unsigned crossed_before, int32_t milli_c,
++                           const K60TlTrip *trips, unsigned trips_count,
++                           unsigned *crossed_after);
++
++/* One sampling round over all inputs; milli_c[i] is the hottest sensor of input i, or
++ * K60TL_NO_READING. Returns the highest input level (the level macOS gets). state may be
++ * NULL for a stateless query. */
++unsigned k60tl_step(K60TlState *state, const int32_t *milli_c);
++
++/* The number IOPMrootDomain understands for this level (iokit/IOKit/pwr_mgt/IOPM.h:763-772):
++ * nominal 0, moderate 5, heavy 100, trapping 110. Only 100 and 110 move
++ * IOPMrootDomain::thermalWarningState (iokit/Kernel/IOPMrootDomain.cpp:8133-8134); 0 and 5 are
++ * recorded in the "Power Status" dictionary and broadcast, but change no policy. That
++ * asymmetry is Apple's and it is why heavy, not moderate, is the first level with an effect.
++ * bsd/dev/pong_thermal_pm.cpp hands this number to systemPowerEventOccurred under
++ * kIOPMThermalLevelWarningKey; keeping the numbers here is what makes them host-testable. */
++unsigned k60tl_platform_value(unsigned level);
++
++#ifdef __cplusplus
++}
++#endif
++#endif /* K60_THERMAL_LEVEL_H */

@@ -4,7 +4,15 @@
  * allocation: the whole file runs on the host (scripts/tests/test-k60-thermal-level.c).
  * Threshold provenance is in docs/research/thermal/05-PRESSURE-LEVEL.md §2, one line per
  * number, all from the decompiled board DTS (docs/research/thermal/01-SAME-HARDWARE.md §5). */
+/* The same file ships twice: as this master copy, which the host test compiles with
+ * -I drivers/PongThermal, and as bsd/dev/pong_thermal_level.c inside the kernel patch,
+ * where the header is bsd/sys/pong_thermal_level.h. The guard keeps the two copies
+ * byte-identical, which scripts/check-thermal-kernel-patch.py enforces. */
+#if defined(KERNEL)
+#include <sys/pong_thermal_level.h>
+#else
 #include "K60ThermalLevel.h"
+#endif
 
 /* CPU cluster 0 (cpu-0-0..3): emerg 110 C / 10 C (:7706, :7707), reset-mon 115 C / 5 C
  * (:7700, :7701), thermal-engine 125 C / 1 C (:7688, :7689). The big cluster
@@ -120,4 +128,18 @@ unsigned k60tl_step(K60TlState *state, const int32_t *milli_c)
         if (level > worst) worst = level;
     }
     return worst;
+}
+
+/* IOPM.h:764 normal, :765 danger, :768 warning, :769 trap. Sleeping is never reported on
+ * this board, so it shares the trap value; an out-of-range level is treated as nominal. */
+unsigned k60tl_platform_value(unsigned level)
+{
+    switch (level) {
+    case K60TlNominal:  return 0u;    /* kIOPMThermalLevelNormal */
+    case K60TlModerate: return 5u;    /* kIOPMThermalLevelDanger */
+    case K60TlHeavy:    return 100u;  /* kIOPMThermalLevelWarning */
+    case K60TlTrapping: return 110u;  /* kIOPMThermalLevelTrap */
+    case K60TlSleeping: return 110u;  /* never produced: no trip point stands for it */
+    default:            return 0u;
+    }
 }

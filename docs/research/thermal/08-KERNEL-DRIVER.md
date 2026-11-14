@@ -18,14 +18,24 @@
 所以 in-tree 路线是「先让 32 路读数在真机上可见」的最短路径：它不需要 Lead 级的三处集成，
 也不需要 iPhoneOS SDK。压力等级与 `mTPL` 发布仍归 kext 路线。
 
-## 2 补丁结构（`patches/xnu/0617-k60-thermal-tsens.patch`，469 行，4 段）
+## 2 补丁结构（`patches/xnu/0617-k60-thermal-tsens.patch`，7 段）
 
 | 段 | 目标 | 内容 | hunk 头 |
 | --- | --- | --- | --- |
-| 1 | `bsd/conf/files` | 在 `bsd/dev/pong_buttons.c\t\t\tstandard` 之后插 `bsd/dev/pong_thermal.c\t\t\tstandard` | `@@ -400,6 +400,7 @@` |
+| 1 | `bsd/conf/files` | 在 `bsd/dev/pong_buttons.c\t\t\tstandard` 之后插三行：`pong_thermal.c`、`pong_thermal_level.c`、`pong_thermal_pm.cpp` | `@@ -400,6 +400,9 @@` |
 | 2 | `bsd/kern/bsd_init.c` | 在 `\t\tpong_buttons_init();` 之后插 `K60_PONG_LOCAL` 注释 + `extern void pong_thermal_init(void);` + 调用 | `@@ -1161,6 +1161,10 @@` |
-| 3 | `bsd/dev/pong_thermal.c` | 新文件，232 行（仓库母本 `drivers/PongThermal/pong_thermal.c` 的逐字副本） | new file mode 100644 |
-| 4 | `bsd/sys/pong_thermal.h` | 新文件，198 行（母本 `drivers/PongThermal/K60ThermalKernel.h`） | new file mode 100644 |
+| 3 | `bsd/dev/pong_thermal.c` | 新文件，248 行（母本 `drivers/PongThermal/pong_thermal.c` 的逐字副本） | new file mode 100644 |
+| 4 | `bsd/dev/pong_thermal_level.c` | 新文件，145 行（母本 `K60ThermalLevel.c`：trip 表与等级算术） | new file mode 100644 |
+| 5 | `bsd/dev/pong_thermal_pm.cpp` | 新文件，95 行（母本 `pong_thermal_pm.cpp`：发布层） | new file mode 100644 |
+| 6 | `bsd/sys/pong_thermal.h` | 新文件，198 行（母本 `K60ThermalKernel.h`） | new file mode 100644 |
+| 7 | `bsd/sys/pong_thermal_level.h` | 新文件，83 行（母本 `K60ThermalLevel.h`） | new file mode 100644 |
+
+第 5 段是**本树 `bsd/conf/files` 里第一个 `.cpp`**。构建系统本来就支持：`makedefs/MakeInc.rule:423-428`
+的 P_RULE 注释写明「generate .co from .cp or .cpo from .cpp」，`SETUP/config/mkmakefile.c:252-254`
+处理 `%CXXFILES` 时只比较文件名末字符，`bsd/conf/Makefile.template:72` 就有 `%CXXFILES` 钩子
+（与 `iokit/conf/Makefile.template:54` 同构，`iokit/conf/files:13-22` 已有 10 条 `.cpp`）。
+C++ 编译同时带 `CFLAGS` 与 `CXXFLAGS`（`MakeInc.rule:426`），所以 `-DAPPLE -DKERNEL -DXNU_KERNEL_PRIVATE`
+与 `-std=gnu++1z -fapple-kext`（`MakeInc.def:571`）都在。
 
 `patches/xnu/series` 第 230 行登记本补丁，排在 `0616-k60-init-legacy-helper.patch` 之后 ——
 因为它的两个锚点（`pong_buttons.c` 那行、`pong_buttons_init()` 那行）由**更早的补丁**生成，
@@ -67,8 +77,40 @@ pong_thermal_worker()                      // 1 s 一轮
   ├─ clock_interval_to_deadline(1000, NSEC_PER_MSEC, &deadline)
   ├─ assert_wait_deadline((event_t)pong_thermal_controllers, THREAD_UNINT, deadline)
   ├─ thread_block(THREAD_CONTINUE_NULL)
-  └─ 每轮重采样；任一分域温度变化 ≥ 1 ℃ 或满 30 轮时打一行 little/big/gpu/npu/ddr
+  ├─ 每轮重采样；任一分域温度变化 ≥ 1 ℃ 或满 30 轮时打一行 little/big/gpu/npu/ddr
+  └─ level = k60tl_step(&state, domains); pong_thermal_pm_publish(level)   // 每轮都调
 ```
+
+发布层（`bsd/dev/pong_thermal_pm.cpp`，C++，本树 `bsd` 的第一个 `.cpp`）：
+
+```
+pong_thermal_pm_publish(level)             // 由 worker 每轮调用，不在 bsd_init 里调一次
+  ├─ 与上次发布过的等级相同 → 直接返回（去重，等级不变不打扰 root domain）
+  ├─ root = IOService::getPMRootDomain();  NULL → 返回（此时 IOKit 还没起来，不是错误）
+  ├─ key 懒创建一次：OSSymbol::withCStringNoCopy(kIOPMThermalLevelWarningKey)
+  ├─ value = k60tl_platform_value(level)   // 0 / 5 / 100 / 110
+  ├─ number = OSNumber::withNumber(value, 32)
+  ├─ root->systemPowerEventOccurred(key, number)   // 唯一的 thermal 入口
+  └─ number->release(); printf("PongThermal: level %s (%u) published as %s=%u")
+```
+
+**为什么必须每轮调用而不是在 `pong_thermal_init` 里发一次**：`bsd_init` 在 `bsd/kern/bsd_init.c:1166-1167`
+调 `pong_thermal_init()`，而 `IOKitBSDInit()` 在 `:1325` —— 中间隔着整个 `bsd_autoconf`。
+`gRootDomain` 由 `IOPMrootDomain::start()` 赋值（`iokit/Kernel/IOPMrootDomain.cpp:1519`、`:1526`），
+所以 init 那一刻 `getPMRootDomain()` 必然是 NULL。第一次成功的发布就是发布层真正上线的时刻。
+
+**等级到平台值的映射**（`k60tl_platform_value`，在 `bsd/dev/pong_thermal_level.c` 里，可被 host 测试）：
+
+| 等级 | 平台值 | 常量 | `thermalWarningState` |
+| --- | --- | --- | --- |
+| nominal | 0 | `kIOPMThermalLevelNormal` | 0 |
+| moderate | 5 | `kIOPMThermalLevelDanger` | 0（只进 "Power Status" 字典并广播） |
+| heavy | 100 | `kIOPMThermalLevelWarning` | **1** |
+| trapping | 110 | `kIOPMThermalLevelTrap` | **1** |
+
+只有 100 与 110 会改状态机（`IOPMrootDomain.cpp:8133-8134`），5 只被记录并广播（`:8172-8188`）。
+这个不对称是 Apple 的，不是我们选的；所以「第一个有实际效果的等级」是 heavy 而不是 moderate。
+**这一层只上报**：不装执行器、不写时钟、不碰 trip —— 决策记录见 `TRIP-DESIGN.md` §3.5。
 
 寄存器语义与 `06` 篇完全一致（同一张 32 项表、同一套解码）：
 `TM_Sn_STATUS(n) = 0xa0 + 4n`，`LAST_TEMP = [11:0]` 符号扩展后 ×100 得毫摄氏度，
@@ -84,7 +126,16 @@ PongThermal: tsens0[0] aoss-0 zone24 54900 mC
 PongThermal: little=60000 big=67000 gpu=53000 npu=49000 ddr=52000 mC
 ```
 
-串口里 `grep -c 'PongThermal: '` 应 ≥ 36（2 控制器 + 32 传感器 + ≥2 轮域温度）。
+串口里 `grep -c 'PongThermal: '` 应 ≥ 36（2 控制器 + 32 传感器 + ≥2 轮域温度），
+并且第一次成功发布后还会出现下面这行（等级变化时各出现一次）：
+
+```
+PongThermal: level nominal (0) published as Thermal_Level_Warning=0
+```
+
+判据：出现任意一行 `published as Thermal_Level_Warning=` 即证明发布层接通了 root domain；
+若串口里 36 行都在、却一行 `published as` 都没有，说明 `getPMRootDomain()` 一直是 NULL
+（IOKit 没走到 `IOPMrootDomain::start`），这本身就是一条有价值的结论。
 
 ## 4 离线核验（本轮已做）
 
@@ -96,9 +147,11 @@ PongThermal: little=60000 big=67000 gpu=53000 npu=49000 ddr=52000 mC
 | 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (7 checks)` |
 | 补丁可应用性 | 在已打完 229 个补丁的树上 `git apply --check` | `APPLY_CHECK_OK` |
 
-`check-thermal-kernel-patch.py` 做 7 件事：从 patch 重建两个新文件并与 `drivers/PongThermal/`
-母本逐字节比对；series 登记且为最后一行；`conf/files` 登记；`bsd_init.c` 的 extern 与调用都在；
-母本里没有「经映射指针的写」。任何一项不成立就退出非零。
+`check-thermal-kernel-patch.py` 做 11 项：从 patch 重建五个新文件并与 `drivers/PongThermal/`
+母本逐字节比对；series 登记且为最后一行；`conf/files` 三条登记（含 `.cpp` 保留扩展名）；
+`bsd_init.c` 的 extern 与调用都在；母本里没有「经映射指针的写」；发布层用的是
+`systemPowerEventOccurred` + `kIOPMThermalLevelWarningKey` + `getPMRootDomain`，且没有
+`setFrequency` / `ml_io_map` / MSR 写 / trip 写（即没有偷偷变成执行器）。任何一项不成立就退出非零。
 
 ## 5 仍未完成
 
@@ -112,7 +165,10 @@ PongThermal: little=60000 big=67000 gpu=53000 npu=49000 ddr=52000 mC
    boot.img sha256 `09a38cb7085eef1aa97bcf8810b5b456906dbc524cd21349638e8d51a3c952f1`，
    manifest `/mnt/e/k60-work/artifacts/thermal-20261114c/build-manifest.json`。
 2. **从未上机**：`SROT_HW_VER`/`SROT_CTRL` 的现场值、32 路 `VALID` 原始字都还没有。
-3. **没有压力等级**：in-tree 驱动只打日志，不发布 `mTPL`；那部分仍归 kext 路线（`06`/`07` 篇）。
+3. ~~**没有压力等级**~~ **已有发布层（离线）**：三档压力等级经 `IOPMrootDomain::systemPowerEventOccurred`
+   发布（`bsd/dev/pong_thermal_pm.cpp`，键 `kIOPMThermalLevelWarningKey`）。仍未验证的是
+   **非 Apple kext 侧调用者上机是否无害**，以及 `thermalmonitord` 是否真会消费 —— 见 §7.4。
+   注意这仍不是 `mTPL`：`mTPL` 是 SMC 键，需要 `AppleSMCSensorDispatcher`，属 kext 路线（`06`/`07` 篇）。
 4. **没有 trip 编程与冷却设备**：本板 AP 侧 trip 全是被动 trip，且 `polling-delay` 多为 0，
    真要控温需要自己起策略，属后续工作。
 
@@ -165,3 +221,24 @@ strings /opt/k60/trees/thermal-out/mondrian/ipados-16.6.1-20G81/mondrian/kernel/
 注意：`unixnu defconfig` 的 positional 参数要写 `mondrian_defconfig`（写 `mondrian` 会报
 `configs/mondrian not found`）；`--os` 要写 `ipados-16.6.1-20G81`（写 `16.6.1-20G81` 会被拒）。
 device 目录里必须存在 `feeds.toml`，`sync-device-input.py` 不复制它（需手工从共享 device 拷一份）。
+
+## 7.4 发布层上机后的四个待确认
+
+这一层能编译、能进内核、host 侧算术全过，但它依赖三个**尚未在本板上验证过**的前提。
+第一次上机时按这四条读串口：
+
+1. **`getPMRootDomain()` 何时非 NULL**。`pong_thermal_init` 在 `bsd_init.c:1166-1167` 被调用，
+   `IOKitBSDInit()` 在 `:1325`；两者之间是 `bsd_autoconf`。若串口里始终没有 `published as` 行，
+   说明在整机生命周期里 root domain 都没起来，或起得比预期晚得多 —— 无论哪种都是必须记录的事实。
+2. **非 Apple kext 侧调用者是否无害**。`RootDomain.h:169-175` 的注释写着
+   「Only Apple-owned kexts should have reason to call systemPowerEventOccurred」，但没有任何
+   代码层面的检查（没有 entitlement 判定、没有 `IOCurrentTaskIsDriverKit` 之类）。本树里
+   `systemPowerEventOccurred` 的生产者为 0，本驱动会是第一个。若上机后 panic 或 `Power Status`
+   字典异常，这是第一个怀疑点。
+3. **`thermalmonitord` 是否消费**。`userland/mkjobs.py:217` 目前把 `thermalmonitord` 列在 DENY 里，
+   所以即使发布成功，用户态也没有消费者。要看到压力等级真正生效，得先放行该 daemon。
+4. **发布频率与锁**。每轮（1 s）最多发一次，且只在等级变化时发。`systemPowerEventOccurred`
+   内部持 `featuresDictLock`（`:8154-8156`），`setThermalState` 会自己 `runAction` 回
+   `gIOPMWorkLoop`（`:8124`）。如果上机后看到 workloop 卡顿或 `Power Status` 属性更新丢事件，
+   第一件事是把发布点从 worker 线程移到 `IOWorkLoop` 上再测一次。
+

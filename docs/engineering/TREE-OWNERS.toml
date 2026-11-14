@@ -53,3 +53,13 @@ scope = ["docs/research/reference"]
 path = "/mnt/e/hackios/k60-audio"
 owner = "audio-agent"
 scope = ["drivers/PongAudio", "docs/research/audio"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-gates"
+owner = "lead"
+scope = ["scripts", "docs/engineering", "AGENTS.md"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-wifi-lead"
+owner = "lead"
+scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]

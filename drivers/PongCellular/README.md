@@ -20,8 +20,10 @@
 
 ```bash
 python3 scripts/tests/test-k60-modem-image.py
+mkdir -p /mnt/e/k60-work/artifacts/tests
 gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
-    -o /tmp/t-modem scripts/tests/test-k60-modem-loader.c drivers/PongCellular/K60ModemImage.c && /tmp/t-modem
+    -o /mnt/e/k60-work/artifacts/tests/t-modem \
+    scripts/tests/test-k60-modem-loader.c drivers/PongCellular/K60ModemImage.c && /mnt/e/k60-work/artifacts/tests/t-modem
 ```
 
 ## 1. 这个目录将来装什么

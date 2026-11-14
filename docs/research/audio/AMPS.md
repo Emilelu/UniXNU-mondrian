@@ -432,7 +432,7 @@ failure = "se15 no DFS level / I2C pads 未生效 / amp 三次读无应答：分
 **是共享副本漂移，不是本树的问题**。判据：`diff patches/xnu/series <共享输入>/patches/xnu/series`
 非空、而与 `audio-device` 的同一份 diff 为空。
 
-`iron-5` 还要求构建输入与仓库**逐文件**一致（`sync-device-input.py --check` 检查 709 个文件），
+`iron-5` 还要求构建输入与仓库**逐文件**一致（`sync-device-input.py --check` 逐文件比对，与本树无关的共享副本漂移也会被点出来），
 所以改过 `drivers/PongAudio/**` 或 `patches/audio/**` 之后要先跑一次同步，否则它会点名具体文件：
 
 ```

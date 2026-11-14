@@ -225,7 +225,13 @@ codec 半（LPASS 宏 / SoundWire / WCD938x）走同一条路：`PongCodecPlan.h
 写成纯函数——控制器版本判定、两套读事务寄存器组、事务号与命令字、FIFO 满判定、回包匹配、枚举位图与
 slave-id 布局、LPI pad 配置字、五个窗口及其 io_submap 页数、以及「两票 PRM + `0x30c` 时钟都到位才许碰 LPASS」
 这一条门。它们全是算术，不碰寄存器，所以现在就能钉死；等 Lead 的 PAS1/PRM 起来，上机代码只是套一层薄循环。
-`PongCodecPlan.h` **不进补丁**：内核侧还没有任何 `.c` include 它（只有宿主测试用），补丁只装内核真正编译的文件。
+`PongCodecSwr.h` / `PongCodecSwr.c` 把那份决策变成**顺序**：读 `COMP_HW_VERSION` 定版本与寄存器组、
+FIFO 满时拒绝（不写命令，避免「丢掉的命令」被误读成「从设备没应答」）、只在事务号属于自己时才收
+回包（否则 `0x308 <- 1` 中止而不是拿同一个号重试）、超时中止并计数、枚举使能并锁存位图。
+形状与 GENI 状态机一致：**里面不等待、不空转**，超时由调用方（知道启动预算）决定。
+
+`PongCodecPlan.h` 与 `PongCodecSwr.*` **都不进补丁**：内核侧还没有任何 `.c` include 它们（只有宿主测试用），
+补丁只装内核真正编译的文件。等 PAS1 起来、有 `.c` 调用它们时再一起入补丁。
 
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
@@ -246,6 +252,7 @@ wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/t
 | `recovery_cases` | 卡死状态机拒绝新传输（`start` 返回 -1）；从 Cancelling 再走 2 步、从 TxWait 走 3 步即回到 Idle 并可再发传输——`PongAudioAmp.c` 的 `bus_recover()` 每次读寄存器前都走这段阶梯 |
 | `plan_cases` | `pong_audio_pad_phys` 四个实测点（GPIO1 `0x0f101000`、GPIO3 `0x0f103000`、GPIO43 `0x0f12b000`、GPIO88 `0x0f158000`）与 0x1000 步进；pad 配置字（pull/function/drive/output 位域、高位保留、eGPIO→APPS 所有权、drive 向下取整不越界）；`pong_audio_cbcr_running` 的四种组合（含「HWCG 时 CLK_OFF 置位仍算在跑」）；GCC 四窗口路由（含窗口前后一字的边界、`0x62018` 必须落 vote 窗口而 `PLL_MODE` 落 PLL 窗口）；GPLL0 五个常量值；DFS 档判定五例 |
 | `codec_cases` | SoundWire 版本判定（`0x01070000` → V1.7、高字节 2 → V2、其余 Unknown）；两套读事务寄存器组（V17 `0x320/0x328/0x334`、V2 `0x5024/0x5050/0x5040`）；事务号 `(issued%14)+1` 与命令字 `1<<24 | device<<20 | txn<<16 | reg`；FIFO 满阈值 8；回包事务号匹配与数据取低 8 位；V17 中断掩码 `0xffffffff/0x1dfdfd`；枚举位图每 slave 2 bit 与 `0x530+8n` 的 id 寄存器、`0x000d01170223` 的 WCD938x 判定；LPI 四个 pin 与 pad 配置字；五个 LPASS 窗口（4 KiB 对齐、落在 `0x03100000..0x03600000`）与 **10 页 / 160 KiB** 的 io_submap 账；以及 `pong_codec_may_touch_lpass()` 的三票合取 |
+| `swr_cases` | 假 32 KiB 寄存器窗驱动的整条读事务：v1.7 与 v2 各自的寄存器组、未知版本拒绝且**不写任何寄存器**、FIFO 满时拒绝且**不写命令**、命令字 `1<<24|1<<20|1<<16|0x3000`、忙时第二次 start 被拒、空回包队列 → Pending、匹配回包 → Done 且 `data=0x5a`、外来事务号 → Failed + 写 `0x308<-1` + `aborts=1`、超时 → Failed + `timeouts=1` + 中止、枚举使能先写 `0x500<-1` 再锁存位图（slave1/2 在、slave3 不在）、事务号走 1..14 后回到 1 且 `reads` 计数正确 |
 | `chip_id_cases` | `pong_audio_amp_value(encode_amp_value(id)) == id` 对 9 个已知 ID 全成立；`pong_audio_amp_value(0x1321) == 0x2113`（AW88261），与 `PongAudioAmp.c` 的大端拼装一致；未知 ID 必须回落 `"unknown"` 而不是猜一个型号 |
 
 踩坑记录：Windows 侧 `cc` 不存在（第一次跑直接 `command not found`）；测试里若只定义不使用的辅助函数，`-Werror` 会因 `-Wunused-function` 失败——本例把三处 `expect_eq` 改成 `expect` 后才通过。

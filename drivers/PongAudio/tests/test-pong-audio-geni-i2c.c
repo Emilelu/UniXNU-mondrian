@@ -586,11 +586,12 @@ codec_cases(void)
 	expect(!pong_swr_read_regs(PongSwrUnknown, &regs), "an unknown version has no group");
 	expect(!pong_swr_read_regs(PongSwrV17, NULL), "a null out-pointer is refused");
 
-	/* Transaction ids walk 1..14 and then wrap, never 0. */
-	expect_eq(pong_swr_txn_id(0u), 1u, "the first transaction is 1");
-	expect_eq(pong_swr_txn_id(13u), 14u, "the fourteenth transaction is 14");
-	expect_eq(pong_swr_txn_id(14u), 1u, "the fifteenth wraps to 1");
-	expect_eq(pong_swr_txn_id(27u), 14u, "two full laps land on 14 again");
+	/* (++transaction % 14) + 1: the pre-increment makes the first id 2, and the
+	 * cycle is 2..14 then 1. Never 0. */
+	expect_eq(pong_swr_txn_id(0u), 2u, "the first transaction is 2");
+	expect_eq(pong_swr_txn_id(12u), 14u, "the thirteenth transaction is 14");
+	expect_eq(pong_swr_txn_id(13u), 1u, "the fourteenth wraps to 1");
+	expect_eq(pong_swr_txn_id(26u), 14u, "two full laps land on 14 again");
 
 	/* Command word: read flag in bit 24, device, id, register. */
 	expect_eq(pong_swr_read_command(0u, 1u, 0u), (1u << 24) | (1u << 16),
@@ -716,8 +717,11 @@ codec_cases(void)
 
 /* ---- fake SoundWire master ---------------------------------------------- */
 
+/* The reference maps 0x10000 for the controller and the v2 registers live at
+ * 0x5000 and up, so the fake window has to be the full 64 KiB of words, not the
+ * 0x2000 the read path alone would need. */
 typedef struct {
-	uint32_t regs[0x2000];
+	uint32_t regs[0x8000];
 	uint32_t writes, last_write_reg, last_write_value;
 } FakeSwr;
 
@@ -726,7 +730,7 @@ fake_swr_read(void *ctx, uint32_t reg)
 {
 	FakeSwr *f = (FakeSwr *)ctx;
 
-	return f->regs[reg & 0x1fffu];
+	return f->regs[reg & 0x7fffu];
 }
 
 static void
@@ -734,7 +738,7 @@ fake_swr_write(void *ctx, uint32_t reg, uint32_t value)
 {
 	FakeSwr *f = (FakeSwr *)ctx;
 
-	f->regs[reg & 0x1fffu] = value;
+	f->regs[reg & 0x7fffu] = value;
 	f->writes++;
 	f->last_write_reg = reg;
 	f->last_write_value = value;
@@ -743,7 +747,9 @@ fake_swr_write(void *ctx, uint32_t reg, uint32_t value)
 static void
 swr_cases(void)
 {
-	FakeSwr f;
+	/* 64 KiB of register window: static, not on the stack, which the default
+	 * 8 MiB thread stack would not miss but a smaller one would. */
+	static FakeSwr f;
 	PongSwrIo io;
 	PongSwr s;
 	unsigned i;
@@ -798,9 +804,12 @@ swr_cases(void)
 	f.writes = 0;
 	expect_eq((unsigned long)pong_swr_read_start(&s, 1u, 0x3000u), 0ul,
 	    "a read starts");
-	expect_eq(s.txn, 1ul, "the first transaction id is 1");
+	/* (++transaction % 14) + 1 with transaction starting at 0: the first id
+	 * is 2, not 1. Only uniqueness matters for correctness, but matching the
+	 * proven sequence lets a captured trace be compared line by line. */
+	expect_eq(s.txn, 2ul, "the first transaction id is 2");
 	expect_eq(f.last_write_reg, 0x320u, "the command goes to the read command register");
-	expect_eq(f.last_write_value, (1ul << 24) | (1ul << 20) | (1ul << 16) | 0x3000ul,
+	expect_eq(f.last_write_value, (1ul << 24) | (1ul << 20) | (2ul << 16) | 0x3000ul,
 	    "the command word carries opcode, device, id and register");
 	expect(pong_swr_busy(&s), "the machine is busy while awaiting a response");
 
@@ -814,7 +823,7 @@ swr_cases(void)
 
 	/* The response carries our transaction id in bits 11:8. */
 	f.regs[s.regs.fifo_status] = 1u << 16;
-	f.regs[s.regs.read_fifo] = (1u << 8) | 0x5au;
+	f.regs[s.regs.read_fifo] = (2u << 8) | 0x5au;
 	expect_eq((unsigned long)pong_swr_read_poll(&s), (unsigned long)PongSwrDone,
 	    "a matching response completes the read");
 	expect_eq(s.data, 0x5aul, "the data byte is taken from bits 7:0");
@@ -851,6 +860,53 @@ swr_cases(void)
 	    "a timeout with nothing outstanding is refused");
 	expect_eq(s.error, (unsigned long)PongSwrErrState, "that refusal is named");
 
+	/* Initialisation before enumeration (S:PongWcd938.h:88-104). The exact
+	 * register writes matter: the reference was proven on this SoC, so the
+	 * sequence is copied rather than reasoned about. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
+	(void)pong_swr_probe(&s, &io);
+	f.regs[PONG_SWR_CFG] = 0xdeadbeefu;
+	expect_eq((unsigned long)pong_swr_init(&s), 0ul, "v1.7 initialises");
+	expect_eq(f.regs[PONG_SWR_COMP_CFG2], 1ul, "the block is enabled first");
+	expect_eq(f.regs[PONG_SWR_FRAME_CTRL], (1ul << 3) | 7ul, "the frame shape is set");
+	expect_eq(f.regs[PONG_SWR_ENUMERATOR_CFG], 1ul, "the enumerator is enabled");
+	expect_eq(f.regs[PONG_SWR_CFG] & (0x1ful << 17), 0x1ful << 17,
+	    "the five MCP configuration bits are set");
+	expect_eq(f.regs[PONG_SWR_CFG] & ~(0x1ful << 17), 0xdeadbeeful & ~(0x1ful << 17),
+	    "the rest of the MCP configuration register is preserved");
+	expect_eq(f.regs[PONG_SWR_ENABLE], 1ul, "the controller is enabled last");
+	/* v1.7 moves the execution environment 1 -> 3 around the interrupt masks. */
+	expect_eq(f.regs[0x314u], 7ul, "the CPU1 offset is set");
+	expect_eq(f.regs[PONG_SWR_BUS_CTRL], 4ul, "the bus control is set");
+	expect_eq(f.regs[0x208u], 0xfffffffful, "the v1.7 interrupt status mask is written");
+	expect_eq(f.regs[0x210u], 0x1dfdfdul, "the v1.7 interrupt mask is written");
+	expect_eq(f.regs[PONG_SWR_COMP_CFG], 3ul, "v1.7 ends in execution environment 3");
+	expect(pong_swr_init_done(&s), "v1.7 has nothing to wait for");
+	expect_eq(f.regs[PONG_SWR_V2_ENV_CTRL], 0ul, "v1.7 does not touch the v2 registers");
+
+	/* v2 brings the execution environment up instead, and must be waited for. */
+	memset(&f, 0, sizeof(f));
+	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x02010000u;
+	(void)pong_swr_probe(&s, &io);
+	expect_eq((unsigned long)pong_swr_init(&s), 0ul, "v2 initialises");
+	expect_eq(f.regs[PONG_SWR_V2_ENV_CTRL], 1ul, "v2 starts the execution environment");
+	expect_eq(f.regs[0x314u], 7ul | (1ul << 31), "v2 uses the other CPU1 encoding");
+	expect_eq(f.regs[PONG_SWR_V2_IRQ_CLEAR], 0xfffffffful, "v2 clears the interrupts");
+	expect_eq(f.regs[PONG_SWR_V2_IRQ_MASK], 0x1fffful, "v2 masks the interrupts");
+	expect_eq(f.regs[PONG_SWR_COMP_CFG], 3ul, "v2 also ends in environment 3");
+	expect(!pong_swr_init_done(&s), "v2 is not ready until 0x5064 bit 0 comes up");
+	f.regs[PONG_SWR_V2_ENV_STATUS] = PONG_SWR_V2_ENV_READY;
+	expect(pong_swr_init_done(&s), "v2 is ready once the bit is set");
+	f.regs[PONG_SWR_V2_ENV_STATUS] = PONG_SWR_V2_ENV_READY | 2u;
+	expect(pong_swr_init_done(&s), "other bits in the status register do not matter");
+
+	/* Without a probe there is no version to initialise against. */
+	memset(&s, 0, sizeof(s));
+	expect_eq((unsigned long)pong_swr_init(&s), (unsigned long)-1,
+	    "initialising without a probe is refused");
+	expect_eq(s.error, (unsigned long)PongSwrErrVersion, "the refusal is named");
+
 	/* The enumerator: enable, latch the bitmap, then the per-slave reads. */
 	memset(&f, 0, sizeof(f));
 	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
@@ -868,15 +924,22 @@ swr_cases(void)
 	f.regs[PONG_SWR_COMP_HW_VERSION] = 0x01070000u;
 	(void)pong_swr_probe(&s, &io);
 	for (i = 0u; i < 14u; i++) {
+		const unsigned want = ((i + 1u) % 14u) + 1u;
+
 		(void)pong_swr_read_start(&s, 1u, 0x3000u);
-		expect_eq(s.txn, (unsigned long)(i + 1u), "the transaction id walks 1..14");
+		expect_eq(s.txn, (unsigned long)want, "the transaction id cycles 2..14 then 1");
 		f.regs[s.regs.fifo_status] = 1u << 16;
-		f.regs[s.regs.read_fifo] = ((uint32_t)(i + 1u) << 8);
-		(void)pong_swr_read_poll(&s);
+		f.regs[s.regs.read_fifo] = ((uint32_t)want << 8);
+		expect_eq((unsigned long)pong_swr_read_poll(&s), (unsigned long)PongSwrDone,
+		    "every id in the cycle is accepted");
 	}
 	(void)pong_swr_read_start(&s, 1u, 0x3000u);
-	expect_eq(s.txn, 1ul, "the transaction id wraps back to 1 after 14");
+	expect_eq(s.txn, 2ul, "the transaction id wraps back to 2 after 14");
 	expect_eq(s.reads, 15ul, "every started read is counted");
+
+	/* The codec identity is two 8-bit reads, low byte first (S:113-114). */
+	expect_eq(pong_swr_codec_identity(0x23u, 0x01u), 0x0123ul, "identity low byte first");
+	expect_eq(pong_swr_codec_identity(0x00u, 0x00u), 0ul, "identity of two zeroes is zero");
 }
 
 int

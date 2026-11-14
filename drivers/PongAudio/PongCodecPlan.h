@@ -82,14 +82,16 @@ pong_swr_read_regs(PongSwrVersion version, PongSwrReadRegs *regs)
 	}
 }
 
-/* S:PongWcd938.h:43-58  id = (++transaction % 14) + 1, so ids walk 1..14 and
- * never repeat while a response is outstanding. 'issued' is the count of
- * transactions started before this one.
+/* S:PongWcd938.h:43-58  id = (++transaction % 14) + 1. The pre-increment is
+ * load-bearing: 'issued' below counts transactions started *before* this one,
+ * so the first id is 2, not 1, and the cycle is 2,3,...,14,1. Only the
+ * uniqueness within 14 matters for correctness, but matching the proven
+ * sequence exactly means a captured trace can be compared line by line.
  */
 static inline unsigned
 pong_swr_txn_id(unsigned issued)
 {
-	return (issued % 14u) + 1u;
+	return ((issued + 1u) % 14u) + 1u;
 }
 
 /* (1u<<24) | (device<<20) | (id<<16) | reg  - S:PongWcd938.h:47-48. */
@@ -166,6 +168,16 @@ static inline bool
 pong_swr_is_wcd938x(uint64_t id)
 {
 	return id == PONG_SWR_WCD938X_ID;
+}
+
+/* S:PongWcd938.h:113-114  the codec identity is two consecutive 8-bit reads of
+ * 0x50 and 0x51, low byte first. Kept here so the byte order is pinned once
+ * rather than at the call site.
+ */
+static inline unsigned
+pong_swr_codec_identity(uint8_t first, uint8_t second)
+{
+	return (unsigned)first | ((unsigned)second << 8);
 }
 
 /* ---- LPI pads ----------------------------------------------------------

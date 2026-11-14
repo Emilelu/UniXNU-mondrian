@@ -133,6 +133,62 @@ pong_swr_read_timeout(PongSwr *s)
 }
 
 int
+pong_swr_init(PongSwr *s)
+{
+	uint32_t cfg;
+
+	if (s->version == PongSwrUnknown) {
+		s->error = PongSwrErrVersion;
+		return -1;
+	}
+	/* Both versions: enable the block, set the frame shape, turn the
+	 * enumerator on, and clear then set the 5-bit MCP configuration field.
+	 * The read-modify-write is the reference's, verbatim. */
+	swr_write(s, PONG_SWR_COMP_CFG2, 1u);
+	swr_write(s, PONG_SWR_FRAME_CTRL, (1u << 3) | 7u);
+	swr_write(s, PONG_SWR_ENUMERATOR_CFG, 1u);
+	cfg = swr_read(s, PONG_SWR_CFG);
+	cfg &= ~(0x1fu << 17);
+	cfg |= 0x1fu << 17;
+	swr_write(s, PONG_SWR_CFG, cfg);
+	swr_write(s, PONG_SWR_ENABLE, 1u);
+
+	if (s->version == PongSwrV17) {
+		/* SM8475 1.7: CPU1 command FIFO and interrupt offsets differ from
+		 * the SM8550 v2 layout. Execution environment 1, then the masks,
+		 * then move to environment 3. */
+		uint32_t status, mask;
+
+		swr_write(s, 0x314u, 7u);
+		swr_write(s, PONG_SWR_BUS_CTRL, 4u);
+		swr_write(s, PONG_SWR_COMP_CFG, 2u);
+		pong_swr_v17_intr_masks(&status, &mask);
+		swr_write(s, 0x208u, status);
+		swr_write(s, 0x210u, mask);
+		swr_write(s, PONG_SWR_COMP_CFG, 3u);
+	} else {
+		swr_write(s, PONG_SWR_V2_ENV_CTRL, 1u);
+		swr_write(s, 0x314u, 7u | (1u << 31));
+		swr_write(s, PONG_SWR_COMP_CFG, 1u);
+		swr_write(s, PONG_SWR_COMP_CFG, 2u);
+		swr_write(s, PONG_SWR_V2_IRQ_CLEAR, 0xffffffffu);
+		swr_write(s, PONG_SWR_V2_IRQ_MASK, 0x1ffffu);
+		swr_write(s, PONG_SWR_COMP_CFG, 3u);
+	}
+	return 0;
+}
+
+bool
+pong_swr_init_done(PongSwr *s)
+{
+	if (s->version == PongSwrV17)
+		return true;
+	if (s->version != PongSwrV2)
+		return false;
+	return (swr_read(s, PONG_SWR_V2_ENV_STATUS) & PONG_SWR_V2_ENV_READY) != 0u;
+}
+
+int
 pong_swr_enumerate_start(PongSwr *s)
 {
 	if (s->state != PongSwrIdle) {

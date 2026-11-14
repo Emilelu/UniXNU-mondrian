@@ -25,9 +25,24 @@
 /* Register offsets this half touches. The read-transaction group is not here:
  * it depends on the controller version and comes from pong_swr_read_regs(). */
 #define PONG_SWR_COMP_HW_VERSION 0x000u
+#define PONG_SWR_COMP_CFG        0x004u
+#define PONG_SWR_COMP_CFG2       0x008u
+#define PONG_SWR_ENABLE          0x018u
 #define PONG_SWR_ABORT           0x308u
 #define PONG_SWR_ENUMERATOR_CFG  0x500u
+#define PONG_SWR_FRAME_CTRL      0x101cu
+#define PONG_SWR_BUS_CTRL        0x1044u
+#define PONG_SWR_CFG             0x1048u
 #define PONG_SWR_SLAVE_STATUS    0x1090u
+
+/* v2 only: the two registers that tell the CPU execution environment is up.
+ * S:PongWcd938.h:99-103  writes 0x5060 <- 1, 0x5008 <- 0xffffffff,
+ * 0x5004 <- 0x1ffff, then waits for bit 0 of 0x5064. */
+#define PONG_SWR_V2_ENV_CTRL     0x5060u
+#define PONG_SWR_V2_IRQ_CLEAR    0x5008u
+#define PONG_SWR_V2_IRQ_MASK     0x5004u
+#define PONG_SWR_V2_ENV_STATUS   0x5064u
+#define PONG_SWR_V2_ENV_READY    (1u << 0)
 
 typedef struct {
 	uint32_t (*read)(void *ctx, uint32_t reg);
@@ -86,6 +101,17 @@ int pong_swr_read_poll(PongSwr *s);
 
 /* The caller's deadline passed: abort the transaction (0x308 <- 1). */
 int pong_swr_read_timeout(PongSwr *s);
+
+/* The controller initialisation the reference performs between reading the
+ * version and enumerating (S:PongWcd938.h:88-104). Version-specific: v1.7 sets
+ * the CPU1 command FIFO offsets and the interrupt masks the SM8475 1.7 layout
+ * needs, v2 brings the CPU execution environment up instead and has to be
+ * waited for. Returns 0, or -1 with PongSwrErrVersion when no probe ran. */
+int pong_swr_init(PongSwr *s);
+
+/* v2 only: bit 0 of 0x5064 says the execution environment came up. v1.7 has
+ * nothing to wait for, so this is true immediately. */
+bool pong_swr_init_done(PongSwr *s);
 
 /* Enables the enumerator and latches MCP_SLV_STATUS into s->slave_status.
  * The slave ids themselves are two ordinary reads per slave, so the caller

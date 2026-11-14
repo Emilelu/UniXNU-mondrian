@@ -1,0 +1,35 @@
+diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -1171,10 +1171,15 @@
+ 	0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 3, 1,
+ };
+ static const uint8_t ud_cfg_template[] = {
+-	9, 2, 98, 0, 3, 1, 0, 0xc0, 50,                 /* 3 interfaces, self-powered, 100 mA */
+-	/* 0406: interface association so the two CDC interfaces read as one
+-	 * function (USB IAD ECN, usb.org; PongUsbDevice.h:66-69 same-SoC layout). */
+-	8, 11, 0, 2, 2, 2, 1, 0,                        /* IAD: IF0..IF1 = CDC-ACM */
++	/* 0409: back to the two-interface CDC-ACM layout that the capture tool has
++	 * always read (0300). 0406's 98 byte composite stays in patches/usb for the
++	 * P2 line, but on the device it stops this console from producing bytes
++	 * (usb-20261114c and usb-f1: port opens, DTR is set, zero bytes for 300 s).
++	 * Without a working console there is no way to read the register dump that
++	 * decides the endpoint budget, so the diagnostic image must not carry it.
++	 * The EP6/EP7 calls in SET_CONFIGURATION stay in place: they are now
++	 * optional (0407) and their return codes are still printed. */
++	9, 2, 67, 0, 2, 1, 0, 0xc0, 50,                 /* 2 interfaces, self-powered, 100 mA */
+ 	9, 4, 0, 0, 1, 2, 2, 1, 0,                      /* IF0: CDC comm, 1 endpoint */
+ 	5, 0x24, 0, 0x10, 1,                            /* CDC header */
+ 	5, 0x24, 1, 0, 1,                               /* call management */
+@@ -1184,11 +1189,6 @@
+ 	9, 4, 1, 0, 2, 10, 0, 0, 0,                     /* IF1: CDC data, 2 endpoints */
+ 	7, 5, 0x81, 2, 64, 0, 0,                        /* EP 0x81 bulk IN */
+ 	7, 5, 0x01, 2, 64, 0, 0,                        /* EP 0x01 bulk OUT */
+-	/* 0406: second function, vendor-specific, same physical endpoints the
+-	 * same-SoC mux uses (PongUsbDevice.h:69-74): EP 0x03 OUT / 0x83 IN. */
+-	9, 4, 2, 0, 2, 0xff, 0xfe, 2, 0,                /* IF2: vendor, 2 endpoints */
+-	7, 5, 0x03, 2, 64, 0, 0,                        /* EP 0x03 bulk OUT */
+-	7, 5, 0x83, 2, 64, 0, 0,                        /* EP 0x83 bulk IN */
+ };
+ static const char *const ud_strings[] = { NULL, "unixnu", "K60 XNU console", "0001" };
+ 

@@ -390,6 +390,49 @@ bash /tmp/bt-s4a/scripts/build-strict.sh bt-s4a-20261114c \
   `tree/.cache/fakeroot is missing: this output tree has never been built`。复用已 bootstrap 过的
   `bt-out-s1c` 才通过。**隔离不等于新建**：隔离的是一棵本线专用的树，不是每次一个新目录。
 
+## 6.3 重基后的正向镜像（2026-11-14 23:47–23:57，`bt-s4a-20261114f`）
+
+`main` 在 22:51–23:36 之间又落了三个门禁提交（`314497d`、`f02acff`，后者修了
+`build-strict.sh` 里 `$ROOT`/`$M` 的 P-196 误判与 P-194 的"第一次构建没有 manifest"死锁），
+本分支 `git rebase origin/main` 后重建成 `bt-s4a-20261114f`。**这是当前唯一推荐上机的 S4a 镜像**：
+`bt-s4a-20261114c` 构建于重基之前（series 227，且当时 `P-190`/`iron-9` 尚未被 main 修好）。
+
+命令与 §6.2 相同，只是 harness 换成 `/tmp/bt-rb/scripts/build-strict.sh`（= 重基后的仓库文件 +
+`bt-lead-0002.patch`，`REPO` 指回 `/mnt/e/hackios/k60-bt`），tag 用 `bt-s4a-20261114f`。
+
+结果：退出码 0，`eight-step 通过 30 项检查` → `kernel d4e1bed3…` → payload → bootimg →
+`✅ kernel archives: 4 enabled archive(s) all present` → `✅ k60_metal_blob.s: container table is
+self-consistent` → `image-arg-audit: OK (30 arguments, 583 bytes)`；`verify-boot-image.py --manifest` 报 `OK`。
+series 228，`frozen 82f4196a43a61dcacf28440b5fb393aefc4e7a7f1fc636d30fd2eea70e01a29a`。
+
+| 项 | 值 |
+|---|---|
+| boot.img | `efe87cd79088c990558f44f4aa07d10dc5b01965b18aea4a5df7c6a3b79fef50`（201,887,744 B） |
+| kernel_built | `d4e1bed3d8d729f4cd90e340ba70f3aa2c4bbd7cb48653158168bd0b2c658aee`（105,508,864 B） |
+| payload | `567f1e3548933ddaa58d92c5751b071865c8ce976ce3dba598a09fbdd164ec7c` |
+| payload_kernel | `7d4e23088215b9e6fd478f82df526fa94cb451c33cfdfb29ea4117868fb0e987` |
+| adt | `a1b01484c052ffecd99d5ab80ba038a8773535942c210012a40f681291c0ab7c`（16,024 B） |
+| dtb | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| fd | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
+| gpu_addon | `febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037`（1,027,584 B） |
+
+manifest 的 `components` 现在有 `gpu_addon` 与 `gpu_addon_path` 两项（`bt-lead-0002` 带来的），
+这正是把 addon 变成**可追溯构建输入**的关键：只写进 payload 而不写 manifest，镜像就不可复现。
+
+三项独立核对（与 §6.2 同法，重基后重做）：
+
+1. 树的 payload FAT `::/EFI/UniXNU/Payloads` 五个文件，含 `kernel.macho.gpuaddon` 1,027,584 B，余量 93,962,240 B。
+2. `mcopy` 出来的 addon sha256 = `febdc20d…` = 打包器输出（逐字节相同）；ADT 16,024 B，sha256 与 manifest 一致。
+3. ADT 里 `GpuAddon` 命中 1 次、`TrustCache` 0 次；内核 `strings` 命中 `NGPUADD2` 1 次、
+   `loaded bytes records` 1 次、`no GpuAddon property` 1 次。
+
+**P-190 的修复也在这一版里得到验证**：重基前注册表因 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y` 却没有
+`k60_physical_battery_start` 符号而拒绝构建（它想拦的正是"被 force_load 进死分支"）；重基后
+main 的 `check-kernel-archives.py` 以符号为准，构建前判"树里没有内核，无可检查"（`skip: … configured
+but not built`），构建后判 `✅ kernel archives: 4 enabled archive(s) all present`，
+而 `llvm-nm-18 kernel.macho | grep -c k60_physical_battery_start` = 2。所以那条红是"树里的内核早于
+`3c0e1e3`"，不是代码缺陷；把旧内核挪走后注册表即转绿（`失败 0 条`）。
+
 ## 7 上机阶梯（板子回来后）
 
 前提：用带 `--gpu-addon` 的构建（§6.2 的 `bt-s4a-20261114c`），启动参数只需 `k60bt=1`（583 B）。
@@ -398,9 +441,12 @@ S4 的负向对照仍要用 §6 第 6 条的 `bt-s4-20261114b`（`k60bt=1`、无
 | 级 | 镜像 | 参数 | 期望（关键行） |
 |---|---|---|---|
 | S4- | `bt-s4-20261114b` | `k60bt=1` | 负向对照：`K60 BT: addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |
-| S4a | `bt-s4a-20261114c` | `k60bt=1` | `K60 BT: addon: loaded bytes records 1027584 106` |
-| S4b | `bt-s4a-20261114c` | `k60bt=1` | `K60 BT: addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
-| S4c | `bt-s4a-20261114c` | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764 的等价行），拿到 rom_ver/board-id |
+| S4a | **`bt-s4a-20261114f`** | `k60bt=1` | `K60 BT: addon: loaded bytes records 1027584 106` |
+| S4b | **`bt-s4a-20261114f`** | `k60bt=1` | `K60 BT: addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
+| S4c | **`bt-s4a-20261114f`** | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764 的等价行），拿到 rom_ver/board-id |
+
+（`bt-s4a-20261114c` 已被 `f` 取代：`c` 构建于重基前，series 227；`f` 是 series 228、重基到含
+P-190/P-194 修复的 main 之后的正向镜像，见 §6.3。两者命令行相同、都是 583 B。）
 
 S4a 与 S4b 用同一个镜像：`loaded` 在 `qbt_k60_start()` 里就打（`k60_bt_addon_load()`），
 `serving` 要等 qbt 真正取固件才打，是同一轮启动里的前后两段，不是两次构建。

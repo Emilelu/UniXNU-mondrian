@@ -221,7 +221,12 @@ S1a（`bt-s1-20261114b`）与 S1b 的两次 0 字节日志，根因**不是**探
 
 **结论**：阶梯一律用 `k60bt=1 k60bt_step=N`（596 B）。`k60bt_delay` 与 `k60bt_step` 同时出现永远超限——探针默认延迟 20 s、步数上限 9，够用。
 
-**遗留（Lead 侧）**：`check-image-args.py` 的 `ALLOWED_ADDITIONS` 目前只有 `k60bt`/`k60bt_stage`/`k60bt_warm`，没有 `k60bt_step`/`k60bt_delay`；且 `docs/engineering/BOOT-ARGS.md` 里没有任何 `k60bt` 条目。在 Lead 补上这两处之前，本阶梯镜像用当前 `ALLOWED_ADDITIONS` 的 gate 会被拒（长度本身已合规）。
+**遗留 —— 已解决（2026-11-14 23:22，commit `7d01f9e`）**：Lead 补了 `k60bt_delay`/`k60bt_step`/`k60bt_warm` 三条
+BOOT-ARGS 文档并说「剩下的你补」；本线把 `k60bt_step`/`k60bt_delay` 加进 `scripts/check-image-args.py` 的
+`ALLOWED_ADDITIONS`（:48），并在 `docs/engineering/BOOT-ARGS.md` 补了 `k60bt` 与 `k60bt_stage` 两条。
+现在 `bt-s1c-a1…a5-20261114c` 五份全部 `image-arg-audit: OK (31 arguments, 596 bytes)`（此前是
+`REFUSED — argument k60bt_step is not in board.toml kernel_args and is not a declared addition`）。
+注意 `k60bt_stage=1` 是冗余的（`qbt_k60_start()` 默认就是 1），阶梯里一律不写它。
 
 ## 5. 判据（只读 capture.json 的 `verdict` / `panicMarker`，不看 logstat.py 的 panic 计数）
 

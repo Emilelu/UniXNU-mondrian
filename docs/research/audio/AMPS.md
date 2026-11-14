@@ -932,10 +932,10 @@ wsl.exe -e bash -lc cd /mnt/e/hackios/k60-audio-merge && python3 scripts/judge-a
 
 0504 骨架里 `GPR_OP_APM_GET_SPF_STATE` 曾写成 `0x0100100D`。这个值在 ADSP 的 APM 命令表里不是「取 SPF 状态」，
 而是 `APM_CMD_SHARED_MEM_UNMAP_REGIONS`（`/home/emilelu/wifi-inputs/linux/sound/soc/qcom/qdsp6/audioreach.h:62`）——
-也就是说，这个包发出去会让 DSP **解映射一段共享内存**，而不是回答「你起来了吗」。它的破坏是静默的：
-应答会以 `GPR_BASIC_RSP_RESULT` 回来、状态码甚至是 0，于是探针会认为 APM 在线，
-而之后所有依赖那块共享内存的 GPR 通信（AudioReach 的 graph open / set-param 全走共享内存）都会失败，
-失败点还落在几百行之后，看起来与这里无关。
+也就是说，这个包发出去不是「你起来了吗」，而是要求 DSP **解映射一段共享内存**。危险之处在于它不会明显报错：
+若 DSP 接受该命令，应答仍走通用的 `GPR_BASIC_RSP_RESULT`（状态码未必非零），探针容易读成「APM 在线」；
+而 AudioReach 的 graph open / set-param 全部依赖共享内存，之后的 GPR 通信才会失败，
+失败点落在几百行之后，看起来与这里无关。这是推断而非实测——正因为无从在无串口的板子上区分，才用宿主断言把值钉死。
 
 - 真值：`APM_CMD_GET_SPF_STATE = 0x01001021`（`audioreach.h:38`），应答 `0x02001007`（`:39`）；
 - 同批修正的还有两处：`GPR_VERSION` `3u → 0u`（`include/linux/soc/qcom/apr.h:104` `GPR_PKT_VER 0x0`；

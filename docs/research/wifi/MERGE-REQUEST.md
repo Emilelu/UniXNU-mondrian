@@ -277,7 +277,12 @@ Undefined symbols for architecture arm64:
 `PE_parse_boot_argn("…")` 的键都在 BOOT-ARGS.md 里有 `### \`name\`` 或
 `| \`name\` |` 条目。实测缺 9 个，导致 `check-rules.py` 的 `hard-8` 与 `P-156` 失败。
 
-**完整替换文本已备好**：`E:\k60-work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`（135 行）。
+**状态：已应用并提交**（`36af00f` "docs(boot-args): document the nine wifi boot args and the real 607-byte limit"）。
+`scripts/check-boot-args.py` 现在报 ✅「覆盖 config 29 / 源码 20 个参数（已文档化 49）」
+✅「已声明范围的 7 个参数都在范围内」，`check-rules.py` 的 `hard-8` 与 `P-156` 转绿。
+下面保留当时的合并请求原文与离线验证记录，供复核。
+
+**完整替换文本**：`E:\k60-work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`（135 行）。
 它做四件事：
 
 1. 修正字节预算。现有文字写「上限 608 字节，当前 30 项 591，余 17」——
@@ -305,10 +310,12 @@ Undefined symbols for architecture arm64:
    `:574`(band)、`:647`(diag)、`:716`(pong_wifi)、`:744`(rsc)、
    `PongWifiNet.cpp:890`(diag)、`:892-893`(test && cycle)。
 
-**顺带记一个上机约束**（与 §5 的阶梯镜像直接相关）：board.toml 的 575 字节里，
-`pong_wifi=1` 要 11 字节、`k60_wifi_rsc=2` 再加 16、`k60_wifi_stage=10` 再加 18，
-合起来 620 > 607。**阶梯镜像必须同时覆盖两个让位项**：`epoch=1`（省 15）与
-`debug=1`（省 10，等价 `debug=0x1`）——`--kernel-arg` 是按名覆盖，不会触发 P-166 序列检查。
+**顺带记一个上机约束**（与 §5 的阶梯镜像直接相关，数字为 `argmath.py` 实测）：
+board.toml 的 575 字节里，`pong_wifi=1` 要 **12** 字节、`k60_wifi_rsc=2` 再加 **15**、
+`k60_wifi_stage=10` 再加 **18**，合起来 **620 > 607**。**阶梯镜像必须同时覆盖两个让位项**：
+`epoch=1793709100` 改 `epoch=1`（省 **9**）与 `debug=0x140` 改 `debug=1`（省 **4**），
+两项合起来 620-13=**607** 以内的实测值是 589（`pong_wifi=1 k60_wifi_rsc=2 epoch=1 debug=1`）。
+`--kernel-arg` 是按名覆盖，不会触发 P-166 序列检查。
 `k60_fontscale=0` **不能**用来让位：`video_console.c:2844` 要求 `scale >= 2 && scale <= 4`，
 0 会被忽略、字节照旧。
 
@@ -336,12 +343,13 @@ Undefined symbols for architecture arm64:
 ## 11. `scripts/check-rules.py` 现状：8 条失败里只有 2 条是 WiFi 的
 
 在 `/mnt/e/hackios/k60-wifi` 跑 `python3 scripts/check-rules.py --repo /mnt/e/hackios/k60-wifi`：
-登记 65 条、执行 19 个不同命令、**失败 8 条**、waiver 37 条。
+登记 65 条、执行 19 个不同命令、**失败 6 条**（BOOT-ARGS 落地前是 8 条）、waiver 37 条。
+剩下的 6 条没有一条属于 WiFi：
 
 | 规则 | 失败原因 | 归属 | 处理 |
 | --- | --- | --- | --- |
-| `hard-8` | `pong_wifi_test (drivers/)` | **WiFi** | 见 §10，补 BOOT-ARGS.md 即可 |
-| `P-156` | `pong_wifi_test (drivers/)` | **WiFi** | 同上 |
+| ~~`hard-8`~~ | ~~`pong_wifi_test (drivers/)`~~ | **WiFi** | ✅ 已修：§10 的 BOOT-ARGS.md 片段已落地（`36af00f`） |
+| ~~`P-156`~~ | ~~`pong_wifi_test (drivers/)`~~ | **WiFi** | ✅ 同上 |
 | `iron-3` | `eight-step-gate.py --build` 红在 touch 的 ④⑤⑥⑦ | touch 线 | 不是 WiFi：`[hardware.wifi]` 是 `status="parked"`，门禁只硬检查 active 项 |
 | `iron-4` | `porting-gate.py --quick` 报 `[X] series 三处一致 不一致` | 共享仓 series | `SERIES-FINAL.txt` / 仓库 / 构建输入三份 `patches/xnu/series` 文本不一致，要 Lead 收敛 |
 | `iron-5` | `sync-device-input.py --check` 报 11 个文件待同步 | 共享仓 | 见下 |
@@ -392,33 +400,31 @@ scripts/tests/test-build-strict-gates.py
 
 ## 13. 顺带发现：别的线有 12 张镜像超过 DarwinBoot 的 607 字节命令行上限
 
-跑 ' + BT + 'E:\k60-work\evidence\wifi-trial\check-artifacts.py' + BT + ' 时，它顺手校验了
-' + BT + 'E:\k60-work\artifacts\*' + BT + ' 下所有镜像。结果里有 12 张**不是 WiFi 的**镜像
-命令行超限（判据见 §10 与 ' + BT + 'STAGE-BRINGUP.md' + BT + ' §7：' + BT + 'DarwinBoot.c:678-684' + BT + ' 在
-' + BT + 'ReadFile' + BT + ' 之前就 ' + BT + 'return EFI_BAD_BUFFER_SIZE' + BT + '）：
+跑 `E:\k60-work\evidence\wifi-trial\check-artifacts.py` 时，它顺手校验了 `E:\k60-work\artifacts\*` 下所有镜像。
+结果里有 12 张**不是 WiFi 的**镜像命令行超限（判据见 §10 与 `STAGE-BRINGUP.md` §7：
+`DarwinBoot.c:678-684` 在 `ReadFile` 之前就 `return EFI_BAD_BUFFER_SIZE`）：
 
 | 镜像 | args 长度 |
 | --- | --- |
-| ' + BT + 'bt-s1-20261114b' + BT + ' | 610 |
-| ' + BT + 'bt-s1b-20261114a' + BT + ' | 610 |
-| ' + BT + 'bt-s1c-20261114a' + BT + ' | 610 |
-| ' + BT + 'bt-s1c-20261114b' + BT + ' | 638 |
-| ' + BT + 'bt-s1c-a1-20261114a' + BT + ' … ' + BT + 'bt-s1c-a4-20261114a' + BT + ' | 638（各 4 张） |
-| ' + BT + 'wifi-20261114f' + BT + ' / ' + BT + 'g' + BT + ' / ' + BT + 'h' + BT + ' | 619 / 619 / 620（WiFi 自己的旧图，已作废） |
+| `bt-s1-20261114b` | 610 |
+| `bt-s1b-20261114a` | 610 |
+| `bt-s1c-20261114a` | 610 |
+| `bt-s1c-20261114b` | 638 |
+| `bt-s1c-a1-20261114a` … `bt-s1c-a4-20261114a` | 638（各 4 张） |
+| `wifi-20261114f` / `g` / `h` | 619 / 619 / 620（WiFi 自己的旧图，已作废） |
 
-这条**解释了蓝牙线 04:51 那次 ' + BT + 'usblog-20261114-bts1b-run1' + BT + ' 的
-' + BT + 'state=port-not-observed, bytes=0, stopReason=port-timeout' + BT + '**：镜像
-' + BT + 'bt-s1-20261114b' + BT + ' 是 610 字节，内核根本没被装载，所以串口一个字节都不会有。
-同一天 04:43 的 ' + BT + 'rail-20261114i' + BT + '（575 字节）能拿到 220,576 字节控制台，
+这条**解释了蓝牙线 04:51 那次 `usblog-20261114-bts1b-run1` 的 `state=port-not-observed, bytes=0, stopReason=port-timeout`**：
+镜像 `bt-s1-20261114b` 是 610 字节，内核根本没被装载，所以串口一个字节都不会有。
+同一天 04:43 的 `rail-20261114i`（575 字节）能拿到 220,576 字节控制台，
 差别就在这里，不是抓取链路、也不是内核。
 
-建议：其它线在下次上机前用 ' + BT + 'argcheck1.py' + BT + ' 过一遍自己的镜像
-（' + BT + 'python3 E:\k60-work\evidence\wifi-trial\argcheck1.py <boot.img> …' + BT + '，上限 607），
-并考虑把 ' + BT + 'payload.py' + BT + ' 的 ' + BT + 'check_args()' + BT + ' 上限从 1000 改成 607 ——
+建议：其它线在下次上机前用 `argcheck1.py` 过一遍自己的镜像
+（`python3 E:\k60-work\evidence\wifi-trial\argcheck1.py <boot.img> …`，上限 607），
+并考虑把 `payload.py` 的 `check_args()` 上限从 1000 改成 607 ——
 那里现在注释写的是「DarwinBoot copies the command line into a 1024-byte buffer」，
-与 ' + BT + 'DarwinBoot.c' + BT + ' 的 608 不符，所以 ' + BT + 'unixnu' + BT + ' 不会替任何人拦住 607–1000 的参数。
+与 `DarwinBoot.c` 的 608 不符，所以 `unixnu` 不会替任何人拦住 607–1000 的参数。
 
-
+---
 因此 WiFi 的 ⑦ 产物是用 `UNIXNU_SKIP_GATES=1` 的试构建路径出的，
 ⑧ 上机走的是唯一 supervisor `scripts/boot-and-capture.ps1`（不经过 `flash.sh`）。
 **这两点必须在正式合并前由 Lead 决定**：要么把 touch 的 ④⑤⑥⑦ 补齐让 `iron-3` 转绿，

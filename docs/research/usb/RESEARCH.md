@@ -1052,3 +1052,73 @@ EP 0x81 bulk 64 / EP 0x01 bulk 64），`bNumInterfaces=2`。
 
 上机权限只保留给 Lead（用户 2026-11-14 明确要求）：本线只产出镜像、脚本与判据，
 `fastboot boot` 与 `boot-and-capture.ps1` 由 Lead 执行。设备 `6033dbec` 本轮停在 fastboot 未动。
+
+## 22. QMP PHY 与 UCSI：主机侧可验证部分（2026-11-14）
+
+Lead 指派（m02635）"把 QMP PHY 与 UCSI 的 host 可验证部分做完"。本节只记录**不依赖 ADSP 固件字节、
+不依赖上机**就能定论的内容，细节分别落在两份独立文档里：
+
+- `docs/research/usb/QMP-PHY.md`（325 行）：SS PHY `ssphy@88e8000` 的 13 项 reg-offset 解码、
+  164 条 init-seq 分区与逐条比对、Pong override-seq、主线上电时序。
+- `docs/research/usb/UCSI.md`（336 行）：UCSI over pmic_glink 的线格式、角色裁决表、
+  K60 侧已有 GLINK 通道与 owner 分流点。
+- `docs/research/usb/qmp-phy-table.py`：可重跑的表提取/校验器（`--check` / `--emit-c`）。
+- `docs/research/usb/ucsi-host-selftest.c` + `UCSI-SELFTEST-OUTPUT.txt`：主机自测，`RESULT: PASS`。
+
+### 22.1 QMP PHY：三条结论
+
+1. **13 项 `qcom,qmp-phy-reg-offset` 与下游枚举 1:1 对应，无歧义。**
+   权威枚举是 `phy-msm-ssusb-qmp-sm8450.c:82-101`（`enum qmp_phy_rev_reg`，13 实项 + MAX），
+   解析代码在 `:1066-1086`。逐项：`0x1c14`=PCS_STATUS、`0x1f08`=AUTONOMOUS_MODE_CTRL、
+   `0x1f14`=LFPS_RXTERM_IRQ_CLEAR、`0x1c40`=POWER_DOWN_CONTROL、`0x1c00`=SW_RESET、
+   `0x1c44`=START、`0xffff`=PCS_MISC_TYPEC_CTRL（哨兵）、`0x08`=DP_COM_POWER_DOWN_CTRL、
+   `0x04`=DP_COM_SW_RESET、`0x1c`=DP_COM_RESET_OVRD_CTRL、`0x00`=DP_COM_PHY_MODE_CTRL、
+   `0x10`=DP_COM_TYPEC_CTRL、`0x1e00`=PCS_MISC_CLAMP_ENABLE。
+   前六项与主线 v6 布局交叉验证全部吻合（`phy-qcom-qmp-combo.c:1476-1490` +
+   `phy-qcom-qmp-pcs-v5.h:10-13` + `phy-qcom-qmp-pcs-usb-v5.h:12/15`）；
+   **唯一偏离主线的是 clamp = `0x1e00`（主线 `0x1a0c`）——以 DT 为 K60 真值。**
+2. **serdes 表不能套用主线 sm8550 的表。** 164 条 init-seq 里 32 条与主线不同，
+   其中 24 条集中在 serdes 的 PLL/SSC/LOCK_CMP/BIN_VCOCAL/DEC_START 段
+   （`0x1000/0x1004/0x1020-0x1038/0x1050-0x1064/0x1080-0x1098/0x10bc/0x10cc/0x10d0/0x1174`），
+   是另一套 24 MHz XO 的 PLL 参数；tx/pcs 表逐条相同，rx 只差 `RX_MODE_00_*` 四条与
+   `UCDR_SB2_GAIN2`。**写入时必须按 rxa/rxb 两块分别写**（DT 已按 lane 展开成两份）。
+   唯一"主线有、DT 无"的寄存器是 `0x1f00` `QPHY_USB_V6_PCS_USB3_POWER_STATE_CONFIG1 = 0x68`，
+   列入未决，不擅自补写（铁则 3）。
+3. **上机证据表明 SS PHY 从未上电。** `usblog-20261114-usb-hb2/console.log:269` 是
+   `connected, speed 0`（`DSTS[2:0]=0` = HIGHSPEED），全程只有 eUSB2 路径；
+   QMP 段零初始化。因此 P2 若要走 SS，第一步是 `qmp_combo_usb_init` 等价流程
+   （serdes → tx/rx lane → pcs → pcs_usb → 清 SW_RESET → START=0x03 → 轮询 PHYSTATUS）。
+
+### 22.2 UCSI：三条结论
+
+1. **角色裁决规则有官方原句**（`UniXNU-upstream/docs/porting/usb.md:100-101`）：
+   线上是主机 → 设备角色；线上是外设 → 主机角色；无回答 → 设备角色。
+   落到 `UCSI_CONSTAT_PARTNER_TYPE`（`ucsi.h:260-263`）：DFP→device、UFP/CABLE_AND_UFP→host、
+   DEBUG/AUDIO→device、CABLE/未连接→device。该表已被自测第 4/6 组固化。
+2. **K60 已经有这条通道，只是只服务电池。**
+   `K60PmicGlink.cpp:84` 在 `PMIC_RTR_ADSP_APPS` 上开通道，
+   `K60Battmgr.c:149` 用 `le32(data) != 32778` 过滤 owner —— **32779 的 UCSI 消息现在被静默丢弃**。
+   接入点是在 `K60Battery::receive()`（`K60Battery.cpp:284-289`）里按 owner 分流，
+   与主线 `pmic_glink.c:84/90` 的 client-list 语义同构；通道只有一条
+   （`QcomGlink.h:17` `QCOM_GLINK_MAX_CHANNELS 1u`），不该为 UCSI 再开一条。
+3. **DT 不需要改。** 随镜像的 `hardware.dtb`（sha256 `2d044eaa…f33cd`，210 行）
+   只有 `pmic-glink` + `battery-charger`，没有 `qcom,ucsi`/`qcom,altmode`；
+   而主线 `pmic_glink.c:131/272/277` 把 UCSI/altmode/power-supply 建成 auxiliary device，
+   **不读 DT 子节点**。走 owner 注册模型就不需要 DT 改动（片段仍写在 `UCSI.md` §10 备用）。
+
+### 22.3 仍被阻塞的两点（诚实记录）
+
+- **ADSP 不在线**：`usblog-20261114-usb-hb2/console.log` 里 `adsp|glink` 命中 0 次；
+  0612/0613/0614 三个补丁只到 PAS 的 SMC 封装与调用点，未见任何 `K60PAS` 输出。
+- **GLINK lease 无生产者**：`docs/research/battery/GLINK-HANDOFF.md:14` 记录
+  `k60-adsp-glink-handoff` 只有消费点。电池、音频、UCSI 三条线共用这个前置。
+
+### 22.4 复现
+
+```sh
+python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/k60-work/scratch/usb/mondrian.dts --check
+python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/k60-work/scratch/usb/mondrian.dts \
+    --emit-c --out /tmp/kQmpPhyK60.h
+cc -std=c11 -Wall -Wextra -o /tmp/ucsi-host-selftest docs/research/usb/ucsi-host-selftest.c \
+    && /tmp/ucsi-host-selftest
+```

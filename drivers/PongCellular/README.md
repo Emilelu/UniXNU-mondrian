@@ -1,6 +1,8 @@
 # PongCellular — K60（mondrian / SM8475）基带驱动
 
-> 状态：**L1 已落地可编译代码**（2026-11-14）。本目录当前只有镜像搬运器，没有 PAS 握手、没有 QRTR。
+> 状态：**L1 已编进内核**（2026-11-14，build-strict tag `cellular-l1-20261114d`，exit 0，kernel.macho `b7dadeb5…` 54,173,696 B）。
+> 本目录当前只有镜像搬运器，**没有调用点、没有 PAS 握手、没有 QRTR**：本版内核启动时不会打印任何 `K60MODEM` 日志。
+> 产物核验：`conffiles: listed … bsd/dev/pong_modem_image.c …` 出现，且 `strings -a kernel.macho | grep -c 'modem.b'` = 27（30 段减去 b14/b21/b30 三个纯 bss 行）。
 > 取证：`docs/research/cellular/01-ANDROID-INVENTORY.md`、`02-DT-TRUTH.md`、`03-SCOPE.md`、`04-DT-NODES.md`、`05-MODEM-IMAGE.md`。
 > 仓库铁则 ★3 的 `docs/K60-CELLULAR-CHECKLIST.md` 尚未建立；本轮 L1 能开工，是因为 Lead 的任务书直接点名要它，
 > 且交付物**不含任何对硬件的写操作**（只做内存搬运与纯算术校验），可在宿主上完整验证。

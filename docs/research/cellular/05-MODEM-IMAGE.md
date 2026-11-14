@@ -338,9 +338,11 @@ TESTS OK 30 segments, 0x8bc00000..0x9ee00000 (320864256 bytes), base 0x8bc00000,
 编译与运行：
 
 ```bash
+mkdir -p /mnt/e/k60-work/artifacts/tests
 gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
-    -o /tmp/t-modem scripts/tests/test-k60-modem-loader.c drivers/PongCellular/K60ModemImage.c
-/tmp/t-modem
+    -o /mnt/e/k60-work/artifacts/tests/t-modem \
+    scripts/tests/test-k60-modem-loader.c drivers/PongCellular/K60ModemImage.c
+/mnt/e/k60-work/artifacts/tests/t-modem
 ```
 
 实测输出：
@@ -349,6 +351,42 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 plan segments=30 copied=109060761 zeroed=211012967 base=0x8bc00000 window=0x13200000
 TESTS OK 7
 ```
+
+### 9.3 build-strict 产物核验（2026-11-14）
+
+宿主测试只证明「表与固件一致」，不证明「表真的编进了内核」。这一步补上后者。构建命令（P-190：自己的 OUT 与 DEVICE_INPUT）：
+
+```bash
+K60_AGENT_ID=cellular-agent \
+K60_OUT=/opt/k60/trees/cellular-out \
+K60_DEVICE_INPUT=/opt/k60/trees/cellular-device \
+K60_EIGHT_STEP_ITEMS=cellular PYTHONIOENCODING=utf-8 \
+  bash scripts/build-strict.sh cellular-l1-20261114d \
+  --fd /mnt/e/k60-work/artifacts/fd/base-20261113f-cf4485712c29.fd
+```
+
+结果（exit 0）：
+
+| 项 | 值 |
+|---|---|
+| series | 230 |
+| frozen | `fc952b780a1a8f084649e8a8b10dde650b9067dbe95a81b1d692fb6bb2f3228c` |
+| kernel.macho | `b7dadeb513e9300f731c4d4dd0d5fe7427dcba38a2ca72bdf0966c2d995cbab4`，54,173,696 B |
+| payload kernel | `59409720691a5b8eff2db018014dc6be63ce5f2c00d2e99db2b6b761211fe038` |
+| payload adt | `40b46e09d92db16abeac67e737ab1a90f775f9f5a70274d1ef40726d9352cd13` |
+| boot.img | `2c31a1a4f017baa6f351614c5ae13c8cb78a5199ef2d9cb7dab73447f89ac8be` |
+| manifest | `/mnt/e/k60-work/artifacts/cellular-l1-20261114d/build-manifest.json` |
+
+三条「不是只看退出码」的核验：
+
+1. **注册生效**：`kernel-bootstrap.log` 里出现
+   `conffiles: listed bsd/dev/pong_smem.c, bsd/dev/pong_handoff.c, bsd/dev/pong_adsp_boot.c, bsd/dev/pong_adsp_pas.c, bsd/dev/pong_adsp_image.c, bsd/dev/pong_modem_image.c, bsd/dev/pong_fat.c`。
+2. **段表进镜像**：`strings -a kernel/kernel.macho | grep -c 'modem.b'` = **27**，列出的名字正好是
+   `b01..b13`、`b15..b20`、`b22..b29` —— 缺的三个正是纯 bss 行（`part` 是 `((const char *)0)`）。
+   编译器把生成的表原样编了进去，没有被当成死数据丢掉。
+3. **产物与日志一致**：磁盘上 `kernel.macho` 的 sha256 与 build-strict 打印的 kernel 值相同。
+
+**本版内核启动时不会有任何 `K60MODEM` 日志**：0620 只加文件与注册，没有调用点。调用点与 PAS 握手属 L2。
 
 ---
 

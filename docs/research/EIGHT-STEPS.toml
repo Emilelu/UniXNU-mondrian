@@ -466,12 +466,17 @@ done = true
 evidence = "深挖得到五条会改变实现的事实，全部有实测支撑：一，段间 11 处空洞合计 0x000C1000 正好等于「窗口 0x13200000 减足迹 0x1313F000」的余量，说明镜像不是连续填满而是「30 段 + 11 洞、两端顶死」，这同时是 DT reg 长度的独立校验；二，seg21 的 bss 是 163696640 B，比全部拷贝字节 109060761 还大，因此不能先整块清零再拷，只能逐段清；三，段起点都页对齐但文件末尾不对齐（modem.b19 结束于 0x90b7de0f、modem.b25 结束于 0x9de7b25e），必须按字节搬；四，modem.b00/b31 的 phdr p_type=0，加载器必须按 p_type 过滤而不能按文件名顺序；五，取固件必须用 adb exec-out（adb shell 会做 CRLF 转换，modem.mdt 会从 5884 B 变 5909 B，modem.b01 从 7204 B 变 7232 B），生成器因此优先读 .bin 副本。前四条写在 05-MODEM-IMAGE.md 的 3.2/4.1/6.1/2 节，第五条写在 7 节。"
 
 [hardware.cellular.step.verify]
-done = false
+done = true
 local_verified = true
 evidence = "宿主侧已全绿：scripts/tests/test-k60-modem-image.py 校验 modem.mdt 结构（ELF32 / phentsize 32 / phnum 32 / PT_LOAD 30）、逐段文件大小、页对齐、不重叠、两端顶死（lo == K60_MODEM_BASE 且 hi == K60_MODEM_BASE + K60_MODEM_WINDOW），并交叉校验 pong_modem_table.h 与 0620 补丁里的三份 new file 逐字节一致；scripts/tests/test-k60-modem-loader.c 真分配 0x13200000 字节跑 plan+copy，逐段验证 0xa5/0 的落点。仍缺的是 build-strict 产物检查：本轮尚未跑出内核镜像，故 ⑦ 记 false。"
 static_check = "逐行对照 ADSP 加载器（drivers/PongPower/K60AdspImage.c）与本实现：in_window 用 64 位算术防溢出；plan 的四类错误顺序一致（空行 BadSegment → 有数据无文件名 BadSegment → 越窗 OutsideWindow → 与前段重叠 Overlap）；copy 的窗口长度前置检查一致（window && read && window_bytes >= WINDOW）；bss 清零只覆盖 [paddr+filesz, paddr+memsz) 而非整窗。差异只有常量与命名，见 05-MODEM-IMAGE.md 第 10 节的对照表。"
 unit_test = "两个宿主测试：python3 scripts/tests/test-k60-modem-image.py 输出 `TESTS OK 30 segments, 0x8bc00000..0x9ee00000 (320864256 bytes), base 0x8bc00000, table+patch agree`（含三条 NOTE 说明 b14/b21/b30 是纯 bss）；gcc -O1 -Wall -Wextra -Werror 编译 scripts/tests/test-k60-modem-loader.c 后运行输出 `plan segments=30 copied=109060761 zeroed=211012967 base=0x8bc00000 window=0x13200000` 与 `TESTS OK 7`。两者均 exit 0。"
-artifact_check = "待 build-strict 产物；本轮尚未构建。"
+artifact_check = """build-strict 已跑通（tag cellular-l1-20261114d，exit 0）：`build-strict: kernel b7dadeb513e9300f731c4d4dd0d5fe7427dcba38a2ca72bdf0966c2d995cbab4 54173696 bytes`、`payload kernel 59409720691a5b8eff2db018014dc6be63ce5f2c00d2e99db2b6b761211fe038`、`payload adt 40b46e09d92db16abeac67e737ab1a90f775f9f5a70274d1ef40726d9352cd13`、`boot.img 2c31a1a4f017baa6f351614c5ae13c8cb78a5199ef2d9cb7dab73447f89ac8be`、`✅ kernel archives: 3 enabled archive(s) all present in kernel.macho`；series=230、frozen=fc952b780a1a8f084649e8a8b10dde650b9067dbe95a81b1d692fb6bb2f3228c，manifest /mnt/e/k60-work/artifacts/cellular-l1-20261114d/build-manifest.json。
+产物内部核验（不只看构建退出码）：
+1) conf/files 注册生效——kernel-bootstrap.log 有 `conffiles: listed bsd/dev/pong_smem.c, bsd/dev/pong_handoff.c, bsd/dev/pong_adsp_boot.c, bsd/dev/pong_adsp_pas.c, bsd/dev/pong_adsp_image.c, bsd/dev/pong_modem_image.c, bsd/dev/pong_fat.c`，pong_modem_image.c 在列。
+2) 段表真的进了内核镜像——`strings -a kernel/kernel.macho | grep -c 'modem.b'` = 27，且列出的名字正好是 b01..b13、b15..b20、b22..b29，缺的正是 b14/b21/b30 三个纯 bss 行（part 为 ((const char *)0)），说明编译器把生成的表原样编进去了而不是丢弃。
+3) kernel.macho 的 sha256 与 build-strict 打印的 kernel 值一致（b7dadeb5…），产物与日志不是两份东西。
+仍未做：没有调用点，故本版内核不会在启动时打印任何 K60MODEM 日志——调用点与 PAS 握手是 L2（见 05-MODEM-IMAGE.md 第 11 节）。"""
 
 [hardware.cellular.step.device]
 done = false

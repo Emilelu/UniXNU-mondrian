@@ -26,7 +26,7 @@
 | 2 | `bsd/kern/bsd_init.c` | 在 `\t\tpong_buttons_init();` 之后插 `K60_PONG_LOCAL` 注释 + `extern void pong_thermal_init(void);` + 调用 | `@@ -1161,6 +1161,10 @@` |
 | 3 | `bsd/dev/pong_thermal.c` | 新文件，248 行（母本 `drivers/PongThermal/pong_thermal.c` 的逐字副本） | new file mode 100644 |
 | 4 | `bsd/dev/pong_thermal_level.c` | 新文件，145 行（母本 `K60ThermalLevel.c`：trip 表与等级算术） | new file mode 100644 |
-| 5 | `bsd/dev/pong_thermal_pm.cpp` | 新文件，95 行（母本 `pong_thermal_pm.cpp`：发布层） | new file mode 100644 |
+| 5 | `bsd/dev/pong_thermal_pm.cpp` | 新文件，113 行（母本 `pong_thermal_pm.cpp`：发布层） | new file mode 100644 |
 | 6 | `bsd/sys/pong_thermal.h` | 新文件，198 行（母本 `K60ThermalKernel.h`） | new file mode 100644 |
 | 7 | `bsd/sys/pong_thermal_level.h` | 新文件，83 行（母本 `K60ThermalLevel.h`） | new file mode 100644 |
 
@@ -143,8 +143,8 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
 | --- | --- | --- |
 | 纯算术单测 | `cc -std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongThermal -o build/thermal/test-kernel scripts/tests/test-k60-thermal-kernel.c` | `TESTS OK 264` |
 | 既有解码单测 | 同法 `test-k60-thermal-tsens.c` | `TESTS OK 16` |
-| 压力等级单测 | 同法 `test-k60-thermal-level.c` | `TESTS OK 72` |
-| 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (7 checks)` |
+| 压力等级单测 | 同法 `test-k60-thermal-level.c` | `TESTS OK 78` |
+| 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (11 checks)` |
 | 补丁可应用性 | 在已打完 229 个补丁的树上 `git apply --check` | `APPLY_CHECK_OK` |
 
 `check-thermal-kernel-patch.py` 做 11 项：从 patch 重建五个新文件并与 `drivers/PongThermal/`
@@ -201,6 +201,26 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
 
 这四条都是「自建构建输入目录比共享目录少了非仓库内容」这一类问题。下次从零建目录时，
 `feeds.toml` 与 `.cache/firmware/` 要一起拷，否则会在链接前十几分钟才失败。
+
+### 6.2 第五个坑：`IOPMPrivate.h` 不在导出头里（发布层第一次真构建时炸）
+
+`build-strict.sh thermal-20261114e` 通过了合规门禁、八步门禁和 230/230 补丁应用，
+在**真正的编译阶段**失败：
+
+```
+EXPORT_HDRS/iokit/IOKit/pwr_mgt/RootDomain.h:39:10: fatal error:
+  'IOKit/pwr_mgt/IOPMPrivate.h' file not found
+make[7]: *** [.../bsd/DEVELOPMENT/Makefile:3201: pong_thermal_pm.cpo] Error 1
+```
+
+| 环节 | 事实 |
+| --- | --- |
+| 依赖怎么来的 | `RootDomain.h:37-39` 在 `#ifdef XNU_KERNEL_PRIVATE` 里 `#include <IOKit/pwr_mgt/IOPMPrivate.h>`；`MakeInc.def:105` 的 `DEFINES` 恒带 `-DXNU_KERNEL_PRIVATE`，所以任何 include 它的 bsd 文件都会踩到 |
+| 为什么导出目录没有 | `iokit/IOKit/pwr_mgt/Makefile` 的 `NOT_EXPORT_HEADERS` 明确列了 `IOPMPrivate.h`，`EXPORT_MI_LIST` 把它滤掉，因此 `EXPORT_HDRS/iokit/IOKit/pwr_mgt/` 只有 7 个头 |
+| 为什么 bsd 拿不到源树那份 | bsd 组件的 `INCFLAGS`（`MakeInc.def:884-890`）只有 `EXPORT_HDRS/<各组件>` + `EXTERNAL_HEADERS` + fakeroot 的 `usr/local/include` 与 `platform`，不含源码树 `iokit/`，也不含 Kernel.framework 的 `PrivateHeaders` |
+| 手工检查为何没发现 | 上一轮的 `-fsyntax-only` 脚本额外加了 `-I$W/iokit` 与 `-I$FR/…/PrivateHeaders`，**多给的 `-I` 掩盖了真实构建失败**。教训：手工语法检查必须逐字复刻 make 的 `INCFLAGS` |
+| 修法 | 在母本里对这一个 include 关掉 private 段：先 `#include <IOKit/IOBufferMemoryDescriptor.h>` 与 `<sys/vnode.h>`（`RootDomain.h:31-35` 无条件 include 的那两个），再 `#undef XNU_KERNEL_PRIVATE`、`#include <IOKit/pwr_mgt/RootDomain.h>`、`#define XNU_KERNEL_PRIVATE 1`。需要的声明（`class IOPMrootDomain` :151、两个 `systemPowerEventOccurred` :177-183）都在 private 段之外 |
+| 否决的两个替代 | 把 `IOPMPrivate.h` 拷进 `EXPORT_HDRS`（能编过，但每次重建树就消失，且违背上游 `NOT_EXPORT_HEADERS` 的意图）；给 `pong_thermal_pm.cpo_INCFLAGS` 加 `-I$(SRCROOT)/iokit`（`MakeInc.rule:427` 支持 per-object 追加，但要改 `bsd/conf/Makefile.template`，影响面比一个 include 窗口大） |
 
 ## 7 复现命令
 

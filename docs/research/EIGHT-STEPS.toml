@@ -307,16 +307,18 @@ done = true
 evidence = "参考 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch 与 pong 的按键实现。"
 
 [hardware.buttons.step.official]
-done = false
-evidence = "官方无独立按键组件；走 IOHIDEvent 注入路径，与触摸共用 bsd/dev/pong_input.c 的队列（QUEUE_SIZE 512）。"
+done = true
+evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。详见 docs/research/buttons/02-OFFICIAL.md。"
 
 [hardware.buttons.step.decompile]
 done = true
-evidence = "引脚与键码取自 K60 DT 的 gpio-keys 节点；驱动已编译/链接/调用（bsd_init.o 有 _pong_buttons_init，见 STATUS.md:24）。"
+evidence = "本机真值来自 live FDT 反编译（dtb sha256 95c02052…，919,210 B FDT v17，dump 21,954 行）：:9850 pwrkey interrupts=<0x00 0x13 0x07 0x03> linux,code 0x74、:9856 resin IRQ6 linux,code 0x72、:32481 vol_up gpios=<0x57b 0x06 0x01> linux,code 0x73、:10358 key_vol_up_default 为 bias-pull-up；UEFI 侧 K60KeypadDeviceLib.c:33 的 boot40 ground truth（pon rtsts=0x10、gpio rtsts=0x01）独立印证 RT_STS 位号==IRQ 号，日志 arbiter v7 channels=768 PON=407 GPIO6=434 印证仲裁器布局。注意任务书提到的 sm8475-xiaomi-mondrian.dtb 反编译后 model=Cape SoC，无 gpio-keys 节点。驱动已编译/链接/调用（bsd_init.o 有 _pong_buttons_init，见 STATUS.md:24）。详见 docs/research/buttons/03-REVERSE.md。"
 
 [hardware.buttons.step.wide]
-done = false
-evidence = "未做广域参考；下一个源应是 zizhan 与 phk110-port 的按键实现，见 docs/research/SOURCES.toml。"
+done = true
+catalog_checked = true
+evidence = "逐个核对 components.toml 29 个组件（无按键组件）、官方驱动仓库页 28 官方+12 社区+9 设备分支、同 SoC 四源（UniXNU-pong 中断版 pong_buttons.c、UniXNU-zizhan 同值 DT 与长按复位钩子、phk110-port hakios.buttons.c 真机 30,006 次总线读、ios-sweet-k60 0251 第三源常量）、同外设芯片（mainline spmi-pmic-arb.c 的 BR_APID_MAP 0x2000、pm8941-pwrkey.c 位号==IRQ、pinctrl-spmi-gpio.c），五组交叉见 docs/research/buttons/04-WIDE.md。"
+catalog_result = "29 个组件逐个比对：没有任何按键/PON/PMIC GPIO 组件。唯一输入层组件 ShengHidInput（components.toml:143-161，hardware=sheng touch event source、verified_devices=sheng、dependencies=ShengNovatekTouch、source_files=NativeHidInput.cpp）只把 sheng 的 NT36532 触摸包成 IOHIDDevice，不能消费 PMIC 键；ArmCpu 的 armcpu_spi_attach(32+481) 与 ArmDTPlatform 的 DT nub 已用，其余 26 项与按键无关。因此自建 bsd/dev/pong_buttons.c 不违反『有官方组件却造轮子』的 FAIL 条件。"
 
 [hardware.buttons.step.plan]
 done = true

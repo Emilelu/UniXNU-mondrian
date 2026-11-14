@@ -453,7 +453,7 @@ artifact_check = "不适用：本步验证的是纯算术，产物里没有可�
 
 [hardware.springboard]
 status = "active"
-paths = ["patches/xnu/0340", "userland/ui_compat.c", "docs/research/springboard/"]
+paths = ["patches/xnu/0340", "patches/xnu/0401", "userland/ui_compat.c", "userland/build.py", "scripts/gen-var-skel.py", "scripts/tests/test-init-blob.py", "docs/research/springboard/"]
 name = "壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）"
 
 [hardware.springboard.step.same_model]
@@ -476,7 +476,7 @@ evidence = "同 SoC 兄弟移植无 SpringBoard 线可参考；yibiya 的 wallpa
 
 [hardware.springboard.step.plan]
 done = true
-evidence = """方案见 docs/research/springboard/WALLPAPER-CHAIN.md §4。F1（已实施）：部署 HEAD 版 libpong-ui.dylib，patches/xnu/0340-k60-uilib-deploy.patch 的 k60_uilib_blob 113,904 -> 113,472 B，让 select_initial_wallpaper() 在 existing==-1 或 boot-arg k60_wallpaper_reset=1 时用原生 WallpaperKit 提交 7410。F2（可选）：var.skel 增两条目录行以满足"日志无 SKIP"，但必须配 HEAD init 的 wallpaper_aliases()，否则空目录可能把 /Library/Wallpaper 遮成空集。F3（不建议）：删 views 表需重编 init blob，host 无签名能力且对像素无帮助。F4（单独立项）：恢复 chronod 会回到 v80 REC 的反复超时。"""
+evidence = """方案见 docs/research/springboard/WALLPAPER-CHAIN.md §4。F1（已实施）：部署 HEAD 版 libpong-ui.dylib，patches/xnu/0340-k60-uilib-deploy.patch 的 k60_uilib_blob 113,904 -> 113,472 B，让 select_initial_wallpaper() 在 existing==-1 或 boot-arg k60_wallpaper_reset=1 时用原生 WallpaperKit 提交 7410。F2（已实施）：var.skel 增两条目录行 + 0401 换 HEAD init（含 wallpaper_directory()/wallpaper_aliases()），两者必须成对否则空目录可能把 /Library/Wallpaper 遮成空集；结果 52,456 B init + 14,636 B varpack。F3（不建议）：删 views 表需重编 init blob，host 无签名能力且对像素无帮助。F4（单独立项）：恢复 chronod 会回到 v80 REC 的反复超时。"""
 
 [hardware.springboard.step.deep]
 done = true
@@ -485,14 +485,14 @@ evidence = """深挖五条结论：一，两行 SKIP 是 init 的两道 guard �
 [hardware.springboard.step.verify]
 done = true
 local_verified = true
-evidence = """host 核验（2026-11-14）：python3 userland/build.py ui --sdk /opt/k60/sdk/iPhoneOS16.5.sdk --out /tmp/k60-ui-out 零错误产出 libpong-ui.dylib 113,472 B；签名 LC_CODE_SIGNATURE fade0cc0 / CodeDirectory fade0c02 / pagesize shift 12（4K 页），满足 userland/build.py:73-110 native_init_signature；嵌入 0340 后数组与 dylib 逐字节相同（sha256 8e37468e...），strings 37 条 Pong UI 含 submitting genuine wallpaper 7410 与 wallpaper existing-content；git apply --numstat 解析 9509+6+1 行；scripts/check-blob-patches.py 对 0340 报"与最近一次上机基线不同"（feat/springboard 分支判 warning，通过）。另核：scripts/gen-var-skel.py 可逐字节复现现有 var.skel（sha256 04051ce5...，129 行 / 6,498 B），加两条目录行后 131 行 / 6,588 B，小于 userland/build.py:338 的 65,536 上限。"""
+evidence = """host 核验（2026-11-14）：python3 userland/build.py ui --sdk /opt/k60/sdk/iPhoneOS16.5.sdk --out /tmp/k60-ui-out 零错误产出 libpong-ui.dylib 113,472 B；签名 LC_CODE_SIGNATURE fade0cc0 / CodeDirectory fade0c02 / pagesize shift 12（4K 页），满足 userland/build.py:73-110 native_init_signature；嵌入 0340 后数组与 dylib 逐字节相同（sha256 8e37468e...），strings 37 条 Pong UI 含 submitting genuine wallpaper 7410 与 wallpaper existing-content；git apply --numstat 解析 9509+6+1 行；scripts/check-blob-patches.py 对 0340 报"与最近一次上机基线不同"（feat/springboard 分支判 warning，通过）。F2 核验：scripts/gen-var-skel.py 逐字节复现原 var.skel（sha256 04051ce5...，129 行 / 6,498 B），加两条目录行后 132 行 / 6,608 B（sha256 151ce31c...，小于 userland/build.py:338 的 65,536 上限）；python3 userland/build.py init_blob --out /tmp/f2-init-out --sdk /opt/k60/sdk/iPhoneOS16.5.sdk --var-skel /tmp/f2-varskel/pong/var.skel 产出 init 52,456 B（sha256 079a087b...）/ varpack 14,636 B，抽回与输入逐字节相同，hunk +1,4378 / +1,1225 与 #define 52456 / 14636 一致。"""
 static_check = """静态对照：ui_compat.c:628-661 existing_wallpaper 用 wallpaperConfigurationForVariant:includingValuesForTypes:（ABI @ 参数 qQ，mask 0x3f）判 wallpaperImage/wallpaperOriginalImage/wallpaperColor/proceduralWallpaperOptions，configuration 为 nil 返回 -1；ui_compat.c:669-741 select_initial_wallpaper 在 !restore && existing!=0 时直接 return，否则校验 7410 的 Wallpaper.plist identifier、thumbnail/fullSize 实际存在、WKWallpaperBundle 与 setter 的 ABI 后才提交。7410 bundle 的 Wallpaper.plist（663 B）与四个 heic 文件在 /opt/k60/osroot/os.raw 内实测齐全。"""
-unit_test = """不适用（无纯函数可单测）；等价核验是嵌入 blob 的 strings 与 dylib 字节一致性：113,472 B、sha256 8e37468e...，与 /tmp/k60-ui-out/libpong-ui.dylib 逐字节相同。"""
-artifact_check = """0340 补丁 diff 3,873 insertions / 3,909 deletions（仅该文件）；新 blob 含 37 条 Pong UI 消息，其中壁纸相关 8 条（existing-content / genuine wallpaper asset present / bootstrap SKIP 四种 / submitting genuine wallpaper 7410 / 7410 路径串）。"""
+unit_test = """F1：嵌入 blob 的 strings 与 dylib 字节一致性：113,472 B、sha256 8e37468e...，与 /tmp/k60-ui-out/libpong-ui.dylib 逐字节相同。F2：scripts/tests/test-init-blob.py 16 用例全绿（三个数组长度与 #define 一致、PONGJOB1 split/join 往返逐字节、var.skel 唯一且含两条 0755 root:root 壁纸目录、改写后 hunk 行数自洽、init 为 thin arm64 MH_EXECUTE ncmds=15）。"""
+artifact_check = """0340 补丁 diff 3,873 insertions / 3,909 deletions（仅该文件）；新 blob 含 37 条 Pong UI 消息，其中壁纸相关 8 条（existing-content / genuine wallpaper asset present / bootstrap SKIP 四种 / submitting genuine wallpaper 7410 / 7410 路径串）。0401 补丁 1,669,114 B / 25,360 行（旧 1,668,068 B / 25,344 行），三个 new-file hunk 为 4378 / 19623 / 1225 行；新 init strings 含 wallpaper view directories unavailable / stock wallpaper view SKIP / wallpaper alias conflict / genuine stock wallpaper aliases 四组新消息。"""
 
 [hardware.springboard.step.device]
 done = false
-evidence = "未上机（铁则：禁止自行 boot，交 Lead 在用户明确同意后执行）。上机计划：刷含新 0340 blob 的镜像 + 恢复镜像 args 带 k60_wallpaper_reset=1 恰好一次（porting.toml:90 的 cand19 先例），抓 Pong UI 壁纸三行日志与 Pong init: boot view 行。"
+evidence = "未上机（铁则：禁止自行 boot，交 Lead 在用户明确同意后执行）。上机计划：刷 springboard-20261114d（含新 0340 + 0401 blob）+ 恢复镜像 args 带 k60_wallpaper_reset=1 恰好一次（porting.toml:90 的 cand19 先例），抓 Pong UI 壁纸三行日志、Pong init: boot view 行与 Pong init: genuine stock wallpaper aliases= 行；判据是日志不再出现 wallpaper SKIP。"
 
 [hardware.springboard.step.device.prediction]
 success = "日志出现 Pong UI: wallpaper existing-content=-1 restore-stock=1 -> Pong UI: genuine wallpaper asset ... present=1 -> Pong UI: submitting genuine wallpaper 7410 native lock+home path=...，且解锁后锁屏/主屏可见 WWDC 2022 壁纸；下一次普通启动 existing!=0 保留该壁纸。"

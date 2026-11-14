@@ -108,7 +108,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 | 判据 | 当前 | 依据 |
 |---|---|---|
-| 上机日志不再有 wallpaper SKIP | ✗ 未达标（本次镜像未改 init 视图，SKIP 仍会出现；需 F2+HEAD init 才能消除，见 §4） | `gpu-keys-notes.txt:19-20` |
+| 上机日志不再有 wallpaper SKIP | ⏳ 待上机（F2 已实施：var.skel 建两目录 + 0401 换 HEAD init；host 侧两条 SKIP 的前提已消除，见 §4/§5.3） | `gpu-keys-notes.txt:19-20`、§5.3 |
 | SpringBoard 后壁纸可见 | ⏳ 待上机（springboard-20261114c 已把壁纸选择代码编进镜像，`strings boot.img` 自证；需 `k60_wallpaper_reset=1` 一次） | P-75 全黑；§5.1 |
 | 换壁纸重启能进系统 | 未验证 | 无当次日志 |
 
@@ -125,12 +125,14 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - **上机**：刷入后需一次 **`k60_wallpaper_reset=1`** 启动强制重选（`porting.toml:90` 的 cand19 恢复镜像 args 即带此 arg，恰好一次）；后续启动 `existing!=0` 会保留用户已有壁纸（`ui_compat.c:689`）。判据日志：`Pong UI: wallpaper existing-content=… restore-stock=1` → `Pong UI: genuine wallpaper asset … present=1` → `Pong UI: submitting genuine wallpaper 7410 native lock+home path=…`。
 - **风险**：HEAD 版比设备版多 11 条消息（metal prewarm 等）。若要求最小 diff，可只把 `:628-741` 两函数回移到 50f4644 基线（本文不展开）。
 
-### F2（可选，满足"无 SKIP"判据）— var.skel 建两个目录
+### F2（已实施，host 验证通过）— var.skel 建两个目录 + 0401 换 HEAD init
 
-- **内容**：var.skel 增加两条目录行（tab 分隔）：`d\t755\t0\t0\t/private/var/pong/stock-wallpaper`、`d\t755\t0\t0\t/private/var/pong/Wallpaper`；用 `scripts/gen-var-skel.py` 再现后重打包 var.pack（`scripts/pack-boot-jobs.py`），替换 0401 的 `k60_varpack_blob`（14,526 B → 约 15 KB）。
-- **host 验证**：`python3 scripts/gen-var-skel.py --os-image /opt/k60/osroot/os.raw --out /tmp/varskel-out` 可**逐字节复现**现有 var.skel（sha256 `04051ce5…`，129 行/6,498 B）；加两行后 131 行/6,588 B，远小于 `userland/build.py:338` 的 65,536 上限；`userland/init.c@2101281:126-133` 的 d 行解析要求恰好 5 个 tab 字段（本例满足）。
-- ⚠ **风险**：目录存在后 i=5 会真正进入 `mount()`；若 bindfs 在 `/Library/Wallpaper` 上成功而 `/private/var/pong/Wallpaper` 为空，会把整棵壁纸目录遮成空集（比现在更黑）。因此 **F2 必须与 HEAD init 的 `wallpaper_aliases()`（`userland/init.c:383-443`）一起上**，否则不要单独上 F2。
-- 只建 stock-wallpaper 不建 Wallpaper：i=5 会打 "optional boot view SKIP /Library/Wallpaper …"，仍违反"无 SKIP"判据。
+- **为什么必须成对**：只加目录只满足旧 init 的 `stat(target)` 守卫（`userland/init.c@2101281:373-378`），但旧 init 的 stock guard 检查的是**目标**目录里的 `Collections~ipad.plist`（`:368-371`），挂载前目标必空 ⇒ 仍打 `wallpaper aliases SKIP (stock view unavailable)`；而 HEAD init 把该 guard 改成检查**源** `/Library/Wallpaper/Collections/Collections~ipad.plist`（`userland/init.c:483-488`），并新增 `wallpaper_directory()`（`:368-375`）与 `wallpaper_aliases()`（`:383-443`）。
+- **F2a 数据侧**：`scripts/gen-var-skel.py` 的 EXTRA 增加 `('pong/stock-wallpaper', 0o755, 0, 0)` 与 `('pong/Wallpaper', 0o755, 0, 0)`（`userland/build.py:50-64` 同步，两处必须一致）。重跑后 var.skel 129 行 / 6,498 B → 132 行 / 6,608 B（sha256 `151ce31c…`），两条目录行是 `d\t755\t0\t0\t/private/var/pong/{Wallpaper,stock-wallpaper}`，满足 `wallpaper_directory()` 的 uid0 / 无 022 校验。
+- **F2b 内核侧**：`userland/build.py` 新增 `init_blob` 子命令（`:429-548`）：`split_boot_jobs`/`join_boot_jobs` 解析并重组 PONGJOB1 varpack、`embedded_blob`/`replace_embedded_array` 抽取并替换 0401 的数组与 `#define` 长度并重算 new-file hunk 行数、`compile_init_linux` 用 clang-18 + ld64.lld-18 编 `userland/init.c`。命令：`python3 userland/build.py init_blob --out /tmp/f2-init-out --sdk /opt/k60/sdk/iPhoneOS16.5.sdk --var-skel /tmp/f2-varskel/pong/var.skel`。
+- **结果**：`k60_init_blob` 52,376 B → **52,456 B**（HEAD `userland/init.c`，ncmds=15，无 LC_CODE_SIGNATURE，与设备现状同为裸 Mach-O）；`k60_varpack_blob` 14,526 B → **14,636 B**（133 条不变，只换 var.skel）；hunk 头 `+1,4378` / `+1,1225` 与 `K60_INIT_BLOB_LEN 52456` / `K60_VARPACK_LEN 14636` 同步。
+- ⚠ **上机预期**：i=4（stock 视图）若 bindfs 在 Data 目录上成功，则 `wallpaper_aliases()` 产出 4 条别名并打印 `genuine stock wallpaper aliases=4 result=0`；i=5 要覆盖 `/Library/Wallpaper`（密封 OS 根）仍可能 `result=-1 errno=1`（P-27），但这只是 `boot view` 行，不是 SKIP，且 OS 窗本身已有完整 `/Library/Wallpaper` 供 WallpaperKit 读取。
+- **回滚**：`git revert` 本提交即可回到 52,376 B / 14,526 B 的旧 blob。
 
 ### F3（不建议现在做）— 删除 views 表 wallpaper 两条（改 init）
 
@@ -172,11 +174,20 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ---
 
+### 5.3 F2 host 验证（var.skel + 0401 重嵌，2026-11-14）
+
+- `python3 scripts/gen-var-skel.py --os-image /opt/k60/osroot/os.raw --out /tmp/f2-varskel` → `entries=133 skeleton_bytes=6608 reg_files=13 bytes=514`；var.skel 132 行 / 6,608 B（旧 129 行 / 6,498 B），新增两条目录行 `d\t755\t0\t0\t/private/var/pong/stock-wallpaper` 与 `…/Wallpaper`。
+- `python3 userland/build.py init_blob --out /tmp/f2-init-out --sdk /opt/k60/sdk/iPhoneOS16.5.sdk --var-skel /tmp/f2-varskel/pong/var.skel` → `init-blob.json`：`{bytes: 52456, ncmds: 15, varpack_bytes: 14636, var_skel_bytes: 6608}`；从补丁抽回的 init / varpack 与输入逐字节相同（init sha256 `079a087b…`）。
+- `scripts/tests/test-init-blob.py`（新增，16 用例）全绿：三个数组长度与 `#define` 一致、PONGJOB1 split/join 往返逐字节、var.skel 唯一且含两条 0755 root:root 壁纸目录、改写数组后三个 hunk 头行数自洽、init 为 thin arm64 MH_EXECUTE ncmds=15。
+- 环境注记：SDK `SDKSettings.json` 的 `Version` 是 16.4，`-platform_version` 第三段必须写 16.4；`ld64.lld-18` 对 `-static` 只告警不实现（加不加产物 sha 相同 `079a087b…`），因此 host 产物不保证与 macOS 产物逐字节一致，但 LC 序列与设备 blob 相同。
+
+---
+
 ## 6. 未决问题 / 下一步
 
 1. **找 Lead 引用的 console.log**（528-529/2241/2247/2257）——本工作区无此文件，需 Lead 提供路径；否则"换壁纸进不去系统"只能停留在候选机制。
 2. 设备上 bindfs 的实际返回值需 `Pong init: boot view … result=` 行确认（P-27 是另一次量测）。
-3. F2 是否跟随 F1 一起上，取决于是否把"日志无 SKIP"作为硬判据；若要求，必须配 HEAD init（`wallpaper_aliases()`）。
+3. F2 已实施（§4/§5.3），与 F1 一起进 springboard-20261114d 镜像；上机后按 §3 三行判据核对，重点抓 `Pong init: boot view …` 与 `genuine stock wallpaper aliases=` 两行。
 4. 上机（交 Lead，用户明确同意后执行）：刷 0340 新 blob + `k60_wallpaper_reset=1` 启动一次；抓 `Pong UI: wallpaper …` 与 `Pong init: boot view …` 两组日志。
 
 ---
@@ -187,9 +198,10 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - `userland/init.c:368-375` wallpaper_directory；`:383-443` wallpaper_aliases；`:478-479` wallpaper views；`:483-488` stock guard。
 - `userland/init-v24dp.c:317-357` 历史视图组；`:336` "absent from the OS window" 注释。
 - `userland/ui_compat.c:628-661` existing_wallpaper；`:669-741` select_initial_wallpaper；`:690` 7410 路径；`:707/716-717` 资产校验。
-- `userland/build.py:40-45` BOOT_SKIP chronod；`:73-110` native_init_signature；`:178` BOOT_SKIP 日志；`:251-341` data_seed；`:338` 65,536 上限；`:365-393` compile_ui；`:395-413` embed_ui_library；`:416-423` ui 子命令。
+- `userland/build.py:40-45` BOOT_SKIP chronod；`:73-110` native_init_signature；`:178` BOOT_SKIP 日志；`:251-341` data_seed；`:338` 65,536 上限；`:365-393` compile_ui；`:395-413` embed_ui_library；`:416-423` ui 子命令；`:429-548` init_blob（PONGJOB1 split/join、embedded_blob、replace_embedded_array、compile_init_linux）；`:50-64` EXTRA 与 `scripts/gen-var-skel.py:28-44` 必须一致。
 - `patches/xnu/0340-k60-uilib-deploy.patch:22-24` 声明与 blob；`:9520` k60_uilib_deploy；`:9541-9546` vn_rdwr/日志；`:9557-9559` 调用点。
-- `patches/xnu/0401-k60-embedded-init.patch:62-67` boot-jobs 写盘；`:69-86` var.pack 写盘；`:104-112` k60_init_blob 门控与 helper exec；`:119-123` K60_INIT_BLOB_LEN。
+- `patches/xnu/0401-k60-embedded-init.patch:62-67` boot-jobs 写盘；`:69-86` var.pack 写盘；`:104-112` k60_init_blob 门控与 helper exec；`:122-123` `K60_INIT_BLOB_LEN 52456` 与数组；`:24138-24139` `K60_VARPACK_LEN 14636` 与数组。
+- `scripts/tests/test-init-blob.py`（新增）16 用例：数组长度/hunk 行数/PONGJOB1 往返/var.skel 壁纸目录/init Mach-O 形态。
 - `docs/research/evidence/gpu-keys-notes.txt:19-20` 两行 SKIP 原文。
 - `docs/research/evidence/springboard-truth.txt:109-113` 三条 SpringBoard 噪声；`:116/121` launchd sig=11 / K60PANICARGS。
 - `docs/ops/PITFALLS.md:325-341` P-27 bindfs EPERM；`:1132-1139` P-75 壁纸目录可见≠选中。
@@ -204,4 +216,8 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 | 文件 | 变更 | 说明 |
 |---|---|---|
 | `patches/xnu/0340-k60-uilib-deploy.patch` | `k60_uilib_blob` 113,904 B → 113,472 B | 部署 HEAD `ui_compat.c`（含壁纸选择）；host 重编并嵌入，签名 4K 页校验通过 |
-| `docs/research/springboard/WALLPAPER-CHAIN.md` | 新增 | 本文 |
+| `patches/xnu/0401-k60-embedded-init.patch` | `k60_init_blob` 52,376 B → 52,456 B；`k60_varpack_blob` 14,526 B → 14,636 B | 换 HEAD `init.c`（`wallpaper_directory`/`wallpaper_aliases`）+ 新 var.skel；hunk 4378/1225 同步 |
+| `scripts/gen-var-skel.py` | EXTRA +2 目录 | `/private/var/pong/{stock-wallpaper,Wallpaper}` 0755 root:root |
+| `userland/build.py` | +130 行 | `init_blob` 子命令：PONGJOB1 读写、数组替换、Linux init 编译 |
+| `scripts/tests/test-init-blob.py` | 新增 | 0401 三个 blob 与 hunk 的回归测试（16 用例） |
+| `docs/research/springboard/WALLPAPER-CHAIN.md` | 新增/更新 | 本文 |

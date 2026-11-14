@@ -686,6 +686,9 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | `Resources/Configs/mondrian.toml:26-27` | `[boot_image] header_version = 4`（K60 stock boot.img 为 v4）；`:18-20` kernel gzip + `append_dtb = true` |
 | `Include/RAW.inc:1-5` | 注释原文：`the SecParti.cfg and the ~72 Panel_*.xml below are the pong generic display library (Binaries/pong/RawFiles). None match the K60 1440x3200 panel; they are inert today... Before enabling a vendor display driver, replace them with the K60 panel XML extracted from the K60 dispdcbx partition or device tree.` |
 | `FdtBlob/Source.txt` | DTB 来自 `sm8450-mainline/linux` 的 `tyalie` 分支，含 `usb-role-switch`，第 1003 行加入以修 USB OTG Mode |
+| `mondrian.fdf:114` | `SECTION RAW = mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`（`FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326`，`SECTION UI = "DeviceTreeBlob"`，由 `EmbeddedPkg/Drivers/DtPlatformDxe` 消费）→ **本板 UEFI 跑的是编进固件的 mainline 派生 DTB，不是厂商 DTB** |
+| `mondrian.dsc:83` | 内存表的唯一来源：`MemoryMapLib\|mondrianPkg/Library/MemoryMapLib/MemoryMapLib.inf`。改内存表只改 `MemoryMapLib.c` |
+| `RawFiles/uefiplat.cfg`（**已删除**） | 2026-10-28 由 `43e245ea16b4dfa57c4295739b8fc1eb9d11a0a6`（"mondrian: repo hygiene"）删除；`git grep uefiplat` 现在全树**零命中** → 它既不参与构建，也不是内存表来源。旧快照可恢复：`git show 43e245e^:Platforms/Xiaomi/mondrianPkg/RawFiles/uefiplat.cfg`（81 行，2026-10-27 从 live FDT 生成），但其 `Kernel 0xBB000000+0x10000000`、`DXE Heap 0xCB000000+0x4000000` 与现行 `MemoryMapLib.c:75/:83` **不同**，**不要引用旧值** |
 
 ### 12.4 高频 FDT 节点（`fdt_dump.txt` 行号）
 
@@ -718,6 +721,32 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | `:28872` | `qcom,dsi-display-primary` | 面板与 regulator/TE 的绑定点 |
 | `:28938` | `dsi_panel_pwr_supply_M11a` | 面板三条 supply entry |
 | `:28912` | `display_gpio_regulator@1`（avdd，GPIO 186） | 面板 avdd 开关 |
+
+---
+
+### 12.5 两个 DTB 的结构化差异：编进固件的 vs 设备实测的（2026-11-14）
+
+本板存在**两棵** DTB，用途不同，混用会得出错误结论：
+
+| | `FdtBlob/sm8475-xiaomi-mondrian.dtb`（编进固件） | `live-6033dbec-fdt.dtb`（设备实测） |
+|---|---|---|
+| 位置 | `uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/` | `/mnt/e/k60-work/reports/` |
+| 字节 / sha256 | 480,692 / `d09f4f10bb84d0e5481433b61bc969ea31b793ead394da18a5363d2e9d4b655c` | 919,210 / 见 1.1 路径映射 |
+| 来源 | `sm8450-mainline/linux` `tyalie` 分支 + `usb-role-switch` 补丁 | 设备 `fastboot boot` 时 ABL 交接的厂商 DTB |
+| 节点数 | **3,034** | **4,206** |
+| `/reserved-memory` 带 reg 的区域 | 36 | 38 |
+| `mdss@ae00000` 直接子节点 | **4** | **34** |
+| 其中 DSI 面板节点 | **0** | **30** |
+
+解析方法（`fdt_dump.txt` **不能**用于逐字节比对，它会截断长 hex 串）：纯 Python FDT 解析器 `/mnt/e/k60-work/scratch/refmine/treeparse.py`，`parse(fn) -> (data, nodes, props)`。要点：头 10 个 BE u32 依次是 magic、totalsize、**off_struct**、**off_strings**、off_rsv、version、last_comp、bootcpuid、**size_strings**、**size_struct**；BEGIN_NODE 后 name 与 PROP 值之后都要 4 字节对齐。
+
+三条结论：
+
+1. **保留区表两棵树是同一套**：36 条同名区域**地址与大小逐条相同**，无一条「同名不同址」。live 侧只多两条运行时才填的：`ramoops@0xa7000000`（0xA7000000+0x400000）与 `splash_region`（0xB8000000+0x2B00000）；树内 DTB 里 `ramoops_region` 的 `alloc-ranges` 是全 0/全 F 的动态分配。→ 引用保留区时两棵树可互换，但**要用写死地址就用 live 侧**。
+2. **面板信息只在 live 侧**：树内 DTB 的 `mdss` 只有 4 个直接子节点（`qcom,platform-supply-entries`、`qcom,sde-dspp-blocks`、`qcom,sde-sspp-dma-blocks`、`qcom,sde-sspp-vig-blocks`），**一个面板都没有**；live 侧 34 个直接子节点里 30 个是 `qcom,mdss_dsi_*`（含本板的 `qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd`，另有 l1/l2s/l18/l3s/m16t、r66451、sim/dual_sim 系列）。→ **做显示不要指望树内 DTB**；m11a 的 init 串只能从 live DTB 或 `dispdcbx` 取（7.7）。
+3. **`/chosen` 只差运行时字段**：树内只有 `bootargs`/`phandle`/`stdout-path`，live 多 `kaslr-seed`、`linux,initrd-start`、`linux,initrd-end`；两边 `bootargs` 前缀**完全相同**。→ 树内 DTB 就是 live 那份的「去掉面板与运行时填充」版本，与 `Source.txt` 的 mainline 出处自洽。
+
+复现脚本（都在 `/mnt/e/k60-work/scratch/refmine/`）：`treeparse.py`（解析器）、`resmem.py`（按地址打印保留区）、`dtbdiff.py`（两树保留区集合差 + mdss 子节点）、`mdss_count.py`（上表的计数）。
 
 ---
 
@@ -812,7 +841,7 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | **m11a 的 90Hz 档用途未知** | 显示 | `timing@1`（0x5a=90）在 live FDT 里存在但 MIUI 侧是否使用未验证；做 120Hz 时要决定是否同时暴露 90 |
 | **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1；RSC 不可访问（14.1）前只能沿用 bootloader 状态 |
 | **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*` |
-| **`Device-Binaries` 698 MB 未系统挖掘** | 全部 | 至少把 `Binaries/` 下的 panel/固件索引出来 |
+| ~~**`Device-Binaries` 698 MB 未系统挖掘**~~ **已普查（2026-11-14）** | 全部 | 651 MB / 9,707 文件 / **78 个机型目录**已全部定性（机型 → `Build/<Family>`）：Palima=b4q/marble/pong/senna_a/senna_bc，Waipio=gts8p/ingres/r0q，Netrani=garnet，Kailua=aston/b5q/dm2q/gts9wifi/nuwa/nx729j/qrd8550/salami，Pakala=annibale/dodge/pagani/onyx，其余为 SM8250/SM8150/SM8350/SDM845 等老平台。**没有任何 SM8475/taro 机型** → 它不能给本板 UEFI 提供同 SoC 参考；唯一可用的产出是 `RawFiles`（面板 XML，见 7.7）与跨板布局对照（见 memory/RESEARCH.md 第 3 节）。74 份 `uefiplat.cfg` 中**没有一份**含 K60 的 `0xC7000000`（DXE Heap）或 `0x85700000`（video_region） |
 | **RSC 可访问性根因未定** | 所有供电相关 | 见 14.1，优先 |
 | **Goodix 芯片型号未确认** | 触摸 | DT 只写 `xiaomi,m11a-spi`；需要读 IC info 或从 Android 侧 dmesg 确认 |
 | **`UniXNU-ruby` 是空仓库** | 文档错误 | `docs/engineering/LOCAL-ASSETS.md` 把它当 catalog，应删掉或标注为空 |

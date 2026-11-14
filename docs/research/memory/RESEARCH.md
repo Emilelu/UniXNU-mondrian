@@ -2,6 +2,7 @@
 
 > **结论层。** 证据行在 [REFERENCE-INDEX.md 第 12 节](../REFERENCE-INDEX.md)（12.1 DDR 保留区 / 12.2 寄存器窗口 / 12.3 固件与启动配置）与 9.1（liuqin 交叉验证）。
 > 主数据源：`uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c`（2026-10-27 实测生成）+ 设备 6033dbec 的 live FDT。
+> 第 5 节说明这两份数据源本身从哪来（`uefiplat.cfg` 已删、`FdtBlob` 是 mainline 派生），**引用地址前先读第 5 节**。
 > **本文的目的不是复述地址，而是划出「哪些值可以跨板用、哪些一抄就崩」的边界。**
 
 ## 1. DDR 保留区（会挡住别人写代码的那些）
@@ -62,16 +63,45 @@
 2. **UEFI FD 挪位是为了避 ramoops**：`Resources/Configs/mondrian.toml:9` 原文注释（ramoops 占 0xA7000000，FD 挪到 0xA7400000），`MemoryMapLib.c:63` 的 `UEFI FD 0xA7400000 + 0x300000` 与之对应。动 ramoops 或 FD 任一处，另一处必须同步。
 3. **DarwinBoot 需要一段连续 256 MiB**，且高 DDR 从 `0x800000000` 起、`[0x100000000,0x800000000)` 是空洞；`XNU High Arena` 只暴露实测连续的 8 GiB（`MemoryMapLib.c:76-94`）。任何「把别的东西塞进 DXE Heap 区间」的想法先读这三行注释。
 
-## 5. 使用规则
+## 5. 内存表与 DTB 的来源：改之前先确认你改的是哪一份
+
+### 5.1 内存表的唯一权威是 `MemoryMapLib.c`，不是 `uefiplat.cfg`
+
+`Platforms/Xiaomi/mondrianPkg/RawFiles/uefiplat.cfg` **已被删除**：提交 `43e245ea16b4dfa57c4295739b8fc1eb9d11a0a6`（"mondrian: repo hygiene (Mu patch list, dead files, panel note, gitignore)"，2026-10-28）把它连同 `MemoryMapLib.c.pong-orig` 一起删掉，`RawFiles/` 现在是空目录（0 个文件），`git grep uefiplat` 在全树**零命中**。`mondrian.dsc:83` 只编 `MemoryMapLib|mondrianPkg/Library/MemoryMapLib/MemoryMapLib.inf`，所以**内存表的唯一权威是 `MemoryMapLib.c`**。
+
+旧快照仍可恢复（`git show 43e245e^:Platforms/Xiaomi/mondrianPkg/RawFiles/uefiplat.cfg`，81 行，`Version = 3`、`MaxMemoryRegions = 74`），但**不要引用它的数值**：它写着 `Kernel 0xBB000000+0x10000000`、`DXE Heap 0xCB000000+0x4000000`，而现行 `MemoryMapLib.c:75` 是 `Kernel 0xBB000000+0x0C000000`、`:83` 是 `DXE Heap 0xC7000000+0x18000000`。它是 2026-10-27 从 live FDT 生成的**历史快照**，之后内核窗口与 DXE 堆都被重新划过。
+
+### 5.2 本板跑的是编进固件的 mainline 派生 DTB，不是厂商 DTB
+
+`mondrian.fdf:114` 把 `mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`（480,692 B，sha256 `d09f4f10bb84d0e5481433b61bc969ea31b793ead394da18a5363d2e9d4b655c`）作为 `FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326` / `SECTION UI = "DeviceTreeBlob"` 编进固件，由 `EmbeddedPkg/Drivers/DtPlatformDxe` 消费；`FdtBlob/Source.txt` 写明它来自 `https://github.com/sm8450-mainline/linux` 的 `tyalie` 分支，并加了 `usb-role-switch`（第 1003 行）修 USB OTG Mode。
+
+### 5.3 两棵 DTB 的差异：保留区可互换，面板不可
+
+| | 树内 `FdtBlob/sm8475-xiaomi-mondrian.dtb` | 设备 `live-6033dbec-fdt.dtb` |
+|---|---|---|
+| 节点数 | 3,034 | 4,206 |
+| `/reserved-memory` 带 reg 区域 | 36 | 38 |
+| `mdss@ae00000` 直接子节点 | 4 | 34 |
+| 其中 DSI 面板节点 | **0** | **30** |
+
+- **保留区**：36 条同名区域**地址与大小逐条相同**，无「同名不同址」。live 侧只多 `ramoops@0xa7000000` 与 `splash_region`（运行时才写死地址；树内 `ramoops_region` 的 `alloc-ranges` 是全 0/全 F 的动态分配）。→ 查保留区两棵可互换，**要写死地址就用 live 侧**。
+- **面板**：树内 DTB 的 `mdss` 只有 4 个直接子节点（`qcom,platform-supply-entries` 与三个 `qcom,sde-*-blocks`），**一个面板都没有**；m11a 的 init 串只存在于 live DTB 或 `dispdcbx` 分区。做显示不要指望树内 DTB（见 `display/RESEARCH.md` 1.1）。
+- **`/chosen`**：只差 `kaslr-seed`、`linux,initrd-start/end` 三个运行时字段，`bootargs` 前缀两边完全相同。
+
+复现：`/mnt/e/k60-work/scratch/refmine/treeparse.py`（纯 Python FDT 解析器；头字段顺序 magic、totalsize、**off_struct**、**off_strings**、off_rsv、version、last_comp、bootcpuid、**size_strings**、**size_struct**；BEGIN_NODE 的 name 与 PROP 值之后都要 4 字节对齐）、`resmem.py`、`dtbdiff.py`、`mdss_count.py`。**不要用 `fdt_dump.txt` 做逐字节比对——它会截断长 hex 串。**
+
+## 6. 使用规则
 
 1. 新增/修改一个区域 = 改 `MemoryMapLib.c` + 核对本文的三条首尾相接关系 + 在 REFERENCE-INDEX 12.1 补一行证据（带行号）。
 2. 引用本表时**带行号**，不要只写地址：地址本身没有可信度，行号才有。
 3. 跨板对照一律标注来源板；只有第 3 节表格里标「可抄」的四条允许直接用于 liuqin 之外的对照，其余必须重新取证。
 
-## 6. 交叉引用
+## 7. 交叉引用
 
 - 证据行与 liuqin 明细：[`../REFERENCE-INDEX.md`](../REFERENCE-INDEX.md) 第 12 节、9.1、14.2
 - 显示占用 `Display Reserved` / `video_region`：[`display/RESEARCH.md`](../display/RESEARCH.md)（第 6 节）
 - UFS 用到的 SMMU 窗口：[`storage/RESEARCH.md`](../storage/RESEARCH.md)（第 1 节）
 - 12 GiB 与高窗计划（不是本文的证据来源，改动前先读）：`docs/plans/MEMORY-12G-PLAN.md`、`docs/audits/MEASURED-HIGH-WINDOW-2026-11-02.md`
 - 门禁数据源：`docs/research/SOURCES.toml` 的 `[subsystem.power]`、`[subsystem.display]`
+- 面板/DSI 与两棵 DTB 的面板缺口：[`display/RESEARCH.md`](../display/RESEARCH.md) 1.1、第 8 节
+- 跨板 `uefiplat.cfg` 普查（74 份，无一份含本板 DXE Heap/video_region）：[`REFERENCE-INDEX.md`](../REFERENCE-INDEX.md) 第 15 节

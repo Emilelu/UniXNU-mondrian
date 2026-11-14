@@ -1,0 +1,56 @@
+diff --git a/bsd/dev/k60_usblog.c b/bsd/dev/k60_usblog.c
+index 579f568..24887d9 100644
+--- a/bsd/dev/k60_usblog.c
++++ b/bsd/dev/k60_usblog.c
+@@ -563,6 +563,15 @@ k60_usblog_probe(void)
+ 			printf("K60 USBLOG: DWC3 GEVNTADR 0x%08x%08x GEVNTSIZ 0x%08x GEVNTCOUNT 0x%08x GHWPARAMS0 0x%08x\n",
+ 			    usb_rd(dwc, 0xc404), usb_rd(dwc, 0xc400), usb_rd(dwc, 0xc408), usb_rd(dwc, 0xc40c),
+ 			    usb_rd(dwc, 0xc140));
++			/* 0407: endpoint and FIFO budget of this core. GHWPARAMS3 bits 12-17
++			 * hold the physical endpoint count and bits 18-22 the IN endpoint count
++			 * (Dwc3.h:143-144). GTXFIFOSIZ(n) at 0xC300+4n is the size of TX FIFO n
++			 * in 256 byte units, so its contents decide which FIFO numbers an IN
++			 * endpoint may name in DEPCFG. */
++			printf("K60 USBLOG: DWC3 GHWPARAMS1 0x%08x GHWPARAMS3 0x%08x GTXFIFOSIZ 0x%08x 0x%08x 0x%08x 0x%08x\n",
++			    usb_rd(dwc, 0xc144), usb_rd(dwc, 0xc14c),
++			    usb_rd(dwc, 0xc300), usb_rd(dwc, 0xc304),
++			    usb_rd(dwc, 0xc308), usb_rd(dwc, 0xc30c));
+ 		}
+ 	}
+ 	{
+@@ -1244,18 +1253,26 @@ ud_setup(void)
+ 				 * (PongUsbDevice.h:200-211 enables 6/7 the same way). */
+ 				if (ud_endpoint(2, 2, ud.packet) ||
+ 				    ud_endpoint(3, 2, ud.packet) ||
+-				    ud_endpoint(5, 3, 16) ||
+-				    ud_endpoint(6, 2, ud.packet) ||
+-				    ud_endpoint(7, 2, ud.packet)) {
++				    ud_endpoint(5, 3, 16)) {
+ 					ud.failed = true;
+ 					return;
+ 				}
+-				dwc_wr(DALEPENA, dwc_rd(DALEPENA) | 0xec);
+-				/* 0406 evidence: the host took the 3-interface
+-				 * configuration and the controller enabled all five
+-				 * non-control endpoints. */
+-				printf("K60 USBLOG: composite cfg %u bytes DALEPENA 0x%08x\n",
+-				    (unsigned)sizeof(ud_cfg_template), dwc_rd(DALEPENA));
++				/* 0407: the vendor function endpoints are optional. Reporting a
++				 * failure instead of killing the console lets one boot separate a
++				 * descriptor fault from an endpoint fault; PongUsbDevice.h:200-211
++				 * enables 6/7 the same way on the same SoC. */
++				{
++					int ep6 = ud_endpoint(6, 2, ud.packet);
++					int ep7 = ud_endpoint(7, 2, ud.packet);
++					uint32_t dalep = dwc_rd(DALEPENA) | 0x2c;
++
++					if (ep6 == 0 && ep7 == 0) {
++						dalep |= 0xc0;
++					}
++					dwc_wr(DALEPENA, dalep);
++					printf("K60 USBLOG: composite cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x\n",
++					    (unsigned)sizeof(ud_cfg_template), ep6, ep7, dwc_rd(DALEPENA));
++				}
+ 			} else {
+ 				ud.dtr = false;
+ 				ud.tx_active = ud.rx_active = false;

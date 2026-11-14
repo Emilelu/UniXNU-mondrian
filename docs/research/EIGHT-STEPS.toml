@@ -430,3 +430,47 @@ evidence = "离线部分已完成：scripts/tests/test-battery-units.py 27/27 �
 static_check = "转换函数按官方描述实现：四舍五入到最近整数；剩余时间向上取整，宁可多报不可少报。电流符号按协议参数化，不硬编码方向。"
 unit_test = "scripts/tests/test-battery-units.py：27 个用例覆盖电压/电流/容量/时间的边界（0、499/500、49/50、60/61、负数）与符号不变量，全部通过。"
 artifact_check = "不适用：本步验证的是纯算术，产物里没有可核对的字符串。"
+
+[hardware.thermal]
+status = "planned"
+parked_why = "第一阶段（2026-11-14）只做只读研究与登记；驱动代码属第二阶段，按 Lead 指令暂不写"
+why = "热管理 / tsens-v2（AP 侧 2 个控制器 × 16 个传感器 = 32 个，另有 QMI 远端 25 个热区不可达）"
+
+[hardware.thermal.step.same_model]
+done = true
+evidence = "同型号（K60 / mondrian / taro）没有任何一份移植实现过 thermal。对 E:/k60-work/references 下 44 个参考树做 grep -ril tsens|thermal：K60 系的命中全部是文档与研究笔记（yibiya-upstream/docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:139 只记录 qcom,tsens-v2 ×2 的存在），没有一份热管理驱动源码；*Thermal*.cpp 只出现在别的 SoC（SM8550 的 UniXNU-sheng/package 与 UniXNU-sheng-upstream/package）。官方设备记录页 unixnu-mondrian.txt 与 unixnu-devices.html 无 thermal 条目。结论：同型号最好状态 = 未开始，可参考的只有别的 SoC 的实现。详见 docs/research/thermal/03-REVERSE.md §1、§4。"
+
+[hardware.thermal.step.official]
+done = true
+evidence = "官方移植指南没有 thermal 子系统页：E:/k60-work/references/UniXNU/docs/porting/ 的 21 个页面里没有 thermal.md，热管理只作为一句要求出现在 docs/porting/power.md:17。硬件语义的权威来源是 mainline Linux：Documentation/devicetree/bindings/thermal/qcom-tsens.yaml:382-396 的官方示例与本板 tsens0 逐项相同（0xc263000 / 0xc222000、SPI 506/508、uplow+critical 两个中断名），:209-214 规定 #qcom,sensors 上限 16；drivers/thermal/qcom/tsens-v2.c:12-27 给出全部寄存器偏移、:94-101 给出 LAST_TEMP=[0:11] 与 VALID=[21]、:31-39 给出 adc=0（状态字已是温度而非 ADC 码）。SM8475 SoC TRM 没有公开版本，本篇不写不存在的章节号：查过的三处见 docs/research/thermal/02-OFFICIAL-DOCS.md §1。"
+
+[hardware.thermal.step.decompile]
+done = false
+evidence = "本机 Android 侧取证未做，缺两样：K60 vendor kernel 的 tsens 驱动本体（需从 boot/vendor_boot 或 ko 取，本阶段未取）、以及 /vendor/etc/thermal-engine*.conf（解释 125/115/110℃ 这些 trip 在 Android 侧的真实用途）。已完成的只有 live FDT 反编译（DTB sha256 516ac7d55c94cde466e57d2e0efb9014fd1cc3534210c80ef20dd5510146f16a，/mnt/e/k60-work/scratch/mondrian.dts 共 21954 行），那是 ③ 的第 1 项，不等于 ③ 走完。"
+
+[hardware.thermal.step.wide]
+done = true
+evidence = "按规范查了三处。一，官方组件目录：UniXNU/components.toml 共 25 个组件，grep -i thermal|tsens|temperature 零命中，即没有任何可直接复用的热管理组件（unixnu.com 的组件页与 unixnu-site 副本同结论）。二，官方驱动仓库列表：unixnu-repos.json 与 unixnu-site 里没有 thermal 驱动仓库。三，社区实现：只有 SM8550 的 UniXNU-sheng/package/ThermalProbe.cpp（3 控制器、纯只读）与 SM6375 的 phk110-port/drivers/power/hakios.thermal.c（27 传感器、真机实测 27/27 有读数），两者都不属本板、都不在官方组件库内，只能当实现参考不能当组件复用。详见 docs/research/thermal/03-REVERSE.md §1-§5。"
+catalog_checked = true
+catalog_result = "UniXNU/components.toml 的 25 个组件里没有任何 thermal/tsens/温度 相关组件，无法直接选用：官方组件目录面向 IOPMPowerSource、USB、UFS 这类有 ABI 契约的子系统，热管理在本项目里一直是板级实现（UniXNU-sheng 把它写在 package/ThermalProbe.cpp 而不是组件）。因此 thermal 只能自建 drivers/PongThermal，参考同族实现的读法，而不能声明依赖某个组件。"
+
+[hardware.thermal.step.plan]
+done = false
+evidence = "复用清单已成型（docs/research/thermal/03-REVERSE.md §5：13 条，1-9 可复用或需改参数、10-13 明确排除），但还不是第 ⑤ 步要求的改动清单：缺「新增哪个文件、暴露什么接口、日志格式、如何与将来的 IOPMrootDomain 压力通知对接」的具体方案。drivers/PongThermal 目前只有占位说明，等 Lead 批准进入第二阶段再写。"
+
+[hardware.thermal.step.deep]
+done = false
+evidence = "不确定项尚未消解：SROT_CTRL bit0（TSENS_EN）是否被 XBL 置 1、32 个传感器在 SROT 里的使能位（3+n）是否全开、读数与 Android 侧 thermal-engine 的对照、以及 125/115/110℃ trip 的真实用途。这些都必须上机才能回答，本阶段禁上机，故 ⑥ 不开。"
+
+[hardware.thermal.step.verify]
+done = false
+local_verified = false
+evidence = "没有可核验的产物：本阶段不写驱动代码，故无静态对照与单测对象。已做的只是与上游源码逐行对齐（docs/research/thermal/02-OFFICIAL-DOCS.md §2 的偏移表每一行都能在 tsens-v2.c:12-27 找到出处），那属于 ② 的证据，不算 ⑦。"
+
+[hardware.thermal.step.device]
+done = false
+evidence = "本阶段禁上机，从未在 6033dbec 上跑过任何 thermal 代码。"
+
+[hardware.thermal.step.device.prediction]
+success = "启动日志出现一行 thermal: tsens0 tm=0xc263000 srot=0xc222000 ver=<major>.<minor>.<step> ctrl=0x...1，随后 32 个传感器各有一行读数，全部落在 -40..160℃ 内且同一传感器相邻两次采样差 <20℃。"
+failure = "出现 thermal: device not enabled（SROT_CTRL bit0 = 0，说明 XBL 没使能 tsens）；或 32 个 STATUS 的 bit21（VALID）全为 0；或任一读数越出 -40..160℃、或相邻采样跳变 >20℃（撕裂读）；或根本打不出 ctrl 行（映射失败）。"

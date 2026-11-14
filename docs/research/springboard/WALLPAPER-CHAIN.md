@@ -108,8 +108,8 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 | 判据 | 当前 | 依据 |
 |---|---|---|
-| 上机日志不再有 wallpaper SKIP | ✗ 未达标 | `gpu-keys-notes.txt:19-20` |
-| SpringBoard 后壁纸可见 | ✗ 未达标 | P-75 全黑；且设备 UI 库无壁纸选择代码 |
+| 上机日志不再有 wallpaper SKIP | ✗ 未达标（本次镜像未改 init 视图，SKIP 仍会出现；需 F2+HEAD init 才能消除，见 §4） | `gpu-keys-notes.txt:19-20` |
+| SpringBoard 后壁纸可见 | ⏳ 待上机（springboard-20261114c 已把壁纸选择代码编进镜像，`strings boot.img` 自证；需 `k60_wallpaper_reset=1` 一次） | P-75 全黑；§5.1 |
 | 换壁纸重启能进系统 | 未验证 | 无当次日志 |
 
 ---
@@ -149,6 +149,26 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - 嵌入 blob 校验：113,472 B，sha256 `8e37468e…`（与 dylib 逐字节相同）；strings 37 条 "Pong UI:"，含 `Pong UI: wallpaper existing-content=%d restore-stock=%d (1=present -1=unavailable)`、`Pong UI: submitting genuine wallpaper 7410 native lock+home path=%s`、`/Library/Wallpaper/Stills/iPad/7410.WWDC_2022-1024w-1366h@2x~ipad.wallpaper`。
 - 门禁：`PYTHONIOENCODING=utf-8 python3 scripts/check-blob-patches.py` → 警告 "0340 … 与最近一次上机基线的值不同（59b4900111c5 != 72371a041569）"，分支 `feat/springboard` 判 warning，**通过**。上机后需在 `docs/engineering/MAIN-BASELINE.toml` 更新 blob_sha256（铁则 9）。
 - 构建产物只动了 `patches/xnu/0340-k60-uilib-deploy.patch`（`git status --porcelain` 仅 ` M` 一行）。
+
+### 5.1 strict 构建（2026-11-14 21:46，springboard-20261114c）
+
+- 命令：`K60_OUT=/opt/k60/trees/springboard-out K60_DEVICE_INPUT=/opt/k60/trees/springboard-device K60_EIGHT_STEP_ITEMS=springboard bash scripts/build-strict.sh springboard-20261114c --fd /mnt/e/k60-work/artifacts/fd/gpu-20261114n-cf4485712c29.fd`。
+- 结果：`BUILD_EXIT=0`；kernel `95fe8809…` 105,480,192 B；payload kernel `e4f13116…`；`boot.img` `3ada9562…` 201,887,744 B；`verify-boot-image: OK`；`image-arg-audit: OK (29 arguments, 575 bytes)`；frozen-before/after 一致。
+- **判据自证**：`strings -a boot.img | grep -c "Pong UI:"` = 39（旧 28）；命中 `Pong UI: wallpaper existing-content=%d restore-stock=%d`、`Pong UI: submitting genuine wallpaper 7410 native lock+home path=%s`、`/Library/Wallpaper/Stills/iPad/7410.WWDC_2022-1024w-1366h@2x~ipad.wallpaper` ⇒ **F1 的壁纸选择代码确实进了本次镜像**。
+- 构建期间排除的两处跨树污染（都写进了仓库）：`scripts/tests/test-series-source.py` 的 P-194 假红（共享 artifacts 目录里最新的 224 补丁 manifest 把 223 补丁的树判红，改为"优先取与本仓库 series 一致的 manifest"）；`/opt/k60/trees/springboard-out` 从 lead-out `cp -a` 播种时带进来的 141 个引用 `/opt/k60/trees/lead-out` 的旧对象文件（`make[7]: No rule to make target …/lead-out/…/nx_netif_gso.c`），删除 `tree/build/{xnu,native-ufs,storage-abi}` 后重建通过。
+- 产物：`/mnt/e/k60-work/artifacts/springboard-20261114c/boot.img`、`build-manifest.json`（components: kernel_built `95fe8809…`、boot_img `3ada9562…`、fd `cf448571…`）、`fd/springboard-20261114c-cf4485712c29.fd`。**未上机**（用户铁则：boot 由 Lead 执行）。
+
+---
+
+### 5.2 三条 SpringBoard 噪声的初查（低优先，逐个排）
+
+| 噪声（原文） | 初查结论 | 证据 |
+|---|---|---|
+| `_applyBackdropViewSettings error: invalid size: (0.33 x 0.33)` | **未定位**。SpringBoard 二进制里没有该字符串（日志来自私框架或 UIKit 断言），0.33 = 1/3，像 point/pixel 比例或约束求解退化；需要带 `kern.pong_diagnostic` 的当次日志才能定位调用栈。 | `docs/research/evidence/springboard-truth.txt:109-113`；`/tmp/osx/System/Library/CoreServices/SpringBoard.app/SpringBoard` strings 无命中 |
+| `Unbalanced calls to begin/end appearance transitions for <SBCoverSheetPrimarySlidingViewController>` | **未定位**。属锁屏/通知中心滑块的转场计数告警；与"进不去系统"无因果，但在 `present_home observe-only` 路径下出现（`:3502`），说明 cover sheet 在无人操作时也在跑转场——值得与锁屏策略一起查。 | `springboard-truth.txt:109-113`、`:3499-3502` |
+| `Failed to Soft Linked: /System/Library/Frameworks/CarKit.framework/CarKit` | **已定位（路径不存在，非权限问题）**：20G81 OS 窗里 CarKit 只有 **PrivateFrameworks** 路径（55 条命中），`System/Library/Frameworks/CarKit.framework` **0 条命中**；backboardd 二进制里硬编码的 `/System/Library/PrivateFrameworks/CarKit.framework/CarKit` 存在，但 SpringBoard 侧按公开路径软链失败。可用 `ui_compat` 的 `dlopen` 钩子把公开路径重定向到私有路径消除噪声（不影响功能）。 | `7z l /opt/k60/osroot/os.raw`：`System/Library/PrivateFrameworks/CarKit.framework` 存在、`System/Library/Frameworks/CarKit` 计数 0；`strings backboardd` 命中私有路径 |
+
+> 三条都**不是**壁纸纯黑的原因：壁纸链的断点在 §2.2（视图从未挂上）与 §2.5（设备 UI 库无选择代码），与本组噪声无交集。按用户指示记录后逐个排。
 
 ---
 

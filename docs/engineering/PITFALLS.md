@@ -4822,3 +4822,36 @@ return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), ...}
 
 **Check.** 比内核身份时 `python3 -c "import json;print(json.load(open('<tag>/build-manifest.json'))['components']['payload_kernel'])"`，
 或直接 `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho k && sha256sum k`。
+
+## P-201 — 绕过 build-strict.sh 造的对照镜像，证据等级自动降一级
+
+**现象.** wifi 线的 `wifi-20261116a2` 是"对照镜像"：65,978,368 B 内核、
+`pong_wifi=0`、无 MHI 注入，本来是摘掉 wifi 驱动这个变量的干净对照。但它的
+`build-manifest.json` 只有四个键（tag / note / components / kernel_args），
+**没有 series / repo / frozen / gates**，note 写着
+`trial build outside build-strict.sh (flash gate blocked by the touch line)`。
+
+**为什么这是问题.** 没有 series 指纹，就无法证明这张镜像用的是哪一套补丁；
+没有 gates 记录，就无法知道八步门禁当时是过还是被绕过。上机之后如果它死了，
+你无法排除"它其实是另一套源码"，于是这个对照什么也证明不了——白烧一次窗口。
+
+**背景（当时的正当理由）.** 造 a2 时八步 `--flash` 门禁被触摸线卡住（触摸 ⑦⑧
+未完成），`build-strict.sh` 直接拒绝，只能手工打包。这个理由在**当时**成立，
+但产物必须被标记成低等级证据，而不是当普通镜像用。
+
+**修法.**
+- 手工打包的镜像一律在 tag 里带 `-trial`，note 写清绕过了什么、为什么；
+- 判定器/对账脚本看到没有 `series` 键的 manifest，就把结论降级成
+  "结构性观察"，不许当作"变量已隔离"的证据；
+- 门禁恢复后，同一个对照必须用 `build-strict.sh` 重出一张，用新镜像做判决；
+- 遮挡门禁的线（这次是触摸）修好后，回头把 trial 镜像重新出成正式镜像。
+
+**教训.**
+- "证据等级"不是抽象概念：manifest 里少了哪几个键，就少了哪几种反驳能力。
+  没有 series 指纹 = 无法反驳"源码可能不同"。
+- 绕过门禁时留的 note 会救你一次，但它只说明"为什么绕过"，不说明"结果可信"。
+- 对照实验的成本是窗口，不是构建时间；用一张身份不可复核的镜像去换一个窗口，
+  是亏的。
+
+**Check.** `python3 -c "import json;print(sorted(json.load(open('<tag>/build-manifest.json'))))"`
+—— 缺 `series` 就是 trial 级。

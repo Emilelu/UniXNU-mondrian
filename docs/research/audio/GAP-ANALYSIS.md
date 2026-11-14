@@ -112,7 +112,7 @@ Pong 实际用: 0x85700000 + 0x2800000 (PongAdsp.cpp:45)
 
 | # | 要做的事 | 步 | 依赖 | 现在能不能做 |
 |---|---|---|---|---|
-| 1 | 修 `adsp-base`/`adsp-size` → `0x9fd00000`/`0x03100000`；填 8 个 DT 值（amp 0x34/0x35、amp reset 1/3、irq 88/63、spksw 52、codec reset 43、codec-supply pm8350_s10、TDM clk 0x177000=1.536 MHz / tx-lines=3 / dev-id=2、TDM 引脚 121/123/122/124）| ③⑥ | live FDT 已有值 | **能**（`tx-core-clock-id` 缺，需读 K60 Android audio-kernel）|
+| 1 | 修 `adsp-base`/`adsp-size` → `0x9fd00000`/`0x03100000`；填 8 个 DT 值（amp 0x34/0x35、amp reset 1/3、irq 88/63、spksw 52、codec reset 43、codec-supply pm8350_s10、TDM clk 0x177000=1.536 MHz / tx-lines=3 / dev-id=2、TDM 引脚 121/123/122/124） ⚠️ 引脚 121/123/122/124 与 tx-lines=3/dev-id=2 属 **tert** 那套；扬声器走 **PRI**：gpio126(sck)/129(ws)/127(din)/128(dout)、AFE 端口 0x9000、组 0x9100 —— 见 `TDMS.md` §0/§2| ③⑥ | live FDT 已有值 | **能**（`tx-core-clock-id` 缺，需读 K60 Android audio-kernel）|
 | 2 | 修 `io_submap` 8 MiB 预算（P-63）| ⑦前置 | P-63 修复方案 | **能**（未做）|
 | 3 | PAS1 owner：移植 `PongAdsp.cpp:523-600`（SCM `PAS_INIT_IMAGE`→`MEM_SETUP`→分段 load→`AUTH_AND_RESET`；PAS id 1；SMP2P 443/429/423；GLINK 478/479/480；IPCC LPASS）| ⑤⑦ | SCM PIL + `adsp.mbn` + `adsp.b02..b36` | **缺固件**（本机 find 0 命中，须从 K60 `/vendor/firmware_mnt/image` 取）|
 | 4 | SMP2P + GLINK + IPCC 通道 | ⑦ | PAS1 完成 | 缺 PAS1（QcomGlink.c 已有）|

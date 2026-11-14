@@ -85,6 +85,7 @@ docs/
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `audio/CODEC.md` | **音频 codec 侧**：WCD938x 同型判定、live FDT 逐条、供电 rail 表、DT 映射表 |
 | `audio/SOUNDWIRE.md` | **音频 SoundWire 侧**：宏与 SWR master 地址、寄存器表、PRM 前置、io_submap 预算 |
+| `audio/TDMS.md` | **音频 TDM 布线**：扬声器走 PRI_TDM_RX_0（AFE 0x9000 / 组 0x9100）、PRI_TDM 引脚 gpio126/129/127/128 与 funcs 下标编码、AFE 参数结构体与启动顺序、dai-tdm DT 逐字、与 phk110 的差异、留给 PAS1 线的接口清单 |
 | `audio/AMPS.md` | **音频功放侧**：AW882xx 判定、GENI I2C 路径、探针方案 A1–A7、上机 run 1、A5 选型与 ACF 配置档（§8）、寄存器回放层（§9）、run 2 判据 `judge-audio-capture.py --replay`（§9.6） |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |

@@ -870,7 +870,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
   两颗芯片跑完仍是「配置正确但不出声」。
 - **不读 ACF 文件**：表在编译期就在代码里（`PongAudioAmpProfile.h`），因为内核侧没有文件系统可用；
   ACF 的构建期抓取仍是 §8.9 第 2 条。
-- **不碰 LPASS**：TDM/MI2S 前端与 ADSP 图是 Lead 的 PAS1 线。
+- **不碰 LPASS**：TDM/MI2S 前端与 ADSP 图是 Lead 的 PAS1 线。K60 侧的事实清单（PRI_TDM_RX_0、引脚、AFE 参数、dai-tdm 节点）整理在 `TDMS.md`。
 
 这一层的意义是：等 PAS1 与 TDM 通路到位时，「写寄存器」这段不再是未验证的新代码，而是已经在设备上
 跑过一遍、每一步都有回读记录的东西；剩下的只是把它接到 start 序列与音频帧上。

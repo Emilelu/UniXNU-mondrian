@@ -216,7 +216,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ## 6. 未决问题 / 下一步
 
-1. **找 Lead 引用的 console.log**（528-529/2241/2247/2257）——本工作区无此文件，需 Lead 提供路径；否则"换壁纸进不去系统"只能停留在候选机制。
+1. **"换壁纸后进不去系统"的 console.log：不再等待**（Lead m01860 裁决）。Lead 在 `E:\k60-work\evidence`、`E:\hackios\*`、`E:\k60-ios` 按 `SB<100 行 + backboardd crashed` 扫过一遍，只有 Lead 自己采集的 30 份 `usblog-*`，用户说的那次发生在 yibiya 侧、日志在用户手里 ⇒ 按「已知现象、无证据」处理，本线按 F1/F3 推进，该链只能停留在候选机制（§2.7）。
 2. 设备上 bindfs 的实际返回值需 `Pong init: boot view … result=` 行确认（P-27 是另一次量测）。
 3. F2 复查：0616 把 0401 的 installer 调用换成 34,904 B 旧助手（P-182），F2 的 52,456 B init 与 varpack 是死代码（§4 F2 复查、P-197）。生效项是 F3（0618：内核预置目录 + 复制 catalog），与 F1 一起进 springboard-20261114e（§5.4，已构建自证）；上机后按 §3 三行判据核对，重点抓 `K60WALL catalogue …` 与 `Pong init: boot view …` 两组日志。
 4. 上机（交 Lead，用户明确同意后执行）：刷 0340 新 blob + `k60_wallpaper_reset=1` 启动一次；抓 `Pong UI: wallpaper …` 与 `Pong init: boot view …` 两组日志。

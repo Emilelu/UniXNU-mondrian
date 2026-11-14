@@ -27,10 +27,14 @@ import os
 import subprocess
 import sys
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FW_REPO = '/mnt/e/hackios/UniXNU'
+REPO = os.path.abspath(os.environ.get('K60_REPO')
+                      or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 兄弟检出与本仓库同级；K60_FRAMEWORK_REPO / K60_UEFI_REPO 可覆盖（hard-39）
+FW_REPO = os.path.abspath(os.environ.get('K60_FRAMEWORK_REPO')
+                          or os.path.join(os.path.dirname(REPO), 'UniXNU'))
 FW_COPY = '/opt/k60/trees/k60build'
-UEFI = '/mnt/e/hackios/uefi-mondrian'
+UEFI = os.path.abspath(os.environ.get('K60_UEFI_REPO')
+                       or os.path.join(os.path.dirname(REPO), 'uefi-mondrian'))
 FD = UEFI + '/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd'
 BUILD = '/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian'
 MANIFEST = REPO + '/build-manifest.json'

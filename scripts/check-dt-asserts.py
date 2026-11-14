@@ -65,10 +65,11 @@ def profile_properties(repo, node):
       dts            板级独有（pong-audio、ufshc）
     profile 是框架仓库的一部分，路径按优先级查找。
     """
+    # 框架检出与本仓库同级；K60_FRAMEWORK_REPO 可覆盖（hard-39）
+    fw = os.environ.get('K60_FRAMEWORK_REPO') or os.path.join(repo, '..', 'UniXNU')
     CANDIDATES = [
         '/opt/k60/trees/k60build/profiles/os',
-        '/mnt/e/hackios/UniXNU/profiles/os',
-        os.path.join(repo, '..', 'UniXNU', 'profiles', 'os'),
+        os.path.join(fw, 'profiles', 'os'),
     ]
     try:
         import tomllib

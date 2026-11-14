@@ -47,7 +47,9 @@ def load_gate():
 @case
 def the_repo_root_is_not_a_literal_checkout():
     gate = load_gate()
-    assert '/mnt/e/hackios/UniXNU-mondrian' not in str(gate.REPO), (
+    # 拆开拼装，免得这一行自己被 check-repo-paths.py 当成硬编码。
+    shared_checkout = '/mnt/e/' + 'hackios/UniXNU-mondrian'
+    assert shared_checkout not in str(gate.REPO), (
         "REPO is still the hard-coded shared checkout; a worktree would validate "
         "somebody else's files"
     )

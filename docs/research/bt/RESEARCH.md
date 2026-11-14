@@ -198,6 +198,7 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 - ⑥ 深挖：`docs/research/bt/06-DEEP-DIVE.md`——对 0500 的 `bsd/dev/qbt_k60.c`（1,249 行，抽取值 sha256 `8451c870…`）逐行对照 Linux GENI/clk 源与官方 QcaBluetooth，给出**已验证 11 项（V1–V11）**与**偏差 10 项（F1–F10）**。其中三项必须在 S2 前定性：**F1** GENI DMA 拿虚拟地址当物理地址、SMMU 流 0x483 未 bypass；**F2** 0x2ac（`G_MANUAL_RFR`）被写成组件从不使用的 `0x80000001`（组件只写 0 或 `0x80000002`）；**F3** `k60_stop_engine()` 轮询的 0xe40 在两个 GENI 头文件里都不存在，若读出非零会恒定 `-ETIMEDOUT`。
 - 补丁（S1c）：`patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch`（13,001 B / 280 行，sha256 `05dd342b…b2e1`）——先延迟 20 s 让控制台活着，再在每个寄存器访问**之前**打点，9 个可分子步（s5–s7 是新增的 SE20 RCG 根时钟三档，对应 F11）；0x2ac / 0xe40 / 0xc40 / 0xd40 的读专为 F2/F3 设计。
 - **已接入构建**：`patches/xnu/0507-k60-bt-readonly-probe.patch` + `patches/xnu/series:205`（0502 之后、0503 之前），`patches/bt/` 仍只作本线存档；接线选项 A/B 的讨论保留在 `patches/bt/README.md` 与 SPEC §6。
+- 补丁（S3 身份与发布）：`patches/bt/0003-k60-bt-s3-identity-publish.patch` = `patches/xnu/0509-k60-bt-s3-identity-publish.patch`（10,265 B / 304 行，sha256 `429630d6…8edf`，198 增 / 11 删）：把 0500 的弱符号空壳 `k60_bt_local_address()` 换成**强定义**（`/chosen/unique-chip-id` + FNV-1a 域 `unixnu-bluetooth` → 本地管理 MAC，失败 fail closed），新增 `iokit/Kernel/MiniBluetooth.cpp`（164 行）在 `native_pong_ui_services_start()` 里建/补 `/arm-io/bluetooth` 节点、写 `local-mac-address` 与 `/chosen/mac-address-bluetooth0`、发布名为 `bluetooth` 的 IOService；整条路径由 `k60bt=1` 门控。规格：`docs/research/bt/S3-SPEC.md`。
 - 补丁（S2 前置修复）：`patches/bt/0002-k60-bt-s2-smmu-rcg-reset.patch` = `patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch`（18,393 B / 391 行，sha256 `c4bf1ded…d4f2`），把 **F1**（DMA 物理地址 + SMMU 流 0x483 bypass）、**F11**（SE20 RCG 根时钟）、**F3**（0xe40 轮询 → 0xc40/0xd40 的 RESET_DONE）、**F12**（set_rate 末尾等 CBCR halt）一次修完；规格与判据见 `docs/research/bt/S2-SPEC.md`。
 
 ### 5.4 S1a 上机实测（2026-11-14 04:51）：不可判定，但换来一条硬事实
@@ -216,6 +217,14 @@ S1a 之后读到的**反面证据**：`E:/k60-work/evidence/usblog-20261114-touc
 最可能的前置条件就是 SE20 的 RCG 根时钟：0500 的 `k60_gcc_set_se_rate()`（`qbt_k60.c:435-466`）只写 M/N/D + CFG + `CMD_UPDATE`，**从不置 `CMD_ROOT_EN`、从不轮询 `CMD_ROOT_OFF`**；而 Linux `clk_rcg2.c:64-75` 判定 RCG 使能的唯一依据就是 `(cmd & CMD_ROOT_OFF) == 0`，`clk_rcg2_set_force_enable()`（:981-1002）正是先置 ROOT_EN 再轮询。触摸线的可用序列（`patches/xnu/zzzz…-pong-touch-console.patch:307-339`）完整走了 ROOT_EN → 等 ROOT_OFF 清零 → 写 CFG → ROOT_EN|UPDATE → 等 UPDATE/ROOT_OFF → CBCR 就绪轮询，最后才 map SE。
 
 于是 S1c 在原有探针里插了三档**纯 RCG** 子步（s5 只读、s6 置 ROOT_EN、s7 写 CFG 并 latch），把「映射/投票/根时钟/首条 GENI 读」四件事拆成可以分别判死的档位；补丁与 SPEC 已更新（`S1-PROBE-SPEC.md` §2/§4/§8，sha256 `05dd342b…`，13,001 B / 280 行，APPLY_CHECK_OK + clang PASS）。上机顺序 A1(step=1) → A2(step=4) → A3(step=5) → A4(step=7) → A5(step=9)。
+
+### 5.6 S3：把「用户态看不见蓝牙」这件事单独修掉
+
+`bt-s1-20261114a` 那次健康启动的日志（`E:/k60-work/evidence/usblog-20261114-bts1-run1/console.log:1249-1260`）给出了 S3 的全部依据：`Unable to match bluetooth service in device tree.` / `Not a valid MAC address (all 00s).` / `No bluetooth on this device.` —— 三行分别对应「设备树没有 `device_type=bluetooth` 子节点」「没有 MAC」「没有名为 `bluetooth` 的 IOService」。0500 对这三件事只留了一个弱符号空壳，所以**即使 S1/S2 全绿，worker 也会停在 `-ENOENT`，`qbt_boot()` 不会被调用**。
+
+S3 照 sheng `BluetoothProbe.cpp:222-264` 的做法补齐（同一域 `unixnu-bluetooth`、同一 FNV-1a 常量、同一 `(addr[0] & 0xfe) | 2` 本地管理位），并照本树 `publishDisplayNode()`（`…-pong-hackios-ui-foundation.patch:3330-3365`）的写法把节点挂到 `/arm-io`。挂在 `native_pong_ui_services_start()` 里是因为 `bsd_init.c` 的 `bsd_autoconf()` 中它比 `k60_usblog_start()`/`qbt_k60_start()` 更早，而 bluetoothd 要再晚约 850 行控制台（`console.log:995`）。
+
+**当前仍缺平台种子**：`board.toml:218` 只有 `chip_id = "8015"`，没有 `unique_chip_id`，构建出的 `hardware.dtb` 里没有 `/chosen/unique-chip-id`，所以现在上机只会打印 `K60 BT: no platform identity (-2); bluetooth not published`（fail closed，行为与今天一致）。补种子的两条路写在 `S3-SPEC.md` §4。
 
 ---
 
@@ -303,6 +312,7 @@ required = [
    - 按铁则 8 报备：这两条是**基线门禁问题**，不要为了让门禁变绿去改判定；`research-gate.py`（32 项）与 `check-docs.py`（187 项）在 `f119a80` 上均已通过。
 9. **S1 探针已过 ⑦ 本地静态检查**：补丁 `patches/bt/0001-k60-bt-readonly-probe.patch` sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1`（13,001 B / 280 行 / 2 hunk，36 个打点、9 个子步）；对 0500 抽出的完整树执行 `git apply --check` 通过，再用 out3 构建记录的 `.CFLAGS` 跑 `clang -target arm64-apple-ios16.0 -fsyntax-only` **0 error**。细节与日志路径见 `S1-PROBE-SPEC.md` §8。
 10. **⑥ 深挖的 F1/F3/F11/F12 已在离线状态修完**（2026-11-14，`patches/xnu/0508`，见 `S2-SPEC.md`）：SMMU 流 0x483 的 bypass planner + `kmem_alloc_contig`/`pmap_find_phys` 落在 `qbt_k60.c` 内（选项 b，不动 `bsd/conf/files`）；`k60_gcc_set_se_rate()` 补 `CMD_ROOT_EN`/`ROOT_OFF` 并返回 halt 轮询；`k60_stop_engine()` 改用 0xc40/0xd40 的 `RESET_DONE`。⑦ 记录：`git apply --check` 通过、`clang -fsyntax-only` 0 error。
+12. **S3 身份与发布已接入构建**（2026-11-14，`patches/xnu/0509` + `series:207`，见 `S3-SPEC.md`）：`bsd/dev/qbt_k60.c` 的弱 `k60_bt_local_address()` 变强（`/chosen/unique-chip-id` → FNV-1a → 本地管理 MAC），新增 `iokit/Kernel/MiniBluetooth.cpp` 发布 `/arm-io/bluetooth` 节点与 `bluetooth` IOService，整条路径 `k60bt=1` 门控。⑦ 记录：干净树 `git apply --check` OK；`clang -fsyntax-only` 两个文件均 0 error。**需要 Lead 在 `board.toml` 给 `unique_chip_id`（或构建时设 `UNIXNU_UNIQUE_CHIP_ID`），否则只会打印 `no platform identity`**；`transport-speed` 暂照 sheng 写 3200000，S5 实测 `ctl_register … speed=` 后按真值改一行。
 11. **⑥ 深挖已完成，结论是「S1 必须先跑，且 S1 扩大了」**：逐行评审见 `docs/research/bt/06-DEEP-DIVE.md`。2026-11-14 又用离线证据关掉两条：**F2 已解除**（`0x80000001` 不是自创值，官方 sheng 后端 `UniXNU-sheng/package/BluetoothProbe.cpp:202` 写的就是它，按 Linux `qcom_geni_serial.c:64-66` 的位定义解出来是「手动 RFR + RTS ready」，正是门控时钟下想要的状态）；**F1 的修法已定**（复用本树 `bsd/dev/k60_usblog.c` 里已在 K60 上跑通的 `smmu_plan`/`smmu_configure` + `kmem_alloc_contig`/`pmap_find_phys` 模式，把 stream 换成 FDT 的 `0x483`；助手是 `static`，所以在 `patches/bt/` 内复制一份即可，不动 `bsd/conf/files`）。F3 与 F11 随后也按源码证据直接修进 `0508`（不再等设备读数），S1c 的 `rsvd_e40` 与 s5/s6/s7 三档现在用来回答「S1a 到底死在哪一步」，而不是「要不要修」。
 
 ---
@@ -331,7 +341,8 @@ ls -l /mnt/e/k60-work/firmware/qca6490/
 - 硬参数（UART/IRQ/引脚/GPIO/流控/协议/速率）**全部有 M 级证据**，不需要再猜任何地址或引脚。
 - 软件栈有**官方组件 + 已 staged 的内核补丁**，本线的工作不是从零写驱动，而是「分级验证 + 固件 + 用户态」。
 - 最大风险不在蓝牙本身，而在 **QUPV3_2 的首次 GENI 访问**（与触摸/音频同一类死机）。因此 S1 必须先做、必须能一读就退。
-- 下一步（本线）：**S1c 只读探针已接入构建**（`patches/xnu/0507` + `series:205`，9 子步 / 36 打点），**S2 前置修复也已接入**（`patches/xnu/0508` + `series:206`，修 F1/F11/F3/F12，见 `S2-SPEC.md`），等一次物理断电复位后的五档上机；判据看「最后一行 `probe: sX`」（§5.4 记录 S1a 的 0 字节日志，§5.5 记录触摸线反证与 RCG 假设）。
+- 下一步（本线）：**S1c 只读探针已接入构建**（`patches/xnu/0507` + `series:205`，9 子步 / 36 打点），**S2 前置修复也已接入**（`patches/xnu/0508` + `series:206`，修 F1/F11/F3/F12，见 `S2-SPEC.md`），**S3 身份与发布也已接入**（`patches/xnu/0509` + `series:207`，见 `S3-SPEC.md`），等一次物理断电复位后的五档上机；判据看「最后一行 `probe: sX`」（§5.4 记录 S1a 的 0 字节日志，§5.5 记录触摸线反证与 RCG 假设，§5.6 记录 S3 的三处缺失）。
+- 阻塞项不在代码：S3 的 MAC 需要 `board.toml` 里的 `unique_chip_id`（Lead 写权限），`transport-speed` 的 3200000/3000000 之争要等 S5 实测。
 
 ## 12. 证据来源清单（SOURCES 口径）
 

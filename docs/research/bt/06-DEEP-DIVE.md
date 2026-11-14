@@ -30,6 +30,7 @@ blocked S1 and is now fixed in the probe, and one was resolved offline on 2026-1
 | **F2** | `G_MANUAL_RFR` (0x2ac) is written with a value the component never uses | **resolved**: it is `0x80000001` in the official sheng backend (`BluetoothProbe.cpp:202`), decoded = manual RFR + RTS ready |
 | **F3** | `k60_stop_engine()` polls offset 0xe40, which exists in no GENI header | **fixed in `0508`**: polls `TX_RESET_DONE`/`RX_RESET_DONE` of 0xc40/0xd40 instead |
 | **F11** | the SE20 RCG root is never enabled (`CMD_ROOT_EN`/`CMD_ROOT_OFF` missing) | **fixed in `0508`** for the real path (S1c rungs s6/s7 still decide whether it was the S1a hang) |
+| **F13** | nothing publishes the controller: the local address is a weak stub returning `-ENOENT`, and no `/arm-io/bluetooth` node or `bluetooth` IOService exists | **fixed in `0509`** (§F13; `patches/bt/0003`, spec `S3-SPEC.md`) — the MAC still needs a platform seed in `board.toml` |
 
 Consequence: F1, F3, F11 and F12 are now fixed offline in `patches/xnu/0508` (spec:
 `docs/research/bt/S2-SPEC.md`), so S2 no longer waits on device data. S1c still runs first because it is
@@ -311,13 +312,41 @@ the baseline values).
 `return k60_gcc_wait_halt(K60_GCC_WRAP2_SE20_HALT)`, so a rate that never reaches the SE20 branch is a
 returned error instead of a silent success.
 
+### F13 — nothing publishes the controller, so the worker cannot even reach `qbt_boot` (fixed in `0509`, blocker for S3, new 2026-11-14)
+
+`0500` ships exactly one board hook for the identity, and it is a fail-closed stub
+(`0500:300-305`): `__attribute__((weak)) int k60_bt_local_address(uint8_t address[6]) { (void)address; return -ENOENT; }`.
+The worker (`qbt_k60.c:1714-1728`) therefore stops before `qbt_boot()` on every real boot:
+`e = k60_bt_local_address ? k60_bt_local_address(k60.address) : -ENOENT;` → `-ENOENT`.
+Nothing in `0500` reads `/chosen/unique-chip-id`, creates an `/arm-io/bluetooth` node, writes
+`local-mac-address` or `mac-address-bluetooth0`, or publishes an `IOService` named `bluetooth`.
+
+The device agrees: the healthy `bt-s1-20261114a` boot prints, in a repeating block,
+`marconi-bt: Unable to match bluetooth service in device tree.`, `Not a valid MAC address (all 00s).`
+and `bluetoothd: No bluetooth on this device.` (`E:/k60-work/evidence/usblog-20261114-bts1-run1/console.log:1249-1260`).
+So even a perfectly working SE20 would be invisible to userland.
+
+**Fix landed (2026-11-14, `patches/xnu/0509`, spec `S3-SPEC.md`):** the weak stub became a strong
+definition (SecureDT read of `/chosen/unique-chip-id`, FNV-1a over the domain `unixnu-bluetooth` with
+the same constants as sheng `BluetoothProbe.cpp:222-264`, `address[0] = (address[0] & 0xfe) | 2`,
+fail closed on a missing or all-zero seed), and a new `iokit/Kernel/MiniBluetooth.cpp` publishes the
+`/arm-io/bluetooth` node (created if the device tree lacks it), both MAC properties, and a
+`K60BluetoothRadio` `IOService`. The publish hook is called from `native_pong_ui_services_start()`,
+which `bsd_init.c` runs before `k60_usblog_start()`/`qbt_k60_start()` — roughly 850 console lines
+before `xpcproxy /usr/sbin/bluetoothd`. Everything is gated on `k60bt=1`.
+
+Still open on the Lead side: `board.toml` carries no `unique_chip_id`, so the built `hardware.dtb`
+has no `/chosen/unique-chip-id` and the hook logs `K60 BT: no platform identity (-2); bluetooth not published`
+instead. `transport-speed` is published as 3200000 (sheng's value) while `K60_BT_RUN_BAUD` is 3000000 —
+one constant to reconcile after S5 measures `[bluetooth sk] ctl_register … speed=`.
+
 ## 4. Deliberately absent (dependencies, not defects)
 
 | item | why absent | owner |
 |------|-----------|-------|
 | PMIC rail voter (S10/S11/S12, PM8350C S1, PMR735A L7) | RSC must never be read; cold boot returns `-EOPNOTSUPP` (`0500:1009-1014`) | UEFI/bootloader voter, or a future RSC-safe path |
-| board-local BT address | weak `k60_bt_local_address()` (`0500:269,275`); `qbt_boot` rejects all-zero | board integration (`dts/mondrian.dts` ADT node) |
-| DT node for the controller | `dts/mondrian.dts` has no `bluetooth` node; properties would be dead (P-147 class) | Lead (handoff in `RESEARCH.md` §9) |
+| board-local BT address | weak `k60_bt_local_address()` (`0500:269,275`); `qbt_boot` rejects all-zero | **now implemented in `0509`** (F13); the seed itself still needs `board.toml unique_chip_id` (Lead) |
+| DT node for the controller | `dts/mondrian.dts` has no `bluetooth` node; properties would be dead (P-147 class) | **`0509` publishes it in the registry**; the ADT/`board.toml` copy is optional belt-and-braces (Lead, `S3-SPEC.md` §4.3) |
 | BlueTool / Type0 staging | needs the iOS-SDK toolchain + 20G81 `bluetoothd` hash | LAN Mac, S5 |
 | SMMU stream 0x483 | see F1 — **now installed by `0508`** (`k60_smmu_bypass`) | done in `patches/bt/0002` |
 

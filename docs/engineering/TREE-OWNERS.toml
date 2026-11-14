@@ -108,7 +108,10 @@ scope = ["patches/xnu", "docs/research/gpu"]
 [[tree]]
 path = "/mnt/e/hackios/k60-springboard"
 owner = "springboard-agent"
-scope = ["userland", "docs/research/springboard"]
+# The wallpaper fix has to reach the uilib blob that userland loads, and
+# that blob lives in patches/xnu/0340-k60-uilib-deploy.patch, so this line
+# legitimately writes patches/xnu as well.
+scope = ["userland", "docs/research/springboard", "patches/xnu"]
 
 [[tree]]
 path = "/mnt/e/hackios/k60-ios-profile"

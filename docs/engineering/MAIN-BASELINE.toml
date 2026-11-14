@@ -94,3 +94,15 @@ note = "2026-11-14 15:09 触摸真机通过：goodix COORD-ON ack=80 之后出�
 "patches/xnu/0340-k60-uilib-deploy.patch" = "72371a041569b55d0441bef4b0f944121fbbeca8b409d4e296ae992cfe4a962f"
 "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch" = "46859581bd63d3dfebd85fedbb59416ab8620b99709dfe953b57dd85e4932143"
 "patches/xnu/0610-k60-metal-plugin-deploy.patch" = "76ea30e5019eed68e7cf6dafe8d8fbacabeba19f783df2e13dd756bce28dfae4"
+
+[[entry]]
+sha = "3c69c80"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "把 [payload.adt] owned_memory_size 从 0x130000000 降到 0x120000000（wifi 线 §5.16 预算：65.9 MB 内核 + 51,278,451 B Metal 插件在 4.75 GiB 窗口只剩约 16 MiB，MHI 还要 DMA arena）。代价是 XNU 少 256 MiB；固件实测 arena [0x900000000,0xa40000000) 仍包住新窗口。登记原因是该提交碰了 board.toml（铁则 9）。欠账：还没有在这个窗口上启动过的镜像，gpu-20261114r 起才有。"
+
+[[entry]]
+sha = "92c9251"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "修 scripts/gen-k60-metal-blob.py 的 k60_metal_blob_len：原来只加 body 原始大小，漏掉 .p2align 3 的填充，于是最后一项 PongAdrenoMetal.publish 的 offset 越出容器长度，真机报 K60METAL entry 5 body out of range / deploy files=5/6 error=22（P-196）。改为用同一个 cursor 算长度，并新增 scripts/check-metal-blob.py 门禁与 8 例测试。登记原因是该提交碰了 scripts/build- 与 patches 相邻的生成链（铁则 9）。欠账：修好后的镜像尚未上机，判据是 K60METAL deploy files=6/6 且不再出现 software-only platform。"

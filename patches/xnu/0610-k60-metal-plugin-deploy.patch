@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/k60_metal.c
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,216 @@
 +/*
 + * 0610: deploy the Adreno Metal plugin onto the Data volume.
 + *
@@ -75,8 +75,10 @@
 +k60_metal_mkdir(const char *path, proc_t p, user_addr_t scratch)
 +{
 +	struct mkdir_args args;
++	struct unlink_args remove_args;
 +	user_addr_t name = scratch + 0x400;
 +	int32_t ret = 0;
++	int32_t removed = 0;
 +	size_t len = strlen(path) + 1;
 +	int error;
 +
@@ -86,6 +88,18 @@
 +	if ((error = copyout(path, name, len)) != 0) {
 +		return error;
 +	}
++
++	/* Repair state a previous build left behind: until 2026-11-14 this helper
++	 * used vnode_open(O_CREAT), which created a regular FILE where a directory
++	 * belongs, and that file survives on the Data volume across boots. mkdir
++	 * then answers EEXIST and every child open dies with ENOTDIR(20), which is
++	 * exactly what usblog-20261114-212253 showed. unlink() refuses a directory,
++	 * so this only ever removes the stale file. */
++	remove_args.path = name;
++	if (unlink(p, &remove_args, &removed) == 0) {
++		printf("K60METAL removed a stale file at %s\n", path);
++	}
++
 +	args.path = name;
 +	args.mode = 0755;
 +	error = mkdir(p, &args, &ret);

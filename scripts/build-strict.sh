@@ -66,6 +66,11 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
 M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
+# The kernel source the unixnu patch resolver checked out for this build. The
+# P-196 container gate below reads the generated assembly from here; without
+# this the script dies on an unbound variable under set -u, after the image is
+# already written.
+ROOT=$M/tree
 KERNEL=$M/kernel/kernel.macho
 
 # --- frozen inputs -----------------------------------------------------------

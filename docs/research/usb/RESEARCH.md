@@ -1347,3 +1347,35 @@ Lead（m04369）要求：本线 series 在合并前必须 rebase 到当前 `orig
 - h2 的 `repo.head = 3af05f7`，与 main 的 merge-base 是 `f119a80`：它建立在 main 之后 11 个提交之前，**不含** `3c69c80`（board.toml `owned_memory_size` 4.75→4.5 GiB 的内存窗口修复）与 `92c9251`（Metal container padding，P-196）等。
 - usb-20261115a 是 rebase 后（`877e375`）的产物：含 main 的全部 11 个提交，series 230 条与仓库完全一致，且 `.config` 与 defconfig 一致。
 - 若 Lead 的上机队列仍用 h2，需要知道这一 provenance 差异；usb-20261115a 提供同一份 0410 代码但基线更新、配置完整。
+
+## 23.11 mode-2 上机验证 PASS 与镜像基线裁决（2026-11-15）
+
+上机由 Lead 执行（用户铁则：本线不自行 boot），用 `usb-20261114h2`（mode 2，即 `k60_usbvend=2`）。
+
+### 结果（Lead 回报原文要点）
+
+- COM5 在 6.5 s 后出现（`port COM5 appeared after 6.5s`）。
+- `sent=64 received=64`，回显逐字节一致（`echo matched byte for byte`）。
+- 证据：`E:/k60-work/evidence/usb-echo-20261115/echo.log`（150 B，UTF-16LE，两行：`port=COM5 sent=64 received=64` / `RESULT: PASS (echo matched byte for byte)`）。
+
+### 三条判据的对照（RESEARCH §23.3 / §15.5）
+
+| 判据 | 状态 |
+| --- | --- |
+| ① mode 2 保留控制台描述符（67 B 两接口 CDC-ACM），控制台仍应正常输出 | 未单独回报（Lead 只报了回环 PASS）；mode 2 复用 0409 的控制台描述符，未改结构 |
+| ② `docs/research/usb/echo-test.ps1` 在 COM 口跑 CDC 数据对回环（EP2→EP3） | **PASS**（64 字节逐字节一致，见上） |
+| ③ 日志里不得出现 EP6/EP7 传输错误 | 未单独回报；mode 2 不配置 vendor 端点（`ud.vend_ok` 为假），`ud_vendor()` 首行即 return，理论不可能产生 EP6/EP7 传输 |
+
+即：**P2-b 的回环通路在真实主机上被验证为可用**——这是 0410 的第一份端到端证据（此前只有编译产物里的字符串证据）。
+
+### 基线裁决（Lead m04649）
+
+- 以后以 **`usb-20261115a`**（boot.img `704fa9b2bb5ae52798406bc4a219c47efc3ba73f72bfb94a36cd12ae7535ff6f`）为新基线：它含 `3c69c80`（内存窗口 4.5 GiB）与 `92c9251`（Metal container padding，P-196），且 `.config` 与 defconfig 一致。
+- `usb-20261114h2`（repo.head `3af05f7`）是旧基线上的镜像，**不再用于后续上机**；本次 mode-2 结论仍然有效（0410 代码在两版中相同）。
+- `k60_usbvend` 白名单已由 Lead 合入 main（`97258d2` gate: admit k60_usbvend to the image command line），`IMAGE-ARGS-usb.fragment.md` 中该片不必再合。
+
+### 下一步（等 Lead 排期）
+
+- **EP6/EP7 vendor 端点验证需要 mode 1 镜像**：`k60_usbvend=1` = 98 B 复合描述符（IAD + IF2 vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN）+ EP6→EP7 回环。判据见 §15.4(c)：主机打开 IF2 写入字节，能从 EP7 读回。
+- 若走 mode 1，必须带 0408 的 8 槽 TRB 与 `transferResource` 收尾（vendor 端点用到 EP6/EP7 的 TRB 槽）。
+- main 现又前进 1 个提交 `a3d55d3`（gate: admit the modem probe and wallpaper-reset switches），只改镜像参数白名单，与本线 series、镜像无关，**无需立即 rebase**；下次出镜像前顺手对齐即可。

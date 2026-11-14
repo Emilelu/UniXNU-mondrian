@@ -57,7 +57,15 @@ SRC_TREE=$TREE/.cache/xnu-work
 KPI=$TREE/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/all-kpi.exp
 
 [ -d "$FR" ] || die "no fakeroot in $TREE (has that tree been built?)"
-[ -d "$EH" ] || die "no EXPORT_HDRS in $TREE"
+# EXPORT_HDRS is produced by the xnu make step, which on a cold tree runs AFTER
+# the kernel link line is assembled (build-xnu-4k-baseline.sh:1255 vs :896). The
+# fakeroot Kernel.framework headers are enough on their own (measured: the same
+# sources compile with only fakeroot Headers + PrivateHeaders), so treat
+# EXPORT_HDRS as an optimisation, never as a requirement.
+if [ ! -d "$EH" ] || [ "${K60_XNU_EXPORT_HDRS:-}" = none ]; then
+    echo "build-thermal-kext: WARNING: no EXPORT_HDRS in $TREE; using the fakeroot Kernel.framework headers." >&2
+    EH=""
+fi
 [ -d "$SRC_TREE" ] || die "no .cache/xnu-work in $TREE"
 if [ ! -f "$KPI" ]; then
     if [ "$ALLOW_NO_KPI" = 1 ]; then
@@ -106,12 +114,18 @@ echo "build-thermal-kext: target  $TARGET"
 #                      not lower to __cxa_atexit/___dso_handle, which the kernel
 #                      does not export (measured: without these two the object
 #                      imports both)
+# EH_INCLUDES is empty on a cold tree; FR_INCLUDES carries the real
+# Kernel.framework Headers and PrivateHeaders that installhdrs produced.
+EH_INCLUDES=""
+if [ -n "$EH" ]; then EH_INCLUDES="-I$EH/iokit -I$EH/osfmk -I$EH/bsd -I$EH/libkern -I$EH/pexpert"; fi
+FR_INCLUDES="-I$FR/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders
+             -I$FR/System/Library/Frameworks/Kernel.framework/Versions/A/Headers"
 COMMON="-target $TARGET -isysroot $FR
         -ffreestanding -fno-builtin -fno-exceptions -fno-rtti -fno-stack-protector
         -std=gnu++17 -fblocks -O2 -nostdinc++ -Wno-c99-designator -Wno-unused-parameter
         -fno-c++-static-destructors -fno-use-cxa-atexit
         -DKERNEL=1 -DKERNEL_PRIVATE=1 -DPONG=1 -DARM64_BOARD_CONFIG_PONG=1
-        -I$EH/iokit -I$EH/osfmk -I$EH/bsd -I$EH/libkern -I$EH/pexpert
+        $FR_INCLUDES $EH_INCLUDES
         -I$SRC_TREE/iokit -I$SRC_TREE/osfmk -I$SRC_TREE/bsd
         -I$SRC_TREE/libkern -I$SRC_TREE/pexpert -I$SRC_TREE/EXTERNAL_HEADERS
         -I$ROOT/drivers/PongThermal"
@@ -120,7 +134,7 @@ COMMON_C="-target $TARGET -isysroot $FR
         -ffreestanding -fno-builtin -fno-stack-protector -std=gnu11 -O2
         -Wno-unused-parameter -DKERNEL=1 -DKERNEL_PRIVATE=1
         -DPONG=1 -DARM64_BOARD_CONFIG_PONG=1
-        -I$EH/iokit -I$EH/osfmk -I$EH/bsd -I$EH/libkern -I$EH/pexpert
+        $FR_INCLUDES $EH_INCLUDES
         -I$SRC_TREE/iokit -I$SRC_TREE/osfmk -I$SRC_TREE/bsd
         -I$SRC_TREE/libkern -I$SRC_TREE/pexpert -I$SRC_TREE/EXTERNAL_HEADERS
         -I$ROOT/drivers/PongThermal"

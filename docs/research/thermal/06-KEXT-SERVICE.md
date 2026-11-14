@@ -3,11 +3,12 @@
 本篇记录热管理线**内核态**那一半：把 `drivers/PongThermal/K60Tsens.c` 的 32 路读数与
 `K60ThermalLevel.c` 的压力等级，做成 `thermalmonitord` 能打开的 `AppleSMCSensorDispatcher`。
 代码在 `drivers/PongThermal/K60ThermalService.{h,c}`，构建脚本 `scripts/build-thermal-kext.sh`，
-产物 `build/thermal-kext/libK60ThermalKext.a`（sha256 `e9ff5845a74e457e7a8ffdca743dd5fec941b2170d03d98577642f09a626e82f`）。
+产物 `build/thermal-kext/libK60ThermalKext.a`（sha256 `8fa4bf72e931d3d79e66d281ed43849ab129e36fd0a71b0a272d0fcd6dfbb8d4`）。
 
-**本篇的诚实边界**：服务已经能编译、符号已核验、218 个内核导入全部在 `all-kpi.exp` 里，但它
-①还没有内核链接行、②还没有启动钩子（`k60_thermal_start` 目前没有调用者）、③ADT 里没有 tsens 节点，
-所以 `Info.plist` 的两条 personality 现在匹配不到任何 nub。这三点写在 §5，step ⑤ 因此仍是 `done = false`。
+**本篇的诚实边界**：服务已经能编译、符号已核验、219 个内核导入全部在 `all-kpi.exp` 里；
+三处集成（内核链接行、启动钩子、ADT tsens 节点）已于 2026-11-14 由 Lead 落进仓库源码，
+但全部默认关闭（`XNU_PONG_THERMAL=0`），从未用 `=1` 真正构建过内核，也从未上机，
+所以 step ⑤ 仍是 `done = false`。三处落地的现状见 §6。
 
 ---
 
@@ -113,9 +114,9 @@ feed（`osfmk/arm64/proc_reg.h` 末尾是 `#error processor not supported`，PON
 **构建结果（2026-11-14，可复现）**：
 
 ```
-build-thermal-kext: defined 159 symbols, all 10 required ones present
-build-thermal-kext: 218 kernel imports, all exported by the kernel
-build-thermal-kext: archive .../build/thermal-kext/libK60ThermalKext.a (e9ff5845a74e457e7a8ffdca743dd5fec941b2170d03d98577642f09a626e82f)
+build-thermal-kext: defined 160 symbols, all 10 required ones present
+build-thermal-kext: 219 kernel imports, all exported by the kernel
+build-thermal-kext: archive .../build/thermal-kext/libK60ThermalKext.a (8fa4bf72e931d3d79e66d281ed43849ab129e36fd0a71b0a272d0fcd6dfbb8d4)
 build-thermal-kext: BUILD OK
 ```
 
@@ -132,26 +133,23 @@ build-thermal-kext: BUILD OK
 
 ## 6. 还差什么（step ⑤ 为何仍是 done = false）
 
-1. **没有内核链接行**：`libK60ThermalKext.a` 还没有出现在 `build-xnu-4k-baseline.sh` 的
-   `KERNEL_EXTRA_ARCHIVES` 里（那里已有 20 多个 `-Wl,-force_load,<archive>`，见该脚本 `:896-1058`）。
-   按 P-190，`force_load` 之后必须验符号，不能只看文件名。
-2. **没有启动钩子**：`k60_thermal_start()` 目前**没有调用者**（全仓 grep 只命中它自己的定义与构建脚本的
-   符号表）。范式是 `patches/wifi/0005-drivers-ArmDTPlatform-pong-wifi-hook.patch`：在
-   `drivers/ArmDTPlatform/ArmDTPlatform.cpp:23-26` 加 `extern "C" int k60_thermal_start(void);`，
-   在 `:223-226` 的 `registerService()` 之后、`pong_adreno_start_optional()` 旁边调用它，并用
-   `#if XNU_PONG_THERMAL` 包住。
-   **故意没有写进 `patches/thermal/`**：全仓没有任何 applier 引用 `patches/thermal`，写一个永不应用的补丁
-   就是 `docs/research/wifi/GAP-ANALYSIS.md:65` 记录过的那个坑（"没有任何 series/applier 引用
-   `patches/wifi` → 永不应用"）。要么同时改 `build-xnu-4k-baseline.sh` 的补丁应用路径，要么把钩子写成
-   `patches/xnu/zzzzz-pong-thermal.patch` 进 series —— 两条都超出 thermal 线的写作用域，需要 Lead 决策。
-3. **ADT 里没有 tsens 节点**：`scripts/make-pong-adt.py:235-248` 的 `arm-io` 子节点只有 `gic`、
-   `pong-touch`、`pong-buttons` 和可选 `ufshc`；且 `ranges` 只覆盖 `APSS_BASE = 0x17000000`、
-   `APSS_SIZE = 0x02000000`（`:24-25`），`0xc263000` 根本不在窗口内。所以 `Info.plist` 的两条
-   personality（`drivers/PongThermal/Info.plist`，`IONameMatch` = `thermal-sensor@c263000` /
-   `thermal-sensor@c265000`）**现在匹配不到任何 nub**，服务靠 `k60_thermal_start()` 自建（§2）。
-   补 ADT 节点 = 改 `make-pong-adt.py`，不在本线写作用域内。
+1. ~~没有内核链接行~~ **已落地（2026-11-14，Lead）**：`scripts/build-xnu-4k-baseline.sh:934-943`
+   新增 `XNU_PONG_THERMAL` 块，默认关闭；打开时调 `scripts/build-thermal-kext.sh --no-export-list` 并对
+   `build/thermal-kext/libK60ThermalKext.a` 做 `-Wl,-force_load` + 进 `KERNEL_ARCHIVE_DEPENDENCIES`。
+   链接行的 `-force_load` 语义已用 ld64 部分链接离线验证（`scripts/build-thermal-link-check.sh`）。
+2. ~~没有启动钩子~~ **已落地（2026-11-14，Lead）**：`drivers/ArmDTPlatform/ArmDTPlatform.cpp:27-31`
+   声明 `extern "C" int k60_thermal_start(void);`，`:232-233` 在 `registerService()` 与 adreno 钩子之后
+   调用它，两处都在 `#if XNU_PONG_THERMAL` 内。**没有走 `patches/thermal/`**：全仓没有 applier 引用
+   该目录，写一个永不应用的补丁就是 `docs/research/wifi/GAP-ANALYSIS.md:65` 记录过的坑。
+   两种开关组合都编译通过，`XNU_PONG_THERMAL=0` 时二进制里没有 `k60_thermal` 引用。
+3. ~~ADT 里没有 tsens 节点~~ **已落地（2026-11-14，Lead）**：`scripts/make-pong-adt.py:217-234` 新增
+   `thermal-sensor@c263000` / `@c265000` 两个节点，`:266` 插进 `arm-io` 子节点列表；因为
+   `ranges`（`:24-25`，`0x17000000 + 0x02000000`）不覆盖 `0xc263000`，节点用绝对地址属性
+   `pong,tsens-tm-base` / `pong,tsens-srot-base` 而不是 `reg`，与 `pong-touch` / `pong-buttons` 的既有
+   范式一致。生成器实跑 12600 B / 15 节点，两个新节点的属性值已用 `parse_adt` 核对。
 4. **没有上机**：设备 6033dbec 在 2026-11-14 12:05 之后从 adb 掉线，现在只在 `fastboot devices` 里
    （bootloader 态）。铁则 4 + 运行时规则：**没有用户明确同意不 boot**，故 `k60_thermal_start` 从未执行过。
+   这是 §6 现在唯一剩下的缺口。
 
 上机后的第一条判定证据：启动日志应出现
 `K60Thermal: tsens0 mapped, 16 sensors, version <a>.<b>.<c>`（`K60ThermalService.cpp:129-133`）、

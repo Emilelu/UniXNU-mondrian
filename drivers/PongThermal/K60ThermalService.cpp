@@ -102,6 +102,20 @@ bool K60ThermalSensor::start(IOService *provider)
 {
     if (!IOService::start(provider)) return false;
 
+    /* ADT path: a nub created from scripts/make-pong-adt.py carries the two
+     * absolute bases as properties instead of reg entries, because the arm-io
+     * ranges window (0x17000000 + 0x02000000) does not cover 0xc263000.
+     * Device-tree properties live on the nub, so read the provider first. */
+    IOService *node = provider ? provider : this;
+    if (!tmPhysical) {
+        OSData *tm = OSDynamicCast(OSData, node->getProperty("pong,tsens-tm-base"));
+        OSData *srot = OSDynamicCast(OSData, node->getProperty("pong,tsens-srot-base"));
+        if (tm && srot && tm->getLength() == sizeof(uint64_t) && srot->getLength() == sizeof(uint64_t)) {
+            setPhysicalWindows(*(const uint64_t *)tm->getBytesNoCopy(),
+                               *(const uint64_t *)srot->getBytesNoCopy());
+        }
+    }
+
     /* The DT gives reg = <TM 0x1ff, SROT 0x1ff>; index 0 is the TM window and
      * index 1 the SROT window (mondrian.dts:16439-16455). */
     if (!mapWindow(0, tmPhysical, &tmMap, &tm)) { stop(provider); return false; }
@@ -109,7 +123,7 @@ bool K60ThermalSensor::start(IOService *provider)
 
     /* Which controller this nub is. A DT-matched nub learns it from its node
      * name; a nub created by k60_thermal_start already set it from the base. */
-    OSString *name = OSDynamicCast(OSString, getProperty("name"));
+    OSString *name = OSDynamicCast(OSString, node->getProperty("name"));
     if (name) controller = name->isEqualTo("thermal-sensor@c265000") ? 1u : 0u;
 
     loop = IOWorkLoop::workLoop();

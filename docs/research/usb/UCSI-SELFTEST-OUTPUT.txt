@@ -1,0 +1,44 @@
+ucsi-host-selftest: UCSI over pmic_glink framing (host side only)
+owner=32779 (PMIC_GLINK_OWNER_USBC), buf=48 bytes, opcodes 0x11 read / 0x12 write / 0x13 notify
+
+1. message layout
+  [PASS] pmic_glink_hdr is 12 bytes
+  [PASS] read_buf_req  = 12 bytes
+  [PASS] read_buf_resp = 12 + 48 + 4 = 64 bytes
+  [PASS] write_buf_req = 12 + 48 + 4 = 64 bytes
+  [PASS] write_buf_resp= 16 bytes
+  [PASS] notify_ind    = 24 bytes
+
+2. SET_NOTIFICATION_ENABLE control word
+  [PASS] command byte is 0x05
+  [PASS] command-complete notify (bit16) set
+  [PASS] no connector field is encoded
+  [PASS] connector-change bit 30 set
+  [PASS] partner-change bit 27 set
+     control = 0x0000000048010005
+
+3. USBC_NOTIFY_IND -> CCI -> connector
+  [PASS] notification type is 0x13
+  [PASS] COMMAND_COMPLETE set in CCI
+  [PASS] connector decoded from CCI bits 7:1
+
+4. GET_CONNECTOR_STATUS -> role
+  [PASS] nothing attached             -> unknown(default device)
+  [PASS] partner DFP (a host)         -> device
+  [PASS] partner UFP (a peripheral)   -> host
+  [PASS] powered cable + UFP          -> host
+  [PASS] debug accessory              -> device
+  [PASS] audio adapter                -> device
+  [PASS] powered cable only           -> unknown(default device)
+
+5. ACK_CC_CI
+  [PASS] command byte is 0x04
+  [PASS] ACK_CONNECTOR_CHANGE (bit16) set
+  [PASS] ACK_COMMAND_COMPLETE (bit17) set
+
+6. round trip GET_CONNECTOR_STATUS
+  [PASS] PPM accepted the write
+  [PASS] host on the cable -> device role
+  [PASS] peripheral on the cable -> host role
+
+RESULT: PASS (0 failures)

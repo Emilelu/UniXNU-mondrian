@@ -239,6 +239,24 @@ imageSha256 join 零命中。它的两个兄弟：
 即：**「65.9 MB + pong_wifi=0 + 合规参数」的格子是空的**。补上它，才能把
 「驱动活体（worker/锁/元类）」与「内核体积/固件 residency」这两类残余假设分开。
 
+### 6.4 a2 的证据等级（P-199 候选）
+
+`wifi-20261116a2` 就是上面那一格的填充物，但它自己的 `build-manifest.json` 写着
+`"note": "trial build outside build-strict.sh (flash gate blocked by the touch line)"`，
+键只有 `tag` / `note` / `components` / `kernel_args` 四个——**没有 `series`、`repo`、
+`frozen`、`gates`**。所以它与同队列镜像（mhi3/mhi4，series 229 / `0076aa20…` 全记）
+不是同一等级的证据：**构建输入指纹不可复核**，只能核「这张镜像里到底有什么」。
+
+绕行的理由现在已经消失：触摸线全绿、flash gate 不再挡，`eight-step-gate.py --build` 能过。
+以后同类对照镜像必须走 `scripts/build-strict.sh`，否则 manifest 证明不了
+「series / board.toml / args 到底是什么」。这条记为 **P-199 的候选**，待 Lead 在
+`docs/engineering/PITFALLS.md` 落号。
+
+a2 仍然可用的部分（实测，可直接当判据）：`boot.img` sha256 `0a1c2ec0…`、
+payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
+`debug=0x140`、`epoch=1793709100`）、`Pong MHI` 0 处（mhi4 是 11 处）、
+`PongWifi` 22 处（mhi4 也是 22 处：force_load 在、体积相同）。
+
 ---
 
 ## 7. 上机判据（如果 Lead 决定再飞）
@@ -252,6 +270,18 @@ imageSha256 join 零命中。它的两个兄弟：
 | C2 同上但仍是 0 字节 | `capture.json` 的 `portSeen=false`、`bytes=0` | **内核体积/固件 residency 是死因**：与 `pong_wifi` 无关，回到 §5.16 的 arena 模型，改窗口或裁固件 |
 | C3 出现 `PongWifi: console up after N ms; starting cold link` 之后才死 | 该行之后断流 | 死在 worker 的 MMIO 段（stage 1–10），可按 `k60_wifi_stage` 逐级二分 |
 | C4 出现 `PongWifi: stage N (…) held back` 且后续正常 | 门生效、boot 继续 | 说明门机制本身健康，可用于后续分级上机 |
+
+**判据可执行化**：C1–C4 由 `scripts/judge-wifi-boot.py` 判定。输入一份
+`console.log` 或整个含 `capture.json` 的采集目录，输出四态
+`alive` / `driver-dead` / `silent` / `unknown`（退出码 0/1/2/3），并直接打印下一步：
+
+```sh
+python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
+```
+
+自测 `python3 scripts/tests/test-judge-wifi-boot.py`（10 例：mhi3 / mhi4 两份真静默、
+thermal / bt 两份真进用户态，另加 worker 断流、worker 失败串、stage 门被挡、
+无标识控制台、纯 fastboot 噪声、空文件六个合成样本）。
 
 注意 §5.16 的窗口数学对「4.75 GiB + 65.9 MB」给出的是**余量仅 4 MB**的临界判决
 （阈值 5116 MiB vs arena 5120 MiB）；a2 就是 4.75 GiB（`wifi-20261116a2w/a2q/a2r`

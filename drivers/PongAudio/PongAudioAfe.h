@@ -31,9 +31,11 @@
  *   start           [GPR 24][{u16 port, u16 0}]
  *     opcode AFE_PORT_CMD_DEVICE_START
  *
- * The 24-byte GPR header is M: apr.h:79-90 with GPR_PKT_VER 0 (the 0504
- * skeleton constant GPR_VERSION 3 is wrong, see
- * PAS1-AUDIO-REQUIREMENTS.md section 1.3).
+ * The 24-byte GPR header is M: apr.h:79-90 with GPR_PKT_VER 0. The 0504
+ * skeleton first carried GPR_VERSION 3, BASIC_RESULT 0x02000002 and
+ * GET_SPF_STATE 0x0100100D; all three were corrected in 0504 on
+ * 2026-11-15 (PAS1-AUDIO-REQUIREMENTS.md section 1.3). The constants
+ * below are what the host test pins.
  *
  * The K60 values (port 0x9000, group 0x9100, bit clock 1.536 MHz) are in
  * TDMS.md sections 3 and 4; this file encodes whatever it is given and
@@ -92,6 +94,8 @@
 #define PONG_AFE_GPR_DOMAIN_APPS        3u
 #define PONG_AFE_GPR_BASIC_RSP_RESULT   0x02001005u
 #define PONG_AFE_GPR_BASIC_EVT_ACCEPTED 0x02001006u
+#define PONG_AFE_GPR_APM_GET_SPF_STATE 0x01001021u  /* M: audioreach.h:38 */
+#define PONG_AFE_GPR_APM_SPF_STATE     0x02001007u  /* M: audioreach.h:39 */
 
 /* Envelope sizes, all packed (M: q6afe.c:396-417). */
 #define PONG_AFE_SVC_HDR_BYTES   16u  /* payload_size, addr lsw, addr msw, handle */

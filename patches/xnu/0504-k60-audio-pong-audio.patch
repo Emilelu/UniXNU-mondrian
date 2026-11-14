@@ -118,14 +118,14 @@
 +/* GPR packet format (ported from ShengGpr.c/h, BSD-2-Clause)                */
 +/* ------------------------------------------------------------------------- */
 +
-+#define GPR_VERSION                 3u
++#define GPR_VERSION                 0u
 +#define GPR_HEADER_BYTES            24u
 +#define GPR_MAX_PACKET              560u
 +#define GPR_DOMAIN_ADSP             2u
 +#define GPR_DOMAIN_APPS             3u
 +#define GPR_PORT_APM                1u
-+#define GPR_OP_BASIC_RESULT         0x02000002u
-+#define GPR_OP_APM_GET_SPF_STATE    0x0100100Du
++#define GPR_OP_BASIC_RESULT         0x02001005u
++#define GPR_OP_APM_GET_SPF_STATE    0x01001021u
 +#define GPR_OP_APM_SPF_STATE        0x02001007u
 +
 +typedef struct {

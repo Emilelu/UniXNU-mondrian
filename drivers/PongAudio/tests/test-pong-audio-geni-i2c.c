@@ -2044,6 +2044,14 @@ afe_gpr_cases(void)
     expect_eq(PONG_AFE_GPR_DOMAIN_APPS, 3ul, "apps domain 3");
     expect_eq(PONG_AFE_GPR_BASIC_RSP_RESULT, 0x02001005ul,
         "basic rsp result matches mainline apr.h:108");
+    /* These three were wrong in the 0504 skeleton; the values below are
+     * the corrected ones. Revert any of them and this test goes red. */
+    expect_eq(PONG_AFE_GPR_VERSION, 0x0ul,
+        "gpr version 0 (apr.h:104), 0504 corrected");
+    expect_eq(PONG_AFE_GPR_APM_GET_SPF_STATE, 0x01001021ul,
+        "get spf state 0x01001021 (audioreach.h:38), 0504 corrected");
+    expect_eq(PONG_AFE_GPR_APM_SPF_STATE, 0x02001007ul,
+        "spf state response 0x02001007 (audioreach.h:39)");
 }
 
 static void

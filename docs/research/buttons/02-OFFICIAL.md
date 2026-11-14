@@ -31,7 +31,7 @@
 
 | 要求 | 出处 | K60 现状 |
 |---|---|---|
-| `/buttons` 节点提供 `button-names`（`hold`/`voldown`/`volup`，无 Home 键则省略 `menu`）与 `home-button-type=2` | `mobilegestalt.md:26-27`、`device-tree.md:223` | ✅ 已落地：`board.toml:268-276` 的 `[adt.buttons.*]`（main `174fb69`）经 `devicetree.py:388-390` 发射 `/device-tree/buttons`，重生成实测 `button-names=hold\0voldown\0volup\0`、`home-button-type=0x2`（14,716 B / 23 节点 ADT）。`scripts/make-pong-adt.py:240` 在 `schema_version = 2` 下仍是死代码（`payload.py:231-236`），改它无效 |
+| `/buttons` 节点提供 `button-names`（`hold`/`voldown`/`volup`，无 Home 键则省略 `menu`）与 `home-button-type=2` | `mobilegestalt.md:26-27`、`device-tree.md:223` | ✅ 已落地：`board.toml:268-276` 的 `[adt.buttons.*]`（main `174fb69`）经 `devicetree.py:388-390` 发射 `/device-tree/buttons`，重生成实测 `button-names=hold\0voldown\0volup\0`、`home-button-type=0x2`（14,660 B / 23 节点 ADT，`board.toml` 已含 `5cd8924` 的 pong-buttons 段）。`scripts/make-pong-adt.py:240` 在 `schema_version = 2` 下仍是死代码（`payload.py:231-236`），改它无效 |
 | 启动菜单的按键语义（上下/Enter/任意键） | `boot.md:57-64` | 由 UEFI Keypad 链提供（`K60KeypadDeviceLib`），不是内核侧 |
 | 官方参考实现用 boot arg 开关（sheng 是 `sheng-buttons=1`，页面写 `buttons=1`） | `input.md:77`；`ButtonProbe.cpp:214` `sheng_buttons_probe()` | K60 用 `pong_buttons=1`（默认开），见 `board.toml` 默认 boot-arg |
 

@@ -55,7 +55,7 @@ MobileGestalt 从 `/buttons` 读 `button-names` 与 `home-button-type`
 **不写** `opposed-power-vol-buttons`：`UniXNU-docs` 里 grep 不到该键、yibiya 的 board.toml 也没有，
 只有 pong/zizhan 的旧 ADT 脚本用过，缺依据。
 
-## `[adt.arm-io.pong-buttons.*]` 的理由（**仍未落盘**）
+## `[adt.arm-io.pong-buttons.*]` 的理由（已由 main `5cd8924` 落盘）
 
 `bsd/dev/pong_buttons.c` 的 `configuration()` 用 `SecureDTLookupEntry(NULL,"/arm-io/pong-buttons")`
 查节点，并逐属性校验六个值（`patches/xnu/zzzz…-pong-physical-keys.patch:173-199`）：

@@ -261,9 +261,10 @@ Undefined symbols for architecture arm64:
 
 17 张全部通过 `verify-boot-image.py` 与 `argcheck1.py`（命令行 574–606 字节，
 都在 DarwinBoot 的 607 字节上限内）。runner 是
-`E:\k60-work\evidence\wifi-trial\ladder5-run.ps1`：先跑控制镜像 `a`，再按
-`b → c → p → d → e → f → g` 逐级上升，首张零字节控制台就停（exit 12），
-留出时间判读那一级。只有 `a` 本身没有控制台时才退到体积二分 `z0 → t0 → t1`；
+`E:\k60-work\evidence\wifi-trial\ladder6-run.ps1`：先跑控制镜像 `a`，再跑
+全十级镜像 `g`（一次启动打出所有 `stage N` 行，最后一条即故障块），
+首张零字节控制台就停（exit 12）。只有 `g` 也静默时才退回线性阶梯
+`b → c → p → d → e → f`；只有 `a` 本身没有控制台时才退到体积二分 `z0 → t0 → t1`；
 `z0` 也零字节则以 exit 13 收尾，说明问题在手机或 FD，与 WiFi 无关。
 判读表见 `STAGE-BRINGUP.md` §6，装载规则见同文 §7。
 

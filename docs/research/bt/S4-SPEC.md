@@ -277,6 +277,18 @@ if __name__ == '__main__':
 +!firmware/bluetooth/manifest.json
 ```
 
+### 5.5 三份补丁的落地文件
+
+§5.2–§5.4 的三处改动已经导出成可直接 `git apply` 的补丁（在仓库外，供 Lead 合并）：
+
+| 文件 | 目标 | 内容 |
+|---|---|---|
+| `/mnt/e/k60-work/scratch/bt-s4/lead/bt-lead-0001.patch` | 新增 `scripts/make-bt-firmware-addon.py` | §5.2 的打包器（100755） |
+| `/mnt/e/k60-work/scratch/bt-s4/lead/bt-lead-0002.patch` | `scripts/build-strict.sh` | §5.3 的 `--gpu-addon` 转发 + manifest 记录 |
+| `/mnt/e/k60-work/scratch/bt-s4/lead/bt-lead-0003.patch` | `.gitignore` | §5.4 的 `firmware/bluetooth/` 例外 |
+
+三份都已在真实仓库上 `git apply --check` 通过；`0002` 还额外做了端到端验证（§6.2）。
+
 ## 6 离线验证（已完成，2026-11-14 10:20）
 
 1. `gcc -fsyntax-only -std=gnu11 -Wall -DK60_BT_HOST_TEST …`：0 error；只有三条**既有**告警
@@ -322,15 +334,76 @@ if __name__ == '__main__':
   `bluetoothd: No bluetooth on this device.`——S3 的 IORegistry 发布还没上机验证，这仍是 S3/S4 的待办。
 - `record-boot.py` 已记账：series `f1c22d7d05bb1b17`（227 个补丁），129 条 SpringBoard 行。
 
+## 6.2 正向镜像（已构建，2026-11-14 13:43–13:49）
+
+用 §5.2 的打包器 + §5.3 的 `--gpu-addon` 开关做了**带固件的正向镜像**。因为 `scripts/build-strict.sh`
+的改动属 Lead 权限，本次构建用的是**仓库外的临时副本**：`/tmp/bt-s4a/scripts/build-strict.sh`
+（= 仓库原文件 + `bt-lead-0002.patch`，只把 `REPO` 指回 `/mnt/e/hackios/k60-bt`）。
+
+固件先落到仓库的 gitignore 区：`firmware/bluetooth/qca/` 106 个文件 1,022,742 B +
+`firmware/bluetooth/manifest.json`（`git status --porcelain` 仍为 0 行，`.gitignore` 的 `/firmware/` 覆盖）；
+打包器输出 `out/pong-bt-firmware.bin` 1,027,584 B，sha256
+`febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037`（与 §6 第 3 条同一个容器）。
+
+构建命令（**必须用隔离输出树**，见 `S1-PROBE-SPEC.md` §4.3）：
+
+```bash
+K60_OUT=/opt/k60/trees/k60build/bt-out-s1c \
+K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device \
+bash /tmp/bt-s4a/scripts/build-strict.sh bt-s4a-20261114c \
+  --fd /mnt/e/k60-work/artifacts/fd/bt-s2-20261114b-cf4485712c29.fd \
+  --gpu-addon /mnt/e/hackios/k60-bt/out/pong-bt-firmware.bin \
+  --kernel-arg k60bt=1
+```
+
+结果：`build-strict.sh` 退出码 0（`eight-step 通过 30 项检查` → kernel → payload → bootimg → manifest），
+`verify-boot-image.py --manifest` 报 `OK`，`check-image-args.py` 报 `OK (30 arguments, 583 bytes)`。
+
+| 项 | 值 |
+|---|---|
+| boot.img | `f886223a33e4fad666de766d9739b998c9200cc3c010850391e5bce64ac7ae0f`（201,887,744 B） |
+| kernel_built | `ba805e4c1027bdefa3d8bbcdc54e7e682a1727ee0a03cab815bea5c62c77a5f2`（54,185,984 B） |
+| payload | `1e62d4819f1ba06e062ddf065c38fb49b7b31d361ceeb53a60744dfd5d995d40` |
+| payload_kernel | `a92d7b1e494ce55fb0f03dcc990e40b9c06a26032a6afac0a363a3ae35c299c3` |
+| adt | `c304361e317be2033f3e46bd69e19bfa6eb4384772ce545f3c95871cdd4929f1` |
+| dtb | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| fd | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
+| gpu_addon | `febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037` |
+
+容器确实进了镜像（三项独立核对）：
+
+1. payload FAT `::/EFI/UniXNU/Payloads` 现在 5 个文件，含 `kernel.macho.gpuaddon` **1,027,584 B**，
+   余量 145,285,120 B。
+2. 用 `mcopy` 把它取出来与 `out/pong-bt-firmware.bin` `cmp` → **逐字节相同**，sha256 一致。
+3. payload 里的 `kernel.macho.adt`（15,788 B）`strings` 命中 `GpuAddon` 1 次、`TrustCache` 0 次、
+   `PackedRAMDisk` 0 次、`RAMDisk` 0 次——正是 `devicetree.py:339` 只在给了 addon 时才加单元的预期。
+
+内核侧代码同样在：`strings kernel.macho` 命中 `NGPUADD2` 1 次、`loaded bytes records` 1 次、
+`no GpuAddon property` 1 次、`chosen/memory-map` 6 次。
+（`addon: serving` 是格式化串 `addon: %s %llu %llu`，按字面搜不到，属预期。）
+
+构建期的两个坑，都值得记：
+
+- `K60_EIGHT_STEP_ITEMS=bluetooth` 被八步门禁直接拒绝（`EIGHT-STEPS.toml` 没有该硬件项，§8），
+  所以本镜像构建时**不设**该变量，manifest 记 `eight_step_items = all`。
+- `K60_OUT` 指到一个全新目录（`bt-out-s4a`）会立刻被 P-185 拒绝：
+  `tree/.cache/fakeroot is missing: this output tree has never been built`。复用已 bootstrap 过的
+  `bt-out-s1c` 才通过。**隔离不等于新建**：隔离的是一棵本线专用的树，不是每次一个新目录。
+
 ## 7 上机阶梯（板子回来后）
 
-前提：构建时带 `--gpu-addon`（§5.3），启动参数只需 `k60bt=1`（S2/S3 的写法不变）。
+前提：用带 `--gpu-addon` 的构建（§6.2 的 `bt-s4a-20261114c`），启动参数只需 `k60bt=1`（583 B）。
+S4 的负向对照仍要用 §6 第 6 条的 `bt-s4-20261114b`（`k60bt=1`、无 addon）。
 
-| 级 | 参数 | 期望（关键行） |
-|---|---|---|
-| S4a | `k60bt=1` | `K60 BT: addon: loaded bytes records 1027584 106` |
-| S4b | `k60bt=1` | `K60 BT: addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
-| S4c | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764 的等价行），拿到 rom_ver/board-id |
+| 级 | 镜像 | 参数 | 期望（关键行） |
+|---|---|---|---|
+| S4- | `bt-s4-20261114b` | `k60bt=1` | 负向对照：`K60 BT: addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |
+| S4a | `bt-s4a-20261114c` | `k60bt=1` | `K60 BT: addon: loaded bytes records 1027584 106` |
+| S4b | `bt-s4a-20261114c` | `k60bt=1` | `K60 BT: addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
+| S4c | `bt-s4a-20261114c` | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764 的等价行），拿到 rom_ver/board-id |
+
+S4a 与 S4b 用同一个镜像：`loaded` 在 `qbt_k60_start()` 里就打（`k60_bt_addon_load()`），
+`serving` 要等 qbt 真正取固件才打，是同一轮启动里的前后两段，不是两次构建。
 
 判定：只认 `capture.json` 的 `verdict`/`panicMarker`；控制台 0 字节时用 `0331` 的 K60PREV 重放读上一轮尾巴。
 失败即回退到不带 `--gpu-addon` 的构建（内核代码对缺失单元是静默降级，见 §4 日志表）。

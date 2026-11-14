@@ -139,6 +139,41 @@ def main():
         '\tif (cb == MHI_CB_SYS_ERROR || cb == MHI_CB_FATAL_ERROR || cb == MHI_CB_EE_RDDM) {\n'
         '\t\tpong_ath11k_mhi_failed(mhi_cntrl, cb);\n\t\treturn;\n\t}\n\n'
         '\tath11k_dbg(ab, ATH11K_DBG_BOOT, "notify status reason %s\\n",')
+    # The MHI handshake was silent: ath11k_dbg compiles to nothing without
+    # CONFIG_ATH11K_DEBUG and the shim drops level-7 lines, so every
+    # ath11k_dbg/dev_dbg on this path is invisible. Report the handshake at
+    # the info level the console keeps, with the window the download used.
+    mhi_log = [
+        ('\tab_pci->mhi_pre_cb = MHI_CB_INVALID;\n',
+         '\tath11k_info(ab, "Pong MHI register: regs=%#lx len=%u fw_data=%u fw_sz=%u sbl=%u seg=%u\\n",\n'
+         '\t\t     (unsigned long)mhi_ctrl->regs, (unsigned)mhi_ctrl->reg_len,\n'
+         '\t\t     mhi_ctrl->fw_data ? 1u : 0u, (unsigned)mhi_ctrl->fw_sz,\n'
+         '\t\t     (unsigned)mhi_ctrl->sbl_size, (unsigned)mhi_ctrl->seg_len);\n'
+         '\tab_pci->mhi_pre_cb = MHI_CB_INVALID;\n'),
+        ('\t\tgoto free_controller;\n\t}\n\n\treturn 0;',
+         '\t\tgoto free_controller;\n\t}\n\n'
+         '\tath11k_info(ab, "Pong MHI registered: channels=%u timeout=%u\\n",\n'
+         '\t\t     ath11k_mhi_config->max_channels, ath11k_mhi_config->timeout_ms);\n'
+         '\treturn 0;'),
+        ('\tab_pci->mhi_ctrl->timeout_ms = MHI_TIMEOUT_DEFAULT_MS;\n',
+         '\tab_pci->mhi_ctrl->timeout_ms = MHI_TIMEOUT_DEFAULT_MS;\n'
+         '\tath11k_info(ab, "Pong MHI start: timeout=%u regs=%#lx ee=%d state=%d\\n",\n'
+         '\t\t     ab_pci->mhi_ctrl->timeout_ms, (unsigned long)ab_pci->mhi_ctrl->regs,\n'
+         '\t\t     (int)ab_pci->mhi_ctrl->ee, (int)ab_pci->mhi_ctrl->dev_state);\n'),
+        ('\t}\n\n\tret = mhi_sync_power_up(ab_pci->mhi_ctrl);\n',
+         '\t}\n\n\tath11k_info(ab, "Pong MHI prepared for power up\\n");\n'
+         '\tret = mhi_sync_power_up(ab_pci->mhi_ctrl);\n'),
+        ('\tif (ret) {\n\t\tath11k_warn(ab, "failed to power up mhi: %d", ret);\n\t\treturn ret;\n\t}\n\n\treturn 0;\n}',
+         '\tif (ret) {\n\t\tath11k_warn(ab, "failed to power up mhi: %d", ret);\n\t\treturn ret;\n\t}\n\n'
+         '\tath11k_info(ab, "Pong MHI powered up: ee=%d state=%d serial=%#x\\n",\n'
+         '\t\t     (int)ab_pci->mhi_ctrl->ee, (int)ab_pci->mhi_ctrl->dev_state,\n'
+         '\t\t     ab_pci->mhi_ctrl->serial_number);\n'
+         '\treturn 0;\n}'),
+    ]
+    for old, new in mhi_log:
+        if mhi_driver.count(old) != 1:
+            raise RuntimeError('ath11k MHI log ABI differs: ' + old)
+        mhi_driver = mhi_driver.replace(old, new)
     (gen / 'mhi.c').unlink()
     (gen / 'mhi.c').write_text(mhi_driver)
     # The shared station uses mac80211's split link/vif notifications.
@@ -208,10 +243,51 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         '#ifndef NW_NETDEVICE_ENUMS_H\n#define NW_NETDEVICE_ENUMS_H\n'
         + '\n'.join(blocks) + '\n#endif\n')
     mhi = out / 'mhi'; mhi.mkdir(exist_ok=True)
-    for name in ('init.c', 'main.c', 'pm.c', 'boot.c', 'internal.h'):
+    for name in ('init.c', 'main.c', 'internal.h'):
         dest = mhi / name
         if dest.exists() or dest.is_symlink(): dest.unlink()
         dest.symlink_to(linux / 'drivers/bus/mhi/host' / name)
+    # The host-side boot and ready-state handshake reports itself only through
+    # dev_dbg, which the shim maps to a level the console drops. Keep the same
+    # points, reported at the level the console keeps, so a device that never
+    # answers the reset or never sets READY is visible instead of silent.
+    def patch_mhi_source(name, pairs):
+        text = (linux / 'drivers/bus/mhi/host' / name).read_text()
+        for old, new in pairs:
+            if text.count(old) != 1:
+                raise RuntimeError('MHI ' + name + ' ABI differs: ' + old)
+            text = text.replace(old, new)
+        dest = mhi / name
+        if dest.exists() or dest.is_symlink(): dest.unlink()
+        dest.write_text(text)
+
+    patch_mhi_source('boot.c', [
+        ('\tif (ret)\n\t\tdev_err(dev, "Could not capture serial number via BHI\\n");\n',
+         '\tif (ret)\n\t\tdev_err(dev, "Could not capture serial number via BHI\\n");\n'
+         '\tdev_info(dev, "Pong MHI: serial=%#x ee=%d fbc=%u fw_sz=%u\\n",\n'
+         '\t\t mhi_cntrl->serial_number, (int)mhi_cntrl->ee,\n'
+         '\t\t mhi_cntrl->fbc_download ? 1u : 0u, (unsigned)mhi_cntrl->fw_sz);\n'),
+        ('skip_req_fw:\n\tfw_load_type = mhi_fw_load_type_get(mhi_cntrl);\n',
+         'skip_req_fw:\n\tfw_load_type = mhi_fw_load_type_get(mhi_cntrl);\n'
+         '\tdev_info(dev, "Pong MHI: load type=%d image bytes=%u vector bytes=%u\\n",\n'
+         '\t\t (int)fw_load_type, (unsigned)size, (unsigned)fw_sz);\n'),
+        ('fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n',
+         'fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n'
+         '\tdev_info(dev, "Pong MHI: waiting for the device to clear reset and set ready\\n");\n'),
+    ])
+    patch_mhi_source('pm.c', [
+        ('\t/* Wait for RESET to be cleared and READY bit to be set by the device */\n',
+         '\tdev_info(dev, "Pong MHI: polling MHICTRL reset mask %#x for %u ms\\n",\n'
+         '\t\t (unsigned)(MHICTRL_RESET_MASK), mhi_cntrl->timeout_ms);\n'
+         '\t/* Wait for RESET to be cleared and READY bit to be set by the device */\n'),
+        ('\t\tdev_err(dev, "Device failed to clear MHI Reset\\n");\n\t\treturn ret;\n\t}\n\n'
+         '\ttimeout_ms = mhi_cntrl->ready_timeout_ms ?\n',
+         '\t\tdev_err(dev, "Device failed to clear MHI Reset\\n");\n\t\treturn ret;\n\t}\n\n'
+         '\tdev_info(dev, "Pong MHI: reset cleared, polling MHISTATUS ready bit\\n");\n'
+         '\ttimeout_ms = mhi_cntrl->ready_timeout_ms ?\n'),
+        ('\tdev_dbg(dev, "Device in READY State\\n");\n',
+         '\tdev_info(dev, "Pong MHI: device in READY state\\n");\n'),
+    ])
     (mhi / 'trace.h').write_text((shared / 'shim/mhi/trace.h').read_text())
     common = out / 'common.h'
     if common.exists() or common.is_symlink(): common.unlink()

@@ -132,8 +132,11 @@ k60_rpmh_level_index(const K60RpmhResource *r, uint32_t level, uint32_t *index)
 			return K60RpmhOk;
 		}
 	}
+	/* Reporting the highest corner as a success would let a caller vote a
+	 * voltage it never asked for while believing the request was honoured.
+	 * If the table cannot express the level, say so. */
 	*index = r->level_count - 1;
-	return K60RpmhOk;
+	return K60RpmhNoLevel;
 }
 
 K60RscLayout

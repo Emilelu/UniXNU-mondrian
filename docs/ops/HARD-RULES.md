@@ -21,12 +21,46 @@
 
 ---
 
-## 铁则 1（HR-01）：**绝对禁止访问 RSC 寄存器**
+## 铁则 1（HR-01）：**默认禁止访问 RSC；只读观测须显式开启，投票仍全面禁止**
 
 ### 违反后果
-**整机立即死，零控制台输出，只能长按电源重启。**
+2026-11-09 的两次实测：**整机立即死，零控制台输出，只能长按电源重启。**
 
-### 禁止范围
+### 2026-11-14 修订（为什么不再是"绝对禁止"）
+`rail-20261114h` 镜像在 Data mount 之后**映射并读取**了 `0x17a20000`，机器没有死：
+
+```
+K60RAIL cmd-db magic=0xc0330db version=1
+K60RAIL ldoc2 address=0x42c00 levels=1 idx1800=0->0 l0=10753
+K60RAIL rsc drv_id=0x20700 version=2 stride=672 cmd=20 ctrl=0x14 enable=0x1c msgid=0x30 addr=0x34 data=0x38
+```
+
+证据：`E:\k60-work\evidence\usblog-20261114-railh\console.log:477-479`；同一次启动 3,366 行、
+129 行 SpringBoard、`capture.json` 的 `panicMarker` 为 `null`、五个失败标记全 0。
+
+**但一次存活不推翻 2026-11-09 的两次首读即死。** 差别在于访问时机与方式，不在于"RSC 安全"。
+所以规则从"绝对禁止"改成"默认禁止 + 受限例外"：
+
+| 操作 | 是否允许 |
+|---|---|
+| 映射 `0x17a00000`（RSC 基址） | **禁止**，无例外 |
+| 映射 `0x17a20000`（DRV-2） | 仅当下列四个条件**同时**满足 |
+| 读 DRV-2 的 `w[0]`（版本/布局） | 同上 |
+| 写 TCS（`control`/`cmd_enable`/`cmd_*`） | **禁止**，等 ABL 方案 |
+| 发 RPMh 事务（`CONTROL_TRIGGER`） | **禁止**，等 ABL 方案 |
+
+### 受限只读的四个条件（缺一不可）
+1. **时机**：必须在 Data 卷挂载成功之后（`k60_data_mounted == 1`）。早期启动阶段访问仍会死。
+2. **显式开启**：必须由独立 boot-arg `pong_rail_probe=1` 打开。**默认关闭**，
+   `patches/xnu/0614-k60-adsp-call-site.patch` 里的调用点已经是
+   `if (PE_parse_boot_argn("pong_rail_probe", …) && pong_rail_probe != 0)`。
+3. **只读**：只允许读，不得写任何 TCS 寄存器，不得设 `CONTROL_TRIGGER`。
+4. **单次**：一次启动最多一次，不得轮询。
+
+违反任何一条 = 违规。审查时按下面的 grep 判断，但**要看上下文**：
+`if (PE_parse_boot_argn("pong_rail_probe"…))` 包住的读是允许的，裸读不是。
+
+### 禁止范围（未变）
 | 地址 | 说明 |
 |---|---|
 | `0x17a00000` | RSC 基址 |
@@ -34,7 +68,7 @@
 
 **不只是「读寄存器」——连 `ml_io_map()` 映射都可能触发。** 安全做法是不映射。
 
-### 唯一合法替代
+### 上电/投票的合法替代（写路径，仍然唯一）
 | 需求 | 替代方案 |
 |---|---|
 | 给某个电源轨投票 | **依赖 Android warm boot 已打开的轨道**，XNU 侧不做上电动作 |
@@ -55,9 +89,21 @@
 # 任何新增/修改的驱动都要过这一条
 grep -n '0x17a00000\|0x17a20000\|RSC_PHYS\|rsc_phys' <文件>
 ```
-**命中且不是「注释说明为何不访问」= 违规。**
 
-### 已发生的违规（2026-11-09）
+命中后**逐个看上下文**，按下面三档判断：
+
+| 命中形态 | 判定 |
+|---|---|
+| 注释里说明为何不访问 | ✅ 允许 |
+| 读 `0x17a20000`，且该调用被 `PE_parse_boot_argn("pong_rail_probe"…)` 包住，且只读 | ✅ 允许（受限只读） |
+| 其它任何命中（含映射 `0x17a00000`、写 TCS、设 `CONTROL_TRIGGER`、未加 opt-in 的裸读） | ❌ 违规 |
+
+2026-11-14 起，唯一被批准的实现是
+`drivers/PongPower/K60PmicRail.c` 的 `k60_rail_probe()` 与
+`patches/xnu/0614-k60-adsp-call-site.patch` 里那个 opt-in 调用点。
+新增第二处受限只读需要重新走一遍本节四条件并在 `PITFALLS.md` 记录。
+
+### 已发生的违规（2026-11-09，仍作为早期启动阶段的反例）
 `pong_goodix.c` 的 `touch_thread` 里：
 ```c
 se=ml_io_map(SE_PHYS,SE_SIZE);rsc=ml_io_map(RSC_PHYS,RSC_SIZE);  ← 违规

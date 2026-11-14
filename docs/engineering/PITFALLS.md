@@ -4477,3 +4477,27 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 跳过时打印 `skip: CONFIG_… is not enabled`；新增
 `scripts/tests/test-check-kernel-archives.py`（5 个用例）第 1 个断言
 `EXPECTED` 里每个键都真实存在于 `configs/mondrian_defconfig`。
+
+## P-191 — 查表函数"没找到"却返回成功
+
+**现象**：`k60_rpmh_level_index(&res, 9999, &index)` 返回 `K60RpmhOk`，`index` 是表的最后一档。
+调用方以为"1800 mV 已选好"，实际选的是这张表能表达的最高档。host 测试当时还把这种行为写成断言
+（`CHECK(... 9999 ... == K60RpmhOk && index == 3)`），于是测试替 bug 背书。
+
+**根因**：循环没命中时走了 fallback 分支，为了"给个合理值"把 `*index` 设成最后一档，
+顺手沿用了成功返回码。
+
+**为什么危险**：这是**投票类**接口。RPMh 的电压/模式请求一旦发出就无法在软件侧撤销，
+错误档位会以"成功"的形态持续存在，而且日志里看不出来 —— 只有比较 observer 的
+`valid`/`enable` 才能发现。
+
+**修法**（`drivers/PongPower/K60PmicRail.c`）：fallback 仍给出最后一档（调用方可能想打印它），
+但返回 `K60RpmhNoLevel`；host 测试同步改成 `CHECK(... 9999 ... == K60RpmhNoLevel); CHECK(index == 3);`
+并补一条命中用例 `1400 -> Ok, index 0`。
+
+**预防**：
+1. 任何返回 `Ok`/`Success` 的查表函数，逐条问"输入超出表范围时我返回什么"。
+2. host 测试不要只测正常路径 —— 边界输入（0、超上限、表为空）必须各有一条。
+3. 看到 `*out = count - 1; return OK;` 这种组合就是本坑。
+
+**发现者**：触摸线 agent 的评审（`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md`，2026-11-14）。

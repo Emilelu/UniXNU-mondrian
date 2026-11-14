@@ -1,6 +1,6 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7818,14 +7818,18 @@
+@@ -7818,14 +7818,25 @@
  	printf("K60DATA mount returned error=%d result=%d rw=%u\n", error, result, k60_data_rw);
  	if (error) goto done;
  	k60_data_mounted = 1;
@@ -9,10 +9,17 @@
  		extern int k60_uilib_deploy(void);
 +		extern int k60_adsp_probe_from_handoff(void);
 +		extern int k60_rail_probe(void);
++		int pong_rail_probe = 0;
  
  		(void)k60_uilib_deploy();
-+	k60_adsp_probe_from_handoff();
-+		(void)k60_rail_probe();
++		k60_adsp_probe_from_handoff();
++		/* HR-01 forbids touching RSC by default.  The probe only runs
++		 * when the command line asks for it, so an ordinary boot never
++		 * maps 0x17a20000. */
++		if (PE_parse_boot_argn("pong_rail_probe", &pong_rail_probe,
++		    sizeof (pong_rail_probe)) && pong_rail_probe != 0) {
++			(void)k60_rail_probe();
++		}
  		{
  			extern int k60_metal_seeds_deploy(void);
  

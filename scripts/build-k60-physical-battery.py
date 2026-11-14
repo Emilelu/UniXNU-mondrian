@@ -6,7 +6,9 @@
 No firmware/PAS startup or synthetic handoff is generated. Hardware resources
 come from the captured FDT; the vendor module property map is checked. Current
 polarity stays unqualified unless actual charging/discharging wire captures
-prove it. Subscription stays off unless its exact wire ACK was captured.
+prove it. The subscription ACK is not inferred: the ADSP firmware's own
+opcode-0x04 handler answers 16 B with type 1, and a wire capture may only
+confirm that pair, never replace it.
 """
 import argparse
 import hashlib
@@ -22,6 +24,11 @@ import sys
 DEVICE = Path(__file__).resolve().parents[1]
 CONFIG_BYTES = 112
 OWNER = 32778
+# Measured from the K60 ADSP firmware's opcode-0x04 handler at 0x60155910,
+# which answers {owner=0x800a, type=1, opcode=4, result} in 16 bytes. A wire
+# capture can only confirm this pair; see
+# docs/research/charger/06-SUBSCRIPTION-CONSTANT.md.
+MEASURED_NOTIFY_REPLY = (1, 16)
 
 
 def sha256(path):
@@ -212,8 +219,9 @@ def qualification(charging, discharging, notify):
         current_evidence = dict(charging_ua=charge, discharging_ua=drain,
             charging_capture=str(charging), charging_sha256=sha256(charging),
             discharging_capture=str(discharging), discharging_sha256=sha256(discharging))
-    reply_type, reply_bytes = 0, 0
-    notify_evidence = None
+    reply_type, reply_bytes = MEASURED_NOTIFY_REPLY
+    notify_evidence = dict(source='adsp-opcode4-handler', type=reply_type,
+        bytes=reply_bytes, reference='docs/research/charger/06-SUBSCRIPTION-CONSTANT.md')
     if notify:
         pending = False
         replies = []
@@ -230,9 +238,12 @@ def qualification(charging, discharging, notify):
                 pending = False
         if not replies or len(set(replies)) != 1:
             raise ValueError('Wire capture lacks one unambiguous measured opcode4 subscription response')
+        if replies[0] != MEASURED_NOTIFY_REPLY:
+            raise ValueError('Wire capture contradicts the measured ADSP opcode-4 reply '
+                             f'{MEASURED_NOTIFY_REPLY}: {replies[0]}')
         reply_type, reply_bytes = replies[0]
         notify_evidence = dict(capture=str(notify), sha256=sha256(notify),
-                               type=reply_type, bytes=reply_bytes)
+                               type=reply_type, bytes=reply_bytes, source='wire-capture')
     return sign, reply_type, reply_bytes, current_evidence, notify_evidence
 
 
@@ -275,7 +286,7 @@ def main():
         '#include "K60BatteryConfig.h"\nconst uint8_t K60BatteryBoardConfig[K60_BATTERY_CONFIG_BYTES]={\n' +
         rows + '};\nconst size_t K60BatteryBoardConfigBytes=sizeof(K60BatteryBoardConfig);\n')
     (out / 'K60BatteryProtocol.generated.h').write_text(
-        '/* Zero until exact subscription ACK wire capture qualifies it. */\n'
+        '/* Measured ADSP opcode-4 ACK: 16 B, type 1 (firmware handler 0x60155910). */\n'
         f'#define K60_BATTERY_NOTIFY_REPLY_TYPE {notify_type}u\n'
         f'#define K60_BATTERY_NOTIFY_REPLY_BYTES {notify_bytes}u\n')
     (out / 'captured-board-config.bin').write_bytes(encoded)

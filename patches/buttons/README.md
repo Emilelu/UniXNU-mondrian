@@ -1,6 +1,6 @@
 # K60 按键线的板级配置建议（board.toml）
 
-> 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支（`main` = `90d8271`）。
+> 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支（`main` = `a7fbcdb`，含 repo-hygiene 的 `K60_REPO` 修复）。
 > 本目录只放**本线（buttons）**的产出。内核侧按键驱动
 > （`patches/xnu/zzzz…-pong-physical-keys.patch`）由触摸线持有，本线不改。
 > `board.toml` 属 **Lead 写作用域**，本线只交 diff 建议，不落盘。
@@ -9,7 +9,7 @@
 
 | # | 文件 | 作用 | 验证状态 |
 |---|---|---|---|
-| 0001 | `board-toml-adt-buttons.diff` | 给 `board.toml` 插入 `[adt.buttons.*]`（`/buttons` 节点：`button-names`、`home-button-type`）与 `[adt.arm-io.pong-buttons.*]`（PMIC 仲裁器六个常量） | `git apply --check` 通过（见下） |
+| — | `board-toml-adt-buttons.diff` | 给 `board.toml` 插入 `[adt.buttons.*]`（`/buttons` 节点：`button-names`、`home-button-type`）与 `[adt.arm-io.pong-buttons.*]`（PMIC 仲裁器六个常量） | `git apply --check` 通过（见下） |
 
 应用方式（由 Lead 执行）：
 

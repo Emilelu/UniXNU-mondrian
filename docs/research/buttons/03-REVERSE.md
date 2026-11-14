@@ -99,4 +99,5 @@ SPMI 中断说明符是 `<USID periph irq type>`：`<0x00 0x13 0x07 0x03>` = SID
 - ❌ **DTBO 未取得**：K60 的 `dtbo.img` / `/proc/device-tree` 原始输出没有留档，live FDT 是 AP 侧视角的合并结果；UEFI 注释写「live DT dtbo0」说明按键节点来自 dtbo0，但该分区镜像本身没保存。影响：无法核对 overlays 里是否还有第二份 gpio-keys 或 status 覆盖。
 - ◐ **Android 侧 `/sys/class/input` 与 `dmesg` 未留档**：`gpio-keys` 的实际注册名、`/proc/bus/input/devices` 的键位表没抓。当前映射靠 DT + UEFI 实测两源，足够，但少了第三源。
 - ❌ `/buttons` 节点缺失（见 ② 缺口）—— 属于 ADT 生成器问题，不是反编译问题。发射器是 `board.toml` 的 `[adt.buttons.*]`（`devicetree.py:388-390`），不是 `scripts/make-pong-adt.py`；修法见 `patches/buttons/README.md` 的 diff 建议。
+- ◐ **`/arm-io/pong-buttons` 的来源已查清（2026-11-14）**：11-14 镜像的 ADT 里有该节点（六属性、无 `compatible`），但 `board.toml` 与 `dts/` 都没有 —— 它来自框架 OS profile `profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` 的一处**本地未提交**改动（合并顺序 arch → soc → os profile → board，后者覆盖前者）。取证过程与三个反证见 `02-OFFICIAL.md` 的「ADT 里 `/arm-io/pong-buttons` 的实际来源」一节。
 - ◐ PON 的 PBS 页（`pon_pbs@800`，`0x0810`）在 K60 上不可由 AP 读取：`0x0810` 落在 `pon_pbs` 页而非 `pon_hlos`，这是 sweet 板驱动（`0060-sweet-keys-touch-drivers.patch:58` `KEYS_PON_RT 0x0810`）在 K60 上失效的根因；K60 读的是 `pon_hlos` 页内的 `0x10`（整地址 `0x1310`）。

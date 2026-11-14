@@ -31,7 +31,7 @@
 
 | 要求 | 出处 | K60 现状 |
 |---|---|---|
-| `/buttons` 节点提供 `button-names`（`hold`/`voldown`/`volup`，无 Home 键则省略 `menu`）与 `home-button-type=2` | `mobilegestalt.md:26-27`、`device-tree.md:223` | ❌ 缺：`scripts/make-pong-adt.py:240` 只生成 `pong-buttons`，没有 `node('buttons')`（对比 pong `make-pong-adt-ipados18.py:303`、zizhan 同文件 :332、liuqin `make-liuqin-adt.py:176`）；**真实生效入口是 board.toml 的 [adt.buttons.*]**（schema_version = 2 时 ADT 由 scripts/unixnu/devicetree.py 的 generate() 生成，make-pong-adt.py 不被调用），diff 建议见 patches/buttons/README.md |
+| `/buttons` 节点提供 `button-names`（`hold`/`voldown`/`volup`，无 Home 键则省略 `menu`）与 `home-button-type=2` | `mobilegestalt.md:26-27`、`device-tree.md:223` | ❌ 缺：ADT 里没有 `/buttons` 节点（`scripts/make-pong-adt.py:240` 只生成 `pong-buttons`，没有 `node('buttons')`，且该脚本在 `schema_version = 2` 下不被调用；对比 pong `make-pong-adt-ipados18.py:303`、zizhan 同文件 :332、liuqin `make-liuqin-adt.py:176`）；**真实生效入口是 board.toml 的 [adt.buttons.*]**（schema_version = 2 时 ADT 由 scripts/unixnu/devicetree.py 的 generate() 生成，make-pong-adt.py 不被调用），diff 建议见 patches/buttons/README.md |
 | 启动菜单的按键语义（上下/Enter/任意键） | `boot.md:57-64` | 由 UEFI Keypad 链提供（`K60KeypadDeviceLib`），不是内核侧 |
 | 官方参考实现用 boot arg 开关（sheng 是 `sheng-buttons=1`，页面写 `buttons=1`） | `input.md:77`；`ButtonProbe.cpp:214` `sheng_buttons_probe()` | K60 用 `pong_buttons=1`（默认开），见 `board.toml` 默认 boot-arg |
 
@@ -78,6 +78,20 @@
 | HID 形式 | 自建 report 2 位域（`IOHIDUserDevice`） | consumer page 的键盘事件 0x30/0xe9/0xea | `userland/touch.c:382-397` |
 | boot arg | `buttons=1`（页面）/ `sheng-buttons=1`（源码） | `pong_buttons=1`，默认开 | `board.toml` 默认 boot-arg |
 | 音量加来源 | PM8550 GPIO6（SID1） | PM8350 GPIO6（SID1），低有效 | 见 ③ live FDT |
+
+## ADT 里 `/arm-io/pong-buttons` 的实际来源（2026-11-14 复核）
+
+2026-11-14 上机镜像的运行时 DT **确实**带 `/arm-io/pong-buttons`（六个属性齐全、**无 `compatible`**），但 `board.toml` 与 `dts/mondrian.dts` 里都找不到它。逐层核对结果：
+
+| # | 核查对象 | 结果 |
+|---|---|---|
+| 1 | 构建产物 `usb-20261114b/boot.img`（201,887,744 B，sha256 `EF0E905F…`）里的 `KERNEL~1ADT` | 15,736 B，sha256 `18a514e7…`，与 `build-manifest.json` 的 `components.adt` 一致；24 节点，`/device-tree/arm-io/pong-buttons` 有 core-base/cnfg-base/observer-base/ee/pon-ppid/volume-up-ppid，**无 compatible**，**无 `/device-tree/buttons`** |
+| 2 | 被构建的 board 仓 `E:/hackios/k60-usb`（HEAD `9ce7d2c`，构建提交 `0b00bc79`） | `board.toml` 只有 4 个 adt 段（:235 `pong-touch.string`、:238 `.u64`、:243 `.u32`、:249 `.bytes`），`grep pong-buttons` 零命中；`dts/mondrian.dts` 只有 :55 `unixnu,adt-name="pong-audio"`、:87 `"ufshc"` |
+| 3 | 框架 OS profile：WSL `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` | **命中**：`["adt"."arm-io"."pong-buttons"]` + `.u64` 三个基址 + `.u32` ee/pon-ppid/volume-up-ppid，**没有 `.string compatible`** —— 与第 1 行 ADT 缺 compatible 完全吻合。该文件 `git status` 为 ` M`（未提交），`git show HEAD:…` 零命中；上游 `E:/hackios/UniXNU/profiles/os/` 的四个 profile 也零命中 |
+
+合并顺序决定了它能生效：`scripts/unixnu/profiles.py` 的 `load()` 按 arch → soc → **os profile** → `board.toml` 依次 `merge()`，后者覆盖前者。所以 11-14 镜像按键能通，靠的是这处**本地未提交的 profile 改动**，不是任何仓库里的提交。
+
+复现该构建必须先落这 6 行 profile（或在 `board.toml` 用 `[adt.arm-io.pong-buttons.*]` 覆盖，见 `patches/buttons/README.md`）；否则运行时退回 `Pong keys: missing/incompatible DT; SKIP`。`dts/` 侧曾被删过一次：`10649b3`（"fix(adt): let each of the three sources own its own fields"，在 HEAD 祖先链上）把该节点从 DTS 移除，理由是「Configured arm-io child duplicates an exported hardware node」——profile 已带全部六个属性。
 
 ## 缺口
 

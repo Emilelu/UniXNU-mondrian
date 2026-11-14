@@ -304,11 +304,11 @@ why = "实体键（电源/音量）"
 
 [hardware.buttons.step.same_model]
 done = true
-evidence = "同型基线是 UniXNU-pong 的 246 行中断版 pong_buttons.c（K60 现为其 16 ms 轮询子集），逐行对照见 docs/research/buttons/04-WIDE.md:101；寄存器语义另由官方 ButtonProbe.cpp:26-31 与 K60 live FDT 反编译交叉确认，见 docs/research/buttons/02-OFFICIAL.md:42 与 docs/research/buttons/03-REVERSE.md:40。"
+evidence = "同型基线是 UniXNU-pong 的 246 行中断版 pong_buttons.c（K60 现为其 16 ms 轮询子集），逐行对照见 docs/research/buttons/04-WIDE.md:101；寄存器语义另由官方 ButtonProbe.cpp:26-31 与 K60 live FDT 反编译交叉确认，见 docs/research/buttons/02-OFFICIAL.md:42 与 docs/research/buttons/03-REVERSE.md:42。"
 
 [hardware.buttons.step.official]
 done = true
-evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。官方还要求 ADT 的 /buttons 节点提供 button-names 与 home-button-type（mobilegestalt.md:26-27），K60 的 scripts/make-pong-adt.py 缺该节点，补丁 patches/buttons/0001-adt-buttons-node.patch 已备并通过 git apply --check。详见 docs/research/buttons/02-OFFICIAL.md。"
+evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。官方还要求 ADT 的 /buttons 节点提供 button-names 与 home-button-type（mobilegestalt.md:26-27），K60 的 ADT 缺该节点：board.toml 是 schema_version = 2，ADT 由 devicetree.py:388-390 从 [adt].buttons 发射，改 scripts/make-pong-adt.py 是死代码（payload.py:231-236）。精确的 board.toml diff 见 patches/buttons/board-toml-adt-buttons.diff，已 git apply --check 通过并用 devicetree.generate() 端到端生成过含 /device-tree/buttons 的 ADT。详见 docs/research/buttons/02-OFFICIAL.md:1。"
 
 [hardware.buttons.step.decompile]
 done = true

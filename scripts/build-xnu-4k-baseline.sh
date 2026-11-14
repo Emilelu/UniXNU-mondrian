@@ -295,6 +295,19 @@ PY_DRIVER_SOURCE
     echo 'PONG_NATIVE_DRIVER_SOURCE is unset and the device checkout could not be located; the ArmDT/ArmCpu/NativeUfs archives will be skipped and the link will stop on their files' >&2
   fi
 fi
+# 0610: the Adreno Metal plugin travels inside the kernel, because
+# /private/var/ngpu/addons lives on the APFS Data volume and no host tool here
+# can write it. The generator emits an .incbin assembly file so the 51 MB never
+# becomes a 250 MB C literal; K60_METAL_PLUGIN_DIR points at the built bundle.
+K60_METAL_PLUGIN_DIR=${K60_METAL_PLUGIN_DIR:-}
+if [ -n "$K60_METAL_PLUGIN_DIR" ] && [ -d "$K60_METAL_PLUGIN_DIR" ] && \
+   [ -f "patches/xnu/0610-k60-metal-plugin-deploy.patch" ]; then
+  K60_METAL_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s
+  mkdir -p "$(dirname "$K60_METAL_ASM")"
+  python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-metal-blob.py" \
+    --plugin-dir "$K60_METAL_PLUGIN_DIR" --assembly --output "$K60_METAL_ASM" \
+    >&2 || { echo 'k60_metal_blob generation failed' >&2; exit 1; }
+fi
 if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   export PONG_NATIVE_DRIVER_SOURCE
 fi
@@ -426,6 +439,12 @@ if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
 fi
 if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
   PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_NATIVE_UFS=1"
+fi
+if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+  # The call site in iokit/bsddev/IOKitBSDInit.cpp is compiled with this flag;
+  # the archive is force-loaded below. Without both halves the class is dead
+  # code, which is how it stayed inert for a day (P-157).
+  PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_K60_PHYSICAL_BATTERY=1"
 fi
 NATIVE_VIRTIO_CONSOLE=${XNU_NATIVE_VIRTIO_CONSOLE:-0}
 if [ "$NATIVE_VIRTIO_CONSOLE" != 0 ] && [ "$NATIVE_VIRTIO_CONSOLE" != 1 ]; then
@@ -951,6 +970,17 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ADRENO_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ADRENO_ARCHIVE"
   fi
+  if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+    # scripts/build-k60-physical-battery.py produces this archive on the host
+    # from the captured FDT plus the vendor module; the kernel gets the
+    # IOPMPowerSource subclass and the GLINK client. The archive is a build
+    # input, so a missing one must stop the build rather than silently ship a
+    # kernel without the battery class (P-157).
+    BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
+    test -f "$BATTERY_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $BATTERY_ARCHIVE"
+  fi
   if [ "$NATIVE_MOBILE_DISPLAY" = 1 ]; then
     MOBILE_DISPLAY_ARCHIVE=$ROOT/build/native-mobile-display/libNativeMobileDisplay.late.a
     test -f "$MOBILE_DISPLAY_ARCHIVE"
@@ -1133,6 +1163,17 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     test -f "$UFS_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $UFS_ARCHIVE"
+  fi
+  if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+    # scripts/build-battery-archive.sh builds this from the captured FDT plus
+    # the vendor module. MEASURED 2026-11-14: adding it only to
+    # KERNEL_EXTRA_ARCHIVES is useless here, because that whole block sits
+    # inside the XNU_SOURCE_CORECRYPTO14 branch and the generated .config
+    # resolves that symbol to n (P-190).
+    BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
+    test -f "$BATTERY_ARCHIVE"
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
+    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $BATTERY_ARCHIVE"
   fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a

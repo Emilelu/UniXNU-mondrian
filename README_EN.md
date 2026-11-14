@@ -14,7 +14,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 <!-- EIGHT-STEP-TABLE:BEGIN -->
 | Hardware | ① Same model | ② Official | ③ Reverse | ④ Wide search | ⑤ Plan | ⑥ Deep dive | ⑦ Local verify | ⑧ On device | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| **触摸（Goodix GT9916R / BERLIN）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **触摸（Goodix GT9916R / BERLIN）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **GPU（Adreno 730v3 / Metal）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | **storage** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **display** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |

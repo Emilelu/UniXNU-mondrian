@@ -52,7 +52,7 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 | 锁屏 / SpringBoard | ✅ | `Pong UI: 20G81 compatibility library entered SpringBoard` |
 | launchd 稳定 | ✅ | `0394` 精选缓存（22 个核心 job）已并入 `0391`，写 `/private/var/pong/xpc/launchd.plist` |
 | 实体键（电源/音量） | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `_pong_buttons_init`），`configuration()` 结果不可观测 |
-| 触摸 | 🔄 | 见下方「触摸」专节 |
+| 触摸 | ✅ | 单指已真机验证，见下方「触摸」专节 |
 | GPU（Adreno 730v3） | 🔄 | 见下方「GPU」专节 |
 | WiFi / 蓝牙 / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
 
@@ -61,13 +61,23 @@ sha256 9561b577388c4546c95b496dda145d425d60869a498df6e1d0da2bd9d9782d5f
 - **协议**：BRL。`0x10000` 稳定读出 `BERLIN 9916R 05.80.02.63`；GTP 寄存器
   `0x8140` / `0x8047` / `0x804E` / `0x814E` 全部返回 0（2026-11-11 实测，
   见 P-129）。
-- **当前卡点**：SPI 全通、config `state=80`、芯片有中断与原始帧，
-  但触点计数恒为 0。
+- **2026-11-14 结论：单指触摸已通过真机验证。** 镜像 `touch-20261114a`
+  （`boot.img` `0b2003f4…`、内核 `c78a5cc9…`）启动后 `goodix: COORD-ON ack=80`，
+  随后八条 `goodix: type=1 finger=0 raw=… normalized=…` 与四条
+  `Pong touch HID: type=1|3` 派发；日志 268,137 B / SpringBoard 254 行 /
+  无 panic 标记，用户在场确认屏幕响应。证据
+  `E:\k60-work\evidence\usblog-20261114-150931\console.log`，记录见
+  [`docs/research/touch/08-on-device.md`](../research/touch/08-on-device.md) 第 7 轮。
+- **真因**：旧代码只发 `0x90/0x00`（关 raw 帧），从未发本机 Android
+  `goodix_htc_enable(false)` 的第二条 `0x91/0x01`（坐标上报使能）；且配置完成
+  只看 `ack[1]`、不等 `reply[0] == 0x80`，没写完的配置看起来已完成。
+- **尚未验收**：两点同时按下的触点 ID 稳定性与独立 release、屏幕边缘手势、
+  手指移动时的持续帧率、息屏 `tap-to-wake`；`0x10308` 头长度取自 `misc+48`
+  仍是推断（保留模块只证明 `misc+44` 与 `misc+50`）。
 - **2026-11-12 变更**：触摸驱动整体换成 yibiya `fix/touch-gpu-bringup`
   分支的干净实现（47,040 B / 1,039 行，替换原有的 239,781 B / 5,452 行
   诊断版）。新实现使用真实触摸坐标范围 `14400×32000`、显式
   `bitbang-pins` 角色元组、`k60_touch_se=5 k60_touch_rcg=1`。
-- **未验证**：⑧ 上机。
 
 ### GPU
 

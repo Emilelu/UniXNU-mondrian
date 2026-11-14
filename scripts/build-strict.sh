@@ -95,6 +95,26 @@ fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 
+# --- gpu addon (0610) -------------------------------------------------------
+# The Metal plugin travels inside the kernel as an .incbin blob, so the build
+# needs the assembled bundle before the kernel link.  CONFIG_XNU_GPU_ADDON=y
+# without the bundle would link a kernel that references a missing symbol, so
+# a missing directory is a hard failure rather than a silent skip.
+GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)
+if [ -n "$GPU_ADDON" ]; then
+  PLUGIN_SRC=${K60_METAL_PLUGIN_SRC:-/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin}
+  PLUGIN_DIR=$REPO/build/metal-plugin
+  # The macOS build writes a real bundle; the blob generator reads a flat
+  # directory. Stage it instead of teaching the generator two layouts.
+  if ! bash "$REPO/scripts/stage-metal-plugin.sh" "$PLUGIN_SRC" "$PLUGIN_DIR" \
+          > "$LOGS/metal-plugin.log" 2>&1; then
+    tail -5 "$LOGS/metal-plugin.log"
+    die "CONFIG_XNU_GPU_ADDON=y needs the Metal bundle; $PLUGIN_SRC is unusable"
+  fi
+  export K60_METAL_PLUGIN_DIR=$PLUGIN_DIR
+  echo "build-strict: metal plugin $(cat "$LOGS/metal-plugin.log")"
+fi
+
 # The battery class lives in a host-built archive that the kernel script only
 # force-loads when the defconfig asks for it. Build it here so a battery-enabled
 # configuration cannot reach the link step without its archive (P-157).
@@ -122,8 +142,19 @@ KERNEL_SHA=$(sha256sum "$KERNEL" | cut -d' ' -f1)
 echo "build-strict: kernel $KERNEL_SHA $(stat -c %s "$KERNEL") bytes"
 
 # --- payload -----------------------------------------------------------------
+# --kernel-arg has to reach THIS step: the payload's unixnu.toml is what the
+# firmware passes to the kernel (P-159), and payload.py only overrides a board
+# argument for names it is given.  Forwarding the flag to bootimg alone produced
+# an image whose command line was identical to a build without it.
+PAYLOAD_ARGS_CMD=()
+for kv in "${KARGS[@]:-}"; do
+    [ -n "$kv" ] || continue
+    PAYLOAD_ARGS_CMD+=(--kernel-arg "$kv")
+done
+PAYLOAD_ARGS=()
+[ ${#PAYLOAD_ARGS_CMD[@]} -eq 0 ] || PAYLOAD_ARGS=("${PAYLOAD_ARGS_CMD[@]}")
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
-        > "$LOGS/payload.log" 2>&1; then
+        ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
     die "payload build failed (see $LOGS/payload.log)"
 fi
@@ -207,7 +238,7 @@ m = {
         "boot_img": "$BOOT_SHA",
         "boot_img_path": "$RUN/boot.img",
     },
-    "kernel_args": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
+    "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
     "logs": "$LOGS",
 }
@@ -217,4 +248,10 @@ PY
 
 echo "build-strict: boot.img $BOOT_SHA"
 python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
+# The command line in the image must be the board contract plus declared
+# additions.  On 2026-11-14 two hand-packaged images silently replaced
+# debug=0x140 with debug=1 (DB_HALT) and ran 610 bytes over the 607-byte
+# DarwinBoot ceiling; both boots produced zero console bytes.
+python3 "$REPO/scripts/check-image-args.py" --image "$RUN/boot.img" --board "$REPO/board.toml" \
+    | tee "$LOGS/image-args.log" || die "the boot image command line is not the board contract (check-image-args.py)"
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

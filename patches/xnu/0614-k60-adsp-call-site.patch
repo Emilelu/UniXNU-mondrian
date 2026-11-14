@@ -1,19 +1,22 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7818,14 +7818,16 @@
- 	printf("K60DATA mount returned error=%d result=%d rw=%u\n", error, result, k60_data_rw);
- 	if (error) goto done;
- 	k60_data_mounted = 1;
- 	/* 0340: place the UI compatibility library on the Data volume */
- 	{
- 		extern int k60_uilib_deploy(void);
+@@ -7832,6 +7832,19 @@
+ 		extern int k60_metal_deploy(void);
+ 
+ 		(void)k60_metal_deploy();
++	}
++	/* 0614: bring up the ADSP and read the touch rail once Data is mounted.
++	 * The rail probe is opt-in (HR-01): an ordinary boot never maps 0x17a20000. */
++	{
 +		extern int k60_adsp_probe_from_handoff(void);
- 
- 		(void)k60_uilib_deploy();
-+	k60_adsp_probe_from_handoff();
- 		{
- 			extern int k60_metal_seeds_deploy(void);
- 
- 			(void)k60_metal_seeds_deploy();
- 		}
++		extern int k60_rail_probe(void);
++		int pong_rail_probe = 0;
++
++		(void)k60_adsp_probe_from_handoff();
++		if (PE_parse_boot_argn("pong_rail_probe", &pong_rail_probe,
++		    sizeof (pong_rail_probe)) && pong_rail_probe != 0) {
++			(void)k60_rail_probe();
++		}
  	}
+ 	native_owner_data_stage = 3;
+ 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());

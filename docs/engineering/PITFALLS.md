@@ -4478,6 +4478,64 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 `scripts/tests/test-check-kernel-archives.py`（5 个用例）第 1 个断言
 `EXPECTED` 里每个键都真实存在于 `configs/mondrian_defconfig`。
 
+## P-191 — 查表函数"没找到"却返回成功
+
+**现象**：`k60_rpmh_level_index(&res, 9999, &index)` 返回 `K60RpmhOk`，`index` 是表的最后一档。
+调用方以为"1800 mV 已选好"，实际选的是这张表能表达的最高档。host 测试当时还把这种行为写成断言
+（`CHECK(... 9999 ... == K60RpmhOk && index == 3)`），于是测试替 bug 背书。
+
+**根因**：循环没命中时走了 fallback 分支，为了"给个合理值"把 `*index` 设成最后一档，
+顺手沿用了成功返回码。
+
+**为什么危险**：这是**投票类**接口。RPMh 的电压/模式请求一旦发出就无法在软件侧撤销，
+错误档位会以"成功"的形态持续存在，而且日志里看不出来 —— 只有比较 observer 的
+`valid`/`enable` 才能发现。
+
+**修法**（`drivers/PongPower/K60PmicRail.c`）：fallback 仍给出最后一档（调用方可能想打印它），
+但返回 `K60RpmhNoLevel`；host 测试同步改成 `CHECK(... 9999 ... == K60RpmhNoLevel); CHECK(index == 3);`
+并补一条命中用例 `1400 -> Ok, index 0`。
+
+**预防**：
+1. 任何返回 `Ok`/`Success` 的查表函数，逐条问"输入超出表范围时我返回什么"。
+2. host 测试不要只测正常路径 —— 边界输入（0、超上限、表为空）必须各有一条。
+3. 看到 `*out = count - 1; return OK;` 这种组合就是本坑。
+
+**发现者**：触摸线 agent 的评审（`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md`，2026-11-14）。
+
+## P-192 — 门禁把"整机口径"用成了"所有人一起等"
+
+**现象**：2026-11-14，wifi 与 bt 两条线的 agent 都无法通过 `build-strict.sh` 构建。原因是八步门禁的
+**flash 模式**要求所有 `status = "active"` 的硬件项八步全绿，而触摸线正在被外部 agent 大改
+（④⑤⑥ 被改成 `done = false`）。两条线于是手工 `unixnu build` + `bootimg` 绕过构建器，结果：
+
+- `bt-s1-20261114b` 命令行 **610 字节**，超过 DarwinBoot 的 607 字节上限（`BootArgs.h:8` 的
+  `DARWIN_BOOT_LINE_LENGTH 608`，`DarwinBoot.c:681` 判 `Index >= sizeof(CommandLine) - 1`），
+  固件直接返回 `EFI_BAD_BUFFER_SIZE`，内核根本没被调用；
+- `wifi-20261115a` 把 `debug=0x140` 换成 `debug=1`（`debug.h:513` 的 `DB_HALT`），任何调试陷阱都停机，
+  还把 `epoch` 换成 1 —— 表现为"引导卡在一处"。
+
+两次都是 **0 字节日志**，看起来像内核故障，实际是打包环节没人看命令行。
+
+**根因**：门禁本身没错（它确实应该拦住未验证的硬件项），错在**只能整机声明**：
+`K60_EIGHT_STEP_ITEMS` 只在 `status = "active"` 的项里挑，所以"我要构建 buttons/wifi/bt 这条线"
+根本无法表达，任何非触摸线的构建都会被触摸线拖住。
+
+**修法**（`scripts/eight-step-gate.py`）：
+- `declared_items(hw, all_items)` 改为从**全部**硬件项里取名字，parked/planned 也可以声明；
+- 声明后的项仍按同一套证据规则检查（`done=true`、依据 ≥30 字、必须有 `file:line`/URL/`usblog-…`/`0x…`/`P-xx`/`★xx`），
+  所以这是**收窄范围**而不是放松要求；
+- 不声明 = 整机口径，行为与之前逐字相同；
+- `--flash` 模式永远不看声明，刷机仍是整机门禁；
+- 打印时带上状态：`声明范围: buttons[parked]`，谁放窄了范围在日志里一目了然。
+
+**配套**：新增 `scripts/check-image-args.py` 并把 `build-strict.sh` 接上 —— 即使有人手工打包，
+也能用同一条命令审出超限、`debug=1`、`epoch=1`、替换 board 值、未声明追加参数。
+
+**教训**：
+1. 门禁的"作用域"和"强度"是两件事。挡住无关的人不是严格，是逼人绕过。
+2. 任何"只能整机"的门禁，都要问一句"别人在做别的硬件时怎么构建"。
+3. 绕过门禁的产物必须能被独立审计 —— 审计工具要单独可用，不能只挂在构建器里。
+
 ### P-193 — 门禁把仓库根写成字面路径、把参考源搜索写死两个前缀：在 worktree 里校验别人的文件，还永远拒绝合法的参考仓库
 
 **症状**：refmine 线要把 `QcaBluetooth` 与 `UniXNU-liuqin` 写进
@@ -4524,3 +4582,29 @@ if not any(os.path.exists(candidate) for candidate in tried):
    教训的两种形状。
 4. 每个门禁都要有一个从**别的 worktree** 跑的用例，否则字面路径 bug 永远不会暴露。
    见 `scripts/tests/test-research-gate-prefixes.py`（5 个用例）。
+
+## P-194 — 补丁集指纹量的是 scratch 副本，不是真正被构建的序列
+
+- **现象**：`porting-gate.py` 的 S 段报 `series 指纹 23131cd07c1cb63e (227 条)`，而这次构建的
+  `build-manifest.json` 写着 `series 223`。两个数字都自称"补丁集指纹"，却描述不同的序列。
+- **根因**：`board.toml` 的 `patch_series = ["device:patches/xnu/series"]` 才是构建真正应用的顺序表
+  （`scripts/unixnu/patches.py:12-28` 按它逐条 apply，重复条目直接报错）。而
+  `porting-gate.py:35` 与 `record-boot.py:24` 都写死 `WORK + '/scratch/SERIES-FINAL.txt'`。
+  那份 scratch 副本是 P-90 时代的真相源，此后漂移成 227 条：多出四个蓝牙补丁
+  （`0507`–`0510`）、仍写着已被替换的 `0610-k60-metal-seeds.patch`。
+- **后果**：S 段把"补丁集变了"判成必须显式确认，可它比较的是两个都不参与构建的副本；
+  `record-boot.py` 记进账本的指纹同样是错的，于是"上次成功启动的补丁集"这条基线一直指向
+  一个不存在的序列。这正是 P-90 的反面：当年是改仓库 series 不生效，今天是改仓库 series 生效了，
+  但门禁还在看 scratch。
+- **修复**：两个脚本都改成 `SERIES = <repo>/patches/xnu/series`，文件不存在时才回退到
+  `scratch/SERIES-FINAL.txt`（给没有该文件的旧树用）。改后 `record-boot.py --dry-run` 报
+  `series 932e0cb51d39fb60 (223 patches)`，与 manifest 的 223 一致。
+- **验证**：`python3 scripts/record-boot.py --image … --log … --dry-run` 的条数与
+  `build-manifest.json` 的 `series.count` 必须相等；不相等就说明两个"真相源"又分叉了。
+- **教训**：
+  1. 任何"指纹/基线"都必须来自**构建实际读的那个文件**，不能来自同名的副本。判据很简单：
+     把它和 manifest 里同一个字段对一次，对不上就是 bug。
+  2. 一个文件被两份脚本各自写死路径时，改真相源只会改一半。真相源变更必须同时改所有读者，
+     并且留一个能在没有该文件时降级的回退。
+  3. P-90 的结论（"改仓库 series 无效"）在 format 2 之后已经反转。pitfall 也会过期，
+     引用旧 pitfall 当依据之前先确认它描述的世界还在不在。

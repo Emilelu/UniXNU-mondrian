@@ -586,3 +586,110 @@ frozen `317469bc3c078b97…`）。
 `fastboot boot usb-20261114e/boot.img` → 300 s 采集 → 第 70 s / 130 s 两次主机侧 `Get-PnpDevice` 采样，
 重点读 `composite cfg 98 bytes ep6 %d ep7 %d DALEPENA 0x%08x` 这一行与新增的 `GHWPARAMS1/3 GTXFIFOSIZ` 行。
 脚本已备好：`E:/k60-work/scratch/usb/boot0407e.sh`（门禁四连 + boot + 双采样），**当前未运行**。
+
+## 15. P2 前置设计：8 槽 TRB、传输资源收尾、FIFO 预算（尚未实现）
+
+本节是**设计记录**，不包含代码改动。上机被暂停，这里先把下一步要改的东西按证据定下来。
+
+### 15.1 已经能从既有证据读出的结论
+
+`usb-20261114b` 上机日志里 `GHWPARAMS0 0x4020400a`，用参考头文件里的宏可以确定解码
+（`references/uefi-pong/Silicon/Samsung/SamsungPkg/Include/Device/Dwc3.h:134-138`）：
+
+| 字段 | 宏 | 值 |
+| --- | --- | --- |
+| MODE | `GHWPARAMS0 & 0x3` | `0x0a & 3` = **2 = DRD** |
+| MDWIDTH | `(GHWPARAMS0 >> 8) & 0xFF` | **64 bit** |
+
+DRD 与 DTS 的 `dr_mode = "otg"`（`scratch/usb/mondrian.dts:16874`）一致，说明该 core 的物理能力里
+同时含 device 与 host 两种角色；当前之所以只跑 device，是我们把 `GCTL.PRTCAPDIR` 设成了 device
+（同 SoC UEFI 栈 `Dwc3Core.c:243-244` 也是这么做的），不是硬件不支持。
+
+### 15.2 物理端点数是硬件属性，必须读寄存器（不能照抄参考实现）
+
+同 SoC 的 UEFI 栈给出这条链的完整证据：
+
+1. `UsbfnDwc3Dxe.h:11` `#define DWC3_MAX_PHYSICAL_EP 16`（数组上界）；
+2. `BoardInit.c:198` `PlatformData->NumEndpoints = 0;` —— 平台层**故意留 0**；
+3. `Dwc3Core.c:266-273`：`NumEndpoints` 为 0 时读 `GHWPARAMS3` 的 `NUM_EPS`，再夹到 `[1,16]`；
+4. `Dwc3Endpoint.c:176` `if (PhysEpNum >= Dev->NumPhysicalEps) return EFI_INVALID_PARAMETER;`
+   —— 端点号越界时**命令根本不会下发**。
+
+这条链正是 0407 要读 `GHWPARAMS3` 的理由：K60 上 EP6/EP7 的 `SETEPCONFIG` 失败，最可能的解释就是
+`NumPhysicalEps` 不够（本板可能只暴露 4/6 个物理端点），而不是描述符写错。0407 把这一点变成日志里的一个数。
+
+### 15.3 FIFO 划分在 K60 上没有生产者，只能读回来
+
+在 `references/uefi-pong/.../UsbfnDwc3Dxe/` 里 grep `GTXFIFOSIZ|GRXFIFOSIZ|FifoSize` 命中 **0 次**：
+同 SoC 的 UEFI 固件**从不写** TX FIFO 尺寸寄存器，它只是按 `FIFO_NUMBER(PhysEpNum >> 1)`
+（`Dwc3Endpoint.c:191`）去**假设**编号 0..3 的 FIFO 存在。也就是说：
+
+- FIFO 表是更早的引导阶段（XBL/ABL）留下的静态配置；
+- 「EP7 用 FIFO 3 是否越界」在 K60 上没有任何文档或参考实现能回答，只能把 `GTXFIFOSIZ0..3` 读出来看。
+
+这也是 0407 只加只读打印、不改任何写寄存器的原因。DTS 里 `tx-fifo-resize` 属性存在
+（`scratch/usb/mondrian.dts:16873`），说明 Linux 侧同样认为这块需要按实际端点集重新计算，而不是固定值。
+
+### 15.4 P2 要改的三件事（等 0407 数据到位后做）
+
+#### (a) TRB 槽从 4 个扩到 8 个
+
+现状 `ud_trb_for()`（`k60_usblog.c:1029-1036`）只有四个槽：
+
+```c
+case 0: return UD_TRB_OUT;   /* 0x1000 */
+case 1: return UD_TRB_IN;    /* 0x10c0 */
+case 2: return UD_TRB_RX;    /* 0x3040 */
+default: return UD_TRB_TX;   /* 0x3000, ep 3 与 ep>=4 共用 */
+```
+
+EP6/EP7 一旦真正发传输，会与 EP3 写同一个 TRB（互相踩），必须给每个物理端点独立 64 B 行。
+`UD_SIZE = 0x8000`（32 KiB），现有占用到 `0x5000 + 0x1000 = 0x6000`，`0x1300..0x1400` 与
+`0x6000..0x8000` 都是空闲的，因此**不需要移动任何既有偏移**（0307 特意给 TRB_IN / TRB_RX 分了独立
+cache line，挪动会重新引入伪共享）：
+
+| 物理端点 | 新 TRB 偏移 | 说明 |
+| --- | --- | --- |
+| 0 | `0x1000` | 不变 |
+| 1 | `0x10c0` | 不变 |
+| 2 | `0x3040` | 不变 |
+| 3 | `0x3000` | 不变 |
+| 4 | `0x1300` | 新增（当前未用） |
+| 5 | `0x1340` | 新增（interrupt IN，当前只配置不传输） |
+| 6 | `0x1380` | 新增（vendor bulk OUT） |
+| 7 | `0x13c0` | 新增（vendor bulk IN） |
+
+vendor 端点的数据缓冲同样落在空闲区：`UD_VEND_RX 0x6000`、`UD_VEND_TX 0x7000`（各 4 KiB）。
+
+#### (b) 传输资源收尾（`ENDTRANSFER`）
+
+现在 `ud_epcmd(STARTTRANSFER)` 之后从不记录返回的传输资源号，`ud_reset_endpoints()` 直接
+`DWC3_DALEPENA = 0` 就重来。同 SoC 参考实现是显式收尾的（`PongUsbDevice.h:123-140`）：
+
+```c
+transferResource[ep] = uint8_t((core.r(DWC3_DEPCMD(ep)) >> 16) & 0x7f);   /* :130 */
+if (!cmd(ep, DWC3_DEPCMD_ENDTRANSFER | (1u << 11) | DWC3_DEPCMD_PARAM(transferResource[ep]))) return false;  /* :136 */
+```
+
+注释写明「DWC3 requires DEPENDXFER for real active resources before RunStop0；HIPRI_FORCERM11 +
+actual STARTTRANSFER resource index; no guessed id」。K60 版要补的是同一个东西：
+`uint8_t transferResource[8]`、`ud_start()` 里记下资源号、`ud_reset_endpoints()` 在清 `DALEPENA` 前
+逐端点 `ENDTRANSFER`。这不改变控制台行为（EP0/2/3 的传输都会正常完成），但让「重新配置端点」在
+vendor 端点有活动传输时也不会残留半截资源。
+
+#### (c) vendor 功能的数据通路
+
+P2 的第一版只做**回环**（EP6 OUT 收到的字节从 EP7 IN 回给主机），目的是证明端点真的能搬数据，
+不引入任何协议假设。mux 协议（`pong_usb_mux`，`references/pong-usb/PongUsbMux.h`）留给 P3，
+它需要用户态 daemon 与 launchd job，属于另一个量级。
+
+### 15.5 顺序与判据
+
+| 步 | 内容 | 判据 |
+| --- | --- | --- |
+| P2-a | 8 槽 TRB + `transferResource`/`ENDTRANSFER` | 控制台与心跳完全不变（回归判据同 §13.3 的 1、5） |
+| P2-b | EP6/EP7 回环 | 主机用 `UsbTreeView`/`lsusb` 打开 IF2 后写入字节，能在 EP7 读回同一串 |
+| P3 | mux 协议 | 需要用户态组件，另立文档 |
+
+P2-a 是**纯结构性**改动，不含新的硬件假设，因此可以在拿到 0407 数据后立刻做；
+P2-b 依赖 0407 证明 EP6/EP7 确实可配置。

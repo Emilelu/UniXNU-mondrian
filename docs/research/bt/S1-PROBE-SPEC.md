@@ -1,6 +1,8 @@
 # S1 只读探针规格（k60bt_stage=1）
 
-状态：**S1a 上机一次 → 0 字节日志、板子挂死，不可判定**（§0）；**S1c 已接线、已构建（`bt-s1c-20261114a`）、待上机**（§0.1）。
+状态：**S1a 上机一次 → 0 字节日志、板子挂死，不可判定**（§0）；**S1c 已接线、阶梯已重建（`bt-s1c-a1…a5-20261114b`，每份 596 B 命令行）、待上机**（§0.1、§4.1）。
+
+**2026-11-14 11:00 根因更正（Lead 定位，已本地复核）**：S1a/S1b 的 0 字节日志**不是**探针读坏了寄存器，而是内核命令行超长——`k60bt=1 k60bt_stage=1 k60bt_warm=1` 叠在 29 个板级参数上共 **610 B**，超过 DarwinBoot 的 **607 B** 上限（`uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8` `DARWIN_BOOT_LINE_LENGTH 608`、`DarwinBoot.c:678-684` 返回 `EFI_BAD_BUFFER_SIZE`），固件根本没进内核。所以「首访 GENI 就挂死」既未被证实也未被否证。详见 §4.2。
 补丁：`patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch`
 （13,001 B / 280 行 / 36 个打点，sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1`），
 接在 `patches/xnu/series:205`（0502 之后、0503 之前）。
@@ -122,17 +124,19 @@ bash scripts/k60-device.sh state
 # 1) 构建 + 本地验证
 K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device python3 scripts/sync-device-input.py
 python3 scripts/check-rules.py
-bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_stage=1 --kernel-arg k60bt_warm=1
+bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_step=<N>
 python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json
+python3 scripts/check-image-args.py --image <artifact>/boot.img --board board.toml   # 必须 OK
 
 # 2) 先挂 CDC-ACM 捕获（铁律 8），再 fastboot boot；同一镜像两次
-#    args: k60bt=1 k60bt_stage=1 k60bt_warm=1 [k60bt_delay=20] [k60bt_step=9]
+#    args: k60bt=1 k60bt_step=<N>   → 596 B，留 11 B 余量（上限 607 B，见 §4.2）
 
 # 3) 落账
 python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
 ```
 
-- `k60bt_warm=1` 是必须的：0500 的 `k60_bt_power_on()` 在 `!k60.warm_boot` 时直接返回 `-EOPNOTSUPP`。S1 不碰电源，但保留该参数以保持与后续阶段一致。
+- **`k60bt_warm=1` 不能再带**（2026-11-14 更正）：它与 `k60bt_stage=1` 一起把命令行顶到 610 B，固件直接拒绝（§4.2）。S1 阶段不碰电源，不需要它；等 S4 真正调 `k60_bt_power_on()` 时再单独为那一级腾出字节。
+- **`k60bt_stage=1` 不必带**：`qbt_k60_start()` 自己先写 `k60.stage = 1` 再解析 `k60bt_stage`（`bsd/dev/qbt_k60.c:1844-1846`），缺省就是 1。所以 S1c 阶梯只需要 `k60bt=1 k60bt_step=N` 两个参数。
 - **同一镜像、逐级加码（铁律 5：同一镜像两次；前一级不死才做下一级）**：
   - **A1 `k60bt_step=1`**（先做，零 MMIO 读）：只做 s1 的三次 `k60_map`。证明参数解析、worker、20 s 延迟、打点、控制台排空全通，并给出 `probe: s1 mapped gcc=… uart=… qup=…` 的真实 VA。
   - **A2 `k60bt_step=4`**（只碰 GCC 投票与 halt，**不碰 RCG、不碰 GENI**）：s2 GPLL0 投票+锁轮询、s3 QUPV3_2 投票、s4 五个 halt 读数。跑完 → GCC 窗口可访问、投票写有效；死 → 问题在 GCC/NoC 而不是 SE20。
@@ -141,20 +145,61 @@ python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
   - **A5 `k60bt_step=9`**（决定性）：s8 第一次读 GENI（0x040）。活下来 → SE20 可达，进 S2；死在 `probe: s8 read se status` 之前 → **在根时钟已开的条件下 GENI 首访仍死**，那才是真的「与触摸/音频同因」，写 blocker。
   - **B（只在某一级挂死时做）**：把 `k60bt_step` 降到死点前一步，验证「去掉那次访问机器就不死」，把死因锁到单条 load。
 - **每一级都要单独打一次镜像**：`k60bt_*` 是内核命令行参数，而命令行由 **payload** 步骤写进 `EFI/UniXNU/unixnu.toml`（`scripts/unixnu/payload.py:119-124` 合并、`:254` 落盘），`unixnu bootimg` 完全不处理 `--kernel-arg`。所以「同一镜像逐级加码」在本项目里做不到字面意义上的同镜像：必须按级重打（每次 `build-strict.sh` 约 6 分钟，内核增量编译），并把每级的 boot.img sha256 与 `k60bt_step` 一起记账。铁律 5 的「同一镜像两次」应理解为**同一份构建产物启动两次**，与这里的「每级一份产物」不冲突：每级各跑一次，若该级出现异常再原地重跑一次。
-- 已备好的镜像：`bt-s1c-20261114a`（step 未指定 → 默认 9，`k60bt_delay=20`）、`bt-s1c-20261114b`（`k60bt_delay=40 k60bt_step=9`）、`bt-s1c-a1-20261114a`（`k60bt_delay=40 k60bt_step=1`）。上机从 A1 开始。
+- 上机用的镜像是 §4.1 的 `bt-s1c-a1…a5-20261114b` 五份（每份 596 B 命令行、`check-image-args.py` 全 OK）。旧的 `…-20261114a` 系列（638 B 命令行）**全部作废**，不得上机。
 - 为什么值得拆成五级：S1a 已经用掉一次「0 字节日志 + 物理断电」，而 A1/A2/A3 都是低风险启动（A3 甚至只读），能把「管道问题」「GCC/NoC 问题」「RCG 根时钟问题」「GENI 问题」四者彻底分开；每级只多花一次安全启动。
 
 ### 4.1 已构建的阶梯镜像（每级一份产物）
 
-| 级 | tag | `k60bt_step` | `k60bt_delay` | boot.img sha256 | 内核 sha256 |
-|---|---|---|---|---|---|
-| A1 | `bt-s1c-a1-20261114a` | 1 | 40 | `18dcc4e432d5b04cced79c142ef93c40162914620c7112659872b348f8f516d2` | `10f75e16be38830e…` |
-| A2 | `bt-s1c-a2-20261114a` | 4 | 40 | `09f85292c31bf5e108a61ec6fcf6adfe114cf51fda77bd5789c667d4f5a4e22f` | `19cb31b7b81d5bec…` |
-| A3 | `bt-s1c-a3-20261114a` | 5 | 40 | `e8422218a2c29ea29accd71ceb3f665ba2f0093b15bfb135b484c86d98953eb0` | `f8bafe4be368f97d…` |
-| A4 | `bt-s1c-a4-20261114a` | 7 | 40 | `9407288ea9077b841eae6227e3144809663a0fe0912ac31a9b3a95c1d1cdec3c` | `cf28f72203e2a0a5…` |
-| A5 | `bt-s1c-20261114b` | 9 | 40 | `1ece32145836d1f28295fad8789981cb074a213abcab8f8f3ba1da6dc4ae9c8c` | `b6244168…` |
+2026-11-14 12:28 用 `build-strict.sh` 重建（每级一份产物，命令行 `k60bt=1 k60bt_step=N` = **596 B / 31 参数**，`check-image-args.py` 五份全 `OK`，`verify-boot-image.py` 五份全 `OK`）：
 
-（`bt-s1c-20261114a` 是 step 默认 9、delay 20 的那一份，`ed59f007…`，仅留档。）
+| 级 | tag | `k60bt_step` | boot.img sha256 | 内核 sha256 | payload sha256 |
+|---|---|---|---|---|---|
+| A1 | `bt-s1c-a1-20261114b` | 1 | `d7136c8bb3a5e4d45ec421bc020391ae0ab0e88a4f87212111c587e83b48c638` | `028840f44b90f0ceabb995db3b5330d85aac8c2df92c04dbcb0ee232ba1a88ee` | `8d8096a2d81fbe972c1bf4010d98852f100336b3894a69be7c7acc4d46bf4636` |
+| A2 | `bt-s1c-a2-20261114b` | 4 | `76608a7352cec73017c7a114ea03777f5a831f29b4f58b9e1e9fbc094dd830eb` | `ce87386369b22151c7518d993432c34c385ec8195ed63799c9259c90c00cea1a` | `dc719990021ce5c2d82766e07eda92cf23ce937e2a1a74d1d5718c6fd2379605` |
+| A3 | `bt-s1c-a3-20261114b` | 5 | `27a747d9d3bdd15707c6fbf56beb98aa343163f057509c9fdbb76092bc4f3d20` | `3ddbe94ddf624a96a440fd72bcdb16a45bfa518c726f3ef4cbab1d54a6726888` | `f690a9b7cbb3aff620e4371ab014d976662023b335eead0da4ec3039c4748468` |
+| A4 | `bt-s1c-a4-20261114b` | 7 | `28921286a3ddfae64993075d47a0ffd6becbc8dbf039fab144bd3938eaba2adc` | `1b16e6b6c552febe7b119062f0d885d7e811938e4afc12381561dc75bf48abd1` | `921a3061bcce9e48640c7ecadf69333455e61a9e655f13075f02c29680439ede` |
+| A5 | `bt-s1c-a5-20261114b` | 9 | `7f9afb9928cf57bf4f7d2632750741352adfcc55199df5d19470644aec98b608` | `d55b05db18434508331c9b51281d8bc1fc53fa3f31fe70c002792e49376f969b` | `f90e4bd09ecccd9d896c2834e74319d510a36a8b2b5cb5b66f2f792336e3b620` |
+
+ADT sha256 依次为 `691c7817…`、`318648e6…`、`5840dccc…`、`18eddf48…`、`4d795288…`（每级不同，因为命令行不同）。manifest 在 `/mnt/e/k60-work/artifacts/<tag>/build-manifest.json`。
+
+（旧 `…-20261114a` 系列 boot.img 全部超长命令行，仅留档，见 §4.2。）
+
+## 4.2 命令行长度上限（2026-11-14 根因）
+
+S1a（`bt-s1-20261114b`）与 S1b 的两次 0 字节日志，根因**不是**探针访问寄存器，而是内核命令行超长：
+
+| 事实 | 证据 |
+|---|---|
+| 上限 607 B | `uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8` `#define DARWIN_BOOT_LINE_LENGTH 608`；`DarwinBoot.c:660` `CHAR8 CommandLine[DARWIN_BOOT_LINE_LENGTH];`；`DarwinBoot.c:678-684` 越界即 `return EFI_BAD_BUFFER_SIZE` |
+| 板级契约 575 B | `board.toml [payload] kernel_args` 共 29 个 token |
+| S1a/S1b 实测 610 B | `k60bt=1 k60bt_stage=1 k60bt_warm=1` 三个参数 35 B → 610 > 607，固件拒绝启动，内核从未执行 |
+| 复核工具 | `scripts/check-image-args.py`（Lead 侧新增）逐张读 boot.img 的 `EFI/UniXNU/unixnu.toml` 并审计 |
+
+对照实测（`check-image-args.py`，2026-11-14 11:03）：
+
+| 镜像 | 命令行 | 判定 |
+|---|---|---|
+| `bt-s1-20261114a`（无 k60bt） | 575 B | OK |
+| `bt-s1-20261114b` | 610 B | **REFUSED** |
+| `bt-s1c-20261114b`、`bt-s1c-a{1,2,3,4}-20261114a` | 638 B | REFUSED（且 `k60bt_delay`/`k60bt_step` 未在 ALLOWED_ADDITIONS 里） |
+| `bt-s2-20261114b` | 575 B | OK |
+| `bt-s4-20261114b` | 583 B | OK（30 参数） |
+| `bt-s1c-a{1,2,3,4,5}-20261114b`（本表 §4.1） | 596 B | OK（31 参数） |
+
+字节预算（上限 607，板级 575，余量 32 B）：
+
+| 追加参数 | 长度 | 装得下 |
+|---|---|---|
+| `k60bt=1` | 583 | ✅ |
+| `k60bt=1 k60bt_stage=1` | 597 | ✅（但冗余，见 §4） |
+| `k60bt=1 k60bt_stage=1 k60bt_warm=1` | 610 | ❌ |
+| `k60bt=1 k60bt_step=N` | 596 | ✅ ← 阶梯采用 |
+| `k60bt=1 k60bt_delay=40` | 598 | ✅（与 step 二选一） |
+| `k60bt=1 k60bt_step=N k60bt_delay=40` | 611 | ❌ |
+
+**结论**：阶梯一律用 `k60bt=1 k60bt_step=N`（596 B）。`k60bt_delay` 与 `k60bt_step` 同时出现永远超限——探针默认延迟 20 s、步数上限 9，够用。
+
+**遗留（Lead 侧）**：`check-image-args.py` 的 `ALLOWED_ADDITIONS` 目前只有 `k60bt`/`k60bt_stage`/`k60bt_warm`，没有 `k60bt_step`/`k60bt_delay`；且 `docs/engineering/BOOT-ARGS.md` 里没有任何 `k60bt` 条目。在 Lead 补上这两处之前，本阶梯镜像用当前 `ALLOWED_ADDITIONS` 的 gate 会被拒（长度本身已合规）。
 
 ## 5. 判据（只读 capture.json 的 `verdict` / `panicMarker`，不看 logstat.py 的 panic 计数）
 

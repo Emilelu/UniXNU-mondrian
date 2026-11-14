@@ -26,6 +26,7 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch` | 1 file (237 ins / 1 del): NGPUADD2 parser `k60_addon_find()`, kernel snapshot `k60_bt_addon_load()` (SecureDT `chosen/memory-map/GpuAddon` + `phystokv`), `k60_bt_addon_read()`, and `k60_bt_firmware_read()` trying the addon first. sha256 `4d6e3c1a89b60a55cc146294ec4e9abcfac4521aed0d3787da20df5e22218b04` (12,877 B / 291 lines) | **build-wired** (`patches/xnu/series:208`) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring status (option B used, option A kept as an alternative) | done |
 | image `bt-s4-20261114b` (`boot.img` `82ff78b4…`, 201,887,744 B) | the first build that contains `0510`: `build-strict.sh` exit 0, `verify-boot-image.py` OK, `kernel_built 9e8ae410…`, `payload 570f61e9…`, `adt 079cf3c7…`; `strings kernel.macho` shows `NGPUADD2` / `loaded bytes records` / `no GpuAddon property`. **No `--gpu-addon`** (Lead scope), so the addon cell is absent and this image is the negative control for S4 | built, not booted |
+| images `bt-s1c-a1…a5-20261114b` (`boot.img` `d7136c8b…`, `76608a73…`, `27a747d9…`, `28921286…`, `7f9afb99…`) | the S1c ladder rebuilt at **596 B / 31 arguments** each (`k60bt=1 k60bt_step=1/4/5/7/9`), `check-image-args.py` OK on all five, `verify-boot-image.py` OK on all five; kernel/payload/ADT hashes in `S1-PROBE-SPEC.md` §4.1. Built, not booted. |
 | image `bt-s2-20261114b` (`boot.img` `c3ea7b60…`) | control boot on the returned board: 224,240 B console, `panicMarker=null`, normal `k60_autoreset` reset, zero `K60 BT`/`addon:` lines. `record-boot.py` recorded series `f1c22d7d05bb1b17` (227 patches) | booted, healthy |
 
 ## 2. Why S1 first
@@ -47,11 +48,18 @@ then **zero console bytes** appeared: `capture.json` state `port-not-observed`, 
 `panicMarker=null`. Afterwards the board answers neither `adb` nor `fastboot` and exposes no USB
 device at all — the "USB-down hang, physical power cycle only" state of `scripts/k60-device.sh`.
 The same kernel without `k60bt` (`bt-s1-20261114a`, `boot_img 7b6b02fc…`) reached userland
-normally, so the hang belongs to the `k60bt=1` path, not to the build. The attempt is therefore
-**indeterminate**: it says "something in the BT start path kills the machine before the console
-enumerates", not which register did it. That is exactly what S1c fixes by sleeping 20 s first,
-printing a mark before every single access, and splitting the clock path into rungs that can each
-be judged dead on their own.
+normally.
+
+**Root cause, found 2026-11-14 11:00 (Lead) and re-verified locally:** that image's kernel command
+line is **610 bytes**, over DarwinBoot's **607-byte** ceiling
+(`uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8` `DARWIN_BOOT_LINE_LENGTH 608`,
+`DarwinBoot.c:678-684` returns `EFI_BAD_BUFFER_SIZE`). The firmware refused the line and the kernel
+was never entered, so the zero-byte console is a **boot-image argument defect, not a register
+access fault**: "the first GENI access kills the machine" is neither confirmed nor refuted.
+The three args were `k60bt=1 k60bt_stage=1 k60bt_warm=1` = 35 B stacked on the 29-arg / 575 B board
+contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` defaults `k60.stage` to
+1) and `k60bt_warm` only selects a warm-boot branch, so the ladder uses `k60bt=1 k60bt_step=N`
+= **596 B**. Byte budget and the per-image audit live in `docs/research/bt/S1-PROBE-SPEC.md` §4.2.
 
 ## 3. Lead actions, in order
 
@@ -67,18 +75,21 @@ be judged dead on their own.
 构建时用 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 绕过了种子缺失：ADT 实测 `/chosen/unique-chip-id=0x4B36305400000001`、`chip-id=0x8015`，所以这版会打印 `K60 BT: published local address 02:…` 而不是 `no platform identity`。**把种子固化下来仍是 Lead 待办**：给 `[payload."adt"]` 加 `"unique_chip_id" = "required"` 并在每次构建设 `UNIXNU_UNIQUE_CHIP_ID=<hex>`（`build-strict.sh` 继承调用者环境，`payload.py:160-163` 会读它），或给 `build-strict.sh` 加 `--unique-chip-id` 转发。种子定下后**不要改**（否则 MAC 变化、配对作废）。
 **ADT 里仍没有 `/arm-io/bluetooth` 节点**（`/arm-io` 子节点只有 intc/pong-audio/pong-buttons/pong-touch/ufshc），节点目前由补丁在 IORegistry 里建；要让 DT 二进制里也有，加 `[adt.arm-io.bluetooth.string]` + `[adt.arm-io.bluetooth.u32]`（TOML 见 `S3-SPEC.md` §4 第 3 条）。详见 `S3-SPEC.md` §4/§4.1。
 5. **S2 前置修复已就位**：`patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch` 在 `series:206`（`0507` 之后、`0503` 之前），修 F1/F11/F3/F12，`git apply --check` 与 `clang -fsyntax-only` 均通过；下一个镜像会自动带上它，不需要额外动作。
-6. Build (**done — all five rung images are built and verified**, see the table in `S1-PROBE-SPEC.md` §4.1; rebuild only if the probe changes again): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
-   `bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_stage=1
-   --kernel-arg k60bt_warm=1` → `python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json`.
-   Expect the payload TOML to end with the three `k60bt` args (check with
+6. Build (**done — all five rung images are built and verified at 596 B each**, see the table in `S1-PROBE-SPEC.md` §4.1; rebuild only if the probe changes again): `python3 scripts/sync-device-input.py` → `python3 scripts/check-rules.py` →
+   `bash scripts/build-strict.sh <tag> --fd <fd> --kernel-arg k60bt=1 --kernel-arg k60bt_step=<N>`
+   → `python3 scripts/verify-boot-image.py --manifest <artifact>/build-manifest.json`
+   → `python3 scripts/check-image-args.py --image <artifact>/boot.img --board board.toml` (must print OK;
+   596 B of the 607 B ceiling, see `S1-PROBE-SPEC.md` §4.2). **Never** add `k60bt_stage`/`k60bt_warm`
+   to the ladder: together they push the line to 610 B and the firmware refuses to boot the kernel at all.
+   Expect the payload TOML to end with `k60bt=1 k60bt_step=N` (check with
    `mtype -i <payload.img> ::/EFI/UniXNU/unixnu.toml`).
 7. Device: attach the CDC-ACM capture **before** any `fastboot boot` (AGENTS.md iron rule 8: console
    VID_1209&PID_0001, usbser.sys, port only from `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM\Device\USBSER000`,
    DTR raised), then boot the rungs in order, adding risk each time (S1-PROBE-SPEC.md §4/§4.1). Each rung
    is its own image because `k60bt_*` lives in the payload command line, not in the kernel:
-   `bt-s1c-a1-20261114a` (step 1, maps only, cannot hang) → `bt-s1c-a2-20261114a` (step 4, GCC only) →
-   `bt-s1c-a3-20261114a` (step 5, first RCG read) → `bt-s1c-a4-20261114a` (step 7, first RCG writes) →
-   `bt-s1c-20261114b` (step 9, first GENI read). All five carry `k60bt_delay=40`.
+   `bt-s1c-a1-20261114b` (step 1, maps only, cannot hang) → `bt-s1c-a2-20261114b` (step 4, GCC only) →
+   `bt-s1c-a3-20261114b` (step 5, first RCG read) → `bt-s1c-a4-20261114b` (step 7, first RCG writes) →
+   `bt-s1c-a5-20261114b` (step 9, first GENI read). All five carry `k60bt=1 k60bt_step=N` only (596 B).
    Stop the ladder wherever the board dies. Record with `python3 scripts/record-boot.py --image … --log <dir>/console.log`.
    Judge only `capture.json` `verdict`/`panicMarker` (never logstat.py panic counts).
    Read the verdict off the **last `probe: …` line** in the console (S1-PROBE-SPEC.md §5); if it stops
@@ -90,6 +101,18 @@ be judged dead on their own.
    (b) `scripts/build-strict.sh` 增加 `--gpu-addon <file>` 并转发给 `unixnu build payload`，同时写进 manifest 的 `components`——精确 diff 见 `S4-SPEC.md` §5.3；
    (c) `.gitignore` 给 `firmware/bluetooth/manifest.json` 开否定规则（只有 bytes+sha256，可以入库）——见 `S4-SPEC.md` §5.4。
    固件源是 `E:/k60-work/firmware/qca6490-bt`（113 文件 / 1,063,407 B），白名单筛出 106 条 / 1,022,742 B，容器 1,027,584 B。
+10. **命令行门禁要补两个参数名（Lead scope）**：`scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`
+    （该文件 :44-48）目前是 `… "k60bt", "k60bt_stage", "k60bt_warm", …`，没有本阶梯用的 `k60bt_step`
+    与 `k60bt_delay`。所以 `bt-s1c-a1…a5-20261114b` 这五份**长度合规（596 B）但会被该门禁拒**
+    （实测：`image-arg-audit: REFUSED — argument k60bt_step is not in board.toml kernel_args and is not a
+    declared addition`）。把两个名字加进 `ALLOWED_ADDITIONS` 后，五份全部 `OK (31 arguments, 596 bytes)`。
+    同一处注释要求「每个名字都要写进 `docs/engineering/BOOT-ARGS.md`」，而该文件目前**没有任何 `k60bt` 条目**
+    （`grep -n k60bt docs/engineering/BOOT-ARGS.md` → 空），五个 `k60bt*` 名字需要一起补上文档。
+11. **把 `origin/main` 合进 `feat/bt-research`（Lead scope）**：main 比本分支多 4 个提交
+    （`90d8271` merge feat/gate-fixes、`3f55e32`、`2050064`、`7fa8110`，含 `scripts/check-image-args.py`）。
+    本地 `git merge origin/main` 在 `docs/engineering/PITFALLS.md`、`docs/engineering/RULES.toml`、
+    `docs/engineering/TREE-OWNERS.toml`（add/add）与 `scripts/sync-device-input.py` 上冲突——这四处都是
+    Lead/共享范围，本线不自行解冲突（已 `git merge --abort`，HEAD 保持 `9beffa5`）。
 
 ## 4. Gate snippets (outside this line's write scope)
 

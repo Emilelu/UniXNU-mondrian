@@ -55,6 +55,12 @@ CONFIG_XNU_PONG_ADRENO_PLATFORM=y
 CONFIG_XNU_PONG_EARLY_TRACE=n
 CONFIG_XNU_PONG_LEGACY_UACCESS=n
 CONFIG_XNU_PONG_RAMOOPS_CONSOLE=y
+# The tsens service, pressure level and mTPL publisher stay off in the default
+# bring-up kernel: switching this on force-loads libK60ThermalKext.a and adds
+# the ArmDTPlatform hook, which changes the linked image. Off is also what the
+# script's own default (${XNU_PONG_THERMAL:-0}) already resolves to, so this
+# line documents the switch rather than changing the build.
+CONFIG_XNU_PONG_THERMAL=n
 CONFIG_XNU_PONG_VOLATILE_PANIC_LOG=y
 CONFIG_XNU_SHENG_PMGR=n
 CONFIG_XNU_SMMU4K_PROBE=n

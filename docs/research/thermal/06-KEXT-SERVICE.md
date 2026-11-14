@@ -133,9 +133,13 @@ build-thermal-kext: BUILD OK
 
 ## 6. 还差什么（step ⑤ 为何仍是 done = false）
 
-1. ~~没有内核链接行~~ **已落地（2026-11-14，Lead）**：`scripts/build-xnu-4k-baseline.sh:934-943`
+1. ~~没有内核链接行~~ **已落地（2026-11-14，Lead，位置修正过一次）**：`scripts/build-xnu-4k-baseline.sh:1137-1148`
    新增 `XNU_PONG_THERMAL` 块，默认关闭；打开时调 `scripts/build-thermal-kext.sh --no-export-list` 并对
-   `build/thermal-kext/libK60ThermalKext.a` 做 `-Wl,-force_load` + 进 `KERNEL_ARCHIVE_DEPENDENCIES`。
+   `build/thermal-kext/libK60ThermalKext.a` 做 `-Wl,-force_load` + 进 `PLATFORM_DEPENDENCIES`。
+   第一版误插在 `KERNEL_EXTRA_ARCHIVES` 区（`if XNU_SOURCE_CORECRYPTO14 = 1` 的死分支里，本板该值为 `n`），
+   等于永不生效；现在落在活的 `PLATFORM_ARCHIVES` 块内，见 `07-INTEGRATION.md` §3。
+   同一变量还串起四环：`configs/mondrian_defconfig:63` → `build-ios16-pong-macos.py:148-151` →
+   `build-pong-platform-macos.py:41` → 本链接行；缺任何一环，钩子都会被 `#if` 静默编掉。
    链接行的 `-force_load` 语义已用 ld64 部分链接离线验证（`scripts/build-thermal-link-check.sh`）。
 2. ~~没有启动钩子~~ **已落地（2026-11-14，Lead）**：`drivers/ArmDTPlatform/ArmDTPlatform.cpp:27-31`
    声明 `extern "C" int k60_thermal_start(void);`，`:232-233` 在 `registerService()` 与 adreno 钩子之后

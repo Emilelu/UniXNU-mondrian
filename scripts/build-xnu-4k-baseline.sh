@@ -931,16 +931,6 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ARM_DT_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ARM_DT_ARCHIVE"
   fi
-  # PongThermal: read-only tsens driver, pressure level and the mTPL publishing
-  # IOKit service. The archive is built here with the same clang recipe as the
-  # other platform archives (scripts/build-thermal-kext.sh, docs/research/thermal/07-INTEGRATION.md).
-  if [ "${XNU_PONG_THERMAL:-0}" = 1 ]; then
-    K60_XNU_TREE=$ROOT bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
-    THERMAL_ARCHIVE=$ROOT/build/thermal-kext/libK60ThermalKext.a
-    test -f "$THERMAL_ARCHIVE"
-    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$THERMAL_ARCHIVE"
-    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $THERMAL_ARCHIVE"
-  fi
   if [ "${XNU_ARMCPU:-0}" = 1 ]; then
     ARMCPU_ARCHIVE=$ROOT/build/armcpu/libArmCpu.a
     test -f "$ARMCPU_ARCHIVE"
@@ -1143,6 +1133,19 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     test -f "$UFS_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $UFS_ARCHIVE"
+  fi
+  if [ "${XNU_PONG_THERMAL:-0}" = 1 ]; then
+    # PongThermal: read-only tsens driver, pressure level and the mTPL publishing
+    # IOKit service (scripts/build-thermal-kext.sh, docs/research/thermal/07-INTEGRATION.md).
+    # This block must live here and not in KERNEL_EXTRA_ARCHIVES above: that one is
+    # inside "if [ \"$XNU_SOURCE_CORECRYPTO14\" = 1 ]" and the generated .config
+    # resolves that symbol to n for this board, so an archive added there would be
+    # force-loaded into a branch that never runs (P-190, scripts/check-kernel-archives.py).
+    K60_XNU_TREE=$ROOT bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
+    THERMAL_ARCHIVE=$ROOT/build/thermal-kext/libK60ThermalKext.a
+    test -f "$THERMAL_ARCHIVE"
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$THERMAL_ARCHIVE"
+    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $THERMAL_ARCHIVE"
   fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a

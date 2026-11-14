@@ -33,6 +33,7 @@ EXPECTED_LOAD = 30
 EXPECTED_PHNUM = 32
 PATCH = REPO / "patches/xnu/0620-k60-modem-image.patch"
 PATCH_PAS = REPO / "patches/xnu/0621-k60-modem-pas.patch"
+PATCH_QRTR = REPO / "patches/xnu/0622-k60-modem-qrtr.patch"
 TABLE = REPO / "drivers/PongCellular/pong_modem_table.h"
 
 
@@ -261,6 +262,35 @@ def main(argv):
         if "\tnative_owner_data_stage = 3;" not in pas_text:
             problems += fail("%s does not anchor on native_owner_data_stage = 3;"
                              % PATCH_PAS.name)
+    # --- 0622 must carry the QRTR codec, its transport and the GLINK stack ---
+    if not PATCH_QRTR.is_file():
+        problems += fail("%s missing" % PATCH_QRTR.relative_to(REPO))
+    else:
+        carried = added_files(PATCH_QRTR.read_text(encoding="utf-8"))
+        qrtr_pairs = [
+            ("drivers/PongCellular/K60ModemQrtr.h", "bsd/dev/pong_modem_qrtr.h", {}),
+            ("drivers/PongCellular/K60ModemQrtr.c", "bsd/dev/pong_modem_qrtr.c",
+             {'"K60ModemQrtr.h"': '"pong_modem_qrtr.h"'}),
+            ("drivers/PongPower/QcomGlink.h", "bsd/dev/qcom_glink.h", {}),
+            ("drivers/PongPower/QcomGlink.c", "bsd/dev/qcom_glink.c",
+             {'"QcomGlink.h"': '"qcom_glink.h"'}),
+            ("drivers/PongCellular/K60ModemLink.c", "bsd/dev/pong_modem_link.c",
+             {'"K60ModemQrtr.h"': '"pong_modem_qrtr.h"', '"K60Smem.h"': '"pong_smem.h"',
+              '"QcomGlink.h"': '"qcom_glink.h"'}),
+        ]
+        for repo_rel, patch_rel, include_map in qrtr_pairs:
+            local = REPO / repo_rel
+            if patch_rel not in carried:
+                problems += fail("%s does not add %s" % (PATCH_QRTR.name, patch_rel))
+                continue
+            if not local.is_file():
+                problems += fail("%s missing" % repo_rel)
+                continue
+            if normalise(local.read_text(encoding="utf-8"), include_map) != normalise(carried[patch_rel], {}):
+                problems += fail("%s and %s differ; the kernel would compile a "
+                                 "different QRTR path than the one tested here"
+                                 % (repo_rel, patch_rel))
+
     print("TESTS OK %d segments, %#x..%#x (%d bytes), base %#x, table+p patch agree"
           % (len(segs), lo, hi, hi - lo, MODEM_BASE))
     if problems:

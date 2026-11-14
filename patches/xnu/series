@@ -224,3 +224,4 @@ zzy-native-gpu-addon-mount.patch
 0616-k60-init-legacy-helper.patch
 0620-k60-modem-image.patch
 0621-k60-modem-pas.patch
+0622-k60-modem-qrtr.patch

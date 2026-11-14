@@ -19,6 +19,9 @@ ENTRIES = [
     "bsd/dev/pong_modem_image.c\t\t\tstandard",
     "bsd/dev/pong_modem_pas.c\t\t\tstandard",
     "bsd/dev/pong_modem_boot.c\t\t\tstandard",
+    "bsd/dev/pong_modem_qrtr.c\t\t\tstandard",
+    "bsd/dev/pong_modem_link.c\t\t\tstandard",
+    "bsd/dev/qcom_glink.c\t\t\tstandard",
     "bsd/dev/pong_fat.c\t\t\tstandard",
     "bsd/dev/pong_pmic_rail.c\t\t\tstandard",
 ]

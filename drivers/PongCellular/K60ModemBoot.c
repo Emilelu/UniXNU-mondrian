@@ -112,6 +112,15 @@ k60_modem_probe_from_handoff(void)
 	}
 	printf("K60MODEM probe begin\n");
 
+	/* pong_modem=2 also asks the read-only QRTR enumeration to look at the
+	 * modem that is already running: it sends one NEW_LOOKUP and folds the
+	 * replies. It runs before the PAS sequence so a reset cannot hide it. */
+	if (enabled >= 2) {
+		extern int k60_modem_qrtr_probe(void);
+
+		(void)k60_modem_qrtr_probe();
+	}
+
 	page = ml_io_map_unmappable((vm_offset_t)K60_MODEM_BASE,
 	    (vm_size_t)K60_MODEM_PROBE_PAGE,
 	    0x2 /* VM_WIMG_DEFAULT: the carveout is DDR, not device memory */);

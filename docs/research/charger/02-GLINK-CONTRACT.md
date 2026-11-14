@@ -288,7 +288,7 @@ probe 为四个域各建一份 `{只读映射表指针, kmalloc 运行时副本,
 
 1. ~~头第 4 字不对称~~ → 已在 `05-OPEN-QUESTIONS.md` §1 结案：请求 `+0xc` 是上游 `struct qcom_battmgr_property_request` 里的 `__le32 battery` 槽位（单电池恒 0），`+0x10` 才是 **map 下标**；响应 `+0xc` 直接是下标。不对称是协议设计，不是解析错误。
 2. ~~`type` 语义未知~~ → 已结案：`1` = `PMIC_GLINK_REQ_RESP`（所有属性 GET/SET 与 0x40/0x41/0x44/ship mode/shutdown），`2` = `PMIC_GLINK_NOTIFY`（订阅 `{0x800a,2,0x04,…}` 28 B 与 subsys-up），与上游 `qcom_battmgr_enable_worker()` 逐字节一致（`05-OPEN-QUESTIONS.md` §3）。
-3. **通道名/服务名/GUID/端口** 不在 .ko 内——但已在 ADSP 固件分片 `adsp.b14`/`adsp.b17` 里找到 `PMIC_RTR_ADSP_APPS`、`/dev/ipc_router`、`IPCRTR_RDR`、`pmic_glink.c` 的日志串，说明服务端在 ADSP 侧、通道名即 `PMIC_RTR_ADSP_APPS`。仍缺 AP 侧 ipc_router 端口号与 ADSP 侧 battery 服务的 opcode 表。详见 `docs/research/battery/PMIC-GLINK-SERVICE.md` §5。
+3. ~~通道名/服务名/GUID/端口未知~~ → **已结案（见 §10）**：ADSP 侧 pmic_glink **不用端口号也不用 GUID**，用名字三元组 `(transport="SMEM", remote_ss="apss", channel="PMIC_RTR_ADSP_APPS")`，配置结构在 `0x603cae78`。`/dev/ipc_router`+`IPCRTR_RDR` 属另一条 QDI transport，不是本路径。仍缺：ADSP 侧 battery 服务 opcode 派发表（未反汇编）。
 4. ~~`0x37`、`0x48` 语义未知~~ → 已在 `05-OPEN-QUESTIONS.md` 结案：`0x37` 是 **shutdown 命令**（`battery_chg_shutdown` 0x2830 发 12 B，仅重启时发）；`0x48` **不是 rx opcode**，主跳转表落默认项 `0x24a8`（`Unknown opcode: %u.`），「只 complete」的是 `0x47`。`0x40/0x42/0x43/0x44/0x51` 也已逐条结案。
 5. ~~`prop_id → psy 属性` 方向待验证~~ → 已由 `04-PROP-MAP.md` 钉死：**wire prop_id = 该域 map 数组的下标**（决定性证据是 `battery_psy_set_prop` property `0x21` 分支把常量 10 写进 `+0x10`，而 `battery_prop_map[10] = 0x21`），map 里的值才是 `enum power_supply_property`。
 6. 若要走路线 A，K60 内核必须提供 `vermagic 5.10.160-gki` 对应的 `pmic_glink`/`power_supply` 符号（含 `__versions` CRC），否则只能走路线 B。
@@ -307,3 +307,128 @@ llvm-objdump -dr --start-address=0x279c --stop-address=0x280c "$KO"  # ship mode
 llvm-objdump -dr --start-address=0x11d8 --stop-address=0x1208 "$KO"  # subsys up 28B
 llvm-objdump -s -j .rodata "$KO" | head -40         # 跳转表字节 .rodata+0x9
 ```
+
+## 10. ADSP 固件侧寻址取证（回答：端口号 / GUID 是多少）
+
+### 10.1 结论（先给答案）
+
+1. **没有端口号，也没有 GUID。** ADSP 侧 `pmic_glink` 用**名字三元组**寻址：`transport = "SMEM"`、`remote_ss = "apss"`、`channel = "PMIC_RTR_ADSP_APPS"`。三项都是 `const char *`，存在配置结构 `0x603cae78` 的 `+0x0 / +0x4 / +0x8`。
+2. 这也解释了为什么 .ko 里 `grep PMIC_RTR_ADSP_APPS` 为 0：通道名只存在于 **ADSP 固件**与服务端；客户端用 `pmic_glink_register_client(name="battery_charger", id=0x800a)` 注册，由内核 pmic_glink 核心按 id 路由，不按名字找通道。
+3. `/dev/ipc_router` + `IPCRTR_RDR` 字符串确实在 b14，但那是 `glink_qdi_user.c` 的 **QDI transport**（日志 `"QDI channel open failed: %d"` 一族），**不是 pmic_glink 走的 SMEM transport**。所以「查 ipc_router 端口号」这个方向本身是错的。
+4. 全固件（23.5 MB）里 GUID 形态字符串只有一条 `892cd3c8-f513-35c4-8397-b5d21fccb491`，位于与 pmic_glink/battery 无关的区段，不参与本路径。
+5. 服务端识别靠 **protection domain 字符串**：`"tms/servreg"` + `"msm/adsp/charger_pd"`（与 `dts/mondrian.dts:192` 的 `qcom,protection-domain` 完全一致），同样不是 GUID。
+6. 仍未证实：ADSP 侧 battery 服务的 **opcode 派发表**（本次只追到 open 与 rx intent，未反汇编服务主循环）；AP 侧内核 `pmic_glink.c` 源码不在本仓，但 dts 已把 `glink-edge` 的 `transport = "smem"`、`qcom,glink-channels = "PMIC_RTR_ADSP_APPS"`、`qcom,pmic-glink-channel = "PMIC_RTR_ADSP_APPS"` 写死（`dts/mondrian.dts:163-197`）。
+
+### 10.2 取证方法（可复现）
+
+`adsp.mdt` 是 **ELF32 little-endian, e_machine=164 (EM_HEXAGON), e_type=2 (EXEC)**，`e_phoff=52`、`e_phentsize=32`、`e_phnum=26`，其中 23 个 `PT_LOAD`。
+
+段 14（=`adsp.b14`）：`p_vaddr = 0x60000000`（link 地址空间）、`p_paddr = 0x86f00000`（装载地址）、`p_filesz = 0x3055a4`。**因此 b14 内文件偏移 = link 地址 − 0x60000000**（b14 文件本身 0x3055a4 字节，已核对）。
+
+反汇编：按段序拼接 file data 成 flat，`llvm-objcopy -I binary -O elf32-hexagon -B hexagon`，再 `llvm-objdump -D --arch-name=hexagon --start-address=... --stop-address=...`（必须 `-D`，`.data` 非可执行节）。
+
+### 10.3 配置结构 `0x603cae78`（初始化函数 `0x7c9170`）
+
+入口 `0x7c9170: allocframe(#0x10)`；`0x7c918c/0x7c9190: memw(##0x603cae60) = #0x1`（ready 标志）；随后 `0x7c91a4-0x7c91c4` 用 `memset(cfg=0x603cae78, 0, 0x48)` 清空 0x48 字节：
+
+```
+  7c91a0: b9 72 03 06 060372b9 { 	immext(#0x603cae40)
+  7c91a4: 02 c7 00 78 7800c702   	r2 = ##0x603cae78 } 
+  7c91a8: 03 c0 00 78 7800c003 { 	r3 = #0x0 } 
+  7c91ac: 04 c9 00 78 7800c904 { 	r4 = #0x48 } 
+  7c91b0: 00 c0 62 70 7062c000 { 	r0 = r2 } 
+  7c91b4: 01 c0 63 70 7063c001 { 	r1 = r3 } 
+  7c91b8: fd e2 9e a7 a79ee2fd { 	memw(r30+#-0xc) = r2 } 
+  7c91bc: 02 c0 64 70 7064c002 { 	r2 = r4 } 
+  7c91c0: fc e3 9e a7 a79ee3fc { 	memw(r30+#-0x10) = r3 } 
+  7c91c4: 6e d0 ff 5b 5bffd06e { 	call 0x7c32a0 } 
+```
+
+三条字符串指针写入（`r2 = ##0x603cae80` 后 `memw(r2+#0x0) = ##0x602bfdeb` 即 `cfg+0x8`；`0x603cae7c` → `cfg+0x4`；`0x603cae74` → `cfg+0x0`）：
+
+```
+  7c91c8: ba 72 03 06 060372ba { 	immext(#0x603cae80)
+  7c91cc: 02 c0 00 78 7800c002   	r2 = ##0x603cae80 } 
+  7c91d0: f7 6f 02 06 06026ff7 { 	immext(#0x602bfdc0)
+  7c91d4: 2b c0 42 3c 3c42c02b   	memw(r2+#0x0) = ##0x602bfdeb } 
+  7c91dc: 82 c7 00 78 7800c782   	r2 = ##0x603cae7c } 
+  7c91e4: 04 c0 42 3c 3c42c004   	memw(r2+#0x0) = ##0x602bfc04 } 
+  7c91ec: f0 6f 02 06 06026ff0 { 	immext(#0x602bfc00)
+  7c91f0: 09 c0 42 3c 3c42c009   	memw(r2+#0x0) = ##0x602bfc09 } 
+```
+
+字符串真值（直接读 `adsp.b14` 的 `link-0x60000000` 偏移）：
+
+| link 地址 | 内容 | 配置字段 |
+|---|---|---|
+| `0x602bfc09` | `"SMEM"` | cfg+0x0（transport） |
+| `0x602bfc04` | `"apss"` | cfg+0x4（remote_ss） |
+| `0x602bfdeb` | `"PMIC_RTR_ADSP_APPS"` | cfg+0x8（channel name） |
+
+同一函数随后写三个回调：`0x7c91f8/0x7c9200: memw(##0x603cae8c) = ##0x60154a70`、`0x7c9208/0x7c9210: memw(##0x603cae98) = ##0x60154ab0`、`0x7c9218/0x7c9220: memw(##0x603cae9c) = ##0x60154ad0`（即 cfg+0x14 / +0x20 / +0x24）。
+
+### 10.4 `pmic_glink_open()` 本体 `0x7c95b0`
+
+```
+  7c95b0: 02 c0 9d a0 a09dc002 { 	allocframe(#0x10) } 
+  7c95c0: bb 72 03 06 060372bb { 	immext(#0x603caec0)
+  7c95c4: 80 c2 00 78 7800c280   	r0 = ##0x603caed4 } 
+  7c95c8: 01 c0 00 78 7800c001 { 	r1 = #0x0 } 
+  7c95cc: 82 e1 00 78 7800e182 { 	r2 = #0x10c } 
+  7c95d0: 68 ce ff 5b 5bffce68 { 	call 0x7c32a0 } 
+```
+
+即先 `memset(0x603caed4, 0, 0x10c)`（268 B 运行期状态）。之后是日志门（读 `0x6032a140` bit1、`0x6031ec98` bit2、`0x6031ec94 > 2`），然后**唯一一次 open 调用**：
+
+```
+  7c9664: b9 72 03 06 060372b9 { 	immext(#0x603cae40)
+  7c9668: 00 c7 00 78 7800c700   	r0 = ##0x603cae78 } 
+  7c966c: bf 72 03 06 060372bf { 	immext(#0x603cafc0)
+  7c9670: 01 c4 00 78 7800c401   	r1 = ##0x603cafe0 } 
+  7c9674: 70 c8 13 5a 5a13c870 { 	call 0x862754 } 
+  7c9678: fb e0 1e a7 a71ee0fb { 	memb(r30+#-0x5) = r0 } 
+```
+
+`r0 = cfg(0x603cae78)`、`r1 = 输出句柄(0x603cafe0)` → `call 0x862754`。返回 0 时走 `7c9688: if (p0) jump:nt 0x7c9698` 的否定分支 `7c9690: call 0x7c9750`（建立 rx intent）；非 0 时 `7c969c: r0 = memw(##0x603caed0)` + `call 0x862c80`（teardown）。成功日志在 `0x7c9714/0x7c9718: memw(r2+#0x0) = ##0x602bfe34`（`"pmic_glink_open"`）+ `0x7c9720: r2 = ##0x602bfe44`（`"Info: %s: pmic_glink_open() succeeds"`）。
+
+### 10.5 `glink_open` 包装 `0x862754`（字段顺序的独立证据）
+
+包装函数先 `memcpy(栈, cfg, 0x48)`（`862760: r2 = #0x48` + `862768: call 0x6947a0`），再对 `cfg+0x4 / +0x8 / +0x24` 做非空校验：
+
+```
+  862774: a2 c0 0b 10 100bc0a2   	p0 = cmp.eq(r19,#0x0); if (p0.new) jump:nt 0x8628b4 } 
+  86277c: 22 40 93 91 91934022 { 	r2 = memw(r19+#0x4)
+  862780: 9c c0 02 24 2402c09c   	if (cmp.eq(r2.new,#0x0)) jump:nt 0x8628b4 } 
+  862784: 42 40 93 91 91934042 { 	r2 = memw(r19+#0x8)
+  862788: 98 c0 02 24 2402c098   	if (cmp.eq(r2.new,#0x0)) jump:nt 0x8628b4 } 
+  86278c: 22 41 93 91 91934122 { 	r2 = memw(r19+#0x24)
+  862790: 94 c0 02 24 2402c094   	if (cmp.eq(r2.new,#0x0)) jump:nt 0x8628b4 } 
+```
+
+字段顺序由同文件的日志格式串直接钉死：`0x602e43e6` = `"glink_open cfg: xport=0x%x, remote_ss=0x%x, name=0x%x"`——**xport = cfg+0x0、remote_ss = cfg+0x4、name = cfg+0x8**。真正的底层 open 在 `0x862870: call 0x67b9a8`（参数 `r1:0 = combine(r23,#0x8)`、`r3:2 = combine(r19,##0x100)`、`r4 = add(r29,#0x10)`、`r5 = r22`）。
+
+### 10.6 rx intent 规格：100 个 × 8192 字节
+
+```
+  7c9750: 07 c0 9d a0 a09dc007 { 	allocframe(#0x38) } 
+  7c9760: 50 e2 00 5a 5a00e250 { 	call 0x7cdc00 } 
+  7c9764: 13 70 02 06 06027013 { 	immext(#0x602c04c0)
+  7c9768: 01 c0 00 78 7800c001   	r1 = ##0x602c04c0 } 
+  7c9774: 81 cc 00 78 7800cc81 { 	r1 = #0x64 } 
+  7c977c: 92 e2 00 5a 5a00e292 { 	call 0x7cdca0 } 
+  7c9780: 02 c0 10 78 7810c002 { 	r2 = #0x2000 } 
+  7c9788: 01 c0 62 70 7062c001 { 	r1 = r2 } 
+  7c9790: 98 e2 00 5a 5a00e298 { 	call 0x7cdcc0 } 
+  7c9798: ec f9 d5 5b 5bd5f9ec { 	call 0x678b70 } 
+  7c979c: c0 72 03 06 060372c0 { 	immext(#0x603cb000)
+  7c97a0: 28 c0 80 48 4880c028   	memw(##0x603cb028) = r0 } 
+```
+
+即初始化 intent 描述符（`0x7cdc00`）、写 16 B 名字（`0x602c04c0`）、设 count=`0x64`=**100**（`0x7cdca0` 写描述符 `+0x12`）、设 size=`0x2000`=**8192**（`0x7cdcc0` 写 `+0x18`），再 `0x678b70` 分配 8192 B 并 queue。对比 AP 侧 `drivers/PongPower/K60PmicGlink.cpp:84` 的 `qcom_glink_channel(&native,"PMIC_RTR_ADSP_APPS",256,4,...)`（256 B × 4）：**ADSP 侧 intent 更大更多**，实现服务端时不要照抄 AP 侧数字。
+
+### 10.7 对本项目路线 A 的含义
+
+- 路线 A（真 pmic_glink 服务端）需要的是：在 AP 侧注册同名 glink channel `PMIC_RTR_ADSP_APPS`（dts 已写）、提供 `pmic_glink_register_client/write` 三个符号（已由 `K60PmicGlink.cpp` 承担 AP 侧传输），**不需要 ipc_router 端口号或 GUID**。
+- `qcom,protection-domain = "tms/servreg", "msm/adsp/charger_pd"` 是服务端查找键；ADSP 固件里这组字符串在 `0x87178774` 附近（`ClockDriver` / `tms/servreg` / `msm/adsp/charger_pd`）。
+- 未证实项（写实现前必须补）：ADSP 侧 battery 服务的 opcode 派发表与属性表索引；AP 侧内核 `pmic_glink.c` 的 client 路由实现（本仓无源码）。
+

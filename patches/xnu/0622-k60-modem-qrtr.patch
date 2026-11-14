@@ -276,7 +276,7 @@ index 0000000..1111111
 + * K60 accepts an authenticated, exclusive fresh-host lease; it never resets
 + * live Android FIFO indices. */
 +/* GLINK over shared memory: the native GLINK protocol (version handshake, channel open/close, receive intents, data, done) on a pair of
-+ * SMEM FIFOs. Event driven and allocation free: the owner calls qcom_glink_poll whenever the remote rings the GLINK doorbell (and after
++ * SMEM FIFOs. Event driven and allocation free: the owner calls k60m_glink_poll whenever the remote rings the GLINK doorbell (and after
 + * sending), every call does a bounded amount of work, and nothing here waits. A send that cannot go out yet (no remote intent, no FIFO
 + * room) returns QcomGlinkAgain and the owner tries again on the next event; an intent is asked for once per pending send. */
 +#ifndef QCOM_GLINK_H
@@ -356,25 +356,25 @@ index 0000000..1111111
 +
 +/* Adopts FIFOs whose APSS-owned indices are already zero in a new authenticated
 + * platform epoch. This does not write/reset them. Reject malformed geometry. */
-+int qcom_glink_adopt(QcomGlink *g, QcomGlinkFifo tx, QcomGlinkFifo rx, void (*kick)(void *), void *kick_context);
++int k60m_glink_adopt(QcomGlink *g, QcomGlinkFifo tx, QcomGlinkFifo rx, void (*kick)(void *), void *kick_context);
 +/* Registers a channel by name with intent_count receive buffers of intent_size bytes in storage. open_now: we send OPEN ourselves;
 + * otherwise we answer when the remote opens it. */
-+QcomGlinkChannel *qcom_glink_channel(QcomGlink *g, const char *name, uint32_t intent_size, uint32_t intent_count, uint8_t *storage,
++QcomGlinkChannel *k60m_glink_channel(QcomGlink *g, const char *name, uint32_t intent_size, uint32_t intent_count, uint8_t *storage,
 +                                     const QcomGlinkClient *client, void *context, int open_now);
 +/* Sends VERSION (once) and any channel OPEN that is due, then handles every complete message in the receive FIFO. Returns the number of
 + * messages handled or QcomGlinkCorrupt. Rings the remote when anything was written. */
-+int qcom_glink_poll(QcomGlink *g);
++int k60m_glink_poll(QcomGlink *g);
 +/* Queues one message on an open channel (single chunk, up to the remote intent size). */
-+int qcom_glink_send(QcomGlink *g, QcomGlinkChannel *channel, const void *data, uint32_t length);
++int k60m_glink_send(QcomGlink *g, QcomGlinkChannel *channel, const void *data, uint32_t length);
 +/* Close/ACK/open a channel after a protocol timeout. No new PMIC request is
 + * sent in the old channel incarnation; an unanswered close stays down. */
-+int qcom_glink_reopen(QcomGlink *g, QcomGlinkChannel *channel);
++int k60m_glink_reopen(QcomGlink *g, QcomGlinkChannel *channel);
 +/* Revoke a failed platform epoch without further physical writes. */
-+void qcom_glink_stop(QcomGlink *g);
++void k60m_glink_stop(QcomGlink *g);
 +
 +/* FIFO primitives, exposed for the tests. */
-+uint32_t qcom_glink_rx_avail(const QcomGlinkFifo *f);
-+uint32_t qcom_glink_tx_avail(const QcomGlinkFifo *f);
++uint32_t k60m_glink_rx_avail(const QcomGlinkFifo *f);
++uint32_t k60m_glink_tx_avail(const QcomGlinkFifo *f);
 +
 +#ifdef __cplusplus
 +}
@@ -415,7 +415,7 @@ index 0000000..1111111
 +    return head < f->length && tail < f->length && !(head & 7) && !(tail & 7);
 +}
 +
-+uint32_t qcom_glink_rx_avail(const QcomGlinkFifo *f)
++uint32_t k60m_glink_rx_avail(const QcomGlinkFifo *f)
 +{
 +    if (!fifo_valid(f)) return 0;
 +    const uint32_t head = *f->head, tail = *f->tail;
@@ -423,7 +423,7 @@ index 0000000..1111111
 +    return head >= tail ? head - tail : f->length - tail + head;
 +}
 +
-+uint32_t qcom_glink_tx_avail(const QcomGlinkFifo *f)
++uint32_t k60m_glink_tx_avail(const QcomGlinkFifo *f)
 +{
 +    if (!fifo_valid(f)) return 0;
 +    const uint32_t head = *f->head, tail = *f->tail;
@@ -469,7 +469,7 @@ index 0000000..1111111
 +
 +static int tx(QcomGlink *g, const uint8_t *header, uint32_t header_length, const uint8_t *data, uint32_t data_length)
 +{
-+    if (align8(header_length + data_length) > qcom_glink_tx_avail(&g->tx)) return QcomGlinkAgain;
++    if (align8(header_length + data_length) > k60m_glink_tx_avail(&g->tx)) return QcomGlinkAgain;
 +    tx_write(g, header, header_length, data, data_length);
 +    return QcomGlinkOk;
 +}
@@ -482,7 +482,7 @@ index 0000000..1111111
 +    return tx(g, m, 8, 0, 0);
 +}
 +
-+int qcom_glink_adopt(QcomGlink *g, QcomGlinkFifo txf, QcomGlinkFifo rxf, void (*kick)(void *), void *kick_context)
++int k60m_glink_adopt(QcomGlink *g, QcomGlinkFifo txf, QcomGlinkFifo rxf, void (*kick)(void *), void *kick_context)
 +{
 +    if (!g || !kick || !fifo_valid(&txf) || !fifo_valid(&rxf) || *txf.head || *rxf.tail)
 +        return QcomGlinkArgument;
@@ -497,7 +497,7 @@ index 0000000..1111111
 +}
 +
 +
-+QcomGlinkChannel *qcom_glink_channel(QcomGlink *g, const char *name, uint32_t intent_size, uint32_t intent_count, uint8_t *storage,
++QcomGlinkChannel *k60m_glink_channel(QcomGlink *g, const char *name, uint32_t intent_size, uint32_t intent_count, uint8_t *storage,
 +                                     const QcomGlinkClient *client, void *context, int open_now)
 +{
 +    if (!g || g->broken || !name || !client || !client->state || !client->receive || !intent_count ||
@@ -543,7 +543,7 @@ index 0000000..1111111
 +    const uint32_t n = (uint32_t)name_length(c->name) + 1;
 +    m[0] = QCOM_GLINK_OPEN; m[1] = 0; m[2] = (uint8_t)c->lcid; m[3] = (uint8_t)(c->lcid >> 8);
 +    put32(m + 4, n);
-+    if (align8(8 + n) > qcom_glink_tx_avail(&g->tx)) return QcomGlinkAgain;
++    if (align8(8 + n) > k60m_glink_tx_avail(&g->tx)) return QcomGlinkAgain;
 +    tx_write(g, m, 8, (const uint8_t *)c->name, n);
 +    c->open_sent = 1;
 +    return QcomGlinkOk;
@@ -573,7 +573,7 @@ index 0000000..1111111
 +    for (unsigned i = 0; i < QCOM_GLINK_MAX_REMOTE_INTENTS; ++i) c->remote[i].valid = c->remote[i].busy = 0;
 +}
 +
-+int qcom_glink_reopen(QcomGlink *g, QcomGlinkChannel *c)
++int k60m_glink_reopen(QcomGlink *g, QcomGlinkChannel *c)
 +{
 +    if (!g || !c || g->broken || !c->used || c->closing || !c->up) return QcomGlinkNotOpen;
 +    c->up = 0;
@@ -582,7 +582,7 @@ index 0000000..1111111
 +    return QcomGlinkOk;
 +}
 +
-+void qcom_glink_stop(QcomGlink *g)
++void k60m_glink_stop(QcomGlink *g)
 +{
 +    if (!g || g->broken) return;
 +    g->broken = 1;
@@ -694,7 +694,7 @@ index 0000000..1111111
 +}
 +static int receive_one(QcomGlink *g)
 +{
-+    const uint32_t avail = qcom_glink_rx_avail(&g->rx);
++    const uint32_t avail = k60m_glink_rx_avail(&g->rx);
 +    uint8_t m[8];
 +    if (avail < 8) return 0;
 +    rx_peek(&g->rx, 0, m, 8);
@@ -755,7 +755,7 @@ index 0000000..1111111
 +        break;
 +    case QCOM_GLINK_CLOSE:
 +        c = by_rcid(g, param1);
-+        if (c && c->open_sent == 1 && !c->closing && qcom_glink_tx_avail(&g->tx) < 16) return 0;
++        if (c && c->open_sent == 1 && !c->closing && k60m_glink_tx_avail(&g->tx) < 16) return 0;
 +        if (command(g, QCOM_GLINK_CLOSE_ACK, param1, 0)) return 0;
 +        if (c) {
 +            const int was = c->up;
@@ -826,7 +826,7 @@ index 0000000..1111111
 +                 * re-reading this command after backpressure would deny an
 +                 * intent we already advertised for it. */
 +                if (!c->local[k].advertised && !c->local[k].busy) {
-+                    if (qcom_glink_tx_avail(&g->tx) < 24) return 0;
++                    if (k60m_glink_tx_avail(&g->tx) < 24) return 0;
 +                    if (advertise(g, c, k)) return 0;
 +                    granted = 1;
 +                    break;
@@ -856,17 +856,17 @@ index 0000000..1111111
 +    return 1;
 +}
 +
-+int qcom_glink_poll(QcomGlink *g)
++int k60m_glink_poll(QcomGlink *g)
 +{
 +    if (!g || g->broken) return QcomGlinkCorrupt;
-+    if (!fifo_valid(&g->tx) || !fifo_valid(&g->rx)) {qcom_glink_stop(g); return QcomGlinkCorrupt;}
++    if (!fifo_valid(&g->tx) || !fifo_valid(&g->rx)) {k60m_glink_stop(g); return QcomGlinkCorrupt;}
 +    int handled = 0;
 +    g->notify_sent = 0;
 +    progress(g);
 +    /* Bounded: at most one FIFO's worth of minimal messages per call. */
 +    for (uint32_t budget = g->rx.length / 8 + 1; g->rx.data && budget; --budget) {
 +        const int rc = receive_one(g);
-+        if (rc < 0) {qcom_glink_stop(g); handled = rc; break;}
++        if (rc < 0) {k60m_glink_stop(g); handled = rc; break;}
 +        if (!rc) break;
 +        ++handled;
 +    }
@@ -875,11 +875,11 @@ index 0000000..1111111
 +    return handled;
 +}
 +
-+int qcom_glink_send(QcomGlink *g, QcomGlinkChannel *c, const void *data, uint32_t length)
++int k60m_glink_send(QcomGlink *g, QcomGlinkChannel *c, const void *data, uint32_t length)
 +{
 +    if (!g || !c || (!data && length)) return QcomGlinkArgument;
 +    if (g->broken || !c->up) return QcomGlinkNotOpen;
-+    if (!fifo_valid(&g->tx) || !fifo_valid(&g->rx)) {qcom_glink_stop(g); return QcomGlinkCorrupt;}
++    if (!fifo_valid(&g->tx) || !fifo_valid(&g->rx)) {k60m_glink_stop(g); return QcomGlinkCorrupt;}
 +    if (length > g->tx.length - 16 || align8(16 + length) > g->tx.length / 2) return QcomGlinkTooBig;
 +    unsigned best = QCOM_GLINK_MAX_REMOTE_INTENTS;
 +    for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
@@ -1139,12 +1139,12 @@ index 0000000..1111111
 +	rx.tail = &desc[2];
 +	rx.data = (volatile uint8_t *)(window + offsets[2]);
 +	rx.length = sizes[2];
-+	rc = qcom_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
++	rc = k60m_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
 +	if (rc != QcomGlinkOk) {
 +		printf("K60MODEM qrtr: glink adopt rc=%d\n", rc);
 +		return -1;
 +	}
-+	k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
++	k60_qrtr_channel = k60m_glink_channel(&k60_qrtr_link, "IPCRTR",
 +	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents, &callbacks, NULL, 0);
 +	if (k60_qrtr_channel == NULL) {
 +		printf("K60MODEM qrtr: no channel slot for IPCRTR\n");
@@ -1152,7 +1152,7 @@ index 0000000..1111111
 +	}
 +	printf("K60MODEM qrtr: waiting for the modem to open IPCRTR\n");
 +	for (i = 0; i < K60_QRTR_POLLS; i++) {
-+		const int polls = qcom_glink_poll(&k60_qrtr_link);
++		const int polls = k60m_glink_poll(&k60_qrtr_link);
 +
 +		if (polls < 0) {
 +			printf("K60MODEM qrtr: glink poll rc=%d at %u\n", polls, i);
@@ -1162,11 +1162,11 @@ index 0000000..1111111
 +			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
 +
 +			if (k60_qrtr_build_hello(packet, sizeof(packet), K60_QRTR_FIRST_PORT) != 0) {
-+				(void)qcom_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet,
++				(void)k60m_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet,
 +				    K60_QRTR_LOOKUP_BYTES);
 +			}
 +			if (k60_qrtr_build_lookup(packet, sizeof(packet), K60_QRTR_FIRST_PORT) != 0) {
-+				(void)qcom_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet,
++				(void)k60m_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet,
 +				    K60_QRTR_LOOKUP_BYTES);
 +			}
 +			k60_qrtr_sent = 1;

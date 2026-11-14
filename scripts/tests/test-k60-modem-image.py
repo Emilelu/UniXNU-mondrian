@@ -286,7 +286,11 @@ def main(argv):
             if not local.is_file():
                 problems += fail("%s missing" % repo_rel)
                 continue
-            if normalise(local.read_text(encoding="utf-8"), include_map) != normalise(carried[patch_rel], {}):
+            # 0622 keeps a private copy of the GLINK stack under the k60m_glink_
+            # prefix: the battery archive force-loads QcomGlink.o into the same
+            # image, and a second copy of qcom_glink_* fails the link (P-190).
+            if normalise(local.read_text(encoding="utf-8"), include_map).replace(
+                    "qcom_glink_", "k60m_glink_") != normalise(carried[patch_rel], {}):
                 problems += fail("%s and %s differ; the kernel would compile a "
                                  "different QRTR path than the one tested here"
                                  % (repo_rel, patch_rel))

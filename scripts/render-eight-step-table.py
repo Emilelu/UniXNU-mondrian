@@ -21,7 +21,9 @@ except ImportError:
     except ImportError:
         tomllib = None
 
-REPO = '/mnt/e/hackios/UniXNU-mondrian'
+# 仓库根：默认本脚本所在的检出（在 worktree 里跑就用 worktree），K60_REPO 可覆盖。
+# 硬编码共享树会让 worktree 的 --check 去校验别的树，改了本树的 TOML 也看不见。
+REPO = os.environ.get('K60_REPO') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO, 'docs', 'research', 'EIGHT-STEPS.toml')
 README = os.path.join(REPO, 'README.md')
 README_EN = os.path.join(REPO, 'README_EN.md')
@@ -40,7 +42,6 @@ UNTRACKED = [
     ('诊断', 'device-verified'),
     ('蓝牙', 'planned'),
     ('USB', 'planned'),
-    ('基带', 'planned'),
     ('DSP', 'planned'),
 ]
 

@@ -51,7 +51,7 @@
 | 已有件 | 文件 | 对 modem 的可复用度 |
 |---|---|---|
 | PAS SCM 调用序列 | `K60AdspPas.c` | **100%** —— `QCOM_SCM_SVC_PIL=0x02`、`PAS_INIT_IMAGE=0x01`、`PAS_MEM_SETUP=0x02`、`PAS_AUTH_AND_RESET=0x05`，调用形状 `scm(command, arginfo, a, b, c)`、`smc #0` 用 x0..x7，成功判据 `x0==0 && x1==0` |
-| ELF32 段表解析 | `K60AdspImage.c` | **100%** —— 同样的 `e_phoff=52`/`e_phentsize=32`，只需换 `e_phnum`（ADSP 26 → modem 32） |
+| ELF32 段表解析 | `K60AdspImage.c` | **100%** —— 同样的 `e_phoff=52`/`e_phentsize=32`，只需换常量。实测（2026-11-14）：ADSP `e_phnum=26`、`type=0` 出现在 index 0 与 25 ⇒ **有效 PT_LOAD 24**；modem `e_phnum=32`、`type=0` 在 index 0 与 31 ⇒ **有效 PT_LOAD 30**。另有基址/窗口不同（0x86300000/0x03100000 → 0x8bc00000/0x13200000），详见 `05-MODEM-IMAGE.md` §10 的对照表 |
 | SMEM 分区 | `K60Smem.c/.h`（`k60_smem_find`/`k60_smem_alloc`） | **100%** —— modem 的 `IPCRTR` FIFO 也在 `smem_region@80900000` 里 |
 | GLINK 协议 | `QcomGlink.c/.h` | **~60%** —— 协议层（`VERSION/OPEN/CLOSE/TX_DATA/RX_DATA/RX_DONE/READ_NOTIF/SIGNALS`、intent 数组、FIFO 头尾指针）可复用；但 `QCOM_GLINK_MAX_CHANNELS = 1` 和"exclusively leased K60 PMIC endpoint"的假设必须改 |
 

@@ -63,3 +63,8 @@ scope = ["scripts", "docs/engineering", "AGENTS.md"]
 path = "/mnt/e/hackios/k60-wifi-lead"
 owner = "lead"
 scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]
+
+[[tree]]
+path = "/mnt/e/hackios/k60-cellular"
+owner = "cellular-agent"
+scope = ["drivers/PongCellular", "docs/research/cellular", "patches/cellular", "patches/xnu/0620-k60-modem-image.patch"]

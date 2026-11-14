@@ -1,9 +1,14 @@
 # K60 cellular 补丁系列
 
-> 状态：**空系列**。`series` 文件目前为空（只有注释），因为 cellular 的第一行代码还没写。
+> 状态：**本目录仍不含可生效的补丁**（`series` 只有注释）。这是刻意的：真正进内核的补丁挂在 `patches/xnu/series` 下，
+> 由构建驱动统一应用；`patches/cellular/` 只是这块地的命名占位与规则说明。
 > 本文件与 `series` 的存在是为了让"cellular 这块地"在仓库里有位置，
 > 避免以后有人在 `patches/` 里另起一套命名。
-> 取证与范围判定见 `docs/research/cellular/01-ANDROID-INVENTORY.md`、`02-DT-TRUTH.md`、`03-SCOPE.md`。
+> 取证与范围判定见 `docs/research/cellular/01-ANDROID-INVENTORY.md`、`02-DT-TRUTH.md`、`03-SCOPE.md`、`05-MODEM-IMAGE.md`。
+>
+> **L1 的补丁实际落点**：`patches/xnu/0620-k60-modem-image.patch`（三个 new file：`bsd/dev/pong_modem_image.c`、
+> `bsd/dev/pong_modem_image.h`、`bsd/dev/pong_modem_table.h`），已追加进 `patches/xnu/series`，
+> 并在 `scripts/append-conffiles.py` 里注册了 `bsd/dev/pong_modem_image.c`。
 
 ## 为什么现在没有补丁
 
@@ -17,8 +22,9 @@
 4. 然后才 PAS 加载 modem
 5. 最后裸 QRTR 报文验证枚举
 
-**第 2 步之前不应该出现任何 `drivers/PongCellular/` 的可编译代码**，
-所以本目录在那一轮之前保持空。
+**第 2 步之前不应该出现任何 `drivers/PongCellular/` 的可编译代码** —— 这条已经越过：第 2 步（DT 节点）在 d5a9939 完成，
+第 4 步（PAS 加载）的**搬运半截**也已完成（`K60ModemImage.c`，只有 plan/copy，没有 SCM 调用）。
+越过的理由与边界写在 `drivers/PongCellular/README.md` 顶部：交付物不含任何硬件写操作，纯宿主可验证。
 
 ## 将来的补丁形状（预留给下一步）
 
@@ -27,11 +33,13 @@
 | # | 文件（预期命名） | 作用 |
 |---|---|---|
 | 0001 | `0001-dts-mondrian-cellular-nodes.patch` | `dts/mondrian.dts` 加 `mpss_region`/`remoteproc-mss`/modem `glink-edge`/`qcom,ipa` 节点（字节抄自活 FDT） |
-| 0002 | `0002-drivers-PongCellular-pas.patch` | `drivers/PongCellular/` 的 modem PAS 加载器（照 `K60AdspPas.c` 第二实例） |
+| ~~0002a~~ | **已落地为 `patches/xnu/0620-k60-modem-image.patch`** | modem 镜像段表 + 搬运器（`K60ModemImage.c` / `pong_modem_table.h`） |
+| 0002b | `0002b-drivers-PongCellular-pas.patch` | PAS 握手（`MEM_SETUP`/`INIT_IMAGE`/`AUTH_AND_RESET`，peripheral=4） |
 | 0003 | `0003-drivers-PongPower-glink-multichannel.patch` | `QcomGlink.c` 打破 `QCOM_GLINK_MAX_CHANNELS=1`，加 `IPCRTR` 通道 |
 | 0004 | `0004-drivers-PongCellular-qrtr.patch` | QRTR 报文 + `servreg` 查询（L2 完成） |
 
-**以上全是预期，未生成。** 生成前必须先过 `docs/engineering/EIGHT-STEP-SPEC.md` 的 ⑦ 核验门。
+除 0001（DT 节点，d5a9939）与 0002a（镜像搬运，0620）外，**其余仍是预期，未生成**。
+生成前必须先过 `docs/engineering/EIGHT-STEP-SPEC.md` 的 ⑦ 核验门。
 
 ## 禁止事项
 

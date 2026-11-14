@@ -16,6 +16,7 @@ ENTRIES = [
     "bsd/dev/pong_adsp_boot.c\t\t\tstandard",
     "bsd/dev/pong_adsp_pas.c\t\t\tstandard",
     "bsd/dev/pong_adsp_image.c\t\t\tstandard",
+    "bsd/dev/pong_modem_image.c\t\t\tstandard",
     "bsd/dev/pong_fat.c\t\t\tstandard",
 ]
 

@@ -23,12 +23,12 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
 | **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
 | **battery** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | — | Ready to flash (⑦ verified) |
+| **基带（Qualcomm X65 / qcom,cape-modem-pas）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 蓝牙 | — | — | — | — | — | — | — | — | planned |
 | USB | — | — | — | — | — | — | — | — | planned |
-| 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 
 > ✅ done　◐ partial　❌ not done　— no record

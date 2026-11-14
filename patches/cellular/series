@@ -1,6 +1,10 @@
 # K60 cellular patch series
 #
-# EMPTY BY DESIGN. No cellular code exists yet.
+# EMPTY BY DESIGN. Nothing here is applied by the build.
+# The cellular patches that DO reach the kernel live in patches/xnu/series:
+#   0001 (dts nodes)  -> d5a9939, dts/mondrian.dts
+#   0002a (modem L1)  -> patches/xnu/0620-k60-modem-image.patch
+# This directory stays empty so there is exactly one series the build reads.
 # See docs/research/cellular/03-SCOPE.md section 8 for the required order:
 #   1. (DONE 2026-11-14) Android qrtr-lookup enumerates: table lands in
 #      /data/vendor/qrtr/qrtr-lookup.txt, 36 QMI services answer on node 0

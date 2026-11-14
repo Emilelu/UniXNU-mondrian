@@ -720,3 +720,175 @@ here:
 +"owned_memory_size" = "0x120000000"  # 4.5 GiB window: 4.75 GiB leaves <16 MB of arena for a 65.9 MB kernel (LOCAL-VERIFICATION 5.16)
 ```
 
+### 5.17 MHI 握手阶段的日志：为什么之前一个字都看不到，以及补了什么
+
+**症状**：两次上机（09:39 的 `wifi-20261115a`、11:05 的 `wifi-20261115h2`）的
+`console.log` 都是 0 字节，而 `PongWifi: stage 1..10` 与
+`DesignWare MSI receiver armed on Pong PCIe0 SPI140` 这些行本该出现在控制台上。
+也就是说：**MHI 启动链（`nw_wifi_start` 之后、`stage` 门之外的那一段）本身没有
+任何日志**，无论成功还是失败都不会留下痕迹。
+
+**三层叠加的原因（逐条有出处）**：
+
+1. `ath11k_dbg()` 在这个构建里是死代码。`scripts/build-k60-ath11k.py` 的编译
+   flag（`-DCONFIG_ATH11K_PCI=1` 等）里没有 `-DCONFIG_ATH11K_DEBUG`，而
+   `ath` 源文件列表里也没有 `debug.c`，于是
+   `drivers/net/wireless/ath/ath11k/debug.h:96-101` 的 `#else` 分支把
+   `__ath11k_dbg` 编译成 `return 0`，`ath11k_dbg(ar, mask, fmt, ...)`
+   （同文件 `:112-117`）整个表达式消失。`mhi.c` / `pci.c` 里所有
+   `ATH11K_DBG_BOOT` / `ATH11K_DBG_PCI` 的行因此一行都不会打印。
+2. shim 把 `dev_dbg`/`pr_debug` 映射到 `lx_log(7)`
+   （`shim/include/lx_os.h:99-110`），而 `drivers/PongWifi/PongWifiPlatform.cpp:76`
+   的 `log()` 是 `if (level < 7) IOLog(...)`，**level 7 被直接丢掉**。
+   MHI host（`drivers/bus/mhi/host/*.c`）里大量状态机输出走的正是 `dev_dbg`。
+3. 能活着上控制台的只有三档：`dev_err`→3、`dev_warn`→4、`dev_info`→6，
+   以及本仓自己实现的 `ath11k_info`/`ath11k_warn`/`ath11k_err`
+   （`drivers/PongWifi/ath11k/PongAth11k.c:111-121` 的 `says()`，分别映射 6/4/3）。
+
+**结论**：要观测 MHI，注入点必须落在 `ath11k_info` 或 `dev_info` 层，改
+`ath11k_dbg` 或 `dev_dbg` 没有任何用。
+
+**补的 11 条日志（全部在 `scripts/build-k60-ath11k.py` 里以「断言唯一 + 替换」的方式注入，
+不手改 Linux 树；每条 needle 都要求 `count == 1`，Linux 7.0.14 的 ABI 一变就构建失败而不是静默失配）**：
+
+| # | 文件（注入后） | 位置 | 打印内容 |
+|---|---|---|---|
+| 1 | `ath11k/mhi.c` | `ath11k_mhi_register` 注册前 | `Pong MHI register: regs len fw_data fw_sz sbl seg` |
+| 2 | `ath11k/mhi.c` | 注册成功后 | `Pong MHI registered: channels timeout` |
+| 3 | `ath11k/mhi.c` | `ath11k_mhi_start` 设 timeout 后 | `Pong MHI start: timeout regs ee state` |
+| 4 | `ath11k/mhi.c` | `mhi_prepare_for_power_up` 成功后 | `Pong MHI prepared for power up` |
+| 5 | `ath11k/mhi.c` | `mhi_sync_power_up` 成功后 | `Pong MHI powered up: ee state serial` |
+| 6 | `mhi/host/boot.c` | BHI 序列号读完之后 | `Pong MHI: serial ee fbc fw_sz` |
+| 7 | `mhi/host/boot.c` | `skip_req_fw` 之后 | `Pong MHI: load type image bytes vector bytes` |
+| 8 | `mhi/host/boot.c` | `mhi_ready_state_transition` 之前 | `Pong MHI: waiting for the device to clear reset and set ready` |
+| 9 | `mhi/host/pm.c` | 轮询 MHICTRL 之前 | `Pong MHI: polling MHICTRL reset mask ... for N ms` |
+| 10 | `mhi/host/pm.c` | RESET 清零、轮询 MHISTATUS 之前 | `Pong MHI: reset cleared, polling MHISTATUS ready bit` |
+| 11 | `mhi/host/pm.c` | 进 READY（原 `dev_dbg` 那行） | `Pong MHI: device in READY state` |
+
+第 9/10/11 条对应 `drivers/bus/mhi/host/pm.c` 的 `mhi_ready_state_transition`：
+它先 `mhi_poll_reg_field(MHICTRL, MHICTRL_RESET_MASK, 0, 25000, timeout_ms)`
+（失败打 `Device failed to clear MHI Reset`），再轮询 `MHISTATUS` 的 READY 位
+（失败打 `Device failed to enter MHI Ready`）。**这两条 poll 是「设备到底有没有响应
+MHI reset/ready」的唯一判据**；失败路径本来就有 `dev_err`，所以现在无论成功还是
+卡住，控制台都会先出现 `Pong MHI: polling ...`，再出现结果行。
+
+**构建验证（可复现）**：
+
+```
+# 1) ath11k 归档（Linux 树在 /home/emilelu/wifi-inputs/linux，v7.0.14）
+python3 scripts/build-k60-ath11k.py --linux /home/emilelu/wifi-inputs/linux \
+    --shared $PONG_SHENG_ROOT/drivers/Ath12kWifi \
+    --output-dir /opt/k60/trees/k60build/wifi/ath11k-mhiboot --jobs 8
+#    -> libPongAth11k.a 730,120 B（基线 728,624 B）；strings | grep -c "Pong MHI" = 11
+
+# 2) native 归档（把 ath11k 归档链进 PongWifiPlatform/PongWifiNet）
+python3 scripts/build-k60-wifi-native.py --tree $T \
+    --ath11k /opt/k60/trees/k60build/wifi/ath11k-mhiboot/libPongAth11k.a \
+    --firmware /mnt/e/k60-work/firmware/qca6490-wifi-bdf \
+    --output-dir /opt/k60/trees/k60build/wifi/native-mhiboot
+#    -> libPongWifiNative.a 12,067,744 B；同样 11 条
+```
+
+未定义符号零漂移：新旧 native 归档 `llvm-nm -u -j` 都是 348 个，`comm` 双向为空
+——注入的日志没有引入任何新的外部依赖（这一点很重要：`build-k60-ath11k.py:300`
+对未定义符号有白名单断言，多一个就构建失败）。
+
+### 5.18 让 `build-strict.sh` 真正能跑：五个阻塞与两条新门禁
+
+这条线在 2026-11-14 之前**从来没有一次跑通 `scripts/build-strict.sh`**，原因不在
+WiFi 代码，而在脚本与构建输入：门禁脚本指向别的线的工作树。逐条修掉之后才有
+§5.19 那张可交付镜像。
+
+1. **三道门禁指向别的线的树**（提交 `f8207ea`）。`scripts/check-build-applied.py`
+   原来硬编码 `/tmp/usb-cdc-mainline/device/patches/xnu/series`；
+   `scripts/porting-gate.py` 硬编码 `/mnt/e/hackios/UniXNU-mondrian` 与
+   `scratch/SERIES-FINAL.txt`；`scripts/sync-device-input.py` 同样指向
+   `UniXNU-mondrian` 与 `usb-cdc-mainline/device`。于是 P-165/P-166、iron-4/hard-33、
+   iron-5 恒红，而它们比对的是别人的补丁集。改法照搬 Lead 版：`REPO` 由
+   `__file__` 推导、`DEV` 走 `K60_DEVICE_INPUT`、`SERIES` 走仓库
+   `patches/xnu/series`，并新增 `K60_BUILD_IN_PROGRESS`（构建进行中时，补丁戳过期
+   表示「本轮会重写」，不是「有人改了没构建」）。`scripts/build-strict.sh` 补上
+   `export K60_DEVICE_INPUT/K60_OUT/K60_BUILD_IN_PROGRESS`。
+2. **构建输入不是 git 仓库**。`/opt/k60/trees/k60-wifi-device` 是 `/mnt/e/hackios/k60-wifi`
+   的镜像（`board.toml`、`patches/xnu/series` 与仓库逐字节相同），但没有 `.git`，
+   `feeds.update_submodules`（`/opt/k60/trees/k60build/scripts/unixnu/feeds.py:208`）
+   执行 git 时 `fatal: not a git repository`，payload 阶段直接失败。已在其中
+   `git init` 并提交 904 个文件。
+3. **缺 GPU 固件缓存**。`scripts/build-pong-adreno-platform-linux.py:91` 读
+   `<device>/.cache/firmware/k60-gpu/gmu_gen70000.bin`，该目录只在别的 device 树里
+   有；已从 `/opt/k60/trees/wifi-device/.cache/firmware/k60-gpu/` 拷入 5 个文件
+   （`a730_sqe.fw` 74,676 B、`a730_zap.b01/b02/mdt`、`gmu_gen70000.bin` 57,272 B）。
+4. **`mac-build/native-ufs/bindings.json` 的 `compiled_object_sha256` 过期**（提交
+   `1149bf5`）。这个值是 `scripts/bind-ios16-storage.py:71` 对
+   `PongUfsTransport.o` 算的哈希；`f4717ef` 改过
+   `drivers/NativeUfs/PongUfsTransport.cpp`（加 `pong_ufs_ready` 与 Apps-SMMU
+   lease），却没有重新生成 bindings.json，于是每轮构建产出的对象哈希（`ffd03ef6…`）
+   与仓库记录（`398c2139…`）不符，iron-5 恒红。**全仓没有任何代码消费
+   `compiled_object_sha256`**（只有写入方），`bindings` 字典本身逐字节相同，
+   所以正确修法是按当前源码重新生成并提交，而不是把产物覆盖回仓库。
+5. **`--kernel-arg` 到不了镜像**（提交 `aaec637`）。`build-strict.sh` 原来只把
+   `--kernel-arg` 传给 `build bootimg`，而 `payload.py:130-133` 才是把参数写进
+   `EFI/UniXNU/unixnu.toml` 的地方——loader 读的是 payload 里的 TOML（P-159）。
+   实测第一张「成功」的严格镜像 `wifi-20261116mhi` 的命令行**根本没有
+   `pong_wifi=1`**（29 项 / 575 B，与不带的构建完全一样），这种镜像飞上去 WiFi
+   根本不会启动。已改为 payload 与 bootimg 都转发，并在 manifest 里记
+   `kernel_args_requested`。
+
+顺带把 Lead 的两道门禁移植进来（同一提交）：`scripts/check-kernel-archives.py`
+（P-190：`-Wl,-force_load` 落在死分支里时构建成功、镜像也验过，但驱动根本不在内核里；
+它按 `.config` 判断哪个 archive 该在，再在 `kernel.macho` 里找符号）与
+`scripts/check-image-args.py`（从 boot.img 的 ramdisk FAT 里读回
+`EFI/UniXNU/unixnu.toml` 的 args，与 `board.toml [payload].kernel_args` 比对：
+拒绝超 607 字节、拒绝 `debug=1`/`epoch=1`、拒绝替换 board 值、拒绝未登记的追加）。
+
+### 5.19 可交付镜像 `wifi-20261116mhi3`（已构建，未上机）
+
+```
+build-strict: tag=wifi-20261116mhi3 series=229 frozen=ceb87e4e3b73552c
+build-strict: eight-step   通过 36 项检查
+build-strict: kernel  85e1fe175d5e64c82f4ab3c383f403836294626f2bdd1e609b350a666f749188 65978368 bytes
+build-strict: payload kernel 0addbb48d46ed4f54629db720784de78922e11bc79b4c2dfd8e481fc38a9ee4a
+build-strict: payload adt    a78250ea6eddb80203ee1f1d0db929efb10772fd1fe20f0c0af48e635bf1cf76
+build-strict: payload args   30 项 / 587 B，末尾 pong_wifi=1
+build-strict: boot.img 615a05ce93aa77b1f59a7e98caf77d4406abc4dd7905d8de4e0be710eb51f00a
+✅ kernel archives: 3 enabled archive(s) all present in kernel.macho
+image-arg-audit: OK (30 arguments, 587 bytes)
+verify-boot-image: OK
+```
+
+内核里 `strings | grep -c "Pong MHI"` = **11**，11 条格式串全部在
+`kernel.macho` 里；`_pong_wifi_start_optional` / `_nw_wifi_start` /
+`_pong11_pong_ath11k_pci_init` / `_armcpu_spi_attach` 四个符号都在
+（`llvm-nm -n`）。manifest 在 `/mnt/e/k60-work/artifacts/wifi-20261116mhi3/build-manifest.json`。
+
+**上机时按这个顺序读控制台**（任何一行缺失就是定位点）：
+
+```
+PongWifi[6]: DesignWare MSI receiver armed on Pong PCIe0 SPI140   # stage 10 已过
+PongWifi[6]: zizhan QCA6490 Ethernet TX/RX offload selected        # 进入 nw_wifi_start
+ath11k: Pong MHI register: regs=... fw_sz=... sbl=524288 seg=524288
+ath11k: Pong MHI registered: channels=128 timeout=2000
+ath11k: Pong MHI start: timeout=... ee=.. state=..
+ath11k: Pong MHI prepared for power up
+Pong MHI: serial=... ee=.. fbc=1 fw_sz=...                        # BHI 能读到序列号
+Pong MHI: load type=2 image bytes=... vector bytes=...             # 2 = FBC/BHIE
+Pong MHI: polling MHICTRL reset mask 0x2 for ... ms
+Pong MHI: reset cleared, polling MHISTATUS ready bit
+Pong MHI: device in READY state
+ath11k: Pong MHI powered up: ee=.. state=.. serial=..
+```
+
+- 卡在 `Pong MHI register` 之后没有 `registered` → `mhi_register_controller` 拒绝
+  （channel/event 配置或 BAR0 不对）。
+- 停在 `Pong MHI start` → `mhi_prepare_for_power_up` 失败（会伴随
+  `ath11k: failed to prepare mhi: N`）。
+- 停在 `polling MHICTRL reset mask` 且随后出现 `Device failed to clear MHI Reset`
+  → 设备没有响应 MHI reset：BAR0 写不进去、PCIe link 没训练好，或 PERST/LTSSM 时序不对。
+- 出现 `reset cleared` 但没有 `device in READY state` → 固件镜像没有被设备接受
+  （BHIE 向量表下载失败会先打 `MHI did not load image over BHIe, ret: N`）。
+- 全部通过但 `stage` 停在 2 → 问题已经离开 MHI，进入 ath11k 的 QMI/WMI 阶段。
+
+**当前状态**：镜像与脚本已就绪，**上机被用户的禁飞令阻塞**（m05362：禁止自行 boot，
+必须用户与 Lead 双方同意后才执行）。
+
+

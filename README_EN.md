@@ -23,6 +23,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
 | **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
 | **battery** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | — | Ready to flash (⑦ verified) |
+| **壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |

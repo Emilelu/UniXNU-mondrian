@@ -51,8 +51,9 @@ bpp 8、bpc 10、`DSIBitClockFrequency=1200000000`（= `panel-clockrate=0x47868c
 `nuwa/RawFiles/Panel_M11_42_02_0a_dsc_cmd.xml`（136 行 → 合并延迟后 134 包）同样**相同 125 包、但 6 个编辑块**，其余全部
 ≤4 包相同 → **marble 这份与 nuwa 打平在 125 包，marble 编辑块更少**。两份都只匹配 60 Hz 档的
 `2f02`/`8b00`/`df21`，即都是 **60 Hz 修订**。
-结论：拿它们当"面板规格来源"可以，当"init 串"不行；要烧必须先补差异（marble 3 块、nuwa 6 块），
-或从 `dispdcbx` 分区提真串。
+结论：拿它们当"面板规格来源"可以，当"init 串"不行 —— **但已经不需要补差异，也不需要 `dispdcbx`**：
+真串在 2026-11-02 从本机 dump 下来的 live FDT 里（见 4.1），三档 on-command 各 1,534 字节、
+sha256 全部实测。marble/nuwa 的 XML 只用来核对规格，不用来烧。
 
 ## 2. 画布契约（WindowServer 会 assert，不是可选项）
 
@@ -96,7 +97,30 @@ DSC（`:27871-27879`）：`bit-per-pixel=0x8`、`bit-per-component=0xa`、`slice
 **三档只差 6 个字节**（逐包比对，三档均 135 包 / 1534 B）：`#56 15 2f` = `02`/`01`/`00`（60/90/120）、
 `#59 15 8b` = `00`/`10`/`00`、`#64 15 df` = `21`/`20`/`20`，外加 3 个**包头**字节（`#19`、`#27`、`#51`）。
 timing-switch-command（10 包）与 flat-mode on/off（各 116 B）同样只差 `2f`/`8b`/`df` 三个值。
-→ **90 Hz 在驱动侧没有额外工作量**：同一套 init，选 `timing@1` 即可。
+→ **90 Hz 在驱动侧没有额外工作量**：同一套 init，选 `timing@1` 即可。live FDT 实测的字节差异见 4.1。
+
+### 4.1 三档 on-command 的真实字节差异（2026-11-14 实测，live FDT）
+
+来源：`/mnt/e/k60-work/reports/live-6033dbec-fdt.dtb`（919,210 B，2026-11-02 从 `6033dbec` dump），
+`dtc -I dtb -O dts` 后取 `qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd` 节点下每个 `timing@N` 的
+`qcom,mdss-dsi-on-command`。原始字节已落到 `E:/k60-work/artifacts/panel-init-live/`。
+
+| timing | Hz | on-command | off-command | timing-switch | on-command sha256 |
+|---|---|---|---|---|---|
+| `timing@0` | 60 | 1534 B | 18 B | 98 B | `cadf02b1552bf39df4604f2b066ba965a855d001a8aefcb2210c8822ef1268ec` |
+| `timing@1` | 90 | 1534 B | 18 B | 98 B | `480b8cfbb0260a8baf6ec1ee257adccc67dc5034332de8c9f187698d42bbb215` |
+| `timing@2` | 120 | 1534 B | 18 B | 98 B | `24652fb5ba863540cd35eaebe471967ff9b4a1c21c59b9a75847366d7cb4c972` |
+
+三档长度完全相同，逐字节差异：
+
+- `timing@0` vs `timing@1`：**6 字节** —— offset 201 `00→40`、293 `40→00`、566 `40→00`、
+  624 `02→01`、651 `00→10`、700 `21→20`
+- `timing@0` vs `timing@2`：**4 字节** —— offset 293 `40→00`、566 `40→00`、624 `02→00`、700 `21→20`
+- `timing@1` vs `timing@2`：**3 字节** —— offset 201 `40→00`、624 `01→00`、651 `10→00`
+
+这与 XML 侧独立得出的「三档只差 6 个字节」**完全吻合**，但这次是烧进面板的真实字节，不是 XML 推断。
+`off-command` 三档逐字节相同（`39 00 00 00 14 00 02 28 00 39 00 00 00 64 00 02 10 00`，
+sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
 
 ## 5. 面板供电：5 条轨，其中 3 条是 RPMh LDO
 
@@ -135,8 +159,8 @@ timing-switch-command（10 包）与 flat-mode on/off（各 116 B）同样只差
 | 缺口 | 状态 |
 |---|---|
 | ~~K60 厂商 panel XML 未找到~~ **已找到（1.1）** | `/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（无 `references/` 软链）。静态规格可信，init 序列差 3 个编辑块（129 包 vs 135 包） |
-| **init 串的差异要不要补** | 未决。补了等于用公开 XML 的修订版烧本机面板，风险自负；不补就得从 `dispdcbx` 分区提真串。marble 3 块、nuwa 6 块，两份都只有 60 Hz 修订。做 120Hz / 首帧点亮前必须先定 |
-| XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算 | 两种编码方式不同（`5 1000 1000 10000 0` vs `<1 11 0 1 1 11>`），未建立映射；上电时序以 DTB 为准 |
+| ~~**init 串的差异要不要补**~~ **已解决（4.1）** | 两个选项都不需要：真串已在 live FDT 里（三档 1,534 B，sha256 实测），已落到 `E:/k60-work/artifacts/panel-init-live/`。marble/nuwa XML 只用于核对规格，不用于烧写 |
+| ~~XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算~~ **不需要换算** | 上电时序以 DTB 为准（`<1 11 0 1 1 11>`，见第 3 节），XML 那行只描述同一件事的另一种编码，不参与构建 |
 | ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧：492 个 boot 中 452 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（272 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
 | 面板供电真上电验证 | 3 条 RPMh LDO 的 cmd-db 资源地址与投票参数未取（RSC drv-2 已实测可读写，不是 RSC 阻塞）；在此之前无法自证 |
 

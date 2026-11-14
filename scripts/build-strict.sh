@@ -7,7 +7,7 @@
 # any existing file. Two boots were judged on artifacts that never changed.
 #
 # Usage:
-#   scripts/build-strict.sh <tag> --fd <file.fd> [--gpu-addon <file>] [--kernel-arg NAME=VALUE ...]
+#   scripts/build-strict.sh <tag> --fd <file.fd> [--gpu-addon <file>] [--bt-blob <file>] [--kernel-arg NAME=VALUE ...]
 #
 # Guarantees:
 #   * passes the real exit code of every stage (no pipe into grep)
@@ -23,11 +23,13 @@ TAG=${1:?usage: build-strict.sh <tag> --fd <file.fd> [--kernel-arg K=V ...]}
 shift
 FD=""
 ADDON=""
+BT_BLOB=""
 KARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --fd) FD=${2:?--fd needs a file}; shift 2 ;;
         --gpu-addon) ADDON=${2:?--gpu-addon needs a file}; shift 2 ;;
+        --bt-blob) BT_BLOB=${2:?--bt-blob needs a file}; shift 2 ;;
         --kernel-arg) KARGS+=("${2:?--kernel-arg needs NAME=VALUE}"); shift 2 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -36,6 +38,7 @@ done
 [ -n "$FD" ] || die "--fd is required; a build must name the firmware volume it packs"
 [ -f "$FD" ] || die "--fd $FD does not exist"
 [ -z "$ADDON" ] || [ -f "$ADDON" ] || die "--gpu-addon $ADDON does not exist"
+[ -z "$BT_BLOB" ] || [ -f "$BT_BLOB" ] || die "--bt-blob $BT_BLOB does not exist"
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 DEV=${K60_DEVICE_INPUT:-/opt/k60/trees/usb-cdc-mainline/device}
@@ -147,6 +150,14 @@ if [ -n "$BATTERY_ON" ]; then
 fi
 
 # --- kernel ------------------------------------------------------------------
+# 0510 embeds the bluetooth firmware the way 0610 embeds the Metal plugin: the
+# generator runs inside the kernel script, so it needs the container's path
+# before the link (P-197: the payload addon range is never filled, so the
+# firmware cannot arrive through the boot image).
+if [ -n "$BT_BLOB" ]; then
+    export K60_BT_BLOB=$BT_BLOB
+    echo "build-strict: bt blob $(sha256sum "$BT_BLOB" | cut -d' ' -f1) $(stat -c %s "$BT_BLOB") bytes"
+fi
 touch "$MARK"; sleep 2
 if ! "$BUILD/unixnu" build kernel -D "$DEV" --out "$OUT" > "$LOGS/kernel.log" 2>&1; then
     tail -30 "$LOGS/kernel.log" >&2
@@ -260,6 +271,8 @@ m = {
         "boot_img_path": "$RUN/boot.img",
         "gpu_addon": "$(sha_or_empty "$ADDON")",
         "gpu_addon_path": "${ADDON:-}",
+        "bt_blob": "$(sha_or_empty "$BT_BLOB")",
+        "bt_blob_path": "${BT_BLOB:-}",
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
@@ -279,6 +292,18 @@ METAL_BLOB=$M/tree/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s
 if [ -f "$METAL_BLOB" ]; then
   python3 "$REPO/scripts/check-metal-blob.py" "$METAL_BLOB" \
       | tee "$LOGS/metal-blob.log" || die "the Metal plugin container is inconsistent (P-196)"
+fi
+# The bluetooth firmware rides inside the kernel as an NGPUADD2 container. The
+# generator derives the length constant from the padded layout and the device
+# walks the same record table, so the two are compared here instead of on the
+# board (the Metal carrier got this wrong once: P-196).
+BT_BLOB_ASM=$M/tree/.cache/xnu-work/osfmk/arm64/k60_bt_blob.s
+[ -f "$BT_BLOB_ASM" ] || BT_BLOB_ASM=$DEV/.cache/xnu-work/osfmk/arm64/k60_bt_blob.s
+if [ -f "$BT_BLOB_ASM" ]; then
+  BT_BLOB_CHECK=(python3 "$REPO/scripts/tests/test-k60-bt-blob.py" --assembly "$BT_BLOB_ASM")
+  [ -z "$BT_BLOB" ] || BT_BLOB_CHECK+=(--container "$BT_BLOB")
+  "${BT_BLOB_CHECK[@]}" | tee "$LOGS/bt-blob.log" \
+      || die "the bluetooth firmware container is inconsistent (0510)"
 fi
 # The command line in the image must be the board contract plus declared
 # additions.  On 2026-11-14 two hand-packaged images silently replaced

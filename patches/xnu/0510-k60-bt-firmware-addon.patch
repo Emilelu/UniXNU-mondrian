@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
-index fbdf0ef..07ff31d 100644
+index fbdf0ef..736109e 100644
 --- a/bsd/dev/qbt_k60.c
 +++ b/bsd/dev/qbt_k60.c
 @@ -55,6 +55,12 @@
@@ -15,17 +15,23 @@ index fbdf0ef..07ff31d 100644
  #else /* K60_BT_HOST_TEST: minimal host shims so this file can be syntax- and
         * unit-checked without the XNU SDK.  None of these stubs touch hardware. */
  #include <errno.h>
-@@ -184,6 +190,21 @@ static const struct k60_se_rate k60_se_rates[] = {
+@@ -184,6 +190,27 @@ static const struct k60_se_rate k60_se_rates[] = {
   * holds the verified copies; see EVIDENCE.md §4.4. */
  #define K60_BT_FIRMWARE_ROOT        "/private/var/ngpu/firmware/qca"
  
-+/* S4: the boot-image firmware addon.  DarwinBoot copies <kernel>.gpuaddon out
-+ * of the payload FAT into the boot window and publishes its runtime address in
-+ * /chosen/memory-map/GpuAddon (DarwinBoot.c:588-651).  A bring-up build has no
-+ * Data seed at all (payload.json data_ramdisk_sha256 = null), so the Data addon
-+ * path above cannot resolve and the boot image is the only firmware source that
-+ * exists.  Container = make-gpu-addon.py's header (magic, u32 count, u32
-+ * reserved, u64 total) then per-file records {u32 nameLen, u32 mode, u64 size,
++/* S4/P-197: the firmware container travels inside the kernel image.
++ * The first carrier was a <kernel>.gpuaddon file in the payload FAT plus a
++ * /chosen/memory-map/GpuAddon property that DarwinBoot was believed to publish.
++ * Measurement refuted that: "git grep -ci addon" in uefi-mondrian is 0, the ADT
++ * scanner knows eight properties and GpuAddon is not one of them, and
++ * devicetree.py:339 only writes a 16-byte placeholder for the firmware to fill,
++ * so the range stays all zeros and the kernel logs "addon: unusable range 0 0".
++ * scripts/gen-k60-bt-blob.py now emits osfmk/arm64/k60_bt_blob.s (.incbin of
++ * the same NGPUADD2 container), this patch lists that file in
++ * osfmk/conf/files.arm64, and the loader below prefers the linked symbols.  The
++ * DT path is kept for a firmware that publishes the range in the future.
++ * Container = make-gpu-addon.py's header (magic, u32 count, u32 reserved,
++ * u64 total) then per-file records {u32 nameLen, u32 mode, u64 size,
 + * u64 packedSize, name padded to 8, data padded to 8}.  BT records are stored
 + * uncompressed: this kernel has no zlib (libkern/conf/files declares
 + * "options zlib" but the PONG build enables neither the option nor the source). */
@@ -37,7 +43,7 @@ index fbdf0ef..07ff31d 100644
  /* E-GENI-04/E-GENI-05: QUP wrapper HW version decides 32x vs 16x sampling. */
  #define K60_QUP_HW_VER_REG          0x00000004u
  #define K60_QUP_VERSION_2_5         0x20050000u
-@@ -1190,7 +1211,168 @@ static bool k60_firmware_name_ok(const char *name) {
+@@ -1190,7 +1217,213 @@ static bool k60_firmware_name_ok(const char *name) {
      return false;
  }
  
@@ -109,7 +115,12 @@ index fbdf0ef..07ff31d 100644
 + * window is EfiLoaderCode memory that the VM system may hand out later.
 + * Every failure path only logs; the vnode reader below still runs.
 + */
-+static uint8_t *k60_addon_copy;
++/* 0510: the linked carrier.  k60_bt_blob.s is generated at build time (empty
++ * when the build passes no --bt-blob) and listed in osfmk/conf/files.arm64. */
++extern const uint8_t k60_bt_blob[];
++extern const uint64_t k60_bt_blob_len;
++
++static const uint8_t *k60_addon_copy;
 +static size_t k60_addon_bytes;
 +static int k60_addon_status = 1;   /* 1: not tried, 0: loaded, <0: absent */
 +
@@ -118,6 +129,44 @@ index fbdf0ef..07ff31d 100644
 +    snprintf(line, sizeof(line), "addon: %s %llu %llu", what,
 +             (unsigned long long)a, (unsigned long long)b);
 +    k60_log(NULL, 1, line);
++}
++
++/* The carrier line the S4 acceptance criteria look for. */
++static void k60_addon_loaded(const char *what, uint64_t bytes, uint64_t records) {
++    char line[128];
++    snprintf(line, sizeof(line), "addon: %s bytes=%llu records=%llu", what,
++             (unsigned long long)bytes, (unsigned long long)records);
++    k60_log(NULL, 1, line);
++}
++
++/* The container that is linked into the kernel.  Nothing has to cooperate:
++ * the bytes are part of __DATA,__const, so there is no copy and no free. */
++static int k60_bt_addon_load_blob(void) {
++    uint32_t count;
++    uint64_t total;
++
++    if (k60_bt_blob_len == 0) return -ENOENT;
++    if (k60_bt_blob_len < (uint64_t)K60_BT_ADDON_HEADER ||
++        k60_bt_blob_len > (uint64_t)K60_BT_ADDON_MAX_BYTES) {
++        k60_addon_note("bad blob length", (uint64_t)k60_bt_blob_len, 0);
++        return -EINVAL;
++    }
++    if (memcmp(k60_bt_blob, K60_BT_ADDON_MAGIC, 8) != 0) {
++        k60_log(NULL, 1, "addon: blob bad magic");
++        return -EINVAL;
++    }
++    total = k60_addon_get64(k60_bt_blob + 16);
++    count = k60_addon_get32(k60_bt_blob + 8);
++    if (total != (uint64_t)k60_bt_blob_len || count == 0) {
++        k60_addon_note("blob bad header", total, (uint64_t)count);
++        return -EINVAL;
++    }
++    k60_addon_copy = k60_bt_blob;
++    k60_addon_bytes = (size_t)k60_bt_blob_len;
++    k60_addon_status = 0;
++    k60_addon_loaded("linked blob", (uint64_t)k60_addon_bytes,
++                     (uint64_t)count);
++    return 0;
 +}
 +
 +static int k60_bt_addon_load(void) {
@@ -133,6 +182,8 @@ index fbdf0ef..07ff31d 100644
 +    if (k60_addon_status == 0) return 0;
 +    if (k60_addon_status < 0) return k60_addon_status;
 +    k60_addon_status = -ENOENT;
++    /* The linked blob is the default carrier; the DT range is the fallback. */
++    if (k60_bt_addon_load_blob() == 0) return 0;
 +    if (SecureDTLookupEntry(NULL, "chosen/memory-map", &mapEntry) != kSuccess) {
 +        k60_log(NULL, 3, "addon: no chosen/memory-map");
 +        return k60_addon_status;
@@ -206,7 +257,7 @@ index fbdf0ef..07ff31d 100644
  /* VFS reader for the Data-addon firmware.  Modeled on the sheng board reader
   * (BluetoothFirmware.c:25-51): vnode_open + vnode_getattr + vn_rdwr, with a
   * 4 MiB bound and a short-read check.  The Data addon must be mounted; the
-@@ -1198,6 +1380,9 @@ static bool k60_firmware_name_ok(const char *name) {
+@@ -1198,6 +1431,9 @@ static bool k60_firmware_name_ok(const char *name) {
  static int k60_bt_firmware_read(const char *name, uint8_t **data, size_t *size) {
      if (!data || !size || !name) return EINVAL;
      *data = NULL; *size = 0;
@@ -216,7 +267,7 @@ index fbdf0ef..07ff31d 100644
      /* Runtime-first path is the verified Data-addon copy.  The Android paths
       * are fallbacks for a development build that mounts the vendor/modem
       * partition read-only; they are never required on a normal boot. */
-@@ -1849,6 +2034,9 @@ void qbt_k60_start(void) {
+@@ -1849,6 +2085,9 @@ void qbt_k60_start(void) {
       * so PM8350 S10/S11/S12, PM8350C S1 and PMR735A L7 are already on. */
      k60.warm_boot = PE_parse_boot_argn("k60bt_warm", &warm, sizeof(warm)) && warm != 0;
  #ifdef KERNEL
@@ -226,7 +277,7 @@ index fbdf0ef..07ff31d 100644
      thread_t thread = NULL;
      if (kernel_thread_start(k60_worker, NULL, &thread) == KERN_SUCCESS)
          thread_deallocate(thread);
-@@ -1858,13 +2046,61 @@ void qbt_k60_start(void) {
+@@ -1858,13 +2097,61 @@ void qbt_k60_start(void) {
  }
  
  #ifdef K60_BT_HOST_TEST
@@ -289,3 +340,15 @@ index fbdf0ef..07ff31d 100644
      printf("qbt_k60 host checks passed\n");
      return 0;
  }
+diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
+index c40d57b..e5e1adf 100644
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -22,6 +22,7 @@ osfmk/arm64/WKdmDecompress_16k.s	standard
+ osfmk/arm64/WKdmCompress_16k.s		standard
+ osfmk/arm64/WKdmDecompress_4k.s	standard
+ osfmk/arm64/WKdmCompress_4k.s	standard
++osfmk/arm64/k60_bt_blob.s	standard
+ osfmk/arm64/WKdmData.s		standard
+ osfmk/arm64/lz4_decode_arm64.s  standard
+ osfmk/arm64/lz4_encode_arm64.s  standard

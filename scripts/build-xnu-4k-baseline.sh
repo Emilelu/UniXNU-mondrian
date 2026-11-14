@@ -308,6 +308,20 @@ if [ -n "$K60_METAL_PLUGIN_DIR" ] && [ -d "$K60_METAL_PLUGIN_DIR" ] && \
     --plugin-dir "$K60_METAL_PLUGIN_DIR" --assembly --output "$K60_METAL_ASM" \
     >&2 || { echo 'k60_metal_blob generation failed' >&2; exit 1; }
 fi
+# 0510: the bluetooth firmware travels inside the kernel for the same reason.
+# P-197 measured that no firmware publishes a GpuAddon range, so the payload
+# addon can never be read; the container is embedded instead.  K60_BT_BLOB names
+# the container the build packed, and without one the generator writes a
+# zero-length stub so every other line's kernel keeps the devicetree fallback.
+if [ -f "patches/xnu/0510-k60-bt-firmware-addon.patch" ]; then
+  K60_BT_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_bt_blob.s
+  mkdir -p "$(dirname "$K60_BT_ASM")"
+  K60_BT_GEN=(python3 "$ROOT/scripts/gen-k60-bt-blob.py" --assembly --output "$K60_BT_ASM")
+  if [ -n "${K60_BT_BLOB:-}" ] && [ -f "${K60_BT_BLOB}" ]; then
+    K60_BT_GEN+=(--container "$K60_BT_BLOB")
+  fi
+  "${K60_BT_GEN[@]}" >&2 || { echo 'k60_bt_blob generation failed' >&2; exit 1; }
+fi
 if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   export PONG_NATIVE_DRIVER_SOURCE
 fi

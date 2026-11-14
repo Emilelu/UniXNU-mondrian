@@ -217,4 +217,10 @@ PY
 
 echo "build-strict: boot.img $BOOT_SHA"
 python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
+# The command line in the image must be the board contract plus declared
+# additions.  On 2026-11-14 two hand-packaged images silently replaced
+# debug=0x140 with debug=1 (DB_HALT) and ran 610 bytes over the 607-byte
+# DarwinBoot ceiling; both boots produced zero console bytes.
+python3 "$REPO/scripts/check-image-args.py" --image "$RUN/boot.img" --board "$REPO/board.toml" \
+    | tee "$LOGS/image-args.log" || die "the boot image command line is not the board contract (check-image-args.py)"
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

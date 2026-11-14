@@ -522,3 +522,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-191"
 statement = "查表函数在输入超出表的表达能力时必须返回失败，不能沿用成功码。"
 check = "cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o build/railtest scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c && ./build/railtest"
+
+[[rule]]
+id = "P-192"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-192"
+statement = "门禁要能按线收窄作用域，否则会逼人绕过构建器。"
+check = "python3 scripts/tests/test-eight-step-scope.py"

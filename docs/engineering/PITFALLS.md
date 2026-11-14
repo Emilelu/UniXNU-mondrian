@@ -4501,3 +4501,37 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 3. 看到 `*out = count - 1; return OK;` 这种组合就是本坑。
 
 **发现者**：触摸线 agent 的评审（`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md`，2026-11-14）。
+
+## P-192 — 门禁把"整机口径"用成了"所有人一起等"
+
+**现象**：2026-11-14，wifi 与 bt 两条线的 agent 都无法通过 `build-strict.sh` 构建。原因是八步门禁的
+**flash 模式**要求所有 `status = "active"` 的硬件项八步全绿，而触摸线正在被外部 agent 大改
+（④⑤⑥ 被改成 `done = false`）。两条线于是手工 `unixnu build` + `bootimg` 绕过构建器，结果：
+
+- `bt-s1-20261114b` 命令行 **610 字节**，超过 DarwinBoot 的 607 字节上限（`BootArgs.h:8` 的
+  `DARWIN_BOOT_LINE_LENGTH 608`，`DarwinBoot.c:681` 判 `Index >= sizeof(CommandLine) - 1`），
+  固件直接返回 `EFI_BAD_BUFFER_SIZE`，内核根本没被调用；
+- `wifi-20261115a` 把 `debug=0x140` 换成 `debug=1`（`debug.h:513` 的 `DB_HALT`），任何调试陷阱都停机，
+  还把 `epoch` 换成 1 —— 表现为"引导卡在一处"。
+
+两次都是 **0 字节日志**，看起来像内核故障，实际是打包环节没人看命令行。
+
+**根因**：门禁本身没错（它确实应该拦住未验证的硬件项），错在**只能整机声明**：
+`K60_EIGHT_STEP_ITEMS` 只在 `status = "active"` 的项里挑，所以"我要构建 buttons/wifi/bt 这条线"
+根本无法表达，任何非触摸线的构建都会被触摸线拖住。
+
+**修法**（`scripts/eight-step-gate.py`）：
+- `declared_items(hw, all_items)` 改为从**全部**硬件项里取名字，parked/planned 也可以声明；
+- 声明后的项仍按同一套证据规则检查（`done=true`、依据 ≥30 字、必须有 `file:line`/URL/`usblog-…`/`0x…`/`P-xx`/`★xx`），
+  所以这是**收窄范围**而不是放松要求；
+- 不声明 = 整机口径，行为与之前逐字相同；
+- `--flash` 模式永远不看声明，刷机仍是整机门禁；
+- 打印时带上状态：`声明范围: buttons[parked]`，谁放窄了范围在日志里一目了然。
+
+**配套**：新增 `scripts/check-image-args.py` 并把 `build-strict.sh` 接上 —— 即使有人手工打包，
+也能用同一条命令审出超限、`debug=1`、`epoch=1`、替换 board 值、未声明追加参数。
+
+**教训**：
+1. 门禁的"作用域"和"强度"是两件事。挡住无关的人不是严格，是逼人绕过。
+2. 任何"只能整机"的门禁，都要问一句"别人在做别的硬件时怎么构建"。
+3. 绕过门禁的产物必须能被独立审计 —— 审计工具要单独可用，不能只挂在构建器里。

@@ -97,9 +97,11 @@ closure: steps 3-4 cover the bindfs overlay only; userland/ui_compat.c:690 submi
 
 因为 UI 库挑壁纸读的是 **OS 窗** `/Library/Wallpaper/Stills/iPad/7410.…`，不经过 `/private/var/pong/stock-wallpaper` 这条 bindfs 视图 ⇒ 视图挂不上不代表壁纸黑。截图可见就**结案**，不要再做 F2/F4；截图仍黑才转 §3 查 UI 库分支。
 
+**两条路线互斥（Lead 2026-11-15 裁定）**：种子拷贝路线（第 1/2/4 步，K60WALL/视图）与 OS 窗路线（第 5 步，`ui_compat.c` 直读 OS 窗）互斥——带 `k60_wallpaper_reset=1` 的验证镜像走 OS 窗路线，此时第 1/2/4 步的 SKIP 只是「种子路线不通」，**不代表壁纸还欠三步**；无 reset 的常规镜像才依赖种子路线（换壁纸后恢复）。两条路线不会同时决定一次显示。
+
 **无 reset 参数的正常镜像**：`Pong UI: wallpaper existing-content=1 restore-stock=0` 之后整段不出现是**正确行为**（保留用户壁纸），判定器记为 `N-A` 而不是 FAIL。
 
-**升级路径**：`success` + 像素可见 ⇒ 立即出常规镜像 springboard-20261115b（无 `k60_wallpaper_reset`），并把 0618 注释里「每次启动重选」改为「仅验证镜像使用」（Lead m01858）；`half` 按上表 A/B/C 分支处置；`dead` ⇒ 镜像没带 0618（先核 tag 与 `strings` 计数）。
+**升级路径**：`success` + 像素可见 ⇒ 立即出常规镜像（无 `k60_wallpaper_reset`）。注：0618 补丁全文**没有**「每次启动重选」这句注释（该措辞只在本行出现过，已核对），出常规镜像时应在 0618 头注写明 `k60_wallpaper_reset` 仅验证镜像使用（Lead m01858）；`half` 按上表 A/B/C 分支处置；`dead` ⇒ 镜像没带 0618（先核 tag 与 `strings` 计数）。
 
 ## 5. 桌面小组件（2026-11-15 取证修正；仍不在本线判据内）
 

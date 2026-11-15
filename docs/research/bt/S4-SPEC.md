@@ -906,6 +906,34 @@ prelink 默认从 IPSW 取 kernelcache，网络中断时构建会死在 range re
 `UNIXNU_KERNELCACHE=<K60_OUT>/ipsw/20G81/kernelcache.decompressed`（第一次成功构建就已经落盘）
 即走本地文件，断网也能出图。这一条对每条线都有用，已写进构建包装脚本
 `scratch/bt-s4/bisect/wsl-build-one.sh`。
+### 7.5 0510 与 0620 在 `osfmk/conf/files.arm64` 的上下文撞车（2026-11-16）
+
+合并 main 之后，`0510` 原来把 `k60_bt_blob.s` 插在 `WKdmCompress_4k.s` 之后（hunk `@@ -22,6 +22,7 @@`），
+而 `0620-k60-adsp-blob.patch` 的 hunk 头也是 `@@ -22,6 +22,7 @@`，上下文正是
+`k60_metal_blob.s` / `WKdmCompress_4k.s` 这一段；0510 先插一行，0620 的上下文整体错位，
+series 到 0620 就 `patch does not apply`（d1 构建实测）。
+修法：0510 的插点挪到 `lz4_encode_arm64.s` 之后（`@@ -25,6 +25,7 @@`），后续没有补丁引用那一段。
+新 sha256 `3309d123624bf4461a5ce4e6e197e613546af51ebc894967ad8084a21f7eaa87`（15,718 B）。
+全量重放校验：232 个补丁 `git apply` 顺序打完 `BAD=0`，三行 blob 分别落在 24 / 25 / 30 行。
+
+d 系列第一张图 `bt-d1-smmu`（全量 0511 + `pong_bt_smmu=0`，31 参数 / 598 B）已按此配方构建并校验：
+boot_img `bd1f5bc6f4cb96f9ec8995ca86a0f0d0769879c75a933dc7a2d130b3718d45b5`，
+series {232, `dcc7bb45d311dc5f`, namespace `names+sizes`}，`verify-boot-image: OK`、`image-arg-audit: OK`。
+
+### 7.5 0510 与 0620 在 `osfmk/conf/files.arm64` 的上下文撞车（2026-11-16）
+
+合并 main 之后，`0510` 原来把 `k60_bt_blob.s` 插在 `WKdmCompress_4k.s` 之后（hunk `@@ -22,6 +22,7 @@`），
+而 `0620-k60-adsp-blob.patch` 的 hunk 头也是 `@@ -22,6 +22,7 @@`，上下文正是
+`k60_metal_blob.s` / `WKdmCompress_4k.s` 这一段；0510 先插一行，0620 的上下文整体错位，
+series 到 0620 就 `patch does not apply`（d1 构建实测）。
+修法：0510 的插点挪到 `lz4_encode_arm64.s` 之后（`@@ -25,6 +25,7 @@`），后续没有补丁引用那一段。
+新 sha256 `3309d123624bf4461a5ce4e6e197e613546af51ebc894967ad8084a21f7eaa87`（15,718 B）。
+全量重放校验：232 个补丁 `git apply` 顺序打完 `BAD=0`，三行 blob 分别落在 24 / 25 / 30 行。
+
+d 系列第一张图 `bt-d1-smmu`（全量 0511 + `pong_bt_smmu=0`，31 参数 / 598 B）已按此配方构建并校验：
+boot_img `bd1f5bc6f4cb96f9ec8995ca86a0f0d0769879c75a933dc7a2d130b3718d45b5`，
+series {232, `dcc7bb45d311dc5f`, namespace `names+sizes`}，`verify-boot-image: OK`、`image-arg-audit: OK`。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

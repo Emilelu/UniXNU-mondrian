@@ -610,6 +610,30 @@ This line, next in order:
       `git reset --hard post0510` + `git clean -fd`，否则上一轮的脏文件让 `git apply` 报
       `patch does not apply`（第一次跑就是这样失败的）；h134 的反向参考是「full − h2」、h234 是
       「full − h1」，多减 h4 会得到 MISMATCH。
+18. **d 系列第一张图 `bt-d1-smmu` 与它暴露的 0510/0620 上下文撞车（2026-11-16 凌晨）**
+    - 图：全量 0511（series 232）+ 一个开关 `pong_bt_smmu=0`，31 个启动参数 / 598 B。
+      manifest `E:/k60-work/artifacts/bt-d1-smmu/build-manifest.json`（built_at 2026-11-16T02:23:44+08:00）：
+      boot_img `bd1f5bc6f4cb96f9ec8995ca86a0f0d0769879c75a933dc7a2d130b3718d45b5`（201,887,744 B）、
+      kernel_built `d40ae0b9c4c50795481909cd451434071bffeb297f35b970e453f9014f35e682`、
+      payload_kernel `487a1518c0e1824e8951064df7d4994ebdacb4a5e1734f1c33a26efdeefd270a`、
+      payload `ed2c08d1503e5efeceeb4f57fdcf1ba8e850d5459fee383b52982eb44ce244ec`、
+      adt `b0423763799659620dd79f79acb3ad5be9024af765d87c4e9612c3a46bb011c6`、dtb `2d044eaa…`、
+      fd `cf4485712c29…`、bt_blob `febdc20d…`、series {232, `dcc7bb45d311dc5f`, namespace names+sizes,
+      file `dff40135325fd673`}、dirty_files 0；`verify-boot-image: OK`、`image-arg-audit: OK (31 arguments, 598 bytes)`。
+      这是第一张带 `namespace` 字段的图（P-214 生效）。
+    - 首次构建失败：`unixnu: XNU patch …/patches/xnu/0620-k60-adsp-blob.patch: git failed (1):
+      error: patch failed: osfmk/conf/files.arm64:22` / `patch does not apply`。
+      原因：`0510` 把 `osfmk/arm64/k60_bt_blob.s` 插在 `WKdmCompress_4k.s` 之后（hunk `@@ -22,6 +22,7 @@`），
+      而 `0620` 的 hunk 上下文正是 `k60_metal_blob.s` / `WKdmCompress_4k.s` 之间；0510 先插一行，0620 整体错位。
+      合并 main 之前 0620 不存在，所以这是这次 merge 才引入的撞车，不是 0510 本身写错。
+    - 修法：0510 的插点挪到 **`lz4_encode_arm64.s` 之后**（`@@ -25,6 +25,7 @@`），后续没有补丁引用那一段；
+      两个孪生文件同步改、字节仍相同，新 sha256
+      `3309d123624bf4461a5ce4e6e197e613546af51ebc894967ad8084a21f7eaa87`（15,718 B，仍 289 增 / 1 删）。
+      提交 `eb3cd83`。全量重放校验：pristine `/opt/k60/trees/out-old/feeds/xnu-c465a9f8` 上 232 个补丁
+      `git apply` 顺序打完 → `APPLIED=232 BAD=0`，`conf/files.arm64` 里 24 行 `k60_metal_blob.s`、
+      25 行 `k60_adsp_blob.s`、30 行 `k60_bt_blob.s`。
+    - 教训：**给同一文件追加行时，先看后面还有没有补丁锚在同一段上下文**；插在「列表末尾附近没人引用的一行之后」
+      永远比插在中间安全。
 
 
 

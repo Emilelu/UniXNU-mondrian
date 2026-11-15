@@ -190,6 +190,10 @@ to a segment by the name the input object declares, and the wifi archive is
 pulled in with `-Wl,-force_load` (`scripts/build-xnu-4k-baseline.sh:1153`
 and `:1186`) which does not constrain layout.
 
+The ready-to-apply diff, its validation, the t2 build recipe and the
+pre-flight checks are in `docs/research/wifi/T2-PATCH.md`; this section keeps
+the reasoning, that file keeps the executable form.
+
 The C side needs no change at all. `PongWifiPlatform.cpp:35` declares
 `extern const uint8_t pong_wifi_firmware[], pong_wifi_firmware_end[]` and
 `fwGet()` (`:554-556`) only does pointer arithmetic inside that range

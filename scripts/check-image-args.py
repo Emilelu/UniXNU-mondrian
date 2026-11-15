@@ -53,6 +53,10 @@ ALLOWED_ADDITIONS = {
     "pong_thermal_bias",
     "pong_handoff_publish",
     "gprobe",
+    # 0512: the late-ladder switch and one switch per mechanism hypothesis.
+    # Each defaults to the 0511 behaviour, so an image without them is byte
+    # for byte the same kernel path (see scripts/tests/test-k60-bt-0512-late-start.py).
+    "pong_bt_late", "pong_bt_smmu", "pong_bt_rcg", "pong_bt_noboot",
 }
 
 # Values that are never acceptable in an experiment image, with the reason.

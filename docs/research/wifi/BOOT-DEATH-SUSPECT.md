@@ -418,6 +418,32 @@ Consequences:
 - The one-line fix is `configs/mondrian_wifi_defconfig:46` (commit `92e6390`);
   the rebuild keeps everything else identical and is the next flight.
 
+#### The rebuild: `wifi-20261116c1` (built 2026-11-15 23:10, not flown)
+
+| field | value |
+|---|---|
+| kernel | `4139da76c9ed491b26bd1ffc8dba41aaf961e3071f3900b78b1351d2b6f08b9f`, 66,002,944 B |
+| payload kernel | `bd22476d5521ae921af31369b336c87820224fc7bf4b4b7fc36903abc7b622b5` |
+| payload ADT | `3887ddfee3d94db025665aa0f889c9b1d206b0aa1b07c9f6c816b5607f7eb6fe` |
+| `boot.img` | `76171061046f74a1ce8273505d3caf80254f70938ebfd5904a274fd109d38673`, 201,887,744 B |
+| series | 224 / `34cf51e4…` |
+| args | 30, 587 B, last `pong_wifi=0`; `kernel_args_requested = ["pong_wifi=0"]` |
+| window | `0x120000000` (the property name sits 36 B before the u64 in the image) |
+| gates | 3 archives present, metal stub self-consistent, image-arg-audit OK, verify-boot-image OK |
+
+Offline identity check on the payload kernel: `1BCD69FF` occurs once,
+`6DCCF70A` zero times. The c0 and c1 payloads are both 66,002,944 B and differ
+in **76 bytes** (LC_UUID, the two `Darwin Kernel Version` timestamps, the
+prelink session id, and the UUID literal); every segment and section is
+identical, including `__TEXT` 12,992,512 and `__const` 11,767,510 @0x2000.
+The flight is therefore single-variable by construction, and its two outcomes
+read cleanly:
+
+- boots → P-152 was c0's whole death; the earlier wifi silences (z0, t2, mhi5d)
+  still need their own explanation;
+- silent → the wifi defconfig has a second killer, and the next split is the
+  booting family's exact shape (`GPU_ADDON=y` plus `PHYSICAL_BATTERY=y`).
+
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 
 Written on 2026-11-15 at the Lead's request so the fix would be ready the moment
@@ -533,6 +559,9 @@ It stays the fallback if `__DATA` placement turns out to be insufficient.
   `usblog-20261115-140927` (bt-s4b-20261115b, alive),
   `usblog-20261115-163144` (bt-s4b-20261115c, silent),
   `usblog-20261115-162553` (bt-s4c-20261115c, alive).
+- c1 build: `/mnt/e/k60-work/artifacts/wifi-20261116c1/build-manifest.json`
+  (built 2026-11-15T23:10:57+08:00); payload-kernel byte diff against c0 with
+  `cmp -l` on the two `mcopy` extracts; UUID literal test with `grep -c -a`.
 - Pool/window analysis: `DARWINBOOT-POOL.md` (the three DarwinBoot memory
   nodes line by line, the window arithmetic against `board.toml:235` and the
   5120 MiB arena, and the one-flight discriminator).

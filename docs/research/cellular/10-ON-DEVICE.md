@@ -4,7 +4,7 @@
 > 所有表格的「实测」列一律留 `TODO`，只有拿到真实日志后才填；
 > 填入时必须同时给出日志行原文与日志文件路径。
 
-镜像与分支的对应关系：待上机镜像是 `cellular-l3-20261114d`，它的代码状态是提交 `c350220`。
+镜像与分支的对应关系：待上机镜像是 `cellular-l3-20261115a`，它的代码状态是提交 `aa6b985`（已并入 `origin/main` 的 `ecda32f`）。
 本篇之后只会新增文档提交（`docs/` 下），不会再改任何进镜像的文件——所以即使 HEAD 前进，
 镜像仍然精确对应 `c350220`，回溯时以本节记录的 tag 与 sha256 为准。
 
@@ -12,16 +12,16 @@
 
 | 项 | 值 |
 | --- | --- |
-| 镜像 tag | `cellular-l3-20261114d` |
-| boot.img sha256 | `5cf3df7f91e9fa544d44ca4c135292f655a9ce37e14f80a6ff3c21d3369cef38` |
+| 镜像 tag | `cellular-l3-20261115a` |
+| boot.img sha256 | `47009f2d49814fcd95d7e12c556f567069367a289fdb5cccb6b9ae92d46c25a3` |
 | boot.img 字节数 | 201891840 |
-| kernel sha256 | `4dde4eaa7de209bc59c7a9a9053a66b3ccbee42b140a0300ef4a578b2ee773bc` |
-| kernel 字节数 | 105500672 |
+| kernel sha256 | `2841d160f3cb474861d858c39bf0be74bf929499b31e4b1526678dc9f29e0e03` |
+| kernel 字节数 | 105504768 |
 | series 条数 | 227 |
 | series sha256 | `1d1351130f9ece8b1c0bace828431b4259f4eca073b3360af57e484215428f98` |
-| frozen 指纹 | `f68f7b707f31353b320e73940fd9cfe3a6ba4d0c3847810d279d2c7267b85762` |
-| 命令行参数个数 / 字节数 | 29 / 575（`check-image-args.py` 实测） |
-| 上机内核命令行里的门控 | TODO（必须写明实际是 `pong_modem=1` 还是 `pong_modem=2`） |
+| frozen 指纹 | `30fdf3fff19f45aaf7c4b4ebfebe763e5e674bc8b9f6250236c6c2ac33fddc5c` |
+| 命令行参数个数 / 字节数 | 30 / 588（`check-image-args.py` 实测） |
+| 上机内核命令行里的门控 | `pong_modem=2`（`build-manifest.json` 的 `kernel_args_requested` = `['pong_modem=2']`，`payload_args` 末位即 `pong_modem=2`） |
 | 日志文件路径 | TODO |
 | 日志文件字节数 | TODO |
 | 抓取时间（本地时区） | TODO |

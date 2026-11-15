@@ -165,8 +165,9 @@ K60MODEM qrtr: verdict ok services=36 node0=36 wanted=5 malformed=0 polls=N
    内嵌的五份源码（`pong_modem_qrtr.h/.c`、`qcom_glink.h/.c`、`pong_modem_link.c`）
    与仓库文件逐项比对（include 名归一化 + GLINK 副本按 `k60m_glink_` 改名后比对），
    防止"内核编译的副本"与"测试的副本"漂移。
-3. **构建期内核**（tag `cellular-l3-20261114d`，exit 0）：kernel.macho
-   `4dde4eaa7de209bc59c7a9a9053a66b3ccbee42b140a0300ef4a578b2ee773bc` 105,500,672 B，
+3. **构建期内核**（tag `cellular-l3-20261115a`，exit 0；上一版 `cellular-l3-20261114d` 因命令行
+   缺 `pong_modem=2` 已作废）：kernel.macho
+   `2841d160f3cb474861d858c39bf0be74bf929499b31e4b1526678dc9f29e0e03` 105,504,768 B，
    `strings | grep -c K60MODEM` = 33（其中 `K60MODEM qrtr` 16 条、`k60m_glink` 16 条），
    `bsd/DEVELOPMENT/` 下有 `pong_modem_qrtr.o`、`pong_modem_link.o`、`qcom_glink.o`，
    `bsd/conf/files:408-413` 是六条 standard。完整清单见 `docs/research/EIGHT-STEPS.toml`

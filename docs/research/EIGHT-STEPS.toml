@@ -558,7 +558,11 @@ L3 产物内部核验：
 1) 六个新源文件都编进去了——tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/ 下有 pong_modem_image.o、pong_modem_pas.o、pong_modem_boot.o、pong_modem_qrtr.o、pong_modem_link.o、qcom_glink.o（各带 .d）；tree/.cache/xnu-work/bsd/conf/files:408-413 是这六条 standard。
 2) QRTR 日志进了镜像——`strings -a kernel/kernel.macho | grep -c 'K60MODEM'` = 33（L2 是 17），其中 `grep -c 'K60MODEM qrtr'` = 16，覆盖 channel up/down、service 行、sent hello and new_lookup、verdict 以及 not fresh / modem not ready 两条拒绝行。
 3) GLINK 私有副本用的是改名后的符号——`strings -a kernel/kernel.macho | grep -c 'k60m_glink'` = 16，链接错误消失（L3 attempt c 的 8 个 duplicate symbol 来自 `libK60PhysicalBattery.a(QcomGlink.o)` 与本副本相撞，P-190 同形）；drivers/PongPower/QcomGlink.{c,h} 未改动，电池线继续用 qcom_glink_*。
-4) 段表仍在内核里——`grep -c 'modem.b'` = 27；磁盘 kernel.macho 的 sha256 与 build-strict 打印值一致（4dde4eaa…）。"""
+4) 段表仍在内核里——`grep -c 'modem.b'` = 27；磁盘 kernel.macho 的 sha256 与 build-strict 打印值一致（4dde4eaa…）。
+
+L3 重出（2026-11-15，tag cellular-l3-20261115a，exit 0）：上一版 cellular-l3-20261114d 已作废——它的 build-manifest.json 里 kernel_args_requested = ['']、payload_args 不含 pong_modem，命令行根本没有这个参数，驱动走默认 0，上机必然一行 K60MODEM 都不打。重出只加 --kernel-arg pong_modem=2，其余同树同 series（先 merge origin/main 到 ecda32f 再 sync-device-input.py，734 个文件一致）：kernel 2841d160f3cb474861d858c39bf0be74bf929499b31e4b1526678dc9f29e0e03（105504768 B）、payload kernel 1f37d062dfceb7529dc4a2a771cc17098ecd0f74c71dec38fae6407cabaeb64a、payload adt 6955e8461510f066e1dde021a643b3d1c19fe183d96bf06a411279327bef0ddb、boot.img 47009f2d49814fcd95d7e12c556f567069367a289fdb5cccb6b9ae92d46c25a3（201891840 B）；kernel_args_requested = ['pong_modem=2']、payload_args 末位是 pong_modem=2、check-image-args 报 OK (30 arguments, 588 bytes)、verify-boot-image: OK；series=227（sha256 1d1351130f9ece8b1c0bace828431b4259f4eca073b3360af57e484215428f98）、frozen=30fdf3fff19f45aaf7c4b4ebfebe763e5e674bc8b9f6250236c6c2ac33fddc5c，manifest /mnt/e/k60-work/artifacts/cellular-l3-20261115a/build-manifest.json；strings 命中数与上一版一致（K60MODEM 33、K60MODEM qrtr 16、k60m_glink 16）。
+教训：exit 0 只证明构建跑完，不证明参数进了镜像。凡是靠 boot-arg 门控的驱动，交付前必须从 build-manifest.json 的 kernel_args_requested 与 payload_args 里核那个参数，否则镜像飞上去就是静默。
+"""
 
 [hardware.cellular.step.device]
 done = false

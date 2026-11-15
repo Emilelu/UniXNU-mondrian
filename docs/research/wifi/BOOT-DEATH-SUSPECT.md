@@ -164,7 +164,7 @@ may cite them as proof that the driver runs.
 | **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) — **only if T0 is silent** | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
 | **T3** | `wifi-20261116c0` — **flown 2026-11-15 21:32: silent (0 B console, `usblog-20261115-213221`)**; 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | **invalid config, not a layout datum** (`6DCCF70A…` seed UUID, P-152) → §3e |
 | **T4** | `wifi-20261116c2` (built 2026-11-15 23:35, not flown) — baseline config + `PONG_WIFI=y`, container in `__DATA_CONST` (§3f) | whether `__TEXT` placement/size is the killer once the config is one that boots | `__TEXT` growth is the killer — the only trait every silent wifi image shares | placement irrelevant → c3: the same image with a 64 KiB container stub |
-| **T5** | `wifi-20261116c3` (built 2026-11-16 01:34, not flown) — the c2 recipe plus `patches/wifi/0012` (§3h) | the UFS lease: the lock was only allocated from `pong_wifi_start_optional()`, which runs after UFS asks for the lease, so the lease could never be held on a wifi kernel | the lease was the blocker; every earlier wifi flight died in `hostBringUp()` before the console worker | the lease return value is not the blocker → c4 drops the `transportFailure` and lets UFS continue without it |
+| **T5** | `wifi-20261116c3` — **flown 2026-11-16 01:51: booted** (console 221,429 B, K60DATA mounted, SpringBoard 132 lines, `usblog-20261116-015128`); the c2 recipe plus `patches/wifi/0012` (§3h) | the UFS lease: the lock was only allocated from `pong_wifi_start_optional()`, which runs after UFS asks for the lease, so the lease could never be held on a wifi kernel | **the lease was the blocker** — held, `hostBringUp()` continued, UFS published all three windows and launchd reached SpringBoard | (not taken) the lease return value is not the blocker → c4 drops the `transportFailure` and lets UFS continue without it |
 
 The scope narrowing is deliberate: `__TEXT,__const` is `0xb38ed6` in z0, mhi5
 **and** the 65.9 MB mhi4 kernel, so "blob lives in `__TEXT`" is not by itself
@@ -207,6 +207,16 @@ measurement of the layout question rather than as a failed UUID fix. What all
 six silent images share is `CONFIG_XNU_PONG_WIFI=y`; every image that boots is
 the baseline shape. c2 (§3f) splits that in one variable: the booting config,
 the container moved into `__DATA_CONST`, the driver still linked.
+
+**Resolved 2026-11-16 01:51.** c3 — the c2 recipe plus one patch that allocates
+the Apps SMMU lock on first use — **booted**: console 221,429 B, K60DATA mounted
+read-write, SpringBoard 132 lines (`usblog-20261116-015128`, §3h result). The
+silence of all six earlier wifi images was one uninitialised lock: UFS asks for
+the lease in `hostBringUp()` before `pong_wifi_start_optional()` ever allocates
+it, so the lease could never be held and UFS stopped with `Apps SMMU lease
+unavailable` before the console worker existed. Nothing about the blob, the
+segment layout, the window arithmetic or the config UUID was the cause. Still
+open: the driver's own stack, since every flight so far passed `pong_wifi=0`.
 
 ## 3a. The T0 control image (built 2026-11-15 03:49)
 
@@ -691,6 +701,45 @@ guard, which the first c3 attempt did not: that attempt exposed a merge
 casualty — the merge at 02014e2 kept only the manifest fields of the wifi block
 and dropped the definition and the guard, so the driver linked but the build
 recorded nothing. Restored in 3207bd3.
+
+### 3h result (flown 2026-11-16 01:51: **booted**)
+
+`usblog-20261116-015128`, boot image `5a19e110…` (the c3 manifest value, read
+back out of `boot.json`), console 221,429 B, `state=captured-budget-complete`,
+`complete=True`, `stopReason=budget` — the capture ran to its own budget
+instead of ending in `fastboot-return`, which is the first time a wifi image
+has done that.
+
+| marker | c3 | every earlier wifi flight |
+| --- | --- | --- |
+| console bytes | 221,429 | 0 |
+| `K60DATA mounted ro=0 fstype=apfs` | 1 | 0 |
+| `K60DATA attempt returned error=0 stage=4` | 1 | 0 |
+| `SpringBoard` lines | 132 | 0 |
+| `backboardd` | 5 | 0 |
+| `Apps SMMU lease unavailable` | 0 | — (never reached) |
+| `PONG_UFS` lines | 11 | 0 |
+
+The UFS transport came up and published all three windows
+(`SHNGROOT OS`, `SystemOS`, `Data`), the Data volume mounted read-write on
+`/dev/disk5s1` (4f8200000 B), the 36 boot directories were created with
+`err=0`, and `launchd` reached `SpringBoard` at `KE 24 26`. The lease string
+never appears: the lock was allocated on first use, the lease was held, and
+`hostBringUp()` continued past the point where every previous wifi kernel
+stopped.
+
+**The hypothesis holds.** The single change between c2 and c3 is the lazy
+allocation in `patches/wifi/0012`, so the thing that killed six wifi images was
+not the blob, not the segment placement, not the window arithmetic, not the
+config UUID — it was that the Apps SMMU lease could never be held, because the
+lock it needs was only allocated from a function that runs after UFS asks for
+it. The c1 measurement is unaffected by this (it was a bad config for a different
+reason, P-152), and the c0/c1 reading "layout is the suspect" is now moot for the
+117 MB family as well: the same 117 MB layout boots once the lease works.
+
+What this does **not** say: `pong_wifi=0` was still passed, so the WiFi driver's
+own bring-up never ran — this flight proves the kernel and UFS/Data path, and
+leaves the driver stack (`pong_wifi=1`) as the next question, not a solved one.
 
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 

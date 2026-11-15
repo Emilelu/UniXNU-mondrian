@@ -244,7 +244,7 @@ CPU phandle 对照：`0x15`=cpu@0 `:479`、`0x16`=cpu@100 `:507`、`0x17`=cpu@20
 | 4 | CPU pause/resume | 唯一"本地物理动作" | 需要 pause/resume 状态机 + PSCI 上核路径验证（`ArmCpu.cpp:489-500`），按 `P-178` 单变量上机 |
 | 5 | DVFS / GPU / DDR 频率 | — | 等于新写三个子系统，不建议在本项目范围内做 |
 
-> **2026-11-15 更新**：46 条 cooling-map 的逐条三类标注（停核 15 / 频率框架 4 / QMI 27，每条带 DTS 行号与「怎么知道」的证据）与 cpufreq-cdev / devfreq-cdev / display-fps 三个没人实现的设备的实现点，见 `COOLING-DEVICES.md`。本表可动集据此收敛为「ddr 停核 > cpufreq(EPSS)」两档。
+> **2026-11-15 终局排序（Lead 已采纳，写死）**：可动集 = ddr 停核（0x19/0x1c）> cpufreq-cdev（EPSS 先只读）；kgsl / ddr-cdev / QMI / display-fps 不动。46 条 cooling-map 的逐条三类标注（停核 15 / 频率框架 4 / QMI 27，每条带 DTS 行号与「怎么知道」证据）与三个没人实现的设备的实现点，见 `COOLING-DEVICES.md`。
 
 ## 5. 复现命令
 

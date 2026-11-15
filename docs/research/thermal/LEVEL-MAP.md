@@ -188,9 +188,9 @@ python3 scripts/check-thermal-log.py --self-test           # 自测：干净的�
 | EPSS 性能状态寄存器 | **唯一诚实的活动读数**：`mondrian.dts:854-858` 有 `qcom,cpufreq-hw-epss`，`freq-domain0/1/2` = `0x17d91000` / `0x17d92000` / `0x17d93000`（各 0x1000），另有 `0x17d09804` / `0x17d09808` / `0x17d0980c` 三个 pdmem 寄存器；`mondrian.dts:869-872` 是配套的 debug 节点 |
 
 EPSS 读法按 mainline `qcom-cpufreq-hw.c` 的语义：读每个 domain 的 perf-state 寄存器得到 LUT 下标，下标变小 = 频率下降。
-**常数待核**：本机没有这份上游源码，`EPSS_REG_PERF_STATE = 0x320`、`EPSS_REG_FREQ_LUT = 0x100` 是按记忆写的，
-实现前要对着上游源码核一遍寄存器偏移。DTS 里没有 CPU 的 OPP 表（`mondrian.dts:8965` 的 `operating-points-v2` 是 sdhc2 的），
-所以**只能判下标方向，判不了绝对 MHz**；要 MHz 得先把 LUT（0x100）读出来，那是下一步的事。
+**常数已核（2026-11-15，不再是凭记忆）**：mainline v6.6 `drivers/cpufreq/qcom-cpufreq-hw.c` 的 `epss_soc_data`（L408-415）= `reg_enable 0x0`、`reg_freq_lut 0x100`（L412，4 字节一行）、`reg_volt_lut 0x200`、`reg_perf_state 0x320`（L415）；读法 = `readl_relaxed(base + soc_data->reg_perf_state)`（L159）取 LUT 下标、`readl_relaxed(base + soc_data->reg_freq_lut + …)`（L238）取频率行。epss 表按 compatible `qcom,cpufreq-epss` 匹配、不分 SoC（L421），SM8475 与 SM8550 同代 EPSS。
+本机还有一份已实现的参考：`D:/Android/k60-ios/UniXNU-sheng/package/CpuFreqProbe.cpp`（commit 0215f34a，BSD-2-Clause-Patent，SM8550 EPSS 探针）用同一套偏移（reg_enable 0x0、reg_domain_state 0x20、reg_dcvs_ctrl 0xb0、reg_freq_lut 0x100、reg_perf_state 0x320，多核 perf-state 行 +4×i），并给了 LUT 行解码：bit31:30 源、bit18:16 核数（1=turbo）、bit7:0 L 值（19.2 MHz bi_tcxo_div2 的倍数）。
+DTS 里没有 CPU 的 OPP 表（`mondrian.dts:8965` 的 `operating-points-v2` 是 sdhc2 的），所以**只能判下标方向，判不了绝对 MHz**；要 MHz 得把 LUT（0x100）行读出来按 bit7:0 × 19.2 MHz 解，那是下一步的事。
 
 落地形态：在 `drivers/PongThermal/pong_thermal.c` 用已有的 `ml_io_map` 路径多映射三个 0x1000 窗口（只读），
 每次采样打印一行 `PongThermal: freq d0=%u d1=%u d2=%u`（下标），判据 = 压档前后同一 domain 的下标下降。

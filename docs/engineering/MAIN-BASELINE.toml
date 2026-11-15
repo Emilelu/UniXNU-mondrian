@@ -159,3 +159,16 @@ sha = "4f56970"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "合并 feat/judge-tools（rebase 到 9fec9a5 后 no-ff，17 提交）。内容：scripts/judge-z0.sh、scripts/judge-wifi-boot.py、scripts/tests/test-judge-wifi-boot.py（11 例）、scripts/tests/test-check-arg.py（14 例）、docs/wifi 判决账本修正（P-201 口径）与 docs/research 两篇 file:line 追溯。登记原因：新增 scripts/ 文件，铁则 9。欠账：无，不改变内核与镜像内容，仅新增判定工具与文档。"
+
+
+[[entry]]
+sha = "996aac6"
+kernel_sha256 = "402f8cb1be7a1d5b10b4317667008bbe29c3893572cf05d0b0684e1cc1e9e5e3"
+state = "booted"
+note = "合并 feat/adsp-carrier（27 提交 no-ff）。内容：ADSP 固件载体（12B 头 + 24B 顺序记录 + NUL 名的 26 记录容器，raw 23,505,092 B / container 23,506,184 B，sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319）经 0620 补丁 + osfmk/arm64/k60_adsp_blob.s 内嵌内核；build-strict.sh --adsp-blob 生成/校验/输入 pin/manifest 键；K60AdspImageReader（宿主 5 变体）、K60AdspOwner 五阶段 77 场景、K60HandoffPublish/Runtime、0619 fail-closed publisher（IOKitBSDInit + kern_exec startup claim）、Option E 把 K60AdspBoot.c 并入 0613 pong_adsp_boot.c、bootstrap 链接 force_load 电池归档、pong_handoff_publish 参数白名单。上机证据：adsp-20261115c（kernel 402f8cb1… 128,991,232 B、boot.img 76db5e8e…）真机 E:\\k60-work\\evidence\\usblog-20261115-213413 —— 214,232 B / SpringBoard 128 行 / panic 0 / getBytes 0，干净进桌面；发布器按设计休眠（该图 args 无 pong_handoff_publish=1）。功能验证由 adsp-20261115d（30 args/598 B 含 pong_handoff_publish=1，boot.img e67cc21d…）承担，待上机。"
+
+[[entry]]
+sha = "f760086"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "补 0620 的必然缺陷：files.arm64 无条件登记 osfmk/arm64/k60_adsp_blob.s，但无 --adsp-blob 的构建从不生成该文件 → 内核 make 会因缺源失败（合并后每个不带载体的线都会踩）。修法：无载体时写一字节桩 + len=0，K60AdspImageReader 把 len==0 映射为 K60AdspReaderMissing 并回落 legacy reader。登记原因：改 build-xnu-4k-baseline.sh，会改变无载体内核的字节，铁则 9。欠账：桩路径的首次上机（baseline-20261115a 构建中，出图后按队列飞）。"

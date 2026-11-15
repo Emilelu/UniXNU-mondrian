@@ -174,6 +174,19 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 
 ## 五、2026-11-15 变更摘要
 
+### ADSP 固件载体合入 main（PAS1 解锁的第一步）
+
+- `feat/adsp-carrier`（27 提交）no-ff 合入（`996aac6`）：26 记录 / 23,506,184 B 的
+  ADSP 镜像容器经 `0620-k60-adsp-blob.patch` + `osfmk/arm64/k60_adsp_blob.s` 内嵌进
+  内核（P-197 的载体 workaround），`build-strict.sh --adsp-blob` 负责生成、校验、
+  输入 pin 与 manifest 键。
+- 上机验证 `adsp-20261115c`（kernel `402f8cb1…` 128,991,232 B）：真机
+  `usblog-20261115-213413` 干净进桌面（SpringBoard 128 行、panic 0）；发布器按设计
+  休眠（该图没有 `pong_handoff_publish=1`）。功能图 `adsp-20261115d` 已出
+  （30 args / 598 B），等上机窗口。
+- 补 `f760086`：无 `--adsp-blob` 的构建写一字节桩 + `len=0`，否则 0620 无条件登记
+  的 `.s` 会让内核 make 缺源失败。
+
 ### refmine 判决工具合入 main
 
 - `feat/judge-tools` 原基于 `9176f5c`（旧 main），直接合并会删掉 charger 六篇、

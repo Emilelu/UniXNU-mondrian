@@ -133,6 +133,9 @@ note = "取 yibiya 的 fcc998f0 面板节拍打点：PongDsiPanel.cpp/.h 与 Pon
 
 [[entry]]
 sha = "3ea8d71"
-kernel_sha256 = "unknown-unchanged-image"
-state = "build-only"
+kernel_sha256 = "a07e9565f039f2cbc1a48dc01a07d838a4ac57bea78ee5ad9f57fbe7afcd83e3"
+image = "E:/k60-work/artifacts/seed-20261115a/boot.img"
+image_sha256 = "1fc1169eb48e546c520e6ccdcaddf67c53d23bff6a94731a5c57504d1e5c5467"
+console = "E:/k60-work/evidence/usblog-20261115-155741/console.log (247731 bytes, SpringBoard 183, no panic, no 'no platform identity')"
+state = "booted"
 note = "平台身份种子：board.toml 的 [payload.\"adt\"] 加 \"unique_chip_id\" = \"required\"，build-strict.sh 默认 UNIXNU_UNIQUE_CHIP_ID=4B36305400000001 并转发 --unique-chip-id 给 build payload。原因：devicetree.py:312-317 只在拿到种子时才发 /chosen/unique-chip-id + /chosen/chip-id，而实测 usblog-20261115-140927 的 bt 正向镜像打了 \"K60 BT: no platform identity (-2); bluetooth not published\"，bluetoothd 因无 MAC 不起。登记原因是该提交碰了 board.toml 与 scripts/build-strict.sh，铁则 9。欠账：带种子的镜像尚未上机，判据是 K60 BT 不再出现 -2 且出现 published local address。种子变更会改 BT MAC，只能在这里动一次。"

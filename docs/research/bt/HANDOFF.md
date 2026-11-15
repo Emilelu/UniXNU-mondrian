@@ -20,7 +20,7 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `patches/bt/0001-k60-bt-readonly-probe.patch` = `patches/xnu/0507-k60-bt-readonly-probe.patch` | 2 hunks on `bsd/dev/qbt_k60.c`: `k60_bt_probe(step)` + delayed `k60bt_stage=1` early return. sha256 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1` (13,001 B / 280 lines) | **build-wired** (`patches/xnu/series:205`) |
 | `docs/research/bt/FIRMWARE.md` | **measured** BT firmware: `/vendor/bt_firmware/image/`, 113 files / 1,063,407 B, `hpbtfw20.tlv` 201,560 B + `hpbtfw21.tlv` 146,068 B + `hpnv20*`/`hpnv21*`, per-file SHA-256, `btqca.c` name selection, staging plan | done (M) |
 | `docs/research/bt/S3-SPEC.md` | S3 spec: why bluetoothd cannot see the controller today (device-tree match, MAC, IOService), the sheng `BluetoothProbe.cpp:222-264` port, the `/arm-io` child publish idiom, the seed gap in `board.toml`, and the verdict table keyed on the `K60 BT:` line | done, statically verified |
-| `patches/bt/0003-k60-bt-s3-identity-publish.patch` = `patches/xnu/0509-k60-bt-s3-identity-publish.patch` | 5 files (198 ins / 11 del): strong `k60_bt_local_address()` (SecureDT `/chosen/unique-chip-id` + FNV-1a), new `iokit/Kernel/MiniBluetooth.cpp` (164 lines) publishing the `/arm-io/bluetooth` node, both MAC properties and a `bluetooth` IOService, plus `MiniDrivers.h`/`MiniIOSurface.cpp`/`iokit/conf/files` wiring. sha256 `429630d61fcd06554cc8094ca3381ec49d0485f8c8b025d60f7a5fe8c1208edf` (10,265 B / 304 lines) | **build-wired** (`patches/xnu/series:207`) |
+| `patches/bt/0003-k60-bt-s3-identity-publish.patch` = `patches/xnu/0509-k60-bt-s3-identity-publish.patch` | 5 files (234 ins / 11 del): strong `k60_bt_local_address()` (SecureDT `/chosen/unique-chip-id` + FNV-1a), new `iokit/Kernel/MiniBluetooth.cpp` (179 lines) publishing the `/arm-io/bluetooth` node, both MAC properties and a `bluetooth` IOService, plus `MiniDrivers.h`/`MiniIOSurface.cpp`/`iokit/conf/files` wiring. sha256 `6d92dfe3bae1d96e1974a40a46e61ac9bedfb7b3a56276d0e2f085c3f678a584` (10,836 B / 319 lines) — 2026-11-15 OSData fix: 三属性与 radio `device_type` 改 OSData 发布（backboardd `getBytes:range:` 根因），宿主侧断言 `scripts/tests/test-k60-bt-0509-properties.py` | **build-wired** (`patches/xnu/series:207`) |
 | `docs/research/bt/S2-SPEC.md` | S2 spec: how `0508` fixes F1 (SMMU stream 0x483 bypass + contiguous DMA), F11 (SE20 RCG root enable), F3 (0xc40/0xd40 RESET_DONE instead of the undefined 0xe40) and F12 (CBCR halt after the rate write); expected console lines and verdict table | done, statically verified |
 | `patches/bt/0002-k60-bt-s2-smmu-rcg-reset.patch` = `patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch` | 6 hunks on `bsd/dev/qbt_k60.c`: `k60_smmu_plan_bank`/`k60_smmu_plan`/`k60_smmu_configure`/`k60_smmu_bypass` + `kmem_alloc_contig`/`pmap_find_phys` DMA path, RCG root enable, reset-done polling. sha256 `c4bf1ded55fe9bd03b7c10943ed41fff47464037c06c893b6dfd0984f02fd4f2` (18,393 B / 391 lines) | **build-wired** (`patches/xnu/series:206`) |
 | `docs/research/bt/S4-SPEC.md` | S4 spec: why the firmware must ride the boot image (Data seed absent, no zlib, no `.incbin`, NGPUADD2 has no kernel consumer), the DarwinBoot `GpuAddon` channel with line-level evidence, the container format, the kernel reader, the **Lead-scope build fragments** (`scripts/make-bt-firmware-addon.py` in full, `build-strict.sh` diff, `.gitignore`), the offline verification and the S4a–S4c device ladder | done, offline-verified |
@@ -446,5 +446,21 @@ This line, next in order:
     ⇒ 凶手是 h1+h2+h3 组合（无延迟的早启动固件路径），下一步组合二分先试 h1+h3。
     收尾构建 `bt-restamp-20261115`（全量 0511，series `67baff88…bca`、frozen `0254f9d5…585e`
     ——与 c 对逐字节一致）只为重建 P-165 戳记让注册表回绿，**不是飞行镜像**。5 个提交均未 push
-    （schannel 断网，Lead 裁定攒批一次性推）。
+    （5 个提交已由 Lead 在 Windows 侧推上，`5190337..8ec4883`）。
+
+12. **h13 组合图与 0509 OSData 修复（2026-11-15 晚，Lead reply 二/三）**
+    - 飞行顺序定稿 h1 → h3 → h13（h2/h4 单独不烧窗口）；h1 silent 就停飞，改
+      `k60_bt_addon_load_blob()` 挪到 bring_up 之后 + level-1 具名日志，重建再飞。
+    - `bt-bisect-h13`（0511e = h1+h3 两 hunk 合并，commit `670e138`，boot.img
+      `0f3a455d…27db`，kernel `141bd513…b3bf`，payload_kernel `4233a2b7…2e4`，
+      frozen `94792777…3e91`，series 229 / `ec4eee05…c109a`，blob `febdc20d…`，
+      30 参数 / 583 B）。预测：h2 不在 ⇒ warm 拒绝仍在 ⇒ 早启动只到
+      addon+transport+闸门+一次冷启拒绝；h13 silent ⇒ 早启动无延迟路径本身是凶手；
+      h13 到桌面 ⇒ 真凶是 h2 去掉后的上电续路。
+    - 0509 OSData 修复已落（commit `ad49ff2`，选法 ①）：三属性与 radio `device_type`
+      改经 `k60_bt_string_property`（`OSData::withBytes`，NUL 在内）发布，补丁
+      10,836 B / 319 行 / sha256 `6d92dfe3…a584`（234 增 / 11 删），双子 0003 逐字节
+      相同；宿主侧断言 `scripts/tests/test-k60-bt-0509-properties.py` 25 cases 全过。
+      法 ②（砍 registerService）被否：会让 bluetoothd 退回 "No bluetooth on this
+      device"。不构建；下一张全量 0511 恢复镜像必须带此修复（届时 P-165 重建戳记）。
 

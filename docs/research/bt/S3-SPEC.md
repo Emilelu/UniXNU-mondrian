@@ -61,7 +61,7 @@ sheng 的 ADT 节点（`dts/sheng.dts:17-25`）是 `transport-encoding = <1>`（
    - 把弱空壳换成**强定义**：读 `/chosen/unique-chip-id` → FNV-1a → 6 字节本地管理地址。
      失败路径全部 `-ENOENT`（**fail closed**：没有平台种子就宁可不发布，也不发全零 MAC）。
    - worker 调用点去掉 `k60_bt_local_address ? … : -ENOENT` 的存在性判断（定义现在恒在）。
-2. `iokit/Kernel/MiniBluetooth.cpp`（**新文件，164 行**）
+2. `iokit/Kernel/MiniBluetooth.cpp`（**新文件，179 行**；2026-11-15 起 `device_type`/`compatible`/`unixnu,adt-name` 与 radio `device_type` 改经 `k60_bt_string_property` 以 OSData 发布，见 §6）
    - `K60BluetoothRadio : IOService`，`start()` → `registerService()`。
    - `k60_bt_node()`：先找 `/arm-io/bluetooth`；没有就 `OSTypeAlloc(IORegistryEntry)` 建一个，
      打上 `device_type="bluetooth"`、`compatible="qcom,wcn7850-bt"`、`unixnu,adt-name="bluetooth"`、
@@ -204,11 +204,12 @@ K60 BT: no platform identity (-2); bluetooth not published
 
 | 项 | 结果 |
 |---|---|
-| 补丁大小 | 10,265 B / 304 行，sha256 `429630d61fcd06554cc8094ca3381ec49d0485f8c8b025d60f7a5fe8c1208edf`，198 增 / 11 删 |
-| 应用检查 | 在「series 全部打完之后」的干净树里 `git apply --check` → OK，apply 成功，`MiniBluetooth.cpp` 164 行 |
+| 补丁大小 | 10,836 B / 319 行，sha256 `6d92dfe3bae1d96e1974a40a46e61ac9bedfb7b3a56276d0e2f085c3f678a584`，234 增 / 11 删 |
+| 应用检查 | 在「series 全部打完之后」的干净树里 `git apply --check` → OK，apply 成功，`MiniBluetooth.cpp` 179 行 |
 | `clang -fsyntax-only` `bsd/dev/qbt_k60.c` | rc=0，0 error，2 warning（均为 0500/0507 既有：`qbt_k60.c:342` `void **` 丢弃限定符、`:1362` `K60_QUP_HW_VER_REG` 重定义） |
 | `clang -fsyntax-only` `iokit/Kernel/MiniBluetooth.cpp` | rc=0，0 error，17 warning（全部来自 XNU 头：`cs_blobs.h:199` c99 指定初始化、`IOLib.h:980` 嵌套/乱序指定初始化） |
 | 接线 | `patches/xnu/series:207`（`0508` 之后、`0503` 之前），`patches/bt/series` 第三行 |
+| OSData 断言（2026-11-15） | `scripts/tests/test-k60-bt-0509-properties.py` 25 cases 全过：三属性与 radio `device_type` 只经 `k60_bt_string_property`（`OSData::withBytes`，长度含 NUL）发布，宿主侧无需构建 |
 
 编译命令（可复现）：`E:/k60-work/scratch/bt-s3/verify3.sh`，它用
 `/opt/k60/trees/lead-out/.../ios-obj/DEVELOPMENT_ARM64_PONG/{bsd,iokit}/DEVELOPMENT/.CFLAGS`

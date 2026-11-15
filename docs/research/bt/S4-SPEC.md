@@ -711,7 +711,17 @@ frozen/series 每张不同是预期：series 指向单 hunk 变体（变体文�
 
 **收尾**：`bt-restamp-20261115`（全量 0511，series `67baff88…bca`、frozen `0254f9d5…585e`，
 与 c 对逐字节一致）只为重建 P-165 戳记让注册表回绿，**不是飞行镜像**。五个提交均未 push
-（schannel 断网；Lead 裁定攒批一次性推）。
+（五个提交已由 Lead 在 Windows 侧推上，`5190337..8ec4883`）。
+
+**h13 组合图与 0509 OSData 修复（2026-11-15 晚）**：飞行顺序 h1 → h3 → h13；h1
+silent 即停飞并执行 load_blob 后移预案。`bt-bisect-h13`（0511e = h1+h3 合并，commit
+`670e138`）：boot.img `0f3a455d…27db`、kernel `141bd513…b3bf`、payload_kernel
+`4233a2b7…2e4`、frozen `94792777…3e91`、series 229 / `ec4eee05…c109a`；h2 不在 ⇒
+warm 拒绝仍在 ⇒ 早启动只做 addon+transport+闸门+一次冷启拒绝——h13 silent 钉死
+早启动无延迟路径，h13 到桌面则真凶是 h2 的上电续路。0509 已按法 ① 修 OSData
+（commit `ad49ff2`，三属性 + radio `device_type` 经 `k60_bt_string_property`，
+NUL 在内；宿主侧断言 `scripts/tests/test-k60-bt-0509-properties.py` 25 cases 全过），
+下一张全量 0511 恢复镜像必须带上。
 
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 

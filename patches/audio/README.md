@@ -6,7 +6,8 @@ One patch, one purpose: put the AP-side amplifier probe from
 | File | What it does |
 | --- | --- |
 | `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAmp.c` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 78,394 bytes, 2,070 lines, 10 hunks, sha256 `d85264ca07cd0f91e5df74e523f14dd53c17b088398237061e9ae750dbd013d0`. `PongCodecPlan.h` is deliberately absent: no kernel `.c` includes it yet, so it would be dead weight in the tree. |
-| `series` | The intended order inside this directory. |
+| `series` | The intended order inside this directory. It lists only `0001`: `0002` is a prototype and is deliberately **not** in the order. |
+| `0002-k60-glink-multislot.patch` | **Prototype, not applied by any build.** Raises `QCOM_GLINK_MAX_CHANNELS` from 1 to 2 in `drivers/PongPower/QcomGlink.h` so a second consumer (the audio GPR channel `adsp_apps`, intent 512 x 20) can share the one instance the battery stack already adopted. 1,078 bytes, 1 hunk, sha256 `7b4bd1d0cf8e601e35f1d26119b9c51564c57914fa98f70757765eb22e74aad2`. It exists so `drivers/PongAudio/tests/run-glink-multislot-tests.sh` can apply it to a throwaway copy and run 242 host assertions; `drivers/PongPower/` itself is untouched (that file belongs to the battery line). Rationale and the per-slot state-machine audit: `docs/research/audio/GLINK-MULTISLOT.md`. Wiring it into a build is a Lead action. |
 
 `drivers/PongAudio/tests/` is deliberately **not** in the patch. It is a host-side
 check (`cc` against the state machine, no kernel headers), so it belongs to the

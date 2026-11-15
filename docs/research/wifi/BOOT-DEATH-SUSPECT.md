@@ -162,7 +162,7 @@ may cite them as proof that the driver runs.
 | **T0** | `wifi-20261115z0` (ready: `pong_wifi=0`, kernel 117,305,344 B, blob present, 4.5 GiB) | the driver vs the blob: same kernel as mhi5, wifi arg off | driver code is implicated → fly T1 to test the full stack | driver exonerated → the blob or its residency is the killer → go straight to T2 |
 | **T1** | `wifi-20261116mhi5` (ready, 117,305,344 B, `pong_wifi=1`) — only after T0 boots | S1+S2 on the full wifi stack, and retires the stale confound | the MHI handshake logs become the next evidence | blob/loader interaction confirmed without the driver |
 | **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) — **only if T0 is silent** | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
-| **T3** | `wifi-20261116c0` (built: 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery; queued after the bt bisection pair) | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | death independent of the driver → pool/window channel the sole suspect → `DARWINBOOT-POOL.md` §5 |
+| **T3** | `wifi-20261116c0` — **flown 2026-11-15 21:32: silent (0 B console, `usblog-20261115-213221`)**; 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | death independent of the driver → **content layout, not size**: `__const`/PWF2 section → §3d |
 
 The scope narrowing is deliberate: `__TEXT,__const` is `0xb38ed6` in z0, mhi5
 **and** the 65.9 MB mhi4 kernel, so "blob lives in `__TEXT`" is not by itself
@@ -184,8 +184,11 @@ non-monotonic datum: bt-s4b-20261115b (106,541,056 B) reached the desktop
 series 229) reached the desktop again (`usblog-20261115-162553`, console
 245,222 B) — the size/window model explains none of the three.
 
-The formal C cell (`wifi-20261116c0`, 66 MB, `pong_wifi=0`) is built and
-queued after the bt bisection pair; see §3c.
+The formal C cell (`wifi-20261116c0`, 66 MB, `pong_wifi=0`) was built and flown
+on 2026-11-15 21:32 — silent (`usblog-20261115-213221`, 0-byte console). With the
+driver off and a kernel 40 MB smaller than the bt pair that boots, size no longer
+explains the death: what is left is the kernel's content layout, and the only
+segment that exceeds its non-wifi counterpart is `__TEXT` (§3d).
 
 ## 3a. The T0 control image (built 2026-11-15 03:49)
 
@@ -231,7 +234,7 @@ mhi3/mhi4 result: the 65.9 MB stale kernel already carried the 11.2 MiB
 `__TEXT,__const` blob, so "blob in __TEXT" alone was never the difference
 between the silent pair and the images that boot.
 
-### 3c. The formal C cell: `wifi-20261116c0` (built 2026-11-15, queued)
+### 3c. The formal C cell: `wifi-20261116c0` (built and flown 2026-11-15: silent)
 
 The Lead's C cell as a strict-build artifact: `configs/mondrian_wifi_defconfig`
 (board dir `mondrian_wifi`, P-187) — the 66 MB wifi-only kernel, firmware blob
@@ -267,6 +270,88 @@ Building it exposed two fixed infra gaps, both recorded on main:
   container (8 bytes, `K60METAL bad count 0` at runtime) instead of
   breaking the link.
 
+### 3c result (flown 2026-11-15 21:32)
+
+| field | value |
+|---|---|
+| evidence | `E:/k60-work/evidence/usblog-20261115-213221` |
+| `boot.img` | `25c9821510ca50032617b61e63b058580722e375ee5b533badf3d74c07a9d074` (matches the built artifact) |
+| console | **0 bytes**; `port-not-observed`, `returnedToFastboot`, `fastboot-return` |
+| judge | `silent` / exit 2 (`scripts/judge-z0.sh … --expect-arg pong_wifi=0`) |
+| args | `["pong_wifi=0"]`; payload args last item `pong_wifi=0` |
+
+T3 is silent, so the "if it dies" cell of the table is the one that happened: the
+death is independent of the driver (`pong_wifi=0` returns before the worker
+starts), of the boot argument, and — measured against same-day controls — of
+size: 66,002,944 B is the smallest wifi kernel of the line and it dies, while
+106,541,056 B (bt-s4b-20261115b) and 128,991,232 B (ADSP carrier) kernels from
+the same board boot. "Blob residency" was already negated by T2 (§4). What is
+left is the kernel's content layout; §3d measures which segments differ.
+
+## 3d. The 66 MB wifi kernel against the 106/129 MB kernels that boot
+
+Method: `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho`, then
+walk `LC_SEGMENT_64` / `section_64` (`E:/k60-work/scratch/table4.py`). All four
+images carry the same 4.5 GiB ADT window (`0x120000000`), so the window is not a
+variable here. Sizes are vmsize unless two numbers are given (`vmsize /
+filesize`).
+
+| segment | c0 (66.0 MB, silent) | bt-s4b-b (106.5 MB, boots) | bt-s4c-c (105.5 MB, boots) | adsp-c (129.0 MB, boots) |
+|---|---|---|---|---|
+| `__TEXT` | **12,992,512** | 1,720,320 | 1,720,320 | 1,720,320 |
+| `__DATA_CONST` | 933,888 | 1,949,696 | 917,504 | 917,504 |
+| `__TEXT_EXEC` | 8,781,824 | 8,388,608 | 8,388,608 | 8,388,608 |
+| `__KLD` | 16,384 | 16,384 | 16,384 | 16,384 |
+| `__LASTDATA_CONST` | 16,384 | 16,384 | 16,384 | 16,384 |
+| `__KLDDATA` | 16,384 | 16,384 | 16,384 | 16,384 |
+| `__DATA` | 1,867,776 / 294,912 | 52,920,320 / 51,576,832 | 52,920,320 / 51,576,832 | 76,414,976 / 75,071,488 |
+| `__BOOTDATA` | 294,912 | 294,912 | 294,912 | 294,912 |
+| `__PRELINK_TEXT` | 7,421,952 | 7,421,952 | 7,421,952 | 7,421,952 |
+| `__PRELINK_INFO` | 454,656 | 454,656 | 454,656 | 454,656 |
+| `__PLK_TEXT_EXEC` | 22,757,376 | 22,757,376 | 22,757,376 | 22,757,376 |
+| `__PRELINK_DATA` | 1,409,024 | 1,409,024 | 1,409,024 | 1,409,024 |
+| `__PLK_DATA_CONST` | 3,670,016 | 3,670,016 | 3,670,016 | 3,670,016 |
+| `__LINKINFO` | 278,528 | 278,528 | 278,528 | 278,528 |
+| `__LINKEDIT` | 6,668,288 / 6,663,376 | 6,569,984 / 6,568,720 | 6,569,984 / 6,569,232 | 6,569,984 / 6,554,672 |
+
+Sections that carry the difference:
+
+| section | c0 | bt-s4b-b | bt-s4c-c | adsp-c |
+|---|---|---|---|---|
+| `__TEXT,__const` | **11,767,510 @0x2000** | 548,936 @0x1d60 | 548,936 @0x19e0 | 548,952 @0x2b00 |
+| `__TEXT,__cstring` | 1,078,732 @0xb3aed6 | 1,029,200 @0x87da8 | 1,030,093 @0x87a28 | 1,025,710 @0x88b58 |
+| `__TEXT,__os_log` | 133,439 @0xc424a2 | 133,439 @0x1831f8 | 133,439 @0x1831f5 | 133,439 @0x183206 |
+| `__DATA_CONST,__const` | 723,408 | 1,733,576 | 705,480 | 703,984 |
+| `__DATA,__data` | 168,432 | 51,449,096 | 51,449,096 | 74,943,752 |
+
+Answers to the three questions:
+
+1. **Which segment exceeds its non-wifi counterpart?** Only `__TEXT`, by
+   11,272,192 B (of which `__const` alone is +11,218,574), plus `__TEXT_EXEC`
+   +393,216, `__LINKEDIT` +98,304 and `__DATA_CONST` +16,384 against
+   bt-s4c-c/adsp-c (against bt-s4b it is 1,015,808 smaller). Every other segment
+   is byte-identical. `__TEXT` is 7.55× the 1,720,320 the three booting kernels
+   use. The `__TEXT_EXEC` excess is not attributed to a kext by this table.
+2. **Where is the 11.76 MB `__const`?** Inside `__TEXT,__const`, which starts at
+   file offset 0x2000 and ends at 0xb3aed6. The PWF2 container sits at 0x8f000,
+   and `_pong_wifi_firmware` → `_pong_wifi_firmware_end` spans 0xaabed6
+   (11,189,974 B), so 73,536 B of `__const` is assembler/Mach-O padding, not
+   firmware.
+3. **PWF2 section count and total?** c0: one real container, 6 header entries,
+   11,189,974 B of firmware payload. A raw byte search shows two hits; the
+   second (0xc418b7) is a `__cstring` string coincidence, the same artifact as
+   z0's 12,852,307 — the symbol span is the reliable measure. bt-s4b-b,
+   bt-s4c-c and adsp-c: zero hits.
+
+**Caveat that changes how the table reads.** The 106/129 MB kernels are not
+"the same kernel with a bigger blob": their 51.4 MB `__DATA,__data` is the
+Metal/GPU addon (`PongMetalBridge` ×4, `libvulkan` ×6), and c0 has no GPU addon
+at all (`mondrian_wifi_defconfig`: empty K60M stub, `PongMetalBridge` ×0). So
+the 66-vs-106 comparison carries two variables — the wifi blob is in, the GPU
+addon is out — and a "66 MB minus PWF2" image would also be a "no GPU addon"
+image. Sharper controls, if the Lead wants comparable shapes: a kernel with the
+GPU addon **and** no PWF2 container, or a 66 MB kernel whose `__const` holds a
+same-size inert section. Both need a build decision.
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 
 Written on 2026-11-15 at the Lead's request so the fix is ready the moment

@@ -235,13 +235,26 @@ fresh-board fakeroot 缺陷（新 board 目录永远拿不到 `Availability.h` �
 **P-206**（main `c97a4cf`，snap-r197）。c0 上机时同趟执行 A（录屏）：
 alive/silent 二分直接分开「驱动扳机」与「pool/窗口通道」两条嫌疑。
 
+**c0 飞行结果（2026-11-15 21:32）：silent。** 证据
+`usblog-20261115-213221`（console.log 0 字节、`port-not-observed`、
+`fastboot-return`、判 `silent` / exit 2），`boot.img`
+`25c9821510…`、args 末项 `pong_wifi=0`。这一趟没有留下 NO WINDOW 与
+hand-off 两个互斥读数（回复里没有录屏判读），所以 pool 通道**没有被这次
+飞行排掉**；但它的算术变弱了：4.5 GiB 窗口、内核 66,002,944 B（62.94 MiB）、
+固定开销 177 MiB ⇒ 余量约 272 MiB，而同机同日 106.5 MB（bt-s4b-20261115b）
+与 129.0 MB（ADSP 载体）内核在**同一窗口**上都能进桌面。占用更少反而死，
+说明单靠 pool 占用解释不了 c0 的 silent；剩下的对照面是内核内容布局
+（`BOOT-DEATH-SUSPECT.md` §3d：`__TEXT` 12,992,512 / `__const` 11,767,510
+是唯一超出非 wifi 内核的段）。下一张图若仍走 pool 判据，必须带 A 通道录屏。
+
 ## 6. 证据清单
 
 - 飞行：`usblog-20261115-140927`（bt-s4b-20261115b，alive）、
   `usblog-20261115-163144`（bt-s4b-20261115c，silent）、
   `usblog-20261115-162553`（bt-s4c-20261115c，alive）、
   `usblog-20261115-135859`（z0，silent）、
-  `usblog-20261115-161102`（t2，silent）。
+  `usblog-20261115-161102`（t2，silent）、
+  `usblog-20261115-213221`（wifi-20261116c0，silent，66,002,944 B 内核）。
 - 源码：DarwinBoot.c :85-127 / :452-513 / :697-699 / :750-752 / :767-783 /
   :794-795 / :816-820 / :839 / :844-894 / :898-913；MemoryMapLib.c 的
   DXE Heap / XNU High Arena / Kernel / Log Buffer / ramoops / ABL Staging；

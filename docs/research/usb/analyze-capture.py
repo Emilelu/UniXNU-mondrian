@@ -4,7 +4,7 @@
 Usage: analyze-capture.py <evidence-dir>
 
 Reads console.log + capture.json + boot.json and prints a PASS/FAIL/SKIP table for the
-six on-device criteria of RESEARCH.md section 18.3. Read-only; never modifies evidence.
+on-device criteria of RESEARCH.md section 18.3 (criteria 1-6, 5b, 5c). Read-only; never modifies evidence.
 
 Three details that each cost a debugging round and are therefore encoded here:
   * the capture tools are PowerShell and write JSON with a UTF-8 BOM, so every JSON
@@ -16,7 +16,10 @@ Three details that each cost a debugging round and are therefore encoded here:
     descriptors, so criteria 3 and 4 report SKIP instead of FAIL;
   * patch 0410 renamed the configuration line from "composite cfg" to "cfg" and
     appended "echo <on> on <out>/<in>", so criterion 4 must accept both spellings
-    or every 0410 image reads as a missing descriptor line.
+    or every 0410 image reads as a missing descriptor line;
+  * patch 0411 sends "K60BEACON: ..." lines on EP3 without the ramoops ring
+    and without passing the console gate, so criterion 5c reports them as the
+    witness that the gate opened; an image without beacons says SKIP.
 """
 import datetime
 import json
@@ -157,6 +160,24 @@ def main(argv):
     else:
         row("5b vendor echo", "SKIP",
             "image did not arm the vendor pair (no k60_usbvend boot argument)")
+
+    # 5c mode-1 beacons (0411): an out-of-band witness on EP3 that reads no
+    # ramoops ring and passes no console gate, so it answers whether the
+    # gate ever opened even when the console itself stays silent.
+    beacons = re.findall(r"K60BEACON: (\S.*)$", text, re.M)
+    if beacons:
+        have_cfg = any(b.startswith("cfg mode1") for b in beacons)
+        have_dtr = any(b.startswith("dtr ") for b in beacons)
+        have_gate = any(b.startswith("gate open") for b in beacons)
+        row("5c mode1 beacons", verdict(have_cfg and have_dtr and have_gate),
+            "%d line(s): cfg=%s dtr=%s gate=%s -> %s"
+            % (len(beacons), have_cfg, have_dtr, have_gate, " | ".join(beacons[-4:])))
+    elif silent:
+        row("5c mode1 beacons", "SKIP",
+            "0 bytes recorded: no 0411 beacon reached the host (mode 2 gates them by design)")
+    else:
+        row("5c mode1 beacons", "SKIP",
+            "no K60BEACON lines: image carries no 0411, or the host never read EP3")
 
     # 6 capture complete
     state = cap.get("state")

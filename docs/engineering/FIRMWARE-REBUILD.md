@@ -114,9 +114,23 @@ EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的 `Un
 
 ## 6. 为什么这件事现在很要紧
 
-- **modem 载具**（cellular 线）：modem 镜像 27 个文件、拷贝量 109,060,761 B，装不进 192 MiB 的
-  payload（内核已经 105 MB）。唯一可行的载具是固件侧把镜像放到固定物理地址并发布
+- **modem 载具**（cellular 线）：modem 镜像 27 个文件、拷贝量 109,060,761 B，装不进 payload。
+  下面的容量表是实测的（`[payload] size_mib`、`build-manifest.json` 的 `kernel_bytes`、
+  `gen-modem-table.py` 的 `bytes-copied`）：
+
+  | payload 容量 | 内核 129 MB | 内核 66 MB | 备注 |
+  |---|---|---|---|
+  | 192 MiB = 201,326,592 B（当前） | **缺 43,501,040 B** | 余 91,765,264 B | 装不下 129 MB 内核那一档 |
+  | 256 MiB = 268,435,456 B | 余 23,607,824 B | 余 89,668,112 B | 见下面的硬上限 |
+
+  256 MiB 是**硬上限**，不是随便挑的数：`Platforms/Xiaomi/DarwinBootPkg/Driver/PackedRamdisk.h:16`
+  是 `if ((InputSize > SIZE_256MB) || …) { return FALSE; }`，即 ramdisk 一旦超过 256 MiB
+  `RamdiskLayout()` 直接拒绝，`DarwinBoot.c:675` 随即 `goto Fail`。所以「把 payload 提到 256 MiB」
+  这条路可行但只剩 23.6 MB 余量（内核还会长），**不能当作长期方案**。
+
+  因此 modem 的唯一可行载具是固件侧把镜像放到固定物理地址并发布
   `/chosen/memory-map/K60ModemImage`——也就是说必须先能重建并验证 FD。
+  这与 cellular 线 `15-FIRMWARE-CARRIER-LOADER.md` 的结论一致，只是现在有了容量数字。
 - **ADSP 已走内核内嵌 blob**（0620 + `--adsp-blob`，23,506,184 B），所以它**不**依赖这条路径；
   这也说明「内核内嵌」是可行方案，只是容量上不适合 modem。
 - **BT / wifi 的固件侧打点**：能在固件里打一行，比在核心里猜一轮便宜得多。

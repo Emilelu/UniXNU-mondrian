@@ -86,7 +86,7 @@ docs/
 | `audio/CODEC.md` | **音频 codec 侧**：WCD938x 同型判定、live FDT 逐条、供电 rail 表、DT 映射表 |
 | `audio/SOUNDWIRE.md` | **音频 SoundWire 侧**：宏与 SWR master 地址、寄存器表、PRM 前置、io_submap 预算 |
 | `audio/TDMS.md` | **音频 TDM 布线**：扬声器走 PRI_TDM_RX_0（AFE 0x9000 / 组 0x9100）、PRI_TDM 引脚 gpio126/129/127/128 与 funcs 下标编码、AFE 参数结构体与启动顺序（编码器 `PongAudioAfe.h`）、dai-tdm DT 逐字、与 phk110 的差异、留给 PAS1 线的接口清单 |
-| `audio/PAS1-AUDIO-REQUIREMENTS.md` | **音频对 PAS1 的依赖**：GPR/APM 服务注册与 GLINK 独占的仲裁（adsp_apps 512x20、复用同一 QcomGlink 实例第二槽）、PAS1 未就绪时的五级降级与具名错误、AFE 参数在 publish 之后下发、provider 必须为 audio 保证的四条（§5：单实例多槽 / 建槽时机 / 独占语义改写 / 发包时机）、0504 三处 GPR 常量的修正与宿主断言（§1.3）、载具 ABI 与音频的零耦合（§0.1）、GLINK 独占两案仲裁与代价（§1.2）、-1000 的具体表现与 codec-only 路径（§2.1）、AFE 三道门与重试边界（§3.1/§3.2）、TDMS §8 五条的机器可读版 |
+| `audio/PAS1-AUDIO-REQUIREMENTS.md` | **音频对 PAS1 的依赖**：GPR/APM 服务注册与 GLINK 独占的仲裁（adsp_apps 512x20、复用同一 QcomGlink 实例第二槽）、PAS1 未就绪时的五级降级与具名错误、AFE 参数在 publish 之后下发、provider 必须为 audio 保证的四条（§5：单实例多槽 / 建槽时机 / 独占语义改写 / 发包时机）、0504 三处 GPR 常量的修正与宿主断言（§1.3）、载具 ABI 与音频的零耦合（§0.1）、GLINK 独占两案仲裁与代价（§1.2）、-1000 的具体表现与 codec-only 路径（§2.1）、AFE 三道门与重试边界（§3.1/§3.2）、§9 provider 交接可勾选清单、TDMS §8 五条的机器可读版 |
 | `audio/AMPS.md` | **音频功放侧**：AW882xx 判定、GENI I2C 路径、探针方案 A1–A7、上机 run 1、A5 选型与 ACF 配置档（§8）、寄存器回放层（§9）、run 2 判据 `judge-audio-capture.py --replay`（§9.6） |
 | `audio/GLINK-MULTISLOT.md` | **音频对 GLINK 的多槽需求**：QcomGlink 的环几何 / doorbell / 打点位置、每槽独立 rx 分发的逐函数核对（唯一单槽假设是数组长度）、一行多槽原型补丁 `patches/audio/0002` 与 242 条宿主断言、哪些要等 provider 真 lease 才能上机、provider 落地后音频侧要改的三处 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |

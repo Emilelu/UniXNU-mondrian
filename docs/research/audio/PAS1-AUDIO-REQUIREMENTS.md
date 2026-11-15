@@ -122,6 +122,8 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 第二个 consumer，发包前 revalidate；provider 只需把 `QCOM_GLINK_MAX_CHANNELS` 扩到 2 —— 不需要新 API、新锁或新 worker。
 方案 B 只在 provider 明确不愿意暴露多槽时才考虑，代价比 A 大。
 
+**裁决（2026-11-15，Lead）**：采纳方案 A——provider 只把 `QCOM_GLINK_MAX_CHANNELS` 扩到 2，不给新 API、新锁、新 worker；「音频不做第二个 owner」由 adsp-handoff 线写进契约；方案 B 封存。可勾选交接清单见 §9。
+
 ### 1.3 GPR 常量真值 vs 0504 现值（三处已于 2026-11-15 修正）
 
 | 常量 | mainline 真值 | `ShengGpr.h` | 0504 现值（已修正） | 判定 |
@@ -317,8 +319,8 @@ status = "proven"
 
 [[requirement]]
 id = "glink-arbitration-two-options"
-claim = "GPR/APM 与 bit2 的仲裁有两案：A 同实例第二槽（推荐，一行常量 +712 B）与 B provider 代理 GPR（代价更大）；当前分析推荐 A，等 provider 实现者确认"
-evidence = "PAS1-PROVIDER-CONTRACT.md:50,72,80,84; QcomGlink.h:17,77,86; QcomGlink.c:112-150,249-282,331-364; patches/audio/0002; test-glink-multislot.c; 本文 §1.2"
+claim = "GPR/APM 与 bit2 的仲裁已由 Lead 裁定（2026-11-15）：采纳方案 A 同实例第二槽（QcomGlink.h:17 一行常量 1u→2u、+712 B），方案 B provider 代理 GPR 封存；实现落在 provider 线（QCOM_GLINK_MAX_CHANNELS 扩到 2，清单见 §9.2）"
+evidence = "PAS1-PROVIDER-CONTRACT.md:50,72,80,84; QcomGlink.h:17,77,86; QcomGlink.c:112-150,249-282,331-364; patches/audio/0002; test-glink-multislot.c; Lead 2026-11-15 reply md 裁决; 本文 §1.2/§9"
 status = "pending"
 
 [[requirement]]
@@ -348,7 +350,7 @@ status = "pending"
 1. **单实例多槽**：provider 不需要为音频新开 `QcomGlink` 实例。要求是把 `drivers/PongPower/QcomGlink.h:17` 的
    `QCOM_GLINK_MAX_CHANNELS` 从 `1u` 扩到 `2u`（`:77` 的 `channel[QCOM_GLINK_MAX_CHANNELS]` 随之变成两槽），
    由同一个实例、同一个 `qcom_glink_poll()` 循环服务两个通道。**另起实例是错的**：一对 SMEM FIFO 是共享物理资源，
-   `qcom_glink_adopt()`（`QcomGlink.h:86`）采纳的是同一份 APSS 索引已归零的 FIFO，两个实例会互相踢坏 intent 计数。
+   `qcom_glink_adopt()`（`QcomGlink.h:86`）采纳的是同一份 APSS 索引已归零的 FIFO，两个实例会互相踢坏 intent 计数。（该方案 2026-11-15 已由 Lead 裁定采纳，可勾选清单见 §9。）
 
 2. **建槽时机**：`qcom_glink_channel()` 必须在 DSP 发来 OPEN **之前**调用。`QcomGlink.c:331-364` 的 `case QCOM_GLINK_OPEN`
    按名字在 `channel[]` 里找已 used 的同名槽，找不到就 `unknown_opens++`、把名字记进 `last_unknown`、`note_unknown()` 后**丢弃**；
@@ -378,4 +380,123 @@ status = "pending"
   时序/所有权的影响。音频与载体的接口只有一条：「provider 成功 + 104 字节属性」，没有别的耦合。
 
 ---
-来源：Lead m06642 / m07111 指令；行号实测于 2026-11-15。live FDT 副本 `/mnt/e/k60-work/scratch/audio-work/live-fdt.dts`（34,801 行，不入仓库）。
+
+## 9. 交接给 provider 实现者（可勾选接口清单）
+
+本节是给下一个写 PAS1 provider（或接线的 agent）看的独立清单：不引用本文其它章节，
+每条自带出处、判据与失败动作。状态：2026-11-15 Lead 裁决采纳「单实例第二槽」方案后，
+音频线转入待命；本节所列即 provider 交付后音频侧的接线顺序。
+
+### 9.1 provider 必须提供什么（函数签名级）
+
+C ABI（adsp-handoff 线定稿，`PAS1-PROVIDER-CONTRACT.md:9-28`）：
+
+```c
+int k60_adsp_owner_install(const K60OwnerOps *ops, void *context);
+int k60_adsp_owner_acquire(const K60BatteryConfig *config, K60AdspOwnerLease *lease);
+int k60_adsp_owner_revalidate(const K60AdspOwnerLease *lease);
+void k60_adsp_owner_abort(const K60AdspOwnerLease *lease);
+int k60_adsp_owner_publish(const K60AdspOwnerLease *lease,
+    const K60OwnerPublishOps *ops, void *context);
+```
+
+`acquire` 顺序执行阶段 1–4（claim → prepare_pas1 → auth_and_start → build_handoff），
+`publish` 执行阶段 5（`INTEGRATION-ORDER.md:42`）。音频只直接调用
+`k60_adsp_owner_acquire` 与 `k60_adsp_owner_revalidate`；不调用 install、阶段 API 与 abort。
+
+- [ ] acquire 返回 0 时 lease 必须满足：`version == 1`、`bytes == sizeof(K60AdspOwnerLease)`、
+      `flags` 精确等于 15（bit0 Authenticated / bit1 ResourcesHeld / bit2 GlinkExclusive /
+      bit3 FreshHostFifos，`PAS1-PROVIDER-CONTRACT.md:72`）、`epoch` 非零、
+      `token` 非空且指向持久 session（`PAS1-PROVIDER-CONTRACT.md:68,74`）。
+- [ ] publish 返回 0 时 `/chosen/k60-adsp-glink-handoff` 必须存在且精确 104 字节。线格式
+      （`K60BatteryConfig.h:36-45`，little-endian）：magic `0x4842364b`@0、version 1@4、bytes 104@8、
+      flags@12、**64 位 epoch@16**（native lease 的 u32 epoch 不能直接序列化进这里，`PAS1-PROVIDER-CONTRACT.md:68`）、
+      SMEM base@24 / bytes@32、ADSP base@40 / bytes@48、desc offset@56 / bytes@60、tx offset@64 / bytes@68、
+      rx offset@72 / bytes@76、host_tx_head@80（应为 0）、host_rx_tail@84（应为 0）、remote pid@88（=2）、
+      smp2p item@92（=443）、restart flag@96、reserved@100。
+- [ ] 缺依赖时 acquire 返回 `-1000`，且必须早于任何 SMEM/TCSR mapping 发生
+      （`PAS1-PROVIDER-CONTRACT.md:34,90`；阶段 2/3 失败同样归一 `-1000`，阶段 4 失败
+      为 -44/-45/-46/-47/-43，`:91`）。
+- [ ] publish 的失败码：无效参数 -40、属性已存在 -41、root/ready/restart 不就绪 -43、
+      最终 blob/epoch/live 复核失败 -47、其他 commit 失败 -48；失败不得先写属性
+      （`PAS1-PROVIDER-CONTRACT.md:38,54,93`）。
+- [ ] 音频不通过 `k60_adsp_owner_acquire` 之外的路由拿 lease；不读载体、不 map SMEM、不碰 TCSR。
+
+### 9.2 provider 必须保证什么
+
+- [ ] **lease 语义**：逻辑软件 lease 覆盖阶段 2–4 与阶段 5 的 commit（`PAS1-PROVIDER-CONTRACT.md:80`）。
+      lease 有效期内 provider 不得 reset/restart ADSP、不得运行竞争 GLINK worker、不得让 votes/exclusion
+      或 token 过期跨越任何解锁窗口（`PAS1-PROVIDER-CONTRACT.md:50`）。
+- [ ] **epoch**：非零「当前启动」epoch，绑定 cookie、板级配置与 SMEM items（`PAS1-PROVIDER-CONTRACT.md:74`）；
+      同一启动内多次 revalidate 的 epoch 不变，重启/复位后必须取得新的非零值。音频用 epoch 判断
+      「手里的 lease 是否还是本启动的」。
+- [ ] **revalidate 失败的行为**：必须同时验证真实 backend 仍 live，不能只凭 token 非空或 flags==15 授权
+      （`PAS1-PROVIDER-CONTRACT.md:74`）；失败返回非 0，音频据此停发 AFE 包并静音。
+- [ ] **publish 后没有 release 入口**：Published 后 abort 是 no-op，资源/token 持续保留
+      （`PAS1-PROVIDER-CONTRACT.md:84`）；provider 不回收 FIFO、不删
+      `/chosen/k60-adsp-glink-handoff`。音频也不需要 release。
+- [ ] **单实例多槽（2026-11-15 Lead 裁决，方案 A）**：`drivers/PongPower/QcomGlink.h:17` 的
+      `QCOM_GLINK_MAX_CHANNELS` 从 1u 扩到 2u，同一实例、同一 `qcom_glink_poll()` 循环、
+      同一 IPCC kick 服务 `PMIC_RTR_ADSP_APPS`（电池）与 `adsp_apps`（音频）两个槽。
+      不新开第二个 QcomGlink 实例（一对 SMEM FIFO 只有一个采纳者：`qcom_glink_adopt` 要求
+      `*tx.head==0 && *rx.tail==0`）、不新增 API、锁或 worker；「音频不做第二个 owner」。
+      原型补丁 `patches/audio/0002-k60-glink-multislot.patch` 与 242 条宿主断言已证明
+      `QcomGlink.c` 零改动、两槽各自分发。
+
+### 9.3 音频侧拿到 lease 之后的调用顺序（每步附失败动作）
+
+前置常量（consumer 侧，与 mainline 对齐）：GPR 头 24 字节、版本 0；域 ADSP=2 / APPS=3；
+APM 端口 1；`GET_SPF_STATE 0x01001021`、`SPF_STATE 0x02001007`（payload status==1 即 ready）、
+`BASIC_RSP_RESULT 0x02001005`；GLINK 通道名 `adsp_apps`、intent 512 B × 20。
+
+顺序（0 → 6，任何一步失败按该步「失败时」执行，不跳步）：
+
+0. **属性门**：读 `/chosen/k60-adsp-glink-handoff`。缺失 / 长度 != 104 / flags != 15 →
+   打印 `PongAudio: no handoff property; GLINK adopt skipped`，跳过 1–6，codec-only 路径照走。
+1. **lease 门**：`k60_adsp_owner_revalidate(&lease)` 返回 0 且 `lease.epoch` 与 acquire 时相同 → 继续。
+   失败或 epoch 变 → `PongAudioErrStaleLease`，停发、静音，本次启动不再尝试。
+2. **adopt**：用 104 字节属性里的 offset 构造 FIFO：`tx = {&desc[1], &desc[0], tx_bytes}`、
+   `rx = {&desc[3], &desc[2], rx_bytes}`，调 `qcom_glink_adopt(&g, tx, rx, kick, ctx)`
+   （`QcomGlink.h:86`）。要求 `*tx.head==0 && *rx.tail==0`，否则返回 Argument。
+   失败 → 不碰 FIFO，打印具名原因，跳过 3–6。
+3. **建槽**：在第一次 `qcom_glink_poll()` 之前、DSP 发 OPEN 之前调用
+   `qcom_glink_channel(&g, "adsp_apps", 512, 20, storage, &client, ctx, 1)`
+   （DSP 的 OPEN 按名字找已 used 槽，找不到就当 unknown 丢弃，`QcomGlink.c:331-364`）。
+   返回 0（无槽）或 DSP 的 OPEN 先到 → 不重试 lease，报 `PongAudioErrNoLease` 类具名错误。
+4. **协议门**：`qcom_glink_poll(&g)` 直到 `client.state(up=1)`；发 GPR `GET_SPF_STATE`
+   （src_port=1、dst_port=1），等 `SPF_STATE` 且 payload status==1。
+   超时或 status!=1 → `PongAudioErrApmNotReady`，一个 AFE 包都不发，等下一次显式触发。
+5. **AFE 六步**：按 `drivers/PongAudio/PongAudioAfe.h` 的 `pong_afe_step_*` 顺序发六个包
+   （Clock → GroupTdm → GroupEnable → PortTdm → SlotMapping → DeviceStart）。每个包已由该头编码成字节流
+   （GPR 24 B 头 + svc/port 两种 16 B 信封 + 12 B 参数块，128 条宿主断言钉住偏移/端序），consumer 只负责按序交给
+   传输层；每包等 `BASIC_RSP_RESULT` 且 status==0 再发下一包。六步参数值：
+   - Clock：`{1, 0x200, 1536000, attribute 4, root 0, enable 1}`（K60 位时钟 1.536 MHz）
+   - GroupTdm：组 0x9100、ports `{0x9000, 0x9002, 0xffff×6}`、2ch、48000、32b、2 slots、slot_bits 32、mask 3
+   - GroupEnable：`{0x9100, 1}`
+   - PortTdm：端口 0x9000、2ch、48000、32b、data_format 0、sync_mode 0、sync_src 1、slots 2、
+     data_out 0、invert 1、delay 1、slot_bits 32、mask 3
+   - SlotMapping：2ch、32b、align 0、offsets `{0, 4, 0xffff×6}`
+   - DeviceStart：`{0x9000, 0}`
+   失败时：`qcom_glink_send` 返回 Again → 同一步 poll 一轮后重发同一份字节流（有界次数）；
+   `BASIC_RSP_RESULT` status!=0 → 逆序回滚（group disable → clock off），`PongAudioErrAfeRefused`；
+   任一步前 revalidate 失败或 epoch 变 → 停发、静音，重新 acquire 后从 Clock 整段重来
+   （恢复协议未实现，无法证明 DSP 侧 AFE 状态还在）。
+6. **完成**：六步全绿后 speaker 通路可用；保持静音（无 bit clock 不出声）直到播放路径接通。
+
+### 9.4 两条硬约束（2026-11-15 Lead 裁决）
+
+- codec-only 成功**不推进 ⑧**：provider 返回 -1000 时，60 步 AMP 回放照走（GENI/SE15 I2C，与 PAS1 无关），
+  但 `pong_audio_status()` 不得返回成功——必须返回 `PongAudioErrNoLease` 且带具名原因行。
+  建议四行日志按以下原文落：
+
+```text
+PongAudio: PAS1 owner unavailable (acquire rc=-1000); ADSP path disabled
+PongAudio: codec-only path: amp probe + 60-step replay continue, AFE/GPR skipped
+PongAudio: speaker path unavailable: PongAudioErrNoLease (no GLINK, no AFE)
+PongAudio: no handoff property; GLINK adopt skipped
+```
+
+- 仲裁已定：方案 A（单实例第二槽）为唯一方案，方案 B（provider 代理 GPR）封存。
+
+---
+来源：Lead m06642 / m07111 指令与 2026-11-15 reply md 裁决（§9）；行号实测于 2026-11-15。live FDT 副本 `/mnt/e/k60-work/scratch/audio-work/live-fdt.dts`（34,801 行，不入仓库）。

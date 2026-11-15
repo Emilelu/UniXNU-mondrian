@@ -149,15 +149,17 @@ def resolve_generated(out: Path) -> Path:
 
     unixnu names the board directory after the defconfig (mondrian_defconfig ->
     mondrian/, mondrian_wifi_defconfig -> mondrian_wifi/), so a pinned path
-    silently checks the wrong tree (P-187).
+    silently checks the wrong tree (P-187). When several board directories
+    exist, the most recently written .config is the one the last defconfig
+    command selected, so that is the tree to grade.
     """
     base = out / "mondrian" / K60_SDK_RELATIVE
     if not base.is_dir():
         return base / "mondrian" / ".config"
-    found = sorted(p for p in base.glob("*/.config") if p.is_file())
+    found = [p for p in base.glob("*/.config") if p.is_file()]
     if not found:
         return base / "mondrian" / ".config"
-    return found[0]
+    return max(found, key=lambda p: p.stat().st_mtime)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -173,8 +175,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--defconfig", type=Path, default=DEFAULT_DEFCONFIG,
-        help="selected source defconfig",
+        "--defconfig", type=Path, default=None,
+        help=(
+            "selected source defconfig (default: derived from the board "
+            "directory name, falling back to configs/mondrian_defconfig)"
+        ),
     )
     target = parser.add_mutually_exclusive_group()
     target.add_argument(
@@ -186,11 +191,16 @@ def main(argv: list[str] | None = None) -> int:
         help="K60 output root; the board directory is discovered under it",
     )
     args = parser.parse_args(argv)
-    defconfig = args.defconfig.expanduser()
     config = (
         args.config if args.config is not None
         else resolve_generated(args.out)
     ).expanduser()
+    if args.defconfig is not None:
+        defconfig = args.defconfig.expanduser()
+    else:
+        board = config.parent.name
+        candidate = REPO / "configs" / f"{board}_defconfig"
+        defconfig = candidate if candidate.is_file() else DEFAULT_DEFCONFIG
     expected, source_problems, _ = read_config(defconfig, "defconfig", True)
     actual, generated_problems, generated_notes = read_config(config, "generated config", False)
     problems = source_problems + generated_problems

@@ -68,7 +68,31 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 # it 13 minutes into the build as `xcodebuild: command not found`.
 python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
-M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
+# The build directory is named after the defconfig, not the board: the
+# default configuration builds into `mondrian/`, the wifi one into
+# `mondrian_wifi/`. Ask the tree where the .config is instead of assuming,
+# and prefer the most recently generated one so a defconfig switch is picked
+# up (P-187: a pinned path silently checks the wrong tree).
+board_dir() {
+    if [ -n "${K60_BOARD_DIR:-}" ]; then
+        echo "$K60_BOARD_DIR"
+        return
+    fi
+    local best=""
+    local d
+    for d in "$OUT"/mondrian/ipados-*/*/.config; do
+        [ -f "$d" ] || continue
+        if [ -z "$best" ] || [ "$d" -nt "$best" ]; then
+            best=$d
+        fi
+    done
+    if [ -n "$best" ]; then
+        dirname "$best"
+        return
+    fi
+    echo "$OUT/mondrian/ipados-16.6.1-20G81/mondrian"
+}
+M=$(board_dir)
 KERNEL=$M/kernel/kernel.macho
 
 # --- frozen inputs -----------------------------------------------------------
@@ -110,7 +134,7 @@ echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 # 2026-11-15: the wifi line ran with a hand-appended CONFIG_XNU_PONG_WIFI line
 # instead; a generated configuration must never be edited, so the driver is
 # selected through XNU_PONG_WIFI below and .config stays a pure defconfig product.
-[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT"
+[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT (or mondrian_wifi_defconfig for the wifi-only cell)"
 
 # --- wifi archive ------------------------------------------------------------
 # scripts/build-xnu-4k-baseline.sh:1184 links libPongWifiNative.a into the kernel

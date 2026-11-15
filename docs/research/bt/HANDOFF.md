@@ -679,6 +679,19 @@ This line, next in order:
       十一格矩阵写进 `S4-SPEC.md` §7.8。
     - 没构建的只剩 h14 / h24 / h134 / h234 四格，Lead 判断都不改变结论（{h1,h2,h3} 的必要性已由
       三次「各去掉一个」定案），除非 d3 把机理指向 h4。
+23. **d3 实飞：仍 silent，三张 d 图把 §7.3 的 a/b/c 全部否证（2026-11-16 05:33）**
+    - Lead 实飞 `bt-d3-noboot`（全量 0511 + `pong_bt_noboot=1`，boot.img
+      `07c139238cf4f3dff8d56e9145d05254ba7efb2cd5b0ebf4e7c697a3df0a817e`、31 参数 / 600 B、
+      series 232 / `dcc7bb45d311dc5f`、blob `febdc20d…`）：证据
+      `E:\k60-work\evidence\usblog-20261116-053306`，`port-not-observed`、`bytes=0`、
+      `portSeen=false`、`stopReason=fastboot-return`、console.log 0 B ⇒ **silent**。
+    - 三张 d 图全部 silent：d1 关 SMMU bypass、d2 关 SE 时钟、d3 关固件下载，都一样死 ⇒
+      S4-SPEC §7.3 的假设 a / b / c 全部否证；死亡点在 `k60_bt_power_on()` 之前，
+      或在它内部三开关之外的那几步（`k60_map` / `kmem_alloc_contig` / `pmap_find_phys` / TLMM pins）。
+      落档见 `S4-SPEC.md` §7.9。
+    - 下一格：`h123 + pong_bt_noboot=1` 交叉格（series 换 0511g 变体、参数加 `pong_bt_noboot=1`），
+      构建提交 `8faa102`。
+
     - 门禁 **P-218**（`scripts/check-bisect-coverage.py`，main `216902a` / snap-r211）已随 main 合入本分支：
       拿 `build-manifest.json` 的 `boot_img` 与 `evidence/*/boot.json` 的 `imageSha256` 做差集，
       `--prefix bt-bisect-` 直接列出「构建完没飞」的镜像。

@@ -992,10 +992,33 @@ console 3,379 行 / 235,151 B、SpringBoard 13、`getBytes:range` 35、panic 0�
 `:193` probe armed、`:702-:704` awake / core created / transport ready —— 停在 transport ready，
 没有 `addon gate passed`，也没有 `power=` 行（h2 单独不含 h1 的门闩，根本走不到上电那一步）。
 
-d 系列进展：d1（`pong_bt_smmu=0`）与 d2（`pong_bt_rcg=0`）都 silent ⇒ §7.3 假设 a、b 排除；
-只剩 d3（`pong_bt_noboot=1`）验假设 c。d3 起 ⇒ 致命点在「启动 core / 下固件」段；
-d3 仍 silent ⇒ 致命点更早（blob 加载、门闩、SMMU 映射），Lead 会再要一格
-「h123 + `pong_bt_noboot=1`」做交叉。
+d 系列进展：d1（`pong_bt_smmu=0`）、d2（`pong_bt_rcg=0`）、d3（`pong_bt_noboot=1`）三张
+全部 silent ⇒ §7.3 的假设 a、b、c 全部否证（见 §7.9）。致命点在进入 `k60_bt_power_on()` 之前，
+或在它内部三开关之外的那几步。下一格是「h123 + `pong_bt_noboot=1`」交叉格。
+
+### 7.9 d 系列第三张图 `bt-d3-noboot` 实飞：固件下载段也被排除（2026-11-16 05:33）
+
+Lead 实飞 `bt-d3-noboot`（全量 0511 + `pong_bt_noboot=1`，31 参数 / 600 B，boot.img
+`07c139238cf4f3dff8d56e9145d05254ba7efb2cd5b0ebf4e7c697a3df0a817e`）：证据
+`E:\k60-work\evidence\usblog-20261116-053306`，`bootAccepted` true / `bootExitCode` 0 /
+`returnedToFastboot` true，capture `port-not-observed`、`bytes=0`、`portSeen=false`、
+`portOpened=false`、`stopReason=fastboot-return`，console.log 0 B（空文件哈希
+`e3b0c442…b855`）—— **silent**。
+
+| 图 | 关掉的路径 | 结果 |
+|----|-----------|------|
+| d1 `pong_bt_smmu=0` | `k60_smmu_bypass()` | silent |
+| d2 `pong_bt_rcg=0` | `k60_gcc_set_se_rate()` 两个调用点 | silent |
+| d3 `pong_bt_noboot=1` | `qbt_boot()` 固件下载整段 | silent |
+
+⇒ §7.3 的三条机制假设 a（SMMU/SID 与 UFS 冲突）、b（共享 RCG 复位停掉 UFS 参考时钟）、
+c（固件下载 DMA 缓冲未进 IOMMU）**全部被实飞否证**。三张图都仍是「全量 0511 + blob +
+`k60bt=1`」，所以死亡点比这三段都早：要么在进入 `k60_bt_power_on()` 之前（worker 线程启动、
+`k60_map()`、DMA 分配、门闩判断），要么在 `k60_bt_power_on()` 内部三开关之外的那几步
+（`k60_map()` / `kmem_alloc_contig()` / `pmap_find_phys()` / TLMM pins）。
+
+下一格（Lead 判据树）：`h123 + pong_bt_noboot=1` 交叉格——把「三开关之外」与「{h1,h2,h3} 齐备」
+这两个条件交叉，判断死亡点是否只在全量配方里才被触发。
 
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 

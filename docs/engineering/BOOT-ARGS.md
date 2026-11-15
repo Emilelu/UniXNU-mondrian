@@ -292,6 +292,20 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 `panicMarker=null`），但一次存活不足以改成默认。所以：只读、单次、必须显式开启；**写 TCS 与
 `CONTROL_TRIGGER` 仍然全面禁止**，供电投票等 ABL 方案。
 
+### `pong_handoff_publish`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不发布） |
+| 取值 | 0 / 1 |
+| 来源 | `patches/xnu/0619-k60-adsp-glink-handoff.patch`（`iokit/bsddev/IOKitBSDInit.cpp`，`PE_parse_boot_argn("pong_handoff_publish", …) == 1u`）|
+| 作用 | 1 = 在 IOKitBSDInit 早期跑 `k60_adsp_handoff_publish()`：claim owner=1 → 解析电池板配置 → 范围重叠检查 → `/chosen` 查找 → `k60_adsp_owner_acquire`（阶段 1–4：PAS1 bring-up / discovery / build / self-parse）→ 发布 104 字节认证 lease。成功打 `K60Handoff: published authenticated PAS1 epoch=%u bytes=104 flags=15`，失败打 `K60Handoff: PAS1 bring-up/retained ownership failed rc=%d`。 |
+
+**当前状态（2026-11-15）**：owner=1 先 claim 后，`kern_exec.c` 的 legacy `k60_adsp_startup_claim(2u)` 会失败并打
+`K60PAS legacy startup excluded by earlier ADSP owner/attempt`——该行在此参数下是**预期输出**，证明发布器先跑。
+载体是内核内嵌 `k60_adsp_blob`（26 记录容器，P-197 workaround），与 `pong_adsp` 的 md0 死路无关。
+
 ### `pong_adsp`
 
 | 项 | 值 |

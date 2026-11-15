@@ -23,11 +23,13 @@ TAG=${1:?usage: build-strict.sh <tag> --fd <file.fd> [--kernel-arg K=V ...]}
 shift
 FD=""
 ADDON=""
+ADSP_DIR=""
 KARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --fd) FD=${2:?--fd needs a file}; shift 2 ;;
         --gpu-addon) ADDON=${2:?--gpu-addon needs a file}; shift 2 ;;
+        --adsp-blob) ADSP_DIR=${2:?--adsp-blob needs a firmware directory}; shift 2 ;;
         --kernel-arg) KARGS+=("${2:?--kernel-arg needs NAME=VALUE}"); shift 2 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -36,6 +38,7 @@ done
 [ -n "$FD" ] || die "--fd is required; a build must name the firmware volume it packs"
 [ -f "$FD" ] || die "--fd $FD does not exist"
 [ -z "$ADDON" ] || [ -f "$ADDON" ] || die "--gpu-addon $ADDON does not exist"
+[ -z "$ADSP_DIR" ] || [ -d "$ADSP_DIR" ] || die "--adsp-blob $ADSP_DIR is not a directory"
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 DEV=${K60_DEVICE_INPUT:-/opt/k60/trees/usb-cdc-mainline/device}
@@ -46,6 +49,11 @@ RUN=$ART/$TAG
 LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
+# Platform identity seed. "required" in board.toml makes payload.py demand it
+# (payload.py:173-174); the default keeps every line's image identity stable.
+# Change it only when a new device identity is wanted: the BT MAC derives
+# from it and existing pairings break.
+export UNIXNU_UNIQUE_CHIP_ID="${UNIXNU_UNIQUE_CHIP_ID:-4B36305400000001}"
 export K60_REPO=$REPO
 # The registry runs as a child process. If these are not exported it falls back
 # to the default mirror/tree, judges a different series than the one being built,
@@ -63,48 +71,24 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 [ -d "$DEV" ] || die "device input $DEV missing"
 [ -d "$BUILD" ] || die "build tree $BUILD missing"
 
+# --- gate-table:BEGIN ---
+# Every check call between these markers is a gate; scripts/check-readme.py
+# reconciles this list against the README gate table (P-205). A new gate here
+# without a README table row fails the registry.
 # A fresh worktree has the code but not the environment (P-185): no Darwin tool
 # shims and an empty fakeroot. Name the missing piece now instead of discovering
 # it 13 minutes into the build as `xcodebuild: command not found`.
 python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
-# The build directory is named after the defconfig, not the board: the
-# default configuration builds into `mondrian/`, the wifi one into
-# `mondrian_wifi/`. Ask the tree where the .config is instead of assuming,
-# and prefer the most recently generated one so a defconfig switch is picked
-# up (P-187: a pinned path silently checks the wrong tree).
-board_dir() {
-    if [ -n "${K60_BOARD_DIR:-}" ]; then
-        echo "$K60_BOARD_DIR"
-        return
-    fi
-    local best=""
-    local d
-    for d in "$OUT"/mondrian/ipados-*/*/.config; do
-        [ -f "$d" ] || continue
-        if [ -z "$best" ] || [ "$d" -nt "$best" ]; then
-            best=$d
-        fi
-    done
-    if [ -n "$best" ]; then
-        dirname "$best"
-        return
-    fi
-    echo "$OUT/mondrian/ipados-16.6.1-20G81/mondrian"
-}
-M=$(board_dir)
+M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
 KERNEL=$M/kernel/kernel.macho
+
 
 # --- frozen inputs -----------------------------------------------------------
 # Every file that can change the kernel is hashed before the build; a later
 # boot is only comparable if the same list hashes the same.
 freeze() {
-    # Bytecode caches are not inputs: the build imports these scripts, python
-    # rewrites the .pyc files, and a run that changed nothing else was declared
-    # void at the final comparison (2026-11-15, wifi-20261116mhi5b: the only
-    # difference was scripts/__pycache__/pong_paths.cpython-312.pyc).
-    ( cd "$REPO" && find board.toml dts patches/xnu scripts \
-        \( -name __pycache__ -o -name '*.pyc' \) -prune -o -type f -print0 \
+    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f -print0 \
         | sort -z | xargs -0 sha256sum )
 }
 freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"
@@ -126,41 +110,14 @@ if ! python3 "$REPO/scripts/eight-step-gate.py" --build > "$LOGS/eight-step.log"
 fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
+# --- gate-table:END ---
+
 
 # A missing .config would silently drop every defconfig-driven feature (P-202):
 # GPU_ADDON and BATTERY_ON below are both read with sed, and sed on a missing
 # file writes to stderr and yields nothing, so the build would quietly produce a
 # kernel without the Metal plugin or the battery class and still report success.
-# 2026-11-15: the wifi line ran with a hand-appended CONFIG_XNU_PONG_WIFI line
-# instead; a generated configuration must never be edited, so the driver is
-# selected through XNU_PONG_WIFI below and .config stays a pure defconfig product.
-[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT (or mondrian_wifi_defconfig for the wifi-only cell)"
-
-# --- wifi archive ------------------------------------------------------------
-# scripts/build-xnu-4k-baseline.sh:1184 links libPongWifiNative.a into the kernel
-# when XNU_PONG_WIFI=1. kernel.py:175-187 copies os.environ and only overrides
-# the variables the .config names, so a symbol this defconfig does not carry is
-# selected here, in the open, and recorded in the manifest.
-WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-}
-WIFI_ON=${XNU_PONG_WIFI:-0}
-if grep -q '^CONFIG_XNU_PONG_WIFI=y' "$M/.config" 2>/dev/null; then
-    WIFI_ON=1
-    WIFI_ARCHIVE=${WIFI_ARCHIVE:-$REPO/build/pong-wifi/libPongWifiNative.a}
-fi
-if [ -n "$WIFI_ARCHIVE" ]; then
-    WIFI_ON=1
-elif [ "$WIFI_ON" = 1 ]; then
-    # Asking for the driver without naming an archive is the same silence that
-    # hid the battery class (P-190): the link would succeed and the kernel would
-    # simply have no WiFi in it.
-    die "XNU_PONG_WIFI=1 but no wifi archive was given; set XNU_PONG_WIFI_ARCHIVE"
-fi
-if [ "$WIFI_ON" = 1 ]; then
-    [ -f "$WIFI_ARCHIVE" ] || die "wifi archive $WIFI_ARCHIVE missing; run scripts/build-wifi-archive.sh first"
-    export XNU_PONG_WIFI=1
-    export XNU_PONG_WIFI_ARCHIVE=$WIFI_ARCHIVE
-    echo "build-strict: wifi archive $WIFI_ARCHIVE"
-fi
+[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT"
 
 # --- gpu addon (0610) -------------------------------------------------------
 # The Metal plugin travels inside the kernel as an .incbin blob, so the build
@@ -180,6 +137,36 @@ if [ -n "$GPU_ADDON" ]; then
   fi
   export K60_METAL_PLUGIN_DIR=$PLUGIN_DIR
   echo "build-strict: metal plugin $(cat "$LOGS/metal-plugin.log")"
+fi
+
+# ADSP firmware carrier: the kernel owns the DSP image through an embedded
+# blob (firmware has no loader, P-197). Generate and validate the container
+# before the kernel build so the force-load step cannot pick up a stale one.
+if [ -n "$ADSP_DIR" ]; then
+  ADSP_STAGE=$RUN/adsp-carrier
+  mkdir -p "$ADSP_STAGE" || die "cannot stage ADSP carrier"
+  if ! python3 "$REPO/scripts/gen-k60-adsp-blob.py" \
+        --firmware-dir "$ADSP_DIR" --output "$ADSP_STAGE/k60_adsp_blob.s" \
+        --dump "$ADSP_STAGE/k60_adsp_blob.bin" \
+        > "$LOGS/adsp-generate.log" 2>&1; then
+    tail -10 "$LOGS/adsp-generate.log" >&2
+    die "ADSP carrier generation failed (see $LOGS/adsp-generate.log)"
+  fi
+  if ! python3 "$REPO/scripts/check-adsp-blob.py" "$ADSP_STAGE/k60_adsp_blob.s" \
+        > "$LOGS/adsp-blob.log" 2>&1; then
+    tail -10 "$LOGS/adsp-blob.log" >&2
+    die "ADSP carrier is inconsistent (see $LOGS/adsp-blob.log)"
+  fi
+  export K60_ADSP_BLOB_S=$ADSP_STAGE/k60_adsp_blob.s
+  ADSP_CONTAINER_SHA=$(sha256sum "$ADSP_STAGE/k60_adsp_blob.bin" | cut -d' ' -f1)
+  ADSP_INPUTS=$ADSP_STAGE/inputs.sha256
+  ( cd "$ADSP_DIR" && find . -maxdepth 1 -type f -name 'adsp.*' \
+      | sort | xargs sha256sum ) > "$ADSP_INPUTS" \
+    || die "cannot hash the ADSP firmware inputs"
+  ADSP_RECORDS=$(wc -l < "$ADSP_INPUTS")
+  [ "$ADSP_RECORDS" -gt 0 ] || die "--adsp-blob $ADSP_DIR has no adsp.* files"
+  ADSP_INPUTS_SHA=$(sha256sum "$ADSP_INPUTS" | cut -d' ' -f1)
+  echo "build-strict: ADSP carrier $ADSP_CONTAINER_SHA ($ADSP_RECORDS records)"
 fi
 
 # The battery class lives in a host-built archive that the kernel script only
@@ -207,15 +194,6 @@ fi
 [ "$KERNEL" -nt "$MARK" ] || die "kernel.macho is older than this build: stale artifact"
 KERNEL_SHA=$(sha256sum "$KERNEL" | cut -d' ' -f1)
 echo "build-strict: kernel $KERNEL_SHA $(stat -c %s "$KERNEL") bytes"
-# The archive path is an environment variable, so nothing in .config or the
-# archive list would notice if the link dropped it: ask the kernel itself, the
-# way check-kernel-archives.py does for the defconfig-driven archives (P-190).
-if [ -n "$WIFI_ARCHIVE" ]; then
-    NM=$(command -v llvm-nm-18 || command -v llvm-nm || echo nm)
-    "$NM" "$KERNEL" 2>/dev/null | grep -q ' _pong_wifi_start_optional$' \
-        || die "XNU_PONG_WIFI=1 but the kernel has no pong_wifi_start_optional; the archive did not reach the link (P-190)"
-    echo "build-strict: wifi driver present in the kernel"
-fi
 
 # --- payload -----------------------------------------------------------------
 # --kernel-arg has to reach THIS step: the payload's unixnu.toml is what the
@@ -233,6 +211,7 @@ if [ -n "$ADDON" ]; then
     PAYLOAD_ARGS+=(--gpu-addon "$ADDON")
 fi
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
+        --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
         ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
     die "payload build failed (see $LOGS/payload.log)"
@@ -287,6 +266,14 @@ if ! cmp -s "$RUN/frozen-before.txt" "$RUN/frozen-after.txt"; then
     diff -u "$RUN/frozen-before.txt" "$RUN/frozen-after.txt" >&2 || true
     die "frozen inputs changed during the build; this run is void"
 fi
+# The ADSP firmware dir is a frozen input too, but it lives outside the repo.
+if [ -n "$ADSP_DIR" ]; then
+    ( cd "$ADSP_DIR" && find . -maxdepth 1 -type f -name 'adsp.*' \
+        | sort | xargs sha256sum ) > "$RUN/adsp-inputs-after.txt" \
+      || die "cannot re-hash the ADSP firmware inputs"
+    cmp -s "$ADSP_INPUTS" "$RUN/adsp-inputs-after.txt" \
+      || die "ADSP firmware inputs changed during the build; this run is void"
+fi
 
 # --- manifest ----------------------------------------------------------------
 sha_or_empty() { [ -f "$1" ] && sha256sum "$1" | cut -d' ' -f1 || echo ""; }
@@ -321,6 +308,11 @@ m = {
         "gpu_addon_path": "${ADDON:-}",
         "wifi_archive": "$(sha_or_empty "$WIFI_ARCHIVE")",
         "wifi_archive_path": "${WIFI_ARCHIVE:-}",
+        "adsp_blob": "${ADSP_CONTAINER_SHA:-}",
+        "adsp_blob_path": "${ADSP_STAGE:-}/k60_adsp_blob.bin",
+        "adsp_inputs": {"count": ${ADSP_RECORDS:-0},
+                        "sha256": "${ADSP_INPUTS_SHA:-}",
+                        "file": "${ADSP_INPUTS:-}"},
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
@@ -331,7 +323,10 @@ print("build-strict: manifest", out)
 PY
 
 echo "build-strict: boot.img $BOOT_SHA"
-python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
+# --- gate-table:BEGIN ---
+ADSP_GATE_FLAG=""
+[ -n "$ADSP_DIR" ] && ADSP_GATE_FLAG="--adsp-blob"
+python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" $ADSP_GATE_FLAG || die "a force-loaded archive did not reach the kernel (P-190)"
 # The Metal plugin travels inside the kernel as a K60M container. Nothing
 # else inspects that generated table, and on 2026-11-14 its length constant
 # omitted the alignment padding between bodies, so the device rejected the
@@ -347,4 +342,5 @@ fi
 # DarwinBoot ceiling; both boots produced zero console bytes.
 python3 "$REPO/scripts/check-image-args.py" --image "$RUN/boot.img" --board "$REPO/board.toml" \
     | tee "$LOGS/image-args.log" || die "the boot image command line is not the board contract (check-image-args.py)"
+# --- gate-table:END ---
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

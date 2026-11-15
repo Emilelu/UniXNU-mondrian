@@ -78,7 +78,7 @@ proprietary-files.txt   固件清单（不存固件本体）
 | `pci.vendor` | `6091` = `0x17CB` | Qualcomm PCI vendor（`:6`） |
 | `pci.device` | `4355` = `0x1103` | QCA6490/WCN6855 端点（`:7`） |
 | `pci.subsystem_vendor` | `6091` = `0x17CB` | 子系统 vendor（`:8`） |
-| `pci.subsystem_device` | `264` = `0x0108` | Pong 的子系统 device；K60 未核实（见 §2） |
+| `pci.subsystem_device` | `264` = `0x0108` | K60 实测同值（2026-11-14，见 §2.2） |
 | `pci.revision` | `1` | PCI revision（`:10`） |
 | `pci.bar0.base` | `1612709888` = `0x60200000` | BAR0 基址（`:12`） |
 | `pci.bar0.bytes` | `2097152` = `0x200000` | 2 MiB BAR0（`:13`） |
@@ -226,9 +226,9 @@ proprietary-files.txt   固件清单（不存固件本体）
 | PCIe 六窗口 | parf `0x1c00000`/`0x3000`；phy `0x1c06000`/`0x2000`；dm_core `0x60000000`/`0xf1d`；elbi `0x60000f20`/`0xa8`；iatu `0x60001000`/`0x1000`；conf `0x60100000`/`0x100000` | 完全相同 | 逐值比对：K60 FDT `reg = <0x1c00000 0x3000 ...>` vs Pong 配置 `:26-51` |
 | BAR0 基址 | `0x60200000`（1612709888） | `0x60200000`（`/proc/iomem` 60200000-603fffff） | 相同；`pong:configs/pong-wifi-sm8475.json:11-13`；`live-6033dbec-iomem.utf8.txt:279-282` |
 | BAR0 大小 | `0x200000`（2 MiB） | 2 MiB（60200000-603fffff 含 0x200000 字节） | 相同；同上 |
-| PCI vendor/device | `0x17CB:0x1103` | `qcom,dev-id = <0x1103>`（device 实证）；vendor 未在 FDT 出现 | device 相同；vendor 0x17CB 是 Qualcomm 分配与 Pong 同端点，K60 PCI 配置空间未实读（未核实） |
-| 子设备 ID（subsystem device） | `0x0108`（264） | **未核实**（FDT/`/proc/iomem` 不含 subsystem ID） | Pong：`pong:configs/pong-wifi-sm8475.json:9`；`pong:PongWifiPci.cpp:117` 硬校验 `0x010817cb`；K60 需在 Android 侧读 `/sys/bus/pci/devices/0000:01:00.0/subsystem_device` |
-| revision | `1` | **未核实** | Pong `:10`；K60 未采集 |
+| PCI vendor/device | `0x17CB:0x1103` | **实测 `0x17CB:0x1103`**（sysfs `vendor/device`；配置空间 0x00 = `cb 17 03 11`） | **相同**；2026-11-14 实机实测，证据 `E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`、`config64-attempt2.txt`。上游根端口 `0000:00:00.0` = `17CB:0110`（class `0x060400`） |
+| 子设备 ID（subsystem device） | `0x0108`（264） | **实测 `0x0108`（264）**（sysfs `subsystem_device`；配置空间 0x2c = `cb 17 08 01`） | **相同**；`pong:configs/pong-wifi-sm8475.json:9`；`pong:PongWifiPci.cpp:117` 的硬校验 `0x010817cb` 在 K60 上成立；证据同上 |
+| revision | `1` | **实测 `1`**（sysfs `revision`；配置空间 0x08） | 相同；Pong `:10`；证据同上 |
 | cnss 节点 | `/soc/qcom,cnss-qca6490@b0000000`；`use-nv-mac` 存在 → `nv_mac_required=true` | 同路径；`reg = <0xb0000000 0x10000>`、`reg-names="smmu_iova_ipa"`、`qcom,wlan-rc-num=<0>`；**无 `use-nv-mac`**；有 `qcom,wlan`、`qcom,wlan-cbc-enabled`、`use-pm-domain`、`cnss-enable-self-recovery`、`qcom,bus-bw-cfg` | 路径相同；属性差异见 K60 FDT；`pong:configs/pong-wifi-sm8475.json:20`、`:734`。K60 的 MAC 来源未核实（可能由固件/QMI 或本地生成） |
 | cnss WLAN 保留内存 | Pong profile 未记录 | `/reserved-memory/cnss_wlan_region` 32 MiB；`pcie0_rp/cnss_pci` 的 `memory-region` 指向它 | K60 FDT 实证；Pong 对应值未核实 |
 | GPIO | WLAN_EN 80、BT_EN 81、SW_CTRL 82、XO_CLK 204、PERST 94、CLKREQ 95、WAKE 96 | 完全相同 | K60 FDT 属性 `wlan-en-gpio/qcom,bt-en-gpio/qcom,sw-ctrl-gpio/qcom,xo-clk-gpio/perst-gpio/wake-gpio`；pinctrl：GPIO80 `gpio`、GPIO95 `pcie0_clkreqn`、GPIO94/96 `gpio`；Pong `:52-59`、`:574` |
@@ -241,7 +241,7 @@ proprietary-files.txt   固件清单（不存固件本体）
 | `max-clock-frequency-hz` | 15 项：`[3]=19200000`、`[11]=100000000` | 15 项：`[2]=0x124f800`（19.2 MHz）、`[10]=0x5f5e100`（100 MHz） | **不同索引**；K60 FDT 属性；Pong `:554-569`。Pong 的 `build-pong-wifi-native.py:55-56` 硬断言 `[11]==100000000`，直接套用会失败 |
 | `qcom,bw-scale` / interconnect | Pong 代码用 cmd-db `SN7` 带宽投票；profile 未记录 `qcom,bw-scale` | K60 FDT 有 `qcom,bw-scale`，并有 `/soc/interconnect@16c0000`（`qcom,waipio-pcie_anoc`） | K60 FDT 实证；K60 cmd-db `SN7` 是否存在 **未核实**（`PongWifiPlatform.cpp` 的 `bcmVote("SN7")` 会硬失败） |
 | SID / IOVA / MSI | iommu-map `0,93,0x1c00,1,0x100,93,0x1c01,1`；IOVA `0xA0000000`/256 MiB；MSI 4096 B；SPI140 | `iommu-map = <0 0x5b 0x1c00 1 0x100 0x5b 0x1c01 1>`；`qcom,iommu-dma-addr-pool=<0xa0000000 0x10000000>`；`qcom,iommu-msi-size=<0x1000>`；`interrupt-map` int_global_int=SPI140 | 相同（phandle 数值不同，SID/IOVA/SPI 相同）；K60 FDT；Pong `:112-121`、`:580-604` |
-| 目标链路速度 | `target_link_speed=2`（Gen2 x1，Pong REC CNSS 日志） | **未核实** | Pong `:575-576`；K60 需上机读 LTSSM/训练结果 |
+| 目标链路速度 | `target_link_speed=2`（Gen2 x1，Pong REC CNSS 日志） | **实测 5.0 GT/s ×1（Gen2）**；max 8.0 GT/s ×1（Gen3 能力） | 一致；Pong `:575-576`；K60 证据 `E:/k60-work/evidence/pci-id-20261114/link-awake.txt` |
 | 固件路径 | device `/mnt/pong-wifi-firmware/image/qca6490`；runtime `/pong/firmware/qca6490` | **未核实**（FDT 无 firmware-name；FEATURES 报告明确未核实） | Pong `:736-737`；`D:/Android/k60-ios/deliverables/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:90`、`:269` |
 | 固件文件清单 | `amss.bin`、`amss20.bin`、`m3.bin`、`regdb.bin`、`bdwlan*/bdwlang*` | **未核实**；需从 K60 modem/fsg/vendor 分区实列 | Pong `:738-744`；`pong:proprietary-files.txt:1-8`；K60 未列 |
 | `use-nv-mac` / MAC | `nv_mac_required=true`；`PongWifiPlatform.cpp:494-518` 在 `wlan_mac.bin` 缺失时用安装 UUID 生成 `Intf0MacAddress=02...` | K60 FDT 无 `use-nv-mac`；实际 MAC 来源 **未核实** | K60 FDT；Pong `:734`、`PongWifiPlatform.cpp:494-518` |
@@ -250,10 +250,10 @@ proprietary-files.txt   固件清单（不存固件本体）
 **差异结论（按影响排序）**：
 
 1. `max-clock-frequency-hz` 索引偏移是**构建级硬失败**：Pong 脚本 `build-pong-wifi-native.py:55-56` 检查 `[11] == 100000000`，K60 在 `[10]`。K60 profile 必须先按实际数组重算，并确认 `pci-msm` 的 refgen 时钟索引语义。
-2. `PongWifiPci.cpp:117` 硬校验 subsystem device `0x0108`；K60 如果不同，端点身份检查会拒绝。必须先读 K60 PCI 配置空间，或把身份检查参数化。
+2. `PongWifiPci.cpp:117` 硬校验 subsystem device `0x0108`；K60 实测同为 `0x0108`，检查不会拒绝。仍建议保留参数化以防换板/换批次。
 3. K60 没有 `vdd-wlan-ipa-supply`，只有 `qcom,vreg_ipa="s3e"`；Pong 的 `kPongWifiRails` 会按 7 条轨逐条查 cmd-db，K60 若照抄会多查一条不存在的 rail。K60 profile 应只生成 6 条已证实轨，IPA 作为可选分支（未核实）。
 4. `use-nv-mac` 缺失使 MAC 策略必须显式决定；不能直接假设 `wlan_mac.bin` 存在。
-5. `qcom,bw-scale`/`SN7`、目标链路速度、固件路径、子设备 ID、供电轨物理身份均需上机取证，不能从 Pong profile 直接抄。
+5. `qcom,bw-scale`/`SN7`、固件路径、供电轨物理身份仍需取证，不能从 Pong profile 直接抄；目标链路速度已实测 Gen2 x1（见 §2.2）。
 
 ---
 
@@ -318,12 +318,12 @@ proprietary-files.txt   固件清单（不存固件本体）
 |---|---|---|
 | `board` | `"mondrian"` | `board.toml:4` |
 | `soc` | `"SM8475"` | `board.toml:5` |
-| `pci.subsystem_vendor` / `subsystem_device` | 用 §4.0 读到的实际值；未读到就不填 | 防止 `PongWifiPci.cpp:117` 的 `0x0108` 误拒 |
-| `pci.revision` | 实际值 | §4.0 |
+| `pci.subsystem_vendor` / `subsystem_device` | **实测 `0x17CB` / `0x0108`**（2026-11-14） | 与 `PongWifiPci.cpp:117` 校验值一致；证据 `E:/k60-work/evidence/pci-id-20261114/pci-identity.txt` |
+| `pci.revision` | **实测 `1`** | 同上 |
 | `pcie.max_clock_frequency_hz` | 按 K60 FDT 的实际 15 项写；当前是 `[2]=0x124f800`、`[10]=0x5f5e100` | K60 FDT；Pong `:554-569` |
 | `rails` | 6 条 K60 FDT 专轨；`vdd-wlan-ipa` 暂不生成，除非 PMIC 取证证明 `smpe3` 可用 | K60 FDT；`PongWifiPlatform.cpp:163` 的 `kPongWifiRails` 会逐条查 cmd-db |
 | `pcie.gpio` / `regions` / `phy_sequence` / `power_domain` / `sid_map` / `dma` / `msi` | 全部按 K60 FDT 的已证实值；PHY 表可直接沿用 Pong（逐 cell 相同） | K60 FDT；Pong `:26-121`、`:122-533`、`:548-604` |
-| `target_link_speed` | 先写 `2`（Pong 先验），上机 LTSSM 确认后修正 | Pong `:575-576`；K60 未核实 |
+| `target_link_speed` | 写 `2`；已实测 5.0 GT/s ×1（Gen2）确认 | Pong `:575-576`；K60 `link-awake.txt` |
 | `nv_mac_required` | 按 K60 实测决定；若 K60 无 `use-nv-mac`，不要写死 true | K60 FDT；Pong `:734` |
 | `firmware.device_path` / `runtime_path` / `required` | 用 §4.0 实际路径和 §4.3 inventory 填；未核实前不写“已确认” | K60 FDT 无 firmware-name；`FEATURES...:90,269` |
 
@@ -405,7 +405,7 @@ build/pong-smmu4k/libPongSmmu4K.a
 |---|---|---|
 | `rail ... no observer channel` / `not ready` | K60 PMIC SPMI PPID/type/subtype；RSC `0x17a20000` 是否可读 | 先做只读 RSC/PMIC 探针；不要盲目改电压 |
 | `PCIe0 GDSC off` / `clock remains halted` | GCC `0x7b004`/`0x7b020-0x7b03c`；`qcom,bw-scale`；GPIO94/95/96/204 | 对照 Pong `PongWifiPlatform.cpp:185-260` 的冷启动顺序；K60 缺 `gdsc` 状态时不继续 MMIO |
-| `QCA6490 endpoint identity mismatch` | K60 subsystem device 是否 0x0108；vendor/device 是否 0x17cb/0x1103 | 用 §4.0 实读值填入 profile；或参数化 `PongWifiPci.cpp:117` 的检查（实施阶段） |
+| `QCA6490 endpoint identity mismatch` | 已实测：subsystem device `0x0108`、vendor/device `0x17cb/0x1103`，与 Pong 一致 | 直接用实测值填 profile；仍可参数化 `PongWifiPci.cpp:117` 的检查（实施阶段） |
 | `WiFi DMA page outside SM8475 output range` | XNU 可用内存页是否 < 36-bit；`pmap_valid_page` | 检查 K60 内存窗口/高端地址配置；不要请求 128 MiB 连续物理区 |
 | `MHI reason` / `RDDM` | `amss20.bin` vs `amss.bin` 选择；QMI chip/board ID；BDF 文件 | 用 Pong services81 的 chip/board 日志对照；换正确固件变体 |
 | 无 `QCA6490 station ready` | `nw_wifi_start` 返回值、`nw_wifi_step` 阶段、MAC 是否有效 | 先确认 MHI/QMI 完成、102 通道注册；再查 `wlan_mac.bin`/MAC |
@@ -427,7 +427,7 @@ build/pong-smmu4k/libPongSmmu4K.a
 | PongPower / QcomRpmh | **硬依赖**：`PongWifiPlatform.cpp:19-20` 包含 `QcomRpmh.h` 与 `../PongPower/PongPlatformResources.h`；`pong_rpmh_init/vote`、`pong_smmu_lease_lock` 不在 K60 树中 | 按 §4.1/4.4 添加 `drivers/PongPower` 或至少 `PongPlatformResources.cpp` + `QcomRpmh.c`；不添加则编译/链接失败 |
 | 构建环境 | Pong 的构建脚本是 macOS 路径（`pong_paths.py` 默认 `/Volumes/PongDev`，`build-pong-wifi-native.py` 用 `xcrun`）；K60 主线在 Linux/WSL 用 `/opt/unixnu-linux` | 需把 Pong 的 `pong_native_inputs/pong_paths` 和 `xcrun` 路径改成 K60 构建环境；**Linux 下 iOS SDK/xcrun 兼容性未核实**。建议首轮在 macOS 侧构建 `libPongAth11k.a`/`libPongWifiNative.a`，或把 Pong 的 clang 调用改成 K60 的 `xnu-host-cc`/`ld` 组合 |
 | iOS 16.6.1 ABI | 最大软件未知：`Pong80211UserClient` 0x3c30/selector 0/1/7 只对 22H374 有实证；association 0x384/0x250 分支有旧布局但 16.6.1 实际请求长度未核实；`OSMetaClass::preModLoad`、`IO80211Interface` 类继承需 8796 头文件验证 | 在写 `PongWifiNet` 的 16.6.1 适配前，先做 20G81 IO80211 二进制/头文件审计（见 §3）；否则可能在“station 已起、en0 不出现/wifid 不绑定”处停住 |
-| 子设备 ID / 端点身份 | `PongWifiPci.cpp:117` 硬校验 `0x010817cb`；K60 subsystem device 未核实 | §4.0 先读；若不同，实施时参数化或改校验；这是“第一行 dispatch 就失败”的风险 |
+| 子设备 ID / 端点身份 | `PongWifiPci.cpp:117` 硬校验 `0x010817cb`；K60 实测 subsystem device `0x0108`（264），与 Pong 相同 | 已有实测（`E:/k60-work/evidence/pci-id-20261114/`）；若换板再参数化 |
 | 固件路径 / 变体 | K60 firmware 路径/文件名未核实；`amss20.bin` vs `amss.bin` 由 TCSR major 选，BDF 由 QMI chip/board ID 选 | 按 §4.3 先做只读 inventory；没有 `bdwlang.elf`/`bdwlan.eXX` 就无法过 MHI BHI，后续全部免谈 |
 | OS 用户态 / launchd | K60 当前唯一硬阻断是 launchd（PID 1）SIGSEGV（`docs/state/STATE-2026-11-07.md:27-50`）；WiFi 内核侧可先跑，但 Settings/关联/DHCP 需要 OS 窗口 `apply()` 后 wifid 运行 | 把 WiFi 验证分两层：内核 L1-L6 不依赖 launchd；L7-L8 需要先按 `docs/plans/APPLY-PIPELINE.md` 修好 OS 窗口。不要因为 WiFi 日志出现就宣称系统可用 |
 

@@ -25,6 +25,7 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/IOMemoryDescriptor.h>
 #include <pexpert/pexpert.h>
+#include <kern/clock.h>
 
 namespace {
 
@@ -61,6 +62,22 @@ unsigned panel_on_done;
 unsigned panel_brightness = 0;
 int panel_on_result = -100;
 
+/* K60 FDT: MDSS0xae00000, INTF pages0x35000..0x38000. Same SM8475
+ * zizhan dpuBus/intfRate require GCC_DISP_AHB and DISP_CC_MDSS_AHB before
+ * any MDSS access: scanning alone does not imply the register clock is on.
+ * Never enable clocks; only INTF1's known inherited autorefresh may change. */
+IOMemoryDescriptor *probe_desc[7];
+IOMemoryMap *probe_maps[7];
+vm_offset_t probe_va[7];
+bool probe_enabled;
+uint64_t probe_started,probe_previous;
+uint32_t probe_frames[4];
+uint16_t probe_te[2];
+uint64_t probe_sampled[4];
+bool cadence_pending,cadence_verify;
+constexpr uint32_t IntfFrameCount=0xac,IntfTearAutorefresh=0x2b4;
+constexpr uint32_t CadenceInherited=0x8000003cu,CadenceEveryFrame=0x80000001u;
+
 void panel_log(const char *fmt, ...)
 {
 	char text[220];
@@ -73,6 +90,74 @@ void panel_log(const char *fmt, ...)
 
 inline uint32_t dsi_rd(uint32_t off) { return *(volatile uint32_t *)(dsi_map + off); }
 inline void dsi_wr(uint32_t off, uint32_t v) { *(volatile uint32_t *)(dsi_map + off) = v; }
+
+vm_offset_t probe_page(unsigned slot,uint32_t physical)
+{
+    if(!probe_va[slot]) {
+        probe_desc[slot]=IOMemoryDescriptor::withPhysicalAddress(physical,4096,
+            slot==4?kIODirectionInOut:kIODirectionIn);
+        if(probe_desc[slot])probe_maps[slot]=probe_desc[slot]->map();
+        if(probe_maps[slot])probe_va[slot]=probe_maps[slot]->getVirtualAddress();
+    }
+    return probe_va[slot];
+}
+uint32_t probe_read(vm_offset_t base,unsigned offset)
+{
+    return *reinterpret_cast<volatile uint32_t *>(base+offset);
+}
+
+/* Qualcomm-authored SM8475 register facts, mirrored (not a matched K60
+ * vendor release): crdroidandroid/android_kernel_xiaomi_sm8475-modules
+ * commit 98f72d675c093d88eab7bbe1162da725c580a428,
+ * qcom/opensource/display-drivers/msm/sde/sde_hw_intf.c:79-110,675-711:
+ * INTF-relative 0x2b4, bit31 enable, low16 frame_count; hardware setter
+ * writes enabled count directly. sde_connector.c:36-37 says refresh occurs
+ * after FRAME_CNT frames. Count1 removes the inherited 60-frame divider;
+ * it does not change panel TE frequency or establish a 120Hz display mode.
+ * https://github.com/crdroidandroid/android_kernel_xiaomi_sm8475-modules/blob/98f72d675c093d88eab7bbe1162da725c580a428/qcom/opensource/display-drivers/msm/sde/sde_hw_intf.c#L675-L711
+ * Only adopt the live command-mode ABL state after a real INTF1 counter
+ * advance. Unknown states belong to their owner and are never rewritten. */
+void cadence_update(vm_offset_t base,uint32_t frames,uint32_t delta,uint64_t milliseconds,
+    vm_offset_t gcc,vm_offset_t dc,vm_offset_t power)
+{
+    const uint32_t refresh=probe_read(base,IntfTearAutorefresh);
+    if(cadence_verify) {
+        panel_log("K60 CADENCE: INTF1 post-write ms=%llu frames=%u delta=%u auto=%#x readback=%s\n",
+            milliseconds,frames,delta,refresh,refresh==CadenceEveryFrame?"match":"changed");
+        if(refresh!=CadenceEveryFrame || (delta && delta<0x80000000u))cadence_verify=false;
+        return;
+    }
+    if(!cadence_pending || !delta || delta>=0x80000000u)return;
+    cadence_pending=false; /* exactly one qualified attempt, never a per-frame writer */
+    if(!dsi_map || (dsi_rd(DsiHwVersion)>>28)!=2 || (dsi_rd(DsiCtrl)&5u)!=5u ||
+        probe_read(base,0x288)!=0x00180064u || refresh!=CadenceInherited) {
+        panel_log("K60 CADENCE: INTF1 active delta=%u auto=%#x; inherited command state changed, no write\n",
+            delta,refresh);
+        return;
+    }
+    /* Recheck the existing clock/power guards immediately before the sole
+     * write, and re-read the exact state to avoid overwriting another owner. */
+    if((probe_read(gcc,4)&0x80000000u) || (probe_read(dc,0xa4)&0x80000000u) ||
+        !(probe_read(power,0)&0x80000000u)) {
+        panel_log("K60 CADENCE: INTF1 clock/power state changed; no write\n");
+        return;
+    }
+    const uint32_t before=probe_read(base,IntfTearAutorefresh);
+    if(before!=CadenceInherited) {
+        panel_log("K60 CADENCE: INTF1 auto changed to %#x; no write\n",before);
+        return;
+    }
+    *reinterpret_cast<volatile uint32_t *>(base+IntfTearAutorefresh)=(before&~0xffffu)|1u;
+    __asm__ volatile("dsb sy" ::: "memory");
+    const uint32_t after=probe_read(base,IntfTearAutorefresh);
+    panel_log("K60 CADENCE: INTF1 autorefresh count60->1 before=%#x after=%#x readback=%s prior_ms=%llu frames=%u delta=%u\n",
+        before,after,after==CadenceEveryFrame?"match":"mismatch",milliseconds,frames,delta);
+    if(after==CadenceEveryFrame) {
+        probe_frames[1]=probe_read(base,IntfFrameCount);
+        probe_sampled[1]=mach_absolute_time();
+        cadence_verify=true; /* report actual subsequent transfers, never software FPS */
+    }
+}
 
 bool dsi_init(void)
 {
@@ -241,7 +326,63 @@ extern "C" bool pong_panel_bringup(void)
 	panel_brightness = 0xff;
 	panel_on_result = 0;
 	panel_log("K60 PANEL: bring-up complete (0x11/0x29/0x51), MDP-busy waits=%u\n", dsi_mdp_waits);
+    unsigned probe=0;
+    probe_enabled=PE_parse_boot_argn("gprobe",&probe,sizeof(probe)) && probe==1;
+    cadence_pending=true;
 	return true;
+}
+
+extern "C" void pong_panel_sample(void)
+{
+    if(panel_on_result!=0 || (!probe_enabled && !cadence_pending && !cadence_verify))return;
+    const uint64_t now=mach_absolute_time();
+    uint64_t elapsed=0;
+    if(probe_started) {
+        absolutetime_to_nanoseconds(now-probe_started,&elapsed);
+        if(elapsed>=120*NSEC_PER_SEC) {
+            if(cadence_pending || cadence_verify)
+                panel_log("K60 CADENCE: bounded correction window expired pending=%u verify=%u\n",
+                    unsigned(cadence_pending),unsigned(cadence_verify));
+            probe_enabled=false;cadence_pending=false;cadence_verify=false;return;
+        }
+        absolutetime_to_nanoseconds(now-probe_previous,&elapsed);
+        if(elapsed<5*NSEC_PER_SEC)return;
+    } else probe_started=now;
+    for(unsigned i=0;i<4;++i)if(probe_sampled[i] && now-probe_sampled[i]>now-probe_previous)probe_sampled[i]=0;
+    probe_previous=now;
+    const vm_offset_t gcc=probe_page(0,0x00137000);
+    if(!gcc){if(probe_enabled)panel_log("K60 CADENCE: no GCC mapping; no display register reads\n");return;}
+    const uint32_t gate=probe_read(gcc,4);
+    if(gate&0x80000000u) {
+        if(probe_enabled)panel_log("K60 CADENCE: GCC_DISP_AHB off=%#x; skip DISPCC/MDSS\n",gate);return;
+    }
+    const vm_offset_t dc=probe_page(1,0x0af08000),power=probe_page(2,0x0af09000);
+    if(!dc || !power){if(probe_enabled)panel_log("K60 CADENCE: no DISPCC mapping; skip MDSS\n");return;}
+    const uint32_t ahb=probe_read(dc,0xa4),gdsc=probe_read(power,0);
+    if((ahb&0x80000000u) || !(gdsc&0x80000000u)) {
+        if(probe_enabled)panel_log("K60 CADENCE: MDSS gate=%#x power=%#x; skip MDSS\n",ahb,gdsc);return;
+    }
+    for(unsigned i=0;i<4;++i) {
+        if(!probe_enabled && i!=1)continue;
+        const vm_offset_t base=probe_page(3+i,0x0ae35000+i*4096);
+        if(!base){probe_sampled[i]=0;if(probe_enabled)panel_log("K60 CADENCE: INTF%u mapping unavailable\n",i);continue;}
+        const bool previous=probe_sampled[i]!=0;
+        uint64_t span=0;
+        if(previous)absolutetime_to_nanoseconds(now-probe_sampled[i],&span);
+        const uint64_t milliseconds=span/NSEC_PER_MSEC;
+        const uint32_t frames=probe_read(base,IntfFrameCount);
+        const uint32_t delta=previous?frames-probe_frames[i]:0;
+        probe_frames[i]=frames;
+        probe_sampled[i]=now;
+        if(probe_enabled && (i==1 || i==2)) {
+            const uint16_t te=uint16_t(probe_read(base,0x298)>>16);
+            const uint16_t count=previous?uint16_t(te-probe_te[i-1]):0;
+            probe_te[i-1]=te;
+            panel_log("K60 CADENCE: INTF%u ms=%llu frames=%u delta=%u te=%u delta=%u auto=%#x sync=%#x\n",
+                i,milliseconds,frames,delta,unsigned(te),unsigned(count),probe_read(base,IntfTearAutorefresh),probe_read(base,0x288));
+        } else if(probe_enabled)panel_log("K60 CADENCE: INTF%u ms=%llu frames=%u delta=%u\n",i,milliseconds,frames,delta);
+        if(i==1 && (cadence_pending || cadence_verify))cadence_update(base,frames,delta,milliseconds,gcc,dc,power);
+    }
 }
 
 extern "C" int pong_panel_set_brightness(uint32_t level)

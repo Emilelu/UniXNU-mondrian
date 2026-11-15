@@ -19,7 +19,12 @@ REPO = os.path.abspath(os.environ.get('K60_REPO')
                       or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 构建输入镜像。默认是共享目录；并行工作时用 K60_DEVICE_INPUT 指向自己的一份，
 # 否则谁最后同步谁就决定了别人构建用的补丁集（P-184 同类问题）。
-DEV = os.environ.get('K60_DEVICE_INPUT') or '/opt/k60/trees/usb-cdc-mainline/device'
+# 只读的 --check 允许用共享目录做对照（registry 的 iron-5 没有调用者镜像可用），
+# 但任何写操作都必须显式 K60_DEVICE_INPUT。
+DEV = os.environ.get('K60_DEVICE_INPUT')
+if DEV is None and '--check' not in sys.argv[1:]:
+    sys.exit('sync-device-input: K60_DEVICE_INPUT is not set; refusing to write the shared device tree. Export your own mirror (P-184 sibling: the wifi line once forgot it and cross-polluted the shared tree).')
+DEV = DEV or '/opt/k60/trees/usb-cdc-mainline/device'
 # 单一工作树时才写这份共享镜像。多 agent 并行时每人有自己的 K60_DEVICE_INPUT，
 # 若仍写同一个文件，最后同步的人就决定了别人 porting-gate 看到的 series
 # （2026-11-14 五个 agent 同时工作后实测：BT 的 0507 出现在 Lead 的树里）。
@@ -42,6 +47,9 @@ FRAMEWORK_PAIRS = [
 ]
 
 ITEMS = [
+    # Fresh device inputs need both feed declarations and their resolved pins.
+    'feeds.toml',
+    'unixnu.lock',
     'board.toml',
     'porting.toml',
     'local.toml',

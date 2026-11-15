@@ -29,6 +29,26 @@
 **所有**文件都打进 PWF2 包。直接指向原始目录会得到 13,029,078 B / 10 个文件的包，
 把无关的 `Data.msc`、`bd_*.elf` 全塞进内核镜像。
 
+> 2026-11-14 复核：本机副本 `firmware/qca6490/` 里这四个文件的大小与 sha256 **逐字节一致**（重算通过）。
+> 但**未能与设备再核对**：设备当时在 fastboot，`adb devices` 为空，读不到 `/vendor/firmware_mnt/image/qca6490/`。
+> 因此「与设备一致」只能算 2026-11-12 那次提取的记录，不是本次实测。
+
+## 目录里的其余文件（2026-11-14 实测）
+
+| 文件 | 大小 | sha256 |
+|---|---|---|
+| `m3.bin` | 266,684 | `ad234ac8879e29a113893b87dc90335cff8eb89717580d5a06a49e7b9e322ed7` |
+| `regdb.bin` | 24,278 | `06810e85c94c8f412c4e72cb38546cac90db7fdbadd45aae00f977f862d38a7b` |
+| `regdb_xiaomi.bin` | 24,278 | `b7647cde6c6b157c11d2ed54f4da74abce653a3d70456e52665292369e560588` |
+| `bdwlan.elf` | 59,932 | `2ddf43c01f2ef490cd5128c56e6ef0f8704dbc675a351ea37d8ae6eb93404231` |
+| `bdwlang.elf` | 59,936 | `895d5028b5a40f9e0ca84c0f3ac9619d5f99f97d0f36031310f2638f4c7e002b` |
+
+**「六文件」的说法要作废**：构建脚本（`patches/wifi/0009`）实际断言的是
+`amss.bin` + `amss20.bin` + `m3.bin` + `regdb.bin`，外加必须存在任一 `bdwlan.*`（board data），
+`Data.msc`/`Data20.msc` 没有被断言。
+
+本地存放位置（不在仓库里，因为文件太大）：`<workspace>/firmware/qca6490/`
+
 ---
 
 ## 2. PWF2 包结构（实测，可作 ⑦ 产物检查判据）
@@ -52,6 +72,12 @@ offset 4096: 第一个 payload（4 KiB 对齐起点）
 | `regdb.bin` | 11,042,816 | 24,278 |
 
 校验方式：
+
+~~`bd_*.elf` 共 42 个（蓝牙固件，每个约 60 KB）没有提取 —— 那是蓝牙移植用的，WiFi 不需要。~~
+
+**这条不成立（2026-11-14 更正）**：`bdwlan.elf` / `bdwlang.elf` 是 **WiFi 的 board data**，不是蓝牙。
+`patches/wifi/0009` 的 `build.patch:937` 明确 `if not any(f['name'].startswith('bdwlan.') for f in inventory): raise RuntimeError('Missing board data')`，
+`build.patch:110` 还按 `chip_id & 0x10` 在 `bdwlang` / `bdwlan` 之间选前缀。两者都已在本机副本里。
 
 ```bash
 python3 - <<'PY'
@@ -115,7 +141,7 @@ QMI 返回的 board_id/chip_id 现场拼文件名（`id==0xff` → `"%s.elf"`；
 | `regdb_xiaomi.bin` | 24,278 | 小米改版 regdb（sha256 `b7647cde6c6b157c11d2ed54f4da74abce653a3d70456e52665292369e560588`）|
 | `bdwlan.elf` / `bdwlang.elf` | 59,932 / 59,936 | BDF，见上 |
 | `bdwlan.e01`..`ee1` | ~160 个 | BDF 变体 |
-| `bd_*.elf` | 42 个，各约 60 KB | 蓝牙固件，WiFi 不需要 |
+| `bd_*.elf` | 42 个，各约 60 KB | 蓝牙固件；`bdwlan.elf`/`bdwlang.elf` 例外，是 WiFi board data（2026-11-14 更正，见 §1 末）|
 
 设备上原始权限 `-r--r----- system system`，普通 adb 可读。
 

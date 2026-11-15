@@ -23,6 +23,10 @@ K60 采用的版本是 `patches/wifi/0001`（源自 zizhan `087416a`），应用
 `drivers/PongWifi/PongWifiPlatform.cpp` 为 **736 行**，比 Pong 版多 119 行
 （K60 profile 解析、6 条 rail、boot-arg 门控）。
 
+82 条 PHY 表已提取并换算成绝对地址（出处：K60 live FDT `qcom,phy-sequence` = 984 B，984/12 = 82 项，`fdt_dump.txt:16463`）。
+
+**「46 步寄存器序列」这个数字查无出处**：`PongWifiPlatform.cpp` 全文 `log(` 只有 14 次、无「46」字面，`impl/wifi` 全树 grep「46 步 / 46 steps」0 命中。写作「coldLink() 的寄存器写入序列」即可，不要保留具体步数。
+
 ---
 
 ## 2. ③ 反编译补证：四个关键值的逐项出处
@@ -40,6 +44,26 @@ K60 采用的版本是 `patches/wifi/0001`（源自 zizhan `087416a`），应用
 | 代码 | `PongWifiPlatform.cpp:639` | `board={...,0x1103,...}` —— `nw_board.device_id` |
 | Linux 对照 | `linux-7.0.14/.../ath11k/pci.c:32` | `#define WCN6855_DEVICE_ID 0x1103` |
 
+### 2.1a 端点与 MSI 的一页汇总（2026-11-14 回溯）
+
+`@
+端点       17CB:1103
+subsys     17CB:0108
+BAR0       0x60200000 / 2 MiB
+SID        root 0x1C00 / BDF100 → 0x1C01
+IOVA       0xA0000000（DT pool 256 MiB，代码用 64 MiB arena）
+MSI        Pong: PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)；K60 运行时: ITS-MSI 32 向量（299-330）
+`@
+
+**每一项的出处（2026-11-14 回溯；端点 ID / BAR0 为实机实测）**：
+
+- `17CB:1103` —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/{vendor,device}` = `0x17cb`/`0x1103`，配置空间 0x00 = `cb 17 03 11`（`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`、`config64-attempt2.txt`）。Pong 侧：`configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`。
+- `subsys 17CB:0108` —— **K60 实测**：`subsystem_device` = `0x0108`（264），配置空间 0x2c = `cb 17 08 01`（同上证据）。Pong 侧：`PongWifiPlatform.cpp:344` 的校验值 `cfg.r(0x2c)!=0x010817cb`（`PongWifiPci.cpp:117` 同值）。
+- `BAR0 0x60200000` / **2 MiB** —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/resource` 第 1 行 `0x0000000060200000 0x00000000603fffff 0x0000000000140204`（2 MiB），`/proc/iomem` 为 `60200000-603fffff : 0000:01:00.0`（`E:/k60-work/evidence/pci-id-20261114/resource.txt`、`iomem-pci.txt`）。Pong 代码：`PongWifiPlatform.cpp:354` `bar.open(0x60200000,0x200000)`。**基址与大小均有实测。**
+- `SID 0x1C00 / 0x1C01` —— live FDT `qcom,smmu-sid-base = <0x1c00>`、`iommu-map = <0x0 0x5b 0x1c00 0x1 0x100 0x5b 0x1c01 0x1>`（`fdt_dump.txt:16446-16447`）。
+- `IOVA 0xA0000000` —— Pong `PongWifiPlatform.cpp:43`；K60 live FDT `qcom,iommu-dma-addr-pool = <0xa0000000 0x10000000>`（`fdt_dump.txt:16482`，256 MiB pool），代码用 64 MiB arena（`:46`）。
+- `MSI SPI140 / INTID 172` —— Pong `PongWifiPlatform.cpp:45` `PcieGlobalIntid=32+140, ParfMsi0=1u<<23`；K60 live FDT `interrupt-map` 解析 child_int 0→SPI140（+32 = GIC 172），脚本 `scratch/refmine/imap2.py`。**注意**：K60 运行时 `/proc/interrupts` 显示该端点实际使用 ITS-MSI 524289..524306（32 向量）供 `mhi`/`pci0_wlan_ce_*`/`pci0_wlan_grp_dp_*`（`interrupts.txt`、`msi_irqs.txt`）；「PARF MSI0→SPI140」是静态 DT 推导，实际 MSI 路由需再核。
+
 `cfg.r(0)` 读的是 PCI 配置空间偏移 0 的 32 位，低 16 位 device、高 16 位 vendor，
 所以期望值 `0x110317cb` = vendor 0x17cb + device 0x1103。**这是"端点可枚举"的最小判据。**
 
@@ -47,6 +71,14 @@ subsystem 值在补丁版里**不再作为门禁**：zizhan 实测 `0x010817cb`�
 写 `subsystem_device=264`，两者不一致但链路正常。K60 profile
 `configs/mondrian-wifi-sm8475.json` 因此把 `subsystem_vendor`/`subsystem_device`
 都设为 0 并只记录不校验。
+
+`patches/wifi/` 已有 **0001-0010 共 10 个补丁，合计 211,731 B（206.8 KiB）**，含：
+- 14 个 PongWifi 文件
+- K60 profile
+- 4 个构建脚本
+- defconfig
+- UFS lease/ready
+- DTPlatform 钩子
 
 ### 2.2 BAR0 基址 0x60200000 / 2 MiB
 
@@ -62,6 +94,12 @@ subsystem 值在补丁版里**不再作为门禁**：zizhan 实测 `0x010817cb`�
 memory 窗口从 `0x60200000` 开始，长度 `0x100000`（1 MiB）落在 mem32 段，
 prefetch 段接着 `0x60300000`+`0x3d00000`。DBI 编程 `dbi.w(0x20, 0x63f06020)`
 （Type-1 memory aperture）覆盖到 `0x63ffffff`，与 ranges 的并集一致。
+
+**补丁落库状态（2026-11-14）**：
+
+- **没有 applier 脚本读 `patches/wifi/series`**：`scripts/` 全域 grep `patches/wifi` 0 命中 —— 系列文件存在也**不会自动应用**。
+- ~~README 说必需的 `0010` 不存在~~ **已补**：`0010-scripts-build-xnu-wifi-archive.patch`（1,629 B）与 `patches/wifi/series`（10 行）都已落库（提交 `4fe2f52`）。仍需人工按 series 应用；README 表格里的旧名 `0010-scripts-build-xnu-4k-baseline-wifi.patch` 与实际文件名不一致。
+- 工作树里 `drivers/PongWifi`、`configs/mondrian-wifi-sm8475.json`、`nw_abi.h` 都不存在 —— 补丁从未落盘。
 
 ### 2.3 IOVA 0xA0000000（DT 256 MiB 池 / 代码 64 MiB arena）
 
@@ -357,17 +395,18 @@ Undefined symbols for architecture arm64:
 |---|---|---|---|
 | 1 | 修 refgen 索引并参数化 | 一行 bug，不修必然失败 | ✅ 补丁里已是 10u |
 | 2 | 决定 RSC 策略 | 只读探针 or 信任 bootloader 已上电的 fallback | 0003 已实现两级门，待上机验证 |
-| 3 | 补 0010 force_load + 建 `patches/wifi/series` | 否则 232 KB 永远不生效 | 0010 ✅ / series 引用 ❌（Lead 合并项）|
+| 3 | 补 0010 force_load + 建 `patches/wifi/series`，并写一个读 series 的 applier | 否则 232 KB 永远不生效；系列与 0010 都已落库但没有脚本应用它 | 0010 ✅ / series 引用 ❌ / applier ❌（Lead 合并项）|
 | 4 | 从设备提固件生成真 PWF2 | 只读提取，设备在线时可做 | ✅ 已取回并打包 |
 
 ---
 
 ## 结论
 
-**WiFi 是三块空白区里最接近可用的**：代码有了（1,919 行）、补丁有了（10 个，全部
-干净应用）、主机侧编译过了、固件拿到了、③ 反编译真值逐项落库。
+**WiFi 是三块空白区里最接近可用的**：代码有了（Pong 5 个实现文件 1,771 行，2026-11-14
+实测更正——原写 1,919 是误计）、补丁有了（10 个 / 211,731 B，全部干净应用）、
+主机侧编译过了、固件拿到了、③ 反编译真值逐项落库。
 
-剩下的全部是**接线**：让 device 仓的 `patch_series` 引用 `patches/wifi/series`、
+剩下的全部是**接线**：让 device 仓的 `patch_series` 引用 `patches/wifi/series`（目前没有脚本读它）、
 切到 `mondrian_wifi_defconfig`、把 archive 路径传进构建环境。三处都不涉及新代码。
 
 这是「有但没接线」的典型，和 `0403` 固件补丁、`1e1a70e` ADT 修复同一个模式。

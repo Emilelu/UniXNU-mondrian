@@ -17,6 +17,7 @@
  * archive is scanned before that reference is known.
  */
 extern "C" bool pong_panel_bringup(void);
+extern "C" void pong_panel_sample(void);
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
 namespace {
 IOLock *scanout_gate;
@@ -167,6 +168,7 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
         IOLockUnlock(scanout_gate);return 2;
     }
     bool ok=pending.done && !pending.status;
+    if(ok)pong_panel_sample();
     if(ok && completed++<3)note("GPU frame completed",pending.id,0);
     if(pending.map)pending.map->release();
     (void)pending.memory->complete();pending.memory->release();pending={};

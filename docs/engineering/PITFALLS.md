@@ -4716,3 +4716,507 @@ total = len(head) + sum(size for _, size, _ in files)
 **Check.** `python3 scripts/check-metal-blob.py` 与
 `python3 scripts/tests/test-check-metal-blob.py`；真机判据
 `K60METAL deploy files=6/6`。
+
+## P-197 — 固件没实现的能力，不能写成"已经做了"
+
+**现象.** 蓝牙 S4 方案（让固件把 `<kernel>.gpuaddon` 拷进 boot window 并在
+`/chosen/memory-map/GpuAddon` 发布运行地址）连飞两次都失败，日志只有一行
+`[bluetooth] addon: unusable range 0 0`
+（`usblog-20261115-012913/console.log:192`）。容器确实在 payload 里：
+`mdir -i boot.img@@557056 -/ ::/EFI/UniXNU/PAYLOADS` 列出
+`kernel.macho.gpuaddon 1027584`，ADT 里也确实有 `GpuAddon` 属性名。于是三轮
+排查都花在参数、容器格式、内核 reader 上。
+
+**根因.** 那句"DarwinBoot 已经把 … 拷进 boot window（DarwinBoot.c:588-651）"
+是**假设，不是实测**。实测：
+
+```
+$ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
+（零命中）
+```
+
+`Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c` 的 ADT 扫描器只处理八个
+属性：`name`、`RAMDisk`、`PackedRAMDisk`、`darwinboot-memory-ranges`、
+`pong-allocatable-ram`、`pong-audio-dma`、`TrustCache`、
+`darwinboot-memory-size` —— 没有 `GpuAddon`。原文 588-651 行是
+`WritePongRam`/`Boot` 的开头，与 addon 无关。而
+`scripts/unixnu/devicetree.py:339` 的
+`mappings += [('GpuAddon', bytes(16))] if addon else []`
+只写了一个 16 字节占位，等固件回填 paddr/length。固件不认 → 全零 → 内核
+`range->paddr == 0` → `k60_addon_note("unusable range", 0, 0)`。
+
+**为什么没被门禁拦到.** 框架生成的 ADT 里属性名是对的，`verify-boot-image.py`
+只比对文件哈希，`mdir` 只证明容器在 payload 里。三者都真，合起来却不足以让
+内核看到它——**"文件在镜像里"和"内核能读到"之间隔着固件这一步**，而没有任何
+门禁检查固件那一侧。
+
+**修法.** ① `scripts/make-bt-firmware-addon.py` 的 docstring 改成实测结论
+（打包器仍然正确，但明确写"当前固件不会发布这个 range"）；② 要让 S4 真正
+可用，得在 `uefi-mondrian` 的 `DarwinBoot.c` 的 ADT 扫描器里加一个 `GpuAddon`
+分支（从 payload FAT 读 `<kernel>.gpuaddon` → 分配页 → 回填 16 字节），或改用
+别的载体（Data seed / 内核内嵌 blob，后者有 `k60_metal_blob.s` 先例）。
+
+**教训.**
+- 跨仓能力必须跨仓验证：写"固件已经做了 X"之前，先在**固件仓**里
+  `git grep` 一次 X。同一个词在三个仓里出现，不等于三处都实现了。
+- 三件真事凑不成一件真结论：属性名对、容器在、哈希对，都不能推出"内核读得到"。
+  中间那一步（固件回填）必须有独立的可观测证据。
+- 零值是最贵的失败形态：`unusable range 0 0` 只说"值是零"，不说"谁没填"。
+  看到零先问"这一步该由谁填"，再问"那个代码存在吗"。
+- 一处错误注释会传染：`patches/bt/0004` 与 `patches/xnu/0510` 的补丁注释也抄了
+  同一个假设，两份补丁一起把假前提变成了"设计依据"。
+
+**Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
+必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
+真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
+（旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
+载体实现见 `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
+
+## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
+
+**现象.** 2026-11-15 两个 agent 拿 `boot.json` 比对镜像，得出互相矛盾的结论：
+一方说「mhi3/mhi4 的内核逐字节相同，所以变量只有内存窗口」，另一方说「内核
+不同」。两边都没量错文件，是**字段名错了**。
+
+**实测.** `E:\k60-work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
+`kernel_sha256` **全是** `83b52b566b9cd0e0a2f13854f7da4c67…`：
+
+```
+wifi-20261116a2        83b52b56…   manifest.payload_kernel e273b649…
+wifi-20261116mhi4      83b52b56…   manifest.payload_kernel e24a58f1…
+wifi-20261116mhi5      83b52b56…   manifest.payload_kernel ac7a152f…
+springboard-20261115a  83b52b56…   manifest.payload_kernel 50a81744…
+thermal-20261115a      83b52b56…   manifest.payload_kernel 7bb198a0…
+brightness-9           83b52b56…   manifest.payload_kernel 1c5ca5d4…
+gpu-20261114t          83b52b56…   manifest.payload_kernel cafdb5df…
+touch-20261114a        83b52b56…   manifest.payload_kernel e849ae6b…
+```
+
+**根因.** 框架 `scripts/unixnu/bootimg.py:161` 写的是
+
+```python
+return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), ...}
+```
+
+这里的 `kernel` 是 **boot image 的 kernel 槽** = `gzip(112 字节 shim + 3,145,728 字节固件卷) + 4,024 字节 DTB`。
+固件卷一直是 `cf448571…`，shim 是确定的，所以这个哈希对所有用同一固件卷的镜像
+恒等。**真正的 XNU 内核在 ramdisk FAT 的 `EFI/UniXNU/Payloads/kernel.macho` 里**，
+它的哈希在 `build-manifest.json` 的 `components.payload_kernel`。
+
+**为什么没被门禁拦到.** 字段名 `kernel_sha256` 看起来就是内核；`verify-boot-image.py`
+比对的是 manifest 里正确的那个键，所以门禁一直绿。两边都对，但人是按字段名理解的。
+
+**修法.** ① 比内核身份一律用 `build-manifest.json` 的 `components.payload_kernel`
+（或 `mcopy` 出 payload 里的 `kernel.macho` 直接 `sha256sum`），**不要用 `boot.json`
+的 `kernel_sha256`**；② `boot.json` 那个字段应理解为「固件槽哈希」，它有用处
+（证明两张镜像用的是同一个 FD），但和内核无关；③ 需要内核身份时补一条
+`payload_kernel_sha256` 字段，别指望读的人自己分辨。
+
+**教训.**
+- 字段名是一种断言。叫 `kernel_sha256` 却量固件卷，等于在误导每一个读它的人，
+  而且不会有任何门禁报错。
+- 两个 agent 得出矛盾结论时，先查「各自量的到底是哪个文件」，再谈谁对——
+  这次两边都没错，错的是命名。
+- 「所有镜像这个值都一样」本身就是可疑信号：镜像内容明明不同，怎么可能同一个哈希。
+  看到跨镜像恒等的哈希，第一反应应该是「这量的是共同部分」。
+- 三方对账法：`boot.json`（槽哈希）× `build-manifest.json`（payload 内核哈希）×
+  `mcopy` 出来的实际文件（地面真值）。三者对不上时，以地面真值为准。
+
+**Check.** 比内核身份时 `python3 -c "import json;print(json.load(open('<tag>/build-manifest.json'))['components']['payload_kernel'])"`，
+或直接 `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho k && sha256sum k`。
+
+## P-201 — 绕过 build-strict.sh 造的对照镜像，证据等级自动降一级
+
+**现象.** wifi 线的 `wifi-20261116a2` 是"对照镜像"：65,978,368 B 内核、
+`pong_wifi=0`、无 MHI 注入，本来是摘掉 wifi 驱动这个变量的干净对照。但它的
+`build-manifest.json` 只有四个键（tag / note / components / kernel_args），
+**没有 series / repo / frozen / gates**，note 写着
+`trial build outside build-strict.sh (flash gate blocked by the touch line)`。
+
+**为什么这是问题.** 没有 series 指纹，就无法证明这张镜像用的是哪一套补丁；
+没有 gates 记录，就无法知道八步门禁当时是过还是被绕过。上机之后如果它死了，
+你无法排除"它其实是另一套源码"，于是这个对照什么也证明不了——白烧一次窗口。
+
+**背景（当时的正当理由）.** 造 a2 时八步 `--flash` 门禁被触摸线卡住（触摸 ⑦⑧
+未完成），`build-strict.sh` 直接拒绝，只能手工打包。这个理由在**当时**成立，
+但产物必须被标记成低等级证据，而不是当普通镜像用。
+
+**修法.**
+- 手工打包的镜像一律在 tag 里带 `-trial`，note 写清绕过了什么、为什么；
+- 判定器/对账脚本看到没有 `series` 键的 manifest，就把结论降级成
+  "结构性观察"，不许当作"变量已隔离"的证据；
+- 门禁恢复后，同一个对照必须用 `build-strict.sh` 重出一张，用新镜像做判决；
+- 遮挡门禁的线（这次是触摸）修好后，回头把 trial 镜像重新出成正式镜像。
+
+**教训.**
+- "证据等级"不是抽象概念：manifest 里少了哪几个键，就少了哪几种反驳能力。
+  没有 series 指纹 = 无法反驳"源码可能不同"。
+- 绕过门禁时留的 note 会救你一次，但它只说明"为什么绕过"，不说明"结果可信"。
+- 对照实验的成本是窗口，不是构建时间；用一张身份不可复核的镜像去换一个窗口，
+  是亏的。
+
+**Check.** `python3 -c "import json;print(sorted(json.load(open('<tag>/build-manifest.json'))))"`
+—— 缺 `series` 就是 trial 级。
+
+## P-202 — 构建时静默丢掉特性，以及门禁去评一个旧文件
+
+两条都是 2026-11-15 thermal 线当"环境坑"报上来的，核完发现是 main 自己的 bug。
+
+**现象 A：`build-strict.sh` 在没有 `.config` 时静默关掉两个特性。**
+脚本头部的 Guarantees 明写 "no silent fallbacks"，但第 106 行与第 124 行是
+`GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)` 与
+`BATTERY_ON=$(sed -n ... CONFIG_XNU_K60_PHYSICAL_BATTERY ...)`。`.config` 不存在时
+`sed` 只往 stderr 打 `sed: can't read …/.config`，两条命令都返回空串 → 两个 `if`
+都不进 → 内核既没有 Metal 插件也没有电池归档，而脚本照样一路走到 `verify-boot-image: OK`。
+`build-strict.sh` 自己从不生成 `.config`（`grep defconfig` 只有两行注释/echo），
+所以"全新 `K60_OUT`"这条正常路径必然踩到。实测症状：thermal 线 rebase 后首次构建
+被 hard-38 拒（`CONFIG_XNU_GPU_ADDON missing from generated config …; expected y`），
+audio 线 `audio-probe-20261115l` 的 `payload_kernel` 只有 54,181,888 B 而带
+GPU_ADDON 的应是 105 MB 级 —— 它就是这张坑的产物，且 manifest 里连
+`kernel_args_requested` 键都没有（旧版脚本）。
+
+修法：在 `M=`/`KERNEL=` 之后加一条硬失败
+`[ -f "$M/.config" ] || die "no $M/.config; generate it first: …unixnu defconfig …"`。
+
+**现象 B：`check-kernel-archives.py` 的 `find_kernel()` 拿"路径排序第一个"当本次内核。**
+`for board in sorted(base.glob("*/")): for candidate in sorted(board.glob("*/kernel/kernel.macho"))`
+—— 上一次构建留下的 `kernel.macho` 会被当成这一次的，于是 P-190 报
+`CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol is in kernel.macho`
+（brightness-1 实测），而真正的原因是它在评旧文件。`build-strict.sh:259` 显式传
+`--kernel "$KERNEL"` 所以主路径不受影响，但**单独跑门禁时它评的不是你以为的文件**。
+thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 skip 分支 ——
+一个门禁把人逼到"把文件挪走让它跳过"，说明门禁判据错了。
+
+修法：按 `st_mtime` 取最新，多于一个时往 stderr 打一行提示并点名，提醒调用者用
+`--kernel` 明确指定。
+
+**教训.**
+- "silent fallback" 不是靠注释禁止的：只要有一条 `sed` 读不到文件就返回空串，
+  特性就静默消失。凡是从文件读配置决定"要不要做某件事"，文件缺失必须是硬失败。
+- 门禁的输入来源必须比它检查的内容更可信。用 `sorted()` 猜哪个是本次产物，
+  等于把门禁的判决建立在文件名顺序上。
+- 被门禁逼出来的"绕过手法"（挪走文件让它 skip）是门禁设计错误的强信号，
+  不是使用者的纪律问题。
+
+**Check.** `bash -n scripts/build-strict.sh && grep -c 'no \$M/.config' scripts/build-strict.sh`
+—— 必须为 1；`python3 -c "import ast,sys;src=open('scripts/check-kernel-archives.py').read();print('st_mtime' in src)"`
+—— 必须为 True。
+
+## P-203 — 不要在 linked worktree 里跑 `git worktree prune`
+
+**现象**：refmine 线为了拿一个「干净环境」的基线，在一个 linked worktree 里执行了
+`git worktree prune`。主仓 `E:/hackios/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
+管理目录被一次性删除（只剩 `d-main`），随后 `/e/hackios/k60-*` 全部立刻报
+`fatal: gitfile does not point to a valid repository`——二十条线同时失去工作树。
+
+**根因**：`git worktree prune` 的判据是「这个工作树的管理目录还在不在、gitfile 指向是否可解析」。
+它会从**当前所在的仓**出发，把凡是它认为「失效」的 admin 目录删掉。在一个 linked worktree 里跑，
+它看到的是主仓 `.git/worktrees/` 的全集，而判断依据只是 gitfile 是否可解析；
+一旦有任何一棵树短暂不可解析（或工作树目录被移动、盘符变化），它就把那棵树的 admin 目录当垃圾删掉。
+**删除不可逆、没有备份**，`git worktree add` 也不会自动重建。
+
+**恢复方法**（`E:/k60-work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
+1. 对每个失去 admin 目录的工作树目录，用「分支 blob 与工作树文件比对打分」反推它原本在哪个分支——
+   文件内容未提交的工作树会和几个候选分支算出不同的匹配度，取最高分。
+2. 重建 admin 三件套：`.git/worktrees/<name>/{HEAD,gitdir,commondir}`，`HEAD` 写
+   `ref: refs/heads/<branch>`，`gitdir` 写该工作树的 `.git` 文件路径，`commondir` 写 `../..`。
+3. 在工作树里 `git read-tree HEAD` 把索引补齐（**不要** `git checkout`，那会覆盖未提交内容）。
+4. 验证：`git worktree list` 无 prunable、`git rev-parse` 在 MSYS 与 WSL 两侧都能跑、
+   `git status --porcelain` 每棵树 dirty=0。
+
+**为什么没被门禁拦到**：`git worktree prune` 是原生命令，`/usr/local/bin/git` 守卫当时只拦
+`checkout`/`reset`/`clean`/`stash` 这类会丢内容的动词，`prune` 不在名单里——但它丢的是**管理元数据**，
+后果比 `checkout` 更重（一次影响全部工作树）。
+
+**修法（四条）**：
+1. `git-guard` 的危险动词表加 `worktree prune`，与 `checkout --` 同级；
+2. 只允许在主工作树的根上显式带 `K60_I_OWN_ALL_TREES=1` 执行；
+3. 想要「干净环境」的正确做法是 `git -C <其他目录> archive` 或 `git clone --shared` 一个临时仓，
+   不要在共享仓里做任何清理动作；
+4. 每轮构建前只跑 `sync-device-input.py`，不做任何 `git` 清理。
+
+**教训**：`git` 里凡是带 `prune`、`gc`、`repack`、`fsck --lost-found` 字样的命令，
+都会在「看起来无害」的前提下改共享状态；共享仓上只允许只读动词。
+
+## P-204 — 用计数代替语义
+
+一天之内同一个错误出现了三次，每次都是「某个串在日志里出现 N 次」被当成结论：
+
+1. **springboard 线**（我判错的）：`chronod` 在三份健康日志里只出现 2 次，我据此判
+   「chronod 根本没启动」。实测 `usblog-20261115-003207:1230`
+   `KE 107 109 xpcproxy …/ChronoCore.framework/Support/chronod` + `:2364`
+   `K60RV 4 chronod[109]` —— 它被拉起了。出现次数少是因为它安静，不是因为没跑。
+2. **thermal 线**（agent 判错的）：`Too many corpses` 被当成 backboardd 崩溃判据。
+   实测纯 thermal 的 `usblog-20261115-003922` 自己就有 6 条 corpses（syncdefaultsd、
+   mmaintenanced），而 `crashed:.*backboardd` 是 0。corpses 是全局计数，不指向任何进程。
+3. **cellular 线**（格式串写错的）：判定命令用 `svc=$s` 匹配，而驱动格式串是
+   `K60MODEM qrtr: service %u (%#x) instance %u node %u port %u`
+   （`drivers/PongCellular/K60ModemLink.c:104`、`patches/xnu/0622-k60-modem-qrtr.patch:1023`）
+   —— `svc=` 命中恒为 0，五个判据号全部假阴性。
+
+三次的共同形状：**先想出一个能 grep 的串，再把它当成判据**，而没有先问「这个串出现
+意味着什么、不出现意味着什么」。计数只回答"有多少"，不回答"是什么"。
+
+判据的正确形状：
+- 指向**生命周期**而不是出现次数：进程起没起看 `KE … <program>` 与 `K60RV <name>[pid]`
+  这类成对的行，不看名字出现几次。
+- 指向**具体对象**而不是全局计数：backboardd 崩不崩看 `crashed:.*backboardd` 与
+  `KX! … backboardd exit=… sig=…`，不看 `Too many corpses`。
+- 格式串**从源码抄**，不凭印象写：`grep -n 'printf' <driver>.c` 取原文，再据此写正则；
+  词边界要显式（`service 1 \(` 防 1 撞 11）。
+- 判据要能被日志**自证**：判定行里带上判定所依据的字段值（如 backlight 的
+  `conformance=%d control=%d stats=…`），这样别人复核时不用重跑。
+
+Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检查由各线的
+`judge-*.py` 自测承担；`docs/engineering/JUDGE-CONTRACT.md` 把「判据必须自证、
+负样本必须来自真实日志」写成契约）
+
+## P-205 — 文档里的日期、编号和门禁点名漂移，check-docs 管不到
+
+2026-11-15 用户指着 README 问「每次合并到 main 的时候 README 里的信息怎么没及时
+更新，包括但不限于八步图」。查完发现三类漂移同时存在，且 `check-docs.py`（★36 的
+兜底门禁）一个都抓不到：
+
+1. **日期漂移**：README 写「最后更新：2026-11-12」，STATUS 写「本轮更新时间：
+   2026-11-14」，而 main 上 11-15 还有 identity seed 等四个提交。
+2. **编号漂移**：README 文档表写「铁则 ★1–★35 / 坑 P-01–P-130」，实际
+   HARD-RULES.md 最大标题是 ★37、PITFALLS.md 是 P-204——这正是 ★36 自己的判词里
+   引过的历史现场（★32/P-127），第二次犯。
+3. **点名漂移**：README「门禁」写「四个检查」并列出 research-gate / porting-gate /
+   render --check，而 build-strict.sh 内嵌的九个检查（build-env / eight-step /
+   kernel-archives / metal-blob / image-args / verify-boot-image / render / docs /
+   readme）大半不在表里，表里却有两个根本没在构建里跑的。
+
+根因：check-docs 只查「链接存在、文件登记、标记块在」——查的是**结构**，而漂移
+发生在**内容**（日期、编号、点名集合）。内容没法用固定值查，只能用**对账**：
+跟另一个文件的日期对、跟真实标题号对、跟 build-strict.sh 的标记区对。
+
+修法：`scripts/check-readme.py`（★36 第 7 条）——
+- README「最后更新」≥ STATUS「本轮更新时间」，EN 日期 == 中文日期；
+- 两份 README 的 ★N / P-M 范围声明 == HARD-RULES/PITFALLS 真实最大标题号；
+- 两份 README 门禁表点名同一组脚本，且必须包含 build-strict.sh
+  `# --- gate-table:BEGIN/END ---` 标记区里的全部门禁，点名的脚本必须真实存在；
+- 两份 README 的 `EIGHT-STEP-TABLE` 块 == `render-eight-step-table.py` 从
+  EIGHT-STEPS.toml 现场渲染的结果——合并一个新增 `[hardware.*]` 行的分支而没
+  重生成八步表，check-readme 当场报「不一致」。
+
+教训：**名字、日期、编号是文档里最会撒谎的三类内容**——它们每天变，而手写段落
+没人记得改。任何这类「点名/计数/日期」一旦写进文档，就要同时给它一个能对账的
+机器检查，否则它必然在下一个合并里过期（与 P-204「用计数代替语义」同源：写进
+文档的数字和名字也必须能被自证）。
+
+Check: `python3 scripts/check-readme.py`（registry `id = "P-205"`）
+
+## P-206 — 门禁脚本里写死 board 目录名，换了板子就验旧树
+
+现场：wifi 线的 board 目录叫 `mondrian_wifi`（随 defconfig 命名），而
+`scripts/check-build-env.py` 把 `M` 写死成 `OUT/mondrian/ipados-16.6.1-20G81/mondrian`。
+该线第一次在新树构建时，真正的缺口是 fakeroot 缺
+`Availability.h`/`AvailabilityInternal.h`/`TargetConditionals.h`
+（`build-xnu-4k-baseline.sh` 的 AvailabilityVersions install 不装这三个头，
+而三个头的正主 `prepare-xnu.py` source 模式不进 ios16 链路），内核 13 分钟后死在
+`fatal error: 'Availability.h' file not found`。P-185 的门禁却一直验着旧的 mondrian
+树，全程假绿——**门禁验的不是构建将要用的树**。
+
+教训：
+
+1. 门禁脚本里出现写死的 board 目录路径就是 bug（与 P-193「门禁里出现字面检出
+   路径就是 bug」同一形状）。board 目录名随 defconfig 变，必须从 out 树现场推导。
+2. 「门禁绿了」不等于「构建会绿」，除非门禁评的是构建将要用的那棵树。P-185 的
+   教训第一次没吃透：它只修了「名字叫什么」，没修「路径怎么来」。
+3. 缺口清单必须完整命名：fakeroot 的必需文件检查原来只查 2 个，firehose 那两个
+   是构建自愈的，真正致命的是三个 Availability 头——清单不全，门禁查不到致命的
+   那个。
+
+修法：`scripts/check-build-env.py` 的 `find_board_dir(out)` 从
+`out/*/ipados-16.6.1-20G81/*` 按 mtime 推导（有 `tree/` 或 `.config` 的最新者优先，
+字面量只作 fallback），`FAKEROOT_FILES` 扩到 5 个（补 `AvailabilityInternal.h`、
+`TargetConditionals.h`、`firehose_buffer_private.h`）。
+
+Check: `K60_OUT=<out> python3 scripts/check-build-env.py`（registry `id = "P-206"`）
+
+## P-207 — 门禁对被它自己阻塞的陈旧产物下结论，构建永远起不来
+
+现场：ADSP 载体合入 main 后重建共享基线 `baseline-20261115a`，
+`build-strict.sh` 先跑八步门禁（36 项通过），随后 `unixnu build kernel` 跑合规注册表，
+`P-190` 报 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol
+is in kernel.macho` 并拒构建。但该符号缺失的原因正是「`out-baseline` 的 `.config`
+已被 `defconfig` 重新生成（`PHYSICAL_BATTERY=y`）而 kernel 还是旧的」——**刷新它需要
+的构建正是被这条门禁挡住的那一次**。同一形状在本仓已是第三次：P-194（`porting-gate`
+比 series 与 manifest，而 manifest 只能由被挡的构建产生）、P-165（build stamp 只能由
+构建刷新，逼出 `K60_BUILD_IN_PROGRESS=1`）。
+
+教训：
+
+1. 门禁要量的是「这一轮构建将要产生的产物」而不是「上一次构建留下的产物」。当两者
+   不可区分时（时间戳/指纹不同），门禁的正确结论是**跳过并说明**，不是失败。
+2. 判据形状：`kernel.mtime < .config.mtime` ⇒ 这一对不可比，打印 skip（含原因与
+   刷新途径），返回 0；构建结束后 build-strict 再跑同一门禁，此时 kernel 更新，才是
+   真判据。
+3. 这类 skip 不是放宽：`--kernel` 显式给出（构建后检查）时仍是硬判据；只在
+   「out 树被配置过但没重建」这一种状态跳过。
+
+Check: `python3 scripts/tests/test-check-kernel-archives.py`（8 例，含
+`a_stale_kernel_pair_is_skipped_not_failed`）与 registry `id = "P-207"`。
+
+## P-208 — `-D` 只挂在一个 object 上，另一处的同名守卫静默编译成空
+
+现场：`feat/adsp-carrier` 合入 main 后，功能图 `adsp-20261115d`（`pong_handoff_publish=1`，
+payload args 末项确认在）真机启动干净（SpringBoard 132、panic 0），但
+`K60Handoff:` / `K60PAS` 命中 **0 次**——发布器一次都没跑。查 `llvm-nm -18` 在
+`ios-obj/DEVELOPMENT_ARM64_PONG/iokit/DEVELOPMENT/IOKitBSDInit.cpo` 上：
+**没有任何**对 `k60_adsp_handoff_publish` / `k60_physical_battery_start` 的未定义引用。
+根因：`scripts/build-xnu-4k-baseline.sh` 把 `-DXNU_K60_PHYSICAL_BATTERY=1` 只塞进
+`PERSONALITY_CFLAGS`，而它只挂 `KernelConfigTables.cpo_CFLAGS_ADD`；`0602`/`0619` 的
+`#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY` 块在
+`iokit/bsddev/IOKitBSDInit.cpp` 里 → 该 define 从没到达这个 TU → 整块编译为空。
+**而链接不会报错**：`-Wl,-force_load` 已经把所有 archive 成员拉进来了，
+所以 `P-190` 的「符号在不在 kernel」一直是绿的。也就是说电池线的入口与 ADSP 发布器
+从合入那天起就是死代码，`charging ⑧` 也一样。
+
+教训：
+
+1. `-D` 的作用域必须等于「用到它的所有 TU」的作用域。XNU 的 `<obj>_CFLAGS_ADD` 是
+   按 object 挂的，一个 define 只挂在 `KernelConfigTables.cpo` 上就不可能影响
+   `iokit/bsddev/*.cpp`——凡是被多处 `#if` 判定的开关，走全局 `EXTRA_CFLAGS`。
+2. 「符号在 kernel 里」证明不了「代码会被调用」：force_load 让符号永远存在。要证明
+   调用点活着，只能看**引用**（`nm -u <TU>.o` 里有该符号）或真机日志。
+3. 静默的早退最贵：`k60_adsp_handoff_publish()` 有六条 `return`（claim 失败、板配置
+   解析失败、四段地址重叠、`/chosen` 缺失、已存在）都不打印任何东西。判据必须
+   区分「没被调用」与「被调用但早退」——本条的判据是「`K60Handoff:` 命中 0 次」
+   配上 nm 的引用检查。
+
+补记（同轮第二次踩到，形状与 P-207 完全相同）：新加的门禁在
+`check-kernel-archives.py` 里读 `IOKitBSDInit.cpo`，而注册表的调用**不带 `--kernel`**、
+在构建**之前**跑——它读到的是上一轮构建留下的、本来就有病的 object，于是把唯一能
+修好它的那次构建挡在门外（`❌ P-190 … the guarded block compiled away`）。修法：
+P-208 的判决只在显式给了 `--kernel` 时成立（`build-strict.sh` 构建后那次调用），
+无 `--kernel` 时打印 `skip:` 并放行；树的编译没走到那一步时也打印 skip。
+
+4. 门禁只能判「本轮产出的物证」。带 `--kernel`/`--out` 的调用是构建后判决，不带参数
+   的注册表调用是构建前体检——同一个脚本两种角色，判据必须分开写，否则就是 P-207。
+
+Check: `python3 scripts/tests/test-check-kernel-archives.py`（10 例，含
+`a_guarded_call_site_that_compiled_away_fails` /
+`a_guarded_call_site_that_compiled_in_passes`）与 registry `id = "P-208"`。
+
+## P-209 — defconfig 指名了 32 MiB 种子的 Data UUID：根挂载阶段自 panic，日志里一个字节都没有
+
+现场：2026-11-15 wifi 线五张图（`wifi-20261116mhi3` / `mhi4` / `wifi-20261115z0` /
+`wifi-20261116t2` / `wifi-20261116c0`）都表现为「0 字节 + port-not-observed + autoreset
+回 fastboot」。围绕这份空日志长出四套理论：镜像尺寸、`__TEXT,__const` 多出 11.77 MB、
+固件驻留（`__TEXT` vs `__DATA`）、DarwinBoot pool 窗口。
+
+其中 **c0 这张**的构建配置里有一行确定的缺陷（refmine 线扫了 53 张 wifi/bt 镜像，
+`scratch/refmine/uuid-scan.py`，只有 c0 命中；其余四张都是设备卷 `1BCD69FF-…`，
+至今未解释）——
+
+```
+configs/mondrian_wifi_defconfig:
+  CONFIG_XNU_OWNER_DATA_VOLUME_UUID="6DCCF70A-6FD6-403E-ACED-95313CD7CBB8"
+```
+
+`6DCCF70A-…` 是仓库 `seed/k60-data-seed.dbr` 那个 32 MiB 内存盘里的 OwnerData 卷；
+真机 Data 卷是 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`
+（`docs/plans/MONDRIAN-OFFICIAL-PAGES.md:564`：「当前仓库实际 Data UUID 1BCD69FF-…」）。
+指名种子 UUID 的后果 2026-11-12 就量过并记在 PITFALLS 3811-3818：
+`PONG APFS: wait for Data UUID 6DCCF70A…, timeout=5s` →
+`K60DATA UFS Data window not published` → `dataerr=2` 自 panic at `kern_exec.c:8463`。
+`mondrian_wifi_defconfig` 与能起的 `mondrian_defconfig` 只差四行（缺 `GPU_ADDON`、
+缺 `K60_PHYSICAL_BATTERY`、这一行 UUID、多 `PONG_WIFI`），其中 UUID 是唯一会让内核在
+**根挂载阶段**死掉的一行——但它的因果还欠一次单变量确认（见补记）。
+
+为什么表现成「零字节」而不是一段带 panic 的日志：USB 控制台在 `vfs_mountroot` 之后才起来。
+对照能起的 `adsp-20261115e`（3,312 行）：第一条 `K60 USBLOG` 在 ~470 行、`K60DATA mounted`
+在 ~484 行。任何死在根挂载之前的图都没有任何 USB 输出——与「内核根本没跑」不可区分。
+
+教训：
+
+1. 一条线**多张**镜像都 silent 时，第一个动作是 diff **构建配置**（defconfig、`board.toml`、
+   `build-manifest.json` 的 `payload_args`），不是 diff 内核版式。四套假说都建立在同一份
+   空日志上，等于零信息；`payload_args` 逐张对齐那一步做完，「参数缺失」当场出局。
+2. 「零字节」不是证据，是缺证据。凡是在根挂载之前就能死的缺陷（卷 UUID、owner 挂载、
+   Data 窗口、UFS 窗口），在 USB-only 采集下只能表现为零字节；判据必须写明
+   「本条不可用 0 字节日志判定，先修采集或先 diff 配置」。
+3. 别名型常量必须让门禁认得出：种子 UUID 与真机 UUID 都是 36 字符，肉眼看不出对错。
+   门禁 `scripts/check-defconfig-uuid.py`：defconfig 里出现种子 UUID 必须带
+   `# SEED-UUID: intentional` 标记（试种子的实验构建确实该指名它），否则硬失败；
+   未知 UUID 只提示不判死（P-194 形状：门禁不认识的东西不能自己造判决）。
+4. 计数型佐证（`grep -c`、`strings | grep -c`）在这类问题上全是噪声：五张图都「没有任何
+   wifi 日志」，因为它们都死在控制台之前。判据要指向具体对象的生命周期行（P-204）。
+
+Check: `python3 scripts/tests/test-check-defconfig-uuid.py`（8 例）与 registry `id = "P-209"`。
+
+补记（同轮被推翻的一半）：本条第一版把五张图都归给这一行，refmine 的 53 张扫描否证了其中四张
+（只有 c0 命中）。再叠一条教训：**归因必须逐张验**，不能因为「看起来都一样 silent」就假定同一个
+原因——silent 是最弱的观测，它把不同故障抹成同一张脸。c0 的因果本身也还欠一次单变量确认：
+2026-11-07 那批**带**种子 UUID 的采集（`bootcap-20261107-113650`）是有 console 输出的，
+所以「种子 UUID ⇒ 零字节」尚未坐实，要等 c1（只改这一行）的判决。判决之前，c0 记为
+`invalid-measurement`（测量无效），其余四张记为「未解释」，两者都不能当成「内核没跑」。
+
+## P-210 — 门禁只量一个 defconfig：wifi board 的 Data 卷 UUID 从未被评分
+
+现场：`scripts/check-data-identity.py` 第 31 行是 `CONFIG = REPO / "configs" /
+"mondrian_defconfig"`。它做两件事——把 `CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 和设备真机
+console 里出现过的卷 UUID 对账、把 UFS Data 窗口天花板和 manifest 对账——两件都只对
+**一张** defconfig 生效。wifi board 有自己的 `configs/mondrian_wifi_defconfig`，同样带
+`CONFIG_XNU_OWNER_DATA_MOUNT=y`，于是它从头到尾没被这个门禁看过一眼。种子 UUID 就是这样
+进的正式构建（P-209 的 c0）：`check-defconfig-uuid.py` 是 P-209 之后才补的结构门禁，
+而「配置的 UUID 到底在设备上出现过没有」这半边证据对账，一直空着。
+
+修法：`data_configs(config_dir)` 遍历 `configs/*defconfig` 里所有带
+`CONFIG_XNU_OWNER_DATA_MOUNT=y` 的文件（一个都没有才回落到 `mondrian_defconfig`），
+逐文件判、逐文件点名（失败信息带 `mondrian_wifi_defconfig:` 前缀）；`check_uuid` /
+`check_ceiling` 接受可注入路径，`run()` 返回 `(problems, notes)` 供测试；
+`scripts/tests/test-check-data-identity.py` 9 例覆盖「第二张 defconfig 被评分」
+「没挂载键的文件不算失败」「无 console 跳过」「日志里没有 window 行跳过」
+「天花板不足而失败」「无 manifest 跳过天花板」等。
+
+判决（同轮拿到，把 P-209 的因果又削掉一层）：c1 是把 c0 配方只改一行 Data UUID 的单变量图，
+2026-11-15 上机 `usblog-20261115-231707` = port-not-observed / 0 字节 /
+returnedToFastboot=True。**改对 UUID 也起不来**，所以种子 UUID 只能解释 c0 的一个维度，
+silent 至少有两个独立原因，c1 的死因仍未解释。
+
+三条教训：
+
+1. 找「门禁覆盖不到的第二份」比找 bug 更值钱：一个 `CONFIG = …/mondrian_defconfig`
+   常量就是一处覆盖缺口，而它长得完全像正常代码。
+2. 单变量修复成功 ≠ 原假设成立。c1 把差异缩到一行，结果仍 0 字节——这恰恰是把
+   「种子 UUID ⇒ 零字节」降级为「一个维度」的唯一办法。
+3. 每条判决行必须能回答「哪个文件被读了」。门禁输出不带文件名时，「通过」可能只是
+   「没量」；这也是本门禁所有失败信息都带 `文件名:` 前缀的原因（P-204 同族）。
+
+Check: `python3 scripts/tests/test-check-data-identity.py`（9 例）与 registry `id = "P-210"`。
+
+## P-211 — 记账工具写的是「登记那一刻仓库里的 series」，不是镜像自己的 series
+
+现场：`scripts/record-boot.py` 的 `series_fingerprint()` 一直读
+`REPO/patches/xnu/series`。2026-11-15 深夜我登记 `bt-bisect-h12` 那张图（boot.img
+`0eb30032…`）时，账本里写下的是 `series 9688ad85…(226)` —— main 当前的 series；而那张图
+其实是 bt 线用 229 条的 series 构建的。两边都对不上，账本却看起来完好：`record-boot.py`
+打印 `✅ recorded`，`porting-gate.py` 读 ledger 时也只比对自己算出来的指纹。
+
+这一条是「量错对象」家族的第四条，前面三条各有形状：
+P-194 量错了**文件**（`SERIES-FINAL.txt` 而不是 `patches/xnu/series`）、
+P-200 量错了**槽位**（`boot.json` 的 `kernel_sha256` 量的是 boot image 的 kernel 槽而不是内核）、
+P-201 量错了**有无**（trial 镜像没有 series 指纹却仍然被当成判据）、
+P-211 量错了**版本**（用今天的仓库描述上周构建的镜像）。
+
+修法：`image_series(image)` 先读镜像同目录的 `build-manifest.json`（`build-strict.sh`
+本来就写在那儿，`series.sha256` + `series.count` 是它记下的、与镜像同时产生的值）；
+读不到或字段不全才回落到仓库 series，并且**在账本行里留下来源**：
+`"series-source": "manifest:<path>" | "repo-series"`、`"series-count"`、`"repo-series"`。
+两边不一致时先打印警告（「记录的是镜像的 series，这样账本就不能声称本仓库的 series 跑过」）。
+测试 `scripts/tests/test-record-boot.py` 4 例：manifest 优先、无 manifest 回落、
+短 sha 回落、坏 JSON 回落。
+
+三条教训：
+
+1. 记账前先问一句「这个字段描述的是谁」。只要是「这个产物」，就得从产物本身读，
+   从手边的仓库状态读出来的东西只是**今天的猜测**。
+2. 回退路径必须在数据里留标记（`series-source`），否则「回退」和「正解」在账本里
+   长得一模一样，下游无法分辨——P-190/P-192 的同一形状。
+3. 一个 `✅` 打印只证明流程跑完，不证明被记录的值属于被记录的对象。判决要么带上来源，
+   要么带上交叉核对，两者都没有就只是仪式。
+
+Check: `python3 scripts/tests/test-record-boot.py`（4 例）与 registry `id = "P-211"`。

@@ -3,11 +3,27 @@
 
 Why this exists (S4, 2026-11-14): a bring-up build has no Data seed at all
 (payload.json data_ramdisk_sha256 = null), so the kernel reader's
-/private/var/ngpu/firmware/qca root can never resolve.  DarwinBoot already
-copies <kernel>.gpuaddon out of the payload FAT into the boot window and
-publishes its runtime address in /chosen/memory-map/GpuAddon
-(DarwinBoot.c:588-651); bsd/dev/qbt_k60.c reads that range before any vnode
-root.  So the firmware rides the boot image.
+/private/var/ngpu/firmware/qca root can never resolve.  The idea was to let the
+firmware ride the boot image: pack it as <kernel>.gpuaddon, have the firmware
+copy it into the boot window and publish the runtime address in
+/chosen/memory-map/GpuAddon, and let bsd/dev/qbt_k60.c read that range before
+any vnode root.
+
+THIS DOES NOT WORK ON THE CURRENT FIRMWARE (measured 2026-11-15, P-197).  The
+framework writes /chosen/memory-map/GpuAddon as a 16-byte placeholder
+(scripts/unixnu/devicetree.py:339) and expects the firmware to fill paddr and
+length.  Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c has no such case:
+its ADT scanner handles only name, RAMDisk, PackedRAMDisk,
+darwinboot-memory-ranges, pong-allocatable-ram, pong-audio-dma, TrustCache and
+darwinboot-memory-size.  `git grep -ci addon HEAD` in uefi-mondrian returns
+zero.  So the range stays all-zero and the kernel prints
+"[bluetooth] addon: unusable range 0 0" (usblog-20261115-012913 console.log:192)
+even though the container really is inside the payload FAT.
+
+The packer below is still correct and still useful: it produces the container
+that a firmware-side GpuAddon loader (or a Data-seed / in-kernel-blob carrier)
+will consume.  What it cannot do is make the current firmware publish the
+range.  Do not read "the file is in the payload" as "the kernel can see it".
 
 Container = the one scripts/make-gpu-addon.py writes:
     b'NGPUADD2' + u32 count + u32 0 + u64 total

@@ -138,6 +138,11 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 | `Data20.msc` | 916,071 |
 | `bd_m11agf.elf`（蓝牙）| 60,000 |
 
+> 2026-11-14 复核：本机副本 `firmware/qca6490/` 实为 **10 个文件**（逐项实测，sha256 见 `FIRMWARE.md`）。
+> **`bdwlan.elf` 不是「WiFi 不需要」**：`patches/wifi/0009` 的构建脚本硬性要求 board data ——
+> `if not any(f['name'].startswith('bdwlan.') for f in inventory): raise RuntimeError('Missing board data')`，
+> 且 `required=['amss.bin','amss20.bin','m3.bin','regdb.bin']`。
+
 ### ③ 已补齐：K60 本机真值（2026-11-14，live FDT 反编译）
 
 来源：`dtc -I dtb -O dts E:\k60-work\reports\live-6033dbec-fdt.dtb`（34,801 行），
@@ -166,6 +171,14 @@ SPI 140 → GIC INTID 172。所以 `armcpu_spi_attach(172,...)` 是唯一中断�
 **上机风险**：`drivers/ArmCpu/ArmCpu.cpp:403` 有
 `if(!owner) panic("ArmCpu: unowned SPI %u", intid);` —— SPI 172 必须先 publish
 owner，否则 `armcpu_spi_attach` 直接 panic。
+
+### 待补的 ③ 项
+
+- [x] K60 的 **PCI 设备 ID** —— 实测 `0x17CB:0x1103`（sysfs `vendor/device`；`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）
+- [x] K60 的 **BAR0 基址与大小** —— 实测 `0x60200000-0x603fffff`，2 MiB（`resource.txt`、`iomem-pci.txt`）
+- [x] K60 的 **subsystem_device** —— 实测 `0x0108`（264），与 Pong 相同（`pci-identity.txt`）
+- [ ] K60 的 **PCIe0 GDSC 偏移**（Pong 注释说 SM8475 是 `7b004`）—— 本表按 Pong 注释与 `PongWifiPlatform.cpp:221` 记 `0x7b004`，尚未在 K60 实测
+- [ ] K60 的 **PMIC SPMI 通道号**（Pong 用 SPMI 观察者读，K60 可能不同）—— 本表记的是 Pong 的 `0xC400000`/`0xC42D000`/`0xC440000`
 
 ---
 

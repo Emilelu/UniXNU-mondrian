@@ -673,3 +673,19 @@ source = "docs/engineering/PITFALLS.md:P-211"
 statement = "记账/日志工具里的每个字段都必须描述被记录的那个产物（读镜像旁边的 build-manifest.json），不能描述登记那一刻手边的仓库状态；回退到猜测时必须把来源写进记录，否则账本无法区分「正解」与「回退」"
 check = "python3 scripts/tests/test-record-boot.py"
 note = "2026-11-15 scripts/record-boot.py 把 bt 线 229 条 series 构建的 h12 镜像登记成 main 的 226 条 series，账本与 porting-gate 都不报错。已达同族四条：P-194 量错文件、P-200 量错槽位、P-201 量错有无、P-211 量错版本。"
+
+[[rule]]
+id = "P-212"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-212"
+statement = "判据必须回答「被观测的系统进入了那个状态」，不能回答「日志里出现了那行字」；把配置打印成证据比没有日志更像证据。三态（PASS/FAIL/INVALID），0 与「没量到」必须分开，单次采样不得下结论"
+check = "python3 scripts/tests/test-judge-battery.py"
+note = "2026-11-15 charger 线 judge-battery.py 抓出三处同形：subscription-ack=0 0 被判 PASS、temp=0.00C 落在判据区间内、单行 sample 直接下结论。与 P-204（把计数当结论）互为两个方向。"
+
+[[rule]]
+id = "P-213"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-213"
+statement = "门禁必须建模工具的真实行为（shell 会展开变量，就展开变量），不能只读字面量；新门禁的第一件事是拿一个已知合法的样本跑一遍，并且「不知道」要独立成 skip 档，不能折叠进 PASS/FAIL"
+check = "python3 scripts/tests/test-check-define-scope.py"
+note = "2026-11-15 scripts/check-define-scope.py 第一版只解析字面量 _CFLAGS_ADD，把累加进 PERSONALITY_CFLAGS 的 XNU_NATIVE_RAM_BLOCK 误判为只到达 kern_exec.o；改为解析 shell 变量后 81 条守卫全可达。"

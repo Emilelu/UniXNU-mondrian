@@ -5220,3 +5220,72 @@ P-211 量错了**版本**（用今天的仓库描述上周构建的镜像）。
    要么带上交叉核对，两者都没有就只是仪式。
 
 Check: `python3 scripts/tests/test-record-boot.py`（4 例）与 registry `id = "P-211"`。
+
+## P-212
+
+一个把配置打印成证据的日志，看起来比没有日志更像证据。
+
+现场：`docs/research/charger/07-DEVICE-CRITERIA.md` 的判据最初写成「出现订阅行就算订阅成功」。
+2026-11-15 charger 线交回 `scripts/judge-battery.py` 时带出了三处同形缺陷，每一处都是
+「日志里有一行，所以事情发生了」：
+
+1. `subscription-ack=0 0` —— 抓到的两个字段都是 0，脚本原来判 PASS。0 是「没量到」，
+   不是「量到 0」；判 INVALID。
+2. `temp=0.00C` —— 传感器未上电时回 0，原来落在判据下界之内。0.00 摄氏度在 SoC 上是
+   不可能读数；判 FAIL，并把合法区间改成**开区间** `(0, 60]`。
+3. 单行 sample —— 只有一行 `sample` 就下结论。一次采样无法区分「稳态」与「瞬态」，
+   少于两行判 INVALID。
+
+这一条与 P-204「用计数代替语义」是同一族的两个方向：P-204 是**把计数当成结论**
+（出现 2 次就判没启动），P-212 是**把配置当成结果**（打印了订阅参数就判订阅成功）。
+两者共同的错误是：判据回答的是「我看到了一行字」，而不是「被观测的系统进入了那个状态」。
+
+修法：判据必须三态（PASS / FAIL / INVALID），INVALID 专门吃「没量到」与「量到不可能值」；
+每条判据打印命中数与行号，末行必须给 `TOTAL: n PASS / n FAIL / n INVALID`；
+退出码区分三态（0/1/2），脚本自己在一条证据都读不到时不许返回 0。
+落地：`scripts/judge-battery.py`（400 行，16 例测试，`docs/research/charger/07-DEVICE-CRITERIA.md`
+是它的口径文档）。
+
+三条教训：
+
+1. 「打印了配置」与「配置生效」之间隔着一次真实的状态跃迁。判据要盯跃迁后的量
+   （四属性非零），不是跃迁前写下去的字。
+2. 0 与「没量到」必须分开。凡是可能回 0 的传感器/计数器，判据都要能表达
+   「这个 0 是读数还是缺席」，表达不了就是 INVALID。
+3. 三态比两态贵，但两态会把「没测」悄悄记成「通过」——那正是最贵的一种假绿。
+
+Check: `python3 scripts/tests/test-judge-battery.py`（16 例）与 registry `id = "P-212"`。
+
+## P-213
+
+门禁自己也会犯它要防的那个错：只读字面量，不读变量的传播。
+
+现场：P-208 之后我写 `scripts/check-define-scope.py`，想结构性地回答「守卫所在的 object
+收得到这个 `-D` 吗」。第一版只解析 `<obj>_CFLAGS_ADD=-DXNU_x` 这种字面量赋值，
+于是把 `XNU_NATIVE_RAM_BLOCK` 判成「只到达 `kern_exec.o`」——而它实际是
+
+```sh
+PERSONALITY_CFLAGS="-DXNU_NATIVE_RAM_BLOCK=1"
+PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_OTHER=1"
+EXTRA_MAKE_ARGS+=("KernelConfigTables.cpo_CFLAGS_ADD=$PERSONALITY_CFLAGS")
+```
+
+累加进变量、再整体交给一个 object。门禁读不到变量，就会对**合法**的守卫报错——
+这正是 P-208 的镜像：P-208 是「define 没到该到的 object」，P-213 是「门禁以为它没到」。
+
+修法：`read_variables()` 逐行建 shell 变量表（`VAR=-DXNU_A` 与 `VAR="$VAR -DXNU_B"` 两种形状），
+`VAR_REF` 展开 `${VAR}`/`$VAR` 引用，`_strip_comment()` 去掉行尾注释（否则注释里的
+`-DXNU_FOO` 会被算成生效），`read_object_defines()` 对 `_CFLAGS_ADD=` 右侧同样展开变量。
+改完 `✅ define scope: 81 guard(s) all reachable`，12 条 skip 全是来自 config 头而非
+构建脚本的 define（`XNU_MONITOR`/`XNU_TARGET_OS_OSX`/`XNU_NATIVE_UFS` 等）。
+
+三条教训：
+
+1. 门禁要建模的是**工具真实的行为**，不是它在你眼里最显眼的那种写法。shell 会展开变量，
+   门禁就得展开变量；读字面量等于给 shell 写了一份错的实现。
+2. 新门禁的第一件事是拿已知合法样本跑一遍。我如果先跑 `XNU_NATIVE_RAM_BLOCK`
+   （一个已知能工作的守卫），第一版当场就会被否掉，不必等到它误报。
+3. 「不知道」必须是独立的一档（`skip:`），不能折叠进 PASS 或 FAIL。12 条来自 config 头的
+   define 若被判成 FAIL，门禁立刻变成噪声源，然后被绕过——比没有门禁更糟。
+
+Check: `python3 scripts/tests/test-check-define-scope.py`（9 例）与 registry `id = "P-213"`。

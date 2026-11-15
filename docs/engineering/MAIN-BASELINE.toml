@@ -172,3 +172,9 @@ sha = "f760086"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "补 0620 的必然缺陷：files.arm64 无条件登记 osfmk/arm64/k60_adsp_blob.s，但无 --adsp-blob 的构建从不生成该文件 → 内核 make 会因缺源失败（合并后每个不带载体的线都会踩）。修法：无载体时写一字节桩 + len=0，K60AdspImageReader 把 len==0 映射为 K60AdspReaderMissing 并回落 legacy reader。登记原因：改 build-xnu-4k-baseline.sh，会改变无载体内核的字节，铁则 9。欠账：桩路径的首次上机（baseline-20261115a 构建中，出图后按队列飞）。"
+
+[[entry]]
+sha = "db9ebf9"
+state = "build-only"
+date = "2026-11-15"
+note = "P-208: -DXNU_K60_PHYSICAL_BATTERY now reaches every translation unit. Kernel bytes change because the IOKitBSDInit block is no longer compiled away, so the boot evidence for 996aac6 does not carry over; the first boot that prints K60Handoff settles it."

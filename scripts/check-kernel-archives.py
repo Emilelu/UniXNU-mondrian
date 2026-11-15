@@ -190,7 +190,11 @@ def main(argv: list[str] | None = None) -> int:
     # dead as one inside a false branch, and it links without an error because
     # force_load pulls the members in. The guarded blocks live in
     # iokit/bsddev/IOKitBSDInit.cpp, so that object must reference the archive.
-    if enabled(config, "XNU_K60_PHYSICAL_BATTERY"):
+    # Same scope rule as P-207: the object only answers P-208 when this run
+    # produced it. The registered check command runs without --kernel, before
+    # the build, against the previous build's tree -- judging that one would
+    # block the very build that refreshes it.
+    if enabled(config, "XNU_K60_PHYSICAL_BATTERY") and args.kernel is not None:
         objects = sorted(tree.glob("build/xnu/ios-obj/*/iokit/*/IOKitBSDInit.cpo"),
                          key=lambda p: p.stat().st_mtime)
         if objects:
@@ -211,6 +215,9 @@ def main(argv: list[str] | None = None) -> int:
                     "(P-208; the define must reach that translation unit, not "
                     "only KernelConfigTables.cpo)"
                 )
+        else:
+            print("skip: no IOKitBSDInit.cpo under the tree, so the kernel was "
+                  "not compiled far enough to answer P-208")
     if problems:
         print("FAIL: kernel archives", file=sys.stderr)
         for problem in problems:

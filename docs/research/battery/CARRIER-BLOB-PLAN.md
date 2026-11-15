@@ -1,26 +1,23 @@
 # ADSP embedded carrier plan
 
-Date: 2026-11-15. Scope: offline design and host fixtures for mondrian ADSP PAS1. Lead owns the production generator, build integration and assembly carrier. Battery verification and step ⑧ remain false.
+Date: 2026-11-15. Scope: frozen production carrier contract and offline host requirements for mondrian ADSP PAS1. The production reader, generator and checker exist; Lead owns build-strict/archive/manifest wiring and carrier installation. Battery verification and step ⑧ remain false.
 
 ## 1. Blob container format
 
-The current reader implements the Metal-style flat format below. Its source of truth is [K60AdspImageReader.h](../../../drivers/PongPower/K60AdspImageReader.h) and [K60AdspImageReader.c](../../../drivers/PongPower/K60AdspImageReader.c); the surveyed precedent is [gen-k60-metal-blob.py](../../../scripts/gen-k60-metal-blob.py). All integers are little-endian and packed, without C struct padding.
+The production K60A ABI is frozen by Lead (P-197) and implemented by [K60AdspImageReader.h](../../../drivers/PongPower/K60AdspImageReader.h), [K60AdspImageReader.c](../../../drivers/PongPower/K60AdspImageReader.c), [gen-k60-adsp-blob.py](../../../scripts/gen-k60-adsp-blob.py) and [check-adsp-blob.py](../../../scripts/check-adsp-blob.py). All integer fields are little-endian; the 24-byte records are packed without C struct padding.
 
-| Field | Current reader contract |
+| Field | Frozen production contract |
 | --- | --- |
-| Header | 4 bytes `K60A`, then `u32 count`; 8 bytes total |
-| Table | `count` records of `{u16 name_len, u32 raw_size, u32 absolute_offset}`; 10 bytes each |
-| Names | Concatenated canonical `adsp.mdt` / `adsp.bNN`, each 8 bytes, no NUL |
-| Bodies | First begins at `align8(8 + 10*count + sum(name_len))`; each next begins at `align8(offset + raw_size)` |
-| Padding and length | All padding zero; ordered contiguous padded extents; last padded end equals the supplied total |
-| Limits | 1–64 entries, nonzero sizes, unique canonical names, total at most `UINT32_MAX` |
-| Linked symbols | `const uint8_t k60_adsp_blob[]`, `const uint64_t k60_adsp_blob_len`; length includes every padding byte |
+| Header | 12 bytes: `K60A`, `u32 count`, `u32 reserved=0` |
+| Records | Sequential 24-byte `{u32 name_len, u32 mode, u64 size, u64 packed_size}`; first record begins at byte 12 |
+| Names | Canonical `adsp.mdt` / `adsp.bNN`, NUL-terminated; `name_len=9` |
+| Mode and size | Mode is `0644`; size is raw body bytes and `packed_size=size` (no compression) |
+| Alignment | Name and body start at 8-byte boundaries; zero padding follows each record, name and body as needed |
+| Length and limits | One cursor; final padded end equals supplied total; linked length includes all padding; count 1–64, nonzero sizes, total at most `UINT32_MAX` |
+| Linked symbols | `const uint8_t k60_adsp_blob[]`, `const uint64_t k60_adsp_blob_len` |
+| Errors | Malformed header/layout/bounds returns `-7`; unsupported mode or `packed_size != size` returns `-8` |
 
-Lead’s latest reply proposes a different layout: 12-byte `{magic K60A, u32 count, u32 reserved}` followed by sequential records `{u32 nameLen, u32 mode, u64 size, u64 packedSize}`, each followed by its name and body. Names include NUL (`nameLen=9` for this inventory); both name and body starts are 8-byte aligned. No compression is proposed because the kernel path does not link zlib.
-
-**These layouts are wire-incompatible.** The current reader treats byte 8 as the first flat entry: a zero proposed `reserved` becomes a zero name length and returns `-7`. Its canonical name length is 8, while the proposal uses 9; table offsets and record widths also differ. This task keeps production reader and stages unchanged. The host test models both layouts, proves current-reader rejection of the proposal, and gives Lead concrete totals. Before production integration, Lead must retain the current flat contract or agree an explicit version/magic/dispatch change. Reusing `K60A` alone cannot identify both layouts.
-
-The proposal’s fixture uses reserved=0, mode=0644 as a test-only permission-mode assumption, `size=packedSize=raw bytes`, and body offsets derived from the cursor. These mode/size semantics still need Lead’s production contract. No new kernel dispatch is supplied here. Future assembly must align the blob base to 8 bytes (for example `.p2align 3`) and preserve the full cursor length, as required by P-196.
+There is one accepted container shape: no flat format, compression, alternate dispatch, or second magic/version. Generator and checker source exist; Lead owns build-strict `--adsp-blob` wiring, archive/manifest integration and the linked production carrier. A generated blob is not yet integrated into the kernel, and the PAS/platform backend remains uninstalled.
 
 ## 2. Packing the 26 image files
 
@@ -68,53 +65,45 @@ The named-read ABI is `typedef int (*K60AdspRead)(const char *part, void *dst, u
 | --- | --- |
 | 0 | Whole exact-size part copied, with no page rounding |
 | -5 | Requested/returned size mismatch, including a partial part; destination unchanged |
-| -6 | Valid container has no requested part, or linked carrier symbols are absent |
+| -6 | Valid container has no requested part, or linked carrier symbols are absent / length is zero |
 | -7 | Malformed/truncated container or offset/size/padded-end bounds error |
+| -8 | Unsupported mode (not `0644`) or `packed_size != size` |
 | -1 | Invalid argument or prohibited state/source/destination alias |
 
-Preflight the whole container before publishing any part or copying bytes: checked arithmetic, header/table/names, unique nonempty canonical names, ordered aligned nonoverlapping ranges, zero padding, exact terminal cursor. Check `offset <= total && size <= total - offset`; unchecked `offset+size` can overflow. Failures leave destination/borrow outputs unchanged. A malformed present blob must not silently select another carrier. The existing explicit FAT initializer accepts an already mapped image, validates geometry before `k60_fat_open`, and requires bounded contiguous chains for stable borrowing; it performs no DT discovery or physical mapping.
+Preflight the whole container before publishing any part or copying bytes: checked arithmetic, header/records/NUL names, mode/packed-size policy, unique canonical names, sequential bounded body ranges, zero padding and exact terminal cursor. Check `offset <= total && size <= total - offset`; unchecked `offset+size` can overflow. Failures leave destination/borrow outputs unchanged. A malformed present blob must not silently select another carrier. The existing explicit FAT initializer accepts an already mapped image, validates geometry before `k60_fat_open`, and requires bounded contiguous chains for stable borrowing; it performs no DT discovery or physical mapping.
 
-`typedef int (*k60_owner_image_reader)(void *, K60OwnerImage *);` is a callback type, not a function named `k60_owner_image_reader()`. The supplied adapter is `k60_adsp_owner_image_open`, paired with `k60_adsp_owner_image_close`, after `k60_adsp_owner_reader_init`. Lead wires callbacks and persistent context into complete platform ops. Owner-open/source errors normalize to `-1000`; runtime acquisition failure maps to `-42`. Preserve the separate reader error family above.
+`typedef int (*k60_owner_image_reader)(void *, K60OwnerImage *);` is a callback type, not a function named `k60_owner_image_reader()`. The supplied adapter is `k60_adsp_owner_image_open`, paired with `k60_adsp_owner_image_close`, after `k60_adsp_owner_reader_init`. Lead wires callbacks and persistent context into complete platform ops. For a composite platform context, wrappers must forward image open/close to its persistent `K60AdspOwnerReader` member; bare callbacks require that reader pointer directly. No `owner_install` call exists before the first acquire. The legacy FAT hook only reuses an already-ready reader; the later diagnostic probe is excluded by the early startup claim and cannot prepare the early source. Owner-open/source errors normalize to `-1000`; runtime acquisition failure maps to `-42`. Preserve the separate reader error family above.
 
 Pin immutable blob bytes, mutable reader/owner state and disjoint writable metadata for the entire owner session. Published or uncertain/Poisoned ownership retains those pins indefinitely. A safe abort closes the exact opened image once; a second open or stale close cannot steal another session. Parsing and opening run before exclusive acquisition and mappings. Stage 3 (`k60_owner_auth_and_start`) reborrows payloads before AUTH, after INIT/MEM_SETUP and potentially earlier segment loads, so late read failures follow the owner cleanup/poison contract. BSS invokes load with a NULL source, copy_bytes=0 and the planned nonzero zero_bytes; stage 4’s final TCSR section remains build-existing plus self-parse only. See [PAS1 provider contract](PAS1-PROVIDER-CONTRACT.md) and [carrier lifetime](PAS1-PROVIDER-CARRIER.md).
 
 ## 4. Independent host fixture
 
-[test-k60-adsp-blob.c](../../../scripts/tests/test-k60-adsp-blob.c) is a standalone host fixture, integrated into [run-k60-handoff-host.sh](../../../scripts/tests/run-k60-handoff-host.sh). It reads the captured 26 inputs and packs containers in host memory; it is not a production generator and emits no kernel carrier or assembly.
+The production generator emits assembly and can optionally dump the binary container; the checker reconstructs the ordered assembly grammar and validates record fields, names, zero padding, body extents and declared cursor length. They are not build-strict/archive integration and do not establish that the blob is linked into a kernel.
 
-The current-layout fixture is read back through the real named reader, compared byte-for-byte against direct file input, then parsed through the real MDT parser/owner adapter. Compare all 24 planned segments with direct-read planning, copy 23,494,284 B, BSS 25,925,684 B and relocated span `0x3100000` = 51,380,224 B. Copy+BSS = 49,419,968 B; the remaining 1,960,256 B are gaps, not missing payload. Segment 10 has link address `0x86e0b2c0`, relocated address `0xa080b2c0`, copy 720 and zero 2,672; segment 24 requires no piece read.
+Required host regressions use the captured MDT and real piece files and must independently assert: a 24-segment plan; copy total 23,494,284 B and BSS total 25,925,684 B; byte-exact copy of non-aligned b10 at 0x86e0b2c0; 26 records and exact container length 23,506,184 B; rejection of the obsolete flat shape with -7. Each assertion needs a negative mutation that fails when its corresponding invariant is broken. Root verified the final host suite with exit 0: 77 owner scenarios (claim17/prepare11/auth12/build15/publish22); five reader variants with 31 scenarios each; all five independent blob assertions and their negative mutations; publisher49, builder10, MDT16, notification21, battery27, dispatch14, five patch sections and three canonical mirrors. All 26 entries pass exact copy/borrow, and the generated 23,506,184-byte binary matches the independent builder byte-for-byte. Absent/zero-length carriers invoke the legacy fallback once; malformed/unsupported carriers invoke it zero times.
 
-The sequential-proposal fixture has an independent host-only validator: check names, the fixture permission mode 0644, raw/packed size equality, name/body alignment, padding, bounded disjoint extents and exact terminal cursor. Feed that valid proposal to the current production reader and assert `-7`. This is evidence of incompatibility, not proof of a production decoder for the proposal. Negative cases must leave outputs unchanged and cover malformed names/table/padding/ranges/truncation plus named-reader -5/-6/-7. The existing reader and 77 owner-stage scenarios remain regression requirements. This round does not build a kernel/image or access a device, boot path or serial port.
+Host log: [host-tests.log](E:/k60-work/artifacts/adsp-carrier-20261115/final/host-tests.log), SHA256 `51bf1696ec950e112b29f92972e7e9f596c2a91180080e1c9ba79417921e22c1`. Reader/stages/Boot arm64 SDK syntax passes, SHA256 `6d3b5f1cc1bfbfdca7ba3cb9172317bed19469f26b12defbfeba2afb4817055e`; runtime C++ syntax also passes. These are host and syntax results; no kernel/archive link, image or hardware result is claimed.
 
-Validation on 2026-11-15: the integrated offline runner passed, including this fixture’s 1,931 checks, 55 malformed flat containers, 85 malformed proposal containers and four negative inventory cases. Direct-file and blob-owner plans match every top-level field, every field of all 24 segments and metadata bytes; both avoid a b24 read. The original 77 owner scenarios and both 19-group reader variants also pass. A separate ASan/UBSan fixture run passed without findings. Durable full-suite log: `E:/k60-work/artifacts/adsp-blob-20261115/final/host-tests.log` (14,336 B, 352 lines, SHA256 `26a6ec88a415da08111f1133dacdfb104daf8a74ffcc486027bdf8edc4f80eff`). The runner’s arm64 adapter syntax check is not a kernel link or production-carrier test.
+Lead confirms the production generator/checker runtime result: 23,506,184 bytes, 26 records, raw input 23,505,092 bytes, SHA256 `663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319`. The final host-suite result above separately verifies the reader/owner and blob regressions. No kernel/image build or device/serial operation is claimed.
+
+A size budget estimate adds the 23,506,184-byte container to a stated 105 MB kernel baseline: using decimal MB, 128,506,184 B total versus a 4.5 GiB (4,831,838,208 B) pool, leaving 4,703,332,024 B before linker sections, alignment and other allocations. If the baseline means 105 MiB, the corresponding total is 133,606,664 B and headroom is 4,698,231,544 B. These are arithmetic estimates, not measured linked-kernel or boot-pool usage.
 
 ## 5. Expected total length and self-check
 
-Let `A(x) = (x + 7) & ~7` using checked wide arithmetic. Raw sum `R=23,505,092`; nine 4-byte tails add 36, so `S=sum(A(raw_size))=23,505,128`.
-
-For the **current flat contract**, initialize the body cursor once from table+names, then advance it by the actual padded body end:
-
-```text
-cursor = A(8 + 26*10 + 26*8) = A(476) = 480
-for each entry:
-    absolute_offset = cursor
-    cursor = A(cursor + raw_size)
-k60_adsp_blob_len = total = cursor = 480 + S = 23,505,608 B
-```
-
-For the **strict sequential proposal**, start the record cursor at 12; do not silently insert a different header. Align each name after its 24-byte record, then align the data after its 9-byte NUL name, then align the body end:
+For the frozen production ABI, let `A(x)=(x+7)&~7` with checked wide arithmetic. Raw input sum `R=23,505,092`; padding the 26 bodies to 8 bytes adds 36, so `S=sum(A(raw_size))=23,505,128`.
 
 ```text
 cursor = 12
 for each entry:
     record = cursor; cursor += 24
     cursor = A(cursor); name_offset = cursor; cursor += 9
-    cursor = A(cursor); data_offset = cursor; cursor += raw_size
+    cursor = A(cursor); body_offset = cursor; cursor += raw_size
     cursor = A(cursor)
-proposed_total = cursor = A(12) + 26*(24 + A(9)) + S
-                       = 16 + 1,040 + 23,505,128 = 23,506,184 B
+production_total = cursor = A(12) + 26*(24 + A(9)) + S
+                              = 16 + 1,040 + 23,505,128
+                              = 23,506,184 B
 ```
 
-The first record is `[12,36)`, name `[40,49)`, body starts at 56. For the first 5,404-byte MDT, its body is `[56,5460)` and the next record starts at 5464. Putting that name at byte 36 violates the stated name alignment; the resulting 23,506,176-byte variant is not this proposal. Strict proposal overhead is 576 B more than current flat layout.
+The first record is `[12,36)`, the first NUL name is `[40,49)`, and the first body starts at 56. The first MDT body is `[56,5460)`; after its four zero tail bytes the next record begins at 5464. The production generator derives serialized bytes and linked length from this same cursor. No flat-layout total or alternate K60A shape is supported.
 
-In both models derive the allocation, final serialized length and linked length constant from that same cursor; never use `len(head)+sum(raw_sizes)`. Self-check every `[offset,offset+size)` against total, 8-byte body offsets, nonempty names and no overlaps; validate padding and require `cursor == total`, rejecting both truncation and extra bytes. Final scoped checks pass: documentation consistency (193 checks), README table, ownership, secrets, battery build prerequisites (six checks), patch parsing and whitespace. The porting-path check remains nonzero: candidate and unchanged-HEAD baseline both have the same 54 errors, with none introduced or resolved; it is not waived or reported green. Gate logs are under `E:/k60-work/artifacts/adsp-blob-20261115/final/`. None of these checks establishes PAS authentication, GLINK communication or battery readings.
+Derive allocation, serialized length and linked length from this single cursor; never use `len(head)+sum(raw_sizes)`. Validate bounded extents, canonical NUL names, mode/packed policy, zero padding and exact terminal cursor. The final host suite passes as recorded above. Ten scoped checks pass: docs193, README table, ownership, secrets, battery, patch parse, working/staged whitespace, build-call fragment and checker negatives. Candidate and unchanged-HEAD porting checks both retain the same 54 inherited errors (no new errors); the porting gate remains nonzero and is not waived. Results: [publication-results.txt](E:/k60-work/artifacts/adsp-carrier-20261115/final/publication-results.txt). No check here establishes PAS authentication, GLINK communication or battery readings.

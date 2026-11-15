@@ -10,8 +10,17 @@
 extern const uint8_t k60_adsp_blob[] WEAK_DATA;
 extern const uint64_t k60_adsp_blob_len WEAK_DATA;
 enum { MODE_BLOB=1, MODE_FAT=2 };
+#if defined(__APPLE__)
+#define WEAK_FN __attribute__((weak_import))
+#else
+#define WEAK_FN __attribute__((weak))
+#endif
+/* Platform hook for the blob-less fallback (the existing note_window/FAT
+ * route). Weak: absent in host fixtures and before that route is ready. */
+extern int k60_adsp_legacy_reader(K60AdspReader *) WEAK_FN;
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | (uint16_t)p[1]<<8); }
 static uint32_t rd32(const uint8_t *p) { return rd16(p) | (uint32_t)rd16(p+2)<<16; }
+static uint64_t rd64(const uint8_t *p) { return rd32(p) | (uint64_t)rd32(p+4)<<32; }
 static int fits(uint64_t at,uint64_t n,uint64_t size) { return at<=size && n<=size-at; }
 static uint64_t pad8(uint64_t n) { return (n+7u)&~UINT64_C(7); }
 static int memory_ok(const void *p,size_t n) { return p && n && (uintptr_t)p<=UINTPTR_MAX-n; }
@@ -34,44 +43,52 @@ static const char *part_name(const char *p)
     if ((n==3 && !memcmp(p,"mdt",3)) || (n==4 && !memcmp(p,"adsp",4))) return "adsp.mdt";
     return n==8 && canonical((const uint8_t *)p,n) ? p : 0;
 }
-static const uint8_t *ent(const uint8_t *p,uint32_t i) { return p+8u+(size_t)i*10u; }
+static int blob_name(const uint8_t *p,uint64_t at,uint32_t len,uint64_t n)
+{
+    return len==9 && fits(at,len,n) && !p[at+8] && canonical(p+at,8);
+}
 static int validate_blob(const uint8_t *p,size_t n)
 {
-    if (!memory_ok(p,n) || n<8 || n>UINT32_MAX || memcmp(p,"K60A",4)) return -7;
-    uint32_t count=rd32(p+4); uint64_t names=8u+(uint64_t)count*10u;
-    if (!count || count>K60_ADSP_BLOB_MAX_ENTRIES || names>n) return -7;
-    uint64_t cursor=names;
+    if (!memory_ok(p,n) || n<12 || n>UINT32_MAX || memcmp(p,"K60A",4)) return -7;
+    uint32_t count=rd32(p+4);
+    if (!count || count>K60_ADSP_BLOB_MAX_ENTRIES || rd32(p+8)) return -7;
+    uint64_t cursor=12,name[K60_ADSP_BLOB_MAX_ENTRIES];
     for(uint32_t i=0;i<count;++i) {
-        uint16_t len=rd16(ent(p,i));
-        if (!fits(cursor,len,n) || !canonical(p+cursor,len) || !rd32(ent(p,i)+2)) return -7;
-        uint64_t previous=names;
-        for(uint32_t j=0;j<i;++j) {
-            uint16_t pn=rd16(ent(p,j));
-            if (len==pn && !memcmp(p+previous,p+cursor,len)) return -7;
-            previous+=pn;
-        }
-        cursor+=len;
+        if(!fits(cursor,24,n))return -7;
+        const uint8_t *e=p+cursor;
+        uint32_t len=rd32(e),mode=rd32(e+4);
+        uint64_t size=rd64(e+8),packed=rd64(e+16);
+        if(mode!=K60_ADSP_BLOB_MODE || packed!=size)return K60AdspReaderUnsupported;
+        if(!size)return -7;
+        uint64_t record_end=cursor+24;
+        cursor=pad8(record_end);
+        if(cursor>n)return -7;
+        for(uint64_t j=record_end;j<cursor;++j) if(p[j])return -7;
+        if(!blob_name(p,cursor,len,n))return -7;
+        for(uint32_t j=0;j<i;++j) if(!memcmp(p+name[j],p+cursor,9))return -7;
+        name[i]=cursor;
+        uint64_t body=pad8(cursor+len);
+        if(body>n)return -7;
+        for(uint64_t j=cursor+len;j<body;++j) if(p[j])return -7;
+        if(!fits(body,size,n))return -7;
+        uint64_t end=body+size,padded=pad8(end);
+        if(padded>n)return -7;
+        for(uint64_t j=end;j<padded;++j) if(p[j])return -7;
+        cursor=padded;
     }
-    uint64_t body=pad8(cursor);
-    if (body>n) return -7;
-    for(uint64_t j=cursor;j<body;++j) if(p[j]) return -7;
-    for(uint32_t i=0;i<count;++i) {
-        const uint8_t *e=ent(p,i); uint32_t size=rd32(e+2),off=rd32(e+6);
-        uint64_t end=(uint64_t)off+size,padded=pad8(end);
-        if ((off&7u) || off!=body || !fits(off,size,n) || padded>n) return -7;
-        for(uint64_t j=end;j<padded;++j) if(p[j]) return -7;
-        body=padded;
-    }
-    return body==n ? 0 : -7;
+    return cursor==n ? 0 : -7;
 }
 static int blob_find(const K60AdspReader *r,const char *name,const uint8_t **p,size_t *n)
 {
     int rc=validate_blob(r->base,r->bytes); if(rc) return rc;
-    uint32_t count=rd32(r->base+4); size_t at=8u+(size_t)count*10u;
+    uint32_t count=rd32(r->base+4); uint64_t cursor=12;
     for(uint32_t i=0;i<count;++i) {
-        const uint8_t *e=ent(r->base,i); uint16_t len=rd16(e);
-        if (!memcmp(r->base+at,name,len)) { *p=r->base+rd32(e+6);*n=rd32(e+2);return 0; }
-        at+=len;
+        const uint8_t *e=r->base+cursor; uint32_t len=rd32(e);
+        uint64_t size=rd64(e+8),name_at=pad8(cursor+24);
+        if (!memcmp(r->base+name_at,name,8)) {
+            *p=r->base+pad8(name_at+len);*n=(size_t)size;return 0;
+        }
+        cursor=pad8(pad8(name_at+len)+size);
     }
     return -6;
 }
@@ -177,6 +194,7 @@ int k60_adsp_reader_linked(K60AdspReader *r)
 {
     if(!(uintptr_t)k60_adsp_blob || !(uintptr_t)&k60_adsp_blob_len)return -6;
     uint64_t n=k60_adsp_blob_len;
+    if(!n)return K60AdspReaderMissing;
     if((uint64_t)(size_t)n!=n)return -7;
     return k60_adsp_reader_blob(r,k60_adsp_blob,(size_t)n);
 }
@@ -251,6 +269,15 @@ int k60_adsp_owner_reader_init(K60AdspOwnerReader *o,const K60AdspReader *r,uint
         overlap(metadata,cap,r->base,r->bytes) || overlap(metadata,cap,o,sizeof *o) ||
         overlap(metadata,cap,r,sizeof *r))return -1;
     K60AdspOwnerReader t={0};t.source=*r;t.metadata=metadata;t.capacity=cap;*o=t;return 0;
+}
+int k60_adsp_owner_reader_linked(K60AdspOwnerReader *o,uint8_t *metadata,size_t cap)
+{
+    K60AdspReader source={0};
+    int rc=k60_adsp_reader_linked(&source);
+    /* Only an absent carrier falls back; a corrupt one must not be hidden. */
+    if(rc==K60AdspReaderMissing && (uintptr_t)k60_adsp_legacy_reader)
+        rc=k60_adsp_legacy_reader(&source);
+    return rc ? rc : k60_adsp_owner_reader_init(o,&source,metadata,cap);
 }
 int k60_adsp_owner_image_open(void *context,K60OwnerImage *image)
 {

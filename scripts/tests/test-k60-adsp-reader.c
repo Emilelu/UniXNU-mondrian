@@ -9,15 +9,54 @@
 #include "test-k60-owner-fixture.h"
 #include "../../drivers/PongPower/K60AdspImageReader.h"
 
-#ifdef K60_ADSP_TEST_LINKED
-/* Tiny valid linked carrier; production test remains completely in-memory. */
+#if defined(K60_ADSP_TEST_LINKED) || defined(K60_ADSP_TEST_LINKED_ZERO) || \
+    defined(K60_ADSP_TEST_LINKED_MALFORMED) || defined(K60_ADSP_TEST_LINKED_UNSUPPORTED)
+/* One-record production carrier: header 12, record 12, pad 36..39, name 40,
+ * name pad 49..55, body 56, body pad 59..63. */
+#if defined(K60_ADSP_TEST_LINKED_ZERO)
+const uint8_t k60_adsp_blob[] = {0};
+const uint64_t k60_adsp_blob_len = 0;
+#elif defined(K60_ADSP_TEST_LINKED_MALFORMED)
 const uint8_t k60_adsp_blob[] = {
-    'K','6','0','A', 1,0,0,0,
-    8,0, 3,0,0,0, 32,0,0,0,
-    'a','d','s','p','.','m','d','t',
-    0,0,0,0,0,0, 0xaa,0xbb,0xcc, 0,0,0,0,0
+    'K','6','0','A', 1,0,0,0, 0,0,0,0,
+    9,0,0,0, 0xa4,1,0,0, 3,0,0,0,0,0,0,0, 3,0,0,0,0,0,0,0,
+    1,0,0,0, 'a','d','s','p','.','m','d','t',0, 0,0,0,0,0,0,0,
+    0xaa,0xbb,0xcc, 0,0,0,0,0
 };
 const uint64_t k60_adsp_blob_len = sizeof k60_adsp_blob;
+#elif defined(K60_ADSP_TEST_LINKED_UNSUPPORTED)
+const uint8_t k60_adsp_blob[] = {
+    'K','6','0','A', 1,0,0,0, 0,0,0,0,
+    9,0,0,0, 0x80,1,0,0, 3,0,0,0,0,0,0,0, 3,0,0,0,0,0,0,0,
+    0,0,0,0, 'a','d','s','p','.','m','d','t',0, 0,0,0,0,0,0,0,
+    0xaa,0xbb,0xcc, 0,0,0,0,0
+};
+const uint64_t k60_adsp_blob_len = sizeof k60_adsp_blob;
+#else
+const uint8_t k60_adsp_blob[] = {
+    'K','6','0','A', 1,0,0,0, 0,0,0,0,
+    9,0,0,0, 0xa4,1,0,0, 3,0,0,0,0,0,0,0, 3,0,0,0,0,0,0,0,
+    0,0,0,0, 'a','d','s','p','.','m','d','t',0, 0,0,0,0,0,0,0,
+    0xaa,0xbb,0xcc, 0,0,0,0,0
+};
+const uint64_t k60_adsp_blob_len = sizeof k60_adsp_blob;
+#endif
+#endif
+
+#if !defined(K60_ADSP_TEST_LINKED)
+/* Spy target for the only permitted fallback: absent or zero-length carrier. */
+static unsigned legacy_calls;
+static const uint8_t legacy_blob[] = {
+    'K','6','0','A', 1,0,0,0, 0,0,0,0,
+    9,0,0,0, 0xa4,1,0,0, 3,0,0,0,0,0,0,0, 3,0,0,0,0,0,0,0,
+    0,0,0,0, 'a','d','s','p','.','m','d','t',0, 0,0,0,0,0,0,0,
+    0xaa,0xbb,0xcc, 0,0,0,0,0
+};
+int k60_adsp_legacy_reader(K60AdspReader *reader)
+{
+    ++legacy_calls;
+    return k60_adsp_reader_blob(reader, legacy_blob, sizeof legacy_blob);
+}
 #endif
 
 #define IMAGE_BASE UINT64_C(0x9fd00000)
@@ -31,6 +70,11 @@ typedef struct { uint8_t *data; size_t bytes; } Carrier;
 typedef struct { Part part[K60_ADSP_BLOB_MAX_ENTRIES]; unsigned count; Carrier blob; } Capture;
 static Capture captured;
 static unsigned scenarios;
+static unsigned evidence_plan, evidence_totals, evidence_b10, evidence_container, evidence_retired;
+static uint64_t measured_copy, measured_zero;
+static uint32_t measured_segments, measured_entries;
+static size_t measured_container;
+static int measured_retired;
 
 static void scenario(const char *name) { fx_name = name; ++scenarios; }
 static size_t align8(size_t n) { CHECK(n <= SIZE_MAX - 7); return (n + 7u) & ~(size_t)7; }
@@ -38,29 +82,32 @@ static int filled(const void *p, size_t n, uint8_t v)
 { const uint8_t *b = p; while (n--) if (*b++ != v) return 0; return 1; }
 static void *allocate(size_t n) { void *p = malloc(n); CHECK(p != NULL); return p; }
 
+static void fx_le64(uint8_t *p, uint64_t v)
+{ fx_le32(p, (uint32_t)v); fx_le32(p + 4, (uint32_t)(v >> 32)); }
+
 static Carrier make_blob(const Part *parts, unsigned count)
 {
+    size_t cursor = 12, record[K60_ADSP_BLOB_MAX_ENTRIES];
+    size_t name[K60_ADSP_BLOB_MAX_ENTRIES], body[K60_ADSP_BLOB_MAX_ENTRIES];
     CHECK(count && count <= K60_ADSP_BLOB_MAX_ENTRIES);
-    size_t names = 8u + (size_t)count * 10u, at = names + (size_t)count * 8u;
-    size_t bytes = align8(at);
     for (unsigned i = 0; i < count; ++i) {
         CHECK(strlen(parts[i].name) == 8 && parts[i].bytes && parts[i].bytes <= UINT32_MAX);
-        CHECK(parts[i].bytes <= UINT32_MAX - bytes);
-        bytes = align8(bytes + parts[i].bytes);
+        record[i] = cursor; CHECK(cursor <= SIZE_MAX - 24); cursor = align8(cursor + 24);
+        name[i] = cursor; CHECK(cursor <= SIZE_MAX - 9); cursor = align8(cursor + 9);
+        body[i] = cursor; CHECK(cursor <= SIZE_MAX - parts[i].bytes);
+        cursor = align8(cursor + parts[i].bytes);
     }
-    CHECK(bytes <= UINT32_MAX);
-    Carrier b = {allocate(bytes), bytes}; memset(b.data, 0, bytes);
-    memcpy(b.data, "K60A", 4); fx_le32(b.data + 4, count);
-    size_t body = align8(at);
+    CHECK(cursor <= UINT32_MAX && cursor <= SIZE_MAX);
+    Carrier b = {allocate((size_t)cursor), (size_t)cursor}; memset(b.data, 0, b.bytes);
+    memcpy(b.data, "K60A", 4); fx_le32(b.data + 4, count); fx_le32(b.data + 8, 0);
     for (unsigned i = 0; i < count; ++i) {
-        uint8_t *entry = b.data + 8u + (size_t)i * 10u;
-        fx_le16(entry, 8); fx_le32(entry + 2, (uint32_t)parts[i].bytes);
-        fx_le32(entry + 6, (uint32_t)body);
-        memcpy(b.data + names + (size_t)i * 8u, parts[i].name, 8);
-        memcpy(b.data + body, parts[i].data, parts[i].bytes);
-        body = align8(body + parts[i].bytes);
+        uint8_t *entry = b.data + (size_t)record[i];
+        fx_le32(entry, 9); fx_le32(entry + 4, K60_ADSP_BLOB_MODE);
+        fx_le64(entry + 8, parts[i].bytes); fx_le64(entry + 16, parts[i].bytes);
+        memcpy(b.data + (size_t)name[i], parts[i].name, 9);
+        memcpy(b.data + (size_t)body[i], parts[i].data, parts[i].bytes);
     }
-    CHECK(body == bytes); return b;
+    return b;
 }
 static int load_part(Part *part, const char *dir, const char *name, int optional)
 {
@@ -106,14 +153,15 @@ static void unchanged_error(K60AdspReader *r, const char *part, uint32_t bytes, 
         CHECK(out == before && n == 0x13579u);
     }
 }
-static void invalid_blob(uint8_t *bytes, size_t n)
+static void rejected_blob(uint8_t *bytes, size_t n, int error)
 {
     K60AdspReader r = {0}, before; r.bytes = 17; before = r;
-    CHECK(k60_adsp_reader_blob(&r, bytes, n) == -7); CHECK(!memcmp(&r, &before, sizeof r));
+    CHECK(k60_adsp_reader_blob(&r, bytes, n) == error); CHECK(!memcmp(&r, &before, sizeof r));
     /* Revalidate at access time too: malformed live backing cannot copy or borrow. */
     K60AdspReader live = {0}; live.base = bytes; live.bytes = n; live.mode = 1;
-    unchanged_error(&live, "adsp.mdt", 3, -7);
+    unchanged_error(&live, "adsp.mdt", 3, error);
 }
+static void invalid_blob(uint8_t *bytes, size_t n) { rejected_blob(bytes, n, -7); }
 static void blob_tests(void)
 {
     static uint8_t a[] = {0x11, 0x22, 0x33}, b[] = {1,2,3,4,5,6,7,8,9}, c[] = {0x44};
@@ -157,36 +205,92 @@ static void blob_tests(void)
     scenario("K60A rejects every truncation and trailing bytes");
     for (size_t i = 1; i < good.bytes; ++i) invalid_blob(good.data, i);
     memcpy(bad, good.data, good.bytes); memset(bad + good.bytes, 0, 8); invalid_blob(bad, good.bytes + 8);
-    scenario("K60A malformed magic/count/names/dupes/size/padding/offset/overflow");
+    scenario("production K60A magic/count/reserved/names/duplicates/size/padding/overflow");
+    CHECK(good.bytes == 168 && !memcmp(good.data + 40, "adsp.mdt", 9));
+    CHECK(!memcmp(good.data + 56, a, sizeof a));
 #define BAD_BLOB(change) do { memcpy(bad, good.data, good.bytes); change; invalid_blob(bad, good.bytes); } while (0)
     BAD_BLOB(bad[0] = 'X'); BAD_BLOB(fx_le32(bad + 4, 0));
     BAD_BLOB(fx_le32(bad + 4, 65)); BAD_BLOB(fx_le32(bad + 4, UINT32_MAX));
-    BAD_BLOB(fx_le16(bad + 8, 0)); BAD_BLOB(fx_le16(bad + 8, 7));
-    BAD_BLOB(fx_le16(bad + 8, UINT16_MAX)); BAD_BLOB(bad[38] = 'A');
-    BAD_BLOB(bad[38 + 5] = '/'); BAD_BLOB(bad[38 + 6] = 0);
-    BAD_BLOB(memcpy(bad + 46, bad + 38, 8));
-    BAD_BLOB(fx_le32(bad + 10, 0)); BAD_BLOB(fx_le32(bad + 10, UINT32_MAX));
-    BAD_BLOB(bad[62] = 1); BAD_BLOB(bad[67] = 1); BAD_BLOB(bad[good.bytes - 1] = 1);
-    BAD_BLOB(fx_le32(bad + 14, 63)); BAD_BLOB(fx_le32(bad + 14, 0));
-    BAD_BLOB(fx_le32(bad + 14, 72)); BAD_BLOB(fx_le32(bad + 24, 64));
-    BAD_BLOB(fx_le32(bad + 24, 80)); BAD_BLOB(fx_le32(bad + 14, UINT32_MAX - 7u));
+    BAD_BLOB(fx_le32(bad + 8, 1)); BAD_BLOB(fx_le32(bad + 8, UINT32_MAX));
+    BAD_BLOB(fx_le32(bad + 12, 0)); BAD_BLOB(fx_le32(bad + 12, 8));
+    BAD_BLOB(fx_le32(bad + 12, 10)); BAD_BLOB(fx_le32(bad + 12, UINT32_MAX));
+    BAD_BLOB(bad[40] = 'A'); BAD_BLOB(bad[45] = '/'); BAD_BLOB(bad[46] = 0);
+    BAD_BLOB(bad[48] = 'X'); BAD_BLOB(memcpy(bad + 88, bad + 40, 9));
+    BAD_BLOB(fx_le64(bad + 20, 0); fx_le64(bad + 28, 0));
+    BAD_BLOB(fx_le64(bad + 20, UINT32_MAX); fx_le64(bad + 28, UINT32_MAX));
+    BAD_BLOB(fx_le64(bad + 20, UINT64_MAX); fx_le64(bad + 28, UINT64_MAX));
+    BAD_BLOB(fx_le64(bad + 20, UINT64_MAX - 7); fx_le64(bad + 28, UINT64_MAX - 7));
+    /* Every byte in first record, name and body padding is significant. */
+    for (size_t i = 36; i < 40; ++i) { BAD_BLOB(bad[i] = 1); }
+    for (size_t i = 49; i < 56; ++i) { BAD_BLOB(bad[i] = 1); }
+    for (size_t i = 59; i < 64; ++i) { BAD_BLOB(bad[i] = 1); }
+    BAD_BLOB(bad[97] = 1); BAD_BLOB(bad[113] = 1); BAD_BLOB(bad[good.bytes - 1] = 1);
 #undef BAD_BLOB
+    scenario("mode and packed-size policy fail -8 before exposing body bytes");
+#define BAD_POLICY(change) do { memcpy(bad, good.data, good.bytes); change; rejected_blob(bad, good.bytes, -8); } while (0)
+    BAD_POLICY(fx_le32(bad + 16, 0)); BAD_POLICY(fx_le32(bad + 16, 0600));
+    BAD_POLICY(fx_le32(bad + 16, 0100644)); BAD_POLICY(fx_le32(bad + 68, UINT32_MAX));
+    BAD_POLICY(fx_le64(bad + 28, 0)); BAD_POLICY(fx_le64(bad + 28, 2));
+    BAD_POLICY(fx_le64(bad + 28, 4)); BAD_POLICY(fx_le64(bad + 28, UINT64_MAX));
+#undef BAD_POLICY
+    scenario("retired flat proposal is malformed -7");
+    uint8_t retired[40] = {'K','6','0','A', 1,0,0,0, 8,0, 3,0,0,0, 32,0,0,0,
+        'a','d','s','p','.','m','d','t', 0,0,0,0,0,0, 0xaa,0xbb,0xcc, 0,0,0,0,0};
+    invalid_blob(retired, sizeof retired);
+    K60AdspReader proposal = {0};
+    measured_retired = k60_adsp_reader_blob(&proposal, retired, sizeof retired);
+    CHECK(measured_retired == -7);
+    /* A production carrier must fail the retired-proposal rejection oracle. */
+    CHECK(k60_adsp_reader_blob(&proposal, good.data, good.bytes) == 0);
+    evidence_retired = 1;
 #if SIZE_MAX > UINT32_MAX
     CHECK(k60_adsp_reader_blob(&empty, good.data, (size_t)UINT32_MAX + 1u) == -7 && !empty.mode);
 #endif
-#ifdef K60_ADSP_TEST_LINKED
-    scenario("linked K60A carrier initializes and reads exact bytes");
-    K60AdspReader linked = {0}; memset(dst, 0x77, sizeof dst);
-    CHECK(!k60_adsp_reader_linked(&linked) && linked.mode);
-    CHECK(!k60_adsp_reader_read(&linked, "mdt", dst + 1, 3));
-    CHECK(dst[0] == 0x77 && dst[4] == 0x77 && dst[1] == 0xaa && dst[2] == 0xbb && dst[3] == 0xcc);
-    memset(dst, 0x77, sizeof dst); CHECK(!k60_adsp_read("adsp", dst + 1, 3));
-    CHECK(dst[0] == 0x77 && dst[4] == 0x77 && dst[1] == 0xaa && dst[2] == 0xbb && dst[3] == 0xcc);
+    scenario("linked carrier API preserves state and byte-copy guarantees");
+    K60AdspReader linked = {0}, linked_before = linked;
+    K60AdspOwnerReader owner = {0}, owner_before = owner; uint8_t metadata[8];
+    memset(metadata, 0x88, sizeof metadata); memset(dst, 0x77, sizeof dst);
+#if defined(K60_ADSP_TEST_LINKED_MALFORMED)
+    const int linked_error = -7;
+#elif defined(K60_ADSP_TEST_LINKED_UNSUPPORTED)
+    const int linked_error = -8;
+#elif defined(K60_ADSP_TEST_LINKED)
+    const int linked_error = 0;
 #else
-    scenario("linked weak carrier absent remains -6 and cannot touch output");
-    CHECK(k60_adsp_reader_linked(&empty) == -6 && !empty.mode);
-    CHECK(k60_adsp_read("mdt", dst, 3) == -6 && filled(dst, sizeof dst, 0x77));
+    const int linked_error = -6;
 #endif
+    CHECK(k60_adsp_reader_linked(&linked) == linked_error);
+    if (linked_error) {
+        CHECK(!memcmp(&linked, &linked_before, sizeof linked));
+        CHECK(k60_adsp_read("mdt", dst, 3) == linked_error && filled(dst, sizeof dst, 0x77));
+    }
+#if defined(K60_ADSP_TEST_LINKED)
+    else {
+        CHECK(k60_adsp_blob_len == 64 && sizeof k60_adsp_blob == 64);
+        CHECK(!memcmp(k60_adsp_blob + 40, "adsp.mdt", 9));
+        CHECK(!k60_adsp_reader_read(&linked, "mdt", dst + 1, 3));
+        CHECK(dst[0] == 0x77 && dst[4] == 0x77 && dst[1] == 0xaa && dst[2] == 0xbb && dst[3] == 0xcc);
+        memset(dst, 0x77, sizeof dst); CHECK(!k60_adsp_read("adsp", dst + 1, 3));
+        CHECK(dst[0] == 0x77 && dst[4] == 0x77 && dst[1] == 0xaa && dst[2] == 0xbb && dst[3] == 0xcc);
+    }
+#endif
+#if defined(K60_ADSP_TEST_LINKED_MALFORMED) || defined(K60_ADSP_TEST_LINKED_UNSUPPORTED)
+    scenario("present malformed/policy linked carrier never invokes legacy fallback spy");
+    CHECK(k60_adsp_owner_reader_linked(&owner, metadata, sizeof metadata) == linked_error);
+    CHECK(!memcmp(&owner, &owner_before, sizeof owner) && !legacy_calls);
+#else
+    (void)owner_before;
+    scenario("linked owner opens production bytes or falls back only for absent/zero length");
+    CHECK(!k60_adsp_owner_reader_linked(&owner, metadata, sizeof metadata));
+    K60OwnerImage image = {0}; CHECK(!k60_adsp_owner_image_open(&owner, &image));
+    CHECK(image.bytes == 3 && image.mdt[0] == 0xaa && image.mdt[1] == 0xbb && image.mdt[2] == 0xcc);
+    CHECK(image.metadata == metadata && image.metadata_capacity == sizeof metadata);
+    k60_adsp_owner_image_close(&owner, &image); CHECK(!owner.active && fx_zero(&image, sizeof image));
+#if !defined(K60_ADSP_TEST_LINKED)
+    CHECK(legacy_calls == 1);
+#endif
+#endif
+    CHECK(filled(metadata, sizeof metadata, 0x88));
     free(bad); free(good.data);
 }
 
@@ -296,6 +400,15 @@ static void install_spy(PieceSpy *spy, K60OwnerImage *image)
     memset(spy, 0, sizeof *spy); spy->piece = image->piece; spy->context = image->context;
     image->piece = spy_piece; image->context = spy;
 }
+static int plan24(const K60AdspMdtPlan *p)
+{ return p->headers == 26 && p->count == 24 && p->relocatable == 1; }
+static int totals_match(const K60AdspMdtPlan *p, uint64_t *copy, uint64_t *zero)
+{
+    *copy = *zero = 0;
+    if (p->count > K60_ADSP_MDT_MAX_HEADERS) return 0;
+    for (unsigned i = 0; i < p->count; ++i) { *copy += p->segment[i].copy_bytes; *zero += p->segment[i].zero_bytes; }
+    return *copy == 23494284u && *zero == 25925684u;
+}
 static void check_plan(const K60AdspMdtPlan *p)
 {
     CHECK(p->headers == 26 && p->count == 24 && p->relocatable == 1);
@@ -314,6 +427,13 @@ static void check_plan(const K60AdspMdtPlan *p)
     }
     CHECK(copy == 23494284u && zero == 25925684u && b10 == 1 && b24 == 1);
     CHECK(p->span - copy - zero == 1960256u);
+    scenario("plan/totals assertion oracles reject deliberate count/copy/BSS changes");
+    CHECK(plan24(p) && totals_match(p, &measured_copy, &measured_zero)); measured_segments = p->count;
+    K60AdspMdtPlan altered = *p; --altered.count; CHECK(!plan24(&altered));
+    uint64_t changed_copy, changed_zero; altered = *p; ++altered.segment[0].copy_bytes;
+    CHECK(!totals_match(&altered, &changed_copy, &changed_zero));
+    altered = *p; ++altered.segment[0].zero_bytes; CHECK(!totals_match(&altered, &changed_copy, &changed_zero));
+    evidence_plan = evidence_totals = 1;
 }
 static void put_segment(uint8_t *dst, const K60AdspMdtSegment *s, const uint8_t *src, size_t n)
 {
@@ -321,6 +441,15 @@ static void put_segment(uint8_t *dst, const K60AdspMdtSegment *s, const uint8_t 
     size_t offset = (size_t)(s->destination - IMAGE_BASE);
     if (n) memcpy(dst + GUARD + offset, src, n);
     memset(dst + GUARD + offset + n, 0, s->zero_bytes);
+}
+static int b10_matches(const uint8_t *dst)
+{
+    size_t at = GUARD + (size_t)(UINT64_C(0xa080b2c0) - IMAGE_BASE);
+    const Part *part = find_part("adsp.b10");
+    if (!part || part->bytes != 720 || !(UINT64_C(0xa080b2c0) & 4095u)) return 0;
+    for (size_t i = 0; i < 720; ++i) if (dst[at + i] != part->data[i]) return 0;
+    for (size_t i = 0; i < 2672; ++i) if (dst[at + 720 + i]) return 0;
+    return 1; /* Full-region oracle below separately checks every gap and guard. */
 }
 static void check_destination(const uint8_t *dst, const K60AdspMdtPlan *plan)
 {
@@ -338,7 +467,12 @@ static void check_destination(const uint8_t *dst, const K60AdspMdtPlan *plan)
     /* The entire region comparison includes every untouched gap, not just totals. */
     size_t b10 = (size_t)(UINT64_C(0xa080b2c0) - IMAGE_BASE);
     CHECK(!memcmp(dst + GUARD + b10, find_part("adsp.b10")->data, 720));
-    CHECK(fx_zero(dst + GUARD + b10 + 720, 2672)); free(expect);
+    CHECK(fx_zero(dst + GUARD + b10 + 720, 2672));
+    CHECK(b10_matches(dst) && b10_matches(expect));
+    scenario("b10 byte oracle rejects a changed copy byte and a changed BSS byte");
+    expect[GUARD + b10 + 719] ^= 1; CHECK(!b10_matches(expect)); expect[GUARD + b10 + 719] ^= 1;
+    expect[GUARD + b10 + 720] = 1; CHECK(!b10_matches(expect)); expect[GUARD + b10 + 720] = 0;
+    CHECK(b10_matches(expect)); evidence_b10 = 1; free(expect);
 }
 static void captured_reads(K60AdspReader *r)
 {
@@ -353,6 +487,32 @@ static void captured_reads(K60AdspReader *r)
     }
     unchanged_error(r, "adsp.b24", 1, -6); unchanged_error(r, "adsp.b10", 719, -5);
     unchanged_error(r, "adsp.b10", 721, -5);
+}
+static uint32_t get_le32(const uint8_t *p)
+{ return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static int production_shape(const uint8_t *p, size_t n)
+{ return n == 23506184u && !memcmp(p, "K60A", 4) && get_le32(p + 4) == 26 && !get_le32(p + 8); }
+static void captured_container_tests(void)
+{
+    scenario("26-entry production length/count assertion rejects truncation and changed count");
+    CHECK(production_shape(captured.blob.data, captured.blob.bytes));
+    measured_container = captured.blob.bytes; measured_entries = get_le32(captured.blob.data + 4);
+    CHECK(!production_shape(captured.blob.data, captured.blob.bytes - 8));
+    invalid_blob(captured.blob.data, captured.blob.bytes - 8);
+    uint8_t *bad = allocate(captured.blob.bytes); memcpy(bad, captured.blob.data, captured.blob.bytes);
+    fx_le32(bad + 4, 27); CHECK(!production_shape(bad, captured.blob.bytes)); invalid_blob(bad, captured.blob.bytes);
+    free(bad); evidence_container = 1;
+}
+static void generated_tests(const char *path)
+{
+    scenario("generator output equals independent production builder and serves all captured entries");
+    FILE *file = fopen(path, "rb"); CHECK(file != NULL); CHECK(!fseek(file, 0, SEEK_END));
+    long length = ftell(file); CHECK(length > 0 && (uint64_t)length <= SIZE_MAX);
+    CHECK((size_t)length == captured.blob.bytes); CHECK(!fseek(file, 0, SEEK_SET));
+    uint8_t *bytes = allocate((size_t)length); CHECK(fread(bytes, 1, (size_t)length, file) == (size_t)length);
+    CHECK(!ferror(file) && !fclose(file)); CHECK(!memcmp(bytes, captured.blob.data, (size_t)length));
+    CHECK(production_shape(bytes, (size_t)length)); K60AdspReader r = {0};
+    CHECK(!k60_adsp_reader_blob(&r, bytes, (size_t)length)); captured_reads(&r); free(bytes);
 }
 static int faulty_piece(void *context, uint32_t index, const uint8_t **p, size_t *n)
 {
@@ -528,7 +688,7 @@ static void engine_tests(const K60AdspReader *source)
     CHECK(!engine->fx.session.image.piece(engine->fx.session.image.context, 10, &p, &n) && n == 720);
     CHECK(!memcmp(p, find_part("adsp.b10")->data, n));
     CHECK(!memcmp(engine->metadata, find_part("adsp.mdt")->data, META_BYTES));
-    free(engine->destination);
+    /* Published region remains mapped in this fixture through process exit. */
 
     engine_case(source, "poisoned owner pins reader while shutdown cannot prove stopped");
     fx_prepare(&engine->fx); engine->fx.auth_rc = -1; engine->fx.shutdown_rc = -1;
@@ -538,7 +698,7 @@ static void engine_tests(const K60AdspReader *source)
     CHECK(!engine->fx.release_calls && !engine->fx.resources_release_calls && !engine->spy.calls[24]);
     CHECK(!engine->fx.session.image.piece(engine->fx.session.image.context, 10, &p, &n) && n == 720);
     k60_owner_abort(&engine->fx.session); CHECK(engine->fx.shutdown_calls == 1 && !engine->fx.close_calls);
-    free(engine->destination);
+    /* Poisoned region cannot be reclaimed while stopped remains unproved. */
 
     engine_case(source, "insufficient metadata fails claim before mappings and closes reader");
     engine->reader.capacity = META_BYTES - 1; memset(engine->metadata, 0xdd, META_BYTES);
@@ -560,10 +720,18 @@ static void engine_tests(const K60AdspReader *source)
 }
 int main(int argc, char **argv)
 {
-    fx_name = "usage"; CHECK(argc == 2);
-    load_capture(argv[1]); blob_tests(); fat_tests();
+    fx_name = "usage"; CHECK(argc == 2 || argc == 3);
+    load_capture(argv[1]); blob_tests(); fat_tests(); captured_container_tests();
     K60AdspReader r = {0}; CHECK(!k60_adsp_reader_blob(&r, captured.blob.data, captured.blob.bytes));
-    captured_reads(&r); segment_tests(&r); engine_tests(&r);
+    captured_reads(&r); if (argc == 3) generated_tests(argv[2]); segment_tests(&r); engine_tests(&r);
+    CHECK(evidence_plan && evidence_totals && evidence_b10 && evidence_container && evidence_retired);
+    printf("ASSERT plan24: PASS segments=%u; negative count=23 rejected\n", measured_segments);
+    printf("ASSERT copy/BSS: PASS copy=%llu BSS=%llu; negative copy+1 and BSS+1 rejected\n",
+        (unsigned long long)measured_copy, (unsigned long long)measured_zero);
+    printf("ASSERT b10 byte-by-byte: PASS destination=0xa080b2c0 copy=720 BSS=2672 unaligned=0x2c0; negative copy/BSS byte corruption rejected\n");
+    printf("ASSERT container length/count: PASS bytes=%zu count=%u; negative truncation and count=27 rejected -7\n",
+        measured_container, measured_entries);
+    printf("ASSERT retired proposal: PASS rc=%d; negative production counterexample returns 0\n", measured_retired);
     printf("TESTS OK adsp-reader: %u scenarios; %u captured entries; 24 segments; "
         "copy=23494284 zero=25925684 span=51380224 gaps=1960256; no b24 read%s\n",
         scenarios, captured.count,

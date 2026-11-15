@@ -7,6 +7,7 @@
 #include "K60AdspPas.h"
 #include "K60AdspImage.h"
 #include "K60Fat.h"
+#include "K60AdspImageReader.h"
 
 #ifndef K60_HOST_TEST
 
@@ -87,6 +88,7 @@ k60_adsp_bring_up(void *window, size_t window_bytes, K60AdspRead read)
  * same token and walk the FAT volume ourselves. */
 static K60FatVolume k60_fat_vol;
 static const void *k60_fat_base;
+static size_t k60_fat_bytes;
 static int k60_fat_ready;
 
 /* PE_boot_args() returns the kernel-embedded default string, not what the
@@ -215,6 +217,7 @@ k60_adsp_probe_from_handoff(void)
 		return -1;
 	}
 	k60_fat_ready = 1;
+	k60_fat_bytes = (size_t)size;
 	printf("K60PAS fat open ok bps=%u spc=%u root=%u clusters=%u\n",
 	    k60_fat_vol.bytes_per_sector, k60_fat_vol.sectors_per_cluster,
 	    k60_fat_vol.root_cluster, k60_fat_vol.clusters);
@@ -227,6 +230,20 @@ k60_adsp_probe_from_handoff(void)
 	}
 	return k60_adsp_bring_up((void *)window, (size_t)K60_ADSP_WINDOW,
 	    k60_adsp_ramdisk_reader);
+}
+
+/* Blob-less fallback binding for the owner image reader: the linked carrier is
+ * authoritative; only when it is absent does the owner adapter call here and
+ * reuse the already-mapped ramdisk FAT window (the bt
+ * k60_bt_addon_load_blob() fallback shape). A present-but-malformed carrier
+ * never reaches this hook. */
+int
+k60_adsp_legacy_reader(K60AdspReader *r)
+{
+	if (!k60_fat_ready || k60_fat_base == NULL || k60_fat_bytes == 0) {
+		return K60AdspReaderMissing;
+	}
+	return k60_adsp_reader_fat(r, k60_fat_base, k60_fat_bytes);
 }
 
 #endif /* !K60_HOST_TEST */

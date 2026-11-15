@@ -29,14 +29,25 @@ for stage in claim prepare auth build publish; do
   cc "${CFLAGS[@]}" "scripts/tests/test-k60-owner-$stage.c" "${OWNER_SOURCES[@]}" -o "$OUT/owner-$stage"
   "$OUT/owner-$stage"
 done
-cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-reader.c "${OWNER_SOURCES[@]}" -o "$OUT/reader"
-"$OUT/reader" /mnt/e/k60-work/firmware/adsp
-cc "${CFLAGS[@]}" -DK60_ADSP_TEST_LINKED scripts/tests/test-k60-adsp-reader.c "${OWNER_SOURCES[@]}" -o "$OUT/reader-linked"
-"$OUT/reader-linked" /mnt/e/k60-work/firmware/adsp
+mkdir -p "$OUT/carrier"
+python3 scripts/gen-k60-adsp-blob.py --firmware-dir /mnt/e/k60-work/firmware/adsp \
+  --output "$OUT/carrier/k60_adsp_blob.s" --dump "$OUT/carrier/k60_adsp_blob.bin"
+python3 scripts/check-adsp-blob.py "$OUT/carrier/k60_adsp_blob.s"
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-blob.c \
   drivers/PongPower/K60AdspImageReader.c drivers/PongPower/K60Fat.c \
   drivers/PongPower/K60AdspMdt.c -o "$OUT/blob"
-"$OUT/blob" /mnt/e/k60-work/firmware/adsp
+"$OUT/blob" /mnt/e/k60-work/firmware/adsp "$OUT/carrier/k60_adsp_blob.bin"
+for variant in absent linked zero malformed unsupported; do
+  READER_FLAGS=()
+  case "$variant" in
+    linked) READER_FLAGS=(-DK60_ADSP_TEST_LINKED) ;;
+    zero) READER_FLAGS=(-DK60_ADSP_TEST_LINKED_ZERO) ;;
+    malformed) READER_FLAGS=(-DK60_ADSP_TEST_LINKED_MALFORMED) ;;
+    unsupported) READER_FLAGS=(-DK60_ADSP_TEST_LINKED_UNSUPPORTED) ;;
+  esac
+  cc "${CFLAGS[@]}" "${READER_FLAGS[@]}" scripts/tests/test-k60-adsp-reader.c "${OWNER_SOURCES[@]}" -o "$OUT/reader-$variant"
+  "$OUT/reader-$variant" /mnt/e/k60-work/firmware/adsp "$OUT/carrier/k60_adsp_blob.bin"
+done
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2

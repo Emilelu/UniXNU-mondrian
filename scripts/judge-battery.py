@@ -25,10 +25,23 @@ Usage:
     python3 scripts/judge-battery.py <console.log|usblog-dir>
     python3 scripts/judge-battery.py --log <usblog-dir> --android samples.tsv \
         --window-start 1763000000 --window-end 1763001800
+    python3 scripts/judge-battery.py --log <usblog-dir> --android dmesg.txt \
+        --window-start 6380 --window-end 6420
 
-The Android file is one sample per line:
-    <epoch_seconds> <voltage_mv> <current_ma> <soc_percent> <temp_c> <status>
-status: 2 Charging, 3 Discharging, 4 Not charging, 5 Full (07 section 3.1).
+--android accepts either channel of 07 section 3.1, detected by content:
+  * a transcribed file, one sample per line:
+        <epoch_seconds> <voltage_mv> <current_ma> <soc_percent> <temp_c> <status>
+    status: 2 Charging, 3 Discharging, 4 Not charging, 5 Full.
+  * Android's own dmesg, matched on the
+    "BATTERY_CHG: handle_message: [ADSP] fg_update_status::" lines (ssoc, vbat,
+    ibat, temp).  dmesg prints no battery status, so charge state comes from the
+    charger driver's usb_present line instead and the current sign is not
+    judged; dmesg has no wall clock either, so the window is dmesg relative
+    seconds, not epoch seconds.
+
+C3 runs only when C1 and C2 both PASS: whether the values exist is judged
+before how far they are from Android's, because a distance measured against a
+log that never subscribed is a confident number made from nothing.
 
 Exit status: 0 PASS, 1 FAIL, 2 INVALID, 4 usage error (never a verdict).
 """
@@ -65,6 +78,17 @@ FAILURE_RE = re.compile(
     r"physical transport (?:stopped|initialization rejected)|"
     r"GLINK epoch never became ready|source setup rejected|"
     r"captured board config invalid|physical PMIC request timeout)")
+
+# Android's own dmesg channel (07 section 3.1): fg_update_status carries ssoc,
+# vbat (mV), ibat (mA) and temp (0.1 C); usb_present comes from the charger
+# driver and stands in for the battery status field dmesg does not print.
+DMESG_FG_RE = re.compile(
+    r"\[\s*(\d+\.\d+)\]\s+BATTERY_CHG: handle_message: \[ADSP\] fg_update_status:: "
+    r"ssoc:(-?\d+), rsoc:-?\d+, raw_soc:-?\d+, vbat:(-?\d+), ibat:(-?\d+), "
+    r"temp:(-?\d+),")
+DMESG_USB_RE = re.compile(
+    r"\[\s*(\d+\.\d+)\]\s+BATTERY_CHG: xm_charger_debug_info_print_work: "
+    r"usb_present: (-?\d+)")
 
 # --- ranges from 07 section 2.2 (the step-eight window, not the code clamp) ---
 VOLTAGE_MV = (3300, 5000)        # 3.3 V .. 5.0 V
@@ -250,27 +274,81 @@ def judge_c2(lines, lease, samples):
         "四属性不合格（:{}）：{}".format(s["line"], "；".join(fields))]
 
 
-def parse_android(path: pathlib.Path):
-    """[(epoch_s, voltage_mv, current_ma, soc_hundredths, temp_hundredths, status)]."""
+def parse_android_tsv(text: str):
+    """The transcribed channel: six fields per line (07 section 3.1)."""
     rows = []
-    for raw in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+    for raw in text.splitlines():
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
         parts = line.replace(",", " ").split()
         if len(parts) < 6:
             raise ValueError(f"Android sample needs 6 fields: {raw!r}")
-        rows.append((
-            float(parts[0]), int(float(parts[1])), int(float(parts[2])),
-            int(round(float(parts[3]) * 100)), int(round(float(parts[4]) * 100)),
-            int(float(parts[5])),
-        ))
-    rows.sort(key=lambda r: r[0])
+        rows.append({
+            "t": float(parts[0]),
+            "voltage_mv": int(float(parts[1])),
+            "current_ma": int(float(parts[2])),
+            "soc_hundredths": int(round(float(parts[3]) * 100)),
+            "temp_hundredths": int(round(float(parts[4]) * 100)),
+            "status": int(float(parts[5])),
+            "external": None,
+        })
     return rows
 
 
-def judge_c3(android_path, window, samples):
-    """C3: XNU samples agree with Android samples taken in the same window."""
+def parse_android_dmesg(text: str):
+    """Android's own dmesg: fg_update_status carries the same four quantities.
+
+    Units differ from sysfs (2026-11-14 capture): vbat is already mV, ibat is
+    mA, temp is 0.1 C, ssoc is percent.  Two fields are absent and are stated in
+    the notes instead of guessed: there is no battery status, so charge state
+    comes from the charger driver's own usb_present line (forward filled), and
+    there is no wall clock, so the window is dmesg relative seconds.
+    """
+    usb = [(float(m.group(1)), int(m.group(2)))
+           for m in DMESG_USB_RE.finditer(text)]
+    rows = []
+    for m in DMESG_FG_RE.finditer(text):
+        t = float(m.group(1))
+        external = None
+        for mark_t, mark_v in usb:
+            if mark_t <= t:
+                external = mark_v
+            else:
+                break
+        rows.append({
+            "t": t,
+            "voltage_mv": int(m.group(3)),
+            "current_ma": int(m.group(4)),
+            "soc_hundredths": int(m.group(2)) * 100,
+            "temp_hundredths": int(m.group(5)) * 10,
+            "status": None,
+            "external": external,
+        })
+    return rows
+
+
+def parse_android(path: pathlib.Path):
+    """(rows, source) with source 'tsv' or 'dmesg', detected by content."""
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    if DMESG_FG_RE.search(text):
+        rows, source = parse_android_dmesg(text), "dmesg"
+    else:
+        rows, source = parse_android_tsv(text), "tsv"
+    rows.sort(key=lambda r: r["t"])
+    return rows, source
+
+
+def judge_c3(android_path, window, samples, c1_verdict, c2_verdict):
+    """C3: how far the XNU samples are from Android's, same window.
+
+    Order matters: whether the values exist (C1, C2) is judged first, and only
+    then how far they are.  Judging the distance against a log that never
+    subscribed produces confident numbers from nothing.
+    """
+    if c1_verdict != "PASS" or c2_verdict != "PASS":
+        return "INVALID", 0, [], [
+            f"C1/C2 未通过（C1 {c1_verdict}、C2 {c2_verdict}）：先判有没有，再判差多少"]
     if android_path is None:
         return "SKIP", 0, [], [
             "未提供 --android：C3 需要两侧同时刻样本，本张镜像单独飞不能判"]
@@ -280,11 +358,12 @@ def judge_c3(android_path, window, samples):
             "IOLog 行没有时间戳，配对时刻只能靠采集窗口"]
     start, end = window
     try:
-        rows = parse_android(android_path)
+        rows, source = parse_android(android_path)
     except (OSError, ValueError) as exc:
         return "INVALID", 0, [], [f"Android 样本文件不可用：{exc}"]
 
-    inside = [r for r in rows if start <= r[0] <= end]
+    inside = [r for r in rows if start <= r["t"] <= end]
+    unit = "dmesg 相对秒" if source == "dmesg" else "epoch 秒"
     if len(inside) < MIN_PAIRS or len(samples) < MIN_PAIRS:
         return "INVALID", 0, [], [
             f"有效对不足：窗口内 Android {len(inside)} 条、XNU {len(samples)} 条，"
@@ -293,45 +372,71 @@ def judge_c3(android_path, window, samples):
     pairs = list(zip(samples, inside))
     valid = 0
     violations = []
-    for s, (epoch, a_v, a_i, a_soc, a_temp, a_status) in pairs:
+    worst = {"v": 0, "i": 0, "soc": 0, "t": 0}
+    current_pairs = 0
+    for s, r in pairs:
         xnu_charge_state = s["charging"] == 1 or s["full"] == 1
-        android_charge_state = a_status in (2, 5)
-        if xnu_charge_state != android_charge_state:
-            violations.append(f":{s['line']} 充电状态不一致（XNU charging={s['charging']} "
-                              f"full={s['full']} vs Android status={a_status}）")
+        if r["status"] is not None:
+            if xnu_charge_state != (r["status"] in (2, 5)):
+                violations.append(
+                    f":{s['line']} 充电状态不一致（XNU charging={s['charging']} "
+                    f"full={s['full']} vs Android status={r['status']}）")
+                continue
+        elif r["external"] is not None and bool(r["external"]) != bool(s["external"]):
+            violations.append(
+                f":{s['line']} 供电状态不一致（XNU external={s['external']} vs "
+                f"Android usb_present={r['external']}；dmesg 无 status 字段，用供电代替充电状态）")
             continue
-        dv = s["voltage_mv"] - a_v
-        dsoc = s["soc_hundredths"] - a_soc
-        dt = s["temp_hundredths"] - a_temp
-        di = s["current_ma"] - a_i
+        dv = s["voltage_mv"] - r["voltage_mv"]
+        dsoc = s["soc_hundredths"] - r["soc_hundredths"]
+        dt = s["temp_hundredths"] - r["temp_hundredths"]
+        di = s["current_ma"] - r["current_ma"]
+        worst["v"] = max(worst["v"], abs(dv))
+        worst["soc"] = max(worst["soc"], abs(dsoc))
+        worst["t"] = max(worst["t"], abs(dt))
         bad = []
         if abs(dv) > V_TOL_MV:
-            bad.append(f"ΔV={dv}mV")
+            bad.append(f"ΔV={dv}mV/±{V_TOL_MV}mV")
         if abs(dsoc) > SOC_TOL_HUNDREDTHS:
-            bad.append(f"ΔSOC={dsoc / 100:+.2f}pp")
+            bad.append(f"ΔSOC={dsoc / 100:+.2f}pp/±{SOC_TOL_HUNDREDTHS / 100:g}pp")
         if abs(dt) > T_TOL_HUNDREDTHS:
-            bad.append(f"ΔT={dt / 100:+.2f}C")
-        if xnu_charge_state and abs(s["current_ma"]) >= CURRENT_MA[0] and abs(a_i) >= CURRENT_MA[0]:
-            if (s["current_ma"] > 0) != (a_i > 0):
+            bad.append(f"ΔT={dt / 100:+.2f}C/±{T_TOL_HUNDREDTHS / 100:g}C")
+        if (xnu_charge_state and abs(s["current_ma"]) >= CURRENT_MA[0]
+                and abs(r["current_ma"]) >= CURRENT_MA[0]):
+            if r["status"] is not None and (s["current_ma"] > 0) != (r["current_ma"] > 0):
                 violations.append(f":{s['line']} 充电时两侧电流符号相反"
-                                  f"（XNU {s['current_ma']}mA vs Android {a_i}mA）")
+                                  f"（XNU {s['current_ma']}mA vs Android {r['current_ma']}mA）")
                 continue
+            current_pairs += 1
+            worst["i"] = max(worst["i"], abs(di))
             if abs(di) > I_TOL_MA:
-                bad.append(f"ΔI={di}mA")
+                bad.append(f"ΔI={di}mA/±{I_TOL_MA}mA")
         if bad:
             violations.append(f":{s['line']} " + "、".join(bad))
         else:
             valid += 1
 
+    deltas = (f"最大差值（{len(pairs)} 对，窗口按 {unit}）："
+              f"|ΔV|={worst['v']}mV/±{V_TOL_MV}mV、"
+              f"|ΔSOC|={worst['soc'] / 100:.2f}pp/±{SOC_TOL_HUNDREDTHS / 100:g}pp、"
+              f"|ΔT|={worst['t'] / 100:.2f}C/±{T_TOL_HUNDREDTHS / 100:g}C")
+    if current_pairs:
+        deltas += f"、|ΔI|={worst['i']}mA/±{I_TOL_MA}mA"
+    else:
+        deltas += "、|ΔI| 未比（两侧没有同时 ≥100 mA 的稳态窗口）"
+    if source == "dmesg":
+        deltas += ("；输入是 Android dmesg：无 status 字段，用 usb_present 代替充电状态，"
+                   "电流符号不校验")
+
     if violations:
-        return "FAIL", valid, [int(v.split(":")[1].split(" ")[0]) for v in violations[:3]], [
-            "越界/不一致：" + v for v in violations[:5]]
+        evidence = [int(v.split(":")[1].split(" ")[0]) for v in violations[:3]]
+        return "FAIL", valid, evidence, ["越界/不一致：" + v for v in violations[:5]] + [deltas]
     if valid < MIN_PAIRS:
         return "INVALID", valid, [], [
-            f"只有 {valid} 对落在阈值内，需要 ≥{MIN_PAIRS} 对"]
+            f"只有 {valid} 对落在阈值内，需要 ≥{MIN_PAIRS} 对", deltas]
     return "PASS", valid, [s["line"] for s, _ in pairs[:3]], [
         f"{valid} 对全部在阈值内（±{V_TOL_MV}mV / ±{I_TOL_MA}mA / "
-        f"±{SOC_TOL_HUNDREDTHS / 100:g}pp / ±{T_TOL_HUNDREDTHS / 100:g}C）"]
+        f"±{SOC_TOL_HUNDREDTHS / 100:g}pp / ±{T_TOL_HUNDREDTHS / 100:g}C）", deltas]
 
 
 def resolve_log(target: pathlib.Path):
@@ -349,7 +454,9 @@ def main() -> int:
                     help="console.log path, or a usblog directory containing console.log")
     ap.add_argument("--log", dest="log_opt", type=pathlib.Path, help="same as the positional argument")
     ap.add_argument("--android", type=pathlib.Path, default=None,
-                    help="Android samples: '<epoch_s> <voltage_mv> <current_ma> <soc_pct> <temp_c> <status>'")
+                    help="Android side: transcribed TSV ('<epoch_s> <voltage_mv> "
+                         "<current_ma> <soc_pct> <temp_c> <status>') or an Android "
+                         "dmesg with fg_update_status lines")
     ap.add_argument("--window-start", type=float, default=None, help="capture window start, epoch seconds")
     ap.add_argument("--window-end", type=float, default=None, help="capture window end, epoch seconds")
     args = ap.parse_args()
@@ -371,10 +478,12 @@ def main() -> int:
     if args.window_start is not None and args.window_end is not None:
         window = (args.window_start, args.window_end)
 
+    c1 = judge_c1(lines, lease, samples)
+    c2 = judge_c2(lines, lease, samples)
     results = [
-        ("C1 订阅成立", judge_c1(lines, lease, samples)),
-        ("C2 四属性可读", judge_c2(lines, lease, samples)),
-        ("C3 Android 同窗口", judge_c3(args.android, window, samples)),
+        ("C1 订阅成立", c1),
+        ("C2 四属性可读", c2),
+        ("C3 Android 同窗口", judge_c3(args.android, window, samples, c1[0], c2[0])),
     ]
     evaluated = [v for _name, (v, _h, _e, _n) in results if v != "SKIP"]
     if "FAIL" in evaluated:

@@ -144,6 +144,20 @@ sysfs 单位换算：`voltage_now` µV ÷1000 → mV；`current_now` µA ÷1000 
 真值锚点（`docs/engineering/ANDROID-HW-TRUTH.md:68-77`，2026-11-15 实测）：capacity 100、temp 358（35.8 °C）、
 status Charging、current_now 836 mA、voltage_now 4 333 mV、USB CDP online。
 
+**第三条通道：Android 自己的 dmesg**（没有 root/adb 取 sysfs 时用）。判据器直接吃这份 dmesg，
+匹配行是充电器驱动打的电池帧（`/mnt/e/k60-work/evidence/wifi-trial/dmesg-android-20261114.txt` 实测 117 行）：
+
+```
+[ 6380.688186] BATTERY_CHG: handle_message: [ADSP] fg_update_status:: ssoc:100, rsoc:99,
+    raw_soc:9806, vbat:4332, ibat:350, temp:286, ffc:0, rm:4412, bf:4499, bc:3, ...
+[ 6380.100000] BATTERY_CHG: xm_charger_debug_info_print_work: usb_present: 1
+```
+
+单位与 sysfs **不同**：`vbat` 已是 mV、`ibat` 已是 mA、`temp` 是 0.1 °C、`ssoc` 是 %。两个字段缺失，
+必须显式说明而不是猜：① dmesg 不打印电池 `status`，充电状态改用 `usb_present`（供电有无）代替，
+电流符号因此不校验；② dmesg 只有 `[ 6380.688186]` 这种相对秒，没有 wall clock，配对窗口按 dmesg
+相对秒圈定（`--window-start 6380 --window-end 6420`），不是 epoch 秒。`--android` 按内容自动识别两种输入。
+
 ### 3.2 配对规则（任一不满足 → 该对作废，不是判据失败）
 
 1. **同一供电来源**：两侧都记下供电（主机 USB 口 / 充电头 / 无线），不同则作废。
@@ -193,11 +207,21 @@ status Charging、current_now 836 mA、voltage_now 4 333 mV、USB CDP online。
 python3 scripts/judge-battery.py --log E:/k60-work/evidence/usblog-20261116-xxxxxx
 python3 scripts/judge-battery.py --log <usblog-dir> --android android-samples.tsv \
     --window-start 1763000000 --window-end 1763001800
+python3 scripts/judge-battery.py --log <usblog-dir> --android dmesg-android.txt \
+    --window-start 6380 --window-end 6420
 ```
 
-自测 `python3 scripts/tests/test-judge-battery.py`（16 例：lease 未发布的 INVALID、
+**顺序不可颠倒**：C3 只在 C1/C2 都 PASS 时才评估，否则 `INVALID` 并写明
+「先判有没有，再判差多少」——对着一条从未订阅成功的日志算差值，会得到一组
+自信的、凭空来的数字。C3 通过时除了 PASS 还打一行最大实测差值
+（`|ΔV|/±60mV、|ΔSOC|/±3pp、|ΔT|/±3C、|ΔI|/±150mA`），失败时每个越界对给出
+`:行号 ΔV=…mV/±60mV` 形状的明细；没有两侧同时 ≥100 mA 的窗口时明确写「|ΔI| 未比」。
+`--android` 两种输入按内容自动识别（§3.1 的转写 TSV 与 Android dmesg）。
+
+自测 `python3 scripts/tests/test-judge-battery.py`（20 例：lease 未发布的 INVALID、
 `subscribed=0` 的 FAIL、只有首帧不判失败、电压越界、`temp=0.00C` 视为未就绪、
-`subscription-ack=0/0` 与 `2/24` 两种常量形态、C3 四种结局）。两个离线限制写在
+`subscription-ack=0/0` 与 `2/24` 两种常量形态、C3 四种结局、C3 被 C1 拦住、
+dmesg 通道 PASS 与供电不一致 FAIL、两侧都有稳态负载时才比电流）。两个离线限制写在
 脚本 docstring 里：IOLog 行没有时间戳，所以 C1 的 ≤10 s 窗口只能按行序判；
 C3 的配对时刻只能靠 `--window-start/--window-end` 圈定。
 - 最小证据集：① 一份完整 usblog（含 handoff 行、channel up 行、全部 sample 行）；② Android 侧命令原文 + 时间戳；③ 下表填好的对照表。

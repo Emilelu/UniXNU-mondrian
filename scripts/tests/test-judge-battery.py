@@ -199,6 +199,53 @@ def main() -> int:
         for line in out.splitlines():
             print("      " + line)
 
+    # --- 12. C3 is gated on C1/C2: how far comes after whether -----------
+    gated = write("gated.log", LEASE_OK + CHANNEL_UP + sample(subscribed=0))
+    check("C3 is not evaluated when C1 fails", gated, 1,
+          ["C3 Android 同窗口 : INVALID", "C1/C2 未通过"],
+          "--android", str(android_ok), "--window-start", "1763000000",
+          "--window-end", "1763000200")
+
+    # --- 13. Android's own dmesg is a usable C3 channel --------------------
+    dmesg_fg = (
+        "[ {t}] BATTERY_CHG: handle_message: [ADSP] fg_update_status:: "
+        "ssoc:100, rsoc:99, raw_soc:9806, vbat:{v}, ibat:{i}, temp:{temp}, ffc:0, "
+        "rm:4412, bf:4499, bc:3, fcc_NightVoterC:0, icl_plat:1450\n")
+    dmesg_usb = ("[ {t}] BATTERY_CHG: xm_charger_debug_info_print_work: "
+                 "usb_present: {p}\n")
+    dmesg_ok = write("android-ok.dmesg",
+                     dmesg_usb.format(t="6380.100000", p=1)
+                     + dmesg_fg.format(t="6380.688186", v=4332, i=350, temp=286)
+                     + dmesg_fg.format(t="6390.215558", v=4333, i=351, temp=287)
+                     + dmesg_fg.format(t="6400.215558", v=4334, i=352, temp=288))
+    dmesg_xnu = write("dmesg-xnu.log", LEASE_OK + CHANNEL_UP
+                      + sample(voltage=4332, current=350, soc=(100, 0), temp=(28, 60))
+                      + sample(voltage=4333, current=351, soc=(100, 0), temp=(28, 70),
+                               kind="physical source updated")
+                      + sample(voltage=4334, current=352, soc=(100, 0), temp=(28, 80),
+                               kind="physical source updated"))
+    check("C3 reads Android dmesg and prints every measured delta", dmesg_xnu, 0,
+          ["C3 Android 同窗口 : PASS", "最大差值", "dmesg 相对秒"],
+          "--android", str(dmesg_ok), "--window-start", "6380", "--window-end", "6420")
+
+    # --- 14. dmesg has no status field, so the supply line stands in ------
+    dmesg_unplugged = write("android-unplugged.dmesg",
+                            dmesg_usb.format(t="6380.100000", p=0)
+                            + dmesg_fg.format(t="6380.688186", v=4332, i=350, temp=286)
+                            + dmesg_fg.format(t="6390.215558", v=4333, i=351, temp=287)
+                            + dmesg_fg.format(t="6400.215558", v=4334, i=352, temp=288))
+    check("C3 fails when Android says unplugged but XNU says external", dmesg_xnu, 1,
+          ["C3 Android 同窗口 : FAIL", "供电状态不一致"],
+          "--android", str(dmesg_unplugged), "--window-start", "6380", "--window-end", "6420")
+
+    # --- 15. current is compared only when both sides are in steady state -
+    # |I| >= 100 mA on both sides, so the delta line must carry |ΔI| instead of
+    # claiming it could not be compared.
+    check("C3 compares current when both sides carry a steady load", triples, 0,
+          ["C3 Android 同窗口 : PASS", "|ΔI|=6mA/±150mA"],
+          "--android", str(android_ok), "--window-start", "1763000000",
+          "--window-end", "1763000200")
+
     # --- 11. a missing log is a usage error, never a verdict --------------
     cases += 1
     proc = subprocess.run([sys.executable, str(JUDGE), "--log", str(tmp / "nope.log")],

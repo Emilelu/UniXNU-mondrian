@@ -162,6 +162,7 @@ may cite them as proof that the driver runs.
 | **T0** | `wifi-20261115z0` (ready: `pong_wifi=0`, kernel 117,305,344 B, blob present, 4.5 GiB) | the driver vs the blob: same kernel as mhi5, wifi arg off | driver code is implicated → fly T1 to test the full stack | driver exonerated → the blob or its residency is the killer → go straight to T2 |
 | **T1** | `wifi-20261116mhi5` (ready, 117,305,344 B, `pong_wifi=1`) — only after T0 boots | S1+S2 on the full wifi stack, and retires the stale confound | the MHI handshake logs become the next evidence | blob/loader interaction confirmed without the driver |
 | **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) — **only if T0 is silent** | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
+| **T3** | `wifi-20261116c0` (built: 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery; queued after the bt bisection pair) | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | death independent of the driver → pool/window channel the sole suspect → `DARWINBOOT-POOL.md` §5 |
 
 The scope narrowing is deliberate: `__TEXT,__const` is `0xb38ed6` in z0, mhi5
 **and** the 65.9 MB mhi4 kernel, so "blob lives in `__TEXT`" is not by itself
@@ -182,6 +183,9 @@ non-monotonic datum: bt-s4b-20261115b (106,541,056 B) reached the desktop
 (`usblog-20261115-163144`, 0 bytes), and bt-s4c-20261115c (105,508,864 B,
 series 229) reached the desktop again (`usblog-20261115-162553`, console
 245,222 B) — the size/window model explains none of the three.
+
+The formal C cell (`wifi-20261116c0`, 66 MB, `pong_wifi=0`) is built and
+queued after the bt bisection pair; see §3c.
 
 ## 3a. The T0 control image (built 2026-11-15 03:49)
 
@@ -226,6 +230,42 @@ The firmware section is present in mhi4 too, which matters for reading the
 mhi3/mhi4 result: the 65.9 MB stale kernel already carried the 11.2 MiB
 `__TEXT,__const` blob, so "blob in __TEXT" alone was never the difference
 between the silent pair and the images that boot.
+
+### 3c. The formal C cell: `wifi-20261116c0` (built 2026-11-15, queued)
+
+The Lead's C cell as a strict-build artifact: `configs/mondrian_wifi_defconfig`
+(board dir `mondrian_wifi`, P-187) — the 66 MB wifi-only kernel, firmware blob
+in `__TEXT`, `pong_wifi=0`, no GPU addon, no battery.
+
+| field | value |
+|---|---|
+| series | 224 / `34cf51e4…` |
+| kernel | `cab23f659f0410e1ad8af51bd580771a6a8beab4ae2dbaabfb3fd0af0f2bbd77`, 66,002,944 B |
+| payload kernel | `1600744e7f501d607e1ea5f0e98651c3aaf35ac1baa3bd30ba5d45206391e252` |
+| `boot.img` | `25c9821510ca50032617b61e63b058580722e375ee5b533badf3d74c07a9d074` |
+| `__TEXT` / `__DATA` | 0xc64000 / vmsize 0x1c8000; PWF2 ×2, `Pong MHI` ×11, K60LDO ×0 |
+| symbols | `_pong_wifi_start_optional`=1, `_k60_physical_battery_start`=0 |
+| boot args | 30, last one `pong_wifi=0` |
+
+It decides exactly the two-way split: boots → the driver is guilty
+(`pong_wifi=1` is the trigger); silent → the death is independent of the
+driver and the pool/window channel is the sole remaining suspect
+(`DARWINBOOT-POOL.md` §5). The Lead queues it after the bt bisection pair
+(h1→h3→h1+h3); every flight needs user + Lead approval and a recording.
+
+Building it exposed two fixed infra gaps, both recorded on main:
+- **P-206** (main `c97a4cf`, snap-r197): a fresh board dir's fakeroot never
+  gets `Availability.h`/`AvailabilityInternal.h`/`TargetConditionals.h`
+  (the AvailabilityVersions install at `build-xnu-4k-baseline.sh:43-51`
+  ships only `AvailabilityVersions.h` + `availability.pl`, and
+  `scripts/linux/prepare-xnu.py source` never runs in the ios16 path), and
+  `check-build-env.py:27` hardcoded `…/mondrian` so P-185 graded the old
+  tree instead of the active board dir (fake green). Worked around here by
+  `cp -a` of the five items from the seeded `mondrian` fakeroot.
+- `1438346`: without GPU addon the 0610 patch still demands
+  `osfmk/arm64/k60_metal_blob.s`; the build now emits an empty K60M
+  container (8 bytes, `K60METAL bad count 0` at runtime) instead of
+  breaking the link.
 
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 

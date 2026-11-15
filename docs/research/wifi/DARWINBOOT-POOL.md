@@ -227,6 +227,14 @@ pong_wifi=0、4.75 GiB）时，C2 的「体积/驻留是死因」仍分不开「
 「拿到窗口后内核死」——本节的 NO WINDOW / hand-off 判读正好补上这一层；若先
 飞 a2，建议同趟执行 A（录屏）判读。
 
+该计划里的 trial 级 `wifi-20261116a2` 已被正式 C 格取代：
+`wifi-20261116c0`（66 MB、`pong_wifi=0`、带 series 指纹，
+`BOOT-DEATH-SUSPECT.md` §3c）才是 C1/C2 的正式镜像。构建 c0 暴露了
+fresh-board fakeroot 缺陷（新 board 目录永远拿不到 `Availability.h` 家族，
+且 `check-build-env.py:27` 硬编码 `mondrian` 目录导致 P-185 假绿）——已落
+**P-206**（main `c97a4cf`，snap-r197）。c0 上机时同趟执行 A（录屏）：
+alive/silent 二分直接分开「驱动扳机」与「pool/窗口通道」两条嫌疑。
+
 ## 6. 证据清单
 
 - 飞行：`usblog-20261115-140927`（bt-s4b-20261115b，alive）、
@@ -238,5 +246,7 @@ pong_wifi=0、4.75 GiB）时，C2 的「体积/驻留是死因」仍分不开「
   :794-795 / :816-820 / :839 / :844-894 / :898-913；MemoryMapLib.c 的
   DXE Heap / XNU High Arena / Kernel / Log Buffer / ramoops / ABL Staging；
   board.toml:228-235；WindowSize.h。
+- 构建：`wifi-20261116c0`（C 格，66,002,944 B 内核）与 fresh-board fakeroot
+  缺陷 → P-206（main `c97a4cf`）；见 BOOT-DEATH-SUSPECT.md §3c。
 - 姊妹文档（k60-refmine 树）：BLOB-RESIDENCY.md §2/§7.1/§7.4/§10.3/§10.4；
   BOOT-DEATH-BISECT.md §6.3/§7（C1/C2/C3/C4 与 judge-wifi-boot.py）。

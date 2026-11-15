@@ -2,6 +2,19 @@
 
 Status: the complete platform adapter is installed before acquire and passes offline verification. The board ownership service is still absent, so native availability remains zero before physical access. No hardware success is claimed.
 
+## Running the host suite
+
+`scripts/tests/run-k60-handoff-host.sh OUTPUT PRE_0619_XNU_TREE` needs a `.cache/xnu-work`
+tree that **predates 0619**. Point it at a tree that already carries the 0619 postimage and
+`test-k60-handoff-integration.py` fails with `bsd/dev/pong_handoff.c: canonical source
+differs` — the test patches its own fixture forward from the predecessor, so a postimage input
+double-applies. `display-out` was pre-0619 on 2026-11-16; `lead-out` was not.
+
+Verified 2026-11-16 against `/opt/k60/trees/display-out/.../xnu-work`: 20 `TESTS OK` groups,
+including platform 31 absent + 34 actual-linked, owner 17/11/12/15/22, reader 5×31, blob
+negative cases, publisher 49, builder 10, MDT 16, notify 21, battery 27, dispatch 14,
+5 sections, 3 canonical mirrors, 14 call-site cases and the arm64 adapter syntax check.
+
 ## Research decision before implementation
 
 The Lead-owned run e reaches the enabled publisher but refuses uninstalled owner acquire: [console:127](E:/k60-work/evidence/usblog-20261115-223916/console.log#L127). Stage 1 returns -1000, no lease is published and the battery consumer stays blocked. The late startup exclusion proves an attempt, not authentication.

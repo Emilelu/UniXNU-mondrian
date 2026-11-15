@@ -5086,6 +5086,16 @@ payload args 末项确认在）真机启动干净（SpringBoard 132、panic 0）
    区分「没被调用」与「被调用但早退」——本条的判据是「`K60Handoff:` 命中 0 次」
    配上 nm 的引用检查。
 
+补记（同轮第二次踩到，形状与 P-207 完全相同）：新加的门禁在
+`check-kernel-archives.py` 里读 `IOKitBSDInit.cpo`，而注册表的调用**不带 `--kernel`**、
+在构建**之前**跑——它读到的是上一轮构建留下的、本来就有病的 object，于是把唯一能
+修好它的那次构建挡在门外（`❌ P-190 … the guarded block compiled away`）。修法：
+P-208 的判决只在显式给了 `--kernel` 时成立（`build-strict.sh` 构建后那次调用），
+无 `--kernel` 时打印 `skip:` 并放行；树的编译没走到那一步时也打印 skip。
+
+4. 门禁只能判「本轮产出的物证」。带 `--kernel`/`--out` 的调用是构建后判决，不带参数
+   的注册表调用是构建前体检——同一个脚本两种角色，判据必须分开写，否则就是 P-207。
+
 Check: `python3 scripts/tests/test-check-kernel-archives.py`（10 例，含
 `a_guarded_call_site_that_compiled_away_fails` /
 `a_guarded_call_site_that_compiled_in_passes`）与 registry `id = "P-208"`。

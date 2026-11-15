@@ -174,6 +174,16 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 
 ## 五、2026-11-15 变更摘要
 
+### 电池入口与 ADSP 发布器曾是死代码（P-208）
+
+`adsp-20261115d`（`pong_handoff_publish=1`）真机 SpringBoard 132、panic 0，却
+`K60Handoff:` 命中 0 次。`nm -u IOKitBSDInit.cpo` 显示该 TU 从未引用
+`k60_adsp_handoff_publish` / `k60_physical_battery_start`：`-DXNU_K60_PHYSICAL_BATTERY=1`
+只挂在 `KernelConfigTables.cpo` 上，`iokit/bsddev/IOKitBSDInit.cpp` 的守卫块整块编译成空，
+而 `-force_load` 让符号永远在 kernel 里，所以 P-190 一直假绿。define 已进全局
+`EXTRA_CFLAGS`，并新增 P-208 门禁（要求 `IOKitBSDInit.cpo` 引用该符号，仅在
+`--kernel` 显式给出时判决）。`baseline-20261115a` 的桩路径（无载体）也已验证通过。
+
 ### ADSP 固件载体合入 main（PAS1 解锁的第一步）
 
 - `feat/adsp-carrier`（27 提交）no-ff 合入（`996aac6`）：26 记录 / 23,506,184 B 的

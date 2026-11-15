@@ -727,6 +727,22 @@ This line, next in order:
     - 下一张：`bt-0513-iowin-late`（全量 0513 + `pong_bt_late=1`，与 d4 的唯一差别是窗口分配器）。
       判据：panic 消失且日志过 S9 ⇒ io_submap 就是死因；仍 panic 在同一行 ⇒ 那 1 MiB 不是
       GCC/TLMM/SMMU 而是别的调用点，按 `K60PANICARGS` 的地址回查。落档见 `S4-SPEC.md` §7.10。
+25. **io_submap 是全内核共享预算（P-219）；d5 / d6 两条配方的分工（2026-11-16 06:40）**
+    - P-219（main `caad898`，`scripts/check-io-map-budget.py`）：已应用树上 37 个可解析
+      `ml_io_map` 调用点合计 `0x73a900` = **7.23 MiB / 8 MiB**，另有 7 处尺寸是运行时变量；
+      `k60_usblog` 单文件 ≈5.2 MiB、`qbt_k60` ≈4.2 MiB。**加任何 IO 窗口都要先算全树总和**，
+      不是只看本次请求的大小。落档见 `S4-SPEC.md` §7.11。
+    - 两条修法不可同时飞：**0621**（Lead / main）把 `IO_MAP_SIZE` 从 8 MiB 抬到 32 MiB；
+      **0513**（本线）把 BT 的 GCC/TLMM/APPS SMMU 改走 `ml_io_map_unmappable()`。
+      0513 的注释已写明「0621 走另一条路，两者不叠加时各自动作」。
+    - **d5** = main 227 + 0507..0512（不含 0513，含 0621）+ `k60bt=1 pong_bt_late=1`：
+      只验「抬高预算是否足以越过那次 1 MiB 分配」，排除 0513 的代码路径。
+    - **d6** = main 227 + 0507..0513（全含）+ 同一组参数：验「0513 单独是否够」；与 d5 的差别
+      只有窗口分配器。两条共用判据：`:483` 之后不再有 `kmem_alloc(… 0x100021)` panic，
+      且出现 `power=1 result=…` 或 `full:` 后续行。两条都死 ⇒ 查 unmappable 分支的
+      `KMA_DATA` 与 `VM_WIMG_IO`。落档见 `S4-SPEC.md` §7.12。
+    - 并发提醒：d5 构建期间 Lead 占着本 worktree，`patches/xnu` 不能动（`freeze()` 会在构建
+      结束前重算 `board.toml dts patches/xnu scripts` 并比对），docs 不在冻结集内。
 
 
 

@@ -1103,6 +1103,49 @@ host 测试 `scripts/tests/test-k60-bt-0513-io-windows.py`：**TESTS OK 28 case(
 判据：panic 消失且日志过 S9 ⇒ io_submap 就是死因；仍 panic 在同一行 ⇒ 1 MiB 不是 GCC/TLMM/SMMU
 而是别的调用点，按 `K60PANICARGS` 的地址回查。
 
+### 7.11 设计约束：`ml_io_map` 的 IO 子图是全内核共享预算（P-219，2026-11-16）
+
+§7.10 的 panic 不是蓝牙一处写错，而是一条**全内核设计约束**被撞上：`osfmk/arm/io_map.c:65`
+把 `io_submap` 固定成 `IO_MAP_SIZE (8ul << 20)`，`:76` 用 `kmem_suballoc(kernel_map, …)`
+一次性预留；此后**每一个**走 `ml_io_map()`（非 unmappable 分支）的窗口都从这同一个 8 MiB 里切。
+子图只预留 VA，没 map 的部分不花物理页——所以预算是**地址空间预算**，不是内存预算。
+
+Lead 在已应用树上把可解析的调用点全部量了一遍（P-219，main `caad898`，
+`scripts/check-io-map-budget.py` + `scripts/tests/test-check-io-map-budget.py`）：
+
+| 统计 | 数值 |
+|------|------|
+| 可解析 `ml_io_map` 调用点 | 37 处，合计 `0x73a900` = **7.23 MiB / 8 MiB** |
+| 尺寸是运行时变量的调用点 | 另 7 处（不在静态统计内） |
+| `k60_usblog` 单文件 | ≈ 5.2 MiB（APPS SMMU 1 MiB ×3 + GCC 1 MiB ×2 + SPMI/IMEM/DWC3/EUSB2） |
+| `qbt_k60` 单文件 | ≈ 4.2 MiB（GCC 2 MiB + TLMM 1 MiB + APPS SMMU 1 MiB + UART/QUP/GIC 小窗口） |
+
+**约束（写进设计规则，不是一次性修法）**：给任何驱动加 IO 窗口，必须先算「本窗口 + 全树已有总和」，
+7.23 MiB 的底数意味着**再加 1 MiB 就已经越界**；`check-io-map-budget.py` 在已应用树上量总和，
+越界即红。这也解释了 §7.8 的致命集为什么是 {h1, h2, h3} 三者齐备：只有三者同时在场，
+`k60_bt_power_on()` 才会走到第四次 `k60_map()`（TLMM 1 MiB），而 d1/d2/d3 三个开关都在它之后。
+
+**两条修法并行、不可同时飞**（Lead 定）：
+
+| 修法 | 做法 | 归属 |
+|------|------|------|
+| 0621 `k60-io-submap-budget` | 把 `IO_MAP_SIZE` 从 8 MiB 抬到 **32 MiB**（子图只预留 VA，不花物理页） | Lead / main |
+| 0513 `k60-bt-io-windows` | BT 自己的大窗口改走 `ml_io_map_unmappable()`，记到 `kernel_map` | 本线 |
+
+0513 的注释已补一句：main 的 0621 走另一条路（抬高 `IO_MAP_SIZE`），两者不叠加时各自动作——
+所以两条可以各自单飞验证，但同一张图里只带一条。
+
+### 7.12 d5 / d6 配方：改了什么、排除了什么
+
+| 配方 | series | 启动参数 | 这条配方要回答的问题 |
+|------|--------|----------|----------------------|
+| d5 `bt-d5-iomap` | main 227 条 + 0507..0512 六条（**不含 0513**，含 0621） | `k60bt=1 pong_bt_late=1` | 「抬高 IO_MAP_SIZE 是否足以让 `k60_bt_power_on()` 越过那次 1 MiB 分配」——排除了 0513 的代码路径，只验预算本身 |
+| d6（待定） | main 227 条 + 0507..0513（全含） | 同上 | 「0513 单独是否够」——与 d5 的差别只有窗口分配器，两条一起看才能把「预算不足」与「unmappable 分支的 flags/WIMG 有问题」分开 |
+
+判据（两条共用）：`:483` `full: power_on enter` 之后不再出现 `kmem_alloc(… 0x100021)` panic，
+且出现 `power=1 result=…` 或 `full:` 后续行。仍 panic 在同一行 ⇒ 看 `K60PANICARGS` 的地址回查
+是哪个窗口；d5 与 d6 都死 ⇒ 一起看 unmappable 分支的 `KMA_DATA` 旗标与 `VM_WIMG_IO`。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

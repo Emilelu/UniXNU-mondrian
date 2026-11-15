@@ -75,7 +75,12 @@ KERNEL=$M/kernel/kernel.macho
 # Every file that can change the kernel is hashed before the build; a later
 # boot is only comparable if the same list hashes the same.
 freeze() {
-    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f -print0 \
+    # Bytecode caches are not inputs: the build imports these scripts, python
+    # rewrites the .pyc files, and a run that changed nothing else was declared
+    # void at the final comparison (2026-11-15, wifi-20261116mhi5b: the only
+    # difference was scripts/__pycache__/pong_paths.cpython-312.pyc).
+    ( cd "$REPO" && find board.toml dts patches/xnu scripts \
+        \( -name __pycache__ -o -name '*.pyc' \) -prune -o -type f -print0 \
         | sort -z | xargs -0 sha256sum )
 }
 freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"

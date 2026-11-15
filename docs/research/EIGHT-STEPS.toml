@@ -437,23 +437,23 @@ catalog_checked = true
 catalog_result = "components.toml 无电池组件；官方实现全在 UniXNU-sheng 板级 package/（ShengBattmgr.h/.c、ShengBattery.cpp、BatteryProbe.cpp），另有 Linux qcom_battmgr.c 作协议变体参考。不可当组件复用。详见 docs/research/battery/RESEARCH.md。"
 [hardware.battery.step.plan]
 done = true
-evidence = "0619仅留分支且默认关闭；runtime先做配置/RAM重叠/chosen/OSData检查，再以注入ops顺序执行claim、stopped fresh FIFO准备、INIT/MEM/COPY/BSS/CACHE/AUTH、ready与existing-only build+selfparse、原子chosen发布，早于IOBSD/battery/root挂载。逻辑lease覆盖阶段2–4与commit，成功不release。未安装真实backend/reader时仍-1000且早于mapping；不改默认参数。见 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"
+evidence = "runtime在配置/RAM/chosen/OSData前置检查后调用k60_adsp_platform_install，再执行claim→fresh FIFO→INIT/MEM/COPY/BSS/CACHE/AUTH→ready→existing-only build/selfparse→原子发布。完整version1/sizeof ops已注册，持久reader/metadata已接线；板级ownership/resources/stopped/shared SCM lock服务未供应时available=0且早于物理访问。不改默认参数与patches。见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
 
 [hardware.battery.step.deep]
 done = true
-evidence = "五阶段完成独立锁/PAS生命周期审查：config复制持久化，API串行化commit到Published，SMEM映射8字节对齐检查早于typed read。AUTH失败shutdown并独立stopped证明才释放，不确定Poisoned保留votes/exclusion/map/reader；final TCSR只有build_existing+selfparse。内部build bit1不改变public ResourcesHeld bit1。真实carrier/SCM/coherence/资源后端仍待Lead接入。见 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"
+evidence = "五阶段锁/PAS生命周期及platform/native完成独立审查：最终TCSR仅build_existing+selfparse，非unlock回调在锁内无服务/状态/输出效果。AUTH shutdown后须独立stopped证明才释放；WAITQ_SLEEP/未知positive或resume耗尽保留SCM锁/metadata/resources并Poisoned。native具备releasable映射、显式noncache contiguous metadata和shared-lock SCM代码，板级租约服务尚缺，不能声称真实PAS后端可用。见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
 
 [hardware.battery.step.verify]
 done = false
 local_verified = false
-evidence = "2026-11-15：Lead冻结生产K60A为12字节LE头、24字节顺序记录、含NUL的9字节名称、mode0644/packed_size=size与8字节零填充；26输入容器总长23506184字节。reader及生产generator/checker已存在，root已核验全套生产ABI host suite exit0（77owner、reader五变体各31场景、blob五ASSERT及负例）；10项scoped检查通过，porting与未修改HEAD基线同为54项既有错误（新增0、未豁免）；build-strict/归档/manifest接线及PAS/platform backend未安装。首次acquire前无owner_install；legacy FAT仅复用ready，不能为早期owner备源。battery/audio/charger共享硬件阻塞仍在，verify/local_verified/device保持false。见 docs/research/battery/HANDOFF-PUBLISH.md。"
-static_check = "root已核验reader/stages/Boot arm64 SDK语法通过，SHA256 6d3b5f1cc1bfbfdca7ba3cb9172317bed19469f26b12defbfeba2afb4817055e；runtime C++语法也通过；host集成5sections/3mirrors通过。10项scoped检查通过，porting与未修改HEAD基线同为54项既有错误（新增0、未豁免）。组合platform context须由wrapper将image_reader/image_close转发至持久reader成员，不能直接挂裸open/close；尚未验证完整series或kernel link。"
-unit_test = "root已核验生产ABI全套host suite exit0：77owner（17/11/12/15/22）、reader五变体各31场景、49publisher/10builder/16MDT/21notify/27battery/14dispatch/5sections/3mirrors全部通过。日志E:/k60-work/artifacts/adsp-carrier-20261115/final/host-tests.log，SHA256 51bf1696ec950e112b29f92972e7e9f596c2a91180080e1c9ba79417921e22c1。blob五项独立断言及各自负例全部通过：捕获MDT计划24段；copy23494284+BSS25925684=49419968（mapped span51380224，段间gap1960256）；未对齐b10的720字节逐字节一致；26记录和精确容器长23506184；旧flat形状返回-7。BSS-only b24不读、reader -5/-6/-7/-8、缺符号/linked版本及owner pin生命周期回归通过；26输入逐一exactcopy/borrow，生成binary与独立builder逐字节一致；absent/zero fallback各一次，malformed/unsupported零次。Lead已确认生产generator/checker运行结果23506184字节/26记录/raw23505092，输出SHA256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319；生成器结果和上述全套host结果均不构成上机验证。见 scripts/tests/run-k60-handoff-host.sh 和 docs/research/battery/CARRIER-BLOB-PLAN.md。"
+evidence = "2026-11-16：完整platform ops与runtime安装点已实现，host absent31/actual-linked34通过；77owner及reader五变体各31保留。Native物理原语代码及SDK语法通过，但board ownership服务未安装，available=0仍拒绝SMC/SMEM/TCSR。Lead run e的三行只证明先前uninstalled尝试。battery/audio/charger硬件阻塞未解除，verify/local_verified/device保持false。最终scoped检查与继承porting debt对照见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
+static_check = "platform C、reader/stages以及runtime/native C++ arm64真实SDK语法通过，日志SHA2564b4193b1fb0ed2c72647afad7733970ccab8f530b91dbd29709a83dff0ec12f8；现有SDK header warnings，不是kernel link。完整callback→source/log矩阵已记录。真实board租约/独立stopped/shared SCM lock服务未提供，不把宿主fake服务当硬件证据。"
+unit_test = "root全套host exit0：platform31 absent+34 actual-linked，owner77（17/11/12/15/22）、reader5x31、blob五ASSERT负例、publisher49/builder10/MDT16/notify21/battery27/dispatch14/5sections/3mirrors全部通过。日志E:/k60-work/artifacts/adsp-platform-20261115/final/host-tests.log，SHA256891636f504b0d5cf3f2d42f43369e90cc4c55d209fc60b38aa534e8ff897dbe7。MDT5404、24段COPY23494284/BSS25925684/gap1960256；b10 link86e0b2c0→physicala080b2c0 COPY720/ZERO2672逐字节及sentinel通过；b24无callback。全锁内非unlock guard、ready配置持久化、install幂等、second-map rollback、shutdown→unmap→close→release、Poisoned保留均通过。已应用0619的全局输入触发GNU patch自动反向；改用隔离准确pre0619输入后原断言通过，未改shared tree或测试断言。"
 artifact_check = "待隔离build-strict.sh整核链接、符号/字符串和boot manifest核验；尚未生成新镜像，不冒称通过。"
 
 [hardware.battery.step.device]
 done = false
-evidence = "本任务未构建内核/镜像、未启动设备或访问串口。五阶段编排、生产reader与generator/checker源已存在，但生产carrier/平台backend未安装；无安装时-1000，不能声称ADSP/电池/音频可用。"
+evidence = "本任务未构建内核/镜像、未启动设备或访问串口、未改patch/defaultargs/main。平台adapter现在于首次acquire前安装；native仍缺板级ownership/resources/stopped服务而available=0，不能声称ADSP/电池/音频可用。Lead后续接线/上机证据另记。"
 
 [hardware.battery.step.device.prediction]
 success = "仅未来Lead获准上机且接入真实provider后，验证PAS1认证/资源持续持有、SMP2P ready非reset、104字节flags15发布、consumer发现及真实GLINK报文；发布日志本身不是电池成功。"

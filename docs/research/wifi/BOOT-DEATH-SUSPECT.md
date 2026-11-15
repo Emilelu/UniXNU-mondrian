@@ -352,10 +352,14 @@ addon is out — and a "66 MB minus PWF2" image would also be a "no GPU addon"
 image. Sharper controls, if the Lead wants comparable shapes: a kernel with the
 GPU addon **and** no PWF2 container, or a 66 MB kernel whose `__const` holds a
 same-size inert section. Both need a build decision.
+
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 
-Written on 2026-11-15 at the Lead's request so the fix is ready the moment
-T0 comes back silent. **Nothing here has been built or flown.**
+Written on 2026-11-15 at the Lead's request so the fix would be ready the moment
+T0 came back silent. It **was** built and flown after T0 was silent
+(`wifi-20261116t2`, `usblog-20261115-161102`) and came back silent itself — that
+is the flight which negated S1. This section is the record of the change and its
+recipe, not a pending plan; the measured result is in `T2-PATCH.md` §5.0.
 
 ### 4.1 The change is one line
 

@@ -791,6 +791,29 @@ This line, next in order:
     - 顺手修掉两处陈旧表述：§7.8 末尾「下一格是 h123+noboot 交叉格」改成 d 系列已收敛的实况，
       h3/h23/h34 三行的「结果」列写清它们是 stage 0 导致探针整段不跑（`[bluetooth]` 只有
       `:192` blob 一行），不是「卡在闸门」。
+29. **d6 就绪 + baseline-20261116a 被旧构建输入镜像挡住（2026-11-16 07:0x–07:17）**
+    - 0513 的 host 测试第 6 节从「两态」改成「三态」（提交 `17d0b7c`）：d5 = 有 0621、无 0513；
+      d6 = 0621 与 0513 同在且 0513 在最后；两者都不在则 0513 只留在盘上。仍然非法的是
+      「0513 不在最后」与「0513 前面不是 0512」。`TESTS OK 28 case(s)`。
+    - d6 出图工具链已备好：`E:/k60-work/scratch/bt-s4/late2/prep-d6.sh`（有 build-strict 在跑时拒绝
+      动手 → 校验 series 尾是 0512、0513 在盘且不在 series → 追加 0513 → `touch patches/xnu/series`
+      → 提交），`wsl-build-d.sh` 已加 `d5`/`d6` 两个 case（d6 = TAG `bt-d6-iowin`，参数
+      `k60bt=1 pong_bt_late=1`，31 项 / 598 B，series 234 条）。本线门禁 98 条 / 失败 0 / waiver 37。
+    - **baseline-20261116a 构建失败与代码无关**：`logs/kernel.log` 只有六行，被 registry 拒
+      （`❌ iron-4` / `❌ hard-33` / `❌ P-220 FAILED (failures=1)`）。按该次构建自己的 env
+      （`K60_DEVICE_INPUT=/tmp/usb-cdc-mainline/device`、`K60_OUT=/tmp/k60build/out-baseline`）
+      复跑完整 registry，红的是 iron-4 / iron-5 / hard-33 / P-165 / P-166，P-166 原文
+      「只在仓库有 `0619`/`0620`/`0621`，只在输入有 `0507`/`0508`/`0509`」；
+      `porting-gate.py --quick` 同 env 下 5 项阻断，前两条是 `0610-k60-metal-plugin- 未同步
+      7235 vs 8324` 与 `series 仓库与构建输入一致 不一致`。
+    - 三份镜像实测：`/opt/k60/trees/usb-cdc-mainline/device` 228 条 / mtime 2026-11-15 14:28:11、
+      `/tmp/usb-cdc-mainline/device` 228 条 / 同一 mtime、`/opt/k60/trees/k60build/bt-device`
+      233 条 / mtime 2026-11-16 06:28:46。⇒ 构建输入停在 series 还是 228 条的那天，
+      所以门禁判的是「输入镜像落后」，不是「main 起不来」。修法是构建前用该次构建的
+      `K60_DEVICE_INPUT` 跑一次 `sync-device-input.py` 再重建同 tag。
+    - 教训（与本线 P-166 同族）：**同一台机器上多棵树/多条线各有一份 device 镜像时，
+      「未同步」一定是相对某一份镜像说的；报红时先 `date -r <mirror>/patches/xnu/series`
+      看它停在什么时候，再判断是镜像旧还是补丁集坏。**
 
 
 

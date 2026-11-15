@@ -1,6 +1,6 @@
 # WiFi 固件 blob 的 residency：11.19 MB `__TEXT,__const` 会不会撞上任何装载边界
 
-状态：静态判定 + 四张有效上机判决（`z0`、`t2`、`c1`、`c2`，都是 silent，§10/§11）+ 一张判为测量无效的正式 C 格（`c0`，`invalid-measurement`，§11）+ 对 `docs/engineering/FIRMWARE-REBUILD.md` 三条主张的交叉核对（§12）。没有构建。本文回答任务 G 的一个问题：
+状态：静态判定 + 四张有效 silent 判决（`z0`、`t2`、`c1`、`c2`，§10/§11）+ 一张判为测量无效的正式 C 格（`c0`，`invalid-measurement`，§11）+ 对 `docs/engineering/FIRMWARE-REBUILD.md` 三条主张的交叉核对（§12）+ **一张带真 PWF2 却进桌面的反例（`c3`）与已证实的死因（UFS SMMU lease，P-215）**（§13）。没有构建。本文回答任务 G 的一个问题：
 
 > `__TEXT,__const` 里 11.19 MB 的 PWF2 固件，会不会让内核的 `__TEXT` 段在
 > DarwinBoot 的段加载路径上触发某种边界（段大小、对齐、还是 kernelcache 的
@@ -29,15 +29,26 @@
 105 MB alive 家族的体积来自 `__DATA` 52.9 MB，`__TEXT` 与 baseline 相同。
 「边界触发」假说在这条路径上没有落脚点；§7 列出仍然开着的三个口子。
 
-口径提醒（2026-11-16 `c1`/`c2` 判决后更新）：`__TEXT` = 12,992,512 的死格
+口径提醒（2026-11-16 `c3` 判决后第三次更新）：`__TEXT` = 12,992,512 的死格
 （mhi3/mhi4/z0/c0/c1）都带同一个 blob，`__TEXT` = 1,720,320 的活格都不带；
 但 `t2`/`c2` 把 blob 移出 `__TEXT` 之后仍然 silent——「`__TEXT` 驻留跟着死亡走」
 已被两张独立镜像**推翻**（§10.3 第 2 条、§11.2）。`__TEXT` 12.99 MB 的驻留嫌疑
 **已被推翻**，不再是待重测项：`c1`（`c0` 只改种子 UUID 一行）段表与 `c0` 逐项相同、
 仍然 0 字节（§11.1），所以那 12.99 MB 版式是**有效**的 silent 格。
 「内核总大小」这一轴也已被否证两次（`bt` 同尺寸一活一死；`adsp` 129 MB 三张全 alive，
-§11.3）。仍然开着的只有 §7.1 的 pool 通道、§7.4 的驱动体静态注册链，以及
-「11.19 MB PWF2 数据进内核」这件事本身（不是段大小，见 §11.3 末）。
+§11.3）。
+
+**2026-11-16 01:51 追加（`c3`）：连「11.19 MB PWF2 数据进内核」这条残余轴也被推翻。**
+`wifi-20261116c3` 与 `c2` 同一 117 MB 版式、同一真 PWF2 容器（逐字节相同），
+只多 20,480 B 惰性锁代码，就进了桌面（`usblog-20261116-015128`，console 221,429 B、
+SpringBoard 133 次，§13.1）。已证实的死因是 `patches/wifi/0004` 插进
+`PongUfsTransport::hostBringUp()` 的 UFS SMMU lease 段（P-215，§13.2）：
+`pong_smmu_lease_lock()` 在 `pong_rpmh_init()` 之前被调用，`smmuLeaseLock == NULL`
+时返回 false ⇒ `transportFailure("Apps SMMU lease unavailable")` ⇒ UFS transport
+放弃 ⇒ 没有根设备 ⇒ 控制台 worker 起来之前就死 ⇒ 0 字节。**尺寸、段表、驻留、
+窗口、参数、UUID 六轴之所以全被否证，是因为它们本来就不是原因。**
+现在仍开着的只剩 §7.1 的 pool 通道与 §7.4 的驱动体静态注册链，而这两条都是
+在「UFS 死因」被移除之前做的观察——`c3` 之后要重新看它们还剩下多少内容（§13.3）。
 
 待议（Lead 指示，wifi 线在本树留的四处未提交改动只折有依据的部分、其余记一行）：
 wifi 原稿把 §7.4 写成「blob 位置与 pool/窗口之外唯一还活着的解释」——本页不采
@@ -61,15 +72,21 @@ IOLockAlloc）、861 个 `_pong11_*` 符号（llvm-nm 实测 mhi4 内核）、bt
 - **0.4 被推翻**：vmsize≠0 的段数 ≥ 64 的内核被接受。
 - **0.6 被推翻**：在 xnu-work 找到任何以 `__TEXT` 大小（而不是页对齐）为输入的断言或
   上限——grep 之外还要读 `pmap_bootstrap` 与 KTRR 相关代码。
-- **「边界假说」整体**：不需要额外推翻——§0 已逐条证伪；仍然活着的是 §7.1 的 pool
-  通道（是「量」的问题，不是「边界」）与 §7.4 的驱动体静态注册链——`t2`/`c2` 之后
-  这两条都未被上机数据否证（§10.4）。
+- **「边界假说」整体**：不需要额外推翻——§0 已逐条证伪；`c3` 之后连「blob 在场」
+  这条也不再是候选（§13）。§7.1 的 pool 通道与 §7.4 的驱动体静态注册链**都不是**
+  死因：真正的死因是 UFS SMMU lease（P-215，§13.2），它既不在 pool 里也不在
+  wifi 归档的静态注册链里。这两条留在 §7 只作为「当时还开着、现在被 `c3` 关掉」
+  的历史记录。
 - **「内核总大小」这一轴**：已被两次否证，不需要再设计对照——`bt-s4b-20261115b`
   （106,541,056 B）alive 而同尺寸的 `c` silent；`adsp-20261115c/d/e`
   （128,991,232 B）三张全 alive（§11.3）。要推翻这条「已否证」结论，只需给出
   一张 >117 MB 且带 PWF2 的 alive 镜像。
-- **「11.19 MB PWF2 数据进内核」这条残余轴**：推翻条件 = 一张带真 PWF2 的 alive
-  镜像。全库 join 目前是 10 张带 PWF2 已飞、0 张 alive（§11.3）。
+- **「11.19 MB PWF2 数据进内核」这条残余轴——已于 2026-11-16 01:51 被推翻**：
+  推翻条件当初写的就是「一张带真 PWF2 的 alive 镜像」，`wifi-20261116c3` 就是那张
+  （真容器 6 条、span 11,189,974，与 `c2` 逐字节相同；console 221,429 B、
+  SpringBoard 133 次，§13.1）。全库 join 因此从 10 张 0 alive 变成 **11 张 1 alive**
+  （§11.3 表已加「真容器」列）。所以「blob 在场」只是**观测轴**，不是因果轴——
+  把观测轴写成因果轴，是本页 2026-11-15 那版最严重的措辞错误，教训写在 §13.3。
 
 ## 1. 固件怎么进的 `__const`
 
@@ -242,9 +259,16 @@ verdict = silent**（§10）。按这条读法，驱动这一支被洗清（§10
 worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证明——它的推翻条件写在
 §10.3。F 格（`t2`）已经飞完：**silent**，`__TEXT` 驻留被推翻（§10.3 第 2 条）。
 
-## 7. 仍然开着的口子（本文不关闭它们）
+**2026-11-16 01:51 后这张矩阵的结局（`c3`，§13）**：G 格（`c3`）是 F 格加一行惰性锁
+代码，带**逐字节相同**的真 PWF2 容器、同 117 MB 版式、同窗口、同 `pong_wifi=0`，
+**进了桌面**。所以本矩阵里所有「blob 在场 ⇒ 死」的读法全部作废：A/B/C/D/E/F 六格
+否证的是六条**观测轴**，而真正的因果轴是 UFS SMMU lease（P-215，§13.2）——它不在
+任何一格的自变量里。矩阵保留原样，作为「观测轴怎么被逐条打掉」的记录。
 
-`z0` 与 `t2` 上机后各口子的格位变化见 §10.4；本节保留静态判定时的原样。
+## 7. 当时仍然开着的口子（本节保留静态判定时的原样）
+
+`z0` 与 `t2` 上机后各口子的格位变化见 §10.4；`c3` 之后两条口子都关闭（§13.3）。
+本节不删，因为「当时为什么觉得它们还开着」本身是记录的一部分。
 
 1. **DXE pool 碎片化**（:558 → :607 的顺序）：65.9 MB（C 格）或 117.3 MB（E 格）
    整块 `AllocatePool` 之后才申请 4.5–4.75 GiB 连续窗口。blob 使 pool 占用多
@@ -293,7 +317,9 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 | `c1` 判决（有效 silent） | 产物 `E:/k60-work/artifacts/wifi-20261116c1`（`built_at` 2026-11-15T23:10:57、`repo.head=e33e64557fa7`、series 224、`kernel_args=["pong_wifi=0"]`）；boot.img `76171061046f…` 内 `6DCCF70A-…` ×0 / `1BCD69FF-…` ×1；段表与 `c0` 逐项相同；采集 `E:/k60-work/evidence/usblog-20261115-231707` 0 字节 / `port-not-observed` / `returnedToFastboot=true`；`scripts/judge-z0.sh` → `silent [exit 2]`（§11.1） |
 | `c2` 判决（有效 silent，blob 在 `__DATA_CONST`） | 产物 `E:/k60-work/artifacts/wifi-20261116c2`（`built_at` 2026-11-15T23:40:04、`repo.head=9fd2018a80b3`、series 224）；boot.img `dc7e4186f737…`；段表/节表与 `t2` 逐项相同；PWF2 落在 `__DATA_CONST,__const` size 11,919,062 @ 1,806,336；采集 `E:/k60-work/evidence/usblog-20261116-000136` 0 字节（§11.2） |
 | 129 MB alive 对照 | `adsp-20261115c/d/e`：kernel 128,991,232 / `__TEXT` 1,720,320 / `__DATA` 76,414,976 / `__DATA_CONST` 917,504 / span 141,111,296 / 窗口 0x120000000 / 无 PWF2；采集 `usblog-20261115-213413`（214,232 B）、`-220912`（221,484 B）、`-223916`（220,234 B），SpringBoard 128/132/120（§11.3） |
-| 全库 blob×alive join | `E:/k60-work/scratch/refmine/scan-blob3.py`（319 个产物目录，按 `image_sha256` 对 `E:/k60-work/evidence/*/boot.json`，BOM 用 `utf-8-sig`）：带真 PWF2 已飞 10 张 → 0 alive / 10 silent；不带 PWF2 已飞 47 张 → 38 alive / 8 silent（§11.3） |
+| 全库 blob×alive join（`c3` 后修订） | `E:/k60-work/scratch/refmine/scan-blob3.py`（319 个产物目录，按 `image_sha256` 对 `E:/k60-work/evidence/*/boot.json`，BOM 用 `utf-8-sig`）：带真 PWF2 已飞 **11 张 → 1 alive（`c3`）/ 10 silent**；不带 PWF2 已飞 47 张 → 38 alive / 8 silent（§11.3） |
+| `c3` 判决（带真 PWF2 且 alive） | 产物 `E:/k60-work/artifacts/wifi-20261116c3`（`built_at` 2026-11-16T01:34:21、`repo.head=3207bd3c019c`、series 226 `d83fb1890e93`、`kernel_args=["pong_wifi=0"]`）；boot.img `5a19e1103f07…`（payload kernel 117,325,824 B，fd `cf4485712c29`，wifi_archive 见 manifest）；PWF2 容器与 `c2` **逐字节相同**（sha `3f68db4dc0927742`、span 11,189,974、6 条）；采集 `E:/k60-work/evidence/usblog-20261116-015128` console 221,429 B / 3,204 行 / SpringBoard 133 / `K60DATA` 12 / `Early boot complete` 1（§13.1） |
+| 死因（P-215，UFS SMMU lease） | `patches/wifi/0004` 在 `drivers/NativeUfs/PongUfsTransport.cpp` 的 `hostBringUp()` 里插 lease 段；`pong_smmu_lease_lock()` 原本只在 `pong_rpmh_init()` 里 `IOLockAlloc`，而后者唯一调用点在 `pong_wifi_start_optional()`，晚于 UFS 启动；`patches/wifi/0012-drivers-PongWifi-lease-lock-lazy-init.patch` 改成首次使用时自建锁（§13.2） |
 | FIRMWARE-REBUILD 三条核对 | §12：`audio-probe-j/run1`、`usblog-20261115-012317`（SpringBoard ×129 各一）；`fd-hist3.py`（107 次飞行的内嵌 FD 判代）；`fd-dates.py`（130 个归档 .fd 的 2 个 distinct 三元组）；`/e/hackios/UniXNU/scripts/unixnu/firmware.py:69` |
 
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与
@@ -332,11 +358,12 @@ sha 只在那批镜像内可比）；`t2` 及以后的窗口必须逐镜像重�
 | wifi-20261116c0 | 66,002,944 | 12,992,512 | 1,867,776 | 78,344,192 | 2 | 11 | 0 | 测量无效（0 B，`usblog-20261115-213221`；种子 UUID，§11） |
 | wifi-20261116c1 | 66,002,944 | 12,992,512 | 1,867,776 | 78,344,192 | 2 | 11 | 0 | silent（0 B，`usblog-20261115-231707`；§11.1） |
 | wifi-20261116c2 | 117,305,344 | **1,802,240** | 53,149,696 | 129,642,496 | 2 | 11 | 0 | silent（0 B，`usblog-20261116-000136`；blob 在 `__DATA_CONST` 12,124,160，§11.2） |
+| wifi-20261116c3 | 117,325,824 | **1,802,240** | 53,149,696 | **12,124,160** | 2 | 11 | 0 | **alive**（221,429 B，`usblog-20261116-015128`；同 `c2` 版式 + 惰性锁 20,480 B，§13.1） |
 | adsp-20261115c | 128,991,232 | 1,720,320 | 76,414,976 | 141,111,296 | 0 | 0 | — | **alive**（214,232 B，`usblog-20261115-213413`） |
 | adsp-20261115d | 128,991,232 | 1,720,320 | 76,414,976 | 141,111,296 | 0 | 0 | — | **alive**（221,484 B，`usblog-20261115-220912`） |
 | adsp-20261115e | 128,991,232 | 1,720,320 | 76,414,976 | 141,111,296 | 0 | 0 | — | **alive**（220,234 B，`usblog-20261115-223916`） |
 
-七条从这张表直接读出来的结论（都不是「结论」，是可推翻的事实）：
+八条从这张表直接读出来的结论（都不是「结论」，是可推翻的事实）：
 
 1. **`z0` 不是 66 MB 的 C 格**：它 117,305,344 B，`__DATA` 53,149,696 与 105 MB
    alive 家族同量级，是 `mhi5` 的孪生（只差 `pong_wifi`）。66 MB 那一格是
@@ -357,10 +384,16 @@ sha 只在那批镜像内可比）；`t2` 及以后的窗口必须逐镜像重�
    （`__DATA` 76,414,976、span 141,111,296，都比 117 MB 家族大），同一 4.5 GiB
    窗口、无 PWF2，全部进桌面。阈值模型因此被第二次否证，且这次把 117 MB 也包住
    （§11.3）。
-7. **带 PWF2 的已飞镜像没有一张 alive**：全库 join 的 10 张全部 0 字节
-   （§11.3）。表里唯一的对照是 `t2`/`c2`：blob 搬到 `__DATA_CONST` 之后
-   `__TEXT` 只有 1,802,240 B，仍然 silent——所以「blob 在哪里」分不开生死，
-   「blob 在不在」目前分得开。
+7. **带 PWF2 的已飞镜像里已经有一张 alive（2026-11-16 改）**：`wifi-20261116c3`
+   带与 `c2` **逐字节相同**的真 PWF2 容器（span 11,189,974、6 条），console
+   221,429 B、SpringBoard 133 次（§13.1）。全库 join 因此是 11 张 / 1 alive。
+   2026-11-15 那版写的「没有一张 alive」当时是对的，但它是**观测轴**不是因果轴：
+   `c3` 与 `c2` 的唯一差别是 20,480 B 的惰性锁代码（§13.2）。
+8. **`c3` 与 `c2` 的差只有一处，而那一处就是死因**：两张同 117 MB 版式、同段表、
+   同 PWF2 容器，`c3` 多出的 20,480 B 全在 `patches/wifi/0012`——把
+   `pong_smmu_lease_lock()` 的锁分配从「`pong_rpmh_init()` 里建」改成「首次使用时
+   建」。所以六条被否证的轴（尺寸/段表/驻留/窗口/参数/UUID）不是「被绕开」，
+   而是**从来不在因果链上**；因果链在 UFS transport 上（§13.2）。
 
 这张表的生成方式：`mtype -i <boot.img 的 ramdisk 卷> ::EFI/UniXNU/Payloads/kernel.macho`
 再按 `LC_SEGMENT_64` 解段；脚本 `E:/k60-work/scratch/refmine/probe-family.py`。
@@ -428,19 +461,20 @@ zizhan-087416a.patch:1939-1946` 的 `pong_wifi_start_optional()` 先
    版式）飞完 verdict = silent（`usblog-20261115-161102`）。驻留形态已被两种
    形态否证：105 MB alive 家族把体积放在可写 `__DATA` 仍进桌面；`t2` 把 blob
    放在只读 `__DATA_CONST` 仍 silent。死因回到驱动之外的差异。
-3. **「blob 是变量」这一条没有被推翻，反而被坐实**（2026-11-16 改）：C 格
-   （66 MB + blob + `pong_wifi=0`）的两次飞行都是 0 字节——`c0` 测量无效（§11）、
-   `c1` 有效 silent（§11.1）；`c2` 把 blob 搬进 `__DATA_CONST` 同样 0 字节
-   （§11.2）。全库 join 更直接：已飞且内核带真 PWF2 的 10 张**没有一张 alive**，
-   不带 PWF2 的 47 张里 38 张 alive（§11.3）。所以「blob 在场」是目前唯一没有被
-   任何 alive 镜像打过的轴；「117 MB 版式」这一支反而被 `adsp` 129 MB alive
-   三张压住。
+3. **「blob 是变量」这一条已被 `c3` 推翻**（2026-11-16 01:51 改写；此前一版写的是
+   「没有被推翻，反而被坐实」）：C 格（66 MB + blob + `pong_wifi=0`）两次飞行都是
+   0 字节（`c0` 测量无效 §11、`c1` 有效 silent §11.1），`c2` 把 blob 搬进
+   `__DATA_CONST` 同样 0 字节（§11.2）——这些都还成立。但 `wifi-20261116c3`
+   带**逐字节相同**的真 PWF2 容器进了桌面（§13.1），所以「blob 在场」不再分生死。
+   正确写法（P-215 的教训）：那 10 张 0 alive 是**观测轴**的证据，不是因果轴的
+   证据；因果轴要一次单变量干预才成立，而那次干预就是 `patches/wifi/0012`。
 
 三条都不涉及静态量：它们都是「再飞一张」就能证伪的句子，不需要新代码。
 
 ### 10.4 §7 三个口子的格位更新
 
-1. **DXE pool 碎片化（§7.1）——未被否证的通道之一**。`z0` 是 117.3 MB 整块进
+1. **DXE pool 碎片化（§7.1）——`c3` 之后已关闭**（下面这段是历史记录；`c3` 用
+   同一 117 MB 版式、同一 pool 占用进了桌面，说明 pool 不是通道）。`z0` 是 117.3 MB 整块进
    pool，比 C 格翻倍，窗口 4.5 GiB（余量约 223 MiB），仍然 silent；而 mhi4
    （65.9 MB、同一窗口）也 silent。两格之间差约 51 MB pool 占用而结果相同，所以
    pool 占用本身没有把 4.5 GiB 窗口推过线。`t2`/`c2` 把 blob 移出 `__TEXT` 后仍
@@ -585,17 +619,25 @@ silent，所以「驻留位置」这一轴现在有两种形态的否证，不�
 全库 join（脚本 `E:/k60-work/scratch/refmine/scan-blob3.py`，扫 319 个产物目录、
 按 `image_sha256` 对上 `E:/k60-work/evidence` 的 `boot.json`）：
 
-| 组 | 张数 | alive（console > 1 KB） | silent（console = 0 B） |
-|---|---|---|---|
-| 已飞，内核带真 PWF2 | 10 | **0** | **10** |
-| 已飞，内核不带 PWF2 | 47 | 38 | 8 |
+| 组 | 张数 | 真 PWF2 容器 | alive（console > 1 KB） | silent（console = 0 B） |
+|---|---|---|---|---|
+| 已飞，内核带真 PWF2 | **11** | 11 | **1**（`c3`） | **10** |
+| 已飞，内核不带 PWF2 | 47 | 0 | 38 | 8 |
 
-带真 PWF2 且已飞的十张是：`wifi-20261114a`、`wifi-20261115a`、`wifi-20261115h2`、
+带真 PWF2 且已飞的十一张是：`wifi-20261114a`、`wifi-20261115a`、`wifi-20261115h2`、
 `wifi-20261116mhi3`、`wifi-20261116mhi4`、`wifi-20261115z0`、`wifi-20261116t2`、
-`wifi-20261116c0`、`wifi-20261116c1`、`wifi-20261116c2`——**全部 0 字节**。
+`wifi-20261116c0`、`wifi-20261116c1`、`wifi-20261116c2`、`wifi-20261116c3`——
+**前十张 0 字节，`c3` alive（221,429 B，§13.1）**。
+
 不带 PWF2 的八张 silent 全在 usb 与 bt 线（`bt-s1-20261114b`、`bt-s4b-20261115c`、
 `bt-bisect-h123`、`usb-20261114c`、`usb-20261114f`、`usb-20261114h2`、
 `usb-20261115b`、`usb-20261115c`），与本问题无关。
+
+「真容器」这一列是 Lead 2026-11-16 01:59 要求加的，理由是 `c3` 这个反例证明单轴
+表格本身不够：同一列「blob 有」里混着两种东西——真容器（span 11,189,974、6 条或
+4 条 entry，payload 合计 11,057,218 B）与 tiny 家族的 4×23 B 占位（span 16,407，
+`t0c`/`t1c`）。判定手法：`E:/k60-work/scratch/refmine/probe-pwf2kind.py` 读容器头
+`count` 与各条 `offset+len` 的最大跨度，跨度 > 1 MB 才算真容器。
 
 **「总大小」这一轴由 129 MB 的 alive 反证排除**：`adsp-20261115c/d/e` 三张
 kernel **128,991,232 B**（比 117 MB 家族还大 11.7 MB），`__DATA` 76,414,976 B、
@@ -606,9 +648,9 @@ SpringBoard 分别 128 / 132 / 120 次）。它们不带 PWF2、`pong_wifi` 不�
 `bt-s4b-20261115c` 同尺寸 silent 是一次；adsp 129 MB alive 是第二次，且这次把
 117 MB 也包在里面）。
 
-剩下能解释 silent 的只有两条：pool/窗口通道（§7.1），以及「11.19 MB 的 PWF2
-数据以某种方式进内核」这件事本身——注意后者不是「段太大」，因为 blob 在
-`__DATA_CONST` 里时 `__TEXT` 只有 1.80 MiB，照样 silent。
+（2026-11-16 01:51 之前本段写的是「剩下能解释 silent 的只有两条：pool/窗口通道与
+11.19 MB PWF2 进内核这件事本身」。`c3` 之后这两条都不再成立：pool 占用与版式跟
+`c2` 相同却活了，blob 逐字节相同也活了——见 §13。）
 
 ## 12. 交叉核对 `docs/engineering/FIRMWARE-REBUILD.md`（2026-11-16）
 
@@ -687,4 +729,89 @@ SpringBoard 分别 128 / 132 / 120 次）。它们不带 PWF2、`pong_wifi` 不�
 2. 同文 §5（`:64-65`）第 5 步「两个卷用 `strings` 对比 initrd 追踪行」在现有两卷上
    **无行可比**：`initrd`、`RamDisk`、`UNIXNU`、`menu:`、`no boot entry` 在两卷里
    ASCII 与 UTF-16（`strings -e l`）都是 0 命中。这一步要么换手法，要么删。
+
+## 13. `c3`：带真 PWF2 却进桌面，死因是 UFS SMMU lease（2026-11-16 01:51）
+
+本节把前面十二节从「排除法账本」变成「有真因的账本」。Lead 2026-11-16 01:59 的裁决
+与本节的实测一致：**真因已证实（P-215），尺寸/段表/驻留/窗口/参数/UUID 六轴之所以
+全被否证，是因为它们本来就不是原因。**
+
+### 13.1 `c3` 判决：`alive`，带逐字节相同的真 PWF2 容器
+
+| 项 | 值 |
+|---|---|
+| 产物 | `E:/k60-work/artifacts/wifi-20261116c3`；`built_at` 2026-11-16T01:34:21；`repo.head = 3207bd3c019c`（`feat/wifi-bringup`，`dirty_files=0`）；series 226 `d83fb1890e93`；`kernel_args_requested = ["pong_wifi=0"]` |
+| boot.img | `5a19e1103f07b1f5612bb903c1060ea6b01db7ae9d0bba414739a8f74616fc5f`（201,887,744 B；payload kernel 117,325,824 B；fd `cf4485712c29`；dtb `2d044eaa…`） |
+| 段表 | `__TEXT` **1,802,240** / `__TEXT_EXEC` 8,814,592 / `__DATA` 53,149,696 / `__DATA_CONST` **12,124,160** / `__LINKEDIT` 6,684,672 / `__PRELINK_TEXT` 7,421,952 / `__PLK_TEXT_EXEC` 22,757,376 / span **129,675,264** |
+| 节表 | `__TEXT,__const` 574,953 @11,712；`__TEXT,__cstring` 1,080,892 @586,665；`__DATA_CONST,__const` 11,919,062 @1,806,336 |
+| PWF2 容器 | 6 条：`amss.bin` 4096/5,470,128、`amss20.bin` 5,476,352/5,296,128、`bdwlan.elf` 10,772,480/59,932、`bdwlang.elf` 10,833,920/59,936、`m3.bin` 10,895,360/266,684、`regdb.bin` 11,165,696/24,278；span 11,189,974；**sha `3f68db4dc0927742…`，与 `c2` 逐字节相同** |
+| 内核字符串 | `PWF2` 2 / `PongWifi` 32 / `Pong MHI` 11 / `pong_wifi` 25 |
+| 采集 | `E:/k60-work/evidence/usblog-20261116-015128`：`console.log` **221,429 B**（`capture.json` 的 `logSha256 = A62070715CC790A5…`、`state = captured-budget-complete`、`portSeen = true`、`stopReason = budget`、`panicMarker = null`）；`boot.json` `bootExitCode = 0`、`returnedToFastboot = false` |
+| 判读 | SpringBoard **133** 次、`K60DATA` 12、`Early boot complete` 1、`Apps SMMU lease` **0**、`PongWifi` 0、`MHI` 0 |
+
+**与 `c2` 的唯一差别是 20,480 B 代码**：
+`patches/wifi/0012-drivers-PongWifi-lease-lock-lazy-init.patch`（117,305,344 →
+117,325,824 B，差值正好 20,480）。版式、段表、PWF2 容器、窗口、`pong_wifi=0` 全都同形。
+所以这一对是**单变量干预**，不是又一次排除法。
+
+### 13.2 死因：UFS SMMU lease 被提前索取（P-215）
+
+调用链（实测行号，`k60-wifi` 树）：
+
+- `drivers/NativeUfs/PongUfsTransport.cpp:29` `extern "C" bool pong_smmu_lease_lock(void) __attribute__((weak_import));`
+- 同文件 `:143` `hostBringUp()`；`:174-181` 是 `patches/wifi/0004` 插进去的 lease 段：
+  `if (pong_smmu_lease_lock && pong_smmu_lease_unlock) { lease.held = pong_smmu_lease_lock(); if (!lease.held) return transportFailure("Apps SMMU lease unavailable"); }`；
+  `:602` `if (!hostBringUp()) return false;`
+- `drivers/PongWifi/PongWifiPlatform.cpp:152` `IOLock *powerLock,*smmuLeaseLock;`；`:729`
+  在 `pong_rpmh_init()` 里 `IOLockAlloc`；`:716-718` 先 `pong_rpmh_init()` 再查开关；
+  唯一调用点 `pong_wifi_start_optional()` 由 `ArmDTPlatform.cpp:227-228` 在
+  `registerService()` 之后调。
+- `patches/wifi/0001` 的修前实现：`if(!smmuLeaseLock) return false; IOLockLock(...); return true;`
+
+**UFS 是根设备，必然先启动**（能起的日志里 `PONG_UFS` 在 115 行、
+`ArmDTPlatform: registered platform` 在 147 行）。于是 UFS 索取 lease 时
+`smmuLeaseLock == NULL` ⇒ lock() 返回 false ⇒ `transportFailure("Apps SMMU lease
+unavailable")` ⇒ 整个 UFS transport 放弃 ⇒ 没有根设备 ⇒ 内核在 console worker
+起来之前就死 ⇒ **0 字节**。
+
+修法（`patches/wifi/0012`，单变量）：`if(!smmuLeaseLock) smmuLeaseLock=IOLockAlloc();
+if(!smmuLeaseLock) return false; IOLockLock(smmuLeaseLock); return true;` —— 分配搬进
+lock() 自己，`pong_rpmh_init()` 里那次分配保留。补丁注释原文写的就是这条理由
+（"the first client to want it is not necessarily the WiFi worker: NativeUfs takes
+the same lease in hostBringUp()"）。
+
+**为什么这条能解释前面十二节的全部负结果**：`pong_wifi=0` 只挡住 worker 之后的注册，
+挡不住 UFS 在更早的 `hostBringUp()` 里索取同一把锁。所以只要 wifi 归档被
+`-Wl,-force_load` 链进内核（`patches/wifi/0010`），**即使驱动开关是 0**，UFS 也会
+因为这把锁未分配而失败。尺寸、段表、blob 位置、窗口、参数、Data UUID 全都不是原因，
+它们只是恰好与「链了 wifi 归档」同步变化。
+
+### 13.3 方法论：观测轴 ≠ 因果轴（Lead 要求写进 P-215）
+
+本页 2026-11-15 那版写过一句「带 PWF2 的已飞镜像没有一张 alive……所以『blob 在场』
+是目前唯一没有被任何 alive 镜像打过的轴」。join 方法没错（11 张里 10 张 0 字节是实测），
+**错在结论强度**：一张表能证明「这条轴与生死同步」，不能证明「这条轴导致生死」，
+除非做过单变量干预。正确写法就是当时写在 §0.1 里的那句推翻条件——「推翻条件 = 一张
+带真 PWF2 的 alive 镜像」——**推翻条件写对了，只是没等到它出现就把它写成了因果**。
+
+三条可复用的写法：
+
+1. 观测轴表格的结论列只能写「这是目前唯一还分得开生死的观测轴」，不能写「这是死因」。
+2. 每条轴必须带一行推翻条件（本页 §0.1 做到了，这是唯一挡住错误扩写的东西）。
+3. 单变量干预之后，旧表要**保留原样并标注结局**，不要删——被推翻的过程本身是记录
+   （§6 矩阵、§7 两条口子、§9 结论 7 都按这个方式处理）。
+
+### 13.4 `c3` 之后还剩什么
+
+- **§7.1 pool 通道**：关闭。`c3` 与 `c2` 同 117 MB 版式、同 pool 占用，一个活一个死。
+- **§7.4 驱动体静态注册链**：关闭。`c3` 上 `PongWifi` 串 0 次、`MHI` 0 次——
+  `pong_wifi=0` 时 worker 确实没跑，系统照样进桌面；死因在 UFS 侧，不在 wifi 归档的
+  静态注册链上。
+- **仍开的两件**：①PWF2 头失配（§1）——早期 mhi4 内核里 entry[1..5] 全空的观察需要
+  在 `c2`/`c3` 这类新容器上重测（`c2`/`c3` 的六条 entry 都有 payload）；
+  ②`pong_wifi=1` 的 MHI 阶段（`c3` 是 `pong_wifi=0`，驱动没跑，`c4` 才是功能判决）。
+- **本页此后不再改归因**：等 `c4`（`c3` + `pong_wifi=1`）落盘，按 Lead 的判读分支
+  重写：`c4` alive 且 MHI 通 ⇒ 本页按「silent 已解决、进入 MHI 阶段」收尾；
+  `c4` alive 但 MHI 不通 ⇒ 本页分「silent 段」与「MHI 段」两段；`c4` silent ⇒
+  `pong_wifi=1` 还有第二个独立缺陷，回到二分。
 

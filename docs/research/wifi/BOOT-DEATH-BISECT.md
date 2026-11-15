@@ -45,10 +45,18 @@
    `bt-s4b-20261115c`（同尺寸、只多一个补丁）0 字节；`adsp-20261115c/d/e`
    三张 **128,991,232 B** 内核全部进桌面（`usblog-20261115-213413` /
    `-220912` / `-223916`，console 214–221 KB）。全库 join 的结论更硬：已飞且
-   内核带真 PWF2 的 **10 张全部 0 字节**，已飞且不带 PWF2 的 47 张里 38 张 alive
-   （BLOB-RESIDENCY.md §11.3）。所以剩下的候选不是「段太大」，而是
-   **「11.19 MB PWF2 数据以某种方式进内核」这件事本身**——blob 在
-   `__DATA_CONST` 里、`__TEXT` 只有 1.80 MiB 时（`t2`/`c2`）照样 0 字节。
+   内核带真 PWF2 的 11 张里 10 张 0 字节、1 张 alive（`c3`），已飞且不带 PWF2 的
+   47 张里 38 张 alive（BLOB-RESIDENCY.md §11.3）。
+8. **死因已证实，不在上面任何一条轴里（2026-11-16 01:51，P-215）**：
+   `wifi-20261116c3` 带与 `c2` **逐字节相同**的真 PWF2 容器、同 117 MB 版式、同窗口、
+   同 `pong_wifi=0`，只多 20,480 B 惰性锁代码，就进了桌面
+   （`usblog-20261116-015128`，console 221,429 B、SpringBoard 133）。真因是
+   `patches/wifi/0004` 让 `PongUfsTransport::hostBringUp()` 在 UFS 启动时索取
+   Apps SMMU lease，而锁只在 `pong_rpmh_init()` 里分配、晚于 UFS ⇒ lock() 返回
+   false ⇒ `transportFailure("Apps SMMU lease unavailable")` ⇒ 没有根设备 ⇒
+   console worker 起来之前就死 ⇒ 0 字节。所以本文 §5–§6 找的「内核体积 / 固件
+   residency / 窗口」三路都不是死因；它们与死因只是同步变化（都被
+   `-Wl,-force_load` 一起带进来）。详见 BLOB-RESIDENCY.md §13。
 
 口径冲突显式记录：Lead 在 m04661 里说 mhi4 是「224-series」，但 mhi3 与 mhi4 的
 build-manifest.json 都记录 `series.count = 229`（`0076aa20…`）。以 manifest 为准；
@@ -238,6 +246,11 @@ main 上不存在）给 PongWifiPlatform.cpp 加了两道门：
 
 ### 6.3 剩余嫌疑与缺失的一格数据
 
+> **2026-11-16 01:51 作废声明**：本节三条线索全部不是死因。`c3`（`c2` + 惰性锁
+> 20,480 B）带同样的 blob、同样的 117 MB 版式进了桌面（`usblog-20261116-015128`），
+> 真因是 UFS SMMU lease（P-215，BLOB-RESIDENCY.md §13.2）。本节保留原样，
+> 作为「当时为什么把死因指向体积」的记录。
+
 排除后，死因必须从 §6.1 的三项里产生。三条静态线索：
 
 1. **`pong_wifi=1` 启动的 worker 本体**：0011 之后的 worker 在控制台起来之前
@@ -302,13 +315,18 @@ payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
 | C3 出现 `PongWifi: console up after N ms; starting cold link` 之后才死 | 该行之后断流 | 死在 worker 的 MMIO 段（stage 1–10），可按 `k60_wifi_stage` 逐级二分 |
 | C4 出现 `PongWifi: stage N (…) held back` 且后续正常 | 门生效、boot 继续 | 说明门机制本身健康，可用于后续分级上机 |
 
-注（2026-11-16）：C1 的旧载体 `wifi-20261116a2` 是 trial 级（P-201）；正式 C 格
-`wifi-20261116c0` 判 `invalid-measurement`（defconfig 种子 Data UUID，P-152/P-209；
-BLOB-RESIDENCY.md §11），而它的重测 `c1` **已飞并落在 C2 列**：0 字节、
-`portSeen=false`、`bytes=0`（`usblog-20261115-231707`）。所以按本表读，
-「内核体积/固件 residency 是死因」这一列被选中；C1 列（驱动活体是死因）没有证据。
-`c2`（blob 搬进 `__DATA_CONST` 的复现，`usblog-20261116-000136`）同样 0 字节，
-把「驻留位置」这一轴也关掉。
+注（2026-11-16，两次改写）：C1 的旧载体 `wifi-20261116a2` 是 trial 级（P-201）；
+正式 C 格 `wifi-20261116c0` 判 `invalid-measurement`（defconfig 种子 Data UUID，
+P-152/P-209；BLOB-RESIDENCY.md §11），而它的重测 `c1` **已飞并落在 C2 列**：
+0 字节、`portSeen=false`、`bytes=0`（`usblog-20261115-231707`）；`c2`（blob 搬进
+`__DATA_CONST`，`usblog-20261116-000136`）同样 0 字节。按本表读，当时选中的是
+「内核体积/固件 residency 是死因」。
+
+**这条读法已被 `c3` 推翻（2026-11-16 01:51）**：`wifi-20261116c3` 与 `c2` 同版式、
+同真 PWF2 容器、同 `pong_wifi=0`，只多 20,480 B 惰性锁代码，就进了桌面
+（`usblog-20261116-015128`，221,429 B、SpringBoard 133）。所以 C1/C2 两列都不是
+死因所在：死因是 UFS SMMU lease（P-215），它在 UFS 侧、在 console worker 之前，
+两列都没覆盖到。本表此后只用于判「镜像有没有走到用户态」，不再用于归因。
 
 **判据可执行化**：C1–C4 由 `scripts/judge-wifi-boot.py` 判定。输入一份
 `console.log` 或整个含 `capture.json` 的采集目录，输出四态

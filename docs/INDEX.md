@@ -83,9 +83,9 @@ docs/
 | `09-CLOCK-FIX-PLAN.md` | GENI 时钟修复方案 |
 | `10-SE-HANG-ROUND3.md` | SE 挂死第三轮诊断 |
 | `wifi/RESEARCH.md` | **WiFi 八步 ①②③**：Pong 同 SoC 同芯片的 PCIe0 冷启动、PWF2 固件包、K60 本机真值 |
-| `wifi/BOOT-DEATH-BISECT.md` | **WiFi series 死因考古（静态）**：0618 MHI 注入不存在、0011 stage 门与 229 series 均被对照排除，剩余差异与缺失的对照格子 |
-| `wifi/BLOB-RESIDENCY.md` | **11.19 MB 固件 blob 与装载边界**：最窄余量 1.14×（117 MB 镜像 vs `ReadFile` 128 MB），可证伪判断、六格判别矩阵、全家族实测段表、`z0`/`t2`/`c1`/`c2` 四张有效 silent 判决，以及 FIRMWARE-REBUILD 三条主张的交叉核对 |
-| `wifi/DARWINBOOT-POOL.md` | **DarwinBoot pool 通道账本**：已知 silent 的九张图按 (kernel, 段表, blob, `pong_wifi`, 窗口, series) 逐行列表，加 129 MB alive 对照行；本文只列数不分析，是 wifi 线写 pool 页的输入 |
+| `wifi/BOOT-DEATH-BISECT.md` | **WiFi series 死因考古（静态）**：0618 MHI 注入不存在、0011 stage 门与 229 series 均被对照排除；§0 第 8 条记死因定案（UFS SMMU lease，P-215），§6.3 与 §7 已标注作废 |
+| `wifi/BLOB-RESIDENCY.md` | **11.19 MB 固件 blob 与装载边界**：最窄余量 1.14×（117 MB 镜像 vs `ReadFile` 128 MB），可证伪判断、六格判别矩阵、全家族实测段表、`z0`/`t2`/`c1`/`c2` 四张有效 silent 判决、FIRMWARE-REBUILD 三条主张的交叉核对，以及 §13 的结局：`c3` 带真 PWF2 进桌面、死因是 UFS SMMU lease（P-215） |
+| `wifi/DARWINBOOT-POOL.md` | **DarwinBoot pool 通道账本**：已知 silent 的九张图按 (kernel, 段表, blob, `pong_wifi`, 窗口, series) 逐行列表，加 129 MB alive 对照行与 `c3` 反例行；pool 假说已由 `c3` 关闭（同池占用一活一死），死因见 P-215 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 

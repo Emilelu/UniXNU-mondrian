@@ -111,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="K60 output root")
     parser.add_argument("--kernel", type=Path, help="kernel.macho to inspect")
+    parser.add_argument("--adsp-blob", action="store_true",
+                        help="the build passed --adsp-blob; expect k60_adsp_blob in the kernel")
     args = parser.parse_args(argv)
 
     kernel = args.kernel or find_kernel(args.out)
@@ -130,6 +132,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     tree = kernel.parent.parent / "tree"
     config = kernel.parent.parent / ".config"
+    # A configured-but-not-rebuilt out tree pairs a fresh .config with an old
+    # kernel. The symbol list of that kernel cannot answer P-190, and the
+    # registry runs before the build that would refresh it (same shape as the
+    # P-194 deadlock): skip instead of failing on a stale pair.
+    if config.is_file() and kernel.stat().st_mtime < config.stat().st_mtime:
+        print(f"skip: {kernel.name} predates {config.name} in {args.out}; the out "
+              f"tree was configured but not rebuilt, so its symbol list cannot "
+              f"answer P-190 (the build that would refresh it is what this "
+              f"registry is gating)")
+        return 0
     nm = nm_tool()
     if not nm:
         print("FAIL: no nm tool found", file=sys.stderr)
@@ -174,6 +186,55 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+    # P-208: a force-loaded archive whose call site compiled away is just as
+    # dead as one inside a false branch, and it links without an error because
+    # force_load pulls the members in. The guarded blocks live in
+    # iokit/bsddev/IOKitBSDInit.cpp, so that object must reference the archive.
+    # Same scope rule as P-207: the object only answers P-208 when this run
+    # produced it. The registered check command runs without --kernel, before
+    # the build, against the previous build's tree -- judging that one would
+    # block the very build that refreshes it.
+    if enabled(config, "XNU_K60_PHYSICAL_BATTERY") and args.kernel is not None:
+        objects = sorted(tree.glob("build/xnu/ios-obj/*/iokit/*/IOKitBSDInit.cpo"),
+                         key=lambda p: p.stat().st_mtime)
+        if objects:
+            newest = objects[-1]
+            proc = subprocess.run([nm, "-u", str(newest)], capture_output=True, text=True)
+            if proc.returncode == 0:
+                referenced = "k60_adsp_handoff_publish" in proc.stdout
+            else:
+                # A fixture is not a Mach-O object, so fall back to the string
+                # table bytes: an undefined symbol keeps its name there.
+                referenced = b"k60_adsp_handoff_publish" in newest.read_bytes()
+            if not referenced:
+                problems.append(
+                    "CONFIG_XNU_K60_PHYSICAL_BATTERY=y but "
+                    "iokit/bsddev/IOKitBSDInit.cpp has no call to "
+                    "k60_adsp_handoff_publish: the guarded block compiled away, "
+                    "so the battery entry point and the ADSP publisher never run "
+                    "(P-208; the define must reach that translation unit, not "
+                    "only KernelConfigTables.cpo)"
+                )
+        else:
+            print("skip: no IOKitBSDInit.cpo under the tree, so the kernel was "
+                  "not compiled far enough to answer P-208")
+    if problems:
+        print("FAIL: kernel archives", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+    if args.adsp_blob:
+        if any("k60_adsp_blob" in name for name in symbols):
+            print("✅ kernel archives: ADSP carrier blob linked (k60_adsp_blob present)")
+        else:
+            blob_s = tree / ".cache/xnu-work/osfmk/arm64/k60_adsp_blob.s"
+            evidence = "generated and staged" if blob_s.is_file() else "staging file missing"
+            print(
+                f"FAIL: --adsp-blob was requested but no k60_adsp_blob symbol is in "
+                f"{kernel.name}; the carrier was {evidence}",
+                file=sys.stderr,
+            )
+            return 1
     print(f"✅ kernel archives: {checked} enabled archive(s) all present in {kernel.name}")
     return 0
 

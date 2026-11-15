@@ -133,6 +133,60 @@ note = "取 yibiya 的 fcc998f0 面板节拍打点：PongDsiPanel.cpp/.h 与 Pon
 
 [[entry]]
 sha = "3ea8d71"
+kernel_sha256 = "a07e9565f039f2cbc1a48dc01a07d838a4ac57bea78ee5ad9f57fbe7afcd83e3"
+image = "E:/k60-work/artifacts/seed-20261115a/boot.img"
+image_sha256 = "1fc1169eb48e546c520e6ccdcaddf67c53d23bff6a94731a5c57504d1e5c5467"
+console = "E:/k60-work/evidence/usblog-20261115-155741/console.log (247731 bytes, SpringBoard 183, no panic, no 'no platform identity')"
+state = "booted"
+note = "平台身份种子：board.toml 的 [payload.\"adt\"] 加 \"unique_chip_id\" = \"required\"，build-strict.sh 默认 UNIXNU_UNIQUE_CHIP_ID=4B36305400000001 并转发 --unique-chip-id 给 build payload。原因：devicetree.py:312-317 只在拿到种子时才发 /chosen/unique-chip-id + /chosen/chip-id，而实测 usblog-20261115-140927 的 bt 正向镜像打了 \"K60 BT: no platform identity (-2); bluetooth not published\"，bluetoothd 因无 MAC 不起。登记原因是该提交碰了 board.toml 与 scripts/build-strict.sh，铁则 9。欠账：带种子的镜像尚未上机，判据是 K60 BT 不再出现 -2 且出现 published local address。种子变更会改 BT MAC，只能在这里动一次。"
+
+[[entry]]
+sha = "ad38ca2"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
-note = "平台身份种子：board.toml 的 [payload.\"adt\"] 加 \"unique_chip_id\" = \"required\"，build-strict.sh 默认 UNIXNU_UNIQUE_CHIP_ID=4B36305400000001 并转发 --unique-chip-id 给 build payload。原因：devicetree.py:312-317 只在拿到种子时才发 /chosen/unique-chip-id + /chosen/chip-id，而实测 usblog-20261115-140927 的 bt 正向镜像打了 \"K60 BT: no platform identity (-2); bluetooth not published\"，bluetoothd 因无 MAC 不起。登记原因是该提交碰了 board.toml 与 scripts/build-strict.sh，铁则 9。欠账：带种子的镜像尚未上机，判据是 K60 BT 不再出现 -2 且出现 published local address。种子变更会改 BT MAC，只能在这里动一次。"
+note = "P-205：README 门禁化。新增 scripts/check-readme.py（双语互链、日期不早于 STATUS、★N/P-M 范围等于真实最大标题号、门禁表与 build-strict.sh 标记区内嵌门禁同名同集）+ scripts/tests/test-check-readme.py（8 例），build-strict.sh 只加两对 # --- gate-table:BEGIN/END --- 注释标记（不改变任何构建行为），render-eight-step-table.py 的 UNTRACKED 表把 USB 改 device-verified 并补 thermal 行，README/README_EN/AGENTS/HARD-RULES(★36 第 7 条)/PITFALLS(P-205)/RULES.toml/STATUS 同步更新。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：无，全部是注释/文档/校验脚本层改动，不改变内核与镜像内容。"
+
+
+[[entry]]
+sha = "fd6adeb"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "合并 feat/charger（08b08fd，11 提交 no-ff）。内容：EIGHT-STEPS.toml 新增 [hardware.charger]（①-⑦ done、⑧ 未上机）、build-k60-physical-battery.py 产出 MEASURED_NOTIFY_REPLY=(1,16)（K60Battmgr.h 契约注释同步）、docs/research/charger/ 六篇研究、scripts/tests/test-k60-charger-subscription.c（30 断言）。登记原因：build-k60-physical-battery.py 参与构建电池归档（PLATFORM_ARCHIVES），产物常量从 0 变成 (1,16)，会改变内核镜像字节，铁则 9。欠账：充电 ⑧ 上机排在 ADSP PAS1 落地之后（真实电量计读数与 Android 侧对比），届时按八步流程执行并另行登记。检查路径：scripts/tests/test-k60-charger-subscription.c TESTS OK 30；check-readme（含八步表对账）/check-docs/render --check 全绿。"
+
+
+[[entry]]
+sha = "4f56970"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "合并 feat/judge-tools（rebase 到 9fec9a5 后 no-ff，17 提交）。内容：scripts/judge-z0.sh、scripts/judge-wifi-boot.py、scripts/tests/test-judge-wifi-boot.py（11 例）、scripts/tests/test-check-arg.py（14 例）、docs/wifi 判决账本修正（P-201 口径）与 docs/research 两篇 file:line 追溯。登记原因：新增 scripts/ 文件，铁则 9。欠账：无，不改变内核与镜像内容，仅新增判定工具与文档。"
+
+
+[[entry]]
+sha = "996aac6"
+kernel_sha256 = "402f8cb1be7a1d5b10b4317667008bbe29c3893572cf05d0b0684e1cc1e9e5e3"
+state = "booted"
+note = "合并 feat/adsp-carrier（27 提交 no-ff）。内容：ADSP 固件载体（12B 头 + 24B 顺序记录 + NUL 名的 26 记录容器，raw 23,505,092 B / container 23,506,184 B，sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319）经 0620 补丁 + osfmk/arm64/k60_adsp_blob.s 内嵌内核；build-strict.sh --adsp-blob 生成/校验/输入 pin/manifest 键；K60AdspImageReader（宿主 5 变体）、K60AdspOwner 五阶段 77 场景、K60HandoffPublish/Runtime、0619 fail-closed publisher（IOKitBSDInit + kern_exec startup claim）、Option E 把 K60AdspBoot.c 并入 0613 pong_adsp_boot.c、bootstrap 链接 force_load 电池归档、pong_handoff_publish 参数白名单。上机证据：adsp-20261115c（kernel 402f8cb1… 128,991,232 B、boot.img 76db5e8e…）真机 E:\\k60-work\\evidence\\usblog-20261115-213413 —— 214,232 B / SpringBoard 128 行 / panic 0 / getBytes 0，干净进桌面；发布器按设计休眠（该图 args 无 pong_handoff_publish=1）。功能验证由 adsp-20261115d（30 args/598 B 含 pong_handoff_publish=1，boot.img e67cc21d…）承担，待上机。"
+
+[[entry]]
+sha = "f760086"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "补 0620 的必然缺陷：files.arm64 无条件登记 osfmk/arm64/k60_adsp_blob.s，但无 --adsp-blob 的构建从不生成该文件 → 内核 make 会因缺源失败（合并后每个不带载体的线都会踩）。修法：无载体时写一字节桩 + len=0，K60AdspImageReader 把 len==0 映射为 K60AdspReaderMissing 并回落 legacy reader。登记原因：改 build-xnu-4k-baseline.sh，会改变无载体内核的字节，铁则 9。欠账：桩路径的首次上机（baseline-20261115a 构建中，出图后按队列飞）。"
+
+[[entry]]
+sha = "db9ebf9"
+state = "build-only"
+date = "2026-11-15"
+note = "P-208: -DXNU_K60_PHYSICAL_BATTERY now reaches every translation unit. Kernel bytes change because the IOKitBSDInit block is no longer compiled away, so the boot evidence for 996aac6 does not carry over; the first boot that prints K60Handoff settles it."
+
+[[entry]]
+sha = "75677e7"
+kernel_sha256 = "11dd70a4e467d36936a9e06ba2dbaf01bdaa03b5558ee5e15371eb99fe958efa"
+state = "booted"
+date = "2026-11-15"
+note = "P-211: record-boot.py 现在优先读镜像自己的 build-manifest.json 的 series 指纹，而不是登记那一刻仓库里的 patches/xnu/series；ledger 行新增 series-count / series-source / repo-series 三个字段。上机证据：baseline-20261115d（series 226 / frozen 1b9f9f51… / kernel 11dd70a4… 105,508,864 B / boot.img 5e32d412…）真机 E:\\k60-work\\evidence\\usblog-20261115-234111 —— console 2,548 行 / 204,118 B、SpringBoard 132 行、panic 标记 0、:482 K60DATA mounted ro=0 fstype=apfs、:973 Early boot complete、supervisor rc=0。结论：main（含 P-210 数据卷身份门禁与 P-211 记账修复）可启动。"
+
+[[entry]]
+sha = "8e041b6"
+state = "build-only"
+note = "P-214: one implementation and one namespace for the series fingerprint. The change touches scripts/build-strict.sh, which iron rule 9 counts as an image-affecting path, but no kernel input changed -- series, patches, board.toml and dts are untouched. The manifest gained a namespace field and the fingerprint gained a single implementation. The last on-device boot evidence is still baseline-20261115d (75677e7, usblog-20261115-234111, SpringBoard 132); the next strict build produces a namespaced manifest and that image should be flown once to close the loop."

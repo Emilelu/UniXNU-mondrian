@@ -6,7 +6,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 [English](README_EN.md)
 
-> 最后更新：2026-11-12。详细状态与变更记录见
+> 最后更新：2026-11-15。详细状态与变更记录见
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md)。
 
 ## 八步流程进度
@@ -23,11 +23,13 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **bluetooth** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 进行中 |
 | **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **卡在 ⑦ 核验** |
-| **battery** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | — | 可刷机（⑦ 已核验） |
+| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
+| **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
-| USB | — | — | — | — | — | — | — | — | planned |
+| thermal | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| USB | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 
@@ -50,14 +52,27 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 ## 门禁
 
-四个检查在构建/刷机前自动运行，任一失败即中止：
+构建/刷机前由两层检查把关，任一失败即中止：注册表 `scripts/check-rules.py`
+执行 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) 里登记的全部门禁
+（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 84 条）；严格构建入口
+`scripts/build-strict.sh` 内嵌下列检查：
 
+<!-- GATE-TABLE:BEGIN -->
 | 门禁 | 检查内容 |
 |---|---|
-| `scripts/research-gate.py` | `docs/research/SOURCES.toml` 里每个参考源都已考察并写下 finding |
+| `scripts/check-build-env.py` | 构建环境完整（Darwin 工具链 shim、fakeroot，P-185） |
 | `scripts/eight-step-gate.py` | 八步证据完整；`build` 需 ①–⑥，`flash` 需 ①–⑦ + ⑧ 预测 |
-| `scripts/porting-gate.py` | `porting.toml` 符合官方 schema；`README` 八步表与数据一致 |
-| `scripts/render-eight-step-table.py --check` | README 表格与 `EIGHT-STEPS.toml` 一致 |
+| `scripts/check-kernel-archives.py` | 强制链接的归档确实进了内核（P-190） |
+| `scripts/check-metal-blob.py` | Metal 插件容器自洽（magic/条目数/对齐/不重叠） |
+| `scripts/check-image-args.py` | 镜像命令行 ≤607 B、无 `debug=1`/`epoch=1`、无未声明参数 |
+| `scripts/verify-boot-image.py` | boot 镜像可解包、kernel/payload 槽位与 manifest 一致 |
+| `scripts/render-eight-step-table.py --check` | README 八步表与 `EIGHT-STEPS.toml` 一致 |
+| `scripts/check-docs.py` | 文档索引与链接完整（★36） |
+| `scripts/check-readme.py` | README 双语互链、日期不早于 STATUS、门禁表不过时 |
+<!-- GATE-TABLE:END -->
+
+`check-readme.py` 把本表与 `build-strict.sh` 的内嵌门禁逐名对账：新增门禁而不
+更新本表、或本表点名不存在的脚本，都直接失败。
 
 ## 数据安全
 
@@ -86,7 +101,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | `dts/mondrian.dts` | 内存、CPU、外设 |
 | `patches/xnu/` | 设备补丁，顺序见 `patches/xnu/series` |
 | `patches/uefi/` | UEFI 固件补丁（记录用，不进内核构建）|
-| `scripts/` | 构建与检查工具（含四道门禁） |
+| `scripts/` | 构建与检查工具（全部门禁与检查，见「门禁」） |
 | `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
 | `docs/engineering/` | 铁则、坑记录、硬件真值、八步规范 |
 | `docs/research/` | 八步证据（`EIGHT-STEPS.toml`）与研究清单（`SOURCES.toml`） |
@@ -116,8 +131,9 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | 硬件状态明细与变更记录 |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | 八步流程规范 |
 | [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md) | 启动流程唯一入口（铁则 8）：先挂串口抓取再 `fastboot boot` |
-| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★35 |
-| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-130 |
+| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | 固件卷重建手册：谁在构建、为什么同源同字节、现场两个卷、P-154 现状与重建实验协议 |
+| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★37 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-214 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) —— 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) —— 电池栈编译集成：构建脚本改动、defconfig 开关、宏链路、归档构建时机

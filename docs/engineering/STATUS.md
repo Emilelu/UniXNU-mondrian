@@ -3,7 +3,7 @@
 > 本文件收纳 README 里的详细状态表与阶段性变更摘要。
 > README 只保留设备身份、八步进度、仓库结构与构建入口。
 
-本轮更新时间：2026-11-14
+本轮更新时间：2026-11-15
 
 ---
 
@@ -169,6 +169,90 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 - `docs/research/EIGHT-STEPS.toml`：逐硬件的八步证据。
 - `docs/research/SOURCES.toml`：研究完整性清单。
 - `CREDITS.md`：贡献者与外部来源。
+
+---
+
+## 五、2026-11-15 变更摘要
+
+### 电池入口与 ADSP 发布器曾是死代码（P-208）
+
+`adsp-20261115d`（`pong_handoff_publish=1`）真机 SpringBoard 132、panic 0，却
+`K60Handoff:` 命中 0 次。`nm -u IOKitBSDInit.cpo` 显示该 TU 从未引用
+`k60_adsp_handoff_publish` / `k60_physical_battery_start`：`-DXNU_K60_PHYSICAL_BATTERY=1`
+只挂在 `KernelConfigTables.cpo` 上，`iokit/bsddev/IOKitBSDInit.cpp` 的守卫块整块编译成空，
+而 `-force_load` 让符号永远在 kernel 里，所以 P-190 一直假绿。define 已进全局
+`EXTRA_CFLAGS`，并新增 P-208 门禁（要求 `IOKitBSDInit.cpo` 引用该符号，仅在
+`--kernel` 显式给出时判决）。`baseline-20261115a` 的桩路径（无载体）也已验证通过。
+
+### ADSP 固件载体合入 main（PAS1 解锁的第一步）
+
+- `feat/adsp-carrier`（27 提交）no-ff 合入（`996aac6`）：26 记录 / 23,506,184 B 的
+  ADSP 镜像容器经 `0620-k60-adsp-blob.patch` + `osfmk/arm64/k60_adsp_blob.s` 内嵌进
+  内核（P-197 的载体 workaround），`build-strict.sh --adsp-blob` 负责生成、校验、
+  输入 pin 与 manifest 键。
+- 上机验证 `adsp-20261115c`（kernel `402f8cb1…` 128,991,232 B）：真机
+  `usblog-20261115-213413` 干净进桌面（SpringBoard 128 行、panic 0）；发布器按设计
+  休眠（该图没有 `pong_handoff_publish=1`）。功能图 `adsp-20261115d` 已出
+  （30 args / 598 B），等上机窗口。
+- 补 `f760086`：无 `--adsp-blob` 的构建写一字节桩 + `len=0`，否则 0620 无条件登记
+  的 `.s` 会让内核 make 缺源失败。
+
+### refmine 判决工具合入 main
+
+- `feat/judge-tools` 原基于 `9176f5c`（旧 main），直接合并会删掉 charger 六篇、
+  P-205/P-206 与 identity seed 文件；Lead 先 rebase 到 main 再 no-ff 合并
+  （`4f56970`）。新增 `scripts/judge-z0.sh`、`scripts/judge-wifi-boot.py`
+  与两套测试（11 + 14 例），以及 `docs/wifi` 判决账本修正（P-201 口径）。
+
+### 平台身份种子（identity seed）落地并真机验证
+
+- `board.toml` 的 `[payload."adt"]` 增加 `"unique_chip_id" = "required"`；
+  `build-strict.sh` 默认 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 并转发
+  `--unique-chip-id`（`3ea8d71` / `dafa502` / `2f9f991`）。
+- 离线 payload 验证：`unique-chip-id` 5 处、`chip-id` 9 处（此前 0）。
+- `seed-20261115a`（kernel `a07e9565…`、boot.img `1fc1169e…`）真机：
+  `usblog-20261115-155741`，247,731 B / SpringBoard 183 / 无 panic /
+  `no platform identity` 0 命中 → `3ea8d71` 记 `state="booted"`（`3e59ba5`）。
+
+### 上机窗口（2026-11-15）
+
+- `wifi-20261116t2`（固件挪 `__DATA,__const`）：port-not-observed → 固件驻留
+  假设否证，wifi 只剩 DarwinBoot pool/窗口通道方向。
+- `bt-s4c-20261115c`（负向，空 blob）：进桌面，`addon: no GpuAddon property`
+  判据命中、`K60 BT: published local address ee:98:c5:8a:6b:4e`（identity 生效）；
+  新崩溃族 C：backboardd `getBytes:range:`（根因 = `0509` 三属性发成 OSString，
+  已立项 `docs/research/display/BACKBOARD-CRASH-FAMILIES.md`）。
+- `bt-s4b-20261115c`（正向，带 blob）：port-not-observed → 唯一变量 =
+  `patches/bt/0005` 与 blob 的组合，bt 线四 hunk 二分图（h1–h4）已备齐待飞。
+- `usb-20261115c`（mode-2）：boot-and-echo 全流程 PASS（COM5 9.5 s、
+  sent=64 received=64）；`usb-20261115d`（mode-1）：265,561 B / SB 133 /
+  五条 `K60BEACON` 自发信标，主机侧 MI_00=COM6、MI_02=vendor 无驱动（预期）。
+  P1+P2 合体经真机验证，usb 线收工。
+- `thermal-20261115b`（bias=85000）：22 passed / 0 failed、tsens zone 发布
+  `Thermal_Level_Warning=3`；cooling 终局排序 ddr 停核 > cpufreq-cdev（EPSS 只读）。
+
+### 流程与门禁
+
+- P-203：`git worktree prune` 在 linked worktree 里跑会清掉主仓 `.git/worktrees/`
+  下全部管理目录（19 棵全挂、不可逆）——guard 拒 shared-metadata 动词 +
+  `scripts/repair-worktrees.py` 通用修复器（29 例宿主测试）。
+- P-204：判据不能建立在「某个串出现 N 次」上（一天三次同形错误），判据必须
+  自证、指向具体对象、格式串从源码抄。
+- P-205 加强（`2152c6e`）：`check-readme.py` 新增第五条对账——两份 README 的
+  八步表块必须等于 `render-eight-step-table.py` 从 EIGHT-STEPS.toml 现场渲染的
+  结果。从此「合并一个新增 `[hardware.*]` 行的分支而没重生成八步图」会在
+  check-rules 直接红（自测 10 例）。
+- `feat/charger` 11 提交 no-ff 合入 main（`fd6adeb`）：订阅 ACK 按 ADSP 固件
+  opcode-4 handler 钉死 (type=1, 16 B)，`build-k60-physical-battery.py` 产出
+  `MEASURED_NOTIFY_REPLY=(1,16)` 且抓包只能确认不能覆盖；GLINK 契约与
+  `K60Battmgr` 白名单对齐；104 字节 handoff 发布规范落库。八步表新增充电行
+- P-206（`c97a4cf`）：`check-build-env.py` 不再写死 `mondrian` board 目录——从
+  out 树按 mtime 推导（wifi 线的 `mondrian_wifi` 首次构建死在
+  `Availability.h` file not found 而门禁一直验旧树假绿）；`FAKEROOT_FILES`
+  2→5（三个 Availability 头 + 两个 firehose 文件）。
+  （①–⑦ ✅、⑧ 待上机），真机验证排在 ADSP PAS1 之后。
+- P-205 + ★36 第 7 条：README 的日期、编号、门禁点名必须与 STATUS /
+  HARD-RULES / PITFALLS / build-strict.sh 可对账，新门禁 `scripts/check-readme.py`。
 
 ---
 

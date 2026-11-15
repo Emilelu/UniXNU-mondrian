@@ -40,7 +40,8 @@ UNTRACKED = [
     ('CPU', 'device-verified'),
     ('电源', 'device-verified'),
     ('诊断', 'device-verified'),
-    ('USB', 'planned'),
+    ('thermal', 'device-verified'),
+    ('USB', 'device-verified'),
     ('基带', 'planned'),
     ('DSP', 'planned'),
 ]

@@ -4,7 +4,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 
 **Current target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
 
-> Last updated: 2026-11-12. Detailed status and change log:
+> Last updated: 2026-11-15. Detailed status and change log:
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md).
 
 [中文版](README.md)
@@ -23,11 +23,13 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **bluetooth** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
 | **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
-| **battery** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | — | Ready to flash (⑦ verified) |
+| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| USB | — | — | — | — | — | — | — | — | planned |
+| thermal | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| USB | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 
@@ -50,14 +52,29 @@ Local build scripts live in the workspace (not in this repository); see
 
 ## Gates
 
-Four checks run automatically before build or flash; any failure aborts:
+Two layers of checks run before build or flash; any failure aborts: the registry
+`scripts/check-rules.py` runs every check registered in
+[`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) (iron rules, gated
+pitfalls, upstream triage, input sync, snapshot tags — currently 84); the strict
+build entry point `scripts/build-strict.sh` embeds these checks:
 
+<!-- GATE-TABLE:BEGIN -->
 | Gate | What it checks |
 |---|---|
-| `scripts/research-gate.py` | Every source in `docs/research/SOURCES.toml` has been examined and has a written finding |
+| `scripts/check-build-env.py` | The build environment is complete (Darwin tool shims, fakeroot; P-185) |
 | `scripts/eight-step-gate.py` | Eight-step evidence is complete; `build` needs ①–⑥, `flash` needs ①–⑦ plus the ⑧ prediction |
-| `scripts/porting-gate.py` | `porting.toml` matches the official schema; the README table matches the data |
-| `scripts/render-eight-step-table.py --check` | README table matches `EIGHT-STEPS.toml` |
+| `scripts/check-kernel-archives.py` | Every force-loaded archive actually reached the kernel (P-190) |
+| `scripts/check-metal-blob.py` | The Metal plugin container is self-consistent (magic/entry count/alignment/no overlap) |
+| `scripts/check-image-args.py` | The image command line is ≤607 B, with no `debug=1`/`epoch=1` and no undeclared arguments |
+| `scripts/verify-boot-image.py` | The boot image unpacks; kernel/payload slots match the manifest |
+| `scripts/render-eight-step-table.py --check` | The README table matches `EIGHT-STEPS.toml` |
+| `scripts/check-docs.py` | Documentation index and links are complete (★36) |
+| `scripts/check-readme.py` | README bilingual mutual links, dates not older than STATUS, gate table not stale |
+<!-- GATE-TABLE:END -->
+
+`check-readme.py` reconciles this table against the checks embedded in
+`build-strict.sh` name by name: adding a gate without updating this table, or a
+table row naming a nonexistent script, fails the build.
 
 ## Data safety
 
@@ -89,7 +106,7 @@ Four checks run automatically before build or flash; any failure aborts:
 | `dts/mondrian.dts` | Memory, CPU, peripherals |
 | `patches/xnu/` | Device patches; order in `patches/xnu/series` |
 | `patches/uefi/` | UEFI firmware patches (record only, not part of the kernel build) |
-| `scripts/` | Build and check tooling (including four gates) |
+| `scripts/` | Build and check tooling (all gates and checks; see "Gates") |
 | `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
 | `docs/engineering/` | Hard rules, pitfalls, hardware truth, eight-step spec |
 | `docs/research/` | Eight-step evidence (`EIGHT-STEPS.toml`) and research checklist (`SOURCES.toml`) |
@@ -118,8 +135,9 @@ Four checks run automatically before build or flash; any failure aborts:
 | [`docs/INDEX.md`](docs/INDEX.md) | **Documentation entry point**: reading order, full tree, gate commands |
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status detail and change log |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
-| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★35 |
-| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-130 |
+| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why the same sources give the same bytes, the two volumes in the field, P-154 today, and the rebuild experiment protocol |
+| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-214 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) — Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing

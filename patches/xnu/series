@@ -206,7 +206,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0508-k60-bt-s2-smmu-rcg-reset.patch
 0509-k60-bt-s3-identity-publish.patch
 0510-k60-bt-firmware-addon.patch
-0511c-k60-bt-bisect-h3.patch
+0511d-k60-bt-bisect-h4.patch
 0503-k60-audio-aw882xx.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch

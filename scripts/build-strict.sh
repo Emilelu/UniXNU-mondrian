@@ -46,6 +46,11 @@ RUN=$ART/$TAG
 LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
+# Platform identity seed. "required" in board.toml makes payload.py demand it
+# (payload.py:173-174); the default keeps every line's image identity stable.
+# Change it only when a new device identity is wanted: the BT MAC derives
+# from it and existing pairings break.
+export UNIXNU_UNIQUE_CHIP_ID="${UNIXNU_UNIQUE_CHIP_ID:-4B36305400000001}"
 export K60_REPO=$REPO
 # The registry runs as a child process. If these are not exported it falls back
 # to the default mirror/tree, judges a different series than the one being built,
@@ -168,6 +173,7 @@ if [ -n "$ADDON" ]; then
     PAYLOAD_ARGS+=(--gpu-addon "$ADDON")
 fi
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
+        --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
         ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
     die "payload build failed (see $LOGS/payload.log)"

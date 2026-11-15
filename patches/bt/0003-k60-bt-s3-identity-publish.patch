@@ -97,10 +97,10 @@ index ee12fba..fbdf0ef 100755
  #endif
 diff --git a/iokit/Kernel/MiniBluetooth.cpp b/iokit/Kernel/MiniBluetooth.cpp
 new file mode 100644
-index 0000000..9c10292
+index 0000000..de1e25f
 --- /dev/null
 +++ b/iokit/Kernel/MiniBluetooth.cpp
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,179 @@
 +/*
 + * Bluetooth publication for the Pong port.
 + *
@@ -131,6 +131,7 @@ index 0000000..9c10292
 +#include <libkern/c++/OSDictionary.h>
 +#include <pexpert/pexpert.h>
 +#include <sys/systm.h>
++#include <string.h>
 +
 +extern "C" int k60_bt_local_address(uint8_t address[6]);
 +
@@ -163,6 +164,20 @@ index 0000000..9c10292
 +{
 +	entry->setProperty(key, &value, sizeof(value));
 +}
++/* Publish a C string as OSData bytes (NUL included): Apple-side readers
++ * call getBytes: on these properties, and an OSString makes them crash
++ * (backboardd -[NSTaggedPointerString getBytes:range:], bt-s4c-20261115c
++ * console.log:1303). */
++static void
++k60_bt_string_property(IORegistryEntry * entry, const char * key, const char * value)
++{
++	OSData * data = OSData::withBytes(value, strlen(value) + 1);
++	if (data == NULL) {
++		return;
++	}
++	entry->setProperty(key, data);
++	data->release();
++}
 +
 +/* /arm-io/bluetooth, created when the device tree does not carry it yet. */
 +static IORegistryEntry *
@@ -182,9 +197,9 @@ index 0000000..9c10292
 +		return NULL;
 +	}
 +	node->setName("bluetooth");
-+	node->setProperty("device_type", "bluetooth");
-+	node->setProperty("compatible", "qcom,wcn7850-bt");
-+	node->setProperty("unixnu,adt-name", "bluetooth");
++	k60_bt_string_property(node, "device_type", "bluetooth");
++	k60_bt_string_property(node, "compatible", "qcom,wcn7850-bt");
++	k60_bt_string_property(node, "unixnu,adt-name", "bluetooth");
 +	k60_bt_number_property(node, "transport-encoding", K60_BT_TRANSPORT_ENCODING);
 +	k60_bt_number_property(node, "transport-speed", K60_BT_TRANSPORT_SPEED);
 +	if (!node->attachToParent(armio, gIODTPlane)) {
@@ -237,7 +252,7 @@ index 0000000..9c10292
 +	radio = OSTypeAlloc(K60BluetoothRadio);
 +	if (radio != NULL && radio->init()) {
 +		radio->setName("bluetooth");
-+		radio->setProperty("device_type", "bluetooth");
++		k60_bt_string_property(radio, "device_type", "bluetooth");
 +		k60_bt_number_property(radio, "transport-encoding", K60_BT_TRANSPORT_ENCODING);
 +		k60_bt_number_property(radio, "transport-speed", K60_BT_TRANSPORT_SPEED);
 +		radio->setProperty("local-mac-address", address, sizeof(address));

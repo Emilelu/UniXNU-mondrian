@@ -333,7 +333,8 @@ This line, next in order:
    `git apply --check` passes on `ccd4dfc`; `render-eight-step-table.py --check` stays consistent
    because only `done`/evidence text changed, not the table cells. The Lead landed it as `626cc9b`
    (split: PITFALLS hand-replaced, EIGHT-STEPS applied), so the branch now carries main's version verbatim.
-5. **Ledger follow-up for the pair (Lead, one-line patch).** `626cc9b` still names `bt-s4b-20261115a`
+5. ~~Ledger follow-up for the pair.~~ Landed on `main` as `133473e` "bluetooth: point the S4 criteria
+   at the controlled pair". Kept for the record: `626cc9b` still names `bt-s4b-20261115a`
    (superseded) and `bt-s4-20261114b` (old baseline) as the S4 samples. This line exported the correction
    rather than editing the shared contract: `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-pair.patch`
    (7,728 B, sha256 `93791005ac92b8f01b4c8bc2a0160792090b12c05349627cdcfa8da3a223920d`, 1 file, +3/−3)
@@ -342,4 +343,21 @@ This line, next in order:
    `render-eight-step-table.py --check` consistent, `eight-step-gate.py --build` 30 checks rc=0,
    `--flash` rc=0, `K60_EIGHT_STEP_ITEMS=bluetooth --build` 6 checks rc=0. `git apply --check` passes on
    this branch (whose `EIGHT-STEPS.toml` is byte-identical to `origin/main`).
+6. **Worktree repair tool (Lead, one patch).** P-203 restored nineteen trees by hand with
+   `E:/k60-work/scratch/refmine/repair-wts.py`, a one-off that hard-codes the main checkout and has no
+   test. The Lead asked this line for a generalised version, so it is exported as
+   `/mnt/e/k60-work/scratch/bt-s4/lead/bt-repair-worktrees.patch` (23,312 B, sha256
+   `9a08aade286924780f5f16628a7b03a0b21cc160e60818ad7e5a35309332ed44`, two new files:
+   `scripts/repair-worktrees.py` and `scripts/tests/test-repair-worktrees.py`).
+   `repair-worktrees.py` recovers the branch by scoring every branch's blobs against the files still in
+   the tree, rebuilds `{HEAD,gitdir,commondir}`, then `git read-tree` (never `checkout`, so uncommitted
+   work survives byte for byte), and offers `--check` (read-only, exit 1 when a tree is broken) and
+   `--dry-run`. It refuses to adopt a sibling directory whose `.git` file points into another repository.
+   Measured on this host: `--check` over all nineteen trees → "19 checked, 0 broken, 0 repaired"; the
+   test suite → "TESTS OK 29 case(s) (0 failure(s))"; `check-repo-paths.py` (hard-39) → 0 errors; the
+   patch applies to a clean `main` clone at `133473e` and the suite passes there too. Two Windows
+   details it encodes: a worktree `.git` file is marked hidden and the C runtime refuses to open it for
+   writing (EACCES), so the pointer is removed and rewritten; and git's own `worktree list` drops a tree
+   whose admin directory is gone, so broken siblings are found by scanning the parent directory and
+   checking that the pointer text still names `<main>/.git/worktrees/<name>`.
 

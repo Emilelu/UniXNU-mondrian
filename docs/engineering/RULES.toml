@@ -689,3 +689,11 @@ source = "docs/engineering/PITFALLS.md:P-213"
 statement = "门禁必须建模工具的真实行为（shell 会展开变量，就展开变量），不能只读字面量；新门禁的第一件事是拿一个已知合法的样本跑一遍，并且「不知道」要独立成 skip 档，不能折叠进 PASS/FAIL"
 check = "python3 scripts/tests/test-check-define-scope.py"
 note = "2026-11-15 scripts/check-define-scope.py 第一版只解析字面量 _CFLAGS_ADD，把累加进 PERSONALITY_CFLAGS 的 XNU_NATIVE_RAM_BLOCK 误判为只到达 kern_exec.o；改为解析 shell 变量后 81 条守卫全可达。"
+
+[[rule]]
+id = "P-214"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-214"
+statement = "同名字段跨命名空间比较必然失败：series 指纹必须由唯一实现产生并自带 namespace 字段，读者拒绝比较不同 namespace 的值；门禁红了先问「这个量是谁算的」"
+check = "python3 scripts/tests/test-series-fingerprint.py"
+note = "2026-11-16 build-strict.sh 量 series 文件字节（64 hex），porting-gate/record-boot 量 names+sizes（16 hex），两者永远不等，main 上每次合并都被 iron-4/hard-33 挡。"

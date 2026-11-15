@@ -5289,3 +5289,47 @@ EXTRA_MAKE_ARGS+=("KernelConfigTables.cpo_CFLAGS_ADD=$PERSONALITY_CFLAGS")
    define 若被判成 FAIL，门禁立刻变成噪声源，然后被绕过——比没有门禁更糟。
 
 Check: `python3 scripts/tests/test-check-define-scope.py`（9 例）与 registry `id = "P-213"`。
+
+## P-214 — 两个都叫「series 指纹」的哈希分属不同命名空间，永远不相等
+
+现场：main 上每次合并之后 `check-rules.py` 都报 `iron-4` / `hard-33`，内容是
+「上次成功启动的 series 与当前仓库不一致」。查下去发现 series **根本没有变**：
+
+- `scripts/build-strict.sh` 的 `SERIES_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)`
+  量的是 **series 文件的字节**，64 hex，写进 `build-manifest.json` 的 `series.sha256`；
+- `scripts/porting-gate.py` 与 `scripts/record-boot.py` 的 `series_fingerprint()`
+  量的是 **每个条目的名字 + 尺寸**，`sha256(name + str(size) for each entry)[:16]`，16 hex。
+
+两者都稳定、都像指纹、都叫 `sha256`，**永远不相等**。P-211 让 `record-boot.py` 优先
+相信镜像自带的 manifest 之后，账本开始记录 64 hex 的 manifest 值
+（`bt-bisect-h23` 记成 `88faf6c25de1e77c`、`bt-bisect-h124` 记成 `21eda89a147c9653`），
+而 porting-gate 仍按 names+sizes 算 `9688ad85833d7dd2` —— 于是「上次成功 ≠ 现在」
+在 main 上恒成立，门禁每天正确地报告一个不存在的差异。
+
+这个坑的形状是**同名字段跨命名空间比较**：两个值都是 64/16 位十六进制，都通过了
+「看起来像 sha」的检查，长度检查也没错（16 hex 是 64 hex 的前缀长度），所以任何
+「格式对不对」的门禁都放行。只有「这两个数是谁算的」能分开它们。
+
+修法（三条一起才成立）：
+
+1. **单一实现**：新建 `scripts/series-fingerprint.py`，`fingerprint()` 是唯一算法，
+   `build-strict.sh` 改为调它（`SERIES_SHA` / `SERIES_COUNT` 都从它取），不再自己算；
+   文件字节哈希改名 `file_sha256` 并保留（它对「补丁内容变了」敏感，是有用的第二个量）。
+2. **自描述**：manifest 的 `series` 里加 `"namespace": "names+sizes"`，读者据此判断
+   能不能比，而不是猜长度。
+3. **拒绝跨命名空间**：`record-boot.py` 的 `image_series()` 遇到 `namespace` 不等于
+   `names+sizes` 就打印并回落到仓库 series；没有 `namespace` 且哈希长度 > 16（P-214
+   之前的旧 manifest）同样回落；只有 16 hex 且无 namespace 的旧 manifest 才继续可用。
+
+三条教训：
+
+1. **同名字段必须带命名空间**。两个哈希都叫 `sha256` 是根因；如果 manifest 里从一开始
+   就叫 `series.file_sha256` 与 `series.entry_sha256`，这个坑不会存在。
+2. **门禁红了先问「这个量是谁算的」**，再问「值对不对」。我花了半天在查 series 到底
+   哪里变了，而 series 一直是 `9688ad85833d7dd2`。
+3. **格式校验不能替代来源校验**。16 hex 与 64 hex 都是合法十六进制，长度检查、字符集
+   检查、非空检查全部通过；唯一能分开它们的是产生者。
+
+Check: `python3 scripts/tests/test-series-fingerprint.py`（8 例，含
+`the_gate_and_the_recorder_still_agree` 直接比对三个内嵌实现与工具的输出）与
+registry `id = "P-214"`。

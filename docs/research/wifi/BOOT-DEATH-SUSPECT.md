@@ -519,6 +519,75 @@ coincidence: its count field reads 1852788736, so it is not a second container.
   image with a 64 KiB truncated container that keeps the PWF2 header and the
   six-record table but drops the payload.
 
+§3g answers the layout half of this statically: no segment, span or `Used`
+value of any wifi image is near a `DarwinBoot.c` limit, so the outcome above is
+about content and placement only, never about the loader running out of window.
+
+## 3g. Static arithmetic: segment sizes against the DarwinBoot window (2026-11-16)
+
+The Lead's remaining layout hypothesis was that the wifi kernels push a segment
+or the total image past a granularity the loader allocates in. It is answerable
+without a flight: read every `LC_SEGMENT_64` from the payload kernel, add the
+ADT size, and compare against the four limits `DarwinBoot.c` actually enforces.
+Measured with `E:/k60-work/scratch/winmath3.py` (`mcopy` the payload kernel and
+its `.adt` out of each `boot.img`, then follow the loader's own arithmetic):
+
+| limit | `DarwinBoot.c` | value |
+|---|---|---|
+| one segment | `:168` `Segment->Size > WINDOW_SIZE` → `EFI_LOAD_ERROR` | 256 MiB |
+| kernel span (`End - Base`) | `:195-196` `> WINDOW_SIZE - SIZE_2MB` | 254 MiB |
+| `Used` inside the window | `:775` `Used > WindowSize - BLOCK_SIZE` → `EFI_BAD_BUFFER_SIZE` | 4606 MiB (4608 − 2) |
+| window itself | `:452-513` one `AllocatePages` of `WindowSize` bytes | 4608 MiB (`0x120000000`) |
+| image in the DXE pool | `:116` `AllocatePool(*Size)` + UniXNU's `AllocateZeroPool` copy | 2 × kernel bytes in a 384 MiB heap |
+
+`Used` follows `:757-772`: `ALIGN(span, 16K) + page + ADT`, then `ALIGN(…, 16K)`,
+then one more page for the trampoline.
+
+| image | kernel B | Σ vmsize MiB | span MiB | max seg MiB | Used MiB | 2× image MiB | heap left MiB | args |
+|---|---|---|---|---|---|---|---|---|
+| wifi-20261116c2 | 117,305,344 | 113.37 | 123.64 | 50.69 | 123.68 | 223.74 | 160.26 | `pong_wifi=0` |
+| wifi-20261115z0 | 117,305,344 | 113.37 | 123.64 | 50.69 | 123.68 | 223.74 | 160.26 | `pong_wifi=0` |
+| wifi-20261116t2 | 117,305,344 | 113.37 | 123.64 | 50.69 | 123.68 | 223.74 | 160.26 | `pong_wifi=0` |
+| wifi-20261116mhi5d | 117,305,344 | 113.37 | 123.64 | 50.69 | 123.68 | 223.74 | 160.26 | `pong_wifi=1` |
+| wifi-20261116c1 | 66,002,944 | 64.45 | 74.71 | 21.70 | 74.75 | 125.89 | 258.11 | `pong_wifi=0` |
+| wifi-20261116c0 | 66,002,944 | 64.45 | 74.71 | 21.70 | 74.75 | 125.89 | 258.11 | `pong_wifi=0` |
+| wifi-20261116mhi4 | 65,978,368 | 64.43 | 74.70 | 21.70 | 74.74 | 125.84 | 258.16 | `pong_wifi=1` |
+| bt-s4b-20261115b (alive) | 106,541,056 | 102.89 | 113.15 | 50.47 | 113.19 | 203.21 | 180.79 | `k60bt=1` |
+| bt-s4b-20261115c (silent) | 106,541,056 | 102.89 | 113.15 | 50.47 | 113.19 | 203.21 | 180.79 | `k60bt=1` |
+| bt-s4c-20261115c (alive) | 105,508,864 | 101.90 | 112.17 | 50.47 | 112.21 | 201.24 | 182.76 | `k60bt=1` |
+| adsp-20261115c (alive) | 128,991,232 | 124.31 | 134.57 | 72.88 | 134.61 | 246.03 | 137.97 | — |
+| springboard-20261114c (alive) | 105,480,192 | 101.89 | 112.15 | 50.47 | 112.19 | 201.19 | 182.81 | — |
+
+Three conclusions, all static:
+
+1. **No segment and no span is near its limit.** The largest single segment
+   anywhere is 72.88 MiB (adsp, which boots) against 256 MiB; the largest span
+   is 134.57 MiB against 254 MiB; the largest `Used` is 134.61 MiB against
+   4606 MiB. The c2 image sits at 50.69 / 123.64 / 123.68 MiB — between the
+   booting bt family and the booting adsp image. A granularity or size limit in
+   the window is therefore not what separates them.
+2. **The window-granularity hypothesis is negated.** Silent c2 and alive
+   bt-s4c-c differ by 11.47 MiB of `Used` and 0.22 MiB of largest segment, in
+   the direction that makes c2 the *safer* of the two; and the smallest image in
+   the set (c0/c1, `Used` 74.75 MiB) is silent while the largest (adsp,
+   134.61 MiB) boots. Whatever kills the wifi images is not their size, not
+   their span, and not the segment table.
+3. **The pool channel loses its capacity form too.** The two copies of the image
+   that coexist while the window is requested (DarwinBoot's `AllocatePool` at
+   `:116` plus UniXNU's `AllocateZeroPool` copy, freed only at `:818`) are
+   223.74 MiB for c2/z0/t2/mhi5d, 125.89 MiB for c0/c1 and 246.03 MiB for the
+   booting adsp image. c1 dies with 258.11 MiB of the 384 MiB heap still free,
+   while adsp boots with 137.97 MiB free — so even "the heap ran out" cannot be
+   the mechanism in its plain form. What remains of §7.1 is only the
+   non-capacity part: whether the arena run is still intact at the instant
+   `AllocatePages` runs (`DarwinBoot.c:485`), which no static number can settle.
+
+So the layout family is now excluded by arithmetic as well as by the t2 flight,
+and the C-cell flight is the only thing that can still separate "the driver's
+code and const data are in the kernel" from "something in the boot path is
+sensitive to this kernel's content". If c2 boots, the killer was the `__TEXT`
+placement; if c2 is silent, the next split is c3 (64 KiB truncated container).
+
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 
 Written on 2026-11-15 at the Lead's request so the fix would be ready the moment
@@ -640,3 +709,6 @@ It stays the fallback if `__DATA` placement turns out to be insufficient.
 - Pool/window analysis: `DARWINBOOT-POOL.md` (the three DarwinBoot memory
   nodes line by line, the window arithmetic against `board.toml:235` and the
   5120 MiB arena, and the one-flight discriminator).
+- Static segment arithmetic for every flown image: `E:/k60-work/scratch/winmath3.py`
+  (`mcopy` the payload kernel and its `.adt`, then apply `DarwinBoot.c:757-772`
+  `Used`); the resulting table is §3g.

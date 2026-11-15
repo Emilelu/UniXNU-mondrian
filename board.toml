@@ -216,6 +216,13 @@ trust_cache_sha256 = []
 
 [payload."adt"]
 "chip_id" = "8015"
+# Platform identity. Without a seed devicetree.py emits no
+# /chosen/unique-chip-id (devicetree.py:312-317), and the bt line logs
+# "K60 BT: no platform identity (-2); bluetooth not published" while
+# bluetoothd refuses to run (no MAC). The seed is a synthetic board
+# identity (K60T, documented in docs/audits/BOOT-STALL-2026-10-31.md:235);
+# changing it changes the BT MAC and breaks pairing, so it moves once here.
+"unique_chip_id" = "required"
 "root_match_volume_uuid" = "C5DAF029-2070-4F68-B3CC-1D1320344CF0"
 # DarwinBoot window. Without this key the loader falls back to
 #   DarwinBoot.c:20   #define WINDOW_SIZE SIZE_256MB

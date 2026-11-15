@@ -14,13 +14,15 @@
  *   3 stopped() stays provable and stable across exclusive_release()
  *   4 scm_lock() is not reentrant, for one board and across two boards
  *   5 live() proves the retained token without any resource acquisition
- * Plus the negative SMP2P evidence cases that stop a corrupt item from ever
- * being read as "stopped". */
+ *   6 after the install gate accepts this table, available() is exactly 1
+ *   7 the negative SMP2P evidence cases that stop a corrupt item from ever
+ *     being read as "stopped" */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
 #include "K60Smem.h"
+#include "K60AdspOwner.h"
 #include "K60AdspBoard.h"
 
 #define SMEM_BYTES 0x200000u
@@ -305,7 +307,113 @@ static void scenario_live_without_resources(Fixture *f)
     f->board.ownership.exclusive_release(&f->board, cookie);
 }
 
-/* 6. A corrupt or announced SMP2P item must never be read as "stopped". */
+/* 6. The wiring fact the Lead asked for: availability is off until the install
+ *    gate accepts this table, and exactly 1 afterwards.
+ *
+ * The real gate and the real availability expression live in
+ * K60AdspPlatformNative.cpp:360-375 and :81-85, which are C++ against IOKit and
+ * cannot be linked into a host binary; the runner's arm64 pass compiles the real
+ * file. These two helpers are line-for-line replicas of those two functions, so
+ * what is asserted here is the same acceptance rule the kernel applies. */
+static unsigned gate_state;                       /* ownershipInstallation */
+static const K60AdspPlatformOwnership *gate_source;
+static void *gate_context;
+
+static int gate_complete(const K60AdspPlatformOwnership *o)
+{
+    return o && o->version == K60_ADSP_PLATFORM_VERSION && o->bytes == sizeof(*o) &&
+        o->available && o->exclusive && o->exclusive_release && o->resources &&
+        o->resources_release && o->stopped && o->live && o->scm_lock && o->scm_unlock;
+}
+
+static int gate_installed(void) { return gate_state == 2u; }
+
+static int gate_install(const K60AdspPlatformOwnership *o, void *context)
+{
+    if (!gate_complete(o)) return K60_ADSP_OWNER_UNAVAILABLE;
+    if (gate_installed())
+        return gate_source == o && gate_context == context ? 1 : K60_ADSP_OWNER_UNAVAILABLE;
+    if (!__sync_bool_compare_and_swap(&gate_state, 0u, 1u)) return K60_ADSP_OWNER_UNAVAILABLE;
+    gate_source = o; gate_context = context;
+    __atomic_store_n(&gate_state, 2u, __ATOMIC_RELEASE);
+    return 0;
+}
+
+/* K60AdspPlatformNative.cpp:81-85 verbatim in shape: healthy() && validConfig()
+ * && board.available(...)==1. */
+static int native_available(void *context, const K60BatteryConfig *c)
+{
+    return gate_installed() && context == gate_context && gate_source &&
+        gate_source->available(context, c) == 1;
+}
+
+static void scenario_install_turns_available_on(void)
+{
+    Fixture *f = malloc(sizeof *f);
+    CHECK(f != NULL);
+    start("available() is 0 before the install gate and exactly 1 after it");
+    /* A board that has never been touched: no lease, no window, no counter. */
+    build(f, 1, 0, 0);
+    CHECK(f->map_calls == 0 && f->unmap_calls == 0 && !f->board.mapped);
+    /* Not installed: this is the stage=1 rc=-1000 a device run shows when the
+     * board service is never installed. */
+    CHECK(!gate_installed());
+    CHECK(native_available(&f->board, &pinned) == 0);
+    /* A table that was never initialized can never pass the gate. */
+    K60AdspBoard fresh;
+    memset(&fresh, 0, sizeof fresh);
+    CHECK(k60_adsp_board_ownership(&fresh) == NULL);
+    CHECK(gate_install(k60_adsp_board_ownership(&fresh), &fresh) ==
+        K60_ADSP_OWNER_UNAVAILABLE);
+    /* The real table passes: version, size and all ten callbacks. */
+    const K60AdspPlatformOwnership *o = k60_adsp_board_ownership(&f->board);
+    CHECK(o != NULL && gate_complete(o) == 1);
+    /* The context is the board itself, exactly as K60HandoffRuntime.cpp:63
+     * passes &board: the callbacks receive the same pointer they were built on. */
+    CHECK(gate_install(o, &f->board) == 0);
+    CHECK(gate_installed());
+    /* Exactly 1, not merely nonzero, through both layers. */
+    CHECK(f->board.ownership.available(&f->board, &pinned) == 1);
+    CHECK(native_available(&f->board, &pinned) == 1);
+    /* Still free: availability is arithmetic, never a physical access. */
+    CHECK(f->map_calls == 0 && f->unmap_calls == 0 && !f->board.mapped);
+    /* An installed table does not make some other board available. */
+    K60BatteryConfig bad = pinned;
+    bad.adsp_bytes = 0x2800000u;
+    CHECK(native_available(&f->board, &bad) == 0);
+    CHECK(native_available(&f->board, NULL) == 0);
+    CHECK(native_available(&fresh, &pinned) == 0);
+    /* Re-installing the same table and context is "already ours" (1); any other
+     * context or a table missing one callback is a failure, never a 1. */
+    CHECK(gate_install(o, &f->board) == 1);
+    CHECK(gate_install(o, NULL) == K60_ADSP_OWNER_UNAVAILABLE);
+    K60AdspPlatformOwnership cut = *o;
+    cut.live = NULL;
+    CHECK(gate_complete(&cut) == 0);
+    CHECK(gate_install(&cut, &f->board) == K60_ADSP_OWNER_UNAVAILABLE);
+    cut = *o;
+    cut.bytes = sizeof(cut) - 1u;
+    CHECK(gate_install(&cut, &f->board) == K60_ADSP_OWNER_UNAVAILABLE);
+    /* The gate is a one-way door for the boot: a later failed install cannot
+     * take the accepted table back out. */
+    CHECK(gate_installed() && native_available(&f->board, &pinned) == 1);
+    /* Availability never opened the window, at any point above. */
+    CHECK(f->map_calls == 0 && f->unmap_calls == 0 && !f->board.mapped);
+    /* And the gate is what the owner engine actually consults: with the table
+     * installed, acquisition proceeds past stage 1 into the real exclusion and
+     * stopped proof instead of failing unavailable. */
+    uint32_t epoch = 0;
+    void *cookie = NULL;
+    CHECK(f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie) == K60BoardOk);
+    CHECK(epoch != 0 && cookie != NULL);
+    CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
+    CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    f->board.ownership.exclusive_release(&f->board, cookie);
+    free(f);
+}
+
+/* 7. A corrupt or announced SMP2P item must never be read as "stopped". */
 static void scenario_stopped_needs_evidence(Fixture *f)
 {
     uint32_t epoch = 0;
@@ -362,6 +470,7 @@ int main(void)
     scenario_scm_lock_not_reentrant(&base, &second);
     scenario_live_without_resources(&base);
     scenario_stopped_needs_evidence(&base);
+    scenario_install_turns_available_on();
     /* The report line is a diagnostic, not a proof: it must not crash. */
     k60_adsp_board_report(&base.board);
     printf("TESTS OK board-ownership: %u scenarios\n", cases);

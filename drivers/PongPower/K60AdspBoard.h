@@ -74,12 +74,13 @@ int k60_adsp_board_init(K60AdspBoard *, const K60AdspBoardIo *);
 const K60AdspPlatformOwnership *k60_adsp_board_ownership(const K60AdspBoard *);
 /* Read-only diagnostic line for the boot log. */
 void k60_adsp_board_report(K60AdspBoard *);
-#ifdef KERNEL
-/* ml_io_map_unmappable(phys,bytes,VM_WIMG_DEFAULT) backed io. This tree has no
- * ml_io_unmap, so the read-only window is retained for the boot (same choice as
+/* The read-only window mapper for the platform this file is built for: in a
+ * kernel build ml_io_map_unmappable(phys,bytes,VM_WIMG_DEFAULT), and NULL in a
+ * host build, which init() refuses. Callers use this one name, so no #ifdef
+ * leaks into C++ call sites such as K60HandoffRuntime.cpp. This tree has no
+ * ml_io_unmap, so a kernel window is retained for the boot (same choice as
  * patches/xnu/0500-k60-bt-qbt-new-files.patch:344). */
-const K60AdspBoardIo *k60_adsp_board_kernel_io(void);
-#endif
+const K60AdspBoardIo *k60_adsp_board_platform_io(void);
 #ifdef __cplusplus
 }
 #endif

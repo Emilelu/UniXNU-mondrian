@@ -367,6 +367,15 @@ static void kernel_unmap(void *ctx, volatile uint8_t *base, size_t bytes)
 static const K60AdspBoardIo kernel_io = { K60_ADSP_BOARD_VERSION, sizeof kernel_io,
     kernel_map, kernel_unmap, 0 };
 
-const K60AdspBoardIo *k60_adsp_board_kernel_io(void)
-{ return &kernel_io; }
 #endif
+
+const K60AdspBoardIo *k60_adsp_board_platform_io(void)
+{
+#ifdef KERNEL
+    return &kernel_io;
+#else
+    /* No physical access exists outside the kernel. Returning NULL keeps a host
+     * build unavailable instead of pretending to map DDR; init() refuses it. */
+    return 0;
+#endif
+}

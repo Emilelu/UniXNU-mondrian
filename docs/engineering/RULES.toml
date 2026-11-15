@@ -602,3 +602,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-202"
 statement = "A build must fail when the file it reads features from is missing, and a gate must not grade a stale artifact."
 check = 'bash -n scripts/build-strict.sh && grep -q "no \$M/.config" scripts/build-strict.sh'
+
+[[rule]]
+id = "P-203"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-203"
+statement = "禁止在 linked worktree 里跑 git worktree prune / gc / repack：它们会改共享仓的管理元数据，一次影响全部工作树且不可逆"
+check = "grep -q 'worktree prune' scripts/git-guard"

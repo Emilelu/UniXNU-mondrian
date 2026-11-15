@@ -4901,3 +4901,39 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 **Check.** `bash -n scripts/build-strict.sh && grep -c 'no \$M/.config' scripts/build-strict.sh`
 —— 必须为 1；`python3 -c "import ast,sys;src=open('scripts/check-kernel-archives.py').read();print('st_mtime' in src)"`
 —— 必须为 True。
+
+## P-203 — 不要在 linked worktree 里跑 `git worktree prune`
+
+**现象**：refmine 线为了拿一个「干净环境」的基线，在一个 linked worktree 里执行了
+`git worktree prune`。主仓 `E:/hackios/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
+管理目录被一次性删除（只剩 `d-main`），随后 `/e/hackios/k60-*` 全部立刻报
+`fatal: gitfile does not point to a valid repository`——二十条线同时失去工作树。
+
+**根因**：`git worktree prune` 的判据是「这个工作树的管理目录还在不在、gitfile 指向是否可解析」。
+它会从**当前所在的仓**出发，把凡是它认为「失效」的 admin 目录删掉。在一个 linked worktree 里跑，
+它看到的是主仓 `.git/worktrees/` 的全集，而判断依据只是 gitfile 是否可解析；
+一旦有任何一棵树短暂不可解析（或工作树目录被移动、盘符变化），它就把那棵树的 admin 目录当垃圾删掉。
+**删除不可逆、没有备份**，`git worktree add` 也不会自动重建。
+
+**恢复方法**（`E:/k60-work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
+1. 对每个失去 admin 目录的工作树目录，用「分支 blob 与工作树文件比对打分」反推它原本在哪个分支——
+   文件内容未提交的工作树会和几个候选分支算出不同的匹配度，取最高分。
+2. 重建 admin 三件套：`.git/worktrees/<name>/{HEAD,gitdir,commondir}`，`HEAD` 写
+   `ref: refs/heads/<branch>`，`gitdir` 写该工作树的 `.git` 文件路径，`commondir` 写 `../..`。
+3. 在工作树里 `git read-tree HEAD` 把索引补齐（**不要** `git checkout`，那会覆盖未提交内容）。
+4. 验证：`git worktree list` 无 prunable、`git rev-parse` 在 MSYS 与 WSL 两侧都能跑、
+   `git status --porcelain` 每棵树 dirty=0。
+
+**为什么没被门禁拦到**：`git worktree prune` 是原生命令，`/usr/local/bin/git` 守卫当时只拦
+`checkout`/`reset`/`clean`/`stash` 这类会丢内容的动词，`prune` 不在名单里——但它丢的是**管理元数据**，
+后果比 `checkout` 更重（一次影响全部工作树）。
+
+**修法（四条）**：
+1. `git-guard` 的危险动词表加 `worktree prune`，与 `checkout --` 同级；
+2. 只允许在主工作树的根上显式带 `K60_I_OWN_ALL_TREES=1` 执行；
+3. 想要「干净环境」的正确做法是 `git -C <其他目录> archive` 或 `git clone --shared` 一个临时仓，
+   不要在共享仓里做任何清理动作；
+4. 每轮构建前只跑 `sync-device-input.py`，不做任何 `git` 清理。
+
+**教训**：`git` 里凡是带 `prune`、`gc`、`repack`、`fsck --lost-found` 字样的命令，
+都会在「看起来无害」的前提下改共享状态；共享仓上只允许只读动词。

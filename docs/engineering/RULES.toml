@@ -625,3 +625,11 @@ source = "docs/engineering/PITFALLS.md:P-205"
 statement = "文档里的日期、编号、门禁点名必须与代码可对账：README 最后更新不早于 STATUS；★N/P-M 范围声明等于真实最大标题号；README 门禁表与 build-strict.sh 内嵌门禁同名同集"
 check = "python3 scripts/check-readme.py"
 note = "2026-11-15 用户指出合并到 main 时 README 不更新。查实三类漂移并存且 check-docs 一个都抓不到：README 最后更新 11-12 vs STATUS 11-14；铁则范围写 ★1-★35 / P-01-P-130，实际 ★37 / P-204（★36 自己的判词引过的历史现场第二次犯）；门禁表写「四个检查」且点名的 research-gate/porting-gate 根本不在 build-strict.sh 里。"
+
+[[rule]]
+id = "P-206"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-206"
+statement = "门禁脚本不得写死 board 目录名：board 目录随 defconfig 命名（mondrian vs mondrian_wifi），必须从 out 树现场推导，否则门禁验旧树、构建缺文件照样假绿"
+check = "python3 scripts/check-build-env.py"
+note = "2026-11-15 wifi 线首次在新 mondrian_wifi 树构建死在 Availability.h file not found（fakeroot 缺三个 Availability 头，prepare-xnu.py source 模式不进 ios16 链路），而 P-185 门禁因 M 硬编码 .../mondrian 一直验旧树假绿。修法：check-build-env.py find_board_dir() 按 mtime 推导，FAKEROOT_FILES 2->5。"

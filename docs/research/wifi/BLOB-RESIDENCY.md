@@ -160,21 +160,30 @@ pool 通道仍然存在。要把两者分开靠四格对照；这里只列格子
 |---|---|---|---|---|---|---|
 | A | 54.2 MB stock（thermal / bt / …） | 1.64 MiB | 无 | 0 | 已飞，**alive** | 基线 |
 | B | 54.8 MB tiny（`t0c` / `t1c`） | 1.82 MiB | 4×23 B 占位 | 0 / 1 | **从未飞** | `t1c` alive ⇒ 驱动存在 + `pong_wifi=1` 本身无害，死因需要真 blob 或与之同步变化的东西 |
-| C | 66 MB（`a2`，正式重出为 `z0`） | 12.39 MiB | 11.19 MB | 0 | **从未飞** | C alive ⇒ blob、`__TEXT` 体积、65.9 MB 镜像三者同时被洗清（与 mhi4 只剩 `pong_wifi` 之差） |
-| D | 117 MB（`mhi5` / `z0`） | 12.39 MiB | 11.19 MB | 1 | **从未飞** | 主要探 `ReadFile` 的 128 MB 上限与 span，与 blob 边界问题无关 |
+| C | 66 MB（`a2`，trial 级，**没有**正式重出） | 12.39 MiB | 11.19 MB | 0 | **从未飞** | C alive ⇒ blob、`__TEXT` 体积、65.9 MB 镜像三者同时被洗清（与 mhi4 只剩 `pong_wifi` 之差） |
+| D | 117 MB（`mhi5`） | 12.39 MiB | 11.19 MB | 1 | **从未飞** | 主要探 `ReadFile` 的 128 MB 上限与 span，与 blob 边界问题无关 |
+| E | 117 MB（`z0`，正式镜像，与 `mhi5` 只差 `pong_wifi`） | 12.39 MiB | 11.19 MB | 0 | **从未飞** | 驱动 vs blob：E 静默而 105 MB 家族 alive ⇒ blob 被钉住、驱动被洗清；E alive ⇒ 驱动有罪 |
 
-读法：C 是本文问题的判决格——C 静默 ⇒ 体积方向仍活（但边界已排除，只剩 §7.1）；
-C 出声 ⇒ 本文问题被实际否决，死因回到驱动运行路径。B 是 C 的对照格：B 出声而
-C 静默 ⇒ 11.19 MB blob 被钉成唯一变量；B 也静默 ⇒ 死因不需要 blob，需要重读
-[BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §5 那条「console gate 之前不可达」的
-静态论证。C 先飞（它同时覆盖那里的 C1 判据与本问题），B 后飞。
+读法：C 是「体积」那一问的判决格（66 MB + blob + `pong_wifi=0`）——C 静默 ⇒
+体积方向仍活（但边界已排除，只剩 §7.1）；C 出声 ⇒ 本文问题被实际否决，死因回到
+驱动运行路径。**C 至今没有正式镜像**：`a2` 是 trial 级（P-201，manifest 无 series
+键），而正式重出的 `z0` 实测不是 66 MB——它 117,305,344 B，与 `mhi5` 同尺寸、只把
+`pong_wifi` 关掉（§9 的实测表）。所以 E 顶替不了 C：**E 静默只证明「blob（连同它
+所在的 117 MB 版式）与 105 MB alive 家族的差是致命的」，证明不了 65.9 MB 这一档**；
+同理 E alive 也不能替 C 洗清体积，它洗清的是驱动。
+
+B 是 C 的对照格：B 出声而 C 静默 ⇒ 11.19 MB blob 被钉成唯一变量；B 也静默 ⇒
+死因不需要 blob。E 是「驱动 vs blob」的对照格（与 `mhi5` 只差 46 字节 / 8 处构建
+时间戳，见 k60-wifi `docs/research/wifi/BOOT-DEATH-SUSPECT.md` §3b）：E 静默而
+105 MB 家族 alive ⇒ blob 被钉住、驱动被洗清；E 出声 ⇒ 驱动有罪、blob 方向作废。
 
 ## 7. 仍然开着的口子（本文不关闭它们）
 
-1. **DXE pool 碎片化**（:558 → :607 的顺序）：65.9 MB 整块 `AllocatePool`
-   之后才申请 4.5–4.75 GiB 连续窗口。blob 使 pool 占用多 11.27 MB，
-   可能改变 `AllocateWindow` 看到的最大 run。这条只能靠上机的
-   「NO WINDOW」行或 C1/C2 判据分辨，静态无解。
+1. **DXE pool 碎片化**（:558 → :607 的顺序）：65.9 MB（C 格）或 117.3 MB（E 格）
+   整块 `AllocatePool` 之后才申请 4.5–4.75 GiB 连续窗口。blob 使 pool 占用多
+   11.27 MB，可能改变 `AllocateWindow` 看到的最大 run——E 格把这笔 pool 占用翻倍
+   （117 MB），它比 C 格更容易先撞上 pool 通道；读 E 的结果时要把这一点算进去。
+   这条只能靠上机的「NO WINDOW」行或 C1/C2 判据分辨，静态无解。
 2. **105 MB 家族的成功不能反证 65.9 MB 必成**：105 MB 在 `__DATA`
    （可写、按需填零），65.9 MB 的超额在 `__TEXT`（整段只读映射，
    页表路径 :1415 不同）。段属性不同，静态不能互相担保。
@@ -198,3 +207,37 @@ C 静默 ⇒ 11.19 MB blob 被钉成唯一变量；B 也静默 ⇒ 死因不需�
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与
 artifact `boot.json` 按 image sha256 的 join（`probe-join2.py`），与
 [BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §3 同源。
+
+## 9. 实测对照表（本节的数字都来自 `mtype` 解出的 payload kernel）
+
+`__TEXT` / `__DATA` 是段 vmsize，span 是 `Kernel.End - Kernel.Base`；`PWF2` 与
+`Pong MHI` 是内核镜像里出现的字符串次数（用来判断 blob 与 ath11k MHI 日志是否
+被链接进来），`pong_wifi` 取自同目录 `build-manifest.json` 的 `kernel_args_requested`。
+
+| 镜像 | kernel B | `__TEXT` | `__DATA` | span | PWF2 | Pong MHI | `pong_wifi` | 上机 |
+|---|---|---|---|---|---|---|---|---|
+| thermal-20261114f | 54,173,696 | 1,720,320 | 1,638,400 | 66,285,568 | 0 | 0 | 0 | **alive**（232,670 B） |
+| springboard-20261114c | 105,480,192 | 1,720,320 | 52,920,320 | 117,600,256 | 0 | 0 | 0 | **alive**（220,944 B） |
+| gpu-20261114n | 105,476,096 | 1,720,320 | 52,920,320 | 117,583,872 | 0 | 0 | 0 | **alive**（262,275 B） |
+| brightness-4 | 105,500,672 | 1,720,320 | 52,920,320 | 117,616,640 | 0 | 0 | 0 | **alive**（185,701 B，4.5 GiB 窗口） |
+| wifi-20261116a2 | 65,978,368 | 12,992,512 | 1,867,776 | 78,327,808 | 2 | **0** | 0 | 从未飞（trial 级） |
+| wifi-20261116mhi4 | 65,978,368 | 12,992,512 | 1,867,776 | 78,327,808 | 2 | 11 | 1 | silent（0 B） |
+| wifi-20261116mhi3 | 65,978,368 | 12,992,512 | 1,867,776 | 78,327,808 | 2 | 11 | 1 | silent（0 B） |
+| wifi-20261115z0 | 117,305,344 | 12,992,512 | 53,149,696 | 129,642,496 | 2 | 11 | **0** | 从未飞（正式镜像） |
+| wifi-20261116mhi5 | 117,305,344 | 12,992,512 | 53,149,696 | 129,642,496 | 2 | 11 | 1 | 从未飞 |
+
+三条从这张表直接读出来的结论（都不是「结论」，是可推翻的事实）：
+
+1. **`z0` 不是 66 MB 的 C 格**：它 117,305,344 B，`__DATA` 53,149,696 与 105 MB
+   alive 家族同量级，是 `mhi5` 的孪生（只差 `pong_wifi`）。§6 的 C 格（66 MB +
+   blob + `pong_wifi=0`）至今没有正式镜像，只有 trial 级的 `a2`。
+2. **`a2` 与 `mhi4` 的唯一差别是 `pong_wifi`**：两者 kernel B、`__TEXT`、`__DATA`、
+   span 完全一致，`Pong MHI` 串数为 0 与 11（a2 没链 ath11k MHI 日志，mhi4 链了）。
+   但 `a2` 是 P-201 的 trial 级——它的 manifest 没有 `series` 键，身份不可复核。
+3. **105 MB alive 家族的 `__TEXT` 与 54 MB 基线完全相同（1,720,320 B）**，体积全部
+   来自 `__DATA`；wifi 家族的 `__TEXT` 是 12,992,512 B。所以「内核大」与「`__TEXT`
+   大」是两件互不蕴含的事，前者已被 alive 样本证明无害，后者才是 wifi 家族独有的。
+
+这张表的生成方式：`mtype -i <boot.img 的 ramdisk 卷> ::EFI/UniXNU/Payloads/kernel.macho`
+再按 `LC_SEGMENT_64` 解段；脚本 `E:/k60-work/scratch/refmine/probe-family.py`。
+

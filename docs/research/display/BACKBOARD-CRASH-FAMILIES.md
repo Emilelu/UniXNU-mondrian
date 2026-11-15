@@ -12,6 +12,11 @@
 | B：int-236 SIGSEGV | 发布 backlight-control=true 的新 IOService | K60 BACKLIGHT: published … control 1（旧格式）/ conformance=1 control=1（新格式）+ backboardd sig=11 | 发布层引入（brightness-4 control=1 崩 4 次，brightness-13 control=0 零崩） | python3 scripts/check-backlight-log.py <log> EXIT=0 |
 | C：getBytes:range: 类型不匹配 | 新 IORegistry 内容把字符串属性发到 DT 平面（bt 线 0509 补丁） | -[NSTaggedPointerString getBytes:range:]: unrecognized selector + NSInvalidArgumentException + SIGABRT | 不在我们的钩子里；触发源是 bt 线 0509 补丁的字符串属性（§3.3） | grep -c 'getBytes:range:' > 0 即 C 族；崩溃次数 ≈ (命中数+1)/2 |
 
+状态（2026-11-15 晚）：Lead 已收下本档案并离线复核确认 §3.3 归因；B 族口径终局——只认
+brightness-4（control=1，4×SIGSEGV）对 brightness-13（control=0，0 崩）这一对，交付形态 A
+（control=0 + 真 conformance）正式定稿；C 族修复验证图等 bt 线出（本线不预建）；dyld 缓存已批准
+下个上机窗口由 Lead 拉取。
+
 结构性结论：B 与 C 是同一个根——「**向 IORegistry 发布此前不存在的内容，会激活 backboardd 里
 一直死着的 Apple 代码路径**」。B 死在新路径本身，C 死在新内容与 Apple 代码的**类型约定不匹配**
 （DT 平面属性应为字节数组，发成了字符串）。这对 display 线是旁证：交付形态 A（默认不发
@@ -67,7 +72,8 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 2. **崩溃是类型不匹配的形状**：接收者是 NSTaggedPointerString（短字符串的 tagged 表示）——正是 setProperty(key, "短字符串") 在用户态读回时的类型；getBytes:range: 是数据型访问。即某段 Apple 代码把「字符串属性」当「字节数组属性」读。
 3. **仓库自己的内核代码证明约定**：DT 平面的 device_type/compatible 必须以 OSData（原始字节）发布、以 OSDynamicCast(OSData,…) 读取——drivers/ArmCpu/ArmCpu.cpp:103（OSData *compatible = OSDynamicCast(OSData, gic->getProperty("compatible"))）、:302、:514（device_type 同）、drivers/ArmDTPlatform/ArmDTPlatform.cpp:192（device_type）、drivers/NativeUfs/NativeUfs.cpp:53-55。
 4. **0509 违反了这个约定**：iokit/Kernel/MiniBluetooth.cpp（新文件）把 node->setProperty("device_type", "bluetooth")、compatible → "qcom,wcn7850-bt"、unixnu,adt-name → "bluetooth" 发成字符串（transport-encoding/speed 与 local-mac-address 倒是正确的原始字节）；同样的字符串属性也发到了 K60BluetoothRadio 服务上（radio->setProperty("device_type","bluetooth")），并且 registerService()；调用点在 iokit/Kernel/MiniIOSurface.cpp native_pong_ui_services_start（MiniAcceleratorPublishStub 之后加 MiniBluetoothPublishStub(provider);），门控 PE_parse_boot_argn("k60bt")。这与 k60bt=1 才崩、不设不崩的现场完全吻合。
-5. **结论**：C 族崩的是 backboardd 里某 Apple 框架「把新出现的字符串属性当数据读」的路径（最可能是只有出现 bluetooth 设备时才会激活的 HID/蓝牙事件路径——HID 事件系统住在 backboardd 里）；具体是哪个系统帧，离线无法点名（缺 20G81 shared cache，§5）。可以肯定的是：**不在我们的显示钩子里**，且与本线的 K60Backlight 无关（bt-s4c 根本没有背光服务）。
+5. **Lead 2026-11-15 离线复核确认**：0509-k60-bt-s3-identity-publish.patch:185-187 正是这三行 C 字符串 setProperty（device_type / compatible / unixnu,adt-name），IOKit 语义下是 OSString 而非 DT 平面的 OSData 字节，引用准确；触发链闭合——0509 一直在，但 patches/bt/0005-k60-bt-s4-unblock.patch:8（镜像 patches/xnu/0511-k60-bt-s4-unblock.patch，series:209）的 hunk-2 删掉了 k60_bt_power_on() 的冷启动 `return -EOPNOTSUPP`，身份发布代码第一次真正执行 → 崩溃第一次出现（全仓库 30+ 份日志只有 bt-s4c 这一份命中）。
+6. **结论**：C 族崩的是 backboardd 里某 Apple 框架「把新出现的字符串属性当数据读」的路径（最可能是只有出现 bluetooth 设备时才会激活的 HID/蓝牙事件路径——HID 事件系统住在 backboardd 里）；具体是哪个系统帧，离线无法点名（缺 20G81 shared cache，§5）。可以肯定的是：**不在我们的显示钩子里**，且与本线的 K60Backlight 无关（bt-s4c 根本没有背光服务）。
 
 ### 3.4 给 bt 线的修法建议（不在 display scope，未动手）
 
@@ -84,7 +90,7 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 
 ## 5 缺口
 
-- **20G81 dyld shared cache 缺失**，0x19cb…/0x1a21…/0x1c38… 与私段 0x10… 帧全部无法反推符号。请 Lead 下个上机窗口从设备拉（我不碰设备）：
+- **20G81 dyld shared cache 缺失**，0x19cb…/0x1a21…/0x1c38… 与私段 0x10… 帧全部无法反推符号。Lead 2026-11-15 已批准下个上机窗口拉取，由 Lead 执行（设备只经 Lead 的手），拉完通知我，我再做符号化；Lead 会在窗口期顺带准备好 device 侧 adb 通道。清单：
   - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e（iOS 16.6.1 完整版约 3.2 GB；设备上可能略小，以实际大小为准）
   - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.map（约 300–600 MB，若存在）
   - 可选 dyld_shared_cache_arm64e.symbols（设备上通常不存在，有则一并拉）

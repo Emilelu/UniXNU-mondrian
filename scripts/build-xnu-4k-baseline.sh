@@ -1156,7 +1156,20 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   if [ -n "${XNU_BOOTSTRAP:-}" ]; then
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
-    EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE")
+    BOOTSTRAP_KERNEL_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE"
+    if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+      # bsd/dev/pong_adsp_boot.c (0613) defines the owner reader's legacy
+      # hook, which calls k60_adsp_reader_fat; that symbol lives in the
+      # battery archive. The bootstrap pass skips PLATFORM_ARCHIVES
+      # entirely, so force-load the battery archive here exactly like the
+      # scanout objects get the GPU archive. Every strong undefined of the
+      # archive resolves against the kernel itself (verified with llvm-nm),
+      # so this adds no new bootstrap dependency.
+      BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
+      test -f "$BATTERY_ARCHIVE"
+      BOOTSTRAP_KERNEL_ARCHIVES="$BOOTSTRAP_KERNEL_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
+    fi
+    EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$BOOTSTRAP_KERNEL_ARCHIVES")
   fi
 fi
 if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then

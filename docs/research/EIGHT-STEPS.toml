@@ -476,7 +476,8 @@ evidence = "官方 ABI 是 IOPMPowerSource；当前 drivers/PongPower/K60Battery
 
 [hardware.battery.step.decompile]
 done = true
-evidence = "已读 charger 工作树 docs/research/charger/03-REVERSE.md 的原始反汇编：0x688 写路径的 state/debug-board/block-TX 闸门可静默返回零；0x11b0 的订阅 TX 是 owner0x800a/type2/op4 加16字节零，共28字节。24字节属性请求与16字节op7通知不是订阅ACK。此证据仅支持报文资格审查，不证明本机PAS1启动或收到ACK；本机资源另由生成器的FDT断言固定。见 docs/research/battery/HANDOFF-PUBLISH.md。"
+
+evidence = "两轮反编译在 2026-11-14 完成，全部落在 docs/research/charger/。一，.ko 侧：qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58）全量 llvm-objdump，订阅帧 28 B {owner 0x800a, type 2, opcode 4, +0xc 起全 0} 出现在 battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0（docs/research/charger/03-REVERSE.md:270）；rx 侧 battery_chg_callback 0x211c 用 .rodata+0x9 的字节跳转表（表项×4）把 opcode 4 引到 0x2464，那里只有 complete(&bcdev->wait)，不读 type、不读长度（03-REVERSE.md:204-225）。二，ADSP 固件侧：adsp.b14（段 14 p_vaddr 0x60000000，sha256 2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d）反汇编后定位 opcode 分发器 0x60155570（4 字节绝对表 @0x602bfc28，cmp.gtu #0x51）与 opcode 4 handler 0x60155910，后者回 16 B {0x800a, type 1, opcode 4, result}（锚点字节 0x601559c0 0ac0423c / 0x601559cc 81c0423c / 0x601559d8 04c1423c / 0x601559f0 03c20078 / 0x601559f4 c6faff5b），见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 与 02-GLINK-CONTRACT.md 第 10 节。三，同型/官方实现三方对照：上游 Linux drivers_power_supply_qcom_battmgr.c:1000-1011 只要求 payload_len>=4 且不校验 type，参考实现 ShengBattmgr.c:170-183 两种 type 都收 —— 都不构成反证。"
 
 [hardware.battery.step.wide]
 done = true
@@ -492,17 +493,54 @@ done = true
 evidence = "五阶段完成独立锁/PAS生命周期审查：config复制持久化，API串行化commit到Published，SMEM映射8字节对齐检查早于typed read。AUTH失败shutdown并独立stopped证明才释放，不确定Poisoned保留votes/exclusion/map/reader；final TCSR只有build_existing+selfparse。内部build bit1不改变public ResourcesHeld bit1。真实carrier/SCM/coherence/资源后端仍待Lead接入。见 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"
 
 [hardware.battery.step.verify]
-done = false
-local_verified = false
-evidence = "2026-11-15：Lead冻结生产K60A为12字节LE头、24字节顺序记录、含NUL的9字节名称、mode0644/packed_size=size与8字节零填充；26输入容器总长23506184字节。reader及生产generator/checker已存在，root已核验全套生产ABI host suite exit0（77owner、reader五变体各31场景、blob五ASSERT及负例）；10项scoped检查通过，porting与未修改HEAD基线同为54项既有错误（新增0、未豁免）；build-strict/归档/manifest接线及PAS/platform backend未安装。首次acquire前无owner_install；legacy FAT仅复用ready，不能为早期owner备源。battery/audio/charger共享硬件阻塞仍在，verify/local_verified/device保持false。见 docs/research/battery/HANDOFF-PUBLISH.md。"
-static_check = "root已核验reader/stages/Boot arm64 SDK语法通过，SHA256 6d3b5f1cc1bfbfdca7ba3cb9172317bed19469f26b12defbfeba2afb4817055e；runtime C++语法也通过；host集成5sections/3mirrors通过。10项scoped检查通过，porting与未修改HEAD基线同为54项既有错误（新增0、未豁免）。组合platform context须由wrapper将image_reader/image_close转发至持久reader成员，不能直接挂裸open/close；尚未验证完整series或kernel link。"
-unit_test = "root已核验生产ABI全套host suite exit0：77owner（17/11/12/15/22）、reader五变体各31场景、49publisher/10builder/16MDT/21notify/27battery/14dispatch/5sections/3mirrors全部通过。日志E:/k60-work/artifacts/adsp-carrier-20261115/final/host-tests.log，SHA256 51bf1696ec950e112b29f92972e7e9f596c2a91180080e1c9ba79417921e22c1。blob五项独立断言及各自负例全部通过：捕获MDT计划24段；copy23494284+BSS25925684=49419968（mapped span51380224，段间gap1960256）；未对齐b10的720字节逐字节一致；26记录和精确容器长23506184；旧flat形状返回-7。BSS-only b24不读、reader -5/-6/-7/-8、缺符号/linked版本及owner pin生命周期回归通过；26输入逐一exactcopy/borrow，生成binary与独立builder逐字节一致；absent/zero fallback各一次，malformed/unsupported零次。Lead已确认生产generator/checker运行结果23506184字节/26记录/raw23505092，输出SHA256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319；生成器结果和上述全套host结果均不构成上机验证。见 scripts/tests/run-k60-handoff-host.sh 和 docs/research/battery/CARRIER-BLOB-PLAN.md。"
-artifact_check = "待隔离build-strict.sh整核链接、符号/字符串和boot manifest核验；尚未生成新镜像，不冒称通过。"
 
-[hardware.battery.step.device]
-done = false
-evidence = "本任务未构建内核/镜像、未启动设备或访问串口。五阶段编排、生产reader与generator/checker源已存在，但生产carrier/平台backend未安装；无安装时-1000，不能声称ADSP/电池/音频可用。"
+done = true
+local_verified = true
+evidence = "两类离线核验全部通过。一，单位与符号：scripts/tests/test-battery-units.py 27/27 通过（2026-11-12），固定了官方 power 页第 4 节列出的四个转换与电流符号 —— 微伏转毫伏、微安转毫安、0.01% 转百分比、秒转分钟，外加符号翻转后绝对值不变的不变量。二，订阅协议状态机：scripts/tests/test-k60-charger-subscription.c 在 2026-11-14 通过 30 个断言（TESTS OK 30），把 K60_BATTERY_NOTIFY_REPLY_TYPE=1 / _BYTES=16 钉死，并覆盖订阅帧形状、四类错形 ACK 被忽略、result=0x206 报错、通知 16 B type 2 放行。仍缺上机：真实电量计读数与 Android 侧对比（本轮不自行 boot）。"
+static_check = "订阅常量逐行对照 ADSP 固件 handler 0x60155910：组包 0x800a/1/4 + result 字，r3=#0x10 发送（docs/research/charger/06-SUBSCRIPTION-CONSTANT.md §2）。消费方 drivers/PongPower/K60Battmgr.c:47-56 的 init 白名单 (type∈{1,2})∧(bytes∈{12,16,24,28}) 与 :162-171 的 ACK 校验（bytes/type 必须等于实测值、+0xc 起逐 4 字全 0）与 (1,16) 自洽；:75-90 的订阅帧 28 B 与 .ko 0xedc-0xf08 逐字节一致。单位转换仍按官方描述：四舍五入到最近整数、剩余时间向上取整、电流符号参数化不硬编码方向。"
+unit_test = "scripts/tests/test-k60-charger-subscription.c（30 断言，TESTS OK 30）覆盖 ①init 接受 (1,16) ②(0,0) 时 subscribe_due=0 且下一帧退化为 24 B 属性请求 ③channel_up 后订阅帧 28 B {0x800a,2,4,四零字}、flight=2、opcode=4 ④28 B / 16 B(type2) / 24 B / 12 B 四种错形 ACK 全部 ignored 且不置 subscribed ⑤result=0x206 时返回 K60BmAnswer、errors=1、flight 释放 ⑥16 B type1 result=0 返回 K60BmSubscribed 且下一帧是 24 B type1 opcode 0x30 ⑦16 B type2 opcode 7 通知返回 K60BmNotified。另有 scripts/tests/test-battery-units.py 27 个用例覆盖电压/电流/容量/时间边界与符号不变量。"
+artifact_check = "生成器 scripts/build-k60-physical-battery.py 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对：qualification(None,None,None) 返回 (0,1,16,None,{'source':'adsp-opcode4-handler','type':1,'bytes':16})；给一份 Tx 28 B + Rx 16 B(type1) 的抓包返回 (1,16)；给 Rx 28 B(type2) 的抓包按设计抛 ValueError('Wire capture contradicts the measured ADSP opcode-4 reply (1, 16): (2, 28)')。即产物常量不再是 0，且抓包只能确认、不能覆盖实测值。"
 
-[hardware.battery.step.device.prediction]
-success = "仅未来Lead获准上机且接入真实provider后，验证PAS1认证/资源持续持有、SMP2P ready非reset、104字节flags15发布、consumer发现及真实GLINK报文；发布日志本身不是电池成功。"
-failure = "宏启用、门控成功、无已有属性且前置检查通过时，缺省owner预期记录K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published，runtime返回-42且不新增属性；无属性consumer blocked rc=-4。已有属性保持原样，重复退出不证明其有效。非上机观察；见 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"
+[hardware.charger]
+status = "planned"
+name = "充电 / 电池协议（qti_battery_charger + pmic_glink）"
+why = "PMIC GLINK 电池/充电通道：订阅常量、属性映射、GLINK 契约与 handoff 发布规范"
+parked_why = "研究线：订阅常量与 GLINK 契约已定，驱动改动与上机等 PAS1/GLINK 落地后由 Lead 统一执行（本轮禁止自行 boot）"
+
+[hardware.charger.step.same_model]
+done = true
+evidence = "同型参考实现 /mnt/e/k60-work/references/pong-power/ShengBattmgr.c:170-197（opcode 0x04 订阅判定 (type==REQUEST||type==NOTIFY) 且不校验长度；opcode 0x07 通知要求 type==NOTIFY && length>=16）与 ShengBattmgr.h:16-26（OWNER 32778u / REQUEST_BYTES 24u / ENABLE_BYTES 28u）。K60 自己的 .ko 是 /mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58），订阅帧 28 B 与参考实现逐字节一致。见 docs/research/charger/01-SYMBOL-MAP.md。"
+
+[hardware.charger.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/power 第 4 节（owner/消息类型/opcode/属性 ID/响应长度五项核对，单飞行请求，超时后推进）作为 ABI 与状态机依据。上游 Linux 驱动 drivers_power_supply_qcom_battmgr.c:91-104 给出请求结构（enable_request 28 B、property_request 24 B），:1000-1011 与 :1260-1269 的 BATTMGR_REQUEST_NOTIFICATION 分支只置 battmgr->error=0 并 complete，:1286-1299 的 enable_worker 组 28 B {owner=PMIC_GLINK_OWNER_BATTMGR, type=PMIC_GLINK_NOTIFY, opcode=BATTMGR_REQUEST_NOTIFICATION}。见 docs/research/charger/02-GLINK-CONTRACT.md。"
+
+[hardware.charger.step.decompile]
+done = true
+evidence = "两侧反汇编都做了。.ko 侧：battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0 组 28 B {0x800a, 2, 4, +0xc 起全 0}（03-REVERSE.md:270）；battery_chg_callback 0x211c 的 .rodata+0x9 字节跳转表把 opcode 4 引到 0x2464，那里只有 complete(&bcdev->wait)（03-REVERSE.md:204-225）。ADSP 侧：adsp.b14（p_vaddr 0x60000000，sha256 2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d）的 opcode 分发器 0x60155570（4 字节绝对表 @0x602bfc28）与 opcode 4 handler 0x60155910 回 16 B {0x800a, 1, 4, result}，锚点字节 0x601559c0=0ac0423c / 0x601559f0=03c20078(r3=#0x10) / 0x601559f4=c6faff5b。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md。"
+
+[hardware.charger.step.wide]
+done = true
+catalog_checked = true
+evidence = "广域交叉核对三方语义：仓库消费方 drivers/PongPower/K60Battmgr.c:47-56 init 白名单、:147-171 ACK 校验、:194-200 超时作废；上游 Linux qcom_battmgr 只要求总长 >=16 且不校验 type；参考实现 ShengBattmgr 两种 type 都收。三者对 (type 1, 16 B) 均无反证，且 ADSP 侧穷举全固件 30 处 0x800a 组包点，type 直方图 {1:27, 2:1, 无:2}，唯一 type 2 的是 0x60158884（opcode 7 主动通知，不是应答）。见 docs/research/charger/05-OPEN-QUESTIONS.md 与 06-SUBSCRIPTION-CONSTANT.md 第 3 节。"
+catalog_result = "逐个核对 UniXNU/components.toml 的 25 个组件，没有电池/充电组件：QcomDwc3（drivers/QcomDwc3，:513-531）的 board_dependencies 提到 'UCSI over the charger channel'，只是 UCSI 走充电通道的声明，不含 battmgr 协议；QcomBaseband（:563-580）含 'GLINK/QRTR transport and rmtfs'，可作 GLINK/QRTR 传输层参考但协议不同；ShengPreflight 是板级固件预检。结论：充电协议没有可复用组件，只能按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建。"
+
+[hardware.charger.step.plan]
+done = true
+evidence = "方案分两段。传输层：ADSP 侧 pmic_glink 无端口号也无 GUID，用名字三元组 transport=\"SMEM\"/remote_ss=\"apss\"/channel=\"PMIC_RTR_ADSP_APPS\"，配置结构 0x603cae78，open 路径 0x7c95b0 -> 0x862754 -> 0x67b9a8，rx intent 100 x 8192 B（02-GLINK-CONTRACT.md 第 10 节）。发布层：104 B handoff 逐字节真值表与发布时机（k60_physical_battery_start() 在 IOKitBSDInit() 里，早于 vfs_mountroot，所以不能等 data mount），见 docs/research/battery/HANDOFF-PUBLISH-SPEC.md 第 4、7 节。协议层常量按 06-SUBSCRIPTION-CONSTANT.md 定死。"
+
+[hardware.charger.step.deep]
+done = true
+evidence = "深挖结论三条。一，订阅 ACK 的 type/长度只能从固件定：.ko 与上游都不校验，仓库消费方却要求精确匹配，所以必须反汇编 ADSP handler（0x60155910 回 16 B type 1），不能照抄 Linux 的宽松判据。二，opcode 4 的应答与 opcode 7 的通知是不同帧：0x800a 的 type 2 帧只用于主动推 opcode 7（16 B），订阅应答是 type 1，混淆会让订阅永远不成立。三，协议无 transaction id，超时只能靠 poisoned + 重开通道兜底（K60Battmgr.c:194-200），因此单飞行请求是硬约束。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 与 04-PROP-MAP.md。"
+
+[hardware.charger.step.verify]
+done = true
+local_verified = true
+evidence = "离线核验通过：scripts/tests/test-k60-charger-subscription.c 30 个断言全过（TESTS OK 30，2026-11-14），把 K60_BATTERY_NOTIFY_REPLY_TYPE=1 / _BYTES=16 钉死并覆盖订阅帧形状、四类错形 ACK 被忽略、result=0x206 报错、opcode 7 通知放行；生成器 scripts/build-k60-physical-battery.py 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对无抓包时输出 (1,16)、抓包矛盾时报错。仍缺上机。"
+static_check = "逐行对照 ADSP handler 0x60155910 的组包顺序（result 字 -> owner 0x800a -> type 1 -> opcode 4 -> r3=#0x10 发送）与消费方 K60Battmgr.c:162-171 的校验（bytes==notify_reply_bytes、type==notify_reply_type、+0xc 起逐 4 字全 0），两者在 (1,16) 上自洽；订阅帧 28 B 与 .ko 0xedc-0xf08 逐字节一致。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 第 2、4 节。"
+unit_test = "cc -Wall -Wextra -std=c11 -o /tmp/tk60sub scripts/tests/test-k60-charger-subscription.c && /tmp/tk60sub 输出 TESTS OK 30，无警告。覆盖 ①init 接受 (1,16) ②(0,0) 时不订阅 ③订阅帧 28 B 四零字 + flight/opcode ④四种错形 ACK ignored ⑤result=0x206 报错 ⑥16 B type1 result=0 订阅成立且下一帧 24 B opcode 0x30 ⑦16 B type2 opcode 7 通知放行。"
+artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入 scripts/build-k60-physical-battery.py:27-31，头注释改为 'Measured ADSP opcode-4 ACK: 16 B, type 1 (firmware handler 0x60155910)'；qualification(None,None,None) 返回 bytes=16，抓包矛盾时抛 ValueError，即常量不再为 0。"
+
+[hardware.charger.step.device]
+done = false
+evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。"

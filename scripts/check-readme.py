@@ -21,10 +21,14 @@ reconciliation keeps it honest. This script checks:
   4. gate table: every script between the GATE-TABLE markers exists, the ZH and
      EN tables name the same set, and the set contains every gate embedded in
      build-strict.sh between the gate-table markers (so adding a gate without
-     updating the READMEs fails).
+     updating the READMEs fails);
+  5. eight-step table: the EIGHT-STEP-TABLE block in both READMEs equals what
+     render-eight-step-table.py would render from EIGHT-STEPS.toml (so a merge
+     that adds a [hardware.*] line without regenerating the tables fails).
 
 Usage: python3 scripts/check-readme.py   (exit 0 = consistent)
 """
+import importlib.util
 import io
 import os
 import re
@@ -39,11 +43,14 @@ STATUS = REPO / 'docs' / 'engineering' / 'STATUS.md'
 HARD_RULES = REPO / 'docs' / 'engineering' / 'HARD-RULES.md'
 PITFALLS = REPO / 'docs' / 'engineering' / 'PITFALLS.md'
 BUILD_STRICT = REPO / 'scripts' / 'build-strict.sh'
+EIGHT_STEPS = REPO / 'docs' / 'research' / 'EIGHT-STEPS.toml'
 
 GATE_BEGIN = '<!-- GATE-TABLE:BEGIN -->'
 GATE_END = '<!-- GATE-TABLE:END -->'
 BASH_BEGIN = '# --- gate-table:BEGIN ---'
 BASH_END = '# --- gate-table:END ---'
+TABLE_BEGIN = 'EIGHT-STEP-TABLE:BEGIN'
+TABLE_END = 'EIGHT-STEP-TABLE:END'
 
 DATE_RE = re.compile(r'(20\d{2})-(\d{2})-(\d{2})')
 
@@ -177,8 +184,47 @@ def check_gate_table():
     return problems
 
 
+def check_eight_step_table():
+    """The EIGHT-STEP-TABLE blocks equal the freshly rendered tables."""
+    problems = []
+    if not (EIGHT_STEPS.exists() and README.exists() and README_EN.exists()):
+        return problems  # no ledger means nothing to reconcile
+    # Load the renderer from the gate's own scripts dir and point its DATA at
+    # the repo under test (fixtures in the self-test run on a tmpdir). The
+    # renderer reads no file at import time, so overriding DATA after loading
+    # is enough -- and it keeps K60_REPO untouched for the other checks.
+    spec = importlib.util.spec_from_file_location(
+        'k60_render_eight_step',
+        Path(__file__).resolve().parent / 'render-eight-step-table.py')
+    if spec is None or spec.loader is None:
+        return ['scripts/render-eight-step-table.py 无法加载']
+    renderer = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(renderer)
+    except Exception as exc:  # noqa: BLE001 - a broken renderer is a failure
+        return ['render-eight-step-table.py 加载失败: %s' % exc]
+    renderer.DATA = str(EIGHT_STEPS)
+    for lang, path in (('zh', README), ('en', README_EN)):
+        text = read(path)
+        if TABLE_BEGIN not in text or TABLE_END not in text:
+            problems.append('%s 缺少八步表标记（%s/%s），请用 '
+                            'render-eight-step-table.py --apply 生成'
+                            % (path.name, TABLE_BEGIN, TABLE_END))
+            continue
+        block = text.split(TABLE_BEGIN)[1].split(TABLE_END)[0]
+        try:
+            rendered = renderer.render(lang)
+        except Exception as exc:  # noqa: BLE001 - a broken ledger is a failure
+            problems.append('EIGHT-STEPS.toml 渲染失败: %s' % exc)
+            continue
+        if rendered.strip() not in block:
+            problems.append('%s 的八步表格与 EIGHT-STEPS.toml 不一致，请运行 '
+                            'render-eight-step-table.py --apply' % path.name)
+    return problems
+
+
 def run_checks(repo=None):
-    global REPO, README, README_EN, STATUS, HARD_RULES, PITFALLS, BUILD_STRICT
+    global REPO, README, README_EN, STATUS, HARD_RULES, PITFALLS, BUILD_STRICT, EIGHT_STEPS
     if repo is not None:
         REPO = Path(repo)
         README = REPO / 'README.md'
@@ -187,11 +233,13 @@ def run_checks(repo=None):
         HARD_RULES = REPO / 'docs' / 'engineering' / 'HARD-RULES.md'
         PITFALLS = REPO / 'docs' / 'engineering' / 'PITFALLS.md'
         BUILD_STRICT = REPO / 'scripts' / 'build-strict.sh'
+        EIGHT_STEPS = REPO / 'docs' / 'research' / 'EIGHT-STEPS.toml'
     problems = []
     problems += check_links()
     problems += check_dates()
     problems += check_ranges()
     problems += check_gate_table()
+    problems += check_eight_step_table()
     return problems
 
 
@@ -202,7 +250,7 @@ def main():
             print('❌ %s' % p)
         print('README 与现状不一致：%d 处。请更新 README.md / README_EN.md' % len(problems))
         sys.exit(1)
-    print('✅ README 与 STATUS、HARD-RULES/PITFALLS 编号、build-strict 门禁全部一致')
+    print('✅ README 与 STATUS、HARD-RULES/PITFALLS 编号、build-strict 门禁、八步表全部一致')
     sys.exit(0)
 
 

@@ -146,3 +146,9 @@ kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "P-205：README 门禁化。新增 scripts/check-readme.py（双语互链、日期不早于 STATUS、★N/P-M 范围等于真实最大标题号、门禁表与 build-strict.sh 标记区内嵌门禁同名同集）+ scripts/tests/test-check-readme.py（8 例），build-strict.sh 只加两对 # --- gate-table:BEGIN/END --- 注释标记（不改变任何构建行为），render-eight-step-table.py 的 UNTRACKED 表把 USB 改 device-verified 并补 thermal 行，README/README_EN/AGENTS/HARD-RULES(★36 第 7 条)/PITFALLS(P-205)/RULES.toml/STATUS 同步更新。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：无，全部是注释/文档/校验脚本层改动，不改变内核与镜像内容。"
 
+
+[[entry]]
+sha = "fd6adeb"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "合并 feat/charger（08b08fd，11 提交 no-ff）。内容：EIGHT-STEPS.toml 新增 [hardware.charger]（①-⑦ done、⑧ 未上机）、build-k60-physical-battery.py 产出 MEASURED_NOTIFY_REPLY=(1,16)（K60Battmgr.h 契约注释同步）、docs/research/charger/ 六篇研究、scripts/tests/test-k60-charger-subscription.c（30 断言）。登记原因：build-k60-physical-battery.py 参与构建电池归档（PLATFORM_ARCHIVES），产物常量从 0 变成 (1,16)，会改变内核镜像字节，铁则 9。欠账：充电 ⑧ 上机排在 ADSP PAS1 落地之后（真实电量计读数与 Android 侧对比），届时按八步流程执行并另行登记。检查路径：scripts/tests/test-k60-charger-subscription.c TESTS OK 30；check-readme（含八步表对账）/check-docs/render --check 全绿。"

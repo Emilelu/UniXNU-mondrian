@@ -4995,7 +4995,10 @@ Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检
 - README「最后更新」≥ STATUS「本轮更新时间」，EN 日期 == 中文日期；
 - 两份 README 的 ★N / P-M 范围声明 == HARD-RULES/PITFALLS 真实最大标题号；
 - 两份 README 门禁表点名同一组脚本，且必须包含 build-strict.sh
-  `# --- gate-table:BEGIN/END ---` 标记区里的全部门禁，点名的脚本必须真实存在。
+  `# --- gate-table:BEGIN/END ---` 标记区里的全部门禁，点名的脚本必须真实存在；
+- 两份 README 的 `EIGHT-STEP-TABLE` 块 == `render-eight-step-table.py` 从
+  EIGHT-STEPS.toml 现场渲染的结果——合并一个新增 `[hardware.*]` 行的分支而没
+  重生成八步表，check-readme 当场报「不一致」。
 
 教训：**名字、日期、编号是文档里最会撒谎的三类内容**——它们每天变，而手写段落
 没人记得改。任何这类「点名/计数/日期」一旦写进文档，就要同时给它一个能对账的
@@ -5003,3 +5006,31 @@ Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检
 文档的数字和名字也必须能被自证）。
 
 Check: `python3 scripts/check-readme.py`（registry `id = "P-205"`）
+
+## P-206 — 门禁脚本里写死 board 目录名，换了板子就验旧树
+
+现场：wifi 线的 board 目录叫 `mondrian_wifi`（随 defconfig 命名），而
+`scripts/check-build-env.py` 把 `M` 写死成 `OUT/mondrian/ipados-16.6.1-20G81/mondrian`。
+该线第一次在新树构建时，真正的缺口是 fakeroot 缺
+`Availability.h`/`AvailabilityInternal.h`/`TargetConditionals.h`
+（`build-xnu-4k-baseline.sh` 的 AvailabilityVersions install 不装这三个头，
+而三个头的正主 `prepare-xnu.py` source 模式不进 ios16 链路），内核 13 分钟后死在
+`fatal error: 'Availability.h' file not found`。P-185 的门禁却一直验着旧的 mondrian
+树，全程假绿——**门禁验的不是构建将要用的树**。
+
+教训：
+
+1. 门禁脚本里出现写死的 board 目录路径就是 bug（与 P-193「门禁里出现字面检出
+   路径就是 bug」同一形状）。board 目录名随 defconfig 变，必须从 out 树现场推导。
+2. 「门禁绿了」不等于「构建会绿」，除非门禁评的是构建将要用的那棵树。P-185 的
+   教训第一次没吃透：它只修了「名字叫什么」，没修「路径怎么来」。
+3. 缺口清单必须完整命名：fakeroot 的必需文件检查原来只查 2 个，firehose 那两个
+   是构建自愈的，真正致命的是三个 Availability 头——清单不全，门禁查不到致命的
+   那个。
+
+修法：`scripts/check-build-env.py` 的 `find_board_dir(out)` 从
+`out/*/ipados-16.6.1-20G81/*` 按 mtime 推导（有 `tree/` 或 `.config` 的最新者优先，
+字面量只作 fallback），`FAKEROOT_FILES` 扩到 5 个（补 `AvailabilityInternal.h`、
+`TargetConditionals.h`、`firehose_buffer_private.h`）。
+
+Check: `K60_OUT=<out> python3 scripts/check-build-env.py`（registry `id = "P-206"`）

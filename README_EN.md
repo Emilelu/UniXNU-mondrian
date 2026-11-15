@@ -23,7 +23,9 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **bluetooth** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
 | **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
-| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
+
+| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | Ready to flash (⑦ verified) |
+| **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
@@ -135,7 +137,7 @@ table row naming a nonexistent script, fails the build.
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status detail and change log |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
-| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-205 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-206 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) — Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing

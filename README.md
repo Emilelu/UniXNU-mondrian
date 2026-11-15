@@ -23,7 +23,9 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **bluetooth** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 进行中 |
 | **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **卡在 ⑦ 核验** |
-| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **卡在 ⑦ 核验** |
+
+| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | 可刷机（⑦ 已核验） |
+| **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
@@ -131,7 +133,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | 八步流程规范 |
 | [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md) | 启动流程唯一入口（铁则 8）：先挂串口抓取再 `fastboot boot` |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★37 |
-| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-205 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-206 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) —— 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) —— 电池栈编译集成：构建脚本改动、defconfig 开关、宏链路、归档构建时机

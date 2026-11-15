@@ -208,6 +208,19 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
   `scripts/repair-worktrees.py` 通用修复器（29 例宿主测试）。
 - P-204：判据不能建立在「某个串出现 N 次」上（一天三次同形错误），判据必须
   自证、指向具体对象、格式串从源码抄。
+- P-205 加强（`2152c6e`）：`check-readme.py` 新增第五条对账——两份 README 的
+  八步表块必须等于 `render-eight-step-table.py` 从 EIGHT-STEPS.toml 现场渲染的
+  结果。从此「合并一个新增 `[hardware.*]` 行的分支而没重生成八步图」会在
+  check-rules 直接红（自测 10 例）。
+- `feat/charger` 11 提交 no-ff 合入 main（`fd6adeb`）：订阅 ACK 按 ADSP 固件
+  opcode-4 handler 钉死 (type=1, 16 B)，`build-k60-physical-battery.py` 产出
+  `MEASURED_NOTIFY_REPLY=(1,16)` 且抓包只能确认不能覆盖；GLINK 契约与
+  `K60Battmgr` 白名单对齐；104 字节 handoff 发布规范落库。八步表新增充电行
+- P-206（`c97a4cf`）：`check-build-env.py` 不再写死 `mondrian` board 目录——从
+  out 树按 mtime 推导（wifi 线的 `mondrian_wifi` 首次构建死在
+  `Availability.h` file not found 而门禁一直验旧树假绿）；`FAKEROOT_FILES`
+  2→5（三个 Availability 头 + 两个 firehose 文件）。
+  （①–⑦ ✅、⑧ 待上机），真机验证排在 ADSP PAS1 之后。
 - P-205 + ★36 第 7 条：README 的日期、编号、门禁点名必须与 STATUS /
   HARD-RULES / PITFALLS / build-strict.sh 可对账，新门禁 `scripts/check-readme.py`。
 

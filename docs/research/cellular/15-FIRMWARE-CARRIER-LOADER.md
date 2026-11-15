@@ -1,7 +1,7 @@
 # 15 — 固件载具装载器实现规格（K60ModemImage）
 
-- **状态**：规格（第一交只读骨架已落 `uefi-mondrian` `feat/cellular` `a8d6bd4`；本线未构建、未出镜像）
-- **日期**：2026-11-15（2026-11-16 补 §1.7 payload 容量约束、改 §7 第 1 条）
+- **状态**：规格；第一交只读骨架已落 `uefi-mondrian` `feat/cellular` `a8d6bd4`，Lead 已接线并真机验证（`a9cd70d`：编译通过、FD 3,145,728 B 不变、进 SpringBoard 128 次、panic 0）；**拷贝与属性发布这一交未写**。本线未构建、未出镜像。
+- **日期**：2026-11-15（2026-11-16 补 §1.7 容量约束与 §1.7.1 LZMA 三问、按落地版改写 §1.5/§5.5/§5.6、改 §7 第 1 条）
 - **实现 Owner**：uefi-mondrian 线（Lead 排期）；**验收 Owner**：本线（用 13 号门禁）
 - **勘察版本**：`uefi-mondrian` `main` @ `9b79562`（工作树只有 6 个子模块脏，无源码改动）
 - **相关**：`12-DXE-CONTRACT.md`（为什么是库调用）、`13-FIRMWARE-ACCEPTANCE.md`（18 行门禁）、`14-DXE-REQUEST.md`（需求与裁决）、`06-MODEM-PAS.md`（内核侧）
@@ -14,7 +14,7 @@
 
 在 DarwinBoot 的 `Boot()` 里、ADT 解析之后（`DarwinBoot.c:721`）、主窗口分配之前（`DarwinBoot.c:751`）调用一个新库 `ImageCarrierLib`：它把 payload 里 `EFI/UniXNU/MODEM/` 的 27 个平铺文件按 30 行段表写进 `0x8BC00000`，把 16 字节 `{base, span}` 写进 `/chosen/memory-map`，并打三行 level-1 日志。**不新增 DXE 驱动**。
 
-> **前置未决**：这 27 个文件在当前 192 MiB payload 里装不下（缺 14,114,816 B）。扩容、压缩、或换载体三选一必须先裁决，见 **§1.7 payload 容量约束**。
+> **前置已裁（2026-11-16 05:10 / 05:24）**：这 27 个文件在当前 192 MiB payload 里装不下（缺 14,114,816 B），Lead 选**出路 D：lzma 压缩进 payload**。三问验证见 **§1.7.1**（全部通过：目标缓冲可直指窗口物理地址、scratch 只需 16,256 B、构建期须改写 8 B size 字段并加 CRC32 列）。容量算术与 A/B/C 的否证见 **§1.7**。
 
 ## 1 驱动形态
 
@@ -70,17 +70,35 @@
 
 ### 1.5 构建接线：4 个新文件 + 5 处改动
 
-| 动作 | 文件 | 具体做法 |
+**这一节已按实际落地的形状改写（2026-11-16，Lead 提交 `a9cd70d`）**：库最终放在
+`DarwinBootPkg/Library/` 下（不是本节最初建议的 `mondrianPkg`），并且**不需要动 `mondrian.dec`**
+——头文件用引号包含，不经过 `<Library/...>` 的搜索路径。
+
+| 动作 | 文件 | 状态 |
 | --- | --- | --- |
-| 新建 | `Platforms/Xiaomi/mondrianPkg/Include/Library/ImageCarrierLib.h` | 此文件不存在，需新建；内容见 §5.2 |
-| 新建 | `Platforms/Xiaomi/mondrianPkg/Library/ImageCarrierLib/ImageCarrierLib.c` | 此文件不存在，需新建；规模约 450-550 行（§5.7） |
-| 新建 | `Platforms/Xiaomi/mondrianPkg/Library/ImageCarrierLib/ImageCarrierLib.inf` | 此文件不存在，需新建；形状见 §5.6 |
-| 新建（生成物） | `Platforms/Xiaomi/mondrianPkg/Include/K60ModemImageTable.h` | 由 k60-cellular 的 `scripts/gen-modem-table.py --firmware-header` 生成，**禁止手改**（13 的 B5 会与生成器输出逐字节 diff） |
-| 改 | `Platforms/Xiaomi/mondrianPkg/mondrian.dec` | 在 `:14-15` 的 `[Includes]` 之后加 `[LibraryClasses]` 段，一行 `ImageCarrierLib|Include/Library/ImageCarrierLib.h`（照 `UniXNUPkg.dec:17-20` 的形状） |
-| 改 | `Platforms/Xiaomi/mondrianPkg/mondrian.dsc` | `:83` 的 `MemoryMapLib|...` 后面加 `ImageCarrierLib|mondrianPkg/Library/ImageCarrierLib/ImageCarrierLib.inf` |
-| 改 | `Platforms/Xiaomi/DarwinBootPkg/DarwinBoot.dsc` | `:26` 的 `DebugLib|...` 后面加同一行（独立 DSC 也要能编） |
-| 改 | `Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.inf` | `:20` 后加 `mondrianPkg/mondrian.dec`；`:30` 后加 `ImageCarrierLib` |
-| 改 | `Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c` | `:18`（`#include "WindowSize.h"`）之后加 `#include <Library/ImageCarrierLib.h>`；`:665` 后加两个变量；`:721` 后加调用（§1.3）；`:801` 后加三行打印（§1.6） |
+| 已建 | `Platforms/Xiaomi/DarwinBootPkg/Library/ImageCarrierLib/ImageCarrierLib.h` | 57 行，内容即 §5.2 的契约（`a8d6bd4`） |
+| 已建 | `Platforms/Xiaomi/DarwinBootPkg/Library/ImageCarrierLib/ImageCarrierLib.c` | 只读半边（`a8d6bd4`；`a9cd70d` 把两个 include 改成引号形式） |
+| 已建 | `Platforms/Xiaomi/DarwinBootPkg/Library/ImageCarrierLib/ImageCarrierLib.inf` | `MODULE_TYPE = BASE`、`LIBRARY_CLASS = ImageCarrierLib`、Sources 三文件、`[Packages]` 只 `MdePkg/MdePkg.dec`、`[LibraryClasses]` 七条、`[Guids] gEfiFileInfoGuid`（形状见 §5.6） |
+| 已建（生成物） | `Platforms/Xiaomi/DarwinBootPkg/Library/ImageCarrierLib/K60ModemImageTable.h` | 2,993 B / 46 行，由 `scripts/gen-modem-table.py --firmware-header` 生成，**禁止手改**（13 的 B5 与生成器输出逐字节 diff） |
+| 已改 | `Platforms/Xiaomi/mondrianPkg/mondrian.dsc:92` | `ImageCarrierLib|DarwinBootPkg/Library/ImageCarrierLib/ImageCarrierLib.inf`（紧跟 `:83` 的 `MemoryMapLib` 之后） |
+| 已改 | `Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.inf:26` | `[LibraryClasses]` 加 `ImageCarrierLib` —— **这一行才是真正触发编译的那一行**，见下面坑 ① |
+| 不需要 | `Platforms/Xiaomi/mondrianPkg/mondrian.dec` | 最初建议加 `[Includes]`+`[LibraryClasses]`，实测**不需要**：引号包含绕过了 `<Library/...>` 搜索 |
+| 不需要 | `Platforms/Xiaomi/DarwinBootPkg/DarwinBoot.dsc` | 独立 DSC 只在单独编 DarwinBoot 时用；平台构建走 `mondrian.dsc:120` 编同一个 `.inf`，库从 `mondrian.dsc` 的 `[LibraryClasses]` 取 |
+| 待改 | `Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c` | 第二交：`:18` 之后加 `#include "ImageCarrierLib.h"`（引号）；`:665` 后加变量；`:721` 后加调用（§1.3）；`:801` 后加三行打印（§1.6） |
+
+**两个构建坑（Lead 2026-11-16 05:24 实测踩到，写拷贝半边时会再遇到）**：
+
+1. **只在 DSC 的 `[LibraryClasses]` 里写一行，EDK2 什么都不会编译**。它只构建被某个组件
+   `[LibraryClasses]` 引用的库。第一次重建 FD 尺寸不变、连 `Build/.../ImageCarrierLib/` 对象目录
+   都不存在，看起来像「改动生效了」，其实是惰性的。必须在 `DarwinBoot.inf` 里也引用。
+2. **`DarwinBootPkg` 没有 `.dec`**，所以 `#include <Library/ImageCarrierLib.h>` 没有 include 路径可解析，
+   报 `fatal error: 'Library/ImageCarrierLib.h' file not found`。改成引号包含
+   `#include "ImageCarrierLib.h"` / `#include "K60ModemImageTable.h"` 即可。**新增头文件同样用引号。**
+
+**「链接进去但不调用不改变启动」是实测结论**（不是论证）：`a9cd70d` 之后
+`ImageCarrierLib.obj` 29,036 B 编译通过、FD 仍精确 3,145,728 B，用该卷打图真机飞到 SpringBoard 128 次、
+`Early boot complete` 1 次、`K60DATA mounted` 1 次、panic 0、`no boot entry` 0
+（证据 `E:\k60-work\evidence\usblog-20261116-052044`）。
 
 **为什么库放 `mondrianPkg` 而不是 `DarwinBootPkg`**：`DarwinBootPkg` 没有 `.dec`（该目录只有 10 个文件：`DarwinBoot.dsc`、`Driver/*`、`VENDORED.md`），没有 `[Includes]` 就没有 `<Library/...>` 的搜索路径；`mondrianPkg/mondrian.dec:14-15` 已有 `[Includes] Include`，且这个载具本来就是板级事实（固定 `0x8BC00000`、27 个固定文件名），放板级包是对的。
 
@@ -514,10 +532,11 @@ ImageCarrierLoad (
 
 ### 5.5 调用点改动（`DarwinBoot.c`，四处）
 
-a) `:18` 的 `#include "WindowSize.h"` 之后（`:1-18` 是现有 include 块）：
+a) `:18` 的 `#include "WindowSize.h"` 之后（`:1-18` 是现有 include 块）。
+**用引号包含，不要用 `<Library/...>`**（`DarwinBootPkg` 没有 `.dec`，见 §1.5 的坑 ②）：
 
 ```c
-#include <Library/ImageCarrierLib.h>
+#include "ImageCarrierLib.h"
 ```
 
 b) 声明块 `:665` 的 `CHAR16 Failure[96];` 后：
@@ -542,23 +561,25 @@ d) `:801` 的 `CopyMem` 之后：
 
 未使用 `CarrierOffset` 时加 `(VOID)CarrierOffset;`，避免 `-Wunused-but-set`；若编译器仍报，把 d) 的第一行改成引用它的 `ASSERT (CarrierOffset != 0)`。
 
-### 5.6 库 INF（照 `UniXNULib.inf:8-46` 的形状）
+### 5.6 库 INF（实际落地版，`a9cd70d`）
 
 ```ini
+## SPDX-License-Identifier: BSD-2-Clause-Patent
 [Defines]
   INF_VERSION    = 0x00010019
   BASE_NAME      = ImageCarrierLib
-  FILE_GUID      = <新生成一个 GUID>
-  MODULE_TYPE    = UEFI_DRIVER
+  FILE_GUID      = 8E4C1F62-3A57-4B0D-9C21-6D5F7A0E3B14
+  MODULE_TYPE    = BASE
   VERSION_STRING = 0.1
-  LIBRARY_CLASS  = ImageCarrierLib|UEFI_DRIVER
+  LIBRARY_CLASS  = ImageCarrierLib
 
 [Sources]
   ImageCarrierLib.c
+  ImageCarrierLib.h
+  K60ModemImageTable.h
 
 [Packages]
   MdePkg/MdePkg.dec
-  mondrianPkg/mondrian.dec
 
 [LibraryClasses]
   BaseLib
@@ -571,10 +592,14 @@ d) `:801` 的 `CopyMem` 之后：
 
 [Guids]
   gEfiFileInfoGuid
-
-[Protocols]
-  gEfiSimpleFileSystemProtocolGuid
 ```
+
+与本规格最初草稿的三处差异（都是实测后收窄的，照落地版写）：
+
+1. `MODULE_TYPE = BASE` 而不是 `UEFI_DRIVER`：库本身不产生驱动镜像，纯函数集合。
+2. `[Packages]` **只列 `MdePkg/MdePkg.dec`**：头文件用引号包含，不需要 `mondrian.dec` 的 `[Includes]`。
+3. **没有 `[Protocols]` 段**：`gEfiSimpleFileSystemProtocolGuid` 由调用方（`DarwinBoot.inf`，`:32-36`）声明，
+   库只用传进来的 `EFI_FILE_PROTOCOL *`，自己不 `LocateProtocol`。
 
 ### 5.7 实现顺序（可直接拆成多个 commit）
 
@@ -589,6 +614,9 @@ d) `:801` 的 `CopyMem` 之后：
 
 建议第 1-2 步先落一个只读版（只校验、打日志、返回 `EFI_SUCCESS` 且 `Files = 0`），上机确认三行日志与桩行为，再开写真实拷贝 —— 这样固件线的第一次上机就不必同时验证「读文件」和「不弄坏启动」。
 
+**只读版已完成并实测**（`a8d6bd4` 代码、`a9cd70d` 接线）：编译通过、FD 尺寸不变、真机飞到 SpringBoard。
+所以第 3-8 步就是「拷贝与属性发布」这一交的全部内容，不需要再回头验证构建链。
+
 ### 5.8 与 ADSP 的关系（已裁）
 
 14 §4 的裁决：DXE 只服务 modem；ADSP 走内核内嵌 blob（main `996aac6`，符号 `k60_adsp_blob`，23,506,184 B）。所以库里**不要**出现 ADSP 分支，也不要做通用容器解析（12 §1.6 已拒容器）。
@@ -597,11 +625,11 @@ d) `:801` 的 `CopyMem` 之后：
 
 | 门禁行 | 本规格哪一节满足 | 备注 |
 | --- | --- | --- |
-| A1 / A2 payload 与 boot.img 尺寸 | 不由代码决定 | 27 个文件总量决定；13 现给 234881024 / 235446272（=224 MiB 档）。若按 §1.7 建议走 208 MiB 档，A1/A2 必须同步改成 218103808 / 218664960，否则门禁假红 |
-| A3 27 个文件名集合 | §2.4 第 4 步 | 名字不带 `.bin`，与 manifest 同名 |
-| A4 逐个大小 | §2.4 第 4 步 | 大小不符在固件里就硬失败，A4 只是外部复核 |
+| A1 / A2 payload 与 boot.img 尺寸 | 不由代码决定 | 13 现给 234881024 / 235446272 是 224 MiB 档（`11-CARRIER.md` §2.2 的旧提案）。**走 D 则卷仍是 192 MiB** ⇒ 应改成 **201326592 / 201887744**（`fdtest-20261116a` 实测）；若改走 A-208 则改成 218103808 / 218664960。三种数字只能留一种，按 Lead 的「最终路线一次性改」执行 |
+| A3 27 个文件名集合 | §2.4 第 4 步 | 名字不带 `.bin`，与 manifest 同名；**走 D 时卷里是 `modem.bNN.lzma`**，A3 的名单要带 `.lzma` 后缀，否则集合比对失败 |
+| A4 逐个大小 | §2.4 第 4 步 | 走 D 后判据变成「解压后大小 == 段表 `bytes`」，压缩尺寸本身不再是断言值；另需新增一条「卷里确实是压缩形态」（见 §1.7 出路 D 的代价二） |
 | A5 ADT 16 B 属性 | §3.1、§3.2 | 构建期占位 + 运行时写入 |
-| B1 `ImageCarrierLib` 存在 | §1.5 | 三个新文件（`.h`/`.c`/`.inf`） |
+| B1 `ImageCarrierLib` 存在 | §1.5 | 三个新文件（`.h`/`.c`/`.inf`）+ 生成物 `K60ModemImageTable.h`；已落 `a9cd70d` |
 | B2 `DarwinBoot.c` 里有 `ImageCarrierLoad` | §5.5(c) | 调用点在 `Boot()` 内 |
 | B3 `DarwinBoot.c` 里 `K60ModemImage` >= 2 处 | §3.3 | 属性名字面量 + 发布行都在 `Boot.c` 里，不能只放库里 |
 | B4 三行 D3、无 `DEBUG(` | §1.6 | 全部 `Print()` |
@@ -621,6 +649,9 @@ d) `:801` 的 `CopyMem` 之后：
 4. **固件表随 modem 固件升级**：换 modem 固件必须同时改三处（`pong_modem_table.h`、`K60ModemImageTable.h`、payload 的 27 个文件），否则 B5/A4 会红。
 5. **未验证项**：306 MiB 非缓存写的耗时（估计 1-3 s，未实测）；`AblEnd` 扫描在真机 `GetMemoryMap` 上的命中情况（若命中 0，D3 第三行会打 0，C1 仍绿，但要在日志里标注）。
 6. **不带 `MODEM/` 的镜像照常启动**：这是设计目标，不是遗留缺陷（§4.4）。
+7. **走 D 后新增三项构建期职责**（本线，不是固件线）：打包工具改写 `.lzma` 头里 8 B 的声明大小（§1.7.1 ③）；
+   `gen-modem-table.py --firmware-header` 增加 `crc32` 列（压缩数据的 CRC32，供固件解压前比对）；
+   13 号门禁按 §6 的 A1–A4 新判据一次性改。三者都在「段表单一数据源」的前提下做，改表仍先回 Lead。
 
 ## 8 引用
 

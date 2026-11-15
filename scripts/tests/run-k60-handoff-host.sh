@@ -33,6 +33,10 @@ cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-reader.c "${OWNER_SOURCES[@]}" -o 
 "$OUT/reader" /mnt/e/k60-work/firmware/adsp
 cc "${CFLAGS[@]}" -DK60_ADSP_TEST_LINKED scripts/tests/test-k60-adsp-reader.c "${OWNER_SOURCES[@]}" -o "$OUT/reader-linked"
 "$OUT/reader-linked" /mnt/e/k60-work/firmware/adsp
+cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-blob.c \
+  drivers/PongPower/K60AdspImageReader.c drivers/PongPower/K60Fat.c \
+  drivers/PongPower/K60AdspMdt.c -o "$OUT/blob"
+"$OUT/blob" /mnt/e/k60-work/firmware/adsp
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2

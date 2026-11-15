@@ -122,6 +122,60 @@ def a_stale_kernel_pair_is_skipped_not_failed():
 
 
 @case
+def a_guarded_call_site_that_compiled_away_fails():
+    """P-208: a force-loaded archive with no call site is inert but links."""
+    import time
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        board = out / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        kernel = board / "kernel" / "kernel.macho"
+        (board / ".config").write_text(
+            "CONFIG_XNU_K60_PHYSICAL_BATTERY=y\n", encoding="utf-8")
+        time.sleep(0.02)
+        kernel.write_bytes(b"\x00" * 64)
+        tree = board / "tree"
+        (tree / "build" / "k60-battery").mkdir(parents=True)
+        (tree / "build" / "k60-battery" / "libK60PhysicalBattery.a").write_bytes(b"!<arch>\n")
+        obj = tree / "build" / "xnu" / "ios-obj" / "X" / "iokit" / "DEVELOPMENT" / "IOKitBSDInit.cpo"
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(b"no references here")
+        rc = gate.main(["--out", str(out), "--kernel", str(kernel)])
+        assert rc == 1, f"expected 1 when the call site compiled away, got {rc}"
+
+
+@case
+def a_guarded_call_site_that_compiled_in_passes():
+    """Same tree, but the object names the publisher: the block is live."""
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        board = out / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        kernel = board / "kernel" / "kernel.macho"
+        # The kernel must carry every configured archive symbol for P-190.
+        kernel.write_bytes(b"\x00" * 64)
+        (board / ".config").write_text(
+            "CONFIG_XNU_K60_PHYSICAL_BATTERY=y\n", encoding="utf-8")
+        tree = board / "tree"
+        (tree / "build" / "k60-battery").mkdir(parents=True)
+        (tree / "build" / "k60-battery" / "libK60PhysicalBattery.a").write_bytes(b"!<arch>\n")
+        obj = tree / "build" / "xnu" / "ios-obj" / "X" / "iokit" / "DEVELOPMENT" / "IOKitBSDInit.cpo"
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(b"U _k60_adsp_handoff_publish")
+        # nm cannot read the fixture, so the gate falls back to the bytes and
+        # the kernel-symbol half is satisfied by patching kernel_symbols.
+        original = gate.kernel_symbols
+        gate.kernel_symbols = lambda kernel, nm: {"k60_physical_battery_start"}
+        try:
+            rc = gate.main(["--out", str(out), "--kernel", str(kernel)])
+        finally:
+            gate.kernel_symbols = original
+        assert rc == 0, f"expected 0 when the call site is live, got {rc}"
+
+@case
 def no_kernel_is_an_error():
     gate = load_gate()
     with tempfile.TemporaryDirectory() as tmp:

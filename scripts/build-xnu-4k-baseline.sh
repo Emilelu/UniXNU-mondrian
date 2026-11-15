@@ -531,6 +531,14 @@ if [ -d "$MOCKFS_OBJECT_DIR" ]; then
 fi
 EXTRA_MAKE_ARGS+=("ubc_subr.o_CFLAGS_ADD=-DXNU_NATIVE_CS_HASH_CACHE=$CS_HASH_CACHE_MODE")
 EXTRA_CFLAGS=${XNU_EXTRA_CFLAGS:--Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding}
+if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+  # P-208: PERSONALITY_CFLAGS only reaches KernelConfigTables.cpo, so the
+  # guarded blocks in iokit/bsddev/IOKitBSDInit.cpp compiled away and both call
+  # sites (k60_physical_battery_start, k60_adsp_handoff_publish) never ran --
+  # with no link error, because force_load had already pulled the archive in.
+  # Put the define in the global flags so the whole kernel agrees on it.
+  EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_K60_PHYSICAL_BATTERY=1"
+fi
 if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   # 0620/0613: bsd/dev/pong_adsp_boot.c includes the owner reader ABI from the
   # device repo so the K60AdspReader struct stays single-sourced (P-169).

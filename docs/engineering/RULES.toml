@@ -641,3 +641,11 @@ source = "docs/engineering/PITFALLS.md:P-207"
 statement = "门禁不得对被它自己阻塞的陈旧产物下结论：out 树被 defconfig 重新生成但 kernel 未重建时，kernel/.config 这一对不可比，必须打印 skip 并返回 0，等构建刷新后再判"
 check = "python3 scripts/tests/test-check-kernel-archives.py"
 note = "2026-11-15 baseline-20261115a 重建被 P-190 拒（PHYSICAL_BATTERY=y 但旧 kernel 无符号），而刷新内核正是被挡的那次构建；同族第三次（P-194 series/manifest、P-165 build stamp）。修法：check-kernel-archives.py 在 kernel.mtime < .config.mtime 时 skip。"
+
+[[rule]]
+id = "P-208"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-208"
+statement = "-D 的作用域必须覆盖所有用它的 TU：只挂在一个 object 的 CFLAGS_ADD 上的开关，在别的 TU 里同名 #if 会静默编译成空，而 force_load 让链接永远不报错"
+check = "python3 scripts/tests/test-check-kernel-archives.py"
+note = "2026-11-15 adsp-20261115d 真机干净进桌面但 K60Handoff 命中 0 次：-DXNU_K60_PHYSICAL_BATTERY=1 只挂 KernelConfigTables.cpo_CFLAGS_ADD，iokit/bsddev/IOKitBSDInit.cpp 的 0602/0619 守卫块整体编译为空，电池入口与 ADSP 发布器自合入起是死代码。修法：build-xnu-4k-baseline.sh 把该 define 加进全局 EXTRA_CFLAGS；check-kernel-archives.py 新增 P-208 引用检查。"

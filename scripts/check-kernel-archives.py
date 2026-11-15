@@ -186,6 +186,36 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+    # P-208: a force-loaded archive whose call site compiled away is just as
+    # dead as one inside a false branch, and it links without an error because
+    # force_load pulls the members in. The guarded blocks live in
+    # iokit/bsddev/IOKitBSDInit.cpp, so that object must reference the archive.
+    if enabled(config, "XNU_K60_PHYSICAL_BATTERY"):
+        objects = sorted(tree.glob("build/xnu/ios-obj/*/iokit/*/IOKitBSDInit.cpo"),
+                         key=lambda p: p.stat().st_mtime)
+        if objects:
+            newest = objects[-1]
+            proc = subprocess.run([nm, "-u", str(newest)], capture_output=True, text=True)
+            if proc.returncode == 0:
+                referenced = "k60_adsp_handoff_publish" in proc.stdout
+            else:
+                # A fixture is not a Mach-O object, so fall back to the string
+                # table bytes: an undefined symbol keeps its name there.
+                referenced = b"k60_adsp_handoff_publish" in newest.read_bytes()
+            if not referenced:
+                problems.append(
+                    "CONFIG_XNU_K60_PHYSICAL_BATTERY=y but "
+                    "iokit/bsddev/IOKitBSDInit.cpp has no call to "
+                    "k60_adsp_handoff_publish: the guarded block compiled away, "
+                    "so the battery entry point and the ADSP publisher never run "
+                    "(P-208; the define must reach that translation unit, not "
+                    "only KernelConfigTables.cpo)"
+                )
+    if problems:
+        print("FAIL: kernel archives", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
     if args.adsp_blob:
         if any("k60_adsp_blob" in name for name in symbols):
             print("✅ kernel archives: ADSP carrier blob linked (k60_adsp_blob present)")

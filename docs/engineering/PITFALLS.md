@@ -5058,3 +5058,34 @@ is in kernel.macho` 并拒构建。但该符号缺失的原因正是「`out-base
 
 Check: `python3 scripts/tests/test-check-kernel-archives.py`（8 例，含
 `a_stale_kernel_pair_is_skipped_not_failed`）与 registry `id = "P-207"`。
+
+## P-208 — `-D` 只挂在一个 object 上，另一处的同名守卫静默编译成空
+
+现场：`feat/adsp-carrier` 合入 main 后，功能图 `adsp-20261115d`（`pong_handoff_publish=1`，
+payload args 末项确认在）真机启动干净（SpringBoard 132、panic 0），但
+`K60Handoff:` / `K60PAS` 命中 **0 次**——发布器一次都没跑。查 `llvm-nm -18` 在
+`ios-obj/DEVELOPMENT_ARM64_PONG/iokit/DEVELOPMENT/IOKitBSDInit.cpo` 上：
+**没有任何**对 `k60_adsp_handoff_publish` / `k60_physical_battery_start` 的未定义引用。
+根因：`scripts/build-xnu-4k-baseline.sh` 把 `-DXNU_K60_PHYSICAL_BATTERY=1` 只塞进
+`PERSONALITY_CFLAGS`，而它只挂 `KernelConfigTables.cpo_CFLAGS_ADD`；`0602`/`0619` 的
+`#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY` 块在
+`iokit/bsddev/IOKitBSDInit.cpp` 里 → 该 define 从没到达这个 TU → 整块编译为空。
+**而链接不会报错**：`-Wl,-force_load` 已经把所有 archive 成员拉进来了，
+所以 `P-190` 的「符号在不在 kernel」一直是绿的。也就是说电池线的入口与 ADSP 发布器
+从合入那天起就是死代码，`charging ⑧` 也一样。
+
+教训：
+
+1. `-D` 的作用域必须等于「用到它的所有 TU」的作用域。XNU 的 `<obj>_CFLAGS_ADD` 是
+   按 object 挂的，一个 define 只挂在 `KernelConfigTables.cpo` 上就不可能影响
+   `iokit/bsddev/*.cpp`——凡是被多处 `#if` 判定的开关，走全局 `EXTRA_CFLAGS`。
+2. 「符号在 kernel 里」证明不了「代码会被调用」：force_load 让符号永远存在。要证明
+   调用点活着，只能看**引用**（`nm -u <TU>.o` 里有该符号）或真机日志。
+3. 静默的早退最贵：`k60_adsp_handoff_publish()` 有六条 `return`（claim 失败、板配置
+   解析失败、四段地址重叠、`/chosen` 缺失、已存在）都不打印任何东西。判据必须
+   区分「没被调用」与「被调用但早退」——本条的判据是「`K60Handoff:` 命中 0 次」
+   配上 nm 的引用检查。
+
+Check: `python3 scripts/tests/test-check-kernel-archives.py`（10 例，含
+`a_guarded_call_site_that_compiled_away_fails` /
+`a_guarded_call_site_that_compiled_in_passes`）与 registry `id = "P-208"`。

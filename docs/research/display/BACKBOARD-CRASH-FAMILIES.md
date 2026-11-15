@@ -161,7 +161,7 @@ jq -r '.repo.head, .series.sha256' <build-manifest.json   # 与 bt 分支 ad49ff
     python3 scripts/check-backlight-log.py log   # B 族正判器，EXIT=0 为 PASS
     grep -c 'getBytes:range:'       log   # >0 → C 族；崩溃次数 ≈ (命中数+1)/2（成对打）
 
-C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5。
+C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5；**按什么顺序读、每档怎么落判**见 §7。
 
 ## 5 缺口
 
@@ -200,5 +200,100 @@ C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5
   等它进 main 后本线门禁自动覆盖；此段按 Lead 口径记录，暂不引用行号。
 - 与本族的关系：A/B/C 三族都要求镜像至少活到 backboardd 起来；0 字节族死在更早阶段，
   用 §4 的判据会得到「getBytes=0、SpringBoard=0、first frame=0」的假健康。所以判 C 族前先过一遍本节。
+
+状态（2026-11-16 00:10 更新）：Lead 23:59 指派 §7「C 族的判定顺序」已落地（三档 C-alive /
+C-shadowed / C-alive-but-noisy + 一行判定命令 + 行号对格式）；复核发现已飞的 h12/h23 就是首批带 ad49ff2
+的镜像，getBytes 0 / SpringBoard 132,128 / first frame 1 ⇒ C 族按 §7.4 判 C-alive，不必等 bt-late 图。
+
+## 7 C 族的判定顺序（把症状写成流程；Lead 2026-11-15 23:59 指派）
+
+§3.5 是「数哪五个数」，本节是「按什么顺序读、每档怎么落判」。判 C 族**不是先看崩溃次数**，
+而是先排除「没活到能判」和「飞错镜像」两种假象，再看命中数与桌面存活度。顺序固定为四步：
+
+    步 0  日志是不是 0 字节？        → 是：§6，先判「死在 USB 控制台之前」，与 C 族无关
+    步 1  镜像真带 ad49ff2 吗？      → 否：只能当基线（§3.5 基线对照），不判 C 族
+    步 2  数 getBytes 命中 + 桌面存活 → 三档之一（下表）
+    步 3  抽签名                       → 只用来解释「被谁遮住」或「第二个发布点」
+
+**所有计数一律加 `-a`**。真实日志里混有二进制字节（h23 的 console.log 就被 grep 判为 binary），
+不加 `-a` 时 `grep -c` 仍给数字，但 `grep -oE`/`sed` 管道会输出 `binary file matches` 而静默变成 0 行——
+本线在 23:57 就因为漏了 `-a` 得到过「h23 的 uncaught exception 抽不出来」的假结论。
+
+### 7.1 三档判据（一行命令出结论）
+
+```sh
+L=console.log
+G=$(grep -ac 'getBytes:range:' "$L"); S=$(grep -ac 'SpringBoard' "$L"); F=$(grep -ac 'first frame presented' "$L")
+if   [ "$G" -eq 0 ] && [ "$S" -ge 100 ] && [ "$F" -ge 1 ]; then echo "C-alive  (G=$G S=$S F=$F)"
+elif [ "$G" -eq 0 ];                                    then echo "C-shadowed (G=$G S=$S F=$F)"
+elif [ "$G" -lt 19 ];                                   then echo "C-alive-but-noisy (G=$G S=$S F=$F)"
+else                                                         echo "C-not-fixed (G=$G S=$S F=$F)"; fi
+```
+
+| 档 | 条件 | 含义 | 落判动作 |
+| --- | --- | --- | --- |
+| **C-alive** | getBytes = 0 **且** SpringBoard ≥ 100 **且** first frame ≥ 1 | 0509 的 OSData 修复在真机生效，C 族结案 | 五数（G/S/F/entered/crashed）写进 HANDOFF 与 EIGHT-STEPS device 证据，§0 状态标 C 族 closed |
+| **C-shadowed** | getBytes = 0 **但** SpringBoard < 100 | 不是生效也不是失败：C 族症状消失了，但桌面死在**别的族**手上 | 跑 7.3 抽签名，写明是哪个族（A 见 §1、B 见 §2），并把该族判据行抄进结论；不得记为「修复生效」 |
+| **C-alive-but-noisy** | 0 < getBytes < 19（显著下降，如 36 → 3） | 部分生效：还有第二个 OSString 发布点 | 给**下降前后的行号对**（见 7.2 格式），跑 §3.5 命令 B 抽新 selector/实例类型，再跑命令 C 找漏网字符串属性 |
+| （未生效） | getBytes ≥ 19，与基线 36/37 同量级 | 镜像没带修复或修复无效 | 先跑 §3.5 命令 D 确认镜像带 ad49ff2；确认后才按 §3.5.1 三属性二分 |
+
+**注意：C-alive 不等于「修复生效」。** 不带 0509 的控制图（如 adsp-e `usblog-20261115-223916`，G=0 S=120 F=1）
+用同一条命令也判 C-alive——因为它压根没发布那些字符串属性。所以**步 1 必须先过**：只有镜像真带 ad49ff2
+（命令 D 非 0）时，C-alive 才等于「修复生效」；否则它只说明「这张图不涉及 C 族」。
+
+### 7.2 C-alive-but-noisy 必须给的行号对
+
+「次数下降」只有配上「第一次命中出现在第几行、最后一次在第几行」才是证据，否则无法与
+「日志变短」区分。三张基线实测（`grep -an 'getBytes:range:' $L | head -1` / `tail -1`）：
+
+| 日志 | 总行数 | 首命中行 | 末命中行 | 命中数 |
+| --- | --- | --- | --- | --- |
+| s4c `usblog-20261115-162553` | 3535 | :1303 | :3528 | 37 |
+| h1 `usblog-20261115-211515` | 3558 | :1463 | :3527 | 36 |
+| h4 `usblog-20261115-230627` | 3703 | :1384 | :3659 | 36 |
+
+修复图若变成 3 次，就写成「37 → 3，首命中 :1303 → :xxxx，末命中 :3528 → :yyyy」，
+并说明剩下的命中是集中在启动早期（第二个发布点只跑一次）还是贯穿全程（另有循环发布）。
+
+### 7.3 抽签名（解释 shadowed / noisy 用）
+
+```sh
+grep -aoE "uncaught exception '[^']+', reason: '[^']{0,40}" "$L" \
+  | sed -E 's/0x[0-9a-f]+/0x../g' | sort | uniq -c | sort -rn | head -3
+```
+
+实测分布（同一命令跑出来的原始计数）：
+
+| 日志 | 首位签名 | 次位签名 |
+| --- | --- | --- |
+| s4c / h1 / h3 / h13 / h4（不带 ad49ff2） | `-[NSTaggedPointerString getBytes:range:]` 18–19 次 | `-[NSURL initFileURLWithPath:isDirectory:]: nil string parameter` 11–22 次（A 族） |
+| h12 / h23 / baseline / usb-d / adsp-c,d,e（getBytes = 0） | `-[NSURL initFileURLWithPath:isDirectory:]: nil string parameter` 13–22 次（A 族噪声） | 无 C 族签名 |
+
+读法：**首位签名是 C 族**才算 C 族未修；首位签名是 A 族且 getBytes = 0，说明 C 族已消失，
+剩下的是 P-120 金属注入的既有噪声——它不阻止桌面起来（h12/h23 的 SpringBoard 132/128 行就是证明）。
+
+### 7.4 现成证据：h12 与 h23 已经满足 C-alive
+
+Lead 23:59 说「要判的是 bt-late-20261115a（全量 0511 + 0512 + ad49ff2）」。本线复核发现
+**已经飞过的 h12 / h23 就是首批带 ad49ff2 的镜像**，不必等新图即可给出 C 族结论：
+
+```sh
+git merge-base --is-ancestor ad49ff2 <head>                                # h12 364499d869 YES、h23 ba4afb2a4a YES
+git show <head>:patches/xnu/0509-*.patch | grep -c k60_bt_string_property  # h12 5、h23 5；h1/h3/h13/h4/s4c 均 0
+```
+
+| 镜像 | 带 ad49ff2 | getBytes | SpringBoard | first frame | entered backboardd | crashed |
+| --- | --- | --- | --- | --- | --- | --- |
+| h12 `usblog-20261115-230047`（0EB30032F24A） | 是 | **0** | **132** | **1**（:2381） | 1（:1310） | 7 |
+| h23 `usblog-20261115-235417`（9B308BAD875B） | 是 | **0** | **128** | **1** | 1（:1296） | 7 |
+| h1 / h3 / h13 / h4（基线） | 否 | 36 | 12–13 | 0 | 18 | 30–45 |
+
+h12 同日志还有 `:186 K60 BT: published local address ee:98:c5:8a:6b:4e` 与
+`:762 [bluetooth] power=1 result=0 baud=115200 firmware=`——即「身份发布成功 + 类型正确 + 桌面起来」
+三件事同时成立。按 7.1 判 **C-alive**：C 族（getBytes:range: 类型不匹配）在 ad49ff2 上已结案，
+残留的 17–22 次 NSURL nil 是 A 族（P-120），按 §1 处理，不属本族。
+
+仍建议 bt 线飞 bt-late-20261115a 时用本节复核一次（它是「全量 0511 + 0512 late-start」，
+比 h12/h23 的二分底座更接近最终形态）；但 C 族的结论**不依赖**那张图。
 
 

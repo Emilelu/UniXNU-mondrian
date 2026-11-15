@@ -183,6 +183,23 @@ status Charging、current_now 836 mA、voltage_now 4 333 mV、USB CDP online。
 ## 4. 判定与证据归档
 
 - **PASS** = C1 ∧ C2 ∧ C3 全部成立；**FAIL** = 任一出现系统性/符号失败；**INVALID** = 前置缺失或样本不足。
+
+**判据可执行化**：C1–C3 由 `scripts/judge-battery.py` 判定。输入一份
+`console.log`（或整个 usblog 目录，自动找 `console.log`），每条判据单独一行
+`C1 订阅成立 : PASS (命中 1 次, 证据 :3, :4)`，末行固定
+`TOTAL: n PASS / n FAIL / n INVALID`（没有 TOTAL 行等于没跑过）。
+
+```
+python3 scripts/judge-battery.py --log E:/k60-work/evidence/usblog-20261116-xxxxxx
+python3 scripts/judge-battery.py --log <usblog-dir> --android android-samples.tsv \
+    --window-start 1763000000 --window-end 1763001800
+```
+
+自测 `python3 scripts/tests/test-judge-battery.py`（16 例：lease 未发布的 INVALID、
+`subscribed=0` 的 FAIL、只有首帧不判失败、电压越界、`temp=0.00C` 视为未就绪、
+`subscription-ack=0/0` 与 `2/24` 两种常量形态、C3 四种结局）。两个离线限制写在
+脚本 docstring 里：IOLog 行没有时间戳，所以 C1 的 ≤10 s 窗口只能按行序判；
+C3 的配对时刻只能靠 `--window-start/--window-end` 圈定。
 - 最小证据集：① 一份完整 usblog（含 handoff 行、channel up 行、全部 sample 行）；② Android 侧命令原文 + 时间戳；③ 下表填好的对照表。
 
 grep 模板：

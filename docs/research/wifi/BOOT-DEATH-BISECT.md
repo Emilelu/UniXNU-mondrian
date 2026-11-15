@@ -277,15 +277,20 @@ payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
 
 **判据可执行化**：C1–C4 由 `scripts/judge-wifi-boot.py` 判定。输入一份
 `console.log` 或整个含 `capture.json` 的采集目录，输出四态
-`alive` / `driver-dead` / `silent` / `unknown`（退出码 0/1/2/3），并直接打印下一步：
+`alive` / `driver-dead` / `silent` / `unknown`（退出码 0/1/2/3），并直接打印下一步。
+判定行自身带 `[exit N]`：管道（`| head`、`| tee`）会把 `$?` 换成最后一段的状态，
+而 `silent` 曾因此被读成 exit 0；要机器读就取裸调用的 `$?`，或在 bash 里取
+`${PIPESTATUS[0]}`，过滤过输出时以行内的 `[exit N]` 为准：
 
 ```sh
 python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
 ```
 
-自测 `python3 scripts/tests/test-judge-wifi-boot.py`（10 例：mhi3 / mhi4 两份真静默、
+自测 `python3 scripts/tests/test-judge-wifi-boot.py`（11 例：mhi3 / mhi4 两份真静默、
 thermal / bt 两份真进用户态，另加 worker 断流、worker 失败串、stage 门被挡、
-无标识控制台、纯 fastboot 噪声、空文件六个合成样本）。
+无标识控制台、纯 fastboot 噪声、空文件六个合成样本，以及一例「消费者丢掉退出码
+仍能从行内 `[exit N]` 读到」。每个用例都断言退出码本身，因为退出码是判定器进
+自动流水线时的全部 API）。
 
 注意 §5.16 的窗口数学对「4.75 GiB + 65.9 MB」给出的是**余量仅 4 MB**的临界判决
 （阈值 5116 MiB vs arena 5120 MiB）；a2 就是 4.75 GiB（`wifi-20261116a2w/a2q/a2r`

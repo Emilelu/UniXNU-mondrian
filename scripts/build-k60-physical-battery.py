@@ -335,6 +335,11 @@ def main():
         common = ['-target', 'arm64-apple-ios16.0', '-isysroot', sdk,
             '-mkernel', '-ffreestanding', '-fno-builtin', '-fno-stack-protector', '-mgeneral-regs-only', '-Os',
             '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1', '-DARM64_BOARD_CONFIG_PONG=1',
+            # Kernel.framework's public string.h intentionally includes the private
+            # san/memintrinsics.h behind __has_include (XNU compiles the same chain);
+            # the host clang's framework policy turns that sanctioned include into a
+            # -Werror failure the moment any archive member pulls sys/systm.h.
+            '-Wno-framework-include-private-from-public',
             # Public headers first: PrivateHeaders/IOKit/IOLib.h expands
             # IOTypedOperatorsMixin in a way this host compiler rejects, while the
             # public IOLib.h plus the private IOPMPowerSource.h compile cleanly.

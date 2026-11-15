@@ -721,3 +721,11 @@ source = "docs/engineering/PITFALLS.md:P-217"
 statement = "子模块指针不是构建输入：构建读的是工作树内容，所以「本机能构建」证明不了「仓库能构建」；「上游已修好」必须逐文件对比，不能靠祖先关系推；配置里写「已包含」必须配一个可执行判据"
 check = "python3 scripts/tests/test-check-basecore-pin.py"
 note = "2026-11-16 board.toml 注释称 Mu_Basecore 6f805f2 已含六个 K60 修复、本机的 3d2a9fa 是它的祖先。实测 merge-base 为空、3d2a9fa 不在任何远程分支、11 个文件里 10 个在 pin 上是原始状态。改为工作树切 pin + [firmware].patches 施加五个补丁，并加 check-basecore-pin.py 门禁。"
+
+[[rule]]
+id = "P-218"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-218"
+statement = "二分实验的矩阵是「全集里哪些还没飞」，不是「我飞过哪些」；已构建未飞行的镜像可能就是决定性的那一格，而「飞过」的唯一诚实记录是每次飞行都写的 boot.json（账本只收进桌面的那些，静默镜像一条都不留）。"
+check = "python3 scripts/tests/test-check-bisect-coverage.py"
+note = "蓝牙 0005 四 hunk 二分：h123 在 23:18 构建完成、四小时无人飞，飞了才发现它才是唯一能定案的格子（{h1,h2,h3} 齐备才 silent，h4 无关）。门禁第一版读账本、第二版按哈希 join、第三版用 plain utf-8 读带 BOM 的 boot.json —— 三次都把「已飞」判成「未飞」，同一形状犯了三次。"

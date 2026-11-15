@@ -266,6 +266,9 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 | XNU 侧无上限 | xnu-work（`.cache/xnu-work`）grep `KERNEL_TEXT_MAX\|kPrelinkTextMax\|MAX_KERNEL_TEXT` = 0 命中 |
 | VA 布局注释 | xnu-work `osfmk/arm64/arm_vm_init.c:165-181`（顺序）、:2087（取段）、:1415（RNX）、:2306（紧邻断言） |
 | 解析器 | k60-wifi 树 drivers/PongWifi/PongWifiPlatform.cpp:553-556 |
+| §7.4 调用点与锁序 | k60-wifi 树 drivers/ArmDTPlatform/ArmDTPlatform.cpp:227-228、drivers/PongWifi/PongWifiPlatform.cpp:716-718（先 `pong_rpmh_init()` 后开关）与 :727-730（两把 IOLockAlloc） |
+| §7.4 符号计数 | WSL `llvm-nm-18` 扫 mhi4 payload kernel：52,274 个符号，`_pong11_*` = 861，`_pong_wifi_firmware`/`_pong_wifi_firmware_end` 各 1 |
+| bt 非单调对 series | `E:/k60-work/artifacts/bt-s4b-20261115b/build-manifest.json`（series 228 b31855c932b4…）与 `bt-s4b-20261115c/`（series 229 67baff88e1bb…）；两图 boot.img 窗口同 0x120000000 |
 | PWF2 失配 | mhi4 kernel 文件偏移 589,824 处头（count=6，entry[0] amss.bin，1..5 全空）vs 四文件实测偏移（§1 表） |
 
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与

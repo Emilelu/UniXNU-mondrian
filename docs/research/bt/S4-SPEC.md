@@ -71,10 +71,10 @@ b'NGPUADD2' + u32 count + u32 0 + u64 total(= 24 + len(body))
 | 项 | 值 |
 |---|---|
 | 文件 | `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch`（字节相同） |
-| 大小 / 行数 | 15,672 B，**289 增 / 1 删**，动两个文件：`bsd/dev/qbt_k60.c` 与 `osfmk/conf/files.arm64` |
-| sha256 | `316148931ab11fa9fbd79fbe7b878960e702b39d5e89babd0daa806655fccc96` |
+| 大小 / 行数 | 15,718 B，**289 增 / 1 删**，动两个文件：`bsd/dev/qbt_k60.c` 与 `osfmk/conf/files.arm64` |
+| sha256 | `3309d123624bf4461a5ce4e6e197e613546af51ebc894967ad8084a21f7eaa87` |
 | 接线 | `patches/xnu/series:208`（紧跟 `0509`，早于 audio 组） |
-| 依赖 | 必须在 `0500`/`0507`/`0508`/`0509` 之后（基线就是打完全系列后的 `qbt_k60.c`）；`osfmk/conf/files.arm64` 的新行插在 `WKdmCompress_4k.s` 之后，所以 `0610` 的 conf hunk 仍能干净应用（实测 `APPLY_610_CONF_OK`） |
+| 依赖 | 必须在 `0500`/`0507`/`0508`/`0509` 之后（基线就是打完全系列后的 `qbt_k60.c`）；`osfmk/conf/files.arm64` 的新行插在 `lz4_encode_arm64.s` 之后（**2026-11-16 从 `WKdmCompress_4k.s` 之后挪来**：那个位置正是 `0620-k60-adsp-blob.patch` 的上下文，先插会让 0620 的 `@@ -22,6 +22,7 @@` 对不上，整条 series 在 0620 处 `patch does not apply`） |
 
 **这个补丁是怎么重做出来的**（可复现）：`0510` 只改 `bsd/dev/qbt_k60.c`，所以在空仓库里按序
 `git apply --include='bsd/dev/qbt_k60.c'` 打 `0500`→`0501`→`0502b`→`0507`→`0508`→`0509` 得到 1871 行的基线，

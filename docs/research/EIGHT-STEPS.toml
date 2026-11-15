@@ -517,5 +517,5 @@ done = false
 evidence = "未上机。按 Lead 任务书，镜像与脚本准备好后交 Lead，由 Lead 在用户明确同意后执行 fastboot boot；本线不得自行 boot。设备侧现状记录：/sys/class/remoteproc/ 下四个节点（3000000.remoteproc-adsp、32300000.remoteproc-cdsp、4080000.remoteproc-mss、2400000.remoteproc-slpi）state 全部为 running。"
 
 [hardware.cellular.step.device.prediction]
-success = "设 pong_modem=2 时先看到 `K60MODEM qrtr: verdict ok services=N node0=0 wanted=K`（K>0，即收到 node 0 的 NEW_SERVER 且服务属 EFS/WDS/UIM/NAS/PDS）；未设或为 0 时整段静默。随后 `K60MODEM plan` 打印 30 段、copied 109060761、zeroed 211012967，随后 `K60MODEM copy` 成功返回 0；串口无 panic 标记（K60PANIC / panic( / Debugger called 各 0 次），且 SpringBoard 仍能起来（说明搬运没有踩坏别的 carveout）"
+success = "设 pong_modem=2 时先看到 `K60MODEM qrtr: verdict ok services=N node0=M wanted=K`（M>0 且 K>0：判决要求 from_node0 非零，所以 node0=0 不可能是 ok；收到 node 0 的 NEW_SERVER 且服务属 EFS/WDS/UIM/NAS/PDS）；未设或为 0 时整段静默。随后 `K60MODEM plan` 打印 30 段、copied 109060761、zeroed 211012967，随后 `K60MODEM copy` 成功返回 0；串口无 panic 标记（K60PANIC / panic( / Debugger called 各 0 次），且 SpringBoard 仍能起来（说明搬运没有踩坏别的 carveout）"
 failure = "`K60MODEM qrtr: glink fifo not fresh` 表示 GLINK 队列不是全新 epoch（设计上就放弃 adopt，属预期而非崩溃）；`modem not ready (smp2p ...)` 表示 SMP2P 里没有 slave-kernel 就绪；`K60MODEM plan` 返回 -3（越窗）或 -4（重叠）说明表与 DT 窗口不一致；`K60MODEM copy` 返回 -5 说明读分区失败（FAT 路径或 modem_a 挂载问题）；出现 panic 说明窗口映射范围写错、踩到了非 no-map 内存"

@@ -165,7 +165,7 @@ diff --git a/bsd/dev/pong_adsp_boot.c b/bsd/dev/pong_adsp_boot.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_adsp_boot.c
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,249 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* ADSP bring-up order: prove the image table is sane, copy it into the
 + * carveout, let the secure monitor authenticate, then hand the span to the
@@ -175,6 +175,7 @@ new file mode 100644
 +#include "pong_adsp_pas.h"
 +#include "pong_adsp_image.h"
 +#include "pong_fat.h"
++#include "K60AdspImageReader.h" /* device drivers/PongPower; -I added in build-xnu-4k-baseline.sh */
 +
 +#ifndef K60_HOST_TEST
 +
@@ -256,6 +257,7 @@ new file mode 100644
 +static K60FatVolume k60_fat_vol;
 +static const void *k60_fat_base;
 +static int k60_fat_ready;
++static size_t k60_fat_bytes;
 +
 +/* PE_boot_args() returns the kernel-embedded default string, not what the
 + * firmware hands over, so the md token is not visible here (measured: the
@@ -383,6 +385,7 @@ new file mode 100644
 +		return -1;
 +	}
 +	k60_fat_ready = 1;
++	k60_fat_bytes = (size_t)size;
 +	printf("K60PAS fat open ok bps=%u spc=%u root=%u clusters=%u\n",
 +	    k60_fat_vol.bytes_per_sector, k60_fat_vol.sectors_per_cluster,
 +	    k60_fat_vol.root_cluster, k60_fat_vol.clusters);
@@ -395,6 +398,20 @@ new file mode 100644
 +	}
 +	return k60_adsp_bring_up((void *)window, (size_t)K60_ADSP_WINDOW,
 +	    k60_adsp_ramdisk_reader);
++}
++
++/* Blob-less fallback binding for the owner image reader: the linked carrier is
++ * authoritative; only when it is absent does the owner adapter call here and
++ * reuse the already-mapped ramdisk FAT window (the bt
++ * k60_bt_addon_load_blob() fallback shape). A present-but-malformed carrier
++ * never reaches this hook. */
++int
++k60_adsp_legacy_reader(K60AdspReader *r)
++{
++	if (!k60_fat_ready || k60_fat_base == NULL || k60_fat_bytes == 0) {
++		return K60AdspReaderMissing;
++	}
++	return k60_adsp_reader_fat(r, k60_fat_base, k60_fat_bytes);
 +}
 +
 +#endif /* !K60_HOST_TEST */

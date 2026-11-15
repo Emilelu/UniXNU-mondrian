@@ -510,6 +510,11 @@ if [ -d "$MOCKFS_OBJECT_DIR" ]; then
 fi
 EXTRA_MAKE_ARGS+=("ubc_subr.o_CFLAGS_ADD=-DXNU_NATIVE_CS_HASH_CACHE=$CS_HASH_CACHE_MODE")
 EXTRA_CFLAGS=${XNU_EXTRA_CFLAGS:--Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding}
+if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
+  # 0620/0613: bsd/dev/pong_adsp_boot.c includes the owner reader ABI from the
+  # device repo so the K60AdspReader struct stays single-sourced (P-169).
+  EXTRA_CFLAGS="$EXTRA_CFLAGS -I$PONG_NATIVE_DRIVER_SOURCE/drivers/PongPower"
+fi
 OWNER_ROOT_PROBE=${XNU_VERIFIED_ROOT_PROBE:-0}
 if [ "$OWNER_ROOT_PROBE" != 0 ] && [ "$OWNER_ROOT_PROBE" != 1 ]; then
   echo 'XNU_VERIFIED_ROOT_PROBE must be 0 or 1' >&2

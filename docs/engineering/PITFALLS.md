@@ -5034,3 +5034,27 @@ Check: `python3 scripts/check-readme.py`（registry `id = "P-205"`）
 `TargetConditionals.h`、`firehose_buffer_private.h`）。
 
 Check: `K60_OUT=<out> python3 scripts/check-build-env.py`（registry `id = "P-206"`）
+
+## P-207 — 门禁对被它自己阻塞的陈旧产物下结论，构建永远起不来
+
+现场：ADSP 载体合入 main 后重建共享基线 `baseline-20261115a`，
+`build-strict.sh` 先跑八步门禁（36 项通过），随后 `unixnu build kernel` 跑合规注册表，
+`P-190` 报 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol
+is in kernel.macho` 并拒构建。但该符号缺失的原因正是「`out-baseline` 的 `.config`
+已被 `defconfig` 重新生成（`PHYSICAL_BATTERY=y`）而 kernel 还是旧的」——**刷新它需要
+的构建正是被这条门禁挡住的那一次**。同一形状在本仓已是第三次：P-194（`porting-gate`
+比 series 与 manifest，而 manifest 只能由被挡的构建产生）、P-165（build stamp 只能由
+构建刷新，逼出 `K60_BUILD_IN_PROGRESS=1`）。
+
+教训：
+
+1. 门禁要量的是「这一轮构建将要产生的产物」而不是「上一次构建留下的产物」。当两者
+   不可区分时（时间戳/指纹不同），门禁的正确结论是**跳过并说明**，不是失败。
+2. 判据形状：`kernel.mtime < .config.mtime` ⇒ 这一对不可比，打印 skip（含原因与
+   刷新途径），返回 0；构建结束后 build-strict 再跑同一门禁，此时 kernel 更新，才是
+   真判据。
+3. 这类 skip 不是放宽：`--kernel` 显式给出（构建后检查）时仍是硬判据；只在
+   「out 树被配置过但没重建」这一种状态跳过。
+
+Check: `python3 scripts/tests/test-check-kernel-archives.py`（8 例，含
+`a_stale_kernel_pair_is_skipped_not_failed`）与 registry `id = "P-207"`。

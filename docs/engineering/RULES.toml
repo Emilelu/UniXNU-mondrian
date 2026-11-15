@@ -633,3 +633,11 @@ source = "docs/engineering/PITFALLS.md:P-206"
 statement = "门禁脚本不得写死 board 目录名：board 目录随 defconfig 命名（mondrian vs mondrian_wifi），必须从 out 树现场推导，否则门禁验旧树、构建缺文件照样假绿"
 check = "python3 scripts/check-build-env.py"
 note = "2026-11-15 wifi 线首次在新 mondrian_wifi 树构建死在 Availability.h file not found（fakeroot 缺三个 Availability 头，prepare-xnu.py source 模式不进 ios16 链路），而 P-185 门禁因 M 硬编码 .../mondrian 一直验旧树假绿。修法：check-build-env.py find_board_dir() 按 mtime 推导，FAKEROOT_FILES 2->5。"
+
+[[rule]]
+id = "P-207"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-207"
+statement = "门禁不得对被它自己阻塞的陈旧产物下结论：out 树被 defconfig 重新生成但 kernel 未重建时，kernel/.config 这一对不可比，必须打印 skip 并返回 0，等构建刷新后再判"
+check = "python3 scripts/tests/test-check-kernel-archives.py"
+note = "2026-11-15 baseline-20261115a 重建被 P-190 拒（PHYSICAL_BATTERY=y 但旧 kernel 无符号），而刷新内核正是被挡的那次构建；同族第三次（P-194 series/manifest、P-165 build stamp）。修法：check-kernel-archives.py 在 kernel.mtime < .config.mtime 时 skip。"

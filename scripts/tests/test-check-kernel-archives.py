@@ -100,6 +100,28 @@ def a_missing_symbol_fails_the_gate():
 
 
 @case
+def a_stale_kernel_pair_is_skipped_not_failed():
+    """P-207: a configured-but-not-rebuilt out tree must not fail the build it
+    is gating -- the registry runs before the rebuild that would refresh the
+    symbol list (same shape as the P-194 deadlock)."""
+    import os
+    import time
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        board = Path(tmp) / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        kernel = board / "kernel" / "kernel.macho"
+        kernel.write_bytes(b"\x00" * 64)
+        time.sleep(0.02)
+        (board / ".config").write_text(
+            "CONFIG_XNU_K60_PHYSICAL_BATTERY=y\n", encoding="utf-8")
+        os.utime(board / ".config", None)
+        rc = gate.main(["--out", tmp, "--kernel", str(kernel)])
+        assert rc == 0, f"expected 0 for a stale kernel/.config pair, got {rc}"
+
+
+@case
 def no_kernel_is_an_error():
     gate = load_gate()
     with tempfile.TemporaryDirectory() as tmp:

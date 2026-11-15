@@ -132,6 +132,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     tree = kernel.parent.parent / "tree"
     config = kernel.parent.parent / ".config"
+    # A configured-but-not-rebuilt out tree pairs a fresh .config with an old
+    # kernel. The symbol list of that kernel cannot answer P-190, and the
+    # registry runs before the build that would refresh it (same shape as the
+    # P-194 deadlock): skip instead of failing on a stale pair.
+    if config.is_file() and kernel.stat().st_mtime < config.stat().st_mtime:
+        print(f"skip: {kernel.name} predates {config.name} in {args.out}; the out "
+              f"tree was configured but not rebuilt, so its symbol list cannot "
+              f"answer P-190 (the build that would refresh it is what this "
+              f"registry is gating)")
+        return 0
     nm = nm_tool()
     if not nm:
         print("FAIL: no nm tool found", file=sys.stderr)

@@ -14,8 +14,8 @@
 
 状态（2026-11-15 晚）：Lead 已收下本档案并离线复核确认 §3.3 归因；B 族口径终局——只认
 brightness-4（control=1，4×SIGSEGV）对 brightness-13（control=0，0 崩）这一对，交付形态 A
-（control=0 + 真 conformance）正式定稿；C 族修复验证图等 bt 线出（本线不预建）；dyld 缓存已批准
-下个上机窗口由 Lead 拉取。
+（control=0 + 真 conformance）正式定稿；C 族修复验证图等 bt 线出（本线不预建）；dyld 缓存已批准由 Lead 拉取（设备当前在 fastboot，
+拉取需 adb，窗口由用户排，Lead 2026-11-15 18:59 回复）；springboard 线类型编码线索已收录 §3.3。
 
 结构性结论：B 与 C 是同一个根——「**向 IORegistry 发布此前不存在的内容，会激活 backboardd 里
 一直死着的 Apple 代码路径**」。B 死在新路径本身，C 死在新内容与 Apple 代码的**类型约定不匹配**
@@ -73,13 +73,15 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 3. **仓库自己的内核代码证明约定**：DT 平面的 device_type/compatible 必须以 OSData（原始字节）发布、以 OSDynamicCast(OSData,…) 读取——drivers/ArmCpu/ArmCpu.cpp:103（OSData *compatible = OSDynamicCast(OSData, gic->getProperty("compatible"))）、:302、:514（device_type 同）、drivers/ArmDTPlatform/ArmDTPlatform.cpp:192（device_type）、drivers/NativeUfs/NativeUfs.cpp:53-55。
 4. **0509 违反了这个约定**：iokit/Kernel/MiniBluetooth.cpp（新文件）把 node->setProperty("device_type", "bluetooth")、compatible → "qcom,wcn7850-bt"、unixnu,adt-name → "bluetooth" 发成字符串（transport-encoding/speed 与 local-mac-address 倒是正确的原始字节）；同样的字符串属性也发到了 K60BluetoothRadio 服务上（radio->setProperty("device_type","bluetooth")），并且 registerService()；调用点在 iokit/Kernel/MiniIOSurface.cpp native_pong_ui_services_start（MiniAcceleratorPublishStub 之后加 MiniBluetoothPublishStub(provider);），门控 PE_parse_boot_argn("k60bt")。这与 k60bt=1 才崩、不设不崩的现场完全吻合。
 5. **Lead 2026-11-15 离线复核确认**：0509-k60-bt-s3-identity-publish.patch:185-187 正是这三行 C 字符串 setProperty（device_type / compatible / unixnu,adt-name），IOKit 语义下是 OSString 而非 DT 平面的 OSData 字节，引用准确；触发链闭合——0509 一直在，但 patches/bt/0005-k60-bt-s4-unblock.patch:8（镜像 patches/xnu/0511-k60-bt-s4-unblock.patch，series:209）的 hunk-2 删掉了 k60_bt_power_on() 的冷启动 `return -EOPNOTSUPP`，身份发布代码第一次真正执行 → 崩溃第一次出现（全仓库 30+ 份日志只有 bt-s4c 这一份命中）。
-6. **结论**：C 族崩的是 backboardd 里某 Apple 框架「把新出现的字符串属性当数据读」的路径（最可能是只有出现 bluetooth 设备时才会激活的 HID/蓝牙事件路径——HID 事件系统住在 backboardd 里）；具体是哪个系统帧，离线无法点名（缺 20G81 shared cache，§5）。可以肯定的是：**不在我们的显示钩子里**，且与本线的 K60Backlight 无关（bt-s4c 根本没有背光服务）。
+6. **springboard 线补充线索（Lead 2026-11-15 转达）**：userland/ui_compat.c:723-729 的 20G81 兼容层先验做法——`method_abi(setter,"v",3,"@B@")` + `strcmp(method_getTypeEncoding(setter),"v36@0:8@16B24@?28")` 在调用前断言精确类型编码；类簇（NSString/NSData）返回类型编码错标正是打出 unrecognized selector 的经典方式。该段可作 C 族修复后「宿主侧断言发布属性是 OSData」的参照（内核侧约定已是 OSDynamicCast(OSData,…)，ArmCpu.cpp:103）。springboard 线全链 grep getBytes=0，与本族「不在我们的钩子」归因不冲突。
+7. **结论**：C 族崩的是 backboardd 里某 Apple 框架「把新出现的字符串属性当数据读」的路径（最可能是只有出现 bluetooth 设备时才会激活的 HID/蓝牙事件路径——HID 事件系统住在 backboardd 里）；具体是哪个系统帧，离线无法点名（缺 20G81 shared cache，§5）。可以肯定的是：**不在我们的显示钩子里**，且与本线的 K60Backlight 无关（bt-s4c 根本没有背光服务）。
 
 ### 3.4 给 bt 线的修法建议（不在 display scope，未动手）
 
 - device_type / compatible / unixnu,adt-name 改用 OSData 发布（模拟真实 FDT 的字节数组），与仓库内核读取侧（OSDynamicCast(OSData,…)）的约定一致；
 - 或先只发 DT 节点、砍掉 K60BluetoothRadio 的 registerService()，确认 bluetoothd 能否只靠 DT 子节点工作；
 - 验证：同一张镜像 k60bt=0 起飞（预期 0 崩）→ 修复版 k60bt=1（预期 0 崩 + bluetoothd 正常）。
+- 修复后的宿主侧断言参照：仿 userland/ui_compat.c:723-729 的 method_abi + strcmp 精确类型编码断言，在用户态把读回的属性先按类型校验再用（内核侧读取约定 OSDynamicCast(OSData,…) 保持不变）。
 
 ## 4 判据汇总（只用日志）
 

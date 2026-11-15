@@ -23,12 +23,12 @@ stdout 只有表头——按 stdout 判空是工具用法错误。
 
 | 日志行 | 出处 | 含义 |
 | --- | --- | --- |
-| `K60MODEM qrtr: channel up` / `down` | `drivers/PongCellular/K60ModemLink.c:83` | GLINK 通道 `IPCRTR` 打开/关闭，modem 主动开 |
+| `K60MODEM qrtr: channel up` / `down` | `drivers/PongCellular/K60ModemLink.c:82` | GLINK 通道 `IPCRTR` 打开/关闭，modem 主动开 |
 | `K60MODEM qrtr: sent hello and new_lookup (0x0a) from port 0x4000` | `K60ModemLink.c:254` | 通道 up 后各发一次 HELLO 与 NEW_LOOKUP |
-| `K60MODEM qrtr: service 21 (0x15) instance 0 node 0 port 21` | `K60ModemLink.c:106` | 每收到一个 NEW_SERVER 打一行（service 十进制 + 十六进制） |
+| `K60MODEM qrtr: service 21 (0x15) instance 0 node 0 port 21` | `K60ModemLink.c:104` | 每收到一个 NEW_SERVER 打一行（service 十进制 + 十六进制） |
 | `K60MODEM qrtr: verdict ok services=37 node0=37 wanted=5 malformed=0 polls=N` | `K60ModemLink.c:262` | 判决行；`services` 是收到的条数（含重复）、`node0` 是其中来自 node 0 的、`wanted` 是命中 §3 五号的条数 |
 
-服务表上限 `K60_QRTR_MAX_SERVICES = 64`（`drivers/PongCellular/K60ModemQrtr.h:26`）：
+服务表上限 `K60_QRTR_MAX_SERVICES = 64`（`drivers/PongCellular/K60ModemQrtr.h:27`）：
 超过 64 条只计数不入表，但 `services`/`wanted` 仍继续累加。
 
 ## 3. 五个判据服务（当前镜像的 wanted 集合）
@@ -156,7 +156,7 @@ stdout 只有表头——按 stdout 判空是工具用法错误。
 | --- | --- |
 | Android 侧服务表 | `adb -s <serial> shell 'su -c "cat /data/vendor/qrtr/qrtr-lookup.txt"'` |
 | 原表在本仓库的引用 | `docs/research/cellular/01-ANDROID-INVENTORY.md:409-452` |
-| 内核 side 日志格式 | `drivers/PongCellular/K60ModemLink.c:83`、`:106`、`:254`、`:262` |
+| 内核 side 日志格式 | `drivers/PongCellular/K60ModemLink.c:82`、`:104`、`:254`、`:262` |
 | wanted 集合与 verdict | `drivers/PongCellular/K60ModemQrtr.c:102`、`:173` |
 | 线格式与判据设计 | `docs/research/cellular/07-QRTR-ENUMERATION.md` §1-§5 |
 | 门控取值 | `docs/engineering/BOOT-ARGS.md` 的 `pong_modem` 小节（0 静默 / 1 PAS / 2 QRTR+PAS） |

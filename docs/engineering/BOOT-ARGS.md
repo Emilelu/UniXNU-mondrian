@@ -226,7 +226,7 @@
 | 作用 | 1 = 启动蓝牙 worker 线程；之后的行为由 `k60bt_stage` 决定 |
 
 **为什么必须显式开启**：`qbt_k60_start()` 第一件事就是读它，读不到就 `k60.started = 0` 返回。
-所以不带 `k60bt=1` 的镜像里，`0507`/`0508`/`0509`/`0510` 全部是**死代码** ——
+所以不带 `k60bt=1` 的镜像里，`0507`/`0508`/`0509`/`0510`/`0511` 全部是**死代码** ——
 `bt-s2-20261114b` 就是这样一个负向对照：控制台里一条 `K60 BT` 都没有。
 这也是 S4 负向对照 `bt-s4-20261114b` 要带 `k60bt=1` 的原因：只有进了这条线，`addon: no GpuAddon property`
 才会出现。
@@ -236,15 +236,18 @@
 | 项 | 值 |
 |---|---|
 | 类型 | uint32 |
-| 默认 | 1（只读探针） |
-| 取值 | 1 / 2 |
-| 来源 | `patches/xnu/0500-k60-bt-qbt-new-files.patch:1226`（`qbt_k60_start()` 里 `k60.stage = 1;` 之后覆盖），判定点在 `qbt_k60.c` 的 worker |
-| 作用 | 1 = 只碰寄存器、逐步打印 `probe:` 标记后返回，不写固件；2 = 走完整路径：`k60_bt_power_on()` → `k60_bt_local_address()` → `qbt_boot()` 下载 rampatch/NVM → 健康轮询 |
-| 陷阱 | 默认值就是 1，**阶梯镜像不需要写 `k60bt_stage=1`**（省 17 字节，607 上限很紧）；写 0 会让整个 worker 不启动 |
+| 默认 | 0（完整阶梯，2026-11-15 `patches/xnu/0511` 起） |
+| 取值 | 0 / 1 |
+| 来源 | `patches/xnu/0511-k60-bt-s4-unblock.patch`（`qbt_k60_start()` 里 `k60.stage = 0;` 之后由 `PE_parse_boot_argn("k60bt_stage", …)` 覆盖，任一 `k60bt_step=N` 也强制 1）；此前是 `0500:1226` 的 `k60.stage = 1;` |
+| 作用 | 1 = 只碰寄存器、逐步打印 `probe:` 标记后返回，不写固件；0 = 走完整路径：`k60_bt_power_on()` → `k60_bt_local_address()` → `qbt_boot()` 下载 rampatch/NVM → 健康轮询 |
+| 陷阱 | **`0511` 之前默认是 1**，一枚 `k60bt=1` 会停在探针分支、永远到不了固件路径（S4 的第一个阻断）；`0511` 之后默认 0，探针要显式写 `k60bt_stage=1` 或任一 `k60bt_step=N`；`k60bt_stage=0` 不再是「关闭 worker」，关闭只看 `k60bt=0` |
 
-**stage 1 与 stage 2 的判据完全不同**：stage 1 只看 `probe:` 标记走到第几步（`k60bt_step` 可截断），
-即使崩在某个寄存器上也已经证明前面的步是安全的；stage 2 必须看到 `QCA controller version 0x…`
-才算固件下载成功。
+**探针与完整阶梯的判据完全不同**：探针（`k60bt_stage=1`）只看 `probe:` 标记走到第几步（`k60bt_step`
+可截断），即使崩在某个寄存器上也已经证明前面的步是安全的；完整阶梯看
+`[bluetooth] power=1 result=0 baud=… firmware=<build label>`（裸 `printf`，不经日志闸门）加上 `0511`
+新加的 `[bluetooth] QCA controller version 0x…`（level 1）才算固件下载成功。`bt_dev_info` 家族的其余
+九行是 level 6，**永不上控制台**（`qbt_k60.c:1545` 只放行 `level <= 3`；逐条审计见
+`docs/research/bt/S4-SPEC.md` §7.1）。
 
 ## 三个 GPU 开关的相互关系
 

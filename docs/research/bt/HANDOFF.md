@@ -1,8 +1,9 @@
 # Handoff — K60 Bluetooth line (state at 2026-11-15)
 
 This file is the single-page handoff from the `feat/bt-research` line to the integrated line.
-The branch adds `docs/research/bt/*` and `patches/bt/*`; the only edits outside that scope are the four
-`patches/xnu/05xx` twins wired at `patches/xnu/series:205-208` (see §3).
+The branch adds `docs/research/bt/*` and `patches/bt/*`; the only edits outside that scope are the five
+`patches/xnu/05xx` twins wired at `patches/xnu/series:205-209` (see §3), plus the two `k60bt*` rows of
+`docs/engineering/BOOT-ARGS.md` this line owns.
 
 Branch: `feat/bt-research` (worktree `E:/hackios/k60-bt`), base `f119a80` (= `main` at the time
 of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (S1 spec),
@@ -24,6 +25,7 @@ of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (
 | `patches/bt/0002-k60-bt-s2-smmu-rcg-reset.patch` = `patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch` | 6 hunks on `bsd/dev/qbt_k60.c`: `k60_smmu_plan_bank`/`k60_smmu_plan`/`k60_smmu_configure`/`k60_smmu_bypass` + `kmem_alloc_contig`/`pmap_find_phys` DMA path, RCG root enable, reset-done polling. sha256 `c4bf1ded55fe9bd03b7c10943ed41fff47464037c06c893b6dfd0984f02fd4f2` (18,393 B / 391 lines) | **build-wired** (`patches/xnu/series:206`) |
 | `docs/research/bt/S4-SPEC.md` | S4 spec: why the firmware must ride the boot image (Data seed absent, no zlib, no `.incbin`, NGPUADD2 has no kernel consumer), the DarwinBoot `GpuAddon` channel with line-level evidence, the container format, the kernel reader, the **Lead-scope build fragments** (`scripts/make-bt-firmware-addon.py` in full, `build-strict.sh` diff, `.gitignore`), the offline verification and the S4a–S4c device ladder | done, offline-verified |
 | `patches/bt/0004-k60-bt-firmware-addon.patch` = `patches/xnu/0510-k60-bt-firmware-addon.patch` | **rewritten 2026-11-15 for P-197**: 2 files (289 ins / 1 del): NGPUADD2 parser `k60_addon_find()`, `k60_bt_addon_load_blob()` reading the linked `k60_bt_blob` / `k60_bt_blob_len` (the new primary carrier), the old SecureDT `chosen/memory-map/GpuAddon` path kept as fallback, `k60_bt_addon_read()`, and `k60_bt_firmware_read()` trying the addon first; `osfmk/conf/files.arm64` gains `osfmk/arm64/k60_bt_blob.s`. sha256 `316148931ab11fa9fbd79fbe7b878960e702b39d5e89babd0daa806655fccc96` (15,672 B) | **build-wired** (`patches/xnu/series:208`) |
+| `patches/bt/0005-k60-bt-s4-unblock.patch` = `patches/xnu/0511-k60-bt-s4-unblock.patch` | **2026-11-15, S4 起飞前的三条代码阻断 + 一条日志判据（改行为，不加任何启动参数）**: 2 files (34 ins / 3 del): `k60_worker()` 的 addon 门闩改为「已链入 blob 即放行」（`k60_bt_blob_len > 0`，先判地址再解引用）、`k60_bt_power_on()` 冷启动不再直接 `-EOPNOTSUPP` 而改打 `power: cold boot, rails not voted (k60bt_warm=0)` 后继续、`k60.stage` 默认改为 0（完整阶梯；探针显式 `k60bt_stage=1`/任一 `k60bt_step=N` 才进）、`btqca.c:764` 之后补一条 level-1 的 `QCA controller version 0x…`。sha256 `07b862dd7122432bea04bbfd9fe1975d9abb43abf13b83a412079ce4ec03f39a` (3,718 B) | **build-wired** (`patches/xnu/series:209`) |
 | `scripts/gen-k60-bt-blob.py`, `scripts/tests/test-k60-bt-blob.py` | the blob generator (`.incbin` + length constant, one-byte stub when no container) and its host test (9 fixtures, including the P-196 "length forgot the padding" case); `scripts/build-xnu-4k-baseline.sh:311-324` runs the generator inside the xnu build, `scripts/build-strict.sh` gained `--bt-blob` | done (`ccd4dfc`) |
 | `patches/bt/README.md`, `patches/bt/series` | explains that the build reads only `patches/xnu/series`; wiring status (option B used, option A kept as an alternative) | done |
 | image `bt-s4-20261114b` (`boot.img` `82ff78b4…`, 201,887,744 B) | the first build that contains `0510`: `build-strict.sh` exit 0, `verify-boot-image.py` OK, `kernel_built 9e8ae410…`, `payload 570f61e9…`, `adt 079cf3c7…`; `strings kernel.macho` shows `NGPUADD2` / `loaded bytes records` / `no GpuAddon property`. **No `--gpu-addon`** (Lead scope), so the addon cell is absent. It was the negative control until P-201; the controlled one is now `bt-s4c-20261115a` (same HEAD as the positive) | built, not booted |
@@ -377,15 +379,35 @@ This line, next in order:
 
    参数预算：base 583 B / 上限 607 B。`k60bt_stage=2` → 597、`k60bt_warm=1` → 596、
    `sheng-gpu-addon=1` → 601；任两条相加即超（stage+warm 610、stage+addon 615），三条 628。
-   **没有"只加参数"的解法**：要么从 30 个现有参数里腾出 21 B，要么改代码（去掉 `:1998` 的门闩
-   ——P-197 之后那条通道已经废了；并给 `k60_bt_local_address()` 一个缺属性时的兜底地址）。交 Lead 裁决。
+   **没有"只加参数"的解法**：要么从 30 个现有参数里腾出 21 B，要么改代码。Lead 裁决（2026-11-15
+   15:36，见 item 9）：阻断 4 由 `main` 的 `3ea8d71` + `dafa502` 在构建期解掉（`--unique-chip-id` 默认
+   `4B36305400000001`），阻断 1/2/3 由本分支新增的 `patches/xnu/0511-k60-bt-s4-unblock.patch` 一次解掉，
+   **不新增任何启动参数**，所以 607 B 上限不再构成约束。
 
    仍然成立的一件事：正向镜像的 `addon: linked blob bytes=1027584 records=106` 在 `qbt_k60_start()`
-   里、线程起来之前就打，不受上述四条影响——所以这对镜像**只能**验 S4a。
+   里、线程起来之前就打，不受上述四条影响——`0511` 之前的旧对照对因此**只能**验 S4a。
 
 8. **日志等级闸门（2026-11-15）**：`k60_log()` 只放行 `level <= 3`（`qbt_k60.c:1545` = `0500:971`），
    `bt_dev_info` 是 level 6 ⇒ 十个调用点永不上控制台，第一个就是 S4c 的原判据
    `QCA controller version 0x…`。逐条审计与替代判据在 `S4-SPEC.md` §7.1；S4c 的通过条件因此改成
-   裸 printf 的 `[bluetooth] power=1 result=0 baud=… firmware=<label>`。`rom_ver`/board-id 要拿到
-   必须放宽闸门或加专用 printf，已作为提案交 Lead，本线未改代码。
+   裸 printf 的 `[bluetooth] power=1 result=0 baud=… firmware=<label>`。Lead 裁决：**不放宽闸门**，
+   只给 `btqca.c:764` 补一条专用 level-1 行，已落在 `0511`（item 9 第 5 行）。
+
+9. **`0511`：一个补丁解掉三条阻断（2026-11-15，Lead 批准"改代码、不砍启动参数"）**。落点对照表：
+
+   | 阻断 | 落点（`0511` 之后，`bsd/dev/qbt_k60.c`） | 做法 |
+   |---|---|---|
+   | 1 `k60.stage` 默认 1 | `:2094-2103`（`qbt_k60_start()`） | 默认 0 = 完整阶梯；`k60bt_stage=1` 或任一 `k60bt_step=N` 才进 S1c 探针，`k60bt=0` 仍整条关闭；删掉 `if (!k60.stage) return;` |
+   | 2 `k60.warm_boot` 默认 false | `:1815-1827`（`k60_bt_power_on()`） | `return -EOPNOTSUPP` 改为打 `power: cold boot, rails not voted (k60bt_warm=0)` 后继续；该函数只记录上电请求、从不投票 |
+   | 3 `native_gpu_addon_stage` 门闩 | `:2002-2016`（`k60_worker()`） | 门条件变 `native_gpu_addon_stage < 1 && (!&k60_bt_blob_len || k60_bt_blob_len == 0)`——P-197 之后固件已在核内，不必等 GPU addon 挂载；先判地址再解引用，没接 `0510` 的构建仍走旧等待 |
+   | 4 `/chosen/unique-chip-id` 缺失 | `main` `3ea8d71` + `dafa502`（不在本补丁） | `build-strict.sh` 默认 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 并转发 `--unique-chip-id` |
+   | S4c 死判据 | `bsd/dev/qbt/btqca.c:764-771` | `bt_dev_info`（level 6）之后补 `qbt_linux_log(hdev->q, 1, "QCA controller version 0x%08x", soc_ver);`，闸门不放宽 |
+
+   补丁本体：`patches/xnu/0511-k60-bt-s4-unblock.patch` = `patches/bt/0005-k60-bt-s4-unblock.patch`
+   （3,718 B，sha256 `07b862dd…f39a`，+34/−3，2 文件 4 个 hunk），`patches/xnu/series:209`；在 post-`0510`
+   树上 `git apply --check` / apply 均 rc=0，落地字节与编辑副本逐字节相同。参数不变：30 项 / 583 B。
+   Lead 要求重出受控对照对 `bt-s4b-20261115c`（正向）/ `bt-s4c-20261115c`（负向，ADT 也随 `3ea8d71`
+   变了所以要重建）。判据：负向 `addon: no GpuAddon property`；正向 `linked blob bytes=1027584 records=106`
+   → `serving 201560 0` → `power=1 result=0 baud=… firmware=…` + `QCA controller version 0x…` →
+   不再出现 `no platform identity`。
 

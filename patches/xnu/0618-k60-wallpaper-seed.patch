@@ -41,7 +41,7 @@ index 59ad9a0..f05bed2 100644
 +		return error;
 +	}
 +	length = (int)sizeof(k60_wall_buf) - resid;
-+	if (length <= 0 || resid != 0) {
++	if (length <= 0) {
 +		printf("K60WALL catalogue size=%d resid=%d rejected\n", length, resid);
 +		return EINVAL;
 +	}

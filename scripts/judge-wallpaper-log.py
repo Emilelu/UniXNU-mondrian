@@ -5,7 +5,9 @@ Six steps, in the §0 order, each PASS / FAIL / EYES with the deciding line numb
 
   1  K60WALL catalogue bytes=772 resid=0 error=0     (must appear, exact values)
   2  K60WALL catalogue open/read/create error=…      (must NOT appear)
-     K60WALL catalogue size=… resid=… rejected       (must NOT appear)
+     K60WALL catalogue size=… resid=… rejected       (must NOT appear; a positive
+        size means the image still carries the old '|| resid != 0' test --
+        resid is the buffer's free space, not the number of bytes read)
   3  Pong init: optional boot view SKIP …stock-wallpaper   (must NOT appear)
   4  Pong init: wallpaper aliases SKIP (stock view unavailable)  (must NOT appear)
   5  Pong UI: wallpaper existing-content=… -> asset present=… -> submitting genuine wallpaper 7410
@@ -15,6 +17,15 @@ Step 5 has one legitimate non-failure: on a normal image (no k60_wallpaper_reset
 the UI library keeps the user's wallpaper, so the log shows
 `wallpaper existing-content=1 restore-stock=0` and nothing after it.  That is
 reported as N/A, not FAIL.
+
+resid semantics (P-204 shape, 2026-11-15): vn_rdwr reports the residual
+*space* in the uio, not the bytes transferred (bsd/vfs/vfs_vnops.c:1013-1015
+sets *aresid = uio_resid(auio)).  An 8192 B read buffer over a 772 B file
+therefore ends with resid=7420, not 0; the success line's resid is the write's
+residual (0 = all bytes written), so the two resid values in one run measure
+different things.  A 'size=772 resid=7420 rejected' line can only come from an
+image that still tests resid != 0; the judge names that resid regression instead
+of sending the reader to a generic §1 detour.
 
 Verdict:
   success -- steps 1-4 hold and step 5 submitted (or N/A); pixels still need eyes
@@ -43,7 +54,8 @@ from pathlib import Path
 
 K60WALL_OK = re.compile(r'K60WALL catalogue bytes=(\d+) resid=(\d+) error=(\d+)')
 K60WALL_BAD = re.compile(r'K60WALL catalogue (?:open|read|create) error=|'
-                         r'K60WALL catalogue size=\d+ resid=\d+ rejected')
+                         r'K60WALL catalogue size=-?\d+ resid=\d+ rejected')
+K60WALL_REJECT = re.compile(r'K60WALL catalogue size=(-?\d+) resid=(\d+) rejected')
 SKIP_VIEW = re.compile(r'Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper')
 SKIP_ALIAS = re.compile(r'Pong init: wallpaper aliases SKIP')
 UI_EXISTING = re.compile(r'Pong UI: wallpaper existing-content=(-?\d+) restore-stock=(\d+)')
@@ -68,7 +80,11 @@ def judge(lines):
     if ok and not bad:
         out.append(('1 K60WALL catalogue', 'PASS', ok[0], 'RESEARCH.md §1'))
     elif bad:
-        out.append(('1 K60WALL catalogue', 'FAIL', bad[0], 'RESEARCH.md §1'))
+        goto = 'RESEARCH.md §1'
+        reject = K60WALL_REJECT.search(bad[0][1])
+        if reject and int(reject.group(1)) > 0:
+            goto = 'RESEARCH.md §1 (resid 判据回归: the image still tests resid != 0)'
+        out.append(('1 K60WALL catalogue', 'FAIL', bad[0], goto))
     elif any_k60:
         out.append(('1 K60WALL catalogue', 'FAIL', hits(lines, K60WALL_OK)[0], 'RESEARCH.md §1'))
     else:
@@ -132,6 +148,21 @@ def closure(rows):
             'the OS window. If the screenshot shows the wallpaper, close the case -- do not build F2.')
 
 
+def diagnosis(lines):
+    """Explain a rejected catalogue line in terms of the two different resids."""
+    for _, line in hits(lines, K60WALL_REJECT):
+        found = K60WALL_REJECT.search(line)
+        size, resid = int(found.group(1)), int(found.group(2))
+        if size > 0:
+            return ('resid 判据回归: the read left resid=%d of an 8192 B buffer, so it '
+                    'returned %d B; the %d B in the line is the copied length. An image '
+                    'without the resid test cannot print this -- rebuild from the fixed '
+                    '0618 instead of hunting for a smaller catalogue.' % (resid, 8192 - resid, size))
+        return ('the read transferred no bytes (resid=%d fills the 8192 B buffer): '
+                'the source catalogue read as empty.' % resid)
+    return None
+
+
 def verdict(rows):
     """dead = the 0618 seed never ran; half = partly engaged; success = 1-4 hold."""
     states = [s for _, s, _, _ in rows]
@@ -191,6 +222,9 @@ def main(argv):
     note = closure(rows)
     if note:
         print(f'closure: {note}')
+    reason = diagnosis(lines)
+    if reason:
+        print(f'diagnosis: {reason}')
     return 0 if final in ('success', 'half') else 1
 
 

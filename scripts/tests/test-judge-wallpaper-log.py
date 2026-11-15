@@ -8,6 +8,8 @@ pressure.  These cases therefore assert the verdict, not just the exit code:
   half    -- K60WALL landed but the init guard still skipped the stock view
              (the shape Lead expects most: fix engaged, chain still broken)
   half    -- K60WALL rejected the catalogue (buffer/size failure branch)
+  half    -- the 2026-11-15 resid regression: size=772 resid=7420 rejected, i.e. the
+             image still tests resid != 0 on a buffer whose resid is free space
   half    -- views mounted but the UI library skipped the 7410 submission
   success -- K60WALL + no SKIP + 7410 submitted
   success -- same, but step 5 is N-A because no k60_wallpaper_reset=1 was passed
@@ -63,6 +65,12 @@ Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper (source/tar
 Pong init: wallpaper aliases SKIP (stock view unavailable)
 """
 
+RESID_REGRESSION = """K60WALL catalogue size=772 resid=7420 rejected
+Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper (source/target unavailable)
+Pong init: wallpaper aliases SKIP (stock view unavailable)
+Pong UI: wallpaper existing-content=1 restore-stock=1 (1=present -1=unavailable)
+Pong UI: submitting genuine wallpaper 7410 native lock+home path=/Library/Wallpaper/Stills/iPad/7410.WWDC_2022-1024w-1366h@2x~ipad.wallpaper
+"""
 VIEWS_FAIL_PIXELS_DECIDE = """K60WALL catalogue bytes=772 resid=0 error=0
 Pong init: HackiOS userland adapter / iOS 16.6.1 20G81 / static arm64
 Pong init: boot view /private/var/pong/boot-jobs -> /pong/LaunchDaemons result=-1 errno=1
@@ -133,6 +141,7 @@ def main():
     expect(PRE_0618, 'dead', 'a pre-0618 image with both SKIPs is dead')
     expect(SEED_OK_GUARD_STILL, 'half', 'seed landed but the init guard still skipped the view')
     expect(SEED_REJECTED, 'half', 'a rejected catalogue is half, never success')
+    expect(RESID_REGRESSION, 'half', 'the resid regression is half, never success')
     expect(VIEWS_OK_UI_SKIP, 'half', 'views mounted but the UI library skipped 7410')
     expect(FULL_SUCCESS, 'success', 'seed + views + 7410 submission is success')
     expect(SUCCESS_NO_RESET, 'success', 'no reset flag keeps the user wallpaper: step 5 is N-A')
@@ -164,6 +173,18 @@ def main():
     code, verdict, output = run(SEED_OK_GUARD_STILL)
     check(verdict == 'half' and 'closure:' not in output,
           'no closure note when the wallpaper was never submitted', output[-200:])
+
+    # The regression the 2026-11-15 boot exposed: resid is the buffer's free space, so
+    # a fixed image cannot reject a 772 B catalogue.  The judge must name that cause
+    # instead of sending the reader to a generic §1 detour.
+    with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False, encoding='utf-8') as handle:
+        handle.write(RESID_REGRESSION)
+        resid_path = handle.name
+    resid = subprocess.run([sys.executable, str(JUDGE), resid_path], capture_output=True, text=True)
+    Path(resid_path).unlink(missing_ok=True)
+    check('diagnosis: resid 判据回归' in resid.stdout and 'resid=7420' in resid.stdout,
+          'a size=772 resid=7420 rejection is named as a resid regression',
+          resid.stdout[-300:])
 
     # A log with no wallpaper text at all must not be reported as success.
     expect('nothing here\n', 'dead', 'an empty log is dead, not success')

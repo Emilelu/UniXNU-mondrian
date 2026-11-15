@@ -25,15 +25,19 @@
 | 日志行原文 | 结论 |
 |---|---|
 | `K60WALL catalogue bytes=772 resid=0 error=0` | **0618 全部生效**：772 B 的 `Collections~ipad.plist` 已从 /Library/Wallpaper 复制进 /private/var/pong/stock-wallpaper/Collections/；`K60DATA mkdir ok=N/M` 的 M 应比旧镜像多 3（0618 新增 stock-wallpaper、stock-wallpaper/Collections、Wallpaper 三条）。 |
-| `K60WALL catalogue bytes=<非772> resid=<非0> rejected` | 源文件读到了但长度不对：源不是预期的 772 B plist（OS 镜像异常或被别的补丁改过）。把 actual bytes 与镜像 tag 一起报。 |
+| `K60WALL catalogue size=772 resid=7420 rejected` | **resid 判据回归**（2026-11-15 实测形态，springboard-20261115a）：`resid` 是缓冲区**剩余空间**，8192−772=7420；旧代码 `if (length <= 0 || resid != 0)` 对任何小于 8 KiB 的文件恒真。看到这一行 ⇒ 镜像里还是旧 0618，重建而不是去找更小的 catalog。判定器会打印 `diagnosis: resid 判据回归 …`。 |
+| `K60WALL catalogue size=<正数> resid=<正数> rejected`（非 772/7420） | 读到了字节但长度为负或 0（`length = 8192 - resid <= 0`）：源文件被读成空（resid 撑满 8 KiB 缓冲）。报 resid 与镜像 tag。 |
 | `K60WALL catalogue open error=<errno>` | /Library/Wallpaper/Collections/Collections~ipad.plist 打不开（vnode_open 失败）。errno=2 ⇒ OS 窗没有该文件（与 §2.3 冲突，需重查镜像）；errno=13/30 ⇒ 权限/只读卷问题。 |
 | `K60WALL catalogue read error=<errno>` | vnode_open 成功但 vn_rdwr 失败：极少见，报 errno。 |
 | `K60WALL catalogue create error=<errno>` | 目标目录不存在或不可写：0618 的 mkdir 三条没生效（看 `K60DATA mkdir ok=N/M` 的 M 与清单），报 errno 与 ok 计数。 |
 | 一条 K60WALL 都没有 | 0618 补丁没进内核：核对镜像 tag 是否 ≥ springboard-20261114e，再核对 boot.img 的 strings 里 K60WALL 计数（应 =5）。 |
 
-**拷贝缓冲上限已核实（2026-11-15，回应 Lead m01914 a）**：0618 的 `static char k60_wall_buf[8192]` 是硬上限，读满时 `resid != 0` 走 `rejected`（fail-closed，不会截断写出）。
+**拷贝缓冲上限（2026-11-15 更正）**：0618 的 `static char k60_wall_buf[8192]` 是硬上限，但**拒绝条件只有 `length <= 0`**（2026-11-15 删掉了 `|| resid != 0`，那一条曾把每个小于 8 KiB 的文件都判成 rejected，见 PITFALLS P-205）。读满 8 KiB 时 `length = 8192`、`resid = 0`，**正常写出**；截断风险仍在（>8 KiB 的 catalog 会被静默截断），当前 772 B 远未触及。
 实测 20G81 的 `Collections~ipad.plist` 就是 **772 B**（`7z l -slt /opt/k60/osroot/os.raw` 的 `Size = 772`，Packed Size 也是 772），远低于 8 KiB ⇒ **本镜像不会命中 `size=… rejected`**；该分支只在换别的 OS 窗、且 catalog 涨过 8 KiB 时才需要改缓冲策略。
-`vn_rdwr` 的 `resid` 语义已核（`/opt/k60/trees/springboard-out/feeds/xnu-c465a9f8/bsd/vfs/vfs_vnops.c:1013-1015`：`*aresid = uio_resid(auio)`，即未传输字节数），所以 `resid=0` 等价于「一次读完」，`bytes=772 resid=0` 是唯一成功形态。
+`vn_rdwr` 的 `resid` 语义已核（`/opt/k60/trees/springboard-out/feeds/xnu-c465a9f8/bsd/vfs/vfs_vnops.c:1013-1015`：`if (aresid) { *aresid = uio_resid(auio); assert(*aresid <= len); }`）—— `uio_resid` 是**缓冲区剩余空间**，不是已传输字节数。一次运行里有**两个不同量**：
+- 读：`resid = 8192 − 读到字节`（772 B 文件 ⇒ 7420），`length = 8192 − resid` 才是字节数；
+- 写：写前 `resid = 0` 重置，写后 `resid` 是**没写出去的剩余字节**，所以成功行 `bytes=772 resid=0 error=0` 的含义是「772 B 全部写出」。
+判据只能用成功行的 `bytes=772 resid=0`（写侧），**不能**用读侧 resid 判成功。
 
 ## 2. 判定 —— v24dp init 的壁纸视图（0616 谱系）
 
@@ -74,14 +78,14 @@
 
 ## 4. 半成功汇总与升级路径
 
-**判定器**：`python3 scripts/judge-wallpaper-log.py <console.log|capture-dir>` 按 §0 六步逐条输出 `PASS/FAIL/N-A/EYES` 与最终 verdict（`success` / `half` / `dead`），每条 FAIL 打印「去 §几」。入参可以是单份 console.log，也可以是采集目录——目录里没有 console.log 时按 `capture.json` 的 `log` 字段找。纯读文件、无副作用；回归测试 `python3 scripts/tests/test-judge-wallpaper-log.py`（17 例，含四份真实旧日志作负样本：`audio-probe-j/run1`、`usblog-20261115-013520`、`usblog-20261115-003207`、`usblog-20261114-235957`，全部判 dead）。
+**判定器**：`python3 scripts/judge-wallpaper-log.py <console.log|capture-dir>` 按 §0 六步逐条输出 `PASS/FAIL/N-A/EYES` 与最终 verdict（`success` / `half` / `dead`），每条 FAIL 打印「去 §几」。入参可以是单份 console.log，也可以是采集目录——目录里没有 console.log 时按 `capture.json` 的 `log` 字段找。纯读文件、无副作用；回归测试 `python3 scripts/tests/test-judge-wallpaper-log.py`（19 例，含四份真实旧日志作负样本：`audio-probe-j/run1`、`usblog-20261115-013520`、`usblog-20261115-003207`、`usblog-20261114-235957`，全部判 dead）。
 
 四种半成功形态（**按日志字面量匹配，判定器用的就是这些串**）：
 
 | 形态 | 确切日志行 | verdict | 判读与处置 |
 |---|---|---|---|
 | A 种子生效但 guard 仍拒 | `K60WALL catalogue bytes=772 resid=0 error=0` + `Pong init: optional boot view SKIP /private/var/pong/stock-wallpaper (source/target unavailable)` | `half` | 复制与 mkdir 都生效，卡点在 init guard（目录属主/权限）或 bindfs。先看有没有 `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=… errno=…`：没有 ⇒ 卡在 guard 的 lstat/stat，查 `K60DATA mkdir ok=N/M` 与目录属主（应 0:0 / 0755）；有且 `result=-1 errno=1` ⇒ P-27，转 F4。K60WALL 成功本身就是「OS 窗壁纸源可达」的首次实证，不回滚 0618。 |
-| B 目录被拒（缓冲/长度） | `K60WALL catalogue size=8192 resid=4096 rejected` 或 `K60WALL catalogue open error=2` / `read error=…` / `create error=…` | `half` | 772 B 实测不会命中 `size=… rejected`（§1 注记）；`open error=2` ⇒ OS 窗没有该 plist（与 §2.3 矛盾，重查镜像）；`create error` ⇒ 三条 mkdir 没生效。报 errno + `K60DATA` 计数。 |
+| B 目录被拒（缓冲/长度） | `K60WALL catalogue size=772 resid=7420 rejected`（resid 判据回归，旧镜像）或 `K60WALL catalogue open error=2` / `read error=…` / `create error=…` | `half` | `size=772 resid=7420 rejected` ⇒ 镜像仍是旧 0618（`\|\| resid != 0`），重建；修复后 772 B 实测不会命中任何 `size=… rejected`（§1 注记）；`open error=2` ⇒ OS 窗没有该 plist（与 §2.3 矛盾，重查镜像）；`create error` ⇒ 三条 mkdir 没生效。报 errno + `K60DATA` 计数。 |
 | C 视图挂上但 UI 库跳过 | `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0` + `Pong UI: genuine wallpaper bootstrap SKIP (native 20G81 WallpaperKit ABI unavailable)`（或其余三种 SKIP） | `half` | 视图链通了，壁纸选择没跑：ABI 不符 ⇒ 改 ui_compat 的 ABI 表；`required 7410 metadata/assets unavailable` ⇒ 资产名不匹配（对照 §3）；`manager/URL unavailable` / `bundle rejected` ⇒ WallpaperKit 侧对象构造失败。 |
 | D 全部通过但像素黑 | 无 SKIP、`submitting genuine wallpaper 7410` 与 `native wallpaper completion returned` 都在 | `success`（机器侧） | 机器判据已全过，剩下是 PosterBoard/compositing 层 —— 转 §5 与 WALLPAPER-CHAIN §2.6；像素只能靠截图确认。 |
 

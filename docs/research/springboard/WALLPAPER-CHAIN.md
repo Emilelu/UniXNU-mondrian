@@ -149,6 +149,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 - **机制**：新增 `patches/xnu/0618-k60-wallpaper-seed.patch`，在 `native_owner_data_prepare()` 的 `k60_mkdir_paths[]` 末尾加三条（`/private/var/pong/stock-wallpaper`、`…/Collections`、`/private/var/pong/Wallpaper`），并在 mkdir 循环后调用 `k60_wallpaper_stage()`：用 `vnode_open`/`vn_rdwr` 把真实的 `/Library/Wallpaper/Collections/Collections~ipad.plist`（772 B）复制到 `/private/var/pong/stock-wallpaper/Collections/Collections~ipad.plist`。
 - **为什么这样就够**：0616 跑的 v24dp init 的两道壁纸守卫（`userland/init-v24dp.c:328-343`、`:344-348`）检查的正是这个目标路径上的 plist；文件存在后 i=4 的 stock 视图 bind 才能继续，i=5 的 `/Library/Wallpaper` 覆盖即使仍 `result=-1 errno=1`（密封根，P-27）也不再打印 SKIP。
 - **判据**：日志出现 `K60WALL catalogue bytes=772 resid=0 error=0` 与 `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=0 errno=0`，且不再出现 `wallpaper aliases SKIP` / `optional boot view SKIP`。
+  成功行的 `resid=0` 是**写侧**剩余字节（772 B 全写出）；读侧的 `resid` 是缓冲剩余空间（772 B 文件读进 8 KiB 缓冲 = 7420），两者含义不同，见 P-205。初版 0618 误把读侧 resid 当判据（`if (length <= 0 || resid != 0)`），springboard-20261115a 因此打印 `K60WALL catalogue size=772 resid=7420 rejected`，种子从未落盘。
 - **不改 init**：完全避开 P-182 的 52 KB 助手风险；init 仍是那枚 34,904 B 的验证过二进制。
 - **因果边界（重要）**：F3 的直接效果是**让两条 SKIP 消失**，不是"让壁纸出现"。像素链走的是另一条路——
   `userland/ui_compat.c:690` 用 OS 窗的 `/Library/Wallpaper/Stills/iPad/7410.…` 直接提交，不经过这条视图。
@@ -157,7 +158,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ### F4（设计稿，未实施）— 视图挂载返回 EPERM 时怎么办
 
-**触发条件**：springboard-20261115a 的日志里 K60WALL 成功（`bytes=772 resid=0 error=0`），但出现
+**触发条件**：日志里 K60WALL 成功（`bytes=772 resid=0 error=0`），但出现
 `Pong init: boot view /Library/Wallpaper -> /private/var/pong/stock-wallpaper result=-1 errno=1`。
 此时 F3 已把「目录不存在」这一层消掉，剩下的 -1/errno=1 就是 P-27（`docs/engineering/PITFALLS.md:325-337`：
 密封只读根上的目录无法被 bindfs 覆盖，五个视图全部如此）。

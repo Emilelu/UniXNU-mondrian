@@ -5,6 +5,16 @@
 > 任务来源：m04661（Lead 拍板选 C：停止复现 mhi4，改做死因考古）。
 > 关联：`docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20、`docs/plans/WIFI-REBUILD-CHECKLIST.md`。
 
+> **2026-11-16 更新：本文的静态判决已被上机推翻，读的时候按这条校正。**
+> 0 字节的真因不是本文 §6 列的任何一项（体积、residency、驱动活体），而是 **P-215**：
+> UFS 在 `hostBringUp()` 里要 Apps SMMU lease，而锁只在 `pong_wifi_start_optional()`
+> 里分配，后者跑在 UFS 之后 ⇒ lease 永远拿不到 ⇒ UFS 失败 ⇒ `IOKitBSDInit()` 非
+> `KERN_SUCCESS` ⇒ `k60_usblog_start()` 不被调用 ⇒ 主机 0 字节。
+> 修法 `patches/wifi/0012`（惰性分配）之后：**c3 进桌面**（console 221,429 B、
+> K60DATA 挂载、SpringBoard 132 行），**c4 带 `pong_wifi=1` 也进桌面**并走到驱动
+> stage 4。所以「117 MB 家族全部 silent」只在 P-215 之前成立；P-215 之后 117 MB 内核
+> 与驱动链入都不再和启动冲突。§6 的三项从此是「当时的剩余嫌疑」，不是结论。
+
 ---
 
 ## 0. 结论先行
@@ -85,6 +95,8 @@ PongWifiPci.cpp / PongWifiFirmware.cpp / ath11k/PongAth11k.c），由 patches/wi
 | touch-20261114a | 223 / `5a18e929…` | `c349b984…` | 54,181,888 B | 268,137 B | 进 SpringBoard |
 | wifi-20261116mhi3 | 229 / `0076aa20…` | `de2f2c1b…` | 65,978,368 B | **0 B** | 死 |
 | wifi-20261116mhi4 | 229 / `0076aa20…` | `c63cd936…`（4.5 GiB） | 65,978,368 B | **0 B** | 死 |
+| wifi-20261116c3 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,429 B | **进桌面**（P-215 修复后，`pong_wifi=0`） |
+| wifi-20261116c4 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,888 B | **进桌面并跑到驱动 stage 4**（`pong_wifi=1`） |
 
 （console 证据：`E:/k60-work/evidence/usblog-20261113-basef2`、`usblog-20261113-basef4`、
 `usblog-20261114-150931`、`usblog-20261115-002804`、`usblog-20261115-002243`。）
@@ -269,7 +281,36 @@ payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
 
 ---
 
+## 6.5 P-215 之后：c3 与 c4 的实测（2026-11-16）
+
+本文 §6 的三项剩余嫌疑（驱动活体、窗口数学、固件 residency）在 2026-11-16 被两张
+上机同时清掉，方式与本文设想的不同——不是靠补 a2 那一格，而是先找到 P-215。
+
+| 镜像 | args | console | 结果 |
+|---|---|---|---|
+| `wifi-20261116c3` | `pong_wifi=0` | 221,429 B | 进桌面：`K60DATA mounted ro=0 fstype=apfs`、SpringBoard 132 行、`Apps SMMU lease unavailable` 0 次 |
+| `wifi-20261116c4` | `pong_wifi=1` | 221,888 B / 3,283 行 | 进桌面并跑到驱动 stage 4：`:283 console up after 1500 ms`、`:482 PCIe0 cold start`、`:483–490 stage 1–4`、`:491 WiFi initialization stopped; normal iOS boot continues, DMA retained` |
+
+c3 与 c2 的唯一差别是 `patches/wifi/0012`（惰性分配 SMMU 锁），所以 117 MB 版式、
+11.19 MB 固件、驱动静态链入这三项都**不是** 0 字节的原因。c4 再把 `pong_wifi=1`
+打开，四个 stage 全走到，按设计停在 RSC 门口（`k60_wifi_rsc=0` 时不投票，让整机继续启动）。
+
+这三条读数对本文的直接影响：
+
+1. **§6.1 的差集不再是死因候选**。三项（force_load、`pong_wifi=1`、+11.8 MB）
+   在 c3/c4 里同时存在，而两张都进了桌面。
+2. **§7 的 C1/C2 判据作废**：它们假定 65.9 MB + `pong_wifi=0` 的空白格决定
+   「驱动活体 vs 体积」。现在两个方向都有实测（c3 无驱动、c4 有驱动，都起）。
+3. **观测边界前移**：从「内核都不起来」推到「停在 RSC 门口」。下一张只加
+   `k60_wifi_rsc=1`（只读探针、不投票），三档判据见 Lead 2026-11-16 的指令
+   （A 探针行出现且进桌面 / B 探针后挂死 / C 探针行完全不出现）。
+
+---
+
 ## 7. 上机判据（如果 Lead 决定再飞）
+
+> **本节判据已被 §6.5 取代（2026-11-16）**，保留原文当历史：C1/C2 假定 65.9 MB +
+> `pong_wifi=0` 的空白格是决定性的，但 c3/c4 已从两侧填掉它。
 
 本节只给判据，不执行。每张镜像约 2 分钟，中间必须回到 fastboot 再飞下一张
 （`bash scripts/k60-device.sh boot <image>`）。

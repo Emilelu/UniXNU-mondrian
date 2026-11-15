@@ -32,8 +32,18 @@
 口径提醒（2026-11-15 `t2` 判决后更新）：`__TEXT` = 12,992,512 的死格
 （mhi3/mhi4/z0）都带同一个 blob，`__TEXT` = 1,720,320 的活格都不带；
 但 `t2` 把 blob 移出 `__TEXT` 之后仍然 silent——「`__TEXT` 驻留跟着死亡走」
-已被上机数据**推翻**（§10.3 第 2 条）。仍然开着的是 §7.1 的 pool 通道与
-66 MB + blob 的 C 格（至今没飞）。
+已被上机数据**推翻**（§10.3 第 2 条）。仍然开着的是 §7.1 的 pool 通道、
+66 MB + blob 的 C 格（至今没飞）与 §7.4 的驱动体静态注册链。
+
+待议（Lead 指示，wifi 线在本树留的四处未提交改动只折有依据的部分、其余记一行）：
+wifi 原稿把 §7.4 写成「blob 位置与 pool/窗口之外唯一还活着的解释」——本页不采
+「唯一」口径：§7.1 与 §7.4 是两条平行的未否证通道，谁被否证等分开它们的上机判据
+（k60-wifi 树 DARWINBOOT-POOL.md §5 + 本文 §10.4）。wifi 原稿写「registerService/
+metaclass 注册都还在」，但 PongWifiPlatform.cpp:718 在开关检查后就 return，注册代码
+不执行，本页只记实测成立的：调用点（ArmDTPlatform.cpp:227-228）、锁序
+（PongWifiPlatform.cpp:716-718 先 `pong_rpmh_init()` 后开关、:727-730 两把
+IOLockAlloc）、861 个 `_pong11_*` 符号（llvm-nm 实测 mhi4 内核）、bt 非单调对
+（series 228→229，manifest 实测）。
 
 ### 0.1 各判断的推翻条件
 
@@ -48,8 +58,8 @@
 - **0.6 被推翻**：在 xnu-work 找到任何以 `__TEXT` 大小（而不是页对齐）为输入的断言或
   上限——grep 之外还要读 `pmap_bootstrap` 与 KTRR 相关代码。
 - **「边界假说」整体**：不需要额外推翻——§0 已逐条证伪；仍然活着的是 §7.1 的 pool
-  通道（是「量」的问题，不是「边界」）——`t2` 之后它是唯一未被上机数据否证的通道
-  （§10.4）。
+  通道（是「量」的问题，不是「边界」）与 §7.4 的驱动体静态注册链——`t2` 之后这两条
+  都未被上机数据否证（§10.4）。
 
 ## 1. 固件怎么进的 `__const`
 
@@ -115,13 +125,25 @@ bt-s4b-20261115c 同为 106,541,056 B、同 blob、只差一个补丁——b 进
 （`usblog-20261115-140927`，213,434 B），c silent（`usblog-20261115-163144`，
 0 B）；bt-s4c-20261115c 105,508,864 B 也进桌面（`usblog-20261115-162553`，
 245,222 B）。同一尺寸一活一死：任何「内核大于 N MB 就死」的阈值模型都被否证。
-到这一步，能解释 silent 的只剩 pool/窗口通道与内核初始化路径的差异（§7.1、§10.4）。
+到这一步，能解释 silent 的只剩 pool/窗口通道与内核初始化路径的差异（§7.1、§7.4、§10.4）。
 
 对齐不变：`__TEXT` vmaddr 两边都是 0xfffffff007004000（内核基址 4 KB
 对齐，DarwinBoot.c:194 校验 `Base & EFI_PAGE_MASK`）；
 xnu-work `osfmk/arm64/arm_vm_init.c:2306` 的
 `assert(segDATACONSTB == segTEXTB + segSizeTEXT)` 在 mhi4 上仍成立
 （0x7004000 + 12,992,512 = 0x7c68000 = `__DATA_CONST` vmaddr）。
+
+读法（2026-11-15 傍晚，`t2` 与 bt 对之后）：**「驻留形态已否证，不是嫌疑、
+是排除」**。`t2`（blob 移进 `__DATA_CONST` 12,124,160、`__TEXT` = 1,802,240）
+仍然 silent（usblog-20261115-161102，0 字节）——§10.3 第 2 条宣判完毕。bt
+非单调对再补一刀：bt-s4b-20261115b 106,541,056 B、series 228
+（b31855c932b4…，manifest 实测）→ alive（usblog-20261115-140927，console
+213,434 B）；bt-s4b-20261115c **同尺寸** 106,541,056 B、series 229
+（67baff88e1bb…）→ silent（usblog-20261115-163144，0 字节；Lead：228→229
+只多 1 个补丁）；bt-s4c-20261115c 105,508,864 B、series 229 → alive
+（usblog-20261115-162553，console 245,222 B）。尺寸/窗口阈值模型对 117 MB 与
+65.9 MB 都不成立。§2 的段级对照保留为**记录**而非嫌疑；剩下能解释 silent 的
+是两条平行通道：§7.1（pool/窗口）与 §7.4（驱动体静态注册链）。
 
 ## 3. DarwinBoot 路径上的四个硬检查，逐个对数
 
@@ -218,6 +240,16 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
    页表路径 :1415 不同）。段属性不同，静态不能互相担保。
 3. **PWF2 头失配**（§1）说明 blob 打包链有第二个作者；在头与 payload
    一致之前，任何「固件加载成功」的运行期判断都要先核对一致性。
+4. **驱动体/归档人格的静态注册链（Dart/中断/时钟路径）**：`pong_wifi=0` 没有
+   把 wifi 归档砍到零——k60-wifi 树实测，ArmDTPlatform.cpp:227-228 在
+   `#if XNU_PONG_WIFI` 下无条件调 `pong_wifi_start_optional()`；该函数
+   （PongWifiPlatform.cpp:716-718）先 `pong_rpmh_init()`（:727-730，两把
+   IOLockAlloc：powerLock/smmuLeaseLock）再 `PE_parse_boot_argn("pong_wifi")`，
+   开关为 0 只挡住其后的注册/发布；mhi4 内核 llvm-nm 实测 861 个 `_pong11_*`
+   符号、`_pong_wifi_firmware`/`_end` 容器映射（无论 `__TEXT` 还是
+   `__DATA_CONST`）都在。这条路径在 z0/t2 上都没有被排除——它与 §7.1 是两条
+   平行的未否证通道（口径见 §0 待议）；判决需要一张「不链 wifi 归档、同
+   117 MB 版式」的对照，或 C1/C2（BOOT-DEATH-BISECT.md §7）加一次屏幕判读。
 
 ## 8. 证据清单
 
@@ -361,12 +393,12 @@ zizhan-087416a.patch:1939-1946` 的 `pong_wifi_start_optional()` 先
 
 ### 10.4 §7 三个口子的格位更新
 
-1. **DXE pool 碎片化（§7.1）——唯一未否证的通道**。`z0` 是 117.3 MB 整块进
+1. **DXE pool 碎片化（§7.1）——未被否证的通道之一**。`z0` 是 117.3 MB 整块进
    pool，比 C 格翻倍，窗口 4.5 GiB（余量约 223 MiB），仍然 silent；而 mhi4
    （65.9 MB、同一窗口）也 silent。两格之间差约 51 MB pool 占用而结果相同，所以
    pool 占用本身没有把 4.5 GiB 窗口推过线。`t2` 把 blob 移出 `__TEXT` 后仍
-   silent，驻留形态被否证——到这一步，能解释 silent 的通道里，这条是唯一还没有
-   被上机数据否证的。**但**：0 字节的 console 里没有 `NO WINDOW` 行可读，
+   silent，驻留形态被否证——到这一步，这条与 §7.4 的驱动体静态链一样，还没有被
+   上机数据否证。**但**：0 字节的 console 里没有 `NO WINDOW` 行可读，
    `AllocateWindow` 到底走到哪一步仍是静态空白。
 2. **105 MB 家族不能反证（§7.2）——对照仍成立，但不再指向驻留**。`z0` 的
    `__DATA` 53,149,696 与 brightness-4 的 52,920,320 同量级，差在 `__TEXT` 的
@@ -376,4 +408,13 @@ zizhan-087416a.patch:1939-1946` 的 `pong_wifi_start_optional()` 先
    初始化路径上。
 3. **PWF2 头失配（§7.3）——不受影响**。`z0` 与 `t2` 都是 `pong_wifi=0`，
    解析器不运行；这一条仍然是任何 `pong_wifi=1` 飞行的待办。
+4. **驱动体/归档人格静态注册链（§7.4）——与 pool 平行的未否证通道**。§7.4 的
+   路径（`pong_wifi=0` 下 `pong_wifi_start_optional()` 仍被调用、`pong_rpmh_init()`
+   先于开关检查执行、861 个 `_pong11_*` 符号与 PWF2 容器映射）在 `z0`/`t2` 上都
+   没有被排除。bt 非单调对（b 与 c 同 106,541,056 B、同 4.5 GiB 窗口，series
+   228→229）一活一死：两图尺寸与窗口相同，静态 pool 算术给出相同的占用预测，
+   解释不了结果的翻转——死亡随「补丁 × flavor」非单调。要一次上机分开这条通道
+   与 pool 通道，判据在 k60-wifi 树 `docs/research/wifi/DARWINBOOT-POOL.md` §5
+   （`NO WINDOW` 行与 hand-off 大字块互斥）与
+   [BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §7 的 C1/C2。
 

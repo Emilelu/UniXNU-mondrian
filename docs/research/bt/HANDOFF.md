@@ -588,6 +588,30 @@ This line, next in order:
       verify-boot-image OK + image-arg-audit OK（30 arguments, 583 bytes）。
       构建后 series 已还原为 0511（提交 `205c72f`），镜像输入同步移除 0511j。
 
+17. **h34 实飞到桌面、致命集改为「h4 × h3 × (h1|h2)」三元组（2026-11-16 凌晨）**
+    - `bt-bisect-h34`（0511j = h3+h4，不含 h1/h2）**到桌面**：证据 `usblog-20261116-014536`，
+      console.log 134,032 B / 2,264 行、SpringBoard **128**、panic 标记 0（`panic(` / `panic: ` /
+      `Debugger called` / `stackshot` 各 0）、`getBytes:range` **0 次**。关键行：`:186`
+      `K60 BT: published local address ee:98:c5:8a:6b:4e`、`:192` `[bluetooth] addon: linked blob
+      bytes=1027584 records=106`（`[bluetooth]` 全篇仅此 1 行）、`:300` K60DATA attempt enter、
+      `:304` APFS UUID 1BCD69FF 绑到 Data UFS 窗口 /dev/disk5s1、`:481` K60DATA mounted ro=0、
+      `:973` Early boot complete、`:2196` Pong UI 开发版 SpringBoard 激活门。
+      `probe: armed` / `probe: done` / `power=` 三行全无 —— h3 把早启动探针整段拿掉，与 h23 同形的
+      可观测性副作用，不是失败。
+    - 结论更新：h34 = h3+h4 能起 ⇒ **致命集不是纯 {h3,h4}，还必须带 h1 或 h2 之一**；
+      「h3 × h4 两两交互」被推翻，改为 **h4 × h3 × (h1|h2) 三元组**（h1 与 h2 至少一个在场）。
+    - 下一轮：`bt-bisect-h134`（0511k = h1+h3+h4）与 `bt-bisect-h234`（0511l = h2+h3+h4）各一张，
+      两张即可定位是 h1 还是 h2 在放大。变体
+      `0511k-k60-bt-bisect-h134.patch`（2,735 B，sha256 `b1a81f2c851371ccd666210a945613975b88fa431166f35864909b955167a3f8`，
+      H134_EQUALS_FULL_MINUS_H2 + H134_CHECK_OK）与
+      `0511l-k60-bt-bisect-h234.patch`（2,694 B，sha256 `e2ff0dc3821bef2af126bba97ad78556df8f4aeec5222538cb7a73550e9ea42f`，
+      H234_EQUALS_FULL_MINUS_H1 + H234_CHECK_OK）；series 换 h134 的提交 `7e8a247`。
+    - 变体校验脚本 `E:/k60-work/scratch/bt-s4/bisect/make-h134-h234.sh`：scratch 仓库必须先
+      `git reset --hard post0510` + `git clean -fd`，否则上一轮的脏文件让 `git apply` 报
+      `patch does not apply`（第一次跑就是这样失败的）；h134 的反向参考是「full − h2」、h234 是
+      「full − h1」，多减 h4 会得到 MISMATCH。
+
+
 
 
 

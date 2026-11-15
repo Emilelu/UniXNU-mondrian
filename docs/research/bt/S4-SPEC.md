@@ -808,7 +808,19 @@ h124 SB132/**0**/有/**1(result=0)**；全量 silent。⇒ ① 能起的三张�
 的 hunk**，两者叠加才 silent。④ C 族归因按 h2 口径改写：不是 0509 OSData 修复直接生效，而是 h2 让
 冷启动早退消失后身份发布第一次真正执行。
 
-**h34 决定性图（2026-11-16 01:06 构建，待飞）**：`bt-bisect-h34` = 0511j（h3+h4，不含 h1/h2），
+**h34 实飞判读（2026-11-16 01:45 飞，Lead 飞，证据 `usblog-20261116-014536`）**：**能起**——
+console.log 134,032 B / 2,264 行、SpringBoard **128**、panic 标记 0（`panic(`/`panic: `/`Debugger called`/
+`stackshot` 各 0）、`getBytes:range` **0 次**、`:186` `K60 BT: published local address ee:98:c5:8a:6b:4e`、
+`:192` `[bluetooth] addon: linked blob bytes=1027584 records=106`（`[bluetooth]` 全篇仅此 1 行）、
+`:300` K60DATA attempt enter、`:304` APFS UUID 1BCD69FF 绑到 Data UFS 窗口 /dev/disk5s1、
+`:481` K60DATA mounted ro=0、`:973` Early boot complete、`:2196` Pong UI 开发版 SpringBoard 激活门。
+`probe: armed`/`probe: done`/`power=` 三行全无（h3 把早启动探针整段拿掉，可观测性副作用，与 h23 同形）。
+
+**结论更新（比七张矩阵再窄一步）**：h34 = h3+h4 能起 ⇒ **致命集不是纯 {h3,h4}，还必须带 h1 或 h2
+之一**。因此 h3×h4 两两交互的结论被推翻，改为「h4 × h3 × (h1|h2) 三元组，h1 与 h2 至少一个在场」。
+下一步按 Lead 判读树：出 h134（h1+h3+h4）与 h234（h2+h3+h4）各一张，两张即可定位是 h1 还是 h2 在放大。
+
+**h34 决定性图（2026-11-16 01:06 构建）**：`bt-bisect-h34` = 0511j（h3+h4，不含 h1/h2），
 boot.img `3b7d79b7…b1873`（201,887,744 B）、kernel `556ad11d…c45947`、series 230 /
 `dfa2f138…19a34`、blob `febdc20d…2037`、30 参数 / 583 B `k60bt=1`、verify + image-arg-audit OK。
 判读树：silent ⇒ 致命集锁定 {h3,h4}，再在 h34 上逐条关断 `pong_bt_smmu=0` / `pong_bt_rcg=0` /

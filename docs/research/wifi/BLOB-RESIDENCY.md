@@ -257,8 +257,8 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 |---|---|
 | 段表逐段扫描（含 105 MB 家族） | `E:/k60-work/scratch/refmine/probe-segs.py`、`probe-seg.py`、`probe-allwifi.py`（46 张 boot.img 汇总） |
 | 窗口值逐镜像 | `probe-window3.py`：ADT 属性 `darwinboot-memory-size` 解码——thermal/springboard/gpu/base/touch=0x130000000（4.75 GiB）alive；brightness-4=0x120000000（4.5 GiB）alive；wifi-20261114a/mhi3=0x130000000 死；mhi4/mhi5/z0/t2/bt-s4b-20261115c=0x120000000（z0 与 t2 已判 silent）；a2/t1/t1c=0x130000000 未飞 |
-| `z0` 判决 | `judge-z0.sh usblog-20261115-135859 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
-| `t2` 判决 | `judge-z0.sh usblog-20261115-161102 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
+| `z0` 判决 | `scripts/judge-z0.sh usblog-20261115-135859 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
+| `t2` 判决 | `scripts/judge-z0.sh usblog-20261115-161102 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
 | 六张 silent 图 + bt 三图逐段实测 | `probe-silent6.py`（E:/k60-work/scratch/refmine/，复用 probe-family 段解析与 probe-window3 窗口解码）：§9 表的 kernel/段/窗口数字全部出自它 |
 | alive 归属（join image sha → evidence） | `probe-join2.py`：thermal adc796b6→usblog-20261115-003922（232,670 B）；springboard 3ada9562→003207；gpu ba783b74→212253；brightness e41eb797→013520（185,701 B）；a2/mhi5/z0/t1/t1c 全库零命中（从未上机） |
 | `__const` 内固件逐字节匹配 | `probe-const.py` / `probe-const2.py`：四文件与 `/mnt/e/k60-work/firmware/qca6490-wifi/` 相同；非零字节合计 7,030,971 |
@@ -270,6 +270,7 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 | §7.4 符号计数 | WSL `llvm-nm-18` 扫 mhi4 payload kernel：52,274 个符号，`_pong11_*` = 861，`_pong_wifi_firmware`/`_pong_wifi_firmware_end` 各 1 |
 | bt 非单调对 series | `E:/k60-work/artifacts/bt-s4b-20261115b/build-manifest.json`（series 228 b31855c932b4…）与 `bt-s4b-20261115c/`（series 229 67baff88e1bb…）；两图 boot.img 窗口同 0x120000000 |
 | PWF2 失配 | mhi4 kernel 文件偏移 589,824 处头（count=6，entry[0] amss.bin，1..5 全空）vs 四文件实测偏移（§1 表） |
+| 判定器落位 | `scripts/judge-wifi-boot.py`、`scripts/judge-z0.sh`、`scripts/check-arg.py` 与两份自测已在 main（合并 `4f56970`，登记 `3e6f110`，tag `snap-r198`）；本文引用写 main 上的路径，不写分支或 scratch 副本 |
 
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与
 artifact `boot.json` 按 image sha256 的 join（`probe-join2.py`），与
@@ -345,7 +346,7 @@ sha 只在那批镜像内可比）；`t2` 及以后的窗口必须逐镜像重�
 死亡签名与 mhi3（`usblog-20261115-002804`，86.746 s）/ mhi4
 （`usblog-20261115-002243`，86.758 s）逐字段相同：同样 `port-not-observed`、
 同样 `returnedToFastboot`、同样 `fastboot-return`。判定器在 MSYS 与 WSL 两侧
-都给 `silent` / `RC=2`（`judge-z0.sh` 的 helper 路径已改成脚本自身相对 + 候选根
+都给 `silent` / `RC=2`（`scripts/judge-z0.sh` 的 helper 路径已改成脚本自身相对 + 候选根
 探测，找不到就 exit 4 拒判，绝不读成 silent）。
 
 #### `t2`（2026-11-15 16:11 飞）

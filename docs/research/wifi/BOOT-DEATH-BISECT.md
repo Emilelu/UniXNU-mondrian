@@ -300,6 +300,11 @@ python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
 仍能从行内 `[exit N]` 读到」。每个用例都断言退出码本身，因为退出码是判定器进
 自动流水线时的全部 API）。
 
+**工具落位**：三件工具（`scripts/judge-wifi-boot.py`、`scripts/judge-z0.sh`、
+`scripts/check-arg.py`）与两份自测已合入 main（合并 `4f56970`，登记 `3e6f110`，
+tag `snap-r198`）；本节与 BLOB-RESIDENCY.md 的引用一律写 main 上的 `scripts/`
+路径。
+
 **引用纪律**：贴判定结果时写 **usblog 目录名**，镜像只作附注。证据目录与镜像
 不是一一命名——`usblog-20261115-012913` 对应的是 `bt-s4a-20261114f`，而 bt 线
 现在跑的是 s4b/s4c 受控对照对；只写「bt 健康镜像」过几轮就对不上号了。镜像名

@@ -27,7 +27,7 @@
 | bt-s4b-20261115c | 106,541,056 | 1,720,320 | 52,920,320 | 1,949,696 | 无 | —（kargs `k60bt=1`） | 0x120000000 | 229 `67baff88e1bb` | `usblog-20261115-163144` |
 
 六张全部 `port-not-observed` + `fastboot-return` + console.log 0 字节，判定器
-都是 `silent` / exit 2。
+（main 的 `scripts/judge-z0.sh`）都是 `silent` / exit 2。
 
 ## 每行一句（不引申）
 

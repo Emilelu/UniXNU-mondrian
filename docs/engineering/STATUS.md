@@ -216,6 +216,10 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
   opcode-4 handler 钉死 (type=1, 16 B)，`build-k60-physical-battery.py` 产出
   `MEASURED_NOTIFY_REPLY=(1,16)` 且抓包只能确认不能覆盖；GLINK 契约与
   `K60Battmgr` 白名单对齐；104 字节 handoff 发布规范落库。八步表新增充电行
+- P-206（`c97a4cf`）：`check-build-env.py` 不再写死 `mondrian` board 目录——从
+  out 树按 mtime 推导（wifi 线的 `mondrian_wifi` 首次构建死在
+  `Availability.h` file not found 而门禁一直验旧树假绿）；`FAKEROOT_FILES`
+  2→5（三个 Availability 头 + 两个 firehose 文件）。
   （①–⑦ ✅、⑧ 待上机），真机验证排在 ADSP PAS1 之后。
 - P-205 + ★36 第 7 条：README 的日期、编号、门禁点名必须与 STATUS /
   HARD-RULES / PITFALLS / build-strict.sh 可对账，新门禁 `scripts/check-readme.py`。

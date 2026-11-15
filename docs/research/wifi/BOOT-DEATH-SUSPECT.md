@@ -522,6 +522,13 @@ coincidence: its count field reads 1852788736, so it is not a second container.
 §3g answers the layout half of this statically: no segment, span or `Used`
 value of any wifi image is near a `DarwinBoot.c` limit, so the outcome above is
 about content and placement only, never about the loader running out of window.
+A note on the build script: `run-c2.sh` first asserted `gpu_addon` in the
+manifest, and that field only mirrors an explicit `--gpu-addon` flag, so the
+assertion measured the wrong object — the P-194 / P-200 / P-201 / P-211 family
+("the field describes the flag, not the image"). It now proves the plugin and
+the container from the payload kernel itself (`PongMetalBridge` and `PWF2`
+string hits plus the `_k60_metal_blob` symbol), which is the only reading that
+describes the artifact.
 
 ## 3g. Static arithmetic: segment sizes against the DarwinBoot window (2026-11-16)
 

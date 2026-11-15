@@ -53,7 +53,7 @@ the first image that tests the current tree.
 
 ## 2. Suspects
 
-### S1. PWF2 firmware blob in `__TEXT,__const` (11.2 MB) — **primary suspect**
+### S1. PWF2 firmware blob in `__TEXT,__const` (11.2 MB) — **negated by the T2 flight on 2026-11-15**
 
 - Source: `scripts/build-k60-wifi-native.py:102` emits
   `.section __TEXT,__const` + `.p2align 12` + `.incbin`; the whole PWF2
@@ -94,6 +94,17 @@ the first image that tests the current tree.
   exonerated and the blob is still alive as a suspect for mhi5; silent →
   blob or its residency is the killer, and T2 (blob into `__DATA`, or read
   from the Data volume at runtime) becomes the next image.
+
+- **Outcome — the disproving flight has been flown.** T0 `wifi-20261115z0`
+  (blob in `__TEXT`, `pong_wifi=0`, kernel 117,305,344 B) was silent
+  (`usblog-20261115-135859`, 0 bytes), so T2 was built and flown:
+  `wifi-20261116t2` keeps the same 117,305,344 B kernel with the blob moved
+  into `__DATA,__const` (ld placed it in `__DATA_CONST`, 12,124,160 B;
+  `__TEXT` dropped 12,992,512 → 1,802,240) and it was **still silent**
+  (`usblog-20261115-161102`, 0 bytes). S1 is therefore **negated — excluded,
+  not a suspect**: blob residency is not the killer. What remains is the
+  pool/window channel and the driver-body static path; see
+  `DARWINBOOT-POOL.md`.
 
 ### S2. Window arithmetic with the new kernel size — **downgraded to bookkeeping**
 
@@ -159,6 +170,19 @@ the difference between a boot and a silent death. What T0 isolates is the
 image is also silent does moving the blob become the next thing worth testing.
 If T0 boots, the volume/residency theory loses its base and T2 is dropped.
 
+**Status after the flights (2026-11-15).** T0 was silent
+(`usblog-20261115-135859`), so T2 was built and flown; T2 was silent too
+(`usblog-20261115-161102`) — the "if it dies" cell of the T2 row came true:
+S1 is falsified and the next step is the loader/pool analysis in
+`DARWINBOOT-POOL.md` (the `NO WINDOW` diag line and its capture channels).
+T1 (`wifi-20261116mhi5d`) is parked by the Lead. The bt pair adds a
+non-monotonic datum: bt-s4b-20261115b (106,541,056 B) reached the desktop
+(`usblog-20261115-140927`, console 213,434 B) while bt-s4b-20261115c (same
+106,541,056 B, series 228→229, one patch) was silent
+(`usblog-20261115-163144`, 0 bytes), and bt-s4c-20261115c (105,508,864 B,
+series 229) reached the desktop again (`usblog-20261115-162553`, console
+245,222 B) — the size/window model explains none of the three.
+
 ## 3a. The T0 control image (built 2026-11-15 03:49)
 
 `wifi-20261115z0` — first image of this line that is both a control and a
@@ -203,7 +227,7 @@ mhi3/mhi4 result: the 65.9 MB stale kernel already carried the 11.2 MiB
 `__TEXT,__const` blob, so "blob in __TEXT" alone was never the difference
 between the silent pair and the images that boot.
 
-## 4. T2 contingency: move the firmware blob out of `__TEXT` (planned, not started)
+## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 
 Written on 2026-11-15 at the Lead's request so the fix is ready the moment
 T0 comes back silent. **Nothing here has been built or flown.**
@@ -310,3 +334,11 @@ It stays the fallback if `__DATA` placement turns out to be insufficient.
   `:775` (`Used > WindowSize - BLOCK_SIZE`), `:794`
   (`Args->MemorySize = WindowSize`).
 - Probe script: `E:/k60-work/scratch/seg3.py` (segment tables).
+- Post-T0 flights: `usblog-20261115-135859` (z0/T0, silent),
+  `usblog-20261115-161102` (t2, silent),
+  `usblog-20261115-140927` (bt-s4b-20261115b, alive),
+  `usblog-20261115-163144` (bt-s4b-20261115c, silent),
+  `usblog-20261115-162553` (bt-s4c-20261115c, alive).
+- Pool/window analysis: `DARWINBOOT-POOL.md` (the three DarwinBoot memory
+  nodes line by line, the window arithmetic against `board.toml:235` and the
+  5120 MiB arena, and the one-flight discriminator).

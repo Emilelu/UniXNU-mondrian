@@ -1,10 +1,15 @@
 # T2 patch: put the PWF2 firmware container in `__DATA` instead of `__TEXT`
 
-**Status: prepared, not applied, not built.** Written 2026-11-15 at the Lead's
-request (reply of 2026-11-15, item 2) so the fix is ready if the T0 control
-image `wifi-20261115z0` comes back silent. Applying it is a decision for the
-Lead after T0 reports; nothing here runs on its own and it is deliberately
-**not** part of `patches/wifi/series`.
+**Status: negated by the T2 flight on 2026-11-15 — kept as evidence, not
+merged.** T0 (`wifi-20261115z0`) came back silent
+(`usblog-20261115-135859`, 0 bytes), so the patch was built and flown as
+`wifi-20261116t2` (blob in `__DATA,__const`, placed by ld in `__DATA_CONST`,
+12,124,160 B; `__TEXT` 12,992,512 → 1,802,240) and that flight was **still
+silent** (`usblog-20261115-161102`, 0 bytes). Blob residency is therefore
+excluded as the killer and the permanent `.section __DATA,__const` change is
+deliberately **not** being made; §5.0 stays as the record of what was
+measured. Nothing here runs on its own and it is deliberately **not** part of
+`patches/wifi/series`.
 
 Rationale, measurements and the falsification logic live in
 `docs/research/wifi/BOOT-DEATH-SUSPECT.md` §2 (S1) and §4.

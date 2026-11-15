@@ -343,12 +343,17 @@ This line, next in order:
    `render-eight-step-table.py --check` consistent, `eight-step-gate.py --build` 30 checks rc=0,
    `--flash` rc=0, `K60_EIGHT_STEP_ITEMS=bluetooth --build` 6 checks rc=0. `git apply --check` passes on
    this branch (whose `EIGHT-STEPS.toml` is byte-identical to `origin/main`).
-6. **Worktree repair tool (Lead, one patch).** P-203 restored nineteen trees by hand with
-   `E:/k60-work/scratch/refmine/repair-wts.py`, a one-off that hard-codes the main checkout and has no
-   test. The Lead asked this line for a generalised version, so it is exported as
+6. **Worktree repair tool — landed on `main` as `ff19c51`.** P-203 restored nineteen trees by hand
+   with `E:/k60-work/scratch/refmine/repair-wts.py`, a one-off that hard-codes the main checkout and has
+   no test. The Lead asked this line for a generalised version; it was exported as
    `/mnt/e/k60-work/scratch/bt-s4/lead/bt-repair-worktrees.patch` (23,312 B, sha256
    `9a08aade286924780f5f16628a7b03a0b21cc160e60818ad7e5a35309332ed44`, two new files:
-   `scripts/repair-worktrees.py` and `scripts/tests/test-repair-worktrees.py`).
+   `scripts/repair-worktrees.py` and `scripts/tests/test-repair-worktrees.py`) and the Lead merged it
+   as `ff19c51 scripts: add the generalised worktree repair tool` (tag `snap-r190`, registry 83 rules,
+   0 failures). **`--check` is deliberately not a gate**: it scans the parent directory and reads
+   nineteen pointer files, too expensive for every registry run, and the prune accident is already
+   blocked at the source by `git-guard` (rc=128 inside a linked worktree). It stays an incident-recovery
+   tool plus an on-demand check; the Lead will wire it into a daily task only if a third accident happens.
    `repair-worktrees.py` recovers the branch by scoring every branch's blobs against the files still in
    the tree, rebuilds `{HEAD,gitdir,commondir}`, then `git read-tree` (never `checkout`, so uncommitted
    work survives byte for byte), and offers `--check` (read-only, exit 1 when a tree is broken) and

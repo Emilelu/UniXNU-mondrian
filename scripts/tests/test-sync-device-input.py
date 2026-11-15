@@ -33,7 +33,10 @@ class FeedMetadataSyncTests(unittest.TestCase):
             (self.repo / name).write_bytes(data)
         spec = importlib.util.spec_from_file_location("k60_sync_under_test", SCRIPT)
         self.sync = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.sync)
+        # The script's import-time guard demands K60_DEVICE_INPUT for the write
+        # path; tests always pair the import with an explicit mirror.
+        with mock.patch.dict(os.environ, {"K60_DEVICE_INPUT": str(self.device)}):
+            spec.loader.exec_module(self.sync)
         self.sync.REPO = str(self.repo)
         self.sync.DEV = str(self.device)
         self.sync.SCRATCH_SERIES = str(self.scratch)
@@ -99,6 +102,37 @@ class FeedMetadataSyncTests(unittest.TestCase):
         self.assertEqual(rc, 0, output)
         for name in METADATA:
             self.assertEqual((self.device / name).read_bytes(), b"existing optional metadata\n")
+
+
+class ImportGuardTests(unittest.TestCase):
+    """The import-time guard: --check may default to the shared tree, writes may not."""
+
+    REFUSAL = "refusing to write the shared device tree"
+
+    def run_script(self, *args):
+        import subprocess
+        env = dict(os.environ)
+        env.pop("K60_DEVICE_INPUT", None)
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(SCRIPT.parent.parent),
+        )
+        return proc.returncode, proc.stdout + proc.stderr
+
+    def test_write_path_without_a_mirror_dies_with_the_refusal(self):
+        rc, output = self.run_script()
+        self.assertNotEqual(rc, 0, output)
+        self.assertIn(self.REFUSAL, output)
+
+    def test_check_path_without_a_mirror_uses_the_shared_tree_read_only(self):
+        rc, output = self.run_script("--check")
+        # --check is read-only: it must not die with the write refusal; it may
+        # only report drift (rc 0 or 1) against the shared mirror.
+        self.assertNotIn(self.REFUSAL, output)
+        self.assertIn(rc, (0, 1), output)
 
 
 if __name__ == "__main__":

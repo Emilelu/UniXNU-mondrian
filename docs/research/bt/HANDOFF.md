@@ -577,6 +577,17 @@ This line, next in order:
       H34_EQUALS_FULL_MINUS_H1_H2 + H34_CHECK_OK），series 换 hunk 的提交 `2cdb459`。
       h34 silent ⇒ 致命集锁定为 {h3,h4}，再在 h34 上逐条关断 `pong_bt_smmu=0` / `pong_bt_rcg=0` /
       `pong_bt_noboot=1` 定位；h34 能起 ⇒ 还需 h1 或 h2 之一在场，出 h134 与 h234 各一张。
+    - `bt-bisect-h34`（0511j = h3+h4，不含 h1/h2；commit `2cdb459`，构建 01:06）：boot.img
+      `3b7d79b73e435b5058f692152150e7fc7ea27c335ceb9c7877e8c61f2c9b1873`（201,887,744 B）、
+      kernel_built `556ad11d0e86845fdf0a401b0b3665037efb233dd055840e7a35712f27c45947`、
+      payload_kernel `6544ca3e8b69c882828a586ad9cdfb4d26a7a651b0a6f3cfcb83a5e1997f95fd`、
+      payload `75900b955fc00e85adbdba3f562578530e5594615aed6f1b6754456683ce9814`、
+      adt `9bbad874197fa6b88f5e4771cbef2a363f98a233836d6086e011252fd496dd9d`、
+      blob `febdc20d…2037`、30 参数 / 583 B `k60bt=1`、head `f604d5f`、dirty 0、
+      series 230 / `dfa2f138ae7c7d0a4aed07f6f558500729618f1fa48967e5a44e442598319a34`；
+      verify-boot-image OK + image-arg-audit OK（30 arguments, 583 bytes）。
+      构建后 series 已还原为 0511（提交 `205c72f`），镜像输入同步移除 0511j。
+
 
 
 

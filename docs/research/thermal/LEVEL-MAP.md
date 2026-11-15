@@ -170,6 +170,44 @@ python3 scripts/check-thermal-log.py --self-test           # 自测：干净的�
 不要用 `pong_thermal_bias` 当标定（本板没有 `qcom,tsens-calibration`，`01-SAME-HARDWARE.md` §4），
 不要因为它能造出 125℃ 就去写 trip 或 SROT_CTRL —— 这条线始终只读（`TRIP-DESIGN.md` §3.5）。
 
+### 5.5 下一次上机判据（cooling map 之后）
+
+冷却映射接线之后要判的是「压档真的压到了硅」，三件事同时成立才算过：
+
+1. `PongThermal: level 3/3 trapping` —— 阶梯到了最高档（`drivers/PongThermal/pong_thermal.c:187` 的 `every tier crossed` 分支，`K60ThermalZones.c` 的 3 档 zone 全过）；
+2. `PongThermal: level trapping (3) published as Thermal_Level_Warning=3` —— 发布层把 3 送进 `IOPMrootDomain`（`drivers/PongThermal/pong_thermal_pm.cpp:112`）；
+3. **CPU 频率读数下降** —— 这一条目前**没有接口**，必须先补读数。下面是 2026-11-15 的查证结果。
+
+#### 频率从哪读
+
+| 候选 | 结论 |
+| --- | --- |
+| `hw.cpufrequency` / `_min` / `_max` sysctl | 存在（`bsd/kern/kern_mib.c:894-896`，handler `bsd/kern/kern_mib.c:829-848`），但读的是 `gPEClockFrequencyInfo`，**只在启动时从 ADT 的 `clock-frequency` 填一次**（`pexpert/arm/pe_identify_machine.c:149-151`），是静态值，证明不了 DVFS |
+| `IOCPU` 的 `clock-frequency` 属性 | 同上：`iokit/Kernel/IOCPU.cpp:369-374` 把同一份静态值发布成属性 |
+| `CPU_Speed_Limit` 键 | 只有定义（`iokit/IOKit/pwr_mgt/IOPM.h:734`），树内零消费者，发布它不会降频 |
+| EPSS 性能状态寄存器 | **唯一诚实的活动读数**：`mondrian.dts:854-858` 有 `qcom,cpufreq-hw-epss`，`freq-domain0/1/2` = `0x17d91000` / `0x17d92000` / `0x17d93000`（各 0x1000），另有 `0x17d09804` / `0x17d09808` / `0x17d0980c` 三个 pdmem 寄存器；`mondrian.dts:869-872` 是配套的 debug 节点 |
+
+EPSS 读法按 mainline `qcom-cpufreq-hw.c` 的语义：读每个 domain 的 perf-state 寄存器得到 LUT 下标，下标变小 = 频率下降。
+**常数待核**：本机没有这份上游源码，`EPSS_REG_PERF_STATE = 0x320`、`EPSS_REG_FREQ_LUT = 0x100` 是按记忆写的，
+实现前要对着上游源码核一遍寄存器偏移。DTS 里没有 CPU 的 OPP 表（`mondrian.dts:8965` 的 `operating-points-v2` 是 sdhc2 的），
+所以**只能判下标方向，判不了绝对 MHz**；要 MHz 得先把 LUT（0x100）读出来，那是下一步的事。
+
+落地形态：在 `drivers/PongThermal/pong_thermal.c` 用已有的 `ml_io_map` 路径多映射三个 0x1000 窗口（只读），
+每次采样打印一行 `PongThermal: freq d0=%u d1=%u d2=%u`（下标），判据 = 压档前后同一 domain 的下标下降。
+**在打印行存在之前不许往 `CRITERIA.toml` 加这条**（`docs/engineering/JUDGE-CONTRACT.md` §一.9：判据必须真的能出现在日志里）。
+
+#### 判不了怎么办
+
+如果 EPSS 读回全 0、三个 domain 全相同、或者映射失败：**写「无法判」，不许拿温度代替**。
+温度只证明热了，不证明降频；这条是 Lead 在 2026-11-15 明确要求的（"读不到就诚实写无法判，别用温度代替"）。
+
+#### 与 TRIP-DESIGN 的关系
+
+46 条 cooling map 里本板能指望的执行器与这里的读数是一对：执行器负责「压」，EPSS 读数负责「证」。
+`qcom,cpufreq-cdev`（`mondrian.dts:16790-16793`）、`qcom,devfreq-cdev`（`:16795-16798`）、`display-fps`（`:16803`）
+这些存在但不被引用的节点要改哪个 DT 节点、改哪个驱动，等 Lead 放行 (b) 段后再写进 `TRIP-DESIGN.md`，本节只钉读数。
+
+
 ## 6 32 个 zone 的全表
 
 （`slot` 是驱动采样顺序 = `pong_thermal_sensors` 的下标；温度单位 mC；`@` 是 DTS 行号；

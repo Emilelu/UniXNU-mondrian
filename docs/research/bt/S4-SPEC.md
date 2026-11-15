@@ -668,6 +668,51 @@ S4a 与 S4b 用同一个镜像：`linked blob` 在 `qbt_k60_start()` 里就打�
 这个唯一体积反推是 `hpbtfw20.tlv`；6,319 B 对应 13 个 `hpnv20*`、6,602 B 对应 5 个 `hpnv21*`，
 NVM 一级**无法**从字节数定位到具体文件（清单见 `firmware/bluetooth/manifest.json`）。
 
+### 7.2 c 对上机结果与 0511 逐 hunk 二分（2026-11-15 晚）
+
+**c 对已飞**：负向 `bt-s4c-20261115c`（`dbf089c0…8d03`）到桌面、判据全中——`console.log:192`
+`[bluetooth] addon: no GpuAddon property` 逐字命中，`:186` `K60 BT: published local address
+ee:98:c5:8a:6b:4e`（identity 种子在 BT 上确认，第 4 项阻断关闭；证据
+`usblog-20261115-162553/console.log`，245,222 B / 3,535 行）。正向 `bt-s4b-20261115c`
+（`2dc1054e…968`）**0 字节**、port-not-observed、returnedToFastboot=True（证据
+`usblog-20261115-163144`）。两个假设被 Lead 排除：不是内核体积——两枚正向都是 106,541,056 B
+逐字节相同，负向 −1,032,192 B，106.5 MB 能起；不是 blob 本身——旧正向 b 携带同一个
+`febdc20d` blob 到过桌面。负向带 0005 能起 ⇒ 0005 单独安全；唯一剩余变量是 **0005+blob 组合**。
+
+**逐 hunk 二分**（Lead 裁决：不要动 blob、不动参数、不动 607 B 闸门）：四张图各只带 0005 的
+一个 hunk + blob，判据是**到桌面（SB>100）**，不是 BT 自己的行。hunk 划分：
+
+| hunk | 内容（`0511` 内） | 变体文件 | 提交 | 镜像 |
+|---|---|---|---|---|
+| h1 | addon 闸门 `|| k60_bt_blob_len>0`（`qbt_k60.c:2006-2015`） | `0511a…-h1` | `e296d9e` | `bt-bisect-h1` |
+| h2 | warm 去掉 `return -EOPNOTSUPP`（`qbt_k60.c:1818-1827`） | `0511b…-h2` | `00aa205` | `bt-bisect-h2` |
+| h3 | stage 默认 0（`qbt_k60.c:2096-2105`） | `0511c…-h3` | `40cdafd` | `bt-bisect-h3` |
+| h4 | btqca 等级行（`btqca.c:764-771`） | `0511d…-h4` | `3bcaac3` | `bt-bisect-h4` |
+
+镜像（全部 `k60bt=1` / 30 参数 / 583 B，boot.img 均 201,887,744 B，`bt_blob febdc20d…2037`）：
+
+| 镜像 | boot.img | kernel_built | payload_kernel | frozen | series |
+|---|---|---|---|---|---|
+| `bt-bisect-h1` | `3936416f…abe6` | `f4ba4245…57e7` | `252afd1a…dcf0` | `0d3ee7ae…1130` | 229 / `d8c1cee2…07de` |
+| `bt-bisect-h2` | `e2862637…ab81b` | `40ded59a…2419` | `cae9330b…57fab` | `cbc44962…b3cf` | 229 / `30319819…a24a` |
+| `bt-bisect-h3` | `182e73de…1102` | `ee96b73d…5c7c` | `a8e2a142…0a9` | `912bb990…5d3` | 229 / `9d21a68b…05b` |
+| `bt-bisect-h4` | `d9977a2e…197b` | `1573f6bf…e44` | `d4f91491…db9` | `33c52fcf…76c` | 229 / `62c2c818…fdb` |
+
+frozen/series 每张不同是预期：series 指向单 hunk 变体（变体文件在仓库里，进 frozen 列表）。
+每张图构建前必须把 series 换 hunk 并**提交**——构建内合规门禁硬拒 dirty series
+（iron-2 "1 tracked file(s) modified but not committed: patches/xnu/series"），第一轮死于此。
+
+**预测**：h1 单独时 h3 不在 ⇒ stage 仍为 1 ⇒ 上电线程 20 s 睡眠后走**默认第 9 步的首次真机探针**
+（完整寄存器阶梯；`qbt_k60_start()` 在 `bsd_init.c:1352`、紧跟 `:1341` 的 USB 控制台 worker，
+所以此时控制台已起，故障会留字节）；h2/h3/h4 单独时要么在闸门前空转要么纯装饰 ⇒ 预期到桌面。
+四张全到桌面 ⇒ 凶手是 h1+h2+h3 组合（早启动无延迟固件路径），下一步组合二分先试 h1+h3。
+若 h1 单独就静默，怀疑对象移向 `k60_bt_addon_load_blob()` 的调用时机——把它移到 bring_up 之后，
+首行换成 level-1 具名日志 `blob: addr=… len=…`，另开一轮。
+
+**收尾**：`bt-restamp-20261115`（全量 0511，series `67baff88…bca`、frozen `0254f9d5…585e`，
+与 c 对逐字节一致）只为重建 P-165 戳记让注册表回绿，**不是飞行镜像**。五个提交均未 push
+（schannel 断网；Lead 裁定攒批一次性推）。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

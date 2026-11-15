@@ -420,3 +420,31 @@ This line, next in order:
     | `bt-s4c-20261115c` | `dbf089c0…8d03` | `5046e338…029e`（105,508,864 B） | `a352bf57…5a20` | `3042f2ca…2c8a` | （空，单字节 stub） |
     待飞窗口；上机前先把 item 9 的落点对照表给 Lead 抽查。
 
+11. **0511 逐 hunk 二分（2026-11-15 晚，Lead 裁决）**：c 对已飞——负向 `bt-s4c-20261115c`
+    （`dbf089c0…8d03`）到桌面、判据全中（`console.log:192` `[bluetooth] addon: no GpuAddon property`
+    逐字命中；`:186` `K60 BT: published local address ee:98:c5:8a:6b:4e`，identity 种子在 BT 上确认，
+    第 4 项阻断关闭；证据 `usblog-20261115-162553/console.log`，245,222 B / 3,535 行）。正向
+    `bt-s4b-20261115c`（`2dc1054e…968`）0 字节、port-not-observed、returnedToFastboot=True
+    （证据 `usblog-20261115-163144`）。Lead 排除两个假设：不是内核体积（两枚正向都是
+    106,541,056 B 逐字节相同；负向 −1,032,192 B，106.5 MB 能起）；不是 blob 本身（旧正向 b
+    携带同一个 `febdc20d` blob 到过桌面）。唯一剩余变量 = `0005`+blob 组合 ⇒ **按 hunk 二分**：
+    四张图各只带 `0005` 的一个 hunk + blob，判据是**到桌面（SB>100）**，不是 BT 自己的行。
+    h1=addon 闸门（`qbt_k60.c:2006-2015`）；h2=warm 去掉 `-EOPNOTSUPP`（`:1818-1827`）；
+    h3=stage 默认 0（`:2096-2105`）；h4=btqca 等级行（`btqca.c:764-771`）。每张图构建前先把
+    series 换成对应 hunk 并**提交**（构建内合规门禁硬拒 dirty series，第一轮就死在这里）：
+    `e296d9e`(h1) / `00aa205`(h2) / `40cdafd`(h3) / `3bcaac3`(h4) / `9bf2de8`(恢复全量)。
+    | 镜像 | hunk | boot.img | kernel_built | payload_kernel | frozen | series |
+    |---|---|---|---|---|---|---|
+    | `bt-bisect-h1` | 闸门 | `3936416f…abe6` | `f4ba4245…57e7` | `252afd1a…dcf0` | `0d3ee7ae…1130` | 229 / `d8c1cee2…07de` |
+    | `bt-bisect-h2` | warm | `e2862637…ab81b` | `40ded59a…2419` | `cae9330b…57fab` | `cbc44962…b3cf` | 229 / `30319819…a24a` |
+    | `bt-bisect-h3` | stage | `182e73de…1102` | `ee96b73d…5c7c` | `a8e2a142…0a9` | `912bb990…5d3` | 229 / `9d21a68b…05b` |
+    | `bt-bisect-h4` | btqca 行 | `d9977a2e…197b` | `1573f6bf…e44` | `d4f91491…db9` | `33c52fcf…76c` | 229 / `62c2c818…fdb` |
+    四张 boot.img 均 201,887,744 B、`bt_blob=febdc20d…2037`、30 参数 / 583 B（`k60bt=1`）。
+    frozen/series 每张不同是**预期**（series 指向单 hunk 变体，frozen 列表含该变体文件）。
+    预测：h1 单独时 stage 仍是 1 → 20 s 睡眠后走**默认第 9 步的首次真机探针**（此时 USB 控制台
+    已起，故障会留日志）；h2/h3/h4 单独时要么在闸门前空转要么纯装饰 → 预期到桌面。四张全到桌面
+    ⇒ 凶手是 h1+h2+h3 组合（无延迟的早启动固件路径），下一步组合二分先试 h1+h3。
+    收尾构建 `bt-restamp-20261115`（全量 0511，series `67baff88…bca`、frozen `0254f9d5…585e`
+    ——与 c 对逐字节一致）只为重建 P-165 戳记让注册表回绿，**不是飞行镜像**。5 个提交均未 push
+    （schannel 断网，Lead 裁定攒批一次性推）。
+

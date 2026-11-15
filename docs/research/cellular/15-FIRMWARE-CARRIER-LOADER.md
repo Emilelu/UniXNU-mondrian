@@ -1,7 +1,7 @@
 # 15 — 固件载具装载器实现规格（K60ModemImage）
 
-- **状态**：规格（尚无实现；本线未修改、未构建、未出镜像 uefi-mondrian）
-- **日期**：2026-11-15
+- **状态**：规格（第一交只读骨架已落 `uefi-mondrian` `feat/cellular` `a8d6bd4`；本线未构建、未出镜像）
+- **日期**：2026-11-15（2026-11-16 补 §1.7 payload 容量约束、改 §7 第 1 条）
 - **实现 Owner**：uefi-mondrian 线（Lead 排期）；**验收 Owner**：本线（用 13 号门禁）
 - **勘察版本**：`uefi-mondrian` `main` @ `9b79562`（工作树只有 6 个子模块脏，无源码改动）
 - **相关**：`12-DXE-CONTRACT.md`（为什么是库调用）、`13-FIRMWARE-ACCEPTANCE.md`（18 行门禁）、`14-DXE-REQUEST.md`（需求与裁决）、`06-MODEM-PAS.md`（内核侧）
@@ -13,6 +13,8 @@
 ## 0 一句话
 
 在 DarwinBoot 的 `Boot()` 里、ADT 解析之后（`DarwinBoot.c:721`）、主窗口分配之前（`DarwinBoot.c:751`）调用一个新库 `ImageCarrierLib`：它把 payload 里 `EFI/UniXNU/MODEM/` 的 27 个平铺文件按 30 行段表写进 `0x8BC00000`，把 16 字节 `{base, span}` 写进 `/chosen/memory-map`，并打三行 level-1 日志。**不新增 DXE 驱动**。
+
+> **前置未决**：这 27 个文件在当前 192 MiB payload 里装不下（缺 14,114,816 B）。扩容、压缩、或换载体三选一必须先裁决，见 **§1.7 payload 容量约束**。
 
 ## 1 驱动形态
 
@@ -98,6 +100,124 @@
 - **第 1 行打物理地址** `TreeAddress`（`:766` 算出来的值）。`:798` 的 `Args->DeviceTree = Kernel.Base + TreeAddress - Address` 是同一地址的 VA 形式，不要打那个。
 - **第 3 行** 的 `AblEnd` 由 §2.3 的内存图扫描得到（`Display Reserved` 起点 `0xB8000000`，`MemoryMapLib.c:52`），不是硬编码常量。
 - 三行都用 `Print()`，**不能用 `DEBUG()`**：13 的 B4 会在固件源码里 `grep -F "modem-image:"`，只要有一行含 `DEBUG(` 就直接判红。
+
+### 1.7 payload 容量约束（2026-11-16 实测）
+
+§1 的装载逻辑成立的前提是「27 个文件能躺进 payload 卷」。这个前提**在当前卷尺寸下不成立**，
+而它跟代码无关，是纯算术。三个数字（全部实测，不是估算）：
+
+| 量 | 值 | 来源 |
+| --- | --- | --- |
+| payload 卷容量 | **201,326,592 B（192 MiB）** | `board.toml:96` `size_mib = 192` |
+| 卷内已用 | 105,524,920 B（`kernel.macho` 105,508,864 + `kernel.macho.adt` 16,056） | `mdir` 实测 |
+| 卷内剩余 | **94,990,336 B（90.6 MiB）** | 同上 |
+| modem 27 个文件（原始） | **109,060,761 B** | `gen-modem-table.py --manifest` 求和 |
+| 同上，按 FAT 4 KiB 簇落盘 | 109,105,152 B（pad 44,391） | 逐文件 `ceil(size/4096)*4096` |
+
+**缺口 = 109,105,152 − 94,990,336 = 14,114,816 B（13.5 MiB）。** 按 manifest 顺序装，到第 21 个
+文件（`modem.b23`）累计 99,012,608 B 就超过 94,990,336 B 的剩余空间；它和它之后的 7 个文件
+（`b23`..`b30` 段里仍有字节的那些）无处落盘。这与 §2.4 的拷贝循环、§3 的属性发布都无关，是卷本身装不下。
+
+> 上一版笔记里写的「free 87 MB」是早一张镜像的粗略值；以 94,990,336 B 为准（`fdtest-20261116a`，
+> 2026-11-16 02:52）。差 8 MB 不改变结论，但会影响下面「最小扩容档」的边界，所以按实测算。
+
+四条出路的代价（A/B/C 沿用 `11-CARRIER.md` §二 的编号，D 是本线新补的一条）：
+
+#### 出路 A：把 payload 扩容
+
+`board.toml` 的 `size_mib` 是整数 MiB，boot.img = payload + 561,152 B（实测恒定），
+而 ABL 的 staging 窗口有硬下界（`MemoryMapLib.c:39-51`：上界 `0xB6760000` 是 1 MiB 镜像时的 DTB
+落点，下界墙 `0xA8300000` 是 staging 起点，跨度 239,468,544 B）：
+
+| payload | boot.img | image_base | ABL 余量 | 卷内 free | free − 109,105,152 |
+| --- | --- | --- | --- | --- | --- |
+| 192 MiB | 201,887,744 | `0xAA6D7000` | 37,580,800 | 94,990,336 | **−14,114,816** |
+| 196 MiB | 206,082,048 | `0xAA2D7000` | 33,386,496 | 99,184,640 | −9,920,512 |
+| 200 MiB | 210,276,352 | `0xA9ED7000` | 29,192,192 | 103,378,944 | −5,726,208 |
+| 204 MiB | 214,470,656 | `0xA9AD7000` | 24,997,888 | 107,573,248 | −1,531,904 |
+| 205 MiB | 215,519,232 | `0xA99D7000` | 23,949,312 | 108,621,824 | −483,328（差 472 KiB） |
+| **208 MiB** | 218,664,960 | `0xA96D7000` | 20,803,584 | 111,767,552 | **+2,662,400** |
+| 212 MiB | 222,859,264 | `0xA92D7000` | 16,609,280 | 115,961,856 | +6,856,704 |
+| 216 MiB | 227,053,568 | `0xA8ED7000` | 12,414,976 | 120,156,160 | +11,051,008 |
+| 220 MiB | 231,247,872 | `0xA8AD7000` | 8,220,672 | 124,350,464 | +15,245,312 |
+| 224 MiB | 235,442,176 | `0xA86D7000` | 4,026,368 | 128,544,768 | +19,439,616 |
+
+- **208 MiB 是能装下 27 个文件的最小整数档**，余量只有 2.5 MiB。205 MiB 差 472 KiB 就够，但
+  `size_mib` 只能取整数，所以实际最小档是 208。
+- 代价：boot.img 从 201,887,744 涨到 **218,664,960 B（+16 MiB）**，ABL 余量从 37.6 MB 降到 20.8 MB。
+  后者是硬约束：ABL 余量随 boot.img 1:1 减少，余量归零就是 staging 撞到 `0xA8300000` 的墙
+  （`docs/reference/AGENT-COORDINATION.md:1840` 记过这条教训）。20.8 MB 够，但不宽裕。
+- `11-CARRIER.md` §2.2 建议的 224 MiB 是按「连 `modem.mdt`/`b00`/`b31` 一起带」
+  （109,072,529 B）并留富余算的；只带 27 个装载文件时 208 MiB 就够。**带哪些文件是裁决项，不是算术项。**
+- 改 `board.toml` 不在本线 scope（Lead 定），且 13 号门禁的 A1/A2 是硬编码数字
+  （`234881024` / `235446272`），一旦改档必须同步改成 `218103808` / `218664960`，否则门禁会假红。
+
+#### 出路 B：编进内核（ADSP 的 `k60_adsp_blob` 那条路）—— 已被内核读上限直接否决
+
+不是「体积紧张」，是**读不进来**：
+
+- `DarwinBoot.c:699` 读内核用 `ReadFile (Root, Request->KernelPath, SIZE_128MB, &Image, &ImageSize)`，
+  `ReadFile` 在 `:111-112` 对 `FileSize > Limit` 直接返回 `EFI_BAD_BUFFER_SIZE`。`SIZE_128MB` = 134,217,728。
+- 现状内核 105,508,864 + ADT 16,056 = 105,524,920；加 27 文件 109,060,761 ⇒ **214,585,681 B（204.6 MiB）**，
+  **超上限 80,367,953 B**。也就是说即使 payload 装得下，DarwinBoot 也读不进内存——这比
+  「段跨度上限 254 MiB」更早触发，是决定性的一条。
+- 压缩也救不了：整窗 xz -9 = 49,046,916 B（ratio 0.1529）、gzip -9 = 53,409,772 B；加上内核后
+  154,571,836 / 159,025,961，**仍超 20,354,108 / 24,808,233 B**。
+- 结论：出路 B 在「内核必须过 `ReadFile`」这个既有约束下不可行，与 `11-CARRIER.md` §2.3 的
+  「不可行」结论一致，但这里给出了更硬的理由（不是「卷不够」，是「内核读不进来」）。
+
+#### 出路 C：从别处读（分区 / Data 卷）—— 固件侧没有块设备栈
+
+- `uefi-mondrian` 的平台 DSC **没有** UFS 栈：`UfsDxe` 只出现在
+  `Silicon/Samsung/SamsungPkg/SamsungPkg.dsc.inc:64`，而 `Platforms/Xiaomi/mondrianPkg/mondrian.dsc:35`
+  只 `!include PalimaPkg/PalimaPkg.dsc.inc`；`Platforms/Xiaomi` 下 grep `UfsDxe`/`SamsungPkg` 零命中。
+- 现有块栈只有 FAT 这一层：`mondrianPkg/Include/DXE.inc:26-29`（DiskIoDxe / PartitionDxe /
+  EnhancedFatDxe / EnglishDxe）、`:6`（RamPartitionDxe）、`:33`（UniXNURamDiskDxe）。
+  没有 UFS 驱动 ⇒ 挂不到 `modem_a`（`/dev/block/sde7`，380 MiB）。
+- 走这条路要新接 Samsung UFS DXE + `PlatformUfsLib` + GPT 解析，是三条路里唯一需要**新硬件驱动**的，
+  风险最高；且它把「固件能不能读盘」变成新的失败面（UFS 初始化失败时连启动都受影响）。
+- 内核侧读 `modem_a` 也不通（`11-CARRIER.md` §一：`drivers/NativeUfs/RootCommands.h:289` 的
+  `hostRead4k()` 是 `static`，没有 IOKit 导出），所以「固件读盘」不能指望内核替它读。
+
+#### 出路 D（本线补的一条，成本介于 A 与 C 之间）：压缩进 payload
+
+- 27 个文件逐个压缩实测：raw 109,060,761 ⇒ **lzma 48,591,795 B**（ratio 0.446）、gzip 53,205,109 B。
+  192 MiB 卷下余量变成 **+46,398,541 B（lzma）**，不需要扩容。
+- 但固件侧必须解压：树里有 `Mu_Basecore/MdeModulePkg/Library/LzmaCustomDecompressLib`
+  （`LzmaDecompress.c:137` `LzmaUefiDecompressGetInfo`、`:182` `LzmaUefiDecompress`），
+  **没有 zlib/inflate**（`Mu_Basecore` 下 `*Inflate*`/`*zlib*` 零命中）⇒ 走 gzip 得自带 inflate，
+  走 lzma 只需在 `DarwinBoot.inf` 加一条库。
+- **解压是整块，不是流式**（这一点决定了代价的大小）：`LzmaUefiDecompress` 的签名是
+  `(Source, SourceSize, Destination, Scratch)`，调用方必须提供**完整目标缓冲**；
+  `LzmaUefiDecompressGetInfo` 只回 `DestinationSize` 与 `ScratchSize`（`:154` 固定
+  `SCRATCH_BUFFER_REQUEST_SIZE` = `SIZE_64KB`，`:14`）。也就是说「64 KiB 分块解压」不成立：
+  64 KiB 只是 SDK 的 scratch，目标块必须按文件整块开。最大单文件 `modem.b23` 40,935,488 B
+  （压缩后 37,475,838）⇒ 解压时要一块 **39 MiB** 的临时缓冲，且必须连续。
+- 代价一：这 39 MiB 临时块与 §2.2 的「禁止中转缓冲」原则直接冲突——要么承认「每文件一块、
+  用完即还」是可接受的中转（并写明峰值堆占用 39 MiB，`DXE Heap` 384 MiB 里能开出），
+  要么把解压目标直接设成窗口内该段的物理地址（可行：目标地址已知且非缓存，省掉中转，
+  但 §2.3 的内存图校验要提前到解压之前，且解压中途失败会留下半写状态）。
+- 代价二：§2.4 的「64 KiB 分块直写」循环作废，改成「读压缩文件 → 解压 → 校验长度 → 直写」，
+  13 号门禁 A3/A4 的判据从「文件大小 == 段表 `bytes`」改成「解压后大小 == 段表 `bytes`」，
+  B5 的表不变；另需一条新判据「payload 里的 modem 文件是压缩形态」，否则 A4 会把压缩尺寸
+  当成不符而假红。
+- 收益：不动 `board.toml`、不动 ABL 余量、boot.img 尺寸不变。
+
+**建议（本线的意见，裁决权在 Lead）**：
+
+1. **首选出路 A 的 208 MiB 档**：它是唯一「零新代码路径、零新驱动、零解压逻辑」的方案，
+   代价是 boot.img +16 MiB 和 ABL 余量降到 20.8 MB；两个数都在既有约束内，且可逆。
+2. 若 Lead 不愿动 `board.toml`（它牵动 13 号 A1/A2 与别线的镜像尺寸预期），则**次选出路 D**
+   （lzma 进 payload），代价是固件多一条解压路径、门禁 A3/A4 要改判据。
+3. **出路 B 不要再评估**：`SIZE_128MB` 已经把门关上，任何「内核内嵌」变体都要先改
+   `DarwinBoot.c:699` 的上限，那等于改一条所有线共用的启动路径。
+4. 出路 C 只在「A/D 都被否」时才值得立项，且它是独立工程（新 UFS DXE），不该塞进本规格。
+
+**与数据源有关的坑（会直接让 13 号 A3/A4 假红）**：`/mnt/e/k60-work/firmware/modem` 里
+无扩展名的那 27 个文件是 **CRLF 污染的副本**（`sum_plain` = 109,549,510 B ≠ 109,060,761；25/27 个
+文件从第 100~2,180,553 字节起就与 `.bin` 不同）。`scripts/gen-modem-table.py:28-44` 的 `find()`
+因此优先取 `.bin`。裁决「文件名不带 `.bin`」指的是 **payload 里的落盘名**，数据源必须继续用
+`.bin` 逐字节副本——谁去准备 payload assets，就得照这个来。
 
 ## 2 内存
 
@@ -408,7 +528,7 @@ d) `:801` 的 `CopyMem` 之后：
 
 | 门禁行 | 本规格哪一节满足 | 备注 |
 | --- | --- | --- |
-| A1 / A2 payload 与 boot.img 尺寸 | 不由代码决定 | 27 个文件总量决定；13 已给 234881024 / 235446272 |
+| A1 / A2 payload 与 boot.img 尺寸 | 不由代码决定 | 27 个文件总量决定；13 现给 234881024 / 235446272（=224 MiB 档）。若按 §1.7 建议走 208 MiB 档，A1/A2 必须同步改成 218103808 / 218664960，否则门禁假红 |
 | A3 27 个文件名集合 | §2.4 第 4 步 | 名字不带 `.bin`，与 manifest 同名 |
 | A4 逐个大小 | §2.4 第 4 步 | 大小不符在固件里就硬失败，A4 只是外部复核 |
 | A5 ADT 16 B 属性 | §3.1、§3.2 | 构建期占位 + 运行时写入 |
@@ -426,7 +546,7 @@ d) `:801` 的 `CopyMem` 之后：
 
 ## 7 前置与未决
 
-1. **P-154 是硬前置**：固件卷重建必须可复现、且能装下 224 MiB 的 payload。历史实测重建卷会报 `UNIXNU: config: no boot entry found`、默认项变成 exit。在卷能稳定装 payload 之前，本规格的代码没有意义。
+1. **~~P-154 是硬前置~~（2026-11-16 已由 refmine 推翻，Lead 裁决不再阻塞）**：现存唯一重建卷 `4bbe76017eb4` 在 audio-probe j、k 两张镜像上真机进过 SpringBoard（j: `evidence/audio-probe-j/run1/` console 222,415 B、SpringBoard ×129；k: `usblog-20261115-012317` 220,748 B、×129），且它的 `SOURCE_DATE_EPOCH` 精确等于 uefi HEAD `9b79562` 的提交时间（1794541119 = 2026-11-13 03:38:39Z）⇒ 同源同 pin 得同一 FD。`cf448571` 那个不可复现卷来自 2026-11-02 已消失的 Linux 检出，不再是障碍。**剩下的是 §1.7 的容量问题，不是可复现性问题。**
 2. **段表单一数据源**：任何段表改动先回 Lead（14 §6）。本规格不改表。
 3. **文件名不带 `.bin`**：与 manifest 一致（13 A3）。如果打包脚本坚持要 `.bin`，先改 13 的 A3/A4 与 manifest，再改本规格——不要两边各写一套。
 4. **固件表随 modem 固件升级**：换 modem 固件必须同时改三处（`pong_modem_table.h`、`K60ModemImageTable.h`、payload 的 27 个文件），否则 B5/A4 会红。

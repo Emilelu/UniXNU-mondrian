@@ -12,12 +12,14 @@
 | B：int-236 SIGSEGV | 发布 backlight-control=true 的新 IOService | K60 BACKLIGHT: published … control 1（旧格式）/ conformance=1 control=1（新格式）+ backboardd sig=11 | 发布层引入（brightness-4 control=1 崩 4 次，brightness-13 control=0 零崩） | python3 scripts/check-backlight-log.py <log> EXIT=0 |
 | C：getBytes:range: 类型不匹配 | 新 IORegistry 内容把字符串属性发到 DT 平面（bt 线 0509 补丁） | -[NSTaggedPointerString getBytes:range:]: unrecognized selector + NSInvalidArgumentException + SIGABRT | 不在我们的钩子里；触发源是 bt 线 0509 补丁的字符串属性（§3.3） | grep -c 'getBytes:range:' > 0 即 C 族；崩溃次数 ≈ (命中数+1)/2 |
 
-状态（2026-11-15 晚）：Lead 已收下本档案并离线复核确认 §3.3 归因；B 族口径终局——只认
+状态（2026-11-15 22:10 更新）：Lead 已收下本档案并离线复核确认 §3.3 归因；B 族口径终局——只认
 brightness-4（control=1，4×SIGSEGV）对 brightness-13（control=0，0 崩）这一对，交付形态 A
-（control=0 + 真 conformance）正式定稿；C 族修复验证图等 bt 线 0509 修复图出（本线不预建；bt 线正二分 0005 h1→h3→h1+h3，下版全量图
-必须带 0509 OSData 修复，Lead 已下令，修复图出来前 C 族不再重复归因）；dyld 缓存由 Lead 排进
-下一段有 adb 的窗口（设备回 Android 时）拉取，拉完通知我做符号化；springboard 线类型编码线索
-已收录 §3.3。
+（control=0 + 真 conformance）正式定稿；C 族的 0509 OSData 修复已合入 bt 线分支（ad49ff2：
+三个属性改走 k60_bt_string_property()，OSData::withBytes(value, strlen(value)+1)；
+test-k60-bt-0509-properties.py 25 例全过），bt 下一张全量图会带着它，Lead 飞完即给本线实测判据；
+验证图由 Lead 直接排窗口上机（用户已放权 Lead 连续 boot，不再需要单独批准）；dyld 缓存由 Lead 在
+队列空一轮、设备回 Android 有 adb 时拉取，拉完通知我做符号化（scripts/check-crash-symbols.py 已写好待命）；
+springboard 线类型编码线索已收录 §3.3；§3.5 是本族判定表。
 
 结构性结论：B 与 C 是同一个根——「**向 IORegistry 发布此前不存在的内容，会激活 backboardd 里
 一直死着的 Apple 代码路径**」。B 死在新路径本身，C 死在新内容与 Apple 代码的**类型约定不匹配**
@@ -84,7 +86,61 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 - 或先只发 DT 节点、砍掉 K60BluetoothRadio 的 registerService()，确认 bluetoothd 能否只靠 DT 子节点工作；
 - 验证：同一张镜像 k60bt=0 起飞（预期 0 崩）→ 修复版 k60bt=1（预期 0 崩 + bluetoothd 正常）。
 - 修复后的宿主侧断言参照：仿 userland/ui_compat.c:723-729 的 method_abi + strcmp 精确类型编码断言，在用户态把读回的属性先按类型校验再用（内核侧读取约定 OSDynamicCast(OSData,…) 保持不变）。
-- 进度（Lead 2026-11-15 19:24 / 19:42）：bt 线正在二分 0005（h1→h3→h1+h3）；其下版全量图必须带 0509 的 OSData 修复（Lead 已下令）。修复图出来前 C 族不再重复归因，以本文件为判据底本；0509 修复图由 bt 线出，C 族验证图的上机由 Lead 安排（需用户批准）。
+- 进度（Lead 2026-11-15 22:10）：0509 OSData 修复已合入 bt 线分支（ad49ff2，三个属性改走 k60_bt_string_property()；test-k60-bt-0509-properties.py 25 例全过）；bt 下一张全量图带它，Lead 飞完即给本线实测判据。验证图由 Lead 直接排窗口上机（用户已放权 Lead 连续 boot，不再需要单独批准），本线只等实测结果、按 §3.5 判定表判。
+
+### 3.5 C 族判定表（可机判；P-204 形状）
+
+基线日志 `E:/k60-work/evidence/usblog-20261115-162553/console.log`（3535 行，19 个 backboardd 化身全灭）。
+下面每条都写明「哪一行日志、用什么命令数出来」，修复图落地后照表判即可。
+
+命令 A（数指纹，cwd = 证据目录，L=console.log）：
+
+```sh
+grep -c 'getBytes:range:' $L          # 基线 37（Lead 口径 36，同量级）
+grep -cE 'KX!.*backboardd' $L         # 基线 1（健康 = 0）
+grep -c 'entered backboardd' $L       # 基线 19（健康 = 1）
+grep -c 'SpringBoard' $L              # 基线 13（健康 ≥ 100）
+grep -c 'first frame presented' $L    # 基线 0（健康 ≥ 1）
+```
+
+| 判定 | 条件（命令 A 的五个数） | 动作 |
+| --- | --- | --- |
+| 修复生效 | 0 / 0 / 1 / ≥100 / ≥1 | C 族结案：把五数写进 HANDOFF 与 EIGHT-STEPS device 证据 |
+| 修复部分生效 | 08 ≤ getBytes ≤ 18（显著下降但仍在） | 还有第二个 OSString 发布点：跑命令 B 抽新 selector/实例类型，再跑命令 C 找漏网字符串属性 |
+| 未生效 | getBytes ≥ 19（与 37 同量级） | 先跑命令 D 确认飞的镜像真带修复；确认后再按 §3.5.1 三属性逐个二分 |
+
+命令 B（部分生效时抽新 selector / 实例类型）：
+
+```sh
+grep 'unrecognized selector' $L | sed -E 's/.*-\[([^ ]+) ([^]]+)\].*/\1 | \2/' | sort | uniq -c | sort -rn
+# 基线只有一行：37  NSTaggedPointerString | getBytes:range:
+# 出现第二种组合（如 NSData | bytes 或 NSString | getBytes:length:）= 第二个发布点
+```
+
+命令 C（在 bt 线找未走 k60_bt_string_property() 的字符串属性）：
+
+```sh
+git -C /mnt/e/hackios/k60-display grep -n 'setProperty("[^"]*", *"' origin/feat/bt-research -- iokit bsd \
+  | grep -v k60_bt_string_property
+```
+
+命令 D（确认镜像真带 ad49ff2 的修复）：
+
+```sh
+llvm-nm <kernel.macho> | grep -c k60_bt_string_property   # 新版 0509 才有；0 = 飞错镜像
+jq -r '.repo.head, .series.sha256' <build-manifest.json   # 与 bt 分支 ad49ff2 之后的全量图对照
+```
+
+#### 3.5.1 未生效时的属性二分（三个镜像，均 k60bt=1）
+
+| 镜像 | 发布方式 | 判据 |
+| --- | --- | --- |
+| H1 | 只把 device_type 改回 OSString，另两个 OSData | getBytes 命中回到 ≥19 → device_type 是触发点 |
+| H2 | 只把 compatible 改回 OSString | 同上 → compatible 是触发点 |
+| H3 | 只把 unixnu,adt-name 改回 OSString | 同上 → adt-name 是触发点 |
+
+三个镜像都 0 崩 → 触发点不在这三个 DT 属性（radio 的 device_type 也在 ad49ff2 里改成了 OSData），
+回到命令 B/C 找第二个发布点。
 
 ## 4 判据汇总（只用日志）
 
@@ -92,6 +148,8 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
     grep -c 'sig=11'                log   # >0 且 published 行 control=1 → B 族（int-236）
     python3 scripts/check-backlight-log.py log   # B 族正判器，EXIT=0 为 PASS
     grep -c 'getBytes:range:'       log   # >0 → C 族；崩溃次数 ≈ (命中数+1)/2（成对打）
+
+C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5。
 
 ## 5 缺口
 

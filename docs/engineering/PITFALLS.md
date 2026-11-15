@@ -4982,3 +4982,35 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 **教训**：`git` 里凡是带 `prune`、`gc`、`repack`、`fsck --lost-found` 字样的命令，
 都会在「看起来无害」的前提下改共享状态；共享仓上只允许只读动词。
 
+## P-204 — 用计数代替语义
+
+一天之内同一个错误出现了三次，每次都是「某个串在日志里出现 N 次」被当成结论：
+
+1. **springboard 线**（我判错的）：`chronod` 在三份健康日志里只出现 2 次，我据此判
+   「chronod 根本没启动」。实测 `usblog-20261115-003207:1230`
+   `KE 107 109 xpcproxy …/ChronoCore.framework/Support/chronod` + `:2364`
+   `K60RV 4 chronod[109]` —— 它被拉起了。出现次数少是因为它安静，不是因为没跑。
+2. **thermal 线**（agent 判错的）：`Too many corpses` 被当成 backboardd 崩溃判据。
+   实测纯 thermal 的 `usblog-20261115-003922` 自己就有 6 条 corpses（syncdefaultsd、
+   mmaintenanced），而 `crashed:.*backboardd` 是 0。corpses 是全局计数，不指向任何进程。
+3. **cellular 线**（格式串写错的）：判定命令用 `svc=$s` 匹配，而驱动格式串是
+   `K60MODEM qrtr: service %u (%#x) instance %u node %u port %u`
+   （`drivers/PongCellular/K60ModemLink.c:104`、`patches/xnu/0622-k60-modem-qrtr.patch:1023`）
+   —— `svc=` 命中恒为 0，五个判据号全部假阴性。
+
+三次的共同形状：**先想出一个能 grep 的串，再把它当成判据**，而没有先问「这个串出现
+意味着什么、不出现意味着什么」。计数只回答"有多少"，不回答"是什么"。
+
+判据的正确形状：
+- 指向**生命周期**而不是出现次数：进程起没起看 `KE … <program>` 与 `K60RV <name>[pid]`
+  这类成对的行，不看名字出现几次。
+- 指向**具体对象**而不是全局计数：backboardd 崩不崩看 `crashed:.*backboardd` 与
+  `KX! … backboardd exit=… sig=…`，不看 `Too many corpses`。
+- 格式串**从源码抄**，不凭印象写：`grep -n 'printf' <driver>.c` 取原文，再据此写正则；
+  词边界要显式（`service 1 \(` 防 1 撞 11）。
+- 判据要能被日志**自证**：判定行里带上判定所依据的字段值（如 backlight 的
+  `conformance=%d control=%d stats=…`），这样别人复核时不用重跑。
+
+Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检查由各线的
+`judge-*.py` 自测承担；`docs/engineering/JUDGE-CONTRACT.md` 把「判据必须自证、
+负样本必须来自真实日志」写成契约）

@@ -628,3 +628,11 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-203"
 statement = "禁止在 linked worktree 里跑 git worktree prune / gc / repack：它们会改共享仓的管理元数据，一次影响全部工作树且不可逆"
 check = "grep -q 'worktree prune' scripts/git-guard"
+
+[[rule]]
+id = "P-204"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-204"
+statement = "判据不能建立在「某个串出现 N 次」上：计数只回答有多少，不回答是什么。进程起没起看 xpcproxy/K60RV 生命周期行；崩溃看 crashed:/KX! 与具体进程名；格式串从源码抄并加词边界；判定行要自带判定所依据的字段值。"
+check = 'python3 scripts/check-docs.py'
+note = "2026-11-15 一天内三次同形错误：chronod 只出现 2 次被误判为没启动（实际 003207:1230 有 xpcproxy 拉起）；Too many corpses 被当 backboardd 判据（纯 thermal 日志自己就有 6 条）；svc= 与真实格式串 service %u 不符导致五个判据号全假阴性。"

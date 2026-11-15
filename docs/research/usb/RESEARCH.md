@@ -1644,7 +1644,7 @@ payload 与 boot.img 的 sha 差异才是模式参数的真实差异。
 0 字节必须附主机侧枚举 + echo 可达性才允许判有罪/无罪——同一镜像两飞两结果，单次 0 字节不能反推有罪
 （`returnedToFastboot=true` / 端口未出现 = 采集作废）。
 
-**d = PASS。P1 成立且已修复；P2 否证；P3 不做。** 证据 `E:/k60-work/evidence/usblog-20261115-170518/`：
+**d = PASS。P1 成立且已修复；P2 以修正后的判据 PASS；P3 不做。** 证据 `E:/k60-work/evidence/usblog-20261115-170518/`：
 `console.log` 3733 行 / 265,561 B，state=captured-budget-complete、complete=true、openErrors=0、
 returnedToFastboot=false。
 
@@ -1654,12 +1654,14 @@ returnedToFastboot=false。
   主机按复合功能绑定，控制台经 MI_00 完整出字。
 - MI_02 无驱动=Error 是预期形状且必须出现：vendor 0xff/0xfe 无 Windows 驱动，Error = 枚举成功无驱动；
   出现才证明 IF2/98B 配置枚举了（EP6/EP7 裸接口通道在），不出现才是复合配置问题。与 §24.6 一致。
-- P2 否证：beacon 五条全在（:1-5：cfg mode1 ep6 ok ep7 ok / dtr 0 / dtr 1 / dtr 1 / gate open），
-  判据 5c PASS；:426 `cfg 98 bytes ep6 0 ep7 0 DALEPENA 0x000000ef echo 1 on 6/7`，:278/:424/:425
-  三个 setup 行齐全。
+- P2 以修正后的判据 PASS：原始规格（主机经 EP3 驱动 beacon）被否证，判据改为内核自发 K60BEACON 行；
+  beacon 五条全在（:1-5：cfg mode1 ep6 ok ep7 ok / dtr 0 / dtr 1 / dtr 1 / gate open），判据 5c PASS；
+  主机无驱动写 vendor 对即 5b SKIP 的原因（与 MI_02 Error 同源），两者同一因果；:426
+  `cfg 98 bytes ep6 0 ep7 0 DALEPENA 0x000000ef echo 1 on 6/7`，:278/:424/:425 三个 setup 行齐全。
 - 判据执行器 6 pass / 1 fail / 1 skip：5b SKIP 预期（主机没驱动写 vendor 对，与 MI_02 同源）；
   判据 2 heartbeat 117/131 —— heartbeat 线程全程在跑（tick :266→:3733，每个 tick run=1 halt=0
   DALEPENA 0xef，中位间隔 16 行，末次 SpringBoard 后还有 33 个 tick），缺口是 ramoops 定长环形缓冲
   （osfmk/arm/arm_init.c:120-171：满时覆盖丢最旧、busy 非阻塞丢写）在 SpringBoard 突发期丢行的
   采集窗口伪影，非设备故障。
-- P3（k60_usbvend=3）按裁决不做。本线收尾转待命；上机权限始终在 Lead。
+- P3（k60_usbvend=3）按裁决不做。本线正式收工（Lead 2026-11-15 确认），后续仅 Lead 点名才回；
+  上机权限始终在 Lead。

@@ -2,7 +2,7 @@
 
 两张图都带 0411（mode 1 用 0xEF/0x02/0x01 复合设备描述符 + 三条 EP3 beacon）。判据来自
 RESEARCH.md §24.8 与 §25。本线不 boot：镜像由 Lead 飞，设备 `6033dbec` 在 fastboot。
-**2026-11-15 实测：c = PASS，d = PASS；P1 成立且已修复、P2 否证、P3 不做**（详见各节实测小节）。
+**2026-11-15 实测：c = PASS，d = PASS；P1 成立且已修复、P2 以修正后的判据 PASS、P3 不做**（详见各节实测小节）。
 
 ## 镜像身份
 
@@ -80,13 +80,15 @@ K60BEACON: gate open
 1. **主机侧（P1 判定）**：MI_00 → USB Serial Device (COM6)，Ports OK；MI_02 → "K60 XNU console"
    Status=Error（无驱动）；顶层 USB Composite Device OK。控制台恢复：K60 USBLOG 255 行（判据 1 PASS），
    boot 日志与 SpringBoard 133 行（:1039–:3173）完整，panic 0。
-2. **P2 否证**：beacon 五条全在（console.log:1-5：`cfg mode1 ep6 ok ep7 ok` / `dtr 0` / `dtr 1` /
-   `dtr 1` / `gate open`），判据 5c PASS。
+2. **P2 以修正后的判据 PASS**：P2 的原始规格（主机经 EP3 驱动 beacon）被否证，判据改为内核自发
+   `K60BEACON:` 行；beacon 五条全在（console.log:1-5：`cfg mode1 ep6 ok ep7 ok` / `dtr 0` /
+   `dtr 1` / `dtr 1` / `gate open`），判据 5c PASS。同一因果的另一面是 5b SKIP：vendor 对 armed
+   但主机无驱动写它（与 MI_02 Error 同源）——主机对 EP3/EP6 都只读不写。
 3. 寄存器与请求行：:278 `setup 80 06 0100 len 64`；:424 `setup 80 06 0200 len 98`；:425
    `setup 00 09 0001`；:426 `cfg 98 bytes ep6 0 ep7 0 DALEPENA 0x000000ef echo 1 on 6/7`
    （DALEPENA 0x3 → 0xef）。
-4. 判据执行器：**6 pass / 1 fail / 1 skip**。5b SKIP = 预期（vendor 对 armed 但主机没驱动写它，
-   与 MI_02 Error 同源）。判据 2（heartbeat）117/131：heartbeat 线程全程在跑——tick 从 :266 到
+4. 判据执行器：**6 pass / 1 fail / 1 skip**。5b SKIP 的因果见第 2 条（与 P2 修正口径同源）。
+   判据 2（heartbeat）117/131：heartbeat 线程全程在跑——tick 从 :266 到
    最后一行、每个 tick 都是 run=1 halt=0 DALEPENA 0xef、中位间隔 16 行、末次 SpringBoard 后还有
    33 个 tick；缺口是 ramoops 定长环形缓冲在 SpringBoard 突发期丢最旧行（arm_init.c:120-171）
    的采集窗口伪影，非设备故障。
@@ -105,8 +107,9 @@ K60BEACON: gate open
 
 - **P1 成立且已修复**：mode-1 控制台静默的根因是设备级串口绑定（device class 02/02）；
   0xEF/0x02/0x01 复合声明后，主机按复合功能绑定，控制台经 MI_00 完整出字（SpringBoard 全量、无 panic）。
-- **P2 否证**：configured + dtr + gate 三条 beacon 全到，主机状态门不是断点。
-- **P3 不做**（Lead 裁决）；本线收尾，转待命。
+- **P2 以修正后的判据 PASS**：原始规格（主机经 EP3 驱动 beacon）被否证，判据改为内核自发的
+  `K60BEACON:` 行；configured + dtr + gate 三条 beacon 全到，5c PASS。
+- **P3 不做**（Lead 裁决）；本线正式收工，转待命。
 
 ## 引用
 

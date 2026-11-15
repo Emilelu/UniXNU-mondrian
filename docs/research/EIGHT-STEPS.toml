@@ -501,6 +501,14 @@ static_check = "订阅常量逐行对照 ADSP 固件 handler 0x60155910：组包
 unit_test = "scripts/tests/test-k60-charger-subscription.c（30 断言，TESTS OK 30）覆盖 ①init 接受 (1,16) ②(0,0) 时 subscribe_due=0 且下一帧退化为 24 B 属性请求 ③channel_up 后订阅帧 28 B {0x800a,2,4,四零字}、flight=2、opcode=4 ④28 B / 16 B(type2) / 24 B / 12 B 四种错形 ACK 全部 ignored 且不置 subscribed ⑤result=0x206 时返回 K60BmAnswer、errors=1、flight 释放 ⑥16 B type1 result=0 返回 K60BmSubscribed 且下一帧是 24 B type1 opcode 0x30 ⑦16 B type2 opcode 7 通知返回 K60BmNotified。另有 scripts/tests/test-battery-units.py 27 个用例覆盖电压/电流/容量/时间边界与符号不变量。"
 artifact_check = "生成器 scripts/build-k60-physical-battery.py 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对：qualification(None,None,None) 返回 (0,1,16,None,{'source':'adsp-opcode4-handler','type':1,'bytes':16})；给一份 Tx 28 B + Rx 16 B(type1) 的抓包返回 (1,16)；给 Rx 28 B(type2) 的抓包按设计抛 ValueError('Wire capture contradicts the measured ADSP opcode-4 reply (1, 16): (2, 28)')。即产物常量不再是 0，且抓包只能确认、不能覆盖实测值。"
 
+[hardware.battery.step.device]
+done = false
+evidence = "待上机：adsp-20261115d（kernel bdeb565c… 128,991,232 B、boot.img e67cc21d…、30 args / 598 B，末项 pong_handoff_publish=1）把 0619 的早期 owner claim 打开。预期链路：IOKitBSDInit 里 PE_parse_boot_argn(\"pong_handoff_publish\") == 1u → k60_adsp_owner_acquire（阶段 1 PAS1 bring-up、2 discovery、3 build、4 self-parse）→ 104 字节 lease 发布到 /chosen。载体是内核内嵌的 26 记录容器（0620），发布器与 owner 栈经 libK60PhysicalBattery.a 的 PLATFORM_ARCHIVES force_load 进内核。注意：本参数下 `K60PAS legacy startup excluded by earlier ADSP owner/attempt` 是预期输出（0619 的 kern_exec.c:7839 claim 被前面 owner 占位），不计为失败。"
+
+[hardware.battery.step.device.prediction]
+success = "`K60Handoff: published authenticated PAS1 epoch=` 出现且同行为 `bytes=104 flags=15`；日志无 panic 标记（`panic(` / `K60PANIC: ring kept` / `initproc exited` / `Debugger called` 各 0 次）；SpringBoard 行数 ≥100"
+failure = "出现 `K60Handoff: PAS1 bring-up/retained ownership failed rc=`（任何 rc，含 -1000 表示没有真实 backend/reader）；或 boot 后 `K60Handoff:` 命中 0 次（说明 pong_handoff_publish 没进内核命令行 / 发布器未被调用）；或出现任何 panic 标记"
+
 [hardware.charger]
 status = "planned"
 name = "充电 / 电池协议（qti_battery_charger + pmic_glink）"

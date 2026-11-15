@@ -1,0 +1,19 @@
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -1815,8 +1815,14 @@
+     if (k60.powered) return 0;
+     if (!k60.warm_boot) {
+         /* K60 hard rule: the PMIC rails are RPMh/RSC controlled and RSC must
+-         * not be read.  Cold boot needs an external (UEFI/SPMI) voter. */
+-        return -EOPNOTSUPP;
++         * not be read.  Cold boot needs an external (UEFI/SPMI) voter.
++         * 2026-11-15 (0511): blocker 2.  The rule is about voting the rails,
++         * not about the ladder: this function never votes (k60_request_power()
++         * only records the request), so a cold boot may continue and the
++         * console says once that the rails were not voted.  Refusing here made
++         * S4 unreachable from anything but a warm Android boot.
++         * bsd/dev/qbt_k60.c:1814-1819 */
++        k60_log(NULL, 1, "power: cold boot, rails not voted (k60bt_warm=0)");
+     }
+     int e = k60_map(&k60.gcc, K60_GCC_BASE, K60_GCC_SIZE);
+     if (!e) e = k60_map(&k60.uart, K60_BT_UART_BASE, K60_BT_UART_SIZE);

@@ -1,0 +1,22 @@
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -2077,9 +2092,17 @@
+         k60.started = 0;
+         return;
+     }
+-    k60.stage = 1;
++    /* 2026-11-15 (0511): blocker 1.  k60.stage used to default to 1, the S1c
++     * probe ladder, which clears registers in nine steps and returns before
++     * k60_bt_power_on(); a plain k60bt=1 boot could therefore never reach the
++     * firmware path.  The default is now the full ladder (stage 0) and the
++     * probe is opt-in through k60bt_stage=1 or any k60bt_step=N.  k60bt=0 still
++     * turns the worker off entirely.  bsd/dev/qbt_k60.c:2073-2082 */
++    k60.stage = 0;
+     (void)PE_parse_boot_argn("k60bt_stage", &k60.stage, sizeof(k60.stage));
+-    if (!k60.stage) { k60.started = 0; return; }
++    unsigned probe_hint = 0;
++    if (PE_parse_boot_argn("k60bt_step", &probe_hint, sizeof(probe_hint)) && probe_hint)
++        k60.stage = 1;
+     unsigned warm = 0;
+     /* Default to refusing: K60 first bring-up must be from a warm Android boot
+      * so PM8350 S10/S11/S12, PM8350C S1 and PMR735A L7 are already on. */

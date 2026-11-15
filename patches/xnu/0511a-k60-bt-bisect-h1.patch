@@ -1,0 +1,20 @@
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -1996,7 +2002,16 @@
+     if (qbt_transport_init(&transport)) return;
+     if (k60.stage == 1) k60_probe_mark("probe: transport ready");
+ #ifdef KERNEL
+-    while (&native_gpu_addon_stage && native_gpu_addon_stage < 1)
++    /* 2026-11-15 (0511): blocker 3.  Waiting for the GPU addon mount stage is
++     * the pre-P-197 assumption that the Bluetooth firmware arrives through the
++     * natively mounted addon container.  P-197 moved the carrier into this
++     * kernel as k60_bt_blob (patches/xnu/0510), so a linked blob opens the gate
++     * immediately; the wait survives only for the DT / GpuAddon fallback build,
++     * which links the one-byte stub and reports k60_bt_blob_len == 0.
++     * bsd/dev/qbt_k60.c:1998-2000 */
++    extern const uint64_t k60_bt_blob_len __attribute__((weak));
++    while (&native_gpu_addon_stage && native_gpu_addon_stage < 1 &&
++           (!&k60_bt_blob_len || k60_bt_blob_len == 0))
+         k60_wait_until(NULL, k60_now_ns(NULL) + 10000000ULL);
+ #endif
+     if (k60.stage == 1) {

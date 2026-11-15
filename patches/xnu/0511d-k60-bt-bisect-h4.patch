@@ -1,0 +1,16 @@
+--- a/bsd/dev/qbt/btqca.c
++++ b/bsd/dev/qbt/btqca.c
+@@ -761,7 +761,12 @@
+ 
+ 	soc_ver = get_soc_ver(ver.soc_id, ver.rom_ver);
+ 
+-	bt_dev_info(hdev, "QCA controller version 0x%08x", soc_ver);
++	/* 2026-11-15 (0511): S4 pass criterion.  bt_dev_info is level 6 and the K60
++	 * logger prints level <= 3 only (bsd/dev/qbt_k60.c:1545, patch 0500), so the
++	 * controller version gets one explicit level-1 line.  Only this line is
++	 * promoted; the rest of the bt_dev_info family stays silent.
++	 * bsd/dev/qbt/btqca.c:764 */
++	qbt_linux_log(hdev->q, 1, "QCA controller version 0x%08x", soc_ver);
+ 
+ 	config.user_baud_rate = baudrate;
+ 

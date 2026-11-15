@@ -24,7 +24,7 @@
  *          QuartzCore blocks with the display lock held: the screen stops
  *          updating. brightness-4 measured exactly that shape on device
  *          (control 1, four backboardd SIGSEGV, no first frame), so the
- *          property is now off by default: k60_backlight_conform=1 asks for it
+ *          property is now off by default: k60_backlight_control=1 asks for it
  *          and the kernel side of the conformance query must then really
  *          answer AppleARMBacklight (conformsToAppleBacklight).
  *
@@ -320,8 +320,12 @@ void K60Backlight::publishFirst(void)
      * control exists. */
     uint32_t controlArg = 0;
     if (bootArg("k60_backlight_control", controlArg) && controlArg) {
-        impersonated = impersonate();
-        conformed = impersonated && conformsToAppleBacklight();
+        /* A successful vtable swap is not the answer that matters: brightness-4
+         * swapped it and backboardd still crashed. The flag records the
+         * conformance query itself, which is the question user space asks. */
+        impersonate();
+        conformed = conformsToAppleBacklight();
+        impersonated = conformed;
         if (conformed) {
             control = true;
             setProperty("NativeSandboxGrantProcess", "backboardd");
@@ -337,10 +341,10 @@ void K60Backlight::publishFirst(void)
      * "conforming" (see STATS-INDEX.md). */
     native_backlight_request[4] = conformed ? 1 : 0;
     native_backlight_request[5] = control ? 1 : 0;
-    IOLog("K60 BACKLIGHT: conformance AppleARMBacklight=%d control=%d\n",
-          (int)conformed, (int)control);
-    IOLog("K60 BACKLIGHT: published level %u dbv 0x%x control %d%s\n", level,
-          pong_panel_brightness(), (int)control,
+    /* One line, so scripts/check-backlight-log.py reads the verdict without
+     * reconstructing it from the counters. */
+    IOLog("K60 BACKLIGHT: published level %u dbv 0x%x conformance=%d control=%d%s\n",
+          level, pong_panel_brightness(), (int)conformed, (int)control,
           control ? "" : " (no AppleARMBacklight conformance)");
 }
 

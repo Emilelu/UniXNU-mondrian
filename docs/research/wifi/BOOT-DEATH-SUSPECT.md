@@ -140,11 +140,24 @@ Order set by the Lead on 2026-11-15. Both T0 and T1 must come out of
 `scripts/build-strict.sh` — a hand-packed control image carries no series
 fingerprint and proves nothing (P-201).
 
+One reading rule for the rebuild: the 11 `Pong MHI` format strings in the
+archive are a **link check, not a health check**. `wifi-20261116mhi4` carried
+the same 11 strings and still produced a zero-byte console, so their presence
+says only that the right archive was linked in. Nothing in the flight evidence
+may cite them as proof that the driver runs.
+
 | order | flight | decides | if it boots | if it dies |
 |---|---|---|---|---|
 | **T0** | `wifi-20261115z0` (ready: `pong_wifi=0`, kernel 117,305,344 B, blob present, 4.5 GiB) | the driver vs the blob: same kernel as mhi5, wifi arg off | driver code is implicated → fly T1 to test the full stack | driver exonerated → the blob or its residency is the killer → go straight to T2 |
 | **T1** | `wifi-20261116mhi5` (ready, 117,305,344 B, `pong_wifi=1`) — only after T0 boots | S1+S2 on the full wifi stack, and retires the stale confound | the MHI handshake logs become the next evidence | blob/loader interaction confirmed without the driver |
-| **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
+| **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) — **only if T0 is silent** | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
+
+The scope narrowing is deliberate: `__TEXT,__const` is `0xb38ed6` in z0, mhi5
+**and** the 65.9 MB mhi4 kernel, so "blob lives in `__TEXT`" is not by itself
+the difference between a boot and a silent death. What T0 isolates is the
+117 MB kernel *with* the blob and the wifi driver switched off; only if that
+image is also silent does moving the blob become the next thing worth testing.
+If T0 boots, the volume/residency theory loses its base and T2 is dropped.
 
 ## 3a. The T0 control image (built 2026-11-15 03:49)
 

@@ -16,10 +16,10 @@
 # scripts/check-upstream-triage.py 会在构建前检查这些。加新镜像时
 # 也要在这里加一条 [[branch]]，否则门禁会报"未登记分支"。
 #
-# 最后更新：2026-11-12
+# 最后更新：2026-11-15
 
 [meta]
-updated = "2026-11-12"
+updated = "2026-11-15"
 
 # ---------------------------------------------------------------- 分支水位
 
@@ -27,7 +27,7 @@ updated = "2026-11-12"
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "main"
-watermark = "d855ce2d430be0042babb193cd461a052a601e2a"
+watermark = "27a33321355b1aaabd24eb6eac271f005840979b"
 note = "CI 与文档，无硬件内容"
 
 [[branch]]
@@ -1121,31 +1121,31 @@ date = "2026-11-13"
 repo = "yibiya/UniXNU-mondrian"
 branch = "chore/archive-stale-clone-wip"
 mirror = "references/yibiya-upstream"
-watermark = "ac5481d765"
+watermark = "4d088d8bf4c295199937cf733eed6f9b699268ad"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "docs/k60-gpu-repair-plan-20261112"
 mirror = "references/yibiya-upstream"
-watermark = "7b66697dd2"
+watermark = "3c456d5fa582d16240b7a7a937929d80560e64ba"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "fix/goodix-reset-handshake"
 mirror = "references/yibiya-upstream"
-watermark = "22785bd3c7"
+watermark = "c156278e12ad94b985014c03ae739dd8c4108dd3"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "fix/metal-client-timing"
 mirror = "references/yibiya-upstream"
-watermark = "22785bd3c7"
+watermark = "75bd5920e7a0b12e26cd6440a270a89f73ddd9b0"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "fix/metal-deploy-scratch"
 mirror = "references/yibiya-upstream"
-watermark = "22785bd3c7"
+watermark = "b57630a78ee62130e68b4a37766de1b7fa99e130"
 
 [[commit]]
 sha = "4d088d8bf4c295199937cf733eed6f9b699268ad"
@@ -1566,3 +1566,165 @@ sha = "bd5b50f597fc21fd6d7949ef2aaa2c103d6b7568"
 verdict = "deferred"
 reason = "Code on a touch/GPU/display line: fix(gpu): deploy with mapped scratch and real dirs. Re-judge once the touch and GPU candidates are through the eight steps."
 review_after = "2026-11-21"
+
+[[commit]]
+sha = "27a33321355b1aaabd24eb6eac271f005840979b"
+subject = "docs(gpu): record measured present stages"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record measured present stages (docs/plans/GPU-ENABLE-PLAN.md, one file)."
+date = "2026-11-15"
+
+[[commit]]
+sha = "e89d27df98646de3cd2165580830afb243a3df59"
+subject = "docs(gpu): note per-frame texture lifetime bound"
+verdict = "not-applicable"
+reason = "Comment only: three comment lines in drivers/PongMetal/GpuScanoutPresenter.h, no code. Our copy of that file is a different revision and the note records a lifetime bound our presenter does not have yet."
+date = "2026-11-15"
+
+[[commit]]
+sha = "1bd3f5b4d85308de57302e6cb5dae01172184304"
+subject = "docs(gpu): record pacing attribution plan"
+verdict = "not-applicable"
+reason = "Documentation only: docs(gpu): record pacing attribution plan (docs/plans/GPU-ENABLE-PLAN.md, one file)."
+date = "2026-11-15"
+
+[[commit]]
+sha = "8eb264dad90065e559aa40691fdec0abf4e670be"
+subject = "perf(gpu): time present stages"
+verdict = "deferred"
+reason = "Code on the GPU line: perf(gpu): time present stages adds 40 lines of import/encode/wait timing to GpuScanoutPresenter.h, PongMetalPlugin.mm and PongMetalScanout.h. Our GpuScanoutPresenter.h is a different revision with no timing hooks, and nothing has measured a frame budget on this board yet, so the numbers it would print have no baseline. Re-judge with the GPU candidate."
+review_after = "2026-12-15"
+date = "2026-11-15"
+
+[[commit]]
+sha = "bb85bb28712be6397586fde0847965140df71b64"
+subject = "docs(readme): record touch and GPU status"
+verdict = "not-applicable"
+reason = "Documentation only: docs(readme): record touch and GPU status (README.md and README_EN.md of the reference tree)."
+date = "2026-11-15"
+
+[[commit]]
+sha = "fd33f9ce3ecc365d9acda73def1f8312f1507a32"
+subject = "merge: carry verified touch and coordinate reporting"
+verdict = "not-applicable"
+reason = "Merge commit with no content of its own (git show --name-only is empty); the touch commits it carries are judged one by one in this ledger."
+date = "2026-11-15"
+
+[[commit]]
+sha = "c156278e12ad94b985014c03ae739dd8c4108dd3"
+subject = "docs(touch): record verified physical touch"
+verdict = "not-applicable"
+reason = "Documentation only: docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md and porting.toml. The patch content at this revision is what commit 0143b465 bases our pong_goodix.c on."
+date = "2026-11-15"
+
+[[commit]]
+sha = "2a7b2000f25d123525e2b70e8981094ea5483d1e"
+subject = "perf(touch): drop per-report diagnostics"
+verdict = "picked"
+how = "0143b465 (2026-11-14) bases the driver body on the c156278 revision, which is this commit applied: patches/xnu/zzzz...-pong-touch-console.patch has zero fw_state_address / diff_address reads and keeps only the bounded 40-sample header poll (line 1169)."
+date = "2026-11-15"
+
+[[commit]]
+sha = "3bad40c508bb4c59fda61155a97a119084c18b91"
+subject = "docs(touch): deliver offline coordinate candidate"
+verdict = "not-applicable"
+reason = "Documentation only: docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md and porting.toml."
+date = "2026-11-15"
+
+[[commit]]
+sha = "6f313c73c122c535a4cfa727e89d123f1e120b1b"
+subject = "docs(touch): clarify unqualified host mode"
+verdict = "picked"
+how = "The comment is carried verbatim: patches/xnu/zzzz...-pong-touch-console.patch:1042 says '91/81 belongs to the nonzero host-mode branch; its report ABI is unqualified.'"
+date = "2026-11-15"
+
+[[commit]]
+sha = "184d9989a97750916601eddc07e4ed250b0762a7"
+subject = "docs(touch): record actual coordinate enable"
+verdict = "not-applicable"
+reason = "Documentation only: docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md and porting.toml."
+date = "2026-11-15"
+
+[[commit]]
+sha = "631efc31e666a923e7c85da93cc99c21e1caac2b"
+subject = "fix(touch): enable Xiaomi coordinate reports"
+verdict = "picked"
+how = "0143b465 names this the actual root cause: goodix_coordinate_mode() sends 0x90/00 then 0x91/01 (patch lines 1040-1051), the coordinate enable the module's own goodix_htc_enable(false) sends second."
+date = "2026-11-15"
+
+[[commit]]
+sha = "58f2b3e91fe14dfe7383b857be3820c1fbdbf1ba"
+subject = "docs(touch): correct scan evidence and next test"
+verdict = "not-applicable"
+reason = "Documentation only: docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md and porting.toml."
+date = "2026-11-15"
+
+[[commit]]
+sha = "e3aeabf214d3fd9c587d80e176847813dfcc4bb9"
+subject = "fix(touch): separate config state from command ack"
+verdict = "picked"
+how = "Carried in the 0143b465 production shape: goodix_command_ack() waits for ack[1] == 0x80 (patch lines 990-1002) and fw_buffer_capacity is parsed and checked (lines 690, 777, 847, 1060)."
+date = "2026-11-15"
+
+[[commit]]
+sha = "dd36d72ac66d9ae27e0419f9f9bb702f38009e88"
+subject = "docs(touch): record cfgfix round evidence"
+verdict = "not-applicable"
+reason = "Documentation only: docs/plans/GOODIX-TOUCH-PORT.md, one file."
+date = "2026-11-15"
+
+[[commit]]
+sha = "e2187871c3e3870dfdf967c20d4807382a3b5b6a"
+subject = "fix(touch): strip stale plus prefixes"
+verdict = "not-applicable"
+reason = "Repairs stale plus-sign prefixes inside the upstream copy of the patch file; our pong_goodix.c was regenerated from the c156278 production shape in 0143b465 and never carried those diagnostic lines, so there is nothing to repair."
+date = "2026-11-15"
+
+[[commit]]
+sha = "e6bad4753d656a770ba1d04e16c96a1d57f63825"
+subject = "fix(touch): repair diagnostic hunk prefixes"
+verdict = "not-applicable"
+reason = "Same class as e2187871: the defect is in the upstream patch file's diagnostic hunk prefixes; our copy is regenerated and does not contain that diagnostic block."
+date = "2026-11-15"
+
+[[commit]]
+sha = "56fc9b442a87a0479d2db16aab84e63404159baf"
+subject = "fix(touch): repair diagnostic hunk prefixes"
+verdict = "not-applicable"
+reason = "Same class as e2187871: upstream repairs its own hunk prefixes twice (e6bad475 then 56fc9b44); our copy is regenerated and does not contain that diagnostic block."
+date = "2026-11-15"
+
+[[commit]]
+sha = "fbc7e6c811e9cbc4077a63a81d7d4df661be4c08"
+subject = "debug(touch): inspect fw state and diffdata"
+verdict = "not-applicable"
+reason = "Upstream itself removes these fw-state/diff reads again in 2a7b2000f because they raced the status clear; our patch is based on the post-removal shape and has zero fw_state_address reads."
+date = "2026-11-15"
+
+[[commit]]
+sha = "e99bfcd7dd738e15a14aa96037b915443f679161"
+subject = "docs(touch): capture physical report evidence"
+verdict = "not-applicable"
+reason = "Documentation only: docs/plans/GOODIX-TOUCH-PORT.md, one file."
+date = "2026-11-15"
+
+[[commit]]
+sha = "016b384cfa25a0ed0d92b9215892db2f371bb0ff"
+subject = "fix(touch): wait config state before completion"
+verdict = "picked"
+how = "Carried in the 0143b465 production shape: goodix_config_command() polls reply[0] for 0x80 instead of trusting ack[1] (patch lines 1026-1036)."
+date = "2026-11-15"
+
+[[commit]]
+sha = "fa564b80bd67047a0cb0686d3aad2e2522f4c1b5"
+subject = "docs(touch): record physical acceptance failure"
+verdict = "not-applicable"
+reason = "Documentation only: docs/plans/GOODIX-TOUCH-PORT.md and porting.toml; its finding is what 412a9e8d acts on."
+date = "2026-11-15"
+
+[[commit]]
+sha = "60f04cb4a453ce2c518aa61b55e3a6fe570b6c8b"
+subject = "debug(touch): inspect physical report acquisition"
+verdict = "picked"
+how = "412a9e8d (2026-11-14) takes the observational parts: goodix_probe prints active config/version/fw-state/fw-buffer (patch line 850) and goodix_poll samples at most 40 headers (line 1169); the fw_state/diff reads were left out."
+date = "2026-11-15"

@@ -97,20 +97,24 @@ check(text.index("k60_map(&k60.gic, K60_GIC_DIST_BASE, K60_GIC_DIST_SIZE)") < lo
       "the announcement comes after every window is mapped")
 
 # 6. Series wiring.  0513 answers the same panic as main's 0621 from the other
-# side, so the two must never ride one image (the Lead's rule: one variable at a
-# time).  Two legal states: the d6 recipe has 0513 last and 0621 absent, the d5
-# recipe has 0621 last and 0513 absent.
+# side, so the two are alternatives, not halves of one fix (the Lead's rule: one
+# variable at a time).  Three legal states:
+#   d5  - 0621 in the series, 0513 on disk only;
+#   d6  - both in the series, 0513 last (the one-variable step past d5);
+#   neither - the plain full-ladder recipe, 0513 still on disk.
+# What is never legal: 0513 anywhere but last, 0513 without 0512 in front of it.
 xnu_series = [l.strip() for l in SERIES.read_text(encoding="utf-8").splitlines() if l.strip()]
 in_series = "0513-k60-bt-io-windows.patch" in xnu_series
-check(not (in_series and "0621-k60-io-submap-budget.patch" in xnu_series),
-      "0513 and 0621 never share one series (one variable at a time)")
+has_0621 = "0621-k60-io-submap-budget.patch" in xnu_series
 if in_series:
     check(xnu_series[-1] == "0513-k60-bt-io-windows.patch",
           "0513 is the last entry in patches/xnu/series")
     check(xnu_series[-2] == "0512-k60-bt-late-start.patch",
           "0512 sits directly before 0513")
+    check(has_0621, "the d6 recipe keeps 0621 under 0513 (one variable added)")
 else:
     check(XNU_PATCH.is_file(), "0513 stays on disk while the d5 recipe leaves it out")
+    check(has_0621, "the d5 recipe is the one that carries 0621")
 bt_series = [l.strip() for l in BT_SERIES.read_text(encoding="utf-8").splitlines()
              if l.strip() and not l.startswith("#")]
 check(bt_series[-1] == "0007-k60-bt-io-windows.patch", "0007 is the last entry in patches/bt/series")

@@ -1571,3 +1571,34 @@ mode 1 不被第四道门挡（只有 mode 2 挡），所以现象只能落在�
 不做什么：不再为单条假设各飞一张图（Lead 已明确每次上机很贵）；beacon 是新格式，
 `docs/research/usb/analyze-capture.py` 的判据 5b 需要补一条 `K60BEACON:` 正则（§24.5 只放宽了 cfg 行）。
 本线仍然不 boot，上机权限在 Lead。
+
+## 25 0411：复合设备描述符与 EP3 beacon（c/d 两图）
+
+§24.8 的三条路径需要一次能同时证伪 P1 与 P2 的上机。0411 就是这张图的代码侧：只改两处，
+mode 0/2 行为完全不变。
+
+1. **设备描述符**：mode 1 下 `GET_DESCRIPTOR(device)` 返回 `ud_dev_desc_composite[]`，
+   `bDeviceClass/bDeviceSubClass/bDeviceProtocol = 0xEF/0x02/0x01`（USB IAD ECN 对复合设备的正规声明），
+   注释里写明这一点。这直接检验 P1：Windows 若按复合设备绑定会生成 `MI_00/MI_01/MI_02`，
+   usbser 打开的就是 IF1 的 bulk 对，而不是「设备级串口」。
+2. **EP3 beacon**：`ud_beacon()` 用私有 128 B 缓冲（`UD_TXDATA+1024` = 0x4400）与私有 TRB
+   （`UD_TXDATA+1152` = 0x4480，控制台单次 ≤1024 B，所以不重叠），在 CDC bulk IN（EP3）上发
+   `K60BEACON: …` 行；不读 ramoops ring、不经过 `ud_console()` 的四道门，所以它能回答「门到底开没开」。
+   三处触发：SET_CONFIGURATION 成功后（`cfg mode1 ep6 ok ep7 ok`）、收到 `0x21/0x22` 后
+   （`dtr 1`，只报变化、最多 4 次）、`ud_console()` 第一次通过门后（`gate open`）。
+   beacon 缓冲区累积；新 beacon 先用 `ENDTRANSFER|FORCERM` 换掉仍 pending 的旧传输——
+   否则主机还没开端口时 cfg 那条会永远 pending，把后续 dtr/gate 全堵死。
+3. 端点完成事件里 `ep == 3 && ud.beacon_pending` 直接吞掉并清 `tx_active`、`beacon_len`，
+   控制台与回环的记账不碰它。
+
+判读矩阵单独成文（Lead 要能一眼对号）：`docs/research/usb/08-on-device.md`。
+`analyze-capture.py` 新增判据 5c 解析 `K60BEACON:` 三行。
+
+series：`patches/usb/series` 与 `patches/xnu/series` 各加 `0411`（231 行 = main 224 + 7），
+sha `978b3c4f53e3768280eb69f786e13a58694cbd7d67504d59c216ab93dd417ad2`，提交 `ffe5418`。
+
+出图计划（本线只出图，不 boot）：
+
+- `usb-20261115c`：`k60_usbvend=2`，验证 0411 不破坏已 PASS 的 mode-2 回环（`echo-test.ps1` 逐字节）；
+- `usb-20261115d`：`k60_usbvend=1`，判 P1/P2；c 红则 d 不飞。
+

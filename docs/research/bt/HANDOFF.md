@@ -695,6 +695,38 @@ This line, next in order:
     - 门禁 **P-218**（`scripts/check-bisect-coverage.py`，main `216902a` / snap-r211）已随 main 合入本分支：
       拿 `build-manifest.json` 的 `boot_img` 与 `evidence/*/boot.json` 的 `imageSha256` 做差集，
       `--prefix bt-bisect-` 直接列出「构建完没飞」的镜像。
+24. **d4 实飞：第一行内核 panic，死因是 io_submap 只有 8 MiB（2026-11-16 05:52）**
+    - Lead 实飞 `bt-d4-late`（全量 0511 + `pong_bt_late=1`，boot.img
+      `87b819f90ddfdd48ac78beebe93b7ddc690b7d48d84a49465ff9ef189a9472d3`、31 参数 / 601 B、
+      series 232 / `dcc7bb45d311dc5f`、blob `febdc20d…`）：证据
+      `E:\k60-work\evidence\usblog-20261116-055237`，capture `bytes=27727`、`portSeen=true`、
+      `panicMarker="K60PANIC: ring kept"`，console 492 行 —— 第一次不是 0 字节。
+    - console 死点（连续行）：`:480` K60UILIB deploy → `:481` late released by the deploy point →
+      `:483` `full: power_on enter` → `:484` `power: cold boot, rails not voted` →
+      **`:486` `K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178`**
+      → `:487` K60PANIC → `:491` K60DATA mounted。
+    - 解码：1 MiB、`3` = `KERN_NO_SPACE`、`0x100021` = `KMEM_NOFAIL|KMEM_PAGEABLE|KMEM_PERMANENT`
+      —— 正是 `io_map()` 非 unmappable 分支的旗标组合（`osfmk/arm/io_map.c:120-129`），而
+      `io_submap` 全内核只有 **8 MiB**（`:65` `IO_MAP_SIZE (8ul << 20)`）。BT 全量阶梯往它里面塞
+      GCC 2 MiB（`0500:107`）+ TLMM 1 MiB（`0500:96-97`）+ APPS SMMU 1 MiB（`0508:63`），
+      加上同进程其它 60 处 `ml_io_map` 调用点，2 MiB 连续空间申请失败。
+    - 这解释了 §7.8 的致命集：h1 开门闩 + h2 去早退 + h3 stage=0，三者齐备才真的执行到
+      `k60_map(&k60.tlmm, …1 MiB…)` 与 `k60_smmu_bypass()`；`0507` 探针只 map gcc/uart/qup
+      （无 TLMM/SMMU），所以探针全过而全量阶梯 panic。先例：ADSP 线
+      `patches/xnu/0613-k60-adsp-pas.patch:362-370` 已用 `ml_io_map_unmappable()` 绕开同一限制。
+    - 修法 `patches/xnu/0513-k60-bt-io-windows.patch`（孪生 `patches/bt/0007`，4,428 B，
+      sha256 `ae7a8f282fe48d235ffd2f40fde09bf48720cca5dda026e11c8151ccd9719109`，单文件
+      `bsd/dev/qbt_k60.c`，+36 行）：新增 `k60_map_big()` 走 `ml_io_map_unmappable()`
+      （`K60_WIMG_IO 0x7u` = VM_WIMG_IO），GCC（阶梯 + 探针）/ TLMM / APPS SMMU 四处改用它，
+      UART/QUP/GIC 保持 `k60_map()`；映射完 GIC 后打
+      `full: windows mapped, gcc/tlmm/smmu charged to kernel_map`。位置：`patches/xnu/series`
+      末尾（233 条），紧随 0512。提交 `4d7c013`。
+    - 校验：整条 series `git apply` 重放 **APPLIED=233 BAD=0**；host 测试
+      `scripts/tests/test-k60-bt-0513-io-windows.py` **TESTS OK 28 case(s)**；series 指纹
+      `e2f0178190e95ef9 233`。
+    - 下一张：`bt-0513-iowin-late`（全量 0513 + `pong_bt_late=1`，与 d4 的唯一差别是窗口分配器）。
+      判据：panic 消失且日志过 S9 ⇒ io_submap 就是死因；仍 panic 在同一行 ⇒ 那 1 MiB 不是
+      GCC/TLMM/SMMU 而是别的调用点，按 `K60PANICARGS` 的地址回查。落档见 `S4-SPEC.md` §7.10。
 
 
 

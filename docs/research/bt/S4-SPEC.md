@@ -1020,6 +1020,89 @@ c（固件下载 DMA 缓冲未进 IOMMU）**全部被实飞否证**。三张图�
 下一格（Lead 判据树）：`h123 + pong_bt_noboot=1` 交叉格——把「三开关之外」与「{h1,h2,h3} 齐备」
 这两个条件交叉，判断死亡点是否只在全量配方里才被触发。
 
+### 7.10 d 系列第四张图 `bt-d4-late` 实飞：第一行内核 panic，死因是 io_submap 只有 8 MiB（2026-11-16 05:52）
+
+Lead 实飞 `bt-d4-late`（全量 0511 + `pong_bt_late=1`，31 参数 / 601 B，boot.img
+`87b819f90ddfdd48ac78beebe93b7ddc690b7d48d84a49465ff9ef189a9472d3`）：证据
+`E:\k60-work\evidence\usblog-20261116-055237`，capture `state=captured` / `complete=true` /
+**`bytes=27727`** / `portSeen=true` / `portOpened=true` / `stopReason=fastboot-return` /
+`panicMarker="K60PANIC: ring kept"` / `resetMarker="K60 USBLOG: restart reason published"`，
+console.log 27,727 B / 492 行 —— 第一次不是 0 字节。
+
+晚启动生效、console 一直写到死点：
+
+| 行 | 内容 |
+|----|------|
+| :193 | `[bluetooth] addon: linked blob bytes=1027584 records=106` |
+| :194 | `[bluetooth] late: armed, waiting for the K60DATA deploy point` |
+| :480 | `K60UILIB deploy bytes=113904 resid=0 error=0` |
+| :481 | `[bluetooth] late: released by the K60DATA deploy point` |
+| :482 | `[bluetooth] late: released, starting the full ladder` |
+| :483 | `[bluetooth] full: power_on enter` |
+| :484 | `[bluetooth] power: cold boot, rails not voted (k60bt_warm=0)` |
+| :485 | `K60PANICFMT caller=0xfffffff007b83384 fmt=kmem_%s(%p, %zd, 0x%x): failed with %d @%s:%d` |
+| :486 | `K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178` |
+| :487 | `K60PANIC: ring kept; restart reason -> bootloader` |
+| :489 | `K60METAL deploy files=6/6` |
+| :491 | `K60DATA mounted ro=0 fstype=apfs` |
+
+**解码**：`1048576` = 1 MiB；`3` = `KERN_NO_SPACE`（`osfmk/mach/kern_return.h:83`）；
+`0x100021` = `KMEM_NOFAIL(0x1) | KMEM_PAGEABLE(0x20) | KMEM_PERMANENT(0x100000)`
+（`osfmk/vm/vm_kern.h:313-337`）。这一组合正是 `io_map()` 走 **非 unmappable** 分支时传给
+`kmem_alloc()` 的旗标（`osfmk/arm/io_map.c:120-129`）：
+
+```c
+kma_flags_t kmaflags = KMA_NOFAIL | KMA_PAGEABLE;
+if (unmappable) kmaflags |= KMA_DATA; else kmaflags |= KMA_PERMANENT;
+kmem_alloc(unmappable ? kernel_map : io_submap, &start, alloc_size, kmaflags, VM_KERN_MEMORY_IOKIT);
+```
+
+`io_submap` 是**全内核 8 MiB**（`io_map.c:65` `#define IO_MAP_SIZE (8ul << 20)`，`:76`
+`kmem_suballoc(kernel_map, …, IO_MAP_SIZE, …)`）。全量阶梯往这个 8 MiB 里塞：
+
+| 窗口 | 大小 | 出处 |
+|------|------|------|
+| GCC | `K60_GCC_SIZE 0x001F4200` ≈ 2 MiB | `patches/xnu/0500-k60-bt-qbt-new-files.patch:107` |
+| TLMM | `K60_TLMM_SIZE 0x00100000` = 1 MiB | 同上 :96-97（注释：covers GPIO204 at +0xCC000） |
+| APPS SMMU | `K60_APPS_SMMU_SIZE 0x00100000` = 1 MiB | `patches/xnu/0508-k60-bt-s2-smmu-rcg-reset.patch:63` |
+| UART / QUP / GIC | 16 KiB / 8 KiB / 64 KiB | 0500:75 / :78 / :101 |
+
+同一进程里还有 60 处 `ml_io_map` 调用点（usblog 10、display 6、audio 8、touch 8、adsp 8 …）
+共享这 8 MiB，另有 `K60_PSTORE_SIZE 0x200000`、`AW882XX_TLMM_SIZE 0xd0000` 等大块。
+早启动时序下 8 MiB 已被占掉大半，再要 2 MiB 连续的 GCC 窗口 → `KERN_NO_SPACE` → panic。
+
+**这解释了 §7.8 的致命集**：h1 打开 addon 门闩、h2 去掉冷启动早退、h3 把 stage 默认设 0，
+三者齐备才让 `k60_bt_power_on()` 真的执行到 `k60_map(&k60.tlmm, …1 MiB…)` 与
+`k60_smmu_bypass()`（再 1 MiB）；`0507` 的只读探针只 map gcc/uart/qup（无 TLMM/SMMU），
+所以探针全过而全量阶梯 panic。d4 的晚启动把这次失败推到 K60DATA 挂载之后，console 才活到
+把死因写出来。
+
+**先例**：ADSP 线早就在同一处踩过并绕开——`patches/xnu/0613-k60-adsp-pas.patch:362-370` 的注释
+写明 `ml_io_map()` 从 8 MiB 的 io_submap 分配、32 MiB 请求会 panic，改用
+`ml_io_map_unmappable()`（进 kernel_map）。
+
+#### 修法：0513 `patches/xnu/0513-k60-bt-io-windows.patch`（孪生 `patches/bt/0007`）
+
+4,428 B，sha256 `ae7a8f282fe48d235ffd2f40fde09bf48720cca5dda026e11c8151ccd9719109`，
+单文件 `bsd/dev/qbt_k60.c`，+36 行：
+
+- 加 `extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, unsigned int flags);`
+  与 `#define K60_WIMG_IO 0x7u`（`VM_WIMG_IO` = COHERENT|NOT_CACHEABLE|GUARDED，`osfmk/arm/memory_types.h:43`）。
+- 新增 `k60_map_big()`：KERNEL 下走 `ml_io_map_unmappable(…, K60_WIMG_IO)`，语义与 `k60_map()` 相同
+  （幂等早退 + `-ENOMEM` 契约）。
+- GCC（阶梯 + 探针）、TLMM、APPS SMMU 四处改用它；UART/QUP/GIC 保持 `k60_map()`。
+- 映射完 GIC 后打一行 `full: windows mapped, gcc/tlmm/smmu charged to kernel_map`，让「改动没生效」
+  与「改动生效但仍死」在 console 上可区分。
+- 位置：`patches/xnu/series` 末尾（233 条），紧随 0512，理由同 §7.5 的 0510/0620 教训——
+  末尾插行不动任何后续补丁。
+
+整条 series 重放（`git apply`，pristine `xnu-c465a9f8`）：**APPLIED=233 BAD=0**。
+host 测试 `scripts/tests/test-k60-bt-0513-io-windows.py`：**TESTS OK 28 case(s)**。
+
+**下一张图**：`bt-0513-iowin-late`（全量 0513 + `pong_bt_late=1`，与 d4 唯一差别是窗口分配器）。
+判据：panic 消失且日志过 S9 ⇒ io_submap 就是死因；仍 panic 在同一行 ⇒ 1 MiB 不是 GCC/TLMM/SMMU
+而是别的调用点，按 `K60PANICARGS` 的地址回查。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

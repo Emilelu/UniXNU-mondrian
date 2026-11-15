@@ -98,6 +98,41 @@ fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 
+# A missing .config would silently drop every defconfig-driven feature (P-202):
+# GPU_ADDON and BATTERY_ON below are both read with sed, and sed on a missing
+# file writes to stderr and yields nothing, so the build would quietly produce a
+# kernel without the Metal plugin or the battery class and still report success.
+# 2026-11-15: the wifi line ran with a hand-appended CONFIG_XNU_PONG_WIFI line
+# instead; a generated configuration must never be edited, so the driver is
+# selected through XNU_PONG_WIFI below and .config stays a pure defconfig product.
+[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT"
+
+# --- wifi archive ------------------------------------------------------------
+# scripts/build-xnu-4k-baseline.sh:1184 links libPongWifiNative.a into the kernel
+# when XNU_PONG_WIFI=1. kernel.py:175-187 copies os.environ and only overrides
+# the variables the .config names, so a symbol this defconfig does not carry is
+# selected here, in the open, and recorded in the manifest.
+WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-}
+WIFI_ON=${XNU_PONG_WIFI:-0}
+if grep -q '^CONFIG_XNU_PONG_WIFI=y' "$M/.config" 2>/dev/null; then
+    WIFI_ON=1
+    WIFI_ARCHIVE=${WIFI_ARCHIVE:-$REPO/build/pong-wifi/libPongWifiNative.a}
+fi
+if [ -n "$WIFI_ARCHIVE" ]; then
+    WIFI_ON=1
+elif [ "$WIFI_ON" = 1 ]; then
+    # Asking for the driver without naming an archive is the same silence that
+    # hid the battery class (P-190): the link would succeed and the kernel would
+    # simply have no WiFi in it.
+    die "XNU_PONG_WIFI=1 but no wifi archive was given; set XNU_PONG_WIFI_ARCHIVE"
+fi
+if [ "$WIFI_ON" = 1 ]; then
+    [ -f "$WIFI_ARCHIVE" ] || die "wifi archive $WIFI_ARCHIVE missing; run scripts/build-wifi-archive.sh first"
+    export XNU_PONG_WIFI=1
+    export XNU_PONG_WIFI_ARCHIVE=$WIFI_ARCHIVE
+    echo "build-strict: wifi archive $WIFI_ARCHIVE"
+fi
+
 # --- gpu addon (0610) -------------------------------------------------------
 # The Metal plugin travels inside the kernel as an .incbin blob, so the build
 # needs the assembled bundle before the kernel link.  CONFIG_XNU_GPU_ADDON=y
@@ -143,6 +178,15 @@ fi
 [ "$KERNEL" -nt "$MARK" ] || die "kernel.macho is older than this build: stale artifact"
 KERNEL_SHA=$(sha256sum "$KERNEL" | cut -d' ' -f1)
 echo "build-strict: kernel $KERNEL_SHA $(stat -c %s "$KERNEL") bytes"
+# The archive path is an environment variable, so nothing in .config or the
+# archive list would notice if the link dropped it: ask the kernel itself, the
+# way check-kernel-archives.py does for the defconfig-driven archives (P-190).
+if [ -n "$WIFI_ARCHIVE" ]; then
+    NM=$(command -v llvm-nm-18 || command -v llvm-nm || echo nm)
+    "$NM" "$KERNEL" 2>/dev/null | grep -q ' _pong_wifi_start_optional$' \
+        || die "XNU_PONG_WIFI=1 but the kernel has no pong_wifi_start_optional; the archive did not reach the link (P-190)"
+    echo "build-strict: wifi driver present in the kernel"
+fi
 
 # --- payload -----------------------------------------------------------------
 # --kernel-arg has to reach THIS step: the payload's unixnu.toml is what the
@@ -246,6 +290,8 @@ m = {
         "boot_img_path": "$RUN/boot.img",
         "gpu_addon": "$(sha_or_empty "$ADDON")",
         "gpu_addon_path": "${ADDON:-}",
+        "wifi_archive": "$(sha_or_empty "$WIFI_ARCHIVE")",
+        "wifi_archive_path": "${WIFI_ARCHIVE:-}",
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",

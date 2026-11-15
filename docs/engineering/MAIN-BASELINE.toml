@@ -190,3 +190,9 @@ note = "P-211: record-boot.py 现在优先读镜像自己的 build-manifest.json
 sha = "8e041b6"
 state = "build-only"
 note = "P-214: one implementation and one namespace for the series fingerprint. The change touches scripts/build-strict.sh, which iron rule 9 counts as an image-affecting path, but no kernel input changed -- series, patches, board.toml and dts are untouched. The manifest gained a namespace field and the fingerprint gained a single implementation. The last on-device boot evidence is still baseline-20261115d (75677e7, usblog-20261115-234111, SpringBoard 132); the next strict build produces a namespaced manifest and that image should be flown once to close the loop."
+
+[[entry]]
+sha = "0aaee66"
+state = "booted"
+kernel_sha256 = "3c2991f0c8ec5ef32942315c861d9760903ca9864bc074f33a7ffad9bc1a81d1"
+note = "P-215: the Apps SMMU lease lock is allocated on first use. patches/wifi/0012 moves the IOLockAlloc into pong_smmu_lease_lock(), so NativeUfs can take the lease in hostBringUp() before ArmDTPlatform ever calls pong_wifi_start_optional(). On-device proof is wifi-20261116c3 (boot.img 5a19e110..., kernel 117,325,824 B, real PWF2 container): evidence usblog-20261116-015128, SpringBoard 132, K60DATA mounted, panic 0. That image was built on feat/wifi-bringup with the same patch bytes; this commit is where main carries the fix."

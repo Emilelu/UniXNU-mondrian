@@ -1,0 +1,33 @@
+diff --git a/osfmk/arm/io_map.c b/osfmk/arm/io_map.c
+index 0000000000000000000000000000000000000000..1111111111111111111111111111111111111111 100644
+--- a/osfmk/arm/io_map.c
++++ b/osfmk/arm/io_map.c
+@@ -62,7 +62,27 @@
+ 
+ extern vm_offset_t virtual_space_start;     /* Next available kernel VA */
+ 
+-#define IO_MAP_SIZE            (8ul << 20)
++/*
++ * P-219: every ml_io_map() caller shares this one submap, and the sum of the
++ * windows the K60 drivers ask for already exceeds 8 MiB.  The failure mode is
++ * a panic inside kmem_alloc(io_submap, ..., KMA_NOFAIL) that prints
++ * "kmem_alloc(<map>, <size>, 0x100021): failed with 3" and leaves a console log
++ * that looks like the driver never ran.  Measured 2026-11-16 (P-219):
++ *
++ *   k60_usblog.c   APPS_SMMU 1 MiB x3 call sites, GCC 1 MiB x2, SPMI, IMEM,
++ *                  DWC3, EUSB2                                  ~5.2 MiB
++ *   qbt_k60.c      GCC 0x1f4200, TLMM 1 MiB, SMMU 1 MiB, rest   ~4.2 MiB
++ *   pong_goodix.c  TLMM pages, GCC pages, SE                    ~0.1 MiB
++ *   pong_buttons.c SPMI core/cnfg/observer                      ~0.5 MiB
++ *   pong_audio.c   SMEM, IPCC, AOSS, ADSP                       ~0.1 MiB
++ *   aw882xx.c      GCC, TLMM, I2C                               ~0.1 MiB
++ *
++ * Distinct windows are far fewer than the sum because several call sites map
++ * the same physical region more than once, so 32 MiB is generous headroom
++ * rather than a tight fit.  The reservation is virtual address space only; it
++ * costs nothing until a window is actually mapped.
++ */
++#define IO_MAP_SIZE            (32ul << 20)
+ 
+ __startup_data static struct mach_vm_range io_range;
+ static SECURITY_READ_ONLY_LATE(vm_map_t) io_submap;

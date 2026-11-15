@@ -1083,8 +1083,8 @@ kmem_alloc(unmappable ? kernel_map : io_submap, &start, alloc_size, kmaflags, VM
 
 #### 修法：0513 `patches/xnu/0513-k60-bt-io-windows.patch`（孪生 `patches/bt/0007`）
 
-4,428 B，sha256 `ae7a8f282fe48d235ffd2f40fde09bf48720cca5dda026e11c8151ccd9719109`，
-单文件 `bsd/dev/qbt_k60.c`，+36 行：
+4,660 B，sha256 `0517653d13a18c966c5a57df4537da004d630ef04875e17a76e0263d2c812cad`，
+单文件 `bsd/dev/qbt_k60.c`，+36/−4 行（2026-11-16 补了三行注释：0621 走另一条路，两者不叠加时各自动作）：
 
 - 加 `extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, unsigned int flags);`
   与 `#define K60_WIMG_IO 0x7u`（`VM_WIMG_IO` = COHERENT|NOT_CACHEABLE|GUARDED，`osfmk/arm/memory_types.h:43`）。
@@ -1139,7 +1139,7 @@ Lead 在已应用树上把可解析的调用点全部量了一遍（P-219，main
 
 | 配方 | series | 启动参数 | 这条配方要回答的问题 |
 |------|--------|----------|----------------------|
-| d5 `bt-d5-iomap` | main 227 条 + 0507..0512 六条（**不含 0513**，含 0621） | `k60bt=1 pong_bt_late=1` | 「抬高 IO_MAP_SIZE 是否足以让 `k60_bt_power_on()` 越过那次 1 MiB 分配」——排除了 0513 的代码路径，只验预算本身 |
+| d5 `bt-d5-iomap` | main 227 条 + 0507..0512 六条（**不含 0513**，含 0621） | `k60bt=1 pong_bt_late=1` | 「抬高 IO_MAP_SIZE 是否足以让 `k60_bt_power_on()` 越过那次 1 MiB 分配」——排除了 0513 的代码路径，只验预算本身。**已出图 06:40，待飞** |
 | d6（待定） | main 227 条 + 0507..0513（全含） | 同上 | 「0513 单独是否够」——与 d5 的差别只有窗口分配器，两条一起看才能把「预算不足」与「unmappable 分支的 flags/WIMG 有问题」分开 |
 
 判据（两条共用）：`:483` `full: power_on enter` 之后不再出现 `kmem_alloc(… 0x100021)` panic，

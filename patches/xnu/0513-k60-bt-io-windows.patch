@@ -13,7 +13,7 @@ index 3846453..5d1e1bc 100644
  extern IOReturn armcpu_spi_attach(uint32_t intid, bool edge,
                                    void (*handler)(void *), void *context,
                                    uint32_t *readback, uint64_t *router);
-@@ -453,6 +457,30 @@ static int k60_map(struct k60_region *r, uint64_t phys, size_t bytes) {
+@@ -453,6 +457,33 @@ static int k60_map(struct k60_region *r, uint64_t phys, size_t bytes) {
      return r->va ? 0 : -ENOMEM;
  }
  
@@ -24,7 +24,10 @@ index 3846453..5d1e1bc 100644
 + * request returned KERN_NO_SPACE and __kmem_failed_panic() took the kernel
 + * down: kmem_alloc(..., 1048576, 0x100021): failed with 3 (2026-11-16, d4).
 + * The unmappable variant charges kernel_map instead and is the same escape
-+ * patches/xnu/0613 already uses for the 32 MiB ADSP windows. */
++ * patches/xnu/0613 already uses for the 32 MiB ADSP windows.
++ * Note: main's 0621 (k60-io-submap-budget) answers the same panic from the
++ * other side - it raises IO_MAP_SIZE from 8 MiB to 32 MiB. The two are not
++ * two halves of one fix: each stands alone, and only one may ride an image. */
 +#define K60_WIMG_IO 0x7u /* VM_WIMG_IO: coherent | not-cacheable | guarded */
 +
 +static int k60_map_big(struct k60_region *r, uint64_t phys, size_t bytes) {
@@ -44,7 +47,7 @@ index 3846453..5d1e1bc 100644
  static void __attribute__((unused)) k60_unmap(struct k60_region *r) {
      /* ml_io_unmap is deliberately not called in the skeleton: the board
         lifetime is the kernel lifetime.  Add it in the real integration. */
-@@ -643,7 +671,7 @@ static const char *k60_smmu_configure(const struct k60_smmu_plan *p, uint16_t st
+@@ -643,7 +674,7 @@ static const char *k60_smmu_configure(const struct k60_smmu_plan *p, uint16_t st
  /* Install the bypass context for the BT stream.  On any failure nothing
   * DMA-capable is enabled and the caller must not start the controller. */
  static int k60_smmu_bypass(uint64_t dma, uint64_t bytes) {
@@ -53,7 +56,7 @@ index 3846453..5d1e1bc 100644
      if (e) return e;
      struct k60_smmu_plan plan;
      k60_smmu_plan(K60_BT_SMMU_SID, dma, bytes, K60_SMMU_BANKS, K60_SMMU_GROUPS, &plan);
-@@ -1649,7 +1677,7 @@ static int k60_bt_probe(unsigned step) {
+@@ -1649,7 +1680,7 @@ static int k60_bt_probe(unsigned step) {
      char line[192];
  
      k60_probe_mark("probe: s1 map gcc/uart/qup");
@@ -62,7 +65,7 @@ index 3846453..5d1e1bc 100644
      if (!e) e = k60_map(&k60.uart, K60_BT_UART_BASE, K60_BT_UART_SIZE);
      if (!e) e = k60_map(&k60.qup, K60_BT_QUP_WRAPPER_BASE, K60_BT_QUP_WRAPPER_SIZE);
      if (e) {
-@@ -1829,12 +1857,15 @@ static int k60_bt_power_on(void) {
+@@ -1829,12 +1860,15 @@ static int k60_bt_power_on(void) {
           * bsd/dev/qbt_k60.c:1814-1819 */
          k60_log(NULL, 1, "power: cold boot, rails not voted (k60bt_warm=0)");
      }

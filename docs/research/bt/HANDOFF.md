@@ -714,9 +714,9 @@ This line, next in order:
       `k60_map(&k60.tlmm, …1 MiB…)` 与 `k60_smmu_bypass()`；`0507` 探针只 map gcc/uart/qup
       （无 TLMM/SMMU），所以探针全过而全量阶梯 panic。先例：ADSP 线
       `patches/xnu/0613-k60-adsp-pas.patch:362-370` 已用 `ml_io_map_unmappable()` 绕开同一限制。
-    - 修法 `patches/xnu/0513-k60-bt-io-windows.patch`（孪生 `patches/bt/0007`，4,428 B，
-      sha256 `ae7a8f282fe48d235ffd2f40fde09bf48720cca5dda026e11c8151ccd9719109`，单文件
-      `bsd/dev/qbt_k60.c`，+36 行）：新增 `k60_map_big()` 走 `ml_io_map_unmappable()`
+    - 修法 `patches/xnu/0513-k60-bt-io-windows.patch`（孪生 `patches/bt/0007`，4,660 B，
+      sha256 `0517653d13a18c966c5a57df4537da004d630ef04875e17a76e0263d2c812cad`，单文件
+      `bsd/dev/qbt_k60.c`，+36/−4 行；2026-11-16 补三行注释说明 0621 走另一条路、两者不叠加时各自动作）：新增 `k60_map_big()` 走 `ml_io_map_unmappable()`
       （`K60_WIMG_IO 0x7u` = VM_WIMG_IO），GCC（阶梯 + 探针）/ TLMM / APPS SMMU 四处改用它，
       UART/QUP/GIC 保持 `k60_map()`；映射完 GIC 后打
       `full: windows mapped, gcc/tlmm/smmu charged to kernel_map`。位置：`patches/xnu/series`
@@ -743,6 +743,23 @@ This line, next in order:
       `KMA_DATA` 与 `VM_WIMG_IO`。落档见 `S4-SPEC.md` §7.12。
     - 并发提醒：d5 构建期间 Lead 占着本 worktree，`patches/xnu` 不能动（`freeze()` 会在构建
       结束前重算 `board.toml dts patches/xnu scripts` 并比对），docs 不在冻结集内。
+26. **d5 图 `bt-d5-iomap` 已出（2026-11-16 06:40，Lead 配方）**
+    - 构建：Lead 在同一 worktree 跑 `build-strict.sh bt-d5-iomap … --kernel-arg k60bt=1 --kernel-arg
+      pong_bt_late=1`，exit 0；series 233 条、尾部 `… 0511 / 0621 / 0512`（**不含 0513**）。
+    - manifest：boot_img `491c62de4c217ce63659defd0272584d205c828f3f432f377d5902c2679dfb3e`
+      （201,887,744 B）、kernel_built `2c8d92c6862b72cbba68371fed0b97a1c83f01b58572849199881c482dc09092`、
+      payload_kernel `bd399e983fe6a011370a2fe6022b17e8f058343ffc898cc9a71bfecf26e2a3dc`、
+      payload `9db86eb3bc198e27b11be5d91f97f41ac89350edcd8711a1a1cf967425ca9247`、
+      adt `f1377190e2998e23a3822cba8c5cff7f840fccdf714a35404615bc103a681103`、dtb `2d044eaa…`、
+      fd `cf4485712c29…`、bt_blob `febdc20d…`、frozen `4f47dad8…`、
+      series {233, `c2182894e0f8dea8`, namespace names+sizes, file `c3e6599d45142a1b`}、
+      args [k60bt=1, pong_bt_late=1]、head `44e2a50`、dirty 0。
+    - 校验（INSIDE WSL）：`verify-boot-image: OK`、`image-arg-audit: OK (31 arguments, 598 bytes)`。
+    - 0513 注释按 Lead 要求补三行（0621 走另一条路、两者不叠加时各自动作）：新 sha256
+      `0517653d13a18c966c5a57df4537da004d630ef04875e17a76e0263d2c812cad`（4,660 B，+36/−4），
+      孪生 `0007` 同步为字节相同；整条 series 重放仍 **APPLIED=233 BAD=0**（此时 series 里没有 0513，
+      重放脚本用的是含 0513 的临时序列）。host 测试 28 例通过，其中新增一条不变式：
+      **0513 与 0621 永不同时出现在一条 series 里**（d5/d6 各自一种合法状态）。
 
 
 

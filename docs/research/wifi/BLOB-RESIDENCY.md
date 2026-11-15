@@ -1,6 +1,6 @@
 # WiFi 固件 blob 的 residency：11.19 MB `__TEXT,__const` 会不会撞上任何装载边界
 
-状态：静态判定 + 两张上机判决（`z0`、`t2`，都是 silent，§10）。没有构建。本文回答任务 G 的一个问题：
+状态：静态判定 + 两张有效上机判决（`z0`、`t2`，都是 silent，§10）+ 一张判为测量无效的正式 C 格（`c0`，`invalid-measurement`，§11）。没有构建。本文回答任务 G 的一个问题：
 
 > `__TEXT,__const` 里 11.19 MB 的 PWF2 固件，会不会让内核的 `__TEXT` 段在
 > DarwinBoot 的段加载路径上触发某种边界（段大小、对齐、还是 kernelcache 的
@@ -29,11 +29,13 @@
 105 MB alive 家族的体积来自 `__DATA` 52.9 MB，`__TEXT` 与 baseline 相同。
 「边界触发」假说在这条路径上没有落脚点；§7 列出仍然开着的三个口子。
 
-口径提醒（2026-11-15 `t2` 判决后更新）：`__TEXT` = 12,992,512 的死格
+口径提醒（2026-11-15 `c0` 判决后更新）：`__TEXT` = 12,992,512 的死格
 （mhi3/mhi4/z0）都带同一个 blob，`__TEXT` = 1,720,320 的活格都不带；
 但 `t2` 把 blob 移出 `__TEXT` 之后仍然 silent——「`__TEXT` 驻留跟着死亡走」
-已被上机数据**推翻**（§10.3 第 2 条）。仍然开着的是 §7.1 的 pool 通道、
-66 MB + blob 的 C 格（至今没飞）与 §7.4 的驱动体静态注册链。
+已被 `t2` 的上机数据**推翻**（§10.3 第 2 条）。`__TEXT` 12.99 MB 的驻留嫌疑
+**降级为待重测**：唯一一张点名种子 Data UUID 的 `c0` 已判 `invalid-measurement`
+（§11，P-152 / P-209），它没有测到版式、驻留或 pool。仍然开着的是 §7.1 的 pool
+通道、C 格（66 MB + blob + `pong_wifi=0`，须用 `c1` 复测）与 §7.4 的驱动体静态注册链。
 
 待议（Lead 指示，wifi 线在本树留的四处未提交改动只折有依据的部分、其余记一行）：
 wifi 原稿把 §7.4 写成「blob 位置与 pool/窗口之外唯一还活着的解释」——本页不采
@@ -200,24 +202,30 @@ xnu-work 的 osfmk/pexpert/libsa/bsd 全树 **0 命中**。`arm_vm_init.c` 对
 
 本文的回答是「这条路径上没有边界」，但「没有边界」不等于「体积无关」——§7.1 的
 pool 通道仍然存在。要把两者分开靠五格对照；这里只列格子与每格能推翻什么，不排期。
-E 格与 F 格（`t2`）已飞（2026-11-15，都 silent），判决见 §10；其余格子仍未飞。
+E 格、F 格（`t2`）已飞并各得一条有效判决（silent，§10）。C 格（正式镜像
+`wifi-20261116c0`）也飞了，但判决是 `invalid-measurement`（§11）：镜像被
+`mondrian_wifi_defconfig` 的种子 Data UUID 在根挂载阶段打死，没有测到版式、
+驻留或 pool。其余格子仍未飞。
 
 | 格子 | 内核 | `__TEXT` | blob | `pong_wifi` | 上机记录 | 该格能推翻什么 |
 |---|---|---|---|---|---|---|
 | A | 54.2 MB stock（thermal / bt / …） | 1.64 MiB | 无 | 0 | 已飞，**alive** | 基线 |
 | B | 54.8 MB tiny（`t0c` / `t1c`） | 1.82 MiB | 4×23 B 占位 | 0 / 1 | **从未飞** | `t1c` alive ⇒ 驱动存在 + `pong_wifi=1` 本身无害，死因需要真 blob 或与之同步变化的东西 |
-| C | 66 MB（`a2`，trial 级，**没有**正式重出） | 12.39 MiB | 11.19 MB | 0 | **从未飞** | C alive ⇒ blob、`__TEXT` 体积、65.9 MB 镜像三者同时被洗清（与 mhi4 只剩 `pong_wifi` 之差） |
+| C | 66 MB（正式重出 `wifi-20261116c0`；trial `a2` 同形） | 12.39 MiB | 11.19 MB | 0 | **已飞，测量无效**（`usblog-20261115-213221`；`invalid-measurement`，§11） | 本格未测到任何一条：`c0` 的 boot.img 唯一带种子 Data UUID（§8 扫描），内核在根挂载阶段自 panic。需 `c1`（只改该 UUID 一行）重测 |
 | D | 117 MB（`mhi5`） | 12.39 MiB | 11.19 MB | 1 | **从未飞** | 主要探 `ReadFile` 的 128 MB 上限与 span，与 blob 边界问题无关 |
 | E | 117 MB（`z0`，正式镜像，与 `mhi5` 只差 `pong_wifi`） | 12.39 MiB | 11.19 MB | 0 | **已飞，silent（0 B，`usblog-20261115-135859`；§10）** | 驱动 vs blob：E 静默而 105 MB 家族 alive ⇒ blob 被钉住、驱动被洗清；E alive ⇒ 驱动有罪 |
 | F | 117 MB（`t2`，blob 移入只读 `__DATA_CONST`，`__TEXT` 1.80 MiB） | 1.80 MiB | 11.19 MB（在 `__DATA_CONST`） | 0 | **已飞，silent（0 B，`usblog-20261115-161102`；§10.3）** | F 静默 ⇒ `__TEXT` 驻留被推翻，死因不在驻留位置；F alive ⇒ 驻留位置被钉住 |
 
-读法：C 是「体积」那一问的判决格（66 MB + blob + `pong_wifi=0`）——C 静默 ⇒
-体积方向仍活（但边界已排除，只剩 §7.1）；C 出声 ⇒ 本文问题被实际否决，死因回到
-驱动运行路径。**C 至今没有正式镜像**：`a2` 是 trial 级（P-201，manifest 无 series
-键），而正式重出的 `z0` 实测不是 66 MB——它 117,305,344 B，与 `mhi5` 同尺寸、只把
-`pong_wifi` 关掉（§9 的实测表）。所以 E 顶替不了 C：**E 静默只证明「blob（连同它
-所在的 117 MB 版式）与 105 MB alive 家族的差是致命的」，证明不了 65.9 MB 这一档**；
-同理 E alive 也不能替 C 洗清体积，它洗清的是驱动。
+读法：C 是「体积」那一问的判决格（66 MB + blob + `pong_wifi=0`），但
+`wifi-20261116c0` 这一飞**没有执行这个判决**：它由 `mondrian_wifi_defconfig`
+构建，该文件在 `k60-wifi` @ `fff0fb19` 的 :46 指名了种子 Data UUID
+`6DCCF70A-…`，内核在根挂载阶段等这个卷超时后自 panic（P-152 机制），console 在
+根挂载之后才起来，所以读数是 0 字节（§11）。`c0` 的 manifest 也记着同一个
+构建树（`repo.head = fff0fb19`）。重测条件：`c1`——只把该
+`CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 一行改成设备卷
+`1BCD69FF-24A5-48B1-94B6-8FE592B2F597`，其余不动。`a2` 仍是 trial 级（P-201）；
+`z0` 是 117 MB 的 E 格，不顶替 C。原先写在这段里的「C 静默 ⇒ 体积方向仍活」
+已按 `invalid-measurement` 撤回。
 
 B 是 C 的对照格：B 出声而 C 静默 ⇒ 11.19 MB blob 被钉成唯一变量；B 也静默 ⇒
 死因不需要 blob。E 是「驱动 vs blob」的对照格（与 `mhi5` 只差 46 字节 / 8 处构建
@@ -259,7 +267,7 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 | 窗口值逐镜像 | `probe-window3.py`：ADT 属性 `darwinboot-memory-size` 解码——thermal/springboard/gpu/base/touch=0x130000000（4.75 GiB）alive；brightness-4=0x120000000（4.5 GiB）alive；wifi-20261114a/mhi3=0x130000000 死；mhi4/mhi5/z0/t2/bt-s4b-20261115c=0x120000000（z0 与 t2 已判 silent）；a2/t1/t1c=0x130000000 未飞 |
 | `z0` 判决 | `scripts/judge-z0.sh usblog-20261115-135859 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
 | `t2` 判决 | `scripts/judge-z0.sh usblog-20261115-161102 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
-| 六张 silent 图 + bt 三图逐段实测 | `probe-silent6.py`（E:/k60-work/scratch/refmine/，复用 probe-family 段解析与 probe-window3 窗口解码）：§9 表的 kernel/段/窗口数字全部出自它 |
+| 六张 silent 图 + bt 三图逐段实测 | `probe-silent6.py`（E:/k60-work/scratch/refmine/，复用 probe-family 段解析与 probe-window3 窗口解码）：§9 表的 kernel/段/窗口数字全部出自它；`wifi-20261116c0` 的段表由 `E:/k60-work/scratch/table4.py` 单测（§11） |
 | alive 归属（join image sha → evidence） | `probe-join2.py`：thermal adc796b6→usblog-20261115-003922（232,670 B）；springboard 3ada9562→003207；gpu ba783b74→212253；brightness e41eb797→013520（185,701 B）；a2/mhi5/z0/t1/t1c 全库零命中（从未上机） |
 | `__const` 内固件逐字节匹配 | `probe-const.py` / `probe-const2.py`：四文件与 `/mnt/e/k60-work/firmware/qca6490-wifi/` 相同；非零字节合计 7,030,971 |
 | DarwinBoot 检查 | drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:160,168,190-191,194-196,558,607,619 |
@@ -271,6 +279,9 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 | bt 非单调对 series | `E:/k60-work/artifacts/bt-s4b-20261115b/build-manifest.json`（series 228 b31855c932b4…）与 `bt-s4b-20261115c/`（series 229 67baff88e1bb…）；两图 boot.img 窗口同 0x120000000 |
 | PWF2 失配 | mhi4 kernel 文件偏移 589,824 处头（count=6，entry[0] amss.bin，1..5 全空）vs 四文件实测偏移（§1 表） |
 | 判定器落位 | `scripts/judge-wifi-boot.py`、`scripts/judge-z0.sh`、`scripts/check-arg.py` 与两份自测已在 main（合并 `4f56970`，登记 `3e6f110`，tag `snap-r198`）；本文引用写 main 上的路径，不写分支或 scratch 副本 |
+| `c0` 判决（`invalid-measurement`） | Lead 2026-11-15 裁决 + 实测：`E:/k60-work/artifacts/wifi-20261116c0/boot.img` 里 `6DCCF70A-…` ×1、`1BCD69FF-…` ×0；构建树 `k60-wifi` @ `fff0fb19`，该树 `configs/mondrian_wifi_defconfig:46` 指名种子 UUID；采集 `usblog-20261115-213221` 0 字节 / `port-not-observed` / `returnedToFastboot`。按 P-152（`docs/engineering/PITFALLS.md:3811-3819`）自 panic，未测到版式/驻留/pool |
+| 构建配置扫描（53 张 wifi/bt boot.img） | 全镜像字节计数 `6DCCF70A-…` / `1BCD69FF-…`（脚本 `E:/k60-work/scratch/refmine/uuid-scan.py`）：56 个 wifi/bt 产物里 3 个没有 boot.img；扫描到的 53 张中**只有 `c0` 带种子 UUID**（seed=1/dev=0），其余 52 张（含 `wifi-20261114a`、mhi3、mhi4、z0、t2、bt-s4b-b/c）都是 seed=0/dev=1 ⇒ 该缺陷只覆盖 `c0`，不能把前五张 wifi silent 一并判无效 |
+| P-209 门禁形状（落中） | `scripts/check-defconfig-uuid.py`：defconfig 指名非本机 Data UUID 即硬失败；种子 UUID 必须显式标 `# SEED-UUID: intentional` |
 
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与
 artifact `boot.json` 按 image sha256 的 join（`probe-join2.py`），与
@@ -330,7 +341,7 @@ sha 只在那批镜像内可比）；`t2` 及以后的窗口必须逐镜像重�
 
 §6 的 E 格（`z0`）与 F 格（`t2`）都已经飞了，都 silent。本节记两次判决、
 为什么读得动、三条推翻条件的走向，以及两次飞行给 §7 三个口子带来的格位变化。
-措辞守 Lead 的裁决：`__TEXT` 驻留在 `t2` 之前是首要嫌疑，`t2` 之后是**已推翻项**。
+措辞守 Lead 的裁决：`__TEXT` 驻留在 `t2` 之前是首要嫌疑，`t2` 之后是**已推翻项**；`c0` 之后「12.99 MB 驻留」只剩**待重测**（`c0` 测量无效，§11）。
 
 ### 10.1 两飞两判
 
@@ -388,10 +399,10 @@ zizhan-087416a.patch:1939-1946` 的 `pong_wifi_start_optional()` 先
    版式）飞完 verdict = silent（`usblog-20261115-161102`）。驻留形态已被两种
    形态否证：105 MB alive 家族把体积放在可写 `__DATA` 仍进桌面；`t2` 把 blob
    放在只读 `__DATA_CONST` 仍 silent。死因回到驱动之外的差异。
-3. **推翻「blob 是变量」**：66 MB + blob + `pong_wifi=0`（§6 的 C 格，正式镜像）
-   进用户态而 `z0` 静默 ⇒ 死因落在 117 MB 版式（`__DATA` / span / pool），blob
-   本身被洗清。这一格至今没有正式镜像，`t2` 之后它仍是「blob 是不是变量」的
-   判决格。
+3. **推翻「blob 是变量」**：66 MB + blob + `pong_wifi=0`（§6 的 C 格）进用户态
+   而 `z0` 静默 ⇒ 死因落在 117 MB 版式（`__DATA` / span / pool），blob 本身被
+   洗清。正式镜像 `c0` 已飞但**测量无效**（§11），这一格要等 `c1` 复测；
+   `t2` 之后它仍是「blob 是不是变量」的判决格。
 
 三条都不涉及静态量：它们都是「再飞一张」就能证伪的句子，不需要新代码。
 
@@ -421,4 +432,65 @@ zizhan-087416a.patch:1939-1946` 的 `pong_wifi_start_optional()` 先
    与 pool 通道，判据在 k60-wifi 树 `docs/research/wifi/DARWINBOOT-POOL.md` §5
    （`NO WINDOW` 行与 hand-off 大字块互斥）与
    [BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §7 的 C1/C2。
+
+## 11. C 格（`c0`）判决：`invalid-measurement`，不是版式判决（2026-11-15 21:32）
+
+**结论行：这次飞行没有测到 C 格要测的东西。** `c0` 由 `mondrian_wifi_defconfig`
+构建，该 defconfig 指名了种子 Data UUID `6DCCF70A-…`，内核在根挂载阶段自
+panic；`__TEXT`/PWF2 布局、驻留、pool 三条假设在本格上**既未被证实也未被否证**。
+重测条件：`c1`（只改该 UUID 一行）。
+
+| 项 | 值 |
+|---|---|
+| 采集目录 | `E:/k60-work/evidence/usblog-20261115-213221` |
+| boot.img | `25c9821510ca50032617b61e63b058580722e375ee5b533badf3d74c07a9d074`（201,887,744 B；payload kernel `1600744e…`，66,002,944 B） |
+| manifest | `E:/k60-work/artifacts/wifi-20261116c0/build-manifest.json`；series 224 `34cf51e4…`；`kernel_args_requested = ["pong_wifi=0"]` |
+| 构建树 | `k60-wifi` @ `fff0fb19`（`feat/wifi-bringup`，`dirty_files=0`）；`configs/mondrian_wifi_defconfig:46` = `CONFIG_XNU_OWNER_DATA_VOLUME_UUID="6DCCF70A-6FD6-403E-ACED-95313CD7CBB8"` |
+| 实测字节 | boot.img 内 `6DCCF70A-…` ×1、`1BCD69FF-…` ×0；同一扫描下其余 52 张 wifi/bt 图全部相反（§8） |
+| ADT 窗口 | `0x120000000`（4.5 GiB；bt-s4b-b / bt-s4c-c / adsp-c 三张能起的同值） |
+| 读数 | console.log **0 字节**；`port-not-observed`、`returnedToFastboot`、`fastboot-return`；`scripts/judge-z0.sh … --expect-arg pong_wifi=0` → `silent` / exit 2 |
+
+为什么这读数不能当 C 格判决：
+
+1. **`c0` 与它要对照的镜像差的不止一个变量**：`mondrian_wifi_defconfig` 比
+   `mondrian_defconfig` 少 `CONFIG_XNU_GPU_ADDON`（51.4 MB `__DATA` addon）与
+   `CONFIG_XNU_K60_PHYSICAL_BATTERY`，把 Data UUID 换成种子 UUID，多
+   `CONFIG_XNU_PONG_WIFI`。所以「66 vs 106 MB」本身就是多变量对照（见下表的扣子）。
+2. **种子 UUID 是确定性自 panic**：P-152（`docs/engineering/PITFALLS.md:3811-3819`）
+   记录过同一配置的症状——`PONG APFS: wait for Data UUID 6DCCF70A-…, timeout=5s`
+   → `K60DATA UFS Data window not published` → `dataerr=2` self-panic
+   `@kern_exec.c:8463`。`c0` 的 0 字节 / `port-not-observed` / `returnedToFastboot`
+   与「死在根挂载阶段」一致；但这条要由 `c1` 确认：2026-11-07 那批同样带种子
+   UUID 的采集（`bootcap-20261107-113650` 等）是**有** console 输出的，说明
+   console 起来的时机随构建而变。若 `c1` 仍 0 字节，则 `c0` 的 0 字节另有原因，
+   本格归因要重开。
+3. **PWF2 头失配（§1）的形状数据不受影响，但「与死因无关」尚未成立**：头/payload
+   失配（count=6、只有 entry[0]）是静态事实；它是不是死因，在本格上没有测到——
+   `c0` 根本没跑到解析器。
+
+这一格唯一能留下的东西是**形状**：`__TEXT` 是 `c0` 唯一超过所有能起内核对应段
+的段（其余段大小见下表；完整逐段表在 k60-wifi 树
+`docs/research/wifi/BOOT-DEATH-SUSPECT.md` §3d，脚本 `E:/k60-work/scratch/table4.py`）。
+形状不是判决——要把它变成判决，得先有 `c1` 的有效读数：
+
+| surface | `c0`（66.0 MB） | bt-s4b-b（106.5 MB，能起） | 差 |
+|---|---|---|---|
+| `__TEXT` vmsize | 12,992,512 | 1,720,320 | +11,272,192 |
+| `__TEXT,__const` | 11,767,510 @0x2000 | 548,936 @0x1d60 | +11,218,574 |
+| PWF2 容器 / 符号跨度 | 1 个，`0xaabed6`（11,189,974 B） | 无 | — |
+| `__TEXT_EXEC` | 8,781,824 | 8,388,608 | +393,216 |
+| `__LINKEDIT` | 6,668,288 / 6,663,376 | 6,569,984 / 6,568,720 | +98,304 |
+| `__DATA` vmsize/filesize | 1,867,776 / 294,912 | 52,920,320 / 51,576,832 | −51,052,544（无 GPU addon） |
+
+**读这张表必须带的扣子**：能起的 106/129 MB 内核带着 51.4 MB 的 GPU/Metal addon
+（`PongMetalBridge` ×4、`libvulkan` ×6，落在 `__DATA,__data`），而 `c0` 因为
+`mondrian_wifi_defconfig` 没有 `CONFIG_XNU_GPU_ADDON`，完全没有这份 addon。所以
+「66 vs 106 MB」是两变量对照：**blob 进、GPU addon 出**。要单变量，下一格应是
+「GPU addon + 无 PWF2」或「66 MB 版式 + 同尺寸惰性 `__const`」——两者都要 Lead
+的构建决定（k60-wifi 树 §3d 末尾同文）。
+
+`c1` 的重测条件只有一条：把 `k60-wifi` 树 `configs/mondrian_wifi_defconfig` 的
+`CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 从种子 UUID 改成设备卷
+`1BCD69FF-24A5-48B1-94B6-8FE592B2F597`（`docs/plans/MONDRIAN-OFFICIAL-PAGES.md:564`），
+其余一行不动；P-209（`scripts/check-defconfig-uuid.py`，落中）落库后这条由门禁硬挡。
 

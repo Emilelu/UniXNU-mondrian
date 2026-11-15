@@ -4,6 +4,12 @@
 > 静态二分，**不构建、不上机**。上机判据在 §7，实验建议在 §8。
 > 任务来源：m04661（Lead 拍板选 C：停止复现 mhi4，改做死因考古）。
 > 关联：`docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20、`docs/plans/WIFI-REBUILD-CHECKLIST.md`。
+>
+> **判读顺序（2026-11-15 追加）**：先 diff 构建配置，再 diff 内核版式。
+> `wifi-20261116c0` 就是反例：它的 boot.img 唯一带种子 Data UUID（defconfig 指名，
+> P-152/P-209），0 字节是构建配置打死内核的结果，不是版式；其余五张 wifi silent
+> 图的镜像里是设备 UUID（`1BCD69FF-…`），不能被这条缺陷一并解释
+> （BLOB-RESIDENCY.md §8/§11）。
 
 ---
 
@@ -29,8 +35,10 @@
 5. **排除法后剩余的唯一实质差异**：wifi 线镜像 = base 线 + PongWifi 驱动被
    `-Wl,-force_load` 链入（含 11.19 MB 固件进 `__TEXT,__const`）+ `pong_wifi=1` +
    内核 65,978,368 B（比 base 的 54,181,888 大 11.8 MB）（§6）。
-6. **最大证据缺口**：65.9 MB 内核 + `pong_wifi=0` 的干净对照 `wifi-20261116a2`
-   **从未上机**；其 0 字节-vs-进用户态的分界至今没有数据（§6.3、§8）。
+6. **最大证据缺口**：66 MB 内核 + `pong_wifi=0` 的干净对照还没有有效飞行。trial 级
+   `wifi-20261116a2` 从未上机；正式重出的 `wifi-20261116c0` 已飞但判
+   `invalid-measurement`（defconfig 种子 Data UUID，P-152/P-209；BLOB-RESIDENCY.md §11）；
+   0 字节-vs-进用户态的分界要等 `c1`（§6.3、§7、§8）。
 
 口径冲突显式记录：Lead 在 m04661 里说 mhi4 是「224-series」，但 mhi3 与 mhi4 的
 build-manifest.json 都记录 `series.count = 229`（`0076aa20…`）。以 manifest 为准；
@@ -259,8 +267,10 @@ imageSha256 join 零命中。它的两个兄弟：
 [docs/engineering/PITFALLS.md](../../engineering/PITFALLS.md) 的 **P-201**（「绕过
 build-strict.sh 造的对照镜像，证据等级自动降一级」，main `1d10955`）落号；判定器与
 对账脚本看到没有 `series` 键的 manifest，把结论降级成「结构性观察」，不许当作
-「变量已隔离」的证据。a2 在队列里的位置由正式重出的对照镜像（同一套当前树、走
-`build-strict.sh`、`pong_wifi=0`）顶替，a2 降级为「体积相同但身份不可复核」的旁证。
+「变量已隔离」的证据。a2 在队列里的位置由正式重出的对照镜像顶替——该镜像就是
+`wifi-20261116c0`，但它的 silent 被判 `invalid-measurement`（defconfig 种子 Data UUID，
+P-152/P-209；BLOB-RESIDENCY.md §11），正式 C 格改由 `c1` 重测；a2 仍降级为
+「体积相同但身份不可复核」的旁证。
 
 a2 仍然可用的部分（实测，可直接当判据）：`boot.img` sha256 `0a1c2ec0…`、
 payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
@@ -276,10 +286,14 @@ payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
 
 | 判据 | 观察 | 结论 |
 |---|---|---|
-| C1 65.9 MB + `pong_wifi=0`（`wifi-20261116a2`）出 200 KB 以上 console | 控制台出现 `K60 USBLOG st=` / `K60PREV none` | **驱动活体是死因**：体积不是；下一步只在 worker 前置动作里找 |
+| C1 66 MB + `pong_wifi=0`（`c1` = `c0` 只改种子 Data UUID 一行）出 200 KB 以上 console | 控制台出现 `K60 USBLOG st=` / `K60PREV none` | **驱动活体是死因**：体积不是；下一步只在 worker 前置动作里找 |
 | C2 同上但仍是 0 字节 | `capture.json` 的 `portSeen=false`、`bytes=0` | **内核体积/固件 residency 是死因**：与 `pong_wifi` 无关，回到 §5.16 的 arena 模型，改窗口或裁固件 |
 | C3 出现 `PongWifi: console up after N ms; starting cold link` 之后才死 | 该行之后断流 | 死在 worker 的 MMIO 段（stage 1–10），可按 `k60_wifi_stage` 逐级二分 |
 | C4 出现 `PongWifi: stage N (…) held back` 且后续正常 | 门生效、boot 继续 | 说明门机制本身健康，可用于后续分级上机 |
+
+注（2026-11-15）：C1 的旧载体 `wifi-20261116a2` 是 trial 级（P-201）；正式 C 格
+`wifi-20261116c0` 判 `invalid-measurement`（defconfig 种子 Data UUID，P-152/P-209；
+BLOB-RESIDENCY.md §11），所以 C 格要由 `c1` 重测后再按本表判读。
 
 **判据可执行化**：C1–C4 由 `scripts/judge-wifi-boot.py` 判定。输入一份
 `console.log` 或整个含 `capture.json` 的采集目录，输出四态

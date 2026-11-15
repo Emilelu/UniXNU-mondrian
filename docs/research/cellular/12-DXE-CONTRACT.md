@@ -21,6 +21,8 @@ Lead 在 reply 里批准了案 A：固件把 modem 镜像摆到固定物理地�
 | D2 | ADSP 分支是否第一版就做 | **不做**，第一版只做 modem；`K60AdspImage` 名字保留 | ADSP 线已选内核内嵌 23.5 MB blob（`reply-adsp-20261115.md:4-28`），且 ADSP 窗口在固件内存图里没有 descriptor（§5.3） |
 | D3 | +32 MiB 之后 ABL staging 的余量 | 先按 ~4.8 MiB 余量做，第一张图必须从固件日志核对 DTB 地址 | `MemoryMapLib.c:39-51` 的实测漂移公式（§1.5） |
 
+Lead 已裁决（2026-11-15）：D1 采纳库调用（`ImageCarrierLib` + `DarwinBoot::Boot` 调用点，不做独立 DXE）；D2 第一版只做 modem，`K60AdspImage` 保留不发布；D3 在 §1.5 末尾追加两条硬要求（三行 level-1 日志，缺一不可上机判定）。
+
 ## 一、输入：payload FAT 里放什么
 
 ### 1.1 目录与文件名
@@ -90,6 +92,16 @@ initrd 一端是以 `0xB8000000`（`Display Reserved` 起点）为锚向下长�
 
 `scripts/verify-boot-image.py` 本身没有尺寸上限（`:44` 只定义 header 大小，`:94-141` 是结构检查），
 所以「超历史样本」不是脚本会拒，而是上面这段固件余量。
+
+**Lead 对 D3 的裁决（2026-11-15）追加两条硬要求：**
+
+a) 固件第一版必须在启动日志打印三个数，缺一不可上机判定：
+   - chosen DTB 的物理地址：固定前缀 `modem-image: chosen dtb at `；
+   - modem 窗口起止：固定行 `modem-image: window 0x8bc00000..0x9ee00000`（字面地址必须逐字符一致）；
+   - ABL staging 结束地址：固定前缀 `modem-image: abl staging ends at `。
+   前缀是验收脚本 grep 的锚点：固件不得改名、不得合并成一行。
+b) 这三行必须是**默认可见**的打印（level 1），**不得挂在 debug 参数后面**；
+   验收直接用 `grep -a` 命中，不允许「开 debug 再看」。
 
 ### 1.6 被拒绝的输入形态
 
@@ -301,7 +313,10 @@ modem 的 `spec` 是表驱动，ADSP 的 `spec` 是容器 + ELF 解析。第一�
 
 ## 六、验收
 
-1. 固件日志（建议格式，便于 grep）：
+1. 固件日志（建议格式，便于 grep；前三行是 D3 的 level-1 硬要求，见 §1.5）：
+   `modem-image: chosen dtb at 0x...`
+   `modem-image: window 0x8bc00000..0x9ee00000`
+   `modem-image: abl staging ends at 0x...`
    `modem-image: 30 segments, copied 109060761, zeroed 211012967, gaps 790528 untouched`
    `modem-image: range 0x8bc00000..0x9ee00000 published as K60ModemImage`
 2. 内核日志：`K60MODEM carrier present at 0x8bc00000`（`K60ModemBoot.c:139`）→ `plan rows=30 ...`

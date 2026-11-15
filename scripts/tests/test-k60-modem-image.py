@@ -21,7 +21,9 @@ Run: python3 scripts/tests/test-k60-modem-image.py /mnt/e/k60-work/firmware/mode
 
 import re
 import struct
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -294,6 +296,55 @@ def main(argv):
                 problems += fail("%s and %s differ; the kernel would compile a "
                                  "different QRTR path than the one tested here"
                                  % (repo_rel, patch_rel))
+
+    # --- the generator's firmware-side outputs must agree with this parse ----
+    # The firmware carrier will copy exactly the rows the generator emits with
+    # --firmware-header, and the acceptance gate diffs the payload volume against
+    # --manifest. Both must be byte-equal to the table parsed here, or the kernel
+    # plan and the firmware copy would silently disagree.
+    with tempfile.TemporaryDirectory() as tmp:
+        fw_path = Path(tmp) / "fw.h"
+        manifest_path = Path(tmp) / "manifest.txt"
+        run = subprocess.run(
+            [sys.executable, str(REPO / "scripts/gen-modem-table.py"), str(root),
+             "--firmware-header", str(fw_path), "--manifest", str(manifest_path)],
+            capture_output=True, text=True)
+        if run.returncode != 0:
+            problems += fail("generator flags failed: %s"
+                             % (run.stderr or run.stdout).strip()[-200:])
+        else:
+            fw_text = fw_path.read_text(encoding="utf-8")
+            m = re.search(r"#define MODEM_IMAGE_BASE (0x[0-9a-fA-F]+)ULL", fw_text)
+            if not m or int(m.group(1), 16) != MODEM_BASE:
+                problems += fail("firmware header base %r != %#x"
+                                 % (m.group(1) if m else None, MODEM_BASE))
+            m = re.search(r"#define MODEM_IMAGE_WINDOW (0x[0-9a-fA-F]+)ULL", fw_text)
+            if not m or int(m.group(1), 16) != WINDOW:
+                problems += fail("firmware header window %r != %#x"
+                                 % (m.group(1) if m else None, WINDOW))
+            fw_rows = {}
+            for m in re.finditer(
+                    r"\{ (0x[0-9a-fA-F]+)ULL,\s*(\d+),\s*(\d+),\s*(.*?)\s*\}, /\* segment (\d+) \*/",
+                    fw_text):
+                fw_rows[int(m.group(5))] = (int(m.group(1), 16), int(m.group(2)),
+                                                int(m.group(3)), m.group(4).strip())
+            if len(fw_rows) != len(segs):
+                problems += fail("firmware header has %d rows, firmware has %d"
+                                 % (len(fw_rows), len(segs)))
+            for index, _offset, paddr, filesz, memsz in segs:
+                row = fw_rows.get(index)
+                want = (paddr, filesz, memsz - filesz,
+                        '"modem.b%02d"' % index if filesz else "((const char *)0)")
+                if row is None:
+                    problems += fail("firmware header has no row for segment %d" % index)
+                elif row != want:
+                    problems += fail("firmware header row %d %r != %r" % (index, row, want))
+            got = {line for line in manifest_path.read_text(encoding="utf-8").splitlines() if line}
+            want_manifest = {"%s %d" % ("modem.b%02d" % index, filesz)
+                             for index, _offset, _paddr, filesz, _memsz in segs if filesz}
+            if got != want_manifest:
+                problems += fail("manifest %d lines differs from the %d segments with bytes"
+                                 % (len(got), len(want_manifest)))
 
     print("TESTS OK %d segments, %#x..%#x (%d bytes), base %#x, table+p patch agree"
           % (len(segs), lo, hi, hi - lo, MODEM_BASE))

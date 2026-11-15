@@ -20,6 +20,7 @@ cc "${CFLAGS[@]}" scripts/tests/test-k60-handoff-build.c \
 "$OUT/builder"
 OWNER_SOURCES=(drivers/PongPower/K60AdspOwner.c drivers/PongPower/K60AdspOwnerStages.c
   drivers/PongPower/K60AdspMdt.c drivers/PongPower/K60Smem.c
+  drivers/PongPower/K60AdspImageReader.c drivers/PongPower/K60Fat.c
   drivers/PongPower/K60HandoffBuild.c drivers/PongPower/K60HandoffPublish.c
   drivers/PongPower/K60BatteryConfig.c)
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-owner.c "${OWNER_SOURCES[@]}" -o "$OUT/owner"
@@ -28,6 +29,10 @@ for stage in claim prepare auth build publish; do
   cc "${CFLAGS[@]}" "scripts/tests/test-k60-owner-$stage.c" "${OWNER_SOURCES[@]}" -o "$OUT/owner-$stage"
   "$OUT/owner-$stage"
 done
+cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-reader.c "${OWNER_SOURCES[@]}" -o "$OUT/reader"
+"$OUT/reader" /mnt/e/k60-work/firmware/adsp
+cc "${CFLAGS[@]}" -DK60_ADSP_TEST_LINKED scripts/tests/test-k60-adsp-reader.c "${OWNER_SOURCES[@]}" -o "$OUT/reader-linked"
+"$OUT/reader-linked" /mnt/e/k60-work/firmware/adsp
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2

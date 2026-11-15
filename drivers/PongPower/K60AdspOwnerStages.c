@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 /* Copyright (c) 2026, UniXNU contributors. */
 #include "K60AdspOwnerStages.h"
+#include "K60AdspImageReader.h"
 #ifdef KERNEL
 #include <sys/systm.h>
 #else
@@ -140,10 +141,12 @@ static int auth_and_start_locked(K60OwnerSession *s)
         const K60AdspMdtSegment *seg = &p->segment[i];
         const uint8_t *bytes = 0; size_t n = 0;
         if (!live(s) || s->ops.stopped(s->context, s->cookie) != 1) { rc = K60_ADSP_OWNER_UNAVAILABLE; break; }
-        if (seg->copy_bytes && seg->source_is_piece) {
-            if (!s->image.piece || s->image.piece(s->image.context, seg->index, &bytes, &n) ||
-                !bytes || n != seg->copy_bytes) { rc = K60_ADSP_OWNER_UNAVAILABLE; break; }
-        } else if (seg->copy_bytes) bytes = s->image.mdt + seg->file_offset;
+        /* Source reborrow belongs to stage 3, outside every TCSR window.
+         * The same helper supports production readers and injected fake pieces.
+         * Zero-only segment 24 still reaches load(NULL,0,bss), never a b24 read. */
+        if (k60_adsp_image_segment(&s->image, seg, &bytes, &n)) {
+            rc = K60_ADSP_OWNER_UNAVAILABLE; break;
+        }
         rc = s->ops.load(s->context, seg->destination, bytes, seg->copy_bytes, seg->zero_bytes);
     }
     if (rc) return fail(s, 3, K60_ADSP_OWNER_UNAVAILABLE);

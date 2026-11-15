@@ -339,6 +339,7 @@ def main():
         # (0611/0619), not duplicate archive members (P-190).
         for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
                      'K60AdspOwner.c', 'K60AdspOwnerStages.c', 'K60AdspMdt.c',
+                     'K60AdspImageReader.c',
                      'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file

@@ -183,6 +183,33 @@ def a_zh_en_table_mismatch_fails():
 
 
 @case
+def a_stale_eight_step_table_fails():
+    gate = load_gate()
+    tmp = make_fixture()
+    (tmp / "docs" / "research").mkdir(parents=True)
+    (tmp / "docs" / "research" / "EIGHT-STEPS.toml").write_text(
+        "[hardware]\n", encoding="utf-8")
+    p = tmp / "README.md"
+    p.write_text(p.read_text(encoding="utf-8").replace(
+        "<!-- GATE-TABLE:BEGIN -->",
+        "<!-- EIGHT-STEP-TABLE:BEGIN -->\n| stale | row |\n<!-- EIGHT-STEP-TABLE:END -->\n<!-- GATE-TABLE:BEGIN -->"),
+        encoding="utf-8")
+    problems = gate.run_checks(repo=str(tmp))
+    assert any("八步表格与 EIGHT-STEPS.toml 不一致" in x for x in problems), \
+        f"expected an eight-step drift problem, got {problems}"
+
+
+@case
+def a_repo_without_a_ledger_skips_the_table_check():
+    # The fixture has no EIGHT-STEPS.toml; the gate must skip, not crash.
+    gate = load_gate()
+    tmp = make_fixture()
+    problems = gate.run_checks(repo=str(tmp))
+    assert not any("八步" in x for x in problems), \
+        f"a ledger-less fixture must skip the table check, got {problems}"
+
+
+@case
 def the_real_repo_is_self_consistent():
     gate = load_gate()
     problems = gate.run_checks()

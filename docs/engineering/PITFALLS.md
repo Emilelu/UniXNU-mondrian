@@ -4995,7 +4995,10 @@ Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检
 - README「最后更新」≥ STATUS「本轮更新时间」，EN 日期 == 中文日期；
 - 两份 README 的 ★N / P-M 范围声明 == HARD-RULES/PITFALLS 真实最大标题号；
 - 两份 README 门禁表点名同一组脚本，且必须包含 build-strict.sh
-  `# --- gate-table:BEGIN/END ---` 标记区里的全部门禁，点名的脚本必须真实存在。
+  `# --- gate-table:BEGIN/END ---` 标记区里的全部门禁，点名的脚本必须真实存在；
+- 两份 README 的 `EIGHT-STEP-TABLE` 块 == `render-eight-step-table.py` 从
+  EIGHT-STEPS.toml 现场渲染的结果——合并一个新增 `[hardware.*]` 行的分支而没
+  重生成八步表，check-readme 当场报「不一致」。
 
 教训：**名字、日期、编号是文档里最会撒谎的三类内容**——它们每天变，而手写段落
 没人记得改。任何这类「点名/计数/日期」一旦写进文档，就要同时给它一个能对账的

@@ -151,6 +151,29 @@ script cannot check — it is read from the printed line, not from the exit code
 
 ## 5. Verify the image before anyone flies it
 
+### 5.0 The one table to hold against the built image
+
+z0 (`wifi-20261115z0`) is measured; t2 is arithmetic from z0's own section
+sizes — the container is 11,189,974 bytes (`_pong_wifi_firmware_end` −
+`_pong_wifi_firmware`), and it is the only thing that moves. Every t2 number
+below is therefore exact modulo section alignment; the tolerance column says
+how much alignment may add.
+
+| what | z0 measured | t2 expected | tolerance |
+| --- | --- | --- | --- |
+| `__TEXT` vmsize/filesize | 12,992,512 (0xc64000) | 1,802,538 (0x1b812a) | ±0x2000 (section padding) |
+| `__TEXT,__const` size | 11,767,510 (0xb38ed6), fileoff 8,192 | 577,536 (0x8d000) | ±0x1000 |
+| `__DATA` filesize | 51,576,832 (0x3130000) | 62,766,806 (0x3bdcd6) | ±0x2000 |
+| `PWF2` first hit | file offset 585,728 (0x8f000), inside `__TEXT,__const` | inside the `__DATA` file range [22,773,760, +62,766,806) | must not hit `__TEXT` at all |
+| payload kernel bytes | 117,305,344 | 117,305,344 | ±0x10000; bytes must differ |
+| `components.payload_kernel` | `ec094bc952930d30f5b18ee43a1e19e0d06898309ec46e80e43121595498ce22` | a different sha256 | must differ from z0 |
+| `series` | 224 / `34cf51e4…` | 224 / `34cf51e4…` | must be identical |
+
+Self-check, from the same manifest, before the image is flown:
+`kernel_args_requested` must read `["pong_wifi=0"]`, not `[""]` and not an
+empty list. `cellular-l3-20261114d` recorded `[""]` and flew without its
+`pong_modem=2`, which is why this line is checked rather than assumed (P-159).
+`run-t2.sh` and `run-mhi5.sh` assert it on the manifest they just wrote.
 Do not trust "it built". Three checks, all offline, all cheap:
 
 1. **Segment table** — extract the payload kernel from the boot image and dump
@@ -179,9 +202,11 @@ Do not trust "it built". Three checks, all offline, all cheap:
    PY
    ```
 
-   Expected:
-   `__TEXT` must drop to ≈ 0x1a4000–0x1b0000, `__TEXT,__const` to
-   ≈ 0x8d000, and `__DATA` filesize must grow by ≈ 0xb38ed6.
+   Expected: the `__TEXT` / `__const` / `__DATA` rows of the table in
+   §5.0, within their tolerance columns. The earlier draft of this section
+   quoted "≈ 0x1a4000–0x1b0000" for `__TEXT`; that figure came from the
+   kernels that carry no WiFi archive at all, and it is 82,218 bytes short of
+   what z0's own sections imply. Use the table.
 2. **Blob location** — `strings -a` / byte search for `PWF2` must now hit
    inside the `__DATA` file range only; the `__TEXT` range must contain no
    `PWF2`.

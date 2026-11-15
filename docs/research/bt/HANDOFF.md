@@ -366,3 +366,26 @@ This line, next in order:
    whose admin directory is gone, so broken siblings are found by scanning the parent directory and
    checking that the pointer text still names `<main>/.git/worktrees/<name>`.
 
+7. **S4 上机前复核（2026-11-15 14:00）：两枚镜像按现状不能飞。** 四条独立阻断，全部实测：
+
+   | # | 阻断 | 证据 | 后果 |
+   |---|---|---|---|
+   | 1 | `k60.stage` 默认 1 | `bsd/dev/qbt_k60.c:2073` 先置 1 再解析 `k60bt_stage` | 583 B 的 `k60bt=1` 让 worker 走 S1c 探针分支并在 `:2008` `return`，到不了 `qbt_boot()` |
+   | 2 | `k60.warm_boot` 默认 false | `:1814` `if (!k60.warm_boot) return -EOPNOTSUPP;` | 即使 `k60bt_stage=2`，上电仍返回 102 |
+   | 3 | `native_gpu_addon_stage` 门闩 | `:1998` 自旋等待；链进内核的定义只有 `bsd/kern/kern_exec.c:7700`（`__DATA,__common`，加载值 0），`qbt_k60.c:341` 的弱定义 `= 1` 被它盖掉 | 命令行没有 `sheng-gpu-addon=1` 时，worker 在 `probe: transport ready` 之后永久阻塞——这就是 2026-11-15 012913 那轮"打完 `transport ready` 就再没有 `addon gate passed`"的原因 |
+   | 4 | `/chosen/unique-chip-id` 不存在 | 从 `payload.img` 取出的 `kernel.macho.adt`（15,972 B）`grep -c unique-chip-id` = 0；`make-pong-adt.py:159` 只在传 `--unique-chip-id` 时写这条属性，`build-native-bootimg-local.py` 从不传 | `k60_bt_local_address()` 返回 -ENOENT(2)，`qbt_boot()` 仍不会被调用，`serving` 不会出现 |
+
+   参数预算：base 583 B / 上限 607 B。`k60bt_stage=2` → 597、`k60bt_warm=1` → 596、
+   `sheng-gpu-addon=1` → 601；任两条相加即超（stage+warm 610、stage+addon 615），三条 628。
+   **没有"只加参数"的解法**：要么从 30 个现有参数里腾出 21 B，要么改代码（去掉 `:1998` 的门闩
+   ——P-197 之后那条通道已经废了；并给 `k60_bt_local_address()` 一个缺属性时的兜底地址）。交 Lead 裁决。
+
+   仍然成立的一件事：正向镜像的 `addon: linked blob bytes=1027584 records=106` 在 `qbt_k60_start()`
+   里、线程起来之前就打，不受上述四条影响——所以这对镜像**只能**验 S4a。
+
+8. **日志等级闸门（2026-11-15）**：`k60_log()` 只放行 `level <= 3`（`qbt_k60.c:1545` = `0500:971`），
+   `bt_dev_info` 是 level 6 ⇒ 十个调用点永不上控制台，第一个就是 S4c 的原判据
+   `QCA controller version 0x…`。逐条审计与替代判据在 `S4-SPEC.md` §7.1；S4c 的通过条件因此改成
+   裸 printf 的 `[bluetooth] power=1 result=0 baud=… firmware=<label>`。`rom_ver`/board-id 要拿到
+   必须放宽闸门或加专用 printf，已作为提案交 Lead，本线未改代码。
+

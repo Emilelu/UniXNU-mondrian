@@ -575,7 +575,22 @@ bash scripts/build-strict.sh bt-s4c-20261115a \
 
 ## 7 上机阶梯（板子回来后）
 
-前提：启动参数只需 `k60bt=1`（583 B）。正向镜像用 §6.5 的 **`bt-s4b-20261115b`**（内嵌 blob）；
+> ⚠ **2026-11-15 14:00 复核：本节「只需 `k60bt=1`」的前提已被推翻，两枚镜像按现状不能飞。**
+> `bsd/dev/qbt_k60.c:2073` 把 `k60.stage` 初始化成 1 之后才解析 `k60bt_stage`，所以 583 B 的
+> `k60bt=1` 让 worker 走 S1c 探针分支并在 `:2008` `return`，**永远到不了** `k60_bt_power_on()` →
+> `qbt_boot()`；即使补上 `k60bt_stage=2`，`:1814` 的 `k60.warm_boot` 默认 false 会让
+> `k60_bt_power_on()` 直接返回 `-EOPNOTSUPP`(102)。另有 `:1998` 的
+> `while (&native_gpu_addon_stage && native_gpu_addon_stage < 1)` 门闩：链进内核的
+> `native_gpu_addon_stage` 只有 `bsd/kern/kern_exec.c:7700` 的定义（`__DATA,__common`，加载值 0），
+> `qbt_k60.c:341` 的弱定义 `= 1` 被它盖掉，只有命令行带 `sheng-gpu-addon=1` 才会被
+> `native_gpu_addon_prepare()` 改写。三条都补齐要 628 B，超 607 B 上限 21 B。第四条：
+> `k60_bt_local_address()`（`:353`）要 `/chosen/unique-chip-id`，而 `kernel.macho.adt`
+> （15,972 B，sha256 与 §6.5 的 `adt` 一致）里 `grep -c unique-chip-id` = 0——`make-pong-adt.py:159`
+> 只在传 `--unique-chip-id` 时才写这条属性，`build-native-bootimg-local.py` 从来不传。
+> **裁决前不要飞这两枚镜像**；正向镜像唯一还能验的是 `linked blob` 那行（在
+> `qbt_k60_start()` 里、线程起来之前就打，不受上述四条影响）。
+
+原前提（待 Lead 裁决后按上面的四条改写）：正向镜像用 §6.5 的 **`bt-s4b-20261115b`**（内嵌 blob）；
 负向对照用 §6.5 的 **`bt-s4c-20261115a`**（同一 HEAD、同一冻结清单，只少 `--bt-blob`，所以
 `k60_bt_blob_len == 0`，走回落路径）。`bt-s4-20261114b` 是旧基线（series 227、旧 `build-strict.sh`），
 按 P-201 不再作为对照。
@@ -585,7 +600,7 @@ bash scripts/build-strict.sh bt-s4c-20261115a \
 | S4- | `bt-s4c-20261115a` | `k60bt=1` | 负向对照：`[bluetooth] addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |
 | S4a | **`bt-s4b-20261115b`** | `k60bt=1` | `[bluetooth] addon: linked blob bytes=1027584 records=106` |
 | S4b | **`bt-s4b-20261115b`** | `k60bt=1` | `[bluetooth] addon: serving 201560 0`（rampatch），随后 `serving 6319`/`6602`（NVM） |
-| S4c | **`bt-s4b-20261115b`** | `k60bt=1` | qbt 打印 `QCA controller version 0x…`（btqca.c:764），拿到 rom_ver/board-id |
+| S4c | **`bt-s4b-20261115b`** | `k60bt=1` | `[bluetooth] power=1 result=0 baud=… firmware=<build label>`（不经日志闸门的裸 printf），即上电→取 MAC→`qbt_boot()` 全程无错；`rom_ver`/board-id 本轮**取不到**，原因见 §7.1 |
 
 （`bt-s4a-20261114c`/`f`/`bt-s4a-20261115a` 全部作废：它们把固件放在 payload 的
 `kernel.macho.gpuaddon` 槽里，而固件从不填那个槽（P-197）。它们的实测结果**不是**失败，而是
@@ -596,6 +611,45 @@ S4a 与 S4b 用同一个镜像：`linked blob` 在 `qbt_k60_start()` 里就打�
 
 判定：只认 `capture.json` 的 `verdict`/`panicMarker`；控制台 0 字节时用 `0331` 的 K60PREV 重放读上一轮尾巴。
 失败即回退到不带 `--bt-blob` 的构建（内核代码对缺失 blob 是静默降级，见 §4 日志表）。
+
+### 7.1 日志等级闸门：S4 判据逐条审计（2026-11-15）
+
+`bsd/dev/qbt_k60.c:1545`（= `patches/xnu/0500-k60-bt-qbt-new-files.patch:971`）的 `k60_log()` 只有
+`if (level <= 3) printf("[bluetooth] %s\n", line);`，而 `bsd/dev/qbt/qbt_linux.h:97` 的
+`bt_dev_info` 是 **level 6**（`bt_dev_dbg` 是 level 7，更不可能）。所以下列十个调用点
+**永远不上控制台**——不是「可能打不出」，是一定打不出：
+
+| 文件:行（0500 内） | 内容 |
+|---|---|
+| `btqca.c:70` / `:72` / `:74` / `:76` | `QCA Product ID` / `SOC Version` / `ROM Version` / `Patch Version` |
+| `btqca.c:146` | `QCA FW build version: %s` |
+| `btqca.c:563` / `:572` / `:845` | `QCA Downloading %s` |
+| `btqca.c:764` | `QCA controller version 0x%08x` |
+| `btqca.c:999` | `QCA setup on UART is completed` |
+
+**S4c 的原判据 `QCA controller version 0x…` 即死于此闸门**，已从上表移到本节；要拿到
+`rom_ver`/board-id 必须动代码（把 `:1545` 的 3 放宽到 6，或给 `btqca.c:764` 加一条专用 `printf`），
+不在本线自行改动的范围，已作为提案交 Lead 裁决。
+
+**其余判据逐条核对，全部可见**：
+
+| 判据 | 出处 | 等级 |
+|---|---|---|
+| `addon: linked blob bytes=1027584 records=106` | `k60_addon_loaded()` | 1 |
+| `addon: serving 201560 0` | `k60_addon_note("serving", …)` | 1 |
+| `addon: no GpuAddon property` / `no chosen/memory-map` | `k60_bt_addon_load()` | 3 |
+| `addon: unusable range` / `bad magic` / `bad header` / `short GpuAddon property` | 同上 | 1 |
+| `probe: armed` / `awake` / `core created` / `transport ready` / `addon gate passed` | `k60_probe_mark()` | 1 |
+| `[bluetooth] power=%u result=%d baud=%u firmware=%s` | `k60_power_result()`，**不经 `k60_log`** | 裸 printf |
+| `QCA Failed to request file: %s (%d)` / `QCA Failed to get version (%d)` / `Wrong packet received %d %d` / `Failed to run HCI_RESET (%d)` | `bt_dev_err` | 3 |
+
+**代价**：固件名只在**失败**时才印到控制台（三处 `QCA Failed to request file: %s`）。成功路径上
+能证明「固件真被取走」的可打印证据只有 `addon: serving <bytes> 0` 与 `power=… firmware=<build label>`。
+
+**未解决的观测盲区**：`qbt_k60.c:1531` 的 `k60_log(NULL, 6, candidate)` 是唯一会打印「实际服务的是
+哪个 alias 名」的语句，也是 level 6 ⇒ 死。所以即使拿到 `serving 201560 0`，也只能凭 201,560 B
+这个唯一体积反推是 `hpbtfw20.tlv`；6,319 B 对应 13 个 `hpnv20*`、6,602 B 对应 5 个 `hpnv21*`，
+NVM 一级**无法**从字节数定位到具体文件（清单见 `firmware/bluetooth/manifest.json`）。
 
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
@@ -630,8 +684,13 @@ touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery�
 **⑤ 方案里写进去的阶梯判据**（这是 Lead 要的"把 step-5 判据放进片段"）：五档 `k60bt=1 k60bt_step=N`
 （1→4→5→7→9，每份 596 B）与"最后一行打点即死因"的判死表，以及 S4 三级
 （负向 `addon: no GpuAddon property` / 正向 `addon: linked blob bytes=1027584 records=106` →
-`serving 201560 0` → `QCA controller version 0x…`）全部逐字写进 `[hardware.bluetooth.step.plan]`
+`serving 201560 0` → `power=1 result=0`）全部逐字写进 `[hardware.bluetooth.step.plan]`
 与 `step.device.prediction`。
+
+> **2026-11-15 补记**：写进账本的那条链里 `QCA controller version 0x…` 是死判据（§7.1），
+> 已在本分支改成 `power=1 result=0`；`docs/research/EIGHT-STEPS.toml` 不在本线写权限内，
+> 需要再给 Lead 一个补丁把 `[hardware.bluetooth.step.plan]` 与 `step.device.prediction` 里的
+> 那一段同步改掉。同一处改动还要覆盖 `docs/engineering/BOOT-ARGS.md:246`。
 
 > 合进 main 的那一版写的是旧通道的正向判据 `addon: loaded bytes records 1027584 106`。
 > P-197 之后正向镜像换成内嵌 blob，判据行改成 `addon: linked blob bytes=1027584 records=106`。

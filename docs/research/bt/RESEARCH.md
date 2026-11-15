@@ -247,7 +247,7 @@ S3 照 sheng `BluetoothProbe.cpp:222-264` 的做法补齐（同一域 `unixnu-bl
 **命名逻辑（A，0500 内 `bsd/dev/qbt/btqca.c`）**：WCN6855 分支先请求 `qca/wcnhpbtfw%02x.tlv`（:822-824），失败回退 `qca/hpbtfw%02x.tlv`（:847-852）；NVM 先 `wcnhpnv`（:884-888），失败回退 `hpnv`（:915-921），板级名 `qca/<stem><rom_ver:02x><g?>.b<bid:02x>`（:715-745）。本机固件只有 `hp*` 拼写 ⇒ 走**回退名**，正好是 0500 `k60_firmware_get()` alias（:924-960）覆盖的路径。
 **已在本机（M）**：`/mnt/e/k60-work/firmware/qca6490/` 只有 WiFi 侧 amss.bin/amss20.bin/Data.msc/Data20.msc；`docs/research/wifi/FIRMWARE.md:353-` 记录 `bd_m11agf.elf` 60,000 B 是本机 BT BDF（板级数据文件），**不是** TLV rampatch/NVM。
 **已核实（M）**：① 文件名/大小见上表；② reader 会剥掉 `qca/` 前缀再拼根（`qbt_k60.c:867-874`），故 iOS 落盘为 `/private/var/ngpu/firmware/qca/hpbtfw20.tlv`，不需要多一层 `qca`；③ `bd_*.elf` 是 WiFi 板级数据，**不要**混进 BT 固件目录。
-**仍未知（C）**：本机真实 `rom_ver`（0x20 还是 0x21）与 board id —— 需 HCI 起来后由 `btqca` 打印 `QCA controller version`/`Downloading qca/…`。保底：staging 同时放两套 rampatch 与 `hpnv20*`+`hpnv21*` 全量（约 1.06 MB），运行时按名取。
+**仍未知（C）**：本机真实 `rom_ver`（0x20 还是 0x21）与 board id —— 需 HCI 起来后由 `btqca` 打印 `QCA controller version`/`Downloading qca/…`（**补记**：这两条是 `bt_dev_info` level 6，当前 `k60_log` 的 `level <= 3` 闸门打不出，见 `S4-SPEC.md` §7.1）。保底：staging 同时放两套 rampatch 与 `hpnv20*`+`hpnv21*` 全量（约 1.06 MB），运行时按名取。
 **取法**：已完成（2026-11-14 一次 Android 启动 + 只读 `adb pull`）。复现命令、设备侧证据（dumpsys OFF→ON 但无 `hci0`、VINTF 缺 IBluetoothHci）、staging 方案（`firmware/bluetooth/manifest.json` + `scripts/stage-bluetooth-firmware.py` + `board.toml [payload.runtime]`）全部写在 `docs/research/bt/FIRMWARE.md` §2/§5/§7。
 **注意**：不要把厂商固件提交进仓库（sheng 也是外部固件仓 + hash pin）；本机来源目录 `/mnt/e/k60-work/firmware/qca6490-bt`。
 

@@ -32,7 +32,7 @@
 - `ls -l /vendor/bt_firmware/image/` → 113 项；除 §1 文件外全部为 `hpnv20*`/`hpnv21*`/`hpnv21g*`。
 - DT：`/proc/device-tree/soc/bt_qca6490/compatible` = `qcom,qca6490`；`/proc/device-tree/soc/qcom,qup_uart@894000/compatible` = `qcom,msm-geni-serial-hs` —— 与 live FDT 反编译一致。
 - Android BT 状态：`dumpsys bluetooth_manager` 初始 `State: OFF`；`cmd bluetooth_manager enable` 后 `State: ON`，但 `/sys/class/bluetooth/` 为空、无 `hci0`，servicemanager 报 VINTF 缺 `android.hardware.bluetooth.IBluetoothHci/default`。dmesg 可见 `bluetooth_power: on: 1|2`、`btpower_set_xo_clk_gpio_state:gpio(505) success`。
-- 结论：本轮 Android 的 BT HAL 未注册 HCI，**拿不到** `QCA controller version`/`Downloading qca/...` 运行日志；文件身份是 M 级，`rom_ver` 与 board id 仍需 HCI 起来后确认（见 §4）。
+- 结论：本轮 Android 的 BT HAL 未注册 HCI，**拿不到** `QCA controller version`/`Downloading qca/...` 运行日志；文件身份是 M 级，`rom_ver` 与 board id 仍需 HCI 起来后确认（见 §4）。**补记（2026-11-15）**：即使 HCI 起来，这两条也打不出来——它们由 `bt_dev_info`（level 6）发出，而 `k60_log` 只放行 `level <= 3`（`bsd/dev/qbt_k60.c:1545` = `0500:971`）；要拿到 `rom_ver` 必须放宽该闸门或加专用 printf，见 `S4-SPEC.md` §7.1。
 - 只读拉取：`adb pull /vendor/bt_firmware/image/. E:/k60-work/firmware/qca6490-bt/` → 113 files, 1,063,407 B。
 
 ## 3. `btqca.c` 选名逻辑（A：0500 内同一文件的行号）
@@ -95,7 +95,7 @@ wsl -e bash -lc 'cd /mnt/e/k60-work/firmware/qca6490-bt && sha256sum * | sort -k
 
 ## 6. 尚不能离线确定（只有一项）
 
-- 本机真实 `rom_ver`（0x20 还是 0x21）与 board id（`.bXX`）：需 HCI 通道起来后由 `btqca` 打印 `QCA controller version 0x…` 与 `QCA Downloading qca/…`（S2/S3 日志或一轮正常 Android BT 启动）。保底做法：同时 staging 两个 rampatch 与 `hpnv20*`+`hpnv21*` 全量，运行时按名取。
+- 本机真实 `rom_ver`（0x20 还是 0x21）与 board id（`.bXX`）：需 HCI 通道起来后由 `btqca` 打印 `QCA controller version 0x…` 与 `QCA Downloading qca/…`（S2/S3 日志或一轮正常 Android BT 启动；**注意**：`bt_dev_info` 是 level 6，被 `k60_log` 的 `level <= 3` 闸门挡住，见 `S4-SPEC.md` §7.1，所以这条路径在当前代码下拿不到）。保底做法：同时 staging 两个 rampatch 与 `hpnv20*`+`hpnv21*` 全量，运行时按名取。
 - 42 个 `bd_*.elf` 属 WiFi 侧板级数据，与 BT rampatch/NVM 无关，不要混放。
 
 ## 7. 复现命令

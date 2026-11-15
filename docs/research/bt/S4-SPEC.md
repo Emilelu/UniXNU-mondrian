@@ -723,6 +723,24 @@ warm 拒绝仍在 ⇒ 早启动只做 addon+transport+闸门+一次冷启拒绝�
 NUL 在内；宿主侧断言 `scripts/tests/test-k60-bt-0509-properties.py` 25 cases 全过），
 下一张全量 0511 恢复镜像必须带上。
 
+**h13 实飞判读（2026-11-15 21:26，Lead 飞）**：证据 `usblog-20261115-212643`
+（console.log 237,533 B，supervisor rc=0、无 panic）。`:192` `addon: linked blob
+bytes=1027584 records=106`；`:193` `power=1 result=-102 baud=115200 firmware=`
+（result=-102 = −EOPNOTSUPP，来自 `:1814` 的 warm 拒绝——h2 才收窄它）；无
+probe: armed / transport ready / s1 map，内核侧 BT 未 arm；内核进桌面（SpringBoard
+13 行、getBytes:range ×36 属 C 族预期、K60 BT ×1）；用户态同 h3：`:1309` marconi
+匹配不到 DT 服务、`:1310` MAC 全 00、`:1311` 拿到 ee:98:c5:8a:6b:4e（旧 0509
+OSString 后果）。**三张一致结论：h1 过门闩进 S1 map / h3 卡 gate / h13 冷启被拒，
+单 hunk 与 h1+h3 组合都不致死 ⇒ 全量 0005 的 silent 死因收敛到 h2（和/或 h4）。**
+
+**h12 图（2026-11-15 22:54 构建，待飞）**：0511f = h1+h2 两 hunk（不含 h3/h4），
+验证 H12_EQUALS_FULL_MINUS_H3_H4 + H12_CHECK_OK。boot.img
+`0eb30032…9af2`（201,887,744 B）、kernel `67252a00…`、payload_kernel `0e74cf5e…`、
+payload `ee3abfc9…`、adt `313bb5ba…`、frozen list `8e39be87…`、series 229 /
+`cd4acbf6…`、blob `febdc20d…`、30 参数 / 583 B、head `364499d`。判读：silent ⇒
+h2 单独致死（再把 h2 拆子 hunk 二分：只收窄 warm 判定 / 只有冷启续路）；到桌面 ⇒
+凶手是 h4 或 h2+h4 组合，再出 h124。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

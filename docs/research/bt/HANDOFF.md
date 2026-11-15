@@ -463,4 +463,13 @@ This line, next in order:
       相同；宿主侧断言 `scripts/tests/test-k60-bt-0509-properties.py` 25 cases 全过。
       法 ②（砍 registerService）被否：会让 bluetoothd 退回 "No bluetooth on this
       device"。不构建；下一张全量 0511 恢复镜像必须带此修复（届时 P-165 重建戳记）。
+    - h13 实飞（21:26，Lead 飞）：证据 `usblog-20261115-212643`（237,533 B，无 panic），
+      `:192` blob 链入、`:193` power=1 result=-102（−EOPNOTSUPP，h2 缺席）、内核进桌面、
+      用户态同 h3（`:1309` marconi 匹配不到、`:1310` MAC 全 00、`:1311` 拿到 ee:98:c5:8a:6b:4e）。
+      三张一致 ⇒ 单 hunk 与 h1+h3 均不致死，全量 0005 的 silent 死因收敛到 h2（和/或 h4）。
+    - 下一张 `bt-bisect-h12`（0511f = h1+h2，不含 h3/h4；H12_EQUALS_FULL_MINUS_H3_H4 +
+      H12_CHECK_OK）：boot.img `0eb30032…9af2`、kernel `67252a00…`、payload_kernel
+      `0e74cf5e…`、payload `ee3abfc9…`、adt `313bb5ba…`、series 229 / `cd4acbf6…`、blob
+      `febdc20d…`、30 参数 / 583 B。silent ⇒ h2 单独致死（拆子 hunk 再二分）；到桌面 ⇒
+      凶手是 h4 或 h2+h4，再出 h124。
 

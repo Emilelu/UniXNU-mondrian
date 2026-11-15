@@ -1,0 +1,82 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index 3846453..5d1e1bc 100644
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -318,6 +318,10 @@ static void k60_log(void *ctx, int level, const char *line);
+ /* ------------------------------------------------------------------------- */
+ #ifdef KERNEL
+ extern void *ml_io_map(vm_offset_t phys, vm_size_t size);
++/* 0513: the unmappable variant allocates from kernel_map instead of the 8 MiB
++ * io_submap (osfmk/arm/io_map.c:120-129). */
++extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size,
++                                        unsigned int flags);
+ extern IOReturn armcpu_spi_attach(uint32_t intid, bool edge,
+                                   void (*handler)(void *), void *context,
+                                   uint32_t *readback, uint64_t *router);
+@@ -453,6 +457,30 @@ static int k60_map(struct k60_region *r, uint64_t phys, size_t bytes) {
+     return r->va ? 0 : -ENOMEM;
+ }
+ 
++/* 0513: ml_io_map() allocates from io_submap, which is 8 MiB for the whole
++ * kernel (osfmk/arm/io_map.c:65), and every consumer on this board shares it.
++ * The BT ladder asks for 2 MiB (GCC), 1 MiB (TLMM) and 1 MiB (apps SMMU); by
++ * the time the ladder runs the submap is already nearly full, so a TLMM
++ * request returned KERN_NO_SPACE and __kmem_failed_panic() took the kernel
++ * down: kmem_alloc(..., 1048576, 0x100021): failed with 3 (2026-11-16, d4).
++ * The unmappable variant charges kernel_map instead and is the same escape
++ * patches/xnu/0613 already uses for the 32 MiB ADSP windows. */
++#define K60_WIMG_IO 0x7u /* VM_WIMG_IO: coherent | not-cacheable | guarded */
++
++static int k60_map_big(struct k60_region *r, uint64_t phys, size_t bytes) {
++    if (r->va) return 0;
++    r->phys = phys;
++    r->bytes = bytes;
++#ifdef KERNEL
++    r->va = (volatile uint32_t *)ml_io_map_unmappable((vm_offset_t)phys,
++                                                      (vm_size_t)bytes,
++                                                      K60_WIMG_IO);
++#else
++    r->va = (volatile uint32_t *)ml_io_map(phys, bytes);
++#endif
++    return r->va ? 0 : -ENOMEM;
++}
++
+ static void __attribute__((unused)) k60_unmap(struct k60_region *r) {
+     /* ml_io_unmap is deliberately not called in the skeleton: the board
+        lifetime is the kernel lifetime.  Add it in the real integration. */
+@@ -643,7 +671,7 @@ static const char *k60_smmu_configure(const struct k60_smmu_plan *p, uint16_t st
+ /* Install the bypass context for the BT stream.  On any failure nothing
+  * DMA-capable is enabled and the caller must not start the controller. */
+ static int k60_smmu_bypass(uint64_t dma, uint64_t bytes) {
+-    int e = k60_map(&k60.smmu, K60_APPS_SMMU_BASE, K60_APPS_SMMU_SIZE);
++    int e = k60_map_big(&k60.smmu, K60_APPS_SMMU_BASE, K60_APPS_SMMU_SIZE);
+     if (e) return e;
+     struct k60_smmu_plan plan;
+     k60_smmu_plan(K60_BT_SMMU_SID, dma, bytes, K60_SMMU_BANKS, K60_SMMU_GROUPS, &plan);
+@@ -1649,7 +1677,7 @@ static int k60_bt_probe(unsigned step) {
+     char line[192];
+ 
+     k60_probe_mark("probe: s1 map gcc/uart/qup");
+-    int e = k60_map(&k60.gcc, K60_GCC_BASE, K60_GCC_SIZE);
++    int e = k60_map_big(&k60.gcc, K60_GCC_BASE, K60_GCC_SIZE);
+     if (!e) e = k60_map(&k60.uart, K60_BT_UART_BASE, K60_BT_UART_SIZE);
+     if (!e) e = k60_map(&k60.qup, K60_BT_QUP_WRAPPER_BASE, K60_BT_QUP_WRAPPER_SIZE);
+     if (e) {
+@@ -1829,12 +1857,15 @@ static int k60_bt_power_on(void) {
+          * bsd/dev/qbt_k60.c:1814-1819 */
+         k60_log(NULL, 1, "power: cold boot, rails not voted (k60bt_warm=0)");
+     }
+-    int e = k60_map(&k60.gcc, K60_GCC_BASE, K60_GCC_SIZE);
++    int e = k60_map_big(&k60.gcc, K60_GCC_BASE, K60_GCC_SIZE);
+     if (!e) e = k60_map(&k60.uart, K60_BT_UART_BASE, K60_BT_UART_SIZE);
+     if (!e) e = k60_map(&k60.qup, K60_BT_QUP_WRAPPER_BASE, K60_BT_QUP_WRAPPER_SIZE);
+-    if (!e) e = k60_map(&k60.tlmm, K60_TLMM_BASE, K60_TLMM_SIZE);
++    if (!e) e = k60_map_big(&k60.tlmm, K60_TLMM_BASE, K60_TLMM_SIZE);
+     if (!e) e = k60_map(&k60.gic, K60_GIC_DIST_BASE, K60_GIC_DIST_SIZE);
+     if (e) return e;
++    /* 0513: say which allocator served the big windows, so the next flight
++     * shows the change took effect before anything else can fail. */
++    k60_log(NULL, 1, "full: windows mapped, gcc/tlmm/smmu charged to kernel_map");
+     if (!k60.dma_base) {
+         k60.dma_bytes = K60_DMA_BYTES;
+ #ifdef KERNEL

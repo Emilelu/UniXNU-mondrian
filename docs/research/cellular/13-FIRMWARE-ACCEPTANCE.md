@@ -74,16 +74,16 @@ bad() { echo "FAIL $*"; FAIL=$((FAIL+1)); }
 [ "$(stat -c %s "$PL" 2>/dev/null)" = "234881024" ] && ok "A1 payload=224 MiB" || bad "A1 payload=224 MiB"
 [ "$(stat -c %s "$BOOT" 2>/dev/null)" = "235446272" ] && ok "A2 boot.img=235446272 B" || bad "A2 boot.img=235446272 B"
 rm -rf /tmp/accept-modem && mkdir -p /tmp/accept-modem
-mcopy -s -i "$PL" ::EFI/UniXNU/MODEM /tmp/accept-modem >/dev/null 2>&1
+mcopy -o -s -i "$PL" '::EFI/UniXNU/MODEM/*' /tmp/accept-modem >/dev/null 2>&1 </dev/null
 python3 "$REPO/scripts/gen-modem-table.py" "$FW" --manifest /tmp/accept-want.txt >/dev/null
 if [ "$(ls /tmp/accept-modem 2>/dev/null | wc -l)" = "27" ] &&
    diff -q <(ls /tmp/accept-modem | sort) <(cut -d' ' -f1 /tmp/accept-want.txt | sort) >/dev/null; then
   ok "A3 MODEM 目录 27 个文件、名字正确"; else bad "A3 MODEM 目录 27 个文件、名字正确"; fi
 ( cd /tmp/accept-modem && for f in modem.b*; do stat -c "$f %s" "$f"; done | sort ) > /tmp/accept-got.txt
 diff -q /tmp/accept-want.txt /tmp/accept-got.txt >/dev/null && ok "A4 每个文件大小==段表 bytes" || bad "A4 每个文件大小==段表 bytes"
-mcopy -i "$PL" ::EFI/UniXNU/Payloads/kernel.macho.adt /tmp/accept.adt >/dev/null 2>&1
-if python3 - <<'PYEOF' >/tmp/accept-a5.txt 2>&1; then ok "A5 ADT K60ModemImage 16 字节、值合法";
-else bad "A5 ADT K60ModemImage 16 字节、值合法: $(tail -1 /tmp/accept-a5.txt)"; fi
+rm -f /tmp/accept.adt
+mcopy -o -i "$PL" ::EFI/UniXNU/Payloads/kernel.macho.adt /tmp/accept.adt >/dev/null 2>&1 </dev/null
+python3 - <<'PYEOF' >/tmp/accept-a5.txt 2>&1
 import sys, struct
 sys.path.insert(0, '/mnt/e/hackios/k60-cellular/scripts')
 from pong_adt_contract import parse_adt
@@ -94,6 +94,8 @@ base, span = struct.unpack('<QQ', v)
 assert (base, span) in ((0, 0), (0x8bc00000, 0x13200000)), (hex(base), hex(span))
 print('K60ModemImage', hex(base), hex(span))
 PYEOF
+if [ "$?" = "0" ]; then ok "A5 ADT K60ModemImage 16 字节、值合法";
+else bad "A5 ADT K60ModemImage 16 字节、值合法: $(tail -1 /tmp/accept-a5.txt)"; fi
 
 # ---- 表 B：固件源码 ----
 grep -rn 'ImageCarrier' "$FWREPO" --include='*.inf' 2>/dev/null | grep -q . &&
@@ -137,11 +139,52 @@ echo "TOTAL PASS=$PASS FAIL=$FAIL"
 
 载具未落地时这张表**就该红**——红就是门禁在干活。2026-11-15 用当前 L3 产物实测：
 
-- 工具链全部可用：`mdir`/`mcopy` 正常（`mcopy -s` 把目录**内容**直接铺进目标目录，不套一层子目录）；
-  `parse_adt` 能解开当前 `kernel.macho.adt`，`/chosen/memory-map` 目前只有 `name` 键；
+- 工具链可用：`mdir`/`mcopy` 正常，`parse_adt` 能解开当前 `kernel.macho.adt`，
+  `/chosen/memory-map` 目前只有 `name` 键；
 - A1/A2 红（当前 payload 201,326,592 / boot.img 201,891,840，载具版应为 234,881,024 / 235,446,272）；
 - A3/A4/A5 红（无 `MODEM/` 目录、无 `K60ModemImage` 属性）；C1–C5 红（尚无载具日志）。
-固件侧交付后，这张表必须变成 15 行全 PASS 才能合。
+
+固件侧交付后，这张表必须变成 **18 行全 PASS**（A1–A5 五行、B1–B6 六行、C1 三行、C2–C5 四行）才能合。
+
+### 5.1 2026-11-15 的 dry run：先证明门禁本身能跑
+
+用一套合成输入冒充「载具已交付」的产物：224 MiB FAT payload（`EFI/UniXNU/MODEM/` 27 个文件、
+大小取自段表；`EFI/UniXNU/Payloads/kernel.macho.adt` 带 16 B `K60ModemImage`）、235,446,272 B 的
+假 `boot.img`、7 行假 console 日志、只含 `ImageCarrierLib` 与三行 D3 的假 fwrepo。整套脚本原样跑：
+
+```txt
+PASS A1 payload=224 MiB
+PASS A2 boot.img=235446272 B
+PASS A3 MODEM 目录 27 个文件、名字正确
+PASS A4 每个文件大小==段表 bytes
+PASS A5 ADT K60ModemImage 16 字节、值合法
+PASS B1 ImageCarrierLib 存在
+PASS B2 DarwinBoot 调用点
+PASS B3 DarwinBoot 发布属性 (2 处)
+PASS B4 三行 D3 日志、无 debug 门
+PASS B5 固件表==生成器输出
+PASS B6 无整窗清零
+PASS C1 日志行: modem-image: chosen dtb at
+PASS C1 日志行: modem-image: window 0x8bc00000..0x9ee00000
+PASS C1 日志行: modem-image: abl staging ends at
+PASS C2 拷贝/清除/空洞数字
+PASS C3 区间发布行
+PASS C4 内核侧 carrier present
+PASS C5 内核侧 plan rows=30
+TOTAL PASS=18 FAIL=0
+```
+
+这一遍先抓出脚本自身三个 bug，均已在本节脚本里改掉：
+
+1. `mcopy -s -i IMG ::EFI/UniXNU/MODEM DEST` 在本机 mtools 上**会套一层 `MODEM/` 子目录**，
+   `ls DEST` 只有一项 ⇒ 改成通配 `'::EFI/UniXNU/MODEM/*'`；
+2. A5 原来把 `then ok ...; else ...; fi` 写在 heredoc 正文**之前**，heredoc 因此吞掉后半段脚本，
+   bash 报 `line 74: syntax error: unexpected end of file`、A5 根本不执行 ⇒ 改成先跑完 heredoc，
+   再用 `$?` 判；
+3. `mcopy` 的目标文件已存在时会停在覆盖提示上（stdin 不是终端时表现为**永久挂起**，第二次跑必挂）
+   ⇒ 目标先 `rm -f`/`rm -rf`，`mcopy` 加 `-o` 并重定向 `</dev/null`。
+
+合成输入与准备脚本见 `14-DXE-REQUEST.md` §5；真跑必须换成固件 commit 产出的真实 payload/boot/日志。
 
 ## 六、本表不替代的门禁
 

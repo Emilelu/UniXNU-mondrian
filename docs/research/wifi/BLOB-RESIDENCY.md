@@ -7,17 +7,19 @@
 > `__TEXT` 上限）？
 
 结论先行（§0）：**这条路径上的每一个硬边界都被实测值绕开了，余量最小的
-一项也有 2.0×。** 本文不下「所以不是体积死因」的结论——那是 C1/C2
-上机判据（[BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §7）的事——只把
-「哪里可能有边界、边界在哪、离边界多远」钉到 文件:行。
+一项（117 MB 镜像 vs `ReadFile` 的 128 MB）也有 1.14×。** 本文不下
+「所以不是体积死因」的结论——那是 C1/C2 上机判据
+（[BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §7）的事——只把
+「哪里可能有边界、边界在哪、离边界多远」钉到 文件:行。§10 记 E 格（`z0`）
+的上机判决（silent）与它为 §7 各口子带来的格位更新。
 
 ## 0. 结论先行
 
 | # | 候选边界 | 实测值 | 上限 | 余量 | 判定 |
 |---|---|---|---|---|---|
 | 0.1 | 单段大小 vs `WINDOW_SIZE`（256 MB） | `__TEXT` vmsize **12,992,512** | 268,435,456 | 20.7× | 不触发（[DarwinBoot.c:168](../../../drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c)） |
-| 0.2 | 内核 VA 跨度 vs `WINDOW_SIZE - 2 MB`（254 MB） | **78,327,808**（mhi4） | 253,388,800 | 3.2× | 不触发（DarwinBoot.c:196） |
-| 0.3 | 内核镜像文件 vs `ReadFile` 的 `SIZE_128MB` | **65,978,368** | 134,217,728 | 2.0× | 不触发（DarwinBoot.c:558） |
+| 0.2 | 内核 VA 跨度 vs `WINDOW_SIZE - 2 MB`（254 MB） | **129,642,496**（z0/mhi5） | 253,388,800 | 1.96× | 不触发（DarwinBoot.c:196） |
+| 0.3 | 内核镜像文件 vs `ReadFile` 的 `SIZE_128MB` | **117,305,344**（z0/mhi5） | 134,217,728 | 1.14× | 不触发（DarwinBoot.c:558） |
 | 0.4 | `MAX_SEGMENTS` 64 | 15（vmsize≠0） | 64 | 4.3× | 不触发（DarwinBoot.c:160） |
 | 0.5 | VA 段间重叠 | prelink 段在低地址，不与 `__TEXT` 相交 | 无重叠 | — | 不触发（DarwinBoot.c:190-191） |
 | 0.6 | XNU 侧 `__TEXT` 大小上限常量 | grep 全树 0 命中 | 不存在 | — | 不存在（§5） |
@@ -27,14 +29,19 @@
 105 MB alive 家族的体积来自 `__DATA` 52.9 MB，`__TEXT` 与 baseline 相同。
 「边界触发」假说在这条路径上没有落脚点；§7 列出仍然开着的三个口子。
 
+口径提醒：`__TEXT` = 12,992,512 的死格（mhi3/mhi4/z0）都带同一个 blob，
+`__TEXT` = 1,720,320 的活格都不带；但 66 MB + blob 这一档（C 格）至今没飞，
+所以「`__TEXT` 驻留跟着死亡走」是**首要嫌疑，不是定论**（§2 末、§10.3）。
+
 ### 0.1 各判断的推翻条件
 
 每条判断都能被一行实测推翻；写在这里是为了让下一个人知道该看什么。
 
 - **0.1 被推翻**：出现 `__TEXT` vmsize > 256 MB 的内核仍过 `ParseKernel`；或本内核实测
   `__TEXT` vmsize ≠ 12,992,512。
-- **0.2 被推翻**：实测 span > 253,388,800 的内核能过 :196；或 mhi4 span ≠ 78,327,808。
-- **0.3 被推翻**：内核镜像文件 > 134,217,728 字节仍被 `ReadFile` 接受。
+- **0.2 被推翻**：实测 span > 253,388,800 的内核能过 :196；或 z0/mhi5 span ≠ 129,642,496。
+- **0.3 被推翻**：内核镜像文件 > 134,217,728 字节仍被 `ReadFile` 接受；或 z0/mhi5
+  镜像 ≠ 117,305,344（余量 16,912,384 B，本文余量最小的一项）。
 - **0.4 被推翻**：vmsize≠0 的段数 ≥ 64 的内核被接受。
 - **0.6 被推翻**：在 xnu-work 找到任何以 `__TEXT` 大小（而不是页对齐）为输入的断言或
   上限——grep 之外还要读 `pmap_bootstrap` 与 KTRR 相关代码。
@@ -95,6 +102,11 @@ brightness-4 105,500,672 B）的 `__TEXT` vmsize 同样是 1,720,320——
 它们的体积全部来自 `__DATA` 52.9 MB。所以「内核大」从来不是变量，
 变量精确为「`__TEXT` 只读段 +11.27 MB」。
 
+**但这不是定论**：支持「跟着死亡走」的死格只有 mhi3/mhi4/z0 三张，且三张是同一个
+blob 版式；66 MB + blob + `pong_wifi=0` 的 C 格从未上机。所以「`__TEXT` 驻留」是
+首要嫌疑：它与 blob、与 12.39 MiB 的只读段体积同时绑定，本文的静态扫描只证明
+「它不撞装载边界」，证明不了「它与死亡无关」——判决格是 `t2`（§10.3 第 2 条）。
+
 对齐不变：`__TEXT` vmaddr 两边都是 0xfffffff007004000（内核基址 4 KB
 对齐，DarwinBoot.c:194 校验 `Base & EFI_PAGE_MASK`）；
 xnu-work `osfmk/arm64/arm_vm_init.c:2306` 的
@@ -111,9 +123,10 @@ xnu-work `osfmk/arm64/arm_vm_init.c:2306` 的
 1. **单段上限**（:168）：`Segment->Size > WINDOW_SIZE` 即 256 MB。
    `__TEXT` 12.39 MB，余量 20.7×。固件再大 20 倍才够到这条线。
 2. **跨度上限**（:196）：`End - Base > WINDOW_SIZE - SIZE_2MB` 即 254 MB。
-   mhi4 span 78.3 MB（105 MB 家族也才 117.6 MB），余量 3.2×。
+   最大实测是 z0/mhi5 的 129.6 MB（mhi4 78.3 MB、105 MB 家族 117.6 MB），余量 1.96×。
    注意这条检查量的是 **vmsize 和**，与文件大小无关。
-3. **镜像文件上限**（:558）：`SIZE_128MB`。65.98 MB < 128 MB，余量 2.0×。
+3. **镜像文件上限**（:558）：`SIZE_128MB`。最大实测是 z0/mhi5 的 117.3 MB
+   （mhi4 65.98 MB），余量 16.1 MiB = 1.14×——全文最窄的一条，仍远离上限。
 4. **段数**（:160）与**重叠**（:190-191）：15/64；两两重叠 0（§4 算术）。
 
 `AllocateWindow`（:420-478）本身只看内存地图里最大的
@@ -154,7 +167,8 @@ xnu-work 的 osfmk/pexpert/libsa/bsd 全树 **0 命中**。`arm_vm_init.c` 对
 ## 6. 判别矩阵：下一张镜像能推翻哪一条
 
 本文的回答是「这条路径上没有边界」，但「没有边界」不等于「体积无关」——§7.1 的
-pool 通道仍然存在。要把两者分开靠四格对照；这里只列格子与每格能推翻什么，不排期。
+pool 通道仍然存在。要把两者分开靠五格对照；这里只列格子与每格能推翻什么，不排期。
+E 格已飞（2026-11-15，verdict = silent），判决见 §10；其余四格仍未飞。
 
 | 格子 | 内核 | `__TEXT` | blob | `pong_wifi` | 上机记录 | 该格能推翻什么 |
 |---|---|---|---|---|---|---|
@@ -162,7 +176,7 @@ pool 通道仍然存在。要把两者分开靠四格对照；这里只列格子
 | B | 54.8 MB tiny（`t0c` / `t1c`） | 1.82 MiB | 4×23 B 占位 | 0 / 1 | **从未飞** | `t1c` alive ⇒ 驱动存在 + `pong_wifi=1` 本身无害，死因需要真 blob 或与之同步变化的东西 |
 | C | 66 MB（`a2`，trial 级，**没有**正式重出） | 12.39 MiB | 11.19 MB | 0 | **从未飞** | C alive ⇒ blob、`__TEXT` 体积、65.9 MB 镜像三者同时被洗清（与 mhi4 只剩 `pong_wifi` 之差） |
 | D | 117 MB（`mhi5`） | 12.39 MiB | 11.19 MB | 1 | **从未飞** | 主要探 `ReadFile` 的 128 MB 上限与 span，与 blob 边界问题无关 |
-| E | 117 MB（`z0`，正式镜像，与 `mhi5` 只差 `pong_wifi`） | 12.39 MiB | 11.19 MB | 0 | **从未飞** | 驱动 vs blob：E 静默而 105 MB 家族 alive ⇒ blob 被钉住、驱动被洗清；E alive ⇒ 驱动有罪 |
+| E | 117 MB（`z0`，正式镜像，与 `mhi5` 只差 `pong_wifi`） | 12.39 MiB | 11.19 MB | 0 | **已飞，silent（0 B，`usblog-20261115-135859`；§10）** | 驱动 vs blob：E 静默而 105 MB 家族 alive ⇒ blob 被钉住、驱动被洗清；E alive ⇒ 驱动有罪 |
 
 读法：C 是「体积」那一问的判决格（66 MB + blob + `pong_wifi=0`）——C 静默 ⇒
 体积方向仍活（但边界已排除，只剩 §7.1）；C 出声 ⇒ 本文问题被实际否决，死因回到
@@ -174,10 +188,14 @@ pool 通道仍然存在。要把两者分开靠四格对照；这里只列格子
 
 B 是 C 的对照格：B 出声而 C 静默 ⇒ 11.19 MB blob 被钉成唯一变量；B 也静默 ⇒
 死因不需要 blob。E 是「驱动 vs blob」的对照格（与 `mhi5` 只差 46 字节 / 8 处构建
-时间戳，见 k60-wifi `docs/research/wifi/BOOT-DEATH-SUSPECT.md` §3b）：E 静默而
-105 MB 家族 alive ⇒ blob 被钉住、驱动被洗清；E 出声 ⇒ 驱动有罪、blob 方向作废。
+时间戳，见 k60-wifi `docs/research/wifi/BOOT-DEATH-SUSPECT.md` §3b）：**已飞，
+verdict = silent**（§10）。按这条读法，驱动这一支被洗清（§10.2：`pong_wifi=0` 时
+worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证明——它的推翻条件写在
+§10.3，判决格是 `t2`。
 
 ## 7. 仍然开着的口子（本文不关闭它们）
+
+`z0` 上机后各口子的格位变化见 §10.4；本节保留静态判定时的原样。
 
 1. **DXE pool 碎片化**（:558 → :607 的顺序）：65.9 MB（C 格）或 117.3 MB（E 格）
    整块 `AllocatePool` 之后才申请 4.5–4.75 GiB 连续窗口。blob 使 pool 占用多
@@ -195,7 +213,8 @@ B 是 C 的对照格：B 出声而 C 静默 ⇒ 11.19 MB blob 被钉成唯一变
 | 事实 | 证据 |
 |---|---|
 | 段表逐段扫描（含 105 MB 家族） | `E:/k60-work/scratch/refmine/probe-segs.py`、`probe-seg.py`、`probe-allwifi.py`（46 张 boot.img 汇总） |
-| 窗口值逐镜像 | `probe-window3.py`：ADT 属性 `darwinboot-memory-size` 解码——thermal/springboard/gpu/base/touch=0x130000000（4.75 GiB）alive；brightness-4=0x120000000（4.5 GiB）alive；mhi3=0x130000000 死；mhi4/mhi5/z0=0x120000000 死或未飞；a2/t1/t1c=0x130000000 未飞 |
+| 窗口值逐镜像 | `probe-window3.py`：ADT 属性 `darwinboot-memory-size` 解码——thermal/springboard/gpu/base/touch=0x130000000（4.75 GiB）alive；brightness-4=0x120000000（4.5 GiB）alive；mhi3=0x130000000 死；mhi4/mhi5/z0=0x120000000（z0 已判 silent）；a2/t1/t1c=0x130000000 未飞 |
+| `z0` 判决 | `judge-z0.sh usblog-20261115-135859 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
 | alive 归属（join image sha → evidence） | `probe-join2.py`：thermal adc796b6→usblog-20261115-003922（232,670 B）；springboard 3ada9562→003207；gpu ba783b74→212253；brightness e41eb797→013520（185,701 B）；a2/mhi5/z0/t1/t1c 全库零命中（从未上机） |
 | `__const` 内固件逐字节匹配 | `probe-const.py` / `probe-const2.py`：四文件与 `/mnt/e/k60-work/firmware/qca6490-wifi/` 相同；非零字节合计 7,030,971 |
 | DarwinBoot 检查 | drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:160,168,190-191,194-196,558,607,619 |
@@ -207,6 +226,13 @@ B 是 C 的对照格：B 出声而 C 静默 ⇒ 11.19 MB blob 被钉成唯一变
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与
 artifact `boot.json` 按 image sha256 的 join（`probe-join2.py`），与
 [BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §3 同源。
+
+ADT 口径（2026-11-15 起）：main `3ea8d71` 把 identity seed 接进板级契约——
+`board.toml [payload."adt"]` 增 `unique_chip_id = "required"`，`build-strict.sh`
+把 `UNIXNU_UNIQUE_CHIP_ID` 转发给 build payload，新构建的 ADT 会带
+`/chosen/unique-chip-id`。上表窗口值全部来自 3ea8d71 **之前**的镜像（它们的 ADT
+sha 只在那批镜像内可比）；`t2` 及以后的窗口必须逐镜像重解，不能沿用上表，也不能
+拿旧 ADT sha 当新镜像的属性清单。
 
 ## 9. 实测对照表（本节的数字都来自 `mtype` 解出的 payload kernel）
 
@@ -223,14 +249,15 @@ artifact `boot.json` 按 image sha256 的 join（`probe-join2.py`），与
 | wifi-20261116a2 | 65,978,368 | 12,992,512 | 1,867,776 | 78,327,808 | 2 | **0** | 0 | 从未飞（trial 级） |
 | wifi-20261116mhi4 | 65,978,368 | 12,992,512 | 1,867,776 | 78,327,808 | 2 | 11 | 1 | silent（0 B） |
 | wifi-20261116mhi3 | 65,978,368 | 12,992,512 | 1,867,776 | 78,327,808 | 2 | 11 | 1 | silent（0 B） |
-| wifi-20261115z0 | 117,305,344 | 12,992,512 | 53,149,696 | 129,642,496 | 2 | 11 | **0** | 从未飞（正式镜像） |
+| wifi-20261115z0 | 117,305,344 | 12,992,512 | 53,149,696 | 129,642,496 | 2 | 11 | **0** | silent（0 B，`usblog-20261115-135859`；§10） |
 | wifi-20261116mhi5 | 117,305,344 | 12,992,512 | 53,149,696 | 129,642,496 | 2 | 11 | 1 | 从未飞 |
 
 三条从这张表直接读出来的结论（都不是「结论」，是可推翻的事实）：
 
 1. **`z0` 不是 66 MB 的 C 格**：它 117,305,344 B，`__DATA` 53,149,696 与 105 MB
    alive 家族同量级，是 `mhi5` 的孪生（只差 `pong_wifi`）。§6 的 C 格（66 MB +
-   blob + `pong_wifi=0`）至今没有正式镜像，只有 trial 级的 `a2`。
+   blob + `pong_wifi=0`）至今没有正式镜像，只有 trial 级的 `a2`。`z0` 已飞、
+   silent（§10），所以这一格回答的是「驱动 vs blob」，不是「体积」。
 2. **`a2` 与 `mhi4` 的唯一差别是 `pong_wifi`**：两者 kernel B、`__TEXT`、`__DATA`、
    span 完全一致，`Pong MHI` 串数为 0 与 11（a2 没链 ath11k MHI 日志，mhi4 链了）。
    但 `a2` 是 P-201 的 trial 级——它的 manifest 没有 `series` 键，身份不可复核。
@@ -240,4 +267,68 @@ artifact `boot.json` 按 image sha256 的 join（`probe-join2.py`），与
 
 这张表的生成方式：`mtype -i <boot.img 的 ramdisk 卷> ::EFI/UniXNU/Payloads/kernel.macho`
 再按 `LC_SEGMENT_64` 解段；脚本 `E:/k60-work/scratch/refmine/probe-family.py`。
+## 10. `z0` 判决：117 MB 版式 + blob + `pong_wifi=0` 上机（2026-11-15）
+
+§6 的 E 格已经飞了。本节记判决、它为什么读得动、三条推翻条件，以及它为 §7 三个
+口子带来的格位变化。措辞守 Lead 的裁决：`__TEXT` 驻留是**首要嫌疑，不是定论**。
+
+### 10.1 一飞一判
+
+| 项 | 值 |
+|---|---|
+| 采集目录 | `E:/k60-work/evidence/usblog-20261115-135859` |
+| boot.img sha256 | `c2e069f0088a0728e24dbc89338edee2ba9d5f453265d63d42ccb64bc3303728`（容器 201,887,744 B；payload kernel 117,305,344 B） |
+| 时间 | 13:59:01.478 → 14:00:27.593，86.114 s；`capture-events` 13:59:03.230 ready → 14:00:27.272 finished `port-not-observed` |
+| console.log | **0 字节**；`portSeen=false`、`portOpened=false`、`stopReason=fastboot-return` |
+| 判定 | `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]` |
+| 参数自检 | manifest `kernel_args_requested = ["pong_wifi=0"]`；镜像字节 `pong_wifi=0 x1`（两道都过，不是忘传参数的 trial） |
+
+死亡签名与 mhi3（`usblog-20261115-002804`，86.746 s）/ mhi4
+（`usblog-20261115-002243`，86.758 s）逐字段相同：同样 `port-not-observed`、
+同样 `returnedToFastboot`、同样 `fastboot-return`。判定器在 MSYS 与 WSL 两侧
+都给 `silent` / `RC=2`（`judge-z0.sh` 的 helper 路径已改成脚本自身相对 + 候选根
+探测，找不到就 exit 4 拒判，绝不读成 silent）。
+
+### 10.2 这个空读数读得动
+
+`pong_wifi=0` 时驱动**主动返回**：`patches/wifi/0001-drivers-PongWifi-vendor-
+zizhan-087416a.patch:1939-1946` 的 `pong_wifi_start_optional()` 先
+`PE_parse_boot_argn("pong_wifi", &enabled, sizeof enabled)`，`enabled != 1` 就
+`return`，worker（PWF2 解析 / MHI / RSC 投票）从未 `kernel_thread_start`。所以：
+
+- marker 全 0（`PongWifi:` 0、`held back by k60_wifi_stage` 0、`Pong MHI` 0）是
+  「驱动没执行」的**预期读数**，不是「驱动没被链进来」——§1 已证 blob 与解析器
+  都在镜像里。
+- 这一格与 `mhi5` 只差 `pong_wifi` 一个开关（同 series、同 blob、同 117 MB 版式，
+  差 46 字节 / 8 处构建时间戳）；与 mhi4 差版式（117 vs 66 MB）与开关两项。
+- 因此这一格能干净地回答「驱动运行路径是不是死因」：**不是**。它回答不了的事
+  写在 §10.3。
+
+### 10.3 三条推翻条件
+
+1. **推翻「117 MB 版式 + blob 致死」**：任何 117 MB / `__TEXT` = 12,992,512 /
+   `pong_wifi=0` 的镜像进用户态（哪怕只到 `SpringBoard` 一行）⇒ 这一读法作废，
+   差异必须落到窗口、pool 或 args 上。
+2. **推翻「`__TEXT` 驻留是死因」**：`t2`（blob 移出 `__TEXT`，其余不变）仍然
+   silent ⇒ 驻留位置不是原因，死亡回到驱动之外的差异；`t2` alive ⇒ 驻留位置被
+   钉住。这一条是「首要嫌疑」的判决格，不是本文已证的结论。
+3. **推翻「blob 是变量」**：66 MB + blob + `pong_wifi=0`（§6 的 C 格，正式镜像）
+   进用户态而 `z0` 静默 ⇒ 死因落在 117 MB 版式（`__DATA` / span / pool），blob
+   本身被洗清。
+
+三条都不涉及静态量：它们都是「再飞一张」就能证伪的句子，不需要新代码。
+
+### 10.4 §7 三个口子的格位更新
+
+1. **DXE pool 碎片化（§7.1）——降级，未关闭**。`z0` 是 117.3 MB 整块进 pool，
+   比 C 格翻倍，窗口 4.5 GiB（余量约 223 MiB），仍然 silent；而 mhi4（65.9 MB、
+   同一窗口）也 silent。两格之间差约 51 MB pool 占用而结果相同，所以 pool 占用
+   本身没有把 4.5 GiB 窗口推过线。**但**：0 字节的 console 里没有 `NO WINDOW`
+   行可读，`AllocateWindow` 到底走到哪一步仍是静态空白，所以这条只是降级。
+2. **105 MB 家族不能反证（§7.2）——升级为最强的一组对照**。`z0` 的 `__DATA`
+   53,149,696 与 brightness-4 的 52,920,320 同量级，差在 `__TEXT` 的 11.27 MB
+   与 args；同一 4.5 GiB 窗口下 105 MB 家族 alive、117 MB 的 `z0` 死。窗口与
+   pool 解释同时被削弱，`__TEXT` 驻留成为唯一还站着的差别。
+3. **PWF2 头失配（§7.3）——不受影响**。`pong_wifi=0` 时解析器不运行；这一条
+   仍然是 `t2`（或任何 `pong_wifi=1` 飞行）的待办。
 

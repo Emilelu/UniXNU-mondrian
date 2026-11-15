@@ -89,6 +89,12 @@ PongWifiPci.cpp / PongWifiFirmware.cpp / ath11k/PongAth11k.c），由 patches/wi
 （console 证据：`E:/k60-work/evidence/usblog-20261113-basef2`、`usblog-20261113-basef4`、
 `usblog-20261114-150931`、`usblog-20261115-002804`、`usblog-20261115-002243`。）
 
+（口径：上表的 board.toml sha 与窗口值都是 identity seed 落 main **之前**
+（`3ea8d71`，2026-11-15 14:40）构建的镜像快照。`3ea8d71` 起 `board.toml`
+`[payload."adt"]` 增 `unique_chip_id = "required"`，新构建的 ADT 带
+`/chosen/unique-chip-id`，board.toml sha 与 ADT 属性清单都不再等于上表——
+`t2` 及以后的窗口/board 参照必须按各自 manifest 重算，不能沿用本表。）
+
 ### 3.2 六个触摸探针不是死因
 
 229 series 的 :199-204（历史 blob）启用六个触摸探针补丁，全部只改 `bsd/dev/pong_goodix.c`。

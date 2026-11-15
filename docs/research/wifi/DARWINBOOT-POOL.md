@@ -242,10 +242,22 @@ alive/silent 二分直接分开「驱动扳机」与「pool/窗口通道」两�
 hand-off 两个互斥读数（回复里没有录屏判读），所以 pool 通道**没有被这次
 飞行排掉**；但它的算术变弱了：4.5 GiB 窗口、内核 66,002,944 B（62.94 MiB）、
 固定开销 177 MiB ⇒ 余量约 272 MiB，而同机同日 106.5 MB（bt-s4b-20261115b）
-与 129.0 MB（ADSP 载体）内核在**同一窗口**上都能进桌面。占用更少反而死，
-说明单靠 pool 占用解释不了 c0 的 silent；剩下的对照面是内核内容布局
-（`BOOT-DEATH-SUSPECT.md` §3d：`__TEXT` 12,992,512 / `__const` 11,767,510
-是唯一超出非 wifi 内核的段）。下一张图若仍走 pool 判据，必须带 A 通道录屏。
+与 129.0 MB（ADSP 载体）内核在**同一窗口**上都能进桌面。占用更少反而死。
+
+**当日 23:00 修正：c0 的 silent 已归因到配置，不是布局，也不是 pool。**
+c0 用的 `configs/mondrian_wifi_defconfig` 把
+`CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 写成了 32 MiB seed 的卷
+`6DCCF70A-…`，设备真实 Data 卷是 `1BCD69FF-…`（P-152）。离线可判：
+c0 的 payload 内核里能搜到 `6DCCF70A`，而 z0/t2/mhi5d（由
+`mondrian_defconfig` 生成）里搜到的是 `1BCD69FF`——只有 c0 踩了 P-152。
+它的死法是 root mount 内部 self-panic（`PONG APFS: wait for Data UUID …
+timeout=5s` → `K60DATA UFS Data window not published` → panic
+`dataerr=2 @kern_exec.c:8463`），发生在 USB 控制台起来之前，所以
+「0 字节 + fastboot-return」是必然输出。因此 c0 **既不能证 pool 通道无罪，
+也不能当布局证据**：它只是把 66 MB 那一格从对照里划掉。布局/pool 的对照面
+回到 117 MB 家族（z0、t2、mhi5d，三个都带真实 UUID 且仍 silent）。
+
+飞行若仍走 pool 判据，必须带 A 通道录屏（NO WINDOW / hand-off 两态互斥）。
 
 ## 6. 证据清单
 

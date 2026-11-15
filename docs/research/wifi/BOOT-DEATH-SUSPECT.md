@@ -162,7 +162,7 @@ may cite them as proof that the driver runs.
 | **T0** | `wifi-20261115z0` (ready: `pong_wifi=0`, kernel 117,305,344 B, blob present, 4.5 GiB) | the driver vs the blob: same kernel as mhi5, wifi arg off | driver code is implicated → fly T1 to test the full stack | driver exonerated → the blob or its residency is the killer → go straight to T2 |
 | **T1** | `wifi-20261116mhi5` (ready, 117,305,344 B, `pong_wifi=1`) — only after T0 boots | S1+S2 on the full wifi stack, and retires the stale confound | the MHI handshake logs become the next evidence | blob/loader interaction confirmed without the driver |
 | **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) — **only if T0 is silent** | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
-| **T3** | `wifi-20261116c0` — **flown 2026-11-15 21:32: silent (0 B console, `usblog-20261115-213221`)**; 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | death independent of the driver → **content layout, not size**: `__const`/PWF2 section → §3d |
+| **T3** | `wifi-20261116c0` — **flown 2026-11-15 21:32: silent (0 B console, `usblog-20261115-213221`)**; 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | **invalid config, not a layout datum** (`6DCCF70A…` seed UUID, P-152) → §3e |
 
 The scope narrowing is deliberate: `__TEXT,__const` is `0xb38ed6` in z0, mhi5
 **and** the 65.9 MB mhi4 kernel, so "blob lives in `__TEXT`" is not by itself
@@ -189,6 +189,14 @@ on 2026-11-15 21:32 — silent (`usblog-20261115-213221`, 0-byte console). With 
 driver off and a kernel 40 MB smaller than the bt pair that boots, size no longer
 explains the death: what is left is the kernel's content layout, and the only
 segment that exceeds its non-wifi counterpart is `__TEXT` (§3d).
+
+**That reading was overturned at 23:00 the same night.** The c0 payload kernel
+embeds the *seed* Data volume UUID `6DCCF70A-…` instead of the volume the device
+publishes (`1BCD69FF-…`); §3e shows the string test on six payload kernels. Under
+P-152 that is a self-panic inside the root mount — before `k60_usblog_start()`, so
+the 0-byte capture is the expected output — and only c0 carries it. The 117 MB
+family (z0, t2, mhi5d) all embed the real UUID, so **their silence is still
+unexplained** and the layout question is open for them, not answered by c0.
 
 ## 3a. The T0 control image (built 2026-11-15 03:49)
 
@@ -280,13 +288,15 @@ Building it exposed two fixed infra gaps, both recorded on main:
 | judge | `silent` / exit 2 (`scripts/judge-z0.sh … --expect-arg pong_wifi=0`) |
 | args | `["pong_wifi=0"]`; payload args last item `pong_wifi=0` |
 
-T3 is silent, so the "if it dies" cell of the table is the one that happened: the
-death is independent of the driver (`pong_wifi=0` returns before the worker
-starts), of the boot argument, and — measured against same-day controls — of
-size: 66,002,944 B is the smallest wifi kernel of the line and it dies, while
-106,541,056 B (bt-s4b-20261115b) and 128,991,232 B (ADSP carrier) kernels from
-the same board boot. "Blob residency" was already negated by T2 (§4). What is
-left is the kernel's content layout; §3d measures which segments differ.
+T3 is silent, and at first read that looked like the "if it dies" cell: driver
+off (`pong_wifi=0` returns before the worker starts), boot argument off, and
+40 MB smaller than the bt pair that boots. It is not, because the image was built
+from a defconfig that named the wrong Data volume UUID (§3e): P-152 predicts a
+self-panic inside the root mount and exactly this 0-byte, `fastboot-return`
+capture, so the flight cannot say anything about segment layout. What it does
+still establish is mechanical: a 66 MB kernel built from the wifi defconfig goes
+through the same loader path as the 106 MB one. The layout suspects stay where
+they were — on the 117 MB family.
 
 ## 3d. The 66 MB wifi kernel against the 106/129 MB kernels that boot
 
@@ -295,6 +305,12 @@ walk `LC_SEGMENT_64` / `section_64` (`E:/k60-work/scratch/table4.py`). All four
 images carry the same 4.5 GiB ADT window (`0x120000000`), so the window is not a
 variable here. Sizes are vmsize unless two numbers are given (`vmsize /
 filesize`).
+
+**c0 is a shape reference, not a layout witness** (§3e): its silence is now
+attributed to the seed Data UUID in its defconfig, so the table below compares
+what a 66 MB wifi kernel looks like; it cannot be used to argue that `__TEXT`
+kills. The layout question is carried by the 117 MB images (z0, t2, mhi5d),
+which are not in this table.
 
 | segment | c0 (66.0 MB, silent) | bt-s4b-b (106.5 MB, boots) | bt-s4c-c (105.5 MB, boots) | adsp-c (129.0 MB, boots) |
 |---|---|---|---|---|
@@ -352,6 +368,55 @@ addon is out — and a "66 MB minus PWF2" image would also be a "no GPU addon"
 image. Sharper controls, if the Lead wants comparable shapes: a kernel with the
 GPU addon **and** no PWF2 container, or a 66 MB kernel whose `__const` holds a
 same-size inert section. Both need a build decision.
+
+### 3e. Why c0 died: the wifi defconfig named the seed's Data UUID (P-152)
+
+The c0 kernel was built from `configs/mondrian_wifi_defconfig`, and that file
+named `6DCCF70A-6FD6-403E-ACED-95313CD7CBB8` — the volume UUID of the 32 MiB
+committed seed — instead of `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`, the volume
+the device publishes (`docs/plans/MONDRIAN-OFFICIAL-PAGES.md:564`; P-152,
+`docs/engineering/PITFALLS.md:3809-3820`).
+
+The UUID is compiled into the kernel as `XNU_OWNER_DATA_VOLUME_UUID`, so "did
+this image name the right volume" is decidable offline on the payload kernel:
+
+| payload kernel | UUID literal | flight |
+|---|---|---|
+| `wifi-20261116c0` | **6DCCF70A** (seed) | silent (T3) |
+| `wifi-20261115z0` | 1BCD69FF | silent (T0) |
+| `wifi-20261116t2` | 1BCD69FF | silent (T2) |
+| `wifi-20261116mhi5d` | 1BCD69FF | not flown |
+| `bt-s4b-20261115b` | 1BCD69FF | desktop |
+| `adsp-20261115c` | 1BCD69FF | desktop |
+
+Method: `mcopy -n -o -i boot.img@@557056
+::/EFI/UniXNU/Payloads/kernel.macho`, then `grep -c -a` for each literal. Only
+c0 matches the seed UUID; every image built from `mondrian_defconfig` names the
+real volume.
+
+P-152's failure path is a self-panic *inside* the root mount, not a hang after
+it: `PONG APFS: wait for Data UUID 6DCCF70A…, timeout=5s` → `K60DATA UFS Data
+window not published` → `K60PANICARGS … datastage=0 dataerr=2 @kern_exec.c:8463`.
+The USB console starts only after `vfs_mountroot`: in a healthy capture the
+first `K60 USBLOG` line is around line 470 and `K60DATA mounted` around 484
+(`usblog-20261115-*/console.log`, ~3.3 k lines). A root-mount self-panic
+therefore **must** leave a 0-byte capture and return to fastboot — c0's exact
+signature.
+
+Consequences:
+
+- **c0 is a config death, not a layout datum.** §3d's c0 row is a shape
+  reference; it cannot carry the argument that `__TEXT` or the blob inside it
+  kills.
+- **The 117 MB family keeps its silence unexplained.** z0, t2 and mhi5d embed
+  the real UUID, so P-152 does not cover them; the layout suspects in §2 and
+  the pool/window channel in `DARWINBOOT-POOL.md` are still open for those three.
+- **Gate gap:** `scripts/check-data-identity.py:31` pins
+  `configs/mondrian_defconfig`, and no gate reads the wifi defconfig — which is
+  how a seed UUID reached a formal build. Proposed fix (Lead to number it):
+  grade every `configs/*_defconfig` that sets `CONFIG_XNU_OWNER_DATA_MOUNT=y`.
+- The one-line fix is `configs/mondrian_wifi_defconfig:46` (commit `92e6390`);
+  the rebuild keeps everything else identical and is the next flight.
 
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 

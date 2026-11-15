@@ -5153,3 +5153,37 @@ Check: `python3 scripts/tests/test-check-defconfig-uuid.py`（8 例）与 regist
 2026-11-07 那批**带**种子 UUID 的采集（`bootcap-20261107-113650`）是有 console 输出的，
 所以「种子 UUID ⇒ 零字节」尚未坐实，要等 c1（只改这一行）的判决。判决之前，c0 记为
 `invalid-measurement`（测量无效），其余四张记为「未解释」，两者都不能当成「内核没跑」。
+
+## P-210 — 门禁只量一个 defconfig：wifi board 的 Data 卷 UUID 从未被评分
+
+现场：`scripts/check-data-identity.py` 第 31 行是 `CONFIG = REPO / "configs" /
+"mondrian_defconfig"`。它做两件事——把 `CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 和设备真机
+console 里出现过的卷 UUID 对账、把 UFS Data 窗口天花板和 manifest 对账——两件都只对
+**一张** defconfig 生效。wifi board 有自己的 `configs/mondrian_wifi_defconfig`，同样带
+`CONFIG_XNU_OWNER_DATA_MOUNT=y`，于是它从头到尾没被这个门禁看过一眼。种子 UUID 就是这样
+进的正式构建（P-209 的 c0）：`check-defconfig-uuid.py` 是 P-209 之后才补的结构门禁，
+而「配置的 UUID 到底在设备上出现过没有」这半边证据对账，一直空着。
+
+修法：`data_configs(config_dir)` 遍历 `configs/*defconfig` 里所有带
+`CONFIG_XNU_OWNER_DATA_MOUNT=y` 的文件（一个都没有才回落到 `mondrian_defconfig`），
+逐文件判、逐文件点名（失败信息带 `mondrian_wifi_defconfig:` 前缀）；`check_uuid` /
+`check_ceiling` 接受可注入路径，`run()` 返回 `(problems, notes)` 供测试；
+`scripts/tests/test-check-data-identity.py` 9 例覆盖「第二张 defconfig 被评分」
+「没挂载键的文件不算失败」「无 console 跳过」「日志里没有 window 行跳过」
+「天花板不足而失败」「无 manifest 跳过天花板」等。
+
+判决（同轮拿到，把 P-209 的因果又削掉一层）：c1 是把 c0 配方只改一行 Data UUID 的单变量图，
+2026-11-15 上机 `usblog-20261115-231707` = port-not-observed / 0 字节 /
+returnedToFastboot=True。**改对 UUID 也起不来**，所以种子 UUID 只能解释 c0 的一个维度，
+silent 至少有两个独立原因，c1 的死因仍未解释。
+
+三条教训：
+
+1. 找「门禁覆盖不到的第二份」比找 bug 更值钱：一个 `CONFIG = …/mondrian_defconfig`
+   常量就是一处覆盖缺口，而它长得完全像正常代码。
+2. 单变量修复成功 ≠ 原假设成立。c1 把差异缩到一行，结果仍 0 字节——这恰恰是把
+   「种子 UUID ⇒ 零字节」降级为「一个维度」的唯一办法。
+3. 每条判决行必须能回答「哪个文件被读了」。门禁输出不带文件名时，「通过」可能只是
+   「没量」；这也是本门禁所有失败信息都带 `文件名:` 前缀的原因（P-204 同族）。
+
+Check: `python3 scripts/tests/test-check-data-identity.py`（9 例）与 registry `id = "P-210"`。

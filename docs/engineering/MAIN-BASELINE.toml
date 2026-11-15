@@ -210,3 +210,8 @@ note = "P-217：固件构建改从仓库记录的 Mu_Basecore pin 6f805f2 + 五�
 sha = "d399669"
 state = "build-only"
 note = "合入 feat/adsp-handoff-owner 的 PAS1 platform provider（K60AdspPlatform.c/.h + K60AdspPlatformNative.cpp，21 回调；K60HandoffRuntime.cpp:47 首次 acquire 前安装；归档编译表加这两个文件）。改了电池归档的内容，内核字节会变。欠账：native 仍缺板级 ownership/resources/stopped 服务，available=0 继续拒绝 SMC/SMEM/TCSR，需 adsp 线补齐后再构建上机（判据 K60Handoff: published authenticated PAS1 epoch=N bytes=104 flags=15）。"
+
+[[entry]]
+sha = "caad898"
+state = "build-only"
+note = "P-219/P-220。P-219 把 osfmk/arm/io_map.c 的 IO_MAP_SIZE 从 8 MiB 提到 32 MiB：全内核共享这一个 IO 子图，K60 各驱动实测已占 7.23 MiB，蓝牙阶梯再要 1 MiB TLMM 窗口就会在 k60_bt_power_on() 里 kmem_alloc(io_submap, ..., KMA_NOFAIL) panic，现象是控制台起来前的 0 字节日志（bt-d4-late 铁证 usblog-20261116-055237:486）。P-220 修 check-build-applied.py 的 fallback：补丁名集合不同的存根属于别的分支，必须 skip 而不是判红。改了 patches/xnu/series 与内核字节，欠账：需要用这一版重建 bt-d5（全量 0005 + pong_bt_late=1）上机确认不再 panic。"

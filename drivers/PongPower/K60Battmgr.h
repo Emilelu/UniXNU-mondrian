@@ -50,8 +50,9 @@ typedef struct {
 } K60BatterySample;
 
 /* sign: +1 wire charging-positive, -1 discharge-positive, 0 unqualified.
- * reply type/length must be measured, not inferred from Linux's loose ACK.
- * A zero reply length disables subscription; real polling remains available. */
+ * reply type/length are measured from the ADSP opcode-0x04 handler, which
+ * answers 16 bytes with type 1 (docs/research/charger/06-SUBSCRIPTION-CONSTANT.md);
+ * a zero reply length still disables subscription, real polling remains. */
 void k60_battmgr_init(K60Battmgr *, int sign, unsigned reply_type, unsigned reply_bytes);
 void k60_battmgr_channel_up(K60Battmgr *);
 void k60_battmgr_channel_down(K60Battmgr *);

@@ -5099,3 +5099,46 @@ P-208 的判决只在显式给了 `--kernel` 时成立（`build-strict.sh` 构�
 Check: `python3 scripts/tests/test-check-kernel-archives.py`（10 例，含
 `a_guarded_call_site_that_compiled_away_fails` /
 `a_guarded_call_site_that_compiled_in_passes`）与 registry `id = "P-208"`。
+
+## P-209 — 五张「silent」镜像同一个 defconfig 单行错误：指名了 32 MiB 种子的 Data UUID
+
+现场：2026-11-15 wifi 线连续五张图（`wifi-20261116mhi3` / `mhi4` / `wifi-20261115z0` /
+`wifi-20261116t2` / `wifi-20261116c0`）全部表现为「0 字节 + port-not-observed + autoreset
+回 fastboot」。围绕这份空日志长出四套理论：镜像尺寸、`__TEXT,__const` 多出 11.77 MB、
+固件驻留（`__TEXT` vs `__DATA`）、DarwinBoot pool 窗口。真因只有一行：
+
+```
+configs/mondrian_wifi_defconfig:
+  CONFIG_XNU_OWNER_DATA_VOLUME_UUID="6DCCF70A-6FD6-403E-ACED-95313CD7CBB8"
+```
+
+`6DCCF70A-…` 是仓库 `seed/k60-data-seed.dbr` 那个 32 MiB 内存盘里的 OwnerData 卷；
+真机 Data 卷是 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`
+（`docs/plans/MONDRIAN-OFFICIAL-PAGES.md:564`：「当前仓库实际 Data UUID 1BCD69FF-…」）。
+指名种子 UUID 的后果 2026-11-12 就量过并记在 PITFALLS 3811-3818：
+`PONG APFS: wait for Data UUID 6DCCF70A…, timeout=5s` →
+`K60DATA UFS Data window not published` → `dataerr=2` 自 panic at `kern_exec.c:8463`。
+`mondrian_wifi_defconfig` 与能起的 `mondrian_defconfig` 只差四行（缺 `GPU_ADDON`、
+缺 `K60_PHYSICAL_BATTERY`、这一行 UUID、多 `PONG_WIFI`），其中只有 UUID 会让内核在
+**根挂载阶段**死掉。
+
+为什么表现成「零字节」而不是一段带 panic 的日志：USB 控制台在 `vfs_mountroot` 之后才起来。
+对照能起的 `adsp-20261115e`（3,312 行）：第一条 `K60 USBLOG` 在 ~470 行、`K60DATA mounted`
+在 ~484 行。任何死在根挂载之前的图都没有任何 USB 输出——与「内核根本没跑」不可区分。
+
+教训：
+
+1. 一条线**所有**镜像都 silent 时，第一个动作是 diff **构建配置**（defconfig、`board.toml`、
+   `build-manifest.json` 的 `payload_args`），不是 diff 内核版式。四套假说都建立在同一份
+   空日志上，等于零信息；`payload_args` 逐张对齐那一步做完，「参数缺失」当场出局。
+2. 「零字节」不是证据，是缺证据。凡是在根挂载之前就能死的缺陷（卷 UUID、owner 挂载、
+   Data 窗口、UFS 窗口），在 USB-only 采集下只能表现为零字节；判据必须写明
+   「本条不可用 0 字节日志判定，先修采集或先 diff 配置」。
+3. 别名型常量必须让门禁认得出：种子 UUID 与真机 UUID 都是 36 字符，肉眼看不出对错。
+   门禁 `scripts/check-defconfig-uuid.py`：defconfig 里出现种子 UUID 必须带
+   `# SEED-UUID: intentional` 标记（试种子的实验构建确实该指名它），否则硬失败；
+   未知 UUID 只提示不判死（P-194 形状：门禁不认识的东西不能自己造判决）。
+4. 计数型佐证（`grep -c`、`strings | grep -c`）在这类问题上全是噪声：五张图都「没有任何
+   wifi 日志」，因为它们都死在控制台之前。判据要指向具体对象的生命周期行（P-204）。
+
+Check: `python3 scripts/tests/test-check-defconfig-uuid.py`（8 例）与 registry `id = "P-209"`。

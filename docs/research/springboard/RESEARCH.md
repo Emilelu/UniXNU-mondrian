@@ -135,3 +135,18 @@ CarKit soft link（已定位：公开路径不存在，20G81 只有 PrivateFrame
 - `userland/ui_compat.c:636/642/659/686/720/729/733/737/738/741` 壁纸选择日志与 SKIP 分支。
 - `patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978` installer 替换（P-182/P-198）。
 - `docs/ops/PITFALLS.md:325-341` P-27；`:1132-1139` P-75；`docs/engineering/PITFALLS.md` P-198。
+
+## 8. 结案（Lead 2026-11-15 批准转归档，worktree 保留）
+
+**结论口径**：verdict = `half` + 用户目视确认壁纸可见 ⇒ **达成，不追 F2/F4**。依据：0618 种子路线（第 1/2/4 步）与 OS 窗路线（第 5 步）互斥（§4 互斥段）；带 `k60_wallpaper_reset=1` 的验证镜像走 OS 窗路线，第 1/2/4 步的 SKIP 不构成欠账。判定器对 a 日志（`usblog-20261115-132805/console.log`，3,263 行 / SpringBoard 134 行 / 无 panic）的六步：FAIL 1/2（resid 判据回归，旧 0618）→ §1、PASS 3、FAIL 4 → §2、PASS 5（`submitting genuine wallpaper 7410 native lock+home`）、EYES 6。
+
+**已交付镜像与 boot-arg**：
+- `springboard-20261115a`：boot.img 201,887,744 B，sha256 `5c6ce1d474ce6e4f19deb00dec38deb87a9e03b642b55e89ad5b6e815a73c2f5`；series 225 / `aba3b40a…`；构建命令 `scripts/build-strict.sh springboard-20261115a --fd /mnt/e/k60-work/artifacts/fd/springboard-20261115a-cf4485712c29.fd --kernel-arg k60_wallpaper_reset=1`；上机方式 `fastboot boot`（Lead 执行，未写分区）。
+- `k60_wallpaper_reset=1` 语义：**仅验证镜像使用**——每次启动重选壁纸并直走 OS 窗路线提交 7410；常规镜像不带该 arg（保留用户壁纸）。出常规镜像时在 0618 头注写明这一语义。
+- `springboard-20261115b`（boot.img sha256 `32723da1…`）是 resid 修复（5e88609）后重建的**留档证据**：`hardware_tested=false`、**不上机**；构建头是 5e88609、不含 3ea8d71 的 identity seed，不能当交付镜像，只作「resid 修复已进镜像」的证据。
+
+**未做与为何未做**：
+- F2/F4：closure 口径下不做（两条路线互斥，见上）。
+- 小组件/appex 零 spawn：离线收窄版已交付 `APPEX-REGISTRATION.md`（C1 最小 XPC 客户端触发 installd / C2 lsd.rebuild / C3 静态播种 .csstore 不可行 / C4 接受无小组件），未上机。
+- 三条 SpringBoard 噪声（backdrop invalid size / Unbalanced calls / CarKit soft link）：见 WALLPAPER-CHAIN §5.2，不是壁纸纯黑原因，未处理。
+- 「换壁纸后进不去系统」的原始日志：**始终没找到**；此线索随本线归档保留，等拿到日志再开（Lead 会明确说「重启」）。

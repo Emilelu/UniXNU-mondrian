@@ -97,11 +97,25 @@ closure: steps 3-4 cover the bindfs overlay only; userland/ui_compat.c:690 submi
 
 **升级路径**：`success` + 像素可见 ⇒ 立即出常规镜像 springboard-20261115b（无 `k60_wallpaper_reset`），并把 0618 注释里「每次启动重选」改为「仅验证镜像使用」（Lead m01858）；`half` 按上表 A/B/C 分支处置；`dead` ⇒ 镜像没带 0618（先核 tag 与 `strings` 计数）。
 
-## 5. 桌面小组件（挂账，不在本线）
+## 5. 桌面小组件（2026-11-15 取证修正；仍不在本线判据内）
 
-`userland/build.py:40-45` BOOT_SKIP 有意跳过 `com.apple.chronod`（widget 扩展发现反复超时），加上 varpack/OS 窗都不含
-`/private/var/mobile/Library/SpringBoard/`（PosterBoard 的状态目录），小组件首启必然缺失。
-恢复 chronod 是独立项（WALLPAPER-CHAIN §4 F5），不与本线判据混判。
+**旧结论作废**：「`userland/build.py:40-45` 的 BOOT_SKIP 跳过了 chronod」不成立——设备上 chronod 被拉起了。
+
+| 步骤 | 日志证据（`usblog-20261115-003207/console.log`） | 结论 |
+| --- | --- | --- |
+| chronod exec | `KE 107 109 xpcproxy …/ChronoCore.framework/Support/chronod`（:1230） | **起来了**（`KE` 由 0235 patch 打印，按路径去重只报首 exec） |
+| chronod 存活 | `K60RV 4 chronod[109] mem=4864 …`（:2364） | 活到资源记账（`K60RV` 每进程最多一次，不能用来数次数） |
+| 健康启动无退出 | 无 chronod 的 `KX!` 行（`-012317` 同）；`-013520:2339` 的退出与 SpringBoard 同 pc/lr（:2342/:2352） | 那次是同机 backboardd 崩溃后的整机杀进程 |
+| widget 扩展 | `appex\|Extensions/\|WidgetKit` 全文 **0 命中**；`KE` 126 条无 `.appex` | **零 spawn** |
+| 发现流程 | `Discovering all extensions`（:2798）+ `Discovery completed`（:2799） | 跑完了，结果为空 |
+| 注册库 | OS 窗 `.csstore` 0；`private/var/mobile/Library/` 无 `SpringBoard`；varpack 无 `launchservices\|installation\|csstore` | **LaunchServices/MobileInstallation 注册链缺失** |
+| 触发者 | `^KE .*(installd\|pkd)` 0 命中（只有 `lsd`、`SpringBoard`） | 按需 daemon 从未被触发 |
+
+**为什么 BOOT_SKIP 没生效**：它只删 `scripts/prepare-linux.py` 产出的策展集（`parse_constants()` 从 build.py/mkjobs.py 读策略），该策展集要 bindfs 到 `/System/Library/LaunchDaemons`，而这条 bindfs 在密封根 EPERM（`Pong init: boot view … result=-1 errno=1`，:522；P-27）⇒ launchd 读的是 OS 窗原始 plist，chronod 的原始 job（`KeepAlive.Crashed`、无 `RunAtLoad`、三个 `distnoted` LaunchEvents）照常生效。
+
+**素材不缺**：OS 窗有 603 个 `.appex`（含 `AppStoreWidgetsExtension.appex`、`BatteriesWidgetExtension.appex`），`ChronoCore.framework`/`ChronoKit.framework` 齐全。缺的只是注册数据。
+
+⇒ 小组件空白的真因是**注册/发现链缺数据**，不是启动时序；修复落点与判据见 `WALLPAPER-CHAIN.md` §4 F5（含「F5 原方案没有对象」的说明）。本线判据（§0 六步）不因此改变。
 
 ## 6. 三条 SpringBoard 噪声（低优先，逐个排）
 

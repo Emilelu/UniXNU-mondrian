@@ -12,7 +12,7 @@
 1. **OS 窗口里 `/Library/Wallpaper` 完整存在**（7z 实测 `/opt/k60/osroot/os.raw`：目录、9 个 `.wallpaperCollection`、Stills/iPad 下 17+ 个 `.wallpaper` bundle，含 7410 WWDC 2022）。"壁纸源从未部署"只说对了一半：真正缺的是 **Data 侧视图目标目录 `/private/var/pong/stock-wallpaper`**——设备上跑的 init 从不创建它。
 2. **上机两行 SKIP 发生在 mount 之前**：init 的两道 guard（`userland/init.c@2101281:368-371`、`:373-378`）直接 `continue`，日志既不能证明 bindfs 可用、也不能证明不可用。bindfs 在密封只读根上 EPERM 另有独立证据（P-27）。
 3. **纯黑的主因不是 SKIP，而是"没有任何代码去选壁纸"**：设备上的 `libpong-ui.dylib` 对应 `ui_compat.c@50f4644`（28 条 Pong UI 消息与嵌入 blob 完全匹配），**不含** `select_initial_wallpaper()` / `existing_wallpaper()`（HEAD 才有）。WallpaperKit 的默认目录又按设备名与精确 `logicalScreenClass` 筛选，phone 界面无法自动命中 iPad 素材（P-75）。修复 = 部署 HEAD 版 UI 库并在恢复镜像里带 `k60_wallpaper_reset=1` 启动一次（本文 §4 F1，已 host 编译并嵌入 0340）。
-4. **桌面小组件加载不出来 = `com.apple.chronod` 被有意跳过**（`userland/build.py:40-45` BOOT_SKIP："widget extension discovery repeatedly times out before the first UI"，v80 REC），widget 扩展发现永不执行；PosterBoard 虽在 boot-jobs 里，但 Data 侧 `/private/var/mobile/Library/SpringBoard` 从未播种，首启为空。
+4. **桌面小组件加载不出来 ≠ chronod 被跳过（2026-11-15 日志取证修正）**：设备上 chronod **确实被拉起**（`KE 107 109 xpcproxy …/ChronoCore.framework/Support/chronod`，`usblog-20261115-003207/console.log:1230`）并活到资源记账（`K60RV 4 chronod[109] …`，`:2364`，健康启动无 `KX!` 退出行）；`userland/build.py:40-45` 的 BOOT_SKIP 在设备上**不生效**——它只删 `scripts/prepare-linux.py` 策展集里的 job，而策展集要 bindfs 到 `/System/Library/LaunchDaemons`，该 bindfs 在密封根 EPERM（`Pong init: boot view /private/var/pong/boot-jobs -> /pong/LaunchDaemons result=-1 errno=1`，`:522`；P-27），launchd 读的始终是 OS 窗原始 plist。真因是 **widget 扩展（appex）一个都没被 spawn**：全日志 `appex|WidgetKit|Extensions/` 0 命中，`KE` 126 条无任何 `.appex`，只有 `Discovering all extensions`（`:2798`）紧跟 `Discovery completed`（`:2799`）；OS 窗有 603 个 `.appex`，但 LaunchServices/MobileInstallation 注册库（`.csstore`/安装记录）在 OS 窗与 Data 窗都不存在，`installd` 与 `pkd` 从未 exec。⇒ 修复方向是播种注册链/触发 installd 扫描，不是延后启动 chronod（§2.6、§4 F5）。
 5. **"换壁纸后进不去系统"缺当次日志**：本工作区穷尽搜索未找到 Lead 引用的 528-529/2241/2247/2257 行号的那份 `console.log`；现有唯一日志是 2026-11-03 的 `docs/research/evidence/springboard-truth.txt`（无任何 wallpaper 行）。本文给出两条候选机制与下次上机应抓的判据。
 
 ---
@@ -91,9 +91,13 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ### 2.6 桌面小组件链
 
-- `userland/build.py:40-45` BOOT_SKIP：`'com.apple.chronod': 'widget extension discovery repeatedly times out before the first UI'`（v80 REC 记录：急切发现会反复启动永不 check-in 的进程再被杀）；`:178` 打印 `Pong boot: …`。
-- var.pack（14,526 B，count=133）无任何 SpringBoard/poster/wallpaper 条目；OS 窗 `/private/var/mobile/Library` 无 SpringBoard 目录 ⇒ PosterBoard 的 Data 侧状态目录首启为空、由进程现场创建。
-- ⇒ 小组件加载不出来：**chronod 被跳过**是明确的一手原因；PosterBoard 状态目录缺失是第二因素。
+**（2026-11-15 上机日志取证，推翻旧结论）**
+
+- **chronod 起来了**：`KE 107 109 xpcproxy /System/Library/PrivateFrameworks/ChronoCore.framework/Support/chronod`（`usblog-20261115-003207/console.log:1230`；`-012317:1395`、`-013520:1219` 同形），并活到资源记账 `K60RV 4 chronod[109] mem=4864 …`（`:2364`；`-012317:2525`）。健康启动里没有 chronod 的 `KX!` 退出行；`-013520:2339` 的 `KX! 24 109 chronod exit=255` 与 `:2340 KX! 25 26 SpringBoard exit=255` 同 pc/lr（`:2342`/`:2352`），是 backboardd 崩溃（`:2338`/`:2145`）后整机被杀的同一次事件，不是 chronod 自崩。
+- **BOOT_SKIP 在设备上不生效**：`userland/build.py:40-45` 的 `BOOT_SKIP` 只作用于 `scripts/prepare-linux.py` 产出的策展集（`parse_constants()` 用 ast 从 build.py/mkjobs.py 读 CORE/BOOT_SKIP/RESTORED_SOFTWARE/TRIGGERS/DENY，写 `pong/LaunchDaemons`），该策展集经 `/private/var/pong/boot-jobs` 由 init bindfs 到 `/System/Library/LaunchDaemons`——**bindfs 在密封根 EPERM**（`Pong init: boot view /private/var/pong/boot-jobs -> /pong/LaunchDaemons result=-1 errno=1`，`:522`；P-27）。launchd 读的始终是 OS 窗原始 plist，所以 chronod 的原始 job（`KeepAlive.Crashed=true`、无 `RunAtLoad`、`LaunchEvents` 三个 `com.apple.distnoted.matching`）照常生效。
+- **真因：appex 一个都没被 spawn**。`usblog-20261115-003207` 全文 `appex|Extensions/|widgetextension|WidgetKit` **0 命中**，`KE` 126 条无任何 `.appex` 路径；唯一的扩展发现痕迹是 `Discovering all extensions`（`:2798`）紧跟 `Discovery completed`（`:2799`）——发现流程跑完、结果为空。
+- **素材齐全但注册链缺失**：OS 窗有 **603 个 `.appex`**（含 `Applications/AppStore.app/PlugIns/AppStoreWidgetsExtension.appex`、`Applications/Batteries.app/PlugIns/BatteriesWidgetExtension.appex`），`ChronoCore.framework`（`Support/chronod` 65,184 B、`WidgetPreviewsExtensionAgent.bundle`、`WidgetPreviewsSupport.framework`）与 `ChronoKit.framework` 都在；但 **LaunchServices/MobileInstallation 注册库不存在**：OS 窗 `.csstore` 0 命中，`private/var/mobile/Library/` 无 `SpringBoard` 目录，`private/var/db/` 无 PlugInKit/ExtensionKit 目录，varpack 里 `launchservices|installation|springboard|csstore` 也 0 命中。boot-jobs 里有 `com.apple.mobile.installd.plist` 与 `com.apple.pluginkit.pkd.plist`，但两者**从未 exec**（`^KE .* (installd|pkd|pkreporter)` 0 命中，只有 `lsd` 与 `SpringBoard`）——按需启动的 daemon 没有触发者。
+- ⇒ 小组件加载不出来 = **widget 扩展注册/发现链缺数据**（无 LaunchServices 注册库 ⇒ discovery 结果为空 ⇒ 没有 appex 可拉起），不是「chronod 被跳过」，也不是启动时序。PosterBoard 状态目录缺失是第二因素。修法见 §4 F5。
 
 ### 2.7 "换壁纸后进不去系统"
 
@@ -186,7 +190,15 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ### F5（小组件）— 恢复 chronod 需单独立项
 
-- 去掉 `build.py:40-45` 的 BOOT_SKIP 会回到 v80 REC 记录的"反复启动、永不 check-in、被杀"循环；建议先修 widget 扩展发现超时再恢复，不在本线最小修复内。
+**2026-11-15 取证后重写：F5 原方案（延后 bootstrap chronod）没有对象。**
+
+- 前提已破：chronod 在设备上已被拉起（`KE 107/108`）、活到 `K60RV` 记账、健康启动不退出（§2.6）。`build.py:40-45` 的 BOOT_SKIP 在设备上根本没生效（策展集的 bindfs 失败，P-27），所以「跳过 chronod」这个因果链不成立。
+- 真因是 widget 扩展（`.appex`）零 spawn，因为 LaunchServices/MobileInstallation 注册库在 OS 窗与 Data 窗都不存在，`installd`/`pkd` 从未被触发（§2.6）。
+- 若要继续 F5，正确落点是**播种注册链**，两条候选：
+  1. 让 `installd` 真正跑一次：它按需启动（`com.apple.mobile.installd.plist` 在 boot-jobs 里），需要一个 `MobileInstallation` XPC 客户端触发；触发者可做成内核侧一次性调用或 init 侧 fork+exec 一个小客户端（libmini 有 `fork`/`execve`，但无 XPC 客户端，需自写最小 stub）。
+  2. 直接播种 LaunchServices 数据库：`/private/var/mobile/Library/Caches/com.apple.mobile.installation.plist` 与 `LaunchServices` 的 `.csstore` 由 installd/lsd 现场生成，无法凭空伪造（格式未公开、含 bundle 指纹）——所以候选 1 是唯一现实路径。
+- 判据（若做）：日志出现 `KE … installd` 或 `KE … pkd`，且出现至少一条 `.appex` 路径的 `KE` 行；再往后 `chronod` 侧出现 widget 扩展的拉起与 check-in。**若 installd 起来但 appex 仍零 spawn**，那是 widget 扩展 ABI/沙盒问题，与注册链分开记。
+- 工作量与风险：需要新内核补丁或 init 侧 stub + 上机多轮；不在本线最小修复内，且必须等壁纸线（springboard-20261115a）结论先落地。
 
 ---
 

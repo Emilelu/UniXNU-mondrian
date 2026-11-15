@@ -163,6 +163,7 @@ may cite them as proof that the driver runs.
 | **T1** | `wifi-20261116mhi5` (ready, 117,305,344 B, `pong_wifi=1`) — only after T0 boots | S1+S2 on the full wifi stack, and retires the stale confound | the MHI handshake logs become the next evidence | blob/loader interaction confirmed without the driver |
 | **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) — **only if T0 is silent** | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
 | **T3** | `wifi-20261116c0` — **flown 2026-11-15 21:32: silent (0 B console, `usblog-20261115-213221`)**; 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | **invalid config, not a layout datum** (`6DCCF70A…` seed UUID, P-152) → §3e |
+| **T4** | `wifi-20261116c2` (built 2026-11-15 23:35, not flown) — baseline config + `PONG_WIFI=y`, container in `__DATA_CONST` (§3f) | whether `__TEXT` placement/size is the killer once the config is one that boots | `__TEXT` growth is the killer — the only trait every silent wifi image shares | placement irrelevant → c3: the same image with a 64 KiB container stub |
 
 The scope narrowing is deliberate: `__TEXT,__const` is `0xb38ed6` in z0, mhi5
 **and** the 65.9 MB mhi4 kernel, so "blob lives in `__TEXT`" is not by itself
@@ -197,6 +198,14 @@ P-152 that is a self-panic inside the root mount — before `k60_usblog_start()`
 the 0-byte capture is the expected output — and only c0 carries it. The 117 MB
 family (z0, t2, mhi5d) all embed the real UUID, so **their silence is still
 unexplained** and the layout question is open for them, not answered by c0.
+
+c1 repeated the c0 shape with the correct UUID and was silent as well
+(`usblog-20261115-231707`, 0 bytes), so the seed UUID explains c0 only: it does
+not account for the 117 MB family, and the Lead reads c1 as an invalid
+measurement of the layout question rather than as a failed UUID fix. What all
+six silent images share is `CONFIG_XNU_PONG_WIFI=y`; every image that boots is
+the baseline shape. c2 (§3f) splits that in one variable: the booting config,
+the container moved into `__DATA_CONST`, the driver still linked.
 
 ## 3a. The T0 control image (built 2026-11-15 03:49)
 
@@ -443,6 +452,72 @@ read cleanly:
   still need their own explanation;
 - silent → the wifi defconfig has a second killer, and the next split is the
   booting family's exact shape (`GPU_ADDON=y` plus `PHYSICAL_BATTERY=y`).
+
+## 3f. c2: the 117 MB image with the container moved off `__TEXT` (built 2026-11-15 23:35, not flown)
+
+After the c1 flight the Lead's matrix reads: every image that returns 0 bytes
+carries `CONFIG_XNU_PONG_WIFI=y`, and every image that boots is the plain
+baseline shape (GPU addon in `__DATA`, no PWF2 container). Size, kernel
+arguments, blob residency and the Data UUID are each excluded by a flight, so
+what `PONG_WIFI=y` adds is the remaining variable: (1) the 11,767,510 B PWF2
+container inside `__TEXT,__const`; (2) the MHI/PARF driver and its const data,
+which `pong_wifi=0` gates at initialisation but does not unlink.
+
+c2 separates (1) from (2) by starting from the configuration that boots:
+`configs/mondrian_defconfig` (GPU addon, physical battery, the correct
+`1BCD69FF` Data UUID) plus `CONFIG_XNU_PONG_WIFI=y` through
+`XNU_PONG_WIFI=1` and `XNU_PONG_WIFI_ARCHIVE`, with the T2 one-line diff
+(`.section __DATA,__const` in `scripts/build-k60-wifi-native.py`). Against
+mhi5 and z0 the only difference is which segment holds the 11,189,974 B
+container; against the booting baseline the difference is the container plus
+the driver.
+
+| field | value |
+|---|---|
+| kernel | `24ebc11c80afb022d93e8926b2bcbfd7e31aaabdafd4eef8151d27cd74e33f3d`, 117,305,344 B |
+| payload kernel | `92c0ca3a03d0001f339b773db7bec426b941d7839b8877faf9119f341b5f66d9` |
+| payload ADT | `c354390d9c1034b70efa5ad85b698b13c7596a621cbf177edf7c29a833e01a1f` |
+| `boot.img` | `dc7e4186f7378cea0cc6e9a3755609370a9b651983aa47375ee1099c5ad057e5`, 201,887,744 B |
+| series | 224 / `34cf51e4…` |
+| args | 30, 587 B, last `pong_wifi=0`; `kernel_args_requested = ["pong_wifi=0"]` |
+| window | `0x120000000` (u64 at property name + 36 B) |
+| wifi archive | `de3f48a53f1ff17c1ad4f4b36561f6ffb5c9edc114b539416f11cfd7465dc399` |
+| gates | 4 archives present, metal blob self-consistent, image-arg-audit OK, verify-boot-image OK, eight-step 30 |
+
+`build-manifest.json` records `gpu_addon` as empty here, because that field
+only mirrors an explicit `--gpu-addon` argument; the plugin is embedded by the
+build itself, which the kernel proves: `_k60_metal_blob` symbols (`__DATA,__const`) and
+the strings `PongMetalBridge` ×4, `libvulkan` ×6, `AGXMetal` ×6.
+
+### The single variable, measured on the payload kernel
+
+| segment / section | c2 (117,305,344) | mhi5 / z0 (117,305,344) | bt-s4c-c (105,508,864) |
+|---|---|---|---|
+| `__TEXT` | 1,802,240 | 12,992,512 | 1,720,320 |
+| `__TEXT,__const` | 574,905 @0x32c0 | 11,767,510 @0x2000 | 548,936 @0x19e0 |
+| `__DATA_CONST` | 12,124,160 | 933,888 | 917,504 |
+| `__DATA_CONST,__const` | 11,919,062 @0x1b9000 | 725,192 @0xc65000 | 705,480 |
+| `__DATA` filesize | 51,576,832 | 51,576,832 | 51,576,832 |
+| `__TEXT_EXEC` | 8,798,208 | 8,798,208 | 8,388,608 |
+| `__LINKEDIT` | 6,668,288 / 6,664,608 | same | 6,569,984 / 6,569,232 |
+| PWF2 container | 1, at 0x26b000 (`__DATA_CONST`) | 1, at 0x8f000 (`__TEXT,__const`) | none |
+
+The container is intact, not a stub: header count 6, records are
+`name[32] + u32 offset + u32 size` (stride 40), payload starts at container
+offset 0x1000, and the six records (amss.bin 5,470,128; amss20.bin 5,296,128;
+bdwlan.elf 59,932; bdwlang.elf 59,936; m3.bin 266,684; regdb.bin 24,278) end at
+11,189,974 B, exactly the `_pong_wifi_firmware` → `_pong_wifi_firmware_end`
+span (0xaabed6). The second naked `PWF2` hit at 0x1965f6 is a `__cstring`
+coincidence: its count field reads 1852788736, so it is not a second container.
+
+### What each outcome means
+
+- boots (K60DATA mounted, SpringBoard ≥ 100 lines) → the killer is the
+  `__TEXT` placement or the 11.19 MB `__TEXT` growth, which is now the only
+  trait every silent wifi image shares;
+- silent → segment placement is irrelevant and the next split is c3: the same
+  image with a 64 KiB truncated container that keeps the PWF2 header and the
+  six-record table but drops the payload.
 
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 

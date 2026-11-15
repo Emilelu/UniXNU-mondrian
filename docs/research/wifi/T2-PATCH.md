@@ -11,6 +11,10 @@ deliberately **not** being made; §5.0 stays as the record of what was
 measured. Nothing here runs on its own and it is deliberately **not** part of
 `patches/wifi/series`.
 
+The same one-line diff was reused by `wifi-20261116c2` (§3f in
+`BOOT-DEATH-SUSPECT.md`): this time the base configuration is one that boots,
+so the moved container is the only difference against the booting baseline.
+
 Rationale, measurements and the falsification logic live in
 `docs/research/wifi/BOOT-DEATH-SUSPECT.md` §2 (S1) and §4.
 

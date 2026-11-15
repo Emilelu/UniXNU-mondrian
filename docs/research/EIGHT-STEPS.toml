@@ -251,7 +251,7 @@ success = "K60 DISPLAY: first frame presented (swap 1) 且 K60 PANEL: bring-up c
 failure = "只有 PANEL 没有 first frame，或首帧后 vcputc 继续在画面上刷字符（说明没释放 boot console）"
 [hardware.brightness]
 status = "active"
-paths = ["drivers/PongAdreno/K60Backlight.cpp", "drivers/PongAdreno/K60BacklightCodec.h", "scripts/check-brightness-encoder.py", "patches/display/"]
+paths = ["drivers/PongAdreno/K60Backlight.cpp", "drivers/PongAdreno/K60BacklightCodec.h", "scripts/check-brightness-encoder.py", "scripts/check-backlight-log.py", "patches/display/"]
 why = "OS 级亮度服务：发布 IODisplayParameters 让 CoreBrightness 驱动面板 DCS 0x51 在线 DBV（K60 无背光 IC）"
 
 [hardware.brightness.step.same_model]

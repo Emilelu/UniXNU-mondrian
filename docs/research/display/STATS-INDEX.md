@@ -50,6 +50,30 @@
 | `k60_backlight_control=1` | 4 | 1 | 1 | 同上，但 `conformance …=1 control=1`；**brightness-4 就是这一行之后 backboardd 连崩 4 次**，所以默认关 |
 | `k60_backlight=0` | 未初始化（0） | -1 | -1 | 服务完全不启动，屏幕停在 bring-up 的 0xff |
 
+## 归因链：四张图各自排除什么
+
+| 镜像 | pong_metal | backlight-control | backboardd | 排除掉的假设 |
+|---|---|---|---|---|
+| gpu-20261114t | 1 | 1（发了） | 崩 16 次 | —— 基线对照，metal 1 + control 1 |
+| brightness-4 | 2 | 1（发了） | 崩 4 次 | 崩因不是 metal 从 1 换到 2 |
+| brightness-9 | 2 | 0（默认不发） | 待测 | 若崩 → 与发布层无关（control 已关） |
+| brightness-10 | 2 | 1（真 conformance 通过才发） | 待测 | 若崩 → 崩因就是「发 control 本身」 |
+
+判读规则：
+
+- **9 崩** → 崩因与背光发布层无关（它在 4 上唯一多做的一件事已经被关掉），
+  共同项只剩 metal 侧（0610 挂载 / pong_metal=2），交 GPU 线；
+  本线把默认形态定为交付形态。
+- **9 过、10 崩** → 崩因就是「发布 backlight-control 这个属性」本身，
+  与 conformance 是否成立无关（10 只在 conformance 查询答 true 时才发）。
+  这正是 int-236 的精确形态，P-62 的保守结论维持，A 形态交付。
+- **9 过、10 也过** → CoreBrightness 可以接管，后续可做 iPadOS 27 的
+  brightness-nits 路径。
+
+用 `python3 scripts/check-backlight-log.py <console.log> [--control=1]`
+可以直接把一份 console.log 判成 PASS / FAIL / INCONCLUSIVE，判据就是本文件
+与 HANDOFF 里那几条；脚本自带 7 个 fixture 自测（`--selftest`）。
+
 ## brightness-9 与 brightness-4 的唯一差异（为什么两张都要飞）
 
 两张图的**唯一差别**是 `k60_backlight_control` 的默认值，以及随之生效的 conformance 门：

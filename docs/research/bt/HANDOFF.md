@@ -634,6 +634,22 @@ This line, next in order:
       25 行 `k60_adsp_blob.s`、30 行 `k60_bt_blob.s`。
     - 教训：**给同一文件追加行时，先看后面还有没有补丁锚在同一段上下文**；插在「列表末尾附近没人引用的一行之后」
       永远比插在中间安全。
+19. **d1 实飞：仍 silent，SMMU 路径被排除（2026-11-16 04:19）**
+    - Lead 实飞 `bt-d1-smmu`（boot.img `bd1f5bc6…45b5`、kernel `d40ae0b9…`、series 232 /
+      `dcc7bb45d311dc5f`、blob `febdc20d…`、args `['k60bt=1','pong_bt_smmu=0']`、head `eb3cd83`）：
+      证据 `E:\k60-work\evidence\usblog-20261116-041744`，`port-not-observed`、`bytes=0`、
+      `complete=False`、`returnedToFastboot=True`，supervisor rc=2，端口 84 s 内从未出现；
+      `record-boot.py` 正确拒记（0 SpringBoard 行）。
+    - 判读：关掉 `k60_smmu_bypass()` 一样静默 ⇒ **SMMU / stream-mapping（S4-SPEC §7.3 假设 a）排除**。
+      与 wifi 线的「lease 抢在分配之前」不是同一段代码，两个结论不冲突。
+    - 下一步（Lead 指定，一次一张）：d2 = 全量 0005 + `pong_bt_rcg=0`（假设 b：共享 RCG 复位停掉
+      UFS 参考时钟）、d3 = 全量 0005 + `pong_bt_noboot=1`（假设 c：固件下载整段不跑）。
+      每张与 d1 同形：同 series（232）、同 blob、manifest 带 `namespace`、args 只多一个开关；
+      出图后只报 tag + boot.img sha，由 Lead 飞。
+    - Lead 另外两条规矩：① 以后往 `osfmk/conf/files.arm64` 加行一律加在**文件末尾独立 hunk**，
+      不要贴着别人的行（0510×0620 撞车的通用教训）；② `dc57e6c` 与
+      `scripts/tests/test-series-fingerprint.py` 要两边都断言 `namespace` 字段，d 系列跑完后对齐，
+      由 Lead 合进 main。
 
 
 

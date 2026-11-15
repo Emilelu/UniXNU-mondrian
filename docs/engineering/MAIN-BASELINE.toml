@@ -118,3 +118,15 @@ sha = "277e09e"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "bt 线 S4a 的 addon 通道：scripts/make-bt-firmware-addon.py 打 NGPUADD2 容器，内核没链 zlib 所以记录不压缩；build-strict.sh 增加 --gpu-addon 转给 payload 步骤并把 sha256 与大小记进 manifest；.gitignore 只保留 firmware/bluetooth/manifest.json。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：bt-s4a-20261114f 上机，判据 addon loaded bytes records 1027584 106。"
+
+[[entry]]
+sha = "8dcbbfa"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "P-202：修两处构建/门禁 bug。一是 build-strict.sh 在 .config 缺失时用 sed 读两个 CONFIG_* 会得到空串，GPU_ADDON 与 BATTERY_ON 双双静默关掉，而脚本头部承诺 no silent fallbacks——现在缺 .config 直接 die 并打印生成命令（守卫放在八步门禁之后，不改变 gate 先跑的契约）。二是 check-kernel-archives.py 的 find_kernel 原来按路径排序取第一个，会把上次构建留下的旧 kernel.macho 当成这次的，于是 P-190 报真实内核里存在的符号缺失；现在按 mtime 取最新，多于一个时提示用 --kernel 明确。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：无，两处都是门禁/构建脚本自身逻辑，不改变内核或镜像内容；下一次 strict 构建会自然带上它。"
+
+[[entry]]
+sha = "9a2a74f"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "取 yibiya 的 fcc998f0 面板节拍打点：PongDsiPanel.cpp/.h 与 PongAdrenoScanout.cpp 三个文件是本轮 77 个新提交里唯一 ours_only=0 的（逐字节取，14,936 / 1,093 / 9,630 B），新增 pong_panel_sample() 由 PongAdrenoScanout.cpp:171 每帧调用。顺带把新 boot-arg gprobe 写进 BOOT-ARGS.md 与 check-image-args.py 的 ALLOWED_ADDITIONS（hard-8/P-156），并把 27 个提交按文件级审阅结果记进 UPSTREAM-TRIAGE.toml（5 纯文档不适用 / 22 暂缓带测得原因 / 3 个新分支登记水位）。登记原因是该提交改了 drivers/ 下会进镜像的文件，铁则 9。欠账：该镜像尚未上机，判据是 gprobe=1 时出现 K60 CADENCE 行、gprobe 缺省时一行都不出现，且面板仍是 120 Hz。"

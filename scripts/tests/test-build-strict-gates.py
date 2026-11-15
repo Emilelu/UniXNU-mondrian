@@ -201,7 +201,12 @@ def case_kernel_arg_reaches_the_payload():
         (tmp / "device").mkdir()
         (tmp / "art").mkdir()
         out = tmp / "out"
-        (out / "mondrian" / "ipados-16.6.1-20G81" / "mondrian").mkdir(parents=True)
+        board = out / "mondrian" / "ipados-16.6.1-20G81" / "mondrian"
+        board.mkdir(parents=True)
+        # A real build always has one; the P-202 guard refuses to run without it.
+        (board / ".config").write_text(
+            "# CONFIG_XNU_GPU_ADDON is not set\n"
+            "# CONFIG_XNU_K60_PHYSICAL_BATTERY is not set\n", encoding="utf-8")
 
         env = dict(os.environ)
         env.pop("UNIXNU_SKIP_GATES", None)
@@ -241,17 +246,33 @@ def case_skip_gates_still_refused():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_missing_config_stops_the_build():
+    """P-202: sed on a missing .config yields nothing, so both feature reads
+    silently turn off.  The guard must exist and precede them."""
+    text = source()
+    guard = text.find('no $M/.config')
+    gpu = text.find("CONFIG_XNU_GPU_ADDON=y")
+    battery = text.find("CONFIG_XNU_K60_PHYSICAL_BATTERY=y")
+    check("the .config guard exists", guard > 0)
+    check("the guard runs before the GPU read", 0 < guard < gpu,
+          "guard@%d gpu@%d" % (guard, gpu))
+    check("the guard runs before the battery read", 0 < guard < battery,
+          "guard@%d battery@%d" % (guard, battery))
+    check("the guard is fatal, not a warning", 'die "no $M/.config' in text)
+
+
 def main():
     for case in (case_gate_runs_before_kernel, case_red_gate_stops_the_build,
                  case_env_reaches_the_gate, case_kernel_arg_reaches_the_payload,
-                 case_skip_gates_still_refused):
+                 case_skip_gates_still_refused,
+                 case_missing_config_stops_the_build):
         print(case.__name__)
         case()
     print()
     if FAILS:
         print("TESTS FAILED: %d" % len(FAILS))
         return 1
-    print("TESTS OK 5 cases (0 failure(s))")
+    print("TESTS OK %d cases (0 failure(s))" % 6)
     return 0
 
 

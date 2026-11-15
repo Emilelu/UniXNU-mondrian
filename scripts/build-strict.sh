@@ -71,6 +71,7 @@ python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomple
 M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
 KERNEL=$M/kernel/kernel.macho
 
+
 # --- frozen inputs -----------------------------------------------------------
 # Every file that can change the kernel is hashed before the build; a later
 # boot is only comparable if the same list hashes the same.
@@ -97,6 +98,13 @@ if ! python3 "$REPO/scripts/eight-step-gate.py" --build > "$LOGS/eight-step.log"
 fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
+
+
+# A missing .config would silently drop every defconfig-driven feature (P-202):
+# GPU_ADDON and BATTERY_ON below are both read with sed, and sed on a missing
+# file writes to stderr and yields nothing, so the build would quietly produce a
+# kernel without the Metal plugin or the battery class and still report success.
+[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT"
 
 # --- gpu addon (0610) -------------------------------------------------------
 # The Metal plugin travels inside the kernel as an .incbin blob, so the build

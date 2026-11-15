@@ -4768,7 +4768,10 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 
 **Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
 必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
-真机判据仍是 `addon: loaded bytes records 1027584 106`。
+真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
+（旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
+载体实现见 `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
+
 ## P-198 — 后加的补丁可以把前面补丁的 blob 变成链接器垃圾
 
 **现象.** `patches/xnu/0401-k60-embedded-init.patch` 的 `k60_init_blob`（52,456 B）与
@@ -4811,4 +4814,171 @@ export K60_AGENT_ID=springboard-agent
 
 **Check.** `K60_AGENT_ID=<线名>-agent python3 scripts/check-tree-owner.py` 在干净树上退出 0，在
 自己名下带未提交改动时也退出 0；不带变量时才报上面那条。
+
+
+## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
+
+**现象.** 2026-11-15 两个 agent 拿 `boot.json` 比对镜像，得出互相矛盾的结论：
+一方说「mhi3/mhi4 的内核逐字节相同，所以变量只有内存窗口」，另一方说「内核
+不同」。两边都没量错文件，是**字段名错了**。
+
+**实测.** `E:\k60-work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
+`kernel_sha256` **全是** `83b52b566b9cd0e0a2f13854f7da4c67…`：
+
+```
+wifi-20261116a2        83b52b56…   manifest.payload_kernel e273b649…
+wifi-20261116mhi4      83b52b56…   manifest.payload_kernel e24a58f1…
+wifi-20261116mhi5      83b52b56…   manifest.payload_kernel ac7a152f…
+springboard-20261115a  83b52b56…   manifest.payload_kernel 50a81744…
+thermal-20261115a      83b52b56…   manifest.payload_kernel 7bb198a0…
+brightness-9           83b52b56…   manifest.payload_kernel 1c5ca5d4…
+gpu-20261114t          83b52b56…   manifest.payload_kernel cafdb5df…
+touch-20261114a        83b52b56…   manifest.payload_kernel e849ae6b…
+```
+
+**根因.** 框架 `scripts/unixnu/bootimg.py:161` 写的是
+
+```python
+return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), ...}
+```
+
+这里的 `kernel` 是 **boot image 的 kernel 槽** = `gzip(112 字节 shim + 3,145,728 字节固件卷) + 4,024 字节 DTB`。
+固件卷一直是 `cf448571…`，shim 是确定的，所以这个哈希对所有用同一固件卷的镜像
+恒等。**真正的 XNU 内核在 ramdisk FAT 的 `EFI/UniXNU/Payloads/kernel.macho` 里**，
+它的哈希在 `build-manifest.json` 的 `components.payload_kernel`。
+
+**为什么没被门禁拦到.** 字段名 `kernel_sha256` 看起来就是内核；`verify-boot-image.py`
+比对的是 manifest 里正确的那个键，所以门禁一直绿。两边都对，但人是按字段名理解的。
+
+**修法.** ① 比内核身份一律用 `build-manifest.json` 的 `components.payload_kernel`
+（或 `mcopy` 出 payload 里的 `kernel.macho` 直接 `sha256sum`），**不要用 `boot.json`
+的 `kernel_sha256`**；② `boot.json` 那个字段应理解为「固件槽哈希」，它有用处
+（证明两张镜像用的是同一个 FD），但和内核无关；③ 需要内核身份时补一条
+`payload_kernel_sha256` 字段，别指望读的人自己分辨。
+
+**教训.**
+- 字段名是一种断言。叫 `kernel_sha256` 却量固件卷，等于在误导每一个读它的人，
+  而且不会有任何门禁报错。
+- 两个 agent 得出矛盾结论时，先查「各自量的到底是哪个文件」，再谈谁对——
+  这次两边都没错，错的是命名。
+- 「所有镜像这个值都一样」本身就是可疑信号：镜像内容明明不同，怎么可能同一个哈希。
+  看到跨镜像恒等的哈希，第一反应应该是「这量的是共同部分」。
+- 三方对账法：`boot.json`（槽哈希）× `build-manifest.json`（payload 内核哈希）×
+  `mcopy` 出来的实际文件（地面真值）。三者对不上时，以地面真值为准。
+
+**Check.** 比内核身份时 `python3 -c "import json;print(json.load(open('<tag>/build-manifest.json'))['components']['payload_kernel'])"`，
+或直接 `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho k && sha256sum k`。
+
+## P-201 — 绕过 build-strict.sh 造的对照镜像，证据等级自动降一级
+
+**现象.** wifi 线的 `wifi-20261116a2` 是"对照镜像"：65,978,368 B 内核、
+`pong_wifi=0`、无 MHI 注入，本来是摘掉 wifi 驱动这个变量的干净对照。但它的
+`build-manifest.json` 只有四个键（tag / note / components / kernel_args），
+**没有 series / repo / frozen / gates**，note 写着
+`trial build outside build-strict.sh (flash gate blocked by the touch line)`。
+
+**为什么这是问题.** 没有 series 指纹，就无法证明这张镜像用的是哪一套补丁；
+没有 gates 记录，就无法知道八步门禁当时是过还是被绕过。上机之后如果它死了，
+你无法排除"它其实是另一套源码"，于是这个对照什么也证明不了——白烧一次窗口。
+
+**背景（当时的正当理由）.** 造 a2 时八步 `--flash` 门禁被触摸线卡住（触摸 ⑦⑧
+未完成），`build-strict.sh` 直接拒绝，只能手工打包。这个理由在**当时**成立，
+但产物必须被标记成低等级证据，而不是当普通镜像用。
+
+**修法.**
+- 手工打包的镜像一律在 tag 里带 `-trial`，note 写清绕过了什么、为什么；
+- 判定器/对账脚本看到没有 `series` 键的 manifest，就把结论降级成
+  "结构性观察"，不许当作"变量已隔离"的证据；
+- 门禁恢复后，同一个对照必须用 `build-strict.sh` 重出一张，用新镜像做判决；
+- 遮挡门禁的线（这次是触摸）修好后，回头把 trial 镜像重新出成正式镜像。
+
+**教训.**
+- "证据等级"不是抽象概念：manifest 里少了哪几个键，就少了哪几种反驳能力。
+  没有 series 指纹 = 无法反驳"源码可能不同"。
+- 绕过门禁时留的 note 会救你一次，但它只说明"为什么绕过"，不说明"结果可信"。
+- 对照实验的成本是窗口，不是构建时间；用一张身份不可复核的镜像去换一个窗口，
+  是亏的。
+
+**Check.** `python3 -c "import json;print(sorted(json.load(open('<tag>/build-manifest.json'))))"`
+—— 缺 `series` 就是 trial 级。
+
+## P-202 — 构建时静默丢掉特性，以及门禁去评一个旧文件
+
+两条都是 2026-11-15 thermal 线当"环境坑"报上来的，核完发现是 main 自己的 bug。
+
+**现象 A：`build-strict.sh` 在没有 `.config` 时静默关掉两个特性。**
+脚本头部的 Guarantees 明写 "no silent fallbacks"，但第 106 行与第 124 行是
+`GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)` 与
+`BATTERY_ON=$(sed -n ... CONFIG_XNU_K60_PHYSICAL_BATTERY ...)`。`.config` 不存在时
+`sed` 只往 stderr 打 `sed: can't read …/.config`，两条命令都返回空串 → 两个 `if`
+都不进 → 内核既没有 Metal 插件也没有电池归档，而脚本照样一路走到 `verify-boot-image: OK`。
+`build-strict.sh` 自己从不生成 `.config`（`grep defconfig` 只有两行注释/echo），
+所以"全新 `K60_OUT`"这条正常路径必然踩到。实测症状：thermal 线 rebase 后首次构建
+被 hard-38 拒（`CONFIG_XNU_GPU_ADDON missing from generated config …; expected y`），
+audio 线 `audio-probe-20261115l` 的 `payload_kernel` 只有 54,181,888 B 而带
+GPU_ADDON 的应是 105 MB 级 —— 它就是这张坑的产物，且 manifest 里连
+`kernel_args_requested` 键都没有（旧版脚本）。
+
+修法：在 `M=`/`KERNEL=` 之后加一条硬失败
+`[ -f "$M/.config" ] || die "no $M/.config; generate it first: …unixnu defconfig …"`。
+
+**现象 B：`check-kernel-archives.py` 的 `find_kernel()` 拿"路径排序第一个"当本次内核。**
+`for board in sorted(base.glob("*/")): for candidate in sorted(board.glob("*/kernel/kernel.macho"))`
+—— 上一次构建留下的 `kernel.macho` 会被当成这一次的，于是 P-190 报
+`CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol is in kernel.macho`
+（brightness-1 实测），而真正的原因是它在评旧文件。`build-strict.sh:259` 显式传
+`--kernel "$KERNEL"` 所以主路径不受影响，但**单独跑门禁时它评的不是你以为的文件**。
+thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 skip 分支 ——
+一个门禁把人逼到"把文件挪走让它跳过"，说明门禁判据错了。
+
+修法：按 `st_mtime` 取最新，多于一个时往 stderr 打一行提示并点名，提醒调用者用
+`--kernel` 明确指定。
+
+**教训.**
+- "silent fallback" 不是靠注释禁止的：只要有一条 `sed` 读不到文件就返回空串，
+  特性就静默消失。凡是从文件读配置决定"要不要做某件事"，文件缺失必须是硬失败。
+- 门禁的输入来源必须比它检查的内容更可信。用 `sorted()` 猜哪个是本次产物，
+  等于把门禁的判决建立在文件名顺序上。
+- 被门禁逼出来的"绕过手法"（挪走文件让它 skip）是门禁设计错误的强信号，
+  不是使用者的纪律问题。
+
+**Check.** `bash -n scripts/build-strict.sh && grep -c 'no \$M/.config' scripts/build-strict.sh`
+—— 必须为 1；`python3 -c "import ast,sys;src=open('scripts/check-kernel-archives.py').read();print('st_mtime' in src)"`
+—— 必须为 True。
+
+## P-203 — 不要在 linked worktree 里跑 `git worktree prune`
+
+**现象**：refmine 线为了拿一个「干净环境」的基线，在一个 linked worktree 里执行了
+`git worktree prune`。主仓 `E:/hackios/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
+管理目录被一次性删除（只剩 `d-main`），随后 `/e/hackios/k60-*` 全部立刻报
+`fatal: gitfile does not point to a valid repository`——二十条线同时失去工作树。
+
+**根因**：`git worktree prune` 的判据是「这个工作树的管理目录还在不在、gitfile 指向是否可解析」。
+它会从**当前所在的仓**出发，把凡是它认为「失效」的 admin 目录删掉。在一个 linked worktree 里跑，
+它看到的是主仓 `.git/worktrees/` 的全集，而判断依据只是 gitfile 是否可解析；
+一旦有任何一棵树短暂不可解析（或工作树目录被移动、盘符变化），它就把那棵树的 admin 目录当垃圾删掉。
+**删除不可逆、没有备份**，`git worktree add` 也不会自动重建。
+
+**恢复方法**（`E:/k60-work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
+1. 对每个失去 admin 目录的工作树目录，用「分支 blob 与工作树文件比对打分」反推它原本在哪个分支——
+   文件内容未提交的工作树会和几个候选分支算出不同的匹配度，取最高分。
+2. 重建 admin 三件套：`.git/worktrees/<name>/{HEAD,gitdir,commondir}`，`HEAD` 写
+   `ref: refs/heads/<branch>`，`gitdir` 写该工作树的 `.git` 文件路径，`commondir` 写 `../..`。
+3. 在工作树里 `git read-tree HEAD` 把索引补齐（**不要** `git checkout`，那会覆盖未提交内容）。
+4. 验证：`git worktree list` 无 prunable、`git rev-parse` 在 MSYS 与 WSL 两侧都能跑、
+   `git status --porcelain` 每棵树 dirty=0。
+
+**为什么没被门禁拦到**：`git worktree prune` 是原生命令，`/usr/local/bin/git` 守卫当时只拦
+`checkout`/`reset`/`clean`/`stash` 这类会丢内容的动词，`prune` 不在名单里——但它丢的是**管理元数据**，
+后果比 `checkout` 更重（一次影响全部工作树）。
+
+**修法（四条）**：
+1. `git-guard` 的危险动词表加 `worktree prune`，与 `checkout --` 同级；
+2. 只允许在主工作树的根上显式带 `K60_I_OWN_ALL_TREES=1` 执行；
+3. 想要「干净环境」的正确做法是 `git -C <其他目录> archive` 或 `git clone --shared` 一个临时仓，
+   不要在共享仓里做任何清理动作；
+4. 每轮构建前只跑 `sync-device-input.py`，不做任何 `git` 清理。
+
+**教训**：`git` 里凡是带 `prune`、`gc`、`repack`、`fsck --lost-found` 字样的命令，
+都会在「看起来无害」的前提下改共享状态；共享仓上只允许只读动词。
 

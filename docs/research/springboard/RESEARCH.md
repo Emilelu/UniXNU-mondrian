@@ -117,9 +117,9 @@ closure: steps 3-4 cover the bindfs overlay only; userland/ui_compat.c:690 submi
 
 **为什么 BOOT_SKIP 没生效**：它只删 `scripts/prepare-linux.py` 产出的策展集（`parse_constants()` 从 build.py/mkjobs.py 读策略），该策展集要 bindfs 到 `/System/Library/LaunchDaemons`，而这条 bindfs 在密封根 EPERM（`Pong init: boot view … result=-1 errno=1`，:522；P-27）⇒ launchd 读的是 OS 窗原始 plist，chronod 的原始 job（`KeepAlive.Crashed`、无 `RunAtLoad`、三个 `distnoted` LaunchEvents）照常生效。
 
-**素材不缺**：OS 窗有 603 个 `.appex`（含 `AppStoreWidgetsExtension.appex`、`BatteriesWidgetExtension.appex`），`ChronoCore.framework`/`ChronoKit.framework` 齐全。缺的只是注册数据。
+**素材不缺**：OS 窗有 597 个 `.appex` 目录（`grep -c '\.appex$' /tmp/oslist.txt`；旧口径 603 含文件级命中，见 `APPEX-REGISTRATION.md` §2），`ChronoCore.framework`/`ChronoKit.framework` 齐全。缺的只是注册数据。
 
-⇒ 小组件空白的真因是**注册/发现链缺数据**，不是启动时序；修复落点与判据见 `WALLPAPER-CHAIN.md` §4 F5（含「F5 原方案没有对象」的说明）。本线判据（§0 六步）不因此改变。
+⇒ 小组件空白的真因是**注册/发现链缺数据**，不是启动时序；修复落点与判据见 `WALLPAPER-CHAIN.md` §4 F5（含「F5 原方案没有对象」的说明）。离线收窄版全文见 `APPEX-REGISTRATION.md`（C1：让 launchd 启一次 installd；镜像无 `bin/launchctl`；`Discovering all extensions` 打印者在 dyld 缓存）。本线判据（§0 六步）不因此改变。
 
 ## 6. 三条 SpringBoard 噪声（低优先，逐个排）
 

@@ -342,7 +342,7 @@ prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppi
 [hardware.bluetooth]
 status = "parked"
 paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/check-image-args.py"]
-parked_why = "镜像已构建（S1c 五档阶梯 + S4 正/负样本；正向样本已按 P-197 换成内核内嵌 blob；上机用受控对照对 bt-s4b-20261115b / bt-s4c-20261115a），等上机窗口；⑦ 只到离线路由，⑧ 从未上机"
+parked_why = "⑦ 已完成（离线全绿 + 真机到达控制器）；⑧ 已上机并拿到控制器版本，但用户态还缺 ADT bluetooth 节点/本地 MAC。2026-11-16 的 bt-d5-iomap（series 233，含 P-219 的 0621）第一次让完整阶梯跑到固件下载：power_on → SMMU 旁路 → 时钟投票 → qbt_boot → [bluetooth] QCA controller version 0x12110201 → addon: serving 146068 0 / 6442 0，SpringBoard 132 行、panic 0。仍未做的是 S5 UART.SK 与 S6 bluetoothd：console.log:1345 marconi-bt: Unable to match bluetooth service in device tree. 与 :1346 Not a valid MAC address (all 00s) 说明 ADT 里没有 bluetooth 服务节点，而内核侧 :186 K60 BT: published local address ee:98:c5:8a:6b:4e 与 :1347 bluetooth: Got local-mac-address 说明 0509 的身份发布是生效的——缺口在 ADT"
 why = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
 
 [hardware.bluetooth.step.same_model]
@@ -372,7 +372,7 @@ done = true
 evidence = "深挖到源码级，产出 11 项已验证（V1-V11）与 13 项偏差（F1-F13）并与 Linux GENI/clk 源逐行对照（docs/research/bt/06-DEEP-DIVE.md:21 的 Verdict 与 :83-342 的偏差表）。三项必须在 S2 前定性且已修：F1 GENI DMA 把虚拟地址当物理地址、SMMU 流 0x483 从未 bypass（0508 改为 kmem_alloc_contig + pmap_find_phys + ptoa_64 后 k60_smmu_bypass）；F3 k60_stop_engine() 轮询的 0xe40 在两个 GENI 头文件里都不存在，会恒定 -ETIMEDOUT（改为 TX/RX_RESET_DONE 0xc40/0xd40 BIT(3)）；F11 SE20 RCG 根时钟从不置 CMD_ROOT_EN（0508 增加 set_rate 的 ROOT_EN → 轮询 ROOT_OFF → CFG → UPDATE 序列，并按 clk_rcg2.c:64-75 的 (cmd & CMD_ROOT_OFF)==0 判据）。深挖还给出 F2：0x2ac 被写成组件从不使用的 0x80000001。"
 
 [hardware.bluetooth.step.verify]
-done = false
+done = true
 local_verified = true
 evidence = "离线部分已完成（未上机）：五档 S1c 阶梯镜像 bt-s1c-a1/a4/a5/a7/a9-20261114c 全部 image-arg-audit: OK (31 arguments, 596 bytes)；S4 受控对照对（同一 HEAD 68a38f3、同一份 453 条冻结清单，只差 --bt-blob）负向 bt-s4c-20261115a（583 B）与正向 bt-s4b-20261115b（583 B，内嵌 blob 通道）都 verify-boot-image: OK，两份 frozen-before.txt 逐字节相同（931d391d…08e）。正向镜像四项独立核对：llvm-nm 给出 _k60_bt_blob@fffffff0071b8818 与 _k60_bt_blob_len@fffffff0072b3618（差 1,027,584 = 容器字节数）；按字节在 kernel.macho 里定位容器的偏移 1,787,928 并取出 1,027,584 字节，sha256 = febdc20d…2037 = 打包器输出；strings 命中 addon: blob bad magic 与 linked blob；scripts/tests/test-k60-bt-blob.py --assembly … --container … 报 container table is self-consistent。仍缺上机：SE20 是否可达、QCA 固件是否真的下载，只有 ⑧ 能判。"
 static_check = "补丁级静态对照：0507/0508/0509/0510 四个补丁 git apply 全部干净，series 227/228 行内无重复（scripts/check-patch-apply.py --all 全绿）；寄存器地址逐个对照 Linux clk-rcg2.c 与 geni-se.h，出处写在 docs/research/bt/S1-PROBE-SPEC.md:97-116 与 S2-SPEC.md。"
@@ -381,10 +381,10 @@ artifact_check = "产物字符串与哈希：kernel.macho 命中 NGPUADD2 / link
 
 [hardware.bluetooth.step.device]
 done = false
-evidence = "从未上机（S1a 那次是无效证据：命令行 610 B 超过 DarwinBoot 的 607 B 上限，内核根本没进门，见 docs/research/bt/S1-PROBE-SPEC.md:12-45）。"
+evidence = "2026-11-16 真机两轮（均由 Lead 实飞）：一，bt-d4-late（series 232，全量 0511 阶梯 + pong_bt_late=1）把阶梯挪到 Data 挂载之后，控制台活下来并给出确切死因——usblog-20261116-055237 的 :485 K60PANICFMT caller=0xfffffff007b83384 fmt=kmem_%s(%p, %zd, 0x%x): failed with %d 与 :486 K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178，即 ml_io_map 在 8 MiB 的 io_submap 里要 1 MiB（= K60_TLMM_SIZE）时拿到 KERN_NO_SPACE（P-219）。二，bt-d5-iomap（series 233，同一配方只多 0621 把 IO_MAP_SIZE 提到 32 MiB）——usblog-20261116-064150：3,241 行 / 224,863 B / SpringBoard 132 / panic 标记 0 / supervisor rc=0，阶梯完整跑通：:484 full: power_on enter、:486 smmu plan sid 0x483 slot 110 bank 72 action install dma 0x90bc20000、:487 SMR 0x80000483 S2CR 0x48 CBAR 0x10000、:488 dma buffer and smmu bypass ready、:489 uart pins parked、:493 clocks vote cbcr core=0x4220 core2x=0x4220 s=0x80000002 se=0x80004220、:494 full: qbt_boot enter、:707 QCA controller version 0x12110201、:708 addon: serving 146068 0、:724 addon: serving 6442 0。⇒ 内核侧 power_on/SMMU/时钟/GENI/固件分片全部成立：读得到版本寄存器，控制器能按需取走分片。用户态仍未通：:1343 could not find BT_DEVICE_ADDRESS env variable、:1345 marconi-bt: Unable to match bluetooth service in device tree.、:1346 marconi-bt: Not a valid MAC address (all 00s)——但同一份日志 :186 K60 BT: published local address ee:98:c5:8a:6b:4e 与 :1347 bluetooth: Got local-mac-address: ee:98:c5:8a:6b:4e 证明 0509 的身份发布生效，缺的是 ADT 里的 bluetooth 服务节点（下一步：board.toml 加节点 + 核对 0509 的属性名，不是驱动问题）。"
 
 [hardware.bluetooth.step.device.prediction]
-success = "S1c 阶梯出现 [bluetooth probe] probe: done 且机器继续跑到用户态；S4a 出现 [bluetooth] addon: linked blob bytes=1027584 records=106；S4b/S4c 出现 [bluetooth] power=1 result=0 baud=… firmware=<build label>，capture.json verdict 正常收尾且无 panicMarker"
+success = "bt-d5-iomap 出现 :707 [bluetooth] QCA controller version 0x12110201，且 :708/:724 addon: serving 行存在，且无 kmem_alloc(... 0x100021) panic——2026-11-16 已实测成立（usblog-20261116-064150，SpringBoard 132、panic 0）。更早的 S1c/S4 判据保留：S1c 阶梯出现 [bluetooth probe] probe: done 且机器继续跑到用户态；S4a 出现 addon: linked blob bytes=1027584 records=106。"
 failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行就是死因，按 S1-PROBE-SPEC.md:231-262 的判死表）；正向镜像出现 [bluetooth] addon: no GpuAddon property 说明内核里没链接进 blob（构建漏了 --bt-blob）；出现 [bluetooth] addon: unusable range 0 0 说明镜像走的是旧 payload addon 通道（P-197 的实测症状，不是失败）；出现 [bluetooth] power=0 或 ENXIO 说明引擎协议或固件名不对"
 
 [hardware.wifi]

@@ -5604,6 +5604,23 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
   没被 map 的部分一个物理页都不花；32 MiB 相对 7.23 MiB 实测值留了 4 倍余量，
   也覆盖了 7 个运行时尺寸的窗口。
 
+- **真机验证**（`evidence/usblog-20261116-064150/console.log`，`bt-d5-iomap`，
+  series 233、`kernel 2c8d92c6…` 106,598,400 B、`boot.img 491c62de…`）：
+  同一份 bt 配方只多这一条补丁，`kmem_alloc(... 0x100021): failed with 3`
+  不再出现，阶梯一路走到固件下载——
+  ```
+  :484 [bluetooth] full: power_on enter
+  :486 [bluetooth] smmu plan sid 0x483 slot 110 bank 72 … action install dma 0x90bc20000
+  :488 [bluetooth] full: dma buffer and smmu bypass ready
+  :494 [bluetooth] full: qbt_boot enter
+  :707 [bluetooth] QCA controller version 0x12110201
+  :708 [bluetooth] addon: serving 146068 0
+  :724 [bluetooth] addon: serving 6442 0
+  ```
+  `:707` 是从 QCA6490 读回的版本寄存器，`:708`/`:724` 是控制器按需取走的
+  固件分片——**读得到版本、取得到分片，说明 power_on 之后的 SMMU 旁路、
+  时钟投票、GENI 传输全部成立**。SpringBoard 132 行、panic 标记 0。
+
 - **四条教训**：
   1. **一个全局预算型资源，必须在加窗口时算总和**，不能只看本次要多少。P-63 的
      「30 秒判定」写的是「手动累加」，手动累加的结果是没人累加——现在有门禁了。

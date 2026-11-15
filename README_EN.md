@@ -135,6 +135,7 @@ table row naming a nonexistent script, fails the build.
 | [`docs/INDEX.md`](docs/INDEX.md) | **Documentation entry point**: reading order, full tree, gate commands |
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status detail and change log |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
+| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why the same sources give the same bytes, the two volumes in the field, P-154 today, and the rebuild experiment protocol |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-211 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |

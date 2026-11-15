@@ -178,3 +178,10 @@ sha = "db9ebf9"
 state = "build-only"
 date = "2026-11-15"
 note = "P-208: -DXNU_K60_PHYSICAL_BATTERY now reaches every translation unit. Kernel bytes change because the IOKitBSDInit block is no longer compiled away, so the boot evidence for 996aac6 does not carry over; the first boot that prints K60Handoff settles it."
+
+[[entry]]
+sha = "75677e7"
+kernel_sha256 = "11dd70a4e467d36936a9e06ba2dbaf01bdaa03b5558ee5e15371eb99fe958efa"
+state = "booted"
+date = "2026-11-15"
+note = "P-211: record-boot.py 现在优先读镜像自己的 build-manifest.json 的 series 指纹，而不是登记那一刻仓库里的 patches/xnu/series；ledger 行新增 series-count / series-source / repo-series 三个字段。上机证据：baseline-20261115d（series 226 / frozen 1b9f9f51… / kernel 11dd70a4… 105,508,864 B / boot.img 5e32d412…）真机 E:\\k60-work\\evidence\\usblog-20261115-234111 —— console 2,548 行 / 204,118 B、SpringBoard 132 行、panic 标记 0、:482 K60DATA mounted ro=0 fstype=apfs、:973 Early boot complete、supervisor rc=0。结论：main（含 P-210 数据卷身份门禁与 P-211 记账修复）可启动。"

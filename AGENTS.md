@@ -159,6 +159,7 @@ prose is a red build, not a wish.
 | Docs | `python3 scripts/check-docs.py` | Link integrity, INDEX coverage, root-doc links, section order, bilingual |
 | README sync | `python3 scripts/check-readme.py` | README/README_EN mutual links, README date not older than STATUS, ★N/P-N range claims equal the real headings, the gate table names the same set as `build-strict.sh` embeds (P-205) |
 | Firmware volume | `python3 scripts/check-firmware-volume.py` | The firmware-volume manual does not claim the volume is reproducible, and does not present a volume hash as an identity rather than one build's identifier (P-216) |
+| Basecore pin | `python3 scripts/check-basecore-pin.py` | The Mu_Basecore worktree sits on the commit the repo records, every `[firmware].patches` entry exists and applies, and any deliberate deviation is written down in the firmware manual (P-217) |
 | Scope freeze | `python3 scripts/check-scope-freeze.py` | Nothing under a frozen path in `docs/SCOPE-FREEZE.toml` changed since its baseline; frozen areas warn instead of fail |
 | DT asserts | `python3 scripts/check-dt-asserts.py` | Every `property(entry,"X",...)` a driver patch reads exists in `dts/mondrian.dts`; a missing one means the driver returns false and its diagnostics never run (P-147) |
 | Input sync | `python3 scripts/sync-device-input.py --check` | The build input matches the repository; nothing exists in only one of them (iron rule 5) |

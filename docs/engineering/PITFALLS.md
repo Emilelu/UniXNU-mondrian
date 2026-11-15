@@ -5477,3 +5477,48 @@ build-id 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c442
 Check：`python3 scripts/check-firmware-volume.py`（新）——它不量哈希，只量两件事：①
 `FIRMWARE-REBUILD.md` 不得再出现「同源 ⇒ 同字节」形式的断言；② 任何引用 FD 哈希的
 文档必须同时说明它是「一次构建的标识」而非「身份」。
+
+## P-217 — 构建依赖一个只存在于本机的 commit，而配置文件声称它已经在 pin 里
+
+现场（2026-11-16 03:14）：`board.toml` 的 `[firmware].patches` 写着
+
+> Mu_Basecore 6f805f2 already carries all six K60 fixes (3d2a9fa, "local patches for k60
+> firmware build", is an ancestor).
+
+三句话里有两句是错的，而且错的方向恰恰是「不用做事」：
+
+1. **`3d2a9fa` 不是 `6f805f2` 的祖先。** `git merge-base 3d2a9fa 6f805f2` 返回空——
+   两条历史没有共同祖先。`3d2a9fa` 的父提交是 `3c9c7b2`（`[DROP on REBASE]`），
+   它不在任何远程分支上；`3d2a9fa` 自己也只在本机（`git branch -r --contains` 两者皆空）。
+2. **`6f805f2` 不带那五个修复。** 11 个文件逐个对比：在 `6f805f2` 上只有
+   `AsmMacroLib.h` 被上游用另一种方式修好（`#ifdef __ELF__` 分支，PE 侧用
+   `.text$ ## Name`）；其余 10 个文件在 `6f805f2` 上是**原始**的。
+
+为什么一直没发现：构建用的是 `Mu_Basecore` 工作树的**当前内容**，不是子模块指针。
+`Mu_Basecore/.git` 是一个**目录**（嵌套仓），不是 `.git/modules/` 下注册的子模块，
+所以 `git submodule status` 的 `-` 前缀、`git status` 的 ` M Mu_Basecore` 都只是在报
+「指针与工作树不一致」，没有任何人去看那一致性到底意味着什么。
+而构建一直成功，因为工作树里确实有那些修复。
+
+**修法已经验证存在**：五个修复在仓库里本来就有补丁文件
+（`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch），
+它们在 `6f805f2` 上 `git apply --check` 全部通过，应用后 11 个文件里有 10 个与
+`3d2a9fa` 的内容**逐字节相同**，唯一差异是上游已经自己修好的 `AsmMacroLib.h`。
+`scripts/unixnu/firmware.py:73-78` 本来就支持 `[firmware].patches`（构建时 apply、`finally` 里
+reverse），所以只需要把五个补丁写进 `board.toml`，并把工作树切到 `6f805f2`。
+
+**四条教训**
+
+1. 「子模块指针」与「构建实际用的内容」是两件事。当子模块是一个嵌套仓时，指针
+   只是一个数字，没有任何东西强制工作树跟它一致。
+2. 「上游已经修好了，所以不用打补丁」这个判断必须逐文件验证，不能靠一个祖先关系推。
+   这里推错了两层：祖先关系不成立，且即使成立也不能说明那些行没被回退。
+3. 配置文件里的「已经包含」一定要有可执行的判据（比如 `git merge-base --is-ancestor`
+   或逐文件比对），否则它就是一句无法被证伪的注释。
+4. 「本机能构建成功」不等于「仓库能构建成功」。判据是「从仓库里能看到的东西重现这个构建」——
+   这和 P-216（固件卷不可复现）、P-154（重建的卷找不到 payload）是同一个主题的三个面。
+
+Check：`python3 scripts/check-basecore-pin.py`（新）——它量三件事：① `Mu_Basecore` 工作树的
+HEAD 必须等于主仓 `git ls-tree` 记录的 pin；② `board.toml` 的 `[firmware].patches` 里的
+每个文件必须存在且能 `git apply --check`；③ 若工作树与 pin 不一致，必须在
+`docs/engineering/FIRMWARE-REBUILD.md` 里有一条显式记录说明为什么（否则就是本条）。

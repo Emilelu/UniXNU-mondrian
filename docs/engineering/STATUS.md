@@ -187,6 +187,20 @@ build-id 不受 `SOURCE_DATE_EPOCH` 影响，而固件卷是压缩的，一个 G
 ⇒ **P-154 关闭**：从当前 pin 重建的卷能找到 payload。FD 的 sha256 从此只当「这一次构建的
 标识」，不当身份。新门禁 `scripts/check-firmware-volume.py`（9 例测试）。
 
+### 固件卷的构建依赖一个只存在于本机的 commit（P-217）
+
+`board.toml` 的 `[firmware].patches` 原本是空列表，注释称记录的 pin `6f805f2` 已含全部六个
+K60 修复、本机的 `3d2a9fa` 是它的祖先。**两句都不成立**：`git merge-base 3d2a9fa 6f805f2`
+返回空；`3d2a9fa` 的父提交 `3c9c7b2` 不在任何远程分支；11 个文件逐文件对比，pin 上只有
+`AsmMacroLib.h` 是修好的（且上游用的是另一种修法），其余 10 个是原始状态。`Mu_Basecore`
+是嵌套仓，构建读工作树内容而非 gitlink —— 所以本机一直能构建，**干净 clone 会构建出坏的卷**。
+
+修法：工作树切到 `6f805f2`，五个修复改由 `[firmware].patches` 施加
+（`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch`，
+均已被 `origin/main` 跟踪、对 pin `git apply --check` 全通过；应用后与 `3d2a9fa` 的 11 个文件
+有 10 个逐字节相同）。新门禁 `scripts/check-basecore-pin.py`（10 例测试）钉住三件事：
+工作树 HEAD 等于记录的 pin、每个补丁存在且能 apply、故意偏离必须在手册里写明。
+
 ### wifi 家族七张 0 字节镜像的真因（P-215）
 
 `wifi-20261116c3`（`patches/wifi/0012` 让 `pong_smmu_lease_lock()` 惰性自建锁）上机

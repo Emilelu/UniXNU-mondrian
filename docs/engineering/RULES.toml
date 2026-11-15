@@ -713,3 +713,11 @@ source = "docs/engineering/PITFALLS.md:P-216"
 statement = "不可复现的产物不能当身份：哈希只在「两次相同输入的实测」之后才算确定性证据；不稳定哈希只能记成「这一次构建的标识」，不能进可比较字段；压缩容器里的小差异会放大，看到哈希不同要先看差异集中在哪类字节"
 check = "python3 scripts/tests/test-check-firmware-volume.py"
 note = "2026-11-16 同一 pin 三次重建固件卷得三个哈希（4bbe7601/ce12d145/77ad2474/9f20de15388a），根因是 LLD 的 CodeView build-id 不受 SOURCE_DATE_EPOCH 影响；同一 payload 换卷后上机 SpringBoard 129，P-154 关闭。"
+
+[[rule]]
+id = "P-217"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-217"
+statement = "子模块指针不是构建输入：构建读的是工作树内容，所以「本机能构建」证明不了「仓库能构建」；「上游已修好」必须逐文件对比，不能靠祖先关系推；配置里写「已包含」必须配一个可执行判据"
+check = "python3 scripts/tests/test-check-basecore-pin.py"
+note = "2026-11-16 board.toml 注释称 Mu_Basecore 6f805f2 已含六个 K60 修复、本机的 3d2a9fa 是它的祖先。实测 merge-base 为空、3d2a9fa 不在任何远程分支、11 个文件里 10 个在 pin 上是原始状态。改为工作树切 pin + [firmware].patches 施加五个补丁，并加 check-basecore-pin.py 门禁。"

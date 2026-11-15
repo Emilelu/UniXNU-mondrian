@@ -16,9 +16,28 @@
 - 命令形态（`firmware.py:60-80`）：`build -p <dsc> -a AARCH64 -b <target> -t CLANGPDB -n <jobs>`
   加 `-D FD_BASE=… -D FD_SIZE=… -D FD_BLOCKS=…` 与 `[firmware.defines]` 的每一项，
   `WORKSPACE=<uefi 检出>`、`PACKAGES_PATH=<packages 拼起来的冒号列表>`、`CONF_PATH=<work>/edk2-conf`。
-- `board.toml:61-65` 的 `[firmware].patches` 目前是空列表，注释写明原因：Mu_Basecore `6f805f2`
-  已经包含全部六个 K60 修复（`3d2a9fa` 是它的祖先），重复打 `Boot-Manager.patch` 正是 2026-11-12
-  之前的错误做法。
+- `board.toml` 的 `[firmware].patches` 列出五个 K60 修复补丁，构建时 apply、`firmware.py` 的
+  `finally` 里 reverse。它们在 uefi 仓的 `Resources/MuPatches/` 下、已被 `origin/main` 跟踪，
+  并且对 pin `6f805f2` 逐个 `git apply --check` 通过。
+- **第六个修复（`AsmMacroLib` 段命名）不在这里**：上游在 `6f805f2` 用另一种方式解决了
+  （`#ifdef __ELF__` 分支，PE 侧用 `.text$ ## Name`），旧补丁已不适用。
+
+### 1.1 `Mu_Basecore` 必须停在仓库记录的 pin 上（P-217）
+
+`Mu_Basecore` 是一个**嵌套仓**：主仓只记录一个 gitlink，构建读的却是工作树的当前内容。
+2026-11-16 之前，这个工作树停在一个**只存在于本机**的提交 `3d2a9fa` 上，而 `board.toml` 的注释
+声称记录的 pin `6f805f2` 已经包含那六个修复、`3d2a9fa` 是它的祖先。两句话都不成立：
+
+- `git merge-base 3d2a9fa 6f805f2` 返回空——两条历史没有共同祖先；
+- `3d2a9fa` 的父提交是 `3c9c7b2`（`[DROP on REBASE]`），不在任何远程分支上；
+- 11 个文件里只有 `AsmMacroLib.h` 在 `6f805f2` 上是修好的（且修法不同），其余 10 个是原始状态。
+
+后果：本机构建一直成功（工作树里确实有那些修复），但**干净 clone 会构建出坏的固件卷**。
+
+现状（已修）：工作树切到 `6f805f2`，五个修复改由 `[firmware].patches` 施加。验证过
+「pin + 五个补丁」与 `3d2a9fa` 的 11 个文件里有 10 个**逐字节相同**，唯一差异是上游已自行修好的
+`AsmMacroLib.h`。门禁 `scripts/check-basecore-pin.py`（P-217）钉住三件事：工作树 HEAD 必须等于
+记录的 pin、每个 `[firmware].patches` 必须存在且能 apply、若工作树故意偏离则必须在本文件里写明。
 
 ## 2. 它**不是**确定性的（同源也不得同字节）
 

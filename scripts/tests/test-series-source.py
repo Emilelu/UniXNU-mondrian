@@ -140,10 +140,23 @@ def main() -> int:
     else:
         data = json.loads(manifest.read_text(encoding="utf-8"))
         recorded = data.get("series", {})
-        digest = __import__("hashlib").sha256(SERIES.read_bytes()).hexdigest()
+        # P-214: the manifest names its fingerprint namespace.  "names+sizes"
+        # is the series-fingerprint.py digest (16 hex), and the file's own
+        # sha256 lives in file_sha256.  Manifests written before P-214 carry
+        # the file digest in "sha256" and no namespace; accept those too, but
+        # never compare one namespace against the other.
+        namespace = recorded.get("namespace") or "file-bytes"
+        file_digest = __import__("hashlib").sha256(SERIES.read_bytes()).hexdigest()
+        if namespace == "names+sizes":
+            digest = fingerprint(names, SERIES.parent)
+            file_ok = recorded.get("file_sha256") in (None, file_digest)
+        else:
+            digest = file_digest
+            file_ok = True
         stale = SERIES.stat().st_mtime > manifest.stat().st_mtime
         agrees = (recorded.get("count") == len(names)
-                  and recorded.get("sha256") == digest)
+                  and recorded.get("sha256") == digest
+                  and file_ok)
         if stale and not agrees:
             print(f"skip {manifest.parent.name}: the series changed after this "
                   f"build (manifest {recorded.get('count')}, series "
@@ -152,9 +165,13 @@ def main() -> int:
             check(f"{manifest.parent.name}: manifest patch count equals the series",
                   recorded.get("count") == len(names),
                   f"manifest {recorded.get('count')} vs series {len(names)}")
-            check(f"{manifest.parent.name}: manifest series sha256 equals the file",
+            check(f"{manifest.parent.name}: manifest series sha256 equals the "
+                  f"{namespace} fingerprint",
                   recorded.get("sha256") == digest,
                   "the manifest was built from a different series")
+            check(f"{manifest.parent.name}: manifest file_sha256 equals the series file",
+                  file_ok,
+                  "the manifest was built from a different series file")
 
     # 5. The scratch copy is only a fallback. It used to differ from the
     #    repository series, and asserting that difference was how this test

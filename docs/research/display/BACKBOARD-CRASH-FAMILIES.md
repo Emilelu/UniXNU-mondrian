@@ -10,7 +10,7 @@
 | --- | --- | --- | --- | --- |
 | A：NSURL nil（P-120） | pong_metal=1 注入 PongAdrenoMetal 插件 | NSURL initFileURLWithPath: nil string parameter + SIGABRT | 已知坑 P-120，金属注入，非背光 | grep 'nil string parameter' > 0 且 manifest payload_args 含 pong_metal=1 |
 | B：int-236 SIGSEGV | 发布 backlight-control=true 的新 IOService | K60 BACKLIGHT: published … control 1（旧格式）/ conformance=1 control=1（新格式）+ backboardd sig=11 | 发布层引入（brightness-4 control=1 崩 4 次，brightness-13 control=0 零崩） | python3 scripts/check-backlight-log.py <log> EXIT=0 |
-| C：getBytes:range: 类型不匹配 | 新 IORegistry 内容把字符串属性发到 DT 平面（bt 线 0509 补丁） | -[NSTaggedPointerString getBytes:range:]: unrecognized selector + NSInvalidArgumentException + SIGABRT | 不在我们的钩子里；触发源是 bt 线 0509 补丁的字符串属性（§3.3） | grep -c 'getBytes:range:' > 0 即 C 族；崩溃次数 ≈ (命中数+1)/2 |
+| C：getBytes:range: 类型不匹配（**已结案**） | 新 IORegistry 内容把字符串属性发到 DT 平面（bt 线 0509 补丁） | -[NSTaggedPointerString getBytes:range:]: unrecognized selector + NSInvalidArgumentException + SIGABRT | 不在我们的钩子里；触发源是 bt 线 0509 补丁的字符串属性（§3.3）；ad49ff2 改 OSData 后消失，与 0511 四个 hunk 无关（§3.4、§7.4） | grep -c 'getBytes:range:' > 0 即 C 族；崩溃次数 ≈ (命中数+1)/2；结案判据见 §7.1 三档 |
 
 状态（2026-11-15 22:10 更新）：Lead 已收下本档案并离线复核确认 §3.3 归因；B 族口径终局——只认
 brightness-4（control=1，4×SIGSEGV）对 brightness-13（control=0，0 崩）这一对，交付形态 A
@@ -32,6 +32,11 @@ dyld 缓存暂时拉不了，原因是路径而非窗口（§5）。新增 §6�
 跨 pid 中位 10.3 s；A 族同形状 ⇒ A 族不需要按周期性单独立项）；§7.4 换成七格矩阵（补 s4c 与 h3），
 并写下对 Lead「h2 是前置」的两条反证（h1 无 h2 但 :186 已发布、s4c 有 h2 仍 37 次）与缺格
 「带修复、不带 h2」——该格从未飞过，是唯一能证成或证伪那条链的实验。
+
+状态（2026-11-16 02:20 更新，C 族结案）：Lead 02:11 补飞了决定性的 h34（带 0509 修复、无 h1 无 h2），
+getBytes 0 / SpringBoard 128 / first frame 1 ⇒ 「h2 是前置」的因果链作废，唯一变量是 0509 OSData 修复；
+§7.4 从七格扩成八格并定稿，§3.4 写成结案。同时更正一条归因：「探针梯子不进」由 **h3 单独**造成
+（h34 有 h3 无 h2，梯子同样不进），是可观测性副作用、不是失败，不能当判据。
 
 结构性结论：B 与 C 是同一个根——「**向 IORegistry 发布此前不存在的内容，会激活 backboardd 里
 一直死着的 Apple 代码路径**」。B 死在新路径本身，C 死在新内容与 Apple 代码的**类型约定不匹配**
@@ -92,13 +97,26 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 6. **springboard 线补充线索（Lead 2026-11-15 转达）**：userland/ui_compat.c:723-729 的 20G81 兼容层先验做法——`method_abi(setter,"v",3,"@B@")` + `strcmp(method_getTypeEncoding(setter),"v36@0:8@16B24@?28")` 在调用前断言精确类型编码；类簇（NSString/NSData）返回类型编码错标正是打出 unrecognized selector 的经典方式。该段可作 C 族修复后「宿主侧断言发布属性是 OSData」的参照（内核侧约定已是 OSDynamicCast(OSData,…)，ArmCpu.cpp:103）。springboard 线全链 grep getBytes=0，与本族「不在我们的钩子」归因不冲突。
 7. **结论**：C 族崩的是 backboardd 里某 Apple 框架「把新出现的字符串属性当数据读」的路径（最可能是只有出现 bluetooth 设备时才会激活的 HID/蓝牙事件路径——HID 事件系统住在 backboardd 里）；具体是哪个系统帧，离线无法点名（缺 20G81 shared cache，§5）。可以肯定的是：**不在我们的显示钩子里**，且与本线的 K60Backlight 无关（bt-s4c 根本没有背光服务）。
 
-### 3.4 给 bt 线的修法建议（不在 display scope，未动手）
+### 3.4 结案：C 族根因是 0509 的 OSString，修复与 h1–h4 无关（2026-11-16 定稿）
 
 - device_type / compatible / unixnu,adt-name 改用 OSData 发布（模拟真实 FDT 的字节数组），与仓库内核读取侧（OSDynamicCast(OSData,…)）的约定一致；
 - 或先只发 DT 节点、砍掉 K60BluetoothRadio 的 registerService()，确认 bluetoothd 能否只靠 DT 子节点工作；
 - 验证：同一张镜像 k60bt=0 起飞（预期 0 崩）→ 修复版 k60bt=1（预期 0 崩 + bluetoothd 正常）。
 - 修复后的宿主侧断言参照：仿 userland/ui_compat.c:723-729 的 method_abi + strcmp 精确类型编码断言，在用户态把读回的属性先按类型校验再用（内核侧读取约定 OSDynamicCast(OSData,…) 保持不变）。
 - 进度（Lead 2026-11-15 22:10）：0509 OSData 修复已合入 bt 线分支（ad49ff2，三个属性改走 k60_bt_string_property()；test-k60-bt-0509-properties.py 25 例全过）；bt 下一张全量图带它，Lead 飞完即给本线实测判据。验证图由 Lead 直接排窗口上机（用户已放权 Lead 连续 boot，不再需要单独批准），本线只等实测结果、按 §3.5 判定表判。
+
+**结案（2026-11-16 02:15，Lead 02:11 授权）**：
+
+- **根因**：0509（`patches/xnu/0509-k60-bt-s3-identity-publish.patch`）把 `device_type` / `compatible` /
+  `unixnu,adt-name` 三个 DT 平面属性发成 OSString，而 DT 平面约定是 OSData 原始字节（§3.3 第 3 条）；
+  backboardd 里某条 Apple 代码按数据读这些属性 → `-[NSTaggedPointerString getBytes:range:]` → SIGABRT。
+- **修复**：bt 线 ad49ff2 把三处（外加 radio 的 device_type）改走 `k60_bt_string_property()`
+  （`OSData::withBytes(value, strlen(value)+1)`，带 NUL 结尾）。
+- **修复与 0511 的四个 hunk 无关**：八格矩阵（§7.4）里带修复的三格 h12（h1+h2）/ h23（h2+h3）/
+  h34（h3+h4，**既无 h1 也无 h2**）全部 getBytes 0 + SpringBoard ≥128 + first frame 1。
+- **实测判据**：§7.1 的 C-alive 三条件（G=0、S≥100、F≥1）且步 1（命令 D 非 0）为 YES。
+- **回归确认**：bt 线最终补丁集（bt-late / d 系列）若仍满足 C-alive 即可；不满足则按 §3.5.1 三属性二分。
+- 未做的一步：`registerService()` 是否也需要砍掉，从 h34 看不需要——三格都保留了它且桌面起来。
 
 ### 3.5 C 族判定表（可机判；P-204 形状）
 
@@ -238,7 +256,9 @@ else                                                         echo "C-not-fixed (
 
 **本表只在步 1 为 YES 时适用；步 1 为 NO（镜像不带 ad49ff2）时本表整体作废，不要逐行套用。**
 0 字节日志（wifi 家族 c0/c1/c2/z0/t2/mhi3/mhi4）用同一条命令会得到 G=0 S=0 F=0 的「C-alive」，
-那是没采集到，不是没崩溃。
+那是没采集到，不是没崩溃。那七张的死因现已查明是 UFS 抢在锁分配前要 Apps SMMU lease（P-215，
+patches/wifi/0012 惰性分配后 c3 已进 SpringBoard 132），与 C 族无关——但它们作为「0 字节会被误判」的
+例子仍然有效。
 
 | 档 | 条件 | 含义 | 落判动作 |
 | --- | --- | --- | --- |
@@ -328,52 +348,56 @@ grep -aoE "uncaught exception '[^']+', reason: '[^']{0,40}" "$L" \
 | h12 / h23 / baseline / usb-d / adsp-c,d,e（getBytes = 0） | `-[NSURL initFileURLWithPath:isDirectory:]: nil string parameter` 13–22 次（A 族噪声） | 无 C 族签名 |
 
 读法：**首位签名是 C 族**才算 C 族未修；首位签名是 A 族且 getBytes = 0，说明 C 族已消失，
-剩下的是 P-120 金属注入的既有噪声——它不阻止桌面起来（h12/h23 的 SpringBoard 132/128 行就是证明）。
+剩下的是 P-120 金属注入的既有噪声——它不阻止桌面起来（h12/h23/h34 的 SpringBoard 132/128/128 行就是证明）。
 
-### 7.4 七格矩阵：0509 的 OSData 修复与 0511 的四个 hunk，谁在起作用
+### 7.4 八格矩阵：0509 的 OSData 修复与 0511 的四个 hunk，谁在起作用
 
-Lead 2026-11-16 00:50 给了五格矩阵（h1/h13/h4/h12/h23），本线补上 s4c 与 h3，合成七格。
-hunk 编号按源文件行号：`bsd/dev/qbt_k60.c:1815` = 冷启动早退（**h2**）、`:1996` = addon 门（**h1**）、
-`:2077` = stage 默认（**h3**）；`bsd/dev/qbt/btqca.c:761` = 固件日志（**h4**）。
+Lead 2026-11-16 00:50 给了五格矩阵（h1/h13/h4/h12/h23），本线补上 s4c 与 h3；Lead 02:11 又补上决定性的 h34
+（带修复、既无 h1 也无 h2），合成八格。hunk 编号按源文件行号：`bsd/dev/qbt_k60.c:1815` = 冷启动早退（**h2**）、
+`:1996` = addon 门（**h1**）、`:2077` = stage 默认（**h3**）；`bsd/dev/qbt/btqca.c:761` = 固件日志（**h4**）。
 
-| 镜像 | head | 0509 OSData 修复 | h2 :1815 | h1 :1996 | h3 :2077 | h4 btqca:761 | getBytes | SpringBoard | first frame |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| s4c `usblog-20261115-162553` | 5190337be6 | 无 | 有 | 有 | 有 | 有 | 37 | 13 | 0 |
-| h1 `usblog-20261115-211515` | e296d9ec4d | 无 | — | 有 | — | — | 36 | 13 | 0 |
-| h3 `usblog-20261115-212105` | 40cdafd045 | 无 | — | — | 有 | — | 36 | 12 | 0 |
-| h13 `usblog-20261115-212643` | 670e138c53 | 无 | — | 有 | 有 | — | 36 | 13 | 0 |
-| h4 `usblog-20261115-230627` | 3bcaac3acb | 无 | — | — | — | 有 | 36 | 13 | 0 |
-| h12 `usblog-20261115-230047` | 364499d869 | **有** | 有 | 有 | — | — | **0** | **132** | **1**（:2381） |
-| h23 `usblog-20261115-235417` | ba4afb2a4a | **有** | 有 | — | 有 | — | **0** | **128** | **1** |
+| 镜像 | 证据目录 | head | 0509 OSData 修复 | h2 | h1 | h3 | h4 | getBytes | SpringBoard | first frame |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| s4c | `usblog-20261115-162553` | 5190337be6 | 无 | 有 | 有 | 有 | 有 | 37 | 13 | 0 |
+| h1 | `usblog-20261115-211515` | e296d9ec4d | 无 | — | 有 | — | — | 36 | 13 | 0 |
+| h3 | `usblog-20261115-212105` | 40cdafd045 | 无 | — | — | 有 | — | 36 | 12 | 0 |
+| h13 | `usblog-20261115-212643` | 670e138c53 | 无 | — | 有 | 有 | — | 36 | 13 | 0 |
+| h4 | `usblog-20261115-230627` | 3bcaac3acb | 无 | — | — | — | 有 | 36 | 13 | 0 |
+| h12 | `usblog-20261115-230047` | 364499d869 | **有** | 有 | 有 | — | — | **0** | **132** | **1**（:2381） |
+| h23 | `usblog-20261115-235417` | ba4afb2a4a | **有** | 有 | — | 有 | — | **0** | **128** | **1** |
+| h34 | `usblog-20261116-014536` | f604d5f9da | **有** | — | — | 有 | 有 | **0** | **128** | **1**（:2486） |
 
-复现这张表的两条命令：
+复现这张表的三条命令：
 
 ```sh
-git merge-base --is-ancestor ad49ff2 <head>                                # 仅 h12/h23 为 YES
-git show <head>:patches/xnu/0509-*.patch | grep -c k60_bt_string_property  # 仅 h12/h23 为 5，其余 0
+git merge-base --is-ancestor ad49ff2 <head>                                # h12/h23/h34 为 YES
+git show <head>:patches/xnu/0509-*.patch | grep -c k60_bt_string_property  # h12/h23/h34 为 5，其余 0
+git show <head>:patches/xnu/series | grep -E '^0509|^0511'                 # 每格带了哪几个 hunk
 ```
+
+h34 本线 02:15 独立复核（与 Lead 报的一致）：console 226,459 B / 3,314 行、getBytes **0**、SpringBoard 128、
+first frame 在 :2486、entered backboardd 1、crashed 7（全是 `syncdefaultsd`/`mmaintenanced` 的
+"Too many corpses being created"，无 panic）、`probe: armed` 0 次、`[bluetooth] power=` 0 次、
+:186 `K60 BT: published local address ee:98:c5:8a:6b:4e`、:192 `addon: linked blob bytes=1027584 records=106`；
+series 230 条（0509 + 0511j），0509 的 helper 计数 5，0511j 只含 `@@ -2077`（h3）与 `@@ -761`（h4）两个 hunk。
 
 从表里能直接读出四条：
 
-1. **只有「0509 OSData 修复」这一列把 {36,37} 与 {0} 分开**：带修复的两格全 0 且桌面起来，
-   不带修复的五格全 36–37 且 first frame = 0。修复是直接原因。
-2. **h2 不是「让身份发布第一次执行」的原因。** h1 没有 h2（`grep -ac 'rails not voted'` = 0），
-   但 `:186 K60 BT: published local address ee:98:c5:8a:6b:4e` 照样打出来，探针梯子也跑完
-   （`:762 [bluetooth] probe: done`、`:763 power=1 result=0`）。发布点在 `native_pong_ui_services_start`，
-   与 `k60_request_power()` 的冷启动门不是同一条路径——所以「没有 h2 就走不到那条路径」不成立。
-3. **h2 也不是充分条件。** s4c 带全部四个 hunk（含 h2），仍然 37 次、桌面起不来。
-4. **缺一格：带修复、不带 h2。** 这个组合从未飞过。要证「h2 是前置」，只能飞这一格
-   （h1 底座 + 新版 0509）。在它飞出来之前，能写的最强结论是：
-   **0509 的 OSData 修复是直接原因；h2 在现有样本里与修复完全共变，不能排除它也有贡献，
-   但没有任何一张图显示「没有 h2 时身份发布不执行」。**
+1. **把 {36,37} 与 {0} 分开的唯一变量是「0509 OSData 修复」这一列。** 带修复的三格全 0 且桌面起来，
+   不带修复的五格全 36–37 且 first frame = 0。**h1/h2/h3/h4 四个 hunk 与 getBytes 计数没有因果关系**——
+   h34 既无 h1 也无 h2，已经是 0。
+2. **「h2 是前置」这条因果链作废（Lead 2026-11-16 02:11 自认）。** 三条反证：①h1 没有 h2 但 `:186` 照样打出
+   published local address，探针梯子也跑完（`:762 probe: done`、`:763 power=1 result=0`）——发布点在
+   `native_pong_ui_services_start`，与 `k60_request_power()` 的冷启动门不是同一条路径；②s4c 带全部四个 hunk
+   仍 37 次；③h34 连 h1 都没有、照样 0 次。h2 与修复在这批图里共变是巧合。
+3. **「探针梯子不进」的归因是 h3 单独造成的，不是 h2+h3 组合。** h34 有 h3 无 h2，`probe: armed` 与
+   `[bluetooth] power=` 同样 0 次；h23 与 h34 都有 h3，h1/h12/h13/h4 都无 h3 且梯子都跑了。
+   ⇒ h3 把早启动探针的挂载点整段拿掉，这是**可观测性副作用，不是失败**。所以「梯子不进」不能当判据，
+   只能当「这张图不能用来判探针」的标记。
+4. **C 族结案**：h12/h23/h34 三格都满足 §7.1 的 C-alive 三条件，其中 h34 无 h1 无 h2 ⇒ C 族的修复
+   **不依赖任何 bt hunk，只依赖 0509**。残留的 16–22 次 NSURL nil 是 A 族（P-120），按 §1 处理。
 
-（Lead 的因果链「h2 让冷启动早退消失 → 身份发布第一次真正执行 → 0509 修复才起作用」作为假设记在这里；
-上面第 2 条是它的反证，第 4 条是能证伪或证成它的那张图。）
-
-**C 族结论不受缺格影响**：h12/h23 两格已经满足 7.1 的 C-alive 三条件（G=0、S≥100、F≥1），
-且 h12 同日志还有 `:186 published local address` 与 `:762 power=1 result=0`——
-「身份发布成功 + 属性类型正确 + 桌面起来」三件事同时成立。残留的 17–22 次 NSURL nil 是 A 族（P-120），
-按 §1 处理，不属本族。仍建议 bt 线飞 bt-late-20261115a 时用本节复核一次（全量 0511 + 0512 late-start
-比二分底座更接近最终形态），但结论不依赖它。
+**本节结论已定稿，不再需要补格。** 唯一还想复核的是 bt 线的全量图（bt-late / d 系列）在最终补丁集下
+仍保持 C-alive；那只是回归确认，不改变归因。
 
 

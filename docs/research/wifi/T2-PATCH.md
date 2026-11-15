@@ -34,7 +34,7 @@ placement is invisible to it.
 
 ```diff
 diff --git a/scripts/build-k60-wifi-native.py b/scripts/build-k60-wifi-native.py
-index cbd2eb665423f5d0bd2c83b4fcb5058cadd00898..6a1b84f3745d141134134d693797885e3ed797b6 100644
+index cbd2eb6..6a1b84f 100755
 --- a/scripts/build-k60-wifi-native.py
 +++ b/scripts/build-k60-wifi-native.py
 @@ -99,7 +99,7 @@ def main():
@@ -124,6 +124,26 @@ compares `kernel.macho` against a marker, not against the archive
 (that is how mhi3/mhi4 flew a stale kernel), so either
 `mv $M/kernel/kernel.macho $M/kernel/stale/` or confirm from the log that
 the linker actually ran.
+
+### 4.1 One-command runner (guarded, refuses to run on the wrong day)
+
+The whole of §4 is wrapped in `/mnt/e/k60-work/scratch/run-t2.sh`
+(`bash -n` clean). It refuses to start unless three things hold, which is
+exactly the condition the Lead attached to the authorisation:
+
+1. `/mnt/e/k60-work/artifacts/wifi-20261115z0/build-manifest.json` still
+   says `series.count = 224` and `series.sha256 = 34cf51e4…`;
+2. the diff in §2 still passes `git apply --check` against the current HEAD;
+3. the patch is applied only for the duration of the native archive build —
+   a shell `trap` reverts `scripts/build-k60-wifi-native.py` on exit, so the
+   worktree cannot be left dirty even if the build fails.
+
+It also moves `kernel.macho` into `kernel/stale/` before the strict build, so
+the linker cannot be skipped (the mhi3/mhi4 confound), and prints the archive's
+`PWF2` count so a wrong placement is visible before the image is built.
+
+The verdict word from `scripts/judge-wifi-boot.py` is a precondition the
+script cannot check — it is read from the printed line, not from the exit code.
 
 ## 5. Verify the image before anyone flies it
 

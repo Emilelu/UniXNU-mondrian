@@ -5333,3 +5333,94 @@ Check: `python3 scripts/tests/test-check-define-scope.py`（9 例）与 registry
 Check: `python3 scripts/tests/test-series-fingerprint.py`（8 例，含
 `the_gate_and_the_recorder_still_agree` 直接比对三个内嵌实现与工具的输出）与
 registry `id = "P-214"`。
+
+## P-215 — 惰性分配的锁在「还没人分配」时返回失败，等于拒绝服务；而 0 字节日志把这次拒绝藏了三天
+
+现场：wifi 家族七张镜像（c0/c1/c2/z0/t2/mhi3/mhi4，内核 66–117 MB）全部
+`port-not-observed` / 0 字节。逐条排除掉的轴（每条都有实测）：
+
+| 轴 | 否证方式 |
+|---|---|
+| 内核总大小 | 117 MB silent，但 129 MB（`adsp-20261115c/d/e`）与 105 MB 都进桌面 |
+| 段跨度 / 254 MiB 窗口 | `darwinboot_parsekernel.py` 复刻固件全部拒绝条件，五张全 PASS；129 MB 的 span 141,111,296 比 c2 的 129,642,496 更大却能起 |
+| 容器所在段 | PWF2 放 `__TEXT,__const`（c0/c1/z0）与 `__DATA_CONST,__const`（c2）都 silent |
+| 固件卷 / DTB | `bootimg_slots.py` 逐件比对：`gzip_sha256`、`shim_sha256`、`fd_sha256`、DTB 全相同，唯一差异是 ramdisk |
+| ADT | `darwinboot_adt.py` 复刻 `AdtNode()`，五张全 ACCEPTED/exact，25 节点，window `0x120000000` |
+| 控制台参数 | 五张 `payload_args` 29 项逐字符相同，只末项不同 |
+| Data 卷 UUID | c1 把 `mondrian_wifi_defconfig` 的种子 UUID 改对，仍 silent |
+| C++ 全局构造器 | `macho_initfunc.py`：`__mod_init_func` 两边都 102 条，+0/−0；`__pong_init` 内核无消费者，设计上不执行 |
+| `__init_entry_set` | `__startup_` 符号数三张都是 4,980，+5/−5 只是重命名 |
+
+真因（`patches/wifi/0004-drivers-NativeUfs-pong-ufs-ready.patch` + `0001`）：
+
+```c
+// 0004 给 PongUfsTransport.cpp 的 hostBringUp() 插的 lease 段
+if (pong_smmu_lease_lock && pong_smmu_lease_unlock) {
+    lease.held = pong_smmu_lease_lock();
+    if (!lease.held) return transportFailure("Apps SMMU lease unavailable");
+}
+// 0001 的实现：锁未分配就返回 false
+extern "C" bool pong_smmu_lease_lock(void){
+    if(!smmuLeaseLock) return false;      // ← 拒绝服务
+    IOLockLock(smmuLeaseLock); return true;
+}
+```
+
+`smmuLeaseLock` 只在 `pong_rpmh_init()` 里 `IOLockAlloc()`，而 `pong_rpmh_init()`
+的唯一调用点是 `pong_wifi_start_optional()`，后者由 `patches/wifi/0005` 在
+`ArmDTPlatform::configure()` 的 `registerService()` 之后调用。**UFS 是根设备，必然先启动**
+（实测能起日志里 `PONG_UFS` 在 115 行、`ArmDTPlatform: registered platform` 在 147 行）。
+于是 UFS 调 lock() 时锁必为 NULL → false → `transportFailure` → 整个 UFS transport
+放弃 → 没有根设备 → 内核在 console worker 起来之前就死 → **0 字节**。
+
+修法（`patches/wifi/0012`，20,480 B 代码，单变量）：把分配搬进 lock() 自己——
+
+```c
+extern "C" bool pong_smmu_lease_lock(void){
+    if(!smmuLeaseLock) smmuLeaseLock = IOLockAlloc();
+    if(!smmuLeaseLock) return false;
+    IOLockLock(smmuLeaseLock); return true;
+}
+```
+
+真机验证：`wifi-20261116c3`（`boot.img 5a19e110…`，117,325,824 B，带真 PWF2 容器
+11,189,974 B）证据 `usblog-20261116-015128`：console 221,429 B / 3,202 行 /
+**SpringBoard 132** / panic 0 / `:482 K60DATA mounted ro=0 fstype=apfs` /
+`:972 Early boot complete. Continuing system boot.`
+
+**为什么这次事故值三天**：0 字节日志同时抹掉了「没执行」和「执行到一半失败」两种状态。
+控制台是 ramoops 环形缓冲区，`patches/xnu/0300` 的 `k60_usblog_init()`
+（`osfmk/arm/arm_init.c`）只做只读探测，真正的排空 worker 在
+`bsd/kern/bsd_init.c` 的 `if (result == KERN_SUCCESS)` 里才由 `k60_usblog_start()` 启动。
+所以「日志第一行是 `K60 USBLOG: GDSC usb30_prim`」**不能**证明它比 UFS 早执行——
+那只是环形缓冲区的写入顺序。任何让 `IOKitBSDInit()` 返回非 `KERN_SUCCESS` 的早期失败
+都会直接跳过 console worker，与 0 字节完全吻合。这条是用户 m27494 直接指出我的论证错误后
+才纠正的：我当时用「第 1 行输出早于 UFS」否定了 UFS 假说，把真凶排除了整整一轮。
+
+四条教训：
+
+1. **返回 bool 的 `lock()` 在锁未就绪时返回 false，语义上等于「拒绝服务」**。
+   惰性分配的锁必须自己保证可分配；让调用者承担「谁先初始化」的知识，就是把
+   一个初始化顺序缺陷伪装成一次正常的错误返回。正确形状是「要么成功，要么 panic」，
+   而不是「悄悄返回 false，让第一个调用者去死」。
+2. **弱引用只解决「符号可能不存在」，不解决「符号存在但拒绝服务」**。
+   `if (pong_smmu_lease_lock && pong_smmu_lease_unlock)` 看起来是完备的守卫，
+   实际只覆盖了 `weak_import` 解析失败那一档，漏掉「解析成功、调用返回 false」。
+   弱引用守卫要写成「符号在 && 调用成功」，并且调用失败要有独立于符号缺失的日志。
+3. **跨子系统共享资源的所有权必须在设计时确定启动顺序，不能靠「谁先跑到」**。
+   Apps SMMU 是 UFS 与 Wifi 共用的；UFS 先启动是**必然**的（它是根设备），
+   所以锁的分配点必须早于 UFS，或者由 lock() 自己惰性完成。
+   「反正 wifi 会先初始化」这种假设在启动顺序面前一文不值。
+4. **0 字节日志是最弱的观测，它会把不同故障抹成同一张脸**。这次它同时抹掉了
+   「内核没被装载」「内核崩在第一行之前」「内核跑到根挂载失败」三种状态。
+   判断「谁先执行」只能靠**代码里的调用链**，不能靠日志行号——环形缓冲区让行号
+   失去时序含义。任何「A 的日志在 B 之前，所以 A 先执行」的论证都必须先问
+   日志是直写还是缓冲。
+
+附带一条工程教训（同批事故，来自 wifi 线 `3207bd3`）：**merge 解冲突后要验「非冲突区域的
+功能块有没有被 main 侧整段替换」**。那次 merge 的 `build-strict.sh` 冲突只保住了 manifest 的
+两个字段，把 `XNU_PONG_WIFI_ARCHIVE` 的定义段和 P-190 守卫整段丢了 —— 静态看不出来，
+因为 manifest 里还留着一个引用，结果是「链上了但账本记不到、守卫不跑」。
+
+Check: `python3 scripts/tests/test-pong-smmu-lease.py`（wifi 线交付，钉住函数唯一、
+分配先于 null 检查、仍 `IOLockLock`、补丁是 series 最后一项）与 registry `id = "P-215"`。

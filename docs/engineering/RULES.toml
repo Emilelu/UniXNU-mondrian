@@ -697,3 +697,11 @@ source = "docs/engineering/PITFALLS.md:P-214"
 statement = "同名字段跨命名空间比较必然失败：series 指纹必须由唯一实现产生并自带 namespace 字段，读者拒绝比较不同 namespace 的值；门禁红了先问「这个量是谁算的」"
 check = "python3 scripts/tests/test-series-fingerprint.py"
 note = "2026-11-16 build-strict.sh 量 series 文件字节（64 hex），porting-gate/record-boot 量 names+sizes（16 hex），两者永远不等，main 上每次合并都被 iron-4/hard-33 挡。"
+
+[[rule]]
+id = "P-215"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-215"
+statement = "惰性分配的锁必须自己保证可分配：返回 bool 的 lock() 在未就绪时返回 false 等于拒绝服务；弱引用只防符号缺失不防调用失败；共享资源的启动顺序必须在设计时确定；判断执行顺序只能靠调用链，不能靠环形缓冲区的日志行号"
+check = "python3 scripts/tests/test-pong-smmu-lease.py"
+note = "2026-11-16 wifi 家族七张 0 字节镜像的真因：UFS 的 hostBringUp 调 pong_smmu_lease_lock()，锁只在 pong_rpmh_init() 里分配，而后者晚于 UFS。patches/wifi/0012 惰性自建后 wifi-20261116c3 进 SpringBoard 132。"

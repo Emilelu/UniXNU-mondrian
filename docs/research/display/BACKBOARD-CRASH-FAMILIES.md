@@ -14,8 +14,10 @@
 
 状态（2026-11-15 晚）：Lead 已收下本档案并离线复核确认 §3.3 归因；B 族口径终局——只认
 brightness-4（control=1，4×SIGSEGV）对 brightness-13（control=0，0 崩）这一对，交付形态 A
-（control=0 + 真 conformance）正式定稿；C 族修复验证图等 bt 线出（本线不预建）；dyld 缓存已批准由 Lead 拉取（设备当前在 fastboot，
-拉取需 adb，窗口由用户排，Lead 2026-11-15 18:59 回复）；springboard 线类型编码线索已收录 §3.3。
+（control=0 + 真 conformance）正式定稿；C 族修复验证图等 bt 线 0509 修复图出（本线不预建；bt 线正二分 0005 h1→h3→h1+h3，下版全量图
+必须带 0509 OSData 修复，Lead 已下令，修复图出来前 C 族不再重复归因）；dyld 缓存由 Lead 排进
+下一段有 adb 的窗口（设备回 Android 时）拉取，拉完通知我做符号化；springboard 线类型编码线索
+已收录 §3.3。
 
 结构性结论：B 与 C 是同一个根——「**向 IORegistry 发布此前不存在的内容，会激活 backboardd 里
 一直死着的 Apple 代码路径**」。B 死在新路径本身，C 死在新内容与 Apple 代码的**类型约定不匹配**
@@ -82,6 +84,7 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 - 或先只发 DT 节点、砍掉 K60BluetoothRadio 的 registerService()，确认 bluetoothd 能否只靠 DT 子节点工作；
 - 验证：同一张镜像 k60bt=0 起飞（预期 0 崩）→ 修复版 k60bt=1（预期 0 崩 + bluetoothd 正常）。
 - 修复后的宿主侧断言参照：仿 userland/ui_compat.c:723-729 的 method_abi + strcmp 精确类型编码断言，在用户态把读回的属性先按类型校验再用（内核侧读取约定 OSDynamicCast(OSData,…) 保持不变）。
+- 进度（Lead 2026-11-15 19:24）：bt 线正在二分 0005（h1→h3→h1+h3）；其下版全量图必须带 0509 的 OSData 修复（Lead 已下令）。修复图出来前 C 族不再重复归因，以本文件为判据底本。
 
 ## 4 判据汇总（只用日志）
 
@@ -92,7 +95,7 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 
 ## 5 缺口
 
-- **20G81 dyld shared cache 缺失**，0x19cb…/0x1a21…/0x1c38… 与私段 0x10… 帧全部无法反推符号。Lead 2026-11-15 已批准下个上机窗口拉取，由 Lead 执行（设备只经 Lead 的手），拉完通知我，我再做符号化；Lead 会在窗口期顺带准备好 device 侧 adb 通道。清单：
+- **20G81 dyld shared cache 缺失**，0x19cb…/0x1a21…/0x1c38… 与私段 0x10… 帧全部无法反推符号。Lead 2026-11-15 19:24：设备在 fastboot 无 adb，拉取排进下一段有 adb 的窗口（设备回 Android 时）；由 Lead 执行，拉完通知我，我再做符号化。清单：
   - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e（iOS 16.6.1 完整版约 3.2 GB；设备上可能略小，以实际大小为准）
   - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.map（约 300–600 MB，若存在）
   - 可选 dyld_shared_cache_arm64e.symbols（设备上通常不存在，有则一并拉）

@@ -89,7 +89,8 @@ class StampSelectionTests(unittest.TestCase):
         self.repo = Repo()
         self.gate = load_gate()
         self.saved = (self.gate.REPO, self.gate.SERIES, self.gate.OUT_ROOTS,
-                      self.gate.INPUT, os.environ.get("K60_OUT"))
+                      self.gate.INPUT, os.environ.get("K60_OUT"),
+                      self.gate.IN_PROGRESS)
         self.gate.REPO = type(self.gate.REPO)(self.repo.root)
         # SERIES and INPUT are module constants resolved at import, so they have
         # to be redirected too; otherwise every fixture is graded against the
@@ -99,13 +100,20 @@ class StampSelectionTests(unittest.TestCase):
             os.path.join(self.repo.root, "patches/xnu/series"))
         self.gate.INPUT = self.gate.SERIES
         self.gate.OUT_ROOTS = [type(self.gate.REPO)(os.path.join(self.repo.root, "out"))]
+        # build-strict.sh exports K60_BUILD_IN_PROGRESS=1 so that the gate it
+        # runs *during* a build cannot block that same build (P-165's deadlock).
+        # The registry inherits it, so a test run from inside build-strict would
+        # otherwise grade every "series changed" case as a warning and the
+        # red-path assertions here would silently pass. Pin it off.
+        self.gate.IN_PROGRESS = False
+        os.environ.pop("K60_BUILD_IN_PROGRESS", None)
         os.environ.pop("K60_OUT", None)
         for name in NAMES:
             self.repo.patch(name, "body of %s\n" % name)
 
     def tearDown(self):
         (self.gate.REPO, self.gate.SERIES, self.gate.OUT_ROOTS,
-         self.gate.INPUT, saved_out) = self.saved
+         self.gate.INPUT, saved_out, self.gate.IN_PROGRESS) = self.saved
         if saved_out is None:
             os.environ.pop("K60_OUT", None)
         else:

@@ -161,3 +161,14 @@ Metal 路线是「构建期把目录生成 `.s`、编进内核 `__DATA`、启动
 - 不改 `K60ModemQrtr.c` / `K60ModemLink.c` / `K60ModemBoot.c`（顺序问题只记录，见 §0.2）；
 - 不再出镜像、不申请上机；
 - `porting.toml` 的 `completion` 不动。
+## 六、待办（L4 及以后）
+
+1. **顺序错误（L4，只记录不改）**：`pong_modem=2` 现在是先 QRTR 后 PAS（`K60ModemBoot.c:115-122`），
+   理由是避免 AUTH_AND_RESET 掩盖已在跑的名字服务——这只在热启动成立。**载具到位后的第一次冷启动**
+   modem 停在复位态，SMEM 里没有 item 478/479/480/435，`k60_modem_qrtr_probe()` 会先打
+   `K60MODEM qrtr: smem item 480 missing rc=-5` 然后 `carrier present` / PAS 流程照走。
+   ⇒ 冷启动的第一次探测**必然先出现这一行，属预期**，不按 09 篇的 A–J 用例判；真修走两段式探测
+   （先 PAS 等 modem 复位完成，同一轮 boot 内再 QRTR），届时要改 `K60ModemBoot.c` 的调用顺序。
+2. 固件 DXE 契约已落盘为 `docs/research/cellular/12-DXE-CONTRACT.md`，等 Lead 裁决 D1/D2/D3。
+3. 载具验收按 12 篇 §6 四条，全部过了才排队上机。
+

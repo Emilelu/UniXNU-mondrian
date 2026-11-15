@@ -497,6 +497,49 @@ This line, next in order:
       verify-boot-image OK + image-arg-audit OK。
     - 判读树：h4 单独 silent ⇒ 凶手是 h4，h123 用于确认 h2+h3 无害；h4 单独到桌面 ⇒ 凶手是
       h2+h3 组合，h123 是决定性那张。
+14. **h23 与 h4 单独实飞、h124 决定性图（2026-11-16 凌晨）**
+    - `bt-bisect-h23`（0511h = h2+h3，不含 h1/h4）**到桌面**：证据 `usblog-20261115-235417`
+      （console 3,233 行 / 225,486 B、SpringBoard 128、panic 0、rc=0、`:453` disk5s1
+      vol-uuid 1BCD69FF Data 正常、`:192` blob 链入）。两个可观测性副作用要记住：`:193`
+      `probe: armed` 消失（h3 的 stage 默认 0 让早启动探针不再挂载，不是失败），
+      `getBytes:range` 0 次。
+    - `bt-bisect-h4` 单独飞（`usblog-20261115-230627`，253,946 B、SB 13、panic 0、
+      `[bluetooth]` 只有 5 行、停在 transport ready、getBytes 36）也到桌面。
+    - 六张矩阵（全 Lead 飞）：h1 SB13/getBytes36/power 未成功；h13 SB13/36/-102；h4 SB13/36/无
+      power 行；h12 SB132/**0**/result=0；h23 SB128/**0**/无 power 行；h123 与全量 **silent**。
+    - 两条硬结论：① **h2 是 `getBytes:range` 消失的必要条件**（含 h2 的两张都是 0 次，不含的
+      四张都是 36 次），与 0509 的 ad49ff2 无关，C 族真凶是「冷启动早退导致身份发布走错分支」，
+      不必等 ad49ff2；② **致命集必须含 h4**——h23 能起、h4 单独能起、全量 silent ⇒ 凶手是
+      h4 × {h1,h2,h3} 的交互，此前「必须含 h3 且含 h2 或 h4」的推断被 h23 推翻。
+    - 下一张只出 **h124（h1+h2+h4）**：能起 ⇒ 致命组合是 h3+h4，再出 h34 收口；silent ⇒ 用
+      0512 的三个开关（`pong_bt_smmu=0` / `pong_bt_rcg=0` / `pong_bt_noboot=1`）逐条关断。
+      变体 `0511i-k60-bt-bisect-h124.patch`（2,686 B，sha256 `83e80a10…bbe3`，
+      H124_EQUALS_FULL_MINUS_H3 + H124_CHECK_OK），series 换 hunk 的提交 `9b4bc59`。
+
+15. **0512 完整阶梯延期启动（`pong_bt_late=1`）与 §7.3 机制假设（2026-11-16 凌晨）**
+    - 问题不在哪一行而在时机：`qbt_k60_start()` 由 `bsd/kern/bsd_init.c:1352` 早启动调用，
+      worker 一起线程就 `k60_bt_power_on()` + `qbt_boot()`，总线写死时 CDC console 还没枚举完，
+      于是整机静默、连死在哪一行都看不到。
+    - `patches/xnu/0512-k60-bt-late-start.patch`（twin `patches/bt/0006`，commit `a4c257a`）
+      把阶梯挪到 `bsd/kern/kern_exec.c` 的 K60DATA 部署点（`k60_uilib_deploy()` 之后）：早启动只建
+      core、快照 addon、把 worker 挂在 `k60.late_go` 上；Data 挂载后 `qbt_k60_late_start()` 放行，
+      日志依次 `late: armed…` → `late: released by the K60DATA deploy point` →
+      `late: released, starting the full ladder` → `full: power_on enter` →
+      `full: dma buffer and smmu bypass ready` → `full: uart pins parked` → … →
+      `full: qbt_boot enter`，**最后一行就是死亡点**。
+    - 三个机理开关：`pong_bt_smmu=0`（跳过 S2CR/SMR 写入）、`pong_bt_rcg=0`（跳过两处
+      `k60_gcc_set_se_rate()`）、`pong_bt_noboot=1`（停在固件下载前）。
+    - **序列位置是尾部**（`patches/xnu/series` 最后一行，不是 0511 之后）：0610/0614/0616 都锚在
+      `(void)k60_uilib_deploy(); }` 这个交界上，任何插入都会让它们 apply 失败（第一轮构建死在
+      `patch does not apply: bsd/kern/kern_exec.c:7900`）。移到尾部后整条 series 230 个补丁
+      从头重放 APPLIED=230 BAD=0。
+    - 不加任何 `pong_bt_*` 时行为与 0511 逐字节等价，宿主侧断言
+      `scripts/tests/test-k60-bt-0512-late-start.py` 39 cases（四个默认值 + 三条裸调用只剩受保护
+      形态 + 序列位置）全过；§7.3 记录 a SMMU / b RCG / c DMA 三个假设的"若是它日志长什么样"与
+      各自开关，§7.4 记录断网出图的 `UNIXNU_KERNELCACHE`。
+    - `bt-late-20261115a`（全量 0511+0512 的 late 图）按 Lead 裁决**暂缓**：致命集未收敛前飞它，
+      silent 也分不清是"late 没救回来"还是"h4 交互仍在"。
+
     - 旁记（Lead 账本问题，非本线）：`record-boot.py` 这次把 h12 记成 series 226 /
       `9688ad85…`（读的是 main 当前 series，不是镜像 manifest），Lead 本周改成优先取
       `build-manifest.json` 的 series；本线 manifest 字段一直完整。

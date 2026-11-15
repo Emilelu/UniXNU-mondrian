@@ -758,7 +758,111 @@ kernel `bf3aee6b…445b`（106,541,056 B）、payload_kernel `0140faa5…fe33`�
 blob `febdc20d…`、30 参数 / 583 B、head `540f51b`；verify-boot-image OK + image-arg-audit OK。
 h4 单独 silent ⇒ h4 是凶手、h123 证实 h2+h3 无害；h4 单独起 ⇒ h2+h3 组合是凶手、h123 决定。
 
+**h23 与 h4 单独实飞（2026-11-15 深夜，Lead 飞）**：`bt-bisect-h23`（0511h = h2+h3，不含
+h1/h4）**到桌面**——证据 `usblog-20261115-235417`（console 3,233 行 / 225,486 B、SpringBoard 128
+行、panic 0、rc=0、`:453` disk5s1 vol-uuid 1BCD69FF Data 正常、`:192` blob 链入）。两个可观测性
+副作用：`:193` 的 `probe: armed` **消失**（h3 把 stage 默认 0 之后早启动探针不再挂载，h12 有、h23
+没有；这不是失败），`getBytes:range` **0 次**。`bt-bisect-h4` 单独飞（`usblog-20261115-230627`，
+253,946 B、SB 13、panic 0、`[bluetooth]` 只有 5 行、停在 transport ready、getBytes 36）也**到桌面**。
 
+**六张实测矩阵（全部 Lead 飞）**：
+
+| 图 | 组合 | SB | getBytes | power 行 |
+|---|---|---|---|---|
+| h1 | h1 | 13 | 36 | 1（未成功） |
+| h13 | h1+h3 | 13 | 36 | 1（result=-102） |
+| h4 | h4 | 13 | 36 | 0 |
+| h12 | h1+h2 | **132** | **0** | **1（result=0）** |
+| h23 | h2+h3 | **128** | **0** | 0（探针未挂载） |
+| h123 | h1+h2+h3 | **silent** | — | — |
+| 全量 | h1+h2+h3+h4 | **silent** | — | — |
+
+两条硬结论：① **h2 是 `getBytes:range` 消失的必要条件**——含 h2 的 h12/h23 都是 0 次，不含 h2 的
+四张都是 36 次；这与 0509 的 ad49ff2 无关（二分图都不含它），所以 C 族的真凶是「冷启动早退导致身份
+发布走错分支」，不是属性类型，C 族验证不必等 ad49ff2。② **致命集必须含 h4**：h23（h2+h3）能起、
+h4 单独也能起、全量 silent ⇒ 凶手是 h4 × {h1,h2,h3} 的交互；此前「必须含 h3 且含 h2 或 h4」的
+推断被 h23 推翻。下一张只出 **h124（h1+h2+h4）**：能起 ⇒ 致命组合是 h3+h4，再出 h34 收口；
+h124 silent ⇒ 致命组合是 h4+h1 或 h4+h2，用 0512 的三个开关在 h124 上逐条关断，比再切 hunk 快。
+### 7.3 静默死亡的机制假设与判据（2026-11-16）
+
+九次飞行的矩阵把致命集合收敛为 **h4 × {h1,h2,h3} 的交互**：h1/h3/h4/h12/h13/h23 都能起桌面，
+h123（h1+h2+h3）与全量（h1+h2+h3+h4）都是 0 字节；h4 单独不致死，h1+h2+h3 也不致死。真正写硬件的
+是 stage=0 时的 `k60_bt_power_on()`（`bsd/dev/qbt_k60.c:1814`）与随后的 `qbt_boot()`；probe 路径
+（stage=1）只读寄存器。
+
+写序（实测行号取自 c 构建的 applied tree）：
+
+1. `k60_map()` 五个区间——0507 probe s1 已证明映射与读访问安全（h12 `:707`）；
+2. `kmem_alloc_contig()` + `pmap_find_phys()` 取 DMA 缓冲物理地址；
+3. `k60_smmu_bypass()`（0508，`bsd/dev/qbt_k60.c:640`）——**第一次写 apps_smmu**；
+4. `k60_uart_pins_idle()` / `k60_gpio_output()`——第一次写 TLMM；
+5. SE 复位、`k60_gcc_set_se_rate()`（`bsd/dev/qbt_k60.c:765`）、GENI 传输；
+6. `qbt_boot()` 经 GENI DMA 下载 106 段固件。
+
+#### 假设 a：SMMU 流映射
+
+BT 流 0x483 取 `banks-1-bank_from_top` 的上下文组，写 SCTLR=0 / CBAR=0x10000 / CBA2R=1 /
+S2CR=bank / SMR=0x80000000|0x483，逐项回读。
+
+- 若是它：日志会出现 `smmu plan sid 0x483 slot … bank … action install` 与 `smmu sid 0x483
+  slot … SMR … S2CR … CBAR … CBA2R … SCTLR …` 两行（level 1）。两行都没有 = 死在
+  `kmem_alloc_contig()`/`pmap_find_phys()`；出现 `reserved context bank already used` = 与
+  其他流（UFS / DWC3）撞组。
+- 代码检查：规划器会拒绝"别人的 SMR 已指向我选的 bank"并换 bank，但只在**当时**成立——BT 在
+  `bsd/kern/bsd_init.c:1352` 运行时 UFS 还没装自己的 bypass，BT 会先占 `banks-1`；UFS 之后若
+  拒绝共用，根挂载就会失败。这条路径真机从未跑通，保持一级嫌疑。
+- 单独关掉：`pong_bt_smmu=0`。
+
+#### 假设 b：RCG / 时钟
+
+`k60_gcc_set_se_rate()` 向 qupv3_wrap2_s5 的 CMD_RCGR（0x2e618）写 ROOT_EN + CMD_UPDATE，并等
+SE20 halt（0x2e008）。
+
+- 若是它：`k60_gcc_wait_halt()` 超时会返回 -ETIMEDOUT 并打日志（可见失败，不静默）；真正静默的
+  形态是写 CMD_UPDATE 之后总线挂死、没有下一行。
+- 代码检查：这条路径只写 SE 自己的 RCG，不碰 UFS 的 RCG；但同一个 GCC 块在 SE 时钟关闭时被写，
+  可能触发 NoC slave error（SError → panic，串口无输出）。注意 h4 是 btqca 的日志等级行，本身
+  不写硬件——它只能通过"让 stage 0 之后的路径继续往下走"参与，所以交互假设要优先怀疑 h4 让
+  `qbt_boot()` 之后的某一步真正执行到。
+- 单独关掉：`pong_bt_rcg=0`（两处 `k60_gcc_set_se_rate()` 都跳过）。
+
+#### 假设 c：固件下载 DMA
+
+`qbt_boot()` 通过 GENI DMA 把 106 段固件写进那块 contig 缓冲。bypass 若没落在 0x483 上（或落错
+bank），DMA 会触发 SMMU 翻译错误 → 外部 abort → 静默。
+
+- 若是它：`full: qbt_boot enter` 之后没有输出，而 `full: dma buffer and smmu bypass ready` 与
+  `full: uart pins parked` 都在。
+- 单独关掉：`pong_bt_noboot=1`（只跑到固件下载之前）。
+
+#### 运行形态与判据
+
+`pong_bt_late=1` 时日志顺序固定：
+
+```
+late: armed, waiting for the K60DATA deploy point        （早启动，线程挂起）
+late: released by the K60DATA deploy point               （kern_exec.c 部署点）
+late: released, starting the full ladder                 （工作线程醒来）
+full: power_on enter
+full: dma buffer and smmu bypass ready
+full: uart pins parked
+…
+full: qbt_boot enter
+```
+
+**最后一行就是死亡点**，而且此时 console 与 `/private/var` 都已在（Data 已挂载），不会再出现
+"0 字节"的盲区。不加 `pong_bt_late=1` 时行为与 0511 逐字节等价（宿主侧断言见
+`scripts/tests/test-k60-bt-0512-late-start.py`：四个 `pong_bt_*` 的默认值、以及三条裸调用只剩
+受保护形态），所以这一版镜像在不加该参数时也能直接当 C 族（0509 OSData）图飞。映射也一并推迟：
+`k60_bt_power_on()` 第一步就是 `k60_map()`，早映射没有额外诊断价值；`k60_bt_addon_load()` 的
+快照仍留在早启动（DarwinBoot 窗口会被 VM 回收）。
+
+### 7.4 断网也能出图：本地 kernelcache
+
+prelink 默认从 IPSW 取 kernelcache，网络中断时构建会死在 range reader（SSL EOF）。设
+`UNIXNU_KERNELCACHE=<K60_OUT>/ipsw/20G81/kernelcache.decompressed`（第一次成功构建就已经落盘）
+即走本地文件，断网也能出图。这一条对每条线都有用，已写进构建包装脚本
+`scratch/bt-s4/bisect/wsl-build-one.sh`。
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

@@ -72,7 +72,10 @@
 
 用 `python3 scripts/check-backlight-log.py <console.log> [--control=1]`
 可以直接把一份 console.log 判成 PASS / FAIL / INCONCLUSIVE，判据就是本文件
-与 HANDOFF 里那几条；脚本自带 7 个 fixture 自测（`--selftest`）。
+与 HANDOFF 里那几条；脚本自带 8 个 fixture 自测（`--selftest`）。
+缺字段的处理是有意不对称的：默认形态缺 `conformance`/`control` 只记 WARN
+（可能是旧镜像），但 `--control=1` 模式下缺这两个字段直接判 FAIL ——
+没有 conformance 门的旧构建不可能发布过 control，两者同时成立只说明飞错了镜像。
 
 ## brightness-9 与 brightness-4 的唯一差异（为什么两张都要飞）
 

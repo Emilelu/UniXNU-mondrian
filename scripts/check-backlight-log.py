@@ -22,7 +22,9 @@ docs/research/display/HANDOFF-20261114.md and STATS-INDEX.md:
     5. the first frame was presented.
 
   control=1 (kernel argument k60_backlight_control=1)
-    same, but conformance/control must be 1 and stats[0] must be 4.
+    same, but conformance/control must be 1 and stats[0] must be 4.  A log
+    without those fields is a FAIL here, not a warning: no pre-gate build could
+    have published control, so the two disagree means the wrong image flew.
 
 Exit status: 0 pass, 1 fail, 2 the log does not carry the verdict (no
 backlight line at all, or an older build that prints no conformance field and
@@ -100,16 +102,30 @@ def judge(found: dict, expect: int) -> tuple[int, list[str]]:
     control = found["control"]
     conformance = found["conformance"]
     if control is None:
-        lines.append("WARN the published line has no control field (older build)")
-        unknown += 1
+        # A log without the field comes from a build that predates the gate, and
+        # no such build can carry k60_backlight_control=1. Judging it as control=1
+        # therefore means the wrong image was flown, which is a failure, not an
+        # unknown. On the default image the same absence is only a warning.
+        if expect:
+            failures += 1
+            lines.append("FAIL no control field, but this image claims control=1: "
+                         "the log is from an older build (wrong image?)")
+        else:
+            lines.append("WARN the published line has no control field (older build)")
+            unknown += 1
     elif control != expect:
         failures += 1
         lines.append("FAIL control=%d but this image should publish control=%d" % (control, expect))
     else:
         lines.append("control=%d as expected" % control)
     if conformance is None:
-        lines.append("WARN no conformance field: rebuild, brightness-9 and later print it")
-        unknown += 1
+        if expect:
+            failures += 1
+            lines.append("FAIL no conformance field, but this image claims control=1: "
+                         "an older build cannot have published it")
+        else:
+            lines.append("WARN no conformance field: rebuild, brightness-9 and later print it")
+            unknown += 1
     elif conformance != expect:
         failures += 1
         lines.append("FAIL conformance=%d, expected %d" % (conformance, expect))
@@ -194,6 +210,10 @@ def selftest() -> int:
         ("old build: no conformance field, no counters",
          "K60 BACKLIGHT: published level 2047 dbv 0xff control 0\n"
          "K60 DISPLAY: first frame presented\n", 2, 0),
+        ("control=1 image judged against an old build log",
+         "K60 BACKLIGHT: published level 2047 dbv 0xff control 1\n"
+         "K60 DISPLAY: first frame presented\n",
+         1, 1),
         ("counters dumped but stage 4 on a control=0 image",
          "K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0\n"
          "native_backlight_stats[0]=4\n"

@@ -27,8 +27,8 @@ REPO = Path(__file__).resolve().parents[1]
 CRITERIA = REPO / "docs" / "research" / "thermal" / "CRITERIA.toml"
 
 
-def load_criteria():
-    with open(CRITERIA, "rb") as handle:
+def load_criteria(path=CRITERIA):
+    with open(path, "rb") as handle:
         return tomllib.load(handle)
 
 
@@ -200,6 +200,8 @@ def evaluate(document, lines, profile, verbose=True, log_path=None):
     if verbose:
         for criterion, _ in failures + advisories:
             print("       %s: %s" % (criterion["title"], criterion.get("why", "")))
+            if criterion.get("see"):
+                print("       -> see: %s" % criterion["see"])
         print_ladder_hint(document, lines, failures, log_path)
         print("  %d passed, %d failed, %d advisory, %d outside profile %r" % (passed, len(failures), len(advisories), skipped, profile))
     return failures, advisories
@@ -299,14 +301,15 @@ def self_test():
 
 
 def main():
-    document = load_criteria()
     parser = argparse.ArgumentParser(description="apply CRITERIA.toml to a boot log")
+    parser.add_argument("--criteria", help="criteria TOML; default docs/research/thermal/CRITERIA.toml")
     parser.add_argument("--log", help="console.log to read; default the newest usblog")
     parser.add_argument("--profile", default="auto", help="auto, cold, or bias-<milli>")
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
+    document = load_criteria(Path(args.criteria) if args.criteria else CRITERIA)
 
     profiles = sorted({c.get("profile", "*") for c in document.get("criterion", [])} - {"*"})
     if args.list_profiles:

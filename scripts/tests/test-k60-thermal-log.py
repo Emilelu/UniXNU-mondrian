@@ -62,6 +62,7 @@ def main():
         check(criterion.get("kind", "count") in KINDS, "%s: unknown kind" % name)
         check(criterion.get("severity", "required") in SEVERITIES, "%s: unknown severity" % name)
         check(bool(criterion.get("why")), "%s: no why; a failure would not say where to look" % name)
+        check(bool(criterion.get("see")), "%s: no see; a failure would not name the doc section" % name)
         check(bool(criterion.get("pattern")), "%s: no pattern" % name)
         if criterion.get("kind") == "each":
             check(bool(criterion.get("must")), "%s: each needs must" % name)
@@ -87,6 +88,17 @@ def main():
     result = subprocess.run([sys.executable, str(READER), "--list-profiles"],
                             capture_output=True, text=True)
     check(result.returncode == 0, "reader --list-profiles failed")
+
+    # a reader pointed at another criteria file must follow the flag, not the constant
+    import tempfile
+    with tempfile.NamedTemporaryFile("wb", suffix=".toml", delete=False) as handle:
+        handle.write(CRITERIA.read_bytes())
+        copy_path = handle.name
+    result = subprocess.run([sys.executable, str(READER), "--criteria", copy_path,
+                             "--list-profiles"], capture_output=True, text=True)
+    check(result.returncode == 0 and "bias-85000" in result.stdout,
+          "reader --criteria did not follow the flag: %s" % result.stdout.strip())
+    Path(copy_path).unlink(missing_ok=True)
 
     if failures:
         print("FAILED: %d problem(s)" % len(failures))

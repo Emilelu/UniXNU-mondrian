@@ -30,11 +30,11 @@ declares `extern const uint8_t pong_wifi_firmware[]` and `fwGet()`
 (`:554-556`) only does `*data = pong_wifi_firmware + off`. Section
 placement is invisible to it.
 
-## 2. The patch (applies to `feat/wifi-bringup` = a29d727)
+## 2. The patch (applies to `feat/wifi-bringup`; last re-checked at 79a8f06)
 
 ```diff
 diff --git a/scripts/build-k60-wifi-native.py b/scripts/build-k60-wifi-native.py
-index cbd2eb6..6a1b84f 100755
+index cbd2eb6..6a1b84f 100644
 --- a/scripts/build-k60-wifi-native.py
 +++ b/scripts/build-k60-wifi-native.py
 @@ -99,7 +99,7 @@ def main():
@@ -48,8 +48,12 @@ index cbd2eb6..6a1b84f 100755
   sdk=subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'],env=env,text=True).strip()
 ```
 
-Byte-identical to the output of `git diff` after the edit; both
-`git apply --check` and `git apply --check -R` were run on a throwaway
+The `index` line names the blob at `feat/wifi-bringup` and the mode is the
+mode git records for that path, `100644` — the script is executable on disk
+but not in the tree, and a header that claims `100755` makes `git apply`
+print a mode warning on every run.
+
+Both `git apply --check` and `git apply --check -R` were run on a throwaway
 copy of the file on 2026-11-15, so it applies and reverts cleanly as long as
 `scripts/build-k60-wifi-native.py` has not moved.
 

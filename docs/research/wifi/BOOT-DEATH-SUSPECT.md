@@ -167,6 +167,29 @@ Because the kernel size, the firmware blob and the window all match mhi5 and
 only the boot argument differs, z0 is the controlled test of "driver versus
 blob" that the plan needs.
 
+### 3b. How tight the control is, measured on the two payloads
+
+Both images carry a 117,305,344-byte `Payloads/kernel.macho` and the two
+files differ in **46 bytes across 8 runs**, all of them build metadata:
+
+| offset | bytes | what it is |
+|---|---|---|
+| 0x13b0-0x13bf | 16 | `LC_UUID` of the Mach-O |
+| 0x64c7f-0x64c8d | 15 | `Sun Nov 15 03:45:55 CST 2026` (z0) vs `Sun Nov 15 02:28:53 CST 2026` (mhi5), the two `Darwin Kernel Version` strings |
+| 0x6fdecd8-0x6fdeced | 22 | prelink session id in `__PRELINK_INFO` |
+
+Every segment has the same size and the same content otherwise, including
+the 11,767,510-byte `__TEXT,__const` that holds the PWF2 container
+(`0xb38ed6` in z0, mhi5 **and** mhi4 — the blob did not move between the
+three). So z0 tests exactly one variable: the last boot argument,
+`pong_wifi=0` instead of `1`. Nothing about the firmware, its section, the
+window or the kernel size can explain a difference in outcome.
+
+The firmware section is present in mhi4 too, which matters for reading the
+mhi3/mhi4 result: the 65.9 MB stale kernel already carried the 11.2 MiB
+`__TEXT,__const` blob, so "blob in __TEXT" alone was never the difference
+between the silent pair and the images that boot.
+
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (planned, not started)
 
 Written on 2026-11-15 at the Lead's request so the fix is ready the moment

@@ -38,6 +38,14 @@ getBytes 0 / SpringBoard 128 / first frame 1 ⇒ 「h2 是前置」的因果链�
 §7.4 从七格扩成八格并定稿，§3.4 写成结案。同时更正一条归因：「探针梯子不进」由 **h3 单独**造成
 （h34 有 h3 无 h2，梯子同样不进），是可观测性副作用、不是失败，不能当判据。
 
+状态（2026-11-16 02:50 更新，dyld 缓存不再需要设备）：§5 从「缺口」改写为「已取到」——
+20G81 的 dyld shared cache 就在本地 IPSW 的 SystemOS cryptex（`096-56782-083.dmg`）里，
+用 `scripts/dyld-cache-index.py` carve 出 2620 个 image 的索引（`E:/k60-work/caches/20G81/dyld-index-20G81.json`），
+slide 直接取日志里我们自己打的 `K60SR… slide=0x…` 行。§5.1 给出已经解出的 C 族与 A 族两条栈：
+C 族落在 IOMobileFramebuffer + QuartzCore + libdispatch（显示提交路径），A 族落在 Foundation + libxpc
+（`syncdefaultsd` 的 XPC 取 URL 路径），两条路径独立，与 §1/§3.3 的归因一致。只有 backboardd 私有段
+（`0x1011…`/`0x1007…`）仍解不出，那需要 `.map` 或设备 `.symbols`——**已从阻塞项降为可选项**。
+
 结构性结论：B 与 C 是同一个根——「**向 IORegistry 发布此前不存在的内容，会激活 backboardd 里
 一直死着的 Apple 代码路径**」。B 死在新路径本身，C 死在新内容与 Apple 代码的**类型约定不匹配**
 （DT 平面属性应为字节数组，发成了字符串）。这对 display 线是旁证：交付形态 A（默认不发
@@ -187,19 +195,61 @@ jq -r '.repo.head, .series.sha256' <build-manifest.json   # 与 bt 分支 ad49ff
 
 C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5；**按什么顺序读、每档怎么落判**见 §7。
 
-## 5 缺口
+## 5 dyld 共享缓存：已从本地 IPSW 取到（2026-11-16，不再需要设备）
 
-- **20G81 dyld shared cache 缺失**，0x19cb…/0x1a21…/0x1c38… 与私段 0x10… 帧全部无法反推符号。Lead 2026-11-15 23:15 复核：**现在拉不了，原因不是窗口而是路径**——本机 `E:/k60-work/caches/` 不存在，
-  `/mnt/e` 深度 4 内 `dyld_shared_cache*` 零命中；那 3.2 GB 在 unixnu 分区 `/dev/block/sda38` 的 SystemOS 窗口里，
-  XNU 起来时它是根卷但 XNU 没有 adb；要取只能在 Android 侧对 sda38 做**只读** dd，并先用
-  `drivers/NativeUfs/RootLayout.h` 的 SHNGROOT 窗口表算出偏移、读前算 sha256 对表（绝不写）。等队列空一轮由 Lead 执行。
-  符号化脚本 `scripts/check-crash-symbols.py` 已待命，**不是阻塞项**——`.map` 只在「修完仍崩、需要点名 selector」时才真正需要。
-  清单（将来取到后按此核对）：
-  - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e（iOS 16.6.1 完整版约 3.2 GB；设备上可能略小，以实际大小为准）
-  - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.map（约 300–600 MB，若存在）
-  - 可选 dyld_shared_cache_arm64e.symbols（设备上通常不存在，有则一并拉）
-  - 目的地：E:/k60-work/caches/20G81/；符号化工具建议 ipsw（dyldsym 子命令）或 jtool2。
-- 私段帧 0x10111f930/0x100b04930/0x100aa9930 归属（backboardd 主二进制 vs libpong-ui.dylib）同样依赖上述 cache；但即便归 backboardd 主二进制，也不改变 §3.3 的归因（我们无 getBytes 形状）。
+- **结论：20G81 的 dyld shared cache 不需要设备、不需要 adb。** 它在本地 IPSW 的 SystemOS cryptex 里：
+  `E:/hackios/UniXNU/out/ipsw/20G81/096-56782-083.dmg`（Cryptex1,SystemOS，2,665,480,192 B，
+  sha256 `bae1f451b77c17f8984980236ab577f89a8a4c5407bdc25c4242a34e11b0e7af`）。
+  OS dmg（`096-57366-083.dmg`）里没有：单卷 `System/Library/Caches` 只有 apticket.der、com.apple.factorydata、
+  com.apple.kernelcaches，全卷唯一的 dyld 相关文件是 `/usr/lib/dyld`（922,912 B）。
+- **为什么不走文件系统**：SystemOS 卷是 sealed（incompat 0x28），`tools/apfs/apfs.py` 的 omap 缺项
+  （root tree oid 1198 → 153489 全零，`bad Fletcher-64 checksum`），tree 元数据可读但 `iter_all()` 立刻炸。
+  所以走 carve：内容确实在镜像里（全盘扫 `dyld_v1` 得 55 个命中、41 个 4096 对齐；
+  独立佐证是全镜像里 `libSystem.B.dylib` 出现 2610 次）。
+- **carve 方法**（`scripts/dyld-cache-index.py`）：按 8 MiB 块扫 `dyld_v1` 魔数，取第一个 imagesTextCount≥100 的
+  对齐成员（本次 member `0x110a000`），读 header `0x88`=imagesTextOffset（`0x149f0`）、
+  `0x90`=imagesTextCount（2620）；每条记录 32 字节：`uuid[16] | loadAddress u64 | textSize u32 | pathOffset u32`，
+  路径串就在同一成员内。产物 `E:/k60-work/caches/20G81/dyld-index-20G81.json`（476,573 B，2620 images，0.36 s）。
+- **slide 不用猜**：我们自己的服务扫描已经把它打进日志了——`K60SR26 t=75 start=0x1946b0000 slide=0x146b0000`
+  （s4c console.log:1174）。490 份历史 usblog 里 119 份带这行（首份 `usblog-20261112-184616`），
+  更早的图没有 K60SR 探针，脚本会 exit 2。一份日志里 A 族与 C 族各有一条 backtrace，用 `--after <marker>` 选。
+- 用法：
+
+  ```sh
+  python3 scripts/dyld-cache-index.py \
+      --index /mnt/e/k60-work/caches/20G81/dyld-index-20G81.json \
+      --log console.log --after 'getBytes:range:' --frame-limit 16
+  ```
+
+  退出码 0 全解 / 1 有帧在缓存外 / 2 索引或日志缺失；`--json` 给机器读；`--selftest` 11 项。
+  它给的是 **image 级**（哪个 dylib + 偏移）；`scripts/check-crash-symbols.py`（bb86175，吃 `.map`）给符号级，
+  两者互补——没有 `.map` 时用本节，有 `.map` 时用那个。
+
+### 5.1 已经解出来的两个栈（2026-11-16 02:45）
+
+C 族（`--after 'getBytes:range:'`；s4c slide `0x146b0000` 与 h1 slide `0x1eeac000` 逐帧同形，15/16 帧解出）：
+
+    CoreFoundation+0x948c → libobjc.A.dylib+0x15050 → CoreFoundation+0x16a424 → CoreFoundation+0x1e938
+    → CoreFoundation+0x8097c → IOMobileFramebuffer+0x7abc → libdispatch+0x64780 → libdispatch+0x34ddc
+    → IOMobileFramebuffer+0x797c → QuartzCore+0x12b080 → QuartzCore+0x25f278 → QuartzCore+0x2678d8
+    → libdispatch+0x64780 → libdispatch+0x34ddc → QuartzCore+0x267824 → 私有段
+
+A 族（`--after 'nil string parameter'`；s4c slide `0x146b0000` 与 h34 slide `0xa634000` 逐帧同形，10/12 帧）：
+
+    CoreFoundation+0x948c → libobjc.A.dylib+0x15050 → Foundation+0x5ae2c → Foundation+0x5abdc
+    → 私有段 ×2 → Foundation+0x99bd4 → Foundation+0x54df88 → Foundation+0x54f5ec → Foundation+0x54f0ec
+    → libxpc+0xf788 → libxpc+0xfb68
+
+读法：
+
+- **C 族崩在显示提交路径，不是 BT 事件路径**：栈里是 IOMobileFramebuffer + QuartzCore + libdispatch，
+  没有 IOKit / Bluetooth 帧。这与 §3.3 的「新发布的字符串属性被当字节读」一致——读它的是 CA 侧的对象图，
+  所以补丁发的是属性、崩的是显示栈，两者不矛盾。
+- **A 族栈底是 libxpc**，正是 `syncdefaultsd` 通过 XPC 取文件 URL 的路径，与 P-120（金属注入把 nil 传进
+  `initFileURLWithPath:`）相符，进一步说明 A 族与 C 族是两条独立路径。
+- 未解的帧全是 backboardd 私有段（`0x10111f930` / `0x1007e8f48` / `0x1011eaf48` / `0x100f04930`）。
+  镜像级索引只能到 dylib 粒度；要指名 backboardd 内部的函数仍需 `.map` 或设备上的 `.symbols`。
+  **P-120 与 C 族的归因都不依赖这一步**，所以 `.map` 已从阻塞项降为可选项。
 
 ## 6 0 字节日志的判决时效（跨线教训；Lead 2026-11-15 指派）
 

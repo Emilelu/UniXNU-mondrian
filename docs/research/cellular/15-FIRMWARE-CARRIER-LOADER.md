@@ -165,6 +165,11 @@
   154,571,836 / 159,025,961，**仍超 20,354,108 / 24,808,233 B**。
 - 结论：出路 B 在「内核必须过 `ReadFile`」这个既有约束下不可行，与 `11-CARRIER.md` §2.3 的
   「不可行」结论一致，但这里给出了更硬的理由（不是「卷不够」，是「内核读不进来」）。
+- **这条上限是通用的，不只针对 modem**：`DarwinBoot.c:699` 的 `SIZE_128MB` 是整台 K60 上
+  「把东西编进内核」的硬天花板——内核本体已经 105,508,864 B（78.6% 的上限），剩下约 28.7 MB。
+  将来 GPU addon（约 51 MB）、第二个 DSP blob 都过不去，且它比「段跨度 254 MiB」
+  （`DarwinBoot.c:196`）**更早**触发，所以任何「内核内嵌」提案都要先过这一关再看别的。
+  真要走内嵌，得先单独裁决「抬 `SIZE_128MB`」——那是改一条所有线共用的启动路径，不属本规格。
 
 #### 出路 C：从别处读（分区 / Data 卷）—— 固件侧没有块设备栈
 
@@ -187,28 +192,92 @@
   （`LzmaDecompress.c:137` `LzmaUefiDecompressGetInfo`、`:182` `LzmaUefiDecompress`），
   **没有 zlib/inflate**（`Mu_Basecore` 下 `*Inflate*`/`*zlib*` 零命中）⇒ 走 gzip 得自带 inflate，
   走 lzma 只需在 `DarwinBoot.inf` 加一条库。
-- **解压是整块，不是流式**（这一点决定了代价的大小）：`LzmaUefiDecompress` 的签名是
+- **解压是整块，不是流式**：`LzmaUefiDecompress` 的签名是
   `(Source, SourceSize, Destination, Scratch)`，调用方必须提供**完整目标缓冲**；
   `LzmaUefiDecompressGetInfo` 只回 `DestinationSize` 与 `ScratchSize`（`:154` 固定
-  `SCRATCH_BUFFER_REQUEST_SIZE` = `SIZE_64KB`，`:14`）。也就是说「64 KiB 分块解压」不成立：
-  64 KiB 只是 SDK 的 scratch，目标块必须按文件整块开。最大单文件 `modem.b23` 40,935,488 B
-  （压缩后 37,475,838）⇒ 解压时要一块 **39 MiB** 的临时缓冲，且必须连续。
-- 代价一：这 39 MiB 临时块与 §2.2 的「禁止中转缓冲」原则直接冲突——要么承认「每文件一块、
-  用完即还」是可接受的中转（并写明峰值堆占用 39 MiB，`DXE Heap` 384 MiB 里能开出），
-  要么把解压目标直接设成窗口内该段的物理地址（可行：目标地址已知且非缓存，省掉中转，
-  但 §2.3 的内存图校验要提前到解压之前，且解压中途失败会留下半写状态）。
-- 代价二：§2.4 的「64 KiB 分块直写」循环作废，改成「读压缩文件 → 解压 → 校验长度 → 直写」，
+  `SCRATCH_BUFFER_REQUEST_SIZE` = `SIZE_64KB`，`:14`）。64 KiB 只是概率表的 scratch，
+  目标必须按文件整块给出（最大单文件 `modem.b23` 40,935,488 B）。
+- 代价一（**已由 §1.7.1 消除**）：目标缓冲不需要中转——`LzmaDecode` 直接把调用方缓冲当字典窗口
+  （`Sdk/C/LzmaDec.c:1229-1230`），可以就地解压到窗口内该段的物理地址，§2.2 的「禁止中转」不破例。
+  剩下的只是「解压中途失败会留下半写状态」，由「失败一律 `goto Fail` 拒启动」兜住。
+- 代价二：§2.4 的「64 KiB 分块直写」循环作废，改成「读压缩文件 → 校验 → 解压到段地址」，
   13 号门禁 A3/A4 的判据从「文件大小 == 段表 `bytes`」改成「解压后大小 == 段表 `bytes`」，
   B5 的表不变；另需一条新判据「payload 里的 modem 文件是压缩形态」，否则 A4 会把压缩尺寸
   当成不符而假红。
+- 代价三（构建期）：`xz --format=lzma` 的 8 B 声明大小必须改写成真值，且表里要加一列压缩数据的
+  CRC32——理由见 §1.7.1 ③。
 - 收益：不动 `board.toml`、不动 ABL 余量、boot.img 尺寸不变。
+
+#### 1.7.1 出路 D 的三个前置问题（2026-11-16 实测作答）
+
+Lead 2026-11-16 05:10 选定 D 之前要求先证明「EDK2 的 `LzmaUefiDecompress` 能直接解压到窗口内的
+目标物理地址、不需要 39 MiB 中转」。三问逐条作答，代码依据是
+`Mu_Basecore/MdeModulePkg/Library/LzmaCustomDecompressLib/` 下的原文件，实测用同一份
+`Sdk/C/LzmaDec.c` 在 host 上编（`E:/k60-work/artifacts/cap/harness2.c`..`harness4.c`）。
+
+**① `Destination` 接受任意物理地址——是，没有分配也没有对齐假设。**
+
+- `Sdk/C/LzmaDec.c:1204` 的 `LzmaDecode (Byte *dest, SizeT *destLen, ...)` 在 `:1229-1230` 直接把
+  调用方的缓冲当字典窗口：`p.dic = dest; p.dicBufSize = outSize;`。解码器**不分配输出**，
+  也不要求 `dest` 对齐（只有概率表指针按 `Align` 索引，`:793`；`dest` 本身没有强制类型转换写入）。
+- 全程唯一的一次分配是概率表：`:1228` `LzmaDec_AllocateProbs` → `:1122` → `:1133`
+  `p->probs = ISzAlloc_Alloc (alloc, numProbs * sizeof (CLzmaProb))`，而 `alloc` 就是 `Scratch`
+  （`LzmaDecompress.c:195-198` 把 `Scratch` 塞进 `ISzAllocWithData`）。所以「中转缓冲」根本不存在。
+- 实测：`dest` 用 `mmap(MAP_FIXED_NOREPLACE)` 钉在 `0x700000000000`（与任何分配无关）并在其后紧跟一页
+  `PROT_NONE` 保护页，解压 `modem.b23` 的 40,935,488 B 成功、逐字节等于原文件、保护页未 fault；
+  `dest + 1`（非对齐）同样成功且逐字节相等。
+- 实测：27 个文件分别钉在 `0x600000000000 + i * 0x4000000` 各自解压 →
+  `decoded 27 files, 109060761 bytes from 48591795 compressed, 0 failures, 3.4 s, 32.6 MB/s`
+  （host x86、`gcc -O2`；单文件 `modem.b23` 1.68 s ≈ 24.3 MB/s）。
+- 结论：**把 `Destination` 直接设成窗口内该段的物理地址即可**，39 MiB 中转不需要。上面「代价一」按此
+  收窄为「无中转」，§2.2 的「禁止中转缓冲」原则**不需要破例**。代价只剩「解压中途失败会留下半写状态」，
+  由下面的 ③ 和「失败一律 `goto Fail` 拒启动」兜住。
+
+**② 64 KiB scratch 够——够，实测只需 16,256 B。**
+
+- 概率表大小 `LzmaDec.c:157`：`LzmaProps_GetNumProbs (p) = NUM_BASE_PROBS + (0x300 << (lc + lp))`；
+  `NUM_BASE_PROBS` = 1984（`:145`，`:151` 有 `#if NUM_BASE_PROBS != 1984 #error`）；`CLzmaProb` 是 2 B。
+- 27 个文件用 `xz -9 --format=lzma` 压出的 props 全是 `lc=3 lp=0 pb=2`（dict 声明 64 MiB）⇒
+  1984 + (0x300 << 3) = 8128 项 ⇒ **16,256 B**，只占 `SCRATCH_BUFFER_REQUEST_SIZE` = `SIZE_64KB`
+  （`LzmaDecompress.c:14`）的 25%。
+- props 里的 `dict = 64 MiB` 只是**声明**，解码器不按它分配：`:1229` 是 `dic = dest`、`dicBufSize = outSize`。
+  只有走 `LzmaDec_Allocate` 的「字典接口」才按 `dicBufSize` 分配（`:1192`），EDK2 的 one-call
+  `LzmaDecode` 不走那条。
+- 实测：把 `Scratch` 缩到 16,383 B 仍成功（真实请求 ≤ 16,383 B，与算出的 16,256 B 吻合）；
+  `SzAlloc` 是 bump allocator（`LzmaDecompress.c:31-50`），不够时 `ASSERT (FALSE)` 返回 `NULL`。
+
+**③ 解压前的完整性校验——size 字段能，CRC 要自己带。**
+
+- `LZMA_ALONE` 头 = 5 B props + 8 B uncompressed size（`LzmaDecompress.c:71`
+  `#define LZMA_HEADER_SIZE (LZMA_PROPS_SIZE + 8)`；`:80-95` `GetDecodedSizeOfBuf` 小端读这 8 B）。
+  **格式里没有 CRC 字段**（CRC32/CRC64 属于 `.xz` 容器，不属于 `.lzma`）。
+- `xz --format=lzma` 写出的 size 字段是 `0xFFFFFFFFFFFFFFFF`（27 个文件实测全是 18446744073709551615），
+  必须由打包工具把它改写成真实大小。否则 `LzmaUefiDecompressGetInfo`（`LzmaDecompress.c:148-153`）对
+  `> MAX_UINT32` 返回 `RETURN_UNSUPPORTED`，而 `LzmaUefiDecompress`（`:200`）会把 `destLen` 设成天文数字。
+- 实测边界：头未改也能解完并逐字节正确（靠流尾 end mark，`status = LZMA_STATUS_FINISHED_WITH_MARK`）；
+  把声明大小改成 `want + 65536` 而流不变时 `res = 0`、`decoded` 仍是 `want` ⇒ **声明偏大抓不住**，
+  所以必须另外比 `decoded == 段表 bytes`。反过来，流被破坏（翻转中间一字节）或截断（去掉尾部 64 B）
+  都返回 `res != 0`，能在解压结束时报错，但那时窗口已经被写了一部分。
+- 因此「写第一个字节之前」能做的校验只有两道：
+  1. **声明 size == 段表 `bytes`**（读头 8 B，一行比较）；
+  2. **压缩数据 CRC32**：`MdePkg/Include/Library/BaseLib.h:5020` `CalculateCrc32`（实现
+     `MdePkg/Library/BaseLib/CheckSum.c:600`），`BaseLib` 已在 `DarwinBoot.inf` 的 `[LibraryClasses]` 里，
+     **不新增库依赖**；期望值由构建工具写进表（`K60ModemImageTable.h` 加一列 `crc32`）。
+- 半写窗口的处置：本规格要求「任何失败一律 `goto Fail` 拒启动」，所以半写不需要回滚；这两道校验的
+  作用是把**可检测的**损坏挡在第一次写之前，剩下的（流损坏）只能解压失败后拒启动。
+
+**结论：D 的三问全部通过，D 可走。** 代价清单因此收敛为两条构建期工作：
+
+1. 打包工具要把 `xz --format=lzma` 产物的 8 B size 字段改写成真实大小（不改则 `GetInfo` 直接拒绝）；
+2. `K60ModemImageTable.h` 增加 `crc32` 列（压缩数据的 CRC32），固件侧解压前比对。
 
 **建议（本线的意见，裁决权在 Lead）**：
 
-1. **首选出路 A 的 208 MiB 档**：它是唯一「零新代码路径、零新驱动、零解压逻辑」的方案，
-   代价是 boot.img +16 MiB 和 ABL 余量降到 20.8 MB；两个数都在既有约束内，且可逆。
-2. 若 Lead 不愿动 `board.toml`（它牵动 13 号 A1/A2 与别线的镜像尺寸预期），则**次选出路 D**
-   （lzma 进 payload），代价是固件多一条解压路径、门禁 A3/A4 要改判据。
+1. **出路 A 的 208 MiB 档**：唯一「零新代码路径、零新驱动、零解压逻辑」的方案，代价是
+   boot.img +16 MiB、ABL 余量从 37.6 MB 降到 20.8 MB（这块余量要留给 GPU addon / audio DSP）。
+2. **出路 D**（lzma 进 payload）：§1.7.1 的三问已全部通过，不动 `board.toml`、不动 ABL 余量、
+   boot.img 尺寸不变，代价收敛为「固件多一条解压路径 + 构建期改 size 字段并加 CRC32 列 + 门禁 A3/A4 改判据」。
+   Lead 2026-11-16 05:10 已选 D；上面第 1 条保留为「D 若在实现中被推翻时的退路」。
 3. **出路 B 不要再评估**：`SIZE_128MB` 已经把门关上，任何「内核内嵌」变体都要先改
    `DarwinBoot.c:699` 的上限，那等于改一条所有线共用的启动路径。
 4. 出路 C 只在「A/D 都被否」时才值得立项，且它是独立工程（新 UFS DXE），不该塞进本规格。

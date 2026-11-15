@@ -13,7 +13,10 @@ Three details that each cost a debugging round and are therefore encoded here:
   * one heartbeat tick prints TWO "K60 USBHB" lines (a DSTS line and a GDSC/QSCRATCH
     line), so the tick count is the number of "... USBHB: DSTS ..." lines;
   * a capture that recorded zero bytes cannot say anything about the image's
-    descriptors, so criteria 3 and 4 report SKIP instead of FAIL.
+    descriptors, so criteria 3 and 4 report SKIP instead of FAIL;
+  * patch 0410 renamed the configuration line from "composite cfg" to "cfg" and
+    appended "echo <on> on <out>/<in>", so criterion 4 must accept both spellings
+    or every 0410 image reads as a missing descriptor line.
 """
 import datetime
 import json
@@ -108,14 +111,17 @@ def main(argv):
             "98-byte configuration was requested but no GHWPARAMS1 line appeared: 0407 is missing from the image")
 
     # 4 EP6/EP7 configuration result (0407 diagnostic)
-    m = re.search(r"composite cfg (\d+) bytes ep6 (-?\d+) ep7 (-?\d+) "
-                  r"DALEPENA 0x([0-9a-fA-F]{8})", text)
+    m = re.search(r"(?:composite )?cfg (\d+) bytes ep6 (-?\d+) ep7 (-?\d+) "
+                  r"DALEPENA 0x([0-9a-fA-F]{8})(?: echo (-?\d+) on (\d+)/(\d+))?", text)
     if m:
         ep6, ep7 = int(m.group(2)), int(m.group(3))
         dalep = int(m.group(4), 16)
+        echo = ""
+        if m.group(5) is not None:
+            echo = "; echo=%s on ep%s/ep%s" % (m.group(5), m.group(6), m.group(7))
         row("4 EP6/EP7 configured", verdict(ep6 == 0 and ep7 == 0),
-            "cfg=%sB ep6=%d ep7=%d DALEPENA=0x%08x (expect ep6/ep7=0, DALEPENA=0x000000ef)"
-            % (m.group(1), ep6, ep7, dalep))
+            "cfg=%sB ep6=%d ep7=%d DALEPENA=0x%08x%s (expect ep6/ep7=0, DALEPENA=0x000000ef)"
+            % (m.group(1), ep6, ep7, dalep, echo))
     elif skip_reason:
         row("4 EP6/EP7 configured", "SKIP", skip_reason)
     else:
@@ -132,6 +138,25 @@ def main(argv):
     row("5 teardown tolerated", verdict(hb_after and usblog >= 250),
         "ENDTRANSFER status lines=%d %s; heartbeat after them=%s"
         % (len(ends), ends[:3], hb_after))
+
+    # 5b vendor loopback echo (0410): only a mode 1/2 image that armed the
+    # vendor pair can produce these lines; a console-only image must say SKIP.
+    echoes = re.findall(r"K60 USBLOG: echo (\d+) bytes on ep(\d+) \(total (\d+)\)", text)
+    if echoes:
+        row("5b vendor echo", verdict(True),
+            "%d echo line(s), first=%s bytes on ep%s (total %s)"
+            % (len(echoes), echoes[0][0], echoes[0][1], echoes[0][2]))
+    elif m and m.group(5) is not None and m.group(5) != "0":
+        if (m.group(6), m.group(7)) == ("2", "3"):
+            row("5b vendor echo", "SKIP",
+                "mode 2 image: the echo rides the CDC pair ep2/ep3, not the vendor pair")
+        else:
+            row("5b vendor echo", "SKIP",
+                "image armed the vendor pair (echo=1 on ep%s/ep%s) but the host never wrote to it"
+                % (m.group(6), m.group(7)))
+    else:
+        row("5b vendor echo", "SKIP",
+            "image did not arm the vendor pair (no k60_usbvend boot argument)")
 
     # 6 capture complete
     state = cap.get("state")

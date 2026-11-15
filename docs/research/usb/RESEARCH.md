@@ -1379,3 +1379,112 @@ Lead（m04369）要求：本线 series 在合并前必须 rebase 到当前 `orig
 - **EP6/EP7 vendor 端点验证需要 mode 1 镜像**：`k60_usbvend=1` = 98 B 复合描述符（IAD + IF2 vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN）+ EP6→EP7 回环。判据见 §15.4(c)：主机打开 IF2 写入字节，能从 EP7 读回。
 - 若走 mode 1，必须带 0408 的 8 槽 TRB 与 `transferResource` 收尾（vendor 端点用到 EP6/EP7 的 TRB 槽）。
 - main 现又前进 1 个提交 `a3d55d3`（gate: admit the modem probe and wallpaper-reset switches），只改镜像参数白名单，与本线 series、镜像无关，**无需立即 rebase**；下次出镜像前顺手对齐即可。
+
+## 24. mode-1 镜像 `usb-20261115b` 与判据执行器对 0410 的适配（2026-11-15）
+
+### 24.1 为什么出这张图
+
+§23.11 的 mode-2 上机（Lead 执行）证明 CDC 数据对回环可用，但 §13.3 判据 2「EP6/EP7 能否 SETEPCONFIG」
+仍然没有任何载体：`k60_usbvend=2` 走的是 EP2/EP3 回环，vendor 端点 `ud.vend_ok` 为假、`ud_vendor()` 首行即 return。
+本节记录用**同一棵树、同一条 series**、只换一个启动参数（`--kernel-arg k60_usbvend=1`）出的 mode-1 镜像，
+它的唯一目的就是把 §13.3 判据 2 与 §15.4(c) 的 EP6→EP7 回环送上机。
+
+### 24.2 rebase 与同步（Lead 要求的两个前置）
+
+- `origin/main` 已到 `133473e`（含 `8dcbbfa9` P-202：`build-strict.sh` 缺 `.config` 直接 die、`find_kernel` 按 mtime 取最新；
+  `447860c8` P-203：worktree prune 被 guard 拒绝；`a3d55d33` gate 白名单）。
+- 本线从 `5b7b26f` rebase 到 `133473e`，27/27 无冲突 → **`e199e9b`**，`dirty_files=0`。
+  与 main 的 series 差异仍然只有 `../usb/0405..0410` 六行。
+- `scripts/sync-device-input.py`（`K60_DEVICE_INPUT=/opt/k60/trees/usb-device`、`K60_SERIES_FINAL=/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt`）
+  → `检查: 719 个文件已一致`；三处 series 同 sha256 `34a6ce2227f57bbe31674262352b0051be27f875768e73aabcf2505b1ebbaaca`（230 行）。
+- `porting-gate.py --quick` ✅ 7 警告（账本 ok=18 bad=5、这组 series+args 没跑过、内核 76110 s 前）。
+
+**踩到的坑（P-202 之外的第二个）**：rebase 后第一次构建被 registry 拒，
+`❌ iron-2 / hard-5 / hard-10 / hard-11 - HEAD is 27 commit(s) behind origin/feat/usb-console (iron rule 2)`。
+原因不是代码而是**本地领先未 push**：`git push --force-with-lease origin feat/usb-console` 之后同一命令直接通过。
+⇒ 以后 rebase 完先 push 再构建，能省一轮 5 分钟的编译。
+
+### 24.3 构建结果
+
+`K60_OUT=/opt/k60/trees/usb-out`、`K60_DEVICE_INPUT=/opt/k60/trees/usb-device`、`K60_AGENT_ID=usb-agent`，
+fd `/mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，`BUILD_EXIT=0`（`2026-11-15T11:19:42+08:00`）。
+
+| 项 | 值 |
+| --- | --- |
+| tag | `usb-20261115b` |
+| repo.head | `e199e9b124c70f93eb9f2496c27fb48fe8da7142`（dirty 0） |
+| series | 230 条，sha256 `34a6ce2227f57bbe31674262352b0051be27f875768e73aabcf2505b1ebbaaca` |
+| frozen | `aac4cd79624bc32f98de2a80de37a4931435901ea8d2ec7f15ff8a24c5b2d2ec` |
+| kernel_built | `33454b257c29f4338463d84f3874585986ca20852f4ef5f31a4f351387d6e6ff`（105492480 B） |
+| payload | `c9faf958b189fb41f5ddbec858e1c7bb9eb03d8fd17b01e33a2a67093dfce9e7` |
+| payload kernel | `29490436a5cfd8c469fa2f523ceefee7a332f59ded14ea1e4047ddbcabeb83af` |
+| ADT | `811c2eb524810a9946f42d1e7e34dca2072065fd6a31c31854676f66519a859e` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（未变） |
+| FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`（未变） |
+| **boot.img** | **`7e90fa5f5f3c4ad0c26ac281b0dc6c50c63f15a7a922c285b7214c7896488bc7`**（201887744 B） |
+| manifest | `/mnt/e/k60-work/artifacts/usb-20261115b/build-manifest.json` |
+| `kernel_args_requested` | `["k60_usbvend=1"]` |
+| payload args | 30 项 589 B，末尾 `k60_usbvend=1` |
+
+- 门禁：`eight_step` 30 项通过；`verify-boot-image.py --manifest` → `verify-boot-image: OK`；
+  `scripts/check-image-args.py --image …/boot.img` → `image-arg-audit: OK (30 arguments, 589 bytes)`（上限 `DARWIN_BOOT_LINE_MAX = 607`，见该脚本 `:40`）。
+- 与 usb-20261115a 的唯一差别就是这一个参数：其余六个组件哈希里只有 `kernel_built`/`payload`/`payload_kernel`/`ADT`/`boot.img` 变了，
+  DTB 与 FD 未变（参数写进 payload 的 `boot-args`，不改 DT/FD）。
+
+### 24.4 补丁入镜像的证据（不再有 per-patch 日志）
+
+rebase 后的 `logs/kernel.log`（3449 B）只剩 bootstrap/prelink 摘要，**没有** 早期的 `== kernel: patch 04xx` 行，
+所以 `strings` 或描述符字节扫描是唯一证据。用 `E:/k60-work/scratch/usb/desc-check.py` 在 `kernel.macho` 里计数：
+
+| 描述符 | 命中次数 |
+| --- | --- |
+| IAD `(8,11,0,2,2,2,1,0)` | 1 |
+| IF2 vendor `(9,4,2,0,2,0xff,0xfe,2,0)` | 1 |
+| EP `0x03` OUT `(7,5,0x03,2,64,0,0)` | 1 |
+| EP `0x83` IN `(7,5,0x83,2,64,0,0)` | 1 |
+| 98 B 配置头 `(9,2,98,0,3,…)` | 1 |
+| 67 B 配置头 | 1 |
+
+两套描述符同时在镜像里，运行时由 `k60_usbvend_mode` 选（`ud_cfg_vendor[]` 在源码 `:1234`，`grep -c k60_usbvend` = 16）。
+
+### 24.5 判据执行器的两处修正
+
+0410 改了配置行格式：`composite cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x`
+→ `cfg %u bytes ep6 %d ep7 %d DALEPENA 0x%08x echo %d on %u/%u`（多了 `echo`/`on` 三个字段）。
+原版 `analyze-capture.py` 的正则写死 `composite cfg`，**任何 0410 镜像都会被判成「描述符行缺失」**，
+所以本次一并修了脚本（30 增 / 5 删）：
+
+1. 判据 4 的正则改为 `(?:composite )?cfg …`，并把 `echo <on> on <out>/<in>` 作为可选组附加在明细里；
+2. 新增 **判据 5b「vendor 回环」**：命中 `K60 USBLOG: echo %u bytes on ep%u (total %u)` 即 PASS；
+   镜像武装了 vendor 对但主机没写 → SKIP 并说明；mode 2（`echo 1 on 2/3`）→ SKIP 说明回环走 CDC 对；
+   完全没武装（没有 `k60_usbvend`）→ SKIP。
+
+校准（同一份脚本跑四种输入）：
+
+| 输入 | 结果 |
+| --- | --- |
+| 合成 mode-1 证据（98 B + `echo 1 on 6/7` + 两条 echo 行 + 合法 GHWPARAMS3） | **ALL PASS**（7 pass / 0 fail / 0 skip） |
+| 合成 mode-2 证据（67 B + `echo 1 on 2/3`，无 echo 行） | ALL PASS（6 / 0 / 1），5b = SKIP「回环走 CDC 对」 |
+| 真实 `usblog-20261114-usb-hb2`（0405 镜像） | ALL PASS（4 / 0 / 3），判据 3/4 SKIP「镜像早于 0406」，5b SKIP「没武装 vendor 对」 |
+| 真实 `usblog-20261114-092129-wifi-20261115a`（0 字节采集） | FAIL（0 / 4 / 3），与 §19.2 的 c1 校准一致 |
+
+合成证据只用于验证脚本分支，**不是上机证据**；真实判读仍需 mode-1 采集。
+
+### 24.6 mode-1 上机（Lead 执行，本线不 boot）
+
+脚本：`E:/k60-work/scratch/usb/boot0410b-lead.sh`（门禁四连 → 等 fastboot → 300 s 采集 → 判据执行器 → 寄存器行）。
+判读顺序：
+
+1. `K60 USBLOG: DWC3 GHWPARAMS1 … GHWPARAMS3 …`：期望 `(>>12)&0x3f ≥ 8` 且 `(>>18)&0x1f ≥ 4`（判据 3）；
+2. `K60 USBLOG: cfg 98 bytes ep6 0 ep7 0 DALEPENA 0x000000ef echo 1 on 6/7`：`ep6/ep7` 都是 0 才说明两条 SETEPCONFIG 成功（判据 2）；
+3. 若 `ep6/ep7` 非零：把该行与 `GTXFIFOSIZ0..3` 四个读数一起贴回，直接回答 §12.3「EP7 用 FIFO 3 是否越界」；
+4. 主机侧：设备管理器出现 IF2（vendor 0xff/0xfe）后，用裸接口工具写 64 字节，日志应出现 `K60 USBLOG: echo 64 bytes on ep6 (total 64)` 与 `… ep7 (total 128)`。
+   **本机 Windows 没有 libusb/pyusb/gcc**（§23.4 已记录），IF2 没有系统驱动，所以这一步只能走 LAN 上的 Mac（IOKit user client）或 WSL usbip —— 这是 mode 1 与 mode 2 的关键区别：mode 2 用系统自带 usbser 驱动就能验，mode 1 必须有裸接口主机。
+
+判读结论：①②全 0 且 ④出现 echo 行 → 判据 2 成立、P2-b 立项完成；`ep6/ep7` 任一非零 → 按 §20.2 分支 B/C 回滚 0406/0407 的 EP6/EP7 配置段。
+
+### 24.7 边界（这张图不做什么）
+
+- **不改 `ud_trb_for()`**：mode-1 只配置端点、不发起传输，8 槽 TRB 属于 P2-b 的改动范围（§15.4(a) 已设计，未实现）。
+- **不碰 QMP/SS PHY**：本图仍是 HS/eUSB2 通路（§22 的 QMP 结论未变），SS 上电要等 P3。
+- **不动 dts/**：本线写作用域不含 `dts/`，QMP/UCSI 若要走 DT 需另提合并片段（§22.3、`EIGHT-STEPS-usb.fragment.md`）。

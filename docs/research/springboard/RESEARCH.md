@@ -18,7 +18,7 @@
 
 半成功（例如 1 成立但 3/4 仍在）走 §4，不要跳过前面的行直接看后面。
 
-**不要手读**：`python3 scripts/judge-wallpaper-log.py <console.log>` 按上表六步逐条判（`PASS/FAIL/N-A/EYES` + `success/half/dead`），规则与本文表格同源。
+**不要手读**：`python3 scripts/judge-wallpaper-log.py <console.log|capture-dir>` 按上表六步逐条判（`PASS/FAIL/N-A/EYES` + `success/half/dead`），规则与本文表格同源。
 
 ## 1. 判定 —— 0618 内核种子（K60WALL）
 
@@ -74,7 +74,7 @@
 
 ## 4. 半成功汇总与升级路径
 
-**判定器**：`python3 scripts/judge-wallpaper-log.py <console.log>` 按 §0 六步逐条输出 `PASS/FAIL/N-A/EYES` 与最终 verdict（`success` / `half` / `dead`），每条 FAIL 打印「去 §几」。纯读文件、无副作用；回归测试 `python3 scripts/tests/test-judge-wallpaper-log.py`（11 例，含两份真实旧日志作负样本）。
+**判定器**：`python3 scripts/judge-wallpaper-log.py <console.log|capture-dir>` 按 §0 六步逐条输出 `PASS/FAIL/N-A/EYES` 与最终 verdict（`success` / `half` / `dead`），每条 FAIL 打印「去 §几」。入参可以是单份 console.log，也可以是采集目录——目录里没有 console.log 时按 `capture.json` 的 `log` 字段找。纯读文件、无副作用；回归测试 `python3 scripts/tests/test-judge-wallpaper-log.py`（17 例，含四份真实旧日志作负样本：`audio-probe-j/run1`、`usblog-20261115-013520`、`usblog-20261115-003207`、`usblog-20261114-235957`，全部判 dead）。
 
 四种半成功形态（**按日志字面量匹配，判定器用的就是这些串**）：
 

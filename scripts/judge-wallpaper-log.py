@@ -30,7 +30,10 @@ the wallpaper, that half is the end of the case and F2 must not be built.
 
 Pure reader: no writes, no device.  Run:
 
-    python3 scripts/judge-wallpaper-log.py <console.log> [--quiet]
+    python3 scripts/judge-wallpaper-log.py <console.log|capture-dir> [--quiet]
+
+A capture directory is resolved the way the collector writes it: console.log in
+the directory, else the "log" path inside capture.json.
 """
 from __future__ import annotations
 
@@ -139,6 +142,25 @@ def verdict(rows):
     return 'success'
 
 
+def capture_log(directory):
+    """Return the console.log a capture directory holds, or None."""
+    direct = directory / 'console.log'
+    if direct.is_file():
+        return direct
+    meta = directory / 'capture.json'
+    if meta.is_file():
+        try:
+            import json
+            recorded = json.loads(meta.read_text(encoding='utf-8-sig')).get('log')
+        except (OSError, ValueError):
+            recorded = None
+        if recorded:
+            candidate = Path(str(recorded))
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def main(argv):
     args = [a for a in argv[1:] if not a.startswith('--')]
     quiet = '--quiet' in argv
@@ -146,6 +168,8 @@ def main(argv):
         print(__doc__)
         return 2
     path = Path(args[0])
+    if path.is_dir():
+        path = capture_log(path) or path
     if not path.is_file():
         print(f'judge-wallpaper-log: not a file: {path}')
         return 2

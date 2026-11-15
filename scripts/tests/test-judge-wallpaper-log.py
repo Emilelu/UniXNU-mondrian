@@ -15,7 +15,9 @@ pressure.  These cases therefore assert the verdict, not just the exit code:
 
 Two optional cases run the judge over real capture logs when they are present
 on this host (they are not in the repository); they are skipped silently
-otherwise so the suite stays portable.
+otherwise so the suite stays portable.  The Lead's two pre-0618 captures
+(usblog-20261115-003207, usblog-20261114-235957) are named there too, and one
+case proves a capture directory is resolved to its console.log.
 
 Run: python3 scripts/tests/test-judge-wallpaper-log.py
 """
@@ -166,15 +168,36 @@ def main():
     # A log with no wallpaper text at all must not be reported as success.
     expect('nothing here\n', 'dead', 'an empty log is dead, not success')
 
+    # A capture directory resolves to its console.log (the collector's layout).
+    with tempfile.TemporaryDirectory() as tmp:
+        capture = Path(tmp) / 'usblog-test'
+        capture.mkdir()
+        (capture / 'console.log').write_text(SEED_OK_GUARD_STILL, encoding='utf-8')
+        proc = subprocess.run([sys.executable, str(JUDGE), str(capture), '--quiet'],
+                              capture_output=True, text=True)
+        check('verdict: half' in proc.stdout,
+              'a capture directory is judged by its console.log', proc.stdout[:200])
+        (capture / 'console.log').unlink()
+        (capture / 'capture.json').write_text(
+            '{"log": "%s"}' % str(capture / 'inner.log'), encoding='utf-8')
+        (capture / 'inner.log').write_text(SEED_OK_GUARD_STILL, encoding='utf-8')
+        proc = subprocess.run([sys.executable, str(JUDGE), str(capture), '--quiet'],
+                              capture_output=True, text=True)
+        check('verdict: half' in proc.stdout,
+              'capture.json names the log when console.log is absent', proc.stdout[:200])
+
     # Real captures, when this host has them (they are not in the repo).
     for path in (Path('/mnt/e/k60-work/evidence/audio-probe-j/run1/console.log'),
-                 Path('/mnt/e/k60-work/evidence/usblog-20261115-013520/console.log')):
-        if not path.is_file():
+                 Path('/mnt/e/k60-work/evidence/usblog-20261115-013520/console.log'),
+                 Path('/mnt/e/k60-work/evidence/usblog-20261115-003207'),
+                 Path('/mnt/e/k60-work/evidence/usblog-20261114-235957')):
+        if not path.exists():
             continue
         proc = subprocess.run([sys.executable, str(JUDGE), str(path), '--quiet'],
                               capture_output=True, text=True)
         check('verdict: dead' in proc.stdout,
-              f'real pre-0618 capture stays dead ({path.parent.name})', proc.stdout[:200])
+              f'real pre-0618 capture stays dead ({path.parent.name if path.is_file() else path.name})',
+              proc.stdout[:200])
 
     print(f'TESTS OK {CASES} cases ({FAILURES} failure(s))')
     return 1 if FAILURES else 0

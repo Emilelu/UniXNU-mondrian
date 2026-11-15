@@ -1,0 +1,18 @@
+diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPlatform.cpp
+index 97f2cec4..06c57ea6 100644
+--- a/drivers/PongWifi/PongWifiPlatform.cpp
++++ b/drivers/PongWifi/PongWifiPlatform.cpp
+@@ -777,5 +777,12 @@ extern "C" bool pong_rpmh_vote(uint32_t address,uint32_t value) {
+  IOLockUnlock(powerLock);return ok;
+ }
+ 
+-extern "C" bool pong_smmu_lease_lock(void){if(!smmuLeaseLock)return false;IOLockLock(smmuLeaseLock);return true;}
++// The lease serialises programming of the one Apps SMMU, and the first client
++// to want it is not necessarily the WiFi worker: NativeUfs takes the same lease
++// in hostBringUp(), which runs before ArmDTPlatform::configure() calls
++// pong_wifi_start_optional(). Allocating the lock only in pong_rpmh_init() made
++// every earlier client fail the lease for a reason that has nothing to do with
++// contention, so allocate it on first use instead. pong_rpmh_init() keeps its
++// allocation for the same reason.
++extern "C" bool pong_smmu_lease_lock(void){if(!smmuLeaseLock)smmuLeaseLock=IOLockAlloc();if(!smmuLeaseLock)return false;IOLockLock(smmuLeaseLock);return true;}
+ extern "C" void pong_smmu_lease_unlock(void){if(smmuLeaseLock)IOLockUnlock(smmuLeaseLock);}

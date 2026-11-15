@@ -55,6 +55,14 @@ K60OwnerOps version=1，bytes=sizeof(K60OwnerOps)。除 available/stopped/live �
 
 未自动安装旧 K60AdspPas/K60AdspBoot 的 raw SMC 路径：其一次调用不能提供完整 SCM 事务、coherence、资源或 stopped 证明，旧 AUTH-before-INIT 顺序也未复用。真实后端仍由 Lead/ADSP 接入，测试 fake 不安装到生产入口。
 
+## Bounded image-reader implementation
+
+[K60AdspImageReader.c/.h](../../../drivers/PongPower/K60AdspImageReader.h) now provides a K60AdspRead-compatible k60_adsp_read(part,dst,bytes), explicit contextual blob/FAT source initialization and k60_adsp_owner_image_open/close callbacks for this existing image_reader ABI. Names adsp/mdt alias adsp.mdt; canonical pieces use adsp.bNN. Exact read/size failure -5, missing source/part -6 and corrupt/bounds -7 remain reader-specific; the owner does not leak them as valid ownership. Missing linked symbols fail -6; no backend or carrier is installed automatically.
+
+Configure a persistent K60AdspOwnerReader with a validated source and disjoint writable metadata, then use wrapper callbacks for the platform context to call image_open/close. Source storage must be immutable and pin for all parser+stage3 loads, forever if owner succeeds or becomes Poisoned. Caller supplies the pin lifetime: this adapter never allocates, maps or frees image storage. Atomic open rejects a second session without erasing live pins; close checks exact image identity. Parser errors still zero the plan and leave metadata untouched under its disjointness preconditions.
+
+Stage3 calls k60_adsp_image_segment to reborrow the exact indexed piece or bounded contained source; BSS-only segment24 returns NULL/0 and still runs the zero/load callback. Stage4 build_handoff never reads firmware under final TCSR. Legacy fixed-address k60_adsp_copy is not used for relocated owner loads. FAT mode is explicit and requires bounded pre-mapped contiguous file storage, not late Data I/O. Lead's generator/link/carrier integration remains separate; see [carrier ABI](PAS1-PROVIDER-CARRIER.md#implemented-reader-boundary).
+
 ## 公共 flags 与内部完成位
 
 K60AdspOwnerLease 保持 uint32_t version, bytes, flags, epoch 加 void *token；version=1、bytes 使用 native sizeof。104 字节 little-endian wire record 的 epoch 是 64 位，不能直接序列化 native struct。

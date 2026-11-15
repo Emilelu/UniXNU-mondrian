@@ -227,14 +227,34 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `strings | grep -c 'PongThermal: '` 仍为 **15**（与 `thermal-20261115a` 相同），
    payload kernel `b6b860dd…`、boot.img `ba8b5c9e…`，manifest
    `/mnt/e/k60-work/artifacts/thermal-20261115b/build-manifest.json`（`kernel_args_requested` 里有
-   `pong_thermal_bias=85000`）。**尚未上机**；判据是 `LEVEL-MAP.md` §5.2 第三行（`level 3/3 trapping`
-   + `published as Thermal_Level_Warning=3`），由 `scripts/check-thermal-log.py --profile bias-85000` 判。
+   `pong_thermal_bias=85000`）。**2026-11-15 13:52 已上机，判据全部达成**（结果见本条目末）。
    内核体积从 `thermal-20261115a` 的 54 MB 涨到 105 MB，原因是 rebase 后 defconfig 打开
    `CONFIG_XNU_GPU_ADDON=y`（Metal 插件 51,278,451 B 被 `.incbin` 进内核）与
    `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`；**这个体积在 4.5 GiB 窗口里已经跑过**——
    `gpu-20261114t`（`usblog-20261114-235957`）用的就是 105,476,096 B 的内核，日志里
    `K60RV 1 launchd[1] mem=4608 actual=4608 managed=4608`、`K60METAL deploy files=6/6 error=0`，
    `bootAccepted=true`。所以体积本身不是新风险。
+
+**bias=85000 上机结果（2026-11-15 13:52–13:56，证据 `E:\k60-work\evidence\usblog-20261115-135227\`）**：
+判定命令 `python3 scripts/check-thermal-log.py --profile bias-85000 --log <采集目录>/console.log`
+→ **EXIT=0**，`22 passed, 0 failed, 0 advisory, 12 outside profile 'bias-85000'`，
+`OK: every required criterion holds (profile bias-85000, 0 advisory)`。三行原文：
+
+```
+PongThermal: bias 85000 mC added to every reading (validation only)
+PongThermal: tsens0[3] cpuss-2 zone27 43.0 C
+PongThermal: level trapping (3) published as Thermal_Level_Warning=3
+```
+
+计数（我亲自复核，与判据一致）：控制器行 2、`polling 2 controllers every 1000 ms` 1、
+传感器行 32/32（上一轮缺的 `tsens0[3] cpuss-2 zone27` 这次出现，丢行判断得到确认）、
+域温度行 222、等级行 8 条（全部 `level 3/3 trapping (domains 3/3); closest aoss-0
+127.6–134.3 C, every tier crossed`）、发布行 1 条（=3）、`crashed:.*backboardd` 0 条。
+`capture.json`：`state=captured-budget-complete`、`bytes=252515`、panic/reset marker 均为
+null；`boot.json`：`bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`。
+构建的 series 是仓库 `patches/xnu/series` 的 225 行、sha256 `64056cd6…`（与
+`K60_DEVICE_INPUT` 那份逐字节相同）。§7.4 的四个待确认由这轮（连同冷机
+`thermal-20261114f`）回答了三项，见该节开头。
 
 ## 6 构建阻塞（2026-11-14，环境而非代码）
 
@@ -313,8 +333,15 @@ device 目录里必须存在 `feeds.toml`，`sync-device-input.py` 不复制它�
 
 ## 7.4 发布层上机后的四个待确认
 
-这一层能编译、能进内核、host 侧算术全过，但它依赖三个**尚未在本板上验证过**的前提。
-第一次上机时按这四条读串口：
+这一层能编译、能进内核、host 侧算术全过，但它依赖四个**当时尚未在本板上验证过**的前提。
+截至 2026-11-15 两轮上机（冷机 `thermal-20261114f`、bias=85000 `thermal-20261115b`）回答了三条：
+
+- ① 已答 —— `published as` 行两轮都出现在 boot 后数秒内，`getPMRootDomain()` 在 worker 首轮即非 NULL；
+- ② 已答 —— 两轮 `bootAccepted=true`、`bootExitCode=0`、无 panic marker，非 Apple 调用者没有引发 panic；
+- ④ 已答 —— 全程发布各只 1 条（只在等级变化时发），无 workloop 卡顿迹象；
+- ③ 仍未答 —— `thermalmonitord` 仍在 `userland/mkjobs.py:217` 的 DENY 里，用户态没有消费者。
+
+其余四条按下面逐条读串口：
 
 1. **`getPMRootDomain()` 何时非 NULL**。`pong_thermal_init` 在 `bsd_init.c:1166-1167` 被调用，
    `IOKitBSDInit()` 在 `:1325`；两者之间是 `bsd_autoconf`。若串口里始终没有 `published as` 行，

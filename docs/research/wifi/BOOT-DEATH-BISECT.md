@@ -286,11 +286,25 @@ payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
 python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
 ```
 
-自测 `python3 scripts/tests/test-judge-wifi-boot.py`（11 例：mhi3 / mhi4 两份真静默、
-thermal / bt 两份真进用户态，另加 worker 断流、worker 失败串、stage 门被挡、
+自测 `python3 scripts/tests/test-judge-wifi-boot.py`（11 例：两份真静默
+`usblog-20261115-002243`（mhi4）/ `usblog-20261115-002804`（mhi3）、两份真进用户态
+`usblog-20261115-003922`（thermal-20261114f）与 `usblog-20261115-012913`
+（bt-s4a-20261114f，旧载体族），另加 worker 断流、worker 失败串、stage 门被挡、
 无标识控制台、纯 fastboot 噪声、空文件六个合成样本，以及一例「消费者丢掉退出码
 仍能从行内 `[exit N]` 读到」。每个用例都断言退出码本身，因为退出码是判定器进
 自动流水线时的全部 API）。
+
+**引用纪律**：贴判定结果时写 **usblog 目录名**，镜像只作附注。证据目录与镜像
+不是一一命名——`usblog-20261115-012913` 对应的是 `bt-s4a-20261114f`，而 bt 线
+现在跑的是 s4b/s4c 受控对照对；只写「bt 健康镜像」过几轮就对不上号了。镜像名
+从同目录 `boot.json` 的 `image` 字段取，不要凭记忆补。
+
+**测试纪律**（P-202「绿得没有区分力」的同类）：判定器的测试必须跑真样本，且
+真样本缺失时不能静默降级成 SKIP 还报绿。这套测试原先写死 WSL 路径
+`/mnt/e/k60-work/evidence`，在宿主 MSYS 侧跑时四份真日志全部 SKIP，输出照样是
+`TESTS OK`——门禁在，但已经没有区分力。现在路径按 `K60_EVIDENCE` → `/mnt/e` →
+`E:/` 三段探测，WSL 与 MSYS 两侧都是 `11 cases (0 failure(s), 0 skipped)`；
+任何一个真样本找不到就应当显式 SKIP 并在汇总行报出 skip 数，而不是假装通过。
 
 注意 §5.16 的窗口数学对「4.75 GiB + 65.9 MB」给出的是**余量仅 4 MB**的临界判决
 （阈值 5116 MiB vs arena 5120 MiB）；a2 就是 4.75 GiB（`wifi-20261116a2w/a2q/a2r`

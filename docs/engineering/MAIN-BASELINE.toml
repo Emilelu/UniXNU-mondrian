@@ -196,3 +196,8 @@ sha = "0aaee66"
 state = "booted"
 kernel_sha256 = "3c2991f0c8ec5ef32942315c861d9760903ca9864bc074f33a7ffad9bc1a81d1"
 note = "P-215: the Apps SMMU lease lock is allocated on first use. patches/wifi/0012 moves the IOLockAlloc into pong_smmu_lease_lock(), so NativeUfs can take the lease in hostBringUp() before ArmDTPlatform ever calls pong_wifi_start_optional(). On-device proof is wifi-20261116c3 (boot.img 5a19e110..., kernel 117,325,824 B, real PWF2 container): evidence usblog-20261116-015128, SpringBoard 132, K60DATA mounted, panic 0. That image was built on feat/wifi-bringup with the same patch bytes; this commit is where main carries the fix."
+
+[[entry]]
+sha = "3ef02b8"
+state = "build-only"
+note = "P-217：固件构建改从仓库记录的 Mu_Basecore pin 6f805f2 + 五个 [firmware].patches 施加，不再依赖只存在于本机的 3d2a9fa。改了 board.toml 的 [firmware].patches 与固件手册，内核输入未变；欠账：需用 pin+五补丁 重建的卷打一张镜像上机确认（判据 Early boot complete + SB>=100）。"

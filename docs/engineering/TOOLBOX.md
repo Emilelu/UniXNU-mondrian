@@ -117,6 +117,8 @@ adb shell 'cat /sys/devices/platform/goodix_ts.0/read_cfg'
 | COM5 | K60 内核串口（`boot-and-capture.ps1` 自动接） |
 | `<workspace>\evidence\usblog-*\console.log` | 每次启动的日志 |
 | **judge-wifi-boot.py** | `scripts/judge-wifi-boot.py` | **一张 wifi 镜像飞完几十秒内出判决**：读 `console.log`（或整个 `capture.json` 目录），输出 `alive` / `driver-dead` / `silent` / `unknown`（退出码 0/1/2/3）并打印下一步（继续 `k60_wifi_stage` 二分 / 打点 / 转体积方向）。判据出处 `docs/research/wifi/BOOT-DEATH-BISECT.md` §7 C1–C4。自测 `python3 scripts/tests/test-judge-wifi-boot.py` |
+| **check-arg.py** | `scripts/check-arg.py` | **飞行前证明镜像真的带了参数**：读 `boot.json` 指到的镜像字节 + 旁边 manifest 的 `kernel_args_requested`，确证本次隔离的那个 `pong_*` 参数在镜像里，没带就拒绝出判决（exit 4 = 不是判决，永不读成 silent）。这是判据工具，不是构建路径。自测 `python3 scripts/tests/test-check-arg.py` |
+| **judge-z0.sh** | `scripts/judge-z0.sh <usblog-dir> [--expect-arg pong_wifi=0]` | **对照组飞行一图流**：先验镜像身份与参数（check-arg.py），再裸调用判定器出 verdict 词 + [exit N]，最后列 marker 与尾部日志；exit 4 表示参数缺失或 helper 缺失（死路径），绝不等于 silent。 |
 
 ## 10. 反汇编 / 二进制
 

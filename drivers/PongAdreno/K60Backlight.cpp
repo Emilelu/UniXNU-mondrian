@@ -342,9 +342,23 @@ void K60Backlight::publishFirst(void)
     native_backlight_request[4] = conformed ? 1 : 0;
     native_backlight_request[5] = control ? 1 : 0;
     /* One line, so scripts/check-backlight-log.py reads the verdict without
-     * reconstructing it from the counters. */
-    IOLog("K60 BACKLIGHT: published level %u dbv 0x%x conformance=%d control=%d%s\n",
+     * reconstructing it from the counters.  The counters ride in this line
+     * rather than being read out of memory by a debugger: a verdict that needs
+     * a human to inspect the kernel is a memory of a measurement, not evidence,
+     * and nobody can re-check it later (Lead, 2026-11-15).
+     *
+     *   stats = stage, requests, last level, readback level    (stats[0..3])
+     *   req   = goal, fade ms, conformance, control            (request 0,1,4,5)
+     *
+     * At publish time no request has arrived yet, so req is 0,0,conformance,
+     * control; later requests show up in the counters, not in this line. */
+    IOLog("K60 BACKLIGHT: published level %u dbv 0x%x conformance=%d control=%d"
+          " stats=%d,%d,%d,%d req=%d,%d,%d,%d%s\n",
           level, pong_panel_brightness(), (int)conformed, (int)control,
+          (int)native_backlight_stats[0], (int)native_backlight_stats[1],
+          (int)native_backlight_stats[2], (int)native_backlight_stats[3],
+          (int)native_backlight_request[0], (int)native_backlight_request[1],
+          (int)native_backlight_request[4], (int)native_backlight_request[5],
           control ? "" : " (no AppleARMBacklight conformance)");
 }
 

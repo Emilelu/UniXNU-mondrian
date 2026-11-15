@@ -5333,3 +5333,240 @@ Check: `python3 scripts/tests/test-check-define-scope.py`（9 例）与 registry
 Check: `python3 scripts/tests/test-series-fingerprint.py`（8 例，含
 `the_gate_and_the_recorder_still_agree` 直接比对三个内嵌实现与工具的输出）与
 registry `id = "P-214"`。
+
+## P-215 — 惰性分配的锁在「还没人分配」时返回失败，等于拒绝服务；而 0 字节日志把这次拒绝藏了三天
+
+现场：wifi 家族七张镜像（c0/c1/c2/z0/t2/mhi3/mhi4，内核 66–117 MB）全部
+`port-not-observed` / 0 字节。逐条排除掉的轴（每条都有实测）：
+
+| 轴 | 否证方式 |
+|---|---|
+| 内核总大小 | 117 MB silent，但 129 MB（`adsp-20261115c/d/e`）与 105 MB 都进桌面 |
+| 段跨度 / 254 MiB 窗口 | `darwinboot_parsekernel.py` 复刻固件全部拒绝条件，五张全 PASS；129 MB 的 span 141,111,296 比 c2 的 129,642,496 更大却能起 |
+| 容器所在段 | PWF2 放 `__TEXT,__const`（c0/c1/z0）与 `__DATA_CONST,__const`（c2）都 silent |
+| 固件卷 / DTB | `bootimg_slots.py` 逐件比对：`gzip_sha256`、`shim_sha256`、`fd_sha256`、DTB 全相同，唯一差异是 ramdisk |
+| ADT | `darwinboot_adt.py` 复刻 `AdtNode()`，五张全 ACCEPTED/exact，25 节点，window `0x120000000` |
+| 控制台参数 | 五张 `payload_args` 29 项逐字符相同，只末项不同 |
+| Data 卷 UUID | c1 把 `mondrian_wifi_defconfig` 的种子 UUID 改对，仍 silent |
+| C++ 全局构造器 | `macho_initfunc.py`：`__mod_init_func` 两边都 102 条，+0/−0；`__pong_init` 内核无消费者，设计上不执行 |
+| `__init_entry_set` | `__startup_` 符号数三张都是 4,980，+5/−5 只是重命名 |
+
+真因（`patches/wifi/0004-drivers-NativeUfs-pong-ufs-ready.patch` + `0001`）：
+
+```c
+// 0004 给 PongUfsTransport.cpp 的 hostBringUp() 插的 lease 段
+if (pong_smmu_lease_lock && pong_smmu_lease_unlock) {
+    lease.held = pong_smmu_lease_lock();
+    if (!lease.held) return transportFailure("Apps SMMU lease unavailable");
+}
+// 0001 的实现：锁未分配就返回 false
+extern "C" bool pong_smmu_lease_lock(void){
+    if(!smmuLeaseLock) return false;      // ← 拒绝服务
+    IOLockLock(smmuLeaseLock); return true;
+}
+```
+
+`smmuLeaseLock` 只在 `pong_rpmh_init()` 里 `IOLockAlloc()`，而 `pong_rpmh_init()`
+的唯一调用点是 `pong_wifi_start_optional()`，后者由 `patches/wifi/0005` 在
+`ArmDTPlatform::configure()` 的 `registerService()` 之后调用。**UFS 是根设备，必然先启动**
+（实测能起日志里 `PONG_UFS` 在 115 行、`ArmDTPlatform: registered platform` 在 147 行）。
+于是 UFS 调 lock() 时锁必为 NULL → false → `transportFailure` → 整个 UFS transport
+放弃 → 没有根设备 → 内核在 console worker 起来之前就死 → **0 字节**。
+
+修法（`patches/wifi/0012`，20,480 B 代码，单变量）：把分配搬进 lock() 自己——
+
+```c
+extern "C" bool pong_smmu_lease_lock(void){
+    if(!smmuLeaseLock) smmuLeaseLock = IOLockAlloc();
+    if(!smmuLeaseLock) return false;
+    IOLockLock(smmuLeaseLock); return true;
+}
+```
+
+真机验证：`wifi-20261116c3`（`boot.img 5a19e110…`，117,325,824 B，带真 PWF2 容器
+11,189,974 B）证据 `usblog-20261116-015128`：console 221,429 B / 3,202 行 /
+**SpringBoard 132** / panic 0 / `:482 K60DATA mounted ro=0 fstype=apfs` /
+`:972 Early boot complete. Continuing system boot.`
+
+**为什么这次事故值三天**：0 字节日志同时抹掉了「没执行」和「执行到一半失败」两种状态。
+控制台是 ramoops 环形缓冲区，`patches/xnu/0300` 的 `k60_usblog_init()`
+（`osfmk/arm/arm_init.c`）只做只读探测，真正的排空 worker 在
+`bsd/kern/bsd_init.c` 的 `if (result == KERN_SUCCESS)` 里才由 `k60_usblog_start()` 启动。
+所以「日志第一行是 `K60 USBLOG: GDSC usb30_prim`」**不能**证明它比 UFS 早执行——
+那只是环形缓冲区的写入顺序。任何让 `IOKitBSDInit()` 返回非 `KERN_SUCCESS` 的早期失败
+都会直接跳过 console worker，与 0 字节完全吻合。这条是用户 m27494 直接指出我的论证错误后
+才纠正的：我当时用「第 1 行输出早于 UFS」否定了 UFS 假说，把真凶排除了整整一轮。
+
+四条教训：
+
+1. **返回 bool 的 `lock()` 在锁未就绪时返回 false，语义上等于「拒绝服务」**。
+   惰性分配的锁必须自己保证可分配；让调用者承担「谁先初始化」的知识，就是把
+   一个初始化顺序缺陷伪装成一次正常的错误返回。正确形状是「要么成功，要么 panic」，
+   而不是「悄悄返回 false，让第一个调用者去死」。
+2. **弱引用只解决「符号可能不存在」，不解决「符号存在但拒绝服务」**。
+   `if (pong_smmu_lease_lock && pong_smmu_lease_unlock)` 看起来是完备的守卫，
+   实际只覆盖了 `weak_import` 解析失败那一档，漏掉「解析成功、调用返回 false」。
+   弱引用守卫要写成「符号在 && 调用成功」，并且调用失败要有独立于符号缺失的日志。
+3. **跨子系统共享资源的所有权必须在设计时确定启动顺序，不能靠「谁先跑到」**。
+   Apps SMMU 是 UFS 与 Wifi 共用的；UFS 先启动是**必然**的（它是根设备），
+   所以锁的分配点必须早于 UFS，或者由 lock() 自己惰性完成。
+   「反正 wifi 会先初始化」这种假设在启动顺序面前一文不值。
+4. **0 字节日志是最弱的观测，它会把不同故障抹成同一张脸**。这次它同时抹掉了
+   「内核没被装载」「内核崩在第一行之前」「内核跑到根挂载失败」三种状态。
+   判断「谁先执行」只能靠**代码里的调用链**，不能靠日志行号——环形缓冲区让行号
+   失去时序含义。任何「A 的日志在 B 之前，所以 A 先执行」的论证都必须先问
+   日志是直写还是缓冲。
+
+附带一条工程教训（同批事故，来自 wifi 线 `3207bd3`）：**merge 解冲突后要验「非冲突区域的
+功能块有没有被 main 侧整段替换」**。那次 merge 的 `build-strict.sh` 冲突只保住了 manifest 的
+两个字段，把 `XNU_PONG_WIFI_ARCHIVE` 的定义段和 P-190 守卫整段丢了 —— 静态看不出来，
+因为 manifest 里还留着一个引用，结果是「链上了但账本记不到、守卫不跑」。
+
+Check: `python3 scripts/tests/test-pong-smmu-lease.py`（wifi 线交付，钉住函数唯一、
+分配先于 null 检查、仍 `IOLockLock`、补丁是 series 最后一项）与 registry `id = "P-215"`。
+
+## P-216 — 固件卷构建不是确定的：三次重建得三个哈希，而手册写着「同源 ⇒ 同字节」
+
+现场（2026-11-16 02:31–02:47，同一检出、同一 pin、无未提交改动）：
+
+| 次 | SOURCE_DATE_EPOCH | FD sha256（前 12） |
+| --- | --- | --- |
+| 基准（已上机验证） | 自然取值 | `4bbe76017eb4` |
+| 重建 1 | 自然取值（uefi HEAD 已多一个提交） | `ce12d145a71e` |
+| 重建 2 | 显式钉住 `1794541119` | `77ad2474a468` |
+| 重建 3 | 自然取值 | `9f20de15388a` |
+
+`docs/engineering/FIRMWARE-REBUILD.md` §2 写的是「`firmware.py:85` 把 `SOURCE_DATE_EPOCH` 固定成 uefi
+仓最后一次提交的时间，所以同样的源码 + 同样的 pin ⇒ 同一个 FD」——**这一句是错的**。
+
+实测根因：两个卷在同一偏移 `0xc8b8` 上都有一个 CodeView 记录，但 `RSDS` 后面的 16 字节
+build-id 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c44205044422e`，后 8 字节
+`4c4c44205044422e` = `"LLD PDB."` 一样）。LLD 的 build-id 由输入文件集合与链接顺序派生，
+不受 `SOURCE_DATE_EPOCH` 影响；而固件卷是 **压缩** 的，一个 GUID 变了就让整个压缩段变了——
+3,145,728 B 里有 453,604 B 不同（1,739 个不连续区间）。
+
+两个后果：
+
+1. **FD 的 sha256 不能当「身份」用。** 它只能当「这一次构建的标识」。任何「两个卷哈希不同 ⇒ 源码不同」
+   的推断都是错的（我就错了一次，差点把 `ce12d145` 归因成 cellular 线的提交）。
+2. **判定一个重建的卷能不能用，只能上机。** 这正是 `FIRMWARE-REBUILD.md` §5 第 4 步写的，
+   只是 §2 把它推翻了。
+
+**已验证的结论**（同一个 payload，只换 FD）：
+
+- `baseline-20261115d` 的 payload 逐字节复用（`fbc87102d1cb10df080d7dc6135e9e5b995e1f791ab5d2aa0a8e37a872271e3f`），
+  只把 FD 换成重建的 `9f20de15388a`，重打 `boot.img`（`51d2053891569eeeb33a9f78989de6d66a111aa594541d9c7c5fb89622b3f3ce`）。
+- 上机（`E:\k60-work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
+  `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 / `menu:` 与 `config: no boot entry` **0 次**。
+- ⇒ **P-154 正式关闭**：从当前 pin 重建的固件卷能找到 payload。
+
+**四条教训**
+
+1. 「确定性」要用两次相同输入的实测证明，不能用「我看到了一个固定时间戳」推出。
+   `SOURCE_DATE_EPOCH` 只能影响它真正被使用的那些字段（`__DATE__`/`__TIME__`、PE 头时间戳），
+   对链接器自己生成的 build-id 无效。
+2. 压缩容器里的小差异会放大成大差异：不要用「哈希不同」反推「源码不同」，
+   要先看差异集中在哪一类字节上（这里是 CodeView/RSDS）。
+3. 一个输出的哈希在构建之间不稳定时，它就不能进 manifest 的 `components`（那里的字段隐含
+   「可比较」的语义），而应该另开一个「本次构建标识」字段。这和 P-214
+   （两个命名空间的指纹不可比）是同一类错的两个方向：那里是名字相同而含义不同，
+   这里是名字相同而稳定性不同。
+4. 手册里的「为什么这件事很要紧」那一节会让人很容易把前提当结论。§2 那句话当时是为了论证「不必重建」，
+   而实际上它只能论证「不必为了可复现而重建」。
+
+Check：`python3 scripts/check-firmware-volume.py`（新）——它不量哈希，只量两件事：①
+`FIRMWARE-REBUILD.md` 不得再出现「同源 ⇒ 同字节」形式的断言；② 任何引用 FD 哈希的
+文档必须同时说明它是「一次构建的标识」而非「身份」。
+
+## P-217 — 构建依赖一个只存在于本机的 commit，而配置文件声称它已经在 pin 里
+
+现场（2026-11-16 03:14）：`board.toml` 的 `[firmware].patches` 写着
+
+> Mu_Basecore 6f805f2 already carries all six K60 fixes (3d2a9fa, "local patches for k60
+> firmware build", is an ancestor).
+
+三句话里有两句是错的，而且错的方向恰恰是「不用做事」：
+
+1. **`3d2a9fa` 不是 `6f805f2` 的祖先。** `git merge-base 3d2a9fa 6f805f2` 返回空——
+   两条历史没有共同祖先。`3d2a9fa` 的父提交是 `3c9c7b2`（`[DROP on REBASE]`），
+   它不在任何远程分支上；`3d2a9fa` 自己也只在本机（`git branch -r --contains` 两者皆空）。
+2. **`6f805f2` 不带那五个修复。** 11 个文件逐个对比：在 `6f805f2` 上只有
+   `AsmMacroLib.h` 被上游用另一种方式修好（`#ifdef __ELF__` 分支，PE 侧用
+   `.text$ ## Name`）；其余 10 个文件在 `6f805f2` 上是**原始**的。
+
+为什么一直没发现：构建用的是 `Mu_Basecore` 工作树的**当前内容**，不是子模块指针。
+`Mu_Basecore/.git` 是一个**目录**（嵌套仓），不是 `.git/modules/` 下注册的子模块，
+所以 `git submodule status` 的 `-` 前缀、`git status` 的 ` M Mu_Basecore` 都只是在报
+「指针与工作树不一致」，没有任何人去看那一致性到底意味着什么。
+而构建一直成功，因为工作树里确实有那些修复。
+
+**修法已经验证存在**：五个修复在仓库里本来就有补丁文件
+（`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch），
+它们在 `6f805f2` 上 `git apply --check` 全部通过，应用后 11 个文件里有 10 个与
+`3d2a9fa` 的内容**逐字节相同**，唯一差异是上游已经自己修好的 `AsmMacroLib.h`。
+`scripts/unixnu/firmware.py:73-78` 本来就支持 `[firmware].patches`（构建时 apply、`finally` 里
+reverse），所以只需要把五个补丁写进 `board.toml`，并把工作树切到 `6f805f2`。
+
+**四条教训**
+
+1. 「子模块指针」与「构建实际用的内容」是两件事。当子模块是一个嵌套仓时，指针
+   只是一个数字，没有任何东西强制工作树跟它一致。
+2. 「上游已经修好了，所以不用打补丁」这个判断必须逐文件验证，不能靠一个祖先关系推。
+   这里推错了两层：祖先关系不成立，且即使成立也不能说明那些行没被回退。
+3. 配置文件里的「已经包含」一定要有可执行的判据（比如 `git merge-base --is-ancestor`
+   或逐文件比对），否则它就是一句无法被证伪的注释。
+4. 「本机能构建成功」不等于「仓库能构建成功」。判据是「从仓库里能看到的东西重现这个构建」——
+   这和 P-216（固件卷不可复现）、P-154（重建的卷找不到 payload）是同一个主题的三个面。
+
+Check：`python3 scripts/check-basecore-pin.py`（新）——它量三件事：① `Mu_Basecore` 工作树的
+HEAD 必须等于主仓 `git ls-tree` 记录的 pin；② `board.toml` 的 `[firmware].patches` 里的
+每个文件必须存在且能 `git apply --check`；③ 若工作树与 pin 不一致，必须在
+`docs/engineering/FIRMWARE-REBUILD.md` 里有一条显式记录说明为什么（否则就是本条）。
+
+## P-218 — 二分实验只飞了「下一张」，漏掉的那一格正好是决定性的
+
+**现场（2026-11-16，蓝牙 0005 四 hunk 二分）**
+
+`patches/bt/0005` 有四个独立 hunk（h1–h4），全量配方 silent（0 字节、端口从未枚举）。
+四 hunk 有 15 个非空子集，实际飞了 9 个：
+
+| 配方 | SpringBoard | getBytes | 结果 |
+|---|---|---|---|
+| h1 | 13 | 36 | 起 |
+| h13 | 13 | 36 | 起 |
+| h4 | 13 | 36 | 起 |
+| h12 | 132 | 0 | 起 |
+| h23 | 128 | 0 | 起 |
+| h124 | 132 | 0 | 起 |
+| h34 | 128 | 0 | 起 |
+| **h123** | **0** | — | **silent** |
+| 全量 0005 | 0 | — | silent |
+
+`h123` 在 23:18 就构建好了，但四小时里没人飞它——因为我每一轮都按「下一步该验什么」去点图，
+而没有回头飞「已经躺在那儿但没飞过」的那张。那一格恰好是唯一能定案的：
+
+- 致命集恰好是 **{h1, h2, h3} 三者齐备**，`h4` 无关。
+- 验证：h123 去掉任意一个都能起（去 h1 = h23 起、去 h2 = h13 起、去 h3 = h12 起），
+  所以三者都是必要条件；全量 0005 也 silent，与「它包含 h1+h2+h3」一致。
+
+**这一格推翻了我前两轮的结论**：先说「h2 是『不再 silent』的必要条件」（h23 与 h34 都不含 h2
+却都能起），后说「致命集是 h3×h4 两两交互」（h34 就是 h3+h4，能起）。
+
+**为什么这个错误代价高**：每一次错误结论都会变成给 agent 的指令。我按「h2 是必要条件」让它出
+h12，按「h3×h4」让它出 h34，两次都白跑。而正确答案需要的那张图早就构建完了。
+
+**修法**
+
+1. **二分要么飞满，要么把「已构建未飞」显式列出来**。矩阵不是「我飞过哪些」，而是
+   「全集里哪些还没飞」——只有后者能回答「结论是否已定案」。
+2. **每轮开始先扫产物目录**，按 mtime 列出现存的镜像，对照已飞清单，先补齐缺口再出新的。
+   实测做法：`ls -dt /mnt/e/k60-work/artifacts/*/` + 每张 `build-manifest.json` 的
+   `components.boot_img`，与 `/mnt/e/k60-work/ledger.jsonl` 的镜像哈希求差集。
+3. **子集数 ≥ 8 时，先算清楚要飞多少格再开始**。四 hunk 的 15 个子集里，只要 {h1,h2,h3}
+   这一格就能定案——但前提是知道自己在找「最小致命集」，而不是「逐个排除」。
+
+**Check**: `python3 scripts/check-bisect-coverage.py`（registry `id = "P-218"`）
+
+**关联**：P-201（trial 镜像无 series 指纹，只能算结构性观察）、P-204（用计数代替语义）、
+P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与对象不对应」这一族。
+

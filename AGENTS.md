@@ -229,6 +229,26 @@ prose is a red build, not a wish.
   `Co-authored-by: Name <email>` to the commit message. Otherwise GitHub's
   contributor graph credits the wrong person. See `CREDITS.md` and P-130.
 
+## Agent coordination (reply md channel)
+
+Reports and replies between the lead and each line agent travel through one
+scratch file per line (the user asked for this channel on 2026-11-15):
+
+- File: `E:\k60-work\scratch\reply-<line>-<YYYYMMDD>.md` (e.g.
+  `reply-adsp-20261115.md`). Lines: adsp, audio, bt, cellular, display,
+  refmine, springboard, thermal, usb, wifi.
+- **Bidirectional and overwrite-based.** An agent reports by overwriting its
+  file with the latest report; the lead replies by overwriting the same file
+  with the reply. The file always holds the newest message of one side.
+- **Read before overwrite.** If the other side has already written a new
+  report, act on or answer it first, then overwrite the whole file with this
+  round's reply.
+- **Do not paste full reports into chat.** Chat only announces that replies
+  are written; the file is the payload. This keeps the transcript small.
+- The files live in `scratch`, not the repo: they are coordination artifacts,
+  not deliverables. Substantive findings must still land in
+  `docs/research/` (or the equivalent repo doc) before a line is done.
+
 ## Device rules
 
 - Probe the device before acting: `bash scripts/k60-device.sh state` reports

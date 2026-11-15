@@ -949,18 +949,22 @@ console.log 0 B（sha256 `e3b0c442…b855` 即空文件）。
 （§7.3 假设 b）排除**。至此 §7.3 的 a、b 两条都被实飞否证，只剩假设 c（固件下载的 DMA 缓冲
 没进 IOMMU，落到 UFS 正在用的页上）——d3（`pong_bt_noboot=1`）正是它的判据。
 
-### 7.8 九格矩阵收敛：致命集恰好是 {h1, h2, h3}，h4 无关（2026-11-16 04:38）
+### 7.8 十一格矩阵收敛：致命集恰好是 {h1, h2, h3}，h4 无关（2026-11-16 04:38，04:56 补齐 h2 单格）
 
 Lead 把 23:18 就构建好、但一直没飞的 `bt-bisect-h123` 补飞了：证据
 `E:\k60-work\evidence\usblog-20261116-043650`，`port-not-observed`、`bytes=0`、
 `returnedToFastboot=True`、supervisor rc=2 —— **silent**。
 
-九格矩阵（全部 Lead 实飞；`getBytes` 是 `-[NSTaggedPointerString getBytes:range:]` 的命中数）：
+十一格矩阵（全部 Lead 实飞；`getBytes` 是 `-[NSTaggedPointerString getBytes:range:]` 的命中数）。
+构建过的十一张现在**每一张都飞过了** —— 此前 h2 单独那张从 23:18 一直躺到 04:48 才补飞，
+正是 P-218 要堵的缺口：
 
 | 配方 | h1 | h2 | h3 | h4 | SpringBoard | getBytes | 结果 |
 |------|----|----|----|----|-------------|----------|------|
-| h1   | ✓ |   |   |   | 13  | 36 | 起 |
-| h13  | ✓ |   | ✓ |   | 13  | 36 | 起 |
+| h1   | ✓ |   |   |   | 13  | 36 | 起（power 1 result=0）|
+| h2   |   | ✓ |   |   | 13  | 35 | 起，停 transport ready |
+| h3   |   |   | ✓ |   | 12  | 36 | 起 |
+| h13  | ✓ |   | ✓ |   | 13  | 36 | 起（result=-102）|
 | h4   |   |   |   | ✓ | 13  | 36 | 起 |
 | h12  | ✓ | ✓ |   |   | 132 | 0  | 起 |
 | h23  |   | ✓ | ✓ |   | 128 | 0  | 起 |
@@ -975,7 +979,18 @@ Lead 把 23:18 就构建好、但一直没飞的 `bt-bisect-h123` 补飞了：�
 两条推断都作废。
 
 方法教训（Lead 亲述）：四个 hunk 有 15 个非空子集，本轮只飞了 9 个，缺的那一格正好是决定性的。
-二分要么飞满全部子集，要么在矩阵里把「已构建未飞」显式标出来（PITFALLS 草稿另记）。
+二分要么飞满全部子集，要么在矩阵里把「已构建未飞」显式标出来。
+
+这条教训已经落成门禁 **P-218**（`docs/engineering/PITFALLS.md:5526`，
+`scripts/check-bisect-coverage.py`，main `216902a` / snap-r211）：拿每张 `build-manifest.json` 的
+`boot_img` 与 `evidence/*/boot.json` 的 `imageSha256` 做差集，`--prefix bt-bisect-` 一跑就列出
+「构建完但没飞」的镜像。写它时又踩了三次同形坑（拿账本当飞行记录、按哈希 join 但账本存截断路径、
+用 plain utf-8 读 PowerShell 写的带 BOM `boot.json`），三条都记在 P-218 里。
+
+h2 单格是十一格里最后补上的那一张：证据 `E:\k60-work\evidence\usblog-20261116-044817`，
+console 3,379 行 / 235,151 B、SpringBoard 13、`getBytes:range` 35、panic 0；`:192` blob 链入、
+`:193` probe armed、`:702-:704` awake / core created / transport ready —— 停在 transport ready，
+没有 `addon gate passed`，也没有 `power=` 行（h2 单独不含 h1 的门闩，根本走不到上电那一步）。
 
 d 系列进展：d1（`pong_bt_smmu=0`）与 d2（`pong_bt_rcg=0`）都 silent ⇒ §7.3 假设 a、b 排除；
 只剩 d3（`pong_bt_noboot=1`）验假设 c。d3 起 ⇒ 致命点在「启动 core / 下固件」段；

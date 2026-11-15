@@ -670,7 +670,18 @@ This line, next in order:
       （h23、h13、h12 全起），三者都是必要条件。此前「h2 是必要条件」「致命集是 h3×h4」两条推断作废。
     - 方法教训（Lead 亲述，已写进 S4-SPEC §7.8）：四个 hunk 有 15 个非空子集，本轮只飞 9 个，
       缺的那一格正好是决定性的；二分要么飞满全部子集，要么在矩阵里把「已构建未飞」显式标出来。
-      PITFALLS 草稿见 `scratch/bt-s4/PITFALLS-draft-already-built.md`（正式编号由 Lead 发）。
+22. **十一格矩阵补齐：h2 单格补飞，P-218 门禁落地（2026-11-16 04:56）**
+    - Lead 补飞了 h2 单独那张（`bt-bisect-h2`，boot.img `e28626377fedde4b42f538187eaed31a09f3285fa8500d7aba812e6589eab81b`）：
+      证据 `E:\k60-work\evidence\usblog-20261116-044817`，console 3,379 行 / 235,151 B、
+      SpringBoard 13、`getBytes:range` 35、panic 0；`:192` blob 链入、`:193` probe armed、
+      `:702-:704` awake / core created / transport ready，停在 transport ready，无 `power=` 行。
+    - 判读：h2 单独能起但不含 h1 的门闩，走不到上电，与 h4 单格同形。至此**构建过的十一张全部飞过**，
+      十一格矩阵写进 `S4-SPEC.md` §7.8。
+    - 没构建的只剩 h14 / h24 / h134 / h234 四格，Lead 判断都不改变结论（{h1,h2,h3} 的必要性已由
+      三次「各去掉一个」定案），除非 d3 把机理指向 h4。
+    - 门禁 **P-218**（`scripts/check-bisect-coverage.py`，main `216902a` / snap-r211）已随 main 合入本分支：
+      拿 `build-manifest.json` 的 `boot_img` 与 `evidence/*/boot.json` 的 `imageSha256` 做差集，
+      `--prefix bt-bisect-` 直接列出「构建完没飞」的镜像。
 
 
 

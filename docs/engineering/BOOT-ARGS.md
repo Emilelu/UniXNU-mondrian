@@ -36,6 +36,13 @@
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
 | `k60_usblog` | 调试 | 0/1/2 | 代码默认 | `0300-k60-usblog-ep0.patch` USB 日志级别 | 刷机时的主要日志通道 |
 | `k60_usbvend` | 调试 / USB | 0/1/2 | 0（= 0409 原样） | `0410-k60-usb-vendor-loopback.patch`：0 = 67 字节两接口 CDC-ACM、无回环；1 = 98 字节复合描述符（IAD + IF2 vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN）+ EP6→EP7 回环；2 = 控制台描述符不变、回环跑 CDC 数据对 EP2→EP3（普通 COM 口可验） | mode 1 的 IF2 主机侧没有驱动，要用 libusb 直接开；mode 2 必须同时开 `k60_usblog`（控制台让位给回环） |
+| `pong_modem` | uint32 | 0 | `patches/xnu/0621-k60-modem-pas.patch:325` | `bsd/dev/pong_modem_pas.c` | 0 = quiet; 1 = modem image stage; 2 = image + QRTR verdict `K60MODEM qrtr: verdict ok` (cellular L3). |
+| `k60_wallpaper_reset` | uint32 | 0 | `userland/ui_compat.c:677` | `select_initial_wallpaper()` | 1 = SpringBoard restores the stock 7410 wallpaper through the native setter on the next boot (springboard F1). |
+| `k60_backlight` | uint32 | 1 | `drivers/PongAdreno/K60Backlight.cpp:399` | `k60_backlight_start()` | 0 = never start the backlight service (panel keeps the DBV bring-up left, 0xff). |
+| `k60_backlight_control` | uint32 | **1** | `drivers/PongAdreno/K60Backlight.cpp:292` | `K60Backlight::publishFirst()` | 1 = impersonate AppleARMBacklight and publish `backlight-control`; 0 = publish the level only, never claim the control property (int-236 escape hatch). |
+| `k60_backlight_invert` | uint32 | 0 | `drivers/PongAdreno/K60Backlight.cpp:346` | `K60Backlight::start()` | 1 = invert the level-to-DBV mapping when the panel is wired the other way round. |
+| `pong_thermal_bias` | int32 (mC) | 0 | `drivers/PongThermal/pong_thermal.c:277` | `pong_thermal_start()` | Synthetic offset added to every sensor reading so a cold device can be pushed up the zone ladder: 50000 = level 1, 75000 = level 2, 85000 = level 3. |
+| `gprobe` | uint32 | 0 | `drivers/PongAdreno/PongDsiPanel.cpp:330` | `pong_panel_bring_up()` / `pong_panel_sample()` | 1 = arm the bounded 120 s panel-cadence observation window (GCC_DISP_AHB gate, DISPCC, MDSS) and let `K60 CADENCE:` lines print; 0 = the sample hook stays silent unless the one-shot post-bring-up check is still pending. |
 | `k60_fontscale` | 显示 | 整数 | 代码默认 | `0214-k60-console-font-scale.patch` 控制台字号倍率 | — |
 | `k60_textonly` | 显示 | 真值 | 代码默认 | 只跑文本控制台，不初始化图形帧 | 用于隔离显示问题 |
 | `fb_threads` | 显示 | 整数 | 代码默认 | `zzzz…-pong-hackios-ui-foundation.patch` framebuffer 线程数 | — |
@@ -346,3 +353,22 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 先按 opt-in 上机验证（判据：`native_gpu_addon_prepare` 打印挂载成功 + 不再出现
 `software-only platform` + 出现 `[direct scanout]`），确认无副作用后再评估是否改成默认。
 缺目录或挂载被拒只打印失败，不会 panic。
+
+### `gprobe`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0 |
+| 取值 | 0 / 1 |
+| 来源 | `drivers/PongAdreno/PongDsiPanel.cpp:330`（`PE_parse_boot_argn("gprobe", &probe, sizeof(probe)) && probe == 1`），由 `pong_panel_bring_up()` 末尾设置；消费点是 `pong_panel_sample()`（`PongAdrenoScanout.cpp:171` 每帧调用） |
+| 作用 | 1 = 开启有界（120 秒）面板节拍观测：读 `GCC_DISP_AHB` 时钟门、`DISPCC` 与 `MDSS` 的计数器，按 5 秒间隔打印 `K60 CADENCE:` 行；0 = 只有 bring-up 之后那一次自动校验仍会跑，其余采样静默 |
+
+**为什么要它**：显示线要回答「面板真的按 120 Hz 在刷新吗、有没有帧被丢掉」，
+只能读 `DISPCC`/`MDSS` 的节拍计数器；这些寄存器在 `IO_MAP_SIZE` 8 MiB 的窗口之外
+（P-63），必须用 `ml_io_map` 单独映射，所以只能按需开启，不能常驻。
+
+**陷阱**：窗口是**有界**的（`elapsed >= 120 * NSEC_PER_SEC` 后自动关闭），不要指望整场
+启动都有 `K60 CADENCE:` 行；`GCC_DISP_AHB off` 一行表示时钟门还没开，此时不会去读
+`DISPCC`/`MDSS`（避免对未上电模块做 MMIO，P-161/HR-01 同一个形状）。缺映射时打印
+`no GCC mapping` / `no DISPCC mapping` 后直接返回，不会 panic。

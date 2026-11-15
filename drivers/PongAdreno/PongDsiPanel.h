@@ -22,4 +22,9 @@ extern "C" uint32_t pong_panel_brightness(void);
 /* 0 = bring-up succeeded; negative = last failure code; -100 = not attempted. */
 extern "C" int pong_panel_status(void);
 
+/* After completed copies: bounded120s clock/power-guarded INTF1 inherited
+ * count60->1 correction, one attempt independent of gprobe. gprobe=1 also
+ * logs interface counters; post-write readback/transfer deltas are logged. */
+extern "C" void pong_panel_sample(void);
+
 #endif /* PONG_DSI_PANEL_H */

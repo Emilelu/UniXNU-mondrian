@@ -42,14 +42,31 @@ EXPECTED = (
 
 
 def find_kernel(out: Path) -> Path | None:
+    """Return the newest kernel.macho under the output tree.
+
+    Sorting by path used to decide this, so a kernel left behind by an earlier
+    build was graded as if it were the current one (P-202).  The newest file is
+    still only a guess -- build-strict.sh passes --kernel for that reason -- but
+    guessing the stale one is strictly worse than guessing the fresh one.
+    """
     base = out / "mondrian"
     if not base.is_dir():
         return None
-    for board in sorted(base.glob("*/")):
-        for candidate in sorted(board.glob("*/kernel/kernel.macho")):
-            if candidate.is_file():
-                return candidate
-    return None
+    candidates = [
+        candidate
+        for board in sorted(base.glob("*/"))
+        for candidate in board.glob("*/kernel/kernel.macho")
+        if candidate.is_file()
+    ]
+    if not candidates:
+        return None
+    if len(candidates) > 1:
+        print(
+            f"note: {len(candidates)} kernels under {out}; grading the newest "
+            f"({candidates[0].parent.parent.parent.parent.name}), pass --kernel to be explicit",
+            file=sys.stderr,
+        )
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def nm_tool() -> str | None:

@@ -7,7 +7,7 @@
 # any existing file. Two boots were judged on artifacts that never changed.
 #
 # Usage:
-#   scripts/build-strict.sh <tag> --fd <file.fd> [--kernel-arg NAME=VALUE ...]
+#   scripts/build-strict.sh <tag> --fd <file.fd> [--gpu-addon <file>] [--kernel-arg NAME=VALUE ...]
 #
 # Guarantees:
 #   * passes the real exit code of every stage (no pipe into grep)
@@ -22,10 +22,12 @@ die() { echo "build-strict: FATAL: $*" >&2; exit 1; }
 TAG=${1:?usage: build-strict.sh <tag> --fd <file.fd> [--kernel-arg K=V ...]}
 shift
 FD=""
+ADDON=""
 KARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --fd) FD=${2:?--fd needs a file}; shift 2 ;;
+        --gpu-addon) ADDON=${2:?--gpu-addon needs a file}; shift 2 ;;
         --kernel-arg) KARGS+=("${2:?--kernel-arg needs NAME=VALUE}"); shift 2 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -33,6 +35,7 @@ done
 [ -z "${UNIXNU_SKIP_GATES:-}" ] || die "UNIXNU_SKIP_GATES is set; strict builds run every gate"
 [ -n "$FD" ] || die "--fd is required; a build must name the firmware volume it packs"
 [ -f "$FD" ] || die "--fd $FD does not exist"
+[ -z "$ADDON" ] || [ -f "$ADDON" ] || die "--gpu-addon $ADDON does not exist"
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 DEV=${K60_DEVICE_INPUT:-/opt/k60/trees/usb-cdc-mainline/device}
@@ -68,6 +71,7 @@ python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomple
 M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
 KERNEL=$M/kernel/kernel.macho
 
+
 # --- frozen inputs -----------------------------------------------------------
 # Every file that can change the kernel is hashed before the build; a later
 # boot is only comparable if the same list hashes the same.
@@ -94,6 +98,13 @@ if ! python3 "$REPO/scripts/eight-step-gate.py" --build > "$LOGS/eight-step.log"
 fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
+
+
+# A missing .config would silently drop every defconfig-driven feature (P-202):
+# GPU_ADDON and BATTERY_ON below are both read with sed, and sed on a missing
+# file writes to stderr and yields nothing, so the build would quietly produce a
+# kernel without the Metal plugin or the battery class and still report success.
+[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT"
 
 # --- gpu addon (0610) -------------------------------------------------------
 # The Metal plugin travels inside the kernel as an .incbin blob, so the build
@@ -153,6 +164,9 @@ for kv in "${KARGS[@]:-}"; do
 done
 PAYLOAD_ARGS=()
 [ ${#PAYLOAD_ARGS_CMD[@]} -eq 0 ] || PAYLOAD_ARGS=("${PAYLOAD_ARGS_CMD[@]}")
+if [ -n "$ADDON" ]; then
+    PAYLOAD_ARGS+=(--gpu-addon "$ADDON")
+fi
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
         ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
@@ -180,6 +194,7 @@ PAYLOAD_ARGS=$(mtype -i "$PAYLOAD" ::/EFI/UniXNU/unixnu.toml 2>/dev/null \
     | sed -n 's/^args[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' | head -1)
 [ -n "$PAYLOAD_ARGS" ] || die "cannot read the boot arguments out of the payload TOML"
 echo "build-strict: payload args $PAYLOAD_ARGS"
+[ -z "$ADDON" ] || echo "build-strict: gpu addon $(sha256sum "$ADDON" | cut -d' ' -f1) $(stat -c %s "$ADDON") bytes"
 
 # --- boot image --------------------------------------------------------------
 FD_ARCH=$ART/fd/$TAG-$(sha256sum "$FD" | cut -c1-12).fd
@@ -237,6 +252,8 @@ m = {
         "fd_path": "$FD_ARCH",
         "boot_img": "$BOOT_SHA",
         "boot_img_path": "$RUN/boot.img",
+        "gpu_addon": "$(sha_or_empty "$ADDON")",
+        "gpu_addon_path": "${ADDON:-}",
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",

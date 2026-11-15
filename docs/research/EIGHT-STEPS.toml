@@ -339,6 +339,54 @@ done = false
 evidence = "STATUS.md:24 标 🔄：驱动已编译/链接/调用，但 configuration() 结果不可观测。"
 prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppid 与 volume-up-ppid）；按下电源或音量键时应看到按键事件上报。若出现 Pong keys: DT node 或 missing <prop>，说明 DT 侧属性缺失，需核对 /arm-io/pong-buttons 节点。"
 
+[hardware.bluetooth]
+status = "parked"
+paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/check-image-args.py"]
+parked_why = "镜像已构建（S1c 五档阶梯 + S4 正/负样本；正向样本已按 P-197 换成内核内嵌 blob；上机用受控对照对 bt-s4b-20261115b / bt-s4c-20261115a），等上机窗口；⑦ 只到离线路由，⑧ 从未上机"
+why = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
+
+[hardware.bluetooth.step.same_model]
+done = true
+evidence = "同型调查已完成，结论是『没有同型号成品实现』：UniXNU-pong（SM8475，iOS 18 线）没有蓝牙驱动（docs/research/bt/RESEARCH.md:158）；一加 Ace 2 的 phk110-port 只有 drivers/bluetooth/hakios.bt.c 143 行只读诊断（docs/research/bt/RESEARCH.md:159）。sheng 是 SM8550，不能当同型；同 SoC 无实现，这正是本项只能自建的原因。"
+
+[hardware.bluetooth.step.official]
+done = true
+evidence = "官方组件 UniXNU/components.toml:494-508 的 QcaBluetooth（repository UniXNU/QcaBluetooth.git revision 22ff97f9、path drivers/QcaBluetooth、os_abi ipados-27.0.1-24A446、verified_devices 只有 sheng、runtime_identifiers qbt_transport / com.apple.uart.sk.bluetooth / kern.qbt_*），移植契约见 https://unixnu.com/porting/bluetooth 与 https://unixnu.com/reference/components；协议层对照 Linux btqca.c/hci_qca.c，见 docs/research/bt/RESEARCH.md:82-107。"
+
+[hardware.bluetooth.step.decompile]
+done = true
+evidence = "三条实机取证：一，live FDT 给出全部硬件事实——bt_qca6490 节点（docs/research/bt/RESEARCH.md:40，compatible=qcom,qca6490、BT_EN GPIO81、XO GPIO204、CTS/RTS 76/77/78/79）、qcom,qup_uart@894000（RESEARCH.md:41，reg 0x894000/0x4000）、wrapper qcom,qupv3_2_geni_se@8c0000 的 iommus SID 0x483（RESEARCH.md:42）。二，厂商栈对照 btpower.c:212-219 / hci_qca.c:42-48 / btqca.h:125-133 / gcc-waipio SE20 RCG cmd_rcgr 0x2e618（RESEARCH.md:54-63）。三，20G81 kernelcache 里没有任何内核态 HCI 栈，协议栈在用户态 bluetoothd（RESEARCH.md:127-152）；固件实测 113 个文件 1,063,407 B 在 /vendor/bt_firmware/image/，rampatch hpbtfw20.tlv 201,560 B（docs/research/bt/FIRMWARE.md:7-36）。"
+
+[hardware.bluetooth.step.wide]
+done = true
+catalog_checked = true
+catalog_result = "逐个核对 UniXNU/components.toml 里与蓝牙相关的组件：QcaBluetooth（drivers/QcaBluetooth，revision 22ff97f9）【可用但要适配】——它是 sheng（SM8550）验证的官方驱动，运行时标识符是我们要用的 qbt_transport / com.apple.uart.sk.bluetooth / kern.qbt_*，但板级寄存器（SE20 0x894000、SMMU SID 0x483、RCG 0x2e618）必须按 SM8475 重填；AdrenoMetal / Adreno740 无关；其余 25 个组件无蓝牙。UniXNU-pong 无蓝牙；phk110-port 只有 143 行只读诊断；mainline btqca/hci_qca 可当协议参考但不是组件。"
+evidence = "广域交叉验证完成：同 SoC 的 pong（SM8475）没有蓝牙实现（docs/research/bt/RESEARCH.md:158），phk110-port 只有只读诊断（RESEARCH.md:159）；内核侧确实没有 Apple HCI 栈（RESEARCH.md:127-152），而 UniXNU-pong 的 board_services18.py:84-89 直接把 bluetoothd 挡掉，说明用户态路线要和 S3 的身份发布配套才能走通（docs/research/bt/S3-SPEC.md:89-121）。"
+
+[hardware.bluetooth.step.plan]
+done = true
+evidence = "方案是六个阶段、每阶段一条 boot-arg、一次判决（docs/research/bt/RESEARCH.md:165-177）：S1 只读探针 k60bt=1（0507）→ S2 时钟+引脚+引擎（0508 修 F1/F3/F11/F12）→ S3 上电时序与 HCI Reset → S4 固件下载（0510 addon 通道）→ S5 UART.SK 通道 → S6 用户态 bluetoothd。上机判据写死在同一处：只认 capture.json 的 verdict/panicMarker，不看 logstat 的 panic 计数（RESEARCH.md:187-191）。阶梯与命令行预算：探针在每次寄存器访问【之前】打点，所以控制台最后一行就是死因（docs/research/bt/S1-PROBE-SPEC.md:231-262）——五档 A1 k60bt_step=1 → A2 =4 → A3 =5 → A4 =7 → A5 =9，参数一律只有 k60bt=1 k60bt_step=N（596 B；DarwinBoot 上限 607 B，见 docs/engineering/BOOT-ARGS.md；k60bt_stage=1 是冗余的 17 B，因为 qbt_k60_start() 默认 stage=1）。判死表：probe: done → 进 S2；停在 s1 → ml_io_map；停在 s2 → GCC 首访即死；停在 s4 halt → 该分支 CBCR 未上电；停在 s5 read se20 rcg → RCG 窗口未上电；s6 root_on=0 或 s7 latched=0 → 停线查 GDSC/父时钟；s8 → 根时钟已开仍首访即死，回填 GENI-ACCESS-PRECONDITIONS.md。S4 阶梯（docs/research/bt/S4-SPEC.md:519-538）：通道已按 P-197 换成内核内嵌 blob（scripts/gen-k60-bt-blob.py 把 NGPUADD2 容器写成 k60_bt_blob.s 的 .incbin，0510 读 k60_bt_blob/k60_bt_blob_len）。负向 bt-s4c-20261115a 期望 [bluetooth] addon: no GpuAddon property，正向 bt-s4b-20261115b 期望 [bluetooth] addon: linked blob bytes=1027584 records=106 → addon: serving 201560 0 → QCA controller version 0x…，两者命令行都是 583 B。"
+
+[hardware.bluetooth.step.deep]
+done = true
+evidence = "深挖到源码级，产出 11 项已验证（V1-V11）与 13 项偏差（F1-F13）并与 Linux GENI/clk 源逐行对照（docs/research/bt/06-DEEP-DIVE.md:21 的 Verdict 与 :83-342 的偏差表）。三项必须在 S2 前定性且已修：F1 GENI DMA 把虚拟地址当物理地址、SMMU 流 0x483 从未 bypass（0508 改为 kmem_alloc_contig + pmap_find_phys + ptoa_64 后 k60_smmu_bypass）；F3 k60_stop_engine() 轮询的 0xe40 在两个 GENI 头文件里都不存在，会恒定 -ETIMEDOUT（改为 TX/RX_RESET_DONE 0xc40/0xd40 BIT(3)）；F11 SE20 RCG 根时钟从不置 CMD_ROOT_EN（0508 增加 set_rate 的 ROOT_EN → 轮询 ROOT_OFF → CFG → UPDATE 序列，并按 clk_rcg2.c:64-75 的 (cmd & CMD_ROOT_OFF)==0 判据）。深挖还给出 F2：0x2ac 被写成组件从不使用的 0x80000001。"
+
+[hardware.bluetooth.step.verify]
+done = false
+local_verified = true
+evidence = "离线部分已完成（未上机）：五档 S1c 阶梯镜像 bt-s1c-a1/a4/a5/a7/a9-20261114c 全部 image-arg-audit: OK (31 arguments, 596 bytes)；S4 受控对照对（同一 HEAD 68a38f3、同一份 453 条冻结清单，只差 --bt-blob）负向 bt-s4c-20261115a（583 B）与正向 bt-s4b-20261115b（583 B，内嵌 blob 通道）都 verify-boot-image: OK，两份 frozen-before.txt 逐字节相同（931d391d…08e）。正向镜像四项独立核对：llvm-nm 给出 _k60_bt_blob@fffffff0071b8818 与 _k60_bt_blob_len@fffffff0072b3618（差 1,027,584 = 容器字节数）；按字节在 kernel.macho 里定位容器的偏移 1,787,928 并取出 1,027,584 字节，sha256 = febdc20d…2037 = 打包器输出；strings 命中 addon: blob bad magic 与 linked blob；scripts/tests/test-k60-bt-blob.py --assembly … --container … 报 container table is self-consistent。仍缺上机：SE20 是否可达、QCA 固件是否真的下载，只有 ⑧ 能判。"
+static_check = "补丁级静态对照：0507/0508/0509/0510 四个补丁 git apply 全部干净，series 227/228 行内无重复（scripts/check-patch-apply.py --all 全绿）；寄存器地址逐个对照 Linux clk-rcg2.c 与 geni-se.h，出处写在 docs/research/bt/S1-PROBE-SPEC.md:97-116 与 S2-SPEC.md。"
+unit_test = "scripts/tests/test-check-image-args.py 覆盖命令行预算（含 k60bt_stage=0..39 的溢出用例）；本轮另外实测 check-image-args.py 对本线五份阶梯镜像与两份 S4 镜像全部 OK。"
+artifact_check = "产物字符串与哈希：kernel.macho 命中 NGPUADD2 / linked blob / addon: blob bad magic / no GpuAddon property，且 _k60_bt_blob 到 _k60_bt_blob_len 的地址差 1,027,584 等于容器字节数；容器内容与 firmware/bluetooth/manifest.json 的 106 条记录逐条一致（1,022,742 B 固件 → 1,027,584 B 容器），内嵌副本与 out/pong-bt-firmware.bin 逐字节相同（sha256 febdc20d…2037）。"
+
+[hardware.bluetooth.step.device]
+done = false
+evidence = "从未上机（S1a 那次是无效证据：命令行 610 B 超过 DarwinBoot 的 607 B 上限，内核根本没进门，见 docs/research/bt/S1-PROBE-SPEC.md:12-45）。"
+
+[hardware.bluetooth.step.device.prediction]
+success = "S1c 阶梯出现 [bluetooth probe] probe: done 且机器继续跑到用户态；S4a/S4b/S4c 出现 [bluetooth] addon: linked blob bytes=1027584 records=106 → [bluetooth] addon: serving 201560 0 → QCA controller version 0x…，capture.json verdict 正常收尾且无 panicMarker"
+failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行就是死因，按 S1-PROBE-SPEC.md:231-262 的判死表）；正向镜像出现 [bluetooth] addon: no GpuAddon property 说明内核里没链接进 blob（构建漏了 --bt-blob）；出现 [bluetooth] addon: unusable range 0 0 说明镜像走的是旧 payload addon 通道（P-197 的实测症状，不是失败）；出现 [bluetooth] power=0 或 ENXIO 说明引擎协议或固件名不对"
+
 [hardware.wifi]
 status = "parked"
 paths = ["patches/wifi/"]

@@ -5,6 +5,11 @@
 /reference/
 /refer/
 /firmware/
+# The Bluetooth firmware set is vendor data pulled from the device; only its
+# manifest is tracked, so a clean checkout can still stage and verify the bytes.
+!firmware/bluetooth/
+firmware/bluetooth/*
+!firmware/bluetooth/manifest.json
 /artifacts/
 /evidence/
 *.ipsw

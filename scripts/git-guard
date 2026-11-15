@@ -8,7 +8,12 @@
 # not optional: every `git` in this WSL goes through it.
 #
 # Behaviour for the commands that discard uncommitted work
-# (checkout -- <path>, checkout -f, restore, reset --hard, clean -f*, stash):
+# (checkout -- <path>, checkout -f, restore, reset --hard, clean -f*, stash)
+# and for the commands that rewrite shared repository metadata
+# (`git worktree prune`, `git gc`, `git repack` - P-203: run inside a linked
+# worktree, `worktree prune` deleted the admin directories of all 19 trees and
+# every one of them started reporting "gitfile does not point to a valid
+# repository"; the deletion is irreversible and has no backup):
 #
 #   1. Take a complete restorable snapshot of the repository first.
 #   2. If the repository is registered in docs/engineering/TREE-OWNERS.toml and
@@ -77,9 +82,44 @@ case "$verb" in
             esac
         done
         ;;
+    worktree)
+        # `git worktree prune` deletes admin dirs it cannot resolve; from a linked
+        # worktree that means every sibling tree (P-203).
+        for arg in "$@"; do
+            case "$arg" in
+                prune) dangerous=1; shared=1 ;;
+            esac
+        done
+        ;;
+    gc|repack)
+        dangerous=1; shared=1
+        ;;
 esac
 
 [ "$dangerous" = 1 ] || exec "$REAL_GIT" "$@"
+
+# Shared-metadata verbs are not scoped to one tree: `worktree prune` from any
+# linked worktree can delete every sibling's admin directory (P-203, lost all 20
+# trees twice). Per-tree ownership is the wrong test, so these need their own
+# explicit, all-trees consent.
+if [ "${shared:-0}" = 1 ] && [ "${K60_I_OWN_ALL_TREES:-}" != 1 ]; then
+    cat >&2 <<'EOF'
+git-guard: refused a command that rewrites SHARED repository metadata.
+
+  `git worktree prune`, `git gc` and `git repack` are not limited to the tree you
+  are standing in. On 2026-11-15 `git worktree prune` deleted the admin
+  directories of all 19 linked worktrees and every one of them started reporting
+  "gitfile does not point to a valid repository" (P-203).
+
+  If you really mean it, from the MAIN checkout only:
+
+      K60_I_OWN_ALL_TREES=1 git worktree prune
+
+  A "clean environment" baseline is `git archive` or `git clone --shared` into a
+  scratch directory - never a prune of the shared repository.
+EOF
+    exit 128
+fi
 
 ROOT=$("$REAL_GIT" "${GLOBALS[@]}" rev-parse --show-toplevel 2>/dev/null || true)
 [ -n "$ROOT" ] || exec "$REAL_GIT" "$@"

@@ -118,6 +118,31 @@ def a_configured_but_unbuilt_tree_is_skipped():
         rc = gate.main(["--out", tmp])
         assert rc == 0, f"expected 0 for a configured but unbuilt tree, got {rc}"
 
+@case
+def the_newest_kernel_wins_not_the_first_in_path_order():
+    """P-202: a stale kernel.macho must never be graded as this build's."""
+    import os
+    import time
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        # Two boards, each with a kernel.  The lexicographically first path is
+        # the OLD one, which is exactly the shape that fooled the old code.
+        old = out / "mondrian" / "aaa-sdk" / "aaa-board" / "kernel"
+        new = out / "mondrian" / "zzz-sdk" / "zzz-board" / "kernel"
+        old.mkdir(parents=True)
+        new.mkdir(parents=True)
+        (old / "kernel.macho").write_bytes(b"old")
+        time.sleep(0.02)
+        (new / "kernel.macho").write_bytes(b"new")
+        os.utime(new / "kernel.macho", None)
+
+        picked = gate.find_kernel(out)
+        assert picked is not None, "expected a kernel"
+        assert picked.read_bytes() == b"new", (
+            f"graded the stale kernel at {picked}; find_kernel must pick the newest"
+        )
 
 def main() -> int:
     failures = 0

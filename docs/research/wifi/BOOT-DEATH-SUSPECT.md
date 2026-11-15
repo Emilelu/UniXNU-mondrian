@@ -164,6 +164,7 @@ may cite them as proof that the driver runs.
 | **T2** | rebuild with the firmware in `__DATA` (or read from the Data volume at runtime) — **only if T0 is silent** | isolates blob placement | placement was the killer | S1 falsified; investigate loader/pool with the `NO WINDOW` diag line |
 | **T3** | `wifi-20261116c0` — **flown 2026-11-15 21:32: silent (0 B console, `usblog-20261115-213221`)**; 66 MB, blob in `__TEXT`, `pong_wifi=0`, no GPU/battery | the formal C cell: driver trigger vs death without the driver | `pong_wifi=1` is the trigger → driver guilty → T1 | **invalid config, not a layout datum** (`6DCCF70A…` seed UUID, P-152) → §3e |
 | **T4** | `wifi-20261116c2` (built 2026-11-15 23:35, not flown) — baseline config + `PONG_WIFI=y`, container in `__DATA_CONST` (§3f) | whether `__TEXT` placement/size is the killer once the config is one that boots | `__TEXT` growth is the killer — the only trait every silent wifi image shares | placement irrelevant → c3: the same image with a 64 KiB container stub |
+| **T5** | `wifi-20261116c3` (built 2026-11-16 01:34, not flown) — the c2 recipe plus `patches/wifi/0012` (§3h) | the UFS lease: the lock was only allocated from `pong_wifi_start_optional()`, which runs after UFS asks for the lease, so the lease could never be held on a wifi kernel | the lease was the blocker; every earlier wifi flight died in `hostBringUp()` before the console worker | the lease return value is not the blocker → c4 drops the `transportFailure` and lets UFS continue without it |
 
 The scope narrowing is deliberate: `__TEXT,__const` is `0xb38ed6` in z0, mhi5
 **and** the 65.9 MB mhi4 kernel, so "blob lives in `__TEXT`" is not by itself
@@ -595,6 +596,102 @@ code and const data are in the kernel" from "something in the boot path is
 sensitive to this kernel's content". If c2 boots, the killer was the `__TEXT`
 placement; if c2 is silent, the next split is c3 (64 KiB truncated container).
 
+## 3h. The UFS lease hypothesis (2026-11-16)
+
+The earlier reading of the boot logs — "the first log line is a GDSC vote that
+happens before UFS comes up, so UFS cannot be the cause" — was wrong, and the
+reason is worth recording: the console is a ramoops ring buffer, not a stream.
+`patches/xnu/0300-k60-usblog-ep0.patch` only calls `k60_usblog_init()` from
+`osfmk/arm/arm_init.c` (a read-only probe); the CDC worker that drains the ring
+to the host starts in `bsd/kern/bsd_init.c`:
+
+```
+if (result == KERN_SUCCESS) {
+    ...
+    k60_usblog_start();
+}
+```
+
+So a line's position in the ring records the order it was *written*, not that it
+ever reached the host, and `bsd_autoconf()` runs `kminit()` → pseudo inits →
+`IOKitBSDInit()` → `native_pong_ui_services_start()` → `k60_usblog_start()`.
+Anything that makes `IOKitBSDInit()` return non-`KERN_SUCCESS` skips the worker
+entirely, which is exactly the observed shape: 0 bytes on the host while the ring
+holds plenty.
+
+### The lease
+
+`patches/wifi/0004` inserts this into `hostBringUp()` in
+`drivers/NativeUfs/PongUfsTransport.cpp`:
+
+```c
+lease.held = pong_smmu_lease_lock();
+if (!lease.held) return transportFailure("Apps SMMU lease unavailable");
+```
+
+`pong_smmu_lease_lock()` returned `false` whenever `smmuLeaseLock` was still
+`NULL`, and that lock was only allocated in `pong_rpmh_init()`, whose only caller
+is `pong_wifi_start_optional()` (reached from `ArmDTPlatform::configure()` via
+`patches/wifi/0005`). UFS starts earlier — baseline logs put UFS at :115 and
+ArmDTPlatform at :147 — so on every wifi kernel the UFS lease was taken before
+anybody had allocated the lock. The result was not contention, it was an
+uninitialised variable: the lease could not be held on any boot, and UFS stopped
+with `Apps SMMU lease unavailable` before the console worker existed.
+
+That accounts for the whole table: every wifi image carries 0001 and 0004 and is
+silent; the baseline and ADSP series do not carry 0004 and boot.
+
+### The fix
+
+`patches/wifi/0012` allocates the lock on first use:
+
+```c
+extern "C" bool pong_smmu_lease_lock(void)
+{
+    if (!smmuLeaseLock) smmuLeaseLock = IOLockAlloc();
+    if (!smmuLeaseLock) return false;
+    IOLockLock(smmuLeaseLock);
+    return true;
+}
+```
+
+`pong_rpmh_init()` keeps its allocation (harmless, idempotent), and the unlock
+keeps its guard. `scripts/tests/test-pong-smmu-lease.py` pins the order: the
+allocation must precede the null check, the function must stay unique, and the
+patch must remain the last entry in `patches/wifi/series`.
+
+**Prediction for c3.** `wifi-20261116c3` is the c2 recipe plus 0012, nothing
+else. If the hypothesis holds, c3 reaches userland (K60DATA mounted and
+SpringBoard at least 100 lines). If c3 is silent too, the lease *return value* was
+not the blocker, and the next single change is to make 0004 degrade instead of
+failing — dropping the `return transportFailure(...)` — which separates "the lease
+returns false" from "UFS never reaches the lease at all".
+
+### The c3 build (2026-11-16 01:34, not flown)
+
+`wifi-20261116c3` is the c2 recipe plus 0012 and nothing else, so the pair is a
+single-variable comparison on the same 117 MB shape:
+
+| | c2 | c3 |
+| --- | --- | --- |
+| kernel | 117,305,344 B `24ebc11c` | 117,325,824 B `3c2991f0` |
+| payload kernel | `92c0ca3a` | `ff51b89d` |
+| boot.img | `dc7e4186` | `5a19e110` |
+| wifi archive | `de3f48a5` | `9bb4fc6c` |
+| series | 226 `d83fb189` | 226 `d83fb189` |
+| args | `pong_wifi=0` | `pong_wifi=0` |
+
+The 20,480 B difference is the lazy allocation itself. Segments are unchanged:
+`__TEXT` 1,802,240, `__DATA_CONST` 12,124,160, `__DATA` 53,149,696 /
+51,576,832, `__LINKEDIT` 6,684,672 / 6,668,344; `__DATA_CONST,__const`
+11,919,062 @0x1b9000 still holds the container, and `_pong_wifi_firmware`
+through `_pong_wifi_firmware_end` still spans 11,189,974 B. The manifest also
+records `wifi_archive` and the kernel passes the `_pong_wifi_start_optional`
+guard, which the first c3 attempt did not: that attempt exposed a merge
+casualty — the merge at 02014e2 kept only the manifest fields of the wifi block
+and dropped the definition and the guard, so the driver linked but the build
+recorded nothing. Restored in 3207bd3.
+
 ## 4. T2 contingency: move the firmware blob out of `__TEXT` (built, flown, negated — kept as evidence)
 
 Written on 2026-11-15 at the Lead's request so the fix would be ready the moment
@@ -716,6 +813,9 @@ It stays the fallback if `__DATA` placement turns out to be insufficient.
 - Pool/window analysis: `DARWINBOOT-POOL.md` (the three DarwinBoot memory
   nodes line by line, the window arithmetic against `board.toml:235` and the
   5120 MiB arena, and the one-flight discriminator).
+- c2/c3 pair and the UFS lease: `patches/wifi/0012-drivers-PongWifi-lease-lock-lazy-init.patch`,
+  `scripts/tests/test-pong-smmu-lease.py`, and
+  `/mnt/e/k60-work/artifacts/wifi-20261116c3/build-manifest.json` (§3h).
 - Static segment arithmetic for every flown image: `E:/k60-work/scratch/winmath3.py`
   (`mcopy` the payload kernel and its `.adt`, then apply `DarwinBoot.c:757-772`
   `Used`); the resulting table is §3g.

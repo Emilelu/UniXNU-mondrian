@@ -23,11 +23,13 @@ TAG=${1:?usage: build-strict.sh <tag> --fd <file.fd> [--kernel-arg K=V ...]}
 shift
 FD=""
 ADDON=""
+ADSP_DIR=""
 KARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --fd) FD=${2:?--fd needs a file}; shift 2 ;;
         --gpu-addon) ADDON=${2:?--gpu-addon needs a file}; shift 2 ;;
+        --adsp-blob) ADSP_DIR=${2:?--adsp-blob needs a firmware directory}; shift 2 ;;
         --kernel-arg) KARGS+=("${2:?--kernel-arg needs NAME=VALUE}"); shift 2 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -36,6 +38,7 @@ done
 [ -n "$FD" ] || die "--fd is required; a build must name the firmware volume it packs"
 [ -f "$FD" ] || die "--fd $FD does not exist"
 [ -z "$ADDON" ] || [ -f "$ADDON" ] || die "--gpu-addon $ADDON does not exist"
+[ -z "$ADSP_DIR" ] || [ -d "$ADSP_DIR" ] || die "--adsp-blob $ADSP_DIR is not a directory"
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 DEV=${K60_DEVICE_INPUT:-/opt/k60/trees/usb-cdc-mainline/device}
@@ -136,6 +139,36 @@ if [ -n "$GPU_ADDON" ]; then
   echo "build-strict: metal plugin $(cat "$LOGS/metal-plugin.log")"
 fi
 
+# ADSP firmware carrier: the kernel owns the DSP image through an embedded
+# blob (firmware has no loader, P-197). Generate and validate the container
+# before the kernel build so the force-load step cannot pick up a stale one.
+if [ -n "$ADSP_DIR" ]; then
+  ADSP_STAGE=$RUN/adsp-carrier
+  mkdir -p "$ADSP_STAGE" || die "cannot stage ADSP carrier"
+  if ! python3 "$REPO/scripts/gen-k60-adsp-blob.py" \
+        --firmware-dir "$ADSP_DIR" --output "$ADSP_STAGE/k60_adsp_blob.s" \
+        --dump "$ADSP_STAGE/k60_adsp_blob.bin" \
+        > "$LOGS/adsp-generate.log" 2>&1; then
+    tail -10 "$LOGS/adsp-generate.log" >&2
+    die "ADSP carrier generation failed (see $LOGS/adsp-generate.log)"
+  fi
+  if ! python3 "$REPO/scripts/check-adsp-blob.py" "$ADSP_STAGE/k60_adsp_blob.s" \
+        > "$LOGS/adsp-blob.log" 2>&1; then
+    tail -10 "$LOGS/adsp-blob.log" >&2
+    die "ADSP carrier is inconsistent (see $LOGS/adsp-blob.log)"
+  fi
+  export K60_ADSP_BLOB_S=$ADSP_STAGE/k60_adsp_blob.s
+  ADSP_CONTAINER_SHA=$(sha256sum "$ADSP_STAGE/k60_adsp_blob.bin" | cut -d' ' -f1)
+  ADSP_INPUTS=$ADSP_STAGE/inputs.sha256
+  ( cd "$ADSP_DIR" && find . -maxdepth 1 -type f -name 'adsp.*' \
+      | sort | xargs sha256sum ) > "$ADSP_INPUTS" \
+    || die "cannot hash the ADSP firmware inputs"
+  ADSP_RECORDS=$(wc -l < "$ADSP_INPUTS")
+  [ "$ADSP_RECORDS" -gt 0 ] || die "--adsp-blob $ADSP_DIR has no adsp.* files"
+  ADSP_INPUTS_SHA=$(sha256sum "$ADSP_INPUTS" | cut -d' ' -f1)
+  echo "build-strict: ADSP carrier $ADSP_CONTAINER_SHA ($ADSP_RECORDS records)"
+fi
+
 # The battery class lives in a host-built archive that the kernel script only
 # force-loads when the defconfig asks for it. Build it here so a battery-enabled
 # configuration cannot reach the link step without its archive (P-157).
@@ -233,6 +266,14 @@ if ! cmp -s "$RUN/frozen-before.txt" "$RUN/frozen-after.txt"; then
     diff -u "$RUN/frozen-before.txt" "$RUN/frozen-after.txt" >&2 || true
     die "frozen inputs changed during the build; this run is void"
 fi
+# The ADSP firmware dir is a frozen input too, but it lives outside the repo.
+if [ -n "$ADSP_DIR" ]; then
+    ( cd "$ADSP_DIR" && find . -maxdepth 1 -type f -name 'adsp.*' \
+        | sort | xargs sha256sum ) > "$RUN/adsp-inputs-after.txt" \
+      || die "cannot re-hash the ADSP firmware inputs"
+    cmp -s "$ADSP_INPUTS" "$RUN/adsp-inputs-after.txt" \
+      || die "ADSP firmware inputs changed during the build; this run is void"
+fi
 
 # --- manifest ----------------------------------------------------------------
 sha_or_empty() { [ -f "$1" ] && sha256sum "$1" | cut -d' ' -f1 || echo ""; }
@@ -265,6 +306,11 @@ m = {
         "boot_img_path": "$RUN/boot.img",
         "gpu_addon": "$(sha_or_empty "$ADDON")",
         "gpu_addon_path": "${ADDON:-}",
+        "adsp_blob": "${ADSP_CONTAINER_SHA:-}",
+        "adsp_blob_path": "${ADSP_STAGE:-}/k60_adsp_blob.bin",
+        "adsp_inputs": {"count": ${ADSP_RECORDS:-0},
+                        "sha256": "${ADSP_INPUTS_SHA:-}",
+                        "file": "${ADSP_INPUTS:-}"},
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
@@ -276,7 +322,9 @@ PY
 
 echo "build-strict: boot.img $BOOT_SHA"
 # --- gate-table:BEGIN ---
-python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
+ADSP_GATE_FLAG=""
+[ -n "$ADSP_DIR" ] && ADSP_GATE_FLAG="--adsp-blob"
+python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" $ADSP_GATE_FLAG || die "a force-loaded archive did not reach the kernel (P-190)"
 # The Metal plugin travels inside the kernel as a K60M container. Nothing
 # else inspects that generated table, and on 2026-11-14 its length constant
 # omitted the alignment padding between bodies, so the device rejected the

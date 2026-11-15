@@ -308,6 +308,19 @@ if [ -n "$K60_METAL_PLUGIN_DIR" ] && [ -d "$K60_METAL_PLUGIN_DIR" ] && \
     --plugin-dir "$K60_METAL_PLUGIN_DIR" --assembly --output "$K60_METAL_ASM" \
     >&2 || { echo 'k60_metal_blob generation failed' >&2; exit 1; }
 fi
+# 0620: the ADSP firmware carrier travels inside the kernel the same way
+# (P-197: the firmware volume has no loader). build-strict stages the
+# generated .s (its .incbin paths are absolute), so the kernel build only
+# copies it into the work tree where osfmk/conf/files.arm64 names it. A
+# build without --adsp-blob never sets K60_ADSP_BLOB_S and skips this.
+K60_ADSP_BLOB_S=${K60_ADSP_BLOB_S:-}
+if [ -n "$K60_ADSP_BLOB_S" ] && [ -f "$K60_ADSP_BLOB_S" ] && \
+   [ -f "patches/xnu/0620-k60-adsp-blob.patch" ]; then
+  K60_ADSP_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_adsp_blob.s
+  mkdir -p "$(dirname "$K60_ADSP_ASM")"
+  cp "$K60_ADSP_BLOB_S" "$K60_ADSP_ASM" \
+    || { echo 'k60_adsp_blob stage copy failed' >&2; exit 1; }
+fi
 if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   export PONG_NATIVE_DRIVER_SOURCE
 fi

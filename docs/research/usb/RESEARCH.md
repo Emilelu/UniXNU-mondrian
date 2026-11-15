@@ -523,7 +523,10 @@ if (!ud.configured || !ud.dtr || ud.failed) return;   /* k60_usblog.c:1332 附�
 | 4 | 端点预算自洽 | `(GHWPARAMS3 >> 12) & 0x3f` ≥ 8 且 `(GHWPARAMS3 >> 18) & 0x1f` ≥ 4（EP6 是 OUT、EP7 是 IN，各占一个） |
 | 5 | 采集链路 | `capture.json` = `captured-budget-complete`，`panicMarker` null |
 
-判据 1 若仍不成立（依旧 0 字节），则 `ud.failed` 的假设被否证，下一轮改为在 `ud_console()` 入口打印三个门变量的实时值，而不是继续猜。
+判据 1 若仍不成立（依旧 0 字节）
+> **2026-11-15 补充**：mode 1 上机（`usb-20261115b`）出现了「起了但不说话」——COM5 打开、DTR=1、300 s 0 字节。
+> 这与本节设想的「在 `ud_console()` 入口打印三个门变量」是同一个问题，只是门变量本身没有出口。
+> 三条可能路径、每条的证伪镜像与判据、以及一张镜像同时回答两问的判读矩阵见 **§24.8**。则 `ud.failed` 的假设被否证，下一轮改为在 `ud_console()` 入口打印三个门变量的实时值，而不是继续猜。
 
 ### 13.4 已知的后续缺陷（本轮不修，登记在此）
 
@@ -1483,8 +1486,88 @@ rebase 后的 `logs/kernel.log`（3449 B）只剩 bootstrap/prelink 摘要，**�
 
 判读结论：①②全 0 且 ④出现 echo 行 → 判据 2 成立、P2-b 立项完成；`ep6/ep7` 任一非零 → 按 §20.2 分支 B/C 回滚 0406/0407 的 EP6/EP7 配置段。
 
+结果（Lead 执行，2026-11-15 14:24–14:28，证据 `E:/k60-work/evidence/usblog-20261115-142432`）：
+
+- COM5 在 `ready` 之后 20 s 出现、1 s 后打开，DTR=1；300 s 内 **0 字节**；
+- `capture.json` = `state=opened-no-data`、`bytes=0`、`openErrors=0`、`stopReason=budget`、`returnedToFastboot=false`，无重枚举；
+- 即「起了但不说话」，与 §13 开头记录的 `usb-20261114c`（0406 的 98 字节复合）**同型**。
+
+三条可能路径、每条的证伪镜像与判据见 §24.8。
 ### 24.7 边界（这张图不做什么）
 
 - **不改 `ud_trb_for()`**：mode-1 只配置端点、不发起传输，8 槽 TRB 属于 P2-b 的改动范围（§15.4(a) 已设计，未实现）。
 - **不碰 QMP/SS PHY**：本图仍是 HS/eUSB2 通路（§22 的 QMP 结论未变），SS 上电要等 P3。
 - **不动 dts/**：本线写作用域不含 `dts/`，QMP/UCSI 若要走 DT 需另提合并片段（§22.3、`EIGHT-STEPS-usb.fragment.md`）。
+
+### 24.8 mode-1 控制台静默：三条可能路径与证伪方法（2026-11-15）
+
+§24.6 的结果是「起了但不说话」：端口稳定、DTR=1、4 分钟 0 字节。先把两条光靠读代码就能排除的猜测去掉。
+
+| 猜测 | 结论 | 依据 |
+|---|---|---|
+| 复合布局把控制台端点号改了 | 否 | `ud_cfg_vendor[]` 是 `ud_cfg_template[]` 的 67 字节**原样**，后面才接 IAD（8 字节）+ IF2（17 字节）；控制台仍是 IF0 comm（notify 0x82）、IF1 data（0x81 IN、0x01 OUT），接口号与端点号一个都没动 |
+| DTR 挂在 vendor 接口上 | 否 | `k60_usblog-0410.c:1430-1433` 的 `0x21/0x22` 分支不看 `wIndex`，任何接口来的 line-state 都会置 `ud.dtr` |
+
+`ud_console()`（`k60_usblog-0410.c:1478-1481`）的四道门是 `configured / dtr / failed / k60_usbvend_mode == 2`。
+mode 1 不被第四道门挡（只有 mode 2 挡），所以现象只能落在前三道门、EP3 发送链或 ring 读取上。
+`ud.failed` 若为真，工作循环 `while (!ud.failed)` 连 cfg 行都不会打印，与「端口能打开、链路稳定」不符，暂排最后。
+
+**P1（主机绑定）：Windows 按「设备级串口」绑定，打开的管道不是 IF1 的 bulk 对。**
+
+机制：`ud_dev_desc[18..20]` 仍是 `0x02/0x02/0x00`（§12.3 有意留成单步改动），而配置描述符已经变成 3 接口 + IAD。
+对 device class 02/02 的设备，Windows 把整个设备当一个串口功能，不生成 `MI_00..02` 子节点——§20.3 的观测正是这样：
+`usb-20261114c` 在主机侧只有一个 devnode，`CompatibleIds` 是 `USB\Class_02&SubClass_02`。
+这种绑定下 usbser 用哪个 data 接口、是否走 IAD，都是主机的启发式决定；打开成功的 COM5 可能就是那个「设备级串口」，
+而不是 IF1 的 0x81/0x01 管道。这也正好解释了为什么 `usb-20261114c` 与 `usb-20261114f` 都「枚举正常、0 字节」。
+
+证伪镜像：把设备描述符 class 三个字节改成 `0xEF/0x02/0x01`（misc/composite）。草稿件已经存在：
+`E:/k60-work/scratch/usb/0410-k60-usb-device-class-composite.patch`（22 行，只改这三位；对 post-0408 源 `patch -p1 --dry-run` = `APPLY_OK`，当时未入库）。
+
+判据：设备管理器出现 `MI_00`（乃至 `MI_01/MI_02`）子节点 = 主机确实按复合功能绑定；同一镜像控制台出字 = P1 成立。
+若 `MI_xx` 出现但依旧 0 字节 = P1 被否证，转 P2/P3。
+
+代价：一个单变量镜像，主机侧一眼可见；仍是不进 series 的实验件。
+
+**P2（状态门）：`dtr` 或 `configured` 在设备侧恒为假。**
+
+机制：控制台的唯一出口是 `ud_console()`。`ud.dtr` 只在主机发 `0x21/0x22` 时置真；mode 1 下主机到底发没发、
+发给哪个功能实例，我们**没有任何日志可见，因为日志正是被这道门挡住的那条通道**（自证困境）。
+`ud.configured` 也同理：它被 SET_CONFIGURATION 置真，但一次 bus reset 就会清零，而 reset 之后主机是否会重新 SET_CONFIGURATION，
+在复合布局里没有保证。
+
+证伪镜像：在 EP3 上直接发**不依赖 ring、不依赖 `ud_console()` 门**的定长 beacon（从静态 buffer 调 `ud_start(3, …)`）：
+
+- `SET_CONFIGURATION` 成功后发 `K60BEACON: cfg=1 ep6=<r> ep7=<r>`；
+- 收到 `0x21/0x22` 时发 `K60BEACON: dtr=<0|1>`；
+- 第一次 `ud_start(3, …)` 之后发 `K60BEACON: tx=<r>`（r 是 `ud_start` 的返回值）。
+
+判据：`cfg` 行不出现 = EP3 发送链本身不通（转 P3）；出现 `cfg` 但无 `dtr` 行 = 主机没发 line-state，`ud.dtr` 恒假（P2 成立）；
+`cfg` + `dtr=1` + `tx=0` 三条都在、但仍无 `K60 USBLOG` 行 = 门已满足，缺陷在 ring 快照或文本 drain（记作 P2'，下一轮直接打印 `pong_ramoops_snapshot` 的返回值与 ring 头）。
+
+代价：约 25 行，不依赖 ramoops，可与 P1 同镜像。
+
+**P3（资源冲突）：复合配置下 EP3 IN 发送链被 EP6/EP7 挤掉。**
+
+机制：mode 1 是唯一真正调用 `ud_endpoint(6)` / `ud_endpoint(7)` 的模式，`DALEPENA` 因此多两位。
+`ud_start` 失败是**静默**的：`ud_epcmd_full` 只在 DEPCMD 轮询失败时打印，`ud_start` 自己返回 -1 却不打任何字，
+所以 `ud.tx_active` 可能永远为假而不留痕迹。§13.4 登记的 4 槽 TRB 缺陷影响的是 EP6/EP7 的数据搬运，不影响 EP3，可以排除。
+
+证伪镜像：同一 CS 里加第 4 态 `k60_usbvend=3` = 「98 字节复合描述符 + 跳过 `ud_endpoint(6/7)`」。
+判据：mode 3 下 cfg 行打印 `ep6=-1 ep7=-1` 且控制台出字 = P3 成立；mode 3 仍 0 字节 = P3 被否证，与 EP6/EP7 无关。
+
+代价：要改 0410 的模式分支，和 P1/P2 不同镜像（两个变量）。如果 P1+P2 那张图已经出字，P3 就不用做。
+
+**下一次镜像的建议：P1 + P2 合体，一张图同时回答两问。**
+
+改动只有两处：`ud_dev_desc[18]=0xEF, [19]=0x02, [20]=0x01` 与 EP3 beacon，其余一个字不改。判读矩阵：
+
+| beacon 行 | `MI_xx` 子节点 | 结论 | 下一步 |
+|---|---|---|---|
+| 有 `cfg`、有 `dtr` | 出现 | P1 成立（主机绑定是根因），控制台应已恢复 | 把 class 改动并入 0408 单步，mode 1 收尾 |
+| 有 `cfg`、无 `dtr` | 出现 | 绑定修好了，但主机不发 line-state | 查 usbser 在复合功能下何时发 `0x22`；临时把 `dtr` 从门里去掉做对照 |
+| 三条都在、无 `K60 USBLOG` | 出现 | P1 部分成立，缺陷在 ring/drain（P2'） | 下一轮直接打印 `pong_ramoops_snapshot` 返回值与 ring 头 |
+| 全无 | 不出现 | P1 否证，且 EP3 链不通 | 做 P3 的 mode 3 单变量镜像 |
+
+不做什么：不再为单条假设各飞一张图（Lead 已明确每次上机很贵）；beacon 是新格式，
+`docs/research/usb/analyze-capture.py` 的判据 5b 需要补一条 `K60BEACON:` 正则（§24.5 只放宽了 cfg 行）。
+本线仍然不 boot，上机权限在 Lead。

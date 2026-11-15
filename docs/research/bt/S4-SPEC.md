@@ -741,6 +741,24 @@ payload `ee3abfc9…`、adt `313bb5ba…`、frozen list `8e39be87…`、series 2
 h2 单独致死（再把 h2 拆子 hunk 二分：只收窄 warm 判定 / 只有冷启续路）；到桌面 ⇒
 凶手是 h4 或 h2+h4 组合，再出 h124。
 
+**h12 实飞判读（2026-11-15 23:00，Lead 飞）**：证据 `usblog-20261115-230047`（220,889 B /
+3,196 行，SpringBoard 132、panic 0、rc=0）。S1–S9 全过：`:707` s1 map（gcc=fffffff8be6b6000
+uart=fffffff8be8ab000 qup=fffffff8be8af000）、`:709/:712` s2 gpll0_cmd=1 locked=1、`:717` s3
+qup_vote_after=0000020f、`:719-:727` s4 halt（core=00004220 m_ahb=00000000 s_ahb=80000002）、
+`:729-:733` s5、`:735` s6、`:737-:741` s7 rcg_cfg 00100000→00100001、`:743-:751` s8
+fw_rev=00000204 qup_hw_ver=30080000、`:753-:760` s9 dma、`:761` done、`:762` **power=1
+result=0** —— 电源/时钟/QUP 段首次真机成功。判读：h2 不是凶手；只剩 h4 单独或 h2+h3 组合。
+`getBytes:range:` 在 h12 为 0 次（h1 36、全量 36–37），C 族与身份发布链的旁证，三态表归
+display 线；`firmware=` 为空属预期（固件下载在下一段）。
+
+**h123 决定性图（2026-11-15 23:18 构建，待飞）**：0511g = h1+h2+h3（不含 h4），
+H123_EQUALS_FULL_MINUS_H4 + H123_CHECK_OK；boot.img `580b2795…e9a6`（201,887,744 B）、
+kernel `bf3aee6b…445b`（106,541,056 B）、payload_kernel `0140faa5…fe33`、payload
+`15b7b9ba…583d`、adt `b082c73d…41c2`、frozen `0fa2c372…28e7`、series 229 / `d80464df…8115`、
+blob `febdc20d…`、30 参数 / 583 B、head `540f51b`；verify-boot-image OK + image-arg-audit OK。
+h4 单独 silent ⇒ h4 是凶手、h123 证实 h2+h3 无害；h4 单独起 ⇒ h2+h3 组合是凶手、h123 决定。
+
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

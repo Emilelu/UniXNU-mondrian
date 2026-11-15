@@ -472,4 +472,33 @@ This line, next in order:
       `0e74cf5e…`、payload `ee3abfc9…`、adt `313bb5ba…`、series 229 / `cd4acbf6…`、blob
       `febdc20d…`、30 参数 / 583 B。silent ⇒ h2 单独致死（拆子 hunk 再二分）；到桌面 ⇒
       凶手是 h4 或 h2+h4，再出 h124。
+13. **h12 实飞与 h123 决定性图（2026-11-15 深夜）**
+    - h12 实飞（Lead 飞，证据 `usblog-20261115-230047`，console.log 220,889 B / 3,196 行，
+      SpringBoard 132 行、panic 0、supervisor rc=0）：`:192` blob 链入、`:193` `probe: armed
+      delay=20s step=9`；`:702-:705` awake / core created / transport ready / addon gate
+      passed；`:707` s1 mapped（gcc=fffffff8be6b6000 uart=fffffff8be8ab000
+      qup=fffffff8be8af000）；`:709`+`:712` s2 gpll0_cmd=00000001 locked=1；`:717` s3
+      qup_vote_after=0000020f；`:719-:727` s4 halt 回读（core=00004220 core2x=00004220
+      m_ahb=00000000 s_ahb=80000002 se20=00004220）；`:729-:733` s5；`:735` s6 root_on=1；
+      `:737-:741` s7 rcg_cfg 00100000→00100001；`:743-:751` s8 fw_rev=00000204
+      qup_hw_ver=30080000；`:753-:760` s9 dma_tx/rx=0；`:761` probe: done；`:762`
+      `power=1 result=0 baud=115200 firmware=` ——**电源/时钟/QUP 整段首次真机成功**
+      （h3 是 −102、全量 silent，只有 h12 是 0）。
+    - 判读：**h2 不是凶手**。只剩两种可能：h4 单独致死，或 h2+h3 组合致死（h1+h3 只是 −102
+      且到桌面）。`getBytes:range:` 在 h12 里 0 次（h1 36 次、全量 36–37 次）——C 族与身份
+      发布链的新旁证（h12 无 h3 故无崩溃），只记录，三态判定表归 display 线。`firmware=` 为空
+      是预期：固件下载在下一段（btslim/QCA 协议），不在 S1–S9。
+    - `bt-bisect-h123`（0511g = h1+h2+h3，不含 h4；H123_EQUALS_FULL_MINUS_H4 +
+      H123_CHECK_OK；构建 commit `540f51b`、series 恢复 `36d97a9`）：boot.img
+      `580b2795…e9a6`（201,887,744 B）、kernel_built `bf3aee6b…445b`（106,541,056 B）、
+      payload_kernel `0140faa5…fe33`、payload `15b7b9ba…583d`、adt `b082c73d…41c2`、
+      dtb `2d044eaa…`、fd `cf4485712c29…`、blob `febdc20d…`、frozen `0fa2c372…28e7`、
+      series 229 / `d80464df…8115`、30 参数 / 583 B `k60bt=1`、head `540f51b`、dirty 0；
+      verify-boot-image OK + image-arg-audit OK。
+    - 判读树：h4 单独 silent ⇒ 凶手是 h4，h123 用于确认 h2+h3 无害；h4 单独到桌面 ⇒ 凶手是
+      h2+h3 组合，h123 是决定性那张。
+    - 旁记（Lead 账本问题，非本线）：`record-boot.py` 这次把 h12 记成 series 226 /
+      `9688ad85…`（读的是 main 当前 series，不是镜像 manifest），Lead 本周改成优先取
+      `build-manifest.json` 的 series；本线 manifest 字段一直完整。
+
 

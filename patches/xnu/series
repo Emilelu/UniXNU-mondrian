@@ -202,11 +202,6 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0502b-k60-bt-qbt-kernel-stubs.patch
 0501-k60-bt-qbt-bsd-conf.patch
 0502-k60-bt-qbt-bsd-init.patch
-0507-k60-bt-readonly-probe.patch
-0508-k60-bt-s2-smmu-rcg-reset.patch
-0509-k60-bt-s3-identity-publish.patch
-0510-k60-bt-firmware-addon.patch
-0511-k60-bt-s4-unblock.patch
 0503-k60-audio-aw882xx.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch
@@ -229,5 +224,10 @@ zzy-native-gpu-addon-mount.patch
 0616-k60-init-legacy-helper.patch
 0619-k60-adsp-glink-handoff.patch
 0620-k60-adsp-blob.patch
+0507-k60-bt-readonly-probe.patch
+0508-k60-bt-s2-smmu-rcg-reset.patch
+0509-k60-bt-s3-identity-publish.patch
+0510-k60-bt-firmware-addon.patch
+0511-k60-bt-s4-unblock.patch
+0621-k60-io-submap-budget.patch
 0512-k60-bt-late-start.patch
-0513-k60-bt-io-windows.patch

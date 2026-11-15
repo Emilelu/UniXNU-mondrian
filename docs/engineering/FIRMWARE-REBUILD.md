@@ -118,6 +118,12 @@ EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的 `Un
   下面的容量表是实测的（`[payload] size_mib`、`build-manifest.json` 的 `kernel_bytes`、
   `gen-modem-table.py` 的 `bytes-copied`）：
 
+  卷内实测（`mdir`，不是算术）：payload 201,326,592 B，其中 `kernel.macho` 105,508,864 B
+  + `kernel.macho.adt` 16,056 B + `unixnu.toml` 966 B，**剩余 94,990,336 B**；
+  27 个文件 raw 109,060,761 B，按 FAT 4 KiB 簇对齐后需 **109,105,152 B**（pad 44,391），
+  **缺口 14,114,816 B**。按 manifest 顺序装到第 21 个文件 `modem.b23` 就超，
+  它和它之后 7 个文件无处落盘。
+
   | payload 容量 | 内核 129 MB | 内核 66 MB | 备注 |
   |---|---|---|---|
   | 192 MiB = 201,326,592 B（当前） | **缺 43,501,040 B** | 余 91,765,264 B | 装不下 129 MB 内核那一档 |
@@ -128,9 +134,32 @@ EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的 `Un
   `RamdiskLayout()` 直接拒绝，`DarwinBoot.c:675` 随即 `goto Fail`。所以「把 payload 提到 256 MiB」
   这条路可行但只剩 23.6 MB 余量（内核还会长），**不能当作长期方案**。
 
-  因此 modem 的唯一可行载具是固件侧把镜像放到固定物理地址并发布
-  `/chosen/memory-map/K60ModemImage`——也就是说必须先能重建并验证 FD。
-  这与 cellular 线 `15-FIRMWARE-CARRIER-LOADER.md` 的结论一致，只是现在有了容量数字。
+  **四条出路的代价**（cellular 线 2026-11-16 实测，`15-FIRMWARE-CARRIER-LOADER.md` §1.7）：
+
+  - **A 扩 payload**：208 MiB 是能装下的最小整数档（free 111,767,552，余 +2,662,400）；
+    代价 boot.img 201,887,744→218,664,960，ABL 余量 37.6 MB→**20.8 MB**。
+    205 MiB 只差 472 KiB 装不下。ABL 下界墙 `0xA8300000` 不变。
+  - **B 编进内核**：**否**。不是段跨度问题，是 `DarwinBoot.c:699` 的
+    `ReadFile (Root, Request->KernelPath, SIZE_128MB, …)` 上限：内核 105,524,920
+    + 27 文件 109,060,761 = 214,585,681，超上限 80,367,953；整窗 xz 压缩后
+    154,571,836 仍超 20,354,108。**这条 128 MiB 上限比 254 MiB 段跨度更早撞墙，
+    而且是「内核内嵌」这条路线在整个 K60 上的通用上限**（GPU addon 内嵌会撞同一面墙）。
+  - **C 从别处读**：**否**。固件侧没有块设备栈——`UfsDxe` 只出现在
+    `Silicon/Samsung/SamsungPkg/SamsungPkg.dsc.inc:64`，`mondrian.dsc:35` 只 include
+    PalimaPkg；现有只有 DiskIoDxe/PartitionDxe/FatPkg/EnglishDxe（`DXE.inc:26-29`）
+    + RamPartitionDxe（`:6`）+ UniXNURamDiskDxe（`:33`），挂不到 `modem_a`
+    （`/dev/block/sde7`，380 MiB）。内核也不能替它读（`hostRead4k` 是 static）。
+  - **D 压缩进 payload**：lzma 后 48,591,795 B（ratio 0.446），192 MiB 下余 +46,398,541，
+    **不动 ABL、不动 boot.img 尺寸**。前置条件是 EDK2 的 `LzmaUefiDecompress` 能直接解压到
+    窗口内的目标物理地址（否则需要 39 MiB 连续中转缓冲，192 MiB 里没有）；
+    最大单文件 `modem.b23` 40,935,488 B。门禁 A3/A4 要改成「解压后大小 == 段表 bytes」。
+
+  **当前决定：优先验证 D，验证不过则走 A-208。** 选 D 的理由是 A-208 会消耗 ABL 安全边际
+  （37.6→20.8 MB），而这块余量以后 GPU addon（51 MB）或 audio 可能还要用。
+
+  无论 A 还是 D，modem 的载具都必须由固件放到固定物理地址并发布
+  `/chosen/memory-map/K60ModemImage`。这与 cellular 线 `15-FIRMWARE-CARRIER-LOADER.md`
+  的结论一致，只是现在有了容量数字。
 - **ADSP 已走内核内嵌 blob**（0620 + `--adsp-blob`，23,506,184 B），所以它**不**依赖这条路径；
   这也说明「内核内嵌」是可行方案，只是容量上不适合 modem。
 - **BT / wifi 的固件侧打点**：能在固件里打一行，比在核心里猜一轮便宜得多。
@@ -145,6 +174,23 @@ EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的 `Un
 因此任何新属性（例如 `K60ModemImage`）都必须同时改三处：产生者（固件/DXE）、DarwinBoot 扫描器
 （把值记进 ADT）、消费者（内核）。少一处就会出现「固件发布了、ADT 里没有、内核说没载具」的形状，
 而这正是 P-197 教过一次的坑（GpuAddon 恒全零）。
+
+## 7.1 把一个库接进固件的两个硬事实（2026-11-16 实测）
+
+接 `ImageCarrierLib`（modem 载具的只读半边）时踩到两条，都会让人以为改动生效了：
+
+1. **只在 DSC 的 `[LibraryClasses]` 里写一行，EDK2 什么都不会编译。** 它只构建被某个组件
+   链接的库。第一次重建后 FD 尺寸一字未变、连
+   `Build/…/AARCH64/DarwinBootPkg/Library/ImageCarrierLib/` 对象目录都不存在——
+   「配置改了」和「代码编了」是两件事。必须在某个 `.inf` 的 `[LibraryClasses]` 里引用。
+2. **`DarwinBootPkg` 没有 `.dec` 文件**，所以 `#include <Library/ImageCarrierLib.h>`
+   没有 include 路径可解析，报 `fatal error: 'Library/ImageCarrierLib.h' file not found`。
+   库自己的头必须用引号包含（`#include "ImageCarrierLib.h"`）。
+
+验证方式：`ImageCarrierLib.obj` 29,036 B 编出、FD 仍精确 3,145,728 B，且用这个卷打图
+真机飞到 SpringBoard 128 / `Early boot complete` / `K60DATA mounted` / panic 0 /
+`no boot entry` 0 次（`usblog-20261116-052044`）。**「库链接进固件但没有调用点时不改变启动」
+因此是实测结论。**
 
 ## 8. 相关的坑
 

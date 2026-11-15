@@ -5187,3 +5187,36 @@ silent 至少有两个独立原因，c1 的死因仍未解释。
    「没量」；这也是本门禁所有失败信息都带 `文件名:` 前缀的原因（P-204 同族）。
 
 Check: `python3 scripts/tests/test-check-data-identity.py`（9 例）与 registry `id = "P-210"`。
+
+## P-211 — 记账工具写的是「登记那一刻仓库里的 series」，不是镜像自己的 series
+
+现场：`scripts/record-boot.py` 的 `series_fingerprint()` 一直读
+`REPO/patches/xnu/series`。2026-11-15 深夜我登记 `bt-bisect-h12` 那张图（boot.img
+`0eb30032…`）时，账本里写下的是 `series 9688ad85…(226)` —— main 当前的 series；而那张图
+其实是 bt 线用 229 条的 series 构建的。两边都对不上，账本却看起来完好：`record-boot.py`
+打印 `✅ recorded`，`porting-gate.py` 读 ledger 时也只比对自己算出来的指纹。
+
+这一条是「量错对象」家族的第四条，前面三条各有形状：
+P-194 量错了**文件**（`SERIES-FINAL.txt` 而不是 `patches/xnu/series`）、
+P-200 量错了**槽位**（`boot.json` 的 `kernel_sha256` 量的是 boot image 的 kernel 槽而不是内核）、
+P-201 量错了**有无**（trial 镜像没有 series 指纹却仍然被当成判据）、
+P-211 量错了**版本**（用今天的仓库描述上周构建的镜像）。
+
+修法：`image_series(image)` 先读镜像同目录的 `build-manifest.json`（`build-strict.sh`
+本来就写在那儿，`series.sha256` + `series.count` 是它记下的、与镜像同时产生的值）；
+读不到或字段不全才回落到仓库 series，并且**在账本行里留下来源**：
+`"series-source": "manifest:<path>" | "repo-series"`、`"series-count"`、`"repo-series"`。
+两边不一致时先打印警告（「记录的是镜像的 series，这样账本就不能声称本仓库的 series 跑过」）。
+测试 `scripts/tests/test-record-boot.py` 4 例：manifest 优先、无 manifest 回落、
+短 sha 回落、坏 JSON 回落。
+
+三条教训：
+
+1. 记账前先问一句「这个字段描述的是谁」。只要是「这个产物」，就得从产物本身读，
+   从手边的仓库状态读出来的东西只是**今天的猜测**。
+2. 回退路径必须在数据里留标记（`series-source`），否则「回退」和「正解」在账本里
+   长得一模一样，下游无法分辨——P-190/P-192 的同一形状。
+3. 一个 `✅` 打印只证明流程跑完，不证明被记录的值属于被记录的对象。判决要么带上来源，
+   要么带上交叉核对，两者都没有就只是仪式。
+
+Check: `python3 scripts/tests/test-record-boot.py`（4 例）与 registry `id = "P-211"`。

@@ -46,6 +46,40 @@ def series_fingerprint():
     return h.hexdigest()[:16], len(names)
 
 
+def image_manifest(image):
+    """The build manifest that travelled with the image, or None.
+
+    P-211: the ledger used to describe whatever series the *repo* carried at
+    record time, so a boot of another line's image was written down as a boot of
+    this repo's series.  build-strict.sh already writes
+    ``build-manifest.json`` next to ``boot.img``; read that when it exists.
+    """
+    for candidate in (os.path.join(os.path.dirname(os.path.abspath(image)),
+                                   "build-manifest.json"),
+                      os.path.splitext(os.path.abspath(image))[0] + ".json"):
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, encoding="utf-8") as fh:
+                    return candidate, json.load(fh)
+            except (OSError, ValueError):
+                return candidate, None
+    return None, None
+
+
+def image_series(image):
+    """(fingerprint, count, source, repo_fingerprint) for the image being recorded."""
+    repo_fp, _ = series_fingerprint()
+    path, data = image_manifest(image)
+    if not data:
+        return repo_fp, None, "repo-series", repo_fp
+    series = data.get("series") or {}
+    sha = str(series.get("sha256") or "")
+    count = series.get("count")
+    if len(sha) < 16:
+        return repo_fp, count, "repo-series", repo_fp
+    return sha[:16], count, "manifest:%s" % path, repo_fp
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", required=True)
@@ -70,13 +104,23 @@ def main():
         print("❌ log carries a failure marker: %s" % ", ".join(hits))
         return 1
 
-    fp, n = series_fingerprint()
+    fp, n, source, repo_fp = image_series(a.image)
+    if n is None:
+        n = series_fingerprint()[1]
+    if source != "repo-series" and fp != repo_fp:
+        print("⚠ the image was built from series %s, this repo carries %s;"
+              % (fp, repo_fp))
+        print("  recording the image's series so the ledger cannot claim the"
+              " repo series booted (P-211)")
     rec = {
         "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "result": "ok",
         "log-bytes": size,
         "image": "%s(%s)" % (os.path.basename(a.image), a.image[-12:]),
         "series": fp,
+        "series-count": n,
+        "series-source": source,
+        "repo-series": repo_fp,
         "note": a.note or "recorded by scripts/record-boot.py",
         "console": a.log,
         "springboard-lines": up,
@@ -84,12 +128,12 @@ def main():
     line = json.dumps(rec, ensure_ascii=False)
     if a.dry_run:
         print("would append: %s" % line)
-        print("series %s (%d patches)" % (fp, n))
+        print("series %s (%d patches) from %s" % (fp, n, source))
         return 0
     with open(LEDGER, "a", encoding="utf-8") as fh:
         fh.write(line + "\n")
-    print("✅ recorded series %s (%d patches), %d SpringBoard lines, %d bytes"
-          % (fp, n, up, size))
+    print("✅ recorded series %s (%d patches) from %s, %d SpringBoard lines,"
+          " %d bytes" % (fp, n, source, up, size))
     return 0
 
 

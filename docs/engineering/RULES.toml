@@ -665,3 +665,11 @@ source = "docs/engineering/PITFALLS.md:P-210"
 statement = "门禁里的单文件常量（`CONFIG = …/configs/mondrian_defconfig`）就是覆盖缺口：凡是按 board 分开的配置/产物，门禁必须遍历所有同类文件并逐文件点名，否则「通过」只等于「没量那一份」"
 check = "python3 scripts/tests/test-check-data-identity.py"
 note = "2026-11-15 scripts/check-data-identity.py:31 只对 mondrian_defconfig 对账，带 CONFIG_XNU_OWNER_DATA_MOUNT=y 的 mondrian_wifi_defconfig 从未被评分，种子 UUID 因此进了 c0；改为遍历所有挂载 Data 的 defconfig 并逐文件点名。同轮 c1（只改该 UUID）上机仍 0 字节，证明种子 UUID 只是 silent 的一个维度。"
+
+[[rule]]
+id = "P-211"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-211"
+statement = "记账/日志工具里的每个字段都必须描述被记录的那个产物（读镜像旁边的 build-manifest.json），不能描述登记那一刻手边的仓库状态；回退到猜测时必须把来源写进记录，否则账本无法区分「正解」与「回退」"
+check = "python3 scripts/tests/test-record-boot.py"
+note = "2026-11-15 scripts/record-boot.py 把 bt 线 229 条 series 构建的 h12 镜像登记成 main 的 226 条 series，账本与 porting-gate 都不报错。已达同族四条：P-194 量错文件、P-200 量错槽位、P-201 量错有无、P-211 量错版本。"

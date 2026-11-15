@@ -1,0 +1,20 @@
+This is a prototype, not part of any series: it is not listed in
+patches/audio/series and no build applies it. It exists so that the host
+test in drivers/PongAudio/tests can prove the transport carries a second
+channel without crossing anything; wiring it into a build is a Lead action.
+
+--- a/drivers/PongPower/QcomGlink.h	2026-11-15 11:18:55.250088834 +0800
++++ b/drivers/PongPower/QcomGlink.h	2026-11-15 11:18:55.250377684 +0800
+@@ -14,7 +14,11 @@
+ extern "C" {
+ #endif
+ 
+-#define QCOM_GLINK_MAX_CHANNELS 1u /* exclusively leased K60 PMIC endpoint */
++/* Two slots: the leased PMIC endpoint the battery stack opens, and the
++ * audio GPR channel ("adsp_apps") of the same instance. Every path below
++ * already runs per slot, so this bound was the only thing keeping the
++ * second consumer out. See docs/research/audio/GLINK-MULTISLOT.md. */
++#define QCOM_GLINK_MAX_CHANNELS 2u
+ /* DSP advertises 24 small intents before its larger command buffer.
+  * Keep room for that later advertisement (shared transport, not SM8850 MMIO). */
+ #define QCOM_GLINK_MAX_REMOTE_INTENTS 48u

@@ -791,6 +791,23 @@ adt `4db35f3c…d12a`、frozen `b0c08d35…4792`、series 230 / `21eda89a…2240
 image-arg-audit OK。series 为 230 是因为 0512 已在序列尾部。判读：能起 ⇒ 致命组合是 h3+h4，
 下一张 h34 收口；silent ⇒ 致命组合是 h4+h1 或 h4+h2，用 0512 三个开关在 h124 上逐条关断。
 
+**h124 实飞判读（2026-11-16 00:45 飞，Lead 飞，证据 `usblog-20261116-004519`）**：**能起**——
+console.log 223,630 B / 3,229 行、SpringBoard **132**、panic 标记 0、supervisor rc=0、getBytes:range **0 次**；
+`:192` blob 链入、`:193` `probe: armed delay=20s step=9`、`:703-:706` awake/core created/transport
+ready/addon gate passed、`:708` s1 mapped（gcc=fffffff757695000 uart=fffffff75788a000
+qup=fffffff75788e000）、`:710/:713` s2 gpll0_cmd=00000001 locked=1、`:718` s3 qup_vote_after=0000020f、
+`:720` 起 s4 halt 回读、S1–S9 全程、`:762` probe: done、`:763` **power=1 result=0 baud=115200 firmware=**、
+`:455` disk5s1 vol-uuid 1BCD69FF、`:485` K60DATA mounted ro=0、`:1037` Early boot complete。
+
+**七张矩阵收敛（全部 Lead 飞）**：h1 SB13/36/probe armed 有/power 1；h13 SB13/36/有/1(−102)；
+h4 SB13/36/有/0（停 transport ready）；h12 SB132/**0**/有/1(result=0)；h23 SB128/**0**/**无**/0；
+h124 SB132/**0**/有/**1(result=0)**；全量 silent。⇒ ① 能起的三张（h12/h23/h124）都含 h2，
+**h2 是「不再 silent」的必要条件**；② 全量 = h124 + h3，而 h124 能起、h23（h2+h3）能起、h4 单独能起
+⇒ **致命集是 h3 × h4 两两交互**，不需要 h1、也不需要 h2 同时在场（比「必须含 h4」更窄）。
+③ 对照 h23（探针不跑）与 h124（探针全程跑通）：**h3 是「让探针看不见」的 hunk，h4 是「让内核起不来」
+的 hunk**，两者叠加才 silent。④ C 族归因按 h2 口径改写：不是 0509 OSData 修复直接生效，而是 h2 让
+冷启动早退消失后身份发布第一次真正执行。
+
 ### 7.3 静默死亡的机制假设与判据（2026-11-16）
 
 九次飞行的矩阵把致命集合收敛为 **h4 × {h1,h2,h3} 的交互**：h1/h3/h4/h12/h13/h23 都能起桌面，

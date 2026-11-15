@@ -554,4 +554,29 @@ This line, next in order:
       `9688ad85…`（读的是 main 当前 series，不是镜像 manifest），Lead 本周改成优先取
       `build-manifest.json` 的 series；本线 manifest 字段一直完整。
 
+16. **h124 实飞到桌面、致命集收敛为 h3 × h4（2026-11-16 凌晨）**
+    - `bt-bisect-h124`（0511i = h1+h2+h4，不含 h3）**到桌面**：证据 `usblog-20261116-004519`，
+      console.log 223,630 B / 3,229 行、SpringBoard **132**、panic 标记 0、supervisor rc=0、
+      `getBytes:range` **0 次**。关键行：`:192` blob 链入、`:193` `probe: armed delay=20s step=9`、
+      `:703-:706` awake / core created / transport ready / addon gate passed、`:708` s1 mapped
+      （gcc=fffffff757695000 uart=fffffff75788a000 qup=fffffff75788e000）、`:710/:713` s2
+      gpll0_cmd=00000001 locked=1、`:718` s3 qup_vote_after=0000020f、`:720` 起 s4 halt 回读、
+      `:762` probe: done、`:763` **power=1 result=0 baud=115200 firmware=**、`:455` disk5s1
+      vol-uuid 1BCD69FF、`:485` K60DATA mounted ro=0、`:1037` Early boot complete。
+    - 七张矩阵（全 Lead 飞）：h1 SB13/36/armed 有/power 1；h13 SB13/36/有/1(−102)；h4 SB13/36/有/0
+      （停 transport ready）；h12 SB132/**0**/有/1(result=0)；h23 SB128/**0**/**无**/0；h124
+      SB132/**0**/有/**1(result=0)**；全量 silent。
+    - 收敛：① 能起的三张（h12/h23/h124）都含 h2 ⇒ **h2 是「不再 silent」的必要条件**；
+      ② 全量 = h124 + h3，h124 能起、h23（h2+h3）能起、h4 单独能起 ⇒ **致命集是 h3 × h4 两两
+      交互**，不需要 h1、也不需要 h2 同时在场；③ h23（探针不跑）与 h124（探针全程跑通）对照
+      ⇒ **h3 是「让探针看不见」的 hunk，h4 是「让内核起不来」的 hunk**，两者叠加才 silent。
+    - C 族归因按 h2 口径改写：不是 0509 的 ad49ff2 直接生效，而是 h2 让冷启动早退消失后身份发布
+      第一次真正执行（display 线已按此口径改）。
+    - 下一张 `bt-bisect-h34`（0511j = h3+h4，不含 h1/h2）：变体
+      `0511j-k60-bt-bisect-h34.patch`（1,711 B，sha256 `5a81ac8a4dff49848313aa9c7c1917f5384ef7da352c4869dc058f038f1c8612`，
+      H34_EQUALS_FULL_MINUS_H1_H2 + H34_CHECK_OK），series 换 hunk 的提交 `2cdb459`。
+      h34 silent ⇒ 致命集锁定为 {h3,h4}，再在 h34 上逐条关断 `pong_bt_smmu=0` / `pong_bt_rcg=0` /
+      `pong_bt_noboot=1` 定位；h34 能起 ⇒ 还需 h1 或 h2 之一在场，出 h134 与 h234 各一张。
+
+
 

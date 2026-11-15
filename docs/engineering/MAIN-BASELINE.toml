@@ -139,3 +139,10 @@ image_sha256 = "1fc1169eb48e546c520e6ccdcaddf67c53d23bff6a94731a5c57504d1e5c5467
 console = "E:/k60-work/evidence/usblog-20261115-155741/console.log (247731 bytes, SpringBoard 183, no panic, no 'no platform identity')"
 state = "booted"
 note = "平台身份种子：board.toml 的 [payload.\"adt\"] 加 \"unique_chip_id\" = \"required\"，build-strict.sh 默认 UNIXNU_UNIQUE_CHIP_ID=4B36305400000001 并转发 --unique-chip-id 给 build payload。原因：devicetree.py:312-317 只在拿到种子时才发 /chosen/unique-chip-id + /chosen/chip-id，而实测 usblog-20261115-140927 的 bt 正向镜像打了 \"K60 BT: no platform identity (-2); bluetooth not published\"，bluetoothd 因无 MAC 不起。登记原因是该提交碰了 board.toml 与 scripts/build-strict.sh，铁则 9。欠账：带种子的镜像尚未上机，判据是 K60 BT 不再出现 -2 且出现 published local address。种子变更会改 BT MAC，只能在这里动一次。"
+
+[[entry]]
+sha = "ad38ca2"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "P-205：README 门禁化。新增 scripts/check-readme.py（双语互链、日期不早于 STATUS、★N/P-M 范围等于真实最大标题号、门禁表与 build-strict.sh 标记区内嵌门禁同名同集）+ scripts/tests/test-check-readme.py（8 例），build-strict.sh 只加两对 # --- gate-table:BEGIN/END --- 注释标记（不改变任何构建行为），render-eight-step-table.py 的 UNTRACKED 表把 USB 改 device-verified 并补 thermal 行，README/README_EN/AGENTS/HARD-RULES(★36 第 7 条)/PITFALLS(P-205)/RULES.toml/STATUS 同步更新。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：无，全部是注释/文档/校验脚本层改动，不改变内核与镜像内容。"
+

@@ -729,3 +729,19 @@ source = "docs/engineering/PITFALLS.md:P-218"
 statement = "二分实验的矩阵是「全集里哪些还没飞」，不是「我飞过哪些」；已构建未飞行的镜像可能就是决定性的那一格，而「飞过」的唯一诚实记录是每次飞行都写的 boot.json（账本只收进桌面的那些，静默镜像一条都不留）。"
 check = "python3 scripts/tests/test-check-bisect-coverage.py"
 note = "蓝牙 0005 四 hunk 二分：h123 在 23:18 构建完成、四小时无人飞，飞了才发现它才是唯一能定案的格子（{h1,h2,h3} 齐备才 silent，h4 无关）。门禁第一版读账本、第二版按哈希 join、第三版用 plain utf-8 读带 BOM 的 boot.json —— 三次都把「已飞」判成「未飞」，同一形状犯了三次。"
+
+[[rule]]
+id = "P-219"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-219"
+statement = "`ml_io_map` 的 IO 子图是全内核共享的一个固定预算，加窗口必须算总和而不是只看本次；预算耗尽时 `kmem_alloc(io_submap, ..., KMA_NOFAIL)` 在控制台起来之前 panic，现象是 0 字节日志而不是崩溃，必须靠 panic 行里的 size 反查是哪个窗口。"
+check = "python3 scripts/tests/test-check-io-map-budget.py"
+note = "蓝牙 d4（pong_bt_late=1 让控制台先起来）实测 `kmem_alloc(..., 1048576, 0x100021): failed with 3`，1048576 就是 K60_TLMM_SIZE；全树 37 个调用点合计 7.23 MiB / 8 MiB。修法把 IO_MAP_SIZE 提到 32 MiB，并加 check-io-map-budget.py 在已应用树上量总和。"
+
+[[rule]]
+id = "P-220"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-220"
+statement = "门禁的 fallback 如果只是「取最新的那一份」，就会拿别的分支/别的板的产物来判本树，把「本机没有能代表当前分支的构建」翻译成「你的补丁序列坏了」。fallback 必须能判断结果是否适用于当前对象：补丁名集合不同就不是本对象的证据，应 skip 而不是判红。"
+check = "python3 scripts/tests/test-check-build-applied.py"
+note = "2026-11-16 main 上 check-rules 报「构建应用了 232 个补丁，但 series 列了 227 个」，232 是 bt 线 feat/bt-research 的序列，那条 xnu-inputs.json 属于 bt 的输出树。修法：stamp_path 第二轮只在补丁名集合相同的存根里挑，一份都没有就 skip。"

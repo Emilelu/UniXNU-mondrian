@@ -5570,3 +5570,102 @@ h12，按「h3×h4」让它出 h34，两次都白跑。而正确答案需要的�
 **关联**：P-201（trial 镜像无 series 指纹，只能算结构性观察）、P-204（用计数代替语义）、
 P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与对象不对应」这一族。
 
+
+## P-219 — `ml_io_map` 的 8 MiB 预算是全内核共享的，蓝牙阶梯是把它撞穿的那一个
+
+- **铁证**（真机，`evidence/usblog-20261116-055237/console.log`，`bt-d4-late`）：
+  ```
+  :484 [bluetooth] power: cold boot, rails not voted (k60bt_warm=0)
+  :485 K60PANICFMT caller=0xfffffff007b83384 fmt=kmem_%s(%p, %zd, 0x%x): failed with %d @%s:%d
+  :486 K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178
+  :487 K60PANIC: ring kept; restart reason -> bootloader
+  ```
+  `1048576 = 0x100000` 是 `k60_bt_power_on()` 第四个 `k60_map()` 要的 `K60_TLMM_SIZE`；
+  `0x100021 = KMA_NOFAIL(0x1) | KMA_PAGEABLE(0x20) | KMA_PERMANENT(0x100000)` 正是
+  `osfmk/arm/io_map.c:120` 在 `startup_phase >= STARTUP_SUB_KMEM` 分支里用的标志组合；
+  `failed with 3` = `KERN_NO_SPACE`。
+
+- **因果链**：`io_map.c:65` `#define IO_MAP_SIZE (8ul << 20)` 是**全内核唯一**的 IO 子图；
+  每个 `ml_io_map()` 都在 `:128` 走 `kmem_alloc(io_submap, ..., KMA_NOFAIL)`，**不看返回值**；
+  满了就 `__kmem_failed_panic`（`vm_kern.c:1002`，仅当 `KMA_NOFAIL` 置位）。
+
+- **实测预算**（`scripts/check-io-map-budget.py`，在 `bt-out-s1c` 已应用树上跑）：
+  37 个可解析调用点合计 **`0x73a900` = 7.23 MiB / 8 MiB**（另有 7 个尺寸来自运行时变量）。
+  也就是说 `k60_usblog` + `qbt_k60` + `pong_goodix` + `pong_buttons` + `pong_audio` + `aw882xx`
+  已经把子图吃到 90%，蓝牙阶梯再要 1 MiB 的 TLMM 窗口就必然失败。
+
+- **为什么这条坑骗了三天**：`kmem_alloc` 的 panic 在控制台起来之前就把内核打死，
+  唯一活下来的记录是 `d4` 那次 `pong_bt_late=1` 把阶梯挪到 Data 挂载之后——
+  控制台先起来，panic 才被写进环。**没有 `pong_bt_late=1` 的所有 wifi/bt 镜像都只会
+  留下 0 字节**，和「驱动从未运行」完全无法区分（P-63 已经为触摸记过同形）。
+
+- **修法**：`patches/xnu/0621-k60-io-submap-budget.patch` 把 `IO_MAP_SIZE` 从 `8ul << 20`
+  提到 `32ul << 20`。子图是**虚拟地址空间**预留，`kmem_suballoc` 只占 VA，
+  没被 map 的部分一个物理页都不花；32 MiB 相对 7.23 MiB 实测值留了 4 倍余量，
+  也覆盖了 7 个运行时尺寸的窗口。
+
+- **四条教训**：
+  1. **一个全局预算型资源，必须在加窗口时算总和**，不能只看本次要多少。P-63 的
+     「30 秒判定」写的是「手动累加」，手动累加的结果是没人累加——现在有门禁了。
+  2. **`KMA_NOFAIL` 把「分配失败」变成「panic」**，而 panic 在控制台起来之前发生，
+     于是现象是 0 字节而不是崩溃日志。任何早期路径上的 `KMA_NOFAIL` 分配都该被怀疑。
+  3. **判据要能读出「这次要的是哪个窗口」**：panic 行里的 size 就是窗口大小，
+     `0x100000` 对回 `K60_TLMM_SIZE` 只用了一次 `grep`。先前的所有猜测（SMMU、RCG、
+     qbt_boot、配方漂移）都没做这一步。
+  4. **门禁量的是「已应用树」，不是仓库**：尺寸在 `#define` 里，只有打过补丁的树才有；
+     对着仓库量会得到上一轮的预算（P-207 同形），所以 `check-io-map-budget.py`
+     在没有 `--tree` 时明确 skip 而不是猜。
+
+- **关联**：P-63（同一子图，触摸首次撞穿）、P-207（门禁不许判陈旧产物）、
+  P-204（计数不等于语义——这里是「总量」而不是「单次量」）。
+
+- Check: `python3 scripts/check-io-map-budget.py --tree <applied xnu-work>`
+  （registry `id = "P-219"`）。
+
+## P-220 — 门禁的「fallback 到最新的那一份」把别的分支的产物拿来判本树
+
+- **现场**（2026-11-16，main 上 `check-rules.py`）：
+  ```
+  ❌ P-165 构建应用了 232 个补丁，但 series 列了 227 个
+     构建记录 /opt/k60/trees/k60build/bt-out-s1c/mondrian/ipados-16.6.1-20G81/mondrian/xnu-inputs.json
+     说明序列里有补丁的上下文对不上；它和它之后的补丁都没有进树（P-165）。
+  ```
+  main 的 series 是 227 条（含 0621），232 条是 bt 线 `feat/bt-research` 的序列。
+  那条 `xnu-inputs.json` 属于另一个分支的另一个输出树，**和 main 一点关系都没有**，
+  但门禁拿它判 main 并给出了一条完全合理的错误结论。
+
+- **成因**：`scripts/check-build-applied.py` 的 `stamp_path()` 原本是
+  「先找一份与当前 series 逐字节相符的存根；找不到就 `return stamps[0]`（最新那份）」。
+  后半句是为了「让调用者报告真实的不一致而不是沉默」（P-189 的修法），
+  但「不一致」有两种，它只建模了一种：
+  1. 同一份补丁**名字**、内容变了 → 本树序列在构建之后改过，构建不再能证明什么 → **该红**；
+  2. 补丁**名字**都不同 → 这是别的分支/别的板的序列，本树从它推不出任何结论 → **不该判**。
+  旧代码把第 2 种也当第 1 种报，于是「本机没有一次构建能代表当前分支」这件事
+  被翻译成「你的序列里有补丁上下文对不上」。
+
+- **修法**：
+  - 新增 `_stamp_names()` / `_same_series_names()`：只有**补丁名集合完全相同**的存根
+    才有资格被判（名字相同、字节不同 → 真红；名字不同 → 换下一份）。
+  - `stamp_path()` 的第二轮只在 `_same_series_names()` 为真的存根里挑；
+    一份都没有就返回 `None`。
+  - `main()` 在 `None` 且用户没显式给 `--stamp` 时打印
+    「本机没有一次构建记录与当前 series 的补丁名一致，没有构建能证明这棵树来自当前补丁集」
+    并 **skip**，而不是退回日志正则去判另一棵树（那是 P-207 的形状：门禁不许判陈旧/异己产物）。
+  - `scripts/tests/test-check-build-applied.py` 7 例锁住这个边界，
+    其中 `test_another_branchs_stamp_is_not_graded` 直接复现上面的现场。
+
+- **四条教训**：
+  1. **fallback 必须知道「我 fallback 到的是谁」**。`stamps[0]` 是一个对象，
+     不是「一个更旧的自己」；只要写 fallback 就得写「什么情况下 fallback 的结果不适用」。
+  2. **「不一致」要先分类再报**。同一个词（mismatch）覆盖了「本对象变了」和
+     「这不是本对象」两种完全不同的情况，代码里必须分成两个判据。
+  3. **假红的代价和假绿一样高**：假红会让人去改本来没坏的补丁序列，
+     或者像这次一样，让人以为 main 的 227 条序列缺了 5 条。
+  4. **测试要能复现现场的原文**：这个用例里断言的是「必须出现『跳过 P-165』且不出现 232」，
+     而不是「返回 0」——只断言退出码的话，退回日志正则那条路径也能返回 0。
+
+- **关联**：P-189（多个输出树共享机器，取最新存根造成假红——本坑是它的补丁）、
+  P-207（门禁只能判本轮产出的物证）、P-201/P-204/P-211（证据与对象不对应一族）。
+
+- Check: `python3 scripts/tests/test-check-build-applied.py`
+  （registry `id = "P-220"`）。

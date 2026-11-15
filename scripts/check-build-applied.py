@@ -84,15 +84,42 @@ def _stamp_matches(stamp: pathlib.Path) -> bool:
     return True
 
 
+def _stamp_names(stamp: pathlib.Path) -> list[str] | None:
+    """The patch names a stamp recorded, or None when it cannot be read."""
+    try:
+        record = json.loads(stamp.read_text(encoding="utf-8"))
+        return [str(entry.get("name") or pathlib.Path(str(entry.get("path", ""))).name)
+                for entry in record["patches"]]
+    except (ValueError, KeyError, OSError, TypeError):
+        return None
+
+
+def _same_series_names(stamp: pathlib.Path) -> bool:
+    """True when the stamp lists exactly the patch names this checkout lists.
+
+    This is the line between the two situations a stamp mismatch can mean:
+
+      * same names, different bytes -> this checkout's series changed after the
+        build, so the tree no longer proves anything about the current patches;
+        that is a real red and a rebuild is required.
+      * different names -> the stamp belongs to another branch or another
+        board's series (P-189: several output trees share the machine). Nothing
+        about this checkout can be concluded from it, so it must not be graded
+        at all (P-207: never judge a stale artifact).
+    """
+    names = _stamp_names(stamp)
+    return names is not None and names == series_entries()
+
+
 def stamp_path() -> pathlib.Path | None:
     """The newest build stamp that this checkout can actually vouch for.
 
     A stamp only says "these patch bytes were applied". Several checkouts and
     several output trees share the machine, so the newest stamp may belong to a
     different branch: picking it blindly turned a clean tree into a false red
-    (P-189). Choose the newest stamp whose recorded patch bytes equal this
-    checkout's series, and fall back to the newest one so the caller can report
-    the real mismatch instead of silence.
+    (P-189). Prefer a stamp whose recorded bytes equal this checkout's series;
+    failing that, keep only a stamp that lists the same patch names, because
+    only then does a byte difference say something about this checkout.
     """
     stamps = []
     if os.environ.get("K60_OUT"):
@@ -108,7 +135,10 @@ def stamp_path() -> pathlib.Path | None:
     for stamp in stamps:
         if _stamp_matches(stamp):
             return stamp
-    return stamps[0]
+    for stamp in stamps:
+        if _same_series_names(stamp):
+            return stamp
+    return None
 
 
 def applied_count(log: pathlib.Path) -> int:
@@ -204,6 +234,13 @@ def main() -> int:
         stamp = pathlib.Path(args.stamp) if args.stamp else stamp_path()
         if stamp is not None:
             return check_stamp(stamp, args.quiet)
+        if not args.stamp:
+            # No stamp on this machine lists this checkout's patch names, so no
+            # build here can speak for the current series. Falling back to a log
+            # would grade another branch's build (P-189/P-207).
+            print("跳过 P-165 校验：本机没有一次构建记录与当前 series 的补丁名一致，"
+                  "没有构建能证明这棵树来自当前补丁集")
+            return 0
 
     log = pathlib.Path(args.log) if args.log else newest_log()
     want = series_count()

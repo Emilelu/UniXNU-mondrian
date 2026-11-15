@@ -3,7 +3,7 @@
 > 本文件收纳 README 里的详细状态表与阶段性变更摘要。
 > README 只保留设备身份、八步进度、仓库结构与构建入口。
 
-本轮更新时间：2026-11-14
+本轮更新时间：2026-11-15
 
 ---
 
@@ -169,6 +169,47 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 - `docs/research/EIGHT-STEPS.toml`：逐硬件的八步证据。
 - `docs/research/SOURCES.toml`：研究完整性清单。
 - `CREDITS.md`：贡献者与外部来源。
+
+---
+
+## 五、2026-11-15 变更摘要
+
+### 平台身份种子（identity seed）落地并真机验证
+
+- `board.toml` 的 `[payload."adt"]` 增加 `"unique_chip_id" = "required"`；
+  `build-strict.sh` 默认 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 并转发
+  `--unique-chip-id`（`3ea8d71` / `dafa502` / `2f9f991`）。
+- 离线 payload 验证：`unique-chip-id` 5 处、`chip-id` 9 处（此前 0）。
+- `seed-20261115a`（kernel `a07e9565…`、boot.img `1fc1169e…`）真机：
+  `usblog-20261115-155741`，247,731 B / SpringBoard 183 / 无 panic /
+  `no platform identity` 0 命中 → `3ea8d71` 记 `state="booted"`（`3e59ba5`）。
+
+### 上机窗口（2026-11-15）
+
+- `wifi-20261116t2`（固件挪 `__DATA,__const`）：port-not-observed → 固件驻留
+  假设否证，wifi 只剩 DarwinBoot pool/窗口通道方向。
+- `bt-s4c-20261115c`（负向，空 blob）：进桌面，`addon: no GpuAddon property`
+  判据命中、`K60 BT: published local address ee:98:c5:8a:6b:4e`（identity 生效）；
+  新崩溃族 C：backboardd `getBytes:range:`（根因 = `0509` 三属性发成 OSString，
+  已立项 `docs/research/display/BACKBOARD-CRASH-FAMILIES.md`）。
+- `bt-s4b-20261115c`（正向，带 blob）：port-not-observed → 唯一变量 =
+  `patches/bt/0005` 与 blob 的组合，bt 线四 hunk 二分图（h1–h4）已备齐待飞。
+- `usb-20261115c`（mode-2）：boot-and-echo 全流程 PASS（COM5 9.5 s、
+  sent=64 received=64）；`usb-20261115d`（mode-1）：265,561 B / SB 133 /
+  五条 `K60BEACON` 自发信标，主机侧 MI_00=COM6、MI_02=vendor 无驱动（预期）。
+  P1+P2 合体经真机验证，usb 线收工。
+- `thermal-20261115b`（bias=85000）：22 passed / 0 failed、tsens zone 发布
+  `Thermal_Level_Warning=3`；cooling 终局排序 ddr 停核 > cpufreq-cdev（EPSS 只读）。
+
+### 流程与门禁
+
+- P-203：`git worktree prune` 在 linked worktree 里跑会清掉主仓 `.git/worktrees/`
+  下全部管理目录（19 棵全挂、不可逆）——guard 拒 shared-metadata 动词 +
+  `scripts/repair-worktrees.py` 通用修复器（29 例宿主测试）。
+- P-204：判据不能建立在「某个串出现 N 次」上（一天三次同形错误），判据必须
+  自证、指向具体对象、格式串从源码抄。
+- P-205 + ★36 第 7 条：README 的日期、编号、门禁点名必须与 STATUS /
+  HARD-RULES / PITFALLS / build-strict.sh 可对账，新门禁 `scripts/check-readme.py`。
 
 ---
 

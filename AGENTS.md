@@ -157,6 +157,7 @@ prose is a red build, not a wish.
 | Eight-step | `python3 scripts/eight-step-gate.py --build` / `--flash` | ①–⑥ for build, ①–⑦ plus the ⑧ prediction for flash |
 | Porting | `python3 scripts/porting-gate.py --quick` | `porting.toml` matches the official schema; the README table matches the data |
 | Docs | `python3 scripts/check-docs.py` | Link integrity, INDEX coverage, root-doc links, section order, bilingual |
+| README sync | `python3 scripts/check-readme.py` | README/README_EN mutual links, README date not older than STATUS, ★N/P-N range claims equal the real headings, the gate table names the same set as `build-strict.sh` embeds (P-205) |
 | Scope freeze | `python3 scripts/check-scope-freeze.py` | Nothing under a frozen path in `docs/SCOPE-FREEZE.toml` changed since its baseline; frozen areas warn instead of fail |
 | DT asserts | `python3 scripts/check-dt-asserts.py` | Every `property(entry,"X",...)` a driver patch reads exists in `dts/mondrian.dts`; a missing one means the driver returns false and its diagnostics never run (P-147) |
 | Input sync | `python3 scripts/sync-device-input.py --check` | The build input matches the repository; nothing exists in only one of them (iron rule 5) |

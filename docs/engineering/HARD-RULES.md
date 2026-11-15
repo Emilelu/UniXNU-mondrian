@@ -1038,6 +1038,13 @@ for a in d.get('area', []):
    保证详细状态有出口，不会被塞进 README。
 6. **门禁**：`scripts/check-docs.py`，已接入 `gate.py` 的 `[T]` 项，
    并在 `clean_build.sh` / `flash.sh` 开头强制运行。任一失败 = 拒绝构建/刷机。
+7. **日期、编号与门禁表必须可对账**（2026-11-15 补，P-205）：
+   - README「最后更新」不得早于 `STATUS.md`「本轮更新时间」；
+   - README 与 README_EN 写的「铁则 ★1–★N」「坑 P-01–P-M」必须等于
+     HARD-RULES.md / PITFALLS.md 里真实的最大标题号；
+   - README 与 README_EN 的门禁表必须与 `build-strict.sh` 内嵌门禁
+     （`# --- gate-table:BEGIN/END ---` 标记区）同名同集。
+   门禁：`scripts/check-readme.py`。
 
 ### 判别（10 秒）
 

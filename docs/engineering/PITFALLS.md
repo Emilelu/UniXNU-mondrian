@@ -4970,3 +4970,36 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检查由各线的
 `judge-*.py` 自测承担；`docs/engineering/JUDGE-CONTRACT.md` 把「判据必须自证、
 负样本必须来自真实日志」写成契约）
+
+## P-205 — 文档里的日期、编号和门禁点名漂移，check-docs 管不到
+
+2026-11-15 用户指着 README 问「每次合并到 main 的时候 README 里的信息怎么没及时
+更新，包括但不限于八步图」。查完发现三类漂移同时存在，且 `check-docs.py`（★36 的
+兜底门禁）一个都抓不到：
+
+1. **日期漂移**：README 写「最后更新：2026-11-12」，STATUS 写「本轮更新时间：
+   2026-11-14」，而 main 上 11-15 还有 identity seed 等四个提交。
+2. **编号漂移**：README 文档表写「铁则 ★1–★35 / 坑 P-01–P-130」，实际
+   HARD-RULES.md 最大标题是 ★37、PITFALLS.md 是 P-204——这正是 ★36 自己的判词里
+   引过的历史现场（★32/P-127），第二次犯。
+3. **点名漂移**：README「门禁」写「四个检查」并列出 research-gate / porting-gate /
+   render --check，而 build-strict.sh 内嵌的九个检查（build-env / eight-step /
+   kernel-archives / metal-blob / image-args / verify-boot-image / render / docs /
+   readme）大半不在表里，表里却有两个根本没在构建里跑的。
+
+根因：check-docs 只查「链接存在、文件登记、标记块在」——查的是**结构**，而漂移
+发生在**内容**（日期、编号、点名集合）。内容没法用固定值查，只能用**对账**：
+跟另一个文件的日期对、跟真实标题号对、跟 build-strict.sh 的标记区对。
+
+修法：`scripts/check-readme.py`（★36 第 7 条）——
+- README「最后更新」≥ STATUS「本轮更新时间」，EN 日期 == 中文日期；
+- 两份 README 的 ★N / P-M 范围声明 == HARD-RULES/PITFALLS 真实最大标题号；
+- 两份 README 门禁表点名同一组脚本，且必须包含 build-strict.sh
+  `# --- gate-table:BEGIN/END ---` 标记区里的全部门禁，点名的脚本必须真实存在。
+
+教训：**名字、日期、编号是文档里最会撒谎的三类内容**——它们每天变，而手写段落
+没人记得改。任何这类「点名/计数/日期」一旦写进文档，就要同时给它一个能对账的
+机器检查，否则它必然在下一个合并里过期（与 P-204「用计数代替语义」同源：写进
+文档的数字和名字也必须能被自证）。
+
+Check: `python3 scripts/check-readme.py`（registry `id = "P-205"`）

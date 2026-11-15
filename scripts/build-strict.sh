@@ -68,6 +68,10 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 [ -d "$DEV" ] || die "device input $DEV missing"
 [ -d "$BUILD" ] || die "build tree $BUILD missing"
 
+# --- gate-table:BEGIN ---
+# Every check call between these markers is a gate; scripts/check-readme.py
+# reconciles this list against the README gate table (P-205). A new gate here
+# without a README table row fails the registry.
 # A fresh worktree has the code but not the environment (P-185): no Darwin tool
 # shims and an empty fakeroot. Name the missing piece now instead of discovering
 # it 13 minutes into the build as `xcodebuild: command not found`.
@@ -103,6 +107,7 @@ if ! python3 "$REPO/scripts/eight-step-gate.py" --build > "$LOGS/eight-step.log"
 fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
+# --- gate-table:END ---
 
 
 # A missing .config would silently drop every defconfig-driven feature (P-202):
@@ -270,6 +275,7 @@ print("build-strict: manifest", out)
 PY
 
 echo "build-strict: boot.img $BOOT_SHA"
+# --- gate-table:BEGIN ---
 python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
 # The Metal plugin travels inside the kernel as a K60M container. Nothing
 # else inspects that generated table, and on 2026-11-14 its length constant
@@ -286,4 +292,5 @@ fi
 # DarwinBoot ceiling; both boots produced zero console bytes.
 python3 "$REPO/scripts/check-image-args.py" --image "$RUN/boot.img" --board "$REPO/board.toml" \
     | tee "$LOGS/image-args.log" || die "the boot image command line is not the board contract (check-image-args.py)"
+# --- gate-table:END ---
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

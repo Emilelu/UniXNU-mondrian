@@ -5424,3 +5424,56 @@ extern "C" bool pong_smmu_lease_lock(void){
 
 Check: `python3 scripts/tests/test-pong-smmu-lease.py`（wifi 线交付，钉住函数唯一、
 分配先于 null 检查、仍 `IOLockLock`、补丁是 series 最后一项）与 registry `id = "P-215"`。
+
+## P-216 — 固件卷构建不是确定的：三次重建得三个哈希，而手册写着「同源 ⇒ 同字节」
+
+现场（2026-11-16 02:31–02:47，同一检出、同一 pin、无未提交改动）：
+
+| 次 | SOURCE_DATE_EPOCH | FD sha256（前 12） |
+| --- | --- | --- |
+| 基准（已上机验证） | 自然取值 | `4bbe76017eb4` |
+| 重建 1 | 自然取值（uefi HEAD 已多一个提交） | `ce12d145a71e` |
+| 重建 2 | 显式钉住 `1794541119` | `77ad2474a468` |
+| 重建 3 | 自然取值 | `9f20de15388a` |
+
+`docs/engineering/FIRMWARE-REBUILD.md` §2 写的是「`firmware.py:85` 把 `SOURCE_DATE_EPOCH` 固定成 uefi
+仓最后一次提交的时间，所以同样的源码 + 同样的 pin ⇒ 同一个 FD」——**这一句是错的**。
+
+实测根因：两个卷在同一偏移 `0xc8b8` 上都有一个 CodeView 记录，但 `RSDS` 后面的 16 字节
+build-id 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c44205044422e`，后 8 字节
+`4c4c44205044422e` = `"LLD PDB."` 一样）。LLD 的 build-id 由输入文件集合与链接顺序派生，
+不受 `SOURCE_DATE_EPOCH` 影响；而固件卷是 **压缩** 的，一个 GUID 变了就让整个压缩段变了——
+3,145,728 B 里有 453,604 B 不同（1,739 个不连续区间）。
+
+两个后果：
+
+1. **FD 的 sha256 不能当「身份」用。** 它只能当「这一次构建的标识」。任何「两个卷哈希不同 ⇒ 源码不同」
+   的推断都是错的（我就错了一次，差点把 `ce12d145` 归因成 cellular 线的提交）。
+2. **判定一个重建的卷能不能用，只能上机。** 这正是 `FIRMWARE-REBUILD.md` §5 第 4 步写的，
+   只是 §2 把它推翻了。
+
+**已验证的结论**（同一个 payload，只换 FD）：
+
+- `baseline-20261115d` 的 payload 逐字节复用（`fbc87102d1cb10df080d7dc6135e9e5b995e1f791ab5d2aa0a8e37a872271e3f`），
+  只把 FD 换成重建的 `9f20de15388a`，重打 `boot.img`（`51d2053891569eeeb33a9f78989de6d66a111aa594541d9c7c5fb89622b3f3ce`）。
+- 上机（`E:\k60-work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
+  `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 / `menu:` 与 `config: no boot entry` **0 次**。
+- ⇒ **P-154 正式关闭**：从当前 pin 重建的固件卷能找到 payload。
+
+**四条教训**
+
+1. 「确定性」要用两次相同输入的实测证明，不能用「我看到了一个固定时间戳」推出。
+   `SOURCE_DATE_EPOCH` 只能影响它真正被使用的那些字段（`__DATE__`/`__TIME__`、PE 头时间戳），
+   对链接器自己生成的 build-id 无效。
+2. 压缩容器里的小差异会放大成大差异：不要用「哈希不同」反推「源码不同」，
+   要先看差异集中在哪一类字节上（这里是 CodeView/RSDS）。
+3. 一个输出的哈希在构建之间不稳定时，它就不能进 manifest 的 `components`（那里的字段隐含
+   「可比较」的语义），而应该另开一个「本次构建标识」字段。这和 P-214
+   （两个命名空间的指纹不可比）是同一类错的两个方向：那里是名字相同而含义不同，
+   这里是名字相同而稳定性不同。
+4. 手册里的「为什么这件事很要紧」那一节会让人很容易把前提当结论。§2 那句话当时是为了论证「不必重建」，
+   而实际上它只能论证「不必为了可复现而重建」。
+
+Check：`python3 scripts/check-firmware-volume.py`（新）——它不量哈希，只量两件事：①
+`FIRMWARE-REBUILD.md` 不得再出现「同源 ⇒ 同字节」形式的断言；② 任何引用 FD 哈希的
+文档必须同时说明它是「一次构建的标识」而非「身份」。

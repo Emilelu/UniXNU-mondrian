@@ -3,7 +3,7 @@
 > 本文件收纳 README 里的详细状态表与阶段性变更摘要。
 > README 只保留设备身份、八步进度、仓库结构与构建入口。
 
-本轮更新时间：2026-11-15
+本轮更新时间：2026-11-16
 
 ---
 
@@ -171,6 +171,46 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 - `CREDITS.md`：贡献者与外部来源。
 
 ---
+
+## 六、2026-11-16 变更摘要
+
+### 固件卷重建：能用，但不可复现（P-216，P-154 关闭）
+
+同一检出、同一 pin、无未提交改动，三次重建固件卷得到三个哈希
+（`ce12d145a71e` / `77ad2474a468` / `9f20de15388a`）。根因是 LLD 派生的 CodeView
+build-id 不受 `SOURCE_DATE_EPOCH` 影响，而固件卷是压缩的，一个 GUID 变了就重写整个
+压缩段——3,145,728 B 里 453,604 B 不同、1,739 个不连续区间。
+
+**同一 payload 只换卷上机**（`fdtest-20261116a`，`boot.img 51d20538…`，证据
+`usblog-20261116-025525`）：3384 行 / 230,107 B / SpringBoard 129 / `Early boot complete`
+1 次 / `K60DATA mounted` 1 次 / panic 0 / `menu:` 与 `config: no boot entry` 0 次。
+⇒ **P-154 关闭**：从当前 pin 重建的卷能找到 payload。FD 的 sha256 从此只当「这一次构建的
+标识」，不当身份。新门禁 `scripts/check-firmware-volume.py`（9 例测试）。
+
+### wifi 家族七张 0 字节镜像的真因（P-215）
+
+`wifi-20261116c3`（`patches/wifi/0012` 让 `pong_smmu_lease_lock()` 惰性自建锁）上机
+`usblog-20261116-015128`：221,429 B / 3,202 行 / **SpringBoard 132** / panic 0 /
+`:482 K60DATA mounted` / `:972 Early boot complete`。
+
+真因：UFS 的 `hostBringUp()` 取同一把 Apps SMMU 锁，而锁只在 `pong_rpmh_init()` 里分配、
+后者由 `pong_wifi_start_optional()` 调用——UFS 更早。锁为 NULL 时 `pong_smmu_lease_lock()`
+返回 false，UFS 直接 `transportFailure("Apps SMMU lease unavailable")` 放弃 transport，
+没有根设备，内核在 console worker 起来前死掉，日志一个字节都没有。
+
+### series 指纹双命名空间（P-214）
+
+`build-strict.sh` 量的是 series **文件字节**（64 hex），`porting-gate.py` /
+`record-boot.py` 量的是 `names+sizes`（16 hex），两者永远不相等，iron-4/hard-33 在 main
+上恒红。修法：唯一实现 `scripts/series-fingerprint.py` + manifest 带
+`"namespace": "names+sizes"` + 读者拒绝跨命名空间比较。
+
+### 其它
+
+- P-212（把配置打印成证据的日志）、P-213（门禁只读字面量不读变量传播）落账。
+- bt 二分八张矩阵全部实飞：`h34`（h3+h4，不带 h1/h2）能起（SB 128），推翻「致命集是
+  h3×h4」与「h2 是前置」两条推断；唯一站得住的表述是**全量 0005 四者齐备才 silent**。
+- `probe: armed` 与 `[bluetooth] power=` 的缺失是 **h3 单独**造成的可观测性副作用。
 
 ## 五、2026-11-15 变更摘要
 

@@ -20,36 +20,62 @@
   已经包含全部六个 K60 修复（`3d2a9fa` 是它的祖先），重复打 `Boot-Manager.patch` 正是 2026-11-12
   之前的错误做法。
 
-## 2. 它是确定性的（同源 ⇒ 同字节）
+## 2. 它**不是**确定性的（同源也不得同字节）
 
-`firmware.py:85` 把 `SOURCE_DATE_EPOCH` 固定成 uefi 仓最后一次提交的时间
-（`git -C <uefi> log -1 --format=%ct`）。所以**同样的源码 + 同样的 pin ⇒ 同一个 FD**，
-哈希差异只可能来自源码/pin/`board.toml` 的变化。这一点很重要：FD 的 sha256 是一个可用作
-判据的身份，不是随机数。
+`firmware.py:85` 确实把 `SOURCE_DATE_EPOCH` 固定成 uefi 仓最后一次提交的时间
+（`git -C <uefi> log -1 --format=%ct`），但那只影响真正使用它的字段（`__DATE__`/`__TIME__`、
+PE 头时间戳）。**它不影响 LLD 自己派生的 CodeView build-id**，而固件卷是压缩的，一个 GUID 变了
+就重写整个压缩段。
 
-## 3. 现场存在的两个卷
+2026-11-16 02:31–02:47 的实测（同一检出、同一 pin、无未提交改动）：
+
+| 次 | `SOURCE_DATE_EPOCH` | FD sha256（前 12） |
+| --- | --- | --- |
+| 基准（已上机验证） | 自然取值 | `4bbe76017eb4` |
+| 重建 1 | 自然取值 | `ce12d145a71e` |
+| 重建 2 | 显式钉住 `1794541119` | `77ad2474a468` |
+| 重建 3 | 自然取值 | `9f20de15388a` |
+
+逐字节 diff `4bbe7601` 与 `ce12d145`：同尺寸 3,145,728 B，**453,604 B 不同、1,739 个不连续区间**，
+首差 `0xc8b8`、末差 `0x8dbce`。首个差异是 CodeView 记录——两边都有 `RSDS` + 16 字节 build-id，
+但 GUID 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c44205044422e`，
+后 8 字节 `4c4c44205044422e` = `"LLD PDB."` 相同）。
+
+两条后果，写在这里以免再犯（P-216）：
+
+1. **FD 的 sha256 不是「身份」，是「这一次构建的标识」。** 任何「两个卷哈希不同 ⇒ 源码不同」的
+   推断都是错的。
+2. **判定一个重建的卷能不能用，只能上机。** 见 §5 第 4 步。
+
+## 3. 现场存在的卷
 
 | sha256（前 12） | 大小 | 出现在 | 结论 |
 | --- | --- | --- | --- |
-| `cf4485712c29` | 3,145,728 B | 2026-11-12 之后几乎所有镜像（`/mnt/e/k60-work/artifacts/fd/*-cf4485712c29.fd`，建筑入口 `--fd` 的默认归档） | 已验证能找 payload |
-| `4bbe7601 7eb4` | 3,145,728 B | `audio-probe-20261114j` / `-k` / `20261115l` / `-m`（四张） | **重建出来的卷，且上机成功进过 SpringBoard** |
+| `cf4485712c29` | 3,145,728 B | 2026-11-12 之后几乎所有镜像（`/mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，`--fd` 的默认归档） | 已验证能找 payload |
+| `4bbe7601 7eb4` | 3,145,728 B | `audio-probe-20261114j` / `-k` / `20261115l` / `-m` | 重建的卷，j/k 上机进过 SpringBoard |
+| `9f20de15388a` | 3,145,728 B | `fdtest-20261116a`（`/mnt/e/k60-work/artifacts/fd/fresh-9f20de15388a.fd`） | 从当前 pin 重建，**上机进 SpringBoard 129** |
 
-第二行是本节的关键：它证明**重建的固件卷能找到 payload**。
+第三行是 P-154 的终结证据：同一个 payload（`fbc87102…`）只换 FD，`boot.img` 重打成
+`51d20538…`，上机 `E:\k60-work\evidence\usblog-20261116-025525`：3384 行 / 230,107 B /
+SpringBoard 129 / `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 /
+`menu:` 与 `config: no boot entry` **0 次**。
 
-## 4. P-154 现在是什么状态
+## 4. P-154 已关闭
 
 P-154 记录的是 2026-11-12 的实测：重建出来的卷报
 `UNIXNU: config: no boot entry found` / `menu: default 0 'exit'`，也就是 UEFI 侧没找到 payload 里的
 `unixnu.toml`。当时不知道为什么，于是定下「`bootimg --fd /tmp/old-fd-cf448571.fd` 存档变通」。
 
-后来 P-176 找到了其中一半根因：`[firmware].packages` 把 `{tree}/package` 排在
-`{uefi}/Platforms/Xiaomi` 之前，EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的
-`UniXNURamDiskDxe` 不把 initrd 发布成文件系统——payload 自然摸不到。`board.toml:66-75` 现在是修好的
-顺序。
+P-176 找到了根因：`[firmware].packages` 把 `{tree}/package` 排在 `{uefi}/Platforms/Xiaomi` 之前，
+EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的 `UniXNURamDiskDxe` 不把 initrd 发布成
+文件系统——payload 自然摸不到。`board.toml:66-75` 现在是修好的顺序。
 
-所以准确的状态是：**「重建的卷找不到 payload」这条不再无条件成立**——`4bbe7601…` 是修好顺序之后
-重建的卷，它找到了 payload 并进了桌面。仍然没有验证的是：**从当前 pin 重建是否也能找到 payload**，
-以及旧的那几张失败卷具体差在哪一步。
+**2026-11-16 的单变量上机把这条关闭**（§3 第三行）：从当前 pin 重建的卷能找到 payload 并进桌面。
+所以 `--fd` 不再需要指向归档卷；`build-strict.sh` 可以用重建的卷，manifest 的 `components.fd`
+只用来回答「这张图带的是哪一次构建的卷」，不用来回答「是不是同一份固件」。
+
+旧的那几张失败卷具体差在哪一步，已经无法核实——原始失败卷零留存，`4bbe7601` 的首现时间
+（11-13 15:08:56）也早于 P-176 修复（15:13:07）约四分钟。不要再把这条当未结悬案。
 
 ## 5. 下一次重建怎么做（实验协议）
 
@@ -64,9 +90,8 @@ P-154 记录的是 2026-11-12 的实测：重建出来的卷报
 5. 失败时的判别顺序：先看 `UNIXNU: config: no boot entry found` 是否出现（找 payload 失败，P-176 家族），
    再看 `UniXNURamDiskDxe` 有没有打 initrd 追踪行——两个卷用 `strings` 对比这一行，是排查这件事最快的刀。
 
-只有第 4 步通过，才可以把 `build-strict.sh --fd` 的默认值从归档卷换成新卷；在那之前，所有镜像
-继续用 `--fd /mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，并且 `components.fd` 会记录它，
-事后能追出每张图到底带了哪个卷。
+第 4 步通过之后，`build-strict.sh --fd` 就可以用重建的卷（P-154 已于 2026-11-16 关闭）。
+`components.fd` 仍会记录每一次的哈希——但按 §2，它只是「这一次构建的标识」，不是可比的身份。
 
 ## 6. 为什么这件事现在很要紧
 
@@ -90,7 +115,7 @@ P-154 记录的是 2026-11-12 的实测：重建出来的卷报
 
 ## 8. 相关的坑
 
-- **P-154**：重建的卷找不到 payload（本条正在被 `4bbe7601…` 部分推翻）。
+- **P-154**：重建的卷找不到 payload（**已关闭**：根因是 P-176 的包序，`9f20de15388a` 上机验证）。
 - **P-176**：`[firmware].packages` 顺序让 EDK II 编译了陈旧的 `UniXNUPkg`。
 - **P-197**：固件没有 GpuAddon 装载器，`/chosen/memory-map/GpuAddon` 恒全零——「固件搭车」的假设
   在没有装载器时不可能成立。

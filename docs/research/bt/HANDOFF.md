@@ -397,9 +397,9 @@ This line, next in order:
 
    | 阻断 | 落点（`0511` 之后，`bsd/dev/qbt_k60.c`） | 做法 |
    |---|---|---|
-   | 1 `k60.stage` 默认 1 | `:2094-2103`（`qbt_k60_start()`） | 默认 0 = 完整阶梯；`k60bt_stage=1` 或任一 `k60bt_step=N` 才进 S1c 探针，`k60bt=0` 仍整条关闭；删掉 `if (!k60.stage) return;` |
-   | 2 `k60.warm_boot` 默认 false | `:1815-1827`（`k60_bt_power_on()`） | `return -EOPNOTSUPP` 改为打 `power: cold boot, rails not voted (k60bt_warm=0)` 后继续；该函数只记录上电请求、从不投票 |
-   | 3 `native_gpu_addon_stage` 门闩 | `:2002-2016`（`k60_worker()`） | 门条件变 `native_gpu_addon_stage < 1 && (!&k60_bt_blob_len || k60_bt_blob_len == 0)`——P-197 之后固件已在核内，不必等 GPU addon 挂载；先判地址再解引用，没接 `0510` 的构建仍走旧等待 |
+   | 1 `k60.stage` 默认 1 | `:2096-2105`（`qbt_k60_start()`） | 默认 0 = 完整阶梯；`k60bt_stage=1` 或任一 `k60bt_step=N` 才进 S1c 探针，`k60bt=0` 仍整条关闭；删掉 `if (!k60.stage) return;` |
+   | 2 `k60.warm_boot` 默认 false | `:1818-1827`（`k60_bt_power_on()`） | `return -EOPNOTSUPP` 改为打 `power: cold boot, rails not voted (k60bt_warm=0)` 后继续；该函数只记录上电请求、从不投票 |
+   | 3 `native_gpu_addon_stage` 门闩 | `:2006-2015`（`k60_worker()`） | 门条件变 `native_gpu_addon_stage < 1 && (!&k60_bt_blob_len || k60_bt_blob_len == 0)`——P-197 之后固件已在核内，不必等 GPU addon 挂载；先判地址再解引用，没接 `0510` 的构建仍走旧等待 |
    | 4 `/chosen/unique-chip-id` 缺失 | `main` `3ea8d71` + `dafa502`（不在本补丁） | `build-strict.sh` 默认 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 并转发 `--unique-chip-id` |
    | S4c 死判据 | `bsd/dev/qbt/btqca.c:764-771` | `bt_dev_info`（level 6）之后补 `qbt_linux_log(hdev->q, 1, "QCA controller version 0x%08x", soc_ver);`，闸门不放宽 |
 
@@ -410,4 +410,13 @@ This line, next in order:
    变了所以要重建）。判据：负向 `addon: no GpuAddon property`；正向 `linked blob bytes=1027584 records=106`
    → `serving 201560 0` → `power=1 result=0 baud=… firmware=…` + `QCA controller version 0x…` →
    不再出现 `no platform identity`。
+
+10. **受控对照对已重出（2026-11-15 16:25）**：`bt-s4b-20261115c`（正向）/ `bt-s4c-20261115c`（负向），
+    HEAD `5190337`，series 229 / `67baff88…bca`，frozen 两者逐字节相同（`0254f9d5…585e`，同一基线），
+    30 项 / 583 B（`k60bt=1`），`verify-boot-image: OK`、`image-arg-audit: OK`。
+    | 镜像 | boot.img | kernel_built | payload_kernel | adt | bt_blob |
+    |---|---|---|---|---|---|
+    | `bt-s4b-20261115c` | `2dc1054e…968` | `8fc5ab58…45e`（106,541,056 B） | `96401d1f…c906` | `dbcab086…1afbf` | `febdc20d…2037`（1,027,584 B） |
+    | `bt-s4c-20261115c` | `dbf089c0…8d03` | `5046e338…029e`（105,508,864 B） | `a352bf57…5a20` | `3042f2ca…2c8a` | （空，单字节 stub） |
+    待飞窗口；上机前先把 item 9 的落点对照表给 Lead 抽查。
 

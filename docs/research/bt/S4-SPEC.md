@@ -604,6 +604,13 @@ bash scripts/build-strict.sh bt-s4c-20261115a \
 `bt-s4b-20261115b` / `bt-s4c-20261115a` 是 `0511` 之前的受控对，只剩 §6.5 的证明价值；
 `bt-s4-20261114b` 是旧基线（series 227、旧 `build-strict.sh`），按 P-201 不再作为对照。
 
+**已重出（2026-11-15 16:25）**：HEAD `5190337`，series 229 / `67baff88…bca`，frozen 同一基线
+`0254f9d5…585e`，30 项 / 583 B。正向 `bt-s4b-20261115c`：boot.img `2dc1054e…968`、kernel `8fc5ab58…45e`
+（106,541,056 B）、payload_kernel `96401d1f…c906`、adt `dbcab086…1afbf`、bt_blob `febdc20d…2037`。
+负向 `bt-s4c-20261115c`：boot.img `dbf089c0…8d03`、kernel `5046e338…029e`（105,508,864 B）、
+payload_kernel `a352bf57…5a20`、adt `3042f2ca…2c8a`、bt_blob 空。`verify-boot-image` 与
+`image-arg-audit` 双双 OK；registry 84 条 0 失败（P-165 确认 229 个补丁全部应用）。
+
 | 级 | 镜像 | 参数 | 期望（关键行） |
 |---|---|---|---|
 | S4- | `bt-s4c-20261115c` | `k60bt=1` | 负向对照：`[bluetooth] addon: no GpuAddon property`，随后回落到 vnode 根（同样找不到），控制台完整、无 panic |

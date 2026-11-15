@@ -21,6 +21,12 @@ test-k60-bt-0509-properties.py 25 例全过），bt 下一张全量图会带着�
 队列空一轮、设备回 Android 有 adb 时拉取，拉完通知我做符号化（scripts/check-crash-symbols.py 已写好待命）；
 springboard 线类型编码线索已收录 §3.3；§3.5 是本族判定表。
 
+状态（2026-11-15 23:15 更新）：Lead 收下 04f965b（§3.5 判定表）与 97d6645（符号化脚本），
+确认「以后按表判、不再口头判」。C 族现在还判不了，因为**能判的镜像一张都还没飞**：已飞的 h1/h3/h13
+与负向 s4c 都不带 ad49ff2，只能当基线（§3.5 基线对照）；要判的是「全量 0511 + ad49ff2」那张，由 bt 线出图。
+P-165/P-166 的 stale stamp 不为刷新而专门重建（P-207/P-208 教训：门禁只判本轮物证，为变绿造镜像不产生新知识）；
+dyld 缓存暂时拉不了，原因是路径而非窗口（§5）。新增 §6「0 字节日志的判决时效」——跨线教训，判 C 族前必须先过这一关。
+
 结构性结论：B 与 C 是同一个根——「**向 IORegistry 发布此前不存在的内容，会激活 backboardd 里
 一直死着的 Apple 代码路径**」。B 死在新路径本身，C 死在新内容与 Apple 代码的**类型约定不匹配**
 （DT 平面属性应为字节数组，发成了字符串）。这对 display 线是旁证：交付形态 A（默认不发
@@ -93,6 +99,12 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 基线日志 `E:/k60-work/evidence/usblog-20261115-162553/console.log`（3535 行，19 个 backboardd 化身全灭）。
 下面每条都写明「哪一行日志、用什么命令数出来」，修复图落地后照表判即可。
 
+基线对照（Lead 2026-11-15 23:15 提供，本线复核字节数与命中数）：四张已飞的 bt 二分图**都不带** ad49ff2，
+只能当基线——h1 `E:/k60-work/evidence/usblog-20261115-211515/console.log`（245,272 B）、h3 `usblog-20261115-212105`（232,888 B）、
+h13 `usblog-20261115-212643`（237,533 B），三张 `getBytes:range:` 各 **36** 次；负向 s4c 37 次。
+非 bt 的两张对照 adsp-c `usblog-20261115-213413`（214,232 B）与 adsp-e `usblog-20261115-223916`（220,234 B）都是 **0** 次——
+崩溃只在 bt 的 0509 身份发布链上出现，与内核版式无关（进一步支持 §3.3 归因）。判定仍以 §3.5 命令 A 的五数为准。
+
 命令 A（数指纹，cwd = 证据目录，L=console.log）：
 
 ```sh
@@ -153,10 +165,40 @@ C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5
 
 ## 5 缺口
 
-- **20G81 dyld shared cache 缺失**，0x19cb…/0x1a21…/0x1c38… 与私段 0x10… 帧全部无法反推符号。Lead 2026-11-15 19:24：设备在 fastboot 无 adb，拉取排进下一段有 adb 的窗口（设备回 Android 时）；由 Lead 执行，拉完通知我，我再做符号化。清单：
+- **20G81 dyld shared cache 缺失**，0x19cb…/0x1a21…/0x1c38… 与私段 0x10… 帧全部无法反推符号。Lead 2026-11-15 23:15 复核：**现在拉不了，原因不是窗口而是路径**——本机 `E:/k60-work/caches/` 不存在，
+  `/mnt/e` 深度 4 内 `dyld_shared_cache*` 零命中；那 3.2 GB 在 unixnu 分区 `/dev/block/sda38` 的 SystemOS 窗口里，
+  XNU 起来时它是根卷但 XNU 没有 adb；要取只能在 Android 侧对 sda38 做**只读** dd，并先用
+  `drivers/NativeUfs/RootLayout.h` 的 SHNGROOT 窗口表算出偏移、读前算 sha256 对表（绝不写）。等队列空一轮由 Lead 执行。
+  符号化脚本 `scripts/check-crash-symbols.py` 已待命，**不是阻塞项**——`.map` 只在「修完仍崩、需要点名 selector」时才真正需要。
+  清单（将来取到后按此核对）：
   - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e（iOS 16.6.1 完整版约 3.2 GB；设备上可能略小，以实际大小为准）
   - /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e.map（约 300–600 MB，若存在）
   - 可选 dyld_shared_cache_arm64e.symbols（设备上通常不存在，有则一并拉）
   - 目的地：E:/k60-work/caches/20G81/；符号化工具建议 ipsw（dyldsym 子命令）或 jtool2。
 - 私段帧 0x10111f930/0x100b04930/0x100aa9930 归属（backboardd 主二进制 vs libpong-ui.dylib）同样依赖上述 cache；但即便归 backboardd 主二进制，也不改变 §3.3 的归因（我们无 getBytes 形状）。
+
+## 6 0 字节日志的判决时效（跨线教训；Lead 2026-11-15 指派）
+
+- 现象：console.log **0 字节** + 设备 autoreset 回 fastboot。看起来像「内核根本没跑」，实际最常见的是
+  「内核跑了，但死在 USB 控制台把日志送出去之前」。
+- 机制（adsp-e 实测 `E:/k60-work/evidence/usblog-20261115-223916/console.log`，3,312 行）：
+  `K60 USBLOG: st=2 ev=0 cfg=0 dtr=0` 在 :248，直到 `K60 USBLOG: st=4 ev=595 cfg=1 dtr=1`（:477）主机才真正连上，
+  紧接着 `K60DATA mounted ro=0 fstype=apfs` 在 :485。根挂载阶段及其之前的任何 panic 都留不下一个字节。
+- 实测案例（Lead 2026-11-15 报告，wifi 线复核）：mhi3 / mhi4 / z0 / t2 / c0 五张 wifi 图全部 silent，
+  真因不是内核版式，而是 wifi defconfig 指名的 Data UUID 是 32 MiB seed 的
+  `6DCCF70A-6FD6-403E-ACED-95313CD7CBB8`（patches/wifi/0007-configs-mondrian-wifi-defconfig.patch:52），
+  真机 Data 卷是 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`（configs/mondrian_defconfig:54，`CONFIG_XNU_OWNER_DATA_UFS=y` :47）；
+  drivers/NativeRamBlock/NativeRamBlock.cpp:443-447 的 `waitForMatchingService(..., 5s)` 等不到就返回 0
+  （日志 `NativeRamBlock: Data UUID %.36s not published within 5s`），根挂载随之失败并自 panic。
+- 判据（**先配置、后版式，别先造机制**）：
+  1. 先确认它真是 0 字节：`find /mnt/e/k60-work/evidence -maxdepth 2 -name console.log -size 0`
+     （目前 41 份，如 `usbcmd-test-210941`、`usblog-20261112-180735`）——0 字节与「全 0 命中」是两件事。
+  2. 第一步 diff **构建配置**：`git -C /mnt/e/hackios/k60-display show <tag>:configs/mondrian_*_defconfig | grep -E 'OWNER_DATA_(MOUNT|UFS|VOLUME_UUID)'`，
+     与 configs/mondrian_defconfig:43/47/54 对照；UUID 必须是真机已安装 UFS Data 的 `1BCD69FF-…`，不能是 seed 的 `6DCCF70A-…`。
+  3. 第二步才 diff 内核版式（__TEXT/__DATA/payload 结构），第三步才怀疑某个驱动。
+- 门禁：Lead 已在 main 落 `scripts/check-defconfig-uuid.py`（P-209）。本分支 rebase 到的 origin/main 2ce089a 里还没有这个文件，
+  等它进 main 后本线门禁自动覆盖；此段按 Lead 口径记录，暂不引用行号。
+- 与本族的关系：A/B/C 三族都要求镜像至少活到 backboardd 起来；0 字节族死在更早阶段，
+  用 §4 的判据会得到「getBytes=0、SpringBoard=0、first frame=0」的假健康。所以判 C 族前先过一遍本节。
+
 

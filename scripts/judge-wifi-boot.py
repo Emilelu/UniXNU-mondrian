@@ -21,7 +21,13 @@ Usage:
     python3 scripts/judge-wifi-boot.py <console.log> [--bytes N]
     python3 scripts/judge-wifi-boot.py <capture-dir>        # uses capture.json
 
-Exit codes: 0 alive, 1 driver-dead, 2 silent, 3 unknown, 4 usage error.
+Exit status (the machine-readable half of the API):
+  0 alive, 1 driver-dead, 2 silent, 3 unknown, 4 usage error.
+
+The verdict line also carries the code, `[exit N]`, because a pipeline hides
+it: `python3 ... | head` reports head's status (0), not the judge's.  Read
+`$?` from a bare invocation, or `${PIPESTATUS[0]}` in bash when the output
+has to be filtered.
 """
 from __future__ import annotations
 
@@ -194,7 +200,8 @@ def main() -> int:
     data = load_text(log)
     verdict, notes = classify(data, declared)
     print(f"wifi-boot-judge: {verdict} ({log.name}, {len(data)} bytes on disk"
-          + (f", capture.json declares {declared}" if declared is not None else "") + ")")
+          + (f", capture.json declares {declared}" if declared is not None else "")
+          + f") [exit {verdict_exit(verdict)}]")
     for n in notes:
         print("  -", n)
     for line in next_step(verdict, notes):

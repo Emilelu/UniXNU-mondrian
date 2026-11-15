@@ -11,6 +11,7 @@ Run: python3 scripts/tests/test-judge-wifi-boot.py
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -22,7 +23,24 @@ JUDGE = ROOT / "scripts" / "judge-wifi-boot.py"
 # Real captures.  The judge must classify the actual evidence, not a paraphrase
 # of it; when the evidence tree is absent these cases report SKIP instead of
 # pretending to have run.
-EVIDENCE = pathlib.Path("/mnt/e/k60-work/evidence")
+def evidence_root() -> pathlib.Path:
+    """The capture tree, spelled for whichever side runs the suite.
+
+    WSL sees /mnt/e, Windows sees E:/, and the two log names are the same from
+    both sides; without this the four real captures silently degrade to SKIP
+    on the host that also happens to be the one that flies the images.
+    """
+    override = os.environ.get("K60_EVIDENCE")
+    candidates = [pathlib.Path(override)] if override else []
+    candidates += [pathlib.Path("/mnt/e/k60-work/evidence"),
+                   pathlib.Path("E:/k60-work/evidence")]
+    for cand in candidates:
+        if cand.is_dir():
+            return cand
+    return candidates[-1]
+
+
+EVIDENCE = evidence_root()
 SILENT_CAPTURES = [
     ("mhi4 is silent", EVIDENCE / "usblog-20261115-002243"),
     ("mhi3 is silent", EVIDENCE / "usblog-20261115-002804"),
@@ -61,7 +79,12 @@ def main() -> int:
         nonlocal failures, cases
         cases += 1
         rc, first, out = run_judge(target)
-        ok = rc == want_rc and want_word in first
+        # The exit code is this judge's whole API: the flight queue reads it to
+        # pick the next image without a human in the loop.  The verdict line
+        # repeats the code because a pipeline (a trailing "| head" or "| tee")
+        # replaces it with the last stage's status, which is how the code was
+        # once read as 0 on a silent capture.
+        ok = rc == want_rc and want_word in first and f"[exit {want_rc}]" in first
         print(f"{'PASS' if ok else 'FAIL'} {label}")
         if not ok:
             failures += 1
@@ -134,6 +157,19 @@ def main() -> int:
     empty = tmp / "empty.log"
     empty.write_bytes(b"")
     check("an empty log is silent", 2, "silent", empty)
+
+    # --- the code still names itself when a pipeline swallows it -----------
+    cases += 1
+    # Model the failure that once read a silent capture as "exit 0": the code
+    # was measured through a pipeline, so only the text survived.  A consumer
+    # that drops the exit code must still be able to read it off the line.
+    rc, first, _out = run_judge(empty)
+    if rc == 2 and "[exit 2]" in first:
+        print("PASS a consumer that drops the exit code still reads it from the line")
+    else:
+        failures += 1
+        print("FAIL a consumer that drops the exit code still reads it from the line")
+        print(f"      rc={rc} first={first!r}")
 
     total = cases
     if failures:

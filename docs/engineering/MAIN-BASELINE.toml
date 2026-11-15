@@ -199,5 +199,10 @@ note = "P-215: the Apps SMMU lease lock is allocated on first use. patches/wifi/
 
 [[entry]]
 sha = "3ef02b8"
-state = "build-only"
-note = "P-217：固件构建改从仓库记录的 Mu_Basecore pin 6f805f2 + 五个 [firmware].patches 施加，不再依赖只存在于本机的 3d2a9fa。改了 board.toml 的 [firmware].patches 与固件手册，内核输入未变；欠账：需用 pin+五补丁 重建的卷打一张镜像上机确认（判据 Early boot complete + SB>=100）。"
+state = "booted"
+kernel_sha256 = "11dd70a4e467d36936a9e06ba2dbaf01bdaa03b5558ee5e15371eb99fe958efa"
+image = "E:/k60-work/artifacts/fdtest-20261116b/boot.img"
+image_sha256 = "55d066f538a10ca82f339babae69f6daa988a0583f823887c5e2d4001a8b7503"
+console = "E:/k60-work/evidence/usblog-20261116-034848/console.log (3440 lines, SpringBoard 132)"
+note = "P-217：固件构建改从仓库记录的 Mu_Basecore pin 6f805f2 + 五个 [firmware].patches 施加，不再依赖只存在于本机的 3d2a9fa。用这个 pin+五补丁 重建的卷（sha256 b20a2c5c3df30c2461459a32b1f459eb55f75549b15090f679dc0159440af2ff，3,145,728 B）换进 baseline-20261115d 的 payload 上机：3440 行 / 231,570 B / SpringBoard 132 / Early boot complete 1 次 / K60DATA mounted 1 次 / panic 0 / menu: 与 no boot entry 0 次。⇒ 干净 clone 能构建出可启动的固件卷。"
+

@@ -215,3 +215,18 @@ note = "合入 feat/adsp-handoff-owner 的 PAS1 platform provider（K60AdspPlatf
 sha = "caad898"
 state = "build-only"
 note = "P-219/P-220。P-219 把 osfmk/arm/io_map.c 的 IO_MAP_SIZE 从 8 MiB 提到 32 MiB：全内核共享这一个 IO 子图，K60 各驱动实测已占 7.23 MiB，蓝牙阶梯再要 1 MiB TLMM 窗口就会在 k60_bt_power_on() 里 kmem_alloc(io_submap, ..., KMA_NOFAIL) panic，现象是控制台起来前的 0 字节日志（bt-d4-late 铁证 usblog-20261116-055237:486）。P-220 修 check-build-applied.py 的 fallback：补丁名集合不同的存根属于别的分支，必须 skip 而不是判红。改了 patches/xnu/series 与内核字节，欠账：需要用这一版重建 bt-d5（全量 0005 + pong_bt_late=1）上机确认不再 panic。"
+
+[[entry]]
+sha = "b48613d"
+state = "booted"
+kernel_sha256 = "7402a7c8353477bb3223f4c98162257139176e1459988e9c20169d80fe1518db"
+image = "baseline-20261116a"
+image_sha256 = "f32458c4c356fa734e6987917281bf5b4ae9631460864476d06019457eb1ef35"
+series_count = 227
+series_sha256 = "59d8037521a5b07b"
+console = "E:/k60-work/evidence/usblog-20261116-073639/console.log"
+note = """main with P-219 (32 MiB io_submap) and P-220 (stamp selection). 3,061 lines /
+214,218 B, SpringBoard 132, `K60DATA mounted` 1, `Early boot complete` 1, no
+panic markers. The same series is what bt-d5-iomap proved lets the bluetooth
+ladder reach the QCA controller, so this entry also carries that evidence.
+"""

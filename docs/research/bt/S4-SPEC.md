@@ -783,6 +783,14 @@ h1/h4）**到桌面**——证据 `usblog-20261115-235417`（console 3,233 行 /
 h4 单独也能起、全量 silent ⇒ 凶手是 h4 × {h1,h2,h3} 的交互；此前「必须含 h3 且含 h2 或 h4」的
 推断被 h23 推翻。下一张只出 **h124（h1+h2+h4）**：能起 ⇒ 致命组合是 h3+h4，再出 h34 收口；
 h124 silent ⇒ 致命组合是 h4+h1 或 h4+h2，用 0512 的三个开关在 h124 上逐条关断，比再切 hunk 快。
+**h124 决定性图（2026-11-16 00:20 构建，待飞）**：0511i = h1+h2+h4（不含 h3），
+H124_EQUALS_FULL_MINUS_H3 + H124_CHECK_OK；boot.img `b6d293e5…e641`（201,887,744 B）、
+kernel `a6980b9c…0f06`、payload_kernel `0f73563d…87a5`、payload `86d8bb57…2080`、
+adt `4db35f3c…d12a`、frozen `b0c08d35…4792`、series 230 / `21eda89a…2240`、blob
+`febdc20d…`、30 参数 / 583 B、head `f742288`、dirty 0；verify-boot-image OK +
+image-arg-audit OK。series 为 230 是因为 0512 已在序列尾部。判读：能起 ⇒ 致命组合是 h3+h4，
+下一张 h34 收口；silent ⇒ 致命组合是 h4+h1 或 h4+h2，用 0512 三个开关在 h124 上逐条关断。
+
 ### 7.3 静默死亡的机制假设与判据（2026-11-16）
 
 九次飞行的矩阵把致命集合收敛为 **h4 × {h1,h2,h3} 的交互**：h1/h3/h4/h12/h13/h23 都能起桌面，

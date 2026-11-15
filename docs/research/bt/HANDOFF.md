@@ -515,6 +515,16 @@ This line, next in order:
       0512 的三个开关（`pong_bt_smmu=0` / `pong_bt_rcg=0` / `pong_bt_noboot=1`）逐条关断。
       变体 `0511i-k60-bt-bisect-h124.patch`（2,686 B，sha256 `83e80a10…bbe3`，
       H124_EQUALS_FULL_MINUS_H3 + H124_CHECK_OK），series 换 hunk 的提交 `9b4bc59`。
+    - `bt-bisect-h124`（0511i = h1+h2+h4，不含 h3；commit `9b4bc59`，构建 00:20）：boot.img
+      `b6d293e5cfe56903bf787fd48f56332bd763a9dac233e0753e66a5f099eec641`（201,887,744 B）、
+      kernel_built `a6980b9c4e79912e26834e4df1f17f544e80521c6f3e3e724c0d1d6fa2630f06`、
+      payload_kernel `0f73563d7b8c7008889d65ac19458dce27363c08e2e2671f025ebc35fc2b87a5`、
+      payload `86d8bb5716f7c0e623c587945a18593697e3567812b307326618ca3ebdd82080`、
+      adt `4db35f3c932f9bfe3b36e301c1295e6f0e6bebd8299cdf4c3833d38d60f9d12a`、
+      frozen `b0c08d35a4970b6df82c788732d85823c045c6d94c31b19458dd6f540cd34792`、
+      series 230 / `21eda89a147c96533ae42cbfcaf67f8393806c8ab9e9ebd49cf4c1dc891a2240`、
+      blob `febdc20d…2037`、30 参数 / 583 B `k60bt=1`、head `f742288`、dirty 0；
+      verify-boot-image OK + image-arg-audit OK。series 是 230 而不是 229，因为 0512 已在尾部。
 
 15. **0512 完整阶梯延期启动（`pong_bt_late=1`）与 §7.3 机制假设（2026-11-16 凌晨）**
     - 问题不在哪一行而在时机：`qbt_k60_start()` 由 `bsd/kern/bsd_init.c:1352` 早启动调用，

@@ -760,6 +760,21 @@ This line, next in order:
       孪生 `0007` 同步为字节相同；整条 series 重放仍 **APPLIED=233 BAD=0**（此时 series 里没有 0513，
       重放脚本用的是含 0513 的临时序列）。host 测试 28 例通过，其中新增一条不变式：
       **0513 与 0621 永不同时出现在一条 series 里**（d5/d6 各自一种合法状态）。
+27. **d5 实飞：panic 消失，停点移到 `qbt_boot()` 内部（2026-11-16 06:41–06:46）**
+    - 证据 `E:/k60-work/evidence/usblog-20261116-064150`：`491C62DE…DFB3E`（= `bt-d5-iomap`）、
+      bootAccepted true / exit 0 / returnedToFastboot false；capture `captured-budget-complete`、
+      bytes 224,863、portSeen/portOpened true、openErrors 0、stopReason `budget`、panicMarker null；
+      console.log 3,241 行、sha256 `917B5AA9…A20B`、SpringBoard **132**、`getBytes:range` **0**、
+      panic 标记 0、心跳 16 条（t=15…240）。
+    - **0621 有效**：d4 在 `:484` 之后必现的 `K60PANICFMT` / `K60PANICARGS kmem_alloc(…, 1048576,
+      0x100021): failed with 3` 全部消失；`:486`/`:487` SMMU 旁路、`:488` dma+smmu ready、
+      `:489` uart pins parked、`:493` clocks vote、`:494` `full: qbt_boot enter` 依次出现。
+    - **新停点**：`:707` `QCA controller version 0x12110201`、`:708` `addon: serving 146068`（rampatch）、
+      `:724` `addon: serving 6442`（NVM），此后到采集结束（约 240 s）`[bluetooth]` 再无输出，
+      且 `k60_power_result()` 的 `power=%u result=%d …` 一次没打印 ⇒ `qbt_boot()` 在窗口内没返回。
+      （`k60_log` 只放行 level ≤ 3，`bt_dev_info` 是 level 6，被静音；判据力在缺 `power=` 行。）
+    - 系统其余部分正常：132 行 SpringBoard、`bluetoothd`/`bluetoothuserd` 已起、`:1459` Server attached。
+    - 下一张图：`qbt_boot()` 内每个阶段一条 level-1 行 + 一条硬超时保证 `power=` 一定打印。
 
 
 

@@ -1146,6 +1146,61 @@ Lead 在已应用树上把可解析的调用点全部量了一遍（P-219，main
 且出现 `power=1 result=…` 或 `full:` 后续行。仍 panic 在同一行 ⇒ 看 `K60PANICARGS` 的地址回查
 是哪个窗口；d5 与 d6 都死 ⇒ 一起看 unmappable 分支的 `KMA_DATA` 旗标与 `VM_WIMG_IO`。
 
+### 7.13 d5 图 `bt-d5-iomap` 实飞：panic 消失、阶梯越过 io_submap，停在固件下载之后（2026-11-16 06:41–06:46）
+
+**证据** `E:/k60-work/evidence/usblog-20261116-064150`：`boot.json` imageSha256
+`491C62DE4C217CE63659DEFD0272584D205C828F3F432F377D5902C2679DFB3E`（= `bt-d5-iomap`）、
+bootAccepted true / bootExitCode 0 / returnedToFastboot false；
+`capture.json` state `captured-budget-complete`、bytes **224,863**、portSeen/portOpened true、
+openErrors 0、stopReason `budget`、panicMarker null；
+`console.log` **3,241 行**、sha256 `917B5AA981AB978564560839F78C1833F6242483E9F3A463FE2861B64CA8A20B`、
+SpringBoard **132** 行、`getBytes:range` **0** 次、panic 标记 0（`K60PANICFMT` / `K60PANICARGS` /
+`panic(` / `Debugger called` 全 0；`:475` 的 `K60PANIC: restart windows ready` 是重启窗口标记，
+不是 panic）、心跳 16 条（t=15…240）。
+
+**阶梯逐行**（行号即 console.log 行号）：
+
+| 行 | 内容 | 说明 |
+|----|------|------|
+| :192 | `addon: linked blob bytes=1027584 records=106` | 内嵌 blob 链入 |
+| :193 | `late: armed, waiting for the K60DATA deploy point` | 0512 门闩挂起 |
+| :482 | `late: released by the K60DATA deploy point` | K60DATA deploy 点放行 |
+| :483 | `late: released, starting the full ladder` | |
+| :484 | `full: power_on enter` | |
+| :485 | `power: cold boot, rails not voted (k60bt_warm=0)` | d4 的 panic 就在这行之后 |
+| :486 | `smmu plan sid 0x483 slot 110 bank 72 … dma 0x90bc20000` | 0508 的 SMMU 旁路 |
+| :487 | `smmu sid 0x483 … SMR 0x80000483 S2CR 0x48 CBAR 0x10000 CBA2R 0x1 SCTLR 0` | 回读确认 |
+| :488 | `full: dma buffer and smmu bypass ready` | **d4 在这里 panic（kmem_alloc 1 MiB）** |
+| :489 | `full: uart pins parked` | TLMM 1 MiB 窗口已拿到 |
+| :493 | `clocks vote cbcr core=0x4220 … se=0x80004220` | GCC 2 MiB 窗口已拿到 |
+| :494 | `full: qbt_boot enter` | 进入固件下载 |
+| :707 | `QCA controller version 0x12110201` | 115200 下读到 SOC 版本 |
+| :708 | `addon: serving 146068 0` | rampatch（`wcnhpbtfw*.tlv`）从内嵌 blob 供出 |
+| :724 | `addon: serving 6442 0` | NVM（`*nv.bin`）从内嵌 blob 供出 |
+
+**结论一：0621（`IO_MAP_SIZE` 8→32 MiB）解决了 panic。** 同一配方（含 0621、不含 0513）下，
+d4 里 `:484` 之后必然出现的 `K60PANICFMT … kmem_%s(%p, %zd, 0x%x)` 与
+`K60PANICARGS kmem_alloc(…, 1048576, 0x100021): failed with 3 @vm_kern.c:178` 全部消失，
+smmu/gcc/tlmm 三个大窗口都拿到了 VA，阶梯推进到 `qbt_boot enter`。⇒ §7.10 的根因判断成立，
+且 0621 这条修法在真实设备上足够。
+
+**结论二：新的停点在 `qbt_boot()` 内部、NVM 供出之后。** 到采集窗口结束（06:46:14，约 240 s）
+为止：`[bluetooth]` 只有 15 行，最后一行是 `:724` 的 NVM serving；`k60_power_result()` 的
+`printf("[bluetooth] power=%u result=%d baud=%u firmware=%s\n", …)`（`patches/xnu/0500` 的
+`k60_power_result`）**一次也没有出现** ⇒ `qbt_boot()` 在窗口内没有返回。注意 `k60_log` 只打印
+`level <= 3`（`patches/xnu/0500` `k60_log`：`if (level <= 3) printf(...)`），
+`bt_dev_info` 走 `qbt_linux_log(..., 6, ...)` 被静音 —— 所以「没有更多行」本身不代表卡住，
+**真正有判据力的是缺 `power=` 行**（它是无条件 `printf`）。同一时刻系统其余部分完全正常：
+桌面 132 行 SpringBoard、16 条心跳（t 到 240）、`bluetoothd`/`bluetoothuserd` 都起来了
+（`:1044`/`:1053`），userspace 仍是 `:1345` marconi-bt 匹配不到 device tree 服务、
+`:1346` MAC 全 0、`:1347` 拿到 `ee:98:c5:8a:6b:4e`、`:1459` Server attached 进消息循环。
+
+**下一张图要加的观测（而不是换修法）**：`qbt_boot()` 里每个阶段一条 level-1 行
+（rampatch 之后 / NVM 之后 / `qca_set_bdaddr` 之后 / 返回前），再加一条硬超时保证
+`k60_power_result()` 一定会打印 —— 现在 `QBT_COMMAND_TIMEOUT` 是 10 s（`patches/xnu/0500`），
+若某条命令反复重试则永远走不到结果行。这样下一张图能直接读出「卡在 rampatch→NVM 之间」
+还是「卡在 bdaddr」。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

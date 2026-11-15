@@ -4,6 +4,12 @@ Lead 在 reply 里批准了案 A：固件把 modem 镜像摆到固定物理地�
 从 201,891,840 B 涨到约 235,446,272 B（+32 MiB）。这份文档是给固件侧开工用的**接口契约**，
 不是实现：本线不碰 `uefi-mondrian`、不改 `make-pong-adt.py`、不出镜像。
 
+> **2026-11-16 已被路线 D 取代两处，其余仍然有效。** ① 输入形态：卷里放的是 27 个
+> `modem.bNN.lzma`（LZMA-alone，13 B 头），不是未压缩文件；② 卷容量：仍是 192 MiB，
+> boot.img 仍是 201,887,744 B，不扩容。§1.3/§1.4/§1.5 的 224 MiB 与 +32 MiB 算术保留作
+> 已评估的历史方案（A-208 后备档）。以 `15-FIRMWARE-CARRIER-LOADER.md` §1.7/§1.8 与
+> `13-FIRMWARE-ACCEPTANCE.md` 的表 A 为准。
+
 一句话结论：
 
 - **输入**：payload FAT 的 `EFI/UniXNU/MODEM/modem.bNN`，27 个**平铺文件**；不要容器头，不要压缩；

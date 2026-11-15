@@ -210,13 +210,14 @@ modem 第一版**不能**改成容器，原因很硬：容器记录里没有 `pa
 bash gate.sh <payload.img> <boot.img> <console.log> <uefi-mondrian 检出目录>
 ```
 
-2026-11-15 用合成输入（见 `13-FIRMWARE-ACCEPTANCE.md` §5.1）干跑，结果 **18 PASS / 0 FAIL / exit 0**：
+2026-11-16 用路线 D 的合成输入（见 `13-FIRMWARE-ACCEPTANCE.md` §5.1）干跑，结果 **19 PASS / 0 FAIL / exit 0**：
 
 ```text
-PASS A1 payload=224 MiB
-PASS A2 boot.img=235446272 B
-PASS A3 MODEM 目录 27 个文件、名字正确
-PASS A4 每个文件大小==段表 bytes
+PASS A1 payload=192 MiB
+PASS A2 boot.img=201887744 B
+PASS A3 MODEM 目录 27 个 .lzma 文件、名字正确
+PASS A4 27 个 LZMA 头合法、声明长度==段表 bytes
+PASS A6 声明长度之和=109060761
 PASS A5 ADT K60ModemImage 16 字节、值合法
 PASS B1 ImageCarrierLib 存在
 PASS B2 DarwinBoot 调用点
@@ -231,12 +232,13 @@ PASS C2 拷贝/清除/空洞数字
 PASS C3 区间发布行
 PASS C4 内核侧 carrier present
 PASS C5 内核侧 plan rows=30
-TOTAL PASS=18 FAIL=0
+TOTAL PASS=19 FAIL=0
 ```
 
-这遍干跑的价值是**门禁自身先被验收**：合成输入能全绿，说明 18 条断言都可以机械判，
-固件 commit 一到就能立刻跑，不需要临时写脚本。它同时抓出并修掉了 `gate.sh` 三个自身缺陷
-（`mcopy -s` 套子目录、A5 heredoc 吞脚本、`mcopy` 覆盖提示挂起），细节见 13 号 §5.1。
+这遍干跑的价值是**门禁自身先被验收**：合成输入能全绿，说明 19 条断言都可以机械判，
+固件 commit 一到就能立刻跑，不需要临时写脚本。它同时抓出并修掉了 `gate.sh` 四个自身缺陷
+（`mcopy -s` 套子目录、A5 heredoc 吞脚本、`mcopy` 覆盖提示挂起、A3 的 `sed` 加在 `cut` 之前），
+并用四组负例证明 A4/A6 不是恒绿，细节见 13 号 §5.1。
 
 真跑时把四个参数换成固件产出的真实文件；额外还要过 `verify-boot-image.py` 与
 `check-image-args.py`（`pong_modem` 已在白名单），以及 12 号 §6 的内核侧五行判据。
@@ -248,7 +250,7 @@ TOTAL PASS=18 FAIL=0
 | 属性长度 | 16 B `(base, span)`；`span` 是窗口、不是拷贝量（§1.3） |
 | modem 输入形态 | 27 平铺文件 + 30 行段表，批准；容器语法留给 ADSP 第二版（§2.5） |
 | 本轮范围 | 只做 modem；ADSP 已走内核内嵌 blob，DXE 只服务 modem（§4） |
-| 下一步 | DXE 由 Lead 落（uefi-mondrian）；落地后给 uefi commit、27 文件清单与大小、boot.img sha256，本线用真实输入跑 `gate.sh`，18 行全绿再谈上机 |
+| 下一步 | DXE 由 Lead 落（uefi-mondrian）；落地后给 uefi commit、27 文件清单与大小、boot.img sha256，本线用真实输入跑 `gate.sh`，19 行全绿再谈上机 |
 
 待命期间不出镜像、不碰 `uefi-mondrian`（边界不变）。
 

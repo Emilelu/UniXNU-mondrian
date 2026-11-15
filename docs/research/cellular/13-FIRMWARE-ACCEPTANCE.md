@@ -19,16 +19,22 @@ repo 指 `/mnt/e/hackios/k60-cellular`。
 
 | 行 | 断言 | 工具与命令（WSL） | 通过标准 |
 | --- | --- | --- | --- |
-| A1 | payload 卷恰好 224 MiB | `stat -c %s "$PL"` | `== 234881024` |
-| A2 | boot.img 恰好 235,446,272 B | `stat -c %s "$BOOT"` | `== 235446272`（固件若改 boot.img 头布局须先改此数并说明理由，未改前不许跳） |
-| A3 | `EFI/UniXNU/MODEM/` 恰好 27 个文件、名字集合正确 | `mcopy -s -i "$PL" ::EFI/UniXNU/MODEM /tmp/accept-modem` 后 `ls` 与生成器 manifest 的名字列 diff | 行数 27 且 diff 空 |
-| A4 | 每个文件大小 == 段表 `bytes`（拷贝量 109,060,761 B 的总和由表保证） | 抽出的 27 个文件逐个 `stat -c %s`，与 `gen-modem-table.py --manifest` 输出 diff | diff 空 |
+| A1 | payload 卷恰好 192 MiB（路线 D：不扩容） | `stat -c %s "$PL"` | `== 201326592`（若最终改走 A-208 扩容档则为 218,103,808，二者只留一种） |
+| A2 | boot.img 恰好 201,887,744 B | `stat -c %s "$BOOT"` | `== 201887744`（A-208 档为 218,664,960；固件若改 boot.img 头布局须先改此数并说明理由，未改前不许跳） |
+| A3 | `EFI/UniXNU/MODEM/` 恰好 27 个文件，名字 = 段表名字各加 `.lzma` | `mcopy -o -s -i "$PL" '::EFI/UniXNU/MODEM/*' /tmp/accept-modem` 后 `ls` 与 `gen-modem-table.py --manifest` 名字列（加 `.lzma`）diff | 行数 27 且 diff 空 |
+| A4 | 每个文件 13 B LZMA 头合法：props 首字节 `0x5D`、8 B 声明长度 == 段表 `bytes`、声明长度不是 `0xFFFFFFFFFFFFFFFF` | `python3 scripts/check-modem-lzma.py --dir /tmp/accept-modem --manifest /tmp/accept-want.txt --sum` | rc 0，`failures=0` |
+| A6 | 27 个声明长度之和 == 109,060,761（等于 C2 的 `copied`） | 同 A4 的 `--sum` 输出末行 `declared-total=` | `== 109060761` |
 | A5 | ADT `/chosen/memory-map` 有 `K60ModemImage` 属性，长度恰 16 字节，值 ∈ {全零, 精确区间} | 抽出 `kernel.macho.adt`，用 `scripts/pong_adt_contract.py` 的 `parse_adt` 解出 `/chosen/memory-map['K60ModemImage']` | rc 0，`len == 16`，`(base, span) ∈ {(0,0), (0x8bc00000, 0x13200000)}` |
 
 说明：**区间起止逐字节**由两条独立证据共同咬死——A5 是离线产物（16 字节值），
 表 C 的 C1/C3 是运行时日志（字面地址串）。两者都必须过。
 **拷贝量 / 清除量 / 空洞**不在产物层查：产物层只能证明「带了哪些文件、各多大」，
 装载行为由表 B（源码：无整窗清零）与表 C（日志：`copied 109060761, zeroed 211012967, gaps 790528`）咬死。
+
+路线 D（2026-11-16 定案，见 `15-FIRMWARE-CARRIER-LOADER.md` §1.8）：payload 里存的是 **LZMA 压缩**
+的 27 个文件，所以 A4 判的不再是「文件大小 == 段表 bytes」，而是「**头里的声明长度** == 段表
+`bytes`」。`copied` 的含义随之变成「解压后写入窗口的字节总和」，仍由 C2 的日志字面量咬死。
+A6 把「声明长度之和」与 `copied` 对齐，防止打包时漏改某个文件的 8 B size 字段却恰好总量对上。
 
 ## 二、表 B：固件源码（对 uefi-mondrian checkout，`FWREPO`）
 
@@ -70,17 +76,20 @@ PASS=0; FAIL=0
 ok()  { echo "PASS $*"; PASS=$((PASS+1)); }
 bad() { echo "FAIL $*"; FAIL=$((FAIL+1)); }
 
-# ---- 表 A：构建产物 ----
-[ "$(stat -c %s "$PL" 2>/dev/null)" = "234881024" ] && ok "A1 payload=224 MiB" || bad "A1 payload=224 MiB"
-[ "$(stat -c %s "$BOOT" 2>/dev/null)" = "235446272" ] && ok "A2 boot.img=235446272 B" || bad "A2 boot.img=235446272 B"
+# ---- 表 A：构建产物（路线 D：payload 内是 27 个 .lzma 文件）----
+[ "$(stat -c %s "$PL" 2>/dev/null)" = "201326592" ] && ok "A1 payload=192 MiB" || bad "A1 payload=192 MiB"
+[ "$(stat -c %s "$BOOT" 2>/dev/null)" = "201887744" ] && ok "A2 boot.img=201887744 B" || bad "A2 boot.img=201887744 B"
 rm -rf /tmp/accept-modem && mkdir -p /tmp/accept-modem
 mcopy -o -s -i "$PL" '::EFI/UniXNU/MODEM/*' /tmp/accept-modem >/dev/null 2>&1 </dev/null
 python3 "$REPO/scripts/gen-modem-table.py" "$FW" --manifest /tmp/accept-want.txt >/dev/null
 if [ "$(ls /tmp/accept-modem 2>/dev/null | wc -l)" = "27" ] &&
-   diff -q <(ls /tmp/accept-modem | sort) <(cut -d' ' -f1 /tmp/accept-want.txt | sort) >/dev/null; then
-  ok "A3 MODEM 目录 27 个文件、名字正确"; else bad "A3 MODEM 目录 27 个文件、名字正确"; fi
-( cd /tmp/accept-modem && for f in modem.b*; do stat -c "$f %s" "$f"; done | sort ) > /tmp/accept-got.txt
-diff -q /tmp/accept-want.txt /tmp/accept-got.txt >/dev/null && ok "A4 每个文件大小==段表 bytes" || bad "A4 每个文件大小==段表 bytes"
+   diff -q <(ls /tmp/accept-modem | sort) <(cut -d' ' -f1 /tmp/accept-want.txt | sed 's/$/.lzma/' | sort) >/dev/null; then
+  ok "A3 MODEM 目录 27 个 .lzma 文件、名字正确"; else bad "A3 MODEM 目录 27 个 .lzma 文件、名字正确"; fi
+python3 "$REPO/scripts/check-modem-lzma.py" --dir /tmp/accept-modem --manifest /tmp/accept-want.txt --sum > /tmp/accept-a4.txt 2>&1
+if [ "$?" = "0" ]; then ok "A4 27 个 LZMA 头合法、声明长度==段表 bytes";
+else bad "A4 27 个 LZMA 头合法、声明长度==段表 bytes: $(grep -m1 '^FAIL' /tmp/accept-a4.txt)"; fi
+[ "$(sed -n 's/^declared-total=//p' /tmp/accept-a4.txt)" = "109060761" ] &&
+  ok "A6 声明长度之和=109060761" || bad "A6 声明长度之和=109060761"
 rm -f /tmp/accept.adt
 mcopy -o -i "$PL" ::EFI/UniXNU/Payloads/kernel.macho.adt /tmp/accept.adt >/dev/null 2>&1 </dev/null
 python3 - <<'PYEOF' >/tmp/accept-a5.txt 2>&1
@@ -141,22 +150,25 @@ echo "TOTAL PASS=$PASS FAIL=$FAIL"
 
 - 工具链可用：`mdir`/`mcopy` 正常，`parse_adt` 能解开当前 `kernel.macho.adt`，
   `/chosen/memory-map` 目前只有 `name` 键；
-- A1/A2 红（当前 payload 201,326,592 / boot.img 201,891,840，载具版应为 234,881,024 / 235,446,272）；
+- A1/A2 红（当前 payload 201,326,592 / boot.img 201,891,840；路线 D 下这两个数就是载具版的正确值，
+  见 §一 的说明）；
 - A3/A4/A5 红（无 `MODEM/` 目录、无 `K60ModemImage` 属性）；C1–C5 红（尚无载具日志）。
 
-固件侧交付后，这张表必须变成 **18 行全 PASS**（A1–A5 五行、B1–B6 六行、C1 三行、C2–C5 四行）才能合。
+固件侧交付后，这张表必须变成 **19 行全 PASS**（A1–A6 六行、B1–B6 六行、C1 三行、C2–C5 四行）才能合。
 
-### 5.1 2026-11-15 的 dry run：先证明门禁本身能跑
+### 5.1 2026-11-16 的 dry run（路线 D）：先证明门禁本身能跑
 
-用一套合成输入冒充「载具已交付」的产物：224 MiB FAT payload（`EFI/UniXNU/MODEM/` 27 个文件、
-大小取自段表；`EFI/UniXNU/Payloads/kernel.macho.adt` 带 16 B `K60ModemImage`）、235,446,272 B 的
-假 `boot.img`、7 行假 console 日志、只含 `ImageCarrierLib` 与三行 D3 的假 fwrepo。整套脚本原样跑：
+用一套合成输入冒充「载具已交付」的产物：192 MiB FAT payload（`EFI/UniXNU/MODEM/` 27 个
+`modem.bNN.lzma`，8 B 声明长度改成段表真值；`EFI/UniXNU/Payloads/kernel.macho.adt` 带 16 B
+`K60ModemImage`）、201,887,744 B 的假 `boot.img`、7 行假 console 日志、只含 `ImageCarrierLib`
+与三行 D3 的假 fwrepo。整套脚本原样跑：
 
 ```txt
-PASS A1 payload=224 MiB
-PASS A2 boot.img=235446272 B
-PASS A3 MODEM 目录 27 个文件、名字正确
-PASS A4 每个文件大小==段表 bytes
+PASS A1 payload=192 MiB
+PASS A2 boot.img=201887744 B
+PASS A3 MODEM 目录 27 个 .lzma 文件、名字正确
+PASS A4 27 个 LZMA 头合法、声明长度==段表 bytes
+PASS A6 声明长度之和=109060761
 PASS A5 ADT K60ModemImage 16 字节、值合法
 PASS B1 ImageCarrierLib 存在
 PASS B2 DarwinBoot 调用点
@@ -171,10 +183,13 @@ PASS C2 拷贝/清除/空洞数字
 PASS C3 区间发布行
 PASS C4 内核侧 carrier present
 PASS C5 内核侧 plan rows=30
-TOTAL PASS=18 FAIL=0
+TOTAL PASS=19 FAIL=0
 ```
 
-这一遍先抓出脚本自身的三个缺陷，均已在本节脚本里改掉。按「症状 / 真因 / 修法」记，便于收进 PITFALLS
+A6 排在 A5 之前是脚本结构使然：A5 用 heredoc 调 `parse_adt`，新加的 A6 只能接在 A4 之后、
+heredoc 之前，否则又会踩下面的缺陷 2。
+
+这一遍先抓出脚本自身的四个缺陷，均已在本节脚本里改掉。按「症状 / 真因 / 修法」记，便于收进 PITFALLS
 （P-204 家族：门禁必须能跑第二遍，且每条断言都要分得清「没检查」与「检查通过」）：
 
 **缺陷 1：`mcopy -s` 把源目录套成子目录**
@@ -202,7 +217,44 @@ TOTAL PASS=18 FAIL=0
 - 真因：`mcopy` 默认对已存在文件问 `Overwrite? (y/n)`；门禁在非终端 stdin 下运行时读不到回答。
 - 修法：目标先 `rm -f`/`rm -rf`，`mcopy` 加 `-o`，并把 stdin 重定向成 `</dev/null`（双保险）。
 
-修完后同一套合成输入连跑两遍都是 `TOTAL PASS=18 FAIL=0`、exit 0。
+**缺陷 4：A3 的 `sed` 写在 `cut` 之前，后缀加到了大小上**
+
+- 症状：27 个文件名本身正确，A3 却恒报 `FAIL`；把两边的中间结果打印出来才看到左边是
+  `modem.b01.lzma`、右边是 `modem.b01`。
+- 真因：`sed 's/$/.lzma/' /tmp/accept-want.txt | cut -d' ' -f1` 先把 `.lzma` 追加到整行末尾
+  （`modem.b01 7204.lzma`），再按空格取第一列，后缀被丢掉。
+- 修法：先 `cut -d' ' -f1` 取名字列，再 `sed 's/$/.lzma/'` 加后缀，最后 `sort`。
+
+修完后同一套合成输入连跑两遍都是 `TOTAL PASS=19 FAIL=0`、exit 0。
+
+**A4/A6 的负例**（2026-11-16 实测，证明这两行不是恒绿）：从合成 payload 里解出 27 个文件，
+分别破坏一处再跑 `check-modem-lzma.py`，每次都只报那一条、退出码 1；恢复后 `failures=0`、rc 0。
+
+```txt
+--- negative 1: declared size off by one on modem.b07 ---
+FAIL modem.b07.lzma declared 114687, table says 114688
+files=27 failures=1
+rc=1
+--- negative 2: declared size UNKNOWN on modem.b19 ---
+FAIL modem.b19.lzma declared size is UNKNOWN (rewrite the 8 B field)
+files=27 failures=1
+rc=1
+--- negative 3: wrong props byte on modem.b19 ---
+FAIL modem.b19.lzma properties 0x5c, expected 0x5d
+files=27 failures=1
+rc=1
+--- negative 4: extra file in payload ---
+FAIL modem.b99.lzma not in manifest
+files=27 failures=1
+rc=1
+--- positive control ---
+files=27 failures=0
+declared-total=109060761
+rc=0
+```
+
+负例 4 是补的：A3 只判「27 个且名字对」，若打包多塞一个文件、同时少一个正确文件，A3 仍会红，
+但 `check-modem-lzma.py` 自己也要能报「manifest 之外的文件」，否则 A4 与 A3 的覆盖面不重合。
 
 合成输入与准备脚本见 `14-DXE-REQUEST.md` §5；真跑必须换成固件 commit 产出的真实 payload/boot/日志。
 

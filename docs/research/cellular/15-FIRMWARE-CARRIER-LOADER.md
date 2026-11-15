@@ -4,7 +4,7 @@
 - **日期**：2026-11-15（2026-11-16 补 §1.7 容量约束与 §1.7.1 LZMA 三问、按落地版改写 §1.5/§5.5/§5.6、改 §7 第 1 条）
 - **实现 Owner**：uefi-mondrian 线（Lead 排期）；**验收 Owner**：本线（用 13 号门禁）
 - **勘察版本**：`uefi-mondrian` `main` @ `9b79562`（工作树只有 6 个子模块脏，无源码改动）
-- **相关**：`12-DXE-CONTRACT.md`（为什么是库调用）、`13-FIRMWARE-ACCEPTANCE.md`（18 行门禁）、`14-DXE-REQUEST.md`（需求与裁决）、`06-MODEM-PAS.md`（内核侧）
+- **相关**：`12-DXE-CONTRACT.md`（为什么是库调用）、`13-FIRMWARE-ACCEPTANCE.md`（19 行门禁）、`14-DXE-REQUEST.md`（需求与裁决）、`06-MODEM-PAS.md`（内核侧）
 
 本文所有行号都相对 `9b79562`。每条断言后面带 `文件:行`，或明确写「此文件不存在，需新建」。
 
@@ -306,6 +306,142 @@ Lead 2026-11-16 05:10 选定 D 之前要求先证明「EDK2 的 `LzmaUefiDecompr
 因此优先取 `.bin`。裁决「文件名不带 `.bin`」指的是 **payload 里的落盘名**，数据源必须继续用
 `.bin` 逐字节副本——谁去准备 payload assets，就得照这个来。
 
+### 1.8 D 路线：解压到固定物理地址（2026-11-16 定案）
+
+Lead 2026-11-16 05:38 定路线 D。本节把「GetInfo 预检 → 解压返回 SUCCESS → 失败不发布」三条
+安全规则落成可判定门禁，每条带 `文件:行`；命名与落盘结构见 §1.8.5；13 号门禁 A3/A4 的替换
+文字见 §1.8.6。**本节仍是规格，拷贝与解压代码尚未写**（Lead 要求路线定案后再写）。
+
+#### 1.8.1 一个段文件的完整流程
+
+1. 打开 `EFI\UniXNU\MODEM`；`modem.b01.lzma` 不在 ⇒ 唯一可继续分支（§2.4 第 1 步，日志
+   `no carrier in payload, skipped`）。
+2. 读该文件全部内容入池（最大 `modem.b23.lzma` 37,475,838 B；源必须整块，理由见 §1.8.7）。
+3. **规则一** `LzmaUefiDecompressGetInfo` 预检（§1.8.2）：四个条件同时成立才允许解压。
+4. **规则二** `LzmaUefiDecompress` 直接解压到 `0x8bc00000 + paddr - MODEM_IMAGE_BASE`（§1.8.3）：
+   只接受 `RETURN_SUCCESS`。
+5. 解压成功后 `ZeroMem` 该段的 bss 部分（`memsz - filesz`，§2.4 第 5 步）。
+6. 27 段全绿后一次性打 C2 行，再按 §3 发布属性；任何一步失败 ⇒ **不发布**、`goto Fail`（§1.8.4）。
+
+#### 1.8.2 规则一：GetInfo 预检（解压前，四条全成立才允许解压）
+
+`LzmaUefiDecompressGetInfo (IN CONST VOID *Source, IN UINT32 SourceSize, OUT UINT32 *DestinationSize,
+OUT UINT32 *ScratchSize)` — `Mu_Basecore/MdeModulePkg/Library/LzmaCustomDecompressLib/LzmaDecompress.c:137-156`。
+
+| 条件 | 判据 | 依据 |
+| --- | --- | --- |
+| a | `SourceSize >= 13` **由我们判** | `:146` 只有 `ASSERT (SourceSize >= LZMA_HEADER_SIZE)`，release 构建不执行，漏判则 `:148` 越界读 8 B |
+| b | 返回 `RETURN_SUCCESS` | `:148` 读 8 B 声明长度；`:149-151` `DecodedSize > MAX_UINT32` ⇒ `RETURN_UNSUPPORTED`（`xz --format=lzma` 默认写 `0xFFFFFFFFFFFFFFFF`，**27 个实测全是**，不改写则每个文件都在这里被拒） |
+| c | `*DestinationSize == 段表 bytes`（相等，不是 ≥） | 实测声明偏大 65,536 B 时 `LzmaDecode` 仍 `res=0`、`decoded` 恰为真实长度（`E:/k60-work/artifacts/cap/harness5.c`）⇒ 偏大抓不住 |
+| d | `*ScratchSize <= 64 KiB` | `:14` `SCRATCH_BUFFER_REQUEST_SIZE = SIZE_64KB`、`:154` 原样回填；我们给 64 KiB 静态缓冲，EDK2 若改成更大值必须在这里红 |
+
+通过后把 `DestinationSize` 记成「应写字节数」——它同时是 §2.4 第 4 步的循环上界、13 号 A4 的
+判据、以及 C2 行 `copied` 的累加项。
+
+#### 1.8.3 规则二：解压返回 SUCCESS（解压中，唯一可接受的返回值）
+
+`LzmaUefiDecompress (Source, SourceSize, Destination, Scratch)` — `:182-219`：
+
+- `:200-201` `DecodedBufSize = GetDecodedSizeOfBuf (Source)`、`EncodedDataSize = SourceSize - 13`；
+- `:203-213` `LzmaDecode (Destination, &DecodedBufSize, Source + 13, &EncodedDataSize, Source,
+  `LZMA_PROPS_SIZE, LZMA_FINISH_END, &Status, &AllocFuncs.Functions)`；
+- `:215-219` `Status == SZ_OK ? RETURN_SUCCESS : RETURN_INVALID_PARAMETER` —— **不区分
+  `SZ_ERROR_DATA` / `SZ_ERROR_INPUT_EOF` / `SZ_ERROR_MEM`**。所以门禁只认 `RETURN_SUCCESS`，
+  其余一律拒启动（P-204：不许把「没检查」当成「检查通过」）。
+
+`Destination` 可以直接是窗口物理地址，不需要中转（§1.7.1 的实测复核）：
+
+- `Sdk/C/LzmaDec.c:1229-1230` `p.dic = dest; p.dicBufSize = outSize;` ⇒ 解码字典就是调用方给的缓冲区；
+- 唯一的堆分配是概率表：`:1228 → :1133 ISzAlloc_Alloc (alloc, numProbs * sizeof (CLzmaProb))`，
+  实测 8,128 项 × 2 B = **16,256 B**，落在 `Scratch`（`:195-198` 把 `Scratch` 当 `ISzAlloc` 的
+  bump 缓冲，`SzAlloc` 见 `LzmaDecompress.c:31-50`）；
+- 实测：`dest` 钉在 `0x700000000000` 且紧接 `PROT_NONE` 页，解 `modem.b23` 40,935,488 B 逐字节
+  相等、保护页未 fault；27 个文件合计 109,060,761 B 全部成功（`E:/k60-work/artifacts/cap/harness2.c`
+  – `harness4.c`，用 EDK2 原文件编）。
+
+三条必须写进代码的补充判据：
+
+1. **窗口是「非缓存」，不是「不可执行」**：`Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c:31`
+   用 `UNCACHED_UNBUFFERED`；`Silicon/Silicium/SiliciumPkg/Include/Library/MemoryMapLib.h:100-110` 把
+   `UNCACHED_UNBUFFERED_XN` 与 `UNCACHED_UNBUFFERED` 定义成同一个
+   `ARM_MEMORY_REGION_ATTRIBUTE_UNCACHED_UNBUFFERED`；`Mu_Basecore/UefiCpuPkg/Library/ArmMmuLib/AArch64/ArmMmuLibCore.c:93-94`
+   对它是 `TT_ATTR_INDX_MEMORY_NON_CACHEABLE | Permissions`，而 `Permissions` 只在 `DEVICE` /
+   `WRITE_BACK_XP` 分支非零（`:66-78`）⇒ **窗口页属性没有 XN 位，既不需要也无法在解压前「清 XN」**。
+   真正相关的是写直达：`:877 MAIR_ATTR (TT_ATTR_INDX_MEMORY_NON_CACHEABLE, MAIR_ATTR_NORMAL_MEMORY_NON_CACHEABLE)`
+   ⇒ 解压写进去立刻对其它 master 可见，不需要 `FlushRange`（`DarwinBoot.c:47-59` 是缓存版写法，本路线不用）。
+2. **Scratch 耗尽会静默失败**：`LzmaDecompress.c:31-50` 的 `SzAlloc` 是 bump 分配器，不够时
+   `ASSERT (FALSE)` 后 `return NULL` ⇒ `LzmaDec_AllocateProbs` 回 `SZ_ERROR_MEM` ⇒ 包装层只剩
+   `RETURN_INVALID_PARAMETER`。release 构建 ASSERT 不生效，所以不能靠「没崩」判断成功。
+3. **解压后无法从返回值得知写了多少字节**：`LzmaUefiDecompress` 的 `DecodedBufSize` 是局部变量、
+   不出参（`:200`、`:203`），`LzmaDecode` 的 `*destLen`（`LzmaDec.c:1234`）也被丢弃 ⇒ 「实际写入 ==
+   「段表 bytes」只能靠规则一的 `DestinationSize` 与构建期 CRC32 兜住（§1.7 代价三）。**不要**
+   读窗口回比——那是 306 MiB 非缓存读。
+
+#### 1.8.4 规则三：失败不发布（解压后）
+
+| 结果 | 固件动作 | 日志字面量（13 号 `grep -F` 锚点） |
+| --- | --- | --- |
+| 27 段全部 `RETURN_SUCCESS` 且 CRC 全对 | 写 `K60ModemImage`（§3.2）并打 C2 行 | `modem-image: 30 segments, copied 109060761, zeroed 211012967, gaps 790528 untouched` |
+| `GetInfo` 任一条件不成立 | 不写属性、`goto Fail` | `modem-image: modem.bNN header says X, table says Y` |
+| `LzmaUefiDecompress != RETURN_SUCCESS` | 不写属性、`goto Fail` | `modem-image: modem.bNN did not decompress (%r)` |
+| CRC32 不符 | 不写属性、`goto Fail` | `modem-image: modem.bNN crc 0x… expected 0x…` |
+| 目录不存在 | 不写属性、继续启动 | `modem-image: no carrier in payload, skipped` |
+
+半写窗口在 PAS1 认证前无害，两条理由：窗口不是 Boot Services 资源，没人会 `FreePages` 它（§2.1）；
+内核侧在 PAS1 认证成功前不会 publish mpss（`drivers/PongCellular/K60ModemPas.c` 的
+`k60_modem_pas_probe` 是唯一发布者）。但**日志必须能把「载具没实现」与「解压失败」分开**——
+这正是 P-197 的形状：有 `copied` 行却 `carrier absent` 是最严重的一类。
+
+#### 1.8.5 payload 里的命名与落盘结构
+
+**结论：27 个段各一个文件，名字 = 段表 `name` + `.lzma`**，即 `EFI\UniXNU\MODEM\modem.b01.lzma`
+… `modem.b30.lzma`。`modem.b14/b21/b30` 是 bss-only（`bytes == 0`），没有文件，直接 `ZeroMem`。
+
+| 选项 | 结论 | 理由 |
+| --- | --- | --- |
+| 逐段 `.lzma`（选定） | 27 个文件 | 段表仍是唯一数据源（`gen-modem-table.py --manifest` 只多一个后缀）；每段独立校验、独立 CRC；单文件最大 37.5 MB |
+| 单个 `modem.lzma` 容器 | 否决 | 要新增容器头（P-169 自造字段表）；整包 48.6 MB 必须一次性入池；一段坏要整包重来；CRC 只能全窗一个 |
+
+落盘要点：
+
+- 文件内容 = `xz --format=lzma -9` 的原始输出，**但 8 B size 字段必须改写成真实 `bytes`**
+  （`LzmaDecompress.c:148` 读它；默认 `0xFFFFFFFFFFFFFFFF` 会被 `:149-151` 拒）。
+- 不加外层头、不加扩展名以外的元数据；13 B 头（5 B props + 8 B size）就是格式本身。
+- FAT 4 KiB 簇：27 个文件 48,591,795 B ⇒ 卷内占 **48,652,288 B**（pad 60,493）；192 MiB 卷
+  `free` 94,990,336 ⇒ 余 **46,338,048 B**。
+- props 首字节实测全为 `0x5D`（lc=3 lp=0 pb=2）；打包工具必须保留原 props，不许重编码。
+- 数据源仍是 `/mnt/e/k60-work/firmware/modem` 的 `.bin` 副本（CRLF 陷阱见 §1.7 末），压缩是
+  **打包期**动作，不进仓库。
+
+#### 1.8.6 13 号门禁 A3/A4 的替换文字
+
+给 13 号表 A 直接替换的五行（A1/A2 走 D 仍是 192 MiB 档；**A-208 的 218,103,808 / 218,664,960
+不再使用**）：
+
+| 行 | 断言 | 工具与命令（WSL） | 通过标准 |
+| --- | --- | --- | --- |
+| A1 | payload 卷恰好 192 MiB | `stat -c %s "$PL"` | `== 201326592` |
+| A2 | boot.img 恰好 201,887,744 B | `stat -c %s "$BOOT"` | `== 201887744` |
+| A3 | `EFI/UniXNU/MODEM/` 恰好 27 个文件，名字 = manifest 名字列各加 `.lzma` | `mcopy -o -s -i "$PL" '::EFI/UniXNU/MODEM/*' /tmp/accept-modem` 后 `ls` 与 `gen-modem-table.py --manifest` 名字列（加 `.lzma`）diff | 行数 27 且 diff 空 |
+| A4 | 每个文件 13 B 头合法、props 首字节 `0x5D`、8 B 声明长度 == 段表 `bytes` | `python3 scripts/check-modem-lzma.py --dir /tmp/accept-modem --manifest <manifest>` | rc 0；任一文件声明长度 ≠ `bytes`、props ≠ `0x5D`、size == `0xFFFFFFFFFFFFFFFF` 即 rc 1 |
+| A6 | 头里声明长度总和 == 109,060,761（= C2 的 `copied`） | 同 A4 脚本的 `--sum` 输出 | `== 109060761` |
+
+**「拷贝字节数 == 段表 bytes」这句话在 D 下作废**，改成「`GetInfo` 的 `DestinationSize` ==
+「段表 `bytes`，且解压返回 `SUCCESS`」。C2 的 `copied 109060761` 现在指「解压后写入的字节总和」，
+判据仍是日志字面量（13 号 C2）。
+
+#### 1.8.7 D 的新代价：DXE 堆峰值多 37.5 MB（不改 ABL、不改 boot.img）
+
+- 压缩源必须整块入池：`LzmaUefiDecompress` 要完整 `Source`（`:200-201` 用 `SourceSize` 算
+  `EncodedDataSize`，`:203` 把 `Source` 当 props），不能像 §2.4 第 4 步那样 64 KiB 分块 ⇒ 峰值 =
+  最大单文件 `modem.b23.lzma` **37,475,838 B**。
+- 与 DarwinBoot 自己读内核的 105,508,864 B 池**同时存在**（`:699` 读内核、`:821` 才释放，而载具
+  插在 `:721` 之后）⇒ 峰值 ≈ 105.5 + 16 KB + 37.5 = **143 MB**，DXE 堆 384 MiB
+  （`MemoryMapLib.c:76-83`）够，但这是 D 唯一的固件侧内存代价。
+- 目标侧零缓冲（直接写窗口）⇒ §2.2「禁止中转缓冲」仍成立：被禁止的是 39 MB 的**目标**块，不是
+  37.5 MB 的**源**块。
+- 代价二（§1.7 的「§2.4 分块循环作废」）现在明确：§2.4 第 4 步的 64 KiB 分块只用于**读文件**，
+  写入改为「整块解压到窗口」。
 ## 2 内存
 
 ### 2.1 三种写法的判决
@@ -625,9 +761,9 @@ d) `:801` 的 `CopyMem` 之后：
 
 | 门禁行 | 本规格哪一节满足 | 备注 |
 | --- | --- | --- |
-| A1 / A2 payload 与 boot.img 尺寸 | 不由代码决定 | 13 现给 234881024 / 235446272 是 224 MiB 档（`11-CARRIER.md` §2.2 的旧提案）。**走 D 则卷仍是 192 MiB** ⇒ 应改成 **201326592 / 201887744**（`fdtest-20261116a` 实测）；若改走 A-208 则改成 218103808 / 218664960。三种数字只能留一种，按 Lead 的「最终路线一次性改」执行 |
+| A1 / A2 payload 与 boot.img 尺寸 | 不由代码决定 | 路线已定 D（05:38 裁决）⇒ 卷仍是 192 MiB，13 已改成 **201326592 / 201887744**（`fdtest-20261116a` 实测值）。A-208 后备档的 218103808 / 218664960 只留在 13 的备注里，不启用 |
 | A3 27 个文件名集合 | §2.4 第 4 步 | 名字不带 `.bin`，与 manifest 同名；**走 D 时卷里是 `modem.bNN.lzma`**，A3 的名单要带 `.lzma` 后缀，否则集合比对失败 |
-| A4 逐个大小 | §2.4 第 4 步 | 走 D 后判据变成「解压后大小 == 段表 `bytes`」，压缩尺寸本身不再是断言值；另需新增一条「卷里确实是压缩形态」（见 §1.7 出路 D 的代价二） |
+| A4 逐个大小 | §1.8.2 | 走 D 后判据是「13 B 头里的声明长度 == 段表 `bytes`」，压缩尺寸本身不是断言值；13 已换成 `scripts/check-modem-lzma.py`，并新增 A6 判「声明长度之和 == 109060761」 |
 | A5 ADT 16 B 属性 | §3.1、§3.2 | 构建期占位 + 运行时写入 |
 | B1 `ImageCarrierLib` 存在 | §1.5 | 三个新文件（`.h`/`.c`/`.inf`）+ 生成物 `K60ModemImageTable.h`；已落 `a9cd70d` |
 | B2 `DarwinBoot.c` 里有 `ImageCarrierLoad` | §5.5(c) | 调用点在 `Boot()` 内 |

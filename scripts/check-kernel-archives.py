@@ -111,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="K60 output root")
     parser.add_argument("--kernel", type=Path, help="kernel.macho to inspect")
+    parser.add_argument("--adsp-blob", action="store_true",
+                        help="the build passed --adsp-blob; expect k60_adsp_blob in the kernel")
     args = parser.parse_args(argv)
 
     kernel = args.kernel or find_kernel(args.out)
@@ -174,6 +176,18 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+    if args.adsp_blob:
+        if any("k60_adsp_blob" in name for name in symbols):
+            print("✅ kernel archives: ADSP carrier blob linked (k60_adsp_blob present)")
+        else:
+            blob_s = tree / ".cache/xnu-work/osfmk/arm64/k60_adsp_blob.s"
+            evidence = "generated and staged" if blob_s.is_file() else "staging file missing"
+            print(
+                f"FAIL: --adsp-blob was requested but no k60_adsp_blob symbol is in "
+                f"{kernel.name}; the carrier was {evidence}",
+                file=sys.stderr,
+            )
+            return 1
     print(f"✅ kernel archives: {checked} enabled archive(s) all present in {kernel.name}")
     return 0
 

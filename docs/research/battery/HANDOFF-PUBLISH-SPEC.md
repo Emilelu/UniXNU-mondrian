@@ -84,7 +84,7 @@
 
 | # | 动作 | 现有实现 | 失败含义 |
 |---|---|---|---|
-| 1 | 装载并释放 ADSP 固件（PAS1 auth + reset + 逐段 INIT_IMAGE + MEM_SETUP） | `K60AdspBoot.c:178` `k60_adsp_probe_from_handoff()` → `k60_adsp_bring_up()` | ADSP 没起来，后面全废 |
+| 1 | 装载并释放 ADSP 固件（PAS1 auth + reset + 逐段 INIT_IMAGE + MEM_SETUP） | `bsd/dev/pong_adsp_boot.c`（patches/xnu/0613） `k60_adsp_probe_from_handoff()` → `k60_adsp_bring_up()` | ADSP 没起来，后面全废 |
 | 2 | 等 SMP2P 条目 `"slave-kernel"` 的 `state & 2` 置位、`state & 1` 清零 | 判定逻辑现成在 `K60PmicGlink.cpp:88-109` `remoteReady()` | 远端未就绪 |
 | 3 | 拿 TCSR 互斥量（`mutex_base`，写 `1` 表示 APSS owner） | 现成在 `K60PmicGlink.cpp:38-56` | 拿不到锁 = 不能改 SMEM |
 | 4 | `k60_smem_partition(&smem, 0, 2, &part)` 定位分区 | `K60Smem.c:49-71` | `K60SmemNoTable`/`NoPartition` |
@@ -381,10 +381,10 @@ SMEM 分配表是 APSS 与 ADSP 共享的，发布者必须自己持锁包住整
    若 K60 冷启动时 SMEM 是空的，第 4 步会直接 `K60SmemNoTable`。
    **需要真机取证**：从 UEFI 或内核早期 dump `0x80900000 + 0x1ff000` 的 32 字节。
 2. **ADSP 固件载体。** `k60_adsp_probe_from_handoff()` 需要 FAT ramdisk 里的
-   `adsp.b00..b25 + adsp.mdt`（`K60AdspBoot.c:213` `k60_fat_open`），而
+   `adsp.b00..b25 + adsp.mdt`（`bsd/dev/pong_adsp_boot.c` 的 `k60_fat_open`，patches/xnu/0613），而
    `docs/engineering/BOOT-ARGS.md:278-280` 记录 `memdev` 的 `vmd0` 是固件虚拟地址、
    XNU 读不到。这条不解决，§3 第 1 步就过不去。
-3. **SMP2P 就绪要等多久。** `K60AdspBoot.c:228` 返回时只表示固件已装、PAS 已释放，
+3. **SMP2P 就绪要等多久。** `bsd/dev/pong_adsp_boot.c`（patches/xnu/0613）返回时只表示固件已装、PAS 已释放，
    不表示 ADSP 已初始化完 pmic_glink。需要真机测一个上界（建议先按 2 s 轮询、20 ms 间隔）。
 4. **`remote_restart_flag` 的来源语义。** 现在只知道它必须等于 `remoteState[4] & 1`，
    不知道 ADSP 什么时候会翻这一位（重启后由谁清）。建议第一次实现就按「发布前现读」处理。
@@ -431,7 +431,7 @@ cc -I drivers/PongPower -DK60_HOST_TEST -o /tmp/t scripts/tests/test-k60-handoff
 
 | 文档 | 关系 |
 |---|---|
-| `GLINK-HANDOFF.md` | 104 字节**消费者**契约（逐字段校验）。本文是它的**生产者**对偶。注意它 §80-101 说的「没有 SMEM 分配器 / 没有 PAS1 装载器」已过时：`K60Smem.c:113`、`K60AdspPas.c`、`K60AdspBoot.c` 都在树里。 |
+| `GLINK-HANDOFF.md` | 104 字节**消费者**契约（逐字段校验）。本文是它的**生产者**对偶。注意它 §80-101 说的「没有 SMEM 分配器 / 没有 PAS1 装载器」已过时：`K60Smem.c:113`、`K60AdspPas.c`、`bsd/dev/pong_adsp_boot.c`（patches/xnu/0613）都在树里。 |
 | `PMIC-GLINK-SERVICE.md` | L1 服务层契约（pmic_glink 报文语义）。本文只到 L0。 |
 | `docs/research/charger/02-GLINK-CONTRACT.md` | `.ko` 期望的通道名/opcode/prop map；它的 §6.2 已把「104 B 覆盖什么、不覆盖什么」列成表。 |
 | `docs/engineering/BATTERY-INTEGRATION.md` | 构建与宏链路的接入步骤（`-DXNU_K60_PHYSICAL_BATTERY`、`-force_load libK60PhysicalBattery.a`）。 |

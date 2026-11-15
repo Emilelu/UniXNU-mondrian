@@ -163,16 +163,31 @@ def elf_symbols(path):
     return found
 
 
-def wire_messages(path):
+def wire_messages(path, *, strict=False):
     if path is None:
         return []
     result = []
-    for line in path.read_text(errors='strict').splitlines():
-        match = re.search(r'\b(Tx|Rx) data:\s*((?:[0-9a-fA-F]{2}(?:\s+|$))+)', line)
-        if not match:
-            continue
+    for number, line in enumerate(path.read_text(errors='strict').splitlines(), 1):
+        if strict:
+            # Qualification must not silently discard a damaged frame or parse
+            # a valid hex prefix followed by a truncated/invalid byte token.
+            match = re.search(r'\b(Tx|Rx) data:(.*)$', line)
+            if not match:
+                continue
+            if not re.fullmatch(r'\s*(?:[0-9a-fA-F]{2}\s+)*[0-9a-fA-F]{2}\s*', match.group(2)):
+                raise ValueError(f'Malformed wire data at {path}:{number}')
+        else:
+            match = re.search(r'\b(Tx|Rx) data:\s*((?:[0-9a-fA-F]{2}(?:\s+|$))+)', line)
+            if not match:
+                continue
         data = bytes.fromhex(match.group(2))
-        if len(data) < 12 or struct.unpack_from('<I', data)[0] != OWNER:
+        if len(data) < 12 or (strict and len(data) % 4):
+            if strict:
+                raise ValueError(f'Truncated wire frame at {path}:{number}: {len(data)} bytes')
+            continue
+        if struct.unpack_from('<I', data)[0] != OWNER:
+            if strict:
+                raise ValueError(f'Unexpected wire owner at {path}:{number}')
             continue
         result.append((match.group(1), data))
     return result
@@ -223,19 +238,29 @@ def qualification(charging, discharging, notify):
     notify_evidence = dict(source='adsp-opcode4-handler', type=reply_type,
         bytes=reply_bytes, reference='docs/research/charger/06-SUBSCRIPTION-CONSTANT.md')
     if notify:
+        # A qualification file is a complete, single-epoch owner-0x800a
+        # capture: retries or orphan ACKs cannot establish an exact pair.
         pending = False
         replies = []
-        for direction, data in wire_messages(notify):
+        for direction, data in wire_messages(notify, strict=True):
             _, kind, opcode = struct.unpack_from('<III', data)
             if opcode != 4:
                 continue
-            if direction == 'Tx' and kind == 2 and len(data) == 28 and not any(data[12:]):
+            if direction == 'Tx':
+                if kind != 2 or len(data) != 28 or any(data[12:]):
+                    raise ValueError(f'Unqualified subscription request type/length/payload: {data.hex()}')
+                if pending:
+                    raise ValueError('Repeated opcode4 subscription request before its response')
                 pending = True
-            elif direction == 'Rx' and pending:
+            else:
+                if not pending:
+                    raise ValueError('Opcode4 subscription response without a pending request')
                 if kind not in (1, 2) or len(data) not in (12, 16, 24, 28) or any(data[12:]):
                     raise ValueError(f'Unqualified subscription ACK type/length/payload: {data.hex()}')
                 replies.append((kind, len(data)))
                 pending = False
+        if pending:
+            raise ValueError('Wire capture ends with an unanswered opcode4 subscription request')
         if not replies or len(set(replies)) != 1:
             raise ValueError('Wire capture lacks one unambiguous measured opcode4 subscription response')
         if replies[0] != MEASURED_NOTIFY_REPLY:
@@ -295,7 +320,8 @@ def main():
         battery_module=str(args.battery_module.resolve()), battery_module_sha256=sha256(args.battery_module),
         checked_module_maps=maps, current_qualification=current_evidence, notification_qualification=notify_evidence,
         required_platform_handoff='K60BatteryConfig.h K6BH v1, authenticated PAS1 owner and exclusive fresh APSS GLINK epoch',
-        firmware_start_implemented=False, synthetic_handoff=False, battery_readings_embedded=False,
+        firmware_start_implemented=False, owner_orchestration_implemented=True,
+        platform_backend_installed=False, synthetic_handoff=False, battery_readings_embedded=False,
         current_sign_qualified=sign != 0, subscription_qualified=notify_bytes != 0,
         hardware_qualified=False, archive_built=False, commands=[])
     if not args.emit_config_only:
@@ -309,6 +335,11 @@ def main():
         common = ['-target', 'arm64-apple-ios16.0', '-isysroot', sdk,
             '-mkernel', '-ffreestanding', '-fno-builtin', '-fno-stack-protector', '-mgeneral-regs-only', '-Os',
             '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1', '-DARM64_BOARD_CONFIG_PONG=1',
+            # Kernel.framework's public string.h intentionally includes the private
+            # san/memintrinsics.h behind __has_include (XNU compiles the same chain);
+            # the host clang's framework policy turns that sanctioned include into a
+            # -Werror failure the moment any archive member pulls sys/systm.h.
+            '-Wno-framework-include-private-from-public',
             # Public headers first: PrivateHeaders/IOKit/IOLib.h expands
             # IOTypedOperatorsMixin in a way this host compiler rejects, while the
             # public IOLib.h plus the private IOPMPowerSource.h compile cleanly.
@@ -320,7 +351,12 @@ def main():
         # a second copy fails the link with three duplicate symbols (P-190).
         # The archive therefore references the kernel's copy, exactly like the
         # other in-tree consumers do.
+        # SMEM, handoff serialization and startup arbitration are kernel objects
+        # (0611/0619), not duplicate archive members (P-190).
         for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
+                     'K60AdspOwner.c', 'K60AdspOwnerStages.c', 'K60AdspMdt.c',
+                     'K60AdspImageReader.c',
+                     'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file
             obj = out / (path.stem + '.o')

@@ -5100,12 +5100,16 @@ Check: `python3 scripts/tests/test-check-kernel-archives.py`（10 例，含
 `a_guarded_call_site_that_compiled_away_fails` /
 `a_guarded_call_site_that_compiled_in_passes`）与 registry `id = "P-208"`。
 
-## P-209 — 五张「silent」镜像同一个 defconfig 单行错误：指名了 32 MiB 种子的 Data UUID
+## P-209 — defconfig 指名了 32 MiB 种子的 Data UUID：根挂载阶段自 panic，日志里一个字节都没有
 
-现场：2026-11-15 wifi 线连续五张图（`wifi-20261116mhi3` / `mhi4` / `wifi-20261115z0` /
-`wifi-20261116t2` / `wifi-20261116c0`）全部表现为「0 字节 + port-not-observed + autoreset
+现场：2026-11-15 wifi 线五张图（`wifi-20261116mhi3` / `mhi4` / `wifi-20261115z0` /
+`wifi-20261116t2` / `wifi-20261116c0`）都表现为「0 字节 + port-not-observed + autoreset
 回 fastboot」。围绕这份空日志长出四套理论：镜像尺寸、`__TEXT,__const` 多出 11.77 MB、
-固件驻留（`__TEXT` vs `__DATA`）、DarwinBoot pool 窗口。真因只有一行：
+固件驻留（`__TEXT` vs `__DATA`）、DarwinBoot pool 窗口。
+
+其中 **c0 这张**的构建配置里有一行确定的缺陷（refmine 线扫了 53 张 wifi/bt 镜像，
+`scratch/refmine/uuid-scan.py`，只有 c0 命中；其余四张都是设备卷 `1BCD69FF-…`，
+至今未解释）——
 
 ```
 configs/mondrian_wifi_defconfig:
@@ -5119,8 +5123,8 @@ configs/mondrian_wifi_defconfig:
 `PONG APFS: wait for Data UUID 6DCCF70A…, timeout=5s` →
 `K60DATA UFS Data window not published` → `dataerr=2` 自 panic at `kern_exec.c:8463`。
 `mondrian_wifi_defconfig` 与能起的 `mondrian_defconfig` 只差四行（缺 `GPU_ADDON`、
-缺 `K60_PHYSICAL_BATTERY`、这一行 UUID、多 `PONG_WIFI`），其中只有 UUID 会让内核在
-**根挂载阶段**死掉。
+缺 `K60_PHYSICAL_BATTERY`、这一行 UUID、多 `PONG_WIFI`），其中 UUID 是唯一会让内核在
+**根挂载阶段**死掉的一行——但它的因果还欠一次单变量确认（见补记）。
 
 为什么表现成「零字节」而不是一段带 panic 的日志：USB 控制台在 `vfs_mountroot` 之后才起来。
 对照能起的 `adsp-20261115e`（3,312 行）：第一条 `K60 USBLOG` 在 ~470 行、`K60DATA mounted`
@@ -5128,7 +5132,7 @@ configs/mondrian_wifi_defconfig:
 
 教训：
 
-1. 一条线**所有**镜像都 silent 时，第一个动作是 diff **构建配置**（defconfig、`board.toml`、
+1. 一条线**多张**镜像都 silent 时，第一个动作是 diff **构建配置**（defconfig、`board.toml`、
    `build-manifest.json` 的 `payload_args`），不是 diff 内核版式。四套假说都建立在同一份
    空日志上，等于零信息；`payload_args` 逐张对齐那一步做完，「参数缺失」当场出局。
 2. 「零字节」不是证据，是缺证据。凡是在根挂载之前就能死的缺陷（卷 UUID、owner 挂载、
@@ -5142,3 +5146,10 @@ configs/mondrian_wifi_defconfig:
    wifi 日志」，因为它们都死在控制台之前。判据要指向具体对象的生命周期行（P-204）。
 
 Check: `python3 scripts/tests/test-check-defconfig-uuid.py`（8 例）与 registry `id = "P-209"`。
+
+补记（同轮被推翻的一半）：本条第一版把五张图都归给这一行，refmine 的 53 张扫描否证了其中四张
+（只有 c0 命中）。再叠一条教训：**归因必须逐张验**，不能因为「看起来都一样 silent」就假定同一个
+原因——silent 是最弱的观测，它把不同故障抹成同一张脸。c0 的因果本身也还欠一次单变量确认：
+2026-11-07 那批**带**种子 UUID 的采集（`bootcap-20261107-113650`）是有 console 输出的，
+所以「种子 UUID ⇒ 零字节」尚未坐实，要等 c1（只改这一行）的判决。判决之前，c0 记为
+`invalid-measurement`（测量无效），其余四张记为「未解释」，两者都不能当成「内核没跑」。

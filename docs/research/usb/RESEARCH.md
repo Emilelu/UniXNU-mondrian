@@ -1597,6 +1597,37 @@ mode 0/2 行为完全不变。
 series：`patches/usb/series` 与 `patches/xnu/series` 各加 `0411`（231 行 = main 224 + 7），
 sha `978b3c4f53e3768280eb69f786e13a58694cbd7d67504d59c216ab93dd417ad2`，提交 `ffe5418`。
 
+### 25.1 c/d 两图的构建记录（2026-11-15，本线不 boot）
+
+两张图同一份冻结输入（series 231 = `978b3c4f…`，frozen `e48af4ff…`，FD `cf448571…`），
+`repo.head` 都是 `66b1af3`（= `ffe5418` 0411 + 两条判据/文档提交），`dirty_files=0`。
+
+| 项 | usb-20261115c（mode 2 回归） | usb-20261115d（mode 1 判 P1/P2） |
+|---|---|---|
+| `--kernel-arg` | `k60_usbvend=2` | `k60_usbvend=1` |
+| kernel（macho） | `1cd0f308ea49a3062abd3a2d13ef8cb15b45bab5da60c7fb87b7bb697d53058e`（105492480 B） | `cc19d2360a628923e2a7f56ab7c4d2e18289b5d8c4544b5f66c7c84c3b6716df`（105492480 B） |
+| payload | `5ee3ea831f13dd17ddef520894719f4948ca6cc183a69c795872010d5763f404` | `98bf562900a5bb78d8cb3f7eab223d8fd77a4c71f878af6ab3ce0895a8a8b04b` |
+| payload kernel | `620cdec7995caeb12b9f4f26f0576249fd23d36ee5bf4444750760f49005b06f` | `3bece55ac6c7e8674597ec17ce106dfc55308e338aab28964f5d057c6e93999e` |
+| ADT | `cee48a7930a3209a701343cc883229ace4e19f527f293efe21cea59154a52a10` | `a6519fcaf379e57a9b9c7d4aed47751edb9a481200c425b0b8422b330598ba1a` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（未变） | 同左 |
+| boot.img | `84662396df147a4d549e694523ac2c20d2c95c9ec2cf51787f3516a053b3049a`（201887744 B） | `926e3e95f51d275eb8fb455593df13c2387edf75c988cecf86c81250f5c8499e`（201887744 B） |
+
+两张都是 `image-arg-audit: OK (30 arguments, 589 bytes)`、`verify-boot-image: OK`、
+四个 kernel archive 全在，`k60_usbvend=<mode>` 在 payload args 末位；c 的参数集与 `a` 完全相同（只差图内代码）。
+
+0411 在 mode 2 下不引入任何新行为：`ud_dev_desc_for_mode()` 返回原描述符，`ud_beacon()` 首行就因 mode 不等于 1 而 return，
+所以 c 的判据就是「与 a 相同」：回环逐字节 PASS、无 EP6/EP7 传输错误。
+
+两图 kernel 的 sha 不同而大小相同：`k60_usbvend` 不是编译期宏，差异来自链接期的时间戳（同样现象在 15a/15b 也出现过）；
+payload 与 boot.img 的 sha 差异才是模式参数的真实差异。
+
+构建后门禁：`check-rules.py` **84 条登记、0 失败、37 waiver** —— 前两次构建留下的三张红牌
+（`hard-38` 旧 `.config`、`P-165/P-166` 旧 `xnu-inputs.json`）已随本次构建记录清除。
+
+出图排期：Lead 按「c → d」飞；c 若回环不回（`echo-test.ps1` 不是 sent=64/received=64 逐字节），
+说明 0411 合体改动本身有问题，d 不上机。本线仍然不 boot，上机权限在 Lead。
+
+
 出图计划（本线只出图，不 boot）：
 
 - `usb-20261115c`：`k60_usbvend=2`，验证 0411 不破坏已 PASS 的 mode-2 回环（`echo-test.ps1` 逐字节）；

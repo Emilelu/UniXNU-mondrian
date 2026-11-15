@@ -159,15 +159,28 @@ sizes — the container is 11,189,974 bytes (`_pong_wifi_firmware_end` −
 below is therefore exact modulo section alignment; the tolerance column says
 how much alignment may add.
 
-| what | z0 measured | t2 expected | tolerance |
+| what | z0 measured | t2 expected | t2 measured (wifi-20261116t2) |
 | --- | --- | --- | --- |
-| `__TEXT` vmsize/filesize | 12,992,512 (0xc64000) | 1,802,538 (0x1b812a) | ±0x2000 (section padding) |
-| `__TEXT,__const` size | 11,767,510 (0xb38ed6), fileoff 8,192 | 577,536 (0x8d000) | ±0x1000 |
-| `__DATA` filesize | 51,576,832 (0x3130000) | 62,766,806 (0x3bdcd6) | ±0x2000 |
-| `PWF2` first hit | file offset 585,728 (0x8f000), inside `__TEXT,__const` | inside the `__DATA` file range [22,773,760, +62,766,806) | must not hit `__TEXT` at all |
-| payload kernel bytes | 117,305,344 | 117,305,344 | ±0x10000; bytes must differ |
-| `components.payload_kernel` | `ec094bc952930d30f5b18ee43a1e19e0d06898309ec46e80e43121595498ce22` | a different sha256 | must differ from z0 |
-| `series` | 224 / `34cf51e4…` | 224 / `34cf51e4…` | must be identical |
+| `__TEXT` vmsize/filesize | 12,992,512 (0xc64000) | 1,802,538 (0x1b812a) ±0x2000 | **1,802,240 (0x1b8000)** — inside tolerance |
+| `__TEXT,__const` size | 11,767,510 (0xb38ed6), fileoff 8,192 | 577,536 (0x8d000) ±0x1000 | **574,905 (0x8c5b9)** — inside tolerance |
+| `__DATA` filesize | 51,576,832 (0x3130000) | 62,766,806 (0x3bdcd6) ±0x2000 | **51,576,832 (0x3130000) — unchanged**; the linker placed `__DATA,__const` into the `__DATA_CONST` segment, not `__DATA` |
+| `__DATA_CONST` vmsize/filesize | 933,888 (0xe4000) | not predicted | **12,124,160 (0xb90000)** — grew by the container; this is where the blob actually landed |
+| `PWF2` hits | file offset 585,728 (0x8f000) in `__TEXT,__const`, plus a string coincidence at 12,852,307 | the real hit inside the `__DATA` file range | **2 hits: 0x1965f6 (a `PWF2` string inside `__TEXT,__cstring` — coincidence) and 0x26b000 (the real container, inside `__DATA_CONST` file range [0x1b8000, 0xd48000))** |
+| `_pong_wifi_firmware` span | `fffffff007093000`–`fffffff007b3eed6` (0xaabed6 = 11,189,974) | same size, new address, not in `__TEXT` | **`fffffff00726f000`–`fffffff007d1aed6` (0xaabed6 = 11,189,974) in `__DATA_CONST`** |
+| payload kernel bytes | 117,305,344 | 117,305,344 ±0x10000; bytes must differ | **117,305,344, sha `d7fde1cd7585cdf8f6b19e1712e5aa5367ad0a2aedb3d16552c4a5530876750c`** — differs from z0 |
+| `components.payload_kernel` | `ec094bc952930d30f5b18ee43a1e19e0d06898309ec46e80e43121595498ce22` | a different sha256 | **`d7fde1cd7585cdf8f6b19e1712e5aa5367ad0a2aedb3d16552c4a5530876750c`** |
+| `series` | 224 / `34cf51e4…` | 224 / `34cf51e4…` | **224 / `34cf51e4…`** |
+
+The measured placement is **better than the prediction**: instead of growing
+writable `__DATA`, the linker moved the whole container into the read-only,
+non-executable `__DATA_CONST` segment, so the hypothesis "the 11 MB container
+must leave `__TEXT`" is met with the smallest possible change: `__TEXT`
+fell from 12,992,512 to 1,802,240 bytes and no writable segment grew at all.
+The two `PWF2` hits are expected (the first is a literal string in
+`__TEXT,__cstring` that also existed in z0's `__os_log` area at 12,852,307);
+the real container is the second hit, and the authoritative check is the
+`_pong_wifi_firmware` symbol span, which sits entirely inside
+`__DATA_CONST`.
 
 Self-check, from the same manifest, before the image is flown:
 `kernel_args_requested` must read `["pong_wifi=0"]`, not `[""]` and not an
@@ -207,9 +220,12 @@ Do not trust "it built". Three checks, all offline, all cheap:
    quoted "≈ 0x1a4000–0x1b0000" for `__TEXT`; that figure came from the
    kernels that carry no WiFi archive at all, and it is 82,218 bytes short of
    what z0's own sections imply. Use the table.
-2. **Blob location** — `strings -a` / byte search for `PWF2` must now hit
-   inside the `__DATA` file range only; the `__TEXT` range must contain no
-   `PWF2`.
+2. **Blob location** — the `_pong_wifi_firmware`…`_end` symbol span must
+   sit inside `__DATA_CONST` (file range [0x1b8000, 0xd48000)), not inside
+   `__TEXT`. A raw `PWF2` byte search alone is ambiguous: one hit
+   (0x1965f6) is a literal string in `__TEXT,__cstring` that is also
+   present in z0, so it cannot serve as the verdict; the container itself is
+   the 0x26b000 hit. Measured in wifi-20261116t2.
 3. **Identity** — `build-manifest.json` must show `series.count = 224`,
    the same series sha256 (`34cf51e4…`), the usual gates
    (`kernel archives 4/4`, `image-arg-audit OK`, `verify-boot-image OK`),

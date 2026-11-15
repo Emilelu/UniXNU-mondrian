@@ -327,10 +327,10 @@ pong_gpu_scanout=1     -> 只有在 accelerator 已发布之后才应该打开
 上限 607（DarwinBoot.c:681）
 基线：29 项 575 B（2026-11-16 实测，baseline-20261116a 的 payload args），余 32
 
-pong_wifi=1                                   +12 -> 587
-pong_wifi=1 k60_wifi_rsc=1                    +15 -> 590   （只读探针）
-pong_wifi=1 k60_wifi_rsc=2                    +15 -> 590   （允许投票；与 =1 同长）
-pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10  +45 -> 620 超限
+pong_wifi=1                                   +12 -> 587   （c4 实测）
+pong_wifi=1 k60_wifi_rsc=1                    +15 -> 602   （只读探针；c5 实测）
+pong_wifi=1 k60_wifi_rsc=2                    +15 -> 602   （允许投票；与 =1 同长）
+pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10  +18 -> 620 超限
 ```
 
 让位项（实测）：`epoch=1793709100` 改 `epoch=1` 省 9 字节，`debug=0x140` 改 `debug=1` 省 4 字节，

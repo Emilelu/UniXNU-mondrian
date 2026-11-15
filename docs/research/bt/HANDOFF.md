@@ -650,6 +650,27 @@ This line, next in order:
       不要贴着别人的行（0510×0620 撞车的通用教训）；② `dc57e6c` 与
       `scripts/tests/test-series-fingerprint.py` 要两边都断言 `namespace` 字段，d 系列跑完后对齐，
       由 Lead 合进 main。
+20. **d2 实飞：仍 silent，RCG 路径排除（2026-11-16 04:34）**
+    - Lead 实飞 `bt-d2-rcg`（boot.img `7f83bc0c…4101`、kernel `c68c54ed…`、series 232 /
+      `dcc7bb45d311dc5f`、blob `febdc20d…`、args `['k60bt=1','pong_bt_rcg=0']`、head `ffc1de1`）：
+      证据 `E:\k60-work\evidence\usblog-20261116-043417`，`port-not-observed`、`bytes=0`、
+      `portSeen=false`、`returnedToFastboot=true`，console.log 0 B（空文件哈希 `e3b0c442…`）。
+    - 判读：跳过 `k60_gcc_set_se_rate()` 两个调用点一样静默 ⇒ **S4-SPEC §7.3 假设 b（共享 RCG 复位
+      停掉 UFS 参考时钟）排除**。a、b 均被实飞否证，只剩 c（固件下载 DMA 缓冲未进 IOMMU）。
+    - 下一张：d3 = 全量 0005 + `pong_bt_noboot=1`（上电/时钟/QUP 照跑、`qbt_boot()` 固件下载整段不跑），
+      即假设 c 的判据；d3 起来 ⇒ 凶手在固件下载段，d3 仍 silent ⇒ 三段假设全灭，转 d4（`pong_bt_late=1`）
+      区分「早启动时序」与「BT 代码本身有毒」。
+21. **九格矩阵收敛：致命集恰好 {h1, h2, h3}，h4 无关（2026-11-16 04:38）**
+    - Lead 补飞了 23:18 就构建好、一直没飞的 `bt-bisect-h123`（`580b2795…`、kernel `bf3aee6b…`、
+      series 229 / `d80464df…`）：证据 `E:\k60-work\evidence\usblog-20261116-043650`，
+      `port-not-observed`、`bytes=0`、`returnedToFastboot=True`、supervisor rc=2 ⇒ **silent**。
+    - 九格矩阵（全部 Lead 实飞，SpringBoard / getBytes:range）：h1 13/36 起、h13 13/36 起、h4 13/36 起、
+      h12 132/0 起、h23 128/0 起、h124 132/0 起、h34 128/0 起、**h123 0/— silent**、全量 0005 0/— silent。
+    - 结论：**致命集恰好是 {h1, h2, h3} 三者齐备，h4 无关**；h123 去掉任意一个都能起
+      （h23、h13、h12 全起），三者都是必要条件。此前「h2 是必要条件」「致命集是 h3×h4」两条推断作废。
+    - 方法教训（Lead 亲述，已写进 S4-SPEC §7.8）：四个 hunk 有 15 个非空子集，本轮只飞 9 个，
+      缺的那一格正好是决定性的；二分要么飞满全部子集，要么在矩阵里把「已构建未飞」显式标出来。
+      PITFALLS 草稿见 `scratch/bt-s4/PITFALLS-draft-already-built.md`（正式编号由 Lead 发）。
 
 
 

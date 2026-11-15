@@ -936,6 +936,52 @@ series 232 / `dcc7bb45d311dc5f`（P-214 namespace 已带），blob `febdc20d…`
 下一步按 Lead 的指令继续一次一张：d2 = 全量 0005 配方 + `pong_bt_rcg=0`（验 §7.3 假设 b），
 d3 = 全量 0005 配方 + `pong_bt_noboot=1`（验假设 c：固件下载整段不跑）。
 
+### 7.7 d 系列第二张图 `bt-d2-rcg` 实飞：RCG 路径也被排除（2026-11-16 04:34）
+
+`bt-d2-rcg`（全量 0511 + `pong_bt_rcg=0`，31 参数 / 597 B，boot_img
+`7f83bc0c1da0e1869f4e43438c3a0fd09706aff9f3a6f60f16e9a59fabd44101`，kernel `c68c54ed…`，
+series 232 / `dcc7bb45d311dc5f`（P-214 namespace 已带），blob `febdc20d…`，head `ffc1de1`）
+由 Lead 实飞，结果**仍 silent**：证据 `E:\k60-work\evidence\usblog-20261116-043417`，
+`state=port-not-observed`、`bytes=0`、`complete=false`、`portSeen=false`、`returnedToFastboot=true`，
+console.log 0 B（sha256 `e3b0c442…b855` 即空文件）。
+
+判读：跳过 `k60_gcc_set_se_rate()` 的两个调用点之后一样静默 ⇒ **共享 RCG 复位停掉 UFS 参考时钟
+（§7.3 假设 b）排除**。至此 §7.3 的 a、b 两条都被实飞否证，只剩假设 c（固件下载的 DMA 缓冲
+没进 IOMMU，落到 UFS 正在用的页上）——d3（`pong_bt_noboot=1`）正是它的判据。
+
+### 7.8 九格矩阵收敛：致命集恰好是 {h1, h2, h3}，h4 无关（2026-11-16 04:38）
+
+Lead 把 23:18 就构建好、但一直没飞的 `bt-bisect-h123` 补飞了：证据
+`E:\k60-work\evidence\usblog-20261116-043650`，`port-not-observed`、`bytes=0`、
+`returnedToFastboot=True`、supervisor rc=2 —— **silent**。
+
+九格矩阵（全部 Lead 实飞；`getBytes` 是 `-[NSTaggedPointerString getBytes:range:]` 的命中数）：
+
+| 配方 | h1 | h2 | h3 | h4 | SpringBoard | getBytes | 结果 |
+|------|----|----|----|----|-------------|----------|------|
+| h1   | ✓ |   |   |   | 13  | 36 | 起 |
+| h13  | ✓ |   | ✓ |   | 13  | 36 | 起 |
+| h4   |   |   |   | ✓ | 13  | 36 | 起 |
+| h12  | ✓ | ✓ |   |   | 132 | 0  | 起 |
+| h23  |   | ✓ | ✓ |   | 128 | 0  | 起 |
+| h124 | ✓ | ✓ |   | ✓ | 132 | 0  | 起 |
+| h34  |   |   | ✓ | ✓ | 128 | 0  | 起 |
+| **h123** | ✓ | ✓ | ✓ |   | **0** | — | **silent** |
+| 全量 0005 | ✓ | ✓ | ✓ | ✓ | 0 | — | silent |
+
+结论：**致命集恰好是 {h1, h2, h3} 三者齐备，h4 无关**。h123 去掉任意一个都能起
+（去 h1 = h23 起、去 h2 = h13 起、去 h3 = h12 起），所以三者都是必要条件、一个都不能少；
+全量 0005 也 silent 与「它包含 h1+h2+h3」一致。此前「h2 是必要条件」「致命集是 h3×h4」
+两条推断都作废。
+
+方法教训（Lead 亲述）：四个 hunk 有 15 个非空子集，本轮只飞了 9 个，缺的那一格正好是决定性的。
+二分要么飞满全部子集，要么在矩阵里把「已构建未飞」显式标出来（PITFALLS 草稿另记）。
+
+d 系列进展：d1（`pong_bt_smmu=0`）与 d2（`pong_bt_rcg=0`）都 silent ⇒ §7.3 假设 a、b 排除；
+只剩 d3（`pong_bt_noboot=1`）验假设 c。d3 起 ⇒ 致命点在「启动 core / 下固件」段；
+d3 仍 silent ⇒ 致命点更早（blob 加载、门闩、SMMU 映射），Lead 会再要一格
+「h123 + `pong_bt_noboot=1`」做交叉。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

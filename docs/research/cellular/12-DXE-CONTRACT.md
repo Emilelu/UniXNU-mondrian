@@ -286,7 +286,11 @@ cellular 的答复说一个 DXE 同时做 `K60AdspImage` 与 `K60ModemImage`；A
 - 这样 ADSP 线继续按它已批准的 23.5 MB 内嵌方案走，固件侧不阻塞它；
 - 若 Lead 要求 ADSP 也走固件，先看 §5.3 的三件事——不是改几行就能做。
 
-### 5.3 如果 ADSP 也要走固件，必须先解决三件事
+Lead 已裁（2026-11-15 23:27）：ADSP 继续走内核内嵌 blob（`k60_adsp_blob`，23,506,184 B，
+0620 补丁 + `build-strict --adsp-blob`，已合 main），**DXE 只服务 modem**；§5.3 的三件事仅属于
+「ADSP 若走固件装载」这条**未采纳**的路线，不再是任何前置条件。
+
+### 5.3 如果 ADSP 也要走固件，必须先解决三件事（未采纳路线，仅存档）
 
 1. **固件内存图里没有 ADSP 装载窗口的 descriptor**。`MemoryMapLib.c:11-34` 的区域在
    `video_region`（`0x85700000 + 0x700000 = 0x85E00000`）之后直接跳到 `slpi_region`（`0x88000000`），

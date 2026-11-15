@@ -174,15 +174,35 @@ PASS C5 内核侧 plan rows=30
 TOTAL PASS=18 FAIL=0
 ```
 
-这一遍先抓出脚本自身三个 bug，均已在本节脚本里改掉：
+这一遍先抓出脚本自身的三个缺陷，均已在本节脚本里改掉。按「症状 / 真因 / 修法」记，便于收进 PITFALLS
+（P-204 家族：门禁必须能跑第二遍，且每条断言都要分得清「没检查」与「检查通过」）：
 
-1. `mcopy -s -i IMG ::EFI/UniXNU/MODEM DEST` 在本机 mtools 上**会套一层 `MODEM/` 子目录**，
-   `ls DEST` 只有一项 ⇒ 改成通配 `'::EFI/UniXNU/MODEM/*'`；
-2. A5 原来把 `then ok ...; else ...; fi` 写在 heredoc 正文**之前**，heredoc 因此吞掉后半段脚本，
-   bash 报 `line 74: syntax error: unexpected end of file`、A5 根本不执行 ⇒ 改成先跑完 heredoc，
-   再用 `$?` 判；
-3. `mcopy` 的目标文件已存在时会停在覆盖提示上（stdin 不是终端时表现为**永久挂起**，第二次跑必挂）
-   ⇒ 目标先 `rm -f`/`rm -rf`，`mcopy` 加 `-o` 并重定向 `</dev/null`。
+**缺陷 1：`mcopy -s` 把源目录套成子目录**
+
+- 症状：`ls /tmp/accept-modem | wc -l` 只有 1 项，A3 报 `FAIL`；A4 报 `stat: cannot statx 'modem.b*'`。
+- 真因：本机 mtools 的 `mcopy -s` 在源是目录时**保留目录名**，铺进目标是 `DEST/MODEM/…`；
+  本文档原先写的「`-s` 只铺内容、不套子目录」是错的。
+- 修法：源改成通配 `'::EFI/UniXNU/MODEM/*'`，目标仍是 `DEST`——实测直接得到 27 个文件。
+
+**缺陷 2：A5 的 `then/else/fi` 写在 heredoc 正文之前**
+
+- 症状：A1–A4 正常 PASS，到 A5 处脚本直接 `line 74: syntax error: unexpected end of file` 中止；
+  A5–C5 一行未执行，`TOTAL` 不打印（不是「A5 报红」，而是「A5 根本没跑」）。
+- 真因：heredoc 从 `<<'PYEOF'` 所在行**之后**立即开始收正文，`else ...; fi` 被当成正文内容；
+  bash 顺序解析到文件末尾发现 `if` 没闭合，于是整段作废。
+- 修法：先让 `python3 - <<'PYEOF' … PYEOF` 独立跑完，再用 `$?` 判；正文里不出现任何 shell 关键字。
+- 教训：这类错**不会自己报红**——少跑的行在输出里只是「没出现」，与「通过」肉眼难分。所以门禁
+  末尾必须打印 `TOTAL PASS=n FAIL=m`，并用 FAIL 计数兜底；A5 的具体断言（长度 16、值 ∈ 两值）
+  只有全跑完才知道真假。
+
+**缺陷 3：`mcopy` 在目标已存在时停在覆盖提示**
+
+- 症状：第二次跑门禁**永久挂起**（无输出、无退出），`ps` 里 `mcopy ... kernel.macho.adt` 常驻；
+  第一次能跑过，所以最容易被误判成「偶发」。
+- 真因：`mcopy` 默认对已存在文件问 `Overwrite? (y/n)`；门禁在非终端 stdin 下运行时读不到回答。
+- 修法：目标先 `rm -f`/`rm -rf`，`mcopy` 加 `-o`，并把 stdin 重定向成 `</dev/null`（双保险）。
+
+修完后同一套合成输入连跑两遍都是 `TOTAL PASS=18 FAIL=0`、exit 0。
 
 合成输入与准备脚本见 `14-DXE-REQUEST.md` §5；真跑必须换成固件 commit 产出的真实 payload/boot/日志。
 

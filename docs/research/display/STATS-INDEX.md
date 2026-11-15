@@ -46,8 +46,8 @@
 
 | 配置 | stats[0] | request[4] | request[5] | 日志 |
 |---|---|---|---|---|
-| 默认（不传参） | 3 | 0 | 0 | `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,255 req=0,0,0,0 (no AppleARMBacklight conformance)` |
-| `k60_backlight_control=1` | 4 | 1 | 1 | 同形，但 `conformance=1 control=1 stats=4,0,2047,255 req=0,0,1,1`；**brightness-4 就是这一行之后 backboardd 连崩 4 次**，所以默认关 |
+| 默认（不传参） | 3 | 0 | 0 | `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)` |
+| `k60_backlight_control=1` | 4 | 1 | 1 | 同形，但 `conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；**brightness-4 就是这一行之后 backboardd 连崩 4 次**，所以默认关 |
 | `k60_backlight=0` | 未初始化（0） | -1 | -1 | 服务完全不启动，屏幕停在 bring-up 的 0xff |
 
 ## 归因链：四张图各自排除什么
@@ -57,7 +57,7 @@
 | gpu-20261114t | 1 | 1（发了） | 崩 16 次 | —— 基线对照，metal 1 + control 1 |
 | brightness-4 | 2 | 1（发了） | 崩 4 次 | 崩因不是 metal 从 1 换到 2 |
 | brightness-13 | 2 | 0（默认不发） | 待测 | 若崩 → 与发布层无关（control 已关） |
-| brightness-14 | 2 | 1（真 conformance 通过才发） | 待测 | 若崩 → 崩因就是「发 control 本身」 |
+| brightness-14 | 2 | 1（真 conformance 通过才发） | 不飞（作废） | 已被 brightness-4 回答：发 control 就崩，故不再重复 |
 
 （brightness-11/12 与 9/10 是同一形态的上一代图，日志里没有 `stats=`/`req=` 计数，
 已被 13/14 取代：11/12 作废不飞；9 仍留作旧形态对照，判它要加 `--old-form`。）
@@ -121,7 +121,7 @@ K60 也没有独立背光 IC 可以读寄存器。所以：
 
 ```text
 读法示例（brightness-13 起，一行自证）：
-  K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,255 req=0,0,0,0 (no AppleARMBacklight conformance)
+  K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)
   -> stats[0]=3 stats[1]=0（发布时还没有请求） stats[2]=2047 stats[3]=255
   -> request[0]=0 request[1]=0 request[4]=0 request[5]=0
   之后 backboardd 下发亮度会继续推 stats[1]/request[0]/request[1]；要看最新值靠串口/调试器读内存，

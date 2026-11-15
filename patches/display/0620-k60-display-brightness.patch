@@ -1,3 +1,65 @@
+diff --git a/docs/research/display/08-on-device.md b/docs/research/display/08-on-device.md
+new file mode 100644
+index 00000000..8817116d
+--- /dev/null
++++ b/docs/research/display/08-on-device.md
+@@ -0,0 +1,56 @@
++# 显示 ⑧ 真机验证记录（背光发布层）
++
++| 轮次 | 镜像 | boot.img sha256 | kernel.macho sha256 | 结果 | 证据 |
++|---|---|---|---|---|---|
++| 0 | brightness-4 | 30ccafb3… | 488a1d8f… | control=1：发布层生效，但 backboardd 4 次 `sig=11`、SpringBoard 7 行、无 first frame（int-236 形状） | `usblog-20261115-013520` |
++| 1 | brightness-13 | `c8c33b9e…` | `bf2df340…` | **PASS（发布层）**：control=0 / conformance=0 / stats[0]=3 / 无 SIGSEGV / first frame / SpringBoard 128 行 | `usblog-20261115-134638` |
++| 参照 | brightness-9（旧格式） | `ca992179…` | `7e809dc5…` | 行为同 13：control=0、无 SIGSEGV、SpringBoard 208 行；判定器只能给 INCONCLUSIVE（日志无 `stats=`） | `usblog-20261115-134001` |
++
++brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
++
++## 第 1 轮（2026-11-15 13:46）— brightness-13 默认形态 PASS
++
++- **镜像**：`brightness-13`，`boot.img` sha256
++  `c8c33b9e54965fb79752e60cfcf987e5d0675801e7544169073d1661ad674d74`（201,887,744 B）；
++  `kernel.macho` sha256
++  `bf2df340794d92ad50137ba7af3c3f1506ae0196a53ef70a5735e11abca0c6a3`（105,500,672 B）。
++- **基线**：origin/main `ecda32f`，series 224 条 / sha 前 16 `34cf51e4`，工作区 dirty 0；
++  `kernel_args_requested = [""]`（不传 backlight 参数，即 control 默认 0）。
++- **日志**：`E:\k60-work\evidence\usblog-20261115-134638\console.log`（217,179 B），
++  无 panic、无 `sig=11`；SpringBoard 128 行；`K60 DISPLAY: first frame presented` 出现。
++- **判定器**：`python3 scripts/check-backlight-log.py <console.log>` → **EXIT=0**
++  （`check-backlight-log: PASS (control=0 image)`），逐条：service published level 2047 at dbv 0xff /
++  control=0 / conformance=0 / stats[0]=3 / request[4]=0 / request[5]=0 / no SIGSEGV / first frame presented /
++  SpringBoard lines: 128。
++
++### 决定性日志行（`console.log:183`，原文）
++
++```
++K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)
++```
++
++读法：`stats[0]`=3（已发布、未声称 AppleARMBacklight）、`stats[1]`=0（发布时还没有亮度请求）、
++`stats[2]`=2047（最后写入 level）、`stats[3]`=2047（由回读 DBV 0xff 反算，与 [2] 一致）、
++`req[4]`=0（conformance 不成立）、`req[5]`=0（没发 `backlight-control`）。
++槽位语义见 [`STATS-INDEX.md`](STATS-INDEX.md)。
++
++### 这轮证明了什么、没证明什么
++
++- **证明**：发布层本身是安全的 —— 默认形态下 `control=0`、没有 SIGSEGV、SpringBoard 正常进桌面、
++  首帧呈现。对照 brightness-4（`control=1`）的 4 次崩溃，int-236 的触发条件被隔离到
++  「发布 backlight-control」这一个动作上。
++- **没证明**：滑块真的改变物理亮度。默认形态不发布 `backlight-control`，
++  服务没有向 CoreBrightness 声称接管内置屏背光；若用户拉滑块时 `stats[1]` 不增，
++  说明请求根本没到服务（预期中的可能结果），那就需要另设计一条不触发 int-236 的接管路径，
++  而不是重飞 `control=1` 的旧图（brightness-4 已崩 4 次）。
++
++## 滑块三档实测要看的三个数字
++
++用户在场时拉一次亮度滑块（最低 / 中间 / 最高各停一次），只看三处：
++
++1. **屏幕**：亮度是否随之变化（这是唯一能证明物理调光的证据，DCS 0x51 没有读回命令）。
++2. **`stats[1]`**：请求计数是否随滑动增加；不增 = 请求没到服务（CoreBrightness 未接管）。
++3. **`published level` 行 / `stats[2]`、`stats[4]`**：每次请求后内核会重新 publish 一行，
++   看 level 与 DBV 是否跟着三档变化（例如 0 / ~1024 / 2047）。
++
++前两项任一为否，都不能算「亮度可调」已验收；只能算「发布层安全」已验收。
 diff --git a/docs/research/display/BRIGHTNESS-PLAN.md b/docs/research/display/BRIGHTNESS-PLAN.md
 new file mode 100644
 index 00000000..bd720b15
@@ -221,9 +283,41 @@ index 00000000..bd720b15
 +   仍留 `k60_backlight_invert` 兜底，**待真机验证**。
 +3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
 +   仅由 host 单测覆盖，**待未来系统验证**。
+diff --git a/docs/research/display/RESEARCH.md b/docs/research/display/RESEARCH.md
+index 110f8540..31446be9 100644
+--- a/docs/research/display/RESEARCH.md
++++ b/docs/research/display/RESEARCH.md
+@@ -163,8 +163,26 @@ sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
+ | ~~XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算~~ **不需要换算** | 上电时序以 DTB 为准（`<1 11 0 1 1 11>`，见第 3 节），XML 那行只描述同一件事的另一种编码，不参与构建 |
+ | ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧：492 个 boot 中 452 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（272 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
+ | 面板供电真上电验证 | 3 条 RPMh LDO 的 cmd-db 资源地址与投票参数未取（RSC drv-2 已实测可读写，不是 RSC 阻塞）；在此之前无法自证 |
++| 亮度滑块三档真机验收 | 发布层 PASS（brightness-13，`usblog-20261115-134638`），但默认形态不发 `backlight-control`；滑块是否改变物理亮度待用户在场实测，见 [`08-on-device.md`](08-on-device.md) |
+ 
+-## 9. 交叉引用
++## 9. on-device（背光发布层已验，2026-11-15）
++
++brightness-13（默认形态，`k60_backlight_control=0`）实测 **PASS（发布层）**：
++证据 `usblog-20261115-134638`，判定器 `scripts/check-backlight-log.py` EXIT=0，
++SpringBoard 128 行、无 `sig=11`、`K60 DISPLAY: first frame presented` 出现。
++决定性日志行（`console.log:183`）：
++
++```
++K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)
++```
++
++对照：brightness-4（`control=1`）在同一发布层之后 backboardd 崩 4 次、SpringBoard 停在 7 行
++（int-236 形状）；brightness-9 旧格式日志行为同 13（`usblog-20261115-134001`，SpringBoard 208 行，
++判定器因日志无 `stats=` 只能给 INCONCLUSIVE，用 `--old-form` 复判）。
++**尚未验收**：滑块三档是否真的改变物理亮度（`stats[1]` 是否随滑动增加、屏幕是否变化）。
++逐轮记录与三档读法见 [`08-on-device.md`](08-on-device.md)；槽位语义见 [`STATS-INDEX.md`](STATS-INDEX.md)。
++
++## 10. 交叉引用
+ 
+ - 证据行：[`../REFERENCE-INDEX.md`](../REFERENCE-INDEX.md) 第 7 节（7.2 节点 / 7.3 timing / 7.4 供电 / 7.5 基址 / 7.6 背光 / **7.7 厂商 panel XML 逐包比对**）、14.6、14.7
+ - 本板 `Display Reserved 0xB8000000+0x2B00000` 与 `video_region 0x85700000+0x700000`：[`memory/RESEARCH.md`](../memory/RESEARCH.md)
 diff --git a/docs/research/display/STATS-INDEX.md b/docs/research/display/STATS-INDEX.md
 new file mode 100644
-index 00000000..1f4f8e18
+index 00000000..b4759ff4
 --- /dev/null
 +++ b/docs/research/display/STATS-INDEX.md
 @@ -0,0 +1,129 @@
@@ -275,8 +369,8 @@ index 00000000..1f4f8e18
 +
 +| 配置 | stats[0] | request[4] | request[5] | 日志 |
 +|---|---|---|---|---|
-+| 默认（不传参） | 3 | 0 | 0 | `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,255 req=0,0,0,0 (no AppleARMBacklight conformance)` |
-+| `k60_backlight_control=1` | 4 | 1 | 1 | 同形，但 `conformance=1 control=1 stats=4,0,2047,255 req=0,0,1,1`；**brightness-4 就是这一行之后 backboardd 连崩 4 次**，所以默认关 |
++| 默认（不传参） | 3 | 0 | 0 | `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)` |
++| `k60_backlight_control=1` | 4 | 1 | 1 | 同形，但 `conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；**brightness-4 就是这一行之后 backboardd 连崩 4 次**，所以默认关 |
 +| `k60_backlight=0` | 未初始化（0） | -1 | -1 | 服务完全不启动，屏幕停在 bring-up 的 0xff |
 +
 +## 归因链：四张图各自排除什么
@@ -286,7 +380,7 @@ index 00000000..1f4f8e18
 +| gpu-20261114t | 1 | 1（发了） | 崩 16 次 | —— 基线对照，metal 1 + control 1 |
 +| brightness-4 | 2 | 1（发了） | 崩 4 次 | 崩因不是 metal 从 1 换到 2 |
 +| brightness-13 | 2 | 0（默认不发） | 待测 | 若崩 → 与发布层无关（control 已关） |
-+| brightness-14 | 2 | 1（真 conformance 通过才发） | 待测 | 若崩 → 崩因就是「发 control 本身」 |
++| brightness-14 | 2 | 1（真 conformance 通过才发） | 不飞（作废） | 已被 brightness-4 回答：发 control 就崩，故不再重复 |
 +
 +（brightness-11/12 与 9/10 是同一形态的上一代图，日志里没有 `stats=`/`req=` 计数，
 +已被 13/14 取代：11/12 作废不飞；9 仍留作旧形态对照，判它要加 `--old-form`。）
@@ -350,7 +444,7 @@ index 00000000..1f4f8e18
 +
 +```text
 +读法示例（brightness-13 起，一行自证）：
-+  K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,255 req=0,0,0,0 (no AppleARMBacklight conformance)
++  K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)
 +  -> stats[0]=3 stats[1]=0（发布时还没有请求） stats[2]=2047 stats[3]=255
 +  -> request[0]=0 request[1]=0 request[4]=0 request[5]=0
 +  之后 backboardd 下发亮度会继续推 stats[1]/request[0]/request[1]；要看最新值靠串口/调试器读内存，

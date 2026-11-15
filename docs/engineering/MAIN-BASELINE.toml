@@ -206,3 +206,7 @@ image_sha256 = "55d066f538a10ca82f339babae69f6daa988a0583f823887c5e2d4001a8b7503
 console = "E:/k60-work/evidence/usblog-20261116-034848/console.log (3440 lines, SpringBoard 132)"
 note = "P-217：固件构建改从仓库记录的 Mu_Basecore pin 6f805f2 + 五个 [firmware].patches 施加，不再依赖只存在于本机的 3d2a9fa。用这个 pin+五补丁 重建的卷（sha256 b20a2c5c3df30c2461459a32b1f459eb55f75549b15090f679dc0159440af2ff，3,145,728 B）换进 baseline-20261115d 的 payload 上机：3440 行 / 231,570 B / SpringBoard 132 / Early boot complete 1 次 / K60DATA mounted 1 次 / panic 0 / menu: 与 no boot entry 0 次。⇒ 干净 clone 能构建出可启动的固件卷。"
 
+[[entry]]
+sha = "d399669"
+state = "build-only"
+note = "合入 feat/adsp-handoff-owner 的 PAS1 platform provider（K60AdspPlatform.c/.h + K60AdspPlatformNative.cpp，21 回调；K60HandoffRuntime.cpp:47 首次 acquire 前安装；归档编译表加这两个文件）。改了电池归档的内容，内核字节会变。欠账：native 仍缺板级 ownership/resources/stopped 服务，available=0 继续拒绝 SMC/SMEM/TCSR，需 adsp 线补齐后再构建上机（判据 K60Handoff: published authenticated PAS1 epoch=N bytes=104 flags=15）。"

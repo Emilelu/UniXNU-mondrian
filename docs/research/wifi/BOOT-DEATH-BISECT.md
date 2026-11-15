@@ -4,6 +4,12 @@
 > 静态二分，**不构建、不上机**。上机判据在 §7，实验建议在 §8。
 > 任务来源：m04661（Lead 拍板选 C：停止复现 mhi4，改做死因考古）。
 > 关联：`docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20、`docs/plans/WIFI-REBUILD-CHECKLIST.md`。
+>
+> **判读顺序（2026-11-15 追加）**：先 diff 构建配置，再 diff 内核版式。
+> `wifi-20261116c0` 就是反例：它的 boot.img 唯一带种子 Data UUID（defconfig 指名，
+> P-152/P-209），0 字节是构建配置打死内核的结果，不是版式；其余五张 wifi silent
+> 图的镜像里是设备 UUID（`1BCD69FF-…`），不能被这条缺陷一并解释
+> （BLOB-RESIDENCY.md §8/§11）。
 
 ---
 
@@ -29,8 +35,20 @@
 5. **排除法后剩余的唯一实质差异**：wifi 线镜像 = base 线 + PongWifi 驱动被
    `-Wl,-force_load` 链入（含 11.19 MB 固件进 `__TEXT,__const`）+ `pong_wifi=1` +
    内核 65,978,368 B（比 base 的 54,181,888 大 11.8 MB）（§6）。
-6. **最大证据缺口**：65.9 MB 内核 + `pong_wifi=0` 的干净对照 `wifi-20261116a2`
-   **从未上机**；其 0 字节-vs-进用户态的分界至今没有数据（§6.3、§8）。
+6. **66 MB 对照已经飞过两格，都是 0 字节**：trial 级 `wifi-20261116a2` 从未上机；
+   正式 C 格 `wifi-20261116c0` 判 `invalid-measurement`（defconfig 种子 Data UUID，
+   P-152/P-209；BLOB-RESIDENCY.md §11）；把那一行 UUID 改回设备卷的 `c1` **已飞，
+   仍然 0 字节**（`usblog-20261115-231707`；段表与 `c0` 逐项相同）——所以
+   「种子 UUID ⇒ 零字节」这条单变量假设不成立，66 MB + 真 blob + `pong_wifi=0`
+   这一格是**有效**的 silent（§6.3、§7、BLOB-RESIDENCY.md §11.1）。
+7. **「内核大 ⇒ 死」被两次否证**：`bt-s4b-20261115b`（106.5 MB）进桌面、
+   `bt-s4b-20261115c`（同尺寸、只多一个补丁）0 字节；`adsp-20261115c/d/e`
+   三张 **128,991,232 B** 内核全部进桌面（`usblog-20261115-213413` /
+   `-220912` / `-223916`，console 214–221 KB）。全库 join 的结论更硬：已飞且
+   内核带真 PWF2 的 **10 张全部 0 字节**，已飞且不带 PWF2 的 47 张里 38 张 alive
+   （BLOB-RESIDENCY.md §11.3）。所以剩下的候选不是「段太大」，而是
+   **「11.19 MB PWF2 数据以某种方式进内核」这件事本身**——blob 在
+   `__DATA_CONST` 里、`__TEXT` 只有 1.80 MiB 时（`t2`/`c2`）照样 0 字节。
 
 口径冲突显式记录：Lead 在 m04661 里说 mhi4 是「224-series」，但 mhi3 与 mhi4 的
 build-manifest.json 都记录 `series.count = 229`（`0076aa20…`）。以 manifest 为准；
@@ -259,8 +277,11 @@ imageSha256 join 零命中。它的两个兄弟：
 [docs/engineering/PITFALLS.md](../../engineering/PITFALLS.md) 的 **P-201**（「绕过
 build-strict.sh 造的对照镜像，证据等级自动降一级」，main `1d10955`）落号；判定器与
 对账脚本看到没有 `series` 键的 manifest，把结论降级成「结构性观察」，不许当作
-「变量已隔离」的证据。a2 在队列里的位置由正式重出的对照镜像（同一套当前树、走
-`build-strict.sh`、`pong_wifi=0`）顶替，a2 降级为「体积相同但身份不可复核」的旁证。
+「变量已隔离」的证据。a2 在队列里的位置由正式重出的对照镜像顶替——该镜像就是
+`wifi-20261116c0`，但它的 silent 被判 `invalid-measurement`（defconfig 种子 Data UUID，
+P-152/P-209；BLOB-RESIDENCY.md §11）；`c1` 重测**仍然 0 字节**（`usblog-20261115-231707`，
+段表与 `c0` 逐项相同），所以正式 C 格的判决是 **silent 且有效**，a2 仍降级为
+「体积相同但身份不可复核」的旁证。
 
 a2 仍然可用的部分（实测，可直接当判据）：`boot.img` sha256 `0a1c2ec0…`、
 payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
@@ -276,10 +297,18 @@ payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
 
 | 判据 | 观察 | 结论 |
 |---|---|---|
-| C1 65.9 MB + `pong_wifi=0`（`wifi-20261116a2`）出 200 KB 以上 console | 控制台出现 `K60 USBLOG st=` / `K60PREV none` | **驱动活体是死因**：体积不是；下一步只在 worker 前置动作里找 |
+| C1 66 MB + `pong_wifi=0`（`c1` = `c0` 只改种子 Data UUID 一行）出 200 KB 以上 console | 控制台出现 `K60 USBLOG st=` / `K60PREV none` | **驱动活体是死因**：体积不是；下一步只在 worker 前置动作里找 |
 | C2 同上但仍是 0 字节 | `capture.json` 的 `portSeen=false`、`bytes=0` | **内核体积/固件 residency 是死因**：与 `pong_wifi` 无关，回到 §5.16 的 arena 模型，改窗口或裁固件 |
 | C3 出现 `PongWifi: console up after N ms; starting cold link` 之后才死 | 该行之后断流 | 死在 worker 的 MMIO 段（stage 1–10），可按 `k60_wifi_stage` 逐级二分 |
 | C4 出现 `PongWifi: stage N (…) held back` 且后续正常 | 门生效、boot 继续 | 说明门机制本身健康，可用于后续分级上机 |
+
+注（2026-11-16）：C1 的旧载体 `wifi-20261116a2` 是 trial 级（P-201）；正式 C 格
+`wifi-20261116c0` 判 `invalid-measurement`（defconfig 种子 Data UUID，P-152/P-209；
+BLOB-RESIDENCY.md §11），而它的重测 `c1` **已飞并落在 C2 列**：0 字节、
+`portSeen=false`、`bytes=0`（`usblog-20261115-231707`）。所以按本表读，
+「内核体积/固件 residency 是死因」这一列被选中；C1 列（驱动活体是死因）没有证据。
+`c2`（blob 搬进 `__DATA_CONST` 的复现，`usblog-20261116-000136`）同样 0 字节，
+把「驻留位置」这一轴也关掉。
 
 **判据可执行化**：C1–C4 由 `scripts/judge-wifi-boot.py` 判定。输入一份
 `console.log` 或整个含 `capture.json` 的采集目录，输出四态
@@ -299,6 +328,11 @@ python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
 无标识控制台、纯 fastboot 噪声、空文件六个合成样本，以及一例「消费者丢掉退出码
 仍能从行内 `[exit N]` 读到」。每个用例都断言退出码本身，因为退出码是判定器进
 自动流水线时的全部 API）。
+
+**工具落位**：三件工具（`scripts/judge-wifi-boot.py`、`scripts/judge-z0.sh`、
+`scripts/check-arg.py`）与两份自测已合入 main（合并 `4f56970`，登记 `3e6f110`，
+tag `snap-r198`）；本节与 BLOB-RESIDENCY.md 的引用一律写 main 上的 `scripts/`
+路径。
 
 **引用纪律**：贴判定结果时写 **usblog 目录名**，镜像只作附注。证据目录与镜像
 不是一一命名——`usblog-20261115-012913` 对应的是 `bt-s4a-20261114f`，而 bt 线

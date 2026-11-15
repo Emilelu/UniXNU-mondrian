@@ -244,3 +244,44 @@ grep -nE 'K60Handoff: published authenticated|K60ADSP owner stage=|K60Battery: a
   温度 ±3 °C / 两侧采样间隔 ≤10 s 且充电状态一致），本文件原样收录；改动需同步 reply md 并在 commit message 写明。
 - C1 的 `(1,16)` 来自 `docs/research/charger/06-SUBSCRIPTION-CONSTANT.md` §0（ADSP handler `0x60155910` 逐指令）。
 - ⑧ 的 device 段仍为 `done=false`；本文件只是判据，不改变 `EIGHT-STEPS.toml` 的状态。
+
+## 6. 负样本回归表（每条判据的最小反例）
+
+判据只写在文档里，改错不会有任何东西响。这一节把 C1/C2/C3 各自**最容易被改错的那几个形状**
+固定成表，`scripts/tests/test-judge-battery-negatives.py` 逐行跑一遍，末行给
+`NEGATIVES: N rows, N ok, N mismatch`。任何人改 `scripts/judge-battery.py` 的判据，
+先跑这张表再谈改对没改对。
+
+取材说明（重要，别把这张表读成「已验证」）：`/mnt/e/k60-work/evidence` 共 631 个目录、
+其中 535 个含 `console.log`，对全部 535 个跑判定器**全部 INVALID**——整棵证据树里
+`published authenticated PAS1` = 0、`PMIC_RTR_ADSP_APPS channel up` = 0、`subscribed=1` = 0。
+也就是说 **C1/C2 的 FAIL 形态目前没有真实抓包**，表里标 `synthetic` 的行是按真实日志的
+字节形状手写的（格式串逐字抄自 `K60Battery.cpp:209-214`、`K60Battery.cpp:276-277`），
+标 `real` 的行才是真实证据目录。等 ⑧ 采到带 channel up 的日志，这张表要把 synthetic 行
+逐条换成 real 行。
+
+| # | 判据 | 负样本 | 类型 | 期望判决 | 该行防的是什么 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | C1 | `usblog-20261115-223916`（`K60ADSP owner stage=1 rc=-1000` + `PAS1 bring-up ... no lease published`） | real | INVALID (2) | lease 未发布是「没有测量」，不是「测量失败」 |
+| 2 | C1 | `usblog-20261116-015128`（只有 `K60Battery: blocked rc=-4`） | real | INVALID (2) | 缺前置（无 PAS1/SMEM/GLINK handoff）同理，判 FAIL 会把缺件误读成回归 |
+| 3 | C1 | `subscription-ack=0/0` | synthetic | INVALID (2) | 常量没写进内核＝本张镜像测不到，不是代码错 |
+| 4 | C1 | `subscription-ack=2/24` | synthetic | FAIL (1) | 白名单 `(1,16)` 之外的常量是真错，必须 FAIL |
+| 5 | C1 | channel up 有、`subscribed=0` | synthetic | FAIL (1) | channel up 行打的是配置常量不是回包（P-212 素材）；唯一 ACK 证据是 `subscribed=1` |
+| 6 | C2 | `usblog-20261116-015128` | real | INVALID (2) | blocked 时没有 sample，也不能拿失败行当四属性 |
+| 7 | C2 | `K60Battery: no publication sample=...` | synthetic | FAIL (1) | 驱动自己打了失败行＝真失败，不是缺证据 |
+| 8 | C2 | `voltage=6200mV` | synthetic | FAIL (1) | 越界读数必须 FAIL，不能被「有 sample 就算过」吞掉 |
+| 9 | C2 | `temp=0.00C` | synthetic | FAIL (1) | 0.00 与传感器未就绪不可分，下界取开区间 `(0,60]` |
+| 10 | C3 | `usblog-20261116-015128` + dmesg 6380–6420 | real | INVALID (2) | C1/C2 未过不评估 C3：先判有没有，再判差多少 |
+| 11 | C3 | 3 对全在阈值内 | synthetic | PASS (0) | 阈值内必须 PASS，且打每个量的最大实测差值 |
+| 12 | C3 | 3 对、电压恒偏 170 mV | synthetic | FAIL (1) | 系统性偏差必须 FAIL，不能只报一个数字 |
+| 13 | C3 | 未给 `--android` | synthetic | SKIP (0) | 没给对照侧是 SKIP，headline 必须写 `(C1+C2)` 而不是假装全过 |
+
+跑法：
+
+```
+python3 scripts/tests/test-judge-battery-negatives.py
+K60_EVIDENCE=/path/to/evidence python3 scripts/tests/test-judge-battery-negatives.py
+```
+
+`real` 行在证据树不存在时打 `SKIP (证据树不存在)` 并**不计入 mismatch**，也不计入 ok 数
+以外的任何「通过」——它只是说明这台机器上没有那份抓包，不是判据通过。

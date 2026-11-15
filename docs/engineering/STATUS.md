@@ -174,6 +174,13 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 
 ## 五、2026-11-15 变更摘要
 
+### refmine 判决工具合入 main
+
+- `feat/judge-tools` 原基于 `9176f5c`（旧 main），直接合并会删掉 charger 六篇、
+  P-205/P-206 与 identity seed 文件；Lead 先 rebase 到 main 再 no-ff 合并
+  （`4f56970`）。新增 `scripts/judge-z0.sh`、`scripts/judge-wifi-boot.py`
+  与两套测试（11 + 14 例），以及 `docs/wifi` 判决账本修正（P-201 口径）。
+
 ### 平台身份种子（identity seed）落地并真机验证
 
 - `board.toml` 的 `[payload."adt"]` 增加 `"unique_chip_id" = "required"`；

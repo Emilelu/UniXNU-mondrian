@@ -152,3 +152,10 @@ sha = "fd6adeb"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "合并 feat/charger（08b08fd，11 提交 no-ff）。内容：EIGHT-STEPS.toml 新增 [hardware.charger]（①-⑦ done、⑧ 未上机）、build-k60-physical-battery.py 产出 MEASURED_NOTIFY_REPLY=(1,16)（K60Battmgr.h 契约注释同步）、docs/research/charger/ 六篇研究、scripts/tests/test-k60-charger-subscription.c（30 断言）。登记原因：build-k60-physical-battery.py 参与构建电池归档（PLATFORM_ARCHIVES），产物常量从 0 变成 (1,16)，会改变内核镜像字节，铁则 9。欠账：充电 ⑧ 上机排在 ADSP PAS1 落地之后（真实电量计读数与 Android 侧对比），届时按八步流程执行并另行登记。检查路径：scripts/tests/test-k60-charger-subscription.c TESTS OK 30；check-readme（含八步表对账）/check-docs/render --check 全绿。"
+
+
+[[entry]]
+sha = "4f56970"
+kernel_sha256 = "unknown-unchanged-image"
+state = "build-only"
+note = "合并 feat/judge-tools（rebase 到 9fec9a5 后 no-ff，17 提交）。内容：scripts/judge-z0.sh、scripts/judge-wifi-boot.py、scripts/tests/test-judge-wifi-boot.py（11 例）、scripts/tests/test-check-arg.py（14 例）、docs/wifi 判决账本修正（P-201 口径）与 docs/research 两篇 file:line 追溯。登记原因：新增 scripts/ 文件，铁则 9。欠账：无，不改变内核与镜像内容，仅新增判定工具与文档。"

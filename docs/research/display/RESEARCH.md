@@ -17,7 +17,7 @@
 | DSI | 单 DSI：`dsi-ctrl-num=0` / `dsi-phy-num=0` | `:27802-27803` |
 
 **会选错面板的陷阱**：`dsi-display-primary` 的 `qcom,dsi-default-panel=<0x697>`（`:28881`）指向
-`qcom,mdss_dsi_visionox_r66451_fhd_plus_video`（`:22521`，1440x2340），**那不是本机在用的面板**。
+`qcom,mdss_dsi_visionox_r66451_fhd_plus_video`（`:22521`，**1080x2340**：其 `timing@0`（`:22562`）`panel-width=0x438=1080`、`panel-height=0x924=2340`），**那不是本机在用的面板**。
 判据只认 bootargs 的 `msm_drm.dsi_display0`。
 
 ### 1.1 厂商 panel XML：已找到，但是同族不同修订（2026-11-14）
@@ -31,7 +31,7 @@
 
 **静态字段与 live FDT 逐项一致**（可放心用它读面板规格）：分辨率 1440x3200、porch
 hfp/hbp/hsync = 8/8/12、vfp/vbp/vsync = 16/6/14、DSC Major1/Minor2、slice 720x32、slice-per-pkt 2、
-bpp 8、bpc 10、`DSIBitClockFrequency=1200000000`（= `panel-clockrate=0x47868c00`）、`DSILanes=4`
+`DSIBitClockFrequency=1200000000`（= `panel-clockrate=0x47868c00`）、`DSILanes=4`
 （与 `lane-0..3-state` 四条一致；单 DSI 控制器仍可用 4 lane，与 `dsi-ctrl-num=0` 不矛盾）、
 `mi,panel-id` 与文件名 `M11a_42_02_0a` 一致。XML 分四组：`Active Timing`、`Display Interface`、
 `DSI Interface`、`Backlight Configuration`；`DisplayResetInfo = 5 1000 1000 10000 0`
@@ -130,7 +130,7 @@ sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
 |---|---|---|---|
 | `vddio` | 1.8 V | `pm8350c_l12` = rpmh-regulator-**ldoc12**（phandle 0x30a，`init-mode=4`） | supply-entry@0 `:28942-28951` |
 | `vddd` | 1.07 V | `display_panel_vddd`，**GPIO 66** 高有效，`regulator-boot-on` | supply-entry@1 `:28952-28961` |
-| `vci` | 3.0 V | `pm8350c_l13` = rpmh-regulator-**ldoc13**（phandle 0x30b，`init-mode=4`） | supply-entry@2 `:28962-28972` |
+| `vci` | 3.0 V（supply-entry 的 min=max=`0x2dc6c0`）；**但 ldoc13 节点自身 `init-voltage=0x2932e0`=2.7 V、范围 2.7–3.4 V**（`:5243-5245`），真实上电值以 LDO 节点为准 | `pm8350c_l13` = rpmh-regulator-**ldoc13**（phandle 0x30b，`init-mode=4`） | supply-entry@2 `:28962-28972`；regulator `:5240-5247` |
 | `extvdd` | 1.2 V | `pm8350b_l1` = rpmh-regulator-**ldod1**（phandle 0x30e） | `:28875` |
 | `avdd` | 5.5 V | `display_gpio_regulator@1`，**GPIO 186**，`ramp-delay=233 µs`，`proxy-consumer-enable` | `:28912-28925` |
 
@@ -150,8 +150,8 @@ sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
 
 ## 7. 绝不可抄（已经踩过的）
 
-1. **yibiya 的 120Hz 文档数值不能搬**：`references/yibiya-upstream/docs/plans/K60-120HZ-PLAN.md` 的 timing 表读自 `qcom,mdss_dsi_sharp_qhd_cmd`（live FDT `:22033`）——720x3120 DSC 压缩、双 DSI、2 档、68 B timing-switch；本机是 1440x3200 未压缩、单 DSI、3 档、98 B。逐值对照见 REFERENCE-INDEX 14.7。
-2. **Pong 的面板库没有一个匹配 K60**：`uefi-mondrian/Include/RAW.inc:1-5` 原文说明约 72 个 `Panel_*.xml` 全是 pong 的——这条对 pong 那个库成立。但「`Device-Binaries` 里 2,117 个也无一匹配 m11a」**已于 2026-11-14 推翻**：m11a 的 XML 在 `marble/RawFiles/` 下，见 1.1。它的 init 序列仍是同族不同修订，**不能直接烧**（marble 3 个编辑块，见 1.1）。
+1. **yibiya 的 120Hz 文档数值不能搬**：`references/yibiya-upstream/docs/plans/K60-120HZ-PLAN.md` 的 timing 表读自 `qcom,mdss_dsi_sharp_qhd_cmd`（对应 live FDT `:22033` 的 `qcom,mdss_dsi_sharp_qhd_plus_dsc_cmd`，phandle `0x6a4`）——720x3120 DSC 压缩、双 DSI、2 档、68 B timing-switch；本机是 1440x3200 未压缩、单 DSI、3 档、98 B。逐值对照见 REFERENCE-INDEX 14.7。
+2. **Pong 的面板库没有一个匹配 K60**：`uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Include/RAW.inc:1-5`（**不在** `uefi-mondrian/Include/` 下）原文说明约 72 个 `Panel_*.xml` 全是 pong 的——这条对 pong 那个库成立。但「`Device-Binaries` 里 2,117 个也无一匹配 m11a」**已于 2026-11-14 推翻**：m11a 的 XML 在 `marble/RawFiles/` 下，见 1.1。它的 init 序列仍是同族不同修订，**不能直接烧**（marble 3 个编辑块，见 1.1）。
 3. **zizhan 的 framebuffer 分辨率不能套**（见第 2 节）。
 
 ## 8. 缺口与下一步
@@ -161,7 +161,7 @@ sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
 | ~~K60 厂商 panel XML 未找到~~ **已找到（1.1）** | `/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（无 `references/` 软链）。静态规格可信，init 序列差 3 个编辑块（129 包 vs 135 包） |
 | ~~**init 串的差异要不要补**~~ **已解决（4.1）** | 两个选项都不需要：真串已在 live FDT 里（三档 1,534 B，sha256 实测），已落到 `E:/k60-work/artifacts/panel-init-live/`。marble/nuwa XML 只用于核对规格，不用于烧写 |
 | ~~XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算~~ **不需要换算** | 上电时序以 DTB 为准（`<1 11 0 1 1 11>`，见第 3 节），XML 那行只描述同一件事的另一种编码，不参与构建 |
-| ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧：492 个 boot 中 452 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（272 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
+| ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧（2026-11-14 用 `scratch/refmine/fps_boots.py` 重跑，证据目录只增不减，故数字随抓取增长）：494 个 `console.log` 中 453 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（273 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
 | 面板供电真上电验证 | 3 条 RPMh LDO 的 cmd-db 资源地址与投票参数未取（RSC drv-2 已实测可读写，不是 RSC 阻塞）；在此之前无法自证 |
 
 ## 9. 交叉引用

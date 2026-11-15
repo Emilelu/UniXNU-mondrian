@@ -45,9 +45,14 @@ SILENT_CAPTURES = [
     ("mhi4 is silent", EVIDENCE / "usblog-20261115-002243"),
     ("mhi3 is silent", EVIDENCE / "usblog-20261115-002804"),
 ]
+# Name the capture, not the image family: the directory and the image do not
+# share a name (012913 is bt-s4a-20261114f, while the bt line now flies s4b/s4c),
+# so a family label would stop matching within a couple of rounds.
 ALIVE_CAPTURES = [
-    ("thermal reaches userspace", EVIDENCE / "usblog-20261115-003922"),
-    ("bluetooth reaches userspace", EVIDENCE / "usblog-20261115-012913"),
+    ("usblog-20261115-003922 (thermal-20261114f) reaches userspace",
+     EVIDENCE / "usblog-20261115-003922"),
+    ("usblog-20261115-012913 (bt-s4a-20261114f) reaches userspace",
+     EVIDENCE / "usblog-20261115-012913"),
 ]
 
 HEALTHY_HEAD = (

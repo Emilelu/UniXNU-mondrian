@@ -215,17 +215,18 @@ findings = [
   "Roughly two thirds of L1 already exists as ADSP code and needs a second instance rather than new theory: K60AdspPas.c carries the PAS SCM sequence, K60AdspImage.c parses the ELF32 segment table, K60Smem.c owns SMEM, and QcomGlink.c implements GLINK but with QCOM_GLINK_MAX_CHANNELS hard-coded to 1 and shaped for the PMIC endpoint.",
   "The modem QRTR transport is GLINK over SMEM on the IPCRTR channel, not MHI: DT declares qcom,glink-channels = \"IPCRTR\" with three intent groups, while mhi_qrtr_cnss carries qcom,dev-id 0x1103, which is the QCA6490 WLAN endpoint.",
   "The modem's QMI service registry is live and enumerable on the running device: 36 services answer on QRTR node 0, so the completion criterion has a concrete Android-side baseline to compare an XNU-side NEW_LOOKUP against.",
+  "carrier for the modem image is not implemented; the probe reports carrier absent. A boot with pong_modem=2 reached the probe, hit K60MODEM carrier absent at 0x8bc00000 and skipped the secure monitor, so QRTR enumeration could not start; docs/research/cellular/11-CARRIER.md compares the three carrier options.",
 ]
 completion = [
   "A device boot shows the modem enumerated over QRTR with a readable firmware revision.",
 ]
 limits = [
-  "Nothing has been measured on this board beyond the Android-side inventory and the DT read.",
+  "One XNU boot with pong_modem=2 has been observed; it ended at the carrier check before any PAS SCM call, so the only device-side modem observation so far is the missing carrier.",
   "No X65 marketing-model string exists in the DT or in the firmware; the DT only carries the codename cape, so the X65 name rests on Qualcomm platform naming and is not used as DT evidence.",
   "Android's qrtr-lookup writes its table to /data/vendor/qrtr/qrtr-lookup.txt and prints only the header row to stdout, so its output must be read from that file; the earlier reading of the empty stdout as a failed enumerator was a tool-usage error, corrected on 2026-11-14.",
 ]
 next_action = [
-  "Boot cellular-l3-20261114d with pong_modem=2 and read the QRTR verdict line.",
+  "Decide the modem image carrier with the lead (docs/research/cellular/11-CARRIER.md: firmware DXE into 0x8bc00000 costs +32 MiB of boot.img and is recommended; the kernel-embedded blob does not fit the 192 MiB payload volume). No further image flights until the carrier lands.",
   "The acceptance test is a node-0 reply to the QRTR_TYPE_NEW_LOOKUP whose service id falls in {21, 1, 11, 3, 16}; the probe prints that as K60MODEM qrtr: verdict ok services=N node0=M wanted=K, and the Android-side baseline to compare against is 37 rows on node 0 in docs/research/cellular/08-QRTR-SERVICES.md.",
 ]
 evidence = [

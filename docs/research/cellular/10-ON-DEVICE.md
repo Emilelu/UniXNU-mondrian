@@ -1,7 +1,7 @@
 # 上机实测记录（cellular L3）
 
-> **状态：空壳。上机前不要在本篇写下任何推测值。**
-> 所有表格的「实测」列一律留 `TODO`，只有拿到真实日志后才填；
+> **状态：已上机一次（2026-11-15），结论是「载具缺失」，不是枚举失败。**
+> 只有拿到真实日志的行才填值，其余一律 `TODO` / `未出现`；
 > 填入时必须同时给出日志行原文与日志文件路径。
 
 镜像与分支的对应关系：待上机镜像是 `cellular-l3-20261115a`，它的代码状态是提交 `aa6b985`（已并入 `origin/main` 的 `ecda32f`）。
@@ -22,11 +22,11 @@
 | frozen 指纹 | `30fdf3fff19f45aaf7c4b4ebfebe763e5e674bc8b9f6250236c6c2ac33fddc5c` |
 | 命令行参数个数 / 字节数 | 30 / 588（`check-image-args.py` 实测） |
 | 上机内核命令行里的门控 | `pong_modem=2`（`build-manifest.json` 的 `kernel_args_requested` = `['pong_modem=2']`，`payload_args` 末位即 `pong_modem=2`） |
-| 日志文件路径 | TODO |
-| 日志文件字节数 | TODO |
-| 抓取时间（本地时区） | TODO |
-| 设备 serial | TODO |
-| 从 Android 冷启动还是 warm switch | TODO（决定 SMEM/GLINK 是否是新 epoch，见 09 篇用例 F） |
+| 日志文件路径 | `E:\k60-work\evidence\usblog-20261115-141845\console.log` |
+| 日志文件字节数 | 221401 |
+| 抓取时间（本地时区） | 2026-11-15 14:18:45 |
+| 设备 serial | TODO（Lead 未提供） |
+| 从 Android 冷启动还是 warm switch | TODO（Lead 未提供；决定 SMEM/GLINK 是否是新 epoch，见 09 篇用例 F） |
 
 **先确认门控再读结论**：命令行里没有 `pong_modem` 或等于 0 时，日志里一行 `K60MODEM` 都不会有，
 那不代表失败（09 篇用例 A）。
@@ -36,30 +36,38 @@
 每行先填「命中行原文」（从日志里逐字复制，含数字），再填「结论」。
 没有命中的行写 `未出现`，不要留空——留空无法区分「没查」和「查了没有」。
 
+**载具前置（先查这两行，再对 A–J）**：日志里出现
+`K60MODEM qrtr: smem item … missing` 和/或 `K60MODEM carrier absent: no modem image staged at …`
+⇒ 这是**载具缺失**，不是 `verdict no reply`，也不是任何一项 PAS 失败：
+A–J 全部不适用，结论直接写「载具缺失」，依据 11-CARRIER.md §0。
+`judge-qrtr.sh` 命中这两行会直接输出 `verdict: carrier-absent` 并跳过 wanted 号一段。
+
 | 用例 | 形态（09 篇） | 命中行原文 | 结论 |
 | --- | --- | --- | --- |
-| A | 无输出（门控关闭） | TODO | TODO |
-| B | `carrier absent` + `pas skipped` | TODO | TODO |
-| C | `cannot map the carveout head` | TODO | TODO |
-| D | PAS 七行全成（plan/copy/auth_reset/init_image/mem_setup） | TODO | TODO |
-| E1 | `scm cmd=0x5` + `auth_reset failed` | TODO | TODO |
-| E2 | `scm cmd=0x1` + `init_image failed seg=…` | TODO | TODO |
-| E3 | `scm cmd=0x2` + `mem_setup failed` | TODO | TODO |
-| F | `glink fifo not fresh`（无 verdict 行） | TODO | TODO |
-| G | `modem not ready`（无 verdict 行） | TODO | TODO |
-| H | `verdict no reply services=0 … polls=500` | TODO | TODO |
-| I | `verdict ok … wanted=…` | TODO | TODO |
-| J | `malformed=` 非 0 | TODO | TODO |
+| A | 无输出（门控关闭） | 未出现 | 不适用（门控已开，日志有 `K60MODEM probe begin`） |
+| B | `carrier absent` + `pas skipped` | `K60MODEM qrtr: smem item 480 missing rc=-5`（481 行）／ `K60MODEM carrier absent: no modem image staged at 0x8bc00000`（482 行）／ `K60MODEM pas skipped, nothing was handed to the secure monitor`（483 行） | **载具缺失**：镜像从未被放进 carveout，PAS 没有发出任何 SCM 调用；不是枚举失败（11-CARRIER.md §0） |
+| C | `cannot map the carveout head` | 未出现 | — |
+| D | PAS 七行全成（plan/copy/auth_reset/init_image/mem_setup） | 未出现 | — |
+| E1 | `scm cmd=0x5` + `auth_reset failed` | 未出现 | — |
+| E2 | `scm cmd=0x1` + `init_image failed seg=…` | 未出现 | — |
+| E3 | `scm cmd=0x2` + `mem_setup failed` | 未出现 | — |
+| F | `glink fifo not fresh`（无 verdict 行） | 未出现 | — |
+| G | `modem not ready`（无 verdict 行） | 未出现 | — |
+| H | `verdict no reply services=0 … polls=500` | 未出现 | — |
+| I | `verdict ok … wanted=…` | 未出现 | — |
+| J | `malformed=` 非 0 | 未出现 | — |
 
-判决行原文（`K60MODEM qrtr: verdict …`）：TODO
+判决行原文（`K60MODEM qrtr: verdict …`）：未出现（日志里没有 verdict 行，因载具前置已命中）
 
-四个数字直接抄下来，不要换算：`services=` TODO ／ `node0=` TODO ／ `wanted=` TODO ／ `malformed=` TODO ／ `polls=` TODO
+四个数字直接抄下来，不要换算：`services=` 未出现 ／ `node0=` 未出现 ／ `wanted=` 未出现 ／ `malformed=` 未出现 ／ `polls=` 未出现
 
 ## 3. 与 Android 侧 37 行基线的差异
 
 基线出处：`docs/research/cellular/08-QRTR-SERVICES.md` §5（来自设备 `6033dbec` 的 `/data/vendor/qrtr/qrtr-lookup.txt`）。
 比对规则：service / instance / version 三条必须一致；**port 不作判据**（随 modem 复位变化）。
 「XNU 侧实测」列填命中的那条 `K60MODEM qrtr: service …` 行的 port 值，没命中写 `未出现`。
+
+本轮日志 `K60MODEM qrtr: service` 行 0 条（枚举从未开始），下表 37 行「XNU 侧实测」全部是 `未出现`，不再逐行重复注明。
 
 | 服务号 | 名字（Android 侧原文） | instance | version | XNU 侧实测（port） |
 | --- | --- | --- | --- | --- |
@@ -101,13 +109,16 @@
 | 18 | IMS settings service | 0 | 1 | TODO |
 | **16** | Location service (~ PDS v2) | 0 | 2 | TODO |
 
-汇总行：命中 TODO ／ 37；五个判据号命中 TODO ／ 5。
+汇总行：命中 0 ／ 37；五个判据号命中 0 ／ 5。
 
 ## 4. 结论与证据升级条件
 
 ### 4.1 结论
 
-TODO（一句话：枚举成立 / 部分成立 / 未成立，并指出依据是第 2 节哪一行）
+**枚举未成立——载具缺失**（依据第 2 节用例 B：481-483 行）。
+modem 镜像从未被放进 `0x8bc00000` 的 carveout，PAS 一步都没跑，QRTR 自然没有东西可枚举。
+这不是 QRTR/PAS 代码的观测结果，而是「没跑起来」，所以不满足 §4.2/§4.3 的升级条件。
+载具三案与裁决见 `docs/research/cellular/11-CARRIER.md`。
 
 ### 4.2 把 `EIGHT-STEPS.toml` 的 ⑧ 从 prediction 改成 done 的条件
 

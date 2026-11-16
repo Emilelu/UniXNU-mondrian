@@ -1,0 +1,28 @@
+# 为什么 board.toml 使用的组件没有停在 catalog 的 revision 上。
+#
+# 每条 deviation 必须能对上一个真实差异：component + our_revision。
+# 组件一旦追平 catalog，check-component-pin.py 会要求删掉对应条目，
+# 以免这份文件变成第二个"永远为真"的登记簿。
+#
+# 复核时间：每次 UniXNU 更新子模块、或该组件被本次移植触碰时重看。
+
+[[deviation]]
+component = "ArmCpu"
+our_revision = "9066b53bbc82e92a98ec44a11dd50fd13eaf1a1b"
+catalog_revision = "93a5030c5d983d0ef90f0fca93879d6e36ad1ba8"
+reason = """本仓 UniXNU 检出的 gitlink 停在 9066b53b（2026-10-25），catalog 已到 93a5030c（2026-11-01，fix(armcpu): gate the Edge matrix on armcpu-edge）。K60 不走 Edge matrix，且新提交未进本仓子模块；等 UniXNU 同步子模块时一起更新。"""
+review = "2026-12-01"
+
+[[deviation]]
+component = "XnuPrelink"
+our_revision = "f876e3ee62e18fc06653dd75ed7dafcfb3950ac0"
+catalog_revision = "c645d76b"
+reason = """本仓 gitlink 停在 f876e3ee（2026-10-25），catalog 为 c645d76b（2026-11-06，merge main into feat/usb）。Prelink 输出目前与 K60 的 payload 布局一致，未验证新提交差异；升级须重跑 prelink 门禁。"""
+review = "2026-12-01"
+
+[[deviation]]
+component = "PongUfs"
+our_revision = "138a9fb0f42fda6e526a347eb03fa9bb239620a8"
+catalog_revision = "c959284f63534eb56f0a4e863fd3a65127ad7a40"
+reason = """catalog 的 c959284f 在本地任何树里都不存在（未 fetch）；K60 实际使用 /e/k60-work/references/pong-ufs 的 138a9fb0（2026-11-11，Integrate cumulative Pong native22G100 hardware fixes），设备仓 drivers/NativeUfs 与它对齐。等拿到 catalog 提交内容后再判断是否升级。"""
+review = "2026-12-01"

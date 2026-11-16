@@ -6078,3 +6078,19 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 4. **修复要连带把「默认值」从代码里删掉**，否则下一个人照样能写回 `os.environ.get(..., '/opt/...')`。
    新测试 `scripts/tests/test-device-input-must-be-named.py` 逐条 grep 三个脚本，既断言拒绝行为，
    也断言不再出现共享默认路径。
+
+## P-231
+
+**catalog 的 revision 与本地树悄悄漂移：ShengUfs 差了几十个提交没人发现**
+
+2026-11-17 审计实测：`UniXNU/components.toml` 给 29 个组件各写了一个 `revision`，但本地检出/参考树并不都在那个提交上——21 个有本地树的组件里 13 个不同。board.toml 实际使用的 4 个组件中 3 个不同：ArmCpu 本地 9066b53b（2026-10-25）vs catalog 93a5030c（2026-11-01）、XnuPrelink f876e3ee vs c645d76b（2026-11-06）、PongUfs 本地 138a9fb0 vs catalog c959284f（本地不存在该提交）。研究用的 ShengUfs 参考树 9d527ae1（2026-11-16）甚至比 catalog 的 99d8bcd3（2026-11-01）新。
+
+危害：文档里写「见 ShengUfs/NativeUfs.cpp」时，读的人不知道这份副本对应哪个 revision；审计里 ShengUfs 与 catalog 的差就是这样漏掉的。catalog 的 revision 是声明，本地树是事实，两者不一致本身不一定错（可能故意停旧、或参考树更新），但必须写下来。
+
+三条教训：
+
+1. **pin 是「声明」，不是「事实」**：每个用到组件的构建/文档都要能回答「这个文件来自哪个 revision」。
+2. **差异要写理由，不写就当违规**：`docs/engineering/COMPONENT-PINS.toml` 每条 deviation 带 component/our_revision/reason/review；组件追平后脚本会要求删条目，防止登记簿变成永远为真。
+3. **只校验 board 组件**：catalog 覆盖全舰队，非 board 组件的漂移只打印 ℹ，不阻断；阻断范围要跟「谁会被这次构建消费」一致。
+
+**关联**：P-217（Mu_Basecore 的 pin 要写进手册）、P-230（缺输入不许替换默认值）。

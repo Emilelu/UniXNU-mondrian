@@ -798,3 +798,10 @@ id = "P-230"
 kind = "pitfall"
 title = "判据缺输入时不许替换成默认镜像"
 check = "python3 scripts/tests/test-device-input-must-be-named.py"
+
+[[rule]]
+id = "P-231"
+kind = "pitfall"
+title = "catalog 的 revision 与本地树悄悄漂移"
+check = "python3 scripts/check-component-pin.py"
+note = "catalog 的 revision 是声明不是事实；board 组件必须与 catalog 一致或写进 docs/engineering/COMPONENT-PINS.toml（component/our_revision/reason/review），非 board 组件只告警。ShengUfs 参考树 9d527ae1 vs catalog 99d8bcd3 的差就是这样漏掉的"

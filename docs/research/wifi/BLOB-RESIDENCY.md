@@ -4,44 +4,48 @@
 > 那一支保留「排除法怎么一格一格走」的全过程与每一版被推翻的措辞；本页只写当前事实
 > 与当前结论。要查某条判断是哪天、被哪张镜像推翻的，看那一支。
 
-状态（2026-11-16）：**silent 已结案**——P-215 的 UFS SMMU lease 原因由 `c2`/`c3` 单变量
-对照确认（§10）。MHI 方面，`c7` 直接观测到硬件 `exec_env=SBL`、`MHISTATUS=READY/SYSERR0`、
+状态（2026-11-16）：**`c2`/`c3` 所涉及的 UFS lease 故障已有因果证据**——受控对照与
+0012 源码链支持 P-215（§10），不等于所有旧 silent 逐图结案。`c0` 是无判别力的
+`invalid-measurement`；trial `wifi-20261114a`、独立 bt-s4b-c，以及未核验归档/实际调用路径
+的旧图不在这一直接归因范围。MHI 方面，`c7` 直接观测到硬件 `exec_env=SBL`、`MHISTATUS=READY/SYSERR0`、
 `MHICTRL` 请求 M0，而 host `ee=PBL`、`pm_state=POR`；抓取未见 EE 处理或完整镜像 BHIE 发起。
 当前结论只到 **SBL/READY 后续转换未完成，原因待验**（§11）。`c8` 暂停，先审重复下载、
 重入与 READY→M0 协议。
 
 本页回答两个问题，答案都在这里：
 
-1. 11.19 MB 的 PWF2 固件放进内核，会不会撞上装载边界？——**不会**：这条路径上每个
-   硬边界都被实测值绕开，余量最小的一项（117 MB 镜像 vs `ReadFile` 的 128 MB）也有
-   1.14×（§3）。
-2. 那么 2026-11-14 至 11-16 那十张 0 字节的 wifi 镜像为什么死？——**UFS 侧**：
-   `patches/wifi/0004` 让 `PongUfsTransport::hostBringUp()` 在 UFS 启动时索取 Apps
-   SMMU lease，而锁只在 `pong_rpmh_init()` 里分配、后者晚于 UFS（§10）。blob、版式、
-   驻留、窗口、参数、Data UUID 六条轴全是**观测轴**，它们与死亡同步变化只是因为
-   `-Wl,-force_load` 把 wifi 归档（含这段 lease 代码）一起带进内核。
+1. 11.19 MB 的 PWF2 固件放进内核，会不会撞上装载边界？——**本文实测值未触发所列静态硬检查**：
+   余量最小的一项（117 MB 镜像 vs `ReadFile` 的 128 MB）也有 1.14×（§3）。
+   这不是所有镜像的实际装载路径或 pool 状态都已核验的声明。
+2. 那么旧 wifi 镜像的 0 字节能否统一归因？——**不能**。`c2` silent / `c3` alive 的受控
+   对照与源码链支持所涉及的 UFS lease 故障：`patches/wifi/0004` 让
+   `PongUfsTransport::hostBringUp()` 索取 Apps SMMU lease，修前分配晚于这一调用（§10）。
+   blob、版式、驻留、窗口等共存因素不足以单独解释这一对的差异；其它旧图的归档、
+   链接和实际调用路径须逐图核验，不能用 `-Wl,-force_load` 或 PWF2 在场代替。
+   `c0` 的身份不符仅使该格无判别力；`c1` 修 UUID 后仍 silent 只排除 UUID 是唯一充分解释。
 
 ## 0. 结论
 
 | # | 结论 | 证据 | 推翻条件 |
 |---|---|---|---|
-| 1 | silent 的死因是 UFS SMMU lease 未就绪时被索取，不是 blob / 版式 / 窗口 | `c3` = `c2` + `patches/wifi/0012`（20,480 B），同版式同容器，`c3` alive / `c2` silent（§10.1） | 找到一张带 0012 仍 silent、或去掉 0012 仍 alive 的镜像 |
-| 2 | `pong_wifi=0` 挡不住死因 | 同上：`c2`/`c3` 都是 `pong_wifi=0`；开关只挡住 worker，挡不住 UFS 更早的那次索取（§10.2） | 同上 |
-| 3 | 装载边界全不触发 | 段 12,992,512 vs 256 MB；span 129,642,496 vs 254 MB；镜像 117,305,344 vs 128 MB；段数 15/64；重叠 0；XNU 无上限常量（§3–§5） | 见 §0.1 |
+| 1 | `c2`/`c3` 对照与源码链支持所涉及的 UFS lease 故障；不统包旧 silent | `c3` = `c2` + `patches/wifi/0012`（20,480 B），同版式同容器，`c3` alive / `c2` silent（§10.1–§10.2） | 同配方复测或源码/产物核验改变变量隔离、调用链或结果；不同旧图不能仅凭补丁名并入 |
+| 2 | 所审 UFS lease 路径不受 `pong_wifi=0` 保护 | `c2`/`c3` 都是 `pong_wifi=0`；所列源码中开关挡住 worker，不挡 UFS 的 lease 调用（§10.2） | 同上；其它镜像需先核验归档与调用路径 |
+| 3 | 所列实测值未触发所审静态硬边界；不等于逐图运行路径已证 | 段 12,992,512 vs 256 MB；span 129,642,496 vs 254 MB；镜像 117,305,344 vs 128 MB；段数 15/64；重叠 0；XNU 无上限常量（§3–§5） | 见 §0.1 |
 | 4 | 带真 PWF2 的已飞镜像里有一张 alive | 全库 join：11 张带真容器 → 1 alive（`c3`）/ 10 silent；不带容器的 47 张 → 38 alive / 8 silent（§9.2） | 再飞同类得到不同分组 |
-| 5 | 「内核总大小」不是轴 | `bt-s4b-20261115b` 106.5 MB alive 而同尺寸的 `c` silent；`adsp-20261115c/d/e` 128,991,232 B 三张全 alive（§2、§9.2） | 一张 >117 MB 且带 PWF2 的 alive 镜像不构成推翻（`c3` 已如此），要的是「>117 MB 且带 PWF2 仍 silent 而小镜像 alive」的反向证据 |
+| 5 | 内核总大小不能单独区分已观测样本的生死 | `bt-s4b-20261115b` 106.5 MB alive 而同尺寸的 `c` silent；`adsp-20261115c/d/e` 128,991,232 B 三张全 alive（§2、§9.2）；bt-s4b-c 的独立原因不由 P-215 代答 | 若主张另一配方存在尺寸边界，需隔离其它变量并核验实际失败路径，不以异配方大小相关性定因 |
 | 6 | `c7` 取样时处于 SBL/READY，后续转换未完成；原因未定 | `usblog-20261116-122546:632` 的硬件 `exec_env=1`、`MHISTATUS=0x101`、主机 `MHICTRL=0x200` 请求 M0；software `ee=0`、`pm_state=2`；未见 EE 处理或完整镜像 BHIE 发起日志（§11.4） | 后续同镜像/可复核探针记录到转换进展，或新证据改变对本次采样的解释；按 §11.8 分层记录，不以单字段结案 |
 
 ### 0.1 各判断的推翻条件
 
-每条判断都能被一行实测推翻；写在这里是为了让下一个人知道该看什么。
+每条判断都要写明可复核条件与适用范围；一次异配方的 silent 不能自动推翻或证实另一配方的机制。
 
 - **§0 第 3 行（边界）**：出现 `__TEXT` vmsize > 256 MB 仍过 `ParseKernel`；或实测 span
   > 253,388,800 仍过 :196；或内核镜像 > 134,217,728 字节仍被 `ReadFile` 接受；或
   vmsize≠0 的段数 ≥ 64 被接受；或在 xnu-work 找到任何以 `__TEXT` 大小为输入的上限
   （grep 之外还要读 `pmap_bootstrap` 与 KTRR 相关代码）。
-- **§0 第 1、2 行（死因）**：任何一张「链了 wifi 归档、没带 0012」却 alive 的镜像，
-  或任何一张「带了 0012」却 silent 的镜像。
+- **§0 第 1、2 行（UFS lease）**：在已核验同配方、同归档与同调用路径的对照中，重复
+  0012 干预得到不同结果，或发现变量未隔离/源码链不适用，均需重审。其它镜像只凭
+  「带/不带 0012」与 silent/alive 不能直接归因，silent 也可能有独立原因。
 - **§0 第 6 行（MHI）**：取得覆盖转换前后、并区分硬件寄存器、host 状态与事件处理的可复核记录；
   `exec_env` 单独变化不构成 MHI 或 Wi-Fi 成功判据。c8 目前暂停，先审下载与状态转换协议（§11.8）。
 
@@ -113,7 +117,7 @@ payload kernel = boot.img ramdisk 槽 `EFI/UniXNU/Payloads/kernel.macho`（`mtyp
 | `__DATA` | 1,638,400 | 1,867,776 | +229,376 |
 | span（Base→End） | 66,285,568 | 78,327,808 | +12,042,240 |
 
-三条对照把「体积」这条轴彻底打掉：
+三条对照否证「仅凭内核总大小就能区分这些样本生死」的模型，不排除别的配方有自己的边界：
 
 1. **105 MB alive 家族的 `__TEXT` 与 54 MB 基线相同（1,720,320）**——它们的体积全部
    来自 `__DATA` 52,920,320。所以「内核大」与「`__TEXT` 大」是两件互不蕴含的事。
@@ -126,9 +130,10 @@ payload kernel = boot.img ramdisk 槽 `EFI/UniXNU/Payloads/kernel.macho`（`mtyp
    无 PWF2，全部进桌面（`usblog-20261115-213413` 214,232 B、`-220912` 221,484 B、
    `-223916` 220,234 B）。阈值模型第二次被否证，这次把 117 MB 也包在里面。
 
-**驻留位置也不是轴**：`t2`/`c2`/`c3`/`c4`–`c7` 把容器从 `__TEXT,__const` 搬到
-`__DATA_CONST,__const`（`__TEXT` 回到 1,802,240、`__DATA_CONST` 12,124,160），
-其余逐项相同；`c2` silent、`c3` alive——同一驻留位置两种结果。
+**驻留位置不能单独解释这一对的差异**：`t2`/`c2`/`c3`/`c4`–`c7` 的容器位于
+`__DATA_CONST,__const`，而非早期的 `__TEXT,__const`（`__TEXT` 回到 1,802,240、
+`__DATA_CONST` 12,124,160）；`c2` silent、`c3` alive——同一驻留位置两种结果。
+这是所列样本的对照，不是所有驻留方案都与启动无关的全局定理。
 
 对齐不变：`__TEXT` vmaddr 两边都是 0xfffffff007004000（DarwinBoot.c:194 校验
 `Base & EFI_PAGE_MASK`）；xnu-work `osfmk/arm64/arm_vm_init.c:2306` 的
@@ -150,9 +155,10 @@ payload kernel = boot.img ramdisk 槽 `EFI/UniXNU/Payloads/kernel.macho`（`mtyp
 | 4 | 段数 / 段间重叠 | :160 / :190-191 | 15 / 0 | 64 / 无 | 4.3× / — |
 
 `AllocateWindow`（:420-478）本身只看内存地图里最大的 `EfiConventionalMemory` run 能不能
-容纳 WindowSize——它**不读内核段**。固件 blob 对它唯一的影响是 :619 的
+容纳 WindowSize——它**不读内核段**。:619 另检查
 `Used > WindowSize - BLOCK_SIZE`（Used = kernel span + args/tree/ramdisk/trustcache 的
-16 KB 对齐和），对 4.5 GiB 窗口远不可及。这一步的真实失败模式是「NO WINDOW」（内存碎片），
+16 KB 对齐和），所列值对 4.5 GiB 窗口远不可及；更早的 pool 分配仍可能影响内存地图。
+窗口申请的一种失败模式是「NO WINDOW」（内存碎片），
 其定量模型与实测的分叉见 [BOOT-DEATH-BISECT.md](BOOT-DEATH-BISECT.md) §3.3，本文不外推。
 
 ## 4. VA 布局：`__TEXT` 长大不碰任何人
@@ -176,39 +182,42 @@ osfmk/pexpert/libsa/bsd 全树 **0 命中**。`arm_vm_init.c` 对 `__TEXT` 只�
 断言 `__DATA_CONST` 紧邻（:2306）。没有大小断言；KTRR 锁的是 `__PRELINK_TEXT` 到
 `__LAST`（注释 :165-181），与固件落在 `__TEXT` 还是别处无关。
 
-## 6. 六格判别矩阵：观测轴是怎么被逐条打掉的
+## 6. 六格判别矩阵：历史计划与现行证据边界
 
-这张表是 2026-11-15 设计的对照计划。**它现在只是记录**——每一格的结局列写的就是
-「这条观测轴最后怎么了」。没有一格的结局是「死因」。
+这张表是 2026-11-15 设计的对照计划（后来补 G 格）。**它现在只是记录**：未飞的格
+不产生结果，`c0` 身份不符使格无判别力；单变量证据来自 `c2`/`c3`，不替其它格逐图定因。
 
 | 格 | 内核 | `__TEXT` | blob | `pong_wifi` | 结局 | 打掉了什么 |
 |---|---|---|---|---|---|---|
 | A | 54.2 MB stock（thermal / bt / …） | 1.64 MiB | 无 | 0 | alive | 基线 |
-| B | 54.8 MB tiny（`t0c`/`t1c`，kernel 54,804,480，`__TEXT,__const` 593,943） | 1.82 MiB | 4×23 B 占位（PWF2 count=4、span 16,407） | 0 / 1 | **从未飞** | 判别价值已被 `c3` 抢走：它只能再确认一遍「链了归档就得带 0012」 |
-| C | 66 MB（`c0` / `c1`，66,002,944） | 12.39 MiB | 11.19 MB 真容器 | 0 | `c0` 测量无效（种子 UUID）；`c1` silent | 「种子 UUID ⇒ 零字节」不成立（§10.4） |
-| D | 117 MB（`mhi5`） | 12.39 MiB | 11.19 MB | 1 | 从未飞 | 判别价值已被 `c3` 抢走 |
+| B | 54.8 MB tiny（`t0c`/`t1c`，kernel 54,804,480，`__TEXT,__const` 593,943） | 1.82 MiB | 4×23 B 占位（PWF2 count=4、span 16,407） | 0 / 1 | **从未飞** | 未飞，无对照结果；`c3` 已证明真容器可 alive，但不能替 tiny 预测结果 |
+| C | 66 MB（`c0` / `c1`，66,002,944） | 12.39 MiB | 11.19 MB 真容器 | 0 | `c0` 测量无效（种子 UUID）；`c1` silent | 仅排除 UUID 错配是这组 silent 的唯一充分解释；不否定 P-152 机制（§10.3） |
+| D | 117 MB（`mhi5`） | 12.39 MiB | 11.19 MB | 1 | 从未飞 | 未飞，无对照结果；不能凭 `c3` 替此图归因 |
 | E | 117 MB（`z0`，与 `mhi5` 只差 `pong_wifi`） | 12.39 MiB | 11.19 MB | 0 | silent（`usblog-20261115-135859`） | 「驱动活体」——但 `pong_wifi=0` 时 worker 本来就没跑，这条读法只能证明「worker 没跑也死」 |
 | F | 117 MB（`t2`；`c2` 复现） | 1.80 MiB | 11.19 MB（`__DATA_CONST`） | 0 | 两飞都 silent | 「`__TEXT` 驻留」 |
-| G | 117 MB（`c3` = `c2` + 0012 惰性锁） | 1.80 MiB | 11.19 MB（`__DATA_CONST`，与 `c2` 逐字节相同） | 0 | **alive**（`usblog-20261116-015128`） | 一次单变量干预，把前六格的所有观测轴一起打成观测轴 |
+| G | 117 MB（`c3` = `c2` + 0012 惰性锁） | 1.80 MiB | 11.19 MB（`__DATA_CONST`，与 `c2` 逐字节相同） | 0 | **alive**（`usblog-20261116-015128`） | 与 `c2` 的单变量干预支持所涉及的 UFS lease 故障，不统包 A–F |
 
-G 格之后这张表的读法只有一句：**A–F 否证的是六条观测轴，不是六条因果轴**。
-真正的因果轴是 UFS SMMU lease（§10.2），它不在任何一格的自变量里。
+旧版曾写「A–F 把六条轴全部打掉」，这一推断过强：B/D 未飞，C 中 `c0` 无效，
+其它格也并非都隔离了同一变量。G 与 F 中 `c2` 的对照加上源码链，才支持所涉及的
+UFS lease 故障（§10.2）；它不把所有旧图的具体故障点变成已知。
 
-## 7. pool / 窗口通道：已关闭
+## 7. pool / 窗口通道：排除仅限所列配方与已观测对照
 
 2026-11-15 那一版把这条列为主要嫌疑之一（`ReadFile` 在 :558 把整个内核吃进 DXE pool，
 之后 :607 才申请 4.5 GiB 连续窗口；blob 使 pool 占用多 11.27 MB，可能改变
-`AllocateWindow` 看到的最大 run）。`c3` 关掉了它：
+`AllocateWindow` 看到的最大 run）。现有证据收窄了这一假设，而非全局关闭所有旧图的 pool 风险：
 
-- `c3` 与 `c2` 同 117 MB 版式、同 pool 占用、同窗口（0x120000000 = 4.5 GiB）、
-  同真 PWF2 容器，**一个活一个死**。同池占用两种结果 ⇒ pool 不是通道。
-- 反向压力也指向同一结论：`adsp` 三张 129 MB（`__DATA` 76,414,976、span 141,111,296，
-  都比 117 MB 家族大）在同一 4.5 GiB 窗口下全部进桌面。若 pool 占用是通道，它们应该
-  先撞线；它们没有。
+- **受控对照**：`c3` 与 `c2` 同 117 MB 级版式、同窗口（0x120000000 = 4.5 GiB）、
+  同真 PWF2 容器，**一个活一个死**。两图文件大小仍差 20,480 B、span 也有差异（§9.1）；
+  不能声称实测 pool 地图逐字节相同。对这一配方，「真容器/117 MB 占用必然使窗口失败」
+  不成立，配合 0012 干预与源码链支持 UFS lease 解释。
+- **间接反例**：`adsp` 三张 129 MB（`__DATA` 76,414,976、span 141,111,296，
+  都比 117 MB 家族大）在同一 4.5 GiB 窗口下全部进桌面，反对单纯按文件大小划死线。
+  它们是异配方，不证明旧 wifi 图的 pool 碎片、分配顺序或最大 run 相同。
 
-**仍留一个静态空白**（不影响结论，只影响「为什么」的完整度）：0 字节的 console 里没有
-`NO WINDOW` 行可读，`AllocateWindow` 到底走到哪一步无法从旧证据里读出来。`c3` 的
-alive 是从反面关闭这条通道的，不是从正面证明窗口申请成功。
+**未知**：0 字节的旧 console 没有 `NO WINDOW` 或装载阶段留痕，无法由此读出各图
+`AllocateWindow` 实际走到哪一步。`c3` alive 说明它自身通过了启动所需步骤，不是
+其它旧图窗口申请成功、也不是所有旧 silent 都与 pool 无关的直接证据。
 
 ## 8. 证据清单
 
@@ -223,7 +232,7 @@ alive 是从反面关闭这条通道的，不是从正面证明窗口申请成�
 | XNU 侧无上限 | xnu-work `grep 'KERNEL_TEXT_MAX\|kPrelinkTextMax\|MAX_KERNEL_TEXT'` = 0 命中 |
 | VA 布局 | xnu-work `osfmk/arm64/arm_vm_init.c:165-181`（顺序）、:2087、:1415、:2306 |
 | 解析器 | k60-wifi 树 `drivers/PongWifi/PongWifiPlatform.cpp:553-556` |
-| 死因调用链 | `drivers/NativeUfs/PongUfsTransport.cpp:29,143,174-181,602`；`drivers/PongWifi/PongWifiPlatform.cpp:152,716-718,729,787-788`；`drivers/ArmDTPlatform/ArmDTPlatform.cpp:227-228` |
+| 所涉及 UFS lease 的源码链（不等于所有旧图运行轨迹） | `drivers/NativeUfs/PongUfsTransport.cpp:29,143,174-181,602`；`drivers/PongWifi/PongWifiPlatform.cpp:152,716-718,729,787-788`；`drivers/ArmDTPlatform/ArmDTPlatform.cpp:227-228` |
 | `c0` 测量无效 | `E:/k60-work/artifacts/wifi-20261116c0/boot.img` 内 `6DCCF70A-…` ×1、`1BCD69FF-…` ×0；构建树 `k60-wifi` @ `fff0fb19` 的 `configs/mondrian_wifi_defconfig:46` 指名种子 UUID；P-152（`docs/engineering/PITFALLS.md:3811-3819`）；P-209 门禁 `scripts/check-defconfig-uuid.py`（main `011669a`，tag `snap-r201`） |
 | 构建配置扫描（53 张 wifi/bt boot.img） | `E:/k60-work/scratch/refmine/uuid-scan.py`：56 个产物里 3 个没有 boot.img；扫到的 53 张中**只有 `c0` 带种子 UUID**，其余 52 张都是设备 UUID |
 | P-215 原文 | main `docs/engineering/PITFALLS.md:5337` 起；Check：`scripts/tests/test-pong-smmu-lease.py`、registry id `P-215` |
@@ -281,16 +290,16 @@ ADT 口径（2026-11-15 起）：main `3ea8d71` 把 identity seed 接进板级�
 
 1. `z0` 不是 66 MB 的 C 格：它 117,305,344 B，是 `mhi5` 的孪生（只差 `pong_wifi`）。
    66 MB 那一格是 `c0`/`c1`。
-2. `a2` 与 `mhi4` 的唯一差别是 `pong_wifi`（`Pong MHI` 串数 0 vs 11），但 `a2` 是
-   P-201 的 trial 级——manifest 没有 `series` 键，身份不可复核。
+2. `a2` 是名义上的 `pong_wifi` 对照（`Pong MHI` 串数 0 vs 11），但它是
+   P-201 的 trial 级——manifest 没有 `series` 键，身份不可复核，不能声称与 `mhi4` 只有这一变量不同。
 3. 105 MB alive 家族的 `__TEXT` 与 54 MB 基线完全相同；`__TEXT` 12,992,512 是 wifi
    家族独有的。
-4. `t2`/`c2` 的 `__TEXT` 只有 1,802,240 仍 silent，而 `c3`/`c4`–`c6` 同版式 alive ⇒
-   驻留位置与生死无关。
+4. `t2`/`c2` 的 `__TEXT` 只有 1,802,240 仍 silent，而 `c3`/`c4`–`c6` 同类版式 alive ⇒
+   驻留位置不能单独解释这些样本的差异，不推出其它旧图与驻留无关。
 5. bt 同尺寸一活一死；adsp 129 MB 三张全 alive ⇒ 阈值模型两次被否证。
-6. `c3` 与 `c2` 的差只有 20,480 B（`patches/wifi/0012`），而那就是死因。
+6. `c3` 与 `c2` 的差为 20,480 B（`patches/wifi/0012`）；对照加源码链支持这一对所涉及的 UFS lease 故障。
 7. `c4`/`c5`/`c6` 与 `c3` 段表逐项相同，只差 `kernel_args`（`pong_wifi=1`、
-   `k60_wifi_rsc`）与补丁——三张都 alive，所以 `pong_wifi=1` 与 RSC 投票本身不致死。
+   `k60_wifi_rsc`）与补丁——三张都 alive，说明这些已观测配方允许 worker/RSC 路径继续，不是所有旧图的安全性证明。
 
 ### 9.2 全库 join：带真 PWF2 与不带，各自的生死分布
 
@@ -308,14 +317,15 @@ ADT 口径（2026-11-15 起）：main `3ea8d71` 把 identity seed 接进板级�
 
 不带 PWF2 的八张 silent 全在 usb 与 bt 线（`bt-s1-20261114b`、`bt-s4b-20261115c`、
 `bt-bisect-h123`、`usb-20261114c`、`usb-20261114f`、`usb-20261114h2`、
-`usb-20261115b`、`usb-20261115c`），与本问题无关。
+`usb-20261115b`、`usb-20261115c`），属于独立故障集合；尤其不能把 bt-s4b-c 改判为 P-215。
 
 **这张表只能当观测轴读**：它证明「带真容器与生死高度同步」，不能证明「容器导致生死」。
-`c3` 是那张推翻条件（一张带真 PWF2 的 alive 镜像），推翻之后剩下的因果解释是
-`patches/wifi/0004` 的 lease 段——它随 wifi 归档一起被 `-force_load` 带进内核，
-与容器同步出现，但不是容器。写法教训见 §10.5。
+`c3` 是那张推翻条件（一张带真 PWF2 的 alive 镜像）。P-215 的因果证据来自另一个层次：
+`c2`/`c3` 受控对照与 `patches/wifi/0004`、0012 的源码链，而非 join 本身。
+旧表仍含 `c0` 的零字节观测（其测量身份无效），也含 trial `wifi-20261114a`；
+11/1 与 47/38 是历史统计口径，不是十一张镜像都已隔离变量或逐图归因。写法教训见 §10.5。
 
-## 10. silent 结案：死因是 UFS SMMU lease（P-215）
+## 10. UFS lease 故障的因果证据与逐图边界（P-215）
 
 ### 10.1 单变量证据：`c3` 与 `c2`
 
@@ -332,14 +342,15 @@ ADT 口径（2026-11-15 起）：main `3ea8d71` 把 identity seed 接进板级�
 | 判定 | silent | **alive** |
 
 差的 20,480 B 全部来自 `patches/wifi/0012-drivers-PongWifi-lease-lock-lazy-init.patch`。
-这是本账本里唯一一次**单变量干预**，也是唯一一次能把「观测轴」变成「因果轴」的飞行。
+这次**受控单变量干预**与下节源码链相互支持，构成本账本对所涉及 UFS lease 故障的因果证据。
+它不是每一张旧 silent 都重跑过同一实验的替代证据。
 
 口径脚注（`c3` 的计数两处差异）：本页写 console.log **221,429 B / 3,204 行 / SpringBoard 133**，
 Lead 那侧记 3,202 行 / 132 次。字节数两边一致；行数与计数差来自统计方式——
 本页按 `capture.json` 的 `bytes` 与整文件计数（含 supervisor 头尾行），
 Lead 用的是 `grep -c` 粗计。**以 `capture.json` 为准**，差异只在这两个派生计数上。
 
-### 10.2 死因调用链
+### 10.2 所审源码链、间接时序与运行时缺口
 
 - `drivers/NativeUfs/PongUfsTransport.cpp:29`
   `extern "C" bool pong_smmu_lease_lock(void) __attribute__((weak_import));`
@@ -353,11 +364,13 @@ Lead 用的是 `grep -c` 粗计。**以 `capture.json` 为准**，差异只在�
   `registerService()` 之后调。
 - 修前实现（`patches/wifi/0001`）：`if(!smmuLeaseLock) return false; IOLockLock(...); return true;`
 
-**UFS 是根设备，必然先启动**（能起的日志里 `PONG_UFS` 在 115 行、
-`ArmDTPlatform: registered platform` 在 147 行）。于是 UFS 索取 lease 时
-`smmuLeaseLock == NULL` ⇒ lock() 返回 false ⇒ `transportFailure("Apps SMMU lease
-unavailable")` ⇒ 整个 UFS transport 放弃 ⇒ 没有根设备 ⇒ 内核在 console worker
-起来之前就死 ⇒ **0 字节**。
+**间接时序证据**：所引能起日志中 `PONG_UFS` 在 115 行、
+`ArmDTPlatform: registered platform` 在 147 行，支持 UFS bring-up 早于后者。结合修前
+源码，若这一调用时 `smmuLeaseLock == NULL`，则 lock() 返回 false ⇒
+`transportFailure("Apps SMMU lease unavailable")` ⇒ UFS transport 放弃；根设备不可用
+可导致启动无法继续。这条机制与 `c2` 0 字节、0012 后 `c3` alive 的对照相符。
+**不是同次故障留痕**：`c2` 的零字节没有提供当次 lease 返回值、panic 行或精确停点，
+不能把上述源码推导补写成捕获到的完整运行轨迹，更不能外推所有旧图。
 
 修法（`patches/wifi/0012`，单变量）：`if(!smmuLeaseLock) smmuLeaseLock=IOLockAlloc();
 if(!smmuLeaseLock) return false; IOLockLock(smmuLeaseLock); return true;` —— 分配搬进
@@ -365,35 +378,45 @@ lock() 自己，`pong_rpmh_init()` 里那次分配保留。补丁注释原文：
 "the first client to want it is not necessarily the WiFi worker: NativeUfs takes
 the same lease in hostBringUp()"。
 
-**为什么这条能解释全部负结果**：`pong_wifi=0` 只挡住 worker 之后的注册，挡不住 UFS
-在更早的 `hostBringUp()` 里索取同一把锁。只要 wifi 归档被 `-Wl,-force_load` 链进内核
-（`patches/wifi/0010`），**即使驱动开关是 0**，UFS 也会因为这把锁未分配而失败。
-尺寸、段表、blob 位置、窗口、参数、Data UUID 全都不是原因，它们只是恰好与「链了
-wifi 归档」同步变化。
+**可证的范围**：所审源码里 `pong_wifi=0` 只挡住 worker 之后的注册，不挡 UFS
+在 `hostBringUp()` 索取同一把锁；这解释了为何 `c2` 的开关为 0 仍不能防护该机制。
+`-Wl,-force_load` 能使相关实现被链接，但「归档在场」不等于「每张镜像都以同一时序
+走到同一失败分支」；未核 series、archive 及实际调用路径的旧图仍未知。
+
+| 证据层 | 现有材料能支持到哪里 | 不能据此声称什么 |
+|---|---|---|
+| 可证/受控 | `c2` silent、`c3` alive；0012 干预与上述源码链支持所涉及的 UFS lease 故障 | 所有旧 silent 同因、或带 0012 的任意配方都必 alive |
+| 间接 | 已列旧图的结构/参数/字符串观察可与该机制相容；能起日志支持时序 | 没有逐图归档与调用路径核验时，不能由 PWF2/字符串/补丁名直接转成定因 |
+| 未知或不可判 | `c0` 身份不符，trial `wifi-20261114a` 无 series，独立 bt-s4b-c，以及其它未核输入/路径 | 不补 c0 同次 panic，不把 bt-s4b-c 并入 P-215，不编造缺失 series/archive/调用记录 |
 
 ### 10.3 `c0`：`invalid-measurement`（保留这一条，因为它是「先 diff 构建配置」的样本）
 
 `c0` 由 `mondrian_wifi_defconfig` 构建，该文件在 `k60-wifi` @ `fff0fb19` 的 `:46`
-指名了种子 Data UUID `6DCCF70A-…`；内核在根挂载阶段等这个卷超时后自 panic
-（P-152 机制：`PONG APFS: wait for Data UUID 6DCCF70A-…, timeout=5s` → `K60DATA UFS
-Data window not published` → `dataerr=2` self-panic `@kern_exec.c:8463`），console 在
-根挂载之后才起来，所以读数是 0 字节。
+指名了种子 Data UUID `6DCCF70A-…`。这证明构建身份不符，因此它不能作为隔离版式/体积
+变量的有效格。**本次采集没有同次 panic 行，不能断言它实际到达根挂载、等卷超时或在
+某个行号崩溃**，更不能用零字节反推先发生的是 UUID 故障还是其它早期故障。
+
+P-152 的既有机制记录保留作背景：`PONG APFS: wait for Data UUID 6DCCF70A-…, timeout=5s`
+→ `K60DATA UFS Data window not published` → `dataerr=2` self-panic `@kern_exec.c:8463`。
+这是机制参照，**不是 `c0` 本次日志中的已观测序列**。
 
 - 实测字节：`c0` 的 boot.img 内 `6DCCF70A-…` ×1、`1BCD69FF-…` ×0；全库 53 张 wifi/bt
   boot.img 里**只有这一张**带种子 UUID。
 - 重测 `c1`（只改该 UUID 一行）已飞：boot.img 内 `6DCCF70A-…` ×0 / `1BCD69FF-…` ×1，
-  段表与 `c0` 逐项相同，仍然 0 字节 ⇒ **「种子 UUID ⇒ 零字节」不是充分原因**。
-  `c0` 维持 `invalid-measurement`，`c1` 是有效 silent。
+  段表与 `c0` 逐项相同，仍然 0 字节 ⇒ **只排除「UUID 错配是这组 silent 的唯一充分解释」**。
+  这不否定 P-152 的 UUID 故障机制，也不证明 `c0` 的实际停点或 `c1` 与其同因；
+  `c0` 维持 `invalid-measurement`，`c1` 是修正 UUID 后的有效 silent，但无日志崩点仍未知。
 - 门禁 P-209（`scripts/check-defconfig-uuid.py`，main `011669a`，tag `snap-r201`）：
   defconfig 指名非本机 Data UUID 即硬失败，种子 UUID 必须显式标 `# SEED-UUID: intentional`。
 
-### 10.4 `c4`/`c5`/`c6` 把「`pong_wifi=1` 本身」也洗清了
+### 10.4 `c4`/`c5`/`c6`：修后配方的 alive 证据
 
 三张都是 `c3` + `pong_wifi=1`（`c5` 加 `k60_wifi_rsc=1`，`c6` 加 `k60_wifi_rsc=2`），
 段表与 `c3` 逐项相同，三张全部 alive（§9.1）。所以：
 
-- `pong_wifi=1` 不再致死——`c3` 之后 lease 已修，worker 能跑，系统照样进桌面。
-- `k60_wifi_rsc=1`（只读探针）与 `=2`（投票）本身也不致死。
+- 在这些带 0012 的已观测配方中，`pong_wifi=1` 时系统能进桌面。
+- 同样仅对这些样本，`k60_wifi_rsc=1`（只读探针）与 `=2`（投票）未阻止启动；
+  不是其它配方的安全性定理，也不是对修前 silent 的第二次单变量验证。
 
 ### 10.5 方法论：观测轴 ≠ 因果轴
 
@@ -405,8 +428,9 @@ PWF2 的 alive 镜像」——**推翻条件写对了，只是没等到它出现
 
 三条可复用的写法：
 
-1. 观测轴表格的结论列只能写「这是目前唯一还分得开生死的观测轴」，不能写「这是死因」。
-2. 每条轴必须带一行推翻条件；这是唯一挡住错误扩写的东西。
+1. 「这是目前唯一还分得开生死的观测轴」只是当时样本的历史措辞，不能作为现行规则；
+   观测相关性须限定样本、输入完整性和时点，不把它升级为死因。
+2. 每条候选轴写清适用范围与推翻条件；还需独立干预和可核验路径支撑因果结论。
 3. 单变量干预之后，旧表要**保留原样并标注结局**，不要删——被推翻的过程本身是记录
    （§6 矩阵按这个方式处理；完整过程在 `feat/wifi-ledger-fold` 分支）。
 
@@ -546,7 +570,7 @@ BHIE 核算（由 c7 :618 的尺寸推算，**不是已观察到的 entries 日�
 `boot.c:372-405` 使用 `DIV_ROUND_UP(alloc_size, seg_size)+1`；`:430-434` 将每项实际复制字节数
 写入 vector size（末数据 buffer 的分配容量与有效尾长要区分）。旧的 entries=11 说法算错，不沿用。
 
-silent 的 P-215 结论独立成立；本节记录的是进桌面后的 MHI 等待超时，不能用 silent 的结案代替 MHI 因果验证。
+`c2`/`c3` 所涉及 UFS lease 的 P-215 证据独立成立；本节记录的是进桌面后的 MHI 等待超时，不能用前一机制的结论代替 MHI 因果验证。
 
 ### 11.8 c8 暂停与分层验收
 
@@ -612,7 +636,7 @@ c8 主动发起 BHIE 当前 **HOLD**。wifi-agent 的离线复核 `82086f1069717
 
 ## 13. 还开着的口子
 
-按「离结论的距离」排序，只有四条：
+按「离结论的距离」列出仍需分开记录的事项：
 
 1. **MHI 后续状态转换仍待定位**（§11）：`c7` 只证明采样时硬件处于 SBL/READY、主机请求 M0、
    host `ee` 仍为 PBL 且抓取未见 EE 处理或完整镜像 BHIE 发起日志。c8 主动 BHIE 当前暂停；
@@ -623,10 +647,14 @@ c8 主动发起 BHIE 当前 **HOLD**。wifi-agent 的离线复核 `82086f1069717
    `regdb.bin` 24,278，合计 11,057,218，区总长 11,189,974）⇒ 运行期取不到 `m3`/`regdb`。
    `c2`/`c3` 起容器改成六条全有 payload（sha `3f68db4dc0927742`），这一条**在新图上
    已经不存在**，只在旧图上留作记录。
-3. **tiny B 格（`t0c`/`t1c`）从未飞**：它的判别价值已被 `c3` 抢走——现在飞它只能
-   再确认一遍「链了 wifi 归档就得带 0012」，不再能分开任何东西。
-4. **`wifi-20261114a` 是 trial 级**：manifest 无 `series` 键，身份不可复核（P-201）。
+3. **tiny B 格（`t0c`/`t1c`）从未飞**：只有占位头的静态事实，无受控启动结果；
+   `c3` 不能替它预测结果，本轮也不据此授权补飞。
+4. **旧图逐图归因仍有边界**：`wifi-20261114a` 是 trial 级，manifest 无 `series` 键，
+   身份不可复核（P-201）；`c0` 身份不符，仅使格无判别力；`c1` 修 UUID 后仍 silent，
+   不能补无日志崩点；独立 bt-s4b-c 不由 P-215 解释。其它未核验 series/archive/实际调用路径
+   仍记未知，不编造它们已走过 UFS lease 失败分支。
 
-已经关闭的（不要再翻）：`__TEXT` 驻留、内核总大小阈值、pool/窗口通道、Data 卷 UUID、
-`pong_wifi=0` 保护、C++ 全局构造器、`__init_entry_set`、容器所在段、ADT 窗口值、
-控制台参数、固件卷 DTB。
+**已有限排除，不再作统因**：内核总大小的单一阈值、`__TEXT`/容器驻留位置、pool/窗口
+占用不能单独解释 `c2`/`c3` 及所列已观测对照；`pong_wifi=0` 不能保护所审 UFS lease 路径。
+Data UUID、参数、C++ 全局构造器、`__init_entry_set`、ADT 窗口值、固件卷 DTB 等旧排除
+仍须按对应材料的样本与静态范围读取，不构成所有旧 silent 的全局排除清单。

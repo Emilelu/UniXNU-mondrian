@@ -1,9 +1,10 @@
 # WiFi series 死因考古（BOOT-DEATH-BISECT）
 
-> 状态：**已结案（2026-11-16）**。死因是 UFS SMMU lease（P-215），**不是**本文 2026-11-15
-> 静态二分指向的任何一条体积轴。本文保留静态二分的过程、判据与当时的错误排除，因为它是
-> 「六条观测轴是怎么被逐条打掉的」的完整记录；结案证据与调用链以
-> [BLOB-RESIDENCY.md](BLOB-RESIDENCY.md) §10 为准。
+> 状态（2026-11-16）：**`c2`/`c3` 所涉及的 UFS lease 故障已有因果证据**（P-215），依据是
+> 受控对照与 0012 源码链；不等于所有旧 silent 逐图结案。`c0` 身份不符使格无判别力，
+> trial `wifi-20261114a`、独立 bt-s4b-c 及未核 series/archive/实际调用路径的旧图不在直接归因范围。
+> 本文保留 2026-11-15 静态二分过程、判据与当时的错误排除；历史表的旧归因须连同边界注释读取。
+> 证据分层与源码链以 [BLOB-RESIDENCY.md](BLOB-RESIDENCY.md) §10 为准。
 > 底稿：分支 `feat/wifi-ledger-fold` 的 `96e0a23` / `f9e5d0c`（旧结论保留原样的版本）。
 > 任务来源：m04661（Lead 拍板选 C：停止复现 mhi4，改做死因考古）。
 > 关联：`docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20、`docs/plans/WIFI-REBUILD-CHECKLIST.md`。
@@ -12,36 +13,40 @@
 
 ## 0. 结论先行
 
-1. **死因是 UFS SMMU lease（P-215）**：`patches/wifi/0004` 让
-   `PongUfsTransport::hostBringUp()` 在 UFS 启动时索取 Apps SMMU lease，而锁只在
-   `pong_rpmh_init()` 里 `IOLockAlloc`、唯一调用点 `pong_wifi_start_optional()` 由
-   `ArmDTPlatform.cpp:227-228` 在 `registerService()` 之后调——晚于 UFS。于是 lock()
-   返回 false ⇒ `transportFailure("Apps SMMU lease unavailable")` ⇒ UFS transport 放弃
-   ⇒ 没有根设备 ⇒ 内核在 console worker 起来之前就死 ⇒ **0 字节**。
-   `c3`（`patches/wifi/0012` 把分配改成惰性自建，20,480 B、单变量）与 `c2` 同版式、
-   同真 PWF2 容器、同窗口、同 `pong_wifi=0`，就进了桌面
-   （`usblog-20261116-015128`，console 221,429 B、SpringBoard 133）。
-2. **本文 2026-11-15 指向的六条轴全部是观测轴，不是因果轴**：内核体积、`__TEXT` 驻留、
-   pool/窗口通道、Data 卷 UUID、`pong_wifi=0` 保护、容器所在段。它们与死因只是**同步
-   变化**——都被 `-Wl,-force_load` 一起带进内核。逐条否证见 §6.2 与 BLOB §6 的七格矩阵。
-3. **判读顺序是三层，不是两层**：先 diff **构建配置**，再 diff **内核版式**，最后 diff
-   **内核字节**。`c0` 是第二层的反例（构建配置打死内核，版式无关）；`c3` 是第三层的
-   唯一正例（版式全同，只有 20,480 B 代码不同）。
+1. **`c2`/`c3` 对照与源码链支持所涉及的 UFS lease 故障（P-215）**：所审
+   `patches/wifi/0004` 在 `PongUfsTransport::hostBringUp()` 索取 Apps SMMU lease；
+   修前的 `pong_smmu_lease_lock()` 在锁为空时返回 false，调用方会
+   `transportFailure("Apps SMMU lease unavailable")`。分配在 `pong_rpmh_init()`，
+   经 `pong_wifi_start_optional()` 由 `ArmDTPlatform.cpp:227-228` 于 `registerService()`
+   之后调用；能起日志的先后顺序支持 UFS 更早（BLOB §10.2）。这是一条源码机制与间接时序链。
+   **直接对照**是 `c2` 0 字节、`c3`（0012 惰性自建锁，+20,480 B、单变量）进桌面：
+   同类版式、同真 PWF2 容器、同窗口、同 `pong_wifi=0`
+   （`usblog-20261116-015128`，console 221,429 B、SpringBoard 133）。`c2` 本次无 lease
+   返回值或 panic 留痕，不能把源码链补成已捕获的具体崩点，也不能推广到任意旧图。
+2. **旧六轴不足以单独解释所列受控对照**：内核体积、`__TEXT`/容器驻留、pool/窗口、
+   Data UUID、`pong_wifi=0` 分别有不同边界。`c2`/`c3` 与已观测对照反对单一尺寸/驻留/
+   pool 必死模型；`c1` 修 UUID 仍 silent 只排除 UUID 是唯一充分解释；worker 开关不保护
+   所审 UFS lease 路径。不能说这些轴全部随 `-Wl,-force_load` 同步变化，更不能全局排除
+   它们在其它配方中的作用。详见 §6.2 与 BLOB §6–§7。
+3. **判读顺序是三层**：先 diff **构建配置**，再 diff **内核版式**，最后 diff
+   **内核字节**。`c0` 是先检查身份的样本：UUID 不符使格无判别力，不证明同次在哪里崩溃；
+   `c3` 是单变量干预的样本（+20,480 B，静态尺寸与 span 的差异保留在 BLOB §9.1）。
 4. **「0618 MHI 注入」不存在**：patches/xnu 没有 0618 号补丁；MHI 握手日志是
    `patches/wifi/0009` 的构建期注入（k60-wifi `6c99d35`），不改变 XNU 控制流（§4）。
 5. **0011 的十级 stage 门与 console 门是纯延迟器**，worker 在
    `k60_usblog_console_up()` 之前不做任何 MMIO（§5）。
-6. **series 229 本身不致死**：base-20261113d/f 用的就是同一条 229 行 series
-   （`0076aa20…`）且进用户态；六个触摸探针（含无条件 SPMI MMIO 的 `spmi_probe()`）
-   也在它们内核里（§3）。
+6. **series 行数/哈希不足以单独判启动结果**：base-20261113d/f 使用记录为 229 行、
+   `0076aa20…` 的 series 且进用户态；这仅说明该对照可启动，不替旧图核验实际链接或调用路径。
+   六个触摸探针也在 base 内核记录中，其结论限该对照（§3）。
 7. **「内核大 ⇒ 死」被两次否证**：`bt-s4b-20261115b`（106.5 MB）进桌面、
    `bt-s4b-20261115c`（同尺寸、只多一个补丁）0 字节；`adsp-20261115c/d/e` 三张
    **128,991,232 B** 全部进桌面（`usblog-20261115-213413` / `-220912` / `-223916`）。
-8. **本文 §6.2 把真死因亲手排除过一次**，这是本文最重要的教训：那一行写的是
+   这些不同配方的反例不把独立 bt-s4b-c 并入 P-215，也不否定其它配方可能存在尺寸/驻留边界。
+8. **本文 §6.2 曾误排后来由 `c2`/`c3` 支持的 UFS lease 机制**：那一行写的是
    「0004 UFS lease……weak 符号为 NULL 直接跳过；只有锁函数存在且返回 false 才
    transportFailure；锁竞争在 console gate 之后的 isolation() 内」，前两句都对，
    第三句错——lease 不是在 `isolation()` 里取的，是在 **UFS 自己的 `hostBringUp()`**
-   里取的，那一段早于 console、也早于 wifi worker。静态可达性分析只问了「这段代码
+   里取的，所审路径早于 console、也早于 wifi worker；这不是所有旧图的运行轨迹。静态可达性分析只问了「这段代码
    在 console 之前可不可达」，没问「**别的子系统会不会在 console 之前走进这段代码**」。
 
 口径冲突显式记录：Lead 在 m04661 里说 mhi4 是「224-series」，但 mhi3 与 mhi4 的
@@ -52,15 +57,16 @@ build-manifest.json 都记录 `series.count = 229`（`0076aa20…`）。以 mani
 
 | 层 | 问什么 | 手段 | 反例 |
 |---|---|---|---|
-| 1 构建配置 | defconfig / board.toml / kernel args 有没有把内核打死 | 逐字节扫镜像里的 UUID、args 合规检查（`scripts/check-arg.py`、`scripts/check-defconfig-uuid.py`） | `c0`：defconfig 指名种子 Data UUID ⇒ 根挂载自 panic ⇒ 0 字节（P-152/P-209） |
+| 1 构建配置 | defconfig / board.toml / kernel args 是否匹配预定身份与对照条件 | 逐字节扫镜像里的 UUID、args 合规检查（`scripts/check-arg.py`、`scripts/check-defconfig-uuid.py`） | `c0`：defconfig 指名种子 Data UUID，身份不符 ⇒ 格无判别力；无同次 panic 行（P-152 仅为机制参照，P-209 为门禁） |
 | 2 内核版式 | 段表 / 驻留位置 / 体积 / 窗口 | `LC_SEGMENT_64` 逐段 + ADT 窗口解码 | `t2`/`c2`：`__TEXT` 只 1,802,240 仍 0 字节 |
 | 3 内核字节 | 同样的版式，代码差在哪 | 逐补丁单变量（`c2` → `c3`） | `c3`：只多 20,480 B 就活 |
 
-前两层都只能产出「观测轴」。**只有第三层能产出因果轴**，因为它做的是单变量干预。
+三层是排查顺序，不是「前两层永远不能定因」的定理。隔离变量的干预与适用的源码链
+才能支持具体因果判断；`c2`/`c3` 在第三层提供了这类证据。
 
 ## 1. 被编译的源码在哪（静态分析的坐标系）
 
-真正被编译进 mhi3/mhi4 内核的 XNU 源码树是构建产物的物化副本：
+当时静态分析所指认的 mhi3/mhi4 XNU 源码坐标是构建产物的物化副本（本轮未逐图重核输入）：
 
 ```
 /opt/k60/trees/k60build/out-wifi/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/
@@ -106,11 +112,15 @@ Q2 问的是「这段代码自己在 console 之前可不可达」，它默认�
 
 > **Q3 这段代码会被谁在什么时候调用？被插入的那个调用点，在 console 之前吗？**
 
-Q3 缺失，就是 §6.2 把真死因排除掉的原因。
+Q3 缺失，使 §6.2 漏掉了后来由 `c2`/`c3` 与源码链支持的 UFS lease 机制。
 
 ## 3. 对照证据：series 229 与两个窗口值都有「能起」的样本
 
 ### 3.1 series 229 有两个进用户态的样本
+
+下表原样保留历史数值和结果标签。mhi3/mhi4 的「死（P-215）」是旧归因，**不是逐图
+因果核验**；只能确认当次 0 B。`c2`/`c3` 的观测结合 0012 源码链，支持所涉及配方的
+UFS lease 故障；`c3` 的 alive 不自动覆盖其它旧 silent。
 
 | 镜像 | series | board.toml | 内核 | console | 结果 |
 |---|---|---|---|---|---|
@@ -132,7 +142,7 @@ Q3 缺失，就是 §6.2 把真死因排除掉的原因。
 `/chosen/unique-chip-id`，board.toml sha 与 ADT 属性清单都不再等于上表——
 `t2` 及以后的窗口/board 参照必须按各自 manifest 重算，不能沿用本表。）
 
-### 3.2 六个触摸探针不是死因
+### 3.2 六个触摸探针的有限反例
 
 229 series 的 :199-204（历史 blob）启用六个触摸探针补丁，全部只改 `bsd/dev/pong_goodix.c`。
 其中 spmi-probe 新增 `spmi_probe()`（xnu-work/bsd/dev/pong_goodix.c:676 定义、
@@ -140,10 +150,11 @@ Q3 缺失，就是 §6.2 把真死因排除掉的原因。
 与 `0xc440000`（SPMI observer, 0x80000）做 `ml_io_map` + 读——这在 `bsd_init.c:1161` 的
 `pong_goodix_init()` 里、**早于 :1341 的控制台**执行。
 
-但它不是死因：base-20261113d/f 的内核里同样有这些探针（boot.img 字符串实测
-`K60LDO rev=12` ×2 存在），而它们进用户态。**结论：探针的 MMIO 在这块板子上能安全执行。**
+base-20261113d/f 的内核里同样有这些探针（boot.img 字符串实测
+`K60LDO rev=12` ×2 存在），而它们进用户态。**有限结论**：探针在场不必然阻止这对样本
+启动；字符串存在不单独证明每次 MMIO 的运行结果，也不排除其它配方的交互（§9.5）。
 
-### 3.3 窗口键不致死
+### 3.3 窗口模型的历史判断与适用范围
 
 - 4.75 GiB：base-20261113d/f（54.2 MB 内核，成功）vs mhi3 / wifi-20261115h2（65.9 MB 内核，失败）。
   注意这两个样本内核大小不同，所以「同窗口不同结果」本身不能区分窗口与内核——
@@ -159,9 +170,11 @@ Q3 缺失，就是 §6.2 把真死因排除掉的原因。
 | 4.75 GiB + 65.9 MB（a2 / mhi3） | 5116 MB | **4 MB** | 勉强能起 | mhi3 0 字节 ❌ 不一致（但 4 MB 属噪声量级）|
 | 4.5 GiB + 65.9 MB（h3q / mhi4） | 4860 MB | 260 MB | 能起 | mhi4 0 字节 ❌ 不一致 |
 
-所以：**mhi3 的 0 字节当时还能用窗口解释（余量 4 MB），mhi4 的不能（余量 260 MB）**。
-2026-11-16 的回填：这两张都是 P-215，与窗口无关；4.5 GiB 下 `c3`/`c4`/`c5`/`c6`
-（117 MB）与 `adsp` 三张（129 MB）都进了桌面，窗口模型对这块板子已经彻底失去区分力。
+旧判断保留：**mhi3 的 0 字节当时还能用窗口解释（余量 4 MB），mhi4 的不能（余量 260 MB）**。
+这是 QEMU 模型内的推断，不是手机实际通过窗口申请的证明。2026-11-16 的已观测反例是
+4.5 GiB 下 `c3`/`c4`/`c5`/`c6`（117 MB）与 `adsp` 三张（129 MB）进桌面；
+它们反对简单大小/窗口必死模型，但不核实 mhi3/mhi4 当次 pool 地图或装载停点，也不能
+推出所有旧 silent 与窗口无关（BLOB §7）。
 
 ---
 
@@ -187,8 +200,8 @@ Q3 缺失，就是 §6.2 把真死因排除掉的原因。
   （`nw_wifi_start` 路径，PongWifiPlatform.cpp:675 之后）。worker 早在
   `pong_wifi_start_optional()` 里由 `PE_parse_boot_argn("pong_wifi")` 把守，
   而它被调用的唯一位置是 ArmDTPlatform.cpp:228（registerService 之后）。
-  控制台 0 字节意味着死亡发生在 `bsd_init.c:1341` 之前——MHI 日志路径在那时
-  根本没开始执行。
+  若 console 尚未起来，worker 的 IOLog 不会进入采集；0 字节本身不能定位到
+  `bsd_init.c:1341` 前后，也不证明 worker 曾实际被调度。
 
 **排除**。但记录一条观察：worker 的日志走 IOLog，若控制台从未起来，日志同样丢失；
 `6c99d35` 的初衷（console 看不到 MHI 握手）与本次 0 字节是两个独立问题。
@@ -230,10 +243,10 @@ main 上不存在）给 PongWifiPlatform.cpp 加了两道门：
 
 ## 6. 排除法之后剩下什么
 
-### 6.1 wifi 镜像与能起镜像的完整差集
+### 6.1 当时可见构建记录的差集
 
-以 base-20261113f（能起，229 series，4.75 GiB）为基线，mhi3/mhi4（死，同 series、
-同窗口、同 args 基础集）的差集只有三项：
+以下保留当时以 base-20261113f 为基线的差集整理；它不是完整输入/运行路径的证明，
+也不能由这份清单把 mhi3/mhi4 的失败归因于三项之一（窗口差异另见 §3.3）：
 
 1. **PongWifi 被 force_load 链入**：`PongWifi` 字符串 29 处、`Pong MHI` 11 处
    （base 是 0 / 0）。固件 11,189,974 B 以 `.incbin` 进 `__TEXT,__const`
@@ -250,7 +263,11 @@ main 上不存在）给 PongWifiPlatform.cpp 加了两道门：
 它在差集里不显形，因为它不产生新的字符串指纹（那几行是调用，不是格式串），
 内核里 `PongUfs` 串数在两边都一样。
 
-### 6.2 已被逐一排除的共存变量
+### 6.2 历史排除表：旧判断及适用范围
+
+下表原样保留当时的静态排除记录。「排除」只限所引源码或成功样本，不构成所有旧图的
+运行时排除；0004 行「这就是死因」的现行证据仅限 `c2`/`c3` 对照与所审源码链。
+mhi3/mhi4 等旧图是否有效链接并走到该调用点，仍需逐图核验 series/archive/路径。
 
 | 变量 | 证据 | 判定 |
 |---|---|---|
@@ -262,21 +279,23 @@ main 上不存在）给 PongWifiPlatform.cpp 加了两道门：
 | IONetworkStack 首次引入 | 实例化只发生在 worker 内 coldLink → pong_wifi_net_prepare()（PongWifiNet.cpp:860）之后，即 console gate 之后 | 排除 |
 | 0003 RSC 探针 | 只在 worker 内 stage 4 路径执行 | 排除 |
 
-0004 那一行错在哪，写清楚（这是本文唯一需要背下来的教训）：
+0004 那一行错在哪（源码审查教训，不是逐图轨迹）：
 
-- 「weak 符号为 NULL 直接跳过」——对。但 `pong_smmu_lease_lock` 这个符号**存在**，
-  因为 0001 定义了它。
-- 「只有锁函数存在且返回 false 才 transportFailure」——也对，而且这正是实际发生的。
+- 「weak 符号为 NULL 直接跳过」——源码逻辑如此；0001 有定义不单独证明每张旧图
+  都有效链接、且实际调用了该符号。
+- 「只有锁函数存在且返回 false 才 transportFailure」——这是源码失败条件；`c2`/`c3`
+  对照支持所涉及配方的机制，但旧图没有同次返回值日志，不能写成逐图实测。
 - 「锁竞争在 console gate 之后的 isolation() 内」——错。`isolation()` 是 wifi 侧
   的调用点；0004 插进 UFS 的那个调用点在 `hostBringUp()`，UFS 是根设备，
-  在 console 之前几百行就跑完了。
+  所审源码链支持其早于 console；不能据此补出旧 silent 的当次执行轨迹。
 
 ### 6.3 剩余嫌疑与缺失的一格数据（已作废，保留原样）
 
-> **2026-11-16 01:51 作废声明**：本节三条线索全部不是死因。`c3`（`c2` + 惰性锁
-> 20,480 B）带同样的 blob、同样的 117 MB 版式进了桌面（`usblog-20261116-015128`），
-> 真因是 UFS SMMU lease（P-215，BLOB-RESIDENCY.md §10.2）。本节保留原样，
-> 作为「当时为什么把死因指向体积」的记录。
+> **2026-11-16 01:51 旧推断失效；范围补注**：下文把死因限定为 §6.1 三项之一，是错误的
+> 排除法。`c3`（相对 `c2` + 惰性锁 20,480 B）在同类 117 MB 版式进桌面
+> （`usblog-20261116-015128`）；结合源码链支持所涉及配方的 UFS lease 故障
+> （P-215，BLOB §10），不逐图证明所有旧 silent 同因。本节保留原始候选、数值及缺格记录，
+> 作为旧推理过程，不作为现行归因。
 
 排除后，死因必须从 §6.1 的三项里产生。三条静态线索：
 
@@ -334,9 +353,9 @@ payload kernel `e273b649…` 65,978,368 B、args 30 项 587 B（`pong_wifi=0`、
 | C3 出现 `PongWifi: console up after N ms; starting cold link` 之后才死 | 该行之后断流 | 死在 worker 的 MMIO 段 | 未出现（死亡早于 console） |
 | C4 出现 `PongWifi: stage N (…) held back` 且后续正常 | 门生效、boot 继续 | 门机制健康 | 未出现（同上） |
 
-**C1/C2 两列都不是死因所在**：死因是 UFS SMMU lease（P-215），它在 UFS 侧、在
-console worker 之前，两列都没覆盖到。本表此后只用于判「镜像有没有走到用户态」，
-不再用于归因。
+**现行解释边界**：C1/C2 的旧归因和 C3/C4 的「死亡早于 console」均为历史判断，
+原表保留供审计；输出形状不能给出具体停点或排除 UEFI 未交接。UFS lease 的因果证据
+来自 `c2`/`c3` 受控对照及源码链，不由这两列的分类推出，更不自动覆盖 mhi3/mhi4 等旧图。
 
 **判据可执行化**：C1–C4 由 `scripts/judge-wifi-boot.py` 判定。输入一份
 `console.log` 或整个含 `capture.json` 的采集目录，输出四态
@@ -400,7 +419,8 @@ BHI 已发同文件的 512 KiB 前缀，不能写「AMSS 一个字节没送」�
   UFS 的调用点，它不产生任何新格式串，所以在差集里完全隐形。判影响面要看
   `git show` 的文件列表，不看内核里的字符串。
 - **不要把「当时唯一的观测轴」写成「死因」**（2026-11-16 新增）。观测轴表格的结论列
-  只能写「这是目前唯一还分得开生死的观测轴」，并附一行推翻条件。
+  应写明样本、输入完整性和时点；「这是目前唯一还分得开生死的观测轴」只是历史措辞，
+  不是现行因果规则，还须可核验路径与独立干预。
 
 ## 9. 局限与证据
 
@@ -415,10 +435,10 @@ BHI 已发同文件的 512 KiB 前缀，不能写「AMSS 一个字节没送」�
 3. `pong_wifi_start_optional()` 的调用时机（ArmDTPlatform.cpp:228，registerService
    之后）与 `kernel_thread_start` 的实际调度点之间存在竞态窗口，静态无法消除。
 4. 本文档不覆盖 UEFI 侧（`uefi-mondrian`）的行为差异；0 字节既可能来自内核死，
-   也可能来自 UEFI 从未交接。区分手段见 §7 的 C1/C2。
+   也可能来自 UEFI 从未交接。§7 的 C1/C2 只分类观测形状，不能单独区分这两者。
 5. 六触摸探针的「不是死因」结论只覆盖 base-20261113d/f 这一对样本；
    若探针与 wifi 驱动有交互（例如 SPMI 仲裁器状态被探针改动），静态无法排除。
-6. 死因结论（P-215）来自**一次**单变量干预（`c2` → `c3`），不是重复实验；
+6. 对所涉及 UFS lease 故障的支持（P-215）来自**一次**单变量干预（`c2` → `c3`）与源码链，不是重复实验；
    `c4`/`c5`/`c6` 是同版式的三次独立复现，但它们都带 0012，所以复现的是
    「修好之后能起」，不是「没有 0012 就会死」的第二次验证。
 
@@ -441,8 +461,12 @@ BHI 已发同文件的 512 KiB 前缀，不能写「AMSS 一个字节没送」�
 | 固件 .incbin | `/opt/k60/trees/k60build/wifi/native-mhiboot/PongWifiFirmware.s`（215 B）+ `PongWifiFirmware.bin`（11,189,974 B） |
 | 重复类日志无害实证 | `E:/k60-work/evidence/usblog-20261112-203710/console.log:125,134`（boot-ab2.img 进 launchd） |
 | 窗口 QEMU 定量模型 | k60-wifi `docs/research/wifi/LOCAL-VERIFICATION.md` §5.16 |
-| 死因代码 | `drivers/NativeUfs/PongUfsTransport.cpp:29,143,174-181,602`；`drivers/PongWifi/PongWifiPlatform.cpp:152,716-718,729`；P-215 正文 `docs/engineering/PITFALLS.md:5337` 起 |
+| 所审 lease 源码链（非所有旧图轨迹） | `drivers/NativeUfs/PongUfsTransport.cpp:29,143,174-181,602`；`drivers/PongWifi/PongWifiPlatform.cpp:152,716-718,729`；P-215 正文 `docs/engineering/PITFALLS.md:5337` 起 |
 | 修法 | `patches/wifi/0012-drivers-PongWifi-lease-lock-lazy-init.patch`（20,480 B） |
+
+**本轮核验范围**：未重新核验每张旧图的 series/archive/实际调用路径，不把缺失输入视为已知。
+trial `wifi-20261114a` 无 series、`c0` 身份不符、独立 bt-s4b-c 不并入 `c2`/`c3` 的直接归因。
+`c1` UUID 修正后仍 silent 只排除 UUID 是唯一充分解释；未记录的崩点仍未知。
 
 **口径冲突记录**：Lead 在 m04661 称 mhi4 为「224-series」，但
 `wifi-20261116mhi4/build-manifest.json` 记录 `series.count = 229`、

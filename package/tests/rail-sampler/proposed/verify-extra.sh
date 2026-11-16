@@ -35,4 +35,5 @@ while [ "$i" -le 10 ]; do
     i=$((i + 1))
 done
 echo "REPEAT: 10/10 full candidate runs passed"
+echo "CASES: $(wc -l < "$OUT/cases.txt")"
 [ "$san_fail" -eq 0 ]

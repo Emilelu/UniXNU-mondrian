@@ -1,6 +1,6 @@
 # 线 → 检出 → 分支地图（LINE-MAP）
 
-> 最后更新 **2026-11-17 07:25**。HEAD 是当天的快照，会漂移；它只用来回答「哪个检出的哪个分支有这条线的什么」。
+> 最后更新 **2026-11-17 07:40**。HEAD 是当天的快照，会漂移；它只用来回答「哪个检出的哪个分支有这条线的什么」。
 > 研究文件的逐文件清单在 [docs/research/LINE-RESEARCH-MAP.md](../research/LINE-RESEARCH-MAP.md)；文档索引在 [docs/INDEX.md](../INDEX.md)。
 > 检出所有权以 [TREE-OWNERS.toml](TREE-OWNERS.toml) 为准，本表只是它的阅读视图。
 
@@ -14,7 +14,7 @@ main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 
 
 | 线 | 检出 | 分支 | HEAD（2026-11-17） | main 外的研究文件 | owner |
 |---|---|---|---|---|---|
-| 参考/取证 | `k60-refmine` | `docs/porting-gap-audit` | 本分支 `fc1f9a55`（2026-11-17 07:25） | 0（写 main 文档） | `refmine-agent` |
+| 参考/取证 | `k60-refmine` | `docs/porting-gap-audit` | 本分支 `09c400df`（2026-11-17 07:40） | 0（写 main 文档） | `refmine-agent` |
 | WiFi 系列同步 | `k60-refmine` | `feat/wifi-series-sync` | `e1a46146`（2026-11-17 07:20） | 0（补丁字节，无研究文档） | `refmine-agent` |
 | WiFi | `k60-wifi` | `feat/wifi-bringup` | `136f95c2` | 14 | `wifi-agent` |
 | WiFi 集成 | `k60-wifi-lead` | `feat/wifi-integration` | `b4dbb3a0` | 3（全部是 k60-wifi 的副本） | `lead` |

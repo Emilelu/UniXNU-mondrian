@@ -347,6 +347,20 @@ for n in ('audio','battery','charger','buttons'):
 PY
 ```
 
+## 13. EIGHT-STEPS 的 gpu/storage/display/bootchain 与 `porting.toml` 的交叉核对（2026-11-17，只报告）
+
+同 §12 的方法，核对剩下四段；`porting.toml` 的 area 集合是
+`configuration/firmware/cpu/memory/storage/display/input/gpu/network/audio/power/packaging/diagnostics/cellular`。
+
+| # | 条目 | EIGHT-STEPS 记录 | porting.toml 记录 | 观察 | 建议 |
+|---|---|---|---|---|---|
+| 1 | storage | `status = "active"`，①–⑧ 全 done | `status = "implemented"`，但 `limits` 仍写 "Hardware inputs and implementation are pending for this board." | EIGHT ⑧ 已完成（K60DATA 三窗挂载），limits 却写成「待做」 | 只改 storage 的 `limits` 措辞 |
+| 2 | gpu | `status = "active"`，①–⑦ done，⑧ false（gpu8-start 被 secure-IO 拒 -2，直连 RSC 版本未跑） | `status = "planned"`，`limits` 详细记录了两次尝试 | 状态词汇不一致：porting「planned」与已上机试过的记录不相称 | 建议确认后把 gpu 改成 `implemented`（仍未 device-verified）或加一句「已在推进」 |
+| 3 | display | `status = "active"`，①–⑧ 全 done | `status = "implemented"`，`limits` 有 78,716 B 实测与下一步 | 一致 | 无需改 |
+| 4 | bootchain | `status = "active"`，①–⑧ 全 done（launchd exec + pid 增长） | **没有 bootchain area**；相邻的 `firmware` 是 device-verified、`packaging` 是 host-verified | bootchain 的 ⑧ 完成在 porting.toml 里没有归属——设备状态权威记录看不到这条结论 | 建议把 bootchain 映射到 `firmware`，或在 `packaging` 加 findings；不改 EIGHT 的 status |
+
+结论：2 处措辞（storage limits、gpu 状态词）与 1 处覆盖缺口（bootchain 无 area），display 一致。均只报告，未改任何 status。
+
 ## 附录 A：复算命令
 
 ```bash

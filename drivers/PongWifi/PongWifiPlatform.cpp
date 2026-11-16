@@ -560,6 +560,11 @@ int cfgWrite(int o,int n,uint32_t v) {unsigned off=unsigned(o);if(off&0x80000000
 int msiTarget(uint32_t *lo,uint32_t *hi,uint32_t *data) {if(!dmaOwned)return -1;*lo=uint32_t(Iova+0x40);*hi=0;*data=0;return 0;}
 void *mapPhys(uint64_t pa,size_t n) {if(pa>=0x60200000&&pa<0x60400000&&n<=0x60400000-pa)return const_cast<uint8_t *>(bar.v)+pa-0x60200000;return nullptr;}
 volatile uint32_t msiArrivals;
+// msiArrivals only counts interrupts that found a non-zero MsiStatus, so a
+// missing MSI and an MSI that arrives with the aggregator already drained look
+// identical in the log. Count the GIC entries separately.
+volatile uint32_t msiEntries;
+volatile uint32_t msiEmptyStatus;
 // Opt-in bring-up fixture: join only the exact locally supplied network,
 // after real scanning, and report protocol results without credentials.
 unsigned testReconnectState;
@@ -635,8 +640,13 @@ void testNetwork(const nw_wifi_status &st) {
 }
 void signalWorker() {__atomic_store_n(&wake,1,__ATOMIC_RELEASE);thread_wakeup(reinterpret_cast<event_t>(const_cast<uint32_t *>(&wake)));}
 void irq(void *) {
+ static bool entered=false;
+ unsigned entries=__atomic_add_fetch(&msiEntries,1,__ATOMIC_RELAXED);
  unsigned pending=dbi.r(MsiStatus);
+ if(!entered){entered=true;log(6,"QCA6490 MSI entered the GIC handler");}
  if(pending){dbi.w(MsiStatus,pending);__atomic_fetch_add(&msiArrivals,1,__ATOMIC_RELAXED);}
+ else if(__atomic_add_fetch(&msiEmptyStatus,1,__ATOMIC_RELAXED)<=3)
+  IOLog("PongWifi[6]: MSI entered with MsiStatus 0 (entry %u)\n",entries);
  // Only this port's MSI group is enabled in PARF. Drop the aggregator's
  // level before EOI; no unrelated PCIe status is acknowledged here.
  parf.w(0x228,ParfMsi0);
@@ -690,9 +700,12 @@ void worker(void *,wait_result_t) {
     progress(5);testNetwork(st);
     if(now()>=diagnosticsAt) {
      diagnosticsAt=now()+15000;
-     IOLog("PongWifi: runtime state=%u scans=%u BSS=%u frames=%u MSI=%u receiver=%x dma-mib=%lu\n",
+     IOLog("PongWifi: runtime state=%u scans=%u BSS=%u frames=%u MSI=%u entered=%u empty=%u receiver=%x dma-mib=%lu\n",
       st.state,nw_wifi_stats.scans,nw_wifi_stats.bss_seen,nw_wifi_stats.frames,
-      __atomic_load_n(&msiArrivals,__ATOMIC_RELAXED),dbi.r(MsiStatus),(unsigned long)(ArenaBytes>>20));
+      __atomic_load_n(&msiArrivals,__ATOMIC_RELAXED),
+      __atomic_load_n(&msiEntries,__ATOMIC_RELAXED),
+      __atomic_load_n(&msiEmptyStatus,__ATOMIC_RELAXED),
+      dbi.r(MsiStatus),(unsigned long)(ArenaBytes>>20));
      progress(6);pong_wifi_net_diagnostics();
     }
    }

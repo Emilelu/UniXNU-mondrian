@@ -262,6 +262,26 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         dest.write_text(text)
 
     patch_mhi_source('boot.c', [
+        # A device that never enters MISSION after READY may have rejected the
+        # segment table rather than the handshake. Report what the host handed
+        # over: the entry count, the last buffer (the vector table) and the
+        # first vectors, so a wrong address is visible instead of silent.
+        ('\tstruct image_info *image_info = mhi_cntrl->fbc_image;\n'
+         '\tstruct device *dev = &mhi_cntrl->mhi_dev->dev;\n'
+         '\tenum mhi_pm_state new_state;\n\tint ret;\n',
+         '\tstruct image_info *image_info = mhi_cntrl->fbc_image;\n'
+         '\tstruct device *dev = &mhi_cntrl->mhi_dev->dev;\n'
+         '\tenum mhi_pm_state new_state;\n\tint ret, i;\n'
+         '\tif (image_info && image_info->mhi_buf && image_info->entries) {\n'
+         '\t\tdev_info(dev, "Pong MHI: amss entries=%u last dma=%#llx len=%zu\\n",\n'
+         '\t\t\t image_info->entries,\n'
+         '\t\t\t (unsigned long long)image_info->mhi_buf[image_info->entries - 1].dma_addr,\n'
+         '\t\t\t image_info->mhi_buf[image_info->entries - 1].len);\n'
+         '\t\tfor (i = 0; image_info->bhi_vec && i < 3 && i < image_info->entries; i++)\n'
+         '\t\t\tdev_info(dev, "Pong MHI: vec[%d] dma=%#llx size=%#llx\\n", i,\n'
+         '\t\t\t\t (unsigned long long)image_info->bhi_vec[i].dma_addr,\n'
+         '\t\t\t\t (unsigned long long)image_info->bhi_vec[i].size);\n'
+         '\t}\n'),
         ('\tif (ret)\n\t\tdev_err(dev, "Could not capture serial number via BHI\\n");\n',
          '\tif (ret)\n\t\tdev_err(dev, "Could not capture serial number via BHI\\n");\n'
          '\tdev_info(dev, "Pong MHI: serial=%#x ee=%d fbc=%u fw_sz=%u\\n",\n'
@@ -275,7 +295,28 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          'fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n'
          '\tdev_info(dev, "Pong MHI: waiting for the device to clear reset and set ready\\n");\n'),
     ])
+    # -110 is -ETIMEDOUT from the READY->MISSION wait, and the value alone does
+    # not say whether the device refused to transition or the event was lost.
+    # Dump the execution environment, the MHI state and the two raw registers.
     patch_mhi_source('pm.c', [
+        ('int mhi_sync_power_up(struct mhi_controller *mhi_cntrl)\n{\n'
+         '\tint ret = mhi_async_power_up(mhi_cntrl);\n\tu32 timeout_ms;\n',
+         'int mhi_sync_power_up(struct mhi_controller *mhi_cntrl)\n{\n'
+         '\tint ret = mhi_async_power_up(mhi_cntrl);\n\tu32 timeout_ms;\n'
+         '\tstruct device *dev = &mhi_cntrl->mhi_dev->dev;\n'
+         '\tu32 mhistatus = 0, mhictrl = 0;\n'),
+        ('\tret = (MHI_IN_MISSION_MODE(mhi_cntrl->ee)) ? 0 : -ETIMEDOUT;\n'
+         '\tif (ret)\n',
+         '\tret = (MHI_IN_MISSION_MODE(mhi_cntrl->ee)) ? 0 : -ETIMEDOUT;\n'
+         '\tif (ret) {\n'
+         '\t\tmhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHISTATUS, &mhistatus);\n'
+         '\t\tmhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRL, &mhictrl);\n'
+         '\t\tdev_info(dev, "Pong MHI: timeout after %u ms ee=%d pm_state=%d exec_env=%d mhi_state=%d MHISTATUS=%#x MHICTRL=%#x\\n",\n'
+         '\t\t\t timeout_ms, (int)mhi_cntrl->ee, (int)mhi_cntrl->pm_state,\n'
+         '\t\t\t (int)mhi_get_exec_env(mhi_cntrl), (int)mhi_get_mhi_state(mhi_cntrl),\n'
+         '\t\t\t mhistatus, mhictrl);\n'
+         '\t}\n'
+         '\tif (ret)\n'),
         ('\t/* Wait for RESET to be cleared and READY bit to be set by the device */\n',
          '\tdev_info(dev, "Pong MHI: polling MHICTRL reset mask %#x for %u ms\\n",\n'
          '\t\t (unsigned)(MHICTRL_RESET_MASK), mhi_cntrl->timeout_ms);\n'
@@ -287,6 +328,51 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\ttimeout_ms = mhi_cntrl->ready_timeout_ms ?\n'),
         ('\tdev_dbg(dev, "Device in READY State\\n");\n',
          '\tdev_info(dev, "Pong MHI: device in READY state\\n");\n'),
+    ])
+    # The interrupt handler returns silently when the event ring has not moved,
+    # so an interrupt that never arrived and one that found nothing look the
+    # same in the log. Report the first entry, the first empty drains, the first
+    # events with their type, and the execution environment of the EE event.
+    patch_mhi_source('main.c', [
+        ('irqreturn_t mhi_irq_handler(int irq_number, void *dev)\n{\n'
+         '\tstruct mhi_event *mhi_event = dev;\n'
+         '\tstruct mhi_controller *mhi_cntrl = mhi_event->mhi_cntrl;\n',
+         'irqreturn_t mhi_irq_handler(int irq_number, void *dev)\n{\n'
+         '\tstatic bool irq_seen;\n'
+         '\tstatic u32 empty_seen;\n'
+         '\tstruct mhi_event *mhi_event = dev;\n'
+         '\tstruct mhi_controller *mhi_cntrl = mhi_event->mhi_cntrl;\n'),
+        ('\ter_ctxt = &mhi_cntrl->mhi_ctxt->er_ctxt[mhi_event->er_index];\n'
+         '\tptr = le64_to_cpu(er_ctxt->rp);\n',
+         '\ter_ctxt = &mhi_cntrl->mhi_ctxt->er_ctxt[mhi_event->er_index];\n'
+         '\tptr = le64_to_cpu(er_ctxt->rp);\n'
+         '\tif (!irq_seen) {\n'
+         '\t\tirq_seen = true;\n'
+         '\t\tdev_info(&mhi_cntrl->mhi_dev->dev, "Pong MHI: irq entered er_index=%u dev rp=%#llx host rp=%#llx\\n",\n'
+         '\t\t\t mhi_event->er_index, (unsigned long long)ptr,\n'
+         '\t\t\t (unsigned long long)(uintptr_t)ev_ring->rp);\n'
+         '\t}\n'),
+        ('\t/* Only proceed if event ring has pending events */\n'
+         '\tif (ev_ring->rp == dev_rp)\n'
+         '\t\treturn IRQ_HANDLED;\n',
+         '\t/* Only proceed if event ring has pending events */\n'
+         '\tif (ev_ring->rp == dev_rp) {\n'
+         '\t\tif (empty_seen++ < 3)\n'
+         '\t\t\tdev_info(&mhi_cntrl->mhi_dev->dev, "Pong MHI: irq found no new events\\n");\n'
+         '\t\treturn IRQ_HANDLED;\n'
+         '\t}\n'),
+        ('\tu32 chan;\n\tint count = 0;\n'
+         '\tdma_addr_t ptr = le64_to_cpu(er_ctxt->rp);\n',
+         '\tu32 chan;\n\tint count = 0;\n'
+         '\tstatic u32 event_seen;\n'
+         '\tdma_addr_t ptr = le64_to_cpu(er_ctxt->rp);\n'),
+        ('\t\ttrace_mhi_ctrl_event(mhi_cntrl, local_rp);\n',
+         '\t\ttrace_mhi_ctrl_event(mhi_cntrl, local_rp);\n'
+         '\t\tif (event_seen < 32)\n'
+         '\t\t\tdev_info(dev, "Pong MHI: event type=%d\\n", (int)type);\n'),
+        ('\t\t\tenum mhi_ee_type event = MHI_TRE_GET_EV_EXECENV(local_rp);\n',
+         '\t\t\tenum mhi_ee_type event = MHI_TRE_GET_EV_EXECENV(local_rp);\n'
+         '\t\t\tdev_info(dev, "Pong MHI: EE event execenv=%d\\n", (int)event);\n'),
     ])
     (mhi / 'trace.h').write_text((shared / 'shim/mhi/trace.h').read_text())
     common = out / 'common.h'

@@ -26,11 +26,8 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches/xnu/series"
 _INPUT_ENV = os.environ.get("K60_DEVICE_INPUT")
-if not _INPUT_ENV:
-    sys.exit("check-build-applied: K60_DEVICE_INPUT is not set; refusing to compare the series "
-             "against a mirror the caller did not name (2026-11-16: the silent fallback turned "
-             "one unset variable into five false reds in check-rules).")
-INPUT = pathlib.Path(_INPUT_ENV) / "patches/xnu/series"
+# 导入时不要退出：test-check-build-applied.py 要 load 本模块做单测。
+INPUT = pathlib.Path(_INPUT_ENV) / "patches/xnu/series" if _INPUT_ENV else None
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
 # 一棵树可以有多个输出目录（mondrian_defconfig -> mondrian/，
 # mondrian_wifi_defconfig -> mondrian_wifi/），而 K60_OUT 只指向其中一个。
@@ -210,7 +207,7 @@ def check_stamp(stamp: pathlib.Path, quiet: bool) -> int:
 
 def input_matches_repo() -> str:
     """P-166: the build must not carry its own copy of the patch list."""
-    if not INPUT.is_file():
+    if INPUT is None or not INPUT.is_file():
         return "input series absent; skipping parity check"
     repo = series_entries()
     dev = [l.strip() for l in INPUT.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
@@ -223,6 +220,11 @@ def input_matches_repo() -> str:
 
 
 def main() -> int:
+    if INPUT is None:
+        print("❌ check-build-applied: K60_DEVICE_INPUT is not set; refusing to compare the series "
+              "against a mirror the caller did not name (2026-11-16: the silent fallback turned "
+              "one unset variable into five false reds in check-rules).")
+        return 1
     ap = argparse.ArgumentParser()
     ap.add_argument("--log", help="build log; defaults to the newest candidate")
     ap.add_argument("--stamp", help="xnu-inputs.json; defaults to the newest under the build out")

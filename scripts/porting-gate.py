@@ -46,11 +46,14 @@ KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
 # 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
 # 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
 _INPUT_ENV = os.environ.get('K60_DEVICE_INPUT')
-if not _INPUT_ENV:
+# 不在模块级退出：test-series-fingerprint.py 这类自测要 import 本文件取函数，
+# 导入即 sys.exit 会让它们只会拿到半个模块（P-214/P-220 的假红就是这么来的）。
+# 直接运行仍在 [X] 之前 fail fast，绝不拿未命名的镜像判树（P-220）。
+DEV = (_INPUT_ENV.rstrip('/') + '/patches/xnu') if _INPUT_ENV else None
+if DEV is None and __name__ == '__main__':
     sys.exit('porting-gate: K60_DEVICE_INPUT is not set; refusing to judge this tree against a '
              'mirror the caller did not name. Export your own mirror (2026-11-16: the silent '
              'fallback turned one unset variable into five false reds in check-rules).')
-DEV = _INPUT_ENV + '/patches/xnu'
 LEDGER = WORK + '/ledger.jsonl'
 # 铁则 9 的基线账本。它按 series 指纹记「这一套补丁曾经真的上机启动过」，
 # 而 ledger.jsonl 是跨 worktree 全局的，别的分支飞一次就会把「上次成功」
@@ -506,6 +509,10 @@ except Exception as e:
 # ============ X. 同步 ============
 sec('X', '同步与真相源（P-44 / P-90）')
 try:
+    if DEV is None:
+        sys.exit('porting-gate: K60_DEVICE_INPUT is not set; refusing to judge this tree against a '
+                 'mirror the caller did not name. Export your own mirror (2026-11-16: the silent '
+                 'fallback turned one unset variable into five false reds in check-rules).')
     nbad = 0
     for f in sorted(os.listdir(REPO + '/patches/xnu')):
         if not f.endswith('.patch'):

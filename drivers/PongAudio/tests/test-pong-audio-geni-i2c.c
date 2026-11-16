@@ -2084,30 +2084,30 @@ afe_envelope_cases(void)
         0ul, "svc reserved 0");
 
     memset(buf, 0, sizeof(buf));
-    n = pong_afe_port_set_param(buf, sizeof(buf), 0x9000u, 0x0001020cul,
+    n = pong_afe_port_set_param(buf, sizeof(buf), 0x9020u, 0x0001020cul,
         0x0001029dul, NULL, 0ul, 9ul);
     expect_eq(n, 52ul, "port envelope = 24 + 16 + 12");
     expect_eq(buf[20], 0xeful, "port opcode low byte = SET_PARAM_V2");
-    expect_eq(buf[24], 0x00ul, "port id low byte");
+    expect_eq(buf[24], 0x20ul, "port id low byte = 0x9020");
     expect_eq(buf[25], 0x90ul, "port id high byte");
     expect_eq((unsigned long)buf[26] | ((unsigned long)buf[27] << 8),
         12ul, "port payload size");
-    expect_eq(pong_afe_port_set_param(buf, 32ul, 0x9000u, 0ul, 0ul, NULL, 0ul, 0ul),
+    expect_eq(pong_afe_port_set_param(buf, 32ul, 0x9020u, 0ul, 0ul, NULL, 0ul, 0ul),
         0ul, "port set param rejects a short buffer");
     expect_eq(pong_afe_svc_set_param(buf, 32ul, 0ul, 0ul, NULL, 0ul, 0ul), 0ul,
         "svc set param rejects a short buffer");
 
     memset(buf, 0, sizeof(buf));
-    n = pong_afe_device_start(buf, sizeof(buf), 0x9000u, 3ul);
+    n = pong_afe_device_start(buf, sizeof(buf), 0x9020u, 3ul);
     expect_eq(n, 28ul, "device start = 24 + 4");
     expect_eq(buf[20], 0xe5ul, "device start opcode low byte");
     expect_eq(buf[21], 0x00ul, "device start second byte");
     expect_eq(buf[22], 0x01ul, "device start third byte");
-    expect_eq(buf[24], 0x00ul, "start port low byte");
+    expect_eq(buf[24], 0x20ul, "start port low byte = 0x9020");
     expect_eq(buf[25], 0x90ul, "start port high byte");
     expect_eq(buf[26], 0ul, "start reserved low");
     expect_eq(buf[27], 0ul, "start reserved high");
-    expect_eq(pong_afe_device_start(buf, 20ul, 0x9000u, 0ul), 0ul,
+    expect_eq(pong_afe_device_start(buf, 20ul, 0x9020u, 0ul), 0ul,
         "device start rejects a short buffer");
 }
 
@@ -2116,20 +2116,20 @@ afe_payload_cases(void)
 {
     uint8_t p[64];
     size_t n;
-    uint16_t ports[8] = { 0x9000u, 0x9002u, 0xffffu, 0xffffu, 0xffffu, 0xffffu,
+    uint16_t ports[8] = { 0x9020u, 0x9022u, 0xffffu, 0xffffu, 0xffffu, 0xffffu,
         0xffffu, 0xffffu };
     uint16_t offsets[8] = { 0u, 4u, 0xffffu, 0xffffu, 0xffffu, 0xffffu, 0xffffu,
         0xffffu };
 
     memset(p, 0xa5, sizeof(p));
-    n = pong_afe_clock_set(p, sizeof(p), PONG_AFE_CLOCK_PRI_TDM_IBIT,
+    n = pong_afe_clock_set(p, sizeof(p), PONG_AFE_CLOCK_TERT_TDM_IBIT,
         48000ul * 32ul * 2ul, PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, 1ul);
     expect_eq(n, 20ul, "clock set payload = 20 bytes");
     expect_eq((unsigned long)p[0] | ((unsigned long)p[1] << 8) |
         ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24), 1ul,
         "clock version 1");
-    expect_eq((unsigned long)p[4] | ((unsigned long)p[5] << 8), 0x200ul,
-        "clock id 0x200");
+    expect_eq((unsigned long)p[4] | ((unsigned long)p[5] << 8), 0x204ul,
+        "clock id 0x204");
     expect_eq((unsigned long)p[8] | ((unsigned long)p[9] << 8) |
         ((unsigned long)p[10] << 16) | ((unsigned long)p[11] << 24),
         3072000ul, "clock hz 3.072 MHz");
@@ -2142,14 +2142,14 @@ afe_payload_cases(void)
         "clock enable");
 
     memset(p, 0, sizeof(p));
-    n = pong_afe_group_tdm(p, sizeof(p), PONG_AFE_GROUP_PRI_TDM_RX, ports,
+    n = pong_afe_group_tdm(p, sizeof(p), PONG_AFE_GROUP_TERT_TDM_RX, ports,
         2ul, 48000ul, 32ul, 2u, 32u, 3ul);
     expect_eq(n, 44ul, "group tdm payload = 44 bytes");
-    expect_eq((unsigned long)p[4] | ((unsigned long)p[5] << 8), 0x9100ul,
+    expect_eq((unsigned long)p[4] | ((unsigned long)p[5] << 8), 0x9120ul,
         "group id");
-    expect_eq((unsigned long)p[8] | ((unsigned long)p[9] << 8), 0x9000ul,
+    expect_eq((unsigned long)p[8] | ((unsigned long)p[9] << 8), 0x9020ul,
         "group port 0");
-    expect_eq((unsigned long)p[10] | ((unsigned long)p[11] << 8), 0x9002ul,
+    expect_eq((unsigned long)p[10] | ((unsigned long)p[11] << 8), 0x9022ul,
         "group port 1 = the other port");
     expect_eq((unsigned long)p[12] | ((unsigned long)p[13] << 8), 0xfffful,
         "group port 2 invalid");
@@ -2170,15 +2170,15 @@ afe_payload_cases(void)
         ((unsigned long)p[42] << 16) | ((unsigned long)p[43] << 24), 3ul,
         "group slot mask");
     memset(p, 0, sizeof(p));
-    n = pong_afe_group_tdm(p, sizeof(p), 0x9100u, NULL, 2ul, 48000ul, 32ul,
+    n = pong_afe_group_tdm(p, sizeof(p), 0x9120u, NULL, 2ul, 48000ul, 32ul,
         2u, 32u, 3ul);
     expect_eq((unsigned long)p[8] | ((unsigned long)p[9] << 8), 0xfffful,
         "group ports default to invalid when NULL");
 
     memset(p, 0, sizeof(p));
-    n = pong_afe_group_enable(p, sizeof(p), 0x9100u, 1u);
+    n = pong_afe_group_enable(p, sizeof(p), 0x9120u, 1u);
     expect_eq(n, 4ul, "group enable = 4 bytes");
-    expect_eq((unsigned long)p[0] | ((unsigned long)p[1] << 8), 0x9100ul,
+    expect_eq((unsigned long)p[0] | ((unsigned long)p[1] << 8), 0x9120ul,
         "group enable id");
     expect_eq((unsigned long)p[2] | ((unsigned long)p[3] << 8), 1ul,
         "group enable value");
@@ -2263,6 +2263,59 @@ afe_stream_cases(void)
         "amp stream rejects a short buffer");
 }
 
+static unsigned long
+le32(const uint8_t *p)
+{
+    return (unsigned long)p[0] | ((unsigned long)p[1] << 8) |
+        ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
+}
+
+static void
+afe_prm_cases(void)
+{
+    uint8_t p[96];
+    size_t n;
+
+    memset(p, 0xa5, sizeof(p));
+    n = pong_afe_prm_clock_request(p, sizeof(p), PONG_AFE_CLOCK_TERT_TDM_IBIT,
+        PONG_AFE_TDM_CLK_HZ, PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, 7ul);
+    expect_eq(n, 76ul, "prm clock request = 76 bytes");
+    expect_eq(p[0], 0x60ul, "prm word0 version 0 and header words 6");
+    expect_eq(p[1], 0x4cul, "prm word0 packet size low byte");
+    expect_eq(p[2], 0ul, "prm word0 packet size high byte");
+    expect_eq(p[3], 0ul, "prm word0 top byte");
+    expect_eq(p[4], 2ul, "prm dest domain ADSP");
+    expect_eq(p[5], 3ul, "prm src domain APPS");
+    expect_eq(p[8], 7ul, "prm src port ASM");
+    expect_eq(p[12], 2ul, "prm dest port PRM instance");
+    expect_eq(le32(p + 16), 7ul, "prm token");
+    expect_eq(p[20], 0x0ful, "prm opcode low byte");
+    expect_eq(p[21], 0x10ul, "prm opcode second byte");
+    expect_eq(p[22], 0x00ul, "prm opcode third byte");
+    expect_eq(p[23], 0x01ul, "prm opcode top byte");
+    expect_eq(le32(p + 24), 36ul, "prm payload size 36");
+    expect_eq(le32(p + 28), 0ul, "prm address lsw zero");
+    expect_eq(le32(p + 32), 0ul, "prm address msw zero");
+    expect_eq(le32(p + 36), 0ul, "prm mem map handle zero");
+    expect_eq(le32(p + 40), PONG_AFE_PRM_MODULE_INSTANCE_ID,
+        "prm module instance 2");
+    expect_eq(le32(p + 44), PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK,
+        "prm param id");
+    expect_eq(le32(p + 48), 20ul, "prm param size 20");
+    expect_eq(le32(p + 52), 0ul, "prm error code zero");
+    expect_eq(le32(p + 56), PONG_AFE_PRM_MAX_CLOCKS, "prm one clock");
+    expect_eq(le32(p + 60), PONG_AFE_CLOCK_TERT_TDM_IBIT, "prm clock id");
+    expect_eq(le32(p + 64), 12288000ul, "prm clock 12.288 MHz");
+    expect_eq(le32(p + 68), PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE,
+        "prm attribute 4");
+    expect_eq(le32(p + 72), 0ul, "prm clock root zero");
+    expect_eq(PONG_AFE_TDM_MAX_SLOTS, 8ul, "eight TDM slots on the bus");
+    expect_eq(PONG_AFE_TDM_CLK_HZ, 12288000ul, "TDM clock 12.288 MHz");
+    expect_eq(pong_afe_prm_clock_request(p, 75ul, PONG_AFE_CLOCK_TERT_TDM_IBIT,
+        PONG_AFE_TDM_CLK_HZ, PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, 0ul), 0ul,
+        "prm clock request rejects a short buffer");
+}
+
 static void
 afe_step_cases(void)
 {
@@ -2284,8 +2337,8 @@ afe_step_cases(void)
         "unknown step is out of range");
     expect_eq(pong_afe_step_ids(PongAfeStepClock, &module_id, &param_id), 0l,
         "clock step ids ok");
-    expect_eq(module_id, PONG_AFE_MODULE_CLOCK_SET, "clock module id");
-    expect_eq(param_id, PONG_AFE_PARAM_ID_CLOCK_SET, "clock param id");
+    expect_eq(module_id, PONG_AFE_PRM_MODULE_INSTANCE_ID, "clock module id");
+    expect_eq(param_id, PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK, "clock param id");
     expect_eq(pong_afe_step_ids(PongAfeStepPortTdm, &module_id, &param_id), 0l,
         "port tdm step ids ok");
     expect_eq(module_id, PONG_AFE_MODULE_AUDIO_DEV_INTERFACE,
@@ -2299,14 +2352,14 @@ afe_step_cases(void)
     expect_eq(pong_afe_step_ids(PongAfeStepCount, &module_id, &param_id), -1l,
         "step ids reject out of range");
     expect_eq(pong_afe_step_opcode(PongAfeStepClock),
-        PONG_AFE_SVC_CMD_SET_PARAM, "clock opcode");
+        PONG_AFE_PRM_CMD_REQUEST_HW_RSC, "clock opcode (PRM request)");
     expect_eq(pong_afe_step_opcode(PongAfeStepPortTdm),
         PONG_AFE_PORT_CMD_SET_PARAM_V2, "port tdm opcode");
     expect_eq(pong_afe_step_opcode(PongAfeStepDeviceStart),
         PONG_AFE_PORT_CMD_DEVICE_START, "device start opcode");
-    expect_eq(PONG_AFE_PORT_PRI_TDM_RX_0, 0x9000ul, "speaker port");
-    expect_eq(PONG_AFE_GROUP_PRI_TDM_RX, 0x9100ul, "speaker group");
-    expect_eq(PONG_AFE_GROUP_OTHER_PORT, 0x9002ul, "group other port");
+    expect_eq(PONG_AFE_PORT_TERT_TDM_RX_0, 0x9020ul, "speaker port");
+    expect_eq(PONG_AFE_GROUP_TERT_TDM_RX, 0x9120ul, "speaker group");
+    expect_eq(PONG_AFE_GROUP_OTHER_PORT, 0x9022ul, "group other port");
     expect_eq(PONG_AFE_MAX_CHANNELS, 8ul, "max channels 8");
 }
 
@@ -2316,6 +2369,7 @@ afe_cases(void)
     afe_gpr_cases();
     afe_envelope_cases();
     afe_payload_cases();
+    afe_prm_cases();
     afe_stream_cases();
     afe_step_cases();
 }

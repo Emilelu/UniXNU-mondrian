@@ -37,7 +37,7 @@
  * 2026-11-15 (PAS1-AUDIO-REQUIREMENTS.md section 1.3). The constants
  * below are what the host test pins.
  *
- * The K60 values (port 0x9000, group 0x9100, bit clock 1.536 MHz) are in
+ * The K60 values (port 0x9020 TERT TDM RX, group 0x9120, 24-bit samples in
  * TDMS.md sections 3 and 4; this file encodes whatever it is given and
  * offers the K60 defaults as named constants, nothing more.
  *
@@ -69,21 +69,37 @@
 #define PONG_AFE_PARAM_ID_GROUP_DEVICE_TDM_CONFIG  0x0001029eu
 #define PONG_AFE_PARAM_ID_CLOCK_SET                0x00010290u
 
+/* PRM: the bit clock is voted through the Audio Process Manager resource
+ * manager, not through the AFE clock-set module above (V: audio_prm.c:198-248,
+ * audio_prm.h:192-202). The pair above stays only so the legacy layout keeps
+ * a test; nothing in the speaker path sends it. */
+#define PONG_AFE_GPR_SVC_ASM                    0x7u        /* V: qcom,gpr.h:20 */
+#define PONG_AFE_PRM_MODULE_INSTANCE_ID         0x00000002u /* V: audio_prm.h:16 */
+#define PONG_AFE_PRM_CMD_REQUEST_HW_RSC         0x0100100fu /* V: audio_prm.h:192 */
+#define PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK  0x0800102cu /* V: audio_prm.h:202 */
+#define PONG_AFE_APM_CMD_HDR_BYTES              16u         /* V: audio_prm.h:71 */
+#define PONG_AFE_APM_MODULE_PARAM_BYTES         16u         /* V: audio_prm.h:110 */
+#define PONG_AFE_PRM_MAX_CLOCKS                 1u
+#define PONG_AFE_PRM_CLOCK_BYTES                76u         /* 24 + 16 + 16 + 4 + 16 */
+
 /* The K60 speaker port: PRI_TDM_RX_0 and its group (TDMS.md sections 3, 5). */
-#define PONG_AFE_PORT_PRI_TDM_RX_0  0x9000u
-#define PONG_AFE_GROUP_PRI_TDM_RX   0x9100u
-#define PONG_AFE_GROUP_OTHER_PORT   0x9002u
+#define PONG_AFE_PORT_TERT_TDM_RX_0 0x9020u
+#define PONG_AFE_GROUP_TERT_TDM_RX  0x9120u
+#define PONG_AFE_GROUP_OTHER_PORT   0x9022u
 #define PONG_AFE_PORT_INVALID       0xffffu
 
-/* Bit clock id and attribute (P: hakios.sound.c:338-343). The K60 DT
- * programs 1.536 MHz (0x177000), which is 48 kHz x 32 bits x 1 slot; the
- * vendor reference asks for 3.072 MHz (2 slots). Both are the same product
- * with a different slot count, so the caller computes the rate. */
-#define PONG_AFE_CLOCK_PRI_TDM_IBIT       0x200u
+/* Bit clock id and attribute (V: audio_prm.h:457,570). The rate is rate x
+ * slot_width x bus slots, computed by the machine driver from
+ * qcom,tdm-max-slots (V: msm_common.c:407-417), which is 8 on this board:
+ * 48000 x 32 x 8 = 12.288 MHz. The DT property qcom,msm-cpudai-tdm-clk-rate
+ * is not read by the waipio machine driver, so its 1.536 MHz is a dead value. */
+#define PONG_AFE_CLOCK_TERT_TDM_IBIT      0x204u
 #define PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE 4u
 #define PONG_AFE_RATE                     48000u
 #define PONG_AFE_SLOT_BITS                32u
 #define PONG_AFE_SLOTS                    2u
+#define PONG_AFE_TDM_MAX_SLOTS            8u   /* V: live FDT qcom,tdm-max-slots */
+#define PONG_AFE_TDM_CLK_HZ               (PONG_AFE_RATE * PONG_AFE_SLOT_BITS * PONG_AFE_TDM_MAX_SLOTS)
 #define PONG_AFE_MAX_CHANNELS             8u   /* M: q6afe.h:40 */
 
 /* GPR wire constants (M: apr.h:96-108). */
@@ -264,7 +280,7 @@ pong_afe_device_start(uint8_t *buf, size_t bytes, uint16_t port_id, uint32_t tok
 
 /* struct afe_clock_set (P: :355-358, packed 20 bytes):
  *   version, id, hz  (u32 each), attribute, root (u16 each), enable (u32)
- * The vendor sample is {1, 0x200, 48000*32*2, 4, 0, on}. */
+ * The K60 sample is {1, 0x204, 48000*32*2, 4, 0, on}: TERT TDM IBIT. */
 static inline size_t
 pong_afe_clock_set(uint8_t *out, size_t bytes, uint16_t clock_id,
     uint32_t hz, uint16_t attribute, uint32_t enable)
@@ -281,10 +297,50 @@ pong_afe_clock_set(uint8_t *out, size_t bytes, uint16_t clock_id,
     return PONG_AFE_CLOCK_SET_BYTES;
 }
 
+/* A PRM clock request (V: audio_prm.c:198-248), one GPR message carrying an
+ * APM command header, one module parameter header, the clock count and one
+ * clock tuple:
+ *   [GPR 24][apm_cmd_header 16][apm_module_param_data 16][count 4][cfg 16]
+ * payload_size counts everything after the APM command header (36) and
+ * param_size everything after the parameter header (20). src_port is the ASM
+ * service, dest_port the PRM instance, and both addresses stay zero because
+ * the payload is in band. */
+static inline size_t
+pong_afe_prm_clock_request(uint8_t *out, size_t bytes, uint16_t clock_id,
+    uint32_t hz, uint32_t attribute, uint32_t token)
+{
+    size_t n;
+
+    if (out == NULL || bytes < PONG_AFE_PRM_CLOCK_BYTES) {
+        return 0;
+    }
+    n = pong_afe_gpr_hdr(out, bytes, PONG_AFE_PRM_CMD_REQUEST_HW_RSC, token,
+        PONG_AFE_GPR_SVC_ASM, PONG_AFE_PRM_MODULE_INSTANCE_ID,
+        PONG_AFE_PRM_CLOCK_BYTES);
+    if (n == 0) {
+        return 0;
+    }
+    pong_afe_put32(out + 24, 36u);   /* payload_size */
+    pong_afe_put32(out + 28, 0u);    /* payload_address_lsw */
+    pong_afe_put32(out + 32, 0u);    /* payload_address_msw */
+    pong_afe_put32(out + 36, 0u);    /* mem_map_handle */
+    pong_afe_put32(out + 40, PONG_AFE_PRM_MODULE_INSTANCE_ID);
+    pong_afe_put32(out + 44, PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK);
+    pong_afe_put32(out + 48, 20u);   /* param_size */
+    pong_afe_put32(out + 52, 0u);    /* error_code */
+    pong_afe_put32(out + 56, PONG_AFE_PRM_MAX_CLOCKS);
+    pong_afe_put32(out + 60, clock_id);
+    pong_afe_put32(out + 64, hz);
+    pong_afe_put32(out + 68, attribute);
+    pong_afe_put32(out + 72, 0u);    /* clock_root */
+    return PONG_AFE_PRM_CLOCK_BYTES;
+}
+
 /* struct afe_group_tdm (P: :360-366, packed 44 bytes):
  *   version (u32), group, reserved (u16), ports[8] (u16),
  *   channels, rate, bits (u32), slots, slot_bits (u16), slot_mask (u32)
- * The K60 group lists 0x9000 and 0x9002, the rest INVALID_PORT. */
+ * The K60 group lists 0x9020 only (the DT says group-num-ports = 1);
+ * 0x9022 is the vendor's unused second port. */
 static inline size_t
 pong_afe_group_tdm(uint8_t *out, size_t bytes, uint16_t group,
     const uint16_t *ports, uint32_t channels, uint32_t rate, uint32_t bits,
@@ -453,8 +509,8 @@ pong_afe_step_ids(unsigned step, uint32_t *module_id, uint32_t *param_id)
 {
     switch (step) {
     case PongAfeStepClock:
-        *module_id = PONG_AFE_MODULE_CLOCK_SET;
-        *param_id = PONG_AFE_PARAM_ID_CLOCK_SET;
+        *module_id = PONG_AFE_PRM_MODULE_INSTANCE_ID;
+        *param_id = PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK;
         return 0;
     case PongAfeStepGroupTdm:
         *module_id = PONG_AFE_MODULE_GROUP_DEVICE;
@@ -481,6 +537,9 @@ pong_afe_step_ids(unsigned step, uint32_t *module_id, uint32_t *param_id)
 static inline uint32_t
 pong_afe_step_opcode(unsigned step)
 {
+    if (step == PongAfeStepClock) {
+        return PONG_AFE_PRM_CMD_REQUEST_HW_RSC;
+    }
     if (step == PongAfeStepDeviceStart) {
         return PONG_AFE_PORT_CMD_DEVICE_START;
     }

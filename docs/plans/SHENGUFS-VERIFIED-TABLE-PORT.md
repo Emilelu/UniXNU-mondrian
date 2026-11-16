@@ -117,6 +117,34 @@
 - 只做发布顺序（3a），不接 `ufsPrepareRootWindows`/`ufsPublishRootWindows`：完整状态机还要把 `PongUfsBlock` 拆成 prepare/start、补 IOMedia 等待与异步客户端保留语义，属于上机验证面；本步不改变窗口内容、不改变 verified-root 默认关闭状态。
 - `k60-ufs-verified:tests/RootPublication.cpp` 已覆盖 SystemOS 第一/OS 最后、重复名与缺失必需窗口拒绝；宿主测试仍全过，Mac probe 构建未跑，未 boot。
 
+
+## 3.6 步骤 3b 设计（只记录，未实现，等 Lead 确认）
+
+步骤 3a 只改了启动顺序；3b 才把 `pong_ufs_transport_start` 的同步循环换成完整的
+`ufsPrepareRootWindows` + `ufsPublishRootWindows` 状态机。参考实现见
+`references/ShengUfs/NativeUfs.cpp:2689-2742` 的 `publishThread` 与 `:2960-3040` 的 `Operations`。
+
+- **对象状态**：新增 `gPendingDevice[4]`、`gPendingAttached[4]`、`gPendingUuid[4][37]`、`gPending`、`gPendingProvider`、`gPublicationPlan`。
+  `prepare(index)` 只做 `init(nullptr)` + `attach(provider)` + 记录 attached，**不调用 `start`**；
+  `start(index)` 才发布服务并递增已发布计数；
+  `discard(index)` 只释放从未 start 的对象（已 start 的对象必须保留，异步客户端可能仍持有 I/O）。
+- **身份校验**：`validate()` 从 `RootWindowVerifier.view.volume_uuid[16]` 生成大写 8-4-4-4-12 UUID，拒绝空值/重复。
+  **这是 3b 的第一个待决点**：3a/2b 让 Data 窗口保持旧的未验证路径，Data 没有 `vr_view`；
+  因此要么给 Data 也配置 policy（会改变 P-152/P-153 的既有假设），要么 3b 只对 OS/SystemOS 做身份等待、Data 用现有属性另行确认。
+  在选定之前不能把 Data 放进 `validate()` 的强校验。
+- **异步发布**：`schedule()` 用 `kernel_thread_start` 启动 `publishThread`，线程持有 provider 的引用；
+  `publishThread` 调 `ufsPublishRootWindows`，失败时按 `UfsRootPublicationResult.phase` 设置
+  `gRootDiagnostic.result`（Start 用 `kIOReturnIOError`，Media 用 `kIOReturnTimeout`），且 Media 失败的对象必须保留。
+- **media wait**：`wait(index)` 对应参考的 `mediaWithUuidExists`：以 `IOMedia` 的 `UUID` 属性匹配，
+  `IORegistryIterator::iterateOver(media, gIOServicePlane, kIORegistryIterateRecursively | kIORegistryIterateParents)`
+  必须回到本窗口对象；每 100 ms 一次、最多 300 次（30 s），超时前每 5 s 记录一次 `captureMissingMedia` 风格的诊断。
+- **构建/验收**：仍由 `XNU_NATIVE_UFS_VERIFIED_ROOT=1` 选择；默认关闭。验收不是只看 host 单测：
+  需要 `PONG APFS` 三窗顺序与 `K60DATA mounted ro=0` 的上机日志，以及失败路径的 `UfsRootPublicationResult` 记录；
+  上机由 Lead 安排，本线不自行刷机。
+
+**结论**：3b 不能只改一个调用点，它要拆 `PongUfsBlock` 的 prepare/start 生命周期并引入 IOMedia 等待；
+在 Data 的身份校验策略确定前，保持 3a 的同步发布顺序和 `NATIVE_VERIFIED_BLOCK` 默认关闭。
+
 ## 4. 不抄的部分
 
 - 参考树 `NativeUfs.cpp`（149,596 B）与我们版本差异过大，不整体替换；只抄 3 个头文件 + 3 个测试。

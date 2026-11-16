@@ -5,9 +5,9 @@
 > 契约见 `12-DXE-CONTRACT.md` §3.1/§3.7、载具实现见 `15-FIRMWARE-CARRIER-LOADER.md`、
 > 验收断言见 `13-FIRMWARE-ACCEPTANCE.md` 表 A。
 >
-> **2026-11-16 19:32 已交付**：`UniXNU` fork 分支 `feat/modem-carrier`，
-> `9198213`（实现：devicetree/payload/cli）+`ecc15f9`（文档），HEAD
-> `ecc15f974770625496965650f487a148333291db`。本文此后作为**接口契约与验收依据**保留；
+> **2026-11-16 19:32 已交付、19:58 前移 pin**：`UniXNU` fork 分支 `feat/modem-carrier`，
+> `9198213`（实现：devicetree/payload/cli）+`ecc15f9`（文档）+`92bb60f`（构建期名字检查），
+> 当前 HEAD `92bb60f74fff4ea9ca8562b8aa4241bdc77bd9cd`。本文此后作为**接口契约与验收依据**保留；
 > 实现与本文的差异、以及交付实际覆盖到的范围见 §5 与 [17 号清单](17-OFFLINE-ACCEPTANCE-CHECKLIST.md)。
 
 ## 0. 一句话
@@ -190,6 +190,11 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
 真实输入：`b01..b27` 会拒绝 b28/b29 并索要不存在的 b14/b21/b30。`gen-modem-table.py --manifest`
 只输出 filesz 非零的行，正好 27 行，方向是对的。
 
+表行名必须是 `modem.bNN`，这是**框架构建期强制**，不是建议：DarwinBoot 用 `L"%a.lzma"` 把名字拼成
+文件路径（`ImageCarrierLib.c:84`），并在加载任何文件前先打开字面量哨兵 `modem.b01`（`:826`）。
+所以 `b01`、`modem.b1` 这类行命名的文件固件永远不会打开，只在启动时表现为「缺哨兵」；
+`read_modem_carrier` 在读表时就拒绝它们（`92bb60f`，正则为 `modem\.b[0-9]{2}\Z`）。
+
 每个文件是 **LZMA-alone**（`xz --format=lzma`）流，且：
 
 - 前 5 B 属性首字节 `0x5D`（`lc=3,lp=0,pb=2`）；
@@ -239,10 +244,13 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
 
 框架级子集已有可执行验收工具：`k60-cellular/scripts/verify-modem-carrier.py`（覆盖本节 5.1、
 5.2 的卷与 5.3；全部输入参数化，写 `acceptance.json` 回执）。2026-11-16 在真实 `board.toml`、
-`candidates/4g-quiet/hardware.dtb` 与 dxe-dryrun-d 的 27 个流上 `ACCEPTANCE PASS 11/11`、rc 0。
-回执取自 `ecc15f974…` 的独立 `git clone`（本地 clone + checkout 该 SHA，HEAD 一致、dirty 0），
-不是共享工作区当前内容；工具在载具实现三文件有未提交改动时以 rc 2 拒绝运行。
-它不运行 `unixnu build payload`、不构建内核，因此只是框架级子集，不替代 17 号的整链验收。
+`candidates/4g-quiet/hardware.dtb` 与 dxe-dryrun-d 的 27 个流上 `ACCEPTANCE PASS 12/12`、rc 0
+（pin `92bb60f74fff4ea9ca8562b8aa4241bdc77bd9cd`）。回执取自该 SHA 的独立 `git clone`
+（HEAD 一致、dirty 0），不是共享工作区当前内容；工具在载具实现三文件有未提交改动时以 rc 2 拒绝运行。
+同一工具先在 `ecc15f9`（名字检查之前）上得到 11/12：只有「非 `modem.bNN` 行被拒」一条失败，
+证明这条负例确实在测名字守卫，而不是靠缺文件顺带报错。
+它不运行 `unixnu build payload`、不构建内核，因此只是框架级子集，不替代 17 号的整链验收；
+5.3 只证明开关只影响 random-seed 与 `K60ModemImage` 两处，不证明 ADT 的其它部分在真实设备上可启动。
 
 > 本机注意：这台 WSL 的 `/tmp` 里留着 root 所有的旧文件，写会 `PermissionError`、
 > `mcopy` 覆盖时会挂在确认提示上等输入（看起来像卡死）。下面所有 `/tmp/...` 路径请换成
@@ -319,6 +327,8 @@ mdir -i .../payload.img ::/EFI/UniXNU                            # 只有 Payloa
 
 - 这一条比 5.2 更重要：`modem=False` 必须让 display/audio/wifi 那几条线的产物**一个字节都不变**
   （sha256 与改动前一致）。`5d96806` 修的就是「别的镜像因为没有占位而黑屏」，框架侧不能把它改回来。
+- 这一条（以及工具里的 5.3）证明的是**开关只影响 `/chosen` 的 random-seed 与 memory-map 的
+  `K60ModemImage` 两处**，不证明 ADT 的其它部分在真实设备上可启动——后者属于整链候选与上机证据。
 
 ### 5.4 复现级：两次构建同 sha256
 

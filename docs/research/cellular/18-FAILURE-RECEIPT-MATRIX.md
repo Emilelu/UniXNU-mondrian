@@ -58,28 +58,35 @@ exit_code: null
 
 外部固件的 Git SHA 可明确 N/A，但提取来源、原始哈希和打包工具 SHA 仍须齐全。独立取证目录必须是新建空目录；旧抽取结果、root 所有目标、mcopy 交互覆盖或非零 rc 属 `EXTRACTION_UNRELIABLE`，不能用留下的半份文件判 PASS。此项影响 OFF-4、ON-5/6 和 PKG 的回读。ON-2/5 的全 stage 期望全集须独立由同次所选配置、依赖开关和输入到生成输出的映射构造；若未交付该映射，stage 与 FAT 互比仅证明两者一致，不证明共同完整。
 
-### 2.1 框架交付登记（2026-11-16 19:32）
+### 2.1 框架交付登记（2026-11-16 19:32，19:58 前移 pin）
 
-Lead 交付的框架候选是 `UniXNU` fork 的 `feat/modem-carrier`，两个提交都已用 `git rev-parse` 在
-`/mnt/e/hackios/UniXNU` 核对，且 `9198213` 是 `ecc15f9` 的祖先：
+Lead 交付的框架候选是 `UniXNU` fork 的 `feat/modem-carrier`，三个提交都已用 `git rev-parse` 在
+`/mnt/e/hackios/UniXNU` 核对，祖先链是 `9198213` → `ecc15f9` → `92bb60f`：
 
 | 提交 | 完整 40 位 SHA | 内容 |
 | --- | --- | --- |
 | 实现 | `91982136dc4a1b18633845ccb4a40d3778f4bba3` | `feat(payload): stage a modem carrier and publish its placeholder`：`scripts/unixnu/{devicetree,payload,cli}.py`、`scripts/tests/test_modem_carrier.py` |
-| 文档（分支 HEAD） | `ecc15f974770625496965650f487a148333291db` | `docs(reference): document the modem carrier option and its payload fields`：`docs/reference/{cli.md,output-layout.md}` |
+| 文档 | `ecc15f974770625496965650f487a148333291db` | `docs(reference): document the modem carrier option and its payload fields`：`docs/reference/{cli.md,output-layout.md}` |
+| 构建期名字检查（分支 HEAD） | `92bb60f74fff4ea9ca8562b8aa4241bdc77bd9cd` | `fix(payload): refuse modem carrier rows the firmware never opens`：`read_modem_carrier` 拒绝非 `modem.bNN` 行 |
 
 接口：单一开关 `--modem-carrier DIR` / `UNIXNU_MODEM_CARRIER` / `[payload] modem_carrier`，schema 2
 以外拒绝；同一变量同时产出 ADT 的 16 B 全零 `K60ModemImage` 与 `EFI/UniXNU/MODEM/` 的 27 个流，
 拷贝发生在 utime/EPOCH 与 95% 容量检查之前，因此两者同现或同缺；`payload.json` 增加
 `modem_carrier_files/_bytes/_compressed_bytes/_sha256/_placeholder` 五个字段，关闭时为 `null/null/null/null/false`
-且 ADT 无该键；`bootimg` 不接受该选项。
+且 ADT 无该键；`bootimg` 不接受该选项。表行名必须是 `modem.bNN`：这是框架构建期强制，
+不是建议——固件用 `L"%a.lzma"` 拼路径并先探 `modem.b01` 哨兵；`92bb60f` 起 `read_modem_carrier`
+在读表时拒绝其它形状（如 `b01`）。
 
 **覆盖范围**：只覆盖框架侧。设备侧打包脚本、内核/DTB/配置、UEFI pin 与补丁、严格隔离构建、真实上机
 都不在该交付内。框架级离线子集已由 `k60-cellular/scripts/verify-modem-carrier.py` 在真实输入上
-`ACCEPTANCE PASS 11/11`（rc 0，写 `acceptance.json`）。该次运行针对 `ecc15f974…` 的独立
-`git clone`（HEAD 一致、dirty 0），因为共享工作区此时已有未提交的 `scripts/unixnu/payload.py`
-改动（非本线所为）；工具会把载具实现三文件的未提交改动当作不可信来源并以 rc 2 拒绝。但整条
+`ACCEPTANCE PASS 12/12`（rc 0，写 `acceptance.json`，pin `92bb60f74…`）。该次运行针对该 SHA 的
+独立 `git clone`（HEAD 一致、dirty 0），因为共享工作区可能随时出现别人的未提交改动；工具会把载具
+实现三文件的未提交改动当作不可信来源并以 rc 2 拒绝。同一工具在 `ecc15f974…`（名字检查之前）上得到
+`ACCEPTANCE FAIL 11/12`，唯一失败项是「非 `modem.bNN` 行被拒」，证明负例确实在测名字守卫。但整条
 `unixnu build payload` 与整链候选仍 **NOT RUN**；该子集不把本矩阵任何候选行改成 PASS。
+
+**验收绑定规则**：整链验收必须绑干净的精确修订；共享 checkout 中途变脏会让回执失效——回执必须同时
+记录 HEAD 与 dirty 清单，能证明被测的是那个 SHA，而不是「当时恰好有什么」的工作区。
 
 ## 3. 逐项缺失 / 不匹配矩阵
 
@@ -126,7 +133,9 @@ Lead 交付的框架候选是 `UniXNU` fork 的 `feat/modem-carrier`，两个提
 
 ## 5. 27 流精确集合与逐流内容
 
-MODEM 期望集合 E 必须由已绑定原始输入的 manifest 生成：27 个唯一名字加 `.lzma`；名字集合是 `b01–b13, b15–b20, b22–b29`（第 14/21/30 行是纯 bss，无文件），任何 `b01..b27` 或 `b01..b30` 连号假设本身即失败。全 stage 期望集合 S 则由同次所选配置、依赖开关及每个输入/生成输出映射独立生成，不能从实际 stage 或 FAT 反推；若实现没有可审计的预期清单，记 `STAGE_EXPECTED_SET_MISSING` 并 BLOCKED。实际 stage A 与 FAT B 分别对 S 校验，并做 A↔B 比对。MODEM 实际集合取目录**全部**子项，不能先过滤后数 27。回执同时列 `missing=expected-actual`、`extra=actual-expected` 和类型差异；manifest 自身重复名、非 27、条目长度不合法先在 ON-1 拒绝，不允许 set 去重掩盖。
+MODEM 期望集合 E 必须由已绑定原始输入的 manifest 生成：27 个唯一名字加 `.lzma`；名字集合是 `b01–b13, b15–b20, b22–b29`（第 14/21/30 行是纯 bss，无文件），任何 `b01..b27` 或 `b01..b30` 连号假设本身即失败。行名还必须是 `modem.bNN`：这是框架构建期强制
+（固件拼 `L"%a.lzma"` 并先探 `modem.b01` 哨兵，`92bb60f` 起 `read_modem_carrier` 拒绝
+其它形状），不是建议。全 stage 期望集合 S 则由同次所选配置、依赖开关及每个输入/生成输出映射独立生成，不能从实际 stage 或 FAT 反推；若实现没有可审计的预期清单，记 `STAGE_EXPECTED_SET_MISSING` 并 BLOCKED。实际 stage A 与 FAT B 分别对 S 校验，并做 A↔B 比对。MODEM 实际集合取目录**全部**子项，不能先过滤后数 27。回执同时列 `missing=expected-actual`、`extra=actual-expected` 和类型差异；manifest 自身重复名、非 27、条目长度不合法先在 ON-1 拒绝，不允许 set 去重掩盖。
 
 | 情况 | 必须留下的失败回执 | 现有工具覆盖与边界 |
 | --- | --- | --- |

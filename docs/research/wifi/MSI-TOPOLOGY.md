@@ -14,7 +14,7 @@ from the tree and the code rather than guessed from a silent console.
 | Which route does the driver use? | The **DesignWare legacy** route: PARF `MSI0` (`1u << 23`) translates the endpoint's MSI write into **GIC SPI 140 = INTID 172**. No ITS, no LPI. |
 | Does the device tree describe another route? | Yes: `/soc/qcom,pcie@1c00000` carries `msi-map` pointing at the **ITS** (`msi-controller@17140000`, phandle `0x237`), event bases `0x5980`/`0x5981`. Linux follows that one. |
 | Is there a third node? | `/soc/qcom,pcie0_msi@0x17110040` owns 32 SPIs (768..799) and is `status = "disabled"`. Nothing in this tree uses it. |
-| Why is legacy the right choice here? | It needs one GIC SPI and no ITS driver, no LPI allocation, no `msi-map` parsing. c5 and c6 both show the receiver arming and the DMA landing, so the route is live up to "the device has something to say". |
+| Why did the port choose legacy? | It needs one GIC SPI and no ITS driver, no LPI allocation, no `msi-map` parsing. c5 and c6 show the receiver arming and the DMA landing, so the route is live up to "the device has something to say". The phone's own Android kernel uses the ITS instead (§1.2), so legacy is a shortcut, not the vendor path. |
 | What does it cost? | One shared INTID for all 32 vectors: the handler reads `MsiStatus` and clears it, and cannot tell which vector fired. Acceptable for bring-up; a per-vector route needs ITS. |
 
 ## 1. The three routes
@@ -45,6 +45,17 @@ The controller node: `/soc/interrupt-controller@17100000` is `arm,gic-v3`, and
 its child `msi-controller@17140000` (phandle `0x237`, alias `gic_its`) is the
 ITS. Using this route would require ITS support, LPI configuration tables in
 memory, and `msi-map` parsing in the kernel — none of which this port has.
+
+**The phone's own kernel takes this route.** `/proc/interrupts` captured from
+Android on this device lists ITS-MSI 524289..524306 (32 vectors) for `mhi`,
+`pci0_wlan_ce_*` and `pci0_wlan_grp_dp_*` (`interrupts.txt` and
+`msi_irqs.txt` in the reference collection, summarised in
+`GAP-ANALYSIS.md` §2.4). So the hardware and the vendor software both work
+through the ITS; the legacy PARF route is a *porting shortcut*, chosen because
+it needs one SPI and no ITS driver. That distinction matters when reading a
+failure: a route that Linux never uses is not automatically wrong, but it is
+unproven on this silicon beyond the SBL phase, which is exactly what c6 shows
+(READY reached, MISSION event missing).
 
 ### 1.3 The disabled 32-SPI block (not used, not needed)
 

@@ -32,7 +32,7 @@ import sys
 CRITERIA = u'## 4. 判据'
 SUCCESS = re.compile(r'(?m)^\s*[-*]?\s*\*\*S(\d+)\*\*')
 FAILURE = re.compile(r'(?m)^\s*[-*]?\s*\*\*F(\d+)\*\*')
-TEMPLATE_VERDICT = u'判决：PASS / FAIL(F1) / FAIL(F2) / FAIL(F3)'
+RESULTS = u"## 5. 结果登记"
 
 
 def fail(message, code=1):
@@ -89,10 +89,10 @@ def main(argv=None):
         fail('the card was written after the image (card %d > image %d); criteria '
              'must precede the flight' % (card_time, image_time))
 
-    if TEMPLATE_VERDICT in text:
-        tail = text.split(TEMPLATE_VERDICT, 1)[1]
-        if u'PASS / FAIL' in tail or len(tail.strip()) < 40:
-            fail('the verdict block is still the empty template')
+    # The verdict is written after the flight, so it must be EMPTY now — but the
+    # card has to carry a results section for it, otherwise the verdict has no home.
+    if RESULTS not in text:
+        fail('the card has no results section (%r) to record the verdict in')
 
     print(u'✅ flight card: %s carries %d success criteria and %d failure rules, '
           u'written before %s' % (rel, len(successes), len(failures), image_name))

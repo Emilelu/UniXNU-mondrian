@@ -1,6 +1,6 @@
 diff --git a/docs/research/display/08-on-device.md b/docs/research/display/08-on-device.md
 new file mode 100644
-index 00000000..55381f5f
+index 00000000..467b4a51
 --- /dev/null
 +++ b/docs/research/display/08-on-device.md
 @@ -0,0 +1,214 @@
@@ -180,7 +180,7 @@ index 00000000..55381f5f
 +  **判据 2（请求可见）与判据 3（最低 `0x14` 可见）未测，不能判 PASS 或 FAIL**；发布层与
 +  最高 `0xfff` 已 PASS。
 +
-+## 第 7 轮（预注册，2026-11-17 04:05）— brightness-19：最低 floor 改 Android 的 DBV 0x4
++## 第 7 轮（2026-11-17 04:05 预注册，04:26 第一飞）— brightness-19：最低 floor 改 Android 的 DBV 0x4
 +
 +- **为什么改**：第 6 轮的 `0x14` 取自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。
 +  真机 Android 侧直接量到：`/sys/class/backlight/panel0-backlight/max_brightness = 4095`；
@@ -220,7 +220,7 @@ index 00000000..55381f5f
 +
 diff --git a/docs/research/display/BRIGHTNESS-PLAN.md b/docs/research/display/BRIGHTNESS-PLAN.md
 new file mode 100644
-index 00000000..83d9e936
+index 00000000..665f67c4
 --- /dev/null
 +++ b/docs/research/display/BRIGHTNESS-PLAN.md
 @@ -0,0 +1,223 @@
@@ -250,7 +250,7 @@ index 00000000..83d9e936
 +
 +所以本线要补的不是硬件驱动，而是 **OS 与面板之间的两层**：面向 CoreBrightness 的**服务层**
 +（发布 IODisplayParameters、接收 `setProperties`）与把 OS 域编码成 DBV 的**编码层**
-+（`0..2047 → 0..255`、FadePeriod → 线性渐变序列）。这正是官方指南
++（`0..2047 → 0..4095`，12 位 DCS 0x51 双字节；FadePeriod → 线性渐变序列）。这正是官方指南
 +`docs/zh/porting/display.md:80-114`（§3/§4）对「DSI 命令背光」设备的原话要求：**必须在面向 OS
 +的亮度服务下实现传输与编码两层**。
 +

@@ -323,7 +323,8 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
   行号越界 0；基线 102。
 - **门禁**：新增 `check-doc-citations.py`（基线 102）、`check-component-pin.py`（P-231，3 条 deviation）、
   `PATCH-CATALOG.toml`（41 条 series 外补丁）+ `check_catalog()`、P-155 的 `expected_kern_exec_delta = 1713`、
-  `check-readme` 数字校验扩到四份文档、`check-docs` 递归 research、两个门禁脚本可 import。
+  `check-readme` 数字校验扩到四份文档（含 `RULES.toml` 的 108 条规则数）、`check-docs` 递归 research
+  与 189 个 Markdown 的表格列数校验（6 例单测）、两个门禁脚本可 import。
 - **研究可见性**：`LINE-RESEARCH-MAP.md`（97 个分支文件）、`LINE-MAP.md`（18 条线）；`SOURCES.toml` 三种路径前缀与 5 条新 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1），研究源 53→58。
 
 **待 Lead 决定（本文只报告，不动）**：
@@ -339,8 +340,9 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 全部在本分支，按目录分组：
 
 - **门禁脚本**（`scripts/`）：`check-doc-citations.py`、`check-component-pin.py`、
-  `tests/test-check-doc-citations.py`、`tests/test-check-component-pin.py`、`tests/test-gates-import-without-device-input.py`；
-  修改 `check-docs.py`、`check-readme.py`、`check-patch-series.py`、`porting-gate.py`、`check-build-applied.py`。
+  `tests/test-check-doc-citations.py`、`tests/test-check-component-pin.py`、`tests/test-check-docs-tables.py`、
+  `tests/test-gates-import-without-device-input.py`；修改 `check-docs.py`、`check-readme.py`、
+  `check-patch-series.py`、`porting-gate.py`、`check-build-applied.py`。
 - **门禁数据**（`docs/engineering/`）：`DOC-CITATIONS-BASELINE.toml`、`COMPONENT-PINS.toml`、`PATCH-CATALOG.toml`、
   `RULES.toml`（P-231 + `expected_kern_exec_delta`）、`PITFALLS.md`（P-231）。
 - **文档**：本文、`LINE-MAP.md`、`LINE-RESEARCH-MAP.md`、`research/README.md`、`INDEX.md`、`README.md`、`README_EN.md`、

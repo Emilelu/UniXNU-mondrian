@@ -1,0 +1,85 @@
+diff --git a/scripts/eight-step-gate.py b/scripts/eight-step-gate.py
+--- a/scripts/eight-step-gate.py
++++ b/scripts/eight-step-gate.py
+@@ -101,6 +101,40 @@
+     return {n: pool[n] for n in names}
+ 
+ 
++def flash_items(hw, all_items):
++    """Keep the active floor and explicitly add parked/planned flash targets."""
++    raw = (os.environ.get("K60_FLASH_ITEMS") or "").strip()
++    names = [name.strip() for name in raw.split(",")]
++    if not raw or not all(names):
++        raise SystemExit("flash requires explicit K60_FLASH_ITEMS (for WiFi: wifi)")
++    unknown = [name for name in names if name not in all_items]
++    if unknown:
++        raise SystemExit("K60_FLASH_ITEMS unknown hardware: %s" % ", ".join(unknown))
++    if len(set(names)) != len(names):
++        raise SystemExit("K60_FLASH_ITEMS contains duplicate hardware")
++    if os.environ.get("K60_FLASH_OBSERVATION") and "wifi" not in names:
++        raise SystemExit("K60_FLASH_OBSERVATION requires explicit WiFi scope")
++    return dict(hw, **{name: all_items[name] for name in names})
++
++
++def wifi_observation_problems(steps):
++    """Bind offline verification and the prediction to this requested observation."""
++    problems = []
++    observation = (os.environ.get("K60_FLASH_OBSERVATION") or "").strip()
++    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", observation):
++        return ["wifi :: flash requires a valid K60_FLASH_OBSERVATION identifier"]
++    for step in ("verify", "device"):
++        entry = steps.get(step) or {}
++        if step == "device":
++            entry = entry.get("prediction") or {}
++        if entry.get("observation") != observation:
++            problems.append("wifi :: %s observation mismatch: expected %r, got %r"
++                            % (step, observation, entry.get("observation")))
++        reference = entry.get("reference") or ""
++        if not isinstance(reference, str) or not has_reference(reference):
++            problems.append("wifi :: %s missing observation reference" % step)
++    return problems
++
+ def validate(mode='build', verbose=True):
+     """mode: 'build' | 'flash'"""
+     if tomllib is None:
+@@ -119,11 +153,11 @@
+     hw = {k: v for k, v in hw_all.items() if v.get('status', 'active') == 'active'}
+     _parked = {k: v.get('status') for k, v in hw_all.items()
+                if v.get('status', 'active') != 'active'}
++    if not hw_all or (mode == 'build' and not hw):
+-    if not hw:
+         return False, ['EIGHT-STEPS.toml 里没有 [hardware.*] 条目']
+ 
+     # build 模式可以用 K60_EIGHT_STEP_ITEMS 收窄到本次真正在修的硬件项；
++    # 不声明就还是整机口径。flash 保留 active 底线并显式纳入本次目标。
+-    # 不声明就还是整机口径。flash 模式永远整机。
+     if mode == 'build':
+         scoped = declared_items(hw, hw_all)
+         if scoped is not None:
+@@ -132,6 +166,17 @@
+                                   for k, v in scoped.items())
+                 print('  声明范围: %s（K60_EIGHT_STEP_ITEMS）' % names)
+             hw = scoped
++    else:
++        try:
++            hw = flash_items(hw, hw_all)
++        except SystemExit as error:
++            if verbose:
++                print("  Flash scope error: %s" % error)
++            return False, [str(error)]
++        if verbose:
++            names = ", ".join("%s[%s]" % (key, value.get("status", "active"))
++                              for key, value in hw.items())
++            print("  Flash scope: %s (K60_FLASH_ITEMS + active floor)" % names)
+ 
+     for name, body in hw.items():
+         steps = body.get('step', {})
+@@ -174,6 +219,8 @@
+ 
+         # flash 模式额外检查第 8 步的预测
+         if mode == 'flash':
++            if name == 'wifi':
++                problems.extend(wifi_observation_problems(steps))
+             dev = steps.get('device') or {}
+             pred = dev.get('prediction') or {}
+             if not (pred.get('success') or '').strip():

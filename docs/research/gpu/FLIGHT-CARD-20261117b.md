@@ -64,5 +64,19 @@
 `init-v24dp.c` 的 metal 分支用 `sysctlbyname("kern.bootargs")` 读命令行再匹配
 `pong_metal=1`，而 P-175 已证明 `PE_boot_args()` 返回的是**内核内嵌默认串**，
 不等于固件实际传入的命令行。若该串里没有 `pong_metal=1`，init 会静默跳过注入。
-验证方式：在 init 分支前后加可观测输出，或确认内嵌默认串内容。
+
+### 判据自身的缺陷（必须记下）
+
+`PongMetalPlugin.mm:36-43` 的 `report()` 只走两条通道：`write(2, …)` 和
+`kern.pong_diagnostic` 这个 sysctl。后者在本内核里**没有实现**（全树只有三个调用点，
+没有注册点），守护进程的 stderr 也不进 console。因此 **`Pong Metal:` 行在当前内核上
+根本不可能出现**，S3 是一个不可观测的判据 —— 这条和「日志里没有就等于没执行」是
+同一种错误（P-204 家族）。本轮据此撤回「插件从未被加载」的结论：它可能是被加载了，
+只是它的自述无处可去。
+
+**真正的下一件事**：给内核加 `kern.pong_diagnostic`（把字符串打到 console），
+让插件的每条 `report()` 可见；否则后续每一次 GPU 上机都测不到东西。
+现有旁证支持「插件可能已在跑」：`software renderer fallback installed` 从 18 降到 1，
+`crashed: backboardd` 从 15 降到 0。
+
 

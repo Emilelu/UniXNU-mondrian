@@ -51,7 +51,7 @@ int main(void)
     /* --- 0..4095 DBV conversion ------------------------------------------ */
     check(dbvFromLevel(0) == 0, "dbv(0) is off", dbvFromLevel(0), 0);
     check(dbvFromLevel(kMaxLevel) == kMaxDbv, "dbv(max) is 0xfff", dbvFromLevel(kMaxLevel), kMaxDbv);
-    check(dbvFromLevel(1) >= kMinDbvOn, "dbv(1) still lit", dbvFromLevel(1), kMinDbvOn);
+    check(dbvFromLevel(1) == kMinDbvOn, "dbv(1) is the Android floor", dbvFromLevel(1), kMinDbvOn);
     check(dbvFromLevel(1) < dbvFromLevel(64), "dbv monotonic low", dbvFromLevel(1), dbvFromLevel(64));
     check(dbvFromLevel(2000) > dbvFromLevel(1024), "dbv monotonic high", dbvFromLevel(2000), dbvFromLevel(1024));
 

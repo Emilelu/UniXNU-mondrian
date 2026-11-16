@@ -1,8 +1,9 @@
 # GLINK 多槽：把音频通道接进同一个 QcomGlink 实例
 
-> 状态：2026-11-15。**离线原型**——不改 drivers/PongPower/、不上机、不申请 run 2。
-> 结论先行：传输层本身已经是每槽独立的，唯一挡住第二个消费者的是 QcomGlink.h:17 的一个常量；
-> 真正的风险不在协议，而在**建槽时机**和**消费者侧的单通道假设**。
+> 状态：2026-11-17。**传输层与音频桥已落地（离线）**——QCOM_GLINK_MAX_CHANNELS 2、MAX_LOCAL_INTENTS 20、
+> K60AudioGlink 桥；未上机、不申请 run 2。
+> 结论先行：传输层本身已经是每槽独立的，挡住第二个消费者的是 QcomGlink.h 的数组长度；
+> 真正的风险不在协议，而在**建槽时机**和**消费者侧的单通道假设**——后者已由 K60AudioGlink 消掉。
 
 ---
 
@@ -15,8 +16,8 @@
    **已注册**的槽，找不到就 unknown_opens++ + last_unknown + note_unknown() 后**丢弃**（不回 OPEN_ACK）。
    所以 qcom_glink_channel() 必须在 DSP 发 OPEN 之前调用。
 3. **协议侧不需要改**：progress() / handle_data() / by_lcid() / by_rcid() / stop() 全部按
-   QCOM_GLINK_MAX_CHANNELS 循环，没有一处 channel[0] 直接下标。把上限从 1 改成 2，
-   两个通道就各走各的状态机。
+   QCOM_GLINK_MAX_CHANNELS 循环，没有一处 channel[0] 直接下标。把上限从 1 改成 2、
+   本地 intent 表从 4 提到 20，两个通道就各走各的状态机。
 
 ---
 
@@ -84,7 +85,7 @@
 
 ---
 
-## 3. 落地：一行常量 + 242 条宿主断言
+## 3. 落地：两个常量 + 360 条宿主断言
 
 ### 3.1 源码（已落地）
 
@@ -93,28 +94,30 @@
     #define QCOM_GLINK_MAX_CHANNELS 2u /* PMIC endpoint + audio adsp_apps, one shared owner */
 
 同文件还加了三个构建标签宏（`QCOM_GLINK_STRINGIFY_INNER` / `QCOM_GLINK_STRINGIFY` / `QCOM_GLINK_BUILD_TAG`），
-`K60PmicGlink::start()` 在打开传输后打印
-`K60Battery: GLINK transport QcomGlink max_channels=2u channel_bytes=712`。这行字符串是构建产物的
-artifact 证据（`kernel.macho` 里可以 `strings` 到）：镜像 d（audio-probe-20261117d）的 kernel.macho 里 `QcomGlink max_channels=2u` 出现 1 处。
+`K60PmicGlink::open()` 在打开传输后打印
+`K60Battery: GLINK transport QcomGlink max_channels=2u local_intents=20 channel_bytes=904 audio_intent_bytes=10240`。这行字符串是构建产物的
+artifact 证据（`kernel.macho` 里可以 `strings` 到）：镜像 d（audio-probe-20261117d）的 kernel.macho 里 `QcomGlink max_channels=2u` 出现 1 处（d 时还未扩 local intents；镜像 e 起应带 `local_intents=20`）。
 
 历史原型补丁 `patches/audio/0002-k60-glink-multislot.patch`（1,078 B / 18 行，原来是同一行 1u→2u 的 diff）
 已于同日退役：源文件改成 2u 之后，它不再是可应用的补丁。它当年存在的意义是让宿主测试能在临时副本上
 验证两槽路径；现在 `run-glink-multislot-tests.sh` 直接编译 `drivers/PongPower` 的真实源。
 
-- 代价（宿主实测 sizeof）：QcomGlinkChannel 712 B；QcomGlink 从 **960 B** 涨到 **1,672 B**（+712 B）。
-  两个槽都在 K60PmicGlink 的成员里（K60PmicGlink.h:37），不涉及堆分配。
+- 代价（宿主实测 sizeof）：QcomGlinkChannel 904 B（20 个本地 intent）；QcomGlink 从 **960 B** 涨到 **2,056 B**（+1,096 B）。
+  两个槽都在 K60PmicGlink 的成员里（K60PmicGlink.h:37），不涉及堆分配；音频的 512×20 storage 是 `K60AudioGlink` 的成员，10,240 B。
+- 音频桥：`K60AudioGlink.c/.h` + `K60PmicGlinkAudio.h`；`K60PmicGlink::attachAudio()` 只排队，
+  `poll()` 的 `k60_audio_glink_service()` 负责真正 `qcom_glink_channel()`，`stop()` 时清槽。
 
 ### 3.2 宿主测试
 
-drivers/PongAudio/tests/test-glink-multislot.c（24 KB）+ run-glink-multislot-tests.sh。
-runner 直接编译 `drivers/PongPower/QcomGlink.c` 与 `QcomGlink.h`，不再复制、不再打补丁。
+drivers/PongAudio/tests/test-glink-multislot.c + run-glink-multislot-tests.sh。
+runner 直接编译 `drivers/PongPower/QcomGlink.c`、`QcomGlink.h` 与 `K60AudioGlink.c`，不再复制、不再打补丁。
 
 测试自己扮演 DSP：往 rx FIFO 里塞真实的 GLINK 消息（VERSION_ACK / OPEN / OPEN_ACK / INTENT /
 TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、没有 SMEM、没有设备。
 
     $ sh drivers/PongAudio/tests/run-glink-multislot-tests.sh
-    two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=712, sizeof(QcomGlink)=1672
-    TESTS OK 242 cases
+    two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=904, sizeof(QcomGlink)=2056
+    TESTS OK 360 cases
 
 | 场景 | 断言要点 |
 | --- | --- |
@@ -124,6 +127,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 | 错序 / 重放 | 同一 liid 重放 → 仍只进同一消费者，另一个消费者零条；越界 liid → 判 QcomGlinkCorrupt 停链，**不投递给另一个槽** |
 | 无人认领 | 未注册名字的 OPEN：不回应、不碰任何槽、unknown_opens=1、last_unknown/unknown_names 记名；陌生 rcid 的数据：dropped=1，两个消费者都没收到 |
 | 发送 / 收尾 | 只有电池槽有远端 intent 时，音频槽 send 得 QcomGlinkAgain 并发 RX_INTENT_REQ（不越界发数据）；stop 对**两个**槽各回调一次 state(0)，第二次 stop 是 no-op；坏几何（非零索引、非 8 倍数长度、无 doorbell）被拒 |
+| 音频桥 | `K60AudioGlink` 排队一个 `adsp_apps` 请求，`service()` 在第一次 `qcom_glink_poll()` 前调用 `qcom_glink_channel()`；DSP 的 OPEN + 20 个 INTENT 后 state 变 up，peer_data 只进音频 callback；`stop()` 后无 transport 报 -2001 |
 
 文件头的 #error 与 main() 首条 expect_eq(QCOM_GLINK_MAX_CHANNELS, 2, ...) 一起保证：
 **把 `QCOM_GLINK_MAX_CHANNELS` 退回 1 的传输层去跑这个测试会直接编译失败**，不会静默退化成单槽还报绿。
@@ -131,7 +135,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 ### 3.3 它证明了什么、没证明什么
 
 **证明了**：传输层在多槽下不会串——注册、建链、分发、重放、无人认领、停链六条路径都是逐槽隔离的；
-以及「第二个消费者的接入点确实只有那一行」。
+`K60AudioGlink` 能把 `adsp_apps` 作为第二个消费者排队、注册并按槽收数据；以及「第二个消费者的接入点确实只有数组长度」。
 
 **没证明**（必须真机，且要等 provider 返回真 lease）：
 
@@ -151,10 +155,11 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 1. **启动点**：音频 worker 现在是 pong_audio_probe=1 直启（patches/xnu/0504 的 pong_audio_bootstrap()）。
    将来要改成等 k60_adsp_owner_acquire() 成功、且 lease.flags 的 **bit2 K60AdspGlinkExclusive（=4）**
    置位之后才启动；acquire 失败就停在降级档（PAS1-AUDIO-REQUIREMENTS.md §2 的五级表）。
-2. **GPR/APM 注册时机**：qcom_glink_channel(&native, "adsp_apps", 512, 20, storage, ...) 必须在
-   **acquire 之后、publish 之前**调用——acquire 之后是因为 FIFO 与 epoch 还没交出来，publish 之前
-   是因为 DSP 会在 SMP2P ready 后立刻开通道（见 §0 第 2 条：晚了就被当 unknown 丢弃）。
-   与 PAS1-AUDIO-REQUIREMENTS.md §3 的时序图一致。
+2. **建槽时机与桥接**：音频侧已经实现 `K60AudioGlink`——`pong_audio_start()` 排队，
+   `K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前调用 `k60_audio_glink_service()`，由后者调
+   `qcom_glink_channel(&native, "adsp_apps", 512, 20, storage, ...)`；provider 不需要再写注册代码，
+   只需保证 `K60PmicGlink::open()` 发生在 **lease 有效之后**（FIFO 与 epoch 已交出），并且首次 poll 早于
+   DSP 在 SMP2P ready 后发来的 OPEN（见 §0 第 2 条）。
 3. **epoch 绑定与降级**：音频的 QcomGlinkChannel * 必须与电池挂在**同一个 epoch** 上；
    k60_adsp_owner_revalidate() 失败时，音频侧要主动关掉 AFE 请求并静音（PongAudioAfe.h 的六个步骤
    不再下发），而不是继续往一个死通道里 send 拿 QcomGlinkAgain。
@@ -163,11 +168,12 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 
 ## 5. 怎么跑 / 边界
 
-    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 242 cases
+    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 360 cases
 
-脚本把 QcomGlink.{h,c} 拷到临时目录、用补丁打上、再编译，**不改仓库里的 drivers/PongPower/**。
-它不是任何门禁的一部分（RULES.toml 里没有规则跑它），需要人手跑——这也是它放在
-drivers/PongAudio/tests/ 而不是 scripts/tests/ 的原因：它测的是原型，不是仓库当前状态。
+脚本直接编译当前 `drivers/PongPower/QcomGlink.c`、`QcomGlink.h` 与 `K60AudioGlink.c`，不复制、不打补丁。
+它不是任何门禁的一部分（RULES.toml 里没有规则跑它），需要人手跑——它测的是传输层与音频桥，不是某个
+单独的原型补丁。
 
-边界：不改 drivers/PongPower/（2026-11-17 用户把该目录划给音频线，但 Lead 裁决 provider 只把
-MAX_CHANNELS 扩到 2；本线不直接改文件）、不动 K60Battmgr.c（charger/USB 线）、不上机、不申请 run 2。
+边界：`drivers/PongPower/` 已于 2026-11-17 由用户划给音频线，本线把它改到 `MAX_CHANNELS=2`、
+`MAX_LOCAL_INTENTS=20` 并加入 `K60AudioGlink` 桥；不动 `K60Battmgr.c`（charger/USB 线）、不上机、
+不申请 run 2。

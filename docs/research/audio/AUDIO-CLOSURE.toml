@@ -159,11 +159,11 @@ evidence = [
   "drivers/PongAudio/tests/test-glink-multislot.c",
   "drivers/PongAudio/tests/run-glink-multislot-tests.sh",
 ]
-criteria = "242 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out. The runner compiles the real source; there is no prototype patch."
+criteria = "360 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out, and the audio bridge queue/registration. The runner compiles the real source; there is no prototype patch."
 status = "closed"
 owner = "audio-agent"
 
-# ----------------------------------------------------------------- open -----
+# ------------------------------------------------------------ glink bridge ---
 
 [[item]]
 id = "glink-two-slot-in-kernel"
@@ -181,16 +181,32 @@ owner = "audio-agent"
 [[item]]
 id = "glink-adsp-apps-registration"
 stage = "M2"
-change = "the audio consumer registers adsp_apps (512 x 20 intents) on the shared QcomGlink instance after publish"
-evidence_kind = "static"
+change = "the audio consumer registers adsp_apps (512 x 20 intents) on the shared QcomGlink instance"
+evidence_kind = "unit"
 evidence = [
-  "drivers/PongPower/K60PmicGlink.cpp:84",
-  "docs/research/audio/PAS1-AUDIO-REQUIREMENTS.md",
+  "drivers/PongPower/K60AudioGlink.c",
+  "drivers/PongPower/K60AudioGlink.h",
+  "drivers/PongPower/K60PmicGlinkAudio.h",
+  "drivers/PongPower/K60PmicGlink.cpp:97,142,167",
+  "drivers/PongAudio/tests/test-glink-multislot.c",
 ]
-criteria = "qcom_glink_channel() with the adsp_apps name, 512 x 20 intents, is called by the audio consumer before the DSP OPEN; today K60PmicGlink only registers PMIC_RTR_ADSP_APPS. This is provider-line work."
+criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 512 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 360-case runner reaches state up and routes peer data only to the audio consumer."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "glink-audio-bridge-in-kernel"
+stage = "M2"
+change = "the adsp_apps bridge is linked into the built kernel"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/K60AudioGlink.c",
+  "drivers/PongPower/K60PmicGlink.cpp",
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+]
+criteria = "Image e (audio-probe-20261117e) built kernel and strings find QcomGlink max_channels=2u local_intents=20 and PongAudio: glink adsp_apps slot queued (512x20); build-manifest.json is the artifact record."
 status = "open"
-owner = "adsp-handoff"
-on_open = "M2 has no audio channel even if the transport has room for one"
+owner = "audio-agent"
 
 [[item]]
 id = "tdm-port-selection"

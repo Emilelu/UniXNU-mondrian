@@ -80,6 +80,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 - 构建源：k60-cellular `98d0901f26dacea31d310b76c567ffccb03e6ab1`（`d7890e26` 是其祖先）；UEFI `c1ea878`。
 - boot.img 头：`kernel_size=559,358`，`ramdisk_size=201,326,592`；`4096 + ceil(559358/4096)*4096 + 201326592 + 4096 = 201,895,936`，与文件大小相等。
 - boot.img 内的 ramdisk 切片 sha256 = payload.img 的 `ec21632c...`，说明 payload 原样嵌入。
+- 实测 payload：`mdir ::/EFI/UniXNU/MODEM` 恰好列出 27 个 `.lzma`（名称 b01–b13 / b15–b20 / b22–b29），`/EFI/UniXNU/Payloads/kernel.macho.adt` 的 `/chosen/memory-map["K60ModemImage"]` 是 16 个零字节。
 - **注意：bootimg 使用了 `--skip-gates`**；本机 `unixnu bootimg` 的合规注册表当前为红（P-165/P-166 等历史 sync/build 输入漂移），所以这张候选不是“门禁全绿”的产物，也不是飞行许可。
 
 ## 4. 预先写死的判据（S1–S5 / F1–F6）

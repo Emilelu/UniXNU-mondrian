@@ -783,3 +783,17 @@ id = "P-225"
 title = "板目录靠 mtime 猜，猜错就静默丢掉 Metal 插件与电池归档"
 check = "python3 scripts/tests/test-build-strict-board-dir.py && python3 scripts/tests/test-config-consistency-board-dir.py"
 note = "board_dir() 必须按「.config 有没有写 CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY」排序，不能只按 mtime；两个候选都没有这两个键时要警告 P-202。check-config-consistency.py 的 resolve_generated() 是同一判据的第二处，不许退回 found[0]"
+
+[[rule]]
+id = "P-228"
+kind = "pitfall"
+title = "兼容层无条件重放 IRQ，handler 被调用过不等于硬件中断到达"
+check = "python3 scripts/check-docs.py"
+note = "判据必须指向只有硬件能造成的状态变化（寄存器读回、设备改过的内存、设备递增的指针）；lx_irq_raise_all() 每毫秒无条件重放全部 IRQ，所以 mhi_irq_handler 入口打点不能当 MSI 到达的证据，真判据是依赖 dbi.r(MsiStatus) 的 msiArrivals"
+
+[[rule]]
+id = "P-229"
+kind = "pitfall"
+title = "门禁的测试断言了当前分支身份，导致任何改补丁的分支都构建不了"
+check = "python3 scripts/tests/test-porting-gate-book.py"
+note = "被构建流程调用的测试不能在断言里依赖「当前检出就是 main」；状态相关的一条必须允许 skipTest 并说明这是正确的拒绝，其余用合成 fixture。P-165（registry 继承 K60_BUILD_IN_PROGRESS）是同一问题域的另一端"

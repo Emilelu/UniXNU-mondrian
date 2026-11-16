@@ -6010,3 +6010,112 @@ P-207（门禁不许判陈旧产物）。
 顺带清掉 `scripts/check-config-consistency.py` 里两处 `P-187` 引用 —— 那个编号在
 `PITFALLS.md` 里从未存在过（`git log --all -S "P-187"` 零命中），是悬空引用，
 真正该指的是 P-225。
+
+## P-228
+
+**标题：兼容层无条件重放 IRQ，于是「handler 被调用过」被当成了「硬件中断到达了」**
+
+wifi c7 的诊断镜像里，我加了一条 `Pong MHI: irq entered er_index=0 dev rp=... host rp=...`
+打点，位置在 `mhi_irq_handler()` 入口。上机后它出现了 1 次，我就据此在段内写下
+「MSI 确实从 GIC 送到了我们的 handler，只是每次读 `MsiStatus` 都是 0（空中断）」。
+
+**这条判读是错的。** `drivers/PongWifi/ath11k/compat/` 这一层不是真中断：`lx_pump()`
+每轮先跑 `lx_plat->poll()`，然后在 `g_irq_polling`（默认 1）为真时调用 `lx_irq_raise_all()`，
+而后者是
+
+```c
+/* /mnt/e/k60-work/impl/wifi/work/build/ath11k/lx_rt_pong.c:597 */
+void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_irq[i].pending = 1; }
+```
+
+**无条件的。** 每毫秒把 64 个已注册 IRQ 全部置 pending，与硬件有没有拉中断线毫无关系。于是
+`irq entered` 出现一次只能证明「这个 handler 被调度器跑过一次」，不能证明 MSI 到过。
+
+真正的硬件判据是另一条打点：`PongWifiPlatform.cpp:682` 的
+`if (!irqSeen && __atomic_load_n(&msiArrivals, ...)) { ... log(6, "QCA6490 MSI delivered by GIC"); }`，
+而 `msiArrivals` 只在 `irq()` 里 `dbi.r(MsiStatus)` 读到非零时才自增。c7 的
+`grep -ac "MSI delivered"` = **0** —— 这才是「MSI 没到」的证据，而且它一直是有效的。
+我先把无效判据当成结论，又反过来用「irq entered 出现过」去否证有效的判据，方向错了两次。
+
+**四条教训**
+
+1. **「被调用过」是软件事实，不是硬件事实。** 判据必须指向一个只有硬件才能造成的状态变化：
+   寄存器读回非零、DMA 内存被设备改过、设备侧递增的指针/计数器。函数被调用、日志被打出来、
+   中断号被处理，这三样在模拟层/兼容层里都可以由软件凭空产生。
+2. **判据成立之前，先查「谁会让它成立」。** `lx_irq_raise_all` 这个名字里就写着 `raise_all`，
+   一次 `grep -rn "irq_raise_all"` 就能看到它的调用点与 `g_irq_polling` 的默认值。这一步
+   比事后解释「为什么读回是 0」便宜得多。
+3. **一条判据要能通过「相反情况会怎样」的检查。** 如果「MSI 到了」和「MSI 没到」产出同一个
+   观测，这条判据就是无效的，不管它看起来多直接。`irq entered` 恰好就是这种判据。
+4. **错误的判据会污染下游文档。** wifi 线已经按「MSI 已到」写过一版结论，需要专门回滚；
+   而我如果没在段内自查，这条错判会顺着 §11 一路写进 main 的 wifi 研究文档。
+
+**关联**：P-204（用计数代替语义）、P-190（认不出名字就静默跳过）、P-197（固件没有的能力
+不能写成已经做了）。这三条都是「观测与结论之间缺一道核对」，P-228 是它在硬件证据上的形态。
+
+## P-229
+
+**标题：门禁的测试断言「这个检出恰好就是已上机基线」，于是任何改了补丁的分支都构建不了**
+
+`adsp-20261116a` 探针图的构建在 `unixnu: build: running the compliance registry` 之后停在
+
+```
+❌ P-222    FAILED (failures=1)
+build-strict: FATAL: kernel build failed
+```
+
+`P-222` 的测试是 `scripts/tests/test-porting-gate-book.py`，其中一条原本写的是
+
+```python
+def test_the_current_series_is_proven_by_the_book(self):
+    """The exact 2026-11-16 situation: main's series is in the book."""
+    fp, count = self.gate['series_fingerprint']()
+    table = self.gate['booted_series']()
+    self.assertIn(fp, table,
+                  'main series %s (%d patches) should match a booted baseline' % (fp, count))
+```
+
+`series_fingerprint()` 量的是**当前检出树**的 `patches/xnu/series`。adsp 分支为了跟上 `main`
+改了 `0613-k60-adsp-pas.patch`，指纹变成 `86a6e0ed295d56b6`（227 条），而
+`MAIN-BASELINE.toml` 里唯一一条 booted 是 `59d8037521a5b07b`（`baseline-20261116a`）。
+于是这条断言失败，registry 失败，构建被拒。
+
+**这不是「门禁正确地把一个未上机的分支拒掉」，而是门禁的测试自己坏了。** 未上机的分支本来
+就该被拒，但那个判断属于 `porting-gate.py` 的 `[S]` 判定——它是门禁本体，按设计会对任何
+没有 booted 背书的补丁集打出 `❌ [S] 补丁集变了 —— 必须显式确认`，并且 `build-strict.sh`
+用 `K60_FORCE_NEW=1` 显式放行它。测试的职责是证明 `booted_series()` 这个函数行为正确，
+一旦它把「当前检出的身份」写进断言，它的通过条件就变成了「这个检出就是 main」。
+
+**与 P-165 同形**：那次是构建期间 registry 继承了 `K60_BUILD_IN_PROGRESS=1` 这条逃生开关，
+这次是 registry 里的测试断言了分支身份。两次的后果一样——**构建被它自己要保护的东西挡住**。
+
+**修法：把一条测试拆成三条，状态相关的那条允许 skip。**
+
+1. `test_the_current_series_is_proven_by_the_book`：在书里就断言 `sha` 是 7–40 位十六进制；
+   不在书里就 `self.skipTest('this checkout is a feature branch: series %s (%d patches) is '
+   'not a booted baseline, which is the correct refusal (P-229)')`。
+2. `test_a_feature_branch_series_is_not_an_error`：合成一个**不含**当前指纹的 book，断言
+   `booted_series()` 返回一张表、当前指纹不在里面、且不抛异常。这条与检出身份无关。
+3. `test_only_a_booted_entry_vouches_for_one_exact_series`：同一个指纹在 `state = "booted"`
+   时被 vouch、在 `state = "build-only"` 时不被 vouch，两次都用临时 book。
+
+改完在 `k60-gates`（main）与 `k60-adsp-handoff`（feature 分支）两棵树各跑一遍，都是
+`Ran 7 tests ... OK`——这正是「搬到任意分支都成立」的自检。
+
+**四条教训**
+
+1. **测试不能断言「当前环境处于某个特定状态」。** 判据很简单：把这条测试原样搬到另一个
+   分支上跑，它还必须成立。只在本分支成立的那部分属于「现场观测」，要么写成 skip 并说明
+   原因，要么改用合成 fixture。`assertIn(fp, table)` 里的 `fp` 就是现场状态。
+2. **「门禁拒绝」与「门禁测试失败」是两种不同的拒绝，混淆的后果是分支无法开工。** 前者是
+   设计（fail-closed 正确工作），后者是回归（测试自己坏了）。构建走前者，验证函数用后者。
+3. **凡是被构建流程调用的测试，都要问一句「它在 feature 分支上会怎样」。** 构建是在分支上
+   跑的，而 registry 是在构建里跑的。P-165 与 P-229 是同一个问题域的两端：**门禁的运行环境
+   与被判对象必须分离**——逃生开关不能漏进测试，分支身份也不能漏进断言。
+4. **合成 fixture 要给全字段。** `booted_series()` 里 `fields.get('sha', '')` 的缺省是空串，
+   而同文件另一条测试断言 `^[0-9a-f]{7,40}$`；临时 book 不写 `sha = "abc1234"` 就会「修好
+   一条、弄红另一条」。改 fixture 之后要把整个文件跑一遍，不是只跑改的那条。
+
+**关联**：P-165（构建期间 registry 继承逃生开关）、P-222（全局账本把别处的成功当本树证据）、
+P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（证据与对象不对应）。
+

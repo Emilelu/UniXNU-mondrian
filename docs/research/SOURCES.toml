@@ -14,19 +14,23 @@
 #       不能写"已阅读"三个字。
 
 # ---------------------------------------------------------------------------
-# 结构性限制（2026-11-14，写 path 前必读）
-#   research-gate 只试两种 path 解析：
-#     ① os.path.join(REPO, path)                  —— 本仓库相对，如 docs/research/...
-#     ② os.path.join('/mnt/e/k60-work', path)     —— 如 references/...、reports/...
-#   所以下面这些仓库的 path 一定判「文件不存在」，只能写进 REFERENCE-INDEX.md 正文：
-#     - /mnt/e/hackios/QcaBluetooth   （蓝牙唯一实现副本，见 REFERENCE-INDEX 第 5 节）
-#     - /mnt/e/hackios/UniXNU-liuqin  （Xiaomi Pad 6 Pro，同 SM8475，见 2.1 与 9.1）
-#     - /mnt/e/hackios/Device-Binaries （K60 厂商 panel XML 唯一副本：
-#         marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml，见 REFERENCE-INDEX 7.7
-#         与 docs/research/display/RESEARCH.md 1.1；本仓库里没有 references/ 目录，
-#         所以 display 子系统下面不能给它写 required 条目，只能靠正文与本文注释）
-#   处理：Lead 侧加第三回退前缀或 K60_REPO 环境变量覆盖；本线不改 gate（铁则⑧）。
+# 参考源路径解析（2026-11-17 核实）
+#   research-gate.py 按顺序试三种前缀：
+#     ① <repo>/<path>                  —— 本仓库相对，如 docs/research/...
+#     ② /mnt/e/k60-work/<path>         —— 如 references/...、reports/...
+#     ③ /mnt/e/hackios/<path>          —— 上游 clone，如 QcaBluetooth/...、UniXNU-liuqin/...
+#   旧注释（2026-11-14）说只有两种前缀，已过期：当时把 QcaBluetooth、
+#   UniXNU-liuqin、Device-Binaries 写在正文里；现在它们可以直接写 required。
 # ---------------------------------------------------------------------------
+
+[subsystem.board]
+why = "整机/板级：同 SM8475 异板的一手硬件底账，用于交叉验证 K60 自己的 live FDT 数值"
+
+[[subsystem.board.required]]
+path = "UniXNU-liuqin/docs/liuqin-hardware.md"
+why = "Xiaomi Pad 6 Pro（liuqin，SM8475/cape）的逐项核实值：UFS PHY、ADSP 保留区、PMIC 家族、UEFI FD 窗口"
+examined = "2026-11-17"
+finding = """同 SM8475 的 Xiaomi Pad 6 Pro 硬件底账（每条带来源）。可直接用于交叉验证的数值：UFS PHY 0x1d80000（SM8450 是 0x1d87000），qcom,ufs-phy-qmp-v4-cape，v6 窗口 COM0/PCS 0x400/TX 0x1000/RX 0x1200；ADSP 保留区 0x9fd00000+0x3100000；PMIC 家族 pm8350/pm8350b/pm8350c/pm8450/pmk8350/pmr735a（SM8450 waipio 那套）；UEFI FD 窗口 0xA7000000+0x400000 紧跟 UEFI FD Reserved 0xA7400000+0x200000；DXE Heap 0xF8000000+0x7C00000；ABL splash 0xB8000000+0x2B00000（45 MiB，1800x2880 a8r8g8b8）。与 K60 的 adsp_region 0x9FD00000+0x03100000 完全一致，说明 ADSP 地址不能照抄 Pong 的 0x85700000。"""
 
 [subsystem.touch]
 why = "触摸：协议、寄存器、总线节拍、电源时序"
@@ -361,6 +365,12 @@ why = "K60 面板身份与显示供电的一手真值：m11a 节点、三档 tim
 examined = "2026-11-14"
 finding = """设备 6033dbec 的 live merged FDT（919,210 B，2026-11-02 adb 导出，已含 dtbo；文本解析见 scratch/refmine/fdt_dump.txt）。bootargs 第 13 行 msm_drm.dsi_display0=qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd: 表明实际启用面板是 m11a（phandle 0x6a3，fdt_dump.txt:27733），而 dsi-display-primary 的 qcom,dsi-default-panel=<0x697>（:28881）指向 visionox r66451 视频面板（:22521），不是本机在用的那个。m11a 节点：panel-type=dsi_cmd_mode、bpp=0x18、dsi-ctrl-num=0 / dsi-phy-num=0（单 DSI）、mi,panel-id=<0x4d313141 0x420200>（M11AB+0x02）、brightness-max 0xfff、hbm-bl-max 0x7ff、bl-inverted-dbv、bl-pmic-control-type="bl_ctrl_dcs"（背光走 DCS，不是 Pong 的 NT37705 独立控制器）、platform-reset-gpio=<&tlmm 0 0>（GPIO 0）、esd-err-irq-gpio=<&tlmm 0x74 0x2008>（GPIO 116 下降沿）、reset-sequence=<1 11 0 1 1 11>。timing 三档：timing@0 0x3c=60（:27813）、timing@1 0x5a=90（:27910）、timing@2 0x78=120（:28007），三档都是 0x5a0x0xc80=1440x3200、topology <2 2 1>、panel-clockrate 0x47868c00=1.2 GHz、DSC bit-per-pixel 8 / bit-per-component 0xa / slice-width 0x2d0 / slice-height 0x20 / dsc-version 0x12，且 timing-switch-command 三档各不相同（98 B）。面板供电 5 轨：vddio 1.8V=pm8350c_l12（ldoc12, phandle 0x30a）、vddd 1.07V=display_panel_vddd（GPIO 66 开关）、vci 2.7V=pm8350c_l13（ldoc13, 0x30b）、extvdd 1.2V=pm8350b_l1（ldod1, 0x30e）、avdd 5.5V=display_gpio_regulator@1（GPIO 186）——其中 3 条是 RPMh LDO 投票，与 RSC 不可访问的阻塞点同源。DSI ctrl0 reg 0xae94000+0x400 / 0xaf0f000+0x4 / 0xae36000+0x300，DSI phy0 reg 0xae94400+0xa00 / 0xae94900+0x400 / 0xae94200+0xa0，MDP 0xae00000+0x84000。触摸节点 :10771 与 thermal/charge-screen :28986/:28990 都用 panel=<0x6a3 0x697>，换面板必须同步改触摸的 panel 引用。"""
 
+[[subsystem.display.required]]
+path = "Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml"
+why = "K60 实际面板 m11a 的厂商 XML 原件（静态 timing/DSC 参数），不是 DTS 的二手转写"
+examined = "2026-11-17"
+finding = """K60 面板 m11a 的厂商 XML 原件（4,799 B / 203 行 / sha256 65cd6826a2abcce28db60b7d82ab34aa9fa8ecd2aa82f5fc4f21f9853b4be482，Device-Binaries 引入提交 a1501e0c，2026-10-04）。标题即 m11a 42 02 0a Single DSI Cmd Mode AMOLED Panel with DSC (1440x3200 24bpp)；HFP 8 / HBP 8 / HSP 12 与 live FDT 的 m11a timing 一致。注意它只是静态字段对照：仓库里的两份同族 XML（marble 129 包 / nuwa 134 包）与 K60 DTBO 的 135 包有 3 个编辑块差异，init 序列不能直接照抄，必须逐包比对（REFERENCE-INDEX 7.7）。"""
+
 [subsystem.usb]
 why = "USB：DWC3 寄存器分区与同 SoC 的 PHY / Type-C mux 实现，fastboot boot 之外唯一的调试通道"
 
@@ -395,5 +405,22 @@ finding = """phk110（redwood）的蓝牙是 WCN6750，走 WPSS（Hexagon）PIL 
 path = "reports/live-6033dbec-fdt.dtb"
 why = "K60 自己的蓝牙节点与使能脚；BT 实现必须以这张表为准"
 examined = "2026-11-14"
-finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 E:/hackios/QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具），该仓库不在 research-gate 的两种路径回退范围内，因此不能作为本文件的 path，只能在此说明并写进 REFERENCE-INDEX.md。"""
+finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具）；2026-11-17 起 research-gate 的第三前缀 /mnt/e/hackios 已能解析它，下面的 required 条目直接指向该仓库。"""
+[[subsystem.bluetooth.required]]
+path = "QcaBluetooth/src/qbt_geni.c"
+why = "蓝牙 GENI SE UART DMA 的唯一完整 XNU 实现（QcaBluetooth，WCN7850 同族，GPL-2.0）"
+examined = "2026-11-17"
+finding = """QcaBluetooth 的 GENI SE UART DMA 实现（GPL-2.0，qbt_geni.c）。可借的具体做法：prepare 先查 G_FW_REV 主版本 == 2、G_HW_PARAM1 的 RX FIFO depth >= 4，否则 -ENXIO；四块 RX DMA buffer 与 TX buffer 必须互不重叠且 64 字节对齐；打包寄存器 G_TX_PACK0/G_TX_PACK1/G_RX_PACK0/G_RX_PACK1 固定 0x4380e/0xc3e0e（四个 8-bit word，低字节在前），G_TX_WORD/G_RX_WORD=8；G_RX_STALE=160、G_RX_WM=2、G_RX_RFR_WM=depth-2；硬中断只 mask GIC 线并唤醒 worker，实际完成走 executor。K60 的 BT 也是 QCA6490 同一套 GENI SE，这份比手写 bitbang 接近主线。"""
+
+[[subsystem.bluetooth.required]]
+path = "QcaBluetooth/src/qbt_core.c"
+why = "H4 组帧与 Qualcomm IBS 的 XNU 实现，蓝牙控制通道的最小状态机"
+examined = "2026-11-17"
+finding = """qbt_core.c 的 H4 组帧与 Qualcomm IBS：SLEEP_IND=0xfe、WAKE_IND=0xfd、WAKE_ACK=0xfc；字节存储有界，executor 只在真实工作或 deadline 事件上睡眠；空闲 UART 不收数据不算运行（可能是 engine stopped/clock off），写失败要在轮询间隔重试，不能等永远不来的完成事件。控制命令白名单覆盖 inquiry、LE scan params/enable、LE ext scan params/enable，以及 0x0402/0x0c01/0x0c03/0x0c45/0x2001。这给 K60 的 BlueTool/bt 控制通道一个可抄的最小状态机，而不是从 Linux hci_qca 硬搬。"""
+
+[[subsystem.bluetooth.required]]
+path = "QcaBluetooth/userland/Type0.c"
+why = "type-0 原生适配器：BlueTool 与 bluetoothd 之间怎么把 HCI 通道接到 XNU"
+examined = "2026-11-17"
+finding = """QcaBluetooth 的 Type0.c 是 BlueTool/bluetoothd 的 type-0 原生适配层，配套 qbt_transport.c 的 skywalk 通道（BT_SK_FIFO=8192，termios 8N1 CREAD RTS/CTS，控制/电源请求计数）。它说明 XNU 侧不是只写一个 UART 驱动就够：还要把 HCI 的 open/close、电源状态与 firmware 请求通过 kern_control/skywalk 暴露给用户态。K60 若走官方 QcaBluetooth 组件，应优先复用这条用户态与传输分层，而不是自写 BlueTool 协议。"""
 

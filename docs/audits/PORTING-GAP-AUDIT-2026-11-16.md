@@ -24,7 +24,7 @@
 > 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,148 处引用 / **102** 个目标缺失 / 0 处行号越界，
 > 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（97 个分支文件）与 `LINE-MAP.md`（18 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
-> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G7、G8、G10 只报告、未动。
+> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7、G8 与 AW882xx/pong-metal 两项仍只报告、未动。
 
 ## 1. 方法与可复现性
 
@@ -310,7 +310,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 - **门禁**：新增 `check-doc-citations.py`（基线 102）、`check-component-pin.py`（P-231，3 条 deviation）、
   `PATCH-CATALOG.toml`（41 条 series 外补丁）+ `check_catalog()`、P-155 的 `expected_kern_exec_delta = 1713`、
   `check-readme` 数字校验扩到四份文档、`check-docs` 递归 research、两个门禁脚本可 import。
-- **研究可见性**：`LINE-RESEARCH-MAP.md`（97 个分支文件）、`LINE-MAP.md`（18 条线）。
+- **研究可见性**：`LINE-RESEARCH-MAP.md`（97 个分支文件）、`LINE-MAP.md`（18 条线）；`SOURCES.toml` 三种路径前缀与 5 条新 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1），研究源 53→58。
 
 **待 Lead 决定（本文只报告，不动）**：
 

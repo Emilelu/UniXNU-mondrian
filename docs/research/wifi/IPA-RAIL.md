@@ -151,7 +151,7 @@ All paths are on the build host / WSL:
 | args | 31 items / 602 B, ends `pong_wifi=1 k60_wifi_rsc=2` |
 | series | 227 files, `59d8037521a5b07b`, file `bb14a480c6b2ea4b465f409d862394f0ea25cce178d19a63b7253fab3511f9d4` |
 
-The manifest above records the build head `970a4dca` with dirty 0; the branch head `41a132c7` contains only patch-series, test and documentation commits after it, none of which change compiled source.
+The manifest above records the build head `970a4dca` with dirty 0; later patch-series, test and documentation commits do not change compiled source.
 
 Checks already run:
 

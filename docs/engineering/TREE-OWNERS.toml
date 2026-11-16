@@ -34,6 +34,14 @@ path = "/mnt/e/hackios/k60-wifi"
 owner = "wifi-agent"
 scope = ["patches/wifi", "drivers/PongWifi", "docs/research/wifi"]
 
+# Cache-policy experiment worktree branched from the c7 baseline. It must be
+# registered before build-strict runs iron-11; the scope is the same driver and
+# its host tests, plus this registry entry.
+[[tree]]
+path = "/mnt/e/hackios/k60-wifi-cache"
+owner = "wifi-agent"
+scope = ["drivers/PongWifi", "scripts/tests", "docs/engineering/TREE-OWNERS.toml"]
+
 [[tree]]
 path = "/mnt/e/hackios/k60-bt"
 owner = "bt-agent"

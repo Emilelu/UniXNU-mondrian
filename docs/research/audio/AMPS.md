@@ -877,7 +877,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 这一层的意义是：等 PAS1 与 TDM 通路到位时，「写寄存器」这段不再是未验证的新代码，而是已经在设备上
 跑过一遍、每一步都有回读记录的东西；剩下的只是把它接到 start 序列与音频帧上。
 
-### 9.5 构建核验（镜像 k、m 与 n）
+### 9.5 构建核验（镜像 k、m、n、a 与 b）
 
 `audio-probe-20261114k` 是回放层第一次进内核构建：HEAD `ec95bc6`、8 文件补丁 `d85264ca…`、
 `scripts/build-strict.sh` 全流程通过（八步 36 项、`verify-boot-image: OK`）。
@@ -888,7 +888,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
   `dirty_files 0`、`payload f3a6eafb…`、`payload_kernel 18e04ebb…`、`adt 2b1552ac…`、`dtb 2d044eaa…`、
   `fd 4bbe7601…`、`boot_img f34f33e3…`；
 - 这就是 §6 第 4 条那条无法复现的 `-fsyntax-only` 的替代证据：回放层是在真实内核 flags 下编过的；
-- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 a（见下）。
+- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 b（见下）。
 
 **镜像 m（2026-11-15）**：rebase 到 `origin/main` 626cc9b 之后重建，HEAD `9afa1e1`、series 225 条（sha256 `8e455072…`，224 条加 0504 的常量修正）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `7e86d966…`（105,504,768 B）、`payload_kernel a3e27a2e…`、`payload d5a544ac…`、
@@ -906,7 +906,12 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 a（2026-11-17）**：修正 `pong_audio.c` 骨架里遗留的 PRI 常量后重建，HEAD `1d79f925`、series 225 条（sha256 `8e455072…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `19133189…`（105,504,768 B）、`payload_kernel b8d09838…`、`payload 66b7a904…`、`adt d9f52b27…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `cc903abb…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117a/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
-- 当前候选：9 文件补丁 + PRM 时钟 + TLMM/spksw + 0504 骨架常量（1024 帧周期、14400 帧 lead、12.288 MHz、clock 0x204、attribute 4）；构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+- a 曾是当前候选：9 文件补丁 + PRM 时钟 + TLMM/spksw + 0504 骨架常量（1024 帧周期、14400 帧 lead、12.288 MHz、clock 0x204、attribute 4）；构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+
+**镜像 b（2026-11-17）**：把 `PongAudioAfe.h` 真正编进 `pong_audio.c`（0003）后重建，HEAD `8cd08323`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+- `kernel_built` sha256 `e0f72ced…`（105,504,768 B）、`payload_kernel c5955b18…`、`payload 70361d25…`、`adt 52a7dd28…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `73c267fb…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117b/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
+- `kernel.macho` 上 `AFE encoder selftest` 字符串 1 处；`kernel.log:226` 已应用 `0003-k60-audio-afe-selftest.patch`；b 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
 
 ### 9.6 run 2 的判据（可执行）
 

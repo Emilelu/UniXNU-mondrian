@@ -6,7 +6,7 @@
 
 ## 0. 结论
 
-- 2026-11-17 05:45 复核：main 的 `docs/research/` 有 **73** 个文件；16 个原有检出分支上合计 **108** 个不在 main 的文件：cellular 19、wifi 14、thermal 12、bt 11、audio-merge 9、usb 7、display 6、gates 6、adsp-handoff 5、audio 3、buttons 3、springboard 3、wifi-lead 3、gpu-user 2、ios-profile 1、UniXNU-zizhan 4。
+- 2026-11-17 05:45 复核：main 的 `docs/research/` 有 **67 个 `.md`（80 个文件）**；16 个原有检出分支上合计 **108** 个不在 main 的文件：cellular 19、wifi 14、thermal 12、bt 11、audio-merge 9、usb 7、display 6、gates 6、adsp-handoff 5、audio 3、buttons 3、springboard 3、wifi-lead 3、gpu-user 2、ios-profile 1、UniXNU-zizhan 4。
 - 另有 `k60-charger` 2 个、三个临时 wifi worktree（`k60-wifi-mhi-preload` 9、`k60-wifi-cache` 8、`k60-wifi-ipa` 8）共 25 个；全部检出合计 135 个分支研究文件。
 - 两个检出的 wifi 研究重叠（`k60-wifi` 14 个、`k60-wifi-lead` 3 个，后者全部是前者的副本）；音频的 `AMPS.md`/`CODEC.md`/`SOUNDWIRE.md` 在 `k60-audio` 与 `k60-audio-merge` 各一份。
 - **未登记在 `docs/engineering/TREE-OWNERS.toml` 的检出现有 6 个**：`UniXNU-zizhan`、`k60-audio-merge`、`k60-wifi-mhi-preload`、`k60-wifi-cache`、`k60-wifi-ipa`、`k60-pitfalls`。铁则 11 要求一个检出只有一个主人，未登记=无人负责。

@@ -112,13 +112,13 @@ docs/
 | `11-KEY-EVIDENCE-RING.md` | 关键证据闭环清单 |
 | `GENI-ACCESS-PRECONDITIONS.md` | GENI 引擎可访问性前置条件 |
 | [`REFERENCE-INDEX.md`](research/REFERENCE-INDEX.md) | **参考仓库事实索引（人读）**：42 个参考仓库逐条 文件:行 + 可信度，按供电/音频/WiFi/触摸/显示/GPU/存储/USB/电池分区；机器可读部分同源进 `SOURCES.toml` |
-| [`LINE-RESEARCH-MAP.md`](research/LINE-RESEARCH-MAP.md) | **分支研究文件的物理分布**：16 个检出的 97 个不在 main 的研究文件、各自的线检出/分支/HEAD、重复文件与未登记检出的主人；结案搬运规则 |
+| [`LINE-RESEARCH-MAP.md`](research/LINE-RESEARCH-MAP.md) | **分支研究文件的物理分布**：16 个检出的 108 个不在 main 的研究文件、各自的线检出/分支/HEAD、重复文件与未登记检出的主人；结案搬运规则 |
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。
 > 两者冲突时以 `EIGHT-STEPS.toml` 为准。
 >
 > **本表是结论层摘选，不是全量**：`docs/research` 下 69 个 md 的完整清单（按目录分组、标题取自各文件）见
-> [`research/README.md`](research/README.md)，`check-docs.py` 保证每个 md 都在那里登记。各分支检出上还有约 97 个
+> [`research/README.md`](research/README.md)，`check-docs.py` 保证每个 md 都在那里登记。各分支检出上还有约 108 个
 > 研究文件未进 main，盘点见 [`research/LINE-RESEARCH-MAP.md`](research/LINE-RESEARCH-MAP.md) 与
 > [`audits/PORTING-GAP-AUDIT-2026-11-16.md`](audits/PORTING-GAP-AUDIT-2026-11-16.md) §6。
 

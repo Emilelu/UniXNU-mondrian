@@ -121,6 +121,10 @@ mhi5d = 117 MB + blob（`__TEXT`）+ `pong_wifi=1` + 4.5 GiB + series 224
 `c3` 之后这一格的判别价值已大幅下降：真死因已经钉住，飞它只能再确认一遍
 「链了归档就得带 0012」。
 
-**本页的下一步**：不是再飞 silent 图，也不是 pool——pool 通道已关闭。MHI 阶段
-（`c6` 的 `-110`）已由 `c7` 定位为「设备在 SBL 等 AMSS、主机在等 EE 事件」的死锁，
-判据是 `c8` 推完 AMSS 后 `exec_env` 是否从 1 变 2，见 BLOB-RESIDENCY.md §11.8。
+**本页的后续边界**：pool 通道的结论不替代 MHI 因果分析。`c7` 的
+`usblog-20261116-122546:608,610,612,618,620,628,632` 只记录到硬件 SBL/READY、主机请求 M0、
+software ee=PBL/pm_state=POR，抓取未见 EE 处理或完整镜像 BHIE 发起；原因待验，不作死锁定论。
+共享 rp 不变不证设备未写或 DMA 正常，软件 IRQ 不证 GIC；BHI 已发同文件 512 KiB 前缀。
+c8 目前暂停，先审重复下载、重入及 READY→M0 协议；以后分 BHIE 返回、硬件 EE/M0、host
+事件处理、QMI/ath11k、netdev/扫描/关联/数据独立验收，不能用 exec_env 1→2 单值结 Wi-Fi 通。
+见 [BLOB-RESIDENCY.md](BLOB-RESIDENCY.md) §11.4–§11.8。

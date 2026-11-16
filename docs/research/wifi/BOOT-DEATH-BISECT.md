@@ -374,11 +374,15 @@ tag `snap-r198`）；本节与 BLOB-RESIDENCY.md 的引用一律写 main 上的 
 `E:/` 三段探测，WSL 与 MSYS 两侧都是 `11 cases (0 failure(s), 0 skipped)`；
 任何一个真样本找不到就应当显式 SKIP 并在汇总行报出 skip 数，而不是假装通过。
 
-**MHI 阶段不在本表**：silent 结案之后，`c4`–`c7` 的失败模式是**有日志的 `-110`**，
-它已经不是「死因考古」而是「功能没起来」。`c7`（`usblog-20261116-122546`）把这条也
-钉住了：设备 `exec_env=1`（SBL）、事件环为空、`amss entries` 打印 0 次 ⇒
-`mhi_download_amss_image()` 从未被调用，**设备在 SBL 等 AMSS、主机在等 EE 事件**，
-是死锁不是超时。判据只剩一条：`c8` 推完 AMSS 后 `exec_env` 是否从 1 变 2。
+**MHI 阶段不在本表**：`c4`/`c5` 的阶段门停点与 `c6`/`c7` 的有日志 `-110`，都应与
+silent 分开记。`c7` 的直接观测（`usblog-20261116-122546:608,610,612,618,620,628,632`）是
+硬件 `exec_env=SBL`、`MHISTATUS=READY/SYSERR0`，主机 `MHICTRL` 请求 M0，而 software
+`ee=PBL`、`pm_state=2=MHI_PM_POR`；抓取未见 EE 处理或完整镜像 BHIE 发起日志。
+由此只定位到 **SBL/READY 后的转换未完成，原因待验**；不再把超时写成已证实的死锁。
+共享 rp 不变只表示 CPU 未观察到推进；软件轮询 IRQ 不证 GIC，GIC 日志缺席也不能判路由必错。
+BHI 已发同文件的 512 KiB 前缀，不能写「AMSS 一个字节没送」。c8 当前暂停，先审重复下载、
+重入与 READY→M0 协议，再分 BHIE 返回、硬件 EE/M0、host 事件处理、QMI/ath11k 与 netdev
+扫描/关联/数据逐层验收；`exec_env` 1→2 至多证明 AMSS 环境，不能结 Wi-Fi 通。
 详见 [BLOB-RESIDENCY.md](BLOB-RESIDENCY.md) §11 与
 [C7-READING-GUIDE.md](C7-READING-GUIDE.md) §5。
 

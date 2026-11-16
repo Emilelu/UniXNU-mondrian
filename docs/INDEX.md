@@ -84,8 +84,8 @@ docs/
 | `10-SE-HANG-ROUND3.md` | SE 挂死第三轮诊断 |
 | `wifi/RESEARCH.md` | **WiFi 八步 ①②③**：Pong 同 SoC 同芯片的 PCIe0 冷启动、PWF2 固件包、K60 本机真值 |
 | `wifi/BOOT-DEATH-BISECT.md` | **WiFi series 死因考古（已结案）**：0618 MHI 注入不存在、0011 stage 门与 229 series 均被对照排除；§0 第 1 条记死因（UFS SMMU lease，P-215）、第 8 条记静态分析把真死因亲手排除过一次；§0.1 给三层判读顺序（构建配置 → 内核版式 → 内核字节），§6.2/§6.3/§7 保留当时的错误排除并逐条标注结局 |
-| `wifi/BLOB-RESIDENCY.md` | **WiFi silent 结案与 MHI 定位**：§0 六行结论、§1.1 真容器与占位头的判定手法、§6 七格矩阵（六条观测轴是怎么被逐条打掉的）、§9 全家族实测段表与全库 join、§10 silent 结案（`c2`→`c3` 单变量、UFS SMMU lease、P-215）、§11 MHI 阶段已定位（`c7`：十阶段全通、设备在 SBL 等 AMSS、主机在等 EE 事件，`-110` 是死锁不是超时；`c8` 判据是 `exec_env` 1→2） |
-| `wifi/C7-READING-GUIDE.md` | **`c7` 判读指南（已用）**：10 处新打印逐条语义、四支判据与 `c7` 的实测对照（四支全落空，第五支 = 设备在 SBL 等 AMSS、主机在等 EE 事件）、三种容易读错的形状（含「兼容层无条件重放 IRQ ⇒ handler 调用次数不能当硬件证据」）、`c8` 的唯一判据 `exec_env` 1→2 |
+| `wifi/BLOB-RESIDENCY.md` | **WiFi silent 结案与 MHI 证据边界**：§0 六行结论、§1.1 真容器与占位头的判定手法、§6 七格矩阵、§9 全家族实测段表与全库 join、§10 silent 结案（`c2`→`c3` 单变量、UFS SMMU lease、P-215）；§11 区分 `c7` 直接观测、待验假设与未排除项：SBL/READY 后转换未完成，原因未定；`c8` 暂停，先审协议，再分层验收 |
+| `wifi/C7-READING-GUIDE.md` | **`c7` 判读指南（已用并纠正）**：保留 10 处格式串与原始读数，撤回四支及第五支的过强归因；区分共享 rp、软件 IRQ、GIC 入口与设备行为，核正 BHIE 的 11 个数据 buffer / 12 个总 entries，按 BHIE、硬件 EE/MHI、host 事件、QMI/ath11k、netdev 分层取证 |
 | `wifi/DARWINBOOT-POOL.md` | **DarwinBoot pool 通道账本（已关闭）**：九张 silent 图 + 三组 alive 对照按 (kernel, 段表, blob, `pong_wifi`, 窗口, series) 逐行列表；pool 通道由 `c3` 关闭（同池占用一活一死），阈值模型被 129 MB `adsp` 与同尺寸 bt 对两次否证；转存档，附拒飞清单 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |

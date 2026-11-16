@@ -54,7 +54,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 构建/刷机前由两层检查把关，任一失败即中止：注册表 `scripts/check-rules.py`
 执行 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) 里登记的全部门禁
-（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 107 条）；严格构建入口
+（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 108 条）；严格构建入口
 `scripts/build-strict.sh` 内嵌下列检查：
 
 <!-- GATE-TABLE:BEGIN -->

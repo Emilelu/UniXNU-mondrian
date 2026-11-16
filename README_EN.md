@@ -55,7 +55,7 @@ Build scripts live in `scripts/` (the strict entry point is `scripts/build-stric
 Two layers of checks run before build or flash; any failure aborts: the registry
 `scripts/check-rules.py` runs every check registered in
 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) (iron rules, gated
-pitfalls, upstream triage, input sync, snapshot tags — currently 107); the strict
+pitfalls, upstream triage, input sync, snapshot tags — currently 108); the strict
 build entry point `scripts/build-strict.sh` embeds these checks:
 
 <!-- GATE-TABLE:BEGIN -->

@@ -763,7 +763,7 @@ static void case_db_read_fail(void)
 	expect_cached_terminal(&permit, &first);
 }
 
-static void case_db_block_short(void)
+static void case_db_block_table_truncated(void)
 {
 	K60RailObsPermit p;
 	K60RailObsResult first;
@@ -775,7 +775,11 @@ static void case_db_block_short(void)
 	p.db_block = 0x90;
 	last_rc = k60_rail_observe_once(gate_good, &p, &io_seam, &last_result);
 	CHECK(last_rc == K60_RAIL_OBS_RETURNED);
+	/* 0x90 cannot hold the header plus two 24-byte entries (192 > 144),
+	 * so the table is truncated; GEOMETRY_INVALID is NOT established. */
 	expect_result(K60_RAIL_OBS_OUTCOME_DB_CORRUPT);
+	CHECK(strcmp(last_result.stop_field, "db entries") == 0);
+	CHECK(last_result.stop_region == 0);
 	CHECK(ctl.map_calls[0] == 1 && ctl.map_calls[1] == 0);
 	CHECK(ctl.unmap_calls[0] == 1);
 	first = last_result;
@@ -799,6 +803,42 @@ static void case_command_block_short(void)
 	CHECK(ctl.unmap_calls[0] == 1 && ctl.unmap_calls[1] == 1);
 	first = last_result;
 	expect_cached_terminal(&p, &first);
+}
+
+static void case_command_block_0x44_geometry(void)
+{
+	K60RailObsPermit p;
+	K60RailObsResult first;
+
+	setup_v3();
+	seed_observed(UINT32_C(0x00030000), 0, 16, 16);
+	snapshot();
+	p = permit;
+	/* Observed behaviour, not frozen contract: 0x44 covers command 0 only,
+	 * so the walk stops at command 1's address word (0xd00+0x18+0x38). */
+	p.command_block = 0x44;
+	last_rc = k60_rail_observe_once(gate_good, &p, &io_seam, &last_result);
+	CHECK(last_rc == K60_RAIL_OBS_RETURNED);
+	expect_result(K60_RAIL_OBS_OUTCOME_GEOMETRY_INVALID);
+	CHECK(strcmp(last_result.stop_field, "cmd_address") == 0);
+	CHECK(last_result.stop_offset == 0xd50u);
+	CHECK(last_result.stop_region == 1);
+	CHECK(ctl.map_calls[0] == 1 && ctl.map_calls[1] == 1);
+	first = last_result;
+	expect_cached_terminal(&p, &first);
+}
+
+static void case_observed_parse_ok_truthy(void)
+{
+	/* Observed deviation from the strict-1 contract: gate_ok() treats
+	 * parse_ok as truthy, so 2 is admitted. Recorded as a core defect
+	 * (design-doc candidate queue), not as the intended contract. */
+	setup_v2();
+	seed_observed(UINT32_C(0x00020700), 0, 16, 16);
+	snapshot();
+	CHECK(invoke((K60RailObsGate){ 1, 2, 1 }) == K60_RAIL_OBS_RETURNED);
+	expect_observed(0);
+	CHECK(k60_rail_obs_test_state() == K60_RAIL_OBS_TERMINAL);
 }
 
 static void case_db_missing(void)
@@ -1218,8 +1258,10 @@ static const Case cases[] = {
 	{ "db-map-fail", case_db_map_fail },
 	{ "rsc-map-fail", case_rsc_map_fail },
 	{ "db-read-fail", case_db_read_fail },
-	{ "db-block-short", case_db_block_short },
+	{ "db-block-table-truncated", case_db_block_table_truncated },
 	{ "command-block-short", case_command_block_short },
+	{ "command-block-0x44-geometry", case_command_block_0x44_geometry },
+	{ "observed-parse-ok-truthy", case_observed_parse_ok_truthy },
 	{ "db-missing", case_db_missing },
 	{ "db-corrupt-magic", case_db_corrupt_magic },
 	{ "db-corrupt-count", case_db_corrupt_count },

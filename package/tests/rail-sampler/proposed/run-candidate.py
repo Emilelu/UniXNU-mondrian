@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Host runner for the UNINTEGRATED candidate observation core.
 
-This runner is deliberately separate from scripts/probe-k60-rail-sampler-host.py:
+This runner lives with the delivery it drives and is deliberately separate from
+scripts/probe-k60-rail-sampler-host.py:
 it reports only "candidate core contract verification". It never reproduces,
 summarises, or greens the canonical sampler suite. The candidate core is a host
 fixture under package/tests/rail-sampler/proposed/ and is not linked into any
@@ -24,8 +25,8 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(os.environ.get("K60_REPO") or Path(__file__).resolve().parents[1])
-FIXTURE = REPO / "package/tests/rail-sampler/proposed"
+REPO = Path(os.environ.get("K60_REPO") or Path(__file__).resolve().parents[4])
+FIXTURE = Path(__file__).resolve().parent
 CORE = FIXTURE / "rail_obs.c"
 HEADER = FIXTURE / "rail_obs.h"
 ENTRY = FIXTURE / "entry.c"

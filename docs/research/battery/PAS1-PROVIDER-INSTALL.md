@@ -1,0 +1,77 @@
+# PAS1 platform provider installation
+
+Status: the complete platform adapter is installed before acquire and passes offline verification. The board ownership service is still absent, so native availability remains zero before physical access. No hardware success is claimed.
+
+## Running the host suite
+
+`scripts/tests/run-k60-handoff-host.sh OUTPUT PRE_0619_XNU_TREE` needs a `.cache/xnu-work`
+tree that **predates 0619**. Point it at a tree that already carries the 0619 postimage and
+`test-k60-handoff-integration.py` fails with `bsd/dev/pong_handoff.c: canonical source
+differs` — the test patches its own fixture forward from the predecessor, so a postimage input
+double-applies. `display-out` was pre-0619 on 2026-11-16; `lead-out` was not.
+
+Verified 2026-11-16 against `/opt/k60/trees/display-out/.../xnu-work`: 20 `TESTS OK` groups,
+including platform 31 absent + 34 actual-linked, owner 17/11/12/15/22, reader 5×31, blob
+negative cases, publisher 49, builder 10, MDT 16, notify 21, battery 27, dispatch 14,
+5 sections, 3 canonical mirrors, 14 call-site cases and the arm64 adapter syntax check.
+
+## Research decision before implementation
+
+The Lead-owned run e reaches the enabled publisher but refuses uninstalled owner acquire: [console:127](E:/k60-work/evidence/usblog-20261115-223916/console.log#L127). Stage 1 returns -1000, no lease is published and the battery consumer stays blocked. The late startup exclusion proves an attempt, not authentication.
+
+The existing [one-shot SMC transport](../../../drivers/PongPower/K60AdspPas.c#L17) lacks a shared transaction lock, interrupted-session resume, busy retries and owned coherent metadata. [Rail discovery](../../../drivers/PongPower/K60PmicRail.c) does not acquire a complete ADSP power/XO/interconnect lease. Neither the startup CAS nor successful SHUTDOWN independently proves stopped state. The adapter therefore does not call those primitives as a successful ownership backend.
+
+The sibling pong-power repository at E:/k60-work/references/pong-power, HEAD c117a6700968c944528570326c8d709e29bd373f, was fetched from https://github.com/Chengdong-Yu/pong-power.git before implementation. Its BSD-2-Clause-Patent licence matches this tree. PongAdsp.cpp:235–259 provides SCM resume/busy patterns, :261–268 cache maintenance, :301–322 prepared contiguous metadata and :342–367 bounded mappings. PongPlatformResources.cpp:184–191 supplies its shared lock. These patterns fit SM8475/Darwin; they do not establish K60 resource or stopped proofs.
+
+Linux [android14 qcom_scm.c:464–518](https://android.googlesource.com/kernel/common/+/refs/heads/android14-6.1/drivers/firmware/qcom_scm.c?format=TEXT) requires contiguous aligned noncacheable PAS metadata and permits its release after a terminal INIT error. [android16 qcom_scm-smc.c:93–148](https://android.googlesource.com/kernel/common/+/refs/heads/android16-6.12/drivers/firmware/qcom/qcom_scm-smc.c?format=TEXT) treats WAITQ_SLEEP=2 as suspended: completion requires the secure IRQ/wait-context owner. The native adapter quarantines that and unknown positive results instead of guessing a resume or ACK.
+
+## Installation and production boundary
+
+[Runtime:47](../../../drivers/PongPower/K60HandoffRuntime.cpp#L47) calls k60_adsp_platform_install() after configuration, RAM overlap, chosen and OSData preflight; [runtime:48](../../../drivers/PongPower/K60HandoffRuntime.cpp#L48) then acquires. No new patch hunk is required. The [archive recipe](../../../scripts/build-k60-physical-battery.py#L342) includes both platform C and native C++ sources; this task did not build the archive, kernel or image.
+
+[Install:250](../../../drivers/PongPower/K60AdspPlatform.c#L250) registers the complete version-1/sizeof [ops table](../../../drivers/PongPower/K60AdspPlatform.c#L234) at :263. Return 1 means only this function's own successful earlier installation. Unrelated installation failure is not idempotence. The static platform, immutable carrier pins and metadata outlive the runtime stack. Absent or zero-length carrier alone can select the already-mapped legacy FAT fallback; malformed present K60A remains an error.
+
+The [ownership interface](../../../drivers/PongPower/K60AdspPlatform.h#L18) requires aggregate PAS1/GLINK/reset exclusion, a nonzero epoch/token, retained rails/XO/interconnect/QMP, independent stopped/live proofs and an SCM lock shared by all competing secure callers. [Ownership registration](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L368) has no production caller in this checkpoint. No GLINK worker is started or adopted by the producer. The missing board service keeps available=0; a startup CAS, discovered register, or fake callback cannot replace it.
+
+The native code implements releasable page-containing IOKit maps, exact requested subranges, 256 KiB firmware windows, byte COPY/BSS, PoC synchronization, bounded TCSR acquisition and serialized SCM. [Metadata allocation](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L307) is 64 KiB, physically contiguous, prepared, 4 KiB aligned, within 36-bit physical space and explicitly inhibited-cache. [SCM](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L264) retains the shared lock through interrupted x6 resumes and up to 20 busy attempts with 30 ms pauses. Suspended/unknown-positive results or exhausted resumes poison the native state and retain lock, metadata and resources; no further SMC or stopped proof is permitted. Releasable IOMemoryDescriptor/IOMemoryMap mappings replace the suggested ml_io_map so safe abort can actually release both mappings; they still return exact configured bytes and checked alignment.
+
+Safe abort follows PAS shutdown and independent stopped proof, unmap, image close, resource release, exclusive release. The final read-only stopped query checks the live reserved token, absence of retained SCM/TCSR state, terminal shutdown after any AUTH attempt and independent board stopped proof; it does not require acquired resources. The board exclusion keeps that proof stable through exclusive release, including after resources release, and forbids callback reentry. Valid void releases therefore do not query mutable stopped evidence again or introduce a new cleanup failure. A failure before AUTH does not require a fabricated shutdown. AUTH uncertainty or a suspended SCM session must retain ownership as Poisoned, so the request to clear all fields applies only to proven-safe rollback. Published ownership is retained indefinitely.
+
+## Callback implementation and evidence
+
+The completion lines below are emitted by actual callback code through [event:18](../../../drivers/PongPower/K60AdspPlatform.c#L18), after its work returns and outside TCSR. They are future hardware acceptance witnesses, not observed hardware results. Side-effect-free proofs and lock operations intentionally have no individual log; successful enclosing stages plus host counters establish their execution. A stage error alone never proves the physical backend ran. The [fixture](../../../scripts/tests/test-k60-adsp-platform.c) uses real C ops, reader, MDT, SMEM and owner stages with explicitly fake low-level physical services.
+
+| Callback | Real implementation | Execution evidence and limit |
+| --- | --- | --- |
+| available | [C:39](../../../drivers/PongPower/K60AdspPlatform.c#L39), [native:81](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L81) | Read-only; successful stage 1 requires it. Missing-carrier fixture asserts zero SMC/SMEM/maps. |
+| image_reader | [C:45](../../../drivers/PongPower/K60AdspPlatform.c#L45) | K60ADSP platform image_reader rc=0; actual linked MDT is compared with captured bytes. |
+| image_close | [C:52](../../../drivers/PongPower/K60AdspPlatform.c#L52) | image_close rc=0; host observes exact close and inactive reader before resource release. |
+| exclusive | [C:58](../../../drivers/PongPower/K60AdspPlatform.c#L58), [native:86](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L86) | exclusive rc=0; host checks nonzero epoch/token and transactional failure. Native still requires board service. |
+| exclusive_release | [C:70](../../../drivers/PongPower/K60AdspPlatform.c#L70), [native:102](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L102) | exclusive_release rc=0 after unmap/resource release; Poisoned path deliberately emits no release. |
+| resources | [C:79](../../../drivers/PongPower/K60AdspPlatform.c#L79), [native:115](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L115) | resources rc=0; fake votes test rollback. Hardware rails/XO/ICC remain unproved. |
+| resources_release | [C:87](../../../drivers/PongPower/K60AdspPlatform.c#L87), [native:123](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L123) | resources_release rc=0; cleanup fixture requires independent stopped proof before release. |
+| stopped | [C:95](../../../drivers/PongPower/K60AdspPlatform.c#L95), [native:131](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L131) | Read-only; stage 1/load/cleanup counters and stopped=0 poison test. SHUTDOWN rc=0 is insufficient. |
+| live | [C:100](../../../drivers/PongPower/K60AdspPlatform.c#L100), [native:138](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L138) | Read-only epoch/token check; host stale/lost lease cases reject. Successful stage alone is not a power measurement. |
+| map_smem | [C:115](../../../drivers/PongPower/K60AdspPlatform.c#L115), [native:154](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L154) | map_smem rc=0; exact bytes/alignment verified, second mapping failure releases the first. |
+| unmap_smem | [C:129](../../../drivers/PongPower/K60AdspPlatform.c#L129), [native:188](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L188) | unmap_smem rc=0; fixture checks shutdown → unmap → close → releases. |
+| lock | [C:136](../../../drivers/PongPower/K60AdspPlatform.c#L136), [native:219](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L219) | No log under TCSR; successful stage 2/4 and ready imply acquisition. Host counters check bounded sections. |
+| unlock | [C:144](../../../drivers/PongPower/K60AdspPlatform.c#L144), [native:236](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L236) | No log under TCSR; stage/report and ready log occur after unlock. Host rejects every other callback while locked. |
+| init_image | [C:149](../../../drivers/PongPower/K60AdspPlatform.c#L149), [native:299](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L299) | init_image rc=0; fixture checks one 5404-byte prefix/hash initialization before MEM/COPY/AUTH. Native SMC untested on hardware. |
+| mem_setup | [C:158](../../../drivers/PongPower/K60AdspPlatform.c#L158), [native:329](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L329) | mem_setup rc=0; captured relocated base/span and PAS ordering checked. |
+| load | [C:165](../../../drivers/PongPower/K60AdspPlatform.c#L165), [native map/sync:154](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L154) | load rc=0 per segment; all 24 payload/BSS/gap guards checked, b10 exact unaligned 720-byte COPY plus 2672 ZERO. |
+| auth_and_reset | [C:188](../../../drivers/PongPower/K60AdspPlatform.c#L188), [native:336](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L336) | auth_and_reset rc=0 after all loads. Host exercises fake AUTH success/error, never native PAS authentication. |
+| shutdown | [C:194](../../../drivers/PongPower/K60AdspPlatform.c#L194), [native:343](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L343) | shutdown rc=0 precedes safe release; independent stopped=0 retains all state even with that line. |
+| ready | [C:210](../../../drivers/PongPower/K60AdspPlatform.c#L210), [remote parser](../../../drivers/PongPower/K60HandoffPublish.c#L12) | ready rc=0 after actual SMEM discovery; 1000 bounded polls, delays only unlocked, all config fields pinned. |
+| report | [C:227](../../../drivers/PongPower/K60AdspPlatform.c#L227) | K60ADSP platform stage=N rc=M ops_complete=1 carrier=1 follows the core stage log and runs only unlocked. |
+
+[Native context:380](../../../drivers/PongPower/K60AdspPlatformNative.cpp#L380) prints K60ADSP native board_ownership=0 in the current configuration. [Install:265](../../../drivers/PongPower/K60AdspPlatform.c#L265) prints K60ADSP platform install rc=0 carrier_rc=0 ops_complete=1 when the real carrier is linked. These distinguish installation from the following unavailable acquire; they do not establish PAS or battery success. The public success criterion remains the existing [104-byte flags15 publication](HANDOFF-PUBLISH.md#真机判据lead-2026-11-15-2150).
+
+## Offline verification
+
+Root ran the unchanged complete host runner with exit 0: platform absent 31 and actual generated-linked 34 scenarios; owner 77 (17/11/12/15/22); five reader variants with 31 scenarios each; blob five assertions and negative mutations; publisher49, builder10, MDT16, notification21, battery27, dispatch14, five integration sections and three canonical mirrors. Captured MDT=5404, 24 segments, COPY=23494284, BSS=25925684, gap=1960256. b10 link 0x86e0b2c0 relocates to 0xa080b2c0 with exact COPY720/ZERO2672; pure-BSS b24 has no callback. Tests also cover all locked non-unlock callbacks without service/state/output effects, pinned ready config, idempotent install, transactional rollback, shutdown ordering and Poisoned retention.
+
+Evidence: [host-tests.log](E:/k60-work/artifacts/adsp-platform-20261115/final/host-tests.log), SHA256 891636f504b0d5cf3f2d42f43369e90cc4c55d209fc60b38aa534e8ff897dbe7. [SDK syntax log](E:/k60-work/artifacts/adsp-platform-20261115/final/platform-sdk-syntax.log), SHA256 4b4193b1fb0ed2c72647afad7733970ccab8f530b91dbd29709a83dff0ec12f8, passes platform/reader/stages C and runtime/native C++ arm64 syntax with existing SDK header warnings. This is not a kernel link or native SCM/cache/hardware test.
+
+The original global XNU input already contained 0619; GNU patch --batch automatically reversed it, causing the mirror comparison to fail. The corrected run uses an isolated supported predecessor copied from exact 0619 preimages (C/H verified against 0611 postimages), with only the known IOKit hunk reversed on a copy. All five patch sections and three canonical mirrors pass unchanged assertions. [Diagnostic evidence](E:/k60-work/artifacts/adsp-platform-20261115/mirror-diagnostic/report.json) records unchanged global/repository inputs. The sparse fixture is not full-series replay; no shared XNU tree was edited.
+
+Nine scoped checks pass: docs194, table, owner, secrets, battery6, patch parse (no changed patch), whitespace, staged whitespace and checker32 negatives. [Publication results](E:/k60-work/artifacts/adsp-platform-20261115/final/publication-results.txt) records exit0 for each. Candidate and unchanged-HEAD porting checks both return nonzero with the same 54 exact errors: introduced0/resolved0; this inherited debt is not waived. Battery verify/local_verified/device remain false. No kernel/image build, device, boot, serial, default-argument, patch or main change was performed.

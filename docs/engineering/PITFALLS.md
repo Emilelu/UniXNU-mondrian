@@ -5220,3 +5220,593 @@ P-211 量错了**版本**（用今天的仓库描述上周构建的镜像）。
    要么带上交叉核对，两者都没有就只是仪式。
 
 Check: `python3 scripts/tests/test-record-boot.py`（4 例）与 registry `id = "P-211"`。
+
+## P-212
+
+一个把配置打印成证据的日志，看起来比没有日志更像证据。
+
+现场：`docs/research/charger/07-DEVICE-CRITERIA.md` 的判据最初写成「出现订阅行就算订阅成功」。
+2026-11-15 charger 线交回 `scripts/judge-battery.py` 时带出了三处同形缺陷，每一处都是
+「日志里有一行，所以事情发生了」：
+
+1. `subscription-ack=0 0` —— 抓到的两个字段都是 0，脚本原来判 PASS。0 是「没量到」，
+   不是「量到 0」；判 INVALID。
+2. `temp=0.00C` —— 传感器未上电时回 0，原来落在判据下界之内。0.00 摄氏度在 SoC 上是
+   不可能读数；判 FAIL，并把合法区间改成**开区间** `(0, 60]`。
+3. 单行 sample —— 只有一行 `sample` 就下结论。一次采样无法区分「稳态」与「瞬态」，
+   少于两行判 INVALID。
+
+这一条与 P-204「用计数代替语义」是同一族的两个方向：P-204 是**把计数当成结论**
+（出现 2 次就判没启动），P-212 是**把配置当成结果**（打印了订阅参数就判订阅成功）。
+两者共同的错误是：判据回答的是「我看到了一行字」，而不是「被观测的系统进入了那个状态」。
+
+修法：判据必须三态（PASS / FAIL / INVALID），INVALID 专门吃「没量到」与「量到不可能值」；
+每条判据打印命中数与行号，末行必须给 `TOTAL: n PASS / n FAIL / n INVALID`；
+退出码区分三态（0/1/2），脚本自己在一条证据都读不到时不许返回 0。
+落地：`scripts/judge-battery.py`（400 行，16 例测试，`docs/research/charger/07-DEVICE-CRITERIA.md`
+是它的口径文档）。
+
+三条教训：
+
+1. 「打印了配置」与「配置生效」之间隔着一次真实的状态跃迁。判据要盯跃迁后的量
+   （四属性非零），不是跃迁前写下去的字。
+2. 0 与「没量到」必须分开。凡是可能回 0 的传感器/计数器，判据都要能表达
+   「这个 0 是读数还是缺席」，表达不了就是 INVALID。
+3. 三态比两态贵，但两态会把「没测」悄悄记成「通过」——那正是最贵的一种假绿。
+
+Check: `python3 scripts/tests/test-judge-battery.py`（16 例）与 registry `id = "P-212"`。
+
+## P-213
+
+门禁自己也会犯它要防的那个错：只读字面量，不读变量的传播。
+
+现场：P-208 之后我写 `scripts/check-define-scope.py`，想结构性地回答「守卫所在的 object
+收得到这个 `-D` 吗」。第一版只解析 `<obj>_CFLAGS_ADD=-DXNU_x` 这种字面量赋值，
+于是把 `XNU_NATIVE_RAM_BLOCK` 判成「只到达 `kern_exec.o`」——而它实际是
+
+```sh
+PERSONALITY_CFLAGS="-DXNU_NATIVE_RAM_BLOCK=1"
+PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_OTHER=1"
+EXTRA_MAKE_ARGS+=("KernelConfigTables.cpo_CFLAGS_ADD=$PERSONALITY_CFLAGS")
+```
+
+累加进变量、再整体交给一个 object。门禁读不到变量，就会对**合法**的守卫报错——
+这正是 P-208 的镜像：P-208 是「define 没到该到的 object」，P-213 是「门禁以为它没到」。
+
+修法：`read_variables()` 逐行建 shell 变量表（`VAR=-DXNU_A` 与 `VAR="$VAR -DXNU_B"` 两种形状），
+`VAR_REF` 展开 `${VAR}`/`$VAR` 引用，`_strip_comment()` 去掉行尾注释（否则注释里的
+`-DXNU_FOO` 会被算成生效），`read_object_defines()` 对 `_CFLAGS_ADD=` 右侧同样展开变量。
+改完 `✅ define scope: 81 guard(s) all reachable`，12 条 skip 全是来自 config 头而非
+构建脚本的 define（`XNU_MONITOR`/`XNU_TARGET_OS_OSX`/`XNU_NATIVE_UFS` 等）。
+
+三条教训：
+
+1. 门禁要建模的是**工具真实的行为**，不是它在你眼里最显眼的那种写法。shell 会展开变量，
+   门禁就得展开变量；读字面量等于给 shell 写了一份错的实现。
+2. 新门禁的第一件事是拿已知合法样本跑一遍。我如果先跑 `XNU_NATIVE_RAM_BLOCK`
+   （一个已知能工作的守卫），第一版当场就会被否掉，不必等到它误报。
+3. 「不知道」必须是独立的一档（`skip:`），不能折叠进 PASS 或 FAIL。12 条来自 config 头的
+   define 若被判成 FAIL，门禁立刻变成噪声源，然后被绕过——比没有门禁更糟。
+
+Check: `python3 scripts/tests/test-check-define-scope.py`（9 例）与 registry `id = "P-213"`。
+
+## P-214 — 两个都叫「series 指纹」的哈希分属不同命名空间，永远不相等
+
+现场：main 上每次合并之后 `check-rules.py` 都报 `iron-4` / `hard-33`，内容是
+「上次成功启动的 series 与当前仓库不一致」。查下去发现 series **根本没有变**：
+
+- `scripts/build-strict.sh` 的 `SERIES_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)`
+  量的是 **series 文件的字节**，64 hex，写进 `build-manifest.json` 的 `series.sha256`；
+- `scripts/porting-gate.py` 与 `scripts/record-boot.py` 的 `series_fingerprint()`
+  量的是 **每个条目的名字 + 尺寸**，`sha256(name + str(size) for each entry)[:16]`，16 hex。
+
+两者都稳定、都像指纹、都叫 `sha256`，**永远不相等**。P-211 让 `record-boot.py` 优先
+相信镜像自带的 manifest 之后，账本开始记录 64 hex 的 manifest 值
+（`bt-bisect-h23` 记成 `88faf6c25de1e77c`、`bt-bisect-h124` 记成 `21eda89a147c9653`），
+而 porting-gate 仍按 names+sizes 算 `9688ad85833d7dd2` —— 于是「上次成功 ≠ 现在」
+在 main 上恒成立，门禁每天正确地报告一个不存在的差异。
+
+这个坑的形状是**同名字段跨命名空间比较**：两个值都是 64/16 位十六进制，都通过了
+「看起来像 sha」的检查，长度检查也没错（16 hex 是 64 hex 的前缀长度），所以任何
+「格式对不对」的门禁都放行。只有「这两个数是谁算的」能分开它们。
+
+修法（三条一起才成立）：
+
+1. **单一实现**：新建 `scripts/series-fingerprint.py`，`fingerprint()` 是唯一算法，
+   `build-strict.sh` 改为调它（`SERIES_SHA` / `SERIES_COUNT` 都从它取），不再自己算；
+   文件字节哈希改名 `file_sha256` 并保留（它对「补丁内容变了」敏感，是有用的第二个量）。
+2. **自描述**：manifest 的 `series` 里加 `"namespace": "names+sizes"`，读者据此判断
+   能不能比，而不是猜长度。
+3. **拒绝跨命名空间**：`record-boot.py` 的 `image_series()` 遇到 `namespace` 不等于
+   `names+sizes` 就打印并回落到仓库 series；没有 `namespace` 且哈希长度 > 16（P-214
+   之前的旧 manifest）同样回落；只有 16 hex 且无 namespace 的旧 manifest 才继续可用。
+
+三条教训：
+
+1. **同名字段必须带命名空间**。两个哈希都叫 `sha256` 是根因；如果 manifest 里从一开始
+   就叫 `series.file_sha256` 与 `series.entry_sha256`，这个坑不会存在。
+2. **门禁红了先问「这个量是谁算的」**，再问「值对不对」。我花了半天在查 series 到底
+   哪里变了，而 series 一直是 `9688ad85833d7dd2`。
+3. **格式校验不能替代来源校验**。16 hex 与 64 hex 都是合法十六进制，长度检查、字符集
+   检查、非空检查全部通过；唯一能分开它们的是产生者。
+
+Check: `python3 scripts/tests/test-series-fingerprint.py`（8 例，含
+`the_gate_and_the_recorder_still_agree` 直接比对三个内嵌实现与工具的输出）与
+registry `id = "P-214"`。
+
+## P-215 — 惰性分配的锁在「还没人分配」时返回失败，等于拒绝服务；而 0 字节日志把这次拒绝藏了三天
+
+现场：wifi 家族七张镜像（c0/c1/c2/z0/t2/mhi3/mhi4，内核 66–117 MB）全部
+`port-not-observed` / 0 字节。逐条排除掉的轴（每条都有实测）：
+
+| 轴 | 否证方式 |
+|---|---|
+| 内核总大小 | 117 MB silent，但 129 MB（`adsp-20261115c/d/e`）与 105 MB 都进桌面 |
+| 段跨度 / 254 MiB 窗口 | `darwinboot_parsekernel.py` 复刻固件全部拒绝条件，五张全 PASS；129 MB 的 span 141,111,296 比 c2 的 129,642,496 更大却能起 |
+| 容器所在段 | PWF2 放 `__TEXT,__const`（c0/c1/z0）与 `__DATA_CONST,__const`（c2）都 silent |
+| 固件卷 / DTB | `bootimg_slots.py` 逐件比对：`gzip_sha256`、`shim_sha256`、`fd_sha256`、DTB 全相同，唯一差异是 ramdisk |
+| ADT | `darwinboot_adt.py` 复刻 `AdtNode()`，五张全 ACCEPTED/exact，25 节点，window `0x120000000` |
+| 控制台参数 | 五张 `payload_args` 29 项逐字符相同，只末项不同 |
+| Data 卷 UUID | c1 把 `mondrian_wifi_defconfig` 的种子 UUID 改对，仍 silent |
+| C++ 全局构造器 | `macho_initfunc.py`：`__mod_init_func` 两边都 102 条，+0/−0；`__pong_init` 内核无消费者，设计上不执行 |
+| `__init_entry_set` | `__startup_` 符号数三张都是 4,980，+5/−5 只是重命名 |
+
+真因（`patches/wifi/0004-drivers-NativeUfs-pong-ufs-ready.patch` + `0001`）：
+
+```c
+// 0004 给 PongUfsTransport.cpp 的 hostBringUp() 插的 lease 段
+if (pong_smmu_lease_lock && pong_smmu_lease_unlock) {
+    lease.held = pong_smmu_lease_lock();
+    if (!lease.held) return transportFailure("Apps SMMU lease unavailable");
+}
+// 0001 的实现：锁未分配就返回 false
+extern "C" bool pong_smmu_lease_lock(void){
+    if(!smmuLeaseLock) return false;      // ← 拒绝服务
+    IOLockLock(smmuLeaseLock); return true;
+}
+```
+
+`smmuLeaseLock` 只在 `pong_rpmh_init()` 里 `IOLockAlloc()`，而 `pong_rpmh_init()`
+的唯一调用点是 `pong_wifi_start_optional()`，后者由 `patches/wifi/0005` 在
+`ArmDTPlatform::configure()` 的 `registerService()` 之后调用。**UFS 是根设备，必然先启动**
+（实测能起日志里 `PONG_UFS` 在 115 行、`ArmDTPlatform: registered platform` 在 147 行）。
+于是 UFS 调 lock() 时锁必为 NULL → false → `transportFailure` → 整个 UFS transport
+放弃 → 没有根设备 → 内核在 console worker 起来之前就死 → **0 字节**。
+
+修法（`patches/wifi/0012`，20,480 B 代码，单变量）：把分配搬进 lock() 自己——
+
+```c
+extern "C" bool pong_smmu_lease_lock(void){
+    if(!smmuLeaseLock) smmuLeaseLock = IOLockAlloc();
+    if(!smmuLeaseLock) return false;
+    IOLockLock(smmuLeaseLock); return true;
+}
+```
+
+真机验证：`wifi-20261116c3`（`boot.img 5a19e110…`，117,325,824 B，带真 PWF2 容器
+11,189,974 B）证据 `usblog-20261116-015128`：console 221,429 B / 3,202 行 /
+**SpringBoard 132** / panic 0 / `:482 K60DATA mounted ro=0 fstype=apfs` /
+`:972 Early boot complete. Continuing system boot.`
+
+**为什么这次事故值三天**：0 字节日志同时抹掉了「没执行」和「执行到一半失败」两种状态。
+控制台是 ramoops 环形缓冲区，`patches/xnu/0300` 的 `k60_usblog_init()`
+（`osfmk/arm/arm_init.c`）只做只读探测，真正的排空 worker 在
+`bsd/kern/bsd_init.c` 的 `if (result == KERN_SUCCESS)` 里才由 `k60_usblog_start()` 启动。
+所以「日志第一行是 `K60 USBLOG: GDSC usb30_prim`」**不能**证明它比 UFS 早执行——
+那只是环形缓冲区的写入顺序。任何让 `IOKitBSDInit()` 返回非 `KERN_SUCCESS` 的早期失败
+都会直接跳过 console worker，与 0 字节完全吻合。这条是用户 m27494 直接指出我的论证错误后
+才纠正的：我当时用「第 1 行输出早于 UFS」否定了 UFS 假说，把真凶排除了整整一轮。
+
+四条教训：
+
+1. **返回 bool 的 `lock()` 在锁未就绪时返回 false，语义上等于「拒绝服务」**。
+   惰性分配的锁必须自己保证可分配；让调用者承担「谁先初始化」的知识，就是把
+   一个初始化顺序缺陷伪装成一次正常的错误返回。正确形状是「要么成功，要么 panic」，
+   而不是「悄悄返回 false，让第一个调用者去死」。
+2. **弱引用只解决「符号可能不存在」，不解决「符号存在但拒绝服务」**。
+   `if (pong_smmu_lease_lock && pong_smmu_lease_unlock)` 看起来是完备的守卫，
+   实际只覆盖了 `weak_import` 解析失败那一档，漏掉「解析成功、调用返回 false」。
+   弱引用守卫要写成「符号在 && 调用成功」，并且调用失败要有独立于符号缺失的日志。
+3. **跨子系统共享资源的所有权必须在设计时确定启动顺序，不能靠「谁先跑到」**。
+   Apps SMMU 是 UFS 与 Wifi 共用的；UFS 先启动是**必然**的（它是根设备），
+   所以锁的分配点必须早于 UFS，或者由 lock() 自己惰性完成。
+   「反正 wifi 会先初始化」这种假设在启动顺序面前一文不值。
+4. **0 字节日志是最弱的观测，它会把不同故障抹成同一张脸**。这次它同时抹掉了
+   「内核没被装载」「内核崩在第一行之前」「内核跑到根挂载失败」三种状态。
+   判断「谁先执行」只能靠**代码里的调用链**，不能靠日志行号——环形缓冲区让行号
+   失去时序含义。任何「A 的日志在 B 之前，所以 A 先执行」的论证都必须先问
+   日志是直写还是缓冲。
+
+附带一条工程教训（同批事故，来自 wifi 线 `3207bd3`）：**merge 解冲突后要验「非冲突区域的
+功能块有没有被 main 侧整段替换」**。那次 merge 的 `build-strict.sh` 冲突只保住了 manifest 的
+两个字段，把 `XNU_PONG_WIFI_ARCHIVE` 的定义段和 P-190 守卫整段丢了 —— 静态看不出来，
+因为 manifest 里还留着一个引用，结果是「链上了但账本记不到、守卫不跑」。
+
+Check: `python3 scripts/tests/test-pong-smmu-lease.py`（wifi 线交付，钉住函数唯一、
+分配先于 null 检查、仍 `IOLockLock`、补丁是 series 最后一项）与 registry `id = "P-215"`。
+
+## P-216 — 固件卷构建不是确定的：三次重建得三个哈希，而手册写着「同源 ⇒ 同字节」
+
+现场（2026-11-16 02:31–02:47，同一检出、同一 pin、无未提交改动）：
+
+| 次 | SOURCE_DATE_EPOCH | FD sha256（前 12） |
+| --- | --- | --- |
+| 基准（已上机验证） | 自然取值 | `4bbe76017eb4` |
+| 重建 1 | 自然取值（uefi HEAD 已多一个提交） | `ce12d145a71e` |
+| 重建 2 | 显式钉住 `1794541119` | `77ad2474a468` |
+| 重建 3 | 自然取值 | `9f20de15388a` |
+
+`docs/engineering/FIRMWARE-REBUILD.md` §2 写的是「`firmware.py:85` 把 `SOURCE_DATE_EPOCH` 固定成 uefi
+仓最后一次提交的时间，所以同样的源码 + 同样的 pin ⇒ 同一个 FD」——**这一句是错的**。
+
+实测根因：两个卷在同一偏移 `0xc8b8` 上都有一个 CodeView 记录，但 `RSDS` 后面的 16 字节
+build-id 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c44205044422e`，后 8 字节
+`4c4c44205044422e` = `"LLD PDB."` 一样）。LLD 的 build-id 由输入文件集合与链接顺序派生，
+不受 `SOURCE_DATE_EPOCH` 影响；而固件卷是 **压缩** 的，一个 GUID 变了就让整个压缩段变了——
+3,145,728 B 里有 453,604 B 不同（1,739 个不连续区间）。
+
+两个后果：
+
+1. **FD 的 sha256 不能当「身份」用。** 它只能当「这一次构建的标识」。任何「两个卷哈希不同 ⇒ 源码不同」
+   的推断都是错的（我就错了一次，差点把 `ce12d145` 归因成 cellular 线的提交）。
+2. **判定一个重建的卷能不能用，只能上机。** 这正是 `FIRMWARE-REBUILD.md` §5 第 4 步写的，
+   只是 §2 把它推翻了。
+
+**已验证的结论**（同一个 payload，只换 FD）：
+
+- `baseline-20261115d` 的 payload 逐字节复用（`fbc87102d1cb10df080d7dc6135e9e5b995e1f791ab5d2aa0a8e37a872271e3f`），
+  只把 FD 换成重建的 `9f20de15388a`，重打 `boot.img`（`51d2053891569eeeb33a9f78989de6d66a111aa594541d9c7c5fb89622b3f3ce`）。
+- 上机（`E:\k60-work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
+  `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 / `menu:` 与 `config: no boot entry` **0 次**。
+- ⇒ **P-154 正式关闭**：从当前 pin 重建的固件卷能找到 payload。
+
+**四条教训**
+
+1. 「确定性」要用两次相同输入的实测证明，不能用「我看到了一个固定时间戳」推出。
+   `SOURCE_DATE_EPOCH` 只能影响它真正被使用的那些字段（`__DATE__`/`__TIME__`、PE 头时间戳），
+   对链接器自己生成的 build-id 无效。
+2. 压缩容器里的小差异会放大成大差异：不要用「哈希不同」反推「源码不同」，
+   要先看差异集中在哪一类字节上（这里是 CodeView/RSDS）。
+3. 一个输出的哈希在构建之间不稳定时，它就不能进 manifest 的 `components`（那里的字段隐含
+   「可比较」的语义），而应该另开一个「本次构建标识」字段。这和 P-214
+   （两个命名空间的指纹不可比）是同一类错的两个方向：那里是名字相同而含义不同，
+   这里是名字相同而稳定性不同。
+4. 手册里的「为什么这件事很要紧」那一节会让人很容易把前提当结论。§2 那句话当时是为了论证「不必重建」，
+   而实际上它只能论证「不必为了可复现而重建」。
+
+Check：`python3 scripts/check-firmware-volume.py`（新）——它不量哈希，只量两件事：①
+`FIRMWARE-REBUILD.md` 不得再出现「同源 ⇒ 同字节」形式的断言；② 任何引用 FD 哈希的
+文档必须同时说明它是「一次构建的标识」而非「身份」。
+
+## P-217 — 构建依赖一个只存在于本机的 commit，而配置文件声称它已经在 pin 里
+
+现场（2026-11-16 03:14）：`board.toml` 的 `[firmware].patches` 写着
+
+> Mu_Basecore 6f805f2 already carries all six K60 fixes (3d2a9fa, "local patches for k60
+> firmware build", is an ancestor).
+
+三句话里有两句是错的，而且错的方向恰恰是「不用做事」：
+
+1. **`3d2a9fa` 不是 `6f805f2` 的祖先。** `git merge-base 3d2a9fa 6f805f2` 返回空——
+   两条历史没有共同祖先。`3d2a9fa` 的父提交是 `3c9c7b2`（`[DROP on REBASE]`），
+   它不在任何远程分支上；`3d2a9fa` 自己也只在本机（`git branch -r --contains` 两者皆空）。
+2. **`6f805f2` 不带那五个修复。** 11 个文件逐个对比：在 `6f805f2` 上只有
+   `AsmMacroLib.h` 被上游用另一种方式修好（`#ifdef __ELF__` 分支，PE 侧用
+   `.text$ ## Name`）；其余 10 个文件在 `6f805f2` 上是**原始**的。
+
+为什么一直没发现：构建用的是 `Mu_Basecore` 工作树的**当前内容**，不是子模块指针。
+`Mu_Basecore/.git` 是一个**目录**（嵌套仓），不是 `.git/modules/` 下注册的子模块，
+所以 `git submodule status` 的 `-` 前缀、`git status` 的 ` M Mu_Basecore` 都只是在报
+「指针与工作树不一致」，没有任何人去看那一致性到底意味着什么。
+而构建一直成功，因为工作树里确实有那些修复。
+
+**修法已经验证存在**：五个修复在仓库里本来就有补丁文件
+（`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch），
+它们在 `6f805f2` 上 `git apply --check` 全部通过，应用后 11 个文件里有 10 个与
+`3d2a9fa` 的内容**逐字节相同**，唯一差异是上游已经自己修好的 `AsmMacroLib.h`。
+`scripts/unixnu/firmware.py:73-78` 本来就支持 `[firmware].patches`（构建时 apply、`finally` 里
+reverse），所以只需要把五个补丁写进 `board.toml`，并把工作树切到 `6f805f2`。
+
+**四条教训**
+
+1. 「子模块指针」与「构建实际用的内容」是两件事。当子模块是一个嵌套仓时，指针
+   只是一个数字，没有任何东西强制工作树跟它一致。
+2. 「上游已经修好了，所以不用打补丁」这个判断必须逐文件验证，不能靠一个祖先关系推。
+   这里推错了两层：祖先关系不成立，且即使成立也不能说明那些行没被回退。
+3. 配置文件里的「已经包含」一定要有可执行的判据（比如 `git merge-base --is-ancestor`
+   或逐文件比对），否则它就是一句无法被证伪的注释。
+4. 「本机能构建成功」不等于「仓库能构建成功」。判据是「从仓库里能看到的东西重现这个构建」——
+   这和 P-216（固件卷不可复现）、P-154（重建的卷找不到 payload）是同一个主题的三个面。
+
+Check：`python3 scripts/check-basecore-pin.py`（新）——它量三件事：① `Mu_Basecore` 工作树的
+HEAD 必须等于主仓 `git ls-tree` 记录的 pin；② `board.toml` 的 `[firmware].patches` 里的
+每个文件必须存在且能 `git apply --check`；③ 若工作树与 pin 不一致，必须在
+`docs/engineering/FIRMWARE-REBUILD.md` 里有一条显式记录说明为什么（否则就是本条）。
+
+## P-218 — 二分实验只飞了「下一张」，漏掉的那一格正好是决定性的
+
+**现场（2026-11-16，蓝牙 0005 四 hunk 二分）**
+
+`patches/bt/0005` 有四个独立 hunk（h1–h4），全量配方 silent（0 字节、端口从未枚举）。
+四 hunk 有 15 个非空子集，实际飞了 9 个：
+
+| 配方 | SpringBoard | getBytes | 结果 |
+|---|---|---|---|
+| h1 | 13 | 36 | 起 |
+| h13 | 13 | 36 | 起 |
+| h4 | 13 | 36 | 起 |
+| h12 | 132 | 0 | 起 |
+| h23 | 128 | 0 | 起 |
+| h124 | 132 | 0 | 起 |
+| h34 | 128 | 0 | 起 |
+| **h123** | **0** | — | **silent** |
+| 全量 0005 | 0 | — | silent |
+
+`h123` 在 23:18 就构建好了，但四小时里没人飞它——因为我每一轮都按「下一步该验什么」去点图，
+而没有回头飞「已经躺在那儿但没飞过」的那张。那一格恰好是唯一能定案的：
+
+- 致命集恰好是 **{h1, h2, h3} 三者齐备**，`h4` 无关。
+- 验证：h123 去掉任意一个都能起（去 h1 = h23 起、去 h2 = h13 起、去 h3 = h12 起），
+  所以三者都是必要条件；全量 0005 也 silent，与「它包含 h1+h2+h3」一致。
+
+**这一格推翻了我前两轮的结论**：先说「h2 是『不再 silent』的必要条件」（h23 与 h34 都不含 h2
+却都能起），后说「致命集是 h3×h4 两两交互」（h34 就是 h3+h4，能起）。
+
+**为什么这个错误代价高**：每一次错误结论都会变成给 agent 的指令。我按「h2 是必要条件」让它出
+h12，按「h3×h4」让它出 h34，两次都白跑。而正确答案需要的那张图早就构建完了。
+
+**修法**
+
+1. **二分要么飞满，要么把「已构建未飞」显式列出来**。矩阵不是「我飞过哪些」，而是
+   「全集里哪些还没飞」——只有后者能回答「结论是否已定案」。
+2. **每轮开始先扫产物目录**，按 mtime 列出现存的镜像，对照已飞清单，先补齐缺口再出新的。
+   实测做法：`ls -dt /mnt/e/k60-work/artifacts/*/` + 每张 `build-manifest.json` 的
+   `components.boot_img`，与 `/mnt/e/k60-work/ledger.jsonl` 的镜像哈希求差集。
+3. **子集数 ≥ 8 时，先算清楚要飞多少格再开始**。四 hunk 的 15 个子集里，只要 {h1,h2,h3}
+   这一格就能定案——但前提是知道自己在找「最小致命集」，而不是「逐个排除」。
+
+**Check**: `python3 scripts/check-bisect-coverage.py`（registry `id = "P-218"`）
+
+**关联**：P-201（trial 镜像无 series 指纹，只能算结构性观察）、P-204（用计数代替语义）、
+P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与对象不对应」这一族。
+
+
+## P-219 — `ml_io_map` 的 8 MiB 预算是全内核共享的，蓝牙阶梯是把它撞穿的那一个
+
+- **铁证**（真机，`evidence/usblog-20261116-055237/console.log`，`bt-d4-late`）：
+  ```
+  :484 [bluetooth] power: cold boot, rails not voted (k60bt_warm=0)
+  :485 K60PANICFMT caller=0xfffffff007b83384 fmt=kmem_%s(%p, %zd, 0x%x): failed with %d @%s:%d
+  :486 K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178
+  :487 K60PANIC: ring kept; restart reason -> bootloader
+  ```
+  `1048576 = 0x100000` 是 `k60_bt_power_on()` 第四个 `k60_map()` 要的 `K60_TLMM_SIZE`；
+  `0x100021 = KMA_NOFAIL(0x1) | KMA_PAGEABLE(0x20) | KMA_PERMANENT(0x100000)` 正是
+  `osfmk/arm/io_map.c:120` 在 `startup_phase >= STARTUP_SUB_KMEM` 分支里用的标志组合；
+  `failed with 3` = `KERN_NO_SPACE`。
+
+- **因果链**：`io_map.c:65` `#define IO_MAP_SIZE (8ul << 20)` 是**全内核唯一**的 IO 子图；
+  每个 `ml_io_map()` 都在 `:128` 走 `kmem_alloc(io_submap, ..., KMA_NOFAIL)`，**不看返回值**；
+  满了就 `__kmem_failed_panic`（`vm_kern.c:1002`，仅当 `KMA_NOFAIL` 置位）。
+
+- **实测预算**（`scripts/check-io-map-budget.py`，在 `bt-out-s1c` 已应用树上跑）：
+  37 个可解析调用点合计 **`0x73a900` = 7.23 MiB / 8 MiB**（另有 7 个尺寸来自运行时变量）。
+  也就是说 `k60_usblog` + `qbt_k60` + `pong_goodix` + `pong_buttons` + `pong_audio` + `aw882xx`
+  已经把子图吃到 90%，蓝牙阶梯再要 1 MiB 的 TLMM 窗口就必然失败。
+
+- **为什么这条坑骗了三天**：`kmem_alloc` 的 panic 在控制台起来之前就把内核打死，
+  唯一活下来的记录是 `d4` 那次 `pong_bt_late=1` 把阶梯挪到 Data 挂载之后——
+  控制台先起来，panic 才被写进环。**没有 `pong_bt_late=1` 的所有 wifi/bt 镜像都只会
+  留下 0 字节**，和「驱动从未运行」完全无法区分（P-63 已经为触摸记过同形）。
+
+- **修法**：`patches/xnu/0621-k60-io-submap-budget.patch` 把 `IO_MAP_SIZE` 从 `8ul << 20`
+  提到 `32ul << 20`。子图是**虚拟地址空间**预留，`kmem_suballoc` 只占 VA，
+  没被 map 的部分一个物理页都不花；32 MiB 相对 7.23 MiB 实测值留了 4 倍余量，
+  也覆盖了 7 个运行时尺寸的窗口。
+
+- **真机验证**（`evidence/usblog-20261116-064150/console.log`，`bt-d5-iomap`，
+  series 233、`kernel 2c8d92c6…` 106,598,400 B、`boot.img 491c62de…`）：
+  同一份 bt 配方只多这一条补丁，`kmem_alloc(... 0x100021): failed with 3`
+  不再出现，阶梯一路走到固件下载——
+  ```
+  :484 [bluetooth] full: power_on enter
+  :486 [bluetooth] smmu plan sid 0x483 slot 110 bank 72 … action install dma 0x90bc20000
+  :488 [bluetooth] full: dma buffer and smmu bypass ready
+  :494 [bluetooth] full: qbt_boot enter
+  :707 [bluetooth] QCA controller version 0x12110201
+  :708 [bluetooth] addon: serving 146068 0
+  :724 [bluetooth] addon: serving 6442 0
+  ```
+  `:707` 是从 QCA6490 读回的版本寄存器，`:708`/`:724` 是控制器按需取走的
+  固件分片——**读得到版本、取得到分片，说明 power_on 之后的 SMMU 旁路、
+  时钟投票、GENI 传输全部成立**。SpringBoard 132 行、panic 标记 0。
+
+- **四条教训**：
+  1. **一个全局预算型资源，必须在加窗口时算总和**，不能只看本次要多少。P-63 的
+     「30 秒判定」写的是「手动累加」，手动累加的结果是没人累加——现在有门禁了。
+  2. **`KMA_NOFAIL` 把「分配失败」变成「panic」**，而 panic 在控制台起来之前发生，
+     于是现象是 0 字节而不是崩溃日志。任何早期路径上的 `KMA_NOFAIL` 分配都该被怀疑。
+  3. **判据要能读出「这次要的是哪个窗口」**：panic 行里的 size 就是窗口大小，
+     `0x100000` 对回 `K60_TLMM_SIZE` 只用了一次 `grep`。先前的所有猜测（SMMU、RCG、
+     qbt_boot、配方漂移）都没做这一步。
+  4. **门禁量的是「已应用树」，不是仓库**：尺寸在 `#define` 里，只有打过补丁的树才有；
+     对着仓库量会得到上一轮的预算（P-207 同形），所以 `check-io-map-budget.py`
+     在没有 `--tree` 时明确 skip 而不是猜。
+
+- **关联**：P-63（同一子图，触摸首次撞穿）、P-207（门禁不许判陈旧产物）、
+  P-204（计数不等于语义——这里是「总量」而不是「单次量」）。
+
+- Check: `python3 scripts/check-io-map-budget.py --tree <applied xnu-work>`
+  （registry `id = "P-219"`）。
+
+## P-220 — 门禁的「fallback 到最新的那一份」把别的分支的产物拿来判本树
+
+- **现场**（2026-11-16，main 上 `check-rules.py`）：
+  ```
+  ❌ P-165 构建应用了 232 个补丁，但 series 列了 227 个
+     构建记录 /opt/k60/trees/k60build/bt-out-s1c/mondrian/ipados-16.6.1-20G81/mondrian/xnu-inputs.json
+     说明序列里有补丁的上下文对不上；它和它之后的补丁都没有进树（P-165）。
+  ```
+  main 的 series 是 227 条（含 0621），232 条是 bt 线 `feat/bt-research` 的序列。
+  那条 `xnu-inputs.json` 属于另一个分支的另一个输出树，**和 main 一点关系都没有**，
+  但门禁拿它判 main 并给出了一条完全合理的错误结论。
+
+- **成因**：`scripts/check-build-applied.py` 的 `stamp_path()` 原本是
+  「先找一份与当前 series 逐字节相符的存根；找不到就 `return stamps[0]`（最新那份）」。
+  后半句是为了「让调用者报告真实的不一致而不是沉默」（P-189 的修法），
+  但「不一致」有两种，它只建模了一种：
+  1. 同一份补丁**名字**、内容变了 → 本树序列在构建之后改过，构建不再能证明什么 → **该红**；
+  2. 补丁**名字**都不同 → 这是别的分支/别的板的序列，本树从它推不出任何结论 → **不该判**。
+  旧代码把第 2 种也当第 1 种报，于是「本机没有一次构建能代表当前分支」这件事
+  被翻译成「你的序列里有补丁上下文对不上」。
+
+- **修法**：
+  - 新增 `_stamp_names()` / `_same_series_names()`：只有**补丁名集合完全相同**的存根
+    才有资格被判（名字相同、字节不同 → 真红；名字不同 → 换下一份）。
+  - `stamp_path()` 的第二轮只在 `_same_series_names()` 为真的存根里挑；
+    一份都没有就返回 `None`。
+  - `main()` 在 `None` 且用户没显式给 `--stamp` 时打印
+    「本机没有一次构建记录与当前 series 的补丁名一致，没有构建能证明这棵树来自当前补丁集」
+    并 **skip**，而不是退回日志正则去判另一棵树（那是 P-207 的形状：门禁不许判陈旧/异己产物）。
+  - `scripts/tests/test-check-build-applied.py` 7 例锁住这个边界，
+    其中 `test_another_branchs_stamp_is_not_graded` 直接复现上面的现场。
+
+- **四条教训**：
+  1. **fallback 必须知道「我 fallback 到的是谁」**。`stamps[0]` 是一个对象，
+     不是「一个更旧的自己」；只要写 fallback 就得写「什么情况下 fallback 的结果不适用」。
+  2. **「不一致」要先分类再报**。同一个词（mismatch）覆盖了「本对象变了」和
+     「这不是本对象」两种完全不同的情况，代码里必须分成两个判据。
+  3. **假红的代价和假绿一样高**：假红会让人去改本来没坏的补丁序列，
+     或者像这次一样，让人以为 main 的 227 条序列缺了 5 条。
+  4. **测试要能复现现场的原文**：这个用例里断言的是「必须出现『跳过 P-165』且不出现 232」，
+     而不是「返回 0」——只断言退出码的话，退回日志正则那条路径也能返回 0。
+  5. **门禁自己的测试不能继承门禁的逃生开关**。`build-strict.sh:68` 会
+     `export K60_BUILD_IN_PROGRESS=1`（P-165 的死锁修法），而 registry 在构建内部被调用时
+     会继承它；于是 `test_a_changed_patch_is_still_graded` 这类「必须判红」的用例，
+     在构建内部跑时全部降级成警告、悄悄变绿——2026-11-16 的 `baseline-20261116a`
+     就是被这条挡住的（手工在 shell 里跑同一个测试是 OK 的，因为那里没有那个变量）。
+     修法：`setUp` 里显式 `self.gate.IN_PROGRESS = False` 并
+     `os.environ.pop("K60_BUILD_IN_PROGRESS", None)`，`tearDown` 还原。
+
+- **关联**：P-189（多个输出树共享机器，取最新存根造成假红——本坑是它的补丁）、
+  P-207（门禁只能判本轮产出的物证）、P-201/P-204/P-211（证据与对象不对应一族）。
+
+- Check: `python3 scripts/tests/test-check-build-applied.py`
+  （registry `id = "P-220"`）。
+
+## P-221
+
+**上游扫描器逐文件 `git show` + 脏水位，导致每次运行都重跑全量比对（900 s 超时 → 7.4 s）**
+
+### 现象
+
+2026-11-16 09:00 的「上游跟进」定时任务连续三次超时：`pick-upstream.py --plan` 在
+600 s、900 s、300 s（`--no-fetch`）三档下全部 rc=124，输出文件恒为 0 行。看起来像死锁，
+实际上是**性能**：它每次都要为三个「新分支」各比对约 5,080 个文件。
+
+### 两个独立缺陷，叠在一起
+
+1. **`discover_branches()` 把裸 `origin` 当成分支**。它只过滤 `endswith('/HEAD')`，
+   于是 `refs/remotes/origin/` 本身（短名 `origin`）被留下，`git rev-parse origin` 的
+   输出是字面量 `origin/origin`，被写进 seen 水位文件。这个字符串永远不等于任何真实 sha，
+   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/k60-work/.pick-upstream-seen.json`
+   里三条脏记录 `"UniXNU-mondrian/origin": "origin/origin"`、`"UniXNU/origin": "origin/origin"`、
+   `"uefi-mondrian/origin": "origin/origin"`。
+2. **新分支的比对是逐文件子进程**。`collect()` 先 `git ls-tree -r` 拿到路径清单，然后对
+   每个路径 `subprocess.run(['git', 'show', f'{ref}:{path}'])`。三个分支 × 5,080 文件
+   ≈ 15,000 次进程启动，每次都带完整的 git 启动开销。
+
+### 修法
+
+- `discover_branches()`：`if not ref or ref == 'origin' or ref.endswith('/HEAD'): continue`。
+- `load_seen()` 主动丢掉历史脏水位：`{k: v for k, v in raw.items()
+  if not (k.endswith('/origin') or v == 'origin/origin')}`。
+- 新增 `blob_sha(data)`（`sha1(b'blob %d\0' % len(data) + data)`）、`file_blob_sha(path)`、
+  `tree_blobs(d, ref)`（一次 `git ls-tree -r -z`，按 `<mode> SP <type> SP <object> TAB <path>`
+  解析，只收 `fields[1] == b'blob'`，gitlink 因此自动排除）。新分支比对与 `converge()`
+  的第 3 步都改成**blob id 对表**，只有 id 真不同才 `git show` 取内容。
+- 新分支还要先过祖先判定 `is_ancestor(d, ref, 'origin/main')`：yibiya 反复从 main 拉
+  `fix/*` 分支，尖端已在 main 历史里；对这样的分支做「文件收敛」会报 5,000+ 处差异，
+  而实际可 pick 的内容是零。
+
+### 四条教训
+
+1. **「跑不完」先怀疑复杂度，别先怀疑死锁**。三次不同超时档位都是 rc=124、输出恒 0 行，
+   这个形状既像死锁也像 O(n) 子进程；区分办法是数一下「每个输入要几次进程启动」。
+2. **水位/游标里出现字面量 ref 名就是 bug**。水位必须存不可变的对象 id（commit sha、
+   blob id），存 `origin/main` 这种会移动的名字等于永远没有水位。这条与 P-214
+   （两个都叫「series 指纹」的哈希分属不同命名空间）是同一族：**名字相同不等于对象相同**。
+3. **比对文件用 blob id，不要用内容**。`git ls-tree -r` 已经给出了每个文件的 blob sha，
+   本地算 `sha1("blob <len>\0" + data)` 就能对上，零子进程；只有确认不同时才去取内容。
+4. **「新分支」的差异要相对于它的基线算，不是相对于我们的树**。从未见过的分支与我们的
+   设备仓库天然差 5,077 个文件（那些 XNU 头文件我们本来就没有），这个数字不携带任何信息。
+
+- **关联**：P-214（同名不同命名空间）、P-207（门禁只能判本轮产出的物证）、
+  P-189（多个输出树共享机器）、P-220（fallback 不知道 fallback 到的是谁）。
+
+- Check: `python3 scripts/tests/test-pick-upstream-scan.py`
+  （registry `id = "P-221"`）。
+
+## P-222
+
+**全局账本把别的分支的成功启动当成本树的证据，于是 main 被告知「补丁集变了」**
+
+### 现象
+
+2026-11-16 上游跟进按定时任务走完审核、提交、真构建（`upstream-20261116a`，
+`kernel 092363c1…`、`boot.img 0226f0e6…`、`build-strict` 全程 rc=0）之后，
+`porting-gate.py --quick` 仍然阻断：
+
+```
+❌ 1 项阻断 —— 禁止刷机
+   [S] 补丁集变了 —— 必须显式确认
+       上次成功 4305c6cc2821bcb7 (2026-11-16T08:59:35) != 现在 59d8037521a5b07b
+```
+
+`59d8037521a5b07b` 是 main 的 227 条序列，**2026-11-16 07:36 已经上机启动过**
+（`baseline-20261116a`，SpringBoard 132，3,061 行）。它被说成「变了」的唯一原因，
+是 08:59 蓝牙线飞了一次 234 条序列的 `bt-d6-iowin`。
+
+### 根因
+
+`/mnt/e/k60-work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
+里面找「最后一条 `result == ok` 的记录」。任何一条线飞图都会把「上次成功」改写成
+它自己的指纹，于是：
+
+- 别的分支飞过 → main 的指纹「变了」
+- main 真的改了 → 也可能被下一条别的分支的飞图掩盖
+
+同时 `docs/engineering/MAIN-BASELINE.toml` 里**每条 booted 基线都记着
+`series_sha256`**，但全树没有任何工具读这个字段（`grep -rn series_sha256 scripts/*.py`
+零命中）。也就是说「哪一套补丁真的启动过」这个事实被记录了、却没人用。
+
+### 修法
+
+`porting-gate.py` 增加 `booted_series()`：解析 `MAIN-BASELINE.toml` 里
+`state = "booted"` 的条目，返回 `series_sha256 -> (sha, image, console)`。
+`[S]` 判定改成三级：
+
+1. 与全局 ledger 的最后一条成功记录相同 → PASS（原逻辑）。
+2. 与账本里某条 **booted** 基线相同 → PASS，detail 打印 `sha` + `image` + `console`
+   路径，例如 `b48613d baseline-20261116a E:/k60-work/evidence/usblog-20261116-073639/console.log`。
+3. 两者都不匹配 → 才按 `--force-new-series` / 特性分支 / main 三档处理。
+
+`state = "build-only"` 的条目**永远不能**用来背书：它从没上过设备。
+
+### 三条教训
+
+1. **「上次成功」必须绑定到对象，不能绑定到机器**。全局账本记的是「这台机器最后
+   一次飞成功的序列」，而门禁要回答的是「**这一套**补丁飞成功过吗」。两个问题不同，
+   前者答不了后者。这与 P-220（fallback 不知道 fallback 到的是谁）是同一族。
+2. **记了字段却没人读，等于没记**。`series_sha256` 在 `MAIN-BASELINE.toml` 里存在
+   了好几轮，`grep -rn series_sha256 scripts/*.py` 一直是零命中 —— 一条只被写入、
+   从不被读的证据字段，在门禁眼里不存在。加字段时要同时加读取点。
+3. **修复必须双向验证**。这次除了确认「已上机序列被接受」，还专门造了一个未上机的
+   序列（往 series 追加一行假补丁名）确认仍然 `❌ 补丁集变了 —— 必须显式确认`，
+   否则就等于把 `[S]` 整条检查关掉了。
+
+- **关联**：P-220（fallback 到别的分支的产物）、P-214（同名不同命名空间）、
+  P-211（`record-boot.py` 量仓库 series 而非镜像 manifest）、P-207（门禁只能判本轮物证）。
+
+- Check: `python3 scripts/tests/test-porting-gate-book.py`
+  （registry `id = "P-222"`）。

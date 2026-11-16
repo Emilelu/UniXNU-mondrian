@@ -309,17 +309,40 @@ IOReturn NativeAdrenoMemory::acquireDeviceWrites(size_t offset,size_t bytes)
     if(write_combined_)return kIOReturnSuccess;
     return NativeAdrenoMaintainOwnedPages(static_cast<unsigned char *>(mapping_)+offset,bytes,NativeAdrenoInvalidate);
 }
-/* Imported pages have no kernel mapping here (and write-combined ones only a non-cacheable one); maintain each span's part of
- * [offset, offset+bytes) by physical address. */
+/* Imported pages have no kernel mapping here (and write-combined ones only a non-cacheable one). Clip each span to the requested
+ * whole-page window and carry one bounded batch across spans, instead of restarting the issuing-core barrier group at every span. */
+static IOReturn maintainPhysicalSpans(const NativeAdrenoPhysicalSpan *spans,size_t count,size_t offset,size_t bytes,NativeAdrenoCacheOperation op)
+{
+    if(!bytes || ((offset|bytes)&4095) || offset>UINT64_MAX-bytes)return kIOReturnBadArgument;
+    const uint64_t limit=offset+bytes;
+    uint64_t pages[kNativeAdrenoCacheBatchPages];
+    size_t used=0;
+    for(size_t i=0;i<count;++i) {
+        const NativeAdrenoPhysicalSpan &span=spans[i];
+        const uint64_t begin=offset>span.offset?offset:span.offset;
+        const uint64_t end=limit<span.offset+span.bytes?limit:span.offset+span.bytes;
+        if(begin>=end)continue;
+        const uint64_t physical=span.physical+(begin-span.offset),length=end-begin;
+        /* Keep the old per-span argument rejection, completing already queued pages before a malformed later span is refused. */
+        if(!physical || ((physical|length)&4095) || physical>UINT64_MAX-length || op>NativeAdrenoInvalidate || op<NativeAdrenoClean) {
+            if(used) {
+                const IOReturn status=NativeAdrenoMaintainPhysicalPageBatch(pages,used,op);
+                if(status)return status;
+            }
+            return kIOReturnBadArgument;
+        }
+        for(uint64_t part=0;part<length;part+=4096) {
+            pages[used++]=physical+part;
+            if(used==kNativeAdrenoCacheBatchPages) {
+                const IOReturn status=NativeAdrenoMaintainPhysicalPageBatch(pages,used,op);
+                if(status)return status;
+                used=0;
+            }
+        }
+    }
+    return used?NativeAdrenoMaintainPhysicalPageBatch(pages,used,op):kIOReturnSuccess;
+}
 IOReturn NativeAdrenoMemory::maintainImported(size_t offset,size_t bytes,NativeAdrenoCacheOperation op)
 {
-    for(size_t i=0;i<span_count_;++i) {
-        const NativeAdrenoPhysicalSpan &span=spans_[i];
-        const size_t begin=offset>span.offset?offset:span.offset;
-        const size_t end=offset+bytes<span.offset+span.bytes?offset+bytes:span.offset+span.bytes;
-        if(begin>=end)continue;
-        const IOReturn status=NativeAdrenoMaintainPhysicalPages(span.physical+(begin-span.offset),end-begin,op);
-        if(status)return status;
-    }
-    return kIOReturnSuccess;
+    return maintainPhysicalSpans(spans_,span_count_,offset,bytes,op);
 }

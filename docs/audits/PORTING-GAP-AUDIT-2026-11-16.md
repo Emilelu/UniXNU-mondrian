@@ -185,7 +185,7 @@ c3 进 SpringBoard 132），c4/c5/c6 进桌面、c7 已判读到 SBL/READY。
 | Metal 测试 | — | `UniXNU/drivers/AdrenoMetal`：`OfflineMetalFrontend.mm` 75,688 等 5 个 | 官方组件 | 是：当回归网 | 低 |
 | ADSP provider | `K60AdspOwnerStages` 只有契约 | `pong-power`：`PongPlatformResources.cpp` **4,230**、`PongPower.cpp` **1,970**、`PongAdsp.cpp` 33,318【实测前两个】 | 同源缺失 | 是：补 owner 的 ops | 高（卡音频/WiFi） |
 | 音频传输 | `0503/0504/0505` 补丁，compile-only | `pong-power`：`ShengGpr.c` **4,165**、`ShengAudioReach.c` **17,656**、`PongAudioService.cpp` 7,421【实测前两个】 | 同源缺失 | 是：GPR + AudioReach opcode + service | 高 |
-| BT 用户态 | `0500-k60-bt-qbt-new-files.patch` 156,632 B（内核侧） | `UniXNU/QcaBluetooth`：`tools/build-bluetool.py` 2,503、`build-type0.py` 2,941 + `userland/`【实测】 | 官方组件 | 是：userland + 构建脚本，24A446→20G81 | 中 |
+| BT 用户态 | `0500-k60-bt-qbt-new-files.patch` 156,632 B（内核侧） | `UniXNU/QcaBluetooth`：`tools/build-bluetool.py` 2,503、`build-type0.py` 2,941 + `userland/`【实测】 | 官方组件 | **只能抄骨架**：BlueTool/Type0 是 iOS 27 24A446；Type0 构造器锁 LC_UUID `8E49197B-E6BC-3F3B-A8D3-DF4BEDD37F01`、bluetoothd SHA-256 `cfd94854…`，不能直接用于 20G81。可抄 build/sign 流程、XPC 服务骨架、`kern.qbt_*` 只读 sysctl 契约、版本校验写法 | 中 |
 | BT ADT 节点 | 无 | `docs/porting/bluetooth.md` 的 `arm-io/bluetooth` 模板 | 官方文档 | 是：自己写节点 | 中 |
 | CPU | `ArmCpu.cpp` 21,792 | 官方 `ArmCpu` 38,129（@93a5030） | 官方 | 择段：GIC/timer 16 KB | 低 |
 | RAM 块 | `NativeRamBlock` 25,309 + 4 变体 17,911 | 官方 `RamBlock` 23,637 + 测试 21 KB | 官方 | 是：5 个测试当回归 | 低 |
@@ -219,7 +219,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 | 顺序 | 项 | 从哪抄（本地路径） | 我们现状 | 为什么这个顺序 | 验收 |
 |---|---|---|---|---|---|
 | 1 | UFS 验证表/根发布层 | `references/ShengUfs@9d527ae`：`VerifiedTableCache.h` 166 行、`RootPublication.h` 84、`RootWindowRead.h` 54 + tests | `drivers/NativeUfs` 7 文件约 82 KB，无这一层 | 纯头文件/只读，先立回归网；直接对着根挂载（P-152/P-153） | 编译 + 4 个 host 测试；草案见 [`plans/SHENGUFS-VERIFIED-TABLE-PORT.md`](../plans/SHENGUFS-VERIFIED-TABLE-PORT.md) |
-| 2 | BT userland | `QcaBluetooth`：`userland/BlueTool.c`、`Type0.c`、`tools/build-bluetool.py` 2,503 B、`build-type0.py` 2,941 B | `0500-k60-bt-qbt-new-files.patch` 只有内核侧 | 不依赖内核，BT 线停着也能先接；24A446→20G81 | 脚本产出与 QcaBluetooth 同结构，两份工具可复跑 |
+| 2 | BT userland | `QcaBluetooth`：`userland/BlueTool.c`、`Type0.c`、`tools/build-bluetool.py` 2,503 B、`build-type0.py` 2,941 B | `0500-k60-bt-qbt-new-files.patch` 只有内核侧 | **只能抄骨架**：BlueTool/Type0 是 iOS 27 24A446，Type0 锁自身 LC_UUID 与 bluetoothd SHA-256，20G81 不能直接运行；先抄 build/sign 流程、XPC 服务骨架、`kern.qbt_*` sysctl 契约 | 脚本产出与 QcaBluetooth 同结构；XPC 服务骨架可在 20G81 编译（不加载 Type0） |
 | 3 | 音频传输 | `references/pong-power`：`ShengGpr.c` 4,165 B、`ShengAudioReach.c` 17,656、`PongAudioService.cpp`、`PongAudio.cpp` | `0503/0504/0505` compile-only | audio planned，纯代码，先补传输层 | 编译 + opcode/route 表单测 |
 | 4 | ADSP provider | `references/pong-power`：`PongPlatformResources.cpp` 240 行、`PongPower.cpp` 66、`PongAdsp.cpp` 714 | `K60AdspOwnerStages` 只有契约 | 承接 battery/PAS1 缺口；依赖 3 的 GPR/GLINK | host suite（owner 77 场景）不回归 |
 | 5 | Metal 前端 | `references/pong-metal@0b3b34a`：`NativeBridgeMetalFrontend.mm` **225,616** vs 我们 **109,178**；`PongMetalPlugin.mm` 14,777 vs 11,899；`bridge/NativeMetalObjects.rs` | `drivers/PongMetal` 267,785 B | 对着 backboardd 崩溃面：先要 GPU 直连 RSC 验证通过再换前端 | 20G81 ABI 差量清零 + backboardd crashed=0（上机） |
@@ -237,7 +237,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 |---|---|---|
 | `Chengdong-Yu/pong-wifi`（本地 `/e/hackios/pong-wifi`） | BSD-2-Clause-Patent | 同 SoC 同芯片板级层：GPIO 80/94/95/96/204、MSI SPI140→INTID172、PARF MSI0 bit23、TCS4 DRV2、GDSC `0x162128`、PCIe0 GDSCR `0x17b004`、SID `0x1c01`；其日志停在 102 MHI 通道后 RDDM |
 | `Chengdong-Yu/pong-power`（本地 `/e/hackios/pong-power`） | BSD-2-Clause-Patent | PAS1 40 MiB carveout、SMEM `0x80900000+0x200000`、TCSR mutex3 `0x1f43000`、IPCC `0xed18000`/INTID261、AOSS `0xc300000`、Glink/Battmgr/AudioReach/GPR |
-| `UniXNU/QcaBluetooth`（本地 `/e/hackios/QcaBluetooth`） | APSL/BSD | GENI UART + type-0 适配器的官方实现（userland + tools） |
+| `UniXNU/QcaBluetooth`（本地 `/e/hackios/QcaBluetooth`） | APSL/BSD | GENI UART + type-0 适配器的官方实现（userland + tools）；userland 是 iOS 27 24A446，Type0 锁自身 LC_UUID 与 bluetoothd SHA-256，20G81 只能抄骨架不能直接用 |
 | `daimile2/renoir_xnu_bluethooth`（**新发现，未考察**） | BSD-3-Clause | 题名即"Renoir QCA6490 Bluetooth for XNU：kernel patches + native iOS type-0 adapter"——与我们的 BT 缺口同芯片、同 OS 侧 |
 | `qiumochen/UniXNU-zizhan` | NOASSERTION | SM8475 + darwin24，自称 WiFi 端到端（WPA2/DHCP/HTTPS/漫游）、A730 95.3 fps、PMIC GLINK 电池；只能当**行为对照**，不能抄代码 |
 | `oosexgang/hakios-xnu-kernel` | MIT+APSL | `hakios.goodix.c` 52.9 KB GT9916 Berlin-D SPI；WCN6750 WiFi 193 KB（不同芯片） |

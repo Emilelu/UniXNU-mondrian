@@ -85,23 +85,25 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 
 #### 方案 A（推荐）：同一个 `QcomGlink` 实例 + 第二个通道槽
 
-做法：把 `drivers/PongPower/QcomGlink.h:17` 的 `#define QCOM_GLINK_MAX_CHANNELS 1u` 改成 `2u`
-（`:77` 的 `QcomGlinkChannel channel[QCOM_GLINK_MAX_CHANNELS]` 随之变两槽）。传输层 `QcomGlink.c` **零改动**：
+状态（2026-11-17）：`drivers/PongPower/QcomGlink.h:17` 已是 `#define QCOM_GLINK_MAX_CHANNELS 2u`（原为 `1u`），
+`:77` 的 `QcomGlinkChannel channel[QCOM_GLINK_MAX_CHANNELS]` 随之两槽；原型补丁 0002 已退役。传输层 `QcomGlink.c` **零改动**：
 `grep channel[` 的全部命中都是按 `MAX_CHANNELS` 的循环或 `by_lcid`/`by_rcid` 的线性查找（`QcomGlink.c:112-150,202,218,341`），没有 `channel[0]` 直取。
 
 代价（四条，都要让 provider 实现者知道）：
 
-1. **跨线改动**：`drivers/PongPower/` 是 adsp-handoff 线 scope，这一行常量要由两条线共同确认（原型补丁已备好，见下）。
-2. **内存**：两槽使 `sizeof(QcomGlink)` 从 960 B 涨到 1,672 B（每槽 742 B，宿主实测），对内核可忽略。
+1. **跨线改动**：`drivers/PongPower/` 是 adsp-handoff 线 scope；用户 2026-11-17 已把该目录划给音频线，本次落地由音频线完成。
+2. **内存**：两槽使 `sizeof(QcomGlink)` 从 960 B 涨到 1,672 B（每槽 712 B，宿主实测），对内核可忽略。
 3. **provider 必须接受「publish 后有两个 consumer」这个事实**：PMIC 通道与音频通道共享同一对 SMEM FIFO、同一个 `qcom_glink_poll()` 循环与同一个 IPCC kick；
    但**每个槽的 intent 表、lcid/rcid、分片状态完全独立**（`QcomGlink.c:249-282` 按 rcid 分发），一个 consumer 卡住不会吃掉另一个的消息（宿主 242 条断言已证）。
 4. **独占语义要改写一句**：bit2 约束 provider 自己，不约束 consumer 数量；契约第 7 条「交给既有 consumer」应读成「交给同一实例上的既有与新增槽」。
 
-证据（已落地，可直接复核）：`patches/audio/0002-k60-glink-multislot.patch`（1,078 B，一行常量换成 `2u`，
-**旁路、不进 series、任何构建都不应用**）+ `drivers/PongAudio/tests/test-glink-multislot.c`（两个消费者各注册
-`PMIC_RTR_ADSP_APPS` 与 `adsp_apps`，自扮 DSP 做 OPEN/advertise/TX_DATA，断言各收各的 rx、乱序 open 不串、
-重放不串、陌生名字不给 ACK、陌生 rcid 计入 `dropped`、`stop` 两槽各回调一次；
-`sh drivers/PongAudio/tests/run-glink-multislot-tests.sh` → `TESTS OK 242 cases`）。详见 `GLINK-MULTISLOT.md`。
+证据（已落地，可直接复核）：`drivers/PongPower/QcomGlink.h:17` 现为 `#define QCOM_GLINK_MAX_CHANNELS 2u`
+（2026-11-17 音频线落地；历史原型补丁 `patches/audio/0002-k60-glink-multislot.patch` 已退役），
+`drivers/PongPower/K60PmicGlink.cpp:128` 打印 `QcomGlink max_channels=2u` 构建标签；
+`drivers/PongAudio/tests/test-glink-multislot.c`（两个消费者各注册 `PMIC_RTR_ADSP_APPS` 与 `adsp_apps`，
+自扮 DSP 做 OPEN/advertise/TX_DATA，断言各收各的 rx、乱序 open 不串、重放不串、陌生名字不给 ACK、陌生 rcid 计入
+`dropped`、`stop` 两槽各回调一次；runner 直接编译真实源，`sh drivers/PongAudio/tests/run-glink-multislot-tests.sh`
+→ `TESTS OK 242 cases`）。详见 `GLINK-MULTISLOT.md`。
 
 #### 方案 B：provider 把 GPR/APM 的 open 也纳入自己
 
@@ -119,10 +121,10 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 5. **与契约措辞冲突**：第 7 条说 provider「不再运行竞争 worker」；B 让 provider 变成长期跑 RX 循环的 worker，语义上要从「移交」改成「代理」，契约得再改一次。
 
 **仲裁结论（一句话给 provider 实现者）**：音频不做第二个 GLINK owner、也不要求 provider 当代理；publish 之后音频是既有实例上的
-第二个 consumer，发包前 revalidate；provider 只需把 `QCOM_GLINK_MAX_CHANNELS` 扩到 2 —— 不需要新 API、新锁或新 worker。
+第二个 consumer，发包前 revalidate；provider 只需接受 `QCOM_GLINK_MAX_CHANNELS` 为 2（2026-11-17 已落地）—— 不需要新 API、新锁或新 worker。
 方案 B 只在 provider 明确不愿意暴露多槽时才考虑，代价比 A 大。
 
-**裁决（2026-11-15，Lead）**：采纳方案 A——provider 只把 `QCOM_GLINK_MAX_CHANNELS` 扩到 2，不给新 API、新锁、新 worker；「音频不做第二个 owner」由 adsp-handoff 线写进契约；方案 B 封存。可勾选交接清单见 §9。
+**裁决（2026-11-15，Lead）**：采纳方案 A——provider 只把 `QCOM_GLINK_MAX_CHANNELS` 扩到 2，不给新 API、新锁、新 worker；「音频不做第二个 owner」由 adsp-handoff 线写进契约；方案 B 封存。2026-11-17 传输层已落成 `2u`，0002 退役；`adsp_apps` consumer 注册仍待 provider 线。可勾选交接清单见 §9。
 
 ### 1.3 GPR 常量真值 vs 0504 现值（三处已于 2026-11-15 修正）
 
@@ -302,7 +304,7 @@ status = "pending"
 [[requirement]]
 id = "glink-second-channel"
 claim = "音频复用同一 QcomGlink 实例的第二个通道槽，不另起实例、不做第二个 owner"
-evidence = "QcomGlink.h:17,77; K60PmicGlink.cpp:84; patches/audio/0002; GLINK-MULTISLOT.md; 本文 §1.2"
+evidence = "QcomGlink.h:17,77; K60PmicGlink.cpp:84,128; GLINK-MULTISLOT.md; 本文 §1.2"
 status = "pending"
 
 [[requirement]]
@@ -319,8 +321,8 @@ status = "proven"
 
 [[requirement]]
 id = "glink-arbitration-two-options"
-claim = "GPR/APM 与 bit2 的仲裁已由 Lead 裁定（2026-11-15）：采纳方案 A 同实例第二槽（QcomGlink.h:17 一行常量 1u→2u、+742 B），方案 B provider 代理 GPR 封存；实现落在 provider 线（QCOM_GLINK_MAX_CHANNELS 扩到 2，清单见 §9.2）"
-evidence = "PAS1-PROVIDER-CONTRACT.md:50,72,80,84; QcomGlink.h:17,77,86; QcomGlink.c:112-150,249-282,331-364; patches/audio/0002; test-glink-multislot.c; Lead 2026-11-15 reply md 裁决; 本文 §1.2/§9"
+claim = "GPR/APM 与 bit2 的仲裁已由 Lead 裁定（2026-11-15）：采纳方案 A 同实例第二槽（QcomGlink.h:17 一行常量 1u→2u、+712 B），方案 B provider 代理 GPR 封存；传输层上限 2026-11-17 已由音频线落成 2u，provider 侧仍欠 adsp_apps consumer 注册（清单见 §9.2）"
+evidence = "PAS1-PROVIDER-CONTRACT.md:50,72,80,84; QcomGlink.h:17,77,86; QcomGlink.c:112-150,249-282,331-364; drivers/PongPower/K60PmicGlink.cpp:128; test-glink-multislot.c; Lead 2026-11-15 reply md 裁决; 本文 §1.2/§9"
 status = "pending"
 
 [[requirement]]
@@ -347,8 +349,8 @@ status = "pending"
 
 这四条是 §1.2 的落地版：每一条都能被实现者当成验收项，也能被 audio 侧当成失败原因。
 
-1. **单实例多槽**：provider 不需要为音频新开 `QcomGlink` 实例。要求是把 `drivers/PongPower/QcomGlink.h:17` 的
-   `QCOM_GLINK_MAX_CHANNELS` 从 `1u` 扩到 `2u`（`:77` 的 `channel[QCOM_GLINK_MAX_CHANNELS]` 随之变成两槽），
+1. **单实例多槽**：provider 不需要为音频新开 `QcomGlink` 实例。`drivers/PongPower/QcomGlink.h:17` 的
+   `QCOM_GLINK_MAX_CHANNELS` 自 2026-11-17 起已是 `2u`（`:77` 的 `channel[QCOM_GLINK_MAX_CHANNELS]` 随之两槽），
    由同一个实例、同一个 `qcom_glink_poll()` 循环服务两个通道。**另起实例是错的**：一对 SMEM FIFO 是共享物理资源，
    `qcom_glink_adopt()`（`QcomGlink.h:86`）采纳的是同一份 APSS 索引已归零的 FIFO，两个实例会互相踢坏 intent 计数。（该方案 2026-11-15 已由 Lead 裁定采纳，可勾选清单见 §9。）
 
@@ -435,13 +437,13 @@ int k60_adsp_owner_publish(const K60AdspOwnerLease *lease,
 - [ ] **publish 后没有 release 入口**：Published 后 abort 是 no-op，资源/token 持续保留
       （`PAS1-PROVIDER-CONTRACT.md:84`）；provider 不回收 FIFO、不删
       `/chosen/k60-adsp-glink-handoff`。音频也不需要 release。
-- [ ] **单实例多槽（2026-11-15 Lead 裁决，方案 A）**：`drivers/PongPower/QcomGlink.h:17` 的
-      `QCOM_GLINK_MAX_CHANNELS` 从 1u 扩到 2u，同一实例、同一 `qcom_glink_poll()` 循环、
+- [ ] **单实例多槽（2026-11-15 Lead 裁决，方案 A；2026-11-17 已落地传输层）**：`drivers/PongPower/QcomGlink.h:17` 的
+      `QCOM_GLINK_MAX_CHANNELS` 现为 2u，同一实例、同一 `qcom_glink_poll()` 循环、
       同一 IPCC kick 服务 `PMIC_RTR_ADSP_APPS`（电池）与 `adsp_apps`（音频）两个槽。
       不新开第二个 QcomGlink 实例（一对 SMEM FIFO 只有一个采纳者：`qcom_glink_adopt` 要求
       `*tx.head==0 && *rx.tail==0`）、不新增 API、锁或 worker；「音频不做第二个 owner」。
-      原型补丁 `patches/audio/0002-k60-glink-multislot.patch` 与 242 条宿主断言已证明
-      `QcomGlink.c` 零改动、两槽各自分发。
+      宿主 242 条断言已证明 `QcomGlink.c` 零改动、两槽各自分发；**provider 侧还需在 publish 之后
+      注册 `adsp_apps` consumer（512×20 intent），这一项仍开放**。
 
 ### 9.3 音频侧拿到 lease 之后的调用顺序（每步附失败动作）
 

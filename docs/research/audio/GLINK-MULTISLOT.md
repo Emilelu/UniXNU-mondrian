@@ -84,33 +84,36 @@
 
 ---
 
-## 3. 原型：一行补丁 + 242 条宿主断言
+## 3. 落地：一行常量 + 242 条宿主断言
 
-### 3.1 补丁（不进任何 series）
+### 3.1 源码（已落地）
 
-patches/audio/0002-k60-glink-multislot.patch（1,078 B / 18 行）：
+`drivers/PongPower/QcomGlink.h:17` 自 2026-11-17 起就是：
 
-    -#define QCOM_GLINK_MAX_CHANNELS 1u /* exclusively leased K60 PMIC endpoint */
-    +/* Two slots: the leased PMIC endpoint the battery stack opens, and the
-    + * audio GPR channel ("adsp_apps") of the same instance. Every path below
-    + * already runs per slot, so this bound was the only thing keeping the
-    + * second consumer out. See docs/research/audio/GLINK-MULTISLOT.md. */
-    +#define QCOM_GLINK_MAX_CHANNELS 2u
+    #define QCOM_GLINK_MAX_CHANNELS 2u /* PMIC endpoint + audio adsp_apps, one shared owner */
 
-- 用 diff -u 生成（P-155 口径），patch -p1 与 git apply 都能解析（P-162 门禁 --all 实测 307 个补丁全过）。
-- **不在** patches/audio/series，也**不在** patches/xnu/series——它是一份可复核的原型，不是一个待应用的补丁。
+同文件还加了三个构建标签宏（`QCOM_GLINK_STRINGIFY_INNER` / `QCOM_GLINK_STRINGIFY` / `QCOM_GLINK_BUILD_TAG`），
+`K60PmicGlink::start()` 在打开传输后打印
+`K60Battery: GLINK transport QcomGlink max_channels=2u channel_bytes=712`。这行字符串是构建产物的
+artifact 证据（`kernel.macho` 里可以 `strings` 到）。
+
+历史原型补丁 `patches/audio/0002-k60-glink-multislot.patch`（1,078 B / 18 行，原来是同一行 1u→2u 的 diff）
+已于同日退役：源文件改成 2u 之后，它不再是可应用的补丁。它当年存在的意义是让宿主测试能在临时副本上
+验证两槽路径；现在 `run-glink-multislot-tests.sh` 直接编译 `drivers/PongPower` 的真实源。
+
 - 代价（宿主实测 sizeof）：QcomGlinkChannel 712 B；QcomGlink 从 **960 B** 涨到 **1,672 B**（+712 B）。
   两个槽都在 K60PmicGlink 的成员里（K60PmicGlink.h:37），不涉及堆分配。
 
 ### 3.2 宿主测试
 
 drivers/PongAudio/tests/test-glink-multislot.c（24 KB）+ run-glink-multislot-tests.sh。
+runner 直接编译 `drivers/PongPower/QcomGlink.c` 与 `QcomGlink.h`，不再复制、不再打补丁。
 
 测试自己扮演 DSP：往 rx FIFO 里塞真实的 GLINK 消息（VERSION_ACK / OPEN / OPEN_ACK / INTENT /
 TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、没有 SMEM、没有设备。
 
     $ sh drivers/PongAudio/tests/run-glink-multislot-tests.sh
-    two-slot prototype: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=712, sizeof(QcomGlink)=1672
+    two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=712, sizeof(QcomGlink)=1672
     TESTS OK 242 cases
 
 | 场景 | 断言要点 |
@@ -123,7 +126,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 | 发送 / 收尾 | 只有电池槽有远端 intent 时，音频槽 send 得 QcomGlinkAgain 并发 RX_INTENT_REQ（不越界发数据）；stop 对**两个**槽各回调一次 state(0)，第二次 stop 是 no-op；坏几何（非零索引、非 8 倍数长度、无 doorbell）被拒 |
 
 文件头的 #error 与 main() 首条 expect_eq(QCOM_GLINK_MAX_CHANNELS, 2, ...) 一起保证：
-**拿未打补丁的传输层去跑这个测试会直接编译失败**，不会静默退化成单槽还报绿。
+**把 `QCOM_GLINK_MAX_CHANNELS` 退回 1 的传输层去跑这个测试会直接编译失败**，不会静默退化成单槽还报绿。
 
 ### 3.3 它证明了什么、没证明什么
 

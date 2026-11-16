@@ -154,11 +154,12 @@ stage = "M2"
 change = "one QcomGlink instance carries two channel slots (PMIC_RTR_ADSP_APPS and adsp_apps)"
 evidence_kind = "unit"
 evidence = [
-  "patches/audio/0002-k60-glink-multislot.patch",
+  "drivers/PongPower/QcomGlink.h:17",
+  "drivers/PongPower/K60PmicGlink.cpp:128",
   "drivers/PongAudio/tests/test-glink-multislot.c",
   "drivers/PongAudio/tests/run-glink-multislot-tests.sh",
 ]
-criteria = "242 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out."
+criteria = "242 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out. The runner compiles the real source; there is no prototype patch."
 status = "closed"
 owner = "audio-agent"
 
@@ -167,16 +168,30 @@ owner = "audio-agent"
 [[item]]
 id = "glink-two-slot-in-kernel"
 stage = "M2"
-change = "QCOM_GLINK_MAX_CHANNELS is 2 in the built kernel, not only in the prototype patch"
+change = "QCOM_GLINK_MAX_CHANNELS is 2 in the built kernel"
 evidence_kind = "artifact"
 evidence = [
   "drivers/PongPower/QcomGlink.h:17",
-  "patches/audio/0002-k60-glink-multislot.patch",
+  "drivers/PongPower/K60PmicGlink.cpp:128",
 ]
-criteria = "The built kernel carries the two-slot struct; host runner and artifact agree. The transport patch is the provider's to land: QcomGlink is not in any patch today, and duplicating that wiring here would collide with the provider branch."
+criteria = "The built kernel carries QcomGlink max_channels=2u and channel_bytes=712; the host runner and the artifact agree."
+status = "open"
+owner = "audio-agent"
+on_open = "M2 cannot open the adsp_apps channel on a real image"
+
+[[item]]
+id = "glink-adsp-apps-registration"
+stage = "M2"
+change = "the audio consumer registers adsp_apps (512 x 20 intents) on the shared QcomGlink instance after publish"
+evidence_kind = "static"
+evidence = [
+  "drivers/PongPower/K60PmicGlink.cpp:84",
+  "docs/research/audio/PAS1-AUDIO-REQUIREMENTS.md",
+]
+criteria = "qcom_glink_channel() with the adsp_apps name, 512 x 20 intents, is called by the audio consumer before the DSP OPEN; today K60PmicGlink only registers PMIC_RTR_ADSP_APPS. This is provider-line work."
 status = "open"
 owner = "adsp-handoff"
-on_open = "M2 cannot open the adsp_apps channel on a real image"
+on_open = "M2 has no audio channel even if the transport has room for one"
 
 [[item]]
 id = "tdm-port-selection"

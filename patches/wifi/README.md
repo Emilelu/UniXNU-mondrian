@@ -31,9 +31,22 @@ done
 | 0011 | `0011-drivers-PongWifi-k60-bringup-stages.patch` | `k60_wifi_stage=N` 分阶段放开 MMIO 访问，把死机定位到单个块 | 无（后续增量） |
 | 0012 | `0012-drivers-PongWifi-lease-lock-lazy-init.patch` | `pong_smmu_lease_lock()` 首次使用时分配锁，修复 NativeUfs 先取 lease 的启动失败 | 无（后续增量） |
 
-> `0010` 还包含一个集成修复：`K60_WIFI_SHENG` 支持从 `PONG_SHENG_ROOT` 回退，并在调用
-> `build-k60-wifi-native.py` 前 `export PONG_SHENG_ROOT="$K60_WIFI_SHENG"`，否则该脚本的
-> `pong_paths.sheng_root()` 找不到 Ath12kWifi include 树。
+> `0010` 只做 `build-xnu-4k-baseline.sh` 的 archive 接线。当前主仓 `0010` 只覆盖 `KERNEL_EXTRA_ARCHIVES`；`k60-wifi` 的更新版还覆盖 `PLATFORM_ARCHIVES`（见“与 k60-wifi/feat/wifi-bringup 的系列漂移”）。旧文提到的 `K60_WIFI_SHENG` 回退在当前 `0010` 中不存在，已删。
+
+## 与 k60-wifi/feat/wifi-bringup 的系列漂移（2026-11-17 实测）
+
+主仓这套 `patches/wifi` 比 `k60-wifi` 检出 `feat/wifi-bringup` 的同目录旧：两边 `series` 都是 12 行，
+但主仓 12 个补丁合计 **221,744 B**，k60-wifi 为 **228,302 B**；5 个文件字节不同：
+
+| 文件 | 主仓 | k60-wifi | 差在哪 |
+|---|---|---|---|
+| `0003-drivers-PongWifi-k60-rsc-gate.patch` | 2,181 B | 2,586 B | k60-wifi 的 RSC 探针按 `0xd00 + 4*0x2a0` 读 TCS4 的 id/caps/idle/status 并校验 count/ncpt，主仓仍按 `0x17a20000 + 0x10000` 读一次 |
+| `0007-configs-mondrian-wifi-defconfig.patch` | 3,141 B | 3,291 B | 主仓写旧 Data UUID `6DCCF70A-6FD6-403E-ACED-95313CD7CBB8`；k60-wifi 改为实机发布的 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`（console 2026-11-12 17:09 `window media uuid=1BCD69FF-... bsd=disk5s1`），旧值会让 K60DATA 等 5 s 后 `dataerr=2` 并触发 P-152 |
+| `0009-scripts-k60-wifi-build.patch` | 51,753 B | 56,810 B | k60-wifi 带更完整的 `build-k60-ath11k.py` 兼容修复与脚本 |
+| `0010-scripts-build-xnu-wifi-archive.patch` | 1,629 B | 2,575 B | 主仓只把 `XNU_PONG_WIFI` 加到 `KERNEL_EXTRA_ARCHIVES`；mondrian 实际走 `PLATFORM_ARCHIVES`，k60-wifi 已补第二个分支，否则内核会静默不带 PongWifi |
+| `README.md` | 7,481 B | 8,282 B | k60-wifi 版保留更多历史说明 |
+
+> **结论**：主仓 `patches/wifi` 不能直接接进构建。接线时要以 k60-wifi 的 12 个补丁为准，先合并 `0007` 的 UUID 与 `0010` 的双归档分支差量；两边 `board.toml:20` 都仍只挂 `patches/xnu/series`，没有自动 applier，等 Lead 裁决。
 
 ## `build-k60-ath11k.py` 相对 zizhan 原脚本的 5 处兼容修复（0009 内含）
 

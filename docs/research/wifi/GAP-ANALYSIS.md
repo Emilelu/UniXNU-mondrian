@@ -2,7 +2,7 @@
 
 > 来源：subagent SA-03，2026-11-12
 > 状态：只读调研完成，结论已落库
-> 2026-11-17 复核：`patches/wifi` 已到 `0001–0012` 共 12 个补丁（221,744 B），`series` 12 行；下文 `0001–0010`/211,731 B 是 2026-11-12 快照。
+> 2026-11-17 复核：`patches/wifi` 已到 `0001–0012` 共 12 个补丁（主仓 221,744 B），`series` 12 行；`k60-wifi:feat/wifi-bringup` 同 series 为 228,302 B，5 个文件不同（0003/0007/0009/0010/README），尤其 `0007` 的 Data UUID 与 `0010` 的 `PLATFORM_ARCHIVES` 分支。下文 `0001–0010`/211,731 B 是 2026-11-12 快照。
 > 关联：`docs/research/wifi/RESEARCH.md`（①②③④⑤⑥）、`patches/wifi/`
 
 ---

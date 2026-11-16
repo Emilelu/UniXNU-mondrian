@@ -1527,7 +1527,7 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | attempt | 调用数 / 软件返回 | 累计基线 → 结束 / 差值 | 完成判据 | 与宿主事实的关系 |
 | --- | --- | --- | --- | --- |
 | PATCH `type=1` | 602 次；602 次 `e=0`（大小合计 146,068 B） | `(0,0) → (602,1)` / `sent +602, acks +1` | `done segs=602 final=0 ret=0`，随后 `rampatch done` | 只证明软件调用与全局计数路径；不证明控制器逐段接受。 |
-| NVM 首次 `type=2` | 7 次；前 6 次 `e=0`（dt_ms 约 10,000），第 7 次 `e=-60` / 15 ms | `(602,1) → (609,7)` / `sent +7, acks +6` | `done segs=7 final=0 ret=-60`；无 `nvm done` | `acks` 只增 6 而调用 7 次，符合“非零 status 不置 complete”；budget 在命令期限之前，不能据此算每段耗时。 |
+| NVM 首次 `type=2` | 7 次；前 6 次 `e=0`（dt_ms 约 10,000），第 7 次 `e=-60` / 15 ms | `(602,1) → (609,7)` / `sent +7, acks +6` | `done segs=7 final=0 ret=-60`；无 `nvm done` | `acks` 只增 6 而调用 7 次；可能是第 7 次没有 ack，不能仅凭差值证明非零 status 路径。budget 在命令期限之前，不能据此算每段耗时。 |
 | NVM fallback `type=2` | 21 次；前 20 次 `e=0` / 0 ms，第 21 次 `e=-60` / 16 ms | `(609,7) → (630,28)` / `sent +21, acks +21` | `done segs=21 final=1 ret=-60` | 同 opcode 旧事件与全局计数语义使 `acks +21` 不能等同 21 段成功；`final=1` 是最后 status。 |
 | 合计 | 630 次；628 次 `e=0`、2 次 `e=-60` | `sent 630 / acks 28 / final 1` | 两次 NVM 均 `ret=-60` | 初始化失败与系统正常启动同时成立；不构成蓝牙功能验收。 |
 
@@ -1572,7 +1572,8 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | A | 同 opcode 旧事件 | 能完成新的等待，验证 §7.21 第 5 条；测试必须显式标注“旧事件”而非只断言返回值。 |
 | A | `__hci_cmd_send` 的 skip 路径 | 只入队、不等完成；不产生 complete，不改变 `qbt` 的 service 状态。 |
 | B. 完整下载 | PATCH 主文件多段，最后一段强制 `QCA_SKIP_EVT_NONE` | 每段经真实 adapter；最后一段有 ack；`done type=1 segs=N final=0 ret=0`。 |
-| B | NVM 主文件名请求失败 → `qca_get_alt_nvm_file()` 的 `.bin` 重试 | 只重试一次；记录两个文件名；第二次失败时返回原错误，不无限重试。 |
+| B | WCN6855 的 NVM 主文件名请求失败（名字已是 `.bin`） | `qca_get_alt_nvm_file()` 对已是 `.bin` 的名字返回 false，`qca_uart_setup()` 立即返回错误；测试断言没有第二次请求。 |
+| B | 非 `.bin` 扩展名的 alt 文件名 helper（合成输入，不声称是 d8 路径） | `qca_get_alt_nvm_file()` 只替换一次扩展名；第二次仍失败时返回原错误；记录两个文件名。 |
 | B | NVM 主下载在段 N 返回错误 → `qca_uart_setup()` 的 fallback 改名并第二次下载 | 第二次使用 fallback 文件名与同一合成字节；成功则 `ret=0`；失败则保留第二次错误。 |
 | B | fallback 下载也失败 | 最终错误来自 fallback；`done` 的 `type/ret` 可区分两次 attempt，不把第一次的 segs 算进第二次成功。 |
 | B | firmware_get 返回错误/`release_firmware` 调用次数 | 请求失败不 release；成功路径恰好 release 一次；避免 double-free。 |

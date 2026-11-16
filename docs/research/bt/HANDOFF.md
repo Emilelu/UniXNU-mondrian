@@ -984,6 +984,6 @@ Lead 的 `test/bt-d8-timing-model` 已交付：代码 `0ccdfbba5ab626bf99be65d97
 
 **仍是 UNKNOWN**：控制器逐段接受/完整 NVM、UART/DMA/IBS 时间线、真实 RX 时刻、晚到/缓存响应、重试语义、首次 NVM 约 10 s 与 fallback 快速 `e=0` 的具体机制、两次 `serving 6442` 内容是否相同、编译产物到 payload 对应、flash 门禁与硬件行为。
 
-**下一步方案（未实现、待 Lead 单独审批）**：真实 HCI adapter 与完整 firmware fallback 的宿主证据方案写在 `docs/research/bt/S4-SPEC.md` §7.22。它计划从 d8 的 manifest/frozen/235 条 series 逐条重建所有 `bsd/dev/qbt/` 源文件，真实执行 `qbt_core.c`、`qbt_linux.c` adapter 和 `btqca.c` 的 `qca_download_firmware()` / `qca_uart_setup()` / fallback，只假平台回调、合成 TLV 与事件时刻；覆盖 status/长度/期限/晚到/旧同 opcode、主/回退文件名重试、下载失败 fallback、firmware release 次数、`qbt_boot()` 失败清理与成功状态，并为每条断言准备负向控制。它仍不能证明控制器、UART/DMA/IBS、payload 对应、flash 门禁或硬件行为。
+**下一步方案（未实现、待 Lead 单独审批）**：真实 HCI adapter 与完整 firmware fallback 的宿主证据方案写在 `docs/research/bt/S4-SPEC.md` §7.22。它计划从 d8 的 manifest/frozen/235 条 series 逐条重建所有 `bsd/dev/qbt/` 源文件，真实执行 `qbt_core.c`、`qbt_linux.c` adapter 和 `btqca.c` 的 `qca_download_firmware()` / `qca_uart_setup()` / fallback，只假平台回调、合成 TLV 与事件时刻；覆盖 status/长度/期限/晚到/旧同 opcode、WCN6855 `.bin` 主文件名请求失败不触发 alt 重试、主下载中段失败后 fallback 改名重试、firmware release 次数、`qbt_boot()` 失败清理与成功状态，并为每条断言准备负向控制。它仍不能证明控制器、UART/DMA/IBS、payload 对应、flash 门禁或硬件行为。
 
 当前本线保持干净：不实现方案、不改运行代码、不重建、不上机、不预做 d9。Lead 批准 §7.22 后才会落地代码。

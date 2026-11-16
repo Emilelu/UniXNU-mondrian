@@ -1,5 +1,5 @@
 diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPlatform.cpp
-index d2e9eb3..97f2cec 100644
+index d2e9eb3..9348982 100644
 --- a/drivers/PongWifi/PongWifiPlatform.cpp
 +++ b/drivers/PongWifi/PongWifiPlatform.cpp
 @@ -27,6 +27,7 @@ void pong_wifi_net_failed(void);
@@ -44,8 +44,8 @@ index d2e9eb3..97f2cec 100644
 - bool ok=true;
 - for(const auto &r:kPongWifiRails) {QcomRpmhResource res={};if(qcom_cmd_db_find(copy,0x20000,r.name,&res)){ok=fail("required SM8475 rail missing in cmd-db");break;}
 + const unsigned railCount=unsigned(sizeof kPongWifiRails/sizeof kPongWifiRails[0]);
-+ if(railCount>8){IOFreeData(copy,0x20000);return fail("unexpected WLAN rail count");}
-+ QcomRpmhResource res[8]={};bool ok=true;
++ if(railCount>9){IOFreeData(copy,0x20000);return fail("unexpected WLAN rail count");}
++ QcomRpmhResource res[9]={};bool ok=true;
 + for(unsigned i=0;i<railCount;i++)if(qcom_cmd_db_find(copy,0x20000,kPongWifiRails[i].name,&res[i])){ok=fail("required SM8475 rail missing in cmd-db");break;}
 + if(ok&&!stageOpen(4,"RPMh/RSC votes for every rail"))ok=false;
 + for(unsigned i=0;ok&&i<railCount;i++) {

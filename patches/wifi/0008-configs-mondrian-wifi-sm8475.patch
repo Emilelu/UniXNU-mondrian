@@ -1,9 +1,9 @@
 diff --git a/configs/mondrian-wifi-sm8475.json b/configs/mondrian-wifi-sm8475.json
 new file mode 100644
-index 0000000..2afb571
+index 0000000..4c9ba8f
 --- /dev/null
 +++ b/configs/mondrian-wifi-sm8475.json
-@@ -0,0 +1,754 @@
+@@ -0,0 +1,777 @@
 +{
 +  "format": "k60-qca6490-board-v1",
 +  "board": "mondrian",
@@ -734,6 +734,29 @@ index 0000000..2afb571
 +        0,
 +        1
 +      ]
++    }
++  ],
++  "extra_rails": [
++    {
++      "supply": "vdd-wlan-ipa",
++      "resource": "smpe3",
++      "regulator": "pmr735a_s3",
++      "request": [
++        2200000,
++        2200000,
++        0,
++        0,
++        0
++      ],
++      "physical": {
++        "spmi_slave": 4,
++        "peripheral": 161,
++        "type": 3,
++        "subtype": 10,
++        "source": "Pong REC SPMI observer/regmap, audit-services68/rec-pmic-regulator-types.txt and rec-pmic-rails.txt; AON request observed in rec-aon-request.txt"
++      },
++      "physical_source": "Pong SPMI observer prior; K60 SPMI read still required at runtime",
++      "origin": "Pong board profile vdd-wlan-ipa; K60 cnss node declares qcom,vreg_ipa=s3e but has no vdd-wlan-ipa-supply"
 +    }
 +  ],
 +  "nv_mac_required": false,

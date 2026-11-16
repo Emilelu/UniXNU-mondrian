@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / "configs/mondrian-wifi-sm8475.json"
 BUILDER = ROOT / "scripts/build-k60-wifi-native.py"
 PLATFORM = ROOT / "drivers/PongWifi/PongWifiPlatform.cpp"
+PATCH_PROFILE = ROOT / "patches/wifi/0008-configs-mondrian-wifi-sm8475.patch"
+PATCH_BUILDER = ROOT / "patches/wifi/0009-scripts-k60-wifi-build.patch"
+PATCH_PLATFORM = ROOT / "patches/wifi/0011-drivers-PongWifi-k60-bringup-stages.patch"
 
 
 def check(profile, builder, platform):
@@ -57,6 +60,26 @@ def check(profile, builder, platform):
     return failures
 
 
+def check_patch_mirrors(profile_patch, builder_patch, platform_patch):
+    failures = []
+
+    def need(cond, msg):
+        if not cond:
+            failures.append(msg)
+
+    need('"extra_rails"' in profile_patch,
+         "profile patch does not carry extra_rails")
+    need('"vdd-wlan-ipa"' in profile_patch,
+         "profile patch does not carry vdd-wlan-ipa")
+    need("profile.get('extra_rails', [])" in builder_patch,
+         "builder patch does not emit extra_rails")
+    need("railCount>9" in platform_patch,
+         "platform patch still rejects the ninth rail")
+    need("QcomRpmhResource res[9]" in platform_patch,
+         "platform patch resource array is still eight entries")
+    return failures
+
+
 def mutant_profile(profile, **changes):
     other = json.loads(json.dumps(profile))
     for key, value in changes.items():
@@ -75,7 +98,11 @@ def main():
     profile = json.loads(PROFILE.read_text())
     builder = BUILDER.read_text()
     platform = PLATFORM.read_text()
+    profile_patch = PATCH_PROFILE.read_text()
+    builder_patch = PATCH_BUILDER.read_text()
+    platform_patch = PATCH_PLATFORM.read_text()
     failures = check(profile, builder, platform)
+    failures += check_patch_mirrors(profile_patch, builder_patch, platform_patch)
     if failures:
         for failure in failures:
             print("FAIL:", failure)
@@ -95,7 +122,17 @@ def main():
             print("FAIL: test did not reject", name)
             return 1
 
-    print("PASS: K60 profile carries Pong vdd-wlan-ipa as the ninth rail (%d negative cases)" % len(cases))
+    patch_cases = [
+        ("profile patch missing extra rail", "", builder_patch, platform_patch),
+        ("builder patch missing extra loop", profile_patch, "", platform_patch),
+        ("platform patch old eight-rail guard", profile_patch, builder_patch, platform_patch.replace("railCount>9", "railCount>8")),
+    ]
+    for name, pp, bp, sp in patch_cases:
+        if not check_patch_mirrors(pp, bp, sp):
+            print("FAIL: test did not reject", name)
+            return 1
+
+    print("PASS: K60 profile carries Pong vdd-wlan-ipa as the ninth rail (%d negative cases)" % (len(cases) + len(patch_cases)))
     return 0
 
 

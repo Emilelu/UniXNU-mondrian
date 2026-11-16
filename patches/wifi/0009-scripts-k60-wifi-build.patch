@@ -402,10 +402,10 @@ index 0000000..2028387
 +if __name__ == '__main__': main()
 diff --git a/scripts/build-k60-wifi-native.py b/scripts/build-k60-wifi-native.py
 new file mode 100644
-index 0000000..cbd2eb6
+index 0000000..244b379
 --- /dev/null
 +++ b/scripts/build-k60-wifi-native.py
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,147 @@
 +#!/usr/bin/env python3
 +"""Link actual QCA6490 ath11k PCI/MHI and Pong-style Darwin 22 network/platform code.
 +
@@ -455,6 +455,14 @@ index 0000000..cbd2eb6
 + header='struct PongWifiPhyEntry {unsigned off,value,delay;};\nstatic constexpr PongWifiPhyEntry kPongWifiPhy[]={\n'+''.join('{%d,%d,%d},\n'%tuple(e) for e in profile['pcie']['phy_sequence'])+'};\n'
 + header+='struct PongWifiRail {const char *name;unsigned mv,maxMv,ppid,type,subtype;};\nstatic constexpr PongWifiRail kPongWifiRails[]={\n'
 + for e in profile['rails']:
++  physical=e.get('physical',{})
++  ppid=(physical.get('spmi_slave',0)<<8)|physical.get('peripheral',0)
++  header+='{%s,%d,%d,%d,%d,%d},\n'%(json.dumps(e['resource']),(e['request'][0]+999)//1000,e['request'][1]//1000,ppid,physical.get('type',0),physical.get('subtype',0))
++ for e in profile.get('extra_rails', []):
++  physical=e.get('physical',{})
++  ppid=(physical.get('spmi_slave',0)<<8)|physical.get('peripheral',0)
++  header+='{%s,%d,%d,%d,%d,%d},\n'%(json.dumps(e['resource']),(e['request'][0]+999)//1000,e['request'][1]//1000,ppid,physical.get('type',0),physical.get('subtype',0))
++ for e in profile.get('extra_rails', []):
 +  physical=e.get('physical',{})
 +  ppid=(physical.get('spmi_slave',0)<<8)|physical.get('peripheral',0)
 +  header+='{%s,%d,%d,%d,%d,%d},\n'%(json.dumps(e['resource']),(e['request'][0]+999)//1000,e['request'][1]//1000,ppid,physical.get('type',0),physical.get('subtype',0))

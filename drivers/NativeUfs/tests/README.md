@@ -23,6 +23,7 @@ Provenance:
 | `drivers/NativeUfs/verified_root.h`, `verified_root.c`, `xnu_crypto.c`, `tests/support/openssl_provider.c`, `tests/support/manifest.py` | `974f043d0c71ba2e60331483a41c6c6d35274ee3` (`UniXNU/VerifiedRoot`) | rponeawa <rponeawa@qq.com> |
 | `tests/support/verified_root.h`, `tests/support/verified_root.c` | `9dbc8001eea86bd23e47d887dc186a4914b1290a` (`UniXNU/VerifiedRoot`) | bluseliu50 <265648257+bluseliu50@users.noreply.github.com> |
 | `drivers/NativeUfs/RootPolicyTable.h`, `tests/RootPolicyTable.cpp`, `tests/check-verified-root.py` | new adaptation of the policy-table flow in `references/ShengUfs@9d527ae1a8d36a7ff210f9f4c9b429549c34c991` `NativeUfs.cpp:2169-2330` | Sharky Wang <rponeawa@qq.com> (reference) |
+| `drivers/NativeUfs/RootWindowVerifier.h`, `tests/RootWindowVerifier.cpp` | new wrapper over `VerifiedTableCache.h` + `RootPolicyTable.h`; same `NativeUfs.cpp:2169-2330` reference | Sharky Wang <rponeawa@qq.com> (reference) |
 
 Run (Linux/WSL, OpenSSL development headers required):
 
@@ -43,6 +44,9 @@ python3 drivers/NativeUfs/tests/check-verified-root.py
 OpenSSL, builds signed full/header-only manifests, compiles the kernel-side
 `verified_root.c` plus the OpenSSL provider, and exercises policy selection,
 LUN-0 `<window>.vroot` reads, wrong anchor, wrong table, truncation and
-signature mutation. The policy code is not called by `NativeUfs.cpp` or
-`PongUfsTransport.cpp` yet; wiring is planned in
-`docs/plans/SHENGUFS-VERIFIED-TABLE-PORT.md` (step 2/3).
+signature mutation. It also builds `tests/RootWindowVerifier.cpp`, which keeps
+the full-envelope and header-only paths behind one per-window object and checks
+that the page cache serves block digests without keeping the whole table. The
+policy code is still not called by `NativeUfs.cpp` or `PongUfsTransport.cpp`;
+wiring the verifier into the transport is step 2b in
+`docs/plans/SHENGUFS-VERIFIED-TABLE-PORT.md`.

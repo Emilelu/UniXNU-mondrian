@@ -57,6 +57,11 @@ def main():
     run([cxx, '-o', build / 'RootPolicyTable', build / 'RootPolicyTable.o', build / 'verified_root.o',
          build / 'openssl_provider.o', '-lcrypto'])
     run([build / 'RootPolicyTable', work])
+    run([cxx, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I', ROOT, '-I', HERE,
+         '-c', HERE / 'RootWindowVerifier.cpp', '-o', build / 'RootWindowVerifier.o'])
+    run([cxx, '-o', build / 'RootWindowVerifier', build / 'RootWindowVerifier.o', build / 'verified_root.o',
+         build / 'openssl_provider.o', '-lcrypto'])
+    run([build / 'RootWindowVerifier', work])
 
 
 if __name__ == '__main__':

@@ -211,6 +211,24 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 **退役前身**，不是没人要的垃圾。正确处置是给它一条退役登记（或与 wifi 线确认后删除），
 而不是按「没人用的补丁」直接删：`PITFALLS.md:3978` 记的正是它被误接进序列后出事的现场。
 
+### 7.1 Top 8 落地顺序（2026-11-17 修订版）
+
+原 Top 8 按「解锁阻塞」排序；这一版按「先只读、后可跑、最后动构建序列」重排，路径都写成可直接核对的本地位置。
+每一项只到「源码/脚本可抄」，不声称已集成。
+
+| 顺序 | 项 | 从哪抄（本地路径） | 我们现状 | 为什么这个顺序 | 验收 |
+|---|---|---|---|---|---|
+| 1 | UFS 验证表/根发布层 | `references/ShengUfs@9d527ae`：`VerifiedTableCache.h` 166 行、`RootPublication.h` 84、`RootWindowRead.h` 54 + tests | `drivers/NativeUfs` 7 文件约 82 KB，无这一层 | 纯头文件/只读，先立回归网；直接对着根挂载（P-152/P-153） | 编译 + 4 个 host 测试 |
+| 2 | BT userland | `QcaBluetooth`：`userland/BlueTool.c`、`Type0.c`、`tools/build-bluetool.py` 2,503 B、`build-type0.py` 2,941 B | `0500-k60-bt-qbt-new-files.patch` 只有内核侧 | 不依赖内核，BT 线停着也能先接；24A446→20G81 | 脚本产出与 QcaBluetooth 同结构，两份工具可复跑 |
+| 3 | 音频传输 | `references/pong-power`：`ShengGpr.c` 4,165 B、`ShengAudioReach.c` 17,656、`PongAudioService.cpp`、`PongAudio.cpp` | `0503/0504/0505` compile-only | audio planned，纯代码，先补传输层 | 编译 + opcode/route 表单测 |
+| 4 | ADSP provider | `references/pong-power`：`PongPlatformResources.cpp` 240 行、`PongPower.cpp` 66、`PongAdsp.cpp` 714 | `K60AdspOwnerStages` 只有契约 | 承接 battery/PAS1 缺口；依赖 3 的 GPR/GLINK | host suite（owner 77 场景）不回归 |
+| 5 | Metal 前端 | `references/pong-metal@0b3b34a`：`NativeBridgeMetalFrontend.mm` **225,616** vs 我们 **109,178**；`PongMetalPlugin.mm` 14,777 vs 11,899；`bridge/NativeMetalObjects.rs` | `drivers/PongMetal` 267,785 B | 对着 backboardd 崩溃面：先要 GPU 直连 RSC 验证通过再换前端 | 20G81 ABI 差量清零 + backboardd crashed=0（上机） |
+| 6 | GPU 诊断/UserClient | `pong-adreno`、`pong-adreno-metal`（patch 0001–0024） | 无 `NativeGpuTrace`/`GpuTraceStore`/`NativeAdrenoHandleIndex` | 与 5 同线，先有前端再补诊断 | 客户端连接 + trace 输出 |
+| 7 | WiFi 补丁接线 | `patches/wifi/series` 12 条（0001–0012，229,326 B）+ `k60-wifi:scripts/build-k60-ath11k.py` | main 无读者（仅 `scripts/tests/test-pong-smmu-lease.py:76` 断言 0012 在 series） | 会动构建序列，等 Lead 对 `patches/wifi` 的裁决 | series 可被 main 的 applier 应用、`k60_wifi_stage` 门存在 |
+| 8 | WiFi 源码升级 | `pong-wifi`：`PongWifiPlatform.cpp` 40,342 B、`PongWifiNet.cpp` 47,407、`PongWifiPci.cpp` 6,010、`ath11k/PongAth11k.c` 7,248 | patch 0001 冻结 `vendor-zizhan-087416a` 134,576 B | 会重刷 patch 0001 基线，最后做 | 0001 重新生成后 7 项一致 + MHI 行为不变 |
+
+**不抄的**：`pong-adreno` 的 GPL 混合部分只读思路；官方 `ShengUfs/NativeUfs.cpp` 149,596 B 与我们版本差异过大，先只抄三个头文件与测试。
+
 ## 8. 联网调研：已有结论与仍未知（G10）
 
 ### 8.1 已找到、可直接对照的

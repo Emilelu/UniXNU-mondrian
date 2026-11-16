@@ -73,7 +73,7 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_ath11k_check.sh
 bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 ```
 
-> 原补丁与原始 `new/` 文件保留在 `patches/original/` 供对照；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。
+> 原补丁与原始 `new/` 文件曾保留在 `patches/original/` 供对照，但 2026-11-17 复核时该目录在这两个检出中都不存在；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。
 
 ---
 
@@ -126,6 +126,10 @@ GCC 时钟树（Android 侧 `/sys/kernel/debug/clk/` 或 live FDT）再定。
 判据来自 `0003` 自己的注释：`K60-TOUCH-PARAMS.md:120,174` 说在 RSC 电源/互联域
 未证明可用时访问会**硬挂整机**。而「读一次」的失败是可观察的（拿到 0 或 0xffffffff），
 「写一次」的失败不是。所以先给一个只读档。
+
+> 2026-11-17 复核：以上两档描述的是主仓 `0003` 的旧探针（`rsc.open(0x17a20000,0x10000)` 读一次）。
+> `k60-wifi:feat/wifi-bringup` 的 `0003` 已改为按 `0xd00 + 4*0x2a0` 读 TCS4 的 id/caps/idle/status
+> 并校验 count/ncpt；接线时以新版为准，差量见上面的系列漂移表。
 
 **证据缺口**：触摸驱动只 `ml_io_map` 了 `0x17a20000`（`Pong touch: DIAG mapped ... rsc=`），
 没有任何代码真的**读**过它。所以「映射安全」不等于「读取安全」，第一档仍需实测。

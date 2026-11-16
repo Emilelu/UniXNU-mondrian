@@ -117,6 +117,7 @@ extern "C" boolean_t PE_parse_boot_arg_str(const char *arg_string, char *arg_ptr
 #include "RootQueue.h"
 #include "RootCommands.h"
 #include "RootLayout.h"
+#include "RootPublication.h"
 #if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
 #include "RootWindowRead.h"
 #include "RootWindowVerifier.h"
@@ -770,7 +771,17 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
     }
     if (!found) return transportFailure("required SHNGROOT window missing");
   }
-  for (unsigned index = 0; index < gRootWindowCount; ++index) {
+  // Publish in the reference order: SystemOS first, OS last, any other
+  // window in between. ufsBuildRootPlan also rejects duplicate names and a
+  // missing required window; the old loop started OS before SystemOS.
+  const char *names[4] = {};
+  for (unsigned index = 0; index < gRootWindowCount; ++index)
+    names[index] = gRootWindows[index].name;
+  UfsRootPlan plan;
+  if (!ufsBuildRootPlan(names, gRootWindowCount, plan))
+    return transportFailure("root window publication plan");
+  for (unsigned position = 0; position < plan.count; ++position) {
+    unsigned index = plan.order[position];
     OSSharedPtr<PongUfsBlock> block(new PongUfsBlock, OSNoRetain);
     if (!block || !block->init(nullptr, gRootWindows[index]) || !block->attach(provider))
       return transportFailure("block allocation/attachment");

@@ -888,7 +888,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
   `dirty_files 0`、`payload f3a6eafb…`、`payload_kernel 18e04ebb…`、`adt 2b1552ac…`、`dtb 2d044eaa…`、
   `fd 4bbe7601…`、`boot_img f34f33e3…`；
 - 这就是 §6 第 4 条那条无法复现的 `-fsyntax-only` 的替代证据：回放层是在真实内核 flags 下编过的；
-- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 n（见下）。
+- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 a（见下）。
 
 **镜像 m（2026-11-15）**：rebase 到 `origin/main` 626cc9b 之后重建，HEAD `9afa1e1`、series 225 条（sha256 `8e455072…`，224 条加 0504 的常量修正）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `7e86d966…`（105,504,768 B）、`payload_kernel a3e27a2e…`、`payload d5a544ac…`、
@@ -901,7 +901,12 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 n（2026-11-17）**：闭环台账与 TLMM/PCM ring 落地之后重建，HEAD `960d723b`、series 225 条（sha256 `8e455072…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `0c7d368b…`（105,504,768 B）、`payload_kernel 7d16361c…`、`payload fe6a6554…`、`adt 74e091e4…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `3c6a6783…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261115n/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
-- 这是当前候选：9 文件补丁（含 PongAudioTlmm.h；PongAudioRing.h 按宿主头规则不进补丁）+ PRM 时钟 + TLMM/spksw；构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+- n 构建完曾挂着；2026-11-17 由 a 取代（0504 骨架常量修正后重建，见下）。
+
+**镜像 a（2026-11-17）**：修正 `pong_audio.c` 骨架里遗留的 PRI 常量后重建，HEAD `1d79f925`、series 225 条（sha256 `8e455072…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+- `kernel_built` sha256 `19133189…`（105,504,768 B）、`payload_kernel b8d09838…`、`payload 66b7a904…`、`adt d9f52b27…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `cc903abb…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117a/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
+- 当前候选：9 文件补丁 + PRM 时钟 + TLMM/spksw + 0504 骨架常量（1024 帧周期、14400 帧 lead、12.288 MHz、clock 0x204、attribute 4）；构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
 
 ### 9.6 run 2 的判据（可执行）
 

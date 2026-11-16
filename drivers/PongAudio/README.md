@@ -190,13 +190,13 @@ kernel file, and shipping them into `bsd/dev/` would only slow the build.
 ## Build result (2026-11-14, image k)
 
 Images k and l were withdrawn on 2026-11-15 (P-201): both were built before the branch was rebased onto
-`origin/main` and still carried the old 230-patch series. The current image is n; see below.
+`origin/main` and still carried the old 230-patch series. The current image is a; see below.
 
 `audio-probe-20261114k` is the first kernel build that carries the replay layer:
 8-file patch `d85264ca…`, patch order `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe`
 (`kernel.log:228-231`), `kernel.macho` sha256 `0640f6c7…` (54,181,888 B), `verify-boot-image: OK`.
 The manifest is `/mnt/e/k60-work/artifacts/audio-probe-20261114k/build-manifest.json`;
-`boot.img` sha256 `f34f33e3…`. That was the run 2 candidate until the rebase; see image n below for what stands today.
+`boot.img` sha256 `f34f33e3…`. That was the run 2 candidate until the rebase; see image a below for what stands today.
 
 ## Build result (2026-11-15, image m)
 
@@ -215,8 +215,16 @@ arguments, 594 bytes). That was the candidate until the pad/ring/PRM rebuild; se
 `0c7d368b…` (105,504,768 B), `payload_kernel 7d16361c…`, `payload fe6a6554…`, `boot.img` sha256
 `3c6a6783…` (201,895,936 B). The manifest is
 `/mnt/e/k60-work/artifacts/audio-probe-20261115n/build-manifest.json` and it carries
-`kernel_args_requested: ["pong_audio_probe=1"]`. This is the image a future run 2 would use; it is
-built but not booted.
+`kernel_args_requested: ["pong_audio_probe=1"]`. That was the candidate until the 0504 skeleton
+constant fix; see image a below.
+
+## Build result (2026-11-17, image a)
+
+`audio-probe-20261117a` is the first build with the corrected `pong_audio.c` skeleton: HEAD
+`1d79f925`, series 225 (`8e455072…`), `dirty_files 0`, `verify-boot-image: OK`. `kernel_built` sha256
+`19133189…` (105,504,768 B), `payload_kernel b8d09838…`, `payload 66b7a904…`, `boot.img` sha256
+`cc903abb…` (201,895,936 B). The manifest is
+`/mnt/e/k60-work/artifacts/audio-probe-20261117a/build-manifest.json`. It is built but not booted.
 
 ## On-device result (2026-11-14, run 1 of 2)
 

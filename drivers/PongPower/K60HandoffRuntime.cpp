@@ -5,6 +5,7 @@
 #include <IOKit/IORegistryEntry.h>
 #include <libkern/c++/OSData.h>
 #include "K60AdspOwnerStages.h"
+#include "K60AdspPlatform.h"
 extern "C" { extern unsigned long gPhysBase, gPhysSize; }
 namespace {
 struct Context { IORegistryEntry *chosen; OSData *data; K60BatteryConfig config; };
@@ -41,9 +42,10 @@ extern "C" int k60_adsp_handoff_publish(void) {
     if (exists(&c)) {c.chosen->release();return K60PublishExists;}
     c.data=OSData::withCapacity(K60_ADSP_HANDOFF_BYTES);
     if (!c.data) {c.chosen->release();return K60PublishPropertyFailed;}
-    /* No backend/image_reader installed => -1000 before SMEM/TCSR mapping.
-     * Stages 1-4 own preparation, PAS, discovery, build and self-parse. */
-    int rc=k60_adsp_owner_acquire(&c.config,&lease);
+    /* Install only after RAM/registry preflight. Missing board ownership services
+     * remain unavailable before SMEM/TCSR; 1 means our own prior install only. */
+    int installed=k60_adsp_platform_install();
+    int rc=installed<0?installed:k60_adsp_owner_acquire(&c.config,&lease);
     if (rc || k60_adsp_owner_revalidate(&lease)) {
         IOLog("K60Handoff: PAS1 bring-up/retained ownership failed rc=%d; no lease published%c",rc,10);
         if (lease.token) k60_adsp_owner_abort(&lease);

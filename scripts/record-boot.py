@@ -66,15 +66,39 @@ def image_manifest(image):
     return None, None
 
 
+SERIES_NAMESPACE = "names+sizes"
+
+
 def image_series(image):
-    """(fingerprint, count, source, repo_fingerprint) for the image being recorded."""
-    repo_fp, _ = series_fingerprint()
+    """(fingerprint, count, source, repo_fingerprint) for the image being recorded.
+
+    P-214: a fingerprint is only comparable inside its own namespace.  Manifests
+    written before 2026-11-16 carry ``sha256(<bytes of series>)`` -- 64 hex -- while
+    the ledger and porting-gate compare ``sha256(names + sizes)[:16]``.  Mixing the
+    two made every merge look like a series change, so a manifest that does not
+    declare the shared namespace is reported as unusable instead of being believed.
+    """
+    repo_fp, repo_count = series_fingerprint()
     path, data = image_manifest(image)
     if not data:
-        return repo_fp, None, "repo-series", repo_fp
+        return repo_fp, repo_count, "repo-series", repo_fp
     series = data.get("series") or {}
     sha = str(series.get("sha256") or "")
     count = series.get("count")
+    namespace = str(series.get("namespace") or "")
+    if namespace and namespace != SERIES_NAMESPACE:
+        print("⚠ manifest %s records series in the %r namespace, not %r;"
+              % (path, namespace, SERIES_NAMESPACE))
+        print("  falling back to the repo series (P-214: values from different"
+              " namespaces are not comparable)")
+        return repo_fp, count, "repo-series", repo_fp
+    if not namespace:
+        # Legacy manifest: 64 hex is the file-bytes hash, 16 hex is ours.
+        if len(sha) > 16:
+            print("⚠ manifest %s predates P-214 (no namespace field, %d hex);"
+                  % (path, len(sha)))
+            print("  falling back to the repo series rather than mixing namespaces")
+            return repo_fp, count, "repo-series", repo_fp
     if len(sha) < 16:
         return repo_fp, count, "repo-series", repo_fp
     return sha[:16], count, "manifest:%s" % path, repo_fp

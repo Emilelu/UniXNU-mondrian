@@ -84,20 +84,6 @@ M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
 KERNEL=$M/kernel/kernel.macho
 
 
-# --- frozen inputs -----------------------------------------------------------
-# Every file that can change the kernel is hashed before the build; a later
-# boot is only comparable if the same list hashes the same.
-freeze() {
-    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f -print0 \
-        | sort -z | xargs -0 sha256sum )
-}
-freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"
-FROZEN_SHA=$(sha256sum "$RUN/frozen-before.txt" | cut -d' ' -f1)
-SERIES_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)
-SERIES_COUNT=$(grep -c . "$REPO/patches/xnu/series")
-
-echo "build-strict: tag=$TAG series=$SERIES_COUNT frozen=$FROZEN_SHA"
-
 # --- eight-step gate ---------------------------------------------------------
 # Iron rule 3: a build is only allowed when the eight-step evidence is complete.
 # static_check / unit_test / artifact_check are fields of docs/research/
@@ -111,6 +97,23 @@ fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 # --- gate-table:END ---
+
+# --- frozen inputs -----------------------------------------------------------
+# Every file that can change the kernel is hashed before the build; a later
+# boot is only comparable if the same list hashes the same.
+freeze() {
+    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f -print0 \
+        | sort -z | xargs -0 sha256sum )
+}
+freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"
+FROZEN_SHA=$(sha256sum "$RUN/frozen-before.txt" | cut -d' ' -f1)
+# P-214: the ledger and porting-gate compare sha256(names + sizes)[:16]; the file
+# bytes are a different namespace and never matched.  One implementation decides.
+SERIES_SHA=$(python3 "$REPO/scripts/series-fingerprint.py" | cut -d' ' -f1) || die "cannot fingerprint the series"
+SERIES_COUNT=$(python3 "$REPO/scripts/series-fingerprint.py" | cut -d' ' -f2)
+SERIES_FILE_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)
+
+echo "build-strict: tag=$TAG series=$SERIES_COUNT frozen=$FROZEN_SHA"
 
 
 # A missing .config would silently drop every defconfig-driven feature (P-202):
@@ -324,7 +327,7 @@ m = {
     "tag": "$TAG",
     "built_at": "$(date -Iseconds)",
     "repo": {"branch": "$GIT_BRANCH", "head": "$GIT_HEAD", "dirty_files": $GIT_DIRTY},
-    "series": {"count": $SERIES_COUNT, "sha256": "$SERIES_SHA"},
+    "series": {"count": $SERIES_COUNT, "sha256": "$SERIES_SHA", "file_sha256": "$SERIES_FILE_SHA", "namespace": "names+sizes"},
     "frozen": {"list_sha256": "$FROZEN_SHA", "file": "frozen-before.txt"},
     "eight_step_items": "${K60_EIGHT_STEP_ITEMS:-all}",
     "gates": {"eight_step": "passed", "eight_step_log": "$LOGS/eight-step.log",

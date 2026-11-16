@@ -16,40 +16,85 @@
 - 命令形态（`firmware.py:60-80`）：`build -p <dsc> -a AARCH64 -b <target> -t CLANGPDB -n <jobs>`
   加 `-D FD_BASE=… -D FD_SIZE=… -D FD_BLOCKS=…` 与 `[firmware.defines]` 的每一项，
   `WORKSPACE=<uefi 检出>`、`PACKAGES_PATH=<packages 拼起来的冒号列表>`、`CONF_PATH=<work>/edk2-conf`。
-- `board.toml:61-65` 的 `[firmware].patches` 目前是空列表，注释写明原因：Mu_Basecore `6f805f2`
-  已经包含全部六个 K60 修复（`3d2a9fa` 是它的祖先），重复打 `Boot-Manager.patch` 正是 2026-11-12
-  之前的错误做法。
+- `board.toml` 的 `[firmware].patches` 列出五个 K60 修复补丁，构建时 apply、`firmware.py` 的
+  `finally` 里 reverse。它们在 uefi 仓的 `Resources/MuPatches/` 下、已被 `origin/main` 跟踪，
+  并且对 pin `6f805f2` 逐个 `git apply --check` 通过。
+- **第六个修复（`AsmMacroLib` 段命名）不在这里**：上游在 `6f805f2` 用另一种方式解决了
+  （`#ifdef __ELF__` 分支，PE 侧用 `.text$ ## Name`），旧补丁已不适用。
 
-## 2. 它是确定性的（同源 ⇒ 同字节）
+### 1.1 `Mu_Basecore` 必须停在仓库记录的 pin 上（P-217）
 
-`firmware.py:85` 把 `SOURCE_DATE_EPOCH` 固定成 uefi 仓最后一次提交的时间
-（`git -C <uefi> log -1 --format=%ct`）。所以**同样的源码 + 同样的 pin ⇒ 同一个 FD**，
-哈希差异只可能来自源码/pin/`board.toml` 的变化。这一点很重要：FD 的 sha256 是一个可用作
-判据的身份，不是随机数。
+`Mu_Basecore` 是一个**嵌套仓**：主仓只记录一个 gitlink，构建读的却是工作树的当前内容。
+2026-11-16 之前，这个工作树停在一个**只存在于本机**的提交 `3d2a9fa` 上，而 `board.toml` 的注释
+声称记录的 pin `6f805f2` 已经包含那六个修复、`3d2a9fa` 是它的祖先。两句话都不成立：
 
-## 3. 现场存在的两个卷
+- `git merge-base 3d2a9fa 6f805f2` 返回空——两条历史没有共同祖先；
+- `3d2a9fa` 的父提交是 `3c9c7b2`（`[DROP on REBASE]`），不在任何远程分支上；
+- 11 个文件里只有 `AsmMacroLib.h` 在 `6f805f2` 上是修好的（且修法不同），其余 10 个是原始状态。
+
+后果：本机构建一直成功（工作树里确实有那些修复），但**干净 clone 会构建出坏的固件卷**。
+
+现状（已修）：工作树切到 `6f805f2`，五个修复改由 `[firmware].patches` 施加。验证过
+「pin + 五个补丁」与 `3d2a9fa` 的 11 个文件里有 10 个**逐字节相同**，唯一差异是上游已自行修好的
+`AsmMacroLib.h`。门禁 `scripts/check-basecore-pin.py`（P-217）钉住三件事：工作树 HEAD 必须等于
+记录的 pin、每个 `[firmware].patches` 必须存在且能 apply、若工作树故意偏离则必须在本文件里写明。
+
+## 2. 它**不是**确定性的（同源也不得同字节）
+
+`firmware.py:85` 确实把 `SOURCE_DATE_EPOCH` 固定成 uefi 仓最后一次提交的时间
+（`git -C <uefi> log -1 --format=%ct`），但那只影响真正使用它的字段（`__DATE__`/`__TIME__`、
+PE 头时间戳）。**它不影响 LLD 自己派生的 CodeView build-id**，而固件卷是压缩的，一个 GUID 变了
+就重写整个压缩段。
+
+2026-11-16 02:31–02:47 的实测（同一检出、同一 pin、无未提交改动）：
+
+| 次 | `SOURCE_DATE_EPOCH` | FD sha256（前 12） |
+| --- | --- | --- |
+| 基准（已上机验证） | 自然取值 | `4bbe76017eb4` |
+| 重建 1 | 自然取值 | `ce12d145a71e` |
+| 重建 2 | 显式钉住 `1794541119` | `77ad2474a468` |
+| 重建 3 | 自然取值 | `9f20de15388a` |
+
+逐字节 diff `4bbe7601` 与 `ce12d145`：同尺寸 3,145,728 B，**453,604 B 不同、1,739 个不连续区间**，
+首差 `0xc8b8`、末差 `0x8dbce`。首个差异是 CodeView 记录——两边都有 `RSDS` + 16 字节 build-id，
+但 GUID 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c44205044422e`，
+后 8 字节 `4c4c44205044422e` = `"LLD PDB."` 相同）。
+
+两条后果，写在这里以免再犯（P-216）：
+
+1. **FD 的 sha256 不是「身份」，是「这一次构建的标识」。** 任何「两个卷哈希不同 ⇒ 源码不同」的
+   推断都是错的。
+2. **判定一个重建的卷能不能用，只能上机。** 见 §5 第 4 步。
+
+## 3. 现场存在的卷
 
 | sha256（前 12） | 大小 | 出现在 | 结论 |
 | --- | --- | --- | --- |
-| `cf4485712c29` | 3,145,728 B | 2026-11-12 之后几乎所有镜像（`/mnt/e/k60-work/artifacts/fd/*-cf4485712c29.fd`，建筑入口 `--fd` 的默认归档） | 已验证能找 payload |
-| `4bbe7601 7eb4` | 3,145,728 B | `audio-probe-20261114j` / `-k` / `20261115l` / `-m`（四张） | **重建出来的卷，且上机成功进过 SpringBoard** |
+| `cf4485712c29` | 3,145,728 B | 2026-11-12 之后几乎所有镜像（`/mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，`--fd` 的默认归档） | 已验证能找 payload |
+| `4bbe7601 7eb4` | 3,145,728 B | `audio-probe-20261114j` / `-k` / `20261115l` / `-m` | 重建的卷，j/k 上机进过 SpringBoard |
+| `9f20de15388a` | 3,145,728 B | `fdtest-20261116a`（`/mnt/e/k60-work/artifacts/fd/fresh-9f20de15388a.fd`） | 从当前 pin 重建，**上机进 SpringBoard 129** |
 
-第二行是本节的关键：它证明**重建的固件卷能找到 payload**。
+第三行是 P-154 的终结证据：同一个 payload（`fbc87102…`）只换 FD，`boot.img` 重打成
+`51d20538…`，上机 `E:\k60-work\evidence\usblog-20261116-025525`：3384 行 / 230,107 B /
+SpringBoard 129 / `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 /
+`menu:` 与 `config: no boot entry` **0 次**。
 
-## 4. P-154 现在是什么状态
+## 4. P-154 已关闭
 
 P-154 记录的是 2026-11-12 的实测：重建出来的卷报
 `UNIXNU: config: no boot entry found` / `menu: default 0 'exit'`，也就是 UEFI 侧没找到 payload 里的
 `unixnu.toml`。当时不知道为什么，于是定下「`bootimg --fd /tmp/old-fd-cf448571.fd` 存档变通」。
 
-后来 P-176 找到了其中一半根因：`[firmware].packages` 把 `{tree}/package` 排在
-`{uefi}/Platforms/Xiaomi` 之前，EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的
-`UniXNURamDiskDxe` 不把 initrd 发布成文件系统——payload 自然摸不到。`board.toml:66-75` 现在是修好的
-顺序。
+P-176 找到了根因：`[firmware].packages` 把 `{tree}/package` 排在 `{uefi}/Platforms/Xiaomi` 之前，
+EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的 `UniXNURamDiskDxe` 不把 initrd 发布成
+文件系统——payload 自然摸不到。`board.toml:66-75` 现在是修好的顺序。
 
-所以准确的状态是：**「重建的卷找不到 payload」这条不再无条件成立**——`4bbe7601…` 是修好顺序之后
-重建的卷，它找到了 payload 并进了桌面。仍然没有验证的是：**从当前 pin 重建是否也能找到 payload**，
-以及旧的那几张失败卷具体差在哪一步。
+**2026-11-16 的单变量上机把这条关闭**（§3 第三行）：从当前 pin 重建的卷能找到 payload 并进桌面。
+所以 `--fd` 不再需要指向归档卷；`build-strict.sh` 可以用重建的卷，manifest 的 `components.fd`
+只用来回答「这张图带的是哪一次构建的卷」，不用来回答「是不是同一份固件」。
+
+旧的那几张失败卷具体差在哪一步，已经无法核实——原始失败卷零留存，`4bbe7601` 的首现时间
+（11-13 15:08:56）也早于 P-176 修复（15:13:07）约四分钟。不要再把这条当未结悬案。
 
 ## 5. 下一次重建怎么做（实验协议）
 
@@ -64,15 +109,57 @@ P-154 记录的是 2026-11-12 的实测：重建出来的卷报
 5. 失败时的判别顺序：先看 `UNIXNU: config: no boot entry found` 是否出现（找 payload 失败，P-176 家族），
    再看 `UniXNURamDiskDxe` 有没有打 initrd 追踪行——两个卷用 `strings` 对比这一行，是排查这件事最快的刀。
 
-只有第 4 步通过，才可以把 `build-strict.sh --fd` 的默认值从归档卷换成新卷；在那之前，所有镜像
-继续用 `--fd /mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，并且 `components.fd` 会记录它，
-事后能追出每张图到底带了哪个卷。
+第 4 步通过之后，`build-strict.sh --fd` 就可以用重建的卷（P-154 已于 2026-11-16 关闭）。
+`components.fd` 仍会记录每一次的哈希——但按 §2，它只是「这一次构建的标识」，不是可比的身份。
 
 ## 6. 为什么这件事现在很要紧
 
-- **modem 载具**（cellular 线）：modem 镜像 27 个文件、拷贝量 109,060,761 B，装不进 192 MiB 的
-  payload（内核已经 105 MB）。唯一可行的载具是固件侧把镜像放到固定物理地址并发布
-  `/chosen/memory-map/K60ModemImage`——也就是说必须先能重建并验证 FD。
+- **modem 载具**（cellular 线）：modem 镜像 27 个文件、拷贝量 109,060,761 B，装不进 payload。
+  下面的容量表是实测的（`[payload] size_mib`、`build-manifest.json` 的 `kernel_bytes`、
+  `gen-modem-table.py` 的 `bytes-copied`）：
+
+  卷内实测（`mdir`，不是算术）：payload 201,326,592 B，其中 `kernel.macho` 105,508,864 B
+  + `kernel.macho.adt` 16,056 B + `unixnu.toml` 966 B，**剩余 94,990,336 B**；
+  27 个文件 raw 109,060,761 B，按 FAT 4 KiB 簇对齐后需 **109,105,152 B**（pad 44,391），
+  **缺口 14,114,816 B**。按 manifest 顺序装到第 21 个文件 `modem.b23` 就超，
+  它和它之后 7 个文件无处落盘。
+
+  | payload 容量 | 内核 129 MB | 内核 66 MB | 备注 |
+  |---|---|---|---|
+  | 192 MiB = 201,326,592 B（当前） | **缺 43,501,040 B** | 余 91,765,264 B | 装不下 129 MB 内核那一档 |
+  | 256 MiB = 268,435,456 B | 余 23,607,824 B | 余 89,668,112 B | 见下面的硬上限 |
+
+  256 MiB 是**硬上限**，不是随便挑的数：`Platforms/Xiaomi/DarwinBootPkg/Driver/PackedRamdisk.h:16`
+  是 `if ((InputSize > SIZE_256MB) || …) { return FALSE; }`，即 ramdisk 一旦超过 256 MiB
+  `RamdiskLayout()` 直接拒绝，`DarwinBoot.c:675` 随即 `goto Fail`。所以「把 payload 提到 256 MiB」
+  这条路可行但只剩 23.6 MB 余量（内核还会长），**不能当作长期方案**。
+
+  **四条出路的代价**（cellular 线 2026-11-16 实测，`15-FIRMWARE-CARRIER-LOADER.md` §1.7）：
+
+  - **A 扩 payload**：208 MiB 是能装下的最小整数档（free 111,767,552，余 +2,662,400）；
+    代价 boot.img 201,887,744→218,664,960，ABL 余量 37.6 MB→**20.8 MB**。
+    205 MiB 只差 472 KiB 装不下。ABL 下界墙 `0xA8300000` 不变。
+  - **B 编进内核**：**否**。不是段跨度问题，是 `DarwinBoot.c:699` 的
+    `ReadFile (Root, Request->KernelPath, SIZE_128MB, …)` 上限：内核 105,524,920
+    + 27 文件 109,060,761 = 214,585,681，超上限 80,367,953；整窗 xz 压缩后
+    154,571,836 仍超 20,354,108。**这条 128 MiB 上限比 254 MiB 段跨度更早撞墙，
+    而且是「内核内嵌」这条路线在整个 K60 上的通用上限**（GPU addon 内嵌会撞同一面墙）。
+  - **C 从别处读**：**否**。固件侧没有块设备栈——`UfsDxe` 只出现在
+    `Silicon/Samsung/SamsungPkg/SamsungPkg.dsc.inc:64`，`mondrian.dsc:35` 只 include
+    PalimaPkg；现有只有 DiskIoDxe/PartitionDxe/FatPkg/EnglishDxe（`DXE.inc:26-29`）
+    + RamPartitionDxe（`:6`）+ UniXNURamDiskDxe（`:33`），挂不到 `modem_a`
+    （`/dev/block/sde7`，380 MiB）。内核也不能替它读（`hostRead4k` 是 static）。
+  - **D 压缩进 payload**：lzma 后 48,591,795 B（ratio 0.446），192 MiB 下余 +46,398,541，
+    **不动 ABL、不动 boot.img 尺寸**。前置条件是 EDK2 的 `LzmaUefiDecompress` 能直接解压到
+    窗口内的目标物理地址（否则需要 39 MiB 连续中转缓冲，192 MiB 里没有）；
+    最大单文件 `modem.b23` 40,935,488 B。门禁 A3/A4 要改成「解压后大小 == 段表 bytes」。
+
+  **当前决定：优先验证 D，验证不过则走 A-208。** 选 D 的理由是 A-208 会消耗 ABL 安全边际
+  （37.6→20.8 MB），而这块余量以后 GPU addon（51 MB）或 audio 可能还要用。
+
+  无论 A 还是 D，modem 的载具都必须由固件放到固定物理地址并发布
+  `/chosen/memory-map/K60ModemImage`。这与 cellular 线 `15-FIRMWARE-CARRIER-LOADER.md`
+  的结论一致，只是现在有了容量数字。
 - **ADSP 已走内核内嵌 blob**（0620 + `--adsp-blob`，23,506,184 B），所以它**不**依赖这条路径；
   这也说明「内核内嵌」是可行方案，只是容量上不适合 modem。
 - **BT / wifi 的固件侧打点**：能在固件里打一行，比在核心里猜一轮便宜得多。
@@ -88,9 +175,26 @@ P-154 记录的是 2026-11-12 的实测：重建出来的卷报
 （把值记进 ADT）、消费者（内核）。少一处就会出现「固件发布了、ADT 里没有、内核说没载具」的形状，
 而这正是 P-197 教过一次的坑（GpuAddon 恒全零）。
 
+## 7.1 把一个库接进固件的两个硬事实（2026-11-16 实测）
+
+接 `ImageCarrierLib`（modem 载具的只读半边）时踩到两条，都会让人以为改动生效了：
+
+1. **只在 DSC 的 `[LibraryClasses]` 里写一行，EDK2 什么都不会编译。** 它只构建被某个组件
+   链接的库。第一次重建后 FD 尺寸一字未变、连
+   `Build/…/AARCH64/DarwinBootPkg/Library/ImageCarrierLib/` 对象目录都不存在——
+   「配置改了」和「代码编了」是两件事。必须在某个 `.inf` 的 `[LibraryClasses]` 里引用。
+2. **`DarwinBootPkg` 没有 `.dec` 文件**，所以 `#include <Library/ImageCarrierLib.h>`
+   没有 include 路径可解析，报 `fatal error: 'Library/ImageCarrierLib.h' file not found`。
+   库自己的头必须用引号包含（`#include "ImageCarrierLib.h"`）。
+
+验证方式：`ImageCarrierLib.obj` 29,036 B 编出、FD 仍精确 3,145,728 B，且用这个卷打图
+真机飞到 SpringBoard 128 / `Early boot complete` / `K60DATA mounted` / panic 0 /
+`no boot entry` 0 次（`usblog-20261116-052044`）。**「库链接进固件但没有调用点时不改变启动」
+因此是实测结论。**
+
 ## 8. 相关的坑
 
-- **P-154**：重建的卷找不到 payload（本条正在被 `4bbe7601…` 部分推翻）。
+- **P-154**：重建的卷找不到 payload（**已关闭**：根因是 P-176 的包序，`9f20de15388a` 上机验证）。
 - **P-176**：`[firmware].packages` 顺序让 EDK II 编译了陈旧的 `UniXNUPkg`。
 - **P-197**：固件没有 GpuAddon 装载器，`/chosen/memory-map/GpuAddon` 恒全零——「固件搭车」的假设
   在没有装载器时不可能成立。

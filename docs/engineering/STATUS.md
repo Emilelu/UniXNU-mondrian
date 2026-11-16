@@ -3,7 +3,7 @@
 > 本文件收纳 README 里的详细状态表与阶段性变更摘要。
 > README 只保留设备身份、八步进度、仓库结构与构建入口。
 
-本轮更新时间：2026-11-15
+本轮更新时间：2026-11-16
 
 ---
 
@@ -62,7 +62,8 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 | 实体键（电源/音量） | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `_pong_buttons_init`），`configuration()` 结果不可观测 |
 | 触摸 | ✅ | 单指已真机验证，见下方「触摸」专节 |
 | GPU（Adreno 730v3） | 🔄 | 见下方「GPU」专节 |
-| WiFi / 蓝牙 / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
+| 蓝牙（QCA6490 / SE20） | 🔄 | 内核侧已通：`[bluetooth] QCA controller version 0x12110201` + `addon: serving` 分片（`usblog-20261116-064150`，P-219）；用户态缺 ADT `bluetooth` 节点 |
+| WiFi / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
 
 ### 触摸
 
@@ -171,6 +172,82 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 - `CREDITS.md`：贡献者与外部来源。
 
 ---
+
+## 六、2026-11-16 变更摘要
+
+### 蓝牙阶梯第一次跑通，读到 QCA6490 的版本寄存器（P-219）
+
+`ml_io_map` 的 `io_submap` 只有 8 MiB（`osfmk/arm/io_map.c:65`），而全内核 37 个
+`ml_io_map` 调用点已占 7.23 MiB（`scripts/check-io-map-budget.py` 在已应用树上实测）。
+蓝牙完整阶梯再要 1 MiB 的 TLMM 窗口（`K60_TLMM_SIZE = 0x00100000`）必然撞穿，
+而 `:128` 的 `kmem_alloc` 在 `KMA_NOFAIL` 下不看返回值 —— 于是 `kmem_alloc(... 0x100021):
+failed with 3` 变成控制台起来**之前**的 panic，现象是 0 字节日志，和「驱动从未运行」
+完全无法区分。
+
+`patches/xnu/0621-k60-io-submap-budget.patch` 把 `IO_MAP_SIZE` 提到 32 MiB（子图只预留
+虚拟地址，未 map 的部分不花物理页）。单变量验证 `bt-d5-iomap`（series 233，同一配方只多
+这一条）上机 `usblog-20261116-064150`：3,241 行 / 224,863 B / SpringBoard 132 / panic 0，
+阶梯完整跑到固件下载 —— `:486 smmu plan sid 0x483 slot 110 bank 72 action install
+dma 0x90bc20000`、`:488 dma buffer and smmu bypass ready`、`:493 clocks vote cbcr
+core=0x4220`、`:494 full: qbt_boot enter`、**`:707 [bluetooth] QCA controller version
+0x12110201`**、`:708 addon: serving 146068 0`、`:724 addon: serving 6442 0`。
+
+下一层缺口在用户态：`:1345 marconi-bt: Unable to match bluetooth service in device tree.`
+与 `:1346 Not a valid MAC address (all 00s)` —— 但同一份日志 `:186 K60 BT: published local
+address ee:98:c5:8a:6b:4e` 与 `:1347 bluetooth: Got local-mac-address` 证明 0509 的身份
+发布是生效的，缺的是 ADT 里的 `bluetooth` 服务节点。
+
+### 固件卷重建：能用，但不可复现（P-216，P-154 关闭）
+
+同一检出、同一 pin、无未提交改动，三次重建固件卷得到三个哈希
+（`ce12d145a71e` / `77ad2474a468` / `9f20de15388a`）。根因是 LLD 派生的 CodeView
+build-id 不受 `SOURCE_DATE_EPOCH` 影响，而固件卷是压缩的，一个 GUID 变了就重写整个
+压缩段——3,145,728 B 里 453,604 B 不同、1,739 个不连续区间。
+
+**同一 payload 只换卷上机**（`fdtest-20261116a`，`boot.img 51d20538…`，证据
+`usblog-20261116-025525`）：3384 行 / 230,107 B / SpringBoard 129 / `Early boot complete`
+1 次 / `K60DATA mounted` 1 次 / panic 0 / `menu:` 与 `config: no boot entry` 0 次。
+⇒ **P-154 关闭**：从当前 pin 重建的卷能找到 payload。FD 的 sha256 从此只当「这一次构建的
+标识」，不当身份。新门禁 `scripts/check-firmware-volume.py`（9 例测试）。
+
+### 固件卷的构建依赖一个只存在于本机的 commit（P-217）
+
+`board.toml` 的 `[firmware].patches` 原本是空列表，注释称记录的 pin `6f805f2` 已含全部六个
+K60 修复、本机的 `3d2a9fa` 是它的祖先。**两句都不成立**：`git merge-base 3d2a9fa 6f805f2`
+返回空；`3d2a9fa` 的父提交 `3c9c7b2` 不在任何远程分支；11 个文件逐文件对比，pin 上只有
+`AsmMacroLib.h` 是修好的（且上游用的是另一种修法），其余 10 个是原始状态。`Mu_Basecore`
+是嵌套仓，构建读工作树内容而非 gitlink —— 所以本机一直能构建，**干净 clone 会构建出坏的卷**。
+
+修法：工作树切到 `6f805f2`，五个修复改由 `[firmware].patches` 施加
+（`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch`，
+均已被 `origin/main` 跟踪、对 pin `git apply --check` 全通过；应用后与 `3d2a9fa` 的 11 个文件
+有 10 个逐字节相同）。新门禁 `scripts/check-basecore-pin.py`（10 例测试）钉住三件事：
+工作树 HEAD 等于记录的 pin、每个补丁存在且能 apply、故意偏离必须在手册里写明。
+
+### wifi 家族七张 0 字节镜像的真因（P-215）
+
+`wifi-20261116c3`（`patches/wifi/0012` 让 `pong_smmu_lease_lock()` 惰性自建锁）上机
+`usblog-20261116-015128`：221,429 B / 3,202 行 / **SpringBoard 132** / panic 0 /
+`:482 K60DATA mounted` / `:972 Early boot complete`。
+
+真因：UFS 的 `hostBringUp()` 取同一把 Apps SMMU 锁，而锁只在 `pong_rpmh_init()` 里分配、
+后者由 `pong_wifi_start_optional()` 调用——UFS 更早。锁为 NULL 时 `pong_smmu_lease_lock()`
+返回 false，UFS 直接 `transportFailure("Apps SMMU lease unavailable")` 放弃 transport，
+没有根设备，内核在 console worker 起来前死掉，日志一个字节都没有。
+
+### series 指纹双命名空间（P-214）
+
+`build-strict.sh` 量的是 series **文件字节**（64 hex），`porting-gate.py` /
+`record-boot.py` 量的是 `names+sizes`（16 hex），两者永远不相等，iron-4/hard-33 在 main
+上恒红。修法：唯一实现 `scripts/series-fingerprint.py` + manifest 带
+`"namespace": "names+sizes"` + 读者拒绝跨命名空间比较。
+
+### 其它
+
+- P-212（把配置打印成证据的日志）、P-213（门禁只读字面量不读变量传播）落账。
+- bt 二分八张矩阵全部实飞：`h34`（h3+h4，不带 h1/h2）能起（SB 128），推翻「致命集是
+  h3×h4」与「h2 是前置」两条推断；唯一站得住的表述是**全量 0005 四者齐备才 silent**。
+- `probe: armed` 与 `[bluetooth] power=` 的缺失是 **h3 单独**造成的可观测性副作用。
 
 ## 五、2026-11-15 变更摘要
 

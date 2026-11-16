@@ -59,9 +59,19 @@ config = "mondrian"
 dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
 fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
 patches = [
-  # Mu_Basecore 6f805f2 already carries all six K60 fixes (3d2a9fa, "local patches for k60
-  # firmware build", is an ancestor). yibiya's build_uefi.py removes them for the same reason.
-  # Applying Boot-Manager.patch a second time is what this board did until 2026-11-12.
+  # Five K60 fixes the pinned Mu_Basecore (6f805f2, release/202608) does not carry.
+  # They live in the uefi repo as patch files and apply cleanly to the pin; applied here
+  # for the build and reverted in firmware.py's `finally` block.
+  #
+  # The sixth fix (AsmMacroLib section naming) is NOT here: upstream solved it differently
+  # at 6f805f2 with an `#ifdef __ELF__` split, so the old patch no longer applies.
+  # Verified 2026-11-16: pin + these five reproduces ten of the eleven files that the
+  # local-only commit 3d2a9fa had changed, byte for byte (P-217).
+  "Resources/MuPatches/Auth-Service.patch",
+  "Resources/MuPatches/Boot-Manager.patch",
+  "Resources/MuPatches/K60-Exception-Image.patch",
+  "Resources/MuPatches/Timer.patch",
+  "Resources/MuPatches/Usb-Bus.patch",
 ]
 packages = [
   "{uefi}",

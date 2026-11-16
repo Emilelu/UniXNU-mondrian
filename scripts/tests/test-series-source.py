@@ -142,8 +142,13 @@ def main() -> int:
         recorded = data.get("series", {})
         digest = __import__("hashlib").sha256(SERIES.read_bytes()).hexdigest()
         stale = SERIES.stat().st_mtime > manifest.stat().st_mtime
+        # P-214: the manifest records two hashes in two namespaces. `sha256` is
+        # the names+sizes fingerprint that porting-gate and record-boot compare
+        # against; `file_sha256` is the raw bytes of the series file. Comparing
+        # the fingerprint to the file digest is the exact bug P-214 fixed, so
+        # assert each field against its own namespace.
         agrees = (recorded.get("count") == len(names)
-                  and recorded.get("sha256") == digest)
+                  and recorded.get("file_sha256", recorded.get("sha256")) == digest)
         if stale and not agrees:
             print(f"skip {manifest.parent.name}: the series changed after this "
                   f"build (manifest {recorded.get('count')}, series "
@@ -152,9 +157,9 @@ def main() -> int:
             check(f"{manifest.parent.name}: manifest patch count equals the series",
                   recorded.get("count") == len(names),
                   f"manifest {recorded.get('count')} vs series {len(names)}")
-            check(f"{manifest.parent.name}: manifest series sha256 equals the file",
-                  recorded.get("sha256") == digest,
-                  "the manifest was built from a different series")
+            check(f"{manifest.parent.name}: manifest file_sha256 equals the series file",
+                  recorded.get("file_sha256", recorded.get("sha256")) == digest,
+                  "the manifest was built from a different series file")
 
     # 5. The scratch copy is only a fallback. It used to differ from the
     #    repository series, and asserting that difference was how this test

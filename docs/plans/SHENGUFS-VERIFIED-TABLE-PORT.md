@@ -88,6 +88,19 @@
 - 四个 host 测试全过：`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`。
 - 未接 `NativeUfs.cpp`/`PongUfsTransport.cpp`，`native-vroot-cache` 仍关闭，未 boot。
 
+## 3.3 步骤 2a 执行记录（2026-11-17 04:20）
+
+- 分支 `feat/ufs-verified-table`，从步骤 1.5 的 `14cf0488` 继续。
+- 新增 `k60-ufs-verified:drivers/NativeUfs/RootWindowVerifier.h`：把 full envelope 与 header-only 两条路径收进同一个 `RootWindowVerifier`；
+  header-only 时 `rootWindowVerifierConfigure` 校验签名头、按 `<window>.vroot` 读表、用调用方提供的 page-hash/where/scratch/缓存数组
+  逐页哈希并核对整表 digest，之后只保留 page hash 与 `VrootTableCache`，`rootWindowVerifierVerify` 用 `vrootVerifyBlock` 校验单块。
+  所有缓冲区由调用方持有，适配器不分配内存，也不依赖 IOKit。
+- 新增 `tests/RootWindowVerifier.cpp`：覆盖 full envelope、header-only 首次读表/缓存命中、错误块、坏表拒绝和缺缓存内存拒绝；
+  `tests/check-verified-root.py` 同时编译并运行 `RootPolicyTable` 与 `RootWindowVerifier`。
+- 宿主测试全过：`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`。
+- 尚未把 `RootWindowVerifier` 接进 `PongUfsTransport.cpp`（步骤 2b）：运行路径还需要在 `PongUfsBlock` 里分配 header/page-hash/where/缓存内存、
+  定义 `VrootOps` 的 `lock/sleep/wakeup/readPage`，并决定 `NATIVE_VERIFIED_BLOCK` 构建开关；`native-vroot-cache` 仍关闭，未 boot。
+
 ## 4. 不抄的部分
 
 - 参考树 `NativeUfs.cpp`（149,596 B）与我们版本差异过大，不整体替换；只抄 3 个头文件 + 3 个测试。

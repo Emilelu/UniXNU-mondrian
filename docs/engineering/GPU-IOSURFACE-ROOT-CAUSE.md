@@ -72,3 +72,64 @@
 - `IOConnectTrap` 越界返回成功是「假成功」类缺陷：判据要看副作用，不能只看返回值。
 - 在 `bash -lc "..."` 里写含反引号或 `$` 的 Markdown 会被外层 shell 吃掉；
   这类文本只能用文件写入工具，不能经 shell 拼接。
+## 6. 断点已定位（2026-11-17 00:45，离线证据，未上机）
+
+上飞 `gpu-msseed-20261117` 判决 FAIL(F2) 之后继续查「插件到底有没有被加载」，
+在**源码里**找到了一个完整的因果链，解释为什么所有 GPU 相关修复都没有可观测效果。
+
+### 6.1 事实链
+
+1. 用户态日志里 **`Pong Metal` / `PongAdrenoMetal` 命中数为 0**
+   （`usblog-20261117-003205`：`PongAdrenoMetal` 0、`Pong Metal` 0、`MTLCreate` 0）。
+   而 `drivers/PongMetal/PongMetalPlugin.mm` 里几乎每条路径都以
+   `report(...)`（`NSLog(@"Pong Metal: …")`）结尾。⇒ **插件代码根本没机会执行**，
+   不是「执行了但判定为软件」。
+
+2. 插件要被注入到 backboardd：`userland/init-history/init-v24dp.c:366` 写的是
+
+   ```c
+   const char *metal="; /private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal backboardd";
+   ```
+
+   并在 `:378` 先 `stat("/private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal")`
+   判存在才注入；`:502-503` 也是这两个 `/private/var/pong/…` 路径。
+   即 **注入源是 `/private/var/pong/`**。
+
+3. 而部署侧（yt 的 `0610-k60-metal-plugin-deploy.patch` + 我们的
+   `scripts/gen-k60-metal-blob.py`）只写 **`/private/var/ngpu/addons/`**：
+   `FILES` 全是 `addons/PongAdrenoMetal.bundle/*`，`0610` 建的是
+   `K60_METAL_ROOT "/addons"`。
+
+4. 真机日志确认 init 侧链路是活的但没有输出注入成功：
+   `:498 K60INIT legacy bytes=34904 resid=0 error=0`、
+   `:500 Pong init: loading helper /private/var/pong/init`、
+   `:501 KE 1 1 init /private/var/pong/init`，
+   之后**没有任何** `PongAdrenoMetal.bundle` 相关行。
+
+⇒ 结论：**部署路径与注入路径不是同一个目录**。`/private/var/ngpu/addons/PongAdrenoMetal.bundle`
+存在（`K60METAL deploy files=6/6 error=0` 证明写成功），但 init helper 去
+`/private/var/pong/PongAdrenoMetal.bundle` 找，找不到就跳过注入 ⇒
+backboardd 从来没有加载过插件 ⇒ `MTLCreateSystemDefaultDevice()` 只能拿到 nil ⇒
+`software renderer fallback installed`（每次启动稳定 18–19 次）。
+
+这也解释了本飞与上一飞**回退次数完全相同**：两次都没注入。
+
+### 6.2 之前判断错在哪里
+
+- 我把「`.publish`/`.clients` 前缀要不要 `addons/`」当成了关键，实际上**两者都没被读到**——
+  因为读它们的插件压根没被加载。前缀之争是第三层的问题，不是当前断点。
+- `NativeAdrenoPublish.cpp:702` 的注释「Which processes run the plugin at all is the
+  plugin's allow-list」让我以为允许列表生效过；但 `selectedClient()` 只在插件内部执行，
+  插件没加载时它不存在执行机会。
+
+### 6.3 下一步（离线可做完，不用上机）
+
+1. 确认 `K60INIT` 那 34,904 字节的 legacy helper 究竟来自 `userland/init-history/` 的哪一份
+   （`init-v24dp.c` 还是 `init-v10guard.c`），把里面的注入路径读出来——两份都写
+   `/private/var/pong/`，但要确认字面量。
+2. 让部署落到**注入点**：在 `gen-k60-metal-blob.py` 的 `FILES` 里同时写
+   `/private/var/pong/PongAdrenoMetal.bundle/*` + `PongAdrenoMetal.publish` + `.clients`
+   （保留 `addons/` 一份以兼容上游读取路径）。
+3. 单测：断言 blob 的文件表同时含 `/private/var/pong/` 与 `/private/var/ngpu/addons/` 两组路径，
+   且 bundle 内四个文件齐全。
+4. 然后才写新上机卡、构建、飞。

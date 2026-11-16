@@ -7,12 +7,15 @@
 
 > **2026-11-16 更新：本文的静态判决已被上机推翻，读的时候按这条校正。**
 > 0 字节的真因不是本文 §6 列的任何一项（体积、residency、驱动活体），而是 **P-215**：
-> UFS 在 `hostBringUp()` 里要 Apps SMMU lease，而锁只在 `pong_wifi_start_optional()`
-> 里分配，后者跑在 UFS 之后 ⇒ lease 永远拿不到 ⇒ UFS 失败 ⇒ `IOKitBSDInit()` 非
-> `KERN_SUCCESS` ⇒ `k60_usblog_start()` 不被调用 ⇒ 主机 0 字节。
+> UFS 在 `hostBringUp()` 里要 Apps SMMU lease，而那个锁在 `pong_rpmh_init()` 之前
+> 就已经被取用（`pong_rpmh_init()` 只由 `pong_wifi_start_optional()` 调用，而它跑在
+> UFS 之后），于是 `pong_smmu_lease_lock()` 返回 false → `transportFailure` →
+> UFS 拿不到根设备 → `IOKitBSDInit()` 非 `KERN_SUCCESS` → `k60_usblog_start()`
+> 不被调用 → 主机 0 字节。
 > 修法 `patches/wifi/0012`（惰性分配）之后：**c3 进桌面**（console 221,429 B、
 > K60DATA 挂载、SpringBoard 132 行），**c4 带 `pong_wifi=1` 也进桌面**并走到驱动
-> stage 4。所以「117 MB 家族全部 silent」只在 P-215 之前成立；P-215 之后 117 MB 内核
+> stage 4，**c5 让 RSC 只读探针成立**（`:489` 读到 drv-2 的 TCS 寄存器，机器照常进桌面）。
+> 所以「117 MB 家族全部 silent」是 **P-215 之前的历史结论**；P-215 之后 117 MB 内核
 > 与驱动链入都不再和启动冲突。§6 的三项从此是「当时的剩余嫌疑」，不是结论。
 
 ---
@@ -96,10 +99,17 @@ PongWifiPci.cpp / PongWifiFirmware.cpp / ath11k/PongAth11k.c），由 patches/wi
 | wifi-20261116mhi3 | 229 / `0076aa20…` | `de2f2c1b…` | 65,978,368 B | **0 B** | 死 |
 | wifi-20261116mhi4 | 229 / `0076aa20…` | `c63cd936…`（4.5 GiB） | 65,978,368 B | **0 B** | 死 |
 | wifi-20261116c3 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,429 B | **进桌面**（P-215 修复后，`pong_wifi=0`） |
-| wifi-20261116c4 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,888 B | **进桌面并跑到驱动 stage 4**（`pong_wifi=1`） |
+| wifi-20261116c4 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,888 B | **进桌面并跑到驱动 stage 4**（`pong_wifi=1`，停在 RSC 门口） |
+| wifi-20261116c5 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,969 B | **进桌面 + RSC 只读探针成立**（`pong_wifi=1 k60_wifi_rsc=1`，`:489` 读到 `id=0x00020700 caps=0x800c8104 tcs4Idle=1 tcs4Status=0`） |
 
 （console 证据：`E:/k60-work/evidence/usblog-20261113-basef2`、`usblog-20261113-basef4`、
-`usblog-20261114-150931`、`usblog-20261115-002804`、`usblog-20261115-002243`。）
+`usblog-20261114-150931`、`usblog-20261115-002804`、`usblog-20261115-002243`、c3 与 c4 见 §6.5、
+c5 见 `usblog-20261116-075300/console.log`。）
+
+c4 与 c5 是**两条不同的轴**，不能合并成一行：c4 证明「驱动能跑起来」（`pong_wifi=1` 第一次
+走完 stage 1–4，然后按设计停在 RSC 门口）；c5 证明「RSC 的 drv-2 窗口可读」——`:489` 的
+`id=0x00020700 caps=0x800c8104 tcs4Idle=0x00000001 tcs4Status=0x00000000` 是第一次拿到
+TCS4 的真实空闲态，读完机器照常进桌面。
 
 （口径：上表的 board.toml sha 与窗口值都是 identity seed 落 main **之前**
 （`3ea8d71`，2026-11-15 14:40）构建的镜像快照。`3ea8d71` 起 `board.toml`

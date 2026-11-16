@@ -28,8 +28,8 @@
 
 | 写法 | 实际位置 | 说明 |
 |---|---|---|
-| `references/...` | `/mnt/e/k60-work/references/...`（Windows: `E:/k60-work/references/...`） | 参考仓库快照。**本仓库树内没有 `references/` 目录**，`research-gate.py` 靠 `alt = os.path.join('/mnt/e/k60-work', path)` 回退才能找到 |
-| `E:/hackios/...` | 主工作区仓库 | 只出现在本文件正文；**不能写进 `SOURCES.toml` 的 `path`**（两种回退都不覆盖，gate 会判文件不存在） |
+| `references/...` | `/mnt/e/k60-work/references/...`（Windows: `E:/k60-work/references/...`） | 参考仓库快照。**本仓库树内没有 `references/` 目录**，`research-gate.py` 用 `REFERENCE_PREFIXES` 的第二项 `/mnt/e/k60-work` 回退才能找到 |
+| `E:/hackios/...` | 主工作区仓库 | 2026-11-17 起 `research-gate.py` 的第三前缀 `/mnt/e/hackios` 已覆盖，可直接写进 `SOURCES.toml` 的 `path`（旧注释说“不能写”已过期） |
 | `docs/...`、`scripts/...` | 本仓库 | 我们自己的树 |
 
 设备页（`docs/devices/*.md`，本索引第 13 节）**不在本仓库**，也不在 `/mnt/e/hackios/UniXNU`：它们在 `references/UniXNU-upstream/docs/devices/`（上游文档树，由各 fork 的 `porting.toml` 生成）。`/mnt/e/hackios/UniXNU` 只有 `devices.toml` 与 `kits/`。
@@ -912,7 +912,7 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 - 本机**没有 dtc**（`command -v dtc` 为空）、**没有 fdtdump**、Python **没有 libfdt**（`import fdt` → ModuleNotFoundError）。
 - `python3` 是 **Windows 侧解释器**：它读不了 `/mnt/e/...`（FileNotFoundError），必须写 `E:/...` 或先 `cd` 到 `/mnt/e` 再用相对路径。
-- **`research-gate.py:34` 仍是 `REPO = '/mnt/e/hackios/UniXNU-mondrian'`**（2026-11-14 在 `origin/main` = `90d8271` 上实测）。在任何 worktree 里跑它，校验的都是主 checkout 的 `SOURCES.toml`（32 条），不是本树追加后的 50 条。本线自检一律用「复制到 scratch、只把 `REPO` 换成本树路径」的副本跑，不动仓库里的脚本（铁则⑧）。
+- **`research-gate.py:34` 仍是 `REPO = '/mnt/e/hackios/UniXNU-mondrian'`**（2026-11-14 在 `origin/main` = `90d8271` 上实测）。在任何 worktree 里跑它，校验的都是主 checkout 的 `SOURCES.toml`（32 条），不是本树追加后的 50 条。本线自检一律用「复制到 scratch、只把 `REPO` 换成本树路径」的副本跑，不动仓库里的脚本（铁则⑧）。**2026-11-17 更新：main 上已改成 `REPO = os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1]`，并按 `<repo>`、`/mnt/e/k60-work`、`/mnt/e/hackios` 三种前缀解析；本段是历史记录。**
 - `check-docs.py:24` 在 `origin/main` 上**已改成自定位**（`REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`），所以在哪棵树跑就读哪棵树。
 - **更正（2026-11-14）**：这里先前写过「`research-gate.py:88` 未传 `verbose`，problems 永不打印」——**这条是错的**，`def check(verbose=True)` 的缺省就是 True（`research-gate.py:38`），problems 会打印。结论撤回，对应补丁也撤回（见第 16 节）。
 - 一次修好全部 9 个脚本、并新增 `scripts/check-repo-paths.py` 防回归的提交是 **`39a783c`**（`fix(scripts): judge the tree a gate lives in, and gate the pattern (P-183)`），它只在 `feat/audio-merge` 上，**没有进 main**。

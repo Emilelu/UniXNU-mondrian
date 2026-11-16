@@ -745,3 +745,11 @@ source = "docs/engineering/PITFALLS.md:P-220"
 statement = "门禁的 fallback 如果只是「取最新的那一份」，就会拿别的分支/别的板的产物来判本树，把「本机没有能代表当前分支的构建」翻译成「你的补丁序列坏了」。fallback 必须能判断结果是否适用于当前对象：补丁名集合不同就不是本对象的证据，应 skip 而不是判红。"
 check = "python3 scripts/tests/test-check-build-applied.py"
 note = "2026-11-16 main 上 check-rules 报「构建应用了 232 个补丁，但 series 列了 227 个」，232 是 bt 线 feat/bt-research 的序列，那条 xnu-inputs.json 属于 bt 的输出树。修法：stamp_path 第二轮只在补丁名集合相同的存根里挑，一份都没有就 skip。"
+
+[[rule]]
+id = "P-221"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-221"
+statement = "扫描器/水位必须存不可变的对象 id 而不是会移动的 ref 名，比对文件必须用 blob id 而不是逐文件取内容；逐文件 `git show` 的扫描在 5,000 文件规模上必然超时，且脏水位会让它每次都重跑全量。"
+check = "python3 scripts/tests/test-pick-upstream-scan.py"
+note = "2026-11-16 pick-upstream.py --plan 连续三次超时（600/900/300 s 全 rc=124、输出恒 0 行）；根因是 discover_branches 把裸 origin 当分支、其 rev-parse 输出字面量 origin/origin 写进 seen 永不命中，叠加逐文件 git show（3 分支 × 5,080 文件 ≈ 15,000 次进程）。改用 blob id 对表 + 过滤裸 origin + 丢弃脏水位后 7.4 s。"

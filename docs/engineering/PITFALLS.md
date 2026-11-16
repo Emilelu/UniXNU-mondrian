@@ -5693,3 +5693,56 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 - Check: `python3 scripts/tests/test-check-build-applied.py`
   （registry `id = "P-220"`）。
+
+## P-221
+
+**上游扫描器逐文件 `git show` + 脏水位，导致每次运行都重跑全量比对（900 s 超时 → 7.4 s）**
+
+### 现象
+
+2026-11-16 09:00 的「上游跟进」定时任务连续三次超时：`pick-upstream.py --plan` 在
+600 s、900 s、300 s（`--no-fetch`）三档下全部 rc=124，输出文件恒为 0 行。看起来像死锁，
+实际上是**性能**：它每次都要为三个「新分支」各比对约 5,080 个文件。
+
+### 两个独立缺陷，叠在一起
+
+1. **`discover_branches()` 把裸 `origin` 当成分支**。它只过滤 `endswith('/HEAD')`，
+   于是 `refs/remotes/origin/` 本身（短名 `origin`）被留下，`git rev-parse origin` 的
+   输出是字面量 `origin/origin`，被写进 seen 水位文件。这个字符串永远不等于任何真实 sha，
+   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/k60-work/.pick-upstream-seen.json`
+   里三条脏记录 `"UniXNU-mondrian/origin": "origin/origin"`、`"UniXNU/origin": "origin/origin"`、
+   `"uefi-mondrian/origin": "origin/origin"`。
+2. **新分支的比对是逐文件子进程**。`collect()` 先 `git ls-tree -r` 拿到路径清单，然后对
+   每个路径 `subprocess.run(['git', 'show', f'{ref}:{path}'])`。三个分支 × 5,080 文件
+   ≈ 15,000 次进程启动，每次都带完整的 git 启动开销。
+
+### 修法
+
+- `discover_branches()`：`if not ref or ref == 'origin' or ref.endswith('/HEAD'): continue`。
+- `load_seen()` 主动丢掉历史脏水位：`{k: v for k, v in raw.items()
+  if not (k.endswith('/origin') or v == 'origin/origin')}`。
+- 新增 `blob_sha(data)`（`sha1(b'blob %d\0' % len(data) + data)`）、`file_blob_sha(path)`、
+  `tree_blobs(d, ref)`（一次 `git ls-tree -r -z`，按 `<mode> SP <type> SP <object> TAB <path>`
+  解析，只收 `fields[1] == b'blob'`，gitlink 因此自动排除）。新分支比对与 `converge()`
+  的第 3 步都改成**blob id 对表**，只有 id 真不同才 `git show` 取内容。
+- 新分支还要先过祖先判定 `is_ancestor(d, ref, 'origin/main')`：yibiya 反复从 main 拉
+  `fix/*` 分支，尖端已在 main 历史里；对这样的分支做「文件收敛」会报 5,000+ 处差异，
+  而实际可 pick 的内容是零。
+
+### 四条教训
+
+1. **「跑不完」先怀疑复杂度，别先怀疑死锁**。三次不同超时档位都是 rc=124、输出恒 0 行，
+   这个形状既像死锁也像 O(n) 子进程；区分办法是数一下「每个输入要几次进程启动」。
+2. **水位/游标里出现字面量 ref 名就是 bug**。水位必须存不可变的对象 id（commit sha、
+   blob id），存 `origin/main` 这种会移动的名字等于永远没有水位。这条与 P-214
+   （两个都叫「series 指纹」的哈希分属不同命名空间）是同一族：**名字相同不等于对象相同**。
+3. **比对文件用 blob id，不要用内容**。`git ls-tree -r` 已经给出了每个文件的 blob sha，
+   本地算 `sha1("blob <len>\0" + data)` 就能对上，零子进程；只有确认不同时才去取内容。
+4. **「新分支」的差异要相对于它的基线算，不是相对于我们的树**。从未见过的分支与我们的
+   设备仓库天然差 5,077 个文件（那些 XNU 头文件我们本来就没有），这个数字不携带任何信息。
+
+- **关联**：P-214（同名不同命名空间）、P-207（门禁只能判本轮产出的物证）、
+  P-189（多个输出树共享机器）、P-220（fallback 不知道 fallback 到的是谁）。
+
+- Check: `python3 scripts/tests/test-pick-upstream-scan.py`
+  （registry `id = "P-221"`）。

@@ -310,6 +310,82 @@ def check_readme_links(verbose=True):
     return bad, 2
 
 
+def _table_cells(line):
+    """Split a Markdown table row on unescaped pipes outside code spans."""
+    cells = []
+    buf = []
+    tick = False
+    esc = False
+    for ch in line.strip():
+        if esc:
+            buf.append(ch)
+            esc = False
+            continue
+        if ch == '\\':
+            buf.append(ch)
+            if not tick:
+                esc = True
+            continue
+        if ch == '`':
+            tick = not tick
+            buf.append(ch)
+            continue
+        if ch == '|' and not tick:
+            cells.append(''.join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    cells.append(''.join(buf))
+    if line.strip().startswith('|'):
+        cells = cells[1:]
+    if line.strip().endswith('|'):
+        cells = cells[:-1]
+    return [c.strip() for c in cells]
+
+
+def check_tables(verbose=True):
+    """Markdown table rows must have the same column count as their header."""
+    problems = []
+    checked = 0
+    docs_dir = os.path.join(REPO, 'docs')
+    for path in sorted(Path(docs_dir).rglob('*.md')):
+        try:
+            lines = path.read_text(encoding='utf-8').splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        checked += 1
+        fence = False
+        table = []
+
+        def flush():
+            if len(table) < 2:
+                return
+            header = len(_table_cells(table[0][1]))
+            for line_no, text in table[1:]:
+                count = len(_table_cells(text))
+                if count != header:
+                    problems.append('%s:%d 表格列数 %d != 表头 %d' % (
+                        path.relative_to(REPO), line_no, count, header))
+
+        for line_no, line in enumerate(lines, 1):
+            if line.strip().startswith('```'):
+                fence = not fence
+                flush()
+                table = []
+                continue
+            if fence:
+                continue
+            if line.strip().startswith('|') and line.strip().endswith('|'):
+                table.append((line_no, line))
+            else:
+                flush()
+                table = []
+        flush()
+    if verbose:
+        print('  检查 %d 个文档的表格列数' % checked)
+    return problems, checked
+
+
 def check_citations(verbose=True):
     """文档里的 repo 路径引用必须存在，带行号的引用不得越界。
 
@@ -342,7 +418,7 @@ def run(verbose=True):
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
                check_root_docs_linked, check_section_order, check_no_hardcoded_sha,
                check_bilingual, check_freshness, check_readme_links,
-               check_citations):
+               check_tables, check_citations):
         p, n = fn(verbose)
         all_problems += p
         total += n

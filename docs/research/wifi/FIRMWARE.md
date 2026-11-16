@@ -151,9 +151,16 @@ QMI 返回的 board_id/chip_id 现场拼文件名（`id==0xff` → `"%s.elf"`；
    偏移 `0x80000` 处 amss20 是 `01c0428522c99891`、amss 是
    `e67f150003fc849d`。所以 `mhi_fw_load_handler()` 里「SBL + WLAN 固件双
    ELF」的探测在 QCA6490 上**永远不成立**，`fw_sz` 保持 5,296,128。
-2. 于是装载被切成 `DIV_ROUND_UP(5296128, 524288) + 1 = 11` 段：10 个 512 KiB
-   段加 1 个 10 项的向量表，c6 日志 `:612` 的 `load type=2 image
-   bytes=524288 vector bytes=5296128` 正是这个形状。
+2. **2026-11-16 15:12 复核更正**：`5296128 = 0x50d000`，
+   `seg_len = 524288 = 0x80000`。`DIV_ROUND_UP(5296128, 524288) = 11`
+   个数据 buffer；再加末尾 vector-table buffer，`image_info->entries = 12`，
+   不是旧文的 11。数据是 10 个满块加最后 `53248 = 0xd000` B；
+   `bhi_vec_entry` 是两个 `__le64`，故 11 个向量项共 `11 × 16 = 176` B。
+   这是 `boot.c:368-441` 按**文件字节**切块，不是 ELF 的 `e_phnum` 或
+   `PT_LOAD` 段数。c6 `:612` 的 `load type=2 image bytes=524288 vector
+   bytes=5296128` 记录的是 BHI 首次载荷和 BHIE 待拷贝文件长度，
+   **没有打印 entries，更不能当作 BHIE 已发生的证据**。没有第二个 ELF 头
+   只表示不剥掉前 512 KiB，不表示 FBC 不受支持。
 
 **教训**：解析二进制头之前先读 `e_ident[EI_CLASS]`，再决定用 ELF32 还是
 ELF64 的 `e_phoff`/`e_phentsize` 布局。用错布局不会报错，只会得到一堆

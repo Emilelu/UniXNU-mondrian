@@ -1,183 +1,156 @@
-# MSI topology: three interrupt routes from PCIe0, and the one the driver takes
+# MSI topology: configured routes and the limits of c7 evidence
 
-Written 2026-11-16. Scope: how a QCA6490 message-signalled interrupt reaches the
-CPU on mondrian, which route the Pong driver actually uses, and what the device
-tree says about the routes it does not use. This note exists because c6 armed an
-MSI receiver and then waited 20 s for an event that never came
-(`usblog-20261116-081646`), so "is the interrupt path right" has to be answerable
-from the tree and the code rather than guessed from a silent console. c7
-(`usblog-20261116-122546`) then instrumented both ends of the route and showed
-that it has not carried a single interrupt yet, which is the reading this note
-now records in §3.
+Written 2026-11-16; corrected after Lead's 15:12/15:18 review. This note
+separates what the host programs, what the live DT describes, and what the
+console actually observed. c8 is held; this review changes no interrupt code,
+MSI address or INTID.
 
 ## 0. Conclusion first
 
-| question | answer |
+| question | evidence-bounded answer |
 |---|---|
-| Which route does the driver use? | The **DesignWare legacy** route: PARF `MSI0` (`1u << 23`) translates the endpoint MSI write into **GIC SPI 140 = INTID 172**. No ITS, no LPI. |
-| Does the device tree describe another route? | Yes: `/soc/qcom,pcie@1c00000` carries `msi-map` pointing at the **ITS** (`msi-controller@17140000`, phandle `0x237`), event bases `0x5980`/`0x5981`. Linux follows that one. |
-| Is there a third node? | `/soc/qcom,pcie0_msi@0x17110040` owns 32 SPIs (768..799) and is `status = "disabled"`. Nothing in this tree uses it. |
-| Why legacy rather than ITS? | Because the ITS route needs a driver this kernel does not have, and the legacy route needs one GIC SPI that `ArmCpu` already dispatches. Legacy is the only route that **exists** today, not the route that is **known to be right** — §4 states the three sources and the two known risks. |
-| What does it cost? | One shared INTID for all 32 vectors: the handler reads `MsiStatus` and clears it, and cannot tell which vector fired. Acceptable for bring-up; a per-vector route needs ITS. |
-| Has the route carried an interrupt yet? | **No.** c7 counted zero entries in `PongWifiPlatform::irq()` and zero advances of the MHI event ring. READY was reached by polling `MHISTATUS`, not by an interrupt, so nothing so far proves the route delivers anything. See §3. |
+| What does the current driver configure? | DesignWare MSI reception and PARF group 0, with a direct GIC **SPI 140 = architectural INTID 172** handler. This is the intended route, not a proven end-to-end route. |
+| What other route does DT describe? | PCIe0 `msi-map` targets ITS phandle `0x237`; its MSI cells are DeviceIDs `0x5980`/`0x5981`, **not** EventIDs or LPI INTIDs. |
+| Is there another SPI block? | `/soc/qcom,pcie0_msi@0x17110040` declares SPIs 768..799 but is disabled. |
+| Why choose legacy? | This XNU tree has a direct-SPI dispatcher, but no ITS driver/LPI management. Legacy was the implementable bring-up choice, not a correctness proof. |
+| Did c7 prove an interrupt arrived? | No GIC-entry or nonzero-MSI-status message was observed in this capture. The MHI handler invocation is shim-replayed and is not hardware interrupt evidence. |
+| Did c7 prove the device never sent MSI? | **No.** An absent log is not a trace of the device's writes, and does not establish an SBL protocol rule. |
 
 ## 1. The three routes
 
-### 1.1 Legacy: PARF MSI0 to SPI 140 (used)
+### 1.1 Current host configuration: DesignWare/PARF and SPI 140
 
-| step | evidence |
+Source locations refer to [PongWifiPlatform.cpp](../../../drivers/PongWifi/PongWifiPlatform.cpp)
+in the c8 source revision `dd3154a`:
+
+| host operation | source |
 |---|---|
-| Endpoint writes to the MSI target address the host programmed | `PongWifiPlatform.cpp:560` `msiTarget()` returns `Iova + 0x40`; `:680` programs `MsiAddressLo/Hi` with the same value |
-| The DesignWare core raises its internal MSI line | `PongWifiPlatform.cpp:42` `MsiEnable=0x828, MsiMask=0x82c, MsiStatus=0x830`; `:684` unmasks and enables after the GIC handler is attached |
-| PARF maps that line onto MSI group 0 | `PongWifiPlatform.cpp:43` `ParfMsi0 = 1u << 23`; `:681` and `:684` set it in `PARF + 0x228` and clear the mask in `PARF + 0x22c` |
-| The GIC sees SPI 140, INTID 172 | `PongWifiPlatform.cpp:43` `PcieGlobalIntid = 32 + 140`; live FDT `interrupt-map` first entry decodes to `0x8c = 140`, type `0x04` (level-high) |
-| The kernel owns that SPI | `PongWifiPlatform.cpp:683` `armcpu_spi_attach(PcieGlobalIntid, ...)`; `ArmCpu.cpp:423` is the entry, `ArmCpu.cpp:403` panics on `unowned SPI` |
+| Return target `Iova + 0x40 = 0xa0000040`, data 0 | `drivers/PongWifi/PongWifiPlatform.cpp:41,560`, `msiTarget()` |
+| Program DesignWare address registers `0x820/0x824`; status/mask/enable `0x830/0x82c/0x828` | `drivers/PongWifi/PongWifiPlatform.cpp:42,679-684` |
+| Program PARF `+0x228` and `+0x22c` with the `ParfMsi0 = 1u << 23` sequence | `drivers/PongWifi/PongWifiPlatform.cpp:43,681-684` |
+| Register `armcpu_spi_attach(32 + 140, false, irq, ...)` | `drivers/PongWifi/PongWifiPlatform.cpp:683` |
 
-### 1.2 ITS: `msi-map` to `msi-controller@17140000` (not used)
+[ArmCpu.cpp](../../../drivers/ArmCpu/ArmCpu.cpp):423-460 assigns an owner and
+programs GICD group, priority, trigger, affinity and enable using the
+**architectural INTID 172**, not bit 140. Its dispatch at
+`drivers/ArmCpu/ArmCpu.cpp:381-421` masks the SPI around the callback and panics
+on an unowned SPI. Successful attach and the `receiver armed` print show that
+registration returned success; they do not prove an endpoint write arrived.
 
-Live FDT: `/soc/qcom,pcie@1c00000` `msi-map = <0x00 0x237 0x5980 0x01 0x100 0x237 0x5981 0x01>`.
+### 1.2 DT route: RequesterID to ITS DeviceID
 
-Reading it the way `Documentation/devicetree/bindings/pci/pci-msi.txt` says:
-four-cell tuples of (PCI RID, MSI controller phandle, ITS DeviceID, number of
-events). So RID `0x00` and RID `0x100` are both mapped to ITS `0x237`, with
-event-ID bases `0x5980` and `0x5981`. `0x5980 = 22912`, and because a GIC-v3
-LPI number is `8192 + eventid`, the Linux route would land at INTIDs
-`31104+` — nothing like 172. That difference is the tell: the two routes cannot
-be confused, and `0x5980` is not a SPI.
+Live DT PCIe0 `msi-map`:
 
-The controller node: `/soc/interrupt-controller@17100000` is `arm,gic-v3`, and
-its child `msi-controller@17140000` (phandle `0x237`, alias `gic_its`) is the
-ITS. Using this route would require ITS support, LPI configuration tables in
-memory, and `msi-map` parsing in the kernel — none of which this port has.
+`<0x00 0x237 0x5980 0x01 0x100 0x237 0x5981 0x01>`.
 
-**The phone kernel takes this route.** `/proc/interrupts` captured from
-Android on this device lists ITS-MSI 524289..524306 (32 vectors) for `mhi`,
-`pci0_wlan_ce_*` and `pci0_wlan_grp_dp_*` (`interrupts.txt` and
-`msi_irqs.txt` in the reference collection, summarised in
-`GAP-ANALYSIS.md` §2.4). So the hardware and the vendor software both work
-through the ITS; the legacy PARF route is a *porting shortcut*, chosen because
-it needs one SPI and no ITS driver. That distinction matters when reading a
-failure: a route that Linux never uses is not automatically wrong, but it is
-unproven on this silicon, and c7 shows it has not carried anything yet.
+The [PCI MSI binding](https://raw.githubusercontent.com/torvalds/linux/v6.12/Documentation/devicetree/bindings/pci/pci-msi.txt)
+defines each tuple as `(rid-base, controller, msi-base, length)`. The final
+cell counts **consecutive RIDs**, not events. The
+[GICv3 ITS binding](https://raw.githubusercontent.com/torvalds/linux/v6.12/Documentation/devicetree/bindings/interrupt-controller/arm,gic-v3.yaml)
+defines its single MSI cell as the **DeviceID**. Thus these tuples map RID
+`0x00` to DeviceID `0x5980` and RID `0x100` to DeviceID `0x5981` on ITS `0x237`.
+They do not identify an EventID, and do not yield `8192 + 0x5980` as an LPI.
+The previous `31104+` claim was wrong: ITS maps (DeviceID, EventID) to a
+separately allocated LPI through its translation tables.
 
-### 1.3 The disabled 32-SPI block (not used, not needed)
+The live controller node is `arm,gic-v3-its` at control base `0x17140000`,
+phandle `0x237`. Android's captured `/proc/interrupts` has ITS-MSI labels
+524289..524306 for MHI/CE/DP, as recorded in
+[GAP-ANALYSIS.md §2.4](GAP-ANALYSIS.md).
+Those displayed numbers are not a reason to infer EventID or LPI allocation
+from the DT DeviceID. The allocation log says 32 MSI vectors; the displayed
+range alone is not a count of all allocated vectors.
+
+### 1.3 Disabled 32-SPI block
 
 `/soc/qcom,pcie0_msi@0x17110040` declares 32 SPIs starting at 768 and is
-`status = "disabled"` in the live tree. It is the "one SPI per vector" fallback
-for a GIC without ITS. Since we take the PARF route and Linux takes the ITS
-route, nothing selects it; it is listed here only so a future reader does not
-mistake the 768..799 block for the route in use.
+`status = "disabled"` in the captured live tree. It is neither the current
+direct-SPI configuration nor evidence of the ITS translation actually used.
 
-## 2. What the driver can and cannot see on the legacy route
+## 2. Which observations distinguish hardware delivery from shim replay?
 
-- All 32 vectors share INTID 172. `irq()` (`PongWifiPlatform.cpp:645`) reads
-  `MsiStatus`, writes it back to clear, and increments a counter. It cannot say
-  which vector fired; ath11k per-vector handlers are driven by the MHI and CE
-  rings, not by the interrupt identity.
-- `MsiStatus == 0` on entry is therefore normal: it means "this GIC interrupt
-  was for us, but by the time we looked the aggregator had nothing pending".
-  c7 added a separate entry counter (`msiEntries`, `PongWifiPlatform.cpp:566`,
-  exactly because c6 could not tell that case apart from "the MSI never reached
-  the GIC at all". In c7 **both** counters read zero, so the ambiguity is gone:
-  the handler never ran.
-- After 64 consecutive empty entries the driver disables the MSI and clears the
-  PARF bit (`PongWifiPlatform.cpp:655`), so a wedged route fails loudly rather
-  than spinning.
-- The MHI-level `Pong MHI: irq entered` line is **not** MSI evidence. The
-  compatibility shim raises all 64 shim IRQs on every pump
-  (`PongAth11k.c:83` `lx_irq_raise_all(); lx_pump();`), and inside the runtime
-  that call is unconditional: `lx_rt_pong.c:597` `lx_irq_raise_all()` sets
-  `g_irq[i].pending = 1` for every registered line, `lx_rt_pong.c:355` calls it
-  from `lx_pump()` once per millisecond while `g_irq_polling` is on, and
-  `lx_rt_pong.c:32` initialises `g_irq_polling = 1`. So the MHI handler runs
-  whether or not a real interrupt arrived, and "the handler was called" can
-  never stand in for "the hardware raised an interrupt" on this shim. Only the
-  `QCA6490 MSI entered the GIC handler` line, which is driven by
-  `PongWifiPlatform::irq()` itself, proves the GIC delivered something — and in
-  c7 it printed zero times.
+- `PongWifiPlatform::irq()` increments `msiEntries` on entry and
+  `msiArrivals` only when DBI `MsiStatus` is nonzero
+  (`drivers/PongWifi/PongWifiPlatform.cpp:642-657`). A GIC-entry message would
+  establish callback delivery; nonzero status would additionally establish
+  observed pending MSI bits. Neither alone validates all vectors or MHI DMA.
+- A zero status on entry is an **empty/spurious or already-cleared status
+  observation**, not automatically normal or proof of a valid MSI. The existing
+  code disables reception after 64 consecutive empty callbacks. This review
+  does not endorse its interrupt-context logging or modify it.
+- `Pong MHI: irq entered` proves only that the software handler was called.
+  [PongAth11k.c](../../../drivers/PongWifi/ath11k/PongAth11k.c):83 calls
+  `lx_irq_raise_all(); lx_pump();`. In the generated runtime
+  `/opt/k60/trees/k60build/wifi/ath11k-c8/lx_rt_pong.c:597` sets every registered
+  line pending; `lx_rt_pong.c:355` repeats that once per millisecond while
+  `g_irq_polling` is enabled, initially 1 at `lx_rt_pong.c:32`. This can
+  dispatch MHI events without any observed GIC delivery.
+- c7's capture contains neither the GIC-entry message nor a nonzero-status
+  delivery message. No terminal dump of the numeric counters was emitted on
+  the failed bring-up path. Therefore write **entry not observed in this
+  capture**, not measured zero counters or proof that SBL cannot send MSI.
 
-## 3. Evidence from the flights
+## 3. What the flights establish
 
-| cell | line | reading |
-|---|---|---|
-| c5 (`usblog-20261116-075300`) | `:589` `DesignWare MSI receiver armed on Pong PCIe0 SPI140` | `armcpu_spi_attach` returned success; the SPI has an owner, so the `ArmCpu.cpp:403` panic path was not taken, and `GICD_ISENABLER` bit 140 is set |
-| c6 (`usblog-20261116-081646`) | `:592` `ath11k: MSI vectors: 32` | the endpoint accepted the vector count the host programmed |
-| c6 | `:586` `64MiB wired DMA mapped from 16384 spans` | the target address written into `MsiAddressLo/Hi` is inside a live DMA mapping |
-| c6 | `:620` `Pong MHI: device in READY state` then `:624` `failed to power up mhi: -110` | the host reached READY; what did not arrive is the EE event that follows |
-| c7 (`usblog-20261116-122546`) | `MSI entered the GIC handler` 0 times, `MsiStatus 0` 0 times | the handler was never entered, so the GIC raised nothing on INTID 172 |
-| c7 | `:608` `Pong MHI: irq entered er_index=0 dev rp=0xa0001a00 host rp=0xfffffff9bb055a00`, then `:610`/`:612`/`:620` `found no new events` | the event ring read pointer never moved: the device wrote nothing into it for the whole 20 s |
-| c7 | `:632` `timeout after 20000 ms ee=0 pm_state=2 exec_env=1 mhi_state=1 MHISTATUS=0x101 MHICTRL=0x200` | decoded with `common.h:111-115`: `MHISTATUS` says MHISTATE=1 READY, READY bit set, SYSERR clear; `MHICTRL` says the host already asked for M0. The device sits in READY, never raises the EE event, and reports `BHI_EXECENV = 1` (SBL) |
+Console: `E:/k60-work/evidence/usblog-20261116-122546/console.log`.
 
-The last three rows correct what an earlier revision of this note claimed. c6
-was read as "the route delivered the READY handshake"; it did not. READY is
-read by polling `MHISTATUS_READY_MASK` (`pm.c:186-198`
-`mhi_poll_reg_field`, 25 ms interval), so it needs no interrupt at all, and the
-event ring read pointer in c7 never moved off the wrap value the host itself
-wrote (`pm.c` sets `*ring->ctxt_wp` to `base + len - el_size` and rings the ER
-doorbell). Nothing in c5, c6 or c7 shows a single interrupt reaching the CPU.
+| observation | supported reading |
+|---|---|
+| c5/c7 `DesignWare MSI receiver armed on Pong PCIe0 SPI140` | attach returned success; not an interrupt-arrival test |
+| c6 `ath11k: MSI vectors: 32` | host MSI allocation reported 32; not device delivery |
+| c7: no `MSI entered the GIC handler` / `MSI delivered` message | no corresponding delivery observed in this capture |
+| c7:608 `irq entered er_index=0 dev rp=0xa0001a00 host rp=0xfffffff9bb055a00`; :610/:612/:620 `found no new events` | host-visible event ring appears empty on these samples; shim replay explains invocation |
+| c7:632 `ee=0 pm_state=2 exec_env=1 mhi_state=1 MHISTATUS=0x101 MHICTRL=0x200` | at timeout: cached EE=PBL, software PM=**POR** (BIT(1)); hardware EE=SBL, hardware state=READY, SYSERR clear; host requests M0 |
 
-## 4. Why PARF legacy rather than ITS
+READY is polled at `drivers/bus/mhi/host/pm.c:186-198`, so it proves no
+interrupt. Event-context `rp` is initially written by the host to the ring
+base (`drivers/bus/mhi/host/init.c:391-395`); READY changes `wp` to the last
+element, not `rp` (`drivers/bus/mhi/host/pm.c:239-246`). An unchanged host
+read is not independent proof that the device fetched or updated any context.
+See [MHI-STATE-MACHINE.md](MHI-STATE-MACHINE.md) for the remaining hypotheses.
 
-Three sources, in the order that decides the question.
+## 4. Why PARF legacy rather than ITS — and what is still unknown
 
-**① The device tree offers both routes, and they are distinguishable.** The
-legacy route is the `interrupt-map` first entry of `/soc/qcom,pcie@1c00000`:
-`<0x00 0x00 0x00 0x00 0x01 0x00 0x8c 0x04>` → parent `0x01` (the GIC), IRQ
-`0x8c = 140`, type `0x04` (level-high), i.e. INTID 172. The ITS route is the
-`msi-map` on the same node, `<0x00 0x237 0x5980 0x01 0x100 0x237 0x5981 0x01>`
-→ phandle `0x237` = `msi-controller@17140000` (`gic_its`), event bases `0x5980`
-and `0x5981`, which as LPIs are INTIDs `31104+`. Two different address spaces;
-picking one is a decision, not an accident.
+Three sources support the implementation choice, not a root-cause verdict:
 
-**② This kernel has no ITS or LPI support at all.** Measured on the tree this
-build compiles (repository excluding `docs/` and `.git`, and the XNU work tree):
-`GITS_`, `GITS_TRANSLATER`, `gic_its`, `lpi_` and `LPI` each match **zero
-files**. The only `ITS` hits are licence boilerplate (`LICENSE` files, `DiagFont.h`) and three
-comments (`PongWifiPci.cpp:10`, `PongWifiPlatform.cpp:450-452`,
-`PongWifi/README.md:22`). What the tree does have is
-a direct SPI path: `ArmCpu.cpp:423` `armcpu_spi_attach(intid, edge, handler,
-context, readback, router)` writes `GICD_IGROUPR`, `GICD_IPRIORITYR`,
-`GICD_ICFGR`, `GICD_IROUTER` and `GICD_ISENABLER` for one INTID and registers a
-handler in the four-slot `gSpi[]` table; `ArmCpu.cpp:381-421` dispatches by
-INTID and panics on an unowned SPI. `PongAdrenoCp.cpp:388` uses the same call
-for SPI 332. The comment at `PongWifiPlatform.cpp:452` states the choice
-plainly: "Pong root interrupt map routes int_global_int to SPI140. Use the
-DesignWare MSI receiver already implemented in this core; GIC MBIS and an
-unimplemented ITS command queue are not prerequisites for this path."
+1. Live PCIe0 `interrupt-map` begins
+   `<0x00 0x00 0x00 0x00 0x01 0x00 0x8c 0x04>`, describing parent GIC
+   `0x01`, SPI `0x8c = 140`, level-high; DT also describes the ITS route
+   in §1.2. Neither DT tuple demonstrates working legacy MSI aggregation.
+2. The c7/c8 XNU source survey found no ITS/LPI implementation (`GITS_`,
+   `GITS_TRANSLATER`, `gic_its`, `lpi_`, `LPI`: zero files in the
+   surveyed kernel/driver source, excluding documentation). The direct SPI
+   API exists; [PongAdrenoCp.cpp](../../../drivers/PongAdreno/PongAdrenoCp.cpp):388
+   also uses `armcpu_spi_attach` for INTID 332.
+3. An ITS path needs command queues, DeviceID/EventID translation and LPI
+   property/pending tables. Legacy reuses existing code. That explains the
+   bring-up shortcut, but does not prove the endpoint, DesignWare and PARF
+   combination works on K60.
 
-**③ So legacy is the only route that exists, not the route proven right.** The
-honest statement is: the ITS route would need an ITS driver, LPI property and
-pending tables, and `msi-map` parsing, none of which exist here; the legacy
-route needs one SPI and one PARF bit, both of which exist. Choosing it is a
-sequencing decision — bring the endpoint up on the path that compiles today —
-and it carries two known risks, both of which look exactly like silence:
+**ITS address/data correction.** The actual pinned Linux header
+`include/linux/irqchip/arm-gic-v3.h:380` defines
+`GITS_TRANSLATER = 0x10040`. If the ITS control base is `0x17140000`, its
+untranslated physical TRANSLATER address is therefore **`0x17150040`**,
+not `0x17140040`. The
+[Linux ITS driver](https://raw.githubusercontent.com/torvalds/linux/v6.12/drivers/irqchip/irq-gic-v3-its.c)
+`its_irq_get_msi_base()` adds this offset; `its_irq_compose_msi_msg()` puts
+`its_get_event_id(d)` in MSI **data**, then permits IOMMU MSI-address
+translation. DeviceID is associated with the requester/DT mapping, not put in
+data. A physical calculation is not evidence of the endpoint-visible address
+or the actual vendor routing on this phone.
 
-- **Risk A — the endpoint may not write where we point it.** We program the
-  endpoint MSI capability (`nw_pci.c:31-46`, `cfg_write(msi_cap + 4, lo)` with
-  `lo = 0xa0000040`) and map `0xa0000040` through the SMMU to a retained landing
-  page (`PongWifiPlatform.cpp:41` Iova, `:448-527` isolation, `:454` msiPage,
-  `:464` `ranges[0]`). If the QCA6490 firmware raises interrupts only through
-  the ITS doorbell (`GITS_TRANSLATER`,
-  `0x17140000 + 0x40 = 0x17140040`, device ID as data), nothing ever writes to
-  `0xa0000040`, `MsiStatus` reads 0 forever, and the console is identical to
-  "the MSI never reached the GIC".
-- **Risk B — the write may not be claimed or routed.** Even if the endpoint
-  writes, the DesignWare core has to claim it (a match against `MSI_ADDR_L/H`,
-  `0x820`/`0x824`) and PARF has to map it onto MSI group 0 (`PARF + 0x228` bit
-  `1u << 23` set, `PARF + 0x22c` mask clear). We program all of those, but no
-  flight proves any of them took effect: an unclaimed write simply lands in the
-  SMMU-mapped landing page and raises no interrupt, which is again silence.
+The endpoint is currently programmed with `0xa0000040`, within a retained
+SMMU-mapped landing page (`drivers/PongWifi/PongWifiPlatform.cpp:448-527`).
+Whether its MSI writes reach the intended receiver, whether the receiver
+claims them, and whether PARF/GIC forwards them remain unverified. The old
+claim “firmware only recognises ITS at base+0x40 with DeviceID as data” is
+withdrawn: both address/data were wrong, and no evidence established that
+firmware restriction. Likewise, an unclaimed write is not proven to land in
+RAM; the platform routing and SMMU treatment must be established, not assumed.
 
-These two risks are why c7 counts entries at the GIC handler instead of
-trusting `MsiStatus`, and why the next step on a silent route is to read back
-the three enable points (`PARF + 0x228`, DBI `MsiEnable`, the GIC line
-`armcpu_spi_attach` returned) before touching the INTID.
+## 5. Review boundary
 
-## 5. If the route ever has to change
-
-Moving to ITS would mean: parse `msi-map`, allocate and program LPI
-properties, keep a per-vector handler table, and give up the single-INTID
-simplicity that makes `armcpu_spi_attach` enough today. Nothing in the current
-failure points there yet — the failure is upstream of the route, in whether the
-endpoint writes at all. The legacy route stays until something proves it cannot
-carry the traffic.
+c7 remains useful register/console evidence. It does not locate the fault
+upstream or downstream of the interrupt route. DMA visibility, doorbells,
+device M0 transition and shim scheduling are still candidates. No ITS driver,
+MSI target or INTID change is authorised by this review; c8 remains held.

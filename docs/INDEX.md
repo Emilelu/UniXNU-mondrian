@@ -87,8 +87,8 @@ docs/
 | `wifi/BLOB-RESIDENCY.md` | **11.19 MB 固件 blob 与装载边界**：最窄余量 1.14×（117 MB 镜像 vs `ReadFile` 128 MB），可证伪判断、五格判别矩阵、全家族实测段表与 `z0` 上机判决（silent） |
 | `wifi/BOOT-DEATH-SUSPECT.md` | **WiFi ⑧ 死因账本**：mhi3/mhi4 静默前无任何内核输出的证据、过期内核混淆项、四个嫌疑（__TEXT 11.2 MB 固件 blob / 窗口算术 / 退役 touch 探针 / `pong_wifi=1`）与逐个反证方法 |
 | `wifi/T2-PATCH.md` | **WiFi T2 备胎补丁**：把 11.19 MB PWF2 容器从 `__TEXT,__const` 挪到 `__DATA,__const` 的一行 diff（已验证可正反向 apply）、t2 构建配方、飞行前三项离线校验 |
-| `wifi/MSI-TOPOLOGY.md` | **WiFi 中断拓扑**：PCIe0 的三条 MSI 路径（PARF `MSI0`→SPI140/INTID172 实走、DT `msi-map` 指向 ITS 的 `0x5980`/`0x5981`、`pcie0_msi` 32 条 SPI 768..799 已 disabled）、为什么选 legacy、单 INTID 能看见与看不见什么、c5/c6 飞行证据 |
-| `wifi/MHI-STATE-MACHINE.md` | **MHI 状态机**：主机从 PBL→READY 的完整调用链、设备停在 READY 报 SBL 而主机等一个永远不来的 EE 事件、两者互等的死锁环、寄存器解码（`MHISTATUS=0x101`/`MHICTRL=0x200`/`BHI_EXECENV=1`）、c8 的一个分支与四种判据 |
+| `wifi/MSI-TOPOLOGY.md` | **WiFi 中断拓扑**：主机配置的 PARF→SPI140/INTID172 与未证实的端到端路由、DT 的 RID→ITS DeviceID 映射、TRANSLATER `+0x10040`/EventID data 更正、c7 中断证据边界 |
+| `wifi/MHI-STATE-MACHINE.md` | **MHI 离线复核**：c7 超时样本与 POR 位掩码、rp 初值不证明设备 DMA、11 数据块＋1 向量表、c8 新路径的延后重复 AMSS/错误继续风险与保持暂停的理由 |
 | `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |

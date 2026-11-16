@@ -97,7 +97,7 @@ PAS/SMC/SMEM/lease；失败即 -63。其他任何路径仍按原 HR-01 禁止。
 ## 6. 2026-11-17 真机结果
 
 - 镜像：`E:/k60-work/artifacts/adsp-board-20261116/route-a/boot.img`，201,887,744 B，
-  sha256 `6aa9107c30cab42bf4fd1a8555f5d622774eeb242fd79606ca2bec36226061f1`（最终清理源码重建）。
+  sha256 `6aa9107c30cab42bf4fd1a8555f5d622774eeb242fd79606ca2bec36226061f1`（最终清理源码重建，源码提交 `f80c2e63`）。
 - 日志：`E:/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log`，
   225,977 B / 3,399 行，boot capture exit 0。
 - 行 189：`K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15`。

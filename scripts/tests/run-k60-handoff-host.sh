@@ -26,7 +26,13 @@ OWNER_SOURCES=(drivers/PongPower/K60AdspOwner.c drivers/PongPower/K60AdspOwnerSt
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-owner.c "${OWNER_SOURCES[@]}" -o "$OUT/owner"
 "$OUT/owner"
 for stage in claim prepare auth build publish; do
-  cc "${CFLAGS[@]}" "scripts/tests/test-k60-owner-$stage.c" "${OWNER_SOURCES[@]}" -o "$OUT/owner-$stage"
+  CLAIM_SOURCES=()
+  if [ "$stage" = claim ]; then
+    CLAIM_SOURCES=(drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60AdspStartup.c
+      -Wl,--wrap=k60_smem_alloc)
+  fi
+  cc "${CFLAGS[@]}" "scripts/tests/test-k60-owner-$stage.c" "${OWNER_SOURCES[@]}" \
+    "${CLAIM_SOURCES[@]}" -o "$OUT/owner-$stage"
   "$OUT/owner-$stage"
 done
 mkdir -p "$OUT/carrier"
@@ -61,8 +67,9 @@ cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60Ads
 "$OUT/startup" 1
 "$OUT/startup" 2
 # Board ownership links ONLY the board, SMEM and startup arbitration. The rail
-# driver is absent on purpose: resources() is a declaration and must not call
-# into it, so a dependency would fail the link instead of the test (P-223). The
+# driver is absent on purpose: resources() must refuse unverified rails without
+# calling a probe, so a dependency fails the link (P-223). The real board refusal
+# also runs through production owner acquire above, with direct alloc counting. The
 # PAS transport is absent for the same reason: "no monitor call" is a
 # link-time fact here.
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c \

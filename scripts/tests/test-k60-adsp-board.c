@@ -17,9 +17,9 @@
  *   6 after the install gate accepts this table, available() is exactly 1
  *   7 the negative SMP2P evidence cases that stop a corrupt item from ever
  *     being read as "stopped";
- *   8 resources() declares the two inherited rails without reading anything,
- *     and still requires the lease before it does. The three-state read-back
- *     belongs to k60_rail_inherit(), before AUTH_AND_RESET (P-223). */
+ *   8 resources() refuses unverified handoff rails without setting ResourcesHeld.
+ *     test-k60-owner-claim.c also runs this real callback through the production
+ *     owner engine and counts downstream mutations (P-223). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -239,11 +239,10 @@ static void scenario_stopped_survives_release(Fixture *f)
     CHECK(f->flags_seen == K60_ADSP_BOARD_MAP_FLAGS);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
-    /* Retention cannot be created (HR-01): resources() only declares the rails
-     * it inherits. The owner engine releases resources before the exclusion, so
-     * exercise exactly that order. */
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
-    CHECK(f->board.resources == 1);
+    /* Unverified retention must not become ResourcesHeld (HR-01/P-223).
+     * Release after refusal must be harmless. */
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    CHECK(f->board.resources == 0);
     f->board.ownership.resources_release(&f->board, cookie);
     CHECK(!f->board.resources);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
@@ -302,7 +301,7 @@ static void scenario_live_without_resources(Fixture *f)
     CHECK(!f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie));
     CHECK(f->board.resources == 0);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
     f->board.ownership.resources_release(&f->board, cookie);
     CHECK(!f->board.resources);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
@@ -418,10 +417,9 @@ static void scenario_install_turns_available_on(void)
     CHECK(epoch != 0 && cookie != NULL);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
-    /* resources() is a declaration: it succeeds once the lease and the
-     * exclusion are real, and it reads nothing here (P-223). */
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
-    CHECK(f->board.resources == 1);
+    /* Installation is not verified retention and cannot authorize mutation. */
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    CHECK(f->board.resources == 0);
     f->board.ownership.resources_release(&f->board, cookie);
     CHECK(!f->board.resources);
     f->board.ownership.exclusive_release(&f->board, cookie);
@@ -474,26 +472,24 @@ static void scenario_stopped_needs_evidence(Fixture *f)
     (void)f;
 }
 
-/* 8. resources() is a declaration, not a probe: it must answer yes with no
- *    measurement at all, because the registers are unreadable at this point in
- *    boot (HR-01). The lease is still the only authority. */
-static void scenario_resources_declares(void)
+/* 8. A lease and a stopped DSP are not verified power evidence. Refuse without
+ *    reading the rails or marking resources held (HR-01/P-223). */
+static void scenario_resources_refuses(void)
 {
     Fixture *f = malloc(sizeof *f);
     uint32_t epoch = 0;
     void *cookie = NULL;
 
     CHECK(f != NULL);
-    start("resources declares the inherited rails without reading them");
+    start("resources refuses unverified handoff rails without a probe");
     build(f, 1, 0, 0);
     CHECK(f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie) == K60BoardOk);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
-    CHECK(f->board.resources == 1 && f->board.last_rc == K60BoardOk);
-    /* The declaration is still gated by the lease: a stale cookie inherits
-     * nothing, and a declaration is not a measurement to be undone. */
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    CHECK(f->board.resources == 0 && f->board.last_rc == K60BoardUnsupported);
+    /* A stale cookie still fails before the rail refusal. */
     CHECK(f->board.ownership.resources(&f->board, NULL) == K60BoardNoLease);
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
     f->board.ownership.resources_release(&f->board, cookie);
     CHECK(f->board.resources == 0);
     f->board.ownership.exclusive_release(&f->board, cookie);
@@ -512,7 +508,7 @@ int main(void)
     scenario_live_without_resources(&base);
     scenario_stopped_needs_evidence(&base);
     scenario_install_turns_available_on();
-    scenario_resources_declares();
+    scenario_resources_refuses();
     /* The report line is a diagnostic, not a proof: it must not crash. */
     k60_adsp_board_report(&base.board);
     printf("TESTS OK board-ownership: %u scenarios\n", cases);

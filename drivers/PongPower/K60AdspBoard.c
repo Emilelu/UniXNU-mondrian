@@ -9,13 +9,11 @@
  *              never maps, reads or calls the monitor.
  *   exclusive  read-only SMEM window + partition proof, the early-owner startup
  *              CAS, and one fresh nonzero epoch. Any failure rolls back inside.
- *   resources  lease + exclusion + an independent stopped proof, then declares
- *              the two rails the device tree's cx-supply/mx-supply name. It does
- *              not read them: this callback runs inside IOKitBSDInit, before
- *              Data mount, where HR-01 forbids touching the RSC at all, and a
- *              check that can never read would be an always-false gate (P-223).
- *              The read-back and its three-state verdict live in
- *              k60_adsp_bring_up()'s first step (K60PmicRail.c).
+ *   resources  lease + exclusion + an independent stopped proof, then refuses:
+ *              rails are not verified for handoff. This callback precedes Data
+ *              mount and every owner SMEM/PAS mutation. A declaration is not
+ *              ResourcesHeld; the legacy bring_up gate is not on this path
+ *              and cannot authorize it (P-223). No RSC read or vote occurs.
  *   stopped    the inbound SMP2P item, read only.
  *   live       the retained token only; never the resource flag.
  *   scm_lock   one kernel-global, non-reentrant lock for every SCM client.
@@ -248,17 +246,13 @@ static int resources_cb(void *ctx, void *cookie)
     const int state = stopped_state(b);
     if (state < 0) { poison(b); return K60BoardNotStopped; }
     if (state != 1) return K60BoardNotStopped;
-    /* HR-01: retaining power/XO/interconnect means writing an RPMh TCS, and
-     * that is forbidden with no exception, so XNU never votes: it inherits the
-     * warm boot's vote. What it can honestly say here is only which rails it
-     * inherits, because the registers are off limits at this point in boot.
-     * Declaring is not proving; the proof is the read-back in
-     * k60_rail_inherit(), before AUTH_AND_RESET. */
-    printf("K60ADSP: rails declared lcx=lcx.lvl lmx=lmx.lvl (inherited, not "
-        "yet read)\n");
-    b->resources = 1;
-    b->last_rc = K60BoardOk;
-    return K60BoardOk;
+    /* HR-01 forbids an RSC read here, before Data mount, and all TCS writes.
+     * Returning success would immediately become ResourcesHeld and authorize
+     * SMEM allocation, INIT_IMAGE, MEM_SETUP and physical copy before AUTH.
+     * The legacy bring_up check does not protect this handoff owner path. */
+    printf("K60ADSP: rails not verified for handoff; no PAS/SMEM mutation\n");
+    b->last_rc = K60BoardUnsupported;
+    return K60BoardUnsupported;
 }
 
 static void resources_release_cb(void *ctx, void *cookie)

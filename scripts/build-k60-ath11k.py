@@ -262,6 +262,28 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         dest.write_text(text)
 
     patch_mhi_source('boot.c', [
+        # The proven WCN7850 loader rejected an image offered immediately after
+        # reset with no MHI contexts programmed.  Its working sequence waits,
+        # writes the context registers, then offers the image; the host's own
+        # later ready transition writes the same registers again.
+        ('/* Setup RDDM vector table for RDDM transfer and program RXVEC */\n',
+         'static int nw_mhi_pre_load(struct mhi_controller *mhi_cntrl)\n'
+         '{\n'
+         '\tstatic bool done;\n'
+         '\tint ret;\n\n'
+         '\tif (done)\n'
+         '\t\treturn 0;\n'
+         '\tdone = true;\n\n'
+         '\t/* Wait for the boot loader, then give it the MHI context addresses\n'
+         '\t * before it is offered the SBL image. mhi_ready_state_transition()\n'
+         '\t * programs the same registers again, as the host sequence does. */\n'
+         '\tmsleep(200);\n'
+         '\tret = mhi_init_mmio(mhi_cntrl);\n'
+         '\tdev_info(&mhi_cntrl->mhi_dev->dev,\n'
+         '\t\t "Pong MHI: contexts programmed before image: %d\\n", ret);\n'
+         '\treturn ret;\n'
+         '}\n\n'
+         '/* Setup RDDM vector table for RDDM transfer and program RXVEC */\n'),
         # A device that never enters MISSION after READY may have rejected the
         # segment table rather than the handshake. Report what the host handed
         # over: the entry count, the last buffer (the vector table) and the
@@ -288,7 +310,13 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\t\t mhi_cntrl->serial_number, (int)mhi_cntrl->ee,\n'
          '\t\t mhi_cntrl->fbc_download ? 1u : 0u, (unsigned)mhi_cntrl->fw_sz);\n'),
         ('skip_req_fw:\n\tfw_load_type = mhi_fw_load_type_get(mhi_cntrl);\n',
-         'skip_req_fw:\n\tfw_load_type = mhi_fw_load_type_get(mhi_cntrl);\n'
+         'skip_req_fw:\n'
+         '\tret = nw_mhi_pre_load(mhi_cntrl);\n'
+         '\tif (ret) {\n'
+         '\t\tdev_err(dev, "MHI contexts were not programmed before image: %d\\n", ret);\n'
+         '\t\tgoto error_fw_load;\n'
+         '\t}\n\n'
+         '\tfw_load_type = mhi_fw_load_type_get(mhi_cntrl);\n'
          '\tdev_info(dev, "Pong MHI: load type=%d image bytes=%u vector bytes=%u\\n",\n'
          '\t\t (int)fw_load_type, (unsigned)size, (unsigned)fw_sz);\n'),
         ('fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n',

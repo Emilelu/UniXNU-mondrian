@@ -11,6 +11,10 @@ compares the total against ``expected_kern_exec_delta`` in
 ``docs/engineering/RULES.toml``. Any change to the sum means an early patch moved
 and the series has to be re-validated - which is exactly the moment this gate
 should stop the build.
+
+It also checks that every ``patches/wifi`` patch is in its series and named by
+its README. Main has no applier for that series yet, so the README is the only
+inventory, and it had already drifted once.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ SERIES = REPO / "patches" / "xnu" / "series"
 RULES = REPO / "docs" / "engineering" / "RULES.toml"
 WATCH = "bsd/kern/kern_exec.c"
 CATALOG = REPO / "docs" / "engineering" / "PATCH-CATALOG.toml"
+WIFI = REPO / "patches" / "wifi"
 STATUSES = {"retired", "renumbered", "library"}
 
 HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
@@ -82,6 +87,32 @@ def check_catalog() -> list[str]:
     return problems
 
 
+def check_wifi_series() -> list[str]:
+    """Every wifi patch must be in series and named by the README."""
+    if not WIFI.is_dir():
+        return []
+    series_file = WIFI / "series"
+    if not series_file.is_file():
+        return ["patches/wifi/series 不存在"]
+    entries = [
+        line.strip().split()[0]
+        for line in series_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    patches = {p.name for p in WIFI.glob("*.patch")}
+    readme = WIFI / "README.md"
+    text = readme.read_text(encoding="utf-8") if readme.is_file() else ""
+    problems: list[str] = []
+    for name in entries:
+        if not (WIFI / name).is_file():
+            problems.append(f"patches/wifi/series 指向不存在的补丁：{name}")
+        elif f"`{name}`" not in text:
+            problems.append(f"patches/wifi/README 未列出 {name}")
+    for name in sorted(patches - set(entries)):
+        problems.append(f"patches/wifi/{name} 未登记到 series")
+    return problems
+
+
 def main() -> int:
     if not SERIES.is_file():
         print("❌ patches/xnu/series 不存在")
@@ -102,6 +133,12 @@ def main() -> int:
     if problems:
         print("❌ 补丁目录（PATCH-CATALOG.toml）与 series 不一致：")
         for problem in problems[:20]:
+            print("   " + problem)
+        return 1
+    wifi_problems = check_wifi_series()
+    if wifi_problems:
+        print("❌ patches/wifi 的 series 与 README 不一致：")
+        for problem in wifi_problems[:20]:
             print("   " + problem)
         return 1
     delta = total_add - total_del

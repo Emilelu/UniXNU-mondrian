@@ -342,14 +342,14 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 - **门禁脚本**（`scripts/`）：`check-doc-citations.py`、`check-component-pin.py`、
   `tests/test-check-doc-citations.py`、`tests/test-check-component-pin.py`、`tests/test-check-docs-tables.py`、`tests/test-check-docs-ops.py`、
-  `tests/test-check-docs-state.py`、`tests/test-gates-import-without-device-input.py`；修改 `check-docs.py`、`check-readme.py`、
+  `tests/test-check-docs-state.py`、`tests/test-check-patch-series-wifi.py`、`tests/test-gates-import-without-device-input.py`；修改 `check-docs.py`、`check-readme.py`、
   `check-patch-series.py`、`porting-gate.py`、`check-build-applied.py`。
 - **门禁数据**（`docs/engineering/`）：`DOC-CITATIONS-BASELINE.toml`、`COMPONENT-PINS.toml`、`PATCH-CATALOG.toml`、
   `RULES.toml`（P-231 + `expected_kern_exec_delta`）、`PITFALLS.md`（P-231）。
 - **文档**：本文、`LINE-MAP.md`、`LINE-RESEARCH-MAP.md`、`research/README.md`、`INDEX.md`、`README.md`、`README_EN.md`、
   `engineering/README.md`、`STATUS.md`、`AGENTS.md`、`ops/README.md`、`ops/HARD-RULES.md`、`ops/PITFALLS.md`、`ops/HANDOFF.md`、`ops/TWRP-FACT-CLARIFICATION.md`、`EIGHT-STEPS.toml`。
 - **合并前在目标树跑**：`check-docs`、`check-readme`、`check-patch-series`、`check-component-pin`、`check-doc-citations`，
-  以及 `tests/test-check-doc-citations.py`、`test-check-component-pin.py`、`test-check-docs-ops.py`、`test-gates-import-without-device-input.py`；
+  以及 `tests/test-check-doc-citations.py`、`test-check-component-pin.py`、`test-check-docs-ops.py`、`test-check-patch-series-wifi.py`、`test-gates-import-without-device-input.py`；
   已知红只有 iron-4/iron-5/hard-33/P-165/P-166（构建输入镜像落后，见 P-230）。
 - **不要从本分支取**：`drivers/`、`patches/`（除登记文件）、水位/基线。本分支没碰它们。
 

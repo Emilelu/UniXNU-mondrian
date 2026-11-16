@@ -84,7 +84,7 @@
 
 | # | 动作 | 现有实现 | 失败含义 |
 |---|---|---|---|
-| 1 | 装载并释放 ADSP 固件（PAS1 auth + reset + 逐段 INIT_IMAGE + MEM_SETUP） | `bsd/dev/pong_adsp_boot.c`（patches/xnu/0613） `k60_adsp_probe_from_handoff()` → `k60_adsp_bring_up()` | ADSP 没起来，后面全废 |
+| 1 | 装载并释放 ADSP 固件（目标顺序：一次 metadata INIT_IMAGE + region MEM_SETUP + 逐段 COPY/BSS + auth/reset；0613 legacy 仍逐段 INIT_IMAGE） | `bsd/dev/pong_adsp_boot.c`（patches/xnu/0613） `k60_adsp_probe_from_handoff()` → `k60_adsp_bring_up()` | ADSP 没起来，后面全废 |
 | 2 | 等 SMP2P 条目 `"slave-kernel"` 的 `state & 2` 置位、`state & 1` 清零 | 判定逻辑现成在 `K60PmicGlink.cpp:88-109` `remoteReady()` | 远端未就绪 |
 | 3 | 拿 TCSR 互斥量（`mutex_base`，写 `1` 表示 APSS owner） | 现成在 `K60PmicGlink.cpp:38-56` | 拿不到锁 = 不能改 SMEM |
 | 4 | `k60_smem_partition(&smem, 0, 2, &part)` 定位分区 | `K60Smem.c:49-71` | `K60SmemNoTable`/`NoPartition` |

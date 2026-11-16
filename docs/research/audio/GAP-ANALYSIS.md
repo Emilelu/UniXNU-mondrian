@@ -114,7 +114,7 @@ Pong 实际用: 0x85700000 + 0x2800000 (PongAdsp.cpp:45)
 |---|---|---|---|---|
 | 1 | 修 `adsp-base`/`adsp-size` → `0x9fd00000`/`0x03100000`；填 8 个 DT 值（amp 0x34/0x35、amp reset 1/3、irq 88/63、spksw 52、codec reset 43、codec-supply pm8350_s10、TDM clk 0x177000=1.536 MHz / tx-lines=3 / dev-id=2、TDM 引脚 121/123/122/124）| ③⑥ | live FDT 已有值 | **能**（`tx-core-clock-id` 缺，需读 K60 Android audio-kernel）|
 | 2 | 修 `io_submap` 8 MiB 预算（P-63）| ⑦前置 | P-63 修复方案 | **能**（未做）|
-| 3 | PAS1 owner：移植 `PongAdsp.cpp:523-600`（SCM `PAS_INIT_IMAGE`→`MEM_SETUP`→分段 load→`AUTH_AND_RESET`；PAS id 1；SMP2P 443/429/423；GLINK 478/479/480；IPCC LPASS）| ⑤⑦ | SCM PIL + `adsp.mbn` + `adsp.b02..b36` | **缺固件**（本机 find 0 命中，须从 K60 `/vendor/firmware_mnt/image` 取）|
+| 3 | PAS1 owner：移植 `PongAdsp.cpp:523-600`（SCM `PAS_INIT_IMAGE` 一次 metadata 5404 B→`MEM_SETUP` region `0x9fd00000/0x3100000`→逐段 COPY/BSS→`AUTH_AND_RESET`；PAS id 1；SMP2P 443/429/423；GLINK 478/479/480；IPCC LPASS）| ⑤⑦ | SCM PIL + `adsp.mbn` + `adsp.b02..b36` | **缺固件**（本机 find 0 命中，须从 K60 `/vendor/firmware_mnt/image` 取）|
 | 4 | SMP2P + GLINK + IPCC 通道 | ⑦ | PAS1 完成 | 缺 PAS1（QcomGlink.c 已有）|
 | 5 | GPR/APM 图：0504 报文可用，但 SG/IID 全是 Pong 拓扑（0504:250-258 明写必须换 K60 枚举）| ③⑦ | APM + 实测 | 缺实测 |
 | 6 | 低 4 GiB DMA：K60 内存从 `0x900000000`(36 GiB) 起，内核 ring 必 >4 GiB；须 UEFI 预留 64 KiB + `/chosen/pong-audio-dma` | ⑤⑦ | UEFI 改动 | 缺 UEFI 改动（`MemoryMapLib` 现无 audio 项）|

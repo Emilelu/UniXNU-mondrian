@@ -175,14 +175,14 @@ adspr.jsn 513, adspua.jsn 703
 ```
 
 解析 `adsp.mdt` 的程序头（`e_phoff=52`, `e_phentsize=32`, `e_phnum=26`）：
-段的 `p_paddr` 起于 **`0x86300000`**（b01），随后 `0x86302000`、`0x86614000`、
+段的 `p_paddr` 是**链接基址 `0x86300000`** 起的地址（b01），随后 `0x86302000`、`0x86614000`、
 `0x8661b000`、`0x86624000` …… 最高到 `0x89400000` 附近。
 
-**结论：`0x9FD00000`（vendor DTB 的 `adsp_region`）不是固件装载目标。**
-26 段里落在 `0x9FD00000..0xA2E00000` 的数量是 **0**。之前 `GLINK-HANDOFF.md`
+**结论：`0x9FD00000`（vendor DTB 的 `adsp_region`）是重定位后的物理装载区，不是链接基址。**
+26 段的 `p_paddr` 落在 `0x86300000..0x89400000`；它们不直接落在 `0x9FD00000..0xA2E00000`，而是由 `mdt_loader.c` 按 `mem_reloc + (p_paddr - min_paddr)` 重定位后复制进去。之前 `GLINK-HANDOFF.md`
 里"firmware 到 `adsp_region@9fd00000`"这句是错的，必须改为按 `adsp.mdt` 的
-`p_paddr` 装载（基址 `0x86300000`，跨度约 `0x3100000` 以内但基址不同）。
+`p_paddr` 装载：链接基址 `0x86300000`，物理 region 基址 `0x9fd00000`，span `0x3100000`，逐段偏移为 `p_paddr - min_paddr`。
 
 这也解释了为什么不能照抄 GPU 的 PAS 目标地址：PAS 的 `mem_setup` 参数用的是
-固件段表里的地址，而不是 DTB 的 `adsp_region`——后者是 Linux remoteproc 的
-carveout 记账，二者不可混用。
+DTB 的 `adsp_region`（`0x9fd00000`，span `0x3100000`），而固件段表给的是链接地址；
+二者通过 `p_paddr - min_paddr` 关联，不能混为一谈。

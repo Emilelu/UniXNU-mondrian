@@ -92,7 +92,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 代价（四条，都要让 provider 实现者知道）：
 
 1. **跨线改动**：`drivers/PongPower/` 是 adsp-handoff 线 scope，这一行常量要由两条线共同确认（原型补丁已备好，见下）。
-2. **内存**：两槽使 `sizeof(QcomGlink)` 从 960 B 涨到 1,672 B（每槽 712 B，宿主实测），对内核可忽略。
+2. **内存**：两槽使 `sizeof(QcomGlink)` 从 960 B 涨到 1,672 B（每槽 742 B，宿主实测），对内核可忽略。
 3. **provider 必须接受「publish 后有两个 consumer」这个事实**：PMIC 通道与音频通道共享同一对 SMEM FIFO、同一个 `qcom_glink_poll()` 循环与同一个 IPCC kick；
    但**每个槽的 intent 表、lcid/rcid、分片状态完全独立**（`QcomGlink.c:249-282` 按 rcid 分发），一个 consumer 卡住不会吃掉另一个的消息（宿主 242 条断言已证）。
 4. **独占语义要改写一句**：bit2 约束 provider 自己，不约束 consumer 数量；契约第 7 条「交给既有 consumer」应读成「交给同一实例上的既有与新增槽」。
@@ -154,7 +154,7 @@ if (!lpass_ready) {
 }
 ```
 
-speaker 路径（PRI_TDM）照同一形态，逐级降级：
+speaker 路径（TERT TDM）照同一形态，逐级降级：
 
 | 阶段 | 条件 | 音频行为 | 具名错误（待实现，值待排） |
 |---|---|---|---|
@@ -277,19 +277,19 @@ status = "proven"
 
 [[requirement]]
 id = "afe-ports"
-claim = "端口 0x9000（PRI_TDM_RX_0）+ 组 0x9100；0x9002 不入组（K60 DT group-num-ports=1）"
-evidence = "live-fdt.dts:20486-20506; docs/research/audio/TDMS.md §3/§5"
+claim = "端口 0x9020（TERT_TDM_RX_0）+ 组 0x9120；0x9022 不入组（K60 DT group-num-ports=1）"
+evidence = "live-fdt.dts:20588-20596; docs/research/audio/VENDOR-AUDIO-CONFIG.md §1/§2"
 status = "proven"
 
 [[requirement]]
 id = "afe-clock-attribute"
-claim = "CLOCK_PRI_TDM_IBIT 0x200 与 attribute 的对应关系"
-evidence = "phk110 hakios.sound.c:342,423-425（attribute 4，48k*32*2=3.072MHz）; K60 DT clk-rate 0x177000=1.536MHz; PRM 投票 RESEARCH.md:25-55"
-status = "pending"
+claim = "时钟 0x204（TERT_TDM_IBIT）、attribute 4、12.288 MHz（48k×32×8）由 PRM 请求发出"
+evidence = "V: audio_prm.h:457,570; V: msm_common.c:407-417; pong_afe_prm_clock_request() + afe_prm_cases()"
+status = "proven"
 
 [[requirement]]
 id = "io-submap-no-lpaif"
-claim = "PRI_TDM 的 LPAIF 窗不在 PongCodecPlan.h 五窗里；混合方案只需现有 TLMM 窗"
+claim = "TERT TDM 的 LPAIF 窗不在 PongCodecPlan.h 五窗里；混合方案只需现有 TLMM 窗"
 evidence = "drivers/PongAudio/PongCodecPlan.h:249-292; PongAudioRegs.h:23-26; TDMS.md §8.4"
 status = "proven"
 
@@ -319,7 +319,7 @@ status = "proven"
 
 [[requirement]]
 id = "glink-arbitration-two-options"
-claim = "GPR/APM 与 bit2 的仲裁已由 Lead 裁定（2026-11-15）：采纳方案 A 同实例第二槽（QcomGlink.h:17 一行常量 1u→2u、+712 B），方案 B provider 代理 GPR 封存；实现落在 provider 线（QCOM_GLINK_MAX_CHANNELS 扩到 2，清单见 §9.2）"
+claim = "GPR/APM 与 bit2 的仲裁已由 Lead 裁定（2026-11-15）：采纳方案 A 同实例第二槽（QcomGlink.h:17 一行常量 1u→2u、+742 B），方案 B provider 代理 GPR 封存；实现落在 provider 线（QCOM_GLINK_MAX_CHANNELS 扩到 2，清单见 §9.2）"
 evidence = "PAS1-PROVIDER-CONTRACT.md:50,72,80,84; QcomGlink.h:17,77,86; QcomGlink.c:112-150,249-282,331-364; patches/audio/0002; test-glink-multislot.c; Lead 2026-11-15 reply md 裁决; 本文 §1.2/§9"
 status = "pending"
 
@@ -341,7 +341,7 @@ status = "pending"
 
 ### 4.1 编码器（已落地）
 
-`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 128 条断言（总 712 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
+`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 158 条断言（总 742 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
 
 ## 5. provider 必须为 audio 保证什么（交给 provider 实现者的四条）
 
@@ -468,15 +468,14 @@ APM 端口 1；`GET_SPF_STATE 0x01001021`、`SPF_STATE 0x02001007`（payload sta
    超时或 status!=1 → `PongAudioErrApmNotReady`，一个 AFE 包都不发，等下一次显式触发。
 5. **AFE 六步**：按 `drivers/PongAudio/PongAudioAfe.h` 的 `pong_afe_step_*` 顺序发六个包
    （Clock → GroupTdm → GroupEnable → PortTdm → SlotMapping → DeviceStart）。每个包已由该头编码成字节流
-   （GPR 24 B 头 + svc/port 两种 16 B 信封 + 12 B 参数块，128 条宿主断言钉住偏移/端序），consumer 只负责按序交给
+   （GPR 24 B 头 + svc/port 两种 16 B 信封 + 12 B 参数块，158 条宿主断言钉住偏移/端序），consumer 只负责按序交给
    传输层；每包等 `BASIC_RSP_RESULT` 且 status==0 再发下一包。六步参数值：
-   - Clock：`{1, 0x200, 1536000, attribute 4, root 0, enable 1}`（K60 位时钟 1.536 MHz）
-   - GroupTdm：组 0x9100、ports `{0x9000, 0x9002, 0xffff×6}`、2ch、48000、32b、2 slots、slot_bits 32、mask 3
-   - GroupEnable：`{0x9100, 1}`
-   - PortTdm：端口 0x9000、2ch、48000、32b、data_format 0、sync_mode 0、sync_src 1、slots 2、
-     data_out 0、invert 1、delay 1、slot_bits 32、mask 3
-   - SlotMapping：2ch、32b、align 0、offsets `{0, 4, 0xffff×6}`
-   - DeviceStart：`{0x9000, 0}`
+   - Clock：PRM 请求 `{clock_id 0x204, 12288000 Hz, attribute 4, root 0}`（48k × 32 × 8；`pong_afe_prm_clock_request()` 编 76 字节，opcode `0x0100100F`、src_port 7、dst_port 2）
+- GroupTdm：组 0x9120、ports `{0x9020, 0x9022, 0xffff×6}`、2ch、48000、**24 bit**、2 slots、slot_bits 32、mask 3
+- GroupEnable：`{0x9120, 1}`
+- PortTdm：端口 0x9020、2ch、48000、**24 bit**、data_format 0、sync_mode 0、sync_src 1、slots 2、data_out 0、invert 1、delay 1、slot_bits 32、mask 3
+- SlotMapping：2ch、32b、align 0、offsets `{0, 4, 0xffff×6}`
+- DeviceStart：`{0x9020, 0}`
    失败时：`qcom_glink_send` 返回 Again → 同一步 poll 一轮后重发同一份字节流（有界次数）；
    `BASIC_RSP_RESULT` status!=0 → 逆序回滚（group disable → clock off），`PongAudioErrAfeRefused`；
    任一步前 revalidate 失败或 epoch 变 → 停发、静音，重新 acquire 后从 Clock 整段重来

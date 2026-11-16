@@ -1,5 +1,7 @@
 # TDM — 扬声器的 PRI_TDM_RX_0 通路（预研）
 
+> **已过时（2026-11-17）**：本文「扬声器走 PRI_TDM_RX_0（0x9000/0x9100）」的结论已被推翻。K60 的扬声器后端是 **TERTIARY TDM RX（AFE 0x9020 / 组 0x9120）**，引脚 gpio121/123/122/124。本文的 AFE 参数结构、启动顺序与 phk110 差异仍然有效，但端口 / 组 / 引脚三处请以 `VENDOR-AUDIO-CONFIG.md` 与 `VENDOR-AUDIO-KERNEL.md` 为准。
+
 状态行：① 同型 ✅ ② 官方 ✅（live FDT）③ 反编译 ✅ ④ 广域 ✅ ⑤ 方案 ✅ ⑥ 深挖 ✅ ⑦ 本机验证 ⏳ ⑧ 上机 ❌（本线代码冻结，上机归 Lead 队列）
 
 本文只做预研与落盘，不改补丁、不改 EIGHT-STEPS 的 done 状态（Lead m05983）。

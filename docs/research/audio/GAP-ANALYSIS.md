@@ -112,14 +112,14 @@ Pong 实际用: 0x85700000 + 0x2800000 (PongAdsp.cpp:45)
 
 | # | 要做的事 | 步 | 依赖 | 现在能不能做 |
 |---|---|---|---|---|
-| 1 | 修 `adsp-base`/`adsp-size` → `0x9fd00000`/`0x03100000`；填 8 个 DT 值（amp 0x34/0x35、amp reset 1/3、irq 88/63、spksw 52、codec reset 43、codec-supply pm8350_s10、TDM clk 0x177000=1.536 MHz、TDM 引脚 gpio126(sck)/129(ws)/127(din)/128(dout)、AFE 端口 0x9000 / 组 0x9100） ⚠️ 引脚 121/123/122/124、tx-lines=3、dev-id=2 属 **tert** 那套（`qcom,msm-dai-q6-mi2s-tert`）；扬声器走 **PRI_TDM_RX_0** —— 见 `TDMS.md` §0/§2 与 `PAS1-AUDIO-REQUIREMENTS.md`| ③⑥ | live FDT 已有值 | **能**（`tx-core-clock-id` 缺，需读 K60 Android audio-kernel）|
+| 1 | 修 `adsp-base`/`adsp-size` → `0x9fd00000`/`0x03100000`；填 8 个 DT 值（amp 0x34/0x35、amp reset 1/3、irq 88/63、spksw 52、codec reset 43、codec-supply pm8350_s10、TDM 引脚 gpio121/123/122/124（`tert_tdm_pinctrl`）、AFE 端口 **0x9020** / 组 **0x9120**（TERT TDM RX）—— 见 `VENDOR-AUDIO-CONFIG.md` 与 `VENDOR-AUDIO-KERNEL.md`| ③⑥ | live FDT 已有值 | **能**（`tx-core-clock-id` 缺，需读 K60 Android audio-kernel）|
 | 2 | 修 `io_submap` 8 MiB 预算（P-63）| ⑦前置 | P-63 修复方案 | **能**（未做）|
 | 3 | PAS1 owner：移植 `PongAdsp.cpp:523-600`（SCM `PAS_INIT_IMAGE`→`MEM_SETUP`→分段 load→`AUTH_AND_RESET`；PAS id 1；SMP2P 443/429/423；GLINK 478/479/480；IPCC LPASS）| ⑤⑦ | SCM PIL + `adsp.mbn` + `adsp.b02..b36` | **固件已就位**：`/mnt/e/k60-work/firmware/adsp/` 28 个文件 23 MB（`adsp.mdt` 5,404 B + b00–b23/b25）；adsp.mdt 为 ELF32、e_phnum=26、24 个有效 PT_LOAD、`0x86300000..0x89400000`、拷贝 23,494,284 B + bss 25,925,684 B；校验见 `ADSP-CLAIMS.toml:30` 与 `ADSP-PAS1.md:38-44`|
 | 4 | SMP2P + GLINK + IPCC 通道 | ⑦ | PAS1 完成 | 缺 PAS1（QcomGlink.c 已有）|
 | 5 | GPR/APM 图：0504 报文可用，但 SG/IID 全是 Pong 拓扑（0504:250-258 明写必须换 K60 枚举）；三处 GPR 常量**已修正**（VERSION 0 / BASIC_RESULT 0x02001005 / GET_SPF_STATE 0x01001021，2026-11-15，见 `PAS1-AUDIO-REQUIREMENTS.md` §1.3）| ③⑦ | APM + 实测 | 缺实测 |
 | 6 | 低 4 GiB DMA：K60 内存从 `0x900000000`(36 GiB) 起，内核 ring 必 >4 GiB；须 UEFI 预留 64 KiB + `/chosen/pong-audio-dma` | ⑤⑦ | UEFI 改动 | 缺 UEFI 改动（`MemoryMapLib` 现无 audio 项）|
 | 7 | AW882xx 初始化：0503 只有 GENI 通路 + 探测，寄存器表/ID/时序全无 | ⑦ | 厂商寄存器表 | 缺（需 Xiaomi `aw882xx_dlkm` 或 datasheet）|
-| 8 | TDM/PRM：K60 1.536 MHz vs Pong 3.072 MHz/0x104 | ⑦ | 功放 + 实测 | 缺功放 |
+| 8 | TDM/PRM：K60 时钟 12.288 MHz（48k×32×8，TERT clock 0x204）经 PRM 请求发出 | ⑦ | — | **已闭合**（`pong_afe_prm_clock_request`，30 条断言）|
 | 9 | CoreAudio 接入：`PongAudioService.cpp` + `PongAudioPlugIn.c` + `PongAudioRoute.h` | ⑤⑦ | 图可用 + HAL | 缺 HAL |
 | 10 | 时基修正 24→19.2 MHz | ⑦ | — | 能（未做）|
 

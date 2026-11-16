@@ -229,7 +229,11 @@ def main():
         ('#size-cells', struct.pack('<I', 2)),
     ], [
         node('chosen', chosen, [node('memory-map',
-            [('PackedRAMDisk', bytes(16))] if args.packed_data_ramdisk else []),
+            ([('PackedRAMDisk', bytes(16))] if args.packed_data_ramdisk else [])
+            # Unconditional 16-byte placeholder: the firmware fills it with
+            # (0x8bc00000, 0x13200000) once the carrier is in place, and the
+            # acceptance gate requires the property to exist either way.
+            + [('K60ModemImage', bytes(16))]),
             node('manifest-properties', [('BNCH', boot_nonce_hash)])]),
         node('cpus', [('#address-cells', struct.pack('<I', 1))], cpus),
         node('arm-io', [

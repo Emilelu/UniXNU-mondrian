@@ -5693,3 +5693,300 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 - Check: `python3 scripts/tests/test-check-build-applied.py`
   （registry `id = "P-220"`）。
+
+## P-221
+
+**上游扫描器逐文件 `git show` + 脏水位，导致每次运行都重跑全量比对（900 s 超时 → 7.4 s）**
+
+### 现象
+
+2026-11-16 09:00 的「上游跟进」定时任务连续三次超时：`pick-upstream.py --plan` 在
+600 s、900 s、300 s（`--no-fetch`）三档下全部 rc=124，输出文件恒为 0 行。看起来像死锁，
+实际上是**性能**：它每次都要为三个「新分支」各比对约 5,080 个文件。
+
+### 两个独立缺陷，叠在一起
+
+1. **`discover_branches()` 把裸 `origin` 当成分支**。它只过滤 `endswith('/HEAD')`，
+   于是 `refs/remotes/origin/` 本身（短名 `origin`）被留下，`git rev-parse origin` 的
+   输出是字面量 `origin/origin`，被写进 seen 水位文件。这个字符串永远不等于任何真实 sha，
+   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/k60-work/.pick-upstream-seen.json`
+   里三条脏记录 `"UniXNU-mondrian/origin": "origin/origin"`、`"UniXNU/origin": "origin/origin"`、
+   `"uefi-mondrian/origin": "origin/origin"`。
+2. **新分支的比对是逐文件子进程**。`collect()` 先 `git ls-tree -r` 拿到路径清单，然后对
+   每个路径 `subprocess.run(['git', 'show', f'{ref}:{path}'])`。三个分支 × 5,080 文件
+   ≈ 15,000 次进程启动，每次都带完整的 git 启动开销。
+
+### 修法
+
+- `discover_branches()`：`if not ref or ref == 'origin' or ref.endswith('/HEAD'): continue`。
+- `load_seen()` 主动丢掉历史脏水位：`{k: v for k, v in raw.items()
+  if not (k.endswith('/origin') or v == 'origin/origin')}`。
+- 新增 `blob_sha(data)`（`sha1(b'blob %d\0' % len(data) + data)`）、`file_blob_sha(path)`、
+  `tree_blobs(d, ref)`（一次 `git ls-tree -r -z`，按 `<mode> SP <type> SP <object> TAB <path>`
+  解析，只收 `fields[1] == b'blob'`，gitlink 因此自动排除）。新分支比对与 `converge()`
+  的第 3 步都改成**blob id 对表**，只有 id 真不同才 `git show` 取内容。
+- 新分支还要先过祖先判定 `is_ancestor(d, ref, 'origin/main')`：yibiya 反复从 main 拉
+  `fix/*` 分支，尖端已在 main 历史里；对这样的分支做「文件收敛」会报 5,000+ 处差异，
+  而实际可 pick 的内容是零。
+
+### 四条教训
+
+1. **「跑不完」先怀疑复杂度，别先怀疑死锁**。三次不同超时档位都是 rc=124、输出恒 0 行，
+   这个形状既像死锁也像 O(n) 子进程；区分办法是数一下「每个输入要几次进程启动」。
+2. **水位/游标里出现字面量 ref 名就是 bug**。水位必须存不可变的对象 id（commit sha、
+   blob id），存 `origin/main` 这种会移动的名字等于永远没有水位。这条与 P-214
+   （两个都叫「series 指纹」的哈希分属不同命名空间）是同一族：**名字相同不等于对象相同**。
+3. **比对文件用 blob id，不要用内容**。`git ls-tree -r` 已经给出了每个文件的 blob sha，
+   本地算 `sha1("blob <len>\0" + data)` 就能对上，零子进程；只有确认不同时才去取内容。
+4. **「新分支」的差异要相对于它的基线算，不是相对于我们的树**。从未见过的分支与我们的
+   设备仓库天然差 5,077 个文件（那些 XNU 头文件我们本来就没有），这个数字不携带任何信息。
+
+- **关联**：P-214（同名不同命名空间）、P-207（门禁只能判本轮产出的物证）、
+  P-189（多个输出树共享机器）、P-220（fallback 不知道 fallback 到的是谁）。
+
+- Check: `python3 scripts/tests/test-pick-upstream-scan.py`
+  （registry `id = "P-221"`）。
+
+## P-222
+
+**全局账本把别的分支的成功启动当成本树的证据，于是 main 被告知「补丁集变了」**
+
+### 现象
+
+2026-11-16 上游跟进按定时任务走完审核、提交、真构建（`upstream-20261116a`，
+`kernel 092363c1…`、`boot.img 0226f0e6…`、`build-strict` 全程 rc=0）之后，
+`porting-gate.py --quick` 仍然阻断：
+
+```
+❌ 1 项阻断 —— 禁止刷机
+   [S] 补丁集变了 —— 必须显式确认
+       上次成功 4305c6cc2821bcb7 (2026-11-16T08:59:35) != 现在 59d8037521a5b07b
+```
+
+`59d8037521a5b07b` 是 main 的 227 条序列，**2026-11-16 07:36 已经上机启动过**
+（`baseline-20261116a`，SpringBoard 132，3,061 行）。它被说成「变了」的唯一原因，
+是 08:59 蓝牙线飞了一次 234 条序列的 `bt-d6-iowin`。
+
+### 根因
+
+`/mnt/e/k60-work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
+里面找「最后一条 `result == ok` 的记录」。任何一条线飞图都会把「上次成功」改写成
+它自己的指纹，于是：
+
+- 别的分支飞过 → main 的指纹「变了」
+- main 真的改了 → 也可能被下一条别的分支的飞图掩盖
+
+同时 `docs/engineering/MAIN-BASELINE.toml` 里**每条 booted 基线都记着
+`series_sha256`**，但全树没有任何工具读这个字段（`grep -rn series_sha256 scripts/*.py`
+零命中）。也就是说「哪一套补丁真的启动过」这个事实被记录了、却没人用。
+
+### 修法
+
+`porting-gate.py` 增加 `booted_series()`：解析 `MAIN-BASELINE.toml` 里
+`state = "booted"` 的条目，返回 `series_sha256 -> (sha, image, console)`。
+`[S]` 判定改成三级：
+
+1. 与全局 ledger 的最后一条成功记录相同 → PASS（原逻辑）。
+2. 与账本里某条 **booted** 基线相同 → PASS，detail 打印 `sha` + `image` + `console`
+   路径，例如 `b48613d baseline-20261116a E:/k60-work/evidence/usblog-20261116-073639/console.log`。
+3. 两者都不匹配 → 才按 `--force-new-series` / 特性分支 / main 三档处理。
+
+`state = "build-only"` 的条目**永远不能**用来背书：它从没上过设备。
+
+### 三条教训
+
+1. **「上次成功」必须绑定到对象，不能绑定到机器**。全局账本记的是「这台机器最后
+   一次飞成功的序列」，而门禁要回答的是「**这一套**补丁飞成功过吗」。两个问题不同，
+   前者答不了后者。这与 P-220（fallback 不知道 fallback 到的是谁）是同一族。
+2. **记了字段却没人读，等于没记**。`series_sha256` 在 `MAIN-BASELINE.toml` 里存在
+   了好几轮，`grep -rn series_sha256 scripts/*.py` 一直是零命中 —— 一条只被写入、
+   从不被读的证据字段，在门禁眼里不存在。加字段时要同时加读取点。
+3. **修复必须双向验证**。这次除了确认「已上机序列被接受」，还专门造了一个未上机的
+   序列（往 series 追加一行假补丁名）确认仍然 `❌ 补丁集变了 —— 必须显式确认`，
+   否则就等于把 `[S]` 整条检查关掉了。
+
+- **关联**：P-220（fallback 到别的分支的产物）、P-214（同名不同命名空间）、
+  P-211（`record-boot.py` 量仓库 series 而非镜像 manifest）、P-207（门禁只能判本轮物证）。
+
+- Check: `python3 scripts/tests/test-porting-gate-book.py`
+  （registry `id = "P-222"`）。
+
+## P-224
+
+**标题：构建的冻结输入把 python 自己写的字节码算进去了**
+
+`scripts/build-strict.sh` 的 `freeze()` 是「这棵树在这段时间里有没有被动过」的唯一判据：
+构建开始前后各哈希一遍同一份文件清单，`cmp` 不等就 `die "frozen inputs changed during the
+build; this run is void"`。清单原本是
+
+```sh
+find board.toml dts patches/xnu scripts -type f -print0
+```
+
+`scripts` 下面有 `__pycache__/`。它被 `.gitignore:40` 忽略、不被 git 跟踪、不需要任何人去改
+—— 只要构建自己 import 一次仓库里的脚本，python 就会重写对应的 `.pyc`。于是**构建把自己写的
+文件算成「输入变了」**，一个什么都没改的构建被判废。
+
+实测（main `5db4414`，2026-11-16 11:19）：`freeze()` 的清单 522 条，其中 **21 条是
+`scripts/__pycache__/*.pyc`**。把 `scripts/pong_paths.py` 碰一下再 import 一次，清单里就多出
+
+```
+b6e369d7c83f675168ac931fe7d3a89c39e4f3ab951ea656a26b58e165b3d296  scripts/__pycache__/pong_paths.cpython-312.pyc
+```
+
+一条 —— 正是判废的形状。
+
+现场代价：wifi 线的 `wifi-20261116c7` 在 2026-11-16 10:08 被自己判废，`c05ebb7` 的提交说明写
+「wifi-20261116c7 was declared void for nine new .pyc files」。它在自己分支上补了排除规则，
+但那一条没回到 main，所以 main 上这个缺陷一直是活的。
+
+修法：清单里排掉字节码。
+
+```sh
+find board.toml dts patches/xnu scripts -type f \
+    ! -path '*/__pycache__/*' ! -name '*.pyc' -print0
+```
+
+修后清单 522 → 501 条、`__pycache__` 0 条；再强制 python 重写一次 `.pyc`，前后两份清单
+`cmp` 相等（`STABLE: a pyc rewrite no longer changes the frozen hash`）。
+
+**四条教训**
+
+1. **「输入」的定义必须排除「我自己写的中间产物」。** 冻结清单的用途是抓人改文件，而
+   `__pycache__` 是构建过程的副产物。把副产物算进输入，等于让门禁去抓它自己的脚印。
+   判据：清单里每一个文件，都要能回答「谁会改它、为什么改」；答「构建自己改」的一律排除。
+2. **一个分支上对的修法，不回 main 就等于没修。** wifi 线 11-16 10:08 就修好了这一条，
+   main 到 11:19 还是坏的，而且 main 是所有人构建用的那棵树。凡是在自己分支上改了
+   `scripts/build-strict.sh` / `build-xnu-4k-baseline.sh` / 任何一个 `check-*.py` 的，
+   都必须在提交说明里写「这条需要回 main」，否则它只保护了写它的那个人。
+3. **判废信息必须指名是哪个文件。** 这次 `die` 之前有 `diff -u frozen-before.txt
+   frozen-after.txt >&2`，所以 wifi 线一眼看到是 `.pyc`；如果没有这一行，看到的现象就是
+   「构建成功了但被判废」，最容易被当成偶发。任何「前后对比」型门禁，失败时必须把差异打出来
+   （与 P-190「认不出名字就静默跳过」、P-220「fallback 到别的分支」同一族）。
+4. **「我改过这个文件」和「这个文件变了」是两件事，`find -newer` 与哈希都分不出来。**
+   区分它们只能靠知道「谁有权限改它」：人/工具会改源码，运行时只会改缓存与日志。
+   所以冻结清单要按「产生者」分类，而不是按「在不在 scripts 目录下」。
+
+关联：P-165（构建在进行中被自己拦住）、P-202（缺 `.config` 时 `sed` 静默返回空）、
+P-207（门禁不许判陈旧产物）、P-220（门禁 fallback 到别的分支的产物）。
+
+## P-225
+
+**标题：板目录靠 mtime 猜，猜错就静默丢掉 Metal 插件与电池归档**
+
+`scripts/build-strict.sh` 用 `M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian` 定位板目录，
+`M` 下面挂着 `.config`、`kernel/kernel.macho`、`payload/payload.img`、
+`device-tree/hardware.dtb`、`tree/.cache/xnu-work/.../k60_metal_blob.s` —— 一处猜错，五处全错。
+
+板目录名跟的是 **defconfig 名**而不是板名：默认配置建到 `mondrian/`，wifi 配置建到
+`mondrian_wifi/`。同一个 `OUT` 下两个可以同时存在（`out-wifi` 现在就两个都有），于是
+「哪个才是这次要的」成了每次构建都要回答的问题。wifi 线在它自己分支上加了 `board_dir()`
+按 `.config` 的 mtime 取最新，方向对（不能硬编码），但判据选错了。
+
+**mtime 为什么会选错**：`mondrian_wifi/.config` 只有 100 行、70 个 `CONFIG_`，
+**既没有 `CONFIG_XNU_GPU_ADDON` 也没有 `CONFIG_XNU_K60_PHYSICAL_BATTERY`**
+（这两个键只在 `configs/mondrian_defconfig:27` 与 `:78` 里写）。而 `build-strict.sh` 后面两处
+读法是
+
+```sh
+GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)
+BATTERY_ON=$(sed -n 's/^CONFIG_XNU_K60_PHYSICAL_BATTERY=y$/1/p' "$M/.config" | head -1)
+```
+
+键不存在 ⇒ 变量为空 ⇒ 两个 `if` 都不进 ⇒ **Metal 插件与电池归档被静默跳过，构建照样报
+`BUILD OK`**。这正是 P-202 的形状，只是触发条件从「`.config` 不存在」换成「`.config` 存在
+但不是那一份」。实测两个目录：`mondrian/.config` 有 `GPU=y BAT=y`，`mondrian_wifi/.config`
+两个键都没有；`mondrian` 的内核 117,342,208 B，`mondrian_wifi` 的内核 66,002,944 B ——
+差 51 MB，正好是 Metal 插件那个量级。
+
+修法：按「这份 `.config` 到底有没有写那两个键」排序，而不是按时间。全量 defconfig 产出的
+配置两个键都在，残缺配置两个都没有，所以这是个**能区分的**判据；同一档内再用 mtime 决胜。
+`K60_BOARD_DIR` 显式覆盖最高优先；覆盖指向不存在的 `.config` 直接失败，不许静默忽略。
+多个候选时在 stderr 说明选了哪个、为什么（并点名 `K60_BOARD_DIR`）；
+两个候选都没有那两个键时额外警告「Metal 插件与电池归档会被静默跳过（P-202）」。
+
+修后实测：`out-wifi`（两个候选）→ 选 `mondrian`；`out-baseline`/`gates-out`/`lead-out`
+（单候选）→ 结果不变；`K60_BOARD_DIR=.../mondrian_wifi` → 确实返回它。
+
+**四条教训**
+
+1. **排序键必须与被保护的对象相关。** mtime 只说明「谁后写过」，不说明「谁是对的」。
+   这里要保护的是「两个会改变内核的配置项在不在」，排序键就该是那两个键本身。
+   通用判据：**先问「我要防的是什么错」，再选一个能区分那个错的特征**；mtime 几乎从不合格。
+2. **`sed -n 's/^KEY=y$/1/p'` 把「键缺失」和「键为 n」合并成同一个空值。** 于是「配置里没这个
+   功能」与「我读错了文件」在代码里无法区分。读配置的每一处都该能回答「这个键是没写、还是写了
+   但不是 y」—— 前者是文件选错，后者是配置决定。（与 P-190「认不出名字就静默跳过」、
+   P-204「用计数代替语义」同一族。）
+3. **一个函数在分支上「方向对但判据错」，直接搬进 main 比不搬更危险。** 不搬，main 是硬编码
+   路径，错得明显（找不到就 die）；搬了错判据，main 会安静地选错并产出缺功能的镜像。
+   **搬修法时要搬「为什么」，不是搬「代码」。**
+4. **候选多于一个时，选择过程必须可见。** 静默选一个是对的（构建不该因为存在无关目录就停），
+   但必须打印「在 N 个候选里选了 X，可用 K60_BOARD_DIR 覆盖」。否则下次有人看到内核小了
+   51 MB，还得重新推一遍这条链。
+
+关联：P-202（缺 `.config` 时 `sed` 静默返回空）、P-224（冻结输入把构建自己的产物算进去）、
+P-187（分支上出现但从未回 main 的编号）、P-207（门禁不许判陈旧产物）。
+
+## P-226
+
+**标题：整份取一侧的冲突解决会连另一侧的非重叠新增一起吃掉，git 之后一声不响**
+
+2026-11-16 的 `02014e2`（`merge: take origin/main into feat/wifi-bringup`）把
+`scripts/build-strict.sh` 的冲突**按整份取一侧**解决，结果 wifi 线在这个文件里的**四块**东西
+一起消失，而构建照旧 `BUILD OK`：
+
+| 消失的块 | 后果 |
+| --- | --- |
+| `board_dir()`（按 `.config` 找板目录） | 回落到硬编码 `mondrian/`，wifi-only 的 `mondrian_wifi/.config` 再也找不到 |
+| `freeze()` 的 `__pycache__` prune | 构建自己 import 脚本 → 重写 `.pyc` → 末尾 `cmp` 不等 → 整轮判废（P-224 的形状） |
+| `# --- wifi archive ---` 整块（`XNU_PONG_WIFI` 检测 + `die`） | `XNU_PONG_WIFI=1` 不再被校验，没有归档也能出图 |
+| 内核里的 `_pong_wifi_start_optional` 断言 | 归档没链进内核也不会有人喊（P-190 的形状） |
+
+**为什么 git 没喊**：这三件事 git 都做了，且都没错——
+
+1. 它**报了冲突**（`scripts/build-strict.sh` 在九个冲突文件里）；
+2. 它给出的三方合并结果其实**是对的**：`git merge-tree --write-tree 276f69d 207e108`
+   得到的树 `b3447083` 里 `board_dir()` 与 `__pycache__` **都在**（各 1 处和 2 处）；
+3. 丢东西发生在**人解冲突**那一步：`02014e2:scripts/build-strict.sh` 与 `207e108`（main）
+   的差异只有两行 manifest 字段（`wifi_archive` / `wifi_archive_path`）——也就是说当时的解法是
+   「拿 main 的整份文件，再把这两行加回去」。相对我们那一侧（`276f69d`，350 行）它少了四块，
+   相对 main（344 行）只多两行，合并后 346 行。
+
+所以这不是「git 静默覆盖」，而是**「整份取一侧」这种解法本身的形状**：只要冲突文件里还有
+另一侧的**非重叠新增**，取整份就等于把它们删掉，而删掉之后 git 认为冲突已解决，不会再有提示，
+`git diff` 也只会显示「相对 main 多了两行」这种看起来无害的结果。
+
+**当时的代价**：`wifi-20261116c7` 因此被判废（`frozen inputs changed`，唯一差异是九个
+`scripts/__pycache__/*.pyc`，见 P-224），随后 `c05ebb7` 靠人肉记忆把四块补回来。判废信息里
+只写了「frozen inputs changed」，没有一个字指向「这四块曾经存在过」。
+
+**修法（三道，缺一不可）**
+
+1. **解冲突时不整份取。** 要么按 hunk 解，要么取整份之后**立刻**与「被取的那一侧」和「自己这一侧」
+   各 diff 一次：`git diff <ours> -- <file>` 与 `git diff <theirs> -- <file>` 都看一遍，
+   确认自己这一侧的每一块都能在结果里找到。本次如果做了这一步，`grep -c board_dir()` 会立刻归零。
+2. **关键脚本要有「这段必须存在」的断言式门禁。** 记忆不是门禁。本次新增
+   `scripts/check-build-strict-blocks.py`：断言 `board_dir()` 存在且按两个配置键排序、
+   `K60_BOARD_DIR` 指向坏目录要 `die`、`freeze()` 有字节码 prune、`$M/.config` 守卫在、
+   gate-table 标记成对、选了 wifi 归档就必须有内核侧 `_pong_wifi_start_optional` 断言。
+   配套 `scripts/tests/test-build-strict-blocks.py` 九个用例，其中六个是**反向验证**：
+   逐块删掉，门禁必须变红。
+3. **区分两种 merge 风险。** 「行级冲突」git 会喊，人只要不漏看就不会丢东西；「整段/整份替换型
+   覆盖」git 不喊，而且合并后的 `git diff --stat` 往往很好看（本次是 `44 insertions(+), 1
+   deletion(-)`）。后者的唯一可靠发现方式是**与两侧各 diff 一次**，以及**用门禁断言块的存在**。
+
+**四条教训**
+
+1. **冲突解决是「合并」的一部分，不是「合并之后的事」。** 提交 merge commit 之前，关键文件必须
+   与两个父各 diff 一次；只跑 `git diff --check`（查冲突标记）挡不住这一类。
+2. **「取一侧」只能用于「这一侧整体更新」的文件。** 判据：另一侧对该文件是否有**任何**新增块？
+   有就不能整份取。文档类可以整份取一侧再补，脚本类不行。
+3. **门禁要断言「存在」，不要断言「没坏」。** `bash -n` 通过、构建成功、manifest 有字段，
+   都不能证明某段逻辑还在——本次构建 100% 成功。断言必须点名「这一段必须在」。
+4. **判废/失败信息要指到「少了什么」，而不只是「哪里不对」。** `frozen inputs changed` 这句话
+   成立，但它没能让人想到「四块逻辑被吃掉了」，于是补回来的依据是记忆而不是证据。
+
+关联：P-224（冻结输入把构建自己的产物算进去 —— 本次丢的正是那段 prune）、P-225（`board_dir()`
+的判据）、P-190（认不出名字就静默跳过）、P-202（`.config` 缺失时 `sed` 静默返回空）、
+P-205（新增门禁必须同时进 README 门禁表）。
+

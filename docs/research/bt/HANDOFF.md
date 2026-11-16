@@ -892,6 +892,26 @@ This line, next in order:
       Pong 的 `board_services18.py:84-89` 故意用 `_LimitLoadToDeviceTree` 挡掉
       `bluetoothd` ⇒ 用户态栈属上游设计缺口，不在本线范围，别再补 ADT 节点。
 
+### 34. 跨线通用文档 BISECT-METHOD.md（2026-11-16 12:40）
+
+Lead 回复 #12 第五项：把 S4-SPEC §7.17 的「单变量二分五步法」提炼成跨线文档
+`docs/engineering/BISECT-METHOD.md`，给 adsp / modem / wifi 直接引用。边界：只写方法，
+不写任何一条线的硬件结论；三个反例只引用已有提交号与 evidence 路径，不新增观测。
+
+- 新文档 **`docs/engineering/BISECT-METHOD.md`**（6,229 B / 114 行）：五步
+  （① 变量定义清楚 + 单块补丁 + 字节级等式 ② 判据先写死再飞 ③ 每格都飞、飞过的要能查（P-218）
+  ④ 中途结论必须能被下一格推翻 ⑤ 矩阵收敛后别停在「谁是真凶」）+ 第 0 步前置
+  （拆编译单元先查跨文件 static）+ 三个反例（各按「原结论 / 依赖哪几格 / 哪一格推翻了它」写：
+  「h2 是必要条件」被 h2 单格 `usblog-20261116-044817` 推翻；「致命集是 h3×h4」被 h34
+  `usblog-20261116-014536` 与 h123 `usblog-20261116-043650` 推翻；「致命集必须含 h4」
+  被 h123 silent + h34 能起两个方向同时推翻）。
+- 登记：`docs/INDEX.md` 的 engineering 表 + `docs/engineering/README.md` 的「现状与流程」表各加一行。
+- S4-SPEC 同步两处：§7.16 第 0 条把「修一个 static 引用必须顺带做同名审计」**升格为通用规矩**
+  （Lead 2026-11-16 定，P-204 的另一种形状）；§7.17 开头加引用块指向通用文档，本节保留本线的
+  具体数字与 evidence 路径。
+- check-docs 202 项 ✅（新文档被 INDEX 与 engineering/README 双登记）。
+
+
 
 
 

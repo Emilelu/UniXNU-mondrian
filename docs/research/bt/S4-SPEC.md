@@ -1377,6 +1377,12 @@ d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）�
    没有别的跨文件引用**，也没有跨文件同名函数；`btqca.c:330` 那处 `event` 是注释里的
    "vendor specific event"，不是调用。审计脚本 `E:/k60-work/scratch/bt-s4/late3/audit-static.py`。
    编译器只能抓到「未声明」，抓不到「同名但语义不同」——所以这一步要主动做一次。
+   **升格为通用规矩（Lead 2026-11-16 定）**：以后凡是「修一个 static 引用」，都要顺带做一次
+   同名审计，不能只修报错那一处。这是 P-204（用计数/名字代替语义）的另一种形状。
+
+> 这套方法已提炼成跨线通用文档 **`docs/engineering/BISECT-METHOD.md`**
+> （五步 + 三个反例，adsp / modem / wifi 直接引用，不必各写一遍）。本节保留本线的
+> 具体数字与 evidence 路径，通用表述以那份为准。
 
 5. **矩阵收敛之后，别停在「谁是真凶」**：十一格只回答了「哪几个 hunk 一起才死」，
    真正的死因是 d4 的 panic 行（`kmem_alloc(…, 1048576, 0x100021): failed with 3`）

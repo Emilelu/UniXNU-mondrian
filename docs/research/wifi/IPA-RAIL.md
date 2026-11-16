@@ -48,7 +48,10 @@ additional object exactly:
 - resource `smpe3`, regulator `pmr735a_s3`
 - request `[2200000, 2200000, 0, 0, 0]`
 - physical `spmi_slave 4, peripheral 161, type 3, subtype 10`
-- PPID = (4 << 8) | 161 = 1185 = 0x4a1
+- PPID = (4 << 8) | 161 = 1185 = 0x4a1. The same K60 live FDT has
+  `qcom,pmr735a@4` at `E:/k60-work/impl/bt/research/03-reverse/k60-live-fdt.dts:10817`,
+  i.e. PMR735A is SPMI slave 4 on K60 too, so the Pong slave number is not a
+  guess from a different board.
 
 Pong's evidence: `E:/hackios/UniXNU-pong/migration/ipados18/services94-native-volume-wlan.md:5`
 says services93 Wi-Fi exited early because the first smpe3 model read was

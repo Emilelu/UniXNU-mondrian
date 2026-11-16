@@ -6046,3 +6046,34 @@ def test_the_current_series_is_proven_by_the_book(self):
 **关联**：P-165（构建期间 registry 继承逃生开关）、P-222（全局账本把别处的成功当本树证据）、
 P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（证据与对象不对应）。
 
+## P-230
+
+**判据缺输入时不允许替换成一个「默认」镜像：三个门禁把「没给」变成了「拿别人的判你的」**
+
+2026-11-16 实测：在 `k60-gates` main（`cf550a93`）上直接跑 `python3 scripts/check-rules.py`，
+不设 `K60_DEVICE_INPUT`，结果是 **iron-4 / iron-5 / hard-33 / P-165 / P-166 五条红**；
+同一条命令加上 `K60_DEVICE_INPUT=/opt/k60/trees/gates-device` 后 **106 条登记、失败 0、waiver 37，全绿**。
+也就是说那五条红与仓库状态无关，只与「操作者忘了给变量」有关。
+
+根因是三处静默回落，各自写法略有不同但同一形状：
+
+- `scripts/sync-device-input.py:24-27` 只要带 `--check` 就允许 `DEV = DEV or '/opt/k60/trees/usb-cdc-mainline/device'`，
+  注释还写着「registry 的 iron-5 没有调用者镜像可用」——这正是把缺陷写成了设计。
+- `scripts/porting-gate.py:48` `DEV = (os.environ.get('K60_DEVICE_INPUT') or '/opt/...') + '/patches/xnu'`。
+- `scripts/check-build-applied.py:29` `pathlib.Path(os.environ.get("K60_DEVICE_INPUT", "/opt/..."))`。
+
+三条都遵循「缺输入 ⇒ 换一个输入」，于是判据的对象从「调用者的镜像」漂移成「别人最后同步的那份」。
+这和 P-190（缺输入被变成可信的值）、P-207（门禁去判陈旧产物）、P-220（fallback 到别的分支的存根）是同一族，
+只是这次 fallback 落在**路径**而不是产物或时间戳上。
+
+四条教训：
+
+1. **判据的输入必须由调用者命名**。缺了就拒绝并说清怎么给，不能替换；替换会让「红」和「绿」都失去意义
+   （这次是假红，若共享镜像恰好一致就会变成假绿，更危险）。
+2. **注释里写下的「为什么可以回落」要当作缺陷读**。`--check` 允许共享目录的那条注释，把当时的权宜
+   固化成了契约，后续所有人都按它理解。
+3. **一个变量出现五条红时，先怀疑变量**。五条红跨四个不同判据却同时出现，本身就是「共同输入有问题」的信号；
+   我当时的第一反应是去查同步，浪费了一轮。
+4. **修复要连带把「默认值」从代码里删掉**，否则下一个人照样能写回 `os.environ.get(..., '/opt/...')`。
+   新测试 `scripts/tests/test-device-input-must-be-named.py` 逐条 grep 三个脚本，既断言拒绝行为，
+   也断言不再出现共享默认路径。

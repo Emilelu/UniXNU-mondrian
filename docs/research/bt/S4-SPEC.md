@@ -1494,6 +1494,11 @@ d7 把问题从「什么都不打」缩到「NVM 下载慢」，但它看不清*
 - **配方**：series 235（`… 0512 / 0514 / 0515`），参数 `k60bt=1 pong_bt_late=1`（31 项 / 598 B），
   tag `bt-d8-tlv`。
 - **判据**：见 §7.18 的三支表（`dt_ms` 段速 / `acks` 是否跟着涨 / `sent` 是否停在个位数）。
+- **已构建（2026-11-16 13:56:24）**：`boot_img 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`
+  （201,887,744 B）、`kernel_built 6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331`（106,598,400 B）、
+  series {235, names+sizes `f7aa7d63470b891d`, file `9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8}`、
+  head `91dcd07`、dirty 0；本树 `verify-boot-image: OK` + `check-image-args: OK (31 arguments, 598 bytes)`。
+
 
 ---
 

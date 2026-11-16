@@ -945,6 +945,10 @@ d7 只能判到「NVM 慢」，判不到「每段多慢」：`struct qbt_stats` 
 - 三支判读（Lead 13:40）：`dt_ms` 2,000–3,000 且 `acks` 涨到 20+ ⇒ 正常慢，d9 只抬预算到 240 s；
   `dt_ms` 9,000–10,000 且 `acks` 不涨 ⇒ 应答被 `event()` 丢弃，d9 改 TLV 分支；`sent` 停在个位数
   ⇒ 卡在 `qbt_send_command` TX 排空，d9 打 `qbt_deadline()` 与 `k60.geni` 状态。
+- 已构建 13:56:24：`boot_img 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`（201,887,744 B）、
+  `kernel_built 6c96f7cc…`（106,598,400 B）、series 235 / `f7aa7d63470b891d` / file `9a2cfd41…`、head `91dcd07`、dirty 0；
+  本树 verify-boot-image + check-image-args 均 OK。
+
 
 
 

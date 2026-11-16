@@ -2,7 +2,7 @@
 
 本目录是 K60 移植的核心工程文档，按主题分类。
 
-> 最后更新：2026-11-12。本文件由 `scripts/check-docs.py` 校验：
+> 最后更新：2026-11-16。本文件由 `scripts/check-docs.py` 校验：
 > 目录下每个 `.md` 都必须在此登记。
 
 ---
@@ -12,7 +12,7 @@
 | 文件 | 内容 |
 |---|---|
 | [STATUS.md](STATUS.md) | **当前硬件状态明细** + 2026-11-11/11-12 变更记录（README 的详细版） |
-- [`BOOT-ARGS.md`](BOOT-ARGS.md) —— 每个 boot 参数的接受值、默认与陷阱；608 字节预算；三个 GPU 开关的串行依赖。
+| [BOOT-ARGS.md](BOOT-ARGS.md) | 每个 boot 参数的接受值、默认与陷阱；608 字节预算；三个 GPU 开关的串行依赖 |
 | [EIGHT-STEP-SPEC.md](EIGHT-STEP-SPEC.md) | **八步流程规范**：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机。每步含目的/必做/证据格式/通过条件/反模式 |
 | [FIRMWARE-REBUILD.md](FIRMWARE-REBUILD.md) | **固件卷重建手册**：构建入口、为什么同一个 pin 三次重建得三个哈希（P-216）、`Mu_Basecore` 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭、下次重建的五步实验协议、DarwinBoot 只认固定属性名的硬约束 |
 | [BOOT-PROCEDURE.md](BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂 CDC-ACM 串口抓取 → `fastboot boot`；"控制台没出现"= 早启动挂死的硬证据；含二分回退配方 |
@@ -21,8 +21,8 @@
 
 | 文件 | 内容 |
 |---|---|
-| [HARD-RULES.md](HARD-RULES.md) | 铁则 ★1–★35，每条含来源、硬规则、判别方法 |
-| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-130：症状 → 真因 → 判别 → 教训 |
+| [HARD-RULES.md](HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
+| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-230：症状 → 真因 → 判别 → 教训 |
 | [PITFALL-TO-RULE-INDEX.md](PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |
 | [TOOLBOX.md](TOOLBOX.md) | 可复用工具与脚本清单 |
 | [PLAYBOOKS.md](PLAYBOOKS.md) | 操作手册 PB-1–PB-10 |

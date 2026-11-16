@@ -2,8 +2,9 @@
 
 > 唯一文档入口。目标：新接手的人 5 分钟内知道**先读什么、文档在哪、哪些已过时**。
 >
-> 最后更新：2026-11-12。本索引由 `scripts/check-doc-links.py` 校验：文中每个相对链接
-> 必须指向真实存在的文件。
+> 最后更新：2026-11-16。本索引由 `scripts/check-docs.py` 校验：文中每个相对链接
+> 必须指向真实存在的文件。最近一次全量疏漏审计见
+> [`audits/PORTING-GAP-AUDIT-2026-11-16.md`](audits/PORTING-GAP-AUDIT-2026-11-16.md)。
 
 ---
 
@@ -12,11 +13,11 @@
 | 顺序 | 文档 | 为什么先读 |
 |---|---|---|
 | 1 | [`../README.md`](../README.md) / [`../README_EN.md`](../README_EN.md) | 设备身份、八步进度、仓库结构、构建入口 |
-| `engineering/REPO-MAP.md` | **仓库与目录登记表**：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
+| 0 | [`engineering/REPO-MAP.md`](engineering/REPO-MAP.md) | **仓库与目录登记表**：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
 | 2 | [`engineering/STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细与变更记录 |
 | 3 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
-| 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★35，从踩过的坑提炼的可执行规则 |
-| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-130，每条含症状/根因/判据/教训 |
+| 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，从踩过的坑提炼的可执行规则 |
+| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-230，每条含症状/根因/判据/教训 |
 
 **要做触摸/GPU 之前，额外读：**
 - [`research/EIGHT-STEPS.toml`](research/EIGHT-STEPS.toml) — 该硬件的八步证据，⑦ 未通过不得刷机
@@ -49,8 +50,8 @@ docs/
 | [`EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程规范：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机 |
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
-| [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★35，每条含来源、硬规则、判别方法 |
-| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-130：症状 → 真因 → 判别 → 教训 |
+| [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
+| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-230：症状 → 真因 → 判别 → 教训 |
 | [`TAGS.md`](engineering/TAGS.md) | tag 策略：只留 boot-proven、main 基线、版本里程碑三种 |
 | [`PITFALL-TO-RULE-INDEX.md`](engineering/PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |
 | [`TOOLBOX.md`](engineering/TOOLBOX.md) | 可复用工具与脚本清单 |
@@ -63,6 +64,9 @@ docs/
 | [`LOCAL-ASSETS.md`](engineering/LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 | [`README.md`](engineering/README.md) | 本目录的简介与阅读顺序 |
+| [`BATTERY-INTEGRATION.md`](engineering/BATTERY-INTEGRATION.md) | 电池栈编译集成：构建脚本 4 处改动、defconfig 开关、宏链路、归档构建时机、无 PAS1 时的运行时行为 |
+| [`BOOT-ARGS.md`](engineering/BOOT-ARGS.md) | Boot 参数参考：每个参数的接受值/默认/陷阱，608 字节预算，三个 GPU 开关的串行依赖 |
+| [`ops/README.md`](ops/README.md) | **ops/ 的来历**：2026-11-12 的上游快照，非权威；编号与本地 ★/P 不可混用 |
 
 ---
 
@@ -109,6 +113,12 @@ docs/
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。
 > 两者冲突时以 `EIGHT-STEPS.toml` 为准。
+>
+> **本表不等于全量**：`docs/research` 下共 67 个 md，其中 19 个没有单列（audio/ADSP-CARRIER、ADSP-MD0、
+> ADSP-PAS1、GAP-ANALYSIS、VENDOR-ADSP-NODE、battery/GLINK-HANDOFF、HANDOFF-PUBLISH-SPEC、PAS1-PROVIDER-CARRIER、
+> PMIC-GLINK-SERVICE、evidence/SA-BOOT-EVIDENCE、SA-CONFIG-CONSISTENCY、SA-UPSTREAM-REVIEW、touch/12-FDT-PIN-TRUTH、
+> 13-PMIC-SPMI-PATH、GROUND-TRUTH 等）；各分支检出上还有约 92 个研究文件未进 main，盘点见
+> [`audits/PORTING-GAP-AUDIT-2026-11-16.md`](audits/PORTING-GAP-AUDIT-2026-11-16.md) §6。
 
 ---
 
@@ -118,8 +128,6 @@ docs/
 |---|---|---|
 | `state/SESSION-DIRECTIVES-2026-11-07.md` | 2026-11-07 会话的用户指令总账 | 参考 |
 | `state/STATE-2026-11-07.md` | 2026-11-07 的当前真相快照 | **过时**，现以 `engineering/STATUS.md` 为准 |
-| `engineering/BATTERY-INTEGRATION.md` | **电池栈编译集成**：构建脚本 4 处改动、defconfig 开关、宏链路、归档构建时机、无 PAS1 时的运行时行为 |
-| `BOOT-ARGS.md` | **Boot 参数参考**：每个参数的接受值/默认/陷阱，608 字节预算，三个 GPU 开关的串行依赖 |
 | `state/TRUST-LEDGER.md` | 数值可信度台账（T/E/C 分级） | 参考 |
 | `state/NEXT-STEPS.md` | 当时的推进顺序 | **过时** |
 
@@ -135,7 +143,7 @@ docs/
 | `plans/APPLY-PIPELINE.md` | 生成并写入 iOS 16 OS 窗口的完整流程 |
 | `plans/K60-TOUCH-PARAMS.md` | K60 Goodix / GENI-SPI 触摸参数表 |
 | `plans/120HZ-PORT-PLAN.md` | 120Hz 移植方案 |
-| [`plans/WIFI-REBUILD-CHECKLIST.md`](plans/WIFI-REBUILD-CHECKLIST.md) | **WiFi 对照镜像重出核对清单**：从 origin/main 按 4.5 GiB 窗口重出，对照 mhi3/mhi4 逐字段；五条硬差异（0010 装配路径、series 224 vs 229、`.config` 开关、buttons 节点、freeze 盲区） |
+| [`plans/WIFI-REBUILD-CHECKLIST.md`](plans/WIFI-REBUILD-CHECKLIST.md) | **WiFi 对照镜像重出核对清单**：从 origin/main 按 4.5 GiB 窗口重出，对照 mhi3/mhi4 逐字段；五条硬差异（0010 装配路径、当时的 series 224 vs 229、`.config` 开关、buttons 节点、freeze 盲区）；series 现为 227，清单需按当前树复核 |
 | 其余 | 见目录 |
 
 ---
@@ -146,6 +154,7 @@ docs/
 |---|---|
 | `audits/PONG16-DIFF-AUDIT.md` | 与 pong `ios16` 分支的机械差异审计 |
 | `audits/FORK-REVIEW.md` | Fork 巡查与吸收记录 |
+| [`audits/PORTING-GAP-AUDIT-2026-11-16.md`](audits/PORTING-GAP-AUDIT-2026-11-16.md) | **移植疏漏审计（2026-11-16）**：文档事实错误、引用完整性（217 个坏目标）、研究分布（92 个分支文件）、复用矩阵与 Top 8 可抄 |
 | `audits/REFERENCE-WALL-AUDIT-2026-11-02.md` | 对照 ios-sweet-k60 已验证墙的审计 |
 | `audits/USERLAND-ROUTES-2026-11-02.md` | 三种 userland 路线对比 |
 | 其余 | 见目录 |

@@ -389,6 +389,9 @@ failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行�
 
 [hardware.wifi]
 status = "parked"
+# 2026-11-16 审计注：本段已过期——step.decompile / step.verify / step.device 与 parked_why
+# 都写于 c1–c8 实飞之前，与 P-215 结案（c3 进 SpringBoard 132）矛盾。
+# 重评见 docs/audits/PORTING-GAP-AUDIT-2026-11-16.md 的 §6.1；改 done/status 等于改门禁放行条件，留给 Lead。
 paths = ["patches/wifi/"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
 why = "WiFi（QCA6490 / WCN6855）"

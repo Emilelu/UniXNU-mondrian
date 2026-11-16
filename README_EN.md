@@ -47,7 +47,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 
 Output: `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`.
 
-Local build scripts live in the workspace (not in this repository); see
+Build scripts live in `scripts/` (the strict entry point is `scripts/build-strict.sh`); `/opt/k60/trees/k60build` is the framework checkout's build copy. See
 [`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md) for the flow.
 
 ## Gates
@@ -55,7 +55,7 @@ Local build scripts live in the workspace (not in this repository); see
 Two layers of checks run before build or flash; any failure aborts: the registry
 `scripts/check-rules.py` runs every check registered in
 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) (iron rules, gated
-pitfalls, upstream triage, input sync, snapshot tags — currently 84); the strict
+pitfalls, upstream triage, input sync, snapshot tags — currently 107); the strict
 build entry point `scripts/build-strict.sh` embeds these checks:
 
 <!-- GATE-TABLE:BEGIN -->
@@ -135,13 +135,13 @@ table row naming a nonexistent script, fails the build.
 | [`docs/INDEX.md`](docs/INDEX.md) | **Documentation entry point**: reading order, full tree, gate commands |
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status detail and change log |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
-| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why the same sources give the same bytes, the two volumes in the field, P-154 today, and the rebuild experiment protocol |
+| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why one pin rebuilds to three different hashes (P-216), why `Mu_Basecore` must stay on the recorded pin (P-217), the four volumes in the field, P-154 closed, and the next rebuild protocol |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-230 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
-- [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) — Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack
-- [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing
-- [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) — Division of labour and repository coverage: 23 tracked / 48 synced / 3 picked
+| [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) | Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack |
+| [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) | Battery stack build integration: script changes, defconfig switch, macro path, archive timing |
+| [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) | Division of labour and repository coverage: 23 tracked / 48 synced / 3 picked |
 | [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | Per-hardware eight-step evidence (gate data source) |
 | [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | Required reference sources (gate data source) |
 | [`CREDITS.md`](CREDITS.md) | Contributors and all external sources |

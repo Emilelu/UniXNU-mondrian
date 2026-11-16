@@ -47,14 +47,14 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 产物：`build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`。
 
-本地构建脚本位于工作区（不在仓库内），流程见
+构建脚本在 `scripts/`（严格入口 `scripts/build-strict.sh`）；`/opt/k60/trees/k60build` 是框架仓库的构建副本，流程见
 [`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md)。
 
 ## 门禁
 
 构建/刷机前由两层检查把关，任一失败即中止：注册表 `scripts/check-rules.py`
 执行 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) 里登记的全部门禁
-（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 84 条）；严格构建入口
+（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 107 条）；严格构建入口
 `scripts/build-strict.sh` 内嵌下列检查：
 
 <!-- GATE-TABLE:BEGIN -->
@@ -131,13 +131,13 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | 硬件状态明细与变更记录 |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | 八步流程规范 |
 | [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md) | 启动流程唯一入口（铁则 8）：先挂串口抓取再 `fastboot boot` |
-| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | 固件卷重建手册：谁在构建、为什么同源同字节、现场两个卷、P-154 现状与重建实验协议 |
+| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | 固件卷重建手册：谁在构建、为什么同一个 pin 三次重建得三个哈希（P-216）、`Mu_Basecore` 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★37 |
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-230 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |
-- [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) —— 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB
-- [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) —— 电池栈编译集成：构建脚本改动、defconfig 开关、宏链路、归档构建时机
-- [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) —— 上下游分工与仓库覆盖：23 跟踪 / 48 同步 / 3 pick
+| [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) | 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
+| [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) | 电池栈编译集成：构建脚本改动、defconfig 开关、宏链路、归档构建时机 |
+| [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) | 上下游分工与仓库覆盖：23 跟踪 / 48 同步 / 3 pick |
 | [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | 逐硬件的八步证据（门禁数据源） |
 | [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | 必须考察的参考源清单（门禁数据源） |
 | [`CREDITS.md`](CREDITS.md) | 贡献者与全部外部来源 |

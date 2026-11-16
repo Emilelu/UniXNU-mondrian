@@ -1,7 +1,9 @@
 # K60 移植铁则（HARD RULES）
 
-> **这是唯一权威的「绝对禁止」清单。改任何代码之前必须先读本文件。**
-> 与本文件冲突的任何研究文档、agent 产出、历史代码，**以本文件为准**。
+> **⚠️ 本文件是 2026-11-12 上游 pick 快照（\`97b84eb7\`），不是本项目的权威清单。**
+> 它用上游自己的「HR-NN」编号空间，与 `docs/engineering/HARD-RULES.md` 的 ★N、`docs/engineering/PITFALLS.md` 的 P-N 并行，
+> 两边同号不同义；其中 HR-01（默认禁止访问 RSC）已被 `docs/engineering/HARD-RULES.md` 的 ★7 推翻。
+> 当前权威是 `docs/engineering/HARD-RULES.md`；本文件原文保留作历史对照，不要据它下新的禁令。
 > 每条铁则都带「违反后果」和「检查方法」。
 
 ---

@@ -44,7 +44,7 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 | 音频 DT 节点 | `pong-audio`（九个待实测项写 0）|
 
 > 上面这张表是 2026-11-12 那一版的判据。当前（2026-11-14）镜像为
-> `touch-20261114a`，内核 `c78a5cc9…`，223 个补丁，判据以
+> `touch-20261114a`，内核 `c78a5cc9…`，223 个补丁（series 现为 227 条），判据以
 > [`docs/research/touch/08-on-device.md`](../research/touch/08-on-device.md) 第 7 轮为准。
 
 **此前的最新镜像是 `boot-v15-20261108.img`（2026-11-11），不含以上任何一项。**
@@ -95,7 +95,7 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
   CP ready、CP/user-client startup）。
 - **Metal 插件**：94,928 B，已写入
   `/private/var/pong/PongAdrenoMetal.bundle/`，属主 uid=0。
-- **当前卡点**：`pong_metal=1` 时 backboardd 崩溃
+- **当前卡点**（2026-11-16 更正：此归因已失效，见本文件"GPU / Metal 现状（2026-11-13 实测，修正旧结论）"一节；原文保留作历史）：`pong_metal=1` 时 backboardd 崩溃
   （`-[NSURL fileURLWithPath:]` nil）；`pong_metal=2` 时系统稳定
   但 `IOAcceleratorES` 发布 0 次、`native Metal entry` 0 次、帧率 0。
 - **未验证**：⑧ 上机。
@@ -338,8 +338,8 @@ K60 修复、本机的 `3d2a9fa` 是它的祖先。**两句都不成立**：`git
 | 文档 | 内容 |
 |---|---|
 | `docs/engineering/EIGHT-STEP-SPEC.md` | 八步流程规范 |
-| `docs/engineering/HARD-RULES.md` | 铁则 ★1–★35 |
-| `docs/engineering/PITFALLS.md` | 坑记录 P-01–P-130 |
+| `docs/engineering/HARD-RULES.md` | 铁则 ★1–★37 |
+| `docs/engineering/PITFALLS.md` | 坑记录 P-01–P-230 |
 | `docs/engineering/ANDROID-HW-TRUTH.md` | Android 实机硬件真值 |
 | `docs/engineering/TOUCH-STATEMACHINE.md` | 官方 Goodix 驱动状态机 |
 | `docs/engineering/K60-TOUCH-CHECKLIST.md` | 触摸八步核对清单 |

@@ -185,7 +185,7 @@ prose is a red build, not a wish.
 
 ## Research before writing code
 
-0. **Local patches first.** `patches/xnu/` carries 245 patch files with 211
+0. **Local patches first.** `patches/xnu/` carries 268 patch files with 227
    entries in `series`. Before adding a patch, read what the series already does
    — a problem being solved "new" may already carry a proven answer, or a
    constraint that explains why the obvious fix is wrong.

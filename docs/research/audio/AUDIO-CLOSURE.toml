@@ -104,7 +104,20 @@ evidence = [
   "drivers/PongAudio/PongAudioAfe.h",
   "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2306",
 ]
-criteria = "pong_afe_step_port_scoped/ids/opcode assertions; the six steps are enumerated, not free text."
+criteria = "pong_afe_step_port_scoped/ids/opcode assertions; afe_plan_cases() pins the full 76/96/56/88/80/28-byte packets emitted by pong_afe_step_packet(); the six steps are enumerated, not free text."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-six-step-in-kernel"
+stage = "M4"
+change = "the built kernel carries the six-step AFE planner and sends each step over the adsp_apps slot"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioAfe.h",
+]
+criteria = "Image g (audio-probe-20261117g) built kernel 60e2a779...; strings find PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d, PongAudio: APM ready; starting AFE six-step and PongAudio: AFE six-step complete; speaker path ready once each; build-manifest.json is the artifact record."
 status = "closed"
 owner = "audio-agent"
 

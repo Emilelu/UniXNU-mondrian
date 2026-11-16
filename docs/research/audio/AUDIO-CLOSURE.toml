@@ -204,8 +204,8 @@ evidence = [
   "drivers/PongPower/K60PmicGlink.cpp",
   "patches/audio/0003-k60-audio-afe-selftest.patch",
 ]
-criteria = "Image e (audio-probe-20261117e) built kernel and strings find QcomGlink max_channels=2u local_intents=20 and PongAudio: glink adsp_apps slot queued (512x20); build-manifest.json is the artifact record."
-status = "open"
+criteria = "Image e (audio-probe-20261117e) built kernel 3ac73816...; strings find QcomGlink max_channels=2u local_intents=20 and PongAudio: glink adsp_apps slot queued (512x20) once each; build-manifest.json is the artifact record."
+status = "closed"
 owner = "audio-agent"
 
 [[item]]

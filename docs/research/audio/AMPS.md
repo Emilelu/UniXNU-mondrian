@@ -921,7 +921,12 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 d（2026-11-17）**：把 `QCOM_GLINK_MAX_CHANNELS` 从 1 落成 2（`drivers/PongPower/QcomGlink.h:17`）并把两槽结构传给电池 archive 后重建，HEAD `26166d00`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `04fac20b…`（105,504,768 B）、`payload_kernel 62395c14…`、`payload c12c354e…`、`adt 320a3b61…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `bb754421…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117d/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
-- `kernel.macho` 上 `QcomGlink max_channels=2u` 1 处；`battery archive 6f441f8b…`；d 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+- `kernel.macho` 上 `QcomGlink max_channels=2u` 1 处；`battery archive 6f441f8b…`；d 曾是当前候选，已被 e 取代。
+
+**镜像 e（2026-11-17）**：把 `K60AudioGlink` 的 adsp_apps 桥接到电池 GLINK，并把 `QCOM_GLINK_MAX_LOCAL_INTENTS` 从 4 扩到 20 后重建；同时把电池 archive 加进 bootstrap 链接（否则 `pong_audio_start` 引用 `k60_pmic_glink_attach_audio` 时 bootstrap 链接会报未定义）。HEAD `cdddd116`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+- `kernel_built` sha256 `3ac73816…`（105,504,768 B）、`payload_kernel faeb6f21…`、`payload d7701ef7…`、`adt d5bf2fd1…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `7d285418…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117e/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；`battery archive ffe975c6…`；
+- `kernel.macho` 上 `QcomGlink max_channels=2u local_intents=20` 1 处、`PongAudio: glink adsp_apps slot queued (512x20)` 1 处、`AFE encoder selftest` 1 处、`PongAudioErrNoLease` 2 处；e 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
 
 ### 9.6 run 2 的判据（可执行）
 

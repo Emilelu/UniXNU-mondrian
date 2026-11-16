@@ -21,7 +21,7 @@
 | G9 | **已退役的前身**没有退役登记：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾，但删之前要确认 wifi 线不再需要；只报告未动 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
-> 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,148 处引用 / **102** 个目标缺失 / 0 处行号越界，
+> 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,193 处引用 / **101** 个目标缺失 / 0 处行号越界，
 > 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（97 个分支文件）与 `LINE-MAP.md`（18 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
 > G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7、G8 与 AW882xx/pong-metal 两项仍只报告、未动。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
@@ -56,7 +56,7 @@
 | `docs/INDEX.md:138` | "series 224 vs 229" 的旧对照 | 当前 series 227，且 wifi 已按 P-215 结案 | 【实测】 |
 | `docs/INDEX.md:148-149` | WIFI-REBUILD-CHECKLIST 行被截断，五条硬差异串到 SHENGUFS 行 | 两行已修复，WIFI 的五条差异归回本行 | 【实测】 |
 | `docs/engineering/BOOT-ARGS.md:36-61` | 26 行有 6 个单元格，表头只有 5 列，Markdown 渲染错位 | 已把末两列合并为一列（内容不变），全表统一 5 列 | 【实测】 |
-| 13 个文档的 16 行表格 | 未转义的 `\|` 或缺列，渲染时列错位 | 2026-11-17 全量表格扫描后逐行修复：`docs/ops/HANDOFF.md:1496`、`docs/engineering/TOOLBOX.md:115-122`、`docs/plans/120HZ-PORT-PLAN.md:207`、`docs/plans/DOCS-CORE-ALL.md:568`、`docs/plans/DOCS-PORTING-ALL.md:762`、`docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:237`、`docs/reference/ZCODE-RESEARCH-REPORT.md:350`、`docs/research/REFERENCE-INDEX.md:581/931/936`、`docs/research/charger/02-GLINK-CONTRACT.md:189-190`、`docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:158`；内容不变 | 【实测】 |
+| 13 个文档的 16 行表格，另有 `UNIXNU-SITE-INDEX.md` 的 4 行 | 未转义的 `\|`、未闭合反引号或缺列，渲染时列错位 | 2026-11-17 全量表格扫描后逐行修复：`docs/ops/HANDOFF.md:1496`、`docs/engineering/TOOLBOX.md:115-122`、`docs/plans/120HZ-PORT-PLAN.md:207`、`docs/plans/DOCS-CORE-ALL.md:568`、`docs/plans/DOCS-PORTING-ALL.md:762`、`docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:237`、`docs/reference/ZCODE-RESEARCH-REPORT.md:350`、`docs/research/REFERENCE-INDEX.md:581/931/936`、`docs/research/charger/02-GLINK-CONTRACT.md:189-190`、`docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:158`；另修 `docs/reference/UNIXNU-SITE-INDEX.md:68/85/96/369` 的未闭合反引号；内容不变 | 【实测】 |
 | `docs/state/STATE-2026-11-07.md:1-3` | "唯一‘当前状态’入口" | 本文件是 2026-11-07 快照；当前入口是 `docs/engineering/STATUS.md`，INDEX:132 已标过时但文件本身没标 | 【实测】 |
 | `docs/state/NEXT-STEPS.md:1-3` | 没有历史标记的 2026-11-07 推进顺序 | 旧窗口/旧 boot-args；当前计划见 STATUS 与 `docs/plans/` | 【实测】 |
 | `docs/audits/FORK-REVIEW.md:1-7` | 只写到 2026-10-31 基线 | 2026-11-17 重查 `scripts/audit-forks.py` 返回 PARTIAL（GitHub compare API 全部 404），无新 ahead/behind，不能解释成无更新 | 【实测】 |

@@ -759,7 +759,7 @@
 
 | ID | 冲突 | 依据 | 处置 |
 | --- | --- | --- | --- |
-| C13 | `packaging.md` 的 `--os 17|27` 没有 16；`building.md` kernel 步骤写 iOS 17；K60 是 16.6.1/XNU 8796 | `packaging.md:41-53`；`building.md:256-269`；`profiles/os/ipados-16.6.1-20G81/profile.toml` | 所有命令用完整 profile `--os ipados-16.6.1-20G81`；kernel 走 K60 自定义 prelink；不要把 17 的 build 结果当 16 资格 |
+| C13 | `packaging.md` 的 `--os 17\|27` 没有 16；`building.md` kernel 步骤写 iOS 17；K60 是 16.6.1/XNU 8796 | `packaging.md:41-53`；`building.md:256-269`；`profiles/os/ipados-16.6.1-20G81/profile.toml` | 所有命令用完整 profile `--os ipados-16.6.1-20G81`；kernel 走 K60 自定义 prelink；不要把 17 的 build 结果当 16 资格 |
 | C14 | `arm64e.md` 仅支持 sheng/SM8550/iPadOS 27；K60 不在列表 | `arm64e.md:37-48`；K60 `board.toml:7` | K60 保持 arm64；不得切 arm64e/27 |
 | C15 | 官方驱动映射与 K60 硬件不匹配：Adreno740/A740 vs A730；ShengUfs vs PongUfs；Ath12kWifi vs QCA6490/PongWifi；QcaBluetooth vs QCA6490；QcomDwc3 27/24A446 vs 16.6.1；GopFramebuffer vs MiniIOMobileFramebuffer；CS35L43/WCD938x vs AW882xx | `gpu.md:22-32`；`ufs.md:5-10`；`network.md:3-5`；`bluetooth.md:3-8`；`usb.md:23-33`；`display.md:33-45`；`power.md:53-68`；`OFFICIAL-DRIVER-MAP.md` 结论 | 保留 pong 设备栈；官方组件只作接口/方法参考，不替换；在 `porting.toml` 记录不适用理由 |
 | C16 | `dual-system-partition.md` 要求创建 `unixnu` 分区；K60 已有 32 GiB `unixnu` GPT，且 AGENTS 禁止 `fastboot flash` Android 分区 | `dual-system-partition.md:1-20`；K60 `board.toml:31-35`；`AGENTS.md` device rules | 不运行 `apply`；只 `inspect`/`verify`；任何写 `unixnu` 的操作需单独方案并脱离当前只 boot 约束 |

@@ -204,7 +204,7 @@ B2 的含义：补丁文件在仓库里（`patches/xnu/zzzz…-pong-gpu-scanout.
 | DSI0 基址 | `0x0ae94000`，长度 `0x400`（`RPT:L404` 由 K60 `vendor_boot` fdt 实测；`zizhan:…:670` 同值） |
 | 关键寄存器（相对 DSI0） | `HW_VERSION 0x000`、`CTRL 0x004`、`STATUS 0x008`、`CMD_DMA_CTRL 0x03c`、`DMA_CMD_LENGTH 0x04c`、`TRIG_CTRL 0x084`、`CMD_DMA_SW_TRIGGER 0x090`、`INT_CTRL 0x110`、`TPG_CTRL 0x15c`、`TPG_CMD_DMA_INIT_VAL 0x17c`、`TPG_DMA_FIFO_RESET 0x1ec`（`zizhan:…:670-673`） |
 | 发送前自检 | 必须 `(ver>>28)==2` 且 `(ctrl&5)==5`，否则"不是运行中的 cmd-mode DSI 2.x"，直接放弃（`zizhan:…:691`）。这一条同时是**控制器有没有被 ABL 占用**的探针 |
-| FIFO 流程 | 等 `DMA_BUSY` 清 → 等 `MDP_BUSY` 清（最多 ~20 ms，计入 `MDP-busy waits`）→ 组 word（`0x39` 长包：`1<<31|1<<30|0x39<<16|len` + 4 字节小端 payload）→ 写 `TPG_CMD_DMA_INIT_VAL` → `CMD_DMA_CTRL` 置 `1<<28` → `DMA_CMD_LENGTH` → `CMD_DMA_SW_TRIGGER=1` → 轮询 `INT_DMA_DONE` ≤25 ms → 复位 TPG/FIFO（`zizhan:…:694-733` 逐行） |
+| FIFO 流程 | 等 `DMA_BUSY` 清 → 等 `MDP_BUSY` 清（最多 ~20 ms，计入 `MDP-busy waits`）→ 组 word（`0x39` 长包：`1<<31\|1<<30\|0x39<<16\|len` + 4 字节小端 payload）→ 写 `TPG_CMD_DMA_INIT_VAL` → `CMD_DMA_CTRL` 置 `1<<28` → `DMA_CMD_LENGTH` → `CMD_DMA_SW_TRIGGER=1` → 轮询 `INT_DMA_DONE` ≤25 ms → 复位 TPG/FIFO（`zizhan:…:694-733` 逐行） |
 | 租约/互斥 | zizhan 用 `pong_dsi_try_acquire(PongDsiTiming)` 与背光共享 DSI（`:753`、`:760`）；K60 目前没有背光 DSI 通道，先做单占用即可，但**要留出这个锁的位置**，否则接 CoreBrightness 时会打架（`zizhan:docs/…:131`） |
 | 调用点 | `drivers/PongAdreno/PongAdrenoScanout.cpp:139`（`IOLockLock(scanout_gate)` 之后、`poisoned` 检查之前）插入 `if (gpu_frame_seen && !panel_done) pong_panel_hz();`，**与 zizhan 完全同一位置**（`zizhan:…:1055` 的 `if(dbOn && !panelDone)panelHz();`） |
 | 构建挂载 | `scripts/build-pong-adreno-platform.py:83` 的 `names=[…'PongAdrenoScanout'…]` 加入 `'PongDsiPanel'` |

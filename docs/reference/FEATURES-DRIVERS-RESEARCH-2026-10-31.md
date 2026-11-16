@@ -234,7 +234,7 @@
 | fsa4480 | fdt1:10345 | TypeC 模拟音频开关（K60 无 3.5mm——GSMArena） |
 | 色温/光谱传感器 | GSMArena 相机特性栏 "Color spectrum sensor" | 相机白平衡器件，依赖相机子系统（§3.2） |
 | 气压计/Hall/SAR | 官方清单未列＋dts 无节点（小件调研 §6） | **不存在**（两处清单均无） |
-| eSE | fdt19 grep ese|secure.element 零命中；小米树有 ese_cold_reset.c（经 NFCC 的 eSE 冷复位 ioctl） | 无独立 DT 节点；iOS 侧随 NFC T4（§3.3） |
+| eSE | fdt19 grep ese\|secure.element 零命中；小米树有 ese_cold_reset.c（经 NFCC 的 eSE 冷复位 ioctl） | 无独立 DT 节点；iOS 侧随 NFC T4（§3.3） |
 | 原厂 CPU watchdog | fdt1 grep wdt/watchdog/bark/bite 仅 glink 中断名 | DT 不含（§1.1 互证） |
 
 ---

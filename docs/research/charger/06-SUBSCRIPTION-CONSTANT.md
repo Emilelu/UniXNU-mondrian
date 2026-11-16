@@ -155,7 +155,7 @@ type2 rows: [('60158884', 2, 7, None)]
 | **K60 ADSP 固件** | 组 `{0x800a, 1, 4, result}`，`r3 = 0x10` | —— 定值来源 |
 | **`qti_battery_charger_main_m81.ko`** | `battery_chg_callback`（`0x211c`）跳转表 index 0 → `0x2464`，只 `add x0,x19,#0xd8; bl complete`，不读 type/长度/payload | 不冲突（零校验，任何形状都唤醒等待者） |
 | **上游 Linux `qcom_battmgr`** | `payload_len >= 4` 即收，`battmgr->error = 0` | 不冲突（16 ≥ 16 下限） |
-| **ShengBattmgr 参考实现** | `type == TYPE_REQUEST || type == TYPE_NOTIFY` 都接受，不校验长度 | 不冲突（type 1 在集合内） |
+| **ShengBattmgr 参考实现** | `type == TYPE_REQUEST \|\| type == TYPE_NOTIFY` 都接受，不校验长度 | 不冲突（type 1 在集合内） |
 | **仓库 `K60Battmgr.c`** | 要求 `bytes == 16 && type == 1` 且 `+0xc` 起全 0 | 恰好匹配 |
 
 `.ko` 的零校验是**必须解释清楚**的一点：它说明"厂商驱动能跑"并不能证明 type/长度，因为 `.ko` 根本不看。真正定义 wire 形状的是固件（发）和我们的 codec（收）。

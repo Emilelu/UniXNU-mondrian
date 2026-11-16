@@ -565,7 +565,7 @@ python3 scripts/qemu-entry/gdb-stop.py --help
 | 层合并 | ARM64 → SoC → OS → device；tables merge，arrays replace；series 支持 `arch:`/`soc:`/`os:`/`device:`/`component:<ID>/` | K60 目前只有 `device:` 一个 series；未来加 arch/soc/os series 时按该顺序拼接，数组替换不是追加 |
 | 依赖 | 依赖 patch 必须在被依赖者之后 | K60 新 patch 必须插到其依赖的 patch 之后；不能依赖文件名巧合 |
 | `zzy`/`zzz` | 触碰其修改区域的 patch 必须在它们之前 | K60 `series` 末尾是 `zzzz...pong-gpu-scanout` 等 zzz 系列；任何改同一区域的 patch 要插在它们前面 |
-| 验证 | `unixnu status --json` 的 `patch_order` 是唯一权威 | K60 每次 build 前必须 `status --json | jq '.patch_order'`，并与 `patches/xnu/series` 对照 |
+| 验证 | `unixnu status --json` 的 `patch_order` 是唯一权威 | K60 每次 build 前必须 `status --json \| jq '.patch_order'`，并与 `patches/xnu/series` 对照 |
 | Format 1 | 若设备是 format 1：`patches/xnu/*.patch` + `kits/XnuPrelink/patches/*.patch` 按文件名排序；late zzw/zzy/zzz 由 shell 处理 | K60 不是 format 1；此条仅作为迁移/兼容参考 |
 
 #### 2.3.2 K60 当前 series 事实

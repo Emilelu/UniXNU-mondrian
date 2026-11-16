@@ -186,8 +186,8 @@ rx 侧从不读 `data+0`/`data+4`，所以 peer 回复时可以照抄请求的 o
 | `0x43` | 只收 | 16 | `complete(bcdev+0xf8)` | 通知 |
 | `0x44` | 发→收 | 发 12 / 收 16 | `bcdev+0x314 = data+0xc` | 无线固件版本读取（debugfs `wireless_fw_version`） |
 | `0x48` | — | — | **未识别**（主跳转表落默认项） | 不存在；`0x47` 才是「只 complete」 |
-| `0x50` | 发→收 | 收 52 → 拷 32 B 到 `+0x620`；收 32 → 拷 16 B 到 `+0x628`；收 116 → 拷 96 B 到 `+0x1f0` | GET xiaomi prop（187 项，运行期填充） |
-| `0x51` | 发→收 | 收 24 → 读 rc；收 32/52 → 只 complete | SET xiaomi prop 应答（走通用 `0x2168` 分支） |
+| `0x50` | 发→收 | 收 52 → 拷 32 B 到 `+0x620`；收 32 → 拷 16 B 到 `+0x628`；收 116 → 拷 96 B 到 `+0x1f0` | — | GET xiaomi prop（187 项，运行期填充） |
+| `0x51` | 发→收 | 收 24 → 读 rc；收 32/52 → 只 complete | — | SET xiaomi prop 应答（走通用 `0x2168` 分支） |
 | 其它 | — | — | `.rodata:0x24b0` `Unknown opcode: %u`、`.rodata:0xa1c` `Incorrect response length %zu for opcode %#x` | 默认分支 |
 
 跳转表在 `.rodata:0x9`（78 字节，索引 `opcode-4`，目标 = `0x2168 + byte*4`），逐项换算见 03 §4。

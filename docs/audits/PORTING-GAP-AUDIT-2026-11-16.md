@@ -56,6 +56,7 @@
 | `docs/INDEX.md:138` | "series 224 vs 229" 的旧对照 | 当前 series 227，且 wifi 已按 P-215 结案 | 【实测】 |
 | `docs/INDEX.md:148-149` | WIFI-REBUILD-CHECKLIST 行被截断，五条硬差异串到 SHENGUFS 行 | 两行已修复，WIFI 的五条差异归回本行 | 【实测】 |
 | `docs/engineering/BOOT-ARGS.md:36-61` | 26 行有 6 个单元格，表头只有 5 列，Markdown 渲染错位 | 已把末两列合并为一列（内容不变），全表统一 5 列 | 【实测】 |
+| 13 个文档的 16 行表格 | 未转义的 `|` 或缺列，渲染时列错位 | 2026-11-17 全量表格扫描后逐行修复：`docs/ops/HANDOFF.md:1496`、`docs/engineering/TOOLBOX.md:115-122`、`docs/plans/120HZ-PORT-PLAN.md:207`、`docs/plans/DOCS-CORE-ALL.md:568`、`docs/plans/DOCS-PORTING-ALL.md:762`、`docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:237`、`docs/reference/ZCODE-RESEARCH-REPORT.md:350`、`docs/research/REFERENCE-INDEX.md:581/931/936`、`docs/research/charger/02-GLINK-CONTRACT.md:189-190`、`docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:158`；内容不变 | 【实测】 |
 | `docs/state/STATE-2026-11-07.md:1-3` | "唯一‘当前状态’入口" | 本文件是 2026-11-07 快照；当前入口是 `docs/engineering/STATUS.md`，INDEX:132 已标过时但文件本身没标 | 【实测】 |
 | `docs/state/NEXT-STEPS.md:1-3` | 没有历史标记的 2026-11-07 推进顺序 | 旧窗口/旧 boot-args；当前计划见 STATUS 与 `docs/plans/` | 【实测】 |
 | `docs/audits/FORK-REVIEW.md:1-7` | 只写到 2026-10-31 基线 | 2026-11-17 重查 `scripts/audit-forks.py` 返回 PARTIAL（GitHub compare API 全部 404），无新 ahead/behind，不能解释成无更新 | 【实测】 |

@@ -578,7 +578,7 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | 大小 / 行数 / sha256 | 4,799 B / 203 行 / `65cd6826a2abcce28db60b7d82ab34aa9fa8ecd2aa82f5fc4f21f9853b4be482` |
 | 引入提交 | `a1501e0c2e642d6ac0d8f52c85af2a67b75a7799` "gts9wifi: Initial support (#202)"（2026-10-04） |
 | 仓库 | `Device-Binaries` HEAD `d3f7cb72`（main）；`git ls-files "*/RawFiles/Panel_*.xml"` = **2,117** 个，文件名含 `m11a` 的**恰好 1 个** |
-| 为什么以前没找到 | 它不在仓库根，而在 `marble/` 目录下；先前只按根目录与命名猜，没做 `git ls-files | grep -i m11a` |
+| 为什么以前没找到 | 它不在仓库根，而在 `marble/` 目录下；先前只按根目录与命名猜，没做 `git ls-files \| grep -i m11a` |
 
 **XML 静态字段与 live FDT 逐项一致**（这是「就是这块面板」的依据）：
 
@@ -928,12 +928,12 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 | 缺口 | 影响 | 建议动作 |
 |---|---|---|
-| ~~**AW882xx smart PA 无任何参考实现**~~ **型号已定（2026-11-14）** | 音频线（K60 独有） | 两颗都是 **AW88261（0x2113）**，真机只读读数见 4.5。剩下的是**寄存器序列与保护策略**（无 datasheet）。~~从 `Device-Binaries` 找 aw882xx 固件~~ **已证伪**：该仓库 `git ls-files | grep -ci aw88` = 0，也零个 bdwlan/amss/.pwf |
+| ~~**AW882xx smart PA 无任何参考实现**~~ **型号已定（2026-11-14）** | 音频线（K60 独有） | 两颗都是 **AW88261（0x2113）**，真机只读读数见 4.5。剩下的是**寄存器序列与保护策略**（无 datasheet）。~~从 `Device-Binaries` 找 aw882xx 固件~~ **已证伪**：该仓库 `git ls-files \| grep -ci aw88` = 0，也零个 bdwlan/amss/.pwf |
 | ~~**K60 panel XML 未提取**~~ **已闭合（2026-11-14）** | 显示/背光 | `Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（sha256 `65cd6826…`）就是 m11a 的厂商 XML，静态字段与 live FDT 逐项一致；但 init 序列是**同族不同修订**（129 包 vs 135 包，LCS 125 包相同、3 个编辑块），要用得先补差异。详见 7.7 与 `display/RESEARCH.md` 1.1 |
 | ~~**m11a 的 90Hz 档用途未知**~~ **已缩小（2026-11-14）** | 显示 | 三档共用同一套 init，**只差 6 个字节**（`2f`/`8b`/`df` 三个 DCS 参数 + 3 个包头字节，见 7.3）→ 90 Hz 在驱动侧没有额外工作量，只是选 `timing@1`。实机侧（2026-11-14 用 `scratch/refmine/fps_boots.py` 重跑；证据目录只增不减，数字随抓取增长）：494 个 `console.log` 里 453 个打出面板行，**只有 60 Hz（180 次）与 120 Hz（273 次）**，` 90 Hz` 字符串在全 evidence 目录 **0 命中** → 我们自己的 bring-up 从未选过 `timing@1`。剩下的是「要不要暴露」这个产品决定，不是取证缺口 |
 | **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1。**阻塞点已修正**：不是 RSC 不可访问（drv-2 实测可读写，见 3.1 / 14.1），而是这 3 条轨的 cmd-db 资源地址与投票参数本板未取；在拿到之前只能沿用 bootloader 状态 |
 | **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*`。**2026-11-14 补：所有参考仓库都没有这些文件** —— `Device-Binaries` 的 `git ls-files` 里 bdwlan/amss/.pwf 命中数为 0；`QcaBluetooth` 是纯源码仓库（46 个 tracked 文件，HEAD `effe4ec`，2026-11-17；k60-bt 的 vendored 副本仍 `986d631`，唯一与固件相关的只有 `shim/linux/firmware.h`）。所以只能从设备分区取，别再翻参考仓库 |
-| **QcaBluetooth 上游诊断未移植** | BT/HCI | k60-bt 的 vendored 副本停在 `986d631`；QcaBluetooth HEAD `effe4ec` 多 4 个提交（`68e2e60` extended discovery counters、`32dab19`/`e853395` Classic Inquiry trace、`5d5ae94` LE trace），6 文件 +198/−4。都是诊断/计数增强，不是控制器修复 | 由 BT 线在 HCI 扫描验证阶段 cherry-pick，或至少按同一接口补自研 qbt 的 trace 钩子 |
+| **QcaBluetooth 上游诊断未移植** | BT/HCI：k60-bt 的 vendored 副本停在 `986d631`；QcaBluetooth HEAD `effe4ec` 多 4 个提交（`68e2e60` extended discovery counters、`32dab19`/`e853395` Classic Inquiry trace、`5d5ae94` LE trace），6 文件 +198/−4。都是诊断/计数增强，不是控制器修复 | 由 BT 线在 HCI 扫描验证阶段 cherry-pick，或至少按同一接口补自研 qbt 的 trace 钩子 |
 | ~~**`Device-Binaries` 698 MB 未系统挖掘**~~ **已普查（2026-11-14）** | 全部 | 651 MB / 9,707 文件 / **78 个机型目录**已全部定性（机型 → `Build/<Family>`）：Palima=b4q/marble/pong/senna_a/senna_bc，Waipio=gts8p/ingres/r0q，Netrani=garnet，Kailua=aston/b5q/dm2q/gts9wifi/nuwa/nx729j/qrd8550/salami，Pakala=annibale/dodge/pagani/onyx，其余为 SM8250/SM8150/SM8350/SDM845 等老平台。**没有任何 SM8475/taro 机型** → 它不能给本板 UEFI 提供同 SoC 参考；唯一可用的产出是 `RawFiles`（面板 XML，见 7.7）与跨板布局对照（见 memory/RESEARCH.md 第 3 节）。74 份 `uefiplat.cfg` 中**没有一份**含 K60 的 `0xC7000000`（DXE Heap）或 `0x85700000`（video_region） |
 | ~~**RSC 可访问性根因未定**~~ **已缩小（2026-11-14）** | 所有供电相关 | drv-2（`0x17a20000`）**实测可读可写**：49 个 boot 读到 `caps=0x800c8104`、ACTIVE TCS4 投票 48/49 成功（3.1 / 14.1）。「一读就死」只对 drv-0（`0x17a00000`）与 drv-3（`0x17a30000`）成立，而那两次实验**没有留日志**（`k60rscprobe` 在 582 个 boot 里 0 次）。剩下的是「禁止碰 drv-0/drv-3」，不是整体阻塞 |
 | ~~**Goodix 芯片型号未确认**~~ **已闭合（2026-11-14）** | 触摸 | 真机日志 71 次读到 `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`（61 个 boot 目录，型号串完全一致），三源一致 → **GT9916R BerlinD**，见 6.0。仍缺的是初始化失败根因，不是型号 |

@@ -5811,78 +5811,55 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 - Check: `python3 scripts/tests/test-porting-gate-book.py`
   （registry `id = "P-222"`）。
 
-## P-223 — fail-closed 的位置必须在不可逆操作之前，而不是在最早的调用点
+## P-223 — fail-closed 必须覆盖真实发布链，且先于 PAS/SMEM 副作用
 
-**现象.** ADSP 板级服务装好之后，owner 引擎仍然在 stage 1 失败（`stage=1 rc=-1000`），
-而 `resources_cb` 无论真机上这几条轨有没有被 Android 预热投票，都打印同一行、返回同一个
-`K60BoardUnsupported`。于是「轨没上电」和「我们拒绝投票」在日志里长得一模一样 ——
-和 P-190（归档没进内核却报成功）、P-204（同一个常量回答两个问题）是同一种形状：
-**用常量回答一个本来可以测量的问题**。
+**当前裁决（Lead 2026-11-16 15:03）.** 选择 (iii)：恢复发布路径的资源拒绝，再独立核验只读探针。
+没有供电证据时拒绝不是「轨已关闭」的结论，而是**不能授予 ResourcesHeld**。撤回 `de8cf52`
+可出功能实验图的批准；本轮不开 `pong_adsp`，也不开 `pong_handoff_publish`。
 
-第一版修法把读取记录成账本、让 `resources()` 稍后查表，看起来解决了问题：测量确实做了、
-三态也确实分开了。但把它放到时序上量一遍，结论是反的——**读者结构上早于写者**，
-`resources()` 永远查到空账本，于是「查表」这一层把 fail-closed 变成了永远为假的条件：
-它看着像一道门，实际只把功能关死，还多了一层间接。
+**历史（已被本裁决取代）.**
+- 08:08 的问题是常量拒绝日志没有区分「未测量」与「测得无请求」。这支持改进取证，
+  不支持把未知供电改报成功。`adsp-20261115e` 的 `stage=1 rc=-1000` 只证明当时拒绝。
+- B（09:45 采用，13:50 撤回）：`k60_rail_probe()` 记账、早期 `resources()` 查表。
+  后者在 `IOKitBSDInit()`，前者在 Data 挂载后，**读者结构上早于写者**，所以此设计不能放行。
+- C（13:50 采用，15:03 撤回）：`resources()` 只声明并返回 0，把 rail gate 放到
+  `k60_adsp_bring_up()`。当时 rail 49 例、board 8 场景通过，但第 8 场景只证明声明成功；
+  它没有验证发布链。legacy 才调用 `bring_up()`，生产 owner stages **不经过该门**。
 
-**根因.** 时序决定了这个回调自己读不到证据，而代码把这个「读不到」直接写成了结论：
+**根因.** `K60AdspOwnerStages.c:90-95` 在 `resources()` 返回 0 后立即置
+`resources_held=1` 和 `K60AdspResourcesHeld`，然后 `map_smem`；`:109-124` 分配 SMEM
+478/479/480；`:138-156` 执行 `INIT_IMAGE` → `MEM_SETUP` → COPY/BSS → `AUTH_AND_RESET`。
+仅在 legacy 的 `bring_up()` 检查，保护不到这条早于 Data 挂载的发布链；仅在 AUTH 前检查也
+保护不到之前的 SMEM/PAS/物理 copy 副作用。调用链证据见
+[`ADSP-RAIL-INHERITANCE.md`](../research/audio/ADSP-RAIL-INHERITANCE.md#61-决定性缺口发布路径不经过-k60_adsp_bring_up)。
 
-```c
-/* resources_cb, 修改前 */
-if (!ready(b) || !leased(b, cookie)) return K60BoardNoLease;
-...
-b->last_rc = K60BoardUnsupported;
-return K60BoardUnsupported;
-```
+**修法与核验边界.**
+1. `resources_cb` 仍先查 lease、排他、独立 stopped 证据；通过后也必须返回
+   `K60BoardUnsupported`(-63)，不置 `b->resources=1`，不返回成功，并打印
+   `K60ADSP: rails not verified for handoff; no PAS/SMEM mutation`。声明不等于持有资源。
+2. 板级测试仍为 **8 场景**；第 8 场景改为回调拒绝断言。另在
+   [`test-k60-owner-claim.c`](../../scripts/tests/test-k60-owner-claim.c) 连接真实 board callback 与
+   production `k60_adsp_owner_install/acquire`，直接计数 `k60_smem_alloc`（GNU ld wrap），
+   必须断言资源拒绝后 `map_smem`、SMEM allocation、`init_image`、`mem_setup`、
+   load/copy、`auth_and_reset`、发布各为 **0 次**，SMEM 保持 byte-identical，
+   `resources_held`/证据/lease 不残留。不能只数 return code，也不能称 board8 单独证明下游零副作用。
+   板级 exclusive 自身的只读 SMEM 检查映射不等于这里禁止的下游 `map_smem`。
+   父任务验证 focused host log `E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log`（1458 行，SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）：真实 board refusal、owner-claim 18 场景和 board 8 场景均通过；完整 runner exit 0。
+3. legacy rail 检查保留，但没有功能图授权。未来只读探针先核对 caps、实际 slot/command 数、
+   cmd_stride、`TCS_STATUS(+0x18)`/`CMD_STATUS(+0x3c)` 与 enable/msgid 语义；
+   现采样器固定 5 槽且每槽只扫首 command、idle 位解释和单次 attempted 门均**尚未审计闭合**。
+   失败也应消耗一次尝试，已有 ledger 不得再次触硬件，HR-01 四条件须在唯一入口证明。
+4. TCS 非零 `cmd_data` 只证明该位置留有请求，**不证明 AOP 聚合状态或电源轨有效**；
+   `Inherited`/`valid=1` 是旧实现命名，不可作为 SCM 放行证据；没扫到也不证明无票或断电。
 
-HR-01 允许的读取只能发生在 `k60_data_mounted == 1` 之后，而 `resources()` 的唯一调用链
-（`k60_adsp_handoff_publish` → `k60_adsp_platform_install` → `k60_adsp_owner_acquire`）
-全部跑在 `IOKitBSDInit()` 里，**结构上早于 Data 挂载**；账本的写者 `k60_rail_probe()` 却在
-kern_exec 的 Data 挂载之后才跑（证据见 `docs/research/audio/ADSP-RAIL-INHERITANCE.md` 第四节）。
-所以问题不是「要不要读」，而是**门放在哪里**：放在最早的调用点，等于放在一个永远拿不到证据的地方。
+**教训.** 先列全每条生产调用链及其最早副作用，再选拒绝点；未知必须保持未知，
+不能用声明填入 `ResourcesHeld`。主机断言必须覆盖拒绝后的事件轨迹和内存不变性，而非
+只验证一个失败值或一个脱离启动顺序的 helper。`adsp-20261116a` 构建被门禁拒绝，
+**没有 boot.img、未上机**（P-229），不是 rail 或 handoff 成功证据。
 
-**为什么没有门禁拦到.** 板级测试里对 `resources()` 只有一条断言：
-
-```c
-CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
-```
-
-它把「还没有证据」「证据不全」「证据说轨没起来」三种情况压成了同一个期望值，测试因此
-**只能**锁住常量，锁不住语义。账本版同样躲得过门禁：主机测试把账本直接交给消费者
-（`k60_rail_ledger_store()` 是可测的），测得出三态函数正确，却测不出**调用点这辈子能不能看到记录**。
-时序不是单元测试的输入，它是启动顺序的事实——不写下来，就没人替它设门。
-
-**修法.**
-1. `resources_cb` 只**声明**，不读寄存器也不查账本：按设备树的 `cx-supply` / `mx-supply`
-   声明继承的是 `lcx.lvl` / `lmx.lvl`，打印
-   `K60ADSP: rails declared lcx=lcx.lvl lmx=lmx.lvl (inherited, not yet read)` 并返回成功。
-   措辞里必须带 `not yet read`——声明不能读成「已继承」。
-2. 真正的回读挪到**不可逆操作紧前面**：`k60_adsp_bring_up()` 的第一步
-   （`k60_adsp_plan()` 与 `AUTH_AND_RESET` 之前）调用 `k60_rail_inherit()`；
-   该函数一次、只读、同一 `pong_rail_probe` 门控，按 `cmd_addr` 命中反推 TCS 槽（不写死槽号），
-   把四元组记进账本后立刻判定。
-3. 判定仍是三态，且措辞必须不同：完整有效 → 打印四元组并返回 0；
-   没有记录 → `K60ADSP: rails not measured: pong_rail_probe is off, …; refusing AUTH_AND_RESET`；
-   不完整 → `rail not inherited <rail>: <field> missing; refusing AUTH_AND_RESET`；
-   完整但无效 → `rail measured but invalid <rail> (<why>); refusing AUTH_AND_RESET`。
-   三者都返回 `-63`，但只有第一种继续走 PAS1。
-4. 门禁补两层：`test-k60-pmic-rail.c` 49 例（含 `k60_rail_verdict()` 的全部分支、未测量、
-   缺字段、level=0、槽不 idle、窗口过短、NULL 参数），以及板级测试第 8 个场景
-   `scenario_resources_declares`（无账本也返回成功、仍受 lease 约束）；
-   板级测试的链接**故意不含 `K60PmicRail.c`**，将来谁把依赖加回 `resources()`，链接就会失败。
-   两个测试都接进 `run-k60-handoff-host.sh`。
-
-**教训.**
-- **时序事实要先写下来，再选实现位置。** 读者早于写者时，「先记录、后查表」不是 fail-closed，
-  是永远为假；这种门比没有门更坏，因为它让日志看起来「检查过了」。
-- **门要贴着不可逆操作放。** `AUTH_AND_RESET` 之后一切检查都没有意义；把检查放在最早的调用点，
-  只是因为它看起来「最安全」——那是位置的美感，不是证据。
-- **声明与测量必须分开命名。** 「我们声明继承这两条轨」和「我们读到这两条轨有电」是两句话；
-  日志措辞合在一起，下一次真机读数就得靠猜。
-- 一条只断言「返回失败」的测试，锁住的是常量而不是语义；先想清楚它有几种失败方式，
-  再写断言。单元测试测不出时序，链接依赖和日志措辞才是那道门。
-
-**Check.** `python3 scripts/check-rule-registry.py`；两条门禁命令见
-`docs/engineering/RULES.toml` 的 `P-223` 项（rail 49 例 + board 8 场景）。
+**Check.** `python3 scripts/check-rule-registry.py`；门禁命令见
+`docs/engineering/RULES.toml` 的 `P-223` 项。历史 rail 49 例不等于采样器已审计；
+board 8 场景（第 8 场景为回调拒绝）与 production owner-claim 18 场景通过；拒绝轨迹见 `E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log`（SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）。
 
 ## P-224
 
@@ -6078,7 +6055,8 @@ def test_the_current_series_is_proven_by_the_book(self):
 `series_fingerprint()` 量的是**当前检出树**的 `patches/xnu/series`。adsp 分支为了跟上 `main`
 改了 `0613-k60-adsp-pas.patch`，指纹变成 `86a6e0ed295d56b6`（227 条），而
 `MAIN-BASELINE.toml` 里唯一一条 booted 是 `59d8037521a5b07b`（`baseline-20261116a`）。
-于是这条断言失败，registry 失败，构建被拒。
+于是这条断言失败，registry 失败，构建被拒；`adsp-20261116a` **没有生成 boot.img，也未上机**。
+此前「Lead 已起飞」的说法不成立，不能把本轮构建尝试当成只读探针或 PAS/handoff 的硬件证据。
 
 **这不是「门禁正确地把一个未上机的分支拒掉」，而是门禁的测试自己坏了。** 未上机的分支本来
 就该被拒，但那个判断属于 `porting-gate.py` 的 `[S]` 判定——它是门禁本体，按设计会对任何

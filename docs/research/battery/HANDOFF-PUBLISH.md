@@ -60,7 +60,7 @@ Runtime C++ and owner C sources pass arm64 Apple kernel SDK syntax checks; the t
 
 ## 真机判据（Lead 2026-11-15 21:50）
 
-The four lines below are the declared criteria for the functional image with `pong_handoff_publish=1`. Source locations were checked against fetched Lead commit `c8d598115fc03d4ffb8088a26ffc8e4f86a42f5b`; the cited emitters and 0619 gate match this branch.
+Historical record only: the 2026-11-16 15:03 Lead ruling withdrew approval for a functional image; these four lines are not current authorization or an attainable success criterion. They record the earlier target for `pong_handoff_publish=1`. Source locations were checked against fetched Lead commit `c8d598115fc03d4ffb8088a26ffc8e4f86a42f5b`; the cited emitters and 0619 gate match this branch.
 
 | Criterion | Exact log shape | Source and interpretation |
 |---|---|---|

@@ -89,6 +89,9 @@ docs/
 | `wifi/T2-PATCH.md` | **WiFi T2 备胎补丁**：把 11.19 MB PWF2 容器从 `__TEXT,__const` 挪到 `__DATA,__const` 的一行 diff（已验证可正反向 apply）、t2 构建配方、飞行前三项离线校验 |
 | `wifi/MSI-TOPOLOGY.md` | **WiFi 中断拓扑**：主机配置的 PARF→SPI140/INTID172 与未证实的端到端路由、DT 的 RID→ITS DeviceID 映射、TRANSLATER `+0x10040`/EventID data 更正、c7 中断证据边界 |
 | `wifi/MHI-STATE-MACHINE.md` | **MHI 离线复核**：c7 超时样本与 POR 位掩码、rp 初值不证明设备 DMA、11 数据块＋1 向量表、c8 新路径的延后重复 AMSS/错误继续风险与保持暂停的理由 |
+| [wifi/MHI-SESSION-DESIGN.md](research/wifi/MHI-SESSION-DESIGN.md) | **MHI 会话提案（未集成）**：完整镜像单次提交资格、可重入事件队列、首错传播、迟到完成与停机/reset 边界；host 模型不证明硬件协议 |
+| [wifi/FAILURE-SNAPSHOT-PROPOSAL.md](research/wifi/FAILURE-SNAPSHOT-PROPOSAL.md) | **MHI 超时快照提案（未应用）**：失败前可达的硬件入口/非零 pending、mask/status、上下文与环范围采样；非原子读值不证明 DMA 可见性 |
+| [wifi/WIFI-FLASH-GATE-PROPOSAL.md](research/wifi/WIFI-FLASH-GATE-PROPOSAL.md) | **WiFi flash 门禁提案（未应用）**：显式 WiFi 与 active 底线、①–⑦/本次⑧观察绑定及正反例；真实镜像与 wrapper 绑定仍阻塞 |
 | `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |

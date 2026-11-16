@@ -22,11 +22,16 @@
  *   int-236 publishing backlight-control without IOObjectConformsTo(service,
  *          "AppleARMBacklight") makes CoreBrightness skip the libEDR server and
  *          QuartzCore blocks with the display lock held: the screen stops
- *          updating. brightness-4 measured exactly that shape on device
- *          (control 1, four backboardd SIGSEGV, no first frame), so the
- *          property is now off by default: k60_backlight_control=1 asks for it
- *          and the kernel side of the conformance query must then really
- *          answer AppleARMBacklight (conformsToAppleBacklight).
+ *          updating (the reference implementation's shape). brightness-4 on
+ *          20G81 died differently and left a stack: four backboardd SIGSEGV,
+ *          pc CoreFoundation+0x77668 (CFNumberGetValue on a NULL CFNumber),
+ *          lr CoreBrightness+0xfbaa4, because the service published a
+ *          six-key backlight-calibration-parameters dictionary while that
+ *          CoreBrightness reads ten keys with no NULL check. The dictionary is
+ *          no longer published at all (see publishCalibration). The property
+ *          stays off by default: k60_backlight_control=1 asks for it and the
+ *          kernel side of the conformance query must then really answer
+ *          AppleARMBacklight (conformsToAppleBacklight).
  *
  * Counting follows the reference layout; see docs/research/display/
  * BRIGHTNESS-PLAN.md section 5 for the index table.
@@ -221,20 +226,23 @@ void K60Backlight::publishCalibration(void)
         setProperty("LmidProduct", number);
         number->release();
     }
-    OSDictionary *calibration = OSDictionary::withCapacity(6);
-    if (!calibration) return;
-    const struct {const char *key; uint32_t nits;} fields[] = {
-        {"lMinProduct", k60backlight::kMinNits}, {"lMidProduct", k60backlight::kMidNits},
-        {"lMaxProduct", k60backlight::kMaxNits}, {"lMinPanel", k60backlight::kMinNits},
-        {"lMidPanel", k60backlight::kMidNits}, {"lMaxPanel", k60backlight::kMaxNits}};
-    for (const auto &field : fields) {
-        if (OSNumber *number = OSNumber::withNumber((uint64_t)field.nits << 16, 32)) {
-            calibration->setObject(field.key, number);
-            number->release();
-        }
-    }
-    setProperty("backlight-calibration-parameters", calibration);
-    calibration->release();
+    /* Do not publish backlight-calibration-parameters.
+     *
+     * 20G81's CoreBrightness reads ten keys out of that dictionary
+     * (current-for-max-backlight, current-for-mid-backlight,
+     * hardware-max-current-limit, lMaxProduct, lMidProduct, lMinProduct,
+     * lMaxPanel, lMidPanel, lMinPanel, milliAmps2NitsScaleFactor) and feeds
+     * each value to CFNumberGetValue with no NULL check in between
+     * (CoreBrightness 0x1af030a28 reads the property, 0x1af030a5c..0x1af030a70
+     * the loop). A dictionary that carries only the six luminance keys makes
+     * the very first lookup return NULL and backboardd dies inside
+     * CoreFoundation (int-236: brightness-4, pc CoreFoundation+0x0, lr
+     * CoreBrightness+0xfbaa4). The same reader takes a default branch when the
+     * property is absent (0x1af031684: 5 / 140 / 400 nits and the scaled
+     * derivatives), so an absent dictionary is the only shape this port can
+     * publish honestly: the panel currents and the milliAmp-to-nit scale have
+     * not been measured. Never publish a partial dictionary here.
+     */
 }
 
 /* One DCS 0x51 write. The panel has no read back command, so the value reported

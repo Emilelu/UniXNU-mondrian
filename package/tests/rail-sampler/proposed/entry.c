@@ -513,7 +513,7 @@ static void case_gate_ineligible(void)
 	}
 	bad_permit = permit;
 	bad_permit.reviewed = 0;
-	CHECK(k60_rail_observe_once((K60RailObsGate){ 1, 2, 1 }, &bad_permit,
+	CHECK(k60_rail_observe_once(gate_good, &bad_permit,
 	    &io_seam, &last_result) == K60_RAIL_OBS_BAD_INPUT);
 	CHECK(k60_rail_obs_test_state() == K60_RAIL_OBS_UNATTEMPTED);
 	CHECK(invoke(gate_good) == K60_RAIL_OBS_RETURNED);
@@ -775,9 +775,10 @@ static void case_db_block_table_truncated(void)
 	p.db_block = 0x90;
 	last_rc = k60_rail_observe_once(gate_good, &p, &io_seam, &last_result);
 	CHECK(last_rc == K60_RAIL_OBS_RETURNED);
-	/* 0x90 cannot hold the header plus two 24-byte entries (192 > 144),
-	 * so the table is truncated; GEOMETRY_INVALID is NOT established. */
-	expect_result(K60_RAIL_OBS_OUTCOME_DB_CORRUPT);
+	/* 0x90 cannot hold the header plus two 24-byte entries (192 > 144).
+	 * That is arithmetic, so Lead 20:07 classified it GEOMETRY_INVALID;
+	 * the test asserts the boundary, not a hardware conclusion. */
+	expect_result(K60_RAIL_OBS_OUTCOME_GEOMETRY_INVALID);
 	CHECK(strcmp(last_result.stop_field, "db entries") == 0);
 	CHECK(last_result.stop_region == 0);
 	CHECK(ctl.map_calls[0] == 1 && ctl.map_calls[1] == 0);
@@ -828,17 +829,55 @@ static void case_command_block_0x44_geometry(void)
 	expect_cached_terminal(&p, &first);
 }
 
-static void case_observed_parse_ok_truthy(void)
+static void case_parse_ok_two_refused(void)
 {
-	/* Observed deviation from the strict-1 contract: gate_ok() treats
-	 * parse_ok as truthy, so 2 is admitted. Recorded as a core defect
-	 * (design-doc candidate queue), not as the intended contract. */
+	/* Proposed contract (Lead 20:07): parse_ok must be exactly 1, so 2 is
+	 * refused. Before this change the candidate admitted truthy; that shape
+	 * is P-204 ("count instead of semantics"), recorded in the design doc,
+	 * not as this contract. A refused gate consumes no attempt. */
 	setup_v2();
 	seed_observed(UINT32_C(0x00020700), 0, 16, 16);
 	snapshot();
-	CHECK(invoke((K60RailObsGate){ 1, 2, 1 }) == K60_RAIL_OBS_RETURNED);
+	CHECK(invoke((K60RailObsGate){ 1, 2, 1 }) == K60_RAIL_OBS_INELIGIBLE);
+	CHECK(ctl.map_calls[0] == 0 && ctl.map_calls[1] == 0);
+	CHECK(k60_rail_obs_test_state() == K60_RAIL_OBS_UNATTEMPTED);
+	/* A refused gate consumed nothing: the same plan still gets one attempt. */
+	CHECK(invoke(gate_good) == K60_RAIL_OBS_RETURNED);
 	expect_observed(0);
 	CHECK(k60_rail_obs_test_state() == K60_RAIL_OBS_TERMINAL);
+}
+
+static void case_parse_ok_zero_refused(void)
+{
+	/* parse_ok == 0 is also not 1; refusal is the same gate path and must
+	 * not consume the attempt. */
+	setup_v2();
+	seed_observed(UINT32_C(0x00020700), 0, 16, 16);
+	snapshot();
+	CHECK(invoke((K60RailObsGate){ 1, 0, 1 }) == K60_RAIL_OBS_INELIGIBLE);
+	CHECK(ctl.map_calls[0] == 0 && ctl.map_calls[1] == 0);
+	CHECK(k60_rail_obs_test_state() == K60_RAIL_OBS_UNATTEMPTED);
+}
+
+static int legacy_gate_ok(K60RailObsGate g)
+{
+	/* The pre-change candidate predicate, kept only to display the status quo
+	 * that the proposed contract replaces. It is not linked by the core. */
+	return g.data_mounted == 1 && g.parse_ok != 0 && g.parsed_value == 1;
+}
+
+static void case_observed_parse_ok_truthy(void)
+{
+	/* Status quo, not contract: the pre-change gate admitted any truthy
+	 * parse_ok (P-204 "count instead of semantics" shape). Reproduced here
+	 * as an observation; the proposed core below must refuse the same input. */
+	setup_v2();
+	seed_observed(UINT32_C(0x00020700), 0, 16, 16);
+	snapshot();
+	CHECK(legacy_gate_ok((K60RailObsGate){ 1, 2, 1 }) == 1);
+	CHECK(invoke((K60RailObsGate){ 1, 2, 1 }) == K60_RAIL_OBS_INELIGIBLE);
+	CHECK(ctl.map_calls[0] == 0 && ctl.map_calls[1] == 0);
+	CHECK(k60_rail_obs_test_state() == K60_RAIL_OBS_UNATTEMPTED);
 }
 
 static void case_db_missing(void)
@@ -860,13 +899,16 @@ static void case_db_corrupt_magic(void)
 	expect_result(K60_RAIL_OBS_OUTCOME_DB_CORRUPT);
 }
 
-static void case_db_corrupt_count(void)
+static void case_db_count_overflow_geometry(void)
 {
 	setup_v2();
 	put16(db_mem, 14, 0xffff);
 	snapshot();
+	/* count 0xffff cannot fit db_block: the table is truncated, so this is
+	 * the arithmetic boundary (Lead 20:07), not a corrupt-magic verdict. */
 	CHECK(invoke(gate_good) == K60_RAIL_OBS_RETURNED);
-	expect_result(K60_RAIL_OBS_OUTCOME_DB_CORRUPT);
+	expect_result(K60_RAIL_OBS_OUTCOME_GEOMETRY_INVALID);
+	CHECK(strcmp(last_result.stop_field, "db entries") == 0);
 }
 
 static void case_unsupported_version(void)
@@ -912,6 +954,26 @@ static void case_not_found(void)
 	CHECK(last_result.coverage_complete == 1);
 	CHECK(last_result.record_count == 0);
 	CHECK(last_result.qualifiers == 0);
+}
+
+static void case_partial_rail_request(void)
+{
+	/* One valid LCX request survives as raw observation, but the current API
+	 * cannot express it as a partial result without the LMX request. */
+	setup_v2();
+	set_slot(UINT32_C(0x00020700), 0, 1, 1);
+	set_slot(UINT32_C(0x00020700), 1, 1, 1);
+	set_cmd(UINT32_C(0x00020700), 0, 0, FIX_LCX, FIX_MSGID, 16,
+	    FIX_STATUS_OK);
+	snapshot();
+	CHECK(invoke(gate_good) == K60_RAIL_OBS_RETURNED);
+	expect_result(K60_RAIL_OBS_OUTCOME_NOT_FOUND);
+	CHECK(last_result.coverage_complete == 1);
+	CHECK(last_result.record_count == 1);
+	CHECK(last_result.record[0].rail == 0);
+	CHECK(last_result.record[0].address == FIX_LCX);
+	CHECK(last_result.record[0].data == 16);
+	CHECK(last_result.authority == K60_RAIL_OBS_NO_AUTHORITY);
 }
 
 static void case_disabled(void)
@@ -1262,13 +1324,16 @@ static const Case cases[] = {
 	{ "command-block-short", case_command_block_short },
 	{ "command-block-0x44-geometry", case_command_block_0x44_geometry },
 	{ "observed-parse-ok-truthy", case_observed_parse_ok_truthy },
+	{ "parse-ok-two-refused", case_parse_ok_two_refused },
+	{ "parse-ok-zero-refused", case_parse_ok_zero_refused },
 	{ "db-missing", case_db_missing },
 	{ "db-corrupt-magic", case_db_corrupt_magic },
-	{ "db-corrupt-count", case_db_corrupt_count },
+	{ "db-count-overflow-geometry", case_db_count_overflow_geometry },
 	{ "unsupported-version", case_unsupported_version },
 	{ "caps-max-tcs", case_caps_max_tcs },
 	{ "caps-ncpt", case_caps_ncpt },
 	{ "not-found", case_not_found },
+	{ "partial-rail-request", case_partial_rail_request },
 	{ "disabled", case_disabled },
 	{ "malformed", case_malformed },
 	{ "tcs-busy", case_tcs_busy },

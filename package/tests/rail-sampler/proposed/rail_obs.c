@@ -163,7 +163,10 @@ static int permit_valid(const K60RailObsPermit *p)
 
 static int gate_ok(K60RailObsGate g)
 {
-	return g.data_mounted == 1 && g.parse_ok != 0 && g.parsed_value == 1;
+	/* Proposed contract (Lead 20:07): both fields must be exactly 1.
+	 * The pre-change candidate admitted any truthy parse_ok; that shape is
+	 * recorded as P-204 in the design doc, not as this contract. */
+	return g.data_mounted == 1 && g.parse_ok == 1 && g.parsed_value == 1;
 }
 
 static void stop(Pass *p, int why, uint32_t region, const char *field,
@@ -294,7 +297,10 @@ static int db_find(Pass *p, const char *name, uint32_t *address)
 		start = DB_HEADER + heads;
 		end = start + (uint64_t)count * DB_ENTRY;
 		if (end < start || end > p->permit->db_block) {
-			stop(p, C_DB_CORRUPT, 0, "db entries", start);
+			/* Arithmetic boundary, not hardware: 144 + count*24 must fit
+			 * db_block, so the table is truncated. Lead 20:07 classified
+			 * this as GEOMETRY_INVALID, not DB_CORRUPT. */
+			stop(p, C_GEOMETRY, 0, "db entries", start);
 			return -1;
 		}
 		if (end > p->db_mapped) {

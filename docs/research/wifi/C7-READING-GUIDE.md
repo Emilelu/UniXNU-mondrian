@@ -122,6 +122,13 @@ SpringBoard 128 / panic 标记 0；[boot.json](<E:/k60-work/evidence/usblog-2026
 「设备在 SBL 等 AMSS，所以无需发中断」。设备事件生成、上下文 / DMA 可见性、READY→M0 时序、
 主机事件处理及中断使能 / 路由 / 观测覆盖仍未被这一组合排除，不能把它们缩成二选一。
 
+**另查日志可达性**：`PongWifiPlatform.cpp:690` 的 `nw_wifi_start()` 失败会 `goto done`；
+`:692` 的 `QCA6490 MSI delivered by GIC` 只在启动成功后的 runtime 循环检查
+`msiArrivals`。c7 `console:646-647` 已记录 `ath11k start failed=-110` 与 stopped，
+失败路径不经过 delivered 检查。因此缺失这条打印既不证明 MSI 未到，也不证明最终
+`msiArrivals=0`；不能从未执行的日志点补出计数。它与 `:646` 的首次 GIC 入口日志、
+由软件重放的 MHI handler 是三个不同的观测点。
+
 ### 4.3 BHI 已送同文件前缀；完整 BHIE 阶段未观察到发起
 
 `console:616-618` 记录文件 5,296,128 B，`load type=2` = `MHI_FW_LOAD_FBC`，
@@ -161,8 +168,20 @@ SpringBoard 128 / panic 标记 0；[boot.json](<E:/k60-work/evidence/usblog-2026
 
 ## 5. `c8` 暂停：先审协议，再分层验收
 
-主动推完整 BHIE（不等旧 EE 触发路径）只是待验实验。**`c8` 当前暂停**，先审查重复下载风险、
-旧 EE 工作项与主动调用的重入 / 并发风险，以及 READY→M0 的协议前提和顺序；审查未完成不启动新构建或 boot。
+主动推完整 BHIE（不等旧 EE 触发路径）只是待验实验。**`c8` 当前 HOLD**，不构建、不重建、不 boot。
+
+离线依据为 wifi-agent `82086f1069717f269c47ef194b02f660d9f0d3ef` 的
+[MHI-STATE-MACHINE.md §4、§6](https://github.com/Emilelu/UniXNU-mondrian/blob/82086f1069717f269c47ef194b02f660d9f0d3ef/docs/research/wifi/MHI-STATE-MACHINE.md#L118)：
+生成目录 `/opt/k60/trees/k60build/wifi/ath11k-c8/` 中，`mhi/boot.c:622-644` 的 direct
+AMSS 分支忽略返回值，且不取消 queued SBL；`mhi/pm.c:809-839` 仍可在 direct 返回后
+由已排队 SBL 顺序再次调用 AMSS。调度器阻止同一 worker 的递归，不等于下载去重。
+这是**有条件可达的源码路径**，不能写成 c7/c8 已发生重复下载；第二次调用也不等于
+第二次设备传输完成。恢复前须审重复调用、错误传播、READY→M0 协议与完成状态处理。
+
+同一审计 §6（:248-290）指出 build/flash 都漏选 parked WiFi；留存 c8 build gate 的
+`logs/eight-step.log:2-4` 仅六项/36 checks，未检查 WiFi。当前源/对象 hash 一致性不补
+mutable intermediates 与临时 native-builder 精确 hash 的历史归属缺口。这里仅引用，
+不把绿色通用门禁当飞行许可，也不在本线修 gate。文档的有限合并不再要求先飞 c8。
 
 若以后获准恢复实验，仍先核对 §0，并逐层保留独立证据，不能再设 `exec_env` 一个「唯一判据」：
 

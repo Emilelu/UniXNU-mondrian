@@ -515,6 +515,14 @@ c7 抓取没有 `QCA6490 MSI entered the GIC handler`，只表示未观察到该
 或推断设备在 SBL 无需发中断。需要分开核查设备事件产生、内存可见性、MSI 配置/递送与主机处理；
 不能把「设备不必发」和「路由必错」当成穷尽二选一。
 
+`QCA6490 MSI delivered by GIC` 又是另一处日志：`PongWifiPlatform.cpp:690` 在
+`nw_wifi_start()` 返回非零时直接 `goto done`，`:692` 的 delivered 检查只在成功后的
+runtime 循环中执行。c7 `usblog-20261116-122546/console.log:646-647` 已记录
+`ath11k start failed=-110` 与 stopped，故失败路径不经过 delivered 检查。
+**这条日志缺失不证明 MSI 未到，也不是最终 `msiArrivals=0` 的测量**；同一路径也没有
+runtime 末次计数可补。驱动 GIC 首次入口日志在 pending 分支前，而 MHI handler 可由
+软件重放；三处日志的执行条件分别核对，不能互相替代。
+
 ### 11.7 固件路径：BHI 前缀与完整镜像 BHIE 分开记录
 
 `load type=2` 是 MHI_FW_LOAD_FBC（`internal.h:32-37`：BHI in PBL followed by BHIe in SBL）。
@@ -542,8 +550,27 @@ silent 的 P-215 结论独立成立；本节记录的是进桌面后的 MHI 等�
 
 ### 11.8 c8 暂停与分层验收
 
-c8 主动发起 BHIE 当前暂停。恢复前先审重复下载、重入与 READY→M0 转换协议；本轮只改文档，
-不实施新下载路径或上机。恢复后各层分别记证据：
+c8 主动发起 BHIE 当前 **HOLD**。wifi-agent 的离线复核 `82086f1069717f269c47ef194b02f660d9f0d3ef`
+见 [MHI-STATE-MACHINE.md §4](https://github.com/Emilelu/UniXNU-mondrian/blob/82086f1069717f269c47ef194b02f660d9f0d3ef/docs/research/wifi/MHI-STATE-MACHINE.md#L118)
+（:118-199）与 [§6](https://github.com/Emilelu/UniXNU-mondrian/blob/82086f1069717f269c47ef194b02f660d9f0d3ef/docs/research/wifi/MHI-STATE-MACHINE.md#L248)
+（:248-290）。本页核对了保留的 `/opt/k60/trees/k60build/wifi/ath11k-c8/` 生成源码：
+
+- `mhi/boot.c:622-644` 的 direct 分支只检查 FBC 与硬件 SBL，写 host `ee=SBL` 后调用
+  `mhi_download_amss_image()`，**`:644` 忽略返回值**；它没有测试 SBL 工作项是否已排队，
+  也没有 download-in-progress/completed 守卫。
+- `mhi/pm.c:809-824` 先把 transition list 拼入本地列表、处理 PBL/firmware handler；
+  `:826-839` 的 queued SBL 分支在 FBC 条件下仍会再次调用 AMSS（`:837` 同样忽略返回）。
+  协作调度阻止同一 running worker 递归执行，但不消除已排队的 SBL：它可以在 direct
+  调用返回后由本次或后次 worker **顺序再次调用**。这是条件可达路径，不是 c7/c8 设备实测；
+  第二次函数调用也不等于第二次硬件传输完成，须区分错误态、寄存器访问与调度次序。
+- 构建证据另有边界：c8 留存 `logs/eight-step.log:2-4` 的 build 选择仅六项/36 checks，
+  未含 WiFi；该离线审计也确认 flash 模式漏选 parked WiFi，绿色通用门禁不能作 WiFi
+  飞行许可。现存生成源/对象/归档的 hash 一致只证明当前文件一致性；mutable intermediates、
+  依赖 symlink 以及恢复前未留存的临时 native-builder 精确 hash 仍是历史编译归属缺口。
+
+文档的有限合并不再以“必须飞过 c8”作为前提；协议、去重、失败传播和构建验证缺口
+交对应实现线审查，本线只引用事实，不改 driver/patch/gate。恢复实验须另有明确授权，
+并分别记录以下各层证据：
 
 | 层 | 需要的直接证据 | 能证明到哪里 |
 |---|---|---|

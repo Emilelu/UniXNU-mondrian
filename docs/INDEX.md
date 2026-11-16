@@ -89,6 +89,7 @@ docs/
 | `wifi/T2-PATCH.md` | **WiFi T2 备胎补丁**：把 11.19 MB PWF2 容器从 `__TEXT,__const` 挪到 `__DATA,__const` 的一行 diff（已验证可正反向 apply）、t2 构建配方、飞行前三项离线校验 |
 | `wifi/MSI-TOPOLOGY.md` | **WiFi 中断拓扑**：PCIe0 的三条 MSI 路径（PARF `MSI0`→SPI140/INTID172 实走、DT `msi-map` 指向 ITS 的 `0x5980`/`0x5981`、`pcie0_msi` 32 条 SPI 768..799 已 disabled）、为什么选 legacy、单 INTID 能看见与看不见什么、c5/c6 飞行证据 |
 | `wifi/DMA-CACHE-POLICY.md` | **WiFi DMA 缓存策略候选**：K60 把 `kIOMemoryMapperNone` 与 `kIOMapWriteCombineCache` 或在一起编出无效模式 12；候选改为中性描述符 + 已接线 arena 页 `VM_WIMG_WCOMB` 并验证，含镜像指纹与上机判据 |
+| `wifi/MHI-PRELOAD.md` | **WiFi MHI 预装载候选**：SBL 镜像提供前先等 200 ms 并写 MHI 上下文寄存器，复用共享 WCN7850 工作序列；含源码行、生成器差异、镜像指纹与上机判据 |
 | `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |

@@ -251,3 +251,8 @@ libpong-ui.dylib。欠账：内核字节变了，需要用这一版上机确认 
 sha = "6c97bc7"
 state = "build-only"
 note = "P-224: freeze() no longer hashes scripts/__pycache__/*.pyc. Touches scripts/build-strict.sh, which is in the frozen input list, so iron-9 wants it registered. The build outcome is unchanged for a tree that does not rewrite bytecode; the next full build proves it."
+
+[[entry]]
+sha = "cb33248"
+state = "build-only"
+note = "P-225: board_dir() now ranks candidates by whether the .config names CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY. On every tree present today it resolves to the same directory the hardcoded path used (out-wifi -> mondrian/, which is what the wifi builds already wrote), so no build output changes; the next full build confirms it."

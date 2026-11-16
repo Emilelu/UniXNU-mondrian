@@ -23,7 +23,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_DEFCONFIG = REPO / "configs" / "mondrian_defconfig"
 # The output tree moves with the checkout: the Lead, wifi and shared trees all
-# build the same defconfig into different directories (P-187, P-189).
+# build the same defconfig into different directories (P-225).
 DEFAULT_OUT = Path(os.environ.get("K60_OUT") or "/opt/k60/trees/k60build/out-baseline")
 K60_SDK_RELATIVE = Path("ipados-16.6.1-20G81")
 ASSIGNMENT = re.compile(r"CONFIG_(\w+)=(.*)")
@@ -149,7 +149,14 @@ def resolve_generated(out: Path) -> Path:
 
     unixnu names the board directory after the defconfig (mondrian_defconfig ->
     mondrian/, mondrian_wifi_defconfig -> mondrian_wifi/), so a pinned path
-    silently checks the wrong tree (P-187).
+    silently checks the wrong tree (P-225).
+
+    More than one board directory can exist under the same OUT when a build was
+    made from a different defconfig.  Picking the alphabetically first one
+    graded whatever happened to sort first instead of the tree this build
+    actually used, so rank the candidates the same way build-strict.sh does: a
+    config that names the two feature keys (the full defconfig) outranks one
+    that does not, and mtime breaks a tie inside a rank.
     """
     base = out / "mondrian" / K60_SDK_RELATIVE
     if not base.is_dir():
@@ -157,7 +164,19 @@ def resolve_generated(out: Path) -> Path:
     found = sorted(p for p in base.glob("*/.config") if p.is_file())
     if not found:
         return base / "mondrian" / ".config"
-    return found[0]
+
+    def rank(path: Path) -> tuple:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return (0, 0.0)
+        features = sum(
+            1 for key in ("CONFIG_XNU_GPU_ADDON=y", "CONFIG_XNU_K60_PHYSICAL_BATTERY=y")
+            if key in text
+        )
+        return (features, path.stat().st_mtime)
+
+    return max(found, key=rank)
 
 
 def main(argv: list[str] | None = None) -> int:

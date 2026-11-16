@@ -262,7 +262,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 |---|---|---|---|
 | `UniXNU/QcaBluetooth` | `986d631`（k60-bt 的 `0500` 补丁与 D9 的 `0516` 都基于它） | `effe4ec`（2026-11-17） | 4 个非 merge 提交 / 6 文件 +198/−4：`68e2e60` extended discovery counters（`trace_hci` 回调、`qbt_discovery_stats`）、`32dab19`/`e853395` Classic Inquiry trace（`trace_command`/`trace_event`/`trace_tx`）、`5d5ae94` LE event mask trace。均为诊断/计数增强，不是控制器修复；HCI 扫描验证时再抄，不影响当前固件下载阻塞。 |
 
-结论：这不是"缺轮子"，是 vendored 版本落后；`REFERENCE-INDEX.md` 的 pin 已同步到 `effe4ec`，第 15 节补了覆盖缺口行。
+结论：这不是"缺轮子"，是 vendored 版本落后；`REFERENCE-INDEX.md` 的 pin 已同步到 `effe4ec`，第 15 节补了覆盖缺口行。2026-11-17 同时复核了 REFERENCE-INDEX §2.2 的稳定参考快照：AdrenoMetal `9a9da56`（121 文件）、ShengUfs `9d527ae`（35 文件，`NativeUfs.cpp` 149,596 B）、UniXNU-sheng/-upstream `bc05635`（各 584）、UniXNU-upstream `9931232`（2,265）；共享检出的分支/HEAD 会随各线漂移，未写死在该表。
 
 ### 8.4 本轮网络限制（写下来免得下轮重复踩）
 

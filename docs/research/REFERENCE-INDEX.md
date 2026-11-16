@@ -76,7 +76,12 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 
 ---
 
-## 2. 参考仓库清单（实测 2026-11-14）
+## 2. 参考仓库清单（初测 2026-11-14；2026-11-17 复核）
+
+> 本表是 2026-11-14 的库存快照，不每轮实时刷新。2026-11-17 复核时已确认下列稳定参考快照前进：
+> `references/AdrenoMetal` `9a9da56`（121 文件）、`references/ShengUfs` `9d527ae`（35 文件，`NativeUfs.cpp` 149,596 B）、
+> `references/UniXNU-sheng`/`-upstream` `bc05635`（各 584 文件）、`references/UniXNU-upstream` `9931232`（2,265 文件）；
+> QcaBluetooth 见下一行。共享检出（`UniXNU`、`UniXNU-mondrian`、`uefi-mondrian`）会随各线切换分支，引用具体代码前以 `git rev-parse HEAD` 为准。
 
 任务书里写的是 23 个；**实测为 42 个唯一仓库名**（`/mnt/e/hackios` 15 个 + `/mnt/e/k60-work/references` 31 个，其中 5 个在两处各有一份快照、1 个是空仓库）。
 差异原因是清单本身已过期：`yibiya-*`、`ios-sweet-k60`、`phk110-port` 这批 K60 专属资产是 11-10 之后才进 workspace 的。
@@ -107,15 +112,15 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 
 | 仓库 | 分支 | HEAD | 文件 | 用途 |
 |---|---|---|---|---|
-| AdrenoMetal | main | 73d582f | 110 | Metal 后端 + Adreno 插件 |
-| ShengUfs | main | b6fe07b | 35 | 官方 UFS 实现（`NativeUfs.cpp` 148,723 B）+ 12 个测试 |
+| AdrenoMetal | main | 9a9da56 | 121 | Metal 后端 + Adreno 插件；2026-11-17 复核 |
+| ShengUfs | main | 9d527ae | 35 | 官方 UFS 实现（`NativeUfs.cpp` 149,596 B）+ 12 个测试；2026-11-17 复核 |
 | UniXNU | feat/ipados27-gpu-parity | c93e965 | 1077 | 官方组件（GPU parity 分支） |
 | UniXNU-pong | latest | e0ee6df | 406 | 同 2.1 |
 | UniXNU-pong-upstream | main | 08c1f94 | 508 | Pong 上游化后的版本 |
-| UniXNU-sheng | main | 1108068 | 521 | Sheng 板级（比 hackios 那份新） |
-| UniXNU-sheng-upstream | main | 1108068 | 521 | 同上，同一 HEAD |
+| UniXNU-sheng | main | bc05635 | 584 | Sheng 板级（比 hackios 那份新）；2026-11-17 复核 |
+| UniXNU-sheng-upstream | main | bc05635 | 584 | 同上，同一 HEAD；2026-11-17 复核 |
 | UniXNU-sm8550-common | main | 2dc650c | 29 | SM8550 共享包；`ShengGmu.c` 等可对照 GPU/GMU |
-| UniXNU-upstream | main | 7d85ede | 2140 | 官方最新；mondrian 命中 18 条，但**没有 K60 硬件实现** |
+| UniXNU-upstream | main | 9931232 | 2265 | 官方最新；mondrian 命中 18 条，但**没有 K60 硬件实现**；2026-11-17 复核 |
 | darwin-xnu-build | main | 6639065 | 43 | XNU 构建脚本 |
 | ios-sweet | main | 45263be | 141 | sweet（SM7325）移植基线 |
 | ios-sweet-k60 | main | 886101c | 358 | **K60 专属**：`xnu/patches/0091-0107`、触摸测试台、`k60install` |

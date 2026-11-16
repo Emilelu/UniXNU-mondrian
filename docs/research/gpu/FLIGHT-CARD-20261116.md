@@ -50,7 +50,30 @@
 
 ## 5. 结果登记（上机后填写，不得回改判据）
 
-- 证据目录：
-- S1： / S2： / S3： / S4： / S5：
-- 判决：PASS / FAIL(F1) / FAIL(F2) / FAIL(F3)
-- 结论与下一步：
+- 镜像：`dbb93478107fa55adee61a9759e48b7339882b8b5a59e5b5403eacb1ca95a45e`（30 args / 594 B）
+- 内核：`ce1f37298b86772d3b00dfec25b030aece4f7e25cbcd0b2e351f412cc264fce3`
+- 证据目录：`E:/k60-work/evidence/usblog-20261117-000745`（206,291 B / 3,206 行，抓取完整，未因 panic/复位中断）
+- S1 ✅：`K60KEXC` 0 次；`K60PANIC` 唯一 1 次是 `:474 K60PANIC: restart windows ready` banner（P-204：banner 不是失败）
+- S2 ❌：`present #` 0 次
+- S3 ❌：`software renderer fallback installed` 18 次
+- S4 ❌：`crashed: backboardd` 13 次
+- S5 ❌：`SpringBoard` 13 次
+- 判决：**FAIL(F2)**
+
+### 旁证（本飞顺带拿到的两条真机事实）
+
+1. `:182/:183 PONG SCANOUT: actual framebuffer handoff available sequence=0 status=0x0`
+   —— 扫描输出闸门打开后，presenter 真的拿到了固件帧缓冲的物理范围（`pong_scanout_initialize`
+   跑到了真正的 handoff 分支，而不是被 gate 提前 return）。此前从未有过这一行。
+2. `:1284/:1285/:1717/:1718 K60POPEN err=13 uid=501/25 ruid=… namelen=26/5 mode=0 type=0`
+   —— `0589a33a` 的修复在真机成立：同一处诊断现在打印长度，**没有 panic**（上一飞同一位置内核 data abort）。
+
+### 结论与下一步（按 F2 固定动作执行）
+
+断点不在扫描输出，也不在 IOSurface：用户态仍然拿不到 Metal 设备。下一步只做一件事：
+在 `iokit/Kernel/IOService.cpp` 的 `newUserClient`（`~:7904`）里，对
+`IOSurfaceRootUserClient`（以及任何 name 含 `Accelerator` 的类）打印 provider 的
+`getMetaClass()->getClassName()` 与 `getName()`，以区分「用户态没去找加速器」与
+「找了但 `newUserClient` 失败」。该改动必须先补齐静态/单元/产物证据，并另写一张上机卡，
+判据提前写死，才允许再飞。
+

@@ -247,7 +247,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 1. **引用门禁**：**已做（2026-11-17）** `scripts/check-doc-citations.py`（路径存在性 + 行号上限），由 `check-docs.py` 调起，
    欠账从 326 条降到 102 条、行号越界 0；剩余目标的分类见 §5，新增即 FAIL。
-2. **数字不要手写**：★/P/RULES/series/patch 计数在 `check-readme.py` 已有实现，扩展到 INDEX、`docs/engineering/README.md`、`docs/engineering/STATUS.md`、`AGENTS.md`（同一段逻辑，多传几个文件）。
+2. **数字不要手写**：★/P/RULES/series/patch 计数在 `check-readme.py` 已有实现，扩展到 INDEX、`docs/engineering/README.md`、`docs/engineering/STATUS.md`、`AGENTS.md`（同一段逻辑，多传几个文件）。**2026-11-17 已做**：range 校验覆盖上述四份文档（写了才校验、写错即红），并校验 AGENTS.md 的 `N patch files with M entries` 与 `patches/xnu` 实际 .patch 数、series 条数。
 3. **研究可见性**：`docs/research/README.md` 改成"结论层索引 + 指向 INDEX 全量"；INDEX 的 research 段由脚本从目录生成，
    或至少加"未列出文件"小节（本轮先加了指针）。
 4. **线→检出映射**：新增 `docs/engineering/LINE-MAP.md`，每行 = 线 / 检出 / 分支 / 研究目录 / 当前结论；

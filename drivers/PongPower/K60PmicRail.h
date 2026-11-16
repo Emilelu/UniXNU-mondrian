@@ -13,7 +13,10 @@
  *     qcom_rsc_layout()/qcom_rpmh_active_request().
  *   - pm8350c_l2 resource name "ldoc2" -> /soc/rsc@17a00000/rpmh-regulator-ldoc2
  *     (qcom,resource-name = "ldoc2"; regulator-min-microvolt 1800000).
- * Nothing in this file writes a register.
+ * The pass is single-shot per boot: k60_rail_inherit() (first step of
+ * k60_adsp_bring_up(), which only runs after Data mount) measures when no pass
+ * has run yet, and k60_rail_probe() only prints a ledger that already exists.
+ * No path writes a register and no path polls.
  */
 #ifndef K60_PMIC_RAIL_H
 #define K60_PMIC_RAIL_H
@@ -77,6 +80,19 @@ typedef struct {
 	K60RailRecord lmx;
 } K60RailLedger;
 
+/* Three-state verdict over a ledger. Pure, so the host test can exercise every
+ * branch without hardware. resources() must not call this: it runs before the
+ * registers may be read, so its only honest answer is a declaration. */
+enum {
+	K60RailVerdictInherited = 0,
+	K60RailVerdictNotRecorded = 1,
+	K60RailVerdictIncomplete = 2,
+	K60RailVerdictInvalid = 3,
+};
+
+/* Same value as K60BoardUnsupported: the PAS layer only sees an int. */
+#define K60_RAIL_REFUSED (-63)
+
 enum {
 	K60RpmhOk = 0,
 	K60RpmhNoDb = -1,
@@ -96,6 +112,9 @@ int k60_rail_measure(const volatile uint32_t *words, size_t words_bytes,
 void k60_rail_ledger_store(uint32_t drv_id, const K60RailRecord *lcx,
     const K60RailRecord *lmx);
 const K60RailLedger *k60_rail_ledger(void);
+int k60_rail_verdict(const K60RailLedger *ledger, const char **rail,
+    const char **field);
+int k60_rail_inherit(void);
 int k60_rail_probe(void);
 
 #endif /* K60_PMIC_RAIL_H */

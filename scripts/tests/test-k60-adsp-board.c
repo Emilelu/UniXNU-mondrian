@@ -17,8 +17,9 @@
  *   6 after the install gate accepts this table, available() is exactly 1
  *   7 the negative SMP2P evidence cases that stop a corrupt item from ever
  *     being read as "stopped";
- *   8 resources() separates never-measured, missing and invalid rail records,
- *     and reports retention only for two complete, sane measurements. */
+ *   8 resources() declares the two inherited rails without reading anything,
+ *     and still requires the lease before it does. The three-state read-back
+ *     belongs to k60_rail_inherit(), before AUTH_AND_RESET (P-223). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,7 +27,6 @@
 #include "K60Smem.h"
 #include "K60AdspOwner.h"
 #include "K60AdspBoard.h"
-#include "K60PmicRail.h"
 
 #define SMEM_BYTES 0x200000u
 #define SMEM_WORDS (SMEM_BYTES / 4u)
@@ -239,9 +239,11 @@ static void scenario_stopped_survives_release(Fixture *f)
     CHECK(f->flags_seen == K60_ADSP_BOARD_MAP_FLAGS);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
-    /* Retention cannot be created (HR-01); the owner engine releases resources
-     * before the exclusion, so exercise exactly that order. */
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    /* Retention cannot be created (HR-01): resources() only declares the rails
+     * it inherits. The owner engine releases resources before the exclusion, so
+     * exercise exactly that order. */
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
+    CHECK(f->board.resources == 1);
     f->board.ownership.resources_release(&f->board, cookie);
     CHECK(!f->board.resources);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
@@ -289,14 +291,19 @@ static void scenario_scm_lock_not_reentrant(Fixture *f, Fixture *other)
     f->board.ownership.scm_unlock(&f->board);
 }
 
-/* 5. live() is the token and nothing else: no resource call ever succeeded. */
+/* 5. live() is the token and nothing else. The rail declaration is not part of
+ *    the lease: it needs the lease, and releasing it does not weaken one. */
 static void scenario_live_without_resources(Fixture *f)
 {
     uint32_t epoch = 0;
     void *cookie = NULL;
-    start("live proves the token while resources() is unavailable");
+    start("live proves the token, not the rail declaration");
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardNoLease);
     CHECK(!f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie));
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    CHECK(f->board.resources == 0);
+    CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
+    f->board.ownership.resources_release(&f->board, cookie);
     CHECK(!f->board.resources);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch + 1u) == 0);
@@ -411,7 +418,12 @@ static void scenario_install_turns_available_on(void)
     CHECK(epoch != 0 && cookie != NULL);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    /* resources() is a declaration: it succeeds once the lease and the
+     * exclusion are real, and it reads nothing here (P-223). */
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
+    CHECK(f->board.resources == 1);
+    f->board.ownership.resources_release(&f->board, cookie);
+    CHECK(!f->board.resources);
     f->board.ownership.exclusive_release(&f->board, cookie);
     free(f);
 }
@@ -462,65 +474,28 @@ static void scenario_stopped_needs_evidence(Fixture *f)
     (void)f;
 }
 
-/* 8. resources() tells three different failures apart, and only reports
- *    retention when the ledger holds two complete, sane measurements. */
-static void rail_record(K60RailRecord *r, uint32_t id, uint32_t level,
-    unsigned slot, unsigned complete, unsigned valid, const char *missing,
-    const char *why)
-{
-    memset(r, 0, sizeof *r);
-    r->resource_id = id;
-    r->address = complete ? id : 0;
-    r->level = level;
-    r->tcs_slot = slot;
-    r->complete = complete;
-    r->valid = valid;
-    r->missing = missing;
-    r->why = why;
-}
-
-static void scenario_rails_three_state(void)
+/* 8. resources() is a declaration, not a probe: it must answer yes with no
+ *    measurement at all, because the registers are unreadable at this point in
+ *    boot (HR-01). The lease is still the only authority. */
+static void scenario_resources_declares(void)
 {
     Fixture *f = malloc(sizeof *f);
-    K60RailRecord lcx, lmx;
     uint32_t epoch = 0;
     void *cookie = NULL;
 
     CHECK(f != NULL);
-    start("resources separates never-measured, missing and invalid rails");
+    start("resources declares the inherited rails without reading them");
     build(f, 1, 0, 0);
     CHECK(f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie) == K60BoardOk);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
-    /* A lease with no ledger at all is 'never measured', not 'rails absent'. */
-    CHECK(k60_rail_ledger() == NULL);
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
-    CHECK(f->board.resources == 0);
-    /* A ledger that exists but has an incomplete rail is a different answer:
-     * the field that stopped the read must be named, and retention is still
-     * not reported. */
-    rail_record(&lcx, 0x30010u, 0, 0, 0, 0, "tcs slot", NULL);
-    rail_record(&lmx, 0x31000u, 0x8u, 4, 1, 1, NULL, NULL);
-    k60_rail_ledger_store(0x20700u, &lcx, &lmx);
-    CHECK(k60_rail_ledger() != NULL);
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
-    CHECK(f->board.resources == 0);
-    /* Complete but self-inconsistent is the third answer, and it must not be
-     * reported with the same wording as a missing field. */
-    rail_record(&lcx, 0x30010u, 0, 3, 1, 0, NULL, "level read back as 0");
-    k60_rail_ledger_store(0x20700u, &lcx, &lmx);
-    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
-    CHECK(f->board.resources == 0);
-    /* Only two complete, valid measurements report inherited retention. */
-    rail_record(&lcx, 0x30010u, 0x10u, 3, 1, 1, NULL, NULL);
-    k60_rail_ledger_store(0x20700u, &lcx, &lmx);
     CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
     CHECK(f->board.resources == 1 && f->board.last_rc == K60BoardOk);
-    /* The grant still needs the lease: the ledger alone is not authority. */
+    /* The declaration is still gated by the lease: a stale cookie inherits
+     * nothing, and a declaration is not a measurement to be undone. */
     CHECK(f->board.ownership.resources(&f->board, NULL) == K60BoardNoLease);
-    /* Releasing drops the flag, not the measurement. */
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
     f->board.ownership.resources_release(&f->board, cookie);
     CHECK(f->board.resources == 0);
-    CHECK(k60_rail_ledger() != NULL);
     f->board.ownership.exclusive_release(&f->board, cookie);
     free(f);
 }
@@ -537,7 +512,7 @@ int main(void)
     scenario_live_without_resources(&base);
     scenario_stopped_needs_evidence(&base);
     scenario_install_turns_available_on();
-    scenario_rails_three_state();
+    scenario_resources_declares();
     /* The report line is a diagnostic, not a proof: it must not crash. */
     k60_adsp_board_report(&base.board);
     printf("TESTS OK board-ownership: %u scenarios\n", cases);

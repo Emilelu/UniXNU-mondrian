@@ -60,13 +60,13 @@ done
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2
-# Board ownership links ONLY the board, the rail ledger it reads, SMEM and
-# startup arbitration. The PAS transport is deliberately absent, so an SMC
-# issued from the board would fail the link instead of the test: "no monitor
-# call" is a link-time fact here.
+# Board ownership links ONLY the board, SMEM and startup arbitration. The rail
+# driver is absent on purpose: resources() is a declaration and must not call
+# into it, so a dependency would fail the link instead of the test (P-223). The
+# PAS transport is absent for the same reason: "no monitor call" is a
+# link-time fact here.
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c \
-  drivers/PongPower/K60PmicRail.c drivers/PongPower/K60Smem.c \
-  drivers/PongPower/K60AdspStartup.c -o "$OUT/board"
+  drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspStartup.c -o "$OUT/board"
 "$OUT/board"
 # The rail parser, the TCS-slot match and the ledger are pure host code; the
 # probe itself is kernel-only, so this covers everything up to the map calls.

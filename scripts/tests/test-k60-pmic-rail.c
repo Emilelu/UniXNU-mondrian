@@ -202,10 +202,53 @@ main(void)
 		}
 	}
 
+	/* The three-state verdict is a pure function, so every branch is tested
+	 * without hardware: a consumer must never see "not recorded" as "the rail
+	 * is absent", nor "incomplete" as "invalid" (P-223). */
+	{
+		K60RailLedger led;
+		const char *rail = 0, *field = 0;
+
+		CHECK(k60_rail_verdict(NULL, &rail, &field) == K60RailVerdictNotRecorded);
+		CHECK(rail == NULL && field == NULL);
+		memset(&led, 0, sizeof led);
+		CHECK(k60_rail_verdict(&led, &rail, &field) == K60RailVerdictNotRecorded);
+		led.magic = K60_RAIL_LEDGER_MAGIC;
+		led.recorded = 1;
+		led.lcx.complete = 1; led.lcx.valid = 1;
+		led.lcx.resource_id = 0x30010u; led.lcx.address = 0x30010u;
+		led.lcx.level = 0x10u; led.lcx.tcs_slot = 3;
+		led.lmx.complete = 1; led.lmx.valid = 1;
+		led.lmx.resource_id = 0x31000u; led.lmx.address = 0x31000u;
+		led.lmx.level = 0x8u; led.lmx.tcs_slot = 4;
+		CHECK(k60_rail_verdict(&led, &rail, &field) == K60RailVerdictInherited);
+		CHECK(rail == NULL && field == NULL);
+
+		/* Incomplete names the rail and the field that stopped the read. */
+		led.lmx.complete = 0; led.lmx.valid = 0; led.lmx.missing = "tcs slot";
+		CHECK(k60_rail_verdict(&led, &rail, &field) == K60RailVerdictIncomplete);
+		CHECK(rail != NULL && strcmp(rail, "lmx") == 0);
+		CHECK(field != NULL && strcmp(field, "tcs slot") == 0);
+
+		/* Complete but self-inconsistent is a different answer with its own
+		 * reason, never the missing-field wording. */
+		led.lmx.complete = 1; led.lmx.valid = 0;
+		led.lmx.why = "level read back as 0";
+		CHECK(k60_rail_verdict(&led, &rail, &field) == K60RailVerdictInvalid);
+		CHECK(rail != NULL && strcmp(rail, "lmx") == 0);
+		CHECK(field != NULL && strcmp(field, "level read back as 0") == 0);
+
+		/* The first incomplete rail wins, so the line names one cause. */
+		led.lcx.complete = 0; led.lcx.missing = "resource id";
+		CHECK(k60_rail_verdict(&led, &rail, &field) == K60RailVerdictIncomplete);
+		CHECK(rail != NULL && strcmp(rail, "lcx") == 0);
+		CHECK(field != NULL && strcmp(field, "resource id") == 0);
+	}
+
 	if (failures != 0) {
 		printf("TESTS OK 0 cases (%d failure(s))\n", failures);
 		return 1;
 	}
-	printf("TESTS OK 37 cases (0 failure(s))\n");
+	printf("TESTS OK 49 cases (0 failure(s))\n");
 	return 0;
 }

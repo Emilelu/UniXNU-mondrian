@@ -197,9 +197,10 @@ bool supplies() {
  if(!db.open(0x80860000,0x20000))return false;
  uint8_t *copy=static_cast<uint8_t *>(IOMallocData(0x20000));if(!copy)return false;
  for(unsigned i=0;i<0x20000;i+=4){unsigned v=db.r(i);memcpy(copy+i,&v,4);}
+ // Six K60 DT rails + Pong vdd-wlan-ipa + two analogue LDOs = 9.
  const unsigned railCount=unsigned(sizeof kPongWifiRails/sizeof kPongWifiRails[0]);
- if(railCount>8){IOFreeData(copy,0x20000);return fail("unexpected WLAN rail count");}
- QcomRpmhResource res[8]={};bool ok=true;
+ if(railCount>9){IOFreeData(copy,0x20000);return fail("unexpected WLAN rail count");}
+ QcomRpmhResource res[9]={};bool ok=true;
  for(unsigned i=0;i<railCount;i++)if(qcom_cmd_db_find(copy,0x20000,kPongWifiRails[i].name,&res[i])){ok=fail("required SM8475 rail missing in cmd-db");break;}
  if(ok&&!stageOpen(4,"RPMh/RSC votes for every rail"))ok=false;
  for(unsigned i=0;ok&&i<railCount;i++) {

@@ -730,6 +730,29 @@
       ]
     }
   ],
+  "extra_rails": [
+    {
+      "supply": "vdd-wlan-ipa",
+      "resource": "smpe3",
+      "regulator": "pmr735a_s3",
+      "request": [
+        2200000,
+        2200000,
+        0,
+        0,
+        0
+      ],
+      "physical": {
+        "spmi_slave": 4,
+        "peripheral": 161,
+        "type": 3,
+        "subtype": 10,
+        "source": "Pong REC SPMI observer/regmap, audit-services68/rec-pmic-regulator-types.txt and rec-pmic-rails.txt; AON request observed in rec-aon-request.txt"
+      },
+      "physical_source": "Pong SPMI observer prior; K60 SPMI read still required at runtime",
+      "origin": "Pong board profile vdd-wlan-ipa; K60 cnss node declares qcom,vreg_ipa=s3e but has no vdd-wlan-ipa-supply"
+    }
+  ],
   "nv_mac_required": false,
   "firmware": {
     "device_path": "/mnt/k60-wifi-firmware/image/qca6490",

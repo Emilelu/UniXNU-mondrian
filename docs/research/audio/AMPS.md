@@ -926,7 +926,12 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 e（2026-11-17）**：把 `K60AudioGlink` 的 adsp_apps 桥接到电池 GLINK，并把 `QCOM_GLINK_MAX_LOCAL_INTENTS` 从 4 扩到 20 后重建；同时把电池 archive 加进 bootstrap 链接（否则 `pong_audio_start` 引用 `k60_pmic_glink_attach_audio` 时 bootstrap 链接会报未定义）。HEAD `cdddd116`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `3ac73816…`（105,504,768 B）、`payload_kernel faeb6f21…`、`payload d7701ef7…`、`adt d5bf2fd1…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `7d285418…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117e/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；`battery archive ffe975c6…`；
-- `kernel.macho` 上 `QcomGlink max_channels=2u local_intents=20` 1 处、`PongAudio: glink adsp_apps slot queued (512x20)` 1 处、`AFE encoder selftest` 1 处、`PongAudioErrNoLease` 2 处；e 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+- `kernel.macho` 上 `QcomGlink max_channels=2u local_intents=20` 1 处、`PongAudio: glink adsp_apps slot queued (512x20)` 1 处、`AFE encoder selftest` 1 处、`PongAudioErrNoLease` 2 处；e 曾是候选，已被 f 取代（见下）。
+
+**镜像 f（2026-11-17）**：把 GPR `GET_SPF_STATE` 首发接进 0003——`pong_audio_glink_state()` 第一次收到 `up` 时用 `pong_gpr_encode` 组 24 B 请求（token `0x00010001`）经 `k60_pmic_glink_send_audio()` 发出，`pong_audio_glink_receive()` 解码 opcode/token。HEAD `3b68cd38`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+- `kernel_built` sha256 `0acca673…`（105,521,152 B）、`payload_kernel d0994240…`、`payload 52bf43e0…`、`adt 0ae8eb00…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `3b67e496…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117f/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；`battery archive 843ab01e…`；
+- `kernel.macho` 上 `PongAudio: GPR GET_SPF_STATE send bytes=%u rc=%d` 1 处、`PongAudio: glink adsp_apps slot queued (512x20)` 1 处、`QcomGlink max_channels=2u local_intents=20` 1 处、`AFE encoder selftest` 1 处、`PongAudioErrNoLease` 2 处；f 是当前候选，未 boot、run 2 未申请。
 
 ### 9.6 run 2 的判据（可执行）
 

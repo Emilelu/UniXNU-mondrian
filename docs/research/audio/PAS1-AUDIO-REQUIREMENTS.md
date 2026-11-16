@@ -99,7 +99,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 
 证据（已落地，可直接复核）：`drivers/PongPower/QcomGlink.h:17` 现为 `#define QCOM_GLINK_MAX_CHANNELS 2u`
 （2026-11-17 音频线落地；历史原型补丁 `patches/audio/0002-k60-glink-multislot.patch` 已退役），
-`drivers/PongPower/K60PmicGlink.cpp:128` 打印 `QcomGlink max_channels=2u` 构建标签；
+`drivers/PongPower/K60PmicGlink.cpp:128` 打印 `QcomGlink max_channels=2u local_intents=20 channel_bytes=904 audio_intent_bytes=10240` 构建标签；
 `drivers/PongAudio/tests/test-glink-multislot.c`（两个消费者各注册 `PMIC_RTR_ADSP_APPS` 与 `adsp_apps`，
 自扮 DSP 做 OPEN/advertise/TX_DATA，断言各收各的 rx、乱序 open 不串、重放不串、陌生名字不给 ACK、陌生 rcid 计入
 `dropped`、`stop` 两槽各回调一次；runner 直接编译真实源，`sh drivers/PongAudio/tests/run-glink-multislot-tests.sh`

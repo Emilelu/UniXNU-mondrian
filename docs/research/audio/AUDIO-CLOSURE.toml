@@ -224,6 +224,20 @@ status = "closed"
 owner = "audio-agent"
 
 [[item]]
+id = "gpr-get-spf-state-in-kernel"
+stage = "M3"
+change = "the built kernel sends a 24-byte GPR GET_SPF_STATE when the adsp_apps channel comes up"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongPower/K60PmicGlinkAudio.h",
+  "drivers/PongPower/K60AudioGlink.c",
+]
+criteria = "Image f (audio-probe-20261117f) built kernel 0acca673...; strings find PongAudio: GPR GET_SPF_STATE send bytes=%u rc=%d once; 0003 sends 24 bytes via k60_pmic_glink_send_audio() only when the adsp_apps state first reports up; runtime proof remains run 2."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
 id = "tdm-port-selection"
 stage = "M4"
 change = "the speaker is driven on TERT TDM RX: AFE port 0x9020, group 0x9120"

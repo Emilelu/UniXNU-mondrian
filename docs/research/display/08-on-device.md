@@ -6,7 +6,8 @@
 | 1 | brightness-13 | `c8c33b9e…` | `bf2df340…` | **PASS（发布层）**：control=0 / conformance=0 / stats[0]=3 / 无 SIGSEGV / first frame / SpringBoard 128 行 | `usblog-20261115-134638` |
 | 参照 | brightness-9（旧格式） | `ca992179…` | `7e809dc5…` | 行为同 13：control=0、无 SIGSEGV、SpringBoard 208 行；判定器只能给 INCONCLUSIVE（日志无 `stats=`） | `usblog-20261115-134001` |
 | 3 | brightness-15 | `67acb403…` | `513cc329…` | **PASS（发布层）**：control=1 / conformance=1 / 无 sig=11 / first frame / SpringBoard 128；物理可调但两端与 Android 不符 | `usblog-20261117-004800` |
-| 4（预注册） | brightness-16 | 飞后填 | 飞后填 | 待飞：nits 区间拉伸到 DBV 0x01…0xff + 每请求一行日志 | 见文末第 4 轮 |
+| 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
+| 5（预注册） | brightness-17 | 飞后填 | 飞后填 | 待飞：DCS 0x51 改 12 位双字节（0x01…0xfff，与 Android 同域）+ 端点精确映射 | 见文末第 5 轮 |
 
 brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 
@@ -54,7 +55,7 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
 2. **每请求一行日志**：`K60 BACKLIGHT: brightness… -> level … dbv 0x…`。第 4 轮起每个请求打一行，
    行里同时给出 CoreBrightness 用的键（`brightness-nits` 还是 `brightness`）、滑块量程与落到的 DBV。
    没有这一行 = 请求根本没到服务（CoreBrightness 未接管），不是「调光无效」。
-3. **两端的 DBV**：最低档应落到 `dbv 0x1`、最高档 `dbv 0xff`。这两端是 Android 对照的硬指标；
+3. **两端的 DBV**：最低档应落到 `dbv 0x1`、最高档 `dbv 0xfff`（第 5 轮起的 12 位域；第 4 轮是 8 位的 `0xff`）。这两端是 Android 对照的硬指标；
    中间档只记不判。
 
 第 3 轮（brightness-15）没有每请求日志，`stats[1]` 事后读不到，只能靠「屏上可见变化」判物理链路；
@@ -85,25 +86,52 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
   （kMaxNits=500）⇒ 400 nits 只到 level 1638 = DBV 0xcc、5 nits 只到 DBV 0x03；面板下限 DBV 0x01、
   上限 0xff。修法见第 4 轮。
 
-## 第 4 轮（预注册，2026-11-17；镜像 brightness-16，待飞）
+## 第 4 轮（2026-11-17 01:30 / 01:37）— brightness-16：8 位 DBV 两端到达，最低仍不够低
 
-- **镜像**：`brightness-16`（commit `f4679902`，父 `c6cd304`）；`boot.img` / `kernel.macho` sha256 飞后填。
-- **改动（相对第 3 轮两处）**：
-  1. `K60BacklightCodec.h`：`kMinNits=5`、`kMidNits=140`、`kMaxNits=400`，`levelFromNits` 把
-     CoreBrightness 的 [5..400] nits 区间拉伸到 level [1..2047]（`kDarkestLevel=1`；`<=min` → 1，
-     `>=max` → 2047）⇒ DBV 0x01…0xff；
-  2. `K60Backlight.cpp::setProperties` 每条请求打一行 `K60 BACKLIGHT: brightness-nits … -> level … dbv 0x…`
-     （或 `brightness level … -> level …`）。
-- **预注册判据（飞之前写死，不事后解释）**：
-  1. **PASS（发布层）**：published 行 `conformance=1 control=1`；`sig=11` 0；`entered backboardd` 1；
-     SpringBoard ≥100；`first frame presented` ≥1。
-  2. **PASS（请求可见）**：用户拖滑块后日志出现 ≥3 条 `K60 BACKLIGHT: brightness…` 行，并显示
-     CoreBrightness 用的是哪个键（`brightness-nits` 还是 `brightness`）与滑块量程。
-  3. **PASS（最高）**：拖到最高时最后一条请求行 `dbv 0xff`（或 `level 2047`），观感不低于 Android。
-  4. **PASS（最低）**：拖到最低时请求行 `dbv 0x1`（或 `level 1`），观感不高于 Android 最低。
-  5. **FAIL**：任一 `sig=11`、无 first frame、没有任何请求行、或两端 dbv 不是 0x1 / 0xff。
-     若只是量程不同（行里 key=`brightness`、量程不是 0..2047），按实测量程再重映射一次，不算失败。
+- **镜像**：`brightness-16`（commit `f4679902`，父 `c6cd304`）；`boot.img` sha256
+  `bfaa3912a0e4dd3828681ca4b0a847a043f9fb2c85c0360537fd9e0d3ce21d98`（201,887,744 B）；
+  `kernel.macho` sha256 `845c3c9db9580287b5cdce74eaaf65aedfe29e0cb098691c4f210098ae076a13`；
+  manifest repo head `f97ab49`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
+- **改动（相对第 3 轮两处）**：`kMinNits=5` / `kMidNits=140` / `kMaxNits=400`，`levelFromNits` 把
+  CoreBrightness 的 [5..400] nits 区间拉伸到 level [1..2047]；`setProperties` 每条请求打一行日志。
+- **第一飞**（`E:\k60-work\evidence\usblog-20261117-013028-658\console.log`，249,449 B）：`:184` published
+  `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；
+  `first frame presented` 1 次；首次出现每请求行 `:2240 K60 BACKLIGHT: brightness level 1024 -> level 1024 dbv 0x80`、
+  `:2241 K60 BACKLIGHT: brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ **16.6.1 拖滑块走的是 `brightness` 键，
+  不是 `brightness-nits`**（后者只在启动时发一次 0.0）。
+- **第二飞**（`E:\k60-work\evidence\usblog-20261117-013717-505\console.log`，264,170 B；先拉最顶 3 秒、
+  再拉最底 3 秒）：`:2930` `brightness level 2047 -> level 2047 dbv 0xff`（2045/2046 也到 0xff）；
+  `:3205` `brightness level 1 -> level 1 dbv 0x1`；请求行 53 条（52 条 `brightness level` + 1 条
+  `brightness-nits`）；`sig=11` 0、entered backboardd 1、SpringBoard 129、`getBytes:range` 0。
+- **判据 1（发布层）PASS**；**判据 2（请求可见）PASS**；**判据 3（最高）在 8 位域 PASS**（0xff）；
+  **判据 4（最低）在 8 位域 PASS**（0x1），但**观感仍不够低**：8 位底 1/255 ≈ 0.39%，而本板面板
+  live FDT 是 12 位域（`qcom,mdss-dsi-bl-max-level=0xfff`、`bl-min-level=0x1`、`bl-inverted-dbv`），
+  Android 最低 1/4095 ≈ 0.024%，相差 16 倍 ⇒ 第 5 轮改 12 位双字节写入。
+- **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`。
+
+## 第 5 轮（预注册，2026-11-17；镜像 brightness-17，待飞）
+
+- **镜像**：`brightness-17`（commit 待填）；`boot.img` / `kernel.macho` sha256 飞后填。
+- **改动（相对第 4 轮两处）**：
+  1. `PongDsiPanel.cpp`：`pong_panel_set_brightness` 与 bring-up 都改发两字节 DCS 0x51
+     （`pong_panel_dbv_bytes()`：高字节在前 `{level>>8, level&0xff}`）；bring-up 发 `0x51 0x0f 0xff`，
+     `panel_brightness=0xfff`。依据：live FDT `qcom,mdss-dsi-bl-max-level=0xfff`、`bl-min-level=0x1`、
+     `qcom,mdss-dsi-bl-inverted-dbv` 存在；Android `dsi_panel_update_backlight()` 对 `bl_inverted_dbv`
+     先交换字节，`mipi_dsi_dcs_set_display_brightness()` 永远发 `u8 payload[2]`，`sde_connector` 把
+     brightness 夹到 `bl_max_level=0xfff` 后下发。0x51 双字节 = DCS long write，报文头布局与
+     vendor `dsi_ctrl_copy_and_pad_cmd()` 的 `{wc, datatype, flags}` 逐位一致。
+  2. `K60BacklightCodec.h`：`kMaxDbv=0xfff`，`dbvFromLevel`/`levelFromDbv` 以
+     `kDarkestLevel(1) -> kMinDbvOn(1)`、`kMaxLevel(2047) -> kMaxDbv(4095)` 端点对齐。
+- **预注册判据（飞之前写死）**：
+  1. **PASS（发布层）**：published 行 `conformance=1 control=1`、`dbv 0xfff`；`sig=11` 0；
+     `entered backboardd` 1；SpringBoard ≥100；`first frame presented` ≥1。
+  2. **PASS（请求可见）**：用户拖滑块后 ≥3 条 `K60 BACKLIGHT: brightness…` 行。
+  3. **PASS（最高）**：最高档请求行 `dbv 0xfff`，观感不低于 Android。
+  4. **PASS（最低）**：最低档请求行 `dbv 0x1`，观感明显比第 4 轮最低档更暗（用户判断）。
+  5. **FAIL**：任一 `sig=11`、无 first frame、没有任何请求行、最高不是 0xfff / 最低不是 0x1、
+     或 `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)` 之后没有 `K60 PANEL: bring-up complete`
+     （长写路径失败）。
 - **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
-  `python3 scripts/check-backlight-log.py <console.log>`。
+  `grep -a 'K60 PANEL:' <console.log>`；`python3 scripts/check-backlight-log.py <console.log>`。
 
 

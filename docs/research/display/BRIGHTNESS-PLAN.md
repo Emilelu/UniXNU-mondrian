@@ -200,18 +200,19 @@ P-62 的旧行为（只发 `IODisplayParameters`，不声明 backlight-control�
 
 | 层次 | 手段 | 产物 |
 |---|---|---|
-| 编码器（host） | `python3 scripts/check-brightness-encoder.py`：0..255 映射端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且落点精确 | 本目录 + 脚本输出 |
+| 编码器（host） | `python3 scripts/check-brightness-encoder.py`：0..4095 映射端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且落点精确 | 本目录 + 脚本输出 |
 | 静态（host） | `scripts/build-pong-adreno-platform.py` 编译新增源文件（arm64 kernel target）；`scripts/check-porting-paths.py`；`scripts/eight-step-gate.py --build` | 构建日志 |
 | 产物（host） | `scripts/build-strict.sh` 产出 `kernel.macho`，`llvm-nm` 必须出现 `_k60_backlight_start`、`_native_backlight_stats` | `build-manifest.json` + nm 输出 |
 | 真机（Lead） | ①上电后 `ioreg -l | grep -i backlight` 能看到 `backlight-control` 与 `IODisplayParameters`；②拖动亮度滑块，日志/计数变化；③`native_backlight_stats[1]` 递增；④min/mid/max 三档 `stats[2]/[4]` 不同且屏上可见；⑤渐变（FadePeriod）无跳变；⑥屏幕不停更（int-236 回归项） | 交给 Lead 执行，本线**禁止自行 boot** |
 
 ## 8. 开放问题（诚实标注，勿当结论）
 
-1. 面板 live FDT 的 `bl-max=0xfff`（12 位）与 bring-up 实发的 `0x51 0xff`（8 位）不一致：
-   本方案按 **8 位 DBV** 实现（与既有 `pong_panel_set_brightness` 的 0..255 契约一致）。若真机上
-   8 位域过粗（255 档在暗端可见跳变），再评估 0x51 双字节 12 位写入——**待验证**，需要面板
-   spec 或真机实验，不在本次改动内。
-2. `bl-inverted-dbv` 是否在本面板上真的生效：bring-up 发 `0xff` 后面板亮，说明默认不反相；
-   仍留 `k60_backlight_invert` 兜底，**待真机验证**。
+1. ~~面板 live FDT 的 `bl-max=0xfff`（12 位）与 bring-up 实发的 `0x51 0xff`（8 位）不一致~~
+   **已解决（2026-11-17）**：Android 的 `mipi_dsi_dcs_set_display_brightness()` 对本板
+   （`bl-inverted-dbv`）实际发 `0x51 0x0f 0xff`（两字节、12 位），本实现已改为双字节写入，
+   `K60BacklightCodec.h` 的 DBV 域同步改为 0..0xfff。
+2. `bl-inverted-dbv` 的含义已按 Android 源码确认是**字节序**：`dsi_panel_update_backlight()`
+   先把 16 位值交换字节，再交给固定小端的 DCS 写入；本实现直接按高字节在前发送，等效。
+   `k60_backlight_invert` 仍留作反相兜底。
 3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
    仅由 host 单测覆盖，**待未来系统验证**。

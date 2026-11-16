@@ -208,9 +208,9 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；然后对每颗应答的功放跑一遍**回放层**（软复位 + 57 对 Music profile + fuse 算的 vcalb + 静音音量，见 §9）；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
-补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（87,034 B，2,326 行，12 段，sha256 `9515ce1f339f592e…bbea`）+ `patches/audio/series`。
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（83,743 B，2,227 行，11 段，sha256 `039544a97af83e47…8dfc`）+ `patches/audio/series`。
 
-- 10 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
+- 9 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。八个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 仍不在其中：内核侧还没有 `.c` include 它；`PongAudioAcf.h`/`PongAudioAmpProfile.h`/`PongAudioAmpReplay.h` **在**，被 `PongAudioAmp.c` include，见 §9）。完整 transcript 见 `patches/audio/README.md`。

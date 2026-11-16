@@ -3,9 +3,10 @@
 # patches/xnu/series, so every patch here is mirrored into patches/xnu and wired there.
 # 0001 -> patches/xnu/0507 (series:205), 0002 -> patches/xnu/0508 (series:206),
 # 0003 -> patches/xnu/0509 (series:207), 0004 -> patches/xnu/0510 (series:208),
-# 0005 -> patches/xnu/0511 (series:209), 0006 -> patches/xnu/0512 (series:232),
-# 0007 -> patches/xnu/0513 (series:233). 0512 and 0513 sit at the end of the
-# series because 0610/0614/0616 anchor on the kern_exec junction 0512 inserts at.
+# 0005 -> patches/xnu/0511 (series:209), 0006 -> patches/xnu/0512 (series:233),
+# 0007 -> patches/xnu/0513 (series:234, superseded by 0621), 0008 -> patches/xnu/0514
+# (series:234), 0009 -> patches/xnu/0515 (series:235). 0512/0514/0515 sit at the end
+# of the series because 0610/0614/0616 anchor on the kern_exec junction 0512 inserts at.
 # See docs/research/bt/HANDOFF.md section 1.
 0001-k60-bt-readonly-probe.patch
 0002-k60-bt-s2-smmu-rcg-reset.patch
@@ -15,3 +16,4 @@
 0006-k60-bt-late-start.patch
 0007-k60-bt-io-windows.patch
 0008-k60-bt-boot-observability.patch
+0009-k60-bt-tlv-counters.patch

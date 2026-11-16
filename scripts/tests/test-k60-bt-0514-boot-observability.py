@@ -111,9 +111,10 @@ xnu_series = [line.strip() for line in SERIES.read_text(encoding="utf-8").splitl
 bt_series = [line.strip() for line in BT_SERIES.read_text(encoding="utf-8").splitlines() if line.strip()]
 in_series = "0514-k60-bt-boot-observability.patch" in xnu_series
 if in_series:
-    check(xnu_series[-1] == "0514-k60-bt-boot-observability.patch",
-          "0514 sits at the end of the series")
-    check(xnu_series[-2] == "0512-k60-bt-late-start.patch",
+    at = xnu_series.index("0514-k60-bt-boot-observability.patch")
+    check(at == len(xnu_series) - 1 or xnu_series[at + 1] == "0515-k60-bt-tlv-counters.patch",
+          "0514 sits at the end of the series, or 0515 follows it")
+    check(xnu_series[at - 1] == "0512-k60-bt-late-start.patch",
           "0514 follows the late-start patch")
 else:
     check(XNU_PATCH.exists(), "0514 stays on disk while the recipe leaves it out")

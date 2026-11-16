@@ -1,0 +1,78 @@
+diff --git a/bsd/dev/qbt/btqca.c b/bsd/dev/qbt/btqca.c
+index f8d833a..c9fc829 100644
+--- a/bsd/dev/qbt/btqca.c
++++ b/bsd/dev/qbt/btqca.c
+@@ -559,6 +559,7 @@ static int qca_download_firmware(struct hci_dev *hdev,
+ 	u8 *data;
+ 	const u8 *segment;
+ 	int ret, size, remain, i = 0;
++	unsigned segs = 0;
+ 
+ 	bt_dev_info(hdev, "QCA Downloading %s", config->fwname);
+ 
+@@ -611,8 +612,22 @@ static int qca_download_firmware(struct hci_dev *hdev,
+ 		if (!remain || segsize < MAX_SIZE_PER_TLV_SEGMENT)
+ 			config->dnld_mode = QCA_SKIP_EVT_NONE;
+ 
+-		ret = qca_tlv_send_segment(hdev, segsize, segment,
+-					   config->dnld_mode, soc_type);
++		{
++			uint64_t started = hdev->q->ops.now_ns(hdev->q->ops.context);
++			struct qbt_stats stats;
++
++			ret = qca_tlv_send_segment(hdev, segsize, segment,
++						   config->dnld_mode, soc_type);
++			qbt_get_stats(hdev->q, &stats);
++			qbt_linux_log(hdev->q, 1,
++				      "tlv seg i=%u size=%d dt_ms=%u e=%d sent=%llu acks=%llu",
++				      segs, segsize,
++				      (unsigned)((hdev->q->ops.now_ns(hdev->q->ops.context) - started) / 1000000ULL),
++				      ret,
++				      (unsigned long long)stats.tlv_sent,
++				      (unsigned long long)stats.tlv_acks);
++			segs++;
++		}
+ 		if (ret)
+ 			goto out;
+ 
+@@ -630,6 +645,17 @@ static int qca_download_firmware(struct hci_dev *hdev,
+ 		ret = qca_inject_cmd_complete_event(hdev);
+ 
+ out:
++	{
++		struct qbt_stats stats;
++
++		qbt_get_stats(hdev->q, &stats);
++		qbt_linux_log(hdev->q, 1,
++			      "tlv done type=%d segs=%u sent=%llu acks=%llu final=%llu ret=%d",
++			      config->type, segs,
++			      (unsigned long long)stats.tlv_sent,
++			      (unsigned long long)stats.tlv_acks,
++			      (unsigned long long)stats.tlv_final_status, ret);
++	}
+ 	vfree(data);
+ 
+ 	return ret;
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index 70960bc..920f744 100644
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -1976,8 +1976,16 @@ static void k60_power_result(bool enabled, int error) {
+     struct qbt_info info;
+     qbt_get_info(k60.core, &info);
+ #ifdef KERNEL
+-    printf("[bluetooth] power=%u result=%d baud=%u firmware=%s\n",
+-           enabled, error, info.baud, info.firmware);
++    {
++        struct qbt_stats stats;
++
++        qbt_get_stats(k60.core, &stats);
++        printf("[bluetooth] power=%u result=%d baud=%u firmware=%s tlv_sent=%llu tlv_acks=%llu tlv_final=%llu\n",
++               enabled, error, info.baud, info.firmware,
++               (unsigned long long)stats.tlv_sent,
++               (unsigned long long)stats.tlv_acks,
++               (unsigned long long)stats.tlv_final_status);
++    }
+ #endif
+     qbt_transport_power_result(enabled, error < 0 ? -error : error,
+                                info.firmware, info.baud);

@@ -118,7 +118,9 @@ cache candidate `7cce6e8a` (c7 baseline + DMA cache fix).
    smpe3 model read as 00/00 and services94 fixed it with this bounded retry;
    without it the new rail would fail at the power stage before MHI. A
    successful sample still requires the exact type/subtype and
-   `status&0x80 && enable&0x80 && mv>=requested`.
+   `status&0x80 && enable&0x80 && mv>=requested`. The function body is
+   identical line-for-line to Pong's `PongWifiPlatform.cpp:113-140`; only the
+   surrounding K60 stage gates and comments differ.
 5. `scripts/tests/test-wifi-ipa-rail.py` pins the six original rails, the
    exact IPA object (supply/resource/regulator/voltage/SPMI PPID), the builder
    loop, the platform capacity, the complete-sample retry, and rejects thirteen

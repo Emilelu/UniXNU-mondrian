@@ -294,6 +294,71 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         ('fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n',
          'fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n'
          '\tdev_info(dev, "Pong MHI: waiting for the device to clear reset and set ready\\n");\n'),
+        # c8: the EE event that should start the AMSS push never arrives, so the
+        # device waits in SBL for an image the host never sends while the host
+        # waits for MISSION. Push it when the hardware execution environment
+        # says SBL, and report the MHI base and limit registers the device was
+        # given, before and after the push.
+        ('\t}\n\n\tdev_info(dev, "Wait for device to enter SBL or Mission mode\\n");\n',
+         '\t}\n\n'
+         '\tif (mhi_cntrl->fbc_download &&\n'
+         '\t    mhi_get_exec_env(mhi_cntrl) == MHI_EE_SBL) {\n'
+         '\t\tu32 status = 0, ctrl = 0;\n'
+         '\t\tu32 ctllo = 0, ctlhi = 0, datalo = 0, datahi = 0;\n'
+         '\t\tu32 eclo = 0, echi = 0;\n'
+         '\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHISTATUS, &status);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRL, &ctrl);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRLBASE_LOWER, &ctllo);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRLBASE_HIGHER, &ctlhi);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHIDATABASE_LOWER, &datalo);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHIDATABASE_HIGHER, &datahi);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, ECABAP_LOWER, &eclo);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, ECABAP_HIGHER, &echi);\n'
+         '\t\tdev_info(dev, "Pong MHI: pre-push exec_env=%d MHISTATUS=%#x MHICTRL=%#x\\n",\n'
+         '\t\t\t (int)mhi_get_exec_env(mhi_cntrl), status, ctrl);\n'
+         '\t\tdev_info(dev, "Pong MHI: pre-push ctlbase=%#x%08x database=%#x%08x ecabap=%#x%08x iova=[%#llx,%#llx]\\n",\n'
+         '\t\t\t ctlhi, ctllo, datahi, datalo, echi, eclo,\n'
+         '\t\t\t (unsigned long long)mhi_cntrl->iova_start,\n'
+         '\t\t\t (unsigned long long)mhi_cntrl->iova_stop);\n'
+         '\t\tmhi_cntrl->ee = MHI_EE_SBL;\n'
+         '\t\tdev_info(dev, "Pong MHI: device sits in SBL with no EE event; pushing AMSS proactively\\n");\n'
+         '\t\tmhi_download_amss_image(mhi_cntrl);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHISTATUS, &status);\n'
+         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRL, &ctrl);\n'
+         '\t\tdev_info(dev, "Pong MHI: post-push exec_env=%d MHISTATUS=%#x MHICTRL=%#x\\n",\n'
+         '\t\t\t (int)mhi_get_exec_env(mhi_cntrl), status, ctrl);\n'
+         '\t}\n'
+         '\n'
+         '\tdev_info(dev, "Wait for device to enter SBL or Mission mode\\n");\n'),
+        # c8: the AMSS entry never ran in c7, so the only record of what was
+        # handed over is this pair. Report the vector count, the first and the
+        # last data vector, and the BHIE transfer result with the execution
+        # environment the device reports afterwards.
+        ('\tif (!image_info)\n\t\treturn -EIO;\n\n',
+         '\tif (!image_info)\n\t\treturn -EIO;\n\n'
+         '\tdev_info(dev, "Pong MHI: amss download begin entries=%u\\n",\n'
+         '\t\t (unsigned)image_info->entries);\n'
+         '\tif (image_info->bhi_vec && image_info->entries > 1) {\n'
+         '\t\tdev_info(dev, "Pong MHI: amss vec[0] dma=%#llx size=%#llx\\n",\n'
+         '\t\t\t (unsigned long long)image_info->bhi_vec[0].dma_addr,\n'
+         '\t\t\t (unsigned long long)image_info->bhi_vec[0].size);\n'
+         '\t\tdev_info(dev, "Pong MHI: amss vec[%d] dma=%#llx size=%#llx\\n",\n'
+         '\t\t\t image_info->entries - 2,\n'
+         '\t\t\t (unsigned long long)image_info->bhi_vec[image_info->entries - 2].dma_addr,\n'
+         '\t\t\t (unsigned long long)image_info->bhi_vec[image_info->entries - 2].size);\n'
+         '\t}\n'
+         '\n'),
+        ('\tret = mhi_fw_load_bhie(mhi_cntrl,\n'
+         '\t\t\t       /* Vector table is the last entry */\n'
+         '\t\t\t       &image_info->mhi_buf[image_info->entries - 1]);\n'
+         '\tif (ret) {\n',
+         '\tret = mhi_fw_load_bhie(mhi_cntrl,\n'
+         '\t\t\t       /* Vector table is the last entry */\n'
+         '\t\t\t       &image_info->mhi_buf[image_info->entries - 1]);\n'
+         '\tdev_info(dev, "Pong MHI: amss bhie load ret=%d exec_env=%d\\n",\n'
+         '\t\t ret, (int)mhi_get_exec_env(mhi_cntrl));\n'
+         '\tif (ret) {\n'),
     ])
     # -110 is -ETIMEDOUT from the READY->MISSION wait, and the value alone does
     # not say whether the device refused to transition or the event was lost.

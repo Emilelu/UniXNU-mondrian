@@ -266,3 +266,8 @@ note = "build-strict now forwards K60_MODEM_CARRIER and counts the streams back 
 sha = "17190e6"
 state = "build-only"
 note = "build-strict no longer writes a manufactured value into the receipt when an option is off: kernel_args_requested serialises the real KARGS array ([] instead of [\"\"]) and adsp_blob_path stays empty instead of pointing at the filesystem root. Touches scripts/build-strict.sh, so iron-9 wants it registered. Only the receipt text changes; kernel, payload and boot image are byte-identical for any given set of options. The next build writes the first honest receipt."
+
+[[entry]]
+sha = "0589a33a"
+state = "build-only"
+note = "fix(xnu): the open trace no longer dereferences a recycled namei pointer; a rebuild plus a boot is needed before the scanout experiment can be judged"

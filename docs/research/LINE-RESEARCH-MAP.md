@@ -1,20 +1,16 @@
 # 分支研究文件地图（LINE-RESEARCH-MAP）
 
-> 最后更新 **2026-11-17 00:20**。生成命令见文末。
+> 最后更新 **2026-11-17 00:20；2026-11-17 05:45 复核**。生成命令见文末。
 > 用途：回答「这条线的研究到底写在哪个检出的哪个分支」，以及「main 上看不到什么」。
 > 这不是文档索引（那是 [docs/INDEX.md](../INDEX.md)），是**物理分布**索引。
 
 ## 0. 结论
 
-- 16 个 k60-* 检出里有 **97 个 `docs/research/` 文件不在 main**：cellular 18、wifi 14、thermal 12、
-  bt 10、usb 7、audio-merge 6、display 6、adsp-handoff 4、audio 3、buttons 3、springboard 3、
-  gpu-user 2、wifi-lead 3、gates 1、ios-profile 1、UniXNU-zizhan 4。
-- 两个检出的 wifi 研究重叠（`k60-wifi` 14 个、`k60-wifi-lead` 3 个，后者全部是前者的副本）；
-  音频的 `AMPS.md`/`CODEC.md`/`SOUNDWIRE.md` 在 `k60-audio` 与 `k60-audio-merge` 各一份。
-- **两份检出没有登记在 `docs/engineering/TREE-OWNERS.toml`**：`UniXNU-zizhan`、`k60-audio-merge`
-  （其余 21 条登记见该文件）。铁则 11 要求一个检出只有一个主人，未登记=无人负责。
-- `docs/research/EIGHT-STEPS.toml` 的 bluetooth 段引用的 `docs/research/bt/*` 与 touch 段的
-  `touch/14-RETAINED-KO-INIT-AUDIT.md` 都在这一批里；main 上读不到（本轮已在引用处加限定）。
+- 2026-11-17 05:45 复核：main 的 `docs/research/` 有 **73** 个文件；16 个原有检出分支上合计 **108** 个不在 main 的文件：cellular 19、wifi 14、thermal 12、bt 11、audio-merge 9、usb 7、display 6、gates 6、adsp-handoff 5、audio 3、buttons 3、springboard 3、wifi-lead 3、gpu-user 2、ios-profile 1、UniXNU-zizhan 4。
+- 另有 `k60-charger` 2 个、三个临时 wifi worktree（`k60-wifi-mhi-preload` 9、`k60-wifi-cache` 8、`k60-wifi-ipa` 8）共 25 个；全部检出合计 135 个分支研究文件。
+- 两个检出的 wifi 研究重叠（`k60-wifi` 14 个、`k60-wifi-lead` 3 个，后者全部是前者的副本）；音频的 `AMPS.md`/`CODEC.md`/`SOUNDWIRE.md` 在 `k60-audio` 与 `k60-audio-merge` 各一份。
+- **未登记在 `docs/engineering/TREE-OWNERS.toml` 的检出现有 6 个**：`UniXNU-zizhan`、`k60-audio-merge`、`k60-wifi-mhi-preload`、`k60-wifi-cache`、`k60-wifi-ipa`、`k60-pitfalls`。铁则 11 要求一个检出只有一个主人，未登记=无人负责。
+- 下面 §2 的逐文件条目是 **2026-11-17 00:20 的 97 文件快照**；05:45 复核新增的 11 个文件（以及临时 worktree）尚未补条目，搬运前按当前树重建。
 
 ## 1. 结案搬运规则（建议）
 
@@ -23,7 +19,7 @@
 3. 重复文件以**有主人的检出**为准（`k60-wifi` 而非 `k60-wifi-lead`；`k60-audio-merge` 若合并成功则以它为准）。
 4. 未登记检出的主人先补 `TREE-OWNERS.toml` 再谈搬运。
 
-## 2. 逐检出清单（97 个文件）
+## 2. 逐检出清单（2026-11-17 00:20 的 97 文件快照）
 
 | 检出 | 分支 | HEAD | 主线研究文件数 |
 |---|---|---|---|

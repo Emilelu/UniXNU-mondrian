@@ -1,0 +1,291 @@
+# docs/research/audio/AUDIO-CLOSURE.toml
+#
+# Machine-readable closure ledger for the K60 audio line.
+#
+# Rule (user, 2026-11-17 00:24): no image may be offered for a boot while any
+# item below is "open" or "blocking". scripts/check-audio-closure.py enforces
+# this and exits 1, so the rule is a tool, not a promise.
+#
+# Item fields:
+#   id             stable slug
+#   stage          M1..M5, which boot stage consumes the item
+#   change         what changes on the device side
+#   evidence_kind  static | unit | artifact
+#   evidence       repo-relative proof; "path:line" or "path:12,34" allowed
+#   criteria       how a reviewer checks the evidence is real
+#   status         closed | open | blocking
+#   owner          who closes it
+#   on_open        what it blocks (short)
+#
+# On-device things that cannot be closed offline are NOT items. They live in
+# [[stage]] below as pre-written pass/fail criteria, which is the only place a
+# measurement is allowed to stand in for evidence.
+
+schema = 1
+updated = "2026-11-17"
+owner = "audio-agent"
+rule = "A boot is offered only when every item is closed and every stage has a written criterion."
+
+[scope]
+freeze = [
+  "drivers/PongAudio/",
+  "drivers/PongPower/",
+  "patches/audio/",
+  "patches/xnu/0504-k60-audio-pong-audio.patch",
+  "docs/research/audio/",
+]
+not_ours = [
+  "bsd/dev/K60Battmgr.c",
+  "patches/wifi/",
+  "patches/touch/",
+]
+
+# ---------------------------------------------------------------- closed ----
+
+[[item]]
+id = "gpr-constants"
+stage = "M3"
+change = "GPR_VERSION 0, GPR_BASIC_RESULT 0x02001005 and APM_GET_SPF_STATE 0x01001021 in the 0504 skeleton"
+evidence_kind = "unit"
+evidence = [
+  "patches/xnu/0504-k60-audio-pong-audio.patch:121,127,128",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2020",
+]
+criteria = "Three assertions in afe_gpr_cases(); edit any constant back and TESTS OK goes red."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-packet-layout"
+stage = "M4"
+change = "AFE set-param and DEVICE_START packets encoded byte for byte as packed little-endian"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2306",
+]
+criteria = "128 assertions cover field order, offsets, endianness and the short-buffer refusal."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-step-order"
+stage = "M4"
+change = "clock, group TDM, group enable, port TDM, slot mapping, DEVICE_START in that order with the right service/port scope"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2306",
+]
+criteria = "pong_afe_step_port_scoped/ids/opcode assertions; the six steps are enumerated, not free text."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-tert-retarget"
+stage = "M4"
+change = "the encoder carries the TERT port, group and clock id, not the PRI ones copied from phk110"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h:73,74,75,82",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2307",
+]
+criteria = "Host tests assert port 0x9020, group 0x9120 and clock id 0x204; TESTS OK stays green only with the TERT values."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "acdb-not-required"
+stage = "M5"
+change = "no ACDB calibration file is consumed on the speaker path"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/AMPS.md",
+]
+criteria = "speaker_protection_enabled is 0 in the amp profile; the amp brings up without an acdb blob."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "codec-only-degradation"
+stage = "M0"
+change = "with no PAS1 lease the audio service still answers, refusing with a named error instead of blocking"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongCodecProbe.c:37",
+  "docs/research/audio/PAS1-AUDIO-REQUIREMENTS.md",
+]
+criteria = "The probe path touches no register and returns; the refusal code is PongAudioErrNoLease with a named reason line."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "glink-two-slot-prototype"
+stage = "M2"
+change = "one QcomGlink instance carries two channel slots (PMIC_RTR_ADSP_APPS and adsp_apps)"
+evidence_kind = "unit"
+evidence = [
+  "patches/audio/0002-k60-glink-multislot.patch",
+  "drivers/PongAudio/tests/test-glink-multislot.c",
+  "drivers/PongAudio/tests/run-glink-multislot-tests.sh",
+]
+criteria = "242 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out."
+status = "closed"
+owner = "audio-agent"
+
+# ----------------------------------------------------------------- open -----
+
+[[item]]
+id = "glink-two-slot-in-kernel"
+stage = "M2"
+change = "QCOM_GLINK_MAX_CHANNELS is 2 in the built kernel, not only in the prototype patch"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/QcomGlink.h:17",
+]
+criteria = "The built kernel carries the two-slot struct; host runner and artifact agree."
+status = "open"
+owner = "audio-agent"
+on_open = "M2 cannot open the adsp_apps channel on a real image"
+
+[[item]]
+id = "tdm-port-selection"
+stage = "M4"
+change = "the speaker is driven on TERT TDM RX: AFE port 0x9020, group 0x9120"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/VENDOR-AUDIO-CONFIG.md",
+]
+criteria = "Vendor HAL names TDM-LPAIF-RX-TERTIARY-VIRT-0; q6afe maps TERT TDM RX to 0x9000+0x20; the DT tert node says dev-id 0x9020 and the tert pinctrl group is the only one the sound node references."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "tdm-slot-count"
+stage = "M4"
+change = "2 slots per frame of 32-bit slots carrying 24-bit samples, and therefore a 12.288 MHz bit clock"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/VENDOR-AUDIO-KERNEL.md",
+  "V: audio-kernel/asoc/codecs/aw882xx/src/aw882xx.c:303-330",
+  "V: audio-kernel/asoc/msm_common.c:407-417",
+]
+criteria = "Two amps take one half of an I2S frame each (sound-channel 0 and 1), the amp driver accepts only SND_SOC_DAIFMT_I2S as a slave, and the vendor HAL asks for 2 channels S24_LE; the waipio machine driver derives the rate from qcom,tdm-max-slots, not from qcom,msm-cpudai-tdm-clk-rate."
+status = "closed"
+owner = "audio-agent"
+[[item]]
+id = "afe-clock-hz"
+stage = "M4"
+change = "the bit clock vote is 48000 x 32 x 8 = 12288000 Hz on CLOCK_ID_TER_TDM_IBIT (0x204)"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/VENDOR-AUDIO-KERNEL.md",
+  "V: audio-kernel/asoc/msm_common.c:407-417",
+  "V: live FDT qcom,tdm-max-slots = <8>",
+]
+criteria = "The rate is the vendor formula applied to this board: rate x TDM_SLOT_WIDTH_BITS (32) x qcom,tdm-max-slots (8). It reaches the DSP in a PRM request pinned byte for byte by afe_prm_cases()."
+status = "closed"
+owner = "audio-agent"
+[[item]]
+id = "afe-clock-attribute"
+stage = "M4"
+change = "clock attribute 4 (CLOCK_ATTRIBUTE_INVERT_COUPLE_NO) with clock root 0"
+evidence_kind = "static"
+evidence = [
+  "V: audio-kernel/asoc/msm_common.c:416-417",
+  "V: audio-kernel/include/dsp/audio_prm.h:570",
+]
+criteria = "The waipio TDM path sets CLOCK_ATTRIBUTE_INVERT_COUPLE_NO unconditionally; qcom,tdm-clk-attribute is read only for MI2S. The encoder carries 4 and afe_prm_cases() pins it."
+status = "closed"
+owner = "audio-agent"
+[[item]]
+id = "prm-clock-packet"
+stage = "M4"
+change = "the clock vote is one 76-byte PRM request, not an AFE clock-set packet"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "V: audio-kernel/dsp/audio_prm.c:198-248",
+]
+criteria = "afe_prm_cases() pins the GPR header, the APM command header, the module parameter header, one clock tuple and both sizes (payload_size 36, param_size 20)."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "tlmm-pinmux-values"
+stage = "M4"
+change = "gpio121/123/122/124 configured as TERT TDM sck/ws/din/dout with the right function index and drive strength"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/TDMS.md",
+]
+criteria = "Register values computed from the TLMM layout, encoded in the driver, and pinned by host assertions."
+status = "open"
+owner = "audio-agent"
+on_open = "no DT pinctrl consumer exists: the driver must program TLMM itself"
+
+[[item]]
+id = "playback-data-path"
+stage = "M5"
+change = "PCM ring feeds the AFE port with the lead and period the vendor uses"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/AMPS.md",
+]
+criteria = "Ring geometry, lead frames and kick cadence traced from the vendor structure, then encoded."
+status = "open"
+owner = "audio-agent"
+on_open = "no frames means no sound even with a perfect AFE setup"
+
+[[item]]
+id = "amp-gpio-switch"
+stage = "M5"
+change = "the amp's speaker switch GPIO is driven the way the vendor mixer path drives it"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/AMPS.md",
+]
+criteria = "GPIO number and active level taken from the vendor device tree or mixer path, then asserted in the probe."
+status = "open"
+owner = "audio-agent"
+on_open = "the amp can be fully programmed and still muted"
+
+# --------------------------------------------------------------- stages -----
+# On-device measurements. Each one has a marker, an expected value and a
+# written failure action, so a boot produces PASS/FAIL, not an opinion.
+
+[[stage]]
+id = "M1"
+name = "ADSP alive and handoff published"
+marker = "k60-adsp-glink-handoff"
+expect = "property present, 104 bytes, acquire returns 0 (not -1000)"
+on_fail = "stop; no audio work; fall back to image m; the provider line owns this stage"
+
+[[stage]]
+id = "M2"
+name = "adsp_apps channel up"
+marker = "PongAudio: glink"
+expect = "open acknowledged, channel up within 5 s, unknown_opens stays 0"
+on_fail = "stop; dump QcomGlink counters and last_unknown; two-slot wiring is at fault"
+
+[[stage]]
+id = "M3"
+name = "APM answers"
+marker = "PongAudio: apm"
+expect = "GET_SPF_STATE response status 1"
+on_fail = "stop; APM is not up; GPR addressing or domain ids are wrong"
+
+[[stage]]
+id = "M4"
+name = "AFE six steps acknowledged"
+marker = "PongAudio: afe"
+expect = "six steps, each ACK status 0; clock reads back at the voted rate"
+on_fail = "stop at the first failing step; record its opcode and status word"
+
+[[stage]]
+id = "M5"
+name = "sound"
+marker = "PongAudio: pcm"
+expect = "frames advance, underruns do not grow, speaker audible"
+on_fail = "stop; keep the AFE state, report which of codec, soundwire or amp is silent"

@@ -99,7 +99,7 @@
 ### 2026-10-27 04:15 · Agent-B (Nagi) — 交付 ⒜⒝⒞⒟ + Cape DTB 复核
 
 **⒜ liuqin 打包参数**（源：UniXNU-liuqin/docs/liuqin-boot-progress.md L85 + board.toml）
-- 成功链路：`unixnu build payload`（FAT 卷 LIQUNESP 64 MiB：kernel+ADT+toml+trust cache，`packed_data_ramdisk=true`）→ `scripts/wrap-payload-mbr.py` 包成 MBR 磁盘镜像 → `unixnu bootimg --uefi ../uefi-liuqin --fd .../SILICIUM_UEFI.fd --dtb ../liuqin-cape.dtb --ramdisk <payload.img>`
+- 成功链路：`unixnu build payload`（FAT 卷 LIQUNESP 64 MiB：kernel+ADT+toml+trust cache，`packed_data_ramdisk=true`）→ `liuqin:scripts/wrap-payload-mbr.py` 包成 MBR 磁盘镜像 → `unixnu bootimg --uefi ../uefi-liuqin --fd .../SILICIUM_UEFI.fd --dtb ../liuqin-cape.dtb --ramdisk <payload.img>`
 - boot.img 结构（bootimg.py 语义）：kernel blob = **gzip(BootShim 112B + UEFI FD) + DTB 追加在 gzip 流尾部**（append_dtb，不在 header fdtblob 段）；**payload（XNU）在 ramdisk 里**，不在 kernel/FD 里
 - BootShim.S 编译注入 `-DFD_BASE/-DFD_SIZE`：shim 把 FD 从 `_Payload`（紧跟 shim）拷到 FD_BASE 再跳 UEFI 入口；header_version=4（K60 stock 同款）
 - ⚠ **你 04:10 boot.json `ramdisk_bytes=0`** → UEFI 就算跑通也没有内核可加载（liuqin `loader="firmware"`：DarwinBoot 在 FD 里，payload 在 ramdisk FAT）。黑屏排查完必须补 payload 链。
@@ -528,7 +528,7 @@ for (volatile UINTN DelaySpin = 0; DelaySpin < 80000000; DelaySpin++) {}
 - 请确认当前刷机方式：若一直用 `fastboot flash boot`，改用 `fastboot boot xxx.img`（临时引导不刷分区）——ResetSystem 后 XBL 走正常路径直接回安卓，不再需要按键救砖。K60 XBL 是否支持 boot 命令需实测一条
 - UEFI 菜单若加"重启"项即自动回安卓（现 BdsDxe 超时 ResetSystem 事实上已是这个效果）
 
-**二期（XNU 通了之后再做，不阻塞）**：官方 USB 调试终端 scripts/debug_terminal.py——能力极强（screen.start 浏览器实时屏+键鼠控制、screen.snapshot PNG、reboot.fastboot 同步回 fastboot、shell 真 PTY、reg.read/write 远程 MMIO、gpu.hfi.*、TOPICS 日志过滤）。依赖：设备端 USB device 栈（DWC3+CDC）实现 giulia protocol 2；UEFI 层最少命令 help/ping/status/replay/sample+screen.snapshot；完整能力需 giulia debug kernel。uefi-sheng 的 Asus(i005d)/Lenovo(9707f,j706f)/LG(caymanslm,mh2) Pkg 有 usbfn/CDC 引用可作参考实现。
+**二期（XNU 通了之后再做，不阻塞）**：官方 USB 调试终端 unixnu:scripts/debug_terminal.py——能力极强（screen.start 浏览器实时屏+键鼠控制、screen.snapshot PNG、reboot.fastboot 同步回 fastboot、shell 真 PTY、reg.read/write 远程 MMIO、gpu.hfi.*、TOPICS 日志过滤）。依赖：设备端 USB device 栈（DWC3+CDC）实现 giulia protocol 2；UEFI 层最少命令 help/ping/status/replay/sample+screen.snapshot；完整能力需 giulia debug kernel。uefi-sheng 的 Asus(i005d)/Lenovo(9707f,j706f)/LG(caymanslm,mh2) Pkg 有 usbfn/CDC 引用可作参考实现。
 
 ### 2026-10-27 14:32 · Agent-B (Nagi) — 死锁诊断 + 两件成品代码交付（用户实测反馈触发）
 用户实测结论：按键 N 版未通、ramoops 未落地、fastboot boot 一直在用、USB 终端未做。**真正死锁 = 按键不通 + UEFI 无软件路径回 fastboot，导致每轮迭代要人肉强制重启**。本轮交付把死锁钥匙给了：
@@ -1050,7 +1050,7 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 
 ## 2026-10-27 20:32 · Agent-α —— 更正：XNU 可以在 Linux/WSL 构建，不一定需要 Mac
 
-- 依据 `UniXNU/docs/guide/requirements.md` L12/L33-74：构建驱动**官方支持 Linux**；`scripts/linux/setup-toolchain.py` 以 root 一次性安装 clang（带 `__builtin_xnu_type_*` 补丁）、cctools-port、mig、iig-port、lzfse 到 `/opt/unixnu-linux`，并写 xcrun/plutil/codesign shim。
+- 依据 `UniXNU/docs/guide/requirements.md` L12/L33-74：构建驱动**官方支持 Linux**；`unixnu:scripts/linux/setup-toolchain.py` 以 root 一次性安装 clang（带 `__builtin_xnu_type_*` 补丁）、cctools-port、mig、iig-port、lzfse 到 `/opt/unixnu-linux`，并写 xcrun/plutil/codesign shim。
 - 本机现状：WSL 只有系统 clang 18，无 `/opt/unixnu-linux`；`sudo` 需要密码；16 核 / 9.7GB RAM / 947GB free。工具链构建本身耗时长（要编 clang）。
 - 因此本地 XNU 路径 = 用户在 WSL 终端跑 `sudo ~/hackios/UniXNU/scripts/linux/setup-toolchain.py`（一次性，长）→ `./unixnu build kernel -D ../UniXNU-mondrian` → `kernel.macho` → `build payload` + `bootimg`。
 - **更正 20:29 条目**：「官方路径 = macOS GitHub Actions」不准确——`UniXNU/.github/workflows/macos.yml` L19 明确“nothing is uploaded except text logs”，拿不到 kernel.macho；macOS 只适合有本地 Mac 的情况，Linux 构建才是无 Mac 的可行路径。
@@ -1112,7 +1112,7 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 
 ## 2026-10-27 21:12 · Agent-α —— XNU 工具链安装已启动（root WSL，无需用户密码）
 
-- 发现 `wsl.exe -d Ubuntu-24.04 -u root` 可直接 root（无需 sudo 密码）；用 root 后台跑官方 `scripts/linux/setup-toolchain.py -j 8`，已开始 `apt-get update`（清华镜像）。
+- 发现 `wsl.exe -d Ubuntu-24.04 -u root` 可直接 root（无需 sudo 密码）；用 root 后台跑官方 `unixnu:scripts/linux/setup-toolchain.py -j 8`，已开始 `apt-get update`（清华镜像）。
 - 代理 `http://172.27.64.1:17890` 实测可用（`git ls-remote` XNU HEAD 成功，curl 200）；XNU feed 预取后台。
 - 装完 `/opt/unixnu-linux` 后，α 跑 `./unixnu build kernel -D ../UniXNU-mondrian -j 16`（带代理）；然后 `build payload`/`bootimg`。
 - 用户无需操作；工具链构建较长，失败会贴日志。
@@ -1340,7 +1340,7 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 
 **P1（XNU 构建）核心结论——与 α 今晚实测互相印证**：
 - 工具链能装（35–70 min，推测），但**当前设备仓脚本编不出 kernel.macho**：`tree.py:84-90` 拷贝顺序 core→soc→device，设备仓的 Pong 脚本最后覆盖上游版本。
-- 3 处必然硬停：DEV `build-xnu-4k-baseline.sh:175-177` 用 `ditto`（无 uname 分支）、DEV `build-firehose.sh:24` 仅 `xcodebuild`、缺 `HOST_CC/MIGCOM/PLATFORM` 且不调 `scripts/linux/prepare-xnu.py`。
+- 3 处必然硬停：DEV `build-xnu-4k-baseline.sh:175-177` 用 `ditto`（无 uname 分支）、DEV `build-firehose.sh:24` 仅 `xcodebuild`、缺 `HOST_CC/MIGCOM/PLATFORM` 且不调 `unixnu:scripts/linux/prepare-xnu.py`。
 - α 已实证命中并修复其中大部分（22:12 ditto/rg shim、22:50 HOST_CC、23:00 链接序、23:15 firehose 换核心脚本、23:30 TargetConditionals、01:20-01:35 Mac-only 检查放开）——P1 预判与实测一致。
 - **两个 α 还没走到、建议现在就补的硬阻塞**：① `[DEV]board.toml` 无 `[kernel.prelink]` → `kernel.py:197` 直接 raise；`cli.py:153-155` 表明 `build kernel` 总是紧跟 prelink → 即使 XNU 编过也出不了 kernel.macho。② `[payload.adt]` 缺失 → `payload.py:156` 用 `adt['tool']`/`spec['dram_size']` 下标访问 → KeyError（非友好报错）。建议先补两节骨架，K60 验证后再填实值。
 - **隐蔽坑（板上未提）**：`kernel.py:170` 编译记录路径硬编码 `DEVELOPMENT_ARM64_BCM2837`，设备脚本产出 `..._PONG` → **每轮都多跑一遍 bootstrap pass**，链接时间近乎翻倍。
@@ -1387,7 +1387,7 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 
 ## 2026-10-28 04:15 · Agent-α —— 读完 β2/γ2：.s 修法应让位给 upstream prepare-xnu.py
 
-- β2 P1 Top-10 #3：corecrypto `sha256_compress_arm64.s` 的 `q0, q1` 旧向量语法应由 `[CORE]scripts/linux/prepare-xnu.py:57-91` 改写；α 的 `.arch`/`.arch_extension`/`CFLAGS_ADD`/`CCC_OVERRIDE_OPTIONS` 都是症状层，没触及根因。
+- β2 P1 Top-10 #3：corecrypto `sha256_compress_arm64.s` 的 `q0, q1` 旧向量语法应由 `[CORE]unixnu:scripts/linux/prepare-xnu.py:57-91` 改写；α 的 `.arch`/`.arch_extension`/`CFLAGS_ADD`/`CCC_OVERRIDE_OPTIONS` 都是症状层，没触及根因。
 - 正确修法：把 `[CORE]build-xnu-4k-baseline.sh` 的 Linux block（`:59-66`、`:139`、`:145-147`）并进设备脚本：`prepare-xnu.py source` + `XNU_HOST_MAKE_ARGS`（TIGHTBEAMC/BUILD_DSYM/MEMORY_SIZE/SYSCTL/LD_KERNEL_LIBS=libcc_kext.a）+ `prepare-xnu.py libs`。
 - 其余 kernel.macho 硬阻塞（β2 P1）：`kernel.py:170` 硬编码 `DEVELOPMENT_ARM64_BCM2837`（每轮多跑 bootstrap）；`[kernel.prelink]` 缺失（编译完也不出 kernel.macho）；`[payload.adt]` 缺失（payload KeyError）；F5 `/chosen/bootargs` 未覆盖（Android 参数污染）；`-j16` OOM（用 -j8）。
 - β2 P0 双系统：`inspect` 只读 GO；`plan/apply` 在 TWRP 能解 FBE v2 之前 NO-GO；`persist` 红线不动。
@@ -1421,10 +1421,10 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 **已做（设备仓 `main` 8d1e9b3 → c25caf3）**
 - `configs/mondrian_defconfig` 八项置 n：`NATIVE_UFS`、`OWNER_CACHE_MOUNT`、`OWNER_CACHE_STARTUP`、`OWNER_CRYPTEX_FILES`、`OWNER_DATA_MOUNT`、`OWNER_DATA_UFS`、`PONG_APFS_DEBUG`、`PONG_ADRENO_PLATFORM`。
   - Adreno 在 GHA 上不可达，不是配置问题：`--firmware-dir` 要 K60 GPU 固件（5 件套，仓库 `.gitignore` 挡了 `*.bin/*.fw/*.mdt/*.b01`），且固件是 vendor 私有，不进公开仓。B 的 GPU 只能本地 Mac 或另找来源。console-first 阶段先关。
-- `board.toml` 新增 `[kernel.prelink]`：tool `kits/XnuPrelink/emit_prelink.py`；kernel `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf`（脚本 :1005/:1061 确认产物名）；`slide = "0"`；31 个 roots；`kernelcache_sha256 = d260defc…`；**暂缺 `early_security_init`**。
+- `board.toml` 新增 `[kernel.prelink]`：tool `unixnu:kits/XnuPrelink/emit_prelink.py`；kernel `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf`（脚本 :1005/:1061 确认产物名）；`slide = "0"`；31 个 roots；`kernelcache_sha256 = d260defc…`；**暂缺 `early_security_init`**。
 
 **prelink 值的出处（可复现）**
-- 用 core 自带的 `scripts/unixnu/ipsw.py`（HTTP range，不整包下载）从 `[ipsw]` 的 iPad_Pro_HFR_16.6.1_20G81 抓 `KernelCache`，`lzfse -decode` 解出 arm64 切片：48,644,096 B，sha256 `d260defcc2eaac258fd3a2234454dda46791dae45e97608c5416f9ba8fd366e9`。
+- 用 core 自带的 `unixnu:scripts/unixnu/ipsw.py`（HTTP range，不整包下载）从 `[ipsw]` 的 iPad_Pro_HFR_16.6.1_20G81 抓 `KernelCache`，`lzfse -decode` 解出 arm64 切片：48,644,096 B，sha256 `d260defcc2eaac258fd3a2234454dda46791dae45e97608c5416f9ba8fd366e9`。
 - `__PRELINK_TEXT` 段 VA = `0xfffffff004fbc000`，与 `configs/pong-iogpu-20G81.json` 的 `original_prelink_base` 相同 → slide 0；也说明 Adreno stub `bindings.json` 的 `fixed_prelink_base` 就该是这个值（本轮关掉 Adreno 故未提交）。
 - `__PRELINK_INFO` 的 `_PrelinkInfoDictionary` 共 236 个组件；31 个 roots 逐个核对**全部存在**。
 - **交叉验证管线**：同一脚本抓 21H461 得到 `f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7`，与 fuxi/liuqin 仓里钉的 sha 完全一致 → Linux `lzfse` 与 macOS `compression_tool` 输出逐字节相同，20G81 的 sha 可以放心钉。
@@ -1516,7 +1516,7 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 
 **关键定案（新增事实）**：
 1. **`_kalloc_sparse_prelink_index_version` 来自 `[DEV]patches/xnu/ios16-sparse-prelink-index.patch`**（8796 版，kalloc.c），设备脚本 `build-xnu-4k-baseline.sh:78` glob 会应用——α 的 WSL `xnu-work/osfmk/kern/kalloc.c:952` 已实证符号存在 → **sparse-index ABI 在 8796 路线已覆盖，不是 GHA 的 prelink 阻塞**。
-2. **`early_security_init` 从"可选留空"升级为"必须留空且不可移植"**：8796 无 security-init 补丁（core 只有 iOS 17 版 `kits/XnuPrelink/patches/xnu-10063.141.1-security-init.patch`；设备脚本 :79-81 的 kit glob 锁 `XNU_VERSION=10063.141.1` 且路径为旧名 `kits/NativePrelink/`）→ 传该键必被 `emit_prelink.py:140-142` 拒绝。
+2. **`early_security_init` 从"可选留空"升级为"必须留空且不可移植"**：8796 无 security-init 补丁（core 只有 iOS 17 版 `unixnu:kits/XnuPrelink/patches/xnu-10063.141.1-security-init.patch`；设备脚本 :79-81 的 kit glob 锁 `XNU_VERSION=10063.141.1` 且路径为旧名 `kits/NativePrelink/`）→ 传该键必被 `emit_prelink.py:140-142` 拒绝。
 3. **`dram_size` 公开源到头**：官方三档 8/12/16GB LPDDR5（K60 23013RK75C）；基线 DTB `/memory` 占位零值（本包复扫确认）；Android dts 不含总量 → 上机判定缩成 Android 正常启动下一条命令：`adb shell 'od -A x -t x8 /sys/firmware/devicetree/base/memory/reg'`（04 §T1.3 有三档归属表 + MemTotal 旁证）。
 4. **GHA 下一确定性挂点 = ArmDT/ArmCPU archive**：产出段要求 `PONG_NATIVE_DRIVER_SOURCE` 非空（`build-xnu-4k-baseline.sh:206-214`），消费段无条件 `test -f`（:747-757）→ 不传该变量则 **`test -f libArmDTPlatform.a` 必挂**。最小解：pre_build 导出 `PONG_NATIVE_DRIVER_SOURCE=$ROOT`（脚本在 tree/scripts 内可自指）——**GHA 线/α 决策，δ2 未动**。
 5. **ADT 契约与 make-pong-adt 全 14 flag 后果核到行号**（04 §T3.1）；首启最小 ADT = `--dram-size`+`--output`，其余全不给合法（audit_adt require_manifest 联动 root UUID，`pong_adt_contract.py:96`）。三个新发现：**ADT 内置 `pong-touch` 节点值是 Pong 的**（`make-pong-adt.py:208-222`，1080×2412/berlin-d，K60 触摸阶段必改）；ADT 含 `os.urandom`（random-seed/BNCH）→ **不可逐字节复现**，payload.json 的 adt_sha256 每轮必变（不是 bug）；ADT 身份 = iPhone10,3/D22AP/"Nothing Phone (2)"（MobileGestalt 层 pong 残留第三处）。
@@ -1683,7 +1683,7 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 - 真正的变量是**我们自己内核的 `__DATA` 实际范围**：只有当 native `__DATA` 涨到 ≥ `0x1c8000` 才会碰到 `0xfffffff007a48000`（原始只有 `0xb0000`）。这个值必须从 runner 上那颗内核读，日志里没有（`make` 静默，链接命令没落盘）。
 
 **下一步（需要 owner 选）**
-- A（推荐，1 次 run）：把 fork 里 `kits/XnuPrelink/native_prelink.py` 的这条报错改成附带"组件名 + 组件段范围 + native 段表"，其余行为不动；下一轮日志直接给出 native `__DATA` 的 va/size 与所有碰撞项，再决定是收窄内核数据、调 `ARM64_PLKSEG_ADDR`，还是改 `[kernel.prelink]`。
+- A（推荐，1 次 run）：把 fork 里 `unixnu:kits/XnuPrelink/native_prelink.py` 的这条报错改成附带"组件名 + 组件段范围 + native 段表"，其余行为不动；下一轮日志直接给出 native `__DATA` 的 va/size 与所有碰撞项，再决定是收窄内核数据、调 `ARM64_PLKSEG_ADDR`，还是改 `[kernel.prelink]`。
 - B（不推荐直接做）：照 HackiOS/pong 惯例直接改链接预留（`ARM64_PLKSEG_ADDR` / 段顺序 patch）。改错会让 prelink 的地址假设整体失效，且没有中间证据。
 
 **边界**：本轮仍只动 `patches/xnu/`、`scripts/build-xnu-4k-baseline.sh`（skip 逻辑）、`board.toml`（prelink 的 kernel 路径）；`4dea540` 未碰；设备/分区未碰。
@@ -1730,7 +1730,7 @@ python3 /d/Android/k60-ios/deliverables/gamma/tools/k60mem.py --self-test       
 
 ## 2026-10-28 11:55 · Agent-α —— auto-slide 生效；prelink 推进到 instruction_inventory（Libm 浮点表）
 
-- `40626855203`：preflight 在 `unixnu build kernel` 初始化 submodule **之前**跑，`kits/XnuPrelink/emit_prelink.py` 还不存在 → 打印 `WARNING: ... submodule not checked out`，wrapper 没装上，原版 emitter 又撞 `__DATA`。修法：preflight 里先 `git submodule update --init --recursive -- kits/XnuPrelink`（`eb3fd4f`）。
+- `40626855203`：preflight 在 `unixnu build kernel` 初始化 submodule **之前**跑，`unixnu:kits/XnuPrelink/emit_prelink.py` 还不存在 → 打印 `WARNING: ... submodule not checked out`，wrapper 没装上，原版 emitter 又撞 `__DATA`。修法：preflight 里先 `git submodule update --init --recursive -- kits/XnuPrelink`（`eb3fd4f`）。
 - `40627913358`：PowerShell 把 `-f "pre_build=bash $DEVICE_DIR/..."` 里的 `$DEVICE_DIR` 当自己的变量展开成空，pre-build 变成 `bash \/scripts/...` → 127。改用单引号派发。
 - `40628136879`：wrapper 装上，**auto-slide 成功**：`requested 0x0 collides (Rebased component collides with native __DATA); trying -0xb9c000`，`plan()` 接受。公式 `slide = min(native segment va) - max(component extent end)` 与预测完全一致（`0xfffffff007004000 - 0xfffffff007ba0000`）。注意：**-0xb9c000 远超旧 wrapper 的 -0x400000 搜索窗**，暴力搜索本来必然失败。
 - 新阻塞（`emit` 第一次真正跑到）：`ValueError: External PC-relative encoding at 0xfffffff00594a07c; no instruction rewrite supported`（`emit_prelink_orig.py:111`，`instruction_inventory`）。
@@ -1933,7 +1933,7 @@ roots installed: 0
 
 - **ramoops 读 panic：不可行。** 内核没往 `0xA7000000` 写（首 4 字节是 `"CSEC"` = `0x43455343`，不是内核的 `0x43474244`）。`CONFIG_XNU_PONG_RAMOOPS_CONSOLE=y` 在 defconfig 里，但实际没生效或初始化没跑到。
 - **从 prelink roots 里删 AMFI/AppleImage4：无效。** 删了这两个（甚至再加 sandbox/CoreTrust）重跑 prelink，产物字节数只差 8 KiB，`mix-n-match` 字符串依然在 `__PRELINK_TEXT` —— 它是被依赖链拉进来的，不是靠 roots 显式选择。
-- **`kits/XnuPrelink/emit_prelink.py` 曾被上一轮 CI preflight 换成 wrapper**，导致 `k60-prelink-local.py` 复制出「wrapper 当原始文件」→ 循环 import。已 `git checkout` 恢复；残留的 `emit_prelink_orig.py` 已删。
+- **`unixnu:kits/XnuPrelink/emit_prelink.py` 曾被上一轮 CI preflight 换成 wrapper**，导致 `k60-prelink-local.py` 复制出「wrapper 当原始文件」→ 循环 import。已 `git checkout` 恢复；残留的 `emit_prelink_orig.py` 已删。
 
 ### 下一步（唯一正确路径，工具早就支持）
 
@@ -1945,7 +1945,7 @@ roots installed: 0
 
 **卡点**：现在跑这个参数会报 `Native kernel lacks early security initializer ABI` —— 内核本体没有导出 `native_prelink_security_init_version`。
 
-**实现**：`kits/XnuPrelink/patches/xnu-10063.141.1-security-init.patch`（58 行，只动 `libkern/c++/OSKext.cpp`）就是这块 ABI：导出 `native_prelink_security_init_version = 1`，并在 `OSKext::start()` 里、`mac_late` 之前调用 `_NativePrelinkEarlySecurityInit`。需要移植到 8796.141.3，加进 `patches/xnu/series`，**走 GHA 重编内核**（本地 Linux 编不了），再本地 prelink → payload → bootimg。
+**实现**：`unixnu:kits/XnuPrelink/patches/xnu-10063.141.1-security-init.patch`（58 行，只动 `libkern/c++/OSKext.cpp`）就是这块 ABI：导出 `native_prelink_security_init_version = 1`，并在 `OSKext::start()` 里、`mac_late` 之前调用 `_NativePrelinkEarlySecurityInit`。需要移植到 8796.141.3，加进 `patches/xnu/series`，**走 GHA 重编内核**（本地 Linux 编不了），再本地 prelink → payload → bootimg。
 
 工具侧已就绪：`scripts/k60-prelink-local.py` 已加 `--early-security-init` 透传。
 
@@ -1957,7 +1957,7 @@ roots installed: 0
 
 ### 1. 内核侧 ABI（已推送，等 CI）
 
-移植 `kits/XnuPrelink/patches/xnu-10063.141.1-security-init.patch` 到 8796.141.3：
+移植 `unixnu:kits/XnuPrelink/patches/xnu-10063.141.1-security-init.patch` 到 8796.141.3：
 
 - 新补丁 `patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-prelink-security-init.patch`
   （42 行新增，两个 hunk，`git apply --check` 通过）
@@ -2661,7 +2661,7 @@ panic(cpu 0 caller 0xfffffff0…): "AMFI: not booted with security-mode-change-e
 ## 04:55 — Owner 定调：走官方双系统分区方案（unixnu.com/zh/porting/dual-system-partition）
 
 ### 架构变更
-- **`scripts/dual_sys/partition.py`**：TWRP 里在线缩 F2FS userdata → 从尾部切 `unixnu` 分区（Android 完整保留，userdata 起始/GUID/属性不变）。
+- **`unixnu:scripts/dual_sys/partition.py`**：TWRP 里在线缩 F2FS userdata → 从尾部切 `unixnu` 分区（Android 完整保留，userdata 起始/GUID/属性不变）。
 - iOS root = `unixnu` 分区里的 SHNGROOT（OS + SystemOS 镜像，`unixnu build userdata` 产出），内核 `native-ufs-root=1` + PMGR arg，ADT root-matching 匹配 OS 卷 UUID。
 - **Owner 补充：K60 的 boot.img 本身已集成 TWRP** → recovery 前置（HANDOFF §2 红线的 NO-GO 条件"TWRP 能解 FBE v2"）待 TWRP 实测解密验证。
 - seed（GHA attempt 4 构建中）仍有效：= 最终架构的 ephemeral data sidecar 组件 + 今晚 ramdisk root 链路验证。
@@ -2942,7 +2942,7 @@ ld: symbol(s) not found for architecture arm64   (mach.development.pong.unstripp
   `scripts/build-ios16-corecrypto-candidate.py`（候选 prelink 构建，pin 20G81 IM4P
   `ddc2230e…` → 解压 ARM64 `d260defc…`）。
 - `main`（已转 iOS18/22H374）有**可直接照抄的自动化派生**：
-  `scripts/prepare-ipados18-storage.py` —— 编译 public 参考对象 → 读原始 kernelcache 的
+  `pong:scripts/prepare-ipados18-storage.py` —— 编译 public 参考对象 → 读原始 kernelcache 的
   `__PRELINK_INFO`/`_PrelinkInfoDictionary` 找 `com.apple.iokit.IOStorageFamily` →
   扫 `__DATA_CONST` 唯一定位 190-slot dispatch 表 → 派生 metaclass/vtable →
   输出 `{method_slots,fixed_prelink_base,bindings,methods}`。
@@ -3215,7 +3215,7 @@ pong 的 UniXNUPkg 是上游原样（UniXNU@40d21cc），而 K60 现依赖的 `U
 `DumpRamoops()`（0xA7000000 XNU console mirror，panic 全文来源）、initrd mapped-range / FAT boot-sector 扫描、
 `timeout = -1`（否则倒计时会把机器放回 Android）、块设备/卷计数。
 → 做法：以 pong 副本为基，导入时打上该 patch 的**固件部分**（逐条写入 `UniXNUPkg/VENDORED.md`）；
-`scripts/unixnu/bootimg.py` 那段属 payload 脚本，留在 device 仓。
+`unixnu:scripts/unixnu/bootimg.py` 那段属 payload 脚本，留在 device 仓。
 
 DarwinBoot：pong 那份是 DarwinBoot24（boot_args 0x480 / 1024 cmdline），K60 payload 是 ipados-16.6.1
 （XNU 8796 / Darwin 22，0x2e0 / 608）。直接换会**在交接瞬间崩**（BootFlags/MemorySizeActual 偏 0x1a0）。
@@ -3523,12 +3523,12 @@ fastboot boot artifacts/xnu-touch-id.img
 
 [TOUCH-P0][21:02][WIP] fork 推送触摸线提交（12 文件，0250/0251/0252 + 驱动事实 + mkadt + 冒烟台），已排除 0200-0248 的 CRLF 噪声 - 待构建验证 [artifacts: commit 8c47846 / fork Emilelu/ios-sweet-k60]
 
-[SMP][21:40][WIP] 声明：即将修改共用文件 `UniXNU-mondrian/board.toml`，只追加 `[kernel.prelink] kext_patch`（0340：AppleARMPlatform `_validateConfiguration` 字节补丁），不动 dts、不动其它段；core 侧对应 commit b2e2605（scripts/unixnu/kernel.py + docs/K60-SMP-MULTICORE.md）
+[SMP][21:40][WIP] 声明：即将修改共用文件 `UniXNU-mondrian/board.toml`，只追加 `[kernel.prelink] kext_patch`（0340：AppleARMPlatform `_validateConfiguration` 字节补丁），不动 dts、不动其它段；core 侧对应 commit b2e2605（unixnu:scripts/unixnu/kernel.py + docs/K60-SMP-MULTICORE.md）
 [TOUCH-P0][21:42][WIP] 本地用 run 40646287901 的 xnu-buildtree（0248 状态）按序 git apply 0250/0251/0252 全部 exit 0；bsd/conf/files 已含 k60_touch_dt.c，k60_touch_hw/wiring_load 单一定义 - CI run 40878328537 因 macOS runner 容量排队中 [artifacts: 40878328537]
 
 [SMP][21:55][DONE] 更正我 21:05 的一条错误结论：`0xfffffff004bcdcb0` **不是"旧布局地址"**，它就在 `com.apple.driver.AppleARMPlatform` 的 `__TEXT_EXEC +0x36cb0`。我上次只用了 `_PrelinkExecutableSize`（只覆盖 `__TEXT`，0xed8d）做区间判断，漏掉了 `__TEXT_EXEC`（另一段 `0xfffffff004b97000+0x382d4`）。正确结论：该地址正是 `AppleARMCPU.cpp:111` panic 块里 `bl panic`（0xfffffff004bcdcac）的返回地址，与 `_validateConfiguration`（起始 0xfffffff004b99460，`__TEXT_EXEC+0x2460`）完全自洽，B 方案定位得到再次确认。工具：`smp/locate_addr.py` [artifacts: locate_addr.py]
 
-[SMP][21:56][WIP] 0340 补丁代码已就绪但**按主线要求冻结在本地分支、未 push** - core k60 分支 `smp-0340` = bdbcc5a（`scripts/unixnu/kernel.py::patch_prelinked_kext` + `docs/K60-SMP-MULTICORE.md`）；device main 分支 `smp-0340` = 47dad5d（board.toml `[kernel.prelink] kext_patch` 配置），device 工作树已 reset 回 274daaa 不叠变量 [artifacts: core smp-0340@bdbcc5a; device smp-0340@47dad5d]
+[SMP][21:56][WIP] 0340 补丁代码已就绪但**按主线要求冻结在本地分支、未 push** - core k60 分支 `smp-0340` = bdbcc5a（`unixnu:scripts/unixnu/kernel.py::patch_prelinked_kext` + `docs/K60-SMP-MULTICORE.md`）；device main 分支 `smp-0340` = 47dad5d（board.toml `[kernel.prelink] kext_patch` 配置），device 工作树已 reset 回 274daaa 不叠变量 [artifacts: core smp-0340@bdbcc5a; device smp-0340@47dad5d]
 
 [SMP][22:58][WIP] 声明：将在 device 仓新建分支 `smp-8cpu`（基于 origin/main e40e548），把 `board.toml [payload] cpus` 从 1 改为 8；**不合并到 main、不 push**，等 root mount 通过后由主线决定合入。dts 不动（CPU 节点在 soc feed 的 sm8475.dtsi 里）
 

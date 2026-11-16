@@ -20,7 +20,7 @@
 两张镜像之间只差 **2 个提交**（`git rev-list --count aaec637..f93c340` = 2）：
 
 - `7a0fd50` `docs(wifi): record the MHI handshake logs and the strict-build repairs`
-  —— 只加 `docs/research/wifi/LOCAL-VERIFICATION.md`（+172）与 `MERGE-REQUEST.md`（+61），**不碰代码**。
+  —— 只加 `k60-wifi:docs/research/wifi/LOCAL-VERIFICATION.md`（+172）与 `MERGE-REQUEST.md`（+61），**不碰代码**。
 - `f93c340` `fix(board): drop the owned memory window to 4.5 GiB` —— 只改 `board.toml`（+5/−1）。
 
 因此 **mhi3 与 mhi4 的唯一实质差异就是内存窗口**；其余 sha 差异全部由它级联
@@ -32,9 +32,9 @@ main 上的等价窗口提交是 `3c69c80` `fix(board): drop the owned memory wi
 `"owned_memory_size" = "0x120000000"`。
 
 窗口如何进镜像（不是进内核）：`board.toml` 的 `[payload.adt] owned_memory_size`
-→ `scripts/unixnu/devicetree.py:320-324` 写 `chosen` 的 `darwinboot-memory-size`
-→ `scripts/unixnu/payload.py:239` 映射成 `--owned-memory-size` 交给 `make-pong-adt.py`（:157）。
-kernel 步骤不读这个键（`scripts/unixnu/kernel.py` 只在 :260 读 `[kernel.prelink]`）
+→ `unixnu:scripts/unixnu/devicetree.py:320-324` 写 `chosen` 的 `darwinboot-memory-size`
+→ `unixnu:scripts/unixnu/payload.py:239` 映射成 `--owned-memory-size` 交给 `make-pong-adt.py`（:157）。
+kernel 步骤不读这个键（`unixnu:scripts/unixnu/kernel.py` 只在 :260 读 `[kernel.prelink]`）
 → **改窗口不改内核，只改 ADT / payload / boot.img**。
 
 ---
@@ -51,7 +51,7 @@ kernel 步骤不读这个键（`scripts/unixnu/kernel.py` 只在 :260 读 `[kern
 | `K60_OUT` | :40 | 产物目录（`$OUT/mondrian/ipados-16.6.1-20G81/mondrian`） | `/opt/k60/trees/k60build/out-wifi` |
 
 `patches/xnu/series` 的读取路径是 `board.toml:20` 的 `patch_series = ["device:patches/xnu/series"]`，
-由 `scripts/unixnu/patches.py:11-31` 解析成 `$DEV/patches/xnu/series`。
+由 `unixnu:scripts/unixnu/patches.py:11-31` 解析成 `$DEV/patches/xnu/series`。
 
 ---
 
@@ -113,7 +113,7 @@ kernel 步骤不读这个键（`scripts/unixnu/kernel.py` 只在 :260 读 `[kern
 - `configs/mondrian_defconfig` **不含** `PONG_WIFI`；只有 `configs/mondrian_wifi_defconfig:71` 有。
 - `unixnu build` **不会重写 `.config`**（只有 `unixnu defconfig` 写；build 只
   `config.py:195-200 need_config()` 读，缺文件才报 `no configuration`）。
-- 工作目录名由 defconfig 名决定（`scripts/unixnu/config.py:164`
+- 工作目录名由 defconfig 名决定（`unixnu:scripts/unixnu/config.py:164`
   `self.work /= selected.removesuffix('_defconfig')`）→ 选 `mondrian_wifi_defconfig` 会落到
   `mondrian_wifi/` 而不是 `mondrian/`，且 `OWNER_DATA_VOLUME_UUID` 会从
   `1BCD69FF-…` 变成 `6DCCF70A-…`。
@@ -163,7 +163,7 @@ find board.toml dts patches/xnu scripts -type f -print0 | sort -z | xargs -0 sha
 
 ## 4. 逐字段核对表
 
-### 4.1 `boot.json`（由 `scripts/unixnu/bootimg.py:120-124` 的 verify() 写）
+### 4.1 `boot.json`（由 `unixnu:scripts/unixnu/bootimg.py:120-124` 的 verify() 写）
 
 | 字段 | mhi3 | mhi4 | 从 main 重出的预期 | 判据 |
 |---|---|---|---|---|
@@ -290,8 +290,8 @@ python3 scripts/verify-boot-image.py --manifest <build-manifest.json>
 
 - 两张基准镜像：`E:/k60-work/artifacts/wifi-20261116mhi3/`、`…/wifi-20261116mhi4/`
   （`boot.json`、`build-manifest.json`、`frozen-before.txt`、`frozen-after.txt`、`logs/`）。
-- 静态判据：`docs/research/wifi/LOCAL-VERIFICATION.md`（k60-wifi 分支）§11-111。
-- 上机时序与两道门：`docs/research/wifi/STAGE-BRINGUP.md`（k60-wifi 分支）。
+- 静态判据：`k60-wifi:docs/research/wifi/LOCAL-VERIFICATION.md`（k60-wifi 分支）§11-111。
+- 上机时序与两道门：`k60-wifi:docs/research/wifi/STAGE-BRINGUP.md`（k60-wifi 分支）。
 - 板级真值与差异表：`docs/plans/WIFI-PORT-PLAN.md` §0、§2.1、§2.2、§4.0。
 - 端点身份实测：`E:/k60-work/evidence/pci-id-20261114/`（17CB:1103 / 子系统 17CB:0108 / rev 1 /
   BAR0 0x60200000 2 MiB / Gen2 x1）。

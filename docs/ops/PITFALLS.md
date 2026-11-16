@@ -442,7 +442,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 
 - **症状**：`pong_goodix` / `pong_buttons` 打印 `missing/incompatible DT; SKIP`，即使内核驱动已编入、boot-arg 门控也已默认打开。
 - **根因（两层）**：
-  1. `scripts/unixnu/devicetree.py:generate()` 里 `/arm-io` 的子节点**不是**从 profile 的 `["adt"]` 来，而是
+  1. `unixnu:scripts/unixnu/devicetree.py:generate()` 里 `/arm-io` 的子节点**不是**从 profile 的 `["adt"]` 来，而是
      `hardware = [entry for entry in root.walk() if 'unixnu,adt-name' in entry.properties]` —— 只有 `dts/mondrian.dts` 里
      带 `unixnu,adt-name = "..."` 的节点才会被导出。
   2. `hardware_properties()` 只导出**白名单**里的属性名：
@@ -452,7 +452,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
      **`spi-base / tlmm-base / gcc-base / rsc-base / cmd-db-base / gpio-offset / pins / max-x / max-y / core-base / cnfg-base / observer-base / ee / pon-ppid / volume-up-ppid` 全部不在白名单里 → 会被静默丢弃。**
 - **正确做法（三步）**：
   1. `dts/mondrian.dts` 增加两个节点，带 `unixnu,adt-name = "pong-touch"` / `"pong-buttons"` 并按 pong 的命名写出全部属性；
-  2. 在 **UniXNU 框架仓**的 `scripts/unixnu/devicetree.py` 里把上述 15 个属性名加进 `U32`/`U64` 白名单（注意：`tree/scripts` 每次构建从框架仓重新拷贝，改 tree 里的会被覆盖）；
+  2. 在 **UniXNU 框架仓**的 `unixnu:scripts/unixnu/devicetree.py` 里把上述 15 个属性名加进 `U32`/`U64` 白名单（注意：`tree/scripts` 每次构建从框架仓重新拷贝，改 tree 里的会被覆盖）；
   3. 重新 `unixnu payload` → `unixnu bootimg`/splice → 上机。
 - **证据**：`scratch/ADTNEW.txt`（ADT 里 `pong-touch`/`pong-buttons`/`spi-base` 全部 `-1`）、`scratch/WHITELIST.txt`（白名单原文，15 个属性命中数全 0）、`scratch/DTSNODE.txt`（`ufs@1d84000` 的 `unixnu,adt-name = "ufshc"` 范例）。
 - **30 秒判定**：驱动报 `missing/incompatible DT` → 先 `strings kernel.macho.adt | grep <节点名>`；不在就按本条查 DTS + 白名单，不要改驱动断言值。

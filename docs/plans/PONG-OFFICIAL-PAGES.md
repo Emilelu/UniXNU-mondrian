@@ -96,7 +96,7 @@
 | Components | `PongPlatform24` | `PongPlatform24` |
 | Procedure | 选择 ARM64、SM8475、22H374 和 Pong 四层配置，数组完整列出。 | 同左 |
 | Current limits | SM8475公共层与Pong聚合源码分目录固定；平台组件进一步拆分待完成。 | 同左 |
-| 实现落点（TOML paths） | `board.toml`、`feeds.toml`、`unixnu.lock`、`.gitmodules`、`configs/**`、`dts/**`、`migration/format2/**`、`scripts/*format2*`、`scripts/*native*sources*`、`scripts/pong_native_inputs.py`、`scripts/build-pong-profile-kernel.py`、`.github/workflows/**`、`README.md`、`README_EN.md` | — |
+| 实现落点（TOML paths） | `board.toml`、`feeds.toml`、`unixnu.lock`、`.gitmodules`、`configs/**`、`dts/**`、`migration/format2/**`、`scripts/*format2*`、`scripts/*native*sources*`、`pong:scripts/pong_native_inputs.py`、`pong:scripts/build-pong-profile-kernel.py`、`.github/workflows/**`、`README.md`、`README_EN.md` | — |
 
 **Development findings — `pong.md`（原文）**
 
@@ -169,7 +169,7 @@
 | Components | `PongPlatform24` | `PongPlatform24` |
 | Procedure | 从实际不连续 DRAM 和保留区接管已取得所有权的 RAM。 | 同左 |
 | Current limits | 尚未接通全部物理内存。 | 同左 |
-| 实现落点（TOML paths） | `configs/pong-memory-sm8475.json`、`drivers/PongAdreno/ArmSmmu4K/**` | — |
+| 实现落点（TOML paths） | `pong:configs/pong-memory-sm8475.json`、`drivers/PongAdreno/ArmSmmu4K/**` | — |
 
 **板级参数（`CFG:configs/pong-memory-sm8475.json`）**
 
@@ -227,7 +227,7 @@
 | Components | `PongPlatform24` | `PongPlatform24` |
 | Procedure | Pong 1080x2412、stride4320；DCS背光和原有显示服务。 | 同左 |
 | Current limits | 120Hz为显示模式；新一轮实际帧率与滑块调光未确认。 | 实际高刷新率和背光仍需设备反馈。 |
-| 实现落点（TOML paths） | `configs/pong-display-sm8475.json`、`drivers/PongPower/PongBacklight*`、`scripts/*display*` | — |
+| 实现落点（TOML paths） | `pong:configs/pong-display-sm8475.json`、`drivers/PongPower/PongBacklight*`、`scripts/*display*` | — |
 
 **Development findings — `pong.md`（原文）**
 
@@ -309,7 +309,7 @@
 | Components | `PongPlatform24` | `PongPlatform24` |
 | Procedure | Pong PCIe0/QCA6490，82项PHY序列、GPIO80/94/95/96/204、RPMh。 | 同左 |
 | Current limits | 扫描已确认；设置列表、关联与IP联网仍需新一轮实机结果。 | 本轮未启动；SMMU启用、QMI固件、扫描与联网仍未确认。 |
-| 实现落点（TOML paths） | `drivers/PongWifi/**`、`configs/pong-wifi-sm8475.json`、`scripts/*wifi*`、`scripts/*ath11k*` | — |
+| 实现落点（TOML paths） | `drivers/PongWifi/**`、`pong:configs/pong-wifi-sm8475.json`、`scripts/*wifi*`、`scripts/*ath11k*` | — |
 
 **Development findings — `pong.md`（原文）**
 
@@ -365,7 +365,7 @@
 | Components | `PongPlatform24` | `PongPlatform24` |
 | Procedure | SM8475 ADSP/RPMh、PMIC battery管理和Pong电源策略。 | 同左 |
 | Current limits | 动态充电图标、充放电和插拔更新仍需设备观察。 | 系统挂起恢复尚未完成。 |
-| 实现落点（TOML paths） | `drivers/PongPower/**`、`configs/pong-power-sm8475.json`、`userland/sleepserver/**` | — |
+| 实现落点（TOML paths） | `drivers/PongPower/**`、`pong:configs/pong-power-sm8475.json`、`userland/sleepserver/**` | — |
 
 **Development findings — `pong.md`（原文）**
 
@@ -390,13 +390,13 @@
 |---|---|---|
 | status | `implemented` | `implemented` |
 | Components | `PongPlatform24` | `PongPlatform24` |
-| Procedure | `scripts/package.sh --check` 走 deps/preflight/patches；CI 的 package job 跑 `scripts/package.sh --os … --skip-prelink`，再跑 `scripts/finalize-pong-adt.py`：用本地同一份 `make-pong-adt-ipados18.py` 与同一组参数（12 GiB DRAM、4 GiB 窗口、单 CPU）重写 payload 里的 ADT，并重打 boot.img 与 PONGFAT1 包装的 boot.img.pong。 | Darwin24/XNU11417与22H374原始组件，格式2硬件输入与固定ABI。 |
+| Procedure | `sheng:scripts/package.sh --check` 走 deps/preflight/patches；CI 的 package job 跑 `sheng:scripts/package.sh --os … --skip-prelink`，再跑 `pong:scripts/finalize-pong-adt.py`：用本地同一份 `make-pong-adt-ipados18.py` 与同一组参数（12 GiB DRAM、4 GiB 窗口、单 CPU）重写 payload 里的 ADT，并重打 boot.img 与 PONGFAT1 包装的 boot.img.pong。 | Darwin24/XNU11417与22H374原始组件，格式2硬件输入与固定ABI。 |
 | Current limits | CI 尚未在 macOS runner 上运行；真机未刷入。prelink slide 尚未在本板表达，流水线用 --skip-prelink。devicetree.generate() 要求单段 /memory，自定义 DT 属性不透传。 | Apple镜像、固件和ABI二进制均需本机准备。 |
-| 实现落点（TOML paths） | `scripts/package.sh`、`scripts/finalize-pong-adt.py`、`scripts/build-pong-hardware-dtb.py`、`scripts/install-unixnu-inputs.py`、`kits/PongPlatform24/**`、`os-profiles/**`、`board.toml`、`.github/workflows/package.yml`、`scripts/build-ipados18*`、`scripts/build-pong-profile-kernel.py`、`scripts/make-pong-adt-ipados18.py`、`scripts/build-xnu-ipados18.sh`、`patches/xnu-ipados18/**` | — |
+| 实现落点（TOML paths） | `sheng:scripts/package.sh`、`pong:scripts/finalize-pong-adt.py`、`pong:scripts/build-pong-hardware-dtb.py`、`pong:scripts/install-unixnu-inputs.py`、`kits/PongPlatform24/**`、`os-profiles/**`、`board.toml`、`.github/workflows/package.yml`、`scripts/build-ipados18*`、`pong:scripts/build-pong-profile-kernel.py`、`pong:scripts/make-pong-adt-ipados18.py`、`pong:scripts/build-xnu-ipados18.sh`、`patches/xnu-ipados18/**` | — |
 
 **Development findings — `pong.md`（原文）**
 
-- scripts/package.sh --check --no-deps 在 Linux 上通过：1 个补丁、pong_ipados18_defconfig、OS ipados-18.7.10-22H374。release 只跑 kernel/package/firmware/payload，不含 userdata；本板内核需要 MACHINE_CONFIGS=PONG，共享 kernel 步骤写死 BCM2837，因此由 kits/PongPlatform24 作为组件 recipe 编译；共享 kernel 步骤的 tree 已有真实 drivers/ 目录，设备 builder 另用一棵树并在编完后回填 mach.development.pong。bootimg 的 validate 只认 v0-v2 头，board 覆写 header_version = 0。本板固件只认 PONGFAT1 包装的 ramdisk，故规范产物 boot/boot.img 之外另出 boot.img.pong。userdata 不走 unixnu userdata：它写 SHNGROOT v2 且缺 Data 窗口，本板 RootLayout.h 只接受 v1 且强制 OS/SystemOS/Data 三窗口。
+- sheng:scripts/package.sh --check --no-deps 在 Linux 上通过：1 个补丁、pong_ipados18_defconfig、OS ipados-18.7.10-22H374。release 只跑 kernel/package/firmware/payload，不含 userdata；本板内核需要 MACHINE_CONFIGS=PONG，共享 kernel 步骤写死 BCM2837，因此由 kits/PongPlatform24 作为组件 recipe 编译；共享 kernel 步骤的 tree 已有真实 drivers/ 目录，设备 builder 另用一棵树并在编完后回填 mach.development.pong。bootimg 的 validate 只认 v0-v2 头，board 覆写 header_version = 0。本板固件只认 PONGFAT1 包装的 ramdisk，故规范产物 boot/boot.img 之外另出 boot.img.pong。userdata 不走 unixnu userdata：它写 SHNGROOT v2 且缺 Data 窗口，本板 RootLayout.h 只接受 v1 且强制 OS/SystemOS/Data 三窗口。
 - package.yml 去掉未使用的 blacktop/tap/ipsw；porting-record.yml 改为 submodules: recursive，与 drivers/ submodule 拆分对齐。
 
 **Development findings — `pong-agxmx666.md`（原文）**
@@ -497,7 +497,7 @@
 **组件名**
 
 - `PongPower/PongBacklight*`（`pong-power`）：NT37705 DCS 背光（`REPO:README.md:40`）。
-- `configs/pong-display-sm8475.json`：面板与 DCS 参数（`CFG`）。
+- `pong:configs/pong-display-sm8475.json`：面板与 DCS 参数（`CFG`）。
 - 显示服务：backboardd / `CoreBrightness.CBDisplayContaineriOS` / SpringBoard / replicatord；`PongMetal` 的 scanout 前端（`pong.md:277`、`services85-backlight-startup.md:9-13`）。
 
 **板级参数（`CFG:configs/pong-display-sm8475.json`）**
@@ -542,7 +542,7 @@
 **组件名**
 
 - `PongWifi`（`pong-wifi`）：QCA6490，PCIe0 + MHI + ath11k，SID `0x1c01`（`REPO:README.md:42`）。
-- `configs/pong-wifi-sm8475.json`：板级 profile（`CFG`）。
+- `pong:configs/pong-wifi-sm8475.json`：板级 profile（`CFG`）。
 - `PongWifiPlatform.cpp` / `PongWifiNet.cpp` / `ath11k/PongAth11k.c`（本仓 `WIFI-PORT-PLAN.md` 已逐文件列出；页面路径为 `drivers/PongWifi/**`）。
 - IO80211 native user client、en0 station、InterfaceNamer、mobile Wi-Fi manager。
 
@@ -736,17 +736,17 @@
 
 | 路径 | 作用 |
 |---|---|
-| `scripts/package.sh` | `--check` 走 deps/preflight/patches；`--os … --skip-prelink` 为 CI package job 主入口 |
-| `scripts/finalize-pong-adt.py` | 用 `make-pong-adt-ipados18.py` 同参数重写 ADT；重打 `boot.img` 与 `boot.img.pong` |
-| `scripts/make-pong-adt-ipados18.py` | 生成 ADT：12 GiB DRAM、4 GiB 窗口、单 CPU |
-| `scripts/build-pong-hardware-dtb.py`、`scripts/install-unixnu-inputs.py` | 板级 DTB 与输入安装 |
-| `scripts/build-xnu-ipados18.sh`、`scripts/build-ipados18*` | 内核/运行时构建 |
+| `sheng:scripts/package.sh` | `--check` 走 deps/preflight/patches；`--os … --skip-prelink` 为 CI package job 主入口 |
+| `pong:scripts/finalize-pong-adt.py` | 用 `make-pong-adt-ipados18.py` 同参数重写 ADT；重打 `boot.img` 与 `boot.img.pong` |
+| `pong:scripts/make-pong-adt-ipados18.py` | 生成 ADT：12 GiB DRAM、4 GiB 窗口、单 CPU |
+| `pong:scripts/build-pong-hardware-dtb.py`、`pong:scripts/install-unixnu-inputs.py` | 板级 DTB 与输入安装 |
+| `pong:scripts/build-xnu-ipados18.sh`、`scripts/build-ipados18*` | 内核/运行时构建 |
 | `kits/PongPlatform24/**` | 组件 recipe；`MACHINE_CONFIGS=PONG` |
 | `os-profiles/ipados-18.7.10-22H374` | OS profile |
 | `configs/pong_ipados18_defconfig`、`configs/pong_ipados18_ci_defconfig` | 内核配置 / CI 配置 |
 | `.github/workflows/package.yml` | macOS runner 的 package / payload job（页面称尚未跑） |
 | `.github/workflows/porting-record.yml` | 改为 `submodules: recursive`，让 porting record 看到 drivers 树 |
-| `configs/pong-display-sm8475.json`、`pong-memory-sm8475.json`、`pong-power-sm8475.json`、`pong-usb-sm8475.json`、`pong-wifi-sm8475.json` | 板级 profile（display/power/memory/wifi 已在本文件引用） |
+| `pong:configs/pong-display-sm8475.json`、`pong-memory-sm8475.json`、`pong-power-sm8475.json`、`pong-usb-sm8475.json`、`pong-wifi-sm8475.json` | 板级 profile（display/power/memory/wifi 已在本文件引用） |
 
 ### 4.5 `pong.md` 全部 74 个去重 Evidence 路径
 
@@ -1013,5 +1013,5 @@ porting.toml
 
 - 已完整读取 `pong.md`（1-1567 行）、`pong-agxmx666.md`（1-523 行）、`pong-hxzbaka.md`（1 行）、`pong-kmu1757.md`（1-7 行）、`pong-y3d4.md`（1 行）以及 `index.md` 的 pong 行（179-183）。
 - `pong.md` 的 74 个 Evidence 链接全部指向同一 commit `e0ee6df...`；`pong-agxmx666.md` 的 14 条链接全部指向 `ffdad78...`。
-- 页面没有给出、因此标为未核实的内容：Pong GPU 的实际制造工艺/温度曲线、K60 与 Pong 的 PMIC 逐轨对应、K60 面板型号与 DSI 时序、Pong 的 suspend/resume 完成状态（`configs/pong-power-sm8475.json:130` 明确 `suspend_resume_implemented=false`）。
+- 页面没有给出、因此标为未核实的内容：Pong GPU 的实际制造工艺/温度曲线、K60 与 Pong 的 PMIC 逐轨对应、K60 面板型号与 DSI 时序、Pong 的 suspend/resume 完成状态（`pong:configs/pong-power-sm8475.json:130` 明确 `suspend_resume_implemented=false`）。
 - 本文没有修改 `patches/`、`series`、`drivers/`、`userland/`、`board.toml`、`dts/`、`uefi-pong` 或任何构建脚本；所有实现建议都是“按 pong 页提取的落点”，未在 K60 上编译或烧写。

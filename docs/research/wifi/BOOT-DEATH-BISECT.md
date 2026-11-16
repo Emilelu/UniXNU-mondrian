@@ -3,7 +3,7 @@
 > 状态：**静态判定稿（2026-11-15）**。本文档只做「能否编进内核 + 有没有 boot 路径副作用」的
 > 静态二分，**不构建、不上机**。上机判据在 §7，实验建议在 §8。
 > 任务来源：m04661（Lead 拍板选 C：停止复现 mhi4，改做死因考古）。
-> 关联：`docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20（在 k60-wifi 检出，main 未收录）、
+> 关联：`k60-wifi:docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20（在 k60-wifi 检出，main 未收录）、
 > `docs/plans/WIFI-REBUILD-CHECKLIST.md`。
 
 ---
@@ -140,7 +140,7 @@ PongWifiPci.cpp / PongWifiFirmware.cpp / ath11k/PongAth11k.c），由 patches/wi
 - MHI 握手日志的真实出处：k60-wifi commit `6c99d35`
   「feat(wifi): log the MHI handshake the console could not see」（2026-11-14 20:44），
   只改两个文件：patches/wifi/0009-scripts-k60-wifi-build.patch（+82）与
-  scripts/build-k60-ath11k.py（+78）。手段是把 ath11k/mhi 源码里的 dev_dbg 改成 info、
+  k60-wifi:scripts/build-k60-ath11k.py（+78）。手段是把 ath11k/mhi 源码里的 dev_dbg 改成 info、
   加符号链接（init.c/main.c/pm.c/boot.c/internal.h）——**纯构建期注入，XNU 控制流零改动**。
   产物在 `/opt/k60/trees/k60build/wifi/ath11k-mhiboot/`（mhi_boot.o、mhi_pm.o、
   ath11k_mhi.o、libPongAth11k.a 等）。
@@ -362,7 +362,7 @@ python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
 | 内核段表与尺寸 | `/opt/k60/trees/k60build/out-wifi/…/.cache/xnu-work` 产物；`build-manifest.json` 的 `components.kernel_built` |
 | 固件 .incbin | `/opt/k60/trees/k60build/wifi/native-mhiboot/PongWifiFirmware.s`（215 B）+ `PongWifiFirmware.bin`（11,189,974 B） |
 | 重复类日志无害实证 | `E:/k60-work/evidence/usblog-20261112-203710/console.log:125,134`（boot-ab2.img 进 launchd） |
-| 窗口 QEMU 定量模型 | k60-wifi `docs/research/wifi/LOCAL-VERIFICATION.md` §5.16 |
+| 窗口 QEMU 定量模型 | k60-wifi `k60-wifi:docs/research/wifi/LOCAL-VERIFICATION.md` §5.16 |
 
 **口径冲突记录**：Lead 在 m04661 称 mhi4 为「224-series」，但
 `wifi-20261116mhi4/build-manifest.json` 记录 `series.count = 229`、

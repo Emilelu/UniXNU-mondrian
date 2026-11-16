@@ -66,7 +66,7 @@
 | SMEM 分配 | `drivers/PongPower/K60Smem.c:113` `k60_smem_alloc()` | 从 SMEM 分区分配项（改编自 pong-power `QcomSmem.c`） | 已实现 |
 | 104 B 组装 | `drivers/PongPower/K60HandoffBuild.c:33` `k60_handoff_build()` | `plan_ok()` 校验 + 逐字段写出 | 已实现，**无内核调用者** |
 | PAS1 装载 | `drivers/PongPower/K60AdspPas.c`（90 行） | `AUTH_AND_RESET`/`INIT_IMAGE`/`MEM_SETUP`/`SHUTDOWN` | 已实现 |
-| 启动编排 | `drivers/PongPower/K60AdspBoot.c:178` `k60_adsp_probe_from_handoff()` | 映射 ramdisk → FAT → 映射 carveout → `k60_adsp_bring_up()` | 已实现，需 boot-arg `pong_adsp` |
+| 启动编排 | `k60-audio:drivers/PongPower/K60AdspBoot.c:178` `k60_adsp_probe_from_handoff()` | 映射 ramdisk → FAT → 映射 carveout → `k60_adsp_bring_up()` | 已实现，需 boot-arg `pong_adsp` |
 | 消费方 | `drivers/PongPower/K60Battery.cpp:347` `begin()` | 读 `/chosen` 属性 → 解析 → 开传输 → 发布电源 | 已实现，被上面两处缺口卡住 |
 
 关键行号：
@@ -147,7 +147,7 @@ $ llvm-readelf -x .rodata qti_battery_charger_main_m81.ko | grep -A1 '0x00002590
 响应在 `+0xc` 直接放 `property`。这正是上游结构体的定义差异：
 
 ```c
-/* drivers/power/supply/qcom_battmgr.c（上游） */
+/* linux:drivers/power/supply/qcom_battmgr.c（上游） */
 struct qcom_battmgr_property_request {   /* :99-104，24 B */
     struct pmic_glink_hdr hdr;           /* +0x00 owner/type/opcode */
     __le32 battery;                      /* +0x0c */

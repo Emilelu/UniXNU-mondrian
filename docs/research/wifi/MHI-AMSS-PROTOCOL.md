@@ -18,7 +18,7 @@ FBC 下载」这条链上；补丁后源码里这条链有**两条**可达路径
 
 | 位置 | 代码 | 含义 |
 |---|---|---|
-| `drivers/bus/mhi/host/main.c:893` | `case MHI_PKT_TYPE_EE_EVENT:` | 事件环里唯一的 EE 事件入口 |
+| `linux:drivers/bus/mhi/host/main.c:893` | `case MHI_PKT_TYPE_EE_EVENT:` | 事件环里唯一的 EE 事件入口 |
 | `main.c:896` | `MHI_TRE_GET_EV_EXECENV(local_rp)` | 从 TRE 取设备执行环境 |
 | `main.c:900-903` | `MHI_EE_SBL` → `DEV_ST_TRANSITION_SBL` | SBL 环境只排队一个状态转换 |
 | `main.c:904-906` | WFW/AMSS → `DEV_ST_TRANSITION_MISSION_MODE` | 已进 AMSS 才直接进 MISSION |

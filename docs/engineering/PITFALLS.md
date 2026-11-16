@@ -438,7 +438,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 
 - **症状**：`pong_goodix` / `pong_buttons` 打印 `missing/incompatible DT; SKIP`，即使内核驱动已编入、boot-arg 门控也已默认打开。
 - **根因（两层）**：
-  1. `scripts/unixnu/devicetree.py:generate()` 里 `/arm-io` 的子节点**不是**从 profile 的 `["adt"]` 来，而是
+  1. `unixnu:scripts/unixnu/devicetree.py:generate()` 里 `/arm-io` 的子节点**不是**从 profile 的 `["adt"]` 来，而是
      `hardware = [entry for entry in root.walk() if 'unixnu,adt-name' in entry.properties]` —— 只有 `dts/mondrian.dts` 里
      带 `unixnu,adt-name = "..."` 的节点才会被导出。
   2. `hardware_properties()` 只导出**白名单**里的属性名：
@@ -448,7 +448,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
      **`spi-base / tlmm-base / gcc-base / rsc-base / cmd-db-base / gpio-offset / pins / max-x / max-y / core-base / cnfg-base / observer-base / ee / pon-ppid / volume-up-ppid` 全部不在白名单里 → 会被静默丢弃。**
 - **正确做法（三步）**：
   1. `dts/mondrian.dts` 增加两个节点，带 `unixnu,adt-name = "pong-touch"` / `"pong-buttons"` 并按 pong 的命名写出全部属性；
-  2. 在 **UniXNU 框架仓**的 `scripts/unixnu/devicetree.py` 里把上述 15 个属性名加进 `U32`/`U64` 白名单（注意：`tree/scripts` 每次构建从框架仓重新拷贝，改 tree 里的会被覆盖）；
+  2. 在 **UniXNU 框架仓**的 `unixnu:scripts/unixnu/devicetree.py` 里把上述 15 个属性名加进 `U32`/`U64` 白名单（注意：`tree/scripts` 每次构建从框架仓重新拷贝，改 tree 里的会被覆盖）；
   3. 重新 `unixnu payload` → `unixnu bootimg`/splice → 上机。
 - **证据**：`scratch/ADTNEW.txt`（ADT 里 `pong-touch`/`pong-buttons`/`spi-base` 全部 `-1`）、`scratch/WHITELIST.txt`（白名单原文，15 个属性命中数全 0）、`scratch/DTSNODE.txt`（`ufs@1d84000` 的 `unixnu,adt-name = "ufshc"` 范例）。
 - **30 秒判定**：驱动报 `missing/incompatible DT` → 先 `strings kernel.macho.adt | grep <节点名>`；不在就按本条查 DTS + 白名单，不要改驱动断言值。
@@ -1478,7 +1478,7 @@ ppid=0x439 apid=234  en=c0 range=02 vset=00
 
 **下一步**：必须找到 pm8350c 真实的 PMIC5 LDO 寄存器布局（Linux
 `qcom-spmi-regulator.c` / `pm8350c-regulator` 或 zizhan 的
-`drivers/PongPower/PongRpmh.cpp`），不能用 ruby 的 MT6360 偏移。
+`zizhan:drivers/PongPower/PongRpmh.cpp`），不能用 ruby 的 MT6360 偏移。
 
 ### P-86 [TOUCH] RPMh TCS 槽位用错：我们用 slot0，zizhan 用 ACTIVE TCS4（2026-11-10）
 
@@ -3225,7 +3225,7 @@ goodix_brl_hw.c:553-559
 
 #### P-134 再修正（2026-11-12）：当前驱动根本不发 config
 
-查 `patches/xnu/zzzz...-pong-touch-console.patch`（1212 行）的全部函数定义：
+查 `patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch`（1212 行）的全部函数定义：
 
 ```
 goodix_read / goodix_write / goodix_checksum_ok / goodix_dummy_data
@@ -3373,7 +3373,7 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   ```
   且 `$ROOT/build/` 下只有 `generated/ storage-abi/ xnu/`，没有 `armdt-platform/`。
 - **真因**：`board.toml` 的 `[kernel]` 段缺 `pong_native_driver_source`。
-  unixnu 框架 `scripts/unixnu/kernel.py:191` 读这个 key 并赋给环境变量
+  unixnu 框架 `unixnu:scripts/unixnu/kernel.py:191` 读这个 key 并赋给环境变量
   `PONG_NATIVE_DRIVER_SOURCE`；而 `build-xnu-4k-baseline.sh:250` 的条件是
   ```
   if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
@@ -3896,7 +3896,7 @@ strings 里 "M11HTC":  present      <- 同上
 - **根因**：`E:\hackios\UniXNU\scripts\unixnu\kernel.py:17-26` 只导出
   `XNU_K60_PHYSICAL_BATTERY=1`；真正把 `libK60PhysicalBattery.a` 链进去的是
   `tree/scripts/build-xnu-4k-baseline.sh`，而它**既不读这个环境变量，也没有
-  `-Wl,-force_load`**。`patches/xnu/0602-physical-battery.patch:10-12` 明写
+  `-Wl,-force_load`**。`patches/xnu/0602-k60-physical-battery.patch:10-12` 明写
   "父进程必须自己完成这两步"。于是配置是纯装饰。
 - **证据**：`llvm-nm kernel.macho` 有 `IOKitBSDInit.cpo`，没有 K60Battery/PongPower
   对象或符号；`scripts/build-k60-physical-battery.py` 从未被调用；
@@ -4589,7 +4589,7 @@ if not any(os.path.exists(candidate) for candidate in tried):
 - **现象**：`porting-gate.py` 的 S 段报 `series 指纹 23131cd07c1cb63e (227 条)`，而这次构建的
   `build-manifest.json` 写着 `series 223`。两个数字都自称"补丁集指纹"，却描述不同的序列。
 - **根因**：`board.toml` 的 `patch_series = ["device:patches/xnu/series"]` 才是构建真正应用的顺序表
-  （`scripts/unixnu/patches.py:12-28` 按它逐条 apply，重复条目直接报错）。而
+  （`unixnu:scripts/unixnu/patches.py:12-28` 按它逐条 apply，重复条目直接报错）。而
   `porting-gate.py:35` 与 `record-boot.py:24` 都写死 `WORK + '/scratch/SERIES-FINAL.txt'`。
   那份 scratch 副本是 P-90 时代的真相源，此后漂移成 227 条：多出四个蓝牙补丁
   （`0507`–`0510`）、仍写着已被替换的 `0610-k60-metal-seeds.patch`。
@@ -4741,7 +4741,7 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 `pong-allocatable-ram`、`pong-audio-dma`、`TrustCache`、
 `darwinboot-memory-size` —— 没有 `GpuAddon`。原文 588-651 行是
 `WritePongRam`/`Boot` 的开头，与 addon 无关。而
-`scripts/unixnu/devicetree.py:339` 的
+`unixnu:scripts/unixnu/devicetree.py:339` 的
 `mappings += [('GpuAddon', bytes(16))] if addon else []`
 只写了一个 16 字节占位，等固件回填 paddr/length。固件不认 → 全零 → 内核
 `range->paddr == 0` → `k60_addon_note("unusable range", 0, 0)`。
@@ -4771,7 +4771,7 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
 真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
 （旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
-载体实现见 `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
+载体实现见 `k60-bt:scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
 
 ## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
 
@@ -4793,7 +4793,7 @@ gpu-20261114t          83b52b56…   manifest.payload_kernel cafdb5df…
 touch-20261114a        83b52b56…   manifest.payload_kernel e849ae6b…
 ```
 
-**根因.** 框架 `scripts/unixnu/bootimg.py:161` 写的是
+**根因.** 框架 `unixnu:scripts/unixnu/bootimg.py:161` 写的是
 
 ```python
 return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), ...}
@@ -4952,7 +4952,7 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
    mmaintenanced），而 `crashed:.*backboardd` 是 0。corpses 是全局计数，不指向任何进程。
 3. **cellular 线**（格式串写错的）：判定命令用 `svc=$s` 匹配，而驱动格式串是
    `K60MODEM qrtr: service %u (%#x) instance %u node %u port %u`
-   （`drivers/PongCellular/K60ModemLink.c:104`、`patches/xnu/0622-k60-modem-qrtr.patch:1023`）
+   （`k60-cellular:drivers/PongCellular/K60ModemLink.c:104`、`k60-cellular:patches/xnu/0622-k60-modem-qrtr.patch:1023`）
    —— `svc=` 命中恒为 0，五个判据号全部假阴性。
 
 三次的共同形状：**先想出一个能 grep 的串，再把它当成判据**，而没有先问「这个串出现
@@ -5505,7 +5505,7 @@ Check：`python3 scripts/check-firmware-volume.py`（新）——它不量哈希
 （`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch），
 它们在 `6f805f2` 上 `git apply --check` 全部通过，应用后 11 个文件里有 10 个与
 `3d2a9fa` 的内容**逐字节相同**，唯一差异是上游已经自己修好的 `AsmMacroLib.h`。
-`scripts/unixnu/firmware.py:73-78` 本来就支持 `[firmware].patches`（构建时 apply、`finally` 里
+`unixnu:scripts/unixnu/firmware.py:73-78` 本来就支持 `[firmware].patches`（构建时 apply、`finally` 里
 reverse），所以只需要把五个补丁写进 `board.toml`，并把工作树切到 `6f805f2`。
 
 **四条教训**
@@ -5829,7 +5829,7 @@ find board.toml dts patches/xnu scripts -type f -print0
 文件算成「输入变了」**，一个什么都没改的构建被判废。
 
 实测（main `5db4414`，2026-11-16 11:19）：`freeze()` 的清单 522 条，其中 **21 条是
-`scripts/__pycache__/*.pyc`**。把 `scripts/pong_paths.py` 碰一下再 import 一次，清单里就多出
+`scripts/__pycache__/*.pyc`**。把 `pong:scripts/pong_paths.py` 碰一下再 import 一次，清单里就多出
 
 ```
 b6e369d7c83f675168ac931fe7d3a89c39e4f3ab951ea656a26b58e165b3d296  scripts/__pycache__/pong_paths.cpython-312.pyc

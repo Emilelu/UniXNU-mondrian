@@ -22,7 +22,7 @@
 - **仓库/源文件/pin**：`https://github.com/UniXNU/Adreno740`；文档未给 pin，未列源文件清单。
 - **定位**：SM8550 上实现 A740 内核 GPU 接口，拥有 GPU 内存映射、命令提交、fence、CP/GMU 初始化；板级提供固件、power vote 和显示集成。
 - **板级输入**：GPU/GMU 寄存器与中断、GPU SMMU（4 KiB 页）、GMU 固件与 GPU microcode、power votes、scanout/display 集成；文档只给类型，不给地址表。
-- **Build integration**：`scripts/build-arm-driver.py Adreno740`、`scripts/build-adreno740-kits.py`、`scripts/check-native-adreno-scheduling.py`；环境 `UNIXNU_XNU_ARCH=arm64e`、`UNIXNU_IOS_VERSION=27.0`；要求 resolved iOS 27 target tree。
+- **Build integration**：`unixnu:scripts/build-arm-driver.py Adreno740`、`sheng:scripts/build-adreno740-kits.py`、`sheng:scripts/check-native-adreno-scheduling.py`；环境 `UNIXNU_XNU_ARCH=arm64e`、`UNIXNU_IOS_VERSION=27.0`；要求 resolved iOS 27 target tree。
 - **K60 适配**：A730 ≠ A740，不能直接选。可复用其调度设计：mode 2 双 ring（高/正常高/实时 → ring 0；普通/低/后台/未指定 → ring 1）、ring 1 250 ms aging、2 ms service、1 s switch watchdog、`CP_SMMU_TABLE_UPDATE` 快照、GMEM 保存与 GMU keepalive；K60 用现有 `PongAdreno` 并换 A730 寄存器/固件。
 
 ### 02. `adreno-firmware.md` — GMU 固件/HFI kit（17 行）
@@ -102,7 +102,7 @@
 - **仓库/源文件/pin**：`https://github.com/UniXNU/Ath12kWifi`；Sources 为 **pinned Linux v7.0.14**、匹配 headers、supplicant 2.12；具体 commit 未写。
 - **定位**：在 XNU 上跑 Linux ath12k + mac80211 + cfg80211；MHI/QRTR/QMI 做设备启动，wpa_supplicant 2.12 做 userspace SME/WPA；普通数据包留在内核。
 - **板级输入**：power、PCIe、BAR、MSI、DMA、firmware、网络接口；native interface `include/nw_abi.h`、`org.unixnu.wifi.control`；支持 Open 与 WPA2-PSK with PMF。
-- **Build integration**：`build-ath12k-wifi.py` 输出对象清单；用户态 `build-wifi-userspace.py`；sheng 上 `sheng-wifi=5`、`sheng-wifi-aj=0`、`log-wifi=1`。固件经 VFS 从 `/private/var/ngpu/firmware/ath12k/WCN7850/hw2.0/` 加载；`package/WifiFirmware.h` 定义 loader/packer，`firmware/wcn7850/manifest.json` pin 大小与 SHA-256。
+- **Build integration**：`build-ath12k-wifi.py` 输出对象清单；用户态 `build-wifi-userspace.py`；sheng 上 `sheng-wifi=5`、`sheng-wifi-aj=0`、`log-wifi=1`。固件经 VFS 从 `/private/var/ngpu/firmware/ath12k/WCN7850/hw2.0/` 加载；`sheng:package/WifiFirmware.h` 定义 loader/packer，`firmware/wcn7850/manifest.json` pin 大小与 SHA-256。
 - **K60 适配**：❌ 官方组件只覆盖 WCN7850/QCC2072/QCN9274（ath12k）。K60 是 **QCA6490/WCN6855（PCI `17cb:1103`，ath11k）**，协议代际不同；只能参考其 mac80211/cfg80211/nw_abi 分层，实际走 `PongWifi`（ath11k）移植。
 
 ### 12. `community-adreno830.md` — Adreno 830 社区驱动（15 行）
@@ -254,7 +254,7 @@
 - **仓库/源文件/pin**：`https://github.com/UniXNU/QcomBaseband`；作者 HoshinoYumeka（@chiba233）；pin 未记录。
 - **定位**：QMUX/QRTR + QMI CTL、SAHARA endpoint、AppleBaseband IOKit services、IPA/GSI/QMAP code；SC7180 IPA v4.2 data path。
 - **板级输入**：modem boot、firmware、power、DMA、GLINK/QRTR、rmtfs；`baseband/QcomBaseband.h` 定义 transport hooks。
-- **Build integration**：`scripts/build-qcom-baseband.py` 从 XNU compile records 构建 bridge archive；`--coachz` 加 SC7180 IPA adapter；输出 `build/qcom-baseband/libQcomBaseband.a`。
+- **Build integration**：`unixnu:scripts/build-qcom-baseband.py` 从 XNU compile records 构建 bridge archive；`--coachz` 加 SC7180 IPA adapter；输出 `build/qcom-baseband/libQcomBaseband.a`。
 - **已验证行为（Coachz）**：IMEI/ICCID 显示、LTE roaming CS/PS attached、信号格与 data-port bindings；ABM RX queue 每 channel 1024 帧；carrier bundle PRI/GRI 被接受；IPv4 经 `pdp_ip0`–`pdp_ip3` + IPA 可上网；IPv6、APN 编辑、长会话与 eSIM provisioning 未完成；eSIM 在 Settings 显示不完整页面。
 - **K60 适配**：K60 的 modem/蜂窝不在当前驱动范围；SC7180 IPA 与 SM8475 不同。除非后续做 cellular，否则不选。
 
@@ -263,7 +263,7 @@
 - **仓库/源文件/pin**：`https://github.com/UniXNU/QcomDwc3`；pin 未记录。
 - **定位**：在 Qualcomm DWC3 controller 上跑 Apple USB device/host stack；`QcomDwc3Xdci` 继承 `AppleUSBXDCI`，`QcomDwc3Xhci` 继承 `AppleUSBXHCI`。
 - **板级输入**：eUSB2 repeater、QMP PHY、retimer、rails、SMMU context；sheng `sheng-usb=1`，eUSB2 reference 38.4 MHz，stream `0x40` 用独立 stage-1 context（write-back inner shareable，因为 `AppleUSBXDCI` 不做 cache maintenance）。
-- **Build integration**：AppleUSBXDCI 没有 personality，驱动在注册 subclass 前先 load kext；prelink roots 加 device/host stacks，排除 `AppleOnboardSerial`、`AppleSMC`；boot args `sheng-usb=1/2/3`、`sheng-usb-host=<s>`、`sheng-usb-back=<s>`、`log-sys=1`；`scripts/gen-usb27-abi.py`、`gen-usb27-host-abi.py` 重生成 class layouts。
+- **Build integration**：AppleUSBXDCI 没有 personality，驱动在注册 subclass 前先 load kext；prelink roots 加 device/host stacks，排除 `AppleOnboardSerial`、`AppleSMC`；boot args `sheng-usb=1/2/3`、`sheng-usb-host=<s>`、`sheng-usb-back=<s>`、`log-sys=1`；`sheng:scripts/gen-usb27-abi.py`、`gen-usb27-host-abi.py` 重生成 class layouts。
 - **K60 适配**：K60 DWC3 core `0xa600000`（QSCRATCH `0xa6f8800`）、eUSB2 PHY `0x88e3000`、QMP `0x88e8000`，SMMU stream 实测 `0x0`（官方 sheng 为 `0x40`）；QcomDwc3 的 ABI 是 iPadOS 27/24A446，K60 16.6.1 不可直接用，保留自研 DWC3/usblog。
 
 ### 32. `qcom-geni-spi.md` — GENI SPI 控制器（19 行）
@@ -327,7 +327,7 @@
 - **仓库/源文件/pin**：`https://github.com/UniXNU/ShengUfs`；pin 未记录。
 - **定位**：SM8550 UFS storage path；拥有 host controller、SMMU mappings、command queues、root reads；板级集成包括 clock 资源、persistent Data/log regions；按请求给 display bank（`sheng-dpu-scanout`）和 WiFi endpoint（`sheng-wifi=2+`）stage-1 windows，默认关。
 - **板级输入**：SM8550 UFS host/PHY/clocks/SMMU；board power policy、storage layout；`CONFIG_XNU_NATIVE_UFS=y`；runtime class `NativeUfs`。
-- **Build integration**：`./unixnu build kernel -D /path/to/device`；设备仓以 submodule 供 ShengUfs；Wi-Fi DMA window 128 MiB @ IOVA `0x10000000`，64 个 2 MiB block，独立 SMMU context bank；`scripts/check-wifi-dma.py`。
+- **Build integration**：`./unixnu build kernel -D /path/to/device`；设备仓以 submodule 供 ShengUfs；Wi-Fi DMA window 128 MiB @ IOVA `0x10000000`，64 个 2 MiB block，独立 SMMU context bank；`sheng:scripts/check-wifi-dma.py`。
 - **K60 适配**：⚠️ SM8475 UFS host 同为 `0x1d84000/0x3000`，但 PHY、GCC、SMMU stream `0xe0`、context 78 与 sheng 参考值不同（sheng 的 stream 见 `docs/porting/ufs.md`）；K60 现有 `PongUfs`，ShengUfs 只作为统一后端方向。
 
 ### 40. `sm8550-platform.md` — SM8550 GPU 平台 kit（47 行）
@@ -351,7 +351,7 @@
 - **仓库/源文件/pin**：无（指南）。
 - **定位**：UEFI driver = EDK II `.efi` module，跑 boot services，可发布 protocol、绑定设备、为下一阶段准备硬件。
 - **板级输入**：DEC/protocol GUID、INF、DSC/FDF、`LoadOptions`、`[[driver]] path/args/connect/enabled`、`fv:<GUID>`；`UniXNURamDiskDxe` 可把 Mu-Silicium FDT initrd 暴露为只读 Block I/O。
-- **Build integration**：`build -p MyPkg/MyPkg.dsc -a AARCH64 -b DEBUG -t CLANGPDB -n 8`；`package/UniXNUPkg/UniXNUPkg.dsc`；`package/build.sh` 复制到 `Build/Out/AARCH64-DEBUG`；driver model `EFI_DRIVER_BINDING_PROTOCOL`（Supported/Start/Stop）；日志格式 `UNIXNU: driver ... started/load failed/start failed`。
+- **Build integration**：`build -p MyPkg/MyPkg.dsc -a AARCH64 -b DEBUG -t CLANGPDB -n 8`；`package/UniXNUPkg/UniXNUPkg.dsc`；`unixnu:package/build.sh` 复制到 `Build/Out/AARCH64-DEBUG`；driver model `EFI_DRIVER_BINDING_PROTOCOL`（Supported/Start/Stop）；日志格式 `UNIXNU: driver ... started/load failed/start failed`。
 - **K60 适配**：✅ 方法直接可用；K60 的 uefi-mondrian 已有 ButtonsDxe/SPMDxe/PmicDxe/GOP，K60 preflight、UEFI 显示/输入可继续按此写。
 
 ### 43. `verified-root.md` — 根信任工具（17 行）

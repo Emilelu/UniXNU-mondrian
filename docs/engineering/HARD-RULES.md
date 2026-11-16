@@ -742,7 +742,7 @@ if (!map) { printf("map failed %#lx\n", phys); return; }   // 必须判空
    ```
    scripts/data2g-install.sh        # Android 侧 dd 直写 unixnu
    scripts/install-pong-ufs-data.py # 官方同款
-   scripts/build-pong-userdata-image.py
+   pong:scripts/build-pong-userdata-image.py
    ```
 4. **只有以上都不成立时**，才考虑运行时写。而且必须遵守 ★20 第 4 条
    （启动关键路径禁止大 IO）。
@@ -1094,7 +1094,7 @@ python3 scripts/check-docs.py
    写成"查什么"和"怎么查"，不写"取这个 SHA"。
 2. **正确写法**：给出查询命令 + 判断标准
    ```bash
-   python3 scripts/track-upstream-branches.py 2>&1 | grep -A6 'yibiya-upstream'
+   python3 <workspace>/scripts/track-upstream-branches.py 2>&1 | grep -A6 'yibiya-upstream'
    git log --oneline main..yibiya/fix/touch-gpu-bringup | head -20
    ```
    判断标准写"涉及 K60/SM8475 硬件、启动链、⑦ 未通过项 → 取"。

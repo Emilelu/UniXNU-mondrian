@@ -77,7 +77,7 @@
 | QCA6490 BT 走什么 | **GENI UART / HS-UART**，QUPV3_2 SE20 `0x894000`，IRQ 587 | `FDT`；`ZCODE:308` U9-C12 |
 | 是否 PCIe 复用 | 否。BT 节点没有 PCIe reg/msi；`qcom,cnss-qca6490` 的 `reg=0xb0000000` 是 WLAN 的 SMMU IPA 窗口 | `FDT` |
 | UART 协议 | `qcom,msm-geni-serial-hs`；mainline 同硅先例是 `&uart20 { bluetooth { compatible = "qcom,wcn6855-bt" } }`，K60 的 SE20/GPIO 映射与其一致 | `ZCODE:308` |
-| HCI 上层 | `hci_qca`（QCA vendor TLV 下载 → 标准 HCI）；不是裸 H4 一开始就能通 | mainline `drivers/bluetooth/hci_qca.c` 结构；C 级（本机无源码） |
+| HCI 上层 | `hci_qca`（QCA vendor TLV 下载 → 标准 HCI）；不是裸 H4 一开始就能通 | mainline `linux:drivers/bluetooth/hci_qca.c` 结构；C 级（本机无源码） |
 | 初始/运行波特率 | DTS 未给；`hci_qca` 惯用 115200 初始化、运行 3.2 Mbps（WCN6855 家族）；**需上机实测** | C |
 | 流控 | CTS/RTS 使用 GPIO76/77；`qcom,wakeup-byte=0xfd` | `FDT` |
 
@@ -100,7 +100,7 @@ Android 侧对应驱动名（用于对照，不是 iOS 可执行代码）：
 | WLAN 固件（独立，不属于 BT） | `ath11k/WCN6855/hw2.1/amss.bin`、`m3.bin`、`firmware-2.bin`、`board-2.bin` | pong 从 `modem_b/image/qca6490` 提取了 200 个文件；K60 侧未列清单 | **C（WLAN 用；不要与 BT 固件混放）** |
 | K60 分区实际路径 | 预计 `modem_a/image/qca6490/` 或 `modem_b/image/qca6490/` | 用 `adb shell ls -l /dev/block/by-name/modem_a` 挂载/读取，或按 `AdspFirmware.c` 的 FAT `image/` 方式读取 | **C** |
 
-注意：pong 的 `configs/pong-power-sm8475.json` 只列 TFA 音频容器 `tfa98xx.cnt`，**没有 BT 固件**；pong 的 `PongPlatform24` 组件也没有 BT。不要从 pong 仓库找 `PongBt` 的固件清单，找不到是正常的。
+注意：pong 的 `pong:configs/pong-power-sm8475.json` 只列 TFA 音频容器 `tfa98xx.cnt`，**没有 BT 固件**；pong 的 `PongPlatform24` 组件也没有 BT。不要从 pong 仓库找 `PongBt` 的固件清单，找不到是正常的。
 
 ### 1.4 iOS 16 侧可复用框架（IOBluetoothFamily/HCI）
 
@@ -230,7 +230,7 @@ pong-bt {
 |---|---|---|
 | 功放型号/版本 | TFA9873 ×2，I2C `0x34/0x35`，revision `0x0b73`（也接受 `0x1a73`） | `PongAudio.cpp:110`；`services70:7`/`services72:9` |
 | I2C 控制器 | QUP1 SE5 `0xa94000/0x4000`，pinctrl `qupv3_se13_i2c_active`，GPIO48/49，qup13 mux1，pull-up/2 mA | `PongAudio.cpp:96-104`；`services71:23` |
-| 复位 | GPIO1/GPIO89；DT 无 reset-polarity，按 Nothing 驱动默认 active HIGH：HIGH 10 ms → LOW 10 ms | `PongAudio.cpp:99-103`；`configs/pong-power-sm8475.json:90-99` |
+| 复位 | GPIO1/GPIO89；DT 无 reset-polarity，按 Nothing 驱动默认 active HIGH：HIGH 10 ms → LOW 10 ms | `PongAudio.cpp:99-103`；`pong:configs/pong-power-sm8475.json:90-99` |
 | 地址/寄存器访问 | `regRead/regWrite`：8-bit reg，16-bit big-endian data（`regWrite` 先高字节后低字节） | `PongAudio.cpp:81-83` |
 | revision 寄存器 | reg `0x03`，期望 `0x0b73`/`0x1a73` | `PongAudio.cpp:110` |
 | KEY2 解锁 | reg `0x0f = 0x5a6b`；读 reg `0xfb` 的 key；写 reg `0xa0 = key ^ 0x5a` | `PongAudio.cpp:113` |
@@ -244,7 +244,7 @@ pong-bt {
 
 > 这张表的价值是：**如果 K60 上 I2C 0x34/0x35 读出的 revision 是 0x0b73，说明是 TFA9873，可直接复用 `PongAudio.cpp` 的寄存器序列**；如果读出的不是，则按 AW882xx 另行实现。不要把 TFA 寄存器写死到 K60 代码里。
 >
-> Pong 的部分 TFA 初始化数值来自 `PongAmpProfiles.h`，由 `scripts/prepare-pong-audio.py` 从厂商容器 `tfa98xx.cnt` 生成（Pong `configs/pong-power-sm8475.json:102`、`scripts/build-pong-power-native.py:39`）。K60 若确认是 TFA，需要提供对应的 `tfa98xx.cnt`；若是 AW882xx，需要厂商 `awini` 校准文件/默认寄存器表，二者不能互换。
+> Pong 的部分 TFA 初始化数值来自 `PongAmpProfiles.h`，由 `pong:scripts/prepare-pong-audio.py` 从厂商容器 `tfa98xx.cnt` 生成（Pong `pong:configs/pong-power-sm8475.json:102`、`pong:scripts/build-pong-power-native.py:39`）。K60 若确认是 TFA，需要提供对应的 `tfa98xx.cnt`；若是 AW882xx，需要厂商 `awini` 校准文件/默认寄存器表，二者不能互换。
 
 ### 2.4 需要的 ADT 节点
 
@@ -275,7 +275,7 @@ pong-audio {
 
 #### 2.4.2 `/chosen/pong-audio-dma`
 
-Pong 的 UEFI/DarwinBoot 会从主 XNU 窗口之外分配 **64 KiB `EfiReservedMemoryType`**，通过 `/chosen/pong-audio-dma` 传给 XNU：16 字节 = `[u64 PA, u64 size=65536]`。`PongAudio.cpp:124` 校验 `lease[1] == BufferBytes`、4 KiB 对齐、`lease[0]+65536 <= 0x100000000`；Pong 的 ADT 生成器只放 `bytes(16)` 占位（`scripts/make-pong-adt-ipados18.py:183`），由 loader 填充。
+Pong 的 UEFI/DarwinBoot 会从主 XNU 窗口之外分配 **64 KiB `EfiReservedMemoryType`**，通过 `/chosen/pong-audio-dma` 传给 XNU：16 字节 = `[u64 PA, u64 size=65536]`。`PongAudio.cpp:124` 校验 `lease[1] == BufferBytes`、4 KiB 对齐、`lease[0]+65536 <= 0x100000000`；Pong 的 ADT 生成器只放 `bytes(16)` 占位（`pong:scripts/make-pong-adt-ipados18.py:183`），由 loader 填充。
 
 K60 现状：`AGENT-COORDINATION.md:3253` 明确“`DarwinBootPkg` 里 pong 专属 DT 契约（`pong-allocatable-ram` / `pong-audio-dma` / `darwinboot-memory-ranges`）保留未删，K60 DTB 无这些节点 → `ClaimPongRam` 提前返回，等价 no-op”。因此 **K60 音频的第一硬前置之一是改 `uefi-mondrian`/DarwinBoot22 或 ADT 生成器：分配 64 KiB 低地址 DMA 并写 `/chosen/pong-audio-dma`**。这不是音频驱动自身能补的。
 

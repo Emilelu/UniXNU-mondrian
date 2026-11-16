@@ -31,7 +31,7 @@ CDC ACM 将设备侧 USB 传输呈现为主机串口，适合连续文本日志�
 | 内核日志入口 | `osfmk/console/serial_console.c` 的 `console_write()` 和 `console_write_unbuffered()` 已镜像到 ramoops | 可在同一层增加非阻塞日志入队，不依赖屏幕是否已交给 iOS |
 | 持久日志 | `pong_ramoops_console.h` 使用 `0x85200000` 起始的 4 MiB 保留区，console 与 diagnostic/pmsg 各 2 MiB | 保持 Linux 兼容的 12 字节头及区域划分，不能把 USB 元数据塞进其头部 |
 | 用户态日志 | 已有 `kern.pong_diagnostic`；`applog_name` 对服务日志定向选择 | 首版覆盖 backboardd、SpringBoard、Preferences、launchd 退出原因与 GPU 诊断；不能宣称已捕获所有 unified log |
-| Sheng USB 读日志 | `package/linux-log/init` 在独立 Linux 中以 CDC ACM 提供 shell，读取 userdata 尾部日志；`scripts/read-sheng-log.py` 在主机取回 | 是重启后的读取方案，不是 XNU 运行时 USB 实时日志；其 SM8550 启动镜像及 userdata 尾部布局不能直接用于 Pong |
+| Sheng USB 读日志 | `package/linux-log/init` 在独立 Linux 中以 CDC ACM 提供 shell，读取 userdata 尾部日志；`sheng:scripts/read-sheng-log.py` 在主机取回 | 是重启后的读取方案，不是 XNU 运行时 USB 实时日志；其 SM8550 启动镜像及 userdata 尾部布局不能直接用于 Pong |
 | 启动参数 | v110 的构造参数长 594 字节，DarwinBoot22 当前命令行区域为 608 字节 | 只新增 `usblog=1`，连同空格为 603 字节；其余设置放入 ADT/编译配置，打包时保留字符串结束字节 |
 
 UEFI USB 协议属于固件环境，XNU 接管后不能继续调用已结束的 Boot Services 驱动。控制器所有权、DMA、事件缓冲区必须交给内核自己的实现。[UEFI Boot Services 说明](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html)

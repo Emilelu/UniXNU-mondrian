@@ -60,7 +60,7 @@ qcom,spmi@c42d000 {
 
 **来源建议**：
 1. Xiaomi 内核 `arch/arm64/boot/dts/vendor/qcom/pm8350c-regulator.dtsi`
-2. Linux `drivers/regulator/qcom_spmi-regulator.c` 的 `pm8350c_regulators[]`
+2. Linux `linux:drivers/regulator/qcom_spmi-regulator.c` 的 `pm8350c_regulators[]`
 3. 或读 Android 侧 `/sys/kernel/debug/regulator/` 看 LDO2 的 SPMI 地址
 
 ## 4. 替代方案（更简单，但可能不可行）

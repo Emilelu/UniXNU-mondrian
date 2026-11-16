@@ -30,7 +30,7 @@
 | `/mnt/e/k60-work/references/yibiya-unixnu-upstream` | `yibiya/UniXNU` | 4 |
 | `/mnt/e/k60-work/references/yibiya-uefi-upstream` | `yibiya/uefi-mondrian` | 1 |
 
-这三个由 `scripts/track-upstream-branches.py` 每小时跟随全部分支，
+这三个由 `<workspace>/scripts/track-upstream-branches.py` 每小时跟随全部分支，
 状态存 `/mnt/e/k60-work/.upstream-branches.json`。
 
 ---

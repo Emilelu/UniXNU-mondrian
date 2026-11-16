@@ -57,7 +57,7 @@
   （wifi 版双 hunk：`KERNEL_EXTRA_ARCHIVES` 与 `PLATFORM_ARCHIVES` 都加；
   main 版只有前者——mondrian 走 `PLATFORM_ARCHIVES`，见
   [WIFI-REBUILD-CHECKLIST.md](../../plans/WIFI-REBUILD-CHECKLIST.md) §3 硬差异 ①）。
-- 运行期解析在 k60-wifi 树 `drivers/PongWifi/PongWifiPlatform.cpp:554-556`：
+- 运行期解析在 k60-wifi 树 `zizhan:drivers/PongWifi/PongWifiPlatform.cpp:554-556`：
   `memcmp(...,"PWF2",4)` → `memcpy(&count,...+4,4)` → 逐条
   `pong_wifi_firmware+8+i*40` 按 name 匹配，`off>total||len>total-off` 拒收。
 
@@ -188,7 +188,7 @@ E 格已飞（2026-11-15，verdict = silent），判决见 §10；其余四格�
 
 B 是 C 的对照格：B 出声而 C 静默 ⇒ 11.19 MB blob 被钉成唯一变量；B 也静默 ⇒
 死因不需要 blob。E 是「驱动 vs blob」的对照格（与 `mhi5` 只差 46 字节 / 8 处构建
-时间戳，见 k60-wifi `docs/research/wifi/BOOT-DEATH-SUSPECT.md` §3b）：**已飞，
+时间戳，见 `k60-wifi:docs/research/wifi/BOOT-DEATH-SUSPECT.md` §3b）：**已飞，
 verdict = silent**（§10）。按这条读法，驱动这一支被洗清（§10.2：`pong_wifi=0` 时
 worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证明——它的推翻条件写在
 §10.3，判决格是 `t2`。
@@ -220,7 +220,7 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 | DarwinBoot 检查 | drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:160,168,190-191,194-196,558,607,619 |
 | XNU 侧无上限 | xnu-work（`.cache/xnu-work`）grep `KERNEL_TEXT_MAX\|kPrelinkTextMax\|MAX_KERNEL_TEXT` = 0 命中 |
 | VA 布局注释 | xnu-work `osfmk/arm64/arm_vm_init.c:165-181`（顺序）、:2087（取段）、:1415（RNX）、:2306（紧邻断言） |
-| 解析器 | k60-wifi 树 drivers/PongWifi/PongWifiPlatform.cpp:553-556 |
+| 解析器 | k60-wifi 树 zizhan:drivers/PongWifi/PongWifiPlatform.cpp:553-556 |
 | PWF2 失配 | mhi4 kernel 文件偏移 589,824 处头（count=6，entry[0] amss.bin，1..5 全空）vs 四文件实测偏移（§1 表） |
 
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与

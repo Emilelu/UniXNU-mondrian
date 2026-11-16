@@ -86,7 +86,7 @@
 - `fairlady.md` — SM8850 OnePlus 15T；有早期 UEFI/ADT/S1–S6 屏幕诊断，无硬件结果。无 status 表。
 - `fajita.md` — SDM845 OnePlus 6T；UEFI/menu 真机可用（`fastboot boot`+空 ramdisk），XNU 23.6.0 到 root mount；无 storage driver，root volume 停在 IOMedia/Apple_HFS wait。无 status 表（含逐 Stage 表）。
 - `flashlm.md` — SM8150 LG V50 ThinQ；仅仓库链接。
-- `fuxi.md` — SM8550 小米 13；13 域全部 implemented（arm64e-os=PL）：完整 SM8550 参考栈——ShengUfs（UFS `0x1d84000`/PHY `0x1d80000`/SMMU `0x15000000`/stream `0x60`）、GopFramebuffer、Adreno740/Metal、Ath12kWifi、CS35L43×6+WCD938x 音频、PMGR 电源、`scripts/package.sh`；页内 intro 误写“Xiaomi Pad 6S Pro 12.4”（复制痕迹），标题/board 为 Xiaomi 13。
+- `fuxi.md` — SM8550 小米 13；13 域全部 implemented（arm64e-os=PL）：完整 SM8550 参考栈——ShengUfs（UFS `0x1d84000`/PHY `0x1d80000`/SMMU `0x15000000`/stream `0x60`）、GopFramebuffer、Adreno740/Metal、Ath12kWifi、CS35L43×6+WCD938x 音频、PMGR 电源、`sheng:scripts/package.sh`；页内 intro 误写“Xiaomi Pad 6S Pro 12.4”（复制痕迹），标题/board 为 Xiaomi 13。
 - `fuxi-0721gpt.md` — SM8550 小米 13（0721GPT）；仅仓库链接。
 - `fuxi-hanzi123-bilp.md` — SM8550 小米 13（hanzi123-bilp）；仅仓库链接。
 - `fuxi-kerfand.md` — SM8550 小米 13（Kerfand）；仅仓库链接。
@@ -189,7 +189,7 @@
   - Goodix：见 2.2。
 - **`fuxi.md`（SM8550，13 域全 implemented 的参考栈）**：同代平台结构模板，可复用：
   - UFS host `0x01d84000/0x3000`、PHY `0x01d80000/0x2000`、GCC `0x00100000`、apps SMMU `0x15000000`、UFS stream `0x60`、LUN0 4096-byte、userdata LBA `3094592..64007162`；`payload.adt.owned_memory_size=0x130000000`、`dram_size=0x80000000`、splash `0xb8000000+0x2b00000`。
-  - `board.toml` 的 `os_overrides` 多 profile 写法、`profiles.merge` **数组整体替换**（board 必须重复完整列表）、`scripts/package.sh`（无板值，board.toml `[package]` 指定 checkout/defconfig）、`scripts/check-sheng.py`/`scripts/read-sheng-log.py` 的验收入口。
+  - `board.toml` 的 `os_overrides` 多 profile 写法、`profiles.merge` **数组整体替换**（board 必须重复完整列表）、`sheng:scripts/package.sh`（无板值，board.toml `[package]` 指定 checkout/defconfig）、`sheng:scripts/check-sheng.py`/`sheng:scripts/read-sheng-log.py` 的验收入口。
   - 音频架构（CS35L43×6 + WCD938x）见 2.3；GPU（A740）不可直接用于 A730，见 2.5。
 - **`fuxi-oddlylabs.md`（SM8550）的 CPU bring-up 教训**：`armcpu-spi-ipi=1` 必须开（SGI 在 fuxi 不达）、`armcpu-self-ipi=1` 才清 SIGPdisabled；`sheng-smp=1` 起 7 个 secondary；`MAX_CPU_CLUSTERS=1` + E/P 两簇会在 `ml_parse_cpu_topology` 断言 panic，修法是 `zzyf-sheng-amp.patch`（`__ARM_AMP__`, `MAX_CPU_CLUSTERS 2`, Edge scheduler）。K60 的四核 A510 + 三核 A710 + X2 三簇比这更复杂，必须按簇逐一验 `CPU_ON`/timer/IPI。
 - **`fuxi-mouse233.md`（SM8550）的 RAM-root 方案**：UEFI USB bulk receiver 把 payload 收进 DRAM→DarwinBoot→XNU 以 RAM block device `md0` 起步→`pivot=OK old=md0 newroot=apfs` 切到 APFS system volume；`scripts/build-fuxi-usb-ram.py`、`scripts/test-usb-ram-full.py`、`scripts/check-usb-system-mount.py` 与 `--boot-profile usb-system` 可整套借用。关键参数：`dram_size=0x80000000`、KMEM headroom `662548480` bytes、handoff skew 与 kernel.macho 最低非空段 mod 2 MiB 对齐（记录值 skew `0x7c000`）。K60 若 UFS root 暂时卡住，可先用这条 RAM-root 链把 userland 跑起来。
@@ -229,7 +229,7 @@
 - **`marble-milacy.md`**：见 2.1，`native-ufs-stream=0xE0` + `native-ufs-smmu-takeover` + probe-only 是 K60 最接近的 UFS 诊断模板；它还记录了 `IOBlockStorageDevice` 的绝对符号/vtable 地址，可作为 K60 在 iPadOS 17.7.11 上链接 `NativeUfsBlock` 的 ABI 复核起点。
 - **`fuxi.md`**：完整可用的 `ShengUfs` 板级输入：host/PHY/GCC/SMMU/stream/context bank/DMA 宽度/缓存维护；`payload.adt.root_match_volume_uuid=546DFF4A-4172-4026-9F1B-7FDAD45F3D2E`（23F84 示例）；`CONFIG_XNU_NATIVE_UFS=y`、`native-source-storage=1 native-ufs-root=1`。
 - **`fuxi-mouse233.md`**：RAM-root 的完整 pivot 记录（`md0`→APFS，`pivot=OK`，`/sbin/launchd` SHA256 校验），以及 `scripts/test-usb-ram-full.py` / `scripts/check-usb-system-mount.py` 的 host+device 验收流程；K60 若需要“先跑 userland、后补 UFS”，这是现成模板。
-- **`j716f.md`**：SM8250 上 Storage=DV 的整机记录，可参考它的分区/日志/reader 工具链与 `scripts/porting-record.py check` 的验收口径；具体 UFS 常量不适用于 SM8475。
+- **`j716f.md`**：SM8250 上 Storage=DV 的整机记录，可参考它的分区/日志/reader 工具链与 `unixnu:scripts/porting-record.py check` 的验收口径；具体 UFS 常量不适用于 SM8475。
 - **`j716f-emptyghost.md`**：同机第二份迁移记录，Storage 仍 PL，价值低于主 j716f 页。
 
 ### 2.5 GPU / Network：A–M 的明确空白
@@ -240,12 +240,12 @@
 
 ### 2.6 构建/验收流程的可复用经验
 
-- **`fuxi.md`**：`profiles.merge` 字典递归、**数组整体替换**——board.toml 必须重复 arch/SoC profile 的完整 `patch_series`/`archives`，否则会静默丢项；`os_overrides` 让一套分支服务 17/26/27 多 profile；`scripts/package.sh` 不含板值。
-- **`j716f.md`**：Format-1→2 迁移的完整检查表：`scripts/porting-record.py check --device ../UniXNU-j716f`、FAST 日志、reader、`test-native-*`、CI artifact 反向审计；每个域都用“命令 + revision + 可复现证据”。K60 的 porting record 可直接借用这套验收粒度。
+- **`fuxi.md`**：`profiles.merge` 字典递归、**数组整体替换**——board.toml 必须重复 arch/SoC profile 的完整 `patch_series`/`archives`，否则会静默丢项；`os_overrides` 让一套分支服务 17/26/27 多 profile；`sheng:scripts/package.sh` 不含板值。
+- **`j716f.md`**：Format-1→2 迁移的完整检查表：`unixnu:scripts/porting-record.py check --device ../UniXNU-j716f`、FAST 日志、reader、`test-native-*`、CI artifact 反向审计；每个域都用“命令 + revision + 可复现证据”。K60 的 porting record 可直接借用这套验收粒度。
 - **`alioth.md`**：记录了 `status` 的 catalog pin 与实际 build 的 `--local-module` 不一致（ShengUfs `e2b32cc4` vs `ab54059`，ShengHidInput `5f3a37ce` vs `f35c4ff1`），以及镜像来自未记录的 local module。K60 必须记录实际 build 源集，不能只信 `status`。
 - **`camellia.md`**：当 LK 不执行内嵌 BootShim/UEFI FD（约 30 秒 reset）时，可走 “LK→Linux minimal initramfs→drm_linear→uefi_jump→UEFI→payload” 的 pre-Android 热跳；`build-camellia-hotjump.sh`、`build-boot-image.sh`、`fastboot flash boot_a/vendor_boot_a`。K60 的 boot chain 若遇 LK 限制，这是可复用的兜底路线。
 - **`evb10.md`**：`tools/xnu-probe/run-kernel.sh` + `EXTRA_KERNEL_ARGS` 的逐项 boot 参数实验法（`evb10-wifi=2/3/5`、`evb10-touch=1`、`evb10-audio=2/4`、`rk3588-dvfs=4/7`），以及“每个 checkpoint 都留 host/device 证据”的完整范式；可作为 K60 后续逐域 bring-up 的脚本化模板。
-- **`fuxi-oddlylabs.md`**：`scripts/audit-amfi-pmgr-contract.py`、`scripts/build-fuxi-platform-power.py`、`scripts/build-fuxi-ram-block.py` 以及 `sheng-pmgr=2` 的 PMGR bridge 是 K60 补 PMGR/电源时最接近的 SM8xxx 参考。
+- **`fuxi-oddlylabs.md`**：`unixnu:scripts/audit-amfi-pmgr-contract.py`、`scripts/build-fuxi-platform-power.py`、`scripts/build-fuxi-ram-block.py` 以及 `sheng-pmgr=2` 的 PMGR bridge 是 K60 补 PMGR/电源时最接近的 SM8xxx 参考。
 
 ## ③ 覆盖清单
 

@@ -94,7 +94,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 | UniXNU-docs | HEAD 分离 | 066c8d8 | 1080 | 0 | — | 官方文档站源 |
 | UniXNU-liuqin | main | 907b8e9 | 105 | 0 | — | **Xiaomi Pad 6 Pro / liuqin / SM8475（cape）**，由 sheng 派生，不能构建。`docs/liuqin-hardware.md` 是从 stock 固件核实的板级真值，与 K60 逐条交叉验证（见 9.1） |
 | UniXNU-mondrian | feat/touch-power | b18fe3b | 890 | 0 | 5/1/213 | **本板主 checkout，归 touch-agent**，不是参考仓库 |
-| UniXNU-pong | main | e0ee6df | 406 | 9 | 0/7/0 | Pong 板级；`configs/pong-wifi-sm8475.json` 有 PCI 参数 |
+| UniXNU-pong | main | e0ee6df | 406 | 9 | 0/7/0 | Pong 板级；`pong:configs/pong-wifi-sm8475.json` 有 PCI 参数 |
 | UniXNU-sheng | main | a68ee4e | 435 | 0 | 0/0/0 | Sheng 板级；`drivers/` 7 个、`package/` 100+ 个 Probe |
 | UniXNU-sm8475-common | main | c5b50c3 | 8 | 7 | 0/2/0 | **SoC 层唯一共享包**：`dts/sm8475.dtsi`、`soc.toml` |
 | UniXNU-zizhan | main | 034a0b0 | 615 | 0 | 0/9/0 | 同 SoC 已上机跑通 GPU+WiFi 的板，最佳对照 |
@@ -319,8 +319,8 @@ SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCo
 镜像 `E:/k60-work/artifacts/audio-probe-20261114j/boot.img` sha256 `877D0A9D08AE0BFF591CCB6D470A47EAC46BDFA26A0D0FF4376A711C35723EF2`，serial 6033dbec，`bootAccepted=true`，capture 以 budget 结束（非 panic）。第二次 boot `bootAccepted=false`，无证据。
 
 → **参考仓库仍然覆盖不到实现**（Pong 只有 WCD938x），但「是哪颗芯片」这个缺口**已经闭合**：
-音频线 `docs/research/audio/AMPS.md:15-16`（该文在 k60-audio 检出，main 未收录）把它列为「ADSP 之前唯一可完成的实机验证（AW88261 = 0x2113）」，
-`drivers/PongAudio/PongAudioPlan.h:129` 的 `case 0x2113: return "AW88261"` 现已被真机证实。
+音频线 `k60-audio:docs/research/audio/AMPS.md:15-16`（该文在 k60-audio 检出，main 未收录）把它列为「ADSP 之前唯一可完成的实机验证（AW88261 = 0x2113）」，
+`k60-audio:drivers/PongAudio/PongAudioPlan.h:129` 的 `case 0x2113: return "AW88261"` 现已被真机证实。
 剩下的缺口是**寄存器序列/保护策略**，不是型号。
 
 ---
@@ -338,7 +338,7 @@ SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCo
 | pong-wifi | `PongWifiPlatform.cpp:339` | 注释：真实范围是 `0x60200000..0x63ffffff`，**不是 Sheng 的 0x60300000** | 同SoC异板 |
 | pong-wifi | `PongWifiPlatform.cpp:350` | ATU 映射序列：`atu.w(b,0); atu.w(b+8,0x60200000); atu.w(b+12,0); atu.w(b+16,0x63ffffff); atu.w(b+20,0x60200000); atu.w(b+24,0); atu.w(b+4,0x80000000);` | 同SoC异板 |
 | pong-wifi | `PongWifiPlatform.cpp:538` | `mapPhys` 只允许 pa ∈ [0x60200000, 0x60400000) | 同SoC异板 |
-| UniXNU-pong | `configs/pong-wifi-sm8475.json` | 板级 PCI 参数：vendor 0x17CB / device 0x1103 / subsystem_device 264 / BAR0 0x60200000 2 MiB | 同SoC异板 |
+| UniXNU-pong | `pong:configs/pong-wifi-sm8475.json` | 板级 PCI 参数：vendor 0x17CB / device 0x1103 / subsystem_device 264 / BAR0 0x60200000 2 MiB | 同SoC异板 |
 | live FDT | `fdt_dump.txt:16407` | `pcie@1c00000` | 本板实测 |
 | live FDT | `fdt_dump.txt:10479` | `cnss-qca6490@b0000000` —— **K60 的 WiFi 是 QCA6490，与 Pong 同款** | 本板实测 |
 

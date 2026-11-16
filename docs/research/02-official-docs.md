@@ -28,5 +28,5 @@
 
 ## 缺口
 
-- ❌ 没有 Goodix Berlin-D 的公开 datasheet（厂商 NDA）；只能以 Linux `drivers/input/touchscreen/goodix.c` 与 pong/renoir 实现作为协议依据。
+- ❌ 没有 Goodix Berlin-D 的公开 datasheet（厂商 NDA）；只能以 Linux `linux:drivers/input/touchscreen/goodix.c` 与 pong/renoir 实现作为协议依据。
 - ◐ `goodix_firmware_m11a` / `goodix_cfg_group_m11a` 的实际二进制未提取（在 K60 Android 的 `/vendor/firmware` 或 `persist`）。

@@ -297,7 +297,7 @@
 
 | 来源 | 脚本 / 做法 | 用途 |
 |---|---|---|
-| `sheng.md:639-699` | `scripts/package.sh`（模板在 UniXNU/templates）、`fetch-sheng-dts.py`、`check-sheng.py`、`build-sheng-source-storage.py --policy-dir`、`fetch-adreno-inputs.py`、`prepare-sheng-*`、`build-adreno740-kits.py`、`build-ath12k-wifi.py`、`build-gop-legacy-display.py`、`build-fileset-release-reference.py --lto` | format-2 板仓的完整打包/preflight/固件抽取/GPU kit/WiFi/显示 archive 流程；K60 可把 `sheng-*` 换成 `mondrian-*` 并保留阶段划分 |
+| `sheng.md:639-699` | `sheng:scripts/package.sh`（模板在 UniXNU/templates）、`fetch-sheng-dts.py`、`check-sheng.py`、`build-sheng-source-storage.py --policy-dir`、`fetch-adreno-inputs.py`、`prepare-sheng-*`、`build-adreno740-kits.py`、`build-ath12k-wifi.py`、`build-gop-legacy-display.py`、`build-fileset-release-reference.py --lto` | format-2 板仓的完整打包/preflight/固件抽取/GPU kit/WiFi/显示 archive 流程；K60 可把 `sheng-*` 换成 `mondrian-*` 并保留阶段划分 |
 | `zizhan.md:83-129` | `tools/gen_reserved.py`、`build_fw.sh`、`build_bootimg.py`、`ci_kernel.sh`、`ci_boot_ufs.sh`、`check-wifi-host.py`、`cycle.sh`、`cycle-resume.sh` | SM8475 Pong 衍生板的最小构建/临时 boot/回归脚本；`ci_boot_ufs.sh` 1020 字节 cmdline 限制、DarwinBoot24 <1024 字节要求 |
 | `rmx3551.md:48-89` | `drivers/` 12 个 `pong-*` submodule；`migration/ipados18/services*.md` 逐轮记录 | 把 Pong 主线的 driver 拆分、逐服务编号追溯；K60 可直接建 `servicesNN` 记录体系 |
 | `nx769j.md:75` | `scripts/extract-root-volume-uuid.py`（从 build 出的 userdata image 读 APFS volume UUID） | 无需设备/macOS 即可填 `payload.adt.root_match_volume_uuid` |

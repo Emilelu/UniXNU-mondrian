@@ -45,8 +45,8 @@
 
 ## 8. Linux 构建链（关键工作量）
 
-- `scripts/build-xnu-ipados18.sh`（1116 行）无 Linux 分支；CI 全 macos-15-intel
-- 方案: 把 16.6.1 已验证的 `scripts/linux/prepare-xnu.py` + `kernel.py:linux_env()`（HOST_CC/MIGCOM/CLT_PREFIX）注入法接入该脚本
+- `pong:scripts/build-xnu-ipados18.sh`（1116 行）无 Linux 分支；CI 全 macos-15-intel
+- 方案: 把 16.6.1 已验证的 `unixnu:scripts/linux/prepare-xnu.py` + `kernel.py:linux_env()`（HOST_CC/MIGCOM/CLT_PREFIX）注入法接入该脚本
 - `/opt/unixnu-linux` 工具链已就绪（16.6.1 用的是同一套）
 - firehose: 16.6.1 fakeroot 的 libfirehose_kernel.a 先复制过渡，之后按 10063→11417 差异重编
 

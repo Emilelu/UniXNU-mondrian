@@ -10,8 +10,8 @@
 
 1. 这套文档描述的是 **UniXNU format 2 的通用移植规范**，不是 K60 专属手册。官方示例栈以 SM8550 / sheng / iPadOS 17.7.11-21H461 与 iPadOS 27.0.1-24A446 为主；文档中几乎不出现 `16.6.1` / `20G81`。
 2. K60 当前 `board.toml` 的 `os_profile = "ipados-16.6.1-20G81"`、`soc = "SM8475"` 在文档中没有对应示例。**通用流程可以直接套用，所有组件级结论必须按 SM8475/A730/QCA6490/AW882xx 重新验证**，不能把 17/27 的通过记录当 16.6.1 的资格。
-3. K60 仓库的 format 2 外形基本成立（`board.toml`、`feeds.toml`、`unixnu.lock`、`porting.toml`、`dts/`、`patches/xnu/series` 都在），但**完成度与文档要求有明显差距**：`scripts/package.sh`、`.github/workflows/package.yml`、`[package]`、`package/Kit.toml`、`[firmware] preflight` 均缺失；`porting.toml` 13 个 area（文档要求 14 个，缺 `cellular`）；`[components]` 只有 4 项。
-4. 文档中反复强调的三个硬规则对 K60 全部成立：数组覆盖是**整体替换**不是追加；`porting.toml` 的 status 必须由证据支撑；`scripts/package.sh` 必须逐字复制模板，板子只改 `board.toml`。
+3. K60 仓库的 format 2 外形基本成立（`board.toml`、`feeds.toml`、`unixnu.lock`、`porting.toml`、`dts/`、`patches/xnu/series` 都在），但**完成度与文档要求有明显差距**：`sheng:scripts/package.sh`、`.github/workflows/package.yml`、`[package]`、`package/Kit.toml`、`[firmware] preflight` 均缺失；`porting.toml` 13 个 area（文档要求 14 个，缺 `cellular`）；`[components]` 只有 4 项。
+4. 文档中反复强调的三个硬规则对 K60 全部成立：数组覆盖是**整体替换**不是追加；`porting.toml` 的 status 必须由证据支撑；`sheng:scripts/package.sh` 必须逐字复制模板，板子只改 `board.toml`。
 5. 文档没有覆盖 K60 当前最关键的 pong userland `apply()` / OS 窗口改写流程；这部分仍以 `docs/plans/APPLY-PIPELINE.md` 为准，不能从这 30 篇推出替代方案。
 
 ---
@@ -87,7 +87,7 @@
 ### 04. `docs/porting/device-repository.md`（505 行，重点）
 
 **流程/规范要点**
-- 设备仓库固定布局：`AGENTS.md`、`README.md`、`.gitignore`、`board.toml`、`porting.toml`、`.github/workflows/porting-record.yml`、`.github/workflows/package.yml`、`feeds.toml`、`configs/<device>_defconfig`、`dts/<device>.dts`、`patches/xnu/series`、`scripts/package.sh`、`proprietary-files.txt`、`package/`、`local.toml.example`、`unixnu.lock`。
+- 设备仓库固定布局：`AGENTS.md`、`README.md`、`.gitignore`、`board.toml`、`porting.toml`、`.github/workflows/porting-record.yml`、`.github/workflows/package.yml`、`feeds.toml`、`configs/<device>_defconfig`、`dts/<device>.dts`、`patches/xnu/series`、`sheng:scripts/package.sh`、`proprietary-files.txt`、`package/`、`local.toml.example`、`unixnu.lock`。
 - 完成检查分三组：tracked files、resolve/verify、publish/label；每组有明确 required result。
 - `board.toml` 关键段：`[board]`（name/soc/soc_source/os_profile/description/kit/example）、`[ipsw]`（url/product/version/build/device_class/chip_id/board_id/fetch/sha256）、`[userdata]`（first_lba/last_lba/lba_bytes/windows）、`[kernel]`（defconfig/archives/prelink/config_fragments/patch_series）、`[firmware]`（config/dsc/fd/preflight/submodules/patches/packages/defines）、`[bootimg.image]`、`[payload]`、`[payload.adt]`。
 - 解析顺序：`UniXNU/profiles/arch/arm64/profile.toml` → SoC `soc.toml` → `profiles/os/<os_profile>/profile.toml` → 设备 `board.toml`；表按键合并，普通数组整体替换，组件依赖按构建顺序追加。
@@ -98,7 +98,7 @@
 - `proprietary-files.txt` 记录每个固件文件、来源、哈希；设备仓库 `.cache/firmware` 被 build tree 链接复用。
 
 **K60 可执行项**
-- 补齐缺失文件：`scripts/package.sh`（从 `templates/package.sh` 原样复制）、`.github/workflows/package.yml`、`package/Kit.toml`；`board.toml` 增加 `[package] unixnu = "../UniXNU"` 与 `[package.defconfig]`。
+- 补齐缺失文件：`sheng:scripts/package.sh`（从 `templates/package.sh` 原样复制）、`.github/workflows/package.yml`、`package/Kit.toml`；`board.toml` 增加 `[package] unixnu = "../UniXNU"` 与 `[package.defconfig]`。
 - 核对 `[components] include` 当前只有 `ArmDTPlatform`、`ArmCpu`、`XnuPrelink`、`PongUfs`；按实际启用的显示/输入/GPU/网络/音频/电源驱动补全（文档要求每个 selected component 及 dependency 都被 area 覆盖）。
 - `[firmware]` 当前无 `preflight`；如 `uefi-mondrian` 有板级检查脚本，补 `preflight = ["scripts/check-mondrian.py"]`（路径按实际）。
 - 运行：
@@ -164,20 +164,20 @@
 ### 07. `docs/porting/packaging.md`（171 行，重点）
 
 **流程/规范要点**
-- **每个设备仓库必须携带 `scripts/package.sh`**，从 `templates/package.sh` 原样复制，板子只改 `board.toml`，不改脚本。
-- 一条命令完成：`scripts/package.sh` 按固定步骤运行并写输出与 manifest，第一步失败即停止并点名。
+- **每个设备仓库必须携带 `sheng:scripts/package.sh`**，从 `templates/package.sh` 原样复制，板子只改 `board.toml`，不改脚本。
+- 一条命令完成：`sheng:scripts/package.sh` 按固定步骤运行并写输出与 manifest，第一步失败即停止并点名。
 - 配置全部来自 TOML；脚本本身不含设备名、路径、大小、kernel 参数、版本。唯一自读的板级值是 `[package] unixnu`。
 - `--os 17|27|PROFILE` 选择 profile；不同 profile 的差异放 `board.toml [os_overrides."<profile>"]`；没有按 target 的第二份 driver/patch/optimization。
 - 步骤：`deps`（fetch 子模块/git sources、写 `unixnu.lock`、解 IPSW）→ `preflight`（选 defconfig、写配置）→ `patches`（解析 patch series）→ `build`（kernel/package/payload/firmware）→ `pack`（boot image）→ `verify`（manifest 与输出比对）。
-- 接口：`scripts/package.sh [--os 17|27|PROFILE] [--no-deps] [--check] [unixnu options]`；`--check` 只跑 deps/preflight/patches 并打印 patch list。
-- GitHub：设备仓库 `.github/workflows/package.yml` 在 macOS runner 上跑 `scripts/package.sh`，产出 `boot.img`、`payload.img`、`kernel.macho`、`package.manifest.json`；fork 里设置 `UNIXNU_UNIQUE_CHIP_ID`。
+- 接口：`sheng:scripts/package.sh [--os 17|27|PROFILE] [--no-deps] [--check] [unixnu options]`；`--check` 只跑 deps/preflight/patches 并打印 patch list。
+- GitHub：设备仓库 `.github/workflows/package.yml` 在 macOS runner 上跑 `sheng:scripts/package.sh`，产出 `boot.img`、`payload.img`、`kernel.macho`、`package.manifest.json`；fork 里设置 `UNIXNU_UNIQUE_CHIP_ID`。
 - `[package]` 键：`unixnu`、`[package.defconfig]`（每个 profile 的 defconfig）、`boot_partition_bytes`（可选，verify 拒绝更大的 boot.img）；`[os_overrides."<profile>"]` 可覆盖表并支持 `remove`。
 - `verify` 失败条件：输出缺失或与 manifest 不符、kernel command line 达到 1000 字节、`boot.img` 超过 `boot_partition_bytes`。
 - iOS 27 runtime 段：`runtime` 表在 kernel 编译前准备；Apple 静态/System/App trust modules 来自 IPSW；Turnip/AdrenoMetal/board audio HAL 从源码构建并追加 owner trust module；`--init-data` 生成首次安装 Data seed；`--gpu-addon`/`--owner-trust-cache` 复现已有镜像。
 
 **K60 可执行项**
 - 当前缺失，按 Adoption 四步补齐：
-  1. `cp templates/package.sh scripts/package.sh`（从 `E:/hackios/UniXNU/templates/package.sh`）。
+  1. `cp templates/package.sh sheng:scripts/package.sh`（从 `E:/hackios/UniXNU/templates/package.sh`）。
   2. `board.toml` 增加：
      ```toml
      [package]
@@ -186,7 +186,7 @@
      [package.defconfig]
      "ipados-16.6.1-20G81" = "mondrian_defconfig"
      ```
-  3. `scripts/package.sh --check --os ipados-16.6.1-20G81` 逐一修报告项。
+  3. `sheng:scripts/package.sh --check --os ipados-16.6.1-20G81` 逐一修报告项。
   4. 在 `porting.toml` 的 `packaging` area 记录运行结果。
 - 若用 `--os 17|27` 简写，16.6.1 不在其中，必须写完整 profile 名 `--os ipados-16.6.1-20G81`。
 - `package/` 当前只有 `README.md`，需补 `Kit.toml` 或明确该板不使用 kit 包。
@@ -218,7 +218,7 @@
 **K60 可执行项**
 - `porting.toml` 当前 13 个 area，缺 `cellular`；K60 是手机（有 modem），不能写 `not-applicable` 除非明确移出范围，应先加 `cellular` 并写 `planned`/`not-applicable` 理由。
 - 重新评定 status：`storage`、`display`、`input`、`gpu`、`network`、`audio`、`power` 目前都是 `planned`，但 `docs/STATE-2026-11-07.md` 已记录 UFS/Data/显示/触摸/GPU 的部分证据；按 `records.md` 的定义只能在不满足证据时保留 `planned`，不能写成 `device-verified`。
-- `packaging` 目前 `host-verified`，但没有 `scripts/package.sh`；补齐并跑 `--check` 后才成立。
+- `packaging` 目前 `host-verified`，但没有 `sheng:scripts/package.sh`；补齐并跑 `--check` 后才成立。
 - 运行 K60 自带预检：
   ```sh
   python3 scripts/check-porting-paths.py --quiet
@@ -241,7 +241,7 @@
 - 持久日志：在存储布局中保留 log region（partition/offset/size/block units），kernel writer 存 message buffer/diagnostic snapshots/boot ID/write status；reader 可选 Linux（target kernel/DTB/storage/USB CDC ACM）或 recovery（TWRP + ADB），`dd`/`adb pull` 读取；host decoder 按 writer header 解码；实现返回 bootloader/recovery 的路径。
 - 手动 cycle：测试 payload → 等 checkpoint → 回 reader（`fastboot boot reader.img` 或 `adb reboot recovery`）→ 保存 raw region 与 decoded text 到 boot ID 目录 → 确认 header/snapshots/write status → 回 bootloader。
 - 自动 cycle：设定时返回、host runner、boot test image、观察返回、启动 reader、retrieve/decode、确认最终 bootloader 状态；timeout 记录失败阶段与镜像。
-- 参考实现：`package/BootLog.c`、`BootReset.c`、`BootResetCore.h`、`package/linux-log/`、`scripts/read-sheng-log.py`；PMIC 地址/watchdog/storage reservation 属于板级记录。
+- 参考实现：`sheng:package/BootLog.c`、`BootReset.c`、`BootResetCore.h`、`package/linux-log/`、`sheng:scripts/read-sheng-log.py`；PMIC 地址/watchdog/storage reservation 属于板级记录。
 
 **K60 可执行项**
 - `board.toml [payload] tools = true` 已有；确认 `uefi-mondrian` 的 DSC/FDF 是否包含 `AdvancedLogDxe` 与 `PcdUniXNUDeviceModel = "mondrian"`。
@@ -277,11 +277,11 @@
 ### 11. `docs/porting/dual-system-partition.md`（197 行，重点）
 
 **流程/规范要点**
-- 实验性工具 `scripts/dual_sys/partition.py`：通过 ADB 检测设备与分区，在线缩小 F2FS，然后从 `userdata` 末尾创建 `unixnu` 分区；保留 userdata 的 start/type/GUID/attributes。
+- 实验性工具 `unixnu:scripts/dual_sys/partition.py`：通过 ADB 检测设备与分区，在线缩小 F2FS，然后从 `userdata` 末尾创建 `unixnu` 分区；保留 userdata 的 start/type/GUID/attributes。
 - 支持布局：Python 3.10+、Android platform-tools、TWRP root ADB + `/data` 解密、内核支持 `F2FS_IOC_RESIZE_FS`、F2FS 4096 block/512 block per segment/1 segment per section/checkpoints、直接 userdata 或单层 dm 映射、主备 GPT 一致、userdata 是最后一个占用分区且有空 GPT entry、`unixnu` 不存在。
 - 不支持即停止：Ext4、多设备/zoned F2FS、multiple segments per section、encryption footers、stacked mappings、intervening partitions。
 - 备份：可选离线备份 `userdata` 与 `metadata` 到另一块物理盘；TWRP 文件备份可能漏 encryption metadata；禁用 MTP、卸载 Data/bind mounts/Metadata；`adb exec-out dd` + `blockdev --getsize64` + `wc -c` + `shasum -a 256` 校验。
-- 构建 helper：`aarch64-linux-gnu-gcc -static -O2 -Wall -Wextra -Werror scripts/dual_sys/f2fs-shrink.c -o out/dual_sys/f2fs-shrink`；`file` 确认静态 AArch64 ELF。
+- 构建 helper：`aarch64-linux-gnu-gcc -static -O2 -Wall -Wextra -Werror unixnu:scripts/dual_sys/f2fs-shrink.c -o out/dual_sys/f2fs-shrink`；`file` 确认静态 AArch64 ELF。
 - `plan`：`python3 scripts/dual_sys/partition.py plan --size-gib 32 --helper out/dual_sys/f2fs-shrink --output out/dual_sys/preview`；写 `plan.json`、GPT before/after、`plan.env`、`twrp.sh`、`SHA256SUMS`。
 - `apply`：重新生成 plan，确认设备与布局，输入确认短语；顺序：重检 bundle/设备/内核/GPT → shrink F2FS → 验证两个 superblock → 卸载 `/data` → 写 backup GPT 并读回 → 写 primary GPT 并读回。
 - `verify`：`python3 scripts/dual_sys/partition.py verify --plan out/dual_sys/applied/plan.json`；重启 recovery 刷新分区表与加密映射。
@@ -357,7 +357,7 @@
 - 不采集：Mach message streams、user-client call rings、contiguous allocation rings、per-contact touch records、dispatch introspection、queue-priority/ring-switch/restart/stall rows、其他进程 pass/pipeline notes、status/telemetry、screenshots/pixel samples。Fast resource release <250 µs 省略；completion/owner callbacks 保留配对。
 - LAT1 容量：32,768 slots for faults/unnests/exit reasons/process identities；491,519 slots ordinary latency events + 1 summary；普通事件不能覆盖 fault lane。
 - 导出：`gpu.trace.bin`、`kernel.latency.bin`、`kernel.rings.txt`、`kernel.boalloc.bin`、`kernel.cpus.bin`、`kernel.ptime.bin`、`kernel.touch.bin`、`kernel.client.bin`、backboardd `frames.trace`、最多两个 crash report per named service/widget（≤8 MiB）；`diag-skipped.txt` 记录未放入文件与 dasd model resource lookup。
-- 读取：`fastboot boot /path/to/linux-log.img`、`python3 scripts/read-sheng-log.py --wait 60 --out /path/to/logs`；解码 `scripts/decode-gpu-trace.py RUN/diag/files`、`scripts/decode-sheng-latency.py ...`；LAT1 16-byte header + 72-byte records；event 35/36 是 unnest range，用户栈跟随 fault event 8/9/12；client sampler state bits 12-13（1 render/2 encode/3 completion）。
+- 读取：`fastboot boot /path/to/linux-log.img`、`python3 scripts/read-sheng-log.py --wait 60 --out /path/to/logs`；解码 `sheng:scripts/decode-gpu-trace.py RUN/diag/files`、`sheng:scripts/decode-sheng-latency.py ...`；LAT1 16-byte header + 72-byte records；event 35/36 是 unnest range，用户栈跟随 fault event 8/9/12；client sampler state bits 12-13（1 render/2 encode/3 completion）。
 - 检查：`python3 scripts/check-gpu-trace.py`、`python3 scripts/check-native-adreno-scheduling.py`。
 
 **K60 可执行项**
@@ -392,7 +392,7 @@
 **流程/规范要点**
 - 先建立 firmware scanout：构建 UEFI 固件、确认菜单/颜色/尺寸正确、比较 GOP geometry 与 firmware memory map/board DTS、保留 active scanout allocation 到 kernel handoff。
 - 再适配 XNU display backend：`GopFramebuffer` 的 `NativeLegacyDisplay.cpp`、`NativeGOPPresenter.cpp`、`NativeGOPWire.h`；消费 `PE_current_console`，适配 MobileFramebuffer/IOSurface ABI。
-- 参考 recipe：`scripts/build-gop-legacy-display.py` 用 prelinked candidate 与 ABI audit 生成 late display archive；`CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y` + `offline-legacy-*`；`sheng-dpu=1` 采 SM8550 DPU/dual-DSI counters；`sheng-vsync=120` 请求 120Hz。
+- 参考 recipe：`sheng:scripts/build-gop-legacy-display.py` 用 prelinked candidate 与 ABI audit 生成 late display archive；`CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y` + `offline-legacy-*`；`sheng-dpu=1` 采 SM8550 DPU/dual-DSI counters；`sheng-vsync=120` 请求 120Hz。
 - `NativeGOPWire.h` 路径：先查 mode/geometry、校验 present buffer 的 size/stride；GPU handoff 用 `NGPSwap.sequence` 跟踪 pending frame，copy 后以该 sequence 返回 `NGPComplete`；保留 source frame/IOSurface 到 swap 完成。
 - 24A446 adapter：默认 surface 经原 IOSurfaceRoot factory，校验 backing memory/geometry 后转交 display family；`create_default_fb_surface()` slot 返回 void，残留返回寄存器不是 object pointer；300 秒 boot 三次 swap 无 panic，显示 Apple logo；Home screen 未验证。
 - DPU pipes：`sheng-dpu=2` 读 VIG0/1 source/size/format/fetch、CTL0、tear check、apps SMMU display streams；`sheng-dpu=3` 还改 pipe current address 并计时 CTL flush latch；直接 scanout `sheng-dpu-scanout=2` 实验默认关闭。
@@ -412,7 +412,7 @@
 **流程/规范要点**
 - 先完成 display geometry 与 interrupt/DMA 设置；记录 touch controller 型号/固件/matrix geometry/physical orientation/bus wiring/reset/IRQ pins/OS HID ABI。
 - 传输与传感器：`QcomGeniSpi`、`ShengNovatekTouch`（`NvtProtocol.h`/`NvtTouchCore.c`）；`nvt_bus.xfer` 必须是一个 full-duplex transfer 且 chip select 全程保持；caller-owned buffers + delay callback；按 `nvt_identify` → `nvt_fw_parse` → `nvt_download_firmware` → `nvt_read_frame` 顺序检查返回码；下载失败保留 stage/CRC/SRAM-readback 诊断。
-- Board path：controller windows/bus mode/rate/GPIOs/interrupt/SMMU stream；power/reset ownership；DMA addressing/cache；chip ID → firmware → geometry；坐标映射到 display orientation；稳定 contact ID/多点/边缘/release。Novatek core 是 40×60 matrix；固件由 `scripts/gen-touch-firmware.py` 与 proprietary inventory 管理。
+- Board path：controller windows/bus mode/rate/GPIOs/interrupt/SMMU stream；power/reset ownership；DMA addressing/cache；chip ID → firmware → geometry；坐标映射到 display orientation；稳定 contact ID/多点/边缘/release。Novatek core 是 40×60 matrix；固件由 `sheng:scripts/gen-touch-firmware.py` 与 proprietary inventory 管理。
 - HID：按选定 kernelcache 资质 IOHIDFamily 方法/对象布局；adapt report descriptor/logical ranges/contact limits；`sheng-touch=1..4` 分阶段，`sheng-touch-hid=1` 开启发布。
 - 实体按键：`ButtonProbe.cpp` 参考；GPIO/PMIC 输入极性/ownership/interrupt routing/ack；只访问当前执行环境拥有的 PMIC 外设；`BootResetCore.h` 适配 SPMI；report 2 bits 为 Power/Volume Increment/Volume Decrement；`sheng-buttons=1`。
 
@@ -430,7 +430,7 @@
 - 先完成 platform DMA 与 basic display presentation；读 `Adreno740` runtime 与 `AdrenoMetal` interface。
 - Adreno740 只实现 A740 kernel interface；AdrenoMetal 使用该接口 + Turnip/metal2vulkan + 选定 OS GPU/IOSurface ABI；换 GPU generation 必须先实现匹配 kernel backend 与 compiler support。
 - 对另一个 A740 board：收集 GPU/GMU registers/interrupts/SMMU context/stream IDs/firmware/power domains/clock-voltage levels/interconnect votes/RAM reservations/scanout layout。
-- 固件输入：`qcom/gmu_gen70200.bin`、`qcom/a740_sqe.fw`、`qcom/sm8550/sheng/a740_zap.mbn`；`scripts/data/adreno-inputs.json` pins；`.cache/firmware/sheng-gpu/`；`proprietary-files.txt` 记 provenance。
+- 固件输入：`qcom/gmu_gen70200.bin`、`qcom/a740_sqe.fw`、`qcom/sm8550/sheng/a740_zap.mbn`；`unixnu:scripts/data/adreno-inputs.json` pins；`.cache/firmware/sheng-gpu/`；`proprietary-files.txt` 记 provenance。
 - 命令提交：ArmSmmu4K context ownership/stream/address width/cache；reserved memory/GPU VA windows；CP init/ring progress/fence completion；known image render；client teardown/mapping lifetime/fence failure。
 - Memory path 规则：对象 handle index；BO 用 pageable `IOBufferMemoryDescriptor` 无 task + write-combined + `prepare()`；owned map 用 `ArmSmmu4KLiveMapContextBatchExclusive`；imported map 按 cache class/page bitmap 选择；unmap ≤512 pages 每页 TLBIVAL，>512 invalidate ASID；submission 不做 TLB invalidate；stalled fence 仍 invalidate。
 - Scheduling：`sheng-gpu-preempt=2`，高/正常高/实时用 ring 0，普通/低/背景/未指定用 ring 1；FIFO across priority changes；preemption 保存 GMEM/恢复每 ring executed page table；interactive QoS。
@@ -473,7 +473,7 @@
 - `bringUp` 9 阶段：map clock/TCSR/PHY/QSCRATCH → vote rails → enable GDSCs → clocks/resets → SMMU context → repeater → eUSB2 then QMP PHY（fallback UTMI）→ read core ID → hardware ready；`native_usb_stats[0]` 存最后 stage，负数表示失败 stage。
 - `AppleUSBXDCI` 不做 cache maintenance；给 controller stream 一个 stage 1 identity context，write-back inner shareable blocks。
 - Class registration：`qcom_dwc3_bring_up` → `OSKextLoadKextWithIdentifier` for `com.apple.driver.AppleUSBXDCI`/`com.apple.driver.usb.AppleUSBXHCI` → `OSMetaClass::preModLoad`/static init/`postModLoad` → `qcom_dwc3_publish`；USB stacks 加 prelink roots。
-- Class layout 来自 kernelcache：`scripts/gen-usb27-abi.py`、`gen-usb27-host-abi.py` 生成 `scripts/usb-xdci-24A446.json`/`usb-xhci-24A446.json`；两个 override：`AppleUSBXDCI` slot 179 无 `IOPort` 返回 false；host mode xHCI subclass 对 power 回答 on，device stack 回答 0。
+- Class layout 来自 kernelcache：`sheng:scripts/gen-usb27-abi.py`、`gen-usb27-host-abi.py` 生成 `sheng:scripts/usb-xdci-24A446.json`/`usb-xhci-24A446.json`；两个 override：`AppleUSBXDCI` slot 179 无 `IOPort` 返回 false；host mode xHCI subclass 对 power 回答 on，device stack 回答 0。
 - Cable role：`qcom_dwc3_vbus(int)`、`qcom_ucsi_start/receive/tick`、`qcom_ucsi_polling`；host on cable selects device role，peripheral selects host role；无回答时 device role。
 - Mac pairing：`chip-id` in `[payload.adt]`；`board-id`/`security-domain` in `adt.chosen.u32` OS profile；`native-union-statfs-fsid`；lock state 3；`MobileDevice.framework` device map row。
 - 构建/验证：`sheng-usb=1 log-sys=1`，`./unixnu build kernel payload`、`bootimg`、`fastboot boot`；Mac `ioreg -p IOUSB -l -w0 | grep -E 'idVendor|idProduct|Device Speed'`；Device Speed 4 on USB3；解锁/Trust 后 lockdown session。
@@ -513,7 +513,7 @@
 - Power path：`sheng_wcn_power_get/put` 与 Wi-Fi 共享 WCN supplies，每个 radio 一票，最后一个 owner 释放；`powerOn` 顺序：map resources + 32 KiB DMA buffers via `smmu_plan_bypass`/`smmu_configure_bypass` holding `AppsSmmuLock` → take BT power vote → `BT_EN` low 100 ms → enable serial clock → check QUP version/protocol → prepare engine → attach UART/wake interrupts → raise `BT_EN` wait 60 ms → enable pin pulls → `qbt_geni_start` → `qbt_boot(rate, address)`；`powerOff` 逆序。
 - Worker：`sheng_bluetooth_probe` from late platform probe；`qbt_platform` → `qbt_create` → `qbt_transport_init`；wait for Data addon；move bytes between `qbt_transport`/`qbt_transmit`；sleep until `qbt_deadline`/`qbt_geni_deadline`.
 - DTS：`bluetooth { device_type = "bluetooth"; compatible = "qcom,wcn7850-bt"; unixnu,adt-name = "bluetooth"; transport-encoding = <1>; transport-speed = <3200000>; status = "okay"; };`；userland 前设 `local-mac-address` + `/chosen/mac-address-bluetooth0`，注册 `IOService` `bluetooth`。
-- Native stack: `payload.runtime` 的 `audio_system_plugins = ["BTAudioHALPlugin.driver"]`、`bluetooth_tool = "scripts/build-bluetooth-userspace.py"`、`bluetooth_target = "ios27"`；stages signed BlueTool/bluetoothd/QcaBTType0.dylib；`patches/xnu-12377/sheng-bluetooth-runtime.patch` mounts over `/usr/lib`/`/usr/sbin`；adapter locked to one bluetoothd hash；pairing keys need keychain/AppleKeyStoreState.
+- Native stack: `payload.runtime` 的 `audio_system_plugins = ["BTAudioHALPlugin.driver"]`、`bluetooth_tool = "sheng:scripts/build-bluetooth-userspace.py"`、`bluetooth_target = "ios27"`；stages signed BlueTool/bluetoothd/QcaBTType0.dylib；`sheng:patches/xnu-12377/sheng-bluetooth-runtime.patch` mounts over `/usr/lib`/`/usr/sbin`；adapter locked to one bluetoothd hash；pairing keys need keychain/AppleKeyStoreState.
 - 验证：`check-bluetooth-platform.py`、`check-bluetooth-shared.py`、`check-wcn-power.py`；`sheng-bluetooth=1 log-bluetooth=2`；`[bluetooth] state=2 error=0`、`[bluetooth proc]` one bluetoothd start；Settings turn on/pair/play/restart reconnect。
 
 **K60 可执行项**
@@ -629,7 +629,7 @@
 - userdata：`./unixnu build userdata --dry-run` → `build userdata`；检查 `userdata-root.json`；payload：`./unixnu build payload`；检查 `payload.json`/printed command line；FAT 内容 `unixnu.toml`/kernel/ADT/sidecars。
 - boot：`./unixnu bootimg`；检查 `boot/boot.json` 的 firmware/DTB/payload/`ramdisk_bytes` nonzero；改 boot args 后 payload+bootimg；改 kernel code 先 rebuild kernel。
 - macOS runner：`macos-26`、`xcode` 默认 26.6；inputs `device_repository`/`device_ref`/`defconfig`/`xcode`/`steps`（kernel、kernel payload、kernel userdata、kernel userdata payload）/`ipsw_url`/`pre_build`/`trust_cache_url`/`owner_trust_cache`/`data_seed_url`/`grow_gib`/`skip_setup`；secret `UNIXNU_UNIQUE_CHIP_ID`、`UNIXNU_DEVICE_TOKEN`；只发布 redacted `*.log`。
-- Linux host：installer supports apt/dnf/pacman/zypper on glibc；`--package-manager none` + `--llvm-config FILE`；`scripts/linux/setup-toolchain.py --print-packages`/`sudo ...`；`./unixnu defconfig`/`fetch`/`build kernel`；`prepare-xnu.py` source/libs；`build-firehose.sh`、`build-corecrypto-14.py`、`lzfse`。
+- Linux host：installer supports apt/dnf/pacman/zypper on glibc；`--package-manager none` + `--llvm-config FILE`；`unixnu:scripts/linux/setup-toolchain.py --print-packages`/`sudo ...`；`./unixnu defconfig`/`fetch`/`build kernel`；`prepare-xnu.py` source/libs；`build-firehose.sh`、`build-corecrypto-14.py`、`lzfse`。
 - Commands 表：`defconfig`、`fetch [NAME...] [--update]`、`tree`、`ipsw info`、`ipsw fetch`、`build [kernel] [package] [firmware] [payload] [prelink]`、`build userdata [--dry-run]`、`bootimg`、`status [--json]`、`clean`。
 - Options：`-D DIR`、`--out DIR`、`-j N`、`--target DEBUG|RELEASE`、`--uefi DIR`、`--edk2 DIR`、`--kernelcache FILE`、`--kernel FILE`、`--kernel-arg NAME[=VALUE]`、`--trust-cache FILE`、`--owner-trust-cache FILE`、`--data-ramdisk FILE`、`--skip-setup`、`--unique-chip-id HEX`、`--ipsw PATH_OR_URL`、`--skip-preflight`、`--dry-run`；env vars `UNIXNU_DEVICE`/`UNIXNU_OUT`/`UNIXNU_UEFI`/`UNIXNU_EDK2`/`UNIXNU_KERNELCACHE`/`UNIXNU_DTB`/`UNIXNU_IPSW`/`UNIXNU_UNIQUE_CHIP_ID`/`JOBS`。
 - Steps 细节：defconfig merges ordered fragments + device defconfig last；fetch shallow blobless cone sparse, writes `unixnu.lock`；tree layout `drivers/kits/patches/refer/scripts/package/build/.cache`；ipsw HTTP range + sha256 pins；kernel pass/compile records/archives/BCM2837/DEVELOPMENT/iOS 17/prelink；package EDK II outputs; firmware preflight/patches/EDK II; payload FAT; userdata OS/SystemOS `SHNGROOT`; bootimg BootShim/FV/gzip/DTB/mkbootimg/unpack verify。
@@ -648,7 +648,7 @@
   ./unixnu bootimg -D ../UniXNU-mondrian --uefi ../uefi-mondrian --dtb out/mondrian/ipados-16.6.1-20G81/mondrian/device-tree/hardware.dtb
   ```
 - 输出根：`out/mondrian/ipados-16.6.1-20G81/mondrian/`；K60 当前 `package/` 只有 README，`./unixnu build package` 不会产出可用设备包；实际打包走 `uefi-mondrian`/`k60-macos-preflight.sh` 等脚本。若按文档启用 package，需要先补 `package/Kit.toml`。
-- K60 在 Linux/WSL 上构建：使用 `scripts/linux/setup-toolchain.py`，`JOBS` 控制并行；`--target DEBUG` 默认。
+- K60 在 Linux/WSL 上构建：使用 `unixnu:scripts/linux/setup-toolchain.py`，`JOBS` 控制并行；`--target DEBUG` 默认。
 - 修改 `kernel_args` 后重跑 `build payload` + `bootimg`，不要只重打 bootimg。
 
 **iOS 16.6.1/20G81 适用性**：大部分直接适用；但文档 kernel 步骤写“iOS 17”，K60 实际是 16.6.1/XNU 8796，需走 profile 的自定义 prelink/build 脚本；`build package` 与 `bootimg` 的默认路径对 K60 不完整。
@@ -673,8 +673,8 @@
 
 ### A. 仓库格式与记录（P0）
 
-1. **补 `scripts/package.sh`**：从 `E:/hackios/UniXNU/templates/package.sh` 原样复制到 `E:/hackios/UniXNU-mondrian/scripts/package.sh`，不改脚本内容。
-2. **补 `.github/workflows/package.yml`**：按 `packaging.md` 的 GitHub 流程，macOS runner + `scripts/package.sh`，artifacts 为 `boot.img`/`payload.img`/`kernel.macho`/`package.manifest.json`。
+1. **补 `sheng:scripts/package.sh`**：从 `E:/hackios/UniXNU/templates/package.sh` 原样复制到 `E:/hackios/UniXNU-mondrian/scripts/package.sh`，不改脚本内容。
+2. **补 `.github/workflows/package.yml`**：按 `packaging.md` 的 GitHub 流程，macOS runner + `sheng:scripts/package.sh`，artifacts 为 `boot.img`/`payload.img`/`kernel.macho`/`package.manifest.json`。
 3. **补 `board.toml [package]`**：
    ```toml
    [package]
@@ -742,7 +742,7 @@
 
 | ID | 冲突 | 依据 | 处置 |
 | --- | --- | --- | --- |
-| C01 | 设备仓库缺 `scripts/package.sh`，但 `packaging.md` 标注 **Mandatory for every device repository** | `packaging.md:3-6`；K60 `Test-Path scripts/package.sh = False` | 从 `templates/package.sh` 原样复制；补 `[package]`/`[package.defconfig]` |
+| C01 | 设备仓库缺 `sheng:scripts/package.sh`，但 `packaging.md` 标注 **Mandatory for every device repository** | `packaging.md:3-6`；K60 `Test-Path sheng:scripts/package.sh = False` | 从 `templates/package.sh` 原样复制；补 `[package]`/`[package.defconfig]` |
 | C02 | 缺 `.github/workflows/package.yml` | `device-repository.md:17-18,57`；`packaging.md:55-66` | 补 workflow，macOS runner，artifacts 四件套 |
 | C03 | `package/` 只有 `README.md`，无 `Kit.toml`/kit 内容；`board.kit = "mondrian"` 会让 `kits/mondrian` 为空 | `device-repository.md:455-487`；`package/README.md` | 补 `Kit.toml` 与 kit 目录，或明确该板不使用 kit 并记录 |
 | C04 | `porting.toml` 13 个 area，`records.md` 要求 14 个（含 `cellular`） | `records.md:15-39`；K60 `porting.toml` area id 列表 | 增加 `cellular`；K60 有 modem，写 `planned` 或说明范围 |
@@ -769,7 +769,7 @@
 | C20 | `input.md` 的 Novatek 40×60 matrix 不适用于 K60 的 Goodix m11a-spi | `input.md:23-54`；`K60-TOUCH-PARAMS.md`；`OFFICIAL-DRIVER-MAP.md` | 复用 `QcomGeniSpi` 传输概念 + `ShengHidInput` HID 概念；Goodix 协议另写 |
 | C21 | `power.md`/`bluetooth.md` 的音频/蓝牙示例是 sheng WCN7850/CS35L43/WCD938x/TFA9873；K60 是 QCA6490 + AW882xx | `power.md:53-68`；`bluetooth.md:24-35`；`BT-AUDIO-PORT-PLAN.md` | 保留 PongPower/AudioReach 框架；AW882xx/QCA6490 驱动新写 |
 | C22 | `packaging.md` 要求单一 build target/`[os_overrides]`，K60 同时保留 `patches/xnu`（16.6.1）与 `patches/xnu-ipados18`（darwin24）两套系列 | `packaging.md:19-25`；K60 `README.md:18-19`；`patches/xnu-ipados18/` | 采用 package.sh 时把 16.6.1 设为唯一 build target，darwin24 系列归档；或明确双路线例外并记录 |
-| C23 | `records.md` 要求官方 `scripts/porting-record.py`，K60 只有自定义 `scripts/check-porting-paths.py` | `records.md:92-104`；K60 `scripts/check-porting-paths.py:1-10` | 自定义预检保留，官方 checker 作为验收；在 CI 里跑两者 |
+| C23 | `records.md` 要求官方 `unixnu:scripts/porting-record.py`，K60 只有自定义 `scripts/check-porting-paths.py` | `records.md:92-104`；K60 `scripts/check-porting-paths.py:1-10` | 自定义预检保留，官方 checker 作为验收；在 CI 里跑两者 |
 | C24 | `device-tree.md` 的 `darwinboot-memory-size` 上限 8 GiB，`MEMORY-12G-PLAN.md` 讨论 12 GiB | `device-tree.md:168-185`；`MEMORY-12G-PLAN.md` 结论（12 GiB 单窗口不可行，最长连续 8.652 GiB） | 不把 12 GiB 写成单窗口；当前 4.75 GiB 保持；如做多区 pmap 另立方案 |
 
 ### 3.3 文档空白（当前方案必须自担）

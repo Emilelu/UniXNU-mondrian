@@ -69,7 +69,7 @@ configs/mondrian_defconfig
 3. 再跑主脚本
 
 **参数取值**：
-- `--framework` 必须指向含 `scripts/unixnu/devicetree.py` 的 core —— 我们仓库没有 `scripts/unixnu`，用 `/opt/k60/trees/k60build`
+- `--framework` 必须指向含 `unixnu:scripts/unixnu/devicetree.py` 的 core —— 我们仓库没有 `scripts/unixnu`，用 `/opt/k60/trees/k60build`
 - `--hardware-dtb` 可用 `/mnt/e/k60-work/reports/live-6033dbec-fdt.dtb`（六个必需 compatible 全有）
 - `--battery-module`（`qti_battery_charger_main_m81` 的 AArch64 ELF）**本机没找到 —— 硬缺口**
 

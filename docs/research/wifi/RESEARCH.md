@@ -70,7 +70,7 @@ struct Entry {char name[32];uint32_t offset,bytes;};
 
 ### 板级配置
 
-`configs/pong-wifi-sm8475.json`（`UniXNU-pong` 仓库）：
+`pong:configs/pong-wifi-sm8475.json`（`UniXNU-pong` 仓库）：
 
 ```json
 {
@@ -172,7 +172,7 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 2. **固件必须从 K60 自己的 Android 分区提取**（`amd.bin` / `amss.bin` / `bd_m11agf.elf`），
    不能用 Pong 的。
 3. **`subsystem_device` 已实测相同**（`0x0108`/264）；换板或换批次时仍需核对，不同则 PCIe 设备枚举会失败。
-4. **PWF2 打包工具需要先实现**（Pong 的打包脚本在 `scripts/build-pong-wifi-native.py`）。
+4. **PWF2 打包工具需要先实现**（Pong 的打包脚本在 `pong:scripts/build-pong-wifi-native.py`）。
 
 ---
 

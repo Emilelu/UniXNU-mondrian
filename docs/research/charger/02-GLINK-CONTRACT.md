@@ -21,7 +21,7 @@
 | 模块依赖 | `.modinfo` | `depends=panel_event_notifier,pmic_glink` |
 | 是否出现通道名/GUID 字符串 | 扫 `.rodata`/`.data` 全部可打印串 | 没有 `IPCRTR`、`glink`、`smp2p`、`adsp`、GUID 形态串；与传输相关的只有 `.rodata:0x25aa` `Error in registering with pmic_glink %d` 和 `.rodata:0x1aa8` `Error unregistering from pmic_glink, rc=%d` |
 
-**结论**：通道名、服务名、端口号由内核 `pmic_glink` 核心（`drivers/soc/qcom/pmic_glink.c` + `pmic_glink_rpmsg`）内部决定，**不在 .ko 里**；.ko 只认 `pmic_glink_register_client()` 返回的 client 句柄。所以仅凭 .ko 无法反推 GLINK 通道名/GUID——这一点必须在 L1 契约里另行取证（见 §8）。
+**结论**：通道名、服务名、端口号由内核 `pmic_glink` 核心（`linux:drivers/soc/qcom/pmic_glink.c` + `pmic_glink_rpmsg`）内部决定，**不在 .ko 里**；.ko 只认 `pmic_glink_register_client()` 返回的 client 句柄。所以仅凭 .ko 无法反推 GLINK 通道名/GUID——这一点必须在 L1 契约里另行取证（见 §8）。
 
 ## 2. 客户端注册（唯一入口）
 

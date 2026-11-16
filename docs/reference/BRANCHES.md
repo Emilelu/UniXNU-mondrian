@@ -39,7 +39,7 @@
 
 | 分支 | 内容 | 处理理由 |
 | --- | --- | --- |
-| `smp-0340` | `board.toml [kernel.prelink] kext_patch`：给 20G81 的 `AppleARMPlatform::_validateConfiguration` 打补丁 | 属 **16.6.1 路线**。darwin24 用 `library_only` 丢掉它的 personality，不需要；且它会把 `archives` 里的 `ArmDTPlatform`/`ArmCpu` 删掉，**合入会破坏当前路线**。补丁本体在核心仓 `Emilelu/UniXNU` 的 `k60` 分支（`scripts/unixnu/kernel.py::patch_prelinked_kext`） |
+| `smp-0340` | `board.toml [kernel.prelink] kext_patch`：给 20G81 的 `AppleARMPlatform::_validateConfiguration` 打补丁 | 属 **16.6.1 路线**。darwin24 用 `library_only` 丢掉它的 personality，不需要；且它会把 `archives` 里的 `ArmDTPlatform`/`ArmCpu` 删掉，**合入会破坏当前路线**。补丁本体在核心仓 `Emilelu/UniXNU` 的 `k60` 分支（`unixnu:scripts/unixnu/kernel.py::patch_prelinked_kext`） |
 | `smp-8cpu` | `board.toml` 的 8 核 ADT | 其 `cpus = 8` 已在 `main`；该分支的 `kernel_args` 比 `main` 旧，属过期快照 |
 | `smp8` | `board.toml` 的 `cpus` 1 → 8 | 同上，内容已在 `main` |
 

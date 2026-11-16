@@ -43,7 +43,7 @@
 | `README.md:134` | "固件卷重建手册：谁在构建、**为什么同源同字节**、现场**两个卷**、**P-154 现状**与重建实验协议" | main 的 `FIRMWARE-REBUILD.md` 已是"它不是确定性的（P-216）、现场四个卷、P-154 已关闭" | 【实测】 |
 | `docs/engineering/README.md:24-25`、`docs/engineering/STATUS.md:341-342` | ★1–★35 / P-01–P-130 | ★1–★37（29/30/31 不存在）/ P-01–P-230 | 【实测】 |
 | `docs/INDEX.md:18-19`、`:52-53` | 同上 | 同上 | 【实测】 |
-| `docs/INDEX.md:5` | "最后更新 2026-11-12。本索引由 `scripts/check-doc-links.py` 校验" | 该脚本不存在；实际门禁是 `scripts/check-docs.py` | 【实测】 |
+| `docs/INDEX.md:5` | "最后更新 2026-11-12。本索引由 `check-doc-links.py` 校验" | 该脚本不存在；实际门禁是 `scripts/check-docs.py` | 【实测】 |
 | `README.md:57` | 门禁"当前 84 条" | `docs/engineering/RULES.toml` 有 **107** 个 `[[rule]]` | 【实测】 |
 | `AGENTS.md:188` | "`patches/xnu/` carries 245 patch files with 211 entries in `series`" | **268** 个 `.patch`、series **227** 条 | 【实测】 |
 | `docs/engineering/STATUS.md:47` | "223 个补丁" | series 227 条（若指使能条数则口径未注明） | 【实测】 |
@@ -98,6 +98,17 @@
 
 **2026-11-17 复测（门禁口径）**：`scripts/check-doc-citations.py` 已落地（基线 `docs/engineering/DOC-CITATIONS-BASELINE.toml`，`check-docs.py` 调用）。门禁口径比上表的手工扫描更宽（含无行号纯路径、多了根文档），测得 **2,528 处**引用、**308 个**目标不存在、行号越界 **0**。上表 14 处越界里，2 处加上 `pong:`/`zizhan:` 仓库限定后不再算本仓（`PongAdrenoScanout.cpp:682`、`ArmDTPlatform.cpp:254`），其余 13 个键（17 处站点）已逐条修正：`docs/ops/HARD-RULES.md` 两条改到真实行/去行号、`docs/engineering/BOOT-ARGS.md` 的 `:62`→`:39-45`、审计表自身两条拆成「文件 + 行号」写法、`FEATURES-DRIVERS-RESEARCH-2026-10-31.md` 两处标 `sheng:`、`docs/plans/MZYSL-DIFF.md` 六个键标 `mzyxsl:`、`PITFALLS.md` 与 `GPU-TODO.md` 对 `porting.toml` 的 `:248`/`:240` 两处引用改指 `[[area]] id = "gpu"`（`:107`）。
 
+**2026-11-17 二次收敛（同一门禁，基线 102）**：把 124 个实际属于其它本地检出的目标加仓库限定后，
+口径变为 **2,148 处引用、102 个目标缺失、0 处行号越界**。做法分三类：①按 `docs/research/LINE-RESEARCH-MAP.md`
+的节头给 97 条 bullet 加检出前缀（如 `k60-adsp-handoff:docs/research/...`）；②对 49 个文件里 260 行裸引用按
+「该路径在哪个检出存在」批量加 `unixnu:`/`sheng:`/`pong:`/`zizhan:`/`liuqin:`/`k60-wifi:`/`k60-bt:`/`linux:`
+（label 由脚本逐个 `os.path.exists` 判定，不按目录猜）；③零散修正 13 处：6 个 `patches/xnu/...` 占位改真名、
+`0401/0602` 旧补丁名改真名、`0621/0622` 标 `k60-cellular:`、Pong{Power,Audio,Cellular,Thermal}/K60Backlight
+五个文件标线检出、`track-upstream-branches.py` 改 `<workspace>/scripts/`（它从来不在仓库里）。
+剩余 102 个按目录：scripts 56、drivers 19、package 11、patches 5、docs 4、configs 3、dts 2、kits 2 —— 全部是
+「历史上真的删掉了」「只存在于上游 pong/sheng 早期树」或「命令行片段里的相对路径（按执行目录解释，不是引用）」三类，
+基线冻结、新增即 FAIL。
+
 **指向 docs/research 但 main 上不存在的引用（8 处，逐条核实过实体在哪）**：
 
 | 引用处 | 目标 | 实体现状 |
@@ -114,12 +125,12 @@
 > **2026-11-17 部分已修**：上表 11 条「指向不存在的 research 文件」全部处理——能定位到线检出的
 > 改成显式「（在 k60-XXX 检出，main 未收录）」；路径写错的三条改成 `docs/research/0X-*.md`；
 > 两份任何检出都没有的（`bt/EVIDENCE.md`、`touch/13-STAGE-ONE…`）写明不存在与抢救副本位置。
-> 217 个里剩下的 206 个（主要是 `file:line` 的历史引用）仍未动。
+> 217 个里已处理 139 个（97 条地图 bullet + 42 条跨仓/改名），其余冻结在基线（含命令行片段）。
 
 **机制修复（2026-11-17 已做）**：新增 `scripts/check-doc-citations.py`，由 `scripts/check-docs.py`
 的 `check_citations()` 调起，所以文档门禁现在会真的检查引用。口径比上表宽（多扫 README /
-README_EN / AGENTS / CREDITS，行号支持 `:12-34` 范围），实测 **2,647 处引用、311 个目标不在本仓库、
-15 处行号越界**；这些历史欠账冻结在 `docs/engineering/DOC-CITATIONS-BASELINE.toml`（326 条），
+README_EN / AGENTS / CREDITS，行号支持 `:12-34` 范围），首版实测 **2,647 处引用、311 个目标不在本仓库、
+15 处行号越界**，冻结基线 326 条；2026-11-17 收敛后为 **2,148 / 102 / 0**（基线 102 条），
 基线之外新增一处就 FAIL，修好一条后跑 `--update-baseline` 收紧。单测见
 `scripts/tests/test-check-doc-citations.py`（5 例：正常引用 / 缺失目标 / 越界行号 / 无行号纯路径 / 基线往返）。
 
@@ -167,7 +178,7 @@ c3 进 SpringBoard 132），c4/c5/c6 进桌面、c7 已判读到 SBL/READY。
 | 区 | 我们实现 | 现成最好的 | 关系 | 现在能抄？ | 风险 |
 |---|---|---|---|---|---|
 | GPU/Metal | `drivers/PongMetal/` 267,785 B；前端 `NativeBridgeMetalFrontend.mm` **109,178**【实测】 | `references/pong-metal@0b3b34a` 952,507 B；同文件 **225,616**【实测】 | 同源更晚 | **是**：前端 + `bridge/NativeMetalObjects.rs` 135,840 + 10 个头 + `shaders/scanout_convert.ll` | 高（backboardd 崩溃面） |
-| WiFi 接线 | `patches/wifi/` 0001–0012 = **229,326 B**，main 无读者【实测】 | 同补丁在 `feat/wifi-bringup` 由 `scripts/build-k60-ath11k.py` 应用 | 分支独有 | **是**：把 applier + `k60_wifi_stage` 门搬进 main | 高（MHI/AMSS） |
+| WiFi 接线 | `patches/wifi/` 0001–0012 = **229,326 B**，main 无读者【实测】 | 同补丁在 `feat/wifi-bringup` 由 `k60-wifi:scripts/build-k60-ath11k.py` 应用 | 分支独有 | **是**：把 applier + `k60_wifi_stage` 门搬进 main | 高（MHI/AMSS） |
 | WiFi 源码 | patch 0001 冻结 `vendor-zizhan-087416a`（134,576 B） | `references/pong-wifi`：Platform **40,342**、Net **47,407**、Pci **6,010**、ath11k **7,248**【实测】 | 同源更新 | 是：替换 0001 的 vendor dump | 高 |
 | UFS 根发布层 | `drivers/NativeUfs` 7 文件 ~82 KB | `references/ShengUfs@9d527ae`：`NativeUfs.cpp` **149,596**、`VerifiedTableCache.h` **6,878**、`RootPublication.h` **3,225** + tests【实测】 | 官方组件（catalog pin `99d8bcd` 无此层） | 是：VerifiedTableCache + RootPublication/RootWindowRead + 4 个测试 | **高**（根挂载，P-152/153） |
 | Metal 测试 | — | `UniXNU/drivers/AdrenoMetal`：`OfflineMetalFrontend.mm` 75,688 等 5 个 | 官方组件 | 是：当回归网 | 低 |
@@ -235,7 +246,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 ## 9. 机制修复建议（比逐条修更重要）
 
 1. **引用门禁**：**已做（2026-11-17）** `scripts/check-doc-citations.py`（路径存在性 + 行号上限），由 `check-docs.py` 调起，
-   现存 326 条欠账走 `docs/engineering/DOC-CITATIONS-BASELINE.toml` 冻结、新增即 FAIL；剩余 311 个目标与 15 处越界逐条清。
+   欠账从 326 条降到 102 条、行号越界 0；剩余目标的分类见 §5，新增即 FAIL。
 2. **数字不要手写**：★/P/RULES/series/patch 计数在 `check-readme.py` 已有实现，扩展到 INDEX、`docs/engineering/README.md`、`docs/engineering/STATUS.md`、`AGENTS.md`（同一段逻辑，多传几个文件）。
 3. **研究可见性**：`docs/research/README.md` 改成"结论层索引 + 指向 INDEX 全量"；INDEX 的 research 段由脚本从目录生成，
    或至少加"未列出文件"小节（本轮先加了指针）。

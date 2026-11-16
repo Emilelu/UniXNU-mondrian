@@ -153,7 +153,7 @@
 
 ### I-20261103-08 `patch-sandbox-label-update.py` 缺失：payload 沙盒二进制补丁静默跳过
 
-- **现象**：fork `scripts/unixnu/payload.py:148-153` 引用 `scripts/patch-sandbox-label-update.py`，但该脚本不存在于任何检出；`is_file()` 守护使构建不报错，**沙盒补丁（强制 `mpo_cred_label_update_execve` 返回 0）实际从未生效**。
+- **现象**：fork `unixnu:scripts/unixnu/payload.py:148-153` 引用 `scripts/patch-sandbox-label-update.py`，但该脚本不存在于任何检出；`is_file()` 守护使构建不报错，**沙盒补丁（强制 `mpo_cred_label_update_execve` 返回 0）实际从未生效**。
 - **证据**：`ls scripts/unixnu/patch-sandbox-label-update.py` → No such file；payload.py 提交 `066a3da` 内联注释说明意图（消除 launchd execve → SIGKILL / `OS_REASON_EXEC/EXEC_EXIT_REASON_SECURITY_POLICY`）。
 - **根因**：脚本从未编写；意图由 P2-lite 调查（sandbox MAC 钩子拒 execve 假设）提出，该假设后被 sig=6/5 归因部分证伪，优先级下降。
 - **修复（何时需要补）**：当 spawn EACCES（I-20261103-05，site=1）排查落到 MAC 钩子段内时，编写该工具——在 kernel.macho 中定位沙盒策略的 `mpo_cred_label_update_execve` 入口并改为 `return 0`；补写后无需改 payload.py（自动生效）。

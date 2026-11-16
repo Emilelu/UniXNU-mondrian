@@ -11,7 +11,7 @@ Data 卷挂载之前拿到 `adsp.mdt` + `adsp.b00..b25`（26 个文件，23,494,
 | 路径 | 结论 | 证据 |
 | --- | --- | --- |
 | `vmd0` / `md0` 引导参数 | **死路**：窗口能映射，第一次读 FAT 引导扇区（映射基址 + 0x1FE）就 `esr: 0x96000010`——同步外部中止，不是地址翻译失败。说明地址不是 AP 可访问的物理地址（固件虚拟地址或 XPU 保护区），`mdevadd()` 的 `vmd` 分支要求的是已由 XNU 映射过的 VA | `docs/research/audio/ADSP-MD0.md`；`usblog-20261113-124204` |
-| 内核内嵌 23.5 MB blob | **不采用**：`patches/xnu/0401-embedded-init.patch` 已经 1.6 MB 就很吃力；23.5 MB 会让 `patches/xnu` 序列每次 `git diff`/`apply` 变成分钟级，且内核 `__DATA` 直接涨 23.5 MB，换不来可维护性 | `patches/xnu/series` 216+ 项；`apply` 实测 |
+| 内核内嵌 23.5 MB blob | **不采用**：`patches/xnu/0401-k60-embedded-init.patch` 已经 1.6 MB 就很吃力；23.5 MB 会让 `patches/xnu` 序列每次 `git diff`/`apply` 变成分钟级，且内核 `__DATA` 直接涨 23.5 MB，换不来可维护性 | `patches/xnu/series` 216+ 项；`apply` 实测 |
 | 内核自己读 `adsp_a` 分区 | **当前不可行**：`drivers/NativeUfs/RootCommands.h:289` 的 `hostRead4k()` 是 `static`，只在 kext 内部可见；BSD 侧没有任何已导出的块设备读接口。要走这条路必须先给 `NativeUfs` 加 IOKit 方法或导出 C 符号，属于独立工程 | `drivers/NativeUfs/*.h` 无 `read` 导出 |
 | 推迟到 Data 挂载后再加载 | **不可行**：PAS1 必须在音频/电池消费者之前完成，电池驱动 `K60PmicGlink::open()` 要求 `epoch != 0` 的 lease 才肯建链 | `drivers/PongPower/K60PmicGlink.cpp:120` |
 

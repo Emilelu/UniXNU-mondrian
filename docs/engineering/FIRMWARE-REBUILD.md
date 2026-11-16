@@ -7,8 +7,8 @@
 
 ## 1. 谁在构建它
 
-- 入口：`unixnu build`（框架仓 `scripts/unixnu/cli.py:63`）的 firmware 步骤，实现在
-  `scripts/unixnu/firmware.py`。
+- 入口：`unixnu build`（框架仓 `unixnu:scripts/unixnu/cli.py:63`）的 firmware 步骤，实现在
+  `unixnu:scripts/unixnu/firmware.py`。
 - 配置：本仓 `board.toml` 的 `[firmware]` 段——`dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"`、
   输出 `fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"`、`packages`、
   `[firmware.defines]`（`DEVICE_MODEL` / `ENABLE_SECUREBOOT` / `MEMORY_PROTECTION` / `SHIP_MODE` /

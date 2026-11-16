@@ -646,7 +646,7 @@
 - **证据（实测）**：
   - AMFI：`patches/xnu/zzzzzzzzzzz-pong-development-no-amfi-interface.patch` 注释「**AMFI is deliberately absent from this development prelink**」，并在 `accelerate_entitlement_queries()` 里当 `amfi == NULL` 且 `CS_CONFIG_ENFORCEMENT_DISABLED|CS_CONFIG_GET_OUT_OF_MY_WAY` 时 **return 0**。我们之前把 amfi 填成 miniamfi（非 NULL），bypass 分支永不命中 → `launchd_cache_loader` `Unable to find AMFI`。改成「amfi 保持 NULL」后实测：`Unable to find AMFI` **0 次**、`No service cache` **0 次**，launchd 正常跑 boot task（fsck / mount-phase-1）。
   - 复位进 fastboot：`drivers/PongBootCapture`（独立仓库 `pong-boot-capture`）`PongBootCapture.h`：先 SPMI 写 **PMIC SDAM7100**（`channel.write(0x10,value); channel.write(0,0x48<<4)`），再写 IMEM（`target==1?0x77665502:0x77665500`），最后 `reboot_kernel(0x400,NULL)`。**只写 IMEM → 仍进 Android**（本轮实测：panic 后设备自动重启但落在 Android）。
-  - 命令通道：`drivers/PongUsb`（`pong-usb`）`PongUsbDevice.h:88-97`：CDC bulk OUT 文本行 `reboot fastboot` / `reboot rec` / `help`，主机侧 `scripts/pong-usb-command.py`。
+  - 命令通道：`drivers/PongUsb`（`pong-usb`）`PongUsbDevice.h:88-97`：CDC bulk OUT 文本行 `reboot fastboot` / `reboot rec` / `help`，主机侧 `pong:scripts/pong-usb-command.py`。
 - **根因**：把「同 SoC 已验证实现」当成不存在，直接自研。
 - **修复**：立为铁律第 8 条（AGENTS.md / INDEX.md / project_memory.md 三处同步）；查法 `git fetch origin ios16` → `git ls-tree -r --name-only <ref>`；`drivers/<name>` 按 `.gitmodules` URL clone。
 - **30 秒判定**：任何内核/驱动/启动链问题，先问「pong 那边有没有现成实现」，没有答案再自研。
@@ -1181,7 +1181,7 @@
   `["kernel"."prelink"] roots` 又把 stock `com.apple.iokit.IOSurface` 当**真 kext** 列进去，
   于是 IOKit 启动它时 OSMetaClass 发现同名类已在 `__kernel__` 里 → start 失败 → 它自带的
   `IOSurfaceRoot` personality 永远没有类可 alloc。
-- **对照 pong（唯一可信参照）**：`scripts/build-ipados18-prelinked-boot.py:39` 的 roots 只有
+- **对照 pong（唯一可信参照）**：`pong:scripts/build-ipados18-prelinked-boot.py:39` 的 roots 只有
   corecrypto/pthread/apfs/Compression/AppleFSCompressionTypeZlib（开 Adreno 时再加 IOGPUFamily）；
   IOSurface 只出现在 `library`（library-only）集合里，而且紧接着
   `library &= set(closure['components'])` 会把没被 root 闭包拉进来的项**直接丢掉**。
@@ -1421,7 +1421,7 @@ SMC `0x84000009` → HVC → SMC `0xC4000009` → `reboot_kernel(0x400)`。
 但 `out3/ipsw/20G81/kernelcache.decompressed` 明明在，而且它的 sha256
 `d260defc…` 与 profile.toml 的 `kernelcache_sha256` **完全一致**。
 
-**根因**（`scripts/unixnu/kernel.py:224`）：
+**根因**（`unixnu:scripts/unixnu/kernel.py:224`）：
 
 ```python
 cache = ipsw.kernelcache(ctx, ipsw.Ipsw(ctx))
@@ -1816,10 +1816,10 @@ K60NULLENTRY this=0xfffffff48952e260 cls=CoreAnalyticsUserClient
    支持它的是 `/home/emilelu/hackios/UniXNU-mondrian/scripts/emit_prelink_autoslide.py`（5 处）。
    修法（照 preflight 的顺序）：
    ```sh
-   cd /tmp/k60build && git checkout -- kits/XnuPrelink/emit_prelink.py
+   cd /tmp/k60build && git checkout -- unixnu:kits/XnuPrelink/emit_prelink.py
    cp kits/XnuPrelink/emit_prelink.py kits/XnuPrelink/emit_prelink_orig.py
    cp /home/emilelu/hackios/UniXNU-mondrian/scripts/emit_prelink_autoslide.py \
-      kits/XnuPrelink/emit_prelink.py && chmod +x kits/XnuPrelink/emit_prelink.py
+      unixnu:kits/XnuPrelink/emit_prelink.py && chmod +x unixnu:kits/XnuPrelink/emit_prelink.py
    ```
 
 **教训**：清理 worktree（`git worktree remove`）会连带删掉这些现场文件。

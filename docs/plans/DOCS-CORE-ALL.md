@@ -65,7 +65,7 @@
 
 - Prelink 把“从源码构建的内核”和“原厂 Apple kernelcache”合成一个可启动 kernel：源码内核提供 UniXNU 改动的代码，原厂 kernelcache 提供 Apple kexts 和 platform services（`:3`）。
 - 输入：native kernel（示例路径 `out/<device>/<os_profile>/<config>/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf`）、原厂 kernelcache（IPSW `KernelCache` 或 `--kernelcache FILE`）、`[kernel.prelink] roots`、`slide`、`early_security_init`（`:7-13`）。kernelcache 是 `KernelCache` IM4P 的 LZFSE payload，选 arm64 slice 并按 `kernelcache_sha256` 校验（`:15`）。
-- `kits/XnuPrelink/emit_prelink.py` 的 9 步：解析 native/original Mach-O → 读 `__PRELINK_INFO` → 选择 `roots` 指定的 components 及其 import 的 kernel interfaces → 把选中 component 的 segments 复制到 native kernel 的空 coalesced segments → 重绑定所有指向选中 component 的指针 → 对每个选中地址应用 slide → 重写 module headers 和 kmod entries → 建 sparse prelink index → 写 `kernel.macho`（`:19-29`）。
+- `unixnu:kits/XnuPrelink/emit_prelink.py` 的 9 步：解析 native/original Mach-O → 读 `__PRELINK_INFO` → 选择 `roots` 指定的 components 及其 import 的 kernel interfaces → 把选中 component 的 segments 复制到 native kernel 的空 coalesced segments → 重绑定所有指向选中 component 的指针 → 对每个选中地址应用 slide → 重写 module headers 和 kmod entries → 建 sparse prelink index → 写 `kernel.macho`（`:19-29`）。
 - Coalesced segment 映射：`__PRELINK_TEXT`→`__TEXT`、`__PLK_TEXT_EXEC`→`__TEXT_EXEC`、`__PLK_DATA_CONST`→`__DATA_CONST`、`__PRELINK_DATA`→`__DATA`；范围保留原虚拟地址，slide 后原代码内部指针仍有效（`:35-44`）。
 - Pointer rebinding：native kernel 对 original components 的每个 import 解析到 component export，把 slid address 写到 import site；report 记录 `bindings`（`:46-60`）。
 - `early_security_init` 选一个原厂 security extension 及其可执行段地址；prelink 对其 slide 并记录给 kernel early security path。被选 component 的 prelink metadata 必须有 `AppleSecurityExtension = true`（`:62-64`）。
@@ -105,12 +105,12 @@
 
 - userdata 分区承载 Darwin root file system；UniXNU 不改原 disk images，只加 manifest 把每个 image 映射到分区窗口（`:3`）。
 - `struct shngroot_header`：magic `"SHNGROOT"`、version 1、count、image_bytes、window[count]（name[32]、offset、size、block_size 512、flags bit0 read-only、sha256[32]、reserved[40]）、reserved[32]、manifest_sha256[32]（`:7-25`）。header 占 4096 bytes，零填充到 1 MiB；第一个 window 从 `0x100000` 开始；每个 window 按 1 MiB 对齐（`:27`）。
-- Windows：`OS`（IPSW `OS`，系统卷）、`SystemOS`（`Cryptex1,SystemOS`，cryptex 系统卷）（`:29-34`）。image 从 IPSW 的 disk image 逐字节复制：macOS 用 `hdiutil` 只读 attach 后读 raw device，Linux 用 `scripts/unixnu/udif.py` 解 UDIF chunk；OS image 是 LZFSE chunk 的 UDIF，SystemOS cryptex 是 raw image（`:36`）。
+- Windows：`OS`（IPSW `OS`，系统卷）、`SystemOS`（`Cryptex1,SystemOS`，cryptex 系统卷）（`:29-34`）。image 从 IPSW 的 disk image 逐字节复制：macOS 用 `hdiutil` 只读 attach 后读 raw device，Linux 用 `unixnu:scripts/unixnu/udif.py` 解 UDIF chunk；OS image 是 LZFSE chunk 的 UDIF，SystemOS cryptex 是 raw image（`:36`）。
 - 分区容量 `(last_lba - first_lba + 1) * lba_bytes`；step 拒绝大于容量的 image；report 记录 capacity 和 image size（`:38-46`）。
 - Root matching：XNU 通过 `/chosen/root-matching` 的 `IOProviderClass=IOMedia` + `IOPropertyMatch/UUID` 选择根卷；UUID 是 OS window 的 volume UUID；native block driver 发布 userdata 分区，partition scheme 发布 volumes，XNU 按 UUID 匹配（`:48-62`）。
 - Data volume 独立于 userdata image，来自 payload 的 Data ramdisk seed；seed 是 payload 输入，payload report 记录其 hash（`:64-66`）。kernel 接受最高 1 TiB 的 Data disk；超过 2 GiB 时 typed block provider 只保留 seed 的非零页，内存随内容而不是磁盘大小；seed identity 对 size 和非零页及其 index 做 hash（`:68`）。
 - 持久 store 从 userdata 分区末尾的 window 提供；写用 forced unit access，命令完成即落盘；store 避开 root image 和 log reserve；`sheng-log-reserve=<MiB>` 设置 reserve，默认 1024 MiB；`sheng-data-persist=1` 只读证明 window，`=2` 打开写（`:70`）。
-- `scripts/seed-data-grow.py` 把 packed seed 的 APFS container 扩到指定大小或平板 userdata 分区；输出保留非零页和 volume UUID；不同 size 会重新开始 Data volume；kernel 拒绝 store window 不 fit 真实分区的 seed（`:72`）。`--skip-setup` 写一份 Setup preferences 标记完成的 seed 副本，按 seed hash 缓存（`:74`）。
+- `unixnu:scripts/seed-data-grow.py` 把 packed seed 的 APFS container 扩到指定大小或平板 userdata 分区；输出保留非零页和 volume UUID；不同 size 会重新开始 Data volume；kernel 拒绝 store window 不 fit 真实分区的 seed（`:72`）。`--skip-setup` 写一份 Setup preferences 标记完成的 seed 副本，按 seed hash 缓存（`:74`）。
 - Report `userdata-root.json`：`image_bytes`、`image_sha256`、`manifest_sha256`、`windows`、`userdata_bytes`、`flash_command`、`source`、`hardware_tested`（`:76-89`）。
 
 **对 K60 的含义**
@@ -132,7 +132,7 @@
 
 - 四步 procedure：选 host toolchain → 收集外部输入（IPSW/kernelcache、trust cache、Data seed、driver ABI）→ 检查设备输入（device repo、firmware repo、target DTB）并写入 `unixnu.local.toml` → 选 defconfig 后运行 `./unixnu status --json`，确认 device/OS profile/source paths 与输入一致（`:3-8`）。
 - **Host**：macOS 用 Xcode + `iphoneos` SDK；Linux 用 Linux toolchain；`--skip-setup` 和 Data seed resizing 需要 macOS image tools（`:10-12`）。工具表：macOS+Xcode、Python ≥3.11、git/make、cmake/ninja、unifdef、LLVM with lld、mtools、dtc、fastboot、QEMU/AAVMF（`:14-25`）。Homebrew keg-only LLVM 在 `/opt/homebrew/opt/llvm/bin` 自动找；其他工具需在 PATH（`:27`）。`unixnu fetch` 需要网络，更新 submodules、Apple source refs、Mu_Basecore tree（`:29`）。无 Mac 可用 GitHub macOS runner（`:31`）。
-- **Linux**：`scripts/linux/setup-toolchain.py` 一次安装到 `/opt/unixnu-linux`（或参数/`UNIXNU_TOOLCHAIN`）；组件包括带 `__builtin_xnu_type_*` 的 clang、cctools-port `1030.6.3-ld64-956.6`、mig/iig、xcrun/plutil/codesign shims、lzfse（`:33-43`）。支持 apt/dnf/pacman/zypper（`:45-54`）。命令：`--print-packages`、`sudo scripts/linux/setup-toolchain.py`、`--check`（`:56-63`）；`--package-manager`、`--llvm-config FILE`/`LLVM_CONFIG`、`-j N`、位置参数 prefix（`:65-72`）。脚本写 `/usr/bin/xcrun`、`plutil`、`codesign` shims；Mach-O archives/libdispatch/BlocksRuntime 在 toolchain prefix 下（`:74`）。userdata step 可在 Linux；`--skip-setup` 和 `seed-data-grow` 需要 macOS（`:74`）。
+- **Linux**：`unixnu:scripts/linux/setup-toolchain.py` 一次安装到 `/opt/unixnu-linux`（或参数/`UNIXNU_TOOLCHAIN`）；组件包括带 `__builtin_xnu_type_*` 的 clang、cctools-port `1030.6.3-ld64-956.6`、mig/iig、xcrun/plutil/codesign shims、lzfse（`:33-43`）。支持 apt/dnf/pacman/zypper（`:45-54`）。命令：`--print-packages`、`sudo scripts/linux/setup-toolchain.py`、`--check`（`:56-63`）；`--package-manager`、`--llvm-config FILE`/`LLVM_CONFIG`、`-j N`、位置参数 prefix（`:65-72`）。脚本写 `/usr/bin/xcrun`、`plutil`、`codesign` shims；Mach-O archives/libdispatch/BlocksRuntime 在 toolchain prefix 下（`:74`）。userdata step 可在 Linux；`--skip-setup` 和 `seed-data-grow` 需要 macOS（`:74`）。
 - **External inputs**：Mu-Silicium checkout（`--uefi`/`UNIXNU_UEFI`）、target IPSW（`--ipsw`/`UNIXNU_IPSW`）、解压 kernelcache（`--kernelcache`/`UNIXNU_KERNELCACHE`）、编译 DTB（`--dtb`/`UNIXNU_DTB`）、trust cache bundle（`--trust-cache`）、owner trust cache（`--owner-trust-cache`）、Data seed（`--data-ramdisk`）、platform seed（`--unique-chip-id`/`UNIXNU_UNIQUE_CHIP_ID`）、prebuilt static archives（`--kernel FILE`）、edk2/Mu_Basecore（`--edk2`/`UNIXNU_EDK2`）（`:78-91`）。
 - **Target IPSW 表**：arm64 iOS 16.7.16 20H392（iPhone10,3/10,6）；arm64 iPadOS 17.7.11 21H461（iPad7,1）；arm64e iOS 27.0.1 24A446（iPhone17,1）；arm64e iPadOS 27.0.1 24A446（iPad17,1–17,4）（`:97-102`）。iOS16/iPadOS17 都 arm64，共用 `profiles/arch/arm64` patch series；链接来自 ipsw.me（`:104`）。`[ipsw] url` 是设备仓默认，`--ipsw`/`UNIXNU_IPSW` 覆盖；IPSW 下载在仓库外（`:106`）。
 - **Device**：可解锁且接受 `fastboot boot` 的 bootloader；提供 framebuffer、input、block I/O、file system 的 UEFI port；bring-up 期 UART/USB log；足够 RAM 给 kernel window、payload、userdata image；匹配的 OS restore image 和 device identity（`:110-118`）。
@@ -152,9 +152,9 @@
 - `[[source]]` 示例：`name="xnu" kind="refer" git=... ref="xnu-10063.141.1" commit="d8b802..." darwin="23.6.0" version="10063.141.1" driverkit_tag="xnu-10063.121.3" trustcache_tag="xnu-8796.101.5"`（`:35-46`）。`build kernel` 把这些作为 `UNIXNU_XNU_TAG/COMMIT/DARWIN/VERSION/DRIVERKIT_TAG/TRUSTCACHE_TAG` 传给 `scripts/build-xnu-4k-baseline.sh`（`:48`）。另外 pin `libpthread-519.120.4`、`corecrypto-2023` commit `11fba65`（`:50`）。
 - 构建目标：`SDKROOT=iphoneos`、`ARCH_CONFIGS=ARM64`、`MACHINE_CONFIGS=BCM2837`、`KERNEL_CONFIGS=DEVELOPMENT`、`ARM64_LINK_ADDR=0xfffffff007004000`、`ARM64_PLKSEG_ADDR=0xfffffff004004000`、`DEPLOYMENT_TARGET_FLAGS="-miphoneos-version-min=17.0 -DXNU_TARGET_OS_IOS"`（`:52-62`）。`BCM2837` 承载 4 KiB page layout；arm64 kernel 目标 iOS 17 以匹配 iOS16/iPadOS17 kernelcache ABI；两个 arm64 目标共用 arm64 patch series（`:64`）。
 - Defconfig 映射：`CONFIG_XNU_<NAME>` → `XNU_<NAME>`；`y`→1、`n`→0、quoted string 原样、`{tree}` 替换为 build tree path（`:66-68`）。标志表（22 项）：`XNU_SOURCE_CORECRYPTO14`、`XNU_SOURCE_PTHREAD`、`XNU_ARM_DT_PLATFORM`、`XNU_ARMVIRT_PLATFORM`、`XNU_ARMCPU`、`XNU_NATIVE_UFS`、`XNU_NATIVE_AES`、`XNU_NATIVE_VIRTIO_BLOCK`、`XNU_NATIVE_RAM_BLOCK`、`XNU_NATIVE_VIRTIO_CONSOLE`、`XNU_NATIVE_MOBILE_DISPLAY`、`XNU_NATIVE_LEGACY_DISPLAY`、`XNU_NATIVE_ADRENO`、`XNU_NATIVE_OFFLINE_GPU`、`XNU_VERIFIED_ROOT_PROBE`、`XNU_NATIVE_CS_HASH_CACHE`、`XNU_NATIVE_ARCH_TIMER`、`XNU_NATIVE_PAN`、`XNU_DT_PANIC_REGION`、`XNU_TRUST_CACHE_RUNTIME`、`XNU_BOOT_PROGRESS`、`XNU_SOURCE_MOCKFS`（`:70-93`）。
-- `[kernel] archives` 是 build tree 的脚本列表，按顺序跑；一个 builder 消费另一个输出时必须排在后面；没有 builder 产出的 archive 必须在 build tree 提供；`CONFIG_XNU_BUILD_ARCHIVES=y` 才启用，bootstrap pass 和 first-console 配置不设（`:95-108`）。builders 通过 `scripts/xnu_symbols.py` 读符号名（checkpoint kernel 或 `link.filelist` + `all-alias.exp`）；fresh tree 需要一次 kernel pass 产生记录（`:110`）。`build-software-aes-bindings.py`、`build-adreno740-accelerator.py` 在无硬件证据时用 `scripts/data/` 的记录审计结果，地址属于 `board.toml` pin 的 kernelcache（`:114`）。
+- `[kernel] archives` 是 build tree 的脚本列表，按顺序跑；一个 builder 消费另一个输出时必须排在后面；没有 builder 产出的 archive 必须在 build tree 提供；`CONFIG_XNU_BUILD_ARCHIVES=y` 才启用，bootstrap pass 和 first-console 配置不设（`:95-108`）。builders 通过 `unixnu:scripts/xnu_symbols.py` 读符号名（checkpoint kernel 或 `link.filelist` + `all-alias.exp`）；fresh tree 需要一次 kernel pass 产生记录（`:110`）。`build-software-aes-bindings.py`、`build-adreno740-accelerator.py` 在无硬件证据时用 `scripts/data/` 的记录审计结果，地址属于 `board.toml` pin 的 kernelcache（`:114`）。
 - 构建顺序：fetch → build kernel（apply patches + restore omitted headers）→ 无 compile records 时跑一次 XNU pass（可停在 link）→ 按顺序跑 `[kernel] archives` builders → build/link + prelink → `build prelink` 只重复 prelink（`:116-125`）。
-- `[kernel.prelink]` 示例：`tool="kits/XnuPrelink/emit_prelink.py"`、`kernel="build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"`、`kernelcache_sha256`、`slide="-0x1000000"`、`early_security_init="com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"`、`roots=[...]`（`:127-142`）。
+- `[kernel.prelink]` 示例：`tool="unixnu:kits/XnuPrelink/emit_prelink.py"`、`kernel="build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"`、`kernelcache_sha256`、`slide="-0x1000000"`、`early_security_init="com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"`、`roots=[...]`（`:127-142`）。
 - 新增 kernel flag 五步：defconfig `CONFIG_XNU_<NAME>=y` → `build-xnu-4k-baseline.sh` 读 `XNU_<NAME>` → `EXTRA_MAKE_ARGS+=("<file>.o_CFLAGS_ADD=-DXNU_<NAME>=$VALUE")` → builder 加 `[kernel] archives`，archive 加 `KERNEL_EXTRA_ARCHIVES`/`KERNEL_ARCHIVE_DEPENDENCIES` → 通过 patch 加 personality 到 `iokit/KernelConfigTables.cpp`（`:144-150`）。
 - Prebuilt kernel：`./unixnu build payload --kernel FILE` 可打包已有 prelinked kernel，不重建 XNU（`:152-154`）。
 
@@ -191,7 +191,7 @@
 **流程/工具**
 
 - 五步 procedure：记录失败命令/最后 boot checkpoint + 设备/固件/image revision → 选日志源（USB terminal 仅用于实现该协议的板卡）→ 绿条走 entry-probe，panic 抓 panic screen，用户态 fault 收集 user fault evidence → 一次只改一个诊断项，重建受影响 artifact（boot-args 改动要 `./unixnu payload` + `./unixnu bootimg`）→ 保存 evidence bundle 并更新 porting record（`:5-11`）。
-- **USB debug terminal**：`scripts/debug_terminal.py` 和 `scripts/debug-terminal.cmd`；需 Python ≥3.10；命令 `--list`、`--port COM21 --command collect --seconds 20`（Windows）、Linux `--port /dev/ttyACM0 --command status --seconds 5`；Windows interactive `scripts\debug-terminal.cmd --port COM21`，`:help`；giulia 设备 `--vid 0x1209 --pid 0x0001 --usb-serial ACE5DBG001`；115200 baud，assert DTR（`:19-31`）。命令表：`all/collect`、`logs wifi/gpu/panic`、`save`、`watch status 2`/`unwatch`、`screen.start/stop`、`screen.snapshot`、`shell`（Ctrl+] 返回）、`reboot.fastboot`（`:33-42`）。会话存 `out/terminal/<timestamp>/`，topic export 保留最近 20,000 完整行；screen packet 与文本日志分离（`:44`）。
+- **USB debug terminal**：`unixnu:scripts/debug_terminal.py` 和 `scripts/debug-terminal.cmd`；需 Python ≥3.10；命令 `--list`、`--port COM21 --command collect --seconds 20`（Windows）、Linux `--port /dev/ttyACM0 --command status --seconds 5`；Windows interactive `scripts\debug-terminal.cmd --port COM21`，`:help`；giulia 设备 `--vid 0x1209 --pid 0x0001 --usb-serial ACE5DBG001`；115200 baud，assert DTR（`:19-31`）。命令表：`all/collect`、`logs wifi/gpu/panic`、`save`、`watch status 2`/`unwatch`、`screen.start/stop`、`screen.snapshot`、`shell`（Ctrl+] 返回）、`reboot.fastboot`（`:33-42`）。会话存 `out/terminal/<timestamp>/`，topic export 保留最近 20,000 完整行；screen packet 与文本日志分离（`:44`）。
 - **Device compatibility**：host tools 不是 kernel upgrade；初始 backend 实现 giulia protocol 2（`GIULIA` shell/input/reset markers、GSC1 screen framing up to 1264×2780 RGB565）；其他板必须实现该协议或加 backend；只改 USB IDs 不提供兼容；基本 kernel 可能只支持 `help/ping/status/replay`（`:53-57`）。
 - **Log sources** 表：Firmware log export（OneSend QR frames）、Persistent logs（reserved storage / Linux reader / recovery reader）、UEFI serial（UART）、Kernel serial（`serial=`）、Diagnostic page（framebuffer）、Pulse strip（framebuffer 底行）、Panic screen（framebuffer）、QEMU log、Build reports（JSON）（`:67-79`）。
 - **Serial console**：`[payload] kernel_args = ["-v","serial=3","debug=0x14e"]`；UniXNU 写第一个 `EFI_SERIAL_IO_PROTOCOL`，行前缀 `UNIXNU:`；DarwinBoot 行 `DARWINBOOT:`；采集 `tio -b 115200 -d 8 -p none -s 1 /dev/tty.usbserial-0001 -L out/serial.log`，或 picocom/screen/minicom（`:81-104`）。早期输出样例：UniXNU starting/config/driver/menu，DARWINBOOT loader installed/ARM64 va-pa-args/inputs validated（`:108-118`）。
@@ -202,7 +202,7 @@
 - **User fault evidence**：fault probe 在 exception delivery 前记录 EL0 breakpoint/abort 状态：pid/name、PC/LR/SP/FP、ESR/FAR、slide、x0–x28、最多 12 个返回地址；trap path 无分配；匹配的 process exit 打印 record 与 signal；未捕获 exception reason 在退出进程的可写 malloc region 搜索并随 crash row 打印（`:269-282`）。
 - **UI stack trace**：`boot-ui-focus=launchd`、`boot-ui-focus2=SpringBoard`、`boot-ui-focus3=backboardd`、`boot-ui-focus4=Setup`、`boot-ui-chrono=1`；地址 token 用 radix-64；`python3 scripts/decode-boot-ui-trace.py trace.txt` 输出每线程组 JSON（`pc`、`lr`、frames、error codes）；每 8 秒轮换一页，拍 3–4 张（`:284-304`）。
 - **拍照规范**：sheng-build-tag → boot-progress=1/2 → boot-diag-resume → 设备支架、镜头平行、关闪光、侧光、锁焦/曝光、四角入画、标题栏+整页、UI trace 每 8 秒 3–4 张、底部 pulse strip、记录 boot image SHA-256 与拍摄时间（`:306-330`）。
-- **QEMU capture**：`python3 package/Scripts/qemu-run.py out/esp --log out/qemu.log --screenshot out/qemu.png --expect 'UNIXNU: menu: shown'`；clean log 在 `out/qemu.clean.log`；`--keys` 发键；`scripts/qemu-entry/gdb-stop.py --help` 在 symbol 停并记录 registers/memory（`:332-346`）。
+- **QEMU capture**：`python3 package/Scripts/qemu-run.py out/esp --log out/qemu.log --screenshot out/qemu.png --expect 'UNIXNU: menu: shown'`；clean log 在 `out/qemu.clean.log`；`--keys` 发键；`unixnu:scripts/qemu-entry/gdb-stop.py --help` 在 symbol 停并记录 registers/memory（`:332-346`）。
 - **Debug arguments 表**：`-v`、`serial=3`、`debug=0x14e`、`kextlog=0xfff`、`boot-progress=1/2`、`sheng-build-tag=<tag>`、`boot-diag-resume=<seconds>`、`sheng-platform-stage=<n>`、`sheng-touch=<n>`、`offline-legacy-phase=<n>`、`-no_slto_panic`、`cs_debug=<mask>`（`:348-364`）。
 - **Evidence bundle**：serial log、diagnostic photos（title/full/trace/pulse）、panic photo、boot report、payload report、build logs；`shasum -a 256 boot.img`、`jq . boot.json`（`:366-384`）。
 - 末尾说明 panic renderer 的 first-panic claim 在当前 kernel 的 zeroed BSS，warm reboot 可能保留 framebuffer 像素但不决定新 boot 是否显示/导出 panic；2048-byte panic text buffer 最后 1 字节保留给 claim（`:386-393`）。
@@ -237,7 +237,7 @@
 - 需要 macOS image tools、匹配的 packed Data seed、板卡 `skip_setup_tool`；payload 后 `./unixnu bootimg` 并启动新 image（`:3`）。
 - 四步：准备 seed/macOS/tool，检查 build version 和 ADT identity → 需要时先 `seed-data-grow` → `./unixnu build payload --data-ramdisk ... --skip-setup --trust-cache ... --unique-chip-id ...`，`payload.json` 必须有 `"skip_setup": true` → `bootimg`、启动、验证（`:7-12`）。
 - `--skip-setup` 需要 `--data-ramdisk`；payload 读 `[payload] skip_setup_tool` 并在 seed 副本上运行；`skip_setup_args` 可选，追加在两个路径后；原 seed 不变；编辑副本作为 `Payloads/scratch-data.img`（`:22-34`）。
-- `scripts/seed-data-skip-setup.py`：展开 packed APFS Data seed、读写 attach、合并 preferences 到 `/private/var/mobile/Library/Preferences`、重新打包（`:36-38`）。Preference 表：`com.apple.purplebuddy`（SetupDone=true、SetupFinishedAllSteps=true、SetupVersion=11、daemonizeNeedsToRun=false）；`com.apple.purplebuddy.notbackedup`（所有 mini-buddy flag=false：diagnostics、HSA2、keychain sync、Mesa、payment、standard、silent ICDP）；`com.apple.managedconfiguration.notbackedup`（LockdownActivationIndicatesCloudConfigurationAvailable=false）；`com.apple.springboard`（BKNoWatchdogs=true、FBLaunchWatchdogExceptions={com.apple.purplebuddy:100}、MCForceShowCloudConfigurationUI=false）；`com.apple.migration`（LastSystemVersion=21H461、DMUserDataDisposition={SyntheticDidUpgrade=false, buildVersion=21H461}）（`:40-46`）。`--no-auto-dim` 还设 `SBDisableAutoDim`、`SBDontDimOrLockOnAC`、`SBDisableIdleSleep`（`:48`）。
+- `unixnu:scripts/seed-data-skip-setup.py`：展开 packed APFS Data seed、读写 attach、合并 preferences 到 `/private/var/mobile/Library/Preferences`、重新打包（`:36-38`）。Preference 表：`com.apple.purplebuddy`（SetupDone=true、SetupFinishedAllSteps=true、SetupVersion=11、daemonizeNeedsToRun=false）；`com.apple.purplebuddy.notbackedup`（所有 mini-buddy flag=false：diagnostics、HSA2、keychain sync、Mesa、payment、standard、silent ICDP）；`com.apple.managedconfiguration.notbackedup`（LockdownActivationIndicatesCloudConfigurationAvailable=false）；`com.apple.springboard`（BKNoWatchdogs=true、FBLaunchWatchdogExceptions={com.apple.purplebuddy:100}、MCForceShowCloudConfigurationUI=false）；`com.apple.migration`（LastSystemVersion=21H461、DMUserDataDisposition={SyntheticDidUpgrade=false, buildVersion=21H461}）（`:40-46`）。`--no-auto-dim` 还设 `SBDisableAutoDim`、`SBDontDimOrLockOnAC`、`SBDisableIdleSleep`（`:48`）。
 - 创建 `/private/var/containers/{Bundle,Data/System,Shared/SystemGroup,Temp}`；volume UUID 不变；编辑后再次检查 APFS container magic（`:50-59`）。
 - Build version：`BUILD, VERSION = '21H461', '17.7.11'`；目标 iOS build 不同时两者都改；`LastSystemVersion` 和 `DMUserDataDisposition.buildVersion` 必须匹配 IPSW（`:61-69`）。
 - Device tree：format 2 OS profile 设置 `/chosen` 的 `certificate-production-status=0`、`effective-production-status-ap=0`、`certificate-security-mode=1`、`effective-security-mode-sep=1`；描述 development-fused/undemoted board，`mobileactivationd` 通过 MobileGestalt 读取并走 native activation path（`:71-82`）。
@@ -255,7 +255,7 @@
 
 - 准备 IPSW + device GPT；Linux 需 Linux toolchain（lzfse）；扩 Data seed 需要 macOS `hdiutil`/`diskutil`；AEA 加密 image（iOS/iPadOS 27）需要 macOS `aea` + `ipsw` 工具；先选设备并保存 local inputs（`:5`）。
 - **分区几何**：`board.toml [userdata] first_lba/last_lba/lba_bytes` 来自设备 GPT 的 `userdata` 条目（`:9-18`）。OS profile `[userdata] windows = [{name="OS",component="OS"},{name="SystemOS",component="Cryptex1,SystemOS",optional=true}]`（`:20-30`）。image size = 各 window 1 MiB 对齐 + 1 MiB header；大于分区则拒绝（`:32`）。
-- **预览/构建**：`./unixnu build userdata --ipsw ... --dry-run`，再 `./unixnu build userdata --ipsw ...`；提取 `[userdata] windows` 组件，macOS 解密 AEA，macOS `hdiutil`/Linux `scripts/unixnu/udif.py` 读 disk image，写 raw image 到 `out/<...>/userdata/userdata-root.img`；report 记录 offsets/sizes/hashes/capacity/flash command（`:34-45`）。
+- **预览/构建**：`./unixnu build userdata --ipsw ... --dry-run`，再 `./unixnu build userdata --ipsw ...`；提取 `[userdata] windows` 组件，macOS 解密 AEA，macOS `hdiutil`/Linux `unixnu:scripts/unixnu/udif.py` 读 disk image，写 raw image 到 `out/<...>/userdata/userdata-root.img`；report 记录 offsets/sizes/hashes/capacity/flash command（`:34-45`）。
 - **Root UUID**：`[payload.adt] root_match_volume_uuid = "REQUIRED_ROOT_VOLUME_UUID"`；用所选 OS image 的 APFS root volume UUID；macOS `diskutil apfs list` 匹配 container 后复制 Volume UUID；改后重建 payload/boot image（`:47-58`）。ADT generator 写 `/chosen/root-matching`（IOProviderClass=IOMedia、UUID）；native block driver 发布 userdata，partition scheme 发布 volumes，XNU 按 UUID 选 IOMedia（`:58`）。
 - **Data volume**：`./unixnu build payload --data-ramdisk data.img`；macOS `python3 scripts/seed-data-grow.py --gib 8 /path/data.dbr /path/data-grow.dbr`；size 要在 root windows/store metadata/log reserve 之后 fit；工具 attach raw image + `diskutil apfs resize`，输出新 packed seed；接受 3–1024 GiB（`:60-77`）。`--auto` 读 `build/userdata-root/userdata-root.json`（或 `.img`）并查 fastboot userdata capacity；`--userdata-bytes BYTES` 替代查询；`--reserve-mib` 选 log reserve，默认 1024 MiB（`:79-83`）。volume UUID 保留但 size 改变会改变 persistence identity 并初始化新 Data store；记录 size/root report（`:85-88`）。`--skip-setup` 标记 Setup 完成，payload report 记录 seed hash 和 image hash（`:90`）。
 - **Flash/boot**：确认设备/几何/report 路径，保存分区数据；`fastboot devices`、`fastboot flash userdata out/.../userdata-root.img`；成功后启动匹配 image，记录 root-mount 结果（`:92-103`）。
@@ -269,14 +269,14 @@
 
 ### 1.3 docs/reference（9/9）
 
-#### 1.3.1 `docs/reference/index.md`（59 行）— 技术参考导航/能力矩阵
+#### 1.3.1 `unixnu:docs/reference/index.md`（59 行）— 技术参考导航/能力矩阵
 
 - 三步工作流：① 找 setting/implementation（表：local input paths → `unixnu.local.toml`；device/SoC/component → `board.toml`/`feeds.toml`/`configs/`；hardware resources → DTSI/DTS；driver behavior → component/board package；kernel behavior → profile/component patch series；XNU command line → `[payload] kernel_args` 或 `[build] kernel_args`；boot menu/kit → payload `unixnu.toml`/`Kit.toml`；device record → `porting.toml`；docs → `docs/`）（`:8-22`）。
 - ② 读对应 reference：build driver（cli/configuration/output-layout）、components（components/drivers/repositories）、driver interfaces（UEFI/XNU drivers/kexts/device-tree matching）、XNU（source-and-patches/patch-reference/four-k-page-tables）、boot/image formats（boot-chain/prelink/payload/userdata/boot-configuration）、integrity（security）、project structure（repository/glossary）（`:24-37`）。
 - ③ 验证 affected output：`./unixnu status --json` 检查 device/OS profile/configuration/module origins/output dir；验证表：kernel/driver/patches → kernel build + bring-up；firmware/payload → build/boot；boot args → inspect payload config；common UEFI → QEMU；record/docs → record check/site build（`:39-59`）。
 - **能力矩阵含义**：本页不是能力清单，而是“变更类型 → 拥有文件 → 验证方法”的路由矩阵；真正能力字段在 `components.md`。
 
-#### 1.3.2 `docs/reference/components.md`（85 行）— 组件目录与选择
+#### 1.3.2 `unixnu:docs/reference/components.md`（85 行）— 组件目录与选择
 
 - `components.toml` 记录 maintained components；profiles 用 `[components] include` 选 canonical IDs；resolver 加依赖并按 consumer 前排序 build commands（`:3-5`）。
 - 选择流程：driver adaptation checklist 找 capability → 在 `components.toml` 搜 ID、读 implementation/board dependencies → 比较 hardware/OS ABI inputs → 在 device profile 选、加 archive/integration、`./unixnu status --json`（`:8-19`）。
@@ -285,12 +285,12 @@
 - 新 component 可用 `./unixnu tree -D ... --local-module driver:MyDriver=/path/to/MyDriver` 先本地挂载；catalog component 仍需 profile selection（`:67-74`）。
 - Source identity：official compatibility name 按 catalog 的 repository identity 解析（`UniXNU/NativeAdreno` → `Adreno740`）；`another-owner/NativeAdreno` 保留自己的 identity/selection；编辑 feed 前检查 remote/revision；migration table 列 accepted names；source filenames/runtime identifiers 保持 ABI 值（`:76-85`）。
 
-#### 1.3.3 `docs/reference/glossary.md`（43 行）— 术语表
+#### 1.3.3 `unixnu:docs/reference/glossary.md`（43 行）— 术语表
 
 - 33 个术语：ADT（Apple device tree，compact node encoding，XNU 从 `.adt` sidecar 读）、AMFI、ABL、BootShim、UniXNU（UEFI boot manager）、DarwinBoot（UniXNU XNU loader）、Defconfig、Device repository、ADT sidecar（`kernel.macho.adt`）、Feed、Firmware volume（EDK II `SILICIUM_UEFI.fd`）、IOMedia、IPSW、Kernelcache、Kext、Kit、Module、Personality、PGZ（zone allocator secondary page）、Prelink、SMMU、Trust cache、Userdata、SHNGROOT、SystemOS、DSC、FDF、INF、DXE、BDS、GOP、CHRP、PGZ probe（`:3-37`）。
 - 本表是全文术语的唯一权威；对 K60 文档写作应统一用 `ADT`（不是 DTB）、`payload`、`prelink`、`SHNGROOT`。
 
-#### 1.3.4 `docs/reference/boot-configuration.md`（303 行）— `unixnu.toml` 与 `Kit.toml` 全字段
+#### 1.3.4 `unixnu:docs/reference/boot-configuration.md`（303 行）— `unixnu.toml` 与 `Kit.toml` 全字段
 
 - `unixnu.toml` 从 boot manager 自身卷开始，再每其他卷找；kit 目录 `Kit.toml` 有相同 match/injection sections（`:3`）。boot args 在 payload 的 `EFI/UniXNU/unixnu.toml`；改后 `./unixnu payload` + `./unixnu bootimg`（`:5`）。
 - 五步 procedure：定位 `EFI/UniXNU/unixnu.toml`（生成 payload 改 board.toml/local inputs）→ 按字段定义 entry/paths、确认 kernel/sidecar/driver/initrd 存在 → kit 填 Kit.toml、验证 match → 重建 payload/boot image，`mtype -i <payload.img> ::/EFI/UniXNU/unixnu.toml` 检查，启动看菜单（`:7-12`）。
@@ -309,7 +309,7 @@
 - `Kit.toml`：`schema=1`、`[kit] name/version/description`、`[match] arch/fdt_compatible/firmware_vendor/requires_protocol`、`[[driver]] file/args`、`[[overlay]] file`、`[[dt_patch]]`、`[[acpi]] file`、`[[kext]] bundle/entry`（`:228-264`）。Match 键：`arch=AARCH64`、`fdt_compatible`（firmware root compatible 列表）、`firmware_vendor`（`gST->FirmwareVendor` substring）、`requires_protocol`（GUID 必须 installed）；同一 key 内任一值匹配，跨 key 全部匹配（`:266-285`）。
 - Menu behavior：有输入设备 → 倒计时到 timeout；无输入 → fallback_timeout；负 timeout + 有输入 → 等键；负 timeout + 无输入 → fallback_timeout；failed boot → 回菜单无倒计时；菜单显示配置源、entry 列表、injection summary、first error（`:287-297`）。
 
-#### 1.3.5 `docs/reference/cli.md`（171 行）— 命令、选项、环境变量、退出行为
+#### 1.3.5 `unixnu:docs/reference/cli.md`（171 行）— 命令、选项、环境变量、退出行为
 
 - 命令：`defconfig [NAME]`（列表/合并 profile fragments + selected file 到 `.config` 并解析）、`fetch [NAME...] [--update]`（更新 module submodules/device repo、fetches git sources、写 `unixnu.lock`）、`tree`（解析 modules/fetch refs/assemble tree）、`ipsw info/fetch`、`build [kernel|package|firmware|payload|prelink|userdata]`（userdata first, then kernel incl. prelink, package, payload, firmware；默认/all = kernel/package/payload/firmware）、`bootimg [--fd --dtb --ramdisk|none -o]`、`vendor_boot --stock ...`、`status [--json]`、`clean`、`release`（`:11-99`）。
 - `build prelink` 只重复 prelink；`build kernel` 准备有序 patches、compile-record pass、component recipes + archives、link；`component:<ID>` 标记 component recipe 位置；`build userdata --dry-run` 检查 IPSW/partition size（`:52-58`）。
@@ -319,7 +319,7 @@
 - Environment：`UNIXNU_DEVICE`、`UNIXNU_OUT`、`UNIXNU_UEFI`、`UNIXNU_EDK2`、`UNIXNU_KERNELCACHE`、`UNIXNU_DTB`、`UNIXNU_IPSW`、`UNIXNU_UNIQUE_CHIP_ID`、`JOBS`（`:137-149`）。
 - Exit behavior 表：缺 device repo → `-D` hint；缺 kernel config → defconfig hint；缺 Mu-Silicium → error before fetching；IPSW identity mismatch → expected/actual；sha256 pin mismatch → member；firmware volume size mismatch → size；payload > size_mib → 提升 size；invalid kernel arg → 参数名；kernel command line >1000 bytes → 长度和 limit；缺 platform seed → `--unique-chip-id` hint；example device repo → error（`:151-165`）。
 
-#### 1.3.6 `docs/reference/configuration.md`（264 行）— `board.toml` / local inputs / feeds
+#### 1.3.6 `unixnu:docs/reference/configuration.md`（264 行）— `board.toml` / local inputs / feeds
 
 - Format 2 用 `schema_version = 2`；无该字段是 format 1（`:3-5`）。
 - **Local build inputs**：复制 `unixnu.example.toml` 到 `unixnu.local.toml`（Git 忽略）；示例 `[build] device/uefi/dtb/kernelcache/trust_cache/data_ramdisk/unique_chip_id/jobs/target/kernel_args`；相对路径相对配置文件目录；优先级 CLI > env > 文件 > device defaults；`kernel_args` 按 name 覆盖 board args，`--kernel-arg` 再覆盖 local（`:7-27`）。支持路径键：`device`、`out`、`uefi`、`edk2`、`kernelcache`、`kernel`、`trust_cache`、`owner_trust_cache`、`data_ramdisk`、`gpu_addon`、`dtb`、`fd`、`ramdisk`、`output`；其他键 `ipsw`、`unique_chip_id`、`jobs`、`target`、`kernel_args`；`ramdisk="none"` 空 ramdisk（`:27`）。命令示例 defconfig/kernel/firmware/payload/bootimg/status（`:29-36`）。`status` 报 `build_config`；module source overrides 用 device 仓 `local.toml`（`:38`）。
@@ -328,7 +328,7 @@
 - Defconfig 语法：`CONFIG_NAME=y/n/"text"/123`、`# CONFIG_NAME is not set`；`CONFIG_XNU_<NAME>`→`XNU_<NAME>`；`{tree}` 替换（`:189-199`）。`feeds.toml` source 字段 name/kind（driver/kit/patch/script/package/refer/soc）/git/ref/path/commit/local/submodules（`:201-224`）。`local.toml` 的 `[local] drivers/kits/patches/scripts/package`（`:226-237`）。`unixnu.lock` `[source."Name"] commit=...`；format 2 explicit source commit 优先 lock（含 selected OS XNU revision）；format 1 lock-first；official aliases 可复用 lock entries（`:239-246`）。
 - Module resolution 优先级：`--local-module` → `--local-<kind>` → `--local` → `feeds.toml`/`local.toml` local key → device repo → base repo → git source；first match wins（`:248-258`）。
 
-#### 1.3.7 `docs/reference/output-layout.md`（154 行）— 输出目录与 report schema
+#### 1.3.7 `unixnu:docs/reference/output-layout.md`（154 行）— 输出目录与 report schema
 
 - Format 2 输出按 device/OS profile/config 隔离到 `out/<device>/<os_profile>/<config>/`；format 1 用 `out/<board>/`；fetched sources 和 IPSW members 共享 caches；`unixnu.lock` 记录 source revisions（`:3`）。
 - Tree：`out/state.json`、`feeds/`、`ipsw/<build>/`、`<device>/<os_profile>/<config>/{.config,tree,logs,device-tree/hardware.dtb,kernel/kernel.macho,package/Build/Out,payload/payload.img,payload.json,boot/boot.img,boot.json,userdata/userdata-root.img,userdata-root.json}`（`:5-31`）。
@@ -338,7 +338,7 @@
 - `boot.json` 字段：kernel_sha256、ramdisk_bytes、header_version、kernel_address、tags_address、image_sha256、image_bytes、fd_sha256、dtb_sha256、shim_bytes、hardware_tested（`:101-115`）。`payload.json`：kernel_sha256、payload_kernel_sha256、adt_sha256、kernel_args、trust_cache_sha256、data_ramdisk_sha256、skip_setup、panic_screen、payload_sha256、payload_bytes、hardware_tested（`:117-131`）。`userdata-root.json`：image_bytes、image_sha256、manifest_sha256、windows、userdata_bytes、flash_command、source、hardware_tested（`:133-144`）。
 - `clean` 删除 tree/logs/kernel/package/boot/edk2-conf，保留 fetched sources/IPSW members（`:146-148`）。
 
-#### 1.3.8 `docs/reference/qemu.md`（131 行）— QEMU 测试矩阵
+#### 1.3.8 `unixnu:docs/reference/qemu.md`（131 行）— QEMU 测试矩阵
 
 - QEMU 测 UniXNU、injection paths、DarwinBoot、kernel entry，无需设备（`:3`）。
 - 四步：装 requirements（AArch64 firmware）→ common UEFI 场景跑 smoke test；custom EFI 先 stage ESP 再 run + expect markers → kernel-entry 用 XNU entry fixture 和 runner options → 检查 logs/screenshot，记录 exact marker/timeout，继续 device bring-up（`:5-10`）。
@@ -349,7 +349,7 @@
 - XNU entry fixture：`python3 scripts/qemu-entry/make-dt.py --armvirt --armcpu --smp 2 --owned-memory-size 0x20000000 --output build/qemu-test.adt`；选项 `--armvirt`、`--armcpu`（GICv3 distributor/redistributor）、`--smp N`、`--owned-memory-size`、`--data-ramdisk`、`--trust-cache`、`--nvram-proxy`、`--root-match-volume-uuid`、`--osenvironment`（main/recoveryos/ramdisk）、`--qemu-vmm-present`、`--crypto-hash-method`；只描述 QEMU 值（`:81-106`）。
 - HVF：Apple Silicon macOS 可用 `--qemu-accel hvf`，generator 读 host counter frequency 作 CPU timebase；bound fixture 观察 kernel stop 点实际 `TCR_EL1`、`SCTLR_EL1`、`TTBR`（`:108-117`）。Stop point `python3 scripts/qemu-entry/gdb-stop.py --help` 记录 registers/memory/last checkpoint 为 JSON（`:119-125`）。
 
-#### 1.3.9 `docs/reference/troubleshooting.md`（100 行）— 症状表与证据
+#### 1.3.9 `unixnu:docs/reference/troubleshooting.md`（100 行）— 症状表与证据
 
 - 五步：保存 failing command/first error + 最后 bring-up stage → `status --json` 确认 device/source/OS/output → 查 build/IPSW/boot 表 → 修正输入后重复失败步骤并重打包 → 未确定则 evidence bundle（`:5-9`）。
 - Early boot checks：顶部绿条 = DarwinBoot handoff 前；boot-args 改动要重建 payload/boot image；保存 firmware/image 路径到 `unixnu.local.toml`（`:11-15`）。
@@ -388,7 +388,7 @@
 
 **硬性要求（逐条）**
 
-1. **Granule 常量**：`BCM2837`：`ARM_PGSHIFT=12`、`ARM_PGBYTES=4096`、`TCR_EL1_BOOT TG0=0 (4 KiB)`、`TG1=2 (4 KiB)`；`VMAPPLE`：14/16384、TG0=2、TG1=1（`:5-10`）。`scripts/check-xnu-granules.py` 对两个 profile 编译 `TCR_EL1_BOOT` 并检查 TG0/TG1（`:12`）。
+1. **Granule 常量**：`BCM2837`：`ARM_PGSHIFT=12`、`ARM_PGBYTES=4096`、`TCR_EL1_BOOT TG0=0 (4 KiB)`、`TG1=2 (4 KiB)`；`VMAPPLE`：14/16384、TG0=2、TG1=1（`:5-10`）。`unixnu:scripts/check-xnu-granules.py` 对两个 profile 编译 `TCR_EL1_BOOT` 并检查 TG0/TG1（`:12`）。
 2. **构建隔离**：kernel 按 4 KiB 编译；page size 是 machine configuration 和 build flags 的一部分；16 KiB kernel 与 4 KiB kernel 是两次独立构建，不能混用（`:14`）。
 3. **Boot page tables**：`osfmk/arm64/start.s` 在开 MMU 前构建 bootstrap page tables；pool 大小由 `BOOTSTRAP_TABLE_SIZE` 决定（`:16-18`）。`native-4k-bootstrap-capacity` 增加非 Apple 4 KiB budget：
    ```c
@@ -401,7 +401,7 @@
 5. **清池**：patch 清整个 reserved pool，而不是四个 16 KiB pages：`mov x2, #(BOOTSTRAP_TABLE_BYTES / ARM_PGBYTES); lsl x2, x2, #(ARM_PGSHIFT - TTE_SHIFT)`（`:38-43`）。
 6. **Runtime page size**：`osfmk/arm/arm_init.c` 在 Apple 板上按 RAM size 选 page size；`native-4k-user-abi` 让 native 4 KiB build 在任何 RAM size 都用 hardware page size：`PAGE_SHIFT_CONST = ARM_PGSHIFT; page_shift_user32 = ARM_PGSHIFT;`（`:45-56`）。策略表：native 4K 任意 RAM → kernel/user32 shift 12/12；Apple 4K ≤1 GiB → 12/14；Apple 4K >1 GiB → 14/14；Apple 16K → 14/14（`:58-67`）。**Native build 必须始终 4 KiB，不能按 Apple 的 >1 GiB 切 16 KiB。**
 7. **User address space**：`bsd/kern/mach_loader.c` 64-bit 进程用 `FOURK_PAGE_SHIFT`；`osfmk/arm/commpage/commpage.c` 64-bit commpage shift=12；`osfmk/vm/vm_shared_region.c` shared region submap 用 4 KiB entries；`osfmk/arm/arm_init.c` `PAGE_SHIFT_CONST`/`page_shift_user32` 跟随 `ARM_PGSHIFT`（`:69-80`）。4 KiB userspace 期望 4 KiB `mmap` alignment、4 KiB commpage shifts、4 KiB dyld shared cache layout；读 commpage 的进程 legacy/current 64-bit shift 都得到 12（`:80`）。
-8. **Code signing**：`native-4k-signature-hash-cache` 六步：接受 `pageSize=14` 的 CodeDirectory on 12-bit kernel → `vn_rdwr` 读每个原厂 16 KiB block → 与 CodeDirectory hash 比较 → 从已验证 block 派生每 4 KiB page 的 digest → 存只读 kernel memory → `cs_validate_page` 从派生表服务（`:82-92`）。派生表挂在 `cs_blob`：`csb_native4k_hashes`、`csb_native4k_hashes_size`、`csb_native4k_hash_count`（`:93-100`）。页验证检查 index、offset alignment、table bounds；miss 返回 `CS_VALIDATE_TAINTED`；原厂 16 KiB block hash 失败则 blob 无表（`:101`）。Build flag `XNU_NATIVE_CS_HASH_CACHE`；`scripts/check-code-signing-granules.py` 编译实际 `cs_validate_codedirectory` gate 并检查 8 种 kernel shift/signature shift/cache mode 组合（`:103`）。
+8. **Code signing**：`native-4k-signature-hash-cache` 六步：接受 `pageSize=14` 的 CodeDirectory on 12-bit kernel → `vn_rdwr` 读每个原厂 16 KiB block → 与 CodeDirectory hash 比较 → 从已验证 block 派生每 4 KiB page 的 digest → 存只读 kernel memory → `cs_validate_page` 从派生表服务（`:82-92`）。派生表挂在 `cs_blob`：`csb_native4k_hashes`、`csb_native4k_hashes_size`、`csb_native4k_hash_count`（`:93-100`）。页验证检查 index、offset alignment、table bounds；miss 返回 `CS_VALIDATE_TAINTED`；原厂 16 KiB block hash 失败则 blob 无表（`:101`）。Build flag `XNU_NATIVE_CS_HASH_CACHE`；`unixnu:scripts/check-code-signing-granules.py` 编译实际 `cs_validate_codedirectory` gate 并检查 8 种 kernel shift/signature shift/cache mode 组合（`:103`）。
 9. **Allocator alignment**：zone allocator metadata 在 secondary page；`pgz-aligned-validation` 在 page mask 前 decode PGZ：`elem = pgz_decode((vm_offset_t)addr, 1); offs = (elem & PAGE_MASK) - zone_elem_inner_offs(zone); if (from_zone_map(elem, 1)) ...`（`:105-115`）。
 10. **物理地址 >4 GiB**：`pmap_sync_page_attributes_phys` 原用 32-bit shift `pp << PAGE_SHIFT`；`zzx-pmap-sync-64bit-pa` 改用 `ptoa(pp)`，在 shift 前 widen page number；DRAM 起始高于 4 GiB 的设备不能丢高位（`:117-131`）。
 11. **Non-Apple platform guards**：`apple-only-cpu-tunables`（仅 `APPLE_ARM64_ARCH_FAMILY` 应用 Apple CPU tunables）、`non-apple-cache-monitor`（只在 `XNU_MONITOR` 下调 `ml_enable_monitor`、导出 cache clean symbol）、`non-apple-iommu-bootstrap`（guard UAT/SART bootstrap 和 PPL code）、`non-apple-pmap-field`（按 non-PAC layout 重命名 reserved field）、`source-machine-layer`（加 `CONFIG_APPLE_AMCC`、删 Apple-only config entries）、`native-arm-pan`（`XNU_NATIVE_PAN` 下启用 ARMv8.1 PAN）（`:133-144`）。
@@ -458,11 +458,11 @@
 | 项目 | 文档硬限 | 依据 |
 |---|---:|---|
 | 单参数语法 | `[A-Za-z0-9_.-]+(=[A-Za-z0-9_.,-]+)?` | `docs/xnu/boot-arguments.md:22-26`；`docs/concepts/payload.md:83` |
-| 拼接后命令行 | **≤1000 bytes** | `docs/xnu/boot-arguments.md:28`；`docs/concepts/payload.md:85`；CLI 错误 “Kernel command line over 1000 bytes” `docs/reference/cli.md:163` |
+| 拼接后命令行 | **≤1000 bytes** | `docs/xnu/boot-arguments.md:28`；`docs/concepts/payload.md:85`；CLI 错误 “Kernel command line over 1000 bytes” `unixnu:docs/reference/cli.md:163` |
 | DarwinBoot 复制缓冲 | **1024 bytes**（`DARWIN_BOOT_ARGS` command line @ `0x6c`） | `docs/xnu/boot-arguments.md:28`；`docs/concepts/boot-chain.md:96` |
 | 参数值字符集 | `[A-Za-z0-9_.,-]+`（值内允许逗号、点、下划线、连字符） | 同上 |
-| 生效优先级 | `[payload] kernel_args` < `[build] kernel_args` < `--kernel-arg`（同名后者替换） | `docs/xnu/boot-arguments.md:5`；`docs/reference/configuration.md:25` |
-| `confirm_args` | 选中项追加到 entry `args` 副本，计入最终行 | `docs/reference/boot-configuration.md:176`；`docs/xnu/boot-arguments.md:16` |
+| 生效优先级 | `[payload] kernel_args` < `[build] kernel_args` < `--kernel-arg`（同名后者替换） | `docs/xnu/boot-arguments.md:5`；`unixnu:docs/reference/configuration.md:25` |
+| `confirm_args` | 选中项追加到 entry `args` 副本，计入最终行 | `unixnu:docs/reference/boot-configuration.md:176`；`docs/xnu/boot-arguments.md:16` |
 
 #### 2.1.2 581 字符判定
 
@@ -635,15 +635,15 @@ find docs/concepts docs/guide docs/reference docs/xnu -name '*.md' | sort
 - [x] `docs/guide/requirements.md` — 126 行 / 8,394 B — 已全文读
 - [x] `docs/guide/skip-setup.md` — 127 行 / 5,735 B — 已全文读
 - [x] `docs/guide/userdata.md` — 130 行 / 5,583 B — 已全文读
-- [x] `docs/reference/boot-configuration.md` — 303 行 / 9,087 B — 已全文读
-- [x] `docs/reference/cli.md` — 171 行 / 7,378 B — 已全文读
-- [x] `docs/reference/components.md` — 85 行 / 3,668 B — 已全文读
-- [x] `docs/reference/configuration.md` — 264 行 / 9,319 B — 已全文读
-- [x] `docs/reference/glossary.md` — 43 行 / 2,200 B — 已全文读
-- [x] `docs/reference/index.md` — 59 行 / 4,099 B — 已全文读
-- [x] `docs/reference/output-layout.md` — 154 行 / 3,918 B — 已全文读
-- [x] `docs/reference/qemu.md` — 131 行 / 5,279 B — 已全文读
-- [x] `docs/reference/troubleshooting.md` — 100 行 / 6,231 B — 已全文读
+- [x] `unixnu:docs/reference/boot-configuration.md` — 303 行 / 9,087 B — 已全文读
+- [x] `unixnu:docs/reference/cli.md` — 171 行 / 7,378 B — 已全文读
+- [x] `unixnu:docs/reference/components.md` — 85 行 / 3,668 B — 已全文读
+- [x] `unixnu:docs/reference/configuration.md` — 264 行 / 9,319 B — 已全文读
+- [x] `unixnu:docs/reference/glossary.md` — 43 行 / 2,200 B — 已全文读
+- [x] `unixnu:docs/reference/index.md` — 59 行 / 4,099 B — 已全文读
+- [x] `unixnu:docs/reference/output-layout.md` — 154 行 / 3,918 B — 已全文读
+- [x] `unixnu:docs/reference/qemu.md` — 131 行 / 5,279 B — 已全文读
+- [x] `unixnu:docs/reference/troubleshooting.md` — 100 行 / 6,231 B — 已全文读
 - [x] `docs/xnu/boot-arguments.md` — 124 行 / 5,856 B — 已全文读
 - [x] `docs/xnu/four-k-page-tables.md` — 196 行 / 7,626 B — 已全文读
 - [x] `docs/xnu/patch-reference.md` — 122 行 / 6,582 B — 已全文读

@@ -353,7 +353,7 @@ void pong_panel_hz(void) {
 
 | 补丁 | 作用 | 关键 hunk（补丁文件行号） |
 |---|---|---|
-| `patches/xnu-ipados18/0013-zizhan-latch-async.patch` | 让 `show()` 不等 latch：翻页返回 3（已翻、latch 未到），SwapWait 去轮询 CTL_FLUSH | `:14` 加 `pong_scanout_latch_poll` 声明；`:22` 加 `bool fLatchAsync`；`:53` `fLatchAsync=scanned==3`；`:82-99` SwapWait 先 poll，阻塞型等待每 1 ms 重查 |
+| `zizhan:patches/xnu-ipados18/0013-zizhan-latch-async.patch` | 让 `show()` 不等 latch：翻页返回 3（已翻、latch 未到），SwapWait 去轮询 CTL_FLUSH | `:14` 加 `pong_scanout_latch_poll` 声明；`:22` 加 `bool fLatchAsync`；`:53` `fLatchAsync=scanned==3`；`:82-99` SwapWait 先 poll，阻塞型等待每 1 ms 重查 |
 | `patches/metal2vulkan/0021-zizhan-keep-two-empty-blocks.patch` | 修"动画第一帧顿 150–200 ms"（CA 新 surface 触发 64 MiB 块分配+映射） | `:15` `KEPT_EMPTY_BLOCKS: usize = 2`；`:47` `keep = !dedicated && kept_empty < KEPT_EMPTY_BLOCKS` |
 | `0011-zizhan-panel-pool-canvases` / `0015-zizhan-panel-slot-mapping` / `0012-zizhan-swapwait` / `0009-zizhan-dpu-flip-cpu-frame` / `0020-zizhan-display-power-observer` | 零拷贝画布池、槽位映射、presented/replaced 语义、每帧 flip、显示电源观察 | **只从 `zizhan:docs/progress/2026-11-01-120hz-and-cadence.md:134-136` 的文件清单读到名字，未逐个读 hunk**（不猜） |
 

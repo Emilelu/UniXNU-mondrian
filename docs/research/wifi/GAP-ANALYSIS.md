@@ -36,7 +36,7 @@ MSI        Pong: PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)；K60 运行时: 
 
 **每一项的出处（2026-11-14 回溯；端点 ID / BAR0 为实机实测）**：
 
-- `17CB:1103` —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/{vendor,device}` = `0x17cb`/`0x1103`，配置空间 0x00 = `cb 17 03 11`（`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`、`config64-attempt2.txt`）。Pong 侧：`configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`。
+- `17CB:1103` —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/{vendor,device}` = `0x17cb`/`0x1103`，配置空间 0x00 = `cb 17 03 11`（`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`、`config64-attempt2.txt`）。Pong 侧：`pong:configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`。
 - `subsys 17CB:0108` —— **K60 实测**：`subsystem_device` = `0x0108`（264），配置空间 0x2c = `cb 17 08 01`（同上证据）。Pong 侧：`PongWifiPlatform.cpp:344` 的校验值 `cfg.r(0x2c)!=0x010817cb`（`PongWifiPci.cpp:117` 同值）。
 - `BAR0 0x60200000` / **2 MiB** —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/resource` 第 1 行 `0x0000000060200000 0x00000000603fffff 0x0000000000140204`（2 MiB），`/proc/iomem` 为 `60200000-603fffff : 0000:01:00.0`（`E:/k60-work/evidence/pci-id-20261114/resource.txt`、`iomem-pci.txt`）。Pong 代码：`PongWifiPlatform.cpp:354` `bar.open(0x60200000,0x200000)`。**基址与大小均有实测。**
 - `SID 0x1C00 / 0x1C01` —— live FDT `qcom,smmu-sid-base = <0x1c00>`、`iommu-map = <0x0 0x5b 0x1c00 0x1 0x100 0x5b 0x1c01 0x1>`（`fdt_dump.txt:16446-16447`）。
@@ -75,7 +75,7 @@ MSI        Pong: PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)；K60 运行时: 
 |---|---|---|
 | **没有 applier 脚本读 `patches/wifi/series`** | `scripts/` 全域 grep `patches/wifi` 0 命中 | 系列文件存在也**不会自动应用** |
 | ~~README 说必需的 `0010` 不存在~~ **已补**：`0010-scripts-build-xnu-wifi-archive.patch`（1,629 B）与 `patches/wifi/series`（10 行）都已落库（提交 `4fe2f52`） | `ls patches/wifi`、`git log` | 仍需人工按 series 应用；README 表格里的旧名 `0010-scripts-build-xnu-4k-baseline-wifi.patch` 与实际文件名不一致 |
-| 工作树里 `drivers/PongWifi`、`configs/mondrian-wifi-sm8475.json`、`nw_abi.h` 都不存在 | `ls` | 补丁从未落盘 |
+| 工作树里 `drivers/PongWifi`、`k60-wifi:configs/mondrian-wifi-sm8475.json`、`nw_abi.h` 都不存在 | `ls` | 补丁从未落盘 |
 
 **这和 `0403` 是同一个模式**：数据在，没人引用，等于不存在。
 

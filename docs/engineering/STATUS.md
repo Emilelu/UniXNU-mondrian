@@ -9,7 +9,7 @@
 
 > 本文件里的 SHA 是**已完成工作的取用记录**，每条都带取用日期。
 > 待办与计划里不写死上游 SHA（★37 / HR-72）——上游每小时都在推进，
-> 写死的 SHA 第二天就过时。查最新状态用 `scripts/track-upstream-branches.py`。
+> 写死的 SHA 第二天就过时。查最新状态用 `<workspace>/scripts/track-upstream-branches.py`。
 
 
 ### 可刷镜像（2026-11-14 15:09，真机验证）
@@ -146,7 +146,7 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
   reset + probe + 清除 report 字节，唤醒 Android 遗留的 sleep/gesture 状态。
 - **Metal 插件部署**：94,928 B，用 2026-11-11 源码在 Mac 上重编并签名，
   通过 `0340` 的同一机制写入 `/private/var/pong/PongAdrenoMetal.bundle/`。
-- **工具链**：`scripts/track-upstream-branches.py`（上游全分支追踪）、
+- **工具链**：`<workspace>/scripts/track-upstream-branches.py`（上游全分支追踪）、
   `scripts/research-gate.py`（研究完整性）、`scripts/eight-step-gate.py`
   （八步流程）、`scripts/porting-gate.py`（porting.toml schema）。
 
@@ -298,7 +298,7 @@ K60 修复、本机的 `3d2a9fa` 是它的祖先。**两句都不成立**：`git
 - `bt-s4c-20261115c`（负向，空 blob）：进桌面，`addon: no GpuAddon property`
   判据命中、`K60 BT: published local address ee:98:c5:8a:6b:4e`（identity 生效）；
   新崩溃族 C：backboardd `getBytes:range:`（根因 = `0509` 三属性发成 OSString，
-  已立项 `docs/research/display/BACKBOARD-CRASH-FAMILIES.md`（该文在 k60-display 检出，main 未收录））。
+  已立项 `k60-display:docs/research/display/BACKBOARD-CRASH-FAMILIES.md`（该文在 k60-display 检出，main 未收录））。
 - `bt-s4b-20261115c`（正向，带 blob）：port-not-observed → 唯一变量 =
   `patches/bt/0005` 与 blob 的组合，bt 线四 hunk 二分图（h1–h4）已备齐待飞。
 - `usb-20261115c`（mode-2）：boot-and-echo 全流程 PASS（COM5 9.5 s、

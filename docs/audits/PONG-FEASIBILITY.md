@@ -17,14 +17,14 @@
 - 口径更正：旧说“drivers/ 9 目录完全一致”不准确——实测是 **8 个目录**、且 4 个文件有本地分叉。准确说法是“文件清单一致、`PongAdreno` 同码”，不是全部字节一致。
 
 ### 2. darwin24 内核补丁 = 单个 467 KB 聚合补丁
-- `patches/xnu-ipados18/0001-pong-darwin24.patch`：**12,396 行**，全部 darwin24 适配在一个文件里。
+- `pong:patches/xnu-ipados18/0001-pong-darwin24.patch`：**12,396 行**，全部 darwin24 适配在一个文件里。
 - OS profile 的 series 只有一行注释："Darwin24 fixes are currently reviewed as part of the device aggregate; apply them only once."
 - README 明说：**"Darwin23 的 architecture patch series 没有直接叠加到 XNU11417；其适配版本已经包含于现有 Darwin24 聚合补丁"** —— 意味着我们的 16.6.1 系列（128 个补丁）里的等价修改**大部分应在这个聚合里已存在**，这是巨大利好。
 
 ### 3. 构建系统：macOS-only 是设计现状，非本质依赖
-- `scripts/build-ipados18-pong-macos.py` → `build-xnu-ipados18.sh`（1116 行）。
+- `pong:scripts/build-ipados18-pong-macos.py` → `build-xnu-ipados18.sh`（1116 行）。
 - **无 `uname`/Linux 分支**（0 处）；CI 是 `macos-15-intel`；`pong_paths.py` 默认 `/Volumes/PongDev`、`DEVELOPER_DIR`。
-- **对照**：我们 16.6.1 跑通的 `build-xnu-4k-baseline.sh` 同样**没有 uname 分支** —— 它的 Linux 支持全部来自 `scripts/linux/prepare-xnu.py`（源码改写）+ `kernel.py:linux_env()`（HOST_CC/MIGCOM/CLT_PREFIX 注入）+ `/opt/unixnu-linux` 工具链（`setup-toolchain.py` 生成 `xnu-host-cc`、`migcom` 等）。
+- **对照**：我们 16.6.1 跑通的 `build-xnu-4k-baseline.sh` 同样**没有 uname 分支** —— 它的 Linux 支持全部来自 `unixnu:scripts/linux/prepare-xnu.py`（源码改写）+ `kernel.py:linux_env()`（HOST_CC/MIGCOM/CLT_PREFIX 注入）+ `/opt/unixnu-linux` 工具链（`setup-toolchain.py` 生成 `xnu-host-cc`、`migcom` 等）。
 - **因此 Linux 适配路径是清晰的**：把 `prepare-xnu.py source` + `linux_env()` 的同等注入接进 `build-xnu-ipados18.sh`。xnu-11417 与 8796 的差异会被 prepare-xnu.py 的改写规则覆盖一部分，不够的按 16.6.1 的经验补。
 
 ### 4. 硬件驱动：与 K60 同 SoC，直接可用

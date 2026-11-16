@@ -39,7 +39,7 @@
 
 ### 1.2 最小改动集（先给结论）
 
-1. `configs/mondrian_defconfig:52` 保持 `CONFIG_XNU_PONG_ADRENO_PLATFORM=y`。当前已提交值就是 `y`；它经 `scripts/unixnu/kernel.py:17-26` 变成 `XNU_PONG_ADRENO_PLATFORM=1`，`BUILD:957-983` 因此编译并 `-force_load` `libPongAdrenoPlatform.a`。
+1. `configs/mondrian_defconfig:52` 保持 `CONFIG_XNU_PONG_ADRENO_PLATFORM=y`。当前已提交值就是 `y`；它经 `unixnu:scripts/unixnu/kernel.py:17-26` 变成 `XNU_PONG_ADRENO_PLATFORM=1`，`BUILD:957-983` 因此编译并 `-force_load` `libPongAdrenoPlatform.a`。
 2. 在 `SERIES` 末尾追加（顺序不能反）：
    - `SCANOUT`
    - `GPUONLY`
@@ -75,7 +75,7 @@ MiniIOMobileFramebufferStart(provider);
 EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_K60_ACCEL_STUB=$((1 - PONG_ADRENO_PLATFORM))"
 ```
 
-证据：`BUILD:1066`。而 `PONG_ADRENO_PLATFORM` 来自 `configs/mondrian_defconfig:52` 的 `CONFIG_XNU_PONG_ADRENO_PLATFORM=y`（`BUILD:957`，映射见 `scripts/unixnu/kernel.py:17-26`）。所以当前提交的配置是：
+证据：`BUILD:1066`。而 `PONG_ADRENO_PLATFORM` 来自 `configs/mondrian_defconfig:52` 的 `CONFIG_XNU_PONG_ADRENO_PLATFORM=y`（`BUILD:957`，映射见 `unixnu:scripts/unixnu/kernel.py:17-26`）。所以当前提交的配置是：
 
 - `PONG_ADRENO_PLATFORM=1` → `XNU_K60_ACCEL_STUB=0`
 - `0231` 的 `#if` 为假，**空 stub 的调用点被删掉**
@@ -389,10 +389,10 @@ patches/xnu/series
     ...-pong-source-row-pitch.patch
     ...-pong-union-lower-directory.patch         # 可选，用 ADDON/union 时加
 
-patches/xnu/...-pong-gpu-scanout.patch
+patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-scanout.patch
   hunk 2：把 pong_scanout_initialize 插到 K60 的 fRowBytes 之后、if (k60PanelNative()) 之前
 
-patches/xnu/...-pong-gpu-only-display.patch
+patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-only-display.patch
   hunk 1：删除（推荐，保留 0211）；或改成 pong_display 并加 boot arg（严格复刻）
 
 patches/xnu/0231-k60-accel-stub-adreno-gate.patch

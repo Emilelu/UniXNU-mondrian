@@ -69,7 +69,7 @@ a violation costs work that cannot be recovered.
      workspace for hours while every build ran without it.
 
 6. **Following upstream means judging every commit, not reporting that one
-   exists.** `scripts/track-upstream-branches.py` says what changed; that is not
+   exists.** `<workspace>/scripts/track-upstream-branches.py` says what changed; that is not
    the end of the job. Each branch carries a watermark in
    [`docs/research/UPSTREAM-TRIAGE.toml`](docs/research/UPSTREAM-TRIAGE.toml),
    and every commit after it gets a verdict - `picked` (with how), or
@@ -207,7 +207,7 @@ prose is a red build, not a wish.
 
 3. **Sync before quoting.** `bash scripts/k60-sync-refs.sh` fetches every
    reference repository. Never quote code from a repository you have not fetched.
-   For upstream forks, `python3 scripts/track-upstream-branches.py` reports every
+   For upstream forks, `python3 <workspace>/scripts/track-upstream-branches.py` reports every
    branch and every new commit; a single-branch refspec silently hides work.
 
 4. **Record the finding before coding**: repository, branch, file:line, whether

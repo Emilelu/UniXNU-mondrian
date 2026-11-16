@@ -85,7 +85,7 @@
 
 ### 2.3 说明
 
-唯一“缺失”发生在文件内部：`docs/zh/reference/cli.md` 缺少英文 `docs/reference/cli.md` 的 `### vendor_boot` 整节，不是文件缺失（见 ③/④）。
+唯一“缺失”发生在文件内部：`docs/zh/reference/cli.md` 缺少英文 `unixnu:docs/reference/cli.md` 的 `### vendor_boot` 整节，不是文件缺失（见 ③/④）。
 
 ---
 
@@ -123,7 +123,7 @@
 
 ### 4.1 高优先级：`docs/zh/reference/cli.md` 缺 `vendor_boot` 整节
 
-英文 `docs/reference/cli.md:68-74` 有完整的 `### vendor_boot` 小节：
+英文 `unixnu:docs/reference/cli.md:68-74` 有完整的 `### vendor_boot` 小节：
 
 - 标题 `### vendor_boot`
 - 代码块：`unixnu vendor_boot --stock FILE [--ramdisk FILE|none] [--ramdisk-addr ADDR] [--verify-against] [-o FILE]`
@@ -150,8 +150,8 @@
 | 文件 | 英文位置 | 中文缺口 | 影响 |
 | --- | --- | --- | --- |
 | `docs/zh/drivers/sheng-ufs.md` | `docs/drivers/sheng-ufs.md:7-9` | 缺句：“On request it also gives the display bank (`sheng-dpu-scanout`) and the WiFi endpoint (`sheng-wifi=2` or more) stage 1 windows; both are off by default.” | 丢失两个可选 stage 1 窗口及其默认关闭状态，影响 ShengUfs 能力理解 |
-| `docs/zh/reference/output-layout.md` | `docs/reference/output-layout.md:79` | 缺整句：“The target `.cache/xnu-work/` contains patched XNU sources; `build/` contains generated headers and archives.”；`## logs` 前也缺“One log per step:”引导句 | 构建树中 `.cache/xnu-work/` 与 `build/` 的用途没有中文说明 |
-| `docs/zh/reference/troubleshooting.md` | `docs/reference/troubleshooting.md:23` | `is an EXAMPLE device repository` 行的操作列只写“复制示例并设置真实名称”，漏掉“remove `board.example = true`” | 用户可能保留 example 标记，`build`/`bootimg` 会继续拒绝 |
+| `docs/zh/reference/output-layout.md` | `unixnu:docs/reference/output-layout.md:79` | 缺整句：“The target `.cache/xnu-work/` contains patched XNU sources; `build/` contains generated headers and archives.”；`## logs` 前也缺“One log per step:”引导句 | 构建树中 `.cache/xnu-work/` 与 `build/` 的用途没有中文说明 |
+| `docs/zh/reference/troubleshooting.md` | `unixnu:docs/reference/troubleshooting.md:23` | `is an EXAMPLE device repository` 行的操作列只写“复制示例并设置真实名称”，漏掉“remove `board.example = true`” | 用户可能保留 example 标记，`build`/`bootimg` 会继续拒绝 |
 | `docs/zh/concepts/userdata.md`、`docs/zh/guide/userdata.md` | 两文件 `Next steps` | 链接列表只保留链接名，删掉英文的说明性短句（如“lists the `[userdata]` keys”“describes the build and flash commands”） | 轻微信息损失，不影响操作 |
 
 ### 4.4 设备区 266 篇的翻译覆盖（系统性）

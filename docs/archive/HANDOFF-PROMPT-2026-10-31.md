@@ -103,7 +103,7 @@ TWRP 里可 `adb reboot bootloader` 切过去。
    - `mig: line 183: : command not found` → `MIGCC` 为空，**未解决**。
      `MakeInc.cmd:195-196` 的 `export MIGCC := $(CC)` 在该点 `CC` 为空；
      往 `$TREE/scripts/build-xnu-4k-baseline.sh` 插 export 会被 `unixnu` 重建 tree 覆盖。
-     正解方向：改 `scripts/unixnu/kernel.py` 的 `linux_env()`，或修 `/opt/.../mig` 的兜底（需 sudo）。
+     正解方向：改 `unixnu:scripts/unixnu/kernel.py` 的 `linux_env()`，或修 `/opt/.../mig` 的兜底（需 sudo）。
    - **在修好之前，只能走「换 payload / bootimg，不编内核」这条路**，上面第一件事就是这么做的。
 2. **ADT 不是标准 FDT**。`dtc` 会报 `Blob has incorrect magic number`，只能字节搜索验证。
    `display-scale` 在 offset 9536，`len=4 value=3`。

@@ -40,7 +40,7 @@ Pong touch: Goodix initialization failed; normal UI boot continues
 
 **根因**：pong 驱动投的是 **QUP0 SE4**（`GCC_VOTE BIT(14)`、CBCR `0x274dc`），但 K60 触摸在 `spi@990000` = **QUP0 SE1**。
 
-**证据（Linux mainline `drivers/clk/qcom/gcc-sm8450.c`，权威且可复算）**：
+**证据（Linux mainline `linux:drivers/clk/qcom/gcc-sm8450.c`，权威且可复算）**：
 
 | SE | halt_reg (CBCR) | 投票位 | cmd_rcgr |
 |---|---|---|---|

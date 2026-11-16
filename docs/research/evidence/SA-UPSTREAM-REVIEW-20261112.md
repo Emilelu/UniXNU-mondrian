@@ -358,13 +358,13 @@
 
 ## 7. 问题 C：`fix/k60-input-adt` 与 `fix/ufs-data-payload` 改了什么，与我们的 Data 窗口什么关系
 
-**`fix/k60-input-adt`（2 个提交：`569b80e` 文档、`1e1a70e` 代码）**：`scripts/unixnu/devicetree.py` 增加"metadata-only 外设"通道——`platform.get('arm-io', {})` 里声明但没有 `reg` 映射的子节点，会被 `platform_node(name, table)` 塞进 `arm-io`，遇到与已导出硬件重名则 `raise Error('Configured arm-io child duplicates an exported hardware node')`。这就是让 `board.toml` 的 `[adt.arm-io.pong-touch.*]` / `[adt.arm-io.pong-buttons.*]` 能出现在 ADT 里的那一层。
+**`fix/k60-input-adt`（2 个提交：`569b80e` 文档、`1e1a70e` 代码）**：`unixnu:scripts/unixnu/devicetree.py` 增加"metadata-only 外设"通道——`platform.get('arm-io', {})` 里声明但没有 `reg` 映射的子节点，会被 `platform_node(name, table)` 塞进 `arm-io`，遇到与已导出硬件重名则 `raise Error('Configured arm-io child duplicates an exported hardware node')`。这就是让 `board.toml` 的 `[adt.arm-io.pong-touch.*]` / `[adt.arm-io.pong-buttons.*]` 能出现在 ADT 里的那一层。
 
 **`fix/ufs-data-payload`（6 个提交）**：在上面两条之外再加 `182c0a2`（`U32`/`U64` 类型表补 `pong,smmu-*`、`pong,ufs-*`；CPU 节点补 `cpu-id`；`cpus` 补 `max_cpus`）、`5fba86d`（`payload.py` 的 Data 输入规则）、以及三条文档。
 
 **与我们框架副本的实测对比**（`E:\hackios\UniXNU`，这是 picker 的第二个 target）：
-- `scripts/unixnu/devicetree.py` 与分支 tip **逐字节相同**（0 行差异）——`fix/k60-input-adt` 与 `fix/ufs-data-payload` 的 ADT 部分**已经在我们树里**。
-- `scripts/unixnu/payload.py` 是唯一落差：`check_data_input()` 仍是旧版（`"An owner-Data kernel needs a seed even when it resumes a persistent overlay."`）。分支版把规则反过来：
+- `unixnu:scripts/unixnu/devicetree.py` 与分支 tip **逐字节相同**（0 行差异）——`fix/k60-input-adt` 与 `fix/ufs-data-payload` 的 ADT 部分**已经在我们树里**。
+- `unixnu:scripts/unixnu/payload.py` 是唯一落差：`check_data_input()` 仍是旧版（`"An owner-Data kernel needs a seed even when it resumes a persistent overlay."`）。分支版把规则反过来：
 
 ```python
 if config.get('XNU_OWNER_DATA_UFS'):

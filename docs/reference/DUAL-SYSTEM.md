@@ -23,7 +23,7 @@ K60（mondrian）有第三方 TWRP 3.7.1_12 v8.6 A14 / OFRP 设备树，但**必
 2. 进 TWRP，确认 root ADB、解密并挂载 `/data`，关闭 MTP。
 3. `python3 scripts/dual_sys/partition.py inspect`（只读）——确认布局受支持。
 4. 交叉编译 AArch64 静态 helper：
-   `aarch64-linux-gnu-gcc -static -O2 -Wall -Wextra -Werror scripts/dual_sys/f2fs-shrink.c -o out/dual_sys/f2fs-shrink`
+   `aarch64-linux-gnu-gcc -static -O2 -Wall -Wextra -Werror unixnu:scripts/dual_sys/f2fs-shrink.c -o out/dual_sys/f2fs-shrink`
 5. `partition.py plan --size-gib <N> --helper ... --output out/dual_sys/preview`；
    审阅 `plan.json`/GPT，保留整个输出目录。
 6. **用户确认后**才 `apply`；执行期间保持供电，不操作 TWRP。

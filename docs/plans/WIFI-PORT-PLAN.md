@@ -59,14 +59,14 @@ proprietary-files.txt   固件清单（不存固件本体）
 
 | 入口 | 作用 | 关键点 |
 |---|---|---|
-| `scripts/prepare-pong-wifi.py` | 从 REC 只读抓 Pong 当前活动槽的 live DT + PCI sysfs + `modem<slot>` 的 `image/qca6490` 固件；生成 board profile 和 `local-inputs.json` | `pong:prepare-pong-wifi.py:63-140`（`describe()` 解析 DT/PCI）；`:134`（`nv_mac_required='use-nv-mac' in wlan`）；`:135-138`（device/runtime path 与 required）；`:143-203`（REC、槽位、只读挂载、pull） |
-| `scripts/build-pong-ath11k.py`（merged 版本 `kits/PongPlatform24/build-support/merged-scripts/build-pong-ath11k.py`） | 编译 Linux v7.0.14 ath11k + MHI/QRTR/QMI，产出 `build/pong-ath11k/libPongAth11k.a` | `pong:kits/PongPlatform24/build-support/merged-scripts/build-pong-ath11k.py:24-231`；`:174-181` 是 clang flags（含 `-target arm64-apple-ios18.0`、`-I drivers/PongWifi/ath11k/compat`）；`:216` 输出 archive |
-| `scripts/build-pong-wifi-native.py` | 从 `configs/pong-wifi-sm8475.json` 生成 `PongWifiInputs.h`；把固件打成 `PongWifiFirmware.bin`/`.s`；编译 `PongWifiPlatform.cpp`、`PongWifiNet.cpp`；合并 `libPongWifiNative.a` | `pong:build-pong-wifi-native.py:22-66`（profile→header）；`:67-92`（PWF2 固件包）；`:98-129`（编译/归档） |
+| `pong:scripts/prepare-pong-wifi.py` | 从 REC 只读抓 Pong 当前活动槽的 live DT + PCI sysfs + `modem<slot>` 的 `image/qca6490` 固件；生成 board profile 和 `local-inputs.json` | `pong:prepare-pong-wifi.py:63-140`（`describe()` 解析 DT/PCI）；`:134`（`nv_mac_required='use-nv-mac' in wlan`）；`:135-138`（device/runtime path 与 required）；`:143-203`（REC、槽位、只读挂载、pull） |
+| `pong:scripts/build-pong-ath11k.py`（merged 版本 `pong:kits/PongPlatform24/build-support/merged-scripts/build-pong-ath11k.py`） | 编译 Linux v7.0.14 ath11k + MHI/QRTR/QMI，产出 `build/pong-ath11k/libPongAth11k.a` | `pong:kits/PongPlatform24/build-support/merged-scripts/build-pong-ath11k.py:24-231`；`:174-181` 是 clang flags（含 `-target arm64-apple-ios18.0`、`-I drivers/PongWifi/ath11k/compat`）；`:216` 输出 archive |
+| `pong:scripts/build-pong-wifi-native.py` | 从 `pong:configs/pong-wifi-sm8475.json` 生成 `PongWifiInputs.h`；把固件打成 `PongWifiFirmware.bin`/`.s`；编译 `PongWifiPlatform.cpp`、`PongWifiNet.cpp`；合并 `libPongWifiNative.a` | `pong:build-pong-wifi-native.py:22-66`（profile→header）；`:67-92`（PWF2 固件包）；`:98-129`（编译/归档） |
 | `build-xnu-ipados18.sh` | 顶层构建：`XNU_PONG_WIFI=1` 时调用上面两个脚本，并把 `libPongWifiNative.a` 强制链入内核 | `pong:build-xnu-ipados18.sh:260-266`（构建）；`:1016-1020`（`-Wl,-force_load`） |
 | `configs/pong_ipados18_defconfig` | `CONFIG_XNU_PONG_WIFI=y` | `pong:configs/pong_ipados18_defconfig:61` |
 | 运行时开关 | `pong_wifi=1` 启动板级 worker；`pong_wifi=0`/缺省时完全不启动 | `pong:PongWifiPlatform.cpp:598-601`；`pong:README.md:32` |
 
-### 1.4 `configs/pong-wifi-sm8475.json` 字段逐项
+### 1.4 `pong:configs/pong-wifi-sm8475.json` 字段逐项
 
 以下行号均指 `pong:configs/pong-wifi-sm8475.json`。
 
@@ -304,13 +304,13 @@ proprietary-files.txt   固件清单（不存固件本体）
 
 | 步骤 | 操作 | 验收 |
 |---|---|---|
-| 1.1 | 在 `E:/hackios/UniXNU-mondrian` 添加 `drivers/PongWifi` 子模块：URL `https://github.com/Chengdong-Yu/pong-wifi.git`，pin `d2e33ca6e0f6a3b3e7881a45ab36c6920e7afb07` | `git submodule status drivers/PongWifi` 显示该 commit；`drivers/PongWifi/PongWifiPlatform.cpp` 存在 |
+| 1.1 | 在 `E:/hackios/UniXNU-mondrian` 添加 `drivers/PongWifi` 子模块：URL `https://github.com/Chengdong-Yu/pong-wifi.git`，pin `d2e33ca6e0f6a3b3e7881a45ab36c6920e7afb07` | `git submodule status drivers/PongWifi` 显示该 commit；`zizhan:drivers/PongWifi/PongWifiPlatform.cpp` 存在 |
 | 1.2 | 添加 `drivers/PongPower` 子模块：URL `https://github.com/Chengdong-Yu/pong-power.git`，pin `c37179ed12ba7f981b2b088aea482b969085eb84` | `drivers/PongPower/PongPlatformResources.{h,cpp}` 存在；`QcomRpmh.h` 来自 `sheng_source/package`（`pong:configs/pong-native-sources.toml:4-8`） |
 | 1.3 | 确认 `drivers/PongAdreno/ArmSmmu4K` 与 Pong main 的 `3e8ffa2...` 版本对齐。K60 当前 `PongAdreno` 是普通树（`git ls-tree HEAD drivers/PongAdreno` 为 `040000 tree`），不是 submodule；K60 版本缺少 `ArmSmmu4KMmio.{c,h}`。若 PongWifi 编译依赖新 API，先同步/抽取 `ArmSmmu4K` 或建立共享 `libPongSmmu4K.a` | `ArmSmmu4KProgram.h` 中 `ArmSmmu4KBuild`、`ArmSmmu4KProgramDisabledContext` 可用；`nm` 无重复符号 |
 | 1.4 | 确认 `drivers/NativeUfs/SmmuTakeover.h` 的 `planUfsSmmu()` 可用于 WiFi 的 SID `0x1c01`；同时补 `PongUfsTransport.cpp` 的 `gWifiUfsReady`/`pong_ufs_ready()`（K60 当前没有，Pong 在 `pong:drivers/NativeUfs/PongUfsTransport.cpp:49,225,620` 有） | `pong_ufs_ready()` 链接可解析；`transport ready` 时置位 |
-| 1.5 | 准备公共源码输入：`wifi_shared`（Ath12kWifi `f6bf561...`）、`wifi_linux`（Linux v7.0.14 `458c6079...`）、`sheng_source`（`08cde20...`，至少 `QcomRpmh.c/h`） | 对应目录存在 `include/nw_abi.h`、`drivers/net/wireless/ath/ath11k/pci.c`、`package/QcomRpmh.c` |
+| 1.5 | 准备公共源码输入：`wifi_shared`（Ath12kWifi `f6bf561...`）、`wifi_linux`（Linux v7.0.14 `458c6079...`）、`sheng_source`（`08cde20...`，至少 `QcomRpmh.c/h`） | 对应目录存在 `include/nw_abi.h`、`linux:drivers/net/wireless/ath/ath11k/pci.c`、`sheng:package/QcomRpmh.c` |
 
-### 4.2 阶段二：改 K60 板级值（新建 `configs/mondrian-wifi-sm8475.json`）
+### 4.2 阶段二：改 K60 板级值（新建 `k60-wifi:configs/mondrian-wifi-sm8475.json`）
 
 以 `pong:configs/pong-wifi-sm8475.json` 为模板，逐项替换：
 
@@ -327,7 +327,7 @@ proprietary-files.txt   固件清单（不存固件本体）
 | `nv_mac_required` | 按 K60 实测决定；若 K60 无 `use-nv-mac`，不要写死 true | K60 FDT；Pong `:734` |
 | `firmware.device_path` / `runtime_path` / `required` | 用 §4.0 实际路径和 §4.3 inventory 填；未核实前不写“已确认” | K60 FDT 无 firmware-name；`FEATURES...:90,269` |
 
-验收：`configs/mondrian-wifi-sm8475.json` 能通过一个与 `build-pong-wifi-native.py:55-56` 类似的校验器；所有 K60 值都有 `FDT` 或 `device` 出处；没有从 Pong 直接抄来的未核实字段。
+验收：`k60-wifi:configs/mondrian-wifi-sm8475.json` 能通过一个与 `build-pong-wifi-native.py:55-56` 类似的校验器；所有 K60 值都有 `FDT` 或 `device` 出处；没有从 Pong 直接抄来的未核实字段。
 
 ### 4.3 阶段三：固件提取
 
@@ -363,9 +363,9 @@ wlan_mac.bin      # 可选；Pong 在缺失时用本地安装 UUID 生成 02:xx 
 
 | 步骤 | 改动 | 验收 |
 |---|---|---|
-| 4.1 | 新建 `scripts/prepare-k60-wifi.py`：复制 `prepare-pong-wifi.py` 的 `fdt_nodes/cells/text/describe`，把 product 检查改为 `mondrian`，把 `configs/pong-wifi-sm8475.json` 路径改为 `configs/mondrian-wifi-sm8475.json`，保留 `--dtb`/`--firmware-dir` 离线入口 | 可在无设备时用 `--dtb E:/k60-work/reports/live-6033dbec-fdt.dtb --firmware-dir ...` 生成 profile |
-| 4.2 | 新建 `scripts/build-k60-ath11k.py`：从 `build-pong-ath11k.py` 复制；把 `-target arm64-apple-ios18.0` 改为 `arm64-apple-ios16.0`；`ROOT` 指向 K60 设备仓；`--shared` 指向 Ath12kWifi；`--linux` 指向 Linux v7.0.14；输出 `build/k60-ath11k/libPongAth11k.a` | 编译零错误；`nm -u` 只有允许的 libc/随机数符号（Pong 的 allowed 集见 `build-pong-ath11k.py:223-225`） |
-| 4.3 | 新建 `scripts/build-k60-wifi-native.py`：从 `build-pong-wifi-native.py` 复制；`profile` 改 K60；`-target` 改 `ios16.0`；保留 `PongWifiInputs.h` 生成、PWF2 打包、`PongWifiNet` 延迟注册逻辑 | 生成 `build/k60-wifi/PongWifiInputs.h`、`PongWifiFirmware.bin`、`libPongWifiNative.a` |
+| 4.1 | 新建 `k60-wifi:scripts/prepare-k60-wifi.py`：复制 `prepare-pong-wifi.py` 的 `fdt_nodes/cells/text/describe`，把 product 检查改为 `mondrian`，把 `pong:configs/pong-wifi-sm8475.json` 路径改为 `k60-wifi:configs/mondrian-wifi-sm8475.json`，保留 `--dtb`/`--firmware-dir` 离线入口 | 可在无设备时用 `--dtb E:/k60-work/reports/live-6033dbec-fdt.dtb --firmware-dir ...` 生成 profile |
+| 4.2 | 新建 `k60-wifi:scripts/build-k60-ath11k.py`：从 `build-pong-ath11k.py` 复制；把 `-target arm64-apple-ios18.0` 改为 `arm64-apple-ios16.0`；`ROOT` 指向 K60 设备仓；`--shared` 指向 Ath12kWifi；`--linux` 指向 Linux v7.0.14；输出 `build/k60-ath11k/libPongAth11k.a` | 编译零错误；`nm -u` 只有允许的 libc/随机数符号（Pong 的 allowed 集见 `build-pong-ath11k.py:223-225`） |
+| 4.3 | 新建 `k60-wifi:scripts/build-k60-wifi-native.py`：从 `build-pong-wifi-native.py` 复制；`profile` 改 K60；`-target` 改 `ios16.0`；保留 `PongWifiInputs.h` 生成、PWF2 打包、`PongWifiNet` 延迟注册逻辑 | 生成 `build/k60-wifi/PongWifiInputs.h`、`PongWifiFirmware.bin`、`libPongWifiNative.a` |
 | 4.4 | 新建 `scripts/build-k60-wifi-resources.py`（最小）：编译 `drivers/PongPower/PongPlatformResources.cpp` + `sheng_source/package/QcomRpmh.c`，输出 `build/k60-wifi-resources/libPongWifiPlatformResources.a`；不要编译 PongPower 的音频/ADSP 全套 | `pong_rpmh_init`、`pong_rpmh_vote`、`pong_smmu_lease_lock/unlock` 可解析 |
 | 4.5 | 共享 SMMU：将 K60 `drivers/PongAdreno/ArmSmmu4K` 抽成 `libPongSmmu4K.a`（Pong 的 `build-pong-smmu4k.py` 清单：`ArmSmmu4K`, `Context`, `Program`, `Streams`, `Audit`, `Live`, `TableMemory`, `Mmio`）；或暂时由 `libPongAdrenoPlatform.a` 提供，但要在报告中记录“WiFi 链接依赖 GPU archive” | `ArmSmmu4KProgramDisabledContext`/`ArmSmmu4KBuild` 等符号唯一来源；不重复 |
 | 4.6 | `configs/mondrian_defconfig` 增加 `CONFIG_XNU_PONG_WIFI=y`（参考 `pong:configs/pong_ipados18_defconfig:61`）；若采用共享 SMMU，另加 `CONFIG_XNU_PONG_SMMU4K=y` 或等价开关 | `unixnu build kernel` 能读到开关 |

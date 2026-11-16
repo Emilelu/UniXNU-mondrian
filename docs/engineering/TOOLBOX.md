@@ -27,10 +27,10 @@
 
 | 脚本 | 检查什么 |
 |---|---|
-| `scripts/check-apfs-component-checkpoints.py` | 组件 checkpoint |
-| `scripts/check-native-apfs-file-checkpoints.py` | native APFS 文件 |
-| `scripts/check-original-apfs-checkpoints.py` | 原始 APFS |
-| `scripts/check-original-apfs-root-checkpoints.py` | 原始 APFS 根 |
+| `unixnu:scripts/check-apfs-component-checkpoints.py` | 组件 checkpoint |
+| `unixnu:scripts/check-native-apfs-file-checkpoints.py` | native APFS 文件 |
+| `unixnu:scripts/check-original-apfs-checkpoints.py` | 原始 APFS |
+| `unixnu:scripts/check-original-apfs-root-checkpoints.py` | 原始 APFS 根 |
 | `scripts/audit-pong-root-compression.py` | APFS 压缩审计 |
 
 ## 3. 构建 / 打包 / 刷机

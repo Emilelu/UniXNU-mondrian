@@ -24,6 +24,7 @@ Provenance:
 | `tests/support/verified_root.h`, `tests/support/verified_root.c` | `9dbc8001eea86bd23e47d887dc186a4914b1290a` (`UniXNU/VerifiedRoot`) | bluseliu50 <265648257+bluseliu50@users.noreply.github.com> |
 | `drivers/NativeUfs/RootPolicyTable.h`, `tests/RootPolicyTable.cpp`, `tests/check-verified-root.py` | new adaptation of the policy-table flow in `references/ShengUfs@9d527ae1a8d36a7ff210f9f4c9b429549c34c991` `NativeUfs.cpp:2169-2330` | Sharky Wang <rponeawa@qq.com> (reference) |
 | `drivers/NativeUfs/RootWindowVerifier.h`, `tests/RootWindowVerifier.cpp` | new wrapper over `VerifiedTableCache.h` + `RootPolicyTable.h`; same `NativeUfs.cpp:2169-2330` reference | Sharky Wang <rponeawa@qq.com> (reference) |
+| `tests/RootWindowReadVerified.cpp` | new host test of the transport read shape (`ufsReadWindow` verify-before-copy) over `RootWindowVerifier` | — |
 
 Run (Linux/WSL, OpenSSL development headers required):
 
@@ -46,7 +47,10 @@ OpenSSL, builds signed full/header-only manifests, compiles the kernel-side
 LUN-0 `<window>.vroot` reads, wrong anchor, wrong table, truncation and
 signature mutation. It also builds `tests/RootWindowVerifier.cpp`, which keeps
 the full-envelope and header-only paths behind one per-window object and checks
-that the page cache serves block digests without keeping the whole table. The
-policy code is still not called by `NativeUfs.cpp` or `PongUfsTransport.cpp`;
-wiring the verifier into the transport is step 2b in
+that the page cache serves block digests without keeping the whole table.
+`RootWindowReadVerified.cpp` feeds the same verifier through `ufsReadWindow`
+with a mock transport, so the verify-before-copy order is exercised without
+IOKit. `PongUfsTransport.cpp` now calls the verifier under
+`NATIVE_VERIFIED_BLOCK` (default off); the kernel link must supply the policy
+bundle when that switch is enabled. See step 2b in
 `docs/plans/SHENGUFS-VERIFIED-TABLE-PORT.md`.

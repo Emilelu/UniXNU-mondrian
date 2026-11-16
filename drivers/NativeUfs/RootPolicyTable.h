@@ -2,7 +2,6 @@
 #pragma once
 // Policy selection and table authentication for NativeUfs.
 // The window parameter is duck-typed: it must provide name[32], offset and size.
-#include <stdio.h>
 #include <string.h>
 #include "verified_root.h"
 #include "VerifiedBlockPolicy.h"
@@ -59,8 +58,10 @@ static bool rootPolicyTableLba (const Window *windows, uint32_t count, uint64_t 
 {
   if (!windows || !window || !lba || !tableBytes || userdataFirst > UINT64_MAX / VR_BLOCK_BYTES) return false;
   char name[32];
-  const int length = snprintf (name, sizeof (name), "%s.vroot", window);
-  if (length <= 0 || length >= static_cast<int> (sizeof (name))) return false;
+  const size_t windowLength = strlen (window);
+  if (!windowLength || windowLength + 7 > sizeof (name)) return false;
+  memcpy (name, window, windowLength);
+  memcpy (name + windowLength, ".vroot", 7);
   for (uint32_t index = 0; index < count; ++index) {
     const Window &object = windows[index];
     if (strcmp (object.name, name)) continue;

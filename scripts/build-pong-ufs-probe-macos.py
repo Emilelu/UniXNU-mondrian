@@ -20,6 +20,10 @@ def main():
                         help='XNU build tree whose Darwin 22 kernel headers should be used')
     parser.add_argument('--skip-image-verification', action='store_true',
                         help='compile/link without source or archive digests')
+    parser.add_argument('--verified-root', action='store_true',
+                        help='compile the verified-root read path (NATIVE_VERIFIED_BLOCK=1); '
+                             'the kernel link must also supply verified_root_policies and '
+                             'verified_root_key from the generated policy bundle')
     args = parser.parse_args()
     tree = args.tree.resolve()
     if platform.system() not in ('Darwin', 'Linux'):
@@ -42,6 +46,7 @@ def main():
         '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1',
         '-DXNU_PONG_EARLY_TRACE=' + str(int(trace_enabled)),
         '-DXNU_PONG_UFS_DATA=' + str(int('CONFIG_XNU_OWNER_DATA_UFS=y' in (DEVICE/'configs/mondrian_defconfig').read_text().splitlines())),
+        '-DNATIVE_VERIFIED_BLOCK=' + str(int(args.verified_root)),
         '-I' + str(storage_inc),
         '-I' + str(tree / '.cache/xnu-work/EXTERNAL_HEADERS'),
         '-I' + str(framework / 'PrivateHeaders'), '-I' + str(framework / 'Headers'),
@@ -83,6 +88,8 @@ def main():
         'storage_commands': ['NOP', 'READ ATTRIBUTE', 'START STOP ACTIVE', 'TEST UNIT READY', 'READ CAPACITY', 'READ(10)', 'WRITE(10) FUA', 'SYNCHRONIZE CACHE(10)'],
         'smmu_writes': 'exclusive UFS SID 0xe0 only after queue stop',
         'optional_probes_default': 'off',
+        'verified_root': ('compiled; kernel link must supply verified_root_policies and verified_root_key'
+                          if args.verified_root else 'off'),
         'board': 'Nothing Phone (2) Pong / SM8475',
         'ufs_hc': '0x01d84000/0x3000', 'gcc_ufs_page': '0x00187000/0x1000',
         'stream_id': '0xe0', 'hardware_tested': False,

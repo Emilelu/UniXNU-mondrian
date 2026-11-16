@@ -11,6 +11,7 @@
 #include <IOKit/IOLib.h>
 #include <vm/vm_kern.h>
 #include <kern/clock.h>
+#include <kern/thread.h>
 #include <mach/mach_time.h>
 #include <libkern/c++/OSBoolean.h>
 #include <libkern/c++/OSDictionary.h>
@@ -116,6 +117,36 @@ extern "C" boolean_t PE_parse_boot_arg_str(const char *arg_string, char *arg_ptr
 #include "RootQueue.h"
 #include "RootCommands.h"
 #include "RootLayout.h"
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+#include "RootWindowRead.h"
+#include "RootWindowVerifier.h"
+#include "VerifiedBlockPolicy.h"
+extern "C" {
+extern const struct vr_crypto vr_xnu_crypto;
+extern const uint8_t verified_root_key[];
+}
+#endif
+
+static RootLayout gRootLayout;
+
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+// Cache and table-page I/O for the verified-root adapter. The table object is
+// read straight from LUN 0, never through a window device, so a page-in cannot
+// recurse into a verified read of the window that needed it.
+struct PongVrootOps {
+  IOLock *lockObject = nullptr;
+  void lock() { IOLockLock(lockObject); }
+  void unlock() { IOLockUnlock(lockObject); }
+  void sleep(void *event) { IOLockSleep(lockObject, event, THREAD_UNINT); }
+  void wakeup(void *event) { IOLockWakeup(lockObject, event, false); }
+  bool readPage(const VrootTable &table, uint64_t page, void *dst) {
+    return hostRead4k(0, table.firstLba + page, 1, dst) == kIOReturnSuccess;
+  }
+  bool sha256(const void *data, size_t bytes, uint8_t out[32]) {
+    return vr_xnu_crypto.sha256(data, bytes, out) != 0;
+  }
+};
+#endif
 
 static bool transportFailure(const char *why) {
   gHost.ready = false;
@@ -223,6 +254,22 @@ class PongUfsBlock : public IOBlockStorageDevice {
   IOLock *mutex = nullptr;
   bool online = false;
   RootDiskWindow window = {};
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  RootWindowVerifier verifier = {};
+  bool verifierReady = false;
+  IOLock *vrootLock = nullptr;
+  uint8_t *verifyHeader = nullptr;
+  uint8_t *verifyPageHashes = nullptr;
+  uint32_t *verifyWhere = nullptr;
+  uint8_t *verifyScratch = nullptr;
+  VrootCacheEntry *verifyEntries = nullptr;
+  uint8_t *verifyCachePages = nullptr;
+  size_t verifyPageHashBytes = 0;
+  size_t verifyWhereBytes = 0;
+  uint32_t verifyCacheCount = 0;
+  bool configureVerification();
+  void releaseVerification();
+#endif
 public:
   bool init(OSDictionary *properties, const RootDiskWindow &selected);
   bool start(IOService *provider) override;
@@ -426,14 +473,84 @@ bool PongUfsBlock::init(OSDictionary *properties, const RootDiskWindow &selected
   window = selected;
   return true;
 }
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+bool PongUfsBlock::configureVerification() {
+  RootPolicySelection selection = {};
+  gRootDiagnostic.stage = "policy selection";
+  if (!verified_root_policy_count || verified_root_policy_count > 16 ||
+      !rootPolicySelect(verified_root_policies, verified_root_policy_count, window.size, &selection))
+    return false;
+  vrootLock = IOLockAlloc();
+  if (!vrootLock) return false;
+  PongVrootOps ops;
+  ops.lockObject = vrootLock;
+  RootWindowVerifierMemory memory = {};
+  if (selection.headerOnly) {
+    const uint64_t pages = rootWindowTablePages(selection.tableBytes);
+    if (!pages || pages > UINT32_MAX / 32 || pages > UINT32_MAX / sizeof(uint32_t)) return false;
+    verifyPageHashBytes = static_cast<size_t>(pages * 32);
+    verifyWhereBytes = static_cast<size_t>(pages * sizeof(uint32_t));
+    verifyCacheCount = 512;
+    verifyHeader = static_cast<uint8_t *>(IOMalloc(VR_BLOCK_BYTES));
+    verifyPageHashes = static_cast<uint8_t *>(IOMalloc(verifyPageHashBytes));
+    verifyWhere = static_cast<uint32_t *>(IOMalloc(verifyWhereBytes));
+    verifyScratch = static_cast<uint8_t *>(IOMalloc(VR_BLOCK_BYTES));
+    verifyEntries = static_cast<VrootCacheEntry *>(IOMalloc(verifyCacheCount * sizeof(VrootCacheEntry)));
+    verifyCachePages = static_cast<uint8_t *>(IOMalloc(verifyCacheCount * VR_BLOCK_BYTES));
+    if (!verifyHeader || !verifyPageHashes || !verifyWhere || !verifyScratch || !verifyEntries ||
+        !verifyCachePages)
+      return false;
+    memory = {verifyHeader, VR_BLOCK_BYTES, verifyPageHashes, verifyPageHashBytes, verifyWhere,
+              verifyWhereBytes / sizeof(uint32_t), verifyScratch, VR_BLOCK_BYTES, verifyEntries,
+              verifyCachePages, verifyCacheCount};
+  }
+  gRootDiagnostic.stage = "policy table";
+  if (!rootWindowVerifierConfigure(verifier, memory, selection, gRootLayout.window, gRootLayout.windows,
+                                   gRootLayout.userdataFirst, window.name, verified_root_key,
+                                   &vr_xnu_crypto, ops))
+    return false;
+  verifierReady = true;
+  return true;
+}
+
+void PongUfsBlock::releaseVerification() {
+  if (verifierReady && vrootLock) {
+    PongVrootOps ops;
+    ops.lockObject = vrootLock;
+    rootWindowVerifierDrop(verifier, ops);
+    verifierReady = false;
+  }
+  if (verifyHeader) IOFree(verifyHeader, VR_BLOCK_BYTES);
+  if (verifyPageHashes) IOFree(verifyPageHashes, verifyPageHashBytes);
+  if (verifyWhere) IOFree(verifyWhere, verifyWhereBytes);
+  if (verifyScratch) IOFree(verifyScratch, VR_BLOCK_BYTES);
+  if (verifyEntries) IOFree(verifyEntries, verifyCacheCount * sizeof(VrootCacheEntry));
+  if (verifyCachePages) IOFree(verifyCachePages, verifyCacheCount * VR_BLOCK_BYTES);
+  verifyHeader = nullptr;
+  verifyPageHashes = nullptr;
+  verifyWhere = nullptr;
+  verifyScratch = nullptr;
+  verifyEntries = nullptr;
+  verifyCachePages = nullptr;
+  if (vrootLock) IOLockFree(vrootLock);
+  vrootLock = nullptr;
+}
+#endif
 bool PongUfsBlock::start(IOService *provider) {
-  bounce = static_cast<uint8_t *>(IOMalloc(4096)); mutex = IOLockAlloc();
+  bounce = static_cast<uint8_t *>(IOMalloc(kDataMax)); mutex = IOLockAlloc();
   if (!bounce || !mutex || !gHost.ready || !window.size || !IOBlockStorageDevice::start(provider)) return false;
   gRootDiagnostic.stage = "first root read";
   if (hostRead4k(0, window.baseByte / 4096, 1, bounce) != kIOReturnSuccess)
     return transportFailure("first root read");
   if (memcmp(bounce + window.signatureOffset, window.signature, strlen(window.signature)))
     return transportFailure("SHNGROOT window signature mismatch");
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  // Data keeps the path that predates verified-root; P-152/P-153 apply there.
+  if (strcmp(window.name, "Data") && !configureVerification()) {
+    releaseVerification();
+    return transportFailure("verified root policy");
+  }
+#endif
   gRootDiagnostic.first = kPongUserdataFirst4k;
   gRootDiagnostic.last = kPongUserdataLast4k;
   gRootDiagnostic.windowBytes = window.size;
@@ -454,7 +571,10 @@ bool PongUfsBlock::start(IOService *provider) {
   return true;
 }
 void PongUfsBlock::free() {
-  if (bounce) IOFree(bounce, 4096);
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  releaseVerification();
+#endif
+  if (bounce) IOFree(bounce, kDataMax);
   if (mutex) IOLockFree(mutex);
   IOBlockStorageDevice::free();
 }
@@ -494,6 +614,45 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
           (unsigned long long)block, (unsigned long long)count);
     gHost.readTraceCount++;
   }
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  if (!write && verifierReady) {
+    struct RequestOps {
+      IOMemoryDescriptor *buffer;
+      RootWindowVerifier &verifier;
+      PongVrootOps &vroot;
+      void lock() {}
+      void unlock() {}
+      IOReturn read(uint64_t lba, uint32_t blocks, void *out) {
+        return hostRead4k(0, lba, blocks, out);
+      }
+      IOReturn verify(uint64_t index, const void *data, size_t length) {
+        const int status = rootWindowVerifierVerify(verifier, vroot, index, data, length, &vr_xnu_crypto);
+        if (status != VR_OK) {
+          gRootDiagnostic.stage = "read block integrity";
+          gRootDiagnostic.verify = static_cast<uint32_t>(status);
+          return kIOReturnNotPrivileged;
+        }
+        return kIOReturnSuccess;
+      }
+      uint64_t copy(uint64_t offset, const void *data, uint64_t length) {
+        return buffer->writeBytes(offset, data, length);
+      }
+    };
+    PongVrootOps vroot;
+    vroot.lockObject = vrootLock;
+    RequestOps ops = {buffer, verifier, vroot};
+    IOLockLock(mutex);
+    const UfsWindowResult outcome = ufsReadWindow(ops, window.baseByte, window.size, block, count, bounce);
+    IOLockUnlock(mutex);
+    if (outcome.status != kIOReturnSuccess) {
+      if (gRootDiagnostic.verify == 0xffffffff) gRootDiagnostic.stage = "read block integrity";
+      completion->action(completion->target, completion->parameter, outcome.status, outcome.done);
+      return kIOReturnSuccess;
+    }
+    completion->action(completion->target, completion->parameter, kIOReturnSuccess, outcome.done);
+    return kIOReturnSuccess;
+  }
+#endif
   static uint32_t k60WriteTrace;
   const bool k60TraceWrite = write && k60WriteTrace < 8;
   if (k60TraceWrite) {
@@ -581,7 +740,7 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
   if (meta->getClassSize() != sizeof(IOBlockStorageDevice) || meta->getSuperClass() != &IOService::gMetaClass)
     return transportFailure("original storage class/parent ABI mismatch");
   if (!hostBringUp()) return false;
-  RootLayout layout;
+  RootLayout &layout = gRootLayout;
   const char *why = nullptr;
   if (!findRootLayout(&layout, &why)) return transportFailure(why);
   // The geometry is read from the board's own GPT instead of a captured Pong

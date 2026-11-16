@@ -395,8 +395,13 @@ if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && 
 fi
 if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
   # Compile the active Pong transport before linking.
-  python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
-    --tree "$ROOT" --skip-image-verification
+  if [ "${XNU_NATIVE_UFS_VERIFIED_ROOT:-0}" = 1 ]; then
+    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
+      --tree "$ROOT" --skip-image-verification --verified-root
+  else
+    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
+      --tree "$ROOT" --skip-image-verification
+  fi
 fi
 if [ "${XNU_NATIVE_RAM_BLOCK:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
   # Compile the RAM-block Data backend before linking. The link stage tests for

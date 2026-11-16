@@ -62,6 +62,11 @@ def main():
     run([cxx, '-o', build / 'RootWindowVerifier', build / 'RootWindowVerifier.o', build / 'verified_root.o',
          build / 'openssl_provider.o', '-lcrypto'])
     run([build / 'RootWindowVerifier', work])
+    run([cxx, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I', ROOT, '-I', HERE,
+         '-c', HERE / 'RootWindowReadVerified.cpp', '-o', build / 'RootWindowReadVerified.o'])
+    run([cxx, '-o', build / 'RootWindowReadVerified', build / 'RootWindowReadVerified.o', build / 'verified_root.o',
+         build / 'openssl_provider.o', '-lcrypto'])
+    run([build / 'RootWindowReadVerified', work])
 
 
 if __name__ == '__main__':

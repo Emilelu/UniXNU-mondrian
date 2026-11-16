@@ -33,11 +33,23 @@ any image built from brightness-13 on: the image is older than its label claims.
 brightness-9 is deliberately kept as the old-form comparison and is judged with
 --old-form, which downgrades the missing counters to a warning again.
 
+brightness-17 onwards also print one line per CoreBrightness request:
+
+    K60 BACKLIGHT: brightness level 1024 -> level 1024 dbv 0x80a
+    K60 BACKLIGHT: brightness-nits 0.00000 -> level 0 dbv 0x0
+
+Pass --min-dbv and --max-dbv to judge the 12-bit range from those lines.  The
+bounds are checked over requests whose DBV is non-zero, so the startup
+brightness-nits 0 request (panel off) does not count as the dimmest point.
+Missing requests are a FAIL in that mode: the publication layer passing does
+not prove a user ever moved the slider.
+
 Exit status: 0 pass, 1 fail, 2 the log does not carry the verdict (no
 backlight line at all, or an old-form log whose counters are absent).
 
 Usage:
     python3 scripts/check-backlight-log.py <console.log|evidence dir> [--control=1] [--old-form] [--json]
+    python3 scripts/check-backlight-log.py <console.log|evidence dir> --min-dbv=0x14 --max-dbv=0xfff
     python3 scripts/check-backlight-log.py --selftest
 """
 from __future__ import annotations
@@ -59,6 +71,8 @@ INLINE = re.compile(
     r"stats=(-?\d+),(-?\d+),(-?\d+),(-?\d+)"
     r" req=(-?\d+),(-?\d+),(-?\d+),(-?\d+)")
 SIGSEGV = re.compile(r"sig=11|SIGSEGV|signal 11")
+REQUEST = re.compile(
+    r"K60 BACKLIGHT: brightness(?:-nits)?[^\n]*?-> level (\d+) dbv 0x([0-9a-fA-F]+)")
 
 
 def read_log(target: Path) -> str:
@@ -76,7 +90,8 @@ def read_log(target: Path) -> str:
 def parse(text: str) -> dict:
     found = {"level": None, "dbv": None, "conformance": None, "control": None,
              "stats": {}, "request": {}, "sig11": 0, "first_frame": False,
-             "springboard": 0, "lines": text.count("\n") + 1, "inline": False}
+             "springboard": 0, "lines": text.count("\n") + 1, "inline": False,
+             "brightness_requests": []}
     match = PUBLISHED.search(text)
     if match:
         found["level"] = int(match.group(1))
@@ -100,13 +115,16 @@ def parse(text: str) -> dict:
     for kind, index, value in COUNTER.findall(text):
         bucket = "stats" if kind == "backlight_stats" else "request"
         found[bucket][int(index)] = int(value)
+    found["brightness_requests"] = [
+        (int(level), int(dbv, 16)) for level, dbv in REQUEST.findall(text)]
     found["sig11"] = len(SIGSEGV.findall(text))
     found["first_frame"] = "first frame presented" in text
     found["springboard"] = sum(1 for line in text.splitlines() if "SpringBoard" in line)
     return found
 
 
-def judge(found: dict, expect: int, old_form: bool = False) -> tuple[int, list[str]]:
+def judge(found: dict, expect: int, old_form: bool = False,
+          min_dbv: int | None = None, max_dbv: int | None = None) -> tuple[int, list[str]]:
     """Return (exit status, report lines).
 
     old_form marks a pre-brightness-13 log (brightness-9 is kept as the old-form
@@ -194,6 +212,28 @@ def judge(found: dict, expect: int, old_form: bool = False) -> tuple[int, list[s
     else:
         lines.append("first frame presented")
 
+    if min_dbv is not None or max_dbv is not None:
+        requests = [(level, dbv) for level, dbv in found["brightness_requests"] if dbv > 0]
+        if len(requests) < 3:
+            failures += 1
+            lines.append("FAIL only %d non-zero brightness request line(s); "
+                         "the 12-bit range test needs at least 3" % len(requests))
+        else:
+            observed = [dbv for _, dbv in requests]
+            lo, hi = min(observed), max(observed)
+            if min_dbv is not None and lo != min_dbv:
+                failures += 1
+                lines.append("FAIL dimmest request reached dbv 0x%x, expected 0x%x"
+                             % (lo, min_dbv))
+            elif min_dbv is not None:
+                lines.append("dimmest request reached dbv 0x%x as expected" % lo)
+            if max_dbv is not None and hi != max_dbv:
+                failures += 1
+                lines.append("FAIL brightest request reached dbv 0x%x, expected 0x%x"
+                             % (hi, max_dbv))
+            elif max_dbv is not None:
+                lines.append("brightest request reached dbv 0x%x as expected" % hi)
+
     lines.append("SpringBoard lines: %d" % found["springboard"])
     if failures:
         return 1, lines
@@ -260,10 +300,43 @@ def selftest() -> int:
                 print("     " + line)
         else:
             print("ok   %s -> %d" % (name, status))
+    range_cases = [
+        ("12-bit range reaches 0x14 and 0xfff",
+         "K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1"
+         " stats=4,0,2047,2047 req=0,0,1,1\n"
+         "K60 BACKLIGHT: brightness level 2047 -> level 2047 dbv 0xfff\n"
+         "K60 BACKLIGHT: brightness level 1024 -> level 1024 dbv 0x80a\n"
+         "K60 BACKLIGHT: brightness level 1 -> level 1 dbv 0x14\n"
+         "K60 DISPLAY: first frame presented\n",
+         0),
+        ("12-bit range bottom stayed at 0x1",
+         "K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1"
+         " stats=4,0,2047,2047 req=0,0,1,1\n"
+         "K60 BACKLIGHT: brightness level 2047 -> level 2047 dbv 0xfff\n"
+         "K60 BACKLIGHT: brightness level 1024 -> level 1024 dbv 0x80a\n"
+         "K60 BACKLIGHT: brightness level 1 -> level 1 dbv 0x1\n"
+         "K60 DISPLAY: first frame presented\n",
+         1),
+        ("12-bit range has no user requests",
+         "K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1"
+         " stats=4,0,2047,2047 req=0,0,1,1\n"
+         "K60 DISPLAY: first frame presented\n",
+         1),
+    ]
+    for name, text, want in range_cases:
+        status, report = judge(parse(text), 1, False, 0x14, 0xfff)
+        if status != want:
+            bad += 1
+            print("FAIL %s: status %d, wanted %d" % (name, status, want))
+            for line in report:
+                print("     " + line)
+        else:
+            print("ok   %s -> %d" % (name, status))
+
     if bad:
         print("%d fixture(s) disagreed" % bad)
         return 1
-    print("check-backlight-log: %d fixtures passed" % len(cases))
+    print("check-backlight-log: %d fixtures passed" % (len(cases) + len(range_cases)))
     return 0
 
 
@@ -274,6 +347,13 @@ def main(argv: list[str]) -> int:
     if "--control=1" in argv or "--expect-control=1" in argv:
         expect = 1
     old_form = "--old-form" in argv
+    min_dbv = None
+    max_dbv = None
+    for arg in argv[1:]:
+        if arg.startswith("--min-dbv="):
+            min_dbv = int(arg.split("=", 1)[1], 0)
+        elif arg.startswith("--max-dbv="):
+            max_dbv = int(arg.split("=", 1)[1], 0)
     target = None
     for arg in argv[1:]:
         if arg.startswith("--"):
@@ -281,10 +361,10 @@ def main(argv: list[str]) -> int:
         target = Path(arg)
         break
     if target is None:
-        print("usage: check-backlight-log.py <console.log|dir> [--control=1] [--old-form] [--json]")
+        print("usage: check-backlight-log.py <console.log|dir> [--control=1] [--old-form] [--json] [--min-dbv=0x14 --max-dbv=0xfff]")
         return 2
     found = parse(read_log(target))
-    status, report = judge(found, expect, old_form)
+    status, report = judge(found, expect, old_form, min_dbv, max_dbv)
     if "--json" in argv:
         print(json.dumps({"status": status, "found": found, "report": report}, indent=2))
     else:

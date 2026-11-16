@@ -208,7 +208,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；然后对每颗应答的功放跑一遍**回放层**（软复位 + 57 对 Music profile + fuse 算的 vcalb + 静音音量，见 §9）；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
-补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（109,376 B，2,857 行，13 段，sha256 `a88daed65d71935d…fb7d`）+ `patches/audio/0003-k60-audio-afe-selftest.patch`（3,539 B，6 段，sha256 `a823415cd5140dc4…25ec`）+ `patches/audio/series`。
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（109,721 B，2,864 行，13 段，sha256 `e37d1c576b5eebcd9c480744e57314ca51d7aefbc3765acd857d1d0b59e9edf1`（前 8 位 `e37d1c57`））+ `patches/audio/0003-k60-audio-afe-selftest.patch`（4,880 B，6 段，sha256 `44076b782dbeed24…1ae08`）+ `patches/audio/series`。
 
 - 11 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/`、`drivers/PongPower/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；

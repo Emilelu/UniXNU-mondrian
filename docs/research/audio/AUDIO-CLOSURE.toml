@@ -159,7 +159,7 @@ evidence = [
   "drivers/PongAudio/tests/test-glink-multislot.c",
   "drivers/PongAudio/tests/run-glink-multislot-tests.sh",
 ]
-criteria = "360 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out, and the audio bridge queue/registration. The runner compiles the real source; there is no prototype patch."
+criteria = "370 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out, and the audio bridge queue/registration. The runner compiles the real source; there is no prototype patch."
 status = "closed"
 owner = "audio-agent"
 
@@ -190,7 +190,22 @@ evidence = [
   "drivers/PongPower/K60PmicGlink.cpp:97,142,167",
   "drivers/PongAudio/tests/test-glink-multislot.c",
 ]
-criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 512 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 360-case runner reaches state up and routes peer data only to the audio consumer."
+criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 512 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 370-case runner reaches state up and routes peer data only to the audio consumer."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "glink-audio-send-path"
+stage = "M2"
+change = "the audio consumer can send GPR bytes through its adsp_apps slot"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongPower/K60AudioGlink.c",
+  "drivers/PongPower/K60PmicGlinkAudio.h",
+  "drivers/PongPower/K60PmicGlink.cpp",
+  "drivers/PongAudio/tests/test-glink-multislot.c",
+]
+criteria = "370-case runner: after the DSP advertises a 512-byte send intent, k60_audio_glink_send() writes TX_DATA with local lcid 1 / remote intent id 0x2001 / payload gpr; a 4096-byte send returns QcomGlinkTooBig; after stop the same call returns -2002; no transport returns -2001."
 status = "closed"
 owner = "audio-agent"
 

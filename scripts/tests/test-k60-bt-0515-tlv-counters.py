@@ -3,12 +3,13 @@
 # (twin: patches/bt/0009-k60-bt-tlv-counters.patch).
 #
 # Why this exists: d7 printed "boot: budget exhausted at op=0xfc00 waiting=1"
-# twice and never printed a single "boot: command timeout".  A 10 s per-command
-# timeout that never fires means no segment actually hung; the 90 s boot budget
-# simply ran out while the NVM download kept walking one segment at a time.
-# Nobody could tell whether that walk is slow-but-correct or spent at the edge
-# of each 10 s deadline, because the TLV counters qbt.h already maintains were
-# never printed.  This patch prints them per segment and once at the end.
+# twice and no "boot: command timeout".  run() checks the boot budget first, so
+# a blocked pump/wait crossing both deadlines can hide the command timeout.
+# Rampatch returned and the NVM path started; segment progress and the cause
+# of the failure remain unknown.  This patch logs each attempt after return
+# and each download summary.  sent/acks are boot-wide cumulative counters;
+# failed attempts are not completed segments.  These checks validate the
+# observation patch contract, not controller behaviour or download success.
 #
 # The boundary is the point of the test: ONLY observation is allowed.  No state
 # machine, budget, segment size, download mode, clock, SMMU or window change may

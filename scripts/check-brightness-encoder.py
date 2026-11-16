@@ -10,7 +10,7 @@ What is asserted:
   * 0..4095 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
     the DBV -> level inverse round trips within one DBV step.
   * brightness-nits requests (iPadOS 27 form): 5 / 140 / 400 nits map onto the
-    panel range end to end (dimmest request -> DBV 0x14, brightest -> DBV 0xfff),
+    panel range end to end (dimmest request -> DBV 0x4, brightest -> DBV 0xfff),
     <= 0 maps to off, and the result never exceeds the level domain.
   * FadePeriod: 16.16 seconds -> milliseconds, clamped at 5000 ms.
   * The fade sequence: monotonic, starts at "from", lands exactly on "to", and
@@ -142,8 +142,8 @@ int main(void)
     check(wire[0] == 0x0f && wire[1] == 0xff, "max dbv wire bytes",
           (long)((wire[0] << 8) | wire[1]), 0x0fff);
     pong_panel_dbv_bytes(kMinDbvOn, wire);
-    check(wire[0] == 0x00 && wire[1] == 0x14, "min dbv wire bytes",
-          (long)((wire[0] << 8) | wire[1]), 0x0014);
+    check(wire[0] == 0x00 && wire[1] == 0x04, "min dbv wire bytes",
+          (long)((wire[0] << 8) | wire[1]), 0x0004);
 
     if (failures) {printf("%d check(s) failed\n", failures); return 1;}
     printf("all brightness encoder checks passed\n");

@@ -44,8 +44,10 @@ Why mode 12 is not a cache policy: `IOMapTypes.h` defines
 `kIOMapCacheMask = 0x00000f00`, `kIOMapCacheShift = 8`, and
 `kIOWriteCombineCache = 4`, so `kIOMapWriteCombineCache = 0x400`.
 `IOMemoryDescriptor.h` defines `kIOMemoryMapperNone = 0x800`.
-`0x800 | 0x400 = 0xc00`; `0xc00 >> 8 = 12`. Pong's source says the same in
-plain words:
+`0x800 | 0x400 = 0xc00`; `0xc00 >> 8 = 12`. With `uncached=false`, the
+`buffer()` options alone are `0x800` (mode 8), not the default either; with
+`uncached=true` they are `0xc00` (mode 12). The arena is always mode 12.
+Pong's source says the same in plain words:
 
 > `kIOMemoryMapperNone (0x800) overlaps kIOMapCacheMask (0xf00). Passing both
 > MapperNone and WC (0x400) asks the buffer mapping for invalid mode 12.`
@@ -61,6 +63,19 @@ wired pages explicitly:
   `pmap_set_cache_attributes(ppnum_t((ranges[i].physical+off)>>12),
   VM_WIMG_WCOMB)` for every owned arena page, then
   `pmap_cache_attributes(...) & VM_WIMG_MASK` verification.
+
+The IOKit implementation confirms what the enum says, rather than treating
+"invalid" as a harmless spelling: `IOBufferMemoryDescriptor.cpp:285` copies
+the cache bits into the descriptor options and `:443` passes
+`options & kIOMapCacheMask` to `createMappingInTask`.
+`IOMemoryDescriptor.cpp:360-383` has a ten-entry table (modes 0..9);
+`vmProtForCacheMode` asserts `cacheMode < 10` and falls back to
+`kIODefaultCache` when it is out of range. In c7 the 64 MiB arena allocation
+succeeded (console :586), so construction did not fail; what the old code did
+*not* get was write-combining. There was also no `pmap_set_cache_attributes`
+call anywhere in the K60 path. The arena therefore remained a default,
+cacheable mapping while the device read it through the SMMU — exactly the
+visibility hole Pong's explicit WCOMB loop closes.
 
 ## 2. The candidate change
 

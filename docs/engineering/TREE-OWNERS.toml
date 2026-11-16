@@ -42,6 +42,12 @@ path = "/mnt/e/hackios/k60-wifi-cache"
 owner = "wifi-agent"
 scope = ["drivers/PongWifi", "scripts/tests", "docs/engineering/TREE-OWNERS.toml"]
 
+# IPA rail experiment worktree branched from the last flown cache candidate.
+[[tree]]
+path = "/mnt/e/hackios/k60-wifi-ipa"
+owner = "wifi-agent"
+scope = ["drivers/PongWifi", "scripts", "configs", "docs/engineering/TREE-OWNERS.toml", "docs/research/wifi"]
+
 [[tree]]
 path = "/mnt/e/hackios/k60-bt"
 owner = "bt-agent"

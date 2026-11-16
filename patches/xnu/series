@@ -231,3 +231,4 @@ zzy-native-gpu-addon-mount.patch
 0511-k60-bt-s4-unblock.patch
 0621-k60-io-submap-budget.patch
 0512-k60-bt-late-start.patch
+0514-k60-bt-boot-observability.patch

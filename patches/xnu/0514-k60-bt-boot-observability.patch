@@ -1,0 +1,137 @@
+diff --git a/bsd/dev/qbt/btqca.c b/bsd/dev/qbt/btqca.c
+index 73bbeda..f8d833a 100644
+--- a/bsd/dev/qbt/btqca.c
++++ b/bsd/dev/qbt/btqca.c
+@@ -861,6 +861,8 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 		return err;
+ 	}
+ 
++	qbt_linux_log(hdev->q, 1, "boot: rampatch done");
++
+ 	/* Give the controller some time to get ready to receive the NVM */
+ 	msleep(10);
+ 
+@@ -944,6 +946,8 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 		return err;
+ 	}
+ 
++	qbt_linux_log(hdev->q, 1, "boot: nvm done");
++
+ 	switch (soc_type) {
+ 	case QCA_QCA2066:
+ 	case QCA_QCA6390:
+@@ -982,6 +986,7 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 		return err;
+ 	}
+ 	bt_dev_dbg(hdev, "QCA HCI_RESET succeed");
++	qbt_linux_log(hdev->q, 1, "boot: hci reset done");
+ 
+ 	switch (soc_type) {
+ 	case QCA_WCN3991:
+@@ -1000,6 +1005,7 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 	err = qca_check_bdaddr(hdev, &config);
+ 	if (err)
+ 		return err;
++	qbt_linux_log(hdev->q, 1, "boot: bdaddr check done");
+ 
+ 	bt_dev_info(hdev, "QCA setup on UART is completed");
+ 
+diff --git a/bsd/dev/qbt/qbt_core.c b/bsd/dev/qbt/qbt_core.c
+index d759f25..9237cca 100644
+--- a/bsd/dev/qbt/qbt_core.c
++++ b/bsd/dev/qbt/qbt_core.c
+@@ -231,7 +231,23 @@ static int run(struct qbt *q, uint64_t deadline, unsigned predicate) {
+         if (q->info.error) return q->info.error;
+         if ((predicate == 0 && !q->command_length) || (predicate == 1 && q->complete) ||
+             (predicate == 2 && !q->command_length && drained(q))) return 0;
+-        uint64_t t = now(q); if (t >= deadline) { q->stats.timeouts++; return -ETIMEDOUT; }
++        uint64_t t = now(q);
++        /* 0514: only set while qbt_boot() runs; the service phase keeps the
++         * old behaviour.  Reporting the opcode is the point: it names the
++         * command the controller stopped answering. */
++        if (q->boot_deadline && t >= q->boot_deadline) {
++            qbt_linux_log(q, 1, "boot: budget exhausted at op=0x%04x waiting=%u",
++                          q->wait_opcode, q->waiting ? 1u : 0u);
++            q->stats.timeouts++;
++            return -ETIMEDOUT;
++        }
++        if (t >= deadline) {
++            if (q->boot_deadline)
++                qbt_linux_log(q, 1, "boot: command timeout op=0x%04x waiting=%u",
++                              q->wait_opcode, q->waiting ? 1u : 0u);
++            q->stats.timeouts++;
++            return -ETIMEDOUT;
++        }
+         uint64_t next = qbt_deadline(q);
+         /* Wire drain has no IRQ of its own: bytes waiting on it re-check here. */
+         if (predicate == 2 || q->command_length || q->control_length) {
+diff --git a/bsd/dev/qbt/qbt_internal.h b/bsd/dev/qbt/qbt_internal.h
+index 4a2a708..e6868f3 100644
+--- a/bsd/dev/qbt/qbt_internal.h
++++ b/bsd/dev/qbt/qbt_internal.h
+@@ -13,6 +13,13 @@
+ #define QBT_TX_CAPACITY 32768u
+ #define QBT_CHUNK 2048u
+ #define QBT_COMMAND_TIMEOUT 10000000000ULL
++/* 0514: qbt_boot() has no overall deadline.  A firmware download that
++ * keeps retrying one TLV segment can therefore run for hours: every
++ * segment carries its own 10 s QBT_COMMAND_TIMEOUT and the loop simply
++ * moves on to the next one.  This budget is checked by run() and aborts
++ * the startup path so the worker can still print its power= result line.
++ * It is zero outside qbt_boot(), so the service phase is unaffected. */
++#define QBT_BOOT_BUDGET 90000000000ULL
+ #define QBT_WAKE_RETRY 100000000ULL
+ #define QBT_TX_POLL 1000000ULL
+ #define QBT_SPEED_REPLY_MS 100u
+@@ -30,6 +37,7 @@ struct qbt {
+     bool service, ibs, rx_awake, clock_on;
+     unsigned tx_state, wake_attempts;
+     uint64_t retry_at, idle_at;
++    uint64_t boot_deadline;
+     uint8_t control[16]; unsigned control_length;
+     uint8_t command[259]; unsigned command_length, command_offset;
+     bool waiting, complete, speed_reply;
+diff --git a/bsd/dev/qbt/qbt_linux.c b/bsd/dev/qbt/qbt_linux.c
+index 5323bb5..577e593 100644
+--- a/bsd/dev/qbt/qbt_linux.c
++++ b/bsd/dev/qbt/qbt_linux.c
+@@ -94,17 +94,25 @@ int qbt_boot(struct qbt *q,uint32_t speed,const uint8_t address[6]) {
+     if(!__atomic_compare_exchange_n(&startup_owner,&expected,q,false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return -EBUSY;
+     struct qbt_platform platform=q->ops;struct qbt_stats stats=q->stats;
+     memset(q,0,sizeof(*q));q->ops=platform;q->stats=stats;q->stats.tlv_sent=q->stats.tlv_acks=0;q->clock_on=true;q->info.baud=115200;q->info.state=1;
++    q->boot_deadline=q->ops.now_ns(q->ops.context)+QBT_BOOT_BUDGET;
++    qbt_linux_log(q,1,"boot: enter speed=%u budget=%llums",speed,(unsigned long long)(QBT_BOOT_BUDGET/1000000ULL));
+     struct hci_dev h={.q=q,.dev={.q=q}};struct qca_btsoc_version version;
+     int e=qca_read_soc_version(&h,&version,QCA_WCN6855);
++    qbt_linux_log(q,1,"boot: soc version done e=%d",e);
+     if(!e) {
+         q->info.product=version.product_id;q->info.soc=version.soc_id;q->info.rom=version.rom_ver;q->info.patch=version.patch_ver;
+         if(speed!=115200)e=set_speed(q,speed,baud);
++        qbt_linux_log(q,1,"boot: set speed done e=%d",e);
+     }
+     if(!e)e=qca_uart_setup(&h,baud,QCA_WCN6855,version,NULL,NULL);
++    qbt_linux_log(q,1,"boot: uart setup done e=%d",e);
+     if(!e) {
+         q->ibs=true;q->tx_state=QBT_ASLEEP;q->rx_awake=false;
+         bdaddr_t local;for(unsigned i=0;i<6;i++)local.b[i]=address[5-i];e=qca_set_bdaddr(&h,&local);
++        qbt_linux_log(q,1,"boot: set bdaddr done e=%d",e);
+     }
++    q->boot_deadline=0;
++    qbt_linux_log(q,1,"boot: return e=%d baud=%u",e,q->info.baud);
+     __atomic_store_n(&startup_owner,NULL,__ATOMIC_RELEASE);q->info.error=e;q->info.state=e?3:2;
+     if(e) {q->ibs=false;q->command_length=q->command_offset=0;q->retry_at=q->idle_at=0;}
+     else q->stats.resets++;
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index 3846453..70960bc 100644
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -2056,6 +2056,9 @@ static void k60_worker(void *arg, wait_result_t wait_result) {
+         } else if (!e) {
+             k60_log(NULL, 1, "full: qbt_boot enter");
+             e = qbt_boot(k60.core, K60_BT_RUN_BAUD, k60.address);
++            char done[96];
++            snprintf(done, sizeof(done), "full: qbt_boot returned e=%d", e);
++            k60_log(NULL, 1, done);
+         }
+     }
+     if (e) (void)k60_bt_power_off();

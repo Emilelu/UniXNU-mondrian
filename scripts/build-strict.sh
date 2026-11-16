@@ -277,6 +277,19 @@ PAYLOAD_ARGS=()
 if [ -n "$ADDON" ]; then
     PAYLOAD_ARGS+=(--gpu-addon "$ADDON")
 fi
+# The modem carrier is a payload-side input pair: 27 LZMA streams under
+# EFI/UniXNU/MODEM plus the 16-byte K60ModemImage placeholder in
+# /chosen/memory-map.  DarwinBoot refuses to boot on either half alone
+# (uefi 72e51ca / 5d96806), so the switch has to reach this step.
+MODEM_STREAMS=0
+MODEM_TABLE_SHA=""
+if [ -n "${K60_MODEM_CARRIER:-}" ]; then
+    [ -d "$K60_MODEM_CARRIER" ] || die "K60_MODEM_CARRIER is not a directory: $K60_MODEM_CARRIER"
+    [ -f "$K60_MODEM_CARRIER/modem-table.txt" ] || die "K60_MODEM_CARRIER has no modem-table.txt: $K60_MODEM_CARRIER"
+    MODEM_STREAMS=$(grep -c . "$K60_MODEM_CARRIER/modem-table.txt")
+    MODEM_TABLE_SHA=$(sha256sum "$K60_MODEM_CARRIER/modem-table.txt" | cut -d' ' -f1)
+    PAYLOAD_ARGS+=(--modem-carrier "$K60_MODEM_CARRIER")
+fi
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
         --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
         ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
@@ -286,6 +299,16 @@ fi
 PAYLOAD=$M/payload/payload.img
 [ -s "$PAYLOAD" ] || die "payload.img missing"
 PAYLOAD_SHA=$(sha256sum "$PAYLOAD" | cut -d' ' -f1)
+# The payload step reports the carrier in payload.json, but the image is what
+# ships.  Count the streams inside the FAT against the table: a carrier that
+# silently lost half its segments would otherwise only fail on the device, and
+# an input that cannot be compared is not checked at all (P-190).
+if [ "$MODEM_STREAMS" -gt 0 ]; then
+    SHIPPED=$(mdir -i "$PAYLOAD" -b ::/EFI/UniXNU/MODEM 2>/dev/null | grep -ci 'modem\.b[0-9][0-9]\.lzma')
+    [ "${SHIPPED:-0}" -eq "$MODEM_STREAMS" ] || \
+        die "payload ships ${SHIPPED:-0} modem streams; the table lists $MODEM_STREAMS"
+    echo "build-strict: payload modem streams $SHIPPED (table $MODEM_STREAMS)"
+fi
 # The payload step stages EFI/UniXNU/Payloads/ in a temporary directory and then
 # packs it into the FAT; nothing is left behind at $M/payload/kernel.macho.adt.
 # Read the ADT and the kernel back OUT of the payload image, which is also what
@@ -378,6 +401,9 @@ m = {
         "adsp_inputs": {"count": ${ADSP_RECORDS:-0},
                         "sha256": "${ADSP_INPUTS_SHA:-}",
                         "file": "${ADSP_INPUTS:-}"},
+        "modem_carrier": {"path": "${K60_MODEM_CARRIER:-}",
+                          "streams": $MODEM_STREAMS,
+                          "table_sha256": "$MODEM_TABLE_SHA"},
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",

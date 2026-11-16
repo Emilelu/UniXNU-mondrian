@@ -1,5 +1,10 @@
 # TWRP 事实澄清（2026-11-09 维护者订正）
 
+> **⚠️ 本文件是 2026-11-09 的维护者订正快照。** 结论（TWRP 在设备 `boot` 分区、
+> `fastboot reboot recovery` 可进入）按原记录保留；设备操作流程以
+> [`docs/engineering/BOOT-PROCEDURE.md`](../engineering/BOOT-PROCEDURE.md) 与
+> [`docs/engineering/HARD-RULES.md`](../engineering/HARD-RULES.md) 为准，不要把本文当构建产物说明。
+
 ## 结论：**TWRP 存在，在设备盘上的 `boot` 分区里**
 
 审计 agent `f656c2c6` 在 `RISKS.md` §R7 里判定「TWRP 不可得，别人进不去」，

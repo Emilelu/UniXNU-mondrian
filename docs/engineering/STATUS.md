@@ -44,7 +44,7 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 | 音频 DT 节点 | `pong-audio`（九个待实测项写 0）|
 
 > 上面这张表是 2026-11-12 那一版的判据。当前（2026-11-14）镜像为
-> `touch-20261114a`，内核 `c78a5cc9…`，223 个补丁（series 现为 227 条），判据以
+> `touch-20261114a`，内核 `c78a5cc9…`，构建时启用 223 个补丁（当时 series 223 条；现为 227 条），判据以
 > [`docs/research/touch/08-on-device.md`](../research/touch/08-on-device.md) 第 7 轮为准。
 
 **此前的最新镜像是 `boot-v15-20261108.img`（2026-11-11），不含以上任何一项。**

@@ -45,9 +45,9 @@
 | `docs/engineering/README.md:24-25`、`docs/engineering/STATUS.md:341-342` | ★1–★35 / P-01–P-130 | ★1–★37（29/30/31 不存在）/ P-01–P-230 | 【实测】 |
 | `docs/INDEX.md:18-19`、`:52-53` | 同上 | 同上 | 【实测】 |
 | `docs/INDEX.md:5` | "最后更新 2026-11-12。本索引由 `check-doc-links.py` 校验" | 该脚本不存在；实际门禁是 `scripts/check-docs.py` | 【实测】 |
-| `README.md:57` | 门禁"当前 84 条" | `docs/engineering/RULES.toml` 有 **107** 个 `[[rule]]` | 【实测】 |
+| `README.md:57` | 门禁"当前 84 条" | `docs/engineering/RULES.toml` 有 **108** 个 `[[rule]]`（审计时 107；现已由 check-readme 门禁校验） | 【已修】 |
 | `AGENTS.md:188` | "`patches/xnu/` carries 245 patch files with 211 entries in `series`" | **268** 个 `.patch`、series **227** 条 | 【实测】 |
-| `docs/engineering/STATUS.md:47` | "223 个补丁" | series 227 条（若指使能条数则口径未注明） | 【实测】 |
+| `docs/engineering/STATUS.md:47` | "223 个补丁" | series 227 条；2026-11-17 已注明为“构建时启用 223 个补丁（当时 series 223；现 227）” | 【已修】 |
 | `docs/engineering/STATUS.md:98` | "pong_metal=1 导致 backboardd 崩溃" | 同文件 `:393` 已声明该说法失效，`:396-406` 给出真因（插件缺 `Info.plist`/`.publish`/`.clients`/`PongMetalBridge.dylib`/`libvulkan_freedreno.dylib`） | 【实测】 |
 | `README.md:50` | "本地构建脚本位于工作区（不在仓库内）" | `scripts/build-strict.sh` 等就在仓库里；工作区那份是构建副本 | 【实测】 |
 | `README.md:138-140` | 三条项目符号插在文档表格中间 | 表格被截断，Markdown 渲染错位 | 【实测】 |

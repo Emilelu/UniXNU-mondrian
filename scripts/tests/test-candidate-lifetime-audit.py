@@ -31,7 +31,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--linux", default="E:/k60-work/impl/wifi/work/src/linux-7.0.14")
     ap.add_argument("--shim", default="E:/k60-work/impl/wifi/work/src/UniXNU-sheng/drivers/Ath12kWifi")
-    ap.add_argument("--repo", default="E:/hackios/k60-wifi")
+    ap.add_argument("--repo", default=str(pathlib.Path(__file__).resolve().parents[2]))
     a = ap.parse_args()
     linux = pathlib.Path(a.linux)
     shim = pathlib.Path(a.shim)

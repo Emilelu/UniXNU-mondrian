@@ -5811,13 +5811,18 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 - Check: `python3 scripts/tests/test-porting-gate-book.py`
   （registry `id = "P-222"`）。
 
-## P-223 — 受限只读的第二种形态：先记录、后查表，账本必须写清「谁读的、过哪道门、对象当时什么状态」
+## P-223 — fail-closed 的位置必须在不可逆操作之前，而不是在最早的调用点
 
 **现象.** ADSP 板级服务装好之后，owner 引擎仍然在 stage 1 失败（`stage=1 rc=-1000`），
 而 `resources_cb` 无论真机上这几条轨有没有被 Android 预热投票，都打印同一行、返回同一个
 `K60BoardUnsupported`。于是「轨没上电」和「我们拒绝投票」在日志里长得一模一样 ——
 和 P-190（归档没进内核却报成功）、P-204（同一个常量回答两个问题）是同一种形状：
 **用常量回答一个本来可以测量的问题**。
+
+第一版修法把读取记录成账本、让 `resources()` 稍后查表，看起来解决了问题：测量确实做了、
+三态也确实分开了。但把它放到时序上量一遍，结论是反的——**读者结构上早于写者**，
+`resources()` 永远查到空账本，于是「查表」这一层把 fail-closed 变成了永远为假的条件：
+它看着像一道门，实际只把功能关死，还多了一层间接。
 
 **根因.** 时序决定了这个回调自己读不到证据，而代码把这个「读不到」直接写成了结论：
 
@@ -5831,9 +5836,9 @@ return K60BoardUnsupported;
 
 HR-01 允许的读取只能发生在 `k60_data_mounted == 1` 之后，而 `resources()` 的唯一调用链
 （`k60_adsp_handoff_publish` → `k60_adsp_platform_install` → `k60_adsp_owner_acquire`）
-全部跑在 `IOKitBSDInit()` 里，**结构上早于 Data 挂载**（证据见
-`docs/research/audio/ADSP-RAIL-INHERITANCE.md:159-177`）。所以问题不是「要不要读」，
-而是「读的结果由谁保存、由谁查」。
+全部跑在 `IOKitBSDInit()` 里，**结构上早于 Data 挂载**；账本的写者 `k60_rail_probe()` 却在
+kern_exec 的 Data 挂载之后才跑（证据见 `docs/research/audio/ADSP-RAIL-INHERITANCE.md` 第四节）。
+所以问题不是「要不要读」，而是**门放在哪里**：放在最早的调用点，等于放在一个永远拿不到证据的地方。
 
 **为什么没有门禁拦到.** 板级测试里对 `resources()` 只有一条断言：
 
@@ -5842,35 +5847,42 @@ CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
 ```
 
 它把「还没有证据」「证据不全」「证据说轨没起来」三种情况压成了同一个期望值，测试因此
-**只能**锁住常量，锁不住语义。同时 `scripts/tests/test-k60-pmic-rail.c` 压根没接进
-`run-k60-handoff-host.sh`，账本这一层没有任何门禁。
+**只能**锁住常量，锁不住语义。账本版同样躲得过门禁：主机测试把账本直接交给消费者
+（`k60_rail_ledger_store()` 是可测的），测得出三态函数正确，却测不出**调用点这辈子能不能看到记录**。
+时序不是单元测试的输入，它是启动顺序的事实——不写下来，就没人替它设门。
 
 **修法.**
-1. 在 `K60PmicRail.c` 增加测量与记录，**只读**，与既有 `pong_rail_probe` 同一函数、同一次、同一门控：
-   `k60_rail_measure()` 按 `cmd_addr` 命中反推 TCS 槽（不写死槽号），读出 `cmd_data` 档位；
-   `k60_rail_ledger_store()` 把四元组写进 `static K60RailLedger`。
-2. 账本结构自己带上「谁读的、过哪道门」：`magic`、`drv_id`、`recorded`、`gate`，
-   每条轨另有 `complete` / `valid` / `missing` / `why`。缺任何一项就整条轨记为「未取得」，
-   **不许留半条记录**。
-3. `resources_cb` 改成三态：有完整且有效的记录 → `K60BoardOk` 并打印四元组；
-   没有记录 → `K60BoardUnsupported` 且打印「pong_rail_probe 还没跑」；
-   有记录但不完整 / 无效 → 同样 `K60BoardUnsupported`，但**措辞不同**并点名是哪条轨、缺哪个字段、
-   读到什么（`K60ADSP: rail lcx not obtained: tcs slot missing` 与
-   `K60ADSP: rail lcx measured but invalid: level read back as 0`）。
-4. 门禁补两层：`test-k60-pmic-rail.c` 的账本用例（37 例，含未测量、缺字段、level=0、
-   槽不 idle、窗口过短、NULL 参数），以及板级测试的第 8 个场景
-   `scenario_rails_three_state`，逐条走完上面三种状态；两个测试都接进 `run-k60-handoff-host.sh`。
+1. `resources_cb` 只**声明**，不读寄存器也不查账本：按设备树的 `cx-supply` / `mx-supply`
+   声明继承的是 `lcx.lvl` / `lmx.lvl`，打印
+   `K60ADSP: rails declared lcx=lcx.lvl lmx=lmx.lvl (inherited, not yet read)` 并返回成功。
+   措辞里必须带 `not yet read`——声明不能读成「已继承」。
+2. 真正的回读挪到**不可逆操作紧前面**：`k60_adsp_bring_up()` 的第一步
+   （`k60_adsp_plan()` 与 `AUTH_AND_RESET` 之前）调用 `k60_rail_inherit()`；
+   该函数一次、只读、同一 `pong_rail_probe` 门控，按 `cmd_addr` 命中反推 TCS 槽（不写死槽号），
+   把四元组记进账本后立刻判定。
+3. 判定仍是三态，且措辞必须不同：完整有效 → 打印四元组并返回 0；
+   没有记录 → `K60ADSP: rails not measured: pong_rail_probe is off, …; refusing AUTH_AND_RESET`；
+   不完整 → `rail not inherited <rail>: <field> missing; refusing AUTH_AND_RESET`；
+   完整但无效 → `rail measured but invalid <rail> (<why>); refusing AUTH_AND_RESET`。
+   三者都返回 `-63`，但只有第一种继续走 PAS1。
+4. 门禁补两层：`test-k60-pmic-rail.c` 49 例（含 `k60_rail_verdict()` 的全部分支、未测量、
+   缺字段、level=0、槽不 idle、窗口过短、NULL 参数），以及板级测试第 8 个场景
+   `scenario_resources_declares`（无账本也返回成功、仍受 lease 约束）；
+   板级测试的链接**故意不含 `K60PmicRail.c`**，将来谁把依赖加回 `resources()`，链接就会失败。
+   两个测试都接进 `run-k60-handoff-host.sh`。
 
 **教训.**
-- 「读不到」和「读到了但值不对」是两条不同的证据链，日志措辞必须能分开，否则下一次真机
-  读数时又要在同一个常量上猜。
-- 只读证据被跨阶段消费时，账本要自带上下文（门控、drv_id、完整性、无效原因）：
-  消费者必须能回答「从没读过」还是「读过但什么都没读到」。
+- **时序事实要先写下来，再选实现位置。** 读者早于写者时，「先记录、后查表」不是 fail-closed，
+  是永远为假；这种门比没有门更坏，因为它让日志看起来「检查过了」。
+- **门要贴着不可逆操作放。** `AUTH_AND_RESET` 之后一切检查都没有意义；把检查放在最早的调用点，
+  只是因为它看起来「最安全」——那是位置的美感，不是证据。
+- **声明与测量必须分开命名。** 「我们声明继承这两条轨」和「我们读到这两条轨有电」是两句话；
+  日志措辞合在一起，下一次真机读数就得靠猜。
 - 一条只断言「返回失败」的测试，锁住的是常量而不是语义；先想清楚它有几种失败方式，
-  再写断言。
+  再写断言。单元测试测不出时序，链接依赖和日志措辞才是那道门。
 
 **Check.** `python3 scripts/check-rule-registry.py`；两条门禁命令见
-`docs/engineering/RULES.toml` 的 `P-223` 项（rail 37 例 + board 8 场景）。
+`docs/engineering/RULES.toml` 的 `P-223` 项（rail 49 例 + board 8 场景）。
 
 ## P-224
 

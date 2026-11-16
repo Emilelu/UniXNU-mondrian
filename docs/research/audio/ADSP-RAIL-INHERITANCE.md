@@ -6,8 +6,11 @@ Lead 2026-11-16 08:08 的裁定：HR-01 **不放松**，但 `K60AdspBoard.c` 的
 这与 P-190/P-204 同型：**用一个常量代替了本可测量的东西**。
 
 这份文档的**第一步是只取证、不改代码**：按 Lead 的四个问题给出可核对的答案，并额外记录一条
-决定实现位置的时序事实（第四节末尾）。Lead 2026-11-16 09:45 在两条出路中选了 B 之后，
-**第二步（`resources_cb` 三态化 + 轨账本）已经落地**，现状见第五节。
+决定实现位置的时序事实（第四节末尾）。第二步走过两版：Lead 2026-11-16 09:45 选的 B
+（先记录、后查表）在 13:50 被他本人撤回——**读者结构上早于写者**，`resources()` 永远查到空账本，
+fail-closed 因此变成永远为假的条件；改版 C：`resources()` 只声明继承哪两条轨，四元组回读与三态
+判定挪进 `k60_adsp_bring_up()` 的第一步、即 `AUTH_AND_RESET` 之前。现状见第六节，
+真机读数填入第五节的实测骨架。
 
 ## 一、问题 1：ADSP 在这块板上需要哪几条轨，resource id 是什么
 
@@ -177,58 +180,114 @@ bsd/kern/kern_exec.c:7896      k60_data_mounted = 1;    ← 四条件的「时�
 → `resources()` 全都在 IOKitBSDInit 里跑完，**结构上早于 `k60_data_mounted=1`**。
 所以 `resources_cb` **不可能自己**在 HR-01 允许的时机做那次 TCS 读取。
 
-两条合法出路（**Lead 2026-11-16 09:45 选了 B**：A 会把电池消费者等待的时刻往后推、并重新论证
-`startup_claim(1)` 语义；B 只是把这次读从 `resources()` 挪进已有的 `k60_rail_probe()`，不动物时序、仍然 fail-closed）：
+三条出路，**Lead 2026-11-16 09:45 先选 B，13:50 撤回并改选 C**：
 
 - **A. 把发布点移到 Data 挂载之后**：在 0614 那个已经过门的调用点之后（`native_owner_data_stage = 3`
   附近）再触发发布。代价：0619 的 early-owner `startup_claim(1)` 语义、电池消费者的时序都要重新论证，
-  且要改 `patches/xnu/0619`（本轮禁改 patches/）。
-- **B. `resources()` 不自己读，只消费已记录的证据**：在 0614 的 `pong_rail_probe` 单次读取里
-  顺带把 lcx/lmx 四元组记录下来（与现有 `k60_rail_probe()` 同一函数、同一次、同一门控），
-  `resources()` 只检查「是否已有该记录」，没有就仍然 fail-closed 并打印缺哪条轨。
-  代价：一次启动里 `pong_handoff_publish=1` 与 `pong_rail_probe=1` 必须同时给，
-  否则记录不存在——但那本来就是「默认关、显式开」的语义。
+  且要改 `patches/xnu/0619`。未采用。
+- **B（已撤回）. `resources()` 先查账本、`k60_rail_probe()` 后记录**：把四元组记进 `static` 账本，
+  `resources()` 只查表并三态判定。听上去是 fail-closed，量一遍时序却是反的：`resources()` 在
+  `IOKitBSDInit()` 里跑，账本的写者 `k60_rail_probe()` 在 kern_exec 的 Data 挂载之后才跑，
+  **读者结构上早于写者**，于是查表永远查到空账本——这道门看着像检查，实际只把功能关死。
+  撤回理由即此；不是实现 bug，是位置选错。
+- **C（已落地）. `resources()` 只声明，回读放到不可逆操作之前**：`resources()` 不读寄存器、不查账本，
+  只按设备树的 `cx-supply` / `mx-supply` 声明继承 `lcx.lvl` / `lmx.lvl` 并返回成功；真正的四元组回读
+  放进 `k60_adsp_bring_up()` 的第一步（`k60_adsp_plan()` 与 `k60_adsp_auth_and_reset()` 之前）——
+  这里本来就在 Data 挂载之后，HR-01 的时机条件自然成立，而 `AUTH_AND_RESET` 是唯一不可逆的一步，
+  检查贴着它放才有意义。仍复用 `pong_rail_probe=1`，只读、单次、不轮询。
 
-## 五、现状与第二步
+## 五、实测（真机，待填）
 
-**第一步（本文）时的状态**：`drivers/PongPower/K60AdspBoard.c` 的 `resources_cb` 在 lease + 排除 +
+Lead 2026-11-16 13:50 起飞的探针镜像只带 `pong_rail_probe=1`：基线 29 项 575 B + 17 B = 592 B
+≤ 607 B，**没有** `pong_handoff_publish=1`（再加就 615 B，且这一轮只验证只读回读本身）。
+所以这一版验证的是 `k60_rail_probe()` 这条只读通道，不是发布路径。
+
+期望日志（按出现顺序；`rail_print()` 每轨一行）：
+
+```txt
+K60RAIL cmd-db magic=0xc0330db version=1
+K60RAIL lcx id=... tcs=... addr=... level=... (arc index, not mV) complete=1 valid=1
+K60RAIL lmx id=... tcs=... addr=... level=... (arc index, not mV) complete=1 valid=1
+```
+
+如果日志里只有 `K60ADSP: rails not measured` 而没有四元组，说明这条路径没有跑到
+（`k60_rail_probe()` 在 Data 挂载之后、`pong_rail_probe=1` 门内），不是账本坏了。
+
+| 事实 | 实测值 | 判读 |
+| --- | --- | --- |
+| lcx resource id | `<!-- MEASURED: lcx resource id -->` | 必须等于 cmd-db 条目 `lcx.lvl` 的 address |
+| lcx TCS 槽 | `<!-- MEASURED: lcx tcs slot -->` | 由 `cmd_addr` 命中反推，**不是写死的槽号** |
+| lcx addr 回读 | `<!-- MEASURED: lcx cmd_addr -->` | 必须等于 resource id；不等即「测得但无效」 |
+| lcx level 回读 | `<!-- MEASURED: lcx cmd_data -->` | ARC 档位索引，**不是 mV**；DT `qcom,init-voltage-level = <0x10>`，不得过 `k60_rpmh_level_index()` |
+| lmx resource id | `<!-- MEASURED: lmx resource id -->` | 必须等于 cmd-db 条目 `lmx.lvl` 的 address |
+| lmx TCS 槽 | `<!-- MEASURED: lmx tcs slot -->` | 同上；若与 lcx 同槽，先怀疑读错 |
+| lmx addr 回读 | `<!-- MEASURED: lmx cmd_addr -->` | 必须等于 resource id |
+| lmx level 回读 | `<!-- MEASURED: lmx cmd_data -->` | 同上；非零才算继承成立 |
+| 结论 | `<!-- MEASURED: verdict -->` | 两轨完整、有效、非零 = 继承成立；否则点名轨与字段 |
+
+（`<!-- MEASURED: ... -->` 是占位符；收到 console.log 后逐项填写，缺一项就留空并注明原因。）
+
+## 六、现状与两版第二步
+
+**第一步（本文取证）时的状态**：`drivers/PongPower/K60AdspBoard.c` 的 `resources_cb` 在 lease + 排除 +
 停机三项通过后**无条件** `return K60BoardUnsupported`，于是 owner 在 stage 1 就失败
 （`adsp-20261115e` 的 `stage=1 rc=-1000`），PAS1 不运行。
 
-**第二步（2026-11-16，Lead 09:45 选 route B 后已落地，主机侧已验证）**：
+**第二步 B（09:45 落地，13:50 撤回）**：`k60_rail_probe()` 记账、`resources()` 查表并三态判定。
+主机侧当时已验证（rail 37 例 + board 8 场景），但时序上读者早于写者，见 4.1 的撤回理由；
+这一段只作为历史记录，代码已不在该形态。
 
-- **记录**：`drivers/PongPower/K60PmicRail.c` 在既有的 `k60_rail_probe()` 里、与 DRV-2 只读探测
-  **同一次、同一门控**中增加测量：按 `cmd_addr` 命中反推 TCS 槽（**不写死槽号**），读出 `cmd_data`
-  的 ARC 档位，把四元组（resource id / TCS 槽 / addr 回读 / level 回读）写进
-  `k60_rail_ledger_store()` 的 `static K60RailLedger`。账本自带 `magic` / `drv_id` / `recorded` /
-  `gate`，每条轨自带 `complete` / `valid` / `missing` / `why`：缺任何一项即整条轨「未取得」，
-  **不允许半条记录**。打印行 `K60RAIL lcx id=… tcs=… addr=… level=… (arc index, not mV) complete=…
-  valid=…`。
-- **查表**：`resources_cb` 变成三态——记录完整且有效 → `K60BoardOk` 并打印
-  `K60ADSP: rails inherited lcx=<id>@<tcs> level=<n> lmx=<id>@<tcs> level=<n> (arc index, not mV; drv_id=…)`；
-  没有记录 → `-63` 并打印「pong_rail_probe 还没跑」；有记录但不完整/无效 → 同样 `-63`，
-  但措辞不同并点名轨与字段（`not obtained: <field> missing` 与 `measured but invalid: <why>`）。
-- **没有改变的部分**：成功路径**仍然一个寄存器都没写**，`resources_release_cb` 的
-  「nothing was ever voted」注释与语义保持不变；HR-01 的四项条件（Data 挂载后、`pong_rail_probe=1`、
-  只读、单次不轮询）原样成立；`0602`/`0614`/`0619` 的时序一行未动。
-- **门禁**：`scripts/tests/test-k60-pmic-rail.c` 37 例（含未测量、缺字段、level=0、槽不 idle、
-  窗口过短、NULL 参数），`scripts/tests/test-k60-adsp-board.c` 第 8 个场景
-  `scenario_rails_three_state` 走完三种状态，两者都已接进 `scripts/tests/run-k60-handoff-host.sh`。
-- **教训登记**：`docs/engineering/PITFALLS.md` P-223 与 `docs/engineering/RULES.toml` 的 `P-223`。
-- **真机判据**（Lead 飞）：`pong_handoff_publish=1 pong_rail_probe=1` 同时给，成功链为
-  `board ownership init ok` → `board ownership installed rc=0` → `platform installed rc=0` →
-  `K60ADSP: rails inherited …` → K60PAS 三阶段 → `K60Handoff: published authenticated PAS1
-  epoch=N bytes=104 flags=15`；失败必须能读出是哪条轨、缺哪个字段。
+**第二步 C（13:50 之后落地，主机侧已验证）**：
 
-## 六、证据索引
+- **声明**：`K60AdspBoard.c:243` 的 `resources_cb` 不读寄存器、也不查账本；lease + 排除 + 停机三项
+  通过后打印 `K60ADSP: rails declared lcx=lcx.lvl lmx=lmx.lvl (inherited, not yet read)`，
+  置 `b->resources = 1`、`b->last_rc = K60BoardOk` 并返回 `K60BoardOk`。措辞里的 `not yet read`
+  是判据的一部分：这一行**不能**被读成「已继承」。
+- **回读**：`K60PmicRail.c:389` 的 `k60_rail_inherit()` 在 `k60_adsp_bring_up()` 的第一步调用
+  （`k60_adsp_plan()` 与 `k60_adsp_auth_and_reset()` 之前，见 `patches/xnu/0613-k60-adsp-pas.patch:208`），
+  一次、只读、同一 `pong_rail_probe` 门控；`k60_rail_verdict()`（`:260`）三态：
+  完整且有效 → 打印 `K60ADSP: rails inherited lcx=<id>@<tcs> level=<n> lmx=<id>@<tcs> level=<n> (arc index, not mV)` 并返回 0；
+  没有记录 → `rails not measured: pong_rail_probe is off …; refusing AUTH_AND_RESET`；
+  不完整 → `rail not inherited <rail>: <field> missing; refusing AUTH_AND_RESET`；
+  完整但无效 → `rail measured but invalid <rail> (<why>); refusing AUTH_AND_RESET`。
+  后三种都返回 `-63`，只有第一种继续走 PAS1。
+- **没有改变的部分**：成功路径仍然一个寄存器都没写；`resources_release_cb` 的「nothing was ever voted」
+  注释与语义不变；HR-01 四条件（Data 挂载后、`pong_rail_probe=1`、只读、单次不轮询）原样成立；
+  `0602`/`0614`/`0619` 的时序一行未动；没有新增启动参数。
+- **门禁**：`test-k60-pmic-rail.c` 49 例（含 `k60_rail_verdict()` 全部分支），
+  `test-k60-adsp-board.c` 8 场景（第 8 个 `scenario_resources_declares` 证明无账本也返回成功、
+  仍受 lease 约束）；板级测试的链接**故意不含 `K60PmicRail.c`**，依赖回潮会直接链接失败。
+- **教训登记**：`docs/engineering/PITFALLS.md` P-223（fail-closed 的位置必须在不可逆操作之前）。
+- **真机判据（C 完整链，两次启动才齐）**：本轮探针给 `pong_rail_probe=1` 拿四元组；
+  下一次给 `pong_handoff_publish=1` 时，成功链为 `board ownership init ok` →
+  `board ownership installed rc=0` → `platform installed rc=0` → `K60ADSP: rails declared …` →
+  继续 PAS1；legacy `pong_adsp` 路径才会打印 `K60ADSP: rails inherited …`。
+
+### 6.1 一个必须报告的时序事实：发布路径不经过 `k60_adsp_bring_up()`
+
+C 的 fail-closed 贴在 `AUTH_AND_RESET` 前面，但**只有 legacy `pong_adsp` 路径经过 `bring_up()`**：
+
+- 发布路径：`k60_adsp_owner_acquire()`（`K60HandoffRuntime.cpp:72`）→ `K60AdspOwnerStages.c:156`
+  的 `auth_and_reset` → `K60AdspPlatformNative.cpp:336-342` 的 SCM `PAS_AUTH_AND_RESET`，
+  全程在 `IOKitBSDInit()` 里，**早于 Data 挂载**。
+- legacy 路径：`k60_adsp_probe_from_handoff()` → `k60_adsp_bring_up()`，在 kern_exec 的
+  `k60_data_mounted = 1` 之后，rail gate 有效。
+
+也就是说：C 让 legacy 路径真正 fail-closed 在不可逆操作之前；发布路径在 `resources()` 时只能
+声明（那一刻读不到），它的四元组证据只能来自同一启动里更晚的 `k60_rail_probe()`。这一条随本轮
+汇报提交给 Lead；在裁定前不擅自改 `0619`/`0602`/`0614` 的时序。
+
+## 七、证据索引
 
 | 事实 | 出处 |
 | --- | --- |
 | ADSP 节点的 cx/mx/xo/qmp/interconnect | `docs/research/audio/VENDOR-ADSP-NODE.md:17-63`；DTB `remoteproc-adsp@03000000` |
 | lcx.lvl / lmx.lvl 节点与 PMIC 子节点 | `E:/k60-work/scratch/dtb/mondrian.dts:5333-5345`、`:6113-6125`；别名 `:21177-21179`、`:21288-21290` |
 | Pong 按名取 lcx/lmx 并取最高档投票 | `E:/k60-work/references/pong-power/PongAdsp.cpp:225-231`、`:565-572` |
-| 唯一被批准的只读实现 | `drivers/PongPower/K60PmicRail.c:273-388`；`docs/ops/HARD-RULES.md:101-104` |
-| 四元组账本（记录/查表） | `drivers/PongPower/K60PmicRail.c:155-262`；`drivers/PongPower/K60AdspBoard.c:247-299`；`docs/engineering/PITFALLS.md` P-223 |
+| 唯一被批准的只读实现 | `drivers/PongPower/K60PmicRail.c:437-540`（`k60_rail_probe()`）；`docs/ops/HARD-RULES.md:101-104` |
+| 四元组回读与三态判定 | `drivers/PongPower/K60PmicRail.c:260-434`（verdict:260、record_pass:335、pass:357、inherit:389）；`drivers/PongPower/K60AdspBoard.c:243-262`（只声明）；`docs/engineering/PITFALLS.md` P-223 |
+| 回读调用点（`AUTH_AND_RESET` 之前） | `patches/xnu/0613-k60-adsp-pas.patch:208`（`k60_adsp_bring_up()` 第一步） |
+| 发布路径不经过 `bring_up()` | `K60HandoffRuntime.cpp:72`；`K60AdspOwnerStages.c:156`；`K60AdspPlatformNative.cpp:336-342` |
 | 只读 TCS 槽先例（wifi gate） | `E:/hackios/k60-wifi/patches/wifi/0003-drivers-PongWifi-k60-rsc-gate.patch:28-39` |
 | DRV-2 可读可写、drv-0/drv-3 禁碰 | `docs/research/REFERENCE-INDEX.md:836-866`（582 boot 审计） |
 | v2 布局与 TCS 偏移/步长 | `docs/research/touch/POWER-RPMH-LDOC2.md:44-64` |

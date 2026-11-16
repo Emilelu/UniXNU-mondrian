@@ -8,7 +8,7 @@
 | 3 | brightness-15 | `67acb403…` | `513cc329…` | **PASS（发布层）**：control=1 / conformance=1 / 无 sig=11 / first frame / SpringBoard 128；物理可调但两端与 Android 不符 | `usblog-20261117-004800` |
 | 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
 | 5 | brightness-17 | `8b2d6332…` | `4f107428…` | **PASS（12 位路径 / 最低端点）**：conformance=1 / control=1 / 无 sig=11 / first frame / SpringBoard 133；请求行 14 条（level 1024→0x800、level 1→0x1）；**DBV 1 在夜间黑屏**（用户实测），最高档未拉（夜间） | `usblog-20261117-0245-brightness17` |
-| 6（预注册） | brightness-18 | 飞后填 | 飞后填 | 待飞：最低 DBV 由 0x1 提到 0x14（Xiaomi doze LBM 档），最高仍 0xfff | 见文末第 6 轮 |
+| 6 | brightness-18 | `3e516e73…` | `28436472…` | **发布层 PASS**：conformance=1 / control=1 / dbv 0xfff / 无 sig=11 / first frame / SpringBoard 128；两次采集内用户未拖滑块，最低 `0x14` 观感仍待测 | `usblog-20261117-0306-brightness18`、`usblog-20261117-0313-brightness18b` |
 
 brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 
@@ -141,9 +141,12 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
 - **判读结论**：12 位双字节路径 PASS（请求 0x800/0x1 都按 12 位缩放，未再出现 8 位的 ×16 跳变）；
   最低端点要把 floor 提回 Xiaomi 自己的 `mi,doze-lbm-dbv-level = 0x14`（live FDT m11a）。第 6 轮。
 
-## 第 6 轮（预注册，2026-11-17；镜像 brightness-18，待飞）
+## 第 6 轮（2026-11-17 03:12 起飞；brightness-18：发布层 PASS，最低端点待用户拖滑块）
 
-- **镜像**：`brightness-18`（commit `82c0f51d`）；`boot.img` / `kernel.macho` sha256 飞后填。
+- **镜像**：`brightness-18`（代码 commit `82c0f51d`）；`boot.img` sha256
+  `3e516e73c0ee7b86b6eb30268ddc8c57b62ee5abef08417b7b053f4d22677cc8`（201,887,744 B）；
+  `kernel.macho` sha256 `28436472ddf5ba9b8b0027a31862da3cb8f331344f538b69ccd76f43d6dfb780`；
+  manifest repo head `6a2df51e`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
 - **改动（相对第 5 轮只有一个常量）**：`K60BacklightCodec.h` 的 `kMinDbvOn` 从 `0x1` 改为 `0x14`；
   `dbvFromLevel` / `levelFromDbv` 的端点变为 `kDarkestLevel(1) -> DBV 0x14`、
   `kMaxLevel(2047) -> DBV 0xfff`。依据：live FDT m11a 的 `mi,doze-lbm-dbv-level = 0x14`
@@ -158,5 +161,14 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
   5. **FAIL**：任一 `sig=11`、无 first frame、无请求行、最低档不是 `dbv 0x14`、或最低档仍黑屏。
 - **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
   `grep -a 'K60 PANEL:' <console.log>`。
+- **第一飞（2026-11-17 03:06 / 03:13 两次，证据 `usblog-20261117-0306-brightness18` 与
+  `usblog-20261117-0313-brightness18b`）**：两次都进到桌面；第二次 `console.log` 232,718 B。
+  `:184` published 行 `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1
+  stats=4,0,2047,2047 req=0,0,1,1`；`:182` `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`；
+  `:1261` entered backboardd、`:2423` first frame presented；SpringBoard 128 行、`sig=11` 0。
+  请求行只有启动两条：`:2212` `brightness level 1024 -> level 1024 dbv 0x80a`、
+  `:2213` `brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ 用户未在采集窗口内拖滑块，
+  **判据 2（请求可见）与判据 3（最低 `0x14` 可见）未测，不能判 PASS 或 FAIL**；发布层与
+  最高 `0xfff` 已 PASS。
 
 

@@ -80,7 +80,7 @@ visibility hole Pong's explicit WCOMB loop closes.
 ## 2. The candidate change
 
 Worktree: `E:/hackios/k60-wifi-cache`, branch `feat/wifi-dma-cache`.
-Commits: `1e8c72ca` (code + host test) and `b6aee1bf` (TREE-OWNERS entry).
+Commits: `1e8c72ca` (code + host test), `b6aee1bf` (TREE-OWNERS entry), `623674ab` (IOKit fallback evidence in this document), and `c6dae58e` (validate the arena pages with `pmap_valid_page` before setting attributes).
 
 Changes in that worktree's `drivers/PongWifi/PongWifiPlatform.cpp`:
 
@@ -89,8 +89,9 @@ Changes in that worktree's `drivers/PongWifi/PongWifiPlatform.cpp`:
 2. `allocateArena()` allocates with
    `kIODirectionInOut|kIOMemoryPageable`, requires `prepare()`, and zeroes
    the wired arena.
-3. `isolation()`, after every arena physical page has been validated and the
-   SMMU ranges have been built, calls `clean(arenaVa, ArenaBytes)`, sets
+3. `isolation()`, after every arena physical page has been validated with
+   `pmap_valid_page(ppnum_t(pa>>12))` and the SMMU ranges have been built,
+   calls `clean(arenaVa, ArenaBytes)`, sets
    `VM_WIMG_WCOMB` on every **arena** page (index 1..count-1; the first 4 KiB
    range is the MSI landing page and is excluded), verifies the attribute, and
    fails closed with
@@ -113,14 +114,14 @@ All paths are on the build host / WSL:
 |---|---|
 | tag | `wifi-20261117cache` |
 | boot image | `E:/k60-work/artifacts/wifi-20261117cache/boot.img` |
-| boot SHA-256 | `f4cf1a5b20c24fa48801165a70d125cc2c289887b2585c8ff848d7de6a156d24` |
+| boot SHA-256 | `ea58a428881150b6367bb83475a661c35de61603b0c072a405cefd3952ff0506` |
 | size | 201,887,744 B |
 | manifest | `E:/k60-work/artifacts/wifi-20261117cache/build-manifest.json` |
-| manifest SHA-256 | `5709b8a8d645da4b0a31cc9f73e8515e0f93f80469d596bac834b35291e7567f` |
-| repo | `feat/wifi-dma-cache` @ `b6aee1bfaefe98275faaa0b9d061e89c96d2b28d`, dirty 0 |
-| kernel | `34ee99b5ca3421279df7f4eaec441d765088d4605b84bf2b0bd478480e35f583` |
-| payload kernel | `e1e2ff9128f3e726ad26fa7e9aafd5ff413ee17b8c02bbde875c85bd5a6e7631` |
-| WiFi archive | `835a6ae0099519843159586c85acd96d0bba79b42b4e58ddbdcfceca2b6c4e71` |
+| manifest SHA-256 | `f4e5d2b05890213381d4d64f3224e5cae5a986365d4d6e48d3d228602817dfd4` |
+| repo | `feat/wifi-dma-cache` @ `c6dae58e93fefd18b3df5d07e2a2cf8a5cc0d0f9`, dirty 0 |
+| kernel | `46524e7e6383c8d210ad2082d363e25bd39f3c017c08c472820d3b6c19380047` |
+| payload kernel | `4913fb96dc7314946116b977c69d8d63d1bdea3b5a9d31257c1945accd8a06e0` |
+| WiFi archive | `dfe8fa433c1948851d2f8e346bed155a7240f52c297221720f8bff7ae07fa75e` |
 | args | 31 items / 602 B, ends `pong_wifi=1 k60_wifi_rsc=2` |
 | series | 227 files, `59d8037521a5b07b`, file `bb14a480c6b2ea4b465f409d862394f0ea25cce178d19a63b7253fab3511f9d4` |
 

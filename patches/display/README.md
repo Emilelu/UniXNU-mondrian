@@ -15,7 +15,7 @@
 
 ## 补丁清单
 
-### `0620-k60-display-brightness.patch`（1006 行，7 文件）
+### `0620-k60-display-brightness.patch`（1628 行，11 文件）
 
 亮度从「面板点亮」推进到「OS 级亮度服务」的全部改动：
 
@@ -28,6 +28,9 @@
 | `scripts/build-pong-adreno-platform-linux.py` | 同上（Linux/WSL 侧，构建机实际用的是这个）。 |
 | `scripts/check-brightness-encoder.py` | host 单测：编译编码器头文件并断言 DBV 换算与渐变序列。 |
 | `docs/research/display/BRIGHTNESS-PLAN.md` | 八步流程的 ①②③④⑤⑥ 证据与四产物设计说明。 |
+| `docs/research/display/08-on-device.md` | 上机轮次与预注册判据（第 3 轮 = brightness-15）。 |
+| `docs/research/display/RESEARCH.md` | 面板/DSI 事实与三档 timing。 |
+| `docs/research/display/STATS-INDEX.md` | `native_backlight_request[]` / `stats[]` 语义表。 |
 
 ## 如何让这些改动进入镜像
 
@@ -49,7 +52,7 @@ K60_OUT=/opt/k60/trees/display-out K60_DEVICE_INPUT=/opt/k60/trees/display-devic
 
 本补丁在仓库里已经应用（源码就在 `drivers/`、`scripts/`、`docs/` 下），保留一份 `.patch` 是为了：
 
-1. **评审**：一次看完 7 个文件的改动，不用翻整棵树；
+1. **评审**：一次看完 11 个文件的改动，不用翻整棵树；
 2. **重放**：在干净 checkout 上 `git apply patches/display/0620-k60-display-brightness.patch` 可复现同一改动。
 
 ```bash

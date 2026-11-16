@@ -5,6 +5,7 @@
 | 0 | brightness-4 | 30ccafb3… | 488a1d8f… | control=1：发布层生效，但 backboardd 4 次 `sig=11`、SpringBoard 7 行、无 first frame（int-236 形状） | `usblog-20261115-013520` |
 | 1 | brightness-13 | `c8c33b9e…` | `bf2df340…` | **PASS（发布层）**：control=0 / conformance=0 / stats[0]=3 / 无 SIGSEGV / first frame / SpringBoard 128 行 | `usblog-20261115-134638` |
 | 参照 | brightness-9（旧格式） | `ca992179…` | `7e809dc5…` | 行为同 13：control=0、无 SIGSEGV、SpringBoard 208 行；判定器只能给 INCONCLUSIVE（日志无 `stats=`） | `usblog-20261115-134001` |
+| 3（预注册） | brightness-15 | `67acb403…` | `513cc329…` | 待飞：control=1 + 删半截标定字典（b4 崩因修复） | 见文末第 3 轮 |
 
 brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 
@@ -54,3 +55,21 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
    看 level 与 DBV 是否跟着三档变化（例如 0 / ~1024 / 2047）。
 
 前两项任一为否，都不能算「亮度可调」已验收；只能算「发布层安全」已验收。
+
+## 第 3 轮（预注册，2026-11-16；镜像 brightness-15，待飞）
+
+- 镜像：`brightness-15`，`boot.img` sha256 `67acb403…`（201,887,744 B），
+  `kernel.macho` sha256 `513cc329…`（105,521,152 B）；manifest repo head `a322b58`、dirty 0、
+  series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
+- 改动：`publishCalibration` 不再发布 `backlight-calibration-parameters`。b4 的 SIGSEGV 根因是
+  半截字典让 CoreBrightness 的 `CFNumberGetValue` 收到 NULL，见 `INT-236-CHAIN.md` §11。
+- 预注册判据（飞之前写死，不事后解释）：
+  1. **PASS（发布层）**：日志有 `conformance=1 control=1` 的 published 行；`sig=11` 计数 0；
+     `entered backboardd` 1 次；SpringBoard ≥100 行；`first frame presented` ≥1。
+  2. **PASS（物理调光）**：用户拉滑块 min/mid/max，屏上可见变化，`stats[1]` 递增，
+     `stats[2]/stats[4]` 跟随；屏幕全程持续更新。
+  3. **FAIL**：任一 `sig=11`、无 first frame、停更、或三档无可见变化。FAIL 即停 control=1 路线
+     （交付保持 `control=0` 的 brightness-13），转 SnapAdreno 的 swap-record 路线。
+  4. **INCONCLUSIVE**：`conformance=0`（impersonation 未成立、control 没申请）——等同没测，不是失败。
+- 判读命令：`python3 scripts/check-backlight-log.py <console.log>`；物理三档另记 published 行里的 `stats=`。
+

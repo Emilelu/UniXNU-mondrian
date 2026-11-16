@@ -70,6 +70,8 @@ backlight-control）仍是正确终局，不是妥协。
 - 触发条件：IOService 发布 backlight-control=true（brightness-4，k60_backlight_control=1）。
 - 指纹：旧格式 K60 BACKLIGHT: published level 2047 dbv 0xff control 1（brightness-4 console.log:183），新格式 K60 BACKLIGHT: published level … conformance=1 control=1；随后 backboardd 多次 sig=11（SIGSEGV），SpringBoard 只有几行，0 条 first frame、0 条 swap。
 - 归因：发布层引入——同一镜像族 brightness-13（conformance=0 control=0）零崩溃（判定器 EXIT=0，证据 usblog-20261115-134638，SpringBoard 128 行、first frame 出现）。详见 INT-236-CHAIN.md 与 HANDOFF-20261114.md。
+- **根因（2026-11-16 结案）**：`backlight-calibration-parameters` 只发了 6 个键；CoreBrightness 读 `current-for-max-backlight` 得 NULL，随后 `CFNumberGetValue(NULL)` 在 `ldr x8,[x0]` 上 SIGSEGV（pc `CoreFoundation+0x77668`、lr `CoreBrightness+0xfbaa4`）。修法是整字典不发布（CB 有 5/140/400 nits 的 NULL 默认分支），镜像 brightness-15。证据链（本地 IPSW 反汇编 + Apple 发布器 10 键表）见 `INT-236-CHAIN.md` §11。
+- 判据（brightness-15，飞之前写死）：PASS = `conformance=1 control=1` + `sig=11` 0 + `entered backboardd` 1 + SpringBoard ≥100 + first frame ≥1 + 滑块三档可见且 `stats[1]` 递增；FAIL = 任一 sig=11 / 无 first frame / 停更 / 三档无变化；INCONCLUSIVE = `conformance=0`（control 未申请）。见 `08-on-device.md` 第 3 轮。
 - 判据：python3 scripts/check-backlight-log.py <console.log>（旧形态加 --old-form）。脚本判 conformance/control、stats[0]、request[4]/[5]、sig=11 计数与 first frame。
 
 ## 3 家族 C：getBytes:range: 类型不匹配（新，bt-s4c-20261115c）

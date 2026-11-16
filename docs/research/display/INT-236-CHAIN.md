@@ -33,8 +33,9 @@
    0 条钩子活动行——第一帧管线根本没走到 `ignore_update` / `begin_update` / `render_update`。见 §6。
 4. **int-236 描述的「持锁阻塞」形态在 b4 上没有出现**：b4 是 SIGSEGV 后进程退出（4 次重启），
    不是挂起。K60 上可证的是「崩在显示管线启动段」，锁持有者无法从日志证明（缺口）。见 §6。
-5. **pc/lr 反推符号离线做不到**：pc 落在 dyld 共享缓存，本地没有 20G81 的 shared cache，
-   设备上的 coresymbolicationd 也因 `/private/var/root/Library/Caches` 缺失而失败。见 §7。
+5. **pc/lr 已离线符号化（2026-11-16 更新）**：20G81 的 dyld 共享缓存已从本地 IPSW 的
+   SystemOS cryptex 取出（`scripts/dyld-cache-index.py`，2620 个 image），b4 的崩溃点是
+   `CoreBrightness+0xfbaa4` 调 `CFNumberGetValue(NULL)`；结案见 §11，§7 保留当时「做不到」的过程记录。
 6. **「真的 conforms」在内核查询层面已经成立**：impersonation 返回的是 OSMetaClass 注册表里
    **真实的 AppleARMBacklight 元类**，IOObjectConformsTo 与沙箱走的就是这条真实链。
    假的只是 C++ 布局（vtable）。真正的 C++ 继承**做不到**：`superClassLink` 是 private。见 §8。
@@ -284,6 +285,9 @@ EDR/背光路径，而我们的显示栈承受不了那条路径」。
 
 ## 9 缺口与下一步
 
+> **2026-11-16 更新：第 1、2 条缺口已闭合（根因=CoreBrightness 读半截标定字典，见 §11）；
+> 第 4 条的交付形态改为 brightness-15（`control=1` + 删字典，已构建待飞）。以下保留当时的记录。**
+
 1. **符号化缺口**（§7）：要一份 20G81 的 `dyld_shared_cache_arm64e` 才能把 `pc=0x1afa3f668` 变成函数名。
    没有它，b4 的崩溃点只能定位到「共享缓存里某个 dylib」，不能定位到调用。
 2. **插桩缺口**（§6.4）：现有钩子都在崩溃点之后。若要再试 control=1，应先加一个**崩溃前**的观测点
@@ -316,3 +320,64 @@ EDR/背光路径，而我们的显示栈承受不了那条路径」。
 - `docs/engineering/BOOT-ARGS.md:54`（k60_skip_iosurface）、`board.toml:192`（payload 默认参数）。
 - 日志：`/mnt/e/k60-work/evidence/usblog-20261115-013520/console.log`（b4）、
   `usblog-20261115-134638/console.log`（b13）、`usblog-20261114-235957/console.log`（gpu-t）。
+
+---
+
+## 11 结案（2026-11-16 23:40）：半截标定字典 → `CFNumberGetValue(NULL)`
+
+**结论。** brightness-4（`k60_backlight_control=1`）的 4 次 `backboardd sig=11` 不是 conformance
+问题，也不是显示管线本身：`K60Backlight::publishCalibration` 当时只发了 6 个键的
+`backlight-calibration-parameters`，而 20G81 的 CoreBrightness 假定这个字典**要么不存在、要么是
+Apple 的完整 10 键**。它读 `current-for-max-backlight` 时 `CFDictionaryGetValue` 返回 NULL，
+随后**没有 NULL 检查**就调 `CFNumberGetValue(NULL, kCFNumberFloatType, &f)`，在 `ldr x8,[x0]`
+取 isa 时 SIGSEGV。
+
+**机器码证据（全部来自本地 IPSW，不碰设备）。**
+- 崩溃点：b4 日志 `KXPC 55 backboardd pc=CoreFoundation+0x77668`、`lr=CoreBrightness+0xfbaa4`；
+  `CoreFoundation+0x77668` 的指令就是 `ldr x8, [x0]`（CFNumberGetValue 开头取 isa），x0=NULL。
+- CoreBrightness 读循环从 `0x1af030a20` 起：`0x1af030a2c` 读属性名
+  `backlight-calibration-parameters`（CFString @vm `0x1d85d0170`）；`0x1af030a3c-0x1af030a48`
+  判 NULL，NULL 跳 `0x1af031684` 默认分支（写 5.0 / 140.0 / 400.0 nits 到 `[x8,#1140..#1164]`）；
+  `0x1af030a78` 读 `current-for-max-backlight`（CFString @vm `0x1d85d0190`）→
+  `CFDictionaryGetValue`（stub `0x1afaed7c4`）→ `CFNumberGetValue`（stub `0x1afaed86c`，
+  x1=12=kCFNumberFloatType）**无 NULL 检查** → 结果除 `0x47800000`（65536.0）即 16.16 定点。
+- 循环里的 10 个键与 Apple 自己的发布器**逐字一致**：kernelcache `0x575a328` 用
+  `OSDictionary::withCapacity(10)` 建字典，10 个 `OSNumber::withNumber(ldrsw [x20,#408..#444],32)`，
+  逐个 `[x19 vtable+256]` 写入，最后 `[x20 vtable+200] setProperty('backlight-calibration-parameters', dict)`
+  （`0x575a528`）。键↔iVar：current-for-max `#432`、current-for-mid `#436`、
+  hardware-max-current-limit `#440`、lMaxProduct `#408`、lMidProduct `#412`、lMinProduct `#416`、
+  lMaxPanel `#420`、lMidPanel `#424`、lMinPanel `#428`、milliAmps2NitsScaleFactor `#444`。
+- 该字典之外，CoreBrightness 的其它读数点都安全：`digital-dimming-min-nits`（`0x1af0317f4`）、
+  `user-accessible-max-nits`（`0x1af031800`）经 helper `0x1af02fa58`，后者在
+  `0x1af02fa74-0x1af02fa80` 做空指针判断；`backlight-marketing-table`（`0x1af0318a0`）读后有
+  NULL 检查 `0x1af0318b0-0xbc`。全 CoreBrightness 20 个 `IORegistryEntryCreateCFProperty`
+  调用点都有 NULL 分支。
+
+**修法（`drivers/PongAdreno/K60Backlight.cpp`，commit `7982f92` → rebase 后 `a322b58`）。**
+`publishCalibration` 不再发 `backlight-calibration-parameters`：不发半截（缺键必崩），也不编造
+缺失的 4 个键（current 类与 milliAmps 没有量测来源）。CoreBrightness 的 NULL 分支给出
+Apple 的默认值 5/140/400 nits，亮度曲线由 CB 自己接管。保留 `IODisplayParameters`、
+`backlight-marketing-table`、`LmaxProduct`/`LminProduct`/`LmidProduct`。
+`k60_backlight_control` 默认仍是 0；brightness-15 用 `--kernel-arg k60_backlight_control=1` 显式申请。
+
+**为什么不是 conformance 问题。** vtable 槽 7 的 impersonation 在 16.6.1 arm64 上确实把
+getMetaClass 换成 AppleARMBacklight 元类（编译期按真内核旗标核实：`__ZTV12K60Backlight` @0x1308、
+getMetaClass relocation 在 section 偏移 0x58 = address point 槽 7）；b4 的 published 行也是
+`conformance=1 control=1`。崩因是 CB 读到的数据形状不对，与「认不认这个类」无关。
+
+**交付镜像 `brightness-15`（已构建，待飞）。** `boot.img` 201,887,744 B sha256
+`67acb40376a468137401f65483169809e064c3f905e1e9b13c0ce54cea103ff6`；kernel 105,521,152 B
+sha256 `513cc329347eef2715635cd5fb3ec4f692c56e487281bccc4cff86268fd7a4fe`；
+manifest repo head `a322b58`、dirty 0、series 227 / sha256 `bb14a480…`、
+`kernel_args_requested=["k60_backlight_control=1"]`；verify-boot-image 与 image-arg-audit 通过；
+`K60Backlight.o` 的 strings 里已无 `backlight-calibration-parameters`。
+
+**预注册判据（飞之前写死）。**
+- PASS（发布层）：published 行 `conformance=1 control=1`、`sig=11` 计数 0、`entered backboardd`
+  1 次、SpringBoard ≥100 行、`first frame presented` ≥1。
+- PASS（物理调光）：用户拉滑块 min/mid/max，屏上可见变化，`stats[1]` 递增、`stats[2]/[4]` 跟随，
+  屏幕全程持续更新。
+- FAIL：任一 `sig=11` / 无 first frame / 停更 / 三档无可见变化（FAIL 即停 control=1 路线，
+  交付保持 `control=0` 的 brightness-13，转 SnapAdreno 的 swap-record 路线）。
+- INCONCLUSIVE：`conformance=0`（control 未申请）——等同没测，不算失败。
+

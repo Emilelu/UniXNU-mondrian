@@ -1,9 +1,9 @@
 diff --git a/docs/research/display/08-on-device.md b/docs/research/display/08-on-device.md
 new file mode 100644
-index 00000000..8817116d
+index 00000000..64b4e03c
 --- /dev/null
 +++ b/docs/research/display/08-on-device.md
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,75 @@
 +# 显示 ⑧ 真机验证记录（背光发布层）
 +
 +| 轮次 | 镜像 | boot.img sha256 | kernel.macho sha256 | 结果 | 证据 |
@@ -11,6 +11,7 @@ index 00000000..8817116d
 +| 0 | brightness-4 | 30ccafb3… | 488a1d8f… | control=1：发布层生效，但 backboardd 4 次 `sig=11`、SpringBoard 7 行、无 first frame（int-236 形状） | `usblog-20261115-013520` |
 +| 1 | brightness-13 | `c8c33b9e…` | `bf2df340…` | **PASS（发布层）**：control=0 / conformance=0 / stats[0]=3 / 无 SIGSEGV / first frame / SpringBoard 128 行 | `usblog-20261115-134638` |
 +| 参照 | brightness-9（旧格式） | `ca992179…` | `7e809dc5…` | 行为同 13：control=0、无 SIGSEGV、SpringBoard 208 行；判定器只能给 INCONCLUSIVE（日志无 `stats=`） | `usblog-20261115-134001` |
++| 3（预注册） | brightness-15 | `67acb403…` | `513cc329…` | 待飞：control=1 + 删半截标定字典（b4 崩因修复） | 见文末第 3 轮 |
 +
 +brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 +
@@ -60,6 +61,24 @@ index 00000000..8817116d
 +   看 level 与 DBV 是否跟着三档变化（例如 0 / ~1024 / 2047）。
 +
 +前两项任一为否，都不能算「亮度可调」已验收；只能算「发布层安全」已验收。
++
++## 第 3 轮（预注册，2026-11-16；镜像 brightness-15，待飞）
++
++- 镜像：`brightness-15`，`boot.img` sha256 `67acb403…`（201,887,744 B），
++  `kernel.macho` sha256 `513cc329…`（105,521,152 B）；manifest repo head `a322b58`、dirty 0、
++  series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
++- 改动：`publishCalibration` 不再发布 `backlight-calibration-parameters`。b4 的 SIGSEGV 根因是
++  半截字典让 CoreBrightness 的 `CFNumberGetValue` 收到 NULL，见 `INT-236-CHAIN.md` §11。
++- 预注册判据（飞之前写死，不事后解释）：
++  1. **PASS（发布层）**：日志有 `conformance=1 control=1` 的 published 行；`sig=11` 计数 0；
++     `entered backboardd` 1 次；SpringBoard ≥100 行；`first frame presented` ≥1。
++  2. **PASS（物理调光）**：用户拉滑块 min/mid/max，屏上可见变化，`stats[1]` 递增，
++     `stats[2]/stats[4]` 跟随；屏幕全程持续更新。
++  3. **FAIL**：任一 `sig=11`、无 first frame、停更、或三档无可见变化。FAIL 即停 control=1 路线
++     （交付保持 `control=0` 的 brightness-13），转 SnapAdreno 的 swap-record 路线。
++  4. **INCONCLUSIVE**：`conformance=0`（impersonation 未成立、control 没申请）——等同没测，不是失败。
++- 判读命令：`python3 scripts/check-backlight-log.py <console.log>`；物理三档另记 published 行里的 `stats=`。
++
 diff --git a/docs/research/display/BRIGHTNESS-PLAN.md b/docs/research/display/BRIGHTNESS-PLAN.md
 new file mode 100644
 index 00000000..bd720b15
@@ -284,12 +303,12 @@ index 00000000..bd720b15
 +3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
 +   仅由 host 单测覆盖，**待未来系统验证**。
 diff --git a/docs/research/display/RESEARCH.md b/docs/research/display/RESEARCH.md
-index 110f8540..31446be9 100644
+index 865c7960..0d0a7df0 100644
 --- a/docs/research/display/RESEARCH.md
 +++ b/docs/research/display/RESEARCH.md
 @@ -163,8 +163,26 @@ sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
  | ~~XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算~~ **不需要换算** | 上电时序以 DTB 为准（`<1 11 0 1 1 11>`，见第 3 节），XML 那行只描述同一件事的另一种编码，不参与构建 |
- | ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧：492 个 boot 中 452 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（272 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
+ | ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧（2026-11-14 用 `scratch/refmine/fps_boots.py` 重跑，证据目录只增不减，故数字随抓取增长）：494 个 `console.log` 中 453 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（273 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
  | 面板供电真上电验证 | 3 条 RPMh LDO 的 cmd-db 资源地址与投票参数未取（RSC drv-2 已实测可读写，不是 RSC 阻塞）；在此之前无法自证 |
 +| 亮度滑块三档真机验收 | 发布层 PASS（brightness-13，`usblog-20261115-134638`），但默认形态不发 `backlight-control`；滑块是否改变物理亮度待用户在场实测，见 [`08-on-device.md`](08-on-device.md) |
  
@@ -452,10 +471,10 @@ index 00000000..b4759ff4
 +```
 diff --git a/drivers/PongAdreno/K60Backlight.cpp b/drivers/PongAdreno/K60Backlight.cpp
 new file mode 100644
-index 00000000..5f07e931
+index 00000000..2f441df0
 --- /dev/null
 +++ b/drivers/PongAdreno/K60Backlight.cpp
-@@ -0,0 +1,475 @@
+@@ -0,0 +1,483 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/*
 + * K60Backlight.cpp - the OS facing half of the K60 brightness service.
@@ -480,11 +499,16 @@ index 00000000..5f07e931
 + *   int-236 publishing backlight-control without IOObjectConformsTo(service,
 + *          "AppleARMBacklight") makes CoreBrightness skip the libEDR server and
 + *          QuartzCore blocks with the display lock held: the screen stops
-+ *          updating. brightness-4 measured exactly that shape on device
-+ *          (control 1, four backboardd SIGSEGV, no first frame), so the
-+ *          property is now off by default: k60_backlight_control=1 asks for it
-+ *          and the kernel side of the conformance query must then really
-+ *          answer AppleARMBacklight (conformsToAppleBacklight).
++ *          updating (the reference implementation's shape). brightness-4 on
++ *          20G81 died differently and left a stack: four backboardd SIGSEGV,
++ *          pc CoreFoundation+0x77668 (CFNumberGetValue on a NULL CFNumber),
++ *          lr CoreBrightness+0xfbaa4, because the service published a
++ *          six-key backlight-calibration-parameters dictionary while that
++ *          CoreBrightness reads ten keys with no NULL check. The dictionary is
++ *          no longer published at all (see publishCalibration). The property
++ *          stays off by default: k60_backlight_control=1 asks for it and the
++ *          kernel side of the conformance query must then really answer
++ *          AppleARMBacklight (conformsToAppleBacklight).
 + *
 + * Counting follows the reference layout; see docs/research/display/
 + * BRIGHTNESS-PLAN.md section 5 for the index table.
@@ -679,20 +703,23 @@ index 00000000..5f07e931
 +        setProperty("LmidProduct", number);
 +        number->release();
 +    }
-+    OSDictionary *calibration = OSDictionary::withCapacity(6);
-+    if (!calibration) return;
-+    const struct {const char *key; uint32_t nits;} fields[] = {
-+        {"lMinProduct", k60backlight::kMinNits}, {"lMidProduct", k60backlight::kMidNits},
-+        {"lMaxProduct", k60backlight::kMaxNits}, {"lMinPanel", k60backlight::kMinNits},
-+        {"lMidPanel", k60backlight::kMidNits}, {"lMaxPanel", k60backlight::kMaxNits}};
-+    for (const auto &field : fields) {
-+        if (OSNumber *number = OSNumber::withNumber((uint64_t)field.nits << 16, 32)) {
-+            calibration->setObject(field.key, number);
-+            number->release();
-+        }
-+    }
-+    setProperty("backlight-calibration-parameters", calibration);
-+    calibration->release();
++    /* Do not publish backlight-calibration-parameters.
++     *
++     * 20G81's CoreBrightness reads ten keys out of that dictionary
++     * (current-for-max-backlight, current-for-mid-backlight,
++     * hardware-max-current-limit, lMaxProduct, lMidProduct, lMinProduct,
++     * lMaxPanel, lMidPanel, lMinPanel, milliAmps2NitsScaleFactor) and feeds
++     * each value to CFNumberGetValue with no NULL check in between
++     * (CoreBrightness 0x1af030a28 reads the property, 0x1af030a5c..0x1af030a70
++     * the loop). A dictionary that carries only the six luminance keys makes
++     * the very first lookup return NULL and backboardd dies inside
++     * CoreFoundation (int-236: brightness-4, pc CoreFoundation+0x0, lr
++     * CoreBrightness+0xfbaa4). The same reader takes a default branch when the
++     * property is absent (0x1af031684: 5 / 140 / 400 nits and the scaled
++     * derivatives), so an absent dictionary is the only shape this port can
++     * publish honestly: the panel currents and the milliAmp-to-nit scale have
++     * not been measured. Never publish a partial dictionary here.
++     */
 +}
 +
 +/* One DCS 0x51 write. The panel has no read back command, so the value reported

@@ -24,7 +24,7 @@ K60 **没有独立背光 IC**：live FDT 里只有 `pm8350c` 的 `lcd_backlight_
 
 所以本线要补的不是硬件驱动，而是 **OS 与面板之间的两层**：面向 CoreBrightness 的**服务层**
 （发布 IODisplayParameters、接收 `setProperties`）与把 OS 域编码成 DBV 的**编码层**
-（`0..2047 → 0..255`、FadePeriod → 线性渐变序列）。这正是官方指南
+（`0..2047 → 0..4095`，12 位 DCS 0x51 双字节；FadePeriod → 线性渐变序列）。这正是官方指南
 `docs/zh/porting/display.md:80-114`（§3/§4）对「DSI 命令背光」设备的原话要求：**必须在面向 OS
 的亮度服务下实现传输与编码两层**。
 

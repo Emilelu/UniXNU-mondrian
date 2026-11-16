@@ -403,7 +403,7 @@ manifest repo head `a322b58`、dirty 0、series 227 / sha256 `bb14a480…`、
 | 11 | 回滚：`k60_backlight=0` 停服务、`k60_backlight_control=0` 只发布不申请；交付图 brightness-13 `c8c33b9e…` control=0 已 PASS | 产物 + 上机历史 | §11；08-on-device 第 1 轮 | 闭合 |
 | 12 | 运行时 conformance 是否真为 1 | 运行时判据 | brightness-15 `:184` `conformance=1 control=1` | 闭合 |
 | 13 | CoreBrightness 是否真的把请求写到本服务 | 运行时判据 | brightness-16 两次上机共 35 条 `K60 BACKLIGHT: brightness` 请求行；`stats[1]` 不可读，改用请求行 | 闭合 |
-| 14 | 三档物理亮度可见变化、屏幕持续更新 | 运行时判据 | brightness-15 用户可见变化；brightness-16 8 位端点 0xff/0x1；brightness-18 最低 0x14 观感待确认 | 部分闭合 |
+| 14 | 三档物理亮度可见变化、屏幕持续更新 | 运行时判据 | brightness-15 用户可见变化；brightness-16 8 位端点 0xff/0x1；brightness-18 最低 0x14 观感待确认；brightness-19 第一飞发布层 PASS、最低 0x4 待用户拖滑块 | 部分闭合 |
 
 **仍然开放的项**：第 14 条只剩 brightness-18 最低 0x14 的观感确认；其余运行时项已闭合。
 
@@ -485,7 +485,7 @@ Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对�
   滑块的请求行（仅启动默认 `:2212` 1024→0x80a 与 `:2213` brightness-nits 0.0→0x0）。
 - 待确认：最低档 `0x14` 是否还黑屏/是否比 8 位底更暗。这是 §12 第 14 条的最后一个运行时项，
   确认后才把 `EIGHT-STEPS.toml` 的 `[hardware.brightness.step.device]` 置 done。
-### 13.6 brightness-19：floor 改 Android 手动最低的 DBV 0x4（预注册）
+### 13.6 brightness-19：floor 改 Android 手动最低的 DBV 0x4（预注册并第一飞）
 
 - 13.5 的 `0x14` 来自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。真机 Android
   （设备 6033dbec，adb，2026-11-17 04:00）直接量到：

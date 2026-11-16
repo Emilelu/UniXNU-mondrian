@@ -174,7 +174,7 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
   **判据 2（请求可见）与判据 3（最低 `0x14` 可见）未测，不能判 PASS 或 FAIL**；发布层与
   最高 `0xfff` 已 PASS。
 
-## 第 7 轮（预注册，2026-11-17 04:05）— brightness-19：最低 floor 改 Android 的 DBV 0x4
+## 第 7 轮（2026-11-17 04:05 预注册，04:26 第一飞）— brightness-19：最低 floor 改 Android 的 DBV 0x4
 
 - **为什么改**：第 6 轮的 `0x14` 取自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。
   真机 Android 侧直接量到：`/sys/class/backlight/panel0-backlight/max_brightness = 4095`；

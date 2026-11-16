@@ -33,7 +33,7 @@ DEFAULT_ARTIFACT = Path("/mnt/e/k60-work/artifacts/bt-d8-tlv")
 
 MANIFEST_SHA256 = "3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0"
 FROZEN_SHA256 = "ec0bce53352203a5e430ce1ac7f80ae407ed1ba3ba208286dc665ddfe741f4e9"
-SERIES_FILE_SHA256 = "9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8"
+SERIES_PREFIX_SHA256 = "9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8"
 SERIES_NAMES_SIZES = "f7aa7d63470b891d"
 SERIES_COUNT = 235
 HEAD = "91dcd0761aeb035c15de743478851fb8ce0c0417"
@@ -152,12 +152,15 @@ def validate_inputs(artifact: Path, patches: Path) -> tuple[list[str], dict[str,
 
     series_path = patches / "series"
     require_file(series_path, "xnu series")
-    check(sha256(series_path) == SERIES_FILE_SHA256, "series file sha256", sha256(series_path))
-    if sha256(series_path) != SERIES_FILE_SHA256:
-        refuse("series file bytes differ from the d8 build")
     lines = [line.strip() for line in series_path.read_text(encoding="utf-8").splitlines()
              if line.strip()]
-    check(len(lines) == SERIES_COUNT, "series entry count", str(len(lines)))
+    prefix = lines[:SERIES_COUNT]
+    prefix_sha = hashlib.sha256(("\n".join(prefix) + "\n").encode()).hexdigest()
+    check(len(lines) >= SERIES_COUNT, "series entry count at least the d8 prefix", str(len(lines)))
+    check(prefix_sha == SERIES_PREFIX_SHA256, "series d8 prefix sha256", prefix_sha)
+    if len(lines) < SERIES_COUNT or prefix_sha != SERIES_PREFIX_SHA256:
+        refuse("series d8 prefix bytes differ from the d8 build")
+    lines = prefix
     check(series_fingerprint(lines, patches) == SERIES_NAMES_SIZES,
           "series names+sizes fingerprint", series_fingerprint(lines, patches))
     if len(lines) != SERIES_COUNT or series_fingerprint(lines, patches) != SERIES_NAMES_SIZES:

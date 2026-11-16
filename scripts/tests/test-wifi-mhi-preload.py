@@ -100,7 +100,7 @@ def main(generated=None):
             ("missing settle", mutant(boot, "\tmsleep(200);", "")),
             ("missing context write", mutant(boot, "ret = mhi_init_mmio(mhi_cntrl);", "ret = 0;")),
             ("missing call", mutant(boot, "ret = nw_mhi_pre_load(mhi_cntrl);", "")),
-            ("not fail closed", mutant(boot, "goto error_fw_load;", "goto skip_req_fw;")),
+            ("not fail closed", mutant(boot, "\t\tgoto error_fw_load;\n\t}\n\n\tfw_load_type = mhi_fw_load_type_get(mhi_cntrl);", "\t\tgoto skip_req_fw;\n\t}\n\n\tfw_load_type = mhi_fw_load_type_get(mhi_cntrl);")),
             ("wrong init helper", mutant(boot, "ret = mhi_init_mmio(mhi_cntrl);", "ret = mhi_init_dev_ctxt(mhi_cntrl);")),
         ]
         for name, bad in cases:

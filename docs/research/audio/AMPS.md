@@ -877,7 +877,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 这一层的意义是：等 PAS1 与 TDM 通路到位时，「写寄存器」这段不再是未验证的新代码，而是已经在设备上
 跑过一遍、每一步都有回读记录的东西；剩下的只是把它接到 start 序列与音频帧上。
 
-### 9.5 构建核验（镜像 k 与镜像 m）
+### 9.5 构建核验（镜像 k、m 与 n）
 
 `audio-probe-20261114k` 是回放层第一次进内核构建：HEAD `ec95bc6`、8 文件补丁 `d85264ca…`、
 `scripts/build-strict.sh` 全流程通过（八步 36 项、`verify-boot-image: OK`）。
@@ -888,7 +888,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
   `dirty_files 0`、`payload f3a6eafb…`、`payload_kernel 18e04ebb…`、`adt 2b1552ac…`、`dtb 2d044eaa…`、
   `fd 4bbe7601…`、`boot_img f34f33e3…`；
 - 这就是 §6 第 4 条那条无法复现的 `-fsyntax-only` 的替代证据：回放层是在真实内核 flags 下编过的；
-- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 m。
+- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 n（见下）。
 
 **镜像 m（2026-11-15）**：rebase 到 `origin/main` 626cc9b 之后重建，HEAD `9afa1e1`、series 225 条（sha256 `8e455072…`，224 条加 0504 的常量修正）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `7e86d966…`（105,504,768 B）、`payload_kernel a3e27a2e…`、`payload d5a544ac…`、
@@ -896,7 +896,12 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `boot.img` sha256 `2283aaa9…`（201,887,744 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261115m/build-manifest.json`；
 - manifest 用 `kernel_args_requested: ["pong_audio_probe=1"]`（旧脚本写的是 `kernel_args` 键），命令行审计 `image-arg-audit: OK (30 arguments, 594 bytes)`；
 - 这是 §6 第 4 条 `-fsyntax-only` 的第二份替代证据：0504 的三处 GPR 常量修正也在真实 kernel flags 下编过；
-- m 构建完就挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+- m 构建完曾挂着；2026-11-17 由 n 取代（n 带 TLMM、PRM 与最终 9 文件补丁，见下）。
+
+**镜像 n（2026-11-17）**：闭环台账与 TLMM/PCM ring 落地之后重建，HEAD `960d723b`、series 225 条（sha256 `8e455072…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+- `kernel_built` sha256 `0c7d368b…`（105,504,768 B）、`payload_kernel 7d16361c…`、`payload fe6a6554…`、`adt 74e091e4…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `3c6a6783…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261115n/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
+- 这是当前候选：9 文件补丁（含 PongAudioTlmm.h；PongAudioRing.h 按宿主头规则不进补丁）+ PRM 时钟 + TLMM/spksw；构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
 
 ### 9.6 run 2 的判据（可执行）
 

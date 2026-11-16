@@ -190,13 +190,13 @@ kernel file, and shipping them into `bsd/dev/` would only slow the build.
 ## Build result (2026-11-14, image k)
 
 Images k and l were withdrawn on 2026-11-15 (P-201): both were built before the branch was rebased onto
-`origin/main` and still carried the old 230-patch series. The current image is m; see below.
+`origin/main` and still carried the old 230-patch series. The current image is n; see below.
 
 `audio-probe-20261114k` is the first kernel build that carries the replay layer:
 8-file patch `d85264ca…`, patch order `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe`
 (`kernel.log:228-231`), `kernel.macho` sha256 `0640f6c7…` (54,181,888 B), `verify-boot-image: OK`.
 The manifest is `/mnt/e/k60-work/artifacts/audio-probe-20261114k/build-manifest.json`;
-`boot.img` sha256 `f34f33e3…`. That was the run 2 candidate until the rebase; see image m below for what stands today.
+`boot.img` sha256 `f34f33e3…`. That was the run 2 candidate until the rebase; see image n below for what stands today.
 
 ## Build result (2026-11-15, image m)
 
@@ -206,7 +206,17 @@ The manifest is `/mnt/e/k60-work/artifacts/audio-probe-20261114k/build-manifest.
 `payload d5a544ac…`, `boot.img` sha256 `2283aaa9…` (201,887,744 B). The manifest is
 `/mnt/e/k60-work/artifacts/audio-probe-20261115m/build-manifest.json` and it carries
 `kernel_args_requested: ["pong_audio_probe=1"]`; `image-arg-audit` accepted the command line (30
-arguments, 594 bytes). This is the image a future run 2 would use, once the ADSP provider exists.
+arguments, 594 bytes). That was the candidate until the pad/ring/PRM rebuild; see image n below.
+
+## Build result (2026-11-17, image n)
+
+`audio-probe-20261115n` is the first build after the TLMM pads, PCM ring and PRM clock work: HEAD
+`960d723b`, series 225 (`8e455072…`), `dirty_files 0`, `verify-boot-image: OK`. `kernel_built` sha256
+`0c7d368b…` (105,504,768 B), `payload_kernel 7d16361c…`, `payload fe6a6554…`, `boot.img` sha256
+`3c6a6783…` (201,895,936 B). The manifest is
+`/mnt/e/k60-work/artifacts/audio-probe-20261115n/build-manifest.json` and it carries
+`kernel_args_requested: ["pong_audio_probe=1"]`. This is the image a future run 2 would use; it is
+built but not booted.
 
 ## On-device result (2026-11-14, run 1 of 2)
 

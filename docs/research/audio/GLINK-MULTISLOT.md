@@ -166,5 +166,5 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 它不是任何门禁的一部分（RULES.toml 里没有规则跑它），需要人手跑——这也是它放在
 drivers/PongAudio/tests/ 而不是 scripts/tests/ 的原因：它测的是原型，不是仓库当前状态。
 
-边界：不改 drivers/PongPower/（电池 / adsp-handoff 线 scope）、不动 K60Battmgr.c（charger/USB 线）、
-不上机、不申请 run 2。
+边界：不改 drivers/PongPower/（2026-11-17 用户把该目录划给音频线，但 Lead 裁决 provider 只把
+MAX_CHANNELS 扩到 2；本线不直接改文件）、不动 K60Battmgr.c（charger/USB 线）、不上机、不申请 run 2。

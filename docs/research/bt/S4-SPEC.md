@@ -1638,7 +1638,7 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | 断言面 | 本仓 `test-bt-d8-adapter-host.py` | Lead `test-bt-d8-host-timing.py` | 归属建议 |
 | --- | --- | --- | --- |
 | d8 frozen-before 身份与 0500/0514/0515 三个 QBT 补丁字节 | 有，失败即拒绝 | 有，失败即拒绝 | 两边都必须保留；本仓负责本线执行入口，Lead 文件保持独立复核。 |
-| manifest / head / boot.img / 235 条 series 全量补丁字节 / namespace 指纹 | 有 | 无（只按自己的三个补丁 SHA 与 frozen 记录取输入） | 本仓权威。 |
+| manifest / head / boot.img / 235 条 series 全量补丁字节 / namespace 指纹 | 有 | 时序文件无；Lead 的 `check-bt-d8-inputs.py` 有（manifest/head/frozen/series/235 patch/boot.img） | 两边各有独立入口；本仓用于运行前拒绝，Lead 输入检查器交叉核对。 |
 | 精确应用 0514/0515 的源码 hunk | 有 | 有 | 两边读同一冻结补丁字节，不共享实现。 |
 | 重建后 `qbt_core.c` / `qbt_linux.c` / `btqca.c` 的源码 SHA256 | 有（三条都钉住） | 无（只钉补丁字节） | 本仓权威；这也解释了为什么本仓能覆盖 adapter 与下载链。 |
 | TLV ack/final status 语义、`sent/acks` 累计、失败调用计入 `segs` | 有（经 adapter 与下载链断言） | 有（直接对 `qbt_core` 注入） | 两边互为交叉；本仓对 adapter/下载层权威，Lead 对核心微时序权威，裁决由 Lead 出。 |
@@ -1648,7 +1648,9 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | `qca_set_bdaddr`、`qbt_boot()` 生命周期与失败清理 | 有 | 无 | 本仓权威。 |
 | `run()` / `qbt_deadline` / `qbt_drain` 的直接微时序、在精确期限注入 pump 事件、调度器期限、0515 wrapper 汇总 | 仅经由场景间接覆盖 | 有 | Lead 文件权威；本仓不复制这些微时序断言。 |
 
-本仓不编辑 Lead 的 `E:/hackios/k60-lead/scripts/tests/test-bt-d8-host-timing.py` 与其夹具。两边都不进入 main 或 ⑦ 之前，以上表交 Lead 决定哪些断言退休；不保留长期分叉的两份实现。
+注：上表“Lead”列在输入身份行合看 `test-bt-d8-host-timing.py` 与 `check-bt-d8-inputs.py`；时序行只比较两个 C 驱动测试，Lead 的输入检查器不是时序断言。
+
+本仓不编辑 Lead 的 `E:/hackios/k60-lead/scripts/tests/test-bt-d8-host-timing.py`、`check-bt-d8-inputs.py` 与其夹具。两边都不进入 main 或 ⑦ 之前，以上表交 Lead 决定哪些断言退休；不保留长期分叉的两份实现。
 
 **未覆盖边界（显式列出，避免“全绿=全懂”）**：控制器接收/接受与真实 RX 时间、UART/DMA/IBS 时间线、真实 d8 的 90 s 预算分支、`qca firmware vmalloc` 失败、`qca_disable_soc_logging` 失败、NVM 内容相等性、编译产物到 payload 的映射、flash 门禁覆盖、d8 物理失败机制、蓝牙功能可用。上面任何一项都不能由本节的宿主用例推出。
 

@@ -52,6 +52,8 @@
 - 静态证据：`scripts/tests/test-k60-adsp-loader.c` 断言 `plan.base == K60_ADSP_BOARD_BASE`、
   两者不等、`plan_at(0x9fd00800)` 必须 `K60AdspBadArg`；`scripts/tests/test-k60-adsp-image.py`
   从 `pong_adsp_table.h` 读回三个常量并与镜像表比对（`TESTS OK ... link 0x86300000 board 0x9fd00000`）。
+- 产物证据：c 的 `kernel.macho` 保留 `K60PAS region from /chosen` 与
+  `K60PAS ignoring region override` 两条诊断串（`strings` 复核，见证 `k60_adsp_board_region()` 被编入）。
 - 回滚：一个 commit；改回 0x86300000 即恢复旧行为（不做）。
 
 ### 1.2 载体接线（D3 = ② 新 boot-arg）

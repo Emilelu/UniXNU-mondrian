@@ -230,3 +230,19 @@ note = """main with P-219 (32 MiB io_submap) and P-220 (stamp selection). 3,061 
 panic markers. The same series is what bt-d5-iomap proved lets the bluetooth
 ladder reach the QCA controller, so this entry also carries that evidence.
 """
+
+[[entry]]
+sha = "b872596"
+state = "build-only"
+note = """上游跟进（09:00 定时任务）取进的八个文件，全部来自对水位 d855ce2d4 的三方合并，
+零冲突标记。真正进内核的是三个：NativeAdrenoCpu.cpp / NativeAdrenoMemory.cpp /
+NativeAdrenoMemory.h 链进 libPongAdrenoPlatform.a（build-xnu-4k-baseline.sh 以
+-force_load 挂进内核），带来 64 页批量的 cache maintenance 接口
+NativeAdrenoMaintainPhysicalPageBatch()，替掉单页的 NativeAdrenoMaintainPhysicalPages()；
+全树已无悬挂调用（调用点全在提交内）。PongAdrenoPlatform.cpp 与
+build-xnu-4k-baseline.sh 两个冲突都取我们的（P-164 的 banner 语义、P-181 的
+host-cc/conf-files hook）。另外五个文件（PongMetalPlugin.mm + 三个 header +
+userland/touch.c）不进内核镜像：plugin 走预编译 macOS bundle，touch.c 走
+libpong-ui.dylib。欠账：内核字节变了，需要用这一版上机确认 GPU 路径不回归
+（判据：SpringBoard ≥ 100、PONG METAL 行仍在、无 panic 标记）。
+"""

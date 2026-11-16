@@ -131,6 +131,36 @@ def check_freshness(verbose=True):
     return problems, len(pairs)
 
 
+def check_ops_snapshots(verbose=True):
+    """docs/ops 的每个历史快照必须有横幅，并在 docs/ops/README.md 登记"""
+    problems = []
+    directory = os.path.join(REPO, 'docs', 'ops')
+    if not os.path.isdir(directory):
+        return problems, 0
+
+    readme_path = os.path.join(directory, 'README.md')
+    readme = ''
+    if os.path.exists(readme_path):
+        readme = io.open(readme_path, encoding='utf-8', errors='ignore').read()
+    else:
+        problems.append('docs/ops/README.md 不存在')
+
+    counted = 0
+    for name in sorted(os.listdir(directory)):
+        if not name.endswith('.md') or name == 'README.md':
+            continue
+        counted += 1
+        text = io.open(os.path.join(directory, name), encoding='utf-8', errors='ignore').read()
+        head = '\n'.join(text.splitlines()[:15])
+        if '快照' not in head or '不是' not in head:
+            problems.append('docs/ops/%s 前 15 行缺少「历史快照、不是权威」横幅' % name)
+        if '](%s)' % name not in readme:
+            problems.append('docs/ops/README.md 未登记 %s' % name)
+
+    if verbose:
+        print('  检查 docs/ops %d 个历史快照横幅' % counted)
+    return problems, counted
+
 
 def check_subdir_indexes(verbose=True):
     """docs/engineering/README.md 必须登记该目录下每个 .md"""
@@ -418,7 +448,7 @@ def run(verbose=True):
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
                check_root_docs_linked, check_section_order, check_no_hardcoded_sha,
                check_bilingual, check_freshness, check_readme_links,
-               check_tables, check_citations):
+               check_ops_snapshots, check_tables, check_citations):
         p, n = fn(verbose)
         all_problems += p
         total += n

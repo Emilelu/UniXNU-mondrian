@@ -1,10 +1,11 @@
 # K60 WiFi 最终补丁系列
 
 > 基线：`/opt/k60/trees/usb-cdc-mainline/device` 工作树（HEAD `70a1e4c`，含主 agent 的 GPU/触摸改动）。
-> 本目录 `/mnt/e/k60-work/impl/wifi/patches/final/` 是自包含系列：`0001–0010` 为必需项，
-> `optional/0011` 仅阶段 6（真机 WiFi 开关）使用。全部已在隔离副本 `../repo/` 上按顺序
-> `git apply --check` + `git apply` 通过，且应用后的树与生成时的快照逐字节一致
+> 2026-11-12 的原始系列为 `0001–0010`（`optional/0011` 仅阶段 6 使用），并已在隔离副本
+> `../repo/` 上按顺序 `git apply --check` + `git apply` 通过，应用后的树与生成时的快照逐字节一致
 > （见 `../evidence/final-series-verify.log`）。
+> 2026-11-17 复核：实际目录为 `0001–0012` 共 12 个补丁，`series` 12 行，没有 `optional/` 子目录；
+> `0011–0012` 是后续增量，见下表。
 
 ## 应用顺序（必需）
 
@@ -26,8 +27,9 @@ done
 | 0007 | `0007-configs-mondrian-wifi-defconfig.patch` | 新增 `configs/mondrian_wifi_defconfig`（opt-in） | `0005-configs` |
 | 0008 | `0008-configs-mondrian-wifi-sm8475.patch` | 新增 K60 board profile（82 PHY、6 rails、refgen index 10） | `new/configs/mondrian-wifi-sm8475.json` |
 | 0009 | `0009-scripts-k60-wifi-build.patch` | 新增 4 个脚本，并修正 `build-k60-ath11k.py` 与 Ath12kWifi `28de7b91` 的兼容性（见下） | `new/scripts/*` |
-| 0010 | `0010-scripts-build-xnu-4k-baseline-wifi.patch` | `build-xnu-4k-baseline.sh` 构建并 `-force_load` `libPongWifiNative.a` | `0004-build-xnu-4k-baseline` |
-| optional/0011 | `optional/0011-board-toml-pong-wifi-arg-OPTIONAL.patch` | `board.toml` `kernel_args` 加 `pong_wifi=1`，仅临时 fastboot 镜像 | `0006-board-toml` |
+| 0010 | `0010-scripts-build-xnu-wifi-archive.patch` | `build-xnu-4k-baseline.sh` 构建并 `-force_load` `libPongWifiNative.a` | `0004-build-xnu-4k-baseline` |
+| 0011 | `0011-drivers-PongWifi-k60-bringup-stages.patch` | `k60_wifi_stage=N` 分阶段放开 MMIO 访问，把死机定位到单个块 | 无（后续增量） |
+| 0012 | `0012-drivers-PongWifi-lease-lock-lazy-init.patch` | `pong_smmu_lease_lock()` 首次使用时分配锁，修复 NativeUfs 先取 lease 的启动失败 | 无（后续增量） |
 
 > `0010` 还包含一个集成修复：`K60_WIFI_SHENG` 支持从 `PONG_SHENG_ROOT` 回退，并在调用
 > `build-k60-wifi-native.py` 前 `export PONG_SHENG_ROOT="$K60_WIFI_SHENG"`，否则该脚本的
@@ -62,10 +64,11 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 
 ---
 
-## 接线状态（2026-11-12 核实，SA-03）
+## 接线状态（2026-11-12 核实，SA-03；2026-11-17 复核）
 
-**这 9 个补丁此前从未被应用** —— 全仓没有任何 `series` 或 applier 引用 `patches/wifi`。
-本目录现在有 `series`（0001-0009），但要真正生效还需要两步：
+**2026-11-12 时这 9 个补丁从未被应用** —— 全仓没有任何 `series` 或 applier 引用 `patches/wifi`。
+本目录现在有 `series`（0001-0012），但 main 仍没有 applier 读它，只有 `scripts/tests/test-pong-smmu-lease.py:76`
+断言 0012 在 series；接线仍等 Lead 对 `patches/wifi` 的裁决。要真正生效还需要两步：
 
 1. **接入构建**：`unixnu` 目前只认 `patches/xnu/series`。要么把 wifi 补丁并进那条系列，
    要么在构建流程里加一个 applier 步骤。

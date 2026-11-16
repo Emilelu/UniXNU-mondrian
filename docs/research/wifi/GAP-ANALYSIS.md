@@ -2,6 +2,7 @@
 
 > 来源：subagent SA-03，2026-11-12
 > 状态：只读调研完成，结论已落库
+> 2026-11-17 复核：`patches/wifi` 已到 `0001–0012` 共 12 个补丁（221,744 B），`series` 12 行；下文 `0001–0010`/211,731 B 是 2026-11-12 快照。
 > 关联：`docs/research/wifi/RESEARCH.md`（①②③④⑤⑥）、`patches/wifi/`
 
 ---
@@ -59,7 +60,7 @@ MSI        Pong: PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)；K60 运行时: 
 
 ## 3. ⚠️ 重大发现：我们不是「没有」，是「有但从未应用」
 
-`patches/wifi/` 已有 **0001-0010 共 10 个补丁，合计 211,731 B（206.8 KiB）**，含：
+`patches/wifi/` 已有 **0001-0010 共 10 个补丁，合计 211,731 B（206.8 KiB）**（2026-11-17 复核：已到 `0001–0012` 共 12 个补丁、221,744 B），含：
 - 14 个 PongWifi 文件
 - K60 profile
 - 4 个构建脚本
@@ -74,7 +75,7 @@ MSI        Pong: PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)；K60 运行时: 
 | 问题 | 证据 | 后果 |
 |---|---|---|
 | **没有 applier 脚本读 `patches/wifi/series`** | `scripts/` 全域 grep `patches/wifi` 0 命中 | 系列文件存在也**不会自动应用** |
-| ~~README 说必需的 `0010` 不存在~~ **已补**：`0010-scripts-build-xnu-wifi-archive.patch`（1,629 B）与 `patches/wifi/series`（10 行）都已落库（提交 `4fe2f52`） | `ls patches/wifi`、`git log` | 仍需人工按 series 应用；README 表格里的旧名 `0010-scripts-build-xnu-4k-baseline-wifi.patch` 与实际文件名不一致 |
+| ~~README 说必需的 `0010` 不存在~~ **已补**：`0010-scripts-build-xnu-wifi-archive.patch`（1,629 B）与 `patches/wifi/series`（当时 10 行，现 12 行）都已落库（提交 `4fe2f52`） | `ls patches/wifi`、`git log` | 仍需人工按 series 应用；README 表格里的旧名 `0010-scripts-build-xnu-4k-baseline-wifi.patch` 已在 2026-11-17 修正 |
 | 工作树里 `drivers/PongWifi`、`k60-wifi:configs/mondrian-wifi-sm8475.json`、`nw_abi.h` 都不存在 | `ls` | 补丁从未落盘 |
 
 **这和 `0403` 是同一个模式**：数据在，没人引用，等于不存在。
@@ -151,7 +152,7 @@ bd_m11agf.elf      60,000
 
 ## 结论
 
-**WiFi 是三块空白区里最接近可用的**：代码有了（1,771 行）、补丁有了（211,731 B）、
+**WiFi 是三块空白区里最接近可用的**：代码有了（1,771 行）、补丁有了（211,731 B，2026-11-17 已到 221,744 B）、
 主机侧编译过了，只差**接进系列 + 修一个索引 + 拿固件**。
 
 这是「有但没接线」的典型，和 `0403` 固件补丁、`1e1a70e` ADT 修复同一个模式。

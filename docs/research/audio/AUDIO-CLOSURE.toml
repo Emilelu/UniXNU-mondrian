@@ -172,7 +172,7 @@ evidence = [
   "drivers/PongAudio/tests/test-glink-multislot.c",
   "drivers/PongAudio/tests/run-glink-multislot-tests.sh",
 ]
-criteria = "370 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out, and the audio bridge queue/registration. The runner compiles the real source; there is no prototype patch."
+criteria = "376 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out, and the audio bridge queue/registration. The runner compiles the real source; there is no prototype patch."
 status = "closed"
 owner = "audio-agent"
 
@@ -203,7 +203,7 @@ evidence = [
   "drivers/PongPower/K60PmicGlink.cpp:97,142,167",
   "drivers/PongAudio/tests/test-glink-multislot.c",
 ]
-criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 512 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 370-case runner reaches state up and routes peer data only to the audio consumer."
+criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 512 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 376-case runner reaches state up and routes peer data only to the audio consumer."
 status = "closed"
 owner = "audio-agent"
 
@@ -218,7 +218,7 @@ evidence = [
   "drivers/PongPower/K60PmicGlink.cpp",
   "drivers/PongAudio/tests/test-glink-multislot.c",
 ]
-criteria = "370-case runner: after the DSP advertises a 512-byte send intent, k60_audio_glink_send() writes TX_DATA with local lcid 1 / remote intent id 0x2001 / payload gpr; a 4096-byte send returns QcomGlinkTooBig; after stop the same call returns -2002; no transport returns -2001."
+criteria = "376-case runner: after the DSP advertises a 512-byte send intent, k60_audio_glink_send() writes TX_DATA with local lcid 1 / remote intent id 0x2001 / payload gpr; a 4096-byte send returns QcomGlinkTooBig; after stop the same call returns -2002; no transport returns -2001."
 status = "closed"
 owner = "audio-agent"
 
@@ -243,10 +243,11 @@ change = "the built kernel sends a 24-byte GPR GET_SPF_STATE when the adsp_apps 
 evidence_kind = "artifact"
 evidence = [
   "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioAfe.h",
   "drivers/PongPower/K60PmicGlinkAudio.h",
   "drivers/PongPower/K60AudioGlink.c",
 ]
-criteria = "Image f (audio-probe-20261117f) built kernel 0acca673...; strings find PongAudio: GPR GET_SPF_STATE send bytes=%u rc=%d once; 0003 sends 24 bytes via k60_pmic_glink_send_audio() only when the adsp_apps state first reports up; runtime proof remains run 2."
+criteria = "Image i (audio-probe-20261117i) built kernel 923f9f44...; strings find PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d once; 0003 builds the 24-byte query with pong_afe_gpr_spf_state_query() (src 0x2001/dst 1) and sends it via k60_pmic_glink_send_audio() only when the adsp_apps state first reports up; runtime proof remains run 2."
 status = "closed"
 owner = "audio-agent"
 
@@ -332,7 +333,7 @@ owner = "audio-agent"
 [[item]]
 id = "playback-data-path"
 stage = "M5"
-change = "PCM ring feeds the AFE port with the lead and period the vendor uses"
+change = "PCM ring geometry the service hands to the AFE path (period, threshold, lead, ring)"
 evidence_kind = "static"
 evidence = [
   "drivers/PongAudio/PongAudioRing.h",
@@ -345,6 +346,20 @@ criteria = "Period 1024 frames from 8192 bytes / (2 channels * 4 bytes), period 
 status = "closed"
 owner = "audio-agent"
 on_open = "no frames means no sound even with a perfect AFE setup"
+
+[[item]]
+id = "pcm-submit-path"
+stage = "M5"
+change = "pong_audio_submit() carries PCM frames from the ring to the AFE playback port with the vendor's period and lead"
+evidence_kind = "static"
+evidence = [
+  "patches/xnu/0504-k60-audio-pong-audio.patch:917",
+  "drivers/PongAudio/PongAudioRing.h",
+]
+criteria = "pong_audio_submit() must stop returning ENOTSUP and must own the ring read pointer, the 1024-frame period, the 256-frame start threshold and the 14400-frame lead; the repository also needs the IOService/UserClient (PongAudioService.cpp shape) and the userland HAL (PongAudioPlugIn.c shape), neither of which exists in this tree today. Until both exist and a host or on-device test submits at least one period without an underrun, M5 cannot pass."
+status = "open"
+owner = "audio-agent"
+on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"
 
 [[item]]
 id = "amp-gpio-switch"

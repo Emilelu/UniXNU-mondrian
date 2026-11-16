@@ -85,7 +85,7 @@
 
 ---
 
-## 3. 落地：两个常量 + 370 条宿主断言
+## 3. 落地：两个常量 + 376 条宿主断言
 
 ### 3.1 源码（已落地）
 
@@ -96,7 +96,7 @@
 同文件还加了三个构建标签宏（`QCOM_GLINK_STRINGIFY_INNER` / `QCOM_GLINK_STRINGIFY` / `QCOM_GLINK_BUILD_TAG`），
 `K60PmicGlink::open()` 在打开传输后打印
 `K60Battery: GLINK transport QcomGlink max_channels=2u local_intents=20 channel_bytes=904 audio_intent_bytes=10240`。这行字符串是构建产物的
-artifact 证据（`kernel.macho` 里可以 `strings` 到）：镜像 d（audio-probe-20261117d）的 kernel.macho 里 `QcomGlink max_channels=2u` 出现 1 处（d 时还未扩 local intents）；镜像 e（audio-probe-20261117e，kernel_built 3ac73816…）里 `QcomGlink max_channels=2u local_intents=20` 与 `PongAudio: glink adsp_apps slot queued (512x20)` 各 1 处；镜像 f（audio-probe-20261117f，kernel_built 0acca673…）里上述两个字符串与 `PongAudio: GPR GET_SPF_STATE send bytes=%u rc=%d` 各 1 处（0003 已在首个 up 回调发 24 B GPR）。
+artifact 证据（`kernel.macho` 里可以 `strings` 到）：镜像 d（audio-probe-20261117d）的 kernel.macho 里 `QcomGlink max_channels=2u` 出现 1 处（d 时还未扩 local intents）；镜像 e（audio-probe-20261117e，kernel_built 3ac73816…）里 `QcomGlink max_channels=2u local_intents=20` 与 `PongAudio: glink adsp_apps slot queued (512x20)` 各 1 处；镜像 f（audio-probe-20261117f，kernel_built 0acca673…）里上述两个字符串与 `PongAudio: GPR GET_SPF_STATE send bytes=%u rc=%d` 各 1 处（0003 已在首个 up 回调发 24 B GPR）；镜像 i（audio-probe-20261117i，kernel_built 923f9f44…）里新的 `PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d`、`QcomGlink max_channels=2u local_intents=20u` 与 `PongAudio: glink adsp_apps slot queued (512x20)` 各 1 处。
 
 历史原型补丁 `patches/audio/0002-k60-glink-multislot.patch`（1,078 B / 18 行，原来是同一行 1u→2u 的 diff）
 已于同日退役：源文件改成 2u 之后，它不再是可应用的补丁。它当年存在的意义是让宿主测试能在临时副本上
@@ -105,7 +105,7 @@ artifact 证据（`kernel.macho` 里可以 `strings` 到）：镜像 d（audio-p
 - 代价（宿主实测 sizeof）：QcomGlinkChannel 904 B（20 个本地 intent）；QcomGlink 从 **960 B** 涨到 **2,056 B**（+1,096 B）。
   两个槽都在 K60PmicGlink 的成员里（K60PmicGlink.h:37），不涉及堆分配；音频的 512×20 storage 是 `K60AudioGlink` 的成员，10,240 B。
 - 音频桥：`K60AudioGlink.c/.h` + `K60PmicGlinkAudio.h`；`K60PmicGlink::attachAudio()` 只排队，
-  `poll()` 的 `k60_audio_glink_service()` 负责真正 `qcom_glink_channel()`，`stop()` 时清槽；`k60_audio_glink_send()` 走 `qcom_glink_send()`，370 条断言覆盖本槽 remote intent、TooBig 与 stop 后 -2002。GPR 首发也在 0003：`pong_audio_glink_state()` 第一次 up 时用 `pong_gpr_encode()` 组 24 B `GET_SPF_STATE`（token 0x00010001），经 `k60_pmic_glink_send_audio()` 发出；receive 回调解码 opcode/token。
+  `poll()` 的 `k60_audio_glink_service()` 负责真正 `qcom_glink_channel()`，`stop()` 时清槽；`k60_audio_glink_send()` 走 `qcom_glink_send()`，376 条断言覆盖本地队列、本槽 remote intent、TooBig 与 stop 后 -2002。GPR 首发也在 0003：`pong_audio_glink_state()` 第一次 up 时用 `pong_afe_gpr_spf_state_query()` 组 24 B `GET_SPF_STATE`（token 0x00010001，src 0x2001 / dst 1），经 `k60_pmic_glink_send_audio()` 发出；receive 回调解码 opcode/token。
 
 ### 3.2 宿主测试
 
@@ -117,7 +117,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 
     $ sh drivers/PongAudio/tests/run-glink-multislot-tests.sh
     two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=904, sizeof(QcomGlink)=2056
-    TESTS OK 370 cases
+    TESTS OK 376 cases
 
 | 场景 | 断言要点 |
 | --- | --- |
@@ -126,9 +126,9 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 | 分发 | 音频的消息只进音频消费者、电池的只进电池；**交错**三条（A,B,A）一次 poll 后各槽保持自己的顺序 |
 | 错序 / 重放 | 同一 liid 重放 → 仍只进同一消费者，另一个消费者零条；越界 liid → 判 QcomGlinkCorrupt 停链，**不投递给另一个槽** |
 | 无人认领 | 未注册名字的 OPEN：不回应、不碰任何槽、unknown_opens=1、last_unknown/unknown_names 记名；陌生 rcid 的数据：dropped=1，两个消费者都没收到 |
-| 发送 / 收尾 | 只有电池槽有远端 intent 时，音频槽 send 得 QcomGlinkAgain 并发 RX_INTENT_REQ（不越界发数据）；stop 对**两个**槽各回调一次 state(0)，第二次 stop 是 no-op；坏几何（非零索引、非 8 倍数长度、无 doorbell）被拒 |
+| 发送 / 收尾 | 只有电池槽有远端 intent 时，音频槽 send 返回 `K60_PMIC_GLINK_AUDIO_OK` 并把一个最大 560 B 的包入队，service 在 intent 出现后 flush；队列满时第二个包返回 REFUSED（不越界发数据）；stop 对**两个**槽各回调一次 state(0)，第二次 stop 是 no-op；坏几何（非零索引、非 8 倍数长度、无 doorbell）被拒 |
 | 音频桥 | `K60AudioGlink` 排队一个 `adsp_apps` 请求，`service()` 在第一次 `qcom_glink_poll()` 前调用 `qcom_glink_channel()`；DSP 的 OPEN + 20 个 INTENT 后 state 变 up，peer_data 只进音频 callback；state up 后 `pong_audio.c` 发 GPR GET_SPF_STATE（见 0003）；`stop()` 后无 transport 报 -2001 |
-| 音频发送 | 音频槽有 remote intent 后 `k60_audio_glink_send()` 写 TX_DATA（local lcid 1、remote intent 0x2001、payload `gpr`）；4096 B 得 `QcomGlinkTooBig`；stop 后 -2002；无 transport -2001 |
+| 音频发送 | 音频槽有 remote intent 后 `k60_audio_glink_send()` 写 TX_DATA（local lcid 1、remote intent 0x2001、payload `gpr`）；无远端 intent 时返回 OK 并入队、队列满 REFUSED；4096 B 得 `QcomGlinkTooBig`；stop 后 -2002；无 transport -2001 |
 
 文件头的 #error 与 main() 首条 expect_eq(QCOM_GLINK_MAX_CHANNELS, 2, ...) 一起保证：
 **把 `QCOM_GLINK_MAX_CHANNELS` 退回 1 的传输层去跑这个测试会直接编译失败**，不会静默退化成单槽还报绿。
@@ -169,7 +169,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 
 ## 5. 怎么跑 / 边界
 
-    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 370 cases
+    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 376 cases
 
 脚本直接编译当前 `drivers/PongPower/QcomGlink.c`、`QcomGlink.h` 与 `K60AudioGlink.c`，不复制、不打补丁。
 它不是任何门禁的一部分（RULES.toml 里没有规则跑它），需要人手跑——它测的是传输层与音频桥，不是某个

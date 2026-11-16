@@ -37,7 +37,7 @@ question in `docs/research/audio/AMPS.md`.
 | `PongAudioAfe.h` | The DSP side of the speaker path, as bytes: the 24-byte GPR header, the two set-parameter envelopes (service scoped and port scoped), the five AFE parameter structures of TDMS.md section 3 and DEVICE_START, plus the three-byte amplifier write stream. Pure packing - no MMIO, no kernel headers, nothing sent - so the host test can read every offset and byte order before a GPR transport exists. In `patches/audio`: `pong_audio.c` includes it and 0003 calls `pong_afe_step_packet()` for the six-step sequence. |
 | `PongAudioTlmm.h` | The four TERT TDM pads and the speaker-switch pad as words: gpio121/123/122/124 as mi2s2_sck/ws/data0/data1 at 2 mA with no pull, and gpio52 as a plain output. Pure functions, no MMIO - the host test pins cfg 0x204/0x4, IO 0 and the switch words before the probe writes them. |
 | `PongAudioRing.h` | The PCM ring the service hands to the AFE path: 48 kHz stereo S24_LE in 32-bit words, a 1024-frame period (AGM's 8192-byte buffer / 8 bytes a frame), two periods, a 256-frame start threshold, the 14400-frame (300 ms) lead and the 65536-frame ring. Pure arithmetic, no MMIO. Not in `patches/audio`: no kernel `.c` includes it yet. |
-| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h`, `PongCodecPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAfe.h`, `PongAudioTlmm.h` and `PongAudioRing.h` (879 assertions; 897 when `PONG_ACF_FILE` points at the real tuning blob). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
+| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h`, `PongCodecPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAfe.h`, `PongAudioTlmm.h` and `PongAudioRing.h` (886 assertions; 904 when `PONG_ACF_FILE` points at the real tuning blob). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
 | `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
 
 ## What it does, in order
@@ -149,13 +149,13 @@ and checks the exact command words the engine would see:
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 879 cases
+# TESTS OK 886 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 879 cases buy, given that nothing can be measured on hardware yet:
+What the 886 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase

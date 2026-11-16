@@ -110,6 +110,13 @@
 - 新增 `k60-ufs-verified:tests/RootWindowReadVerified.cpp`：用 mock cache/transport 走 `ufsReadWindow` 的 verify-before-copy 路径，覆盖 full envelope 与 header-only 两条读路径；`k60-ufs-verified:tests/check-verified-root.py` 同时编译运行。
 - 宿主测试全过：`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`、`RootWindowReadVerified`。`native-vroot-cache` 仍关闭，未 boot。
 
+## 3.5 步骤 3a 执行记录（2026-11-17 05:20）
+
+- 分支 `feat/ufs-verified-table`，从步骤 2b 的 `d785a91f` 继续。
+- `k60-ufs-verified:drivers/NativeUfs/PongUfsTransport.cpp` 的 `pong_ufs_transport_start` 在拼好 `gRootWindows` 后调用 `RootPublication.h` 的 `ufsBuildRootPlan`：SystemOS 第一、OS 最后，Data 等其它窗口在中间；替换原来按 `wanted` 数组 OS→SystemOS→Data 的同步启动顺序。
+- 只做发布顺序（3a），不接 `ufsPrepareRootWindows`/`ufsPublishRootWindows`：完整状态机还要把 `PongUfsBlock` 拆成 prepare/start、补 IOMedia 等待与异步客户端保留语义，属于上机验证面；本步不改变窗口内容、不改变 verified-root 默认关闭状态。
+- `k60-ufs-verified:tests/RootPublication.cpp` 已覆盖 SystemOS 第一/OS 最后、重复名与缺失必需窗口拒绝；宿主测试仍全过，Mac probe 构建未跑，未 boot。
+
 ## 4. 不抄的部分
 
 - 参考树 `NativeUfs.cpp`（149,596 B）与我们版本差异过大，不整体替换；只抄 3 个头文件 + 3 个测试。

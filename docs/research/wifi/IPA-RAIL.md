@@ -73,6 +73,14 @@ supplies at :10062-10073, and no `vdd-wlan-ipa-supply`. Its
 at :21243-21244. So the same PMIC resource exists on K60 Android even though
 the supply is not modelled as a Linux regulator consumer.
 
+The kernel's cmd-db backing region is present in that vendor DT too:
+`vendor_boot.dts:56-61` declares `aop_cmd_db_region@80860000` with
+`compatible = "qcom,cmd-db"` and size `0x20000`, exactly the window
+`PongWifiPlatform.cpp` opens at `0x80860000`. The `rpmh-regulator-smpe3` node's
+`qcom,resource-name = "smpe3"` at :5803-5805 is the name the RPMh regulator
+driver uses, so the candidate's `qcom_cmd_db_find(...,"smpe3",...)` lookup is
+aimed at a real K60 command-DB resource, not only Pong's table.
+
 `E:/k60-work/evidence/thermal-android-20261114/vb/root/lib/modules/cnss2.ko`
 contains the strings `qcom,vreg_ipa`, `vdd-wlan-aon`, `vdd-wlan-dig`,
 `vdd-wlan-io`, `vdd-wlan-rfa1`, `vdd-wlan-rfa2`, and the AOP message
@@ -112,7 +120,7 @@ cache candidate `7cce6e8a` (c7 baseline + DMA cache fix).
    `status&0x80 && enable&0x80 && mv>=requested`.
 5. `scripts/tests/test-wifi-ipa-rail.py` pins the six original rails, the
    exact IPA object (supply/resource/regulator/voltage/SPMI PPID), the builder
-   loop, the platform capacity, the complete-sample retry, and rejects eleven
+   loop, the platform capacity, the complete-sample retry, and rejects thirteen
    negative mutants.
 
 The candidate does not include `nw_mhi_pre_load`; the base ath11k archive is

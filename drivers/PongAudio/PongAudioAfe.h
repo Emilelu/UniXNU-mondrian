@@ -52,6 +52,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* Speaker-path refusal codes. These are contract, not errno: the values are
  * what pong_audio_status() returns when the PAS1/ADSP path is unavailable.
@@ -581,6 +582,87 @@ pong_afe_step_opcode(unsigned step)
     }
     if (pong_afe_step_port_scoped(step) == 0 && step != PongAfeStepDeviceStart) {
         return PONG_AFE_SVC_CMD_SET_PARAM;
+    }
+    return 0u;
+}
+
+/* The six packets with the K60 values, in one call. This is the only place
+ * that combines a payload builder with its envelope: the kernel sequence
+ * sends exactly these bytes and the host test pins every length, opcode and
+ * selected field. Max packet: group TDM = 24 + 16 + 12 + 44 = 96 bytes. */
+#define PONG_AFE_STEP_PACKET_MAX 96u
+
+static inline size_t
+pong_afe_step_packet(uint8_t *out, size_t bytes, unsigned step, uint32_t token)
+{
+    uint8_t payload[PONG_AFE_GROUP_TDM_BYTES];
+    uint16_t ports[PONG_AFE_MAX_CHANNELS];
+    uint16_t offsets[PONG_AFE_MAX_CHANNELS];
+    size_t n;
+
+    if (out == NULL || step >= (unsigned)PongAfeStepCount) {
+        return 0u;
+    }
+    if (step == (unsigned)PongAfeStepClock) {
+        return pong_afe_prm_clock_request(out, bytes,
+            PONG_AFE_CLOCK_TERT_TDM_IBIT, PONG_AFE_TDM_CLK_HZ,
+            PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, token);
+    }
+    memset(payload, 0, sizeof(payload));
+    if (step == (unsigned)PongAfeStepGroupTdm) {
+        for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
+            ports[i] = PONG_AFE_PORT_INVALID;
+        }
+        ports[0] = PONG_AFE_PORT_TERT_TDM_RX_0;
+        ports[1] = PONG_AFE_GROUP_OTHER_PORT;
+        n = pong_afe_group_tdm(payload, sizeof(payload),
+            PONG_AFE_GROUP_TERT_TDM_RX, ports, PONG_AFE_SLOTS, PONG_AFE_RATE,
+            PONG_AFE_SLOT_BITS, (uint16_t)PONG_AFE_SLOTS,
+            (uint16_t)PONG_AFE_SLOT_BITS, 3u);
+        if (n == 0u) {
+            return 0u;
+        }
+        return pong_afe_svc_set_param(out, bytes, PONG_AFE_MODULE_GROUP_DEVICE,
+            PONG_AFE_PARAM_ID_GROUP_DEVICE_TDM_CONFIG, payload, n, token);
+    }
+    if (step == (unsigned)PongAfeStepGroupEnable) {
+        n = pong_afe_group_enable(payload, sizeof(payload),
+            PONG_AFE_GROUP_TERT_TDM_RX, 1u);
+        if (n == 0u) {
+            return 0u;
+        }
+        return pong_afe_svc_set_param(out, bytes, PONG_AFE_MODULE_GROUP_DEVICE,
+            PONG_AFE_PARAM_ID_GROUP_DEVICE_ENABLE, payload, n, token);
+    }
+    if (step == (unsigned)PongAfeStepPortTdm) {
+        n = pong_afe_tdm(payload, sizeof(payload), PONG_AFE_SLOTS, PONG_AFE_RATE,
+            PONG_AFE_SLOT_BITS, 0u, 0u, 1u, (uint16_t)PONG_AFE_SLOTS, 0u, 1u,
+            1u, (uint16_t)PONG_AFE_SLOT_BITS, 3u);
+        if (n == 0u) {
+            return 0u;
+        }
+        return pong_afe_port_set_param(out, bytes, PONG_AFE_PORT_TERT_TDM_RX_0,
+            PONG_AFE_MODULE_AUDIO_DEV_INTERFACE, PONG_AFE_PARAM_ID_TDM_CONFIG,
+            payload, n, token);
+    }
+    if (step == (unsigned)PongAfeStepSlotMapping) {
+        for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
+            offsets[i] = PONG_AFE_PORT_INVALID;
+        }
+        offsets[0] = 0u;
+        offsets[1] = 4u;
+        n = pong_afe_slot_mapping(payload, sizeof(payload),
+            (uint16_t)PONG_AFE_SLOTS, (uint16_t)PONG_AFE_SLOT_BITS, 0u, offsets);
+        if (n == 0u) {
+            return 0u;
+        }
+        return pong_afe_port_set_param(out, bytes, PONG_AFE_PORT_TERT_TDM_RX_0,
+            PONG_AFE_MODULE_TDM, PONG_AFE_PARAM_ID_PORT_SLOT_MAPPING_CONFIG,
+            payload, n, token);
+    }
+    if (step == (unsigned)PongAfeStepDeviceStart) {
+        return pong_afe_device_start(out, bytes, PONG_AFE_PORT_TERT_TDM_RX_0,
+            token);
     }
     return 0u;
 }

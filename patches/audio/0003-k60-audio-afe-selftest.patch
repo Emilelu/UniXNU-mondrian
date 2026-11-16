@@ -9,18 +9,22 @@
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void thread_terminate_self(void);
-@@ -816,6 +818,10 @@
+@@ -816,6 +818,14 @@
  	uint32_t graph_state;
  	bool mapped;
  	bool service_ready;
 +	int last_error;
 +	bool refusal_printed;
 +	bool glink_up;
++	bool apm_ready;
++	unsigned afe_step;
++	unsigned afe_retry;
 +	uint32_t gpr_token;
++	uint32_t afe_token;
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -859,6 +865,67 @@
+@@ -859,6 +869,157 @@
  extern int aw882xx_bootstrap(void);
  
  static void
@@ -34,6 +38,49 @@
 +}
 +
 +static void
++pong_audio_afe_send_step(PongAudioState *state, unsigned step)
++{
++	uint8_t packet[PONG_AFE_STEP_PACKET_MAX];
++	const uint32_t token = 0x00020000u + step;
++	const uint32_t opcode = pong_afe_step_opcode(step);
++	const size_t n = pong_afe_step_packet(packet, sizeof(packet), step, token);
++	if (n == 0u) {
++		state->last_error = PongAudioErrAfeRefused;
++		printf("PongAudio: AFE step %u encode failed\n", step);
++		return;
++	}
++	const int rc = k60_pmic_glink_send_audio(packet, (unsigned)n);
++	printf("PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d\n",
++	    step, (unsigned)n, opcode, token, rc);
++	if (rc == K60_PMIC_GLINK_AUDIO_OK) {
++		state->afe_step = step;
++		state->afe_token = token;
++		state->afe_retry = 0u;
++		return;
++	}
++	if (rc == K60_PMIC_GLINK_AUDIO_AGAIN && state->afe_retry < 3u) {
++		state->afe_retry++;
++		printf("PongAudio: AFE step %u retry %u\n", step, state->afe_retry);
++		pong_audio_afe_send_step(state, step);
++		return;
++	}
++	state->last_error = PongAudioErrAfeRefused;
++	printf("PongAudio: AFE step %u refused rc=%d\n", step, rc);
++}
++
++static void
++pong_audio_afe_next(PongAudioState *state)
++{
++	if (state->afe_step + 1u >= (unsigned)PongAfeStepCount) {
++		state->service_ready = true;
++		state->last_error = PongAudioOk;
++		printf("PongAudio: AFE six-step complete; speaker path ready\n");
++		return;
++	}
++	pong_audio_afe_send_step(state, state->afe_step + 1u);
++}
++
++static void
 +pong_audio_glink_state(void *context, bool up)
 +{
 +	PongAudioState *state = (PongAudioState *)context;
@@ -41,6 +88,12 @@
 +	printf("PongAudio: glink adsp_apps %s\n", up ? "up" : "down");
 +	if (!up) {
 +		state->gpr_token = 0;
++		state->apm_ready = false;
++		state->afe_step = 0;
++		state->afe_retry = 0;
++		state->afe_token = 0;
++		state->service_ready = false;
++		state->last_error = PongAudioErrNoLease;
 +		return;
 +	}
 +	if (state->gpr_token != 0) {
@@ -73,14 +126,55 @@
 +static void
 +pong_audio_glink_receive(void *context, const uint8_t *data, unsigned bytes)
 +{
-+	(void)context;
-+	PongGprPacket packet;
-+	const int rc = pong_gpr_decode(data, bytes, &packet);
-+	if (rc == PongGprOk) {
-+		printf("PongAudio: glink adsp_apps rx bytes=%u opcode=0x%08x token=0x%08x\n",
-+		    bytes, packet.opcode, packet.token);
-+	} else {
-+		printf("PongAudio: glink adsp_apps rx bytes=%u (gpr rc=%d)\n", bytes, rc);
++	PongAudioState *state = (PongAudioState *)context;
++	PongArAnswer answer;
++	const int kind = pong_ar_parse(data, bytes, &answer);
++	if (kind == PongArBad) {
++		printf("PongAudio: glink adsp_apps rx bytes=%u (bad gpr)\n", bytes);
++		return;
++	}
++	printf("PongAudio: glink adsp_apps rx bytes=%u kind=%d opcode=0x%08x token=0x%08x status=%u\n",
++	    bytes, kind, answer.opcode, answer.token, answer.status);
++	if (kind == PongArFrameworkState) {
++		if (answer.token != 0x00010001u) {
++			printf("PongAudio: APM response token mismatch 0x%08x\n", answer.token);
++			return;
++		}
++		if (answer.status != 1u) {
++			state->last_error = PongAudioErrApmNotReady;
++			printf("PongAudio: APM not ready status=%u: PongAudioErrApmNotReady\n",
++			    answer.status);
++			return;
++		}
++		state->apm_ready = true;
++		printf("PongAudio: APM ready; starting AFE six-step\n");
++		pong_audio_afe_send_step(state, PongAfeStepClock);
++		return;
++	}
++	if (kind == PongArPrmDone) {
++		if (answer.token == state->afe_token &&
++		    state->afe_step == (unsigned)PongAfeStepClock && answer.status == 0u) {
++			pong_audio_afe_next(state);
++		} else {
++			state->last_error = PongAudioErrAfeRefused;
++			printf("PongAudio: AFE clock refused token=0x%08x status=%u\n",
++			    answer.token, answer.status);
++		}
++		return;
++	}
++	if (kind == PongArBasicResult) {
++		if (answer.token != state->afe_token) {
++			printf("PongAudio: AFE stale result token=0x%08x\n", answer.token);
++			return;
++		}
++		if (answer.result_opcode != pong_afe_step_opcode(state->afe_step) ||
++		    answer.status != 0u) {
++			state->last_error = PongAudioErrAfeRefused;
++			printf("PongAudio: AFE step %u refused opcode=0x%08x status=%u\n",
++			    state->afe_step, answer.result_opcode, answer.status);
++			return;
++		}
++		pong_audio_afe_next(state);
 +	}
 +}
 +
@@ -88,7 +182,7 @@
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
  	(void)pong_audio_start();
-@@ -896,6 +963,26 @@
+@@ -896,6 +1057,26 @@
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -115,18 +209,22 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,6 +994,10 @@
+@@ -907,6 +1088,14 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
 +	g_pong_audio.last_error = PongAudioErrNoLease;
 +	g_pong_audio.refusal_printed = false;
 +	g_pong_audio.glink_up = false;
++	g_pong_audio.apm_ready = false;
++	g_pong_audio.afe_step = 0;
++	g_pong_audio.afe_retry = 0;
++	g_pong_audio.afe_token = 0;
 +	g_pong_audio.gpr_token = 0;
  	return 0;
  }
  
-@@ -923,7 +1014,17 @@
+@@ -923,7 +1112,17 @@
  int
  pong_audio_status(void)
  {

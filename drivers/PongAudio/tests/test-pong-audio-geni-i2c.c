@@ -2272,6 +2272,12 @@ le32(const uint8_t *p)
         ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
 }
 
+static unsigned long
+le16(const uint8_t *p)
+{
+    return (unsigned long)p[0] | ((unsigned long)p[1] << 8);
+}
+
 static void
 afe_prm_cases(void)
 {
@@ -2454,6 +2460,79 @@ ring_cases(void)
 }
 
 static void
+afe_plan_cases(void)
+{
+    static const size_t lengths[PongAfeStepCount] = { 76u, 96u, 56u, 88u, 80u, 28u };
+    uint8_t p[PONG_AFE_STEP_PACKET_MAX];
+    size_t n;
+
+    expect_eq(PONG_AFE_STEP_PACKET_MAX, 96ul, "planner max packet");
+    for (unsigned step = 0; step < (unsigned)PongAfeStepCount; ++step) {
+        memset(p, 0, sizeof(p));
+        n = pong_afe_step_packet(p, sizeof(p), step, 0x100u + step);
+        expect_eq(n, lengths[step], "planner packet length");
+        expect_eq(le32(p) >> 8, n, "planner packet size word");
+        expect_eq(le32(p + 16), 0x100u + step, "planner token");
+        expect_eq(le32(p + 20), pong_afe_step_opcode(step), "planner opcode");
+    }
+    memset(p, 0, sizeof(p));
+    n = pong_afe_step_packet(p, sizeof(p), PongAfeStepClock, 0x201u);
+    expect_eq(n, 76ul, "plan clock length");
+    expect_eq(le32(p + 8), PONG_AFE_GPR_SVC_ASM, "plan clock src port");
+    expect_eq(le32(p + 12), PONG_AFE_PRM_MODULE_INSTANCE_ID, "plan clock dst port");
+    expect_eq(le32(p + 60), PONG_AFE_CLOCK_TERT_TDM_IBIT, "plan clock id");
+    expect_eq(le32(p + 64), PONG_AFE_TDM_CLK_HZ, "plan clock hz");
+
+    memset(p, 0, sizeof(p));
+    n = pong_afe_step_packet(p, sizeof(p), PongAfeStepGroupTdm, 0x202u);
+    expect_eq(n, 96ul, "plan group tdm length");
+    expect_eq(le16(p + 56), PONG_AFE_GROUP_TERT_TDM_RX, "plan group id");
+    expect_eq(le16(p + 60), PONG_AFE_PORT_TERT_TDM_RX_0, "plan group port 0");
+    expect_eq(le16(p + 62), PONG_AFE_GROUP_OTHER_PORT, "plan group port 1");
+    expect_eq(le32(p + 76), PONG_AFE_SLOTS, "plan group channels");
+    expect_eq(le32(p + 80), PONG_AFE_RATE, "plan group rate");
+    expect_eq(le32(p + 84), PONG_AFE_SLOT_BITS, "plan group bits");
+    expect_eq(le16(p + 88), PONG_AFE_SLOTS, "plan group slots");
+    expect_eq(le16(p + 90), PONG_AFE_SLOT_BITS, "plan group slot bits");
+    expect_eq(le32(p + 92), 3ul, "plan group slot mask");
+
+    memset(p, 0, sizeof(p));
+    n = pong_afe_step_packet(p, sizeof(p), PongAfeStepGroupEnable, 0x203u);
+    expect_eq(n, 56ul, "plan group enable length");
+    expect_eq(le16(p + 52), PONG_AFE_GROUP_TERT_TDM_RX, "plan enable group");
+    expect_eq(le16(p + 54), 1ul, "plan enable value");
+
+    memset(p, 0, sizeof(p));
+    n = pong_afe_step_packet(p, sizeof(p), PongAfeStepPortTdm, 0x204u);
+    expect_eq(n, 88ul, "plan port tdm length");
+    expect_eq(le16(p + 24), PONG_AFE_PORT_TERT_TDM_RX_0, "plan port id");
+    expect_eq(le32(p + 56), PONG_AFE_SLOTS, "plan tdm channels");
+    expect_eq(le32(p + 60), PONG_AFE_RATE, "plan tdm rate");
+    expect_eq(le32(p + 64), PONG_AFE_SLOT_BITS, "plan tdm bits");
+    expect_eq(le16(p + 72), 1ul, "plan tdm sync source");
+    expect_eq(le16(p + 78), 1ul, "plan tdm invert sync");
+
+    memset(p, 0, sizeof(p));
+    n = pong_afe_step_packet(p, sizeof(p), PongAfeStepSlotMapping, 0x205u);
+    expect_eq(n, 80ul, "plan slot mapping length");
+    expect_eq(le16(p + 24), PONG_AFE_PORT_TERT_TDM_RX_0, "plan mapping port");
+    expect_eq(le16(p + 56), PONG_AFE_SLOTS, "plan mapping channels");
+    expect_eq(le16(p + 58), PONG_AFE_SLOT_BITS, "plan mapping bits");
+    expect_eq(le16(p + 64), 0ul, "plan mapping offset 0");
+    expect_eq(le16(p + 66), 4ul, "plan mapping offset 1");
+
+    memset(p, 0, sizeof(p));
+    n = pong_afe_step_packet(p, sizeof(p), PongAfeStepDeviceStart, 0x206u);
+    expect_eq(n, 28ul, "plan device start length");
+    expect_eq(le16(p + 24), PONG_AFE_PORT_TERT_TDM_RX_0, "plan start port");
+    expect_eq(le16(p + 26), 0ul, "plan start reserved");
+    expect_eq(pong_afe_step_packet(p, 27ul, PongAfeStepDeviceStart, 1ul), 0ul,
+        "planner rejects a short buffer");
+    expect_eq(pong_afe_step_packet(p, sizeof(p), PongAfeStepCount, 1ul), 0ul,
+        "planner rejects an out-of-range step");
+}
+
+static void
 afe_cases(void)
 {
     afe_gpr_cases();
@@ -2462,6 +2541,7 @@ afe_cases(void)
     afe_prm_cases();
     afe_stream_cases();
     afe_step_cases();
+    afe_plan_cases();
 }
 
 /* The speaker-path refusal codes are contract, not errno: the values and the

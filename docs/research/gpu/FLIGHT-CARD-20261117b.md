@@ -79,4 +79,18 @@
 现有旁证支持「插件可能已在跑」：`software renderer fallback installed` 从 18 降到 1，
 `crashed: backboardd` 从 15 降到 0。
 
+### 追加核查（2026-11-17 02:05）
+
+- 内核 `kernel.macho` 里**确实嵌入了**完整命令行：`pong_metal=1`、`pong_init_path`、
+  `k60_skip_iosurface`、`pong_software_keybag` 各命中 1 次 ⇒ `kern.bootargs` 大概率含
+  `pong_metal=1`，init 的 metal 分支条件应当成立。
+- 日志 `:531 Pong init: UI library configuration result=0 errno=0` ⇒
+  `configure_ui_library()` 正常返回，`stat()` 前置检查也通过。
+- `:532 Pong init: exec original 20G81 launchd; … stderr -> /dev/console` ⇒ backboardd
+  的 stderr 是进 console 的，所以 `report()` 一旦执行就能看见。
+- 剩下的唯一缺口：**无法确认 init 是否真的把 metal 那一行拼进了 launchd 配置**。
+  该分支成功时没有任何输出。下一步应给 init 的该分支加一行可观测输出（需重建 init
+  helper 并更新 `K60_INIT_LEGACY_LEN`），或在 `:531` 前后打印配置串哈希。
+
+
 

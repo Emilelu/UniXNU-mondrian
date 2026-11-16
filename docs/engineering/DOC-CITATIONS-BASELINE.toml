@@ -13,7 +13,6 @@ allowed_missing_targets = [
   "configs/sm8475.c",
   "configs/sm8550.c",
   "docs/engineering/JUDGE-CONTRACT.md",
-  "docs/engineering/LINE-MAP.md",
   "docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md",
   "docs/research/touch/14-RETAINED-KO-INIT-AUDIT.md",
   "drivers/DarwinBoot/.../BootArgs.h",

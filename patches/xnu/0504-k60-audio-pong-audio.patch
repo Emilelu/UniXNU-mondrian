@@ -16,9 +16,9 @@
 + *   - SMEM: 0x80900000 + 0x200000; IPCC: 0xed18000 IRQ 261;
 + *     GPR: qcom,gpr reg=2, qcom,glink-channels="adsp_apps",
 + *     qcom,intents=<0x200 0x14>
-+ *   - AudioReach PCM: 48 kHz, stereo, 32-bit, 480-frame periods,
++ *   - AudioReach PCM: 48 kHz, stereo, 32-bit, 1024-frame periods,
 + *     8 slots in a 64 KiB low-DMA lease, SID 0x1801
-+ *   - TDM: tert MI2S/TDM, 1.536 MHz, tx-lines=0x3 (SD0+SD1),
++ *   - TDM: tert TDM, 12.288 MHz, 2 slots x 32 bit (24-bit data),
 + *     GPIO121=SCK/123=WS/122=SD0/124=SD1
 + *
 + * Eight-step pipeline status (E:/k60-work/docs/PORTING-PIPELINE.md):
@@ -55,10 +55,10 @@
 +/* ------------------------------------------------------------------------- */
 +
 +#define PONG_AUDIO_RATE             48000u
-+#define PONG_AUDIO_PERIOD_FRAMES    480u
++#define PONG_AUDIO_PERIOD_FRAMES    1024u
 +#define PONG_AUDIO_PERIOD_BYTES     (PONG_AUDIO_PERIOD_FRAMES * 2u * 4u)
 +#define PONG_AUDIO_SLOTS            8u
-+#define PONG_AUDIO_LEAD_FRAMES      (30u * PONG_AUDIO_PERIOD_FRAMES)
++#define PONG_AUDIO_LEAD_FRAMES      14400u
 +#define PONG_AUDIO_RING_FRAMES      65536u
 +#define PONG_AUDIO_GPR_PORT         0x2001u
 +
@@ -78,7 +78,7 @@
 +#define PONG_AOSS_SIZE              0x00000400u
 +#define PONG_AUDIO_SID              0x1801u
 +#define PONG_AUDIO_DMA_BYTES        0x00010000u
-+#define PONG_AUDIO_TDM_CLK_HZ       1536000u
++#define PONG_AUDIO_TDM_CLK_HZ       12288000u
 +#define PONG_AUDIO_TDM_TX_LINES     3u
 +
 +/* ------------------------------------------------------------------------- */
@@ -723,7 +723,7 @@
 +	pong_put32(&w, clock_id);
 +	if (hz != 0) {
 +		pong_put32(&w, hz);
-+		pong_put32(&w, 1);
++		pong_put32(&w, 4);
 +		pong_put32(&w, 0);
 +	}
 +	pong_set32(&w, at + 8, w.n - at - PARAM_HEADER);
@@ -955,7 +955,7 @@
 +	built += pong_ar_write(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 8,
 +	    0x10000000ull, 1, PONG_AUDIO_PERIOD_BYTES);
 +	built += pong_ar_prm_clock(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 9,
-+	    0x104u, PONG_AUDIO_TDM_CLK_HZ);
++	    0x204u, PONG_AUDIO_TDM_CLK_HZ);
 +	PongGprPacket p = { 0 };
 +	p.dst_domain = GPR_DOMAIN_ADSP;
 +	p.src_domain = GPR_DOMAIN_APPS;

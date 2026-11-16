@@ -78,7 +78,7 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 
 > 原补丁与原始 `new/` 文件曾保留在 `patches/original/` 供对照，但 2026-11-17 复核时该目录在这两个检出中都不存在；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。
 >
-> 2026-11-17 07:28 复核：以 `k60-wifi` 的 `b9a8e981^`（series 入库前的干净树）为基线，按 `series` 顺序对 12 个补丁执行 `git apply --check` + `git apply`，全部通过（548 个文件）；只有 `scripts/build-pong-platform-macos.py` 的 100644/100755 模式警告，不影响应用。
+> 2026-11-17 07:28 复核：以 `k60-wifi` 的 `b9a8e981^`（series 入库前的干净树）为基线，用 `feat/wifi-series-sync`（`e1a46146`）里的 12 个补丁按 `series` 顺序执行 `git apply --check` + `git apply`，全部通过（548 个文件）。应用后 `configs/mondrian_wifi_defconfig` 的 Data UUID 为 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`，`build-xnu-4k-baseline.sh` 同时含 `KERNEL_EXTRA_ARCHIVES` 与 `PLATFORM_ARCHIVES` 分支，`PongWifiPlatform.cpp` 为 TCS4 探针；只有 `scripts/build-pong-platform-macos.py` 的 100644/100755 模式警告，不影响应用。
 
 ---
 

@@ -1,0 +1,35 @@
+--- a/bsd/dev/pong_audio.c
++++ b/bsd/dev/pong_audio.c
+@@ -43,6 +43,7 @@
+ #include <stdbool.h>
+ #include <stdint.h>
+ #include <string.h>
++#include "PongAudioAfe.h"
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern void thread_terminate_self(void);
+@@ -859,6 +860,16 @@
+ extern int aw882xx_bootstrap(void);
+ 
+ static void
++pong_audio_afe_selftest(void)
++{
++	uint8_t pkt[PONG_AFE_PRM_CLOCK_BYTES];
++	size_t n = pong_afe_prm_clock_request(pkt, sizeof(pkt),
++	    PONG_AFE_CLOCK_TERT_TDM_IBIT, PONG_AFE_TDM_CLK_HZ,
++	    PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, 1u);
++	printf("PongAudio: AFE encoder selftest bytes=%u\n", (unsigned)n);
++}
++
++static void
+ pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
+ {
+ 	(void)pong_audio_start();
+@@ -896,6 +907,7 @@
+ 	if (!pong_audio_map()) {
+ 		return -1;
+ 	}
++	pong_audio_afe_selftest();
+ 	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
+ 	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
+ 	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */

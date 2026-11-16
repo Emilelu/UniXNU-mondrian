@@ -1,0 +1,45 @@
+diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
+--- a/iokit/Kernel/MiniIOSurface.cpp
++++ b/iokit/Kernel/MiniIOSurface.cpp
+@@ -839,18 +839,18 @@
+ 
+ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 
+-class IOCoreSurfaceRoot : public IOService
+-{
+-	OSDeclareDefaultStructors(IOCoreSurfaceRoot);
++class IOSurfaceRoot : public IOService
++{
++	OSDeclareDefaultStructors(IOSurfaceRoot);
+ 
+ public:
+ 	virtual bool start(IOService * provider) APPLE_KEXT_OVERRIDE;
+ };
+ 
+-OSDefineMetaClassAndStructors(IOCoreSurfaceRoot, IOService);
++OSDefineMetaClassAndStructors(IOSurfaceRoot, IOService);
+ 
+ bool
+-IOCoreSurfaceRoot::start(IOService * provider)
++IOSurfaceRoot::start(IOService * provider)
+ {
+ 	if (!IOService::start(provider)) {
+ 		return false;
+@@ -864,7 +864,7 @@
+ bool
+ MiniIOSurfaceStart(IOService * provider)
+ {
+-	IOCoreSurfaceRoot * root;
++	IOSurfaceRoot * root;
+ 
+ 	gSurfaceLock = IOLockAlloc();
+ 	gSurfaceKeptLock = IOLockAlloc();
+@@ -880,7 +880,7 @@
+ 		IOLog("MiniIOSurface: cannot allocate the surface cleanup call\n");
+ 		return false;
+ 	}
+-	root = OSTypeAlloc(IOCoreSurfaceRoot);
++	root = OSTypeAlloc(IOSurfaceRoot);
+ 	if (root == NULL || !root->init() || !root->attach(provider)) {
+ 		OSSafeReleaseNULL(root);
+ 		IOLog("MiniIOSurface: cannot create the root service\n");

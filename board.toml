@@ -295,3 +295,11 @@ button-names = ["hold", "voldown", "volup"]
 
 [adt.buttons.u32]
 home-button-type = 2
+
+# DarwinBoot.c:264-267,767-775,830-833 allocates 64 KiB of EfiReservedMemoryType
+# below 4 GiB when this 16-byte placeholder is present, then rewrites it with
+# [u64 PA, u64 size=65536]. PongLowDma::lease() requires that exact size, 4 KiB
+# alignment, and PA + 65536 <= 4 GiB. A zero placeholder is the loader contract;
+# the audio driver must never synthesize the lease itself.
+[adt.chosen.bytes]
+pong-audio-dma = "00000000000000000000000000000000"

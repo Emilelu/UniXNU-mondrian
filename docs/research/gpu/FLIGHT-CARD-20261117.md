@@ -46,7 +46,32 @@
 
 ## 5. 结果登记（上机后填写）
 
-- 证据目录：
-- S1： / S2： / S3： / S4： / S5：
-- 判决：
-- 结论与下一步：
+- 镜像：`80a128075c52ff21b1bebd2af0d03f7d1231ca114925c9a225e6b2046fb9532e`（30 args / 594 B）
+- 证据目录：`E:/k60-work/evidence/usblog-20261117-003205`（214,656 B，抓取完整，未因 panic 中断）
+- S1 ✅：`K60KEXC` 0 次，无真实 panic
+- S2 ❌：`present #` 0 次
+- S3 ❌：`software renderer fallback installed` 18 次
+- S4 ❌：`crashed: backboardd` 15 次
+- S5 ❌：`SpringBoard` 13 次
+- 判决：**FAIL(F2)**
+
+### 关键判读：这一改没有可观测效果
+
+`K60METAL deploy files=6/6 error=0`（`:480`）说明 6 个文件都写成功，但
+**回退次数与上一飞完全一致（18）**，`present #` 仍是 0。也就是说：
+把 `.publish`/`.clients` 从 `/private/var/ngpu/` 移到 `…/addons/` 之后，
+用户态行为没有变化 —— 这个「路径不一致」是我从两边源码推出来的**合理假设**，
+但**本飞没有证实它是断点**（缺少「改回裸名 → 现象变化」的真红对照）。
+
+诚实结论：seed 路径改动可以作为「与上游一致」保留，但**不能记为根因修复**。
+断点仍在更上游：要么插件根本没被 backboardd 加载，要么加载了但
+`MTLCreateSystemDefaultDevice()` 之前的加速器客户端打开失败。
+
+### 下一步（按 F2 固定动作）
+
+1. 先确认插件是否被加载：在 `0610` 部署后打印 `PongAdrenoMetal.bundle` 的
+   `Info.plist` 是否可读、`PongAdrenoMetal` 是否被 `dlopen` 过（内核侧只能证明文件存在，
+   用户态侧要看 backboardd 是否扫描到该 bundle）。
+2. 按 F2 的第二项重建 `PongMetalBridge.dylib`（Mac 侧 `scripts/build-pong-metal-bridge.py`），
+   我们的副本是 2026-11-09 的产物，落后上游 7 天的提交（`8eb264d`、`e89d27d`、`4f1752f`）。
+3. 每一步都要有静态/单元/产物证据，并另写一张上机卡预写判据后才飞。

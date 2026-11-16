@@ -246,3 +246,8 @@ userland/touch.c）不进内核镜像：plugin 走预编译 macOS bundle，touch
 libpong-ui.dylib。欠账：内核字节变了，需要用这一版上机确认 GPU 路径不回归
 （判据：SpringBoard ≥ 100、PONG METAL 行仍在、无 panic 标记）。
 """
+
+[[entry]]
+sha = "6c97bc7"
+state = "build-only"
+note = "P-224: freeze() no longer hashes scripts/__pycache__/*.pyc. Touches scripts/build-strict.sh, which is in the frozen input list, so iron-9 wants it registered. The build outcome is unchanged for a tree that does not rewrite bytecode; the next full build proves it."

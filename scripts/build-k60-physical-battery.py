@@ -309,7 +309,7 @@ def main():
         # a second copy fails the link with three duplicate symbols (P-190).
         # The archive therefore references the kernel's copy, exactly like the
         # other in-tree consumers do.
-        for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
+        for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60AudioGlink.c', 'K60Battmgr.c',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file
             obj = out / (path.stem + '.o')

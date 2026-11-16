@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "QcomGlink.h"
+#include "K60AudioGlink.h"
 
 #if QCOM_GLINK_MAX_CHANNELS < 2u
 #error "QcomGlink.h still has one channel slot: run run-glink-multislot-tests.sh"
@@ -74,7 +75,7 @@ typedef struct {
     char a_log[LOG_BYTES], b_log[LOG_BYTES];
 } Link;
 
-static Link link, replay;
+static Link link, replay, bridge_link;
 
 static void log_add(char *log, const uint8_t *data, uint32_t length)
 {
@@ -97,6 +98,24 @@ static void on_receive(void *context, QcomGlinkChannel *channel, const uint8_t *
     Link *l = (Link *)context;
     if (channel == l->a) log_add(l->a_log, data, length);
     else log_add(l->b_log, data, length);
+}
+
+typedef struct {
+    unsigned states;
+    int up;
+    char log[LOG_BYTES];
+} BridgeSink;
+
+static void bridge_state(void *context, bool up)
+{
+    BridgeSink *s = (BridgeSink *)context;
+    ++s->states;
+    s->up = up;
+}
+static void bridge_receive(void *context, const uint8_t *data, unsigned bytes)
+{
+    BridgeSink *s = (BridgeSink *)context;
+    log_add(s->log, data, bytes);
 }
 
 /* ------------------------------------------------------------------ the DSP */
@@ -551,12 +570,95 @@ static void geometry_cases(void)
               "the same geometry is accepted once it is well formed");
     expect_eq(qcom_glink_channel(&l->g, NAME_A, 256, 0, l->storage_a, &l->client, l, 1) == 0, 1,
               "zero receive intents is refused");
-    expect_eq(qcom_glink_channel(&l->g, NAME_A, 256, 5, l->storage_a, &l->client, l, 1) == 0, 1,
+    expect_eq(qcom_glink_channel(&l->g, NAME_A, 256, QCOM_GLINK_MAX_LOCAL_INTENTS + 1u, l->storage_a, &l->client, l, 1) == 0, 1,
               "more receive intents than the table holds is refused");
     expect_eq(qcom_glink_channel(&l->g, "", 256, 1, l->storage_a, &l->client, l, 1) == 0, 1,
               "a nameless channel is refused");
     expect_eq(qcom_glink_channel(&l->g, "no_storage", 256, 1, 0, &l->client, l, 1) == 0, 1,
               "a channel without storage is refused");
+}
+
+static void bridge_cases(void)
+{
+    Link *l = &bridge_link;
+    K60AudioGlink bridge, empty;
+    K60PmicGlinkAudioClient client;
+    BridgeSink sink;
+    unsigned lcid;
+    char name[QCOM_GLINK_NAME];
+    uint32_t size, index;
+
+    memset(l, 0, sizeof *l);
+    memset(&sink, 0, sizeof sink);
+    l->client.state = on_state;
+    l->client.receive = on_receive;
+    const QcomGlinkFifo tx = {&l->txhead, &l->txtail, l->txdata, FIFO_BYTES};
+    const QcomGlinkFifo rx = {&l->rxhead, &l->rxtail, l->rxdata, FIFO_BYTES};
+    expect_eq((unsigned long)qcom_glink_adopt(&l->g, tx, rx, on_kick, l), (unsigned long)QcomGlinkOk,
+              "bridge: the transport adopts");
+
+    k60_audio_glink_init(&bridge, &l->g);
+    client.state = bridge_state;
+    client.receive = bridge_receive;
+    expect_eq((unsigned long)(long)k60_audio_glink_service(&bridge), 0,
+              "bridge: service without a request is a no-op");
+    expect_eq((unsigned long)(long)k60_audio_glink_request(&bridge, 0, 0),
+              (unsigned long)(long)K60_PMIC_GLINK_AUDIO_REFUSED,
+              "bridge: a null client is refused");
+    expect_eq((unsigned long)(long)k60_audio_glink_request(&bridge, &client, &sink), 0,
+              "bridge: the audio client is queued");
+    expect_eq(k60_audio_glink_ready(&bridge), 0, "bridge: queued is not ready");
+    expect_eq((unsigned long)(long)k60_audio_glink_service(&bridge), 0,
+              "bridge: the workloop registers the queued slot");
+    expect(bridge.channel != 0, "bridge: the adsp_apps slot exists");
+    if (!bridge.channel) return;
+    expect_name(bridge.channel->name, K60_AUDIO_GLINK_NAME, "bridge: the slot carries adsp_apps");
+    expect_eq(bridge.channel->intent_count, K60_AUDIO_GLINK_INTENT_COUNT,
+              "bridge: twenty receive intents");
+    expect_eq(bridge.channel->intent_size, K60_AUDIO_GLINK_INTENT_BYTES,
+              "bridge: 512-byte intents");
+    expect_eq(k60_audio_glink_ready(&bridge), 0, "bridge: registered is not up");
+
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll writes VERSION");
+    expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "bridge: VERSION is on the wire");
+    expect_eq(lcid, QCOM_GLINK_VERSION, "bridge: first message is VERSION");
+    peer_cmd(l, QCOM_GLINK_VERSION_ACK, 1, QCOM_GLINK_FEATURE_INTENT_REUSE);
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll after VERSION_ACK");
+    expect(ap_read_open(l, &lcid, name, sizeof name) != 0, "bridge: OPEN is emitted");
+    expect_eq(lcid, 1, "bridge: the audio slot is lcid 1");
+    expect_name(name, K60_AUDIO_GLINK_NAME, "bridge: OPEN names adsp_apps");
+
+    peer_open(l, 0x31, K60_AUDIO_GLINK_NAME);
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: the DSP opens adsp_apps");
+    expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "bridge: OPEN_ACK is emitted");
+    expect_eq(lcid, QCOM_GLINK_OPEN_ACK, "bridge: it is an OPEN_ACK");
+    expect_eq(size, 0x31, "bridge: the remote rcid is acknowledged");
+    peer_cmd(l, QCOM_GLINK_OPEN_ACK, 1, 0);
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll after OPEN_ACK");
+    for (unsigned k = 0; k < K60_AUDIO_GLINK_INTENT_COUNT; ++k) {
+        expect(ap_read_intent(l, &lcid, &size, &index) != 0, "bridge: every audio intent is advertised");
+        expect_eq(lcid, 1, "bridge: audio intents carry lcid 1");
+        expect_eq(size, K60_AUDIO_GLINK_INTENT_BYTES, "bridge: advertised intent size");
+        expect_eq(index, k, "bridge: advertised intent index");
+    }
+    expect_eq(ap_avail(l), 0, "bridge: all twenty intents are on the wire");
+    expect_eq(sink.states, 1, "bridge: one state callback");
+    expect_eq((unsigned long)sink.up, 1, "bridge: the audio channel is up");
+    expect_eq(k60_audio_glink_ready(&bridge), 1, "bridge: ready follows the channel state");
+
+    peer_data(l, 0x31, 1, "pcm", 3);
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll delivers audio data");
+    expect_name(sink.log, "pcm;", "bridge: the audio callback received its own payload");
+
+    expect_eq((unsigned long)(long)k60_audio_glink_request(&bridge, &client, &sink), 0,
+              "bridge: a repeated request is idempotent");
+    k60_audio_glink_stop(&bridge);
+    expect_eq(k60_audio_glink_ready(&bridge), 0, "bridge: stop drops readiness");
+
+    k60_audio_glink_init(&empty, 0);
+    expect_eq((unsigned long)(long)k60_audio_glink_request(&empty, &client, &sink),
+              (unsigned long)(long)K60_PMIC_GLINK_AUDIO_NO_TRANSPORT,
+              "bridge: no transport is reported as no handoff");
 }
 
 int main(void)
@@ -570,6 +672,7 @@ int main(void)
     teardown_cases();
     replay_cases();
     geometry_cases();
+    bridge_cases();
 
     if (fails) {printf("TESTS FAILED %u of %u cases\n", fails, cases); return 1;}
     printf("TESTS OK %u cases\n", cases);

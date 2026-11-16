@@ -17,5 +17,5 @@ src=$(cd "$here/../../PongPower" && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT INT TERM
 
-cc -std=gnu11 -Wall -Wextra -Werror -I "$src" -o "$out/test-glink-multislot" "$here/test-glink-multislot.c" "$src/QcomGlink.c"
+cc -std=gnu11 -Wall -Wextra -Werror -I "$src" -o "$out/test-glink-multislot" "$here/test-glink-multislot.c" "$src/QcomGlink.c" "$src/K60AudioGlink.c"
 "$out/test-glink-multislot"

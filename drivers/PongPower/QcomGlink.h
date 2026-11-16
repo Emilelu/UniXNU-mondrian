@@ -17,11 +17,11 @@ extern "C" {
 #define QCOM_GLINK_MAX_CHANNELS 2u /* PMIC endpoint + audio adsp_apps, one shared owner */
 #define QCOM_GLINK_STRINGIFY_INNER(x) #x
 #define QCOM_GLINK_STRINGIFY(x) QCOM_GLINK_STRINGIFY_INNER(x)
-#define QCOM_GLINK_BUILD_TAG "QcomGlink max_channels=" QCOM_GLINK_STRINGIFY(QCOM_GLINK_MAX_CHANNELS)
+#define QCOM_GLINK_BUILD_TAG "QcomGlink max_channels=" QCOM_GLINK_STRINGIFY(QCOM_GLINK_MAX_CHANNELS) " local_intents=" QCOM_GLINK_STRINGIFY(QCOM_GLINK_MAX_LOCAL_INTENTS)
 /* DSP advertises 24 small intents before its larger command buffer.
  * Keep room for that later advertisement (shared transport, not SM8850 MMIO). */
 #define QCOM_GLINK_MAX_REMOTE_INTENTS 48u
-#define QCOM_GLINK_MAX_LOCAL_INTENTS 4u
+#define QCOM_GLINK_MAX_LOCAL_INTENTS 20u /* adsp_apps owns 20 x 512-byte intents; PMIC uses 4 */
 #define QCOM_GLINK_NAME 32u
 #define QCOM_GLINK_FEATURE_INTENT_REUSE 1u
 

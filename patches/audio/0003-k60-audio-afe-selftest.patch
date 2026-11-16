@@ -1,14 +1,15 @@
 --- a/bsd/dev/pong_audio.c
 +++ b/bsd/dev/pong_audio.c
-@@ -43,6 +43,7 @@
+@@ -43,6 +43,8 @@
  #include <stdbool.h>
  #include <stdint.h>
  #include <string.h>
 +#include "PongAudioAfe.h"
++#include "K60PmicGlinkAudio.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void thread_terminate_self(void);
-@@ -816,6 +817,8 @@
+@@ -816,6 +818,8 @@
  	uint32_t graph_state;
  	bool mapped;
  	bool service_ready;
@@ -17,7 +18,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -859,6 +862,16 @@
+@@ -859,6 +863,31 @@
  extern int aw882xx_bootstrap(void);
  
  static void
@@ -31,26 +32,52 @@
 +}
 +
 +static void
++pong_audio_glink_state(void *context, bool up)
++{
++	(void)context;
++	printf("PongAudio: glink adsp_apps %s\n", up ? "up" : "down");
++}
++
++static void
++pong_audio_glink_receive(void *context, const uint8_t *data, unsigned bytes)
++{
++	(void)context;
++	(void)data;
++	printf("PongAudio: glink adsp_apps rx bytes=%u\n", bytes);
++}
++
++static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
  	(void)pong_audio_start();
-@@ -896,6 +909,15 @@
+@@ -896,6 +925,26 @@
  	if (!pong_audio_map()) {
  		return -1;
  	}
 +	pong_audio_afe_selftest();
-+	/* Until the provider bridge exists, the only truthful state is
-+	 * "no lease": report it once and keep the codec-only path running. */
-+	g_pong_audio.last_error = PongAudioErrNoLease;
++	const K60PmicGlinkAudioClient link_client = {
++	    pong_audio_glink_state, pong_audio_glink_receive
++	};
++	const int link_rc = k60_pmic_glink_attach_audio(&link_client, &g_pong_audio);
 +	g_pong_audio.refusal_printed = true;
-+	printf("PongAudio: PAS1 owner unavailable (acquire rc=-1000); ADSP path disabled\n");
-+	printf("PongAudio: codec-only path: amp probe + 60-step replay continue, AFE/GPR skipped\n");
-+	printf("PongAudio: speaker path unavailable: PongAudioErrNoLease (no GLINK, no AFE)\n");
-+	printf("PongAudio: no handoff property; GLINK adopt skipped\n");
++	if (link_rc == K60_PMIC_GLINK_AUDIO_OK) {
++		g_pong_audio.last_error = PongAudioErrApmNotReady;
++		printf("PongAudio: glink adsp_apps slot queued (512x20)\n");
++		printf("PongAudio: APM not queried: PongAudioErrApmNotReady\n");
++		printf("PongAudio: speaker path unavailable: PongAudioErrApmNotReady (GLINK queued, no GET_SPF_STATE)\n");
++	} else {
++		/* Until the provider bridge exists, the only truthful state is
++		 * "no lease": report it once and keep the codec-only path running. */
++		g_pong_audio.last_error = PongAudioErrNoLease;
++		printf("PongAudio: PAS1 owner unavailable (acquire rc=-1000); ADSP path disabled\n");
++		printf("PongAudio: codec-only path: amp probe + 60-step replay continue, AFE/GPR skipped\n");
++		printf("PongAudio: speaker path unavailable: PongAudioErrNoLease (no GLINK, no AFE)\n");
++		printf("PongAudio: no handoff property; GLINK adopt skipped\n");
++	}
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,6 +929,8 @@
+@@ -907,6 +956,8 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -59,7 +86,7 @@
  	return 0;
  }
  
-@@ -923,7 +947,16 @@
+@@ -923,7 +974,17 @@
  int
  pong_audio_status(void)
  {
@@ -68,8 +95,9 @@
 +		return PongAudioOk;
 +	}
 +	if (!g_pong_audio.refusal_printed) {
-+		printf("PongAudio: speaker path unavailable: %s (no GLINK, no AFE)\n",
-+		    pong_audio_error_name(PongAudioErrNoLease));
++		printf("PongAudio: speaker path unavailable: %s%s\n",
++		    pong_audio_error_name(g_pong_audio.last_error),
++		    g_pong_audio.last_error == PongAudioErrNoLease ? " (no GLINK, no AFE)" : "");
 +		g_pong_audio.refusal_printed = true;
 +	}
 +	return g_pong_audio.last_error ? g_pong_audio.last_error :

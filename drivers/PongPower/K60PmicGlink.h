@@ -6,6 +6,8 @@
 #include "K60BatteryConfig.h"
 #include "K60Smem.h"
 #include "QcomGlink.h"
+#include "K60AudioGlink.h"
+#include "K60PmicGlinkAudio.h"
 
 /* Every method and callback is serialized by the battery's workloop. No DSP
  * startup, APSS FIFO reset, charger-control writes, synthetic callback or RX
@@ -22,6 +24,8 @@ public:
     int send(const uint8_t *, unsigned);
     bool reopen();
     bool ready() const { return channel && channel->up && !native.broken; }
+    int attachAudio(const K60PmicGlinkAudioClient &c, void *owner) { return k60_audio_glink_request(&audio, &c, owner); }
+    bool audioReady() const { return k60_audio_glink_ready(&audio); }
     bool alive() const { return opened && !native.broken; }
     uint32_t received() const { return native.rx_messages; }
     uint32_t transmitted() const { return native.tx_messages; }
@@ -36,6 +40,7 @@ private:
     K60SmemPartition partition = {};
     QcomGlink native = {};
     QcomGlinkChannel *channel = nullptr;
+    K60AudioGlink audio = {};
     volatile uint32_t *remoteState = nullptr;
     uint32_t remoteStateBytes = 0;
     Client client = {};

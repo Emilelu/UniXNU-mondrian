@@ -1,7 +1,7 @@
 # WiFi IPA rail: Pong votes smpe3/vdd-wlan-ipa, K60 did not
 
 Date: 2026-11-17
-Status: candidate image built 2026-11-17 05:53 CST; not flown. c8 remains held.
+Status: candidate image built 2026-11-17 06:22 CST; not flown. c8 remains held.
 
 ## 0. Summary
 
@@ -17,8 +17,12 @@ RPMh rails.
 
 This candidate adds the Pong rail as a single board-power variable. It is
 based on the already-flown cache candidate (`7cce6e8a`), not on the separate
-MHI-preload candidate, so the flight tests only the IPA rail. It does not
-change MHI, the event ring, MSI, SMMU, firmware, or boot arguments.
+MHI-preload candidate, so the flight tests only the IPA rail. It also restores
+Pong's bounded retry around the complete PMIC rail sample: Pong services93
+recorded the first smpe3 identification read as 00/00, and services94 fixed it
+with that retry before MHI/QMI/WMI could proceed. The retry is part of the same
+rail path, not a separate MHI variable. The candidate does not change MHI, the
+event ring, MSI, SMMU, firmware, or boot arguments.
 
 ## 1. The divergence
 
@@ -99,9 +103,17 @@ cache candidate `7cce6e8a` (c7 baseline + DMA cache fix).
    8 to 9 and documents "six K60 DT rails + Pong vdd-wlan-ipa + two analogue
    LDOs = 9". It still fails closed on an unexpected count and still requires
    every rail to be found in cmd-db and to follow the RPMh request.
-4. `scripts/tests/test-wifi-ipa-rail.py` pins the six original rails, the
+4. `drivers/PongWifi/PongWifiPlatform.cpp:133-160` makes `railReady()` retry
+   the complete PMIC sample — identification type/subtype first, then status,
+   enable and voltage — for up to 100 ms. Pong services93 recorded the first
+   smpe3 model read as 00/00 and services94 fixed it with this bounded retry;
+   without it the new rail would fail at the power stage before MHI. A
+   successful sample still requires the exact type/subtype and
+   `status&0x80 && enable&0x80 && mv>=requested`.
+5. `scripts/tests/test-wifi-ipa-rail.py` pins the six original rails, the
    exact IPA object (supply/resource/regulator/voltage/SPMI PPID), the builder
-   loop, the platform capacity, and rejects six negative mutants.
+   loop, the platform capacity, the complete-sample retry, and rejects eleven
+   negative mutants.
 
 The candidate does not include `nw_mhi_pre_load`; the base ath11k archive is
 the cache-branch archive with `contexts programmed before image` count 0 and
@@ -114,30 +126,35 @@ All paths are on the build host / WSL:
 | Item | Value |
 |---|---|
 | tag | `wifi-20261117ipa-rail` |
+| built_at | `2026-11-17T06:22:16+08:00` |
 | boot image | `E:/k60-work/artifacts/wifi-20261117ipa-rail/boot.img` |
-| boot SHA-256 | `183eebf62b9d3ef504bfa4a1880788b41e9aa4c92b11ee98232cadc52d6fb17c` |
+| boot SHA-256 | `70576a7a120c1866bc53285bdb39fc6afccf09d25925c1b7c2c3679742675826` |
 | size | 201,887,744 B |
 | manifest | `E:/k60-work/artifacts/wifi-20261117ipa-rail/build-manifest.json` |
-| manifest SHA-256 | `4325e63007840b54d4777be424572260def4daff3d52f85a50723f1745eb679f` |
-| repo | `feat/wifi-ipa-rail` @ `7b55493a31a368e320daaae718ef9c86c4599106`, dirty 0 |
-| kernel | `d187ee75be9c362f574d0feead1303d2bfd4da6211dcaeb41a9053cc07dfa278` |
-| payload kernel | `977865b2262f8bd6f9a60c8c6e04fc02bf5d45a87c2a3a4ee16909820a63f4cf` |
-| WiFi archive | `97129b551bc6c7c8b044c515ce31cee435d79bbb534654ce409d248736c79596` |
+| manifest SHA-256 | `347c9c68f2d46dcebd339877884f357fc0b14b7886593ec0ca0ff363b35f9022` |
+| repo | `feat/wifi-ipa-rail` @ `970a4dca2ed2110129c0824e23780a93bf9f881f`, dirty 0 |
+| kernel | `94581df3e33e8ef65128b189bcd309935191816cc7d19d688300319d81eb4b6a` |
+| payload kernel | `304d570153357d87c1dabe65152144f8c9fbdd4520ca07f9ec2f21f9514248f9` |
+| WiFi archive | `774ad267dd34aab2f0a32f189d20735cd1d7b1ed9598a9c068af73552a9cec31` |
 | base ath11k archive | `413ad0a6ea19bad1a8c1630fead2cef702c7edc36d10c8a0fa864efea543bd97` |
 | args | 31 items / 602 B, ends `pong_wifi=1 k60_wifi_rsc=2` |
 | series | 227 files, `59d8037521a5b07b`, file `bb14a480c6b2ea4b465f409d862394f0ea25cce178d19a63b7253fab3511f9d4` |
 
-After the build, the branch gained docs commits `c67e6e75`/`b586d5b0`/`73e791ad` and patch-mirror commit `942eb159` (patch files and tests only); none changes compiled source. The manifest above records the build head `7b55493a` with dirty 0.
+The manifest above records the build head `970a4dca` with dirty 0; any docs-only commits after it do not change compiled source.
 
 Checks already run:
 
 - `python3 scripts/verify-boot-image.py --manifest ...` -> `OK`
 - `python3 scripts/check-image-args.py --image ...` -> `OK (31 arguments, 602 bytes)`
-- `python3 scripts/tests/test-wifi-ipa-rail.py` -> `PASS` (9 negative cases; includes patch-series mirror checks)
+- `python3 scripts/tests/test-wifi-ipa-rail.py` -> `PASS` (11 negative cases; includes patch-series mirror checks)
 - generated `PongWifiInputs.h` has the nine rows listed above
 - cache ath11k archive SHA-256
   `413ad0a6ea19bad1a8c1630fead2cef702c7edc36d10c8a0fa864efea543bd97`,
   pre-load marker count 0
+- native WiFi archive SHA-256
+  `774ad267dd34aab2f0a32f189d20735cd1d7b1ed9598a9c068af73552a9cec31`;
+  it contains the `readFailures` complete-sample log string and no pre-load
+  marker
 
 ## 4. Flight criteria (prewritten, one variable)
 
@@ -147,8 +164,11 @@ normal".
 
 **Setup / one variable**
 
-- Compare against cache candidate `7cce6e8a`; the only executable change is
-  the seventh Pong WLAN rail plus its test/TREE-OWNERS registry entry.
+- Compare against cache candidate `7cce6e8a`; the executable change is the
+  Pong WLAN rail path: the seventh `vdd-wlan-ipa`/smpe3 rail and the
+  complete-sample `railReady()` retry that Pong services93/94 prove is required
+  for that rail. The retry is not a separate MHI variable; it only makes the
+  same rail readable after the first 00/00 identification sample.
 - Do not combine with the MHI-preload candidate or c8. Do not change boot
   args, MHI context programming, `seg_len`, MSI target, INTID, SMMU policy,
   firmware, or the cache-policy fix.
@@ -185,6 +205,8 @@ success.
   blocker; stop and reassess, do not fly c8 as a fallback.
 - `required SM8475 rail missing in cmd-db` or `physical WLAN supply did not
   follow RPMh request`: stop; the rail is not physically available/ready.
+- The smpe3 line reports `readFailures` or `not ready`: stop; the complete
+  PMIC sample never became coherent, so the rail path failed before MHI.
 - `WiFi owned DMA cache policy not established`: stop; the cache fix did not
   survive this build.
 - Panic, black screen, or no console before WiFi: stop; boot-death triage.

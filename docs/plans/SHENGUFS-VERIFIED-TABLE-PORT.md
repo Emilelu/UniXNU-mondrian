@@ -119,33 +119,17 @@
 - `k60-ufs-verified:tests/RootPublication.cpp` 已覆盖 SystemOS 第一/OS 最后、重复名与缺失必需窗口拒绝；宿主测试仍全过，Mac probe 构建未跑，未 boot。
 
 
-## 3.6 步骤 3b 设计（只记录，未实现，等 Lead 确认）
+## 3.6 步骤 3b 执行记录（2026-11-17 07:51）
 
-步骤 3a 只改了启动顺序；3b 才把 `pong_ufs_transport_start` 的同步循环换成完整的
-`ufsPrepareRootWindows` + `ufsPublishRootWindows` 状态机。参考实现见
-`references/ShengUfs/NativeUfs.cpp:2689-2742` 的 `publishThread` 与 `:2960-3040` 的 `Operations`。
-
-- **对象状态**：新增 `gPendingDevice[4]`、`gPendingAttached[4]`、`gPendingUuid[4][37]`、`gPending`、`gPendingProvider`、`gPublicationPlan`。
-  `prepare(index)` 只做 `init(nullptr)` + `attach(provider)` + 记录 attached，**不调用 `start`**；
-  `start(index)` 才发布服务并递增已发布计数；
-  `discard(index)` 只释放从未 start 的对象（已 start 的对象必须保留，异步客户端可能仍持有 I/O）。
-- **身份校验**：`validate()` 从 `RootWindowVerifier.view.volume_uuid[16]` 生成大写 8-4-4-4-12 UUID，拒绝空值/重复。
-  **这是 3b 的第一个待决点**：3a/2b 让 Data 窗口保持旧的未验证路径，Data 没有 `vr_view`；
-  因此要么给 Data 也配置 policy（会改变 P-152/P-153 的既有假设），要么 3b 只对 OS/SystemOS 做身份等待、Data 用现有属性另行确认。
-  在选定之前不能把 Data 放进 `validate()` 的强校验。
-- **2026-11-17 07:15 证据**：`UniXNU-sheng/scripts/policies/ipados-26.5.2-23F84` 与 `ipados-27.0.1-24A446` 都只有 `OS/`、`SystemOS/` 两个 policy 目录；参考实现 `NativeUfs.cpp:3007-3019` 的 `validate()` 又要求每个 pending 窗口 `signedVolumeUuid()` 非空。因此 Data 不能进入强校验。建议 3b 只把 OS/SystemOS 放进 `ufsPrepareRootWindows`，Data 保留现有的属性/祖先确认路径。
-- **异步发布**：`schedule()` 用 `kernel_thread_start` 启动 `publishThread`，线程持有 provider 的引用；
-  `publishThread` 调 `ufsPublishRootWindows`，失败时按 `UfsRootPublicationResult.phase` 设置
-  `gRootDiagnostic.result`（Start 用 `kIOReturnIOError`，Media 用 `kIOReturnTimeout`），且 Media 失败的对象必须保留。
-- **media wait**：`wait(index)` 对应参考的 `mediaWithUuidExists`：以 `IOMedia` 的 `UUID` 属性匹配，
-  `IORegistryIterator::iterateOver(media, gIOServicePlane, kIORegistryIterateRecursively | kIORegistryIterateParents)`
-  必须回到本窗口对象；每 100 ms 一次、最多 300 次（30 s），超时前每 5 s 记录一次 `captureMissingMedia` 风格的诊断。
-- **构建/验收**：仍由 `XNU_NATIVE_UFS_VERIFIED_ROOT=1` 选择；默认关闭。验收不是只看 host 单测：
-  需要 `PONG APFS` 三窗顺序与 `K60DATA mounted ro=0` 的上机日志，以及失败路径的 `UfsRootPublicationResult` 记录；
-  上机由 Lead 安排，本线不自行刷机。
-
-**结论**：3b 不能只改一个调用点，它要拆 `PongUfsBlock` 的 prepare/start 生命周期并引入 IOMedia 等待；
-在 Data 的身份校验策略确定前，保持 3a 的同步发布顺序和 `NATIVE_VERIFIED_BLOCK` 默认关闭。
+- 分支 `feat/ufs-verified-table`，从步骤 2a 的 `935f89c0` 继续；提交 `46545497` `feat(ufs): publish verified root windows asynchronously`（`PongUfsTransport.cpp` +215/−2）。
+- `PongUfsBlock` 拆成 `prepareForPublish`（bounce/mutex、首块读取与签名、非 Data 的 `configureVerification`、Pong* 属性）与 `publishWindow`（`IOBlockStorageDevice::start`、online、`registerService`、`PongProbeRecord`）；原 `start` 保持 `prepareForPublish && publishWindow`。
+- `verifiedVolumeUuid` 从 `verifier.view.volume_uuid` 生成大写 8-4-4-4-12；未 ready 或全零 UUID 返回 false。
+- `#if NATIVE_VERIFIED_BLOCK` 下新增 `gPendingBlocks/gPendingAttached/gPendingStarted/gPendingUuid/gPendingCount/gPendingProvider/gPublicationPlan` 与 `PongUfsPublicationOps`：`prepare` 创建/init/attach/prepareForPublish，`validate` 只强校验 OS/SystemOS（Data 跳过，保留 P-152/P-153 的旧属性/祖先路径），`schedule` retain provider 后 `kernel_thread_start`，`start` 调 publishWindow，`wait` 调 `pongUfsWaitForMedia`，`discard` 只释放未 start 对象。各阶段写 `gRootDiagnostic.stage/publicationPhase/publicationWindow`。
+- `pongUfsWaitForMedia` 每 100 ms 枚举 `IOMedia`（最多 300 次 = 30 s），OS/SystemOS 用 `UUID` 属性匹配，Data 仅按祖先匹配；每次命中都用 `ufsMediaHasAncestor` 确认祖先链回到本 `PongUfsBlock`，超时前每 5 s 打一条诊断。
+- `pongUfsPublishThread` 调 `ufsPublishRootWindows`：Start 失败设 `kIOReturnIOError`、Media 失败设 `kIOReturnTimeout`，已 start 的对象保留；完成后 release provider。
+- `pong_ufs_transport_start` 的 verified 路径调 `ufsPrepareRootWindows(publication, gRootWindowCount)`，非 Complete 返回 `transportFailure("root window preparation")`；成功直接返回，异步线程继续发布。`#else` 保留 3a 的同步发布循环。
+- 参考实现：`references/ShengUfs/NativeUfs.cpp:2689-2742` 的 `publishThread` 与 `:2960-3040` 的 `Operations`。我们的 `prepareForPublish` 比参考多做首块读取与属性设置（沿用旧 `PongUfsTransport::start` 行为）；Data 不进入强校验的理由见 2026-11-17 07:15 证据：两个参考 policy 集都只有 `OS/`、`SystemOS/`。
+- 验证：宿主测试全过（`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`、`RootWindowReadVerified`，2026-11-17 07:51 复跑）；Mac probe 构建未跑，`NATIVE_VERIFIED_BLOCK` 默认关闭、`native-vroot-cache` 关闭、未 boot。上机验收仍需 `PONG APFS` 三窗顺序与 `K60DATA mounted ro=0` 日志，由 Lead 安排。
 
 ## 3.7 步骤 2b 构建入口补全（2026-11-17 07:40）
 

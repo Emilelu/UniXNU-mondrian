@@ -15,7 +15,7 @@
 
 ## 补丁清单
 
-### `0620-k60-display-brightness.patch`（1628 行，11 文件）
+### `0620-k60-display-brightness.patch`（1586 行，12 文件）
 
 亮度从「面板点亮」推进到「OS 级亮度服务」的全部改动：
 
@@ -23,12 +23,14 @@
 |---|---|
 | `drivers/PongAdreno/K60BacklightCodec.h` | **产物 D：DCS 编码器**（纯头文件，无 IOKit）。level↔DBV、nits↔level、FadePeriod↔毫秒、线性渐变插值、`bl-inverted-dbv` 反转。host 可单测。 |
 | `drivers/PongAdreno/K60Backlight.cpp` | **产物 A/B/C**：`K60Backlight : IOService`，发布 `IODisplayParameters`（产物 A）、override `setProperties()` 接收 backboardd 请求并驱动渐变（产物 B）、`k60_backlight_start()` 用 preModLoad/postModLoad 动态注册并 impersonate 成 `AppleARMBacklight`（产物 C）。 |
+| `drivers/PongAdreno/PongDsiPanel.cpp` | 面板 DCS 0x51 亮度写入改为 12 位双字节长写（`0x51 <hi> <lo>`），bring-up 发 `0x51 0x0f 0xff`。 |
+| `drivers/PongAdreno/PongDsiPanel.h` | `pong_panel_dbv_bytes()`：12 位 DBV 的线序（高字节先），与 Android `bl-inverted-dbv` 一致。 |
 | `drivers/PongAdreno/PongAdrenoScanout.cpp` | 接线：bring-up 成功后调 `k60_backlight_start()`（同归档内互相引用，避免 `0395-k60-panel-call.patch` 那种跨归档链接问题）。 |
 | `scripts/build-pong-adreno-platform.py` | 把 `K60Backlight` 加进 `libPongAdrenoPlatform.a` 的编译名单（macOS 侧）。 |
 | `scripts/build-pong-adreno-platform-linux.py` | 同上（Linux/WSL 侧，构建机实际用的是这个）。 |
 | `scripts/check-brightness-encoder.py` | host 单测：编译编码器头文件并断言 DBV 换算与渐变序列。 |
 | `docs/research/display/BRIGHTNESS-PLAN.md` | 八步流程的 ①②③④⑤⑥ 证据与四产物设计说明。 |
-| `docs/research/display/08-on-device.md` | 上机轮次与预注册判据（第 3 轮 = brightness-15）。 |
+| `docs/research/display/08-on-device.md` | 上机轮次与预注册判据（第 3–6 轮 = brightness-15/16/17/18）。 |
 | `docs/research/display/RESEARCH.md` | 面板/DSI 事实与三档 timing。 |
 | `docs/research/display/STATS-INDEX.md` | `native_backlight_request[]` / `stats[]` 语义表。 |
 
@@ -52,7 +54,7 @@ K60_OUT=/opt/k60/trees/display-out K60_DEVICE_INPUT=/opt/k60/trees/display-devic
 
 本补丁在仓库里已经应用（源码就在 `drivers/`、`scripts/`、`docs/` 下），保留一份 `.patch` 是为了：
 
-1. **评审**：一次看完 11 个文件的改动，不用翻整棵树；
+1. **评审**：一次看完 12 个文件的改动，不用翻整棵树；
 2. **重放**：在干净 checkout 上 `git apply patches/display/0620-k60-display-brightness.patch` 可复现同一改动。
 
 ```bash
@@ -66,12 +68,12 @@ git apply --check patches/display/0620-k60-display-brightness.patch   # 已在�
 | boot-arg | 默认 | 作用 |
 |---|---|---|
 | `k60_backlight=0` | 1 | 完全不启动亮度服务，行为退回改动前（面板停在 bring-up 的 0x51 0xff）。 |
-| `k60_backlight_control=0` | 1 | 只发 `IODisplayParameters`，**不发** `backlight-control`。用于验证 P-62 的降级路径：万一 impersonate 失败，只发 backlight-control 会触发 int-236（屏幕停更），此时用这个开关把服务降级成「只发布参数」。 |
-| `k60_backlight_invert=1` | 0 | 反转 DBV（面板 DT 里有 `bl-inverted-dbv`，但实测 8 位 DBV 下 0xff 最亮，故默认不反转；真机若发现方向相反再用它）。 |
+| `k60_backlight_control=0` | 0 | 只发 `IODisplayParameters`，**不发** `backlight-control`。用于验证 P-62 的降级路径：万一 impersonate 失败，只发 backlight-control 会触发 int-236（屏幕停更），此时用这个开关把服务降级成「只发布参数」。 |
+| `k60_backlight_invert=1` | 0 | 反转 DBV（面板 DT 里有 `bl-inverted-dbv`，但实测 12 位 DBV 下 0xfff 最亮，故默认不反转；真机若发现方向相反再用它）。 |
 
 ## 上机判据（交给 Lead 执行，本线不自 boot）
 
-1. `K60 BACKLIGHT: published level 2047 dbv 0xff control 1 (impersonated)` 出现在启动日志；
+1. `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1` 出现在启动日志；
 2. `ioreg` 里 `K60Backlight` 服务带 `backlight-control=true` 与 `IODisplayParameters`；
 3. 拖 iOS 亮度滑块：`native_backlight_stats[1]`（请求数）递增，`[2]`/`[4]` 跟随；
 4. min/mid/max 三档回读值不同且屏上可见变化；

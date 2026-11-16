@@ -1,9 +1,9 @@
 diff --git a/docs/research/display/08-on-device.md b/docs/research/display/08-on-device.md
 new file mode 100644
-index 00000000..64b4e03c
+index 00000000..627bd861
 --- /dev/null
 +++ b/docs/research/display/08-on-device.md
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,174 @@
 +# 显示 ⑧ 真机验证记录（背光发布层）
 +
 +| 轮次 | 镜像 | boot.img sha256 | kernel.macho sha256 | 结果 | 证据 |
@@ -11,7 +11,10 @@ index 00000000..64b4e03c
 +| 0 | brightness-4 | 30ccafb3… | 488a1d8f… | control=1：发布层生效，但 backboardd 4 次 `sig=11`、SpringBoard 7 行、无 first frame（int-236 形状） | `usblog-20261115-013520` |
 +| 1 | brightness-13 | `c8c33b9e…` | `bf2df340…` | **PASS（发布层）**：control=0 / conformance=0 / stats[0]=3 / 无 SIGSEGV / first frame / SpringBoard 128 行 | `usblog-20261115-134638` |
 +| 参照 | brightness-9（旧格式） | `ca992179…` | `7e809dc5…` | 行为同 13：control=0、无 SIGSEGV、SpringBoard 208 行；判定器只能给 INCONCLUSIVE（日志无 `stats=`） | `usblog-20261115-134001` |
-+| 3（预注册） | brightness-15 | `67acb403…` | `513cc329…` | 待飞：control=1 + 删半截标定字典（b4 崩因修复） | 见文末第 3 轮 |
++| 3 | brightness-15 | `67acb403…` | `513cc329…` | **PASS（发布层）**：control=1 / conformance=1 / 无 sig=11 / first frame / SpringBoard 128；物理可调但两端与 Android 不符 | `usblog-20261117-004800` |
++| 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
++| 5 | brightness-17 | `8b2d6332…` | `4f107428…` | **PASS（12 位路径 / 最低端点）**：conformance=1 / control=1 / 无 sig=11 / first frame / SpringBoard 133；请求行 14 条（level 1024→0x800、level 1→0x1）；**DBV 1 在夜间黑屏**（用户实测），最高档未拉（夜间） | `usblog-20261117-0245-brightness17` |
++| 6 | brightness-18 | `3e516e73…` | `28436472…` | **发布层 PASS**：conformance=1 / control=1 / dbv 0xfff / 无 sig=11 / first frame / SpringBoard 128；两次采集内用户未拖滑块，最低 `0x14` 观感仍待测 | `usblog-20261117-0306-brightness18`、`usblog-20261117-0313-brightness18b` |
 +
 +brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 +
@@ -51,40 +54,136 @@ index 00000000..64b4e03c
 +  说明请求根本没到服务（预期中的可能结果），那就需要另设计一条不触发 int-236 的接管路径，
 +  而不是重飞 `control=1` 的旧图（brightness-4 已崩 4 次）。
 +
-+## 滑块三档实测要看的三个数字
++## 滑块三档实测要看的三个数字（第 4 轮起口径）
 +
 +用户在场时拉一次亮度滑块（最低 / 中间 / 最高各停一次），只看三处：
 +
 +1. **屏幕**：亮度是否随之变化（这是唯一能证明物理调光的证据，DCS 0x51 没有读回命令）。
-+2. **`stats[1]`**：请求计数是否随滑动增加；不增 = 请求没到服务（CoreBrightness 未接管）。
-+3. **`published level` 行 / `stats[2]`、`stats[4]`**：每次请求后内核会重新 publish 一行，
-+   看 level 与 DBV 是否跟着三档变化（例如 0 / ~1024 / 2047）。
++2. **每请求一行日志**：`K60 BACKLIGHT: brightness… -> level … dbv 0x…`。第 4 轮起每个请求打一行，
++   行里同时给出 CoreBrightness 用的键（`brightness-nits` 还是 `brightness`）、滑块量程与落到的 DBV。
++   没有这一行 = 请求根本没到服务（CoreBrightness 未接管），不是「调光无效」。
++3. **两端的 DBV**：最低档应落到 `dbv 0x14`（第 6 轮起）、最高档 `dbv 0xfff`（第 5 轮起的 12 位域；
++   第 4 轮是 8 位的 `0xff`；第 5 轮曾把最低定为 0x1，实测夜间黑屏）。这两端是 Android 对照的硬指标；中间档只记不判。
 +
-+前两项任一为否，都不能算「亮度可调」已验收；只能算「发布层安全」已验收。
++第 3 轮（brightness-15）没有每请求日志，`stats[1]` 事后读不到，只能靠「屏上可见变化」判物理链路；
++那一轮的 `published level` 行是启动时打的一次快照，不能当三档读数。
 +
-+## 第 3 轮（预注册，2026-11-16；镜像 brightness-15，待飞）
++## 第 3 轮（2026-11-17 00:48）— brightness-15 control=1：发布层 PASS，两端不对
 +
-+- 镜像：`brightness-15`，`boot.img` sha256 `67acb403…`（201,887,744 B），
-+  `kernel.macho` sha256 `513cc329…`（105,521,152 B）；manifest repo head `a322b58`、dirty 0、
-+  series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
-+- 改动：`publishCalibration` 不再发布 `backlight-calibration-parameters`。b4 的 SIGSEGV 根因是
-+  半截字典让 CoreBrightness 的 `CFNumberGetValue` 收到 NULL，见 `INT-236-CHAIN.md` §11。
-+- 预注册判据（飞之前写死，不事后解释）：
-+  1. **PASS（发布层）**：日志有 `conformance=1 control=1` 的 published 行；`sig=11` 计数 0；
-+     `entered backboardd` 1 次；SpringBoard ≥100 行；`first frame presented` ≥1。
-+  2. **PASS（物理调光）**：用户拉滑块 min/mid/max，屏上可见变化，`stats[1]` 递增，
-+     `stats[2]/stats[4]` 跟随；屏幕全程持续更新。
-+  3. **FAIL**：任一 `sig=11`、无 first frame、停更、或三档无可见变化。FAIL 即停 control=1 路线
-+     （交付保持 `control=0` 的 brightness-13），转 SnapAdreno 的 swap-record 路线。
-+  4. **INCONCLUSIVE**：`conformance=0`（impersonation 未成立、control 没申请）——等同没测，不是失败。
-+- 判读命令：`python3 scripts/check-backlight-log.py <console.log>`；物理三档另记 published 行里的 `stats=`。
++- **镜像**：`brightness-15`，`boot.img` sha256
++  `67acb40376a468137401f65483169809e064c3f905e1e9b13c0ce54cea103ff6`（201,887,744 B；
++  fastboot 启动时打印的前缀 `67ACB403…` 与构建一致）；`kernel.macho` sha256
++  `513cc329347eef2715635cd5fb3ec4f692c56e487281bccc4cff86268fd7a4fe`（105,521,152 B）；
++  manifest repo head `a322b58`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
++- **改动**：`publishCalibration` 不再发布 `backlight-calibration-parameters`（b4 的半截字典让
++  CoreBrightness 的 `CFNumberGetValue` 收到 NULL，见 `INT-236-CHAIN.md` §11）。
++- **日志**：`E:\k60-work\evidence\usblog-20261117-004800\console.log`，236,694 B；
++  `sig=11` 0 次、`getBytes:range|unrecognized selector` 0 次、无 panic。
++- **判据 1（发布层）PASS**：`:184` 的 published 行
++  `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`
++  —— **`conformance=1` 第一次在真机成立**，`backlight-control` 已发布，int-236 未复现；
++  `:1284` `Pong UI: 20G81 compatibility library entered backboardd`；
++  `:2292` `K60 DISPLAY: first frame presented (swap 1, 1440x3200 canvas on 1440x3200 panel)`；
++  SpringBoard 128 行。
++- **判据 2（物理调光）部分 PASS**：用户拉滑块，屏上可见变化 ⇒ 请求确实到达服务、DCS 0x51 生效。
++  `stats[1]` 无法事后读（该构建每个请求不打日志，published 行只在启动时打一次）⇒ 这一子项记
++  INCONCLUSIVE，由第 4 轮的 per-request 行补上。
++- **新问题**：两端与 Android 不一致 —— 最低不够低、最高疑似不到顶。离线分析：CoreBrightness 走它
++  自己的默认标定 5 / 140 / 400 nits，而本构建 `levelFromNits` 是 nits*kMaxLevel/kMaxNits 线性映射
++  （kMaxNits=500）⇒ 400 nits 只到 level 1638 = DBV 0xcc、5 nits 只到 DBV 0x03；面板下限 DBV 0x01、
++  上限 0xff。修法见第 4 轮。
++
++## 第 4 轮（2026-11-17 01:30 / 01:37）— brightness-16：8 位 DBV 两端到达，最低仍不够低
++
++- **镜像**：`brightness-16`（commit `f4679902`，父 `c6cd304`）；`boot.img` sha256
++  `bfaa3912a0e4dd3828681ca4b0a847a043f9fb2c85c0360537fd9e0d3ce21d98`（201,887,744 B）；
++  `kernel.macho` sha256 `845c3c9db9580287b5cdce74eaaf65aedfe29e0cb098691c4f210098ae076a13`；
++  manifest repo head `f97ab49`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
++- **改动（相对第 3 轮两处）**：`kMinNits=5` / `kMidNits=140` / `kMaxNits=400`，`levelFromNits` 把
++  CoreBrightness 的 [5..400] nits 区间拉伸到 level [1..2047]；`setProperties` 每条请求打一行日志。
++- **第一飞**（`E:\k60-work\evidence\usblog-20261117-013028-658\console.log`，249,449 B）：`:184` published
++  `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；
++  `first frame presented` 1 次；首次出现每请求行 `:2240 K60 BACKLIGHT: brightness level 1024 -> level 1024 dbv 0x80`、
++  `:2241 K60 BACKLIGHT: brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ **16.6.1 拖滑块走的是 `brightness` 键，
++  不是 `brightness-nits`**（后者只在启动时发一次 0.0）。
++- **第二飞**（`E:\k60-work\evidence\usblog-20261117-013717-505\console.log`，264,170 B；先拉最顶 3 秒、
++  再拉最底 3 秒）：`:2930` `brightness level 2047 -> level 2047 dbv 0xff`（2045/2046 也到 0xff）；
++  `:3205` `brightness level 1 -> level 1 dbv 0x1`；请求行 53 条（52 条 `brightness level` + 1 条
++  `brightness-nits`）；`sig=11` 0、entered backboardd 1、SpringBoard 129、`getBytes:range` 0。
++- **判据 1（发布层）PASS**；**判据 2（请求可见）PASS**；**判据 3（最高）在 8 位域 PASS**（0xff）；
++  **判据 4（最低）在 8 位域 PASS**（0x1），但**观感仍不够低**：8 位底 1/255 ≈ 0.39%，而本板面板
++  live FDT 是 12 位域（`qcom,mdss-dsi-bl-max-level=0xfff`、`bl-min-level=0x1`、`bl-inverted-dbv`），
++  Android 最低 1/4095 ≈ 0.024%，相差 16 倍 ⇒ 第 5 轮改 12 位双字节写入。
++- **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`。
++
++## 第 5 轮（2026-11-17 02:40）— brightness-17：12 位路径生效，DBV 1 夜间黑屏
++
++- **镜像**：`brightness-17`（commit `89bf2073`）；`boot.img` sha256
++  `8b2d63327d68e778639e0918460bd5662993cff40e5f0efbb941309b6e02c053`（201,887,744 B）；
++  `kernel.macho` sha256 `4f107428231442979dda8fa17324754f3e6615f170dbc1378b762ef508d70698`；
++  manifest repo head `89bf2073`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
++- **改动（相对第 4 轮两处）**：
++  1. `PongDsiPanel.cpp`：`pong_panel_set_brightness` 与 bring-up 都改发两字节 DCS 0x51
++     （`pong_panel_dbv_bytes()`：高字节在前 `{level>>8, level&0xff}`）；bring-up 发 `0x51 0x0f 0xff`，
++     `panel_brightness=0xfff`。依据：live FDT `qcom,mdss-dsi-bl-max-level=0xfff`、`bl-min-level=0x1`、
++     `qcom,mdss-dsi-bl-inverted-dbv` 存在；Android `dsi_panel_update_backlight()` 对 `bl_inverted_dbv`
++     先交换字节，`mipi_dsi_dcs_set_display_brightness()` 永远发 `u8 payload[2]`，`sde_connector` 把
++     brightness 夹到 `bl_max_level=0xfff` 后下发。0x51 双字节 = DCS long write，报文头布局与
++     vendor `dsi_ctrl_copy_and_pad_cmd()` 的 `{wc, datatype, flags}` 逐位一致。
++  2. `K60BacklightCodec.h`：`kMaxDbv=0xfff`，`dbvFromLevel`/`levelFromDbv` 以
++     `kDarkestLevel(1) -> kMinDbvOn(1)`、`kMaxLevel(2047) -> kMaxDbv(4095)` 端点对齐。
++- **日志**：`E:\k60-work\evidence\usblog-20261117-0245-brightness17\console.log`，245,740 B / 3,629 行；
++  `sig=11` 0、`getBytes:range|unrecognized selector` 0、无 panic。
++- **判据 1（发布层）PASS**：`:184` published 行
++  `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；
++  `:1261` entered backboardd、`:2414` first frame presented；SpringBoard 133 行。
++- **判据 2（请求可见）PASS**：请求行 14 条。`:2186` `brightness level 1024 -> level 1024 dbv 0x800`
++  （启动默认），`:3573` `brightness level 1 -> level 1 dbv 0x1`（用户拉到最低）。
++- **判据 3（最高）未测**：用户说「我没拉最高 现在是晚上」；请求行最大 `dbv 0x800`。但 bring-up
++  `:182` `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`、`:183` bring-up complete ⇒
++  12 位最大写已在面板上执行；滑块路径的最高只差用户操作。
++- **判据 4（最低）FAIL（观感）**：协议端到达 `dbv 0x1`，但用户实测「拉到最低会黑屏，只能盲点调高」
++  ⇒ DBV 1 低于这块面板的可用点亮下限；DT `bl-min-level=0x1` 只是寄存器下限，不是可见下限。
++- **判读结论**：12 位双字节路径 PASS（请求 0x800/0x1 都按 12 位缩放，未再出现 8 位的 ×16 跳变）；
++  最低端点要把 floor 提回 Xiaomi 自己的 `mi,doze-lbm-dbv-level = 0x14`（live FDT m11a）。第 6 轮。
++
++## 第 6 轮（2026-11-17 03:12 起飞；brightness-18：发布层 PASS，最低端点待用户拖滑块）
++
++- **镜像**：`brightness-18`（代码 commit `82c0f51d`）；`boot.img` sha256
++  `3e516e73c0ee7b86b6eb30268ddc8c57b62ee5abef08417b7b053f4d22677cc8`（201,887,744 B）；
++  `kernel.macho` sha256 `28436472ddf5ba9b8b0027a31862da3cb8f331344f538b69ccd76f43d6dfb780`；
++  manifest repo head `6a2df51e`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
++- **改动（相对第 5 轮只有一个常量）**：`K60BacklightCodec.h` 的 `kMinDbvOn` 从 `0x1` 改为 `0x14`；
++  `dbvFromLevel` / `levelFromDbv` 的端点变为 `kDarkestLevel(1) -> DBV 0x14`、
++  `kMaxLevel(2047) -> DBV 0xfff`。依据：live FDT m11a 的 `mi,doze-lbm-dbv-level = 0x14`
++  （Xiaomi 自己在 doze 低亮档用的 DBV），以及第 5 轮 DBV 1 夜间黑屏。没有改任何其它路径。
++- **预注册判据**：
++  1. **PASS（发布层）**：published 行 `conformance=1 control=1`、`dbv 0xfff`；`sig=11` 0；entered 1；
++     SpringBoard ≥100；first frame ≥1。
++  2. **PASS（请求可见）**：≥3 条 `K60 BACKLIGHT: brightness…` 行。
++  3. **PASS（最低）**：最低档请求行 `dbv 0x14`，且用户能看到界面内容（不是黑屏）；观感应比第 4 轮
++     8 位最低档更暗。
++  4. **最高**：夜间不要求拉最高；若用户愿意，最高档请求行应为 `dbv 0xfff`（映射端点已由 host 单测固定）。
++  5. **FAIL**：任一 `sig=11`、无 first frame、无请求行、最低档不是 `dbv 0x14`、或最低档仍黑屏。
++- **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
++  `grep -a 'K60 PANEL:' <console.log>`。
++- **第一飞（2026-11-17 03:06 / 03:13 两次，证据 `usblog-20261117-0306-brightness18` 与
++  `usblog-20261117-0313-brightness18b`）**：两次都进到桌面；第二次 `console.log` 232,718 B。
++  `:184` published 行 `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1
++  stats=4,0,2047,2047 req=0,0,1,1`；`:182` `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`；
++  `:1261` entered backboardd、`:2423` first frame presented；SpringBoard 128 行、`sig=11` 0。
++  请求行只有启动两条：`:2212` `brightness level 1024 -> level 1024 dbv 0x80a`、
++  `:2213` `brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ 用户未在采集窗口内拖滑块，
++  **判据 2（请求可见）与判据 3（最低 `0x14` 可见）未测，不能判 PASS 或 FAIL**；发布层与
++  最高 `0xfff` 已 PASS。
++
 +
 diff --git a/docs/research/display/BRIGHTNESS-PLAN.md b/docs/research/display/BRIGHTNESS-PLAN.md
 new file mode 100644
-index 00000000..bd720b15
+index 00000000..0797eaab
 --- /dev/null
 +++ b/docs/research/display/BRIGHTNESS-PLAN.md
-@@ -0,0 +1,217 @@
+@@ -0,0 +1,221 @@
 +# K60 亮度方案（BRIGHTNESS-PLAN）
 +
 +> 目标：把显示线从「面板点亮（0x51 0xff 一次性）」推进到「OS 级亮度服务」——iOS 滑块真正改变
@@ -287,21 +386,25 @@ index 00000000..bd720b15
 +
 +| 层次 | 手段 | 产物 |
 +|---|---|---|
-+| 编码器（host） | `python3 scripts/check-brightness-encoder.py`：0..255 映射端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且落点精确 | 本目录 + 脚本输出 |
++| 编码器（host） | `python3 scripts/check-brightness-encoder.py`：0..4095 映射端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且落点精确 | 本目录 + 脚本输出 |
 +| 静态（host） | `scripts/build-pong-adreno-platform.py` 编译新增源文件（arm64 kernel target）；`scripts/check-porting-paths.py`；`scripts/eight-step-gate.py --build` | 构建日志 |
 +| 产物（host） | `scripts/build-strict.sh` 产出 `kernel.macho`，`llvm-nm` 必须出现 `_k60_backlight_start`、`_native_backlight_stats` | `build-manifest.json` + nm 输出 |
 +| 真机（Lead） | ①上电后 `ioreg -l | grep -i backlight` 能看到 `backlight-control` 与 `IODisplayParameters`；②拖动亮度滑块，日志/计数变化；③`native_backlight_stats[1]` 递增；④min/mid/max 三档 `stats[2]/[4]` 不同且屏上可见；⑤渐变（FadePeriod）无跳变；⑥屏幕不停更（int-236 回归项） | 交给 Lead 执行，本线**禁止自行 boot** |
 +
 +## 8. 开放问题（诚实标注，勿当结论）
 +
-+1. 面板 live FDT 的 `bl-max=0xfff`（12 位）与 bring-up 实发的 `0x51 0xff`（8 位）不一致：
-+   本方案按 **8 位 DBV** 实现（与既有 `pong_panel_set_brightness` 的 0..255 契约一致）。若真机上
-+   8 位域过粗（255 档在暗端可见跳变），再评估 0x51 双字节 12 位写入——**待验证**，需要面板
-+   spec 或真机实验，不在本次改动内。
-+2. `bl-inverted-dbv` 是否在本面板上真的生效：bring-up 发 `0xff` 后面板亮，说明默认不反相；
-+   仍留 `k60_backlight_invert` 兜底，**待真机验证**。
++1. ~~面板 live FDT 的 `bl-max=0xfff`（12 位）与 bring-up 实发的 `0x51 0xff`（8 位）不一致~~
++   **已解决（2026-11-17）**：Android 的 `mipi_dsi_dcs_set_display_brightness()` 对本板
++   （`bl-inverted-dbv`）实际发 `0x51 0x0f 0xff`（两字节、12 位），本实现已改为双字节写入，
++   `K60BacklightCodec.h` 的 DBV 域同步改为 0..0xfff。
++2. `bl-inverted-dbv` 的含义已按 Android 源码确认是**字节序**：`dsi_panel_update_backlight()`
++   先把 16 位值交换字节，再交给固定小端的 DCS 写入；本实现直接按高字节在前发送，等效。
++   `k60_backlight_invert` 仍留作反相兜底。
 +3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
 +   仅由 host 单测覆盖，**待未来系统验证**。
++4. **12 位域的最低可用 DBV 不是寄存器下限**：DT `qcom,mdss-dsi-bl-min-level=0x1` 在真机把屏幕拉到全黑
++   （brightness-17 实测，用户只能盲点调高）；第 6 轮起改用 Xiaomi 自己的 `mi,doze-lbm-dbv-level=0x14`
++   作为可见下限。**待 brightness-18 真机确认**。
 diff --git a/docs/research/display/RESEARCH.md b/docs/research/display/RESEARCH.md
 index 865c7960..0d0a7df0 100644
 --- a/docs/research/display/RESEARCH.md
@@ -471,10 +574,10 @@ index 00000000..b4759ff4
 +```
 diff --git a/drivers/PongAdreno/K60Backlight.cpp b/drivers/PongAdreno/K60Backlight.cpp
 new file mode 100644
-index 00000000..2f441df0
+index 00000000..02fb8c10
 --- /dev/null
 +++ b/drivers/PongAdreno/K60Backlight.cpp
-@@ -0,0 +1,483 @@
+@@ -0,0 +1,501 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/*
 + * K60Backlight.cpp - the OS facing half of the K60 brightness service.
@@ -781,7 +884,7 @@ index 00000000..2f441df0
 +
 +/* The reference waits for both engines to answer a level read first; here the
 + * panel is already lit by bring-up, so the published value is whatever DBV the
-+ * panel was left at (0xff, PongDsiPanel.cpp:236). */
++ * panel was left at (0xfff, PongDsiPanel.cpp bring-up). */
 +void K60Backlight::publishFirst(void)
 +{
 +    published = true;
@@ -853,9 +956,13 @@ index 00000000..2f441df0
 +    if (!dictionary) return kIOReturnBadArgument;
 +    uint32_t goal;
 +    uint32_t milliseconds = 0;
++    bool nitsRequest = false;
++    int32_t nitsQ16 = 0;
 +    if (OSNumber *nits = OSDynamicCast(OSNumber, dictionary->getObject("brightness-nits"))) {
 +        /* iPadOS 27: signed 16.16 nits, ramped by the caller. */
-+        goal = k60backlight::levelFromNits((int32_t)nits->unsigned32BitValue());
++        nitsQ16 = (int32_t)nits->unsigned32BitValue();
++        nitsRequest = true;
++        goal = k60backlight::levelFromNits(nitsQ16);
 +    } else if (OSNumber *brightness = OSDynamicCast(OSNumber, dictionary->getObject("brightness"))) {
 +        OSNumber *fadePeriod = OSDynamicCast(OSNumber, dictionary->getObject("FadePeriod"));
 +        goal = k60backlight::clampLevel((int64_t)(int32_t)brightness->unsigned32BitValue());
@@ -863,6 +970,20 @@ index 00000000..2f441df0
 +            milliseconds = k60backlight::fadeMsFromFixed((uint64_t)fadePeriod->unsigned32BitValue());
 +    } else {
 +        return kIOReturnSuccess;
++    }
++    /* One line per request, so a boot log answers "what does the OS actually
++     * send at the top and the bottom of the slider" without a debugger. The
++     * published line alone cannot: it is written before any request arrives
++     * (brightness-15 showed req=0,0). A slider drag writes a handful of lines;
++     * fades do not, because only requests pass through here. */
++    if (nitsRequest) {
++        IOLog("K60 BACKLIGHT: brightness-nits %d.%05u -> level %u dbv 0x%x\n",
++              (int)(nitsQ16 >> 16),
++              (unsigned)((((uint32_t)nitsQ16 & 0xffffu) * 100000u) >> 16),
++              goal, (unsigned)k60backlight::dbvFromLevel(goal));
++    } else {
++        IOLog("K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x\n",
++              goal, goal, (unsigned)k60backlight::dbvFromLevel(goal));
 +    }
 +    __atomic_fetch_add(&native_backlight_stats[1], 1, __ATOMIC_RELAXED);
 +    native_backlight_request[0] = (int32_t)goal;
@@ -960,28 +1081,37 @@ index 00000000..2f441df0
 +}
 diff --git a/drivers/PongAdreno/K60BacklightCodec.h b/drivers/PongAdreno/K60BacklightCodec.h
 new file mode 100644
-index 00000000..74021012
+index 00000000..6d252547
 --- /dev/null
 +++ b/drivers/PongAdreno/K60BacklightCodec.h
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,164 @@
 +// SPDX-License-Identifier: APSL-2.0
 +//
 +// K60BacklightCodec.h - the encoding half of the K60 brightness service.
 +//
 +// K60 has no backlight IC: the panel takes its brightness as the DSI DCS 0x51
-+// long write (online DBV), which drivers/PongAdreno/PongDsiPanel.cpp:247 already
++// write (online DBV), which drivers/PongAdreno/PongDsiPanel.cpp:247 already
 +// sends. What was missing is the *encoding* layer between the domain the OS talks
-+// in and the 8 bit DBV the panel takes, so it lives here, free of IOKit, and is
++// in and the 12 bit DBV the panel takes, so it lives here, free of IOKit, and is
 +// unit tested on the host by scripts/check-brightness-encoder.py.
 +//
 +// Two domains:
 +//   OS   : 0..kMaxLevel (2047), the scale CoreBrightness/backboardd uses, see
 +//          UniXNU-sheng/package/AppleARMBacklight.cpp kMaxLevel.
-+//   panel: 0..0xff, the byte carried in DCS 0x51. 0 means "off", 1 is the
-+//          dimmest lit step, 0xff is the brightest.
-+// The live FDT also advertises bl-max = 0xfff / bl-min = 0x1 (docs/research/
-+// display/RESEARCH.md:76), but that is the vendor 12 bit domain; the 0x51 write
-+// that actually lights this panel is 8 bit (0x51 0xff at bring-up, PongDsiPanel.cpp:236).
++//   panel: 0..0xfff, the two-byte value carried in DCS 0x51. 0 means "off";
++//          0x14 is the dimmest lit level, 0xfff is the brightest. The live m11a
++//          node gives two independent anchors: qcom,mdss-dsi-bl-min-level = 0x1
++//          is the register floor, and mi,doze-lbm-dbv-level = 0x14 is the value
++//          Xiaomi itself uses for doze low-brightness. brightness-17 drove DBV 1
++//          at night and the panel went black (user report, 2026-11-17), so 0x14
++//          is the lowest level that is known to light the panel.
++// The live FDT advertises bl-max = 0xfff, the vendor 12 bit domain, and Android
++// writes it as two bytes: dsi_panel_update_backlight() byte-swaps under
++// bl-inverted-dbv and mipi_dsi_dcs_set_display_brightness() always sends
++// u8 payload[2] = {v & 0xff, v >> 8} (LineageOS sm8250 dsi_panel.c /
++// drm_mipi_dsi.c). brightness-16 sent one byte, which this panel reads left
++// aligned (0x01 -> 0x0100, 6% of 4095), so the bottom of the slider never got
++// dark. PongDsiPanel.cpp now writes the two bytes.
 +
 +#ifndef K60_BACKLIGHT_CODEC_H
 +#define K60_BACKLIGHT_CODEC_H
@@ -992,13 +1122,23 @@ index 00000000..74021012
 +
 +enum : uint32_t {
 +    kMaxLevel = 2047,   // OS brightness domain, matches AppleARMBacklight kMaxLevel
-+    kMinNits = 2,       // calibration points published to CoreBrightness
++    /* CoreBrightness' own default calibration points. This port never publishes
++     * backlight-calibration-parameters (a partial dictionary kills backboardd),
++     * so 20G81 falls back to 5 / 140 / 400 nits (CoreBrightness 0x1af031684)
++     * and brightness-nits arrives inside that range. Keeping different numbers
++     * here would misplace both ends of the slider. */
++    kMinNits = 5,
 +    kMidNits = 140,
-+    kMaxNits = 500,
++    kMaxNits = 400,
++    /* The level the dimmest request maps to: dbvFromLevel() turns 1..4 into
++     * kMinDbvOn, the dimmest DBV that still lights the panel. */
++    kDarkestLevel = 1,
 +    kMaxFadeMs = 5000,  // a FadePeriod longer than this is clamped
 +    kStepMs = 16,       // fade step cadence
-+    kMaxDbv = 0xff,     // panel DBV domain carried by DCS 0x51
-+    kMinDbvOn = 1,      // dimmest value that still lights the panel
++    kMaxDbv = 0xfff,    // panel 12 bit DBV domain, two bytes in DCS 0x51
++    /* Xiaomi's doze low-brightness level from the live m11a node
++     * (mi,doze-lbm-dbv-level = 0x14). brightness-17 at DBV 1 was black. */
++    kMinDbvOn = 0x14,
 +};
 +
 +// Clamp a raw request into the OS domain.
@@ -1018,16 +1158,25 @@ index 00000000..74021012
 +}
 +
 +// brightness-nits request (signed 16.16 fixed point nits) -> OS level.
-+// Anything at or below zero is "off"; otherwise scale to the panel's nits and
-+// never hand back a lit level of 0.
++// Anything at or below zero is "off"; otherwise the request range is stretched
++// over the whole panel range: the dimmest request lands on kDarkestLevel
++// (DBV 0x14) and the brightest on kMaxLevel (DBV 0xfff). A plain linear nits->level
++// scale is what brightness-15 shipped and the slider's two ends missed the
++// panel's: 400 nits stopped at DBV 0xcc of the then-8-bit domain (204 of 255,
++// the top visibly below the panel maximum) while the dimmest 5 nits request
++// still came out at DBV 0x03.
++// Measured on brightness-15, 2026-11-17.
 +static inline uint32_t levelFromNits(int32_t fixedNits)
 +{
 +    if (fixedNits <= 0) return 0;
-+    const uint64_t scale = (uint64_t)kMaxNits << 16;
-+    const uint64_t scaled = ((uint64_t)(uint32_t)fixedNits * (uint64_t)kMaxLevel + scale / 2) / scale;
-+    if (scaled < (uint64_t)kMinDbvOn) return kMinDbvOn;
-+    if (scaled > (uint64_t)kMaxLevel) return kMaxLevel;
-+    return (uint32_t)scaled;
++    const uint64_t nits = (uint32_t)fixedNits;
++    const uint64_t low = (uint64_t)kMinNits << 16;
++    const uint64_t high = (uint64_t)kMaxNits << 16;
++    if (nits <= low) return kDarkestLevel;
++    if (nits >= high) return kMaxLevel;
++    const uint64_t span = high - low;
++    const uint64_t steps = (nits - low) * (uint64_t)(kMaxLevel - kDarkestLevel);
++    return kDarkestLevel + (uint32_t)((steps + span / 2) / span);
 +}
 +
 +// FadePeriod arrives as 16.16 fixed point seconds; the service works in ms.
@@ -1054,8 +1203,13 @@ index 00000000..74021012
 +{
 +    const uint32_t clamped = clampLevel((int64_t)level);
 +    if (clamped == 0) return 0;
-+    const uint32_t span = kMaxDbv - kMinDbvOn;                 // 254
-+    const uint32_t steps = (clamped * span + kMaxLevel / 2) / kMaxLevel;
++    /* Endpoint exact: kDarkestLevel -> kMinDbvOn, kMaxLevel -> kMaxDbv. The
++     * panel has 4095 DBV steps for 2047 OS levels, so consecutive levels move
++     * by one or two DBV steps; the floor must still be reachable. */
++    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4075
++    const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
++    const uint32_t steps =
++        ((clamped - kDarkestLevel) * spanDbv + spanLevel / 2) / spanLevel;
 +    return kMinDbvOn + steps;
 +}
 +
@@ -1064,14 +1218,14 @@ index 00000000..74021012
 +{
 +    if (dbv == 0) return 0;
 +    const uint32_t d = dbv > kMaxDbv ? kMaxDbv : dbv;
-+    const uint32_t span = kMaxDbv - kMinDbvOn;                 // 254
-+    const uint32_t steps = ((d - kMinDbvOn) * kMaxLevel + span / 2) / span;
-+    if (steps < kMinDbvOn) return kMinDbvOn;
-+    return steps > kMaxLevel ? kMaxLevel : steps;
++    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4075
++    const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
++    const uint32_t steps = ((d - kMinDbvOn) * spanLevel + spanDbv / 2) / spanDbv;
++    return kDarkestLevel + steps;
 +}
 +
 +// Some panels wire DBV inverted (live FDT bl-inverted-dbv, RESEARCH.md:77).
-+// K60 sends 0xff at bring-up and the panel comes up bright, so the default is
++// K60 sends 0xfff at bring-up and the panel comes up bright, so the default is
 +// not inverted; the boot-arg k60_backlight_invert flips this if a board turns
 +// out the other way round.
 +static inline uint32_t applyInvert(uint32_t dbv, bool invert)
@@ -1120,6 +1274,96 @@ index 1d4777fa..641c0ac0 100644
      unsigned enabled=0;
      if(scanout_gate || !PE_parse_boot_argn("pong_gpu_scanout",&enabled,sizeof(enabled)) || enabled!=1)return;
      if(!address || (address&4095) || !width || !height || stride<uint64_t(width)*4 ||
+diff --git a/drivers/PongAdreno/PongDsiPanel.cpp b/drivers/PongAdreno/PongDsiPanel.cpp
+index 71040df0..e4dda8a9 100644
+--- a/drivers/PongAdreno/PongDsiPanel.cpp
++++ b/drivers/PongAdreno/PongDsiPanel.cpp
+@@ -274,15 +274,6 @@ int dsi_dcs(const uint8_t *buf, uint32_t len, bool lp)
+ 	return rc;
+ }
+ 
+-int dsi_write1(uint8_t cmd, uint8_t value)
+-{
+-	uint8_t buf[2] = { cmd, value };
+-	if (value == 0xff && cmd == 0x51) {
+-		return dsi_dcs(buf, 2, false);
+-	}
+-	return dsi_dcs(buf, 2, false);
+-}
+-
+ int dsi_write0(uint8_t cmd)
+ {
+ 	return dsi_dcs(&cmd, 1, false);
+@@ -317,13 +308,21 @@ extern "C" bool pong_panel_bringup(void)
+ 	}
+ 	IODelay(20 * 1000);
+ 
+-	panel_log("K60 PANEL: sending DCS 0x51 0xff (brightness max)\n");
+-	rc = dsi_write1(0x51, 0xff);
++	/* The vendor range is 12 bit (live FDT bl-max = 0xfff) and Android writes
++	 * it as two bytes: mipi_dsi_dcs_set_display_brightness() always sends
++	 * {v & 0xff, v >> 8}, and bl-inverted-dbv byte-swaps that to {0x0f, 0xff}
++	 * for the maximum. A single 0xff byte is read left aligned by this panel
++	 * (0xff00 clamped to 0xfff), which is why the old 8 bit path could not go
++	 * dark at the bottom of the slider. */
++	panel_log("K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)\n");
++	uint8_t brightness[3] = { 0x51, 0, 0 };
++	pong_panel_dbv_bytes(0xfff, &brightness[1]);
++	rc = dsi_dcs(brightness, sizeof(brightness), false);
+ 	if (rc) {
+ 		panel_on_result = rc;
+ 		return false;
+ 	}
+-	panel_brightness = 0xff;
++	panel_brightness = 0xfff;
+ 	panel_on_result = 0;
+ 	panel_log("K60 PANEL: bring-up complete (0x11/0x29/0x51), MDP-busy waits=%u\n", dsi_mdp_waits);
+     unsigned probe=0;
+@@ -390,10 +389,15 @@ extern "C" int pong_panel_set_brightness(uint32_t level)
+ 	if (!panel_on_done || panel_on_result != 0) {
+ 		return -1;
+ 	}
+-	if (level > 0xff) {
+-		level = 0xff;
++	if (level > 0xfff) {
++		level = 0xfff;
+ 	}
+-	const int rc = dsi_write1(0x51, (uint8_t)level);
++	/* Two-byte DCS 0x51: 12 bit DBV, most significant byte first, which is the
++	 * same wire order Android produces for this panel's bl-inverted-dbv. The
++	 * controller takes a three-byte command as a long write (dsi_dcs len > 2). */
++	uint8_t payload[3] = { 0x51, 0, 0 };
++	pong_panel_dbv_bytes(level, &payload[1]);
++	const int rc = dsi_dcs(payload, sizeof(payload), false);
+ 	if (!rc) {
+ 		panel_brightness = level;
+ 	}
+diff --git a/drivers/PongAdreno/PongDsiPanel.h b/drivers/PongAdreno/PongDsiPanel.h
+index e74480fe..5e5af66f 100644
+--- a/drivers/PongAdreno/PongDsiPanel.h
++++ b/drivers/PongAdreno/PongDsiPanel.h
+@@ -13,12 +13,20 @@
+  */
+ extern "C" bool pong_panel_bringup(void);
+ 
+-/* 0..255; returns 0 on success. */
++/* 0..4095 (12 bit DCS 0x51); returns 0 on success. */
+ extern "C" int pong_panel_set_brightness(uint32_t level);
+ 
+ /* Last brightness written (0 when bring-up has not succeeded yet). */
+ extern "C" uint32_t pong_panel_brightness(void);
+ 
++/* Wire order for DCS 0x51: a 12 bit DBV, most significant byte first, which is
++ * the order Android produces for this panel's bl-inverted-dbv. */
++static inline void pong_panel_dbv_bytes(uint32_t level, uint8_t out[2])
++{
++	out[0] = (uint8_t)(level >> 8);
++	out[1] = (uint8_t)level;
++}
++
+ /* 0 = bring-up succeeded; negative = last failure code; -100 = not attempted. */
+ extern "C" int pong_panel_status(void);
+ 
 diff --git a/scripts/build-pong-adreno-platform-linux.py b/scripts/build-pong-adreno-platform-linux.py
 index a08b7852..d1d8ef90 100644
 --- a/scripts/build-pong-adreno-platform-linux.py
@@ -1146,330 +1390,26 @@ index 527292b2..bae29b84 100644
          'NativeAdrenoBoard','NativeAdrenoClient','NativeAdrenoPublish','NativeAdrenoRing','NativeAdrenoCpInit','NativeAdrenoTimer','NativeAdrenoIrq','NativeAdrenoPwrup',
          'NativeAdrenoCpu','NativeAdrenoMemory','NativeAdrenoSmmuMemory',
          'NativeAdrenoSmmuContext','NativeAdrenoVm','NativeAdrenoSubmit','NativeAdrenoUserClient']]
-diff --git a/scripts/check-backlight-log.py b/scripts/check-backlight-log.py
-new file mode 100644
-index 00000000..6712b582
---- /dev/null
-+++ b/scripts/check-backlight-log.py
-@@ -0,0 +1,299 @@
-+#!/usr/bin/env python3
-+"""Judge a K60 console log against the brightness service criteria.
-+
-+Why this exists: brightness-9 and brightness-10 differ by one kernel argument,
-+and the question they answer is whether publishing backlight-control is what
-+made backboardd crash on brightness-4 (int-236).  Reading that out of a raw
-+console log by hand invites the wrong answer, because the same log carries a
-+"published level" line in three different shapes across builds, the counters
-+are printed only when a debugger asks, and a crash shows up as "sig=11" far
-+away from the backlight lines.
-+
-+The criteria are the ones written down in
-+docs/research/display/HANDOFF-20261114.md and STATS-INDEX.md:
-+
-+  control=0 (the default image)
-+    1. the service published a level,
-+    2. it did NOT claim backlight-control (and, when the build prints it,
-+       conformance=0),
-+    3. native_backlight_stats[0] == 3 (4 means it published as
-+       AppleARMBacklight) and native_backlight_request[4]/[5] are 0,
-+    4. backboardd did not take a SIGSEGV (sig=11 count 0),
-+    5. the first frame was presented.
-+
-+  control=1 (kernel argument k60_backlight_control=1)
-+    same, but conformance/control must be 1 and stats[0] must be 4.  A log
-+    without those fields is a FAIL here, not a warning: no pre-gate build could
-+    have published control, so the two disagree means the wrong image flew.
-+
-+brightness-13 onwards print the counters inside the published line
-+("stats=stage,requests,level,readback req=goal,ms,conformance,control"), so the
-+verdict no longer needs a debugger.  A log without them is therefore a FAIL on
-+any image built from brightness-13 on: the image is older than its label claims.
-+brightness-9 is deliberately kept as the old-form comparison and is judged with
-+--old-form, which downgrades the missing counters to a warning again.
-+
-+Exit status: 0 pass, 1 fail, 2 the log does not carry the verdict (no
-+backlight line at all, or an old-form log whose counters are absent).
-+
-+Usage:
-+    python3 scripts/check-backlight-log.py <console.log|evidence dir> [--control=1] [--old-form] [--json]
-+    python3 scripts/check-backlight-log.py --selftest
-+"""
-+from __future__ import annotations
-+
-+import json
-+import re
-+import sys
-+from pathlib import Path
-+
-+PUBLISHED = re.compile(
-+    r"K60 BACKLIGHT: published level (\d+) dbv 0x([0-9a-fA-F]+)"
-+    r"(?: conformance=(\d+))?(?: control=(\d+))?")
-+CONFORMANCE = re.compile(
-+    r"K60 BACKLIGHT: conformance AppleARMBacklight=(\d+) control=(\d+)")
-+COUNTER = re.compile(r"(?:native_)?(backlight_stats|backlight_request)\[(\d+)\]\s*[=:]\s*(-?\d+)")
-+# brightness-13 and later: counters carried inside the published line, so one
-+# grep of the log is the whole evidence.
-+INLINE = re.compile(
-+    r"stats=(-?\d+),(-?\d+),(-?\d+),(-?\d+)"
-+    r" req=(-?\d+),(-?\d+),(-?\d+),(-?\d+)")
-+SIGSEGV = re.compile(r"sig=11|SIGSEGV|signal 11")
-+
-+
-+def read_log(target: Path) -> str:
-+    if target.is_dir():
-+        for name in ("console.log", "console.txt", "log.txt"):
-+            candidate = target / name
-+            if candidate.is_file():
-+                return candidate.read_text(errors="replace")
-+        raise SystemExit("no console.log under " + str(target))
-+    if not target.is_file():
-+        raise SystemExit("no such file: " + str(target))
-+    return target.read_text(errors="replace")
-+
-+
-+def parse(text: str) -> dict:
-+    found = {"level": None, "dbv": None, "conformance": None, "control": None,
-+             "stats": {}, "request": {}, "sig11": 0, "first_frame": False,
-+             "springboard": 0, "lines": text.count("\n") + 1, "inline": False}
-+    match = PUBLISHED.search(text)
-+    if match:
-+        found["level"] = int(match.group(1))
-+        found["dbv"] = int(match.group(2), 16)
-+        # brightness-4 printed "... dbv 0xff control 1" with no conformance field.
-+        if match.group(3) is not None:
-+            found["conformance"] = int(match.group(3))
-+            found["control"] = int(match.group(4) or 0)
-+        elif match.group(4) is not None:
-+            found["control"] = int(match.group(4))
-+    separate = CONFORMANCE.search(text)
-+    if separate:
-+        found["conformance"] = int(separate.group(1))
-+        found["control"] = int(separate.group(2))
-+    inline = INLINE.search(text)
-+    if inline:
-+        values = [int(v) for v in inline.groups()]
-+        found["stats"].update({0: values[0], 1: values[1], 2: values[2], 3: values[3]})
-+        found["request"].update({0: values[4], 1: values[5], 4: values[6], 5: values[7]})
-+        found["inline"] = True
-+    for kind, index, value in COUNTER.findall(text):
-+        bucket = "stats" if kind == "backlight_stats" else "request"
-+        found[bucket][int(index)] = int(value)
-+    found["sig11"] = len(SIGSEGV.findall(text))
-+    found["first_frame"] = "first frame presented" in text
-+    found["springboard"] = sum(1 for line in text.splitlines() if "SpringBoard" in line)
-+    return found
-+
-+
-+def judge(found: dict, expect: int, old_form: bool = False) -> tuple[int, list[str]]:
-+    """Return (exit status, report lines).
-+
-+    old_form marks a pre-brightness-13 log (brightness-9 is kept as the old-form
-+    comparison image), where the counters were never printed.  Every later image
-+    carries them in the published line, so there their absence means the log is
-+    older than the image claims - a failure, not an unknown.
-+    """
-+    lines: list[str] = []
-+    failures = 0
-+    unknown = 0
-+    if found["level"] is None:
-+        return 2, ["FAIL the log carries no 'K60 BACKLIGHT: published level' line",
-+                   "     -> the service never ran; check boot-arg k60_backlight and",
-+                   "        whether pong_panel_bringup() succeeded"]
-+    lines.append("service published level %d at dbv 0x%02x" % (found["level"], found["dbv"]))
-+    control = found["control"]
-+    conformance = found["conformance"]
-+    if control is None:
-+        # A log without the field comes from a build that predates the gate, and
-+        # no such build can carry k60_backlight_control=1. Judging it as control=1
-+        # therefore means the wrong image was flown, which is a failure, not an
-+        # unknown. On the default image the same absence is only a warning.
-+        if expect:
-+            failures += 1
-+            lines.append("FAIL no control field, but this image claims control=1: "
-+                         "the log is from an older build (wrong image?)")
-+        else:
-+            lines.append("WARN the published line has no control field (older build)")
-+            unknown += 1
-+    elif control != expect:
-+        failures += 1
-+        lines.append("FAIL control=%d but this image should publish control=%d" % (control, expect))
-+    else:
-+        lines.append("control=%d as expected" % control)
-+    if conformance is None:
-+        if expect:
-+            failures += 1
-+            lines.append("FAIL no conformance field, but this image claims control=1: "
-+                         "an older build cannot have published it")
-+        else:
-+            lines.append("WARN no conformance field: rebuild, brightness-9 and later print it")
-+            unknown += 1
-+    elif conformance != expect:
-+        failures += 1
-+        lines.append("FAIL conformance=%d, expected %d" % (conformance, expect))
-+    else:
-+        lines.append("conformance=%d as expected" % conformance)
-+
-+    stage = found["stats"].get(0)
-+    want_stage = 4 if expect else 3
-+    if stage is None:
-+        if old_form:
-+            lines.append("WARN old-form log: no counters printed (brightness-9 shape)")
-+            unknown += 1
-+        else:
-+            failures += 1
-+            lines.append("FAIL the published line carries no counters: brightness-13 and "
-+                         "later print stats=/req=, so this log is from an older image")
-+    elif stage != want_stage:
-+        failures += 1
-+        lines.append("FAIL stats[0]=%d, expected %d (see STATS-INDEX.md)" % (stage, want_stage))
-+    else:
-+        lines.append("stats[0]=%d as expected" % stage)
-+
-+    for index in (4, 5):
-+        value = found["request"].get(index)
-+        if value is None:
-+            continue
-+        if value != expect:
-+            failures += 1
-+            lines.append("FAIL request[%d]=%d, expected %d" % (index, value, expect))
-+        else:
-+            lines.append("request[%d]=%d as expected" % (index, value))
-+
-+    if found["sig11"]:
-+        failures += 1
-+        lines.append("FAIL backboardd took %d SIGSEGV (sig=11) - int-236 shape"
-+                     % found["sig11"])
-+    else:
-+        lines.append("no SIGSEGV in the log")
-+
-+    if not found["first_frame"]:
-+        failures += 1
-+        lines.append("FAIL 'first frame presented' never appeared")
-+    else:
-+        lines.append("first frame presented")
-+
-+    lines.append("SpringBoard lines: %d" % found["springboard"])
-+    if failures:
-+        return 1, lines
-+    if unknown:
-+        return 2, lines
-+    return 0, lines
-+
-+
-+def selftest() -> int:
-+    """Fixtures shaped like the logs already on disk."""
-+    cases = [
-+        ("brightness-13 default, healthy",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0"
-+         " stats=3,0,2047,255 req=0,0,0,0 (no AppleARMBacklight conformance)\n"
-+         "K60 DISPLAY: first frame presented\n"
-+         "KE 24 26 launchd /System/Library/CoreServices/SpringBoard.app/SpringBoard\n"
-+         "K60RV 2 SpringBoard[26] mem=4608\n",
-+         0, 0, False),
-+        ("brightness-4: control published, backboardd crashed, no frame",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff control 1\n"
-+         "backboardd[55] exited: sig=11\n"
-+         "backboardd[55] exited: sig=11\n"
-+         "KE 24 26 launchd /System/Library/CoreServices/SpringBoard.app/SpringBoard\n",
-+         1, 0, True),
-+        ("brightness-14 with conformance, crashed",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff conformance=1 control=1"
-+         " stats=4,0,2047,255 req=0,0,1,1\n"
-+         "backboardd[55] exited: sig=11\n"
-+         "K60 DISPLAY: first frame presented\n",
-+         1, 1, False),
-+        ("brightness-14 that passed",
-+         "K60 BACKLIGHT: published level 1200 dbv 0x78 conformance=1 control=1"
-+         " stats=4,0,1200,120 req=0,0,1,1\n"
-+         "K60 DISPLAY: first frame presented\n",
-+         0, 1, False),
-+        ("service never ran", "K60 PANEL: bring-up complete (0x11/0x29/0x51)\n", 2, 0, False),
-+        ("brightness-9 old form, healthy but counters absent",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0"
-+         " (no AppleARMBacklight conformance)\n"
-+         "K60 DISPLAY: first frame presented\n", 2, 0, True),
-+        ("brightness-13 log whose counters are missing",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0\n"
-+         "K60 DISPLAY: first frame presented\n", 1, 0, False),
-+        ("control=1 image judged against an old build log",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff control 1\n"
-+         "K60 DISPLAY: first frame presented\n",
-+         1, 1, True),
-+        ("inline counters say stage 4 on a control=0 image",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0"
-+         " stats=4,0,2047,255 req=0,0,0,0\n"
-+         "K60 DISPLAY: first frame presented\n", 1, 0, False),
-+        ("inline counters say control was published on a control=0 image",
-+         "K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0"
-+         " stats=3,0,2047,255 req=0,0,0,1\n"
-+         "K60 DISPLAY: first frame presented\n", 1, 0, False),
-+    ]
-+    bad = 0
-+    for name, text, want, expect, old_form in cases:
-+        status, report = judge(parse(text), expect, old_form)
-+        if status != want:
-+            bad += 1
-+            print("FAIL %s: status %d, wanted %d" % (name, status, want))
-+            for line in report:
-+                print("     " + line)
-+        else:
-+            print("ok   %s -> %d" % (name, status))
-+    if bad:
-+        print("%d fixture(s) disagreed" % bad)
-+        return 1
-+    print("check-backlight-log: %d fixtures passed" % len(cases))
-+    return 0
-+
-+
-+def main(argv: list[str]) -> int:
-+    if "--selftest" in argv:
-+        return selftest()
-+    expect = 0
-+    if "--control=1" in argv or "--expect-control=1" in argv:
-+        expect = 1
-+    old_form = "--old-form" in argv
-+    target = None
-+    for arg in argv[1:]:
-+        if arg.startswith("--"):
-+            continue
-+        target = Path(arg)
-+        break
-+    if target is None:
-+        print("usage: check-backlight-log.py <console.log|dir> [--control=1] [--old-form] [--json]")
-+        return 2
-+    found = parse(read_log(target))
-+    status, report = judge(found, expect, old_form)
-+    if "--json" in argv:
-+        print(json.dumps({"status": status, "found": found, "report": report}, indent=2))
-+    else:
-+        for line in report:
-+            print(line)
-+        verdict = {0: "PASS", 1: "FAIL", 2: "INCONCLUSIVE"}[status]
-+        print("check-backlight-log: %s (control=%d image)" % (verdict, expect))
-+    return status
-+
-+
-+if __name__ == "__main__":
-+    sys.exit(main(sys.argv))
 diff --git a/scripts/check-brightness-encoder.py b/scripts/check-brightness-encoder.py
 new file mode 100644
-index 00000000..abb112df
+index 00000000..d3b14b2b
 --- /dev/null
 +++ b/scripts/check-brightness-encoder.py
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,187 @@
 +#!/usr/bin/env python3
 +"""Host check for the K60 brightness encoder (drivers/PongAdreno/K60BacklightCodec.h).
 +
-+The K60 panel takes its brightness as the DSI DCS 0x51 byte (online DBV); the OS
-+talks in a 0..2047 level plus a 16.16 FadePeriod. Everything between the two is
-+pure arithmetic, so it is verified here on the host: no hardware, no IOKit.
++The K60 panel takes its brightness as the two-byte DSI DCS 0x51 value (online
++12 bit DBV); the OS talks in a 0..2047 level plus a 16.16 FadePeriod. Everything
++between the two is pure arithmetic, so it is verified here on the host: no
++hardware, no IOKit.
 +
 +What is asserted:
-+  * 0..255 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
-+    the DBV -> level inverse round trips within one step.
-+  * brightness-nits requests (iPadOS 27 form): 2 / 140 / 500 nits map to the
-+    calibration points, <= 0 maps to off, and the result never exceeds the level
-+    domain.
++  * 0..4095 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
++    the DBV -> level inverse round trips within one DBV step.
++  * brightness-nits requests (iPadOS 27 form): 5 / 140 / 400 nits map onto the
++    panel range end to end (dimmest request -> DBV 0x14, brightest -> DBV 0xfff),
++    <= 0 maps to off, and the result never exceeds the level domain.
 +  * FadePeriod: 16.16 seconds -> milliseconds, clamped at 5000 ms.
 +  * The fade sequence: monotonic, starts at "from", lands exactly on "to", and
 +    the step count matches the 16 ms cadence.
@@ -1490,6 +1430,7 @@ index 00000000..abb112df
 +#include <stdio.h>
 +#include <stdint.h>
 +#include "K60BacklightCodec.h"
++#include "PongDsiPanel.h"
 +
 +using namespace k60backlight;
 +
@@ -1505,9 +1446,9 @@ index 00000000..abb112df
 +
 +int main(void)
 +{
-+    /* --- 0..255 DBV conversion ------------------------------------------- */
++    /* --- 0..4095 DBV conversion ------------------------------------------ */
 +    check(dbvFromLevel(0) == 0, "dbv(0) is off", dbvFromLevel(0), 0);
-+    check(dbvFromLevel(kMaxLevel) == kMaxDbv, "dbv(max) is 0xff", dbvFromLevel(kMaxLevel), kMaxDbv);
++    check(dbvFromLevel(kMaxLevel) == kMaxDbv, "dbv(max) is 0xfff", dbvFromLevel(kMaxLevel), kMaxDbv);
 +    check(dbvFromLevel(1) >= kMinDbvOn, "dbv(1) still lit", dbvFromLevel(1), kMinDbvOn);
 +    check(dbvFromLevel(1) < dbvFromLevel(64), "dbv monotonic low", dbvFromLevel(1), dbvFromLevel(64));
 +    check(dbvFromLevel(2000) > dbvFromLevel(1024), "dbv monotonic high", dbvFromLevel(2000), dbvFromLevel(1024));
@@ -1521,14 +1462,15 @@ index 00000000..abb112df
 +        prev = (int)dbv;
 +    }
 +
-+    /* Every DBV step is reachable from some level, and the inverse round trips
-+       back into the same DBV (one DBV step is ~8 levels, so compare on DBV). */
++    /* The panel has 4095 DBV steps for 2047 OS levels, so not every DBV step is
++       addressable; the inverse only has to come back within one DBV step. */
 +    for (uint32_t dbv = kMinDbvOn; dbv <= kMaxDbv; ++dbv) {
 +        const uint32_t back = dbvFromLevel(levelFromDbv(dbv));
-+        check(back == dbv, "dbv/level round trip", back, dbv);
++        const long diff = (long)back - (long)dbv;
++        check(diff >= -1 && diff <= 1, "dbv/level round trip", diff, 0);
 +    }
 +    check(levelFromDbv(0) == 0, "level(0) is off", levelFromDbv(0), 0);
-+    check(levelFromDbv(kMaxDbv) == kMaxLevel, "level(0xff) is max", levelFromDbv(kMaxDbv), kMaxLevel);
++    check(levelFromDbv(kMaxDbv) == kMaxLevel, "level(0xfff) is max", levelFromDbv(kMaxDbv), kMaxLevel);
 +
 +    /* Clamping of out-of-range requests. */
 +    check(clampLevel(-5) == 0, "clamp low", clampLevel(-5), 0);
@@ -1537,16 +1479,23 @@ index 00000000..abb112df
 +    /* --- brightness-nits (iPadOS 27 form) -------------------------------- */
 +    check(levelFromNits(0) == 0, "nits 0 is off", levelFromNits(0), 0);
 +    check(levelFromNits(-(1 << 16)) == 0, "nits negative is off", levelFromNits(-(1 << 16)), 0);
-+    check(levelFromNits(kMinNits << 16) == 8, "nits min", levelFromNits(kMinNits << 16), 8);
-+    check(levelFromNits(kMidNits << 16) == 573, "nits mid", levelFromNits(kMidNits << 16), 573);
++    check(levelFromNits(kMinNits << 16) == kDarkestLevel, "nits min", levelFromNits(kMinNits << 16), kDarkestLevel);
++    check(levelFromNits(kMidNits << 16) == 700, "nits mid", levelFromNits(kMidNits << 16), 700);
 +    check(levelFromNits(kMaxNits << 16) == kMaxLevel, "nits max", levelFromNits(kMaxNits << 16), kMaxLevel);
++    /* The two ends of the slider reach the two ends of the panel: this is what
++       brightness-15 got wrong (top stopped at DBV 0xcc, bottom at DBV 0x03). */
++    check(dbvFromLevel(levelFromNits(kMinNits << 16)) == kMinDbvOn, "dimmest request reaches the floor",
++          dbvFromLevel(levelFromNits(kMinNits << 16)), kMinDbvOn);
++    check(dbvFromLevel(levelFromNits(kMaxNits << 16)) == kMaxDbv, "brightest request reaches dbv 0xfff",
++          dbvFromLevel(levelFromNits(kMaxNits << 16)), kMaxDbv);
 +    check(levelFromNits((kMaxNits + 100) << 16) == kMaxLevel, "nits above max clamps", levelFromNits((kMaxNits + 100) << 16), kMaxLevel);
-+    check(levelFromNits(1 << 8) >= kMinDbvOn, "tiny nits still lit", levelFromNits(1 << 8), kMinDbvOn);
++    check(dbvFromLevel(levelFromNits(1 << 8)) >= kMinDbvOn, "tiny nits still lit",
++          dbvFromLevel(levelFromNits(1 << 8)), kMinDbvOn);
 +
 +    /* MilliNits reported next to the level. */
 +    check(milliNitsFromLevel(0) == 0, "mNits 0", milliNitsFromLevel(0), 0);
 +    check(milliNitsFromLevel(kMaxLevel) == (long)kMaxNits * 1000, "mNits max", milliNitsFromLevel(kMaxLevel), (long)kMaxNits * 1000);
-+    check(milliNitsFromLevel(1024) == 250122, "mNits half", milliNitsFromLevel(1024), 250122);
++    check(milliNitsFromLevel(1024) == 200097, "mNits half", milliNitsFromLevel(1024), 200097);
 +
 +    /* --- FadePeriod: 16.16 seconds -> milliseconds ----------------------- */
 +    check(fadeMsFromFixed(0) == 0, "fade 0", fadeMsFromFixed(0), 0);
@@ -1580,10 +1529,19 @@ index 00000000..abb112df
 +    /* Fading all the way to off does reach 0 at the end. */
 +    check(fadeDbv(800, 0, 512, 512, false) == 0, "fade to off ends at 0", fadeDbv(800, 0, 512, 512, false), 0);
 +
-+    /* Inverted wiring flips the byte. */
-+    check(applyInvert(0xff, true) == 0, "invert 0xff", applyInvert(0xff, true), 0);
-+    check(applyInvert(0x00, true) == 0xff, "invert 0x00", applyInvert(0x00, true), 0xff);
++    /* Inverted wiring flips the 12 bit value. */
++    check(applyInvert(kMaxDbv, true) == 0, "invert max", applyInvert(kMaxDbv, true), 0);
++    check(applyInvert(0x00, true) == kMaxDbv, "invert zero", applyInvert(0x00, true), kMaxDbv);
 +    check(applyInvert(0x40, false) == 0x40, "no invert", applyInvert(0x40, false), 0x40);
++
++    /* The exact bytes handed to DCS 0x51: 12 bit, most significant byte first. */
++    uint8_t wire[2];
++    pong_panel_dbv_bytes(kMaxDbv, wire);
++    check(wire[0] == 0x0f && wire[1] == 0xff, "max dbv wire bytes",
++          (long)((wire[0] << 8) | wire[1]), 0x0fff);
++    pong_panel_dbv_bytes(kMinDbvOn, wire);
++    check(wire[0] == 0x00 && wire[1] == 0x14, "min dbv wire bytes",
++          (long)((wire[0] << 8) | wire[1]), 0x0014);
 +
 +    if (failures) {printf("%d check(s) failed\n", failures); return 1;}
 +    printf("all brightness encoder checks passed\n");

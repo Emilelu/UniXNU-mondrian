@@ -17,7 +17,8 @@
  *   6 after the install gate accepts this table, available() is exactly 1
  *   7 the negative SMP2P evidence cases that stop a corrupt item from ever
  *     being read as "stopped";
- *   8 resources() refuses unverified handoff rails without setting ResourcesHeld.
+ *   8 resources() refuses a failed Route A acquisition without setting
+ *     ResourcesHeld; a successful acquisition sets it exactly once.
  *     test-k60-owner-claim.c also runs this real callback through the production
  *     owner engine and counts downstream mutations (P-223). */
 #include <stdio.h>
@@ -27,6 +28,27 @@
 #include "K60Smem.h"
 #include "K60AdspOwner.h"
 #include "K60AdspBoard.h"
+#include "K60AdspRouteA.h"
+
+/* Host link stub: the board test owns no physical window. The route A core has
+ * its own test; here a switch proves the board only flips ResourcesHeld when
+ * the acquisition reports success and never on a failure. */
+static int route_fails = 1;
+int k60_adsp_route_a_acquire(const K60RouteAIo *io, K60RouteAResult *out)
+{
+    if (route_fails) return -1;
+    if (!io || !out || io->version != K60_ROUTE_A_VERSION || io->bytes != sizeof *io)
+        return -1;
+    memset(out, 0, sizeof *out);
+    out->qmp_open = 1;
+    out->lcx_address = 0x100;
+    out->lmx_address = 0x200;
+    out->lcx_index = 3;
+    out->lmx_index = 3;
+    out->lcx_levels = 4;
+    out->lmx_levels = 4;
+    return 0;
+}
 
 #define SMEM_BYTES 0x200000u
 #define SMEM_WORDS (SMEM_BYTES / 4u)
@@ -239,8 +261,8 @@ static void scenario_stopped_survives_release(Fixture *f)
     CHECK(f->flags_seen == K60_ADSP_BOARD_MAP_FLAGS);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
     CHECK(f->board.ownership.live(&f->board, cookie, epoch) == 1);
-    /* Unverified retention must not become ResourcesHeld (HR-01/P-223).
-     * Release after refusal must be harmless. */
+    /* A failed Route A acquisition must not become ResourcesHeld (P-223).
+     * Release after the failure must be harmless. */
     CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
     CHECK(f->board.resources == 0);
     f->board.ownership.resources_release(&f->board, cookie);
@@ -473,7 +495,7 @@ static void scenario_stopped_needs_evidence(Fixture *f)
 }
 
 /* 8. A lease and a stopped DSP are not verified power evidence. Refuse without
- *    reading the rails or marking resources held (HR-01/P-223). */
+ *    moving any rail or marking resources held after Route A fails (P-223). */
 static void scenario_resources_refuses(void)
 {
     Fixture *f = malloc(sizeof *f);
@@ -481,17 +503,38 @@ static void scenario_resources_refuses(void)
     void *cookie = NULL;
 
     CHECK(f != NULL);
-    start("resources refuses unverified handoff rails without a probe");
+    start("resources refuses a failed Route A acquisition without ResourcesHeld");
     build(f, 1, 0, 0);
     CHECK(f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie) == K60BoardOk);
     CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
     CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
     CHECK(f->board.resources == 0 && f->board.last_rc == K60BoardUnsupported);
-    /* A stale cookie still fails before the rail refusal. */
+    /* A stale cookie still fails before the route A attempt. */
     CHECK(f->board.ownership.resources(&f->board, NULL) == K60BoardNoLease);
     CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
     f->board.ownership.resources_release(&f->board, cookie);
     CHECK(f->board.resources == 0);
+    f->board.ownership.exclusive_release(&f->board, cookie);
+    free(f);
+}
+
+static void scenario_resources_acquires(void)
+{
+    Fixture *f = malloc(sizeof *f);
+    uint32_t epoch = 0;
+    void *cookie = NULL;
+
+    CHECK(f != NULL);
+    start("a successful Route A acquisition sets ResourcesHeld");
+    build(f, 1, 0, 0);
+    CHECK(f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie) == K60BoardOk);
+    CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
+    route_fails = 0;
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
+    CHECK(f->board.resources == 1 && f->board.last_rc == 0);
+    f->board.ownership.resources_release(&f->board, cookie);
+    CHECK(f->board.resources == 0);
+    route_fails = 1;
     f->board.ownership.exclusive_release(&f->board, cookie);
     free(f);
 }
@@ -509,6 +552,7 @@ int main(void)
     scenario_stopped_needs_evidence(&base);
     scenario_install_turns_available_on();
     scenario_resources_refuses();
+    scenario_resources_acquires();
     /* The report line is a diagnostic, not a proof: it must not crash. */
     k60_adsp_board_report(&base.board);
     printf("TESTS OK board-ownership: %u scenarios\n", cases);

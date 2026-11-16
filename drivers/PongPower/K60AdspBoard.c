@@ -9,11 +9,12 @@
  *              never maps, reads or calls the monitor.
  *   exclusive  read-only SMEM window + partition proof, the early-owner startup
  *              CAS, and one fresh nonzero epoch. Any failure rolls back inside.
- *   resources  lease + exclusion + an independent stopped proof, then refuses:
- *              rails are not verified for handoff. This callback precedes Data
- *              mount and every owner SMEM/PAS mutation. A declaration is not
- *              ResourcesHeld; the legacy bring_up gate is not on this path
- *              and cannot authorize it (P-223). No RSC read or vote occurs.
+ *   resources  lease + exclusion + an independent stopped proof, then the
+ *              Route A acquisition: AOSS QMP load_state on, lcx/lmx lookup in
+ *              the command database, and two TCS4 votes. This callback still
+ *              precedes every owner SMEM/PAS mutation. A failed acquisition
+ *              never becomes ResourcesHeld; the legacy bring_up gate is not
+ *              on this path (P-223).
  *   stopped    the inbound SMP2P item, read only.
  *   live       the retained token only; never the resource flag.
  *   scm_lock   one kernel-global, non-reentrant lock for every SCM client.
@@ -22,6 +23,7 @@
  * transport, so a stray call would fail the link instead of the board. */
 #include "K60AdspBoard.h"
 #include "K60AdspOwner.h"
+#include "K60AdspRouteA.h"
 #ifdef KERNEL
 #include <pexpert/pexpert.h>
 #include <machine/machine_routines.h>
@@ -238,28 +240,50 @@ static void exclusive_release_cb(void *ctx, void *cookie)
     release_all(b);
 }
 
+static void route_kick(void *ctx, volatile uint8_t *ipcc)
+{
+    (void)ctx;
+    /* The AOP doorbell is QCOM_IPCC_SEND for QCOM_IPCC_CLIENT_AOP /
+     * QCOM_IPCC_SIGNAL_GLINK_QMP: client 0, signal 0, offset 0x0c. */
+    *(volatile uint32_t *)(ipcc + 0x0cu) = 0;
+    fence();
+}
+
 static int resources_cb(void *ctx, void *cookie)
 {
     K60AdspBoard *b = ctx;
+    K60RouteAIo rio;
+    K60RouteAResult route;
     if (!ready(b) || !leased(b, cookie)) return K60BoardNoLease;
     if (k60_adsp_handoff_owner_active() != 1) return K60BoardNotExcluded;
     const int state = stopped_state(b);
     if (state < 0) { poison(b); return K60BoardNotStopped; }
     if (state != 1) return K60BoardNotStopped;
-    /* HR-01 forbids an RSC read here, before Data mount, and all TCS writes.
-     * Returning success would immediately become ResourcesHeld and authorize
-     * SMEM allocation, INIT_IMAGE, MEM_SETUP and physical copy before AUTH.
-     * The legacy bring_up check does not protect this handoff owner path. */
-    printf("K60ADSP: rails not verified for handoff; no PAS/SMEM mutation\n");
-    b->last_rc = K60BoardUnsupported;
-    return K60BoardUnsupported;
+    rio.version = K60_ROUTE_A_VERSION;
+    rio.bytes = sizeof rio;
+    rio.map = b->io.map;
+    rio.unmap = b->io.unmap;
+    rio.kick = route_kick;
+    rio.tick = 0;
+    rio.context = b->io.context;
+    if (k60_adsp_route_a_acquire(&rio, &route)) {
+        printf("K60ADSP: Route A acquisition failed; no PAS/SMEM mutation%c", 10);
+        b->last_rc = K60BoardUnsupported;
+        return K60BoardUnsupported;
+    }
+    printf("K60ADSP: Route A resources held: QMP load_state on, lcx=0x%x/%u, lmx=0x%x/%u%c",
+        route.lcx_address, route.lcx_index, route.lmx_address, route.lmx_index, 10);
+    b->resources = 1;
+    b->last_rc = 0;
+    return K60BoardOk;
 }
 
 static void resources_release_cb(void *ctx, void *cookie)
 {
     K60AdspBoard *b = ctx;
     if (!b) return;
-    /* Nothing was ever voted, so there is nothing to undo; the flag must still
+    /* The rails stay at the level that keeps the ADSP alive after a successful
+     * handoff; there is no destructive vote on release. The flag must still
      * fall so a later live() cannot be confused with retention. */
     b->resources = 0;
     (void)cookie;

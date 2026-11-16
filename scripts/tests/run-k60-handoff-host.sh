@@ -66,12 +66,11 @@ done
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2
-# Board ownership links ONLY the board, SMEM and startup arbitration. The rail
-# driver is absent on purpose: resources() must refuse unverified rails without
-# calling a probe, so a dependency fails the link (P-223). The real board refusal
-# also runs through production owner acquire above, with direct alloc counting. The
-# PAS transport is absent for the same reason: "no monitor call" is a
-# link-time fact here.
+# Board ownership links ONLY the board, SMEM and startup arbitration. Route A is
+# stubbed: resources() must fail closed when the acquisition fails, so a missing
+# dependency fails the link (P-223). The real board refusal also runs through
+# production owner acquire above, with direct alloc counting. The PAS transport is
+# absent for the same reason: "no monitor call" is a link-time fact here.
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c \
   drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspStartup.c -o "$OUT/board"
 "$OUT/board"
@@ -80,6 +79,11 @@ cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspB
 cc "${CFLAGS[@]}" scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c \
   -o "$OUT/rail"
 "$OUT/rail"
+# Route A: QMP load_state, cmd-db lookup and two TCS4 votes, with every map,
+# read and write counted by the test's fake windows.
+cc "${CFLAGS[@]}" scripts/tests/test-k60-route-a.c drivers/PongPower/K60AdspRouteA.c \
+  drivers/PongPower/K60PmicRail.c -o "$OUT/route-a"
+"$OUT/route-a"
 python3 scripts/tests/test-k60-adsp-mdt.py --output "$OUT/mdt" --firmware /mnt/e/k60-work/firmware/adsp
 python3 scripts/tests/test-k60-notification-qualification.py
 python3 scripts/tests/test-battery-units.py
@@ -97,5 +101,6 @@ clang -target arm64-apple-ios16.0 -isysroot "$SDK" -mkernel -ffreestanding \
   -DKERNEL_PRIVATE=1 -DXNU_KERNEL_PRIVATE=1 -DARM64_BOARD_CONFIG_PONG=1 \
   -I "$FRAMEWORK/Headers" -I "$FRAMEWORK/PrivateHeaders" -I drivers/PongPower \
   -std=gnu11 -Wall -Wextra -Werror -Wno-framework-include-private-from-public \
-  -fsyntax-only drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60PmicRail.c
+  -fsyntax-only drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60AdspRouteA.c \
+  drivers/PongPower/K60PmicRail.c
 printf "TESTS OK: arm64 Darwin kernel adapter syntax (not a link)\n"

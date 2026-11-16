@@ -6,6 +6,14 @@ static OwnerFixture f;
 /* Count the real SMEM allocator, not a fixture-derived approximation. The host
  * link uses --wrap=k60_smem_alloc; reset after synthetic remote-item setup. */
 #include "K60AdspBoard.h"
+#include "K60AdspRouteA.h"
+/* The claim test is about the production owner engine and its refusal path;
+ * it does not provide physical AOSS/TCS windows, so Route A must fail here. */
+int k60_adsp_route_a_acquire(const K60RouteAIo *io, K60RouteAResult *out)
+{
+    (void)io; (void)out;
+    return -1;
+}
 int k60_adsp_startup_claim(unsigned owner);
 static unsigned alloc_calls, board_maps, board_unmaps;
 static int board_resource_rc;

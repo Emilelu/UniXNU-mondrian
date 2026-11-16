@@ -8,11 +8,11 @@
  * What each one actually proves on this board, and what it deliberately does
  * not prove, is listed in docs/research/battery/PAS1-PROVIDER-INSTALL.md.
  *
- * Hardware boundary (docs/ops/HARD-RULES.md:24-119): this file never maps
- * 0x17a00000, never writes a TCS word, never triggers an RPMh transaction and
- * never issues an SMC. resources() records and re-proves the retention the
- * Android warm boot already applied; it cannot create a vote, so it fails
- * closed instead of pretending one exists. */
+ * Hardware boundary: this file never maps 0x17a00000 and never issues an SMC.
+ * resources() runs the Route A acquisition (K60AdspRouteA.c): AOSS QMP
+ * load_state on and two RPMh TCS4 rail votes through the DRV-2 window. The
+ * callback is the only place this service writes an RPMh command; a failure
+ * returns before any SMEM/PAS mutation. */
 #ifndef K60_ADSP_BOARD_H
 #define K60_ADSP_BOARD_H
 #include "K60AdspPlatform.h"
@@ -29,7 +29,7 @@ enum {
     K60BoardBadArgument = -60,   /* geometry, null argument or call order */
     K60BoardNotExcluded = -61,   /* the early handoff owner does not hold the CAS */
     K60BoardNotStopped = -62,    /* no independent stopped proof */
-    K60BoardUnsupported = -63,   /* a real vote would be required (HR-01) */
+    K60BoardUnsupported = -63,   /* Route A could not acquire QMP or both rails */
     K60BoardBusy = -64,          /* already leased, mapped or locked */
     K60BoardNoLease = -65,       /* no lease, or the token does not match it */
     K60BoardPoisoned = -66,      /* an earlier callback left uncertain state */

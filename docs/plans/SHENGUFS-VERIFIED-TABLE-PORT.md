@@ -133,6 +133,7 @@
   **这是 3b 的第一个待决点**：3a/2b 让 Data 窗口保持旧的未验证路径，Data 没有 `vr_view`；
   因此要么给 Data 也配置 policy（会改变 P-152/P-153 的既有假设），要么 3b 只对 OS/SystemOS 做身份等待、Data 用现有属性另行确认。
   在选定之前不能把 Data 放进 `validate()` 的强校验。
+- **2026-11-17 07:15 证据**：`UniXNU-sheng/scripts/policies/ipados-26.5.2-23F84` 与 `ipados-27.0.1-24A446` 都只有 `OS/`、`SystemOS/` 两个 policy 目录；参考实现 `NativeUfs.cpp:3007-3019` 的 `validate()` 又要求每个 pending 窗口 `signedVolumeUuid()` 非空。因此 Data 不能进入强校验。建议 3b 只把 OS/SystemOS 放进 `ufsPrepareRootWindows`，Data 保留现有的属性/祖先确认路径。
 - **异步发布**：`schedule()` 用 `kernel_thread_start` 启动 `publishThread`，线程持有 provider 的引用；
   `publishThread` 调 `ufsPublishRootWindows`，失败时按 `UfsRootPublicationResult.phase` 设置
   `gRootDiagnostic.result`（Start 用 `kIOReturnIOError`，Media 用 `kIOReturnTimeout`），且 Media 失败的对象必须保留。

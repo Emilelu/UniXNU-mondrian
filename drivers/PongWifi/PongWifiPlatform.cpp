@@ -476,7 +476,7 @@ bool isolation() {
  size_t count=1;ranges[0]={Iova,msiPa,4096,3,0,2};
  for(size_t off=0;off<ArenaBytes;off+=4096) {
   IOByteCount span=0;const uint64_t pa=arena->getPhysicalSegment(off,&span,kIOMemoryMapperNone);
-  if(!pa||(pa&4095)||span<4096||pa>=(1ull<<36)||4096>(1ull<<36)-pa) {
+  if(!pa||(pa&4095)||span<4096||pa>=(1ull<<36)||4096>(1ull<<36)-pa||!pmap_valid_page(ppnum_t(pa>>12))) {
    IODeleteData(ranges,ArmSmmu4KRange,capacity);return fail("WiFi DMA page outside SM8475 output range");
   }
   auto &last=ranges[count-1];

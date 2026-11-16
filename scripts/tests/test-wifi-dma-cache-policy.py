@@ -41,6 +41,8 @@ def check(text):
          "WCOMB policy is not verified")
     need("ranges[i].physical" in iso and "for(size_t i=1;i<count;i++)" in iso,
          "WCOMB is not applied to arena ranges (MSI page excluded)")
+    need("pmap_valid_page(ppnum_t(pa>>12))" in iso,
+         "arena physical pages are not validated before cache attributes")
     return failures
 
 

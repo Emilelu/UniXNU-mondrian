@@ -21,7 +21,18 @@
 
 ---
 
-## 铁则 1（HR-01）：**默认禁止访问 RSC；只读观测须显式开启，投票仍全面禁止**
+## 铁则 1（HR-01）：**RSC 默认禁止；路线 A 的 TCS4 投票是当前唯一授权例外**
+
+### 2026-11-17 用户裁决（当前生效，覆盖此前的「投票全面禁止」）
+用户明确裁决「放宽 HR-01，走路线 A」，目标是按同 SoC（SM8475）已工作的 Zizhan/Pong 路径启动 ADSP。依据：
+- Zizhan 与 Pong 在同一 SM8475 上按「QMP load_state on → 读 cmd-db 的 lcx.lvl/lmx.lvl → 写 RPMh TCS4 → PAS AUTH」启动成功；Zizhan 的 ADSP/PMIC GLINK 电池读数与 Android 一致。
+- K60 自己的触摸路径 P-86 已实测 TCS4 投票 48/49 次被接受（`caps=0x800c8104 count=8 ncpt=16 ver=0x20700`，`tcs4_idle=1`），说明 K60 的 APSS RSC 上 TCS4 写是可达的。
+
+**授权范围（严格限定，不得扩散）**：
+1. 只允许 `drivers/PongPower/K60AdspRouteA.c` 以及 `drivers/PongPower/K60AdspBoard.c` 的 `resources_cb` 走这条路径：映射 AOSS/IPCC/cmd-db 与 **`0x17a20000`（DRV-2）**，发送 AOSS QMP `load_state on`，写 TCS4 的 lcx.lvl/lmx.lvl 两个 active-only 命令。
+2. **`0x17a00000`（RSC 基址 / DRV-0）仍然绝对禁止，无例外**；路线 A 不映射它。
+3. 不调用 PAS、不调用 SMC；一次 handoff 只尝试一次；任何一步失败都必须返回 `K60BoardUnsupported(-63)`，不得置 `ResourcesHeld`，不得进入 SMEM/INIT_IMAGE/MEM_SETUP。
+4. 除上述文件外，任何其它驱动、补丁或调用点的 TCS 写与 `CONTROL_TRIGGER` 仍然禁止；需要新增时先取得用户/Lead 的明确批准。
 
 ### 违反后果
 2026-11-09 的两次实测：**整机立即死，零控制台输出，只能长按电源重启。**
@@ -44,10 +55,10 @@ K60RAIL rsc drv_id=0x20700 version=2 stride=672 cmd=20 ctrl=0x14 enable=0x1c msg
 | 操作 | 是否允许 |
 |---|---|
 | 映射 `0x17a00000`（RSC 基址） | **禁止**，无例外 |
-| 映射 `0x17a20000`（DRV-2） | 仅当下列四个条件**同时**满足 |
+| 映射 `0x17a20000`（DRV-2） | 路线 A 授权文件内允许；其它文件仅当下列只读四条件**同时**满足 |
 | 读 DRV-2 的 `w[0]`（版本/布局） | 同上 |
-| 写 TCS（`control`/`cmd_enable`/`cmd_*`） | **禁止**，等 ABL 方案 |
-| 发 RPMh 事务（`CONTROL_TRIGGER`） | **禁止**，等 ABL 方案 |
+| 写 TCS（`control`/`cmd_enable`/`cmd_*`） | **仅允许路线 A 的 TCS4 lcx/lmx 两条命令**；其它写仍禁止 |
+| 发 RPMh 事务（`CONTROL_TRIGGER`） | **仅允许路线 A 的 TCS4 两条命令**；其它触发仍禁止 |
 
 ### 受限只读的四个条件（缺一不可）
 1. **时机**：必须在 Data 卷挂载成功之后（`k60_data_mounted == 1`）。早期启动阶段访问仍会死。
@@ -60,19 +71,20 @@ K60RAIL rsc drv_id=0x20700 version=2 stride=672 cmd=20 ctrl=0x14 enable=0x1c msg
 违反任何一条 = 违规。审查时按下面的 grep 判断，但**要看上下文**：
 `if (PE_parse_boot_argn("pong_rail_probe"…))` 包住的读是允许的，裸读不是。
 
-### 禁止范围（三层，2026-11-16 21:28 Lead 裁决）
+### 禁止范围（2026-11-17 路线 A 之后）
 1. `0x17a00000`（RSC 基址 / drv 0）：**绝对禁止，无例外**（两次首读即死）。
-2. `0x17a20000`（DRV-2 窗口）：**仅当四条件同时满足**才允许映射与只读 `w[0]`；四条件是时机（Data 挂载后）、显式 boot-arg `pong_rail_probe=1`、只读、单次。
-3. TCS 写（`control`/`cmd_enable`/`cmd_*`）与 `CONTROL_TRIGGER`：**禁止**，等 ABL 方案。
+2. `0x17a20000`（DRV-2 窗口）：路线 A 授权文件中允许（映射、读 DRV-2 header、写 TCS4 两条命令）；其它文件仍只允许 2026-11-16 的四条件只读（Data 挂载后、`pong_rail_probe=1`、只读、单次）。
+3. TCS 写与 `CONTROL_TRIGGER`：**只允许路线 A 的 TCS4 lcx/lmx 两条命令**；其它路径仍禁止，等 ABL 方案。
 
 **基址窗口连 `ml_io_map()` 都可能触发，安全做法是不映射；DRV-2 只在四条件下映射。**
 
 ### 上电/投票的合法替代（写路径，仍然唯一）
 | 需求 | 替代方案 |
 |---|---|
-| 给某个电源轨投票 | **依赖 Android warm boot 已打开的轨道**，XNU 侧不做上电动作 |
-| 读 RPMh 状态 | 从 `cmd_db`（`0x80860000`，**普通内存，安全**）读命令 ID，但不发 RSC 事务 |
-| 必须上电 | 直接返回 `-EOPNOTSUPP`，让调用方 fail-closed |
+| 给 ADSP 的 lcx/lmx 投票 | **仅路线 A**：`K60AdspRouteA.c` 的 TCS4 两条命令（2026-11-17 用户授权） |
+| 给其它电源轨投票 | 依赖 Android warm boot 已打开的轨道；XNU 侧不做上电动作 |
+| 读 RPMh 状态 | 从 `cmd_db`（`0x80860000`，**普通内存，安全**）读命令 ID；只读探针仍按四条件 |
+| 必须上电且不在路线 A 范围 | 直接返回 `-EOPNOTSUPP`，让调用方 fail-closed |
 
 ### 证据出处
 - `GOODIX-TOUCH-PORT.md:99-105`（finding `0246`：注释原文「这台机器上 RSC 一个寄存器都读不得：首次读 TCS 就整机死」）
@@ -94,13 +106,15 @@ grep -n '0x17a00000\|0x17a20000\|RSC_PHYS\|rsc_phys' <文件>
 | 命中形态 | 判定 |
 |---|---|
 | 注释里说明为何不访问 | ✅ 允许 |
+| `K60AdspRouteA.c` / `K60AdspBoard.c` 的路线 A 路径：映射 DRV-2、写 TCS4 lcx/lmx 两条命令 | ✅ 允许（2026-11-17 用户授权） |
 | 读 `0x17a20000`，且该调用被 `PE_parse_boot_argn("pong_rail_probe"…)` 包住，且只读 | ✅ 允许（受限只读） |
-| 其它任何命中（含映射 `0x17a00000`、写 TCS、设 `CONTROL_TRIGGER`、未加 opt-in 的裸读） | ❌ 违规 |
+| 其它任何命中（含映射 `0x17a00000`、路线 A 以外的 TCS 写、未授权 `CONTROL_TRIGGER`、未加 opt-in 的裸读） | ❌ 违规 |
 
-2026-11-14 起，唯一被批准的实现是
+2026-11-14 起，只读侧被批准的实现是
 `drivers/PongPower/K60PmicRail.c` 的 `k60_rail_probe()` 与
 `patches/xnu/0614-k60-adsp-call-site.patch` 里那个 opt-in 调用点。
-新增第二处受限只读需要重新走一遍本节四条件并在 `PITFALLS.md` 记录。
+2026-11-17 起，写入侧唯一被批准的实现是 `drivers/PongPower/K60AdspRouteA.c`
+及其在 `K60AdspBoard.c` 的 `resources_cb` 调用。新增第二处受限只读或写路径必须重新走用户/Lead 审批并在 `PITFALLS.md` 记录。
 
 ### 已发生的违规（2026-11-09，仍作为早期启动阶段的反例）
 `pong_goodix.c` 的 `touch_thread` 里：
@@ -113,8 +127,8 @@ se=ml_io_map(SE_PHYS,SE_SIZE);rsc=ml_io_map(RSC_PHYS,RSC_SIZE);  ← 违规
 ### 连带的同类风险（必须一起查）
 | 位置 | 风险 |
 |---|---|
-| `PongAdsp.cpp:45,77,571,576` | 无条件 `mapWindow(gRsc, 0x17a20000, 0x10000)` + `rd(gRsc,0)` → **上电即整机死** |
-| `PongPlatformResources.cpp:34-42,47-82` | `IODeviceMemory::withRange(0x17a20000, 0x10000)` → **禁止直接复用** |
+| `PongAdsp.cpp:45,77,571,576` | 同 SoC 参考实现；只允许按路线 A 移植到 `K60AdspRouteA.c`，禁止在其它 K60 路径直接复制 |
+| `PongPlatformResources.cpp:34-42,47-82` | 同 SoC 参考实现；只允许按路线 A 移植到 `K60AdspRouteA.c`，禁止在其它 K60 路径直接复制 |
 
 ---
 

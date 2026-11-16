@@ -273,6 +273,9 @@ class PongUfsBlock : public IOBlockStorageDevice {
 #endif
 public:
   bool init(OSDictionary *properties, const RootDiskWindow &selected);
+  bool prepareForPublish(IOService *provider);
+  bool publishWindow(IOService *provider);
+  bool verifiedVolumeUuid(char out[37]) const;
   bool start(IOService *provider) override;
   void free() override;
   IOReturn doEjectMedia() override { return kIOReturnUnsupported; }
@@ -514,6 +517,20 @@ bool PongUfsBlock::configureVerification() {
   return true;
 }
 
+bool PongUfsBlock::verifiedVolumeUuid(char out[37]) const {
+  if (!out) return false;
+  out[0] = 0;
+  if (!verifierReady) return false;
+  const uint8_t *u = verifier.view.volume_uuid;
+  bool any = false;
+  for (unsigned i = 0; i < 16; ++i) any = any || u[i] != 0;
+  if (!any) return false;
+  snprintf(out, 37, "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+           u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11],
+           u[12], u[13], u[14], u[15]);
+  return true;
+}
+
 void PongUfsBlock::releaseVerification() {
   if (verifierReady && vrootLock) {
     PongVrootOps ops;
@@ -537,9 +554,9 @@ void PongUfsBlock::releaseVerification() {
   vrootLock = nullptr;
 }
 #endif
-bool PongUfsBlock::start(IOService *provider) {
+bool PongUfsBlock::prepareForPublish(IOService *provider) {
   bounce = static_cast<uint8_t *>(IOMalloc(kDataMax)); mutex = IOLockAlloc();
-  if (!bounce || !mutex || !gHost.ready || !window.size || !IOBlockStorageDevice::start(provider)) return false;
+  if (!bounce || !mutex || !gHost.ready || !window.size) return false;
   gRootDiagnostic.stage = "first root read";
   if (hostRead4k(0, window.baseByte / 4096, 1, bounce) != kIOReturnSuccess)
     return transportFailure("first root read");
@@ -565,11 +582,21 @@ bool PongUfsBlock::start(IOService *provider) {
   setProperty("PongSystemOSWindow", !strcmp(window.name, "SystemOS"));
   setProperty("PongDataWindow", !strcmp(window.name, "Data"));
   setProperty("Physical Interconnect", "UFS");
+  return true;
+}
+
+bool PongUfsBlock::publishWindow(IOService *provider) {
+  if (online) return true;
+  if (!IOBlockStorageDevice::start(provider)) return false;
   online = true; registerService();
   char detail[96];
   snprintf(detail, sizeof(detail), "SHNGROOT %s disk published", window.name);
   PongProbeRecord(4, "ufs-transport", PongProbePass, detail, window.size);
   return true;
+}
+
+bool PongUfsBlock::start(IOService *provider) {
+  return prepareForPublish(provider) && publishWindow(provider);
 }
 void PongUfsBlock::free() {
 #if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
@@ -715,6 +742,178 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
   completion->action(completion->target, completion->parameter, result, done);
   return kIOReturnSuccess;
 }
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+static PongUfsBlock *gPendingBlocks[4];
+static bool gPendingAttached[4];
+static bool gPendingStarted[4];
+static char gPendingUuid[4][37];
+static unsigned gPendingCount;
+static IOService *gPendingProvider;
+static UfsRootPlan gPublicationPlan;
+static void pongUfsPublishThread(void *, wait_result_t);
+
+struct PongProviderChain {
+  IOService *current = nullptr;
+  bool isValid() { return true; }
+  IOService *getNextObject() {
+    IOService *result = current;
+    if (current) current = current->getProvider();
+    return result;
+  }
+};
+
+// The window's IOMedia object must descend from the exact PongUfsBlock that
+// published it; a UUID collision elsewhere in the registry is not enough.
+static bool pongUfsWaitForMedia(PongUfsBlock *block, const char *uuid) {
+  if (!block) return false;
+  OSDictionary *matching = IOService::serviceMatching("IOMedia");
+  if (!matching) return false;
+  OSDictionary *properties = nullptr;
+  OSString *wanted = nullptr;
+  bool prepared = true;
+  if (uuid && uuid[0]) {
+    properties = OSDictionary::withCapacity(1);
+    wanted = OSString::withCString(uuid);
+    prepared = properties && wanted && properties->setObject("UUID", wanted) &&
+        matching->setObject("IOPropertyMatch", properties);
+  }
+  if (wanted) wanted->release();
+  if (properties) properties->release();
+  if (!prepared) {
+    matching->release();
+    return false;
+  }
+  bool found = false;
+  for (unsigned attempt = 0; attempt < 300 && !found; ++attempt) {
+    OSIterator *iterator = IOService::getMatchingServices(matching);
+    if (iterator) {
+      while (OSObject *object = iterator->getNextObject()) {
+        IOService *media = OSDynamicCast(IOService, object);
+        if (!media) continue;
+        PongProviderChain chain;
+        chain.current = media;
+        if (ufsMediaHasAncestor(chain, block)) {
+          found = true;
+          break;
+        }
+      }
+      iterator->release();
+    }
+    if (!found) {
+      if ((attempt % 50) == 49)
+        IOLog("PONG APFS: waiting for %s media %u/300\n",
+              uuid && uuid[0] ? uuid : block->getAdditionalDeviceInfoString(), attempt + 1);
+      IOSleep(100);
+    }
+  }
+  matching->release();
+  if (!found)
+    IOLog("PONG APFS: media wait timed out window=%s uuid=%s\n",
+          block->getAdditionalDeviceInfoString(), uuid && uuid[0] ? uuid : "?");
+  return found;
+}
+
+class PongUfsPublicationOps {
+public:
+  bool prepare(unsigned index) {
+    if (index >= gPendingCount) return false;
+    gRootDiagnostic.stage = "root window allocation/configuration";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Prepare);
+    gRootDiagnostic.publicationWindow = index;
+    PongUfsBlock *block = new PongUfsBlock;
+    if (!block) return false;
+    gPendingBlocks[index] = block;
+    if (!block->init(nullptr, gRootWindows[index])) return false;
+    if (!block->attach(gPendingProvider)) return false;
+    gPendingAttached[index] = true;
+    return block->prepareForPublish(gPendingProvider);
+  }
+
+  bool validate() {
+    gRootDiagnostic.stage = "signed window identities";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Identity);
+    for (unsigned i = 0; i < gPendingCount; ++i) {
+      const char *name = gRootWindows[i].name;
+      // Data has no signed policy in the reference policy sets. It keeps the
+      // existing property/ancestor path; only OS and SystemOS are signed.
+      if (!strcmp(name, "Data")) continue;
+      if (!gPendingBlocks[i] || !gPendingBlocks[i]->verifiedVolumeUuid(gPendingUuid[i]) ||
+          !gPendingUuid[i][0])
+        return false;
+      for (unsigned j = 0; j < i; ++j)
+        if (!strcmp(gPendingUuid[i], gPendingUuid[j])) return false;
+    }
+    return true;
+  }
+
+  bool schedule() {
+    if (!gPendingProvider) return false;
+    gRootDiagnostic.stage = "root publisher thread";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Schedule);
+    gRootDiagnostic.publicationWindow = 0xffffffff;
+    gPendingProvider->retain();
+    thread_t thread = nullptr;
+    const kern_return_t result = kernel_thread_start((thread_continue_t)pongUfsPublishThread, nullptr, &thread);
+    if (result != KERN_SUCCESS) {
+      gPendingProvider->release();
+      return false;
+    }
+    thread_deallocate(thread);
+    return true;
+  }
+
+  bool start(unsigned index) {
+    if (index >= gPendingCount || !gPendingBlocks[index] || !gPendingAttached[index] ||
+        gPendingStarted[index])
+      return false;
+    gRootDiagnostic.stage = "root window service start";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Start);
+    gRootDiagnostic.publicationWindow = index;
+    if (!gPendingBlocks[index]->publishWindow(gPendingProvider)) return false;
+    gPendingStarted[index] = true;
+    return true;
+  }
+
+  bool wait(unsigned index) {
+    if (index >= gPendingCount || !gPendingStarted[index]) return false;
+    gRootDiagnostic.stage = "media publication";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Media);
+    gRootDiagnostic.publicationWindow = index;
+    const char *uuid = gPendingUuid[index][0] ? gPendingUuid[index] : nullptr;
+    return pongUfsWaitForMedia(gPendingBlocks[index], uuid);
+  }
+
+  void discard(unsigned index) {
+    if (index >= gPendingCount || !gPendingBlocks[index] || gPendingStarted[index]) return;
+    if (gPendingAttached[index]) gPendingBlocks[index]->detach(gPendingProvider);
+    gPendingBlocks[index]->release();
+    gPendingBlocks[index] = nullptr;
+    gPendingAttached[index] = false;
+  }
+};
+
+static void pongUfsPublishThread(void *, wait_result_t) {
+  PongUfsPublicationOps ops;
+  const UfsRootPublicationResult result = ufsPublishRootWindows(ops, gPublicationPlan);
+  gRootDiagnostic.publicationPhase = static_cast<uint32_t>(result.phase);
+  gRootDiagnostic.publicationWindow = result.index;
+  gRootDiagnostic.published = result.published;
+  if (result.phase == UfsRootPhase::Start) {
+    gRootDiagnostic.stage = "root window start";
+    gRootDiagnostic.result = kIOReturnIOError;
+  } else if (result.phase == UfsRootPhase::Media) {
+    gRootDiagnostic.stage = "root media wait";
+    gRootDiagnostic.result = kIOReturnTimeout;
+  } else if (result.phase == UfsRootPhase::Complete) {
+    gRootDiagnostic.stage = "root publication complete";
+  }
+  if (gPendingProvider) {
+    gPendingProvider->release();
+    gPendingProvider = nullptr;
+  }
+}
+#endif
+
 extern "C" bool pong_ufs_transport_start(IOService *provider) {
   if (gTransportAttempted) {
     IOLog("PONG_UFS: transport attempt already completed; skip duplicate match\n");
@@ -780,6 +979,19 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
   UfsRootPlan plan;
   if (!ufsBuildRootPlan(names, gRootWindowCount, plan))
     return transportFailure("root window publication plan");
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  gPublicationPlan = plan;
+  gPendingProvider = provider;
+  gPendingCount = gRootWindowCount;
+  PongUfsPublicationOps publication;
+  const UfsRootPublicationResult prepared = ufsPrepareRootWindows(publication, gRootWindowCount);
+  gRootDiagnostic.publicationPhase = static_cast<uint32_t>(prepared.phase);
+  gRootDiagnostic.publicationWindow = prepared.index;
+  if (prepared.phase != UfsRootPhase::Complete)
+    return transportFailure("root window preparation");
+  gRootDiagnostic.prepared = gRootWindowCount;
+  return true;
+#else
   for (unsigned position = 0; position < plan.count; ++position) {
     unsigned index = plan.order[position];
     OSSharedPtr<PongUfsBlock> block(new PongUfsBlock, OSNoRetain);
@@ -788,4 +1000,5 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
     if (!block->start(provider)) { block->detach(provider); return transportFailure("block start"); }
   }
   return true;
+#endif
 }

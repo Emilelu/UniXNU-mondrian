@@ -47,7 +47,7 @@ failure = "本次观察失败时的具体记录、缺失项与判废条件"
 4. 在不放宽 active底线的前提下设置 `K60_FLASH_ITEMS=wifi` 与匹配的 `K60_FLASH_OBSERVATION`，运行真实 `--flash` 并保存退出码和完整输出；失败立即结束，设备命令不可执行。
 5. 包装器反例必须覆盖“实际 WiFi图 + display scope/缺 scope/缺观察绑定”均失败。这些镜像绑定检查未包含在本最小 gate diff中，须由后续 wrapper补丁和测试实现后再审。
 
-镜像绑定的可执行离线提案与假 runner 反例另见 [IMAGE-BOUND-WRAPPER-PROPOSAL.md](IMAGE-BOUND-WRAPPER-PROPOSAL.md)。它未接入实际 flash/supervisor；本节列出的实际使用阻塞仍然成立，c8 的历史缺项不能由新提案补成已验证。
+镜像绑定的可执行离线提案见 [IMAGE-BOUND-WRAPPER-PROPOSAL.md](IMAGE-BOUND-WRAPPER-PROPOSAL.md)；该提案现为 advisory-only，默认不执行本 gate、不调用任何设备 runner，并把下游路径重开的交接缺口列为未闭合。它未接入实际 flash/supervisor；本节列出的实际使用阻塞仍然成立，c8 的历史缺项不能由新提案补成已验证。
 
 本提案没有把⑧ done设 true；观察预测与设备成功是两件事。c8仍 HOLD，任何主机测试通过都不授权构建或上机。
 

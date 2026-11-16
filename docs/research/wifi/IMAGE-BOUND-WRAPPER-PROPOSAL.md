@@ -1,236 +1,309 @@
-# Offline image-bound wrapper proposal
+# Offline image-bound wrapper: advisory-only revalidation
 
-2026-11-16. **Proposal only; c8 remains HOLD.** Task-6 adds an executable host contract
-for the proposed WiFi flash gate. It accepts only an explicitly nonbootable source
-fixture and an in-process recorded fake. It cannot execute the device supervisor,
-PowerShell, fastboot, a configurable command, or an injected runner callback.
+2026-11-16. Status: **advisory-only, non-executable offline diagnostic**. This
+document supersedes the pre-pivot admission proposal that previously occupied this
+file. The old text is preserved as history in [Superseded claim](#superseded-claim-historical-not-current);
+it is no longer the contract.
 
-The implementation is [wifi_image_bound_wrapper.py](../../../scripts/proposals/wifi_image_bound_wrapper.py).
-The reproducible host matrix is [test-wifi-image-bound-wrapper.py](../../../scripts/tests/test-wifi-image-bound-wrapper.py).
+The wrapper is [`wifi_image_bound_wrapper.py`](../../../scripts/proposals/wifi_image_bound_wrapper.py).
+Its default API and CLI never call a device runner, never execute the proposed
+flash gate, and never produce a bootable/authorized/atomic/safe-to-flash
+conclusion. A positive result means only that the bytes captured once by this
+offline tool satisfy the listed consistency checks.
+
 This supplements the [flash-gate proposal](WIFI-FLASH-GATE-PROPOSAL.md) and its
-[unapplied patch](../../../scripts/proposals/wifi-eight-step-gate.patch). It changes
-neither the [active gate](../../../scripts/eight-step-gate.py) nor the
-[active evidence record](../EIGHT-STEPS.toml). Root integration owns indexing and commits.
+[unapplied patch](../../../scripts/proposals/wifi-eight-step-gate.patch). It
+changes neither the [active gate](../../../scripts/eight-step-gate.py) nor the
+session model, supervisor, build driver, board files or series.
 
-## Authoritative inputs and historical rejection
+## Superseded claim (historical, not current)
 
-The actual [c8 build manifest](E:/k60-work/artifacts/wifi-20261116c8/build-manifest.json)
-was read in full alongside [build-strict.sh](../../../scripts/build-strict.sh),
-particularly its manifest emission at lines 386–454. The real schema uses flat
-components.boot_img, components.payload, components.payload_kernel,
-components.wifi_archive, components.wifi_archive_path,
-repo.head, repo.dirty_files, frozen.file, frozen.list_sha256,
-kernel_args_requested, payload_args and eight_step_items
-keys. Paths and the eight_step_items = "all" string do not prove that WiFi was in
-the flash gate or that a particular archive was linked into a particular kernel.
+The pre-pivot wrapper was 20,250 bytes with SHA256
+`2e4f6273c24c7aa4893c6e66981043e43b52f4ae90c51c0bc5006c95da6abb4e`.
+Its checked contract contained this sequence:
 
-| Actual c8 field | Recorded identity |
+> 8. Revalidate bound inputs after the gate; only then append one inert plan to
+>    RecordedFakeRunner.calls. A failing validation or gate yields exit 1 and zero
+>    recorder calls; fake exit 7 is propagated as 7 after one recorded call.
+
+It treated the resulting gap as a caveat:
+
+> A deterministic disposable probe temporarily made trusted evidence pass during
+> the gate, then restored the failing evidence before the second validation; the
+> recorder still ran once. This demonstrates the quiescent-input assumption rather
+> than an atomic guarantee.
+
+That claim is false for path-bound evidence and is **not** accepted by this
+design. Byte-review reproduced the defect independently. The probe
+`E:/k60-work/scratch/wifi-byte-binding-review/probe_known_defect_floor_restore.py`
+monkeypatched the first read of the trusted DATA active floor to all-parked,
+restored the real floor for the second validation, and observed the old wrapper
+return `exit_code 0`, `gate_exit_code 0`, `runner_calls 1`,
+`defect_reproduced true`. Re-reading a path cannot prove that a later consumer
+will see the same bytes.
+
+The current wrapper therefore has no gate execution and no fake acceptance in its
+default path. The defect remains visible only through an explicit, clearly
+labelled legacy diagnostic described below.
+
+## Current contract
+
+The single rule is: **every decision is computed from bytes captured once, and
+the default path calls no runner.**
+
+| API | Behaviour |
 |---|---|
-| Source revision | dd3154a716e89d0fbcc74058a3de705166fe1a29 |
-| Outer image SHA256 | f83ea7637b25cbfc87fd43189bb33973495f59c3d89edd7c727c8e00c7a0950c |
-| Payload SHA256 | 2e01f473bc1e1c746850b5ba18e02b81aae041134ddccc038e1251fb16a9812e |
-| Payload-kernel SHA256 | 6eeb5d682502e2a2edc183cb4296ccf33ae83042694cab8e4df3930bccbc150e |
-| WiFi archive SHA256 | 1236996adc8cd8c030ed0f194ae58448db7b01498a2e704036d1e2e62c65d95c |
-| Frozen list SHA256 | 76bee9ae31e129991b58fa20703f2cefa11d99da46186e2671aab6556efd7db9 |
-| Requested args | pong_wifi=1 k60_wifi_rsc=2 |
+| `capture(path, label)` | Opens once, reads once, stores `data`, `sha256` and the path locator. No pre-hash and no path stat. |
+| `capture_inputs(manifest_path, image_path, review_path=None)` | Resolves paths once and captures manifest first. Requires a historical `proposal_binding` object before it captures the review, frozen list or image. Then captures the review, frozen list, every listed frozen file, image, trusted GATE/PATCH/DATA/SUPERVISOR bytes, and the recorded Git source blob. |
+| `evaluate(captured, scope)` | Recomputes each snapshot digest in memory, then performs every parse/hash/compare against captured bytes. Re-checks the captured frozen listing and hashes through `role_files`; does not read paths for a decision. |
+| `advisory_from_inputs(captured, scope)` | Returns the advisory result and a post-decision `boundaries` report. Never calls a runner. |
+| `advisory(manifest_path, image_path, review_path=None, scope=None)` | Default API: one capture, then `advisory_from_inputs`. Never calls a runner. |
+| `execute(..., runner=None)` | Compatibility alias for `advisory`. Any non-`None` `runner` is refused before it can be called; only the isolated legacy probe accepts the exact in-process recorder. |
+| `legacy_vulnerable_probe(..., window_open=None, during_gate=None, window_close=None)` | Explicit red-team reproduction of the old once-fake defect. Not a product path and not acceptance. |
 
-The wrapper streamed the existing 201887744-byte image and matched its outer SHA256,
-then returned raw **exit 1**, **runner_calls 0**, **gate null**:
+Every default result carries:
 
-~~~text
-missing historical proposal_binding; no backfill allowed
-~~~
-
-That is an actual read-only c8 rejection, not a successful c8 provenance check.
-c8 has no contemporaneously frozen observation/readback/source-compile-link binding
-of this proposal's kind. No record was manufactured, no historical manifest was
-modified, and no environment variable can supply those missing identities.
-
-The current [verify-boot-image.py](../../../scripts/verify-boot-image.py) checks the
-Android v4/gzip shim/firmware/FDT and payload/kernel hashes using its real image
-extraction path. Its check(manifest_path, image_override=None) does not compare the
-outer components.boot_img hash or exact payload_args readback. This proposal
-adds those comparisons only for its fixture format. A usable Android boot-image
-adapter remains absent; this proposal cannot authorize any existing real image.
-
-## Checked contract
-
-Inputs are explicit --manifest, --image, --review, --scope CLI arguments. The wrapper
-never derives identity or scope from a tag, image basename hint, or a K60 environment
-variable. The review JSON pins the exact manifest bytes, full source commit, gate
-base/patch digests, trusted active-floor digest, observation identifier, and inert
-supervisor plan. This review file is an offline test input, not a signature or
-independent evidence that a build happened.
-
-Validation precedes the fake boundary:
-
-1. Hash the actual supplied image; compare it with the manifest's full SHA256.
-   Require a full 40-character revision and repo.dirty_files = 0. Require an
-   existing historical proposal_binding with the supported schema/format.
-2. Verify the review pins and the manifest's frozen-list SHA256. Check every listed
-   file against its SHA256; require distinct frozen roles for source, config, archive,
-   compiler record, link record, steps, and observation. Reject relative traversal,
-   absolute frozen paths and symlinks within those relative paths.
-3. Require a checked observation identifier and explicit nonempty, unique, known
-   scope. Compare the artifact's hardware set against the trusted checkout record:
-   all current active items must exist and remain active. Hash that trusted record
-   into the identity so omission/demotion cannot silently remove the active floor.
-4. Parse the nonbootable fixture and read its payload, kernel bytes and exact args.
-   Compare payload/kernel SHA256, manifest args and requested args. Duplicate or
-   conflicting requested-argument keys are refused. Unknown formats are refused.
-5. Require that the full source revision names a Git **commit**, not a tree object.
-   Compare the frozen WiFi source bytes with that commit's blob. Require those exact
-   bytes in the fixture kernel and the fixture archive's explicit member. Compare
-   the archive hash/path, fixture compiler record, and fixture link record. Those
-   records explicitly say source-fixture-no-compiler and source-fixture-no-linker.
-6. Classify code membership independently from activation. Every supported fixture
-   contains checked WiFi source and therefore requires explicit wifi scope, even
-   with pong_wifi=0 or no activation flag. Exactly one pong_wifi=1 is enabled;
-   exactly one pong_wifi=0 is disabled; missing/ambiguous values are unknown. Neither
-   disabled nor unknown classification allows a display-only request to bypass WiFi.
-7. Compare the observation's complete identity, activation, scope, success/failure
-   predictions and references with the checked manifest/artifacts/steps. Invoke the
-   real proposed gate in an ephemeral tree and retain its raw exit/stdout/stderr.
-8. Revalidate bound inputs after the gate; only then append one inert plan to
-   RecordedFakeRunner.calls. A failing validation or gate yields exit 1 and zero
-   recorder calls; fake exit 7 is propagated as 7 after one recorded call.
-
-JSON root lists/scalars and duplicate keys fail closed. The wrapper supports only
-its exact recorder class; an arbitrary callable is refused. Git uses a fixed native
-executable on Windows (C:/Program Files/Git/cmd/git.exe), scrubs ambient GIT_*
-and K60/Python hints, disables global/system config and replacement objects, and never
-uses a shell. Isolated Python is launched with -I -X utf8. The host installation,
-repository and in-process Python runtime remain trusted; hostile code able to rewrite
-those files or monkeypatch modules is outside this offline contract.
-
-## Actual supervisor interface, represented without execution
-
-The existing supervisor is [boot-and-capture.ps1](../../../scripts/boot-and-capture.ps1).
-Its actual parameters are Image, Seconds, IdleSeconds, ReopenSeconds,
-PanicGraceSeconds, WaitFastboot, OutDir, Fastboot, Serial. It checks capture readiness
-before its boot command. This wrapper reads/hashes that script but never invokes it.
-
-The manifest binding, review input and observation identity all include the following
-fixed inert plan; the recorded fake output includes the same plan:
-
-~~~json
+```json
 {
-  "script": "scripts/boot-and-capture.ps1",
-  "script_sha256": "5205b5ba7f08bf989b216501e0a3c0dc6eec4d362153a64be34179026726eca4",
-  "executable": false,
-  "argv": [
-    "-Image", "fixture-image.json", "-Seconds", "300",
-    "-WaitFastboot", "0", "-OutDir", "fixture-evidence",
-    "-Serial", "fixture-no-device"
-  ]
+  "mode": "advisory-only",
+  "advisory": true,
+  "diagnostic": true,
+  "checks": "passed",
+  "advisory_exit_code": 0,
+  "flash_authorized": false,
+  "flash_authorization": "none",
+  "device_runner_calls": 0,
+  "device_paths_invoked": false
 }
-~~~
+```
 
-The image is nonbootable, the serial deliberately names no device, and the output
-path is merely a string. No output evidence directory is created by this plan. This
-is parameter-shape and identity coverage, not a production supervisor integration.
+`advisory_exit_code 0` means "the captured inputs passed these checks". It is
+not an authorization, not an admission decision, and not evidence that a device
+can boot the image. `flash_authorized` is hard-coded false, and
+`device_runner_calls` is hard-coded zero, including on every failure path.
 
-## Exact source fixture and test inputs
+The CLI has the same default. `main()` reads `--manifest`, `--image`,
+optional `--review`, optional `--scope`, and optional `--legacy-diagnostic`.
+Without that last flag it prints the advisory result and returns
+`advisory_exit_code`: 0 for checks passed, 1 for refused. It never invokes a
+gate, PowerShell, supervisor, fastboot or a fake runner.
 
-The test creates temporary, disposable JSON/TOML fixtures; the test source and this
-record are durable. It compiles no C/C++, generates no Android image, and performs no
-boot or device probe. Exact source is read with Git from the BSD-2-Clause-Patent
-[drivers/PongWifi/PongWifiPci.cpp](../../../drivers/PongWifi/PongWifiPci.cpp), pinned at
-3cf1a08c8a7c60656c9682fb53d1c1b3bf74a185. The fixture kernel consists of the ASCII
-prefix NONBOOTABLE SOURCE FIXTURE ONLY\n followed by that whole blob. The fixture
-archive is canonical JSON containing base64 of that same whole blob and its digest.
-The outer fixture is canonical JSON; canonical encoding is sorted keys, compact
-separators, UTF-8. The supported outer/binding format is wifi-source-fixture-v1.
+## What is checked
 
-The positive uses -v applog=1 pong_wifi=1 k60_wifi_rsc=2, observation
-wifi-pci-source-fixture, and explicit scope wifi. Its tag deliberately says
-display-only-name-is-irrelevant and eight_step_items says display. The checked
-source membership still selects WiFi. The fixture supplies synthetic passing evidence
-for trusted active items and parked WiFi; it does not claim the real records passed.
-The actual proposed gate prints the active floor:
+All checks below read only the captured bytes:
 
-~~~text
-Flash scope: touch[active], gpu[active], storage[active], display[active], bootchain[active], battery[active], wifi[parked] (K60_FLASH_ITEMS + active floor)
-~~~
+- Manifest shape, schema-1 `proposal_binding`, declared format
+  `wifi-source-fixture-v1`, review/observation/gate/patch/floor/supervisor pins,
+  repository revision and clean-tree declaration.
+- Image outer SHA256, boot-image format, exact payload arguments, payload hash,
+  payload kernel hash, archive hash and archive membership of the recorded WiFi
+  source.
+- Frozen listing and every frozen role: config, `compile_commands.json`,
+  link record, archive, observation, source and steps. A rehashed archive must
+  still contain the source member; a rehashed kernel must still contain the
+  actual WiFi source; compiler/linker records must match.
+- Active floor and its trusted digest, explicit WiFi scope, observation identity
+  and activation, source revision, and observation reference/prediction
+  agreement including the observation identifier on both sides.
+- Source blob equality against the fixed Git object named by the manifest
+  revision. Invalid or missing Git objects are reported as an error, not
+  backfilled from the working tree.
 
-| Positive fixture identity | SHA256 |
-|---|---|
-| Image | 4bac4070dbee20e7250dc514eac6b2f4b4ad2b7ebd2d8db99c6d35bcca0b9798 |
-| Payload | 5160a1647334c9640a99c019fd81384b971ab748a49a2610452dc6bd615b9a26 |
-| Fixture kernel | d30af4117bc98b61b276431f96eb6bbbb056c129b22d37a93c8930826f65c8fa |
-| Source blob | 379394cd9c01c116c119898326f97945712365f3053dc3715917036ec76d7719 |
-| Fixture archive | ca82d20095a44785830279f028fc92c0d6bdba1e782628a707aefe96a9b5c9dc |
-| Config | 441485734148e35747fa4a41f1857e1eae455d6cec75709008cce890214ae6ea |
-| No-compiler record | 517f1cafa98faaad59a4a2163ecf87d0e541c3ad3685c9ae9759689cf930f731 |
-| No-linker record | f50dd251bb98819249b41c90a1104d440596fd3d53f39859ca7ece1a4e8aeb28 |
-| Synthetic steps | d868dea8f2790839a4140b746a4eb5585cddee4d016964c67ba63fd04475dba5 |
-| Fixture manifest | 228d0f5a2b988c67569ecb065396ed0e876e5c5a6a1d9927aa78e1a2c7e74cea |
-| Active gate | 6b64c711a00148bfebb1fd1cb71dd4e1af61ab51450dc36a33edbea129b83ab8 |
-| Unapplied gate patch | 6257bd3ece2c8574626328e8fb6ea6e276ee84d9d078b4ad2f3afb200a775acd |
-| Trusted active evidence record | c1ed3d0bcc8324b00199c1a6406482f87283ac79ad408b545f48ced84e06b26a |
+A refusal returns `advisory_exit_code 1`, a non-empty `error`, `checks
+failed`, zero runner calls and no flash authorization.
 
-The identities depend on the checked gate/patch/active floor/supervisor versions.
-A later reviewed edit requires new fixture identity output; these are this test run's
-identifiers, not universal or reproducible native build claims.
+## Boundaries and deterministic seams
 
-## Verification and raw exits
+The test suite models the three boundary questions byte-review asked for without
+monkeypatching wrapper internals. Each is reproducible from the public capture
+and advisory APIs.
 
-Executed on the Windows host with the bundled Python:
-
-~~~bash
-'/c/Users/Emilelu/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/python.exe' -B scripts/tests/test-wifi-image-bound-wrapper.py --c8-manifest E:/k60-work/artifacts/wifi-20261116c8/build-manifest.json --c8-image E:/k60-work/artifacts/wifi-20261116c8/boot.img
-~~~
-
-Final result: **raw suite exit 0**, **70 cases**, **0 failures**, **active inputs
-unchanged**. No background jobs or device commands were started. The matrix prints
-one JSON result per case with the wrapper exit, gate exit if reached, and runner count.
-
-| Cases | Raw result | Recorder calls |
+| Boundary | Deterministic seam | Raw observation |
 |---|---|---|
-| Positive fixture; disabled/unknown activation with checked WiFi scope; ambient spoof variables; positive CLI | wrapper/CLI 0; gate 0 | 1 per case, in process only |
-| Deliberate fake exit propagation | wrapper 7; gate 0 | 1 |
-| WiFi bytes + display scope; missing/duplicate/unknown scope; missing review/observation; malformed root/nested JSON; unknown format/schema (including boolean, float and string schema versions) | wrapper 1 | 0 |
-| Wrong image/payload/kernel/archive hash; source/review/compile/link revision mismatch; nonexistent or tree revision; wrong args; rehashed archive lacking member; rehashed kernel lacking source | wrapper 1 | 0 |
-| Missing and corrupt source/config/archive/compiler/link/steps/observation roles; missing frozen role; changed config; stale observation/activation; stale supervisor plan or gate digest | wrapper 1 | 0 |
-| Omitted/demoted trusted active item | wrapper 1 | 0 |
-| Failing active touch, failing parked WiFi verify, stale WiFi prediction | wrapper 1; actual proposed gate 1 | 0 |
-| Actual c8 image + historical manifest | CLI 1; gate not reached | 0 |
+| Path replacement before a final consumer | Capture the fixture, replace the image path with different bytes, then call `advisory_from_inputs` on the held capture. | Decision stayed at captured image `4bac4070dbee20e7250dc514eac6b2f4b4ad2b7ebd2d8db99c6d35bcca0b9798`; `path_now_sha256` `b5975459b17b80fc734bee487f2b6c1ba8ae2ad7383a241a33a32b170742fc8d`; `same false`. |
+| Same-inode overwrite after capture | Capture, then open the same inode `r+b` and overwrite its bytes. The test asserts the two path states share `st_ino`. | `same_inode true`; captured hash `4bac...b9798`; path-now `f5321e5425d4e5461f8163cede60767f547d0ed77045a410116daf176fe9ff1a`; `same false`. The captured decision did not change. |
+| Downstream consumer reopens a path | After the decision, read the path again with `diagnostic_path_digest`. | Reopened SHA256 `cdacee9be7dc42f6231c873fa740643d33b6f95ecbc744c8c40dcfcac384b188`, different from the captured bytes. |
+| Restored failing input | Capture while the fixture fails, repair the path, evaluate the held capture again. | `captured_bad_exit 1`, error `gate prediction observation mismatch`; `repaired_path_exit 0`. The held capture never resurrects the repaired bytes. |
 
-The suite guards its in-process subprocess surface to fixed Git inspection/patching
-and isolated Python gate/CLI runs. It hashes active gate/TOML/patch before and after.
-Only disposable copies receive the unapplied patch. The unrelated README renderer
-is stubbed, and its copied invocation uses the current isolated Python executable
-instead of a PATH python3. Scope/evidence/prediction/active-floor logic is the real
-proposed gate. The first trial exposed a Windows encoding issue because -I ignores
-PYTHONIOENCODING; -X utf8 corrected it. Later trial corrections concerned the
-expected commit-type error string and fixture setup's inherited Git environment;
-the final matrix above passes. Review caught Python equality accepting JSON true and
-1.0 as schema version 1; exact integer-type validation refuses those and string "1"
-with zero recorder calls. Fixed source/commit reads pass only a per-call
-`-c safe.directory=<exact resolved trusted ROOT>` to Git; no wildcard/global trust is
-configured. The first independent WSL run preceded this fix and failed Git ownership.
+`boundary_report` is explicit that these reads are diagnostic only:
+`captured_once true`, `decision_reopened_path false`,
+`post_capture_path_reads "diagnostic-only; never consulted by a check"`. It also
+records three limits verbatim:
 
-## Limits and remaining integration debt
+- `same_inode_limit`: an in-place write changes the path's current bytes but
+  cannot change a captured snapshot or any advisory decision.
+- `downstream_limit`: a final consumer that reopens a path is not bound to the
+  captured bytes; this wrapper cannot prove or provide that handoff.
+- `cross_process_limit`: supervisor/fastboot atomic handoff is outside this
+  offline proof and is not claimed.
 
-A hash equality and a self-authored review file cannot establish trustworthy build
-history. A future real-image adapter needs contemporaneously frozen authoritative
-config/source/compiler/object/archive/link evidence, verified real payload/kernel and
-argument extraction, archive-member inclusion, and review of the exact observation
-specification. Native compilation/link inclusion and absence of hidden WiFi code are
-not proved here. Every admitted fixture is positively WiFi-source-bearing; the
-wrapper refuses unsupported formats rather than claiming they are WiFi-free.
+The wrapper does not close the downstream gap. It makes it visible and refuses
+to claim it away. A future consumer must accept the validated bytes or an
+equivalent handle, not a path.
 
-The artifact root and its ancestors, the checkout, fixed tool installations and the
-process are trusted and quiescent. Relative frozen-path symlinks are refused, and all
-bound inputs are checked again after the gate, but there is no filesystem lock or
-atomic handoff to a device. Root/ancestor junction replacement and hostile concurrent
-rewrites are not fully prevented. A deterministic disposable probe temporarily made
-trusted evidence pass during the gate, then restored the failing evidence before the
-second validation; the recorder still ran once. This demonstrates the quiescent-input
-assumption rather than an atomic guarantee. The recorder has no external effects, so
-these limits do not open a boot path. They must be addressed/reviewed before any production
-adapter or supervisor execution is considered.
+## Legacy expected-defect regression
 
-The real c8 binding is absent and remains absent. All active files, driver behavior,
-porting state and session model remain unchanged. No C build, image build, boot,
-flash, tag or commit was performed by this task.
+The old once-fake defect is not deleted or hidden. It is kept as an explicit,
+clearly labelled regression that demonstrates the failure:
+
+1. The fixture starts with an image whose bytes fail the stale-prediction check.
+2. `window_open` writes the temporary-good image at the path.
+3. The probe runs the historical before/after path validations with
+   `capture_inputs` + `evaluate`; `during_gate` runs between them.
+4. `window_close` restores the original failing image at the path.
+5. The probe reaches one `RecordedFakeRunner.run` plan containing the **path**
+   and the earlier validated hash, then records `runner_calls 1` and
+   `path_matches_validated false`.
+
+The raw expected-defect row is:
+
+```json
+{"case": "legacy-vulnerable probe: expected once-fake acceptance after temp-good window",
+ "pass": true, "checks_exit": null, "device_runner_calls": 0,
+ "flash_authorized": false, "error": null, "runner_calls": 1,
+ "legacy_fake_accepted": true, "path_matches_validated": false,
+ "detail": {"expected_defect": true}}
+```
+
+The test passes when the defect reproduces and fails if it stops reproducing.
+"Expected defect" is not acceptance: the fake is in-process and test-only, its
+plan has no external effect, `device_runner_calls` stays zero, and only the
+explicit `--legacy-diagnostic` CLI or direct call can reach it. No production
+caller may use `legacy_vulnerable_probe`.
+
+The supported legacy invocation is:
+
+```sh
+python3 scripts/proposals/wifi_image_bound_wrapper.py --legacy-diagnostic \
+  --manifest <fixture-manifest.json> --image <fixture-image.json> \
+  --review <fixture-review.json> --scope wifi
+```
+
+It returns 0 only when the defect was reproduced; 1 means the regression no
+longer demonstrates the old defect.
+
+## Real c8 manifest rejection
+
+The real c8 build manifest contains no historical `proposal_binding`. It is
+rejected without backfilling one from the current environment or files:
+
+| Field | Value |
+|---|---|
+| Manifest | `E:/k60-work/artifacts/wifi-20261116c8/build-manifest.json` |
+| Image | `E:/k60-work/artifacts/wifi-20261116c8/boot.img` (201,887,744 bytes) |
+| Build time | `2026-11-16T13:27:45+08:00` |
+| Repository HEAD | `dd3154a716e89d0fbcc74058a3de705166fe1a29` |
+| Branch / dirty | `feat/wifi-bringup` / 0 |
+| Boot image SHA256 | `f83ea7637b25cbfc87fd43189bb33973495f59c3d89edd7c727c8e00c7a0950c` |
+| Payload SHA256 | `2e01f473bc1e1c746850b5ba18e02b81aae041134ddccc038e1251fb16a9812e` |
+| Payload kernel SHA256 | `6eeb5d682502e2a2edc183cb4296ccf33ae83042694cab8e4df3930bccbc150e` |
+| WiFi archive SHA256 | `1236996adc8cd8c030ed0f194ae58448db7b01498a2e704036d1e2e62c65d95c` |
+| Frozen list SHA256 | `76bee9ae31e129991b58fa20703f2cefa11d99da46186e2671aab6556efd7db9` |
+| Eight-step items | all present |
+| Proposal binding | absent (historical record was never produced) |
+
+`capture_inputs` captures the manifest at
+`scripts/proposals/wifi_image_bound_wrapper.py:230` and requires
+`proposal_binding` at line 234, before it captures the review at line 236,
+the frozen list at line 239, or the image at line 241. The 201,887,744-byte c8
+image therefore cannot have been opened on this rejection path.
+
+Raw result: CLI exit 1, `advisory_exit_code 1`, `error`
+`"missing historical proposal_binding; no backfill allowed"`,
+`device_runner_calls 0`, `flash_authorized false`, no gate or supervisor
+call. No binding, manifest, image or artifact was modified.
+
+## Test matrix and raw output
+
+The suite is [`test-wifi-image-bound-wrapper.py`](../../../scripts/tests/test-wifi-image-bound-wrapper.py).
+Run from the repository root:
+
+```sh
+'/c/Users/Emilelu/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/python.exe' \
+  -B scripts/tests/test-wifi-image-bound-wrapper.py \
+  --c8-manifest E:/k60-work/artifacts/wifi-20261116c8/build-manifest.json \
+  --c8-image E:/k60-work/artifacts/wifi-20261116c8/boot.img
+```
+
+Raw exit: **0**. Raw final summary line:
+
+```json
+{"cases": 72, "failures": [], "diagnostics": 5, "active_inputs_unchanged": true,
+ "fixed_subprocess_calls": 174,
+ "source_revision": "3cf1a08c8a7c60656c9682fb53d1c1b3bf74a185",
+ "source_path": "drivers/PongWifi/PongWifiPci.cpp"}
+```
+
+The 72 rows are: one primary positive fixture, three additional expected-pass
+cases (disabled activation with checked WiFi scope, unknown activation with
+checked WiFi scope, ambient-environment spoof), one `execute(runner=None)`
+positive, 60 refusal cases with `checks_exit 1`, four boundary rows, one legacy
+expected-defect row, one positive CLI row and one real-c8 rejection. Every row
+reports `device_runner_calls 0` and `flash_authorized false`; the five
+diagnostics are the four boundary rows plus the legacy row.
+
+The guard counts 174 fixed Git inspection calls (`git cat-file` only). It does
+not allow a proposed gate, PowerShell, supervisor, shell or device invocation.
+Active GATE/DATA/PATCH/SUPERVISOR bytes are hashed before and after and reported
+`active_inputs_unchanged true`. The full 74-line raw log is at
+`E:/k60-work/scratch/wifi-bound-final.log`.
+
+## Positive fixture identity
+
+The passing fixture is an explicitly nonbootable offline JSON fixture. Its
+identity is:
+
+| Input | SHA256 / value |
+|---|---|
+| Image | `4bac4070dbee20e7250dc514eac6b2f4b4ad2b7ebd2d8db99c6d35bcca0b9798` |
+| Source revision | `3cf1a08c8a7c60656c9682fb53d1c1b3bf74a185` |
+| Source path | `drivers/PongWifi/PongWifiPci.cpp` |
+| Payload arguments | `-v applog=1 pong_wifi=1 k60_wifi_rsc=2` |
+| Requested kernel args | `["pong_wifi=1", "k60_wifi_rsc=2"]` |
+| Payload | `5160a1647334c9640a99c019fd81384b971ab748a49a2610452dc6bd615b9a26` |
+| Payload kernel | `d30af4117bc98b61b276431f96eb6bbbb056c129b22d37a93c8930826f65c8fa` |
+| WiFi archive | `ca82d20095a44785830279f028fc92c0d6bdba1e782628a707aefe96a9b5c9dc` |
+| Source | `379394cd9c01c116c119898326f97945712365f3053dc3715917036ec76d7719` |
+| Config | `441485734148e35747fa4a41f1857e1eae455d6cec75709008cce890214ae6ea` |
+| Compile commands | `517f1cafa98faaad59a4a2163ecf87d0e541c3ad3685c9ae9759689cf930f731` |
+| Link record | `f50dd251bb98819249b41c90a1104d440596fd3d53f39859ca7ece1a4e8aeb28` |
+| Steps | `d868dea8f2790839a4140b746a4eb5585cddee4d016964c67ba63fd04475dba5` |
+| Gate base | `6b64c711a00148bfebb1fd1cb71dd4e1af61ab51450dc36a33edbea129b83ab8` |
+| Gate patch | `6257bd3ece2c8574626328e8fb6ea6e276ee84d9d078b4ad2f3afb200a775acd` |
+| Active floor | `c1ed3d0bcc8324b00199c1a6406482f87283ac79ad408b545f48ced84e06b26a` |
+| Manifest | `228d0f5a2b988c67569ecb065396ed0e876e5c5a6a1d9927aa78e1a2c7e74cea` |
+| Supervisor script | `5205b5ba7f08bf989b216501e0a3c0dc6eec4d362153a64be34179026726eca4` |
+
+The supervisor fixture is non-executable and carries argv
+`[-Image fixture-image.json, -Seconds 300, -WaitFastboot 0, -OutDir fixture-evidence, -Serial fixture-no-device]`.
+
+## Limits and trust
+
+- The artifact root and its ancestors, the checkout, the fixed Git installation
+  and the process are assumed trusted and quiescent. Relative frozen-path
+  symlinks are refused, but there is no filesystem lock, no atomic handoff, and
+  no protection against a hostile process rewriting files while they are being
+  captured.
+- The capture protects decisions taken after it: path replacement, same-inode
+  overwrite and restored failing bytes cannot change a held snapshot. It does
+  not protect a downstream consumer that reopens the path. That handoff remains
+  unimplemented and unclaimed.
+- This is an offline consistency proof over declared JSON fixtures. It does not
+  prove that the image boots, that the WiFi driver is loaded, that a device
+  partition is safe, or that the archive was produced by the named compiler.
+- The real c8 artifact is rejected because its historical binding is absent.
+  No backfill was attempted and none is authorized.
+
+## Stable hashes and handoff
+
+| File | SHA256 |
+|---|---|
+| `scripts/proposals/wifi_image_bound_wrapper.py` | `d333402fbea562744ba71b27da16ba8372b5043c9854222a3902693a113ea753` |
+| `scripts/tests/test-wifi-image-bound-wrapper.py` | `dfb48649d270e34ccd85108ffd516d301fc7d20e6e9e973a232dacfe4526049e` |
+
+This document's own SHA256 is reported in the handoff message rather than
+embedded here, because embedding it would change the hash.
+
+No active gate, supervisor, driver, state machine, board file, session model or
+series was edited. No C build, image build, boot, flash, tag or commit was
+performed by this task.

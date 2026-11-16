@@ -300,7 +300,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 ## 10. 本分支已修 / 待 Lead 决定
 
-**已修（本分支，截至 2026-11-17 共 24 个提交、80 个文件 +2242/−336）**：
+**已修（本分支，截至 2026-11-17 共 34 个提交、83 个文件 +2474/−357）**：
 
 - **文档卫生**：`INDEX`/`README`/`README_EN`/`engineering/README`/`STATUS`/`AGENTS` 的日期、★/P 范围、补丁与系列计数、断表、固件描述；
   `docs/ops/` 两份文件头加「上游快照、非权威」横幅并新建 `ops/README.md`；`EIGHT-STEPS.toml` wifi 段按 c1–c8 重评；

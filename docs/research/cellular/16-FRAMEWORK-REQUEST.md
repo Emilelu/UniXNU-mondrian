@@ -217,6 +217,8 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
 
 按顺序做，前一条不过就别做下一条。
 
+实际验收的输入来源、真实退出码、OFF/ON 分组与随机控制前提见 [17 号离线验收清单](17-OFFLINE-ACCEPTANCE-CHECKLIST.md)。本节命令保留为接口示意；候选必须来自 Lead 交付的已提交框架和隔离严格构建，不执行下面带 `UNIXNU_SKIP_GATES=1` 的示意命令来宣称候选通过。
+
 > 本机注意：这台 WSL 的 `/tmp` 里留着 root 所有的旧文件，写会 `PermissionError`、
 > `mcopy` 覆盖时会挂在确认提示上等输入（看起来像卡死）。下面所有 `/tmp/...` 路径请换成
 > 自己的可写目录（例如 `/mnt/e/k60-work/artifacts/vfy/`）。
@@ -295,8 +297,9 @@ mdir -i .../payload.img ::/EFI/UniXNU                            # 只有 Payloa
 
 ### 5.4 复现级：两次构建同 sha256
 
-同一输入跑两次 5.2，`payload_sha256` 必须相同（`:284-285` 的 utime EPOCH + `:100` 的
-`sorted(stage.iterdir())` 是这条的保证）。不同就说明新目录没被 utime 覆盖到。
+同一输入在受控离线 harness 下跑两次 5.2，`payload_sha256` 必须相同。需同时固定并记录 ADT 的测试随机输入、工具版本、时间戳与目录顺序；`:284-285` 的 utime EPOCH 与 `:100` 的 `sorted(stage.iterdir())` 只覆盖其中一部分。
+
+`generate()` 使用 `os.urandom(256)`，固定 unique-chip-id 不会固定 random-seed。因此正常独立构建哈希不同不能直接归因于新增目录；5.3 的旧/新字节比较也需要相同的受控随机输入。harness 及其来源未交付时，两项字节结论均待验，不能删除 random-seed 后声称原始产物逐字节一致。详见 [17 号清单 §4.1](17-OFFLINE-ACCEPTANCE-CHECKLIST.md#41-随机输入不是-identity-seed)。
 
 ### 5.5 端到端（可选，需要 uefi-mondrian）
 

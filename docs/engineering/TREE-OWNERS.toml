@@ -88,6 +88,12 @@ owner = "lead"
 scope = ["scripts", "docs/engineering", "AGENTS.md"]
 
 [[tree]]
+path = "/mnt/e/hackios/k60-pitfalls"
+owner = "cellular-agent"
+scope = ["docs/engineering", "README.md", "README_EN.md", "scripts"]
+note = "Pitfall-log worktree (docs/pitfalls-p227). Branched from main so a new P-number follows main instead of a long-lived feature branch."
+
+[[tree]]
 path = "/mnt/e/hackios/k60-wifi-lead"
 owner = "lead"
 scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]

@@ -5925,4 +5925,15 @@ BATTERY_ON=$(sed -n 's/^CONFIG_XNU_K60_PHYSICAL_BATTERY=y$/1/p' "$M/.config" | h
    51 MB，还得重新推一遍这条链。
 
 关联：P-202（缺 `.config` 时 `sed` 静默返回空）、P-224（冻结输入把构建自己的产物算进去）、
-P-187（分支上出现但从未回 main 的编号）、P-207（门禁不许判陈旧产物）。
+P-207（门禁不许判陈旧产物）。
+
+**第二处同一个判据：`check-config-consistency.py` 的 `resolve_generated()`。**
+它同样在多个板目录里选一个，选法是 `return found[0]` —— 排序后的第一个，不是这次构建用的
+那个。`out-wifi` 上 `mondrian_wifi` 按字母序在前，于是 hard-38 会拿残缺配置去判全量 defconfig。
+现在它与 `build-strict.sh` 共用同一条判据（两个键齐全者优先，同档 mtime 决胜，读不出的配置
+不参与），并由 `scripts/tests/test-config-consistency-board-dir.py` 的 8 个用例守住；
+反向验证：把 `max(found, key=rank)` 改回 `found[0]` 会红 2 例。
+
+顺带清掉 `scripts/check-config-consistency.py` 里两处 `P-187` 引用 —— 那个编号在
+`PITFALLS.md` 里从未存在过（`git log --all -S "P-187"` 零命中），是悬空引用，
+真正该指的是 P-225。

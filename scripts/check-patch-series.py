@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches" / "xnu" / "series"
 RULES = REPO / "docs" / "engineering" / "RULES.toml"
 WATCH = "bsd/kern/kern_exec.c"
+CATALOG = REPO / "docs" / "engineering" / "PATCH-CATALOG.toml"
+STATUSES = {"retired", "renumbered", "library"}
 
 HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 FILE_RE = re.compile(r"^\+\+\+ b/(.+)$")
@@ -47,6 +49,39 @@ def patch_delta(path: Path) -> tuple[int, int]:
     return added, removed
 
 
+def check_catalog() -> list[str]:
+    """Every patch outside the series must be declared in PATCH-CATALOG.toml."""
+    problems: list[str] = []
+    series = {
+        line.strip().split()[0]
+        for line in SERIES.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    patches = {p.name for p in (REPO / "patches" / "xnu").glob("*.patch")}
+    unlisted = sorted(patches - series)
+    if not CATALOG.is_file():
+        return [f"PATCH-CATALOG.toml 不存在，{len(unlisted)} 个 series 外补丁无处说明"]
+    data = tomllib.loads(CATALOG.read_text(encoding="utf-8"))
+    entries = data.get("patch", [])
+    seen = set()
+    for entry in entries:
+        name = entry.get("file", "")
+        status = entry.get("status", "")
+        seen.add(name)
+        if name not in patches:
+            problems.append(f"目录条目指向不存在的补丁：{name}")
+        elif name in series:
+            problems.append(f"目录条目已在 series 里，条目过期：{name}")
+        if status not in STATUSES:
+            problems.append(f"{name}: status={status!r} 不是 {sorted(STATUSES)}")
+        if status in ("retired", "renumbered") and not str(entry.get("evidence", "")).strip():
+            problems.append(f"{name}: {status} 没有 evidence")
+    for name in unlisted:
+        if name not in seen:
+            problems.append(f"series 外的补丁未登记：{name}")
+    return problems
+
+
 def main() -> int:
     if not SERIES.is_file():
         print("❌ patches/xnu/series 不存在")
@@ -63,6 +98,12 @@ def main() -> int:
             total_add += added
             total_del += removed
             touched.append(f"{entry} +{added}/-{removed}")
+    problems = check_catalog()
+    if problems:
+        print("❌ 补丁目录（PATCH-CATALOG.toml）与 series 不一致：")
+        for problem in problems[:20]:
+            print("   " + problem)
+        return 1
     delta = total_add - total_del
 
     expected = None

@@ -12,6 +12,11 @@
 version = 1
 grandfather_through = 151   # P-001..P-151 predate the registry; new ones must register
 
+# P-155 的行数预算基线。check-patch-series.py 从本文件读这个键；它此前一直缺失，
+# 于是每次运行都打印「未记录基线…跳过」并返回 0 —— 门禁登记了，却什么也没检查。
+# 2026-11-17 实测：41 个 series 补丁改 bsd/kern/kern_exec.c，+1764/-51，净 +1713。
+expected_kern_exec_delta = 1713
+
 # ---------------------------------------------------------------- iron rules
 
 [[rule]]

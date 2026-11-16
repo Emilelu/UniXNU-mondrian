@@ -79,6 +79,22 @@
 现有旁证支持「插件可能已在跑」：`software renderer fallback installed` 从 18 降到 1，
 `crashed: backboardd` 从 15 降到 0。
 
+### 追加核查（2026-11-17 02:12）
+
+**注入确实发生了。** `console.log:530` 有
+`Pong init: native Metal entry enabled for backboardd` —— 这行只在
+`init-v24dp.c:381`（`memcpy(conf+strlen(base),metal,…)` 成功之后）打印，
+而 `strings init-v24dp.bin | grep -c 'native Metal entry enabled'` = 1，确认真机跑的
+helper 就是这份源码。之前的 `grep 'Pong Metal'` 没命中是因为该行写作
+「native Metal entry」，不是「Pong Metal」（P-204 形状：判据字符串抄错）。
+
+因此缺口下移一层：**launchd 配置里已插入插件，但插件没有被加载**
+（全日志 `PongAdrenoMetal` 命中 0，也没有任何 `dyld` 报错点名它）。
+下一步应检查：插件 dylib 的 install name / 依赖（`PongMetalBridge.dylib`、
+`libvulkan_freedreno.dylib` 是否用 `@rpath` 且注入进程有没有对应 rpath）、
+以及注入机制对这一行的确切语义（`; <path> backboardd` 是给哪个字段用的）。
+
+
 ### 追加核查（2026-11-17 02:05）
 
 - 内核 `kernel.macho` 里**确实嵌入了**完整命令行：`pong_metal=1`、`pong_init_path`、

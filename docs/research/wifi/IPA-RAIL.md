@@ -166,6 +166,9 @@ Checks already run:
   `774ad267dd34aab2f0a32f189d20735cd1d7b1ed9598a9c068af73552a9cec31`;
   it contains the `readFailures` complete-sample log string and no pre-load
   marker
+- boot image `strings` audit: `smpe3` count 1, `readFailures` count 1,
+  `Pong MHI` count 18, `contexts programmed before image` count 0; the
+  `PongWifi: rail %s physical ready` and `not ready` strings are both present
 
 An independent review found that patch `0009-scripts-k60-wifi-build.patch`
 carried the `extra_rails` emission loop twice. That duplicate was confined to

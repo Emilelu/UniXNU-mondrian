@@ -225,6 +225,12 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
    不一致就要求写一行"为什么不用 pin"。这次 ShengUfs 的差就是这么漏掉的。
 6. **死补丁**：`check-patch-series.py` 已经是补丁门禁，加一条"仓库里的 `.patch` 必须在某个 series 里"即可抓到 `0610-k60-metal-seeds.patch`。
 7. **上游快照要带横幅**：任何 `docs/ops/` 这类 pick 进来的目录，文件头必须写明来源 commit 与"非权威"。
+8. **门禁自测要能脱离环境变量跑**：`K60_DEVICE_INPUT` 不导出时，main 上 `check-rules.py` 实际红 **7** 条，不是 P-230 注释里记的 5 条——
+   iron-4/iron-5/hard-33/P-165/P-166 是被 `scripts/check-build-applied.py:30` 直接拒绝；而 **P-214 与 P-220 是自测 import 了 `scripts/porting-gate.py`**，
+   后者在模块级 `:48-52` 就 `sys.exit`，测试捕到 SystemExit 之后拿到的是半个模块
+   （`AttributeError: module 'porting_gate' has no attribute 'series_fingerprint'`，`test-check-build-applied.py:38` 则连 setUp 都过不去）。
+   修法：把"取环境"从模块顶层挪进 `main()`，或让测试在 import 前注入指向临时镜像的 `K60_DEVICE_INPUT`。
+   否则任何没设变量的 CI 都会把"环境没给"读成"代码坏了"——正是 P-220 自己讲的那类错。
 
 ## 10. 本轮已修 / 待 Lead 决定
 

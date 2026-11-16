@@ -1,12 +1,13 @@
-# patches/audio — K60 amplifier probe
+# patches/audio — K60 amplifier probe and AFE selftest
 
-One patch, one purpose: put the AP-side amplifier probe from
-`drivers/PongAudio/` into a buildable XNU tree, and make `bsd_init.c` call it.
+Two patches, two purposes: put the AP-side amplifier probe from
+`drivers/PongAudio/` into a buildable XNU tree and compile the AFE encoder into that same skeleton.
 
 | File | What it does |
 | --- | --- |
-| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAmp.c`, `PongAudioTlmm.h` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 83,743 bytes, 2,227 lines, 11 hunks, sha256 `039544a97af83e4749f38d7496fd4c7533bdb8fa302b0f2b4ed284ae593d8dfc`. `PongCodecPlan.h` is deliberately absent: no kernel `.c` includes it yet, so it would be dead weight in the tree. |
-| `series` | The intended order inside this directory. It lists only `0001`: `0002` is a prototype and is deliberately **not** in the order. |
+| `0001-k60-audio-amp-probe.patch` | Adds `bsd/dev/PongAudioRegs.h`, `PongAudioPlan.h`, `PongAudioGeniI2c.h`, `PongAudioGeniI2c.c`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAmp.c`, `PongAudioAfe.h`, `PongAudioTlmm.h` (byte-for-byte copies of `drivers/PongAudio/`), two `bsd/conf/files` entries, and one `bsd_init.c` call block. 107,009 bytes, 2,786 lines, 12 hunks, sha256 `bbbbe00479732a57df9ffc9b81719876a64cee6add207ffba1ad313329321947`. `PongCodecPlan.h` is deliberately absent: no kernel `.c` includes it yet, so it would be dead weight in the tree. |
+| `0003-k60-audio-afe-selftest.patch` | Adds `#include "PongAudioAfe.h"`, a small `pong_audio_afe_selftest()` that encodes the 76-byte PRM clock request, and its call in `pong_audio_start`. 1,060 bytes, 3 hunks, sha256 `ae3c771636c4d695dc292c15bf149140464461550e1567e3a831836a8f3d3a37`. Applied after 0001. |
+| `series` | The intended order inside this directory. It lists `0001` then `0003`: `0002` is a prototype and is deliberately **not** in the order. |
 | `0002-k60-glink-multislot.patch` | **Prototype, not applied by any build.** Raises `QCOM_GLINK_MAX_CHANNELS` from 1 to 2 in `drivers/PongPower/QcomGlink.h` so a second consumer (the audio GPR channel `adsp_apps`, intent 512 x 20) can share the one instance the battery stack already adopted. 1,078 bytes, 1 hunk, sha256 `7b4bd1d0cf8e601e35f1d26119b9c51564c57914fa98f70757765eb22e74aad2`. It exists so `drivers/PongAudio/tests/run-glink-multislot-tests.sh` can apply it to a throwaway copy and run 242 host assertions; `drivers/PongPower/` itself is untouched (the provider branch owns that file; audio does not modify it). Rationale and the per-slot state-machine audit: `docs/research/audio/GLINK-MULTISLOT.md`. The provider branch lands the one-line change; wiring it here is not this line action. |
 
 `drivers/PongAudio/tests/` is deliberately **not** in the patch. It is a host-side

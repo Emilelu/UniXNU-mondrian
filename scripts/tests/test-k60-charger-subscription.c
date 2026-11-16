@@ -108,6 +108,26 @@ int main(void)
     expect(k60_battmgr_receive(&b, in, 16) == K60BmNotified, "type 2 opcode 7 notification accepted");
     expect(b.notifications == 1, "notification counted");
 
+    /* 8. CURRENT_NOW (field 4 / property 9) is optional and never requested. */
+    {
+        K60Battmgr s;
+        const uint32_t props[4] = {0u, 2u, 4u, 7u};
+        const int32_t values[4] = {1, 1, 5000, 4300000};
+        k60_battmgr_init(&s, 0, 0, 0);
+        k60_battmgr_channel_up(&s);
+        for (unsigned i = 0; i < 4; ++i) {
+            expect(k60_battmgr_next(&s, frame) == K60_BATTMGR_REQUEST_BYTES, "property request is 24 B");
+            expect(le32(frame + 16) == props[i], "property order before the current field");
+            k60_battmgr_sent(&s);
+            ack(in, 24, 1u, 0x30u, 0u);
+            put(in, 12, props[i]);
+            put(in, 16, (uint32_t)values[i]);
+            expect(k60_battmgr_receive(&s, in, 24) == K60BmAnswer, "battery property answered");
+        }
+        expect(k60_battmgr_next(&s, frame) == K60_BATTMGR_REQUEST_BYTES, "next request after voltage is 24 B");
+        expect(le32(frame + 16) == 13u, "CURRENT_NOW property 9 is skipped");
+    }
+
     if (fails) { printf("FAILURES %d\n", fails); return 1; }
     printf("TESTS OK %d\n", checks);
     return 0;

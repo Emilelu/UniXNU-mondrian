@@ -67,7 +67,7 @@ static int config_ok(const K60BatteryConfig *c)
 {
     return c && c->smem_base == UINT64_C(0x80900000) && c->smem_bytes == 0x200000u &&
         c->adsp_base == UINT64_C(0x9fd00000) && c->adsp_bytes == 0x3100000u &&
-        c->mutex_base == 0x1f4100cu && c->ipcc_base == 0xed18000u &&
+        c->mutex_base == 0x1f43000u && c->ipcc_base == 0xed18000u &&
         c->remote_pid == 2u && c->ipcc_client == 3u && !c->ipcc_signal &&
         c->desc_item == 478u && c->tx_item == 479u && c->rx_item == 480u &&
         c->smp2p_item == 443u && c->protocol == 1u;

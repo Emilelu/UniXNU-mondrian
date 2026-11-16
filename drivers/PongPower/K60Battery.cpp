@@ -22,7 +22,7 @@
 #include "K60BatteryProtocol.generated.h"
 
 namespace {
-constexpr uint32_t kPollMs = 20, kRefreshMs = 5000, kRequestMs = 1000, kChannelMs = 5000;
+constexpr uint32_t kPollMs = 20, kRefreshMs = 5000, kRequestMs = 3000, kChannelMs = 5000;
 constexpr unsigned kPropertyNumbers = 24;
 uint64_t milliseconds()
 {
@@ -330,8 +330,10 @@ void K60Battery::requestAction(OSObject *owner, IOTimerEventSource *)
 {
     auto self = OSDynamicCast(K60Battery, owner);
     if (!self || self->stopped || !self->manager.flight) return;
-    IOLog("K60Battery: physical PMIC request timeout op=%x property=%u; quarantining old channel\n",
-        k60_battmgr_opcode(&self->manager), k60_battmgr_property(&self->manager));
+    IOLog("K60Battery: physical PMIC request timeout op=%x property=%u responses=%u ignored=%u errors=%u flight=%u cursor=%u; quarantining old channel\n",
+        k60_battmgr_opcode(&self->manager), k60_battmgr_property(&self->manager),
+        self->manager.responses, self->manager.ignored, self->manager.errors,
+        self->manager.flight, self->manager.cursor);
     k60_battmgr_timeout(&self->manager);
     self->stale("PMIC response timed out");
     self->channelDeadline = milliseconds() + kChannelMs;

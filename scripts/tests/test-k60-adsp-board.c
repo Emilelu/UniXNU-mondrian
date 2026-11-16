@@ -116,7 +116,7 @@ static void put(Fixture *f, uint32_t at, uint32_t value)
 }
 
 static const K60BatteryConfig pinned = {
-    UINT64_C(0x80900000), SMEM_BYTES, 0xed18000u, 0x1f4100cu,
+    UINT64_C(0x80900000), SMEM_BYTES, 0xed18000u, 0x1f43000u,
     UINT64_C(0x9fd00000), 0x3100000u, 2, 3, 0, 478, 479, 480, SMP2P_ITEM, 1, 0 };
 
 /* Synthetic SMEM: TOC in the last page, one APPS<->remote partition, and, when

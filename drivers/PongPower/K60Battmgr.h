@@ -15,11 +15,13 @@ extern "C" {
 #define K60_BATTMGR_MODEL_BYTES 128u
 
 enum K60BatteryField {
+    /* K60BmCurrent stays for the wire/protocol map, but is optional: the ADSP
+     * property-9 getter did not answer on the K60, so no request is sent. */
     K60BmStatus, K60BmPresent, K60BmCapacity, K60BmVoltage, K60BmCurrent,
     K60BmTemperature, K60BmUsbOnline, K60BmUsbVoltage, K60BmUsbAdapter,
     K60BmUsbMaxCurrent, K60BmUsbInputLimit, K60BmWirelessOnline,
     K60BmFull, K60BmDesign, K60BmCycles, K60BmTimeToFull, K60BmTimeToEmpty,
-    K60BmModel, K60BmFields
+    K60BmModel, K60BmUsbCurrent, K60BmFields
 };
 enum K60BatteryResponse {
     K60BmIgnored = 0, K60BmAnswer = 1, K60BmCycleDone = 2,

@@ -160,15 +160,17 @@ static int qmp_send_load_state(Route *r)
 {
     volatile uint8_t *box = r->aoss + r->box;
     static const char msg[] = "{class: image, res: load_state, name: adsp, val: on}";
+    uint32_t words[QMP_WORDS] = { 0 };
     const size_t n = sizeof(msg) - 1u;
 
     if (n + 1u > QMP_MSG_BYTES) return -1;
-    if (wait_word(r->aoss, r->box, 0xffffffffu, 0, 100000)) return -1;
-    for (unsigned i = 0; i < QMP_WORDS + 1u; ++i)
-        wr32(box, i * 4u, 0);
+    /* The AOSS message RAM is device memory and takes 32-bit accesses only;
+     * assemble the text in registers and publish it as whole words. */
     for (size_t i = 0; i < n; ++i)
-        box[4u + i] = (uint8_t)msg[i];
-    box[4u + n] = 0;
+        words[i / 4u] |= (uint32_t)(uint8_t)msg[i] << (8u * (i % 4u));
+    if (wait_word(r->aoss, r->box, 0xffffffffu, 0, 100000)) return -1;
+    for (unsigned i = 0; i < QMP_WORDS; ++i)
+        wr32(box, 4u + i * 4u, words[i]);
     fence();
     wr32(box, 0, QMP_MSG_BYTES);
     fence();
@@ -222,8 +224,14 @@ static int vote_tcs4(Route *r, const K60RscLayout *l, uint32_t address,
         tcs_conflict(r, l, RSC_TCS3, command_capacity, address))
         return -1;
     wr32(r->rsc, drv_control, rd32(r->rsc, drv_control) & ~RSC_DRV_CONTROL_TCS);
-    wr32(r->rsc, base + l->control,
-        rd32(r->rsc, base + l->control) & ~((1u << 24) | (1u << 16)));
+    uint32_t control = rd32(r->rsc, base + l->control) & ~(1u << 24);
+    wr32(r->rsc, base + l->control, control);
+    if (wait_word(r->rsc, base + l->control, 0xffffffffu, control, 1000))
+        return -1;
+    control &= ~(1u << 16);
+    wr32(r->rsc, base + l->control, control);
+    if (wait_word(r->rsc, base + l->control, 0xffffffffu, control, 1000))
+        return -1;
     wr32(r->rsc, base + l->cmd_enable, 0);
     wr32(r->rsc, RSC_DRV_IRQ_CLEAR, RSC_IRQ_DONE);
     (void)wait_word(r->rsc, RSC_DRV_IRQ_STATUS, RSC_IRQ_DONE, 0, 1000);
@@ -234,6 +242,8 @@ static int vote_tcs4(Route *r, const K60RscLayout *l, uint32_t address,
     fence();
     wr32(r->rsc, base + l->cmd_enable, 1);
     wr32(r->rsc, base + l->control, 1u << 16);
+    if (wait_word(r->rsc, base + l->control, 0xffffffffu, 1u << 16, 1000))
+        return -1;
     fence();
     wr32(r->rsc, base + l->control, (1u << 16) | (1u << 24));
 
@@ -282,20 +292,24 @@ int k60_adsp_route_a_acquire(const K60RouteAIo *io, K60RouteAResult *out)
         log_line("AOSS map failed");
         goto fail;
     }
+    log_line("AOSS mapped");
     if (io->map(io->context, K60_ROUTE_A_IPCC_PHYS, K60_ROUTE_A_IPCC_BYTES,
         K60_ROUTE_A_MAP_FLAGS, &r.ipcc) || !r.ipcc) {
         log_line("IPCC map failed");
         goto fail;
     }
+    log_line("IPCC mapped");
     if (qmp_open(&r)) {
         log_line("QMP open failed");
         goto fail;
     }
     out->qmp_open = 1;
+    log_line("QMP open ok");
     if (qmp_send_load_state(&r)) {
         log_line("QMP load_state send failed");
         goto fail;
     }
+    log_line("QMP load_state ok");
 
     if (io->map(io->context, K60_CMD_DB_PHYS, K60_CMD_DB_BYTES,
         K60_ROUTE_A_MAP_FLAGS, &r.db) || !r.db) {
@@ -307,6 +321,7 @@ int k60_adsp_route_a_acquire(const K60RouteAIo *io, K60RouteAResult *out)
         log_line("RSC map failed");
         goto fail;
     }
+    log_line("RSC mapped");
     drv = rd32(r.rsc, 0);
     caps = rd32(r.rsc, RSC_DRV_CAPS);
     version = (drv >> 16) & 0xffu;
@@ -340,6 +355,7 @@ int k60_adsp_route_a_acquire(const K60RouteAIo *io, K60RouteAResult *out)
         printf("K60ROUTEA lmx addr=0x%x levels=%u index=%u%c", lmx.address,
             lmx.level_count, lmx_index, 10);
         const uint32_t command_capacity = (caps >> 27) & 0x1fu;
+        log_line("voting TCS4");
         if (vote_tcs4(&r, &l, lcx.address, lcx_index, command_capacity) ||
             vote_tcs4(&r, &l, lmx.address, lmx_index, command_capacity)) {
             log_line("TCS4 vote failed");

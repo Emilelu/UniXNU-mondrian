@@ -35,7 +35,7 @@ static int acquire_locked(const K60BatteryConfig *config, K60AdspOwnerLease *lea
         if (!rc) {
             K60HandoffPlan plan = {15u,owner.epoch,owner.config.smem_base,(uint32_t)owner.config.smem_bytes,
                 owner.config.adsp_base,(uint32_t)owner.config.adsp_bytes,478,479,480,443,2,
-                32,4096,4096,n,0,0,restart};
+                32,16384,16384,n,0,0,restart};
             rc = k60_owner_build_handoff(&owner, &plan);
         } else {
             k60_owner_abort(&owner);

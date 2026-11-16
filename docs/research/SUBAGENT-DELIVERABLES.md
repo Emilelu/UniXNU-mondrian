@@ -32,6 +32,7 @@
 | SA-05 | charger prop map and open-question closure (04/05) | 2026-11-14 13:02 | `docs/research/charger/04-PROP-MAP.md` | `grep:docs/research/charger/04-PROP-MAP.md:battery_prop_map` | landed | 3d05e43 |
 | SA-06 | independent WiFi/BT evidence boundary audit | 2026-11-16 15:00 | `docs/audits/REASSESSMENT-2026-11-16.md` | `grep:docs/audits/REASSESSMENT-2026-11-16.md:No root cause is established.` | landed | db6fd5dd7160a06a67a1c39b5e10b8e19c5804fd |
 | SA-07 | full-sync and exact upstream candidate audit | 2026-11-16 15:00 | `docs/audits/REASSESSMENT-2026-11-16.md` | `grep:docs/audits/REASSESSMENT-2026-11-16.md:598 unique reference-source candidates` | landed | db6fd5dd7160a06a67a1c39b5e10b8e19c5804fd |
+| SA-08 | source-bound BT d8 timing audit and host C tests | 2026-11-16 17:10 | `docs/audits/BT-D8-HOST-TIMING.md` | `git:scripts/tests/test-bt-d8-host-timing.py` | landed | a1858958ccb4a5b84d44c2eaac643b4b614ca32f (audit); 0ccdfbba5ab626bf99be65d973e45b87e389f59c (code/tests) |
 | SA-CONFIG-CONSISTENCY | defconfig vs generated .config checker | 2026-11-12 19:35 | `docs/research/evidence/SA-CONFIG-CONSISTENCY.md` | `grep:docs/research/evidence/SA-CONFIG-CONSISTENCY.md:.config` | landed | `faacc2d` |
 | SA-BOOT-EVIDENCE | boot evidence audit: battery image reached SpringBoard, k60_touch_se=19 killed touch | 2026-11-12 19:35 | `docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md` | `grep:docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md:k60_touch_se` | landed | `faacc2d` |
 

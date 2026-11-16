@@ -1,6 +1,6 @@
 # ADSP RSC Rail Sampler: Repair Design
 
-**Status:** repair design only; production unchanged. Canonical host compliance assertions run and fail (58/75 cases); defect reproduction passes (75/75). No repair implementation or hardware validation.
+**Status:** repair design plus an unintegrated candidate observation core; production unchanged. Canonical host compliance assertions run and fail (58/75 cases); defect reproduction passes (75/75). The candidate core passes its own 37-case host contract check but is not linked into production and is not evidence of compliance. No repair implementation in production or hardware validation.
 **Scope:** canonical read-only sampler entry and observation contract. This does not authorize production C changes, patches, callsite changes, PAS/SCM/handoff enablement, boot-argument defaults, or porting-status changes.
 
 ## Decision and evidence boundary
@@ -19,6 +19,33 @@ The source audit is [ADSP-RAIL-SAMPLER-AUDIT.md](ADSP-RAIL-SAMPLER-AUDIT.md). It
 | B | Audit's pinned board DTS evidence: RSC windows drv-0..3=0x17a00000..0x17a30000, each 0x10000; logical drv-id=2; qcom,tcs-offset=0xd00; DT group tuple <2 3 0 2 1 2 3 0 4 1>. | Configuration evidence only. Version, caps, count, and records used together must come from the same attempt. |
 
 Any separately authorized sampler implementation is restricted to the audited DRV-2 window at 0x17a20000, length 0x10000, and cmd-db at 0x80860000, length 0x20000, subject to HR-01 and explicit opt-in. This is not permission to scan every theoretical slot or command. Successful mapping is not proof that every address in the mapping is safe to read.
+
+## 可证明的访问域（只读来源核对结果）
+
+下表把“布局有依据”和“允许读取”分开。默认拒绝；没有依据的地址保持未知，不尝试实机探测。
+
+| 读取对象 | 地址 / 宽度 | 依据 | 当前结论 |
+| --- | --- | --- | --- |
+| 映射 DRV-2 窗口 | 0x17a20000, 0x10000 | HARD-RULES.md:47 | 仅映射；映射不等于允许读 |
+| DRV-2 w[0]（版本/布局） | 0x17a20000 + 0, u32 | HARD-RULES.md:48；K60PmicRail.c:375-376 | 唯一被规则点名的 RSC 读；仍受 HR-01 四条件约束 |
+| caps 字 | 0x17a2000c, u32 | DESIGN:37,43（提案）；现行 canonical 采样器并不读它 | 设计意图，不是批文 |
+| TCS / command 字段 | 0xd00 + slot*0x2a0 + cmd*stride + 表内偏移, u32 | Xiaomi rpmh-rsc.c:70-83；本文件字段表 | 只证明几何；**没有任何 per-slot/per-command 读取许可**，必须保持 unknown |
+| cmd-db 区域 | 0x80860000, 0x20000 | HARD-RULES.md:75；DT reserved-memory | 区域级“普通内存、可读命令 ID” |
+| cmd-db header/slave/entry/aux | 144 字节头；8×16 字节 slave；24 字节 entry；aux 由头内偏移派生 | K60PmicRail.c:44-50, 61-116 | 格式几何；entry/aux 地址依赖头内容，静态 span 只能覆盖有界 reviewed block |
+| AOP 聚合 / ARC / PMIC 生效 / handoff 保持 | 无 | 本文件:159-170 | 未知；不得用请求记录推断 |
+
+两个未闭合项必须由 Lead 裁决，候选核心与宿主夹具都不能代替：
+
+1. **HR-01 自相矛盾**：HARD-RULES.md:47-48 允许在四条件下映射 DRV-2 并读 w[0]；
+   同文件:63-69 的“禁止范围（未变）”仍把 0x17a20000 列为禁止并说映射本身可能挂起。
+   在裁决前，“可读 w[0]”只能作为设计输入，不能当作已授权。
+2. **TCS 槽号 3 还是 4 未定**：POWER-RPMH-LDOC2.md:33 说 TCS3，
+   REFERENCE-INDEX.md:195 说 slot 4，K60PmicRail.c:171-172 记录两者冲突。
+   槽号未定 ⇒ 连 TCS_STATUS 的确切地址都不唯一。
+
+因此候选 observation core 的 permit 一律是**显式测试输入**：合成 span 只验证契约，
+不为真实启动补许可；真实 LCX/LMX 请求字段在当前证据下应报 PERMISSION_DENIED / unknown。
+历史 49 次启动日志、caps=0x800c8104 和不同 boot 的 tcs4_idle 都不能拼接成本次许可。
 
 ## Version-pinned field map
 
@@ -157,6 +184,33 @@ Tested base revision: `cd02f1348db6d232f9b705cddf82cd968edb5711`. Canonical hash
 
 **Existing evidence only:** audit reports helper reproduction 9/9, AUDIT REPRODUCED ... failures=0, output SHA-256 1e1bca11ae9a340de7ff1ac4c9e5222b4271189cbbe4caace7a153498bf2de89; and ten KERNEL entry cases with PASS_EXPECTED_CURRENT_BEHAVIOR, output SHA-256 734aec89d5765c612f608a3d035bc95ba276e52fb342faa80f63733bd21f10b1. These are defect-reproduction results only. Canonical whole-compliance mode is expected to remain red against the current source even if the bounded helper cases pass. The current K60RailRecord API represents one record per rail and exposes neither a command index nor raw CMD_MSGID/CMD_STATUS fields; it cannot by itself verify retained multi-command records or separate TCS/CMD status. Existing audit entry tests count map/parser stub invocations but do not instrument every volatile load; map counters alone do not prove a cache hit performed zero register loads. Do not claim exact raw-load counts until a test seam/instrumentation supports that claim. The final integrated suite above supersedes interim helper-only counts. Concurrency/reentry tests hold the first failing DB map while invoking a contender, reproducing two maps where the contract permits one; those failures avoid all canonical ledger writes. The legacy integer API cannot distinguish typed Busy from MapFailed, expose the CAS transition, or prove acquire/release publication. Assertions therefore establish counterexamples to one-attempt behavior, not a proof of the proposed state machine. A future blocking contender is reported as a timeout/infrastructure failure, never a passing Busy result. The parser stub models return/output contracts rather than the real textual boot-argument grammar. Legacy valid/complete fields cannot encode every proposed raw annotation, duplicate list, coverage class or power type; fixture predicates against this API are conservative regression checks, not the final typed repair interface. Identical-duplicate retention and the full caps/DT/overflow/access-domain matrix are specified but not established by this suite. Complete raw CMD_MSGID/CMD_STATUS/command-index assertions require the reviewed typed interface; the field fixtures do not manufacture those missing production fields.
 
+## 候选核心（未集成）的宿主验证
+
+本轮按 Lead 18:11 授权，在 `package/tests/rail-sampler/proposed/` 放下一个**不接入生产**的观测核心，并把“候选核心契约验证”与“canonical 缺陷复现”分开报告。
+
+| 项目 | 值 |
+| --- | --- |
+| 核心 / 头文件 | `package/tests/rail-sampler/proposed/rail_obs.c` / `rail_obs.h` |
+| 冻结哈希 | C `b6e51b43676a506690c48756cad5fe7e0a11d6c312cf617ed7c48e859ff00bf2`；H `effe1a112f9ed7acf882ce692df84205b6118b88ffb953ffc318bc9edf3fed93` |
+| 契约测试 | `package/tests/rail-sampler/proposed/entry.c`，sha256 `fe5c3114f8dc080ed85f21e6d05d64a456b50f2f32fab4f080685766315d1d5f`，37 个 case |
+| 运行器 | `scripts/probe-k60-rail-observation-core.py`，一 case 一进程，绝不做 expected-failure 归一 |
+| 结果 | `CANDIDATE_CORE_RESULT: PASS 37/37 cases`，exit 0；日志 [run-final.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/run-final.log)，SHA-256 `d264797fc3bc2aa4e33182e406748aab242274f23ae8c2f280496cfca42b93a1` |
+
+候选核心验证的是**契约**，不是硬件可读性：map/read32 是显式注入的 seam，permit 的每个 span 都是测试输入；核心只经 read32 读，逐字段检查对齐、mapped 长度、reviewed block 边界与显式 span，先过 gate 再 CAS，先 CAS 再第一次 map；失败即 terminal，后续同 plan 调用只读缓存，坏缓存返回 `CACHE_CORRUPT` 且不重采样；返回值全为负，无任何可被旧接口当作 ResourcesHeld 的成功值。v2/v3 两套偏移、slot+command 全扫描、duplicate identical/conflict、disabled/malformed/TCS busy/not-issued/incomplete 都以 qualifier 与 outcome 分开保留。
+
+同时**没有**证明的事情必须一起读：
+
+1. 真实 LCX/LMX 请求字段仍无 per-slot/per-command 读取许可；按本文“可证明的访问域”，真实采样应报 `PERMISSION_DENIED`/unknown，合成 permit 不构成硬件许可。
+2. 没有 PAS/SCM/SMEM/lease/资源回调路径；候选核心不产生、也不能产生 `ResourcesHeld`。
+3. `command_block` 在核心里的语义是**相对 TCS base 的累计边界**，不是单条命令宽度：v3 的 command 1 末端为 0x18+0x40+4=0x5c，v2 为 0x14+0x3c+4=0x54；用 0x44 只覆盖 command 0。这是契约输入的含义，不是核心缺陷。
+4. `parse_ok` 按 truthy 接受、`parsed_value` 必须恰为 1；若将来要求两者都严格等于 1，需要显式改契约。
+5. `OBSERVED_REQUEST` 要求 LCX 与 LMX 两条请求同时存在；只有一条有效请求会落到 `MALFORMED_REQUEST`/`NOT_FOUND`。
+6. 头文件只有 `k60_rail_observe_once` 一个入口，“跨 facade 标签”用同 plan 重复调用与 terminal replay 表达，不是独立生产入口。
+7. 坏缓存注入只在 TERMINAL 之后顺序进行，无 reset hook；每条序列独立进程，因此并发只覆盖“首个 map 失败、未写 ledger”的路径。
+8. 未见硬件、未建内核/镜像、未改生产 C/H、patch、callsite 或 boot 参数；canonical 红灯保持原样。
+
+canonical 两模式在同一冻结源上重跑，证明候选文件没有反过来“修绿”旧断言：复现模式 75/75、exit 0；compliance 模式 58 fail / 17 pass、exit 1；两模式 `canonical_unchanged=True`。日志 [reproduced-final.log](E:/k60-work/artifacts/adsp-board-20261116/rail-design/reproduced-final.log)（SHA-256 `4afac87296776970d7c6cf2c13e7251b8c0bca0b074c53305f715e448c32d750`）与 [compliance-final.log](E:/k60-work/artifacts/adsp-board-20261116/rail-design/compliance-final.log)（SHA-256 `edc683846e34aa0454379a35f2b346438b4453617e6b8cf3157f812c3cab72da`）。exit 0 是复现结果，不是合规结论。
+
 ## Open blockers and review gate
 
 | Blocker | Required evidence before implementation can be considered complete |
@@ -169,4 +223,4 @@ Tested base revision: `cd02f1348db6d232f9b705cddf82cd968edb5711`. Canonical hash
 | Effective power and retention | Find a legal, board-specific AOP/ARC/PMIC and handoff-retention observation contract. Current evidence does not establish one. |
 | Consumer authority | Keep resources_cb refused and legacy PAS/handoff disabled until separate power evidence and lease/owner semantics are accepted. Observation is never enough. |
 
-Next review order: pinned source -> version/field table -> access intersection and bounds -> duplicate/error taxonomy -> entry gates/CAS/cache -> observation-vs-power types -> canonical host evidence. This deliverable adds the design and canonical host fixtures only. No kernel/image build, device test, production C/H or patch edit, callsite/timing edit, boot-argument change, or porting-state change occurred. The proposed repair remains unimplemented until separately authorized after Lead review.
+Next review order: pinned source -> version/field table -> access intersection and bounds -> duplicate/error taxonomy -> entry gates/CAS/cache -> observation-vs-power types -> canonical host evidence. This deliverable adds the design, canonical host fixtures and an unintegrated candidate core with its own host contract check. No kernel/image build, device test, production C/H or patch edit, callsite/timing edit, boot-argument change, or porting-state change occurred. The proposed repair remains unimplemented until separately authorized after Lead review.

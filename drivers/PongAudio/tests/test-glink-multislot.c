@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 /* Copyright (c) 2026, UniXNU contributors. */
-/* Host test for the two-slot QcomGlink prototype.
+/* Host test for the two-slot QcomGlink transport.
  *
  * The transport in drivers/PongPower/QcomGlink.c is event driven and
  * allocation free, so the whole protocol can be driven from a host: this file
@@ -11,10 +11,8 @@
  * asserts each one receives only its own messages, including when the two
  * channels' traffic is interleaved, replayed or addressed to nobody.
  *
- * The tree keeps QCOM_GLINK_MAX_CHANNELS at 1 (drivers/PongPower belongs to
- * another line), so the prototype travels as
- * patches/audio/0002-k60-glink-multislot.patch and run-glink-multislot-tests.sh
- * applies it to a temporary copy of the transport before compiling. */
+ * QCOM_GLINK_MAX_CHANNELS is 2 in drivers/PongPower/QcomGlink.h; this file
+ * compiles the real transport and pins the per-slot protocol behavior. */
 
 #include <stdio.h>
 #include <string.h>
@@ -563,9 +561,9 @@ static void geometry_cases(void)
 
 int main(void)
 {
-    printf("two-slot prototype: QCOM_GLINK_MAX_CHANNELS=%u, sizeof(QcomGlinkChannel)=%zu, sizeof(QcomGlink)=%zu\n",
+    printf("two-slot transport: QCOM_GLINK_MAX_CHANNELS=%u, sizeof(QcomGlinkChannel)=%zu, sizeof(QcomGlink)=%zu\n",
            (unsigned)QCOM_GLINK_MAX_CHANNELS, sizeof(QcomGlinkChannel), sizeof(QcomGlink));
-    expect_eq(QCOM_GLINK_MAX_CHANNELS, 2, "the prototype under test really has two slots");
+    expect_eq(QCOM_GLINK_MAX_CHANNELS, 2, "the transport under test really has two slots");
 
     delivery_cases();
     intent_cases();

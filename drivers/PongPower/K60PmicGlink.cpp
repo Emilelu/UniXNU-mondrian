@@ -125,6 +125,7 @@ bool K60PmicGlink::open(const K60BatteryConfig &c, const K60AdspGlinkHandoff &h,
     smem = {smemWindow.va, uint32_t(config.smem_bytes)};
     if (!discover()) {close(); return false;}
     opened = true;
+    IOLog("K60Battery: GLINK transport %s channel_bytes=%u\n", QCOM_GLINK_BUILD_TAG, unsigned(sizeof(QcomGlinkChannel)));
     IOLog("K60Battery: adopting authenticated PAS1 GLINK epoch=%llu desc=%x tx=%x/%x rx=%x/%x (no FIFO reset)\n",
         lease.epoch, lease.desc_offset, lease.tx_offset, lease.tx_bytes, lease.rx_offset, lease.rx_bytes);
     return true;

@@ -46,6 +46,64 @@ def series_fingerprint():
     return h.hexdigest()[:16], len(names)
 
 
+def image_manifest(image):
+    """The build manifest that travelled with the image, or None.
+
+    P-211: the ledger used to describe whatever series the *repo* carried at
+    record time, so a boot of another line's image was written down as a boot of
+    this repo's series.  build-strict.sh already writes
+    ``build-manifest.json`` next to ``boot.img``; read that when it exists.
+    """
+    for candidate in (os.path.join(os.path.dirname(os.path.abspath(image)),
+                                   "build-manifest.json"),
+                      os.path.splitext(os.path.abspath(image))[0] + ".json"):
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, encoding="utf-8") as fh:
+                    return candidate, json.load(fh)
+            except (OSError, ValueError):
+                return candidate, None
+    return None, None
+
+
+SERIES_NAMESPACE = "names+sizes"
+
+
+def image_series(image):
+    """(fingerprint, count, source, repo_fingerprint) for the image being recorded.
+
+    P-214: a fingerprint is only comparable inside its own namespace.  Manifests
+    written before 2026-11-16 carry ``sha256(<bytes of series>)`` -- 64 hex -- while
+    the ledger and porting-gate compare ``sha256(names + sizes)[:16]``.  Mixing the
+    two made every merge look like a series change, so a manifest that does not
+    declare the shared namespace is reported as unusable instead of being believed.
+    """
+    repo_fp, repo_count = series_fingerprint()
+    path, data = image_manifest(image)
+    if not data:
+        return repo_fp, repo_count, "repo-series", repo_fp
+    series = data.get("series") or {}
+    sha = str(series.get("sha256") or "")
+    count = series.get("count")
+    namespace = str(series.get("namespace") or "")
+    if namespace and namespace != SERIES_NAMESPACE:
+        print("⚠ manifest %s records series in the %r namespace, not %r;"
+              % (path, namespace, SERIES_NAMESPACE))
+        print("  falling back to the repo series (P-214: values from different"
+              " namespaces are not comparable)")
+        return repo_fp, count, "repo-series", repo_fp
+    if not namespace:
+        # Legacy manifest: 64 hex is the file-bytes hash, 16 hex is ours.
+        if len(sha) > 16:
+            print("⚠ manifest %s predates P-214 (no namespace field, %d hex);"
+                  % (path, len(sha)))
+            print("  falling back to the repo series rather than mixing namespaces")
+            return repo_fp, count, "repo-series", repo_fp
+    if len(sha) < 16:
+        return repo_fp, count, "repo-series", repo_fp
+    return sha[:16], count, "manifest:%s" % path, repo_fp
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", required=True)
@@ -70,13 +128,23 @@ def main():
         print("❌ log carries a failure marker: %s" % ", ".join(hits))
         return 1
 
-    fp, n = series_fingerprint()
+    fp, n, source, repo_fp = image_series(a.image)
+    if n is None:
+        n = series_fingerprint()[1]
+    if source != "repo-series" and fp != repo_fp:
+        print("⚠ the image was built from series %s, this repo carries %s;"
+              % (fp, repo_fp))
+        print("  recording the image's series so the ledger cannot claim the"
+              " repo series booted (P-211)")
     rec = {
         "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "result": "ok",
         "log-bytes": size,
         "image": "%s(%s)" % (os.path.basename(a.image), a.image[-12:]),
         "series": fp,
+        "series-count": n,
+        "series-source": source,
+        "repo-series": repo_fp,
         "note": a.note or "recorded by scripts/record-boot.py",
         "console": a.log,
         "springboard-lines": up,
@@ -84,12 +152,12 @@ def main():
     line = json.dumps(rec, ensure_ascii=False)
     if a.dry_run:
         print("would append: %s" % line)
-        print("series %s (%d patches)" % (fp, n))
+        print("series %s (%d patches) from %s" % (fp, n, source))
         return 0
     with open(LEDGER, "a", encoding="utf-8") as fh:
         fh.write(line + "\n")
-    print("✅ recorded series %s (%d patches), %d SpringBoard lines, %d bytes"
-          % (fp, n, up, size))
+    print("✅ recorded series %s (%d patches) from %s, %d SpringBoard lines,"
+          " %d bytes" % (fp, n, source, up, size))
     return 0
 
 

@@ -6,6 +6,19 @@ Status: the complete platform adapter is installed before acquire and passes off
 
 [run-k60-handoff-host.sh:5](../../../scripts/tests/run-k60-handoff-host.sh#L5) takes DURABLE_OUTPUT and then a supported **pre-0619** xnu-work tree. Pass the display-out tree. The lead-out tree is already the 0619 postimage, and the integration test then fails with `bsd/dev/pong_handoff.c: canonical source differs` because its predecessor preimages are gone. This is a property of the input tree, not of the change under test; nothing in the repository is edited to work around it.
 
+## Running the host suite
+
+`scripts/tests/run-k60-handoff-host.sh OUTPUT PRE_0619_XNU_TREE` needs a `.cache/xnu-work`
+tree that **predates 0619**. Point it at a tree that already carries the 0619 postimage and
+`test-k60-handoff-integration.py` fails with `bsd/dev/pong_handoff.c: canonical source
+differs` — the test patches its own fixture forward from the predecessor, so a postimage input
+double-applies. `display-out` was pre-0619 on 2026-11-16; `lead-out` was not.
+
+Verified 2026-11-16 against `/opt/k60/trees/display-out/.../xnu-work`: 20 `TESTS OK` groups,
+including platform 31 absent + 34 actual-linked, owner 17/11/12/15/22, reader 5×31, blob
+negative cases, publisher 49, builder 10, MDT 16, notify 21, battery 27, dispatch 14,
+5 sections, 3 canonical mirrors, 14 call-site cases and the arm64 adapter syntax check.
+
 ## Research decision before implementation
 
 The Lead-owned run e reaches the enabled publisher but refuses uninstalled owner acquire: [console:127](E:/k60-work/evidence/usblog-20261115-223916/console.log#L127). Stage 1 returns -1000, no lease is published and the battery consumer stays blocked. The late startup exclusion proves an attempt, not authentication.

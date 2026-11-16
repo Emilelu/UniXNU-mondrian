@@ -579,7 +579,201 @@ check = "python3 scripts/tests/test-check-metal-blob.py"
 id = "P-197"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-197"
+statement = "A firmware capability must be proven in the firmware repo before a comment can claim it."
+check = "python3 scripts/check-docs.py"
+
+[[rule]]
+id = "P-200"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-200"
+statement = "boot.json kernel_sha256 hashes the firmware slot; the XNU kernel identity lives in build-manifest payload_kernel."
+check = "python3 scripts/check-docs.py"
+
+[[rule]]
+id = "P-201"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-201"
+statement = "An image built outside build-strict.sh has no series fingerprint, so it cannot prove a variable was isolated."
+check = "python3 scripts/check-docs.py"
+
+[[rule]]
+id = "P-202"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-202"
+statement = "A build must fail when the file it reads features from is missing, and a gate must not grade a stale artifact."
+check = 'bash -n scripts/build-strict.sh && grep -q "no \$M/.config" scripts/build-strict.sh'
+
+[[rule]]
+id = "P-203"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-203"
+statement = "禁止在 linked worktree 里跑 git worktree prune / gc / repack：它们会改共享仓的管理元数据，一次影响全部工作树且不可逆"
+check = "grep -q 'worktree prune' scripts/git-guard"
+
+[[rule]]
+id = "P-204"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-204"
+statement = "判据不能建立在「某个串出现 N 次」上：计数只回答有多少，不回答是什么。进程起没起看 xpcproxy/K60RV 生命周期行；崩溃看 crashed:/KX! 与具体进程名；格式串从源码抄并加词边界；判定行要自带判定所依据的字段值。"
+check = 'python3 scripts/check-docs.py'
+note = "2026-11-15 一天内三次同形错误：chronod 只出现 2 次被误判为没启动（实际 003207:1230 有 xpcproxy 拉起）；Too many corpses 被当 backboardd 判据（纯 thermal 日志自己就有 6 条）；svc= 与真实格式串 service %u 不符导致五个判据号全假阴性。"
+
+[[rule]]
+id = "P-205"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-205"
+statement = "文档里的日期、编号、门禁点名必须与代码可对账：README 最后更新不早于 STATUS；★N/P-M 范围声明等于真实最大标题号；README 门禁表与 build-strict.sh 内嵌门禁同名同集"
+check = "python3 scripts/check-readme.py"
+note = "2026-11-15 用户指出合并到 main 时 README 不更新。查实三类漂移并存且 check-docs 一个都抓不到：README 最后更新 11-12 vs STATUS 11-14；铁则范围写 ★1-★35 / P-01-P-130，实际 ★37 / P-204（★36 自己的判词引过的历史现场第二次犯）；门禁表写「四个检查」且点名的 research-gate/porting-gate 根本不在 build-strict.sh 里。"
+
+[[rule]]
+id = "P-206"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-206"
+statement = "门禁脚本不得写死 board 目录名：board 目录随 defconfig 命名（mondrian vs mondrian_wifi），必须从 out 树现场推导，否则门禁验旧树、构建缺文件照样假绿"
+check = "python3 scripts/check-build-env.py"
+note = "2026-11-15 wifi 线首次在新 mondrian_wifi 树构建死在 Availability.h file not found（fakeroot 缺三个 Availability 头，prepare-xnu.py source 模式不进 ios16 链路），而 P-185 门禁因 M 硬编码 .../mondrian 一直验旧树假绿。修法：check-build-env.py find_board_dir() 按 mtime 推导，FAKEROOT_FILES 2->5。"
+
+[[rule]]
+id = "P-207"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-207"
+statement = "门禁不得对被它自己阻塞的陈旧产物下结论：out 树被 defconfig 重新生成但 kernel 未重建时，kernel/.config 这一对不可比，必须打印 skip 并返回 0，等构建刷新后再判"
+check = "python3 scripts/tests/test-check-kernel-archives.py"
+note = "2026-11-15 baseline-20261115a 重建被 P-190 拒（PHYSICAL_BATTERY=y 但旧 kernel 无符号），而刷新内核正是被挡的那次构建；同族第三次（P-194 series/manifest、P-165 build stamp）。修法：check-kernel-archives.py 在 kernel.mtime < .config.mtime 时 skip。"
+
+[[rule]]
+id = "P-208"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-208"
+statement = "-D 的作用域必须覆盖所有用它的 TU：只挂在一个 object 的 CFLAGS_ADD 上的开关，在别的 TU 里同名 #if 会静默编译成空，而 force_load 让链接永远不报错"
+check = "python3 scripts/tests/test-check-kernel-archives.py"
+note = "2026-11-15 adsp-20261115d 真机干净进桌面但 K60Handoff 命中 0 次：-DXNU_K60_PHYSICAL_BATTERY=1 只挂 KernelConfigTables.cpo_CFLAGS_ADD，iokit/bsddev/IOKitBSDInit.cpp 的 0602/0619 守卫块整体编译为空，电池入口与 ADSP 发布器自合入起是死代码。修法：build-xnu-4k-baseline.sh 把该 define 加进全局 EXTRA_CFLAGS；check-kernel-archives.py 新增 P-208 引用检查。"
+
+[[rule]]
+id = "P-209"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-209"
+statement = "defconfig 里的 Data 卷 UUID 不得指名 32 MiB 种子：真机卷是 1BCD69FF…，指名种子会让内核在根挂载阶段等 5 s 超时后自 panic，而 USB 控制台此时还没起来，整张图表现为零字节日志（2026-11-15 只有 c0 命中，同批其余四张 silent 仍未解释——不许把沉默当同一原因）"
+check = "python3 scripts/tests/test-check-defconfig-uuid.py"
+note = "2026-11-15 wifi 图 wifi-20261116c0 为 0 字节 + autoreset 回 fastboot，围绕空日志长出四套假说（尺寸/__const 11.77 MB/固件驻留/pool 窗口），真因是 mondrian_wifi_defconfig 指名种子 UUID 6DCCF70A…；mondrian_defconfig 与它只差四行。修法：check-defconfig-uuid.py 要求种子 UUID 带 '# SEED-UUID: intentional' 标记。"
+
+[[rule]]
+id = "P-210"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-210"
+statement = "门禁里的单文件常量（`CONFIG = …/configs/mondrian_defconfig`）就是覆盖缺口：凡是按 board 分开的配置/产物，门禁必须遍历所有同类文件并逐文件点名，否则「通过」只等于「没量那一份」"
+check = "python3 scripts/tests/test-check-data-identity.py"
+note = "2026-11-15 scripts/check-data-identity.py:31 只对 mondrian_defconfig 对账，带 CONFIG_XNU_OWNER_DATA_MOUNT=y 的 mondrian_wifi_defconfig 从未被评分，种子 UUID 因此进了 c0；改为遍历所有挂载 Data 的 defconfig 并逐文件点名。同轮 c1（只改该 UUID）上机仍 0 字节，证明种子 UUID 只是 silent 的一个维度。"
+
+[[rule]]
+id = "P-211"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-211"
+statement = "记账/日志工具里的每个字段都必须描述被记录的那个产物（读镜像旁边的 build-manifest.json），不能描述登记那一刻手边的仓库状态；回退到猜测时必须把来源写进记录，否则账本无法区分「正解」与「回退」"
+check = "python3 scripts/tests/test-record-boot.py"
+note = "2026-11-15 scripts/record-boot.py 把 bt 线 229 条 series 构建的 h12 镜像登记成 main 的 226 条 series，账本与 porting-gate 都不报错。已达同族四条：P-194 量错文件、P-200 量错槽位、P-201 量错有无、P-211 量错版本。"
+
+[[rule]]
+id = "P-212"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-212"
+statement = "判据必须回答「被观测的系统进入了那个状态」，不能回答「日志里出现了那行字」；把配置打印成证据比没有日志更像证据。三态（PASS/FAIL/INVALID），0 与「没量到」必须分开，单次采样不得下结论"
+check = "python3 scripts/tests/test-judge-battery.py"
+note = "2026-11-15 charger 线 judge-battery.py 抓出三处同形：subscription-ack=0 0 被判 PASS、temp=0.00C 落在判据区间内、单行 sample 直接下结论。与 P-204（把计数当结论）互为两个方向。"
+
+[[rule]]
+id = "P-213"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-213"
+statement = "门禁必须建模工具的真实行为（shell 会展开变量，就展开变量），不能只读字面量；新门禁的第一件事是拿一个已知合法的样本跑一遍，并且「不知道」要独立成 skip 档，不能折叠进 PASS/FAIL"
+check = "python3 scripts/tests/test-check-define-scope.py"
+note = "2026-11-15 scripts/check-define-scope.py 第一版只解析字面量 _CFLAGS_ADD，把累加进 PERSONALITY_CFLAGS 的 XNU_NATIVE_RAM_BLOCK 误判为只到达 kern_exec.o；改为解析 shell 变量后 81 条守卫全可达。"
+
+[[rule]]
+id = "P-214"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-214"
+statement = "同名字段跨命名空间比较必然失败：series 指纹必须由唯一实现产生并自带 namespace 字段，读者拒绝比较不同 namespace 的值；门禁红了先问「这个量是谁算的」"
+check = "python3 scripts/tests/test-series-fingerprint.py"
+note = "2026-11-16 build-strict.sh 量 series 文件字节（64 hex），porting-gate/record-boot 量 names+sizes（16 hex），两者永远不等，main 上每次合并都被 iron-4/hard-33 挡。"
+
+[[rule]]
+id = "P-215"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-215"
+statement = "惰性分配的锁必须自己保证可分配：返回 bool 的 lock() 在未就绪时返回 false 等于拒绝服务；弱引用只防符号缺失不防调用失败；共享资源的启动顺序必须在设计时确定；判断执行顺序只能靠调用链，不能靠环形缓冲区的日志行号"
+check = "python3 scripts/tests/test-pong-smmu-lease.py"
+note = "2026-11-16 wifi 家族七张 0 字节镜像的真因：UFS 的 hostBringUp 调 pong_smmu_lease_lock()，锁只在 pong_rpmh_init() 里分配，而后者晚于 UFS。patches/wifi/0012 惰性自建后 wifi-20261116c3 进 SpringBoard 132。"
+
+[[rule]]
+id = "P-216"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-216"
+statement = "不可复现的产物不能当身份：哈希只在「两次相同输入的实测」之后才算确定性证据；不稳定哈希只能记成「这一次构建的标识」，不能进可比较字段；压缩容器里的小差异会放大，看到哈希不同要先看差异集中在哪类字节"
+check = "python3 scripts/tests/test-check-firmware-volume.py"
+note = "2026-11-16 同一 pin 三次重建固件卷得三个哈希（4bbe7601/ce12d145/77ad2474/9f20de15388a），根因是 LLD 的 CodeView build-id 不受 SOURCE_DATE_EPOCH 影响；同一 payload 换卷后上机 SpringBoard 129，P-154 关闭。"
+
+[[rule]]
+id = "P-217"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-217"
+statement = "子模块指针不是构建输入：构建读的是工作树内容，所以「本机能构建」证明不了「仓库能构建」；「上游已修好」必须逐文件对比，不能靠祖先关系推；配置里写「已包含」必须配一个可执行判据"
+check = "python3 scripts/tests/test-check-basecore-pin.py"
+note = "2026-11-16 board.toml 注释称 Mu_Basecore 6f805f2 已含六个 K60 修复、本机的 3d2a9fa 是它的祖先。实测 merge-base 为空、3d2a9fa 不在任何远程分支、11 个文件里 10 个在 pin 上是原始状态。改为工作树切 pin + [firmware].patches 施加五个补丁，并加 check-basecore-pin.py 门禁。"
+
+[[rule]]
+id = "P-218"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-218"
+statement = "二分实验的矩阵是「全集里哪些还没飞」，不是「我飞过哪些」；已构建未飞行的镜像可能就是决定性的那一格，而「飞过」的唯一诚实记录是每次飞行都写的 boot.json（账本只收进桌面的那些，静默镜像一条都不留）。"
+check = "python3 scripts/tests/test-check-bisect-coverage.py"
+note = "蓝牙 0005 四 hunk 二分：h123 在 23:18 构建完成、四小时无人飞，飞了才发现它才是唯一能定案的格子（{h1,h2,h3} 齐备才 silent，h4 无关）。门禁第一版读账本、第二版按哈希 join、第三版用 plain utf-8 读带 BOM 的 boot.json —— 三次都把「已飞」判成「未飞」，同一形状犯了三次。"
+
+[[rule]]
+id = "P-219"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-219"
+statement = "`ml_io_map` 的 IO 子图是全内核共享的一个固定预算，加窗口必须算总和而不是只看本次；预算耗尽时 `kmem_alloc(io_submap, ..., KMA_NOFAIL)` 在控制台起来之前 panic，现象是 0 字节日志而不是崩溃，必须靠 panic 行里的 size 反查是哪个窗口。"
+check = "python3 scripts/tests/test-check-io-map-budget.py"
+note = "蓝牙 d4（pong_bt_late=1 让控制台先起来）实测 `kmem_alloc(..., 1048576, 0x100021): failed with 3`，1048576 就是 K60_TLMM_SIZE；全树 37 个调用点合计 7.23 MiB / 8 MiB。修法把 IO_MAP_SIZE 提到 32 MiB，并加 check-io-map-budget.py 在已应用树上量总和。"
+
+[[rule]]
+id = "P-220"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-220"
+statement = "门禁的 fallback 如果只是「取最新的那一份」，就会拿别的分支/别的板的产物来判本树，把「本机没有能代表当前分支的构建」翻译成「你的补丁序列坏了」。fallback 必须能判断结果是否适用于当前对象：补丁名集合不同就不是本对象的证据，应 skip 而不是判红。"
+check = "python3 scripts/tests/test-check-build-applied.py"
+note = "2026-11-16 main 上 check-rules 报「构建应用了 232 个补丁，但 series 列了 227 个」，232 是 bt 线 feat/bt-research 的序列，那条 xnu-inputs.json 属于 bt 的输出树。修法：stamp_path 第二轮只在补丁名集合相同的存根里挑，一份都没有就 skip。"
+
+[[rule]]
+id = "P-221"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-221"
+statement = "扫描器/水位必须存不可变的对象 id 而不是会移动的 ref 名，比对文件必须用 blob id 而不是逐文件取内容；逐文件 `git show` 的扫描在 5,000 文件规模上必然超时，且脏水位会让它每次都重跑全量。"
+check = "python3 scripts/tests/test-pick-upstream-scan.py"
+note = "2026-11-16 pick-upstream.py --plan 连续三次超时（600/900/300 s 全 rc=124、输出恒 0 行）；根因是 discover_branches 把裸 origin 当分支、其 rev-parse 输出字面量 origin/origin 写进 seen 永不命中，叠加逐文件 git show（3 分支 × 5,080 文件 ≈ 15,000 次进程）。改用 blob id 对表 + 过滤裸 origin + 丢弃脏水位后 7.4 s。"
+
+[[rule]]
+id = "P-222"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-222"
+statement = "跨 worktree 的全局账本记的是「这台机器最后一次成功的序列」，答不了「这一套补丁成功过吗」；判据必须先查按对象记录的基线账本（MAIN-BASELINE.toml 的 booted 条目），再退回全局 ledger。只被写入、从不被读取的证据字段在门禁眼里不存在。"
+check = "python3 scripts/tests/test-porting-gate-book.py"
+note = "2026-11-16 上游跟进构建成功后 porting-gate 仍阻断 [S]：上次成功 4305c6cc2821bcb7(08:59, bt 线 234 条) != 现在 59d8037521a5b07b(main 227 条，07:36 已由 baseline-20261116a 上机)。修法加 booted_series() 读 MAIN-BASELINE.toml 的 state=booted 条目；build-only 永远不能背书。双向验证：真序列 PASS、伪造序列仍 FAIL。"
+
+
+[[rule]]
+id = "P-223"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-223"
 statement = "受限只读被跨阶段消费时，账本要记录「谁读的、过哪道门、对象当时什么状态」，且「没读到」与「读到但无效」必须给出不同的返回与措辞。"
 check = 'd=$(mktemp -d) && cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o "$d/rail" scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c && "$d/rail" && cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o "$d/board" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60PmicRail.c drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspStartup.c && "$d/board"; rc=$?; rm -rf "$d"; exit $rc'
 note = "2026-11-16: resources() 把「轨没上电」和「我们拒绝投票」压成同一个 -63，owner 在 stage 1 就停；改成「rail_probe 先记账、resources 后查表」的三态判定后，日志能点名是哪条轨缺哪个字段。"
 
+
+[[rule]]
+id = "P-224"
+title = "构建的冻结输入把 python 自己写的字节码算进去了"
+check = "python3 scripts/tests/test-build-strict-freeze.py"
+note = "freeze() 必须排除 __pycache__/*.pyc；否则构建自己重写 .pyc 会被判成「输入变了」而判废（wifi-20261116c7 现场）"

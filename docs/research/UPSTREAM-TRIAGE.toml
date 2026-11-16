@@ -18,8 +18,273 @@
 #
 # 最后更新：2026-11-12
 
+[[commit]]
+sha = "6bde2772eaacd92dcd5a2801fa40ce02781382c6"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "feat(gpu): hand the framebuffer to the Adreno after stage A passed"
+date = 2026-11-12
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（board.toml, docs/plans/GPU-ENABLE-PLAN.md, porting.toml）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "8cdfcffa042ea63177287c8ba4e6b0a2302cc982"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "feat(gpu): decouple the GPU addon mount from the offline broker"
+date = 2026-11-13
+verdict = "deferred"
+reason = "本仓该脚本有 65 行本地改动（PLATFORM_ARCHIVES 的电池归档钩子、bt/thermal 钩子，P-190），整文件覆盖会丢（scripts/build-xnu-4k-baseline.sh）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "4727ae3b62a7d904f1f637f8dd7c0f083edaebda"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "feat(gpu): carry the Adreno Metal plugin inside the kernel"
+date = 2026-11-13
+verdict = "deferred"
+reason = "本仓该脚本有 65 行本地改动（PLATFORM_ARCHIVES 的电池归档钩子、bt/thermal 钩子，P-190），整文件覆盖会丢（scripts/build-xnu-4k-baseline.sh, scripts/gen-k60-metal-blob.py）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "22785bd3c7d9cc0860e4dacc99d4ff87bb7a92d9"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "fix(gpu): create the addon directories before deploying into them"
+date = 2026-11-13
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/0610-k60-metal-plugin-deploy.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "60f04cb4a453ce2c518aa61b55e3a6fe570b6c8b"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "debug(touch): inspect physical report acquisition"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "fa564b80bd67047a0cb0686d3aad2e2522f4c1b5"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): record physical acceptance failure"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（docs/plans/GOODIX-TOUCH-PORT.md, porting.toml）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "016b384cfa25a0ed0d92b9215892db2f371bb0ff"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "fix(touch): wait config state before completion"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "e99bfcd7dd738e15a14aa96037b915443f679161"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): capture physical report evidence"
+date = 2026-11-14
+verdict = "not-applicable"
+reason = "纯文档/状态文件，无可执行内容"
+
+[[commit]]
+sha = "fbc7e6c811e9cbc4077a63a81d7d4df661be4c08"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "debug(touch): inspect fw state and diffdata"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "56fc9b442a87a0479d2db16aab84e63404159baf"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "fix(touch): repair diagnostic hunk prefixes"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "e6bad4753d656a770ba1d04e16c96a1d57f63825"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "fix(touch): repair diagnostic hunk prefixes"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "e2187871c3e3870dfdf967c20d4807382a3b5b6a"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "fix(touch): strip stale plus prefixes"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "dd36d72ac66d9ae27e0419f9f9bb702f38009e88"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): record cfgfix round evidence"
+date = 2026-11-14
+verdict = "not-applicable"
+reason = "纯文档/状态文件，无可执行内容"
+
+[[commit]]
+sha = "e3aeabf214d3fd9c587d80e176847813dfcc4bb9"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "fix(touch): separate config state from command ack"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch, scripts/test-goodix-config.py）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "58f2b3e91fe14dfe7383b857be3820c1fbdbf1ba"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): correct scan evidence and next test"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md, porting.toml）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "631efc31e666a923e7c85da93cc99c21e1caac2b"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "fix(touch): enable Xiaomi coordinate reports"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch, scripts/test-goodix-config.py）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "184d9989a97750916601eddc07e4ed250b0762a7"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): record actual coordinate enable"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md, porting.toml）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "6f313c73c122c535a4cfa727e89d123f1e120b1b"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): clarify unqualified host mode"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "3bad40c508bb4c59fda61155a97a119084c18b91"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): deliver offline coordinate candidate"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md, porting.toml）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "2a7b2000f25d123525e2b70e8981094ea5483d1e"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "perf(touch): drop per-report diagnostics"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "c156278e12ad94b985014c03ae739dd8c4108dd3"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(touch): record verified physical touch"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（docs/ops/HANDOFF.md, docs/plans/GOODIX-TOUCH-PORT.md, porting.toml）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "fd33f9ce3ecc365d9acda73def1f8312f1507a32"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "merge: carry verified touch and coordinate reporting"
+date = 2026-11-14
+verdict = "deferred"
+reason = "本仓对应文件有本地改动，需人工合并（）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "bb85bb28712be6397586fde0847965140df71b64"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(readme): record touch and GPU status"
+date = 2026-11-14
+verdict = "not-applicable"
+reason = "纯文档/状态文件，无可执行内容"
+
+[[commit]]
+sha = "8eb264dad90065e559aa40691fdec0abf4e670be"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "perf(gpu): time present stages"
+date = 2026-11-14
+verdict = "deferred"
+reason = "PongMetal 四文件是一套（Plugin/Scanout/Policy 各有本地改动），要成组取（drivers/PongMetal/GpuScanoutPresenter.h, drivers/PongMetal/PongMetalPlugin.mm, drivers/PongMetal/PongMetalScanout.h）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "1bd3f5b4d85308de57302e6cb5dae01172184304"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(gpu): record pacing attribution plan"
+date = 2026-11-14
+verdict = "not-applicable"
+reason = "纯文档/状态文件，无可执行内容"
+
+[[commit]]
+sha = "e89d27df98646de3cd2165580830afb243a3df59"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(gpu): note per-frame texture lifetime bound"
+date = 2026-11-14
+verdict = "deferred"
+reason = "PongMetal 四文件是一套（Plugin/Scanout/Policy 各有本地改动），要成组取（drivers/PongMetal/GpuScanoutPresenter.h）"
+review_after = "下一轮 GPU/display 线合并时成组比对（先跑 cmp 段表再取）"
+
+[[commit]]
+sha = "27a33321355b1aaabd24eb6eac271f005840979b"
+repo = "yibiya/UniXNU-mondrian"
+branch = "main"
+subject = "docs(gpu): record measured present stages"
+date = 2026-11-14
+verdict = "not-applicable"
+reason = "纯文档/状态文件，无可执行内容"
+
 [meta]
-updated = "2026-11-12"
+updated = "2026-11-15"
 
 # ---------------------------------------------------------------- 分支水位
 
@@ -27,7 +292,7 @@ updated = "2026-11-12"
 repo = "yibiya/UniXNU-mondrian"
 mirror = "references/yibiya-upstream"
 branch = "main"
-watermark = "d855ce2d430be0042babb193cd461a052a601e2a"
+watermark = "27a33321355b1aaabd24eb6eac271f005840979b"
 note = "CI 与文档，无硬件内容"
 
 [[branch]]
@@ -1121,31 +1386,31 @@ date = "2026-11-13"
 repo = "yibiya/UniXNU-mondrian"
 branch = "chore/archive-stale-clone-wip"
 mirror = "references/yibiya-upstream"
-watermark = "ac5481d765"
+watermark = "4d088d8bf4c295199937cf733eed6f9b699268ad"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "docs/k60-gpu-repair-plan-20261112"
 mirror = "references/yibiya-upstream"
-watermark = "7b66697dd2"
+watermark = "3c456d5fa582d16240b7a7a937929d80560e64ba"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "fix/goodix-reset-handshake"
 mirror = "references/yibiya-upstream"
-watermark = "22785bd3c7"
+watermark = "c156278e12ad94b985014c03ae739dd8c4108dd3"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "fix/metal-client-timing"
 mirror = "references/yibiya-upstream"
-watermark = "22785bd3c7"
+watermark = "75bd5920e7a0b12e26cd6440a270a89f73ddd9b0"
 
 [[branch]]
 repo = "yibiya/UniXNU-mondrian"
 branch = "fix/metal-deploy-scratch"
 mirror = "references/yibiya-upstream"
-watermark = "22785bd3c7"
+watermark = "b57630a78ee62130e68b4a37766de1b7fa99e130"
 
 [[commit]]
 sha = "4d088d8bf4c295199937cf733eed6f9b699268ad"

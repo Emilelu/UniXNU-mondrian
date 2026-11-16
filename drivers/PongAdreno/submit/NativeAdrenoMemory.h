@@ -14,9 +14,11 @@ struct NativeAdrenoCpuState {
 IOReturn NativeAdrenoQueryCpu4K(NativeAdrenoCpuState *);
 enum NativeAdrenoCacheOperation {NativeAdrenoClean,NativeAdrenoCleanInvalidate,NativeAdrenoInvalidate};
 IOReturn NativeAdrenoMaintainOwnedPages(void *,size_t,NativeAdrenoCacheOperation);
-/* The same over whole physical pages of DRAM, through the kernel's physical aperture: data cache lines are physically tagged, so this
- * reaches lines another task's mapping left (an imported IOSurface). Apple's sys_dcache_flush is only a DSB, so user space cannot. */
-IOReturn NativeAdrenoMaintainPhysicalPages(uint64_t physical,size_t bytes,NativeAdrenoCacheOperation);
+/* The same over a batch of whole physical pages of DRAM, through the kernel's physical aperture: data cache lines are physically tagged,
+ * so this reaches lines another task's mapping left (an imported IOSurface). Apple's sys_dcache_flush is only a DSB, so user space cannot.
+ * Up to 64 page addresses share one issuing-core barrier/preemption group; pages outside kernel DRAM remain excluded. */
+enum : size_t {kNativeAdrenoCacheBatchPages=64};
+IOReturn NativeAdrenoMaintainPhysicalPageBatch(const uint64_t *pages,size_t count,NativeAdrenoCacheOperation);
 /* Every CPU mapping of the spans' pages becomes write-combined (true) or takes the default cacheable attribute again (false). */
 IOReturn NativeAdrenoSetPagesCacheMode(const NativeAdrenoPhysicalSpan *,size_t count,bool write_combined);
 /* int-100 found a write-combined BO's page back at the default (cacheable) attribute with dirty IB lines: XNU's view machinery sets a page's

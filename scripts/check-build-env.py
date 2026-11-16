@@ -24,7 +24,30 @@ FW_REPO = Path(os.environ.get("K60_FRAMEWORK_REPO") or REPO.parent / "UniXNU")
 
 BUILD = Path(os.environ.get("K60_BUILD_TREE", "/opt/k60/trees/k60build"))
 OUT = Path(os.environ.get("K60_OUT", str(BUILD / "out-baseline")))
-M = OUT / "mondrian/ipados-16.6.1-20G81/mondrian"
+
+
+def find_board_dir(out: Path) -> Path | None:
+    """Locate the board dir instead of assuming it is named 'mondrian'.
+
+    The board dir is named after the defconfig (mondrian vs mondrian_wifi), so a
+    hardcoded path silently checks the wrong tree: the wifi line's fresh
+    mondrian_wifi tree failed its first build with 'Availability.h file not
+    found' while this gate kept grading the old mondrian tree and staying green
+    (P-206). Prefer the newest board dir that actually has a build layout; the
+    legacy literal is the fallback, not the default.
+    """
+    candidates = [
+        cand for cand in sorted(out.glob("*/ipados-16.6.1-20G81/*"),
+                                key=lambda p: p.stat().st_mtime, reverse=True)
+        if (cand / "tree").is_dir() or (cand / ".config").is_file()
+    ]
+    if candidates:
+        return candidates[0]
+    literal = out / "mondrian/ipados-16.6.1-20G81/mondrian"
+    return literal if literal.is_dir() else None
+
+
+M = find_board_dir(OUT) or OUT / "mondrian/ipados-16.6.1-20G81/mondrian"
 FAKEROOT = M / "tree/.cache/fakeroot"
 
 # The Darwin tools Linux does not have. `xcodebuild` is the one that fails last
@@ -35,9 +58,15 @@ SHIMS = [
     "plutil", "prepare-xnu.py", "setup-toolchain.py", "xcrun",
 ]
 # Written by build-firehose.sh / the XNU headers, not by the repository.
+# Measured 2026-11-15 on a fresh mondrian_wifi tree (P-206): all five are
+# absent right after seeding, and the first build dies on Availability.h
+# before it can self-heal the two firehose files.
 FAKEROOT_FILES = [
     "usr/local/lib/kernel/libfirehose_kernel.a",
+    "usr/local/include/kernel/os/firehose_buffer_private.h",
     "usr/include/Availability.h",
+    "usr/include/AvailabilityInternal.h",
+    "usr/include/TargetConditionals.h",
 ]
 
 

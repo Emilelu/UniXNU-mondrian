@@ -1,6 +1,6 @@
 # ADSP 载体实验：零售机第一次受控 PAS 上机
 
-状态：产物已就绪（2026-11-17，tag `carrier-20261117b`），等 Lead 在用户同意后上机。
+状态：产物已就绪（2026-11-17，tag `carrier-20261117c`），等 Lead 在用户同意后上机。
 分支：`feat/adsp-carrier`（基于 `origin/main 74c0d24e`，不混 `feat/charger`）。
 执行人：Lead（本线禁止自行 boot，见 m01673 与用户 m03715 铁律）。
 
@@ -47,7 +47,8 @@
 - 改法：三常量分开 —— `K60_ADSP_LINK_BASE 0x86300000`（固件链接）、
   `K60_ADSP_BOARD_BASE 0x9fd00000`（本板 carveout）、`K60_ADSP_WINDOW 0x3100000`；
   运行时可被 `/chosen` 的 `qcom,adsp-region` 覆盖（`patches/xnu/0613-k60-adsp-pas.patch:279`
-  `k60_adsp_board_region()`，2 或 4 cell，对齐/范围校验）。
+  `k60_adsp_board_region()`）：2 cell = 32 位 base/span，4 cell = 64 位 base/span；
+  device-tree cell 按 big-endian 解码（`k60_adsp_cell()`），对齐/范围校验。
 - 静态证据：`scripts/tests/test-k60-adsp-loader.c` 断言 `plan.base == K60_ADSP_BOARD_BASE`、
   两者不等、`plan_at(0x9fd00800)` 必须 `K60AdspBadArg`；`scripts/tests/test-k60-adsp-image.py`
   从 `pong_adsp_table.h` 读回三个常量并与镜像表比对（`TESTS OK ... link 0x86300000 board 0x9fd00000`）。
@@ -100,20 +101,21 @@
 
 | 项 | 值 | 证据 |
 | --- | --- | --- |
-| 构建命令 | `scripts/build-strict.sh carrier-20261117b --fd .../baseline-20261116a-cf4485712c29.fd --adsp-blob /mnt/e/k60-work/firmware/adsp --kernel-arg pong_adsp_carrier=1` | `k60-work/artifacts/carrier-20261117b/logs/` |
+| 构建命令 | `scripts/build-strict.sh carrier-20261117c --fd .../baseline-20261116a-cf4485712c29.fd --adsp-blob /mnt/e/k60-work/firmware/adsp --kernel-arg pong_adsp_carrier=1` | `k60-work/artifacts/carrier-20261117c/logs/` |
 | 设备输入 | `/home/emilelu/charger-carrier/device`（共享树 2026-11-17 01:00 快照的私有镜像，789 文件与仓库同步） | `HEAD=70a1e4ca361a1116bc0ec1563bac74771c79f81c`、`git diff` sha256 `56697fe6a64b4e3f276f3d73ad240515a2db3fef369b1a8304d52ab26d1ca511` |
-| ADSP 容器 | 26 个 adsp.* 文件，`sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319` | `artifacts/carrier-20261117b/adsp-carrier/k60_adsp_blob.bin` |
-| kernel | `sha256 a77cbb76e21bf92a0d71cd8ffe7a0176ef8bf4a9097aca356ffc36170dccd2ce`，129,048,576 B（内核每次重建哈希不同：a `29a7097f…`、b `a77cbb76…`，以 manifest 为唯一真值） | `build-manifest.json` `components.kernel_built` |
-| kernel 字符串复核 | `K60PAS carrier` ×6、`K60PAS auth ok` ×1、`K60PAS carrier verdict` ×2、`pong_adsp_carrier` ×1（2026-11-17 03:46 对 b 的 kernel.macho 复核） | `strings -a /opt/k60/trees/k60build/out-charger-carrier/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` |
-| payload | kernel `0b36034b481947a1c5311333bf6b853052a56628f24f344bf5f85ef52068fc7d`、adt `106ef419fd0cea11f163eadca4f6c990af345700611cb8e0734d8880b10be6dd`、payload `0d5276b3fcfa9ad802327d41c3f4a107a6320f3600df069e49d8368d4968836f` | `build-manifest.json` `components.payload*` |
-| boot.img | `sha256 092a2d5fded23670fe67e54b8ab76f17337db321adaf7ac716fba4be8b242aab` | `build-manifest.json` `components.boot_img`；`verify-boot-image.py --manifest` 通过 |
+| ADSP 容器 | 26 个 adsp.* 文件，`sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319` | `artifacts/carrier-20261117c/adsp-carrier/k60_adsp_blob.bin` |
+| kernel | `sha256 5bb7f4c8e6f64929a43395c282c9a8c50373bce51f07aaf9741723d828165099`，129,048,576 B（a `29a7097f…`、b `a77cbb76…`、c `5bb7f4c8…`；以 manifest 为唯一真值） | `build-manifest.json` `components.kernel_built` |
+| kernel 字符串复核 | `K60PAS carrier` ×6、`K60PAS auth ok` ×1、`K60PAS carrier verdict` ×2、`pong_adsp_carrier` ×1（2026-11-17 04:12 对 c 的 kernel.macho 复核） | `strings -a /opt/k60/trees/k60build/out-charger-carrier/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` |
+| payload | kernel `020e79a64dd7c70ca947fb55adf8a99362b0d952cfb7ac8dbdaed7c2c43cad4f`、adt `1097f85c79886ee484ab0e5888a9781a0ce3df8b39864dd26b290bd7c20f40c9`、payload `9ab8b05cc55c2427f24a76042f8b42d893d87ee48cde4ba0c55f7f1c17ccfe4a` | `build-manifest.json` `components.payload*` |
+| boot.img | `sha256 c484aa059309eea5459505c9e871779fc2aa2d23411a33762b4dbb076c802e78` | `build-manifest.json` `components.boot_img`；`verify-boot-image.py --manifest` 通过 |
 | 电池存档 | `sha256 406942a1682d3f1141b827381ce442ebeb25547eda0789920bcef91363422e77` | 构建日志 `battery archive` |
-| 八步门禁 | `build-strict: eight-step 通过 36 项检查`；冻结输入 `b3ff37d2f767791b4142a4f71a294948fe685e9f71fd4c9c8058f3e3108189ab` | `logs/eight-step.log` |
+| 八步门禁 | `build-strict: eight-step 通过 36 项检查`；冻结输入 `d408222162f4e3429b6a3eeb2cfd3a1a48c8b2bcf833787eef539a48649741db` | `logs/eight-step.log` |
 | 镜像参数 | 30 args / 595 B，末项 `pong_adsp_carrier=1`；`image-arg-audit: OK (30 arguments, 595 bytes)` | `logs/image-arg-audit.log` |
 
-`carrier-20261117a`（boot.img `149b0b0d…`）已被 b 取代：a 的 SMC wrapper 只把
-x0/x1/x2/x3/x6 声明为输出，缺 x4–x7 与 x8–x17 的 caller-saved 约束；b 在 `a0547907`
-修正后才构建，manifest 的 `repo.head` 是 `183805a8`。上机只用 b。
+`carrier-20261117a`（boot.img `149b0b0d…`）和 `carrier-20261117b`（`092a2d5f…`）均已被 c 取代：
+a 的 SMC wrapper 缺 x4–x7 与 x8–x17 的 caller-saved 约束；b 的 `/chosen` 区域覆盖解析把
+device-tree cell 按本机端序读，真实覆盖会被误读/忽略。c 包含 `d7fdff4d` 的 big-endian 修复，
+manifest 的 `repo.head` 是 `d7fdff4d`。上机只用 c。
 
 ## 3 上机步骤（Lead 执行）
 
@@ -122,7 +124,7 @@ x0/x1/x2/x3/x6 声明为输出，缺 x4–x7 与 x8–x17 的 caller-saved 约�
 carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0.1 C0 判 INVALID，
 不计入 D4 的两次 ADSP 尝试（没有发生任何 SCM 调用）。
 
-1. `bash scripts/k60-device.sh state` 确认识别到设备；`fastboot boot <image>`，绝不 `flash`。
+1. `bash scripts/k60-device.sh state` 确认识别到设备；`fastboot boot /mnt/e/k60-work/artifacts/carrier-20261117c/boot.img`，绝不 `flash`。
 2. 采集：`record-boot.py`（console.log 落 `k60-work/evidence/usblog-<ts>/`）。
 3. 判读：`python3 scripts/judge-battery.py --log <evidence dir>` 先跑 C1/C2 基础三态
    （契约就是 07-DEVICE-CRITERIA §0；本例会因无 lease 判 INVALID，那是预期的），
@@ -157,6 +159,7 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
 | 8 | SMEM TOC / SMP2P 就绪时间 / remote_restart_flag / tx-rx 4096 | NOT-IN-SCOPE | 属 lease 之后；HANDOFF-PUBLISH-SPEC §11 已列 |
 | 9 | 采样器访问许可域 | NOT-IN-SCOPE | adsp-20261115e 之后由 adsp 线证明；本实验不读电池 |
 | 10 | carrier 钩子的可达性（Data mount 前置） | 已闭 | `native_owner_data_prepare()` 在 `mount` 成功后才执行 0614 carrier 块（patched `bsd/kern/kern_exec.c:7892-7920`）；§3 前置与 §4 失败形态已写死 |
+| 11 | `/chosen qcom,adsp-region` 覆盖的 cell 端序 | 已闭 | `k60_adsp_cell()` 按 big-endian 解码 2/4 cell（`patches/xnu/0613-k60-adsp-pas.patch:279`）；真机 FDT 无该属性时走默认 `0x9fd00000/0x3100000`（`d7fdff4d`） |
 
 ## 6 ADC 兜底预研（D5，只取证不写驱动）
 
@@ -174,6 +177,6 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
 
 ## 7 证据归档
 
-- 构建：`/mnt/e/k60-work/artifacts/carrier-20261117b/`（manifest、logs、adsp-carrier/）。
+- 构建：`/mnt/e/k60-work/artifacts/carrier-20261117c/`（manifest、logs、adsp-carrier/）。
 - 上机：`/mnt/e/k60-work/evidence/usblog-<ts>/console.log`（Lead 采集）。
 - 判读结果按 §0.1 表逐行贴回 `E:/k60-work/scratch/reply-charger-20261115.md`。

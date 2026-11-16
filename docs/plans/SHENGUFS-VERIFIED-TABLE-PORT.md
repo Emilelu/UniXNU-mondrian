@@ -1,0 +1,85 @@
+# ShengUfs 验证表与根发布层的移植草案（2026-11-17）
+
+> 状态：只读审计产出，未改任何代码。来源 `references/ShengUfs@9d527ae`（本地参考树），
+> 许可证 `BSD-2-Clause-Patent`（每个文件头 SPDX 已写明）。
+> 目标代码树：`drivers/NativeUfs`。合并这条线必须另开 `feat/ufs-verified-table`，不要进 `docs/porting-gap-audit`。
+
+## 0. 为什么要它
+
+`drivers/NativeUfs` 目前有 11 个头/实现（约 1,832 行），负责根设备的 probe 与 SHNGROOT 窗口；
+`PongUfsTransport.cpp` 提供 `PongUfsBlock`（IOBlockStorageDevice）与三个窗口（`RootDiskWindow` :55、
+`gRootWindows[3]` :63、`PongUfsBlock` :225、`init` :422）。**没有**「验证过的根哈希表缓存」与
+「根窗口发布顺序」这两层。参考树 ShengUfs 比 catalog pin `99d8bcd` 新，多出的正是：
+
+| 文件 | 行数 | 作用 |
+|---|---|---|
+| `VerifiedTableCache.h` | 166 | 按窗口哈希表页做 4 KiB 认证缓存；`VrootTable`/`VrootCacheEntry`/`VrootCacheStats`/`VrootTableCache`，模板 ops：`lock/unlock/sleep/wakeup/readPage/sha256` |
+| `RootPublication.h` | 84 | 根窗口发布顺序 `ufsBuildRootPlan`（SystemOS 优先、OS 最后）、`ufsPrepareRootWindows`/`ufsPublishRootWindows`（失败时保留已发布对象的生命周期） |
+| `RootWindowRead.h` | 54 | 窗口读路径 `ufsWindowGeometry`、`UfsWindowGuard`（锁）、`ufsReadWindow`（按 4 KiB 校验+拷贝，`kDataMax` 分块） |
+| `tests/VerifiedTableCache.cpp` | 191 | 缓存命中/未命中/等待/淘汰/失败/丢弃 |
+| `tests/RootPublication.cpp` | 86 | 发布顺序与失败路径 |
+| `tests/RootWindowRead.cpp` | 97 | 几何校验与读写边界 |
+
+## 1. 现有头文件的差异（先只抄不接线）
+
+| 文件 | 我们 vs 参考 |
+|---|---|
+| `CompletionWait.h` | **逐字节相同** |
+| `RootDiagnostics.h` | **逐字节相同** |
+| `RootCommands.h` | 有差异（我们 329 行 vs 参考 602 行——参考多出近一倍，必须逐段 diff） |
+| `RootLayout.h` | 有差异（我们 254 vs 参考 231） |
+| `RootQueue.h` | 有差异（我们 63 vs 参考 66） |
+| `RootTransportLayout.h` | 有差异（我们 44 vs 参考 34） |
+| `SmmuTakeover.h` | 有差异（145 vs 参考 127） |
+| `TransferPoll.h` | 行数相同（28 vs 28）但内容有差异 |
+
+差异可能是参考树更新（补了字段/注释）而非语义不同；**必须先逐文件 diff 再抄**，不能整目录覆盖。
+`GccUfs.h` 只在参考树有；我们 `NativeUfs.cpp:26` 用常量 `kGccUfsPage` 自己读，不依赖该头。
+
+## 2. 接线点（我们的代码）
+
+- `PongUfsTransport.cpp:55` `RootDiskWindow`、`:63` `gRootWindows[3]`：窗口选择与 `baseByte/size` 的权威来源。
+- `PongUfsTransport.cpp:225` `PongUfsBlock`、`:422` `init()`：读/写块入口，`doAsyncReadWrite` 目前没有「按窗口哈希表校验块」的步骤。
+- `PongUfsTransport.cpp:258` `native_pong_log_ufs_window_media()` 与 `:300` APFS UUID 检查：只是媒体枚举/日志，不是完整性校验。
+- `NativeUfs.cpp:184` `mapPhysical(kGccUfsPage,...)`：GCC 寄存器页，与本层无关。
+
+**接入方式**：给 `PongUfsBlock` 增加一个 `Ops` 适配器：
+`lock/unlock` 用现有 `mutex`；`sleep/wakeup` 用 `IOLockSleep`/`IOLockWakeup`（或 `IOCommandGate`）；
+`readPage(table,page,dst)` 走现有 transport 的 4 KiB 读；`sha256(data,bytes,out)` 用内核 crypto 或本地实现。
+`doAsyncReadWrite` 在读路径调用 `vrootTableEntry()` 得到的 32 字节哈希与块比较，失败返回 `kIOReturnIOError`。
+发布顺序用 `ufsBuildRootPlan`/`ufsPrepareRootWindows`/`ufsPublishRootWindows` 替换现在 `gRootWindows` 的启动循环。
+
+## 3. 分三步落地（建议顺序）
+
+1. **只读搬运**（不改行为）：把 3 个头文件 + 3 个测试复制到 `drivers/NativeUfs/`（或 `tests/`），
+   用独立 host 编译跑通 3 个测试（参考树测试是纯 host 的 `Ops` mock，不依赖 IOKit）。
+   验收：`tests/VerifiedTableCache.cpp`、`RootPublication.cpp`、`RootWindowRead.cpp` 全过；
+   `NativeUfs.cpp` 编译不变。
+2. **接缓存**：实现 `VrootOps` 适配器与 `VrootTableCache` 实例；在 `PongUfsBlock::doAsyncReadWrite` 的读路径
+   接入 `vrootTableEntry`。先只对 `OS`/`SystemOS` 两个只读窗口启用，`Data` 窗口暂不启用（P-152/P-153）。
+   验收：host 单测 + 构建；上机必须由 Lead 安排（根挂载面，不可自行刷）。
+3. **接发布顺序**：把窗口启动改成 `ufsBuildRootPlan` + `ufsPrepareRootWindows` + `ufsPublishRootWindows`，
+   保留现有 `gRootWindows` 的字段来源；失败时按参考实现保留已发布对象。
+   验收：上机日志 `PONG APFS` 三窗顺序与 `K60DATA mounted ro=0` 不变；回退只需还原一个调用点。
+
+## 4. 不抄的部分
+
+- 参考树 `NativeUfs.cpp`（149,596 B）与我们版本差异过大，不整体替换；只抄 3 个头文件 + 3 个测试。
+- `GccUfs.h` 不抄（我们用寄存器常量）。
+- 任何需要改 `board.toml`/`dts` 的部分不在本草案内。
+
+## 5. 风险与回退
+
+- 根挂载（P-152/P-153）：任何验证失败必须 fail closed，不能把「表页读失败」当成「块通过」。
+- 回退：三步各自独立提交；第 2、3 步的调用点用 `#if` 或运行时开关 `pong_ufs_verified_root=0` 保留原路径。
+- 上机判据：`docs/research/wifi` 的 P-215 教训——0 字节日志不能证明「没坏」，必须有 `PONG APFS`/`K60DATA` 行与 SpringBoard。
+
+## 6. 复算命令
+
+```sh
+wc -l /e/k60-work/references/ShengUfs/{VerifiedTableCache,RootPublication,RootWindowRead}.h
+sha256sum /e/k60-work/references/ShengUfs/{CompletionWait,RootDiagnostics}.h drivers/NativeUfs/{CompletionWait,RootDiagnostics}.h
+for f in RootCommands RootLayout RootQueue RootTransportLayout SmmuTakeover TransferPoll; do
+  diff -u drivers/NativeUfs/$f.h /e/k60-work/references/ShengUfs/$f.h | head -40
+done
+```

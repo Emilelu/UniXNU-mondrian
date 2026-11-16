@@ -218,7 +218,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 | 顺序 | 项 | 从哪抄（本地路径） | 我们现状 | 为什么这个顺序 | 验收 |
 |---|---|---|---|---|---|
-| 1 | UFS 验证表/根发布层 | `references/ShengUfs@9d527ae`：`VerifiedTableCache.h` 166 行、`RootPublication.h` 84、`RootWindowRead.h` 54 + tests | `drivers/NativeUfs` 7 文件约 82 KB，无这一层 | 纯头文件/只读，先立回归网；直接对着根挂载（P-152/P-153） | 编译 + 4 个 host 测试 |
+| 1 | UFS 验证表/根发布层 | `references/ShengUfs@9d527ae`：`VerifiedTableCache.h` 166 行、`RootPublication.h` 84、`RootWindowRead.h` 54 + tests | `drivers/NativeUfs` 7 文件约 82 KB，无这一层 | 纯头文件/只读，先立回归网；直接对着根挂载（P-152/P-153） | 编译 + 4 个 host 测试；草案见 [`plans/SHENGUFS-VERIFIED-TABLE-PORT.md`](../plans/SHENGUFS-VERIFIED-TABLE-PORT.md) |
 | 2 | BT userland | `QcaBluetooth`：`userland/BlueTool.c`、`Type0.c`、`tools/build-bluetool.py` 2,503 B、`build-type0.py` 2,941 B | `0500-k60-bt-qbt-new-files.patch` 只有内核侧 | 不依赖内核，BT 线停着也能先接；24A446→20G81 | 脚本产出与 QcaBluetooth 同结构，两份工具可复跑 |
 | 3 | 音频传输 | `references/pong-power`：`ShengGpr.c` 4,165 B、`ShengAudioReach.c` 17,656、`PongAudioService.cpp`、`PongAudio.cpp` | `0503/0504/0505` compile-only | audio planned，纯代码，先补传输层 | 编译 + opcode/route 表单测 |
 | 4 | ADSP provider | `references/pong-power`：`PongPlatformResources.cpp` 240 行、`PongPower.cpp` 66、`PongAdsp.cpp` 714 | `K60AdspOwnerStages` 只有契约 | 承接 battery/PAS1 缺口；依赖 3 的 GPR/GLINK | host suite（owner 77 场景）不回归 |

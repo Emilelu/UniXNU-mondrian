@@ -146,6 +146,7 @@ docs/
 
 | 文件 | 说明 |
 |---|---|
+| [`audits/BT-D8-HOST-TIMING.md`](audits/BT-D8-HOST-TIMING.md) | BT d8 输入身份与真实 C 宿主时序验证：34 场景/84 断言、17 输入夹具；NVM 失败与未覆盖项保留 |
 | `audits/PONG16-DIFF-AUDIT.md` | 与 pong `ios16` 分支的机械差异审计 |
 | `audits/FORK-REVIEW.md` | Fork 巡查与吸收记录 |
 | `audits/REFERENCE-WALL-AUDIT-2026-11-02.md` | 对照 ios-sweet-k60 已验证墙的审计 |

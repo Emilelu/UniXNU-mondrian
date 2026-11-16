@@ -159,8 +159,9 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
      8 位最低档更暗。
   4. **最高**：夜间不要求拉最高；若用户愿意，最高档请求行应为 `dbv 0xfff`（映射端点已由 host 单测固定）。
   5. **FAIL**：任一 `sig=11`、无 first frame、无请求行、最低档不是 `dbv 0x14`、或最低档仍黑屏。
-- **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
-  `grep -a 'K60 PANEL:' <console.log>`。
+- **判读命令**：`python3 scripts/check-backlight-log.py <console.log> --control=1
+  --min-dbv=0x14 --max-dbv=0xfff`（发布层与 12 位端点一起判；非零请求少于 3 条即 FAIL）；
+  `grep -a 'K60 BACKLIGHT: brightness' <console.log>`；`grep -a 'K60 PANEL:' <console.log>`。
 - **第一飞（2026-11-17 03:06 / 03:13 两次，证据 `usblog-20261117-0306-brightness18` 与
   `usblog-20261117-0313-brightness18b`）**：两次都进到桌面；第二次 `console.log` 232,718 B。
   `:184` published 行 `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1

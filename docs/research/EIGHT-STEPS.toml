@@ -535,7 +535,7 @@ catalog_result = "逐个核对 UniXNU/components.toml 的 25 个组件，没有�
 
 [hardware.charger.step.plan]
 done = true
-evidence = "方案分两段。传输层：ADSP 侧 pmic_glink 无端口号也无 GUID，用名字三元组 transport=\"SMEM\"/remote_ss=\"apss\"/channel=\"PMIC_RTR_ADSP_APPS\"，配置结构 0x603cae78，open 路径 0x7c95b0 -> 0x862754 -> 0x67b9a8，rx intent 100 x 8192 B（02-GLINK-CONTRACT.md 第 10 节）。发布层：104 B handoff 逐字节真值表与发布时机（k60_physical_battery_start() 在 IOKitBSDInit() 里，早于 vfs_mountroot，所以不能等 data mount），见 docs/research/battery/HANDOFF-PUBLISH-SPEC.md 第 4、7 节。协议层常量按 06-SUBSCRIPTION-CONSTANT.md 定死。"
+evidence = "方案分两段。传输层：ADSP 侧 pmic_glink 无端口号也无 GUID，用名字三元组 transport=\"SMEM\"/remote_ss=\"apss\"/channel=\"PMIC_RTR_ADSP_APPS\"，配置结构 0x603cae78，open 路径 0x7c95b0 -> 0x862754 -> 0x67b9a8，rx intent 100 x 8192 B（02-GLINK-CONTRACT.md 第 10 节）。发布层：104 B handoff 逐字节真值表与发布时机（k60_physical_battery_start() 在 IOKitBSDInit() 里，早于 vfs_mountroot，所以不能等 data mount），见 docs/research/battery/HANDOFF-PUBLISH-SPEC.md 第 4、7 节。协议层常量按 06-SUBSCRIPTION-CONSTANT.md 定死。兜底：若 PAS1 连续两次 boot 未到 auth ok，按 D4 转 PMIC ADC 只读探针（09-ADC-FALLBACK-SURVEY.md：SPMI VADC PPID 0x031 apid=408 已实机可读，通道 vbat_sns 0x38f / usb_in_v_div_16 0x311 / ichg_fb 0x3a1）。"
 
 [hardware.charger.step.deep]
 done = true

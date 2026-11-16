@@ -18,11 +18,12 @@
 | G6 | `EIGHT-STEPS.toml` 的 wifi 条目仍写"从未上机 / parked" | `docs/research/EIGHT-STEPS.toml:390-426` | 与 c1–c8 实飞、P-215 结案矛盾；这是唯一一处**门禁数据源**与事实相反 |
 | G7 | 复用缺口不是"没有轮子"，是"抄了早期版本没跟上" | PongMetal 前端 109,178 B vs 参考 225,616 B；ShengUfs 参考 `9d527ae` 的 `VerifiedTableCache.h` 6,878 B、`RootPublication.h` 3,225 B 未进我们树 | 白写的量远大于没抄的量 |
 | G8 | `patches/wifi/` 12 个补丁 229,326 B 在 main 上没有任何构建路径引用 | `grep -rn 'patches/wifi' scripts/*.py scripts/*.sh` 只命中测试断言；`patches/wifi/series` 无读者 | main 侧 WiFi 接线缺位；P-215 的补丁字节在 main，应用它的脚本只在 `feat/wifi-bringup` |
-| G9 | 死文件：`patches/xnu/0610-k60-metal-seeds.patch` 存在但不在 series | series 里是 `0610-k60-metal-plugin-deploy.patch`（`:218`） | 4,364 B 补丁无人应用、无人删除 |
+| G9 | **已退役的前身**没有退役登记：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾，但删之前要确认 wifi 线不再需要；只报告未动 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
-> 上表记的是**发现时**的状态。G1、G2、G3 与 G4 的「没有门禁」部分、G5 的「没有指针」部分、G6 的「没有标注」
-> 已在本分支改掉（逐项见 §10）；G4 的 217 个坏引用、G7–G10 只报告、未动。
+> 上表记的是**发现时**的状态。G1、G2、G3 与 G4 的「没有门禁」部分、G5 的「没有指针」部分已在本分支改掉；
+> G6 已按 c1–c8 实飞重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
+> G4 的 217 个坏引用、G7–G10 只报告、未动。
 
 ## 1. 方法与可复现性
 
@@ -180,8 +181,10 @@ c3 进 SpringBoard 132），c4/c5/c6 进桌面、c7 已判读到 SBL/READY。
 
 **顺带发现的两条"文档真相"**：`docs/plans/OFFICIAL-DRIVER-MAP.md` 应补记——
 ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组件；`pong-metal@0b3b34a` 晚于我们那次 import；
-`patches/wifi` 在 main 上无读者。另：`patches/xnu/0610-k60-metal-seeds.patch` 不在 series（G9），
-要么启用要么删——按铁则 1 的精神，**放在仓库里却没人用的补丁比没有更危险**。
+`patches/wifi` 在 main 上无读者。另：`patches/xnu/0610-k60-metal-seeds.patch` 不在 series（G9），但
+`scripts/tests/test-series-source.py:8` 已把它记作 retired——它是 `0610-k60-metal-plugin-deploy.patch` 的
+**退役前身**，不是没人要的垃圾。正确处置是给它一条退役登记（或与 wifi 线确认后删除），
+而不是按「没人用的补丁」直接删：`PITFALLS.md:3978` 记的正是它被误接进序列后出事的现场。
 
 ## 8. 联网调研：已有结论与仍未知（G10）
 
@@ -226,7 +229,8 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
    由 `line-research-map2.py` 生成初稿，人工补结论。
 5. **catalog 与 pin 的差**：`check-component-pin.py` 对每个 catalog 组件的 `revision` 与本地参考树 HEAD 比较，
    不一致就要求写一行"为什么不用 pin"。这次 ShengUfs 的差就是这么漏掉的。
-6. **死补丁**：`check-patch-series.py` 已经是补丁门禁，加一条"仓库里的 `.patch` 必须在某个 series 里"即可抓到 `0610-k60-metal-seeds.patch`。
+6. **退役补丁要有登记**：`check-patch-series.py` 已经是补丁门禁，加一条「仓库里每个 `.patch` 要么在某个 series 里、
+   要么在 `RETIRED-PATCHES.toml` 里写明被谁取代」——只要求「必须在 series」会误伤退役前身（G9）。
 7. **上游快照要带横幅**：任何 `docs/ops/` 这类 pick 进来的目录，文件头必须写明来源 commit 与"非权威"。
 8. **门禁自测要能脱离环境变量跑**：`K60_DEVICE_INPUT` 不导出时，main 上 `check-rules.py` 实际红 **7** 条，不是 P-230 注释里记的 5 条——
    iron-4/iron-5/hard-33/P-165/P-166 是被 `scripts/check-build-applied.py:30` 直接拒绝；而 **P-214 与 P-220 是自测 import 了 `scripts/porting-gate.py`**，
@@ -250,7 +254,8 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 1. `EIGHT-STEPS.toml` 的 wifi/audio/charger 条目要不要按实飞重评（改 `done`/`status` 等于改放行条件）。
 2. 92 个分支研究文件怎么回 main：整目录搬、还是结案时逐份搬（建议后者 + LINE-MAP）。
 3. `docs/ops/` 三份上游文件：加横幅（已做）之外，要不要删除或移到 `docs/archive/upstream-ops/`。
-4. `0610-k60-metal-seeds.patch`：启用还是删除。
+4. `0610-k60-metal-seeds.patch`：已确认是退役前身（`test-series-source.py:8`）。要我加 `RETIRED-PATCHES.toml` 登记，
+   还是与 wifi 线确认后直接删？（本轮未动）
 5. `patches/wifi` 的 main 侧接线：把 `feat/wifi-bringup` 的 applier + 门搬过来，还是继续只在 wifi 分支构建。
 6. §7 的 Top 8 抄写顺序（尤其 Metal 前端与 UFS 验证表——两者都对着已崩溃面）。
 

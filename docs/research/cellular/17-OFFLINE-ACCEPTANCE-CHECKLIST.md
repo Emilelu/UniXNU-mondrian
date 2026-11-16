@@ -1,8 +1,11 @@
-# 17 · 框架载具离线验收清单（待 Lead 交付候选）
+# 17 · 框架载具离线验收清单（框架已交付，待整链候选）
 
-> 依据：Lead 2026-11-16 15:12 +08:00 回复；接口以 [16 号文档](16-FRAMEWORK-REQUEST.md) 为准。
-> 本轮只准备清单，没有构建、重新打包或上机，也没有检查或改动 UEFI 工作区。
-> 框架接口尚未交付；所有候选验收项均为 **NOT RUN**，不以历史表 A/B 代替。
+> 依据：Lead 2026-11-16 15:12 与 19:32 +08:00 回复；接口以 [16 号文档](16-FRAMEWORK-REQUEST.md) 为准。
+> 本轮只准备/更新清单，没有构建、重新打包或上机，也没有检查或改动 UEFI 工作区。
+> **框架已交付**：`UniXNU` fork `feat/modem-carrier`，`91982136dc4a1b18633845ccb4a40d3778f4bba3`
+> （实现）+`ecc15f974770625496965650f487a148333291db`（文档，分支 HEAD）。但**整链候选尚未产生**，
+> 下表候选验收项仍为 **NOT RUN**，不以历史表 A/B 或框架级子集代替。框架级子集已有可执行工具，
+> 见 §5 的说明与真实回执。
 
 ## 1. 输入与来源账本
 
@@ -10,7 +13,7 @@
 
 | 输入 | 绝对路径 | 产生 repo + 40 位 SHA | 命令 / 输出 / rc | 状态 |
 | --- | --- | --- | --- | --- |
-| 框架候选及改动前基线 | Lead 提供两个独立 checkout 路径 | 两个完整 SHA；候选须已提交并推到有权限的 fork | 各自产生回执待提供 | NOT RUN |
+| 框架候选及改动前基线 | 候选 `/mnt/e/hackios/UniXNU`；基线 checkout 待 Lead 指定 | 候选 `feat/modem-carrier`：`91982136dc4a1b18633845ccb4a40d3778f4bba3`（实现）+`ecc15f974770625496965650f487a148333291db`（文档，HEAD）；基线 SHA 待提供 | 候选侧 `git rev-parse` 与祖先关系已核（2026-11-16 19:32 报告）；基线产生回执待提供 | 已具备，待整链候选（基线待指定） |
 | 设备源码与隔离输入 | 源码 `/mnt/e/hackios/k60-cellular`；构建输入由 Lead 确认 | 本清单准备前源码为 `f05158f0f3d6f101ee6b00349cc1dc673aa572c8`；未来实际设备输入另记 SHA/同步清单 | 同步检查的 env、argv、日志和 rc 待填 | NOT RUN |
 | 严格构建入口与输出 | Lead 提供独占的 K60_OUT、K60_DEVICE_INPUT、产物目录绝对路径 | 入口脚本所属 repo + 完整 SHA | strict argv/env、起止时间、原始日志、build-manifest.json 与 rc | NOT RUN |
 | UEFI 与补丁集 | Lead 提供归档 FD、UEFI pin、补丁与 gitlink 清单路径 | UEFI、EDK2、相关子模块各自完整 SHA | FD 产生命令、补丁顺序/哈希与真实 rc；本线不改工作区 | NOT RUN |
@@ -24,7 +27,12 @@
 
 不能把当前 checkout 的 HEAD 直接当已有产物的产生 SHA。dirty diff、未提交 gitlink、补丁归属与构建输入快照都必须查清；归属未定即待验，不提交或清理别人的改动。
 
-本轮只读观察：`/mnt/e/hackios/UniXNU` HEAD 为 `54f641fa07a8d6b0f5fc1be540d476ecd7d8ccba`，有未提交改动，不是 Lead 已交付的框架候选。设备源码当时为上述 f05158f，工作区干净。此观察不证明任何已有镜像来自这些 HEAD。
+本轮只读观察（2026-11-16 19:32 后）：`/mnt/e/hackios/UniXNU` 在 `feat/modem-carrier`，HEAD
+`ecc15f974770625496965650f487a148333291db`；工作区仍有他人未提交改动（`drivers/DarwinBoot`、
+`pong-driver/` 下若干文件、`scripts/unixnu/firmware.py`，未跟踪 `scripts/test-devicetree-handoff.py`），
+这些都不在载具实现三文件（`scripts/unixnu/{devicetree,payload,cli}.py`）内，但整链候选必须另取干净
+checkout。此前观察到的 HEAD `54f641fa…` 已过期。设备源码仍为 f05158f，工作区干净。此观察不证明任何
+已有镜像来自这些 HEAD。
 
 ## 2. 每项的回执格式与退出码
 
@@ -84,13 +92,24 @@ OFF 字节回归应使用隔离离线 harness，在旧/新框架同一调用点�
 
 | ID | 输入绝对路径与产生 repo/SHA | 命令 argv / 检查 | 预期输出与 rc | 实际输出 / rc |
 | --- | --- | --- | --- | --- |
-| ON-1 | 原始 modem 目录、设备 repo/SHA、载具目录和打包回执 | `[python3, DEVICE_REPO/scripts/gen-modem-table.py, RAW_MODEM, --manifest, EVIDENCE/want.txt]`；核原始/压缩逐文件清单 | 30 段、27 个文件段、copied 109060761、bss 211012967；rc 0 | NOT RUN / null |
+| ON-1 | 原始 modem 目录、设备 repo/SHA、载具目录和打包回执 | `[python3, DEVICE_REPO/scripts/gen-modem-table.py, RAW_MODEM, --manifest, EVIDENCE/want.txt]`；核原始/压缩逐文件清单 | 30 段、27 个文件段（名字 b01–b13/b15–b20/b22–b29，非连号）、copied 109060761、bss 211012967；rc 0 | NOT RUN / null |
 | ON-2 | 同次生成、删除前保留的完整 stage；框架 repo/SHA | 导出全部相对路径、类型、大小、哈希、时间戳和目录枚举顺序 | MODEM 恰 27 个普通文件；整个 stage 无缺项/替换；rc 0 | NOT RUN / null |
 | ON-3 | 同次 stage 的 ADT/流；解析器与表生成器 repo/SHA | parse_adt 检查 memory-map；精确比对 want.txt 名字加 .lzma 与实际文件集合 | K60ModemImage 恰 16 B 全零；与既有项共存；27 文件集合相等；rc 0 | NOT RUN / null |
 | ON-4 | stage MODEM、ON-1 manifest；检查器 repo/SHA | `[python3, DEVICE_REPO/scripts/check-modem-lzma.py, --dir, ON_STAGE/EFI/UniXNU/MODEM, --manifest, EVIDENCE/want.txt, --sum]` | files=27 failures=0、declared-total=109060761；rc 0 | NOT RUN / null |
 | ON-5 | ON payload、完整 stage 清单、原始流、payload.json；同次 repo/SHA | 新建空目录后 `[mcopy, -s, -n, -i, ON_PAYLOAD, ::/*, EVIDENCE/on-extracted]`（通配符原样传给 mtools）；另记根目录清单，递归核全部路径/类型/大小/哈希，重做 ON-3/4 | 所有阶段文件进入同一卷，无额外文件；payload=201326592 B；mcopy 与检查各 rc 0 | NOT RUN / null |
 | ON-6 | 抽出 kernel、unixnu.toml、payload.json/build-manifest；同次设备 SHA | 独立 sha256sum；TOML 解析实际选中 entry 的 path/args，核 payload patch/seal 回执 | 实际内核可追溯，参数与目标一致，pong_modem=2 恰一次；原有 args 门禁另查；rc 0 | NOT RUN / null |
 | ON-7 | 两次独立 ON 输出；同一框架 SHA/全部输入/随机控制回执 | 完整 stage 清单比对，再 `[cmp, --, ON_PAYLOAD_1, ON_PAYLOAD_2]` 与各自 SHA-256 | 受控测试下完全相同；缺前提则 BLOCKED；不宣称正常随机构建必同哈希 | NOT RUN / null |
+
+框架级子集已可执行：`scripts/verify-modem-carrier.py --unixnu ... --board ... --dtb ... --carrier ...
+--manifest ... --work ...` 覆盖 5.1、5.2 的卷与 5.3，写 `acceptance.json`（输入 SHA、27 流哈希、
+框架 HEAD 与 dirty 清单、工具版本、逐项结果与真实 rc）。2026-11-16 在真实 `board.toml`、
+`candidates/4g-quiet/hardware.dtb`、dxe-dryrun-d 的 27 个流与 `want.txt` 上 `ACCEPTANCE PASS 11/11`、
+rc 0，回执 `/mnt/e/k60-work/artifacts/modem-carrier-verify/port-run/acceptance.json`。该次运行使用
+`ecc15f974…` 的独立 `git clone`（`git clone /mnt/e/hackios/UniXNU` + `checkout` 该 SHA，HEAD 一致、
+dirty 0），因为共享工作区这时已出现未提交的 `scripts/unixnu/payload.py` 改动（非本线所为）；工具遇到
+载具实现三文件有未提交改动即以 rc 2 拒绝，不会把工作区内容当成交付修订。它不运行 `unixnu build payload`、
+不构建内核，所以 ON-2/5/6/7 与整链候选仍为 **NOT RUN**；该回执只证明框架契约的离线子集，不把本表
+任何候选行改成 PASS。
 
 框架 `scripts/unixnu/payload.py:297` 在结束时 `shutil.rmtree(stage)`。需 Lead 提供同次构建在删除前导出的完整 manifest 或阶段快照及回执。事后 FAT 抽取只能证明卷里内容，不能倒推此前 stage；缺阶段证据须单独待验。本线不为此修改框架。
 

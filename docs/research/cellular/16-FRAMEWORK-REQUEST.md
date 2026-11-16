@@ -4,6 +4,11 @@
 > 本文只写**接口**，不改 `UniXNU`。固件侧已落地（`uefi-mondrian` `72e51ca` + `5d96806`），
 > 契约见 `12-DXE-CONTRACT.md` §3.1/§3.7、载具实现见 `15-FIRMWARE-CARRIER-LOADER.md`、
 > 验收断言见 `13-FIRMWARE-ACCEPTANCE.md` 表 A。
+>
+> **2026-11-16 19:32 已交付**：`UniXNU` fork 分支 `feat/modem-carrier`，
+> `9198213`（实现：devicetree/payload/cli）+`ecc15f9`（文档），HEAD
+> `ecc15f974770625496965650f487a148333291db`。本文此后作为**接口契约与验收依据**保留；
+> 实现与本文的差异、以及交付实际覆盖到的范围见 §5 与 [17 号清单](17-OFFLINE-ACCEPTANCE-CHECKLIST.md)。
 
 ## 0. 一句话
 
@@ -82,7 +87,8 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
 
 - `bytes(16)` = 16 个零字节 = **未发布**。运行期由固件用两次 `WriteUnaligned64` 写成
   `base=0x8bc00000, span=0x13200000`（`ImageCarrierLib.c` 的 `ImageCarrierLoad` 尾部）。
-- 属性名 16 字符以内（`node()` 在 `:17-18` 拒绝 >31 B 的键名），`K60ModemImage` 14 B，安全。
+- 属性名 16 字符以内（`node()` 在 `:17-18` 拒绝 >31 B 的键名），`K60ModemImage` 名字长 14 B，安全。
+  这里说的是**名字长度**；占位**值**必须是 16 B 全零，两者不能混。
 - **不要**加长度字段或类型标签：`scripts/pong_adt_contract.py:83` 与 13 号 A5 都按「恰好 16 B」判。
 
 ## 2. `payload.py`：`generate()` 的实参
@@ -174,8 +180,15 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
     modem.b01.lzma
     modem.b02.lzma
     ...
-    modem.b30.lzma        # 27 个，名字 = gen-modem-table.py 的 name 列 + ".lzma"
+    modem.b29.lzma        # 27 个；名字不是连号，见下
+    modem-table.txt       # "<segment> <bytes>" 每行一段，27 行
 ```
+
+段表 `K60ModemImageTable.h` 有 **30 行**，但只有 **27 行带文件名**：第 14、21、30 行是纯 bss 段
+（`((const char *)0)`，bss 分别为 4096、163696640、15851520 字节）。所以 27 个名字是
+`b01–b13, b15–b20, b22–b29`，**没有 b14/b21/b30**。按 `b01..b27` 或 `b01..b30` 连号生成会否定
+真实输入：`b01..b27` 会拒绝 b28/b29 并索要不存在的 b14/b21/b30。`gen-modem-table.py --manifest`
+只输出 filesz 非零的行，正好 27 行，方向是对的。
 
 每个文件是 **LZMA-alone**（`xz --format=lzma`）流，且：
 
@@ -199,6 +212,11 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
 
 `modem_carrier_sha256` 建议对「排序后的 `name:size` 列表 + 各文件 sha256」做一次哈希，不要只哈希目录名。
 
+交付实现（`ecc15f9`）记录五个字段：`modem_carrier_files`、`modem_carrier_bytes`、
+`modem_carrier_compressed_bytes`、`modem_carrier_sha256`、`modem_carrier_placeholder`。
+关闭时前四个在 `payload.json` 里为 `null`，`_placeholder` 为 `false`，且 ADT 不出现该键。
+本节的 `_files`/`_sha256` 是必须项，其余三个是增强项。
+
 ## 4. `cli.py`：新选项
 
 加在 `common()`（`:17-50`），这样 `build payload`、`payload` 快捷命令都拿到：
@@ -218,6 +236,13 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
 按顺序做，前一条不过就别做下一条。
 
 实际验收的输入来源、真实退出码、OFF/ON 分组与随机控制前提见 [17 号离线验收清单](17-OFFLINE-ACCEPTANCE-CHECKLIST.md)。本节命令保留为接口示意；候选必须来自 Lead 交付的已提交框架和隔离严格构建，不执行下面带 `UNIXNU_SKIP_GATES=1` 的示意命令来宣称候选通过。
+
+框架级子集已有可执行验收工具：`k60-cellular/scripts/verify-modem-carrier.py`（覆盖本节 5.1、
+5.2 的卷与 5.3；全部输入参数化，写 `acceptance.json` 回执）。2026-11-16 在真实 `board.toml`、
+`candidates/4g-quiet/hardware.dtb` 与 dxe-dryrun-d 的 27 个流上 `ACCEPTANCE PASS 11/11`、rc 0。
+回执取自 `ecc15f974…` 的独立 `git clone`（本地 clone + checkout 该 SHA，HEAD 一致、dirty 0），
+不是共享工作区当前内容；工具在载具实现三文件有未提交改动时以 rc 2 拒绝运行。
+它不运行 `unixnu build payload`、不构建内核，因此只是框架级子集，不替代 17 号的整链验收。
 
 > 本机注意：这台 WSL 的 `/tmp` 里留着 root 所有的旧文件，写会 `PermissionError`、
 > `mcopy` 覆盖时会挂在确认提示上等输入（看起来像卡死）。下面所有 `/tmp/...` 路径请换成

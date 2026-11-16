@@ -1,8 +1,10 @@
 # 18 · 离线验收前置条件与失败回执矩阵
 
-> 依据：Lead 2026-11-16 16:44 +08:00 回复；逐项对应 [17 号清单](17-OFFLINE-ACCEPTANCE-CHECKLIST.md)。
-> 本交仅准备文档，没有运行候选验收、故障注入、构建或上机，也没有访问框架或 UEFI 工作区。
-> 基于清单提交 `72b6d29d843f268d7f811a591d2a3736cd941d10` 核对；下列均为**计划判据**，候选实际状态仍为 **NOT RUN / null**。
+> 依据：Lead 2026-11-16 16:44 与 19:32 +08:00 回复；逐项对应 [17 号清单](17-OFFLINE-ACCEPTANCE-CHECKLIST.md)。
+> 本交仅准备文档，没有运行候选验收、故障注入、构建或上机，也没有访问 UEFI 工作区。
+> 2026-11-16 19:32 Lead 交付框架候选（§2.1）；依赖框架实现的项从“未实现”改为“已具备，待整链候选”，
+> 但候选实际执行状态仍为 **NOT RUN / null**。
+> 基于清单提交 `72b6d29d843f268d7f811a591d2a3736cd941d10` 核对；下列均为**计划判据**。
 
 ## 1. 回执状态、退出码与阻断范围
 
@@ -10,7 +12,7 @@
 
 | 情况 | 回执 | 原始命令与退出码 | 后续处理 |
 | --- | --- | --- | --- |
-| 候选尚未交付，验收未启动 | NOT RUN | command_results 为空；exit_code=null | 保留待验，不提前记 FAIL/BLOCKED |
+| 框架已交付但整链候选尚未产生，候选验收未启动 | NOT RUN | command_results 为空；exit_code=null；框架级子集回执单独存放，不填候选行 | 保留待验，不提前记 FAIL/BLOCKED |
 | 验收启动后，必需来源、stage 或随机控制证据未交付/无法绑定到同次输入 | BLOCKED + 明确 reason | 未执行的命令仍为 null；已做的取证命令另留真实 rc | 只阻断依赖该证据的结论；独立只读检查可继续 |
 | 可靠检查发现已交付内容不符合约定 | FAIL + 精确差异 | 每条命令各记真实 rc、stdout/stderr；检查器语义失败可 rc=1 | 仅判定被可靠证明不符的内容；依赖项 BLOCKED |
 | 必需命令因工具缺失、权限、I/O、启动或进程终止而未可靠完成 | BLOCKED + `*_TOOL_FAILED`，保留执行错误 | 每条命令各记真实 rc、stdout/stderr/终止信息；未执行命令为 null | 不把执行环境错误推断成输入或框架内容损坏 |
@@ -56,6 +58,29 @@ exit_code: null
 
 外部固件的 Git SHA 可明确 N/A，但提取来源、原始哈希和打包工具 SHA 仍须齐全。独立取证目录必须是新建空目录；旧抽取结果、root 所有目标、mcopy 交互覆盖或非零 rc 属 `EXTRACTION_UNRELIABLE`，不能用留下的半份文件判 PASS。此项影响 OFF-4、ON-5/6 和 PKG 的回读。ON-2/5 的全 stage 期望全集须独立由同次所选配置、依赖开关和输入到生成输出的映射构造；若未交付该映射，stage 与 FAT 互比仅证明两者一致，不证明共同完整。
 
+### 2.1 框架交付登记（2026-11-16 19:32）
+
+Lead 交付的框架候选是 `UniXNU` fork 的 `feat/modem-carrier`，两个提交都已用 `git rev-parse` 在
+`/mnt/e/hackios/UniXNU` 核对，且 `9198213` 是 `ecc15f9` 的祖先：
+
+| 提交 | 完整 40 位 SHA | 内容 |
+| --- | --- | --- |
+| 实现 | `91982136dc4a1b18633845ccb4a40d3778f4bba3` | `feat(payload): stage a modem carrier and publish its placeholder`：`scripts/unixnu/{devicetree,payload,cli}.py`、`scripts/tests/test_modem_carrier.py` |
+| 文档（分支 HEAD） | `ecc15f974770625496965650f487a148333291db` | `docs(reference): document the modem carrier option and its payload fields`：`docs/reference/{cli.md,output-layout.md}` |
+
+接口：单一开关 `--modem-carrier DIR` / `UNIXNU_MODEM_CARRIER` / `[payload] modem_carrier`，schema 2
+以外拒绝；同一变量同时产出 ADT 的 16 B 全零 `K60ModemImage` 与 `EFI/UniXNU/MODEM/` 的 27 个流，
+拷贝发生在 utime/EPOCH 与 95% 容量检查之前，因此两者同现或同缺；`payload.json` 增加
+`modem_carrier_files/_bytes/_compressed_bytes/_sha256/_placeholder` 五个字段，关闭时为 `null/null/null/null/false`
+且 ADT 无该键；`bootimg` 不接受该选项。
+
+**覆盖范围**：只覆盖框架侧。设备侧打包脚本、内核/DTB/配置、UEFI pin 与补丁、严格隔离构建、真实上机
+都不在该交付内。框架级离线子集已由 `k60-cellular/scripts/verify-modem-carrier.py` 在真实输入上
+`ACCEPTANCE PASS 11/11`（rc 0，写 `acceptance.json`）。该次运行针对 `ecc15f974…` 的独立
+`git clone`（HEAD 一致、dirty 0），因为共享工作区此时已有未提交的 `scripts/unixnu/payload.py`
+改动（非本线所为）；工具会把载具实现三文件的未提交改动当作不可信来源并以 rc 2 拒绝。但整条
+`unixnu build payload` 与整链候选仍 **NOT RUN**；该子集不把本矩阵任何候选行改成 PASS。
+
 ## 3. 逐项缺失 / 不匹配矩阵
 
 “缺证据”栏在验收开始后对应 BLOCKED；“实测失败”栏对应 FAIL，并保留具体差异。下游阻断遵循 §1。全部实际执行结果仍为 NOT RUN/null。
@@ -70,7 +95,7 @@ exit_code: null
 | OFF-2 | 两份同次 OFF ADT、解析器 repo/SHA、可审计解析结果 | `OFF_ADT_EVIDENCE_MISSING`：缺任一 ADT 或解析器身份 | `OFF_ADT_MISMATCH`：解析失败、K60ModemImage 意外存在、其它属性增删/值不符；记录属性路径与原始长度/字节 | OFF 结构结论；OFF 组不合格 |
 | OFF-3 | OFF-1 成立、两份删除前完整 stage、两份原始 payload | `OFF_STAGE_MISSING` 或 `OFF_RANDOM_UNBOUND`：列缺哪次阶段证据/随机绑定；前提不成立时逐字节回归结论 BLOCKED，不用 FAT 倒推；若已可靠枚举发现 MODEM 意外出现，仍独立记内容 FAIL | `OFF_BYTES_MISMATCH`：在前提成立时记录 MODEM 意外出现，或全路径/类型/大小/哈希/时间戳/枚举顺序、cmp 不同；若输入/工具/随机序列前提不一致，改记 `OFF_PREMISE_MISMATCH`，逐字节结论 BLOCKED；任何可靠观察到的内容错误仍保留 | OFF 逐字节结论；内容失败不被前提阻断抹掉，也不改旧文件 seed 取得假相等 |
 | OFF-4 | 候选 OFF payload、payload.json、全清单及成功独立抽取 | `OFF_READBACK_UNBOUND`：缺选中 entry/内核/args/计数语义证据或只留半份抽取 | `OFF_CONTENT_MISMATCH`：实际内核/entry args/其它文件不同，或载具计数不是已声明的关闭状态 | OFF 回读结论；不能以 ON 代替 |
-| ON-1 | byte-exact 原段、MDT、生成器 SHA、段表/manifest/打包来源 | `RAW_SOURCE_MISSING`：列缺原段/MDT/产生回执 | `TABLE_MISMATCH`：生成器可靠完成后发现非 30 段/27 文件段、copied 非 109060761、bss 非 211012967，或所选原始文件身份不符；生成器未安装、权限/I/O/进程终止等另记 `TABLE_TOOL_FAILED`，保留真实 rc/错误并 BLOCKED，不据此称输入表损坏 | ON-3/4/4D 的表与内容身份结论 |
+| ON-1 | byte-exact 原段、MDT、生成器 SHA、段表/manifest/打包来源 | `RAW_SOURCE_MISSING`：列缺原段/MDT/产生回执 | `TABLE_MISMATCH`：生成器可靠完成后发现非 30 段/27 文件段（文件名不是 b01–b13/b15–b20/b22–b29，连号即失败）、copied 非 109060761、bss 非 211012967，或所选原始文件身份不符；生成器未安装、权限/I/O/进程终止等另记 `TABLE_TOOL_FAILED`，保留真实 rc/错误并 BLOCKED，不据此称输入表损坏 | ON-3/4/4D 的表与内容身份结论 |
 | ON-2 | 同次构建删除前全量 stage manifest/快照、导出回执与哈希 | `STAGE_EVIDENCE_MISSING`：仅 FAT、另一轮 stage、无删除前/同次绑定，或漏全量枚举信息；所选配置、依赖和开关绑定的**期望全集**未建立时另记 `STAGE_EXPECTED_SET_MISSING` 并 BLOCKED | `STAGE_CONTENT_MISMATCH`：期望全集已建立而全清单缺项/替换/重复、MODEM 非 27 个普通文件，或快照与清单不符；列 stage 实际与期望的 missing/extra/type/hash 差异。stage 与 FAT 共同漏项不能靠互相比较掩盖 | ON-5 阶段到卷的一致性、ON-7；卷内容可独立检查 |
 | ON-3 | stage ADT/目录、ON-1 精确名字集合、解析器身份 | `ON_PAIR_EVIDENCE_MISSING`：缺一侧原始证据或 manifest | `ON_PAIR_MISMATCH` / `STREAM_SET_MISMATCH`：目录/ADT 只开一半、占位非唯一/非 16 B/非零/解析畸形、既有属性丢失，或缺项/额外项/名字替换；详见 §4/5 | ON 配对与集合结论；不得进入封装合格结论 |
 | ON-4 | 同次流、可信 manifest、头部检查器 SHA/输出 | `HEADER_EVIDENCE_MISSING`：缺流或 manifest 的身份/原始检查日志 | `LZMA_HEADER_INVALID`：检查器可靠完成后发现短于 13 B、props 非 0x5D、UNKNOWN/>UINT32/声明长度不符、无数据，或 files/失败数/总声明长度不符；若工具未安装、权限/I/O/进程终止导致检查器未可靠完成，记 `HEADER_TOOL_FAILED`，内容结论 BLOCKED；列文件与实际字段/执行错误 | 相关流不合格；ON-4D 不能被“头合法”替代 |
@@ -101,7 +126,7 @@ exit_code: null
 
 ## 5. 27 流精确集合与逐流内容
 
-MODEM 期望集合 E 必须由已绑定原始输入的 manifest 生成：27 个唯一名字加 `.lzma`。全 stage 期望集合 S 则由同次所选配置、依赖开关及每个输入/生成输出映射独立生成，不能从实际 stage 或 FAT 反推；若实现没有可审计的预期清单，记 `STAGE_EXPECTED_SET_MISSING` 并 BLOCKED。实际 stage A 与 FAT B 分别对 S 校验，并做 A↔B 比对。MODEM 实际集合取目录**全部**子项，不能先过滤后数 27。回执同时列 `missing=expected-actual`、`extra=actual-expected` 和类型差异；manifest 自身重复名、非 27、条目长度不合法先在 ON-1 拒绝，不允许 set 去重掩盖。
+MODEM 期望集合 E 必须由已绑定原始输入的 manifest 生成：27 个唯一名字加 `.lzma`；名字集合是 `b01–b13, b15–b20, b22–b29`（第 14/21/30 行是纯 bss，无文件），任何 `b01..b27` 或 `b01..b30` 连号假设本身即失败。全 stage 期望集合 S 则由同次所选配置、依赖开关及每个输入/生成输出映射独立生成，不能从实际 stage 或 FAT 反推；若实现没有可审计的预期清单，记 `STAGE_EXPECTED_SET_MISSING` 并 BLOCKED。实际 stage A 与 FAT B 分别对 S 校验，并做 A↔B 比对。MODEM 实际集合取目录**全部**子项，不能先过滤后数 27。回执同时列 `missing=expected-actual`、`extra=actual-expected` 和类型差异；manifest 自身重复名、非 27、条目长度不合法先在 ON-1 拒绝，不允许 set 去重掩盖。
 
 | 情况 | 必须留下的失败回执 | 现有工具覆盖与边界 |
 | --- | --- | --- |

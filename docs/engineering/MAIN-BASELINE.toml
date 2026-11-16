@@ -267,4 +267,3 @@ K60HandoffRuntime.cpp 接线、patches/xnu/0613-k60-adsp-pas.patch 重生成使�
 分支尖端；紧随其后的登记提交只动这个文件，按 RISKY 前缀规则免登记。未上机：判据是
 pong_handoff_publish=1 pong_rail_probe=1 下的六行成功链，缺 'K60ADSP: rails inherited'
 就说明账本没被填上，不是构建问题。"""
-

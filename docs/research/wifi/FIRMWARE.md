@@ -130,6 +130,35 @@ QMI 返回的 board_id/chip_id 现场拼文件名（`id==0xff` → `"%s.elf"`；
 `PongAth11k.c` 的固件查找钩子解析。**不允许随便挑一个 bdwlan 文件冒充 BDF**
 （见 `drivers/PongWifi/proprietary-files.txt` 注释：No fabricated MAC/calibration）。
 
+### 3.1 `amss20.bin` 是 ELF32 —— 2026-11-16 更正
+
+早先的记录说 amss「没有程序头」，那是用 ELF64 布局去解一个 ELF32 文件得出的
+错误结论。按 `e_ident[EI_CLASS]` 选布局后实测：
+
+| 文件 | EI_CLASS | e_machine | e_phnum | PT_LOAD | 文件偏移范围 | vaddr 范围 |
+|---|---|---|---|---|---|---|
+| `amss20.bin` 5,296,128 B | 1（ELF32） | 0x28（ARM） | 17 | 15 | 0x2000..0x4ee000 | 0x1400140..0xf0000000（含一个 filesz/memsz 全 0 的项） |
+| `amss.bin` 5,470,128 B | 1（ELF32） | 0x28（ARM） | 18 | 16 | 同上量级 | 同上量级 |
+| `m3.bin` 266,684 B | — | 0x3（x86） | — | — | — | — |
+
+`amss20.bin` 的其余头部字段：`e_entry = 0x1436500`、`e_phoff = 52`、
+`e_phentsize = 32`。
+
+**这条更正不影响 MHI 装载路径，但解释了两件此前看着像缺陷的事**：
+
+1. 五个固件（`amss20.bin` / `amss.bin` / `m3.bin` / `bdwlan.elf` /
+   `bdwlang.elf`）里 `\x7fELF` **只在偏移 0 出现一次**（逐字节扫全文件）；
+   偏移 `0x80000` 处 amss20 是 `01c0428522c99891`、amss 是
+   `e67f150003fc849d`。所以 `mhi_fw_load_handler()` 里「SBL + WLAN 固件双
+   ELF」的探测在 QCA6490 上**永远不成立**，`fw_sz` 保持 5,296,128。
+2. 于是装载被切成 `DIV_ROUND_UP(5296128, 524288) + 1 = 11` 段：10 个 512 KiB
+   段加 1 个 10 项的向量表，c6 日志 `:612` 的 `load type=2 image
+   bytes=524288 vector bytes=5296128` 正是这个形状。
+
+**教训**：解析二进制头之前先读 `e_ident[EI_CLASS]`，再决定用 ELF32 还是
+ELF64 的 `e_phoff`/`e_phentsize` 布局。用错布局不会报错，只会得到一堆
+看着像「没有程序头」的零。
+
 ---
 
 ## 4. 原始提取目录里的其它文件（不进 PWF2）

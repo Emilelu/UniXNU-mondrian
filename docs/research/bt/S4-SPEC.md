@@ -1676,8 +1676,8 @@ Lead 的 `E:/hackios/k60-lead/scripts/check-bt-d8-inputs.py` 优先承担输入�
   tlv_final_status == 0`。
 - `:229-232` “nonzero TLV reply increments ack then times out”里的 `tlv_acks == 1` 与
   `tlv_final_status == 1`。
-- `:240-244` 第二条命令的 `tlv_sent == 2 && tlv_acks == 1` 只保留“boot budget/stats 不变”，
-  计数部分退役。
+- `:240-244` 第二条命令只保留 `boot_deadline == 100` 不变；`tlv_sent == 2 &&
+  tlv_acks == 1` 是累计计数，归本仓 #10，退役。
 
 `:264-267` 不是累计语义的重复项，它只验证 0515 汇总字符串格式；可保留，但应注明
 “累计语义权威在 k60-bt”。输入身份侧不要求 Lead 删除：本仓会按 #1 收窄自己的入口。

@@ -29,9 +29,11 @@ k60_scm_raw(uint64_t fn, uint64_t arginfo, uint64_t a, uint64_t b, uint64_t c,
 	register uint64_t x7 __asm__("x7") = 0;
 
 	__asm__ volatile("smc #0"
-	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x6)
-	    : "r"(x4), "r"(x5), "r"(x7)
-	    : "memory");
+	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x5),
+	      "+r"(x6), "+r"(x7)
+	    :
+	    : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16",
+	      "x17", "memory");
 
 	*rx0 = x0;
 	*rx1 = x1;

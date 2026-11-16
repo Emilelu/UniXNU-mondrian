@@ -6097,3 +6097,15 @@ def test_the_current_series_is_proven_by_the_book(self):
 **关联**：P-165（构建期间 registry 继承逃生开关）、P-222（全局账本把别处的成功当本树证据）、
 P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（证据与对象不对应）。
 
+## 候选缺陷队列（未编号，不构成坑记录）
+
+本区只登记候选实现里已观测到、但尚未获准修掉的缺陷。它没有分配 P 编号，也不改变
+任何生产行为；是否升格为正式坑记录由 Lead 决定（登记时 origin/main 最高为 P-229）。
+
+- **2026-11-16 · 候选观测核心的 `parse_ok` 是按 truthy 接受，不是严格等于 1**：
+  `package/tests/rail-sampler/proposed/rail_obs.c` 的 `gate_ok()` 用 `parse_ok != 0`，
+  契约（Lead 18:11/19:36）要求 `parse_ok == 1 && parsed_value == 1`。case
+  `observed-parse-ok-truthy` 用 gate `{1,2,1}` 复现：当前核心仍返回
+  `RETURNED`/`OBSERVED_REQUEST`。本轮按裁决只记录、不改核心，测试注释写明这是
+  observed deviation。
+

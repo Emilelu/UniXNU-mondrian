@@ -73,13 +73,69 @@ class BookLookup(unittest.TestCase):
                          'a build-only baseline has never been on a device')
 
     def test_the_current_series_is_proven_by_the_book(self):
-        """The exact 2026-11-16 situation: main's series is in the book."""
+        """main's series is in the book; a feature branch's is allowed not to be.
+
+        The 2026-11-16 situation (P-222) is that main's own 227-patch series had
+        to be accepted from the book. The first version of this test asserted
+        `fp in table` unconditionally, which made the whole registry fail on
+        every branch that changes a patch — that is P-229, the P-165 deadlock in
+        a different costume: a gate whose pass condition is "this checkout is
+        main" cannot gate the work that is not main yet.
+        """
         fp, count = self.gate['series_fingerprint']()
         self.assertIsNotNone(fp)
         table = self.gate['booted_series']()
-        self.assertIn(fp, table,
-                      'main series %s (%d patches) should match a booted baseline'
-                      % (fp, count))
+        if fp in table:
+            self.assertRegex(table[fp][0], r'^[0-9a-f]{7,40}$')
+        else:
+            self.skipTest('this checkout is a feature branch: series %s (%d patches) is '
+                          'not a booted baseline, which is the correct refusal (P-229)'
+                          % (fp, count))
+
+    def test_a_feature_branch_series_is_not_an_error(self):
+        """State independent: the lookup refuses an unlisted series without raising.
+
+        P-229: whatever this checkout's series is, the lookup must return a table
+        and must simply not contain it. Nothing here may depend on which branch
+        the tests happen to run from.
+        """
+        fp, _ = self.gate['series_fingerprint']()
+        self.assertIsNotNone(fp)
+        saved = self.gate['BOOK']
+        handle = tempfile.NamedTemporaryFile('w', suffix='.toml', delete=False,
+                                             encoding='utf-8')
+        handle.write('[[entry]]\nsha = "abc1234"\nstate = "booted"\n'
+                     'series_sha256 = "0000000000000000"\n')
+        handle.close()
+        try:
+            self.gate['BOOK'] = handle.name
+            table = self.gate['booted_series']()
+            self.assertEqual(set(table), {'0000000000000000'})
+            self.assertNotIn(fp, table)
+        finally:
+            self.gate['BOOK'] = saved
+            os.unlink(handle.name)
+
+    def test_only_a_booted_entry_vouches_for_one_exact_series(self):
+        """The same fingerprint is proven when the book says booted, and only then."""
+        fp, _ = self.gate['series_fingerprint']()
+        self.assertIsNotNone(fp)
+        saved = self.gate['BOOK']
+        for state, expected in (('booted', True), ('build-only', False)):
+            handle = tempfile.NamedTemporaryFile('w', suffix='.toml', delete=False,
+                                                 encoding='utf-8')
+            handle.write('[[entry]]\nsha = "abc1234"\nstate = "%s"\n'
+                         'series_sha256 = "%s"\n' % (state, fp))
+            handle.close()
+            try:
+                self.gate['BOOK'] = handle.name
+                table = self.gate['booted_series']()
+                self.assertEqual(fp in table, expected,
+                                 'a %s entry carrying this exact series must %s vouch'
+                                 % (state, '' if expected else 'not'))
+            finally:
+                self.gate['BOOK'] = saved
+                os.unlink(handle.name)
 
     def test_an_unknown_series_is_not_proven(self):
         table = self.gate['booted_series']()

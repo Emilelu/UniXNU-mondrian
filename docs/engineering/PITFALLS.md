@@ -5990,3 +5990,69 @@ P-187（分支上出现但从未回 main 的编号）、P-207（门禁不许判�
 的判据）、P-190（认不出名字就静默跳过）、P-202（`.config` 缺失时 `sed` 静默返回空）、
 P-205（新增门禁必须同时进 README 门禁表）。
 
+## P-229
+
+**标题：门禁的测试断言「这个检出恰好就是已上机基线」，于是任何改了补丁的分支都构建不了**
+
+`adsp-20261116a` 探针图的构建在 `unixnu: build: running the compliance registry` 之后停在
+
+```
+❌ P-222    FAILED (failures=1)
+build-strict: FATAL: kernel build failed
+```
+
+`P-222` 的测试是 `scripts/tests/test-porting-gate-book.py`，其中一条原本写的是
+
+```python
+def test_the_current_series_is_proven_by_the_book(self):
+    """The exact 2026-11-16 situation: main's series is in the book."""
+    fp, count = self.gate['series_fingerprint']()
+    table = self.gate['booted_series']()
+    self.assertIn(fp, table,
+                  'main series %s (%d patches) should match a booted baseline' % (fp, count))
+```
+
+`series_fingerprint()` 量的是**当前检出树**的 `patches/xnu/series`。adsp 分支为了跟上 `main`
+改了 `0613-k60-adsp-pas.patch`，指纹变成 `86a6e0ed295d56b6`（227 条），而
+`MAIN-BASELINE.toml` 里唯一一条 booted 是 `59d8037521a5b07b`（`baseline-20261116a`）。
+于是这条断言失败，registry 失败，构建被拒。
+
+**这不是「门禁正确地把一个未上机的分支拒掉」，而是门禁的测试自己坏了。** 未上机的分支本来
+就该被拒，但那个判断属于 `porting-gate.py` 的 `[S]` 判定——它是门禁本体，按设计会对任何
+没有 booted 背书的补丁集打出 `❌ [S] 补丁集变了 —— 必须显式确认`，并且 `build-strict.sh`
+用 `K60_FORCE_NEW=1` 显式放行它。测试的职责是证明 `booted_series()` 这个函数行为正确，
+一旦它把「当前检出的身份」写进断言，它的通过条件就变成了「这个检出就是 main」。
+
+**与 P-165 同形**：那次是构建期间 registry 继承了 `K60_BUILD_IN_PROGRESS=1` 这条逃生开关，
+这次是 registry 里的测试断言了分支身份。两次的后果一样——**构建被它自己要保护的东西挡住**。
+
+**修法：把一条测试拆成三条，状态相关的那条允许 skip。**
+
+1. `test_the_current_series_is_proven_by_the_book`：在书里就断言 `sha` 是 7–40 位十六进制；
+   不在书里就 `self.skipTest('this checkout is a feature branch: series %s (%d patches) is '
+   'not a booted baseline, which is the correct refusal (P-229)')`。
+2. `test_a_feature_branch_series_is_not_an_error`：合成一个**不含**当前指纹的 book，断言
+   `booted_series()` 返回一张表、当前指纹不在里面、且不抛异常。这条与检出身份无关。
+3. `test_only_a_booted_entry_vouches_for_one_exact_series`：同一个指纹在 `state = "booted"`
+   时被 vouch、在 `state = "build-only"` 时不被 vouch，两次都用临时 book。
+
+改完在 `k60-gates`（main）与 `k60-adsp-handoff`（feature 分支）两棵树各跑一遍，都是
+`Ran 7 tests ... OK`——这正是「搬到任意分支都成立」的自检。
+
+**四条教训**
+
+1. **测试不能断言「当前环境处于某个特定状态」。** 判据很简单：把这条测试原样搬到另一个
+   分支上跑，它还必须成立。只在本分支成立的那部分属于「现场观测」，要么写成 skip 并说明
+   原因，要么改用合成 fixture。`assertIn(fp, table)` 里的 `fp` 就是现场状态。
+2. **「门禁拒绝」与「门禁测试失败」是两种不同的拒绝，混淆的后果是分支无法开工。** 前者是
+   设计（fail-closed 正确工作），后者是回归（测试自己坏了）。构建走前者，验证函数用后者。
+3. **凡是被构建流程调用的测试，都要问一句「它在 feature 分支上会怎样」。** 构建是在分支上
+   跑的，而 registry 是在构建里跑的。P-165 与 P-229 是同一个问题域的两端：**门禁的运行环境
+   与被判对象必须分离**——逃生开关不能漏进测试，分支身份也不能漏进断言。
+4. **合成 fixture 要给全字段。** `booted_series()` 里 `fields.get('sha', '')` 的缺省是空串，
+   而同文件另一条测试断言 `^[0-9a-f]{7,40}$`；临时 book 不写 `sha = "abc1234"` 就会「修好
+   一条、弄红另一条」。改 fixture 之后要把整个文件跑一遍，不是只跑改的那条。
+
+**关联**：P-165（构建期间 registry 继承逃生开关）、P-222（全局账本把别处的成功当本树证据）、
+P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（证据与对象不对应）。
+

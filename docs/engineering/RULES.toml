@@ -780,3 +780,9 @@ title = "整份取一侧的冲突解决会连另一侧的非重叠新增一起�
 check = "python3 scripts/tests/test-build-strict-blocks.py"
 note = "解 build-strict.sh 冲突时整份取 main，丢掉 board_dir()/__pycache__ prune/wifi archive 块/内核断言四块；git 报过冲突、三方合并结果本来是对的，丢在「取整份」这一步。新增 check-build-strict-blocks.py 断言这四块必须存在，九个用例含六个反向验证"
 
+[[rule]]
+id = "P-229"
+kind = "pitfall"
+title = "门禁的测试断言了当前分支身份，导致任何改补丁的分支都构建不了"
+check = "python3 scripts/tests/test-porting-gate-book.py"
+note = "被构建流程调用的测试不能在断言里依赖「当前检出就是 main」；状态相关的一条必须允许 skipTest 并说明这是正确的拒绝，其余用合成 fixture。P-165（registry 继承 K60_BUILD_IN_PROGRESS）是同一问题域的另一端"

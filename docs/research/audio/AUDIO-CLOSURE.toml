@@ -89,7 +89,7 @@ evidence_kind = "artifact"
 evidence = [
   "patches/audio/0003-k60-audio-afe-selftest.patch",
   "patches/audio/0001-k60-audio-amp-probe.patch",
-  "patches/xnu/series:208-209",
+  "patches/xnu/series:208,209",
 ]
 criteria = "Image b (audio-probe-20261117b) built kernel e0f72ced... and `strings` finds the AFE encoder selftest string once; kernel.log:226 shows 0003 applied after 0001. The same patch is a no-op on a tree without 0504."
 status = "closed"

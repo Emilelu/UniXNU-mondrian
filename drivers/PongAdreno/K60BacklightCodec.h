@@ -26,9 +26,17 @@ namespace k60backlight {
 
 enum : uint32_t {
     kMaxLevel = 2047,   // OS brightness domain, matches AppleARMBacklight kMaxLevel
-    kMinNits = 2,       // calibration points published to CoreBrightness
+    /* CoreBrightness' own default calibration points. This port never publishes
+     * backlight-calibration-parameters (a partial dictionary kills backboardd),
+     * so 20G81 falls back to 5 / 140 / 400 nits (CoreBrightness 0x1af031684)
+     * and brightness-nits arrives inside that range. Keeping different numbers
+     * here would misplace both ends of the slider. */
+    kMinNits = 5,
     kMidNits = 140,
-    kMaxNits = 500,
+    kMaxNits = 400,
+    /* The level the dimmest request maps to: dbvFromLevel() turns 1..4 into
+     * DBV 1, the panel's own floor (PongDsiPanel.cpp:247 writes the byte as is). */
+    kDarkestLevel = 1,
     kMaxFadeMs = 5000,  // a FadePeriod longer than this is clamped
     kStepMs = 16,       // fade step cadence
     kMaxDbv = 0xff,     // panel DBV domain carried by DCS 0x51
@@ -52,16 +60,24 @@ static inline uint32_t milliNitsFromLevel(uint32_t level)
 }
 
 // brightness-nits request (signed 16.16 fixed point nits) -> OS level.
-// Anything at or below zero is "off"; otherwise scale to the panel's nits and
-// never hand back a lit level of 0.
+// Anything at or below zero is "off"; otherwise the request range is stretched
+// over the whole panel range: the dimmest request lands on kDarkestLevel
+// (DBV 1) and the brightest on kMaxLevel (DBV 0xff). A plain linear nits->level
+// scale is what brightness-15 shipped and the slider's two ends missed the
+// panel's: 400 nits stopped at DBV 0xcc (204 of 255, the top visibly below the
+// panel maximum) while the dimmest 5 nits request still came out at DBV 0x03.
+// Measured on brightness-15, 2026-11-17.
 static inline uint32_t levelFromNits(int32_t fixedNits)
 {
     if (fixedNits <= 0) return 0;
-    const uint64_t scale = (uint64_t)kMaxNits << 16;
-    const uint64_t scaled = ((uint64_t)(uint32_t)fixedNits * (uint64_t)kMaxLevel + scale / 2) / scale;
-    if (scaled < (uint64_t)kMinDbvOn) return kMinDbvOn;
-    if (scaled > (uint64_t)kMaxLevel) return kMaxLevel;
-    return (uint32_t)scaled;
+    const uint64_t nits = (uint32_t)fixedNits;
+    const uint64_t low = (uint64_t)kMinNits << 16;
+    const uint64_t high = (uint64_t)kMaxNits << 16;
+    if (nits <= low) return kDarkestLevel;
+    if (nits >= high) return kMaxLevel;
+    const uint64_t span = high - low;
+    const uint64_t steps = (nits - low) * (uint64_t)(kMaxLevel - kDarkestLevel);
+    return kDarkestLevel + (uint32_t)((steps + span / 2) / span);
 }
 
 // FadePeriod arrives as 16.16 fixed point seconds; the service works in ms.

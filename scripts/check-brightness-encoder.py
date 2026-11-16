@@ -8,9 +8,9 @@ pure arithmetic, so it is verified here on the host: no hardware, no IOKit.
 What is asserted:
   * 0..255 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
     the DBV -> level inverse round trips within one step.
-  * brightness-nits requests (iPadOS 27 form): 2 / 140 / 500 nits map to the
-    calibration points, <= 0 maps to off, and the result never exceeds the level
-    domain.
+  * brightness-nits requests (iPadOS 27 form): 5 / 140 / 400 nits map onto the
+    panel range end to end (dimmest request -> DBV 1, brightest -> DBV 0xff),
+    <= 0 maps to off, and the result never exceeds the level domain.
   * FadePeriod: 16.16 seconds -> milliseconds, clamped at 5000 ms.
   * The fade sequence: monotonic, starts at "from", lands exactly on "to", and
     the step count matches the 16 ms cadence.
@@ -78,16 +78,22 @@ int main(void)
     /* --- brightness-nits (iPadOS 27 form) -------------------------------- */
     check(levelFromNits(0) == 0, "nits 0 is off", levelFromNits(0), 0);
     check(levelFromNits(-(1 << 16)) == 0, "nits negative is off", levelFromNits(-(1 << 16)), 0);
-    check(levelFromNits(kMinNits << 16) == 8, "nits min", levelFromNits(kMinNits << 16), 8);
-    check(levelFromNits(kMidNits << 16) == 573, "nits mid", levelFromNits(kMidNits << 16), 573);
+    check(levelFromNits(kMinNits << 16) == kDarkestLevel, "nits min", levelFromNits(kMinNits << 16), kDarkestLevel);
+    check(levelFromNits(kMidNits << 16) == 700, "nits mid", levelFromNits(kMidNits << 16), 700);
     check(levelFromNits(kMaxNits << 16) == kMaxLevel, "nits max", levelFromNits(kMaxNits << 16), kMaxLevel);
+    /* The two ends of the slider reach the two ends of the panel: this is what
+       brightness-15 got wrong (top stopped at DBV 0xcc, bottom at DBV 0x03). */
+    check(dbvFromLevel(levelFromNits(kMinNits << 16)) == kMinDbvOn, "dimmest request reaches dbv 1",
+          dbvFromLevel(levelFromNits(kMinNits << 16)), kMinDbvOn);
+    check(dbvFromLevel(levelFromNits(kMaxNits << 16)) == kMaxDbv, "brightest request reaches dbv 0xff",
+          dbvFromLevel(levelFromNits(kMaxNits << 16)), kMaxDbv);
     check(levelFromNits((kMaxNits + 100) << 16) == kMaxLevel, "nits above max clamps", levelFromNits((kMaxNits + 100) << 16), kMaxLevel);
     check(levelFromNits(1 << 8) >= kMinDbvOn, "tiny nits still lit", levelFromNits(1 << 8), kMinDbvOn);
 
     /* MilliNits reported next to the level. */
     check(milliNitsFromLevel(0) == 0, "mNits 0", milliNitsFromLevel(0), 0);
     check(milliNitsFromLevel(kMaxLevel) == (long)kMaxNits * 1000, "mNits max", milliNitsFromLevel(kMaxLevel), (long)kMaxNits * 1000);
-    check(milliNitsFromLevel(1024) == 250122, "mNits half", milliNitsFromLevel(1024), 250122);
+    check(milliNitsFromLevel(1024) == 200097, "mNits half", milliNitsFromLevel(1024), 200097);
 
     /* --- FadePeriod: 16.16 seconds -> milliseconds ----------------------- */
     check(fadeMsFromFixed(0) == 0, "fade 0", fadeMsFromFixed(0), 0);

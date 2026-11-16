@@ -376,9 +376,13 @@ IOReturn K60Backlight::setProperties(OSObject *properties)
     if (!dictionary) return kIOReturnBadArgument;
     uint32_t goal;
     uint32_t milliseconds = 0;
+    bool nitsRequest = false;
+    int32_t nitsQ16 = 0;
     if (OSNumber *nits = OSDynamicCast(OSNumber, dictionary->getObject("brightness-nits"))) {
         /* iPadOS 27: signed 16.16 nits, ramped by the caller. */
-        goal = k60backlight::levelFromNits((int32_t)nits->unsigned32BitValue());
+        nitsQ16 = (int32_t)nits->unsigned32BitValue();
+        nitsRequest = true;
+        goal = k60backlight::levelFromNits(nitsQ16);
     } else if (OSNumber *brightness = OSDynamicCast(OSNumber, dictionary->getObject("brightness"))) {
         OSNumber *fadePeriod = OSDynamicCast(OSNumber, dictionary->getObject("FadePeriod"));
         goal = k60backlight::clampLevel((int64_t)(int32_t)brightness->unsigned32BitValue());
@@ -386,6 +390,20 @@ IOReturn K60Backlight::setProperties(OSObject *properties)
             milliseconds = k60backlight::fadeMsFromFixed((uint64_t)fadePeriod->unsigned32BitValue());
     } else {
         return kIOReturnSuccess;
+    }
+    /* One line per request, so a boot log answers "what does the OS actually
+     * send at the top and the bottom of the slider" without a debugger. The
+     * published line alone cannot: it is written before any request arrives
+     * (brightness-15 showed req=0,0). A slider drag writes a handful of lines;
+     * fades do not, because only requests pass through here. */
+    if (nitsRequest) {
+        IOLog("K60 BACKLIGHT: brightness-nits %d.%05u -> level %u dbv 0x%x\n",
+              (int)(nitsQ16 >> 16),
+              (unsigned)((((uint32_t)nitsQ16 & 0xffffu) * 100000u) >> 16),
+              goal, (unsigned)k60backlight::dbvFromLevel(goal));
+    } else {
+        IOLog("K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x\n",
+              goal, goal, (unsigned)k60backlight::dbvFromLevel(goal));
     }
     __atomic_fetch_add(&native_backlight_stats[1], 1, __ATOMIC_RELAXED);
     native_backlight_request[0] = (int32_t)goal;

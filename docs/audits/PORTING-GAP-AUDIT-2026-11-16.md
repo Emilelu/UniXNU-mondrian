@@ -253,7 +253,10 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 4. **线→检出映射**：新增 `docs/engineering/LINE-MAP.md`，每行 = 线 / 检出 / 分支 / 研究目录 / 当前结论；
    由 `line-research-map2.py` 生成初稿，人工补结论。
 5. **catalog 与 pin 的差**：`check-component-pin.py` 对每个 catalog 组件的 `revision` 与本地参考树 HEAD 比较，
-   不一致就要求写一行"为什么不用 pin"。这次 ShengUfs 的差就是这么漏掉的。
+   不一致就要求写一行"为什么不用 pin"。这次 ShengUfs 的差就是这么漏掉的。**2026-11-17 已做**：
+   `scripts/check-component-pin.py` + `docs/engineering/COMPONENT-PINS.toml`（board 组件硬校验，3 条 deviation：
+   ArmCpu 9066b53b vs 93a5030c、XnuPrelink f876e3ee vs c645d76b、PongUfs 138a9fb0 vs c959284f；非 board 组件只告警），
+   登记为 P-231，5 例单测。
 6. **退役补丁要有登记**：**已做（2026-11-17）** 新增 `docs/engineering/PATCH-CATALOG.toml`（series 之外的 41 个文件：
    retired 9 / renumbered 3 / library 29），并在 `scripts/check-patch-series.py` 加 `check_catalog()`——
    series 外的每个 `.patch` 必须有登记、status 只能是三种之一、retired/renumbered 必须写 evidence；

@@ -22,7 +22,7 @@
 | 文件 | 内容 |
 |---|---|
 | [HARD-RULES.md](HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
-| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-230：症状 → 真因 → 判别 → 教训 |
+| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-231：症状 → 真因 → 判别 → 教训 |
 | [PITFALL-TO-RULE-INDEX.md](PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |
 | [TOOLBOX.md](TOOLBOX.md) | 可复用工具与脚本清单 |
 | [PLAYBOOKS.md](PLAYBOOKS.md) | 操作手册 PB-1–PB-10 |

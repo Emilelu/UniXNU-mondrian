@@ -1,7 +1,7 @@
 # K60 iOS 移植 — 踩坑台账（PITFALLS）
 
 > **⚠️ 本文件是 2026-11-12 上游 pick 快照（\`97b84eb7\`），最大编号只到 P-76，与本地 P 编号空间冲突。**
-> 当前权威的坑台账是 `docs/engineering/PITFALLS.md`（P-01–P-230）；本文件与 `docs/reference/PITFALLS.md` 是同一历史期的副本，
+> 当前权威的坑台账是 `docs/engineering/PITFALLS.md`（P-01–P-231）；本文件与 `docs/reference/PITFALLS.md` 是同一历史期的副本，
 > 保留作对照，**不要在这里追加新坑**。
 >
 > **用途（原上游说明）**：踩坑台账——上游的「不要重复踩什么」清单之一，编号 `P-NN`。

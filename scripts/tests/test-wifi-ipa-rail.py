@@ -108,13 +108,13 @@ def mutant_profile(profile, **changes):
 
 
 def main():
-    profile = json.loads(PROFILE.read_text())
-    builder = BUILDER.read_text()
-    platform = PLATFORM.read_text()
-    profile_patch = PATCH_PROFILE.read_text()
-    builder_patch = PATCH_BUILDER.read_text()
-    platform_patch = PATCH_PLATFORM.read_text()
-    platform_base_patch = PATCH_PLATFORM_BASE.read_text()
+    profile = json.loads(PROFILE.read_text(encoding="utf-8"))
+    builder = BUILDER.read_text(encoding="utf-8")
+    platform = PLATFORM.read_text(encoding="utf-8")
+    profile_patch = PATCH_PROFILE.read_text(encoding="utf-8")
+    builder_patch = PATCH_BUILDER.read_text(encoding="utf-8")
+    platform_patch = PATCH_PLATFORM.read_text(encoding="utf-8")
+    platform_base_patch = PATCH_PLATFORM_BASE.read_text(encoding="utf-8")
     failures = check(profile, builder, platform)
     failures += check_patch_mirrors(profile_patch, builder_patch, platform_patch, platform_base_patch)
     if failures:

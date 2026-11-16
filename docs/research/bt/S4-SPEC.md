@@ -1531,6 +1531,8 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | NVM fallback `type=2` | 21 次；前 20 次 `e=0` / 0 ms，第 21 次 `e=-60` / 16 ms | `(609,7) → (630,28)` / `sent +21, acks +21` | `done segs=21 final=1 ret=-60` | 同 opcode 旧事件与全局计数语义使 `acks +21` 不能等同 21 段成功；`final=1` 是最后 status。 |
 | 合计 | 630 次；628 次 `e=0`、2 次 `e=-60` | `sent 630 / acks 28 / final 1` | 两次 NVM 均 `ret=-60` | 初始化失败与系统正常启动同时成立；不构成蓝牙功能验收。 |
 
+**计数语义硬事实（Lead 2026-11-16 19:41）**：`done` 行的 `segs` 是本次 `qca_download_firmware()` 调用的段数；`sent/acks` 是 `qbt_boot()` 入口 `memset()` 之后整个启动的累计。fallback 在 `qca_uart_setup()` 内部改名重试，不回到 `qbt_boot()`，所以 `sent/acks` **不重置**。d8 实测：NVM 首次 `done segs=7 sent=609 acks=7`，fallback `done segs=21 sent=630 acks=28`。任何断言“fallback 后 sent/acks 被重置”的测试都与实测矛盾，必须红。这也是「用计数代替语义」的反例：`segs` 是每次 attempt 的语义量，`sent/acks` 是 boot 全局累计量，两者不能混用。
+
 **仍是 UNKNOWN（宿主模型与 d8 日志都不能回答）**：
 
 - 控制器是否逐段接收/接受、TLV final 与硬件实际状态；完整 NVM 是否写入。
@@ -1542,7 +1544,15 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 
 ### 7.22 真实 HCI adapter 与完整 firmware fallback 的宿主证据方案（待 Lead 审批，未实现）
 
-**状态与边界**：本节只是方案。**没有写实现、没有加测试文件、没有重建镜像、没有操作设备**；不改预算、下载模式、段长、状态机、地址，也不预做 d9。Lead 批准前不落地代码。
+**状态与边界（2026-11-16 19:41 已批准，实现中）**：Lead 批准范围就是本节的被测层表 + 场景矩阵 A/B/C + 六条负向控制，不扩。只允许 **test-only** 与 **docs-only** 两类提交，英文、分开提交、推到 `feat/bt-research`；不改运行代码、series、`board.toml`、预算、下载模式、段长、状态机、地址；不重建、不上机、不预做 d9。
+
+**批准时新增的实现约束**：
+
+1. 输入绑定必须 fail-closed：manifest `3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0`、frozen-before/after、235 条补丁字节、head `91dcd0761aeb035c15de743478851fb8ce0c0417`、`boot.img` `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b` 任一不符即拒绝运行；不许 fallback 到 latest、不许读当前工作树状态、不许 fuzz 上下文。
+2. 合成 TLV 与事件时刻只是合成输入：断言与日志都要拒绝写成“真实固件内容”或“控制器已接受”；文件名只用于区分 attempt。
+3. 每条正向断言必须有能真红的孪生，并说清怎么让它红（改哪个合成输入或断言取反），不能只写“预期失败”。
+4. 唯一归属：落地后 BT 宿主时序测试以本仓这一份为准（本线 owner）。Lead 的 `E:/hackios/k60-lead/scripts/tests/test-bt-d8-host-timing.py` 只是独立交叉核对，本线不得编辑那棵树；任何要进 main 或写进 ⑦ 的动作之前，必须先交一张断言级重叠表（两边都有/只有本线有/哪份权威），由 Lead 决定退役哪一份。不允许两份长期各自演化。
+5. 测试只证明冻结源码上的软件路径，不替代设备 ⑧；`HOST-ONLY` / `NOT RUN` 清单必须出现在输出里。
 
 **为什么要补**：§7.21 的宿主模型覆盖真实 `qbt_core.c`，但把 `qca_tlv_send_segment()` 换成了假边界；它没有执行 `qbt_linux.c` 的 Linux HCI adapter，也没有执行 `btqca.c` 的 `qca_download_firmware()` 主/回退全流程。d8 的 630 次段调用虽然来自真实镜像，仍缺少“adapter 如何把命令变成 qbt 命令、失败如何返回、fallback 如何在同一 `struct qbt` 上重试”的宿主证据。
 
@@ -1575,7 +1585,7 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | B | WCN6855 的 NVM 主文件名请求失败（名字已是 `.bin`） | `qca_get_alt_nvm_file()` 对已是 `.bin` 的名字返回 false，`qca_uart_setup()` 立即返回错误；测试断言没有第二次请求。 |
 | B | 非 `.bin` 扩展名的 alt 文件名 helper（合成输入，不声称是 d8 路径） | `qca_get_alt_nvm_file()` 只替换一次扩展名；第二次仍失败时返回原错误；记录两个文件名。 |
 | B | NVM 主下载在段 N 返回错误 → `qca_uart_setup()` 的 fallback 改名并第二次下载 | 第二次使用 fallback 文件名与同一合成字节；成功则 `ret=0`；失败则保留第二次错误。 |
-| B | fallback 下载也失败 | 最终错误来自 fallback；`done` 的 `type/ret` 可区分两次 attempt，不把第一次的 segs 算进第二次成功。 |
+| B | fallback 下载也失败 | 最终错误来自 fallback；`done` 的 `type/ret` 可区分两次 attempt。`done segs` 只算本次 attempt 的段数，但 `sent/acks` 仍是 boot 全局累计（见 §7.21 计数语义硬事实）；断言 fallback 重置 `sent/acks` 的测试必须红。 |
 | B | firmware_get 返回错误/`release_firmware` 调用次数 | 请求失败不 release；成功路径恰好 release 一次；避免 double-free。 |
 | C. 失败/复位边界 | rampatch 失败 | `qca_uart_setup()` 立即返回，不进入 NVM；`qbt_boot()` 清理 `startup_owner`、`boot_deadline`、`ibs`、命令偏移与状态。 |
 | C | NVM 失败 | 返回原错误；`qbt_boot()` 的 `info.state=3`、`info.error=e`，不得残留 `boot_deadline` 或半条命令。 |
@@ -1589,6 +1599,7 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 - 让 fallback 不重试或重试两次 → 测试必须红。
 - 在失败路径保留 `boot_deadline` / `startup_owner` → 测试必须红。
 - 把 `segs` 的失败尝试算作完成 → 测试必须红。
+- 断言 fallback 后 `sent/acks` 被重置 → 测试必须红（与 d8 的 `sent 609→630` / `acks 7→28` 矛盾）。
 - 把合成 TLV 当成真实固件内容或控制器接受 → 文档与断言都必须拒绝这种表述。
 
 **验收标准**：
@@ -1601,7 +1612,7 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 
 **这套证据仍不能证明**：控制器接收/接受、完整 NVM、UART/DMA/IBS 时间线、编译产物到 payload 的对应、flash 门禁覆盖、d8 物理失败机制或蓝牙功能可用。它只能证明：在冻结源码上，adapter 与完整 fallback 的**软件路径**按上述契约工作。
 
-**请求**：请 Lead 单独审批本方案（或指定要增删的场景）。批准前本线保持干净、不实现、不重建、不上机。
+**批准与交付（2026-11-16 19:41）**：Lead 已按上述范围批准；本线按约束先改本文、再实现两提交（test-only 与 docs-only），完成后交回执：提交 SHA、实际命令与 raw rc、负向控制真红证据、未覆盖边界、以及断言级重叠表。之后待命，等 Lead 对重叠表与 ⑦ 归属的裁决。d8 结论不变：PATCH 软件路径返回成功、两次 NVM 尝试均失败、`result=-60`，蓝牙功能未证实。
 
 
 

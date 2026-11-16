@@ -575,3 +575,11 @@ source = "docs/engineering/PITFALLS.md:P-196"
 statement = "A generated container's length constant must include the alignment padding between its bodies."
 check = "python3 scripts/tests/test-check-metal-blob.py"
 
+[[rule]]
+id = "P-197"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-197"
+statement = "受限只读被跨阶段消费时，账本要记录「谁读的、过哪道门、对象当时什么状态」，且「没读到」与「读到但无效」必须给出不同的返回与措辞。"
+check = 'd=$(mktemp -d) && cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o "$d/rail" scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c && "$d/rail" && cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o "$d/board" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60PmicRail.c drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspStartup.c && "$d/board"; rc=$?; rm -rf "$d"; exit $rc'
+note = "2026-11-16: resources() 把「轨没上电」和「我们拒绝投票」压成同一个 -63，owner 在 stage 1 就停；改成「rail_probe 先记账、resources 后查表」的三态判定后，日志能点名是哪条轨缺哪个字段。"
+

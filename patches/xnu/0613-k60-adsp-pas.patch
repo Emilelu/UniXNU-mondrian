@@ -166,7 +166,7 @@ new file mode 100644
 diff --git a/bsd/dev/pong_adsp_boot.c b/bsd/dev/pong_adsp_boot.c
 new file mode 100644
 --- /dev/null
-@@ -0,0 +1,498 @@
+@@ -0,0 +1,516 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* ADSP bring-up: place the image in the carveout the board reserved, prove the
 + * placement, then let the secure monitor authenticate it.
@@ -274,6 +274,17 @@ new file mode 100644
 + * FDT reserves (adsp_region, span 0x3100000); 0x86300000 is where the firmware
 + * was linked and where pong's SM8475 carveout sits. A loader that grows an
 + * override can publish reg-style cells under /chosen and win. */
++/* Device-tree cells are big-endian.  Two cells are a 32-bit base and span;
++ * four are a 64-bit base and a 64-bit span in the usual reg order. */
++static uint32_t
++k60_adsp_cell(const void *prop, unsigned index)
++{
++	const uint8_t *p = (const uint8_t *)prop + index * 4;
++
++	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
++	    ((uint32_t)p[2] << 8) | (uint32_t)p[3];
++}
++
 +static void
 +k60_adsp_board_region(uint32_t *base, uint32_t *span)
 +{
@@ -289,10 +300,17 @@ new file mode 100644
 +		return;
 +	}
 +	{
-+		const uint32_t *cells = (const uint32_t *)prop;
-+		uint64_t want_base = ((uint64_t)cells[0] << 32) | cells[1];
-+		uint64_t want_span = length == 16 ?
-+		    (((uint64_t)cells[2] << 32) | cells[3]) : (uint64_t)*span;
++		uint64_t want_base, want_span;
++
++		if (length == 8) {
++			want_base = k60_adsp_cell(prop, 0);
++			want_span = k60_adsp_cell(prop, 1);
++		} else {
++			want_base = ((uint64_t)k60_adsp_cell(prop, 0) << 32) |
++			    k60_adsp_cell(prop, 1);
++			want_span = ((uint64_t)k60_adsp_cell(prop, 2) << 32) |
++			    k60_adsp_cell(prop, 3);
++		}
 +
 +		if ((want_base & 0xfffull) || want_base > 0xffffffffull ||
 +		    want_span < K60_ADSP_WINDOW || want_span > 0xffffffffull) {

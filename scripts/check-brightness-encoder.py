@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Host check for the K60 brightness encoder (drivers/PongAdreno/K60BacklightCodec.h).
 
-The K60 panel takes its brightness as the DSI DCS 0x51 byte (online DBV); the OS
-talks in a 0..2047 level plus a 16.16 FadePeriod. Everything between the two is
-pure arithmetic, so it is verified here on the host: no hardware, no IOKit.
+The K60 panel takes its brightness as the two-byte DSI DCS 0x51 value (online
+12 bit DBV); the OS talks in a 0..2047 level plus a 16.16 FadePeriod. Everything
+between the two is pure arithmetic, so it is verified here on the host: no
+hardware, no IOKit.
 
 What is asserted:
-  * 0..255 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
-    the DBV -> level inverse round trips within one step.
+  * 0..4095 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
+    the DBV -> level inverse round trips within one DBV step.
   * brightness-nits requests (iPadOS 27 form): 5 / 140 / 400 nits map onto the
-    panel range end to end (dimmest request -> DBV 1, brightest -> DBV 0xff),
+    panel range end to end (dimmest request -> DBV 1, brightest -> DBV 0xfff),
     <= 0 maps to off, and the result never exceeds the level domain.
   * FadePeriod: 16.16 seconds -> milliseconds, clamped at 5000 ms.
   * The fade sequence: monotonic, starts at "from", lands exactly on "to", and
@@ -31,6 +32,7 @@ HARNESS = r"""
 #include <stdio.h>
 #include <stdint.h>
 #include "K60BacklightCodec.h"
+#include "PongDsiPanel.h"
 
 using namespace k60backlight;
 
@@ -46,9 +48,9 @@ static void check(bool ok, const char *what, long got, long want)
 
 int main(void)
 {
-    /* --- 0..255 DBV conversion ------------------------------------------- */
+    /* --- 0..4095 DBV conversion ------------------------------------------ */
     check(dbvFromLevel(0) == 0, "dbv(0) is off", dbvFromLevel(0), 0);
-    check(dbvFromLevel(kMaxLevel) == kMaxDbv, "dbv(max) is 0xff", dbvFromLevel(kMaxLevel), kMaxDbv);
+    check(dbvFromLevel(kMaxLevel) == kMaxDbv, "dbv(max) is 0xfff", dbvFromLevel(kMaxLevel), kMaxDbv);
     check(dbvFromLevel(1) >= kMinDbvOn, "dbv(1) still lit", dbvFromLevel(1), kMinDbvOn);
     check(dbvFromLevel(1) < dbvFromLevel(64), "dbv monotonic low", dbvFromLevel(1), dbvFromLevel(64));
     check(dbvFromLevel(2000) > dbvFromLevel(1024), "dbv monotonic high", dbvFromLevel(2000), dbvFromLevel(1024));
@@ -62,14 +64,15 @@ int main(void)
         prev = (int)dbv;
     }
 
-    /* Every DBV step is reachable from some level, and the inverse round trips
-       back into the same DBV (one DBV step is ~8 levels, so compare on DBV). */
+    /* The panel has 4095 DBV steps for 2047 OS levels, so not every DBV step is
+       addressable; the inverse only has to come back within one DBV step. */
     for (uint32_t dbv = kMinDbvOn; dbv <= kMaxDbv; ++dbv) {
         const uint32_t back = dbvFromLevel(levelFromDbv(dbv));
-        check(back == dbv, "dbv/level round trip", back, dbv);
+        const long diff = (long)back - (long)dbv;
+        check(diff >= -1 && diff <= 1, "dbv/level round trip", diff, 0);
     }
     check(levelFromDbv(0) == 0, "level(0) is off", levelFromDbv(0), 0);
-    check(levelFromDbv(kMaxDbv) == kMaxLevel, "level(0xff) is max", levelFromDbv(kMaxDbv), kMaxLevel);
+    check(levelFromDbv(kMaxDbv) == kMaxLevel, "level(0xfff) is max", levelFromDbv(kMaxDbv), kMaxLevel);
 
     /* Clamping of out-of-range requests. */
     check(clampLevel(-5) == 0, "clamp low", clampLevel(-5), 0);
@@ -85,7 +88,7 @@ int main(void)
        brightness-15 got wrong (top stopped at DBV 0xcc, bottom at DBV 0x03). */
     check(dbvFromLevel(levelFromNits(kMinNits << 16)) == kMinDbvOn, "dimmest request reaches dbv 1",
           dbvFromLevel(levelFromNits(kMinNits << 16)), kMinDbvOn);
-    check(dbvFromLevel(levelFromNits(kMaxNits << 16)) == kMaxDbv, "brightest request reaches dbv 0xff",
+    check(dbvFromLevel(levelFromNits(kMaxNits << 16)) == kMaxDbv, "brightest request reaches dbv 0xfff",
           dbvFromLevel(levelFromNits(kMaxNits << 16)), kMaxDbv);
     check(levelFromNits((kMaxNits + 100) << 16) == kMaxLevel, "nits above max clamps", levelFromNits((kMaxNits + 100) << 16), kMaxLevel);
     check(levelFromNits(1 << 8) >= kMinDbvOn, "tiny nits still lit", levelFromNits(1 << 8), kMinDbvOn);
@@ -127,10 +130,19 @@ int main(void)
     /* Fading all the way to off does reach 0 at the end. */
     check(fadeDbv(800, 0, 512, 512, false) == 0, "fade to off ends at 0", fadeDbv(800, 0, 512, 512, false), 0);
 
-    /* Inverted wiring flips the byte. */
-    check(applyInvert(0xff, true) == 0, "invert 0xff", applyInvert(0xff, true), 0);
-    check(applyInvert(0x00, true) == 0xff, "invert 0x00", applyInvert(0x00, true), 0xff);
+    /* Inverted wiring flips the 12 bit value. */
+    check(applyInvert(kMaxDbv, true) == 0, "invert max", applyInvert(kMaxDbv, true), 0);
+    check(applyInvert(0x00, true) == kMaxDbv, "invert zero", applyInvert(0x00, true), kMaxDbv);
     check(applyInvert(0x40, false) == 0x40, "no invert", applyInvert(0x40, false), 0x40);
+
+    /* The exact bytes handed to DCS 0x51: 12 bit, most significant byte first. */
+    uint8_t wire[2];
+    pong_panel_dbv_bytes(kMaxDbv, wire);
+    check(wire[0] == 0x0f && wire[1] == 0xff, "max dbv wire bytes",
+          (long)((wire[0] << 8) | wire[1]), 0x0fff);
+    pong_panel_dbv_bytes(kMinDbvOn, wire);
+    check(wire[0] == 0x00 && wire[1] == 0x01, "min dbv wire bytes",
+          (long)((wire[0] << 8) | wire[1]), 0x0001);
 
     if (failures) {printf("%d check(s) failed\n", failures); return 1;}
     printf("all brightness encoder checks passed\n");

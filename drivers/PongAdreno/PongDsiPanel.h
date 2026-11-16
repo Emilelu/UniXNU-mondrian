@@ -13,11 +13,19 @@
  */
 extern "C" bool pong_panel_bringup(void);
 
-/* 0..255; returns 0 on success. */
+/* 0..4095 (12 bit DCS 0x51); returns 0 on success. */
 extern "C" int pong_panel_set_brightness(uint32_t level);
 
 /* Last brightness written (0 when bring-up has not succeeded yet). */
 extern "C" uint32_t pong_panel_brightness(void);
+
+/* Wire order for DCS 0x51: a 12 bit DBV, most significant byte first, which is
+ * the order Android produces for this panel's bl-inverted-dbv. */
+static inline void pong_panel_dbv_bytes(uint32_t level, uint8_t out[2])
+{
+	out[0] = (uint8_t)(level >> 8);
+	out[1] = (uint8_t)level;
+}
 
 /* 0 = bring-up succeeded; negative = last failure code; -100 = not attempted. */
 extern "C" int pong_panel_status(void);

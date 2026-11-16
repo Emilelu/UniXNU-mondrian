@@ -304,7 +304,7 @@ void K60Backlight::requestAction(OSObject *owner, IOTimerEventSource *sender)
 
 /* The reference waits for both engines to answer a level read first; here the
  * panel is already lit by bring-up, so the published value is whatever DBV the
- * panel was left at (0xff, PongDsiPanel.cpp:236). */
+ * panel was left at (0xfff, PongDsiPanel.cpp bring-up). */
 void K60Backlight::publishFirst(void)
 {
     published = true;

@@ -3,19 +3,23 @@
 // K60BacklightCodec.h - the encoding half of the K60 brightness service.
 //
 // K60 has no backlight IC: the panel takes its brightness as the DSI DCS 0x51
-// long write (online DBV), which drivers/PongAdreno/PongDsiPanel.cpp:247 already
+// write (online DBV), which drivers/PongAdreno/PongDsiPanel.cpp:247 already
 // sends. What was missing is the *encoding* layer between the domain the OS talks
-// in and the 8 bit DBV the panel takes, so it lives here, free of IOKit, and is
+// in and the 12 bit DBV the panel takes, so it lives here, free of IOKit, and is
 // unit tested on the host by scripts/check-brightness-encoder.py.
 //
 // Two domains:
 //   OS   : 0..kMaxLevel (2047), the scale CoreBrightness/backboardd uses, see
 //          UniXNU-sheng/package/AppleARMBacklight.cpp kMaxLevel.
-//   panel: 0..0xff, the byte carried in DCS 0x51. 0 means "off", 1 is the
-//          dimmest lit step, 0xff is the brightest.
-// The live FDT also advertises bl-max = 0xfff / bl-min = 0x1 (docs/research/
-// display/RESEARCH.md:76), but that is the vendor 12 bit domain; the 0x51 write
-// that actually lights this panel is 8 bit (0x51 0xff at bring-up, PongDsiPanel.cpp:236).
+//   panel: 0..0xfff, the two-byte value carried in DCS 0x51. 0 means "off", 1 is
+//          the dimmest lit step, 0xfff is the brightest.
+// The live FDT advertises bl-max = 0xfff / bl-min = 0x1, the vendor 12 bit
+// domain, and Android writes it as two bytes: dsi_panel_update_backlight()
+// byte-swaps under bl-inverted-dbv and mipi_dsi_dcs_set_display_brightness()
+// always sends u8 payload[2] = {v & 0xff, v >> 8} (LineageOS sm8250
+// dsi_panel.c / drm_mipi_dsi.c). brightness-16 sent one byte, which this panel
+// reads left aligned (0x01 -> 0x0100, 6% of 4095), so the bottom of the slider
+// never got dark. PongDsiPanel.cpp now writes the two bytes.
 
 #ifndef K60_BACKLIGHT_CODEC_H
 #define K60_BACKLIGHT_CODEC_H
@@ -39,7 +43,7 @@ enum : uint32_t {
     kDarkestLevel = 1,
     kMaxFadeMs = 5000,  // a FadePeriod longer than this is clamped
     kStepMs = 16,       // fade step cadence
-    kMaxDbv = 0xff,     // panel DBV domain carried by DCS 0x51
+    kMaxDbv = 0xfff,    // panel 12 bit DBV domain, two bytes in DCS 0x51
     kMinDbvOn = 1,      // dimmest value that still lights the panel
 };
 
@@ -62,10 +66,11 @@ static inline uint32_t milliNitsFromLevel(uint32_t level)
 // brightness-nits request (signed 16.16 fixed point nits) -> OS level.
 // Anything at or below zero is "off"; otherwise the request range is stretched
 // over the whole panel range: the dimmest request lands on kDarkestLevel
-// (DBV 1) and the brightest on kMaxLevel (DBV 0xff). A plain linear nits->level
+// (DBV 1) and the brightest on kMaxLevel (DBV 0xfff). A plain linear nits->level
 // scale is what brightness-15 shipped and the slider's two ends missed the
-// panel's: 400 nits stopped at DBV 0xcc (204 of 255, the top visibly below the
-// panel maximum) while the dimmest 5 nits request still came out at DBV 0x03.
+// panel's: 400 nits stopped at DBV 0xcc of the then-8-bit domain (204 of 255,
+// the top visibly below the panel maximum) while the dimmest 5 nits request
+// still came out at DBV 0x03.
 // Measured on brightness-15, 2026-11-17.
 static inline uint32_t levelFromNits(int32_t fixedNits)
 {
@@ -104,8 +109,13 @@ static inline uint32_t dbvFromLevel(uint32_t level)
 {
     const uint32_t clamped = clampLevel((int64_t)level);
     if (clamped == 0) return 0;
-    const uint32_t span = kMaxDbv - kMinDbvOn;                 // 254
-    const uint32_t steps = (clamped * span + kMaxLevel / 2) / kMaxLevel;
+    /* Endpoint exact: kDarkestLevel -> kMinDbvOn, kMaxLevel -> kMaxDbv. The
+     * panel has 4095 DBV steps for 2047 OS levels, so consecutive levels move
+     * by one or two DBV steps; the floor must still be reachable. */
+    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4094
+    const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
+    const uint32_t steps =
+        ((clamped - kDarkestLevel) * spanDbv + spanLevel / 2) / spanLevel;
     return kMinDbvOn + steps;
 }
 
@@ -114,14 +124,14 @@ static inline uint32_t levelFromDbv(uint32_t dbv)
 {
     if (dbv == 0) return 0;
     const uint32_t d = dbv > kMaxDbv ? kMaxDbv : dbv;
-    const uint32_t span = kMaxDbv - kMinDbvOn;                 // 254
-    const uint32_t steps = ((d - kMinDbvOn) * kMaxLevel + span / 2) / span;
-    if (steps < kMinDbvOn) return kMinDbvOn;
-    return steps > kMaxLevel ? kMaxLevel : steps;
+    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4094
+    const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
+    const uint32_t steps = ((d - kMinDbvOn) * spanLevel + spanDbv / 2) / spanDbv;
+    return kDarkestLevel + steps;
 }
 
 // Some panels wire DBV inverted (live FDT bl-inverted-dbv, RESEARCH.md:77).
-// K60 sends 0xff at bring-up and the panel comes up bright, so the default is
+// K60 sends 0xfff at bring-up and the panel comes up bright, so the default is
 // not inverted; the boot-arg k60_backlight_invert flips this if a board turns
 // out the other way round.
 static inline uint32_t applyInvert(uint32_t dbv, bool invert)

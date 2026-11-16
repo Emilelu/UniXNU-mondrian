@@ -274,15 +274,6 @@ int dsi_dcs(const uint8_t *buf, uint32_t len, bool lp)
 	return rc;
 }
 
-int dsi_write1(uint8_t cmd, uint8_t value)
-{
-	uint8_t buf[2] = { cmd, value };
-	if (value == 0xff && cmd == 0x51) {
-		return dsi_dcs(buf, 2, false);
-	}
-	return dsi_dcs(buf, 2, false);
-}
-
 int dsi_write0(uint8_t cmd)
 {
 	return dsi_dcs(&cmd, 1, false);
@@ -317,13 +308,21 @@ extern "C" bool pong_panel_bringup(void)
 	}
 	IODelay(20 * 1000);
 
-	panel_log("K60 PANEL: sending DCS 0x51 0xff (brightness max)\n");
-	rc = dsi_write1(0x51, 0xff);
+	/* The vendor range is 12 bit (live FDT bl-max = 0xfff) and Android writes
+	 * it as two bytes: mipi_dsi_dcs_set_display_brightness() always sends
+	 * {v & 0xff, v >> 8}, and bl-inverted-dbv byte-swaps that to {0x0f, 0xff}
+	 * for the maximum. A single 0xff byte is read left aligned by this panel
+	 * (0xff00 clamped to 0xfff), which is why the old 8 bit path could not go
+	 * dark at the bottom of the slider. */
+	panel_log("K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)\n");
+	uint8_t brightness[3] = { 0x51, 0, 0 };
+	pong_panel_dbv_bytes(0xfff, &brightness[1]);
+	rc = dsi_dcs(brightness, sizeof(brightness), false);
 	if (rc) {
 		panel_on_result = rc;
 		return false;
 	}
-	panel_brightness = 0xff;
+	panel_brightness = 0xfff;
 	panel_on_result = 0;
 	panel_log("K60 PANEL: bring-up complete (0x11/0x29/0x51), MDP-busy waits=%u\n", dsi_mdp_waits);
     unsigned probe=0;
@@ -390,10 +389,15 @@ extern "C" int pong_panel_set_brightness(uint32_t level)
 	if (!panel_on_done || panel_on_result != 0) {
 		return -1;
 	}
-	if (level > 0xff) {
-		level = 0xff;
+	if (level > 0xfff) {
+		level = 0xfff;
 	}
-	const int rc = dsi_write1(0x51, (uint8_t)level);
+	/* Two-byte DCS 0x51: 12 bit DBV, most significant byte first, which is the
+	 * same wire order Android produces for this panel's bl-inverted-dbv. The
+	 * controller takes a three-byte command as a long write (dsi_dcs len > 2). */
+	uint8_t payload[3] = { 0x51, 0, 0 };
+	pong_panel_dbv_bytes(level, &payload[1]);
+	const int rc = dsi_dcs(payload, sizeof(payload), false);
 	if (!rc) {
 		panel_brightness = level;
 	}

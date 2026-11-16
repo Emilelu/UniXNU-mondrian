@@ -43,8 +43,14 @@ FILES = (
     ('addons/PongAdrenoMetal.bundle/libvulkan_freedreno.dylib', 0o755),
 )
 SEEDS = (
-    ('PongAdrenoMetal.clients', 0o644),
-    ('PongAdrenoMetal.publish', 0o644),
+    # K60: these two markers must live where PongMetalPlugin looks for them.
+    # PongMetalPlugin.mm:182 formats "%s/PongAdrenoMetal.publish" with
+    # %s = /private/var/ngpu/addons (0610 creates that directory and upstream
+    # writes the markers there), so a bare name lands one level too high and the
+    # plugin never publishes - the userland Metal device stays nil. Measured:
+    # usblog-20261117-000745 published on the kernel side, fallback 18 times.
+    ('addons/PongAdrenoMetal.clients', 0o644),
+    ('addons/PongAdrenoMetal.publish', 0o644),
 )
 
 
@@ -57,7 +63,7 @@ def build(plugin_dir: Path, publish: bool) -> bytes:
         bodies.append((rel.encode(), source.read_bytes(), mode))
     # The publication marker is what PongMetalPlugin::selectedClient() reads; it
     # ships as '0' from the build scripts on purpose, so enable it explicitly.
-    clients = plugin_dir / SEEDS[0][0]
+    clients = plugin_dir / SEEDS[0][0].replace("addons/", "")
     if not clients.is_file():
         raise SystemExit(f'missing input: {clients}')
     bodies.append((SEEDS[0][0].encode(), clients.read_bytes(), SEEDS[0][1]))
@@ -165,7 +171,7 @@ if __name__ == '__main__':
             if not source.is_file():
                 raise SystemExit(f'missing input: {source}')
             files.append((rel.encode(), source.stat().st_size, source.resolve()))
-        clients = args.plugin_dir / SEEDS[0][0]
+        clients = args.plugin_dir / SEEDS[0][0].replace("addons/", "")
         if not clients.is_file():
             raise SystemExit(f'missing input: {clients}')
         files.append((SEEDS[0][0].encode(), clients.stat().st_size, clients.resolve()))

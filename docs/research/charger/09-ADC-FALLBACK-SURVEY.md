@@ -79,7 +79,7 @@ mainline 常量：STATUS1 0x8（CONV_FAULT bit7 / REQ_STS bit1 / **EOC bit0**）
 结论：**这不是纸面方案——零售 K60 上 XNU 已经用 SPMI 写过 PMIC 并生效**，只差把「写 SDAM」换成「读写 VADC」。
 
 （4）arbiter 侧已有只读探针可复用。
-`console.log:687-700`：`K60LDO rev=12 n0=768 n1=256 total=1024`、`i=745 p=0x2c1`、`rev=12 sid2=34 apid241=-1`。最后一项很重要：**PPID 0x241 在 AP EE 的映射里根本不存在**（与 `K60PmicRail.c:2-3` 的注释一致）。VADC 的 PPID 0x031 是否在映射里，今天没有任何证据——必须先用只读探针测，这就是 §5 的第一条。
+`console.log:687-700`：`K60LDO rev=12 n0=768 n1=256 total=1024`、`i=745 p=0x2c1`、`rev=12 sid2=34 apid241=-1`。最后一项很重要：**PPID 0x241 在 AP EE 的映射里根本不存在**（与 `K60PmicRail.c:2-3` 的注释一致）。但 VADC 的 PPID 0x031 已经在三次独立 boot 的 PPID 扫描里出现并可读：`E:/k60-work/evidence/usblog-20261110-182146/console.log:667`、`usblog-20261110-183040/console.log:667`、`usblog-20261110-183911/console.log:667` 都是 `K60S21: ppid=0x031 apid=408 ok  00 00 00 00 08 44 00 00  08 44 00 00 08 44 00 00`；`usblog-20261110-185544/console.log:643` 的 `K60S23: ppid=0x031 apid=408 en=00(ok=0 en=0) range=03 vset=00` 也一致。即 **PPID 0x031 在 AP EE0 的 map 里存在（apid=408）且 12 字节读取返回 ok**。仍需证明的是「PPID 0x031 就是 vadc@3100 这个外设」，这只能靠 §5 第一步只读探针读 STATUS1/APP_SID/EN_CTL1 的合理值来确认。
 
 （5）风险边界已知。`docs/research/touch/13-PMIC-SPMI-PATH.md:20-34` 记录 arbiter 四窗口与 RSC(0x17a00000) 完全独立、不违反 HR-01；同文档的风险结论是「写错通道/地址可能影响其它供电域，有整机死风险，建议先只读」。历史坑还有 `docs/engineering/PITFALLS.md` P-83（一次最多 8 字节）与 P-84（PPID 只有 12 位，0x4000+ 永不匹配）。
 
@@ -120,7 +120,7 @@ VADC 里有 `smb139x_1_ichg_smb / _iin_smb / _smb_temp`（FDT:16936-16970，另�
 
 | 选项 | 新增/改动 | 规模（估） | 需要 boot 验证 | 主要风险 |
 | --- | --- | --- | --- | --- |
-| A. VADC 直读 | `drivers/PongPower/K60PmicAdc.c/.h`（arbiter 打开 + 通道表 + ADC7 配置/轮询/换算）+ `K60Battery.cpp` 接线（无 ADSP 时取 ADC 样本） | 新增约 400-550 行，改动约 120-180 行 | 是，1-2 次（先只读探针，再转换） | ① PPID 0x031 可能不在 AP EE 映射（有 0x241 先例）② ADC7 EOC 轮询未证 ③ ichg_fb 换算无公开公式 ④ 写 VADC 配置可能影响正在用 ADC 的其它 EE ⑤ 无校准 |
+| A. VADC 直读 | `drivers/PongPower/K60PmicAdc.c/.h`（arbiter 打开 + 通道表 + ADC7 配置/轮询/换算）+ `K60Battery.cpp` 接线（无 ADSP 时取 ADC 样本） | 新增约 400-550 行，改动约 120-180 行 | 是，1-2 次（先只读探针，再转换） | ① PPID 0x031 已实测存在（apid=408，三次 boot）；待证「它就是 vadc@3100」② ADC7 EOC 轮询未证 ③ ichg_fb 换算无公开公式 ④ 写 VADC 配置可能影响正在用 ADC 的其它 EE ⑤ 无校准 |
 | B. temp-alarm/BCL | 独立小驱动 + 中断路由 | 150-250 行 | 是 | 端口无 SPMI 中断基础设施；收益只有 die 温度 |
 | C. FG 直读 | 需要寄存器手册与初始化序列，FDT 无节点 | 未知，>800 行 | 是 | 无文档、无前例，SOC 仍需库仑积分 |
 | D. UEFI 交接 | 改 uefi-mondrian + 定义传参 + XNU 侧解析 | 300-600 行（跨仓库） | 是，且要重刷 UEFI | 无源码（只有 efi），只能抄/逆；只给一次性快照 |
@@ -142,7 +142,7 @@ VADC 里有 `smb139x_1_ichg_smb / _iin_smb / _smb_temp`（FDT:16936-16970，另�
 
 一次 boot 必须证明（缺一条就不能算降级方案成立）：
 
-1. **PPID 0x031 在 AP EE0 的 map 里**，且 cfg owner 字节显示 EE0 拥有（打印 apid 与 map 原值）。
+1. **PPID 0x031 的映射复核**：历史 boot 已证明它在 AP EE0 的 map 里（apid=408，见 §3.1(4)）；本次 boot 打印 apid 与 map 原值，并确认 cfg owner 字节显示 EE0 拥有，同时用 STATUS1/APP_SID/EN_CTL1 的合理值证明「PPID 0x031 就是 vadc@3100」。
 2. VADC 在 observer 侧可读且不是 0xEE 错误码：STATUS1 的 CONV_FAULT=0、ADC_EN 状态合理。
 3. 写 CONV_REQ 后 **EOC 在 10ms 内到达**（这直接否证/证实 mainline 的 "no polling" 限制）。
 4. vbat_sns 换算值与同机 Android 基准一致：`ANDROID-HW-TRUTH.md:72-75` 记录 35.8°C / 836 mA / 4,333 mV，允许 ±150 mV。
@@ -152,11 +152,11 @@ VADC 里有 `smb139x_1_ichg_smb / _iin_smb / _smb_temp`（FDT:16936-16970，另�
 
 ## §6 未解问题（明确 not proven）
 
-- **PPID 0x031 是否在 AP EE0 映射**：not proven。只有 PPID 0x071 成功、0x241 缺失两个数据点；必须靠 §5 第一步的只读探针。
+- **PPID 0x031 是否在 AP EE0 映射**：**proven（2026-11-17 复核）**。三次独立 boot 的 `K60S21` 扫描都返回 `ppid=0x031 apid=408 ok ...`（路径见 §3.1(4)），另一份 `K60S23` 也一致。它证明 PPID 0x031 在 AP EE0 的 map 里且可读；不证明该 PPID 就是 vadc@3100（见下一条）。
 - **ADC7 能否轮询 EOC**：not proven。mainline 注释明确写 "No support for polling mode at present"，本方案没有中断，只能轮询；若轮询拿不到 EOC，第一步仍能出 STATUS1，但取不到转换值。
 - **ichg_fb 的换算公式**：not proven。mainline 的 `adc7_data_pmic` 没有 `full_scale_code_cur`（只有 adc5 有 0x2710/0x1800），`qcom-spmi-adc5.c` 全文没有 ichg 相关通道；DT 的 pre-scaling <0x3e8 0x4a821> 语义在 mainline 里找不到对应代码。电流只能给相对值或标 experimental。
 - **校准**：not proven。mainline 的 SCALE_HW_CALIB_DEFAULT 用标称 1.875V 参考、不读 PMIC NVM 的校准字；没有校准的 vbat 误差估计 ±1-2%，是否足够让 IOPMPowerSource 的校验通过需实测。
 - **chg_temp 的换算**：FDT 给 pre-scaling <1 1>，但 mainline 的 PM7 thermistor 用 SCALE_HW_CALIB_THERM_100K_PU_PM7 + qcom,pre-scaling，是否缺 rpull-up 参数 not proven。BATTERY.PROVISION 里的 Therm_B 4250 / Thermistor_Value 100000 只是 ABL 的 thermistor 参数。
 - **ADSP 是否真的死了**：not proven。若 ADSP 还活着且只是 lease 没谈成，则 §4 的「抢 VADC」风险成立，降级路径应该先只读。
-- **VADC 的 PPID/地址**：vadc@3100 的 reg 0x3100 是 SPMI 偏移，但实际访问要经 arbiter 的 apid 映射；vadc 的 PPID 值（0x031）来自 mainline/同 SoC 惯例，**在本机 FDT 里没有直接写出**，属 not proven 推断。
+- **VADC 的 PPID/地址**：vadc@3100 的 reg 0x3100 是 SPMI 偏移，但实际访问要经 arbiter 的 apid 映射；vadc 的 PPID 值（0x031）来自 mainline/同 SoC 惯例，**在本机 FDT 里没有直接写出**。2026-11-17 已证明 PPID 0x031 在 AP EE0 映射里且可读（apid=408，§3.1(4)），但「PPID 0x031 = vadc@3100」仍是推断，需靠 §5 第一步的 STATUS1/APP_SID/EN_CTL1 读数确认。
 - 未找到（not found）：`E:/hackios` 下没有 Linux 内核源码树（`qcom_spmi_adc5.c`、`qcom_battmgr.c` 均 not found），本文的寄存器与公式全部来自外部 mainline v6.6 引用；端口仓库内也没有任何 VADC/ADC 相关驱动（`grep -i vadc` 在 drivers/ 下 not found）。

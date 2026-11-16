@@ -101,8 +101,16 @@ echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 # --- frozen inputs -----------------------------------------------------------
 # Every file that can change the kernel is hashed before the build; a later
 # boot is only comparable if the same list hashes the same.
+#
+# Bytecode caches are not inputs (P-224).  The build imports these scripts,
+# python then rewrites scripts/__pycache__/*.pyc on its own, and the final
+# comparison below declares the run void for a change nobody made.  This was
+# live on main: the frozen list carried 21 .pyc entries, and wifi-20261116c7 was
+# thrown away for exactly that.  Exclude the cache rather than hash it, so a
+# build that changed nothing hashes the same on both ends.
 freeze() {
-    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f -print0 \
+    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f \
+        ! -path '*/__pycache__/*' ! -name '*.pyc' -print0 \
         | sort -z | xargs -0 sha256sum )
 }
 freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"

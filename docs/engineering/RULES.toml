@@ -761,3 +761,9 @@ source = "docs/engineering/PITFALLS.md:P-222"
 statement = "跨 worktree 的全局账本记的是「这台机器最后一次成功的序列」，答不了「这一套补丁成功过吗」；判据必须先查按对象记录的基线账本（MAIN-BASELINE.toml 的 booted 条目），再退回全局 ledger。只被写入、从不被读取的证据字段在门禁眼里不存在。"
 check = "python3 scripts/tests/test-porting-gate-book.py"
 note = "2026-11-16 上游跟进构建成功后 porting-gate 仍阻断 [S]：上次成功 4305c6cc2821bcb7(08:59, bt 线 234 条) != 现在 59d8037521a5b07b(main 227 条，07:36 已由 baseline-20261116a 上机)。修法加 booted_series() 读 MAIN-BASELINE.toml 的 state=booted 条目；build-only 永远不能背书。双向验证：真序列 PASS、伪造序列仍 FAIL。"
+
+[[rule]]
+id = "P-224"
+title = "构建的冻结输入把 python 自己写的字节码算进去了"
+check = "python3 scripts/tests/test-build-strict-freeze.py"
+note = "freeze() 必须排除 __pycache__/*.pyc；否则构建自己重写 .pyc 会被判成「输入变了」而判废（wifi-20261116c7 现场）"

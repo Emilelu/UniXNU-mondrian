@@ -5810,3 +5810,62 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 - Check: `python3 scripts/tests/test-porting-gate-book.py`
   （registry `id = "P-222"`）。
+
+## P-224
+
+**标题：构建的冻结输入把 python 自己写的字节码算进去了**
+
+`scripts/build-strict.sh` 的 `freeze()` 是「这棵树在这段时间里有没有被动过」的唯一判据：
+构建开始前后各哈希一遍同一份文件清单，`cmp` 不等就 `die "frozen inputs changed during the
+build; this run is void"`。清单原本是
+
+```sh
+find board.toml dts patches/xnu scripts -type f -print0
+```
+
+`scripts` 下面有 `__pycache__/`。它被 `.gitignore:40` 忽略、不被 git 跟踪、不需要任何人去改
+—— 只要构建自己 import 一次仓库里的脚本，python 就会重写对应的 `.pyc`。于是**构建把自己写的
+文件算成「输入变了」**，一个什么都没改的构建被判废。
+
+实测（main `5db4414`，2026-11-16 11:19）：`freeze()` 的清单 522 条，其中 **21 条是
+`scripts/__pycache__/*.pyc`**。把 `scripts/pong_paths.py` 碰一下再 import 一次，清单里就多出
+
+```
+b6e369d7c83f675168ac931fe7d3a89c39e4f3ab951ea656a26b58e165b3d296  scripts/__pycache__/pong_paths.cpython-312.pyc
+```
+
+一条 —— 正是判废的形状。
+
+现场代价：wifi 线的 `wifi-20261116c7` 在 2026-11-16 10:08 被自己判废，`c05ebb7` 的提交说明写
+「wifi-20261116c7 was declared void for nine new .pyc files」。它在自己分支上补了排除规则，
+但那一条没回到 main，所以 main 上这个缺陷一直是活的。
+
+修法：清单里排掉字节码。
+
+```sh
+find board.toml dts patches/xnu scripts -type f \
+    ! -path '*/__pycache__/*' ! -name '*.pyc' -print0
+```
+
+修后清单 522 → 501 条、`__pycache__` 0 条；再强制 python 重写一次 `.pyc`，前后两份清单
+`cmp` 相等（`STABLE: a pyc rewrite no longer changes the frozen hash`）。
+
+**四条教训**
+
+1. **「输入」的定义必须排除「我自己写的中间产物」。** 冻结清单的用途是抓人改文件，而
+   `__pycache__` 是构建过程的副产物。把副产物算进输入，等于让门禁去抓它自己的脚印。
+   判据：清单里每一个文件，都要能回答「谁会改它、为什么改」；答「构建自己改」的一律排除。
+2. **一个分支上对的修法，不回 main 就等于没修。** wifi 线 11-16 10:08 就修好了这一条，
+   main 到 11:19 还是坏的，而且 main 是所有人构建用的那棵树。凡是在自己分支上改了
+   `scripts/build-strict.sh` / `build-xnu-4k-baseline.sh` / 任何一个 `check-*.py` 的，
+   都必须在提交说明里写「这条需要回 main」，否则它只保护了写它的那个人。
+3. **判废信息必须指名是哪个文件。** 这次 `die` 之前有 `diff -u frozen-before.txt
+   frozen-after.txt >&2`，所以 wifi 线一眼看到是 `.pyc`；如果没有这一行，看到的现象就是
+   「构建成功了但被判废」，最容易被当成偶发。任何「前后对比」型门禁，失败时必须把差异打出来
+   （与 P-190「认不出名字就静默跳过」、P-220「fallback 到别的分支」同一族）。
+4. **「我改过这个文件」和「这个文件变了」是两件事，`find -newer` 与哈希都分不出来。**
+   区分它们只能靠知道「谁有权限改它」：人/工具会改源码，运行时只会改缓存与日志。
+   所以冻结清单要按「产生者」分类，而不是按「在不在 scripts 目录下」。
+
+关联：P-165（构建在进行中被自己拦住）、P-202（缺 `.config` 时 `sed` 静默返回空）、
+P-207（门禁不许判陈旧产物）、P-220（门禁 fallback 到别的分支的产物）。

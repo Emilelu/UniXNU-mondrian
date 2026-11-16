@@ -55,12 +55,26 @@
    用独立 host 编译跑通 3 个测试（参考树测试是纯 host 的 `Ops` mock，不依赖 IOKit）。
    验收：`tests/VerifiedTableCache.cpp`、`RootPublication.cpp`、`RootWindowRead.cpp` 全过；
    `NativeUfs.cpp` 编译不变。
+1.5 **验证头与策略表（2026-11-17 审计补的前置）**：参考实现把 `VerifiedTableCache` 接到
+   `vr_open_header`/`vr_open` 得到的 `vr_view` 上（`references/ShengUfs/NativeUfs.cpp:2169-2330` 的
+   `configureCachedTable`、`readPolicyTable`、`verified_root_key`）。本仓当前 `RootLayout` 只校验
+   SHNGROOT manifest 前 4064 字节的 SHA-256（`RootLayout.h:180-250`），**没有**签名头、`VR_KEY_BYTES`
+   公钥和 LUN 0 的 `<window>.vroot` 策略表；没有这些输入，`VrootTable` 的 `pageHashes`/`firstLba` 无从填写。
+   因此第 2 步之前必须先移植 `verified_root.h` 的 kernel 侧（不是本分支的 `tests/support` host 副本）
+   与策略表读取/签名校验，并加 host fixture；在这之前 `native-vroot-cache` 必须保持关闭。
 2. **接缓存**：实现 `VrootOps` 适配器与 `VrootTableCache` 实例；在 `PongUfsBlock::doAsyncReadWrite` 的读路径
    接入 `vrootTableEntry`。先只对 `OS`/`SystemOS` 两个只读窗口启用，`Data` 窗口暂不启用（P-152/P-153）。
    验收：host 单测 + 构建；上机必须由 Lead 安排（根挂载面，不可自行刷）。
 3. **接发布顺序**：把窗口启动改成 `ufsBuildRootPlan` + `ufsPrepareRootWindows` + `ufsPublishRootWindows`，
    保留现有 `gRootWindows` 的字段来源；失败时按参考实现保留已发布对象。
    验收：上机日志 `PONG APFS` 三窗顺序与 `K60DATA mounted ro=0` 不变；回退只需还原一个调用点。
+
+## 3.1 步骤 1 执行记录（2026-11-17 03:04）
+
+- 分支 `feat/ufs-verified-table`（从 `origin/main` `74c0d24e` 拉出），HEAD `848b7b87d3276cecf504e2662193f9db7c0d2876`，已推 origin。
+- 复制 3 头 + 3 测试 + `tests/support/{verified_root.h,verified_root.c}`；`RootWindowRead.cpp:80` 做一处 GCC `initializer_list` 等价改写；提交 `7273dc64`，文档/CREDITS 提交 `848b7b87`。
+- 三个 host 测试全过：`RootPublication`（7 组）、`RootWindowRead`（7 组）、`VerifiedTableCache`（并发 `hits=714 misses=886 reads=886 evictions=884 waits=3889`）。
+- 未接任何运行路径，`NativeUfs.cpp`/`PongUfsTransport.cpp` 未改，未 boot。
 
 ## 4. 不抄的部分
 

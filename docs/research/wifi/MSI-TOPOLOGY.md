@@ -85,9 +85,16 @@ mistake the 768..799 block for the route in use.
   than spinning.
 - The MHI-level `Pong MHI: irq entered` line is **not** MSI evidence. The
   compatibility shim raises all 64 shim IRQs on every pump
-  (`PongAth11k.c:83` `lx_irq_raise_all(); lx_pump();`), so the MHI handler runs
-  whether or not a real interrupt arrived. Only the `QCA6490 MSI entered the GIC
-  handler` line proves the GIC delivered something.
+  (`PongAth11k.c:83` `lx_irq_raise_all(); lx_pump();`), and inside the runtime
+  that call is unconditional: `lx_rt_pong.c:597` `lx_irq_raise_all()` sets
+  `g_irq[i].pending = 1` for every registered line, `lx_rt_pong.c:355` calls it
+  from `lx_pump()` once per millisecond while `g_irq_polling` is on, and
+  `lx_rt_pong.c:32` initialises `g_irq_polling = 1`. So the MHI handler runs
+  whether or not a real interrupt arrived, and "the handler was called" can
+  never stand in for "the hardware raised an interrupt" on this shim. Only the
+  `QCA6490 MSI entered the GIC handler` line, which is driven by
+  `PongWifiPlatform::irq()` itself, proves the GIC delivered something — and in
+  c7 it printed zero times.
 
 ## 3. Evidence from the flights
 

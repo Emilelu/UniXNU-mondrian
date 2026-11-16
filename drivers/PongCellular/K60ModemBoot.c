@@ -1,7 +1,14 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 /* Modem (MSS) bring-up order: prove the image table is sane, copy it into the
- * mpss carveout when a carrier supplies the bytes, let the secure monitor
- * authenticate, then hand the span to the modem.
+ * mpss carveout when a carrier supplies the bytes, hand the metadata page to
+ * PAS_INIT_IMAGE, hand the span to PAS_MEM_SETUP, and only then let
+ * PAS_AUTH_AND_RESET release the core.
+ *
+ * The order is the contract, not a preference. The secure monitor on this SoC
+ * refuses AUTH_AND_RESET before INIT_IMAGE/MEM_SETUP, and INIT_IMAGE takes the
+ * metadata page (ELF header plus the hash segment), not a segment address.
+ * The old code called auth first and passed each PT_LOAD address to
+ * init_image; that shape cannot work on this firmware.
  *
  * Every step prints exactly one verdict line, and a failure line names the
  * step and the return value that refused, so a single boot log says which
@@ -9,9 +16,10 @@
  *
  *   K60MODEM plan rows=... copied=... zeroed=... base=... window=...
  *   K60MODEM copy ok            | K60MODEM copy failed rc=<n>
- *   K60MODEM auth_reset ok      | K60MODEM auth_reset failed rc=<n>
- *   K60MODEM init_image ok ...  | K60MODEM init_image failed seg=<n> ... rc=<n>
+ *   K60MODEM init_image ok ...  | K60MODEM init_image failed ... rc=<n>
  *   K60MODEM mem_setup ok ...   | K60MODEM mem_setup failed rc=<n>
+ *   K60MODEM diagnostic stop after mem_setup: auth_reset not sent
+ *   K60MODEM auth_reset ok      | K60MODEM auth_reset failed rc=<n>
  *
  * Off by default: k60_modem_probe_from_handoff() returns before it prints or
  * maps anything unless the pong_modem boot argument is present and non-zero,
@@ -20,8 +28,9 @@
 #include "K60ModemPas.h"
 #include "K60ModemImage.h"
 
-#ifndef K60_HOST_TEST
-
+#ifdef K60_HOST_TEST
+#include <stdio.h>
+#else
 #include <pexpert/pexpert.h>
 #include <sys/systm.h>
 
@@ -32,12 +41,25 @@ extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32
 /* A 4 KiB page is enough to read the carrier signature; the 306 MiB window is
  * only mapped when a carrier has bytes to copy into it. */
 #define K60_MODEM_PROBE_PAGE 0x1000
+#endif
+
+/* The UEFI carrier writes the 5,884-byte PAS metadata blob (ELF header plus
+ * the hash segment) into the last 64 KiB page of the ABL staging area, just
+ * below the boot image. It stays below 4 GiB and is reserved, so the secure
+ * monitor can read it. ImageCarrierLib.c names the same address and the build
+ * gate compares the two; do not change one side alone. */
+#define K60_MODEM_METADATA 0xB7FF0000u
+#define K60_MODEM_METADATA_BYTES 5884u
+
+/* Phase 1 is the pre-registered diagnostic: it proves init_image and
+ * mem_setup without resetting a modem that may still be running. */
+#define K60_MODEM_PHASE_FULL 0
+#define K60_MODEM_PHASE_METADATA_ONLY 1
 
 int
-k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read)
+k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read, int phase)
 {
 	K60ModemPlan plan;
-	uint32_t i, images = 0;
 	int rc;
 
 	rc = k60_modem_plan(&plan);
@@ -62,29 +84,17 @@ k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read)
 		    plan.base);
 	}
 
-	rc = k60_modem_auth_and_reset();
+	/* One call, with the metadata page. INIT_IMAGE must not be replayed per
+	 * segment: the monitor reads the ELF header and the hash from this page
+	 * to find every segment itself. */
+	rc = k60_modem_init_image((uint64_t)K60_MODEM_METADATA);
 	if (rc != K60ModemPasOk) {
-		printf("K60MODEM auth_reset failed rc=%d\n", rc);
+		printf("K60MODEM init_image failed metadata=%#x rc=%d\n",
+		    (unsigned)K60_MODEM_METADATA, rc);
 		return rc;
 	}
-	printf("K60MODEM auth_reset ok\n");
-
-	for (i = 0; i < K60_MODEM_SEGMENTS; i++) {
-		const K60ModemSegment *s = &k60_modem_segments[i];
-
-		if (s->bytes == 0) {
-			/* Pure bss row: nothing to authenticate for it. */
-			continue;
-		}
-		rc = k60_modem_init_image((uint64_t)s->paddr);
-		if (rc != K60ModemPasOk) {
-			printf("K60MODEM init_image failed seg=%u addr=%#x bytes=%u rc=%d\n",
-			    i, s->paddr, s->bytes, rc);
-			return rc;
-		}
-		images++;
-	}
-	printf("K60MODEM init_image ok segments=%u\n", images);
+	printf("K60MODEM init_image ok metadata=%#x bytes=%u\n",
+	    (unsigned)K60_MODEM_METADATA, (unsigned)K60_MODEM_METADATA_BYTES);
 
 	rc = k60_modem_mem_setup((uint64_t)K60_MODEM_BASE,
 	    (uint64_t)K60_MODEM_WINDOW);
@@ -94,31 +104,44 @@ k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read)
 	}
 	printf("K60MODEM mem_setup ok base=%#x span=%#x\n",
 	    (unsigned)K60_MODEM_BASE, (unsigned)K60_MODEM_WINDOW);
+
+	if (phase == K60_MODEM_PHASE_METADATA_ONLY) {
+		printf("K60MODEM diagnostic stop after mem_setup: auth_reset not sent\n");
+		return K60ModemPasOk;
+	}
+
+	rc = k60_modem_auth_and_reset();
+	if (rc != K60ModemPasOk) {
+		printf("K60MODEM auth_reset failed rc=%d\n", rc);
+		return rc;
+	}
+	printf("K60MODEM auth_reset ok\n");
 	return K60ModemPasOk;
 }
 
+#ifndef K60_HOST_TEST
 /* Called from the Data-mount path (patch 0621). Silent and inert unless
  * pong_modem is present: an ordinary boot takes the early return on the first
- * line, so neither the carveout nor the secure monitor is touched. */
+ * line, so neither the carveout nor the secure monitor is touched.
+ *
+ * pong_modem=1: full sequence (init_image, mem_setup, auth_reset).
+ * pong_modem=2: full sequence, then the read-only QRTR enumeration.
+ * pong_modem=3: diagnostic, stop after mem_setup and never send auth_reset. */
 int
 k60_modem_probe_from_handoff(void)
 {
 	vm_offset_t page;
 	int enabled = 0;
+	int phase = K60_MODEM_PHASE_FULL;
+	int rc;
 
 	if (!PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled)) ||
 	    enabled == 0) {
 		return 0;
 	}
-	printf("K60MODEM probe begin\n");
-
-	/* pong_modem=2 also asks the read-only QRTR enumeration to look at the
-	 * modem that is already running: it sends one NEW_LOOKUP and folds the
-	 * replies. It runs before the PAS sequence so a reset cannot hide it. */
-	if (enabled >= 2) {
-		extern int k60_modem_qrtr_probe(void);
-
-		(void)k60_modem_qrtr_probe();
+	printf("K60MODEM probe begin mode=%d\n", enabled);
+	if (enabled >= 3) {
+		phase = K60_MODEM_PHASE_METADATA_ONLY;
 	}
 
 	page = ml_io_map_unmappable((vm_offset_t)K60_MODEM_BASE,
@@ -138,7 +161,18 @@ k60_modem_probe_from_handoff(void)
 	}
 	printf("K60MODEM carrier present at %#x\n", (unsigned)K60_MODEM_BASE);
 
-	return k60_modem_bring_up(NULL, 0, NULL);
-}
+	rc = k60_modem_bring_up(NULL, 0, NULL, phase);
+	if (rc != K60ModemPasOk || phase == K60_MODEM_PHASE_METADATA_ONLY) {
+		return rc;
+	}
 
+	/* QRTR needs the modem after AUTH_AND_RESET, not before it: the reset
+	 * clears whatever name service the previous boot left behind. */
+	if (enabled >= 2) {
+		extern int k60_modem_qrtr_probe(void);
+
+		(void)k60_modem_qrtr_probe();
+	}
+	return rc;
+}
 #endif /* !K60_HOST_TEST */

@@ -133,3 +133,11 @@ backboardd 从来没有加载过插件 ⇒ `MTLCreateSystemDefaultDevice()` 只�
 3. 单测：断言 blob 的文件表同时含 `/private/var/pong/` 与 `/private/var/ngpu/addons/` 两组路径，
    且 bundle 内四个文件齐全。
 4. 然后才写新上机卡、构建、飞。
+
+### 6.4 注入源已确证（离线，不需上机）
+
+- `patches/xnu/0616-k60-init-legacy-helper.patch:5` 写死 `#define K60_INIT_LEGACY_LEN 34904`；
+- `userland/init-history/README.md:27` 记 `init-v24dp.bin` = **34,904 B**、「v10guard 严格超集，当前 0391 用它」；
+- 因此真机 `:498 K60INIT legacy bytes=34904` 跑的就是 `userland/init-history/init-v24dp.c` 编译出的 helper，其注入字面量就是 `:366` 的 `/private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal`。
+
+改动设计（尚未实现）：把 `gen-k60-metal-blob.py` 的 `FILES`/`SEEDS` 从单一 root（`/private/var/ngpu`）扩成两组相对路径 —— `pong/PongAdrenoMetal.bundle/*` + `pong/PongAdrenoMetal.{publish,clients}`（对应 root `/private/var`，即注入点）与现有 `addons/...`（root `/private/var/ngpu`，兼容上游），并让 `0610` 的 mkdir 递归建父目录。实现前不得上机（用户 m35755：没确定修好之前禁止 boot）。

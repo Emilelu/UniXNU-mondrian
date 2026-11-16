@@ -33,7 +33,9 @@
 #include "PongAudioAmpReplay.h"
 #include "PongAudioGeniI2c.h"
 #include "PongAudioPlan.h"
+#include "PongAudioRing.h"
 #include "PongAudioRegs.h"
+#include "PongAudioTlmm.h"
 #include "PongCodecPlan.h"
 #include "PongCodecSwr.h"
 #include "PongCodecLpi.h"
@@ -2363,6 +2365,94 @@ afe_step_cases(void)
     expect_eq(PONG_AFE_MAX_CHANNELS, 8ul, "max channels 8");
 }
 
+/* TERT TDM pads: the device tree names the pins but no pinctrl consumer
+ * exists on our side, so the driver writes the two words itself. These
+ * values are pinned here so a "harmless" edit to the function index or
+ * the drive field turns red long before a boot. */
+static void
+tlmm_cases(void)
+{
+    expect_eq(PongAudioTdmPinCount, 4ul, "four tdm pads");
+    expect_eq(pong_audio_tdm_gpio(PongAudioTdmSck), 121ul, "tdm sck gpio");
+    expect_eq(pong_audio_tdm_gpio(PongAudioTdmWs), 123ul, "tdm ws gpio");
+    expect_eq(pong_audio_tdm_gpio(PongAudioTdmDin), 122ul, "tdm din gpio");
+    expect_eq(pong_audio_tdm_gpio(PongAudioTdmDout), 124ul, "tdm dout gpio");
+    expect_eq(pong_audio_tdm_gpio(9), 0xfffffffful, "unknown tdm pin");
+
+    expect(pong_audio_tdm_is_output(PongAudioTdmSck), "sck is an output");
+    expect(pong_audio_tdm_is_output(PongAudioTdmWs), "ws is an output");
+    expect(!pong_audio_tdm_is_output(PongAudioTdmDin), "din is an input");
+    expect(!pong_audio_tdm_is_output(PongAudioTdmDout), "dout is an input");
+
+    /* CFG: pull 0, function 1 (= mi2s2_*), drive 2 mA -> field 0,
+     * output enable (bit 9) only on the two clock pads. */
+    expect_eq(pong_audio_tdm_cfg(PongAudioTdmSck), 0x204ul, "sck cfg");
+    expect_eq(pong_audio_tdm_cfg(PongAudioTdmWs), 0x204ul, "ws cfg");
+    expect_eq(pong_audio_tdm_cfg(PongAudioTdmDin), 0x4ul, "din cfg");
+    expect_eq(pong_audio_tdm_cfg(PongAudioTdmDout), 0x4ul, "dout cfg");
+    expect_eq(pong_audio_pad_function(pong_audio_tdm_cfg(PongAudioTdmSck)), PONG_AUDIO_TDM_FN_MI2S2, "sck mux");
+    expect_eq(pong_audio_pad_function(pong_audio_tdm_cfg(PongAudioTdmDin)), PONG_AUDIO_TDM_FN_MI2S2, "din mux");
+    expect_eq((pong_audio_tdm_cfg(PongAudioTdmSck) >> 6) & 7u, 0ul, "sck drive field");
+    expect_eq(pong_audio_tdm_cfg(PongAudioTdmSck) & 3u, 0ul, "sck pull field");
+    expect(pong_audio_pad_output(pong_audio_tdm_cfg(PongAudioTdmSck)), "sck output enabled");
+    expect(pong_audio_pad_output(pong_audio_tdm_cfg(PongAudioTdmWs)), "ws output enabled");
+    expect(!pong_audio_pad_output(pong_audio_tdm_cfg(PongAudioTdmDin)), "din output disabled");
+    expect(!pong_audio_pad_output(pong_audio_tdm_cfg(PongAudioTdmDout)), "dout output disabled");
+
+    /* IO: clock and ws idle low, data pads leave the output bit clear. */
+    expect_eq(pong_audio_tdm_io(PongAudioTdmSck), 0ul, "sck io low");
+    expect_eq(pong_audio_tdm_io(PongAudioTdmWs), 0ul, "ws io low");
+    expect_eq(pong_audio_tdm_io(PongAudioTdmDin), 0ul, "din io");
+    expect_eq(pong_audio_tdm_io(PongAudioTdmDout), 0ul, "dout io");
+    expect(!pong_audio_pad_out_high(pong_audio_tdm_io(PongAudioTdmSck)), "sck not high");
+    expect(!pong_audio_pad_out_high(pong_audio_tdm_io(PongAudioTdmWs)), "ws not high");
+
+    /* One 4 KiB block per pad at TLMM base + 0x100000 + 0x1000 * gpio. */
+    expect_eq(pong_audio_tdm_pad_phys(PongAudioTdmSck), 0x0f179000ul, "sck pad phys");
+    expect_eq(pong_audio_tdm_pad_phys(PongAudioTdmWs), 0x0f17b000ul, "ws pad phys");
+    expect_eq(pong_audio_tdm_pad_phys(PongAudioTdmDin), 0x0f17a000ul, "din pad phys");
+    expect_eq(pong_audio_tdm_pad_phys(PongAudioTdmDout), 0x0f17c000ul, "dout pad phys");
+    expect_eq(pong_audio_tdm_io_phys(PongAudioTdmSck), 0x0f179004ul, "sck io phys");
+
+    /* Speaker switch: gpio52, active high, plain GPIO, output enabled. */
+    expect_eq(pong_audio_spksw_cfg(0), 0x200ul, "spksw cfg");
+    expect_eq(pong_audio_pad_function(pong_audio_spksw_cfg(0)), PONG_AUDIO_GPIO_FN_GPIO, "spksw mux gpio");
+    expect(pong_audio_pad_output(pong_audio_spksw_cfg(0)), "spksw output enabled");
+    expect_eq(pong_audio_spksw_io(true), 2ul, "spksw on is high");
+    expect_eq(pong_audio_spksw_io(false), 0ul, "spksw off is low");
+    expect_eq(PONG_AUDIO_SPKSW_ACTIVE_HIGH, 1ul, "spksw active high");
+    expect_eq(pong_audio_pad_phys(PONG_AUDIO_SPKSW_GPIO), 0x0f134000ul, "spksw pad phys");
+}
+
+/* The PCM ring uses the vendor AGM period and the ShengAudioAbi lead. */
+static void
+ring_cases(void)
+{
+    expect_eq(PONG_RING_RATE, 48000ul, "ring rate");
+    expect_eq(PONG_RING_CHANNELS, 2ul, "ring channels");
+    expect_eq(PONG_RING_SAMPLE_BYTES, 4ul, "ring sample is a 32-bit word");
+    expect_eq(pong_ring_frame_bytes(), 8ul, "ring frame bytes");
+    expect_eq(PONG_RING_PERIOD_FRAMES, 1024ul, "ring period frames");
+    expect_eq(PONG_RING_PERIOD_COUNT, 2ul, "ring period count");
+    expect_eq(PONG_RING_START_THRESHOLD_FRAMES, 256ul, "ring start threshold");
+    expect_eq(PONG_RING_LEAD_FRAMES, 14400ul, "ring lead frames");
+    expect_eq(PONG_RING_FRAMES, 65536ul, "ring frames");
+    expect_eq(pong_ring_period_bytes(), 8192ul, "ring period bytes");
+    expect_eq(pong_ring_ring_bytes(), 524288ul, "ring bytes");
+    expect_eq(pong_ring_period_ns(), 21333333ul, "ring period ns");
+    expect_eq(pong_ring_advance(0, 1024), 1024ul, "ring advance");
+    expect_eq(pong_ring_advance(65530, 10), 4ul, "ring advance wraps");
+    expect_eq(pong_ring_advance(65536, 0), PONG_RING_INVALID, "ring advance rejects a bad position");
+    expect_eq(pong_ring_distance(65530, 4), 10ul, "ring distance wraps");
+    expect_eq(pong_ring_distance(0, 0), 0ul, "ring distance zero");
+    expect_eq(pong_ring_distance(0, 65535), 65535ul, "ring distance full");
+    expect_eq(pong_ring_distance(65536, 0), PONG_RING_INVALID, "ring distance rejects a bad position");
+    expect(!pong_ring_can_start(255), "ring cannot start below the threshold");
+    expect(pong_ring_can_start(256), "ring can start at the threshold");
+    expect(pong_ring_geometry_ok(), "ring holds the lead and two periods");
+    expect_eq((PONG_RING_LEAD_FRAMES * 1000ul) / PONG_RING_RATE, 300ul, "ring lead is 300 ms");
+}
+
 static void
 afe_cases(void)
 {
@@ -2389,6 +2479,8 @@ main(void)
 	acf_cases();
 	replay_cases();
 	afe_cases();
+	tlmm_cases();
+	ring_cases();
 	chip_id_cases();
 	codec_cases();
 	swr_cases();

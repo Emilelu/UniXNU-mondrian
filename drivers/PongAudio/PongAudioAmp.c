@@ -63,6 +63,7 @@
 #include "PongAudioRegs.h"
 #include "PongAudioGeniI2c.h"
 #include "PongAudioPlan.h"
+#include "PongAudioTlmm.h"
 #include "PongAudioAcf.h"
 #include "PongAudioAmpProfile.h"
 #include "PongAudioAmpReplay.h"
@@ -142,6 +143,28 @@ pads_report(void)
 		printf("PongAudio: amp pin gpio=%u cfg=0x%08x io=0x%08x\n",
 		    probe_pads[i], rd(pad_window[i]), rd(pad_window[i] + PONG_AUDIO_GPIO_IO));
 	}
+}
+
+/* The speaker switch is a board GPIO, not an amplifier register. The vendor
+ * driver requests it low at probe and only the speaker path drives it high
+ * (aw882xx.c:1711-1717, mixer_paths_waipio_mtp.xml:2132). Hold it low: the
+ * probe must leave the speaker muted whatever Android left behind. */
+static bool
+spk_switch_mute(void)
+{
+	const uint32_t index = PadSpkSwitch;
+	const uint32_t current = rd(pad_window[index]);
+	const uint32_t before = rd(pad_window[index] + PONG_AUDIO_GPIO_IO);
+	const uint32_t cfg = pong_audio_spksw_cfg(current);
+	const uint32_t io = pong_audio_spksw_io(false);
+	bool muted;
+
+	wr(pad_window[index] + PONG_AUDIO_GPIO_IO, io);
+	wr(pad_window[index], cfg);
+	muted = !pong_audio_pad_out_high(rd(pad_window[index] + PONG_AUDIO_GPIO_IO));
+	printf("PongAudio: amp spk switch gpio=%u muted=%d cfg=0x%08x io=0x%08x was=0x%08x\n",
+	    probe_pads[index], muted ? 1 : 0, cfg, io, before);
+	return muted;
 }
 
 /* I2C pads belong to the QUP15 function with a pull-up; the bus is idle-high.
@@ -734,6 +757,11 @@ pong_audio_amp_probe(void)
 		return -1;
 	}
 	pads_report();
+
+	if (!spk_switch_mute()) {
+		printf("PongAudio: amp probe stop: speaker switch did not read back low\n");
+		return -1;
+	}
 
 	if (!gcc_map()) {
 		return -1;

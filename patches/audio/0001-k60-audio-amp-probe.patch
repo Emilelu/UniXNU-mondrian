@@ -613,7 +613,7 @@
 
 --- /dev/null
 +++ b/bsd/dev/PongAudioAmp.c
-@@ -0,0 +1,783 @@
+@@ -0,0 +1,811 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * K60 (Redmi K60 / mondrian / SM8475 / "cape") speaker amplifier probe.
@@ -679,6 +679,7 @@
 +#include "PongAudioRegs.h"
 +#include "PongAudioGeniI2c.h"
 +#include "PongAudioPlan.h"
++#include "PongAudioTlmm.h"
 +#include "PongAudioAcf.h"
 +#include "PongAudioAmpProfile.h"
 +#include "PongAudioAmpReplay.h"
@@ -758,6 +759,28 @@
 +		printf("PongAudio: amp pin gpio=%u cfg=0x%08x io=0x%08x\n",
 +		    probe_pads[i], rd(pad_window[i]), rd(pad_window[i] + PONG_AUDIO_GPIO_IO));
 +	}
++}
++
++/* The speaker switch is a board GPIO, not an amplifier register. The vendor
++ * driver requests it low at probe and only the speaker path drives it high
++ * (aw882xx.c:1711-1717, mixer_paths_waipio_mtp.xml:2132). Hold it low: the
++ * probe must leave the speaker muted whatever Android left behind. */
++static bool
++spk_switch_mute(void)
++{
++	const uint32_t index = PadSpkSwitch;
++	const uint32_t current = rd(pad_window[index]);
++	const uint32_t before = rd(pad_window[index] + PONG_AUDIO_GPIO_IO);
++	const uint32_t cfg = pong_audio_spksw_cfg(current);
++	const uint32_t io = pong_audio_spksw_io(false);
++	bool muted;
++
++	wr(pad_window[index] + PONG_AUDIO_GPIO_IO, io);
++	wr(pad_window[index], cfg);
++	muted = !pong_audio_pad_out_high(rd(pad_window[index] + PONG_AUDIO_GPIO_IO));
++	printf("PongAudio: amp spk switch gpio=%u muted=%d cfg=0x%08x io=0x%08x was=0x%08x\n",
++	    probe_pads[index], muted ? 1 : 0, cfg, io, before);
++	return muted;
 +}
 +
 +/* I2C pads belong to the QUP15 function with a pull-up; the bus is idle-high.
@@ -1350,6 +1373,11 @@
 +		return -1;
 +	}
 +	pads_report();
++
++	if (!spk_switch_mute()) {
++		printf("PongAudio: amp probe stop: speaker switch did not read back low\n");
++		return -1;
++	}
 +
 +	if (!gcc_map()) {
 +		return -1;
@@ -2036,6 +2064,234 @@
 +}
 +
 +#endif /* PONG_AUDIO_AMP_REPLAY_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioTlmm.h
+@@ -0,0 +1,125 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * Pure TLMM values for the four TERT TDM speaker pads.
++ *
++ * The device tree hands the audio driver a pinctrl group (tert_tdm_pinctrl)
++ * but no consumer of that group exists on our side: XNU has no pinctrl
++ * framework, so the audio driver has to write the pads itself. This header
++ * turns the device-tree facts into the two words the driver writes, so the
++ * host test can pin them before anything touches hardware.
++ *
++ * Facts and where they come from:
++ *   L:5315-5378  active group, pins gpio121/122/123/124
++ *                gpio121 = mi2s2_sck, output-low, 2 mA, bias-disable
++ *                gpio123 = mi2s2_ws,  output-low, 2 mA, bias-disable
++ *                gpio122 = mi2s2_data0 (input), 2 mA, bias-disable
++ *                gpio124 = mi2s2_data1 (input), 2 mA, bias-disable
++ *   P:pinctrl-sm8450.c:33   ctl_reg = REG_SIZE * id, io_reg = ctl + 4
++ *   P:pinctrl-sm8450.c:1537 [121] = PINGROUP(121, mi2s2_sck, ...)
++ *                          [122] = PINGROUP(122, mi2s2_data0, ...)
++ *                          [123] = PINGROUP(123, mi2s2_ws, ...)
++ *                          [124] = PINGROUP(124, mi2s2_data1, sec_mi2s, ...)
++ *
++ * The mux value is the index inside the pin's function list, and that list
++ * always starts with msm_mux_gpio at index 0, so mi2s2_* is function 1 on all
++ * four pads (sec_mi2s on gpio124 is index 2 and is not used here).
++ *
++ * Register word layout (P:PongAudioRegs.h:35-36):
++ *   CFG [1:0] pull, [5:2] function, [8:6] drive, [9] output enable
++ *   IO  bit0 input level, bit1 output level
++ * Drive strength is encoded as (mA / 2) - 1, so 2 mA is field value 0.
++ */
++#ifndef PONG_AUDIO_TLMM_H
++#define PONG_AUDIO_TLMM_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "PongAudioPlan.h"
++
++/* Pin order used by every table, log line and test below. */
++enum {
++	PongAudioTdmSck = 0,
++	PongAudioTdmWs = 1,
++	PongAudioTdmDin = 2,
++	PongAudioTdmDout = 3,
++	PongAudioTdmPinCount = 4
++};
++
++#define PONG_AUDIO_TDM_FN_MI2S2	1u	/* funcs[1]: mi2s2_sck/ws/data0/data1 */
++#define PONG_AUDIO_TDM_DRIVE_MA		2u	/* L:active config drive-strength <2> */
++
++/* gpio number of one TERT TDM pad; 0xffffffff means "no such pin". */
++static inline uint32_t
++pong_audio_tdm_gpio(unsigned pin)
++{
++	switch (pin) {
++	case PongAudioTdmSck:
++		return 121u;
++	case PongAudioTdmWs:
++		return 123u;
++	case PongAudioTdmDin:
++		return 122u;
++	case PongAudioTdmDout:
++		return 124u;
++	default:
++		return 0xffffffffu;
++	}
++}
++
++/* The AP drives the bit clock and the word select; the two data pins are
++ * inputs as far as the pad is concerned even though DIN carries RX data. */
++static inline bool
++pong_audio_tdm_is_output(unsigned pin)
++{
++	return pin == PongAudioTdmSck || pin == PongAudioTdmWs;
++}
++
++/* CFG word: no pull, mi2s2 function, 2 mA, output enable only on sck/ws. */
++static inline uint32_t
++pong_audio_tdm_cfg(unsigned pin)
++{
++	return pong_audio_pad_config(0u, PONG_AUDIO_GPIO_PULL_NONE,
++	    PONG_AUDIO_TDM_FN_MI2S2, PONG_AUDIO_TDM_DRIVE_MA,
++	    pong_audio_tdm_is_output(pin));
++}
++
++/* IO word: the clock and word select idle low (output-low in the active
++ * group), and the data pads are inputs, so the output bit stays clear. */
++static inline uint32_t
++pong_audio_tdm_io(unsigned pin)
++{
++	(void)pin;
++	return 0u;
++}
++
++static inline uint32_t
++pong_audio_tdm_pad_phys(unsigned pin)
++{
++	return pong_audio_pad_phys(pong_audio_tdm_gpio(pin));
++}
++
++static inline uint32_t
++pong_audio_tdm_io_phys(unsigned pin)
++{
++	return pong_audio_tdm_pad_phys(pin) + PONG_AUDIO_GPIO_IO;
++}
++
++/* Speaker switch: gpio52, active high. L:13329 spksw-gpio <0x3c 0x34 0x00>;
++ * mixer_paths_waipio_mtp.xml:2132 sets aw882xx_spk_sw_gpio_switch to 1 on the
++ * speaker path, and aw882xx.c:1711-1717 requests the line low at probe. */
++#define PONG_AUDIO_SPKSW_ACTIVE_HIGH 1u
++
++static inline uint32_t
++pong_audio_spksw_cfg(uint32_t current)
++{
++	return pong_audio_pad_config(current, PONG_AUDIO_GPIO_PULL_NONE,
++	    PONG_AUDIO_GPIO_FN_GPIO, 2u, true);
++}
++
++static inline uint32_t
++pong_audio_spksw_io(bool on)
++{
++	return on ? 2u : 0u;
++}
++#endif /* PONG_AUDIO_TLMM_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioRing.h
+@@ -0,0 +1,95 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * The PCM ring the audio service hands to the AFE path: how many frames a
++ * period is, how far ahead of the play position the writer must stay, and
++ * when the transport may start.
++ *
++ * The numbers are the vendor's, not ours. AGM opens the PCM device with
++ * MAX_PERIOD_BUFFER 8192 bytes (M: agm/service/src/device.c:102) divided by
++ * channels times bytes per sample (:273), DEFAULT_PERIOD_COUNT 2 (:103) and
++ * start_threshold = period_size / 4 (:405). The speaker backend runs
++ * S24_LE at 48 kHz stereo (resourcemanager_waipio_mtp.xml:459-470), and
++ * get_pcm_bits_per_sample() counts S24_LE as 32 bits (device.c:140-141),
++ * so one frame is 2 * 4 = 8 bytes and one period is 1024 frames.
++ *
++ * The ring itself is the ShengAudioAbi ring: 65536 frames, room for a 300 ms
++ * lead and late HAL cycles (M: ShengAudioAbi.h:21), and lead_frames is that
++ * 300 ms expressed in frames. Pure: no MMIO, no kernel headers.
++ */
++#ifndef PONG_AUDIO_RING_H
++#define PONG_AUDIO_RING_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define PONG_RING_RATE                 48000u
++#define PONG_RING_CHANNELS             2u
++#define PONG_RING_SAMPLE_BYTES         4u  /* S24_LE in a 32-bit word */
++#define PONG_RING_FRAME_BYTES          (PONG_RING_CHANNELS * PONG_RING_SAMPLE_BYTES)
++#define PONG_RING_PERIOD_FRAMES        1024u /* 8192 / (2 * 4) */
++#define PONG_RING_PERIOD_COUNT         2u
++#define PONG_RING_START_THRESHOLD_FRAMES (PONG_RING_PERIOD_FRAMES / 4u)
++#define PONG_RING_LEAD_FRAMES          14400u /* 300 ms at 48 kHz */
++#define PONG_RING_FRAMES               65536u
++#define PONG_RING_INVALID              0xffffffffu
++
++static inline uint32_t
++pong_ring_frame_bytes(void)
++{
++	return PONG_RING_FRAME_BYTES;
++}
++
++static inline uint32_t
++pong_ring_period_bytes(void)
++{
++	return PONG_RING_PERIOD_FRAMES * PONG_RING_FRAME_BYTES;
++}
++
++static inline uint32_t
++pong_ring_ring_bytes(void)
++{
++	return PONG_RING_FRAMES * PONG_RING_FRAME_BYTES;
++}
++
++static inline uint32_t
++pong_ring_period_ns(void)
++{
++	return (uint32_t)((1000000000ull * PONG_RING_PERIOD_FRAMES) / PONG_RING_RATE);
++}
++
++/* Advance a ring position by frames. Positions are frame indices in
++ * [0, PONG_RING_FRAMES); anything else is rejected. */
++static inline uint32_t
++pong_ring_advance(uint32_t position, uint32_t frames)
++{
++	if (position >= PONG_RING_FRAMES) {
++		return PONG_RING_INVALID;
++	}
++	return (position + frames % PONG_RING_FRAMES) % PONG_RING_FRAMES;
++}
++
++/* Frames written but not yet consumed, walking forward from from to to. */
++static inline uint32_t
++pong_ring_distance(uint32_t from, uint32_t to)
++{
++	if (from >= PONG_RING_FRAMES || to >= PONG_RING_FRAMES) {
++		return PONG_RING_INVALID;
++	}
++	return (to + PONG_RING_FRAMES - from) % PONG_RING_FRAMES;
++}
++
++static inline bool
++pong_ring_can_start(uint32_t frames_available)
++{
++	return frames_available >= PONG_RING_START_THRESHOLD_FRAMES;
++}
++
++/* One period of audio fits in the ring with room for the lead? */
++static inline bool
++pong_ring_geometry_ok(void)
++{
++	return PONG_RING_LEAD_FRAMES + PONG_RING_PERIOD_COUNT * PONG_RING_PERIOD_FRAMES
++	    <= PONG_RING_FRAMES;
++}
++
++#endif /* PONG_AUDIO_RING_H */
 
 --- a/bsd/conf/files
 +++ b/bsd/conf/files

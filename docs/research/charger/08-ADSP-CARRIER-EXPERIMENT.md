@@ -16,7 +16,7 @@
 
 | 判据 | PASS（全部满足） | FAIL | INVALID |
 | --- | --- | --- | --- |
-| C0 载体装载 | `K60PAS carrier begin` 与 `K60PAS carrier region base=0x9fd00000 span=0x3100000` 各 1 次 | 出现 `K60PAS carrier absent rc=` | 没有 `K60PAS carrier begin`（boot-arg 没进镜像） |
+| C0 载体装载 | `K60PAS carrier begin` 与 `K60PAS carrier region base=0x9fd00000 span=0x3100000` 各 1 次 | 出现 `K60PAS carrier absent rc=` | 没有 `K60PAS carrier begin`（boot-arg 没进镜像，或 K60DATA mount 在本钩子之前失败；见 §3 前置） |
 | C1 放置 | `K60PAS plan rows=24 copied=23494284 zeroed=25925684 link=0x86300000 base=0x9fd00000 window=0x3100000` 与 `K60PAS verify ok segments=24` 各 1 次 | `K60PAS verify mismatch` / `K60PAS verify bss not zero` / `K60PAS plan rc=` | 有 begin 无 plan 行 |
 | C2 鉴权前步骤 | `K60PAS init ok` 与 `K60PAS mem_setup ok` 各 1 次 | `K60PAS init refused rc=` / `K60PAS mem_setup refused rc=` | init 行缺失 |
 | C3 SCM 鉴权（本实验唯一结论点） | `K60PAS auth ok` 1 次，随后 `K60PAS carrier verdict PASS auth=ok base=0x9fd00000 span=0x3100000` | `K60PAS auth refused rc=` 或 `K60PAS carrier verdict FAIL rc=` | `K60PAS auth` 从未出现（提前 panic） |
@@ -67,6 +67,10 @@
   自测 `scripts/tests/test-verify-boot-image.py` 6 例（缺 sha / 缺文件 / sha 不符 / 相符 /
   legacy 仍拒 / =0 允许），`14 cases, 0 failure(s)`。`scripts/check-image-args.py:44-55`
   的 `ALLOWED_ADDITIONS` 登记同名参数，`scripts/tests/test-check-image-args.py` 8 例全过。
+- 可达性：carrier 块在 `native_owner_data_prepare()` 的 `if (error) goto done;`
+  （K60DATA mount 成功）之后才执行（patched `bsd/kern/kern_exec.c:7892-7920`），不是函数入口。
+  代码注释里的 "needs no filesystem and no Data mount" 指 carrier 自身不做文件系统 I/O，
+  不表示钩子在 Data mount 之前；Data mount 失败时不会执行。这个前置写在 §3，失败形态按 C0 INVALID。
 - 回滚：去掉 `--kernel-arg pong_adsp_carrier=1` 即完全不进这条路径（默认关闭）。
 
 ### 1.3 SCM 语义（D2 = ② 只补三点）
@@ -105,6 +109,11 @@
 
 ## 3 上机步骤（Lead 执行）
 
+执行前置：0614 的 carrier 块位于 `native_owner_data_prepare()` 的 `if (error) goto done;`
+（K60DATA mount 成功）之后（patched `bsd/kern/kern_exec.c:7892-7920`）。Data mount 失败时
+carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0.1 C0 判 INVALID，
+不计入 D4 的两次 ADSP 尝试（没有发生任何 SCM 调用）。
+
 1. `bash scripts/k60-device.sh state` 确认识别到设备；`fastboot boot <image>`，绝不 `flash`。
 2. 采集：`record-boot.py`（console.log 落 `k60-work/evidence/usblog-<ts>/`）。
 3. 判读：`python3 scripts/judge-battery.py --log <evidence dir>` 先跑 C1/C2 基础三态
@@ -116,6 +125,7 @@
 
 | 日志行 | 含义 | 下一步 |
 | --- | --- | --- |
+| `K60DATA mount returned error=` 且无 `K60PAS carrier begin` | Data 未挂载，carrier 钩子未执行 | 按 C0 INVALID 记，不计 D4；先查 Data mount，不查 ADSP |
 | `K60PAS carrier absent rc=` | 内核里没有 blob（0620 没进镜像） | 查 manifest `adsp_blob`，不是 ADSP 问题 |
 | `K60PAS cannot map the carveout` | 0x9fd00000 不可映射 | 查 FDT adsp_region 是否被别的驱动占 |
 | `K60PAS init refused rc=-4` | SCM 拒绝 INIT_IMAGE（PAS 不放行） | 立即记 FAIL，按 D4 止损 |
@@ -138,6 +148,7 @@
 | 7 | DTB PAS 36 | NOT-IN-SCOPE | 本实验只回答 ADSP PAS 1；pong 的成对 shutdown 记录为差异 |
 | 8 | SMEM TOC / SMP2P 就绪时间 / remote_restart_flag / tx-rx 4096 | NOT-IN-SCOPE | 属 lease 之后；HANDOFF-PUBLISH-SPEC §11 已列 |
 | 9 | 采样器访问许可域 | NOT-IN-SCOPE | adsp-20261115e 之后由 adsp 线证明；本实验不读电池 |
+| 10 | carrier 钩子的可达性（Data mount 前置） | 已闭 | `native_owner_data_prepare()` 在 `mount` 成功后才执行 0614 carrier 块（patched `bsd/kern/kern_exec.c:7892-7920`）；§3 前置与 §4 失败形态已写死 |
 
 ## 6 ADC 兜底预研（D5，只取证不写驱动）
 

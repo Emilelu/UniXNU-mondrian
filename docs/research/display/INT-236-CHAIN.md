@@ -454,7 +454,7 @@ Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对�
   `u8 payload[2] = { brightness & 0xff, brightness >> 8 }`（永远两个参数）。
 - `dsi_panel_update_backlight()` 在 `bl_inverted_dbv` 时先做
   `bl_lvl = ((bl_lvl & 0xff) << 8) | (bl_lvl >> 8)`；m11a 有 `bl-inverted-dbv`。
-- `sde_backlight_device_update_status` 把请求夹到 `bl_max_level`，m11a 的 live FDT 是 0xfff。
+- `sde_backlight_device_update_status` 把请求夹到 `bl_max_level`，m11a 的 live FDT 是 0xfff；`dsi_panel.c:2961-2968` 的 `qcom,mdss-brightness-max-level` 也是 0xfff，`sde_connector.c:105-109` 用 `mult_frac(brightness, bl_max_level, brightness_max_level)` 映射并对非零请求钳到 1。
 - 因此 Android 对 m11a 实际写 `0x51 0x0f 0xff`（高字节在前，12 位）。
 
 ### 13.4 brightness-17：12 位路径生效，DBV 1 在夜间黑屏

@@ -22,7 +22,7 @@
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
 > 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,198 处引用 / **101** 个目标缺失 / 0 处行号越界，
-> 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（97 个分支文件）与 `LINE-MAP.md`（18 条线）；
+> 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（108 个分支文件，05:45 复核）与 `LINE-MAP.md`（18 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
 > G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7、G8 与 AW882xx/pong-metal 两项仍只报告、未动。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
 
@@ -163,7 +163,7 @@ README_EN / AGENTS / CREDITS，行号支持 `:12-34` 范围），首版实测 **
 `docs/research/touch/14-RETAINED-KO-INIT-AUDIT.md` 共 **7 个 main 上不存在的文件**。
 
 修法：每个硬件"结案"时把该线研究**整目录**合进 main（而不是留分支）。
-**映射已建**：`docs/research/LINE-RESEARCH-MAP.md`（2026-11-17 重扫为 **16 个检出 / 97 个文件**，
+**映射已建**：`docs/research/LINE-RESEARCH-MAP.md`（2026-11-17 05:45 复核为 **16 个检出 / 108 个文件**，00:20 首扫为 97，
 本段此前按 92 计，漏了 `UniXNU-zizhan` 的 4 个与个别新增；以那份为准），
 由 `E:/k60-work/scratch/refmine/linemap{,2}.py` 生成，可直接改成仓库脚本。
 本轮仍不搬文件：这些内容可能已被各自的新结论取代，搬运要各线 owner 点头。
@@ -325,12 +325,12 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
   `PATCH-CATALOG.toml`（41 条 series 外补丁）+ `check_catalog()`、P-155 的 `expected_kern_exec_delta = 1713`、
   `check-readme` 数字校验扩到四份文档（含 `RULES.toml` 的 108 条规则数）、`check-docs` 递归 research
   与 189 个 Markdown 的表格列数校验（6 例单测）、docs/ops 的 4 个历史快照横幅（3 例单测）、两个门禁脚本可 import。
-- **研究可见性**：`LINE-RESEARCH-MAP.md`（97 个分支文件）、`LINE-MAP.md`（18 条线）；`SOURCES.toml` 三种路径前缀与 5 条新 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1），研究源 53→58。
+- **研究可见性**：`LINE-RESEARCH-MAP.md`（108 个分支文件）、`LINE-MAP.md`（18 条线）；`SOURCES.toml` 三种路径前缀与 5 条新 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1），研究源 53→58。
 
 **待 Lead 决定（本文只报告，不动）**：
 
 1. `EIGHT-STEPS.toml` 的 audio/charger/battery/buttons 条目要不要同样按实飞重评（wifi 段已做；改 `status` 等于改放行条件）。
-2. 97 个分支研究文件怎么回 main：结案时逐份搬（建议）+ `LINE-MAP.md` 指向；地图不复制内容。
+2. 108 个分支研究文件怎么回 main：结案时逐份搬（建议）+ `LINE-MAP.md` 指向；地图不复制内容。
 3. `docs/ops/` 的四份历史文件（HARD-RULES、PITFALLS、HANDOFF、TWRP-FACT-CLARIFICATION）：横幅已加、README 已登记，要不要移到 `docs/archive/upstream-ops/`。
 4. `patches/wifi` 的 main 侧接线：把 `feat/wifi-bringup` 的 applier + 门搬过来，还是继续只在 wifi 分支构建。
 5. §7 的 Top 8 抄写顺序（尤其 Metal 前端与 UFS 验证表——两者都对着已崩溃面）。

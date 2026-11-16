@@ -15,7 +15,7 @@
 
 ## 补丁清单
 
-### `0620-k60-display-brightness.patch`（1586 行，12 文件）
+### `0620-k60-display-brightness.patch`（1632 行，12 文件）
 
 亮度从「面板点亮」推进到「OS 级亮度服务」的全部改动：
 
@@ -30,7 +30,7 @@
 | `scripts/build-pong-adreno-platform-linux.py` | 同上（Linux/WSL 侧，构建机实际用的是这个）。 |
 | `scripts/check-brightness-encoder.py` | host 单测：编译编码器头文件并断言 DBV 换算与渐变序列。 |
 | `docs/research/display/BRIGHTNESS-PLAN.md` | 八步流程的 ①②③④⑤⑥ 证据与四产物设计说明。 |
-| `docs/research/display/08-on-device.md` | 上机轮次与预注册判据（第 3–6 轮 = brightness-15/16/17/18）。 |
+| `docs/research/display/08-on-device.md` | 上机轮次与预注册判据（第 3–7 轮 = brightness-15/16/17/18/19）。 |
 | `docs/research/display/RESEARCH.md` | 面板/DSI 事实与三档 timing。 |
 | `docs/research/display/STATS-INDEX.md` | `native_backlight_request[]` / `stats[]` 语义表。 |
 

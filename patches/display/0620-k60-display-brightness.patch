@@ -1,9 +1,9 @@
 diff --git a/docs/research/display/08-on-device.md b/docs/research/display/08-on-device.md
 new file mode 100644
-index 00000000..627bd861
+index 00000000..55381f5f
 --- /dev/null
 +++ b/docs/research/display/08-on-device.md
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,214 @@
 +# 显示 ⑧ 真机验证记录（背光发布层）
 +
 +| 轮次 | 镜像 | boot.img sha256 | kernel.macho sha256 | 结果 | 证据 |
@@ -15,6 +15,7 @@ index 00000000..627bd861
 +| 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
 +| 5 | brightness-17 | `8b2d6332…` | `4f107428…` | **PASS（12 位路径 / 最低端点）**：conformance=1 / control=1 / 无 sig=11 / first frame / SpringBoard 133；请求行 14 条（level 1024→0x800、level 1→0x1）；**DBV 1 在夜间黑屏**（用户实测），最高档未拉（夜间） | `usblog-20261117-0245-brightness17` |
 +| 6 | brightness-18 | `3e516e73…` | `28436472…` | **发布层 PASS**：conformance=1 / control=1 / dbv 0xfff / 无 sig=11 / first frame / SpringBoard 128；两次采集内用户未拖滑块，最低 `0x14` 观感仍待测 | `usblog-20261117-0306-brightness18`、`usblog-20261117-0313-brightness18b` |
++| 7 | brightness-19 | `25ac3889…` | `7462fe8a…` | **已飞一次（04:26），发布层 PASS，滑块未测**：最低 floor 从 `0x14` 改为 `0x4`（Android 手动最低 9.15639E-4 × 4095 = 3.75）；published conformance=1 control=1 dbv 0xfff、first frame、sig=11 0、SpringBoard 128 | `usblog-20261117-0426-brightness19` |
 +
 +brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 +
@@ -62,8 +63,9 @@ index 00000000..627bd861
 +2. **每请求一行日志**：`K60 BACKLIGHT: brightness… -> level … dbv 0x…`。第 4 轮起每个请求打一行，
 +   行里同时给出 CoreBrightness 用的键（`brightness-nits` 还是 `brightness`）、滑块量程与落到的 DBV。
 +   没有这一行 = 请求根本没到服务（CoreBrightness 未接管），不是「调光无效」。
-+3. **两端的 DBV**：最低档应落到 `dbv 0x14`（第 6 轮起）、最高档 `dbv 0xfff`（第 5 轮起的 12 位域；
-+   第 4 轮是 8 位的 `0xff`；第 5 轮曾把最低定为 0x1，实测夜间黑屏）。这两端是 Android 对照的硬指标；中间档只记不判。
++3. **两端的 DBV**：最低档应落到 `dbv 0x4`（第 7 轮起；第 6 轮曾用 `0x14`，那是 Xiaomi doze 档而非正常滑块底）、
++   最高档 `dbv 0xfff`（第 5 轮起的 12 位域；第 4 轮是 8 位的 `0xff`；第 5 轮曾把最低定为 0x1，实测夜间黑屏）。
++   这两端是 Android 对照的硬指标；中间档只记不判。
 +
 +第 3 轮（brightness-15）没有每请求日志，`stats[1]` 事后读不到，只能靠「屏上可见变化」判物理链路；
 +那一轮的 `published level` 行是启动时打的一次快照，不能当三档读数。
@@ -165,8 +167,9 @@ index 00000000..627bd861
 +     8 位最低档更暗。
 +  4. **最高**：夜间不要求拉最高；若用户愿意，最高档请求行应为 `dbv 0xfff`（映射端点已由 host 单测固定）。
 +  5. **FAIL**：任一 `sig=11`、无 first frame、无请求行、最低档不是 `dbv 0x14`、或最低档仍黑屏。
-+- **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
-+  `grep -a 'K60 PANEL:' <console.log>`。
++- **判读命令**：`python3 scripts/check-backlight-log.py <console.log> --control=1
++  --min-dbv=0x14 --max-dbv=0xfff`（发布层与 12 位端点一起判；非零请求少于 3 条即 FAIL）；
++  `grep -a 'K60 BACKLIGHT: brightness' <console.log>`；`grep -a 'K60 PANEL:' <console.log>`。
 +- **第一飞（2026-11-17 03:06 / 03:13 两次，证据 `usblog-20261117-0306-brightness18` 与
 +  `usblog-20261117-0313-brightness18b`）**：两次都进到桌面；第二次 `console.log` 232,718 B。
 +  `:184` published 行 `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1
@@ -177,13 +180,50 @@ index 00000000..627bd861
 +  **判据 2（请求可见）与判据 3（最低 `0x14` 可见）未测，不能判 PASS 或 FAIL**；发布层与
 +  最高 `0xfff` 已 PASS。
 +
++## 第 7 轮（预注册，2026-11-17 04:05）— brightness-19：最低 floor 改 Android 的 DBV 0x4
++
++- **为什么改**：第 6 轮的 `0x14` 取自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。
++  真机 Android 侧直接量到：`/sys/class/backlight/panel0-backlight/max_brightness = 4095`；
++  `dumpsys display` 的 `mScreenBrightnessRangeMinimum = 9.15639E-4`、`mScreenBrightnessRangeMaximum = 1.0`；
++  `mNitsToBacklightSpline = [(2.0, 9.15639E-4), (500.0, 0.499938), (1000.0, 1.0)]`。
++  手动最低 = 0.000915639 × 4095 = **3.75 → DBV 0x4**；这正是 Android 滑块最底端的原始 DBV。
++- **改动（相对第 6 轮只有一个常量）**：`K60BacklightCodec.h` 的 `kMinDbvOn` 从 `0x14` 改为 `0x4`；
++  code commit `54e3ba96`。`0x14` 保留为 doze 档的知识，不再作为正常滑块 floor。
++- **预注册判据**：
++  1. **PASS（发布层）**：published 行 `conformance=1 control=1`、`dbv 0xfff`；`sig=11` 0；entered 1；
++     SpringBoard ≥100；first frame ≥1。
++  2. **PASS（请求可见）**：≥3 条 `K60 BACKLIGHT: brightness…` 行。
++  3. **PASS（最低）**：最低档请求行 `dbv 0x4`，且用户能看到界面内容（不是黑屏）；同时记录是否比第 4 轮
++     8 位最低档更暗。若 0x4 仍黑屏，则把 floor 继续上移到用户可见的第一个值，并把该值写回本节。
++  4. **最高**：夜间不要求拉最高；若用户愿意，最高档请求行应为 `dbv 0xfff`（映射端点已由 host 单测固定）。
++  5. **FAIL**：任一 `sig=11`、无 first frame、无请求行、最低档不是 `dbv 0x4`、或最低档仍黑屏。
++- **判读命令**：`python3 scripts/check-backlight-log.py <console.log> --control=1 --min-dbv=0x4 --max-dbv=0xfff`
++  （非零请求少于 3 条即 FAIL）；`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
++  `grep -a 'K60 PANEL:' <console.log>`。
++- **构建产物（2026-11-17 04:22）**：`brightness-19`（`k60_backlight_control=1`）；`boot.img` 201,887,744 B sha256
++  `25ac388989270c56a3494b18b26d90d37bda535a13ba2bdf9eb98d5670a86c5c`；`kernel_built` sha256
++  `7462fe8ad8372d42a4c7f0cf968fefd32df7ee509e87163f7e1d41f1fa7a38b9`；manifest head `230281a1`、
++  dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`；`verify-boot-image.py --manifest` OK、
++  `image-arg-audit` OK（30 args/599 B）。
++- **第一飞（2026-11-17 04:26，证据 `usblog-20261117-0426-brightness19`）**：`console.log` 231,960 B；
++  `:182` `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`、`:184` published
++  `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`、
++  `:1262` entered backboardd、`:2430` first frame presented；`sig=11` 0、SpringBoard 128 行。
++  请求行只有启动默认两条：`:2205` `brightness level 1024 -> level 1024 dbv 0x802`、
++  `:2206` `brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ 用户未在 300 s 窗口内拖滑块，
++  **判据 2（请求可见）与判据 3（最低 `0x4` 可见）未测；预注册判据下整轮判 INCONCLUSIVE**。
++  `check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff` → 发布层 7 项通过、
++  `FAIL only 1 non-zero brightness request line(s); the 12-bit range test needs at least 3`，rc=1。
++  04:24 那次首次尝试被拒（target 不在 fastboot），未 boot，不算一轮。
++
++
 +
 diff --git a/docs/research/display/BRIGHTNESS-PLAN.md b/docs/research/display/BRIGHTNESS-PLAN.md
 new file mode 100644
-index 00000000..0797eaab
+index 00000000..83d9e936
 --- /dev/null
 +++ b/docs/research/display/BRIGHTNESS-PLAN.md
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,223 @@
 +# K60 亮度方案（BRIGHTNESS-PLAN）
 +
 +> 目标：把显示线从「面板点亮（0x51 0xff 一次性）」推进到「OS 级亮度服务」——iOS 滑块真正改变
@@ -403,8 +443,10 @@ index 00000000..0797eaab
 +3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
 +   仅由 host 单测覆盖，**待未来系统验证**。
 +4. **12 位域的最低可用 DBV 不是寄存器下限**：DT `qcom,mdss-dsi-bl-min-level=0x1` 在真机把屏幕拉到全黑
-+   （brightness-17 实测，用户只能盲点调高）；第 6 轮起改用 Xiaomi 自己的 `mi,doze-lbm-dbv-level=0x14`
-+   作为可见下限。**待 brightness-18 真机确认**。
++   （brightness-17 实测，用户只能盲点调高）。第 6 轮曾改用 Xiaomi 的 `mi,doze-lbm-dbv-level=0x14`，
++   但那是 doze/AOD 档，不是正常滑块的底。真机 Android 的 `panel0-backlight/max_brightness=4095` 与
++   `dumpsys display` 的 `mScreenBrightnessRangeMinimum=9.15639E-4` 给出 0.000915639 × 4095 = 3.75 →
++   **DBV 0x4**；第 7 轮（brightness-19）改用它作为 floor。**待 brightness-19 真机确认可见**。
 diff --git a/docs/research/display/RESEARCH.md b/docs/research/display/RESEARCH.md
 index 865c7960..0d0a7df0 100644
 --- a/docs/research/display/RESEARCH.md
@@ -1081,10 +1123,10 @@ index 00000000..02fb8c10
 +}
 diff --git a/drivers/PongAdreno/K60BacklightCodec.h b/drivers/PongAdreno/K60BacklightCodec.h
 new file mode 100644
-index 00000000..6d252547
+index 00000000..ebe095de
 --- /dev/null
 +++ b/drivers/PongAdreno/K60BacklightCodec.h
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,168 @@
 +// SPDX-License-Identifier: APSL-2.0
 +//
 +// K60BacklightCodec.h - the encoding half of the K60 brightness service.
@@ -1099,12 +1141,14 @@ index 00000000..6d252547
 +//   OS   : 0..kMaxLevel (2047), the scale CoreBrightness/backboardd uses, see
 +//          UniXNU-sheng/package/AppleARMBacklight.cpp kMaxLevel.
 +//   panel: 0..0xfff, the two-byte value carried in DCS 0x51. 0 means "off";
-+//          0x14 is the dimmest lit level, 0xfff is the brightest. The live m11a
-+//          node gives two independent anchors: qcom,mdss-dsi-bl-min-level = 0x1
-+//          is the register floor, and mi,doze-lbm-dbv-level = 0x14 is the value
-+//          Xiaomi itself uses for doze low-brightness. brightness-17 drove DBV 1
-+//          at night and the panel went black (user report, 2026-11-17), so 0x14
-+//          is the lowest level that is known to light the panel.
++//          0x4 is the dimmest lit level, 0xfff is the brightest. Android's own
++//          DisplayPowerController has mScreenBrightnessRangeMinimum = 9.15639E-4
++//          and panel0-backlight/max_brightness = 4095, so its minimum is
++//          0.000915639 * 4095 = 3.75 -> DBV 0x4 (live Android on this device,
++//          2026-11-17). The live m11a node's mi,doze-lbm-dbv-level = 0x14 is a
++//          doze/AOD level, not the normal slider floor. brightness-17 drove DBV 1
++//          at night and the panel went black (user report), so 0x4 is the first
++//          value above that experiment and is the value Android itself uses.
 +// The live FDT advertises bl-max = 0xfff, the vendor 12 bit domain, and Android
 +// writes it as two bytes: dsi_panel_update_backlight() byte-swaps under
 +// bl-inverted-dbv and mipi_dsi_dcs_set_display_brightness() always sends
@@ -1136,9 +1180,11 @@ index 00000000..6d252547
 +    kMaxFadeMs = 5000,  // a FadePeriod longer than this is clamped
 +    kStepMs = 16,       // fade step cadence
 +    kMaxDbv = 0xfff,    // panel 12 bit DBV domain, two bytes in DCS 0x51
-+    /* Xiaomi's doze low-brightness level from the live m11a node
-+     * (mi,doze-lbm-dbv-level = 0x14). brightness-17 at DBV 1 was black. */
-+    kMinDbvOn = 0x14,
++    /* Android's own minimum: mScreenBrightnessRangeMinimum = 9.15639E-4,
++     * panel0-backlight/max_brightness = 4095 -> 3.75 -> DBV 0x4. The m11a
++     * mi,doze-lbm-dbv-level = 0x14 is a doze/AOD level, not this floor.
++     * brightness-17 at DBV 1 was black; 0x4 is four steps above it. */
++    kMinDbvOn = 0x4,
 +};
 +
 +// Clamp a raw request into the OS domain.
@@ -1160,7 +1206,7 @@ index 00000000..6d252547
 +// brightness-nits request (signed 16.16 fixed point nits) -> OS level.
 +// Anything at or below zero is "off"; otherwise the request range is stretched
 +// over the whole panel range: the dimmest request lands on kDarkestLevel
-+// (DBV 0x14) and the brightest on kMaxLevel (DBV 0xfff). A plain linear nits->level
++// (DBV 0x4) and the brightest on kMaxLevel (DBV 0xfff). A plain linear nits->level
 +// scale is what brightness-15 shipped and the slider's two ends missed the
 +// panel's: 400 nits stopped at DBV 0xcc of the then-8-bit domain (204 of 255,
 +// the top visibly below the panel maximum) while the dimmest 5 nits request
@@ -1206,7 +1252,7 @@ index 00000000..6d252547
 +    /* Endpoint exact: kDarkestLevel -> kMinDbvOn, kMaxLevel -> kMaxDbv. The
 +     * panel has 4095 DBV steps for 2047 OS levels, so consecutive levels move
 +     * by one or two DBV steps; the floor must still be reachable. */
-+    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4075
++    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4091
 +    const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
 +    const uint32_t steps =
 +        ((clamped - kDarkestLevel) * spanDbv + spanLevel / 2) / spanLevel;
@@ -1218,7 +1264,7 @@ index 00000000..6d252547
 +{
 +    if (dbv == 0) return 0;
 +    const uint32_t d = dbv > kMaxDbv ? kMaxDbv : dbv;
-+    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4075
++    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4091
 +    const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
 +    const uint32_t steps = ((d - kMinDbvOn) * spanLevel + spanDbv / 2) / spanDbv;
 +    return kDarkestLevel + steps;
@@ -1392,7 +1438,7 @@ index 527292b2..bae29b84 100644
          'NativeAdrenoSmmuContext','NativeAdrenoVm','NativeAdrenoSubmit','NativeAdrenoUserClient']]
 diff --git a/scripts/check-brightness-encoder.py b/scripts/check-brightness-encoder.py
 new file mode 100644
-index 00000000..d3b14b2b
+index 00000000..a1f18895
 --- /dev/null
 +++ b/scripts/check-brightness-encoder.py
 @@ -0,0 +1,187 @@
@@ -1408,7 +1454,7 @@ index 00000000..d3b14b2b
 +  * 0..4095 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
 +    the DBV -> level inverse round trips within one DBV step.
 +  * brightness-nits requests (iPadOS 27 form): 5 / 140 / 400 nits map onto the
-+    panel range end to end (dimmest request -> DBV 0x14, brightest -> DBV 0xfff),
++    panel range end to end (dimmest request -> DBV 0x4, brightest -> DBV 0xfff),
 +    <= 0 maps to off, and the result never exceeds the level domain.
 +  * FadePeriod: 16.16 seconds -> milliseconds, clamped at 5000 ms.
 +  * The fade sequence: monotonic, starts at "from", lands exactly on "to", and
@@ -1540,8 +1586,8 @@ index 00000000..d3b14b2b
 +    check(wire[0] == 0x0f && wire[1] == 0xff, "max dbv wire bytes",
 +          (long)((wire[0] << 8) | wire[1]), 0x0fff);
 +    pong_panel_dbv_bytes(kMinDbvOn, wire);
-+    check(wire[0] == 0x00 && wire[1] == 0x14, "min dbv wire bytes",
-+          (long)((wire[0] << 8) | wire[1]), 0x0014);
++    check(wire[0] == 0x00 && wire[1] == 0x04, "min dbv wire bytes",
++          (long)((wire[0] << 8) | wire[1]), 0x0004);
 +
 +    if (failures) {printf("%d check(s) failed\n", failures); return 1;}
 +    printf("all brightness encoder checks passed\n");

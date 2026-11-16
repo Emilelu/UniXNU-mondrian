@@ -65,7 +65,7 @@
 | [MobileGestalt identity](https://unixnu.com/guide/mobilegestalt) | MobileGestalt answers device queries from the Apple device tree (ADT). The paylo | 2026-11-03 | https://unixnu.com/guide/mobilegestalt | `E:/k60-work/references/unixnu-site/en/guide/mobilegestalt.md` |
 | [Port a device](https://unixnu.com/guide/overview) |  | 2026-11-03 | https://unixnu.com/guide/overview | `E:/k60-work/references/unixnu-site/en/guide/overview.md` |
 | [Requirements](https://unixnu.com/guide/requirements) | 1. Choose the host toolchain for the steps you will run. Complete the macOS or L | 2026-11-03 | https://unixnu.com/guide/requirements | `E:/k60-work/references/unixnu-site/en/guide/requirements.md` |
-| [Skip Setup](https://unixnu.com/guide/skip-setup) | Requires macOS image tools, a matching packed Data seed and the board's `skip_se | 2026-11-03 | https://unixnu.com/guide/skip-setup | `E:/k60-work/references/unixnu-site/en/guide/skip-setup.md` |
+| [Skip Setup](https://unixnu.com/guide/skip-setup) | Requires macOS image tools, a matching packed Data seed and the board's `skip_se` | 2026-11-03 | https://unixnu.com/guide/skip-setup | `E:/k60-work/references/unixnu-site/en/guide/skip-setup.md` |
 | [Userdata image](https://unixnu.com/guide/userdata) | The userdata image supplies the root file system to XNU. It holds the unchanged  | 2026-11-03 | https://unixnu.com/guide/userdata | `E:/k60-work/references/unixnu-site/en/guide/userdata.md` |
 | [Welcome](https://unixnu.com/porting/) | UniXNU is a general UEFI environment and driver loading system, similar to OpenC | 2026-11-03 | https://unixnu.com/porting/ | `E:/k60-work/references/unixnu-site/en/porting/_index.md` |
 | [arm64e OS profiles](https://unixnu.com/porting/arm64e) | **Applies to supported devices only.** Use this method only on a device that mee | 2026-11-03 | https://unixnu.com/porting/arm64e | `E:/k60-work/references/unixnu-site/en/porting/arm64e.md` |
@@ -82,7 +82,7 @@
 | [Capture logs and automate boot tests](https://unixnu.com/porting/log-capture) | Set up log capture as you bring up the board. Start with firmware logs, collect  | 2026-11-03 | https://unixnu.com/porting/log-capture | `E:/k60-work/references/unixnu-site/en/porting/log-capture.md` |
 | [Migrate a device port](https://unixnu.com/porting/migration) | Format 2 lets devices reuse SoC support, OS profiles and component build recipes | 2026-11-03 | https://unixnu.com/porting/migration | `E:/k60-work/references/unixnu-site/en/porting/migration.md` |
 | [Wi-Fi adaptation](https://unixnu.com/porting/network) | Start with platform interrupts and DMA. Identify the actual radio, PCI ID, firmw | 2026-11-03 | https://unixnu.com/porting/network | `E:/k60-work/references/unixnu-site/en/porting/network.md` |
-| [Device packaging script](https://unixnu.com/porting/packaging) | **Mandatory for every device repository.** A device repository carries `scripts/ | 2026-11-03 | https://unixnu.com/porting/packaging | `E:/k60-work/references/unixnu-site/en/porting/packaging.md` |
+| [Device packaging script](https://unixnu.com/porting/packaging) | **Mandatory for every device repository.** A device repository carries `scripts/` | 2026-11-03 | https://unixnu.com/porting/packaging | `E:/k60-work/references/unixnu-site/en/porting/packaging.md` |
 | [Platform, memory and OS services](https://unixnu.com/porting/platform) | Start with a resolved device repository. Read the device-tree bindings, matching | 2026-11-03 | https://unixnu.com/porting/platform | `E:/k60-work/references/unixnu-site/en/porting/platform.md` |
 | [DSP, audio and power drivers](https://unixnu.com/porting/power) | Complete platform memory, interrupts and DMA first. Implement the transport, dev | 2026-11-03 | https://unixnu.com/porting/power | `E:/k60-work/references/unixnu-site/en/porting/power.md` |
 | [Device porting records](https://unixnu.com/porting/records) | Format 2 device repositories maintain `porting.toml`. Maintainers and agents upd | 2026-11-03 | https://unixnu.com/porting/records | `E:/k60-work/references/unixnu-site/en/porting/records.md` |
@@ -93,7 +93,7 @@
 | [UFS porting](https://unixnu.com/porting/ufs) | Start with the storage section of the device's `porting.toml` and the component  | 2026-11-03 | https://unixnu.com/porting/ufs | `E:/k60-work/references/unixnu-site/en/porting/ufs.md` |
 | [Technical reference](https://unixnu.com/reference/) | Use this page to find the file, procedure and verification for a change. For a c | 2026-11-03 | https://unixnu.com/reference/ | `E:/k60-work/references/unixnu-site/en/reference/_index.md` |
 | [Boot configuration](https://unixnu.com/reference/boot-configuration) | The UniXNU boot manager reads `\EFI\UniXNU\unixnu.toml` from the volume it was s | 2026-11-03 | https://unixnu.com/reference/boot-configuration | `E:/k60-work/references/unixnu-site/en/reference/boot-configuration.md` |
-| [Command line](https://unixnu.com/reference/cli) | Options follow the command. The driver reads a device repository from `-D`, `UNI | 2026-11-03 | https://unixnu.com/reference/cli | `E:/k60-work/references/unixnu-site/en/reference/cli.md` |
+| [Command line](https://unixnu.com/reference/cli) | Options follow the command. The driver reads a device repository from `-D`, `UNI` | 2026-11-03 | https://unixnu.com/reference/cli | `E:/k60-work/references/unixnu-site/en/reference/cli.md` |
 | [Component catalog](https://unixnu.com/reference/components) | `components.toml` in UniXNU records the maintained components. Profiles select c | 2026-11-03 | https://unixnu.com/reference/components | `E:/k60-work/references/unixnu-site/en/reference/components.md` |
 | [Device configuration](https://unixnu.com/reference/configuration) | Format 2 uses `schema_version = 2` at the top of `board.toml`. Files without thi | 2026-11-03 | https://unixnu.com/reference/configuration | `E:/k60-work/references/unixnu-site/en/reference/configuration.md` |
 | [Glossary](https://unixnu.com/reference/glossary) | - Port a device - Command line - Devices | 2026-11-03 | https://unixnu.com/reference/glossary | `E:/k60-work/references/unixnu-site/en/reference/glossary.md` |
@@ -366,7 +366,7 @@
 
 | 页面 | 摘要 | 更新于 | 本地存档 |
 |---|---|---|---|
-| [Documentation site](https://unixnu.com/contributing/documentation) | The documentation is a VitePress site in `docs/`. It is published to ` | 2026-11-03 | `E:/k60-work/references/unixnu-site/en/contributing/documentation.md` |
+| [Documentation site](https://unixnu.com/contributing/documentation) | The documentation is a VitePress site in `docs/`. It is published to | 2026-11-03 | `E:/k60-work/references/unixnu-site/en/contributing/documentation.md` |
 | [Repository layout](https://unixnu.com/contributing/repository) | UniXNU assembles independent SoC, device, and component repositories.  | 2026-11-03 | `E:/k60-work/references/unixnu-site/en/contributing/repository.md` |
 
 ### _root（1 页）

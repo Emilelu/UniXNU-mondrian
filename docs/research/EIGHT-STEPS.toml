@@ -341,9 +341,9 @@ prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppi
 
 [hardware.bluetooth]
 status = "active"
-name = "Bluetooth / d8 observation"
+name = "Bluetooth / d8 observation (init failed)"
 paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "patches/xnu/0511", "patches/xnu/0512", "patches/xnu/0514", "patches/xnu/0515", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/tests/test-k60-bt-0514-boot-observability.py", "scripts/tests/test-k60-bt-0515-tlv-counters.py", "scripts/check-image-args.py"]
-why = "当前范围仅为 bt-d8-tlv 的 TLV 逐段观测，不宣称蓝牙可用；d7 已上机但启动功能 result=-60，d8 等 Lead 飞。旧 parked/从未上机说明已撤回（docs/research/bt/S4-SPEC.md:1396）。⑦是本图离线核验，⑧仍待设备证据；默认 --flash 必须实际覆盖 bluetooth。"
+why = "当前范围仅为 bt-d8-tlv 的 TLV 逐段观测，不宣称蓝牙可用；d7 与 d8 均已上机，d8 的 PATCH 软件路径返回成功、两次 NVM 尝试均失败，最终 result=-60。旧 parked/从未上机说明已撤回（docs/research/bt/S4-SPEC.md:1396）。⑦是离线核验，⑧记录本次设备观测结果；默认 --flash 必须实际覆盖 bluetooth。"
 
 [hardware.bluetooth.step.same_model]
 done = true
@@ -369,19 +369,19 @@ evidence = "本轮只飞已构建的 bt-d8-tlv（不重建）：相对 d7 的 05
 
 [hardware.bluetooth.step.deep]
 done = true
-evidence = "源码判读见 docs/research/bt/S4-SPEC.md:1425-1457：run 先判 boot_deadline 再判命令期限，阻塞跨过两者会隐藏 command timeout；waiting 是布尔值。patches/xnu/0500-k60-bt-qbt-new-files.patch:1622-1627 与 :1815-1819 维护全 boot 的 tlv_acks/sent，含 PATCH 与 fallback；patches/xnu/0515-k60-bt-tlv-counters.patch:23-36 在返回后打印、segs++ 后才判 ret，所以 segs 包括失败尝试。原调用参数逐字不变，不能从累计数或 dt 单独裁定机制。"
+evidence = "源码判读见 docs/research/bt/S4-SPEC.md:1425-1457：run 先 pump/step，再判错误与完成谓词，未完成才判 boot_deadline、命令期限；晚到响应可能先满足完成谓词，跨过两期限会隐藏 command timeout；waiting 是布尔值。patches/xnu/0500-k60-bt-qbt-new-files.patch:1622-1627 与 :1815-1819 维护全 boot 的 tlv_acks/sent，含 PATCH 与 fallback；patches/xnu/0515-k60-bt-tlv-counters.patch:23-36 在返回后打印、segs++ 后才判 ret，所以 segs 包括失败尝试。原调用参数逐字不变，不能从累计数或 dt 单独裁定机制。"
 
 [hardware.bluetooth.step.verify]
 done = true
 local_verified = true
-evidence = "2026-11-16 15:28 在本树重验现有 d8 离线三类证据；日志 E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log:2-75，D8_LOCAL_RECHECK_RC=0。仅确认观测补丁契约和该镜像完整性；d8 设备结果仍未完成，d7 result=-60 仍为蓝牙启动功能失败。旧 manifest 的 eight_step=passed 只来自六项 build 检查，不追改旧产物，闭环说明见 docs/research/bt/S4-SPEC.md:1490-1498。"
+evidence = "2026-11-16 15:28 在本树重验现有 d8 离线三类证据；日志 E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log:2-75，D8_LOCAL_RECHECK_RC=0。仅确认观测补丁契约和该镜像完整性；设备结果另记于⑧与 docs/research/bt/S4-SPEC.md §7.20；d7/d8 result=-60 均为蓝牙启动功能失败。旧 manifest 的 eight_step=passed 只来自六项 build 检查，不追改旧产物；后补闭环说明见 docs/research/bt/S4-SPEC.md §8。"
 static_check = "逐行对照 patches/xnu/0515-k60-bt-tlv-counters.patch:17-36：原 qca_tlv_send_segment(hdev, segsize, segment, config->dnld_mode, soc_type) 参数不变；只增加返回后的逐段/汇总/结果日志与局部计数，预算/段长/下载模式/时钟/SMMU/窗口不改；孪生补丁字节一致。scripts/tests/test-k60-bt-0515-tlv-counters.py 的 28 条宿主静态契约实际通过，非控制器功能验证。"
 unit_test = "实际命令 python3 scripts/tests/test-k60-bt-0515-tlv-counters.py → TESTS OK 28 case(s)；python3 scripts/tests/test-k60-bt-0514-boot-observability.py → TESTS OK 33 case(s)，日志 E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log:2-68。断言原调用不变、禁改边界、返回后日志、失败尝试计数与 series 接线；不能证明真实 TLV 完成或蓝牙可用。"
 artifact_check = "本树 verify-boot-image.py --manifest /mnt/e/k60-work/artifacts/bt-d8-tlv/build-manifest.json → OK；check-image-args.py 对真实 boot.img → OK (31 arguments, 598 bytes)，日志 E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log:69-75。boot sha256=0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b；kernel_built=6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331；series=235/namespace=names+sizes/f7aa7d63470b891d/file=9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8；真实参数后缀 k60bt=1 pong_bt_late=1，完整 payload_args 见 E:/k60-work/artifacts/bt-d8-tlv/build-manifest.json:40；manifest sha256=3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0，原图及 manifest 均保留。"
 
 [hardware.bluetooth.step.device]
-done = false
-evidence = "d8 本轮观测尚待 Lead 上机，bt-agent 不操作设备。历史 d7 已飞（E:/k60-work/evidence/usblog-20261116-130444/console.log:2044-2053）：正常 boot/SpringBoard132，但全局预算错误经 power=1 result=-60 返回，属蓝牙启动功能失败，根因未定；详见 docs/research/bt/S4-SPEC.md:1396-1457。不能再写从未上机，也不能把本轮⑦完成当⑧成功。"
+done = true
+evidence = "d8 已由 Lead 完成一次只读诊断飞行；证据 E:/k60-work/evidence/usblog-20261116-164726/console.log（3749 行、255020 B）、boot.json（bootAccepted=true、exit=0、returnedToFastboot=false）与 capture.json（complete=true、panicMarker/resetMarker=null、stopReason=budget）。镜像 boot.img sha256=0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b，与 bt-d8-tlv manifest 一致；SpringBoard 128 行、panic/reset marker=0。观测得到 PATCH 602/602 次软件调用返回 e=0（非逐段硬件确认）；NVM 首次 7 次中 6 次 e=0、末段 e=-60；fallback 21 次中 20 次 e=0、末段 e=-60；两次均无 NVM 完成标志，最终 power=1 result=-60。⑧在本账本表示设备观测已完成，不表示蓝牙可用；初始化失败与正常系统启动同时成立。"
 
 [hardware.bluetooth.step.device.prediction]
 success = "本轮观测成功：Lead 记录的 imageSha256 必须匹配 d8 的 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b；机器正常 boot（SpringBoard/心跳、panicMarker 及 capture 状态共同核对），取得逐段 e/ret+dt_ms、按 PATCH/NVM/fallback attempt 可区分的 done type/segs/sent/acks/final/ret 与 power TLV 统计；累计取差、e非零不算完成并注明计时扰动。即使观测完整但 result=-60，仍记录蓝牙功能失败，绝不写蓝牙已可用。"

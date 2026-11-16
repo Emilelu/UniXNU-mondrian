@@ -1478,23 +1478,43 @@ d7 把问题从「什么都不打」缩到「NVM 路径预算失败、根因待�
   `patches/bt/0009-k60-bt-tlv-counters.patch` 字节相同；全量重放 234 条 `BAD=0` 后再单独 apply 成功。
 - **配方**：series 235（`… 0512 / 0514 / 0515`），参数 `k60bt=1 pong_bt_late=1`（31 项 / 598 B），
   tag `bt-d8-tlv`。
-- **判据**：见 §7.18 的判读纪律；按 type/attempt 分开、累计取差、失败段不算完成，并注明 console 观测扰动。d8 未飞，不预做 d9。
+- **判据**：见 §7.18 的判读纪律；按 type/attempt 分开、累计取差、失败段不算完成，并注明 console 观测扰动。d8 已完成观测；不预做 d9。
+
 - **已构建（2026-11-16 13:56:24）**：`boot_img 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`
   （201,887,744 B）、`kernel_built 6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331`（106,598,400 B）、
   series {235, names+sizes `f7aa7d63470b891d`, file `9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8}`、
   head `91dcd07`、dirty 0；本树 `verify-boot-image: OK` + `check-image-args: OK (31 arguments, 598 bytes)`。
 
+### 7.20 d8 实飞：PATCH 软件路径返回成功，NVM 两次尝试均失败（2026-11-16 16:58）
+
+Lead 仅用 `fastboot boot` 飞行 `bt-d8-tlv`，未 flash。证据目录为 `E:/k60-work/evidence/usblog-20261116-164726`；`console.log` 为 3,749 行 / 255,020 B，sha256 `1ef1f5abf55f6036f36c729779aab3de53f667e782e9ba3492fb332109be7cd2`。`boot.json` 记录 `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；`capture.json` 记录 `complete=true`、`portSeen=true`、`portOpened=true`、`panicMarker=null`、`resetMarker=null`、`stopReason=budget`。SpringBoard 子串为 129 次、分布在 128 行；另有 17 条心跳、`getBytes:range=0`，未发现 panic/reset 标记。采集器的 `stopReason=budget` 是采集时限，不是蓝牙的 90 s 启动预算。
+
+以下基线为按相邻 attempt 还原的 `(sent, acks)` 累计对；原图没有每个 attempt 的独立起始行，因此不是新增的起始快照。PATCH 前 `(0,0)` 来自本次首次下载及核心初始计数；NVM/fallback 基线取前一个 done，不能把全局数直接当本次成功段数。
+
+| attempt / console.log 锚点 | 调用与返回 | 累计基线 → 结束 / 差值 | 关键结果 |
+| --- | --- | --- | --- |
+| PATCH / type=1；:713-1331 | i=0..601，共 602 次；602 次 `e=0`，大小合计 146,068 B；前 601 次 `dt_ms=0`，最后一次 10001 | `(0,0) → (602,1)` / `sent +602, acks +1` | :1330 `done segs=602 final=0 ret=0`，:1331 `rampatch done`；仅证明软件路径返回成功，不证明控制器逐段确认 |
+| NVM 首次 / type=2；:1338-2781 | i=0..6；i=0..5 为 `e=0`，`dt_ms=10000,10000,10000,10001,10001,10001`；i=6 为 `e=-60, dt_ms=15` | `(602,1) → (609,7)` / `sent +7, acks +6` | :2778 `budget exhausted`，:2781 `done segs=7 final=0 ret=-60`；没有 NVM 完成标志 |
+| NVM fallback / type=2；:2782-2806 | i=0..20；i=0..19 为 `e=0, dt_ms=0`；i=20 为 `e=-60, dt_ms=16` | `(609,7) → (630,28)` / `sent +21, acks +21` | :2803 再次 `budget exhausted`，:2806 `done segs=21 final=1 ret=-60` |
+
+合计 630 次段调用，其中 628 次软件返回 `e=0`、2 次返回 `e=-60`；最终 :2807 `qca/hpnv21g.bin (-60)`、:2810 `qbt_boot returned e=-60`、:2811 `power=1 result=-60 ... tlv_sent=630 tlv_acks=28 tlv_final=1`。两次 `serving 6442` 只记录大小，没有文件名/哈希，不能证明实际内容相同；理论 27 段不等于本次执行或完成段数。
+
+**计数与计时边界**：`segs` 在段函数返回后递增、包括失败尝试（`patches/xnu/0515-k60-bt-tlv-counters.patch:23-36`）；`sent` 在命令入队时增加，不是硬件收到的证明（`patches/xnu/0500-k60-bt-qbt-new-files.patch:1810-1816`）。同补丁 :1620-1623 的 `acks` 连非零 status 的 TLV report 也计入，`final` 是最后一次 report 的 status，不是确认数；没有逐包事件/真实 RX 时间，不能按 ACK 数建立逐段对应关系。`dt_ms` 是整毫秒截断，0 只表示观测区间不足 1 ms，不是耗时为零；计时包含该调用周围的统计成本，console 输出还会扰动后续时序。
+
+**期限检查顺序**：`run()` 先 `pump/qbt_step`，再检查错误和完成谓词，只有未完成时才检查 `boot_deadline`，最后检查单命令 `deadline`（`patches/xnu/0500-k60-bt-qbt-new-files.patch:1791-1805`、`patches/xnu/0514-k60-bt-boot-observability.patch:43-64`）。因此跨过期限后才处理的响应仍可能先满足完成谓词；两个期限均过期时 budget 分支会隐藏 command-timeout 行。这个顺序是源码事实，不是对本次响应到达时刻的实测证明；它也不单独解释为何首次每段约 10 s、为何预算过期后的 fallback 仍连续快速 `e=0`。
+
+**结论与未知**：d8 是有效诊断观测，不是蓝牙成功图；NVM 两次尝试均未完成，初始化 `result=-60` 与系统正常启动同时成立。现有日志不能区分控制器确认、缓存/队列中的晚到响应、重试语义与具体等待路径。保留独立 reassessment 的历史 HOLD，不以本次观测抹掉它。下一步提请批准仅在宿主建立最小可重复时序模型/测试，覆盖 complete、两个 deadline、event ACK/status、fallback 重置边界；未来观测若需独立起始计数及 response status/真实 RX 时间，须另行批准。当前不实现模型、不改运行代码，不抬预算、不改下载模式、分片、状态机或地址，不预做 d9、不再上机。
 
 ---
 
 ## 8 八步账本沿革与 d8 当前范围
 
-**当前有效状态（2026-11-16 15:18 指示后的闭环）**：蓝牙 d8 是活跃的纯观测实验，
-当前账本以 `docs/research/EIGHT-STEPS.toml` 为准：①–⑦覆盖 d8 离线观测改动；
-⑧保持未完成、仅预声明观测成功/失败判据。⑦完成不等于蓝牙功能可用。
+**当前有效状态（2026-11-16 16:58 d8 飞行完成）**：蓝牙 d8 是已完成的纯观测实验，
+当前账本以 `docs/research/EIGHT-STEPS.toml` 为准：①–⑦覆盖 d8 离线观测改动，⑧记录了 Lead 的设备观测；
+⑧完成表示观测结果已取得，不表示蓝牙功能可用。d8 的 PATCH 软件路径返回成功，两次 NVM 尝试均失败，最终 `result=-60`。
 本树默认 `python3 scripts/eight-step-gate.py --flash` 已实际列出 7 项（含 bluetooth）、56 项通过、RC=0，
 见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`。原 d8 构建日志只有 6 项 build 检查，
-不追改 manifest，也不把本次离线核验冒充原构建覆盖或设备成功。
+不追改 manifest，也不把后补离线核验冒充原构建覆盖。
 以下是 11-15 的历史沿革，不是本轮保留 parked 或跳过 flash 检查的依据。
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出
@@ -1522,8 +1542,8 @@ touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery�
 **已撤回的旧解释**：11-15 曾把“等上机窗口”写成 parked，并把⑦ `done=false`
 解释成“上机未做”。这是把⑦离线核验与⑧上机混在一起，导致默认 flash 只查其他硬件。
 `K60_EIGHT_STEP_ITEMS` 仅影响 build，不能让 parked 项进入默认 flash。
-本轮不豁免 done=false、不改 gate：离线三类实际核验齐全后才将⑦置 true，
-蓝牙设 active，⑧仍 false，默认 `--flash` 必须在名单中实际列出 bluetooth。
+15:28 的离线闭环不豁免 done=false、不改 gate：三类实际核验齐全后才将⑦置 true、
+蓝牙设 active，当时⑧仍 false；16:58 的 d8 观测结果另见 §7.20。默认 `--flash` 必须实际列出 bluetooth。
 
 **⑤ 方案里写进去的阶梯判据**（这是 Lead 要的"把 step-5 判据放进片段"）：五档 `k60bt=1 k60bt_step=N`
 （1→4→5→7→9，每份 596 B）与"最后一行打点即死因"的判死表，以及 S4 三级

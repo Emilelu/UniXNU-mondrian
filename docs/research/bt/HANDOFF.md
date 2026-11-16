@@ -948,15 +948,26 @@ panic 0、stopReason budget）。稳定事实：rampatch 返回、NVM 路径开�
 - 15:28 本树离线复核：0515 host 28 cases、0514 host 33 cases 均为静态契约检查，
   verify-boot-image 与真实 image 参数审计通过（31 arguments, 598 bytes）；详见
   `E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log`。
-- 账本改为当前 d8 纯观测 active；⑦三类离线证据已核实，⑧仍 `device.done=false`。
+- 账本改为当前 d8 纯观测 active；⑦三类离线证据已核实，⑧已记录 Lead 的设备观测结果。
   README 双语表由生成器更新。默认 `python3 scripts/eight-step-gate.py --flash` 实际列出
   7 项（touch, gpu, storage, display, bootchain, bluetooth, battery），56 项通过、RC=0；
   记录 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`。未改 gate 或绕过 done=false。
   旧产物原 eight-step.log 只有 6 项 build 检查，不追认其包含 BT；本次是后补的本树核验。
 - 判读前提：按 PATCH/NVM/fallback 的 type/attempt 分开；日志发生于段调用返回后；
   ret 非零不算完成，segs 包括失败尝试；累计计数需取差，final 状态必须结合 done 行。
-  耗时仅代表 d8 并受日志成本影响。d7 result=-60 保留为功能失败；d8 待 Lead 独立核验与上机，
+  耗时仅代表 d8 并受日志成本影响。d7 result=-60 保留为功能失败；d8 观测完成但初始化失败，
   本线不操作设备，也不预做 d9。
+
+### 37. d8 实飞结果：NVM 未完成，暂停 d9（2026-11-16 16:58）
+
+证据 `E:/k60-work/evidence/usblog-20261116-164726/console.log`（3,749 行 / 255,020 B，sha256 `1ef1f5abf55f6036f36c729779aab3de53f667e782e9ba3492fb332109be7cd2`），`boot.json` 为 `bootAccepted=true`、`exit=0`、未回 fastboot；`capture.json` 为 complete、无 panic/reset marker。只用 `fastboot boot`，未 flash。
+
+- PATCH type=1：602 次调用全部 `e=0`，`sent +602`、`acks +1`，段大小合计 146,068 B，`done segs=602 final=0 ret=0`。
+- NVM 首次 type=2：7 次调用，前 6 次 `e=0`（dt_ms 10000/10000/10000/10001/10001/10001），第 7 次 `e=-60` / 15 ms；`sent +7`、`acks +6`，`done segs=7 final=0 ret=-60`。
+- NVM fallback type=2：21 次调用，前 20 次 `e=0` / 0 ms，第 21 次 `e=-60` / 16 ms；`sent +21`、`acks +21`，`done segs=21 final=1 ret=-60`。
+- 最终 `qca/hpnv21g.bin (-60)`、`qbt_boot returned e=-60`、`power=1 result=-60`；无 `nvm done`。系统继续到 SpringBoard，蓝牙初始化失败。`e=0` 仅表示该软件调用返回，不能等同控制器接受；`serving 6442` 没有文件名/哈希，不能证明 fallback 内容相同。
+
+`run()` 先 pump/step、错误与完成谓词，再判 boot deadline、命令 deadline；完成谓词可先于过期检查返回，budget 又可遮住 command timeout。`acks` 包括非零 status 的 report，`final=1` 是最后 status，不是确认数；`dt_ms=0` 为整毫秒截断，不能写零耗时。详见 S4-SPEC.md §7.20 的源码与日志锚点。未知项仍包括设备确认、晚到/缓存响应、重试语义与具体等待路径；现有日志不能区分。保留独立 reassessment 的历史 HOLD，不把 observation-only 当功能成功。下一步仅提请批准宿主时序模型/测试（complete、两期限、ACK/status、fallback 重置）；当前不实现模型或新观测，不抬预算、不改下载模式/分片/状态机/地址，不预做 d9、不再上机。
 
 
 

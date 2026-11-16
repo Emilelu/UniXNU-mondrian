@@ -136,6 +136,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-231 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |
 | [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) | 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
+| [`docs/engineering/LINE-MAP.md`](docs/engineering/LINE-MAP.md) | 线 → 检出 → 分支地图：18 条线的研究文件数、owner 与两个未登记检出 |
 | [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) | 电池栈编译集成：构建脚本改动、defconfig 开关、宏链路、归档构建时机 |
 | [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) | 上下游分工与仓库覆盖：23 跟踪 / 48 同步 / 3 pick |
 | [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | 逐硬件的八步证据（门禁数据源） |

@@ -251,7 +251,8 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 3. **研究可见性**：`docs/research/README.md` 改成"结论层索引 + 指向 INDEX 全量"；INDEX 的 research 段由脚本从目录生成，
    或至少加"未列出文件"小节（本轮先加了指针）。
 4. **线→检出映射**：新增 `docs/engineering/LINE-MAP.md`，每行 = 线 / 检出 / 分支 / 研究目录 / 当前结论；
-   由 `line-research-map2.py` 生成初稿，人工补结论。
+   由 `line-research-map2.py` 生成初稿，人工补结论。**2026-11-17 已做**：`docs/engineering/LINE-MAP.md`（18 行，含 owner 与两个未登记检出），
+   逐文件清单仍以 `docs/research/LINE-RESEARCH-MAP.md` 为准；不设门禁（HEAD 会漂移）。
 5. **catalog 与 pin 的差**：`check-component-pin.py` 对每个 catalog 组件的 `revision` 与本地参考树 HEAD 比较，
    不一致就要求写一行"为什么不用 pin"。这次 ShengUfs 的差就是这么漏掉的。**2026-11-17 已做**：
    `scripts/check-component-pin.py` + `docs/engineering/COMPONENT-PINS.toml`（board 组件硬校验，3 条 deviation：

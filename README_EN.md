@@ -140,6 +140,7 @@ table row naming a nonexistent script, fails the build.
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-231 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
 | [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) | Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack |
+| [`docs/engineering/LINE-MAP.md`](docs/engineering/LINE-MAP.md) | Line → checkout → branch map: research files per line, owners, and the two unregistered checkouts |
 | [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) | Battery stack build integration: script changes, defconfig switch, macro path, archive timing |
 | [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) | Division of labour and repository coverage: 23 tracked / 48 synced / 3 picked |
 | [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | Per-hardware eight-step evidence (gate data source) |

@@ -147,6 +147,22 @@
 **结论**：3b 不能只改一个调用点，它要拆 `PongUfsBlock` 的 prepare/start 生命周期并引入 IOMedia 等待；
 在 Data 的身份校验策略确定前，保持 3a 的同步发布顺序和 `NATIVE_VERIFIED_BLOCK` 默认关闭。
 
+## 3.7 步骤 2b 构建入口补全（2026-11-17 07:40）
+
+- 复核 `k60-ufs-verified:scripts/build-pong-ufs-probe-macos.py` 发现 `--verified-root` 原先只传
+  `-DNATIVE_VERIFIED_BLOCK=1`，没有编译 `k60-ufs-verified:drivers/NativeUfs/verified_root.c` 与
+  `k60-ufs-verified:drivers/NativeUfs/xnu_crypto.c`；因此启用开关后 `PongUfsTransport.cpp` 引用的
+  `vr_xnu_crypto`、`vr_open`、`vr_verify_block` 没有实现，内核链接会失败（policy bundle 只补
+  `verified_root_policies` 与 `verified_root_key`）。
+- 修复：启用 `--verified-root` 时按同一 arm64-apple-ios16.0 target、`-std=gnu11`、`-mkernel` 编译
+  `verified_root.c` 与 `xnu_crypto.c`，对象加入 `libNativeUfs.a`；`build-report.json` 记录
+  `verified_root_objects`，源码摘要包含 `.c`。`k60-ufs-verified:scripts/build-xnu-4k-baseline.sh` 的
+  `XNU_NATIVE_UFS_VERIFIED_ROOT=1` 传递路径不变。
+- 验证：`python3 -m py_compile scripts/build-pong-ufs-probe-macos.py` 与 `--help` 通过；六项宿主测试全过
+  （`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`、
+  `RootWindowReadVerified`）。Mac probe 构建仍需 macOS 工具链，未跑；`NATIVE_VERIFIED_BLOCK` 默认关闭、
+  `native-vroot-cache` 关闭、未 boot。
+
 ## 4. 不抄的部分
 
 - 参考树 `NativeUfs.cpp`（149,596 B）与我们版本差异过大，不整体替换；只抄 3 个头文件 + 3 个测试。

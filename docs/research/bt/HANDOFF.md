@@ -1021,3 +1021,16 @@ Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远�
 - 构建：`K60_OUT=/opt/k60/trees/k60build/bt-out-0516`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`、`K60_EIGHT_STEP_ITEMS=bluetooth`；`scripts/build-strict.sh bt-0516-uart-clock --fd .../bt-d8-tlv-cf4485712c29.fd --bt-blob .../pong-bt-firmware.bin --kernel-arg k60bt=1 --kernel-arg pong_bt_late=1`，`RAW_RC=0`。manifest `built_at=2026-11-17T01:47:01+08:00`、head `32243230`、dirty 0、series 236、namespace `a56a29e329161163`、frozen `dc714e29…`。
 - 产物：boot.img `8a211a76…`（201887744 bytes）、kernel `dd9cbbd6…`、payload `ad412eb7…`、payload_kernel `04a9f928…`、ADT `0e7a6fbc…`、dtb `2d044eaa…`、fd `cf448571…`、bt_blob `febdc20d…`；kernel.log:253 有 0516 patch，八步 build 6 项通过，check-image-args 31 arguments/598 bytes、kernel archives 4 个全在、metal/bt blob container self-consistent、`verify-boot-image.py --manifest ...` → OK、boot.json `hardware_tested=false`。
 - 边界：这是 HOST-ONLY + 离线构建证据，不证明控制器 UART/DMA/IBS、真实 NVM 完成、蓝牙可用；0516 未上机，仍需 Lead 批准 d9；d8 的 PATCH 成功、两次 NVM 失败、`result=-60` 不变，⑧ 不改。
+
+### 42. d9 单变量飞行计划已准备（2026-11-17 02:00，未批准）
+
+新增 `docs/research/bt/D9-PLAN.md`：候选 `E:/k60-work/artifacts/bt-0516-uart-clock/boot.img`
+（sha256 `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`，201887744 B）
+对回滚基线 d8 `E:/k60-work/artifacts/bt-d8-tlv/boot.img`（`0297012d…`）；唯一变量为 0516
+（135 行，4 文件 +35/−10，`0134a31b…`），不改 90 s budget、10 s deadline、243 B 段长、
+下载模式、状态机、地址或固件。`eight-step-gate.py --flash` 默认 7 项/56 项通过、RC=0
+（日志 `E:/k60-work/scratch/bt-s4/0516-flash-gate-20261117.log`），`verify-boot-image` OK，
+check-image-args 31/598 OK。计划预先写死成功判据（镜像哈希、boot 接受、无 budget exhausted、
+NVM `ret=0`、`power=1 result=0`）与失败判据（budget exhausted、NVM `-60`、power `-60`、
+panic/reset、哈希不符），并明确成功也只证明传输/下载路径，不证明蓝牙可用。d9 未批准；
+bt-agent 不开机、不刷机，只由 Lead 执行或明确授权。

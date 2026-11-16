@@ -1731,7 +1731,7 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **宿主证据（同一 236 条候选）**：`python3 scripts/tests/test-bt-0516-uart-clock.py` → `TESTS OK: 81 case(s), 0 failure(s)`（含 2 个 clock 场景、4 个源码变异、22 个 d8 adapter 场景）；`test-bt-d8-adapter-host.py` 在前 235 条前缀上仍 `TESTS OK: 90 case(s), 0 failure(s)`；`test-k60-bt-0514-boot-observability.py` 33、`test-k60-bt-0515-tlv-counters.py` 28。以上全部是 HOST-ONLY，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
 
-**结论**：候选产物已可交给 Lead 作为单变量飞行对象；在 Lead 批准 d9 前不飞、不重建、不改预算/段长/状态机/地址。d8 的 PATCH 成功、两次 NVM 失败、`result=-60` 不变；⑧ 仍为 false。
+**结论**：候选产物已可交给 Lead 作为单变量飞行对象；在 Lead 批准 d9 前不飞、不重建、不改预算/段长/状态机/地址。d8 的 PATCH 成功、两次 NVM 失败、`result=-60` 不变；⑧ 仍为 false。具体飞前检查、预声明成功/失败判据与结果处理见 `docs/research/bt/D9-PLAN.md`（未批准、未上机）。
 
 ---
 
@@ -1739,7 +1739,7 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **当前有效状态（2026-11-17 01:47 0516 候选构建完成）**：蓝牙账本已切到 `bt-0516-uart-clock` 候选构建：只追加 QcaBluetooth `986d631` 的 UART clock/control 修复，未改预算、段长、状态机或地址；d8 仍保留为失败观测与回滚基线（boot `0297012d…`）。0516 已构建但未上机，⑧仍为 false；d8 的 PATCH 软件路径返回成功，两次 NVM 尝试均失败，最终 `result=-60`。
 本树默认 `python3 scripts/eight-step-gate.py --flash` 在 d8 时已实际列出 7 项（含 bluetooth）、56 项通过、RC=0，
-见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`；0516 候选构建的八步日志只有 build 6 项
+见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`；0516 候选在同一默认 flash 门禁下同样列出 7 项（含 bluetooth）、56 项通过、RC=0，见 `E:/k60-work/scratch/bt-s4/0516-flash-gate-20261117.log`；0516 候选构建的八步日志只有 build 6 项
 （`E:/k60-work/artifacts/bt-0516-uart-clock/logs/eight-step.log`），不追改 d8 manifest，也不把后补离线核验冒充原构建覆盖。
 以下是 11-15 的历史沿革，不是本轮保留 parked 或跳过 flash 检查的依据。
 

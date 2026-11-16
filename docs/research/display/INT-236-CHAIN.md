@@ -500,5 +500,7 @@ Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对�
   `K60 BACKLIGHT: brightness` 行；最低档 `dbv 0x4` 且屏幕可见内容（不是黑屏）；最高档 `dbv 0xfff`；
   FAIL = 任一 `sig=11`、无 first frame、无请求行、最低不是 0x4、或最低仍黑屏。判读：
   `python3 scripts/check-backlight-log.py <console.log> --control=1 --min-dbv=0x4 --max-dbv=0xfff`。
-- 待构建/待飞。构建完成后把 boot.img/kernel shas 与证据目录补进本节。
+- 构建：boot.img 201,887,744 B sha256 `25ac388989270c56a3494b18b26d90d37bda535a13ba2bdf9eb98d5670a86c5c`；`kernel_built` 105,521,152 B sha256 `7462fe8ad8372d42a4c7f0cf968fefd32df7ee509e87163f7e1d41f1fa7a38b9`；manifest head `230281a1`、dirty 0、series 227；`verify-boot-image.py --manifest` OK。
+- 第一飞（2026-11-17 04:26，`usblog-20261117-0426-brightness19`，console 231,960 B）：`:184` published level 2047 dbv 0xfff conformance=1 control=1、`:2430` first frame、SpringBoard 128、`sig=11` 0；请求行只有启动默认 `:2205` 1024→0x802 与 `:2206` brightness-nits 0.0→0x0，用户未拖滑块，最低 0x4 未测，整轮 INCONCLUSIVE（`check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff` 发布层 7 项通过、因非零请求不足 3 条 rc=1）。
+- 待用户在场重飞一次，只测最低档 0x4 是否可见。
 

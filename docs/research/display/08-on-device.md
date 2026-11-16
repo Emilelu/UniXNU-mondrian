@@ -9,7 +9,7 @@
 | 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
 | 5 | brightness-17 | `8b2d6332…` | `4f107428…` | **PASS（12 位路径 / 最低端点）**：conformance=1 / control=1 / 无 sig=11 / first frame / SpringBoard 133；请求行 14 条（level 1024→0x800、level 1→0x1）；**DBV 1 在夜间黑屏**（用户实测），最高档未拉（夜间） | `usblog-20261117-0245-brightness17` |
 | 6 | brightness-18 | `3e516e73…` | `28436472…` | **发布层 PASS**：conformance=1 / control=1 / dbv 0xfff / 无 sig=11 / first frame / SpringBoard 128；两次采集内用户未拖滑块，最低 `0x14` 观感仍待测 | `usblog-20261117-0306-brightness18`、`usblog-20261117-0313-brightness18b` |
-| 7 | brightness-19 | 待构建 | — | **预注册**：最低 floor 从 `0x14` 改为 `0x4`（Android 手动最低 9.15639E-4 × 4095 = 3.75），判据见下 | — |
+| 7 | brightness-19 | `25ac3889…` | `7462fe8a…` | **已飞一次（04:26），发布层 PASS，滑块未测**：最低 floor 从 `0x14` 改为 `0x4`（Android 手动最低 9.15639E-4 × 4095 = 3.75）；published conformance=1 control=1 dbv 0xfff、first frame、sig=11 0、SpringBoard 128 | `usblog-20261117-0426-brightness19` |
 
 brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 
@@ -194,7 +194,21 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
 - **判读命令**：`python3 scripts/check-backlight-log.py <console.log> --control=1 --min-dbv=0x4 --max-dbv=0xfff`
   （非零请求少于 3 条即 FAIL）；`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
   `grep -a 'K60 PANEL:' <console.log>`。
-- **待构建/待飞**：brightness-19（`k60_backlight_control=1`）。构建完成后把 boot.img/kernel shas 与证据目录补进本行。
+- **构建产物（2026-11-17 04:22）**：`brightness-19`（`k60_backlight_control=1`）；`boot.img` 201,887,744 B sha256
+  `25ac388989270c56a3494b18b26d90d37bda535a13ba2bdf9eb98d5670a86c5c`；`kernel_built` sha256
+  `7462fe8ad8372d42a4c7f0cf968fefd32df7ee509e87163f7e1d41f1fa7a38b9`；manifest head `230281a1`、
+  dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`；`verify-boot-image.py --manifest` OK、
+  `image-arg-audit` OK（30 args/599 B）。
+- **第一飞（2026-11-17 04:26，证据 `usblog-20261117-0426-brightness19`）**：`console.log` 231,960 B；
+  `:182` `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`、`:184` published
+  `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`、
+  `:1262` entered backboardd、`:2430` first frame presented；`sig=11` 0、SpringBoard 128 行。
+  请求行只有启动默认两条：`:2205` `brightness level 1024 -> level 1024 dbv 0x802`、
+  `:2206` `brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ 用户未在 300 s 窗口内拖滑块，
+  **判据 2（请求可见）与判据 3（最低 `0x4` 可见）未测；预注册判据下整轮判 INCONCLUSIVE**。
+  `check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff` → 发布层 7 项通过、
+  `FAIL only 1 non-zero brightness request line(s); the 12-bit range test needs at least 3`，rc=1。
+  04:24 那次首次尝试被拒（target 不在 fastboot），未 boot，不算一轮。
 
 
 

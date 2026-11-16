@@ -1,4 +1,6 @@
 # Fork 巡查与吸收记录
+> **2026-11-17 重查尝试**：`scripts/audit-forks.py` 能列出公开 fork，但 GitHub compare API 对全部候选返回 HTTP 404，脚本以 PARTIAL 退出；本轮没有取得新的 ahead/behind，不能据此认为 fork 无更新。下表仍是 2026-10-31 基线快照。
+
 
 检查对象：[Emilelu/UniXNU-mondrian](https://github.com/Emilelu/UniXNU-mondrian)。
 首次检查时间 2026-10-31 14:27（Asia/Shanghai），对比基线

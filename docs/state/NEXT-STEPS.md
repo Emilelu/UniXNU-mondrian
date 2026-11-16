@@ -1,4 +1,7 @@
 # K60 移植下一步
+> **历史快照（2026-11-07）**：下面是当时的推进顺序，不是当前计划。
+> 当前状态见 [../engineering/STATUS.md](../engineering/STATUS.md)。
+
 
 日期：2026-11-07（原 2026-10-27；内存窗口数值按 2026-11-02 实测重写）。
 当前已通过：UEFI 全链、显示、按键、Tools -> Advanced Logger QR；系统已进用户态，SpringBoard 已进主循环（见 [STATE-2026-11-07.md](STATE-2026-11-07.md)）。

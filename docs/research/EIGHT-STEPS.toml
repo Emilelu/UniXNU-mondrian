@@ -551,4 +551,8 @@ artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入
 
 [hardware.charger.step.device]
 done = false
-evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。"
+evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。ADSP 载体实验的判据表与产物见 docs/research/charger/08-ADSP-CARRIER-EXPERIMENT.md 的 §0.1 与 §2（C0–C4，tag carrier-20261117a）。"
+
+[hardware.charger.step.device.prediction]
+success = "`K60PAS auth ok` 出现 1 次，且随后 `K60PAS carrier verdict PASS auth=ok base=0x9fd00000 span=0x3100000`；60 s 内无 panic（`panic(` / `esr=` 各 0 次）。判据全表见 docs/research/charger/08-ADSP-CARRIER-EXPERIMENT.md §0.1。"
+failure = "`K60PAS auth refused rc=` 或 `K60PAS carrier verdict FAIL rc=`；或 `K60PAS carrier absent rc=`（blob 没进镜像）；或出现 panic（贴首行与 esr=）。"

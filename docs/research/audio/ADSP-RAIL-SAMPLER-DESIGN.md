@@ -34,14 +34,13 @@ Any separately authorized sampler implementation is restricted to the audited DR
 | cmd-db header/slave/entry/aux | 144 字节头；8×16 字节 slave；24 字节 entry；aux 由头内偏移派生 | K60PmicRail.c:44-50, 61-116 | 格式几何；entry/aux 地址依赖头内容，静态 span 只能覆盖有界 reviewed block |
 | AOP 聚合 / ARC / PMIC 生效 / handoff 保持 | 无 | 本文件:159-170 | 未知；不得用请求记录推断 |
 
-两个未闭合项必须由 Lead 裁决，候选核心与宿主夹具都不能代替：
+**HR-01 已裁决（2026-11-16 21:28 Lead）**：以四条件例外为准，“禁止范围”改成三层——
+`0x17a00000`（RSC 基址 / drv 0）绝对禁止；`0x17a20000`（DRV-2）仅当四条件同时满足才允许映射与只读 `w[0]`；TCS 写与 `CONTROL_TRIGGER` 禁止。
+四条件第 1 条（Data 挂载后）在发布路径上结构上不可能满足——`resources()` 的调用链在 IOKitBSDInit 里、早于 Data——所以 `resources_cb` 返回 `K60BoardUnsupported(-63)` 是**结论，不是保守**；采样器可以记录，永远不能授权。
+“可读 w[0]”仍只能作为设计输入，真实采样仍须显式 permit。
 
-1. **HR-01 自相矛盾**：HARD-RULES.md:47-48 允许在四条件下映射 DRV-2 并读 w[0]；
-   同文件:63-69 的“禁止范围（未变）”仍把 0x17a20000 列为禁止并说映射本身可能挂起。
-   在裁决前，“可读 w[0]”只能作为设计输入，不能当作已授权。
-2. **TCS 槽号 3 还是 4 未定**：POWER-RPMH-LDOC2.md:33 说 TCS3，
-   REFERENCE-INDEX.md:195 说 slot 4，K60PmicRail.c:171-172 记录两者冲突。
-   槽号未定 ⇒ 连 TCS_STATUS 的确切地址都不唯一。
+仍有一个未闭合项必须由 Lead 裁决：**TCS 槽号 3 还是 4 未定**。POWER-RPMH-LDOC2.md:33 说 TCS3，
+REFERENCE-INDEX.md:195 说 slot 4，K60PmicRail.c:171-172 记录两者冲突；槽号未定 ⇒ 连 TCS_STATUS 的确切地址都不唯一。
 
 因此候选 observation core 的 permit 一律是**显式测试输入**：合成 span 只验证契约，
 不为真实启动补许可；真实 LCX/LMX 请求字段在当前证据下应报 PERMISSION_DENIED / unknown。
@@ -193,9 +192,9 @@ Tested base revision: `cd02f1348db6d232f9b705cddf82cd968edb5711`. Canonical hash
 | 核心 / 头文件 | `package/tests/rail-sampler/proposed/rail_obs.c` / `rail_obs.h` |
 | 冻结哈希 | C `87b8e14ff27faa2dd929b857e37300f3bcfa36788790fb46ccf8b8702d39cb5e`；H `effe1a112f9ed7acf882ce692df84205b6118b88ffb953ffc318bc9edf3fed93` |
 | 契约测试 | `package/tests/rail-sampler/proposed/entry.c`，sha256 `ab07e2c805775597465ce7368a8826c032ad31701b43ec790e7fcc42ae263103`，42 个 case |
-| 驱动脚本 | `run-tests.sh` `baf339ad99542627b4b93644e4fe646e97f03c354a1d344cfc128df8f00810e7`；`verify-extra.sh` `36b4dd91170726586d542da7f8aa431c943d524b90ffef4db9ef0c1f6e955f78`；`run-candidate.py` `da628fbaa95808449f1bdd6b4d615d35206afbe01160399cbeee79099e2085f6`（一 case 一进程，绝不做 expected-failure 归一） |
-| 结果 | `run-tests.sh`: `CANDIDATE_CORE_RESULT: PASS 42/42 cases`，exit 0；`verify-extra.sh`: `ASAN_UBSAN: CLEAN (0)`、`SYMBOLS: CLEAN (no K60PmicRail symbol)`、`REPEAT: 10/10`，exit 0；`run-candidate.py`: PASS 42/42，exit 0 |
-| 证据日志 | [driver-run-42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/driver-run-42.log) `a21dd1bc17af36ac5000a94cc26d3102007357ef8b003bbe58050445999f6cc2`；[verify-extra-42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/verify-extra-42.log) `d8f23d84b971b2037f6ad2af41bdf37eaed66a76cf816327cfc5fd17bd644aaf`；[final42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/final42.log) `c25ad6ba87509b2af195727eb090b5e5bda3b23c5bedc973d46177c06d0e4273` |
+| 驱动脚本 | `run-tests.sh` `baf339ad99542627b4b93644e4fe646e97f03c354a1d344cfc128df8f00810e7`；`verify-extra.sh` `6cc7d15fadc6946fb77724e60585bf94d36be070620c9f1ce95c6c13bd1a4c05`；`run-candidate.py` `da628fbaa95808449f1bdd6b4d615d35206afbe01160399cbeee79099e2085f6`（一 case 一进程，绝不做 expected-failure 归一） |
+| 结果 | `run-tests.sh`: `CANDIDATE_CORE_RESULT: PASS 42/42 cases`，exit 0；`verify-extra.sh`: `ASAN_UBSAN: CLEAN (0)`、`SYMBOLS: CLEAN (no K60PmicRail symbol)`、`REPEAT: 10/10`、`CASES: 42`，exit 0；`run-candidate.py`: PASS 42/42，exit 0 |
+| 证据日志 | [driver-run-42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/driver-run-42.log) `a21dd1bc17af36ac5000a94cc26d3102007357ef8b003bbe58050445999f6cc2`；[verify-extra-42b.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/verify-extra-42b.log) `b668135528d21df0e29774564cf46af4f4cfd77f304b2c71f0ff7cc680f62444`；[final42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/final42.log) `c25ad6ba87509b2af195727eb090b5e5bda3b23c5bedc973d46177c06d0e4273` |
 
 候选核心验证的是**契约**，不是硬件可读性：map/read32 是显式注入的 seam，permit 的每个 span 都是测试输入；核心只经 read32 读，逐字段检查对齐、mapped 长度、reviewed block 边界与显式 span，先过 gate 再 CAS，先 CAS 再第一次 map；失败即 terminal，后续同 plan 调用只读缓存，坏缓存返回 `CACHE_CORRUPT` 且不重采样；返回值全为负，无任何可被旧接口当作 ResourcesHeld 的成功值。v2/v3 两套偏移、slot+command 全扫描、duplicate identical/conflict、disabled/malformed/TCS busy/not-issued/incomplete 都以 qualifier 与 outcome 分开保留。
 
@@ -233,6 +232,8 @@ Tested base revision: `cd02f1348db6d232f9b705cddf82cd968edb5711`. Canonical hash
 
 ### 候选缺陷与缺口队列（CAND，不占 P 号）
 
+行号对应 `90bb0aa`；`entry.c` 若继续增长，引用前先按用例名核对，避免行号漂移。
+
 - **CAND-01（API 缺口）** 单轨部分请求无法表达：`entry.c:959` `partial-rail-request` 保留了一条有效 LCX 请求（record_count=1、address/data 可读），但当前 outcome 只能是 `NOT_FOUND`；头文件是生产契约，HOLD 期间不改，等生产解冻与 resources/lease 一起处理。
 - **CAND-02（测试边界）** 无 reset hook（`entry.c:11`），坏缓存/重入只能靠“每条序列独立进程”（`verify-extra.sh:30` 的 10 次整轮重复）。
 - **CAND-03（覆盖边界）** 并发反例只走“首个 map 失败、未写 ledger”的路径，未证明成功路径的并发；证据 `entry.c:1204` `concurrent-busy`。
@@ -262,6 +263,6 @@ canonical 两模式在同一冻结源上重跑，证明候选文件没有反过�
 | Once-state correctness | Host evidence for CAS-before-first-map, terminal failure, immediate contention/re-entry refusal, cross-entry cache-only behavior and corrupt-cache refusal. |
 | Test visibility | Add a testable load seam or another reviewed way to establish no subsequent hardware reads; map counters alone do not count volatile loads. |
 | Effective power and retention | Find a legal, board-specific AOP/ARC/PMIC and handoff-retention observation contract. Current evidence does not establish one. |
-| Consumer authority | Keep resources_cb refused and legacy PAS/handoff disabled until separate power evidence and lease/owner semantics are accepted. Observation is never enough. |
+| Consumer authority | Keep resources_cb refused and legacy PAS/handoff disabled until separate power evidence and lease/owner semantics are accepted. Observation is never enough. The -63 is a conclusion: the publish path runs inside IOKitBSDInit, before Data mount, so HR-01 condition 1 cannot hold there. |
 
 Next review order: pinned source -> version/field table -> access intersection and bounds -> duplicate/error taxonomy -> entry gates/CAS/cache -> observation-vs-power types -> canonical host evidence. This deliverable adds the design, canonical host fixtures and an unintegrated candidate core with its own host contract check. No kernel/image build, device test, production C/H or patch edit, callsite/timing edit, boot-argument change, or porting-state change occurred. The proposed repair remains unimplemented until separately authorized after Lead review.

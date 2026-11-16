@@ -16,7 +16,7 @@
 | G4 | 引用完整性没有任何门禁 | 2207 处仓库内路径引用中 **217 个目标不存在**（436 处）；**14 处行号越界** | 文档里的 `file:line` 是主要证据形式，坏引用等于证据失效 |
 | G5 | 92 个研究文件只在各线分支上，main 只有 71 个，且没有"哪条线在哪"的映射 | 20 个并行检出实测（cellular 18、wifi 14、thermal 12、bt 10…） | 研究不可见 = 重复考古；`EIGHT-STEPS.toml` 已因此引用 7 个 main 上不存在的文件 |
 | G6 | `EIGHT-STEPS.toml` 的 wifi 条目仍写"从未上机 / parked" | `docs/research/EIGHT-STEPS.toml:390-426` | 与 c1–c8 实飞、P-215 结案矛盾；这是唯一一处**门禁数据源**与事实相反 |
-| G7 | 复用缺口不是"没有轮子"，是"抄了早期版本没跟上" | PongMetal 前端 109,178 B vs 参考 225,616 B；ShengUfs 参考 `9d527ae` 的 `VerifiedTableCache.h` 6,878 B、`RootPublication.h` 3,225 B 未进我们树 | 白写的量远大于没抄的量 |
+| G7 | 复用缺口不是"没有轮子"，是"抄了早期版本没跟上" | PongMetal 前端 109,178 B vs 参考 225,616 B；ShengUfs 参考 `9d527ae` 的 `VerifiedTableCache.h` 6,878 B、`RootPublication.h` 3,225 B 已在 `k60-ufs-verified:feat/ufs-verified-table` 移植（含 `RootWindowRead.h`/`RootPolicyTable.h`/`RootWindowVerifier.h` 与 host 测试，未合 main） | PongMetal 仍是主要缺口；UFS 复用已推进到分支 |
 | G8 | `patches/wifi/` 主仓 12 个补丁 **221,744 B**（`k60-wifi` 检出同 series **228,302 B**，5 个文件不同）在 main 上没有任何构建路径引用 | `grep -rn 'patches/wifi' scripts/*.py scripts/*.sh` 只命中测试断言；`patches/wifi/series` 无读者；main 的 `0007` 仍写旧 Data UUID `6DCCF70A-...`，`0010` 只加 `KERNEL_EXTRA_ARCHIVES` 分支，k60-wifi 已改 `1BCD69FF-...` 并补 `PLATFORM_ARCHIVES` | main 侧 WiFi 接线缺位；P-215 的补丁字节在 main 但**不是最新**，直接接线会静默漏掉 PongWifi |
 | G9 | **已退役的前身**没有退役登记：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾，但删之前要确认 wifi 线不再需要；只报告未动 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
@@ -24,7 +24,7 @@
 > 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,201 处引用 / **101** 个目标缺失 / 0 处行号越界，
 > 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（108 个分支文件，05:45 复核）与 `LINE-MAP.md`（18 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
-> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7、G8 与 AW882xx/pong-metal 两项仍只报告、未动。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
+> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7 的 UFS 部分已在 `k60-ufs-verified:feat/ufs-verified-table` 移植（verified-root policy/cache/read path，`NATIVE_VERIFIED_BLOCK` 默认关闭，未合 main）；PongMetal、G8 与 AW882xx/pong-metal 两项仍只报告、未动。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
 
 ## 1. 方法与可复现性
 
@@ -188,7 +188,7 @@ c3 进 SpringBoard 132），c4/c5/c6 进桌面、c7 已判读到 SBL/READY。
 | GPU/Metal | `drivers/PongMetal/` 267,785 B；前端 `NativeBridgeMetalFrontend.mm` **109,178**【实测】 | `references/pong-metal@0b3b34a` 952,507 B；同文件 **225,616**【实测】 | 同源更晚 | **是**：前端 + `bridge/NativeMetalObjects.rs` 135,840 + 10 个头 + `shaders/scanout_convert.ll` | 高（backboardd 崩溃面） |
 | WiFi 接线 | `patches/wifi/` 主仓 0001–0012 = **221,744 B**；`k60-wifi` 同 series **228,302 B**，5 个文件不同（0003/0007/0009/0010/README）【实测】 | `k60-wifi:feat/wifi-bringup` 的 `patches/wifi` 更完整；`board.toml:20` 两边都仍只挂 `patches/xnu/series`，没有自动 applier，`MERGE-REQUEST.md` 记录的是 `/opt/k60/trees/wifi-device` 手工 `git apply` | 分支独有 | **先合并补丁字节差**：以 k60-wifi 的 12 个补丁为准，尤其 `0007` Data UUID 与 `0010` 的双归档分支；再把 applier + `k60_wifi_stage` 门搬进 main | 高（MHI/AMSS） |
 | WiFi 源码 | patch 0001 冻结 `vendor-zizhan-087416a`（134,576 B） | `references/pong-wifi`：Platform **40,342**、Net **47,407**、Pci **6,010**、ath11k **7,248**【实测】 | 同源更新 | 是：替换 0001 的 vendor dump | 高 |
-| UFS 根发布层 | `drivers/NativeUfs` 7 文件 ~82 KB | `references/ShengUfs@9d527ae`：`NativeUfs.cpp` **149,596**、`VerifiedTableCache.h` **6,878**、`RootPublication.h` **3,225** + tests【实测】 | 官方组件（catalog pin `99d8bcd` 无此层） | 是：VerifiedTableCache + RootPublication/RootWindowRead + 4 个测试 | **高**（根挂载，P-152/153） |
+| UFS 根发布层 | `drivers/NativeUfs` 7 文件 ~82 KB（main）；`k60-ufs-verified:feat/ufs-verified-table` 已移植 `VerifiedTableCache`/`RootPublication`/`RootWindowRead` + `RootPolicyTable`/`RootWindowVerifier` 与 host 测试 | `references/ShengUfs@9d527ae`：`NativeUfs.cpp` **149,596**、`VerifiedTableCache.h` **6,878**、`RootPublication.h` **3,225** + tests【实测】 | 官方组件（catalog pin `99d8bcd` 无此层） | 分支已做：VerifiedTableCache + RootPublication/RootWindowRead + 3 个新增测试；未合 main | **高**（根挂载，P-152/153） |
 | Metal 测试 | — | `UniXNU/drivers/AdrenoMetal`：`OfflineMetalFrontend.mm` 75,688 等 5 个 | 官方组件 | 是：当回归网 | 低 |
 | ADSP provider | `K60AdspOwnerStages` 只有契约 | `pong-power`：`PongPlatformResources.cpp` **4,230**、`PongPower.cpp` **1,970**、`PongAdsp.cpp` 33,318【实测前两个】 | 同源缺失 | 是：补 owner 的 ops | 高（卡音频/WiFi） |
 | 音频传输 | `0503/0504/0505` 补丁，compile-only | `pong-power`：`ShengGpr.c` **4,165**、`ShengAudioReach.c` **17,656**、`PongAudioService.cpp` 7,421【实测前两个】 | 同源缺失 | 是：GPR + AudioReach opcode + service | 高 |
@@ -225,7 +225,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 | 顺序 | 项 | 从哪抄（本地路径） | 我们现状 | 为什么这个顺序 | 验收 |
 |---|---|---|---|---|---|
-| 1 | UFS 验证表/根发布层 | `references/ShengUfs@9d527ae`：`VerifiedTableCache.h` 166 行、`RootPublication.h` 84、`RootWindowRead.h` 54 + tests | `drivers/NativeUfs` 7 文件约 82 KB，无这一层 | 纯头文件/只读，先立回归网；直接对着根挂载（P-152/P-153） | 编译 + 4 个 host 测试；草案见 [`plans/SHENGUFS-VERIFIED-TABLE-PORT.md`](../plans/SHENGUFS-VERIFIED-TABLE-PORT.md) |
+| 1 | UFS 验证表/根发布层 | `references/ShengUfs@9d527ae`：`VerifiedTableCache.h` 166 行、`RootPublication.h` 84、`RootWindowRead.h` 54 + tests | `drivers/NativeUfs` 7 文件约 82 KB（main）；`k60-ufs-verified:feat/ufs-verified-table` 已有这一层与 3 个新增 host 测试 | 纯头文件/只读，先立回归网；直接对着根挂载（P-152/P-153） | 编译 + 6 个 host 测试（3 个原有 + 3 个新增）；草案见 [`plans/SHENGUFS-VERIFIED-TABLE-PORT.md`](../plans/SHENGUFS-VERIFIED-TABLE-PORT.md) |
 | 2 | BT userland | `QcaBluetooth`：`userland/BlueTool.c`、`Type0.c`、`tools/build-bluetool.py` 2,503 B、`build-type0.py` 2,941 B | `0500-k60-bt-qbt-new-files.patch` 只有内核侧 | **只能抄骨架**：BlueTool/Type0 是 iOS 27 24A446，Type0 锁自身 LC_UUID 与 bluetoothd SHA-256，20G81 不能直接运行；先抄 build/sign 流程、XPC 服务骨架、`kern.qbt_*` sysctl 契约 | 脚本产出与 QcaBluetooth 同结构；XPC 服务骨架可在 20G81 编译（不加载 Type0） |
 | 3 | 音频传输 | `references/pong-power`：`ShengGpr.c` 4,165 B、`ShengAudioReach.c` 17,656、`PongAudioService.cpp`、`PongAudio.cpp` | `0503/0504/0505` compile-only | audio planned，纯代码，先补传输层 | 编译 + opcode/route 表单测 |
 | 4 | ADSP provider | `references/pong-power`：`PongPlatformResources.cpp` 240 行、`PongPower.cpp` 66、`PongAdsp.cpp` 714 | `K60AdspOwnerStages` 只有契约 | 承接 battery/PAS1 缺口；依赖 3 的 GPR/GLINK | host suite（owner 77 场景）不回归 |

@@ -10,7 +10,9 @@ docs/research/cellular/17-OFFLINE-ACCEPTANCE-CHECKLIST.md section 5.1-5.3:
        coexist.
   5.2  a carrier directory passes the shipped-table check, and a volume built
        from it carries the 27 streams under EFI/UniXNU/MODEM with the names the
-       manifest lists; payload.json can record their identity.
+       manifest lists; payload.json can record their identity; a manifest row
+       without the modem.bNN shape (e.g. "b01 4") is refused at build time,
+       because the firmware would never open it.
   5.3  without the switch the ADT is unchanged (modulo the random seed that
        generate() draws from os.urandom, which this tool masks and declares).
 
@@ -236,6 +238,29 @@ def main(argv=None):
     check('5.2 the declared total matches the firmware table',
           carrier['declared'] == EXPECTED_DECLARED, str(carrier['declared']))
 
+    # The firmware builds L"%a.lzma" from the table name and probes the literal
+    # "modem.b01" sentinel before it loads anything, so a row without that shape
+    # names a file no boot opens.  The framework rejects such a row while it
+    # reads the table (92bb60f); if that guard ever regresses this check fails
+    # here instead of at boot as a missing sentinel.
+    bad_dir = work / 'carrier-bad-name'
+    shutil.rmtree(bad_dir, ignore_errors=True)
+    bad_dir.mkdir()
+    (bad_dir / payload_step.MODEM_MANIFEST).write_text('b01 4\n', encoding='utf-8')
+    # Give the bad row a stream whose 13-byte header satisfies the table, so this
+    # case fails only when the name guard is missing: without that guard the
+    # carrier would be accepted, not rejected for a missing or extra file.
+    (bad_dir / 'b01.lzma').write_bytes(
+        bytes([0x5D]) + (1 << 24).to_bytes(4, 'little') + (4).to_bytes(8, 'little') + b'X')
+    try:
+        payload_step.read_modem_carrier(bad_dir)
+    except Exception as exc:            # noqa: BLE001 - refusal is the contract
+        refused, refusal = True, str(exc)
+    else:
+        refused, refusal = False, 'the framework accepted the row'
+    check('5.2 a manifest row without the modem.bNN shape is refused',
+          refused, refusal[:160])
+
     stage = work / 'stage'
     shutil.rmtree(stage, ignore_errors=True)
     (stage / 'EFI/UniXNU/Payloads').mkdir(parents=True)
@@ -290,6 +315,8 @@ def main(argv=None):
                                     for name in names}},
         },
         'tools': {'python': platform.python_version(), 'mtools': mtools_version()},
+        'negative_case': {'manifest_row': 'b01 4', 'refused': refused,
+                          'detail': refusal[:200]},
         'checks': results,
         'expected': {'files': EXPECTED_FILES, 'declared': EXPECTED_DECLARED,
                      'bss_only_rows': sorted(EXPECTED_BSS_ONLY)},

@@ -256,3 +256,15 @@ note = "P-224: freeze() no longer hashes scripts/__pycache__/*.pyc. Touches scri
 sha = "cb33248"
 state = "build-only"
 note = "P-225: board_dir() now ranks candidates by whether the .config names CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY. On every tree present today it resolves to the same directory the hardcoded path used (out-wifi -> mondrian/, which is what the wifi builds already wrote), so no build output changes; the next full build confirms it."
+
+[[entry]]
+sha = "c4461f9"
+state = "build-only"
+note = """adsp-20261116a 的登记：feat/adsp-handoff-owner 把 ADSP 供电轨账本带进内核
+（drivers/PongPower/K60AdspBoard.{c,h} 新增、K60PmicRail.{c,h} 加账本、
+K60HandoffRuntime.cpp 接线、patches/xnu/0613-k60-adsp-pas.patch 重生成使内核跑仓库
+那版 rail 驱动并带上 P-191 的 NoLevel 修复）。sha 是 merge origin/main 8b57690 之后的
+分支尖端；紧随其后的登记提交只动这个文件，按 RISKY 前缀规则免登记。未上机：判据是
+pong_handoff_publish=1 pong_rail_probe=1 下的六行成功链，缺 'K60ADSP: rails inherited'
+就说明账本没被填上，不是构建问题。"""
+

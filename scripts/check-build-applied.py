@@ -25,8 +25,12 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches/xnu/series"
-INPUT = pathlib.Path(os.environ.get(
-    "K60_DEVICE_INPUT", "/opt/k60/trees/usb-cdc-mainline/device")) / "patches/xnu/series"
+_INPUT_ENV = os.environ.get("K60_DEVICE_INPUT")
+if not _INPUT_ENV:
+    sys.exit("check-build-applied: K60_DEVICE_INPUT is not set; refusing to compare the series "
+             "against a mirror the caller did not name (2026-11-16: the silent fallback turned "
+             "one unset variable into five false reds in check-rules).")
+INPUT = pathlib.Path(_INPUT_ENV) / "patches/xnu/series"
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
 # 一棵树可以有多个输出目录（mondrian_defconfig -> mondrian/，
 # mondrian_wifi_defconfig -> mondrian_wifi/），而 K60_OUT 只指向其中一个。

@@ -45,8 +45,12 @@ KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
           'ipados-16.6.1-20G81/mondrian/kernel/kernel.macho')
 # 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
 # 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
-DEV = (os.environ.get('K60_DEVICE_INPUT')
-       or '/opt/k60/trees/usb-cdc-mainline/device') + '/patches/xnu'
+_INPUT_ENV = os.environ.get('K60_DEVICE_INPUT')
+if not _INPUT_ENV:
+    sys.exit('porting-gate: K60_DEVICE_INPUT is not set; refusing to judge this tree against a '
+             'mirror the caller did not name. Export your own mirror (2026-11-16: the silent '
+             'fallback turned one unset variable into five false reds in check-rules).')
+DEV = _INPUT_ENV + '/patches/xnu'
 LEDGER = WORK + '/ledger.jsonl'
 # 铁则 9 的基线账本。它按 series 指纹记「这一套补丁曾经真的上机启动过」，
 # 而 ledger.jsonl 是跨 worktree 全局的，别的分支飞一次就会把「上次成功」

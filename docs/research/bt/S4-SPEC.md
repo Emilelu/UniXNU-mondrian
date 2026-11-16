@@ -1331,6 +1331,11 @@ d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）�
 | 最后一条是 `boot: rampatch done` | 卡在 NVM 下载段 |
 | 连 `boot: enter` 都没有 | 卡在 `qbt_boot()` 之前的地址派生或 `k60_bt_power_on()` |
 | 出现 `full: qbt_boot returned e=0` 但之后什么都没有 | **不是蓝牙失败，是服务循环没被调起来**（Lead 2026-11-16 加的第四档）：去看 `nw_wifi_step` 那类泵循环在蓝牙侧是否存在。d5/d6 停在 `:726 addon: serving 6442 0` 之后就没有下文，怀疑「下载完了但没人继续驱动它」 |
+| 有 budget 行、但 `boot: command timeout` 计数为 **0** | **没有一段卡死**（Lead 2026-11-16 13:40 补的第五档，d7 实测）：预算分支在 deadline 分支之前，任何一段真卡满 10 s 都会先打 command timeout。计数为 0 ⇒ 每段都在期限内返回，只是合起来超过预算，下一步是测段速而不是查挂死 |
+
+> 「budget 行出现几次」与「command timeout 出现几次」必须**分别计数**再判读：
+> d7 是 budget 2 次 / timeout 0 次 —— 单看 budget 会误判成「卡在最后等的那个 opcode」，
+> 加上 timeout=0 才变成「没有卡死、只是慢」。
 
 ### 7.16 两条通用规矩（Lead 2026-11-16 认可，适用于本线以外的所有硬件线）
 
@@ -1389,7 +1394,7 @@ d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）�
    指向的 8 MiB `io_submap`（§7.10/§7.11）。二分给的是**范围**，panic/日志给的是**机制**，
    两者缺一不可。
 
-### 7.18 d7 图 `bt-d7-obs` 实飞：预算行生效，停在 NVM 第一段（2026-11-16 13:04）
+### 7.18 d7 图 `bt-d7-obs` 实飞：预算行生效，NVM 下载慢而不是卡死（2026-11-16 13:04，13:40 由 Lead 纠正本线初判）
 
 Lead 在 13:04:46 飞了 `bt-d7-obs`（boot.img `76a4260bc762a22a3dc683e4042a0a13a8dea41f04defccede8f9a96719c7512`），
 证据 `E:/k60-work/evidence/usblog-20261116-130444`。这是蓝牙线上第一张**把死因打印出来**的观测图。
@@ -1423,27 +1428,72 @@ opcode `0xfc00` 就是 `EDL_PATCH_CMD_OPCODE`（TLV 段命令，`0500:3784`）�
 对这条命令的应答。`power=` 行被 90 s 预算逼了出来 —— 没有这条预算，d5/d6 那种「什么都不打」会一直持续下去。
 `-60` 是 Darwin 的 `ETIMEDOUT`。
 
-**结论二：停点在 NVM 下载的第一段，不在 rampatch，也不在 bdaddr。**
+**结论二：预算在 NVM 下载途中用完 —— 是慢，不是卡。**
 rampatch（146,068 B，按 `MAX_SIZE_PER_TLV_SEGMENT 243` 约 601 段）在 t≈15→t≈30 的 15 s 内全部送完并被确认，
-NVM（6,442 B，约 27 段）在 t≈45 之后**一段都没被确认**。所以 rampatch 的 TLV 通路、3 Mbaud 切换、
-板级 id 读取都是好的；坏在 NVM 段。两次 `addon: serving 6442 0` 是 WCN6855 的回退逻辑
-（`0500:3673-3676`：`wcnhpnv21g.bin` 失败后改用 `hpnv21g.bin` 重下），不是两份不同文件。
+说明 TLV 通路、3 Mbaud 切换、板级 id 读取都是好的。NVM（6,442 B，约 27 段）从 t≈45 起被逐段取走，
+到 t≈110 预算用完时仍在推进：
 
-**结论三（待查的异常）：日志里没有一条 `boot: command timeout op=0xfc00`。**
-按代码，每条 TLV 段的 `qbt_command` 都带 10 s 的 `QBT_COMMAND_TIMEOUT`（`qbt_core.c:268`），
-60 s 的空转本应打印 5–6 条 `command timeout`，但实测只有 90 s 的 budget 行。
-`run()` 里 budget 分支在 deadline 分支之前，所以「两条都成立时 budget 优先」只解释最后一条，
-解释不了前面 60 s 一条都没有。两种可能：(a) 时间花在 `run()` 之外（某个 `qbt_delay` 或等待循环）；
-(b) 10 s 分支在这条路径上不可达（例如 `q->info.error` 先返回、或 `ibs` 唤醒重试把状态打成 failed）。
-**下一张图要能区分这两者**，见下。
+- 时间账：`boot: enter` t≈20，`rampatch done` t≈45，`budget exhausted` t≈110 —— 20 + 90 = 110，
+  预算正好在进入 NVM 之后 65 s 处花完；
+- 段速：6,442 / 243 = 27 段，65 s / 27 ≈ **2.4 s 一段**，远小于每段 10 s 的 `QBT_COMMAND_TIMEOUT`；
+- 两次 `addon: serving 6442 0` 是 WCN6855 的回退逻辑（`0500:3673-3676`：`wcnhpnv21g.bin` 失败后
+  改用 `hpnv21g.bin` 重下），不是两份不同文件。
 
-**下一张图（d8）的观测要求**（仍然只加日志，不改状态机）：
+本线初判为「停在 NVM 的第一段、一段都没被确认」，Lead 13:40 用下面结论三的计数否证了它：
+没有一条命令超时，说明每一段都在期限内完成了，只是整段 NVM 比 90 s 预算更慢。
 
-1. `qca_download_firmware()` 的分片循环里，每段一条 level-1：段号 / 段长 / 已用时 / 累计 ack；
-2. `qbt_boot()` 返回前打一次 `qbt_get_stats()` 的关键字段（`tlv_sent` / `tlv_acks` / `timeouts` /
-   `unmatched_events` / `hardware_errors` / `last_hardware_error`）—— 现在这些计数器在设备上完全不可见；
-3. 进 NVM 之前打一行 `ibs=%d state=%u baud=%u`，确认 in-band sleep 有没有参与；
-4. 若 d8 显示 `tlv_sent` 停在 1 且 `timeouts` 为 0，则 (a) 成立，问题在等待循环而不是 TLV 应答。
+**结论三：`command timeout` 计数为 0 ⇒ 没有任何一段卡死（Lead 2026-11-16 13:40 的纠正，本线初判作废）。**
+实测 `grep -ac "command timeout"` = **0**、`grep -ac "budget exhausted"` = **2**。
+`0514` 在 `run()` 里把预算分支放在 10 s 单命令超时分支**之前**，所以只有「两条同时成立」时预算才吃掉
+超时行；只要有任何一段真的卡满 10 s，那一段必然先被 deadline 分支抓到并打印 `boot: command timeout op=0xfc00`。
+一条都没有 ⇒ **不存在卡死的段**，NVM 的 27 段每段都在 10 s 内返回，只是合起来超过 90 s。
+
+这条计数同时否证两个假设：①「某一段挂住」；②「每段都在 9.x s 边缘」（那会打印一串 command timeout）。
+剩下的只有「每段确实慢但正常」。仍未排除的细分是：2.4 s/段是控制器写内部存储的固有延迟（(a)），
+还是应答被 `event()` 里 `if (e[5]) return;` 丢掉、命令靠重试在最后时刻完成（(b)）——(b) 会留下
+`unmatched_events` / 重发痕迹，所以 d8 要打 `tlv_sent` 与 `tlv_acks` 的比值。
+
+**下一张图（d8）的观测要求**（Lead 2026-11-16 13:40 定的三件事，全在 `qca_download_firmware()` 主循环，
+只加日志、不碰状态机；实现见 §7.19）：
+
+1. 每段一条 `tlv seg i=%u size=%d dt_ms=%u e=%d sent=%llu acks=%llu`（`dt_ms` 用 `now_ns` 前后相减）；
+2. 循环结束 / `goto out` 之前一条 `tlv done type=%d segs=%u sent=%llu acks=%llu final=%llu ret=%d`；
+3. 已有的 `power=` 行追加 `tlv_sent=%llu tlv_acks=%llu tlv_final=%llu`。
+
+**明确不做**：不抬 `QBT_BOOT_BUDGET`（90 s 花光本身有信息量，抬了会把它抹掉）、不改
+`MAX_SIZE_PER_TLV_SEGMENT`(243) / `dnld_mode` / `dnld_type` / 段表 / SMMU / 时钟 / 窗口 / `board.toml`。
+
+**d8 三支判读**：
+
+| 观察 | 结论 | d9 动作 |
+| --- | --- | --- |
+| `dt_ms` 2,000–3,000 且 `acks` 跟着涨到 20+ | (a) 每段正常，只是 NVM 整体慢 | 只把预算抬到 240 s |
+| `dt_ms` 9,000–10,000 且 `acks` 不涨 | (b) 应答被丢、靠重试完成 | 改 `event()` TLV 分支（接受 `e[0]==0x0f` 或按固件 `download_mode`） |
+| `sent` 停在个位数就 budget exhausted | 卡在 `qbt_send_command` 的 TX 排空 | 打 `qbt_deadline()` 与 `k60.geni` 状态 |
+
+### 7.19 d8 配方：0515 打印 TLV 段速与计数器（2026-11-16 13:20）
+
+d7 把问题从「什么都不打」缩到「NVM 下载慢」，但它看不清**每段的实际耗时**：`struct qbt_stats`
+里 `tlv_sent` / `tlv_acks` / `tlv_final_status` 早就在维护（`qbt.h:32-38`），可内核侧从未打印过。
+0515 只做这件事 —— 把已有计数器与段速打出来。
+
+| 改动 | 位置 | 作用 |
+| --- | --- | --- |
+| `tlv seg i=%u size=%d dt_ms=%u e=%d sent=%llu acks=%llu` | `btqca.c` `qca_download_firmware()` 循环 | 每段一行，`dt_ms` 用 `ops.now_ns()` 前后相减 |
+| `tlv done type=%d segs=%u sent=%llu acks=%llu final=%llu ret=%d` | `out:` 之前 | 一次下载的汇总，rampatch 与 NVM 各一条 |
+| `power=` 行追加 `tlv_sent=%llu tlv_acks=%llu tlv_final=%llu` | `qbt_k60.c` `k60_power_result()` | 失败路径也带计数器 |
+
+**边界**：`QBT_BOOT_BUDGET`(90 s) / `QBT_COMMAND_TIMEOUT`(10 s) / `MAX_SIZE_PER_TLV_SEGMENT`(243) /
+`dnld_mode` / `dnld_type` / 段表 / SMMU / 时钟 / 窗口 / `board.toml` 全部不动。host 测试
+`scripts/tests/test-k60-bt-0515-tlv-counters.py`（28 例）把这条边界逐项断言，包括「传给
+`qca_tlv_send_segment()` 的参数逐字未变」与「被删掉的行只有旧调用 2 行、旧 printf 2 行」。
+
+- 补丁 `patches/xnu/0515-k60-bt-tlv-counters.patch`（2,727 B，+38/−4，sha256
+  `120c4d57d1bf72bdee18770a520367bd68d46c1c96ffb185c5bbf51ec46c4cd6`），孪生
+  `patches/bt/0009-k60-bt-tlv-counters.patch` 字节相同；全量重放 234 条 `BAD=0` 后再单独 apply 成功。
+- **配方**：series 235（`… 0512 / 0514 / 0515`），参数 `k60bt=1 pong_bt_late=1`（31 项 / 598 B），
+  tag `bt-d8-tlv`。
+- **判据**：见 §7.18 的三支表（`dt_ms` 段速 / `acks` 是否跟着涨 / `sent` 是否停在个位数）。
 
 ---
 

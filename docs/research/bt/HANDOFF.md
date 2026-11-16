@@ -911,7 +911,7 @@ Lead 回复 #12 第五项：把 S4-SPEC §7.17 的「单变量二分五步法」
   具体数字与 evidence 路径。
 - check-docs 202 项 ✅（新文档被 INDEX 与 engineering/README 双登记）。
 
-### 35. d7 实飞：预算行生效，停在 NVM 第一段（2026-11-16 13:04）
+### 35. d7 实飞：预算行生效，NVM 下载慢而不是卡死（2026-11-16 13:04；13:40 由 Lead 纠正本线初判）
 
 Lead 飞了 `bt-d7-obs`（boot.img `76a4260bc762a22a3dc683e4042a0a13a8dea41f04defccede8f9a96719c7512`），
 证据 `E:/k60-work/evidence/usblog-20261116-130444`（console 3,180 行 / 221,001 B、SpringBoard 132、
@@ -919,16 +919,32 @@ panic 0、stopReason budget）。
 
 - 0514 的观测设计成立：`:2044 boot: budget exhausted at op=0xfc00 waiting=1` 把死因打了出来，
   `0xfc00` = `EDL_PATCH_CMD_OPCODE`，`power=1 result=-60 baud=3000000 firmware=` 被 90 s 预算逼出来。
-- 停点在 **NVM 下载的第一段**：rampatch（146,068 B ≈601 段）在 t≈15→t≈30 全部确认完，
-  NVM（6,442 B ≈27 段）从 t≈45 到 t≈105 一段都没被确认。rampatch 通路 / 3 Mbaud / 板级 id 都正常。
+- **是慢，不是卡**（本线初判「停在 NVM 第一段」已被 Lead 13:40 纠正，见 item 36）：rampatch
+  （146,068 B ≈601 段）在 t≈15→t≈30 全部确认完，NVM（6,442 B ≈27 段）从 t≈45 起逐段推进，
+  到 t≈110 预算用完时仍在推进。时间账 20 + 90 = 110；段速 65 s ÷ 27 段 ≈ 2.4 s/段。
   两次 `addon: serving 6442 0` 是 `wcnhpnv21g.bin` → `hpnv21g.bin` 的回退（`0500:3673-3676`），不是两份文件。
-- 待查异常：**没有一条 `boot: command timeout op=0xfc00`**。每段 TLV 都带 10 s 的
-  `QBT_COMMAND_TIMEOUT`（`qbt_core.c:268`），60 s 空转本应打印 5–6 条。两种可能：
-  (a) 时间花在 `run()` 之外；(b) 10 s 分支不可达（`info.error` 先返回或 ibs 唤醒重试打成 failed）。
-- 落档：S4-SPEC 新增 §7.18（采集表 + 15 行阶梯/时间线表 + 三条结论 + d8 四条观测要求）。
-- 下一张图 d8 的观测要求：分片循环每段一条 level-1；`qbt_boot()` 返回前打 `qbt_get_stats()` 的
-  `tlv_sent/tlv_acks/timeouts/unmatched_events/hardware_errors/last_hardware_error`（这些计数器
-  目前在内核侧从未被调用）；进 NVM 前打 `ibs/state/baud`；用 `tlv_sent` 停在 1 且 `timeouts=0` 区分可能 (a)。
+- 决定性计数：`grep -ac "command timeout"` = **0**、`grep -ac "budget exhausted"` = **2**。
+  预算分支在 10 s deadline 分支之前，任何一段真卡满 10 s 都会先打 command timeout；一条都没有
+  ⇒ **没有卡死的段**，每段都在期限内返回，只是整段 NVM 比 90 s 预算慢。
+- 落档：S4-SPEC §7.18（采集表 + 阶梯/时间线表 + 三条结论 + d8 三支判读表）、§7.15 判据表新增第五档。
+
+### 36. d8 配方：0515 打印 TLV 段速与计数器（2026-11-16 13:20）
+
+d7 只能判到「NVM 慢」，判不到「每段多慢」：`struct qbt_stats` 的 `tlv_sent` / `tlv_acks` /
+`tlv_final_status` 早就在维护（`qbt.h:32-38`），内核侧却从未打印。0515 只做这件事。
+
+- 补丁 `patches/xnu/0515-k60-bt-tlv-counters.patch`：2,727 B / +38−4，sha256
+  `120c4d57d1bf72bdee18770a520367bd68d46c1c96ffb185c5bbf51ec46c4cd6`，只动 `bsd/dev/qbt/btqca.c`
+  与 `bsd/dev/qbt_k60.c`；孪生 `patches/bt/0009-k60-bt-tlv-counters.patch` 字节相同。全量重放
+  234 条 `BAD=0` 后单独 apply 成功（标记行 `btqca.c:623` / `:653` / `qbt_k60.c:1983`）。
+- 三行：每段 `tlv seg i=… size=… dt_ms=… e=… sent=… acks=…`（`dt_ms` 用 `ops.now_ns()` 前后相减）、
+  `out:` 前 `tlv done type=… segs=… sent=… acks=… final=… ret=…`、`power=` 行追加
+  `tlv_sent=… tlv_acks=… tlv_final=…`。边界：预算 90 s / 单命令 10 s / 段长 243 / `dnld_mode` /
+  `dnld_type` / 段表 / SMMU / 时钟 / 窗口 / `board.toml` 全不动，host 测试 28 例逐条断言。
+- 配方：series 235（`… 0512 / 0514 / 0515`），`k60bt=1 pong_bt_late=1`（31 项 / 598 B），tag `bt-d8-tlv`。
+- 三支判读（Lead 13:40）：`dt_ms` 2,000–3,000 且 `acks` 涨到 20+ ⇒ 正常慢，d9 只抬预算到 240 s；
+  `dt_ms` 9,000–10,000 且 `acks` 不涨 ⇒ 应答被 `event()` 丢弃，d9 改 TLV 分支；`sent` 停在个位数
+  ⇒ 卡在 `qbt_send_command` TX 排空，d9 打 `qbt_deadline()` 与 `k60.geni` 状态。
 
 
 

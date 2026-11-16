@@ -78,6 +78,8 @@ mainline 常量：STATUS1 0x8（CONV_FAULT bit7 / REQ_STS bit1 / **EOC bit0**）
 真机证据：`E:/k60-work/evidence/audio-probe-j/run1/console.log:188` `K60AUTORESET: restart reason primed for fastboot`、:256 `K60 USBLOG: PMIC restart reason primed for fastboot`，随后设备确实进了 fastboot（capture-events.jsonl:4 的 reset-marker 是 "K60 USBLOG: restart reason published"）。
 结论：**这不是纸面方案——零售 K60 上 XNU 已经用 SPMI 写过 PMIC 并生效**，只差把「写 SDAM」换成「读写 VADC」。
 
+（3b）只读参考实现已经存在：`patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-spmi-probe.patch:21-36` 的 `spmi_read_apid(apid, reg)` 就是可复用的单寄存器读路径——先 `wr(off + 0x18, 0)`，再 `wr(off + 0x00, (1u << 27) | ((reg & 0xffu) << 4))`，轮询 `off + 0x08` 的 bit0，读 `off + 0x18 & 0xff`，失败返回 `0xee00 | st`；`:43-44` 把 core `0xc400000/0x3000` 与 observer `0xc440000/0x80000` 映射好。D5 第一步的只读探针可以照这个读路径写，不需要重新发明 arbiter 事务。
+
 （4）arbiter 侧已有只读探针可复用。
 `console.log:687-700`：`K60LDO rev=12 n0=768 n1=256 total=1024`、`i=745 p=0x2c1`、`rev=12 sid2=34 apid241=-1`。最后一项很重要：**PPID 0x241 在 AP EE 的映射里根本不存在**（与 `K60PmicRail.c:2-3` 的注释一致）。但 VADC 的 PPID 0x031 已经在三次独立 boot 的 PPID 扫描里出现并可读：`E:/k60-work/evidence/usblog-20261110-182146/console.log:667`、`usblog-20261110-183040/console.log:667`、`usblog-20261110-183911/console.log:667` 都是 `K60S21: ppid=0x031 apid=408 ok  00 00 00 00 08 44 00 00  08 44 00 00 08 44 00 00`；`usblog-20261110-185544/console.log:643` 的 `K60S23: ppid=0x031 apid=408 en=00(ok=0 en=0) range=03 vset=00` 也一致。即 **PPID 0x031 在 AP EE0 的 map 里存在（apid=408）且 12 字节读取返回 ok**。仍需证明的是「PPID 0x031 就是 vadc@3100 这个外设」，这只能靠 §5 第一步只读探针读 STATUS1/APP_SID/EN_CTL1 的合理值来确认。
 

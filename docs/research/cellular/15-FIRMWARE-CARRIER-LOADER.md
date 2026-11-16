@@ -442,6 +442,40 @@ OUT UINT32 *ScratchSize)` — `Mu_Basecore/MdeModulePkg/Library/LzmaCustomDecomp
   37.5 MB 的**源**块。
 - 代价二（§1.7 的「§2.4 分块循环作废」）现在明确：§2.4 第 4 步的 64 KiB 分块只用于**读文件**，
   写入改为「整块解压到窗口」。
+
+#### 1.8.8 实现期抓到的坑：`LzmaDecode` 的 `*srcLen` 是「已消费」不是「剩余」
+
+2026-11-16 在宿主用同一份 `Sdk/C/LzmaDec.c` 跑 27 个真 `.lzma` 时，**首轮 27/27 全部报
+`modem-image: %a did not decompress (Invalid Parameter)`**，而文件本身完好。真因不在文件、也不在
+props，而在包装层对 `srcLen` 出参的误读。
+
+- 调用形状：`LzmaDecode (Dest, &DestLen, Source + 13, &SourceLength, Source, LZMA_PROPS_SIZE,
+  LZMA_FINISH_END, &Status, &Alloc)`，其中 `SourceLength` 入参 = `SourceSize - 13`。
+- `Sdk/C/LzmaDec.c:1219-1234`：函数先把 `*srcLen` 置 0（`:1221`），进 `LzmaDec_DecodeToDic`
+  后由 `:1232` 的 `*srcLen = inSize` 暂存入参，**返回前 `:1233` 把它改写成「已消费的输入字节数」**。
+  所以出参语义是 *consumed*，不是 *leftover*。
+- 错误判据（第一版代码）：`if (SourceLength != 0) return RETURN_INVALID_PARAMETER;` ——
+  按「剩余必须为 0」写，于是每个文件都被判失败，且错误串长得像「文件坏了」，极易把排查引向
+  打包侧（P-204 家族：判据的形状错了，报错文本却指着一个无辜的对象）。
+- **正确判据**：`if (SourceLength != (SizeT)(SourceSize - CARRIER_HEADER_SIZE))
+  return RETURN_INVALID_PARAMETER;` —— 解压器必须**正好消费掉 13 B 头之后的全部字节**，
+  少消费说明尾部有垃圾、多消费说明越界，两种都拒。
+- 判据之外还要求 `Status ∈ {LZMA_STATUS_FINISHED_WITH_MARK, LZMA_STATUS_MAYBE_FINISHED_WITHOUT_MARK}`
+  （`LzmaDec.h:108-114` 五个枚举里只认这两个；`SZ_OK` 本身不区分「解完了」与「输入不够」）。
+
+宿主 harness 的实测（`E:/k60-work/artifacts/host/lztest.c`，用 EDK2 原文件编，不依赖固件）：
+
+- 分配器：`typedef struct { ISzAlloc Funcs; unsigned char *buf; size_t cap; size_t used; } POOL;`
+  —— **`Funcs` 必须是第一个成员**，因为 `LzmaDecode` 拿到 `ISzAllocPtr` 后会直接把它当 `POOL *`；
+  第一版没放首位 ⇒ 解到一半 Segmentation fault（宿主上是段错误，固件里会是静默写坏窗口）。
+- 语料：从 `K60ModemImageTable.h` 抽 30 行（含三个 `((const char *)0)` 的 bss-only 段），
+  27 个 `.lzma` 从已改写 8 B 声明长度的 `payload-modem.img` 里 `mcopy` 抽出。
+- 结果：**files 27 ok 27 fail 0**；每个文件的概率表用量恰好 **16,256 B**（8,128 项 × 2 B），
+  远小于 64 KiB scratch ⇒ `CARRIER_SCRATCH_SIZE = SIZE_64KB` 有余量；`modem.b23` 37,475,838 B
+  压缩源解出 40,935,488 B 且逐字节等于原始 `.bin`。
+- 该 harness 的价值：解压一旦在真机上出错就是黑屏，而黑屏不告诉你是哪个文件、哪一步；
+  在宿主用**同一份解码器源码 + 真语料 + 逐字节比对**能提前把这类错误全部消灭。
+
 ## 2 内存
 
 ### 2.1 三种写法的判决

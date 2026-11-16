@@ -20,11 +20,21 @@ repo 指 `/mnt/e/hackios/k60-cellular`。
 | 行 | 断言 | 工具与命令（WSL） | 通过标准 |
 | --- | --- | --- | --- |
 | A1 | payload 卷恰好 192 MiB（路线 D：不扩容） | `stat -c %s "$PL"` | `== 201326592`（若最终改走 A-208 扩容档则为 218,103,808，二者只留一种） |
-| A2 | boot.img 恰好 201,887,744 B | `stat -c %s "$BOOT"` | `== 201887744`（A-208 档为 218,664,960；固件若改 boot.img 头布局须先改此数并说明理由，未改前不许跳） |
+| A2 | boot.img 大小 == 公式值（不写魔数） | `KSZ` = boot.img 头 offset 8 的 `kernel_size`；`A2 = 4096 + ceil(KSZ/4096)*4096 + 201326592 + 4096`；再 `stat -c %s "$BOOT"` | `== $A2`。本交实测 `KSZ=555628` ⇒ **201,891,840**（见下方说明） |
+| A2b | FD 本体精确 3,145,728 B | `stat -c %s "$FWREPO/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd"` | `== 3145728`（与页数无关，永远成立） |
 | A3 | `EFI/UniXNU/MODEM/` 恰好 27 个文件，名字 = 段表名字各加 `.lzma` | `mcopy -o -s -i "$PL" '::EFI/UniXNU/MODEM/*' /tmp/accept-modem` 后 `ls` 与 `gen-modem-table.py --manifest` 名字列（加 `.lzma`）diff | 行数 27 且 diff 空 |
 | A4 | 每个文件 13 B LZMA 头合法：props 首字节 `0x5D`、8 B 声明长度 == 段表 `bytes`、声明长度不是 `0xFFFFFFFFFFFFFFFF` | `python3 scripts/check-modem-lzma.py --dir /tmp/accept-modem --manifest /tmp/accept-want.txt --sum` | rc 0，`failures=0` |
 | A6 | 27 个声明长度之和 == 109,060,761（等于 C2 的 `copied`） | 同 A4 的 `--sum` 输出末行 `declared-total=` | `== 109060761` |
 | A5 | ADT `/chosen/memory-map` 有 `K60ModemImage` 属性，长度恰 16 字节，值 ∈ {全零, 精确区间} | 抽出 `kernel.macho.adt`，用 `scripts/pong_adt_contract.py` 的 `parse_adt` 解出 `/chosen/memory-map['K60ModemImage']` | rc 0，`len == 16`，`(base, span) ∈ {(0,0), (0x8bc00000, 0x13200000)}` |
+
+A2 为什么是公式而不是数字（2026-11-16 Lead 裁决 (a)）：boot.img 的组成是
+`4096`（头页）+ `ceil(ksz/4096)*4096`（kernel 段）+ `201326592`（ramdisk 段）+ `4096`（v4 签名零块），
+其中 `ksz` 是 `gzip -9` 后的 `112 B BootShim.bin + 3,145,728 B SILICIUM_UEFI.fd` 的长度，dtb 固定取
+`Resources/DTBs/mondrian.dtb`（4,024 B，见该目录的 MANIFEST.md）。**魔数在 FD 内容一变就过期**：
+上一版 FD 的 `ksz=546,908`，加 4,024 B dtb 后落在 135 页，得 201,887,744；本交 FD 的 `ksz=551,566`，
+加 dtb 后跨到 136 页，得 **201,891,840**——差 4,096 B 是页对齐造成的，不是镜像写错了。
+所以 A2 只判「头里的 kernel_size 与最终文件大小互相自洽」，**页数由 FD 内容决定，不由门禁决定**。
+A2b 单独钉住 FD 本体尺寸：它才是「固件没被改大」的那条断言，与页数无关。
 
 说明：**区间起止逐字节**由两条独立证据共同咬死——A5 是离线产物（16 字节值），
 表 C 的 C1/C3 是运行时日志（字面地址串）。两者都必须过。
@@ -78,7 +88,13 @@ bad() { echo "FAIL $*"; FAIL=$((FAIL+1)); }
 
 # ---- 表 A：构建产物（路线 D：payload 内是 27 个 .lzma 文件）----
 [ "$(stat -c %s "$PL" 2>/dev/null)" = "201326592" ] && ok "A1 payload=192 MiB" || bad "A1 payload=192 MiB"
-[ "$(stat -c %s "$BOOT" 2>/dev/null)" = "201887744" ] && ok "A2 boot.img=201887744 B" || bad "A2 boot.img=201887744 B"
+KSZ=$(python3 -c 'import struct,sys;print(struct.unpack_from("<I",open(sys.argv[1],"rb").read(12),8)[0])' "$BOOT" 2>/dev/null)
+A2=$(( 4096 + ((KSZ + 4095) / 4096) * 4096 + 201326592 + 4096 ))
+[ "$(stat -c %s "$BOOT" 2>/dev/null)" = "$A2" ] &&
+  ok "A2 boot.img=$A2 B (ksz=$KSZ, $( ((KSZ + 4095) / 4096) ) 页)" ||
+  bad "A2 boot.img=$A2 B (ksz=$KSZ); 实际 $(stat -c %s "$BOOT" 2>/dev/null)"
+[ "$(stat -c %s "$FWREPO/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd" 2>/dev/null)" = "3145728" ] &&
+  ok "A2b FD=3145728 B" || bad "A2b FD=3145728 B"
 rm -rf /tmp/accept-modem && mkdir -p /tmp/accept-modem
 mcopy -o -s -i "$PL" '::EFI/UniXNU/MODEM/*' /tmp/accept-modem >/dev/null 2>&1 </dev/null
 python3 "$REPO/scripts/gen-modem-table.py" "$FW" --manifest /tmp/accept-want.txt >/dev/null
@@ -150,11 +166,13 @@ echo "TOTAL PASS=$PASS FAIL=$FAIL"
 
 - 工具链可用：`mdir`/`mcopy` 正常，`parse_adt` 能解开当前 `kernel.macho.adt`，
   `/chosen/memory-map` 目前只有 `name` 键；
-- A1/A2 红（当前 payload 201,326,592 / boot.img 201,891,840；路线 D 下这两个数就是载具版的正确值，
-  见 §一 的说明）；
+- A1 红（当前 payload 201,326,592 已是路线 D 的正确值，当时的 payload 还不是这个尺寸）；
+  A2 在 2026-11-16 改成公式后**不再依赖 FD 内容**，同一份 201,891,840 B 的 boot.img 现在能过
+  （`ksz=555,628` ⇒ 136 页 ⇒ 201,891,840），见 §一 A2 的说明；
 - A3/A4/A5 红（无 `MODEM/` 目录、无 `K60ModemImage` 属性）；C1–C5 红（尚无载具日志）。
 
-固件侧交付后，这张表必须变成 **19 行全 PASS**（A1–A6 六行、B1–B6 六行、C1 三行、C2–C5 四行）才能合。
+固件侧交付后，这张表必须变成 **20 行全 PASS**（A1、A2、A2b、A3–A6 七行、B1–B6 六行、
+C1 三行、C2–C5 四行）才能合。
 
 ### 5.1 2026-11-16 的 dry run（路线 D）：先证明门禁本身能跑
 
@@ -165,7 +183,8 @@ echo "TOTAL PASS=$PASS FAIL=$FAIL"
 
 ```txt
 PASS A1 payload=192 MiB
-PASS A2 boot.img=201887744 B
+PASS A2 boot.img=201891840 B (ksz=555628, 136 页)
+PASS A2b FD=3145728 B
 PASS A3 MODEM 目录 27 个 .lzma 文件、名字正确
 PASS A4 27 个 LZMA 头合法、声明长度==段表 bytes
 PASS A6 声明长度之和=109060761
@@ -183,8 +202,12 @@ PASS C2 拷贝/清除/空洞数字
 PASS C3 区间发布行
 PASS C4 内核侧 carrier present
 PASS C5 内核侧 plan rows=30
-TOTAL PASS=19 FAIL=0
+TOTAL PASS=20 FAIL=0
 ```
+
+上面这遍是 2026-11-16 用**真产物**跑的（payload-modem.img / boot-modem-4024.img，见 §5.2），
+不是合成输入：A1–A6、A2b 全绿，B1–B6 全绿，C1–C5 未跑（还没有上机日志）。
+A2 那一行的数字来自公式，`ksz=555,628` 是这一版 FD 的真实值。
 
 A6 排在 A5 之前是脚本结构使然：A5 用 heredoc 调 `parse_adt`，新加的 A6 只能接在 A4 之后、
 heredoc 之前，否则又会踩下面的缺陷 2。
@@ -257,6 +280,46 @@ rc=0
 但 `check-modem-lzma.py` 自己也要能报「manifest 之外的文件」，否则 A4 与 A3 的覆盖面不重合。
 
 合成输入与准备脚本见 `14-DXE-REQUEST.md` §5；真跑必须换成固件 commit 产出的真实 payload/boot/日志。
+
+### 5.2 2026-11-16 用真产物跑（A 段 + B 段全绿，C 段待上机）
+
+固件侧交回的产物与它对应的输入：
+
+| 项 | 路径 | 尺寸 / sha256 |
+| --- | --- | --- |
+| payload | `E:/k60-work/artifacts/bootimg-test/payload-modem.img` | 201,326,592 B，sha256 `9eb14f6768110605…` |
+| boot.img | `E:/k60-work/artifacts/bootimg-test/boot-modem-4024.img` | 201,891,840 B，sha256 `8c9c7d2d9d11c110…` |
+| FD | `uefi-mondrian/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd` | 3,145,728 B，sha256 `847bfcf25bea0f2343e372963accc0e62703d8c8f9d474c6d7dade0085e9d5a9` |
+| dtb | `uefi-mondrian/Resources/DTBs/mondrian.dtb` | 4,024 B，sha256 `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+
+实测（`gate-work.sh`，与 §四 的脚本同源，只把 `/tmp/accept*` 换成可写目录）：
+
+```txt
+PASS A1 payload=192 MiB
+PASS A2 boot.img=201891840 B (ksz=555628, 136 页)
+PASS A2b FD=3145728 B
+PASS A3 MODEM 目录 27 个 .lzma 文件、名字正确
+PASS A4 27 个 LZMA 头合法、声明长度==段表 bytes
+PASS A6 声明长度之和=109060761
+PASS A5 ADT K60ModemImage 16 字节、值合法
+PASS B1 ImageCarrierLib 存在
+PASS B2 DarwinBoot 调用点
+PASS B3 DarwinBoot 发布属性 (2 处)
+PASS B4 三行 D3 日志、无 debug 门
+PASS B5 固件表==生成器输出
+PASS B6 无整窗清零
+TOTAL PASS=13 FAIL=0
+```
+
+两个与「产物正确性」无关、但会让人误判的坑（都已在 `gate-work.sh` 里绕开）：
+
+1. `/tmp/accept.adt` 若上次由 root 留下，`mcopy` 会停在覆盖提示、门禁**永久挂起**（缺陷 3 的变体：
+   这次是文件属主导致的权限拒绝，不是终端读不到回答）。修法：所有临时路径改到自己的可写目录。
+2. `B4` 用 `grep -rnF 'modem-image:' "$FWREPO"` 扫全树会进 `Mu_Basecore` submodule（drvfs），
+   跑十几分钟；改成只扫 `Platforms BootShim Resources` 三个目录，结论不变（三行 D3 全在
+   `Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c`，库内不带这三行）。
+
+C 段（C1–C5）仍未跑：需要一次 `pong_modem=2` 上机的 `console.log`。
 
 ## 六、本表不替代的门禁
 

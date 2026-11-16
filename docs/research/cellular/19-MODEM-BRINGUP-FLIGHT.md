@@ -1,7 +1,7 @@
 # 19 — 基带 PAS 上机计划（route B/C）
 
 - 日期：2026-11-17
-- 状态：**判据已冻结；候选尚未生成，本文件不是飞行许可**
+- 状态：**判据已冻结；候选已生成（2026-11-17 07:28），但本文件仍不是飞行许可**
 - 范围：UEFI 把 5,884 B 的 PAS metadata 放进 DRAM；内核按 `init_image → mem_setup → auth_reset` 发 SMC，并如实报告 rc。
 - 本飞只声称一件事：**UEFI 能放对 metadata，内核能按顺序发 SMC 并报出 rc**。不声称基带数据业务可用。
 
@@ -37,7 +37,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 | M3 UEFI carrier | `clang -fsyntax-only -Werror`；完整 `build_uefi.py` | DXE 无宿主 harness；逻辑集中在 M1，UEFI 只做 `CopyMem` + 清缓存 + CRC | FD 精确 3,145,728 B；sha256 `38c1293b11fa7e48f9a701d4d94ec838657fca9e8d03bc975c339eb318f33c61`；源码含 `CarrierLoadMetadata` |
 | M5 内核顺序 | 内核编译 `-Werror` | `run-bringup-test.sh`：`TESTS OK 9` rc0；断言 `init_image` 只调一次、先于 `mem_setup`、先于 `auth_and_reset`；3 个反例失败 | `patches/xnu/0621-k60-modem-pas.patch` 与 `K60ModemBoot.c` 一致；内核二进制应含 §4 的 verdict 行 |
 | M6 夹具 | `scripts/build-modem-metadata.py` + UEFI 内嵌头（不再有第 28 个 payload 文件） | `check-modem-metadata.py` 对嵌入数组做长度/ELF/crc/sha 校验 | 当前 `boot-metadata-fixture.img` 仅为 UEFI-only 夹具；其 payload 内核早于 `d7890e26`，**不是候选** |
-| M7 boot.img | 现有 `test-bootimg-layout.py` | — | 本夹具 201,895,936 B = `4096 + ceil(3,149,752/4096)*4096 + 201,326,592 + 4096`；sha256 `1193a1e718badd2de5908c4ec24e97afc18272de4910d7c3fdd282b5cdaa3839` |
+| M7 boot.img | 现有 `test-bootimg-layout.py` | — | 本夹具 201,895,936 B = `4096 + ceil(559,358/4096)*4096 + 201,326,592 + 4096`（`ksz` 读自 boot.img 头 offset 8）；sha256 `1193a1e718badd2de5908c4ec24e97afc18272de4910d7c3fdd282b5cdaa3839` |
 | M8 本判据文档 | `check-docs.py` | — | 本文件提交在飞行之前；含 manifest 与回滚镜像 |
 
 ## 3. 飞行前置门禁（必须全部真实 rc=0，禁止用 `tail` 或 `echo` 掩盖）
@@ -52,7 +52,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 4. `stat -c %s` 的 FD 必须精确等于 `3145728`；boot.img 必须等于
    `4096 + ceil(ksz/4096)*4096 + 201326592 + 4096`（`ksz` 从 boot.img 头 offset 8 读）。
 5. `scripts/check-docs.py`、`scripts/check-line-endings.py`、`scripts/check-secrets.py`、`check-tree-owner.py` 全 rc0。
-6. 飞行 manifest（本文件 §3.1）四项哈希与构建回执逐项相等；任何一项不相等即 STOP。
+6. 飞行 manifest（本文件 §3.1 / §3.2）四项哈希与构建回执逐项相等；任何一项不相等即 STOP。
 
 ### 3.1 本次可用产物（UEFI-only 夹具，不是候选）
 
@@ -65,7 +65,22 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 | metadata blob `E:/k60-work/artifacts/modem-metadata.bin` | 5,884 | `09180d7c3a4bc59bfe4718263668c49aa42945519087562aa106b2fc6f4dfab4` |
 
 **这张 UEFI-only 夹具的 payload 内核早于 `d7890e26`，只能证明 UEFI 的 metadata 行、不能证明内核顺序；
-禁止把它当作 PAS 候选飞行。** 真候选的 build manifest 必须在飞行前补进本节。
+禁止把它当作 PAS 候选飞行。**
+
+### 3.2 本次 route B/C 候选（已生成，待门禁与 Lead 授权，不是飞行许可）
+
+| 件 | 路径 | 字节 | sha256 |
+|---|---|---:|---|
+| FD | `E:/hackios/uefi-mondrian/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd` | 3,145,728 | `38c1293b11fa7e48f9a701d4d94ec838657fca9e8d03bc975c339eb318f33c61` |
+| DTB | `E:/hackios/uefi-mondrian/Resources/DTBs/mondrian.dtb` | 4,024 | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| kernel.macho | `E:/k60-work/artifacts/modem-order-20261117a/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` | 105,541,632 | `e787569bf95165c0a97d190c916ebd0e193e9f1a63df6f886e213018e8f94c13` |
+| payload.img | `E:/k60-work/artifacts/modem-order-20261117a/mondrian/ipados-16.6.1-20G81/mondrian/payload/payload.img` | 201,326,592 | `ec21632c108e774174cf211c166cfbda7e98a8e9d652bcc56ab455adf5402d1c` |
+| boot.img | `E:/k60-work/artifacts/modem-20261117b/boot-modem-candidate.img` | 201,895,936 | `bd4d48b9c2b215d9426191401a622aa8e097d89a540df04e7ab7aa72852ce321` |
+
+- 构建源：k60-cellular `98d0901f26dacea31d310b76c567ffccb03e6ab1`（`d7890e26` 是其祖先）；UEFI `c1ea878`。
+- boot.img 头：`kernel_size=559,358`，`ramdisk_size=201,326,592`；`4096 + ceil(559358/4096)*4096 + 201326592 + 4096 = 201,895,936`，与文件大小相等。
+- boot.img 内的 ramdisk 切片 sha256 = payload.img 的 `ec21632c...`，说明 payload 原样嵌入。
+- **注意：bootimg 使用了 `--skip-gates`**；本机 `unixnu bootimg` 的合规注册表当前为红（P-165/P-166 等历史 sync/build 输入漂移），所以这张候选不是“门禁全绿”的产物，也不是飞行许可。
 
 ## 4. 预先写死的判据（S1–S5 / F1–F6）
 
@@ -116,11 +131,16 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 sha256 `4E8DA23012D88D5C3C01992B0286F1D0BBBA7D83980E0EDE3AAEDB3D95BBEA96`。
 若 F1 或任何 UEFI 回归，飞回这张；不要在失败的开机里重试。
 
-## 8. 当前阻塞（写于 2026-11-17 01:40）
+## 8. 当前状态（更新于 2026-11-17 07:33）
 
-- 真候选 payload 尚未生成：`/opt/k60/trees/cellular-out` 的 kernel.macho 是 2026-11-15 13:33 的旧产物，
-  早于 `d7890e26`；`modem-20261116a` 的 payload 也早于该提交。
-- 内核构建已从 `feat/cellular` 启动（后台 job `bash-4f7362ae13d44891`，out
-  `/mnt/e/k60-work/artifacts/modem-order-20261117a`）；构建完成并生成 payload + boot.img 后才能把
-  §3.1 的“候选”行补全。
-- 在这两件事完成前，本文件只是**判据冻结**，不是飞行许可；不得上机。
+- 真候选 payload 已生成：`kernel.macho` 105,541,632 B / `e787569bf95165c0a97d190c916ebd0e193e9f1a63df6f886e213018e8f94c13`；
+  `payload.img` 201,326,592 B / `ec21632c108e774174cf211c166cfbda7e98a8e9d652bcc56ab455adf5402d1c`；
+  payload.json 记录 27 streams / 109,060,761 declared / 48,591,795 compressed / 16 B placeholder。
+- 内核构建源为 k60-cellular `98d0901f26dacea31d310b76c567ffccb03e6ab1`（含 `d7890e26` 的顺序修复）；
+  kernel.macho 内可见 `K60MODEM init_image ok metadata=%#x bytes=%u`、`mem_setup ok`、
+  `auth_reset ok` 与 `diagnostic stop after mem_setup` 字符串。
+- boot.img 已打包：`E:/k60-work/artifacts/modem-20261117b/boot-modem-candidate.img`，201,895,936 B /
+  `bd4d48b9c2b215d9426191401a622aa8e097d89a540df04e7ab7aa72852ce321`；公式与头字段见 §3.2。
+- **本候选不是飞行许可**：bootimg 使用了 `--skip-gates`，因为本机合规注册表当前为红
+  （P-165/P-166 等历史 sync/build 输入漂移）；§3 的 1/2/4/5 项还必须在飞行前逐条实跑并记录真实 rc，
+  且必须由 Lead 授权后按 §5 的 C → B 顺序飞行。禁止自行上机。

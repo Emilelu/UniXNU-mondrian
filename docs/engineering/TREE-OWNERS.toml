@@ -42,6 +42,14 @@ path = "/mnt/e/hackios/k60-wifi-cache"
 owner = "wifi-agent"
 scope = ["drivers/PongWifi", "scripts/tests", "docs/engineering/TREE-OWNERS.toml"]
 
+# MHI pre-load experiment worktree branched from the cache candidate. It must
+# be registered before build-strict runs iron-11; the scope is the same driver,
+# its build script and host tests, plus this registry entry.
+[[tree]]
+path = "/mnt/e/hackios/k60-wifi-mhi-preload"
+owner = "wifi-agent"
+scope = ["drivers/PongWifi", "scripts", "docs/engineering/TREE-OWNERS.toml"]
+
 [[tree]]
 path = "/mnt/e/hackios/k60-bt"
 owner = "bt-agent"

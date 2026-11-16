@@ -32,11 +32,14 @@ done
 | 0012 | `0012-drivers-PongWifi-lease-lock-lazy-init.patch` | `pong_smmu_lease_lock()` 首次使用时分配锁，修复 NativeUfs 先取 lease 的启动失败 | 无（后续增量） |
 
 > `0010` 只做 `build-xnu-4k-baseline.sh` 的 archive 接线。当前主仓 `0010` 只覆盖 `KERNEL_EXTRA_ARCHIVES`；`k60-wifi` 的更新版还覆盖 `PLATFORM_ARCHIVES`（见“与 k60-wifi/feat/wifi-bringup 的系列漂移”）。旧文提到的 `K60_WIFI_SHENG` 回退在当前 `0010` 中不存在，已删。
+>
+> 2026-11-17 07:25：四处补丁字节差已同步到分支 `feat/wifi-series-sync`（`e1a46146`，基于本分支 `d26f936c`）；该分支 12 个补丁与 `k60-wifi` 逐字节一致，`main` 仍是旧字节，等 Lead 接线。
 
 ## 与 k60-wifi/feat/wifi-bringup 的系列漂移（2026-11-17 实测）
 
 主仓这套 `patches/wifi` 比 `k60-wifi` 检出 `feat/wifi-bringup` 的同目录旧：两边 `series` 都是 12 行，
-但主仓 12 个补丁合计 **221,744 B**，k60-wifi 为 **228,302 B**；5 个文件字节不同：
+但主仓 12 个补丁合计 **221,744 B**，k60-wifi 为 **228,302 B**；5 个文件字节不同。
+下表是 **2026-11-17 07:25 同步前** 的主仓快照；同步后 `feat/wifi-series-sync` 的 12 个补丁已与 k60-wifi 一致，只有 README 仍是两套文档：
 
 | 文件 | 主仓 | k60-wifi | 差在哪 |
 |---|---|---|---|
@@ -46,7 +49,7 @@ done
 | `0010-scripts-build-xnu-wifi-archive.patch` | 1,629 B | 2,575 B | 主仓只把 `XNU_PONG_WIFI` 加到 `KERNEL_EXTRA_ARCHIVES`；mondrian 实际走 `PLATFORM_ARCHIVES`，k60-wifi 已补第二个分支，否则内核会静默不带 PongWifi |
 | `README.md` | 7,481 B | 8,282 B | k60-wifi 版保留更多历史说明 |
 
-> **结论**：主仓 `patches/wifi` 不能直接接进构建。接线时要以 k60-wifi 的 12 个补丁为准，先合并 `0007` 的 UUID 与 `0010` 的双归档分支差量；两边 `board.toml:20` 都仍只挂 `patches/xnu/series`，没有自动 applier，等 Lead 裁决。
+> **结论**：主仓 `patches/wifi` 不能直接接进构建；补丁字节差已在 `feat/wifi-series-sync` `e1a46146` 同步，等 Lead 把它合入并接线。两边 `board.toml:20` 都仍只挂 `patches/xnu/series`，没有自动 applier。
 
 ## `build-k60-ath11k.py` 相对 zizhan 原脚本的 5 处兼容修复（0009 内含）
 

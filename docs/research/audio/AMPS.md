@@ -208,15 +208,15 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；然后对每颗应答的功放跑一遍**回放层**（软复位 + 57 对 Music profile + fuse 算的 vcalb + 静音音量，见 §9）；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
-补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（107,009 B，2,786 行，12 段，sha256 `bbbbe00479732a57…1947`）+ `patches/audio/0003-k60-audio-afe-selftest.patch`（1,060 B，3 段，sha256 `ae3c771636c4d695…3a37`）+ `patches/audio/series`。
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（108,088 B，2,819 行，12 段，sha256 `9866cae7105bee1…7c82`）+ `patches/audio/0003-k60-audio-afe-selftest.patch`（2,544 B，6 段，sha256 `31f5de4ea608a164…877f`）+ `patches/audio/series`。
 
 - 10 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。十个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 仍不在其中：内核侧还没有 `.c` include 它；`PongAudioAcf.h`/`PongAudioAmpProfile.h`/`PongAudioAmpReplay.h`/`PongAudioAfe.h` **在**，被 `PongAudioAmp.c`/`pong_audio.c` include，见 §9）。完整 transcript 见 `patches/audio/README.md`。
-- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) **镜像 k 的内核构建**证明 8 文件补丁（含回放层）在真实 kernel flags 下编译通过（`audio-probe-20261114k`，`kernel.log:228-231` 的 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe` 顺序，`kernel.macho` sha256 `0640f6c7…`，见 §9.5）；(b) 回放层与编码器全部语义在宿主侧被 805/823 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
+- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) **镜像 k 的内核构建**证明 8 文件补丁（含回放层）在真实 kernel flags 下编译通过（`audio-probe-20261114k`，`kernel.log:228-231` 的 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe` 顺序，`kernel.macho` sha256 `0640f6c7…`，见 §9.5）；(b) 回放层与编码器全部语义在宿主侧被 818/836 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，805 例；带真实 ACF 时 823 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，818 例；带真实 ACF 时 836 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
@@ -252,14 +252,14 @@ slave id 是两次普通寄存器读（`0x530+8n` / `0x534+8n`，S:`PongWcd938.h
 `PongCodecPlan.h`、`PongCodecSwr.*`、`PongCodecLpi.*`、`PongCodecMacro.*` 与 `PongCodecProbe.*` **都不进补丁**：内核侧还没有任何 `.c` include 它们（只有宿主测试用），
 补丁只装内核真正编译的文件。等 PAS1 起来、有 `.c` 调用它们时再一起入补丁。
 
-同样不进补丁的还有 `PongAudioAfe.h`：它是 TDM 扬声器通路的 AFE 参数离线编码器（GPR 24 字节头、svc/port 两种 set-param 信封、五个参数结构、DEVICE_START，编码规则见 `TDMS.md` §3），纯打包、不写寄存器，目前只有宿主测试用它。等 PAS1 provider 交出 GLINK、consumer 侧真的开始发包时，它和传输层一起入补丁。
+`PongAudioAfe.h` 不在「不进补丁」之列：它虽是 TDM 扬声器通路的 AFE 参数离线编码器（GPR 24 字节头、svc/port 两种 set-param 信封、五个参数结构、DEVICE_START，编码规则见 `TDMS.md` §3），但 `pong_audio.c` 已 include 它并调用 76 字节 PRM 时钟编码器，所以它随 0001 进内核、由 0003 的自检调用；等 PAS1 provider 交出 GLINK、consumer 侧真的开始发包时，再和传输层一起发真实报文。
 
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 805 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# → TESTS OK 818 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
 # 带上真实 ACF（它不入库）：PONG_ACF_FILE=<aw882xx_acf.bin> sh drivers/PongAudio/tests/run-tests.sh
-# → TESTS OK 823 cases
+# → TESTS OK 836 cases
 ```
 
 覆盖范围：
@@ -793,9 +793,9 @@ phk110 `hakios.speaker.c:430-431` 写得很清楚：
 
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 805 cases
+# → TESTS OK 818 cases
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && PONG_ACF_FILE=/mnt/e/k60-work/scratch/audio-work/refs/acf/aw882xx_acf.bin sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 823 cases
+# → TESTS OK 836 cases
 ```
 
 `PongAudioAcf.h` **现在进补丁了**（回放层让 `PongAudioAmp.c` include 它，见 §9）；`PongCodecPlan.h` 仍不进（内核侧还没有 `.c` include 它）。
@@ -849,7 +849,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `scripts/judge-audio-capture.py` 的**探针**判据不需要改（`MARK_START` 是前缀匹配、`MARK_ID` 要求 `id=0x`
   且 `MARK_DONE` 要求 `amp probe done found=`，回放行不会误命中）；**回放判据**由同一脚本的 `--replay` 承担，见 §9.6。
 
-### 9.3 宿主侧钉住了什么（805 例 / 带真实 ACF 823 例）
+### 9.3 宿主侧钉住了什么（818 例 / 带真实 ACF 836 例）
 
 `replay_cases()` 新增 49 条断言，关键几条：
 
@@ -877,7 +877,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 这一层的意义是：等 PAS1 与 TDM 通路到位时，「写寄存器」这段不再是未验证的新代码，而是已经在设备上
 跑过一遍、每一步都有回读记录的东西；剩下的只是把它接到 start 序列与音频帧上。
 
-### 9.5 构建核验（镜像 k、m、n、a 与 b）
+### 9.5 构建核验（镜像 k、m、n、a、b 与 c）
 
 `audio-probe-20261114k` 是回放层第一次进内核构建：HEAD `ec95bc6`、8 文件补丁 `d85264ca…`、
 `scripts/build-strict.sh` 全流程通过（八步 36 项、`verify-boot-image: OK`）。
@@ -888,7 +888,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
   `dirty_files 0`、`payload f3a6eafb…`、`payload_kernel 18e04ebb…`、`adt 2b1552ac…`、`dtb 2d044eaa…`、
   `fd 4bbe7601…`、`boot_img f34f33e3…`；
 - 这就是 §6 第 4 条那条无法复现的 `-fsyntax-only` 的替代证据：回放层是在真实内核 flags 下编过的；
-- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 b（见下）。
+- `f34f33e3…` 曾是 run 2 的候选镜像；**2026-11-15 复核后 k 与 l 都按 P-201 撤下队列**（两者的 series 停在 230 条旧基线、`payload_kernel` 只有 54 MB），现行镜像是 c（见下）。
 
 **镜像 m（2026-11-15）**：rebase 到 `origin/main` 626cc9b 之后重建，HEAD `9afa1e1`、series 225 条（sha256 `8e455072…`，224 条加 0504 的常量修正）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `7e86d966…`（105,504,768 B）、`payload_kernel a3e27a2e…`、`payload d5a544ac…`、
@@ -911,7 +911,12 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 b（2026-11-17）**：把 `PongAudioAfe.h` 真正编进 `pong_audio.c`（0003）后重建，HEAD `8cd08323`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `e0f72ced…`（105,504,768 B）、`payload_kernel c5955b18…`、`payload 70361d25…`、`adt 52a7dd28…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `73c267fb…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117b/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
-- `kernel.macho` 上 `AFE encoder selftest` 字符串 1 处；`kernel.log:226` 已应用 `0003-k60-audio-afe-selftest.patch`；b 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+- `kernel.macho` 上 `AFE encoder selftest` 字符串 1 处；`kernel.log:226` 已应用 `0003-k60-audio-afe-selftest.patch`；b 已被 c 取代（见下）；构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+
+**镜像 c（2026-11-17）**：把具名拒绝状态（`PongAudioErrNoLease = -2002`）与 0003 的六段版本编进内核后重建，HEAD `d269d376`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+- `kernel_built` sha256 `7a22eaf9…`（105,504,768 B）、`payload_kernel fa6fded6…`、`payload 4bdca213…`、`adt 56aec95c…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `d2a49537…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117c/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
+- `kernel.macho` 上 `AFE encoder selftest` 1 处、`PongAudioErrNoLease` 1 处、`PongAudio: speaker path unavailable` 1 处；`kernel.log:226` 已应用 0003；c 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
 
 ### 9.6 run 2 的判据（可执行）
 

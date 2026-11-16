@@ -91,7 +91,7 @@ evidence = [
   "patches/audio/0001-k60-audio-amp-probe.patch",
   "patches/xnu/series:208,209",
 ]
-criteria = "Image b (audio-probe-20261117b) built kernel e0f72ced... and `strings` finds the AFE encoder selftest string once; kernel.log:226 shows 0003 applied after 0001. The same patch is a no-op on a tree without 0504."
+criteria = "Image c (audio-probe-20261117c) built kernel 7a22eaf9... and `strings` finds the AFE encoder selftest string once; kernel.log:225,226 shows 0001 then 0003 applied. The same patch is a no-op on a tree without 0504."
 status = "closed"
 owner = "audio-agent"
 
@@ -140,9 +140,11 @@ change = "with no PAS1 lease the audio service still answers, refusing with a na
 evidence_kind = "unit"
 evidence = [
   "drivers/PongAudio/PongCodecProbe.c:37",
-  "docs/research/audio/PAS1-AUDIO-REQUIREMENTS.md",
+  "drivers/PongAudio/PongAudioAfe.h:55",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2470",
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
 ]
-criteria = "The probe path touches no register and returns; the refusal code is PongAudioErrNoLease with a named reason line."
+criteria = "pong_audio_status() returns PongAudioErrNoLease (-2002) and prints a named reason line once; the six status values and names are pinned by status_cases()."
 status = "closed"
 owner = "audio-agent"
 

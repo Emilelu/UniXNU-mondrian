@@ -156,21 +156,21 @@ if (!lpass_ready) {
 
 speaker 路径（TERT TDM）照同一形态，逐级降级：
 
-| 阶段 | 条件 | 音频行为 | 具名错误（待实现，值待排） |
+| 阶段 | 条件 | 音频行为 | 具名错误（已实现） |
 |---|---|---|---|
 | 门控 | `pong_audio=0` | 不起线程，零副作用 | — |
-| handoff | `/chosen/k60-adsp-glink-handoff` 缺失 / 长度 != 104 / flags != 15 | 不 adopt FIFO、不开通道、**零寄存器访问** | `PongAudioErrNoHandoff` |
-| lease | acquire 未跑或返回 `K60_ADSP_OWNER_UNAVAILABLE (-1000)` | 同上 | `PongAudioErrNoLease` |
-| epoch | `revalidate` 失败或 epoch 变化 | 停发新包；in-flight 包等应答或超时 | `PongAudioErrStaleLease` |
-| APM | `GET_SPF_STATE` 超时或 `status != 1` | 不发任何 AFE 参数，**不碰 TLMM 引脚复用** | `PongAudioErrApmNotReady` |
-| AFE | 任一 `SET_PARAM_V2` 返回非 0 status | 逆序回滚已下发的参数（group disable → clock off），一次失败即停 | `PongAudioErrAfeRefused` |
+| handoff | `/chosen/k60-adsp-glink-handoff` 缺失 / 长度 != 104 / flags != 15 | 不 adopt FIFO、不开通道、**零寄存器访问** | `PongAudioErrNoHandoff` (-2001) |
+| lease | acquire 未跑或返回 `K60_ADSP_OWNER_UNAVAILABLE (-1000)` | 同上 | `PongAudioErrNoLease` (-2002) |
+| epoch | `revalidate` 失败或 epoch 变化 | 停发新包；in-flight 包等应答或超时 | `PongAudioErrStaleLease` (-2003) |
+| APM | `GET_SPF_STATE` 超时或 `status != 1` | 不发任何 AFE 参数，**不碰 TLMM 引脚复用** | `PongAudioErrApmNotReady` (-2004) |
+| AFE | 任一 `SET_PARAM_V2` 返回非 0 status | 逆序回滚已下发的参数（group disable → clock off），一次失败即停 | `PongAudioErrAfeRefused` (-2005) |
 | 探针/回放 | 与 PAS1 无关（GENI 直连 SE15） | 照常走 `pong_audio_probe=1` 的只读 + 回放路径 | — |
 
 三条要点：
 
 1. **零寄存器访问**。`PongCodecProbeErrLpass` 的原话是「the three votes are the Lead's, not ours」——TDM 引脚复用、AFE 参数同理，
    全是 ADSP 侧资源；PAS1 没好之前一个寄存器都不碰（含 TLMM）。
-2. **具名错误**。调用方拿枚举原因，不是总线挂死。枚举放 `drivers/PongAudio/`（新头或 `PongAudioRegs.h` 扩展），值在实现时排定。
+2. **具名错误**。调用方拿枚举原因，不是总线挂死。枚举在 `drivers/PongAudio/PongAudioAfe.h:55-100`，值与名字由 `status_cases()` 钉住（`PongAudioErrNoLease = -2002`）。
 3. **不重试风暴**。APM 不 ready 时一次失败即停，等下一次显式触发；与回放层 `transfer_run()` 的有界等待同一形态。
 
 ### 2.1 `-1000` 的具体形态（`pong_audio_probe=1` 下到底会发生什么）
@@ -341,7 +341,7 @@ status = "pending"
 
 ### 4.1 编码器（已落地）
 
-`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 221 条断言（总 805 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
+`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 221 条断言（总 818 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
 
 ## 5. provider 必须为 audio 保证什么（交给 provider 实现者的四条）
 

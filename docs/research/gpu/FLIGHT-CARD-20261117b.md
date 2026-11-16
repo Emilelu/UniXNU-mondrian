@@ -1,6 +1,6 @@
 # 上机卡 2026-11-17b：确认插件是否真正被注入 backboardd
 
-- 镜像标签：`gpu-dualroot-20261117`
+- 镜像标签：`gpu-dualroot2-20261117`（`K60_METAL_PLUGIN_SRC` = 2026-11-16 从当前源码重编的 bundle，含 `mismatch` 探针字符串）
 - 分支/提交：`feat/gpu-metal-hw` @ `532c5d62`
 - 目的：验证 `0610` 的第二个部署根（`/private/var/pong`）是否让 `init-v24dp`
   真正把 `PongAdrenoMetal.bundle` 注入 backboardd。

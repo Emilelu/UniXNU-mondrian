@@ -1,4 +1,8 @@
-# 待应用：`0610` 双 root 部署（离线计划，未实施）
+# 已实施：`0610` 双 root 部署（提交 `532c5d62`，守卫 `test-metal-dual-root.py` 11 例）
+
+> 状态：2026-11-17 已按本清单改入 `patches/xnu/0610-k60-metal-plugin-deploy.patch`，
+> 并新增 `scripts/tests/test-metal-dual-root.py`。上机验证见
+> `docs/research/gpu/FLIGHT-CARD-20261117b.md`。
 
 目标：让部署既写 `/private/var/ngpu/addons/…`（上游读法）也写 `/private/var/pong/…`
 （`init-v24dp.c:366` 的注入点），从而使 `PongAdrenoMetal.bundle` 真被注入 backboardd。

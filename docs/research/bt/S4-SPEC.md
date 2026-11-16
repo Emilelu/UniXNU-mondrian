@@ -1631,32 +1631,88 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 2. 输入绑定失败（manifest/frozen/series/patch SHA/boot.img 任一不符）必须拒绝运行，不能 fallback 到 latest 或其他 checkout。
 3. 负向控制全部按预期失败；正向控制全部通过。
 4. 输出明确打印 `HOST-ONLY` 与 `NOT RUN` 清单；日志可复现，不需要网络、设备、XNU 构建或 root。
-5. 代码审查通过后，才讨论是否把它作为 ⑦ 的补充证据；它不替代设备 ⑧。
+5. 本仓权威分区与 ⑦ 补充证据候选见下；是否写入账本由 Lead 裁决。它不替代设备 ⑧。
 
-**与 Lead 独立交叉测试的断言级重叠**：
+**断言级权威分区（2026-11-16 21:26 Lead 裁决后重写）**
 
-| 断言面 | 本仓 `test-bt-d8-adapter-host.py` | Lead `test-bt-d8-host-timing.py` | 归属建议 |
-| --- | --- | --- | --- |
-| d8 frozen-before 身份与 0500/0514/0515 三个 QBT 补丁字节 | 有，失败即拒绝 | 有，失败即拒绝 | 两边都必须保留；本仓负责本线执行入口，Lead 文件保持独立复核。 |
-| manifest / head / boot.img / 235 条 series 全量补丁字节 / namespace 指纹 | 有 | 时序文件无；Lead 的 `check-bt-d8-inputs.py` 有（manifest/head/frozen/series/235 patch/boot.img） | 两边各有独立入口；本仓用于运行前拒绝，Lead 输入检查器交叉核对。 |
-| 精确应用 0514/0515 的源码 hunk | 有 | 有 | 两边读同一冻结补丁字节，不共享实现。 |
-| 重建后 `qbt_core.c` / `qbt_linux.c` / `btqca.c` 的源码 SHA256 | 有（三条都钉住） | 无（只钉补丁字节） | 本仓权威；这也解释了为什么本仓能覆盖 adapter 与下载链。 |
-| TLV ack/final status 语义、`sent/acks` 累计、失败调用计入 `segs` | 有（经 adapter 与下载链断言） | 有（直接对 `qbt_core` 注入） | 两边互为交叉；本仓对 adapter/下载层权威，Lead 对核心微时序权威，裁决由 Lead 出。 |
-| `run()` 的错误/谓词/两期限顺序、`dt_ms` 整数截断、睡眠只夹命令期限、`qbt_deadline` / `qbt_drain` 直接微时序 | 仅由 boot 场景间接执行，未逐条断言 | 有 | Lead 文件权威；本仓不复制这些微时序断言。 |
-| 完整 `qbt_linux` adapter（wake 握手、`__hci_cmd_sync_ev`、skb/分配） | 有 | 无 | 本仓权威。 |
-| `qca_download_firmware` 的 fallback / 缺失 / skip / alt 名 / release 计数 | 有 | 无 | 本仓权威。 |
-| `qca_set_bdaddr`、`qbt_boot()` 生命周期与失败清理 | 有 | 无 | 本仓权威。 |
-| `run()` / `qbt_deadline` / `qbt_drain` 的直接微时序、在精确期限注入 pump 事件、调度器期限、0515 wrapper 汇总 | 仅经由场景间接覆盖 | 有 | Lead 文件权威；本仓不复制这些微时序断言。 |
+原则：两套测试都保留，但**每条断言只有一个 owner**；owner 之外只做交叉引用，不复制实现。
+Lead 的 `E:/hackios/k60-lead/scripts/check-bt-d8-inputs.py` 优先承担输入身份；本仓运行前仍做同一身份的
+拒跑，进 main/⑦ 前缩成调用它加本仓三条重建源码 SHA，不再维护第二份身份实现。
 
-注：上表“Lead”列在输入身份行合看 `test-bt-d8-host-timing.py` 与 `check-bt-d8-inputs.py`；时序行只比较两个 C 驱动测试，Lead 的输入检查器不是时序断言。
+| # | 断言（一条一行） | owner | 引用位置 | 另一侧 |
+| --- | --- | --- | --- | --- |
+| 1 | d8 冻结身份：manifest/head/dirty/boot.img/frozen/235 条 series/namespace | Lead 输入检查器 | `E:/hackios/k60-lead/scripts/check-bt-d8-inputs.py:74-133`；`test-bt-d8-host-timing.py:85-111` 的 CLI 守卫 | 本仓 `test-bt-d8-adapter-host.py:111-191` 暂作运行前拒跑；进 main/⑦ 前改为调用 Lead 检查器，只留重建源码 SHA。 |
+| 2 | 0500/0514/0515 补丁字节与重建后 `qbt_core.c`/`qbt_linux.c`/`btqca.c` 源码 SHA256 | 本仓 | 补丁字节 `:166-178`；源码钉 `test-bt-d8-adapter-host.py:50-60`（常量）与 `:430-470` 附近的重建校验 | Lead 输入检查器只钉补丁字节，不钉重建源码；本仓保留这三条 SHA。 |
+| 3 | `run()` 错误→谓词→`boot_deadline`→命令期限，两期限均用 `>=` | Lead 时序 | `bt-d8-timing-harness.c:132-176` | 本仓不复制；boot 场景只间接执行。 |
+| 4 | 精确期限注入、睡眠只夹命令期限、晚到事件先满足完成谓词 | Lead 时序 | `bt-d8-timing-harness.c:132-176` | 本仓不复制。 |
+| 5 | 全局 TLV ack/final 与当前等待无关 | Lead 时序 | `bt-d8-timing-harness.c:114-115` | Lead 明确保留的两条 core 断言之一。 |
+| 6 | stale 同 opcode 事件可完成新等待 | Lead 时序 | `bt-d8-timing-harness.c:219-223` | Lead 明确保留的另一条 core 断言。 |
+| 7 | `qbt_deadline`/`qbt_drain`/调度器期限 | Lead 时序 | `bt-d8-timing-harness.c:182-203` | 本仓不复制。 |
+| 8 | `dt_ms` 整数截断、0515 wrapper 汇总格式 | Lead 时序 | `bt-d8-timing-harness.c:250-267` | 本仓只经下载场景间接覆盖；不复制。 |
+| 9 | TLV ack/final 语义经真实 adapter/下载链 | 本仓 | `bt-d8-adapter-harness.c:411-453`（success/fallback 的 `done` 行） | Lead 不复制 adapter 层；只保留 #5/#6。 |
+| 10 | `sent/acks` 从 `qbt_boot()` 入口累计、fallback 不重置；`segs` 每 attempt、失败调用计入 | 本仓 | `bt-d8-adapter-harness.c:434-453`、`:456-469`；变异 `test-bt-d8-adapter-host.py:285-287` | Lead 的 `:264-267` 只验证 0515 汇总格式，不是累计语义；其文件应注明累计权威在本仓。 |
+| 11 | 输入不符时 fail-closed 退出 2，不回退 latest | 本仓 | `test-bt-d8-adapter-host.py:78-80`、`:111-191` | Lead 输入检查器也拒跑，但入口不同；本仓保留运行前拒跑。 |
+| 12 | adapter status/长度/version mismatch/overlong | 本仓 | `bt-d8-adapter-harness.c:324-352`、`:571-593` | Lead 不复制。 |
+| 13 | adapter timeout/late/early/skip 路径 | 本仓 | `bt-d8-adapter-harness.c:354-408` | Lead 不复制；stale 跨等待归 #6。 |
+| 14 | download success/patch/skip | 本仓 | `bt-d8-adapter-harness.c:411-432`、`:486-517` | Lead 不复制。 |
+| 15 | NVM 主文件缺失/alt 名/已是 `.bin` | 本仓 | `bt-d8-adapter-harness.c:472-484`、`:595-630` | Lead 不复制。 |
+| 16 | fallback 成功/失败、release 计数 | 本仓 | `bt-d8-adapter-harness.c:434-469`；变异 `test-bt-d8-adapter-host.py:306-307` | Lead 不复制。 |
+| 17 | boot 成功/失败清理 | 本仓 | `bt-d8-adapter-harness.c:518-557` | Lead 不复制。 |
+| 18 | boot patch/bdaddr/reset 失败与 fallback 边界 | 本仓 | `bt-d8-adapter-harness.c:558-570`、`:633-679` | Lead 不复制。 |
+| 19 | 24 个变异孪生 | 本仓 | `test-bt-d8-adapter-host.py:254-308` | Lead 不复制；这是本仓独有价值。 |
+| 20 | ⑦ artifact_check：payload 内核里的 `[bluetooth]` 行与哈希 | 本仓（候选） | 见下节；`logs/kernel.log:218/251/252`；payload strings 10907/11010 | Lead 不涉及；待 Lead 复核后写入账本。 |
+| 21 | manifest→payload kernel 映射 | 本仓（候选） | `scripts/verify-boot-image.py:140-156`；`build-manifest.json` | 同上。 |
+| 22 | ⑧ 设备结果 `result=-60` | Lead/设备 | `docs/research/EIGHT-STEPS.toml` 的 `[hardware.bluetooth.step.device]` | 两边都不因 90 个宿主用例改 ⑧；d8 仍是失败观测。 |
 
-本仓不编辑 Lead 的 `E:/hackios/k60-lead/scripts/tests/test-bt-d8-host-timing.py`、`check-bt-d8-inputs.py` 与其夹具。两边都不进入 main 或 ⑦ 之前，以上表交 Lead 决定哪些断言退休；不保留长期分叉的两份实现。
+**请 Lead 删除/收窄的重复项**：按上表，Lead 时序夹具里除 #5/#6 两条 core 断言外，
+以下 ack/final 计数断言与 adapter/下载层重叠，建议退役或改成只断言 `complete`/不 `complete`，
+不再断言计数（计数权威在本仓 #9/#10）：
 
-**未覆盖边界（显式列出，避免“全绿=全懂”）**：控制器接收/接受与真实 RX 时间、UART/DMA/IBS 时间线、真实 d8 的 90 s 预算分支、`qca firmware vmalloc` 失败、`qca_disable_soc_logging` 失败、NVM 内容相等性、编译产物到 payload 的映射、flash 门禁覆盖、d8 物理失败机制、蓝牙功能可用。上面任何一项都不能由本节的宿主用例推出。
+- `bt-d8-timing-harness.c:106-108` “TLV success report completes a matching wait”里的
+  `tlv_acks == 1 && tlv_final_status == 0`。
+- `:110-112` “TLV error report counts but cannot complete”里的 `tlv_acks == 1 &&
+  tlv_final_status == 1`。
+- `:126-127` “later TLV reports overwrite final status”里的 `tlv_acks == 2 &&
+  tlv_final_status == 0`。
+- `:229-232` “nonzero TLV reply increments ack then times out”里的 `tlv_acks == 1` 与
+  `tlv_final_status == 1`。
+- `:240-244` 第二条命令的 `tlv_sent == 2 && tlv_acks == 1` 只保留“boot budget/stats 不变”，
+  计数部分退役。
 
-**这套证据仍不能证明**：见上面的未覆盖边界；核心是控制器接收/接受、完整 NVM、UART/DMA/IBS 时间线、编译产物到 payload 的对应、flash 门禁覆盖、d8 物理失败机制或蓝牙功能可用。它只能证明：在冻结源码上，adapter 与完整 fallback 的**软件路径**按上述契约工作。
+`:264-267` 不是累计语义的重复项，它只验证 0515 汇总字符串格式；可保留，但应注明
+“累计语义权威在 k60-bt”。输入身份侧不要求 Lead 删除：本仓会按 #1 收窄自己的入口。
 
-**批准与交付（2026-11-16 19:31 批准，20:53 交付）**：test-only 提交 `916aaaa552b8470fa63b992dac2a525226b7288d`（3 文件 +1156）；`python3 scripts/tests/test-bt-d8-adapter-host.py` 得 `RAW_RC=0` / `TESTS OK: 90 case(s), 0 failure(s)`；输入绑定破坏时退出码 2；24 个变异孪生均真红。断言级重叠表与未覆盖边界见上。之后待命，等 Lead 对重叠表与 ⑦ 归属的裁决。d8 结论不变：PATCH 软件路径返回成功、两次 NVM 尝试均失败、`result=-60`，蓝牙功能未证实。
+**⑦ 补充证据候选（2026-11-16 21:30 只读核对，账本未改）**
+
+Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时具备；两项现在都有只读证据：
+
+1. **artifact_check**：`E:/k60-work/artifacts/bt-d8-tlv/logs/kernel.log:218` 是
+   `patch 0500-k60-bt-qbt-new-files.patch`，`:251` 是 `0514-k60-bt-boot-observability.patch`，
+   `:252` 是 `0515-k60-bt-tlv-counters.patch`。从 d8 `boot.img` 的 ramdisk FAT
+   `EFI/UniXNU/Payloads/kernel.macho` 抽出的内核 sha256 为
+   `72793ffd0a78e14b53321d3ef8b1c8579ae83a07f37900945849f6d2bf6e0286`，等于 manifest 的
+   `components.payload_kernel`。`strings -a` 共 422201 行，`[bluetooth]` 出现在
+   10907（`[bluetooth] %s`）与 11010（`[bluetooth] power=%u result=%d baud=%u firmware=%s
+   tlv_sent=%llu tlv_acks=%llu tlv_final=%llu`）。提取脚本
+   `E:/k60-work/scratch/bt-s4/extract-d8-payload.sh`，行号副本
+   `E:/k60-work/scratch/bt-s4/d8-payload-bt-lines.txt`。
+2. **manifest→payload 映射**：`python3 scripts/verify-boot-image.py --manifest
+   /mnt/e/k60-work/artifacts/bt-d8-tlv/build-manifest.json` → `verify-boot-image: OK`。
+   该脚本 `scripts/verify-boot-image.py:140-156` 从 boot.img 的 ramdisk payload FAT 读
+   `EFI/UniXNU/Payloads/kernel.macho`，与 manifest 的 `payload_kernel` 比较；manifest 里
+   `boot_img=0297012d…`、`payload=d1a7b51d…`、`payload_kernel=72793ffd…`、
+   `kernel_built=6c96f7cc…`。这证明“这些字节在飞行镜像里”，不证明编译器到 payload 的
+   可复现性，也不证明代码在控制器上执行。
+
+两项都只是⑦的补充证据，不替代⑧；账本 `[hardware.bluetooth.step.verify].artifact_check`
+等 Lead 复核后再决定是否写入。d8 之后要新增哪种设备观测，见
+`docs/research/bt/D8-NEXT.md`。
+
+**未覆盖边界（显式列出，避免“全绿=全懂”）**：控制器接收/接受与真实 RX 时间、UART/DMA/IBS 时间线、真实 d8 的 90 s 预算分支、`qca firmware vmalloc` 失败、`qca_disable_soc_logging` 失败、NVM 内容相等性、编译产物到 payload 的**可复现性**（字节映射已由 `verify-boot-image.py` 证明，但同一源码能否重编出同一 payload 未证明）、flash 门禁覆盖、d8 物理失败机制、蓝牙功能可用。上面任何一项都不能由本节的宿主用例推出。
+
+**这套证据仍不能证明**：见上面的未覆盖边界；核心是控制器接收/接受、完整 NVM、UART/DMA/IBS 时间线、编译产物到 payload 的可复现性、flash 门禁覆盖、d8 物理失败机制或蓝牙功能可用。它只能证明：在冻结源码上，adapter 与完整 fallback 的**软件路径**按上述契约工作；artifact_check 只证明飞行镜像里存在对应字节。
+
+**批准与交付（2026-11-16 19:31 批准，20:53 交付，21:26 Lead 裁决）**：test-only 提交 `916aaaa552b8470fa63b992dac2a525226b7288d`（3 文件 +1156）；`python3 scripts/tests/test-bt-d8-adapter-host.py` 得 `RAW_RC=0` / `TESTS OK: 90 case(s), 0 failure(s)`；输入绑定破坏时退出码 2；24 个变异孪生均真红。21:26 Lead 已把两套测试改为“一条断言一个 owner”的权威分区（见上表），并要求 ⑦ 的 artifact_check 与 manifest→payload 映射；两项候选证据已列上，账本与 ⑧ 未改。d8 之后要证明什么见 `docs/research/bt/D8-NEXT.md`。d8 结论不变：PATCH 软件路径返回成功、两次 NVM 尝试均失败、`result=-60`，蓝牙功能未证实。
 
 
 

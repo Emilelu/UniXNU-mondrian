@@ -997,4 +997,16 @@ Lead 于 19:31 按 §7.22 原范围批准（3 行被测层表 + A/B/C 场景矩�
 - 断言级重叠表已写入 S4-SPEC §7.22：本仓对完整 `qbt_linux` adapter、`qca_download_firmware` fallback/缺失/skip/alt/release、`qca_set_bdaddr` 与 `qbt_boot` 生命周期权威；Lead 的 `test-bt-d8-host-timing.py` 对 `run()`/期限/调度器微时序权威，本线不编辑该文件，也不复制其断言。两边进入 main 或 ⑦ 前由 Lead 决定哪些断言退休，不保留长期分叉。
 - 仍未覆盖：控制器/UART/DMA/IBS、真实 d8 时间线、90 s 预算分支、firmware vmalloc 失败、`qca_disable_soc_logging` 失败、NVM 内容相等、payload 对应、flash 门禁、d8 物理机制与蓝牙可用。
 
-状态：test-only 与 docs-only 分开提交；本次未重建、未再上机、未预做 d9，d8 产物未改。下一步等 Lead 对重叠表与 ⑦ 归属的裁决。
+状态：test-only 与 docs-only 分开提交；本次未重建、未再上机、未预做 d9，d8 产物未改。21:26 Lead 已给出裁决，见 item 40。
+
+### 40. 21:26 Lead 裁决：一条断言一个 owner，§7.22 可作 ⑦ 补充证据，d9 未批准（2026-11-16 21:26）
+
+Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远端 `2104231a` 干净、重跑本线测试得 `TESTS OK: 90 case(s), 0 failure(s)`、`rc=0`。
+
+- **权威分区**：核心微时序归 Lead 的 `test-bt-d8-host-timing.py`（`run()` 顺序、两期限 `>=`、精确期限注入、调度器夹取、`dt_ms` 截断、0515 wrapper 汇总）；adapter/下载/生命周期归本仓（完整 `qbt_linux` wake/skb、`qca_download_firmware` 的 fallback/缺失/skip/alt/release、`qca_set_bdaddr`、`qbt_boot`、22 场景、24 变异）；三条共享语义（TLV ack/final、`sent/acks` 累计、fail-closed 拒跑）保留在本仓，Lead 只保留两条 core 断言（全局 ack/final 独立于当前等待、stale 同 opcode 可完成新等待）。§7.22 已按此重写为“一条断言一行 + owner + 引用位置”的表，并列出请 Lead 退役的重复 ack/final 计数断言。
+- **输入身份**：两边可短期并存，进 main/⑦ 前只留一份；Lead 倾向 `check-bt-d8-inputs.py`（它钉 boot.img、235 条 series 字节与 namespace），本仓保留部分应缩成“调用 Lead 检查器 + 本仓三条重建源码 SHA”，不再维护第二份身份实现。
+- **§7.22 的 ⑦ 地位**：可作 ⑦ 的补充证据，但不能满足 ⑦ 本身；进入 ⑦ 需同时具备 artifact_check（飞行 payload 内核里有 `[bluetooth]` 的具体行）与 manifest→payload kernel 映射。两项只读候选证据已写入 §7.22：`logs/kernel.log:218/251/252` 是 0500/0514/0515；从 boot.img 的 payload FAT 抽出的 kernel sha256 `72793ffd…` 等于 manifest `payload_kernel`；payload `strings -a` 的 `[bluetooth]` 在 10907/11010；`verify-boot-image.py --manifest …` 得 `OK`。账本未改，等 Lead 复核后决定是否写入 ⑦。
+- **⑧ 固定边界**：不得因为 90 个宿主用例变绿就改 ⑧；d8 仍是失败观测（两次 NVM 均未完成、`result=-60`、蓝牙不可用），⑧ 的 `done=true` 只表示“设备观测已取得”。
+- **d9**：未批准。先交 `docs/research/bt/D8-NEXT.md`，列三个候选判据（HCI 层 NVM 完成标志、控制器 exec_env/MHI 状态、真实 RX 字节时间线），逐条写“需要什么观测、能排除什么、不能排除什么”，由 Lead 选单变量；在收到裁决前不重建、不上机、不改预算/下载模式/段长/状态机/地址。
+
+状态：两项交付（权威分区表 + `D8-NEXT.md`）已落盘，待 Lead 复核；test-only 提交 `916aaaa` 与 docs 提交 `56e3c73`/`2104231a` 已在远端。`E:/hackios/k60-work/scratch/bt-s4/d8-evidence-20261116.log` 的 90 用例证据与本次只读 artifact 核对均未启动设备。下一步：Lead 对断言退役、⑦ 写入与 d9 判据的选择。

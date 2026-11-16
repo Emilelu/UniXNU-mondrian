@@ -1,7 +1,7 @@
 # INT-236 连锁调查：backlight-control 打开时 backboardd 崩在哪里
 
-状态：**已结案（离线）**；修复镜像 brightness-15 已构建待飞（见 §11、§12）。调查始于 2026-11-15，
-定因于 2026-11-16。分支 `feat/display`（HEAD `55f8985`）。交付形态仍是 brightness-13（默认不发 backlight-control）。
+状态：**已结案（离线归因 2026-11-16；上机闭合 2026-11-17）**。§11 是根因，§13 是上机结果与 12 位亮度量程。
+调查始于 2026-11-15，定因于 2026-11-16。分支 `feat/display`。交付形态默认仍是 brightness-13（不发 backlight-control）；亮度实验镜像 brightness-15..18 只在显式 `k60_backlight_control=1` 时申请。
 
 本文件回答三个问题：谁持了 display lock、backboardd 崩在哪个调用栈（pc/lr 能否反推符号）、
 「发布 backlight-control 但 IOObjectConformsTo 不成立」能否改成真的 conforms。
@@ -286,7 +286,7 @@ EDR/背光路径，而我们的显示栈承受不了那条路径」。
 ## 9 缺口与下一步
 
 > **2026-11-16 更新：第 1、2 条缺口已闭合（根因=CoreBrightness 读半截标定字典，见 §11）；
-> 第 4 条的交付形态改为 brightness-15（`control=1` + 删字典，已构建待飞）。以下保留当时的记录。**
+> brightness-15 已于 2026-11-17 00:48 上机闭合（发布层 PASS，见 §13）。以下保留当时的记录。**
 
 1. **符号化缺口**（§7）：要一份 20G81 的 `dyld_shared_cache_arm64e` 才能把 `pc=0x1afa3f668` 变成函数名。
    没有它，b4 的崩溃点只能定位到「共享缓存里某个 dylib」，不能定位到调用。
@@ -365,7 +365,7 @@ getMetaClass 换成 AppleARMBacklight 元类（编译期按真内核旗标核实
 getMetaClass relocation 在 section 偏移 0x58 = address point 槽 7）；b4 的 published 行也是
 `conformance=1 control=1`。崩因是 CB 读到的数据形状不对，与「认不认这个类」无关。
 
-**交付镜像 `brightness-15`（已构建，待飞）。** `boot.img` 201,887,744 B sha256
+**交付镜像 `brightness-15`（已于 2026-11-17 00:48 上机，`usblog-20261117-004800`）。** `boot.img` 201,887,744 B sha256
 `67acb40376a468137401f65483169809e064c3f905e1e9b13c0ce54cea103ff6`；kernel 105,521,152 B
 sha256 `513cc329347eef2715635cd5fb3ec4f692c56e487281bccc4cff86268fd7a4fe`；
 manifest repo head `a322b58`、dirty 0、series 227 / sha256 `bb14a480…`、
@@ -401,11 +401,11 @@ manifest repo head `a322b58`、dirty 0、series 227 / sha256 `bb14a480…`、
 | 9 | vtable 槽 7 的 getMetaClass 替换在 16.6.1 arm64 成立 | 编译期 | `__ZTV12K60Backlight` @0x1308、relocation @section+0x58；§11 | 闭合 |
 | 10 | 镜像身份：boot/kernel sha、manifest head `a322b58` dirty 0、series 227、kargs 只有 `k60_backlight_control=1` | 产物 | §11；`verify-boot-image`/`image-arg-audit` | 闭合 |
 | 11 | 回滚：`k60_backlight=0` 停服务、`k60_backlight_control=0` 只发布不申请；交付图 brightness-13 `c8c33b9e…` control=0 已 PASS | 产物 + 上机历史 | §11；08-on-device 第 1 轮 | 闭合 |
-| 12 | 运行时 conformance 是否真为 1 | 运行时判据 | published 行 `conformance=1`；为 0 则 INCONCLUSIVE | 上机闭合 |
-| 13 | CoreBrightness 是否真的把请求写到本服务 | 运行时判据 | `stats[1]` 随滑块递增 | 上机闭合 |
-| 14 | 三档物理亮度可见变化、屏幕持续更新 | 运行时判据 | 屏上观察 + `stats[2]/[4]` 跟随 + `sig=11` 计数 0 + `first frame presented` ≥1 | 上机闭合 |
+| 12 | 运行时 conformance 是否真为 1 | 运行时判据 | brightness-15 `:184` `conformance=1 control=1` | 闭合 |
+| 13 | CoreBrightness 是否真的把请求写到本服务 | 运行时判据 | brightness-16 两次上机共 35 条 `K60 BACKLIGHT: brightness` 请求行；`stats[1]` 不可读，改用请求行 | 闭合 |
+| 14 | 三档物理亮度可见变化、屏幕持续更新 | 运行时判据 | brightness-15 用户可见变化；brightness-16 8 位端点 0xff/0x1；brightness-18 最低 0x14 观感待确认 | 部分闭合 |
 
-**仍然开放的项（全部是运行时项，已逐条绑定判据）**：第 12–14 条。没有其它未闭合项。
+**仍然开放的项**：第 14 条只剩 brightness-18 最低 0x14 的观感确认；其余运行时项已闭合。
 
 **已知限制（不是缺陷，写在这里防止事后误读）**
 - 面板未标定：不发字典后由 CoreBrightness 用 Apple 默认 5/140/400 nits 建曲线，三档亮度**可见**但不保证与
@@ -414,4 +414,75 @@ manifest repo head `a322b58`、dirty 0、series 227 / sha256 `bb14a480…`、
   （0..1 浮点）或别的形状，驱动会落到 `brightness` 分支而不是 nits 分支——届时 `stats[1]` 仍会递增，
   但 nits 数值映射可能偏；判定时以「屏上变化 + stats 跟随」为准，不以绝对 nits 为准。
 - 本文件的判据只覆盖发布层与调光链路；GPU/Metal 路径（`pong_metal`）不在本轮范围。
+
+---
+
+## 13 上机结果与 12 位亮度量程（2026-11-17）
+
+§11 的结案只证明「半截标定字典」是 b4 的崩因；本节记录修复镜像上机后的结果，以及随后为了对齐
+Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对应 `usblog-*` 目录的 `console.log`。
+
+### 13.1 brightness-15：发布层 PASS，物理调光可动
+
+- 证据 `usblog-20261117-004800`（console.log 236,694 B）：`:184`
+  `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；
+  `:1284` entered backboardd；`:2292` first frame presented；`sig=11` 0、`getBytes:range` 0。
+- 用户实测「能调了」，滑块有可见变化（物理链路 PASS）；但「最低亮度不够低，最高不确定是否达到
+  和安卓一样的最高」。
+- 原因：`levelFromNits` 当时是纯线性 `nits * 2047 / 500`，而 CoreBrightness 走自己的默认标定
+  5/140/400 nits（§11 的 NULL 分支），400 nits 只到 level 1638 = DBV 0xcc（8 位域 204/255）。
+
+### 13.2 brightness-16：8 位端点到达，但最低仍然太亮
+
+- 代码改动（commit `f4679902`）：`kMinNits=5`、`kMidNits=140`、`kMaxNits=400`，`levelFromNits`
+  把 5..400 nits 拉伸到 level 1..2047；`setProperties` 每条请求打一行
+  `K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x`（published 行在请求前，看不出请求值）。
+- 两次上机：
+  - `usblog-20261117-013028-658`（console 244,059 B）：`:184` published conformance=1 control=1；
+    `:2240`/`:2241` 第一次出现 per-request 行——**16.6.1 的滑块走 `brightness` 键，不走
+    `brightness-nits`**；后者只在启动时发一次 0.0。
+  - `usblog-20261117-013717-505`（console 257,711 B）：`:2930` `brightness level 2047 -> level 2047
+    dbv 0xff`；`:3205` `brightness level 1 -> level 1 dbv 0x1`；请求行 35 条；`sig=11` 0。
+- 结论：8 位 DBV 域的**两个端点都能到达**（2047→0xff、1→0x1），但 `DBV 1/255 ≈ 0.39%` 的底亮
+  对夜间仍然太亮；Android 的 12 位域是 `1/4095 ≈ 0.024%`，相差 16 倍。
+
+### 13.3 Android 对照：12 位双字节 DCS 0x51
+
+本地 LineageOS sm8250 源码（`/mnt/e/k60-work/scratch/dsi_panel_sm8250.c`、`drm_mipi_dsi_sm8250.c`、
+`sde_connector.c`）给出：
+- `mipi_dsi_dcs_set_display_brightness(dsi, u16 brightness)` 固定发
+  `u8 payload[2] = { brightness & 0xff, brightness >> 8 }`（永远两个参数）。
+- `dsi_panel_update_backlight()` 在 `bl_inverted_dbv` 时先做
+  `bl_lvl = ((bl_lvl & 0xff) << 8) | (bl_lvl >> 8)`；m11a 有 `bl-inverted-dbv`。
+- `sde_backlight_device_update_status` 把请求夹到 `bl_max_level`，m11a 的 live FDT 是 0xfff。
+- 因此 Android 对 m11a 实际写 `0x51 0x0f 0xff`（高字节在前，12 位）。
+
+### 13.4 brightness-17：12 位路径生效，DBV 1 在夜间黑屏
+
+- 代码 commit `0bded1a`：`kMaxDbv=0xfff`、`kMinDbvOn=1`；`PongDsiPanel.cpp` 的
+  `pong_panel_set_brightness` 改发 3 字节 `0x51 <hi> <lo>`（长写 0x39），bring-up 也发
+  `0x51 0x0f 0xff`。
+- 构建产物 boot.img sha256 `8b2d63327d68e778639e0918460bd5662993cff40e5f0efbb941309b6e02c053`；
+  上机 `usblog-20261117-0245-brightness17`（console 245,740 B）：`:184`
+  `published level 2047 dbv 0xfff conformance=1 control=1`；`:182`
+  `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`；first frame、SpringBoard 133、`sig=11` 0；
+  请求行 14 条，`:3573` `brightness level 1 -> level 1 dbv 0x1`（用户没有拉到最高，MAX 只到 0x800）。
+- 用户实测：夜里拖到最低**会黑屏，只能盲点调高**。结论：12 位协议路径生效，但 DBV 1 在本面板上
+  是电学熄灭，`qcom,mdss-dsi-bl-min-level = 0x1` 只是寄存器下限，不是可用亮度。
+
+### 13.5 brightness-18：最低 floor 到 0x14，发布层 PASS，观感待确认
+
+- 代码 commit `82c0f51d`：`K60BacklightCodec.h` 的 `kMinDbvOn` 从 1 改为 `0x14`（20），取自 live
+  FDT 的 `mi,doze-lbm-dbv-level = 0x14`；span 变为 4075；level 1→DBV 0x14、level 2047→0xfff、
+  level 0 仍返回 0（面板灭）。
+- 构建产物 boot.img 201,887,744 B sha256
+  `3e516e73c0ee7b86b6eb30268ddc8c57b62ee5abef08417b7b053f4d22677cc8`；kernel
+  `28436472ddf5ba9b8b0027a31862da3cb8f331344f538b69ccd76f43d6dfb780`。
+- 两次上机：`usblog-20261117-0306-brightness18`（03:06 起飞）与
+  `usblog-20261117-0313-brightness18b`（03:11:58 起飞，console 232,718 B）：
+  `:184` published level 2047 dbv 0xfff conformance=1 control=1、`:182` bring-up `0x51 0x0f 0xff`、
+  `:1261` entered backboardd、`:2423` first frame、SpringBoard 128、`sig=11` 0；两次都没有用户拖
+  滑块的请求行（仅启动默认 `:2212` 1024→0x80a 与 `:2213` brightness-nits 0.0→0x0）。
+- 待确认：最低档 `0x14` 是否还黑屏/是否比 8 位底更暗。这是 §12 第 14 条的最后一个运行时项，
+  确认后才把 `EIGHT-STEPS.toml` 的 `[hardware.brightness.step.device]` 置 done。
 

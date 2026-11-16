@@ -1,7 +1,7 @@
 # ADSP LCX/LMX 供电继承：四个问题的取证（round 33，2026-11-16）
 
 **当前裁决：Lead 2026-11-16 15:03 选择 (iii)，恢复 handoff 资源拒绝。**
-[`resources_cb`](../../../drivers/PongPower/K60AdspBoard.c#L243) 在 lease/排他/stopped 检查后仍须返回
+[`resources_cb`](../../../drivers/PongPower/K60AdspBoard.c#L241) 在 lease/排他/stopped 检查后仍须返回
 `K60BoardUnsupported`(-63)，不置 `resources=1`，打印
 `K60ADSP: rails not verified for handoff; no PAS/SMEM mutation`，先于下游 map/SMEM 分配/SCM/copy/AUTH/发布。
 HR-01 **不放松**；未知供电不是轨关闭，也不能被声明成 `K60AdspResourcesHeld`。
@@ -91,8 +91,9 @@ if ((rc = vote(lcx, lmx))) { fail(StRails, rc); ... }
 历史 railh 只验证过受限只读探针的 cmd-db magic、ldoc2 和 DRV-2 布局三行，
 没有 ADSP LCX/LMX 请求实测。后加的
 [`k60_rail_measure()`](../../../drivers/PongPower/K60PmicRail.c#L175) 与 ledger 不因这个先例而已上机或已审计。
-它们只读、不写 TCS，但现实现固定 5 槽、每槽只看首个 command；是否覆盖可访问槽与全部 command、
-status/enable/msgid 解释、以及唯一入口的单次 attempted 语义，均待离线核验（第六节）。
+它们只读、不写 TCS。16:32 裁决后的[离线审计](ADSP-RAIL-SAMPLER-AUDIT.md)已完成来源矩阵及宿主反例：
+当前固定 5 槽/首 command 会漏记录，忽略 enable/msgid/CMD_STATUS，失败路径没有一次 attempted 保护。
+helper 9 例与 KERNEL entry 10 例均复现缺陷；尚未修复，不具备 rail-only 候选条件。
 
 ### 2.2 DRV-2 + TCS 槽：本仓库族里已有的只读先例
 
@@ -110,8 +111,9 @@ if(!readable||caps==0xffffffffu||id==0xffffffffu||((id>>16)&255)>=3||count<8||nc
 历史先例把下列布局打印解释为 v2（同
 [`REFERENCE-INDEX.md:176`](../REFERENCE-INDEX.md#L176)）：
 `K60RAIL rsc drv_id=0x20700 version=2 stride=672 cmd=20 ctrl=0x14 enable=0x1c msgid=0x30 addr=0x34 data=0x38`。
-这不是 ADSP 采样器的审计结论：实际 caps 可访问 slot 数、每槽 command 数、cmd_stride，
-`TCS_STATUS(+0x18)` 与 `CMD_STATUS(+0x3c)`、bit0 是否可命名 idle、enable/msgid 语义仍须可靠来源确认。
+这不是 ADSP 采样器的当前硬件状态证明。现已按固定版来源核对 caps/command 数、cmd_stride、
+`TCS_STATUS(+0x18)` 与 `CMD_STATUS(+0x3c)`、enable/msgid；详见[离线矩阵](ADSP-RAIL-SAMPLER-AUDIT.md#二drv-2-几何与字段矩阵)。
+来源按整个 TCS_STATUS 值判 zero/nonzero，不支持当前 helper 的 bit0 idle 判据；可访问许可仍须独立闭合。
 
 ### 2.3 ⚠ TCS 槽号：本板有两个互相矛盾的说法，不要猜
 
@@ -215,11 +217,11 @@ bsd/kern/kern_exec.c:7896      k60_data_mounted = 1;    ← 四条件的「时�
 | 事实 | 实测值 | 判读边界 |
 | --- | --- | --- |
 | lcx/lmx cmd-db resource id | 未测 | 按名取得 command address；不是 rail-on 状态 |
-| DRV-2 caps / 可访问 slots / commands / stride | 未测、布局待审计 | 记录可靠来源与覆盖范围，不固定 5 槽或仅首 command |
+| DRV-2 caps / 可访问 slots / commands / stride | 同次未测；布局来源已核对，访问许可未闭合 | 记录可靠来源与覆盖范围，不固定 5 槽或仅首 command |
 | lcx slot + command index / addr / data | 未测 | 原始值；ARC data 为档位索引而非 mV |
 | lmx slot + command index / addr / data | 未测 | 同上；同槽不同 command 并不自动无效 |
-| TCS_STATUS / CMD_STATUS / enable / msgid | 未测、语义待审计 | 分开记录，不把 CMD_STATUS bit0 擅称 idle |
-| attempted / ledger reuse / 失败注入 trace | 待离线证明 | 成功或失败均只尝试一次，已有账本不再 map/read |
+| TCS_STATUS / CMD_STATUS / enable / msgid | 原始值未测；来源语义已核对 | 分开记录，不把 CMD_STATUS bit0 擅称 idle |
+| attempted / ledger reuse / 失败注入 trace | 离线反例已复现重复尝试，尚未修复 | 未来须成功或失败均只尝试一次，已有账本不再 map/read |
 | 请求观察与实际供电结论 | 无供电结论 | 非零只证明某位置留有请求；缺记录不证明无票或轨关闭 |
 
 ## 六、当前拒绝与已撤回实现
@@ -262,9 +264,11 @@ COPY/BSS → AUTH_AND_RESET。故只把门贴在 AUTH 前已太晚，C 的 legac
 ### 6.2 采样器仍有的阻塞
 
 `K60_RAIL_SLOTS=5`、每槽首 command、`cmd_stride` 未用于全 command 覆盖、status/enable/msgid
-解释均须按可靠布局来源审计。`k60_rail_probe()` 在检查 ledger 前已 map/read；`rail_pass()`
+解释已按小米 K60 固定版来源逐项审计，详见[字段矩阵与测试结果](ADSP-RAIL-SAMPLER-AUDIT.md)。`k60_rail_probe()` 在检查 ledger 前已 map/read；`rail_pass()`
 失败又不记录 attempted，所以现代码不能证明失败也只尝试一次或 probe/inherit 无重复硬件读取。
-必须在唯一采样入口执行四条件与 attempted 门；先补离线正反例，不在本轮修改采样器或扩大访问。
+9 个 helper 案例和 10 个隔离进程的 KERNEL entry 案例已复现覆盖缺失、失败重试与 cache remap；
+它们通过表示当前错误行为可重复，不表示合规通过。唯一入口四条件/前置 attempted 契约尚待实现，
+本轮未改采样器或扩大访问；测试未逐条统计原始 loads。
 即使未来记录完整，TCS 请求仍不是 AOP 当前聚合或 PMIC/ARC 生效状态。
 
 ## 七、证据索引
@@ -275,7 +279,7 @@ COPY/BSS → AUTH_AND_RESET。故只把门贴在 AUTH 前已太晚，C 的 legac
 | lcx.lvl / lmx.lvl 节点与 PMIC 子节点 | `E:/k60-work/scratch/dtb/mondrian.dts:5333-5345`、`:6113-6125`；别名 `:21177-21179`、`:21288-21290` |
 | Pong 按名取 lcx/lmx 并取最高档投票 | `E:/k60-work/references/pong-power/PongAdsp.cpp:225-231`、`:565-572` |
 | 历史受限只读先例（不是新增采样器批准） | `drivers/PongPower/K60PmicRail.c:437-540`（`k60_rail_probe()`）；`docs/ops/HARD-RULES.md:101-104` |
-| 旧 helper 与当前资源拒绝 | `drivers/PongPower/K60PmicRail.c:260-434`（verdict:260、record_pass:335、pass:357、inherit:389，待审计）；`drivers/PongPower/K60AdspBoard.c:241`（返回 -63）；`docs/engineering/PITFALLS.md` P-223 |
+| 旧 helper 与当前资源拒绝 | `drivers/PongPower/K60PmicRail.c:260-434`（verdict:260、record_pass:335、pass:357、inherit:389，审计已发现阻塞，未修复）；`drivers/PongPower/K60AdspBoard.c:241`（返回 -63）；`docs/engineering/PITFALLS.md` P-223 |
 | 回读调用点（`AUTH_AND_RESET` 之前） | `patches/xnu/0613-k60-adsp-pas.patch:208`（`k60_adsp_bring_up()` 第一步） |
 | 发布路径不经过 `bring_up()` | `K60HandoffRuntime.cpp:72`；`K60AdspOwnerStages.c:156`；`K60AdspPlatformNative.cpp:336-342` |
 | 只读 TCS 槽先例（wifi gate） | `E:/hackios/k60-wifi/patches/wifi/0003-drivers-PongWifi-k60-rsc-gate.patch:28-39` |

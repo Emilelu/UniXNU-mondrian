@@ -4,6 +4,7 @@
 - [ADSP-CARRIER.md](audio/ADSP-CARRIER.md) — ADSP 固件载体决策：固定物理地址 + ADT 常量，已排除的三条路
 - [ADSP-CLAIMS.toml](audio/ADSP-CLAIMS.toml) — 8 条可核对断言，`scripts/check-adsp-claims.py` 逐条校验
 - [ADSP-RAIL-INHERITANCE.md](audio/ADSP-RAIL-INHERITANCE.md) — ADSP 的 LCX/LMX 供电继承取证：哪两条轨、只读怎么读、什么算证明、何时可读，以及 `resources()` 跑在 Data 挂载之前的时序事实
+- [ADSP-RAIL-SAMPLER-AUDIT.md](audio/ADSP-RAIL-SAMPLER-AUDIT.md) — DRV-2 来源/字段矩阵、请求与供电证据边界、9 个 helper 及 10 个 KERNEL entry 反例；当前采样器仍阻塞
 - [GLINK-HANDOFF.md](battery/GLINK-HANDOFF.md) — 104 字节 `k60-adsp-glink-handoff` lease 的字节布局与生产者要求
 - [PMIC-GLINK-SERVICE.md](battery/PMIC-GLINK-SERVICE.md) — L1 `pmic_glink` 服务层契约：client `battery_charger`/`0x800a`、24/28/16/144 B 帧、250 jiffies 完成语义、与上游 `qcom_battmgr` 的三方对照、两处真实缺口
 - [display/RESEARCH.md](display/RESEARCH.md) — 显示结论层：面板 m11a（1440x3200 / DSC cmd / 单 DSI / 三档 60·90·120）、5 条供电轨、DSI/MDP 基址、绝不可抄的 Sharp/zizhan 数值

@@ -54,6 +54,9 @@
   从 `pong_adsp_table.h` 读回三个常量并与镜像表比对（`TESTS OK ... link 0x86300000 board 0x9fd00000`）。
 - 产物证据：c 的 `kernel.macho` 保留 `K60PAS region from /chosen` 与
   `K60PAS ignoring region override` 两条诊断串（`strings` 复核，见证 `k60_adsp_board_region()` 被编入）。
+- 结构测试：`scripts/tests/test-k60-adsp-region.py` 读 0613 patch，断言 `k60_adsp_cell()`
+  按字节 big-endian 解码、`k60_adsp_board_region()` 支持 2/4 cell 且不退回 `const uint32_t *cells`
+  （`TESTS OK region override parser uses big-endian cells (2 and 4 cell forms)`）。
 - 回滚：一个 commit；改回 0x86300000 即恢复旧行为（不做）。
 
 ### 1.2 载体接线（D3 = ② 新 boot-arg）

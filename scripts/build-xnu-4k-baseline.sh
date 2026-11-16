@@ -1138,8 +1138,21 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   if [ -n "${XNU_BOOTSTRAP:-}" ]; then
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
-    EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE")
+    BOOTSTRAP_LD_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel"
+    BOOTSTRAP_LD_ARCHIVES="$BOOTSTRAP_LD_ARCHIVES -Wl,-force_load,$PONG_GPU_ARCHIVE"
   fi
+fi
+# The battery archive is force-loaded in the real pass too. The bootstrap pass
+# links first and has no PLATFORM_ARCHIVES, so a kernel-side reference such as
+# pong_audio_start -> k60_pmic_glink_attach_audio would otherwise be undefined.
+if [ -n "${XNU_BOOTSTRAP:-}" ] && [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+  BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
+  test -f "$BATTERY_ARCHIVE"
+  BOOTSTRAP_LD_ARCHIVES="${BOOTSTRAP_LD_ARCHIVES:--L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel}"
+  BOOTSTRAP_LD_ARCHIVES="$BOOTSTRAP_LD_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
+fi
+if [ -n "${BOOTSTRAP_LD_ARCHIVES:-}" ]; then
+  EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$BOOTSTRAP_LD_ARCHIVES")
 fi
 if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
   ARM_DT_ARCHIVE=$ROOT/build/armdt-platform/libArmDTPlatform.a

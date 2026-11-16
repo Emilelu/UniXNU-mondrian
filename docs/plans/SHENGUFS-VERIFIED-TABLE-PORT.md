@@ -76,6 +76,18 @@
 - 三个 host 测试全过：`RootPublication`（7 组）、`RootWindowRead`（7 组）、`VerifiedTableCache`（并发 `hits=714 misses=886 reads=886 evictions=884 waits=3889`）。
 - 未接任何运行路径，`NativeUfs.cpp`/`PongUfsTransport.cpp` 未改，未 boot。
 
+## 3.2 步骤 1.5 执行记录（2026-11-17 03:40）
+
+- 分支 `feat/ufs-verified-table`，从步骤 1 的 `848b7b87` 继续。
+- 从 `UniXNU/VerifiedRoot@974f043d0c71ba2e60331483a41c6c6d35274ee3`（catalog pin；本地 submodule `def0266` 没有 `vr_open_header`）复制 kernel 侧
+  `k60-ufs-verified:drivers/NativeUfs/verified_root.h`、`k60-ufs-verified:drivers/NativeUfs/verified_root.c`、`k60-ufs-verified:drivers/NativeUfs/xnu_crypto.c`；接口 `VerifiedBlockPolicy.h` 取自 `UniXNU/VirtioMmioBlock`。
+- 新增 `k60-ufs-verified:drivers/NativeUfs/RootPolicyTable.h`：按签名头里的 `image_bytes` 选 policy，header-only 时从 LUN 0 读
+  `<window>.vroot`，先 `vr_open_header` 再校验表哈希并填充 `vr_view.hashes`；full envelope 直接 `vr_open`。
+- 新增 `tests/RootPolicyTable.cpp` 与 `tests/check-verified-root.py`：生成真实 RSA-3072 / PKCS1v1.5-SHA256 的
+  full/header-only manifest，覆盖选 policy、LUN 0 读表、错 anchor、错表、截断头、低 generation、改 header 字节。
+- 四个 host 测试全过：`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`。
+- 未接 `NativeUfs.cpp`/`PongUfsTransport.cpp`，`native-vroot-cache` 仍关闭，未 boot。
+
 ## 4. 不抄的部分
 
 - 参考树 `NativeUfs.cpp`（149,596 B）与我们版本差异过大，不整体替换；只抄 3 个头文件 + 3 个测试。

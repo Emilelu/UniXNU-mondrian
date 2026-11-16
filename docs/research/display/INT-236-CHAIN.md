@@ -1,7 +1,7 @@
 # INT-236 连锁调查：backlight-control 打开时 backboardd 崩在哪里
 
-状态：离线调查（Lead 的 (a-1) 项），**未上机**。日期 2026-11-15。
-分支 `feat/display`（HEAD `ddbb754`，基线 `2f9f991`）。交付形态仍是 brightness-13（默认不发 backlight-control）。
+状态：**已结案（离线）**；修复镜像 brightness-15 已构建待飞（见 §11、§12）。调查始于 2026-11-15，
+定因于 2026-11-16。分支 `feat/display`（HEAD `55f8985`）。交付形态仍是 brightness-13（默认不发 backlight-control）。
 
 本文件回答三个问题：谁持了 display lock、backboardd 崩在哪个调用栈（pc/lr 能否反推符号）、
 「发布 backlight-control 但 IOObjectConformsTo 不成立」能否改成真的 conforms。
@@ -380,4 +380,38 @@ manifest repo head `a322b58`、dirty 0、series 227 / sha256 `bb14a480…`、
 - FAIL：任一 `sig=11` / 无 first frame / 停更 / 三档无可见变化（FAIL 即停 control=1 路线，
   交付保持 `control=0` 的 brightness-13，转 SnapAdreno 的 swap-record 路线）。
 - INCONCLUSIVE：`conformance=0`（control 未申请）——等同没测，不算失败。
+
+---
+
+## 12 上机前证据矩阵（2026-11-17）
+
+上机前的规矩：每条结论要么已经被静态/单元/产物证据闭合，要么被写成运行时判据（某一行日志的
+某个值），不允许留「看起来应该没问题」。下表逐条对照；表后是仍然开放的项与已知限制。
+
+| # | 断言 | 证据类型 | 证据位置 | 状态 |
+| --- | --- | --- | --- | --- |
+| 1 | b4 的 SIGSEGV 在 CFNumberGetValue(NULL)：pc `CoreFoundation+0x77668`（`ldr x8,[x0]`）、lr `CoreBrightness+0xfbaa4` | 日志 + 反汇编码 | `usblog-20261115-013520/console.log`；§11 | 闭合 |
+| 2 | 字典由 Apple 发布器发 10 键：`kernelcache` `0x575a328`（withCapacity(10)、10 个 withNumber、`setProperty` @`0x575a528`） | 反汇编 | §11 键↔iVar 表 | 闭合 |
+| 3 | CoreBrightness 读循环对这 10 键无 NULL 检查（`0x1af030a78` → `CFDictionaryGetValue` → `CFNumberGetValue`） | 反汇编 | §11 | 闭合 |
+| 4 | 属性缺失时走默认分支 `0x1af031684`（5/140/400 nits，写 `[#1140..#1164]`） | 反汇编 | §11 | 闭合 |
+| 5 | CoreBrightness 其它 20 个属性读取点都有 NULL 分支 | 反汇编 | §11（`0x1af05d274`、`0x1af070884` 等） | 闭合 |
+| 6 | 驱动不再发布 `backlight-calibration-parameters` | 产物 | `K60Backlight.o` strings 无该串；kernel 里同名串属 Apple DCP 代码 | 闭合 |
+| 7 | `brightness-nits`（有符号 16.16）解码正确：2/140/500 nits、负值、超上限 | 单元测试 | `scripts/check-brightness-encoder.py`（`levelFromNits` 6 条断言） | 闭合 |
+| 8 | `FadePeriod`（16.16 秒）解码与 5 s 夹取 | 单元测试 | 同上（`fadeMsFromFixed` 4 条断言） | 闭合 |
+| 9 | vtable 槽 7 的 getMetaClass 替换在 16.6.1 arm64 成立 | 编译期 | `__ZTV12K60Backlight` @0x1308、relocation @section+0x58；§11 | 闭合 |
+| 10 | 镜像身份：boot/kernel sha、manifest head `a322b58` dirty 0、series 227、kargs 只有 `k60_backlight_control=1` | 产物 | §11；`verify-boot-image`/`image-arg-audit` | 闭合 |
+| 11 | 回滚：`k60_backlight=0` 停服务、`k60_backlight_control=0` 只发布不申请；交付图 brightness-13 `c8c33b9e…` control=0 已 PASS | 产物 + 上机历史 | §11；08-on-device 第 1 轮 | 闭合 |
+| 12 | 运行时 conformance 是否真为 1 | 运行时判据 | published 行 `conformance=1`；为 0 则 INCONCLUSIVE | 上机闭合 |
+| 13 | CoreBrightness 是否真的把请求写到本服务 | 运行时判据 | `stats[1]` 随滑块递增 | 上机闭合 |
+| 14 | 三档物理亮度可见变化、屏幕持续更新 | 运行时判据 | 屏上观察 + `stats[2]/[4]` 跟随 + `sig=11` 计数 0 + `first frame presented` ≥1 | 上机闭合 |
+
+**仍然开放的项（全部是运行时项，已逐条绑定判据）**：第 12–14 条。没有其它未闭合项。
+
+**已知限制（不是缺陷，写在这里防止事后误读）**
+- 面板未标定：不发字典后由 CoreBrightness 用 Apple 默认 5/140/400 nits 建曲线，三档亮度**可见**但不保证与
+  官方 nits 曲线一致；要精确曲线得实测面板电流后再发完整 10 键（本轮不做）。
+- 16.16 的解释来自反汇编（`/65536`，类型 12 = kCFNumberFloatType）；若 CB 在某条路径改发 `brightness`
+  （0..1 浮点）或别的形状，驱动会落到 `brightness` 分支而不是 nits 分支——届时 `stats[1]` 仍会递增，
+  但 nits 数值映射可能偏；判定时以「屏上变化 + stats 跟随」为准，不以绝对 nits 为准。
+- 本文件的判据只覆盖发布层与调光链路；GPU/Metal 路径（`pong_metal`）不在本轮范围。
 

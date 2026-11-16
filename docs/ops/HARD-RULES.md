@@ -82,9 +82,9 @@ K60RAIL rsc drv_id=0x20700 version=2 stride=672 cmd=20 ctrl=0x14 enable=0x1c msg
 - finding `0248`（只读探针也以首读死告终）
 - `docs/research/touch/05-plan.md:9`
 - `docs/research/bt/RESEARCH.md`（在 k60-bt 检出；本地从未有 `bt/EVIDENCE.md`，此条为上游原样快照的失效路径）
-- `docs/research/01-same-hardware.md:32`
+- `docs/research/01-same-hardware.md:17`
 - `docs/research/02-official-docs.md:15,59`
-- `docs/research/03-reverse-and-device-data.md:350`
+- `docs/research/03-reverse-and-device-data.md`（53 行；该文件无 TCS/RSC 直接记录，此条沿自上游快照）
 
 ### 检查方法
 ```bash

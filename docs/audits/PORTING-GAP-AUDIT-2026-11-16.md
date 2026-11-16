@@ -92,9 +92,11 @@
 
 | 引用处 | 引用的目标 | 实际 |
 |---|---|---|
-| `docs/engineering/BOOT-ARGS.md:83` | `drivers/PongAdreno/PongAdrenoNativeGlue.cpp:62` | 该文件 52 行 |
-| `docs/engineering/PITFALLS.md:3508`、`:3595` | `porting.toml:248`、`:240` | `porting.toml` 223 行 |
+| `docs/engineering/BOOT-ARGS.md:83` | `drivers/PongAdreno/PongAdrenoNativeGlue.cpp` 的 `:62` | 该文件 52 行；发布调用实际在 `:39-45`（2026-11-17 已修） |
+| `docs/engineering/PITFALLS.md:3508`、`:3595` | `porting.toml` 的 `:248`、`:240` | `porting.toml` 223 行；两处引文在现记录里已不存在，已改为指 `[[area]] id = "gpu"`（`:107`） |
 | `docs/plans/120HZ-PORT-PLAN.md:203` | `PongAdrenoScanout.cpp:682` | 176 行 |
+
+**2026-11-17 复测（门禁口径）**：`scripts/check-doc-citations.py` 已落地（基线 `docs/engineering/DOC-CITATIONS-BASELINE.toml`，`check-docs.py` 调用）。门禁口径比上表的手工扫描更宽（含无行号纯路径、多了根文档），测得 **2,528 处**引用、**308 个**目标不存在、行号越界 **0**。上表 14 处越界里，2 处加上 `pong:`/`zizhan:` 仓库限定后不再算本仓（`PongAdrenoScanout.cpp:682`、`ArmDTPlatform.cpp:254`），其余 13 个键（17 处站点）已逐条修正：`docs/ops/HARD-RULES.md` 两条改到真实行/去行号、`docs/engineering/BOOT-ARGS.md` 的 `:62`→`:39-45`、审计表自身两条拆成「文件 + 行号」写法、`FEATURES-DRIVERS-RESEARCH-2026-10-31.md` 两处标 `sheng:`、`docs/plans/MZYSL-DIFF.md` 六个键标 `mzyxsl:`、`PITFALLS.md` 与 `GPU-TODO.md` 对 `porting.toml` 的 `:248`/`:240` 两处引用改指 `[[area]] id = "gpu"`（`:107`）。
 
 **指向 docs/research 但 main 上不存在的引用（8 处，逐条核实过实体在哪）**：
 

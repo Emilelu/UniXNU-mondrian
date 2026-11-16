@@ -130,7 +130,7 @@ git 历史里从未跟踪过它们。
 **恢复方法**：从设备重新提取。这五个文件在 Android 的
 `/vendor/firmware_mnt/image/` 与 `/vendor/firmware_mnt/image/a730/` 下。
 
-**已恢复（2026-11-12）**：五个文件一直在 `/mnt/d/Android/k60-ios/firmware/k60-gpu/`，`porting.toml:248` 早就写着这个路径。已复制回 `.cache/firmware/k60-gpu/` 并设回 `CONFIG_XNU_PONG_ADRENO_PLATFORM=y`。构建产物 54,243,328 B，`libPongAdrenoPlatform.a` 406,464 B，GPU 符号全部在内核里。
+**已恢复（2026-11-12）**：五个文件一直在 `/mnt/d/Android/k60-ios/firmware/k60-gpu/`，`porting.toml` 的 GPU 段（`[[area]] id = "gpu"` = `:107`，当时在 `:248`）早就写着这个路径。已复制回 `.cache/firmware/k60-gpu/` 并设回 `CONFIG_XNU_PONG_ADRENO_PLATFORM=y`。构建产物 54,243,328 B，`libPongAdrenoPlatform.a` 406,464 B，GPU 符号全部在内核里。
 
 **教训**：`/.cache/` 这类 gitignore 目录里放的是**构建必需品**时，
 必须有独立备份，不能只依赖工作区文件。

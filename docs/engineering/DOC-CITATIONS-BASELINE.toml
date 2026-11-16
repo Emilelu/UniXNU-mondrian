@@ -9,12 +9,10 @@
 # allowed_line_overflow:   目标存在但行号越界，写成 "目标|行号"
 
 allowed_missing_targets = [
-  "configs/common.c",
   "configs/ipados.c",
   "configs/mondrian-wifi-sm8475.json",
   "configs/pong-display-sm8475.json",
   "configs/pong-memory-sm8475.json",
-  "configs/pong-native-sources.toml",
   "configs/pong-power-sm8475.json",
   "configs/pong-wifi-sm8475.json",
   "configs/sm8475.c",
@@ -134,7 +132,6 @@ allowed_missing_targets = [
   "drivers/PongPower/PongRpmh.cpp",
   "drivers/PongThermal/pong_thermal.c",
   "drivers/PongWifi/PongWifiPlatform.cpp",
-  "drivers/PongWifi/nw_abi.h",
   "drivers/X.c",
   "drivers/bluetooth/hci_qca.c",
   "drivers/bus/mhi/host/main.c",
@@ -323,19 +320,5 @@ allowed_missing_targets = [
 ]
 
 allowed_line_overflow = [
-  "docs/research/01-same-hardware.md|32",
-  "docs/research/03-reverse-and-device-data.md|350",
-  "drivers/ArmDTPlatform/ArmDTPlatform.cpp|254",
-  "drivers/PongAdreno/PongAdrenoNativeGlue.cpp|62",
-  "drivers/PongAdreno/PongAdrenoScanout.cpp|682",
-  "porting.toml|227",
-  "porting.toml|232",
-  "porting.toml|240",
-  "porting.toml|248",
-  "porting.toml|265",
-  "porting.toml|266",
-  "porting.toml|277",
-  "porting.toml|332",
-  "porting.toml|354",
-  "porting.toml|366",
+
 ]

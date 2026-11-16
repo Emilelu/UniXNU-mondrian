@@ -3505,7 +3505,7 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
    2,236 B  a730_zap.b01
    3,416 B  a730_zap.b02
   ```
-  而 `porting.toml:248` 早就写着这句话：
+  而 `porting.toml` 的 GPU 段（`[[area]] id = "gpu"` = `:107`，当时在 `:248`）早就写着这句话：
   > The GPU firmware set is complete under D:/Android/k60-ios/firmware/k60-gpu
 - **我当时的搜索范围**：`<workspace>`、`/mnt/e/hackios`、`/opt/k60`
   —— **漏了 /mnt/d**。而 REPO-INVENTORY.md 明确写着 `D:\Android\k60-ios` 是
@@ -3592,7 +3592,7 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
 - **教训**：
   1. **"功能没生效"要先查开关，再查代码。** 三个 GPU 开关全缺，这比任何驱动
      bug 都更早发生。
-  2. **文档写了 next_action 不等于配置里有了。** `porting.toml:240` 写着
+  2. **文档写了 next_action 不等于配置里有了。** `porting.toml` 的 GPU 段（当时在 `:240`）写着
      "Boot with pong_adreno_start=1"，但 board.toml 从未加过 —— 文档与配置脱节。
   3. **`git log -S<key> -- board.toml` 是判断"某开关是否曾经配过"的最快方法。**
 

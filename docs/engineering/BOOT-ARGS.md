@@ -80,7 +80,7 @@
 - **陷阱**：设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144）
 - **源码**：`drivers/PongAdreno/PongAdrenoClient.cpp:202`
 - **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:30`
-- **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:62`
+- **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:39-45`
 
 ### `pong_gpu_scanout`
 

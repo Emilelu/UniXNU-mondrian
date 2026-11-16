@@ -210,7 +210,7 @@ mzyxsl 的 README 自己定义：`implemented` = 源码已就位但无主机或�
 
 ### 3.1 Storage
 
-mzyxsl 的 Storage status = `implemented`（`README.md:51`、`porting.toml:184-232`），但该 area 的 limits 明确写着：**没有设备日志；读路径实现但未验证；持久化 UFS Data 窗口根本没有编译**（`porting.toml:221`）。其实现是“UFS LUN0 只读 root + 32 MiB RAM seed”，不是可用的持久化存储。
+mzyxsl 的 Storage status = `implemented`（mzyxsl `README.md:51`、`mzyxsl:porting.toml:184-232`），但该 area 的 limits 明确写着：**没有设备日志；读路径实现但未验证；持久化 UFS Data 窗口根本没有编译**（`mzyxsl:porting.toml:221`）。其实现是“UFS LUN0 只读 root + 32 MiB RAM seed”，不是可用的持久化存储。
 
 **驱动**
 
@@ -251,7 +251,7 @@ mzyxsl 的 Storage status = `implemented`（`README.md:51`、`porting.toml:184-2
 
 ### 3.2 Display
 
-mzyxsl Display status = `implemented`（`README.md:52`、`porting.toml:236-277`），但 limits 明确：**仓库里没有一张 first frame 的设备日志，area 是 source only**（`porting.toml:265`）。其实现是 0210–0213 四个 XNU 补丁 + userland QuartzCore 兼容层。
+mzyxsl Display status = `implemented`（mzyxsl `README.md:52`、`mzyxsl:porting.toml:236-277`），但 limits 明确：**仓库里没有一张 first frame 的设备日志，area 是 source only**（`mzyxsl:porting.toml:265`）。其实现是 0210–0213 四个 XNU 补丁 + userland QuartzCore 兼容层。
 
 **补丁**
 
@@ -281,7 +281,7 @@ mzyxsl Display status = `implemented`（`README.md:52`、`porting.toml:236-277`�
 
 ### 3.3 GPU
 
-mzyxsl GPU status = `implemented`（`README.md:54`、`porting.toml:321-366`），但同一记录自己写着：`CONFIG_XNU_PONG_ADRENO_PLATFORM=n and CONFIG_XNU_NATIVE_ADRENO=n`（`porting.toml:332`），limits 又写“switched off in the committed defconfig, and no device log records which bring-up phase was reached last”（`porting.toml:354`）。此外，真正把 GPU 画面上屏的 `pong-gpu-scanout` / `pong-gpu-only-display` / `pong-source-row-pitch` 三个 patch **不在 mzyxsl 的 series 中**（见 2.2 的成员检查，均为 `False`）。所以 mzyxsl 的 GPU “implemented” = 驱动源码完整、默认不编译、没有画面。
+mzyxsl GPU status = `implemented`（mzyxsl `README.md:54`、`mzyxsl:porting.toml:321-366`），但同一记录自己写着：`CONFIG_XNU_PONG_ADRENO_PLATFORM=n and CONFIG_XNU_NATIVE_ADRENO=n`（`mzyxsl:porting.toml:332`），limits 又写“switched off in the committed defconfig, and no device log records which bring-up phase was reached last”（`mzyxsl:porting.toml:354`）。此外，真正把 GPU 画面上屏的 `pong-gpu-scanout` / `pong-gpu-only-display` / `pong-source-row-pitch` 三个 patch **不在 mzyxsl 的 series 中**（见 2.2 的成员检查，均为 `False`）。所以 mzyxsl 的 GPU “implemented” = 驱动源码完整、默认不编译、没有画面。
 
 **驱动**
 
@@ -345,8 +345,8 @@ mzyxsl GPU status = `implemented`（`README.md:54`、`porting.toml:321-366`）�
 | 对象 | 证据 | 结论 |
 |---|---|---|
 | mzyxsl `board.toml` 的 12 GiB `dram_size` + `dts/mondrian.dts` 的 `memory@80000000` 单段 | `board.toml:73`、`dts/mondrian.dts:23-26`；与 local `porting.toml:59,61` 实测六段 / 28 GiB hole / 4 GiB 窗口相反；`porting.toml:171` 自认来自 maintainer notes，不是 boot log | **不可用**：按此配置无法在本仓实测单元启动 |
-| mzyxsl Storage “implemented” 作为持久化存储 | `porting.toml:213` `CONFIG_XNU_OWNER_DATA_UFS=n`；`pong-ufs-data.patch` 不在 series；`porting.toml:221` 无设备日志 | **不可用**：只是 UFS 只读 root + 32 MiB RAM seed，掉电即失；不能当持久化 Data |
-| mzyxsl GPU “implemented” 作为可用 GPU | `porting.toml:332` `CONFIG_XNU_PONG_ADRENO_PLATFORM=n`；gpu-scanout/only-display/source-row-pitch 不在 series；`porting.toml:354` 无设备日志 | **不可用**：源码完整但默认不编译、无 GPU 画面 |
+| mzyxsl Storage “implemented” 作为持久化存储 | `mzyxsl:porting.toml:213` `CONFIG_XNU_OWNER_DATA_UFS=n`；`pong-ufs-data.patch` 不在 series；`mzyxsl:porting.toml:221` 无设备日志 | **不可用**：只是 UFS 只读 root + 32 MiB RAM seed，掉电即失；不能当持久化 Data |
+| mzyxsl GPU “implemented” 作为可用 GPU | `mzyxsl:porting.toml:332` `CONFIG_XNU_PONG_ADRENO_PLATFORM=n`；gpu-scanout/only-display/source-row-pitch 不在 series；`mzyxsl:porting.toml:354` 无设备日志 | **不可用**：源码完整但默认不编译、无 GPU 画面 |
 | `scripts/install-pong-ufs-data.py` | `:16-17` `FIRST_4K=0x413248`、`LAST_4K=0x75a40ea`；`:60-66` `/dev/block/sda13` + Pong geometry 检查 | **不可用**：硬编码 Pong userdata 几何，不能装 K60 `unixnu` 分区 |
 | `scripts/build-pong-*-macos.py`（4 个） | mzyxsl 版本要求 `platform.system() == 'Darwin' and platform.machine() == 'x86_64'` | **不可用**：在 WSL/Linux 直接拒绝；本仓已放宽为 Darwin/Linux，不要回退 |
 | mzyxsl `pong-touch-console.patch` 的触摸坐标断言 | mzyxsl `max-x=1080 / max-y=2412`，local 改成 `14400 / 32000`；且该 patch 不在 mzyxsl series（input 仍 planned） | **不可直接采用**：坐标量纲与面板不一致，启用前必须按 `docs/plans/K60-TOUCH-PARAMS.md` 的 dtbo 实测值复核 |

@@ -58,14 +58,14 @@
 ### 1.5 音频（sheng 全链，K60 同款 WCD938x）
 
 - **现状**：K60 未开始（digest §7）。K60 器件（DT 实证）：`wcd938x-codec`（fdt19:6877-6941，split-codec=1，4×micbias 2750mV）＋ SWR slave wcd938x-rx-slave/wcd938x-tx-slave（fdt19:6758-6762,6660）；**功放＝2×`awinic,aw882xx_smartpa` @I2C 0x34/0x35**（fdt19:2405-2431，sound-channel 0/1，irq 0x58/0x3f，reset 0x01/0x03，小米树注释 "top and bottom speakers"）；va/tx/rx-macro 启用、**wsa-macro@3240000 与 wsa2-macro@31E0000 均 disabled**（fdt19:6763,6820）→ wsa883x×4 全禁用；4×swr-dmic 全 disabled（fdt19:6663-6700）；sound 卡 waipio-mtp-snd-card，wsa-max-devs=0（fdt19:6915-6955）。
-- **参照**：sheng 全链（digest §4）：QcomSmem/Smp2p/Glink→QcomMdt（modem_a 的 adsp MDT）→ShengQrtr→ShengGpr→ShengAudioReach（0x08001001-0x08001015）→ShengAudioService 环形缓冲；功放 6×CS35L43 走 GeniI2c.c；WCD938x 走 TX SoundWire(0x6d30000)；用户态 `hal/ShengAudioPlugIn.c`（690 行 CoreAudio AudioServerPlugIn，union mount + CDHash trust cache）；时钟 hack（CoreAudio 把主机钟当 24MHz，插件改共享页 19.2MHz）。上机：六功放 PLL 锁定、WCD938x 枚举、0 late periods（porting.toml:216-227 device 证据）。
+- **参照**：sheng 全链（digest §4）：QcomSmem/Smp2p/Glink→QcomMdt（modem_a 的 adsp MDT）→ShengQrtr→ShengGpr→ShengAudioReach（0x08001001-0x08001015）→ShengAudioService 环形缓冲；功放 6×CS35L43 走 GeniI2c.c；WCD938x 走 TX SoundWire(0x6d30000)；用户态 `hal/ShengAudioPlugIn.c`（690 行 CoreAudio AudioServerPlugIn，union mount + CDHash trust cache）；时钟 hack（CoreAudio 把主机钟当 24MHz，插件改共享页 19.2MHz）。上机：六功放 PLL 锁定、WCD938x 枚举、0 late periods（sheng:porting.toml:216-227 device 证据）。
 - **剩余步骤**：①功放换型 CS35L43→AW882xx（I2C 0x34/0x35 寄存器集）；②ADSP MDT 从 K60 modem_a 分区取（手法 3）；③WCD938x 路径照搬（digest §4 标「高可平移」）。
 - **证据等级**：【sheng device】全链上机＋【DT 实证】K60 器件清单。
 
 ### 1.6 电池/充电（ShengBattery/ShengBattmgr 模板）
 
 - **现状**：K60 未开始（digest §7）。K60 充电框架＝`qcom,battery-charger`（fdt1:8563）＋`qcom,battery-debug`（8584）＋`qcom,charger-ulog-glink`（8588）——ADSP 电池管理 GLINK 方案，与 sheng 同构，无独立 smb5 节点（grep smb=0，本地清点 B）。PMIC 全组（fdt19 SPMI SID 实测）：pmk8350/pm8350/pm8350c/pm8350b/pmr735a/pmr735b/pm8450（fdt19:153,650,748,1110,1488,1566,1643）。
-- **参照**：`ShengBattery.cpp` 发布 IOPMPowerSource（powerd 直接读）＋`ShengBattmgr.c`（ADSP 电池管理器 PMIC GLINK owner 32778，opcode 表 :5-13）；上机 PPS 8.72V/1.3A（porting.toml:254-266）。充电由 ADSP 固件做（digest §4）。
+- **参照**：`ShengBattery.cpp` 发布 IOPMPowerSource（powerd 直接读）＋`ShengBattmgr.c`（ADSP 电池管理器 PMIC GLINK owner 32778，opcode 表 :5-13）；上机 PPS 8.72V/1.3A（sheng:porting.toml:254-266）。充电由 ADSP 固件做（digest §4）。
 - **剩余步骤**：opcode 表按 SM8475 重对（本地清点 B 定性原文）。
 - **证据等级**：【sheng device】PPS 上机＋【DT 实证】K60 充电框架同构。
 

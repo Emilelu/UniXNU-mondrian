@@ -1716,16 +1716,31 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 
 
+### 7.23 0516 UART clock 候选构建（2026-11-17 01:47 已构建，未上机）
+
+**目的与边界**：0516 只移植 QcaBluetooth `986d631` 的“control 字节排在已停 UART clock 后面”修复：control 字节也拉时钟、`clock(false)` 内收到 wake 时重新开钟、`uart_write` 被拒时按 `QBT_TX_POLL` 退避并计 `tx_refused`、`qbt_deadline` 返回 `write_retry_at`、`qbt_fail`/`qbt_shutdown` 清零。没有改 90 s budget、10 s command deadline、243 B 段长、`dnld_mode`/type、状态机、时钟/SMMU/窗口或 106 文件固件。0516 未上机；d8 仍是失败观测。
+
+**补丁与源码身份**：`patches/xnu/0516-k60-bt-qbt-uart-clock.patch`（135 行，4 文件 +35/-10，sha256 `0134a31bedb65fe6669a7ce7745bc5b9fcb6a7cd44ac66f96f3f604bb01ac6c8`），追加在 235 条 d8 series 之后，series 共 236 条（前 235 条 sha256 仍 `9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8`，全文件 `e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db2`）。从 236 条 series 重建并 pin：qbt_core.c `653723e92606893f9b91d2273193e5dabd440bbdba3dff5229160c113992e545`、qbt.h `23848f8d892420f79cb7ed3aa4d91079cc9f0b9378c888965b5abc332afe24e0`、qbt_internal.h `400f285f5f4e3277ff4c1d9e5a214409672a78ba76d3789213d3c619db729104`、qbt_linux.c `1281330305072c85bd6e7cf8fc67e56f0ba689f58b8eae7373303ed1d20b14c7`。
+静态对照：上游 `986d631` 5 文件 +82/-14；本树只取其中 4 个源码文件，`qbt_linux.c` 的 shutdown 清零；`tests/runtime.c` 不进入本树，改用 `scripts/tests/fixtures/bt-0516-clock-harness.c` 的 `clock_wake_in_stop` / `clock_refused_write` 两场景，并用 4 个源码变异（旧 step 门、旧 clock revert、旧 deadline、旧 retry helper）证明断言可红。
+
+**构建与产物（`E:/k60-work/artifacts/bt-0516-uart-clock/`）**：
+- 构建命令（`K60_OUT=/opt/k60/trees/k60build/bt-out-0516`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`、`K60_EIGHT_STEP_ITEMS=bluetooth`）：`bash scripts/build-strict.sh bt-0516-uart-clock --fd .../bt-d8-tlv-cf4485712c29.fd --bt-blob .../pong-bt-firmware.bin --kernel-arg k60bt=1 --kernel-arg pong_bt_late=1`；`RAW_RC=0`。
+- `build-manifest.json`：`built_at=2026-11-17T01:47:01+08:00`，`repo.head=32243230a5d7fccac3c19d76e9daae2bcbaf0bb5`、`dirty_files=0`，`series.count=236`、`namespace=a56a29e329161163`、`frozen.list_sha256=dc714e29d8b96122e572a9a95b59512ef5acedc932df09c4fd164f8b6bc07518`；`frozen-before.txt` 与 `frozen-after.txt` 完全相同。
+- 产物：`boot.img` sha256 `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`（201887744 bytes）、`kernel_built=dd9cbbd62038db40072372ad4e82144c32eeafd96e1a76185c6ef0e8ef4f1965`、`payload=ad412eb7f036f47135f0eb2aac11423a2b0c74ded71727e3c3234c28a68e6aa7`、`payload_kernel=04a9f9285338a551b13517b0135a3e6e82505679a33a961584300d988e95bf08`、`ADT=0e7a6fbc5cdbc99769b876c200e5d5b4205ed2f8b68d30d27a6130dd31145ced`、`dtb=2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`、`fd=cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`、`bt_blob=febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037`（1027584 bytes）。
+- 门禁：八步 build 6 项通过；`kernel.log:253` 记录 `patch 0516-k60-bt-qbt-uart-clock.patch`；kernel archives 4 个全部到 kernel.macho；metal/bt blob container self-consistent；`image-arg-audit: OK (31 arguments, 598 bytes)`；`verify-boot-image.py --manifest ...` → `verify-boot-image: OK`。`boot.json` 记录 `hardware_tested=false`。
+
+**宿主证据（同一 236 条候选）**：`python3 scripts/tests/test-bt-0516-uart-clock.py` → `TESTS OK: 81 case(s), 0 failure(s)`（含 2 个 clock 场景、4 个源码变异、22 个 d8 adapter 场景）；`test-bt-d8-adapter-host.py` 在前 235 条前缀上仍 `TESTS OK: 90 case(s), 0 failure(s)`；`test-k60-bt-0514-boot-observability.py` 33、`test-k60-bt-0515-tlv-counters.py` 28。以上全部是 HOST-ONLY，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
+
+**结论**：候选产物已可交给 Lead 作为单变量飞行对象；在 Lead 批准 d9 前不飞、不重建、不改预算/段长/状态机/地址。d8 的 PATCH 成功、两次 NVM 失败、`result=-60` 不变；⑧ 仍为 false。
+
 ---
 
-## 8 八步账本沿革与 d8 当前范围
+## 8 八步账本沿革与 d8/0516 当前范围
 
-**当前有效状态（2026-11-16 16:58 d8 飞行完成）**：蓝牙 d8 是已完成的纯观测实验，
-当前账本以 `docs/research/EIGHT-STEPS.toml` 为准：①–⑦覆盖 d8 离线观测改动，⑧记录了 Lead 的设备观测；
-⑧完成表示观测结果已取得，不表示蓝牙功能可用。d8 的 PATCH 软件路径返回成功，两次 NVM 尝试均失败，最终 `result=-60`。
-本树默认 `python3 scripts/eight-step-gate.py --flash` 已实际列出 7 项（含 bluetooth）、56 项通过、RC=0，
-见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`。原 d8 构建日志只有 6 项 build 检查，
-不追改 manifest，也不把后补离线核验冒充原构建覆盖。
+**当前有效状态（2026-11-17 01:47 0516 候选构建完成）**：蓝牙账本已切到 `bt-0516-uart-clock` 候选构建：只追加 QcaBluetooth `986d631` 的 UART clock/control 修复，未改预算、段长、状态机或地址；d8 仍保留为失败观测与回滚基线（boot `0297012d…`）。0516 已构建但未上机，⑧仍为 false；d8 的 PATCH 软件路径返回成功，两次 NVM 尝试均失败，最终 `result=-60`。
+本树默认 `python3 scripts/eight-step-gate.py --flash` 在 d8 时已实际列出 7 项（含 bluetooth）、56 项通过、RC=0，
+见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`；0516 候选构建的八步日志只有 build 6 项
+（`E:/k60-work/artifacts/bt-0516-uart-clock/logs/eight-step.log`），不追改 d8 manifest，也不把后补离线核验冒充原构建覆盖。
 以下是 11-15 的历史沿革，不是本轮保留 parked 或跳过 flash 检查的依据。
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

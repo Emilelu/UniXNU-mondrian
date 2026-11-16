@@ -1010,3 +1010,14 @@ Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远�
 - **d9**：未批准。先交 `docs/research/bt/D8-NEXT.md`，列三个候选判据（HCI 层 NVM 完成标志、控制器 exec_env/MHI 状态、真实 RX 字节时间线），逐条写“需要什么观测、能排除什么、不能排除什么”，由 Lead 选单变量；在收到裁决前不重建、不上机、不改预算/下载模式/段长/状态机/地址。
 
 状态：两项交付（权威分区表 + `D8-NEXT.md`）已落盘，待 Lead 复核；test-only 提交 `916aaaa` 与 docs 提交 `56e3c73`/`2104231a` 已在远端。`E:/hackios/k60-work/scratch/bt-s4/d8-evidence-20261116.log` 的 90 用例证据与本次只读 artifact 核对均未启动设备。下一步：Lead 对断言退役、⑦ 写入与 d9 判据的选择。
+
+### 41. 0516 UART clock 候选已构建（2026-11-17 01:47）
+
+用户 2026-11-16 确认 BT 子目录接受 GPL-2.0，要求按最快路径修复；本线把 QcaBluetooth `986d631`（fix: send control bytes queued behind a stopped UART clock）作为唯一移植对象，未改 90 s budget、10 s command deadline、243 B 段长、`dnld_mode`/type、状态机、时钟/SMMU/窗口或 106 文件固件。
+
+- 补丁提交 `13fdf711` "fix(bt): port QcaBluetooth UART clock fix"：`patches/xnu/0516-k60-bt-qbt-uart-clock.patch`（135 行，4 文件 +35/-10，sha256 `0134a31b…`）与 series 追加；`986d631` 上游为 5 文件 +82/-14，本树只取 4 个源码文件。control 字节也拉时钟、`clock(false)` 内收到 wake 重新开钟、拒写按 `QBT_TX_POLL` 退避并计 `tx_refused`、`qbt_deadline` 返回 `write_retry_at`、`qbt_fail`/`qbt_shutdown` 清零。
+- test-only 提交 `1a9ede4e` "test(bt): host-test the 0516 UART clock fix"：`scripts/tests/test-bt-0516-uart-clock.py`（81 cases）、`scripts/tests/fixtures/bt-0516-clock-harness.c`（`clock_wake_in_stop`/`clock_refused_write`），并让 d8 adapter runner 只取 235 条前缀；`test-bt-0516-uart-clock.py` 得 `TESTS OK: 81 case(s), 0 failure(s)`，4 个源码变异全真红；d8 adapter 仍 `90 case(s), 0 failure(s)`，0514 33、0515 28。
+- docs 提交 `32243230` "docs(bt): scope the 0516 UART clock candidate"：账本蓝牙块切到 `bt-0516-uart-clock` 候选范围；README/README_EN 由 `render-eight-step-table.py --apply` 再生成，默认 ⑦ 显示 Ready to flash 只表示离线通过，⑧ 仍 false。
+- 构建：`K60_OUT=/opt/k60/trees/k60build/bt-out-0516`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`、`K60_EIGHT_STEP_ITEMS=bluetooth`；`scripts/build-strict.sh bt-0516-uart-clock --fd .../bt-d8-tlv-cf4485712c29.fd --bt-blob .../pong-bt-firmware.bin --kernel-arg k60bt=1 --kernel-arg pong_bt_late=1`，`RAW_RC=0`。manifest `built_at=2026-11-17T01:47:01+08:00`、head `32243230`、dirty 0、series 236、namespace `a56a29e329161163`、frozen `dc714e29…`。
+- 产物：boot.img `8a211a76…`（201887744 bytes）、kernel `dd9cbbd6…`、payload `ad412eb7…`、payload_kernel `04a9f928…`、ADT `0e7a6fbc…`、dtb `2d044eaa…`、fd `cf448571…`、bt_blob `febdc20d…`；kernel.log:253 有 0516 patch，八步 build 6 项通过，check-image-args 31 arguments/598 bytes、kernel archives 4 个全在、metal/bt blob container self-consistent、`verify-boot-image.py --manifest ...` → OK、boot.json `hardware_tested=false`。
+- 边界：这是 HOST-ONLY + 离线构建证据，不证明控制器 UART/DMA/IBS、真实 NVM 完成、蓝牙可用；0516 未上机，仍需 Lead 批准 d9；d8 的 PATCH 成功、两次 NVM 失败、`result=-60` 不变，⑧ 不改。

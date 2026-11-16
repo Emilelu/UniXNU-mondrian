@@ -653,14 +653,27 @@ static void bridge_cases(void)
     expect_name(sink.log, "pcm;", "bridge: the audio callback received its own payload");
     ap_scan(l, &scan);   /* consume the RX_DONE that followed the delivered frame */
 
+    /* The DSP has not advertised a send buffer yet. The bridge must retain
+     * the packet and emit it from the next service pass, not drop it. */
+    expect_eq((unsigned long)(long)k60_audio_glink_send(&bridge, (const uint8_t *)"gpr", 3),
+              (unsigned long)(long)K60_PMIC_GLINK_AUDIO_OK,
+              "bridge: send without a remote intent is queued");
+    ap_scan(l, &scan);
+    expect_eq(scan.intent_req, 1, "bridge: the queued send asks for one remote intent");
+    expect_eq(scan.data, 0, "bridge: the queued send writes no data yet");
+    expect_eq((unsigned long)(long)k60_audio_glink_send(&bridge, (const uint8_t *)"two", 3),
+              (unsigned long)(long)K60_PMIC_GLINK_AUDIO_REFUSED,
+              "bridge: a second packet while one is queued is refused");
     peer_intent(l, 0x31, K60_AUDIO_GLINK_INTENT_BYTES, 0x2001);
     expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll accepts the DSP send intent");
-    expect_eq((unsigned long)(long)k60_audio_glink_send(&bridge, (const uint8_t *)"gpr", 3),
-              (unsigned long)(long)QcomGlinkOk, "bridge: audio send uses the remote intent");
+    expect_eq((unsigned long)(long)k60_audio_glink_service(&bridge), 0,
+              "bridge: service flushes the queued packet");
     expect(ap_read_data(l, &lcid, &id, sent, sizeof sent) != 0, "bridge: audio bytes hit the wire");
     expect_eq(lcid, 1, "bridge: audio TX_DATA carries the local lcid");
     expect_eq(id, 0x2001, "bridge: audio TX_DATA carries the remote intent id");
     expect_name(sent, "gpr", "bridge: audio TX_DATA carries the caller payload");
+    peer_cmd(l, QCOM_GLINK_RX_DONE_W_REUSE, 0x31, 0x2001);
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: the DSP reuses the send intent");
     { uint8_t big[4096] = {0};
       expect_eq((unsigned long)(long)k60_audio_glink_send(&bridge, big, sizeof big),
                 (unsigned long)(long)QcomGlinkTooBig, "bridge: an oversized audio send is refused"); }

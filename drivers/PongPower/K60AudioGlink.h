@@ -14,6 +14,7 @@ extern "C" {
 #define K60_AUDIO_GLINK_NAME "adsp_apps"
 #define K60_AUDIO_GLINK_INTENT_BYTES 512u
 #define K60_AUDIO_GLINK_INTENT_COUNT 20u
+#define K60_AUDIO_GLINK_SEND_MAX 560u /* one maximum GPR packet */
 
 typedef struct {
     QcomGlink *transport;
@@ -21,6 +22,9 @@ typedef struct {
     K60PmicGlinkAudioClient client;
     void *context;
     uint8_t storage[K60_AUDIO_GLINK_INTENT_BYTES * K60_AUDIO_GLINK_INTENT_COUNT];
+    uint8_t pending[K60_AUDIO_GLINK_SEND_MAX];
+    unsigned pending_bytes;
+    bool pending_valid;
     bool requested;
     bool attached;
     int error;

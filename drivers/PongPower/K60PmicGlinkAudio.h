@@ -22,8 +22,10 @@ typedef struct {
 #define K60_PMIC_GLINK_AUDIO_STALE_LEASE  (-2003)
 #define K60_PMIC_GLINK_AUDIO_REFUSED      (-2004)
 
-/* The send path carries the QcomGlink result values unchanged, so the audio
- * side can retry on AGAIN without including QcomGlink.h. */
+/* A send returns OK when the packet is on the wire or retained by the bridge
+ * for the next service pass. A full queue is REFUSED; other negative values
+ * are PongAudioStatus errors. The names below match QcomGlink for the audio
+ * side, which never includes QcomGlink.h. */
 #define K60_PMIC_GLINK_AUDIO_AGAIN        (-1)
 #define K60_PMIC_GLINK_AUDIO_NOT_OPEN     (-2)
 #define K60_PMIC_GLINK_AUDIO_TOO_BIG      (-3)

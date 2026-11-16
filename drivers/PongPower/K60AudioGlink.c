@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 /* Copyright (c) 2026, UniXNU contributors. */
 #include "K60AudioGlink.h"
-#include <string.h>
 
 static void
 audio_state(void *owner, QcomGlinkChannel *channel, int up)
@@ -114,7 +113,7 @@ k60_audio_glink_send(K60AudioGlink *link, const uint8_t *data, unsigned bytes)
     const int rc = qcom_glink_send(link->transport, link->channel, data, bytes);
     if (rc == QcomGlinkOk) return K60_PMIC_GLINK_AUDIO_OK;
     if (rc == QcomGlinkAgain || rc == QcomGlinkNotOpen) {
-        memcpy(link->pending, data, bytes);
+        for (unsigned i = 0; i < bytes; i++) link->pending[i] = data[i];
         link->pending_bytes = bytes;
         link->pending_valid = true;
         return K60_PMIC_GLINK_AUDIO_OK; /* queued; service() retries */

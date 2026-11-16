@@ -318,6 +318,35 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
   已知红只有 iron-4/iron-5/hard-33/P-165/P-166（构建输入镜像落后，见 P-230）。
 - **不要从本分支取**：`drivers/`、`patches/`（除登记文件）、水位/基线。本分支没碰它们。
 
+## 12. EIGHT-STEPS 其余四段与 `porting.toml` 的交叉核对（2026-11-17，只报告）
+
+§6.1 只处理了 wifi 段。这一节把 audio / battery / charger / buttons 四段与 `porting.toml`（AGENTS.md 指定的设备状态权威记录）
+逐条对照；**只报告，不改 `status`**——改 status 等于改八步门禁的放行条件。
+
+| # | 条目 | EIGHT-STEPS 记录 | porting.toml 记录 | 不一致 | 建议 |
+|---|---|---|---|---|---|
+| 1 | audio | `status = "parked"`；①–⑥ done（DT 节点已建、四步方案、深挖三条） | `status = "planned"`；`limits` 仍写 "Hardware inputs and implementation are pending for this board." | 后者把硬件输入与实现写成「待做」，与已落库的 DT 节点/方案不符 | 只改 `porting.toml` audio 的 `limits` 措辞，不改 status |
+| 2 | battery | `status = "active"`；①–⑦ done（`verify.local_verified = true`，27/27 + 30 断言）；⑧ false（usblog-20261115-223916 在 `K60ADSP owner stage=1 rc=-1000` 卡住） | `status = "planned"`；`limits` 写 "battery verify/local_verified/device remain false" | `verify`/`local_verified` 实际已为 true | 更新 `porting.toml` power 的 `limits` 中 verify 部分 |
+| 3 | charger | `status = "planned"`；①–⑦ done（`test-k60-charger-subscription.c` 30 断言）；⑧ false | 无 charger area（由 power 覆盖） | 无直接冲突；但研究已完成仍标 planned | 可考虑把 charger 并入 power 的 findings，或 EIGHT 改 parked 并写明原因 |
+| 4 | buttons | `status = "parked"`；official/wide false；verify false（本地命中检查过了，但仍缺上机）；device false | `input` area `status = "device-verified"`，`completion` 明确含 "buttons produce expected HID reports" | porting 把 input 标 device-verified，但按键从未上机验证 | 收敛 input 的 completion 措辞，或把 buttons 单独列为一个 area/状态 |
+| 5 | battery ⑧ | `done = false`，prediction 的 success/failure 已写 | — | 一致 | 无需改 |
+| 6 | wifi（对照） | `status = "parked"`，①–⑦ done，⑧ false | `network` planned | — | 已在 §6.1 处理 |
+
+结论：3 处措辞/状态需要修（audio 的 limits、power 的 verify 说法、input 的 completion），1 处可选（charger 的位置）。
+这些都不改八步 spec 的 status，因此不影响门禁；但 `porting.toml` 是设备状态的权威记录，建议由 Lead 或对应线主确认后改 3 句。
+
+```sh
+# 复算：四段的步骤矩阵
+python3 - <<'PY'
+import tomllib
+d = tomllib.load(open('docs/research/EIGHT-STEPS.toml','rb'))
+for n in ('audio','battery','charger','buttons'):
+    e = d['hardware'][n]
+    flags = ''.join('Y' if e['step'][k].get('done') else '.' for k in e['step'])
+    print(n, e['status'], flags)
+PY
+```
+
 ## 附录 A：复算命令
 
 ```bash

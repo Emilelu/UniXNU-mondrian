@@ -208,15 +208,15 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；然后对每颗应答的功放跑一遍**回放层**（软复位 + 57 对 Music profile + fuse 算的 vcalb + 静音音量，见 §9）；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
-补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（78,394 B，2,070 行，10 段，sha256 `d85264ca07cd0f91…13d0`）+ `patches/audio/series`。
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（87,034 B，2,326 行，12 段，sha256 `9515ce1f339f592e…bbea`）+ `patches/audio/series`。
 
-- 8 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
+- 10 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
 - **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。八个新文件与 `drivers/PongAudio/` 逐字节相同（`PongCodecPlan.h` 仍不在其中：内核侧还没有 `.c` include 它；`PongAudioAcf.h`/`PongAudioAmpProfile.h`/`PongAudioAmpReplay.h` **在**，被 `PongAudioAmp.c` include，见 §9）。完整 transcript 见 `patches/audio/README.md`。
-- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) **镜像 k 的内核构建**证明 8 文件补丁（含回放层）在真实 kernel flags 下编译通过（`audio-probe-20261114k`，`kernel.log:228-231` 的 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe` 顺序，`kernel.macho` sha256 `0640f6c7…`，见 §9.5）；(b) 回放层与编码器全部语义在宿主侧被 742/760 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
+- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) **镜像 k 的内核构建**证明 8 文件补丁（含回放层）在真实 kernel flags 下编译通过（`audio-probe-20261114k`，`kernel.log:228-231` 的 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe` 顺序，`kernel.macho` sha256 `0640f6c7…`，见 §9.5）；(b) 回放层与编码器全部语义在宿主侧被 805/823 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，742 例；带真实 ACF 时 760 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，805 例；带真实 ACF 时 823 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
@@ -257,9 +257,9 @@ slave id 是两次普通寄存器读（`0x530+8n` / `0x534+8n`，S:`PongWcd938.h
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 742 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# → TESTS OK 805 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
 # 带上真实 ACF（它不入库）：PONG_ACF_FILE=<aw882xx_acf.bin> sh drivers/PongAudio/tests/run-tests.sh
-# → TESTS OK 760 cases
+# → TESTS OK 823 cases
 ```
 
 覆盖范围：
@@ -793,9 +793,9 @@ phk110 `hakios.speaker.c:430-431` 写得很清楚：
 
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 742 cases
+# → TESTS OK 805 cases
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && PONG_ACF_FILE=/mnt/e/k60-work/scratch/audio-work/refs/acf/aw882xx_acf.bin sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 760 cases
+# → TESTS OK 823 cases
 ```
 
 `PongAudioAcf.h` **现在进补丁了**（回放层让 `PongAudioAmp.c` include 它，见 §9）；`PongCodecPlan.h` 仍不进（内核侧还没有 `.c` include 它）。
@@ -849,7 +849,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `scripts/judge-audio-capture.py` 的**探针**判据不需要改（`MARK_START` 是前缀匹配、`MARK_ID` 要求 `id=0x`
   且 `MARK_DONE` 要求 `amp probe done found=`，回放行不会误命中）；**回放判据**由同一脚本的 `--replay` 承担，见 §9.6。
 
-### 9.3 宿主侧钉住了什么（742 例 / 带真实 ACF 760 例）
+### 9.3 宿主侧钉住了什么（805 例 / 带真实 ACF 823 例）
 
 `replay_cases()` 新增 49 条断言，关键几条：
 

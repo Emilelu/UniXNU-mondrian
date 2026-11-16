@@ -341,7 +341,7 @@ status = "pending"
 
 ### 4.1 编码器（已落地）
 
-`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 158 条断言（总 742 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
+`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 221 条断言（总 805 例）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
 
 ## 5. provider 必须为 audio 保证什么（交给 provider 实现者的四条）
 

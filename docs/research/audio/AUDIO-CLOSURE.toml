@@ -142,10 +142,11 @@ change = "QCOM_GLINK_MAX_CHANNELS is 2 in the built kernel, not only in the prot
 evidence_kind = "artifact"
 evidence = [
   "drivers/PongPower/QcomGlink.h:17",
+  "patches/audio/0002-k60-glink-multislot.patch",
 ]
-criteria = "The built kernel carries the two-slot struct; host runner and artifact agree."
+criteria = "The built kernel carries the two-slot struct; host runner and artifact agree. The transport patch is the provider's to land: QcomGlink is not in any patch today, and duplicating that wiring here would collide with the provider branch."
 status = "open"
-owner = "audio-agent"
+owner = "adsp-handoff"
 on_open = "M2 cannot open the adsp_apps channel on a real image"
 
 [[item]]
@@ -218,12 +219,14 @@ stage = "M4"
 change = "gpio121/123/122/124 configured as TERT TDM sck/ws/din/dout with the right function index and drive strength"
 evidence_kind = "static"
 evidence = [
-  "docs/research/audio/TDMS.md",
+  "drivers/PongAudio/PongAudioTlmm.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "V: live-fdt.dts:5315-5378",
+  "V: pinctrl-sm8450.c:33,1537-1540",
 ]
-criteria = "Register values computed from the TLMM layout, encoded in the driver, and pinned by host assertions."
-status = "open"
+criteria = "tlmm_cases() pins the four gpio numbers, function index 1, the 2 mA drive field, output enable only on sck/ws, and the five pad addresses."
+status = "closed"
 owner = "audio-agent"
-on_open = "no DT pinctrl consumer exists: the driver must program TLMM itself"
 
 [[item]]
 id = "playback-data-path"
@@ -231,10 +234,14 @@ stage = "M5"
 change = "PCM ring feeds the AFE port with the lead and period the vendor uses"
 evidence_kind = "static"
 evidence = [
-  "docs/research/audio/AMPS.md",
+  "drivers/PongAudio/PongAudioRing.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "V: agm/service/src/device.c:102,103,273,405",
+  "V: resourcemanager_waipio_mtp.xml:459-470",
+  "V: ShengAudioAbi.h:21",
 ]
-criteria = "Ring geometry, lead frames and kick cadence traced from the vendor structure, then encoded."
-status = "open"
+criteria = "Period 1024 frames from 8192 bytes / (2 channels * 4 bytes), period count 2, start threshold 256, lead 14400 frames (300 ms), ring 65536 frames; encoded in PongAudioRing.h and asserted by ring_cases()."
+status = "closed"
 owner = "audio-agent"
 on_open = "no frames means no sound even with a perfect AFE setup"
 
@@ -244,10 +251,14 @@ stage = "M5"
 change = "the amp's speaker switch GPIO is driven the way the vendor mixer path drives it"
 evidence_kind = "static"
 evidence = [
-  "docs/research/audio/AMPS.md",
+  "drivers/PongAudio/PongAudioTlmm.h",
+  "drivers/PongAudio/PongAudioAmp.c",
+  "V: live-fdt.dts:13329",
+  "V: mixer_paths_waipio_mtp.xml:2132",
+  "V: aw882xx.c:1711-1717",
 ]
-criteria = "GPIO number and active level taken from the vendor device tree or mixer path, then asserted in the probe."
-status = "open"
+criteria = "GPIO52 is active high (live-fdt.dts:13329, mixer_paths_waipio_mtp.xml:2132); the probe drives it low and refuses to continue unless the readback is low; PongAudioTlmm.h fixes cfg 0x200 and tlmm_cases() asserts it."
+status = "closed"
 owner = "audio-agent"
 on_open = "the amp can be fully programmed and still muted"
 

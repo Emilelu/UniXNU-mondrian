@@ -95,3 +95,35 @@ K60 自己的 HAL 配置去核对。K60 的 PA 是 AW88261，但挂在 **tert TD
 
 1. **每帧 2 个 slot**：两颗功放各取 I2S 帧的一半（live FDT `sound-channel=0/1`），aw882xx 只接受 `SND_SOC_DAIFMT_I2S` + slave（`aw882xx.c:303-330`），HAL 要 2 通道 S24_LE。
 2. **位时钟 12.288 MHz**：waipio 机型驱动按 `rate × slot_width × qcom,tdm-max-slots` 计算（`msm_common.c:407-417`），本板 max-slots=8 → 48000×32×8；DT 的 `clk-rate=0x177000` 不被读取。时钟经 PRM 请求发出（clock id 0x204、attribute 4），不是 AFE clock-set 包。
+
+## 5. TLMM 四个 pad 的字面值（2026-11-17 闭合）
+
+`tert_tdm_pinctrl`（live-fdt.dts:23666-23674，status ok）的 active 组是 live-fdt.dts:5315-5378：
+
+| pad | role | function | drive | bias | direction |
+| --- | --- | --- | --- | --- | --- |
+| gpio121 | sck | `mi2s2_sck` | 2 mA | bias-disable | output-low |
+| gpio123 | ws | `mi2s2_ws` | 2 mA | bias-disable | output-low |
+| gpio122 | din | `mi2s2_data0` | 2 mA | bias-disable | input |
+| gpio124 | dout | `mi2s2_data1` | 2 mA | bias-disable | input |
+
+TLMM 布局取自 mainline `drivers/pinctrl/qcom/pinctrl-sm8450.c`：`:33` `ctl_reg = REG_SIZE * id`、
+`io_reg = ctl + 4`；`.mux_bit = 2`、`.pull_bit = 0`、`.drv_bit = 6`、`.oe_bit = 9`、`.out_bit = 1`。
+每脚的 function 值是 `.funcs` 数组下标，数组第 0 项固定是 `msm_mux_gpio`，所以 mi2s2_* 四脚都是 **1**
+（gpio124 的 `sec_mi2s` 是下标 2，不用）。
+
+寄存器地址 = TLMM base 0x0f000000 + GPIO 块偏移 0x100000 + 0x1000 × gpio（PongAudioRegs.h:32-33）：
+gpio121 → 0x0f179000、gpio122 → 0x0f17a000、gpio123 → 0x0f17b000、gpio124 → 0x0f17c000；
+IO 寄存器 = CFG + 4。
+
+字面值：CFG = pull(0) | function(1)<<2 | drive(2 mA → 字段 0)<<6 | output 使能(bit9，仅 sck/ws)
+= **0x4**（din/dout）或 **0x204**（sck/ws）；IO = **0**（sck/ws 低电平空闲、数据脚是输入）。
+
+这些值编码在 `drivers/PongAudio/PongAudioTlmm.h`，由 `tlmm_cases()` 的 40 条断言钉住。
+
+## 6. PCM ring 的几何（2026-11-17 闭合）
+
+AGM 服务端给了周期语义：`agm/service/src/device.c:102` `MAX_PERIOD_BUFFER 8192`、`:103` `DEFAULT_PERIOD_COUNT 2`、`:273` `period_size = 8192 / (channels * bytes)`、`:405` `start_threshold = period_size / 4`。
+本板是 48 kHz 立体声 S24_LE（`resourcemanager_waipio_mtp.xml:459-470`），样本放在 32 位字里 = 8 字节一帧，所以周期 = 8192 / 8 = **1024 帧**，两个周期，起播阈值 = **256 帧**。环形缓冲和提前量取 ShengAudioAbi 的 `65536` 帧与 `300 ms`（`ShengAudioAbi.h:21`，即 14400 帧）。
+
+这些数字编码在 `drivers/PongAudio/PongAudioRing.h` 的纯函数里，由 `ring_cases()` 的 23 条断言钉住（回绕、距离、越界与 can_start 的 255/256 边界都覆盖）。

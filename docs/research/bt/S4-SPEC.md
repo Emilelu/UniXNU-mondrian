@@ -1245,6 +1245,47 @@ smmu/gcc/tlmm 三个大窗口都拿到了 VA，阶梯推进到 `qbt_boot enter`�
 若某条命令反复重试则永远走不到结果行。这样下一张图能直接读出「卡在 rampatch→NVM 之间」
 还是「卡在 bdaddr」。
 
+### 7.14 d6 图 `bt-d6-iowin` 实飞：0513 与 0621 等价（2026-11-16 08:54–08:59）
+
+**图**：`bt-d6-iowin`，配方 = 全量 0511 + 0512 + 0621（main 自带）+ 0513 在最后一条，series
+234 条 / names+sizes `4305c6cc2821bcb7`；参数 `k60bt=1 pong_bt_late=1`（31 项 / 598 B）；
+boot_img `9f4e2a90c5b5bf6a656eab738d7038e4a6b8a3da2c5dcc5cce5c5896f2e7a3b3`。
+即 d5 的 233 条再加一条 0513（把 BT 的 gcc / tlmm / smmu 三个大窗口从 `io_submap` 搬到
+`kernel_map`，P-219 的另一种修法）。
+
+**证据** `E:/k60-work/evidence/usblog-20261116-085439`：`bootAccepted` true、`bootExitCode` 0、
+`returnedToFastboot` false；capture `captured-budget-complete`、bytes 240,620、
+portSeen/portOpened true、openErrors 0、stopReason `budget`、panicMarker null；
+console.log 3,440 行、sha256 `1BCF8490…D1577`、SpringBoard **132**、`getBytes:range` **0**、
+panic 标记 0、心跳 17 条。
+
+**阶梯（16 行 `[bluetooth]`，与 d5 逐行对照）**：
+
+| 行 | d6 内容 | d5 是否有 |
+| --- | --- | --- |
+| :193 | `addon: linked blob bytes=1027584 records=106` | 有 |
+| :194 | `late: armed, waiting for the K60DATA deploy point` | 有 |
+| :483/:484 | `late: released by the K60DATA deploy point` / `starting the full ladder` | 有 |
+| :485/:486 | `full: power_on enter` / `power: cold boot, rails not voted (k60bt_warm=0)` | 有 |
+| :487 | **`full: windows mapped, gcc/tlmm/smmu charged to kernel_map`** | 无（0513 新增） |
+| :488/:489 | `smmu plan sid 0x483 slot 110 bank 72 …` / `smmu sid 0x483 … SCTLR 0` | 有 |
+| :490/:491 | `full: dma buffer and smmu bypass ready` / `full: uart pins parked` | 有 |
+| :496 | `full: qbt_boot enter` | 有 |
+| :709 | `QCA controller version 0x12110201` | 有 |
+| :710/:726 | `addon: serving 146068 0`（rampatch）/ `addon: serving 6442 0`（NVM） | 有 |
+
+**判据与结论**：Lead 给的判据是「d6 起且出现 `QCA controller version` 行 ⇒ 0621 与 0513 等价，
+0513 标 superseded」。实测两条都成立 —— 图起（SB 132 / panic 0 / K60DATA mounted / Early boot
+complete）、`:709` 读到控制器版本、两个固件分片都被取走、`:487` 证明三个大窗口确实走了
+`ml_io_map_unmappable` 分支（`kernel_map`），而 d4 在同样位置必现的
+`kmem_alloc(…, 1048576, 0x100021): failed with 3` panic 一次都没有。⇒ **两条修法等价，
+0513 是「BT 窗口不进共享子图」的整洁化项，保留文件、移出 series，随 0621 一起收口。**
+
+**仍缺的观测（d5 遗留，未因 d6 改变）**：`power=1 result=…` 行依旧没有打印，
+`qbt_boot()` 在 NVM 之后、`qca_set_bdaddr` 之前没有返回；userspace 侧
+`:1487` marconi-bt 匹配不到 device tree 的 bluetooth 服务、`:1499` 只拿到
+`ee:98:c5:8a:6b:4e`。这两项分别属于本线的阶段日志补齐（下一张图）与 Lead 的 ADT 节点工作。
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

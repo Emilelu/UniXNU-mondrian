@@ -831,6 +831,22 @@ This line, next in order:
       再连同镜像一起抽回则红 5 条 iron-4/iron-5/hard-33/P-165/P-166）。
     - 判据由 Lead 给：d6 起且出现 `QCA controller version` 行 ⇒ 0513 可标 superseded；
       d6 silent 或 panic ⇒ 把 0513 拆成 gcc / tlmm / smmu 三个独立开关，一次只搬一个。
+31. **d6 实飞：0513 与 0621 等价，0513 标 superseded（2026-11-16 08:54–08:59）**
+    - 证据 `E:/k60-work/evidence/usblog-20261116-085439`（boot_img `9F4E2A90…7A3B3` =
+      `bt-d6-iowin`）：`bootAccepted` true / exit 0 / returnedToFastboot false；
+      capture `captured-budget-complete`、bytes 240,620、stopReason `budget`、panicMarker null；
+      console.log 3,440 行、sha256 `1BCF8490…D1577`、SpringBoard **132**、`getBytes:range` **0**、
+      panic 标记 0、心跳 17 条。
+    - 阶梯 16 行 `[bluetooth]`：`:487` 新增 `full: windows mapped, gcc/tlmm/smmu charged to
+      kernel_map`（0513 生效的直接证据），`:488`–`:496` SMMU 旁路 / dma / uart pins / qbt_boot
+      enter 与 d5 一致，`:709` `QCA controller version 0x12110201`、`:710`/`:726` 两个固件分片
+      （146068 / 6442）都被取走；d4 在同一位置必现的 `kmem_alloc(…, 1048576, 0x100021): failed
+      with 3` 一次没有。
+    - **结论**：0621（抬 IO_MAP_SIZE）与 0513（把 BT 三窗口搬出 io_submap）等价，0513 属整洁化项
+      —— **文件保留、移出 series**，随 0621 一起收口。
+    - 仍缺：`power=1 result=…` 行依旧未打印（`qbt_boot()` 停在 NVM 之后、`qca_set_bdaddr`
+      之前）；userspace `:1487` marconi-bt 匹配不到 device tree 服务、`:1499` 只有
+      `ee:98:c5:8a:6b:4e`。前者是本线下一张图的阶段日志，后者是 Lead 的 ADT 工作。
 
 
 

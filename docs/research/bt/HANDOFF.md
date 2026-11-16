@@ -814,6 +814,23 @@ This line, next in order:
     - 教训（与本线 P-166 同族）：**同一台机器上多棵树/多条线各有一份 device 镜像时，
       「未同步」一定是相对某一份镜像说的；报红时先 `date -r <mirror>/patches/xnu/series`
       看它停在什么时候，再判断是镜像旧还是补丁集坏。**
+30. **d6 图 bt-d6-iowin 出图（2026-11-16 08:13，Lead 批准走 B，只报事实不下结论）**
+    - 配方：全量 0511 + 0512 + 0621（main 自带，P-219）+ 0513 在最后一条（前面是 0512），
+      series **234 条**；参数 `k60bt=1 pong_bt_late=1`（31 项 / 598 B）；
+      `K60_OUT=/opt/k60/trees/k60build/bt-out-s1c`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`。
+    - manifest `/mnt/e/k60-work/artifacts/bt-d6-iowin/build-manifest.json`：boot_img
+      `9f4e2a90c5b5bf6a656eab738d7038e4a6b8a3da2c5dcc5cce5c5896f2e7a3b3`（201,887,744 B）、
+      kernel_built `020c7f04060790346ad6d1fa787b7bac1841768cc6acbbaa2b0f2c674f590eaf`
+      （106,598,400 B）、payload_kernel `13a68ed4…`、payload `b2fe7b9b…`、adt `8bfc8066…`、
+      series {234, `4305c6cc2821bcb7`, namespace `names+sizes`, file `b4c40d4e421e0dec`}、
+      blob `febdc20d…`、dirty_files 0；`verify-boot-image: OK`、`image-arg-audit: OK (31 arguments,
+      598 bytes)`。
+    - 构建后 series 保留 234 条（commit `4c5f8e0`）而不是抽回 233 条：P-165/P-166 的输入戳
+      要与飞出去的图一致；镜像同步到 234 条后门禁 **98 条 / 失败 0 / waiver 37 / ✅ RC=0**。
+      若把 0513 抽回 series，P-165/P-166 立刻转红（实测：只还原 series 不重建时红 2 条，
+      再连同镜像一起抽回则红 5 条 iron-4/iron-5/hard-33/P-165/P-166）。
+    - 判据由 Lead 给：d6 起且出现 `QCA controller version` 行 ⇒ 0513 可标 superseded；
+      d6 silent 或 panic ⇒ 把 0513 拆成 gcc / tlmm / smmu 三个独立开关，一次只搬一个。
 
 
 

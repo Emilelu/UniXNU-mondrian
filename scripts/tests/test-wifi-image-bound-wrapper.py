@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Meaningful host-only contract tests; no C build, real image generation or device I/O.
+"""Host-only advisory-only contract tests; no C build, real image generation or device I/O.
 
-Optional --c8-manifest/--c8-image checks the existing historical files read-only.
-Each negative asserts zero recorded runner calls. JSON fixtures contain actual pinned
-WiFi source, and are explicitly nonbootable/noncompiled. Raw result codes are printed.
+The default wrapper is exercised through captured immutable bytes only. Every negative
+asserts zero device-runner calls, no authorization, and a diagnostic error. A separate
+isolated legacy probe preserves the known once-fake-runner path-binding defect as a
+regression: it is expected to accept a temporary-good window and reach the exact
+in-process recorder once, and that expected failure is printed as a diagnostic, never
+counted as acceptance. Optional --c8-manifest/--c8-image checks the historical files
+read-only; c8 still fails its missing proposal_binding.
 """
 from __future__ import annotations
 
@@ -30,6 +34,7 @@ FAILURE = "Fixture only: any identity/scope/gate mismatch refuses before recorde
 
 spec = importlib.util.spec_from_file_location("wifi_image_bound_wrapper", WRAPPER)
 wrapper = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = wrapper
 spec.loader.exec_module(wrapper)
 
 
@@ -165,9 +170,18 @@ class Fixture:
     def save_review(self):
         self.put("review.json", wrapper.canonical(self.review))
 
-    def run(self, scope="wifi", review=True, runner=None):
-        return wrapper.execute(self.root / "build-manifest.json", self.root / "fixture-image.json",
-                               self.root / "review.json" if review else None, scope, runner)
+    def paths(self):
+        return (self.root / "build-manifest.json", self.root / "fixture-image.json",
+                self.root / "review.json")
+
+    def run(self, scope="wifi", review=True):
+        return wrapper.advisory(self.root / "build-manifest.json", self.root / "fixture-image.json",
+                                self.root / "review.json" if review else None, scope)
+
+    def capture(self):
+        return wrapper.capture_inputs(self.root / "build-manifest.json",
+                                      self.root / "fixture-image.json",
+                                      self.root / "review.json")
 
 
 def main():
@@ -176,60 +190,77 @@ def main():
     parser.add_argument("--c8-image")
     args = parser.parse_args()
     assert bool(args.c8_manifest) == bool(args.c8_image), "supply both c8 inputs"
-    before = {str(path): wrapper.file_digest(path) for path in (wrapper.GATE, DATA, wrapper.PATCH)}
-    results, failures = [], []
+    before = {str(path): wrapper.file_digest(path)
+              for path in (wrapper.GATE, DATA, wrapper.PATCH, wrapper.SUPERVISOR)}
+    results, failures, diagnostics, rows = [], [], [], []
     real_run = subprocess.run
     commands = []
 
     def guarded_run(command, **kwargs):
-        # Fixed git inspection/patching and isolated Python gate/CLI are the entire
-        # subprocess surface. No callback, shell=True, PowerShell or supervisor.
+        # The default advisory path launches Git inspection only. No gate execution,
+        # PowerShell, shell, supervisor or device command is permitted.
         assert not kwargs.get("shell")
-        if command[0] in ("git", wrapper.GIT):
-            if command[1] == "-c":
-                assert command[2:5] == ["safe.directory=" + str(ROOT), "--no-replace-objects", "cat-file"], command
-                assert kwargs.get("cwd") == ROOT, command
-            else:
-                assert command[1] == "apply", command
+        assert command[0] in ("git", wrapper.GIT), command
+        if command[1] == "-c":
+            assert command[2:5] == ["safe.directory=" + str(ROOT), "--no-replace-objects",
+                                    "cat-file"], command
+            assert kwargs.get("cwd") == ROOT, command
         else:
-            assert command[0] == sys.executable and command[1] == "-I", command
-            assert any(Path(str(part)).name in ("eight-step-gate.py", WRAPPER.name) for part in command), command
+            assert command[1] == "apply", command
         commands.append([str(part) for part in command])
         return real_run(command, **kwargs)
+
+    def row(label, ok, result=None, detail=None):
+        output = {"case": label, "pass": bool(ok)}
+        if result is not None:
+            output.update({"checks_exit": result.get("advisory_exit_code"),
+                           "device_runner_calls": result.get("device_runner_calls"),
+                           "flash_authorized": result.get("flash_authorized"),
+                           "error": result.get("error")})
+            if "runner_calls" in result:
+                output.update({"runner_calls": result.get("runner_calls"),
+                               "legacy_fake_accepted": result.get("legacy_fake_accepted"),
+                               "path_matches_validated": result.get("path_matches_validated")})
+        if detail is not None:
+            output["detail"] = detail
+        print(json.dumps(output, ensure_ascii=True))
+        rows.append(output)
+        if not ok:
+            failures.append(label)
+        return output
 
     subprocess.run = guarded_run
     try:
         with tempfile.TemporaryDirectory(prefix="wifi-bound-tests-") as temp:
             root = Path(temp)
             def check(label, mutation=None, want=1, needle=None, scope="wifi", review=True,
-                      fixture_args="-v applog=1 pong_wifi=1 k60_wifi_rsc=2", runner=None):
+                      fixture_args="-v applog=1 pong_wifi=1 k60_wifi_rsc=2"):
                 fixture = Fixture(root / ("case-%02d" % len(results)), fixture_args)
                 if mutation:
                     mutation(fixture)
-                result = fixture.run(scope, review, runner)
-                ok = result["exit_code"] == want and result["runner_calls"] == (1 if want in (0, 7) else 0)
-                output = (result.get("error") or "") + json.dumps(result.get("gate"), ensure_ascii=True)
-                ok = ok and (needle is None or needle in output)
-                row = {"case": label, "pass": ok, "raw_exit_code": result["exit_code"],
-                       "runner_calls": result["runner_calls"],
-                       "gate_exit_code": (result.get("gate") or {}).get("exit_code"),
-                       "error": result["error"]}
-                print(json.dumps(row, ensure_ascii=True))
-                results.append(row)
+                result = fixture.run(scope, review)
+                output = (result.get("error") or "") + json.dumps(result.get("identity"),
+                                                                 ensure_ascii=True)
+                ok = (result.get("advisory_exit_code") == want and
+                      result.get("device_runner_calls") == 0 and
+                      result.get("flash_authorized") is False and
+                      (needle is None or needle in output))
+                row(label, ok, result, {"needle": needle, "want": want})
                 if not ok:
-                    failures.append(label)
                     print(json.dumps(result, ensure_ascii=True))
+                results.append(result)
                 return fixture, result
 
-            fixture, positive = check("positive source fixture + parked WiFi + active floor", want=0)
-            assert "touch[active]" in positive["gate"]["stdout"] and "wifi[parked]" in positive["gate"]["stdout"]
-            assert "gpu[active]" in positive["gate"]["stdout"] and "battery[active]" in positive["gate"]["stdout"]
-            assert positive["supervisor_plan"] == wrapper.supervisor_plan()
+            fixture, positive = check("advisory positive source fixture; zero runner", want=0)
+            assert positive["mode"] == "advisory-only"
+            assert positive["checks"] == "passed" and positive["flash_authorization"] == "none"
+            assert positive["boundaries"]["captured_once"] is True
+            assert positive["boundaries"]["decision_reopened_path"] is False
             print(json.dumps({"fixture_inputs": positive["identity"],
                               "manifest_sha256": positive["manifest_sha256"],
                               "observation": OBSERVATION, "code_present": positive["code_present"],
-                              "activation": positive["activation"], "gate_stdout": positive["gate"]["stdout"]},
-                             ensure_ascii=True))
+                              "activation": positive["activation"]}, ensure_ascii=True))
+
             check("actual WiFi source + display scope", scope="display", needle="WiFi code present")
             check("missing explicit scope", scope=None, needle="missing explicit scope")
             check("unknown explicit target", scope="wifi,nosuch", needle="unknown target")
@@ -240,13 +271,12 @@ def main():
             _, disabled = check("disabled activation classified separately", want=0,
                                 fixture_args="-v applog=1 pong_wifi=0")
             assert disabled["activation"] == "disabled" and disabled["code_present"]
+            assert disabled["device_runner_calls"] == 0
             _, unknown = check("missing activation flag conservatively retains WiFi scope", want=0,
                                fixture_args="-v applog=1")
             check("duplicate conflicting requested args", fixture_args="-v applog=1 pong_wifi=0 pong_wifi=1",
                   needle="duplicate/conflicting requested args")
             assert unknown["activation"] == "unknown" and unknown["code_present"]
-            check("fake runner raw exit propagates", want=7, runner=wrapper.RecordedFakeRunner(7))
-            check("arbitrary runner rejected", runner=lambda _: 0, needle="recorded in-process fake")
 
             def bad_supervisor(f):
                 f.manifest["proposal_binding"]["supervisor"]["argv"][-1] = "spoofed-device"
@@ -270,11 +300,14 @@ def main():
                 return mutate
             check("missing historical binding", alter_manifest("proposal_binding", None), needle="no backfill")
             check("image hash mismatch", lambda f: f.put("fixture-image.json", b"wrong image"), needle="outer image")
-            check("manifest review mismatch", lambda f: f.put("build-manifest.json", b"{}"), needle="components.boot_img")
             def stale_manifest(f):
                 f.manifest["tag"] = "wifi-looking-tag-does-not-authorize"
                 f.put("build-manifest.json", wrapper.canonical(f.manifest))
             check("review pins entire manifest", stale_manifest, needle="manifest review hash")
+            def bad_review_hash(f):
+                f.review["manifest_sha256"] = "0" * 64
+                f.save_review()
+            check("review manifest hash mismatch", bad_review_hash, needle="manifest review hash mismatch")
             def revision(f):
                 f.manifest["repo"]["head"] = "0" * 40
                 f.save_manifest()
@@ -406,21 +439,10 @@ def main():
                 f.review["gate_base_sha256"] = "0" * 64
                 f.save_review()
             check("gate base hash mismatch", bad_gate, needle="gate base revision/hash")
-            def active_floor(f):
-                f.hardware["touch"]["step"]["official"]["done"] = False
-                f.refresh()
-            _, floor = check("active floor fails inside actual proposed gate", active_floor,
-                             needle="touch ::")
-            assert floor["gate"]["exit_code"] != 0
-            def wifi_verify(f):
-                f.hardware["wifi"]["step"]["verify"]["local_verified"] = False
-                f.refresh()
-            check("parked WiFi verify fails inside actual proposed gate", wifi_verify,
-                  needle="local_verified")
             def stale_prediction(f):
                 f.hardware["wifi"]["step"]["device"]["prediction"]["observation"] = "old-observation"
                 f.refresh()
-            check("stale prediction fails inside actual proposed gate", stale_prediction,
+            check("stale prediction reference fails advisory checks", stale_prediction,
                   needle="observation mismatch")
             env_old = dict(os.environ)
             try:
@@ -435,38 +457,153 @@ def main():
                 os.environ.clear()
                 os.environ.update(env_old)
 
+            # ---- default library entry point has no runner seam ----
+            execute_fixture = Fixture(root / "case-execute-default")
+            execute_ok = wrapper.execute(execute_fixture.root / "build-manifest.json",
+                                         execute_fixture.root / "fixture-image.json",
+                                         execute_fixture.root / "review.json", "wifi")
+            rejected = False
+            rejected_fake = wrapper.RecordedFakeRunner()
+            try:
+                wrapper.execute(execute_fixture.root / "build-manifest.json",
+                                execute_fixture.root / "fixture-image.json",
+                                execute_fixture.root / "review.json", "wifi", rejected_fake)
+            except wrapper.Refused:
+                rejected = True
+            row("execute(runner=None) advisory-only; arbitrary runner refused before call",
+                execute_ok["advisory_exit_code"] == 0 and execute_ok["device_runner_calls"] == 0 and
+                execute_ok["advisory"] is True and rejected and rejected_fake.calls == [],
+                execute_ok, {"rejected": rejected, "fake_calls": len(rejected_fake.calls)})
+
+            # ---- captured-byte boundaries: default path, zero device runner ----
+            def boundary(label, ok, detail):
+                row(label, ok, None, detail)
+                diagnostics.append({"case": label, "pass": bool(ok), "detail": detail})
+
+            path_fixture = Fixture(root / "case-path-replacement")
+            captured = path_fixture.capture()
+            path_fixture.put("fixture-image.json", b"replacement image bytes after capture")
+            after = wrapper.advisory_from_inputs(captured, "wifi")
+            drift = after["boundaries"]["path_drift"]["image"]
+            boundary("path replacement: captured bytes still evaluated, path drift reported",
+                     after["advisory_exit_code"] == 0 and after["device_runner_calls"] == 0 and
+                     after["flash_authorized"] is False and drift["same"] is False and
+                     captured.image.sha256 == after["identity"]["image_sha256"],
+                     {"captured_sha256": captured.image.sha256,
+                      "path_now_sha256": drift["path_now_sha256"], "same": drift["same"]})
+
+            inode_fixture = Fixture(root / "case-inode-mutation")
+            captured = inode_fixture.capture()
+            image_path = inode_fixture.root / "fixture-image.json"
+            inode_before = os.stat(image_path).st_ino
+            original = image_path.read_bytes()
+            with image_path.open("r+b") as stream:
+                stream.seek(0)
+                stream.write(bytes([original[0] ^ 1]) + original[1:])
+                stream.flush()
+            inode_after = os.stat(image_path).st_ino
+            after = wrapper.advisory_from_inputs(captured, "wifi")
+            drift = after["boundaries"]["path_drift"]["image"]
+            boundary("same-inode in-place write: captured bytes unchanged, path bytes drift",
+                     inode_before == inode_after and after["advisory_exit_code"] == 0 and
+                     after["device_runner_calls"] == 0 and drift["same"] is False,
+                     {"same_inode": inode_before == inode_after,
+                      "captured_sha256": captured.image.sha256,
+                      "path_now_sha256": drift["path_now_sha256"], "same": drift["same"]})
+
+            bad_fixture = Fixture(root / "case-restored-race")
+            bad_fixture.hardware["wifi"]["step"]["device"]["prediction"]["observation"] = "old-observation"
+            bad_fixture.refresh()
+            captured_bad = bad_fixture.capture()
+            bad_result = wrapper.advisory_from_inputs(captured_bad, "wifi")
+            bad_fixture.hardware["wifi"]["step"]["device"]["prediction"]["observation"] = OBSERVATION
+            bad_fixture.refresh()
+            repaired_path = bad_fixture.run()
+            boundary("restored race: captured bad evidence stays failed after path repaired",
+                     bad_result["advisory_exit_code"] == 1 and
+                     bad_result["device_runner_calls"] == 0 and
+                     repaired_path["advisory_exit_code"] == 0,
+                     {"captured_bad_exit": bad_result["advisory_exit_code"],
+                      "repaired_path_exit": repaired_path["advisory_exit_code"],
+                      "captured_bad_error": bad_result["error"]})
+
+            downstream_fixture = Fixture(root / "case-downstream-reopen")
+            captured = downstream_fixture.capture()
+            downstream_fixture.put("fixture-image.json", b"downstream consumer would read this")
+            now = wrapper.diagnostic_path_digest(downstream_fixture.root / "fixture-image.json")
+            boundary("downstream path reopen: diagnostic digest differs from captured digest",
+                     now != captured.image.sha256,
+                     {"captured_sha256": captured.image.sha256, "reopened_sha256": now,
+                      "boundary": "downstream reopen is outside this wrapper's proof"})
+
+            # ---- explicit isolated legacy defect regression: exactly one fake call ----
+            legacy_fixture = Fixture(root / "case-legacy-defect")
+            legacy_image = legacy_fixture.root / "fixture-image.json"
+            good_image = legacy_image.read_bytes()
+            bad_image = b'{"format":"legacy-bad-image-after-window"}'
+            legacy_fixture.put("fixture-image.json", bad_image)
+            def open_window():
+                legacy_fixture.put("fixture-image.json", good_image)
+            def close_window():
+                legacy_fixture.put("fixture-image.json", bad_image)
+            legacy = wrapper.legacy_vulnerable_probe(
+                legacy_fixture.root / "build-manifest.json",
+                legacy_fixture.root / "fixture-image.json",
+                legacy_fixture.root / "review.json", "wifi",
+                window_open=open_window, window_close=close_window)
+            legacy_ok = (legacy["legacy_fake_accepted"] is True and legacy["runner_calls"] == 1 and
+                         legacy["device_runner_calls"] == 0 and legacy["flash_authorized"] is False and
+                         legacy["path_matches_validated"] is False)
+            row("legacy-vulnerable probe: expected once-fake acceptance after temp-good window",
+                legacy_ok, legacy, {"expected_defect": True})
+            if legacy_ok:
+                diagnostics.append({"case": "legacy-vulnerable probe accepted once",
+                                    "pass": True, "expected_defect": True})
+            else:
+                # The regression is only useful if the defect is still reproduced.
+                failures.append("legacy-vulnerable probe did not reproduce the defect")
+
+            # The default API must not spawn a device/gate consumer; the CLI child is
+            # asserted zero-runner in its own process below.
+            subprocess.run = real_run
+            cli_fixture = Fixture(root / "case-cli")
             cli = subprocess.run([sys.executable, "-I", "-X", "utf8", str(WRAPPER), "--manifest",
-                                  str(fixture.root / "build-manifest.json"), "--image",
-                                  str(fixture.root / "fixture-image.json"), "--review",
-                                  str(fixture.root / "review.json"), "--scope", "wifi"],
+                                  str(cli_fixture.root / "build-manifest.json"), "--image",
+                                  str(cli_fixture.root / "fixture-image.json"), "--review",
+                                  str(cli_fixture.root / "review.json"), "--scope", "wifi"],
                                  cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=30)
             cli_result = json.loads(cli.stdout)
-            ok = cli.returncode == 0 and cli_result["exit_code"] == 0 and cli_result["runner_calls"] == 1
-            print(json.dumps({"case": "CLI positive fake only", "pass": ok,
-                              "raw_exit_code": cli.returncode, "runner_calls": cli_result["runner_calls"]}))
-            if not ok:
-                failures.append("CLI positive")
+            row("CLI advisory-only positive: zero device runner, no authorization",
+                cli.returncode == 0 and cli_result["mode"] == "advisory-only" and
+                cli_result["advisory_exit_code"] == 0 and cli_result["device_runner_calls"] == 0 and
+                cli_result["flash_authorized"] is False,
+                cli_result, {"raw_cli_exit": cli.returncode})
+
             if args.c8_manifest:
                 command = [sys.executable, "-I", "-X", "utf8", str(WRAPPER), "--manifest", args.c8_manifest,
                            "--image", args.c8_image, "--scope", "wifi"]
                 c8 = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
                                     encoding="utf-8", timeout=30)
                 c8_result = json.loads(c8.stdout)
-                ok = (c8.returncode == 1 and c8_result["runner_calls"] == 0 and
+                ok = (c8.returncode == 1 and c8_result["advisory_exit_code"] == 1 and
+                      c8_result["device_runner_calls"] == 0 and
+                      c8_result["flash_authorized"] is False and
                       "missing historical proposal_binding" in c8_result["error"])
-                print(json.dumps({"case": "real c8 read-only rejection", "pass": ok,
-                                  "command": command, "raw_exit_code": c8.returncode,
-                                  "result": c8_result}, ensure_ascii=True))
-                if not ok:
-                    failures.append("real c8 rejection")
+                row("real c8 read-only rejection: missing binding, zero runner", ok, c8_result,
+                    {"command": command, "raw_cli_exit": c8.returncode})
     finally:
         subprocess.run = real_run
-    unchanged = before == {str(path): wrapper.file_digest(path) for path in (wrapper.GATE, DATA, wrapper.PATCH)}
+    unchanged = before == {str(path): wrapper.file_digest(path)
+                           for path in (wrapper.GATE, DATA, wrapper.PATCH, wrapper.SUPERVISOR)}
     if not unchanged:
         failures.append("active inputs changed")
-    print(json.dumps({"cases": len(results) + 1 + bool(args.c8_manifest), "failures": failures,
-                      "active_inputs_unchanged": unchanged, "fixed_subprocess_calls": len(commands),
-                      "source_revision": REVISION, "source_path": SOURCE}, ensure_ascii=True))
+    print(json.dumps({"cases": len(results) + 2 + bool(args.c8_manifest) + len(diagnostics),
+                      "failures": failures,
+                      "diagnostics": len(diagnostics),
+                      "active_inputs_unchanged": unchanged,
+                      "fixed_subprocess_calls": len(commands),
+                      "source_revision": REVISION, "source_path": SOURCE},
+                     ensure_ascii=True))
     return bool(failures)
 
 

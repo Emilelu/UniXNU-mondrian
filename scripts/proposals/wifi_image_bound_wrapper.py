@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""Offline image-binding proposal. No real supervisor/device execution is possible.
+"""Offline advisory-only image-binding diagnostics. No device path is executable.
 
-Only nonbootable wifi-source-fixture-v1 containers are admitted. A future production
-adapter needs independently reviewed build-time provenance and actual image readback;
-this fixture format is not that attestation and cannot rehabilitate historical c8.
+The default API captures each checked input once as immutable bytes, then hashes,
+parses and compares those captured bytes. It never invokes the supervisor,
+fastboot, PowerShell, a shell or a configurable command, never calls a device
+runner, and never reports flash authorization. Paths are display locators only.
+A path replacement, an in-place write to the same inode, and a downstream tool
+that reopens a path are reported as boundaries; they cannot be repaired by a
+second path validation because no second path validation is used for a decision.
+
+legacy_vulnerable_probe() is a deliberately isolated reproduction of the known
+historical path-bound defect. It reaches only the exact in-process recorder and
+exists to keep the once-fake-runner-call failure visible. It is never an
+acceptance path and never reports authorization.
 """
 from __future__ import annotations
 
@@ -13,10 +22,10 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
+import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +36,7 @@ SUPERVISOR = ROOT / "scripts/boot-and-capture.ps1"
 GIT = "C:/Program Files/Git/cmd/git.exe" if os.name == "nt" else "/usr/bin/git"
 SOURCE = "drivers/PongWifi/PongWifiPci.cpp"
 FORMAT = "wifi-source-fixture-v1"
+MODE = "advisory-only"
 ROLES = {"source", "config", "archive", "compile_commands", "link_record",
          "observation", "steps"}
 
@@ -45,11 +55,8 @@ def digest(data):
 
 
 def file_digest(path):
-    value = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            value.update(chunk)
-    return value.hexdigest()
+    with open(path, "rb") as stream:
+        return digest(stream.read())
 
 
 def canonical(value):
@@ -78,20 +85,54 @@ def clean_env():
     return env
 
 
-def supervisor_plan():
-    # Inert representation only. Deliberately invalid device serial and nonbootable
-    # image make this a fixture plan. No code executes or resolves these arguments.
-    return {"script": "scripts/boot-and-capture.ps1",
-            "script_sha256": file_digest(SUPERVISOR), "executable": False,
-            "argv": ["-Image", "fixture-image.json", "-Seconds", "300",
-                     "-WaitFastboot", "0", "-OutDir", "fixture-evidence",
-                     "-Serial", "fixture-no-device"]}
-
-
 def sha(value, label):
     require(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value),
             label + " requires a full lowercase SHA256")
     return value
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """One open-and-read capture. data is the only content used after capture."""
+    data: bytes
+    sha256: str
+    locator: str
+    label: str
+
+    def report(self):
+        return {"sha256": self.sha256, "bytes": len(self.data),
+                "locator": self.locator, "locator_is_display_only": True}
+
+
+@dataclass(frozen=True)
+class Captured:
+    """All decision inputs, captured once from their sources before any check."""
+    manifest: Snapshot
+    image: Snapshot
+    review: Snapshot
+    frozen_list: Snapshot
+    files: dict
+    gate: Snapshot
+    patch: Snapshot
+    floor: Snapshot
+    supervisor: Snapshot
+    source_blob: object
+    source_error: object
+
+
+def capture(path, label):
+    """Open once, read once. No path hash is taken before or after this read."""
+    try:
+        with Path(path).open("rb") as stream:
+            data = stream.read()
+    except OSError as error:
+        raise Refused("cannot capture " + label + ": " + str(error)) from error
+    return Snapshot(data=data, sha256=digest(data), locator=str(path), label=label)
+
+
+def verify_snapshot(snapshot, label):
+    require(isinstance(snapshot, Snapshot), label + " snapshot missing")
+    require(digest(snapshot.data) == snapshot.sha256, label + " snapshot digest mismatch")
 
 
 def local_file(root, name):
@@ -109,27 +150,106 @@ def local_file(root, name):
     return path
 
 
-def frozen_inputs(manifest_path, manifest, binding):
-    root = manifest_path.parent.resolve()
-    frozen = manifest.get("frozen") or {}
-    listing = local_file(root, frozen.get("file"))
-    require(file_digest(listing) == sha(frozen.get("list_sha256"), "frozen.list_sha256"),
-            "frozen list hash mismatch")
+def parse_frozen_listing(data):
     entries = {}
-    for line in listing.read_text(encoding="utf-8").splitlines():
+    for line in data.decode("utf-8").splitlines():
         match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
         require(match is not None, "malformed frozen entry: " + line)
         value, name = match.groups()
         require(name not in entries, "duplicate frozen entry: " + name)
-        path = local_file(root, name)
-        require(file_digest(path) == value, "frozen file hash mismatch: " + name)
-        entries[name] = (path, value)
+        entries[name] = value
+    return entries
+
+
+def capture_frozen(root, listing, manifest):
+    frozen = manifest.get("frozen") or {}
+    require(listing.sha256 == sha(frozen.get("list_sha256"), "frozen.list_sha256"),
+            "frozen list hash mismatch")
+    entries = parse_frozen_listing(listing.data)
+    captured = {}
+    for name in entries:
+        snapshot = capture(local_file(root, name), "frozen " + name)
+        require(snapshot.sha256 == entries[name], "frozen file hash mismatch: " + name)
+        captured[name] = snapshot
+    return captured
+
+
+def role_files(captured, manifest):
+    listing = parse_frozen_listing(captured.frozen_list.data)
+    require(captured.frozen_list.sha256 ==
+            sha((manifest.get("frozen") or {}).get("list_sha256"), "frozen.list_sha256"),
+            "frozen list hash mismatch")
+    binding = manifest.get("proposal_binding") or {}
     roles = binding.get("files") or {}
     require(set(roles) == ROLES, "historical binding missing/unknown roles: " +
             repr(sorted(ROLES.symmetric_difference(roles))))
     require(len(set(roles.values())) == len(ROLES), "frozen roles must name distinct files")
-    require(set(roles.values()).issubset(entries), "binding file absent from frozen list")
-    return {role: entries[name] for role, name in roles.items()}
+    require(set(roles.values()).issubset(listing), "binding file absent from frozen list")
+    require(set(captured.files) == set(listing), "captured frozen set differs from listing")
+    result = {}
+    for role, name in roles.items():
+        snapshot = captured.files.get(name)
+        require(snapshot is not None, "frozen file missing: " + name)
+        require(snapshot.sha256 == listing[name], "frozen file hash mismatch: " + name)
+        result[role] = snapshot
+    return result
+
+
+def supervisor_plan(supervisor=None):
+    # Inert representation only. Deliberately invalid device serial and nonbootable
+    # image make this a fixture plan. No code executes or resolves these arguments.
+    snapshot = supervisor if supervisor is not None else capture(SUPERVISOR, "supervisor script")
+    return {"script": "scripts/boot-and-capture.ps1",
+            "script_sha256": snapshot.sha256, "executable": False,
+            "argv": ["-Image", "fixture-image.json", "-Seconds", "300",
+                     "-WaitFastboot", "0", "-OutDir", "fixture-evidence",
+                     "-Serial", "fixture-no-device"]}
+
+
+def try_capture_source(revision):
+    """Capture the source Git object as bytes. A missing/invalid object is reported later."""
+    if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        return None, "source revision must be a full 40-character commit"
+    kind = subprocess.run([GIT, "-c", "safe.directory=" + str(ROOT),
+                           "--no-replace-objects", "cat-file", "-t", revision],
+                          cwd=ROOT, env=clean_env(), capture_output=True, timeout=20)
+    if kind.returncode != 0 or kind.stdout.strip() != b"commit":
+        return None, "source revision must name an existing commit object"
+    blob = subprocess.run([GIT, "-c", "safe.directory=" + str(ROOT), "--no-replace-objects",
+                           "cat-file", "blob", revision + ":" + SOURCE], cwd=ROOT,
+                          env=clean_env(), capture_output=True, timeout=20)
+    if blob.returncode != 0:
+        return None, "source blob unavailable for the checked revision"
+    return Snapshot(data=blob.stdout, sha256=digest(blob.stdout),
+                    locator=revision + ":" + SOURCE, label="source blob"), None
+
+
+def capture_inputs(manifest_path, image_path, review_path=None):
+    """Capture every decision input once. No path is reopened for a decision later."""
+    manifest_path, image_path = Path(manifest_path).resolve(), Path(image_path).resolve()
+    manifest_snapshot = capture(manifest_path, "manifest")
+    manifest = parse(manifest_snapshot.data)
+    binding = manifest.get("proposal_binding")
+    # c8 has no such historical record. Do not create/default it from current env/files.
+    require(isinstance(binding, dict), "missing historical proposal_binding; no backfill allowed")
+    require(review_path is not None, "missing reviewed identity input")
+    review_snapshot = capture(Path(review_path).resolve(), "review")
+    root = manifest_path.parent
+    frozen = manifest.get("frozen") or {}
+    frozen_snapshot = capture(local_file(root, frozen.get("file")), "frozen list")
+    files = capture_frozen(root, frozen_snapshot, manifest)
+    image_snapshot = capture(image_path, "image")
+    gate_snapshot = capture(GATE, "trusted gate")
+    patch_snapshot = capture(PATCH, "unapplied gate patch")
+    floor_snapshot = capture(DATA, "trusted active floor")
+    supervisor_snapshot = capture(SUPERVISOR, "supervisor script")
+    revision = (manifest.get("repo") or {}).get("head")
+    source_blob, source_error = try_capture_source(revision)
+    return Captured(manifest=manifest_snapshot, image=image_snapshot,
+                    review=review_snapshot, frozen_list=frozen_snapshot, files=files,
+                    gate=gate_snapshot, patch=patch_snapshot, floor=floor_snapshot,
+                    supervisor=supervisor_snapshot, source_blob=source_blob,
+                    source_error=source_error)
 
 
 def activation(args):
@@ -144,59 +264,22 @@ def activation(args):
     return "unknown"
 
 
-def proposed_gate(steps, scope, observation):
-    # Fixed trusted repository code only; no executable/runner can be supplied by input.
-    with tempfile.TemporaryDirectory(prefix="wifi-image-gate-") as directory:
-        tree = Path(directory)
-        (tree / "scripts").mkdir()
-        (tree / "docs/research").mkdir(parents=True)
-        shutil.copyfile(GATE, tree / "scripts/eight-step-gate.py")
-        for options in (("--check",), ()):
-            done = subprocess.run([GIT, "apply", *options, str(PATCH)], cwd=tree, env=clean_env(),
-                                  capture_output=True, text=True, encoding="utf-8", timeout=20)
-            require(done.returncode == 0, "proposed gate patch rc=" + str(done.returncode) +
-                    ": " + done.stdout + done.stderr)
-        # Only the unrelated renderer invocation changes for isolated Windows Python;
-        # flash selection, evidence, prediction and active-floor code remain verbatim.
-        gate_path = tree / "scripts/eight-step-gate.py"
-        gate_text = gate_path.read_text(encoding="utf-8")
-        old = "['python3', os.path.join(REPO, 'scripts', 'render-eight-step-table.py')"
-        require(gate_text.count(old) == 1, "unknown renderer invocation")
-        gate_path.write_text(gate_text.replace(old,
-            "[sys.executable, '-I', '-X', 'utf8', os.path.join(REPO, 'scripts', 'render-eight-step-table.py')"),
-            encoding="utf-8")
-        shutil.copyfile(steps, tree / "docs/research/EIGHT-STEPS.toml")
-        # Unrelated renderer only; selection/evidence/prediction logic is the real patch.
-        (tree / "scripts/render-eight-step-table.py").write_text(
-            "raise SystemExit(0)\n", encoding="utf-8")
-        # The gate's env transport is derived exclusively from checked input. Ambient
-        # Python injection, K60 scopes, identity/archive hints and skip flags are dropped.
-        env = clean_env()
-        env.update(PYTHONIOENCODING="utf-8", K60_FLASH_ITEMS=scope,
-                   K60_FLASH_OBSERVATION=observation)
-        done = subprocess.run([sys.executable, "-I", "-X", "utf8", str(tree / "scripts/eight-step-gate.py"),
-                               "--flash"], cwd=tree, env=env, capture_output=True,
-                              text=True, encoding="utf-8", timeout=20)
-        return {"exit_code": done.returncode, "stdout": done.stdout, "stderr": done.stderr}
+def evaluate(captured, scope):
+    """Evaluate only captured bytes. Never opens an input path for a decision."""
+    for snapshot, label in (("manifest", "manifest"), ("image", "image"),
+                            ("review", "review"), ("frozen_list", "frozen list"),
+                            ("gate", "trusted gate"), ("patch", "unapplied gate patch"),
+                            ("floor", "trusted active floor"),
+                            ("supervisor", "supervisor script")):
+        verify_snapshot(getattr(captured, snapshot), label)
+    for name, snapshot in captured.files.items():
+        verify_snapshot(snapshot, "frozen " + name)
 
-
-class RecordedFakeRunner:
-    """In-process recorder only: no subprocess, callback, command, or device API."""
-    def __init__(self, exit_code=0):
-        self.exit_code = exit_code
-        self.calls = []
-
-    def run(self, plan):
-        self.calls.append(plan)
-        return self.exit_code
-
-
-def validate(manifest_path, image_path, review_path, scope):
-    manifest_path, image_path = Path(manifest_path).resolve(), Path(image_path).resolve()
-    raw_manifest = manifest_path.read_bytes()
+    raw_manifest = captured.manifest.data
     manifest = parse(raw_manifest)
-    comp = manifest.get("components") or {}
-    image_hash = file_digest(image_path)
+    comp = manifest.get("components")
+    require(isinstance(comp, dict), "manifest components must be an object")
+    image_hash = captured.image.sha256
     require(image_hash == sha(comp.get("boot_img"), "components.boot_img"),
             "outer image hash mismatch")
     revision = (manifest.get("repo") or {}).get("head")
@@ -204,27 +287,30 @@ def validate(manifest_path, image_path, review_path, scope):
             "repo.head requires a full 40-character revision")
     require(type((manifest.get("repo") or {}).get("dirty_files")) is int and
             manifest["repo"]["dirty_files"] == 0, "manifest source tree is not clean")
-    # c8 has no such historical record. Do not create/default it from current env/files.
     binding = manifest.get("proposal_binding")
     require(isinstance(binding, dict), "missing historical proposal_binding; no backfill allowed")
     require(type(binding.get("schema_version")) is int and binding["schema_version"] == 1 and
             binding.get("format") == FORMAT,
             "unsupported binding format; offline source fixture only")
-    require(review_path is not None, "missing reviewed identity input")
-    review = parse(Path(review_path).read_bytes())
+
+    review = parse(captured.review.data)
     require(review.get("purpose") == "offline-fixture-only", "review is not fixture-only")
-    require(review.get("manifest_sha256") == digest(raw_manifest), "manifest review hash mismatch")
+    require(review.get("manifest_sha256") == captured.manifest.sha256, "manifest review hash mismatch")
     require(review.get("source_revision") == revision, "review revision mismatch")
-    require(review.get("gate_base_sha256") == file_digest(GATE), "gate base revision/hash mismatch")
-    require(review.get("gate_patch_sha256") == file_digest(PATCH), "gate patch hash mismatch")
-    require(review.get("active_floor_sha256") == file_digest(DATA), "active floor hash mismatch")
-    plan = supervisor_plan()
+    require(review.get("gate_base_sha256") == captured.gate.sha256,
+            "gate base revision/hash mismatch")
+    require(review.get("gate_patch_sha256") == captured.patch.sha256, "gate patch hash mismatch")
+    require(review.get("active_floor_sha256") == captured.floor.sha256,
+            "active floor hash mismatch")
+    plan = supervisor_plan(captured.supervisor)
     require(review.get("supervisor") == plan and binding.get("supervisor") == plan,
             "supervisor script/parameter plan mismatch")
-    require(comp.get("boot_img_path") == "fixture-image.json" and image_path.name == "fixture-image.json",
+    require(comp.get("boot_img_path") == "fixture-image.json" and
+            Path(captured.image.locator).name == "fixture-image.json",
             "fixture image path does not match supervisor plan")
-    files = frozen_inputs(manifest_path, manifest, binding)
-    observation = parse(files["observation"][0].read_bytes())
+
+    files = role_files(captured, manifest)
+    observation = parse(files["observation"].data)
     obs_id = observation.get("id")
     require(isinstance(obs_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", obs_id),
             "missing/invalid observation identifier")
@@ -235,19 +321,18 @@ def validate(manifest_path, image_path, review_path, scope):
     names = scope.split(",")
     require(all(name and name == name.strip() for name in names) and len(names) == len(set(names)),
             "empty/duplicate/noncanonical explicit scope")
-    # Known targets come from the checked TOML, not a hardcoded tag/name list.
-    import tomllib
-    hardware = (tomllib.loads(files["steps"][0].read_text(encoding="utf-8")).get("hardware") or {})
+    # Known targets come from the captured TOML, not a hardcoded tag/name list.
+    hardware = (tomllib.loads(files["steps"].data.decode("utf-8")).get("hardware") or {})
     require(isinstance(hardware, dict) and all(isinstance(value, dict) for value in hardware.values()),
             "malformed hardware records")
-    trusted = tomllib.loads(DATA.read_text(encoding="utf-8"))["hardware"]
+    trusted = tomllib.loads(captured.floor.data.decode("utf-8"))["hardware"]
     active = {key for key, value in trusted.items() if value.get("status", "active") == "active"}
     require(active.issubset(hardware) and all(hardware[key].get("status", "active") == "active"
             for key in active), "trusted active floor omitted or demoted")
     require(set(hardware).issubset(trusted), "unknown target in artifact hardware records")
     require(set(names).issubset(hardware), "unknown target in explicit scope")
 
-    image = parse(image_path.read_bytes())
+    image = parse(captured.image.data)
     require(image.get("format") == FORMAT, "unsupported image; no real boot image adapter")
     payload = image.get("payload")
     require(isinstance(payload, dict), "missing fixture payload readback")
@@ -266,21 +351,15 @@ def validate(manifest_path, image_path, review_path, scope):
             "requested args missing from payload readback")
     require(image.get("source_revision") == revision, "image revision mismatch")
 
-    source = files["source"][0].read_bytes()
-    kind = subprocess.run([GIT, "-c", "safe.directory=" + str(ROOT),
-                           "--no-replace-objects", "cat-file", "-t", revision],
-                          cwd=ROOT, env=clean_env(), capture_output=True, timeout=20)
-    require(kind.returncode == 0 and kind.stdout.strip() == b"commit",
-            "source revision must name an existing commit object")
-    git = subprocess.run([GIT, "-c", "safe.directory=" + str(ROOT), "--no-replace-objects",
-                          "cat-file", "blob", revision + ":" + SOURCE], cwd=ROOT,
-                         env=clean_env(),
-                         capture_output=True, timeout=20)
-    require(git.returncode == 0 and git.stdout == source, "source snapshot/revision mismatch")
+    source = files["source"].data
+    require(captured.source_blob is not None,
+            captured.source_error or "source revision must name an existing commit object")
+    verify_snapshot(captured.source_blob, "source blob")
+    require(captured.source_blob.data == source, "source snapshot/revision mismatch")
     require(b"PongWifiPciRead(" in source and source in kernel,
             "WiFi source bytes absent from fixture kernel")
-    archive = files["archive"][0].read_bytes()
-    require(files["archive"][1] == sha(comp.get("wifi_archive"), "components.wifi_archive"),
+    archive = files["archive"].data
+    require(files["archive"].sha256 == sha(comp.get("wifi_archive"), "components.wifi_archive"),
             "WiFi archive hash mismatch")
     require(comp.get("wifi_archive_path") == binding["files"]["archive"],
             "WiFi archive path mismatch")
@@ -291,15 +370,15 @@ def validate(manifest_path, image_path, review_path, scope):
             archived.get("source_sha256") == digest(source) and
             base64.b64decode(archived.get("source_base64", ""), validate=True) == source,
             "archive source membership mismatch")
-    config = files["config"][0].read_text(encoding="utf-8").splitlines()
+    config = files["config"].data.decode("utf-8").splitlines()
     config_values = [line for line in config if line.startswith("CONFIG_XNU_PONG_WIFI=")]
     require(len(config_values) == 1 and config_values[0] in
             ("CONFIG_XNU_PONG_WIFI=y", "CONFIG_XNU_PONG_WIFI=n"), "unknown WiFi build config")
-    compile_record = parse(files["compile_commands"][0].read_bytes())
+    compile_record = parse(files["compile_commands"].data)
     require(compile_record == {"format": "source-fixture-no-compiler", "source": SOURCE,
             "source_revision": revision, "source_sha256": digest(source)},
             "compile record/revision/source mismatch")
-    link_record = parse(files["link_record"][0].read_bytes())
+    link_record = parse(files["link_record"].data)
     require(link_record == {"format": "source-fixture-no-linker", "archive_sha256": digest(archive),
             "kernel_sha256": digest(kernel), "source_revision": revision},
             "link record/archive/revision mismatch")
@@ -311,12 +390,14 @@ def validate(manifest_path, image_path, review_path, scope):
                 "payload_args": payload["args"], "kernel_args_requested": requested,
                 "payload_sha256": comp["payload"], "kernel_sha256": digest(kernel),
                 "wifi_archive_sha256": digest(archive), "source_sha256": digest(source),
-                "config_sha256": files["config"][1],
-                "compile_commands_sha256": files["compile_commands"][1],
-                "link_record_sha256": files["link_record"][1],
-                "steps_sha256": files["steps"][1], "gate_base_sha256": file_digest(GATE),
-                "gate_patch_sha256": file_digest(PATCH),
-                "active_floor_sha256": file_digest(DATA), "supervisor": plan}
+                "config_sha256": files["config"].sha256,
+                "compile_commands_sha256": files["compile_commands"].sha256,
+                "link_record_sha256": files["link_record"].sha256,
+                "steps_sha256": files["steps"].sha256,
+                "gate_base_sha256": captured.gate.sha256,
+                "gate_patch_sha256": captured.patch.sha256,
+                "active_floor_sha256": captured.floor.sha256,
+                "supervisor": plan}
     require(observation.get("identity") == identity, "observation identity mismatch")
     require(observation.get("activation") == state, "observation activation mismatch")
     require(observation.get("scope") == names, "observation scope mismatch")
@@ -328,41 +409,153 @@ def validate(manifest_path, image_path, review_path, scope):
     reference = binding["files"]["observation"]
     require(verify.get("reference") == reference and prediction.get("reference") == reference,
             "gate observation reference mismatch")
+    require(verify.get("observation") == obs_id, "gate verification observation mismatch")
+    require(prediction.get("observation") == obs_id, "gate prediction observation mismatch")
     require(prediction.get("success") == observation["success"] and
             prediction.get("failure") == observation["failure"], "gate prediction/spec mismatch")
+    capture_report = {
+        "manifest": captured.manifest.report(), "image": captured.image.report(),
+        "review": captured.review.report(), "frozen_list": captured.frozen_list.report(),
+        "gate": captured.gate.report(), "patch": captured.patch.report(),
+        "floor": captured.floor.report(), "supervisor": captured.supervisor.report(),
+        "source_blob": captured.source_blob.report() if captured.source_blob else None,
+        "frozen_files": {name: snapshot.report()
+                         for name, snapshot in sorted(captured.files.items())}}
     return {"identity": identity, "observation": obs_id, "scope": names,
-            "code_present": True, "activation": state, "steps": files["steps"][0],
-            "image": str(image_path), "manifest_sha256": digest(raw_manifest),
+            "code_present": True, "activation": state, "capture": capture_report,
+            "image": captured.image.locator, "manifest_sha256": captured.manifest.sha256,
             "supervisor_plan": plan}
 
 
-def execute(manifest_path, image_path, review_path=None, scope=None, runner=None):
-    # Exact class disallows a passed real runner/callback. CLI constructs this itself.
-    runner = RecordedFakeRunner() if runner is None else runner
-    result = {"exit_code": 1, "runner_calls": 0, "gate": None, "error": None}
+def diagnostic_path_digest(path):
+    """Diagnostic only: models a downstream consumer reopening a path. Never a decision."""
+    return digest(Path(path).read_bytes())
+
+
+def boundary_report(captured):
+    """Post-decision path reads exist only to show what a path consumer would see."""
+    drift = {}
+    for name, snapshot in (("manifest", captured.manifest), ("image", captured.image),
+                           ("review", captured.review), ("frozen_list", captured.frozen_list),
+                           ("gate", captured.gate), ("patch", captured.patch),
+                           ("floor", captured.floor), ("supervisor", captured.supervisor)):
+        try:
+            now = diagnostic_path_digest(snapshot.locator)
+        except OSError:
+            now = None
+        drift[name] = {"captured_sha256": snapshot.sha256,
+                       "path_now_sha256": now, "same": now == snapshot.sha256}
+    return {"captured_once": True, "decision_reopened_path": False,
+            "post_capture_path_reads": "diagnostic-only; never consulted by a check",
+            "path_drift": drift,
+            "same_inode_limit": "an in-place write changes the path's current bytes but "
+                                "cannot change a captured snapshot or any advisory decision",
+            "downstream_limit": "a final consumer that reopens a path is not bound to the "
+                                "captured bytes; this wrapper cannot prove or provide that handoff",
+            "cross_process_limit": "supervisor/fastboot atomic handoff is outside this "
+                                   "offline proof and is not claimed"}
+
+
+def base_result():
+    return {"mode": MODE, "advisory": True, "diagnostic": True,
+            "advisory_exit_code": 1, "checks": "failed",
+            "flash_authorized": False, "flash_authorization": "none",
+            "device_runner_calls": 0, "device_paths_invoked": False, "error": None}
+
+
+def advisory_from_inputs(captured, scope):
+    result = base_result()
     try:
-        require(type(runner) is RecordedFakeRunner, "only the recorded in-process fake is supported")
-        checked = validate(manifest_path, image_path, review_path, scope)
-        gate = proposed_gate(checked.pop("steps"), scope, checked["observation"])
-        result["gate"] = gate
-        require(gate["exit_code"] == 0, "proposed flash gate refused rc=" + str(gate["exit_code"]))
-        # Detect replacement during validation/gate before the fake boundary.
-        require(file_digest(image_path) == checked["identity"]["image_sha256"],
-                "image changed after gate")
-        require(file_digest(manifest_path) == checked["manifest_sha256"],
-                "manifest changed after gate")
-        # Recheck all frozen evidence/review/script identities after the gate; comparison
-        # intentionally excludes temporary gate output. This remains an offline recorder,
-        # not an atomic device execution protocol.
-        repeated = validate(manifest_path, image_path, review_path, scope)
-        repeated.pop("steps")
-        require(repeated == checked, "bound inputs changed during gate")
-        result.update(checked)
-        result["exit_code"] = runner.run({"kind": "recorded-fake-only", **checked})
-    except (ValueError, OSError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as error:
+        result.update(evaluate(captured, scope))
+        result["checks"] = "passed"
+        result["advisory_exit_code"] = 0
+    except (ValueError, OSError, KeyError, TypeError, AttributeError,
+            subprocess.SubprocessError) as error:
         result["error"] = str(error)
-    if type(runner) is RecordedFakeRunner:
-        result["runner_calls"] = len(runner.calls)
+    result["boundaries"] = boundary_report(captured)
+    result["device_runner_calls"] = 0
+    result["flash_authorized"] = False
+    return result
+
+
+def advisory(manifest_path, image_path, review_path=None, scope=None):
+    """Default API: sole capture, advisory checks, zero device-runner calls."""
+    result = base_result()
+    try:
+        captured = capture_inputs(manifest_path, image_path, review_path)
+        result.update(advisory_from_inputs(captured, scope))
+    except (ValueError, OSError, KeyError, TypeError, AttributeError,
+            subprocess.SubprocessError) as error:
+        result["error"] = str(error)
+    result["device_runner_calls"] = 0
+    result["flash_authorized"] = False
+    return result
+
+
+def execute(manifest_path, image_path, review_path=None, scope=None, runner=None):
+    """Compatibility default: no device runner is accepted; runner=None is advisory-only."""
+    require(runner is None, "advisory-only execute() has no device runner; "
+                            "the isolated legacy probe is a separate explicit API")
+    return advisory(manifest_path, image_path, review_path, scope)
+
+
+class RecordedFakeRunner:
+    """Exact legacy in-process recorder: no subprocess, callback, command or device API."""
+    def __init__(self, exit_code=0):
+        self.exit_code = exit_code
+        self.calls = []
+
+    def run(self, plan):
+        self.calls.append(plan)
+        return self.exit_code
+
+
+def legacy_vulnerable_probe(manifest_path, image_path, review_path=None, scope=None,
+                            window_open=None, during_gate=None, window_close=None):
+    """Reproduce the known path-bound once-fake-call defect. Diagnostic, not acceptance.
+
+    The two path validations model the historical before/after-gate checks. window_open
+    may expose temporary-good evidence, window_close may restore bad evidence or replace
+    the path before the fake boundary. The recorder is reached only through this
+    explicit legacy probe; no device runner exists.
+    """
+    fake = RecordedFakeRunner()
+    result = {"kind": "legacy-vulnerable-path-binding-diagnostic",
+              "mode": "legacy-diagnostic-only", "advisory": False, "diagnostic": True,
+              "flash_authorized": False,
+              "flash_authorization": "none", "device_runner_calls": 0,
+              "runner_calls": 0, "legacy_fake_accepted": False, "error": None,
+              "validated_image_sha256": None, "path_now_sha256": None,
+              "path_matches_validated": None}
+    try:
+        require(type(fake) is RecordedFakeRunner,
+                "only the exact in-process legacy recorder is supported")
+        if window_open is not None:
+            window_open()
+        first = evaluate(capture_inputs(manifest_path, image_path, review_path), scope)
+        if during_gate is not None:
+            during_gate()
+        second = evaluate(capture_inputs(manifest_path, image_path, review_path), scope)
+        require(second == first, "legacy path validation changed during its window")
+        # The historical flow reached the fake with a plan containing a path, not the
+        # validated bytes. This is exactly the defect the probe keeps visible.
+        if window_close is not None:
+            window_close()
+        plan = {"kind": "legacy-recorded-fake-only",
+                "image_path": str(image_path),
+                "validated_image_sha256": first["identity"]["image_sha256"],
+                "validated": first}
+        result["validated_image_sha256"] = first["identity"]["image_sha256"]
+        fake.run(plan)
+        result["legacy_fake_accepted"] = True
+        result["path_now_sha256"] = diagnostic_path_digest(image_path)
+        result["path_matches_validated"] = (
+            result["path_now_sha256"] == result["validated_image_sha256"])
+    except (ValueError, OSError, KeyError, TypeError, AttributeError,
+            subprocess.SubprocessError) as error:
+        result["error"] = str(error)
+    result["runner_calls"] = len(fake.calls)
+    result["device_runner_calls"] = 0
     return result
 
 
@@ -372,10 +565,16 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--review")
     parser.add_argument("--scope")
+    parser.add_argument("--legacy-diagnostic", action="store_true",
+                        help="run the isolated known-vulnerable fake-only probe")
     args = parser.parse_args()
-    result = execute(args.manifest, args.image, args.review, args.scope)
+    if args.legacy_diagnostic:
+        result = legacy_vulnerable_probe(args.manifest, args.image, args.review, args.scope)
+        print(json.dumps(result, indent=2, ensure_ascii=True))
+        return 0 if result["legacy_fake_accepted"] else 1
+    result = advisory(args.manifest, args.image, args.review, args.scope)
     print(json.dumps(result, indent=2, ensure_ascii=True))
-    return result["exit_code"]
+    return result["advisory_exit_code"]
 
 
 if __name__ == "__main__":

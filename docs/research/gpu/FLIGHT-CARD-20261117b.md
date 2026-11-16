@@ -43,4 +43,26 @@
 
 ## 5. 结果登记
 
-（上机后填写：S1–S4 / F1–F4 命中情况、关键行号、下一步。）
+**判决：FAIL(F3)** — 2026-11-17 01:46:04 上机，证据 `E:/k60-work/evidence/usblog-20261117-014604`
+（`console.log` 184,769 B，抓取完整、未因 panic/复位中断，supervisor rc=0）。
+
+| 判据 | 实测 | 结论 |
+| --- | --- | --- |
+| S1 | `K60KEXC` = 0 | ✅ |
+| S2 | `:480 K60METAL deploy files=6/6 inject=6 error=0` | ✅ 双 root 写入成立 |
+| S3 | `Pong Metal:` = 0 | ❌ |
+| S4 | `present #` = 0 | ❌ |
+| F1 | 无 panic | 未命中 |
+| F2 | `inject=6` 已出现 | 未命中 |
+| F3 | 有 S2、无 `Pong Metal:` | **命中** |
+| F4 | `crashed: backboardd` = 0；`software renderer fallback installed` = 1 | 未命中（大幅改善：崩溃 15→0、回退 18→1） |
+
+**本轮确定的事实**：内核侧把 bundle 与两个 marker 写进 `/private/var/pong` 成功
+（`inject=6`），且 backboardd 不再崩循环。但插件仍未被执行。
+
+**下一步方向（F3 指定）**：查注入时机与判据，而不是再改路径。首要嫌疑：
+`init-v24dp.c` 的 metal 分支用 `sysctlbyname("kern.bootargs")` 读命令行再匹配
+`pong_metal=1`，而 P-175 已证明 `PE_boot_args()` 返回的是**内核内嵌默认串**，
+不等于固件实际传入的命令行。若该串里没有 `pong_metal=1`，init 会静默跳过注入。
+验证方式：在 init 分支前后加可观测输出，或确认内嵌默认串内容。
+

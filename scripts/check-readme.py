@@ -44,6 +44,7 @@ HARD_RULES = REPO / 'docs' / 'engineering' / 'HARD-RULES.md'
 PITFALLS = REPO / 'docs' / 'engineering' / 'PITFALLS.md'
 BUILD_STRICT = REPO / 'scripts' / 'build-strict.sh'
 EIGHT_STEPS = REPO / 'docs' / 'research' / 'EIGHT-STEPS.toml'
+RULES = REPO / 'docs' / 'engineering' / 'RULES.toml'
 
 GATE_BEGIN = '<!-- GATE-TABLE:BEGIN -->'
 GATE_END = '<!-- GATE-TABLE:END -->'
@@ -175,6 +176,16 @@ def check_ranges():
             if int(m.group(1)) != real_patches or int(m.group(2)) != real_series:
                 problems.append('AGENTS.md 声明 %s 个 patch / %s 条 series，实际 %s / %s'
                                 % (m.group(1), m.group(2), real_patches, real_series))
+    # RULES.toml 的条数也会被 README 正文重复；和 ★/P 一样只校验已经写出的声明。
+    if RULES.exists():
+        actual_rules = read(RULES).count('[[rule]]')
+        for fname, pat in (('README.md', r'当前\s*(\d+)\s*条'),
+                           ('README_EN.md', r'currently\s*(\d+)')):
+            text = read(REPO / fname)
+            m = re.search(pat, text)
+            if m and int(m.group(1)) != actual_rules:
+                problems.append('%s 声明 %s 条规则，RULES.toml 实际 %s 条'
+                                % (fname, m.group(1), actual_rules))
     return problems
 
 

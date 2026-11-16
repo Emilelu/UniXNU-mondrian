@@ -261,3 +261,8 @@ note = "P-225: board_dir() now ranks candidates by whether the .config names CON
 sha = "1bfbe26"
 state = "build-only"
 note = "build-strict now forwards K60_MODEM_CARRIER and counts the streams back out of the finished payload against modem-table.txt. Touches scripts/build-strict.sh, which iron-9 counts as a risky path, so it is registered here. The carrier path is off unless the variable is set, so an ordinary build is unchanged; the modem-20261116a build proves the new branch."
+
+[[entry]]
+sha = "17190e6"
+state = "build-only"
+note = "build-strict no longer writes a manufactured value into the receipt when an option is off: kernel_args_requested serialises the real KARGS array ([] instead of [\"\"]) and adsp_blob_path stays empty instead of pointing at the filesystem root. Touches scripts/build-strict.sh, so iron-9 wants it registered. Only the receipt text changes; kernel, payload and boot image are byte-identical for any given set of options. The next build writes the first honest receipt."

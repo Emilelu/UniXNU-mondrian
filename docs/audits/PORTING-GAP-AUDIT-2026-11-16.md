@@ -3,8 +3,8 @@
 > 本文是一件**审计**，不是新结论层：它记录"现有文档/调研哪里不准、缺什么、能抄谁"，
 > 并把可以在文档层直接修的部分列成清单。基线：`origin/main` = `74c0d24e6c2b5be83b48c0fdcf459e708825be7c`（2026-11-16）。
 >
-> 范围：只读审计 + 本轮在 `docs/` 内落地的修补。未改 `drivers/`、`patches/`、`scripts/`、
-> 门禁、水位与基线；未合 main。
+> 范围：只读审计 + 本轮在 `docs/` 内落地的修补；后续轮次按用户授权新增/修改了 `scripts/` 下的文档门禁（见 §10）。
+> 未改 `drivers/`、`patches/`、水位与基线；未合 main。
 
 ## 0. 摘要：十条最要紧的
 
@@ -21,9 +21,10 @@
 | G9 | **已退役的前身**没有退役登记：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾，但删之前要确认 wifi 线不再需要；只报告未动 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
-> 上表记的是**发现时**的状态。G1、G2、G3 与 G4 的「没有门禁」部分、G5 的「没有指针」部分已在本分支改掉；
-> G6 已按 c1–c8 实飞重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
-> G4 的多数坏引用（含指向不存在 research 文件的 11 条已修）、G7–G10 只报告、未动。
+> 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,148 处引用 / **102** 个目标缺失 / 0 处行号越界，
+> 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（97 个分支文件）与 `LINE-MAP.md`（18 条线）；
+> G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
+> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G7、G8、G10 只报告、未动。
 
 ## 1. 方法与可复现性
 
@@ -279,27 +280,43 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
    **已做（2026-11-17）**：补上 `expected_kern_exec_delta = 1713`（41 个 series 补丁改 `bsd/kern/kern_exec.c`，+1764/−51），
    并验证改 1712 会红。教训：门禁的"跳过"分支必须显式登记为 waiver，不能静默返回成功。
 
-## 10. 本轮已修 / 待 Lead 决定
+## 10. 本分支已修 / 待 Lead 决定
 
-**已修（本分支，两个提交）**：`docs(audit): add the porting gap audit` 只加本文；
-`docs(hygiene): refresh stale numbers and mark the upstream ops snapshot` 含下面这串——
-`docs/INDEX.md`（日期、脚本名、★/P、REPO-MAP 行、state 段、research 指针、本文链接）、
-`README.md` / `README_EN.md`（84→107、固件描述、表格外项目符号、构建脚本位置）、
-`docs/engineering/README.md` 与 `docs/engineering/STATUS.md`（★/P、223→227、pong_metal 矛盾标注）、
-`AGENTS.md`（268/227）、`docs/ops/README.md`（新）+ 两份 ops 文件头横幅、
-`docs/research/EIGHT-STEPS.toml` wifi 段的"已过期"注释、`docs/research/README.md` 指针；
-后续轮次另加 `docs/engineering/PATCH-CATALOG.toml` + `check_catalog()`、以及 P-155 的 `expected_kern_exec_delta = 1713`（此前门禁空转）。
+**已修（本分支，截至 2026-11-17 共 24 个提交、80 个文件 +2242/−336）**：
+
+- **文档卫生**：`INDEX`/`README`/`README_EN`/`engineering/README`/`STATUS`/`AGENTS` 的日期、★/P 范围、补丁与系列计数、断表、固件描述；
+  `docs/ops/` 两份文件头加「上游快照、非权威」横幅并新建 `ops/README.md`；`EIGHT-STEPS.toml` wifi 段按 c1–c8 重评；
+  `research/README.md` 全量索引（69 个 md）。
+- **引用**：11 条指向不存在 research 文件的引用标出所在线检出；2,148 处引用中 124 个跨仓目标加 `unixnu:`/`sheng:`/`pong:` 等前缀；
+  行号越界 0；基线 102。
+- **门禁**：新增 `check-doc-citations.py`（基线 102）、`check-component-pin.py`（P-231，3 条 deviation）、
+  `PATCH-CATALOG.toml`（41 条 series 外补丁）+ `check_catalog()`、P-155 的 `expected_kern_exec_delta = 1713`、
+  `check-readme` 数字校验扩到四份文档、`check-docs` 递归 research、两个门禁脚本可 import。
+- **研究可见性**：`LINE-RESEARCH-MAP.md`（97 个分支文件）、`LINE-MAP.md`（18 条线）。
 
 **待 Lead 决定（本文只报告，不动）**：
 
-1. `EIGHT-STEPS.toml` 的 wifi/audio/charger 条目要不要按实飞重评（改 `done`/`status` 等于改放行条件）。
-2. 92 个分支研究文件怎么回 main：整目录搬、还是结案时逐份搬（建议后者 + LINE-MAP）。
-3. `docs/ops/` 三份上游文件：加横幅（已做）之外，要不要删除或移到 `docs/archive/upstream-ops/`。
-4. `0610-k60-metal-seeds.patch`：**已做（2026-11-17）**。不删——它是退役前身（`test-series-source.py:8`），
-   已登记进 `docs/engineering/PATCH-CATALOG.toml` 的 `status = "retired"`（evidence 3a8d61d8，replaced_by 0610-k60-metal-plugin-deploy）。
-   同一目录还把另外 40 个 series 外补丁一并归类（9 retired / 3 renumbered / 29 library），并加了门禁。
-5. `patches/wifi` 的 main 侧接线：把 `feat/wifi-bringup` 的 applier + 门搬过来，还是继续只在 wifi 分支构建。
-6. §7 的 Top 8 抄写顺序（尤其 Metal 前端与 UFS 验证表——两者都对着已崩溃面）。
+1. `EIGHT-STEPS.toml` 的 audio/charger/battery/buttons 条目要不要同样按实飞重评（wifi 段已做；改 `status` 等于改放行条件）。
+2. 97 个分支研究文件怎么回 main：结案时逐份搬（建议）+ `LINE-MAP.md` 指向；地图不复制内容。
+3. `docs/ops/` 三份上游文件：横幅已加，要不要移到 `docs/archive/upstream-ops/`。
+4. `patches/wifi` 的 main 侧接线：把 `feat/wifi-bringup` 的 applier + 门搬过来，还是继续只在 wifi 分支构建。
+5. §7 的 Top 8 抄写顺序（尤其 Metal 前端与 UFS 验证表——两者都对着已崩溃面）。
+
+## 11. 取用清单（给合并到 main 的人）
+
+全部在本分支，按目录分组：
+
+- **门禁脚本**（`scripts/`）：`check-doc-citations.py`、`check-component-pin.py`、
+  `tests/test-check-doc-citations.py`、`tests/test-check-component-pin.py`、`tests/test-gates-import-without-device-input.py`；
+  修改 `check-docs.py`、`check-readme.py`、`check-patch-series.py`、`porting-gate.py`、`check-build-applied.py`。
+- **门禁数据**（`docs/engineering/`）：`DOC-CITATIONS-BASELINE.toml`、`COMPONENT-PINS.toml`、`PATCH-CATALOG.toml`、
+  `RULES.toml`（P-231 + `expected_kern_exec_delta`）、`PITFALLS.md`（P-231）。
+- **文档**：本文、`LINE-MAP.md`、`LINE-RESEARCH-MAP.md`、`research/README.md`、`INDEX.md`、`README.md`、`README_EN.md`、
+  `engineering/README.md`、`STATUS.md`、`AGENTS.md`、`ops/README.md`、`ops/HARD-RULES.md`、`ops/PITFALLS.md`、`EIGHT-STEPS.toml`。
+- **合并前在目标树跑**：`check-docs`、`check-readme`、`check-patch-series`、`check-component-pin`、`check-doc-citations`，
+  以及 `tests/test-check-doc-citations.py`、`test-check-component-pin.py`、`test-gates-import-without-device-input.py`；
+  已知红只有 iron-4/iron-5/hard-33/P-165/P-166（构建输入镜像落后，见 P-230）。
+- **不要从本分支取**：`drivers/`、`patches/`（除登记文件）、水位/基线。本分支没碰它们。
 
 ## 附录 A：复算命令
 

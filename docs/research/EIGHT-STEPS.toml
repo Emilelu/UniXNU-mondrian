@@ -384,8 +384,8 @@ done = false
 evidence = "0516 尚未上机；d8 旧观测 E:/k60-work/evidence/usblog-20261116-164726/console.log 只作回滚/基线：boot.img sha256=0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b，PATCH 602/602 e=0，NVM 首次 7 段末段 -60、fallback 21 段末段 -60，power=1 result=-60。bt-agent 不自行 boot；是否飞由 Lead 决定。"
 
 [hardware.bluetooth.step.device.prediction]
-success = "候选飞行成功：boot.json 的 imageSha256 必须等于 bt-0516-uart-clock manifest 的 boot_img（大小写不敏感）、bootAccepted=true、bootExitCode=0、returnedToFastboot=false；capture.json complete=true、panicMarker=null、resetMarker=null；NVM 路径不再出现 budget exhausted 中断，最后一个 NVM attempt 的 done type=2 返回 ret=0，最终 power=1 result=0；这只证明传输/下载软件路径成功，不证明蓝牙可用、不证明可配对或 AirPods 可用。"
-failure = "出现 budget exhausted（尤其 NVM op=0xfc00）、NVM 末段 e=-60、done ret=-60、power result=-60、panic/reset 或 imageSha256 不匹配，均判失败；缺 done/power 统计时按最后阶段行保留为观测缺口，不推断下载成功。不得用 sent/acks/final 单独判定完成，final 是累计状态不是完成布尔；失败不得改写 d8 结论。d9 未批准，候选构建完成后仍等 Lead 决定。"
+success = "候选飞行成功：boot.json 的 imageSha256 必须等于 bt-0516-uart-clock manifest 的 boot_img（大小写不敏感）、bootAccepted=true、bootExitCode=0、returnedToFastboot=false；capture.json complete=true、panicMarker=null、resetMarker=null；console 出现 [bluetooth] boot: enter speed=3000000 budget=90000ms；PATCH 流程结束；没有 [bluetooth] boot: budget exhausted；最后一个 NVM attempt 的 done type=2 返回 ret=0；最终 power=1 result=0；这只证明传输/下载软件路径成功，不证明蓝牙可用、不证明可配对或 AirPods 可用。"
+failure = "出现 budget exhausted（尤其 NVM op=0xfc00）、NVM 末段 e=-60、done ret=-60、power result=-60、panic/reset 或 imageSha256 不匹配，均判失败；日志缺失或采集不完整按未定位处理，不推断成功，缺 done/power 统计时按最后阶段行保留为观测缺口；不得用 sent/acks/final 单独判定完成，final 是累计状态不是完成布尔；失败不得改写 d8 结论。d9 未批准，候选构建完成后仍等 Lead 决定。"
 
 [hardware.wifi]
 status = "parked"

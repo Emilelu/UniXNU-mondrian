@@ -4,7 +4,9 @@
  * endpoint DMA storage and translation tables stay retained until reset. */
 #include <IOKit/IOLib.h>
 #include <IOKit/IOBufferMemoryDescriptor.h>
+#include <IOKit/IOMapper.h>
 #include <IOKit/IODeviceMemory.h>
+#include <vm/memory_types.h>
 #include <IOKit/IODeviceTreeSupport.h>
 #include <kern/thread.h>
 #include <kern/clock.h>
@@ -17,6 +19,9 @@
 #include "PongWifiTestInputs.h"
 #include "QcomRpmh.h"
 extern "C" {
+boolean_t pmap_valid_page(ppnum_t);
+void pmap_set_cache_attributes(ppnum_t,unsigned int);
+unsigned int pmap_cache_attributes(ppnum_t);
 int armcpu_spi_attach(uint32_t, bool, void (*)(void *), void *, uint32_t *, uint64_t *);
 void pong11_lx_irq_raise_all(void);
 void pong_wifi_net_start(const uint8_t mac[6]);
@@ -397,7 +402,7 @@ bool coldLink() {
  log(6,"QCA6490 PCIe0 link and BAR established, bus master held off");return true;
 }
 IOBufferMemoryDescriptor *buffer(size_t n,uint64_t *pa,bool uncached=false) {
- auto d=IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,IOOptionBits(kIODirectionInOut)|IOOptionBits(kIOMemoryPhysicallyContiguous)|IOOptionBits(kIOMemoryMapperNone)|IOOptionBits(uncached?kIOMapWriteCombineCache:0),n,4096);
+ auto d=IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,IOOptionBits(kIODirectionInOut)|IOOptionBits(kIOMemoryPhysicallyContiguous)|IOOptionBits(uncached?kIOMapWriteCombineCache:0),n,4096);
  if(!d)return nullptr;IOByteCount span=0;*pa=d->getPhysicalSegment(0,&span,kIOMemoryMapperNone);
  if(!*pa||(*pa&4095)||span<n||*pa+n>(1ull<<36)){d->release();return nullptr;}
  bzero(d->getBytesNoCopy(),n);return d;
@@ -406,6 +411,10 @@ bool allocateArena() {
  // QCA6490 needs contiguous DMA addresses, not 128 MiB of adjacent RAM.
  // Wire ordinary pages and let this SID's native4K SMMU provide the IOVA
  // extent. A large physically contiguous allocation fails after UI startup.
+ // Descriptor options and cache policy are separate: kIOMemoryMapperNone is
+ // 0x800 and overlaps kIOMapCacheMask (0xf00), so passing it with a cache
+ // mode encodes mode 12 rather than write-combine. Pong's working platform
+ // keeps the descriptor neutral, then marks the wired pages WC below.
  uint32_t preferred=64;
  if(PE_parse_boot_argn("pong_wifi_dma_mib",&preferred,sizeof preferred)&&preferred!=64&&preferred!=128)
   return fail("WiFi DMA budget must be 64 or 128 MiB");
@@ -413,12 +422,15 @@ bool allocateArena() {
  for(unsigned attempt=0;attempt<(preferred==64?1u:2u);++attempt) {
   const size_t bytes=size_t(budgets[attempt])*1024*1024;
   arena=IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
-   IOOptionBits(kIODirectionInOut)|IOOptionBits(kIOMemoryMapperNone)|IOOptionBits(kIOMapWriteCombineCache),bytes,4096);
+   IOOptionBits(kIODirectionInOut)|IOOptionBits(kIOMemoryPageable),bytes,4096);
   if(!arena){IOLog("PongWifi: DMA allocation SKIP %u MiB; trying smaller actual budget\n",budgets[attempt]);continue;}
-  const bool prepared=arena->prepare()==kIOReturnSuccess;
-  arenaVa=prepared?static_cast<uint8_t *>(arena->getBytesNoCopy()):nullptr;
+  if(arena->prepare()!=kIOReturnSuccess) {
+   arena->release();arena=nullptr;
+   IOLog("PongWifi: DMA wiring/mapping SKIP %u MiB\n",budgets[attempt]);continue;
+  }
+  arenaVa=static_cast<uint8_t *>(arena->getBytesNoCopy());
   if(!arenaVa||(reinterpret_cast<uintptr_t>(arenaVa)&4095)||arena->getLength()!=bytes) {
-   if(prepared)arena->complete();arena->release();arena=nullptr;arenaVa=nullptr;
+   arena->complete();arena->release();arena=nullptr;arenaVa=nullptr;
    IOLog("PongWifi: DMA wiring/mapping SKIP %u MiB\n",budgets[attempt]);continue;
   }
   ArenaBytes=bytes;bzero(arenaVa,ArenaBytes);
@@ -471,6 +483,20 @@ bool isolation() {
   if(count>1&&last.physical+last.bytes==pa)last.bytes+=4096;
   else ranges[count++]={Iova+4096+off,pa,4096,3,0,2};
  }
+ // The arena is pageable and CPU-cached until now. Clean what was already
+ // written, then mark only the owned wired pages write-combining before the
+ // endpoint or SMMU can see them. This mirrors Pong's working allocation;
+ // the K60 port previously encoded an invalid cache mode by OR-ing
+ // kIOMemoryMapperNone into the descriptor options.
+ clean(arenaVa,ArenaBytes);
+ for(size_t i=1;i<count;i++)for(uint64_t off=0;off<ranges[i].bytes;off+=4096)
+  pmap_set_cache_attributes(ppnum_t((ranges[i].physical+off)>>12),VM_WIMG_WCOMB);
+ for(size_t i=1;i<count;i++)for(uint64_t off=0;off<ranges[i].bytes;off+=4096)
+  if((pmap_cache_attributes(ppnum_t((ranges[i].physical+off)>>12))&VM_WIMG_MASK)!=VM_WIMG_WCOMB) {
+   IODeleteData(ranges,ArmSmmu4KRange,capacity);
+   return fail("WiFi owned DMA cache policy not established");
+  }
+ __asm__ volatile("dsb sy":::"memory");
  ArmSmmu4KResult br={};auto tv=static_cast<uint64_t *>(tables->getBytesNoCopy());
  const auto built=ArmSmmu4KBuild(&bc,ranges,count,tv,TableBytes/4096,&br);
  IODeleteData(ranges,ArmSmmu4KRange,capacity);

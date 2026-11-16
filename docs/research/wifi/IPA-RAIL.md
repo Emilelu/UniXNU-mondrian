@@ -146,7 +146,7 @@ Checks already run:
 
 - `python3 scripts/verify-boot-image.py --manifest ...` -> `OK`
 - `python3 scripts/check-image-args.py --image ...` -> `OK (31 arguments, 602 bytes)`
-- `python3 scripts/tests/test-wifi-ipa-rail.py` -> `PASS` (11 negative cases; includes patch-series mirror checks)
+- `python3 scripts/tests/test-wifi-ipa-rail.py` -> `PASS` (13 negative cases; includes patch-series mirror checks and exact-once `extra_rails` emission in patch 0009)
 - generated `PongWifiInputs.h` has the nine rows listed above
 - cache ath11k archive SHA-256
   `413ad0a6ea19bad1a8c1630fead2cef702c7edc36d10c8a0fa864efea543bd97`,
@@ -155,6 +155,14 @@ Checks already run:
   `774ad267dd34aab2f0a32f189d20735cd1d7b1ed9598a9c068af73552a9cec31`;
   it contains the `readFailures` complete-sample log string and no pre-load
   marker
+
+An independent review found that patch `0009-scripts-k60-wifi-build.patch`
+carried the `extra_rails` emission loop twice. That duplicate was confined to
+the patch-series mirror; the built image used the direct native-builder source
+with exactly one loop, so its identity is unchanged. Commit
+`fix(wifi): remove duplicate IPA rail from the patch series` removes the second
+block and the test now requires exactly one occurrence in both source and
+patch.
 
 ## 4. Flight criteria (prewritten, one variable)
 

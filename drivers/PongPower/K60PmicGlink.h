@@ -25,6 +25,7 @@ public:
     bool reopen();
     bool ready() const { return channel && channel->up && !native.broken; }
     int attachAudio(const K60PmicGlinkAudioClient &c, void *owner) { return k60_audio_glink_request(&audio, &c, owner); }
+    int audioSend(const uint8_t *data, unsigned bytes) { return k60_audio_glink_send(&audio, data, bytes); }
     bool audioReady() const { return k60_audio_glink_ready(&audio); }
     bool alive() const { return opened && !native.broken; }
     uint32_t received() const { return native.rx_messages; }

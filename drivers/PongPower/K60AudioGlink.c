@@ -68,6 +68,17 @@ k60_audio_glink_service(K60AudioGlink *link)
     return K60_PMIC_GLINK_AUDIO_OK;
 }
 
+int
+k60_audio_glink_send(K60AudioGlink *link, const uint8_t *data, unsigned bytes)
+{
+    if (!link) return K60_PMIC_GLINK_AUDIO_REFUSED;
+    if (!link->transport) return K60_PMIC_GLINK_AUDIO_NO_TRANSPORT;
+    if (link->transport->broken) return K60_PMIC_GLINK_AUDIO_STALE_LEASE;
+    if (!__atomic_load_n(&link->attached, __ATOMIC_ACQUIRE) || !link->channel)
+        return K60_PMIC_GLINK_AUDIO_NO_LEASE;
+    return qcom_glink_send(link->transport, link->channel, data, bytes);
+}
+
 bool
 k60_audio_glink_ready(const K60AudioGlink *link)
 {

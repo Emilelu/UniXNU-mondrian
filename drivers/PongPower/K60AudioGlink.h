@@ -29,6 +29,7 @@ typedef struct {
 void k60_audio_glink_init(K60AudioGlink *, QcomGlink *);
 int k60_audio_glink_request(K60AudioGlink *, const K60PmicGlinkAudioClient *, void *);
 int k60_audio_glink_service(K60AudioGlink *);
+int k60_audio_glink_send(K60AudioGlink *, const uint8_t *, unsigned);
 bool k60_audio_glink_ready(const K60AudioGlink *);
 void k60_audio_glink_stop(K60AudioGlink *);
 

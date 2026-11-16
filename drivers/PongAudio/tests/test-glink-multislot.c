@@ -584,9 +584,11 @@ static void bridge_cases(void)
     K60AudioGlink bridge, empty;
     K60PmicGlinkAudioClient client;
     BridgeSink sink;
+    Scan scan;
     unsigned lcid;
     char name[QCOM_GLINK_NAME];
-    uint32_t size, index;
+    char sent[8];
+    uint32_t size, index, id;
 
     memset(l, 0, sizeof *l);
     memset(&sink, 0, sizeof sink);
@@ -649,16 +651,35 @@ static void bridge_cases(void)
     peer_data(l, 0x31, 1, "pcm", 3);
     expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll delivers audio data");
     expect_name(sink.log, "pcm;", "bridge: the audio callback received its own payload");
+    ap_scan(l, &scan);   /* consume the RX_DONE that followed the delivered frame */
+
+    peer_intent(l, 0x31, K60_AUDIO_GLINK_INTENT_BYTES, 0x2001);
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll accepts the DSP send intent");
+    expect_eq((unsigned long)(long)k60_audio_glink_send(&bridge, (const uint8_t *)"gpr", 3),
+              (unsigned long)(long)QcomGlinkOk, "bridge: audio send uses the remote intent");
+    expect(ap_read_data(l, &lcid, &id, sent, sizeof sent) != 0, "bridge: audio bytes hit the wire");
+    expect_eq(lcid, 1, "bridge: audio TX_DATA carries the local lcid");
+    expect_eq(id, 0x2001, "bridge: audio TX_DATA carries the remote intent id");
+    expect_name(sent, "gpr", "bridge: audio TX_DATA carries the caller payload");
+    { uint8_t big[4096] = {0};
+      expect_eq((unsigned long)(long)k60_audio_glink_send(&bridge, big, sizeof big),
+                (unsigned long)(long)QcomGlinkTooBig, "bridge: an oversized audio send is refused"); }
 
     expect_eq((unsigned long)(long)k60_audio_glink_request(&bridge, &client, &sink), 0,
               "bridge: a repeated request is idempotent");
     k60_audio_glink_stop(&bridge);
     expect_eq(k60_audio_glink_ready(&bridge), 0, "bridge: stop drops readiness");
+    expect_eq((unsigned long)(long)k60_audio_glink_send(&bridge, (const uint8_t *)"x", 1),
+              (unsigned long)(long)K60_PMIC_GLINK_AUDIO_NO_LEASE,
+              "bridge: send after stop is a no-lease refusal");
 
     k60_audio_glink_init(&empty, 0);
     expect_eq((unsigned long)(long)k60_audio_glink_request(&empty, &client, &sink),
               (unsigned long)(long)K60_PMIC_GLINK_AUDIO_NO_TRANSPORT,
               "bridge: no transport is reported as no handoff");
+    expect_eq((unsigned long)(long)k60_audio_glink_send(&empty, (const uint8_t *)"x", 1),
+              (unsigned long)(long)K60_PMIC_GLINK_AUDIO_NO_TRANSPORT,
+              "bridge: send without a transport is refused");
 }
 
 int main(void)

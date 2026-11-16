@@ -32,6 +32,14 @@ k60_pmic_glink_attach_audio(const K60PmicGlinkAudioClient *client, void *context
     return active->attachAudio(*client, context);
 }
 
+extern "C" int
+k60_pmic_glink_send_audio(const uint8_t *data, unsigned bytes)
+{
+    K60PmicGlink *active = __atomic_load_n(&gActivePmicGlink, __ATOMIC_ACQUIRE);
+    if (!active) return QcomGlinkNotOpen;
+    return active->audioSend(data, bytes);
+}
+
 extern "C" bool
 k60_pmic_glink_audio_ready(void)
 {

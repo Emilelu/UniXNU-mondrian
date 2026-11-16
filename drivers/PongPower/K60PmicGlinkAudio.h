@@ -22,10 +22,17 @@ typedef struct {
 #define K60_PMIC_GLINK_AUDIO_STALE_LEASE  (-2003)
 #define K60_PMIC_GLINK_AUDIO_REFUSED      (-2004)
 
+/* The send path carries the QcomGlink result values unchanged, so the audio
+ * side can retry on AGAIN without including QcomGlink.h. */
+#define K60_PMIC_GLINK_AUDIO_AGAIN        (-1)
+#define K60_PMIC_GLINK_AUDIO_NOT_OPEN     (-2)
+#define K60_PMIC_GLINK_AUDIO_TOO_BIG      (-3)
+
 /* Queues one adsp_apps channel on the shared two-slot transport. The workloop
  * performs the actual registration, so this call is safe from another thread.
  * Returns 0 when the request is queued, or a negative PongAudioStatus value. */
 int k60_pmic_glink_attach_audio(const K60PmicGlinkAudioClient *, void *);
+int k60_pmic_glink_send_audio(const uint8_t *, unsigned);
 bool k60_pmic_glink_audio_ready(void);
 
 #ifdef __cplusplus

@@ -155,7 +155,7 @@ VADC 里有 `smb139x_1_ichg_smb / _iin_smb / _smb_temp`（FDT:16936-16970，另�
 ## §6 未解问题（明确 not proven）
 
 - **PPID 0x031 是否在 AP EE0 映射**：**proven（2026-11-17 复核）**。三次独立 boot 的 `K60S21` 扫描都返回 `ppid=0x031 apid=408 ok ...`（路径见 §3.1(4)），另一份 `K60S23` 也一致。它证明 PPID 0x031 在 AP EE0 的 map 里且可读；不证明该 PPID 就是 vadc@3100（见下一条）。
-- **ADC7 能否轮询 EOC**：not proven。mainline 注释明确写 "No support for polling mode at present"，本方案没有中断，只能轮询；若轮询拿不到 EOC，第一步仍能出 STATUS1，但取不到转换值。
+- **ADC7 能否轮询 EOC**：not proven（但已有可照搬的轮询实现）。mainline `qcom-spmi-adc5.c` 的 ADC5 路径有完整 `adc5_poll_wait_eoc()`（`https://raw.githubusercontent.com/torvalds/linux/master/drivers/iio/adc/qcom-spmi-adc5.c:197-217`）：读 STATUS1，掩码 `REQ_STS|EOC = 0x3`，等于 `EOC(0x1)` 即成功，循环最多 `ADC5_CONV_TIME_RETRY=400` 次、每次 sleep `263–264 us`。ADC7 的 `adc7_do_conversion()` 只是没有接这条轮询：`:370` 注释 "No support for polling mode at present"、`:371` 仍写死 `wait_for_completion_timeout(..., ADC7_CONV_TIMEOUT=10ms)`，随后 `:373` 读 STATUS1、`:377` 查 CONV_FAULT。所以第一步探针可以照搬 `adc5_poll_wait_eoc` 的循环到 ADC7 STATUS1，需要实测的只是 ADC7 的 EOC 位是否在 10ms 内出现。
 - **ichg_fb 的换算公式**：not proven。mainline 的 `adc7_data_pmic` 没有 `full_scale_code_cur`（只有 adc5 有 0x2710/0x1800），`qcom-spmi-adc5.c` 全文没有 ichg 相关通道；DT 的 pre-scaling <0x3e8 0x4a821> 语义在 mainline 里找不到对应代码。电流只能给相对值或标 experimental。
 - **校准**：not proven。mainline 的 SCALE_HW_CALIB_DEFAULT 用标称 1.875V 参考、不读 PMIC NVM 的校准字；没有校准的 vbat 误差估计 ±1-2%，是否足够让 IOPMPowerSource 的校验通过需实测。
 - **chg_temp 的换算**：FDT 给 pre-scaling <1 1>，但 mainline 的 PM7 thermistor 用 SCALE_HW_CALIB_THERM_100K_PU_PM7 + qcom,pre-scaling，是否缺 rpull-up 参数 not proven。BATTERY.PROVISION 里的 Therm_B 4250 / Thermistor_Value 100000 只是 ABL 的 thermistor 参数。

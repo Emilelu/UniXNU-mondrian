@@ -984,6 +984,17 @@ Lead 的 `test/bt-d8-timing-model` 已交付：代码 `0ccdfbba5ab626bf99be65d97
 
 **仍是 UNKNOWN**：控制器逐段接受/完整 NVM、UART/DMA/IBS 时间线、真实 RX 时刻、晚到/缓存响应、重试语义、首次 NVM 约 10 s 与 fallback 快速 `e=0` 的具体机制、两次 `serving 6442` 内容是否相同、编译产物到 payload 对应、flash 门禁与硬件行为。
 
-**下一步方案（未实现、待 Lead 单独审批）**：真实 HCI adapter 与完整 firmware fallback 的宿主证据方案写在 `docs/research/bt/S4-SPEC.md` §7.22。它计划从 d8 的 manifest/frozen/235 条 series 逐条重建所有 `bsd/dev/qbt/` 源文件，真实执行 `qbt_core.c`、`qbt_linux.c` adapter 和 `btqca.c` 的 `qca_download_firmware()` / `qca_uart_setup()` / fallback，只假平台回调、合成 TLV 与事件时刻；覆盖 status/长度/期限/晚到/旧同 opcode、WCN6855 `.bin` 主文件名请求失败不触发 alt 重试、主下载中段失败后 fallback 改名重试、firmware release 次数、`qbt_boot()` 失败清理与成功状态，并为每条断言准备负向控制。它仍不能证明控制器、UART/DMA/IBS、payload 对应、flash 门禁或硬件行为。
+**方案已被 Lead 批准并实现**：见 item 39 与 `docs/research/bt/S4-SPEC.md` §7.22。
 
-当前本线保持干净：不实现方案、不改运行代码、不重建、不上机、不预做 d9。Lead 批准 §7.22 后才会落地代码。
+### 39. d8 adapter/fallback 宿主证据已交付（2026-11-16 20:53）
+
+Lead 于 19:31 按 §7.22 原范围批准（3 行被测层表 + A/B/C 场景矩阵 + 六条负向控制，不扩），只允许 test-only 与 docs-only 提交。本线已交付：
+
+- test-only 提交 `916aaaa552b8470fa63b992dac2a525226b7288d` "test(bt): host-test the d8 adapter and fallback"，3 文件 +1156：`scripts/tests/test-bt-d8-adapter-host.py`、`scripts/tests/fixtures/bt-d8-adapter-harness.c`、`scripts/tests/fixtures/bt-d8-adapter-support.c`。未改运行代码、series、`board.toml`、预算、下载模式、段长、状态机或地址。
+- 运行 `python3 scripts/tests/test-bt-d8-adapter-host.py`（默认读取保留产物 `/mnt/e/k60-work/artifacts/bt-d8-tlv`）：`RAW_RC=0`，`TESTS OK: 90 case(s), 0 failure(s)`；日志 `E:/k60-work/scratch/bt-s4/late3/run17.log`。90 = 19 输入绑定 + 3 源码重建 + 22 场景各 2 项 + 24 变异孪生。
+- 场景：A 组 8（status/short/timeout/TLV status/late/early/version mismatch/version overlong）、B 组 8（完整下载/fallback 成功/fallback 失败/NVM 缺失/patch fallback/skip/alt 已是 .bin/alt 改名）、C 组 6（成功/失败清理/fallback 成功/patch 失败/bdaddr 失败/reset 失败）。24 个变异孪生全部真红后才退出 0；例：`firmware_release_count` 红行 `patch and NVM buffers are each released once: requests=2 puts=0`，`version_overlong_exact` 红行 `overlong version payload is -EILSEQ: 0`。
+- fail-closed：manifest 追加一个换行后运行即 `REFUSED: manifest bytes differ from the retained d8 manifest`，退出码 2；不 fallback 到 latest，不读当前工作树。源码身份用三条重建后哈希钉住（qbt_core `e3405ca4…`、qbt_linux `a0ec555a…`、btqca `ecc7346f…`），235 条 series 的补丁字节、frozen-before/after、head `91dcd07`、boot.img `0297012d…` 任一不符都拒绝。
+- 断言级重叠表已写入 S4-SPEC §7.22：本仓对完整 `qbt_linux` adapter、`qca_download_firmware` fallback/缺失/skip/alt/release、`qca_set_bdaddr` 与 `qbt_boot` 生命周期权威；Lead 的 `test-bt-d8-host-timing.py` 对 `run()`/期限/调度器微时序权威，本线不编辑该文件，也不复制其断言。两边进入 main 或 ⑦ 前由 Lead 决定哪些断言退休，不保留长期分叉。
+- 仍未覆盖：控制器/UART/DMA/IBS、真实 d8 时间线、90 s 预算分支、firmware vmalloc 失败、`qca_disable_soc_logging` 失败、NVM 内容相等、payload 对应、flash 门禁、d8 物理机制与蓝牙可用。
+
+状态：test-only 与 docs-only 分开提交；本次未重建、未再上机、未预做 d9，d8 产物未改。下一步等 Lead 对重叠表与 ⑦ 归属的裁决。

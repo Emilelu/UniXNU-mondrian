@@ -1503,7 +1503,7 @@ Lead 仅用 `fastboot boot` 飞行 `bt-d8-tlv`，未 flash。证据目录为 `E:
 
 **期限检查顺序**：`run()` 先 `pump/qbt_step`，再检查错误和完成谓词，只有未完成时才检查 `boot_deadline`，最后检查单命令 `deadline`（`patches/xnu/0500-k60-bt-qbt-new-files.patch:1791-1805`、`patches/xnu/0514-k60-bt-boot-observability.patch:43-64`）。因此跨过期限后才处理的响应仍可能先满足完成谓词；两个期限均过期时 budget 分支会隐藏 command-timeout 行。这个顺序是源码事实，不是对本次响应到达时刻的实测证明；它也不单独解释为何首次每段约 10 s、为何预算过期后的 fallback 仍连续快速 `e=0`。
 
-**结论与未知**：d8 是有效诊断观测，不是蓝牙成功图；NVM 两次尝试均未完成，初始化 `result=-60` 与系统正常启动同时成立。现有日志不能区分控制器确认、缓存/队列中的晚到响应、重试语义与具体等待路径。保留独立 reassessment 的历史 HOLD，不以本次观测抹掉它。Lead 已交付冻结源码的宿主时序模型，软件事实与 d8 计数分组见 §7.21；真实 HCI adapter 与完整 fallback 仍是空白，宿主证据方案见 §7.22，待 Lead 单独审批。未来观测若需独立起始计数及 response status/真实 RX 时间，须另行批准。当前不实现方案、不改运行代码，不抬预算、不改下载模式、分片、状态机或地址，不预做 d9、不再上机。
+**结论与未知**：d8 是有效诊断观测，不是蓝牙成功图；NVM 两次尝试均未完成，初始化 `result=-60` 与系统正常启动同时成立。现有日志不能区分控制器确认、缓存/队列中的晚到响应、重试语义与具体等待路径。保留独立 reassessment 的历史 HOLD，不以本次观测抹掉它。Lead 已交付冻结源码的宿主时序模型，软件事实与 d8 计数分组见 §7.21；真实 HCI adapter 与完整 fallback 的宿主证据已在 §7.22 实现并运行（test-only `916aaaa`，22 场景 / 24 变异 / 90 项断言），它仍不能证明控制器、UART/DMA/IBS 或蓝牙可用。未来观测若需独立起始计数及 response status/真实 RX 时间，须另行批准。当前不改运行代码，不抬预算、不改下载模式、分片、状态机或地址，不预做 d9、不再上机。
 ### 7.21 d8 宿主时序模型：哪些软件事实已证明、哪些仍是 UNKNOWN（2026-11-16 18:58）
 
 Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代码 `0ccdfbba5ab626bf99be65d973e45b87e389f59c`，文档 `a1858958ccb4a5b84d44c2eaac643b4b614ca32f`，台账 `bce47bf99415e7d4418f9f48f8d2a48eb4b0d22a`。它抽取真实 `qbt_core.c`，以假时钟、假 pump、假平台回调执行实际 `event()` / `qbt_step()` / `run()` / `qbt_command()`；0514 按原 hunk 应用，0515 的观测 block 单独验证。结果 34 场景 / 84 断言 / 8 个输入拒绝守卫，`rc=0`；输入身份检查返回 `RECORDED_INPUTS_MATCH`，17 个回归夹具全过。
@@ -1531,7 +1531,7 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | NVM fallback `type=2` | 21 次；前 20 次 `e=0` / 0 ms，第 21 次 `e=-60` / 16 ms | `(609,7) → (630,28)` / `sent +21, acks +21` | `done segs=21 final=1 ret=-60` | 同 opcode 旧事件与全局计数语义使 `acks +21` 不能等同 21 段成功；`final=1` 是最后 status。 |
 | 合计 | 630 次；628 次 `e=0`、2 次 `e=-60` | `sent 630 / acks 28 / final 1` | 两次 NVM 均 `ret=-60` | 初始化失败与系统正常启动同时成立；不构成蓝牙功能验收。 |
 
-**计数语义硬事实（Lead 2026-11-16 19:41）**：`done` 行的 `segs` 是本次 `qca_download_firmware()` 调用的段数；`sent/acks` 是 `qbt_boot()` 入口 `memset()` 之后整个启动的累计。fallback 在 `qca_uart_setup()` 内部改名重试，不回到 `qbt_boot()`，所以 `sent/acks` **不重置**。d8 实测：NVM 首次 `done segs=7 sent=609 acks=7`，fallback `done segs=21 sent=630 acks=28`。任何断言“fallback 后 sent/acks 被重置”的测试都与实测矛盾，必须红。这也是「用计数代替语义」的反例：`segs` 是每次 attempt 的语义量，`sent/acks` 是 boot 全局累计量，两者不能混用。
+**计数语义硬事实（Lead 2026-11-16 19:31）**：`done` 行的 `segs` 是本次 `qca_download_firmware()` 调用的段数；`sent/acks` 是 `qbt_boot()` 入口 `memset()` 之后整个启动的累计。fallback 在 `qca_uart_setup()` 内部改名重试，不回到 `qbt_boot()`，所以 `sent/acks` **不重置**。d8 实测：NVM 首次 `done segs=7 sent=609 acks=7`，fallback `done segs=21 sent=630 acks=28`。任何断言“fallback 后 sent/acks 被重置”的测试都与实测矛盾，必须红。这也是「用计数代替语义」的反例：`segs` 是每次 attempt 的语义量，`sent/acks` 是 boot 全局累计量，两者不能混用。
 
 **仍是 UNKNOWN（宿主模型与 d8 日志都不能回答）**：
 
@@ -1542,9 +1542,26 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 
 **结论**：宿主模型把“源码允许什么行为”与“d8 实际发生了什么”分开：前者已由 34 场景/84 断言证明；后者仍只有 §7.20 的观测与计数，不能把任何候选机制升级成硬件结论。d8 仍是诊断观测，不是功能验收、main 基线或 d9 授权。
 
-### 7.22 真实 HCI adapter 与完整 firmware fallback 的宿主证据方案（待 Lead 审批，未实现）
+### 7.22 真实 HCI adapter 与完整 firmware fallback 的宿主证据（2026-11-16 已实现）
 
-**状态与边界（2026-11-16 19:41 已批准，实现中）**：Lead 批准范围就是本节的被测层表 + 场景矩阵 A/B/C + 六条负向控制，不扩。只允许 **test-only** 与 **docs-only** 两类提交，英文、分开提交、推到 `feat/bt-research`；不改运行代码、series、`board.toml`、预算、下载模式、段长、状态机、地址；不重建、不上机、不预做 d9。
+**状态与边界（2026-11-16 19:31 批准，20:53 实现并运行）**：Lead 批准范围就是本节的被测层表 + 场景矩阵 A/B/C + 六条负向控制，不扩。只允许 **test-only** 与 **docs-only** 两类提交，英文、分开提交、推到 `feat/bt-research`；不改运行代码、series、`board.toml`、预算、下载模式、段长、状态机、地址；不重建、不上机、不预做 d9。实现结果见下，Lead 的只读交叉测试没有被编辑。
+
+**实现与运行证据（2026-11-16 20:53）**：
+
+- 代码：`scripts/tests/test-bt-d8-adapter-host.py`（fail-closed runner）与
+  `scripts/tests/fixtures/bt-d8-adapter-harness.c`、`bt-d8-adapter-support.c`；
+  test-only 提交 `916aaaa552b8470fa63b992dac2a525226b7288d`。
+- 命令：`python3 scripts/tests/test-bt-d8-adapter-host.py`（默认读取保留产物
+  `/mnt/e/k60-work/artifacts/bt-d8-tlv`，也可显式传 `--artifact`）。
+- 运行结果：`RAW_RC=0`，`TESTS OK: 90 case(s), 0 failure(s)`。90 = 19 项输入绑定
+  + 3 项源码重建 + 22 个场景各 2 项（rc 与自检）+ 24 个变异孪生；日志
+  `E:/k60-work/scratch/bt-s4/late3/run17.log`。
+- 输入绑定负向证据：把 manifest 复制后追加一个换行再运行，得到
+  `FAIL: manifest sha256 - 8151ea11e6edf808c689c58ad5fea82e870bf128d50daed35d340af6986f44e9`
+  与 `REFUSED: manifest bytes differ from the retained d8 manifest`，退出码 2；
+  没有回退到 latest，也没有读当前工作树。
+- 回归：`test-k60-bt-0514-boot-observability.py` 33 项、
+  `test-k60-bt-0515-tlv-counters.py` 28 项仍为 `TESTS OK`。
 
 **批准时新增的实现约束**：
 
@@ -1576,13 +1593,15 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | --- | --- | --- |
 | A. adapter 语义 | `__hci_cmd_sync_ev` 收到 status=0 的 command complete | 返回 skb，长度与首字节符合 adapter 约定，`qbt_command` 返回 0。 |
 | A | status 非 0 | adapter 返回 `-EIO`；调用方拿到负值，不把 report 当成功。 |
-| A | 长度不足/过长/首字节非 0 | 分别返回 `-EILSEQ` / 适配层拒绝，覆盖 d8 中“response size mismatch”路径。 |
+| A | 空的 command-complete payload（`adapter_short`） | 返回 `-EIO`；不把短响应当完整事件。 |
+| A | version 事件的 payload 超过声明长度（`adapter_version_overlong`） | 返回 `-EILSEQ`；不把截断的 version 当有效值。 |
 | A | 无事件、跨过命令期限 | `-ETIMEDOUT`；检查没有误用 boot budget。 |
 | A | 晚到事件先满足完成谓词 | 返回成功，但夹具记录事件注入时刻晚于名义期限；断言这是软件顺序，不是硬件按时。 |
-| A | 同 opcode 旧事件 | 能完成新的等待，验证 §7.21 第 5 条；测试必须显式标注“旧事件”而非只断言返回值。 |
+| A | 同 opcode、在 TX 之前到达的事件（`adapter_early`） | 能完成新的等待；夹具显式标注“早到事件”，只证明软件顺序，不覆盖跨两次等待的旧 report（后者归 Lead 的时序测试）。 |
 | A | `__hci_cmd_send` 的 skip 路径 | 只入队、不等完成；不产生 complete，不改变 `qbt` 的 service 状态。 |
 | B. 完整下载 | PATCH 主文件多段，最后一段强制 `QCA_SKIP_EVT_NONE` | 每段经真实 adapter；最后一段有 ack；`done type=1 segs=N final=0 ret=0`。 |
-| B | WCN6855 的 NVM 主文件名请求失败（名字已是 `.bin`） | `qca_get_alt_nvm_file()` 对已是 `.bin` 的名字返回 false，`qca_uart_setup()` 立即返回错误；测试断言没有第二次请求。 |
+| B | 把已是 `.bin` 的名字作为 `firmware_name` 交给 `qca_uart_setup()`（`download_alt_already_bin`） | 只请求同名 NVM 一次，失败即返回 `-ENOENT`；不生成另一个 alt 名。覆盖 setup 级对 `.bin` 的不重试，不是裸 helper 调用。 |
+| B | `qca_uart_setup()` 的 NVM 主文件缺失且 `firmware_name` 为 NULL（`download_nvm_missing`） | setup 级回退到 `qca/hpnv21g.bin` 并成功（`e=0`）；断言主文件失败行与 fallback 请求行都出现。 |
 | B | 非 `.bin` 扩展名的 alt 文件名 helper（合成输入，不声称是 d8 路径） | `qca_get_alt_nvm_file()` 只替换一次扩展名；第二次仍失败时返回原错误；记录两个文件名。 |
 | B | NVM 主下载在段 N 返回错误 → `qca_uart_setup()` 的 fallback 改名并第二次下载 | 第二次使用 fallback 文件名与同一合成字节；成功则 `ret=0`；失败则保留第二次错误。 |
 | B | fallback 下载也失败 | 最终错误来自 fallback；`done` 的 `type/ret` 可区分两次 attempt。`done segs` 只算本次 attempt 的段数，但 `sent/acks` 仍是 boot 全局累计（见 §7.21 计数语义硬事实）；断言 fallback 重置 `sent/acks` 的测试必须红。 |
@@ -1591,6 +1610,8 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 | C | NVM 失败 | 返回原错误；`qbt_boot()` 的 `info.state=3`、`info.error=e`，不得残留 `boot_deadline` 或半条命令。 |
 | C | HCI_RESET / bdaddr 失败 | 错误向上返回；fallback 不会跨过 reset 失败被错误复用；`qbt_boot()` 的统计与状态按源码路径变化。 |
 | C | 成功路径 | `startup_owner` 释放、`boot_deadline=0`、`info.state=2`、`stats.resets++`；服务阶段字段不被测试改写。 |
+
+**矩阵与夹具场景的对应**：A 组 8 个 `adapter_status` / `adapter_short` / `adapter_timeout` / `adapter_tlv_status` / `adapter_late` / `adapter_early` / `adapter_version_mismatch` / `adapter_version_overlong`；B 组 8 个 `download_success` / `download_fallback_success` / `download_fallback_failure` / `download_nvm_missing` / `download_patch_fallback` / `download_skip_mode` / `download_alt_already_bin` / `download_alt_name`；C 组 6 个 `boot_success` / `boot_failure_cleanup` / `boot_fallback_success` / `boot_patch_fail` / `boot_bdaddr_fail` / `boot_reset_fail`。场景名就是运行日志与 `--scenario` 的键。
 
 **负向控制（每条正向断言都要有能失败的孪生）**：
 
@@ -1602,6 +1623,8 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 - 断言 fallback 后 `sent/acks` 被重置 → 测试必须红（与 d8 的 `sent 609→630` / `acks 7→28` 矛盾）。
 - 把合成 TLV 当成真实固件内容或控制器接受 → 文档与断言都必须拒绝这种表述。
 
+实现里共 24 个变异孪生，按层分组：A 组 8 个（`adapter_status_status_zero`、`adapter_short_not_short`、`adapter_timeout_answers`、`adapter_tlv_status_zero`、`adapter_late_early`、`adapter_early_disabled`、`version_mismatch_full`、`version_overlong_exact`）；B 组 9 个（`download_one_segment`、`download_no_fallback`、`fallback_failure_succeeds`、`nvm_primary_present`、`patch_primary_present`、`skip_mode_sync`、`alt_already_bin_name`、`alt_name_bin`、`firmware_release_count`）；C 组 7 个（`boot_success_speed`、`boot_failure_succeeds`、`boot_no_fallback`、`sent_acks_reset`、`boot_patch_fail_fallback`、`boot_bdaddr_fail_ok`、`boot_reset_fail_ok`）。每个孪生都真的把对应场景判红后再退出 0；例如 `firmware_release_count` 的红行是 `patch and NVM buffers are each released once: requests=2 puts=0`，`version_overlong_exact` 是 `overlong version payload is -EILSEQ: 0`，`boot_bdaddr_fail_ok` 是 `bdaddr failure is returned: 0`。
+
 **验收标准**：
 
 1. 全部场景在宿主确定性执行，退出码 0；每个场景有唯一名称与失败行号。
@@ -1610,9 +1633,28 @@ Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代�
 4. 输出明确打印 `HOST-ONLY` 与 `NOT RUN` 清单；日志可复现，不需要网络、设备、XNU 构建或 root。
 5. 代码审查通过后，才讨论是否把它作为 ⑦ 的补充证据；它不替代设备 ⑧。
 
-**这套证据仍不能证明**：控制器接收/接受、完整 NVM、UART/DMA/IBS 时间线、编译产物到 payload 的对应、flash 门禁覆盖、d8 物理失败机制或蓝牙功能可用。它只能证明：在冻结源码上，adapter 与完整 fallback 的**软件路径**按上述契约工作。
+**与 Lead 独立交叉测试的断言级重叠**：
 
-**批准与交付（2026-11-16 19:41）**：Lead 已按上述范围批准；本线按约束先改本文、再实现两提交（test-only 与 docs-only），完成后交回执：提交 SHA、实际命令与 raw rc、负向控制真红证据、未覆盖边界、以及断言级重叠表。之后待命，等 Lead 对重叠表与 ⑦ 归属的裁决。d8 结论不变：PATCH 软件路径返回成功、两次 NVM 尝试均失败、`result=-60`，蓝牙功能未证实。
+| 断言面 | 本仓 `test-bt-d8-adapter-host.py` | Lead `test-bt-d8-host-timing.py` | 归属建议 |
+| --- | --- | --- | --- |
+| d8 frozen-before 身份与 0500/0514/0515 三个 QBT 补丁字节 | 有，失败即拒绝 | 有，失败即拒绝 | 两边都必须保留；本仓负责本线执行入口，Lead 文件保持独立复核。 |
+| manifest / head / boot.img / 235 条 series 全量补丁字节 / namespace 指纹 | 有 | 无（只按自己的三个补丁 SHA 与 frozen 记录取输入） | 本仓权威。 |
+| 精确应用 0514/0515 的源码 hunk | 有 | 有 | 两边读同一冻结补丁字节，不共享实现。 |
+| 重建后 `qbt_core.c` / `qbt_linux.c` / `btqca.c` 的源码 SHA256 | 有（三条都钉住） | 无（只钉补丁字节） | 本仓权威；这也解释了为什么本仓能覆盖 adapter 与下载链。 |
+| TLV ack/final status 语义、`sent/acks` 累计、失败调用计入 `segs` | 有（经 adapter 与下载链断言） | 有（直接对 `qbt_core` 注入） | 两边互为交叉；本仓对 adapter/下载层权威，Lead 对核心微时序权威，裁决由 Lead 出。 |
+| `run()` 的错误/谓词/两期限顺序、`dt_ms` 整数截断、睡眠只夹命令期限、`qbt_deadline` / `qbt_drain` 直接微时序 | 仅由 boot 场景间接执行，未逐条断言 | 有 | Lead 文件权威；本仓不复制这些微时序断言。 |
+| 完整 `qbt_linux` adapter（wake 握手、`__hci_cmd_sync_ev`、skb/分配） | 有 | 无 | 本仓权威。 |
+| `qca_download_firmware` 的 fallback / 缺失 / skip / alt 名 / release 计数 | 有 | 无 | 本仓权威。 |
+| `qca_set_bdaddr`、`qbt_boot()` 生命周期与失败清理 | 有 | 无 | 本仓权威。 |
+| `run()` / `qbt_deadline` / `qbt_drain` 的直接微时序、在精确期限注入 pump 事件、调度器期限、0515 wrapper 汇总 | 仅经由场景间接覆盖 | 有 | Lead 文件权威；本仓不复制这些微时序断言。 |
+
+本仓不编辑 Lead 的 `E:/hackios/k60-lead/scripts/tests/test-bt-d8-host-timing.py` 与其夹具。两边都不进入 main 或 ⑦ 之前，以上表交 Lead 决定哪些断言退休；不保留长期分叉的两份实现。
+
+**未覆盖边界（显式列出，避免“全绿=全懂”）**：控制器接收/接受与真实 RX 时间、UART/DMA/IBS 时间线、真实 d8 的 90 s 预算分支、`qca firmware vmalloc` 失败、`qca_disable_soc_logging` 失败、NVM 内容相等性、编译产物到 payload 的映射、flash 门禁覆盖、d8 物理失败机制、蓝牙功能可用。上面任何一项都不能由本节的宿主用例推出。
+
+**这套证据仍不能证明**：见上面的未覆盖边界；核心是控制器接收/接受、完整 NVM、UART/DMA/IBS 时间线、编译产物到 payload 的对应、flash 门禁覆盖、d8 物理失败机制或蓝牙功能可用。它只能证明：在冻结源码上，adapter 与完整 fallback 的**软件路径**按上述契约工作。
+
+**批准与交付（2026-11-16 19:31 批准，20:53 交付）**：test-only 提交 `916aaaa552b8470fa63b992dac2a525226b7288d`（3 文件 +1156）；`python3 scripts/tests/test-bt-d8-adapter-host.py` 得 `RAW_RC=0` / `TESTS OK: 90 case(s), 0 failure(s)`；输入绑定破坏时退出码 2；24 个变异孪生均真红。断言级重叠表与未覆盖边界见上。之后待命，等 Lead 对重叠表与 ⑦ 归属的裁决。d8 结论不变：PATCH 软件路径返回成功、两次 NVM 尝试均失败、`result=-60`，蓝牙功能未证实。
 
 
 

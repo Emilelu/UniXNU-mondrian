@@ -5869,3 +5869,60 @@ find board.toml dts patches/xnu scripts -type f \
 
 关联：P-165（构建在进行中被自己拦住）、P-202（缺 `.config` 时 `sed` 静默返回空）、
 P-207（门禁不许判陈旧产物）、P-220（门禁 fallback 到别的分支的产物）。
+
+## P-225
+
+**标题：板目录靠 mtime 猜，猜错就静默丢掉 Metal 插件与电池归档**
+
+`scripts/build-strict.sh` 用 `M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian` 定位板目录，
+`M` 下面挂着 `.config`、`kernel/kernel.macho`、`payload/payload.img`、
+`device-tree/hardware.dtb`、`tree/.cache/xnu-work/.../k60_metal_blob.s` —— 一处猜错，五处全错。
+
+板目录名跟的是 **defconfig 名**而不是板名：默认配置建到 `mondrian/`，wifi 配置建到
+`mondrian_wifi/`。同一个 `OUT` 下两个可以同时存在（`out-wifi` 现在就两个都有），于是
+「哪个才是这次要的」成了每次构建都要回答的问题。wifi 线在它自己分支上加了 `board_dir()`
+按 `.config` 的 mtime 取最新，方向对（不能硬编码），但判据选错了。
+
+**mtime 为什么会选错**：`mondrian_wifi/.config` 只有 100 行、70 个 `CONFIG_`，
+**既没有 `CONFIG_XNU_GPU_ADDON` 也没有 `CONFIG_XNU_K60_PHYSICAL_BATTERY`**
+（这两个键只在 `configs/mondrian_defconfig:27` 与 `:78` 里写）。而 `build-strict.sh` 后面两处
+读法是
+
+```sh
+GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)
+BATTERY_ON=$(sed -n 's/^CONFIG_XNU_K60_PHYSICAL_BATTERY=y$/1/p' "$M/.config" | head -1)
+```
+
+键不存在 ⇒ 变量为空 ⇒ 两个 `if` 都不进 ⇒ **Metal 插件与电池归档被静默跳过，构建照样报
+`BUILD OK`**。这正是 P-202 的形状，只是触发条件从「`.config` 不存在」换成「`.config` 存在
+但不是那一份」。实测两个目录：`mondrian/.config` 有 `GPU=y BAT=y`，`mondrian_wifi/.config`
+两个键都没有；`mondrian` 的内核 117,342,208 B，`mondrian_wifi` 的内核 66,002,944 B ——
+差 51 MB，正好是 Metal 插件那个量级。
+
+修法：按「这份 `.config` 到底有没有写那两个键」排序，而不是按时间。全量 defconfig 产出的
+配置两个键都在，残缺配置两个都没有，所以这是个**能区分的**判据；同一档内再用 mtime 决胜。
+`K60_BOARD_DIR` 显式覆盖最高优先；覆盖指向不存在的 `.config` 直接失败，不许静默忽略。
+多个候选时在 stderr 说明选了哪个、为什么（并点名 `K60_BOARD_DIR`）；
+两个候选都没有那两个键时额外警告「Metal 插件与电池归档会被静默跳过（P-202）」。
+
+修后实测：`out-wifi`（两个候选）→ 选 `mondrian`；`out-baseline`/`gates-out`/`lead-out`
+（单候选）→ 结果不变；`K60_BOARD_DIR=.../mondrian_wifi` → 确实返回它。
+
+**四条教训**
+
+1. **排序键必须与被保护的对象相关。** mtime 只说明「谁后写过」，不说明「谁是对的」。
+   这里要保护的是「两个会改变内核的配置项在不在」，排序键就该是那两个键本身。
+   通用判据：**先问「我要防的是什么错」，再选一个能区分那个错的特征**；mtime 几乎从不合格。
+2. **`sed -n 's/^KEY=y$/1/p'` 把「键缺失」和「键为 n」合并成同一个空值。** 于是「配置里没这个
+   功能」与「我读错了文件」在代码里无法区分。读配置的每一处都该能回答「这个键是没写、还是写了
+   但不是 y」—— 前者是文件选错，后者是配置决定。（与 P-190「认不出名字就静默跳过」、
+   P-204「用计数代替语义」同一族。）
+3. **一个函数在分支上「方向对但判据错」，直接搬进 main 比不搬更危险。** 不搬，main 是硬编码
+   路径，错得明显（找不到就 die）；搬了错判据，main 会安静地选错并产出缺功能的镜像。
+   **搬修法时要搬「为什么」，不是搬「代码」。**
+4. **候选多于一个时，选择过程必须可见。** 静默选一个是对的（构建不该因为存在无关目录就停），
+   但必须打印「在 N 个候选里选了 X，可用 K60_BOARD_DIR 覆盖」。否则下次有人看到内核小了
+   51 MB，还得重新推一遍这条链。
+
+关联：P-202（缺 `.config` 时 `sed` 静默返回空）、P-224（冻结输入把构建自己的产物算进去）、
+P-187（分支上出现但从未回 main 的编号）、P-207（门禁不许判陈旧产物）。

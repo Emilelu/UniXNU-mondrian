@@ -80,7 +80,63 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 # it 13 minutes into the build as `xcodebuild: command not found`.
 python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
-M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
+# --- board directory ---------------------------------------------------------
+# The build directory is named after the defconfig, not the board: the default
+# configuration builds into `mondrian/`, the wifi one into `mondrian_wifi/`, and
+# both can sit under one OUT (out-wifi has both today).  M drives .config,
+# kernel.macho, payload.img, hardware.dtb and the metal blob, so the wrong pick
+# is not cosmetic.
+#
+# "Newest .config wins" is worse than it looks.  mondrian_wifi/.config names
+# neither CONFIG_XNU_GPU_ADDON nor CONFIG_XNU_K60_PHYSICAL_BATTERY, and both
+# reads below are `sed -n 's/^KEY=y$/1/p'`, so a wrong pick silently drops the
+# Metal plugin and the battery archive while the build still reports success
+# (P-202).  So rank by whether the .config actually names those keys -- a
+# config produced by the full defconfig names both, a partial one names neither
+# -- and only fall back to mtime among equals.  K60_BOARD_DIR overrides.
+board_dir() {
+    if [ -n "${K60_BOARD_DIR:-}" ]; then
+        [ -f "$K60_BOARD_DIR/.config" ] || die "K60_BOARD_DIR=$K60_BOARD_DIR has no .config"
+        echo "$K60_BOARD_DIR"
+        return 0
+    fi
+    local all=() full=() d
+    for d in "$OUT"/mondrian/ipados-*/*/; do
+        d=${d%/}
+        [ -f "$d/.config" ] || continue
+        all+=("$d")
+        if grep -q "^CONFIG_XNU_GPU_ADDON=\|^CONFIG_XNU_K60_PHYSICAL_BATTERY=" "$d/.config"; then
+            full+=("$d")
+        fi
+    done
+    if [ ${#all[@]} -eq 0 ]; then
+        echo "$OUT/mondrian/ipados-16.6.1-20G81/mondrian"
+        return 0
+    fi
+    # A candidate that names the keys beats one that does not, regardless of age.
+    local pool=("${all[@]}")
+    if [ ${#full[@]} -gt 0 ]; then
+        pool=("${full[@]}")
+    fi
+    local best="" tied=0
+    for d in "${pool[@]}"; do
+        if [ -z "$best" ] || [ "$d/.config" -nt "$best/.config" ]; then
+            best=$d
+            tied=0
+        elif [ "$d/.config" -nt "$best/.config" ] || [ "$d/.config" -ef "$best/.config" ]; then
+            tied=$((tied + 1))
+        fi
+    done
+    if [ ${#all[@]} -gt 1 ]; then
+        echo "build-strict: board dir ${best#*/ipados-*/} chosen among ${#all[@]} candidates (K60_BOARD_DIR overrides)" >&2
+    fi
+    if [ ${#full[@]} -eq 0 ] && [ ${#all[@]} -gt 1 ]; then
+        echo "build-strict: WARNING no candidate names CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY; the Metal plugin and battery archive will be skipped silently (P-202)" >&2
+    fi
+    echo "$best"
+}
+
+M=$(board_dir)
 KERNEL=$M/kernel/kernel.macho
 
 

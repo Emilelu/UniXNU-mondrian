@@ -767,3 +767,9 @@ id = "P-224"
 title = "构建的冻结输入把 python 自己写的字节码算进去了"
 check = "python3 scripts/tests/test-build-strict-freeze.py"
 note = "freeze() 必须排除 __pycache__/*.pyc；否则构建自己重写 .pyc 会被判成「输入变了」而判废（wifi-20261116c7 现场）"
+
+[[rule]]
+id = "P-225"
+title = "板目录靠 mtime 猜，猜错就静默丢掉 Metal 插件与电池归档"
+check = "python3 scripts/tests/test-build-strict-board-dir.py"
+note = "board_dir() 必须按「.config 有没有写 CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY」排序，不能只按 mtime；两个候选都没有这两个键时要警告 P-202"

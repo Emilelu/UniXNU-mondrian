@@ -848,6 +848,32 @@ This line, next in order:
       之前）；userspace `:1487` marconi-bt 匹配不到 device tree 服务、`:1499` 只有
       `ee:98:c5:8a:6b:4e`。前者是本线下一张图的阶段日志，后者是 Lead 的 ADT 工作。
 
+32. **0514 观测补丁与 d7 图（2026-11-16 09:48）**
+    - 触发：d5 / d6 都停在 `qbt_boot()` 内部（rampatch 与 NVM 都被取走），但
+      `[bluetooth] power=…` 行始终不打印。Lead 批 A：只加观测，不改状态机 / 时钟 /
+      SMMU / 窗口 / `board.toml`。
+    - 机制：`qbt_boot()` 没有整体期限；每个 TLV 段各带 10 s `QBT_COMMAND_TIMEOUT`
+      （`qbt_internal.h:15`），一段超时后循环继续（`btqca.c:604-620`）。rampatch
+      146068 B 按 243 B 分片是 600 多段 ⇒ 控制器停止应答时循环能走上小时。
+    - 0514 内容：`QBT_BOOT_BUDGET 90000000000ULL` + `struct qbt.boot_deadline` +
+      `run()` 里的预算检查（超预算打印 `boot: budget exhausted at op=0x…` 并返回
+      `-ETIMEDOUT`）+ 单条超时打印 `boot: command timeout op=0x…` + 12 条 level-1
+      阶段行（enter / soc version / set speed / uart setup / rampatch / nvm / hci reset /
+      bdaddr check / set bdaddr / return / full: qbt_boot returned）。
+    - 边界由 host 测试守住：`scripts/tests/test-k60-bt-0514-boot-observability.py`
+      33 例，断言只删了 `run()` 那一行、新增行不含 `k60_map` / `ml_io_map` /
+      `k60_gcc_set_se_rate` / `k60_smmu_bypass` / 任何既有开关字段；孪生
+      `patches/bt/0008` 字节相同。
+    - 首建失败一次：`qbt_linux.c:97: error: call to undeclared function 'now'` ——
+      `now()` 是 `qbt_core.c` 里的 static，改成 `q->ops.now_ns(q->ops.context)` 后通过。
+    - d7 图 `bt-d7-obs`：series 234（尾部 … 0512 / 0514），参数
+      `k60bt=1 pong_bt_late=1`（31 项 / 598 B）。判据见 S4-SPEC §7.15。
+    - 新增文档 `docs/research/bt/MARCONI-AOP-GAP.md`：marconi 是 AOP/SPU 控制通道
+      （`AppleA7IOPV2Marconi` / `AppleR5IOPT8006` / `AppleSPUMarconiControl`），
+      Pong 的 `board_services18.py:84-89` 故意用 `_LimitLoadToDeviceTree` 挡掉
+      `bluetoothd` ⇒ 用户态栈属上游设计缺口，不在本线范围，别再补 ADT 节点。
+
+
 
 
 

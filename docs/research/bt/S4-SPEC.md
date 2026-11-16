@@ -1286,6 +1286,51 @@ complete）、`:709` 读到控制器版本、两个固件分片都被取走、`:
 `:1487` marconi-bt 匹配不到 device tree 的 bluetooth 服务、`:1499` 只拿到
 `ee:98:c5:8a:6b:4e`。这两项分别属于本线的阶段日志补齐（下一张图）与 Lead 的 ADT 节点工作。
 
+### 7.15 d7 配方：`QBT_BOOT_BUDGET` 与逐阶段日志（2026-11-16 09:45）
+
+d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）与 NVM（6442 B）
+交给控制器，但 `[bluetooth] power=1 result=…` 行一次都没打印。要判断「哪一段
+没返回」，只能把 `qbt_boot()` 内部拆成可观测的阶段。
+
+**为什么之前看不到**：`k60_log()` 只放行 level ≤ 3（`qbt_k60.c:1581`），
+而 btqca 的进度行是 `bt_dev_info`（level 6，被静音）；`bt_dev_err` 是 level 3
+（会打印，但只在失败时）。所以「没有输出」既可能是卡住，也可能是成功路径本来就不出声。
+
+**为什么 qbt_boot 会长时间不返回**：`qbt_boot()` 没有整体期限。每个 TLV 段各自带
+10 s 的 `QBT_COMMAND_TIMEOUT`（`qbt_internal.h:15`），一段超时后循环继续下一段
+（`btqca.c:604-620`）。rampatch 146068 B 按 `MAX_SIZE_PER_TLV_SEGMENT 243` 分片
+是 600 多段 —— 控制器一旦停止应答，这个循环能走上小时，worker 永远走不到结果行。
+
+**0514 的两件事（只加观测 + 一个上限）**：
+
+| 改动 | 位置 | 作用 |
+| --- | --- | --- |
+| `QBT_BOOT_BUDGET 90000000000ULL`（90 s） | `qbt_internal.h` | 启动上限常量 |
+| `uint64_t boot_deadline;` | `struct qbt` | 一个字段，服务阶段恒为 0 |
+| `q->boot_deadline=now(q)+QBT_BOOT_BUDGET;` / `=0;` | `qbt_linux.c` `qbt_boot()` | 只在启动路径武装，返回前解除 |
+| `if (q->boot_deadline && t >= q->boot_deadline)` | `qbt_core.c` `run()` | 超预算即 `-ETIMEDOUT`，并打印当时等的 opcode |
+| `boot: command timeout op=0x%04x` | 同上 | 单条命令超时也报 opcode |
+| 12 条 `qbt_linux_log(q,1,…)` 阶段行 | `qbt_linux.c` / `btqca.c` / `qbt_k60.c` | enter / soc version / set speed / uart setup / rampatch / nvm / hci reset / bdaddr check / set bdaddr / return / qbt_boot returned |
+
+**边界（Lead 三·明确要求）**：不改状态机、不改时钟 / SMMU / 窗口配置、不动
+`board.toml`。0514 的 host 测试 `scripts/tests/test-k60-bt-0514-boot-observability.py`
+（33 例）逐条断言这件事：被删掉的行只有 `run()` 里那一行超时分支、新增行不含任何
+`k60_map` / `ml_io_map` / `k60_gcc_set_se_rate` / `k60_smmu_bypass` / 既有开关字段。
+
+**配方**：series 234（d5/d6 的 233 条 + 0514 在最后一条），参数
+`k60bt=1 pong_bt_late=1`（31 项 / 598 B），tag `bt-d7-obs`。
+
+**判据**：
+
+| 观察 | 结论 |
+| --- | --- |
+| 出现 `boot: budget exhausted at op=0x….` | 控制器在**那条 opcode** 之后不再应答，opcode 直接指向 TLV 段的命令 |
+| 出现 `boot: command timeout op=0x….` 但没有 budget 行 | 单条命令超时后流程继续，卡点在别处 |
+| 出现 `full: qbt_boot returned e=…` | `qbt_boot()` 正常返回，`power=` 行随之打印；停点在返回**之后**的服务循环 |
+| 最后一条是 `boot: nvm done` | 卡在 NVM 之后的 `qca_disable_soc_logging` / `HCI_RESET` 段 |
+| 最后一条是 `boot: rampatch done` | 卡在 NVM 下载段 |
+| 连 `boot: enter` 都没有 | 卡在 `qbt_boot()` 之前的地址派生或 `k60_bt_power_on()` |
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

@@ -141,3 +141,11 @@ backboardd 从来没有加载过插件 ⇒ `MTLCreateSystemDefaultDevice()` 只�
 - 因此真机 `:498 K60INIT legacy bytes=34904` 跑的就是 `userland/init-history/init-v24dp.c` 编译出的 helper，其注入字面量就是 `:366` 的 `/private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal`。
 
 改动设计（尚未实现）：把 `gen-k60-metal-blob.py` 的 `FILES`/`SEEDS` 从单一 root（`/private/var/ngpu`）扩成两组相对路径 —— `pong/PongAdrenoMetal.bundle/*` + `pong/PongAdrenoMetal.{publish,clients}`（对应 root `/private/var`，即注入点）与现有 `addons/...`（root `/private/var/ngpu`，兼容上游），并让 `0610` 的 mkdir 递归建父目录。实现前不得上机（用户 m35755：没确定修好之前禁止 boot）。
+
+### 6.5 实现落点已定位（`0610` 内的确切位置）
+
+- `patches/xnu/0610-k60-metal-plugin-deploy.patch:42` `#define K60_METAL_ROOT "/private/var/ngpu"`（单一 root）；
+- `:137-140` 依次 mkdir `K60_METAL_ROOT`、`/addons`、`/daemons`、`/addons/PongAdrenoMetal.bundle`；
+- `:183-191` 把容器里的相对路径改写成 `K60_METAL_ROOT` + rel。
+
+⇒ 最小改动：新增 `#define K60_METAL_INJECT "/private/var/pong"`，在 `:137` 之后补 `k60_metal_mkdir(K60_METAL_INJECT)` 与 `k60_metal_mkdir(K60_METAL_INJECT "/PongAdrenoMetal.bundle")`，并在写文件后按 rel 归类对 `PongAdrenoMetal.bundle/*` 与两个标记文件再写一份到注入 root（生成器不必改）。

@@ -77,6 +77,8 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 ```
 
 > 原补丁与原始 `new/` 文件曾保留在 `patches/original/` 供对照，但 2026-11-17 复核时该目录在这两个检出中都不存在；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。
+>
+> 2026-11-17 07:28 复核：以 `k60-wifi` 的 `b9a8e981^`（series 入库前的干净树）为基线，按 `series` 顺序对 12 个补丁执行 `git apply --check` + `git apply`，全部通过（548 个文件）；只有 `scripts/build-pong-platform-macos.py` 的 100644/100755 模式警告，不影响应用。
 
 ---
 

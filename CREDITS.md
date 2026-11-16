@@ -131,6 +131,7 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | `UniXNU/SoftwareAES` | 软件 AES-CBC |
 | `UniXNU/AppleKeyStoreState` | AppleKeyStore 状态 |
 | `UniXNU/VerifiedRoot` | 认证块读取 |
+| `UniXNU/ShengUfs` | UFS 传输与根发布层（`VerifiedTableCache.h`、`RootPublication.h`、`RootWindowRead.h` 及其 host tests） |
 | `UniXNU/ShengPreflight` | sheng 固件预检 |
 | `UniXNU/QcomBaseband` | 基带参考 |
 | `UniXNU/QcaBluetooth` | 蓝牙参考 |

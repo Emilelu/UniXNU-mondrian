@@ -1,5 +1,7 @@
 # K60 iOS16 内核构建配方（2026-11-08 验证成功）
 
+> **历史快照（2026-11-08 构建配方）**：本文是当时一次构建成功的现场记录，不是当前构建入口；其中 `/tmp` 路径已被铁则 1 禁止，当前构建见 [../engineering/STATUS.md](../engineering/STATUS.md) 与 `scripts/build-xnu-4k-baseline.sh`。
+
 ## 产物
 ```
 kernel.macho  53,628,928 B

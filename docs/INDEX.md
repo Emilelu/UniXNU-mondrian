@@ -128,10 +128,15 @@ docs/
 
 | 文件 | 说明 | 状态 |
 |---|---|---|
-| `state/SESSION-DIRECTIVES-2026-11-07.md` | 2026-11-07 会话的用户指令总账 | 参考 |
-| `state/STATE-2026-11-07.md` | 2026-11-07 的当前真相快照 | **过时**，现以 `engineering/STATUS.md` 为准 |
-| `state/TRUST-LEDGER.md` | 数值可信度台账（T/E/C 分级） | 参考 |
-| `state/NEXT-STEPS.md` | 当时的推进顺序 | **过时** |
+| [`state/SESSION-DIRECTIVES-2026-11-07.md`](state/SESSION-DIRECTIVES-2026-11-07.md) | 2026-11-07 会话的用户指令总账 | 参考 |
+| [`state/STATE-2026-11-07.md`](state/STATE-2026-11-07.md) | 2026-11-07 的当前真相快照 | **过时**，现以 [`engineering/STATUS.md`](engineering/STATUS.md) 为准 |
+| [`state/LEDGER.md`](state/LEDGER.md) | 进系统压缩后必读账本 | **历史快照** |
+| [`state/NEXT-STEPS.md`](state/NEXT-STEPS.md) | 当时的推进顺序 | **过时** |
+| [`state/BUILD-RECIPE-2026-11-08.md`](state/BUILD-RECIPE-2026-11-08.md) | 2026-11-08 验证成功的构建配方 | **历史配方**，当前构建见 [`engineering/STATUS.md`](engineering/STATUS.md) |
+| [`state/HANDOFF-2026-11-08-BUILD.md`](state/HANDOFF-2026-11-08-BUILD.md) | 2026-11-08 进系统构建交接 | **历史快照** |
+| [`state/GIT-WORKFLOW.md`](state/GIT-WORKFLOW.md) | 2026-11-08 Git 工作流铁则 | 参考；WSL push 限制以 `AGENTS.md` 为准 |
+| [`state/TRUST-LEDGER.md`](state/TRUST-LEDGER.md) | 数值可信度台账（T/E/C 分级） | 参考 |
+| [`state/TWRP-ENTRY.md`](state/TWRP-ENTRY.md) | TWRP 入口与常见误区 | 参考 |
 
 ---
 

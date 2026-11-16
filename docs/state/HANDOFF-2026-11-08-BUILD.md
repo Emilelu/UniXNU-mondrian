@@ -1,5 +1,7 @@
 # HANDOFF — 进系统构建状态（2026-11-08）
 
+> **历史快照（2026-11-08 构建交接）**：本文记录当时的进系统构建状态，不是当前进度；当前状态见 [../engineering/STATUS.md](../engineering/STATUS.md)。
+
 ## 目标
 进系统（launchd 不再 SIGSEGV，SpringBoard 常驻）。
 

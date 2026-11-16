@@ -133,22 +133,29 @@ bool pmicRead(unsigned channel,unsigned reg,uint8_t *out,unsigned bytes) {
 bool railReady(const PongWifiRail &r) {
  if(!r.ppid)return true; // No guessed peripheral for shared analogue LDOs.
  const int channel=pmicChannel(r.ppid);uint8_t id[2]={};
- if(channel<0||!pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type||id[1]!=r.subtype) {
-  IOLog("PongWifi: rail %s PPID=%x unavailable/type mismatch %x/%x\n",r.name,r.ppid,id[0],id[1]);return false;
- }
- uint8_t status=0,enable=0,voltage[2]={};unsigned mv=0,readErrors=0;const uint64_t end=now()+100;
+ if(channel<0) {IOLog("PongWifi: rail %s PPID=%x has no observer channel\n",r.name,r.ppid);return false;}
+ uint8_t status=0,enable=0,voltage[2]={};unsigned mv=0,readFailures=0;const uint64_t end=now()+100;
  do {
-  if(!pmicRead(unsigned(channel),8,&status,1)||!pmicRead(unsigned(channel),0x46,&enable,1)||!pmicRead(unsigned(channel),0x40,voltage,2)) {
-   ++readErrors;IOSleep(1);continue;
+  // SPMI observer reads can be denied while the remote regulator owner
+  // changes this peripheral. Retry the complete sample within the settling
+  // deadline; a single transient read is not evidence of an unpowered rail.
+  // Never accept partially old status/enable/voltage as a coherent sample.
+  // Identification uses the same observer transport as the state reads.
+  // services93's first smpe3 read returned 00/00 before any voltage query;
+  // it must receive the same bounded retry as the rest of the sample.
+  // A successful sample still requires the exact Pong PMIC type/subtype.
+  if(!pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type||id[1]!=r.subtype||
+     !pmicRead(unsigned(channel),8,&status,1)||!pmicRead(unsigned(channel),0x46,&enable,1)||!pmicRead(unsigned(channel),0x40,voltage,2)) {
+   ++readFailures;IOSleep(1);continue;
   }
   mv=unsigned(voltage[0])|(unsigned(voltage[1])<<8);
   if((status&0x80)&&(enable&0x80)&&mv>=r.mv) {
    // Another PMIC consumer may legitimately request a higher setpoint.
-   IOLog("PongWifi: rail %s physical ready PPID=%x %umV status=%x enable=%x observerErrors=%u\n",r.name,r.ppid,mv,status,enable,readErrors);return true;
+   IOLog("PongWifi: rail %s physical ready PPID=%x %umV status=%x enable=%x\n",r.name,r.ppid,mv,status,enable);return true;
   }
   IOSleep(1);
  }while(now()<end);
- IOLog("PongWifi: rail %s not ready PPID=%x requested=%umV actual=%umV status=%x enable=%x observerErrors=%u\n",r.name,r.ppid,r.mv,mv,status,enable,readErrors);
+ IOLog("PongWifi: rail %s not ready PPID=%x requested=%umV actual=%umV type=%x/%x status=%x enable=%x readFailures=%u\n",r.name,r.ppid,r.mv,mv,id[0],id[1],status,enable,readFailures);
  return false;
 }
 /* APSS DRV2: SLEEP0..2, ACTIVE3..4, WAKE5..6; GPU leases 3.

@@ -20,6 +20,7 @@ PLATFORM = ROOT / "drivers/PongWifi/PongWifiPlatform.cpp"
 PATCH_PROFILE = ROOT / "patches/wifi/0008-configs-mondrian-wifi-sm8475.patch"
 PATCH_BUILDER = ROOT / "patches/wifi/0009-scripts-k60-wifi-build.patch"
 PATCH_PLATFORM = ROOT / "patches/wifi/0011-drivers-PongWifi-k60-bringup-stages.patch"
+PATCH_PLATFORM_BASE = ROOT / "patches/wifi/0001-drivers-PongWifi-vendor-zizhan-087416a.patch"
 
 
 def check(profile, builder, platform):
@@ -57,10 +58,14 @@ def check(profile, builder, platform):
          "platform still rejects the ninth rail")
     need("QcomRpmhResource res[9]" in platform,
          "platform resource array is still sized for eight rails")
+    need("readFailures" in platform,
+         "platform railReady does not retry the complete sample")
+    need("pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type" in platform,
+         "platform railReady does not retry PMIC identification")
     return failures
 
 
-def check_patch_mirrors(profile_patch, builder_patch, platform_patch):
+def check_patch_mirrors(profile_patch, builder_patch, platform_patch, platform_base_patch):
     failures = []
 
     def need(cond, msg):
@@ -77,6 +82,10 @@ def check_patch_mirrors(profile_patch, builder_patch, platform_patch):
          "platform patch still rejects the ninth rail")
     need("QcomRpmhResource res[9]" in platform_patch,
          "platform patch resource array is still eight entries")
+    need("readFailures" in platform_base_patch,
+         "base platform patch lacks the complete-sample retry")
+    need("pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type" in platform_base_patch,
+         "base platform patch does not retry PMIC identification")
     return failures
 
 
@@ -101,8 +110,9 @@ def main():
     profile_patch = PATCH_PROFILE.read_text()
     builder_patch = PATCH_BUILDER.read_text()
     platform_patch = PATCH_PLATFORM.read_text()
+    platform_base_patch = PATCH_PLATFORM_BASE.read_text()
     failures = check(profile, builder, platform)
-    failures += check_patch_mirrors(profile_patch, builder_patch, platform_patch)
+    failures += check_patch_mirrors(profile_patch, builder_patch, platform_patch, platform_base_patch)
     if failures:
         for failure in failures:
             print("FAIL:", failure)
@@ -116,6 +126,7 @@ def main():
         ("builder loop removed", profile, builder.replace(" for e in profile.get('extra_rails', []):\n", ""), platform),
         ("old eight-rail guard", profile, builder, platform.replace("railCount>9", "railCount>8")),
         ("eight-entry resource array", profile, builder, platform.replace("QcomRpmhResource res[9]", "QcomRpmhResource res[8]")),
+        ("rail identification not retried", profile, builder, platform.replace("pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type||id[1]!=r.subtype||", "pmicRead(unsigned(channel),4,id,2)||")),
     ]
     for name, p, b, s in cases:
         if not check(p, b, s):
@@ -123,12 +134,13 @@ def main():
             return 1
 
     patch_cases = [
-        ("profile patch missing extra rail", "", builder_patch, platform_patch),
-        ("builder patch missing extra loop", profile_patch, "", platform_patch),
-        ("platform patch old eight-rail guard", profile_patch, builder_patch, platform_patch.replace("railCount>9", "railCount>8")),
+        ("profile patch missing extra rail", "", builder_patch, platform_patch, platform_base_patch),
+        ("builder patch missing extra loop", profile_patch, "", platform_patch, platform_base_patch),
+        ("platform patch old eight-rail guard", profile_patch, builder_patch, platform_patch.replace("railCount>9", "railCount>8"), platform_base_patch),
+        ("base platform patch old rail identification", profile_patch, builder_patch, platform_patch, platform_base_patch.replace("pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type||id[1]!=r.subtype||", "pmicRead(unsigned(channel),4,id,2)||")),
     ]
-    for name, pp, bp, sp in patch_cases:
-        if not check_patch_mirrors(pp, bp, sp):
+    for name, pp, bp, sp, sb in patch_cases:
+        if not check_patch_mirrors(pp, bp, sp, sb):
             print("FAIL: test did not reject", name)
             return 1
 

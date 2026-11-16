@@ -50,6 +50,7 @@ def in_memory_apply(text, patch):
     return output
 
 
+# Offline-only arithmetic: containment never grants a runtime allocation lifetime.
 def ring_ok(ptr, base, size, element):
     return bool(element and size and size % element == 0 and ptr >= base
                 and ptr - base < size and (ptr - base) % element == 0)
@@ -63,6 +64,16 @@ def range_ok(cpu, bus, size, low=0, high=0xffffffff, base=0x100000,
                   and size <= arena-(bus-begin))
     envelope = bool(size and low <= bus <= high and size-1 <= high-bus)
     return cpu_ok and mapped and envelope and bus-begin == cpu-base
+
+
+def counter_only_body(code, identifiers, calls):
+    """Fail closed on unknown runtime identifiers/calls after removing log strings."""
+    code = re.sub(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', '', code, flags=re.S)
+    assert '->' not in code and '.' not in code and '[' not in code, code
+    found = set(re.findall(r'\b[A-Za-z_]\w*\b', code))
+    assert found <= identifiers, found - identifiers
+    invoked = set(re.findall(r'\b([A-Za-z_]\w*)\s*\(', code))
+    assert invoked <= calls, invoked - calls
 
 
 class ProposalTests(unittest.TestCase):
@@ -100,7 +111,7 @@ class ProposalTests(unittest.TestCase):
             return s.split('void ArmCpu::interrupt(void)', 1)[1].split('extern "C" IOReturn armcpu_spi_attach', 1)[0]
         self.assertEqual(body(self.before[self.paths[0]]), body(self.after[self.paths[0]]))
         self.assertEqual(body(self.before[self.paths[0]]).count('__atomic_fetch_add(&owner->count,1,__ATOMIC_RELAXED);'), 1)
-        self.assertIn('__atomic_load_n(&owner->count,__ATOMIC_RELAXED)', self.after[self.paths[0]])
+        self.assertIn('__atomic_load_n(&gSpi[i].count,__ATOMIC_RELAXED)', self.after[self.paths[0]])
 
     def test_no_isr_logging_or_new_mmio_writes(self):
         p = self.after[self.paths[1]]
@@ -119,17 +130,68 @@ class ProposalTests(unittest.TestCase):
                   '\tif (ret)\n\t\tmhi_power_down(mhi_cntrl, false);\n\n'
                   '\treturn ret;\n}\nEXPORT_SYMBOL(mhi_sync_power_up);')
         changed = self.snapshot(source)
-        self.assertIn('pong_timeout_snapshot(mhi_cntrl);\n\t\tmhi_power_down', changed)
+        self.assertIn('pong_timeout_snapshot();\n\t\tmhi_power_down', changed)
         for bad in ('', source+source, changed):
             with self.assertRaises(RuntimeError):
                 self.snapshot(bad)
 
-    def test_ring_mapping_checks_and_nonatomic_label(self):
-        for token in ('CH contexts', 'ER contexts', 'CMD contexts', 'ER allocation',
-                      'ER active ring', 'host_rp_ok', 'shared_wp_ok', 'ctxt_wp_match',
-                      'non-atomic CPU-visible', 'MHICTRLLIMIT_HIGHER', 'MHIDATALIMIT_HIGHER'):
-            self.assertIn(token, self.helper)
-        self.assertLess(self.helper.index('if(!nw_wifi_failure_range("ER contexts"'), self.helper.index('struct mhi_event_ctxt *e='))
+    def test_unknown_lifetimes_skip_without_object_access(self):
+        code = self.helper.split('static void pong_timeout_snapshot(void) {', 1)[1].rsplit('}', 1)[0]
+        ids = {'lx_log', 'nw_wifi_failure_board_snapshot', 'nw_wifi_failure_pump_snapshot'}
+        counter_only_body(code, ids, ids)
+        self.assertIn('SKIP controller/mhi_dev/CH/ER/CMD', self.helper)
+        self.assertIn('allocation and powered-MMIO lifetime unproven', self.helper)
+        for bad in ('mhi_read_reg(c, c->regs, 0, &value);', 'readl(address);',
+                    'value = c->mhi_ctxt;', 'value = *c;', 'lx_pump();',
+                    'value = hostMmioReady;', 'value = gDist;'):
+            with self.subTest(bad=bad), self.assertRaises(AssertionError):
+                counter_only_body(code + bad, ids, ids)
+
+    def test_board_snapshot_has_no_window_reads(self):
+        code = self.after[self.paths[1]].split('void failureSnapshot(const char *phase) {', 1)[1].split('\n}', 1)[0]
+        calls = {'armcpu_spi_snapshot', 'IOLog', 'unsigned', '__atomic_load_n'}
+        ids = calls | {'uint64_t', 'count', 'const', 'int', 'ret', 'PcieGlobalIntid',
+                       'phase', 'msiEntries', 'msiArrivals', 'msiEmptyStatus', '__ATOMIC_RELAXED'}
+        counter_only_body(code, ids, calls)
+        self.assertIn('SKIP DBI/PARF/GIC registers', code)
+        for bad in ('dbi.r(MsiStatus);', 'parf.r(0x22c);', 'read32(gDist, 0);',
+                    'value = hostMmioReady;', 'value = arenaVa;', 'c->ee = 0;'):
+            with self.subTest(bad=bad), self.assertRaises(AssertionError):
+                counter_only_body(code + bad, ids, calls)
+
+    def test_gic_snapshot_is_module_static_counter_only(self):
+        body = self.after[self.paths[0]].split('armcpu_spi_snapshot(', 1)[1].split('void ArmCpu::signalCPU', 1)[0]
+        for bad in ('gDist', 'read32(', 'write32(', 'router', 'enabled', 'pending', 'active'):
+            self.assertNotIn(bad, body)
+        self.assertIn('used>sizeof(gSpi)/sizeof(gSpi[0])', body)
+        self.assertEqual(body.count('__atomic_load_n(&gSpi[i].count'), 1)
+        code = body.split('uint64_t *entries) {', 1)[1].rsplit('}', 1)[0]
+        code = code.replace('gSpi[i].count', 'owner_count').replace('gSpi[i].id', 'owner_id')
+        code = code.replace('sizeof(gSpi)/sizeof(gSpi[0])', 'owner_capacity')
+        calls = {'if', 'for', '__atomic_load_n'}
+        ids = calls | {'entries', 'id', 'const', 'uint32_t', 'used', 'i', 'return',
+                       'kIOReturnBadArgument', 'kIOReturnNotReady', 'kIOReturnSuccess',
+                       'kIOReturnNotFound', 'gSpiUsed', '__ATOMIC_ACQUIRE', '__ATOMIC_RELAXED',
+                       'owner_count', 'owner_id', 'owner_capacity'}
+        counter_only_body(code, ids, calls)
+        for bad in ('read32(gDist, 0);', 'value = *gDist;', 'gSpi[i].handler();'):
+            with self.subTest(bad=bad), self.assertRaises(AssertionError):
+                counter_only_body(code + bad, ids, calls)
+
+    def test_shim_snapshot_reads_only_static_counters(self):
+        function = next(n for n in self.tree.body if isinstance(n, ast.FunctionDef)
+                        and n.name == 'add_failure_pump_counters')
+        pairs = ast.literal_eval(next(n.value for n in function.body if isinstance(n, ast.Assign)
+                                      and n.targets[0].id == 'pairs'))
+        changed = self.pump('\n'.join(old for old, new in pairs))
+        code = changed.split('void nw_wifi_failure_pump_snapshot(void) {', 1)[1].split('\n}', 1)[0]
+        calls = {'lx_log', '__atomic_load_n'}
+        ids = calls | {'diag_pumps', 'diag_poll_raise', 'diag_raise_all', 'diag_dispatch',
+                       '__ATOMIC_RELAXED'}
+        counter_only_body(code, ids, calls)
+        for bad in ('lx_pump();', 'readl(address);', 'value = g_irq[0].pending;'):
+            with self.subTest(bad=bad), self.assertRaises(AssertionError):
+                counter_only_body(code + bad, ids, calls)
 
     def test_range_boundaries(self):
         begin, base, size = 0xa0001000, 0x100000, 0x4000000
@@ -157,7 +219,7 @@ class ProposalTests(unittest.TestCase):
             self.skipTest('external sources not supplied; use --pm-source and --shim-source')
         pm = Path(SOURCE_ARGS.pm_source).read_text()
         shim = Path(SOURCE_ARGS.shim_source).read_text()
-        self.assertIn('pong_timeout_snapshot(mhi_cntrl);', self.snapshot(pm))
+        self.assertIn('pong_timeout_snapshot();', self.snapshot(pm))
         adapted = self.adapt(shim)
         instrumented = self.pump(adapted)
         self.assertIn('Pong snapshot software pumps=', instrumented)

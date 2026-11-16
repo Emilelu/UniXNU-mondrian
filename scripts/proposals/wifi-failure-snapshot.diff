@@ -1,27 +1,20 @@
 diff --git a/drivers/ArmCpu/ArmCpu.cpp b/drivers/ArmCpu/ArmCpu.cpp
 --- a/drivers/ArmCpu/ArmCpu.cpp
 +++ b/drivers/ArmCpu/ArmCpu.cpp
-@@ -459,6 +459,24 @@
+@@ -459,6 +459,17 @@
    return result;
  }
  
-+// Worker-only readout; does not acknowledge or mask the SPI.
-+extern "C" IOReturn armcpu_spi_snapshot(uint32_t id,uint64_t *entries,
-+ uint32_t *enabled,uint32_t *pending,uint32_t *active,uint64_t *route) {
-+ if(!gDist||!armcpu_gic_ready)return kIOReturnNotReady;
-+ const unsigned count=((read32(gDist,4)&31)+1)*32;
-+ if(id<32||id>=1020||id>=count)return kIOReturnBadArgument;
++// Module-static owner counters only; distributor MMIO lifetime is unproven.
++extern "C" IOReturn armcpu_spi_snapshot(uint32_t id,uint64_t *entries) {
++ if(!entries||id<32||id>=1020)return kIOReturnBadArgument;
 + const uint32_t used=__atomic_load_n(&gSpiUsed,__ATOMIC_ACQUIRE);
-+ SpiOwner *owner=nullptr;
-+ for(uint32_t i=0;i<used;i++)if(gSpi[i].id==id){owner=&gSpi[i];break;}
-+ if(!owner)return kIOReturnNotFound;
-+ const uint32_t word=(id/32)*4,bit=1u<<(id%32);
-+ *entries=__atomic_load_n(&owner->count,__ATOMIC_RELAXED);
-+ *enabled=!!(read32(gDist,0x100+word)&bit);
-+ *pending=!!(read32(gDist,0x200+word)&bit);
-+ *active=!!(read32(gDist,0x300+word)&bit);
-+ *route=*reinterpret_cast<volatile uint64_t *>(gDist+0x6000+8*id);
-+ return kIOReturnSuccess;
++ if(used>sizeof(gSpi)/sizeof(gSpi[0]))return kIOReturnNotReady;
++ for(uint32_t i=0;i<used;i++)if(gSpi[i].id==id){
++  *entries=__atomic_load_n(&gSpi[i].count,__ATOMIC_RELAXED);
++  return kIOReturnSuccess;
++ }
++ return kIOReturnNotFound;
 +}
  void ArmCpu::signalCPU(IOCPU *target)
  {
@@ -33,7 +26,7 @@ diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPl
  #include "QcomRpmh.h"
  extern "C" {
  int armcpu_spi_attach(uint32_t, bool, void (*)(void *), void *, uint32_t *, uint64_t *);
-+int armcpu_spi_snapshot(uint32_t,uint64_t *,uint32_t *,uint32_t *,uint32_t *,uint64_t *);
++int armcpu_spi_snapshot(uint32_t,uint64_t *);
  void pong11_lx_irq_raise_all(void);
  void pong_wifi_net_start(const uint8_t mac[6]);
  bool pong_wifi_net_prepare(void);
@@ -53,28 +46,23 @@ diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPl
   // Only this port's MSI group is enabled in PARF. Drop the aggregator's
   // level before EOI; no unrelated PCIe status is acknowledged here.
   parf.w(0x228,ParfMsi0);
-@@ -655,6 +653,20 @@
+@@ -655,6 +653,15 @@
   if(empty>=64){dbi.w(MsiEnable,0);parf.w(0x22c,parf.r(0x22c)&~ParfMsi0);}
   signalWorker();
  }
 +void failureSnapshot(const char *phase) {
-+ uint64_t count=0,route=0;uint32_t en=0,pend=0,active=0;
-+ const uint32_t start=__atomic_load_n(&msiEntries,__ATOMIC_RELAXED);
-+ const int ret=armcpu_spi_snapshot(PcieGlobalIntid,&count,&en,&pend,&active,&route);
-+ IOLog("PongWifi snapshot %s hw intid=%u gic_ret=%d owner_entries=%llu enable=%u pending=%u active=%u route=%llx callback_entries=%u nonzero_status_entries=%u empty=%u\n",
-+  phase,PcieGlobalIntid,ret,count,en,pend,active,route,start,
++ uint64_t count=0;
++ const int ret=armcpu_spi_snapshot(PcieGlobalIntid,&count);
++ IOLog("PongWifi snapshot %s hw intid=%u owner_ret=%d owner_count_available=%u owner_entries=%llu callback_entries=%u nonzero_status_entries=%u empty=%u\n",
++  phase,PcieGlobalIntid,ret,unsigned(ret==0),count,
++  __atomic_load_n(&msiEntries,__ATOMIC_RELAXED),
 +  __atomic_load_n(&msiArrivals,__ATOMIC_RELAXED),__atomic_load_n(&msiEmptyStatus,__ATOMIC_RELAXED));
-+ // PARF+0x228 is used as an ACK write: do not guess read semantics.
-+ if(hostMmioReady&&dbi.v&&parf.v)
-+  IOLog("PongWifi snapshot %s MSI enable=%x mask=%x status=%x PARF_mask=%x entries_end=%u\n",
-+   phase,dbi.r(MsiEnable),dbi.r(MsiMask),dbi.r(MsiStatus),parf.r(0x22c),
-+   __atomic_load_n(&msiEntries,__ATOMIC_RELAXED));
-+ else IOLog("PongWifi snapshot %s MMIO skipped: host not ready\n",phase);
++ IOLog("PongWifi snapshot %s SKIP DBI/PARF/GIC registers: powered-MMIO lifetime unproven; enable/mask/status/pending/active/route unavailable\n",phase);
 +}
  void worker(void *,wait_result_t) {
   uint32_t diagnostic=0;progressDiagnostic=PE_parse_boot_argn("pong_wifi_diag",&diagnostic,sizeof diagnostic)&&diagnostic==1;
   // P-49: a register access to a block whose clock or power domain is not up
-@@ -714,11 +726,26 @@
+@@ -714,11 +721,14 @@
   done: stopped=1;
   // A mapped address does not prove a powered device. Failed GDSC/clock
   // prerequisites must not be followed by cleanup MMIO into a dead domain.
@@ -86,25 +74,13 @@ diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPl
  }
  }
 +extern "C" void nw_wifi_failure_board_snapshot(const char *phase){failureSnapshot(phase);}
-+extern "C" int nw_wifi_failure_range(const char *name,const void *cpu,
-+ unsigned long long bus,unsigned long long bytes,unsigned long long low,unsigned long long high) {
-+ const uint64_t begin=Iova+4096;
-+ const uintptr_t va=reinterpret_cast<uintptr_t>(cpu),base=reinterpret_cast<uintptr_t>(arenaVa);
-+ const bool cpuok=arenaVa&&cpu&&bytes&&va>=base&&va-base<ArenaBytes&&bytes<=ArenaBytes-(va-base);
-+ const bool mapped=bytes&&bus>=begin&&bus-begin<ArenaBytes&&bytes<=ArenaBytes-(bus-begin);
-+ const bool envelope=bytes&&bus>=low&&bus<=high&&bytes-1<=high-bus;
-+ const bool match=cpuok&&mapped&&bus-begin==va-base;
-+ IOLog("PongWifi range %s cpu=%p bus=%llx bytes=%llu arena_start=%llx arena_bytes=%llu envelope=[%llx,%llx] cpu_ok=%u mapped=%u match=%u envelope_ok=%u\n",
-+  name,cpu,bus,bytes,begin,(unsigned long long)ArenaBytes,low,high,cpuok,mapped,match,envelope);
-+ return cpuok&&mapped&&match&&envelope;
-+}
  extern "C" void PongWifiRandom(void *p,size_t n) {while(n){unsigned part=n>4096?4096:unsigned(n);read_random(p,part);p=static_cast<uint8_t *>(p)+part;n-=part;}}
  extern "C" bool pong_wifi_test_reconnect(void) {
   unsigned ready=1;
 diff --git a/scripts/build-k60-ath11k.py b/scripts/build-k60-ath11k.py
 --- a/scripts/build-k60-ath11k.py
 +++ b/scripts/build-k60-ath11k.py
-@@ -59,6 +59,98 @@
+@@ -59,6 +59,45 @@
      raise RuntimeError('shared dispatcher timer ABI differs')
  
  
@@ -112,7 +88,7 @@ diff --git a/scripts/build-k60-ath11k.py b/scripts/build-k60-ath11k.py
 +    """Instrument software dispatch separately from hardware ISR counters."""
 +    pairs = [
 +        ("static int g_irq_polling = 1;\n",
-+         "static int g_irq_polling = 1;\nstatic u64 diag_pumps,diag_poll_raise,diag_raise_all,diag_dispatch;\nvoid nw_wifi_failure_pump_snapshot(void) {\n lx_log(3,\"Pong snapshot software pumps=%llu poll_raise=%llu raise_all=%llu logical_dispatch=%llu polling=%d\",\n  __atomic_load_n(&diag_pumps,__ATOMIC_RELAXED),__atomic_load_n(&diag_poll_raise,__ATOMIC_RELAXED),\n  __atomic_load_n(&diag_raise_all,__ATOMIC_RELAXED),__atomic_load_n(&diag_dispatch,__ATOMIC_RELAXED),g_irq_polling);\n}\n"),
++         "static int g_irq_polling = 1;\nstatic u64 diag_pumps,diag_poll_raise,diag_raise_all,diag_dispatch;\nvoid nw_wifi_failure_pump_snapshot(void) {\n lx_log(3,\"Pong snapshot software pumps=%llu poll_raise=%llu raise_all=%llu logical_dispatch=%llu\",\n  __atomic_load_n(&diag_pumps,__ATOMIC_RELAXED),__atomic_load_n(&diag_poll_raise,__ATOMIC_RELAXED),\n  __atomic_load_n(&diag_raise_all,__ATOMIC_RELAXED),__atomic_load_n(&diag_dispatch,__ATOMIC_RELAXED));\n}\n"),
 +        ("int lx_pump(void) {\n  int ran = 0;",
 +         "int lx_pump(void) {\n  int ran = 0;\n  __atomic_fetch_add(&diag_pumps,1,__ATOMIC_RELAXED);"),
 +        ("last_raise = t; lx_irq_raise_all();",
@@ -133,68 +109,15 @@ diff --git a/scripts/build-k60-ath11k.py b/scripts/build-k60-ath11k.py
 +    """Read-only diagnostic on sync-power-up non-mission return only."""
 +    helper = r"""extern void nw_wifi_failure_board_snapshot(const char *);
 +extern void nw_wifi_failure_pump_snapshot(void);
-+extern int nw_wifi_failure_range(const char *,const void *,unsigned long long,
-+ unsigned long long,unsigned long long,unsigned long long);
-+static void pong_snapshot_reg(struct mhi_controller *c,void __iomem *base,u32 off,const char *name) {
-+ u32 value=0;int ret;
-+ if(!base){dev_info(&c->mhi_dev->dev,"Pong register %s absent\n",name);return;}
-+ ret=mhi_read_reg(c,base,off,&value);
-+ dev_info(&c->mhi_dev->dev,"Pong register %s ret=%d value=%#x\n",name,ret,value);
-+}
-+static int pong_ring_ptr_ok(u64 ptr,u64 base,u64 len,u64 element) {
-+ return element&&len&&len%element==0&&ptr>=base&&ptr-base<len&&(ptr-base)%element==0;
-+}
-+static void pong_timeout_snapshot(struct mhi_controller *c) {
-+ struct device *dev=&c->mhi_dev->dev;struct mhi_ctxt *x=c->mhi_ctxt;unsigned i;
-+ dev_info(dev,"Pong timeout snapshot begin ee=%d pm_state=%#x envelope=[%#llx,%#llx]\n",
-+  c->ee,c->pm_state,(unsigned long long)c->iova_start,(unsigned long long)c->iova_stop);
++static void pong_timeout_snapshot(void) {
++ lx_log(3,"Pong timeout snapshot SKIP controller/mhi_dev/CH/ER/CMD contexts/event/ring/MHI MMIO: allocation and powered-MMIO lifetime unproven");
 + nw_wifi_failure_board_snapshot("timeout-before-power-down");
 + nw_wifi_failure_pump_snapshot();
-+#define SNAP(base,reg) pong_snapshot_reg(c,base,reg,#reg)
-+ SNAP(c->regs,MHISTATUS);SNAP(c->regs,MHICTRL);SNAP(c->bhi,BHI_EXECENV);
-+ SNAP(c->regs,CCABAP_LOWER);SNAP(c->regs,CCABAP_HIGHER);
-+ SNAP(c->regs,ECABAP_LOWER);SNAP(c->regs,ECABAP_HIGHER);
-+ SNAP(c->regs,CRCBAP_LOWER);SNAP(c->regs,CRCBAP_HIGHER);
-+ SNAP(c->regs,MHICTRLBASE_LOWER);SNAP(c->regs,MHICTRLBASE_HIGHER);
-+ SNAP(c->regs,MHICTRLLIMIT_LOWER);SNAP(c->regs,MHICTRLLIMIT_HIGHER);
-+ SNAP(c->regs,MHIDATABASE_LOWER);SNAP(c->regs,MHIDATABASE_HIGHER);
-+ SNAP(c->regs,MHIDATALIMIT_LOWER);SNAP(c->regs,MHIDATALIMIT_HIGHER);
-+ SNAP(c->regs,ERDBOFF);SNAP(c->regs,CHDBOFF);
-+#undef SNAP
-+ if(!x){dev_info(dev,"Pong snapshot contexts absent\n");return;}
-+ nw_wifi_failure_range("CH contexts",x->chan_ctxt,x->chan_ctxt_addr,
-+  sizeof(*x->chan_ctxt)*(unsigned long long)c->max_chan,c->iova_start,c->iova_stop);
-+ nw_wifi_failure_range("CMD contexts",x->cmd_ctxt,x->cmd_ctxt_addr,
-+  sizeof(*x->cmd_ctxt)*(unsigned long long)NR_OF_CMD_RINGS,c->iova_start,c->iova_stop);
-+ if(!nw_wifi_failure_range("ER contexts",x->er_ctxt,x->er_ctxt_addr,
-+  sizeof(*x->er_ctxt)*(unsigned long long)c->total_ev_rings,c->iova_start,c->iova_stop)||!c->mhi_event)return;
-+ for(i=0;i<c->total_ev_rings;i++) {
-+  struct mhi_event *v=&c->mhi_event[i];struct mhi_ring *r=&v->ring;
-+  struct mhi_event_ctxt *e=&x->er_ctxt[i];
-+  u64 rb=le64_to_cpu(e->rbase),rl=le64_to_cpu(e->rlen);
-+  u64 rp=le64_to_cpu(e->rp),wp=le64_to_cpu(e->wp);
-+  dev_info(dev,"Pong ER%u offload=%u cpu_base=%p host_rp=%p host_wp=%p bus=%#llx len=%zu alloc=%zu element=%zu db=%p ctxt_wp=%p\n",
-+   i,v->offload_ev,r->base,r->rp,r->wp,(unsigned long long)r->iommu_base,r->len,r->alloc_size,r->el_size,r->db_addr,r->ctxt_wp);
-+  dev_info(dev,"Pong ER%u host-visible rbase=%#llx rlen=%#llx rp=%#llx wp=%#llx msivec=%u\n",i,
-+   (unsigned long long)rb,(unsigned long long)rl,
-+   (unsigned long long)rp,(unsigned long long)wp,le32_to_cpu(e->msivec));
-+  if(!v->offload_ev) {
-+   nw_wifi_failure_range("ER allocation",r->pre_aligned,r->dma_handle,r->alloc_size,c->iova_start,c->iova_stop);
-+   nw_wifi_failure_range("ER active ring",r->base,r->iommu_base,r->len,c->iova_start,c->iova_stop);
-+   dev_info(dev,"Pong ER%u checks rbase_match=%u rlen_match=%u host_rp_ok=%u host_wp_ok=%u shared_rp_ok=%u shared_wp_ok=%u ctxt_wp_match=%u\n",i,
-+    (unsigned)(rb==r->iommu_base),(unsigned)(rl==r->len),
-+    pong_ring_ptr_ok((u64)(uintptr_t)r->rp,(u64)(uintptr_t)r->base,r->len,r->el_size),
-+    pong_ring_ptr_ok((u64)(uintptr_t)r->wp,(u64)(uintptr_t)r->base,r->len,r->el_size),
-+    pong_ring_ptr_ok(rp,rb,rl,r->el_size),pong_ring_ptr_ok(wp,rb,rl,r->el_size),
-+    (unsigned)(r->ctxt_wp==&e->wp));
-+  }
-+ }
-+ dev_info(dev,"Pong timeout snapshot end: non-atomic CPU-visible values only\n");
 +}
 +"""
 +    anchor = 'int mhi_sync_power_up(struct mhi_controller *mhi_cntrl)\n'
 +    tail = '\tif (ret)\n\t\tmhi_power_down(mhi_cntrl, false);\n\n\treturn ret;\n}\nEXPORT_SYMBOL(mhi_sync_power_up);'
-+    replacement = '\tif (ret) {\n\t\tpong_timeout_snapshot(mhi_cntrl);\n\t\tmhi_power_down(mhi_cntrl, false);\n\t}\n\n\treturn ret;\n}\nEXPORT_SYMBOL(mhi_sync_power_up);'
++    replacement = '\tif (ret) {\n\t\tpong_timeout_snapshot();\n\t\tmhi_power_down(mhi_cntrl, false);\n\t}\n\n\treturn ret;\n}\nEXPORT_SYMBOL(mhi_sync_power_up);'
 +    if source.count(anchor) != 1 or source.count(tail) != 1:
 +        raise RuntimeError('snapshot MHI pm.c ABI differs')
 +    return source.replace(anchor, helper + anchor).replace(tail, replacement)
@@ -203,7 +126,7 @@ diff --git a/scripts/build-k60-ath11k.py b/scripts/build-k60-ath11k.py
  def main():
      p = argparse.ArgumentParser(description=__doc__)
      p.add_argument('--linux', type=Path, required=True)
-@@ -257,6 +349,8 @@
+@@ -257,6 +296,8 @@
              if text.count(old) != 1:
                  raise RuntimeError('MHI ' + name + ' ABI differs: ' + old)
              text = text.replace(old, new)
@@ -212,7 +135,7 @@ diff --git a/scripts/build-k60-ath11k.py b/scripts/build-k60-ath11k.py
          dest = mhi / name
          if dest.exists() or dest.is_symlink(): dest.unlink()
          dest.write_text(text)
-@@ -500,7 +594,8 @@
+@@ -500,7 +541,8 @@
          '  lx_log(6, "k60 station: pre-start band=%u basic_rates=0x%x", band, g_vif->bss_conf.basic_rates);\n'
          '  g_ops->link_info_changed(g_hw, g_vif, &g_vif->bss_conf, BSS_CHANGED_BASIC_RATES);\n' + assign)
      (out / 'nw_sta_pong.c').write_text(sta)
@@ -222,12 +145,12 @@ diff --git a/scripts/build-k60-ath11k.py b/scripts/build-k60-ath11k.py
      common_sources = ['src/nw_crypto.c', 'src/nw_events.c', 'src/nw_mac80211.c', 'src/nw_net.c',
          'src/nw_netdev.c', 'src/nw_pci.c', 'src/nw_qrtr.c', 'src/nw_qrtr_mhi.c', 'src/nw_sta.c',
          'shim/src/lx_rt.c', 'shim/src/mhi_hook.c']
-@@ -524,7 +619,7 @@
+@@ -524,7 +566,7 @@
      nm = pong_paths.tool('llvm-nm', 'PONG_LLVM_NM', ('/opt/local/bin/llvm-nm-mp-18',))
      undefined = subprocess.check_output([nm, '-u', '-j', str(linked)], text=True).splitlines()
      (out / 'undefined-symbols.txt').write_text('\n'.join(undefined) + '\n')
 -    allowed = {'_PongWifiRandom','_bzero','_memcmp','_memcpy','_memmove','_memset','_snprintf','_strchr','_strcmp','_strlen','_strncmp','_strncpy','_strtoul','_vsnprintf'}
-+    allowed = {'_nw_wifi_failure_board_snapshot', '_nw_wifi_failure_range', '_PongWifiRandom','_bzero','_memcmp','_memcpy','_memmove','_memset','_snprintf','_strchr','_strcmp','_strlen','_strncmp','_strncpy','_strtoul','_vsnprintf'}
++    allowed = {'_nw_wifi_failure_board_snapshot', '_PongWifiRandom','_bzero','_memcmp','_memcpy','_memmove','_memset','_snprintf','_strchr','_strcmp','_strlen','_strncmp','_strncpy','_strtoul','_vsnprintf'}
      if set(undefined) - allowed: raise RuntimeError('unimplemented ath11k imports: ' + repr(set(undefined) - allowed))
      # Export only the documented board/station boundary. Linux shims have the
      # same C names as XNU helpers, so namespace every other defined symbol.

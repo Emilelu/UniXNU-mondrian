@@ -23,12 +23,23 @@ uint64_t microseconds()
 
 static K60PmicGlink *gActivePmicGlink = nullptr;
 
+/* PongAudio starts from bsd_init, before the battery workloop finishes its
+ * authenticated GLINK discovery. Keep the client here so the first attach is
+ * not lost; open() replays it once the transport is live. */
+static K60PmicGlinkAudioClient gAudioClient;
+static void *gAudioContext = nullptr;
+static bool gAudioClientValid = false;
+
 extern "C" int
 k60_pmic_glink_attach_audio(const K60PmicGlinkAudioClient *client, void *context)
 {
+    if (!client || !client->state || !client->receive || !context)
+        return K60_PMIC_GLINK_AUDIO_REFUSED;
+    gAudioClient = *client;
+    gAudioContext = context;
+    gAudioClientValid = true;
     K60PmicGlink *active = __atomic_load_n(&gActivePmicGlink, __ATOMIC_ACQUIRE);
-    if (!active) return K60_PMIC_GLINK_AUDIO_NO_TRANSPORT;
-    if (!client) return K60_PMIC_GLINK_AUDIO_REFUSED;
+    if (!active) return K60_PMIC_GLINK_AUDIO_OK; /* queued until open() */
     return active->attachAudio(*client, context);
 }
 
@@ -154,6 +165,11 @@ bool K60PmicGlink::open(const K60BatteryConfig &c, const K60AdspGlinkHandoff &h,
     opened = true;
     __atomic_store_n(&gActivePmicGlink, this, __ATOMIC_RELEASE);
     IOLog("K60Battery: GLINK transport %s channel_bytes=%u audio_intent_bytes=%u\n", QCOM_GLINK_BUILD_TAG, unsigned(sizeof(QcomGlinkChannel)), unsigned(sizeof(audio.storage)));
+    if (gAudioClientValid) {
+        const int audio_rc = attachAudio(gAudioClient, gAudioContext);
+        if (audio_rc < 0)
+            IOLog("K60Battery: deferred audio attach failed: %d\n", audio_rc);
+    }
     IOLog("K60Battery: adopting authenticated PAS1 GLINK epoch=%llu desc=%x tx=%x/%x rx=%x/%x (no FIFO reset)\n",
         lease.epoch, lease.desc_offset, lease.tx_offset, lease.tx_bytes, lease.rx_offset, lease.rx_bytes);
     return true;

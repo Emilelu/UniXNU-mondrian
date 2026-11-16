@@ -138,9 +138,11 @@
 它引用 `docs/research/bt/{06-DEEP-DIVE,FIRMWARE,RESEARCH,S1-PROBE-SPEC,S3-SPEC,S4-SPEC}.md` 与
 `docs/research/touch/14-RETAINED-KO-INIT-AUDIT.md` 共 **7 个 main 上不存在的文件**。
 
-修法（建议，需 Lead 决定）：每个硬件"结案"时把该线研究**整目录**合进 main（而不是留分支），
-并补一份 `docs/engineering/TREE-OWNERS.md` 式的"线 → 检出 → 分支 → 研究目录"映射；
-`line-research-map2.py` 可以直接改成生成器。本轮不搬文件：这些内容可能已被各自的新结论取代，搬运要各线 owner 点头。
+修法：每个硬件"结案"时把该线研究**整目录**合进 main（而不是留分支）。
+**映射已建**：`docs/research/LINE-RESEARCH-MAP.md`（2026-11-17 重扫为 **16 个检出 / 97 个文件**，
+本段此前按 92 计，漏了 `UniXNU-zizhan` 的 4 个与个别新增；以那份为准），
+由 `E:/k60-work/scratch/refmine/linemap{,2}.py` 生成，可直接改成仓库脚本。
+本轮仍不搬文件：这些内容可能已被各自的新结论取代，搬运要各线 owner 点头。
 
 ### 6.1 `EIGHT-STEPS.toml` 的 wifi 段已过期（G6）
 

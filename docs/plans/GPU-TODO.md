@@ -22,7 +22,7 @@
 ### P0 —— 官方 AdrenoMetal 的性能优化（24 小时内 8 个提交）
 
 官方仓库：`https://github.com/UniXNU/AdrenoMetal`
-本地镜像：`references/AdrenoMetal`（main = `83b667824`）
+本地镜像：`references/AdrenoMetal`（分支与 HEAD 现查：`git -C references/AdrenoMetal rev-parse --abbrev-ref HEAD` / `git -C references/AdrenoMetal rev-parse HEAD`；catalog 的 pin 才是引用身份）
 
 **现查现取**（★37：不写死 SHA）：
 
@@ -80,7 +80,7 @@ NativeMetalBridgePhase.h       10,579 B
 
 1. **`pong_metal=1` 时 backboardd 崩溃**（`-[NSURL fileURLWithPath:]` nil）。
    当前用 `pong_metal=2` 绕开，但那样 `IOAcceleratorES` 发布 0 次、`native Metal entry` 0 次。
-   **这是 ⑦ 核验必须解决的前提。**
+   **这是 ⑦ 核验必须解决的前提。**（2026-11-17 更正：该归因已失效，见 `docs/engineering/STATUS.md` 的“GPU / Metal 现状（2026-11-13 实测，修正旧结论）”一节；此处保留作历史。）
 
 2. **20G81 vs 21H461 ABI 差异**。官方 `AdrenoMetal` 的 `os_abi` 是
    `ipados-17.7.11-21H461`，我们是 `ipados-16.6.1-20G81`。

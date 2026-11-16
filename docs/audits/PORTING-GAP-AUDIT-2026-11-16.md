@@ -60,8 +60,8 @@
 | `docs/state/STATE-2026-11-07.md:1-3` | "唯一‘当前状态’入口" | 本文件是 2026-11-07 快照；当前入口是 `docs/engineering/STATUS.md`，INDEX:132 已标过时但文件本身没标 | 【实测】 |
 | `docs/state/NEXT-STEPS.md:1-3` | 没有历史标记的 2026-11-07 推进顺序 | 旧窗口/旧 boot-args；当前计划见 STATUS 与 `docs/plans/` | 【实测】 |
 | `docs/audits/FORK-REVIEW.md:1-7` | 只写到 2026-10-31 基线 | 2026-11-17 重查 `scripts/audit-forks.py` 返回 PARTIAL（GitHub compare API 全部 404），无新 ahead/behind，不能解释成无更新 | 【实测】 |
-| `docs/plans/GPU-TODO.md:81` | 旧崩溃归因 | 与 STATUS `:396-406` 冲突 | 【转述】 |
-| `docs/plans/GPU-TODO.md:25` | 硬编码上游 SHA | ★37 禁止把 pin 写进进度文档（应由 catalog/水位持有） | 【转述】 |
+| `docs/plans/GPU-TODO.md:81` | 旧崩溃归因 | 与 STATUS `:396-406` 冲突；2026-11-17 已加更正注并保留历史 | 【已修】 |
+| `docs/plans/GPU-TODO.md:25` | 硬编码上游 SHA | ★37 禁止把 pin 写进进度文档（应由 catalog/水位持有）；2026-11-17 已改为现查命令 | 【已修】 |
 
 **已正确、不要"修"的**：`README.md:135-136` 的 ★1–★37 / P-01–P-230 是对的；`check-readme.py` 正是为
 这两行写的（P-205 的教训：README 曾写 ★35/P-130 而实际 ★37/P-204）。**它只校验 README 与 README_EN**，

@@ -773,3 +773,11 @@ id = "P-225"
 title = "板目录靠 mtime 猜，猜错就静默丢掉 Metal 插件与电池归档"
 check = "python3 scripts/tests/test-build-strict-board-dir.py && python3 scripts/tests/test-config-consistency-board-dir.py"
 note = "board_dir() 必须按「.config 有没有写 CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY」排序，不能只按 mtime；两个候选都没有这两个键时要警告 P-202。check-config-consistency.py 的 resolve_generated() 是同一判据的第二处，不许退回 found[0]"
+
+[[rule]]
+id = "P-227"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-227"
+statement = "一串前置检查里，第一个必失败的那个会让后面全部变成从未执行过的代码；判断一段代码有没有跑过不能看它存在，要看它自己的失败信息有没有在日志里出现过；修好前一个检查之后必须重跑到下一个断点，直到一次跑通，而不是只修刚撞到的那个。"
+check = "python3 scripts/tests/test-check-firmware-inputs.py"
+note = "2026-11-16 build_uefi.py 的 DTB 检查自 f92c387 起每次都失败，于是紧邻其后的 --ramdisk Resources/ramdisk（同样自 f92c387 起、而该文件从未存在）一年半没执行过；补上 mondrian.dtb 后第一次越过，立刻死在 mkbootimg.py 的 can't open。修法 ccd0644（补 DTB + 检查改成缺或 ≤1 KiB 并说明理由）与 5b67dba（ramdisk 改为存在才传）。门禁 check-firmware-inputs.py 静态解析同级 uefi-mondrian/build_uefi.py 的每个 Resources/ 字面量，要求存在或被同变量的 is_file/exists/is_dir 守卫；反向验证 5b67dba^ 报 :347、ccd0644^ 报 :331。"

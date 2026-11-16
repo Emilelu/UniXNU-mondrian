@@ -216,3 +216,6 @@ P-62 的旧行为（只发 `IODisplayParameters`，不声明 backlight-control�
    `k60_backlight_invert` 仍留作反相兜底。
 3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
    仅由 host 单测覆盖，**待未来系统验证**。
+4. **12 位域的最低可用 DBV 不是寄存器下限**：DT `qcom,mdss-dsi-bl-min-level=0x1` 在真机把屏幕拉到全黑
+   （brightness-17 实测，用户只能盲点调高）；第 6 轮起改用 Xiaomi 自己的 `mi,doze-lbm-dbv-level=0x14`
+   作为可见下限。**待 brightness-18 真机确认**。

@@ -7,7 +7,8 @@
 | 参照 | brightness-9（旧格式） | `ca992179…` | `7e809dc5…` | 行为同 13：control=0、无 SIGSEGV、SpringBoard 208 行；判定器只能给 INCONCLUSIVE（日志无 `stats=`） | `usblog-20261115-134001` |
 | 3 | brightness-15 | `67acb403…` | `513cc329…` | **PASS（发布层）**：control=1 / conformance=1 / 无 sig=11 / first frame / SpringBoard 128；物理可调但两端与 Android 不符 | `usblog-20261117-004800` |
 | 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
-| 5（预注册） | brightness-17 | 飞后填 | 飞后填 | 待飞：DCS 0x51 改 12 位双字节（0x01…0xfff，与 Android 同域）+ 端点精确映射 | 见文末第 5 轮 |
+| 5 | brightness-17 | `8b2d6332…` | `4f107428…` | **PASS（12 位路径 / 最低端点）**：conformance=1 / control=1 / 无 sig=11 / first frame / SpringBoard 133；请求行 14 条（level 1024→0x800、level 1→0x1）；**DBV 1 在夜间黑屏**（用户实测），最高档未拉（夜间） | `usblog-20261117-0245-brightness17` |
+| 6（预注册） | brightness-18 | 飞后填 | 飞后填 | 待飞：最低 DBV 由 0x1 提到 0x14（Xiaomi doze LBM 档），最高仍 0xfff | 见文末第 6 轮 |
 
 brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 
@@ -55,8 +56,8 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
 2. **每请求一行日志**：`K60 BACKLIGHT: brightness… -> level … dbv 0x…`。第 4 轮起每个请求打一行，
    行里同时给出 CoreBrightness 用的键（`brightness-nits` 还是 `brightness`）、滑块量程与落到的 DBV。
    没有这一行 = 请求根本没到服务（CoreBrightness 未接管），不是「调光无效」。
-3. **两端的 DBV**：最低档应落到 `dbv 0x1`、最高档 `dbv 0xfff`（第 5 轮起的 12 位域；第 4 轮是 8 位的 `0xff`）。这两端是 Android 对照的硬指标；
-   中间档只记不判。
+3. **两端的 DBV**：最低档应落到 `dbv 0x14`（第 6 轮起）、最高档 `dbv 0xfff`（第 5 轮起的 12 位域；
+   第 4 轮是 8 位的 `0xff`；第 5 轮曾把最低定为 0x1，实测夜间黑屏）。这两端是 Android 对照的硬指标；中间档只记不判。
 
 第 3 轮（brightness-15）没有每请求日志，`stats[1]` 事后读不到，只能靠「屏上可见变化」判物理链路；
 那一轮的 `published level` 行是启动时打的一次快照，不能当三档读数。
@@ -109,9 +110,12 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
   Android 最低 1/4095 ≈ 0.024%，相差 16 倍 ⇒ 第 5 轮改 12 位双字节写入。
 - **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`。
 
-## 第 5 轮（预注册，2026-11-17；镜像 brightness-17，待飞）
+## 第 5 轮（2026-11-17 02:40）— brightness-17：12 位路径生效，DBV 1 夜间黑屏
 
-- **镜像**：`brightness-17`（commit 待填）；`boot.img` / `kernel.macho` sha256 飞后填。
+- **镜像**：`brightness-17`（commit `89bf2073`）；`boot.img` sha256
+  `8b2d63327d68e778639e0918460bd5662993cff40e5f0efbb941309b6e02c053`（201,887,744 B）；
+  `kernel.macho` sha256 `4f107428231442979dda8fa17324754f3e6615f170dbc1378b762ef508d70698`；
+  manifest repo head `89bf2073`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
 - **改动（相对第 4 轮两处）**：
   1. `PongDsiPanel.cpp`：`pong_panel_set_brightness` 与 bring-up 都改发两字节 DCS 0x51
      （`pong_panel_dbv_bytes()`：高字节在前 `{level>>8, level&0xff}`）；bring-up 发 `0x51 0x0f 0xff`，
@@ -122,16 +126,37 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
      vendor `dsi_ctrl_copy_and_pad_cmd()` 的 `{wc, datatype, flags}` 逐位一致。
   2. `K60BacklightCodec.h`：`kMaxDbv=0xfff`，`dbvFromLevel`/`levelFromDbv` 以
      `kDarkestLevel(1) -> kMinDbvOn(1)`、`kMaxLevel(2047) -> kMaxDbv(4095)` 端点对齐。
-- **预注册判据（飞之前写死）**：
-  1. **PASS（发布层）**：published 行 `conformance=1 control=1`、`dbv 0xfff`；`sig=11` 0；
-     `entered backboardd` 1；SpringBoard ≥100；`first frame presented` ≥1。
-  2. **PASS（请求可见）**：用户拖滑块后 ≥3 条 `K60 BACKLIGHT: brightness…` 行。
-  3. **PASS（最高）**：最高档请求行 `dbv 0xfff`，观感不低于 Android。
-  4. **PASS（最低）**：最低档请求行 `dbv 0x1`，观感明显比第 4 轮最低档更暗（用户判断）。
-  5. **FAIL**：任一 `sig=11`、无 first frame、没有任何请求行、最高不是 0xfff / 最低不是 0x1、
-     或 `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)` 之后没有 `K60 PANEL: bring-up complete`
-     （长写路径失败）。
+- **日志**：`E:\k60-work\evidence\usblog-20261117-0245-brightness17\console.log`，245,740 B / 3,629 行；
+  `sig=11` 0、`getBytes:range|unrecognized selector` 0、无 panic。
+- **判据 1（发布层）PASS**：`:184` published 行
+  `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；
+  `:1261` entered backboardd、`:2414` first frame presented；SpringBoard 133 行。
+- **判据 2（请求可见）PASS**：请求行 14 条。`:2186` `brightness level 1024 -> level 1024 dbv 0x800`
+  （启动默认），`:3573` `brightness level 1 -> level 1 dbv 0x1`（用户拉到最低）。
+- **判据 3（最高）未测**：用户说「我没拉最高 现在是晚上」；请求行最大 `dbv 0x800`。但 bring-up
+  `:182` `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`、`:183` bring-up complete ⇒
+  12 位最大写已在面板上执行；滑块路径的最高只差用户操作。
+- **判据 4（最低）FAIL（观感）**：协议端到达 `dbv 0x1`，但用户实测「拉到最低会黑屏，只能盲点调高」
+  ⇒ DBV 1 低于这块面板的可用点亮下限；DT `bl-min-level=0x1` 只是寄存器下限，不是可见下限。
+- **判读结论**：12 位双字节路径 PASS（请求 0x800/0x1 都按 12 位缩放，未再出现 8 位的 ×16 跳变）；
+  最低端点要把 floor 提回 Xiaomi 自己的 `mi,doze-lbm-dbv-level = 0x14`（live FDT m11a）。第 6 轮。
+
+## 第 6 轮（预注册，2026-11-17；镜像 brightness-18，待飞）
+
+- **镜像**：`brightness-18`（commit `82c0f51d`）；`boot.img` / `kernel.macho` sha256 飞后填。
+- **改动（相对第 5 轮只有一个常量）**：`K60BacklightCodec.h` 的 `kMinDbvOn` 从 `0x1` 改为 `0x14`；
+  `dbvFromLevel` / `levelFromDbv` 的端点变为 `kDarkestLevel(1) -> DBV 0x14`、
+  `kMaxLevel(2047) -> DBV 0xfff`。依据：live FDT m11a 的 `mi,doze-lbm-dbv-level = 0x14`
+  （Xiaomi 自己在 doze 低亮档用的 DBV），以及第 5 轮 DBV 1 夜间黑屏。没有改任何其它路径。
+- **预注册判据**：
+  1. **PASS（发布层）**：published 行 `conformance=1 control=1`、`dbv 0xfff`；`sig=11` 0；entered 1；
+     SpringBoard ≥100；first frame ≥1。
+  2. **PASS（请求可见）**：≥3 条 `K60 BACKLIGHT: brightness…` 行。
+  3. **PASS（最低）**：最低档请求行 `dbv 0x14`，且用户能看到界面内容（不是黑屏）；观感应比第 4 轮
+     8 位最低档更暗。
+  4. **最高**：夜间不要求拉最高；若用户愿意，最高档请求行应为 `dbv 0xfff`（映射端点已由 host 单测固定）。
+  5. **FAIL**：任一 `sig=11`、无 first frame、无请求行、最低档不是 `dbv 0x14`、或最低档仍黑屏。
 - **判读命令**：`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
-  `grep -a 'K60 PANEL:' <console.log>`；`python3 scripts/check-backlight-log.py <console.log>`。
+  `grep -a 'K60 PANEL:' <console.log>`。
 
 

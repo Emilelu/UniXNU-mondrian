@@ -41,9 +41,10 @@
 
 ## 2. 它**不是**确定性的（同源也不得同字节）
 
-`firmware.py:85` 确实把 `SOURCE_DATE_EPOCH` 固定成 uefi 仓最后一次提交的时间
-（`git -C <uefi> log -1 --format=%ct`），但那只影响真正使用它的字段（`__DATE__`/`__TIME__`、
-PE 头时间戳）。**它不影响 LLD 自己派生的 CodeView build-id**，而固件卷是压缩的，一个 GUID 变了
+`firmware.py:69` 确实把 `SOURCE_DATE_EPOCH` 固定成 uefi 仓最后一次提交的时间
+（`env.setdefault('SOURCE_DATE_EPOCH', git(uefi, 'log', '-1', '--format=%ct').strip())`，注释在
+`:68`；`:85-86` 是 `fd_path()` 与 `st_size` 校验，不是这一句），但那只影响真正使用它的字段
+（`__DATE__`/`__TIME__`、PE 头时间戳）。**它不影响 LLD 自己派生的 CodeView build-id**，而固件卷是压缩的，一个 GUID 变了
 就重写整个压缩段。
 
 2026-11-16 02:31–02:47 的实测（同一检出、同一 pin、无未提交改动）：

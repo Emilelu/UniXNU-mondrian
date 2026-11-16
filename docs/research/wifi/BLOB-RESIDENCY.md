@@ -466,6 +466,11 @@ mhi_state=%d MHISTATUS=%#x MHICTRL=%#x`）。不改状态机、不改段长、�
 C 看设备侧有没有动，D 看软件有没有认账。**任何一支单独成立都不许写成「MHI 死因」**
 ——它们的共同前提是 `c7` 真的飞过；`c7` 到本文写作时**尚无 evidence 目录**（未飞）。
 
+逐行的判读流程（哪一行读数指向哪一层、四种组合各改本节哪一段、两种容易读错的形状）
+单独写在 [C7-READING-GUIDE.md](C7-READING-GUIDE.md)：`c7` 的 `console.log` 到手后按那一页
+改本节，不需要再来回一轮。该页同时记了 `c7` 实测的 **10 处**新打印（驱动侧 3 处 + MHI 侧 7 处，
+从 payload kernel 的格式串直接取出），比口头说的「八条」多两处。
+
 ### 11.4 本节与 silent 结论的关系
 
 silent 的结论（§10）**不依赖本节**：`c3` 已经用单变量把 0 字节结案，`c4`–`c6`
@@ -496,10 +501,10 @@ silent 的结论（§10）**不依赖本节**：`c3` 已经用单变量把 0 字
    `Nov  2 2026 10:03:21` 的 `ct 1793613801` 在 uefi 38 个提交里查无，
    workspace 串是 `/home/emilelu/hackios/uefi-mondrian` 而非 `/mnt/e/…`）。
 
-**仍未修的一处**（已报 Lead，等待）：`FIRMWARE-REBUILD.md` §2 第 44 行写
-`firmware.py:85` 固定 `SOURCE_DATE_EPOCH`，实际是 **`:69`**
-（`env.setdefault('SOURCE_DATE_EPOCH', git(uefi, 'log', '-1', '--format=%ct').strip())`，
-注释在 `:68`）；`:85-86` 是 `fd_path()` 与 `st_size` 校验。
+**已修**：`FIRMWARE-REBUILD.md` §2 曾把 `SOURCE_DATE_EPOCH` 的行号写成 `:85`，
+实际是 **`:69`**（`env.setdefault('SOURCE_DATE_EPOCH', git(uefi, 'log', '-1', '--format=%ct').strip())`，
+注释在 `:68`；`:85-86` 是 `fd_path()` 与 `st_size` 校验）。2026-11-16 由本线在本分支上
+改成 `:69` 并注明后两句，main 侧同步时以本分支为准。
 
 ## 13. 还开着的口子
 

@@ -969,11 +969,21 @@ panic 0、stopReason budget）。稳定事实：rampatch 返回、NVM 路径开�
 
 `run()` 先 pump/step、错误与完成谓词，再判 boot deadline、命令 deadline；完成谓词可先于过期检查返回，budget 又可遮住 command timeout。`acks` 包括非零 status 的 report，`final=1` 是最后 status，不是确认数；`dt_ms=0` 为整毫秒截断，不能写零耗时。详见 S4-SPEC.md §7.20 的源码与日志锚点。未知项仍包括设备确认、晚到/缓存响应、重试语义与具体等待路径；现有日志不能区分。保留独立 reassessment 的历史 HOLD，不把 observation-only 当功能成功。下一步仅提请批准宿主时序模型/测试（complete、两期限、ACK/status、fallback 重置）；当前不实现模型或新观测，不抬预算、不改下载模式/分片/状态机/地址，不预做 d9、不再上机。
 
+### 38. d8 宿主时序模型：已证明的软件事实与 adapter/fallback 方案（2026-11-16 18:58）
 
+Lead 的 `test/bt-d8-timing-model` 已交付：代码 `0ccdfbba5ab626bf99be65d973e45b87e389f59c`、文档 `a1858958ccb4a5b84d44c2eaac643b4b614ca32f`、台账 `bce47bf99415e7d4418f9f48f8d2a48eb4b0d22a`，分支 HEAD = origin，未合 main、未打 tag。宿主模型抽取真实 `qbt_core.c`，以假时钟/pump/ops 执行 `event` / `qbt_step` / `run` / `qbt_command`；34 场景 / 84 断言 / 8 个输入拒绝守卫，`rc=0`，17 个回归夹具全过，输入身份 `RECORDED_INPUTS_MATCH`。
 
+**宿主模型已证明的软件事实**（详见 `docs/research/bt/S4-SPEC.md` §7.21）：
 
+- `run()` 顺序：pump/step → 错误 → 完成谓词 → 全局 boot deadline → 单命令 deadline；两处比较都是 `>=`。阻塞跨过两者时 budget 先返回，command-timeout 行可被隐藏。
+- 睡眠/等待被夹到命令期限，但不夹到全局 boot 期限；晚到事件只要在期限检查前满足完成谓词，仍可返回成功。
+- 全局 TLV `acks/final` 自增与“是否匹配本次等待”无关；非零 status 的 ack 不置 `complete`；同 opcode 旧事件可完成新的等待；新命令清 `complete` 但保留预算与统计。
+- 0515 的 `dt_ms` 为整数截断，失败调用也计入 `segs`。
 
+**d8 计数分组仍是设备观测**（§7.20）：PATCH 602/602 次 `e=0`，NVM 首次 7 次（6 次 `e=0`、末次 `-60`），fallback 21 次（20 次 `e=0`、末次 `-60`），合计 630 次；两次 NVM 均 `ret=-60`。宿主模型没有 replay d8 时间戳，不能把任何机制升级成硬件结论。
 
+**仍是 UNKNOWN**：控制器逐段接受/完整 NVM、UART/DMA/IBS 时间线、真实 RX 时刻、晚到/缓存响应、重试语义、首次 NVM 约 10 s 与 fallback 快速 `e=0` 的具体机制、两次 `serving 6442` 内容是否相同、编译产物到 payload 对应、flash 门禁与硬件行为。
 
+**下一步方案（未实现、待 Lead 单独审批）**：真实 HCI adapter 与完整 firmware fallback 的宿主证据方案写在 `docs/research/bt/S4-SPEC.md` §7.22。它计划从 d8 的 manifest/frozen/235 条 series 逐条重建所有 `bsd/dev/qbt/` 源文件，真实执行 `qbt_core.c`、`qbt_linux.c` adapter 和 `btqca.c` 的 `qca_download_firmware()` / `qca_uart_setup()` / fallback，只假平台回调、合成 TLV 与事件时刻；覆盖 status/长度/期限/晚到/旧同 opcode、主/回退文件名重试、下载失败 fallback、firmware release 次数、`qbt_boot()` 失败清理与成功状态，并为每条断言准备负向控制。它仍不能证明控制器、UART/DMA/IBS、payload 对应、flash 门禁或硬件行为。
 
-
+当前本线保持干净：不实现方案、不改运行代码、不重建、不上机、不预做 d9。Lead 批准 §7.22 后才会落地代码。

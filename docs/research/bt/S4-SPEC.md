@@ -1503,7 +1503,106 @@ Lead 仅用 `fastboot boot` 飞行 `bt-d8-tlv`，未 flash。证据目录为 `E:
 
 **期限检查顺序**：`run()` 先 `pump/qbt_step`，再检查错误和完成谓词，只有未完成时才检查 `boot_deadline`，最后检查单命令 `deadline`（`patches/xnu/0500-k60-bt-qbt-new-files.patch:1791-1805`、`patches/xnu/0514-k60-bt-boot-observability.patch:43-64`）。因此跨过期限后才处理的响应仍可能先满足完成谓词；两个期限均过期时 budget 分支会隐藏 command-timeout 行。这个顺序是源码事实，不是对本次响应到达时刻的实测证明；它也不单独解释为何首次每段约 10 s、为何预算过期后的 fallback 仍连续快速 `e=0`。
 
-**结论与未知**：d8 是有效诊断观测，不是蓝牙成功图；NVM 两次尝试均未完成，初始化 `result=-60` 与系统正常启动同时成立。现有日志不能区分控制器确认、缓存/队列中的晚到响应、重试语义与具体等待路径。保留独立 reassessment 的历史 HOLD，不以本次观测抹掉它。下一步提请批准仅在宿主建立最小可重复时序模型/测试，覆盖 complete、两个 deadline、event ACK/status、fallback 重置边界；未来观测若需独立起始计数及 response status/真实 RX 时间，须另行批准。当前不实现模型、不改运行代码，不抬预算、不改下载模式、分片、状态机或地址，不预做 d9、不再上机。
+**结论与未知**：d8 是有效诊断观测，不是蓝牙成功图；NVM 两次尝试均未完成，初始化 `result=-60` 与系统正常启动同时成立。现有日志不能区分控制器确认、缓存/队列中的晚到响应、重试语义与具体等待路径。保留独立 reassessment 的历史 HOLD，不以本次观测抹掉它。Lead 已交付冻结源码的宿主时序模型，软件事实与 d8 计数分组见 §7.21；真实 HCI adapter 与完整 fallback 仍是空白，宿主证据方案见 §7.22，待 Lead 单独审批。未来观测若需独立起始计数及 response status/真实 RX 时间，须另行批准。当前不实现方案、不改运行代码，不抬预算、不改下载模式、分片、状态机或地址，不预做 d9、不再上机。
+### 7.21 d8 宿主时序模型：哪些软件事实已证明、哪些仍是 UNKNOWN（2026-11-16 18:58）
+
+Lead 在 `test/bt-d8-timing-model` 分支交付了 d8 宿主时序模型：代码 `0ccdfbba5ab626bf99be65d973e45b87e389f59c`，文档 `a1858958ccb4a5b84d44c2eaac643b4b614ca32f`，台账 `bce47bf99415e7d4418f9f48f8d2a48eb4b0d22a`。它抽取真实 `qbt_core.c`，以假时钟、假 pump、假平台回调执行实际 `event()` / `qbt_step()` / `run()` / `qbt_command()`；0514 按原 hunk 应用，0515 的观测 block 单独验证。结果 34 场景 / 84 断言 / 8 个输入拒绝守卫，`rc=0`；输入身份检查返回 `RECORDED_INPUTS_MATCH`，17 个回归夹具全过。
+
+这是**冻结源码的宿主软件行为**（d8 manifest、frozen-before/after、235 条 series 的补丁字节、0500/0514/0515 源码 SHA、应用日志顺序与 `boot.img` SHA 都被绑定），不是 d8 时间线回放，也不是控制器、UART、DMA、IBS 或硬件行为。
+
+**宿主模型已证明的软件事实**（判读 d8 时必须按这些事实读日志）：
+
+| # | 已证明的软件事实 | 对 d8 判读的含义 |
+| --- | --- | --- |
+| 1 | `run()` 顺序是：pump/step → 错误 → 完成谓词 → 全局 `boot_deadline` → 单命令 `deadline`；两处期限比较都是 `>=`。 | 阻塞跨过两个期限时，budget 分支先打印并返回，command-timeout 行可以完全不出现。d7/d8 的 timeout 计数不能当作“每段都正常”的证据。 |
+| 2 | 睡眠/等待被夹到单命令期限，但**不夹到全局 boot 期限**。 | 一次长睡眠可以跨过 90 s；budget 行只说明恢复执行时已过期，不能说明睡眠期间控制器或 TX 的状态。 |
+| 3 | 晚到事件在期限检查前满足完成谓词，即可返回成功。 | 成功返回不代表响应在期限内到达；现有日志没有真实 RX 时间，不能把成功返回等同于硬件按时应答。 |
+| 4 | 全局 TLV `acks`/`final` 的自增与“是否匹配本次等待”无关；非零 status 的 ack 不会置 `complete`。 | `acks` 是 report 计数，不是确认数；`final` 是最后一次 report 的 status，不是成功数。某次 attempt 的 `acks` 增长不能证明该次等待被回答。 |
+| 5 | 同一 opcode 的旧事件可以完成新的等待。 | 相邻 attempt 的 `sent/acks/done` 只能按基线取差并标不确定，不能证明事件属于本次命令；d8 的 attempt 边界必须靠 `done` 行和相邻 `serving` 重建。 |
+| 6 | 新命令会清 `complete`，但保留预算与统计。 | 不能用 `complete` 跨命令判断；`segs/sent/acks` 是 boot 全局统计，必须按 PATCH / NVM / fallback 分组。 |
+| 7 | 0515 的 `dt_ms` 是整数截断；失败调用也计入 `segs`。 | `dt_ms=0` 只表示观测区间不足 1 ms，不是零耗时；`segs` 包含失败尝试；完成必须看对应的 `done ret=0` 与 final 状态。 |
+
+**d8 设备观测的计数分组**（设备事实，不是宿主模型 replay；明细见 §7.20）：
+
+| attempt | 调用数 / 软件返回 | 累计基线 → 结束 / 差值 | 完成判据 | 与宿主事实的关系 |
+| --- | --- | --- | --- | --- |
+| PATCH `type=1` | 602 次；602 次 `e=0`（大小合计 146,068 B） | `(0,0) → (602,1)` / `sent +602, acks +1` | `done segs=602 final=0 ret=0`，随后 `rampatch done` | 只证明软件调用与全局计数路径；不证明控制器逐段接受。 |
+| NVM 首次 `type=2` | 7 次；前 6 次 `e=0`（dt_ms 约 10,000），第 7 次 `e=-60` / 15 ms | `(602,1) → (609,7)` / `sent +7, acks +6` | `done segs=7 final=0 ret=-60`；无 `nvm done` | `acks` 只增 6 而调用 7 次，符合“非零 status 不置 complete”；budget 在命令期限之前，不能据此算每段耗时。 |
+| NVM fallback `type=2` | 21 次；前 20 次 `e=0` / 0 ms，第 21 次 `e=-60` / 16 ms | `(609,7) → (630,28)` / `sent +21, acks +21` | `done segs=21 final=1 ret=-60` | 同 opcode 旧事件与全局计数语义使 `acks +21` 不能等同 21 段成功；`final=1` 是最后 status。 |
+| 合计 | 630 次；628 次 `e=0`、2 次 `e=-60` | `sent 630 / acks 28 / final 1` | 两次 NVM 均 `ret=-60` | 初始化失败与系统正常启动同时成立；不构成蓝牙功能验收。 |
+
+**仍是 UNKNOWN（宿主模型与 d8 日志都不能回答）**：
+
+- 控制器是否逐段接收/接受、TLV final 与硬件实际状态；完整 NVM 是否写入。
+- UART/DMA/IBS 的真实时间线、真实 RX 时刻、晚到/缓存响应、TX 排空与重试语义。
+- 首次 NVM 每段约 10 s、预算过期后 fallback 仍连续快速 `e=0` 的具体机制；d8 没有独立起始快照，`serving 6442` 也没有文件名/哈希，不能证明两次内容相同。
+- 宿主模型没有 replay d8 的时间戳，不能证明 d8 实际走了某条被建模的分支；它也没有覆盖编译产物到 payload 的对应、flash 门禁或硬件行为。
+
+**结论**：宿主模型把“源码允许什么行为”与“d8 实际发生了什么”分开：前者已由 34 场景/84 断言证明；后者仍只有 §7.20 的观测与计数，不能把任何候选机制升级成硬件结论。d8 仍是诊断观测，不是功能验收、main 基线或 d9 授权。
+
+### 7.22 真实 HCI adapter 与完整 firmware fallback 的宿主证据方案（待 Lead 审批，未实现）
+
+**状态与边界**：本节只是方案。**没有写实现、没有加测试文件、没有重建镜像、没有操作设备**；不改预算、下载模式、段长、状态机、地址，也不预做 d9。Lead 批准前不落地代码。
+
+**为什么要补**：§7.21 的宿主模型覆盖真实 `qbt_core.c`，但把 `qca_tlv_send_segment()` 换成了假边界；它没有执行 `qbt_linux.c` 的 Linux HCI adapter，也没有执行 `btqca.c` 的 `qca_download_firmware()` 主/回退全流程。d8 的 630 次段调用虽然来自真实镜像，仍缺少“adapter 如何把命令变成 qbt 命令、失败如何返回、fallback 如何在同一 `struct qbt` 上重试”的宿主证据。
+
+**输入与重建（只读）**：
+
+- 绑定 d8 manifest `3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0`、frozen-before/after、235 条 series 的补丁字节、head `91dcd0761aeb035c15de743478851fb8ce0c0417` 与 `boot.img` SHA `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`。
+- 从 235 条 series 中逐条应用所有触及 `bsd/dev/qbt/` 的补丁（0500 新建，0511/0514/0515 修改），使用精确上下文而不信任 hunk 行号；任何上下文不唯一/不匹配即失败，不做 fuzz，不读工作树当前状态。
+- 生成物放仓库外工作目录；只编译宿主可执行文件，不进入 XNU 构建、不生成 payload、不碰设备。
+
+**被测真实代码与假边界**：
+
+| 层 | 真实执行 | 允许的假件 |
+| --- | --- | --- |
+| qbt 核心 | `qbt_core.c` 全部（H4 解析、event、qbt_step、run、qbt_command、qbt_delay） | `qbt_platform` 的时钟、pump、wait_until、uart_write、uart_drained、receive、allocate/release、firmware_get/put 由夹具提供。 |
+| Linux HCI adapter | `qbt_linux.c` 的 `__hci_cmd_sync_ev` / `__hci_cmd_sync` / `__hci_cmd_send` / `__hci_reset_sync` / `request_firmware` / `release_firmware` / skb 与分配助手 / `qbt_boot()` 的失败清理 | firmware 内容、事件到达时刻与 event 字节是合成输入；不假装真实固件或控制器。 |
+| btqca 下载 | `btqca.c` 的 `qca_download_firmware()`、`qca_tlv_check_data()`、`qca_get_alt_nvm_file()`、`qca_uart_setup()`、`qca_set_bdaddr()`、fallback 调用链 | 固件文件为最小合法 TLV 合成字节；文件名只用于区分 attempt，不声称与 d8 的 6,442 B 相同。 |
+
+**场景矩阵（每个场景都要有正向与破坏不变量的负向控制）**：
+
+| 组 | 场景 | 期望 |
+| --- | --- | --- |
+| A. adapter 语义 | `__hci_cmd_sync_ev` 收到 status=0 的 command complete | 返回 skb，长度与首字节符合 adapter 约定，`qbt_command` 返回 0。 |
+| A | status 非 0 | adapter 返回 `-EIO`；调用方拿到负值，不把 report 当成功。 |
+| A | 长度不足/过长/首字节非 0 | 分别返回 `-EILSEQ` / 适配层拒绝，覆盖 d8 中“response size mismatch”路径。 |
+| A | 无事件、跨过命令期限 | `-ETIMEDOUT`；检查没有误用 boot budget。 |
+| A | 晚到事件先满足完成谓词 | 返回成功，但夹具记录事件注入时刻晚于名义期限；断言这是软件顺序，不是硬件按时。 |
+| A | 同 opcode 旧事件 | 能完成新的等待，验证 §7.21 第 5 条；测试必须显式标注“旧事件”而非只断言返回值。 |
+| A | `__hci_cmd_send` 的 skip 路径 | 只入队、不等完成；不产生 complete，不改变 `qbt` 的 service 状态。 |
+| B. 完整下载 | PATCH 主文件多段，最后一段强制 `QCA_SKIP_EVT_NONE` | 每段经真实 adapter；最后一段有 ack；`done type=1 segs=N final=0 ret=0`。 |
+| B | NVM 主文件名请求失败 → `qca_get_alt_nvm_file()` 的 `.bin` 重试 | 只重试一次；记录两个文件名；第二次失败时返回原错误，不无限重试。 |
+| B | NVM 主下载在段 N 返回错误 → `qca_uart_setup()` 的 fallback 改名并第二次下载 | 第二次使用 fallback 文件名与同一合成字节；成功则 `ret=0`；失败则保留第二次错误。 |
+| B | fallback 下载也失败 | 最终错误来自 fallback；`done` 的 `type/ret` 可区分两次 attempt，不把第一次的 segs 算进第二次成功。 |
+| B | firmware_get 返回错误/`release_firmware` 调用次数 | 请求失败不 release；成功路径恰好 release 一次；避免 double-free。 |
+| C. 失败/复位边界 | rampatch 失败 | `qca_uart_setup()` 立即返回，不进入 NVM；`qbt_boot()` 清理 `startup_owner`、`boot_deadline`、`ibs`、命令偏移与状态。 |
+| C | NVM 失败 | 返回原错误；`qbt_boot()` 的 `info.state=3`、`info.error=e`，不得残留 `boot_deadline` 或半条命令。 |
+| C | HCI_RESET / bdaddr 失败 | 错误向上返回；fallback 不会跨过 reset 失败被错误复用；`qbt_boot()` 的统计与状态按源码路径变化。 |
+| C | 成功路径 | `startup_owner` 释放、`boot_deadline=0`、`info.state=2`、`stats.resets++`；服务阶段字段不被测试改写。 |
+
+**负向控制（每条正向断言都要有能失败的孪生）**：
+
+- 把 status 非 0 当成功 → 测试必须红。
+- 把同一个 opcode 的旧事件当本次响应 → 测试必须红。
+- 让 fallback 不重试或重试两次 → 测试必须红。
+- 在失败路径保留 `boot_deadline` / `startup_owner` → 测试必须红。
+- 把 `segs` 的失败尝试算作完成 → 测试必须红。
+- 把合成 TLV 当成真实固件内容或控制器接受 → 文档与断言都必须拒绝这种表述。
+
+**验收标准**：
+
+1. 全部场景在宿主确定性执行，退出码 0；每个场景有唯一名称与失败行号。
+2. 输入绑定失败（manifest/frozen/series/patch SHA/boot.img 任一不符）必须拒绝运行，不能 fallback 到 latest 或其他 checkout。
+3. 负向控制全部按预期失败；正向控制全部通过。
+4. 输出明确打印 `HOST-ONLY` 与 `NOT RUN` 清单；日志可复现，不需要网络、设备、XNU 构建或 root。
+5. 代码审查通过后，才讨论是否把它作为 ⑦ 的补充证据；它不替代设备 ⑧。
+
+**这套证据仍不能证明**：控制器接收/接受、完整 NVM、UART/DMA/IBS 时间线、编译产物到 payload 的对应、flash 门禁覆盖、d8 物理失败机制或蓝牙功能可用。它只能证明：在冻结源码上，adapter 与完整 fallback 的**软件路径**按上述契约工作。
+
+**请求**：请 Lead 单独审批本方案（或指定要增删的场景）。批准前本线保持干净、不实现、不重建、不上机。
+
+
 
 ---
 

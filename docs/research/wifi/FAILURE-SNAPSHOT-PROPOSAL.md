@@ -1,117 +1,114 @@
 # Failure-reachable WiFi snapshot proposal
 
-**Status: review only; NOT applied. c8 remains HOLD.** No build, rebuild, device
-boot, current image/manifest change, MSI address/INTID/segment/window change is
-part of this proposal. The accompanying [unapplied diff](<../../../scripts/proposals/wifi-failure-snapshot.diff>) is a review artifact, not a ready-to-build generator patch.
+**Status: review only; NOT applied or ready to apply/build. c8 remains HOLD.** The
+[unapplied diff](<../../../scripts/proposals/wifi-failure-snapshot.diff>) changes no
+current driver, generator, artifact or manifest. No build, rebuild, boot, MSI
+address/INTID/segment/window change is authorized by this proposal.
 
-## Scope and reachability
+## Reachability and safe default
 
-The full MHI snapshot covers **only the non-mission return from
-mhi_sync_power_up()**. It runs after the wait has returned but **before
-mhi_power_down(c,false)** destroys the pre-failure state. It does not cover an
-immediate mhi_async_power_up error, every firmware-load error, later crash, or
-all failure paths. The small board-only pre/post-cleanup snapshots also run at
-the existing worker done label. This is deliberately not advertised as complete
-failure coverage.
+The new hook runs only at the non-mission return from mhi_sync_power_up(),
+immediately before the existing mhi_power_down(mhi_cntrl,false) call. It does not
+cover the immediate mhi_async_power_up() error return, every firmware-load error,
+a later crash, or every failure path. Small board-counter snapshots also run at
+the existing worker done label, before and after existing cleanup.
 
-Existing evidence: [platform:690](<../../../drivers/PongWifi/PongWifiPlatform.cpp#L690>) branches to done when nw_wifi_start fails; the success loop and
-net-conditional periodic print at [platform:692–711](<../../../drivers/PongWifi/PongWifiPlatform.cpp#L692-L711>) are never reached in c7. Their absence says nothing about msiArrivals.
-The prospective insertion point is generated c8 pm.c:1307–1308, immediately
-before mhi_power_down; its source-tree equivalent is Linux 7.0.14
- drivers/bus/mhi/host/pm.c:1294–1295. The latter is outside this repository.
+[Platform:690](<../../../drivers/PongWifi/PongWifiPlatform.cpp#L690>) branches to
+done when nw_wifi_start fails. The later success loop and net-conditional periodic
+print are not reached in c7; their absence says nothing about msiArrivals.
 
-## What is collected (worker context only)
+**Being before power-down does not establish allocation or MMIO lifetime.** The
+new timeout helper takes no controller argument, dereferences no controller,
+mhi_dev, CH/ER/CMD context, event object or ring, and reads no register. It uses
+lx_log with a literal SKIP reason, then asks for module-static counters only.
+A mapped address, non-null pointer, hostMmioReady, valid arithmetic range, or
+cached EE/PM state is not accepted as a lifetime qualification.
 
-| Layer | Values | Interpretation boundary |
+## Collected and skipped values
+
+| Layer | Proposed output | Interpretation boundary |
 | --- | --- | --- |
-| Hardware dispatch | existing ArmCpu SPI dispatcher callback count for INTID 172 (incremented before callback at ArmCpu.cpp:407); GICD ISENABLER, ISPENDR, ISACTIVER and IROUTER via existing gDist | count measures GIC dispatch, not logical Linux IRQ calls; no second GIC mapping |
-| Receiver callback | existing msiEntries, msiArrivals (callback with nonzero MsiStatus), msiEmptyStatus | entries are not number of individual vector bits; beginning/end entry count exposes some races |
-| Final receiver | DBI MSI enable/mask/status, PARF group mask before power-down, and pre/post worker cleanup | read only; existing cleanup writes remain visibly separate |
-| Software shim | pump calls, polling raises, all raise_all calls, logical IRQ dispatches, polling enabled | never label these MSI arrivals; lx_irq_raise_all marks registered IRQs pending even without endpoint interrupts |
-| MHI registers | cached EE/POR plus MHICTRL/MHISTATUS/BHI_EXECENV, CCABAP/ECABAP/CRCBAP low/high, control/data base/limit, ERDBOFF/CHDBOFF; each read return code | low/high parts are not an atomic 64-bit read; errors do not become successful zero values |
-| Context ranges | CH/ER/CMD actual CPU pointers, bus addresses and allocation lengths | compare with inclusive controller envelope and retained arena; no physical-zero inference |
-| ER state | CPU base/host rp/wp; bus base/len/alloc/element size; db_addr, ctxt_wp; host-visible context rbase/rlen/rp/wp/msivec | CPU-visible values only, not proof device consumed a context or performed DMA |
+| GIC dispatch | Existing INTID 172 owner count through a new count-only ArmCpu accessor; return code and count-available flag | The existing counter is incremented before the callback at [ArmCpu:407](<../../../drivers/ArmCpu/ArmCpu.cpp#L407>); it is not a logical Linux IRQ count. An unavailable count is not zero evidence. |
+| Receiver callback | Existing msiEntries, msiArrivals and msiEmptyStatus atomic values | msiArrivals counts callbacks which observed nonzero MsiStatus, not individual vectors. These are prior ISR observations, not current register values. |
+| Software shim | Pump calls, polling-triggered raises, all raise_all calls and logical handler dispatches | Forced software dispatch is distinct from hardware dispatch. Counts are module-lifetime cumulative values, without a session baseline. |
+| MHI objects and registers | SKIP with allocation/powered-MMIO lifetime unproven | No cached EE/PM, pointer, context length, ring value, MHI register or payload read is attempted. |
+| Receiver and GIC registers | SKIP with powered-MMIO lifetime unproven; enable/mask/status/pending/active/route unavailable | No DBI, PARF, distributor read or new GIC mapping is attempted. No successful zero values are fabricated. |
 
-The existing ISR has logging. The proposal removes those prints and keeps only
-existing counter/ACK/wakeup behavior; **no new logging, allocation or snapshot
-calls enter interrupt context**. See [ArmCpu:386–420](<../../../drivers/ArmCpu/ArmCpu.cpp#L386-L420>) and [platform:642–657](<../../../drivers/PongWifi/PongWifiPlatform.cpp#L642-L657>).
+The existing ArmCpu dispatcher and its one counter increment remain byte-for-byte
+unchanged. Its module-static owner array is published by the existing release
+store to gSpiUsed at [ArmCpu:449](<../../../drivers/ArmCpu/ArmCpu.cpp#L449>); the
+accessor uses an acquire load, bounds-checks used, then atomically reads the
+existing counter. It never accesses gDist. No new ownership slot is used.
 
-PARF +0x228 is an existing ACK write site, not an established safe status-read
-register in the audited evidence. This proposal **does not read it**, invent a
-clear operation, or infer that a mask bit proves signal routing. Additional
-PARF status reads need a documented read-semantics source first. DBI +0x830
-already has read/W1C usage in the callback; the snapshot performs no W1C write.
+The existing WiFi ISR has logging. The proposed diff removes those prints while
+preserving counter, ACK, mask and wake behavior. No new snapshot call, logging,
+allocation or ring mutation enters interrupt context. Existing cleanup writes
+remain unchanged; these changes do not prove their powered-MMIO lifetime or make
+existing c8 register reads lifetime-safe. In particular, generated c8
+pm.c:1300–1305 already reads MHISTATUS/MHICTRL and calls the execution-environment
+and MHI-state readers before the new hook. This proposal makes only the added
+diagnostic counter-only; it does not certify the whole existing timeout path.
 
-## Mapping checks and limits
+## Why the richer snapshot is deferred
 
-The current source maps Linux dma_alloc_coherent to lx_dma_alloc, then to the
-board dmaAlloc. The board assigns both CPU and bus addresses inside the retained
-arena ([platform:537](<../../../drivers/PongWifi/PongWifiPlatform.cpp#L537>));
-dmaMap uses the same arithmetic at [platform:541](<../../../drivers/PongWifi/PongWifiPlatform.cpp#L541>).
-This is a current-source check, not historical c8 compile attestation:
+The lifetime audit found no callback-owned reference, lock or lease spanning this
+hook. In the inspected Linux 7.0.14
+[unregister path](<E:/k60-work/impl/wifi/work/src/linux-7.0.14/drivers/bus/mhi/host/init.c#L1060>),
+mhi_unregister_controller tears down IRQ/workqueue state, frees command/event/
+channel metadata and releases the device. The generated c8
+[context deinit path](<E:/k60-work/scratch/c8-scheduling-review/opt__k60__trees__k60build__wifi__ath11k-c8__mhi__init.c#L256>)
+frees context/ring allocations independently. Valid pointer arithmetic cannot
+exclude teardown or reuse. The audit identifies teardown endpoints; it does not
+prove that a free actually races this timeout. The active caller expects the
+controller to remain alive, but this added diagnostic has no demonstrated
+spanning reference or teardown exclusion. See the companion
+[lifetime audit](<FAILURE-SNAPSHOT-LIFETIME-AUDIT.md>). Power readiness is a
+separate missing proof from mapping and allocation retention.
 
-- DMA arena bus interval is [Iova+4096, Iova+4096+ArenaBytes); the separate
-  retained MSI landing page [Iova,Iova+4096) is **not** a context allocation.
-- For nonzero length n, inclusive envelope containment is checked without
-  addition overflow: bus >= low, bus <= high, n-1 <= high-bus.
-- Arena containment similarly uses n <= end-bus after bus bounds, and CPU
-  pointer subtraction only after pointer bounds. CPU-to-bus exact match is
-  checked separately from containment. A failed ER context check prevents its
-  CPU dereference. Zero length is not a valid allocated range.
-- Check aligned ring allocation span (pre_aligned/dma_handle/alloc_size) and
-  active span (base/iommu_base/len) separately. The emitted checks compare
-  context rbase/rlen with ring bus/len, validate host and shared rp/wp bounds
-  and element alignment, and compare ctxt_wp with the context wp address.
-- The reviewer must compare CCABAP, ECABAP and CRCBAP register pairs with the
-  emitted CH, ER and CMD context bus addresses. These are sequential reads;
-  neither that comparison nor range validation changes device state.
+A future richer proposal needs an exact callback lifetime proof, stable context
+ownership, teardown/reset exclusion and a powered-MMIO lease covering each read.
+It must not replace those requirements with a fabricated provider or a boolean
+that records only earlier initialization. Safe field capture and multiword/shared
+read stability also need review before any register/context data is collected.
 
-**Blocker to promotion:** verify generated dma_alloc_coherent routes these
-allocations through the retained arena in the exact candidate. If some context
-uses a different allocator, classify it explicitly and do not weaken the guard
-until that allocator's valid CPU/bus mapping is documented. Range validation is
-host bookkeeping, **not** a page-table walk, cache coherency test, proof of
-current SMMU translation, or proof of device DMA visibility. No invalidation,
-cache cleaning, doorbell readback or payload bytes are added.
+The [host test](<../../../scripts/tests/test-wifi-failure-snapshot-proposal.py>)
+retains **offline-only** range and ring arithmetic. Its artificial input values
+are not runtime observations, do not permit dereference and do not prove a page
+table, cache visibility, current SMMU translation, or device DMA. The desired
+future checks remain: actual CH/ER/CMD pointer-plus-length versus envelope and
+mapped arena; separate original/aligned ring spans; host/shared pointer bounds;
+and context bus addresses versus CCABAP/ECABAP/CRCBAP. None is collected now.
 
-## Stability and integration blockers
+## Transformations and stability limits
 
-1. Snapshot reads are sequential, not a globally atomic event. ISR count can
-   change between lines; entries start/end helps identify but cannot eliminate
-   racing reads. Shared packed context fields can change or tear. Logging also
-   changes timing. Unchanged rp never proves absence of device work.
-2. Snapshot is inside the existing cooperative worker, before power-down; it
-   does not call lx_pump, schedule work, lock the MHI transition queue, or write
-   cached EE/PM state. Existing powered-MMIO guard protects board reads. A
-   logical access failure cannot guarantee the interconnect will not hang if
-   hardware power disappeared; promotion needs exact power-lifetime review.
-3. The diff targets repository-owned files only. Linux MHI pm.c is transformed
-   in-memory by a new strict generator helper after the existing patch pairs;
-   the shared shim source is instrumented after the timer adapter and before
-   writing generated lx_rt_pong.c. Both transformations require every anchor
-   exactly once. No generated or external source is edited by this task. The
-   proposed allowlist adds only the two nw_wifi-prefixed board diagnostics;
-   their prefix survives the existing namespace rule. Generator execution,
-   compile/link and hardware behavior remain untested.
-4. No undocumented BHIE status-clear, transfer retry, protocol-sequence change,
-   MSI data/address rewrite or extra GIC ownership slot is proposed.
+The diff targets three repository-owned files: ArmCpu, PongWifiPlatform and the
+ath11k generator. A strict source transformer adds the no-argument helper after
+the generator's existing MHI pm.c patch pairs; another adds module-static shim
+counters after the existing timer adapter. Each anchor must occur exactly once;
+missing, duplicate and repeated-application inputs fail closed. External/generated
+files are not edited. Only the board-counter diagnostic is added to the import
+allowlist; its existing nw_wifi prefix rule is retained.
 
-## Host/static validation (not driver validation)
+Individual atomic counter loads do not form a globally atomic snapshot. ISR
+counts can advance between loads, 32-bit callback counters can wrap, and logging
+changes timing. A zero count constrains only that counter's observed interval;
+SKIP or count_available=0 means unavailable. The proposal does not infer that
+SBL never emits MSI, that an event ring is unchanged, or that a route works.
+No counter is cleared or reset; no lx_pump, doorbell, BHIE clear/retry, EE/PM state
+write or cache operation is added by a snapshot helper.
 
-Run from the repository:
+## Host validation
 
-    python3 scripts/tests/test-wifi-failure-snapshot-proposal.py
+Run the test with Python -B; it reconstructs proposed files only in memory,
+parses the generator AST and executes selected pure source transformers. It
+checks unchanged GIC dispatch, strict anchors, no new ISR logging, no object/MMIO
+access in new helpers, and offline arithmetic boundaries. Negative cases inject
+MHI pointer dereferences, raw register calls and board-window reads and must fail.
 
-The test reconstructs the proposed files only in memory, parses the resulting
-generator AST, and executes selected pure source transformers. It checks the
-timeout hook before power-down, unchanged GIC dispatcher, absence of snapshot
-MMIO writes and ISR logging, software counter labels, and range/ring boundaries.
-It neither writes reconstructed files nor compiles C/C++ or validates hardware.
-
-With --pm-source and --shim-source, it also checks exact retained source anchors
-and the existing timer adapter followed by the new shim instrumentation.
-Eight tests passed against retained c8 MHI pm.c and shared lx_rt.c on 2026-11-16.
-A separate git apply --check passed; no patch was applied. These results verify
-host transformations, not generator build/link output or device behavior.
-Parent must independently inspect the final diff and rerun this test before
-committing the proposal. **c8 remains HOLD after these host tests pass.**
+On 2026-11-16 the current revision passed **11/11 tests** against retained c8 pm.c
+and shared lx_rt.c, plus git apply --check. The default invocation omits the
+external-source case unless --pm-source and --shim-source are supplied. No
+reconstructed source is written and no patch is applied. C/C++ compilation,
+linking, complete generator execution and hardware behavior remain untested.
+Parent must independently review the final diff and repeat the host checks.
+**c8 remains HOLD after these checks pass.**

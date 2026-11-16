@@ -90,7 +90,7 @@ def check_catalog() -> list[str]:
 def check_wifi_series() -> list[str]:
     """Every wifi patch must be in series and named by the README."""
     if not WIFI.is_dir():
-        return []
+        return ["patches/wifi 不存在"]
     series_file = WIFI / "series"
     if not series_file.is_file():
         return ["patches/wifi/series 不存在"]

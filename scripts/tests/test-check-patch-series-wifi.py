@@ -54,6 +54,10 @@ def main() -> int:
         problems = module.check_wifi_series()
         check("a missing series patch is reported", any("0003.patch" in item and "不存在" in item for item in problems), str(problems))
 
+        module.WIFI = root / "missing"
+        problems = module.check_wifi_series()
+        check("a missing wifi directory is reported", problems == ["patches/wifi 不存在"], str(problems))
+
     if failures:
         print(f"TESTS OK 0 cases ({failures} failure(s))")
         return 1

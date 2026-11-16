@@ -341,51 +341,51 @@ prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppi
 
 [hardware.bluetooth]
 status = "active"
-name = "Bluetooth / d8 observation (init failed)"
-paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "patches/xnu/0511", "patches/xnu/0512", "patches/xnu/0514", "patches/xnu/0515", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/tests/test-k60-bt-0514-boot-observability.py", "scripts/tests/test-k60-bt-0515-tlv-counters.py", "scripts/check-image-args.py"]
-why = "当前范围仅为 bt-d8-tlv 的 TLV 逐段观测，不宣称蓝牙可用；d7 与 d8 均已上机，d8 的 PATCH 软件路径返回成功、两次 NVM 尝试均失败，最终 result=-60。旧 parked/从未上机说明已撤回（docs/research/bt/S4-SPEC.md:1396）。⑦是离线核验，⑧记录本次设备观测结果；默认 --flash 必须实际覆盖 bluetooth。"
+name = "Bluetooth / 0516 UART clock candidate"
+paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "patches/xnu/0511", "patches/xnu/0512", "patches/xnu/0514", "patches/xnu/0515", "patches/xnu/0516", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/tests/test-k60-bt-0514-boot-observability.py", "scripts/tests/test-k60-bt-0515-tlv-counters.py", "scripts/tests/test-bt-0516-uart-clock.py", "scripts/tests/fixtures/bt-0516-clock-harness.c", "scripts/check-image-args.py"]
+why = "当前范围是 bt-0516-uart-clock 候选构建与单变量验证：在既有 K60 S4 下载路径上只接入 QcaBluetooth 986d631 的 UART clock/control 修复，不宣称蓝牙可用；d8 仍是 90 s 预算下 PATCH 返回成功、两次 NVM 尝试失败、result=-60 的失败观测。0516 尚未上机；默认 --flash 必须实际覆盖 bluetooth。"
 
 [hardware.bluetooth.step.same_model]
 done = true
-evidence = "同型调查沿用 docs/research/bt/RESEARCH.md:157-161：SM8475 Pong 无蓝牙传输实现，phk110-port 只有 143 行只读诊断；sheng 属 SM8550/WCN7850，不能照搬板级参数。本次不新造传输，只为既有 K60 S4 路径加逐段日志，范围见 docs/research/bt/S4-SPEC.md:1459。"
+evidence = "同型调查沿用 docs/research/bt/RESEARCH.md:157-161：SM8475 Pong 无蓝牙传输实现，phk110-port 只有 143 行只读诊断；sheng 用同一 QcaBluetooth 栈已做到 AirPods Pro 配对/重连/A2DP（D:/Android/k60-ios/UniXNU/docs/devices/sheng.md:627-629），但 sheng 是 SM8550/WCN7850，板级参数不能照搬。没有 QCA6490 + XNU 蓝牙成功先例，0516 是第一次单变量验证；上游修复见 /mnt/e/hackios/QcaBluetooth 的 986d631。"
 
 [hardware.bluetooth.step.official]
 done = true
-evidence = "官方 QcaBluetooth 组件调查见 docs/research/bt/RESEARCH.md:82-107（UniXNU/components.toml:494-508，revision 22ff97f9，验证机型 sheng）；契约 https://unixnu.com/porting/bluetooth 与 https://unixnu.com/reference/components。d8 沿用已适配的 QCA TLV 调用，不改变官方协议参数，静态对照见 patches/xnu/0515-k60-bt-tlv-counters.patch:17-36。"
+evidence = "官方 QcaBluetooth 组件调查见 docs/research/bt/RESEARCH.md:82-107（UniXNU/components.toml:494-508，revision 22ff97f9，验证机型 sheng）；契约 https://unixnu.com/porting/bluetooth 与 https://unixnu.com/reference/components。2026-11-16 用户确认 BT 子目录接受 GPL-2.0；上游 986d6319d1d2819b27ed2c9786776f10bf63cc76（2026-11-11，fix: send control bytes queued behind a stopped UART clock，5 文件 +82/-14）是本次唯一移植对象；Linux/小米 mondrian btqca.c 是 NVM 路径对照，不直接粘贴。"
 
 [hardware.bluetooth.step.decompile]
 done = true
-evidence = "本机 FDT 与厂商代码事实沿用 docs/research/bt/RESEARCH.md:36-63：QCA6490、UART SE20 0x894000/0x4000、wrapper 0x8c0000、SID 0x483、BT_EN GPIO81/XO204/CTS76/RTS77/TX78/RX79；20G81 用户态边界见 docs/research/bt/RESEARCH.md:127-152。d8 不改这些地址、引脚、SMMU 或状态机，仅观测现有下载调用。"
+evidence = "本机 FDT 与厂商代码事实沿用 docs/research/bt/RESEARCH.md:36-63：QCA6490、UART SE20 0x894000/0x4000、wrapper 0x8c0000、SID 0x483、BT_EN GPIO81/XO204/CTS76/RTS77/TX78/RX79；20G81 用户态边界见 docs/research/bt/RESEARCH.md:127-152。0516 不改地址、引脚、SMMU 或状态机，只改 qbt_core 的 clock/control 写路径，见 patches/xnu/0516-k60-bt-qbt-uart-clock.patch:33-41、:45、:78、:97、:107、:120、:132。"
 
 [hardware.bluetooth.step.wide]
 done = true
 catalog_checked = true
-catalog_result = "既有组件全表调查见 docs/research/bt/RESEARCH.md:82-107、:153-161：QcaBluetooth 可适配但只验证 sheng；QcomGeniSpi 仅能参考 GENI 时序；Pong 无实现、phk110-port 只有诊断，Linux btqca/hci_qca 是协议参考。d8 问题是当前 K60 NVM 路径预算失败的观测缺口，不需要换组件或另造驱动。"
-evidence = "跨机型证据与边界沿用 docs/research/bt/RESEARCH.md:153-161；用户态 AOP/SPU 缺口另见 docs/research/bt/MARCONI-AOP-GAP.md:1，不在本次观测范围。d7 无逐段计数，不能用 timeout=0 或理论 27 段证明正常慢，撤回说明见 docs/research/bt/S4-SPEC.md:1425-1457。"
+catalog_result = "既有组件全表调查见 docs/research/bt/RESEARCH.md:82-107、:153-161：QcaBluetooth 可适配但只验证 sheng；QcomGeniSpi 仅能参考 GENI 时序；Pong 无实现、phk110-port 只有诊断，Linux btqca/hci_qca 是协议参考。0516 直接复用 QcaBluetooth 986d631 的通用传输修复，不换组件、不另造驱动。"
+evidence = "跨机型证据与边界沿用 docs/research/bt/RESEARCH.md:153-161；D:/Android/k60-ios/UniXNU-sheng/porting.toml:345 与 D:/Android/k60-ios/UniXNU/docs/devices/sheng.md:627-629 证明同一 QcaBluetooth 栈在 WCN7850 上已到 AirPods；设备页没有 QCA6490 蓝牙跑通先例，不能把 sheng 板级参数或成功直接外推。d7/d8 的 timeout=0、理论 27 段、final=1 均不能证明 NVM 完成，撤回说明见 docs/research/bt/S4-SPEC.md:1425-1457。"
 
 [hardware.bluetooth.step.plan]
 done = true
-evidence = "本轮只飞已构建的 bt-d8-tlv（不重建）：相对 d7 的 0515 只在原 qca_tlv_send_segment 调用返回后记录 i/size/dt_ms/e/sent/acks，每次 download out 打 type/segs/final/ret，power 行追加全局 TLV 统计；方案与边界见 docs/research/bt/S4-SPEC.md:1459-1485。保留 90 s 预算、10 s 命令期限、243 B 段长、dnld_mode/type、时钟/SMMU/窗口及 106 文件固件；PATCH/NVM/fallback 分别取累计差，失败尝试不算完成，注明 console 计时扰动；实飞前不预做 d9。"
+evidence = "本轮只构建并准备单变量飞行 bt-0516-uart-clock，不重建 d8 产物：在 235 条 d8 series 末尾只追加 0516（+35/-10，4 文件），不改 90 s budget、10 s 命令期限、243 B 段长、dnld_mode/type、状态机、时钟/SMMU/窗口或 106 文件固件；候选构建后必须 verify-boot-image 与 check-image-args，只有候选 sha 与 manifest 一致才可上机。回滚图固定 d8 boot 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b；kernel args 保持 k60bt=1 pong_bt_late=1；成功/失败判据见⑧，实飞前不预做 d9；方案与边界见 docs/research/bt/S4-SPEC.md:1459-1485 与 E:/k60-work/artifacts/bt-d8-tlv/build-manifest.json。"
 
 [hardware.bluetooth.step.deep]
 done = true
-evidence = "源码判读见 docs/research/bt/S4-SPEC.md:1425-1457：run 先 pump/step，再判错误与完成谓词，未完成才判 boot_deadline、命令期限；晚到响应可能先满足完成谓词，跨过两期限会隐藏 command timeout；waiting 是布尔值。patches/xnu/0500-k60-bt-qbt-new-files.patch:1622-1627 与 :1815-1819 维护全 boot 的 tlv_acks/sent，含 PATCH 与 fallback；patches/xnu/0515-k60-bt-tlv-counters.patch:23-36 在返回后打印、segs++ 后才判 ret，所以 segs 包括失败尝试。原调用参数逐字不变，不能从累计数或 dt 单独裁定机制。"
+evidence = "旧 qbt_core 只在 pending 时 clock_on；control 字节存在时不会拉时钟；qbt_deadline 对 control idle 返回 0；uart_write 被拒时无退避/计数。0516 逐行移植 986d631：uart_write() 在 idle 拒写时设置 write_retry_at=t+QBT_TX_POLL 并 tx_refused++；clock 门改为 pending||control_length；clock(false) 内若收到 wake/control 则 clock_reverts++ 并重新 clock_on；qbt_deadline 返回 write_retry_at；qbt_fail/qbt_shutdown 清零。K60 旧位置 patches/xnu/0500-k60-bt-qbt-new-files.patch:1715-1773、:2634；0516 patch:33-41、:45、:78、:97、:107、:120、:132。保留 0514 boot budget 块与 0515 计数语义；源码判读见 docs/research/bt/S4-SPEC.md:1425-1457。"
 
 [hardware.bluetooth.step.verify]
 done = true
 local_verified = true
-evidence = "2026-11-16 15:28 在本树重验现有 d8 离线三类证据；日志 E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log:2-75，D8_LOCAL_RECHECK_RC=0。仅确认观测补丁契约和该镜像完整性；设备结果另记于⑧与 docs/research/bt/S4-SPEC.md §7.20；d7/d8 result=-60 均为蓝牙启动功能失败。旧 manifest 的 eight_step=passed 只来自六项 build 检查，不追改旧产物；后补闭环说明见 docs/research/bt/S4-SPEC.md §8。"
-static_check = "逐行对照 patches/xnu/0515-k60-bt-tlv-counters.patch:17-36：原 qca_tlv_send_segment(hdev, segsize, segment, config->dnld_mode, soc_type) 参数不变；只增加返回后的逐段/汇总/结果日志与局部计数，预算/段长/下载模式/时钟/SMMU/窗口不改；孪生补丁字节一致。scripts/tests/test-k60-bt-0515-tlv-counters.py 的 28 条宿主静态契约实际通过，非控制器功能验证。"
-unit_test = "实际命令 python3 scripts/tests/test-k60-bt-0515-tlv-counters.py → TESTS OK 28 case(s)；python3 scripts/tests/test-k60-bt-0514-boot-observability.py → TESTS OK 33 case(s)，日志 E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log:2-68。断言原调用不变、禁改边界、返回后日志、失败尝试计数与 series 接线；不能证明真实 TLV 完成或蓝牙可用。"
-artifact_check = "本树 verify-boot-image.py --manifest /mnt/e/k60-work/artifacts/bt-d8-tlv/build-manifest.json → OK；check-image-args.py 对真实 boot.img → OK (31 arguments, 598 bytes)，日志 E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log:69-75。boot sha256=0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b；kernel_built=6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331；series=235/namespace=names+sizes/f7aa7d63470b891d/file=9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8；真实参数后缀 k60bt=1 pong_bt_late=1，完整 payload_args 见 E:/k60-work/artifacts/bt-d8-tlv/build-manifest.json:40；manifest sha256=3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0，原图及 manifest 均保留。"
+evidence = "2026-11-17 在本树验证 0516 三类离线证据：python3 scripts/tests/test-bt-0516-uart-clock.py → TESTS OK 81 case(s), 0 failure(s)，含 2 个 clock 场景、4 个源码变异和 22 个 d8 adapter 场景；d8 adapter runner 在 235 条前缀上仍为 TESTS OK 90 case(s)。仅证明宿主软件路径与输入绑定，不证明控制器/硬件；候选产物检查见 artifact_check 的构建后回填要求。"
+static_check = "逐行对照 /mnt/e/hackios/QcaBluetooth 提交 986d631 的 5 文件 diff 与本树 patches/xnu/0516-k60-bt-qbt-uart-clock.patch:33-132：4 个源码文件 +35/-10，语义与上游一致；上游 tests/runtime.c 不进入本树，改由 scripts/tests/fixtures/bt-0516-clock-harness.c 覆盖。保留 0514 的 boot_deadline/run() 顺序与 0515 的 segs/汇总语义；重建源 pin qbt_core.c 653723e92606893f9b91d2273193e5dabd440bbdba3dff5229160c113992e545、qbt.h 23848f8d892420f79cb7ed3aa4d91079cc9f0b9378c888965b5abc332afe24e0、qbt_internal.h 400f285f5f4e3277ff4c1d9e5a214409672a78ba76d3789213d3c619db729104、qbt_linux.c 1281330305072c85bd6e7cf8fc67e56f0ba689f58b8eae7373303ed1d20b14c7。"
+unit_test = "实际命令 python3 scripts/tests/test-bt-0516-uart-clock.py → TESTS OK 81 case(s), 0 failure(s)；python3 scripts/tests/test-k60-bt-0514-boot-observability.py → 33 case(s) OK；python3 scripts/tests/test-k60-bt-0515-tlv-counters.py → 28 case(s) OK。错误注入和 4 个源码变异均实际变红；不能证明控制器 UART/DMA/IBS 或真实 NVM 完成，也不能证明蓝牙可用。"
+artifact_check = "构建前基线：d8 manifest sha256=3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0、verify-boot-image.py --manifest /mnt/e/k60-work/artifacts/bt-d8-tlv/build-manifest.json → OK；候选 bt-0516-uart-clock 由本次 build 生成，生成后必须回填 boot.img/kernel/payload/series 236/check-image-args 的实际 sha 与结果，未回填前不得作为⑧证据、不得上机。候选 series 全文件 sha256=e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db2，0516 sha256=0134a31bedb65fe6669a7ce7745bc5b9fcb6a7cd44ac66f96f3f604bb01ac6c8。"
 
 [hardware.bluetooth.step.device]
-done = true
-evidence = "d8 已由 Lead 完成一次只读诊断飞行；证据 E:/k60-work/evidence/usblog-20261116-164726/console.log（3749 行、255020 B）、boot.json（bootAccepted=true、exit=0、returnedToFastboot=false）与 capture.json（complete=true、panicMarker/resetMarker=null、stopReason=budget）。镜像 boot.img sha256=0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b，与 bt-d8-tlv manifest 一致；SpringBoard 128 行、panic/reset marker=0。观测得到 PATCH 602/602 次软件调用返回 e=0（非逐段硬件确认）；NVM 首次 7 次中 6 次 e=0、末段 e=-60；fallback 21 次中 20 次 e=0、末段 e=-60；两次均无 NVM 完成标志，最终 power=1 result=-60。⑧在本账本表示设备观测已完成，不表示蓝牙可用；初始化失败与正常系统启动同时成立。"
+done = false
+evidence = "0516 尚未上机；d8 旧观测 E:/k60-work/evidence/usblog-20261116-164726/console.log 只作回滚/基线：boot.img sha256=0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b，PATCH 602/602 e=0，NVM 首次 7 段末段 -60、fallback 21 段末段 -60，power=1 result=-60。bt-agent 不自行 boot；是否飞由 Lead 决定。"
 
 [hardware.bluetooth.step.device.prediction]
-success = "本轮观测成功：Lead 记录的 imageSha256 必须匹配 d8 的 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b；机器正常 boot（SpringBoard/心跳、panicMarker 及 capture 状态共同核对），取得逐段 e/ret+dt_ms、按 PATCH/NVM/fallback attempt 可区分的 done type/segs/sent/acks/final/ret 与 power TLV 统计；累计取差、e非零不算完成并注明计时扰动。即使观测完整但 result=-60，仍记录蓝牙功能失败，绝不写蓝牙已可用。"
-failure = "缺 tlv seg/done/power 统计时按最后阶段行定位观测缺口，不推断下载成功；budget 行结合当时 opcode、最后返回段 e/dt_ms、对应 attempt 的计数差与 final/ret 判断，只能确认预算失败不能直接裁定慢或卡；复位/panic 看 capture.json 的 panicMarker/stopReason、console panic 行和 boot.json 的 imageSha256，0字节保留为未定位；d8 计时只代表该观测图。不以全局 sent≈27、timeout=0 或失败 segs 冒充完成，不预做 d9。"
+success = "候选飞行成功：boot.json 记录的 imageSha256 必须等于 bt-0516-uart-clock manifest 的 boot_img；机器正常 boot（SpringBoard/心跳、panicMarker/resetMarker=null、capture complete=true）；NVM 路径不再出现 budget exhausted 中断，NVM attempt 的 done type=2 返回 ret=0，最终 power=1 result=0；这只证明传输/下载软件路径成功，不证明蓝牙可用、不证明可配对或 AirPods 可用。"
+failure = "出现 budget exhausted（尤其 NVM op=0xfc00）、NVM 末段 e=-60、done ret=-60、power result=-60、panic/reset 或 imageSha256 不匹配，均判失败；缺 done/power 统计时按最后阶段行保留为观测缺口，不推断下载成功。不得用 sent/acks/final 单独判定完成，final 是累计状态不是完成布尔；失败不得改写 d8 结论。d9 未批准，候选构建完成后仍等 Lead 决定。"
 
 [hardware.wifi]
 status = "parked"

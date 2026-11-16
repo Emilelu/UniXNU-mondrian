@@ -485,4 +485,20 @@ Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对�
   滑块的请求行（仅启动默认 `:2212` 1024→0x80a 与 `:2213` brightness-nits 0.0→0x0）。
 - 待确认：最低档 `0x14` 是否还黑屏/是否比 8 位底更暗。这是 §12 第 14 条的最后一个运行时项，
   确认后才把 `EIGHT-STEPS.toml` 的 `[hardware.brightness.step.device]` 置 done。
+### 13.6 brightness-19：floor 改 Android 手动最低的 DBV 0x4（预注册）
+
+- 13.5 的 `0x14` 来自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。真机 Android
+  （设备 6033dbec，adb，2026-11-17 04:00）直接量到：
+  - `/sys/class/backlight/panel0-backlight/max_brightness = 4095`；
+  - `dumpsys display`：`mScreenBrightnessRangeMinimum = 9.15639E-4`、`mScreenBrightnessRangeMaximum = 1.0`；
+    `mNitsToBacklightSpline = [(2.0, 9.15639E-4), (500.0, 0.499938), (1000.0, 1.0)]`。
+  - 手动最低 = 0.000915639 × 4095 = 3.75 → **DBV 0x4**；最高 = 1.0 × 4095 = 0xfff。
+- 代码 commit `54e3ba96`：`K60BacklightCodec.h` 的 `kMinDbvOn` 从 `0x14` 改为 `0x4`；span 变为 4091；
+  level 1→DBV 0x4、level 2047→DBV 0xfff、level 0 仍返回 0（面板灭）。
+- 预注册判据（brightness-19，`k60_backlight_control=1`）：published `conformance=1 control=1 dbv 0xfff`、
+  `sig=11` 0、entered backboardd 1、SpringBoard ≥100、first frame ≥1；用户拖滑块后 ≥3 条
+  `K60 BACKLIGHT: brightness` 行；最低档 `dbv 0x4` 且屏幕可见内容（不是黑屏）；最高档 `dbv 0xfff`；
+  FAIL = 任一 `sig=11`、无 first frame、无请求行、最低不是 0x4、或最低仍黑屏。判读：
+  `python3 scripts/check-backlight-log.py <console.log> --control=1 --min-dbv=0x4 --max-dbv=0xfff`。
+- 待构建/待飞。构建完成后把 boot.img/kernel shas 与证据目录补进本节。
 

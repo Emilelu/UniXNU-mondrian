@@ -9,6 +9,7 @@
 | 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
 | 5 | brightness-17 | `8b2d6332…` | `4f107428…` | **PASS（12 位路径 / 最低端点）**：conformance=1 / control=1 / 无 sig=11 / first frame / SpringBoard 133；请求行 14 条（level 1024→0x800、level 1→0x1）；**DBV 1 在夜间黑屏**（用户实测），最高档未拉（夜间） | `usblog-20261117-0245-brightness17` |
 | 6 | brightness-18 | `3e516e73…` | `28436472…` | **发布层 PASS**：conformance=1 / control=1 / dbv 0xfff / 无 sig=11 / first frame / SpringBoard 128；两次采集内用户未拖滑块，最低 `0x14` 观感仍待测 | `usblog-20261117-0306-brightness18`、`usblog-20261117-0313-brightness18b` |
+| 7 | brightness-19 | 待构建 | — | **预注册**：最低 floor 从 `0x14` 改为 `0x4`（Android 手动最低 9.15639E-4 × 4095 = 3.75），判据见下 | — |
 
 brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 
@@ -56,8 +57,9 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
 2. **每请求一行日志**：`K60 BACKLIGHT: brightness… -> level … dbv 0x…`。第 4 轮起每个请求打一行，
    行里同时给出 CoreBrightness 用的键（`brightness-nits` 还是 `brightness`）、滑块量程与落到的 DBV。
    没有这一行 = 请求根本没到服务（CoreBrightness 未接管），不是「调光无效」。
-3. **两端的 DBV**：最低档应落到 `dbv 0x14`（第 6 轮起）、最高档 `dbv 0xfff`（第 5 轮起的 12 位域；
-   第 4 轮是 8 位的 `0xff`；第 5 轮曾把最低定为 0x1，实测夜间黑屏）。这两端是 Android 对照的硬指标；中间档只记不判。
+3. **两端的 DBV**：最低档应落到 `dbv 0x4`（第 7 轮起；第 6 轮曾用 `0x14`，那是 Xiaomi doze 档而非正常滑块底）、
+   最高档 `dbv 0xfff`（第 5 轮起的 12 位域；第 4 轮是 8 位的 `0xff`；第 5 轮曾把最低定为 0x1，实测夜间黑屏）。
+   这两端是 Android 对照的硬指标；中间档只记不判。
 
 第 3 轮（brightness-15）没有每请求日志，`stats[1]` 事后读不到，只能靠「屏上可见变化」判物理链路；
 那一轮的 `published level` 行是启动时打的一次快照，不能当三档读数。
@@ -171,5 +173,28 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
   `:2213` `brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ 用户未在采集窗口内拖滑块，
   **判据 2（请求可见）与判据 3（最低 `0x14` 可见）未测，不能判 PASS 或 FAIL**；发布层与
   最高 `0xfff` 已 PASS。
+
+## 第 7 轮（预注册，2026-11-17 04:05）— brightness-19：最低 floor 改 Android 的 DBV 0x4
+
+- **为什么改**：第 6 轮的 `0x14` 取自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。
+  真机 Android 侧直接量到：`/sys/class/backlight/panel0-backlight/max_brightness = 4095`；
+  `dumpsys display` 的 `mScreenBrightnessRangeMinimum = 9.15639E-4`、`mScreenBrightnessRangeMaximum = 1.0`；
+  `mNitsToBacklightSpline = [(2.0, 9.15639E-4), (500.0, 0.499938), (1000.0, 1.0)]`。
+  手动最低 = 0.000915639 × 4095 = **3.75 → DBV 0x4**；这正是 Android 滑块最底端的原始 DBV。
+- **改动（相对第 6 轮只有一个常量）**：`K60BacklightCodec.h` 的 `kMinDbvOn` 从 `0x14` 改为 `0x4`；
+  code commit `54e3ba96`。`0x14` 保留为 doze 档的知识，不再作为正常滑块 floor。
+- **预注册判据**：
+  1. **PASS（发布层）**：published 行 `conformance=1 control=1`、`dbv 0xfff`；`sig=11` 0；entered 1；
+     SpringBoard ≥100；first frame ≥1。
+  2. **PASS（请求可见）**：≥3 条 `K60 BACKLIGHT: brightness…` 行。
+  3. **PASS（最低）**：最低档请求行 `dbv 0x4`，且用户能看到界面内容（不是黑屏）；同时记录是否比第 4 轮
+     8 位最低档更暗。若 0x4 仍黑屏，则把 floor 继续上移到用户可见的第一个值，并把该值写回本节。
+  4. **最高**：夜间不要求拉最高；若用户愿意，最高档请求行应为 `dbv 0xfff`（映射端点已由 host 单测固定）。
+  5. **FAIL**：任一 `sig=11`、无 first frame、无请求行、最低档不是 `dbv 0x4`、或最低档仍黑屏。
+- **判读命令**：`python3 scripts/check-backlight-log.py <console.log> --control=1 --min-dbv=0x4 --max-dbv=0xfff`
+  （非零请求少于 3 条即 FAIL）；`grep -a 'K60 BACKLIGHT: brightness' <console.log>`；
+  `grep -a 'K60 PANEL:' <console.log>`。
+- **待构建/待飞**：brightness-19（`k60_backlight_control=1`）。构建完成后把 boot.img/kernel shas 与证据目录补进本行。
+
 
 

@@ -217,5 +217,7 @@ P-62 的旧行为（只发 `IODisplayParameters`，不声明 backlight-control�
 3. iPadOS 27 的 `brightness-nits` 路径在本机（iPadOS 16.6.1 20G81）不会被使用，属于前瞻实现，
    仅由 host 单测覆盖，**待未来系统验证**。
 4. **12 位域的最低可用 DBV 不是寄存器下限**：DT `qcom,mdss-dsi-bl-min-level=0x1` 在真机把屏幕拉到全黑
-   （brightness-17 实测，用户只能盲点调高）；第 6 轮起改用 Xiaomi 自己的 `mi,doze-lbm-dbv-level=0x14`
-   作为可见下限。**待 brightness-18 真机确认**。
+   （brightness-17 实测，用户只能盲点调高）。第 6 轮曾改用 Xiaomi 的 `mi,doze-lbm-dbv-level=0x14`，
+   但那是 doze/AOD 档，不是正常滑块的底。真机 Android 的 `panel0-backlight/max_brightness=4095` 与
+   `dumpsys display` 的 `mScreenBrightnessRangeMinimum=9.15639E-4` 给出 0.000915639 × 4095 = 3.75 →
+   **DBV 0x4**；第 7 轮（brightness-19）改用它作为 floor。**待 brightness-19 真机确认可见**。

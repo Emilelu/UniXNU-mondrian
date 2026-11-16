@@ -56,6 +56,19 @@ status = "closed"
 owner = "audio-agent"
 
 [[item]]
+id = "skeleton-constants"
+stage = "M3"
+change = "the pong_audio.c skeleton carries the TERT clock and PCM ring constants, not the old PRI 1.536 MHz values"
+evidence_kind = "static"
+evidence = [
+  "patches/xnu/0504-k60-audio-pong-audio.patch",
+  "drivers/PongAudio/PongAudioRing.h",
+]
+criteria = "The skeleton declares 1024-frame periods, a 14400-frame lead, 12.288 MHz and clock id 0x204; grep any of those back to the old 480/1.536 MHz/0x104 values and the build source no longer agrees with PongAudioRing.h."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
 id = "afe-packet-layout"
 stage = "M4"
 change = "AFE set-param and DEVICE_START packets encoded byte for byte as packed little-endian"

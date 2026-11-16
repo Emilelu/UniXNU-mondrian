@@ -1,6 +1,8 @@
 # ADSP rail-only 采样器离线审计（2026-11-16）
 
 **结论：当前采样器不能作为 rail-only 上机候选，更不能授予供电或 SCM 权限。**
+
+> 注：本文是 2026-11-16 的离线审计快照；2026-11-17 的 Route A 真机运行已通过 resources 并启动 ADSP，见 [ADSP-ROUTE-A.md](ADSP-ROUTE-A.md) 第 6 节。
 审计对象为分支 `feat/adsp-handoff-owner` 的 `c2805ec5d2ac246077d969459fecec375014e0e0`。
 生产 [resources_cb](../../../drivers/PongPower/K60AdspBoard.c#L241) 保持 `K60BoardUnsupported=-63`、
 不置 resources；第一步源代码/宿主修复已被 Lead 16:32 验收，PAS/handoff 功能尚未验收。

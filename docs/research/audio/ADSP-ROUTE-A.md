@@ -1,9 +1,9 @@
 # ADSP Route A：QMP load_state + TCS4 双轨投票
 
-**Status:** implementation checkpoint, 2026-11-17. 用户明确放宽 HR-01 并选择路线 A。
+**Status:** device-verified, 2026-11-17. 用户明确放宽 HR-01 并选择路线 A；真机已通过 owner stage 1-5 并发布 PAS1 handoff。
 **Scope:** `drivers/PongPower/K60AdspRouteA.c/.h`、`K60AdspBoard.c` 的 `resources()` 回调，
 以及 `scripts/tests/test-k60-route-a.c`。生产 `resources_cb` 不再返回 -63；失败仍返回
-`K60BoardUnsupported(-63)`，成功才置 `resources=1`。**未上机。**
+`K60BoardUnsupported(-63)`，成功才置 `resources=1`。**2026-11-17 真机通过：owner stage 1-5 rc=0，PAS1 handoff 发布 epoch=1 flags=15，电池物理源首次发布。**
 
 ## 1. 为什么是 TCS4
 
@@ -60,7 +60,7 @@ map、read、write。物理常量：
 DRV-2（0x17a20000）和 TCS4 的两条 lcx/lmx 命令；`0x17a00000` 仍绝对禁止；不碰
 PAS/SMC/SMEM/lease；失败即 -63。其他任何路径仍按原 HR-01 禁止。
 
-## 4. 已执行的验证
+## 4. 已执行的验证（早期离线检查点）
 
 - 主机单测：`cc -std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongPower
   scripts/tests/test-k60-route-a.c drivers/PongPower/K60AdspRouteA.c
@@ -84,11 +84,29 @@ PAS/SMC/SMEM/lease；失败即 -63。其他任何路径仍按原 HR-01 禁止。
 
 ## 5. 未覆盖 / 未证明
 
-- 未上机；没有任何 QMP/TCS4 在 K60 XNU 下的硬件成功证据。
 - QMP 消息超时是固定轮询循环；AOP 负载/时序未测。
 - 只实现 Zizhan 的“最高档”选择，不解释 cmd-db level 的物理含义，也不读回实际轨电压。
 - 失败后不回滚已写的第一条轨；若第二条轨失败，第一条轨的投票保留到重启。这是本实现的
   已知边界，不是已证明安全的恢复策略。
-- 不处理 SMP2P、GLINK、SMMU lease、PAS AUTH 之后的 DSP 状态机；这些仍由既有 owner 阶段负责。
+- 不处理 SMP2P、GLINK、SMMU lease、PAS AUTH 之后的 DSP 状态机；这些仍由既有 owner 阶段负责，
+  其中 SMP2P 输出项 429 的初始化现在在 owner stage 2 完成，GLINK ring 为 16 KiB。
 - TCS4 槽号来自 Zizhan 工作代码与 K60 P-86 触摸记录；mainline tcs-config 解码冲突未解决。
-- 生产 `resources()` 成功现在会使 `live()` 返回真；在真实硬件上首次成功前，不把该路径当已验证。
+- 真机结果只证明 ADSP 启动、PAS1 handoff 发布和电池物理源首次发布；不证明 sleep/resume、
+  音频路由、电池 UI 持续刷新或第二条轨失败后的安全恢复。
+
+## 6. 2026-11-17 真机结果
+
+- 镜像：`E:/k60-work/artifacts/adsp-board-20261116/route-a/boot.img`，201,887,744 B，
+  sha256 `6aa9107c30cab42bf4fd1a8555f5d622774eeb242fd79606ca2bec36226061f1`（最终清理源码重建）。
+- 日志：`E:/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log`，
+  225,977 B / 3,399 行，boot capture exit 0。
+- 行 189：`K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15`。
+- 行 596：`K60Battery: physical source published sample=4 SOC=100.00% charge=4487/4487mAh
+  design=5500mAh cycles=749 voltage=4379mV current=397mA temp=34.30C external=1 charging=1
+  full=0 subscribed=1`。
+- owner stage 1-5 全部 rc=0；QMP load_state on 和 TCS4 lcx/lmx 投票均成功；无 PMIC timeout
+  或 GLINK epoch error。
+- 同日修复的关键点：QMP 邮箱必须用 32-bit word 写入（byte store 会让 boot 在 USB console
+  前死亡）；SMP2P 输出项 429（340 B，master-kernel）必须由 AP 初始化；16 KiB GLINK ring
+  与零长度 INTENT 才能让电池请求/响应通过；电池 CURRENT_NOW 属性 9 在 K60 ADSP 上无响应，
+  改为可选并用 USB CURRENT_NOW 回退得到 397 mA。

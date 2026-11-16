@@ -374,11 +374,13 @@ tag `snap-r198`）；本节与 BLOB-RESIDENCY.md 的引用一律写 main 上的 
 `E:/` 三段探测，WSL 与 MSYS 两侧都是 `11 cases (0 failure(s), 0 skipped)`；
 任何一个真样本找不到就应当显式 SKIP 并在汇总行报出 skip 数，而不是假装通过。
 
-**MHI 阶段的判据不在本表**：silent 结案之后，`c4`–`c7` 的失败模式是**有日志的
-`-110` 超时**（`c6`: `device in READY state` 之后 `failed to power up mhi: -110`），
-判据是 `c7` 的四种组合（A irq entered 恒 0 / B entered 涨但 no new events /
-C 有 event type 无 EE_EVENT / D 有 EE event 但 timeout 行 ee=0），四支不许合并。
-详见 [BLOB-RESIDENCY.md](BLOB-RESIDENCY.md) §11。
+**MHI 阶段不在本表**：silent 结案之后，`c4`–`c7` 的失败模式是**有日志的 `-110`**，
+它已经不是「死因考古」而是「功能没起来」。`c7`（`usblog-20261116-122546`）把这条也
+钉住了：设备 `exec_env=1`（SBL）、事件环为空、`amss entries` 打印 0 次 ⇒
+`mhi_download_amss_image()` 从未被调用，**设备在 SBL 等 AMSS、主机在等 EE 事件**，
+是死锁不是超时。判据只剩一条：`c8` 推完 AMSS 后 `exec_env` 是否从 1 变 2。
+详见 [BLOB-RESIDENCY.md](BLOB-RESIDENCY.md) §11 与
+[C7-READING-GUIDE.md](C7-READING-GUIDE.md) §5。
 
 ## 8. 不建议的做法
 

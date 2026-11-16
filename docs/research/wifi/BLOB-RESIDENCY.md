@@ -5,9 +5,10 @@
 > 与当前结论。要查某条判断是哪天、被哪张镜像推翻的，看那一支。
 
 状态（2026-11-16）：**silent 已结案**——死因是 UFS SMMU lease 被提前索取（P-215，§10），
-单变量证据是 `c3` 与 `c2` 只差 20,480 B 代码；**MHI 阶段进行中**——`c6` 十阶段全通、
-设备到 READY、`amss20.bin` 下载完成，然后在 MISSION 模式 `-110` 超时，判据是 `c7` 的
-四种组合（§11）。
+单变量证据是 `c3` 与 `c2` 只差 20,480 B 代码；**MHI 阶段已定位到「AMSS 从未被下载」**
+——`c7` 的十阶段全通、设备进 SBL（`exec_env=1`）、事件环为空、`amss entries` 打印
+0 次，说明 `mhi_download_amss_image()` 从未被调用：设备在 SBL 等 AMSS，主机在等
+EE 事件，是死锁而不是超时（§11）。下一步只有一件事——`c8` 主动推 AMSS。
 
 本页回答两个问题，答案都在这里：
 
@@ -29,7 +30,7 @@
 | 3 | 装载边界全不触发 | 段 12,992,512 vs 256 MB；span 129,642,496 vs 254 MB；镜像 117,305,344 vs 128 MB；段数 15/64；重叠 0；XNU 无上限常量（§3–§5） | 见 §0.1 |
 | 4 | 带真 PWF2 的已飞镜像里有一张 alive | 全库 join：11 张带真容器 → 1 alive（`c3`）/ 10 silent；不带容器的 47 张 → 38 alive / 8 silent（§9.2） | 再飞同类得到不同分组 |
 | 5 | 「内核总大小」不是轴 | `bt-s4b-20261115b` 106.5 MB alive 而同尺寸的 `c` silent；`adsp-20261115c/d/e` 128,991,232 B 三张全 alive（§2、§9.2） | 一张 >117 MB 且带 PWF2 的 alive 镜像不构成推翻（`c3` 已如此），要的是「>117 MB 且带 PWF2 仍 silent 而小镜像 alive」的反向证据 |
-| 6 | MHI 阶段未完成，卡在 READY → MISSION | `c6` 十阶段全通、`QCA6490 PCI subsystem=10817cb`、64 MiB wired DMA、MSI 武装、`amss20.bin` 下载、`device in READY state`，随后 `failed to power up mhi: -110`（§11.1） | `c7` 任一组合给出非 -110 的进展 |
+| 6 | MHI 停在「AMSS 从未被下载」，不是链路问题 | `c7`：十阶段全通、设备 `exec_env=1`（SBL）、`MHISTATUS=0x101`（READY 且无 SYSERR）、事件环 `rp` 前后一致；`amss entries`/`vec` 打印 **0 次** ⇒ `mhi_download_amss_image()` 从未被调用（§11.3–§11.4） | `c8` 推完 AMSS 后 `exec_env` 仍不从 1 变 2；或 `amss entries` 打印出现、设备仍不回 EE 事件 |
 
 ### 0.1 各判断的推翻条件
 
@@ -41,7 +42,8 @@
   （grep 之外还要读 `pmap_bootstrap` 与 KTRR 相关代码）。
 - **§0 第 1、2 行（死因）**：任何一张「链了 wifi 归档、没带 0012」却 alive 的镜像，
   或任何一张「带了 0012」却 silent 的镜像。
-- **§0 第 6 行（MHI）**：`c7` 的四种组合任一给出与 §11.3 判据表不同的读数。
+- **§0 第 6 行（MHI）**：`c8` 推完 AMSS 之后 `exec_env` 仍停在 1（SBL）；或 `amss entries`
+  打印出现、设备却仍停在 SBL 不发 EE 事件。
 
 ## 1. 固件是怎么进的内核，容器长什么样
 
@@ -225,6 +227,9 @@ alive 是从反面关闭这条通道的，不是从正面证明窗口申请成�
 | `c0` 测量无效 | `E:/k60-work/artifacts/wifi-20261116c0/boot.img` 内 `6DCCF70A-…` ×1、`1BCD69FF-…` ×0；构建树 `k60-wifi` @ `fff0fb19` 的 `configs/mondrian_wifi_defconfig:46` 指名种子 UUID；P-152（`docs/engineering/PITFALLS.md:3811-3819`）；P-209 门禁 `scripts/check-defconfig-uuid.py`（main `011669a`，tag `snap-r201`） |
 | 构建配置扫描（53 张 wifi/bt boot.img） | `E:/k60-work/scratch/refmine/uuid-scan.py`：56 个产物里 3 个没有 boot.img；扫到的 53 张中**只有 `c0` 带种子 UUID**，其余 52 张都是设备 UUID |
 | P-215 原文 | main `docs/engineering/PITFALLS.md:5337` 起；Check：`scripts/tests/test-pong-smmu-lease.py`、registry id `P-215` |
+| MHI 固件加载链 | pinned linux（`/home/emilelu/wifi-inputs/linux`）`drivers/bus/mhi/host/boot.c:490,555-575,633-653`；`main.c:893-906`；`pm.c:196-204,823-836,1277-1298`；`internal.h:32-37,78-79,143-162`；`common.h:111-115`；`include/linux/mhi.h` 的 `enum mhi_ee_type` / `enum mhi_state` |
+| 兼容层无条件重放 IRQ | `Ath12kWifi/shim/src/lx_rt.c:32,315,347,355,597`；调用点 `drivers/PongWifi/ath11k/PongAth11k.c:83`；驱动侧真证据 `drivers/PongWifi/PongWifiPlatform.cpp:566,644,646,649,706` |
+| `c7` 判读 | `E:/k60-work/evidence/usblog-20261116-122546/console.log`（227,186 B / 3,367 行 / SpringBoard 128）；关键行 :608 与 :632；`boot.json` 的 `imageSha256 4D187A71…F45F` |
 | MHI 拓扑 | k60-wifi `docs/research/wifi/MSI-TOPOLOGY.md`：驱动走 DesignWare legacy（PARF MSI0 = 1u<<23 → GIC SPI 140 = INTID 172，`PongWifiPlatform.cpp:43`、:683；`ArmCpu.cpp:403` 对 unowned SPI panic）；设备树 `msi-map` 指向 ITS `msi-controller@17140000`（event base 0x5980/0x5981）；真机 Android 走 ITS（`/proc/interrupts` 的 ITS-MSI 524289..524306）；第三个节点 `/soc/qcom,pcie0_msi@0x17110040`（32 个 SPI 768..799）status=disabled |
 
 口径备注：本文所有「alive / 0 字节 / 未飞」都来自 evidence 采集目录与 artifact
@@ -297,8 +302,9 @@ ADT 口径（2026-11-15 起）：main `3ea8d71` 把 identity seed 接进板级�
 带真 PWF2 且已飞的十一张：`wifi-20261114a`、`wifi-20261115a`、`wifi-20261115h2`、
 `wifi-20261116mhi3`、`wifi-20261116mhi4`、`wifi-20261115z0`、`wifi-20261116t2`、
 `wifi-20261116c0`、`wifi-20261116c1`、`wifi-20261116c2`、`wifi-20261116c3`。
-（`c4`–`c6` 三张也是带真容器且 alive，但这张 join 表是 `c3` 那一轮跑的，
-未把 `c4`–`c6` 计入；补跑后应为 14 张 / 4 alive。）
+（`c4`–`c7` 四张也是带真容器且 alive，但这张 join 表是 `c3` 那一轮跑的，
+未把 `c4`–`c7` 计入；按 §9.1 的逐镜像 PWF2 实测补上后应为 **15 张 / 5 alive**
+（`c3`、`c4`、`c5`、`c6`、`c7`）。）
 
 不带 PWF2 的八张 silent 全在 usb 与 bt 线（`bt-s1-20261114b`、`bt-s4b-20261115c`、
 `bt-bisect-h123`、`usb-20261114c`、`usb-20261114f`、`usb-20261114h2`、
@@ -404,10 +410,10 @@ PWF2 的 alive 镜像」——**推翻条件写对了，只是没等到它出现
 3. 单变量干预之后，旧表要**保留原样并标注结局**，不要删——被推翻的过程本身是记录
    （§6 矩阵按这个方式处理；完整过程在 `feat/wifi-ledger-fold` 分支）。
 
-## 11. MHI 阶段：进行中（判据见 `c7` 四种组合）
+## 11. MHI 阶段：PCIe/MHI 控制链路十阶段全通、SBL 已进、AMSS 未推
 
-> 本节标题里的「进行中」是状态，不是结论。下面每一行都可以被 `c7` 的一次飞行改写。
-> 判读时**四支不许合并**——它们指向四个不同的层。
+> 缺的就是「EE 事件触发的那一次 AMSS 下载」。这一条是 `c7` 的实测结论（§11.4–§11.5），
+> 不是推测；`c8` 的主动推送是唯一未做的干预（§11.8）。
 
 ### 11.1 `c4`/`c5`/`c6` 已经量到什么
 
@@ -424,12 +430,14 @@ PWF2 的 alive 镜像」——**推翻条件写对了，只是没等到它出现
 | 9 | :586-587 | 64 MiB wired DMA 从 16384 spans 映射（35 个 native 4K 表页）、SID1c01 DMA 与 retained MSI landing page |
 | 10 | :588-592 | PARF MSI0 → GIC SPI140 挂接、DesignWare MSI receiver armed、`ath11k: MSI vectors: 32`、`wcn6855 hw2.1` |
 | MHI 注册 | :596-600 | `MHI register regs=0xfffffff97415c000 len=2097152 fw_data=0 fw_sz=0 sbl=524288 seg=524288`、`channels=128 timeout=2000`、`start timeout=20000 ee=0 state=0` |
-| 复位 → READY | :608-620 | `serial=0x22d0a7f3 ee=0 fbc=1 fw_sz=0`、`firmware amss20.bin bytes=5296128`、`load type=2 image bytes=524288 vector bytes=5296128`、`reset cleared, polling MHISTATUS ready bit`、**`device in READY state`** |
+| 复位 → READY | :608-620 | `serial=0x22d0a7f3 ee=0 fbc=1 fw_sz=0`、`firmware amss20.bin bytes=5296128`（主机侧读文件，不是推给设备）、`load type=2 image bytes=524288 vector bytes=5296128`、`reset cleared, polling MHISTATUS ready bit`、**`device in READY state`** |
 | 卡住 | :622-635 | `Wait for device to enter SBL or Mission mode` → `ath11k: failed to power up mhi: -110`（ETIMEDOUT）→ `failed to start mhi: -110` → `Pong ath11k PCI/MHI initialization failed: -110` → `WiFi initialization stopped` |
 
 读法：**PCIe 与 DMA 这一侧是通的**（十阶段全过、64 MiB wired DMA 真映射、MSI 武装、
-`amss20.bin` 真下载、设备真进 READY）。卡住的是 READY → MISSION 的握手，
-即「设备有没有把 EE_EVENT 发上来、我们有没有把事件环的 rp 推进」。
+设备真进 READY）。但这一行里有两处读法在 `c7` 之后要收回：`amss20.bin bytes=5296128`
+是**主机侧读固件文件**，不是推给设备（§11.5）；`device in READY state` 是**轮询**
+`MHISTATUS` 读到的（`pm.c:196-204` `mhi_poll_reg_field`），全程不经过中断。
+所以 `c6` 只证明「寄存器读得通」，没有证明「中断到得了」。
 
 ### 11.2 拓扑事实（写判据之前必须先定这一层）
 
@@ -443,14 +451,18 @@ k60-wifi `docs/research/wifi/MSI-TOPOLOGY.md`：
 - **真机 Android 走 ITS**：`/proc/interrupts` 里 `ITS-MSI 524289..524306` 是活的。
 - 第三个节点 `/soc/qcom,pcie0_msi@0x17110040`（32 个 SPI 768..799）status=disabled。
 
-`c6` 的 READY 握手证明 **legacy 路由能送事件**（复位清零与 READY 位都是设备回的），
-所以缺的不是「有没有中断通道」，而是「MISSION 模式的 EE event 有没有上来」。
-这个区分决定了 `c7` 四支怎么读。
+**`c6` 的 READY 握手不能证明「legacy 路由能送事件」**——这句推论在 2026-11-16 13:08
+被收回：复位清零与 READY 位都是 `mhi_poll_reg_field` 轮询 `MHISTATUS` 读到的
+（`pm.c:196-204`），不经过中断。中断通不通，只有驱动自己挂在真 GIC 上的那个 handler
+能说话（§11.6）。
 
-### 11.3 `c7` 的四种组合（判据，不合并）
+### 11.3 飞之前的判据表（保留原样：四支都没命中）
 
-`c7` = `c6` + 八条 MHI 诊断打印（k60-wifi `c7d059d`「instrument the READY to MISSION
-stall」，2 files +101/−2；`scripts/build-k60-ath11k.py` 加 amss entries / last dma /
+> 这张表是 `c7` 出图**之前**写的判据，保留它是为了让下一次看到「判据全落空」的人知道
+> 该往哪加一支——`c7` 的实测落在四支之外（§11.5）。
+
+`c7` = `c6` + MHI 诊断打印（k60-wifi `c7d059d`「instrument the READY to MISSION
+stall」，2 files +101/−2；实测 **10 处**格式串，驱动侧 3 + MHI 侧 7；`scripts/build-k60-ath11k.py` 加 amss entries / last dma /
 vec[0..2] 打印与 `Pong MHI: timeout after %u ms ee=%d pm_state=%d exec_env=%d
 mhi_state=%d MHISTATUS=%#x MHICTRL=%#x`）。不改状态机、不改段长、不改 MSI 目标——
 它是探针图，不是修复图。
@@ -462,21 +474,120 @@ mhi_state=%d MHISTATUS=%#x MHICTRL=%#x`）。不改状态机、不改段长、�
 | **C** | 有 event type，但没有 `EE_EVENT` | 设备侧没进 SBL | 固件加载 / SBL 入口 |
 | **D** | 有 EE event，但 timeout 行 `ee` 仍是 0 | 软件状态机没记账 | `mhi_pm_st_worker` |
 
-四支互斥且穷尽当前观测手段：A 看中断有没有进来，B 看进来之后环有没有动，
-C 看设备侧有没有动，D 看软件有没有认账。**任何一支单独成立都不许写成「MHI 死因」**
-——它们的共同前提是 `c7` 真的飞过；`c7` 到本文写作时**尚无 evidence 目录**（未飞）。
+`c7` 飞完之后四支的实际读数（逐条对照，不合并）：
 
-逐行的判读流程（哪一行读数指向哪一层、四种组合各改本节哪一段、两种容易读错的形状）
-单独写在 [C7-READING-GUIDE.md](C7-READING-GUIDE.md)：`c7` 的 `console.log` 到手后按那一页
-改本节，不需要再来回一轮。该页同时记了 `c7` 实测的 **10 处**新打印（驱动侧 3 处 + MHI 侧 7 处，
-从 payload kernel 的格式串直接取出），比口头说的「八条」多两处。
+| 支 | `c7` 实测 | 是否命中 |
+|---|---|---|
+| **A** | `irq entered` 出现了（:608），但这一行**不能**证明硬件发了中断（§11.6 兼容层无条件重放） | 形状不命中；且该行的证明力为零 |
+| **B** | 形状命中：`irq entered` 有、`found no new events` 连打三次、两条 `rp` 一致 | **形状命中但归因错**——环空不是地址空间错，是设备在 SBL 里没东西可发 |
+| **C** | `event type=` 0 次，但设备**已经在 SBL**（`exec_env=1`） | 不命中：设备侧动了，只是没发事件 |
+| **D** | `EE event` 0 次，`ee` 仍是 0 | 不命中：不是软件没记账，是根本没有事件可记 |
 
-### 11.4 本节与 silent 结论的关系
+所以第五支是「**设备在等 AMSS、主机在等事件**」：链路全通（十阶段）、设备有动作
+（进了 SBL）、固件没推（AMSS 一个字节没发）、两边互相等。四支的共同前提是「设备侧
+根本没有动作」，而这个前提本身被 `exec_env=1` 否掉了。
+
+逐行的判读流程写在 [C7-READING-GUIDE.md](C7-READING-GUIDE.md)，其中四支之外的第五支
+已经补进那一页。该页同时记了 `c7` 实测的 **10 处**新打印（驱动侧 3 处 + MHI 侧 7 处，
+从 payload kernel 的格式串直接取出），比口头说的「八条」多两处——**打印条数以镜像里的
+格式串为准，不以任何清单为准**。
+
+### 11.4 `c7` 的实测：第五支——链路全通、AMSS 未推、设备空等
+
+证据 `usblog-20261116-122546`（`console.log` 227,186 B / 3,367 行 / SpringBoard 128 /
+panic 标记 0；`boot.json` `imageSha256 4D187A71…F45F`、`bootExitCode 0`、
+`returnedToFastboot false`）。关键行只有两条：
+
+    :608  Pong MHI: irq entered er_index=0 dev rp=0xa0001a00 host rp=0xfffffff9bb055a00
+    :632  Pong MHI: timeout after 20000 ms ee=0 pm_state=2 exec_env=1
+          mhi_state=1 MHISTATUS=0x101 MHICTRL=0x200
+
+六个字段逐个读（枚举与掩码取自 pinned linux，路径见 §8）：
+
+| 字段 | 值 | 读法 | 出处 |
+|---|---|---|---|
+| `exec_env` | **1** | `MHI_EE_SBL`——设备已离开 PBL、收完 512 KiB SBL、正在 SBL 里等 AMSS | `include/linux/mhi.h` 的 `enum mhi_ee_type`（PBL=0、SBL=1、AMSS=2） |
+| `mhi_state` | **1** | `MHI_STATE_READY` | 同上 `enum mhi_state` |
+| `MHISTATUS` | **0x101** | bit0 ready=1、bit8-15 mhistate=1、bit2 SYSERR=**0** ⇒ 设备无系统错误 | `drivers/bus/mhi/common.h:111-115` |
+| `MHICTRL` | **0x200** | bit1 RESET=0（复位已释放）、bit8-15=2（M0） | 同上 |
+| `ee` | **0** | 主机缓存的 `mhi_cntrl->ee` 还是初值 `MHI_EE_PBL`，**从未被 EE 事件更新** | `include/linux/mhi.h` |
+| `pm_state` | **2** | 不在错误态（`MHI_PM_IN_ERROR_STATE` 要 ≥ `BIT(7)`） | `drivers/bus/mhi/host/internal.h:162` |
+
+两条 `rp` 的读法：`dev rp = 0xa0001a00` 是设备写的事件环读指针（IOVA 视角），
+`host rp = 0xfffffff9bb055a00` 是同一位置经 `mhi_to_virtual()` 后的主机虚拟地址；
+两者指向**同一个槽**，且 `irq found no new events` 在 :610/:612/:620 连打三次 ⇒
+事件环**确实是空的**，不是解析失败、也不是 rp 落后。
+
+所以 `c7` 的判决是第五支：**设备在 SBL 等 AMSS，主机在等 EE 事件**。
+两边都在等对方，这不是超时，是死锁；`-110` 只是 20 s 之后宿主放弃等待的表现。
+
+### 11.5 为什么 AMSS 从来没被送出去
+
+`amss entries`、`Pong MHI: vec` 两条打印在 `c7` 的 console 里**各 0 次**。这两条打印
+的注入锚点（k60-wifi `c7d059d` 的 `scripts/build-k60-ath11k.py`，boot.c 段）是
+`mhi_download_amss_image()` 函数体开头的局部变量声明，**只在这个函数被调用时才会执行**。
+0 次 ⇒ 这个函数从未被调用，5,296,128 B 的 AMSS 只被 `memcpy` 进了 BHIE 段表
+（`mhi_fw_load_handler` 的 `fbc_download` 分支），**一个字节都没有送到设备**。
+
+调用链（pinned linux，行号实读）：
+
+1. 设备在事件环里写一个 `MHI_PKT_TYPE_EE_EVENT` —— 这是**唯一**入口。
+   `drivers/bus/mhi/host/main.c:893` `case MHI_PKT_TYPE_EE_EVENT:` → `:896`
+   `enum mhi_ee_type event = MHI_TRE_GET_EV_EXECENV(local_rp);` → `:900-903`
+   `case MHI_EE_SBL: st = DEV_ST_TRANSITION_SBL;`
+2. `DEV_ST_TRANSITION_SBL` 在整个 `drivers/bus/mhi/host/` 里只有 **`main.c:902` 这一个
+   排队点**（`grep -rn DEV_ST_TRANSITION_SBL` 只命中 `main.c:902` 与 `pm.c:823`）。
+3. `pm.c:823` `case DEV_ST_TRANSITION_SBL:` → `:830` `mhi_cntrl->ee = MHI_EE_SBL;` →
+   `:832` `mhi_create_devices()` → `:833-834` `if (mhi_cntrl->fbc_download)
+   mhi_download_amss_image(mhi_cntrl);`
+4. `boot.c:633` `int mhi_download_amss_image(struct mhi_controller *mhi_cntrl)` →
+   `:643-645` `ret = mhi_fw_load_bhie(mhi_cntrl, &image_info->mhi_buf[image_info->entries - 1]);`
+   （注释「Vector table is the last entry」）。
+
+没有第 1 步，第 3 步永远不发生，`mhi_cntrl->ee` 永远停在 0——这正是 `c7` 的读数。
+SBL 那 512 KiB 是走 BHI 送进去的：`load type=2` = `MHI_FW_LOAD_FBC`
+（`internal.h:32-37`：`MHI_FW_LOAD_BHI`=0 / `MHI_FW_LOAD_BHIE`=1 / `MHI_FW_LOAD_FBC`=2，
+注释「BHI in PBL followed by BHIe in SBL」）——BHI 段送 SBL、BHIe 段送 AMSS，
+前半段成功、后半段没开始，与实测完全吻合。
+
+### 11.6 中断证据的边界：handler 被调用不等于硬件发了中断
+
+上一轮曾有一条错判：「`c7` 的 `irq entered` 证明 MSI 真的到了 GIC，所以『MSI 没到』
+已被排除」。**这条是错的，不要沿用。**
+
+兼容层每毫秒把所有已注册 IRQ 无条件置 pending：`Ath12kWifi/shim/src/lx_rt.c:597`
+`lx_irq_raise_all()` 对 `g_irq[i].used` 的每一项置 `pending = 1`，由 `:355` 的
+`lx_pump()` 驱动（`g_irq_polling` 默认 1，见 `:32`），调用点在
+`drivers/PongWifi/ath11k/PongAth11k.c:83`。所以 handler 一定会被调用，
+**调用次数不能当硬件证据**。
+
+有效的证据是驱动自己那条：「`QCA6490 MSI entered the GIC handler`」在 `c7` 里 **0 次**
+（`PongWifiPlatform.cpp:646`，只在 `MsiStatus` 读到非零时打），`MsiStatus 0` 也是 0 次
+⇒ GIC 没有在 INTID 172 上抬过任何东西。这条证据**依然指向 MSI 未到**。
+
+但它不构成「AMSS 未下载」的独立原因：设备在 SBL 里等 AMSS 时本来就不会发 MSI，
+所以「MSI 未到」与「AMSS 未推」是同一件事的两面。`c8` 推完 AMSS 之后若
+`MSI entered` 仍是 0，那才是一条新的、独立的发现。
+
+### 11.7 本节与 silent 结论的关系
 
 silent 的结论（§10）**不依赖本节**：`c3` 已经用单变量把 0 字节结案，`c4`–`c6`
 进一步证明「修好之后带 `pong_wifi=1` 也能进桌面」。本节只回答「进桌面之后 wifi 为什么
-还没起来」，它的失败模式是**有日志的 -110 超时**，与 0 字节不是同一类故障，
+还没起来」，它的失败模式是**有日志的 -110 死锁**，与 0 字节不是同一类故障，
 不能用 silent 时期的任何结论去解释它。
+
+### 11.8 `c8` 的唯一判据
+
+`c8` = 主动推 AMSS（不等 EE 事件）。读它只看一件事：**`exec_env` 在推 AMSS 前后
+是否从 1 变 2**。
+
+| `c8` 读数 | 含义 | 下一步 |
+|---|---|---|
+| `exec_env` 1 → 2，且出现 `amss entries` 打印 | AMSS 推成功、设备进 AMSS ⇒ 死锁解除 | 看 `MHI_IN_MISSION_MODE` 是否成立，转入正常起网 |
+| `amss entries` 打印出现但 `exec_env` 仍 1 | AMSS 送了但设备没接受（校验 / 段表 / BHIe 通道） | 查 BHIE 段表与 `mhi_fw_load_bhie` 返回值 |
+| `amss entries` 仍 0 次 | 主动推路径没有生效（插桩没进去 / 调用点没接上） | 先验镜像身份，再查插桩锚点 |
+
+判据同时写在 [C7-READING-GUIDE.md](C7-READING-GUIDE.md) §5。
 
 ## 12. 与 `docs/engineering/FIRMWARE-REBUILD.md` 的关系（已并入 main）
 
@@ -510,7 +621,8 @@ silent 的结论（§10）**不依赖本节**：`c3` 已经用单变量把 0 字
 
 按「离结论的距离」排序，只有四条：
 
-1. **MHI READY → MISSION**（§11）：判据 `c7` 四支，`c7` 未飞。这是当前唯一的活跃工作。
+1. **AMSS 从未被推给设备**（§11）：`c7` 已定位到「设备在 SBL 等 AMSS、主机在等 EE 事件」
+   的死锁，唯一未做的干预是 `c8` 主动推 AMSS。这是当前唯一的活跃工作，判据见 §11.8。
 2. **PWF2 头失配**：`wifi-20261114a` 与 `mhi3`/`mhi4` 的 PWF2 头 `count=6` 但只有
    `entry[0]=amss.bin` 非空（`entry[1..5]` 全空），而 `__const` 里实际有四个真固件
    （`amss.bin` 5,470,128 / `amss20.bin` 5,296,128 / `m3.bin` 266,684 /

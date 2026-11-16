@@ -122,4 +122,5 @@ mhi5d = 117 MB + blob（`__TEXT`）+ `pong_wifi=1` + 4.5 GiB + series 224
 「链了归档就得带 0012」。
 
 **本页的下一步**：不是再飞 silent 图，也不是 pool——pool 通道已关闭。MHI 阶段
-（`c6` 的 `-110`）的判据是 `c7` 的四种组合，见 BLOB-RESIDENCY.md §11。
+（`c6` 的 `-110`）已由 `c7` 定位为「设备在 SBL 等 AMSS、主机在等 EE 事件」的死锁，
+判据是 `c8` 推完 AMSS 后 `exec_env` 是否从 1 变 2，见 BLOB-RESIDENCY.md §11.8。

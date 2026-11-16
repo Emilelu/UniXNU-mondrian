@@ -284,7 +284,7 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 | 默认 | 0（不探测，任何启动都不映射 RSC） |
 | 取值 | 0 / 1 |
 | 来源 | `patches/xnu/0614-k60-adsp-call-site.patch`（`PE_parse_boot_argn("pong_rail_probe", &pong_rail_probe, sizeof(pong_rail_probe))`），实现在 `drivers/PongPower/K60PmicRail.c` |
-| 作用 | 1 = 在 Data 卷挂载成功后**只读**一次 RPMh `cmd-db` 与 DRV-2 的 `0x17a20000`，打印 `K60RAIL` 三行（cmd-db magic、ldoc2 地址与电平、RSC 布局），并在同一次读取里按 `cmd_addr` 命中反推 TCS 槽、把 ADSP 的 `lcx.lvl` / `lmx.lvl` 四元组记进静态账本（`K60RAIL lcx … complete=… valid=…`），供之后才运行的 `resources()` 查表（P-197） |
+| 作用 | 1 = 在 Data 卷挂载成功后**只读**一次 RPMh `cmd-db` 与 DRV-2 的 `0x17a20000`，打印 `K60RAIL` 三行（cmd-db magic、ldoc2 地址与电平、RSC 布局），并在同一次读取里按 `cmd_addr` 命中反推 TCS 槽、把 ADSP 的 `lcx.lvl` / `lmx.lvl` 四元组记进静态账本（`K60RAIL lcx … complete=… valid=…`），供之后才运行的 `resources()` 查表（P-223） |
 
 **为什么默认关闭**：`docs/ops/HARD-RULES.md` 的 HR-01 规定默认不得访问 RSC —— 2026-11-09 有两次
 早期启动阶段首读即整机死（零控制台）。2026-11-14 的 `rail-20261114h` 证明**Data 挂载之后只读**不会死

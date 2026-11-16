@@ -214,7 +214,7 @@ bsd/kern/kern_exec.c:7896      k60_data_mounted = 1;    ← 四条件的「时�
 - **门禁**：`scripts/tests/test-k60-pmic-rail.c` 37 例（含未测量、缺字段、level=0、槽不 idle、
   窗口过短、NULL 参数），`scripts/tests/test-k60-adsp-board.c` 第 8 个场景
   `scenario_rails_three_state` 走完三种状态，两者都已接进 `scripts/tests/run-k60-handoff-host.sh`。
-- **教训登记**：`docs/engineering/PITFALLS.md` P-197 与 `docs/engineering/RULES.toml` 的 `P-197`。
+- **教训登记**：`docs/engineering/PITFALLS.md` P-223 与 `docs/engineering/RULES.toml` 的 `P-223`。
 - **真机判据**（Lead 飞）：`pong_handoff_publish=1 pong_rail_probe=1` 同时给，成功链为
   `board ownership init ok` → `board ownership installed rc=0` → `platform installed rc=0` →
   `K60ADSP: rails inherited …` → K60PAS 三阶段 → `K60Handoff: published authenticated PAS1
@@ -228,7 +228,7 @@ bsd/kern/kern_exec.c:7896      k60_data_mounted = 1;    ← 四条件的「时�
 | lcx.lvl / lmx.lvl 节点与 PMIC 子节点 | `E:/k60-work/scratch/dtb/mondrian.dts:5333-5345`、`:6113-6125`；别名 `:21177-21179`、`:21288-21290` |
 | Pong 按名取 lcx/lmx 并取最高档投票 | `E:/k60-work/references/pong-power/PongAdsp.cpp:225-231`、`:565-572` |
 | 唯一被批准的只读实现 | `drivers/PongPower/K60PmicRail.c:273-388`；`docs/ops/HARD-RULES.md:101-104` |
-| 四元组账本（记录/查表） | `drivers/PongPower/K60PmicRail.c:155-262`；`drivers/PongPower/K60AdspBoard.c:247-299`；`docs/engineering/PITFALLS.md` P-197 |
+| 四元组账本（记录/查表） | `drivers/PongPower/K60PmicRail.c:155-262`；`drivers/PongPower/K60AdspBoard.c:247-299`；`docs/engineering/PITFALLS.md` P-223 |
 | 只读 TCS 槽先例（wifi gate） | `E:/hackios/k60-wifi/patches/wifi/0003-drivers-PongWifi-k60-rsc-gate.patch:28-39` |
 | DRV-2 可读可写、drv-0/drv-3 禁碰 | `docs/research/REFERENCE-INDEX.md:836-866`（582 boot 审计） |
 | v2 布局与 TCS 偏移/步长 | `docs/research/touch/POWER-RPMH-LDOC2.md:44-64` |

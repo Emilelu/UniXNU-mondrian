@@ -233,3 +233,4 @@ zzy-native-gpu-addon-mount.patch
 0512-k60-bt-late-start.patch
 0514-k60-bt-boot-observability.patch
 0515-k60-bt-tlv-counters.patch
+0516-k60-bt-qbt-uart-clock.patch

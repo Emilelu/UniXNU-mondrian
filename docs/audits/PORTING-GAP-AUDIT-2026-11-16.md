@@ -54,6 +54,7 @@
 | `docs/INDEX.md:15` | REPO-MAP 行只有 2 个单元格 | 该表 3 列 | 【实测】 |
 | `docs/INDEX.md:121-122` | `engineering/BATTERY-INTEGRATION.md`、`BOOT-ARGS.md` 列在 state/ 表 | 两者都在 `docs/engineering/` | 【实测】 |
 | `docs/INDEX.md:138` | "series 224 vs 229" 的旧对照 | 当前 series 227，且 wifi 已按 P-215 结案 | 【实测】 |
+| `docs/INDEX.md:148-149` | WIFI-REBUILD-CHECKLIST 行被截断，五条硬差异串到 SHENGUFS 行 | 两行已修复，WIFI 的五条差异归回本行 | 【实测】 |
 | `docs/state/STATE-2026-11-07.md:1-3` | "唯一‘当前状态’入口" | 本文件是 2026-11-07 快照；当前入口是 `docs/engineering/STATUS.md`，INDEX:132 已标过时但文件本身没标 | 【实测】 |
 | `docs/state/NEXT-STEPS.md:1-3` | 没有历史标记的 2026-11-07 推进顺序 | 旧窗口/旧 boot-args；当前计划见 STATUS 与 `docs/plans/` | 【实测】 |
 | `docs/audits/FORK-REVIEW.md:1-7` | 只写到 2026-10-31 基线 | 2026-11-17 重查 `scripts/audit-forks.py` 返回 PARTIAL（GitHub compare API 全部 404），无新 ahead/behind，不能解释成无更新 | 【实测】 |

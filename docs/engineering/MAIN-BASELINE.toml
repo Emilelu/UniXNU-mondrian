@@ -256,3 +256,8 @@ note = "P-224: freeze() no longer hashes scripts/__pycache__/*.pyc. Touches scri
 sha = "cb33248"
 state = "build-only"
 note = "P-225: board_dir() now ranks candidates by whether the .config names CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY. On every tree present today it resolves to the same directory the hardcoded path used (out-wifi -> mondrian/, which is what the wifi builds already wrote), so no build output changes; the next full build confirms it."
+
+[[entry]]
+sha = "1bfbe26"
+state = "build-only"
+note = "build-strict now forwards K60_MODEM_CARRIER and counts the streams back out of the finished payload against modem-table.txt. Touches scripts/build-strict.sh, which iron-9 counts as a risky path, so it is registered here. The carrier path is off unless the variable is set, so an ordinary build is unchanged; the modem-20261116a build proves the new branch."

@@ -59,13 +59,23 @@ bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0516-uart-clock/boot.im
 
 ## 5. 预先写死的判据
 
+### d8 的时序事实（为什么 0516 值得单变量飞行）
+
+- d8 console 共 630 条 `tlv seg`：623 条 `dt_ms=0`；7 条约 10,000 ms：
+  PATCH 最后一段 i=601 `dt_ms=10001 e=0`；NVM 第一轮 i=0..5 各 `dt_ms=10000/10001 e=0`；
+  这些等待合计约 70,035 ms。
+- 随后 NVM i=6 在 15 ms 内以 -60 结束（90 s 预算已耗尽）；fallback 的 21 段 `dt_ms=0`，
+  最后一段再次因预算以 -60 结束。0516 针对的正是“控制字节排在停钟之后”的 10 s 等待；
+  这只是假设，d9 必须用下面的判据确认，不能从 d8 反推已修好。
+
 ### 成功（全部满足才算）
 
-- `boot.json` 的 `image_sha256` 等于 `8a211a76...`，且 boot 被接受、`capture.complete=true`、
-  panic/reset marker 为 null。
-- console 出现 `boot: enter speed=3000000 budget=90000ms`。
-- PATCH 流程结束；NVM 出现 `done type=2 ... ret=0`（不是 `ret=-60`）。
-- 没有 `boot: budget exhausted`。
+- `boot.json`：`imageSha256` 等于 `8A211A76...`（大小写不敏感）、`bootAccepted=true`、
+  `bootExitCode=0`、`returnedToFastboot=false`。
+- `capture.json`：`complete=true`、`panicMarker=null`、`resetMarker=null`；`stopReason` 不作为成功条件。
+- console 出现 `[bluetooth] boot: enter speed=3000000 budget=90000ms`。
+- PATCH 流程结束；最后一个 `[bluetooth] tlv done type=2 ...` 的 `ret=0`（不是 `ret=-60`）。
+- 没有 `[bluetooth] boot: budget exhausted`。
 - 最终 `[bluetooth] power=1 result=0`（若日志格式仍是 `result=%d`）。
 - 这只证明“传输/下载软件路径在这次观测中没有撞预算且 NVM 调用返回 0”，
   **不证明控制器逐段接受、NVM 内容正确或蓝牙可用**。

@@ -80,7 +80,31 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 # it 13 minutes into the build as `xcodebuild: command not found`.
 python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
-M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
+# The build directory is named after the defconfig, not the board: the
+# default configuration builds into `mondrian/`, the wifi one into
+# `mondrian_wifi/`. Ask the tree where the .config is instead of assuming,
+# and prefer the most recently generated one so a defconfig switch is picked
+# up (P-187: a pinned path silently checks the wrong tree).
+board_dir() {
+    if [ -n "${K60_BOARD_DIR:-}" ]; then
+        echo "$K60_BOARD_DIR"
+        return
+    fi
+    local best=""
+    local d
+    for d in "$OUT"/mondrian/ipados-*/*/.config; do
+        [ -f "$d" ] || continue
+        if [ -z "$best" ] || [ "$d" -nt "$best" ]; then
+            best=$d
+        fi
+    done
+    if [ -n "$best" ]; then
+        dirname "$best"
+        return
+    fi
+    echo "$OUT/mondrian/ipados-16.6.1-20G81/mondrian"
+}
+M=$(board_dir)
 KERNEL=$M/kernel/kernel.macho
 
 
@@ -102,7 +126,14 @@ echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
 # Every file that can change the kernel is hashed before the build; a later
 # boot is only comparable if the same list hashes the same.
 freeze() {
-    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f -print0 \
+    # Bytecode caches are not inputs: the build imports these scripts, python
+    # rewrites the .pyc files, and a run that changed nothing else was declared
+    # void at the final comparison (2026-11-15, wifi-20261116mhi5b: the only
+    # difference was scripts/__pycache__/pong_paths.cpython-312.pyc). The merge
+    # with origin/main took main's copy of this block and dropped the prune, so
+    # wifi-20261116c7 was declared void for nine new .pyc files.
+    ( cd "$REPO" && find board.toml dts patches/xnu scripts \
+        \( -name __pycache__ -o -name '*.pyc' \) -prune -o -type f -print0 \
         | sort -z | xargs -0 sha256sum )
 }
 freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"
@@ -120,7 +151,7 @@ echo "build-strict: tag=$TAG series=$SERIES_COUNT frozen=$FROZEN_SHA"
 # GPU_ADDON and BATTERY_ON below are both read with sed, and sed on a missing
 # file writes to stderr and yields nothing, so the build would quietly produce a
 # kernel without the Metal plugin or the battery class and still report success.
-[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT"
+[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT (or mondrian_wifi_defconfig for the wifi-only cell)"
 
 # --- wifi archive ------------------------------------------------------------
 # scripts/build-xnu-4k-baseline.sh links libPongWifiNative.a into the kernel when

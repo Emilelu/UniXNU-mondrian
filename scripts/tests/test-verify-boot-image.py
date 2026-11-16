@@ -7,6 +7,7 @@ cannot fail is worse than none, because it turns "verified" into a feeling.
 """
 import gzip
 import hashlib
+import importlib.util
 import json
 import struct
 import subprocess
@@ -145,7 +146,43 @@ def main():
         failures += 1
         print(done.stdout + done.stderr)
 
-    print(f'{len(cases) + 3} cases, {failures} failure(s)')
+    # Boot-argument policy: exercised by importing the verifier, because the
+    # fabricated ramdisk above is not a FAT volume and cannot carry a TOML.
+    spec = importlib.util.spec_from_file_location('verify_boot_image', VERIFY)
+    vbi = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vbi)
+    blob = tmp / 'k60_adsp_blob.bin'
+    blob.write_bytes(b'K60A' + b'\x00' * 60)
+    blob_sha = sha(blob.read_bytes())
+    good_comp = {'adsp_blob': blob_sha, 'adsp_blob_path': str(blob)}
+    policy_cases = [
+        ('the legacy ADSP probe is still refused',
+         vbi.boot_policy(['pong_adsp=1'], {}), 'pong_adsp=1'),
+        ('the carrier needs a recorded container sha256',
+         vbi.boot_policy(['pong_adsp_carrier=1'], {}), 'no adsp_blob sha256'),
+        ('the carrier needs the container file',
+         vbi.boot_policy(['pong_adsp_carrier=1'],
+                         dict(good_comp, adsp_blob_path=str(tmp / 'gone.bin'))),
+         'adsp_blob_path is missing'),
+        ('a container that no longer hashes is refused',
+         vbi.boot_policy(['pong_adsp_carrier=1'], dict(good_comp, adsp_blob='0' * 64)),
+         'adsp container sha256'),
+        ('a matching container is admitted',
+         vbi.boot_policy(['pong_adsp_carrier=1'], good_comp), None),
+        ('pong_adsp_carrier=0 is allowed',
+         vbi.boot_policy(['pong_adsp_carrier=0'], {}), None),
+    ]
+    for name, problems, needle in policy_cases:
+        if needle is None:
+            ok = problems == []
+        else:
+            ok = any(needle in p for p in problems)
+        print(('ok   ' if ok else 'FAIL ') + name)
+        if not ok:
+            failures += 1
+            print(problems)
+
+    print(f'{len(cases) + 3 + len(policy_cases)} cases, {failures} failure(s)')
     return 1 if failures else 0
 
 

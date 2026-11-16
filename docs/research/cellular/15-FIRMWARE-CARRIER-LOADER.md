@@ -630,6 +630,12 @@ AdtFindMemoryMapProperty (
 
 这张 payload 是共用的（display/audio/wifi 的镜像也走它）。没装 modem 镜像不该把别人的镜像变成砖。而「目录在但缺文件 / 大小不对 / 表不自洽」说明装载器与表已经不同源，继续启动只会把不可预测的字节交给 secure monitor —— 那比不启动更糟。
 
+这条判据的落点是顺序：**先开目录、再查占位**（`5d96806`）。反过来写时，一份共用 payload
+（`/chosen/memory-map` 只有 `name`，没有任何属性）会在占位检查处 `EFI_COMPROMISED_DATA`，
+把所有不用 modem 的镜像一起变砖。教训一句话：**共用的 payload 上，任何新增的强校验都必须有
+「本镜像不需要」的出口**——出口要是一条明确的成功路径（这里：目录不存在 ⇒ `EFI_SUCCESS` +
+`Files = 0` + 一行日志），不是注释里的假设。
+
 ## 5 ImageCarrierLib 契约
 
 ### 5.1 规模估计

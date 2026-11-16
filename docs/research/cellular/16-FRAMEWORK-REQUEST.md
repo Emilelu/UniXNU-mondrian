@@ -17,6 +17,33 @@
 见 `5d96806`），只是没有 modem。
 所以两处用**同一个开关**，不能各自为政。
 
+## 0.1 为什么先开目录再校验（固件侧 `5d96806` 的理由，改框架前必读）
+
+`ImageCarrierLoad` 的第一版把顺序写反了：先查 `/chosen/memory-map` 里的 `K60ModemImage`
+占位，占位缺失就 `EFI_COMPROMISED_DATA`；查到了才去 `Root->Open` 那个 `EFI/UniXNU/MODEM`
+目录。这在只有 modem 镜像的世界里是对的，在真实世界里是把所有别的镜像变砖：
+
+> payload 与 display/audio/wifi 共用，那些镜像 memory-map 只有 name ⇒ 先校验占位会全变砖。
+
+这不是推测。抽一份共用的 `kernel.macho.adt`（`pong_adt_contract.parse_adt`）看
+`/chosen/memory-map` 的属性名，结果只有 `['name']` —— 连 `PackedRAMDisk` 都没有，更不会有
+`K60ModemImage`。也就是说：**只要 payload 里还没有 modem 载具，任何一份共用产物都过不了
+占位检查**，而 `payload.py` 目前根本不注入载具（这正是本文要 Lead 补的第二处）。两条线一
+起上，就会得到「所有镜像都黑屏」的结果，且原因只有一行 `placeholder missing`，看不出是
+「这条线不需要 modem」。
+
+修法（`5d96806`）是把顺序倒过来：**先开目录**，目录不存在 ⇒
+`modem-image: no carrier in payload, skipped` + `EFI_SUCCESS` + `Files = 0`，继续启动；
+目录存在才去校验占位，四条失败路径（缺失 / 长度≠16 / 非零 / memory-map 畸形）各自先
+`Dir->Close` 再返回。判据因此变成「这个镜像声明了要装载具吗」，而不是「这个镜像的 ADT 里
+有没有那条属性」。
+
+形状：**同一份产物被多条线共用时，某一条线的强校验会变成所有人的硬门槛。** 共用产物上的
+强校验必须绑定在「本条线自己的声明」上（这里是目录存在），不能绑定在「产物全局应该有什么」
+上（这里是 ADT 里必须有一条属性）。同样的坑 modem / adsp / wifi 三条线都会再撞一次，
+所以这条不只写给载具：改框架时如果新增了任何「产物里必须有 X」的检查，请同时给出
+「本镜像不需要 X」的出口，并让它是一条明确的成功路径（有日志、有返回码），而不是注释。
+
 ## 1. `devicetree.py`：`K60ModemImage` 条目
 
 ### 1.1 位置

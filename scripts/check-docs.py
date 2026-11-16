@@ -137,17 +137,25 @@ def check_subdir_indexes(verbose=True):
     problems = []
     counted = 0
     pairs = [
-        ('engineering', os.path.join(REPO, 'docs', 'engineering', 'README.md')),
+        ('engineering', os.path.join(REPO, 'docs', 'engineering', 'README.md'), False),
+        ('research', os.path.join(REPO, 'docs', 'research', 'README.md'), True),
     ]
-    for sub, index_path in pairs:
+    for sub, index_path, recursive in pairs:
         if not os.path.exists(index_path):
             problems.append('%s 不存在' % os.path.relpath(index_path, REPO))
             continue
         s = io.open(index_path, encoding='utf-8', errors='ignore').read()
         d = os.path.join(REPO, 'docs', sub)
-        for name in sorted(os.listdir(d)):
-            if not name.endswith('.md'):
-                continue
+        names = []
+        if recursive:
+            for dirpath, dirnames, filenames in os.walk(d):
+                dirnames.sort()
+                for name in sorted(filenames):
+                    if name.endswith('.md'):
+                        names.append(os.path.relpath(os.path.join(dirpath, name), d).replace(os.sep, '/'))
+        else:
+            names = [name for name in sorted(os.listdir(d)) if name.endswith('.md')]
+        for name in names:
             counted += 1
             if name == os.path.basename(index_path):
                 continue

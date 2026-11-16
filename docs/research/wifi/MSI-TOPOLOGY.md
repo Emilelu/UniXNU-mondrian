@@ -1,6 +1,6 @@
 # MSI topology: configured routes and the limits of c7 evidence
 
-Written 2026-11-16; corrected after Lead's 15:12/15:18 review. This note
+Written 2026-11-16; corrected after Lead's 15:12/15:18 and 16:32 reviews. This note
 separates what the host programs, what the live DT describes, and what the
 console actually observed. c8 is held; this review changes no interrupt code,
 MSI address or INTID.
@@ -13,7 +13,7 @@ MSI address or INTID.
 | What other route does DT describe? | PCIe0 `msi-map` targets ITS phandle `0x237`; its MSI cells are DeviceIDs `0x5980`/`0x5981`, **not** EventIDs or LPI INTIDs. |
 | Is there another SPI block? | `/soc/qcom,pcie0_msi@0x17110040` declares SPIs 768..799 but is disabled. |
 | Why choose legacy? | This XNU tree has a direct-SPI dispatcher, but no ITS driver/LPI management. Legacy was the implementable bring-up choice, not a correctness proof. |
-| Did c7 prove an interrupt arrived? | No GIC-entry or nonzero-MSI-status message was observed in this capture. The MHI handler invocation is shim-replayed and is not hardware interrupt evidence. |
+| Did c7 prove an interrupt arrived? | No hardware-entry print was observed. The success-loop `MSI delivered` log is unreachable on this failure path; MHI handler invocation is shim-replayed. Neither supplies final hardware counters. |
 | Did c7 prove the device never sent MSI? | **No.** An absent log is not a trace of the device's writes, and does not establish an SBL protocol rule. |
 
 ## 1. The three routes
@@ -85,10 +85,17 @@ direct-SPI configuration nor evidence of the ITS translation actually used.
   line pending; `lx_rt_pong.c:355` repeats that once per millisecond while
   `g_irq_polling` is enabled, initially 1 at `lx_rt_pong.c:32`. This can
   dispatch MHI events without any observed GIC delivery.
-- c7's capture contains neither the GIC-entry message nor a nonzero-status
-  delivery message. No terminal dump of the numeric counters was emitted on
-  the failed bring-up path. Therefore write **entry not observed in this
-  capture**, not measured zero counters or proof that SBL cannot send MSI.
+- The success-loop message `QCA6490 MSI delivered by GIC` is **unreachable
+  on c7's start-failure path**: `drivers/PongWifi/PongWifiPlatform.cpp:690`
+  jumps to `done` if `nw_wifi_start()` fails; the message tests `msiArrivals`
+  only in the runtime loop at :692. Its absence therefore says nothing about
+  final `msiArrivals`, MSI arrival or route correctness. The numeric-counter
+  diagnostic at :699-711 also requires `net=true`, so it is not a failure
+  snapshot. c7 emitted neither a terminal counter dump nor the first-entry
+  print at :646. Only that latter print is at a hardware-handler entry, before
+  the pending branch; record **entry not observed in this capture**, without
+  inventing a measured zero or an SBL protocol restriction. MHI shim replay
+  and this unreachable success-loop print are different evidence limits.
 
 ## 3. What the flights establish
 
@@ -98,7 +105,8 @@ Console: `E:/k60-work/evidence/usblog-20261116-122546/console.log`.
 |---|---|
 | c5/c7 `DesignWare MSI receiver armed on Pong PCIe0 SPI140` | attach returned success; not an interrupt-arrival test |
 | c6 `ath11k: MSI vectors: 32` | host MSI allocation reported 32; not device delivery |
-| c7: no `MSI entered the GIC handler` / `MSI delivered` message | no corresponding delivery observed in this capture |
+| c7: no `MSI entered the GIC handler` message | hardware-handler entry was not observed in this capture; no terminal counter value is available |
+| c7: no `MSI delivered` message | success-loop log at :692 is unreachable after :690 start failure; absence cannot judge MSI arrival, final counters or route |
 | c7:608 `irq entered er_index=0 dev rp=0xa0001a00 host rp=0xfffffff9bb055a00`; :610/:612/:620 `found no new events` | host-visible event ring appears empty on these samples; shim replay explains invocation |
 | c7:632 `ee=0 pm_state=2 exec_env=1 mhi_state=1 MHISTATUS=0x101 MHICTRL=0x200` | at timeout: cached EE=PBL, software PM=**POR** (BIT(1)); hardware EE=SBL, hardware state=READY, SYSERR clear; host requests M0 |
 

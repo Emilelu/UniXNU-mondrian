@@ -90,9 +90,12 @@ neither that the device fetched its context nor that it never wrote memory.
 The runtime replays registered IRQs: generated `lx_rt_pong.c:32,355,597`
 initialises polling to 1, periodically sets registered lines pending, and
 dispatches their handlers from `lx_pump()`. The MHI handler can therefore run
-without any captured GIC-entry message. The failed bring-up path never dumps
-final numeric `msiEntries`/`msiArrivals`, so absent messages must not be
-relabelled as measured zero counters.
+without any captured GIC-entry message. In the platform worker,
+`drivers/PongWifi/PongWifiPlatform.cpp:690` jumps to `done` on start failure,
+so the `MSI delivered` log in the success loop at :692 is unreachable for c7.
+The failed path never dumps final numeric `msiEntries`/`msiArrivals`; neither
+that unreachable log nor the shim handler establishes MSI arrival or its
+absence. The distinct GIC-entry print at :646 was not observed in the capture.
 
 ## 3. Correct full-file BHIE arithmetic
 

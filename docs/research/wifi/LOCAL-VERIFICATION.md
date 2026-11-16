@@ -176,8 +176,8 @@ k60_autoreset=300 applog=1 pong_wifi=1 k60_wifi_rsc=1
 | 链路 | `QCA6490 PCIe0 link and BAR established, bus master held off` | `coldLink()` |
 | SMMU | `exclusive SID1c01 native4K DMA and retained MSI landing page established` | `isolation()` |
 | MSI 布防 | `DesignWare MSI receiver armed on Pong PCIe0 SPI140` | `worker()` |
-| 中断 | `QCA6490 MSI delivered by GIC` | 主循环首次 `msiArrivals` 非零 |
-| 固件 | `PongWifi: ath11k start failed=%d`（失败才打） | 主循环 |
+| 中断（成功循环限定） | `QCA6490 MSI delivered by GIC` | `PongWifiPlatform.cpp:692` 仅在 :690 启动成功后检查；启动失败时不可达，缺失不能判 MSI 未到或计数为零 |
+| 固件 | `PongWifi: ath11k start failed=%d`（失败才打） | `PongWifiPlatform.cpp:690`，随后直接跳 `done` |
 | 扫描 | `QCA6490 station ready; starting actual scan` | MAC 就绪后 |
 | 周期 | `PongWifi: runtime state=%u scans=%u BSS=%u frames=%u MSI=%u receiver=%x dma-mib=%lu` | 每 15 s |
 

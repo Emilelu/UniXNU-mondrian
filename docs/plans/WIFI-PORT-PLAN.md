@@ -393,7 +393,7 @@ build/pong-smmu4k/libPongSmmu4K.a
 | L1 电源 | `PongWifi: rail vdd-wlan-aon physical ready PPID=...` 至 6 条轨全部出现；`SM8475 WLAN rail requests acknowledged` | 任一条 `not ready` 即停；重点看 PPID/type/subtype 是否与 K60 实测一致（`PongWifiPlatform.cpp:116-138`） |
 | L2 PCIe | `PCIe0 cold start; power and bus clocks precede host MMIO`；`QCA6490 PCIe0 link and BAR established, bus master held off`；`PongWifi: cold REFCLK PHY_CTRL=...` | 没有 link 日志则查 GDSC/clock/PHY 表；`PongWifiPlatform.cpp:185,245,351` |
 | L3 SMMU/DMA | `PongWifi: 64MiB wired DMA mapped from N spans, M native4K table pages`；`exclusive SID1c01 native4K DMA and retained MSI landing page established` | 失败信息：`WiFi DMA page outside SM8475 output range`、`WiFi native4K page tables failed`（`:441,470`） |
-| L4 MSI | `DesignWare MSI receiver armed on Pong PCIe0 SPI140`；`QCA6490 MSI delivered by GIC` | 没有 MSI 则查 `interrupt-map`/SPI140/GIC（`:570,577`） |
+| L4 MSI | `DesignWare MSI receiver armed on Pong PCIe0 SPI140`；`QCA6490 MSI delivered by GIC` | armed 仅证明注册成功；delivered 位于 `PongWifiPlatform.cpp:692` 成功循环，:690 启动失败时不可达。缺失不能定位路由或补出零计数；先取失败路径硬件入口/pending 快照，MHI 软件重放不作硬件证据 |
 | L5 固件 | `Pong: actual QMI board firmware bdwlang.elf`（或实际 BDF）；`PongWifi: firmware amss20.bin bytes=...`；`Pong: installed board station identity before WMI vdev creation` | 固件文件缺失或 MHI RDDM 时会出现 `Pong QCA6490 firmware stopped: MHI reason=...`（`PongAth11k.c:50-60`） |
 | L6 station/scan | `QCA6490 station ready; starting actual scan`；`wifi-net: scan result N: ... MHz, ... dBm, SSID` | 102 个硬件 channel、至少 1 个 BSS；`PongWifiPlatform.cpp:582`、`PongWifiNet.cpp` scan 日志 |
 | L7 关联/DHCP | `wifi-net: join finished: module result 0`；`wifi-net: dhcp in type 5 ...`；`wifi-net: en0 address 192.168...` | 需要 K60 OS 窗口/launchd 已修复并运行到 wifid；否则只能到 L6 |

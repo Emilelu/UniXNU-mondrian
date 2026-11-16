@@ -1,7 +1,7 @@
 # WiFi DMA cache policy: the port encoded an invalid IOKit mode
 
 Date: 2026-11-17
-Status: candidate image built, not flown. c8 remains held.
+Status: candidate image built and flown once on 2026-11-17 02:17 CST; L1 failed with the same c7 timeout. c8 remains held.
 
 ## 0. Summary
 
@@ -201,3 +201,33 @@ if L1 passes.
   page retain their existing policies; that is unchanged from c7 and is not
   part of this variable.
 - c8 (proactive AMSS push) remains HOLD. It is not part of this image.
+
+## 6. Flight result (2026-11-17 02:17 CST)
+
+Flight: `scripts/flash.sh E:/k60-work/artifacts/wifi-20261117cache/boot.img 300`
+from `E:/hackios/k60-wifi-cache`; device serial `6033dbec`; console capture
+started before `fastboot boot`. Supervisor returned 0 and reported
+`captured-budget-complete; bytes=232051; complete=True; returnedToFastboot=False`.
+Evidence: `E:/k60-work/evidence/usblog-20261117-021732/console.log`.
+
+**L1 result: FAIL.** The boot reached userland (`Pong init: exec original /sbin/launchd`
+at `:586`, later `K60XPC compat=3144` at `:3461`) and stayed alive until the
+intentional 300 s auto-reset, but WiFi failed exactly at the c7 point:
+
+- `:521` `PongWifi: 64MiB wired DMA mapped from 1025 spans, 35 native4K table pages`
+- `:522` `PongWifi[6]: exclusive SID1c01 native4K DMA and retained MSI landing page established`
+- `:549` `PongWifi[6]: ath11k: Pong MHI start: timeout=20000 regs=... ee=0 state=0`
+- `:620` `PongWifi[6]: Pong MHI: timeout after 20000 ms ee=0 pm_state=2 exec_env=1 mhi_state=1 MHISTATUS=0x101 MHICTRL=0x200`
+- `:622` `PongWifi[4]: ath11k: failed to power up mhi: -110`
+- `:634` `PongWifi: ath11k start failed=-110`
+- `:635` `PongWifi[3]: WiFi initialization stopped; normal iOS boot continues, DMA retained`
+
+The c7 console reported `64MiB wired DMA ... 16384 spans`; the candidate reports
+`1025 spans` at `:521`. The allocation/cache path therefore did change the DMA
+layout, and the fail-closed `WiFi owned DMA cache policy not established` line did
+not appear. But the EE/AMSS stall is byte-for-byte the same: no `event type`,
+no `EE event execenv`, no `exec_env` advance, no AMSS push. This proves that the
+invalid cache mode is a real defect but **not the sole blocker**. Do not fly c8
+on this result; c8 stays HOLD. The next branch must investigate post-READY DMA
+visibility/context programming or another Pong divergence, not repeat the same
+cache-policy experiment.

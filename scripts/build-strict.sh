@@ -268,7 +268,7 @@ echo "build-strict: kernel $KERNEL_SHA $(stat -c %s "$KERNEL") bytes"
 # argument for names it is given.  Forwarding the flag to bootimg alone produced
 # an image whose command line was identical to a build without it.
 PAYLOAD_ARGS_CMD=()
-for kv in "${KARGS[@]:-}"; do
+for kv in ${KARGS[@]+"${KARGS[@]}"}; do
     [ -n "$kv" ] || continue
     PAYLOAD_ARGS_CMD+=(--kernel-arg "$kv")
 done
@@ -340,7 +340,7 @@ BOOTIMG=("$BUILD/unixnu" bootimg -D "$DEV" --out "$OUT"
          --edk2 /mnt/e/hackios/uefi-mondrian/Mu_Basecore
          --dtb "$M/device-tree/hardware.dtb"
          --fd "$FD_ARCH" -o "$RUN/boot.img")
-for kv in "${KARGS[@]:-}"; do
+for kv in ${KARGS[@]+"${KARGS[@]}"}; do
     [ -n "$kv" ] || continue
     BOOTIMG+=(--kernel-arg "$kv")
 done
@@ -372,6 +372,19 @@ GIT_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unkn
 GIT_HEAD=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY=$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l)
 
+# Two receipt fields used to be written by expanding a variable that is empty
+# when the feature is off, so the receipt invented a plausible value instead of
+# recording "nothing was requested" (P-190 shape):
+#   kernel_args_requested  became a one-element array holding an empty string
+#   adsp_blob_path         became a root-level path that never existed
+# Both are computed here instead, and both stay empty when off.  The legacy
+# expansions are deliberately not repeated in this comment so a lint can look
+# for them without matching prose.
+KARGS_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \
+    ${KARGS[@]+"${KARGS[@]}"}) || die "cannot serialise the requested kernel args"
+ADSP_BLOB_PATH=""
+if [ -n "$ADSP_DIR" ]; then ADSP_BLOB_PATH="$ADSP_STAGE/k60_adsp_blob.bin"; fi
+
 python3 - "$RUN/build-manifest.json" <<PY || die "cannot write the manifest"
 import json, sys, pathlib
 out = pathlib.Path(sys.argv[1])
@@ -397,7 +410,7 @@ m = {
         "gpu_addon": "$(sha_or_empty "$ADDON")",
         "gpu_addon_path": "${ADDON:-}",
         "adsp_blob": "${ADSP_CONTAINER_SHA:-}",
-        "adsp_blob_path": "${ADSP_STAGE:-}/k60_adsp_blob.bin",
+        "adsp_blob_path": "$ADSP_BLOB_PATH",
         "adsp_inputs": {"count": ${ADSP_RECORDS:-0},
                         "sha256": "${ADSP_INPUTS_SHA:-}",
                         "file": "${ADSP_INPUTS:-}"},
@@ -405,7 +418,7 @@ m = {
                           "streams": $MODEM_STREAMS,
                           "table_sha256": "$MODEM_TABLE_SHA"},
     },
-    "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
+    "kernel_args_requested": $KARGS_JSON,
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
     "logs": "$LOGS",
 }

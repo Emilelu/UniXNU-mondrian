@@ -143,6 +143,38 @@ def check_ranges():
         elif claimed != actual:
             problems.append('%s 声明 %s，但 %s.md 实际最大号是 %s'
                             % (fname, re.search(pat, text).group(0), doc, actual))
+    # 同样的编号范围也会出现在 INDEX/engineering README/STATUS/AGENTS 里；
+    # 只有写了才校验，写错就红——否则这些副本会像 2026-11-16 之前那样各自漂移。
+    extra = [
+        REPO / 'docs' / 'INDEX.md',
+        REPO / 'docs' / 'engineering' / 'README.md',
+        STATUS,
+        REPO / 'AGENTS.md',
+    ]
+    extra_pats = [
+        (r'★1[–-]★(\d+)', actual_star, 'HARD-RULES'),
+        (r'P-01[–-]P-(\d+)', actual_pit, 'PITFALLS'),
+    ]
+    for path in extra:
+        if not path.exists():
+            continue
+        text = read(path)
+        for pat, actual, doc in extra_pats:
+            m = re.search(pat, text)
+            if m and int(m.group(1)) != actual:
+                problems.append('%s 声明 %s，但 %s.md 实际最大号是 %s'
+                                % (path.name, m.group(0), doc, actual))
+    # patches/xnu 的 .patch 数与 series 条数：AGENTS.md 里有一句英文声明
+    agents = REPO / 'AGENTS.md'
+    if agents.exists():
+        m = re.search(r'(\d+) patch files with (\d+) entries', read(agents))
+        if m:
+            real_patches = len(list((REPO / 'patches' / 'xnu').glob('*.patch')))
+            real_series = sum(1 for ln in read(REPO / 'patches' / 'xnu' / 'series').splitlines()
+                              if ln.strip() and not ln.strip().startswith('#'))
+            if int(m.group(1)) != real_patches or int(m.group(2)) != real_series:
+                problems.append('AGENTS.md 声明 %s 个 patch / %s 条 series，实际 %s / %s'
+                                % (m.group(1), m.group(2), real_patches, real_series))
     return problems
 
 

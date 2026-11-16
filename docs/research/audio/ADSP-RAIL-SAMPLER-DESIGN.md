@@ -191,11 +191,11 @@ Tested base revision: `cd02f1348db6d232f9b705cddf82cd968edb5711`. Canonical hash
 | 项目 | 值 |
 | --- | --- |
 | 核心 / 头文件 | `package/tests/rail-sampler/proposed/rail_obs.c` / `rail_obs.h` |
-| 冻结哈希 | C `b6e51b43676a506690c48756cad5fe7e0a11d6c312cf617ed7c48e859ff00bf2`；H `effe1a112f9ed7acf882ce692df84205b6118b88ffb953ffc318bc9edf3fed93` |
-| 契约测试 | `package/tests/rail-sampler/proposed/entry.c`，sha256 `fa117b58d9611b127c38e6bd7edad4a3796c1ae8b0766a441e779d4730e52524`，39 个 case |
+| 冻结哈希 | C `87b8e14ff27faa2dd929b857e37300f3bcfa36788790fb46ccf8b8702d39cb5e`；H `effe1a112f9ed7acf882ce692df84205b6118b88ffb953ffc318bc9edf3fed93` |
+| 契约测试 | `package/tests/rail-sampler/proposed/entry.c`，sha256 `ab07e2c805775597465ce7368a8826c032ad31701b43ec790e7fcc42ae263103`，42 个 case |
 | 驱动脚本 | `run-tests.sh` `baf339ad99542627b4b93644e4fe646e97f03c354a1d344cfc128df8f00810e7`；`verify-extra.sh` `36b4dd91170726586d542da7f8aa431c943d524b90ffef4db9ef0c1f6e955f78`；`run-candidate.py` `da628fbaa95808449f1bdd6b4d615d35206afbe01160399cbeee79099e2085f6`（一 case 一进程，绝不做 expected-failure 归一） |
-| 结果 | `run-tests.sh`: `CANDIDATE_CORE_RESULT: PASS 39/39 cases`，exit 0；`verify-extra.sh`: `ASAN_UBSAN: CLEAN (0)`、`SYMBOLS: CLEAN (no K60PmicRail symbol)`、`REPEAT: 10/10`，exit 0；`run-candidate.py`: PASS 39/39，exit 0 |
-| 证据日志 | [driver-run.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/driver-run.log) `fad73a5588a45199aba78f269b23c14c0934b87090bb92f274a41c29c2bfc26a`；[verify-extra.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/verify-extra.log) `d8f23d84b971b2037f6ad2af41bdf37eaed66a76cf816327cfc5fd17bd644aaf`；[final39.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/final39.log) `b3a80fee1edefbc3ec3ee974a740e291d392cd2a98526900ff74569af9e68952` |
+| 结果 | `run-tests.sh`: `CANDIDATE_CORE_RESULT: PASS 42/42 cases`，exit 0；`verify-extra.sh`: `ASAN_UBSAN: CLEAN (0)`、`SYMBOLS: CLEAN (no K60PmicRail symbol)`、`REPEAT: 10/10`，exit 0；`run-candidate.py`: PASS 42/42，exit 0 |
+| 证据日志 | [driver-run-42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/driver-run-42.log) `a21dd1bc17af36ac5000a94cc26d3102007357ef8b003bbe58050445999f6cc2`；[verify-extra-42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/verify-extra-42.log) `d8f23d84b971b2037f6ad2af41bdf37eaed66a76cf816327cfc5fd17bd644aaf`；[final42.log](E:/k60-work/artifacts/adsp-board-20261116/rail-candidate/final42.log) `c25ad6ba87509b2af195727eb090b5e5bda3b23c5bedc973d46177c06d0e4273` |
 
 候选核心验证的是**契约**，不是硬件可读性：map/read32 是显式注入的 seam，permit 的每个 span 都是测试输入；核心只经 read32 读，逐字段检查对齐、mapped 长度、reviewed block 边界与显式 span，先过 gate 再 CAS，先 CAS 再第一次 map；失败即 terminal，后续同 plan 调用只读缓存，坏缓存返回 `CACHE_CORRUPT` 且不重采样；返回值全为负，无任何可被旧接口当作 ResourcesHeld 的成功值。v2/v3 两套偏移、slot+command 全扫描、duplicate identical/conflict、disabled/malformed/TCS busy/not-issued/incomplete 都以 qualifier 与 outcome 分开保留。
 
@@ -204,7 +204,7 @@ Tested base revision: `cd02f1348db6d232f9b705cddf82cd968edb5711`. Canonical hash
 1. 真实 LCX/LMX 请求字段仍无 per-slot/per-command 读取许可；按本文“可证明的访问域”，真实采样应报 `PERMISSION_DENIED`/unknown，合成 permit 不构成硬件许可。
 2. 没有 PAS/SCM/SMEM/lease/资源回调路径；候选核心不产生、也不能产生 `ResourcesHeld`。
 3. `command_block` 在核心里的语义是**相对 TCS base 的累计边界**，不是单条命令宽度：v3 的 command 1 末端为 0x18+0x40+4=0x5c，v2 为 0x14+0x3c+4=0x54；用 0x44 只覆盖 command 0。这是契约输入的含义，不是核心缺陷。
-4. `parsed_value` 必须恰为 1，**契约要求 `parse_ok` 也恰为 1**；核心当前按 truthy 接受是已观测缺陷，`observed-parse-ok-truthy` 用 gate `{1,2,1}` 把它钉住，已登记进 PITFALLS.md 的“候选缺陷队列（未编号）”。本轮按裁决不改核心，不能把该行为当契约。
+4. `parse_ok` 与 `parsed_value` 都必须恰为 1（Lead 20:07 只授权在 `proposed/` 内实现）。`observed-parse-ok-truthy` 用本地 `legacy_gate_ok()` 展示改前 predicate 会接纳 gate `{1,2,1}`——这是 P-204「用计数代替语义」的形状，只作现状展示、不进核心；`parse-ok-two-refused`、`parse-ok-zero-refused` 断言提案核心拒绝，且零 map、零 load、不消耗 attempt。生产侧没有这个 gate，现状没有被描述成已修。
 5. `OBSERVED_REQUEST` 要求 LCX 与 LMX 两条请求同时存在；只有一条有效请求会落到 `MALFORMED_REQUEST`/`NOT_FOUND`——这说明头文件的 API **无法表达部分请求**，是真信息，不是分类错误；本轮不动头文件。
 6. 头文件只有 `k60_rail_observe_once` 一个入口，“跨 facade 标签”用同 plan 重复调用与 terminal replay 表达，不是独立生产入口。
 7. 坏缓存注入只在 TERMINAL 之后顺序进行，无 reset hook；每条序列独立进程，因此并发只覆盖“首个 map 失败、未写 ledger”的路径。
@@ -222,12 +222,33 @@ Tested base revision: `cd02f1348db6d232f9b705cddf82cd968edb5711`. Canonical hash
 8. **精确编译命令**：Ubuntu 24.04 / cc 13.3.0，`-std=c11 -O1 -Wall -Wextra -Werror -DK60_RAIL_OBS_HOST_TEST -pthread`；旧 libc 可能还需要显式 `-pthread`，不声称到处都能构建。
 9. **无 reset hook、每条序列独立进程**被接受为未覆盖边界。
 
+### Lead 20:07 裁决（本轮已执行）
+
+1. **候选缺陷不占 P 号**：改用本文的稳定本地 ID `CAND-nn`（见下节），集成时再映射 P 号。`parse_ok` truthy 不再单独立号——它就是 P-204「用计数代替语义」的同一形状，只写明“这里复现了该形状”。
+2. **`command_block=0x44` 不进冻结契约**：保持 observed-behaviour 用例与注释；要等第二个独立证据源（活设备只读或厂商驱动源码）才谈契约，否则以后真实采样会被误判违约。
+3. **db 表截断归 `GEOMETRY_INVALID`**：144 + count×24 超出 `db_block` 是算术边界，不是硬件结论。`db-block-table-truncated` 与 `db-count-overflow-geometry` 均改断言为 `GEOMETRY_INVALID`；扫描语义（读到哪、怎么读）不变。
+4. **严格 `parse_ok == 1` 只在 `proposed/` 内**：核心 `gate_ok()` 改为双严格；新增 `parse-ok-two-refused`/`parse-ok-zero-refused`。生产侧、canonical、PAS/SCM 均不动。
+5. **单轨部分请求不动 header**：header 是生产契约，HOLD 状态下不改；缺口继续记入 CAND。
+6. **`run-candidate.py` 移位被接受**：驱动脚本随交付走；以后同类移位在提交信息里写 move。
+
+### 候选缺陷与缺口队列（CAND，不占 P 号）
+
+- **CAND-01（API 缺口）** 单轨部分请求无法表达：`entry.c:959` `partial-rail-request` 保留了一条有效 LCX 请求（record_count=1、address/data 可读），但当前 outcome 只能是 `NOT_FOUND`；头文件是生产契约，HOLD 期间不改，等生产解冻与 resources/lease 一起处理。
+- **CAND-02（测试边界）** 无 reset hook（`entry.c:11`），坏缓存/重入只能靠“每条序列独立进程”（`verify-extra.sh:30` 的 10 次整轮重复）。
+- **CAND-03（覆盖边界）** 并发反例只走“首个 map 失败、未写 ledger”的路径，未证明成功路径的并发；证据 `entry.c:1204` `concurrent-busy`。
+- **CAND-04（夹具边界）** boot-arg gate 只是调用者传入的整数（`entry.c:77` `gate_good`），没有真实 PE 解析器或文本文法；本夹具不验证解析层。
+- **CAND-05（可见性边界）** 原始 load 计数只经注入的 `read32` seam；证据 `rail_obs.c:204` `read_field()`。map 计数不能替代“零寄存器读”的独立证明。
+
+P-204 只以“复现该形状”出现：`observed-parse-ok-truthy`（`entry.c:869`）展示改前 predicate 接纳 truthy，提案核心则拒绝；不新增 P 条目，也不把该形状当契约。
+
+### 提议契约 vs 现状（`parse_ok`）
+
+canonical 的 `reproduced-current-behavior` 模式没有 boot-arg gate 输入，它的 75/75 与本轮逐字节相同（哈希未变），不能拿来当“gate 已修”的证据；compliance 模式仍 58 fail / 17 pass、exit 1。候选侧分两层：`observed-parse-ok-truthy` 只展示改前 predicate 的现状（P-204 形状），`parse-ok-*` 断言提案契约。两者都不改变生产行为，也不构成修复声明。
+
 ### 仍开的问题
 
-1. `command_block` 是否应把 `0x44` 当作合法契约（当前按布局自洽判为观测行为）。
-2. `db_block` 的表截断是否应归入 `GEOMETRY_INVALID` 而不是 `DB_CORRUPT`。
-3. 是否要求 `parse_ok == 1` 与 `parsed_value == 1` 同时严格成立（当前核心只对后者严格）。
-4. 头文件是否要能表达“只观测到一条轨”的部分请求（当前 API 不能）。
+1. `command_block` 是否应把 `0x44` 当作合法契约（需要第二个独立证据源；当前按布局自洽判为观测行为）。
+2. 头文件是否要能表达“只观测到一条轨”的部分请求（当前 API 不能；生产 HOLD 期间不动）。
 
 canonical 两模式在同一冻结源上重跑，证明候选文件没有反过来“修绿”旧断言：复现模式 75/75、exit 0；compliance 模式 58 fail / 17 pass、exit 1；两模式 `canonical_unchanged=True`。日志 [reproduced-final.log](E:/k60-work/artifacts/adsp-board-20261116/rail-design/reproduced-final.log)（SHA-256 `4afac87296776970d7c6cf2c13e7251b8c0bca0b074c53305f715e448c32d750`）与 [compliance-final.log](E:/k60-work/artifacts/adsp-board-20261116/rail-design/compliance-final.log)（SHA-256 `edc683846e34aa0454379a35f2b346438b4453617e6b8cf3157f812c3cab72da`）。exit 0 是复现结果，不是合规结论。
 

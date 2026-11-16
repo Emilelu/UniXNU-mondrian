@@ -335,6 +335,10 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 结论：3 处措辞/状态需要修（audio 的 limits、power 的 verify 说法、input 的 completion），1 处可选（charger 的位置）。
 这些都不改八步 spec 的 status，因此不影响门禁；但 `porting.toml` 是设备状态的权威记录，建议由 Lead 或对应线主确认后改 3 句。
 
+**2026-11-17 已改 3 句中的 2 句**：audio 的 `limits`/`next_action` 改为『硬件已盘点、实现待 audio 线』；power 的 `limits` 首句改为
+『battery host verification 与 local_verified 已 true，device 仍 false』。input 的 `completion` 涉及区域状态（device-verified 只对触摸成立），
+未改，留给 Lead/线主决定。
+
 ```sh
 # 复算：四段的步骤矩阵
 python3 - <<'PY'
@@ -360,6 +364,8 @@ PY
 | 4 | bootchain | `status = "active"`，①–⑧ 全 done（launchd exec + pid 增长） | **没有 bootchain area**；相邻的 `firmware` 是 device-verified、`packaging` 是 host-verified | bootchain 的 ⑧ 完成在 porting.toml 里没有归属——设备状态权威记录看不到这条结论 | 建议把 bootchain 映射到 `firmware`，或在 `packaging` 加 findings；不改 EIGHT 的 status |
 
 结论：2 处措辞（storage limits、gpu 状态词）与 1 处覆盖缺口（bootchain 无 area），display 一致。均只报告，未改任何 status。
+
+**2026-11-17 已改 storage 的 `limits`/`next_action`**（改为已实现、剩余 Live Data occupancy）；gpu 的状态词与 bootchain 的归属未动，等 Lead 确认。
 
 ## 附录 A：复算命令
 

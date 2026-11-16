@@ -1,9 +1,18 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7832,6 +7832,19 @@
+@@ -7832,6 +7832,28 @@
  		extern int k60_metal_deploy(proc_t, user_addr_t);
  
  		(void)k60_metal_deploy(p, scratch);
++	}
++	/* 0614: probe the linked ADSP carrier first. The blob is part of the kernel
++	 * image, so this path needs no filesystem and no Data mount: the publish
++	 * timing deadlock in HANDOFF-PUBLISH-SPEC §7 does not apply to it. The
++	 * legacy FAT probe below stays behind its own boot argument. */
++	{
++		extern int k60_adsp_carrier_probe(void);
++
++		(void)k60_adsp_carrier_probe();
 +	}
 +	/* 0614: bring up the ADSP and read the touch rail once Data is mounted.
 +	 * The rail probe is opt-in (HR-01): an ordinary boot never maps 0x17a20000. */

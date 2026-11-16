@@ -1389,6 +1389,64 @@ d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）�
    指向的 8 MiB `io_submap`（§7.10/§7.11）。二分给的是**范围**，panic/日志给的是**机制**，
    两者缺一不可。
 
+### 7.18 d7 图 `bt-d7-obs` 实飞：预算行生效，停在 NVM 第一段（2026-11-16 13:04）
+
+Lead 在 13:04:46 飞了 `bt-d7-obs`（boot.img `76a4260bc762a22a3dc683e4042a0a13a8dea41f04defccede8f9a96719c7512`），
+证据 `E:/k60-work/evidence/usblog-20261116-130444`。这是蓝牙线上第一张**把死因打印出来**的观测图。
+
+**采集**：capture.json `captured-budget-complete`、221,001 B、portSeen/portOpened true、openErrors 0、
+stopReason `budget`、panicMarker **null**、13:04:48 → 13:09:09；console.log 3,180 行、
+sha256 `DFCA52D1523BCDD27B56C91BB269A0A39AB49EB9F0D82E7559A1F2D420378772`、SpringBoard **132**、
+心跳 16 条（t=15…240）、无 panic。boot.json 里 `bootAccepted=false` / `bootExitCode=-1` 是
+supervisor 在预算内没等到「已接受」的回执，**不是启动失败**（SpringBoard 132 与全部阶梯行都在）。
+
+**阶梯与时间线**（行号为 console.log 实测，时刻用心跳 t 定位）：
+
+| 行 | 内容 | 时刻 |
+| --- | --- | --- |
+| :193 | `addon: linked blob bytes=1027584 records=106` | t≈0 |
+| :484–:491 | late released → power_on enter → cold boot（rails not voted）→ smmu plan/sid → dma+smmu bypass ready → uart pins parked | t≈15 |
+| :495 | clocks vote（cbcr core=0x4220 core2x=0x4220 m=0 s=0x80000002 se=0x80004220） | t≈15 |
+| :496/:497 | `full: qbt_boot enter` / `boot: enter speed=3000000 budget=90000ms` | t≈15 |
+| :709/:710 | `boot: soc version done e=0` / `boot: set speed done e=0` | t≈15 |
+| :711/:712 | `QCA controller version 0x12110201` / `addon: serving 146068 0`（rampatch） | t≈15 |
+| :721 | `boot: rampatch done` | t≈30 |
+| :729 | `addon: serving 6442 0`（NVM） | t≈45 |
+| :2044 | **`boot: budget exhausted at op=0xfc00 waiting=1`** | t≈105 |
+| :2045 | `QCA Failed to send TLV segment (-60)` | t≈105 |
+| :2046/:2047/:2048 | 回退文件名重读同一份 NVM（`hpnv21g.bin`）→ 立刻再撞预算 | t≈105 |
+| :2049 | `QCA Failed to request file: qca/hpnv21g.bin (-60)` | t≈105 |
+| :2050–:2053 | `boot: uart setup done e=-60` / `boot: return e=-60 baud=3000000` / `full: qbt_boot returned e=-60` / **`power=1 result=-60 baud=3000000 firmware=`** | t≈105 |
+
+**结论一：0514 的观测设计成立。** 命中 §7.15 判据表的第一档 —— 出现 `boot: budget exhausted at op=0x…. waiting=…`，
+opcode `0xfc00` 就是 `EDL_PATCH_CMD_OPCODE`（TLV 段命令，`0500:3784`），`waiting=1` 说明当时正等控制器
+对这条命令的应答。`power=` 行被 90 s 预算逼了出来 —— 没有这条预算，d5/d6 那种「什么都不打」会一直持续下去。
+`-60` 是 Darwin 的 `ETIMEDOUT`。
+
+**结论二：停点在 NVM 下载的第一段，不在 rampatch，也不在 bdaddr。**
+rampatch（146,068 B，按 `MAX_SIZE_PER_TLV_SEGMENT 243` 约 601 段）在 t≈15→t≈30 的 15 s 内全部送完并被确认，
+NVM（6,442 B，约 27 段）在 t≈45 之后**一段都没被确认**。所以 rampatch 的 TLV 通路、3 Mbaud 切换、
+板级 id 读取都是好的；坏在 NVM 段。两次 `addon: serving 6442 0` 是 WCN6855 的回退逻辑
+（`0500:3673-3676`：`wcnhpnv21g.bin` 失败后改用 `hpnv21g.bin` 重下），不是两份不同文件。
+
+**结论三（待查的异常）：日志里没有一条 `boot: command timeout op=0xfc00`。**
+按代码，每条 TLV 段的 `qbt_command` 都带 10 s 的 `QBT_COMMAND_TIMEOUT`（`qbt_core.c:268`），
+60 s 的空转本应打印 5–6 条 `command timeout`，但实测只有 90 s 的 budget 行。
+`run()` 里 budget 分支在 deadline 分支之前，所以「两条都成立时 budget 优先」只解释最后一条，
+解释不了前面 60 s 一条都没有。两种可能：(a) 时间花在 `run()` 之外（某个 `qbt_delay` 或等待循环）；
+(b) 10 s 分支在这条路径上不可达（例如 `q->info.error` 先返回、或 `ibs` 唤醒重试把状态打成 failed）。
+**下一张图要能区分这两者**，见下。
+
+**下一张图（d8）的观测要求**（仍然只加日志，不改状态机）：
+
+1. `qca_download_firmware()` 的分片循环里，每段一条 level-1：段号 / 段长 / 已用时 / 累计 ack；
+2. `qbt_boot()` 返回前打一次 `qbt_get_stats()` 的关键字段（`tlv_sent` / `tlv_acks` / `timeouts` /
+   `unmatched_events` / `hardware_errors` / `last_hardware_error`）—— 现在这些计数器在设备上完全不可见；
+3. 进 NVM 之前打一行 `ibs=%d state=%u baud=%u`，确认 in-band sleep 有没有参与；
+4. 若 d8 显示 `tlv_sent` 停在 1 且 `timeouts` 为 0，则 (a) 成立，问题在等待循环而不是 TLV 应答。
+
+---
+
 ## 8 八步账本片段（已产出补丁，Lead 落地）
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出

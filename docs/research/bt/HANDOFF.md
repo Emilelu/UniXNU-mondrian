@@ -911,6 +911,26 @@ Lead 回复 #12 第五项：把 S4-SPEC §7.17 的「单变量二分五步法」
   具体数字与 evidence 路径。
 - check-docs 202 项 ✅（新文档被 INDEX 与 engineering/README 双登记）。
 
+### 35. d7 实飞：预算行生效，停在 NVM 第一段（2026-11-16 13:04）
+
+Lead 飞了 `bt-d7-obs`（boot.img `76a4260bc762a22a3dc683e4042a0a13a8dea41f04defccede8f9a96719c7512`），
+证据 `E:/k60-work/evidence/usblog-20261116-130444`（console 3,180 行 / 221,001 B、SpringBoard 132、
+panic 0、stopReason budget）。
+
+- 0514 的观测设计成立：`:2044 boot: budget exhausted at op=0xfc00 waiting=1` 把死因打了出来，
+  `0xfc00` = `EDL_PATCH_CMD_OPCODE`，`power=1 result=-60 baud=3000000 firmware=` 被 90 s 预算逼出来。
+- 停点在 **NVM 下载的第一段**：rampatch（146,068 B ≈601 段）在 t≈15→t≈30 全部确认完，
+  NVM（6,442 B ≈27 段）从 t≈45 到 t≈105 一段都没被确认。rampatch 通路 / 3 Mbaud / 板级 id 都正常。
+  两次 `addon: serving 6442 0` 是 `wcnhpnv21g.bin` → `hpnv21g.bin` 的回退（`0500:3673-3676`），不是两份文件。
+- 待查异常：**没有一条 `boot: command timeout op=0xfc00`**。每段 TLV 都带 10 s 的
+  `QBT_COMMAND_TIMEOUT`（`qbt_core.c:268`），60 s 空转本应打印 5–6 条。两种可能：
+  (a) 时间花在 `run()` 之外；(b) 10 s 分支不可达（`info.error` 先返回或 ibs 唤醒重试打成 failed）。
+- 落档：S4-SPEC 新增 §7.18（采集表 + 15 行阶梯/时间线表 + 三条结论 + d8 四条观测要求）。
+- 下一张图 d8 的观测要求：分片循环每段一条 level-1；`qbt_boot()` 返回前打 `qbt_get_stats()` 的
+  `tlv_sent/tlv_acks/timeouts/unmatched_events/hardware_errors/last_hardware_error`（这些计数器
+  目前在内核侧从未被调用）；进 NVM 前打 `ibs/state/baud`；用 `tlv_sent` 停在 1 且 `timeouts=0` 区分可能 (a)。
+
+
 
 
 

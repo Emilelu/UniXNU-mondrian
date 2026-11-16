@@ -1288,18 +1288,18 @@ complete）、`:709` 读到控制器版本、两个固件分片都被取走、`:
 
 ### 7.15 d7 配方：`QBT_BOOT_BUDGET` 与逐阶段日志（2026-11-16 09:45）
 
-d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）与 NVM（6442 B）
-交给控制器，但 `[bluetooth] power=1 result=…` 行一次都没打印。要判断「哪一段
-没返回」，只能把 `qbt_boot()` 内部拆成可观测的阶段。
+d5 与 d6 都未打印 `[bluetooth] power=1 result=…`：日志确认 rampatch 阶段返回，随后出现 NVM 文件的 serving 请求，但不能证明 NVM 下载已完成或已经全部交给控制器。要判断 `qbt_boot()` 的段级进展与返回位置，需要内部阶段日志；d7 结果见 §7.18。
 
 **为什么之前看不到**：`k60_log()` 只放行 level ≤ 3（`qbt_k60.c:1581`），
 而 btqca 的进度行是 `bt_dev_info`（level 6，被静音）；`bt_dev_err` 是 level 3
 （会打印，但只在失败时）。所以「没有输出」既可能是卡住，也可能是成功路径本来就不出声。
 
-**为什么 qbt_boot 会长时间不返回**：`qbt_boot()` 没有整体期限。每个 TLV 段各自带
-10 s 的 `QBT_COMMAND_TIMEOUT`（`qbt_internal.h:15`），一段超时后循环继续下一段
-（`btqca.c:604-620`）。rampatch 146068 B 按 `MAX_SIZE_PER_TLV_SEGMENT 243` 分片
-是 600 多段 —— 控制器一旦停止应答，这个循环能走上小时，worker 永远走不到结果行。
+**为什么需要整体预算**：0514 之前，`qbt_boot()` 没有覆盖整个启动流程的期限。
+每条命令各自的 10 s `QBT_COMMAND_TIMEOUT` 不能证明整个流程会在 10 s 内返回；
+rampatch 的 600 多个理论分段也不是 d5/d6 已完成或已超时的段数。
+`qca_download_firmware()` 在段返回错误时 `goto out`（0515 的上下文明确保留此逻辑），
+因此撤回“一段超时后继续下一段、必然耗上小时”的旧解释。0514 增加启动总预算，
+但检查仍依赖执行流回到 `run()`，并非能抢占阻塞回调的独立看门狗。
 
 **0514 的两件事（只加观测 + 一个上限）**：
 
@@ -1307,7 +1307,7 @@ d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）�
 | --- | --- | --- |
 | `QBT_BOOT_BUDGET 90000000000ULL`（90 s） | `qbt_internal.h` | 启动上限常量 |
 | `uint64_t boot_deadline;` | `struct qbt` | 一个字段，服务阶段恒为 0 |
-| `q->boot_deadline=now(q)+QBT_BOOT_BUDGET;` / `=0;` | `qbt_linux.c` `qbt_boot()` | 只在启动路径武装，返回前解除 |
+| `q->boot_deadline=q->ops.now_ns(q->ops.context)+QBT_BOOT_BUDGET;` / `=0;` | `qbt_linux.c` `qbt_boot()` | 只在启动路径武装，返回前解除 |
 | `if (q->boot_deadline && t >= q->boot_deadline)` | `qbt_core.c` `run()` | 超预算即 `-ETIMEDOUT`，并打印当时等的 opcode |
 | `boot: command timeout op=0x%04x` | 同上 | 单条命令超时也报 opcode |
 | 12 条 `qbt_linux_log(q,1,…)` 阶段行 | `qbt_linux.c` / `btqca.c` / `qbt_k60.c` | enter / soc version / set speed / uart setup / rampatch / nvm / hci reset / bdaddr check / set bdaddr / return / qbt_boot returned |
@@ -1324,35 +1324,34 @@ d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）�
 
 | 观察 | 结论 |
 | --- | --- |
-| 出现 `boot: budget exhausted at op=0x….` | 控制器在**那条 opcode** 之后不再应答，opcode 直接指向 TLV 段的命令 |
-| 出现 `boot: command timeout op=0x….` 但没有 budget 行 | 单条命令超时后流程继续，卡点在别处 |
-| 出现 `full: qbt_boot returned e=…` | `qbt_boot()` 正常返回，`power=` 行随之打印；停点在返回**之后**的服务循环 |
-| 最后一条是 `boot: nvm done` | 卡在 NVM 之后的 `qca_disable_soc_logging` / `HCI_RESET` 段 |
-| 最后一条是 `boot: rampatch done` | 卡在 NVM 下载段 |
-| 连 `boot: enter` 都没有 | 卡在 `qbt_boot()` 之前的地址派生或 `k60_bt_power_on()` |
-| 出现 `full: qbt_boot returned e=0` 但之后什么都没有 | **不是蓝牙失败，是服务循环没被调起来**（Lead 2026-11-16 加的第四档）：去看 `nw_wifi_step` 那类泵循环在蓝牙侧是否存在。d5/d6 停在 `:726 addon: serving 6442 0` 之后就没有下文，怀疑「下载完了但没人继续驱动它」 |
-| 有 budget 行、但 `boot: command timeout` 计数为 **0** | **没有一段卡死**（Lead 2026-11-16 13:40 补的第五档，d7 实测）：预算分支在 deadline 分支之前，任何一段真卡满 10 s 都会先打 command timeout。计数为 0 ⇒ 每段都在期限内返回，只是合起来超过预算，下一步是测段速而不是查挂死 |
+| 出现 `boot: budget exhausted at op=0x….` | `run()` 首先观察到全局预算到期；opcode 是当时等待的命令，不足以裁定控制器、事件匹配或 TX 排空根因 |
+| 出现 `boot: command timeout op=0x….` 且没有 budget 行 | 当前 `run()` 调用观察到单命令期限；后续是否继续由调用者的错误路径决定，不能据此定位最终停点 |
+| 出现 `full: qbt_boot returned e=…` | `qbt_boot()` 已返回；先按 e 与后续 power 行判成功或错误，不能直接归因服务循环 |
+| 最后一条是 `boot: nvm done` | 已越过该日志点；后续日志开关、返回路径、`qca_disable_soc_logging` / `HCI_RESET` 是待查范围，尚不能断言卡死 |
+| 最后一条是 `boot: rampatch done` | 已越过 rampatch 日志点；NVM 路径为后续待查范围，完成程度未知 |
+| 连 `boot: enter` 都没有 | 先核对镜像身份、采集完整性及是否进入启动路径，再查地址派生与 `k60_bt_power_on()`，不能仅凭缺行定因 |
+| 出现 `full: qbt_boot returned e=0` 但之后缺少进展证据 | 可确认本次启动返回成功；核对 power 行与服务循环的调用、泵送和观测点。缺行本身不能证明循环未调用，也不代表完整蓝牙功能可用；d5/d6 没有该 e=0 行，不能套用 |
+| 有 budget 行、但 `boot: command timeout` 计数为 **0** | 不能推出每段正常：预算分支在命令期限分支之前；阻塞跨过两者时只会打印 budget。d7 的具体更正见 §7.18 |
 
-> 「budget 行出现几次」与「command timeout 出现几次」必须**分别计数**再判读：
-> d7 是 budget 2 次 / timeout 0 次 —— 单看 budget 会误判成「卡在最后等的那个 opcode」，
-> 加上 timeout=0 才变成「没有卡死、只是慢」。
+> budget 与 command timeout 必须分开统计，但统计不等于机制证明。
+> d7 的 budget 2 次 / timeout 0 次不能排除挂起或慢路径，需 d8 的逐段 ret/dt/统计。
 
 ### 7.16 两条通用规矩（Lead 2026-11-16 认可，适用于本线以外的所有硬件线）
 
 **规矩一：只加观测的补丁，测试必须断言它没有碰状态。**
 0514 的 33 例 host 测试里有五条专门做这件事：被删掉的行只有 `run()` 里那一行超时分支；
 新增行不含 `k60_map` / `ml_io_map` / `k60_gcc_set_se_rate` / `k60_smmu_bypass` /
-任何既有开关字段；`QBT_COMMAND_TIMEOUT` 的值不变。理由：一张「只加观测」的镜像
-如果死在设备上，唯一的价值就是「死因不是观测引入的」——这个前提必须由测试证明，
-不能由作者口头保证。下次任何线做观测补丁（ADSP、modem、wifi 的泵循环日志）都照这个形状写。
+任何既有开关字段；`QBT_COMMAND_TIMEOUT` 的值不变。静态契约检查证明这些禁改项在补丁文本中未被修改，
+不能证明运行时等价，也不能排除 console 日志引入的时序扰动；0514 还明确新增整体预算。
+其他线的观测补丁也应声明边界并做相应检查，设备结论仍须依赖实测。
 
-**规矩二：分片下载 + 每片独立超时 = 没有总期限。**
-`qbt_boot()` 的每一段 TLV 各自带 10 s 超时，一段超时后循环继续下一段；rampatch 146068 B
-按 243 B 分片是 600 多段，控制器一停应答就能走上小时，worker 永远走不到结果行。
-这类路径必须加**一个整体预算**（0514 的 `QBT_BOOT_BUDGET` = 90 s），并且：
+**规矩二：每条命令的独立期限不能替代整个流程的预算。**
+多次成功但缓慢的调用可以累积较长耗时；错误是否继续必须读调用者的返回路径，
+不能用理论段数乘以单命令期限冒充实测。本路径遇段错误会退出下载；d7 的
+90 s 总预算由 0514 新增，现有证据不能说明每段是慢还是阻塞。设计整体预算时：
 - 预算只绑启动路径（`struct qbt.boot_deadline` 在服务阶段恒为 0）——启动卡死是 bug，
   运行期慢是另一个问题，不能用同一个期限；
-- 90 s 而不是 10 s：10 s 会把「控制器慢但正常」误判成失败，90 s 又远小于「600 段各等 10 s」；
+- 总预算与单命令期限分开；90 s 是当前观测图选值，是否足够要靠实测，不能用 d7 的 timeout=0 证明；
 - 超预算时打印**当时在等的 opcode**，否则「超时了」这句话没有定位价值。
 
 ### 7.17 单变量二分的完整方法（十一格矩阵的最终解释）
@@ -1394,10 +1393,10 @@ d5 与 d6 停在同一个位置：`qbt_boot()` 已经把 rampatch（146068 B）�
    指向的 8 MiB `io_submap`（§7.10/§7.11）。二分给的是**范围**，panic/日志给的是**机制**，
    两者缺一不可。
 
-### 7.18 d7 图 `bt-d7-obs` 实飞：预算行生效，NVM 下载慢而不是卡死（2026-11-16 13:04，13:40 由 Lead 纠正本线初判）
+### 7.18 d7 图 `bt-d7-obs` 实飞：NVM 路径触发全局预算，根因待定（2026-11-16 15:12 更正）
 
 Lead 在 13:04:46 飞了 `bt-d7-obs`（boot.img `76a4260bc762a22a3dc683e4042a0a13a8dea41f04defccede8f9a96719c7512`），
-证据 `E:/k60-work/evidence/usblog-20261116-130444`。这是蓝牙线上第一张**把死因打印出来**的观测图。
+证据 `E:/k60-work/evidence/usblog-20261116-130444`。这是蓝牙线上第一张**打印启动预算失败与返回路径**的观测图，不是根因证明。
 
 **采集**：capture.json `captured-budget-complete`、221,001 B、portSeen/portOpened true、openErrors 0、
 stopReason `budget`、panicMarker **null**、13:04:48 → 13:09:09；console.log 3,180 行、
@@ -1423,64 +1422,50 @@ supervisor 在预算内没等到「已接受」的回执，**不是启动失败*
 | :2049 | `QCA Failed to request file: qca/hpnv21g.bin (-60)` | t≈105 |
 | :2050–:2053 | `boot: uart setup done e=-60` / `boot: return e=-60 baud=3000000` / `full: qbt_boot returned e=-60` / **`power=1 result=-60 baud=3000000 firmware=`** | t≈105 |
 
-**结论一：0514 的观测设计成立。** 命中 §7.15 判据表的第一档 —— 出现 `boot: budget exhausted at op=0x…. waiting=…`，
-opcode `0xfc00` 就是 `EDL_PATCH_CMD_OPCODE`（TLV 段命令，`0500:3784`），`waiting=1` 说明当时正等控制器
-对这条命令的应答。`power=` 行被 90 s 预算逼了出来 —— 没有这条预算，d5/d6 那种「什么都不打」会一直持续下去。
-`-60` 是 Darwin 的 `ETIMEDOUT`。
+**稳定事实（15:12 更正后的结论）**：rampatch 下载阶段返回，NVM 文件路径开始，
+最后 `run()` 首先观察到 90 s 全局预算；错误经 `qbt_boot()` 与
+`power=1 result=-60 baud=3000000 firmware=` 返回。`0xfc00` 是
+`EDL_PATCH_CMD_OPCODE`，`waiting=1` 是布尔等待状态，不是“只等一轮”，
+也不能单凭它区分事件未匹配、TX 排空或控制器未应答。`-60` 是 Darwin 的 `ETIMEDOUT`。
+机器正常启动（SpringBoard 132、panic 0）与**蓝牙启动功能失败**（result=-60）同时成立。
 
-**结论二：预算在 NVM 下载途中用完 —— 是慢，不是卡。**
-rampatch（146,068 B，按 `MAX_SIZE_PER_TLV_SEGMENT 243` 约 601 段）在 t≈15→t≈30 的 15 s 内全部送完并被确认，
-说明 TLV 通路、3 Mbaud 切换、板级 id 读取都是好的。NVM（6,442 B，约 27 段）从 t≈45 起被逐段取走，
-到 t≈110 预算用完时仍在推进：
+**撤回两次过度推论**：本线最初“卡在 NVM 第一段”没有逐段证据；Lead 13:40 提出的
+“command timeout=0 ⇒ 每段正常、只是慢”同样不成立。15:12 Lead 与本线共同撤回：
 
-- 时间账：`boot: enter` t≈20，`rampatch done` t≈45，`budget exhausted` t≈110 —— 20 + 90 = 110，
-  预算正好在进入 NVM 之后 65 s 处花完；
-- 段速：6,442 / 243 = 27 段，65 s / 27 ≈ **2.4 s 一段**，远小于每段 10 s 的 `QBT_COMMAND_TIMEOUT`；
-- 两次 `addon: serving 6442 0` 是 WCN6855 的回退逻辑（`0500:3673-3676`：`wcnhpnv21g.bin` 失败后
-  改用 `hpnv21g.bin` 重下），不是两份不同文件。
+- `run()` 先判断 `boot_deadline`，再判断单命令 `deadline`（`0514:48-63`）。
+  若 `pump` / `wait_until` 阻塞并跨过两者，恢复时会先打印 budget 并返回，
+  command timeout 行不会出现。因此 budget **2** / command timeout **0** 只是日志事实，
+  不能证明每段都在 10 s 内完成，也不能排除阻塞。
+- d7 没有逐段计数；6,442 B 按 243 B 计算约 27 段只是文件的理论分段数，
+  不能假设未完成的 NVM 已完成 27 段，更不能用 65 s ÷ 27 得到“实测 2.4 s/段”。
+  心跳只给粗粒度时间，不能代替每段耗时与返回值。
+- 两次 `addon: serving 6442 0` 包含 `wcnhpnv21g.bin` → `hpnv21g.bin`
+  fallback 重试。预算已经耗尽时，重试可立即失败；它不证明第二次成功传输。
+- 是慢、阻塞、事件不匹配还是 TX 排空，现有 d7 日志不能裁定，须读 d8。
 
-本线初判为「停在 NVM 的第一段、一段都没被确认」，Lead 13:40 用下面结论三的计数否证了它：
-没有一条命令超时，说明每一段都在期限内完成了，只是整段 NVM 比 90 s 预算更慢。
+**d8 判读纪律（替代原“三支直接指定 d9 修法”的表）**：
 
-**结论三：`command timeout` 计数为 0 ⇒ 没有任何一段卡死（Lead 2026-11-16 13:40 的纠正，本线初判作废）。**
-实测 `grep -ac "command timeout"` = **0**、`grep -ac "budget exhausted"` = **2**。
-`0514` 在 `run()` 里把预算分支放在 10 s 单命令超时分支**之前**，所以只有「两条同时成立」时预算才吃掉
-超时行；只要有任何一段真的卡满 10 s，那一段必然先被 deadline 分支抓到并打印 `boot: command timeout op=0xfc00`。
-一条都没有 ⇒ **不存在卡死的段**，NVM 的 27 段每段都在 10 s 内返回，只是合起来超过 90 s。
+| 观察 | 可得结论 / 仍不能得出的结论 |
+| --- | --- |
+| 某次 PATCH / NVM 的逐段 `e=0`、短 `dt_ms` | 该次调用成功返回；是否整文件完成还要看对应 `tlv done ... ret=0` 及 TLV final 状态 |
+| 全局 `sent/acks` 增长 | 它们是整个 boot 的累计，含 rampatch（约 602 段）和 fallback；必须按每次 type/attempt 的基线取差，不能拿全局 sent≈27 判 NVM 完成 |
+| `tlv seg` 的最后一段 `e!=0` | 日志在函数返回后才打印，可能直到预算耗尽才出现；这一段计入 `segs` 的尝试数，但不计作成功完成 |
+| 缺少文件进入前的基线 / 明确 attempt 标识 | 按相邻 serving、逐段 i、type 与 done 行重建并标明不确定量，不能把 PATCH/NVM/fallback 混算 |
+| 长 `dt_ms`、acks 不变或缺少后续段行 | 只限定观测停点，不能直接断言事件匹配或 TX 排空根因；结合 ret、done、final 与预算/复位证据进一步判断 |
 
-这条计数同时否证两个假设：①「某一段挂住」；②「每段都在 9.x s 边缘」（那会打印一串 command timeout）。
-剩下的只有「每段确实慢但正常」。仍未排除的细分是：2.4 s/段是控制器写内部存储的固有延迟（(a)），
-还是应答被 `event()` 里 `if (e[5]) return;` 丢掉、命令靠重试在最后时刻完成（(b)）——(b) 会留下
-`unmatched_events` / 重发痕迹，所以 d8 要打 `tlv_sent` 与 `tlv_acks` 的比值。
-
-**下一张图（d8）的观测要求**（Lead 2026-11-16 13:40 定的三件事，全在 `qca_download_firmware()` 主循环，
-只加日志、不碰状态机；实现见 §7.19）：
-
-1. 每段一条 `tlv seg i=%u size=%d dt_ms=%u e=%d sent=%llu acks=%llu`（`dt_ms` 用 `now_ns` 前后相减）；
-2. 循环结束 / `goto out` 之前一条 `tlv done type=%d segs=%u sent=%llu acks=%llu final=%llu ret=%d`；
-3. 已有的 `power=` 行追加 `tlv_sent=%llu tlv_acks=%llu tlv_final=%llu`。
-
-**明确不做**：不抬 `QBT_BOOT_BUDGET`（90 s 花光本身有信息量，抬了会把它抹掉）、不改
-`MAX_SIZE_PER_TLV_SEGMENT`(243) / `dnld_mode` / `dnld_type` / 段表 / SMMU / 时钟 / 窗口 / `board.toml`。
-
-**d8 三支判读**：
-
-| 观察 | 结论 | d9 动作 |
-| --- | --- | --- |
-| `dt_ms` 2,000–3,000 且 `acks` 跟着涨到 20+ | (a) 每段正常，只是 NVM 整体慢 | 只把预算抬到 240 s |
-| `dt_ms` 9,000–10,000 且 `acks` 不涨 | (b) 应答被丢、靠重试完成 | 改 `event()` TLV 分支（接受 `e[0]==0x0f` 或按固件 `download_mode`） |
-| `sent` 停在个位数就 budget exhausted | 卡在 `qbt_send_command` 的 TX 排空 | 打 `qbt_deadline()` 与 `k60.geni` 状态 |
+每段打印增加 console 成本，d8 的耗时只代表**该观测镜像**；与 d7 心跳估时对比必须注明
+观测扰动。**不预做 d9，不抬预算、不改 event 匹配**；保留现有 d8，实测后再选窄化观测或修法。
 
 ### 7.19 d8 配方：0515 打印 TLV 段速与计数器（2026-11-16 13:20）
 
-d7 把问题从「什么都不打」缩到「NVM 下载慢」，但它看不清**每段的实际耗时**：`struct qbt_stats`
+d7 把问题从「什么都不打」缩到「NVM 路径预算失败、根因待定」，但它看不清**每段的实际耗时**：`struct qbt_stats`
 里 `tlv_sent` / `tlv_acks` / `tlv_final_status` 早就在维护（`qbt.h:32-38`），可内核侧从未打印过。
 0515 只做这件事 —— 把已有计数器与段速打出来。
 
 | 改动 | 位置 | 作用 |
 | --- | --- | --- |
 | `tlv seg i=%u size=%d dt_ms=%u e=%d sent=%llu acks=%llu` | `btqca.c` `qca_download_firmware()` 循环 | 每段一行，`dt_ms` 用 `ops.now_ns()` 前后相减 |
-| `tlv done type=%d segs=%u sent=%llu acks=%llu final=%llu ret=%d` | `out:` 之前 | 一次下载的汇总，rampatch 与 NVM 各一条 |
+| `tlv done type=%d segs=%u sent=%llu acks=%llu final=%llu ret=%d` | `out:` 之前 | 每次下载调用的汇总，PATCH / NVM / fallback attempt 分开，计数仍为 boot 全局累计 |
 | `power=` 行追加 `tlv_sent=%llu tlv_acks=%llu tlv_final=%llu` | `qbt_k60.c` `k60_power_result()` | 失败路径也带计数器 |
 
 **边界**：`QBT_BOOT_BUDGET`(90 s) / `QBT_COMMAND_TIMEOUT`(10 s) / `MAX_SIZE_PER_TLV_SEGMENT`(243) /
@@ -1493,7 +1478,7 @@ d7 把问题从「什么都不打」缩到「NVM 下载慢」，但它看不清*
   `patches/bt/0009-k60-bt-tlv-counters.patch` 字节相同；全量重放 234 条 `BAD=0` 后再单独 apply 成功。
 - **配方**：series 235（`… 0512 / 0514 / 0515`），参数 `k60bt=1 pong_bt_late=1`（31 项 / 598 B），
   tag `bt-d8-tlv`。
-- **判据**：见 §7.18 的三支表（`dt_ms` 段速 / `acks` 是否跟着涨 / `sent` 是否停在个位数）。
+- **判据**：见 §7.18 的判读纪律；按 type/attempt 分开、累计取差、失败段不算完成，并注明 console 观测扰动。d8 未飞，不预做 d9。
 - **已构建（2026-11-16 13:56:24）**：`boot_img 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`
   （201,887,744 B）、`kernel_built 6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331`（106,598,400 B）、
   series {235, names+sizes `f7aa7d63470b891d`, file `9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8}`、
@@ -1502,7 +1487,15 @@ d7 把问题从「什么都不打」缩到「NVM 下载慢」，但它看不清*
 
 ---
 
-## 8 八步账本片段（已产出补丁，Lead 落地）
+## 8 八步账本沿革与 d8 当前范围
+
+**当前有效状态（2026-11-16 15:18 指示后的闭环）**：蓝牙 d8 是活跃的纯观测实验，
+当前账本以 `docs/research/EIGHT-STEPS.toml` 为准：①–⑦覆盖 d8 离线观测改动；
+⑧保持未完成、仅预声明观测成功/失败判据。⑦完成不等于蓝牙功能可用。
+本树默认 `python3 scripts/eight-step-gate.py --flash` 已实际列出 7 项（含 bluetooth）、56 项通过、RC=0，
+见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`。原 d8 构建日志只有 6 项 build 检查，
+不追改 manifest，也不把本次离线核验冒充原构建覆盖或设备成功。
+以下是 11-15 的历史沿革，不是本轮保留 parked 或跳过 flash 检查的依据。
 
 **缺口**：`docs/research/EIGHT-STEPS.toml` 没有 `[hardware.bluetooth]` 段（`grep -n '^\[hardware'` 只列出
 touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery），于是
@@ -1526,11 +1519,11 @@ touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery�
 （parked 项不参与整机口径，所以整机口径没有被放宽）；`K60_EIGHT_STEP_ITEMS=bluetooth ... --build` →
 `声明范围: bluetooth[parked] / 通过 6 项检查` rc=0；`render-eight-step-table.py --check` → 一致。
 
-**状态取值为什么是 `parked` 而不是 `active`**：`active` 会让整机口径立刻要求蓝牙的 ①–⑥ 全部 done
-（那是别的线的门禁负担，也等于把本线的进度绑成全仓库的阻塞项）；`parked` + `parked_why` 才是
-"有镜像、等上机窗口"的准确表述，而且按 P-192 仍可用 `K60_EIGHT_STEP_ITEMS=bluetooth` 单独声明后
-按 active 的证据规则被检查。⑦ 的 `done = false` + `local_verified = true` 与 battery 段同一写法：
-离线三类核验齐全（表格显示 ✅），但上机未做，所以不写 done。
+**已撤回的旧解释**：11-15 曾把“等上机窗口”写成 parked，并把⑦ `done=false`
+解释成“上机未做”。这是把⑦离线核验与⑧上机混在一起，导致默认 flash 只查其他硬件。
+`K60_EIGHT_STEP_ITEMS` 仅影响 build，不能让 parked 项进入默认 flash。
+本轮不豁免 done=false、不改 gate：离线三类实际核验齐全后才将⑦置 true，
+蓝牙设 active，⑧仍 false，默认 `--flash` 必须在名单中实际列出 bluetooth。
 
 **⑤ 方案里写进去的阶梯判据**（这是 Lead 要的"把 step-5 判据放进片段"）：五档 `k60bt=1 k60bt_step=N`
 （1→4→5→7→9，每份 596 B）与"最后一行打点即死因"的判死表，以及 S4 三级
@@ -1545,7 +1538,7 @@ touch / gpu / storage / display / bootchain / buttons / wifi / audio / battery�
 
 > 合进 main 的那一版写的是旧通道的正向判据 `addon: loaded bytes records 1027584 106`。
 > P-197 之后正向镜像换成内嵌 blob，判据行改成 `addon: linked blob bytes=1027584 records=106`。
-> `docs/research/EIGHT-STEPS.toml` 与 `docs/engineering/PITFALLS.md`（P-197 的 Check 行）都**不在本线写权限内**，
+> 当时 `docs/research/EIGHT-STEPS.toml` 与 `docs/engineering/PITFALLS.md`（P-197 的 Check 行）都不在本线写权限内（本轮 Lead 已授权更新本线账本），
 > 所以这三处判据改动同样导出成补丁交给 Lead：
 > `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-blob.patch`（10,117 B，sha256
 > `539473c2e2ab2578cbdcb1212047e2ed88a08f3616bd3e569841d79e0258cdc3`），在 `ccd4dfc` 上

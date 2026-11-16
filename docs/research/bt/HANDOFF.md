@@ -834,7 +834,8 @@ This line, next in order:
 33. **Lead 回复（2026-11-16 11:16）：批准飞 d7，并派两件文档活（本轮完成）**
     - 飞行队列：wifi c7 → **bt-d7-obs** → adsp → modem，本线排第二。
     - 0514 的设计被认可，特别是「服务阶段恒 0、只绑启动路径」的边界；90 s 被肯定为
-      比 10 s 好（10 s 会误判「慢但正常」，90 s 又远小于「600 段各等 10 s」）。
+      当时选择了 90 s；这是历史选值理由。15:12 已撤回“600 段各等 10 s”的机制解释，
+      以及用 command timeout=0 证明每段正常的推论；当前结论见 item 35。
     - 三处采纳并已成为规则（写进 S4-SPEC §7.16）：
       ① 「只加观测的补丁，测试必须断言它没有碰状态」——一个只加观测的镜像若死在设备上，
       唯一价值是「死因不是观测引入的」，这个前提必须由测试证明；
@@ -871,9 +872,9 @@ This line, next in order:
     - 触发：d5 / d6 都停在 `qbt_boot()` 内部（rampatch 与 NVM 都被取走），但
       `[bluetooth] power=…` 行始终不打印。Lead 批 A：只加观测，不改状态机 / 时钟 /
       SMMU / 窗口 / `board.toml`。
-    - 机制：`qbt_boot()` 没有整体期限；每个 TLV 段各带 10 s `QBT_COMMAND_TIMEOUT`
-      （`qbt_internal.h:15`），一段超时后循环继续（`btqca.c:604-620`）。rampatch
-      146068 B 按 243 B 分片是 600 多段 ⇒ 控制器停止应答时循环能走上小时。
+    - 当时的动机是 `qbt_boot()` 没有整体期限，而每条命令有 10 s `QBT_COMMAND_TIMEOUT`。
+      **15:12 更正**：段错误会 `goto out`，并非超时后继续下一段；撤回“600 多段各超时可耗上小时”。
+      90 s 是当前观测预算，检查依赖返回 `run()`，不能抢占阻塞回调；不能由 timeout=0 证明预算足够。
     - 0514 内容：`QBT_BOOT_BUDGET 90000000000ULL` + `struct qbt.boot_deadline` +
       `run()` 里的预算检查（超预算打印 `boot: budget exhausted at op=0x…` 并返回
       `-ETIMEDOUT`）+ 单条超时打印 `boot: command timeout op=0x…` + 12 条 level-1
@@ -911,43 +912,51 @@ Lead 回复 #12 第五项：把 S4-SPEC §7.17 的「单变量二分五步法」
   具体数字与 evidence 路径。
 - check-docs 202 项 ✅（新文档被 INDEX 与 engineering/README 双登记）。
 
-### 35. d7 实飞：预算行生效，NVM 下载慢而不是卡死（2026-11-16 13:04；13:40 由 Lead 纠正本线初判）
+### 35. d7 实飞：NVM 路径遇全局预算，根因未定（2026-11-16 15:12 更正）
 
 Lead 飞了 `bt-d7-obs`（boot.img `76a4260bc762a22a3dc683e4042a0a13a8dea41f04defccede8f9a96719c7512`），
 证据 `E:/k60-work/evidence/usblog-20261116-130444`（console 3,180 行 / 221,001 B、SpringBoard 132、
-panic 0、stopReason budget）。
+panic 0、stopReason budget）。稳定事实：rampatch 返回、NVM 路径开始，90 s 全局预算先被观察到，
+最终 `power=1 result=-60`；蓝牙启动失败，原因未定。完整阶梯见 S4-SPEC.md §7.18。
 
-- 0514 的观测设计成立：`:2044 boot: budget exhausted at op=0xfc00 waiting=1` 把死因打了出来，
-  `0xfc00` = `EDL_PATCH_CMD_OPCODE`，`power=1 result=-60 baud=3000000 firmware=` 被 90 s 预算逼出来。
-- **是慢，不是卡**（本线初判「停在 NVM 第一段」已被 Lead 13:40 纠正，见 item 36）：rampatch
-  （146,068 B ≈601 段）在 t≈15→t≈30 全部确认完，NVM（6,442 B ≈27 段）从 t≈45 起逐段推进，
-  到 t≈110 预算用完时仍在推进。时间账 20 + 90 = 110；段速 65 s ÷ 27 段 ≈ 2.4 s/段。
-  两次 `addon: serving 6442 0` 是 `wcnhpnv21g.bin` → `hpnv21g.bin` 的回退（`0500:3673-3676`），不是两份文件。
-- 决定性计数：`grep -ac "command timeout"` = **0**、`grep -ac "budget exhausted"` = **2**。
-  预算分支在 10 s deadline 分支之前，任何一段真卡满 10 s 都会先打 command timeout；一条都没有
-  ⇒ **没有卡死的段**，每段都在期限内返回，只是整段 NVM 比 90 s 预算慢。
-- 落档：S4-SPEC §7.18（采集表 + 阶梯/时间线表 + 三条结论 + d8 三支判读表）、§7.15 判据表新增第五档。
+- `:2044 boot: budget exhausted at op=0xfc00 waiting=1` 中 `0xfc00` 是 `EDL_PATCH_CMD_OPCODE`，
+  `waiting=1` 是布尔状态，不是等待次数；这不能区分控制器未应答、事件不匹配或 TX 排空。
+- **撤回**“NVM 第一段卡住”和“command timeout=0 证明每段正常、只是慢”两种结论。
+  `run()` 先判断 boot_deadline，再判断命令 deadline；pump/wait 阻塞跨过两个期限时只打印 budget。
+  因此 timeout=0 不能排除卡住。d7 没有逐段计数，6,442 B / 243 B 得到的约 27 段只是理论数，
+  65 s ÷ 27 = 2.4 s/段不是测量。两次 `serving 6442` 包含 fallback，预算耗尽后重试可立即失败。
+- 慢、阻塞、事件不匹配、TX 排空仍未判定；不据此预做 d9。d8 的判读口径见 §7.18：
+  sent/acks 是 boot 累计，按 PATCH/NVM/fallback attempt 的基线与 done 行取差；失败尝试不算完成，
+  缺失基线需标不确定，且日志自身会扰动耗时。
 
-### 36. d8 配方：0515 打印 TLV 段速与计数器（2026-11-16 13:20）
+### 36. d8 配方与保留产物：0515 逐段观测（2026-11-16）
 
-d7 只能判到「NVM 慢」，判不到「每段多慢」：`struct qbt_stats` 的 `tlv_sent` / `tlv_acks` /
-`tlv_final_status` 早就在维护（`qbt.h:32-38`），内核侧却从未打印。0515 只做这件事。
+0515 仅在原 `qca_tlv_send_segment()` 调用返回后打印 i/size/dt_ms/e/sent/acks，
+每次下载结束打印 type/segs/计数/final/ret，power 行附全局计数；不改调用参数、预算、段长、
+下载模式、状态机、时钟/SMMU/窗口或 `board.toml`。
 
-- 补丁 `patches/xnu/0515-k60-bt-tlv-counters.patch`：2,727 B / +38−4，sha256
-  `120c4d57d1bf72bdee18770a520367bd68d46c1c96ffb185c5bbf51ec46c4cd6`，只动 `bsd/dev/qbt/btqca.c`
-  与 `bsd/dev/qbt_k60.c`；孪生 `patches/bt/0009-k60-bt-tlv-counters.patch` 字节相同。全量重放
-  234 条 `BAD=0` 后单独 apply 成功（标记行 `btqca.c:623` / `:653` / `qbt_k60.c:1983`）。
-- 三行：每段 `tlv seg i=… size=… dt_ms=… e=… sent=… acks=…`（`dt_ms` 用 `ops.now_ns()` 前后相减）、
-  `out:` 前 `tlv done type=… segs=… sent=… acks=… final=… ret=…`、`power=` 行追加
-  `tlv_sent=… tlv_acks=… tlv_final=…`。边界：预算 90 s / 单命令 10 s / 段长 243 / `dnld_mode` /
-  `dnld_type` / 段表 / SMMU / 时钟 / 窗口 / `board.toml` 全不动，host 测试 28 例逐条断言。
-- 配方：series 235（`… 0512 / 0514 / 0515`），`k60bt=1 pong_bt_late=1`（31 项 / 598 B），tag `bt-d8-tlv`。
-- 三支判读（Lead 13:40）：`dt_ms` 2,000–3,000 且 `acks` 涨到 20+ ⇒ 正常慢，d9 只抬预算到 240 s；
-  `dt_ms` 9,000–10,000 且 `acks` 不涨 ⇒ 应答被 `event()` 丢弃，d9 改 TLV 分支；`sent` 停在个位数
-  ⇒ 卡在 `qbt_send_command` TX 排空，d9 打 `qbt_deadline()` 与 `k60.geni` 状态。
-- 已构建 13:56:24：`boot_img 0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`（201,887,744 B）、
-  `kernel_built 6c96f7cc…`（106,598,400 B）、series 235 / `f7aa7d63470b891d` / file `9a2cfd41…`、head `91dcd07`、dirty 0；
-  本树 verify-boot-image + check-image-args 均 OK。
+- 补丁 `patches/xnu/0515-k60-bt-tlv-counters.patch`（2,727 B，+38/−4），sha256
+  `120c4d57d1bf72bdee18770a520367bd68d46c1c96ffb185c5bbf51ec46c4cd6`；孪生
+  `patches/bt/0009-k60-bt-tlv-counters.patch` 字节相同。原 234 条重放 BAD=0 后单独 apply 成功。
+- 保留产物 `bt-d8-tlv`（2026-11-16 13:56:24）：series 235，namespace `names+sizes`，
+  指纹 `f7aa7d63470b891d`，file `9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8`；
+  参数 `k60bt=1 pong_bt_late=1`，真实 payload 31 项 / 598 B，原 head `91dcd07`、dirty 0。
+  boot.img sha256 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`（201,887,744 B），
+  kernel_built `6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331`（106,598,400 B）；
+  manifest `E:/k60-work/artifacts/bt-d8-tlv/build-manifest.json`，sha256
+  `3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0`。不重建、不追改旧 manifest。
+- 15:28 本树离线复核：0515 host 28 cases、0514 host 33 cases 均为静态契约检查，
+  verify-boot-image 与真实 image 参数审计通过（31 arguments, 598 bytes）；详见
+  `E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log`。
+- 账本改为当前 d8 纯观测 active；⑦三类离线证据已核实，⑧仍 `device.done=false`。
+  README 双语表由生成器更新。默认 `python3 scripts/eight-step-gate.py --flash` 实际列出
+  7 项（touch, gpu, storage, display, bootchain, bluetooth, battery），56 项通过、RC=0；
+  记录 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`。未改 gate 或绕过 done=false。
+  旧产物原 eight-step.log 只有 6 项 build 检查，不追认其包含 BT；本次是后补的本树核验。
+- 判读前提：按 PATCH/NVM/fallback 的 type/attempt 分开；日志发生于段调用返回后；
+  ret 非零不算完成，segs 包括失败尝试；累计计数需取差，final 状态必须结合 done 行。
+  耗时仅代表 d8 并受日志成本影响。d7 result=-60 保留为功能失败；d8 待 Lead 独立核验与上机，
+  本线不操作设备，也不预做 d9。
 
 
 

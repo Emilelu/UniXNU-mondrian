@@ -221,3 +221,31 @@ next_action = [
   "Read the Android modem partitions before writing any cellular code.",
 ]
 evidence = []
+
+[[area]]
+id = "camera"
+status = "planned"
+components = []
+paths = ["drivers/PongCamera*", "patches/xnu/*camera*", "scripts/*camera*", "docs/research/camera/**"]
+inputs = ["Identify the camera hardware (sensor ids, CSIPHY/CSID lanes, CCI/I2C addresses, regulator and clock rails) for this board from the live FDT and the vendor HAL, not from a sibling board.", "Record which iOS consumer must be satisfied: there is no Apple camera driver for these sensors, so step 3 is the decompilation of the iOS-side consumer (AppleCameraInterface / AVFoundation expectations) rather than of a vendor driver."]
+configuration = ["Record the board.toml fields, DTS properties (cci, csiphy, csid, isp), regulator handles and defconfig values used for camera."]
+procedure = ["Follow the eight steps in order; this area has no step recorded as done, so nothing may be built or flashed against it."]
+findings = ["Not started. No source pin, no register read and no device observation exist for camera on this board.", "The Qualcomm capture stack on this SoC is CAMSS (CCI + CSIPHY + CSID + ISP), and the firmware side (CAMERA/CVP DSP images) is separate from ADSP; whether the ISP firmware must be loaded before any sensor can stream is an open question recorded for step 1.", "Prerequisite worth knowing before promising anything: our io_submap budget (P-219) is shared by every ml_io_map caller, so a camera window request must be budgeted against the other 37 mapped windows rather than assumed free."]
+completion = ["A sensor is enumerated, a frame is captured and delivered to the iOS-side consumer, and the delivered bytes are shown to come from the sensor rather than from a synthetic buffer."]
+limits = ["Planning entry only. Nothing here is evidence of camera function, and a green gate on this entry means only that the area is registered."]
+next_action = ["Do step 1 (same-model identification) first: read the live FDT at 0x..cci/..csiphy and the vendor HAL sensor list to name the actual sensors and their rails, then write the step-3 decompile target before any driver code."]
+evidence = [{ kind = "source", reference = "porting.toml", result = "Registered 2026-11-16 at the user's request so that camera is tracked in the porting TODO rather than discovered late. No technical evidence yet." }]
+
+[[area]]
+id = "sensors"
+status = "planned"
+components = []
+paths = ["drivers/PongSensors*", "patches/xnu/*sensor*", "scripts/*sensor*", "docs/research/sensors/**"]
+inputs = ["Identify how this board reports motion: either a standalone accelerometer/gyroscope on I2C/SPI, or the Snapdragon Sensor Core (SSC/SLPI) which is a separate remote processor image. The distinction decides whether this area depends on ADSP-class bring-up or not."]
+configuration = ["Record the board.toml fields, DTS properties (i2c node, interrupts, regulators) and defconfig values used for sensors."]
+procedure = ["Follow the eight steps in order; this area has no step recorded as done, so nothing may be built or flashed against it."]
+findings = ["Not started. No source pin, no register read and no device observation exist for sensors on this board.", "Open question that must be answered in step 1: if motion is reported through SSC/SLPI, then sensors, battery, charger and audio all wait on the same class of remote-processor ownership work (see the ADSP lines), and sensors should be planned after that decision rather than in parallel with it.", "The iOS-side consumer rotates the UI through the accelerometer; 'rotation works' is only provable by a user-visible orientation change, not by an I2C ack."]
+completion = ["A motion sensor reports a physically induced change (device rotated by hand) and the iOS-side consumer acts on it in a way the user can see."]
+limits = ["Planning entry only. Nothing here is evidence of sensor function, and a green gate on this entry means only that the area is registered."]
+next_action = ["Do step 1: determine from the live FDT and the vendor HAL whether motion comes from a standalone part or from SSC/SLPI, and record the answer here before writing code."]
+evidence = [{ kind = "source", reference = "porting.toml", result = "Registered 2026-11-16 at the user's request so that motion sensors (gravity/rotation) are tracked in the porting TODO. No technical evidence yet." }]

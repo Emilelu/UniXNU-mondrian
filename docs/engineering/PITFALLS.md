@@ -5746,3 +5746,67 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 - Check: `python3 scripts/tests/test-pick-upstream-scan.py`
   （registry `id = "P-221"`）。
+
+## P-222
+
+**全局账本把别的分支的成功启动当成本树的证据，于是 main 被告知「补丁集变了」**
+
+### 现象
+
+2026-11-16 上游跟进按定时任务走完审核、提交、真构建（`upstream-20261116a`，
+`kernel 092363c1…`、`boot.img 0226f0e6…`、`build-strict` 全程 rc=0）之后，
+`porting-gate.py --quick` 仍然阻断：
+
+```
+❌ 1 项阻断 —— 禁止刷机
+   [S] 补丁集变了 —— 必须显式确认
+       上次成功 4305c6cc2821bcb7 (2026-11-16T08:59:35) != 现在 59d8037521a5b07b
+```
+
+`59d8037521a5b07b` 是 main 的 227 条序列，**2026-11-16 07:36 已经上机启动过**
+（`baseline-20261116a`，SpringBoard 132，3,061 行）。它被说成「变了」的唯一原因，
+是 08:59 蓝牙线飞了一次 234 条序列的 `bt-d6-iowin`。
+
+### 根因
+
+`/mnt/e/k60-work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
+里面找「最后一条 `result == ok` 的记录」。任何一条线飞图都会把「上次成功」改写成
+它自己的指纹，于是：
+
+- 别的分支飞过 → main 的指纹「变了」
+- main 真的改了 → 也可能被下一条别的分支的飞图掩盖
+
+同时 `docs/engineering/MAIN-BASELINE.toml` 里**每条 booted 基线都记着
+`series_sha256`**，但全树没有任何工具读这个字段（`grep -rn series_sha256 scripts/*.py`
+零命中）。也就是说「哪一套补丁真的启动过」这个事实被记录了、却没人用。
+
+### 修法
+
+`porting-gate.py` 增加 `booted_series()`：解析 `MAIN-BASELINE.toml` 里
+`state = "booted"` 的条目，返回 `series_sha256 -> (sha, image, console)`。
+`[S]` 判定改成三级：
+
+1. 与全局 ledger 的最后一条成功记录相同 → PASS（原逻辑）。
+2. 与账本里某条 **booted** 基线相同 → PASS，detail 打印 `sha` + `image` + `console`
+   路径，例如 `b48613d baseline-20261116a E:/k60-work/evidence/usblog-20261116-073639/console.log`。
+3. 两者都不匹配 → 才按 `--force-new-series` / 特性分支 / main 三档处理。
+
+`state = "build-only"` 的条目**永远不能**用来背书：它从没上过设备。
+
+### 三条教训
+
+1. **「上次成功」必须绑定到对象，不能绑定到机器**。全局账本记的是「这台机器最后
+   一次飞成功的序列」，而门禁要回答的是「**这一套**补丁飞成功过吗」。两个问题不同，
+   前者答不了后者。这与 P-220（fallback 不知道 fallback 到的是谁）是同一族。
+2. **记了字段却没人读，等于没记**。`series_sha256` 在 `MAIN-BASELINE.toml` 里存在
+   了好几轮，`grep -rn series_sha256 scripts/*.py` 一直是零命中 —— 一条只被写入、
+   从不被读的证据字段，在门禁眼里不存在。加字段时要同时加读取点。
+3. **修复必须双向验证**。这次除了确认「已上机序列被接受」，还专门造了一个未上机的
+   序列（往 series 追加一行假补丁名）确认仍然 `❌ 补丁集变了 —— 必须显式确认`，
+   否则就等于把 `[S]` 整条检查关掉了。
+
+- **关联**：P-220（fallback 到别的分支的产物）、P-214（同名不同命名空间）、
+  P-211（`record-boot.py` 量仓库 series 而非镜像 manifest）、P-207（门禁只能判本轮物证）。
+
+- Check: `python3 scripts/tests/test-porting-gate-book.py`
+  （registry `id = "P-222"`）。

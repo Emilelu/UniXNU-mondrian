@@ -45,6 +45,20 @@ def main():
     (work / 'manifest.header.bin').write_bytes(header + signature)
     (work / 'trusted-key.bin').write_bytes((signed / 'trusted-key.bin').read_bytes())
     (work / 'table.bin').write_bytes((signed / 'hashes.bin').read_bytes())
+    # A second signed image whose hash table spans two 4 KiB pages: 130 blocks
+    # produce 4,160 table bytes, so page 0 holds 128 entries and page 1 holds 2.
+    large_data = bytes((i * 29 + i // 4096) & 255 for i in range(4096 * 130))
+    large = work / 'large'
+    large_record = manifest.make(__import__('io').BytesIO(large_data), len(large_data), keys / 'owner.pem',
+                                 keys / 'owner-public.pem',
+                                 uuid.UUID('01e286f1-f4dd-4b2f-99d9-4973337fc788'), 8, large)
+    assert large_record['block_count'] == 130
+    large_header = (large / 'header.bin').read_bytes()
+    large_signature = (large / 'signature.bin').read_bytes()
+    assert len(large_header) == 160 and len(large_signature) == 384
+    (large / 'image.bin').write_bytes(large_data)
+    (large / 'manifest.header.bin').write_bytes(large_header + large_signature)
+    (large / 'table.bin').write_bytes((large / 'hashes.bin').read_bytes())
     (work / 'other-key.bin').write_bytes(manifest.public_anchor(keys / 'other-public.pem'))
     cc = os.environ.get('CC', 'cc')
     cxx = os.environ.get('CXX', 'c++')
@@ -61,7 +75,7 @@ def main():
          '-c', HERE / 'RootWindowVerifier.cpp', '-o', build / 'RootWindowVerifier.o'])
     run([cxx, '-o', build / 'RootWindowVerifier', build / 'RootWindowVerifier.o', build / 'verified_root.o',
          build / 'openssl_provider.o', '-lcrypto'])
-    run([build / 'RootWindowVerifier', work])
+    run([build / 'RootWindowVerifier', work, work / 'large'])
     run([cxx, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I', ROOT, '-I', HERE,
          '-c', HERE / 'RootWindowReadVerified.cpp', '-o', build / 'RootWindowReadVerified.o'])
     run([cxx, '-o', build / 'RootWindowReadVerified', build / 'RootWindowReadVerified.o', build / 'verified_root.o',

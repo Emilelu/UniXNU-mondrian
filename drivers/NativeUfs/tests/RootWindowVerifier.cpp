@@ -48,8 +48,9 @@ static std::vector<uint8_t> readFile (const std::string &path) {
 }
 
 int main (int argc, char **argv) {
-  assert (argc == 2);
+  assert (argc == 3);
   const std::string dir = argv[1];
+  const std::string largeDir = argv[2];
   const auto image = readFile (dir + "/image.bin");
   const auto manifest = readFile (dir + "/manifest.bin");
   const auto header = readFile (dir + "/manifest.header.bin");
@@ -158,6 +159,61 @@ int main (int argc, char **argv) {
     Ops ops {disk};
     assert (!rootWindowVerifierConfigure (verifier, memory, cachedSelection, windows, 2, userdataFirst,
                                           "OS", key.data (), &vr_openssl_crypto, ops));
+  }
+
+  // A header-only policy whose table spans two pages: page 0 holds 128 entries,
+  // page 1 holds the two-entry tail. The tail page must hash only its table bytes.
+  {
+    const auto largeImage = readFile (largeDir + "/image.bin");
+    const auto largeManifest = readFile (largeDir + "/manifest.bin");
+    const auto largeHeader = readFile (largeDir + "/manifest.header.bin");
+    const auto largeTable = readFile (largeDir + "/table.bin");
+    assert (largeHeader.size () == VR_HEADER_BYTES + VR_SIGNATURE_BYTES);
+    assert (largeImage.size () == 130 * VR_BLOCK_BYTES);
+    assert (largeTable.size () == 130 * 32);
+    const uint64_t largeTablePages = (largeTable.size () + VR_BLOCK_BYTES - 1) / VR_BLOCK_BYTES;
+    assert (largeTablePages == 2);
+    const uint64_t largeTableLba = (2 * VR_BLOCK_BYTES + 4096) / VR_BLOCK_BYTES;
+    const auto largeDisk = makeDisk (largeTable, largeTableLba, largeTablePages);
+
+    Window largeWindows[2] = {};
+    std::strcpy (largeWindows[0].name, "OS");
+    largeWindows[0].offset = 0;
+    largeWindows[0].size = largeImage.size ();
+    std::strcpy (largeWindows[1].name, "OS.vroot");
+    largeWindows[1].offset = 4096;
+    largeWindows[1].size = largeTable.size ();
+
+    NativeVerifiedBlockPolicy largeCached[1] = {{largeHeader.data (), largeHeader.size ()}};
+    RootPolicySelection largeSelection {};
+    assert (rootPolicySelect (largeCached, 1, largeImage.size (), &largeSelection));
+
+    std::vector<uint8_t> headerStorage (VR_BLOCK_BYTES);
+    std::vector<uint8_t> pageHashes (largeTablePages * 32);
+    std::vector<uint32_t> where (largeTablePages);
+    std::vector<uint8_t> scratch (VR_BLOCK_BYTES);
+    std::vector<VrootCacheEntry> entries (2);
+    std::vector<uint8_t> cachePages (2 * VR_BLOCK_BYTES);
+    RootWindowVerifierMemory memory {headerStorage.data (), headerStorage.size (), pageHashes.data (),
+                                     pageHashes.size (), where.data (), where.size (), scratch.data (),
+                                     scratch.size (), entries.data (), cachePages.data (), 2};
+    RootWindowVerifier verifier {};
+    Ops ops {largeDisk};
+    assert (rootWindowVerifierConfigure (verifier, memory, largeSelection, largeWindows, 2, 2,
+                                         "OS", key.data (), &vr_openssl_crypto, ops));
+    assert (verifier.ready && !verifier.view.hashes);
+    assert (ops.reads == 2);
+    assert (verifier.cache.stats.misses == 0);
+    assert (rootWindowVerifierVerify (verifier, ops, 0, largeImage.data (), VR_BLOCK_BYTES,
+                                      &vr_openssl_crypto) == VR_OK);
+    assert (rootWindowVerifierVerify (verifier, ops, 129, largeImage.data () + 129 * VR_BLOCK_BYTES,
+                                      VR_BLOCK_BYTES, &vr_openssl_crypto) == VR_OK);
+    assert (verifier.cache.stats.misses == 2 && verifier.cache.stats.hits == 0);
+    assert (rootWindowVerifierVerify (verifier, ops, 0, largeImage.data (), VR_BLOCK_BYTES,
+                                      &vr_openssl_crypto) == VR_OK);
+    assert (verifier.cache.stats.hits == 1);
+    rootWindowVerifierDrop (verifier, ops);
+    assert (!verifier.ready);
   }
 
   std::puts ("PASS: per-window verified-root verifier");

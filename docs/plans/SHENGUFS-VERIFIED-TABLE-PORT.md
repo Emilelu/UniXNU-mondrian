@@ -109,6 +109,7 @@
 - 构建开关：`k60-ufs-verified:scripts/build-pong-ufs-probe-macos.py --verified-root` 传 `-DNATIVE_VERIFIED_BLOCK=1`（默认关）；`k60-ufs-verified:scripts/build-xnu-4k-baseline.sh` 用 `XNU_NATIVE_UFS_VERIFIED_ROOT=1` 传递。启用时内核链接还必须有 `verified_root_policies` 与 `verified_root_key`，由 `UniXNU/build-sheng-source-storage.py` 的 policy bundle 生成。
 - 新增 `k60-ufs-verified:tests/RootWindowReadVerified.cpp`：用 mock cache/transport 走 `ufsReadWindow` 的 verify-before-copy 路径，覆盖 full envelope 与 header-only 两条读路径；`k60-ufs-verified:tests/check-verified-root.py` 同时编译运行。
 - 宿主测试全过：`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`、`RootWindowReadVerified`。`native-vroot-cache` 仍关闭，未 boot。
+- 2026-11-17 07:00 补测：`k60-ufs-verified:tests/RootWindowVerifier.cpp` 增加 130 块、两页策略表（4,160 B）的 header-only fixture，验证尾页只哈希真实表字节；UFS 提交 `2f60acde`。
 
 ## 3.5 步骤 3a 执行记录（2026-11-17 05:20）
 

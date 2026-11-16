@@ -101,6 +101,15 @@
 - 尚未把 `RootWindowVerifier` 接进 `PongUfsTransport.cpp`（步骤 2b）：运行路径还需要在 `PongUfsBlock` 里分配 header/page-hash/where/缓存内存、
   定义 `VrootOps` 的 `lock/sleep/wakeup/readPage`，并决定 `NATIVE_VERIFIED_BLOCK` 构建开关；`native-vroot-cache` 仍关闭，未 boot。
 
+## 3.4 步骤 2b 执行记录（2026-11-17 04:40）
+
+- 分支 `feat/ufs-verified-table`，从步骤 2a 的 `aaeb262b` 继续；`PongUfsTransport.cpp` 在 `#if NATIVE_VERIFIED_BLOCK` 下接入 `RootWindowVerifier`，默认关闭。
+- `PongUfsBlock` 增加 per-window verifier、`vrootLock` 和 header/page-hash/where/scratch/512 页（2 MiB）缓存；`start()` 对非 Data 窗口先 `rootPolicySelect` 再 `rootWindowVerifierConfigure`，失败不发布该窗口。Data 保持旧路径（P-152/P-153）。
+- `doAsyncReadWrite` 的读路径改用 `ufsReadWindow` + `rootWindowVerifierVerify`：每 4 KiB 先校验后复制，失败只把该请求以 `kIOReturnNotPrivileged` 完成，不调用 `transportFailure`、不复制数据；写路径不变。`bounce` 从 4096 扩到 `kDataMax`，`free()` 对应释放。
+- 构建开关：`k60-ufs-verified:scripts/build-pong-ufs-probe-macos.py --verified-root` 传 `-DNATIVE_VERIFIED_BLOCK=1`（默认关）；`k60-ufs-verified:scripts/build-xnu-4k-baseline.sh` 用 `XNU_NATIVE_UFS_VERIFIED_ROOT=1` 传递。启用时内核链接还必须有 `verified_root_policies` 与 `verified_root_key`，由 `UniXNU/build-sheng-source-storage.py` 的 policy bundle 生成。
+- 新增 `k60-ufs-verified:tests/RootWindowReadVerified.cpp`：用 mock cache/transport 走 `ufsReadWindow` 的 verify-before-copy 路径，覆盖 full envelope 与 header-only 两条读路径；`k60-ufs-verified:tests/check-verified-root.py` 同时编译运行。
+- 宿主测试全过：`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`、`RootWindowReadVerified`。`native-vroot-cache` 仍关闭，未 boot。
+
 ## 4. 不抄的部分
 
 - 参考树 `NativeUfs.cpp`（149,596 B）与我们版本差异过大，不整体替换；只抄 3 个头文件 + 3 个测试。

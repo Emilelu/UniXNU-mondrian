@@ -41,6 +41,11 @@ static void report(const char *phase,int status)
     if(!sysctlnametomib("kern.pong_diagnostic",mib,&count))
         (void)sysctl(mib,(u_int)count,NULL,NULL,line,strlen(line));
 }
+// dyld runs this as soon as the bundle is inserted into the target process.  It is the
+// only statement that can prove the library itself was loaded: every other report() call
+// sits behind a Metal entry point that never runs while MTLCreateSystemDefaultDevice()
+// still answers nil.
+__attribute__((constructor)) static void k60MetalLoaded(void) { report("plugin loaded",0); }
 // PongMetalScanout.h reaches this frame-pacing sink through a function pointer, so the
 // presenter can report stage costs on the same bounded kernel diagnostic channel.
 static void reportFrame(const char *text,int status)

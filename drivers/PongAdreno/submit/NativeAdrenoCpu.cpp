@@ -13,8 +13,8 @@ extern "C" vm_offset_t phystokv(uint64_t pa);
 extern "C" uint64_t gPhysBase,gPhysSize;   /* the physical range phystokv covers (the kernel's own DRAM); anything else panics in phystokv */
 extern "C" void pmap_set_cache_attributes(ppnum_t pn,unsigned int cacheattr);
 extern "C" unsigned int pmap_cache_attributes(ppnum_t pn);
-/* Time and bytes of every CPU cache maintenance pass (the board page shows them per submission), and the pages user BOs made
- * write-combined: [0] ticks, [1] bytes, [2] longest pass in ticks, [3] passes, [4] write-combined pages now. */
+/* Time and requested bytes of successful owned cache calls and completed bounded physical-page batches (the board page shows them per
+ * submission), and the pages user BOs made write-combined: [0] ticks, [1] bytes, [2] longest call/batch in ticks, [3] calls/batches, [4] WC pages now. */
 extern "C" {volatile uint64_t native_adreno_cache_stats[5];}
 /* Time spent checking and re-asserting write-combined page attributes (NativeAdrenoReassertWriteCombined), for the board page. */
 extern "C" {volatile uint64_t native_adreno_reassert_ticks;}
@@ -74,37 +74,38 @@ IOReturn NativeAdrenoMaintainOwnedPages(void *mapping,size_t bytes,NativeAdrenoC
     if(!status)noteMaintenance(began,bytes);
     return status;
 }
-IOReturn NativeAdrenoMaintainPhysicalPages(uint64_t physical,size_t bytes,NativeAdrenoCacheOperation op)
+IOReturn NativeAdrenoMaintainPhysicalPageBatch(const uint64_t *pages,size_t count,NativeAdrenoCacheOperation op)
 {
-    if(!physical || !bytes || ((physical|bytes)&4095) || physical>UINT64_MAX-bytes || op>NativeAdrenoInvalidate || op<NativeAdrenoClean)
+    if(!pages || !count || count>kNativeAdrenoCacheBatchPages || op>NativeAdrenoInvalidate || op<NativeAdrenoClean)
         return kIOReturnBadArgument;
+    for(size_t i=0;i<count;++i)
+        if(!pages[i] || (pages[i]&4095) || pages[i]>UINT64_MAX-4096)return kIOReturnBadArgument;
     const uint64_t began=mach_absolute_time();
-    /* One barrier pair per run of up to 64 pages instead of per page (an imported 3048x2032 surface is 5952 pages): preemption stays off
-     * for a bounded run, and the closing DSB on the issuing core completes every operation of that run. */
-    for(size_t offset=0;offset<bytes;) {
-        disable_preemption();
-        uint64_t ctr;__asm__ volatile("mrs %0, ctr_el0":"=r"(ctr));
-        const size_t line=(size_t)4<<((ctr>>16)&15);
-        if(line>4096) {enable_preemption();return kIOReturnUnsupported;}
-        __asm__ volatile("dsb sy":::"memory");
-        for(unsigned run=0;run<64 && offset<bytes;++run,offset+=4096) {
-            /* A page outside the kernel's DRAM is device memory (the firmware framebuffer the display hand-off imports): the CPU maps it
-             * uncached (kIOMapInhibitCache), no cache line of it exists to maintain, and phystokv would panic on it (int-080: illegal PA
-             * 0xb8000000). */
-            const uint64_t page=physical+offset;
-            if(page<gPhysBase || page-gPhysBase>=gPhysSize)continue;
-            const vm_offset_t alias=phystokv(page);
-            if(!alias) {__asm__ volatile("dsb sy":::"memory");enable_preemption();return kIOReturnUnsupported;}
-            for(uintptr_t address=alias,end=alias+4096;address<end;address+=line) {
-                if(op==NativeAdrenoClean)__asm__ volatile("dc cvac, %0"::"r"(address):"memory");
-                else if(op==NativeAdrenoCleanInvalidate)__asm__ volatile("dc civac, %0"::"r"(address):"memory");
-                else __asm__ volatile("dc ivac, %0"::"r"(address):"memory");
-            }
+    /* The caller carries this bounded batch across physical span boundaries. The closing DSB on the issuing core completes every
+     * operation in it before preemption resumes, even when all 64 pages are physically discontiguous. */
+    disable_preemption();
+    uint64_t ctr;__asm__ volatile("mrs %0, ctr_el0":"=r"(ctr));
+    const size_t line=(size_t)4<<((ctr>>16)&15);
+    if(line>4096) {enable_preemption();return kIOReturnUnsupported;}
+    __asm__ volatile("dsb sy":::"memory");
+    for(size_t i=0;i<count;++i) {
+        /* A page outside the kernel's DRAM is device memory (the firmware framebuffer the display hand-off imports): the CPU maps it
+         * uncached (kIOMapInhibitCache), no cache line of it exists to maintain, and phystokv would panic on it (int-080: illegal PA
+         * 0xb8000000). */
+        const uint64_t page=pages[i];
+        if(page<gPhysBase || page-gPhysBase>=gPhysSize)continue;
+        const vm_offset_t alias=phystokv(page);
+        if(!alias) {__asm__ volatile("dsb sy":::"memory");enable_preemption();return kIOReturnUnsupported;}
+        for(uintptr_t address=alias,end=alias+4096;address<end;address+=line) {
+            if(op==NativeAdrenoClean)__asm__ volatile("dc cvac, %0"::"r"(address):"memory");
+            else if(op==NativeAdrenoCleanInvalidate)__asm__ volatile("dc civac, %0"::"r"(address):"memory");
+            else __asm__ volatile("dc ivac, %0"::"r"(address):"memory");
         }
-        __asm__ volatile("dsb sy":::"memory");
-        enable_preemption();
     }
-    noteMaintenance(began,bytes);
+    __asm__ volatile("dsb sy":::"memory");
+    enable_preemption();
+    /* Count requested bytes, including excluded device pages, as before; physical passes are now bounded batches rather than spans. */
+    noteMaintenance(began,count*4096);
     return kIOReturnSuccess;
 }
 /* A user BO's pages become Normal non-cacheable (write-combined) for every CPU mapping the pmap tracks: the kernel's own mapping and each

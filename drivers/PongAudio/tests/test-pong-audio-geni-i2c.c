@@ -2054,6 +2054,16 @@ afe_gpr_cases(void)
         "get spf state 0x01001021 (audioreach.h:38), 0504 corrected");
     expect_eq(PONG_AFE_GPR_APM_SPF_STATE, 0x02001007ul,
         "spf state response 0x02001007 (audioreach.h:39)");
+    expect_eq(PONG_AFE_GPR_PORT_APM, 1ul, "APM module instance port 1");
+    expect_eq(PONG_AFE_GPR_PORT_CLIENT, 0x2001ul, "audio client port 0x2001");
+    memset(buf, 0, sizeof(buf));
+    n = pong_afe_gpr_spf_state_query(buf, sizeof(buf), 0x12345678ul);
+    expect_eq(n, PONG_AFE_GPR_HEADER_BYTES, "spf query returns 24");
+    expect_eq(buf[8], 0x01ul, "spf query src port low byte 0x2001");
+    expect_eq(buf[9], 0x20ul, "spf query src port high byte 0x2001");
+    expect_eq(buf[12], 0x01ul, "spf query dst port 1");
+    expect_eq(pong_afe_gpr_spf_state_query(buf, 8ul, 0ul), 0ul,
+        "spf query rejects a short buffer");
 }
 
 static void

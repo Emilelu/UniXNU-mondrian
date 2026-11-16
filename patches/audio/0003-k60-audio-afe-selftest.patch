@@ -24,7 +24,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -859,6 +869,157 @@
+@@ -859,6 +869,148 @@
  extern int aw882xx_bootstrap(void);
  
  static void
@@ -100,26 +100,17 @@
 +		return;
 +	}
 +	uint8_t packet[GPR_MAX_PACKET];
-+	PongGprPacket request;
-+	memset(&request, 0, sizeof(request));
-+	request.version = GPR_VERSION;
-+	request.header_bytes = GPR_HEADER_BYTES;
-+	request.size = GPR_HEADER_BYTES;
-+	request.dst_domain = GPR_DOMAIN_ADSP;
-+	request.src_domain = GPR_DOMAIN_APPS;
-+	request.src_port = 0;
-+	request.dst_port = GPR_PORT_APM;
-+	request.token = 0x00010001u;
-+	request.opcode = GPR_OP_APM_GET_SPF_STATE;
-+	const uint32_t n = pong_gpr_encode(packet, sizeof(packet), &request, NULL, 0);
++	const uint32_t token = 0x00010001u;
++	const uint32_t n = pong_afe_gpr_spf_state_query(packet, sizeof(packet), token);
 +	if (n == 0) {
 +		printf("PongAudio: GPR GET_SPF_STATE encode failed\n");
 +		return;
 +	}
 +	const int rc = k60_pmic_glink_send_audio(packet, (unsigned)n);
-+	printf("PongAudio: GPR GET_SPF_STATE send bytes=%u rc=%d\n", (unsigned)n, rc);
++	printf("PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d\n",
++	    (unsigned)n, PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_PORT_APM, rc);
 +	if (rc == K60_PMIC_GLINK_AUDIO_OK) {
-+		state->gpr_token = request.token;
++		state->gpr_token = token;
 +	}
 +}
 +
@@ -182,7 +173,7 @@
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
  	(void)pong_audio_start();
-@@ -896,6 +1057,26 @@
+@@ -896,6 +1048,26 @@
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -209,7 +200,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,6 +1088,14 @@
+@@ -907,6 +1079,14 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -224,7 +215,7 @@
  	return 0;
  }
  
-@@ -923,7 +1112,17 @@
+@@ -923,7 +1103,17 @@
  int
  pong_audio_status(void)
  {

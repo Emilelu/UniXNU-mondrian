@@ -146,6 +146,8 @@ pong_audio_error_name(int status)
 #define PONG_AFE_GPR_BASIC_EVT_ACCEPTED 0x02001006u
 #define PONG_AFE_GPR_APM_GET_SPF_STATE 0x01001021u  /* M: audioreach.h:38 */
 #define PONG_AFE_GPR_APM_SPF_STATE     0x02001007u  /* M: audioreach.h:39 */
+#define PONG_AFE_GPR_PORT_APM          1u           /* M: apr.h:105, the APM module instance */
+#define PONG_AFE_GPR_PORT_CLIENT       0x2001u      /* P: PongAudio.cpp:36 Port */
 
 /* Envelope sizes, all packed (M: q6afe.c:396-417). */
 #define PONG_AFE_SVC_HDR_BYTES   16u  /* payload_size, addr lsw, addr msw, handle */
@@ -204,6 +206,17 @@ pong_afe_gpr_hdr(uint8_t *buf, size_t bytes, uint32_t opcode, uint32_t token,
     pong_afe_put32(buf + 16, token);
     pong_afe_put32(buf + 20, opcode);
     return PONG_AFE_GPR_HEADER_BYTES;
+}
+
+/* The first packet an audio client sends: GET_SPF_STATE from its own GPR
+ * port (0x2001 on Pong) to the APM module instance (port 1), 24 bytes of
+ * header and no payload (P: PongAudio.cpp:107, ShengGpr.c:63). */
+static inline size_t
+pong_afe_gpr_spf_state_query(uint8_t *buf, size_t bytes, uint32_t token)
+{
+    return pong_afe_gpr_hdr(buf, bytes, PONG_AFE_GPR_APM_GET_SPF_STATE,
+        token, PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_PORT_APM,
+        PONG_AFE_GPR_HEADER_BYTES);
 }
 
 /* struct afe_param (P: hakios.sound.c:349-352), packed 12 bytes:

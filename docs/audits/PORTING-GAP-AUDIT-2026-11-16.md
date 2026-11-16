@@ -21,6 +21,9 @@
 | G9 | 死文件：`patches/xnu/0610-k60-metal-seeds.patch` 存在但不在 series | series 里是 `0610-k60-metal-plugin-deploy.patch`（`:218`） | 4,364 B 补丁无人应用、无人删除 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
+> 上表记的是**发现时**的状态。G1、G2、G3 与 G4 的「没有门禁」部分、G5 的「没有指针」部分、G6 的「没有标注」
+> 已在本分支改掉（逐项见 §10）；G4 的 217 个坏引用、G7–G10 只报告、未动。
+
 ## 1. 方法与可复现性
 
 - 脚本在 `E:/k60-work/scratch/refmine/`：`doc-cite-scan*.py`（引用完整性）、`line-research-map2.py`（跨检出研究分布）、

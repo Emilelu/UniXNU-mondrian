@@ -43,15 +43,48 @@
  *
  * Pure: no MMIO, no kernel headers.
  *
- * Not in patches/audio on purpose: no kernel .c includes it yet, the same
- * rule PongCodecPlan.h follows. When one does, add it to the generator
- * NEW_FILES list (AMPS.md section 6).
+ * This header is part of the kernel patch through patches/audio/0003: the
+ * AFE selftest in pong_audio.c includes it and calls the encoder. Keep it in
+ * the generator NEW_FILES list (AMPS.md section 6).
  */
 #ifndef PONG_AUDIO_AFE_H
 #define PONG_AUDIO_AFE_H
 
 #include <stddef.h>
 #include <stdint.h>
+
+/* Speaker-path refusal codes. These are contract, not errno: the values are
+ * what pong_audio_status() returns when the PAS1/ADSP path is unavailable.
+ * Keep them stable; PAS1-AUDIO-REQUIREMENTS.md section 2 records the names. */
+typedef enum {
+    PongAudioOk = 0,
+    PongAudioErrNoHandoff = -2001,
+    PongAudioErrNoLease = -2002,
+    PongAudioErrStaleLease = -2003,
+    PongAudioErrApmNotReady = -2004,
+    PongAudioErrAfeRefused = -2005
+} PongAudioStatus;
+
+static inline const char *
+pong_audio_error_name(int status)
+{
+    switch (status) {
+    case PongAudioOk:
+        return "PongAudioOk";
+    case PongAudioErrNoHandoff:
+        return "PongAudioErrNoHandoff";
+    case PongAudioErrNoLease:
+        return "PongAudioErrNoLease";
+    case PongAudioErrStaleLease:
+        return "PongAudioErrStaleLease";
+    case PongAudioErrApmNotReady:
+        return "PongAudioErrApmNotReady";
+    case PongAudioErrAfeRefused:
+        return "PongAudioErrAfeRefused";
+    default:
+        return "PongAudioErrUnknown";
+    }
+}
 
 /* Command, module and parameter ids (P: hakios.sound.c:324-336, identical
  * to M: q6afe.c:28-93). */

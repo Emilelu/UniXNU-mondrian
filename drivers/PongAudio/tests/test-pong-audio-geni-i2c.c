@@ -2464,6 +2464,26 @@ afe_cases(void)
     afe_step_cases();
 }
 
+/* The speaker-path refusal codes are contract, not errno: the values and the
+ * printable names are pinned here so a later provider cannot drift them. */
+static void
+status_cases(void)
+{
+    expect_eq(PongAudioOk, 0ul, "status ok is zero");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrNoHandoff, 0xfffff82ful, "status no handoff");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrNoLease, 0xfffff82eul, "status no lease");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrStaleLease, 0xfffff82dul, "status stale lease");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrApmNotReady, 0xfffff82cul, "status apm not ready");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrAfeRefused, 0xfffff82bul, "status afe refused");
+    expect(strcmp(pong_audio_error_name(PongAudioOk), "PongAudioOk") == 0, "status name ok");
+    expect(strcmp(pong_audio_error_name(PongAudioErrNoHandoff), "PongAudioErrNoHandoff") == 0, "status name no handoff");
+    expect(strcmp(pong_audio_error_name(PongAudioErrNoLease), "PongAudioErrNoLease") == 0, "status name no lease");
+    expect(strcmp(pong_audio_error_name(PongAudioErrStaleLease), "PongAudioErrStaleLease") == 0, "status name stale lease");
+    expect(strcmp(pong_audio_error_name(PongAudioErrApmNotReady), "PongAudioErrApmNotReady") == 0, "status name apm not ready");
+    expect(strcmp(pong_audio_error_name(PongAudioErrAfeRefused), "PongAudioErrAfeRefused") == 0, "status name afe refused");
+    expect(strcmp(pong_audio_error_name(12345), "PongAudioErrUnknown") == 0, "status name unknown");
+}
+
 
 int
 main(void)
@@ -2479,6 +2499,7 @@ main(void)
 	acf_cases();
 	replay_cases();
 	afe_cases();
+	status_cases();
 	tlmm_cases();
 	ring_cases();
 	chip_id_cases();

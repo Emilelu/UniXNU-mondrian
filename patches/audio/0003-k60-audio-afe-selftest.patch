@@ -8,7 +8,16 @@
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void thread_terminate_self(void);
-@@ -859,6 +860,16 @@
+@@ -816,6 +817,8 @@
+ 	uint32_t graph_state;
+ 	bool mapped;
+ 	bool service_ready;
++	int last_error;
++	bool refusal_printed;
+ } PongAudioState;
+ 
+ static PongAudioState g_pong_audio;
+@@ -859,6 +862,16 @@
  extern int aw882xx_bootstrap(void);
  
  static void
@@ -25,11 +34,46 @@
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
  	(void)pong_audio_start();
-@@ -896,6 +907,7 @@
+@@ -896,6 +909,15 @@
  	if (!pong_audio_map()) {
  		return -1;
  	}
 +	pong_audio_afe_selftest();
++	/* Until the provider bridge exists, the only truthful state is
++	 * "no lease": report it once and keep the codec-only path running. */
++	g_pong_audio.last_error = PongAudioErrNoLease;
++	g_pong_audio.refusal_printed = true;
++	printf("PongAudio: PAS1 owner unavailable (acquire rc=-1000); ADSP path disabled\n");
++	printf("PongAudio: codec-only path: amp probe + 60-step replay continue, AFE/GPR skipped\n");
++	printf("PongAudio: speaker path unavailable: PongAudioErrNoLease (no GLINK, no AFE)\n");
++	printf("PongAudio: no handoff property; GLINK adopt skipped\n");
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
+@@ -907,6 +929,8 @@
+ pong_audio_stop(void)
+ {
+ 	g_pong_audio.service_ready = false;
++	g_pong_audio.last_error = PongAudioErrNoLease;
++	g_pong_audio.refusal_printed = false;
+ 	return 0;
+ }
+ 
+@@ -923,7 +947,16 @@
+ int
+ pong_audio_status(void)
+ {
+-	return g_pong_audio.service_ready ? 1 : 0;
++	if (g_pong_audio.service_ready) {
++		return PongAudioOk;
++	}
++	if (!g_pong_audio.refusal_printed) {
++		printf("PongAudio: speaker path unavailable: %s (no GLINK, no AFE)\n",
++		    pong_audio_error_name(PongAudioErrNoLease));
++		g_pong_audio.refusal_printed = true;
++	}
++	return g_pong_audio.last_error ? g_pong_audio.last_error :
++	    PongAudioErrNoLease;
+ }
+ 
+ /* Compile-time coverage of every pure packet builder. This is not a hardware

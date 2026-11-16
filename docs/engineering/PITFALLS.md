@@ -5937,3 +5937,45 @@ P-207（门禁不许判陈旧产物）。
 顺带清掉 `scripts/check-config-consistency.py` 里两处 `P-187` 引用 —— 那个编号在
 `PITFALLS.md` 里从未存在过（`git log --all -S "P-187"` 零命中），是悬空引用，
 真正该指的是 P-225。
+
+## P-228
+
+**标题：兼容层无条件重放 IRQ，于是「handler 被调用过」被当成了「硬件中断到达了」**
+
+wifi c7 的诊断镜像里，我加了一条 `Pong MHI: irq entered er_index=0 dev rp=... host rp=...`
+打点，位置在 `mhi_irq_handler()` 入口。上机后它出现了 1 次，我就据此在段内写下
+「MSI 确实从 GIC 送到了我们的 handler，只是每次读 `MsiStatus` 都是 0（空中断）」。
+
+**这条判读是错的。** `drivers/PongWifi/ath11k/compat/` 这一层不是真中断：`lx_pump()`
+每轮先跑 `lx_plat->poll()`，然后在 `g_irq_polling`（默认 1）为真时调用 `lx_irq_raise_all()`，
+而后者是
+
+```c
+/* /mnt/e/k60-work/impl/wifi/work/build/ath11k/lx_rt_pong.c:597 */
+void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_irq[i].pending = 1; }
+```
+
+**无条件的。** 每毫秒把 64 个已注册 IRQ 全部置 pending，与硬件有没有拉中断线毫无关系。于是
+`irq entered` 出现一次只能证明「这个 handler 被调度器跑过一次」，不能证明 MSI 到过。
+
+真正的硬件判据是另一条打点：`PongWifiPlatform.cpp:682` 的
+`if (!irqSeen && __atomic_load_n(&msiArrivals, ...)) { ... log(6, "QCA6490 MSI delivered by GIC"); }`，
+而 `msiArrivals` 只在 `irq()` 里 `dbi.r(MsiStatus)` 读到非零时才自增。c7 的
+`grep -ac "MSI delivered"` = **0** —— 这才是「MSI 没到」的证据，而且它一直是有效的。
+我先把无效判据当成结论，又反过来用「irq entered 出现过」去否证有效的判据，方向错了两次。
+
+**四条教训**
+
+1. **「被调用过」是软件事实，不是硬件事实。** 判据必须指向一个只有硬件才能造成的状态变化：
+   寄存器读回非零、DMA 内存被设备改过、设备侧递增的指针/计数器。函数被调用、日志被打出来、
+   中断号被处理，这三样在模拟层/兼容层里都可以由软件凭空产生。
+2. **判据成立之前，先查「谁会让它成立」。** `lx_irq_raise_all` 这个名字里就写着 `raise_all`，
+   一次 `grep -rn "irq_raise_all"` 就能看到它的调用点与 `g_irq_polling` 的默认值。这一步
+   比事后解释「为什么读回是 0」便宜得多。
+3. **一条判据要能通过「相反情况会怎样」的检查。** 如果「MSI 到了」和「MSI 没到」产出同一个
+   观测，这条判据就是无效的，不管它看起来多直接。`irq entered` 恰好就是这种判据。
+4. **错误的判据会污染下游文档。** wifi 线已经按「MSI 已到」写过一版结论，需要专门回滚；
+   而我如果没在段内自查，这条错判会顺着 §11 一路写进 main 的 wifi 研究文档。
+
+**关联**：P-204（用计数代替语义）、P-190（认不出名字就静默跳过）、P-197（固件没有的能力
+不能写成已经做了）。这三条都是「观测与结论之间缺一道核对」，P-228 是它在硬件证据上的形态。

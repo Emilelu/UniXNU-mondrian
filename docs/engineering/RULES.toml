@@ -773,3 +773,10 @@ id = "P-225"
 title = "板目录靠 mtime 猜，猜错就静默丢掉 Metal 插件与电池归档"
 check = "python3 scripts/tests/test-build-strict-board-dir.py && python3 scripts/tests/test-config-consistency-board-dir.py"
 note = "board_dir() 必须按「.config 有没有写 CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY」排序，不能只按 mtime；两个候选都没有这两个键时要警告 P-202。check-config-consistency.py 的 resolve_generated() 是同一判据的第二处，不许退回 found[0]"
+
+[[rule]]
+id = "P-228"
+kind = "pitfall"
+title = "兼容层无条件重放 IRQ，handler 被调用过不等于硬件中断到达"
+check = "python3 scripts/check-docs.py"
+note = "判据必须指向只有硬件能造成的状态变化（寄存器读回、设备改过的内存、设备递增的指针）；lx_irq_raise_all() 每毫秒无条件重放全部 IRQ，所以 mhi_irq_handler 入口打点不能当 MSI 到达的证据，真判据是依赖 dbi.r(MsiStatus) 的 msiArrivals"

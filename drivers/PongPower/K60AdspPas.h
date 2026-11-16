@@ -19,8 +19,21 @@
 #define K60_SCM_VAL 0u
 #define K60_SCM_RW 2u
 
+/* Two retry rules the reference implementation proved on the same SoC:
+ * a busy monitor is asked again (x0 = -12), and a call preempted by a secure
+ * interrupt is resumed by re-issuing with x0 = 1 and the session cookie the
+ * monitor returned in x6. */
+#define K60_SCM_V2_EBUSY (-12)
+#define K60_SCM_INTERRUPTED 1
+#define K60_SCM_EBUSY_TRIES 20
+#define K60_SCM_RESUME_TRIES 100000
+#define K60_SCM_EBUSY_WAIT_MS 30
+
 #define K60_PAS_ADSP 1u
-#define K60_ADSP_LOAD_BASE 0x86300000ull
+/* Where the image must be placed, not where it was linked. adsp.mdt links at
+ * 0x86300000 (the pong SM8475 carveout); this board reserves
+ * adsp_region@0x9fd00000 with span 0x3100000, read from the live FDT. */
+#define K60_ADSP_LOAD_BASE 0x9fd00000ull
 #define K60_ADSP_LOAD_SPAN 0x3100000ull
 
 /* Function id: SMC64 | SiP owner | service | command. */

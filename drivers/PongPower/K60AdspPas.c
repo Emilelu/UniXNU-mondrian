@@ -8,14 +8,16 @@
 
 #include <pexpert/pexpert.h>
 #include <sys/systm.h>
+#include <IOKit/IOLib.h>
 
 static int k60_scm_called;
 
-/* R8..x7 are the SMCCC argument registers; the secure monitor writes both the
- * result (x0) and the payload status (x1) back through the same registers. */
-static int
-k60_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c,
-    uint64_t *rx0, uint64_t *rx1)
+/* x0..x7 are the SMCCC argument registers; the secure monitor writes both the
+ * result (x0) and the payload status (x1) back through the same registers, and
+ * hands a session cookie back in x6 when it preempts the call. */
+static void
+k60_scm_raw(uint64_t fn, uint64_t arginfo, uint64_t a, uint64_t b, uint64_t c,
+    uint64_t *rx0, uint64_t *rx1, uint64_t *rx6)
 {
 	register uint64_t x0 __asm__("x0") = fn;
 	register uint64_t x1 __asm__("x1") = arginfo;
@@ -23,15 +25,54 @@ k60_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c,
 	register uint64_t x3 __asm__("x3") = b;
 	register uint64_t x4 __asm__("x4") = c;
 	register uint64_t x5 __asm__("x5") = 0;
-	register uint64_t x6 __asm__("x6") = 0;
+	register uint64_t x6 __asm__("x6") = *rx6;
 	register uint64_t x7 __asm__("x7") = 0;
 
 	__asm__ volatile("smc #0"
-	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
-	    : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
+	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x6)
+	    : "r"(x4), "r"(x5), "r"(x7)
 	    : "memory");
 
-	k60_scm_called = 1;
+	*rx0 = x0;
+	*rx1 = x1;
+	*rx6 = x6;
+}
+
+/* Reference behaviour (pong, same SoC): a busy monitor is retried after a
+ * short sleep, and an interrupted call is resumed by re-issuing with the
+ * interrupted function id and the cookie from x6. Without both, a single
+ * transient refusal ends the bring-up with a verdict that names the wrong
+ * layer. */
+static int
+k60_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c,
+    uint64_t *rx0, uint64_t *rx1)
+{
+	uint64_t x0 = 0, x1 = 0, x6 = 0;
+	unsigned busy;
+
+	for (busy = 0; busy < K60_SCM_EBUSY_TRIES; busy++) {
+		uint64_t call = fn;
+		unsigned resumes = 0;
+
+		for (;;) {
+			k60_scm_raw(call, arginfo, a, b, c, &x0, &x1, &x6);
+			k60_scm_called = 1;
+			if ((int64_t)x0 != (int64_t)K60_SCM_INTERRUPTED ||
+			    resumes >= K60_SCM_RESUME_TRIES) {
+				break;
+			}
+			if (resumes == 0) {
+				printf("K60PAS cmd=%#x interrupted; resuming session=%#llx\n",
+				    fn, (unsigned long long)x6);
+			}
+			resumes++;
+			call = (uint64_t)K60_SCM_INTERRUPTED;
+		}
+		if ((int64_t)x0 != (int64_t)K60_SCM_V2_EBUSY) {
+			break;
+		}
+		IOSleep(K60_SCM_EBUSY_WAIT_MS);
+	}
 	*rx0 = x0;
 	*rx1 = x1;
 	return k60_scm_ok(x0, x1) ? K60PasOk : K60PasDenied;

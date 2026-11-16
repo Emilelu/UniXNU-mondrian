@@ -127,11 +127,13 @@ All paths are on the build host / WSL:
 | args | 31 items / 602 B, ends `pong_wifi=1 k60_wifi_rsc=2` |
 | series | 227 files, `59d8037521a5b07b`, file `bb14a480c6b2ea4b465f409d862394f0ea25cce178d19a63b7253fab3511f9d4` |
 
+After the build, the branch gained docs commits `c67e6e75`/`b586d5b0`/`73e791ad` and patch-mirror commit `942eb159` (patch files and tests only); none changes compiled source. The manifest above records the build head `7b55493a` with dirty 0.
+
 Checks already run:
 
 - `python3 scripts/verify-boot-image.py --manifest ...` -> `OK`
 - `python3 scripts/check-image-args.py --image ...` -> `OK (31 arguments, 602 bytes)`
-- `python3 scripts/tests/test-wifi-ipa-rail.py` -> `PASS` (6 negative cases)
+- `python3 scripts/tests/test-wifi-ipa-rail.py` -> `PASS` (9 negative cases; includes patch-series mirror checks)
 - generated `PongWifiInputs.h` has the nine rows listed above
 - cache ath11k archive SHA-256
   `413ad0a6ea19bad1a8c1630fead2cef702c7edc36d10c8a0fa864efea543bd97`,

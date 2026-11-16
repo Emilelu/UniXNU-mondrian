@@ -88,7 +88,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 | 仓库 | 分支 | HEAD | 文件 | 脏 | 命中(mondrian/sm8475/k60) | 用途 |
 |---|---|---|---|---|---|---|
 | Device-Binaries | main | d3f7cb72 | 22004 | 3172 | — | 二进制资产（固件、panel XML、bootloader 件）。**已普查（见第 15 节）**：78 个机型目录全部映射到 `Build/<Family>`，**无任何 SM8475/taro**；74 份 `uefiplat.cfg` 无一含本板 DXE Heap/video_region；零个 aw88/bdwlan/amss/.pwf |
-| QcaBluetooth | main | 986d631 | 46 | 0 | 0/0/0 | 蓝牙 GENI/tty 传输完整实现（`src/qbt_*`）。**唯一副本，workspace 里没有** |
+| QcaBluetooth | main | effe4ec | 46 | 0 | 0/0/0 | 蓝牙 GENI/tty 传输完整实现（`src/qbt_*`）。**唯一副本，workspace 里没有**；2026-11-17 HEAD `effe4ec`，比 k60-bt 的 vendored `986d631` 多 4 个提交、6 文件 +198/−4（discovery counters 与 HCI trace，见第 15 节） |
 | QcomGeniSpi | main | eac47ba | 6 | 0 | 0/0/0 | GENI SPI 驱动范本（`GeniSpi.c` 15,536 B） |
 | UniXNU | main | e3982fc | 1485 | 13 | 13/0/1 | 官方组件体系；`devices.toml:1585-1598` 是 mondrian 的官方记录 |
 | UniXNU-docs | HEAD 分离 | 066c8d8 | 1080 | 0 | — | 官方文档站源 |
@@ -927,7 +927,8 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | ~~**K60 panel XML 未提取**~~ **已闭合（2026-11-14）** | 显示/背光 | `Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（sha256 `65cd6826…`）就是 m11a 的厂商 XML，静态字段与 live FDT 逐项一致；但 init 序列是**同族不同修订**（129 包 vs 135 包，LCS 125 包相同、3 个编辑块），要用得先补差异。详见 7.7 与 `display/RESEARCH.md` 1.1 |
 | ~~**m11a 的 90Hz 档用途未知**~~ **已缩小（2026-11-14）** | 显示 | 三档共用同一套 init，**只差 6 个字节**（`2f`/`8b`/`df` 三个 DCS 参数 + 3 个包头字节，见 7.3）→ 90 Hz 在驱动侧没有额外工作量，只是选 `timing@1`。实机侧（2026-11-14 用 `scratch/refmine/fps_boots.py` 重跑；证据目录只增不减，数字随抓取增长）：494 个 `console.log` 里 453 个打出面板行，**只有 60 Hz（180 次）与 120 Hz（273 次）**，` 90 Hz` 字符串在全 evidence 目录 **0 命中** → 我们自己的 bring-up 从未选过 `timing@1`。剩下的是「要不要暴露」这个产品决定，不是取证缺口 |
 | **面板 5 条供电轨里 3 条是 RPMh LDO** | 显示/供电 | vddio=ldoc12、vci=ldoc13、extvdd=ldod1。**阻塞点已修正**：不是 RSC 不可访问（drv-2 实测可读写，见 3.1 / 14.1），而是这 3 条轨的 cmd-db 资源地址与投票参数本板未取；在拿到之前只能沿用 bootloader 状态 |
-| **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*`。**2026-11-14 补：所有参考仓库都没有这些文件** —— `Device-Binaries` 的 `git ls-files` 里 bdwlan/amss/.pwf 命中数为 0；`QcaBluetooth` 是纯源码仓库（46 个 tracked 文件，HEAD `986d631`，唯一与固件相关的只有 `shim/linux/firmware.h`）。所以只能从设备分区取，别再翻参考仓库 |
+| **QCA6490 的 K60 固件包未定位** | WiFi/BT | Pong 用 `/pong/firmware/qca6490.pwf`；K60 需从 `vendor` 分区提 `amss.bin/m3.bin/bdwlan.*`。**2026-11-14 补：所有参考仓库都没有这些文件** —— `Device-Binaries` 的 `git ls-files` 里 bdwlan/amss/.pwf 命中数为 0；`QcaBluetooth` 是纯源码仓库（46 个 tracked 文件，HEAD `effe4ec`，2026-11-17；k60-bt 的 vendored 副本仍 `986d631`，唯一与固件相关的只有 `shim/linux/firmware.h`）。所以只能从设备分区取，别再翻参考仓库 |
+| **QcaBluetooth 上游诊断未移植** | BT/HCI | k60-bt 的 vendored 副本停在 `986d631`；QcaBluetooth HEAD `effe4ec` 多 4 个提交（`68e2e60` extended discovery counters、`32dab19`/`e853395` Classic Inquiry trace、`5d5ae94` LE trace），6 文件 +198/−4。都是诊断/计数增强，不是控制器修复 | 由 BT 线在 HCI 扫描验证阶段 cherry-pick，或至少按同一接口补自研 qbt 的 trace 钩子 |
 | ~~**`Device-Binaries` 698 MB 未系统挖掘**~~ **已普查（2026-11-14）** | 全部 | 651 MB / 9,707 文件 / **78 个机型目录**已全部定性（机型 → `Build/<Family>`）：Palima=b4q/marble/pong/senna_a/senna_bc，Waipio=gts8p/ingres/r0q，Netrani=garnet，Kailua=aston/b5q/dm2q/gts9wifi/nuwa/nx729j/qrd8550/salami，Pakala=annibale/dodge/pagani/onyx，其余为 SM8250/SM8150/SM8350/SDM845 等老平台。**没有任何 SM8475/taro 机型** → 它不能给本板 UEFI 提供同 SoC 参考；唯一可用的产出是 `RawFiles`（面板 XML，见 7.7）与跨板布局对照（见 memory/RESEARCH.md 第 3 节）。74 份 `uefiplat.cfg` 中**没有一份**含 K60 的 `0xC7000000`（DXE Heap）或 `0x85700000`（video_region） |
 | ~~**RSC 可访问性根因未定**~~ **已缩小（2026-11-14）** | 所有供电相关 | drv-2（`0x17a20000`）**实测可读可写**：49 个 boot 读到 `caps=0x800c8104`、ACTIVE TCS4 投票 48/49 成功（3.1 / 14.1）。「一读就死」只对 drv-0（`0x17a00000`）与 drv-3（`0x17a30000`）成立，而那两次实验**没有留日志**（`k60rscprobe` 在 582 个 boot 里 0 次）。剩下的是「禁止碰 drv-0/drv-3」，不是整体阻塞 |
 | ~~**Goodix 芯片型号未确认**~~ **已闭合（2026-11-14）** | 触摸 | 真机日志 71 次读到 `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`（61 个 boot 目录，型号串完全一致），三源一致 → **GT9916R BerlinD**，见 6.0。仍缺的是初始化失败根因，不是型号 |
@@ -949,23 +950,21 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 | `audio` | 补充 AudioReach 参数 ID、GLINK intent 约束、ADSP 保留区；**新增 AW88261 实机只读读数**（4.5） | 4 |
 | `wifi` | 补充 PCIe 端点识别、K60 cnss 节点 | 2 |
 
-追加后全文件 11 个子系统、**53** 条 `required`（原 7 个子系统、32 条）。查法：
+追加后全文件 11 个子系统、**58** 条 `required`（原 7 个子系统、32 条；2026-11-17 新增 QcaBluetooth×3、UniXNU-liuqin×1、Device-Binaries×1，共 +5）。查法：
 
 ```bash
 python3 scripts/research-gate.py        # 校验每个 path 存在、examined 非空、finding >= 20 字
 ```
 
-**路径规则（写 `path` 前先看这条）**：gate 只试两种解析——
+**路径规则（写 `path` 前先看这条，2026-11-17 起）**：gate 试三种解析——
 ① `os.path.join(REPO, path)`（REPO 是本仓库，如 `docs/research/...`）；
-② `os.path.join('/mnt/e/k60-work', path)`（如 `references/...`、`reports/...`）。
-所以 `path` **不能写 `E:/hackios/...`**。本索引里 `E:/k60-work/reports/live-6033dbec-fdt.dtb` 之所以能当 `path`，是因为它同时是 `reports/live-6033dbec-fdt.dtb`（回退②命中）。
+② `os.path.join('/mnt/e/k60-work', path)`（如 `references/...`、`reports/...`）；
+③ `os.path.join('/mnt/e/hackios', path)`（如 `QcaBluetooth/...`、`UniXNU-liuqin/...`、`Device-Binaries/...`）。
+所以 `path` **不能写 `E:/hackios/...`**，要写相对 `/mnt/e/hackios` 的路径。本索引里 `E:/k60-work/reports/live-6033dbec-fdt.dtb` 之所以能当 `path`，是因为它同时是 `reports/live-6033dbec-fdt.dtb`（回退②命中）。
 
-不在上述两种回退内的仓库有两个，它们**进不了 gate**，只能在本文件正文以事实形式记录（已知的结构性限制）：
-- `E:/hackios/QcaBluetooth`（蓝牙的唯一实现副本）—— 见第 5 节；
-- `E:/hackios/UniXNU-liuqin`（Xiaomi Pad 6 Pro，同 SM8475）—— 见 2.1 与 9.1。
-**软 blocker 的处理（2026-11-14）**：Lead 已决定由 Lead 侧加第三回退前缀或 `K60_REPO` 环境变量覆盖，本线按铁则⑧**不自己改 gate**；这条限制同时写进 `SOURCES.toml` 的文件头注释（那里是给写 `path` 的人看的，见本轮提交）。
+2026-11-14 的旧限制（只有两种前缀，`QcaBluetooth` 与 `UniXNU-liuqin` 进不了 gate）**已解决**：`scripts/research-gate.py:43-47` 已实现第三前缀，`SOURCES.toml` 已登记这 5 条 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1）。下一段保留为历史记录。
 
-**两份门禁补丁已撤回（2026-11-14）**：`docs/research/evidence/gate-repo-switch.diff` 与 `gate-repo-switch-lead.diff` 已删除，`evidence/README.md` 的登记行同步移除。Lead 的决定是「REPO 硬编码已由 USB 线在 main 上统一解决，不采用这两份补丁」。核对结果**只成立一半**：`check-docs.py:24` 确已自定位；`research-gate.py:34` 在 `origin/main`（`90d8271`）上**仍是硬编码**（实测见 14.8）。修它的正规路径不是本线的 diff，而是把 **`39a783c`**（P-183，含 `scripts/check-repo-paths.py` 防回归）从 `feat/audio-merge` 合进 main。另：原补丁声称的「`:88` 漏传 verbose 导致 problems 永不打印」是误判，已在 14.8 撤回。
+**两份门禁补丁已撤回（2026-11-14）**：`docs/research/evidence/gate-repo-switch.diff` 与 `gate-repo-switch-lead.diff` 已删除，`evidence/README.md` 的登记行同步移除。Lead 的决定是「REPO 硬编码已由 USB 线在 main 上统一解决，不采用这两份补丁」。核对结果**只成立一半**：`check-docs.py:24` 确已自定位；`research-gate.py:34` 在 `origin/main`（`90d8271`）上**仍是硬编码**（实测见 14.8）。修它的正规路径不是本线的 diff，而是把 **`39a783c`**（P-183，含 `scripts/check-repo-paths.py` 防回归）从 `feat/audio-merge` 合进 main。另：原补丁声称的「`:88` 漏传 verbose 导致 problems 永不打印」是误判，已在 14.8 撤回。（2026-11-17 更新：第三前缀已实现，本段的两种前缀限制与「两份补丁」争议均已过时。）
 
 ---
 

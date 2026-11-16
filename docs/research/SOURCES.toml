@@ -405,7 +405,7 @@ finding = """phk110（redwood）的蓝牙是 WCN6750，走 WPSS（Hexagon）PIL 
 path = "reports/live-6033dbec-fdt.dtb"
 why = "K60 自己的蓝牙节点与使能脚；BT 实现必须以这张表为准"
 examined = "2026-11-14"
-finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具）；2026-11-17 起 research-gate 的第三前缀 /mnt/e/hackios 已能解析它，下面的 required 条目直接指向该仓库。"""
+finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具）；2026-11-17 起 research-gate 的第三前缀 /mnt/e/hackios 已能解析它，下面的 required 条目直接指向该仓库。2026-11-17 本地 HEAD 为 effe4ec；k60-bt 的 vendored 副本仍是 986d631，落后 4 个诊断提交（见 REFERENCE-INDEX 第 15 节）。"""
 [[subsystem.bluetooth.required]]
 path = "QcaBluetooth/src/qbt_geni.c"
 why = "蓝牙 GENI SE UART DMA 的唯一完整 XNU 实现（QcaBluetooth，WCN7850 同族，GPL-2.0）"

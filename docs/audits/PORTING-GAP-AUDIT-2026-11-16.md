@@ -24,7 +24,7 @@
 > 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,148 处引用 / **102** 个目标缺失 / 0 处行号越界，
 > 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（97 个分支文件）与 `LINE-MAP.md`（18 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
-> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7、G8 与 AW882xx/pong-metal 两项仍只报告、未动。
+> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7、G8 与 AW882xx/pong-metal 两项仍只报告、未动。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
 
 ## 1. 方法与可复现性
 
@@ -256,7 +256,15 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 - AudioReach 的 topology 仍无上游文档。
 - FreeBSD 侧没有 MHI host（2.6 KB stub，ath11k 的 QMI 也是 TODO）——**不要**指望从 FreeBSD 移植。
 
-### 8.3 本轮网络限制（写下来免得下轮重复踩）
+### 8.3 本地参考仓的上游漂移（2026-11-17 补）
+
+| 参考仓 | 我们 vendored | 上游 HEAD | 未移植 |
+|---|---|---|---|
+| `UniXNU/QcaBluetooth` | `986d631`（k60-bt 的 `0500` 补丁与 D9 的 `0516` 都基于它） | `effe4ec`（2026-11-17） | 4 个非 merge 提交 / 6 文件 +198/−4：`68e2e60` extended discovery counters（`trace_hci` 回调、`qbt_discovery_stats`）、`32dab19`/`e853395` Classic Inquiry trace（`trace_command`/`trace_event`/`trace_tx`）、`5d5ae94` LE event mask trace。均为诊断/计数增强，不是控制器修复；HCI 扫描验证时再抄，不影响当前固件下载阻塞。 |
+
+结论：这不是"缺轮子"，是 vendored 版本落后；`REFERENCE-INDEX.md` 的 pin 已同步到 `effe4ec`，第 15 节补了覆盖缺口行。
+
+### 8.4 本轮网络限制（写下来免得下轮重复踩）
 
 `web_search` → HTTP 402（DeepSeek 余额不足）；`api.github.com` 前两次成功、之后 403 限速；
 `raw.githubusercontent.com` 直取 `fetch failed`。所以 §8.1 里标"未考察"的四条只拿到仓库元数据

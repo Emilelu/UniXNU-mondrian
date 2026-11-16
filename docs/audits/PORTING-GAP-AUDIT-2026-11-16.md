@@ -114,8 +114,12 @@
 > 两份任何检出都没有的（`bt/EVIDENCE.md`、`touch/13-STAGE-ONE…`）写明不存在与抢救副本位置。
 > 217 个里剩下的 206 个（主要是 `file:line` 的历史引用）仍未动。
 
-机制修复（建议，未做）：把 `doc-cite-scan` 的核心固化成 `scripts/check-doc-citations.py` 并注册进
-`RULES.toml`；先只对 **新增/修改的文档** fail，再逐步清旧账（217 个里大部分是历史引用，一次清会淹没真问题）。
+**机制修复（2026-11-17 已做）**：新增 `scripts/check-doc-citations.py`，由 `scripts/check-docs.py`
+的 `check_citations()` 调起，所以文档门禁现在会真的检查引用。口径比上表宽（多扫 README /
+README_EN / AGENTS / CREDITS，行号支持 `:12-34` 范围），实测 **2,647 处引用、311 个目标不在本仓库、
+15 处行号越界**；这些历史欠账冻结在 `docs/engineering/DOC-CITATIONS-BASELINE.toml`（326 条），
+基线之外新增一处就 FAIL，修好一条后跑 `--update-baseline` 收紧。单测见
+`scripts/tests/test-check-doc-citations.py`（5 例：正常引用 / 缺失目标 / 越界行号 / 无行号纯路径 / 基线往返）。
 
 ## 6. 调研的物理分布（G5）
 
@@ -228,7 +232,8 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 ## 9. 机制修复建议（比逐条修更重要）
 
-1. **引用门禁**：`check-doc-citations.py`（路径存在性 + 行号上限），只对 diff 内文件 fail；现有 217 个走 allowlist 逐条清。
+1. **引用门禁**：**已做（2026-11-17）** `scripts/check-doc-citations.py`（路径存在性 + 行号上限），由 `check-docs.py` 调起，
+   现存 326 条欠账走 `docs/engineering/DOC-CITATIONS-BASELINE.toml` 冻结、新增即 FAIL；剩余 311 个目标与 15 处越界逐条清。
 2. **数字不要手写**：★/P/RULES/series/patch 计数在 `check-readme.py` 已有实现，扩展到 INDEX、`docs/engineering/README.md`、`docs/engineering/STATUS.md`、`AGENTS.md`（同一段逻辑，多传几个文件）。
 3. **研究可见性**：`docs/research/README.md` 改成"结论层索引 + 指向 INDEX 全量"；INDEX 的 research 段由脚本从目录生成，
    或至少加"未列出文件"小节（本轮先加了指针）。

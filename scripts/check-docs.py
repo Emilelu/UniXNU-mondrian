@@ -17,6 +17,7 @@
 import io
 import os
 import re
+import subprocess
 import sys
 
 from pathlib import Path
@@ -301,12 +302,39 @@ def check_readme_links(verbose=True):
     return bad, 2
 
 
+def check_citations(verbose=True):
+    """文档里的 repo 路径引用必须存在，带行号的引用不得越界。
+
+    由 scripts/check-doc-citations.py 执行，历史欠账冻结在
+    docs/engineering/DOC-CITATIONS-BASELINE.toml；基线之外新增一处就失败。
+    """
+    script = os.path.join(REPO, 'scripts', 'check-doc-citations.py')
+    if not os.path.isfile(script):
+        return ['scripts/check-doc-citations.py 不存在'], 0
+    proc = subprocess.run([sys.executable, script, '--list'],
+                          capture_output=True, text=True)
+    lines = [x.strip() for x in (proc.stdout or '').splitlines() if x.strip()]
+    m = re.search(r'检查 (\d+) 处', proc.stdout or '')
+    counted = int(m.group(1)) if m else 0
+    if proc.returncode == 0:
+        if verbose:
+            print('  %d 处 repo 路径引用在引用基线之内' % counted)
+        return [], counted
+    bad = [x for x in lines if x.startswith('NEW ')]
+    if verbose:
+        print('  %d 处 repo 路径引用，新增问题 %d 处' % (counted, len(bad)))
+    if not bad:
+        bad = ['见 python3 scripts/check-doc-citations.py 的输出']
+    return ['文档引用门禁: ' + x for x in bad[:10]], counted
+
+
 def run(verbose=True):
     all_problems = []
     total = 0
     for fn in (check_links, check_index_coverage, check_subdir_indexes,
                check_root_docs_linked, check_section_order, check_no_hardcoded_sha,
-               check_bilingual, check_freshness, check_readme_links):
+               check_bilingual, check_freshness, check_readme_links,
+               check_citations):
         p, n = fn(verbose)
         all_problems += p
         total += n

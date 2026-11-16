@@ -268,6 +268,10 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
    （`AttributeError: module 'porting_gate' has no attribute 'series_fingerprint'`，`test-check-build-applied.py:38` 则连 setUp 都过不去）。
    修法：把"取环境"从模块顶层挪进 `main()`，或让测试在 import 前注入指向临时镜像的 `K60_DEVICE_INPUT`。
    否则任何没设变量的 CI 都会把"环境没给"读成"代码坏了"——正是 P-220 自己讲的那类错。
+   **已做（2026-11-17）**：`porting-gate.py` 与 `check-build-applied.py` 改为『导入不退出、命令行才拒绝』——
+   前者把 `K60_DEVICE_INPUT` 的拒绝挪到 `[X]` 段与 `__main__` 入口，后者挪进 `main()`；新增
+   `scripts/tests/test-gates-import-without-device-input.py`（2 例）。现在不导出变量跑 check-rules 与导出时同为 5 条既有红，
+   P-214/P-220 不再假红。
 9. **登记的检查可能在空转**：P-155 的 `check-patch-series.py` 一直从 `RULES.toml` 读 `expected_kern_exec_delta`，
    但这个键从未写进去——脚本每次都打印「未记录基线…跳过」并返回 0，门禁登记了却什么都没检查。
    **已做（2026-11-17）**：补上 `expected_kern_exec_delta = 1713`（41 个 series 补丁改 `bsd/kern/kern_exec.c`，+1764/−51），

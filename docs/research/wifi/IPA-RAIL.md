@@ -58,7 +58,14 @@ published en0, and scanned 19 BSS. `E:/hackios/UniXNU-pong/porting.toml:129`
 records the user confirming services112 Wi-Fi works; services107 saw 29 BSS.
 So Pong is a full-WiFi reference, not just an MHI/QMI reference.
 
-K60 Android evidence:
+K60 Android evidence: the shipped Android device tree
+`E:/k60-work/evidence/thermal-android-20261114/vendor_boot.dts:10042-10080`
+has the same cnss node with `qcom,vreg_ipa = "s3e"` at :10060 and the six
+supplies at :10062-10073, and no `vdd-wlan-ipa-supply`. Its
+`rpmh-regulator-smpe3` is at :5803-5815, with aliases `S3E`/`pmr735a_s3`
+at :21243-21244. So the same PMIC resource exists on K60 Android even though
+the supply is not modelled as a Linux regulator consumer.
+
 `E:/k60-work/evidence/thermal-android-20261114/vb/root/lib/modules/cnss2.ko`
 contains the strings `qcom,vreg_ipa`, `vdd-wlan-aon`, `vdd-wlan-dig`,
 `vdd-wlan-io`, `vdd-wlan-rfa1`, `vdd-wlan-rfa2`, and the AOP message

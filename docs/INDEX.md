@@ -94,6 +94,7 @@ docs/
 | [wifi/WIFI-FLASH-GATE-PROPOSAL.md](research/wifi/WIFI-FLASH-GATE-PROPOSAL.md) | **WiFi flash 门禁提案（未应用）**：显式 WiFi 与 active 底线、①–⑦/本次⑧观察绑定及正反例；实际启动路径仍未接入 |
 | [wifi/IMAGE-BOUND-WRAPPER-PROPOSAL.md](research/wifi/IMAGE-BOUND-WRAPPER-PROPOSAL.md) | **镜像绑定 wrapper（离线、仅诊断）**：一次性捕获字节后核对镜像、完整 revision、参数、归档和观察规格；默认不执行门禁、不调用任何设备 runner，拒绝结果与下游路径交接边界均显式列出 |
 | [wifi/FAILURE-SNAPSHOT-LIFETIME-AUDIT.md](research/wifi/FAILURE-SNAPSHOT-LIFETIME-AUDIT.md) | **快照生命周期审计**：CH/ER/CMD 分配链、保留 arena 与失败清理边界；存活或供电依据不足时跳过访问 |
+| [wifi/CANDIDATE-LIFETIME-AUDIT.md](research/wifi/CANDIDATE-LIFETIME-AUDIT.md) | **c8 候选生命周期审计**：MHI 元数据/CH/ER/CMD 分配与 SMMU 窗口、映射和供电边界、dmaFree 复用与当前失败路径泄漏；c8 仍 HOLD |
 | `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |

@@ -254,8 +254,10 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
    由 `line-research-map2.py` 生成初稿，人工补结论。
 5. **catalog 与 pin 的差**：`check-component-pin.py` 对每个 catalog 组件的 `revision` 与本地参考树 HEAD 比较，
    不一致就要求写一行"为什么不用 pin"。这次 ShengUfs 的差就是这么漏掉的。
-6. **退役补丁要有登记**：`check-patch-series.py` 已经是补丁门禁，加一条「仓库里每个 `.patch` 要么在某个 series 里、
-   要么在 `RETIRED-PATCHES.toml` 里写明被谁取代」——只要求「必须在 series」会误伤退役前身（G9）。
+6. **退役补丁要有登记**：**已做（2026-11-17）** 新增 `docs/engineering/PATCH-CATALOG.toml`（series 之外的 41 个文件：
+   retired 9 / renumbered 3 / library 29），并在 `scripts/check-patch-series.py` 加 `check_catalog()`——
+   series 外的每个 `.patch` 必须有登记、status 只能是三种之一、retired/renumbered 必须写 evidence；
+   只要求「必须在 series」会误伤退役前身（G9）与共享补丁库，所以用目录而不是删除。
 7. **上游快照要带横幅**：任何 `docs/ops/` 这类 pick 进来的目录，文件头必须写明来源 commit 与"非权威"。
 8. **门禁自测要能脱离环境变量跑**：`K60_DEVICE_INPUT` 不导出时，main 上 `check-rules.py` 实际红 **7** 条，不是 P-230 注释里记的 5 条——
    iron-4/iron-5/hard-33/P-165/P-166 是被 `scripts/check-build-applied.py:30` 直接拒绝；而 **P-214 与 P-220 是自测 import 了 `scripts/porting-gate.py`**，
@@ -263,6 +265,10 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
    （`AttributeError: module 'porting_gate' has no attribute 'series_fingerprint'`，`test-check-build-applied.py:38` 则连 setUp 都过不去）。
    修法：把"取环境"从模块顶层挪进 `main()`，或让测试在 import 前注入指向临时镜像的 `K60_DEVICE_INPUT`。
    否则任何没设变量的 CI 都会把"环境没给"读成"代码坏了"——正是 P-220 自己讲的那类错。
+9. **登记的检查可能在空转**：P-155 的 `check-patch-series.py` 一直从 `RULES.toml` 读 `expected_kern_exec_delta`，
+   但这个键从未写进去——脚本每次都打印「未记录基线…跳过」并返回 0，门禁登记了却什么都没检查。
+   **已做（2026-11-17）**：补上 `expected_kern_exec_delta = 1713`（41 个 series 补丁改 `bsd/kern/kern_exec.c`，+1764/−51），
+   并验证改 1712 会红。教训：门禁的"跳过"分支必须显式登记为 waiver，不能静默返回成功。
 
 ## 10. 本轮已修 / 待 Lead 决定
 
@@ -272,15 +278,17 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 `README.md` / `README_EN.md`（84→107、固件描述、表格外项目符号、构建脚本位置）、
 `docs/engineering/README.md` 与 `docs/engineering/STATUS.md`（★/P、223→227、pong_metal 矛盾标注）、
 `AGENTS.md`（268/227）、`docs/ops/README.md`（新）+ 两份 ops 文件头横幅、
-`docs/research/EIGHT-STEPS.toml` wifi 段的"已过期"注释、`docs/research/README.md` 指针。
+`docs/research/EIGHT-STEPS.toml` wifi 段的"已过期"注释、`docs/research/README.md` 指针；
+后续轮次另加 `docs/engineering/PATCH-CATALOG.toml` + `check_catalog()`、以及 P-155 的 `expected_kern_exec_delta = 1713`（此前门禁空转）。
 
 **待 Lead 决定（本文只报告，不动）**：
 
 1. `EIGHT-STEPS.toml` 的 wifi/audio/charger 条目要不要按实飞重评（改 `done`/`status` 等于改放行条件）。
 2. 92 个分支研究文件怎么回 main：整目录搬、还是结案时逐份搬（建议后者 + LINE-MAP）。
 3. `docs/ops/` 三份上游文件：加横幅（已做）之外，要不要删除或移到 `docs/archive/upstream-ops/`。
-4. `0610-k60-metal-seeds.patch`：已确认是退役前身（`test-series-source.py:8`）。要我加 `RETIRED-PATCHES.toml` 登记，
-   还是与 wifi 线确认后直接删？（本轮未动）
+4. `0610-k60-metal-seeds.patch`：**已做（2026-11-17）**。不删——它是退役前身（`test-series-source.py:8`），
+   已登记进 `docs/engineering/PATCH-CATALOG.toml` 的 `status = "retired"`（evidence 3a8d61d8，replaced_by 0610-k60-metal-plugin-deploy）。
+   同一目录还把另外 40 个 series 外补丁一并归类（9 retired / 3 renumbered / 29 library），并加了门禁。
 5. `patches/wifi` 的 main 侧接线：把 `feat/wifi-bringup` 的 applier + 门搬过来，还是继续只在 wifi 分支构建。
 6. §7 的 Top 8 抄写顺序（尤其 Metal 前端与 UFS 验证表——两者都对着已崩溃面）。
 

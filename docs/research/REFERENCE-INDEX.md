@@ -319,7 +319,7 @@ SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCo
 镜像 `E:/k60-work/artifacts/audio-probe-20261114j/boot.img` sha256 `877D0A9D08AE0BFF591CCB6D470A47EAC46BDFA26A0D0FF4376A711C35723EF2`，serial 6033dbec，`bootAccepted=true`，capture 以 budget 结束（非 panic）。第二次 boot `bootAccepted=false`，无证据。
 
 → **参考仓库仍然覆盖不到实现**（Pong 只有 WCD938x），但「是哪颗芯片」这个缺口**已经闭合**：
-音频线 `docs/research/audio/AMPS.md:15-16` 把它列为「ADSP 之前唯一可完成的实机验证（AW88261 = 0x2113）」，
+音频线 `docs/research/audio/AMPS.md:15-16`（该文在 k60-audio 检出，main 未收录）把它列为「ADSP 之前唯一可完成的实机验证（AW88261 = 0x2113）」，
 `drivers/PongAudio/PongAudioPlan.h:129` 的 `case 0x2113: return "AW88261"` 现已被真机证实。
 剩下的缺口是**寄存器序列/保护策略**，不是型号。
 

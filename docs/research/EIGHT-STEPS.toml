@@ -11,6 +11,10 @@
 #   - 没做过的步骤写 done = false 并说明缺什么，不要编
 #
 # 维护纪律：状态只能按实际证据升级，不能为了让门禁通过而填。
+#
+# 引用路径注意：docs/research/bt/* 在 k60-bt 检出、docs/research/touch/14-* 与 wifi 的
+# LOCAL-VERIFICATION.md / STAGE-BRINGUP.md 在各自线检出，main 上尚未收录；
+# 引用它们时按「线检出」读，清单见 docs/audits/PORTING-GAP-AUDIT-2026-11-16.md §6。
 
 [hardware.touch]
 status = "active"
@@ -53,7 +57,7 @@ evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）�
 done = true
 local_verified = true
 evidence = "新路线（Berlin D 驱动 + 16/17/18/19 引脚图 + 坐标使能修复）的三类本地核验齐全，产物 touch-20261114a / kernel c78a5cc9。静态对照定位了本轮真正的根因：旧代码只发 0x90/00（关 raw 帧），从未发本机 goodix_htc_enable(false) 的第二条命令 0x91/01（坐标使能），且配置完成只看 ack[1] 而不等 state 0x80。离线单测 scripts/test-goodix-config.py 覆盖该边界（ACK 单独成功不算配置完成、延时 state 完成、raw-off 单独成功不算坐标使能）。产物检查确认十个标记全部进入内核。"
-static_check = """逐行对照官方状态机与保留模块（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表；docs/research/touch/14-RETAINED-KO-INIT-AUDIT.md 的 brl_hw_ops 反汇编）：
+static_check = """逐行对照官方状态机与保留模块（docs/engineering/TOUCH-STATEMACHINE.md:177-198 的 17 项表；docs/research/touch/14-RETAINED-KO-INIT-AUDIT.md 的 brl_hw_ops 反汇编；该文与 docs/research/bt/* 均只在对应线检出，main 未收录，见 docs/audits/PORTING-GAP-AUDIT-2026-11-16.md §6）：
 - 上电顺序：IOVDD 请求 → 3ms → AVDD → 15ms → RESET 释放 → 100ms 静置，与 brl_power_on(0x11104) 的 0x11178/0x111a8/0x111b8 三处 usleep 一致。
 - 身份读取：RESET 释放后读 28 字节 version 于 0x1000c(type 4) / 0x10014，加和校验覆盖 0..25 与 26..27，与 brl_read_version(0x136e8) 一致。
 - dev_confirm：写 8×0xAA 到 0x10000 后读回，共三次尝试、每次 5ms，失败返回 -22 且调用点 0xbb0c 判为非致命 —— 本驱动同样不因它中止。

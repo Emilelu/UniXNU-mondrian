@@ -3,7 +3,8 @@
 > 状态：**静态判定稿（2026-11-15）**。本文档只做「能否编进内核 + 有没有 boot 路径副作用」的
 > 静态二分，**不构建、不上机**。上机判据在 §7，实验建议在 §8。
 > 任务来源：m04661（Lead 拍板选 C：停止复现 mhi4，改做死因考古）。
-> 关联：`docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20、`docs/plans/WIFI-REBUILD-CHECKLIST.md`。
+> 关联：`docs/research/wifi/LOCAL-VERIFICATION.md` §5.11–§5.20（在 k60-wifi 检出，main 未收录）、
+> `docs/plans/WIFI-REBUILD-CHECKLIST.md`。
 
 ---
 

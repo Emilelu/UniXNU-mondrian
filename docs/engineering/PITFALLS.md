@@ -4376,7 +4376,7 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 ④⑤⑥ 从 `done=true` 改成 `false` 的诚实修正、`GROUND-TRUTH.md`、
 `TOUCH-STATEMACHINE.md`、`03-reverse-and-device-data.md`、`PITFALLS.md`、`INDEX.md`、
 `README.md`、`README_EN.md` 的编辑全部丢失；只有未跟踪的
-`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` 幸存（已另存到
+`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` 幸存（该文件此后未回 main；抢救副本在
 `E:/k60-work/scratch/SALVAGE-touch-agent-edits-20261114.md`）。
 
 根因不是 `git checkout`，是**两个人共用一棵检出树**。修法：
@@ -4500,7 +4500,8 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 2. host 测试不要只测正常路径 —— 边界输入（0、超上限、表为空）必须各有一条。
 3. 看到 `*out = count - 1; return OK;` 这种组合就是本坑。
 
-**发现者**：触摸线 agent 的评审（`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md`，2026-11-14）。
+**发现者**：触摸线 agent 的评审（原始笔记 `docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md`
+已不存于任何检出，抢救副本见 `E:/k60-work/scratch/SALVAGE-touch-agent-edits-20261114.md`，2026-11-14）。
 
 ## P-192 — 门禁把"整机口径"用成了"所有人一起等"
 

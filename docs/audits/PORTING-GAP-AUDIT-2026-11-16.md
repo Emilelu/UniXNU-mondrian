@@ -23,7 +23,7 @@
 
 > 上表记的是**发现时**的状态。G1、G2、G3 与 G4 的「没有门禁」部分、G5 的「没有指针」部分已在本分支改掉；
 > G6 已按 c1–c8 实飞重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
-> G4 的 217 个坏引用、G7–G10 只报告、未动。
+> G4 的多数坏引用（含指向不存在 research 文件的 11 条已修）、G7–G10 只报告、未动。
 
 ## 1. 方法与可复现性
 
@@ -108,6 +108,11 @@
 | `docs/research/wifi/BLOB-RESIDENCY.md:191` | `research/wifi/BOOT-DEATH-SUSPECT.md` | 只在 `k60-wifi` |
 | `docs/research/wifi/BOOT-DEATH-BISECT.md:6`、`:364`；`docs/plans/WIFI-REBUILD-CHECKLIST.md:23`、`:293` | `research/wifi/LOCAL-VERIFICATION.md` | 只在 `k60-wifi` / `k60-wifi-lead` |
 | `docs/plans/WIFI-REBUILD-CHECKLIST.md:294` | `research/wifi/STAGE-BRINGUP.md` | 只在 `k60-wifi` |
+
+> **2026-11-17 部分已修**：上表 11 条「指向不存在的 research 文件」全部处理——能定位到线检出的
+> 改成显式「（在 k60-XXX 检出，main 未收录）」；路径写错的三条改成 `docs/research/0X-*.md`；
+> 两份任何检出都没有的（`bt/EVIDENCE.md`、`touch/13-STAGE-ONE…`）写明不存在与抢救副本位置。
+> 217 个里剩下的 206 个（主要是 `file:line` 的历史引用）仍未动。
 
 机制修复（建议，未做）：把 `doc-cite-scan` 的核心固化成 `scripts/check-doc-citations.py` 并注册进
 `RULES.toml`；先只对 **新增/修改的文档** fail，再逐步清旧账（217 个里大部分是历史引用，一次清会淹没真问题）。

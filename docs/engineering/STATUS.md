@@ -298,7 +298,7 @@ K60 修复、本机的 `3d2a9fa` 是它的祖先。**两句都不成立**：`git
 - `bt-s4c-20261115c`（负向，空 blob）：进桌面，`addon: no GpuAddon property`
   判据命中、`K60 BT: published local address ee:98:c5:8a:6b:4e`（identity 生效）；
   新崩溃族 C：backboardd `getBytes:range:`（根因 = `0509` 三属性发成 OSString，
-  已立项 `docs/research/display/BACKBOARD-CRASH-FAMILIES.md`）。
+  已立项 `docs/research/display/BACKBOARD-CRASH-FAMILIES.md`（该文在 k60-display 检出，main 未收录））。
 - `bt-s4b-20261115c`（正向，带 blob）：port-not-observed → 唯一变量 =
   `patches/bt/0005` 与 blob 的组合，bt 线四 hunk 二分图（h1–h4）已备齐待飞。
 - `usb-20261115c`（mode-2）：boot-and-echo 全流程 PASS（COM5 9.5 s、

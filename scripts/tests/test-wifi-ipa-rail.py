@@ -51,6 +51,8 @@ def check(profile, builder, platform):
 
     need("profile.get('extra_rails', [])" in builder,
          "native builder does not iterate extra_rails")
+    need(builder.count("profile.get('extra_rails', [])") == 1,
+         "native builder duplicates extra_rails iteration")
     if "profile.get('extra_rails', [])" in builder:
         need(builder.index("profile.get('extra_rails', [])") < builder.index("profile['pcie']['analogue_rails']"),
              "extra rails are emitted after the analogue LDOs")
@@ -78,6 +80,8 @@ def check_patch_mirrors(profile_patch, builder_patch, platform_patch, platform_b
          "profile patch does not carry vdd-wlan-ipa")
     need("profile.get('extra_rails', [])" in builder_patch,
          "builder patch does not emit extra_rails")
+    need(builder_patch.count("profile.get('extra_rails', [])") == 1,
+         "builder patch duplicates extra_rails emission")
     need("railCount>9" in platform_patch,
          "platform patch still rejects the ninth rail")
     need("QcomRpmhResource res[9]" in platform_patch,
@@ -119,8 +123,14 @@ def main():
         return 1
 
     # The test must reject the regressions it exists to catch.
+    dup_line = " for e in profile.get('extra_rails', []):\n"
+    dup_body = ("  physical=e.get('physical',{})\n"
+                "  ppid=(physical.get('spmi_slave',0)<<8)|physical.get('peripheral',0)\n"
+                "  header+='{%s,%d,%d,%d,%d,%d},\\n'%(json.dumps(e['resource']),(e['request'][0]+999)//1000,e['request'][1]//1000,ppid,physical.get('type',0),physical.get('subtype',0))\n")
+    duplicated_builder = builder.replace(dup_line, dup_line + dup_body + dup_line, 1)
     cases = [
         ("missing extra rail", mutant_profile(profile, extra_rails=[]), builder, platform),
+        ("duplicate builder loop", profile, duplicated_builder, platform),
         ("wrong voltage", mutant_profile(profile, request=[2000000, 2200000, 0, 0, 0]), builder, platform),
         ("wrong PPID", mutant_profile(profile, peripheral=160), builder, platform),
         ("builder loop removed", profile, builder.replace(" for e in profile.get('extra_rails', []):\n", ""), platform),
@@ -136,6 +146,7 @@ def main():
     patch_cases = [
         ("profile patch missing extra rail", "", builder_patch, platform_patch, platform_base_patch),
         ("builder patch missing extra loop", profile_patch, "", platform_patch, platform_base_patch),
+        ("duplicate builder patch loop", profile_patch, builder_patch + builder_patch, platform_patch, platform_base_patch),
         ("platform patch old eight-rail guard", profile_patch, builder_patch, platform_patch.replace("railCount>9", "railCount>8"), platform_base_patch),
         ("base platform patch old rail identification", profile_patch, builder_patch, platform_patch, platform_base_patch.replace("pmicRead(unsigned(channel),4,id,2)||id[0]!=r.type||id[1]!=r.subtype||", "pmicRead(unsigned(channel),4,id,2)||")),
     ]

@@ -462,10 +462,6 @@ index 0000000..244b379
 +  physical=e.get('physical',{})
 +  ppid=(physical.get('spmi_slave',0)<<8)|physical.get('peripheral',0)
 +  header+='{%s,%d,%d,%d,%d,%d},\n'%(json.dumps(e['resource']),(e['request'][0]+999)//1000,e['request'][1]//1000,ppid,physical.get('type',0),physical.get('subtype',0))
-+ for e in profile.get('extra_rails', []):
-+  physical=e.get('physical',{})
-+  ppid=(physical.get('spmi_slave',0)<<8)|physical.get('peripheral',0)
-+  header+='{%s,%d,%d,%d,%d,%d},\n'%(json.dumps(e['resource']),(e['request'][0]+999)//1000,e['request'][1]//1000,ppid,physical.get('type',0),physical.get('subtype',0))
 + for e in profile['pcie']['analogue_rails']:
 +  header+='{%s,%d,%d,0,0,0},\n'%(json.dumps(e['resource']),(e['microvolts']+999)//1000,e['microvolts']//1000)
 + header+='};\n'

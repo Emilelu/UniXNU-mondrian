@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
 
 #include "K60PmicRail.h"
 
@@ -135,10 +136,76 @@ main(void)
 	CHECK(l.tcs_stride == 672 && l.cmd_stride == 24);
 	CHECK(l.control == 0x24 && l.cmd_enable == 0x2c && l.cmd_msgid == 0x34);
 
+
+	/* Rail inheritance measurement: the four-tuple comes from a matched TCS
+	 * slot, never from an assumed slot number. Slot 3 carries lcx here, slot 4
+	 * carries lmx, and slot 2 carries an unrelated address. */
+	{
+		static uint32_t rsc[K60_RSC_BYTES / sizeof(uint32_t)];
+		K60RailRecord rec;
+		K60RscLayout v2 = k60_rsc_layout(0x00020000);
+		const size_t slot3 = (K60_RSC_TCS_OFFSET + 3u * v2.tcs_stride) / 4u;
+		const size_t slot4 = (K60_RSC_TCS_OFFSET + 4u * v2.tcs_stride) / 4u;
+		const size_t slot2 = (K60_RSC_TCS_OFFSET + 2u * v2.tcs_stride) / 4u;
+
+		memset(rsc, 0, sizeof(rsc));
+		rsc[slot2 + v2.cmd_addr / 4] = 0x1c000u;
+		rsc[slot3 + v2.cmd_addr / 4] = 0x30010u;
+		rsc[slot3 + v2.cmd_data / 4] = 0x10u;
+		rsc[slot3 + v2.status / 4] = 1u;
+		rsc[slot4 + v2.cmd_addr / 4] = 0x31000u;
+		rsc[slot4 + v2.cmd_data / 4] = 0x8u;
+		rsc[slot4 + v2.status / 4] = 1u;
+
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), &v2, 0x30010u, &rec) == K60RpmhOk);
+		CHECK(rec.complete == 1 && rec.valid == 1 && rec.tcs_slot == 3);
+		CHECK(rec.resource_id == 0x30010u && rec.address == 0x30010u);
+		CHECK(rec.level == 0x10u && rec.missing == NULL && rec.why == NULL);
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), &v2, 0x31000u, &rec) == K60RpmhOk);
+		CHECK(rec.complete == 1 && rec.tcs_slot == 4 && rec.level == 0x8u);
+
+		/* A rail with no cmd-db address never completes: missing, not invalid. */
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), &v2, 0, &rec) == K60RpmhMissing);
+		CHECK(rec.complete == 0 && rec.valid == 0 && rec.missing != NULL);
+		/* An address no slot carries is missing too, and names the field. */
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), &v2, 0x99999u, &rec) == K60RpmhMissing);
+		CHECK(rec.complete == 0 && rec.missing != NULL);
+
+		/* Complete but a zero ARC level: measured, invalid, with its own reason. */
+		rsc[slot4 + v2.cmd_data / 4] = 0;
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), &v2, 0x31000u, &rec) == K60RpmhOk);
+		CHECK(rec.complete == 1 && rec.valid == 0 && rec.why != NULL);
+		/* Complete but the slot is still busy: also invalid, not missing. */
+		rsc[slot4 + v2.cmd_data / 4] = 0x8u;
+		rsc[slot4 + v2.status / 4] = 0u;
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), &v2, 0x31000u, &rec) == K60RpmhOk);
+		CHECK(rec.complete == 1 && rec.valid == 0 && rec.why != NULL);
+		/* A window too short to hold slot 4 stops at 'missing', never reads past. */
+		CHECK(k60_rail_measure(rsc, slot4 * 4u, &v2, 0x31000u, &rec) == K60RpmhMissing);
+		CHECK(k60_rail_measure(NULL, sizeof(rsc), &v2, 0x30010u, &rec) == K60RpmhArgument);
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), NULL, 0x30010u, &rec) == K60RpmhArgument);
+		CHECK(k60_rail_measure(rsc, sizeof(rsc), &v2, 0x30010u, NULL) == K60RpmhArgument);
+
+		/* The ledger is the consumer's only evidence: empty until stored, and it
+		 * keeps the drv_id and the gate that produced it. */
+		CHECK(k60_rail_ledger() == NULL);
+		{
+			K60RailRecord lcx, lmx;
+			(void)k60_rail_measure(rsc, sizeof(rsc), &v2, 0x30010u, &lcx);
+			(void)k60_rail_measure(rsc, sizeof(rsc), &v2, 0x31000u, &lmx);
+			k60_rail_ledger_store(0x20700u, &lcx, &lmx);
+			const K60RailLedger *led = k60_rail_ledger();
+			CHECK(led != NULL && led->magic == K60_RAIL_LEDGER_MAGIC);
+			CHECK(led->recorded == 1 && led->gate == K60_RAIL_GATE_PROBE);
+			CHECK(led->drv_id == 0x20700u && led->lcx.tcs_slot == 3);
+			CHECK(led->lmx.complete == 1 && led->lmx.valid == 0);
+		}
+	}
+
 	if (failures != 0) {
 		printf("TESTS OK 0 cases (%d failure(s))\n", failures);
 		return 1;
 	}
-	printf("TESTS OK 16 cases (0 failure(s))\n");
+	printf("TESTS OK 37 cases (0 failure(s))\n");
 	return 0;
 }

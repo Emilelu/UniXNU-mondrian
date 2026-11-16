@@ -60,12 +60,19 @@ done
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2
-# Board ownership links ONLY the board, SMEM and startup arbitration. The PAS
-# transport is deliberately absent, so an SMC issued from the board would fail
-# the link instead of the test: "no monitor call" is a link-time fact here.
+# Board ownership links ONLY the board, the rail ledger it reads, SMEM and
+# startup arbitration. The PAS transport is deliberately absent, so an SMC
+# issued from the board would fail the link instead of the test: "no monitor
+# call" is a link-time fact here.
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c \
-  drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspStartup.c -o "$OUT/board"
+  drivers/PongPower/K60PmicRail.c drivers/PongPower/K60Smem.c \
+  drivers/PongPower/K60AdspStartup.c -o "$OUT/board"
 "$OUT/board"
+# The rail parser, the TCS-slot match and the ledger are pure host code; the
+# probe itself is kernel-only, so this covers everything up to the map calls.
+cc "${CFLAGS[@]}" scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c \
+  -o "$OUT/rail"
+"$OUT/rail"
 python3 scripts/tests/test-k60-adsp-mdt.py --output "$OUT/mdt" --firmware /mnt/e/k60-work/firmware/adsp
 python3 scripts/tests/test-k60-notification-qualification.py
 python3 scripts/tests/test-battery-units.py
@@ -83,5 +90,5 @@ clang -target arm64-apple-ios16.0 -isysroot "$SDK" -mkernel -ffreestanding \
   -DKERNEL_PRIVATE=1 -DXNU_KERNEL_PRIVATE=1 -DARM64_BOARD_CONFIG_PONG=1 \
   -I "$FRAMEWORK/Headers" -I "$FRAMEWORK/PrivateHeaders" -I drivers/PongPower \
   -std=gnu11 -Wall -Wextra -Werror -Wno-framework-include-private-from-public \
-  -fsyntax-only drivers/PongPower/K60AdspBoard.c
+  -fsyntax-only drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60PmicRail.c
 printf "TESTS OK: arm64 Darwin kernel adapter syntax (not a link)\n"

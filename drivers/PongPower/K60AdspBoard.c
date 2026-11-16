@@ -9,11 +9,12 @@
  *              never maps, reads or calls the monitor.
  *   exclusive  read-only SMEM window + partition proof, the early-owner startup
  *              CAS, and one fresh nonzero epoch. Any failure rolls back inside.
- *   resources  lease + exclusion + an independent stopped proof, then refuses:
- *              creating a power/XO/interconnect vote needs a TCS write, which
- *              docs/ops/HARD-RULES.md forbids outright. Inherited retention
- *              cannot be proved while the DSP is stopped, so this reports
- *              K60BoardUnsupported instead of inventing a vote.
+ *   resources  lease + exclusion + an independent stopped proof, then judges
+ *              the rail ledger the gated read-only pass recorded. Creating a
+ *              power/XO/interconnect vote would need a TCS write, which
+ *              docs/ops/HARD-RULES.md forbids outright, so success means
+ *              "the warm boot's vote is still readable and sane", and the
+ *              three ways that can fail are reported separately.
  *   stopped    the inbound SMP2P item, read only.
  *   live       the retained token only; never the resource flag.
  *   scm_lock   one kernel-global, non-reentrant lock for every SCM client.
@@ -22,6 +23,7 @@
  * transport, so a stray call would fail the link instead of the board. */
 #include "K60AdspBoard.h"
 #include "K60AdspOwner.h"
+#include "K60PmicRail.h"
 #ifdef KERNEL
 #include <pexpert/pexpert.h>
 #include <machine/machine_routines.h>
@@ -238,6 +240,26 @@ static void exclusive_release_cb(void *ctx, void *cookie)
     release_all(b);
 }
 
+/* One rail, judged from the ledger the gated read-only pass left behind. The
+ * three outcomes are deliberately distinct: never measured, measured but the
+ * field list is incomplete, and measured completely but self-inconsistent. A
+ * single -63 for all three is what P-190/P-204 are about. */
+static int rail_verdict(const char *name, const K60RailRecord *r)
+{
+    if (!r->complete) {
+        printf("K60ADSP: rail %s not obtained: %s missing (gate=%u)\n", name,
+            r->missing ? r->missing : "field", K60_RAIL_GATE_PROBE);
+        return K60BoardUnsupported;
+    }
+    if (!r->valid) {
+        printf("K60ADSP: rail %s measured but invalid: %s (id=%#x tcs=%u "
+            "addr=%#x level=%u)\n", name, r->why ? r->why : "inconsistent",
+            r->resource_id, r->tcs_slot, r->address, r->level);
+        return K60BoardUnsupported;
+    }
+    return K60BoardOk;
+}
+
 static int resources_cb(void *ctx, void *cookie)
 {
     K60AdspBoard *b = ctx;
@@ -247,12 +269,32 @@ static int resources_cb(void *ctx, void *cookie)
     if (state < 0) { poison(b); return K60BoardNotStopped; }
     if (state != 1) return K60BoardNotStopped;
     /* HR-01: retaining power/XO/interconnect means writing an RPMh TCS, and
-     * that is forbidden with no exception. The Android warm boot already
-     * enabled these rails, so XNU inherits them by never voting, but an
-     * inherited vote cannot be proved while the DSP is stopped. Refuse with the
-     * reason instead of reporting retention this service does not hold. */
-    b->last_rc = K60BoardUnsupported;
-    return K60BoardUnsupported;
+     * that is forbidden with no exception. XNU never votes, so what this
+     * callback can prove is narrower and measurable: the Android warm boot
+     * already voted these rails, and the gated read-only pass recorded the
+     * result (K60PmicRail.c k60_rail_probe -> k60_rail_ledger). Reporting
+     * success without that record would be inventing retention; refusing with
+     * one constant when the record is missing and when it is wrong would hide
+     * which of the two happened. */
+    const K60RailLedger *led = k60_rail_ledger();
+    if (led == 0 || led->magic != K60_RAIL_LEDGER_MAGIC || !led->recorded) {
+        printf("K60ADSP: rails not measured: pong_rail_probe did not run before "
+            "this point, so inheritance cannot be reported (rc=%d)\n",
+            K60BoardUnsupported);
+        b->last_rc = K60BoardUnsupported;
+        return K60BoardUnsupported;
+    }
+    int rc = rail_verdict("lcx", &led->lcx);
+    if (rc != K60BoardOk) { b->last_rc = rc; return rc; }
+    rc = rail_verdict("lmx", &led->lmx);
+    if (rc != K60BoardOk) { b->last_rc = rc; return rc; }
+    printf("K60ADSP: rails inherited lcx=%#x@%u level=%u lmx=%#x@%u level=%u "
+        "(arc index, not mV; drv_id=%#x)\n", led->lcx.resource_id,
+        led->lcx.tcs_slot, led->lcx.level, led->lmx.resource_id,
+        led->lmx.tcs_slot, led->lmx.level, led->drv_id);
+    b->resources = 1;
+    b->last_rc = K60BoardOk;
+    return K60BoardOk;
 }
 
 static void resources_release_cb(void *ctx, void *cookie)

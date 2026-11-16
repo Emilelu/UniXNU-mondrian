@@ -16,7 +16,9 @@
  *   5 live() proves the retained token without any resource acquisition
  *   6 after the install gate accepts this table, available() is exactly 1
  *   7 the negative SMP2P evidence cases that stop a corrupt item from ever
- *     being read as "stopped" */
+ *     being read as "stopped";
+ *   8 resources() separates never-measured, missing and invalid rail records,
+ *     and reports retention only for two complete, sane measurements. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +26,7 @@
 #include "K60Smem.h"
 #include "K60AdspOwner.h"
 #include "K60AdspBoard.h"
+#include "K60PmicRail.h"
 
 #define SMEM_BYTES 0x200000u
 #define SMEM_WORDS (SMEM_BYTES / 4u)
@@ -459,6 +462,69 @@ static void scenario_stopped_needs_evidence(Fixture *f)
     (void)f;
 }
 
+/* 8. resources() tells three different failures apart, and only reports
+ *    retention when the ledger holds two complete, sane measurements. */
+static void rail_record(K60RailRecord *r, uint32_t id, uint32_t level,
+    unsigned slot, unsigned complete, unsigned valid, const char *missing,
+    const char *why)
+{
+    memset(r, 0, sizeof *r);
+    r->resource_id = id;
+    r->address = complete ? id : 0;
+    r->level = level;
+    r->tcs_slot = slot;
+    r->complete = complete;
+    r->valid = valid;
+    r->missing = missing;
+    r->why = why;
+}
+
+static void scenario_rails_three_state(void)
+{
+    Fixture *f = malloc(sizeof *f);
+    K60RailRecord lcx, lmx;
+    uint32_t epoch = 0;
+    void *cookie = NULL;
+
+    CHECK(f != NULL);
+    start("resources separates never-measured, missing and invalid rails");
+    build(f, 1, 0, 0);
+    CHECK(f->board.ownership.exclusive(&f->board, &pinned, &epoch, &cookie) == K60BoardOk);
+    CHECK(f->board.ownership.stopped(&f->board, cookie) == 1);
+    /* A lease with no ledger at all is 'never measured', not 'rails absent'. */
+    CHECK(k60_rail_ledger() == NULL);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    CHECK(f->board.resources == 0);
+    /* A ledger that exists but has an incomplete rail is a different answer:
+     * the field that stopped the read must be named, and retention is still
+     * not reported. */
+    rail_record(&lcx, 0x30010u, 0, 0, 0, 0, "tcs slot", NULL);
+    rail_record(&lmx, 0x31000u, 0x8u, 4, 1, 1, NULL, NULL);
+    k60_rail_ledger_store(0x20700u, &lcx, &lmx);
+    CHECK(k60_rail_ledger() != NULL);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    CHECK(f->board.resources == 0);
+    /* Complete but self-inconsistent is the third answer, and it must not be
+     * reported with the same wording as a missing field. */
+    rail_record(&lcx, 0x30010u, 0, 3, 1, 0, NULL, "level read back as 0");
+    k60_rail_ledger_store(0x20700u, &lcx, &lmx);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardUnsupported);
+    CHECK(f->board.resources == 0);
+    /* Only two complete, valid measurements report inherited retention. */
+    rail_record(&lcx, 0x30010u, 0x10u, 3, 1, 1, NULL, NULL);
+    k60_rail_ledger_store(0x20700u, &lcx, &lmx);
+    CHECK(f->board.ownership.resources(&f->board, cookie) == K60BoardOk);
+    CHECK(f->board.resources == 1 && f->board.last_rc == K60BoardOk);
+    /* The grant still needs the lease: the ledger alone is not authority. */
+    CHECK(f->board.ownership.resources(&f->board, NULL) == K60BoardNoLease);
+    /* Releasing drops the flag, not the measurement. */
+    f->board.ownership.resources_release(&f->board, cookie);
+    CHECK(f->board.resources == 0);
+    CHECK(k60_rail_ledger() != NULL);
+    f->board.ownership.exclusive_release(&f->board, cookie);
+    free(f);
+}
+
 int main(void)
 {
     static Fixture base, second;
@@ -471,6 +537,7 @@ int main(void)
     scenario_live_without_resources(&base);
     scenario_stopped_needs_evidence(&base);
     scenario_install_turns_available_on();
+    scenario_rails_three_state();
     /* The report line is a diagnostic, not a proof: it must not crash. */
     k60_adsp_board_report(&base.board);
     printf("TESTS OK board-ownership: %u scenarios\n", cases);

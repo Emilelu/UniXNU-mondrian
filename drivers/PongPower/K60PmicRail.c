@@ -150,6 +150,124 @@ k60_rsc_layout(uint32_t drv_id)
 	return ((drv_id >> 16) & 0xff) >= 3 ? v3 : v2;
 }
 
+/* Clear a record so that a failed measurement still names what was missing. */
+static void
+rail_record_clear(K60RailRecord *r, const char *not_read)
+{
+	r->resource_id = 0;
+	r->address = 0;
+	r->level = 0;
+	r->tcs_slot = 0;
+	r->complete = 0;
+	r->valid = 0;
+	r->missing = not_read;
+	r->why = 0;
+}
+
+/*
+ * Scan the DRV-2 TCS slots for the one whose cmd_addr carries this rail's
+ * cmd-db address, then read that slot's cmd_data. Read-only: every access is a
+ * load from the already-mapped window. The slot number is discovered, never
+ * assumed, because this board votes touch through TCS3 while the reference
+ * implementation writes slot 4 (POWER-RPMH-LDOC2.md:30-33, :142-144).
+ */
+int
+k60_rail_measure(const volatile uint32_t *words, size_t words_bytes,
+    const K60RscLayout *layout, uint32_t resource_id, K60RailRecord *out)
+{
+	unsigned slot;
+
+	if (out == NULL || layout == NULL || words == NULL) {
+		return K60RpmhArgument;
+	}
+	rail_record_clear(out, "resource id");
+	if (resource_id == 0) {
+		return K60RpmhMissing;
+	}
+	out->resource_id = resource_id;
+	out->missing = "tcs slot";
+	for (slot = 0; slot < K60_RAIL_SLOTS; slot++) {
+		const size_t base = (size_t)K60_RSC_TCS_OFFSET +
+		    (size_t)slot * layout->tcs_stride;
+		size_t at_addr, at_data, at_status;
+		uint32_t addr;
+
+		if (base + layout->cmd_data + sizeof(uint32_t) > words_bytes ||
+		    base + layout->status + sizeof(uint32_t) > words_bytes) {
+			break;
+		}
+		at_addr = base + layout->cmd_addr;
+		at_data = base + layout->cmd_data;
+		at_status = base + layout->status;
+		addr = words[at_addr / sizeof(uint32_t)];
+		if (addr != resource_id) {
+			continue;
+		}
+		out->tcs_slot = slot;
+		out->address = addr;
+		out->level = words[at_data / sizeof(uint32_t)];
+		out->complete = 1;
+		out->missing = 0;
+		if (out->level == 0) {
+			out->why = "level read back as 0";
+		} else if ((words[at_status / sizeof(uint32_t)] & 1u) == 0) {
+			out->why = "tcs slot not idle";
+		} else {
+			out->valid = 1;
+		}
+		return K60RpmhOk;
+	}
+	return K60RpmhMissing;
+}
+
+static K60RailLedger rail_ledger;
+
+void
+k60_rail_ledger_store(uint32_t drv_id, const K60RailRecord *lcx,
+    const K60RailRecord *lmx)
+{
+	K60RailLedger next;
+
+	next.magic = K60_RAIL_LEDGER_MAGIC;
+	next.drv_id = drv_id;
+	next.recorded = 1;
+	next.gate = K60_RAIL_GATE_PROBE;
+	if (lcx != NULL) {
+		next.lcx = *lcx;
+	} else {
+		rail_record_clear(&next.lcx, "not read");
+	}
+	if (lmx != NULL) {
+		next.lmx = *lmx;
+	} else {
+		rail_record_clear(&next.lmx, "not read");
+	}
+	rail_ledger = next;
+}
+
+const K60RailLedger *
+k60_rail_ledger(void)
+{
+	return rail_ledger.recorded ? &rail_ledger : 0;
+}
+
+#ifdef KERNEL
+static void
+rail_print(const char *name, const K60RailRecord *r)
+{
+	printf("K60RAIL %s id=%#x tcs=%u addr=%#x level=%u (arc index, not mV)"
+	    " complete=%u valid=%u", name, r->resource_id, r->tcs_slot,
+	    r->address, r->level, r->complete, r->valid);
+	if (r->missing != 0) {
+		printf(" missing=%s", r->missing);
+	}
+	if (r->why != 0) {
+		printf(" why=%s", r->why);
+	}
+	printf("\n");
+}
+#endif /* KERNEL */
+
 #ifdef KERNEL
 int
 k60_rail_probe(void)
@@ -240,6 +358,31 @@ k60_rail_probe(void)
 		    "ctrl=%#x enable=%#x msgid=%#x addr=%#x data=%#x\n", w[0],
 		    (unsigned)((w[0] >> 16) & 0xff), l.tcs_stride, l.cmd_stride,
 		    l.control, l.cmd_enable, l.cmd_msgid, l.cmd_addr, l.cmd_data);
+
+		/* Same pass, same gate: record what the warm boot left behind for the
+		 * two rails the ADSP remoteproc node names (cx-supply lcx.lvl,
+		 * mx-supply lmx.lvl). Nothing is written; the result is a ledger the
+		 * board service reads later, after Data mount, when it cannot read
+		 * here itself (docs/research/audio/ADSP-RAIL-INHERITANCE.md 4.1). */
+		{
+			K60RailRecord lcx, lmx;
+			K60RpmhResource rail;
+			uint32_t lcx_id = 0, lmx_id = 0;
+
+			if (k60_cmd_db_find(bytes, K60_CMD_DB_BYTES, "lcx.lvl",
+			    &rail) == K60RpmhOk) {
+				lcx_id = rail.address;
+			}
+			if (k60_cmd_db_find(bytes, K60_CMD_DB_BYTES, "lmx.lvl",
+			    &rail) == K60RpmhOk) {
+				lmx_id = rail.address;
+			}
+			(void)k60_rail_measure(w, K60_RSC_BYTES, &l, lcx_id, &lcx);
+			(void)k60_rail_measure(w, K60_RSC_BYTES, &l, lmx_id, &lmx);
+			k60_rail_ledger_store(w[0], &lcx, &lmx);
+			rail_print("lcx", &lcx);
+			rail_print("lmx", &lmx);
+		}
 	}
 	return 0;
 }

@@ -5958,11 +5958,18 @@ void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_
 **无条件的。** 每毫秒把 64 个已注册 IRQ 全部置 pending，与硬件有没有拉中断线毫无关系。于是
 `irq entered` 出现一次只能证明「这个 handler 被调度器跑过一次」，不能证明 MSI 到过。
 
-真正的硬件判据是另一条打点：`PongWifiPlatform.cpp:682` 的
-`if (!irqSeen && __atomic_load_n(&msiArrivals, ...)) { ... log(6, "QCA6490 MSI delivered by GIC"); }`，
-而 `msiArrivals` 只在 `irq()` 里 `dbi.r(MsiStatus)` 读到非零时才自增。c7 的
-`grep -ac "MSI delivered"` = **0** —— 这才是「MSI 没到」的证据，而且它一直是有效的。
-我先把无效判据当成结论，又反过来用「irq entered 出现过」去否证有效的判据，方向错了两次。
+**2026-11-16 重新审视后的第二次纠正：缺失日志也不能证明 MSI 没到。**
+`msiArrivals` 只在真正的 GIC 回调中读到 `dbi.r(MsiStatus)` 非零时才自增，这个计数与
+软件重放的 MHI handler 不同；但 `QCA6490 MSI delivered by GIC` 的打印不在失败路径上。
+在实验源树 `E:/hackios/k60-wifi/drivers/PongWifi/PongWifiPlatform.cpp:690`，
+`nw_wifi_start()` 返回错误就 `goto done`；`:692` 才进入检查计数并打印该行的循环。
+c7 在初始化中返回 `-110`，因此根本不会执行这条打印。日志 0 命中不能判断计数是否非零，
+更不能证明 MSI 到达或未到达。必须在实际超时点采集 GIC 入口计数、pending 读回和上下文，
+并与兼容层重放的次数分开。此处收回旧版「缺失日志一直是有效反证」的结论。
+
+同样，`er_ctxt->rp` 的初值由主机写入；CPU 读到它未变化，只证明本次 CPU 观察值没变。
+设备是否读过上下文、DMA 写入及缓存可见性仍需独立验证。完整证据边界见
+[2026-11-16 重新审视](../audits/REASSESSMENT-2026-11-16.md)。
 
 **四条教训**
 

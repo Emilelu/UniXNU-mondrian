@@ -5,6 +5,16 @@
 
 本轮更新时间：2026-11-16
 
+### 重新审视后的当前结论（2026-11-16）
+
+完整依据与待办见 [重新审视报告](../audits/REASSESSMENT-2026-11-16.md)。本次只核对证据与文档，没有新构建或上机；下方带日期的旧结论是历史记录，发生冲突时以本节为准。
+
+- 已登记的可启动 main 基线是 `baseline-20261116a`；当前 main 为 `1eba4b9` / `snap-r219`，此后提交包含文档与门禁修复，不能把历史镜像当作当前 HEAD 已上机的证明。
+- WiFi c7 已读到硬件 SBL/READY，而软件仍为 PBL/POR，超时 `-110`。软件轮询能调用 MHI IRQ handler；`MSI delivered` 打印又在初始化成功后的循环，c7 的失败路径不会执行。现有日志不能证明 MSI 是否到达，也不能把主动推 AMSS 当成已验证根治。c8 暂停，先审重复下载、重入与 READY/M0 转移。
+- BT d7 已完成 rampatch，NVM 阶段报 90 s 总预算耗尽、`power=1 result=-60`。不能从没有 `command timeout` 推出每段正常或预算必然不足。d8 是计数观测候选，但实验树的 Bluetooth 仍为 parked，八步 flash 绿色略过了它；先补真实覆盖与实验预测。
+- ADSP 复核发现 plan C 的 rail 检查只保护晚期 legacy，早期 publisher 曾可绕过它。owner 分支现已在 `d336fe2` 恢复 `resources_cb` 拒绝；保存的真实回调宿主链轨迹显示 map_smem/alloc/init/mem/load/auth/publish 全为 0（日志与哈希见审计）。这不是功能镜像或 Native 执行验证；继续离线核 rail 采样器，rail-only 与 PAS/handoff 功能图分开验收。
+- 全仓同步已结束但结果为 partial：1 更新 / 51 clean / 7 skip / 3 fail / 3 conflict（65 次操作，含重复路径）。恢复出 598 个参考源候选 SHA，其中 525 无台账；新分支审核边界未知，不能称全历史已覆盖。tracker basename 碰撞与 reviewed 水位混淆仍待修。
+
 ---
 
 > 本文件里的 SHA 是**已完成工作的取用记录**，每条都带取用日期。
@@ -59,11 +69,13 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 | 背光（DCS 0x11/0x29/0x51） | ✅ | `K60 PANEL: bring-up complete` |
 | 锁屏 / SpringBoard | ✅ | `Pong UI: 20G81 compatibility library entered SpringBoard` |
 | launchd 稳定 | ✅ | `0394` 精选缓存（22 个核心 job）已并入 `0391`，写 `/private/var/pong/xpc/launchd.plist` |
-| 实体键（电源/音量） | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `_pong_buttons_init`），`configuration()` 结果不可观测 |
+| 实体键（电源/音量） | ✅ | 历史真机日志有 `Pong keys: arbiter v7 … power=1 up=1 down=1` 及按键 down/up；不再使用早期「configuration 不可观测」结论 |
 | 触摸 | ✅ | 单指已真机验证，见下方「触摸」专节 |
 | GPU（Adreno 730v3） | 🔄 | 见下方「GPU」专节 |
-| 蓝牙（QCA6490 / SE20） | 🔄 | 内核侧已通：`[bluetooth] QCA controller version 0x12110201` + `addon: serving` 分片（`usblog-20261116-064150`，P-219）；用户态缺 ADT `bluetooth` 节点 |
-| WiFi / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
+| 蓝牙（QCA6490 / SE20） | 🔄 | 版本查询和 rampatch 下载已观测；d7 在 NVM 阶段总预算超时，完整固件启动、UART.SK、用户态可用性未证；d8 等实际八步覆盖 |
+| WiFi（QCA6490） | 🔄 | c7 到硬件 SBL/READY，主机状态未跟进并 -110；MSI、DMA/缓存和状态机原因未定，c8 暂停审查 |
+| ADSP / 电池 / 音频 | 🔄 | PAS1/handoff 尚未验证；owner 分支已恢复早期拒绝，保存的宿主轨迹无下游 SMEM/PAS 副作用；功能上机仍暂停 |
+| 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
 
 ### 触摸
 
@@ -90,15 +102,10 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 
 ### GPU
 
-- **内核侧**：Adreno 全链 42 行 `result=0`（parent ARC、CX clocks、
-  GMU firmware/HFI、GMU power handshake、GMU native4K context、
-  CP ready、CP/user-client startup）。
-- **Metal 插件**：94,928 B，已写入
-  `/private/var/pong/PongAdrenoMetal.bundle/`，属主 uid=0。
-- **当前卡点**：`pong_metal=1` 时 backboardd 崩溃
-  （`-[NSURL fileURLWithPath:]` nil）；`pong_metal=2` 时系统稳定
-  但 `IOAcceleratorES` 发布 0 次、`native Metal entry` 0 次、帧率 0。
-- **未验证**：⑧ 上机。
+- **历史内核证据**：已出现 Adreno 启动终态及 `PONG METAL: real IOAcceleratorES provider published`。这证明对应镜像的初始化/服务发布，不等于完整 Metal 渲染可用。
+- **部署证据**：后续 GPU 实验已记录 `K60METAL deploy files=6/6 error=0`；旧的「只有 94,928 B 可执行文件、缺五个依赖」是早期部署状态，不能当作当前结论。
+- **尚未验收**：稳定硬件渲染、用户态完整链路和最新源码重编的插件。历史 `pong_metal=1` 实验存在 backboardd 崩溃，`NSURL nil` 字符串本身不构成根因判据；不能据此宣布已修复或必然失败。`pong_metal=2` 基线也不能证明真实 Metal 发布/渲染通过。
+- **产物限制**：严格构建使用已有插件 bundle；仅更新插件源码不会自动重编该 bundle。下一次功能验证必须绑定实际插件哈希、镜像身份与对应日志，⑧ 保持未完成。
 
 ---
 
@@ -192,10 +199,7 @@ dma 0x90bc20000`、`:488 dma buffer and smmu bypass ready`、`:493 clocks vote c
 core=0x4220`、`:494 full: qbt_boot enter`、**`:707 [bluetooth] QCA controller version
 0x12110201`**、`:708 addon: serving 146068 0`、`:724 addon: serving 6442 0`。
 
-下一层缺口在用户态：`:1345 marconi-bt: Unable to match bluetooth service in device tree.`
-与 `:1346 Not a valid MAC address (all 00s)` —— 但同一份日志 `:186 K60 BT: published local
-address ee:98:c5:8a:6b:4e` 与 `:1347 bluetooth: Got local-mac-address` 证明 0509 的身份
-发布是生效的，缺的是 ADT 里的 `bluetooth` 服务节点。
+当时还记录了 `:1345 marconi-bt: Unable to match bluetooth service in device tree.` 与 `:1346 Not a valid MAC address (all 00s)`，以及 `:186 K60 BT: published local address ee:98:c5:8a:6b:4e`、`:1347 bluetooth: Got local-mac-address`。这些只证明对应身份发布与用户态报错同时存在，不能据此把剩余问题缩成 ADT。后续 d7 在 NVM 阶段返回总预算超时，完整固件启动和 UART.SK 尚未通过；当前判读见文首审计，不沿用早前「内核已全通，只缺用户态节点」结论。
 
 ### 固件卷重建：能用，但不可复现（P-216，P-154 关闭）
 
@@ -378,7 +382,9 @@ K60SEED /private/var/pong/PongAdrenoMetal.bundle/Info.plist bytes=555 resid=0 er
 `dlopen("/private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal", RTLD_NOW|RTLD_GLOBAL)`，
 让 ObjC 类先注册进进程，再让 Metal 去匹配 IOAcceleratorES。
 
-## GPU / Metal 现状（2026-11-13 实测，修正旧结论）
+## GPU / Metal 历史样本（2026-11-13；后续证据以文首现状为准）
+
+> 以下是该次镜像的观察及当时假设，不代表所有后续镜像。后续已有六文件部署成功记录，也有 `pong_metal=1` 的 backboardd 失败；不能由一次发布成功推断崩溃已根治，不能由当时缺文件推断今天仍缺。
 
 三条来自 `E:\k60-work\evidence\usblog-20261113-055021\console.log`：
 
@@ -390,20 +396,16 @@ K60SEED /private/var/pong/PongAdrenoMetal.bundle/Info.plist bytes=555 resid=0 er
 1557: Pong UI: optional camera-filter GPU prewarm skipped (software-only platform)
 ```
 
-1. **`pong_metal=1` 不再导致 backboardd 崩溃。** 本文件早前记的
-   "`pong_metal=1` → backboardd crash `-[NSURL fileURLWithPath:]` nil，只有
-   `pong_metal=2` 稳定" 已失效：那次崩溃发生在 Data 卷与 `libSystem` 还加载失败的
-   时期，与取值只是时间上的巧合。取 `=1` 现在能发布 provider、能进
-   `Early boot complete`。
+1. **该样本在 `pong_metal=1` 时发布 provider 并出现 `Early boot complete`。** 这只能修正「永远不能发布/启动」的绝对表述，不能证明所有 backboardd 崩溃都由旧 Data/libSystem 问题造成；后续失败仍需逐镜像核验。
 2. **`pong_metal=2` 时那段发布代码根本不会执行**，所以"看不到 Metal"曾长期被误读
    为失败；实际是 `PongAdrenoNativeGlue.cpp:43-49` 只在 `metal==1` 时调用
    `PongAdrenoPublishMetalAccelerator()`。
-3. **用户态仍判定为 software-only**（第 1557 行）。原因在文件部署，不在内核：
+3. **该样本用户态仍判定为 software-only**（第 1557 行）。当时文件部署不全是候选原因，尚不能排除内核/接口路径：
    日志里 `K60METALPLUGIN deploy bytes=94928` 只有 bundle 的**可执行文件**，
    缺 `Info.plist`、`PongAdrenoMetal.publish`、`PongAdrenoMetal.clients`，
    以及 `PongMetalBridge.dylib`、`libvulkan_freedreno.dylib`。`PongMetalPlugin.mm:191-200`
    要求 `.publish` 内容为 `1`、属主 uid 0、组与其他位不可写，否则
-   `selectedClient()` 直接返回 false——这正是 software-only 的来源。
+   `selectedClient()` 会返回 false；这是需要验证的部署前置条件，不能单独证明 software-only 的全部原因。
 
 缺失清单与体积：`Info.plist` 695 B、`PongAdrenoMetal.publish` 2 B、
 `PongAdrenoMetal.clients` 数十字节（这三项极小，可用内核 blob 方式部署）；

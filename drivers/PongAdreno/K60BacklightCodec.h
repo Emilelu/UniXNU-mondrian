@@ -11,15 +11,20 @@
 // Two domains:
 //   OS   : 0..kMaxLevel (2047), the scale CoreBrightness/backboardd uses, see
 //          UniXNU-sheng/package/AppleARMBacklight.cpp kMaxLevel.
-//   panel: 0..0xfff, the two-byte value carried in DCS 0x51. 0 means "off", 1 is
-//          the dimmest lit step, 0xfff is the brightest.
-// The live FDT advertises bl-max = 0xfff / bl-min = 0x1, the vendor 12 bit
-// domain, and Android writes it as two bytes: dsi_panel_update_backlight()
-// byte-swaps under bl-inverted-dbv and mipi_dsi_dcs_set_display_brightness()
-// always sends u8 payload[2] = {v & 0xff, v >> 8} (LineageOS sm8250
-// dsi_panel.c / drm_mipi_dsi.c). brightness-16 sent one byte, which this panel
-// reads left aligned (0x01 -> 0x0100, 6% of 4095), so the bottom of the slider
-// never got dark. PongDsiPanel.cpp now writes the two bytes.
+//   panel: 0..0xfff, the two-byte value carried in DCS 0x51. 0 means "off";
+//          0x14 is the dimmest lit level, 0xfff is the brightest. The live m11a
+//          node gives two independent anchors: qcom,mdss-dsi-bl-min-level = 0x1
+//          is the register floor, and mi,doze-lbm-dbv-level = 0x14 is the value
+//          Xiaomi itself uses for doze low-brightness. brightness-17 drove DBV 1
+//          at night and the panel went black (user report, 2026-11-17), so 0x14
+//          is the lowest level that is known to light the panel.
+// The live FDT advertises bl-max = 0xfff, the vendor 12 bit domain, and Android
+// writes it as two bytes: dsi_panel_update_backlight() byte-swaps under
+// bl-inverted-dbv and mipi_dsi_dcs_set_display_brightness() always sends
+// u8 payload[2] = {v & 0xff, v >> 8} (LineageOS sm8250 dsi_panel.c /
+// drm_mipi_dsi.c). brightness-16 sent one byte, which this panel reads left
+// aligned (0x01 -> 0x0100, 6% of 4095), so the bottom of the slider never got
+// dark. PongDsiPanel.cpp now writes the two bytes.
 
 #ifndef K60_BACKLIGHT_CODEC_H
 #define K60_BACKLIGHT_CODEC_H
@@ -39,12 +44,14 @@ enum : uint32_t {
     kMidNits = 140,
     kMaxNits = 400,
     /* The level the dimmest request maps to: dbvFromLevel() turns 1..4 into
-     * DBV 1, the panel's own floor (PongDsiPanel.cpp:247 writes the byte as is). */
+     * kMinDbvOn, the dimmest DBV that still lights the panel. */
     kDarkestLevel = 1,
     kMaxFadeMs = 5000,  // a FadePeriod longer than this is clamped
     kStepMs = 16,       // fade step cadence
     kMaxDbv = 0xfff,    // panel 12 bit DBV domain, two bytes in DCS 0x51
-    kMinDbvOn = 1,      // dimmest value that still lights the panel
+    /* Xiaomi's doze low-brightness level from the live m11a node
+     * (mi,doze-lbm-dbv-level = 0x14). brightness-17 at DBV 1 was black. */
+    kMinDbvOn = 0x14,
 };
 
 // Clamp a raw request into the OS domain.
@@ -66,7 +73,7 @@ static inline uint32_t milliNitsFromLevel(uint32_t level)
 // brightness-nits request (signed 16.16 fixed point nits) -> OS level.
 // Anything at or below zero is "off"; otherwise the request range is stretched
 // over the whole panel range: the dimmest request lands on kDarkestLevel
-// (DBV 1) and the brightest on kMaxLevel (DBV 0xfff). A plain linear nits->level
+// (DBV 0x14) and the brightest on kMaxLevel (DBV 0xfff). A plain linear nits->level
 // scale is what brightness-15 shipped and the slider's two ends missed the
 // panel's: 400 nits stopped at DBV 0xcc of the then-8-bit domain (204 of 255,
 // the top visibly below the panel maximum) while the dimmest 5 nits request
@@ -112,7 +119,7 @@ static inline uint32_t dbvFromLevel(uint32_t level)
     /* Endpoint exact: kDarkestLevel -> kMinDbvOn, kMaxLevel -> kMaxDbv. The
      * panel has 4095 DBV steps for 2047 OS levels, so consecutive levels move
      * by one or two DBV steps; the floor must still be reachable. */
-    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4094
+    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4075
     const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
     const uint32_t steps =
         ((clamped - kDarkestLevel) * spanDbv + spanLevel / 2) / spanLevel;
@@ -124,7 +131,7 @@ static inline uint32_t levelFromDbv(uint32_t dbv)
 {
     if (dbv == 0) return 0;
     const uint32_t d = dbv > kMaxDbv ? kMaxDbv : dbv;
-    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4094
+    const uint32_t spanDbv = kMaxDbv - kMinDbvOn;              // 4075
     const uint32_t spanLevel = kMaxLevel - kDarkestLevel;      // 2046
     const uint32_t steps = ((d - kMinDbvOn) * spanLevel + spanDbv / 2) / spanDbv;
     return kDarkestLevel + steps;

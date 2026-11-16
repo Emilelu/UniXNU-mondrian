@@ -10,7 +10,7 @@ What is asserted:
   * 0..4095 DBV conversion: endpoints, monotonicity, no lit level maps to 0, and
     the DBV -> level inverse round trips within one DBV step.
   * brightness-nits requests (iPadOS 27 form): 5 / 140 / 400 nits map onto the
-    panel range end to end (dimmest request -> DBV 1, brightest -> DBV 0xfff),
+    panel range end to end (dimmest request -> DBV 0x14, brightest -> DBV 0xfff),
     <= 0 maps to off, and the result never exceeds the level domain.
   * FadePeriod: 16.16 seconds -> milliseconds, clamped at 5000 ms.
   * The fade sequence: monotonic, starts at "from", lands exactly on "to", and
@@ -86,12 +86,13 @@ int main(void)
     check(levelFromNits(kMaxNits << 16) == kMaxLevel, "nits max", levelFromNits(kMaxNits << 16), kMaxLevel);
     /* The two ends of the slider reach the two ends of the panel: this is what
        brightness-15 got wrong (top stopped at DBV 0xcc, bottom at DBV 0x03). */
-    check(dbvFromLevel(levelFromNits(kMinNits << 16)) == kMinDbvOn, "dimmest request reaches dbv 1",
+    check(dbvFromLevel(levelFromNits(kMinNits << 16)) == kMinDbvOn, "dimmest request reaches the floor",
           dbvFromLevel(levelFromNits(kMinNits << 16)), kMinDbvOn);
     check(dbvFromLevel(levelFromNits(kMaxNits << 16)) == kMaxDbv, "brightest request reaches dbv 0xfff",
           dbvFromLevel(levelFromNits(kMaxNits << 16)), kMaxDbv);
     check(levelFromNits((kMaxNits + 100) << 16) == kMaxLevel, "nits above max clamps", levelFromNits((kMaxNits + 100) << 16), kMaxLevel);
-    check(levelFromNits(1 << 8) >= kMinDbvOn, "tiny nits still lit", levelFromNits(1 << 8), kMinDbvOn);
+    check(dbvFromLevel(levelFromNits(1 << 8)) >= kMinDbvOn, "tiny nits still lit",
+          dbvFromLevel(levelFromNits(1 << 8)), kMinDbvOn);
 
     /* MilliNits reported next to the level. */
     check(milliNitsFromLevel(0) == 0, "mNits 0", milliNitsFromLevel(0), 0);
@@ -141,8 +142,8 @@ int main(void)
     check(wire[0] == 0x0f && wire[1] == 0xff, "max dbv wire bytes",
           (long)((wire[0] << 8) | wire[1]), 0x0fff);
     pong_panel_dbv_bytes(kMinDbvOn, wire);
-    check(wire[0] == 0x00 && wire[1] == 0x01, "min dbv wire bytes",
-          (long)((wire[0] << 8) | wire[1]), 0x0001);
+    check(wire[0] == 0x00 && wire[1] == 0x14, "min dbv wire bytes",
+          (long)((wire[0] << 8) | wire[1]), 0x0014);
 
     if (failures) {printf("%d check(s) failed\n", failures); return 1;}
     printf("all brightness encoder checks passed\n");

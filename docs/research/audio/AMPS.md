@@ -916,7 +916,12 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 c（2026-11-17）**：把具名拒绝状态（`PongAudioErrNoLease = -2002`）与 0003 的六段版本编进内核后重建，HEAD `d269d376`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `7a22eaf9…`（105,504,768 B）、`payload_kernel fa6fded6…`、`payload 4bdca213…`、`adt 56aec95c…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `d2a49537…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117c/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
-- `kernel.macho` 上 `AFE encoder selftest` 1 处、`PongAudioErrNoLease` 1 处、`PongAudio: speaker path unavailable` 1 处；`kernel.log:226` 已应用 0003；c 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
+- `kernel.macho` 上 `AFE encoder selftest` 1 处、`PongAudioErrNoLease` 1 处、`PongAudio: speaker path unavailable` 1 处；`kernel.log:226` 已应用 0003；c 曾是当前候选，已被 d 取代（见下）。
+
+**镜像 d（2026-11-17）**：把 `QCOM_GLINK_MAX_CHANNELS` 从 1 落成 2（`drivers/PongPower/QcomGlink.h:17`）并把两槽结构传给电池 archive 后重建，HEAD `26166d00`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+- `kernel_built` sha256 `04fac20b…`（105,504,768 B）、`payload_kernel 62395c14…`、`payload c12c354e…`、`adt 320a3b61…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `bb754421…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117d/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；
+- `kernel.macho` 上 `QcomGlink max_channels=2u` 1 处；`battery archive 6f441f8b…`；d 是当前候选，构建完挂着，等 ADSP carrier + provider 落地再飞（run 2 未批准，不 boot）。
 
 ### 9.6 run 2 的判据（可执行）
 

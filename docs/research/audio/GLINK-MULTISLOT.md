@@ -95,7 +95,7 @@
 同文件还加了三个构建标签宏（`QCOM_GLINK_STRINGIFY_INNER` / `QCOM_GLINK_STRINGIFY` / `QCOM_GLINK_BUILD_TAG`），
 `K60PmicGlink::start()` 在打开传输后打印
 `K60Battery: GLINK transport QcomGlink max_channels=2u channel_bytes=712`。这行字符串是构建产物的
-artifact 证据（`kernel.macho` 里可以 `strings` 到）。
+artifact 证据（`kernel.macho` 里可以 `strings` 到）：镜像 d（audio-probe-20261117d）的 kernel.macho 里 `QcomGlink max_channels=2u` 出现 1 处。
 
 历史原型补丁 `patches/audio/0002-k60-glink-multislot.patch`（1,078 B / 18 行，原来是同一行 1u→2u 的 diff）
 已于同日退役：源文件改成 2u 之后，它不再是可应用的补丁。它当年存在的意义是让宿主测试能在临时副本上

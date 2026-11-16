@@ -174,10 +174,9 @@ evidence = [
   "drivers/PongPower/QcomGlink.h:17",
   "drivers/PongPower/K60PmicGlink.cpp:128",
 ]
-criteria = "The built kernel carries QcomGlink max_channels=2u and channel_bytes=712; the host runner and the artifact agree."
-status = "open"
+criteria = "Image d (audio-probe-20261117d) built kernel 04fac20b... and strings finds QcomGlink max_channels=2u once; channel_bytes=712 matches the host runner's sizeof; build-manifest.json is the artifact record."
+status = "closed"
 owner = "audio-agent"
-on_open = "M2 cannot open the adsp_apps channel on a real image"
 
 [[item]]
 id = "glink-adsp-apps-registration"

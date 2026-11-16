@@ -341,7 +341,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 - **门禁脚本**（`scripts/`）：`check-doc-citations.py`、`check-component-pin.py`、
   `tests/test-check-doc-citations.py`、`tests/test-check-component-pin.py`、`tests/test-check-docs-tables.py`、`tests/test-check-docs-ops.py`、
-  `tests/test-gates-import-without-device-input.py`；修改 `check-docs.py`、`check-readme.py`、
+  `tests/test-check-docs-state.py`、`tests/test-gates-import-without-device-input.py`；修改 `check-docs.py`、`check-readme.py`、
   `check-patch-series.py`、`porting-gate.py`、`check-build-applied.py`。
 - **门禁数据**（`docs/engineering/`）：`DOC-CITATIONS-BASELINE.toml`、`COMPONENT-PINS.toml`、`PATCH-CATALOG.toml`、
   `RULES.toml`（P-231 + `expected_kern_exec_delta`）、`PITFALLS.md`（P-231）。

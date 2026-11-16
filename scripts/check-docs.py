@@ -65,7 +65,7 @@ def check_links(verbose=True):
 
 
 def check_index_coverage(verbose=True):
-    """docs/engineering/*.md 与 docs/research/*.md 必须被 INDEX.md 提到"""
+    """docs/engineering/*.md、docs/research/*.md 与 docs/state/*.md 必须被 INDEX.md 提到"""
     index = REPO + '/docs/INDEX.md'
     if not os.path.exists(index):
         return ['docs/INDEX.md 不存在'], 0
@@ -73,7 +73,7 @@ def check_index_coverage(verbose=True):
 
     problems = []
     counted = 0
-    for sub in ('engineering', 'research'):
+    for sub in ('engineering', 'research', 'state'):
         d = os.path.join(REPO, 'docs', sub)
         if not os.path.isdir(d):
             continue

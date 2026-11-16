@@ -51,6 +51,8 @@ that the page cache serves block digests without keeping the whole table.
 `RootWindowReadVerified.cpp` feeds the same verifier through `ufsReadWindow`
 with a mock transport, so the verify-before-copy order is exercised without
 IOKit. `PongUfsTransport.cpp` now calls the verifier under
-`NATIVE_VERIFIED_BLOCK` (default off); the kernel link must supply the policy
-bundle when that switch is enabled. See step 2b in
+`NATIVE_VERIFIED_BLOCK` (default off); `build-pong-ufs-probe-macos.py --verified-root`
+also compiles `verified_root.c` and `xnu_crypto.c` into the archive, while the kernel
+link must still supply the generated policy bundle (`verified_root_policies` and
+`verified_root_key`) when that switch is enabled. See step 2b in
 `docs/plans/SHENGUFS-VERIFIED-TABLE-PORT.md`.

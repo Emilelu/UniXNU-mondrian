@@ -66,8 +66,32 @@ def main():
     (out / 'transport-build.log').write_text(result.stdout + result.stderr)
     if result.returncode:
         raise SystemExit(result.stderr)
+    verified_root_objects = []
+    if args.verified_root:
+        # PongUfsTransport references vr_xnu_crypto, vr_open and vr_verify_block.
+        # Keep the implementation and the XNU crypto adapter inside this archive;
+        # only the generated policy bundle (verified_root_policies and
+        # verified_root_key) remains a kernel-link input.
+        c_common = ['xcrun', '--sdk', 'iphoneos', 'clang', '-target', 'arm64-apple-ios16.0',
+            '-isysroot', sdk, '-mkernel', '-ffreestanding', '-fno-builtin',
+            '-fno-stack-protector', '-std=gnu11', '-O2',
+            '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1',
+            '-I' + str(source.parent), '-I' + str(storage_inc),
+            '-I' + str(tree / '.cache/xnu-work/EXTERNAL_HEADERS'),
+            '-I' + str(framework / 'PrivateHeaders'), '-I' + str(framework / 'Headers'),
+            '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations',
+            '-Wno-unused-parameter', '-Wno-framework-include-private-from-public']
+        for name in ('verified_root.c', 'xnu_crypto.c'):
+            c_source = source.parent / name
+            c_object = out / (c_source.stem + '.o')
+            result = subprocess.run([*c_common, '-c', str(c_source), '-o', str(c_object)],
+                                    capture_output=True, text=True, env=env)
+            (out / (c_source.stem + '-build.log')).write_text(result.stdout + result.stderr)
+            if result.returncode:
+                raise SystemExit(result.stderr)
+            verified_root_objects.append(str(c_object))
     audit = DEVICE / 'mac-build/storage-abi/interface-audit.json'
-    objects = [str(obj), str(transport)]
+    objects = [str(obj), str(transport), *verified_root_objects]
     if audit.is_file():
         subprocess.run([str(Path(os.sys.executable)), str(DEVICE / 'scripts/bind-ios16-storage.py'),
                         '--object', str(transport), '--output', str(out)], check=True, env=env)
@@ -88,8 +112,10 @@ def main():
         'storage_commands': ['NOP', 'READ ATTRIBUTE', 'START STOP ACTIVE', 'TEST UNIT READY', 'READ CAPACITY', 'READ(10)', 'WRITE(10) FUA', 'SYNCHRONIZE CACHE(10)'],
         'smmu_writes': 'exclusive UFS SID 0xe0 only after queue stop',
         'optional_probes_default': 'off',
-        'verified_root': ('compiled; kernel link must supply verified_root_policies and verified_root_key'
+        'verified_root': ('compiled with verified_root.c and xnu_crypto.c; kernel link must supply '
+                          'verified_root_policies and verified_root_key'
                           if args.verified_root else 'off'),
+        'verified_root_objects': [Path(path).name for path in verified_root_objects],
         'board': 'Nothing Phone (2) Pong / SM8475',
         'ufs_hc': '0x01d84000/0x3000', 'gcc_ufs_page': '0x00187000/0x1000',
         'stream_id': '0xe0', 'hardware_tested': False,
@@ -98,7 +124,7 @@ def main():
     if not args.skip_image_verification:
         report['source_sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
         report['sources_sha256'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                   for p in sorted(source.parent.iterdir()) if p.suffix in ('.h', '.cpp')}
+                                   for p in sorted(source.parent.iterdir()) if p.suffix in ('.h', '.c', '.cpp')}
         report['archive_sha256'] = hashlib.sha256(archive.read_bytes()).hexdigest()
     (out / 'build-report.json').write_text(json.dumps(report, indent=2) + '\n')
     export = DEVICE / 'mac-build/native-ufs'

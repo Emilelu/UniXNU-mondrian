@@ -81,6 +81,9 @@
 - mem_setup 用表推导的 span（`plan.window` = 0x3100000）；pong 的 `qcom_mdt_span` 等价物
   记录为差异（§5 NOT-IN-SCOPE）。
 - DTB PAS 36：**本次不启用**，只记差异（`PongAdsp.cpp:507-508` 成对 shutdown）。
+- 寄存器声明：SMCCC 调用可改写全部 caller-saved 寄存器；`k60_scm_raw()` 把 x0–x7 全声明为
+  in/out 并 clobber x8–x17 + memory（`a0547907`），否则编译器可能把活跃值留在 x4/x5/x7/x8+
+  上，调用返回后读错栈/结构体。
 - 静态证据：`scripts/tests/test-k60-adsp-pas.c` 断言三个重试常量与 `K60_ADSP_LOAD_BASE == 0x9fd00000`。
 
 ### 1.4 放置顺序与 cache（本次的 hard 证据）

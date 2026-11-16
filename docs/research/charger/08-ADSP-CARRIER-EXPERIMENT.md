@@ -104,7 +104,7 @@
 | 设备输入 | `/home/emilelu/charger-carrier/device`（共享树 2026-11-17 01:00 快照的私有镜像，789 文件与仓库同步） | `HEAD=70a1e4ca361a1116bc0ec1563bac74771c79f81c`、`git diff` sha256 `56697fe6a64b4e3f276f3d73ad240515a2db3fef369b1a8304d52ab26d1ca511` |
 | ADSP 容器 | 26 个 adsp.* 文件，`sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319` | `artifacts/carrier-20261117b/adsp-carrier/k60_adsp_blob.bin` |
 | kernel | `sha256 a77cbb76e21bf92a0d71cd8ffe7a0176ef8bf4a9097aca356ffc36170dccd2ce`，129,048,576 B（内核每次重建哈希不同：a `29a7097f…`、b `a77cbb76…`，以 manifest 为唯一真值） | `build-manifest.json` `components.kernel_built` |
-| kernel 字符串复核 | `K60PAS carrier` ×6、`K60PAS auth ok` ×1、`K60PAS carrier verdict` ×2、`pong_adsp_carrier` ×1（2026-11-17 03:10 复核） | `strings -a /opt/k60/trees/k60build/out-charger-carrier/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` |
+| kernel 字符串复核 | `K60PAS carrier` ×6、`K60PAS auth ok` ×1、`K60PAS carrier verdict` ×2、`pong_adsp_carrier` ×1（2026-11-17 03:46 对 b 的 kernel.macho 复核） | `strings -a /opt/k60/trees/k60build/out-charger-carrier/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` |
 | payload | kernel `0b36034b481947a1c5311333bf6b853052a56628f24f344bf5f85ef52068fc7d`、adt `106ef419fd0cea11f163eadca4f6c990af345700611cb8e0734d8880b10be6dd`、payload `0d5276b3fcfa9ad802327d41c3f4a107a6320f3600df069e49d8368d4968836f` | `build-manifest.json` `components.payload*` |
 | boot.img | `sha256 092a2d5fded23670fe67e54b8ab76f17337db321adaf7ac716fba4be8b242aab` | `build-manifest.json` `components.boot_img`；`verify-boot-image.py --manifest` 通过 |
 | 电池存档 | `sha256 406942a1682d3f1141b827381ce442ebeb25547eda0789920bcef91363422e77` | 构建日志 `battery archive` |

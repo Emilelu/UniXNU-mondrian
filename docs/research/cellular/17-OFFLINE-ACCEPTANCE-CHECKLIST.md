@@ -119,4 +119,6 @@ kernel_size 包含压缩 shim+FD **及后附 DTB**，不是只有 gzip 长度。
 
 完成项仅为清单准备。待 Lead 提供框架完整 SHA、匹配 UEFI pin/patches、隔离构建输入与完整阶段证据，才开始 PRE、OFF、ON、PKG 对应的五级接口验收；所有未执行项保持 NOT RUN，不把旧 A/B 绿灯当新产物合格。
 
+缺失/不匹配时的回执与阻断范围见 [18 号失败矩阵](18-FAILURE-RECEIPT-MATRIX.md)；该矩阵是计划判据，未执行项继续保持 NOT RUN/null。
+
 规范：[13 号门禁](13-FIRMWARE-ACCEPTANCE.md)、[15 号载具](15-FIRMWARE-CARRIER-LOADER.md)、[16 号接口](16-FRAMEWORK-REQUEST.md)。

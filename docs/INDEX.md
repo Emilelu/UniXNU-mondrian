@@ -117,10 +117,9 @@ docs/
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。
 > 两者冲突时以 `EIGHT-STEPS.toml` 为准。
 >
-> **本表不等于全量**：`docs/research` 下共 67 个 md，其中 19 个没有单列（audio/ADSP-CARRIER、ADSP-MD0、
-> ADSP-PAS1、GAP-ANALYSIS、VENDOR-ADSP-NODE、battery/GLINK-HANDOFF、HANDOFF-PUBLISH-SPEC、PAS1-PROVIDER-CARRIER、
-> PMIC-GLINK-SERVICE、evidence/SA-BOOT-EVIDENCE、SA-CONFIG-CONSISTENCY、SA-UPSTREAM-REVIEW、touch/12-FDT-PIN-TRUTH、
-> 13-PMIC-SPMI-PATH、GROUND-TRUTH 等）；各分支检出上还有约 92 个研究文件未进 main，盘点见
+> **本表是结论层摘选，不是全量**：`docs/research` 下 69 个 md 的完整清单（按目录分组、标题取自各文件）见
+> [`research/README.md`](research/README.md)，`check-docs.py` 保证每个 md 都在那里登记。各分支检出上还有约 97 个
+> 研究文件未进 main，盘点见 [`research/LINE-RESEARCH-MAP.md`](research/LINE-RESEARCH-MAP.md) 与
 > [`audits/PORTING-GAP-AUDIT-2026-11-16.md`](audits/PORTING-GAP-AUDIT-2026-11-16.md) §6。
 
 ---

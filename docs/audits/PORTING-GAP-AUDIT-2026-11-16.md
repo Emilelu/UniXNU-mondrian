@@ -249,7 +249,8 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
    欠账从 326 条降到 102 条、行号越界 0；剩余目标的分类见 §5，新增即 FAIL。
 2. **数字不要手写**：★/P/RULES/series/patch 计数在 `check-readme.py` 已有实现，扩展到 INDEX、`docs/engineering/README.md`、`docs/engineering/STATUS.md`、`AGENTS.md`（同一段逻辑，多传几个文件）。**2026-11-17 已做**：range 校验覆盖上述四份文档（写了才校验、写错即红），并校验 AGENTS.md 的 `N patch files with M entries` 与 `patches/xnu` 实际 .patch 数、series 条数。
 3. **研究可见性**：`docs/research/README.md` 改成"结论层索引 + 指向 INDEX 全量"；INDEX 的 research 段由脚本从目录生成，
-   或至少加"未列出文件"小节（本轮先加了指针）。
+   或至少加"未列出文件"小节（本轮先加了指针）。**2026-11-17 已做**：`docs/research/README.md` 由目录生成，
+   69 个 md 全量按目录分组；`check-docs.py` 的 `check_subdir_indexes()` 改成对 research 递归校验；INDEX §3 改为结论层摘选 + 指针。
 4. **线→检出映射**：新增 `docs/engineering/LINE-MAP.md`，每行 = 线 / 检出 / 分支 / 研究目录 / 当前结论；
    由 `line-research-map2.py` 生成初稿，人工补结论。**2026-11-17 已做**：`docs/engineering/LINE-MAP.md`（18 行，含 owner 与两个未登记检出），
    逐文件清单仍以 `docs/research/LINE-RESEARCH-MAP.md` 为准；不设门禁（HEAD 会漂移）。

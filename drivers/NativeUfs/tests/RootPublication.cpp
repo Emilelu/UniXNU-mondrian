@@ -44,6 +44,12 @@ int main() {
   const char *names[] = {"OS","Aux","SystemOS","Other"}; UfsRootPlan plan;
   assert(ufsBuildRootPlan(names,4,plan));
   assert(plan.count==4 && plan.order[0]==2 && plan.order[1]==1 && plan.order[2]==3 && plan.order[3]==0);
+  const char *two[] = {"OS","SystemOS"}; UfsRootPlan planTwo;
+  assert(ufsBuildRootPlan(two,2,planTwo));
+  assert(planTwo.count==2 && planTwo.order[0]==1 && planTwo.order[1]==0);
+  const char *three[] = {"OS","Aux","SystemOS"}; UfsRootPlan planThree;
+  assert(ufsBuildRootPlan(three,3,planThree));
+  assert(planThree.count==3 && planThree.order[0]==2 && planThree.order[1]==1 && planThree.order[2]==0);
   const char *bad[][4]={{"OS","Other"},{"SystemOS","Other"},{"OS","OS"},{"OS",nullptr},{"OS",""}};
   for(auto &n:bad) {UfsRootPlan p;assert(!ufsBuildRootPlan(n,2,p) && p.count==0);}
   for(unsigned count:{0U,1U,5U}) {UfsRootPlan p;assert(!ufsBuildRootPlan(names,count,p));}

@@ -95,10 +95,10 @@ int main(int argc, char **argv)
             number(d, CFSTR("K60RawCurrentMicroamps"), &raw_current) &&
             number(d, CFSTR("K60RawTemperatureHundredths"), &raw_temperature);
         if (!complete) {fprintf(stderr, "incomplete physical registry sample\n"); CFRelease(d); result = 1; break;}
-        if (raw_voltage / 1000 != voltage || raw_temperature != temperature) {
-            fprintf(stderr, "raw/OS mismatch: raw=%llduV/%lld/100C os=%lldmV/%lld/100C failed=0x%llx\n",
-                (long long)raw_voltage, (long long)raw_temperature, (long long)voltage,
-                (long long)temperature, (unsigned long long)failed_fields);
+        if (raw_voltage / 1000 != voltage || raw_current / 1000 != amperage || raw_temperature != temperature) {
+            fprintf(stderr, "raw/OS mismatch: raw=%llduV/%llduA/%lld/100C os=%lldmV/%dmA/%lld/100C failed=0x%llx\n",
+                (long long)raw_voltage, (long long)raw_current, (long long)raw_temperature, (long long)voltage,
+                (int32_t)amperage, (long long)temperature, (unsigned long long)failed_fields);
             CFRelease(d); result = 1; break;
         }
         const uint64_t now = uptime_ms();

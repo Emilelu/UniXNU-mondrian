@@ -15,7 +15,7 @@
 
 ## 补丁清单
 
-### `0620-k60-display-brightness.patch`（1632 行，12 文件）
+### `0620-k60-display-brightness.patch`（1633 行，12 文件）
 
 亮度从「面板点亮」推进到「OS 级亮度服务」的全部改动：
 

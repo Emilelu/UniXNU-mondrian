@@ -1,0 +1,705 @@
+--- a/bsd/dev/pong_audio.c
++++ b/bsd/dev/pong_audio.c
+@@ -43,6 +43,11 @@
+ #include <stdbool.h>
+ #include <stdint.h>
+ #include <string.h>
++#include <pexpert/device_tree.h>
++#include "PongAudioAfe.h"
++#include "PongAudioPlayback.h"
++#include "K60PmicGlinkAudio.h"
++#include "PongAudioRing.h"
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern void thread_terminate_self(void);
+@@ -816,6 +821,33 @@
+ 	uint32_t graph_state;
+ 	bool mapped;
+ 	bool service_ready;
++	int last_error;
++	bool refusal_printed;
++	bool glink_up;
++	bool apm_ready;
++	unsigned afe_step;
++	unsigned afe_retry;
++	uint32_t gpr_token;
++	uint32_t afe_token;
++	vm_offset_t dma_va;
++	PongRing ring;
++	uint8_t ring_storage[PONG_RING_RING_BYTES];
++	bool ring_ready;
++	uint64_t ring_frames;
++	uint64_t ring_dropped;
++	bool play_started;
++	bool play_graph_ready;
++	bool playback_running;
++	unsigned play_step;
++	uint32_t play_token;
++	uint32_t map_handle;
++	uint32_t write_token;
++	unsigned inflight;
++	bool slot_busy[PONG_AUDIO_SLOTS];
++	uint32_t slot_token[PONG_AUDIO_SLOTS];
++	uint32_t slot_age[PONG_AUDIO_SLOTS];
++	uint64_t playback_frames;
++	uint8_t period[PONG_AUDIO_PERIOD_BYTES];
+ } PongAudioState;
+ 
+ static PongAudioState g_pong_audio;
+@@ -858,6 +890,545 @@
+ int pong_audio_selftest(void);
+ extern int aw882xx_bootstrap(void);
+ 
++static uint64_t
++pong_audio_le64(const uint8_t *bytes)
++{
++	uint64_t value = 0;
++	for (unsigned i = 0; i < 8; i++) {
++		value |= (uint64_t)bytes[i] << (8u * i);
++	}
++	return value;
++}
++
++static bool
++pong_audio_dma_lease(void)
++{
++	DTEntry chosen;
++	void const *property = NULL;
++	unsigned int size = 0;
++	uint64_t pa = 0;
++	uint64_t bytes = 0;
++
++	if (g_pong_audio.dma_pa != 0) {
++		return true;
++	}
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
++	    SecureDTGetProperty(chosen, "pong-audio-dma", &property, &size) != kSuccess ||
++	    size != 16u) {
++		printf("PongAudio: low DMA unavailable: %s\n",
++		    pong_audio_error_name(PongAudioErrNoHandoff));
++		return false;
++	}
++	const uint8_t *value = (const uint8_t *)property;
++	pa = pong_audio_le64(value);
++	bytes = pong_audio_le64(value + 8);
++	if (bytes != PONG_AUDIO_DMA_BYTES || (pa & 0xfffu) != 0u ||
++	    pa > 0x100000000ULL - bytes) {
++		printf("PongAudio: low DMA invalid pa=0x%llx size=0x%llx: %s\n",
++		    (unsigned long long)pa, (unsigned long long)bytes,
++		    pong_audio_error_name(PongAudioErrNoHandoff));
++		return false;
++	}
++	vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
++	if (va == 0) {
++		printf("PongAudio: low DMA map failed pa=0x%llx size=0x%llx: %s\n",
++		    (unsigned long long)pa, (unsigned long long)bytes,
++		    pong_audio_error_name(PongAudioErrNoHandoff));
++		return false;
++	}
++	g_pong_audio.dma_pa = pa;
++	g_pong_audio.dma_size = (uint32_t)bytes;
++	g_pong_audio.dma_va = va;
++	printf("PongAudio: low DMA lease pa=0x%llx size=0x%x\n",
++	    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
++	return true;
++}
++
++static void
++pong_audio_play_reset(PongAudioState *state)
++{
++	state->play_started = false;
++	state->play_graph_ready = false;
++	state->playback_running = false;
++	state->play_step = 0;
++	state->play_token = 0;
++	state->map_handle = 0;
++	state->write_token = 0;
++	state->inflight = 0;
++	state->playback_frames = 0;
++	for (unsigned i = 0; i < PONG_AUDIO_SLOTS; i++) {
++		state->slot_busy[i] = false;
++		state->slot_token[i] = 0;
++		state->slot_age[i] = 0;
++	}
++}
++
++static void
++pong_audio_play_reap_slots(PongAudioState *state)
++{
++	for (unsigned i = 0; i < PONG_AUDIO_SLOTS; i++) {
++		if (!state->slot_busy[i]) {
++			continue;
++		}
++		state->slot_age[i]++;
++		if (!pong_play_slot_expired(state->slot_age[i])) {
++			continue;
++		}
++		state->slot_busy[i] = false;
++		state->slot_token[i] = 0;
++		state->slot_age[i] = 0;
++		if (state->inflight != 0u) {
++			state->inflight--;
++		}
++		printf("PongAudio: PCM slot %u write timed out\n", i);
++	}
++}
++
++static void
++pong_audio_ring_reset(void)
++{
++	pong_ring_queue_init(&g_pong_audio.ring, g_pong_audio.ring_storage,
++	    PONG_RING_FRAMES);
++	g_pong_audio.ring_ready = true;
++	g_pong_audio.ring_frames = 0;
++	g_pong_audio.ring_dropped = 0;
++	pong_audio_play_reset(&g_pong_audio);
++}
++
++static void
++pong_audio_play_send_step(PongAudioState *state, unsigned step)
++{
++	uint8_t packet[GPR_MAX_PACKET];
++	const uint32_t token = pong_play_token(step);
++	const uint32_t opcode = pong_play_opcode(step);
++	const PongArFormat format = { PONG_AUDIO_RATE, 32, 2 };
++	uint32_t bytes = 0;
++
++	switch (step) {
++	case PongPlayOpenSpeaker:
++		bytes = pong_ar_open_speaker_device(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token);
++		break;
++	case PongPlayConfigSpeaker:
++		bytes = pong_ar_config_speaker_device(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, &format);
++		break;
++	case PongPlayOpenPlayback:
++		bytes = pong_ar_open_playback_stream(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token);
++		break;
++	case PongPlayConfigPlayback:
++		bytes = pong_ar_config_playback_stream(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, &format);
++		break;
++	case PongPlayConfigShmem:
++		bytes = pong_ar_config_playback_shmem(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, &format);
++		break;
++	case PongPlayMap:
++		bytes = pong_ar_map(packet, sizeof(packet), PONG_AUDIO_GPR_PORT,
++		    token, state->dma_pa | (1ull << 32), PONG_AUDIO_DMA_BYTES);
++		break;
++	case PongPlayClock:
++		bytes = pong_ar_prm_clock(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, PONG_AFE_CLOCK_TERT_TDM_IBIT,
++		    PONG_AUDIO_TDM_CLK_HZ);
++		break;
++	case PongPlayPrepareSpeaker:
++		bytes = pong_ar_graph_command(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, AR_OP_GRAPH_PREPARE,
++		    AR_SG_SPEAKER);
++		break;
++	case PongPlayPreparePlayback:
++		bytes = pong_ar_graph_command(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, AR_OP_GRAPH_PREPARE,
++		    AR_SG_PLAY);
++		break;
++	case PongPlayStartSpeaker:
++		bytes = pong_ar_graph_command(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, AR_OP_GRAPH_START,
++		    AR_SG_SPEAKER);
++		break;
++	case PongPlayStartPlayback:
++		bytes = pong_ar_graph_command(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token, AR_OP_GRAPH_START, AR_SG_PLAY);
++		break;
++	default:
++		break;
++	}
++	if (bytes == 0u) {
++		state->last_error = PongAudioErrPlayback;
++		printf("PongAudio: playback step %u encode failed\n", step);
++		return;
++	}
++	const int rc = k60_pmic_glink_send_audio(packet, bytes);
++	printf("PongAudio: playback step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d\n",
++	    step, bytes, opcode, token, rc);
++	if (rc == K60_PMIC_GLINK_AUDIO_OK) {
++		state->play_step = step;
++		state->play_token = token;
++		state->last_error = PongAudioOk;
++		return;
++	}
++	state->last_error = PongAudioErrPlayback;
++	printf("PongAudio: playback step %u refused rc=%d\n", step, rc);
++}
++
++static bool
++pong_audio_play_submit_slot(PongAudioState *state)
++{
++	uint8_t packet[GPR_MAX_PACKET];
++	unsigned slot = PONG_AUDIO_SLOTS;
++
++	if (!state->playback_running || state->map_handle == 0u ||
++	    state->dma_va == 0u) {
++		return false;
++	}
++	for (unsigned i = 0; i < PONG_AUDIO_SLOTS; i++) {
++		if (!state->slot_busy[i]) {
++			slot = i;
++			break;
++		}
++	}
++	if (slot == PONG_AUDIO_SLOTS) {
++		return false;
++	}
++	if (pong_ring_queue_used(&state->ring) < PONG_AUDIO_PERIOD_FRAMES) {
++		return false;
++	}
++	const uint32_t token = 0x10000000u |
++	    (++state->write_token & 0x0fffffffu);
++	const uint64_t address = pong_play_slot_address(state->dma_pa, slot);
++	const uint32_t bytes = pong_ar_write(packet, sizeof(packet),
++	    PONG_AUDIO_GPR_PORT, token, address, state->map_handle,
++	    PONG_AUDIO_PERIOD_BYTES);
++	if (bytes == 0u) {
++		state->last_error = PongAudioErrPlayback;
++		return false;
++	}
++	const uint32_t got = pong_ring_queue_read(&state->ring, state->period,
++	    PONG_AUDIO_PERIOD_FRAMES);
++	if (got != PONG_AUDIO_PERIOD_FRAMES) {
++		return false;
++	}
++	/* The DSP reads the period from the low-DMA slot, not from the ring. */
++	memcpy((void *)(state->dma_va +
++	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES), state->period,
++	    PONG_PLAY_PERIOD_BYTES);
++	const int rc = k60_pmic_glink_send_audio(packet, bytes);
++	if (rc != K60_PMIC_GLINK_AUDIO_OK) {
++		state->ring_dropped += PONG_AUDIO_PERIOD_FRAMES;
++		state->last_error = PongAudioErrPlayback;
++		printf("PongAudio: PCM slot %u refused rc=%d\n", slot, rc);
++		return false;
++	}
++	state->slot_busy[slot] = true;
++	state->slot_token[slot] = token;
++	state->slot_age[slot] = 0;
++	state->inflight++;
++	state->playback_frames += PONG_AUDIO_PERIOD_FRAMES;
++	printf("PongAudio: PCM slot %u submit bytes=%u token=0x%08x address=0x%llx\n",
++	    slot, bytes, token, (unsigned long long)address);
++	return true;
++}
++
++static void
++pong_audio_play_begin_stream(PongAudioState *state)
++{
++	unsigned primed = 0;
++
++	while (primed < PONG_PLAY_PRIME_SLOTS &&
++	    pong_audio_play_submit_slot(state)) {
++		primed++;
++	}
++	printf("PongAudio: playback stream primed slots=%u inflight=%u\n",
++	    primed, state->inflight);
++}
++
++static void
++pong_audio_play_complete_step(PongAudioState *state)
++{
++	if (state->play_step == (unsigned)PongPlayClock) {
++		state->play_graph_ready = true;
++		state->last_error = PongAudioOk;
++		printf("PongAudio: playback graph mapped; waiting for PCM lead\n");
++		return;
++	}
++	if (state->play_step + 1u >= (unsigned)PongPlayStepCount) {
++		state->playback_running = true;
++		state->last_error = PongAudioOk;
++		printf("PongAudio: playback graph started; PCM streaming\n");
++		return;
++	}
++	pong_audio_play_send_step(state, state->play_step + 1u);
++}
++
++static void
++pong_audio_play_start(PongAudioState *state)
++{
++	if (state->play_started) {
++		return;
++	}
++	state->play_started = true;
++	printf("PongAudio: playback graph opening after AFE\n");
++	pong_audio_play_send_step(state, PongPlayOpenSpeaker);
++}
++
++static bool
++pong_audio_play_receive(PongAudioState *state, int kind, const PongArAnswer *answer)
++{
++	if (kind == PongArMapped) {
++		if (answer->token != state->play_token ||
++		    state->play_step != (unsigned)PongPlayMap) {
++			return false;
++		}
++		state->map_handle = answer->handle;
++		printf("PongAudio: playback map done handle=0x%x\n", answer->handle);
++		pong_audio_play_complete_step(state);
++		return true;
++	}
++	if (kind == PongArPrmDone) {
++		if (answer->token != state->play_token ||
++		    state->play_step != (unsigned)PongPlayClock) {
++			return false;
++		}
++		if (answer->status != 0u) {
++			state->last_error = PongAudioErrPlayback;
++			printf("PongAudio: playback clock refused status=%u\n",
++			    answer->status);
++			return true;
++		}
++		pong_audio_play_complete_step(state);
++		return true;
++	}
++	if (kind == PongArBasicResult) {
++		if (answer->token != state->play_token) {
++			return false;
++		}
++		if (answer->result_opcode != pong_play_opcode(state->play_step) ||
++		    answer->status != 0u) {
++			state->last_error = PongAudioErrPlayback;
++			printf("PongAudio: playback step %u refused opcode=0x%08x status=%u\n",
++			    state->play_step, answer->result_opcode, answer->status);
++			return true;
++		}
++		pong_audio_play_complete_step(state);
++		return true;
++	}
++	if (kind == PongArWriteDone) {
++		unsigned slot = PONG_AUDIO_SLOTS;
++
++		if (answer->handle != state->map_handle) {
++			return false;
++		}
++		for (unsigned i = 0; i < PONG_AUDIO_SLOTS; i++) {
++			if (state->slot_busy[i] &&
++			    answer->address ==
++			    pong_play_slot_address(state->dma_pa, i)) {
++				slot = i;
++				break;
++			}
++		}
++		if (slot == PONG_AUDIO_SLOTS) {
++			printf("PongAudio: PCM write done for an unknown slot address=0x%llx\n",
++			    (unsigned long long)answer->address);
++			return true;
++		}
++		state->slot_busy[slot] = false;
++		state->slot_token[slot] = 0;
++		state->slot_age[slot] = 0;
++		if (state->inflight != 0u) {
++			state->inflight--;
++		}
++		if (answer->status != 0u) {
++			state->last_error = PongAudioErrPlayback;
++			printf("PongAudio: PCM slot %u write status=%u\n", slot,
++			    answer->status);
++		}
++		printf("PongAudio: PCM write done slot=%u address=0x%llx\n", slot,
++		    (unsigned long long)answer->address);
++		return true;
++	}
++	return false;
++}
++
++static void
++pong_audio_pump_one(PongAudioState *state)
++{
++	if (!state->service_ready || !state->play_graph_ready ||
++	    !state->ring_ready) {
++		return;
++	}
++	if (!state->playback_running) {
++		if (state->play_step != (unsigned)PongPlayClock) {
++			return;
++		}
++		if (pong_ring_queue_used(&state->ring) < PONG_RING_LEAD_FRAMES) {
++			return;
++		}
++		printf("PongAudio: PCM lead reached frames=%u; starting playback graph\n",
++		    (unsigned)pong_ring_queue_used(&state->ring));
++		pong_audio_play_send_step(state, PongPlayPrepareSpeaker);
++		return;
++	}
++	pong_audio_play_reap_slots(state);
++	if (state->inflight == 0u) {
++		if (pong_ring_queue_used(&state->ring) >=
++		    PONG_AUDIO_PERIOD_FRAMES) {
++			pong_audio_play_begin_stream(state);
++		}
++		return;
++	}
++	(void)pong_audio_play_submit_slot(state);
++}
++
++static void
++pong_audio_afe_selftest(void)
++{
++	uint8_t pkt[PONG_AFE_PRM_CLOCK_BYTES];
++	size_t n = pong_afe_prm_clock_request(pkt, sizeof(pkt),
++	    PONG_AFE_CLOCK_TERT_TDM_IBIT, PONG_AFE_TDM_CLK_HZ,
++	    PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, 1u);
++	printf("PongAudio: AFE encoder selftest bytes=%u\n", (unsigned)n);
++}
++
++static void
++pong_audio_afe_send_step(PongAudioState *state, unsigned step)
++{
++	uint8_t packet[PONG_AFE_STEP_PACKET_MAX];
++	const uint32_t token = 0x00020000u + step;
++	const uint32_t opcode = pong_afe_step_opcode(step);
++	const size_t n = pong_afe_step_packet(packet, sizeof(packet), step, token);
++	if (n == 0u) {
++		state->last_error = PongAudioErrAfeRefused;
++		printf("PongAudio: AFE step %u encode failed\n", step);
++		return;
++	}
++	const int rc = k60_pmic_glink_send_audio(packet, (unsigned)n);
++	printf("PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d\n",
++	    step, (unsigned)n, opcode, token, rc);
++	if (rc == K60_PMIC_GLINK_AUDIO_OK) {
++		state->afe_step = step;
++		state->afe_token = token;
++		state->afe_retry = 0u;
++		return;
++	}
++	if (rc == K60_PMIC_GLINK_AUDIO_AGAIN && state->afe_retry < 3u) {
++		state->afe_retry++;
++		printf("PongAudio: AFE step %u retry %u\n", step, state->afe_retry);
++		pong_audio_afe_send_step(state, step);
++		return;
++	}
++	state->last_error = PongAudioErrAfeRefused;
++	printf("PongAudio: AFE step %u refused rc=%d\n", step, rc);
++}
++
++static void
++pong_audio_afe_next(PongAudioState *state)
++{
++	if (state->afe_step + 1u >= (unsigned)PongAfeStepCount) {
++		state->service_ready = true;
++		state->last_error = PongAudioOk;
++		printf("PongAudio: AFE six-step complete; speaker path ready\n");
++		pong_audio_play_start(state);
++		return;
++	}
++	pong_audio_afe_send_step(state, state->afe_step + 1u);
++}
++
++static void
++pong_audio_glink_state(void *context, bool up)
++{
++	PongAudioState *state = (PongAudioState *)context;
++	state->glink_up = up;
++	printf("PongAudio: glink adsp_apps %s\n", up ? "up" : "down");
++	if (!up) {
++		state->gpr_token = 0;
++		state->apm_ready = false;
++		state->afe_step = 0;
++		state->afe_retry = 0;
++		state->afe_token = 0;
++		state->service_ready = false;
++		pong_audio_play_reset(state);
++		state->last_error = PongAudioErrNoLease;
++		return;
++	}
++	if (state->gpr_token != 0) {
++		return;
++	}
++	uint8_t packet[GPR_MAX_PACKET];
++	const uint32_t token = 0x00010001u;
++	const uint32_t n = pong_afe_gpr_spf_state_query(packet, sizeof(packet), token);
++	if (n == 0) {
++		printf("PongAudio: GPR GET_SPF_STATE encode failed\n");
++		return;
++	}
++	const int rc = k60_pmic_glink_send_audio(packet, (unsigned)n);
++	printf("PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d\n",
++	    (unsigned)n, PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_PORT_APM, rc);
++	if (rc == K60_PMIC_GLINK_AUDIO_OK) {
++		state->gpr_token = token;
++	}
++}
++
++static void
++pong_audio_glink_receive(void *context, const uint8_t *data, unsigned bytes)
++{
++	PongAudioState *state = (PongAudioState *)context;
++	PongArAnswer answer;
++	const int kind = pong_ar_parse(data, bytes, &answer);
++	if (kind == PongArBad) {
++		printf("PongAudio: glink adsp_apps rx bytes=%u (bad gpr)\n", bytes);
++		return;
++	}
++	printf("PongAudio: glink adsp_apps rx bytes=%u kind=%d opcode=0x%08x token=0x%08x status=%u\n",
++	    bytes, kind, answer.opcode, answer.token, answer.status);
++	if (pong_audio_play_receive(state, kind, &answer)) {
++		return;
++	}
++	if (kind == PongArFrameworkState) {
++		if (answer.token != 0x00010001u) {
++			printf("PongAudio: APM response token mismatch 0x%08x\n", answer.token);
++			return;
++		}
++		if (answer.status != 1u) {
++			state->last_error = PongAudioErrApmNotReady;
++			printf("PongAudio: APM not ready status=%u: PongAudioErrApmNotReady\n",
++			    answer.status);
++			return;
++		}
++		state->apm_ready = true;
++		printf("PongAudio: APM ready; starting AFE six-step\n");
++		pong_audio_afe_send_step(state, PongAfeStepClock);
++		return;
++	}
++	if (kind == PongArPrmDone) {
++		if (answer.token == state->afe_token &&
++		    state->afe_step == (unsigned)PongAfeStepClock && answer.status == 0u) {
++			pong_audio_afe_next(state);
++		} else {
++			state->last_error = PongAudioErrAfeRefused;
++			printf("PongAudio: AFE clock refused token=0x%08x status=%u\n",
++			    answer.token, answer.status);
++		}
++		return;
++	}
++	if (kind == PongArBasicResult) {
++		if (answer.token != state->afe_token) {
++			printf("PongAudio: AFE stale result token=0x%08x\n", answer.token);
++			return;
++		}
++		if (answer.result_opcode != pong_afe_step_opcode(state->afe_step) ||
++		    answer.status != 0u) {
++			state->last_error = PongAudioErrAfeRefused;
++			printf("PongAudio: AFE step %u refused opcode=0x%08x status=%u\n",
++			    state->afe_step, answer.result_opcode, answer.status);
++			return;
++		}
++		pong_audio_afe_next(state);
++	}
++}
++
+ static void
+ pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
+ {
+@@ -896,6 +1467,32 @@
+ 	if (!pong_audio_map()) {
+ 		return -1;
+ 	}
++	if (!pong_audio_dma_lease()) {
++		g_pong_audio.last_error = PongAudioErrNoHandoff;
++		g_pong_audio.refusal_printed = true;
++		return -1;
++	}
++	pong_audio_ring_reset();
++	pong_audio_afe_selftest();
++	const K60PmicGlinkAudioClient link_client = {
++	    pong_audio_glink_state, pong_audio_glink_receive
++	};
++	const int link_rc = k60_pmic_glink_attach_audio(&link_client, &g_pong_audio);
++	g_pong_audio.refusal_printed = true;
++	if (link_rc == K60_PMIC_GLINK_AUDIO_OK) {
++		g_pong_audio.last_error = PongAudioErrApmNotReady;
++		printf("PongAudio: glink adsp_apps slot queued (512x20)\n");
++		printf("PongAudio: APM query pending: PongAudioErrApmNotReady\n");
++		printf("PongAudio: speaker path unavailable: PongAudioErrApmNotReady (GLINK queued, GET_SPF_STATE pending)\n");
++	} else {
++		/* Until the provider bridge exists, the only truthful state is
++		 * "no lease": report it once and keep the codec-only path running. */
++		g_pong_audio.last_error = PongAudioErrNoLease;
++		printf("PongAudio: PAS1 owner unavailable (acquire rc=-1000); ADSP path disabled\n");
++		printf("PongAudio: codec-only path: amp probe + 60-step replay continue, AFE/GPR skipped\n");
++		printf("PongAudio: speaker path unavailable: PongAudioErrNoLease (no GLINK, no AFE)\n");
++		printf("PongAudio: no handoff property; GLINK adopt skipped\n");
++	}
+ 	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
+ 	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
+ 	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
+@@ -907,23 +1504,71 @@
+ pong_audio_stop(void)
+ {
+ 	g_pong_audio.service_ready = false;
++	g_pong_audio.last_error = PongAudioErrNoLease;
++	g_pong_audio.refusal_printed = false;
++	g_pong_audio.glink_up = false;
++	g_pong_audio.apm_ready = false;
++	g_pong_audio.afe_step = 0;
++	g_pong_audio.afe_retry = 0;
++	g_pong_audio.afe_token = 0;
++	g_pong_audio.gpr_token = 0;
++	g_pong_audio.ring_ready = false;
++	g_pong_audio.ring_frames = 0;
++	g_pong_audio.ring_dropped = 0;
++	pong_audio_play_reset(&g_pong_audio);
+ 	return 0;
+ }
+ 
+ int
+ pong_audio_submit(const void *frames, uint32_t frame_count)
+ {
+-	(void)frames;
+-	(void)frame_count;
+-	/* TODO(k60): connect to PongAudio.cpp:285-327 submit() and the
+-	 * AudioReach AR_OP_WRITE path once the graph is open. */
+-	return ENOTSUP;
++	if (frames == NULL || frame_count == 0u) {
++		return PongAudioErrBadRequest;
++	}
++	if (!g_pong_audio.service_ready) {
++		return g_pong_audio.last_error ? g_pong_audio.last_error :
++		    PongAudioErrApmNotReady;
++	}
++	if (frame_count > pong_ring_queue_space(&g_pong_audio.ring)) {
++		g_pong_audio.ring_dropped += frame_count;
++		return PongAudioErrRingFull;
++	}
++	const uint32_t written = pong_ring_queue_write(&g_pong_audio.ring, frames,
++	    frame_count);
++	g_pong_audio.ring_frames += written;
++	if (written != frame_count) {
++		g_pong_audio.ring_dropped += frame_count - written;
++		return PongAudioErrRingFull;
++	}
++	pong_audio_pump_one(&g_pong_audio);
++	return PongAudioOk;
++}
++
++/* The AFE period pump calls this once per period; it is deliberately separate
++ * from pong_audio_submit so the producer never blocks on the consumer. */
++uint32_t
++pong_audio_ring_read(void *frames, uint32_t frame_count)
++{
++	if (frames == NULL || frame_count == 0u || !g_pong_audio.ring_ready) {
++		return 0;
++	}
++	return pong_ring_queue_read(&g_pong_audio.ring, frames, frame_count);
+ }
+ 
+ int
+ pong_audio_status(void)
+ {
+-	return g_pong_audio.service_ready ? 1 : 0;
++	if (g_pong_audio.service_ready) {
++		return PongAudioOk;
++	}
++	if (!g_pong_audio.refusal_printed) {
++		printf("PongAudio: speaker path unavailable: %s%s\n",
++		    pong_audio_error_name(g_pong_audio.last_error),
++		    g_pong_audio.last_error == PongAudioErrNoLease ? " (no GLINK, no AFE)" : "");
++		g_pong_audio.refusal_printed = true;
++	}
++	return g_pong_audio.last_error ? g_pong_audio.last_error :
++	    PongAudioErrNoLease;
+ }
+ 
+ /* Compile-time coverage of every pure packet builder. This is not a hardware

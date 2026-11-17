@@ -205,6 +205,8 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch
 0503-k60-audio-aw882xx.patch
 0504-k60-audio-pong-audio.patch
 0505-k60-audio-integration.patch
+../audio/0001-k60-audio-amp-probe.patch
+../audio/0003-k60-audio-afe-selftest.patch
 0506-k60-120hz-refresh.patch
 0392-k60-weak-scanout-stubs.patch
 0399-k60-shared-cache-root-layout.patch
@@ -222,6 +224,7 @@ zzy-native-gpu-addon-mount.patch
 0614-k60-adsp-call-site.patch
 0615-k60-md-window.patch
 0616-k60-init-legacy-helper.patch
+0617-k60-audio-hal-deploy.patch
 0619-k60-adsp-glink-handoff.patch
 0620-k60-adsp-blob.patch
 0621-k60-io-submap-budget.patch

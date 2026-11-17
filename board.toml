@@ -200,7 +200,7 @@ kernel_args = [
   "k60_skip_firmware_mount=1", "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
   "xpcproxy_idversion=1", "k60_init_blob=1", "k60_launchd_cache=1", "k60_entitlement_allow=1",
   "k60_skip_iosurface=1", "k60_panic_reset=1", "pong_adreno_start=1",
-  "pong_metal=2", "k60_autoreset=300", "applog=1",
+  "pong_metal=2", "k60_autoreset=300", "applog=1", "pong_audio_probe=1",
 ]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
@@ -312,3 +312,11 @@ button-names = ["hold", "voldown", "volup"]
 
 [adt.buttons.u32]
 home-button-type = 2
+
+# DarwinBoot.c:264-267,767-775,830-833 allocates 64 KiB of EfiReservedMemoryType
+# below 4 GiB when this 16-byte placeholder is present, then rewrites it with
+# [u64 PA, u64 size=65536]. PongLowDma::lease() requires that exact size, 4 KiB
+# alignment, and PA + 65536 <= 4 GiB. A zero placeholder is the loader contract;
+# the audio driver must never synthesize the lease itself.
+[adt.chosen.bytes]
+pong-audio-dma = "00000000000000000000000000000000"

@@ -25,6 +25,9 @@ CONFIG_XNU_NATIVE_OFFLINE_GPU=n
 # XNU_NATIVE_OFFLINE_GPU, which forces NATIVE_VIRTIO_CONSOLE and publishes an
 # unrelated offline GPU broker; it is now its own switch (yibiya 8cdfcffa).
 CONFIG_XNU_GPU_ADDON=y
+# The PongAudio AudioServerPlugIn is written into /private/var/pong/empty-hal,
+# the bind source init mounts over the sealed HAL search path.
+CONFIG_XNU_K60_AUDIO_HAL=y
 CONFIG_XNU_NATIVE_PAN=y
 # The UFS Data window replaces the memory-backed scratch disk: the build
 # refuses DATA_UFS together with NativeRamBlock, and mounting APFS on the

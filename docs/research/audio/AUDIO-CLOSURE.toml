@@ -1,0 +1,576 @@
+# docs/research/audio/AUDIO-CLOSURE.toml
+#
+# Machine-readable closure ledger for the K60 audio line.
+#
+# Rule (user, 2026-11-17 00:24): no image may be offered for a boot while any
+# item below is "open" or "blocking". scripts/check-audio-closure.py enforces
+# this and exits 1, so the rule is a tool, not a promise.
+#
+# Item fields:
+#   id             stable slug
+#   stage          M1..M5, which boot stage consumes the item
+#   change         what changes on the device side
+#   evidence_kind  static | unit | artifact
+#   evidence       repo-relative proof; "path:line" or "path:12,34" allowed
+#   criteria       how a reviewer checks the evidence is real
+#   status         closed | open | blocking
+#   owner          who closes it
+#   on_open        what it blocks (short)
+#
+# On-device things that cannot be closed offline are NOT items. They live in
+# [[stage]] below as pre-written pass/fail criteria, which is the only place a
+# measurement is allowed to stand in for evidence.
+
+schema = 1
+updated = "2026-11-17"
+owner = "audio-agent"
+rule = "A boot is offered only when every item is closed and every stage has a written criterion."
+
+[scope]
+freeze = [
+  "drivers/PongAudio/",
+  "drivers/PongPower/",
+  "patches/audio/",
+  "patches/xnu/0504-k60-audio-pong-audio.patch",
+  "docs/research/audio/",
+]
+not_ours = [
+  "bsd/dev/K60Battmgr.c",
+  "patches/wifi/",
+  "patches/touch/",
+]
+
+# ---------------------------------------------------------------- closed ----
+
+[[item]]
+id = "gpr-constants"
+stage = "M3"
+change = "GPR_VERSION 0, GPR_BASIC_RESULT 0x02001005 and APM_GET_SPF_STATE 0x01001021 in the 0504 skeleton"
+evidence_kind = "unit"
+evidence = [
+  "patches/xnu/0504-k60-audio-pong-audio.patch:121,127,128",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2020",
+]
+criteria = "Three assertions in afe_gpr_cases(); edit any constant back and TESTS OK goes red."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "skeleton-constants"
+stage = "M3"
+change = "the pong_audio.c skeleton carries the TERT clock and PCM ring constants, not the old PRI 1.536 MHz values"
+evidence_kind = "static"
+evidence = [
+  "patches/xnu/0504-k60-audio-pong-audio.patch",
+  "drivers/PongAudio/PongAudioRing.h",
+]
+criteria = "The skeleton declares 1024-frame periods, a 14400-frame lead, 12.288 MHz and clock id 0x204; grep any of those back to the old 480/1.536 MHz/0x104 values and the build source no longer agrees with PongAudioRing.h."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-packet-layout"
+stage = "M4"
+change = "AFE set-param and DEVICE_START packets encoded byte for byte as packed little-endian"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2306",
+]
+criteria = "128 assertions cover field order, offsets, endianness and the short-buffer refusal."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-encoder-in-kernel"
+stage = "M4"
+change = "PongAudioAfe.h is included by pong_audio.c and the 76-byte PRM clock encoder is compiled into the kernel, not only host tests"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "patches/audio/0001-k60-audio-amp-probe.patch",
+  "patches/xnu/series:208,209",
+]
+criteria = "Image c (audio-probe-20261117c) built kernel 7a22eaf9... and `strings` finds the AFE encoder selftest string once; kernel.log:225,226 shows 0001 then 0003 applied. The same patch is a no-op on a tree without 0504."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-step-order"
+stage = "M4"
+change = "clock, group TDM, group enable, port TDM, slot mapping, DEVICE_START in that order with the right service/port scope"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2306",
+]
+criteria = "pong_afe_step_port_scoped/ids/opcode assertions; afe_plan_cases() pins the full 76/96/56/88/80/28-byte packets emitted by pong_afe_step_packet(); the six steps are enumerated, not free text."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-six-step-in-kernel"
+stage = "M4"
+change = "the built kernel carries the six-step AFE planner and sends each step over the adsp_apps slot"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioAfe.h",
+]
+criteria = "Image g (audio-probe-20261117g) built kernel 60e2a779...; strings find PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d, PongAudio: APM ready; starting AFE six-step and PongAudio: AFE six-step complete; speaker path ready once each; build-manifest.json is the artifact record."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "afe-tert-retarget"
+stage = "M4"
+change = "the encoder carries the TERT port, group and clock id, not the PRI ones copied from phk110"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h:73,74,75,82",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2307",
+]
+criteria = "Host tests assert port 0x9020, group 0x9120 and clock id 0x204; TESTS OK stays green only with the TERT values."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "acdb-not-required"
+stage = "M5"
+change = "no ACDB calibration file is consumed on the speaker path"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/AMPS.md",
+]
+criteria = "speaker_protection_enabled is 0 in the amp profile; the amp brings up without an acdb blob."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "codec-only-degradation"
+stage = "M0"
+change = "with no PAS1 lease the audio service still answers, refusing with a named error instead of blocking"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongCodecProbe.c:37",
+  "drivers/PongAudio/PongAudioAfe.h:55",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c:2470",
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+]
+criteria = "pong_audio_status() returns PongAudioErrNoLease (-2002) and prints a named reason line once; the six status values and names are pinned by status_cases()."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "adsp-pas1-device-proof"
+stage = "M1"
+change = "the provider line publishes the ADSP PAS1 handoff on K60 hardware, clearing the M1 prerequisite for audio"
+evidence_kind = "artifact"
+evidence = [
+  "/mnt/e/hackios/k60-adsp-handoff/docs/research/audio/ADSP-ROUTE-A.md",
+  "V: console.log: K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15",
+  "V: console.log: K60Battery: physical source published sample=4",
+]
+criteria = "ADSP-ROUTE-A.md records the 2026-11-17 device run of image 6aa9107c30cab42bf4fd1a8555f5d622774eeb242fd79606ca2bec36226061f1 (201,887,744 B) built from source commit f80c2e63; owner stage 1-5 all return rc=0, the console prints K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15 at line 189 and K60Battery: physical source published sample=4 SOC=100.00% ... current=397mA at line 596. This is the provider line's hardware verdict, not an audio-line test: it clears the ADSP/PAS1 wait, while pcm-submit-path still requires its own period test."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "glink-two-slot-prototype"
+stage = "M2"
+change = "one QcomGlink instance carries two channel slots (PMIC_RTR_ADSP_APPS and adsp_apps)"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongPower/QcomGlink.h:17",
+  "drivers/PongPower/K60PmicGlink.cpp:128",
+  "drivers/PongAudio/tests/test-glink-multislot.c",
+  "drivers/PongAudio/tests/run-glink-multislot-tests.sh",
+]
+criteria = "376 assertions: two registrations, out-of-order opens, per-slot rx, replays, unknown names, stop fan-out, and the audio bridge queue/registration. The runner compiles the real source; there is no prototype patch."
+status = "closed"
+owner = "audio-agent"
+
+# ------------------------------------------------------------ glink bridge ---
+
+[[item]]
+id = "glink-two-slot-in-kernel"
+stage = "M2"
+change = "QCOM_GLINK_MAX_CHANNELS is 2 in the built kernel"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/QcomGlink.h:17",
+  "drivers/PongPower/K60PmicGlink.cpp:128",
+]
+criteria = "Image d (audio-probe-20261117d) built kernel 04fac20b... and strings finds QcomGlink max_channels=2u once; channel_bytes=712 matches the host runner's sizeof; build-manifest.json is the artifact record."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "glink-adsp-apps-registration"
+stage = "M2"
+change = "the audio consumer registers adsp_apps (512 x 20 intents) on the shared QcomGlink instance"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongPower/K60AudioGlink.c",
+  "drivers/PongPower/K60AudioGlink.h",
+  "drivers/PongPower/K60PmicGlinkAudio.h",
+  "drivers/PongPower/K60PmicGlink.cpp:97,142,167",
+  "drivers/PongAudio/tests/test-glink-multislot.c",
+]
+criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 512 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 376-case runner reaches state up and routes peer data only to the audio consumer."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "glink-audio-send-path"
+stage = "M2"
+change = "the audio consumer can send GPR bytes through its adsp_apps slot"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongPower/K60AudioGlink.c",
+  "drivers/PongPower/K60PmicGlinkAudio.h",
+  "drivers/PongPower/K60PmicGlink.cpp",
+  "drivers/PongAudio/tests/test-glink-multislot.c",
+]
+criteria = "376-case runner: after the DSP advertises a 512-byte send intent, k60_audio_glink_send() writes TX_DATA with local lcid 1 / remote intent id 0x2001 / payload gpr; a 4096-byte send returns QcomGlinkTooBig; after stop the same call returns -2002; no transport returns -2001."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "glink-audio-bridge-in-kernel"
+stage = "M2"
+change = "the adsp_apps bridge is linked into the built kernel"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/K60AudioGlink.c",
+  "drivers/PongPower/K60PmicGlink.cpp",
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+]
+criteria = "Image e (audio-probe-20261117e) built kernel 3ac73816...; strings find QcomGlink max_channels=2u local_intents=20 and PongAudio: glink adsp_apps slot queued (512x20) once each; build-manifest.json is the artifact record."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "gpr-get-spf-state-in-kernel"
+stage = "M3"
+change = "the built kernel sends a 24-byte GPR GET_SPF_STATE when the adsp_apps channel comes up"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioAfe.h",
+  "drivers/PongPower/K60PmicGlinkAudio.h",
+  "drivers/PongPower/K60AudioGlink.c",
+]
+criteria = "Image i (audio-probe-20261117i) built kernel 923f9f44...; strings find PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d once; 0003 builds the 24-byte query with pong_afe_gpr_spf_state_query() (src 0x2001/dst 1) and sends it via k60_pmic_glink_send_audio() only when the adsp_apps state first reports up; runtime proof remains run 2."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "tdm-port-selection"
+stage = "M4"
+change = "the speaker is driven on TERT TDM RX: AFE port 0x9020, group 0x9120"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/VENDOR-AUDIO-CONFIG.md",
+]
+criteria = "Vendor HAL names TDM-LPAIF-RX-TERTIARY-VIRT-0; q6afe maps TERT TDM RX to 0x9000+0x20; the DT tert node says dev-id 0x9020 and the tert pinctrl group is the only one the sound node references."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "tdm-slot-count"
+stage = "M4"
+change = "2 slots per frame of 32-bit slots carrying 24-bit samples, and therefore a 12.288 MHz bit clock"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/VENDOR-AUDIO-KERNEL.md",
+  "V: audio-kernel/asoc/codecs/aw882xx/src/aw882xx.c:303-330",
+  "V: audio-kernel/asoc/msm_common.c:407-417",
+]
+criteria = "Two amps take one half of an I2S frame each (sound-channel 0 and 1), the amp driver accepts only SND_SOC_DAIFMT_I2S as a slave, and the vendor HAL asks for 2 channels S24_LE; the waipio machine driver derives the rate from qcom,tdm-max-slots, not from qcom,msm-cpudai-tdm-clk-rate."
+status = "closed"
+owner = "audio-agent"
+[[item]]
+id = "afe-clock-hz"
+stage = "M4"
+change = "the bit clock vote is 48000 x 32 x 8 = 12288000 Hz on CLOCK_ID_TER_TDM_IBIT (0x204)"
+evidence_kind = "static"
+evidence = [
+  "docs/research/audio/VENDOR-AUDIO-KERNEL.md",
+  "V: audio-kernel/asoc/msm_common.c:407-417",
+  "V: live FDT qcom,tdm-max-slots = <8>",
+]
+criteria = "The rate is the vendor formula applied to this board: rate x TDM_SLOT_WIDTH_BITS (32) x qcom,tdm-max-slots (8). It reaches the DSP in a PRM request pinned byte for byte by afe_prm_cases()."
+status = "closed"
+owner = "audio-agent"
+[[item]]
+id = "afe-clock-attribute"
+stage = "M4"
+change = "clock attribute 4 (CLOCK_ATTRIBUTE_INVERT_COUPLE_NO) with clock root 0"
+evidence_kind = "static"
+evidence = [
+  "V: audio-kernel/asoc/msm_common.c:416-417",
+  "V: audio-kernel/include/dsp/audio_prm.h:570",
+]
+criteria = "The waipio TDM path sets CLOCK_ATTRIBUTE_INVERT_COUPLE_NO unconditionally; qcom,tdm-clk-attribute is read only for MI2S. The encoder carries 4 and afe_prm_cases() pins it."
+status = "closed"
+owner = "audio-agent"
+[[item]]
+id = "prm-clock-packet"
+stage = "M4"
+change = "the clock vote is one 76-byte PRM request, not an AFE clock-set packet"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioAfe.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "V: audio-kernel/dsp/audio_prm.c:198-248",
+]
+criteria = "afe_prm_cases() pins the GPR header, the APM command header, the module parameter header, one clock tuple and both sizes (payload_size 36, param_size 20)."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "tlmm-pinmux-values"
+stage = "M4"
+change = "gpio121/123/122/124 configured as TERT TDM sck/ws/din/dout with the right function index and drive strength"
+evidence_kind = "static"
+evidence = [
+  "drivers/PongAudio/PongAudioTlmm.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "V: live-fdt.dts:5315-5378",
+  "V: pinctrl-sm8450.c:33,1537-1540",
+]
+criteria = "tlmm_cases() pins the four gpio numbers, function index 1, the 2 mA drive field, output enable only on sck/ws, and the five pad addresses."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
+id = "playback-data-path"
+stage = "M5"
+change = "PCM ring geometry the service hands to the AFE path (period, threshold, lead, ring)"
+evidence_kind = "static"
+evidence = [
+  "drivers/PongAudio/PongAudioRing.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "V: agm/service/src/device.c:102,103,273,405",
+  "V: resourcemanager_waipio_mtp.xml:459-470",
+  "V: ShengAudioAbi.h:21",
+]
+criteria = "Period 1024 frames from 8192 bytes / (2 channels * 4 bytes), period count 2, start threshold 256, lead 14400 frames (300 ms), ring 65536 frames; encoded in PongAudioRing.h and asserted by ring_cases()."
+status = "closed"
+owner = "audio-agent"
+on_open = "no frames means no sound even with a perfect AFE setup"
+
+[[item]]
+id = "pcm-ring-submit"
+stage = "M5"
+change = "pong_audio_submit() queues PCM frames into the SPSC ring, and pong_audio_ring_read() drains them for the service period pump"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioRing.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+]
+criteria = "PongAudioRing.h carries the SPSC queue (pong_ring_queue_init/used/space/write/read); ring_queue_cases() adds 27 assertions for initialization, used/space accounting, full-ring refusal, wrap writes, whole-frame copies and capacity bounds. pong_audio_submit() rejects null/zero frames with PongAudioErrBadRequest, refuses before the six-step path is ready with last_error or PongAudioErrApmNotReady, rejects a short ring with PongAudioErrRingFull while counting ring_dropped, and otherwise queues whole frames; pong_audio_ring_read() drains them. Host runner: TESTS OK 956 cases (974 with the real ACF)."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the submit queue the AFE can be ready while the service has nowhere to put a PCM frame"
+
+[[item]]
+id = "pcm-low-dma-lease"
+stage = "M5"
+change = "pong_audio.c reads the UEFI-reserved 64 KiB low-DMA lease from /chosen/pong-audio-dma and maps it for the playback path"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "board.toml:298-305",
+  "V: kernel.macho: PongAudio: low DMA lease pa=0x%llx size=0x%x",
+]
+criteria = "Image k kernel.macho contains PongAudio: low DMA lease pa=0x%llx size=0x%x once and the unavailable/invalid/map-failed refusals once each. pong_audio_dma_lease() reads the 16-byte /chosen/pong-audio-dma property, requires size 0x10000, 4 KiB alignment and PA+0x10000 <= 4 GiB, then ml_io_map()s the range; the image-k kernel_built sha256 is 08186a2454df694e528187880b93cbd492b45e36103e40b5846b08f8b3f057b8."
+status = "closed"
+owner = "audio-agent"
+on_open = "without a low-DMA consumer the playback graph has no buffer the ADSP can read"
+
+[[item]]
+id = "pcm-service-userclient"
+stage = "M5"
+change = "the PongAudio IOService/UserClient publishes a control page and a 512 KiB playback ring to a userland HAL"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/PongAudioService.cpp",
+  "drivers/PongPower/PongAudioServiceAbi.h",
+  "scripts/build-k60-physical-battery.py",
+  "patches/xnu/0602-k60-physical-battery.patch",
+  "V: kernel.macho: PongAudioUserClient",
+]
+criteria = "Image o builds PongAudioService.cpp into libK60PhysicalBattery.a (91,896 B / sha256 ef91f371db9476cb5e0f4b768f530431d5162dce42226f84676cc0f45950b747) and its kernel_built sha256 is 1edac302c42813d2670986b183faa98f05855c78f51c7ad6fc38ef9c791f7507; kernel.macho contains PongAudioUserClient 26 times (including mangled symbols), NativeSandboxGrantProcess 1, k60_audio_service 1 and pong_audio_service_start 1. PongAudioServiceAbi.h fixes control 56 B, out ring 524288 B, 48 kHz stereo S24_LE, 1024-frame period, memory types control=0/output=1, selectors StartOutput=0/StopOutput=1/SetHostClock=4. startAudio() allocates both IOBufferMemoryDescriptors, sets the sandbox grant and IOUserClientClass, and registers; clientMemoryForType maps both; externalMethod rejects arguments and forwards Start/Stop; the timer period is 21333 us and startOutput() returns kIOReturnNotReady when pong_audio_status() != PongAudioOk. The service shape is closed; the end-to-end period test remains in pcm-submit-path."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the service the ring and control page cannot be mapped by a userland HAL"
+
+[[item]]
+id = "pcm-hal-plugin"
+stage = "M5"
+change = "an output-only AudioServerPlugIn maps the PongAudio control page and ring, converts CoreAudio float frames to the K60 S24 format and drives StartOutput/StopOutput"
+evidence_kind = "artifact"
+evidence = [
+  "userland/PongAudioPlugIn.c",
+  "userland/build.py",
+  "/mnt/e/k60-work/scratch/audio-work/build-audio/PongAudio.driver/PongAudio",
+  "V: PongAudio.driver/PongAudio: PongAudio_Create",
+]
+criteria = "userland/PongAudioPlugIn.c is a 38,142-byte output-only AudioServerPlugIn with plugin/device/output-stream/volume/mute objects, device UID K60AudioDevice and bundle org.unixnu.k60.audio. connectService() uses IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(PONG_AUDIO_SERVICE_CLASS)), IOServiceOpen and IOConnectMapMemory64 for memory types 0 (control, sizeof(PongAudioServiceControl)) and 1 (ring, PONG_AUDIO_SERVICE_RING_BYTES), and refuses a mismatched magic/version/rate/channels/frame_bytes/period_frames/ring_frames/state. DoIOOperation() scales by currentVolume()*muted, converts float to S24/Q31 and advances out_write with a ring-space guard; StartIO/StopIO use the PongAudioUserClient selectors; GetZeroTimeStamp() derives a 48 kHz frame clock from mach_timebase. userland/build.py compile_audio() links it with clang-18/ld64.lld-18 into PongAudio.driver/PongAudio (69,920 B, sha256 fa4780ea79d046b4551248154d4538f4c20ad840a457cb59acea749983d9336e) and writes Info.plist with factory 341D03C1-9CF6-4163-A3E9-FA3AC191C764, type 443ABAB8-E7B3-491A-B985-BEB9187030DB and AudioServerPlugIn_IOKitUserClients=[PongAudioUserClient]. llvm-nm -gU exports only _PongAudio_Create. The HAL source and bundle are closed; 0617 carries the built bundle into the kernel and deploys it into the empty-hal bind source (pcm-hal-deploy), while the end-to-end period test remains in pcm-submit-path."
+status = "closed"
+owner = "audio-agent"
+on_open = "without a HAL the ring is filled only by the kernel selftest, not by CoreAudio"
+
+[[item]]
+id = "pcm-hal-deploy"
+stage = "M5"
+change = "the kernel carries the PongAudio HAL bundle and writes it into the empty-hal bind source before mediaserverd scans the HAL directories"
+evidence_kind = "artifact"
+evidence = [
+  "patches/xnu/0617-k60-audio-hal-deploy.patch",
+  "scripts/gen-k60-audio-hal-blob.py",
+  "scripts/check-k60-audio-hal-blob.py",
+  "V: kernel.macho: K60AUDIOHAL deploy files=%u/%u error=%d",
+]
+criteria = "0617-k60-audio-hal-deploy.patch (7,396 B / 241 lines / sha256 ee69bfc645fcc305f6e34ddf04d3121832b783a2799c91c224deafd7ed5c79de) adds bsd/dev/k60_audio_hal.c, which parses a K60A table (magic 0x4130364b, count <= 2, 10-byte entries, 8-byte aligned bodies) and writes PongAudio.driver/Info.plist (0644) and PongAudio.driver/PongAudio (0755) into /private/var/pong/empty-hal; init already bind-mounts that directory over /System/Library/Audio/Plug-Ins/HAL and /Library/Audio/Plug-Ins/HAL, so the bundle is visible without apply() touching the sealed system volume. Build-strict compiles the bundle when CONFIG_XNU_K60_AUDIO_HAL=y, records manifest audio_hal fa4780ea79d046b4551248154d4538f4c20ad840a457cb59acea749983d9336e (69,920 B), and checks k60_audio_hal_blob.s. Image p kernel_built sha256 is 19cccd2b07c061497de0107227251f0338519d0f39ee2694bfee461cedd03df4 (105,615,360 B), payload_kernel is 030cdff728f284513d8487f77b6d2957dd39e1459c9a88e922c509272dbe61bb, and kernel.macho contains K60AUDIOHAL deploy files=%u/%u error=%d, bad magic, bad count, entry body out of range, entry name out of range, open, write and removed a stale file once each, plus k60_audio_hal_deploy/k60_audio_hal_blob symbols."
+status = "closed"
+owner = "audio-agent"
+on_open = "without deployment the HAL bundle only exists in the build tree and mediaserverd never loads it"
+
+[[item]]
+id = "pong-audio-dma-in-adt"
+stage = "M5"
+change = "the /chosen/pong-audio-dma placeholder is present in the shipped ADT so DarwinBoot can reserve the 64 KiB low DMA and write back [PA, 65536]"
+evidence_kind = "artifact"
+evidence = [
+  "board.toml:298-305",
+  "V: payload.img:EFI/UniXNU/PAYLOADS/kernel.macho.adt",
+  "V: DarwinBoot.c:264-267,767-775,830-833",
+]
+criteria = "Image j payload.img contains kernel.macho.adt with sha256 784c097a6aa15566bf87f044fbf0e3ff7e613dc7a2cd365da9d0f51809a3f0e9 (matches build-manifest components.adt), and its /chosen/pong-audio-dma property is exactly 16 zero bytes. DarwinBoot allocates 16 pages of EfiReservedMemoryType below 0xffffffff, zeroes 64 KiB and rewrites the property with [PA, 65536] before XNU starts. The driver-side consumer is still part of pcm-submit-path."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the ADT placeholder DarwinBoot cannot publish a legal low-4 GiB DMA range"
+
+[[item]]
+id = "glink-audio-attach-deferred"
+stage = "M2"
+change = "the audio client is retained until K60PmicGlink opens, instead of being dropped when pong_audio_start runs first"
+evidence_kind = "static"
+evidence = [
+  "drivers/PongPower/K60PmicGlink.cpp",
+  "V: kernel.macho: K60Battery: deferred audio attach failed: %d",
+]
+criteria = "k60_pmic_glink_attach_audio() stores the client, returns K60_PMIC_GLINK_AUDIO_OK when gActivePmicGlink is null, and K60PmicGlink::open() replays attachAudio() after publishing the active object. The image-j kernel.macho contains the deferred-attach failure string once, proving the path was compiled into the shipped kernel."
+status = "closed"
+owner = "audio-agent"
+on_open = "a start-before-battery order loses the only adsp_apps attach and M2 never leaves pending"
+
+[[item]]
+id = "pcm-playback-graph"
+stage = "M5"
+change = "pong_audio.c drives the AudioReach playback graph after the AFE six-step and pumps PCM periods through eight AR write slots"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioPlayback.h",
+  "V: kernel.macho: PongAudio: playback graph started; PCM streaming",
+  "V: kernel.macho: PongAudio: PCM write done slot=%u address=0x%llx",
+]
+criteria = "PongAudioPlayback.h fixes the 11-step order (open/config speaker, open/config playback, config shmem, map, clock, prepare speaker/playback, start speaker/playback), token 0x00030000+step and the six opcodes; host play_cases() adds 32 assertions. In image m the kernel_built sha256 is d136541dcf7d540300ebe932cb4af3084d30520bdafa07a8ceda3cb895f66e55 (105,545,728 B) and kernel.macho contains all eight playback strings once (step send, graph opening, graph mapped, graph started, PCM slot submit, PCM lead reached, PCM write done, playback stream primed) plus pong_audio_play_complete_step/send_step/submit_slot. pong_audio_play_submit_slot() writes 8192 B periods from the ring to dma_pa|1<<32 + slot*8192 through pong_ar_write(); WRITE_DONE clears the slot and pong_audio_pump_one() refills it; start waits for the 14400-frame lead."
+status = "closed"
+owner = "audio-agent"
+on_open = "the six-step path can be ready while the speaker never receives a playback period"
+
+[[item]]
+id = "pcm-dma-feed"
+stage = "M5"
+change = "each PCM period is copied into its low-DMA slot before the AR write and a stale slot is timed out and refilled"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioPlayback.h",
+  "V: kernel.macho: PongAudio: PCM slot %u write timed out",
+]
+criteria = "pong_audio_play_submit_slot() memcpy()s each 8192-byte period from state->period to dma_va + slot*PONG_PLAY_PERIOD_BYTES before pong_ar_write(), and refuses when dma_va is zero. pong_audio_play_reap_slots() ages busy slots once per pump and releases a slot after PONG_PLAY_SLOT_TIMEOUT_PUMPS (8) without WRITE_DONE, printing PongAudio: PCM slot %u write timed out. Image n kernel_built sha256 is 098a1c96a810bb49064eed42fc678d37c1a2390dbf4be1c970503fb9ea6fc4c0 (105,545,728 B), payload_kernel 68d01e98ff90c0f71473e92e9da45706c1a840ce306344c0303fa43b721cc47e, and kernel.macho contains the timeout string once plus all eight playback strings."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the copy the DSP reads stale or silent slots even when every AR write succeeds"
+
+[[item]]
+id = "pcm-submit-path"
+stage = "M5"
+change = "the remaining PCM path: a userland HAL fills the ring and the service period pump keeps the playback graph fed"
+evidence_kind = "static"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "patches/xnu/0617-k60-audio-hal-deploy.patch",
+  "drivers/PongAudio/PongAudioRing.h",
+  "userland/PongAudioPlugIn.c",
+  "userland/build.py",
+  "V: ShengAudioAbi.h:21",
+  "V: PongAudio.cpp:288-300,424-436",
+]
+criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient), the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph), the DMA-slot copy/timeout (pcm-dma-feed), the output-only AudioServerPlugIn (pcm-hal-plugin) and its kernel deployment into empty-hal (pcm-hal-deploy) are in place. The remaining proof is a host or on-device test that opens the service, maps control/ring through the HAL and submits at least one period through the service timer without an underrun. Until that test exists, M5 cannot pass."
+status = "open"
+owner = "audio-agent"
+on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"
+
+[[item]]
+id = "amp-gpio-switch"
+stage = "M5"
+change = "the amp's speaker switch GPIO is driven the way the vendor mixer path drives it"
+evidence_kind = "static"
+evidence = [
+  "drivers/PongAudio/PongAudioTlmm.h",
+  "drivers/PongAudio/PongAudioAmp.c",
+  "V: live-fdt.dts:13329",
+  "V: mixer_paths_waipio_mtp.xml:2132",
+  "V: aw882xx.c:1711-1717",
+]
+criteria = "GPIO52 is active high (live-fdt.dts:13329, mixer_paths_waipio_mtp.xml:2132); the probe drives it low and refuses to continue unless the readback is low; PongAudioTlmm.h fixes cfg 0x200 and tlmm_cases() asserts it."
+status = "closed"
+owner = "audio-agent"
+on_open = "the amp can be fully programmed and still muted"
+
+# --------------------------------------------------------------- stages -----
+# On-device measurements. Each one has a marker, an expected value and a
+# written failure action, so a boot produces PASS/FAIL, not an opinion.
+
+[[stage]]
+id = "M1"
+name = "ADSP alive and handoff published"
+marker = "k60-adsp-glink-handoff"
+expect = "property present, 104 bytes, acquire returns 0 (not -1000)"
+on_fail = "stop; no audio work; fall back to image m; the provider line owns this stage"
+
+[[stage]]
+id = "M2"
+name = "adsp_apps channel up"
+marker = "PongAudio: glink"
+expect = "open acknowledged, channel up within 5 s, unknown_opens stays 0"
+on_fail = "stop; dump QcomGlink counters and last_unknown; two-slot wiring is at fault"
+
+[[stage]]
+id = "M3"
+name = "APM answers"
+marker = "PongAudio: apm"
+expect = "GET_SPF_STATE response status 1"
+on_fail = "stop; APM is not up; GPR addressing or domain ids are wrong"
+
+[[stage]]
+id = "M4"
+name = "AFE six steps acknowledged"
+marker = "PongAudio: afe"
+expect = "six steps, each ACK status 0; clock reads back at the voted rate"
+on_fail = "stop at the first failing step; record its opcode and status word"
+
+[[stage]]
+id = "M5"
+name = "sound"
+marker = "PongAudio: pcm"
+expect = "frames advance, underruns do not grow, speaker audible"
+on_fail = "stop; keep the AFE state, report which of codec, soundwire or amp is silent"

@@ -236,6 +236,31 @@ if [ -n "$ADSP_DIR" ]; then
   echo "build-strict: ADSP carrier $ADSP_CONTAINER_SHA ($ADSP_RECORDS records)"
 fi
 
+# --- audio HAL (0617) ------------------------------------------------------
+# The PongAudio AudioServerPlugIn is carried inside the kernel and written to the
+# empty-hal bind source after the Data mount.  CONFIG_XNU_K60_AUDIO_HAL=y asks
+# this build to compile the bundle first; a missing bundle is a hard failure
+# rather than a kernel that ships an empty container.
+AUDIO_HAL_ON=$(sed -n 's/^CONFIG_XNU_K60_AUDIO_HAL=y$/1/p' "$M/.config" | head -1)
+AUDIO_HAL_BUNDLE=
+if [ -n "$AUDIO_HAL_ON" ]; then
+  AUDIO_HAL_OUT=$REPO/build/audio
+  AUDIO_HAL_BUNDLE=${K60_AUDIO_HAL_PLUGIN_DIR:-$AUDIO_HAL_OUT/PongAudio.driver}
+  if [ -z "${K60_AUDIO_HAL_PLUGIN_DIR:-}" ]; then
+    if ! python3 "$REPO/userland/build.py" audio --out "$AUDIO_HAL_OUT" \
+            --sdk "${K60_AUDIO_SDK:-/opt/k60/sdk/iPhoneOS16.5.sdk}" \
+            --audio-sdk-headers "${K60_AUDIO_SDK_HEADERS:-/mnt/e/k60-work/scratch/audio-work/sdk-headers}" \
+            > "$LOGS/audio-hal.log" 2>&1; then
+      tail -20 "$LOGS/audio-hal.log" >&2
+      die "CONFIG_XNU_K60_AUDIO_HAL=y needs a buildable PongAudio.driver"
+    fi
+  fi
+  [ -x "$AUDIO_HAL_BUNDLE/PongAudio" ] || die "audio HAL executable missing: $AUDIO_HAL_BUNDLE/PongAudio"
+  [ -f "$AUDIO_HAL_BUNDLE/Info.plist" ] || die "audio HAL Info.plist missing: $AUDIO_HAL_BUNDLE/Info.plist"
+  export K60_AUDIO_HAL_PLUGIN_DIR=$AUDIO_HAL_BUNDLE
+  echo "build-strict: audio HAL $(sha256sum "$AUDIO_HAL_BUNDLE/PongAudio" | cut -d' ' -f1) $(stat -c %s "$AUDIO_HAL_BUNDLE/PongAudio") bytes"
+fi
+
 # The battery class lives in a host-built archive that the kernel script only
 # force-loads when the defconfig asks for it. Build it here so a battery-enabled
 # configuration cannot reach the link step without its archive (P-157).
@@ -378,6 +403,8 @@ m = {
         "adsp_inputs": {"count": ${ADSP_RECORDS:-0},
                         "sha256": "${ADSP_INPUTS_SHA:-}",
                         "file": "${ADSP_INPUTS:-}"},
+        "audio_hal": "$(sha_or_empty "${AUDIO_HAL_BUNDLE:-}/PongAudio")",
+        "audio_hal_path": "${AUDIO_HAL_BUNDLE:-}",
     },
     "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
@@ -400,6 +427,11 @@ METAL_BLOB=$M/tree/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s
 if [ -f "$METAL_BLOB" ]; then
   python3 "$REPO/scripts/check-metal-blob.py" "$METAL_BLOB" \
       | tee "$LOGS/metal-blob.log" || die "the Metal plugin container is inconsistent (P-196)"
+fi
+AUDIO_HAL_BLOB=$M/tree/.cache/xnu-work/osfmk/arm64/k60_audio_hal_blob.s
+if [ -f "$AUDIO_HAL_BLOB" ]; then
+  python3 "$REPO/scripts/check-k60-audio-hal-blob.py" "$AUDIO_HAL_BLOB" \
+      | tee "$LOGS/audio-hal-blob.log" || die "the audio HAL container is inconsistent"
 fi
 # The command line in the image must be the board contract plus declared
 # additions.  On 2026-11-14 two hand-packaged images silently replaced

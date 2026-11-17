@@ -342,6 +342,29 @@ else
       || { echo 'k60_adsp_blob stub write failed' >&2; exit 1; }
   fi
 fi
+
+# 0617: the PongAudio AudioServerPlugIn travels inside the kernel, because
+# /private/var/pong/empty-hal lives on the APFS Data volume and no host tool
+# here can write it.  The generator emits an .incbin assembly file; an empty
+# table keeps the kernel linkable when the feature is not selected.
+K60_AUDIO_HAL_PLUGIN_DIR=${K60_AUDIO_HAL_PLUGIN_DIR:-}
+if [ -f "patches/xnu/0617-k60-audio-hal-deploy.patch" ]; then
+  if [ -z "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
+    echo 'PONG_NATIVE_DRIVER_SOURCE is required for the audio HAL blob' >&2
+    exit 1
+  fi
+  K60_AUDIO_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_audio_hal_blob.s
+  mkdir -p "$(dirname "$K60_AUDIO_ASM")"
+  if [ -n "$K60_AUDIO_HAL_PLUGIN_DIR" ] && [ -d "$K60_AUDIO_HAL_PLUGIN_DIR" ]; then
+    python3 "$ROOT/scripts/gen-k60-audio-hal-blob.py" \
+      --bundle-dir "$K60_AUDIO_HAL_PLUGIN_DIR" --assembly --output "$K60_AUDIO_ASM" \
+      >&2 || { echo 'k60_audio_hal_blob generation failed' >&2; exit 1; }
+  else
+    python3 "$ROOT/scripts/gen-k60-audio-hal-blob.py" \
+      --empty --assembly --output "$K60_AUDIO_ASM" \
+      >&2 || { echo 'k60_audio_hal_blob generation failed' >&2; exit 1; }
+  fi
+fi
 if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   export PONG_NATIVE_DRIVER_SOURCE
 fi
@@ -1185,21 +1208,21 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
   if [ -n "${XNU_BOOTSTRAP:-}" ]; then
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
-    BOOTSTRAP_KERNEL_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE"
-    if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
-      # bsd/dev/pong_adsp_boot.c (0613) defines the owner reader's legacy
-      # hook, which calls k60_adsp_reader_fat; that symbol lives in the
-      # battery archive. The bootstrap pass skips PLATFORM_ARCHIVES
-      # entirely, so force-load the battery archive here exactly like the
-      # scanout objects get the GPU archive. Every strong undefined of the
-      # archive resolves against the kernel itself (verified with llvm-nm),
-      # so this adds no new bootstrap dependency.
-      BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
-      test -f "$BATTERY_ARCHIVE"
-      BOOTSTRAP_KERNEL_ARCHIVES="$BOOTSTRAP_KERNEL_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
-    fi
-    EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$BOOTSTRAP_KERNEL_ARCHIVES")
+    BOOTSTRAP_LD_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel"
+    BOOTSTRAP_LD_ARCHIVES="$BOOTSTRAP_LD_ARCHIVES -Wl,-force_load,$PONG_GPU_ARCHIVE"
   fi
+fi
+# The battery archive is force-loaded in the real pass too. The bootstrap pass
+# links first and has no PLATFORM_ARCHIVES, so a kernel-side reference such as
+# pong_audio_start -> k60_pmic_glink_attach_audio would otherwise be undefined.
+if [ -n "${XNU_BOOTSTRAP:-}" ] && [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
+  BATTERY_ARCHIVE=${XNU_K60_BATTERY_ARCHIVE:-$ROOT/build/k60-battery/libK60PhysicalBattery.a}
+  test -f "$BATTERY_ARCHIVE"
+  BOOTSTRAP_LD_ARCHIVES="${BOOTSTRAP_LD_ARCHIVES:--L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel}"
+  BOOTSTRAP_LD_ARCHIVES="$BOOTSTRAP_LD_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
+fi
+if [ -n "${BOOTSTRAP_LD_ARCHIVES:-}" ]; then
+  EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$BOOTSTRAP_LD_ARCHIVES")
 fi
 if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
   ARM_DT_ARCHIVE=$ROOT/build/armdt-platform/libArmDTPlatform.a

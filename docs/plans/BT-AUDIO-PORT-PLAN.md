@@ -277,7 +277,7 @@ pong-audio {
 
 Pong 的 UEFI/DarwinBoot 会从主 XNU 窗口之外分配 **64 KiB `EfiReservedMemoryType`**，通过 `/chosen/pong-audio-dma` 传给 XNU：16 字节 = `[u64 PA, u64 size=65536]`。`PongAudio.cpp:124` 校验 `lease[1] == BufferBytes`、4 KiB 对齐、`lease[0]+65536 <= 0x100000000`；Pong 的 ADT 生成器只放 `bytes(16)` 占位（`scripts/make-pong-adt-ipados18.py:183`），由 loader 填充。
 
-K60 现状：`AGENT-COORDINATION.md:3253` 明确“`DarwinBootPkg` 里 pong 专属 DT 契约（`pong-allocatable-ram` / `pong-audio-dma` / `darwinboot-memory-ranges`）保留未删，K60 DTB 无这些节点 → `ClaimPongRam` 提前返回，等价 no-op”。因此 **K60 音频的第一硬前置之一是改 `uefi-mondrian`/DarwinBoot22 或 ADT 生成器：分配 64 KiB 低地址 DMA 并写 `/chosen/pong-audio-dma`**。这不是音频驱动自身能补的。
+K60 现状（2026-11-17 更新）：`uefi-mondrian` 的 `DarwinBoot.c:201,264-267,292-295,767-775,830-833` **已经实现**这条契约——发现 chosen 下 16 字节 `pong-audio-dma` 属性后，用 `AllocatePages(AllocateMaxAddress, EfiReservedMemoryType, 16, &AudioAddress)`（起始 `0xffffffff`，即 64 KiB 低地址）分配、ZeroMem+FlushRange，并把 `[PA,65536]` 写回 XNU 的 `/chosen`。K60 侧 `board.toml:298-305` 的 `[adt.chosen.bytes] pong-audio-dma` 16 字节零占位已由镜像 j 的 `kernel.macho.adt` 证明进树（sha256 `784c097a…`）。`AGENT-COORDINATION.md:3253` 是 2026-11-07 的旧状态，已过时；**现在缺的是音频驱动侧消费 lease（`PongLowDma`/SMMU），不是 UEFI 分配器**。
 
 #### 2.4.3 可选的原生 `audio-data` 节点
 
@@ -405,9 +405,9 @@ CoreAudio/audiomxd
 | A1 | ADSP PAS / `PongAdsp.cpp` 移植 | **A** | `PongAdsp.cpp` 30,783 B；`AdspFirmware.c` 7,165 B；K60 只改 carveout 0x9fd00000/0x3100000 等常量 |
 | A2 | SMEM/SMP2P/GLINK/GPR | **A** | `ShengGpr.c`/`QcomSmem.c`/`QcomSmp2p.c`/`QcomGlink.c` 在 PongPower/Sheng；K60 FDT 的 `adsp_apps`/intents 与 Pong 相同 |
 | A3 | AudioReach APM graph | **A** | `ShengAudioReach.c` 17,119 B；参数/容器/媒体格式齐全；K60 改 TDM 线路/时钟 |
-| A4 | 64 KiB low DMA + SID1801 + SMMU | **A（驱动）/ B（UEFI）** | `PongAudio.cpp:124-132` 有完整驱动；K60 UEFI/DarwinBoot 的 `pong-audio-dma` 分配器缺失（AGENT-COORDINATION:3253），需要新写 |
-| A5 | `PongAudio` 内核服务/UserClient | **A** | `PongAudioService.cpp` 6,346 B；`NativeSandboxGrantProcess`/shared memory/selector 齐全 |
-| A6 | `PongAudioPlugIn.c` HAL 插件 | **A（代码）/ B（20G81 ABI）** | 41,210 B；对象/属性/StartIO/StopIO 完整；22H374 地址需要按 20G81 重对 |
+| A4 | 64 KiB low DMA + SID1801 + SMMU | **A（驱动）** | `PongAudio.cpp:124-132` 有完整驱动；K60 UEFI `DarwinBoot.c:767-775,830-833` 已分配并回写 `/chosen/pong-audio-dma`，`board.toml:298-305` 占位已进镜像 j ADT；low-DMA lease 已由 `pcm-low-dma-lease` 闭合；SMMU/真实周期仍随 `pcm-submit-path` 待验证 |
+| A5 | `PongAudio` 内核服务/UserClient | **A（已落地）** | K60 实现：`drivers/PongPower/PongAudioService.cpp` + `PongAudioServiceAbi.h`；`NativeSandboxGrantProcess`/shared memory/selector 齐全，镜像 l 起编入电池归档；`startOutput()` 以 `pong_audio_status() != PongAudioOk` 为拒绝条件 |
+| A6 | `PongAudioPlugIn.c` HAL 插件 | **A（已落地代码+内核部署）/ B（20G81 运行验证）** | K60 实现：`userland/PongAudioPlugIn.c` 38,142 B；output-only 对象/属性/StartIO/StopIO 完整；`userland/build.py audio` 编译成 `PongAudio.driver/PongAudio` 69,920 B（sha256 `fa4780ea…`）；镜像 p 起由 `patches/xnu/0617` 把 bundle 写入 `/private/var/pong/empty-hal`（init 已 bind 到 HAL 搜索路径，不需要 `apply()` 改 sealed system）；20G81 实机播放验证仍待 |
 | A7 | `PongAudioRoute.h` VirtualAudio 路由 | **A（代码）/ B（20G81 地址）** | 17,861 B；`pibi`/`prts`/`rtcf`/`vcsp` 逻辑完整；22H374 MediaExperience 指令偏移不能直接用 |
 | A8 | `audio_clock18.h` 24→19.2 MHz 时钟 | **A（代码）/ B（20G81）** | `PongAudioService.cpp:24-50`/`audio_clock18.h` 有实现；20G81 的 CoreAudio double 地址需重找 |
 | A9 | `audio_codecs18.h` 软件解码回退 | **A** | 本机 Pong userland 完整 |
@@ -417,7 +417,7 @@ CoreAudio/audiomxd
 | A13 | 原生 `PongAudio2Device : IOAudio2Device` | **B/C** | `IOAudio2Family`/`IOAudio2Device` 存在；`PongIOAudio2.h` 在 pong-power 子模块但本工作区未展开；20G81 vtable 未核实 |
 | A14 | `AppleARMIISDevice` 原生 provider | **C** | 20G81 有 `AppleARMIISController/Device`，但没有 K60 `apple,iis`/`audio-data` 节点和绑定；需反汇编/实验 |
 | A15 | WCD938x 麦克风/耳机捕获 | **B/C** | `FDT` 有 codec；Pong 明确只做输出、不做输入；第一版不做 |
-| A16 | `pong-audio`/`pong-audio-dma` ADT 节点 | **B** | 2.4 的设计；尚无生成器/驱动读取 |
+| A16 | `pong-audio`/`pong-audio-dma` ADT 节点 | **A（占位）/ B（消费）** | `pong-audio` 已在 `dts/mondrian.dts:54-80`；`pong-audio-dma` 16 字节占位在 `board.toml:298-305`，镜像 j `kernel.macho.adt` 验证（sha256 `784c097a…`）；驱动读取尚未实现 |
 | A17 | 音量/静音/保护 | **A（框架）/ C（AW882xx 寄存器）** | Pong HAL/音量框架可抄；AW882xx 的保护/校准寄存器未知 |
 
 ### 3.3 共用/平台
@@ -425,7 +425,7 @@ CoreAudio/audiomxd
 | # | 实现项 | 等级 | 依据/说明 |
 |---|---|---|---|
 | P1 | K60 PMIC 电源轨（SPMI/RPMh/TCS） | **A/B** | Pong `QcomRpmh.c`/`ShengBattmgr.c` 可参考；K60 `FDT` 的 SPMI 地址/PPID 已实测；具体轨投票需按 K60 PMIC 表重对 |
-| P2 | `pong-audio-dma` / `pong-bt` ADT 生成 | **B** | 设计；需改 `board.toml`/`dts`/核心 `devicetree.py`，并改 `uefi-mondrian` 分配器 |
+| P2 | `pong-audio-dma` / `pong-bt` ADT 生成 | **A / B** | `pong-audio-dma` 占位已在 `board.toml`，镜像 j ADT 已验证；`pong-bt` 仍设计；UEFI 分配器已实现（`DarwinBoot.c:767-775,830-833`） |
 | P3 | 内存窗口 4 GiB / `owned_memory_size` | **M/A** | `board.toml:98,148-162` 已有；不要改成 12 GiB（`PITFALLS`/`TRUST-LEDGER T1`） |
 | P4 | `apply()` OS 窗口 + launchd | **A（Pong 脚本）/ 现状未做** | `userland/build.py:449`；K60 当前是 stock 20G81，launchd SIGSEGV 是硬阻断（`STATE:10`） |
 
@@ -440,7 +440,7 @@ CoreAudio/audiomxd
 | `apply()` 后的 OS 窗口 / launchd 正常 | **是**（要跑用户态 btstack/测试工具） | **是**（要跑 audiomxd/HAL） | 当前 K60 唯一硬阻断（`STATE-2026-11-07.md:10`）；在此之前只能做内核级/裸机级 bring-up |
 | 4 GiB 高内存窗口 | **是**（内核要起来） | **是**（内核要起来） | 当前 `board.toml` 4.75 GiB window、4096 MiB 实测；不要重开 12 GiB |
 | UFS/OS root + Data | **是**（用户态） | **是**（用户态） | `NEXT-STEPS:53-55` 的顺序 |
-| `pong-audio-dma` 64 KiB 低地址 DMA | 否 | **是** | K60 DarwinBoot 目前无此节点（`AGENT-COORDINATION:3253`） |
+| `pong-audio-dma` 64 KiB 低地址 DMA | 否 | **是** | UEFI `DarwinBoot.c` 已分配并回写；ADT 占位已进镜像 j；剩驱动侧 lease/SMMU 消费 |
 | ADSP PAS/GPR/SMEM/SMP2P/GLINK | 否（HCI 不依赖 ADSP） | **是** | 音频第一硬前置；`PongAdsp.cpp`/Sheng 代码可抄 |
 | PMIC SPMI/RPMh 轨（S5/S10/S11/S12/L7、ADSP rails） | **是** | **是** | BT 与 WLAN/音频共用；需要共享锁/串行化 |
 | WiFi/PCIe0 | 否 | 否 | 共享 QCA6490 XO GPIO204 + 部分电源轨；WiFi 先做时可复用其 PMU 上电序列，但不应当成 BT 前置 |
@@ -456,10 +456,10 @@ CoreAudio/audiomxd
 2. **共用平台资源**：把 K60 PMIC 轨（S5/S10/S11/S12/L7、ADSP CX/MX）封装成 `PongPlatformResources` 的只读/投票接口；与 WiFi（若并行）共享 APSS active TCS4 锁。先做 SPMI 只读观测，再写 enable。
 3. **音频 A 阶段（推荐先做）**：
    a. `PongAdsp` + `AdspFirmware` + SMEM/SMP2P/GLINK/GPR（A 级）。
-   b. `pong-audio-dma` UEFI 分配器 + `PongAudio` DMA/SMMU（A/B 级）。
+   b. `PongAudio` DMA/SMMU 消费 `/chosen/pong-audio-dma`（UEFI 分配器与 ADT 占位已就绪，A 级）。
    c. `PongAudio.cpp` 的 AudioReach graph + 64 KiB ring（A 级）。
    d. K60 TDM/PRM（1.536 MHz、tx-lines=3）+ AW882xx 驱动（C 级，最大新增）。
-   e. `PongAudioService.cpp` + `PongAudioPlugIn.c` HAL（A 级，20G81 ABI 重对）。
+   e. `PongAudioService.cpp`（已落地：`drivers/PongPower/PongAudioService.cpp`，镜像 l）+ 播放图 11 步与 PCM 8 槽周期泵（`PongAudioPlayback.h`，镜像 m）+ `PongAudioPlugIn.c` HAL（已落地：`userland/PongAudioPlugIn.c`，`userland/build.py audio` 编译通过；镜像 p 起由 `patches/xnu/0617` 部署到 empty-hal；20G81 实机运行验证仍待）。
    f. 音量/路由/休眠恢复（A/B 级）。
 4. **蓝牙 B 阶段（音频之后或并行，依赖更少）**：
    a. `PongBtPower` 电源/复位（C）。
@@ -480,7 +480,7 @@ CoreAudio/audiomxd
 | 工作包 | 主要内容 | 估算 | 风险 |
 |---|---|---|---|
 | 音频 ADSP/GPR/GLINK/SMEM | `PongAdsp.cpp`/`AdspFirmware.c`/`ShengGpr.c`/`ShengAudioReach.c` SM8475 化 | **M/L：2–4 人周** | 中（同代 IP，代码可抄；K60 carveout 不同） |
-| 音频 DMA/UEFI | 64 KiB low DMA、SID1801、SMMU 4K、table/lease | **M：2–3 人周** | 中（Pong 代码完整；UEFI 分配器新增） |
+| 音频 DMA/UEFI | 64 KiB low DMA、SID1801、SMMU 4K、table/lease | **M：2–3 人周** | 中（Pong 代码完整；UEFI 分配器已实现，剩驱动消费） |
 | 音频 TDM/PRM | K60 1.536 MHz、双 TX line、GPIO121-124、LPASS clock | **M：2–3 人周** | 中（DT 值明确；AudioReach 参数需实测） |
 | 音频功放 AW882xx | I2C 驱动、寄存器表、awini 校准、保护/音量 | **L：3–5 人周** | **高（本机无源码/无寄存器表）** |
 | 音频 HAL/内核服务 | `PongAudioService` + `PongAudioPlugIn` + 20G81 ABI | **M/L：3–4 人周** | 中（代码可抄，ABI 重对） |
@@ -499,7 +499,7 @@ CoreAudio/audiomxd
 | R1 | **K60 实测为 AW882xx，不是 TFA9873**；若按 TFA 写代码会完全跑不通 | 音频全盘返工 | 第一颗板级动作：I2C 0x34/0x35 读 ID/revision；按实际芯片分支 |
 | R2 | AW882xx 无本机源码/寄存器表/awini 校准 | 功放不响/音质/保护异常 | 从 Xiaomi/LineageOS 内核拉 `aw882xx` 驱动与 `awini` 校准；先只做基本 init + TDM，再做音量/保护 |
 | R3 | K60 TDM 1.536 MHz、双 data line 与 Pong 3.072 MHz/单 SD1 不同 | AudioReach 图/时钟不匹配，无声 | 以 `FDT` 的 `qcom,msm-cpudai-tdm-clk-rate=0x177000`、`tx-lines=0x3` 重算；用示波器验 SCK/WS |
-| R4 | `pong-audio-dma` 在 K60 DarwinBoot 不存在 | 音频 DMA 无合法低地址 lease，PongAudio 直接失败 | 在 `uefi-mondrian` 增加 64 KiB `EfiReservedMemoryType` 分配器并写 `/chosen/pong-audio-dma`；先打印 PA/size |
+| R4 | `pong-audio-dma` 驱动尚未消费 | 音频 DMA 无合法低地址 lease，PongAudio 直接失败 | UEFI `DarwinBoot.c` 已分配并回写，ADT 占位已进镜像 j；下一步在 `PongAudio` DMA/SMMU 读取 lease，失败时打印 PA/size |
 | R5 | 20G81 与 22H374 的 `AudioServerPlugIn`/MediaExperience 地址不同 | HAL 路由/状态页崩溃或找不到设备 | 按 20G81 二进制重新定位 `pibi/prts/rtcf/vcsp`；先只做音量/设备发现，不照抄 22H374 绝对地址 |
 | R6 | QCA6490 BT 固件实际文件/分区布局未核实 | 固件下载失败，HCI 起不来 | 先列 `modem_a/modem_b/image/qca6490` 清单；确认 `htbtfw21.tlv`/`htnv21.bin`；保留 fallback 文件路径 |
 | R7 | BT 无 Apple HCI 栈，`bluetoothd` 不可用 | 只能自研栈，CoreBluetooth 应用不可用 | 第一版明确“btstack only”；CoreBluetooth 另立项/不承诺 |

@@ -1,0 +1,3295 @@
+--- /dev/null
++++ b/bsd/dev/PongAudioRegs.h
+@@ -0,0 +1,162 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * K60 (Redmi K60 / mondrian / SM8475 / "cape") audio register map for the
++ * AP-side blocks: TLMM pads, the QUPV3 wrapper-2 serial engine that carries the
++ * speaker amplifiers, and the Awinic AW882xx register file. Nothing here is
++ * reachable through the ADSP, so none of it needs PAS1 or a PRM vote.
++ *
++ * Every constant below carries the evidence that fixes it. Register names are
++ * never used as evidence for a value.
++ *
++ *   L  E:/k60-work/scratch/audio-work/live-fdt.dts   Android live FDT (authoritative)
++ *   G  /home/emilelu/k60tmp/gcc-sm8450.c             vendor gcc driver, qupv3 branch table
++ *   S  /mnt/e/k60-work/references/pong-power/        Pong reference, same SoC (SM8475)
++ *   M  /home/emilelu/wifi-inputs/linux/drivers/i2c/busses/i2c-qcom-geni.c, include/linux/soc/qcom/geni-se.h
++ *   H  /mnt/e/k60-work/references/phk110-port/drivers/audio/hakios.speaker.c  AW882xx family
++ */
++#ifndef PONG_AUDIO_REGS_H
++#define PONG_AUDIO_REGS_H
++
++/* ---- TLMM pads ------------------------------------------------------------
++ * L:1347  pinctrl@f000000, compatible "qcom,cape-pinctrl", reg <0xf000000 0x1000000>
++ * S:PongAudio.cpp:120  pins.open(0xf100000, 0xd0000)  -> the GPIO register
++ *        block is TLMM base + 0x100000, not the node base.
++ * S:PongAudio.cpp:120-129  GPIO n lives at n * 0x1000; +0 config, +4 in/out.
++ * Same shape in the K60 touch driver: patches/xnu/zzzz*pong-touch-console.patch:137
++ *        ml_io_map(TLMM_PHYS + gpio_offset + 0x1000 * pin, IO_PAGE_SIZE).
++ */
++/* One 4 KiB register window. io_map() rounds every mapping up to the arm64
++ * 16 KiB page (osfmk/arm/io_map.c:88-142), so one window costs four pages of
++ * the 8 MiB kernel-wide io_submap - see SOUNDWIRE.md section 7. */
++#define PONG_AUDIO_WINDOW_SIZE      0x00001000u
++#define PONG_AUDIO_TLMM_PHYS        0x0f000000u
++#define PONG_AUDIO_TLMM_GPIO_OFF    0x00100000u
++#define PONG_AUDIO_GPIO_STRIDE      0x00001000u
++#define PONG_AUDIO_GPIO_CFG         0x0u    /* [1:0] pull, [5:2] function, [8:6] drive, [9] output */
++#define PONG_AUDIO_GPIO_IO          0x4u    /* bit0 in, bit1 out */
++#define PONG_AUDIO_GPIO_IRQ_CFG     0x8u
++#define PONG_AUDIO_GPIO_IRQ_STATUS  0xcu
++#define PONG_AUDIO_GPIO_EGPIO_EXISTS (1u << 11)   /* touch patch:163-166 */
++#define PONG_AUDIO_GPIO_APPS_CTRL    (1u << 12)   /* set only when bit 11 says eGPIO exists */
++#define PONG_AUDIO_GPIO_PULL_UP     3u
++#define PONG_AUDIO_GPIO_PULL_NONE   0u
++#define PONG_AUDIO_GPIO_FN_GPIO     0u
++#define PONG_AUDIO_GPIO_FN_QUP15    1u   /* pinctrl-sm8450.c:1472-1473 PINGROUP(56, qup15, ...) */
++
++/* K60 amplifier pads, all four from L:13318-13341 (aw882xx_smartpa@34 / @35). */
++#define PONG_AUDIO_AMP0_RESET_GPIO  1u   /* L:13322 reset-gpio <0x3c 0x01 0x00> */
++#define PONG_AUDIO_AMP1_RESET_GPIO  3u   /* L:13335 reset-gpio <0x3c 0x03 0x00> */
++#define PONG_AUDIO_AMP0_IRQ_GPIO    88u  /* L:13321 irq-gpio <0x3c 0x58 0x2008> */
++#define PONG_AUDIO_AMP1_IRQ_GPIO    63u  /* L:13334 irq-gpio <0x3c 0x3f 0x2008> */
++#define PONG_AUDIO_SPKSW_GPIO       52u  /* L:13329 spksw-gpio <0x3c 0x34 0x00> */
++#define PONG_AUDIO_I2C_SCL_GPIO     56u  /* L:3562-3593 qupv3_se15_i2c_pins active */
++#define PONG_AUDIO_I2C_SDA_GPIO     57u
++
++/* ---- GCC ----------------------------------------------------------------
++ * L:788-799  clock-controller@100000, reg <0x100000 0x1f4200>
++ * G:2417-2422 wrap2_s0_clk      .halt_reg 0x2e00c, .enable_reg 0x62010, BITS(4)
++ * G:2404-2409 wrap2_core_clk    .halt_reg 0x33280, .enable_reg 0x62010, BITS(0)
++ * G:2391-2396 wrap2_core_2x_clk .halt_reg 0x3328c, .enable_reg 0x62010, BITS(3)
++ * G:2603-2610 wrap_2_m_ahb_clk  .halt_reg 0x2e004, .enable_reg 0x62010, BITS(2), hwcg bit 1
++ * G:2618-2625 wrap_2_s_ahb_clk  .halt_reg 0x2e008, .enable_reg 0x62010, BITS(1), hwcg bit 1
++ * G:888-896   wrap2_s0_clk_src  .cmd_rcgr 0x2e014 (SE15 = wrapper 2, SE0)
++ * NOTE: wrapper 0/1 vote through 0x62008; wrapper 2 through 0x62010. Copying
++ * the touch driver's 0x62008 would vote the wrong wrapper.
++ */
++#define PONG_AUDIO_GCC_PHYS         0x00100000u
++#define PONG_AUDIO_GCC_RCG_WIN      0x0002e000u   /* one page covers 0x2e000..0x2efff */
++#define PONG_AUDIO_GCC_CBC_WIN      0x00033000u   /* 0x33280, 0x3328c */
++#define PONG_AUDIO_GCC_VOTE_WIN     0x00062000u   /* 0x62010 */
++#define PONG_AUDIO_GCC_VOTE_WRAP2   0x00062010u
++#define PONG_AUDIO_GCC_WRAP2_MASK   0x0000001fu   /* core|s_ahb|m_ahb|core_2x|s0 */
++#define PONG_AUDIO_GCC_CBC_CORE     0x00033280u
++#define PONG_AUDIO_GCC_CBC_CORE_2X  0x0003328cu
++#define PONG_AUDIO_GCC_CBC_M_AHB    0x0002e004u
++#define PONG_AUDIO_GCC_CBC_S_AHB    0x0002e008u
++#define PONG_AUDIO_GCC_CBC_S0       0x0002e00cu
++#define PONG_AUDIO_GCC_RCG_SE15     0x0002e014u
++#define PONG_AUDIO_GCC_DFS_LEVELS   8u           /* touch patch:313-324 walks 8 DFS levels */
++
++/* GPLL0 (G:gcc-sm8450.c:50-62): the PLL block starts at GCC+0x0, its enable vote is
++ * a bit inside 0x62018, PLL_MODE is offset 0x0 of that block and the lock
++ * indication is BIT(31) (M:clk-alpha-pll.c:17-34, PLL_LOCK_DET). HR-02 step 1
++ * requires this vote and the lock wait before any QUP branch is touched. */
++#define PONG_AUDIO_GCC_PLL_WIN       0x00000000u   /* GCC+0x0: PLL_MODE, one page */
++#define PONG_AUDIO_GCC_PLL0_ENABLE   0x00062018u   /* in the vote window, delta 0x18 */
++#define PONG_AUDIO_GCC_PLL0_MODE     0x00000000u   /* in the PLL window, delta 0x0 */
++#define PONG_AUDIO_GCC_PLL0_VOTE     (1u << 0)
++#define PONG_AUDIO_GCC_PLL_LOCK_DET  (1u << 31)
++#define PONG_AUDIO_CBCR_CLK_OFF     (1u << 31)   /* clk-branch.c:50-59 halt test */
++#define PONG_AUDIO_CBCR_HWCG        (1u << 1)    /* "running" when HW gating is on */
++
++/* ---- QUPV3 wrapper 2 SE0 = the amplifier I2C bus -------------------------
++ * L:13301-13310  i2c@880000, qcom,i2c-geni, reg <0x880000 0x4000>, pinctrl-0 <0x100>
++ * sm8450.dtsi:981-999  i2c15: i2c@880000, clocks <&gcc GCC_QUPV3_WRAP2_S0_CLK>
++ * S:PongAudio.cpp:130-144  the same bring-up for wrapper 1 SE5, four constants differ.
++ */
++#define PONG_AUDIO_SE15_PHYS        0x00880000u
++#define PONG_AUDIO_SE15_SIZE        0x00004000u
++
++/* ---- Awinic AW882xx ------------------------------------------------------
++ * L:13318-13329  aw882xx_smartpa@34 (sound-channel 0, spksw-gpio 52)
++ * L:13331-13341  aw882xx_smartpa@35 (sound-channel 1, no spksw-gpio)
++ * H:355-401      register file, identical offsets across the AW882xx family
++ * H:340-350      chip id table
++ * Read/write: the probe only reads the registers below. The replay pass that
++ * follows it (PongAudioAmpReplay.h) writes the tuning table, so the two write
++ * targets are named here as well.
++ */
++#define PONG_AUDIO_AMP_ADDR0        0x34u
++#define PONG_AUDIO_AMP_ADDR1        0x35u
++#define AW_REG_ID                   0x00u   /* read = chip id; write 0x55aa = soft reset */
++#define AW_REG_SYSST                0x01u
++#define AW_REG_SYSINTM              0x03u   /* mask, readable */
++#define AW_REG_SYSCTRL              0x04u
++#define AW_REG_SYSCTRL2             0x05u   /* volume, top six bits kept */
++#define AW_REG_I2SCTRL              0x06u
++#define AW_REG_DBGCTRL              0x14u
++#define AW_REG_VBAT                 0x21u
++#define AW_REG_TEMP                 0x22u
++#define AW_REG_PVDD                 0x23u
++#define AW_REG_VSNTM1               0x50u
++#define AW_REG_EFRH4                0x78u
++#define AW_REG_EFRH3                0x79u
++#define AW_REG_EFRL4                0x7cu
++#define AW_REG_EFRL3                0x7du
++
++/* Status bits (H:363-401). */
++#define AW_SYSST_PLLS               (1u << 0)
++#define AW_SYSST_OTHS               (1u << 1)
++#define AW_SYSST_OCDS               (1u << 3)
++#define AW_SYSST_CLKS               (1u << 4)
++#define AW_SYSST_NOCLKS             (1u << 5)
++#define AW_SYSST_WDS                (1u << 6)
++#define AW_SYSST_SWS                (1u << 8)
++#define AW_SYSST_BSTS               (1u << 9)
++#define AW_SYSST_BSTOCS             (1u << 11)
++#define AW_SYSST_UVLS               (1u << 14)
++#define AW_SYSST_OVP2S              (1u << 15)
++#define AW_SYSST_FAULTS 	(AW_SYSST_OVP2S | AW_SYSST_UVLS | AW_SYSST_BSTOCS | AW_SYSST_WDS | 	 AW_SYSST_NOCLKS | AW_SYSST_OCDS | AW_SYSST_OTHS)
++
++/* AW_SYSCTRL bits (H:376-380). */
++#define AW_SYSCTRL_PWDN             (1u << 0)
++#define AW_SYSCTRL_AMPPD            (1u << 1)
++#define AW_SYSCTRL_HMUTE            (1u << 8)
++
++/* ---- WCD938x / LPASS: recorded here, not touched by this probe -----------
++ * Kept next to the amp map so the next file does not have to re-derive them.
++ * L:2494-2523  wcd938x_reset_active/sleep pin mux gpio43, 16 mA; active is output-high
++ * L:32567-32646 audio-ref-clk tx_core_clk: codec-lpass-clk-id 0x30c, ext 19.2 MHz
++ * L:23349-23367 va_swr_master swrm-io-base 0x33b0000, swr_master_id 3, irq 0x1f0/0x208
++ * S:PongWcd938.h:59-120  the SM8475 codec bring-up order; every LPASS access needs
++ *        two PRM block votes plus the 0x30c clock acknowledgement first, so none
++ *        of it can run before the ADSP answers.
++ */
++#define PONG_AUDIO_CODEC_RESET_GPIO 43u
++#define PONG_AUDIO_TX_CORE_CLK_ID   0x30cu
++#define PONG_AUDIO_TX_CORE_HZ       19200000u
++#define PONG_AUDIO_VA_SWR_PHYS      0x033b0000u
++#define PONG_AUDIO_TX_MACRO_PHYS    0x03220000u
++#define PONG_AUDIO_VA_MACRO_PHYS    0x033f0000u
++
++#endif /* PONG_AUDIO_REGS_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioPlan.h
+@@ -0,0 +1,149 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * Pure decision helpers for the K60 speaker-amplifier probe.
++ *
++ * Everything here is a plain function over numbers: no MMIO, no kernel
++ * headers. That is deliberate - it lets the probe's decision logic be proven by
++ * a host unit test (drivers/PongAudio/tests), which is the only local evidence
++ * available while the ADSP is still blocked (eight-step step 4, "verify").
++ *
++ * Sources for every rule: see PongAudioRegs.h and docs/research/audio/AMPS.md.
++ */
++#ifndef PONG_AUDIO_PLAN_H
++#define PONG_AUDIO_PLAN_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "PongAudioRegs.h"
++
++/* Physical address of one TLMM pad's register block. The GPIO register block
++ * sits at TLMM base + 0x100000, one 0x1000 block per pad
++ * (S:PongAudio.cpp:120-129, same shape as the touch patch:137). */
++static inline uint32_t
++pong_audio_pad_phys(uint32_t gpio)
++{
++	return PONG_AUDIO_TLMM_PHYS + PONG_AUDIO_TLMM_GPIO_OFF +
++	    PONG_AUDIO_GPIO_STRIDE * gpio;
++}
++
++/* Pad config word: preserve everything outside the documented 10-bit field,
++ * and declare APPS ownership only when the pad's eGPIO-exists bit says so
++ * (touch patch:148-166). drive_ma is rounded down to the 2 mA field step;
++ * a value below 2 mA means "no drive" rather than a negative field. */
++static inline uint32_t
++pong_audio_pad_config(uint32_t current, uint32_t pull, uint32_t function,
++    uint32_t drive_ma, bool output)
++{
++	uint32_t next = current & ~0x3ffu;
++
++	next |= pull & 0x3u;
++	next |= (function & 0xfu) << 2;
++	next |= ((drive_ma / 2u) - (drive_ma >= 2u ? 1u : 0u)) << 6;
++	if (output) {
++		next |= 1u << 9;
++	}
++	if (current & PONG_AUDIO_GPIO_EGPIO_EXISTS) {
++		next |= PONG_AUDIO_GPIO_APPS_CTRL;
++	}
++	return next;
++}
++
++static inline uint32_t
++pong_audio_pad_function(uint32_t cfg)
++{
++	return (cfg >> 2) & 0xfu;
++}
++
++static inline bool
++pong_audio_pad_output(uint32_t cfg)
++{
++	return (cfg & (1u << 9)) != 0u;
++}
++
++static inline bool
++pong_audio_pad_out_high(uint32_t io)
++{
++	return (io & 2u) != 0u;
++}
++
++/* A branch clock runs when the hardware gating branch is active or the
++ * clock-off bit is clear (clk-branch.c:50-59; TouchProbe.cpp:406 - requiring
++ * CLK_OFF == 0 on its own is a false negative). */
++static inline bool
++pong_audio_cbcr_running(uint32_t value)
++{
++	return !(value & PONG_AUDIO_CBCR_CLK_OFF) ||
++	    (value & PONG_AUDIO_CBCR_HWCG);
++}
++
++/* Which one-page GCC window holds an offset: 0 = RCG window, 1 = CBCR window,
++ * 2 = vote window, 3 = PLL window, -1 = outside all four. *delta receives the
++ * offset inside the chosen window. Four windows are 64 KiB of the 8 MiB
++ * kernel-wide io_submap (osfmk/arm/io_map.c:66), not Pong's 640 KiB block.
++ * The PLL window is separate because HR-02 step 1 wants GPLL0 voted and locked
++ * before any QUP branch: the vote bit sits in the vote window, the lock bit
++ * does not. */
++static inline int
++pong_audio_gcc_window(uint32_t offset, uint32_t *delta)
++{
++	if (offset < PONG_AUDIO_GCC_PLL_WIN + PONG_AUDIO_WINDOW_SIZE) {
++		*delta = offset - PONG_AUDIO_GCC_PLL_WIN;
++		return 3;
++	}
++	if (offset >= PONG_AUDIO_GCC_RCG_WIN &&
++	    offset < PONG_AUDIO_GCC_RCG_WIN + PONG_AUDIO_WINDOW_SIZE) {
++		*delta = offset - PONG_AUDIO_GCC_RCG_WIN;
++		return 0;
++	}
++	if (offset >= PONG_AUDIO_GCC_CBC_WIN &&
++	    offset < PONG_AUDIO_GCC_CBC_WIN + PONG_AUDIO_WINDOW_SIZE) {
++		*delta = offset - PONG_AUDIO_GCC_CBC_WIN;
++		return 1;
++	}
++	if (offset >= PONG_AUDIO_GCC_VOTE_WIN &&
++	    offset < PONG_AUDIO_GCC_VOTE_WIN + PONG_AUDIO_WINDOW_SIZE) {
++		*delta = offset - PONG_AUDIO_GCC_VOTE_WIN;
++		return 2;
++	}
++	return -1;
++}
++
++/* A DFS level usable as the I2C source: the always-on reference and no
++ * divider, judged the way the touch bring-up does (touch patch:313-324). */
++static inline bool
++pong_audio_dfs_level_ok(uint32_t cfg)
++{
++	return ((cfg >> 8) & 7u) == 0u && ((cfg >> 12) & 3u) == 0u &&
++	    (cfg & 31u) <= 1u;
++}
++
++/* An AW882xx read answers two bytes over GENI I2C: the first byte of the FIFO
++ * word is the value's high byte (S:PongAudio.cpp:108-110; GeniI2c.h: "the bytes
++ * read, first byte in bits 7:0"). */
++static inline uint16_t
++pong_audio_amp_value(uint32_t rx)
++{
++	return (uint16_t)(((rx & 0xffu) << 8) | ((rx >> 8) & 0xffu));
++}
++
++/* Chip id names (H:340-350). Anything else stays "unknown" on purpose: this
++ * probe reports what answered, it never infers a part. */
++static inline const char *
++pong_audio_amp_name(uint16_t chip_id)
++{
++	switch (chip_id) {
++	case 0x2113: return "AW88261";
++	case 0x2013: return "AW88264";
++	case 0x2032: return "AW88266";
++	case 0x2049: return "AW88395";
++	case 0x2055: return "AW88256";
++	case 0x2066: return "AW88166";
++	case 0x2071: return "AW88350";
++	case 0x2183: return "AW88399";
++	case 0x2308: return "AW88230";
++	default: return "unknown";
++	}
++}
++
++#endif /* PONG_AUDIO_PLAN_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioGeniI2c.h
+@@ -0,0 +1,110 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * One register transfer at a time on a Qualcomm GENI serial engine running the
++ * I2C firmware, as an event-driven state machine. Ported from
++ * /mnt/e/k60-work/references/pong-power/GeniI2c.h (same SoC, SM8475); the
++ * register offsets, command composition and packing values are unchanged. Only
++ * the symbol prefix and the io vtable type name were renamed, so that this copy
++ * cannot collide with the Pong copy if both ever land in one binary.
++ *
++ * The owner starts a transfer, then feeds the engine's M_IRQ status until the
++ * transfer is done or failed, and calls the timeout step when its deadline
++ * passes. Nothing here waits or spins: every call does a few register accesses
++ * and returns. A register write is one 2-byte write {register, value}; a
++ * register read is a 1-byte write {register} that holds the stop condition,
++ * then a 1-byte read. A transfer that stops answering is cancelled, then
++ * aborted, as the engine documents.
++ */
++#ifndef PONG_AUDIO_GENI_I2C_H
++#define PONG_AUDIO_GENI_I2C_H
++#include <stdint.h>
++
++/* Serial engine registers (offsets in the engine's 16 KiB window). */
++#define PONG_GENI_FW_REVISION 0x68u
++#define PONG_GENI_IF_DISABLE 0x64u
++#define PONG_GENI_CLK_CFG 0x48u
++#define PONG_GENI_BYTE_GRAN 0x254u
++#define PONG_GENI_DMA_MODE 0x258u
++#define PONG_GENI_TX_PACK0 0x260u
++#define PONG_GENI_TX_PACK1 0x264u
++#define PONG_GENI_TX_LEN 0x26cu
++#define PONG_GENI_RX_LEN 0x270u
++#define PONG_GENI_SCL_COUNTERS 0x278u
++#define PONG_GENI_RX_PACK0 0x284u
++#define PONG_GENI_RX_PACK1 0x288u
++#define PONG_GENI_M_CMD0 0x600u
++#define PONG_GENI_M_CMD_CTRL 0x604u
++#define PONG_GENI_M_IRQ_STATUS 0x610u
++#define PONG_GENI_M_IRQ_EN 0x614u
++#define PONG_GENI_M_IRQ_CLEAR 0x618u
++#define PONG_GENI_TX_FIFO 0x700u
++#define PONG_GENI_RX_FIFO 0x780u
++#define PONG_GENI_RX_FIFO_STATUS 0x804u
++#define PONG_GENI_TX_WATERMARK 0x80cu
++#define PONG_GENI_SE_IRQ_EN 0xe1cu
++
++/* M_IRQ bits. */
++#define PONG_GENI_M_CMD_DONE (1u << 0)
++#define PONG_GENI_M_CMD_OVERRUN (1u << 1)
++#define PONG_GENI_M_ILLEGAL_CMD (1u << 2)
++#define PONG_GENI_M_CMD_FAILURE (1u << 3)
++#define PONG_GENI_M_CMD_CANCEL (1u << 4)
++#define PONG_GENI_M_CMD_ABORT (1u << 5)
++#define PONG_GENI_M_GP_IRQ (0x3fu << 9)      /* I2C: NACK, bus error, arbitration lost and the like */
++#define PONG_GENI_M_TX_WATERMARK (1u << 30)
++#define PONG_GENI_M_ERRORS (PONG_GENI_M_CMD_OVERRUN | PONG_GENI_M_ILLEGAL_CMD |                             PONG_GENI_M_CMD_FAILURE | PONG_GENI_M_GP_IRQ)
++/* What the engine is set to raise its line for. */
++#define PONG_GENI_M_IRQ_WANTED (PONG_GENI_M_CMD_DONE | PONG_GENI_M_ERRORS |                                 PONG_GENI_M_CMD_CANCEL | PONG_GENI_M_CMD_ABORT |                                 PONG_GENI_M_TX_WATERMARK)
++#define PONG_GENI_SE_M_IRQ_EN (1u << 2)
++#define PONG_GENI_CMD_CTRL_ABORT (1u << 1)
++#define PONG_GENI_CMD_CTRL_CANCEL (1u << 2)
++#define PONG_GENI_PROTO_I2C 3u
++#define PONG_GENI_OP_WRITE 1u
++#define PONG_GENI_OP_READ 2u
++#define PONG_GENI_STOP_STRETCH (1u << 2)
++
++typedef struct {
++	uint32_t (*read)(void *ctx, uint32_t reg);
++	void (*write)(void *ctx, uint32_t reg, uint32_t value);
++	void *ctx;
++} PongGeniIo;
++
++enum { PongGeniIdle, PongGeniTxWait, PongGeniWriteDone, PongGeniReadDone,
++       PongGeniCancelling, PongGeniAborting };
++enum { PongGeniPending = 0, PongGeniDone = 1, PongGeniFailed = 2 };
++/* Why the last transfer failed. */
++enum { PongGeniOk = 0, PongGeniErrBusy = 1, PongGeniErrBus = 2,
++       PongGeniErrTimeout = 3, PongGeniErrNoData = 4, PongGeniErrState = 5 };
++
++typedef struct {
++	PongGeniIo io;
++	uint8_t address, phase, reading, hold;
++	uint8_t reg, value, error, data;
++	uint8_t tx_words, rx_length;
++	uint32_t tx[2], length;
++	uint32_t rx;                     /* the bytes read, first byte in bits 7:0 */
++	uint32_t error_status;           /* the M_IRQ status of the last failure */
++	uint32_t done, failed, timeouts, stray;
++} PongGeniI2c;
++
++/* Checks the engine runs the I2C firmware with its clock and timing set (the
++ * boot loader's), selects FIFO mode with 8-bit packing and enables the
++ * interrupts this core needs. Returns 0, or -1 when the engine is not usable.
++ * *config: proto << 24 | M_CLK_CFG bits 23:0. */
++int pong_geni_prepare(PongGeniI2c *g, const PongGeniIo *io, uint8_t address, uint32_t *config);
++int pong_geni_start_write(PongGeniI2c *g, uint8_t reg, uint8_t value);
++int pong_geni_start_read(PongGeniI2c *g, uint8_t reg);
++/* Multi-byte forms for devices with wider registers: write 1..8 bytes; or write
++ * 1..4 bytes (holding the stop condition), then read 1..4 bytes into g->rx. */
++int pong_geni_start_write_bytes(PongGeniI2c *g, const uint8_t *bytes, uint32_t length);
++int pong_geni_start_read_bytes(PongGeniI2c *g, const uint8_t *bytes, uint32_t length,
++                               uint32_t read_length);
++/* Feeds M_IRQ status bits (already cleared by whoever read them). */
++int pong_geni_event(PongGeniI2c *g, uint32_t status);
++/* Reads and clears the status itself, then as pong_geni_event. */
++int pong_geni_poll(PongGeniI2c *g);
++/* The owner's deadline passed: cancel, then abort an unacknowledged cancel. */
++int pong_geni_timeout(PongGeniI2c *g);
++static inline int pong_geni_busy(const PongGeniI2c *g) { return g->phase != PongGeniIdle; }
++
++#endif /* PONG_AUDIO_GENI_I2C_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioGeniI2c.c
+@@ -0,0 +1,176 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ * Ported from /mnt/e/k60-work/references/pong-power/GeniI2c.c (SM8475). The
++ * logic is unchanged except for the symbol prefix; the comment on each command
++ * field ties it to the mainline decoder so the values are checkable:
++ *   M_CMD0 = opcode << 27 | params        (geni-se.h:154-156, qcom-geni-se.c:348)
++ *   params: slave address in bits 15:9, STOP_STRETCH bit 2
++ *                                        (i2c-qcom-geni.c:39-46, :876-884)
++ */
++#include "PongAudioGeniI2c.h"
++
++static uint32_t rdp(PongGeniI2c *g, uint32_t reg) { return g->io.read(g->io.ctx, reg); }
++static void wrp(PongGeniI2c *g, uint32_t reg, uint32_t value) { g->io.write(g->io.ctx, reg, value); }
++
++int
++pong_geni_prepare(PongGeniI2c *g, const PongGeniIo *io, uint8_t address, uint32_t *config)
++{
++	for (unsigned i = 0; i < sizeof *g; ++i) ((uint8_t *)g)[i] = 0;
++	g->io = *io;
++	g->address = address;
++	const uint32_t proto = (rdp(g, PONG_GENI_FW_REVISION) >> 8) & 0xffu, clock = rdp(g, PONG_GENI_CLK_CFG);
++	if (config) *config = (proto << 24) | (clock & 0xffffffu);
++	if (proto != PONG_GENI_PROTO_I2C || (rdp(g, PONG_GENI_IF_DISABLE) & 1u) ||
++	    !(clock & 1u) || !rdp(g, PONG_GENI_SCL_COUNTERS))
++		return -1;
++	wrp(g, PONG_GENI_DMA_MODE, 0);
++	/* 8-bit words, 4 per FIFO word, least significant byte first on the wire. */
++	wrp(g, PONG_GENI_TX_PACK0, 0x7f8fe); wrp(g, PONG_GENI_TX_PACK1, 0xffefe);
++	wrp(g, PONG_GENI_RX_PACK0, 0x7f8fe); wrp(g, PONG_GENI_RX_PACK1, 0xffefe);
++	wrp(g, PONG_GENI_BYTE_GRAN, 0);
++	wrp(g, PONG_GENI_TX_WATERMARK, 0);
++	wrp(g, PONG_GENI_M_IRQ_CLEAR, 0xffffffffu);
++	/* Exactly the bits this core handles: one the boot loader left enabled (RX
++	 * watermark, RX last) would hold the level line up. */
++	wrp(g, PONG_GENI_M_IRQ_EN, PONG_GENI_M_IRQ_WANTED);
++	wrp(g, PONG_GENI_SE_IRQ_EN, rdp(g, PONG_GENI_SE_IRQ_EN) | PONG_GENI_SE_M_IRQ_EN);
++	return 0;
++}
++
++/* Starts one write command of `length` bytes (at most 8); the data goes in when
++ * the engine asks for it (TX watermark). */
++static void
++write_command(PongGeniI2c *g, const uint8_t *bytes, uint32_t length, int hold)
++{
++	g->tx[0] = g->tx[1] = 0;
++	for (uint32_t i = 0; i < length; ++i) g->tx[i / 4] |= (uint32_t)bytes[i] << (8 * (i % 4));
++	g->tx_words = (uint8_t)((length + 3) / 4);
++	g->length = length;
++	g->hold = (uint8_t)hold;
++	wrp(g, PONG_GENI_TX_LEN, length);
++	wrp(g, PONG_GENI_M_CMD0, (PONG_GENI_OP_WRITE << 27) | ((uint32_t)g->address << 9) |
++	    (hold ? PONG_GENI_STOP_STRETCH : 0));
++	wrp(g, PONG_GENI_TX_WATERMARK, 1);
++	g->phase = PongGeniTxWait;
++}
++
++int
++pong_geni_start_write(PongGeniI2c *g, uint8_t reg, uint8_t value)
++{
++	if (g->phase != PongGeniIdle) return -1;
++	g->reading = 0; g->reg = reg; g->value = value; g->error = PongGeniOk;
++	const uint8_t bytes[2] = { reg, value };
++	write_command(g, bytes, 2, 0);
++	return 0;
++}
++
++int
++pong_geni_start_read(PongGeniI2c *g, uint8_t reg)
++{
++	if (g->phase != PongGeniIdle) return -1;
++	g->reading = 1; g->rx_length = 1; g->reg = reg; g->error = PongGeniOk;
++	write_command(g, &reg, 1, 1);
++	return 0;
++}
++
++int
++pong_geni_start_write_bytes(PongGeniI2c *g, const uint8_t *bytes, uint32_t length)
++{
++	if (g->phase != PongGeniIdle || !length || length > 8) return -1;
++	g->reading = 0; g->error = PongGeniOk;
++	write_command(g, bytes, length, 0);
++	return 0;
++}
++
++int
++pong_geni_start_read_bytes(PongGeniI2c *g, const uint8_t *bytes, uint32_t length, uint32_t read_length)
++{
++	if (g->phase != PongGeniIdle || !length || length > 4 || !read_length || read_length > 4) return -1;
++	g->reading = 1; g->rx_length = (uint8_t)read_length; g->error = PongGeniOk;
++	write_command(g, bytes, length, 1);
++	return 0;
++}
++
++static int
++finish(PongGeniI2c *g, int error, uint32_t status)
++{
++	g->phase = PongGeniIdle;
++	wrp(g, PONG_GENI_TX_WATERMARK, 0);
++	if (!error) { g->done++; return PongGeniDone; }
++	g->error = (uint8_t)error;
++	g->error_status = status;
++	g->failed++;
++	return PongGeniFailed;
++}
++
++int
++pong_geni_event(PongGeniI2c *g, uint32_t status)
++{
++	if (!status) return PongGeniPending;
++	switch (g->phase) {
++	case PongGeniIdle:
++		g->stray++;
++		return PongGeniPending;
++	case PongGeniCancelling:
++		if (status & PONG_GENI_M_CMD_CANCEL) return finish(g, PongGeniErrTimeout, g->error_status);
++		return PongGeniPending;
++	case PongGeniAborting:
++		if (status & PONG_GENI_M_CMD_ABORT) return finish(g, PongGeniErrTimeout, g->error_status);
++		return PongGeniPending;
++	default:
++		break;
++	}
++	/* A failed command also ends with CMD_DONE; the error bits decide. */
++	if (status & PONG_GENI_M_ERRORS) return finish(g, PongGeniErrBus, status);
++	if (g->phase == PongGeniTxWait) {
++		if (status & PONG_GENI_M_TX_WATERMARK) {
++			for (unsigned i = 0; i < g->tx_words; ++i) wrp(g, PONG_GENI_TX_FIFO, g->tx[i]);
++			wrp(g, PONG_GENI_TX_WATERMARK, 0);
++			g->phase = PongGeniWriteDone;
++		}
++		if (!(status & PONG_GENI_M_CMD_DONE)) return PongGeniPending;
++		if (g->phase == PongGeniTxWait) return finish(g, PongGeniErrState, status);
++	}
++	if (!(status & PONG_GENI_M_CMD_DONE)) return PongGeniPending;
++	if (g->phase == PongGeniWriteDone) {
++		if (!g->reading) return finish(g, PongGeniOk, 0);
++		wrp(g, PONG_GENI_RX_LEN, g->rx_length);
++		wrp(g, PONG_GENI_M_CMD0, (PONG_GENI_OP_READ << 27) | ((uint32_t)g->address << 9));
++		g->phase = PongGeniReadDone;
++		return PongGeniPending;
++	}
++	/* PongGeniReadDone */
++	if (!(rdp(g, PONG_GENI_RX_FIFO_STATUS) & 0x1ffffffu)) return finish(g, PongGeniErrNoData, status);
++	g->rx = rdp(g, PONG_GENI_RX_FIFO);
++	g->data = (uint8_t)g->rx;
++	return finish(g, PongGeniOk, 0);
++}
++
++int
++pong_geni_poll(PongGeniI2c *g)
++{
++	const uint32_t status = rdp(g, PONG_GENI_M_IRQ_STATUS);
++	if (status) wrp(g, PONG_GENI_M_IRQ_CLEAR, status);
++	return g->phase == PongGeniIdle ? PongGeniPending : pong_geni_event(g, status);
++}
++
++int
++pong_geni_timeout(PongGeniI2c *g)
++{
++	switch (g->phase) {
++	case PongGeniIdle:
++		return PongGeniPending;
++	case PongGeniCancelling:
++		wrp(g, PONG_GENI_M_CMD_CTRL, PONG_GENI_CMD_CTRL_ABORT);
++		g->phase = PongGeniAborting;
++		return PongGeniPending;
++	case PongGeniAborting:
++		return finish(g, PongGeniErrTimeout, g->error_status);
++	default:
++		g->timeouts++;
++		g->error_status = rdp(g, PONG_GENI_M_IRQ_STATUS);
++		wrp(g, PONG_GENI_TX_WATERMARK, 0);
++		wrp(g, PONG_GENI_M_CMD_CTRL, PONG_GENI_CMD_CTRL_CANCEL);
++		g->phase = PongGeniCancelling;
++		return PongGeniPending;
++	}
++}
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAmp.c
+@@ -0,0 +1,811 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * K60 (Redmi K60 / mondrian / SM8475 / "cape") speaker amplifier probe.
++ *
++ * WHAT THIS IS: step 3 of the audio-codec task, the register-level check that
++ * can be done before the ADSP exists. Every LPASS block (TX/VA macro, the
++ * SoundWire master, LPI pads) needs two PRM block votes and the 0x30c clock
++ * acknowledgement from the DSP first (S:PongWcd938.h:59-120), so the codec side
++ * cannot be touched yet. The amplifiers, by contrast, hang off an AP-owned
++ * QUPV3 serial engine: their chip id answers without the DSP. Reading it
++ * decides which amplifier driver the port needs, which is the open question in
++ * docs/research/audio/AMPS.md.
++ *
++ * WHAT IT WRITES:
++ *   - TLMM: GPIO56/57 -> QUP15 function, pull-up, 2 mA, only when they are not
++ *     already there;
++ *   - TLMM: GPIO1/GPIO3 (the two amplifier reset lines) -> released (high),
++ *     only when they are not already released;
++ *   - GCC:  the wrapper-2 branch votes and the SE15 DFS level;
++ *   - GENI: the engine's own configuration registers;
++ *   - amplifiers: the replay pass. Once the read-only probe has answered for a
++ *     part, that part is soft reset and loaded with its own "Music" profile -
++ *     the 57 register pairs of the phone's ACF tuning file, transcribed into
++ *     PongAudioAmpProfile.h - and then given the fuse-derived vcalb and the
++ *     mute volume. Every write is printed next to its read-back, so one boot
++ *     says exactly which register accepts what.
++ *     The pass leaves both chips powered down and muted: the SYSCTRL merge
++ *     keeps PWDN/AMPPD/HMUTE at whatever the hardware says and forces
++ *     ULS_HMUTE, and the transmit enable bit is cleared. No bit clock runs, so
++ *     nothing here can reach the speaker.
++ *
++ * WHAT IT DOES NOT DO: no LPASS access, no ADSP/PAS1/GPR call, no ACF file read
++ * at boot (both profiles are compiled in), no PLL or SYSST wait, no playback.
++ * Those need the ADSP and stay blocked (AMPS.md sections 7 and 9).
++ *
++ * GATING: the probe runs only when the image is booted with pong_audio_probe=1.
++ * Without the argument this file is inert: one boot-arg lookup and a return. The
++ * kernel argument lives in board.toml [kernel] kernel_args, which this task may
++ * not edit, so it is delivered as a merge request to the Lead.
++ *
++ * Eight-step status (docs/research/EIGHT-STEPS.toml, hardware.audio):
++ *   (1) same model  yes  - AW882xx register file from the phk110 port driver,
++ *                          GENI I2C from Pong (same SoC, SM8475)
++ *   (2) official    part - mainline geni-se.h / i2c-qcom-geni.c / gcc-sm8450.c
++ *   (3) decompile   yes  - live FDT pads, addresses, interrupts (CODEC/AMPS.md)
++ *   (4) wide        yes  - three independent sources per constant
++ *   (5) plan        yes  - AMPS.md section 5, A1-A7
++ *   (6) deep        yes  - AMPS.md sections 3-4
++ *   (7) verify      compile + rule gate only; needs one boot to become real
++ *   (8) on device   not attempted
++ */
++#include <pexpert/arm64/board_config.h>
++#if defined(PONG)
++
++#include <kern/clock.h>
++#include <pexpert/pexpert.h>
++#include <sys/systm.h>
++#include <sys/types.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <string.h>
++
++#include "PongAudioRegs.h"
++#include "PongAudioGeniI2c.h"
++#include "PongAudioPlan.h"
++#include "PongAudioTlmm.h"
++#include "PongAudioAcf.h"
++#include "PongAudioAmpProfile.h"
++#include "PongAudioAmpReplay.h"
++
++extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
++
++/* Called from bsd/kern/bsd_init.c right after the audio skeleton hook
++ * (patches/audio/0001-k60-audio-amp-probe.patch). Declared here so the file
++ * compiles under -Wmissing-prototypes without a second header. */
++int pong_audio_amp_probe(void);
++
++#define PONG_AUDIO_IO_PAGE      ((vm_offset_t)PONG_AUDIO_WINDOW_SIZE)
++#define PONG_AUDIO_PIN_COUNT    8u
++
++/* ---- accessors ---------------------------------------------------------- */
++
++static inline uint32_t
++rd(vm_offset_t address)
++{
++	return *(volatile uint32_t *)address;
++}
++
++static inline void
++wr(vm_offset_t address, uint32_t value)
++{
++	*(volatile uint32_t *)address = value;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++static void
++wait_us(uint32_t us)
++{
++	delay_for_interval(us, NSEC_PER_USEC);
++}
++
++/* ---- pads --------------------------------------------------------------- */
++
++static const uint32_t probe_pads[PONG_AUDIO_PIN_COUNT] = {
++	PONG_AUDIO_AMP0_RESET_GPIO, PONG_AUDIO_AMP1_RESET_GPIO,
++	PONG_AUDIO_CODEC_RESET_GPIO, PONG_AUDIO_SPKSW_GPIO,
++	PONG_AUDIO_I2C_SCL_GPIO, PONG_AUDIO_I2C_SDA_GPIO,
++	PONG_AUDIO_AMP1_IRQ_GPIO, PONG_AUDIO_AMP0_IRQ_GPIO,
++};
++/* Index names, so a log line reads without a lookup. */
++enum { PadAmp0Reset, PadAmp1Reset, PadCodecReset, PadSpkSwitch,
++       PadI2cScl, PadI2cSda, PadAmp1Irq, PadAmp0Irq };
++
++static vm_offset_t pad_window[PONG_AUDIO_PIN_COUNT];
++
++static bool
++pads_map(void)
++{
++	unsigned i;
++	vm_offset_t phys;
++
++	for (i = 0; i < PONG_AUDIO_PIN_COUNT; ++i) {
++		phys = (vm_offset_t)pong_audio_pad_phys(probe_pads[i]);
++		pad_window[i] = ml_io_map(phys, PONG_AUDIO_IO_PAGE);
++		if (!pad_window[i]) {
++			printf("PongAudio: amp probe pad map failed gpio=%u phys=0x%x\n",
++			    probe_pads[i], (unsigned)phys);
++			return false;
++		}
++	}
++	return true;
++}
++
++/* Prints the state the firmware inherited. This is evidence in its own right:
++ * it tells whether Android already configured the bus pads and released the
++ * amplifier resets, and no write below may contradict it silently. */
++static void
++pads_report(void)
++{
++	unsigned i;
++
++	for (i = 0; i < PONG_AUDIO_PIN_COUNT; ++i) {
++		printf("PongAudio: amp pin gpio=%u cfg=0x%08x io=0x%08x\n",
++		    probe_pads[i], rd(pad_window[i]), rd(pad_window[i] + PONG_AUDIO_GPIO_IO));
++	}
++}
++
++/* The speaker switch is a board GPIO, not an amplifier register. The vendor
++ * driver requests it low at probe and only the speaker path drives it high
++ * (aw882xx.c:1711-1717, mixer_paths_waipio_mtp.xml:2132). Hold it low: the
++ * probe must leave the speaker muted whatever Android left behind. */
++static bool
++spk_switch_mute(void)
++{
++	const uint32_t index = PadSpkSwitch;
++	const uint32_t current = rd(pad_window[index]);
++	const uint32_t before = rd(pad_window[index] + PONG_AUDIO_GPIO_IO);
++	const uint32_t cfg = pong_audio_spksw_cfg(current);
++	const uint32_t io = pong_audio_spksw_io(false);
++	bool muted;
++
++	wr(pad_window[index] + PONG_AUDIO_GPIO_IO, io);
++	wr(pad_window[index], cfg);
++	muted = !pong_audio_pad_out_high(rd(pad_window[index] + PONG_AUDIO_GPIO_IO));
++	printf("PongAudio: amp spk switch gpio=%u muted=%d cfg=0x%08x io=0x%08x was=0x%08x\n",
++	    probe_pads[index], muted ? 1 : 0, cfg, io, before);
++	return muted;
++}
++
++/* I2C pads belong to the QUP15 function with a pull-up; the bus is idle-high.
++ * If the firmware already left them there, do not rewrite them. */
++static bool
++i2c_pads_take(void)
++{
++	const unsigned pads[2] = { PadI2cScl, PadI2cSda };
++	uint32_t current, next, readback;
++	bool ready = true;
++	unsigned i;
++
++	for (i = 0; i < 2; ++i) {
++		current = rd(pad_window[pads[i]]);
++		if (pong_audio_pad_function(current) == PONG_AUDIO_GPIO_FN_QUP15) {
++			printf("PongAudio: amp i2c pad gpio=%u already qup15 cfg=0x%08x\n",
++			    probe_pads[pads[i]], current);
++			continue;
++		}
++		next = pong_audio_pad_config(current, PONG_AUDIO_GPIO_PULL_UP,
++		    PONG_AUDIO_GPIO_FN_QUP15, 2u, false);
++		wr(pad_window[pads[i]], next);
++		readback = rd(pad_window[pads[i]]);
++		printf("PongAudio: amp i2c pad gpio=%u cfg=0x%08x -> 0x%08x readback=0x%08x\n",
++		    probe_pads[pads[i]], current, next, readback);
++		ready = ready && pong_audio_pad_function(readback) == PONG_AUDIO_GPIO_FN_QUP15;
++	}
++	return ready;
++}
++
++/* Releases an amplifier reset line: level first, then direction, so the pad
++ * never drives a glitch into the chip (touch patch:169-174). Returns true when
++ * this probe is the one that released the line. */
++static bool
++amp_reset_release(unsigned index, const char *name)
++{
++	const uint32_t current = rd(pad_window[index]);
++	const uint32_t io = rd(pad_window[index] + PONG_AUDIO_GPIO_IO);
++	uint32_t next;
++
++	if (pong_audio_pad_output(current) && pong_audio_pad_out_high(io)) {
++		printf("PongAudio: amp reset %s gpio=%u already released cfg=0x%08x io=0x%08x\n",
++		    name, probe_pads[index], current, io);
++		return false;
++	}
++	wr(pad_window[index] + PONG_AUDIO_GPIO_IO, 2u);
++	next = pong_audio_pad_config(current, PONG_AUDIO_GPIO_PULL_NONE,
++	    PONG_AUDIO_GPIO_FN_GPIO, 16u, true);
++	wr(pad_window[index], next);
++	printf("PongAudio: amp reset %s gpio=%u released by this probe cfg=0x%08x -> 0x%08x\n",
++	    name, probe_pads[index], current, rd(pad_window[index]));
++	return true;
++}
++
++/* ---- GCC ---------------------------------------------------------------- */
++
++static vm_offset_t gcc_pll, gcc_rcg, gcc_cbc, gcc_vote;
++static unsigned gcc_misses;
++
++static bool
++gcc_map(void)
++{
++	gcc_pll = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_PLL_WIN, PONG_AUDIO_IO_PAGE);
++	gcc_rcg = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_RCG_WIN, PONG_AUDIO_IO_PAGE);
++	gcc_cbc = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_CBC_WIN, PONG_AUDIO_IO_PAGE);
++	gcc_vote = ml_io_map(PONG_AUDIO_GCC_PHYS + PONG_AUDIO_GCC_VOTE_WIN, PONG_AUDIO_IO_PAGE);
++	if (!gcc_pll || !gcc_rcg || !gcc_cbc || !gcc_vote) {
++		printf("PongAudio: amp probe gcc map failed pll=%lx rcg=%lx cbc=%lx vote=%lx\n",
++		    (unsigned long)gcc_pll, (unsigned long)gcc_rcg, (unsigned long)gcc_cbc,
++		    (unsigned long)gcc_vote);
++		return false;
++	}
++	return true;
++}
++
++/* Four one-page windows instead of Pong's 640 KiB block: io_submap is 8 MiB
++ * kernel-wide (osfmk/arm/io_map.c:66) and must stay shared with everything
++ * else. */
++static vm_offset_t
++gcc_window(uint32_t offset)
++{
++	uint32_t delta = 0;
++	const int index = pong_audio_gcc_window(offset, &delta);
++
++	if (index == 0) {
++		return gcc_rcg + delta;
++	}
++	if (index == 1) {
++		return gcc_cbc + delta;
++	}
++	if (index == 2) {
++		return gcc_vote + delta;
++	}
++	if (index == 3) {
++		return gcc_pll + delta;
++	}
++	return 0;
++}
++
++/* A miss is counted once, in the accessor: a failed read and a failed write are
++ * both evidence, and counting twice would inflate the probe's own report. */
++static uint32_t
++gcc_read(uint32_t offset)
++{
++	const vm_offset_t address = gcc_window(offset);
++
++	if (!address) {
++		++gcc_misses;
++		return 0u;
++	}
++	return rd(address);
++}
++
++static void
++gcc_write(uint32_t offset, uint32_t value)
++{
++	const vm_offset_t address = gcc_window(offset);
++
++	if (!address) {
++		++gcc_misses;
++		return;
++	}
++	wr(address, value);
++}
++
++/* HR-02 step 1: vote GPLL0 and wait for its lock before touching any QUP
++ * branch. The enable bit is in the vote window (G:gcc-sm8450.c:50-62,
++ * enable_reg 0x62018 BIT(0)); the lock indication is PLL_MODE BIT(31)
++ * (M:clk-alpha-pll.c:17-34, PLL_LOCK_DET) in the PLL window. Voting a branch
++ * whose source is not locked is exactly how the earlier GENI attempts hung the
++ * bus with no console output (HARD-RULES HR-02, 2026-11-09 audio I2C). */
++static bool
++gcc_gpll0_on(void)
++{
++	const uint32_t vote = gcc_read(PONG_AUDIO_GCC_PLL0_ENABLE);
++	uint32_t mode;
++	unsigned n;
++
++	if ((vote & PONG_AUDIO_GCC_PLL0_VOTE) == 0u) {
++		gcc_write(PONG_AUDIO_GCC_PLL0_ENABLE, vote | PONG_AUDIO_GCC_PLL0_VOTE);
++	}
++	mode = gcc_read(PONG_AUDIO_GCC_PLL0_MODE);
++	for (n = 0; n < 1000u && (mode & PONG_AUDIO_GCC_PLL_LOCK_DET) == 0u; ++n) {
++		wait_us(10);
++		mode = gcc_read(PONG_AUDIO_GCC_PLL0_MODE);
++	}
++	printf("PongAudio: amp gcc gpll0 vote=0x%08x mode=0x%08x locked=%u\n",
++	    vote, mode, (mode & PONG_AUDIO_GCC_PLL_LOCK_DET) ? 1u : 0u);
++	return (mode & PONG_AUDIO_GCC_PLL_LOCK_DET) != 0u;
++}
++
++/* wrapper 2: core, core_2x, m_ahb, s_ahb, s0. The same five clocks Pong votes
++ * for on wrapper 1 (S:PongAudio.cpp:130-133), with the wrapper-2 enable
++ * register. Called only after gcc_gpll0_on() has proved the source is locked. */
++static bool
++gcc_wrapper2_on(void)
++{
++	static const struct {
++		uint32_t halt;
++		const char *name;
++	} clocks[] = {
++		{ PONG_AUDIO_GCC_CBC_CORE,    "wrap2_core" },
++		{ PONG_AUDIO_GCC_CBC_CORE_2X, "wrap2_core_2x" },
++		{ PONG_AUDIO_GCC_CBC_M_AHB,   "wrap2_m_ahb" },
++		{ PONG_AUDIO_GCC_CBC_S_AHB,   "wrap2_s_ahb" },
++		{ PONG_AUDIO_GCC_CBC_S0,      "wrap2_s0" },
++	};
++	const uint32_t vote = gcc_read(PONG_AUDIO_GCC_VOTE_WRAP2);
++	const uint32_t wanted = vote | PONG_AUDIO_GCC_WRAP2_MASK;
++	uint32_t value;
++	unsigned i, n;
++
++	gcc_write(PONG_AUDIO_GCC_VOTE_WRAP2, wanted);
++	printf("PongAudio: amp gcc vote 0x%x -> 0x%x readback 0x%x\n",
++	    vote, wanted, gcc_read(PONG_AUDIO_GCC_VOTE_WRAP2));
++
++	for (i = 0; i < sizeof clocks / sizeof clocks[0]; ++i) {
++		value = gcc_read(clocks[i].halt);
++		for (n = 0; n < 100u && !pong_audio_cbcr_running(value); ++n) {
++			wait_us(100);
++			value = gcc_read(clocks[i].halt);
++		}
++		printf("PongAudio: amp gcc clk %s halt=0x%08x running=%u\n",
++		    clocks[i].name, value, pong_audio_cbcr_running(value) ? 1u : 0u);
++		if (!pong_audio_cbcr_running(value)) {
++			return false;
++		}
++	}
++	return true;
++}
++
++/* Picks the DFS level whose source is the always-on reference with no divider,
++ * exactly as the touch bring-up does (touch patch:313-324), then hands the
++ * choice to the engine: the vendor DFS table is never rewritten. */
++static unsigned
++gcc_se15_dfs_level(void)
++{
++	uint32_t cfg;
++	unsigned i;
++
++	for (i = 0; i < PONG_AUDIO_GCC_DFS_LEVELS; ++i) {
++		cfg = gcc_read(PONG_AUDIO_GCC_RCG_SE15 + 0x1cu + 4u * i);
++		printf("PongAudio: amp gcc dfs level=%u cfg=0x%08x\n", i, cfg);
++		if (pong_audio_dfs_level_ok(cfg)) {
++			return i;
++		}
++	}
++	return 0xffu;
++}
++
++/* ---- GENI serial engine ------------------------------------------------- */
++
++static vm_offset_t se_window;
++
++static uint32_t
++se_rd(void *ctx, uint32_t reg)
++{
++	(void)ctx;
++	return rd(se_window + reg);
++}
++
++static void
++se_wr(void *ctx, uint32_t reg, uint32_t value)
++{
++	(void)ctx;
++	wr(se_window + reg, value);
++}
++
++static PongGeniI2c bus;
++static unsigned bus_recoveries;
++
++/* A transfer whose cancel is never acknowledged leaves the state machine in
++ * Cancelling or Aborting, where every later start is refused as busy - and the
++ * second amplifier would then be blamed for the first one's timeout. Walk the
++ * documented ladder (header: "cancel, then abort an unacknowledged cancel")
++ * back to Idle before starting anything. Three steps is the longest path:
++ * TxWait/WriteDone/ReadDone -> Cancelling -> Aborting -> Idle. */
++static void
++bus_recover(void)
++{
++
++	unsigned steps = 0;
++
++
++
++	while (steps < 3u && pong_geni_busy(&bus)) {
++
++		(void)pong_geni_timeout(&bus);
++
++		++steps;
++
++	}
++
++	if (steps) {
++
++		++bus_recoveries;
++
++		printf("PongAudio: amp bus recovered a stuck transfer in %u step(s) err=%u\n",
++
++		    steps, bus.error);
++
++	}
++
++}
++
++/* Engine bring-up: mainline geni_se_init() (qcom-geni-se.c:316-352 - keep the
++ * clocks on, keep GSI events off, default IO output control, force default),
++ * then Pong's I2C timing writes (S:PongAudio.cpp:142), then pong_geni_prepare(),
++ * which owns the FIFO packing and the interrupt mask. */
++static bool
++se15_open(unsigned *dfs_level)
++{
++	PongGeniIo io;
++	uint32_t revision, proto, config = 0;
++	unsigned level;
++
++	se_window = ml_io_map(PONG_AUDIO_SE15_PHYS, PONG_AUDIO_SE15_SIZE);
++	if (!se_window) {
++		printf("PongAudio: amp probe se map failed phys=0x%x\n", PONG_AUDIO_SE15_PHYS);
++		return false;
++	}
++
++	revision = se_rd(NULL, PONG_GENI_FW_REVISION);
++	proto = (revision >> 8) & 0xffu;
++	printf("PongAudio: amp se15 fw=0x%08x proto=%u disabled=0x%08x clock=0x%08x scl=0x%08x\n",
++	    revision, proto, se_rd(NULL, PONG_GENI_IF_DISABLE), se_rd(NULL, PONG_GENI_CLK_CFG),
++	    se_rd(NULL, PONG_GENI_SCL_COUNTERS));
++	if (proto != PONG_GENI_PROTO_I2C) {
++		return false;
++	}
++
++	level = gcc_se15_dfs_level();
++	if (dfs_level) {
++		*dfs_level = level;
++	}
++	if (level == 0xffu) {
++		printf("PongAudio: amp se15 no DFS level with the reference source; not driving one\n");
++		return false;
++	}
++
++	se_wr(NULL, 0x28u, se_rd(NULL, 0x28u) | 0x7fu);   /* SE_GENI_CGC_CTRL */
++	se_wr(NULL, 0xe18u, 0u);                          /* SE_GSI_EVENT_EN: GSI unused */
++	se_wr(NULL, 0x24u, 0x7fu);                        /* GENI_OUTPUT_CTRL default mask */
++	se_wr(NULL, 0x20u, 1u);                           /* GENI_FORCE_DEFAULT_REG */
++	se_wr(NULL, 0x7cu, level);                        /* SE_GENI_CLK_SEL: DFS level */
++	se_wr(NULL, PONG_GENI_CLK_CFG, 0x21u);            /* M clock divider + enable */
++	se_wr(NULL, PONG_GENI_SCL_COUNTERS, (5u << 20) | (11u << 10) | 22u);
++
++	io.read = se_rd;
++	io.write = se_wr;
++	io.ctx = NULL;
++	if (pong_geni_prepare(&bus, &io, PONG_AUDIO_AMP_ADDR0, &config) != 0) {
++		printf("PongAudio: amp se15 prepare refused config=0x%08x\n", config);
++		return false;
++	}
++	printf("PongAudio: amp se15 ready config=0x%08x status=0x%08x level=%u\n",
++	    config, se_rd(NULL, 0x40u), level);
++	return true;
++}
++
++/* Bounded transfer: 20 ms of polling, then the engine's cancel/abort ladder.
++ * Boot-time context, so a plain delay keeps the code honest about both the
++ * deadline and the fact that nothing else can run here. */
++static int
++transfer_run(void)
++{
++	int result;
++	unsigned n;
++
++	for (n = 0; n < 4000u; ++n) {
++		result = pong_geni_poll(&bus);
++		if (result != PongGeniPending) {
++			return result;
++		}
++		wait_us(5);
++	}
++	(void)pong_geni_timeout(&bus);
++	for (n = 0; n < 200u; ++n) {
++		result = pong_geni_poll(&bus);
++		if (result != PongGeniPending) {
++			return result;
++		}
++		wait_us(5);
++	}
++	return PongGeniFailed;
++}
++
++/* One amplifier register read: a 1-byte write of the register number that holds
++ * the stop condition, then a 2-byte read; the first byte arrives in rx[7:0], so
++ * the value is big-endian (S:PongAudio.cpp:108-110). */
++static int
++amp_read(uint8_t address, uint8_t reg, uint16_t *value)
++{
++	const uint8_t pointer = reg;
++	int result;
++
++	bus_recover();
++	bus.address = address;
++	bus.error = PongGeniOk;
++	if (pong_geni_start_read_bytes(&bus, &pointer, 1, 2) != 0) {
++		return -1;
++	}
++	result = transfer_run();
++	if (result != PongGeniDone) {
++		return result == PongGeniFailed ? -(int)bus.error - 10 : -1;
++	}
++	*value = pong_audio_amp_value(bus.rx);
++	return 0;
++}
++
++static uint16_t
++amp_read_or(uint8_t address, uint8_t reg, uint16_t fallback)
++{
++	uint16_t value = fallback;
++	const int result = amp_read(address, reg, &value);
++
++	if (result != 0) {
++		printf("PongAudio: amp read failed addr=0x%x reg=0x%02x result=%d err=%u irq=0x%08x\n",
++		    address, reg, result, bus.error, bus.error_status);
++	}
++	return value;
++}
++
++static unsigned
++amp_probe_one(unsigned index, uint8_t address, bool reset_by_us)
++{
++	uint16_t chip = 0, status, mask, control, i2s, debug, vbat, pvdd, temp, vcal;
++	uint16_t f4, f3, l4, l3;
++	int result = -1;
++	unsigned attempt;
++
++	for (attempt = 0; attempt < 3u; ++attempt) {
++		result = amp_read(address, AW_REG_ID, &chip);
++		if (result == 0) {
++			break;
++		}
++		wait_us(5000);
++	}
++	if (result != 0) {
++		printf("PongAudio: amp%u addr=0x%x no answer after 3 reads result=%d err=%u irq=0x%08x reset=%s\n",
++		    index, address, result, bus.error, bus.error_status,
++		    reset_by_us ? "released-by-probe" : "already-released-or-untouched");
++		return 0;
++	}
++
++	/* Everything below is a read. AW_SYSINT (0x02) is deliberately skipped:
++	 * reading it clears the interrupt status, and this probe leaves state
++	 * alone. */
++	status = amp_read_or(address, AW_REG_SYSST, 0xffffu);
++	mask = amp_read_or(address, AW_REG_SYSINTM, 0xffffu);
++	control = amp_read_or(address, AW_REG_SYSCTRL, 0xffffu);
++	i2s = amp_read_or(address, AW_REG_I2SCTRL, 0xffffu);
++	debug = amp_read_or(address, AW_REG_DBGCTRL, 0xffffu);
++	vbat = amp_read_or(address, AW_REG_VBAT, 0xffffu);
++	pvdd = amp_read_or(address, AW_REG_PVDD, 0xffffu);
++	temp = amp_read_or(address, AW_REG_TEMP, 0xffffu);
++	vcal = amp_read_or(address, AW_REG_VSNTM1, 0xffffu);
++	f4 = amp_read_or(address, AW_REG_EFRH4, 0xffffu);
++	f3 = amp_read_or(address, AW_REG_EFRH3, 0xffffu);
++	l4 = amp_read_or(address, AW_REG_EFRL4, 0xffffu);
++	l3 = amp_read_or(address, AW_REG_EFRL3, 0xffffu);
++
++	printf("PongAudio: amp%u addr=0x%x id=0x%04x chip=%s status=0x%04x faults=0x%04x pll=%u\n",
++	    index, address, chip, pong_audio_amp_name(chip), status,
++	    (unsigned)(status & AW_SYSST_FAULTS),
++	    (unsigned)((status & (AW_SYSST_CLKS | AW_SYSST_PLLS)) == (AW_SYSST_CLKS | AW_SYSST_PLLS)));
++	printf("PongAudio: amp%u mask=0x%04x ctrl=0x%04x i2s=0x%04x dbg=0x%04x vbat=0x%04x pvdd=0x%04x temp=0x%04x\n",
++	    index, mask, control, i2s, debug, vbat, pvdd, temp);
++	printf("PongAudio: amp%u vcal=0x%04x fuse=0x%04x/0x%04x/0x%04x/0x%04x\n",
++	    index, vcal, f4, f3, l4, l3);
++	return 1;
++}
++
++/* ---- tuning replay ------------------------------------------------------ */
++
++static unsigned replay_written, replay_mismatched, replay_failed;
++
++/* One amplifier register write: the AW882xx 3-byte form, register then the
++ * value big-endian (AMPS.md section 4.1, S:PongAudio.cpp:108-110). */
++static int
++amp_write(uint8_t address, uint8_t reg, uint16_t value)
++{
++	const uint8_t bytes[3] = { reg, (uint8_t)(value >> 8), (uint8_t)value };
++	int result;
++
++	bus_recover();
++	bus.address = address;
++	bus.error = PongGeniOk;
++	if (pong_geni_start_write_bytes(&bus, bytes, 3) != 0) {
++		return -1;
++	}
++	result = transfer_run();
++	if (result != PongGeniDone) {
++		return result == PongGeniFailed ? -(int)bus.error - 10 : -1;
++	}
++	return 0;
++}
++
++/* The value the tuning file carries for one register, or 0xffff when it does
++ * not name it. */
++static uint16_t
++profile_reg(const uint16_t *profile, uint8_t reg)
++{
++	uint32_t i;
++
++	for (i = 0; i < PONG_AMP_PROFILE_PAIRS; ++i) {
++		if (profile[i * 2u] == reg) {
++			return profile[i * 2u + 1u];
++		}
++	}
++	return 0xffffu;
++}
++
++/* One amplifier, one full replay: soft reset, the profile, vcalb, the mute
++ * volume - every step written, read back and printed. The profile is chosen by
++ * I2C address, not by this probe's index: 0x34 is the ACF's dev_index 1
++ * (AMPS.md section 8.5). */
++static unsigned
++amp_replay_one(unsigned index, uint8_t address)
++{
++	const uint16_t *profile = pong_amp_profile_for_addr(address);
++	const uint32_t pairs = PONG_AMP_PROFILE_PAIRS;
++	const uint32_t steps = pong_replay_steps(PONG_AMP_PROFILE_PAIRS);
++	uint16_t vcalb = 0, readback = 0, write_value;
++	uint8_t action, reg;
++	uint16_t value;
++	uint32_t step;
++	unsigned ok = 0;
++	bool have_vcalb;
++
++	if (profile == 0) {
++		printf("PongAudio: amp%u addr=0x%x has no profile\n", index, address);
++		return 0;
++	}
++	have_vcalb = pong_acf_vcalb(profile_reg(profile, AW_REG_DBGCTRL),
++	    amp_read_or(address, AW_REG_EFRH4, 0xffffu),
++	    amp_read_or(address, AW_REG_EFRH3, 0xffffu),
++	    amp_read_or(address, AW_REG_EFRL4, 0xffffu),
++	    amp_read_or(address, AW_REG_EFRL3, 0xffffu), &vcalb);
++	printf("PongAudio: amp%u replay start dev_index=%u dbg=0x%04x vcalb=%s0x%04x steps=%u\n",
++	    index, (unsigned)pong_acf_channel_for_addr(address),
++	    profile_reg(profile, AW_REG_DBGCTRL), have_vcalb ? "" : "refused ", vcalb,
++	    steps);
++
++	for (step = 0; step < steps; ++step) {
++		if (!pong_replay_at(profile, pairs, step, &action, &reg, &value)) {
++			printf("PongAudio: amp%u replay refused step %u\n", index, step);
++			++replay_failed;
++			break;
++		}
++		write_value = value;
++		switch (action) {
++		case PongReplaySysctrl:
++			if (amp_read(address, reg, &readback) != 0) {
++				printf("PongAudio: amp%u replay cannot read 0x%02x before the merge\n",
++				    index, reg);
++				++replay_failed;
++				return ok;
++			}
++			write_value = pong_replay_sysctrl(value, readback);
++			break;
++		case PongReplayVcalb:
++			if (!have_vcalb) {
++				printf("PongAudio: amp%u replay stops at vcalb: no usable fuse ratio\n",
++				    index);
++				++replay_failed;
++				return ok;
++			}
++			write_value = vcalb;
++			break;
++		case PongReplayVolume:
++			if (amp_read(address, reg, &readback) != 0) {
++				printf("PongAudio: amp%u replay cannot read 0x%02x for the volume merge\n",
++				    index, reg);
++				++replay_failed;
++				return ok;
++			}
++			write_value = pong_replay_volume(readback);
++			break;
++		default:
++			break;
++		}
++		if (amp_write(address, reg, write_value) != 0) {
++			printf("PongAudio: amp%u replay write failed step=%u reg=0x%02x value=0x%04x err=%u\n",
++			    index, step, reg, write_value, bus.error);
++			++replay_failed;
++			return ok;
++		}
++		++replay_written;
++		if (step == 0u) {
++			/* M: aw88261.c:1056-1060 the chip settles after the soft reset
++			 * before the table is loaded. */
++			wait_us(2000);
++		}
++		if (amp_read(address, reg, &readback) != 0) {
++			printf("PongAudio: amp%u replay %02u reg=0x%02x wrote=0x%04x read=failed\n",
++			    index, step, reg, write_value);
++			++replay_failed;
++			return ok;
++		}
++		if (readback != write_value && action != PongReplaySysctrl) {
++			++replay_mismatched;
++		}
++		printf("PongAudio: amp%u replay %02u reg=0x%02x wrote=0x%04x read=0x%04x%s%s\n",
++		    index, step, reg, write_value, readback,
++		    readback == write_value ? "" : " differs",
++		    action == PongReplaySysctrl ? " (three bits kept from hw)" : "");
++		++ok;
++	}
++	return ok;
++}
++
++/* ---- entry point -------------------------------------------------------- */
++
++int
++pong_audio_amp_probe(void)
++{
++	uint32_t mode = 0;
++	unsigned level = 0xffu;
++	unsigned found0, found1, replay0, replay1;
++	bool released0, released1;
++
++	if (!PE_parse_boot_argn("pong_audio_probe", &mode, sizeof mode) || mode != 1u) {
++		return 0;
++	}
++
++	printf("PongAudio: amp probe start (read pass first, then a replay pass that writes the tuning table; AMPS.md A1-A7 and section 9)\n");
++
++	if (!pads_map()) {
++		return -1;
++	}
++	pads_report();
++
++	if (!spk_switch_mute()) {
++		printf("PongAudio: amp probe stop: speaker switch did not read back low\n");
++		return -1;
++	}
++
++	if (!gcc_map()) {
++		return -1;
++	}
++	/* HR-02 step 1 before step 2: no QUP branch is voted while its source may be
++	 * unlocked. Order is vote GPLL0, wait for lock, then vote the branches. */
++	if (!gcc_gpll0_on()) {
++		printf("PongAudio: amp probe stop: GPLL0 not locked\n");
++		return -1;
++	}
++	if (!gcc_wrapper2_on()) {
++		printf("PongAudio: amp probe stop: QUPV3 wrapper 2 clocks not running\n");
++		return -1;
++	}
++	if (!i2c_pads_take()) {
++		printf("PongAudio: amp probe stop: I2C pads did not take the QUP15 function\n");
++		return -1;
++	}
++	if (!se15_open(&level)) {
++		printf("PongAudio: amp probe stop: serial engine 15 not usable\n");
++		return -1;
++	}
++
++	/* Only now that the bus answers is it worth releasing a reset line: doing it
++	 * earlier and failing would leave an amplifier awake with no clock. */
++	released0 = amp_reset_release(PadAmp0Reset, "amp0");
++	released1 = amp_reset_release(PadAmp1Reset, "amp1");
++	wait_us(5000);
++
++	found0 = amp_probe_one(0, PONG_AUDIO_AMP_ADDR0, released0);
++	found1 = amp_probe_one(1, PONG_AUDIO_AMP_ADDR1, released1);
++
++	/* The replay pass runs in the same gated call: only a part that answered
++	 * gets written, and each one gets its own ACF half. It adds no call site -
++	 * bsd_init.c still calls pong_audio_amp_probe() once. */
++	replay0 = found0 ? amp_replay_one(0, PONG_AUDIO_AMP_ADDR0) : 0u;
++	replay1 = found1 ? amp_replay_one(1, PONG_AUDIO_AMP_ADDR1) : 0u;
++
++	printf("PongAudio: amp probe done found=%u/2 transfers=%u failed=%u timeouts=%u stray=%u recovered=%u gcc_misses=%u\n",
++	    found0 + found1, bus.done, bus.failed, bus.timeouts, bus.stray, bus_recoveries,
++	    gcc_misses);
++	printf("PongAudio: amp replay done amp0=%u amp1=%u written=%u mismatched=%u failed=%u transfers=%u\n",
++	    replay0, replay1, replay_written, replay_mismatched, replay_failed, bus.done);
++	return (int)(found0 + found1);
++}
++
++#endif /* PONG */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAcf.h
+@@ -0,0 +1,305 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * Pure reader for the Awinic ACF tuning file (aw882xx_acf.bin) and the
++ * decisions that follow from one.
++ *
++ * Why this file exists. On hardware both amplifiers answered chip id 0x2113
++ * (AW88261, docs/research/audio/AMPS.md section 7.2), which settles which part
++ * sits on the board but not which driver to port: every vendor tree drives this
++ * part from a per-project ACF blob rather than from a register table, and the
++ * K60's own blob was found on the device at /vendor/firmware/aw882xx_acf.bin
++ * (3440 bytes, sha256 ce0e16d22380565114f56e6a02e4f85959160baccc6c163df6ecaf9db20cbf9e).
++ * The A5 answer is therefore "port the ACF-driven shape and load the blob the
++ * phone already ships", not "copy another board's register table".
++ *
++ * Everything here is a plain function over a byte buffer: no MMIO, no kernel
++ * headers, so the host unit test (drivers/PongAudio/tests) can pin it. Layout
++ * facts, each read from a source and quoted by line:
++ *   D: aw88395_data_type.h:19-21        ACF_FILE_ID, header field offsets
++ *   H: hakios.speaker.c:543             dde stride = entry_size / entries
++ *   H: hakios.speaker.c:594-599         pairs at +0x40, LE16 reg + LE16 val
++ *   H: hakios.speaker.c:604-611         per-block checksum ranges
++ *   H: hakios.speaker.c:430-431         I2C 0x35 is dev_index 0, 0x34 is 1
++ *   H: hakios.speaker.c:455-524         monitor table offsets and row layout
++ *   M: aw88261.c:420-434,437-449,470    SYSCTRL / DBGCTRL / I2SCTRL3 write rules
++ *   M: aw88261.c:358-391                vcalb from the four fuse reads
++ *
++ * This header is deliberately not part of patches/audio yet: nothing in the XNU
++ * tree includes it, exactly like PongCodecPlan.h. When a kernel .c starts to
++ * include it, add it to NEW_FILES in the patch generator or the build will not
++ * see it.
++ */
++#ifndef PONG_AUDIO_ACF_H
++#define PONG_AUDIO_ACF_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++/* D: aw88395_data_type.h:19 ACF_FILE_ID. */
++#define PONG_ACF_MAGIC            0x0a15f908u
++/* D: aw88395_data_type.h:33-38 the dde entry fields this reader uses. */
++#define PONG_ACF_DDE_DEV_INDEX    20u
++#define PONG_ACF_DDE_PROFILE      26u
++#define PONG_ACF_DDE_KIND         28u
++#define PONG_ACF_DDE_LENGTH       32u
++#define PONG_ACF_DDE_OFFSET       36u
++/* H: hakios.speaker.c:405-406 kind 4 = register block, kind 10 = monitor table. */
++#define PONG_ACF_KIND_REGS        4u
++#define PONG_ACF_KIND_MONITOR     10u
++/* H: hakios.speaker.c:404 ACF_PROFILE_MUSIC is profile 0. */
++#define PONG_ACF_PROFILE_MUSIC    0u
++/* H: hakios.speaker.c:408 ACF_BLOCK_HEADER = 0x3c: the pair count sits at the
++ * end of that fixed header and the pairs start one word (0x40) in. */
++#define PONG_ACF_BLOCK_HEADER     0x3cu
++#define PONG_ACF_PAIRS_AT         0x40u
++#define PONG_ACF_DATA_LENGTH      0x10u
++/* H: hakios.speaker.c:594-599 both words must say "16-bit registers, 16-bit
++ * values" before the payload is read as pairs. */
++#define PONG_ACF_REG_BITS_WORD    0x20u
++#define PONG_ACF_VAL_BITS_WORD    0x24u
++#define PONG_ACF_BITS_16X16       2u
++
++/* Register words the write pass must treat specially (M: aw88261.c:420-470). */
++#define PONG_ACF_REG_ID           0x00u   /* soft reset; never taken from a profile */
++#define PONG_ACF_REG_SYSCTRL      0x04u
++#define PONG_ACF_REG_SYSCTRL2     0x05u   /* carries the volume; rewritten last */
++#define PONG_ACF_REG_I2SCTRL3     0x08u
++#define PONG_ACF_REG_DBGCTRL      0x14u
++#define PONG_ACF_REG_VSNTM1       0x50u   /* computed from the fuses, skipped here */
++#define PONG_ACF_REG_LIMIT        0x70u   /* H: refusal at or above this in the pass */
++
++/* SYSCTRL bits and the mask the merge preserves (M: aw88261.h:119-240). */
++#define PONG_ACF_SYSCTRL_PWDN     (1u << 0)
++#define PONG_ACF_SYSCTRL_AMPPD    (1u << 1)
++#define PONG_ACF_SYSCTRL_HMUTE    (1u << 8)
++#define PONG_ACF_SYSCTRL_ULS_HMUTE (1u << 14)
++#define PONG_ACF_SYSCTRL_KEEP     (PONG_ACF_SYSCTRL_PWDN | PONG_ACF_SYSCTRL_AMPPD | \
++    PONG_ACF_SYSCTRL_HMUTE)
++/* M: aw88261.h:240-247 I2STXEN sits in I2SCTRL3 bit 6. */
++#define PONG_ACF_I2STXEN          (1u << 6)
++/* M: aw88261.h:348-352 EF_DBMD_MASK 0xfff7 / OR_VALUE 0x0008. */
++#define PONG_ACF_EF_DBMD_MASK     0xfff7u
++#define PONG_ACF_EF_OR_VALUE      0x0008u
++
++/* M: aw88261.c:358-391 vcalb = (1 << 13) * (1000 + icalk) / (1000 + vcalk), with
++ * the fuse fields signed 10-bit values (M: aw88261.h:114-117, 364-368). */
++#define PONG_ACF_FUSE_BITS        0x3ffu
++#define PONG_ACF_FUSE_SIGN        0x200u
++#define PONG_ACF_CABL_BASE        1000
++#define PONG_ACF_VCAL_FACTOR      (1 << 13)
++
++static inline uint16_t
++pong_acf_le16(const uint8_t *p)
++{
++	return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
++}
++
++static inline uint32_t
++pong_acf_le32(const uint8_t *p)
++{
++	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
++	    ((uint32_t)p[3] << 24);
++}
++
++/* A header is usable only if the magic matches and the dde table divides evenly
++ * into entries of at least 0x30 bytes (H: hakios.speaker.c:525-534). A malformed
++ * file must be refused before any field in the table is trusted. */
++static inline bool
++pong_acf_header_ok(const uint8_t *buf, uint32_t len)
++{
++	uint32_t entry_size, entries, table_at;
++
++	if (buf == 0 || len < 0x60u) {
++		return false;
++	}
++	if (pong_acf_le32(buf) != PONG_ACF_MAGIC) {
++		return false;
++	}
++	entry_size = pong_acf_le32(buf + 0x34u);
++	entries = pong_acf_le32(buf + 0x38u);
++	table_at = pong_acf_le32(buf + 0x3cu);
++	if (entries == 0u || entry_size % entries != 0u || entry_size / entries < 0x30u) {
++		return false;
++	}
++	if (table_at < 0x50u || table_at + entry_size > len) {
++		return false;
++	}
++	return true;
++}
++
++/* One dde entry is entry_size / entries bytes apart (H: hakios.speaker.c:543). */
++static inline uint32_t
++pong_acf_stride(const uint8_t *buf)
++{
++	return pong_acf_le32(buf + 0x34u) / pong_acf_le32(buf + 0x38u);
++}
++
++static inline uint32_t
++pong_acf_count(const uint8_t *buf)
++{
++	return pong_acf_le32(buf + 0x38u);
++}
++
++/* Find the block for one amplifier. The bus and address fields in the real file
++ * are 0xffff (unset), so dev_index - the driver's channel - is the only key;
++ * M: aw88395_lib.c:535 compares it against aw_dev->channel for the same reason. */
++static inline bool
++pong_acf_find(const uint8_t *buf, uint32_t len, uint32_t dev_index,
++    uint32_t profile, uint32_t kind, uint32_t *off_out, uint32_t *size_out)
++{
++	uint32_t table_at, stride, entries, i;
++
++	if (!pong_acf_header_ok(buf, len)) {
++		return false;
++	}
++	table_at = pong_acf_le32(buf + 0x3cu);
++	stride = pong_acf_stride(buf);
++	entries = pong_acf_count(buf);
++	for (i = 0u; i < entries; i++) {
++		const uint8_t *e = buf + table_at + i * stride;
++		uint32_t off, size;
++
++		if (pong_acf_le16(e + PONG_ACF_DDE_DEV_INDEX) != dev_index ||
++		    pong_acf_le16(e + PONG_ACF_DDE_PROFILE) != profile ||
++		    pong_acf_le32(e + PONG_ACF_DDE_KIND) != kind) {
++			continue;
++		}
++		off = pong_acf_le32(e + PONG_ACF_DDE_OFFSET);
++		size = pong_acf_le32(e + PONG_ACF_DDE_LENGTH);
++		if (off < 0x50u || size < 0x40u || off + size > len) {
++			return false;
++		}
++		*off_out = off;
++		*size_out = size;
++		return true;
++	}
++	return false;
++}
++
++/* Checksum: a register block covers block[4 : 0x3c + data_length], a monitor
++ * block covers block[4 : length] (H: hakios.speaker.c:604-611), and the stored
++ * value is the LE32 at offset 0. Hashing the whole block instead - the obvious
++ * first guess - makes all ten blocks of the K60 file look corrupt. */
++static inline uint32_t
++pong_acf_checksum(const uint8_t *block, uint32_t size, uint32_t kind)
++{
++	uint32_t end = size;
++	uint32_t sum = 0;
++	uint32_t i;
++
++	if (kind == PONG_ACF_KIND_REGS) {
++		end = PONG_ACF_BLOCK_HEADER + pong_acf_le32(block + PONG_ACF_DATA_LENGTH);
++	}
++	if (end > size) {
++		return 0u;
++	}
++	for (i = 4u; i < end; i++) {
++		sum += block[i];
++	}
++	return sum;
++}
++
++static inline bool
++pong_acf_block_ok(const uint8_t *block, uint32_t size, uint32_t kind)
++{
++	return pong_acf_checksum(block, size, kind) == pong_acf_le32(block);
++}
++
++/* A register block is read as pairs only when it declares 16-bit registers with
++ * 16-bit values and the count accounts for the whole payload. */
++static inline bool
++pong_acf_pairs_ok(const uint8_t *block, uint32_t size)
++{
++	uint32_t count, data_length;
++
++	if (pong_acf_le32(block + PONG_ACF_REG_BITS_WORD) != PONG_ACF_BITS_16X16 ||
++	    pong_acf_le32(block + PONG_ACF_VAL_BITS_WORD) != PONG_ACF_BITS_16X16) {
++		return false;
++	}
++	count = pong_acf_le32(block + PONG_ACF_BLOCK_HEADER);
++	data_length = pong_acf_le32(block + PONG_ACF_DATA_LENGTH);
++	if (count == 0u || count * 4u + 4u != data_length) {
++		return false;
++	}
++	return PONG_ACF_PAIRS_AT + count * 4u <= size;
++}
++
++static inline uint32_t
++pong_acf_pair_count(const uint8_t *block)
++{
++	return pong_acf_le32(block + PONG_ACF_BLOCK_HEADER);
++}
++
++/* Pairs are little endian and kept in file order: some registers only latch when
++ * written after others, so the order is part of the data, not an artefact. */
++static inline bool
++pong_acf_pair_at(const uint8_t *block, uint32_t size, uint32_t index,
++    uint16_t *reg_out, uint16_t *val_out)
++{
++	if (!pong_acf_pairs_ok(block, size) || index >= pong_acf_pair_count(block)) {
++		return false;
++	}
++	*reg_out = pong_acf_le16(block + PONG_ACF_PAIRS_AT + index * 4u);
++	*val_out = pong_acf_le16(block + PONG_ACF_PAIRS_AT + index * 4u + 2u);
++	return true;
++}
++
++/* Which half of the ACF belongs to an amplifier. H: hakios.speaker.c:430-431
++ * documents that on this board I2C 0x35 carries sound-channel 0 (slot 0, left)
++ * and 0x34 the other, while the probe labels 0x34 "amp0"; the two numbering
++ * schemes do not coincide, so a lookup must never go by the probe's index.
++ * Returns 0xff for an address that is not one of the two. */
++static inline uint8_t
++pong_acf_channel_for_addr(uint16_t addr)
++{
++	switch (addr) {
++	case 0x35u: return 0u;
++	case 0x34u: return 1u;
++	default: return 0xffu;
++	}
++}
++
++/* M: aw88261.c:437-443 the efuse checksum direction follows DBGCTRL: OR when
++ * (value & ~EF_DBMD_MASK) == OR_VALUE, AND otherwise. The K60 blob writes
++ * 0x14 = 0xc003 and the probe read back 0xa003, so this board takes AND. */
++static inline bool
++pong_acf_ef_or(uint16_t dbgctrl)
++{
++	return (dbgctrl & (uint16_t)~PONG_ACF_EF_DBMD_MASK) == PONG_ACF_EF_OR_VALUE;
++}
++
++/* M: aw88261.h:114-117 + aw88261.c:316-341 each fuse byte holds one signed
++ * 10-bit value; OR combines the two halves when the board check is the OR kind,
++ * AND otherwise. */
++static inline int
++pong_acf_fuse_value(uint16_t hi, uint16_t lo, bool ef_or)
++{
++	uint32_t bits = ef_or ?
++	    ((uint32_t)hi | (uint32_t)lo) & PONG_ACF_FUSE_BITS :
++	    ((uint32_t)hi & (uint32_t)lo) & PONG_ACF_FUSE_BITS;
++
++	if ((bits & PONG_ACF_FUSE_SIGN) != 0u) {
++		return PONG_ACF_CABL_BASE + (int)bits - 0x400;
++	}
++	return PONG_ACF_CABL_BASE + (int)bits;
++}
++
++/* M: aw88261.c:358-391 the value the driver must write to VSNTM1. Both fuse
++ * values are base-1000, so the ratio is taken over those and scaled by 1 << 13.
++ * A non-positive value would divide by zero or invert the ratio: refuse rather
++ * than write garbage into a register that sets the speaker's calibration. */
++static inline bool
++pong_acf_vcalb(uint16_t dbgctrl, uint16_t efrh4, uint16_t efrh3,
++    uint16_t efrl4, uint16_t efrl3, uint16_t *out)
++{
++	bool ef_or = pong_acf_ef_or(dbgctrl);
++	int icalk = pong_acf_fuse_value(efrh4, efrl4, ef_or);
++	int vcalk = pong_acf_fuse_value(efrh3, efrl3, ef_or);
++
++	if (vcalk <= 0 || icalk <= 0) {
++		return false;
++	}
++	*out = (uint16_t)((PONG_ACF_VCAL_FACTOR * (uint32_t)icalk) / (uint32_t)vcalk);
++	return true;
++}
++#endif /* PONG_AUDIO_ACF_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAmpProfile.h
+@@ -0,0 +1,172 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * The two AW88261 "Music" register profiles of the K60, transcribed from the
++ * phone's own ACF tuning file.
++ *
++ * Where the numbers come from. The blob lives on the device at
++ * /vendor/firmware/aw882xx_acf.bin (3,440 bytes, sha256
++ * ce0e16d22380565114f56e6a02e4f85959160baccc6c163df6ecaf9db20cbf9e) and is not stored here: .gitignore
++ * excludes *.bin and the file is Awinic/Xiaomi tuning data, not ours. What the kernel needs at boot is the register pairs,
++ * so this header carries them, generated by
++ * E:/k60-work/scratch/audio-work/gen-profile-header.py from that exact blob:
++ *
++ *   dev_index 0, profile 0 (Music), kind 4: offset 0x3f4, 292 bytes, 57 pairs
++ *   dev_index 1, profile 0 (Music), kind 4: offset 0x944, 292 bytes, 57 pairs
++ *
++ * Each block's own checksum was verified before it was read. Do not edit these
++ * arrays: the host test (drivers/PongAudio/tests) compares them against the
++ * blob whenever PONG_ACF_FILE points at it, so a hand edit fails the test
++ * instead of silently changing what the amplifiers are tuned to.
++ *
++ * WHICH TABLE BELONGS TO WHICH AMPLIFIER. Not the probe's numbering. In the
++ * ACF, dev_index 0 is the part on I2C 0x35 and dev_index 1 the part on 0x34
++ * (docs/research/audio/AMPS.md section 8.5, H: hakios.speaker.c:430-431),
++ * while this probe calls 0x34 "amp0". Use pong_amp_profile_for_addr(), never
++ * the probe index. Loading the other half's table is a calibration mismatch,
++ * not a crash: the speaker still plays, just not to its own tuning.
++ *
++ * The two tables differ in 5 registers (0x05, 0x06, 0x07, 0x08, 0x0f).
++ * Everything else is identical, which is exactly why a single shared table
++ * looks plausible and is wrong.
++ */
++#ifndef PONG_AUDIO_AMP_PROFILE_H
++#define PONG_AUDIO_AMP_PROFILE_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define PONG_AMP_PROFILE_PAIRS 57u
++
++static const uint16_t pong_amp_profile_dev0[PONG_AMP_PROFILE_PAIRS * 2u] = {
++	0x0003, 0xffff,	/* 01: reg 0x03 */
++	0x0004, 0x3240,	/* 02: reg 0x04 */
++	0x0005, 0x1811,	/* 03: reg 0x05 */
++	0x0006, 0x34e8,	/* 04: reg 0x06 */
++	0x0007, 0x3020,	/* 05: reg 0x07 */
++	0x0008, 0x00f6,	/* 06: reg 0x08 */
++	0x0009, 0x6672,	/* 07: reg 0x09 */
++	0x000a, 0x0964,	/* 08: reg 0x0a */
++	0x000b, 0x2590,	/* 09: reg 0x0b */
++	0x000c, 0x1c64,	/* 10: reg 0x0c */
++	0x000d, 0x005b,	/* 11: reg 0x0d */
++	0x000e, 0x4a9b,	/* 12: reg 0x0e */
++	0x000f, 0x5064,	/* 13: reg 0x0f */
++	0x0010, 0xd008,	/* 14: reg 0x10 */
++	0x0011, 0x1f20,	/* 15: reg 0x11 */
++	0x0012, 0x002b,	/* 16: reg 0x12 */
++	0x0013, 0x2102,	/* 17: reg 0x13 */
++	0x0014, 0xc003,	/* 18: reg 0x14 */
++	0x0015, 0x0643,	/* 19: reg 0x15 */
++	0x0016, 0x000a,	/* 20: reg 0x16 */
++	0x0030, 0x866d,	/* 21: reg 0x30 */
++	0x0031, 0x7193,	/* 22: reg 0x31 */
++	0x0032, 0x4306,	/* 23: reg 0x32 */
++	0x0033, 0x689b,	/* 24: reg 0x33 */
++	0x0034, 0x90dc,	/* 25: reg 0x34 */
++	0x0035, 0xd508,	/* 26: reg 0x35 */
++	0x0036, 0xa835,	/* 27: reg 0x36 */
++	0x0037, 0xf184,	/* 28: reg 0x37 */
++	0x0038, 0x0800,	/* 29: reg 0x38 */
++	0x003a, 0x8884,	/* 30: reg 0x3a */
++	0x003b, 0x0666,	/* 31: reg 0x3b */
++	0x003c, 0x0ed2,	/* 32: reg 0x3c */
++	0x003d, 0x0663,	/* 33: reg 0x3d */
++	0x003e, 0x01ae,	/* 34: reg 0x3e */
++	0x003f, 0x0505,	/* 35: reg 0x3f */
++	0x0040, 0xffa0,	/* 36: reg 0x40 */
++	0x0051, 0x00f3,	/* 37: reg 0x51 */
++	0x0052, 0x3ee8,	/* 38: reg 0x52 */
++	0x0053, 0x8005,	/* 39: reg 0x53 */
++	0x0054, 0x1748,	/* 40: reg 0x54 */
++	0x0055, 0x0202,	/* 41: reg 0x55 */
++	0x0056, 0x3800,	/* 42: reg 0x56 */
++	0x0057, 0x84c9,	/* 43: reg 0x57 */
++	0x0058, 0x41d6,	/* 44: reg 0x58 */
++	0x0059, 0x0000,	/* 45: reg 0x59 */
++	0x005a, 0x0000,	/* 46: reg 0x5a */
++	0x005b, 0x01c0,	/* 47: reg 0x5b */
++	0x005c, 0x0049,	/* 48: reg 0x5c */
++	0x0060, 0x0fcd,	/* 49: reg 0x60 */
++	0x0061, 0x796c,	/* 50: reg 0x61 */
++	0x0062, 0x4a40,	/* 51: reg 0x62 */
++	0x0063, 0x6077,	/* 52: reg 0x63 */
++	0x0064, 0x0053,	/* 53: reg 0x64 */
++	0x0065, 0x5ca1,	/* 54: reg 0x65 */
++	0x0066, 0x40f9,	/* 55: reg 0x66 */
++	0x0067, 0x508e,	/* 56: reg 0x67 */
++	0x0068, 0x0048	/* 57: reg 0x68 */
++};
++
++static const uint16_t pong_amp_profile_dev1[PONG_AMP_PROFILE_PAIRS * 2u] = {
++	0x0003, 0xffff,	/* 01: reg 0x03 */
++	0x0004, 0x3240,	/* 02: reg 0x04 */
++	0x0005, 0x0811,	/* 03: reg 0x05 */
++	0x0006, 0x38e8,	/* 04: reg 0x06 */
++	0x0007, 0x3111,	/* 05: reg 0x07 */
++	0x0008, 0x00f7,	/* 06: reg 0x08 */
++	0x0009, 0x6672,	/* 07: reg 0x09 */
++	0x000a, 0x0964,	/* 08: reg 0x0a */
++	0x000b, 0x2590,	/* 09: reg 0x0b */
++	0x000c, 0x1c64,	/* 10: reg 0x0c */
++	0x000d, 0x005b,	/* 11: reg 0x0d */
++	0x000e, 0x4a9b,	/* 12: reg 0x0e */
++	0x000f, 0x5264,	/* 13: reg 0x0f */
++	0x0010, 0xd008,	/* 14: reg 0x10 */
++	0x0011, 0x1f20,	/* 15: reg 0x11 */
++	0x0012, 0x002b,	/* 16: reg 0x12 */
++	0x0013, 0x2102,	/* 17: reg 0x13 */
++	0x0014, 0xc003,	/* 18: reg 0x14 */
++	0x0015, 0x0643,	/* 19: reg 0x15 */
++	0x0016, 0x000a,	/* 20: reg 0x16 */
++	0x0030, 0x866d,	/* 21: reg 0x30 */
++	0x0031, 0x7193,	/* 22: reg 0x31 */
++	0x0032, 0x4306,	/* 23: reg 0x32 */
++	0x0033, 0x689b,	/* 24: reg 0x33 */
++	0x0034, 0x90dc,	/* 25: reg 0x34 */
++	0x0035, 0xd508,	/* 26: reg 0x35 */
++	0x0036, 0xa835,	/* 27: reg 0x36 */
++	0x0037, 0xf184,	/* 28: reg 0x37 */
++	0x0038, 0x0800,	/* 29: reg 0x38 */
++	0x003a, 0x8884,	/* 30: reg 0x3a */
++	0x003b, 0x0666,	/* 31: reg 0x3b */
++	0x003c, 0x0ed2,	/* 32: reg 0x3c */
++	0x003d, 0x0663,	/* 33: reg 0x3d */
++	0x003e, 0x01ae,	/* 34: reg 0x3e */
++	0x003f, 0x0505,	/* 35: reg 0x3f */
++	0x0040, 0xffa0,	/* 36: reg 0x40 */
++	0x0051, 0x00f3,	/* 37: reg 0x51 */
++	0x0052, 0x3ee8,	/* 38: reg 0x52 */
++	0x0053, 0x8005,	/* 39: reg 0x53 */
++	0x0054, 0x1748,	/* 40: reg 0x54 */
++	0x0055, 0x0202,	/* 41: reg 0x55 */
++	0x0056, 0x3800,	/* 42: reg 0x56 */
++	0x0057, 0x84c9,	/* 43: reg 0x57 */
++	0x0058, 0x41d6,	/* 44: reg 0x58 */
++	0x0059, 0x0000,	/* 45: reg 0x59 */
++	0x005a, 0x0000,	/* 46: reg 0x5a */
++	0x005b, 0x01c0,	/* 47: reg 0x5b */
++	0x005c, 0x0049,	/* 48: reg 0x5c */
++	0x0060, 0x0fcd,	/* 49: reg 0x60 */
++	0x0061, 0x796c,	/* 50: reg 0x61 */
++	0x0062, 0x4a40,	/* 51: reg 0x62 */
++	0x0063, 0x6077,	/* 52: reg 0x63 */
++	0x0064, 0x0053,	/* 53: reg 0x64 */
++	0x0065, 0x5ca1,	/* 54: reg 0x65 */
++	0x0066, 0x40f9,	/* 55: reg 0x66 */
++	0x0067, 0x508e,	/* 56: reg 0x67 */
++	0x0068, 0x0048	/* 57: reg 0x68 */
++};
++
++/* I2C address -> the ACF half that belongs to it. 0x35 is dev_index 0 and
++ * 0x34 is dev_index 1 (see the warning above); anything else gets nothing. */
++static inline const uint16_t *
++pong_amp_profile_for_addr(uint16_t addr)
++{
++	switch (addr) {
++	case 0x35u: return pong_amp_profile_dev0;
++	case 0x34u: return pong_amp_profile_dev1;
++	default: return 0;
++	}
++}
++
++#endif /* PONG_AUDIO_AMP_PROFILE_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAmpReplay.h
+@@ -0,0 +1,150 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * The ordered write plan for one AW88261: what to write, in what order, and
++ * which registers cannot be written with the value the tuning file literally
++ * contains.
++ *
++ * Why a plan and not a loop. Mainline's aw88261_dev_reg_update()
++ * (M: aw88261.c:393-490) is not "write 57 pairs": four of them are special.
++ *
++ *   0x04 SYSCTRL   three bits (PWDN, AMPPD, HMUTE) must keep whatever the
++ *                  hardware currently says, so the write needs a read first;
++ *                  ULS_HMUTE is then forced on. Writing the ACF's 0x3240
++ *                  literally would clear the amplifier's power-down state.
++ *   0x08 I2SCTRL3  the transmit enable bit is cleared, whatever the file says.
++ *   0x05 SYSCTRL2  carries the volume; mainline rewrites it after the table
++ *                  with the mute volume, keeping the top six bits.
++ *   0x50 VSNTM1    absent from the file and computed from the fuse reads.
++ *
++ * Everything else is a straight 3-byte I2C write of (register, value). Keeping
++ * that decision in a pure function means the host test can pin every step of
++ * the sequence, and the kernel file only moves bytes.
++ *
++ * Order is part of the data: registers latch against each other, so the plan
++ * follows the file's order and appends the two computed writes at the end, the
++ * same order mainline uses (table, then vcalb, then volume).
++ *
++ * Pure: no MMIO, no kernel headers.
++ */
++#ifndef PONG_AUDIO_AMP_REPLAY_H
++#define PONG_AUDIO_AMP_REPLAY_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "PongAudioAcf.h"
++
++/* M: aw88261.c:1056 + aw88261.h:385 a soft reset is a plain write of 0x55aa to
++ * register 0, and the chip needs the documented settling time before the table
++ * is loaded (M: aw88261.c:1056-1060). */
++#define PONG_REPLAY_RESET_REG     0x00u
++#define PONG_REPLAY_RESET_VALUE   0x55aau
++
++/* M: aw88261.h:242-243, 387-395 volume is 10 bits: a 6-bit step count in dB
++ * steps of 48 (six dB in eighths) and a 6-bit remainder; 720 is "muted". */
++#define PONG_REPLAY_MUTE_VOL      (90u * 8u)
++#define PONG_REPLAY_VOL_STEP      (6u * 8u)
++#define PONG_REPLAY_VOL_MASK      0x03ffu
++#define PONG_REPLAY_VOL_KEEP      0xfc00u
++
++/* What the transport has to do for one step. */
++enum {
++	PongReplayWrite,    /* write *value as is */
++	PongReplaySysctrl,  /* read 0x04, merge with pong_replay_sysctrl(), write */
++	PongReplayTxOff,    /* *value already has the transmit enable bit cleared */
++	PongReplayVcalb,    /* write pong_acf_vcalb()'s result */
++	PongReplayVolume    /* read 0x05, write pong_replay_volume() of that */
++};
++
++/* One reset, one step per register pair, then vcalb and the volume. */
++static inline uint32_t
++pong_replay_steps(uint32_t pairs)
++{
++	return pairs + 3u;
++}
++
++/* The step at an index, or false when the index is past the plan or names a
++ * register the pass must not write. *value is the value the transport should
++ * write, except for PongReplaySysctrl (the file's literal, to be merged),
++ * PongReplayVcalb and PongReplayVolume (computed by the transport). */
++static inline bool
++pong_replay_at(const uint16_t *profile, uint32_t pairs, uint32_t index,
++    uint8_t *action, uint8_t *reg, uint16_t *value)
++{
++	uint16_t r, v;
++
++	if (profile == 0 || index >= pong_replay_steps(pairs)) {
++		return false;
++	}
++	if (index == 0u) {
++		*action = PongReplayWrite;
++		*reg = PONG_REPLAY_RESET_REG;
++		*value = PONG_REPLAY_RESET_VALUE;
++		return true;
++	}
++	if (index <= pairs) {
++		r = profile[(index - 1u) * 2u];
++		v = profile[(index - 1u) * 2u + 1u];
++		/* The file never carries these two, but a hand-edited table must
++		 * not be able to smuggle them into the pass. */
++		if (r == PONG_ACF_REG_VSNTM1 || r >= PONG_ACF_REG_LIMIT) {
++			return false;
++		}
++		*reg = (uint8_t)r;
++		if (r == PONG_ACF_REG_SYSCTRL) {
++			*action = PongReplaySysctrl;
++			*value = v;
++		} else if (r == PONG_ACF_REG_I2SCTRL3) {
++			*action = PongReplayTxOff;
++			*value = (uint16_t)(v & (uint16_t)~PONG_ACF_I2STXEN);
++		} else {
++			*action = PongReplayWrite;
++			*value = v;
++		}
++		return true;
++	}
++	if (index == pairs + 1u) {
++		*action = PongReplayVcalb;
++		*reg = (uint8_t)PONG_ACF_REG_VSNTM1;
++		*value = 0u;
++		return true;
++	}
++	*action = PongReplayVolume;
++	*reg = (uint8_t)PONG_ACF_REG_SYSCTRL2;
++	*value = 0u;
++	return true;
++}
++
++/* M: aw88261.c:420-434. PWDN, AMPPD and HMUTE come from the hardware, every
++ * other bit from the file, and ULS_HMUTE is forced on. The read is not an
++ * optimisation: without it the write would clear the power-down state that the
++ * chip is in and start an amplifier that has no bit clock. */
++static inline uint16_t
++pong_replay_sysctrl(uint16_t acf_value, uint16_t hw_value)
++{
++	uint16_t v = (uint16_t)((acf_value & (uint16_t)~PONG_ACF_SYSCTRL_KEEP) |
++	    (hw_value & PONG_ACF_SYSCTRL_KEEP));
++
++	v &= (uint16_t)~PONG_ACF_SYSCTRL_ULS_HMUTE;
++	v |= PONG_ACF_SYSCTRL_ULS_HMUTE;
++	return v;
++}
++
++/* M: aw88261.h:387-395 DB_TO_REG_VAL. */
++static inline uint16_t
++pong_replay_db_to_reg(uint32_t db)
++{
++	return (uint16_t)(((db / PONG_REPLAY_VOL_STEP) << 6) +
++	    (db % PONG_REPLAY_VOL_STEP));
++}
++
++/* M: aw88261.c:28-46 the volume write keeps the register's top six bits and
++ * replaces the ten that carry the attenuation. */
++static inline uint16_t
++pong_replay_volume(uint16_t hw_sysctrl2)
++{
++	return (uint16_t)((pong_replay_db_to_reg(PONG_REPLAY_MUTE_VOL) &
++	    PONG_REPLAY_VOL_MASK) | (hw_sysctrl2 & PONG_REPLAY_VOL_KEEP));
++}
++
++#endif /* PONG_AUDIO_AMP_REPLAY_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioAfe.h
+@@ -0,0 +1,692 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * Offline encoder for the AFE parameter packets the PRI_TDM speaker path
++ * will have to send once the ADSP is up (the PAS1 line). Byte packing only:
++ * every function writes a little-endian packet into a caller-supplied
++ * buffer and returns its length. No MMIO, no kernel headers, nothing sent.
++ *
++ * Why this exists. The speaker port cannot make a sound until the DSP is
++ * asked, over GLINK, for a bit clock, a TDM group, a TDM port, its slot
++ * mapping and DEVICE_START (TDMS.md section 3). Those are field-ordered
++ * packed structures; one wrong offset is a silent failure on a board with
++ * no serial console. Packing them here, where the host test can read every
++ * byte, means the kernel side only moves bytes it already trusts.
++ *
++ * Layouts are the vendor AudioReach-era ones, from the APSL-2.0 reference
++ * (P: hakios.sound.c:349-385, facts only, no code copied) - the same set
++ * mainline agrees with where it has an equivalent
++ * (M: sound/soc/qcom/qdsp6/q6afe.c:396-417 afe_param_id / param_data_v2,
++ * and q6afe.h:180-194 q6afe_tdm_cfg for the field order of the port TDM
++ * parameter). Where the two disagree the vendor layout wins, because the
++ * DSP in this phone speaks the vendor one; the disagreements are recorded
++ * in TDMS.md section 3.
++ *
++ * Two packet shapes, both carrying the parameters in band
++ * (address lsw/msw and mem_map_handle all zero, M: q6afe.c:1076-1085):
++ *
++ *   service scoped  [GPR 24][svc_cmd_set_param 16][param 12][payload]
++ *     opcode AFE_SVC_CMD_SET_PARAM        clocks, groups
++ *   port scoped     [GPR 24][port_cmd_set_param_v2 16][param 12][payload]
++ *     opcode AFE_PORT_CMD_SET_PARAM_V2    port config, slot mapping
++ *   start           [GPR 24][{u16 port, u16 0}]
++ *     opcode AFE_PORT_CMD_DEVICE_START
++ *
++ * The 24-byte GPR header is M: apr.h:79-90 with GPR_PKT_VER 0. The 0504
++ * skeleton first carried GPR_VERSION 3, BASIC_RESULT 0x02000002 and
++ * GET_SPF_STATE 0x0100100D; all three were corrected in 0504 on
++ * 2026-11-15 (PAS1-AUDIO-REQUIREMENTS.md section 1.3). The constants
++ * below are what the host test pins.
++ *
++ * The K60 values (port 0x9020 TERT TDM RX, group 0x9120, 24-bit samples in
++ * TDMS.md sections 3 and 4; this file encodes whatever it is given and
++ * offers the K60 defaults as named constants, nothing more.
++ *
++ * Pure: no MMIO, no kernel headers.
++ *
++ * This header is part of the kernel patch through patches/audio/0003: the
++ * AFE selftest in pong_audio.c includes it and calls the encoder. Keep it in
++ * the generator NEW_FILES list (AMPS.md section 6).
++ */
++#ifndef PONG_AUDIO_AFE_H
++#define PONG_AUDIO_AFE_H
++
++#include <stddef.h>
++#include <stdint.h>
++#include <string.h>
++
++/* Speaker-path refusal codes. These are contract, not errno: the values are
++ * what pong_audio_status() returns when the PAS1/ADSP path is unavailable.
++ * Keep them stable; PAS1-AUDIO-REQUIREMENTS.md section 2 records the names. */
++typedef enum {
++    PongAudioOk = 0,
++    PongAudioErrNoHandoff = -2001,
++    PongAudioErrNoLease = -2002,
++    PongAudioErrStaleLease = -2003,
++    PongAudioErrApmNotReady = -2004,
++    PongAudioErrAfeRefused = -2005,
++    PongAudioErrBadRequest = -2006,
++    PongAudioErrRingFull = -2007,
++    PongAudioErrPlayback = -2008
++} PongAudioStatus;
++
++static inline const char *
++pong_audio_error_name(int status)
++{
++    switch (status) {
++    case PongAudioOk:
++        return "PongAudioOk";
++    case PongAudioErrNoHandoff:
++        return "PongAudioErrNoHandoff";
++    case PongAudioErrNoLease:
++        return "PongAudioErrNoLease";
++    case PongAudioErrStaleLease:
++        return "PongAudioErrStaleLease";
++    case PongAudioErrApmNotReady:
++        return "PongAudioErrApmNotReady";
++    case PongAudioErrAfeRefused:
++        return "PongAudioErrAfeRefused";
++    case PongAudioErrBadRequest:
++        return "PongAudioErrBadRequest";
++    case PongAudioErrRingFull:
++        return "PongAudioErrRingFull";
++    case PongAudioErrPlayback:
++        return "PongAudioErrPlayback";
++    default:
++        return "PongAudioErrUnknown";
++    }
++}
++
++/* Command, module and parameter ids (P: hakios.sound.c:324-336, identical
++ * to M: q6afe.c:28-93). */
++#define PONG_AFE_PORT_CMD_DEVICE_START             0x000100e5u
++#define PONG_AFE_PORT_CMD_DEVICE_STOP              0x000100e6u
++#define PONG_AFE_PORT_CMD_SET_PARAM_V2             0x000100efu
++#define PONG_AFE_SVC_CMD_SET_PARAM                 0x000100f3u
++#define PONG_AFE_MODULE_AUDIO_DEV_INTERFACE        0x0001020cu
++#define PONG_AFE_MODULE_TDM                        0x0001028au
++#define PONG_AFE_MODULE_GROUP_DEVICE               0x00010254u
++#define PONG_AFE_MODULE_CLOCK_SET                  0x0001028fu
++#define PONG_AFE_PARAM_ID_TDM_CONFIG               0x0001029du
++#define PONG_AFE_PARAM_ID_PORT_SLOT_MAPPING_CONFIG 0x00010297u
++#define PONG_AFE_PARAM_ID_GROUP_DEVICE_ENABLE      0x00010256u
++#define PONG_AFE_PARAM_ID_GROUP_DEVICE_TDM_CONFIG  0x0001029eu
++#define PONG_AFE_PARAM_ID_CLOCK_SET                0x00010290u
++
++/* PRM: the bit clock is voted through the Audio Process Manager resource
++ * manager, not through the AFE clock-set module above (V: audio_prm.c:198-248,
++ * audio_prm.h:192-202). The pair above stays only so the legacy layout keeps
++ * a test; nothing in the speaker path sends it. */
++#define PONG_AFE_GPR_SVC_ASM                    0x7u        /* V: qcom,gpr.h:20 */
++#define PONG_AFE_PRM_MODULE_INSTANCE_ID         0x00000002u /* V: audio_prm.h:16 */
++#define PONG_AFE_PRM_CMD_REQUEST_HW_RSC         0x0100100fu /* V: audio_prm.h:192 */
++#define PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK  0x0800102cu /* V: audio_prm.h:202 */
++#define PONG_AFE_APM_CMD_HDR_BYTES              16u         /* V: audio_prm.h:71 */
++#define PONG_AFE_APM_MODULE_PARAM_BYTES         16u         /* V: audio_prm.h:110 */
++#define PONG_AFE_PRM_MAX_CLOCKS                 1u
++#define PONG_AFE_PRM_CLOCK_BYTES                76u         /* 24 + 16 + 16 + 4 + 16 */
++
++/* The K60 speaker port: PRI_TDM_RX_0 and its group (TDMS.md sections 3, 5). */
++#define PONG_AFE_PORT_TERT_TDM_RX_0 0x9020u
++#define PONG_AFE_GROUP_TERT_TDM_RX  0x9120u
++#define PONG_AFE_GROUP_OTHER_PORT   0x9022u
++#define PONG_AFE_PORT_INVALID       0xffffu
++
++/* Bit clock id and attribute (V: audio_prm.h:457,570). The rate is rate x
++ * slot_width x bus slots, computed by the machine driver from
++ * qcom,tdm-max-slots (V: msm_common.c:407-417), which is 8 on this board:
++ * 48000 x 32 x 8 = 12.288 MHz. The DT property qcom,msm-cpudai-tdm-clk-rate
++ * is not read by the waipio machine driver, so its 1.536 MHz is a dead value. */
++#define PONG_AFE_CLOCK_TERT_TDM_IBIT      0x204u
++#define PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE 4u
++#define PONG_AFE_RATE                     48000u
++#define PONG_AFE_SLOT_BITS                32u
++#define PONG_AFE_SLOTS                    2u
++#define PONG_AFE_TDM_MAX_SLOTS            8u   /* V: live FDT qcom,tdm-max-slots */
++#define PONG_AFE_TDM_CLK_HZ               (PONG_AFE_RATE * PONG_AFE_SLOT_BITS * PONG_AFE_TDM_MAX_SLOTS)
++#define PONG_AFE_MAX_CHANNELS             8u   /* M: q6afe.h:40 */
++
++/* GPR wire constants (M: apr.h:96-108). */
++#define PONG_AFE_GPR_VERSION            0x0u
++#define PONG_AFE_GPR_HEADER_BYTES       24u
++#define PONG_AFE_GPR_HEADER_WORDS       6u   /* 24 bytes / 4 */
++#define PONG_AFE_GPR_DOMAIN_ADSP        2u
++#define PONG_AFE_GPR_DOMAIN_APPS        3u
++#define PONG_AFE_GPR_BASIC_RSP_RESULT   0x02001005u
++#define PONG_AFE_GPR_BASIC_EVT_ACCEPTED 0x02001006u
++#define PONG_AFE_GPR_APM_GET_SPF_STATE 0x01001021u  /* M: audioreach.h:38 */
++#define PONG_AFE_GPR_APM_SPF_STATE     0x02001007u  /* M: audioreach.h:39 */
++#define PONG_AFE_GPR_PORT_APM          1u           /* M: apr.h:105, the APM module instance */
++#define PONG_AFE_GPR_PORT_CLIENT       0x2001u      /* P: PongAudio.cpp:36 Port */
++
++/* Envelope sizes, all packed (M: q6afe.c:396-417). */
++#define PONG_AFE_SVC_HDR_BYTES   16u  /* payload_size, addr lsw, addr msw, handle */
++#define PONG_AFE_PORT_HDR_BYTES  16u  /* port, payload_size, addr lsw, addr msw, handle */
++#define PONG_AFE_PARAM_BYTES     12u  /* module, param, size, reserved */
++
++/* Payload sizes (P: hakios.sound.c:349-385, all packed). */
++#define PONG_AFE_CLOCK_SET_BYTES     20u
++#define PONG_AFE_GROUP_TDM_BYTES     44u
++#define PONG_AFE_GROUP_ENABLE_BYTES  4u
++#define PONG_AFE_TDM_BYTES           36u
++#define PONG_AFE_SLOT_MAPPING_BYTES  28u
++#define PONG_AFE_DEVICE_START_BYTES  4u
++
++/* Little-endian field writers: the byte order of every multi-byte field
++ * below is decided here and nowhere else. */
++static inline void
++pong_afe_put16(uint8_t *p, uint16_t v)
++{
++    p[0] = (uint8_t)(v & 0xffu);
++    p[1] = (uint8_t)((v >> 8) & 0xffu);
++}
++
++static inline void
++pong_afe_put32(uint8_t *p, uint32_t v)
++{
++    p[0] = (uint8_t)(v & 0xffu);
++    p[1] = (uint8_t)((v >> 8) & 0xffu);
++    p[2] = (uint8_t)((v >> 16) & 0xffu);
++    p[3] = (uint8_t)((v >> 24) & 0xffu);
++}
++
++/* The 24-byte GPR header (M: apr.h:79-90, audioreach.c:229-266):
++ *   word0 = version | header_word_size << 4 | packet_size << 8
++ *   word1 = dest_domain | src_domain << 8
++ *   word2 = src_port, word3 = dest_port, word4 = token, word5 = opcode
++ * packet_bytes is the whole packet including this header. Returns 24, or 0
++ * if the buffer cannot hold it. */
++static inline size_t
++pong_afe_gpr_hdr(uint8_t *buf, size_t bytes, uint32_t opcode, uint32_t token,
++    uint16_t src_port, uint16_t dest_port, size_t packet_bytes)
++{
++    if (buf == NULL || bytes < PONG_AFE_GPR_HEADER_BYTES ||
++        packet_bytes > 0x00ffffffu) {
++        return 0;
++    }
++    pong_afe_put32(buf + 0,
++        PONG_AFE_GPR_VERSION |
++            ((uint32_t)PONG_AFE_GPR_HEADER_WORDS << 4) |
++            ((uint32_t)packet_bytes << 8));
++    pong_afe_put32(buf + 4,
++        PONG_AFE_GPR_DOMAIN_ADSP |
++            ((uint32_t)PONG_AFE_GPR_DOMAIN_APPS << 8));
++    pong_afe_put32(buf + 8, src_port);
++    pong_afe_put32(buf + 12, dest_port);
++    pong_afe_put32(buf + 16, token);
++    pong_afe_put32(buf + 20, opcode);
++    return PONG_AFE_GPR_HEADER_BYTES;
++}
++
++/* The first packet an audio client sends: GET_SPF_STATE from its own GPR
++ * port (0x2001 on Pong) to the APM module instance (port 1), 24 bytes of
++ * header and no payload (P: PongAudio.cpp:107, ShengGpr.c:63). */
++static inline size_t
++pong_afe_gpr_spf_state_query(uint8_t *buf, size_t bytes, uint32_t token)
++{
++    return pong_afe_gpr_hdr(buf, bytes, PONG_AFE_GPR_APM_GET_SPF_STATE,
++        token, PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_PORT_APM,
++        PONG_AFE_GPR_HEADER_BYTES);
++}
++
++/* struct afe_param (P: hakios.sound.c:349-352), packed 12 bytes:
++ * module, param, payload size, reserved. */
++static inline void
++pong_afe_param(uint8_t *p, uint32_t module_id, uint32_t param_id,
++    uint16_t payload_bytes)
++{
++    pong_afe_put32(p + 0, module_id);
++    pong_afe_put32(p + 4, param_id);
++    pong_afe_put16(p + 8, payload_bytes);
++    pong_afe_put16(p + 10, 0u);
++}
++
++/* Layout of the two packets, in bytes from the start of the packet. */
++#define PONG_AFE_OFF_SVC_PAYLOAD_SIZE 24u
++#define PONG_AFE_OFF_PORT_ID          24u
++#define PONG_AFE_OFF_PORT_PAYLOAD_SIZE 26u
++#define PONG_AFE_OFF_PARAM            40u
++#define PONG_AFE_OFF_PAYLOAD          52u
++
++/* Service-scoped parameter: clocks and groups (P: afe_service_param
++ * :386-402). In band, address and handle zero. Returns the packet length,
++ * or 0 if the buffer is too small. */
++static inline size_t
++pong_afe_svc_set_param(uint8_t *buf, size_t bytes, uint32_t module_id,
++    uint32_t param_id, const uint8_t *payload, size_t payload_bytes,
++    uint32_t token)
++{
++    size_t total = PONG_AFE_GPR_HEADER_BYTES + PONG_AFE_SVC_HDR_BYTES +
++        PONG_AFE_PARAM_BYTES + payload_bytes;
++
++    if (buf == NULL || (payload == NULL && payload_bytes != 0u) ||
++        payload_bytes > 0xffffu || bytes < total) {
++        return 0;
++    }
++    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_SVC_CMD_SET_PARAM, token, 0u, 0u,
++            total) == 0u) {
++        return 0;
++    }
++    pong_afe_put32(buf + PONG_AFE_OFF_SVC_PAYLOAD_SIZE,
++        (uint32_t)(PONG_AFE_PARAM_BYTES + payload_bytes));
++    pong_afe_put32(buf + 28, 0u);  /* payload_address_lsw */
++    pong_afe_put32(buf + 32, 0u);  /* payload_address_msw */
++    pong_afe_put32(buf + 36, 0u);  /* mem_map_handle */
++    pong_afe_param(buf + PONG_AFE_OFF_PARAM, module_id, param_id,
++        (uint16_t)payload_bytes);
++    for (size_t i = 0; i < payload_bytes; ++i) {
++        buf[PONG_AFE_OFF_PAYLOAD + i] = payload[i];
++    }
++    return total;
++}
++
++/* Port-scoped parameter: the port id goes in the first two bytes and the
++ * payload size in the next two (P: afe_port_param :404-420, the same
++ * 16-byte shape as M: q6afe.c:411-417 afe_port_cmd_set_param_v2). The GPR
++ * src and dest ports stay 0 (M: q6afe.c:1146). */
++static inline size_t
++pong_afe_port_set_param(uint8_t *buf, size_t bytes, uint16_t port_id,
++    uint32_t module_id, uint32_t param_id, const uint8_t *payload,
++    size_t payload_bytes, uint32_t token)
++{
++    size_t total = PONG_AFE_GPR_HEADER_BYTES + PONG_AFE_PORT_HDR_BYTES +
++        PONG_AFE_PARAM_BYTES + payload_bytes;
++
++    if (buf == NULL || (payload == NULL && payload_bytes != 0u) ||
++        payload_bytes > 0xffffu || bytes < total) {
++        return 0;
++    }
++    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_PORT_CMD_SET_PARAM_V2, token, 0u,
++            0u, total) == 0u) {
++        return 0;
++    }
++    pong_afe_put16(buf + PONG_AFE_OFF_PORT_ID, port_id);
++    pong_afe_put16(buf + PONG_AFE_OFF_PORT_PAYLOAD_SIZE,
++        (uint16_t)(PONG_AFE_PARAM_BYTES + payload_bytes));
++    pong_afe_put32(buf + 28, 0u);  /* payload_address_lsw */
++    pong_afe_put32(buf + 32, 0u);  /* payload_address_msw */
++    pong_afe_put32(buf + 36, 0u);  /* mem_map_handle */
++    pong_afe_param(buf + PONG_AFE_OFF_PARAM, module_id, param_id,
++        (uint16_t)payload_bytes);
++    for (size_t i = 0; i < payload_bytes; ++i) {
++        buf[PONG_AFE_OFF_PAYLOAD + i] = payload[i];
++    }
++    return total;
++}
++
++/* DEVICE_START: {u16 port_id, u16 reserved} as the packet payload
++ * (P: afe_on :461-465, M: q6afe.c:385-388). Returns 28. */
++static inline size_t
++pong_afe_device_start(uint8_t *buf, size_t bytes, uint16_t port_id, uint32_t token)
++{
++    size_t total = PONG_AFE_GPR_HEADER_BYTES + PONG_AFE_DEVICE_START_BYTES;
++
++    if (buf == NULL || bytes < total) {
++        return 0;
++    }
++    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_PORT_CMD_DEVICE_START, token, 0u,
++            0u, total) == 0u) {
++        return 0;
++    }
++    pong_afe_put16(buf + 24, port_id);
++    pong_afe_put16(buf + 26, 0u);
++    return total;
++}
++
++/* --- the five parameter payloads ------------------------------------- */
++
++/* struct afe_clock_set (P: :355-358, packed 20 bytes):
++ *   version, id, hz  (u32 each), attribute, root (u16 each), enable (u32)
++ * The K60 sample is {1, 0x204, 48000*32*2, 4, 0, on}: TERT TDM IBIT. */
++static inline size_t
++pong_afe_clock_set(uint8_t *out, size_t bytes, uint16_t clock_id,
++    uint32_t hz, uint16_t attribute, uint32_t enable)
++{
++    if (out == NULL || bytes < PONG_AFE_CLOCK_SET_BYTES) {
++        return 0;
++    }
++    pong_afe_put32(out + 0, 1u);           /* version */
++    pong_afe_put32(out + 4, clock_id);
++    pong_afe_put32(out + 8, hz);
++    pong_afe_put16(out + 12, attribute);
++    pong_afe_put16(out + 14, 0u);          /* root */
++    pong_afe_put32(out + 16, enable);
++    return PONG_AFE_CLOCK_SET_BYTES;
++}
++
++/* A PRM clock request (V: audio_prm.c:198-248), one GPR message carrying an
++ * APM command header, one module parameter header, the clock count and one
++ * clock tuple:
++ *   [GPR 24][apm_cmd_header 16][apm_module_param_data 16][count 4][cfg 16]
++ * payload_size counts everything after the APM command header (36) and
++ * param_size everything after the parameter header (20). src_port is the ASM
++ * service, dest_port the PRM instance, and both addresses stay zero because
++ * the payload is in band. */
++static inline size_t
++pong_afe_prm_clock_request(uint8_t *out, size_t bytes, uint16_t clock_id,
++    uint32_t hz, uint32_t attribute, uint32_t token)
++{
++    size_t n;
++
++    if (out == NULL || bytes < PONG_AFE_PRM_CLOCK_BYTES) {
++        return 0;
++    }
++    n = pong_afe_gpr_hdr(out, bytes, PONG_AFE_PRM_CMD_REQUEST_HW_RSC, token,
++        PONG_AFE_GPR_SVC_ASM, PONG_AFE_PRM_MODULE_INSTANCE_ID,
++        PONG_AFE_PRM_CLOCK_BYTES);
++    if (n == 0) {
++        return 0;
++    }
++    pong_afe_put32(out + 24, 36u);   /* payload_size */
++    pong_afe_put32(out + 28, 0u);    /* payload_address_lsw */
++    pong_afe_put32(out + 32, 0u);    /* payload_address_msw */
++    pong_afe_put32(out + 36, 0u);    /* mem_map_handle */
++    pong_afe_put32(out + 40, PONG_AFE_PRM_MODULE_INSTANCE_ID);
++    pong_afe_put32(out + 44, PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK);
++    pong_afe_put32(out + 48, 20u);   /* param_size */
++    pong_afe_put32(out + 52, 0u);    /* error_code */
++    pong_afe_put32(out + 56, PONG_AFE_PRM_MAX_CLOCKS);
++    pong_afe_put32(out + 60, clock_id);
++    pong_afe_put32(out + 64, hz);
++    pong_afe_put32(out + 68, attribute);
++    pong_afe_put32(out + 72, 0u);    /* clock_root */
++    return PONG_AFE_PRM_CLOCK_BYTES;
++}
++
++/* struct afe_group_tdm (P: :360-366, packed 44 bytes):
++ *   version (u32), group, reserved (u16), ports[8] (u16),
++ *   channels, rate, bits (u32), slots, slot_bits (u16), slot_mask (u32)
++ * The K60 group lists 0x9020 only (the DT says group-num-ports = 1);
++ * 0x9022 is the vendor's unused second port. */
++static inline size_t
++pong_afe_group_tdm(uint8_t *out, size_t bytes, uint16_t group,
++    const uint16_t *ports, uint32_t channels, uint32_t rate, uint32_t bits,
++    uint16_t slots, uint16_t slot_bits, uint32_t slot_mask)
++{
++    if (out == NULL || bytes < PONG_AFE_GROUP_TDM_BYTES) {
++        return 0;
++    }
++    pong_afe_put32(out + 0, 1u);           /* version */
++    pong_afe_put16(out + 4, group);
++    pong_afe_put16(out + 6, 0u);           /* reserved */
++    for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
++        pong_afe_put16(out + 8u + i * 2u,
++            ports != NULL ? ports[i] : PONG_AFE_PORT_INVALID);
++    }
++    pong_afe_put32(out + 24, channels);
++    pong_afe_put32(out + 28, rate);
++    pong_afe_put32(out + 32, bits);
++    pong_afe_put16(out + 36, slots);
++    pong_afe_put16(out + 38, slot_bits);
++    pong_afe_put32(out + 40, slot_mask);
++    return PONG_AFE_GROUP_TDM_BYTES;
++}
++
++/* struct afe_group_enable (P: :368-370, packed 4 bytes): group, enable. */
++static inline size_t
++pong_afe_group_enable(uint8_t *out, size_t bytes, uint16_t group, uint16_t enable)
++{
++    if (out == NULL || bytes < PONG_AFE_GROUP_ENABLE_BYTES) {
++        return 0;
++    }
++    pong_afe_put16(out + 0, group);
++    pong_afe_put16(out + 2, enable);
++    return PONG_AFE_GROUP_ENABLE_BYTES;
++}
++
++/* struct afe_tdm (P: :372-378, packed 36 bytes):
++ *   version, channels, rate, bits (u32), then data_format, sync_mode,
++ *   sync_source, slots, data_out, invert_sync, data_delay, slot_bits
++ *   (u16 each), then slot_mask (u32).
++ * Field order is the same as M: q6afe.h:180-194; the vendor file starts
++ * with a version word where mainline starts with the channel count. */
++static inline size_t
++pong_afe_tdm(uint8_t *out, size_t bytes, uint32_t channels, uint32_t rate,
++    uint32_t bits, uint16_t data_format, uint16_t sync_mode,
++    uint16_t sync_source, uint16_t slots, uint16_t data_out,
++    uint16_t invert_sync, uint16_t data_delay, uint16_t slot_bits,
++    uint32_t slot_mask)
++{
++    if (out == NULL || bytes < PONG_AFE_TDM_BYTES) {
++        return 0;
++    }
++    pong_afe_put32(out + 0, 1u);           /* version */
++    pong_afe_put32(out + 4, channels);
++    pong_afe_put32(out + 8, rate);
++    pong_afe_put32(out + 12, bits);
++    pong_afe_put16(out + 16, data_format);
++    pong_afe_put16(out + 18, sync_mode);
++    pong_afe_put16(out + 20, sync_source);
++    pong_afe_put16(out + 22, slots);
++    pong_afe_put16(out + 24, data_out);
++    pong_afe_put16(out + 26, invert_sync);
++    pong_afe_put16(out + 28, data_delay);
++    pong_afe_put16(out + 30, slot_bits);
++    pong_afe_put32(out + 32, slot_mask);
++    return PONG_AFE_TDM_BYTES;
++}
++
++/* struct afe_slot_mapping (P: :380-385, packed 28 bytes):
++ *   version (u32), channels, bits (u16), align (u32), offsets[8] (u16)
++ * offsets are byte offsets inside a frame: {0, 4} for two 32-bit slots. */
++static inline size_t
++pong_afe_slot_mapping(uint8_t *out, size_t bytes, uint16_t channels,
++    uint16_t bits, uint32_t align, const uint16_t *offsets)
++{
++    if (out == NULL || bytes < PONG_AFE_SLOT_MAPPING_BYTES) {
++        return 0;
++    }
++    pong_afe_put32(out + 0, 1u);           /* version */
++    pong_afe_put16(out + 4, channels);
++    pong_afe_put16(out + 6, bits);
++    pong_afe_put32(out + 8, align);
++    for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
++        pong_afe_put16(out + 12u + i * 2u,
++            offsets != NULL ? offsets[i] : PONG_AFE_PORT_INVALID);
++    }
++    return PONG_AFE_SLOT_MAPPING_BYTES;
++}
++
++/* --- the amplifier write stream ------------------------------------- */
++
++/* One AW88261 register write on the wire is three bytes: register, then the
++ * value big-endian (M: aw88261.c regmap write through the 16-bit bus). The
++ * replay pass in PongAudioAmp.c sends exactly this, so the profile can be
++ * turned into bytes here and compared pair for pair.
++ * pairs is the flat {register, value} array PongAudioAmpProfile.h holds.
++ * Returns 3 * pairs_count, or 0 if the buffer is too small. */
++#define PONG_AFE_AMP_WRITE_BYTES 3u
++static inline size_t
++pong_afe_amp_write(uint8_t *out, size_t bytes, uint16_t reg, uint16_t value)
++{
++    if (out == NULL || bytes < PONG_AFE_AMP_WRITE_BYTES) {
++        return 0;
++    }
++    out[0] = (uint8_t)(reg & 0xffu);
++    out[1] = (uint8_t)((value >> 8) & 0xffu);
++    out[2] = (uint8_t)(value & 0xffu);
++    return PONG_AFE_AMP_WRITE_BYTES;
++}
++
++static inline size_t
++pong_afe_amp_stream(uint8_t *out, size_t bytes, const uint16_t *pairs,
++    size_t pairs_count)
++{
++    size_t need = pairs_count * PONG_AFE_AMP_WRITE_BYTES;
++
++    if (out == NULL || pairs == NULL || bytes < need) {
++        return 0;
++    }
++    for (size_t i = 0; i < pairs_count; ++i) {
++        (void)pong_afe_amp_write(out + i * PONG_AFE_AMP_WRITE_BYTES,
++            PONG_AFE_AMP_WRITE_BYTES, pairs[i * 2u], pairs[i * 2u + 1u]);
++    }
++    return need;
++}
++
++/* --- the order the DSP expects --------------------------------------- */
++
++/* P: afe_on :432-468. Clock first (the port cannot be configured without a
++ * running bit clock), then the group, then the port, then start. Each step
++ * is a separate packet; the kernel side sends them in this order and stops
++ * at the first failure. */
++typedef enum {
++    PongAfeStepClock = 0,
++    PongAfeStepGroupTdm,
++    PongAfeStepGroupEnable,
++    PongAfeStepPortTdm,
++    PongAfeStepSlotMapping,
++    PongAfeStepDeviceStart,
++    PongAfeStepCount
++} PongAfeStep;
++
++/* 1 = port scoped packet (AFE_PORT_CMD_SET_PARAM_V2 with the port id),
++ * 0 = service scoped (AFE_SVC_CMD_SET_PARAM), -1 = out of range. */
++static inline int
++pong_afe_step_port_scoped(unsigned step)
++{
++    switch (step) {
++    case PongAfeStepClock:
++    case PongAfeStepGroupTdm:
++    case PongAfeStepGroupEnable:
++        return 0;
++    case PongAfeStepPortTdm:
++    case PongAfeStepSlotMapping:
++        return 1;
++    case PongAfeStepDeviceStart:
++        return 0;
++    default:
++        return -1;
++    }
++}
++
++/* Module and parameter id of a step; returns 0 on success, -1 out of range. */
++static inline int
++pong_afe_step_ids(unsigned step, uint32_t *module_id, uint32_t *param_id)
++{
++    switch (step) {
++    case PongAfeStepClock:
++        *module_id = PONG_AFE_PRM_MODULE_INSTANCE_ID;
++        *param_id = PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK;
++        return 0;
++    case PongAfeStepGroupTdm:
++        *module_id = PONG_AFE_MODULE_GROUP_DEVICE;
++        *param_id = PONG_AFE_PARAM_ID_GROUP_DEVICE_TDM_CONFIG;
++        return 0;
++    case PongAfeStepGroupEnable:
++        *module_id = PONG_AFE_MODULE_GROUP_DEVICE;
++        *param_id = PONG_AFE_PARAM_ID_GROUP_DEVICE_ENABLE;
++        return 0;
++    case PongAfeStepPortTdm:
++        *module_id = PONG_AFE_MODULE_AUDIO_DEV_INTERFACE;
++        *param_id = PONG_AFE_PARAM_ID_TDM_CONFIG;
++        return 0;
++    case PongAfeStepSlotMapping:
++        *module_id = PONG_AFE_MODULE_TDM;
++        *param_id = PONG_AFE_PARAM_ID_PORT_SLOT_MAPPING_CONFIG;
++        return 0;
++    default:
++        return -1;
++    }
++}
++
++/* Opcode of a step; 0 out of range. */
++static inline uint32_t
++pong_afe_step_opcode(unsigned step)
++{
++    if (step == PongAfeStepClock) {
++        return PONG_AFE_PRM_CMD_REQUEST_HW_RSC;
++    }
++    if (step == PongAfeStepDeviceStart) {
++        return PONG_AFE_PORT_CMD_DEVICE_START;
++    }
++    if (pong_afe_step_port_scoped(step) == 1) {
++        return PONG_AFE_PORT_CMD_SET_PARAM_V2;
++    }
++    if (pong_afe_step_port_scoped(step) == 0 && step != PongAfeStepDeviceStart) {
++        return PONG_AFE_SVC_CMD_SET_PARAM;
++    }
++    return 0u;
++}
++
++/* The six packets with the K60 values, in one call. This is the only place
++ * that combines a payload builder with its envelope: the kernel sequence
++ * sends exactly these bytes and the host test pins every length, opcode and
++ * selected field. Max packet: group TDM = 24 + 16 + 12 + 44 = 96 bytes. */
++#define PONG_AFE_STEP_PACKET_MAX 96u
++
++static inline size_t
++pong_afe_step_packet(uint8_t *out, size_t bytes, unsigned step, uint32_t token)
++{
++    uint8_t payload[PONG_AFE_GROUP_TDM_BYTES];
++    uint16_t ports[PONG_AFE_MAX_CHANNELS];
++    uint16_t offsets[PONG_AFE_MAX_CHANNELS];
++    size_t n;
++
++    if (out == NULL || step >= (unsigned)PongAfeStepCount) {
++        return 0u;
++    }
++    if (step == (unsigned)PongAfeStepClock) {
++        return pong_afe_prm_clock_request(out, bytes,
++            PONG_AFE_CLOCK_TERT_TDM_IBIT, PONG_AFE_TDM_CLK_HZ,
++            PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, token);
++    }
++    memset(payload, 0, sizeof(payload));
++    if (step == (unsigned)PongAfeStepGroupTdm) {
++        for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
++            ports[i] = PONG_AFE_PORT_INVALID;
++        }
++        ports[0] = PONG_AFE_PORT_TERT_TDM_RX_0;
++        ports[1] = PONG_AFE_GROUP_OTHER_PORT;
++        n = pong_afe_group_tdm(payload, sizeof(payload),
++            PONG_AFE_GROUP_TERT_TDM_RX, ports, PONG_AFE_SLOTS, PONG_AFE_RATE,
++            PONG_AFE_SLOT_BITS, (uint16_t)PONG_AFE_SLOTS,
++            (uint16_t)PONG_AFE_SLOT_BITS, 3u);
++        if (n == 0u) {
++            return 0u;
++        }
++        return pong_afe_svc_set_param(out, bytes, PONG_AFE_MODULE_GROUP_DEVICE,
++            PONG_AFE_PARAM_ID_GROUP_DEVICE_TDM_CONFIG, payload, n, token);
++    }
++    if (step == (unsigned)PongAfeStepGroupEnable) {
++        n = pong_afe_group_enable(payload, sizeof(payload),
++            PONG_AFE_GROUP_TERT_TDM_RX, 1u);
++        if (n == 0u) {
++            return 0u;
++        }
++        return pong_afe_svc_set_param(out, bytes, PONG_AFE_MODULE_GROUP_DEVICE,
++            PONG_AFE_PARAM_ID_GROUP_DEVICE_ENABLE, payload, n, token);
++    }
++    if (step == (unsigned)PongAfeStepPortTdm) {
++        n = pong_afe_tdm(payload, sizeof(payload), PONG_AFE_SLOTS, PONG_AFE_RATE,
++            PONG_AFE_SLOT_BITS, 0u, 0u, 1u, (uint16_t)PONG_AFE_SLOTS, 0u, 1u,
++            1u, (uint16_t)PONG_AFE_SLOT_BITS, 3u);
++        if (n == 0u) {
++            return 0u;
++        }
++        return pong_afe_port_set_param(out, bytes, PONG_AFE_PORT_TERT_TDM_RX_0,
++            PONG_AFE_MODULE_AUDIO_DEV_INTERFACE, PONG_AFE_PARAM_ID_TDM_CONFIG,
++            payload, n, token);
++    }
++    if (step == (unsigned)PongAfeStepSlotMapping) {
++        for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
++            offsets[i] = PONG_AFE_PORT_INVALID;
++        }
++        offsets[0] = 0u;
++        offsets[1] = 4u;
++        n = pong_afe_slot_mapping(payload, sizeof(payload),
++            (uint16_t)PONG_AFE_SLOTS, (uint16_t)PONG_AFE_SLOT_BITS, 0u, offsets);
++        if (n == 0u) {
++            return 0u;
++        }
++        return pong_afe_port_set_param(out, bytes, PONG_AFE_PORT_TERT_TDM_RX_0,
++            PONG_AFE_MODULE_TDM, PONG_AFE_PARAM_ID_PORT_SLOT_MAPPING_CONFIG,
++            payload, n, token);
++    }
++    if (step == (unsigned)PongAfeStepDeviceStart) {
++        return pong_afe_device_start(out, bytes, PONG_AFE_PORT_TERT_TDM_RX_0,
++            token);
++    }
++    return 0u;
++}
++
++#endif /* PONG_AUDIO_AFE_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioTlmm.h
+@@ -0,0 +1,125 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * Pure TLMM values for the four TERT TDM speaker pads.
++ *
++ * The device tree hands the audio driver a pinctrl group (tert_tdm_pinctrl)
++ * but no consumer of that group exists on our side: XNU has no pinctrl
++ * framework, so the audio driver has to write the pads itself. This header
++ * turns the device-tree facts into the two words the driver writes, so the
++ * host test can pin them before anything touches hardware.
++ *
++ * Facts and where they come from:
++ *   L:5315-5378  active group, pins gpio121/122/123/124
++ *                gpio121 = mi2s2_sck, output-low, 2 mA, bias-disable
++ *                gpio123 = mi2s2_ws,  output-low, 2 mA, bias-disable
++ *                gpio122 = mi2s2_data0 (input), 2 mA, bias-disable
++ *                gpio124 = mi2s2_data1 (input), 2 mA, bias-disable
++ *   P:pinctrl-sm8450.c:33   ctl_reg = REG_SIZE * id, io_reg = ctl + 4
++ *   P:pinctrl-sm8450.c:1537 [121] = PINGROUP(121, mi2s2_sck, ...)
++ *                          [122] = PINGROUP(122, mi2s2_data0, ...)
++ *                          [123] = PINGROUP(123, mi2s2_ws, ...)
++ *                          [124] = PINGROUP(124, mi2s2_data1, sec_mi2s, ...)
++ *
++ * The mux value is the index inside the pin's function list, and that list
++ * always starts with msm_mux_gpio at index 0, so mi2s2_* is function 1 on all
++ * four pads (sec_mi2s on gpio124 is index 2 and is not used here).
++ *
++ * Register word layout (P:PongAudioRegs.h:35-36):
++ *   CFG [1:0] pull, [5:2] function, [8:6] drive, [9] output enable
++ *   IO  bit0 input level, bit1 output level
++ * Drive strength is encoded as (mA / 2) - 1, so 2 mA is field value 0.
++ */
++#ifndef PONG_AUDIO_TLMM_H
++#define PONG_AUDIO_TLMM_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "PongAudioPlan.h"
++
++/* Pin order used by every table, log line and test below. */
++enum {
++	PongAudioTdmSck = 0,
++	PongAudioTdmWs = 1,
++	PongAudioTdmDin = 2,
++	PongAudioTdmDout = 3,
++	PongAudioTdmPinCount = 4
++};
++
++#define PONG_AUDIO_TDM_FN_MI2S2	1u	/* funcs[1]: mi2s2_sck/ws/data0/data1 */
++#define PONG_AUDIO_TDM_DRIVE_MA		2u	/* L:active config drive-strength <2> */
++
++/* gpio number of one TERT TDM pad; 0xffffffff means "no such pin". */
++static inline uint32_t
++pong_audio_tdm_gpio(unsigned pin)
++{
++	switch (pin) {
++	case PongAudioTdmSck:
++		return 121u;
++	case PongAudioTdmWs:
++		return 123u;
++	case PongAudioTdmDin:
++		return 122u;
++	case PongAudioTdmDout:
++		return 124u;
++	default:
++		return 0xffffffffu;
++	}
++}
++
++/* The AP drives the bit clock and the word select; the two data pins are
++ * inputs as far as the pad is concerned even though DIN carries RX data. */
++static inline bool
++pong_audio_tdm_is_output(unsigned pin)
++{
++	return pin == PongAudioTdmSck || pin == PongAudioTdmWs;
++}
++
++/* CFG word: no pull, mi2s2 function, 2 mA, output enable only on sck/ws. */
++static inline uint32_t
++pong_audio_tdm_cfg(unsigned pin)
++{
++	return pong_audio_pad_config(0u, PONG_AUDIO_GPIO_PULL_NONE,
++	    PONG_AUDIO_TDM_FN_MI2S2, PONG_AUDIO_TDM_DRIVE_MA,
++	    pong_audio_tdm_is_output(pin));
++}
++
++/* IO word: the clock and word select idle low (output-low in the active
++ * group), and the data pads are inputs, so the output bit stays clear. */
++static inline uint32_t
++pong_audio_tdm_io(unsigned pin)
++{
++	(void)pin;
++	return 0u;
++}
++
++static inline uint32_t
++pong_audio_tdm_pad_phys(unsigned pin)
++{
++	return pong_audio_pad_phys(pong_audio_tdm_gpio(pin));
++}
++
++static inline uint32_t
++pong_audio_tdm_io_phys(unsigned pin)
++{
++	return pong_audio_tdm_pad_phys(pin) + PONG_AUDIO_GPIO_IO;
++}
++
++/* Speaker switch: gpio52, active high. L:13329 spksw-gpio <0x3c 0x34 0x00>;
++ * mixer_paths_waipio_mtp.xml:2132 sets aw882xx_spk_sw_gpio_switch to 1 on the
++ * speaker path, and aw882xx.c:1711-1717 requests the line low at probe. */
++#define PONG_AUDIO_SPKSW_ACTIVE_HIGH 1u
++
++static inline uint32_t
++pong_audio_spksw_cfg(uint32_t current)
++{
++	return pong_audio_pad_config(current, PONG_AUDIO_GPIO_PULL_NONE,
++	    PONG_AUDIO_GPIO_FN_GPIO, 2u, true);
++}
++
++static inline uint32_t
++pong_audio_spksw_io(bool on)
++{
++	return on ? 2u : 0u;
++}
++#endif /* PONG_AUDIO_TLMM_H */
+
+--- /dev/null
++++ b/bsd/dev/PongAudioRing.h
+@@ -0,0 +1,200 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * The PCM ring the audio service hands to the AFE path: how many frames a
++ * period is, how far ahead of the play position the writer must stay, and
++ * when the transport may start.
++ *
++ * The numbers are the vendor's, not ours. AGM opens the PCM device with
++ * MAX_PERIOD_BUFFER 8192 bytes (M: agm/service/src/device.c:102) divided by
++ * channels times bytes per sample (:273), DEFAULT_PERIOD_COUNT 2 (:103) and
++ * start_threshold = period_size / 4 (:405). The speaker backend runs
++ * S24_LE at 48 kHz stereo (resourcemanager_waipio_mtp.xml:459-470), and
++ * get_pcm_bits_per_sample() counts S24_LE as 32 bits (device.c:140-141),
++ * so one frame is 2 * 4 = 8 bytes and one period is 1024 frames.
++ *
++ * The ring itself is the ShengAudioAbi ring: 65536 frames, room for a 300 ms
++ * lead and late HAL cycles (M: ShengAudioAbi.h:21), and lead_frames is that
++ * 300 ms expressed in frames. Pure: no MMIO, no kernel headers.
++ */
++#ifndef PONG_AUDIO_RING_H
++#define PONG_AUDIO_RING_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define PONG_RING_RATE                 48000u
++#define PONG_RING_CHANNELS             2u
++#define PONG_RING_SAMPLE_BYTES         4u  /* S24_LE in a 32-bit word */
++#define PONG_RING_FRAME_BYTES          (PONG_RING_CHANNELS * PONG_RING_SAMPLE_BYTES)
++#define PONG_RING_PERIOD_FRAMES        1024u /* 8192 / (2 * 4) */
++#define PONG_RING_PERIOD_COUNT         2u
++#define PONG_RING_START_THRESHOLD_FRAMES (PONG_RING_PERIOD_FRAMES / 4u)
++#define PONG_RING_LEAD_FRAMES          14400u /* 300 ms at 48 kHz */
++#define PONG_RING_FRAMES               65536u
++#define PONG_RING_RING_BYTES           (PONG_RING_FRAMES * PONG_RING_FRAME_BYTES)
++#define PONG_RING_INVALID              0xffffffffu
++
++static inline uint32_t
++pong_ring_frame_bytes(void)
++{
++	return PONG_RING_FRAME_BYTES;
++}
++
++static inline uint32_t
++pong_ring_period_bytes(void)
++{
++	return PONG_RING_PERIOD_FRAMES * PONG_RING_FRAME_BYTES;
++}
++
++static inline uint32_t
++pong_ring_ring_bytes(void)
++{
++	return PONG_RING_FRAMES * PONG_RING_FRAME_BYTES;
++}
++
++static inline uint32_t
++pong_ring_period_ns(void)
++{
++	return (uint32_t)((1000000000ull * PONG_RING_PERIOD_FRAMES) / PONG_RING_RATE);
++}
++
++/* Advance a ring position by frames. Positions are frame indices in
++ * [0, PONG_RING_FRAMES); anything else is rejected. */
++static inline uint32_t
++pong_ring_advance(uint32_t position, uint32_t frames)
++{
++	if (position >= PONG_RING_FRAMES) {
++		return PONG_RING_INVALID;
++	}
++	return (position + frames % PONG_RING_FRAMES) % PONG_RING_FRAMES;
++}
++
++/* Frames written but not yet consumed, walking forward from from to to. */
++static inline uint32_t
++pong_ring_distance(uint32_t from, uint32_t to)
++{
++	if (from >= PONG_RING_FRAMES || to >= PONG_RING_FRAMES) {
++		return PONG_RING_INVALID;
++	}
++	return (to + PONG_RING_FRAMES - from) % PONG_RING_FRAMES;
++}
++
++static inline bool
++pong_ring_can_start(uint32_t frames_available)
++{
++	return frames_available >= PONG_RING_START_THRESHOLD_FRAMES;
++}
++
++/* One period of audio fits in the ring with room for the lead? */
++static inline bool
++pong_ring_geometry_ok(void)
++{
++	return PONG_RING_LEAD_FRAMES + PONG_RING_PERIOD_COUNT * PONG_RING_PERIOD_FRAMES
++	    <= PONG_RING_FRAMES;
++}
++
++/* One producer (the audio service's submit path) and one consumer (the AFE
++ * period pump) share this queue. Positions are frame indices in
++ * [0, capacity_frames); one slot stays empty so full and empty cannot look
++ * alike. The queue copies whole frames only; callers pass frame counts, never
++ * bytes, so a partial audio frame cannot enter the ring. */
++typedef struct {
++	uint8_t *storage;
++	uint32_t capacity_frames;
++	volatile uint32_t read;
++	volatile uint32_t write;
++} PongRing;
++
++static inline void
++pong_ring_queue_init(PongRing *ring, void *storage, uint32_t capacity_frames)
++{
++	ring->storage = (uint8_t *)storage;
++	ring->capacity_frames = capacity_frames;
++	ring->read = 0;
++	ring->write = 0;
++}
++
++static inline uint32_t
++pong_ring_queue_used(const PongRing *ring)
++{
++	if (ring->capacity_frames == 0 || ring->read >= ring->capacity_frames ||
++	    ring->write >= ring->capacity_frames) {
++		return PONG_RING_INVALID;
++	}
++	return (ring->write + ring->capacity_frames - ring->read) %
++	    ring->capacity_frames;
++}
++
++static inline uint32_t
++pong_ring_queue_space(const PongRing *ring)
++{
++	uint32_t used = pong_ring_queue_used(ring);
++	return used == PONG_RING_INVALID || ring->capacity_frames == 0 ?
++	    PONG_RING_INVALID : ring->capacity_frames - 1u - used;
++}
++
++static inline uint32_t
++pong_ring_queue_write(PongRing *ring, const void *frames, uint32_t frame_count)
++{
++	uint32_t room = pong_ring_queue_space(ring);
++	uint32_t frame_bytes = pong_ring_frame_bytes();
++	const uint8_t *src = (const uint8_t *)frames;
++	uint32_t position;
++	uint32_t copied;
++	uint32_t i;
++
++	if (room == PONG_RING_INVALID || frame_count > room) {
++		return 0;
++	}
++	position = ring->write;
++	copied = 0;
++	while (copied < frame_count) {
++		uint32_t contiguous = ring->capacity_frames - position;
++		uint32_t take = frame_count - copied;
++		if (take > contiguous) {
++			take = contiguous;
++		}
++		for (i = 0; i < take * frame_bytes; i++) {
++			ring->storage[position * frame_bytes + i] = src[i];
++		}
++		src += take * frame_bytes;
++		copied += take;
++		position = (position + take) % ring->capacity_frames;
++	}
++	ring->write = position;
++	return frame_count;
++}
++
++static inline uint32_t
++pong_ring_queue_read(PongRing *ring, void *frames, uint32_t frame_count)
++{
++	uint32_t used = pong_ring_queue_used(ring);
++	uint32_t frame_bytes = pong_ring_frame_bytes();
++	uint8_t *dst = (uint8_t *)frames;
++	uint32_t position;
++	uint32_t copied;
++	uint32_t i;
++
++	if (used == PONG_RING_INVALID || frame_count > used) {
++		return 0;
++	}
++	position = ring->read;
++	copied = 0;
++	while (copied < frame_count) {
++		uint32_t contiguous = ring->capacity_frames - position;
++		uint32_t take = frame_count - copied;
++		if (take > contiguous) {
++			take = contiguous;
++		}
++		for (i = 0; i < take * frame_bytes; i++) {
++			dst[i] = ring->storage[position * frame_bytes + i];
++		}
++		dst += take * frame_bytes;
++		copied += take;
++		position = (position + take) % ring->capacity_frames;
++	}
++	ring->read = position;
++	return frame_count;
++}
++
++#endif /* PONG_AUDIO_RING_H */
+
+--- /dev/null
++++ b/bsd/dev/K60PmicGlinkAudio.h
+@@ -0,0 +1,43 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. */
++#ifndef K60_PMIC_GLINK_AUDIO_H
++#define K60_PMIC_GLINK_AUDIO_H
++#include <stdbool.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* The audio consumer never sees QcomGlink.h: it only hands callbacks to the
++ * battery transport. Values match PongAudioStatus in PongAudioAfe.h. */
++typedef struct {
++    void (*state)(void *context, bool up);
++    void (*receive)(void *context, const uint8_t *data, unsigned bytes);
++} K60PmicGlinkAudioClient;
++
++#define K60_PMIC_GLINK_AUDIO_OK             0
++#define K60_PMIC_GLINK_AUDIO_NO_TRANSPORT (-2001)
++#define K60_PMIC_GLINK_AUDIO_NO_LEASE     (-2002)
++#define K60_PMIC_GLINK_AUDIO_STALE_LEASE  (-2003)
++#define K60_PMIC_GLINK_AUDIO_REFUSED      (-2004)
++
++/* A send returns OK when the packet is on the wire or retained by the bridge
++ * for the next service pass. A full queue is REFUSED; other negative values
++ * are PongAudioStatus errors. The names below match QcomGlink for the audio
++ * side, which never includes QcomGlink.h. */
++#define K60_PMIC_GLINK_AUDIO_AGAIN        (-1)
++#define K60_PMIC_GLINK_AUDIO_NOT_OPEN     (-2)
++#define K60_PMIC_GLINK_AUDIO_TOO_BIG      (-3)
++
++/* Queues one adsp_apps channel on the shared two-slot transport. The workloop
++ * performs the actual registration, so this call is safe from another thread.
++ * Returns 0 when the request is queued, or a negative PongAudioStatus value. */
++int k60_pmic_glink_attach_audio(const K60PmicGlinkAudioClient *, void *);
++int k60_pmic_glink_send_audio(const uint8_t *, unsigned);
++bool k60_pmic_glink_audio_ready(void);
++
++#ifdef __cplusplus
++}
++#endif
++#endif
+
+--- /dev/null
++++ b/bsd/dev/PongAudioPlayback.h
+@@ -0,0 +1,117 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent
++ *
++ * The AudioReach playback graph order the AFE pump follows after the six-step
++ * setup. This is the order PongAudio.cpp openGraphs()/start() use: the two
++ * endpoints are opened and configured first, their shared-memory buffer is
++ * mapped, the tertiary MI2S bit clock is voted, and only then are the speaker
++ * and playback graphs prepared and started. Pure: no kernel headers.
++ */
++#ifndef PONG_AUDIO_PLAYBACK_H
++#define PONG_AUDIO_PLAYBACK_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define PONG_PLAY_OP_GRAPH_OPEN     0x01001000u
++#define PONG_PLAY_OP_GRAPH_PREPARE  0x01001001u
++#define PONG_PLAY_OP_GRAPH_START    0x01001002u
++#define PONG_PLAY_OP_SET_CFG        0x01001006u
++#define PONG_PLAY_OP_MEM_MAP        0x0100100Cu
++#define PONG_PLAY_OP_PRM_REQUEST    0x0100100Fu
++
++#define PONG_PLAY_SG_PLAY           0x4001u
++#define PONG_PLAY_SG_SPEAKER        0x4005u
++
++#define PONG_PLAY_SLOT_COUNT        8u
++#define PONG_PLAY_PERIOD_BYTES      8192u
++#define PONG_PLAY_PRIME_SLOTS       4u
++#define PONG_PLAY_SLOT_TIMEOUT_PUMPS 8u
++
++typedef enum {
++	PongPlayOpenSpeaker = 0,
++	PongPlayConfigSpeaker,
++	PongPlayOpenPlayback,
++	PongPlayConfigPlayback,
++	PongPlayConfigShmem,
++	PongPlayMap,
++	PongPlayClock,
++	PongPlayPrepareSpeaker,
++	PongPlayPreparePlayback,
++	PongPlayStartSpeaker,
++	PongPlayStartPlayback,
++	PongPlayStepCount
++} PongPlayStep;
++
++static inline uint32_t
++pong_play_token(unsigned step)
++{
++	return 0x00030000u + step;
++}
++
++static inline uint32_t
++pong_play_opcode(unsigned step)
++{
++	switch (step) {
++	case PongPlayOpenSpeaker:
++	case PongPlayOpenPlayback:
++		return PONG_PLAY_OP_GRAPH_OPEN;
++	case PongPlayConfigSpeaker:
++	case PongPlayConfigPlayback:
++	case PongPlayConfigShmem:
++		return PONG_PLAY_OP_SET_CFG;
++	case PongPlayMap:
++		return PONG_PLAY_OP_MEM_MAP;
++	case PongPlayClock:
++		return PONG_PLAY_OP_PRM_REQUEST;
++	case PongPlayPrepareSpeaker:
++	case PongPlayPreparePlayback:
++		return PONG_PLAY_OP_GRAPH_PREPARE;
++	case PongPlayStartSpeaker:
++	case PongPlayStartPlayback:
++		return PONG_PLAY_OP_GRAPH_START;
++	default:
++		return 0;
++	}
++}
++
++static inline uint32_t
++pong_play_sg(unsigned step)
++{
++	switch (step) {
++	case PongPlayOpenSpeaker:
++	case PongPlayConfigSpeaker:
++	case PongPlayPrepareSpeaker:
++	case PongPlayStartSpeaker:
++		return PONG_PLAY_SG_SPEAKER;
++	case PongPlayOpenPlayback:
++	case PongPlayConfigPlayback:
++	case PongPlayConfigShmem:
++	case PongPlayPreparePlayback:
++	case PongPlayStartPlayback:
++		return PONG_PLAY_SG_PLAY;
++	default:
++		return 0;
++	}
++}
++
++static inline bool
++pong_play_slot_expired(uint32_t age)
++{
++	return age >= PONG_PLAY_SLOT_TIMEOUT_PUMPS;
++}
++
++static inline uint64_t
++pong_play_slot_address(uint64_t dma_pa, unsigned slot)
++{
++	return (dma_pa | (1ull << 32)) +
++	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES;
++}
++
++static inline bool
++pong_play_is_graph_step(unsigned step)
++{
++	return pong_play_opcode(step) == PONG_PLAY_OP_GRAPH_PREPARE ||
++	    pong_play_opcode(step) == PONG_PLAY_OP_GRAPH_START;
++}
++
++#endif /* PONG_AUDIO_PLAYBACK_H */
+
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -110,6 +110,8 @@
+ bsd/dev/qbt/btqca.c		standard
+ bsd/dev/aw882xx.c			standard
+ bsd/dev/pong_audio.c			standard
++bsd/dev/PongAudioGeniI2c.c		standard
++bsd/dev/PongAudioAmp.c			standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+ 
+
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1322,6 +1322,16 @@
+ 		(void)pong_audio_bootstrap();
+ 	}
+ #endif
++	/* K60 audio amplifier probe (patches/audio, drivers/PongAudio): the codec
++	 * half needs ADSP PRM votes and is blocked; the amplifiers answer a chip-id
++	 * read over AP-owned GENI I2C without the DSP. Inert unless the image is
++	 * booted with pong_audio_probe=1. */
++#if 1
++	if (result == KERN_SUCCESS) {
++		extern int pong_audio_amp_probe(void);
++		(void)pong_audio_amp_probe();
++	}
++#endif
+ 	return result;
+ }
+ 

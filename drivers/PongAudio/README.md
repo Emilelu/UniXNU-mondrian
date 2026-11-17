@@ -1,0 +1,280 @@
+# drivers/PongAudio — K60 speaker amplifier probe (step 3 of the audio task)
+
+Source-only directory. Nothing here is compiled into the kernel until the patch in
+`patches/audio/` is applied: the audio driver reaches `bsd/dev/` the same way the
+aw882xx/pong_audio skeleton does (patches/xnu/0503-0505) and the way PongPower's
+content reaches `bsd/dev/pong_adsp_pas.h` (0613). `drivers/` is the holding area
+the tree keeps for native drivers (PongAdreno, PongMetal, PongPower, ...); a
+directory appearing here does **not** mean it is linked.
+
+Why this file set exists: the codec half of the port is blocked. Every LPASS
+block (TX/VA macro, the SoundWire master, the LPI pads) needs two PRM block
+votes and the `0x30c` clock acknowledgement from the ADSP first
+(`references/pong-power/PongWcd938.h:59-120`), and the ADSP does not boot yet
+(`docs/research/audio/GAP-ANALYSIS.md`). The amplifiers do not have that
+dependency: they hang off AP-owned QUPV3 wrapper 2, serial engine 0 at
+`0x00880000`, and answer a chip-id read with no DSP involved. That read is the
+one piece of hardware evidence this task can produce before PAS1 works, and it
+decides whether the port needs an AW882xx driver or a WSA883x one — the open
+question in `docs/research/audio/AMPS.md`.
+
+## Files
+
+| File | Contents |
+| --- | --- |
+| `PongAudioRegs.h` | Every K60 AP-side constant the probe uses, each tagged with its provenance: **L** live FDT (`E:/k60-work/scratch/audio-work/live-fdt.dts`), **G** `gcc-sm8450.c`, **S** the Pong reference tree, **M** mainline `geni-se.h`/`i2c-qcom-geni.c`, **H** `hakios.speaker.c`. No address appears without a tag. |
+| `PongAudioPlan.h` | The probe's decision helpers as pure functions: pad addressing and the pad config word, the CBCR "running" test, GCC window routing, DFS-level acceptance, the AW882xx byte order and the chip-id table. No MMIO, no kernel headers — which is why every one of those choices is pinned by the host test instead of at boot. |
+| `PongAudioGeniI2c.h` / `.c` | The GENI I2C transport from `references/pong-power/GeniI2c.c`, logic kept verbatim, symbols renamed to `pong_geni_*` so it cannot collide with the Pong copy. One transfer at a time; the caller feeds `M_IRQ` status in until done. |
+| `PongAudioAmp.c` | The probe. Boot-arg gated. One read pass over the amplifiers, then a replay pass that writes the tuning table; every write is printed next to its readback with the `PongAudio: amp ...` prefix. |
+| `PongCodecSwr.h` / `PongCodecSwr.c` | One read transaction on the LPASS VA SoundWire master, as a state machine: read `COMP_HW_VERSION`, pick the register group, compose the command word, refuse when the FIFO is full, collect the response only when its transaction id is ours, and abort on a foreign id or a deadline. The enumerator step is here too. Same split as the GENI machine: no waiting inside, the caller owns the deadline. |
+| `PongCodecLpi.h` / `PongCodecLpi.c` | The LPI pads and the slew block as a five-step sequencer: pins 0, 1, 2 and 14 are read-modify-written one at a time, and the slew register is written once, after all four — the order the reference uses (S:`PongWcd938.h:80-82`). Pads and slew live at different addresses, so the callbacks are two pairs; one pair would let a slew write land on pad 0. No waiting inside, like the other two machines. |
+| `PongCodecMacro.h` / `PongCodecMacro.c` | The VA and TX macro clock gates as a nine-row table walk (S:`PongWcd938.h:84-86`): each row names the macro, the register, the bits to clear and the bits to set, and every step re-reads because a later step writes a register an earlier one already wrote. It is a table rather than nine lines because these are read-modify-writes over reset values this project has never seen on K60 — the boot log can then print what each step actually read, so the first run answers that question instead of assuming it. |
+| `PongCodecProbe.h` / `PongCodecProbe.c` | The codec half's whole start-up order in one place: LPI pads and slew, then the VA/TX macro gates, then the SoundWire probe, its initialisation sequence and environment wait, then enumeration, slave ids and the codec identity. It owns the ordering, the poll budget and the definition of failure; `pong_codec_probe_start()` refuses outright — without touching a single register — unless all three LPASS votes are in, and each `step()` does exactly one thing so the caller can log every step on the first run. The slave ids are ordinary register reads (`0x530+8n`, `0x534+8n`); only the codec's own `0x50`/`0x51` use a read transaction. |
+| `PongCodecPlan.h` | The codec half's decisions, as pure functions, written before the hardware is reachable: SoundWire controller version, per-version read-transaction register group, transaction id and command word, FIFO-full test, response matching, the enumerator bitmap and slave-id layout, the LPI pad words, the five LPASS windows with their io_submap cost, and the one predicate that says whether the ADSP has granted the two PRM votes plus the `0x30c` clock. No MMIO, no kernel headers — pinned by the host test now, so the eventual on-device read is a thin loop over proven numbers. |
+| `PongAudioAcf.h` | The A5 answer as pure functions: the AW88261 tuning file (ACF) header checks, block lookup by `dev_index + profile + kind`, the two checksum ranges, the 16x16 register-pair table, the two-amplifier channel mapping, and fuse -> icalk/vcalk -> vcalb. No MMIO, no kernel headers; see `docs/research/audio/AMPS.md` section 8. |
+| `PongAudioAmpProfile.h` | The two Music profiles, 57 register pairs each, generated from the real ACF blob by `E:/k60-work/scratch/audio-work/gen-profile-header.py` (the script asserts the checksum and the pair count before it writes). `pong_amp_profile_for_addr()` maps `0x35` to the dev0 table and `0x34` to the dev1 table — the address, never the probe's index, because the two numbering systems are inverted (AMPS.md section 8.5). The blob itself is not in the repo: `.gitignore` drops `*.bin`. |
+| `PongAudioAmpReplay.h` | The write pass as pure functions: 60 steps per amplifier (soft reset, 57 profile pairs, the fuse-derived vcalb, the mute volume), the mainline semantics for the four special registers, the SYSCTRL merge that keeps the hardware's PWDN/AMPPD/HMUTE, and the volume encoding. No MMIO, no kernel headers. |
+| `PongAudioAfe.h` | The DSP side of the speaker path, as bytes: the 24-byte GPR header, the two set-parameter envelopes (service scoped and port scoped), the five AFE parameter structures of TDMS.md section 3 and DEVICE_START, plus the three-byte amplifier write stream. Pure packing - no MMIO, no kernel headers, nothing sent - so the host test can read every offset and byte order before a GPR transport exists. In `patches/audio`: `pong_audio.c` includes it and 0003 calls `pong_afe_step_packet()` for the six-step sequence. |
+| `PongAudioTlmm.h` | The four TERT TDM pads and the speaker-switch pad as words: gpio121/123/122/124 as mi2s2_sck/ws/data0/data1 at 2 mA with no pull, and gpio52 as a plain output. Pure functions, no MMIO - the host test pins cfg 0x204/0x4, IO 0 and the switch words before the probe writes them. |
+| `PongAudioRing.h` | The PCM ring the service hands to the AFE path: 48 kHz stereo S24_LE in 32-bit words, a 1024-frame period (AGM's 8192-byte buffer / 8 bytes a frame), two periods, a 256-frame start threshold, the 14400-frame (300 ms) lead and the 65536-frame ring. Pure arithmetic, no MMIO. In `patches/audio`: `bsd/dev/PongAudioRing.h` is one of the thirteen files 0001 installs, and 0003 includes it for `pong_audio_submit()`/`pong_audio_ring_read()`. |
+| `PongAudioPlayback.h` | The playback graph as an 11-step table: open/config speaker, open/config playback, config shmem, map, clock, prepare both graphs, start both graphs. Token `0x00030000 + step`, fixed opcodes and subgroup ids, pure constants and predicates; 0003 uses it from `pong_audio_play_send_step()` and `play_cases()` pins the whole table. |
+| `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h`, `PongCodecPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAfe.h`, `PongAudioTlmm.h`, `PongAudioRing.h` and `PongAudioPlayback.h` (956 assertions; 974 when `PONG_ACF_FILE` points at the real tuning blob). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
+| `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
+
+## What it does, in order
+
+1. `pads_map` — eight one-page TLMM windows (GPIO 1, 3, 43, 52, 56, 57, 63, 88).
+2. `pads_report` — prints the pad state inherited from the boot loader. This is
+   evidence: it says whether Android already configured the bus pads and
+   released the amplifier resets, and no write below contradicts it silently.
+3. `gcc_map` + `gcc_wrapper2_on` — votes wrapper 2's five branch clocks in the
+   wrapper-2 enable register (`0x62010`, not the `0x62008` the touch driver
+   uses for wrapper 0) and waits for each CBCR to report running.
+4. `i2c_pads_take` — GPIO56/57 to the QUP15 function with a pull-up, unless they
+   are already there.
+5. `se15_open` — reads the firmware revision, refuses anything that is not I2C,
+   chooses a DFS level whose source is the always-on reference, then writes the
+   engine's own registers in mainline `geni_se_init()` order.
+6. `amp_reset_release` — releases GPIO1 (amp 0) and GPIO3 (amp 1). Deliberately
+   after the bus works: releasing a reset first and then failing would leave an
+   amplifier awake with no clock.
+7. `amp_probe_one` — reads chip id `0x00` (three attempts), then status
+   `0x01`, mask `0x03`, control `0x04`, I2S `0x06`, debug `0x14`, VBAT `0x21`,
+   PVDD `0x23`, temp `0x22`, `0x50`, and the four fuse words `0x78/0x79/0x7c/0x7d`.
+   Register `0x02` is skipped on purpose: reading it clears the interrupt status.
+8. `amp_replay_one` — the write pass, run once per amplifier that answered the
+   read. Software reset (`0x55aa` to `0x00`), then the 57-pair Music profile from
+   `PongAudioAmpProfile.h`, with the mainline semantics for the special registers
+   (SYSCTRL keeps the hardware's PWDN/AMPPD/HMUTE and forces ULS_HMUTE; I2SCTRL3
+   clears TXEN; DBGCTRL picks the efuse OR/AND path; VSNTM1 is skipped and written
+   from the fuse words instead), then the mute volume. Every write is printed next
+   to its readback. The chips stay powered down and muted — no bit clock runs, so
+   this cannot reach the speaker. See `AMPS.md` section 9.
+
+## Running it
+
+```
+scripts/build-strict.sh <tag> --fd <SILICIUM_UEFI.fd> --kernel-arg pong_audio_probe=1
+```
+
+The boot argument is read with `PE_parse_boot_argn("pong_audio_probe", ...)`; without
+it the probe costs one boot-arg lookup and returns. The argument is **not** in
+`board.toml` `[kernel] kernel_args` yet — that file is outside this task's write
+scope, so it is delivered as a merge request to the Lead (see
+`docs/research/audio/AMPS.md` section 6).
+
+Expected log shape on a working bus:
+
+```
+PongAudio: amp probe start (read pass first, then a replay pass that writes the tuning table; AMPS.md A1-A7 and section 9)
+PongAudio: amp pin gpio=... cfg=... io=...
+PongAudio: amp gcc gpll0 vote=0x... mode=0x... locked=1
+PongAudio: amp gcc vote 0x... -> 0x... readback 0x...
+PongAudio: amp gcc clk wrap2_core halt=0x... running=1
+PongAudio: amp se15 fw=0x... proto=3 disabled=... clock=... scl=...
+PongAudio: amp se15 ready config=0x... status=0x... level=N
+PongAudio: amp reset amp0 gpio=1 ...
+PongAudio: amp0 addr=0x34 id=0x2113 chip=AW88261 status=... faults=... pll=1
+PongAudio: amp probe done found=2/2 transfers=... failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0
+PongAudio: amp0 replay 00 reg=0x00 wrote=0x55aa read=0x0000
+PongAudio: amp0 replay 01 reg=0x03 wrote=0xffff read=0xffff
+PongAudio: amp0 replay 59 reg=0x05 wrote=0x03c0 read=0x...
+PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 transfers=...
+```
+
+Failure is diagnostic, not fatal: the probe returns a count and never panics, so
+the rest of the boot is unaffected either way.
+
+## Judging a capture
+
+Iron rule 5 asks for the same image booted twice with the console armed before
+each boot, and a claim that reads the two captures by eye is where step 8 goes
+wrong. Two scripts make that mechanical:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/boot-audio-twice.ps1 `
+    -Image E:\k60-work\artifacts\audio-probe-<tag>\boot.img `
+    -EvidenceRoot E:\k60-work\evidence\audio-probe-<tag>
+```
+
+`boot-audio-twice.ps1` refuses to start unless the target is already in fastboot,
+checks that both runs booted the same SHA-256, and hands both evidence
+directories to `scripts/judge-audio-capture.py`. The judge reads only the
+`PongAudio:` lines of each `console.log`: exit 0 means both amplifiers were
+identified with `failed=0 timeouts=0 recovered=0`, 1 means the probe ran and
+failed, 2 means it never ran at all. `capture.json` is printed for context and
+never decides the verdict — `panicMarker` reads `K60PANIC` on good and bad boots
+alike, and `complete: true` has been seen on a broken boot.
+
+Add `--replay` to judge the replay pass as well:
+
+```
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && python3 scripts/judge-audio-capture.py --replay E:/k60-work/evidence/audio-probe-k/run1'
+```
+
+The replay half asks for 60 steps per amplifier — 120 writes and 120 readbacks —
+each amplifier carrying the table its I2C address belongs to (0x34 is `dev_index 1`,
+0x35 is `dev_index 0`), no `differs` line, no placeholder `AW882XX_TODO` driver,
+and a tally of `amp0=60 amp1=60 written=120 mismatched=0 failed=0`. It prints
+`REPLAY VERDICT: SUCCESS - 120 writes, 120 readbacks, both halves on the right amplifier`,
+or `REPLAY VERDICT: FAILED (N problem(s))` with one line per problem. A log with no
+replay pass at all (image j) reports `the replay pass never ran` and exits 2, which is
+why run 1's evidence still judges SUCCESS without the flag.
+
+## Host tests
+
+`PongAudioGeniI2c.c` is a state machine fed by scratchpad-only MMIO, so it can be
+exercised without a device. The test drives the register file through `PongGeniIo`
+and checks the exact command words the engine would see:
+
+```
+wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
+# cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
+# TESTS OK 956 cases
+```
+
+It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
+`clang` on PATH, and the first attempt fails with `command not found`.
+
+What the 956 cases buy, given that nothing can be measured on hardware yet:
+
+- the read transaction is two commands — a one-byte pointer write with
+  `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase
+  returns `PongGeniPending`, and a test that expected completion there would have
+  hidden a real ordering bug;
+- the chip-id byte order (`rx` low byte is the first byte on the wire) is asserted
+  against `PongAudioAmp.c`'s assembly, so `0x1321` proves out as `0x2113`;
+- every failure path has a named outcome (`ErrBus`, `ErrState`, `ErrTimeout`,
+  `ErrNoData`) and the timeout ladder is cancel-then-abort, not spin;
+- one dead amplifier cannot be blamed on the other: a start while the machine is
+  stuck in `Cancelling` is refused, and the two-to-three step ladder back to Idle
+  (what `bus_recover()` does before every read) is asserted from both phases;
+- the register map — `0x0f100000` TLMM base, GPIO 88 at `0x0f158000`, three
+  one-page GCC windows covering `0x2e014`/`0x33280`/`0x3328c`/`0x62010`, the
+  `0xc86a` fault mask — is asserted arithmetically rather than trusted;
+- the decisions the probe makes before it touches a register are pinned too: the
+  pad config word (pull / function / drive / output, upper bits preserved, APPS
+  ownership only when the eGPIO bit says so), which of the three GCC windows holds
+  an offset (and that one word past a window is outside), whether a DFS level is
+  the undivided reference, and that an unknown chip id stays `unknown`.
+
+`PongAudioAmp.c` itself cannot be host-compiled (kernel headers). That is why its
+pure parts live in `PongAudioPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`,
+`PongAudioAmpReplay.h`, `PongAudioAfe.h`, `PongAudioTlmm.h` and `PongAudioRing.h`: the arithmetic, the branch decisions and now the whole
+write semantics (what the replay pass writes, in what order, and what it keeps
+from the hardware) are host-proven, and what remains in the `.c` is MMIO
+sequencing, which only a boot can speak to.
+
+The tests are **not** in `patches/audio/`: they are a repo-side check, not a
+kernel file, and shipping them into `bsd/dev/` would only slow the build.
+
+## Build result (2026-11-14, image k)
+
+Images k and l were withdrawn on 2026-11-15 (P-201): both were built before the branch was rebased onto
+`origin/main` and still carried the old 230-patch series. The current image is b; see below.
+
+`audio-probe-20261114k` is the first kernel build that carries the replay layer:
+8-file patch `d85264ca…`, patch order `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe`
+(`kernel.log:228-231`), `kernel.macho` sha256 `0640f6c7…` (54,181,888 B), `verify-boot-image: OK`.
+The manifest is `/mnt/e/k60-work/artifacts/audio-probe-20261114k/build-manifest.json`;
+`boot.img` sha256 `f34f33e3…`. That was the run 2 candidate until the rebase; see image b below for what stands today.
+
+## Build result (2026-11-15, image m)
+
+`audio-probe-20261115m` is the first build off the rebased branch (base `origin/main` 626cc9b): HEAD
+`9afa1e1`, series 225 (`8e455072…`), `dirty_files 0`, `verify-boot-image: OK`. `kernel_built` sha256
+`7e86d966…` (105,504,768 B, i.e. the Metal plugin is linked in), `payload_kernel a3e27a2e…`,
+`payload d5a544ac…`, `boot.img` sha256 `2283aaa9…` (201,887,744 B). The manifest is
+`/mnt/e/k60-work/artifacts/audio-probe-20261115m/build-manifest.json` and it carries
+`kernel_args_requested: ["pong_audio_probe=1"]`; `image-arg-audit` accepted the command line (30
+arguments, 594 bytes). That was the candidate until the pad/ring/PRM rebuild; see image n below.
+
+## Build result (2026-11-17, image n)
+
+`audio-probe-20261115n` is the first build after the TLMM pads, PCM ring and PRM clock work: HEAD
+`960d723b`, series 225 (`8e455072…`), `dirty_files 0`, `verify-boot-image: OK`. `kernel_built` sha256
+`0c7d368b…` (105,504,768 B), `payload_kernel 7d16361c…`, `payload fe6a6554…`, `boot.img` sha256
+`3c6a6783…` (201,895,936 B). The manifest is
+`/mnt/e/k60-work/artifacts/audio-probe-20261115n/build-manifest.json` and it carries
+`kernel_args_requested: ["pong_audio_probe=1"]`. That was the candidate until the 0504 skeleton
+constant fix; see image a below.
+
+## Build result (2026-11-17, image a)
+
+`audio-probe-20261117a` is the first build with the corrected `pong_audio.c` skeleton: HEAD
+`1d79f925`, series 225 (`8e455072…`), `dirty_files 0`, `verify-boot-image: OK`. `kernel_built` sha256
+`19133189…` (105,504,768 B), `payload_kernel b8d09838…`, `payload 66b7a904…`, `boot.img` sha256
+`cc903abb…` (201,895,936 B). The manifest is
+`/mnt/e/k60-work/artifacts/audio-probe-20261117a/build-manifest.json`. It is built but not booted.
+
+## Build result (2026-11-17, image b)
+
+`audio-probe-20261117b` is the first build that compiles the AFE encoder into `pong_audio.c` (patch
+`0003`): HEAD `8cd08323`, series 226 (`27268442…`), `dirty_files 0`, `verify-boot-image: OK`.
+`kernel_built` sha256 `e0f72ced…` (105,504,768 B), `payload_kernel c5955b18…`, `payload 70361d25…`,
+`boot.img` sha256 `73c267fb…` (201,895,936 B). The manifest is
+`/mnt/e/k60-work/artifacts/audio-probe-20261117b/build-manifest.json`. `strings` finds `AFE encoder selftest`
+in the built kernel once. It is built but not booted.
+
+## On-device result (2026-11-14, run 1 of 2)
+
+Booted `audio-probe-20261114j/boot.img` (sha256 `877d0a9d…c35723ef2`) once with the
+CDC-ACM console armed. The probe completed and both amplifiers answered:
+
+```
+PongAudio: amp gcc gpll0 vote=0x00000001 mode=0xe0000005 locked=1
+PongAudio: amp se15 ready config=0x03000021 status=0x00000000 level=0
+PongAudio: amp0 addr=0x34 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp1 addr=0x35 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0
+PongAudio: amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0
+```
+
+`scripts/judge-audio-capture.py` judged `SUCCESS - amplifiers identified` (exit 0).
+Both parts are **AW88261** (`0x2113`), the same part the phk110 reference uses; both
+were still in power-down (`ctrl=0x3343`, PWDN and AMPPD set) because this probe is
+read-only. `vbat`/`pvdd` read `0x0263` and `status=0x0000`, so the amplifiers are
+powered even though the device tree carries no supply node.
+
+Iron rule 5 wants the same image booted twice. The wrapper started run 2 on its own
+right after run 1 and fastboot reported `Booting OKAY`, but the run was stopped while
+its console was still empty, so `run2/console.log` is 0 bytes and no `capture.json`
+exists. That is not a second piece of evidence. Run 2 needs the user's and the Lead's
+approval (the user's standing instruction is that nobody boots the device on their own
+initiative) — see `AMPS.md` section 7.3.
+
+## What it does not do
+
+No LPASS register is touched. That is not an omission — the PRM votes and the
+`0x30c` clock come from the ADSP, so the codec half starts when PAS1 works. See
+`docs/research/audio/SOUNDWIRE.md` and `CODEC.md`.
+
+## Provenance
+
+- Addresses, interrupts, pads: live FDT, quoted line by line in `AMPS.md` section 2.
+- AW882xx register map and status bits: `references/phk110-port/drivers/audio/hakios.speaker.c`
+  (AW88261 on a POCO X5 Pro), lines 340-360 and 749-790.
+- GENI transport and engine bring-up: `references/pong-power/GeniI2c.c` plus mainline
+  `geni-se.h`, `qcom-geni-se.c`, `i2c-qcom-geni.c`.
+- GCC branch clocks: `gcc-sm8450.c` register entries, listed with line numbers in `AMPS.md` section 3.
+
+License follows the two references: BSD-2-Clause-Patent.

@@ -1,0 +1,241 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7921,6 +7921,14 @@
+ 		    sizeof (pong_rail_probe)) && pong_rail_probe != 0) {
+ 			(void)k60_rail_probe();
+ 		}
++	}
++	/* 0617: place the PongAudio HAL bundle in the empty-hal bind source.
++	 * init binds that directory over the sealed HAL search path before
++	 * mediaserverd scans it, so the plugin must exist by then. */
++	{
++		extern int k60_audio_hal_deploy(proc_t, user_addr_t);
++
++		(void)k60_audio_hal_deploy(p, scratch);
+ 	}
+ 	native_owner_data_stage = 3;
+ 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -108,6 +108,7 @@
+ bsd/dev/k60_usblog.c				standard
+ bsd/dev/k60_uilib.c		standard
+ bsd/dev/k60_metal.c		standard
++bsd/dev/k60_audio_hal.c		standard
+ bsd/dev/k60_console_export.c	standard
+ bsd/dev/qbt_k60.c			standard
+ bsd/dev/qbt/qbt_core.c		standard
+diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -22,6 +22,7 @@
+ osfmk/arm64/WKdmCompress_16k.s		standard
+ osfmk/arm64/WKdmDecompress_4k.s	standard
+ osfmk/arm64/k60_metal_blob.s	standard
++osfmk/arm64/k60_audio_hal_blob.s	standard
+ osfmk/arm64/WKdmCompress_4k.s	standard
+ osfmk/arm64/WKdmData.s		standard
+ osfmk/arm64/lz4_decode_arm64.s  standard
+diff --git a/bsd/dev/k60_audio_hal.c b/bsd/dev/k60_audio_hal.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/k60_audio_hal.c
+@@ -0,0 +1,196 @@
++/*
++ * 0617: deploy the PongAudio AudioServerPlugIn onto the Data volume.
++ *
++ * AudioServerPlugIn discovery is rooted in /System/Library/Audio/Plug-Ins/HAL,
++ * a directory on the sealed read-only system volume.  init already bind-mounts
++ * /private/var/pong/empty-hal over that directory (0398 creates the source and
++ * keeps it root-owned), so writing the bundle into the bind source makes it
++ * visible to mediaserverd without touching the sealed volume and without a
++ * second copy in /Library.
++ *
++ * The bytes travel inside kernel.macho as a flat table produced by
++ * scripts/gen-k60-audio-hal-blob.py:
++ *
++ *     u32 magic 'K60A'; u32 count
++ *     count x { u16 name_len; u32 size; u32 offset }   // entries
++ *     count x name (no terminator)
++ *     bodies, 8-byte aligned
++ *
++ * A bad magic or a partial entry leaves the directory untouched; the bundle is
++ * written only after the Data mount succeeds.
++ */
++#include <sys/types.h>
++#include <sys/vnode.h>
++#include <sys/uio.h>
++#include <sys/fcntl.h>
++#include <sys/kauth.h>
++#include <sys/systm.h>
++#include <sys/proc.h>
++#include <sys/namei.h>
++#include <sys/sysproto.h>
++#include <pexpert/pexpert.h>
++
++extern const unsigned char k60_audio_hal_blob[];
++extern const unsigned long long k60_audio_hal_blob_len;
++extern const unsigned short k60_audio_hal_blob_modes[];
++
++#define K60_AUDIO_HAL_ROOT "/private/var/pong/empty-hal"
++#define K60_AUDIO_HAL_MAX_FILES 2
++
++struct k60_audio_hal_entry {
++	uint16_t name_len;
++	uint32_t size;
++	uint32_t offset;
++} __attribute__((packed));
++
++static uint16_t
++k60_audio_hal_le16(const unsigned char *p)
++{
++	return (uint16_t) (p[0] | (p[1] << 8));
++}
++
++static uint32_t
++k60_audio_hal_le32(const unsigned char *p)
++{
++	return (uint32_t) p[0] | ((uint32_t) p[1] << 8) |
++	    ((uint32_t) p[2] << 16) | ((uint32_t) p[3] << 24);
++}
++
++/* Create one directory, ignoring EEXIST.
++ *
++ * The path is copied to the prepare scratch page and the mkdir syscall is used
++ * because vnode_open(O_CREAT) creates a regular file, not a directory.  This
++ * uses scratch+0xA00; 0340 uses +0x600/+0x700 and 0394 +0x800/+0x900, so the
++ * 512-byte path buffer does not collide with either. */
++static int
++k60_audio_hal_mkdir(const char *path, proc_t p, user_addr_t scratch)
++{
++	struct mkdir_args args;
++	struct unlink_args remove_args;
++	user_addr_t name = scratch + 0xA00;
++	int32_t ret = 0;
++	int32_t removed = 0;
++	size_t len = strlen(path) + 1;
++	int error;
++
++	if (len > 0x200) {
++		return ENAMETOOLONG;
++	}
++	if ((error = copyout(path, name, len)) != 0) {
++		return error;
++	}
++	remove_args.path = name;
++	if (unlink(p, &remove_args, &removed) == 0) {
++		printf("K60AUDIOHAL removed a stale file at %s\n", path);
++	}
++	args.path = name;
++	args.mode = 0755;
++	error = mkdir(p, &args, &ret);
++	if (error == EEXIST) {
++		return 0;
++	}
++	return error;
++}
++
++int
++k60_audio_hal_deploy(proc_t p, user_addr_t scratch)
++{
++	static int done;
++	const unsigned char *blob = k60_audio_hal_blob;
++	uint32_t count, index;
++	vfs_context_t ctx;
++	int error = 0, written = 0;
++
++	if (done) {
++		return 0;
++	}
++	done = 1;
++
++	if (k60_audio_hal_le32(blob) != 0x4130364b /* 'K60A' */) {
++		printf("K60AUDIOHAL bad magic 0x%x\n", k60_audio_hal_le32(blob));
++		return EINVAL;
++	}
++	count = k60_audio_hal_le32(blob + 4);
++	if (count > K60_AUDIO_HAL_MAX_FILES) {
++		printf("K60AUDIOHAL bad count %u\n", count);
++		return EINVAL;
++	}
++	if (count == 0) {
++		printf("K60AUDIOHAL deploy files=0/0 error=0\n");
++		return 0;
++	}
++
++	ctx = vfs_context_current();
++	(void) k60_audio_hal_mkdir(K60_AUDIO_HAL_ROOT, p, scratch);
++	(void) k60_audio_hal_mkdir(K60_AUDIO_HAL_ROOT "/PongAudio.driver", p, scratch);
++
++	for (index = 0; index < count; index++) {
++		const unsigned char *entry = blob + 8 + index * 10;
++		struct k60_audio_hal_entry field;
++		char path[256];
++		vnode_t vp = NULLVP;
++		int resid = 0;
++		const unsigned char *names = blob + 8 + count * 10;
++		size_t name_total = 0;
++		const unsigned char *name;
++
++		field.name_len = k60_audio_hal_le16(entry);
++		field.size = k60_audio_hal_le32(entry + 2);
++		field.offset = k60_audio_hal_le32(entry + 6);
++
++		for (uint32_t prior = 0; prior < index; prior++) {
++			name_total += k60_audio_hal_le16(blob + 8 + prior * 10);
++		}
++		name = names + name_total;
++
++		if (field.offset > k60_audio_hal_blob_len ||
++		    field.size > k60_audio_hal_blob_len - field.offset) {
++			printf("K60AUDIOHAL entry %u body out of range\n", index);
++			error = EINVAL;
++			break;
++		}
++		if (name_total + field.name_len > k60_audio_hal_blob_len ||
++		    field.name_len == 0 || field.name_len >= 200 ||
++		    name_total + field.name_len > 256) {
++			printf("K60AUDIOHAL entry %u name out of range\n", index);
++			error = EINVAL;
++			break;
++		}
++
++		{
++			size_t prefix = strlen(K60_AUDIO_HAL_ROOT);
++
++			memcpy(path, K60_AUDIO_HAL_ROOT, prefix);
++			path[prefix] = '/';
++			memcpy(path + prefix + 1, name, field.name_len);
++			path[prefix + 1 + field.name_len] = '\0';
++		}
++		for (char *slash = path + sizeof(K60_AUDIO_HAL_ROOT); *slash != '\0'; slash++) {
++			if (*slash != '/') {
++				continue;
++			}
++			*slash = '\0';
++			(void) k60_audio_hal_mkdir(path, p, scratch);
++			*slash = '/';
++		}
++
++		error = vnode_open(path, O_CREAT | O_WRONLY | O_TRUNC,
++		    k60_audio_hal_blob_modes[index], 0, &vp, ctx);
++		if (error) {
++			printf("K60AUDIOHAL open %s error=%d\n", path, error);
++			break;
++		}
++		error = vn_rdwr(UIO_WRITE, vp, (caddr_t) (blob + field.offset),
++		    (ssize_t) field.size, 0, UIO_SYSSPACE, IO_SYNC,
++		    vfs_context_ucred(ctx), &resid, current_proc());
++		vnode_close(vp, 0, ctx);
++		if (error) {
++			printf("K60AUDIOHAL write %s error=%d\n", path, error);
++			break;
++		}
++		written++;
++	}
++
++	printf("K60AUDIOHAL deploy files=%u/%u error=%d\n", written, count, error);
++	return error;
++}

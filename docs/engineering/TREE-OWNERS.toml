@@ -50,6 +50,12 @@ owner = "refmine-agent"
 scope = ["docs/research/reference"]
 
 [[tree]]
+path = "/mnt/e/hackios/k60-ufs-verified"
+owner = "refmine-agent"
+scope = ["drivers/NativeUfs", "scripts/build-pong-ufs-probe-macos.py", "scripts/build-xnu-4k-baseline.sh"]
+note = "UFS verified-root worktree (feat/ufs-verified-table). Default-off code and host tests only; no boot."
+
+[[tree]]
 path = "/mnt/e/hackios/k60-audio"
 owner = "audio-agent"
 scope = ["drivers/PongAudio", "docs/research/audio"]

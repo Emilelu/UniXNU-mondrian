@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: `120hz-6` prepared (active-INTF line counter enabled before measurement, first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); build pending. Branch: `feat/120hz-panel`.
+Status: `120hz-6` built (active-INTF line counter enabled before measurement, first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); flight pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -161,6 +161,20 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and
 - `kernel_built` 105,525,248 B, SHA-256
   `8344d340b3c292c10eec120e2257d81a058023cc6fdbf389f42f729f019eb319`
 - manifest `E:/k60-work/artifacts/120hz-5/build-manifest.json`;
+  `kernel_args_requested=["p120=1","k60_backlight_control=1"]`;
+  `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
+  `check-panel-timing: ok`.
+
+`120hz-6` was built from branch `feat/120hz-panel` at HEAD `3beef4b6` (clean
+tree), with `K60_EIGHT_STEP_ITEMS=display` and
+`--kernel-arg p120=1 --kernel-arg k60_backlight_control=1`
+(built_at `2026-11-18T01:51:54+08:00`):
+
+- `boot.img` 201,887,744 B, SHA-256
+  `d895c2a3941d5edb1fee21052ffd196a46e8fd26fe7cc9d9ee36bbcaaff614d2`
+- `kernel_built` 105,525,248 B, SHA-256
+  `9bc7ea8a23441a269b638a5426a1606257e4b653274f73b88da82b5f06711bfb`
+- manifest `E:/k60-work/artifacts/120hz-6/build-manifest.json`;
   `kernel_args_requested=["p120=1","k60_backlight_control=1"]`;
   `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
   `check-panel-timing: ok`.

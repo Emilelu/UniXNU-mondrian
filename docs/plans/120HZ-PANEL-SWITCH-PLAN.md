@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: `120hz-4` built (first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); flight pending. Branch: `feat/120hz-panel`.
+Status: `120hz-5` prepared (line-counter frame measurement, first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); build pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -8,7 +8,9 @@ This task makes the K60 panel itself enter its native 120 Hz timing group. It
 does not claim that the GPU renders 120 frames per second: the software
 framebuffer and the future GPU scanout are separate measurements. The first
 question is only whether the m11a panel accepts timing@2 and whether the INTF
-TE counter and frame counter advance at about 120 per second.
+line-counter frame period is about 120 per second. `INTF_LINE_COUNT` (0xb0)
+wraps once per panel frame; the tear-counter high 16 bits is a read-pointer
+frame count and the plain frame counter only advances on DPU commits.
 
 The prior software-only declaration is in
 `patches/xnu/0506-k60-120hz-refresh.patch`: while a request is active it reports
@@ -58,8 +60,8 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
    through the existing `dsi_dcs()` path, honours the per-packet post-wait
    (10 ms after `CE 01`), waits 300 ms, writes the INTF1 tear-check
    `vsync_count` from 100 to 50 when the inherited value is the known 60 Hz
-   state, and measures INTF1 frame/TE counters before (200 ms) and after
-   (500 ms). `pong_panel_sample()` takes a second observation
+   state, and measures the INTF1 line-counter wrap period before (200 ms) and
+   after (500 ms). `pong_panel_sample()` takes a second observation
    (`after the UI frame`) once the real UI frame is presented.
 2. `drivers/PongAdreno/PongDsiPanel.h`: expose the switch and its return
    values; document that the reported rate is the requested 120 Hz while a
@@ -154,13 +156,16 @@ matching the build manifest:
 2. The log contains `K60 PANEL: 120 Hz switch at the first GPU frame`
    followed by `K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0`.
 3. The log contains a `K60 PANEL: INTF1 after the UI frame te .../s` line
-   with the TE rate in the range 110–130 per second. `INTF_TEAR_INT_COUNT_VAL`
-   (0x298) high 16 bits is the tear/frame counter and is the panel rate; the
-   `frames .../s` value is `INTF_FRAME_COUNT` (0xac, DPU commits) and is
-   recorded separately because a static UI can show a low commit rate. The
-   before-switch TE line should be in the range 55–65 per second. The earlier
-   `after the switch` line is supporting evidence; the post-first-frame line
-   is the decisive one. A switch with no TE evidence is INCONCLUSIVE, not PASS.
+   with the rate in the range 110–130 per second. That `te` value is computed
+   from the `INTF_LINE_COUNT` (0xb0) wrap period: one wrap is one panel frame
+   and the shortest interval between two wraps is the frame period, the method
+   in the official `DisplayTimingProbe.cpp:45-70`. `INTF_TEAR_INT_COUNT_VAL`
+   (0x298) high 16 bits is a read-pointer frame count and `INTF_FRAME_COUNT`
+   (0xac) counts DPU command-FIFO commits; both are recorded as diagnostics but
+   neither decides the rate. The before-switch line should be in the range
+   55–65 per second. The earlier `after the switch` line is supporting
+   evidence; the post-first-frame line is the decisive one. A switch with no
+   line-counter evidence is INCONCLUSIVE, not PASS.
 4. The log contains `K60 DISPLAY: first frame presented` at least once, at
    least 100 `SpringBoard` lines, and zero `sig=11` lines.
 5. No `K60 PANEL: DCS ... failed` line appears after the switch begins, and

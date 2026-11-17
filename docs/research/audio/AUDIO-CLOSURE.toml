@@ -378,6 +378,23 @@ owner = "audio-agent"
 on_open = "without a low-DMA consumer the playback graph has no buffer the ADSP can read"
 
 [[item]]
+id = "pcm-service-userclient"
+stage = "M5"
+change = "the PongAudio IOService/UserClient publishes a control page and a 512 KiB playback ring to a userland HAL"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/PongAudioService.cpp",
+  "drivers/PongPower/PongAudioServiceAbi.h",
+  "scripts/build-k60-physical-battery.py",
+  "patches/xnu/0602-k60-physical-battery.patch",
+  "V: kernel.macho: PongAudioUserClient",
+]
+criteria = "Image l builds PongAudioService.cpp into libK60PhysicalBattery.a (91,896 B / sha256 85a0c28f465af4c5ea13b16ea6e31e98a56e58e9fa5273ca66d4eb3cbf63f004) and its kernel_built sha256 is 94b1df0ad6a3c81e864ad94496dbf9b7be76c6ff8f34a9f85c9cc0385ffe4939; kernel.macho contains PongAudioUserClient 26 times (including mangled symbols), NativeSandboxGrantProcess 1, k60_audio_service 1 and pong_audio_service_start 1. PongAudioServiceAbi.h fixes control 56 B, out ring 524288 B, 48 kHz stereo S24_LE, 1024-frame period, memory types control=0/output=1, selectors StartOutput=0/StopOutput=1/SetHostClock=4. startAudio() allocates both IOBufferMemoryDescriptors, sets the sandbox grant and IOUserClientClass, and registers; clientMemoryForType maps both; externalMethod rejects arguments and forwards Start/Stop; the timer period is 21333 us and startOutput() returns kIOReturnNotReady until pong_audio_status()==1. The service shape is closed; the userland HAL and the AR write pump remain in pcm-submit-path."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the service the ring and control page cannot be mapped by a userland HAL"
+
+[[item]]
 id = "pong-audio-dma-in-adt"
 stage = "M5"
 change = "the /chosen/pong-audio-dma placeholder is present in the shipped ADT so DarwinBoot can reserve the 64 KiB low DMA and write back [PA, 65536]"
@@ -417,7 +434,7 @@ evidence = [
   "V: ShengAudioAbi.h:21",
   "V: PongAudio.cpp:288-300,424-436",
 ]
-criteria = "The ring queue (pcm-ring-submit) and the low-DMA lease (pcm-low-dma-lease) are in place, but the repository still needs the IOService/UserClient (PongAudioService.cpp shape: control/outRing memory, externalMethod, sheng_audio_request), the userland HAL (PongAudioPlugIn.c shape: IOServiceOpen and IOConnectMapMemory64), and the periodic ar_write() pump from the ring to dspAddress + slot*PeriodBytes using the six-step AFE graph. Until those exist and a host or on-device test submits at least one period without an underrun, M5 cannot pass."
+criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease) and the PongAudio IOService/UserClient with the control page and 512 KiB out ring (pcm-service-userclient) are in place. The repository still needs the userland HAL (PongAudioPlugIn.c shape: IOServiceOpen and IOConnectMapMemory64) and the playback graph: AR open/config/map, periodic ar_write() from the ring to dspAddress + slot*PeriodBytes, WRITE_DONE handling, and a host or on-device test that submits at least one period without an underrun. Until those exist, M5 cannot pass."
 status = "open"
 owner = "audio-agent"
 on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"

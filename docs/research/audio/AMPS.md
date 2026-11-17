@@ -197,7 +197,7 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 
 ## 6. 已交付代码
 
-`drivers/PongAudio/`（源文件与说明，均 BSD-2-Clause-Patent）：
+`drivers/PongAudio/` 与 `drivers/PongPower/`（源文件与说明，均 BSD-2-Clause-Patent）：
 
 | 文件 | 内容 |
 | --- | --- |
@@ -207,6 +207,8 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioGeniI2c.h` / `.c` | Pong `GeniI2c.c` 的移植，符号改 `pong_geni_*` 避免与 Pong 副本冲突，状态机逻辑逐字保留 |
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；然后对每颗应答的功放跑一遍**回放层**（软复位 + 57 对 Music profile + fuse 算的 vcalb + 静音音量，见 §9）；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
 | `PongAudioRing.h` | PCM 环几何与 SPSC 队列：48 kHz 立体声 S24_LE、1024 帧周期（8192 B）、2 周期、256 帧启动阈值、14400 帧（300 ms）lead、65536 帧环；`pong_ring_queue_*` 提供无锁单生产者/单消费者入环出环，`pong_audio_submit()` 写、`pong_audio_ring_read()` 读。无 MMIO；0001 以 `bsd/dev/PongAudioRing.h` 放进补丁，0003 include。 |
+| `PongAudioServiceAbi.h` | K60 音频服务 ABI（`drivers/PongPower/`）：`PongAudio` service class、magic `0x53484155`、version 2、48 kHz 立体声 S24_LE（8 B/帧）、1024 帧周期、65536 帧环、14400 帧 lead；control page 56 B、memory type control=0/output=1、selectors StartOutput=0/StopOutput=1/SetHostClock=4、state bits output running=1/ready=2；`out_write`/`out_read` 是 64-bit 单调帧计数。 |
+| `PongAudioService.cpp` | `PongAudio : IOService` + `PongAudioUserClient`（`drivers/PongPower/`）：4 KiB control + 512 KiB out ring 由 `IOBufferMemoryDescriptor` 在内核/用户间共享，`clientMemoryForType` 映射，`externalMethod` 只接受 StartOutput/StopOutput；`IOTimerEventSource` 以 21333 µs 周期从 ring 取 8192 B 调 `pong_audio_submit()`；`pong_audio_status()==0` 时 StartOutput 返回 `kIOReturnNotReady`。 |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
 补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（120,609 B，3,171 行，14 段，sha256 `6e892445b1b39e5646b80a2a0cbed40b657a1bd5283ef24e444137e4234c7f66`（前 8 位 `6e892445`））+ `patches/audio/0003-k60-audio-afe-selftest.patch`（11,538 B，5 段，sha256 `1d39530f…6e6b51d`）+ `patches/audio/series`。
@@ -963,7 +965,13 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `boot.img` sha256 `3079b8cd43513d4d4a45e34958c9b1d3958d22da5752f410ec143a78f1d02761`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117k/build-manifest.json`；`battery archive 2d1015d0…`；
 - `kernel.macho` 上 `PongAudio: low DMA lease pa=0x%llx size=0x%x` 1 处，`PongAudio: low DMA unavailable`/`invalid`/`map failed` 各 1 处；既有 `PongAudio: GPR GET_SPF_STATE...`、`PongAudio: glink adsp_apps slot queued (512x20)`、AFE 六步三条、`K60Battery: deferred audio attach failed: %d`、`QcomGlink max_channels=2u local_intents=20u` 各 1 处；
 - 从 `payload.img` 的 `EFI/UniXNU/PAYLOADS/kernel.macho.adt` 抽出 ADT，sha256 `5d806da1bae605e64672f95e69d38bf71d94770a021de2169123f9093759afa3`（16,024 B）与 manifest `components.adt` 一致，`/chosen/pong-audio-dma` 为 16 个零字节；
-- k 是当前候选，未 boot、run 2 未申请；M5 的 IOService/UserClient、用户态 HAL 与 AR write 仍未闭合（`pcm-submit-path` open）。
+- k 已被 l 取代（见下），未 boot、run 2 未申请。
+
+**镜像 l（2026-11-17）**：把 `PongAudioServiceAbi.h` 与 `PongAudioService.cpp` 加入电池归档，并在 `IOKitBSDInit()` 后发布 `PongAudio` IOService/UserClient。HEAD `b343c592`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`、`image-arg-audit: OK (30 arguments, 594 bytes)`。
+- `kernel_built` sha256 `94b1df0ad6a3c81e864ad94496dbf9b7be76c6ff8f34a9f85c9cc0385ffe4939`（105,529,344 B）、`payload_kernel 3a0fb2df…`、`payload 1b2b5e48…`、`adt e94e88f5…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `7dcd95c38889c77d0007f1a014e9cc793c7f1532f5eb31be9ed735ea37ea6dc1`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117l/build-manifest.json`；`battery archive 85a0c28f465af4c5ea13b16ea6e31e98a56e58e9fa5273ca66d4eb3cbf63f004`（91,896 B）；
+- `kernel.macho` 上 `PongAudioUserClient` 26 处（含 C++ mangled symbol）、`NativeSandboxGrantProcess` 1 处、`k60_audio_service` 符号 1 处、`pong_audio_service_start` 符号 1 处；`PongAudio: low DMA lease pa=0x%llx size=0x%x` 与既有 AFE/GPR 字符串各 1 处；
+- 服务在 `pong_audio_status()==0` 前拒绝 StartOutput（`kIOReturnNotReady`），因此当前镜像只证明服务/UserClient 形状与编译，不证明 PCM 到达 DSP；`pcm-submit-path` 仍 open。
 
 ### 9.6 run 2 的判据（可执行）
 

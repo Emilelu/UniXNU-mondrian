@@ -84,7 +84,9 @@ kernel 步骤不读这个键（`unixnu:scripts/unixnu/kernel.py` 只在 :260 读
 两个符号（`llvm-nm`），span 恰为 11,067,094 B（见 `LOCAL-VERIFICATION.md:89-111`）。
 找不到 → 走错装配路径，镜像作废。
 
-### 3.2 `patches/xnu/series`：main 224 行，wifi 229 行，且 manifest 记的不是内核真正用的那份
+### 3.2 `patches/xnu/series`：历史差异（2026-11-15 清单稿时 main 224 行、wifi 229 行；2026-11-17 复核三树均为 227 行）
+
+> **2026-11-17 复核**：`origin/main`、`docs/porting-gap-audit` 与 `k60-wifi/feat/wifi-bringup` 的 `patches/xnu/series` 现在都是 **227 行**、sha256 `bb14a480c6b2ea4b465f409d862394f0ea25cce178d19a63b7253fab3511f9d4`，下表的 224/223/229 是清单稿记录时的状态，差异已消失；重出时仍以 `$DEV/patches/xnu/series` 的实际行数为准。
 
 | 树 | 行数 | sha256 |
 |---|---|---|

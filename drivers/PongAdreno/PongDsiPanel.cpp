@@ -64,6 +64,7 @@ int panel_on_result = -100;
 unsigned panel_120_done;
 int panel_120_result = -100;
 bool panel_120_verify_pending;
+unsigned panel_measured_hz; /* INTF1 TE/frame observation, 0 = not measured */
 
 /* K60 FDT: MDSS0xae00000, INTF pages0x35000..0x38000. Same SM8475
  * zizhan dpuBus/intfRate require GCC_DISP_AHB and DISP_CC_MDSS_AHB before
@@ -146,8 +147,12 @@ bool panel_intf_rate(const char *phase,uint32_t milliseconds)
     const uint16_t te1=uint16_t(probe_read(base,IntfTeCount)>>16);
     const uint32_t frames1=probe_read(base,IntfFrameCount);
     const uint32_t dte=uint16_t(te1-te0),dframes=frames1-frames0;
+    const uint32_t te_hz=dte*1000u/milliseconds,frame_hz=dframes*1000u/milliseconds;
+    /* Publish the observed rate, preferring the TE count: the frame counter is
+     * a command-FIFO counter, the TE count is the panel's own scan tick. */
+    panel_measured_hz=te_hz?te_hz:frame_hz;
     panel_log("K60 PANEL: INTF1 %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u)\n",
-        phase,dte*1000u/milliseconds,dframes*1000u/milliseconds,milliseconds,
+        phase,te_hz,frame_hz,milliseconds,
         unsigned(te0),unsigned(te1),frames0,frames1);
     return true;
 }
@@ -443,11 +448,25 @@ extern "C" bool pong_panel_bringup(void)
     unsigned probe=0;
     probe_enabled=PE_parse_boot_argn("gprobe",&probe,sizeof(probe)) && probe==1;
     cadence_pending=true;
-    unsigned panel_120=0;
-    if (PE_parse_boot_argn("p120",&panel_120,sizeof(panel_120)) && panel_120==1) {
+    unsigned panel_120=0,vsync=0;
+    const bool p120=PE_parse_boot_argn("p120",&panel_120,sizeof(panel_120)) && panel_120==1;
+    const bool vsync120=PE_parse_boot_argn("vsync",&vsync,sizeof(vsync)) && vsync==120;
+    if (p120 || vsync120) {
+        panel_log("K60 PANEL: 120 Hz requested by %s\n",p120?"p120=1":"vsync=120");
         (void)pong_panel_switch_120();
     }
 	return true;
+}
+
+extern "C" uint32_t pong_panel_refresh_hz(void)
+{
+    if (panel_on_result != 0) {
+        return 0;
+    }
+    if (panel_measured_hz >= 1 && panel_measured_hz <= 240) {
+        return panel_measured_hz;
+    }
+    return 60;
 }
 
 extern "C" void pong_panel_sample(void)

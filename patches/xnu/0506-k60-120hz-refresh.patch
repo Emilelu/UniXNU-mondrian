@@ -5,7 +5,7 @@
   * K60 (mondrian) panel contract.
   *
 - * The panel is 1440 x 3200, DSC video mode, 60 Hz. CoreAnimation takes its canvas
-+ * The panel is 1440 x 3200, DSC video mode, 120 Hz when p120=1. CoreAnimation takes its canvas
++ * The panel is 1440 x 3200, DSC video mode, 60 Hz (120 Hz when requested). CoreAnimation takes its canvas
   * from the mode this display publishes; a canvas that is not the panel's own
   * pixel grid -- an iPhone-shaped 1125 x 2436, or the 1170 x 2532 of the 8 Plus
   * class -- makes WindowServer's BoundingPathBitmap assert, because the bounds it
@@ -19,13 +19,24 @@
 +static TUNABLE(uint32_t, gK60Panel120, "p120", 0);
  
  /* The boot framebuffer is the K60 panel at its native size. */
-@@ -190,6 +193,10 @@
+@@ -186,10 +189,21 @@
+ 	absolutetime_to_nanoseconds(absolute, &ns);
+ 	return ns / 1000;
+ }
++
++extern "C" uint32_t pong_panel_refresh_hz(void);
+ 
  static inline uint32_t
  refreshHz(void)
  {
-+	/* P1: report 120 Hz only for the p120=1 experiment. */
-+	if (k60PanelNative() && gK60Panel120 == 1) {
-+		return K60_PANEL_REFRESH_HZ;
++	uint32_t measured = 0;
++
++	/* P1: report what the panel actually does; a request alone is not a mode. */
++	if (k60PanelNative()) {
++		measured = pong_panel_refresh_hz();
++	}
++	if (measured >= 1 && measured <= 240) {
++		return measured;
 +	}
  	return gRefreshHz >= 1 && gRefreshHz <= 240 ? gRefreshHz : kFBRefreshHz;
  }

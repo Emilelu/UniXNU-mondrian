@@ -23,6 +23,10 @@ extern "C" int pong_panel_switch_120(void);
 /* Last brightness written (0 when bring-up has not succeeded yet). */
 extern "C" uint32_t pong_panel_brightness(void);
 
+/* Refresh rate the panel is actually running, observed from the INTF1 TE/frame
+ * counters (60 when no observation is available; 0 when the panel is down). */
+extern "C" uint32_t pong_panel_refresh_hz(void);
+
 /* Wire order for DCS 0x51: a 12 bit DBV, most significant byte first, which is
  * the order Android produces for this panel's bl-inverted-dbv. */
 static inline void pong_panel_dbv_bytes(uint32_t level, uint8_t out[2])

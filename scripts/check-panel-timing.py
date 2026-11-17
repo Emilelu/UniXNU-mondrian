@@ -2,8 +2,9 @@
 """Static checks for the K60 m11a 120 Hz panel timing switch.
 
 This is deliberately a source-level check: the panel is only present on the
-device, so the exact 11-packet timing@2 sequence, the p120 gate, and the
-INTF1 observations must all be provable before an image is built.
+device, so the exact 11-packet timing@2 sequence, the p120/vsync gates, the
+measured-refresh report and the INTF1 observations must all be provable
+before an image is built.
 """
 from __future__ import annotations
 
@@ -73,6 +74,8 @@ def main() -> int:
         fail("missing the vendor timing-switch settle delay")
     if 'PE_parse_boot_argn("p120"' not in text:
         fail("p120 boot argument is not parsed")
+    if 'PE_parse_boot_argn("vsync"' not in text:
+        fail("vsync boot argument is not parsed")
     if "pong_panel_switch_120()" not in text:
         fail("pong_panel_switch_120 is not called from panel bring-up")
     if "panel_intf_rate(\"before the switch\", 200)" not in text:
@@ -81,18 +84,20 @@ def main() -> int:
         fail("missing the after-switch INTF1 rate observation")
     if "panel_120_verify_pending" not in text or 'panel_intf_rate("after the UI frame", 500)' not in text:
         fail("missing the post-first-frame INTF1 rate observation")
+    if "panel_measured_hz" not in text or "pong_panel_refresh_hz" not in text:
+        fail("missing the measured panel refresh report")
     first_frame = ROOT / "patches/xnu/0365-k60-ui-owns-screen.patch"
     if "pong_panel_sample();" not in first_frame.read_text():
         fail("the first-frame patch does not call pong_panel_sample")
 
     if 'static TUNABLE(uint32_t, gK60Panel120, "p120", 0);' not in patch:
         fail("0506 patch does not declare the p120 tunable")
-    if "if (k60PanelNative() && gK60Panel120 == 1)" not in patch:
-        fail("0506 patch does not gate refreshHz() on p120")
-    if '"+    "p120",' not in args and '"p120"' not in args:
-        fail("check-image-args.py does not allow p120")
+    if "pong_panel_refresh_hz()" not in patch:
+        fail("0506 patch does not report the measured panel rate")
+    if '"p120"' not in args or '"vsync"' not in args:
+        fail("check-image-args.py does not allow p120 and vsync")
 
-    print(f"check-panel-timing: ok ({len(EXPECTED)} packets, p120 gate and INTF1 probes present)")
+    print(f"check-panel-timing: ok ({len(EXPECTED)} packets, p120/vsync gates and measured refresh present)")
     return 0
 
 

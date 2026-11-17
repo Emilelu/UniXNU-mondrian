@@ -76,6 +76,9 @@ def main() -> int:
           "if (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {" in text)
     check("mission poll caches the new execution environment",
           "mhi_cntrl->ee = mission;" in text)
+    check("mission poll creates MHI devices before waking",
+          text.count("mhi_create_devices(mhi_cntrl);") == 1,
+          "count=%d" % text.count("mhi_create_devices(mhi_cntrl);"))
     check("mission poll wakes the power-up waiter",
           "wake_up_all(&mhi_cntrl->state_event);" in text)
     check("mission poll logs the cached EE",
@@ -102,7 +105,8 @@ def main() -> int:
         check("generated boot.c has the mission poll",
               "for (j = 0; j < 500; j++) {" in btext and
               "if (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {" in btext and
-              "mhi_cntrl->ee = mission;" in btext)
+              "mhi_cntrl->ee = mission;" in btext and
+              "mhi_create_devices(mhi_cntrl);" in btext)
         check("generated boot.c logs the BHIE transfer status",
               "bhie tx_status=%#x seq=%#x expected=%#x ret=%d" in btext)
         check("generated pm.c keeps the latch",

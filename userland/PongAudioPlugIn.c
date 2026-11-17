@@ -978,7 +978,8 @@ static int selftestEnabled(void) {
         return 0;
     }
     args[sizeof(args) - 1] = '\0';
-    return strstr(args, "pong_audio_hal_selftest=1") != NULL;
+    return strstr(args, "pong_audio_hal_selftest=1") != NULL ||
+        strstr(args, "pong_audio=1") != NULL;
 }
 
 static void *runPlaybackSelftest(void *unused) {
@@ -997,7 +998,13 @@ static void *runPlaybackSelftest(void *unused) {
         syslog(LOG_ERR, "PongAudio HAL: selftest service not ready");
         return NULL;
     }
-    OSStatus result = StartIO(NULL, kDevice, 0);
+    OSStatus result = -1;
+    for (unsigned i = 0; i < 120 && result != 0; i++) {
+        result = StartIO(NULL, kDevice, 0);
+        if (result != 0) {
+            usleep(500000);
+        }
+    }
     if (result != 0) {
         syslog(LOG_ERR, "PongAudio HAL: selftest StartIO result=%d", (int)result);
         return NULL;

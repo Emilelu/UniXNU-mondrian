@@ -319,7 +319,7 @@ new file mode 100644
 +}
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -109,11 +109,19 @@
+@@ -109,11 +109,22 @@
  #if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
  extern "C" void k60_physical_battery_start(void);
  extern "C" void pong_audio_service_start(void);
@@ -331,8 +331,11 @@ new file mode 100644
  {
 +#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
 +	unsigned pong_handoff_publish = 0;
-+	if (PE_parse_boot_argn("pong_handoff_publish", &pong_handoff_publish,
-+	    sizeof(pong_handoff_publish)) && pong_handoff_publish == 1u) {
++	unsigned pong_audio = 0;
++	if ((PE_parse_boot_argn("pong_handoff_publish", &pong_handoff_publish,
++	    sizeof(pong_handoff_publish)) && pong_handoff_publish == 1u) ||
++	    (PE_parse_boot_argn("pong_audio", &pong_audio,
++	    sizeof(pong_audio)) && pong_audio == 1u)) {
 +		(void)k60_adsp_handoff_publish();
 +	}
 +#endif

@@ -40,7 +40,9 @@ def kernel_copy(name: str) -> str:
                            ("K60Mdt.h", "pong_mdt.h"),
                            ("K60ModemPas.h", "pong_modem_pas.h"),
                            ("K60PmicRail.h", "pong_pmic_rail.h"),
-                           ("K60Fat.h", "pong_fat.h")):
+                           ("K60Fat.h", "pong_fat.h"),
+                           ("K60IpaGsi.h", "pong_ipa_gsi.h"),
+                           ("K60IpaSmmu.h", "pong_ipa_smmu.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
     return text
 
@@ -55,6 +57,10 @@ def main() -> int:
         ("bsd/dev/pong_ipa.c", kernel_copy("K60Ipa.c")),
         ("bsd/dev/pong_mdt.h", kernel_copy("K60Mdt.h")),
         ("bsd/dev/pong_mdt.c", kernel_copy("K60Mdt.c")),
+        ("bsd/dev/pong_ipa_gsi.h", kernel_copy("K60IpaGsi.h")),
+        ("bsd/dev/pong_ipa_gsi.c", kernel_copy("K60IpaGsi.c")),
+        ("bsd/dev/pong_ipa_smmu.h", kernel_copy("K60IpaSmmu.h")),
+        ("bsd/dev/pong_ipa_smmu.c", kernel_copy("K60IpaSmmu.c")),
     )
     for target, text in expected:
         if added_lines(patch, target) != text:
@@ -70,7 +76,11 @@ def main() -> int:
         return fail("append-conffiles.py has no pong_ipa.c entry")
     if "bsd/dev/pong_mdt.c" not in CONFFILES.read_text():
         return fail("append-conffiles.py has no pong_mdt.c entry")
-    print("K60 IPA PATCH PASS 0623 carries pong_ipa.h/.c and pong_mdt.h/.c")
+    if "bsd/dev/pong_ipa_gsi.c" not in CONFFILES.read_text():
+        return fail("append-conffiles.py has no pong_ipa_gsi.c entry")
+    if "bsd/dev/pong_ipa_smmu.c" not in CONFFILES.read_text():
+        return fail("append-conffiles.py has no pong_ipa_smmu.c entry")
+    print("K60 IPA PATCH PASS 0623 carries pong_ipa.h/.c, pong_mdt.h/.c, pong_ipa_gsi and pong_ipa_smmu")
     return 0
 
 

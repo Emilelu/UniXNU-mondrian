@@ -1233,3 +1233,1411 @@ new file mode 100644
 +    }
 +    return K60MdtOk;
 +}
+diff --git a/bsd/dev/pong_ipa_gsi.h b/bsd/dev/pong_ipa_gsi.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_gsi.h
+@@ -0,0 +1,166 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* K60 IPA GSI 3.0 command DMA owner (M2, host-testable).
++ *
++ * This is the C port of the Pong baseband PongModemIpaDma.h command-DMA
++ * owner (BSD-2-Clause-Patent). It keeps the Pong GSI3.0 register offsets and
++ * the Pong sequence: EE0 event ownership, event0/command12 allocation, event
++ * and command ring context programming, IPA endpoint 14 DMA mode, and the
++ * IPA5.1 header/context/filter/route table commands.
++ *
++ * M2 scope and integration boundaries:
++ *  - All MMIO goes through K60IpaGsiCallbacks. The host test supplies byte
++ *    arrays; the kernel supplies ml_io_map_unmappable() views of the GSI
++ *    window (0x3e04000, 0xfc000 bytes) and the IPA register block
++ *    (0x3f40000, 0x20000 bytes).
++ *  - The caller owns both DMA blocks: a 1 MiB ring block and a 0x8000 table
++ *    block, both physically contiguous. In the kernel they come from
++ *    kmem_alloc_contig(); the ring must be 64 KiB aligned and the tables page
++ *    aligned. They stay owned until k60_ipa_gsi_stop().
++ *  - The SMMU context for those blocks is not programmed here. The caller
++ *    must establish the SID 0x5c0 mapping (K60IpaSmmu in the kernel) and pass
++ *    the resulting IOVAs. The 0x8000 table block is reserved for that
++ *    builder and is only zeroed by this module.
++ *  - Completion is polled from the event shadow at ring+0x18000. GSI IRQ 432
++ *    is neither installed nor acknowledged here; a later kernel glue layer
++ *    may use it to call k60_ipa_gsi_poll() sooner. Without that glue the
++ *    command path remains polled, matching Pong's conservative owner.
++ *  - No dynamic allocation and no C++: every buffer is caller supplied, so
++ *    the same code runs in the host test and in the kernel.
++ */
++
++#ifndef K60_IPA_GSI_H
++#define K60_IPA_GSI_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include "pong_ipa.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define K60_IPA_GSI_RING_BYTES          0x00100000u
++#define K60_IPA_GSI_TABLE_BYTES         0x00008000u
++#define K60_IPA_GSI_RING_ALIGN          0x00010000u
++#define K60_IPA_GSI_PAGE_SIZE           0x00001000u
++#define K60_IPA_GSI_TRE_BYTES           16u
++#define K60_IPA_GSI_TRE_COUNT           256u
++#define K60_IPA_GSI_EVENT_OFFSET        0x00010000u
++#define K60_IPA_GSI_EVENT_BYTES         0x00001000u
++#define K60_IPA_GSI_EVENT_SHADOW_OFFSET 0x00018000u
++#define K60_IPA_GSI_PAYLOAD_OFFSET      0x00020000u
++#define K60_IPA_GSI_PAYLOAD_BYTES       32u
++#define K60_IPA_GSI_HEADER_OFFSET       0x00030000u
++#define K60_IPA_GSI_HEADER_BYTES        0x00010000u
++#define K60_IPA_GSI_TABLE_OFFSET        0x00040000u
++#define K60_IPA_GSI_TABLE_BLOCK_BYTES   0x00001000u
++#define K60_IPA_GSI_ENDPOINT            14u
++#define K60_IPA_GSI_ENDPOINT_OFFSET     (0x1000u + K60_IPA_GSI_ENDPOINT * 0x80u)
++#define K60_IPA_GSI_MAX_BATCH           8u
++#define K60_IPA_GSI_MAX_PAYLOAD         24u
++
++/* Extra negative status codes used below; the API also returns K60IpaOk,
++ * K60IpaBadArgument, K60IpaNotReady and K60IpaGsiBusy from K60Ipa.h. */
++enum {
++    K60IpaGsiNoDevice = -10,
++    K60IpaGsiNoMemory = -11,
++    K60IpaGsiInvalid = -12,
++    K60IpaGsiIoError = -13,
++    K60IpaGsiTimeout = -14,
++};
++
++typedef uint32_t (*K60IpaGsiRead32)(void *cookie, uint32_t offset);
++typedef void (*K60IpaGsiWrite32)(void *cookie, uint32_t offset, uint32_t value);
++typedef void (*K60IpaGsiDelayUs)(void *cookie, uint32_t microseconds);
++typedef uint64_t (*K60IpaGsiNowMs)(void *cookie);
++
++enum {
++    K60IpaGsiSyncClean = 1,
++    K60IpaGsiSyncInvalidate = 2,
++};
++
++/* Optional cache maintenance hook. "clean" publishes CPU-written ring,
++ * payload and table bytes to the device; "invalidate" makes device-written
++ * event pages visible to the CPU. NULL is allowed for coherent host tests. */
++typedef void (*K60IpaGsiSync)(void *cookie, const void *address, size_t bytes,
++    int direction);
++
++typedef struct {
++    K60IpaGsiRead32 read_gsi;
++    K60IpaGsiWrite32 write_gsi;
++    K60IpaGsiRead32 read_reg;
++    K60IpaGsiWrite32 write_reg;
++    K60IpaGsiDelayUs delay_us;
++    K60IpaGsiNowMs now_ms;
++    K60IpaGsiSync sync;
++    void *cookie;
++} K60IpaGsiCallbacks;
++
++typedef struct {
++    K60IpaGsiCallbacks callbacks;
++    uint8_t *ring;          /* 1 MiB contiguous DMA block, CPU view */
++    size_t ring_size;
++    uint64_t ring_iova;     /* SID 0x5c0 IOVA of ring, 64 KiB aligned */
++    uint8_t *tables;        /* 0x8000 SMMU table block, CPU view */
++    size_t tables_size;
++    uint64_t tables_iova;
++    uint32_t gsi_bytes;     /* size of the GSI window reachable by callbacks */
++} K60IpaGsiConfig;
++
++typedef struct {
++    K60IpaGsiConfig config;
++    K60IpaGsiCaps caps;
++    uint32_t stage;
++    uint32_t channels;
++    uint32_t events;
++    uint32_t channel_state;
++    uint32_t event_state;
++    uint32_t restricted;
++    uint32_t sram_bytes;
++    uint32_t producer;
++    uint32_t event_read;
++    uint32_t last_tre;
++    uint32_t last_event;
++    uint32_t completed_commands;
++    uint32_t failure_regs[8];
++    uint64_t deadline_ms;
++    int error;
++    int pending;
++    int initialized;
++} K60IpaGsi;
++
++/* Bind a caller-owned context to its callbacks and DMA blocks. This clears
++ * the 1 MiB ring and 0x8000 tables. It performs no MMIO. */
++int k60_ipa_gsi_init(K60IpaGsi *gsi, const K60IpaGsiConfig *config);
++
++/* Capability and ownership precheck through the same callbacks. The checks
++ * are identical to k60_ipa_gsi_check() in K60Ipa.c: status must not be
++ * all-ones or already EE0-enabled, there must be more than the command
++ * channel and at least one event, and command12/event0 must be unowned. */
++int k60_ipa_gsi_check_caps(K60IpaGsi *gsi, K60IpaGsiCaps *caps);
++
++/* Start EE0 ownership, event0 and command channel 12, program both ring
++ * contexts and IPA endpoint 14, then submit the first HDR_INIT_LOCAL command.
++ * Returns with stage 5 and one command pending; drive k60_ipa_gsi_poll(). */
++int k60_ipa_gsi_start(K60IpaGsi *gsi);
++
++/* Advance the staged IPA5.1 initialization and complete pending commands.
++ * Returns K60IpaOk when a step completed (or there was nothing to do),
++ * K60IpaNotReady while a command is still outstanding, or a negative error. */
++int k60_ipa_gsi_poll(K60IpaGsi *gsi);
++
++/* Submit one immediate command through command channel 12 (1..24 payload
++ * bytes; the slot itself is 32 bytes). Only one batch may be outstanding. */
++int k60_ipa_gsi_submit(K60IpaGsi *gsi, uint32_t opcode, const void *payload,
++    size_t payload_bytes);
++
++/* Reset command channel 12 if it was started and clear the local software
++ * state. Caller memory and its SMMU mapping remain owned by the caller. */
++int k60_ipa_gsi_stop(K60IpaGsi *gsi);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* K60_IPA_GSI_H */
+diff --git a/bsd/dev/pong_ipa_gsi.c b/bsd/dev/pong_ipa_gsi.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_gsi.c
+@@ -0,0 +1,826 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* K60 IPA GSI 3.0 command DMA owner, ported from PongModemIpaDma.h.
++ *
++ * The register offsets, command opcodes and staged IPA5.1 table geometry are
++ * hardware facts taken from the Pong baseband command-DMA owner. All MMIO is
++ * routed through K60IpaGsiCallbacks so the host test exercises this exact
++ * sequence without mapping anything. The SMMU mapping and GSI IRQ are
++ * deliberately left to the kernel glue; see K60IpaGsi.h.
++ */
++
++#include "pong_ipa_gsi.h"
++
++#ifdef K60_HOST_TEST
++#include <string.h>
++#else
++#include <sys/systm.h>
++#endif
++
++_Static_assert(K60_IPA_GSI_RING_BYTES == 0x100000u, "1 MiB ring block");
++_Static_assert(K60_IPA_GSI_TABLE_BYTES == 0x8000u, "0x8000 table block");
++_Static_assert(K60_IPA_GSI_TRE_BYTES * K60_IPA_GSI_TRE_COUNT == 0x1000u,
++    "256 16-byte TREs fill one event page");
++_Static_assert(K60_IPA_GSI_ENDPOINT_OFFSET == 0x1700u,
++    "IPA endpoint 14 lives at 0x1000 + 14 * 0x80");
++_Static_assert(K60_IPA_GSI_EVENT_OFFSET + K60_IPA_GSI_EVENT_BYTES <=
++    K60_IPA_GSI_EVENT_SHADOW_OFFSET, "event ring precedes its shadow");
++_Static_assert(K60_IPA_GSI_PAYLOAD_OFFSET >= K60_IPA_GSI_EVENT_SHADOW_OFFSET + 64u,
++    "payload slots follow the event shadow");
++_Static_assert(K60_IPA_GSI_HEADER_OFFSET + K60_IPA_GSI_HEADER_BYTES ==
++    K60_IPA_GSI_TABLE_OFFSET, "headers precede filter/route tables");
++_Static_assert(K60_IPA_GSI_TABLE_OFFSET + K60_IPA_GSI_TABLE_BLOCK_BYTES <=
++    K60_IPA_GSI_RING_BYTES, "filter/route tables fit the ring block");
++
++enum {
++    K60IpaGsiCmdAllocate = 0,
++    K60IpaGsiCmdStart = 1,
++    K60IpaGsiCmdReset = 2,
++};
++
++typedef struct {
++    uint16_t opcode;
++    uint8_t bytes;
++    uint8_t payload[K60_IPA_GSI_MAX_PAYLOAD];
++} K60IpaGsiImmediate;
++
++static uint32_t
++k60_ipa_gsi_read_gsi(const K60IpaGsi *gsi, uint32_t offset)
++{
++    const K60IpaGsiCallbacks *io = &gsi->config.callbacks;
++
++    return io->read_gsi(io->cookie, offset);
++}
++
++static void
++k60_ipa_gsi_write_gsi(K60IpaGsi *gsi, uint32_t offset, uint32_t value)
++{
++    const K60IpaGsiCallbacks *io = &gsi->config.callbacks;
++
++    io->write_gsi(io->cookie, offset, value);
++}
++
++static uint32_t
++k60_ipa_gsi_read_reg(const K60IpaGsi *gsi, uint32_t offset)
++{
++    const K60IpaGsiCallbacks *io = &gsi->config.callbacks;
++
++    return io->read_reg(io->cookie, offset);
++}
++
++static void
++k60_ipa_gsi_write_reg(K60IpaGsi *gsi, uint32_t offset, uint32_t value)
++{
++    const K60IpaGsiCallbacks *io = &gsi->config.callbacks;
++
++    io->write_reg(io->cookie, offset, value);
++}
++
++static void
++k60_ipa_gsi_sync(K60IpaGsi *gsi, const void *address, size_t bytes,
++    int direction)
++{
++    const K60IpaGsiCallbacks *io = &gsi->config.callbacks;
++
++    if (io->sync != NULL) {
++        io->sync(io->cookie, address, bytes, direction);
++    }
++}
++
++static uint64_t
++k60_ipa_gsi_now_ms(const K60IpaGsi *gsi)
++{
++    const K60IpaGsiCallbacks *io = &gsi->config.callbacks;
++
++    return io->now_ms(io->cookie);
++}
++
++static void
++k60_ipa_gsi_delay_us(const K60IpaGsi *gsi, uint32_t microseconds)
++{
++    const K60IpaGsiCallbacks *io = &gsi->config.callbacks;
++
++    io->delay_us(io->cookie, microseconds);
++}
++
++static void
++k60_ipa_gsi_le16(uint8_t *p, uint16_t value)
++{
++    p[0] = (uint8_t)value;
++    p[1] = (uint8_t)(value >> 8);
++}
++
++static void
++k60_ipa_gsi_le32(uint8_t *p, uint32_t value)
++{
++    k60_ipa_gsi_le16(p, (uint16_t)value);
++    k60_ipa_gsi_le16(p + 2, (uint16_t)(value >> 16));
++}
++
++static void
++k60_ipa_gsi_le64(uint8_t *p, uint64_t value)
++{
++    k60_ipa_gsi_le32(p, (uint32_t)value);
++    k60_ipa_gsi_le32(p + 4, (uint32_t)(value >> 32));
++}
++
++static uint32_t
++k60_ipa_gsi_from32(const uint8_t *p)
++{
++    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
++        ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
++}
++
++static uint64_t
++k60_ipa_gsi_from64(const uint8_t *p)
++{
++    return (uint64_t)k60_ipa_gsi_from32(p) |
++        ((uint64_t)k60_ipa_gsi_from32(p + 4) << 32);
++}
++
++static int
++k60_ipa_gsi_fail(K60IpaGsi *gsi, int error)
++{
++    if (gsi->error == K60IpaOk) {
++        gsi->error = error;
++    }
++    return error;
++}
++
++int
++k60_ipa_gsi_init(K60IpaGsi *gsi, const K60IpaGsiConfig *config)
++{
++    if (gsi == NULL || config == NULL) {
++        return K60IpaBadArgument;
++    }
++    if (config->callbacks.read_gsi == NULL || config->callbacks.write_gsi == NULL ||
++        config->callbacks.read_reg == NULL || config->callbacks.write_reg == NULL ||
++        config->callbacks.delay_us == NULL || config->callbacks.now_ms == NULL) {
++        return K60IpaBadArgument;
++    }
++    if (config->ring == NULL || config->ring_size < K60_IPA_GSI_RING_BYTES ||
++        config->tables == NULL || config->tables_size < K60_IPA_GSI_TABLE_BYTES) {
++        return K60IpaBadArgument;
++    }
++    if (((uintptr_t)config->ring & (K60_IPA_GSI_RING_ALIGN - 1u)) != 0 ||
++        ((uintptr_t)config->tables & (K60_IPA_GSI_PAGE_SIZE - 1u)) != 0) {
++        return K60IpaBadArgument;
++    }
++    if (config->ring_iova == 0 || config->tables_iova == 0 ||
++        (config->ring_iova & (K60_IPA_GSI_RING_ALIGN - 1u)) != 0 ||
++        (config->tables_iova & (K60_IPA_GSI_PAGE_SIZE - 1u)) != 0) {
++        return K60IpaBadArgument;
++    }
++    if (config->gsi_bytes < K60_GSI_EVENT_BASE + 4u) {
++        return K60IpaBadArgument;
++    }
++
++    memset(gsi, 0, sizeof(*gsi));
++    gsi->config = *config;
++    if (gsi->config.gsi_bytes == 0) {
++        gsi->config.gsi_bytes = K60_GSI_BYTES;
++    }
++    memset(gsi->config.ring, 0, K60_IPA_GSI_RING_BYTES);
++    memset(gsi->config.tables, 0, K60_IPA_GSI_TABLE_BYTES);
++    k60_ipa_gsi_sync(gsi, gsi->config.ring, K60_IPA_GSI_RING_BYTES,
++        K60IpaGsiSyncClean);
++    k60_ipa_gsi_sync(gsi, gsi->config.tables, K60_IPA_GSI_TABLE_BYTES,
++        K60IpaGsiSyncClean);
++    gsi->initialized = 1;
++    return K60IpaOk;
++}
++
++int
++k60_ipa_gsi_check_caps(K60IpaGsi *gsi, K60IpaGsiCaps *caps)
++{
++    uint32_t command_offset;
++    uint32_t event_offset;
++
++    if (gsi == NULL || caps == NULL || !gsi->initialized) {
++        return K60IpaBadArgument;
++    }
++    if (gsi->config.gsi_bytes <= K60_GSI_STATUS_OFFSET) {
++        return K60IpaBadArgument;
++    }
++    command_offset = K60_GSI_CHANNEL_BASE +
++        K60_GSI_COMMAND_CHANNEL * K60_GSI_CHANNEL_STRIDE;
++    event_offset = K60_GSI_EVENT_BASE + K60_GSI_EVENT0 * 0x80u;
++    if (gsi->config.gsi_bytes <= command_offset + 4u ||
++        gsi->config.gsi_bytes <= event_offset + 4u) {
++        return K60IpaBadArgument;
++    }
++
++    caps->status = k60_ipa_gsi_read_gsi(gsi, K60_GSI_STATUS_OFFSET);
++    caps->channels = k60_ipa_gsi_read_gsi(gsi, K60_GSI_CHANNELS_OFFSET);
++    caps->events = k60_ipa_gsi_read_gsi(gsi, K60_GSI_EVENTS_OFFSET);
++    caps->command_state =
++        (k60_ipa_gsi_read_gsi(gsi, command_offset) >> 20) & 0xfu;
++    caps->event_state =
++        (k60_ipa_gsi_read_gsi(gsi, event_offset) >> 20) & 0xfu;
++
++    if (caps->status == 0xffffffffu || (caps->status & 1u) != 0) {
++        return K60IpaGsiBusy;
++    }
++    if (caps->channels <= K60_GSI_COMMAND_CHANNEL || caps->events == 0) {
++        return K60IpaNotReady;
++    }
++    if (caps->command_state != 0 || caps->event_state != 0) {
++        return K60IpaGsiBusy;
++    }
++    return K60IpaOk;
++}
++
++static int
++k60_ipa_gsi_owned_events(K60IpaGsi *gsi, uint32_t events)
++{
++    uint32_t value;
++
++    /* Native gsi_register_device arms the EE-local interrupt types before
++     * ALLOCATE. A polled owner still has to arm and acknowledge its actual
++     * sources; masking the GIC line is not a substitute for configuring the
++     * GSI completion engine. Never clear foreign rings. */
++    k60_ipa_gsi_write_gsi(gsi, 0x25220u, 1u);
++    value = k60_ipa_gsi_read_gsi(gsi, 0x25088u);
++    k60_ipa_gsi_write_gsi(gsi, 0x25088u, value | 0x4cu);
++    value = k60_ipa_gsi_read_gsi(gsi, 0x25204u);
++    k60_ipa_gsi_write_gsi(gsi, 0x25204u, value | 1u);
++    value = k60_ipa_gsi_read_gsi(gsi, 0x25210u);
++    k60_ipa_gsi_write_gsi(gsi, 0x25210u, value | 0xeu);
++    value = k60_ipa_gsi_read_gsi(gsi, 0x250acu);
++    k60_ipa_gsi_write_gsi(gsi, 0x250acu, value | events);
++
++    if (k60_ipa_gsi_read_gsi(gsi, 0x25220u) != 1u ||
++        (k60_ipa_gsi_read_gsi(gsi, 0x25088u) & 0x4cu) != 0x4cu ||
++        (k60_ipa_gsi_read_gsi(gsi, 0x25204u) & 1u) == 0 ||
++        (k60_ipa_gsi_read_gsi(gsi, 0x25210u) & 0xeu) != 0xeu ||
++        (k60_ipa_gsi_read_gsi(gsi, 0x250acu) & events) != events) {
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++    }
++    return K60IpaOk;
++}
++
++static int
++k60_ipa_gsi_command(K60IpaGsi *gsi, int event, uint32_t id, uint32_t opcode,
++    uint32_t expected)
++{
++    uint32_t offset;
++    uint32_t source;
++    uint32_t mask;
++    uint32_t clear;
++    uint32_t bit;
++    uint32_t old_mask;
++    uint32_t old_type;
++    uint32_t type;
++    uint32_t actual = 0;
++    uint64_t end;
++    int done = 0;
++
++    if (gsi == NULL || id >= 32u || opcode > 0xffu) {
++        return K60IpaGsiInvalid;
++    }
++    offset = event != 0 ? K60_GSI_EVENT_BASE + id * 0x80u :
++        K60_GSI_CHANNEL_BASE + id * K60_GSI_CHANNEL_STRIDE;
++    if (opcode == K60IpaGsiCmdAllocate &&
++        ((k60_ipa_gsi_read_gsi(gsi, offset) >> 20) & 0xfu) != 0) {
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiBusy);
++    }
++    /* Mirror the native command-control acknowledgement even though this
++     * owner polls. Clear and mask only this allocated resource; stale
++     * mailbox bits must not survive ALLOCATE -> START. */
++    source = event != 0 ? 0x2509cu : 0x25090u;
++    mask = event != 0 ? 0x250a0u : 0x25094u;
++    clear = event != 0 ? 0x250a4u : 0x25098u;
++    bit = 1u << id;
++    old_mask = k60_ipa_gsi_read_gsi(gsi, mask);
++    old_type = k60_ipa_gsi_read_gsi(gsi, 0x25088u);
++    type = event != 0 ? 2u : 1u;
++    k60_ipa_gsi_write_gsi(gsi, clear, bit);
++    k60_ipa_gsi_write_gsi(gsi, mask, old_mask | bit);
++    k60_ipa_gsi_write_gsi(gsi, 0x25088u, old_type | type);
++    k60_ipa_gsi_write_gsi(gsi, event != 0 ? 0x25010u : 0x25008u,
++        id | (opcode << 24));
++
++    end = k60_ipa_gsi_now_ms(gsi) + 50u;
++    do {
++        actual = (k60_ipa_gsi_read_gsi(gsi, offset) >> 20) & 0xfu;
++        if (actual == expected) {
++            if (event == 0) {
++                gsi->channel_state = actual;
++            }
++            done = 1;
++            break;
++        }
++        if (actual == 15u) {
++            break;
++        }
++        k60_ipa_gsi_delay_us(gsi, 10u);
++    } while (k60_ipa_gsi_now_ms(gsi) < end);
++
++    if ((k60_ipa_gsi_read_gsi(gsi, source) & bit) != 0) {
++        k60_ipa_gsi_write_gsi(gsi, clear, bit);
++    }
++    k60_ipa_gsi_write_gsi(gsi, mask, old_mask);
++    k60_ipa_gsi_write_gsi(gsi, 0x25088u, old_type);
++    if (!done) {
++        return k60_ipa_gsi_fail(gsi,
++            actual == 15u ? K60IpaGsiIoError : K60IpaGsiTimeout);
++    }
++    return K60IpaOk;
++}
++
++static int
++k60_ipa_gsi_submit_batch(K60IpaGsi *gsi, const K60IpaGsiImmediate *commands,
++    uint32_t count)
++{
++    uint32_t i;
++
++    if (gsi == NULL || commands == NULL) {
++        return K60IpaBadArgument;
++    }
++    if (gsi->pending) {
++        return K60IpaGsiBusy;
++    }
++    if (count == 0 || count > K60_IPA_GSI_MAX_BATCH) {
++        return K60IpaBadArgument;
++    }
++    if (gsi->stage < 4u) {
++        return K60IpaNotReady;
++    }
++    if (gsi->error != K60IpaOk) {
++        return gsi->error;
++    }
++
++    for (i = 0; i < count; i++) {
++        uint32_t index = (gsi->producer + i) & (K60_IPA_GSI_TRE_COUNT - 1u);
++        uint8_t *payload = gsi->config.ring + K60_IPA_GSI_PAYLOAD_OFFSET +
++            index * K60_IPA_GSI_PAYLOAD_BYTES;
++        uint8_t *tre = gsi->config.ring + index * K60_IPA_GSI_TRE_BYTES;
++
++        if (commands[i].bytes == 0 ||
++            commands[i].bytes > K60_IPA_GSI_MAX_PAYLOAD) {
++            return k60_ipa_gsi_fail(gsi, K60IpaGsiInvalid);
++        }
++        memset(payload, 0, K60_IPA_GSI_PAYLOAD_BYTES);
++        memcpy(payload, commands[i].payload, commands[i].bytes);
++        memset(tre, 0, K60_IPA_GSI_TRE_BYTES);
++        k60_ipa_gsi_le64(tre, gsi->config.ring_iova +
++            K60_IPA_GSI_PAYLOAD_OFFSET + index * K60_IPA_GSI_PAYLOAD_BYTES);
++        k60_ipa_gsi_le16(tre + 8, commands[i].opcode);
++        k60_ipa_gsi_le32(tre + 12, (3u << 16) |
++            (i + 1u == count ? 0x600u : 1u));
++        k60_ipa_gsi_sync(gsi, payload, K60_IPA_GSI_PAYLOAD_BYTES,
++            K60IpaGsiSyncClean);
++        k60_ipa_gsi_sync(gsi, tre, K60_IPA_GSI_TRE_BYTES,
++            K60IpaGsiSyncClean);
++    }
++    gsi->last_tre = (gsi->producer + count - 1u) &
++        (K60_IPA_GSI_TRE_COUNT - 1u);
++    gsi->producer = (gsi->producer + count) &
++        (K60_IPA_GSI_TRE_COUNT - 1u);
++    gsi->pending = 1;
++    gsi->deadline_ms = k60_ipa_gsi_now_ms(gsi) + 1000u;
++    k60_ipa_gsi_write_gsi(gsi, 0x24000u + 12u * 8u + 4u, 0u);
++    k60_ipa_gsi_write_gsi(gsi, 0x24000u + 12u * 8u,
++        (uint32_t)(gsi->config.ring_iova +
++            (uint64_t)gsi->producer * K60_IPA_GSI_TRE_BYTES));
++    return K60IpaOk;
++}
++
++int
++k60_ipa_gsi_submit(K60IpaGsi *gsi, uint32_t opcode, const void *payload,
++    size_t payload_bytes)
++{
++    K60IpaGsiImmediate command;
++
++    if (gsi == NULL || payload == NULL || payload_bytes == 0 ||
++        payload_bytes > K60_IPA_GSI_MAX_PAYLOAD) {
++        return K60IpaBadArgument;
++    }
++    memset(&command, 0, sizeof(command));
++    command.opcode = (uint16_t)opcode;
++    command.bytes = (uint8_t)payload_bytes;
++    memcpy(command.payload, payload, payload_bytes);
++    return k60_ipa_gsi_submit_batch(gsi, &command, 1u);
++}
++
++static int
++k60_ipa_gsi_poll_owned_events(K60IpaGsi *gsi, uint32_t events)
++{
++    uint32_t global;
++    uint32_t general;
++    uint32_t pending;
++
++    global = k60_ipa_gsi_read_gsi(gsi, 0x25200u);
++    general = k60_ipa_gsi_read_gsi(gsi, 0x2520cu);
++    if ((global & 1u) != 0 || (general & 0xeu) != 0) {
++        gsi->failure_regs[5] = k60_ipa_gsi_read_gsi(gsi, 0x25240u);
++        gsi->failure_regs[6] = global;
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++    }
++    pending = k60_ipa_gsi_read_gsi(gsi, 0x250a8u) & events;
++    if (pending != 0) {
++        k60_ipa_gsi_write_gsi(gsi, 0x250b0u, pending);
++    }
++    return K60IpaOk;
++}
++
++static int
++k60_ipa_gsi_completion(K60IpaGsi *gsi)
++{
++    uint64_t pointer;
++    uint64_t base;
++    uint32_t index;
++    uint32_t visited = 0;
++    int done = 0;
++
++    if (k60_ipa_gsi_poll_owned_events(gsi, 1u) != K60IpaOk) {
++        return gsi->error;
++    }
++    /* The firmware writes the owned event shadow when it generates an
++     * event. MMIO context snapshots alone are not enough for the GSI3.0
++     * producer pointer. */
++    k60_ipa_gsi_sync(gsi, gsi->config.ring + K60_IPA_GSI_EVENT_SHADOW_OFFSET,
++        64u, K60IpaGsiSyncInvalidate);
++    pointer = k60_ipa_gsi_from64(gsi->config.ring +
++        K60_IPA_GSI_EVENT_SHADOW_OFFSET);
++    base = gsi->config.ring_iova + K60_IPA_GSI_EVENT_OFFSET;
++    if (pointer < base || pointer >= base + K60_IPA_GSI_EVENT_BYTES ||
++        ((pointer - base) & (K60_IPA_GSI_TRE_BYTES - 1u)) != 0) {
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++    }
++    index = (uint32_t)((pointer - base) / K60_IPA_GSI_TRE_BYTES);
++    while (gsi->event_read != index && visited++ < K60_IPA_GSI_TRE_COUNT) {
++        const uint8_t *event = gsi->config.ring + K60_IPA_GSI_EVENT_OFFSET +
++            gsi->event_read * K60_IPA_GSI_TRE_BYTES;
++        uint64_t tre;
++        uint32_t event_status;
++
++        /* Event pages were cleaned before GSI took ownership; the CPU
++         * never writes them after that handoff, so invalidate only. */
++        k60_ipa_gsi_sync(gsi, event, K60_IPA_GSI_TRE_BYTES,
++            K60IpaGsiSyncInvalidate);
++        tre = k60_ipa_gsi_from64(event);
++        event_status = event[11];
++        gsi->last_event = event_status;
++        if (event[15] != K60_GSI_COMMAND_CHANNEL ||
++            tre < gsi->config.ring_iova ||
++            tre >= gsi->config.ring_iova + K60_IPA_GSI_EVENT_BYTES ||
++            ((tre - gsi->config.ring_iova) & (K60_IPA_GSI_TRE_BYTES - 1u)) != 0) {
++            return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++        }
++        if (event_status != 1u && event_status != 2u) {
++            return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++        }
++        if ((uint32_t)((tre - gsi->config.ring_iova) /
++            K60_IPA_GSI_TRE_BYTES) == gsi->last_tre) {
++            done = 1;
++        }
++        gsi->event_read = (gsi->event_read + 1u) &
++            (K60_IPA_GSI_TRE_COUNT - 1u);
++    }
++    if (visited != 0) {
++        k60_ipa_gsi_write_gsi(gsi, 0x24804u, 0u);
++        k60_ipa_gsi_write_gsi(gsi, 0x24800u,
++            (uint32_t)(base + ((gsi->event_read + K60_IPA_GSI_TRE_COUNT - 1u) &
++            (K60_IPA_GSI_TRE_COUNT - 1u)) * K60_IPA_GSI_TRE_BYTES));
++    }
++    if (done) {
++        gsi->pending = 0;
++        gsi->completed_commands++;
++        return K60IpaOk;
++    }
++    if (k60_ipa_gsi_now_ms(gsi) >= gsi->deadline_ms) {
++        uint32_t channel = K60_GSI_CHANNEL_BASE +
++            K60_GSI_COMMAND_CHANNEL * K60_GSI_CHANNEL_STRIDE;
++
++        gsi->failure_regs[0] = k60_ipa_gsi_read_gsi(gsi, channel + 16u);
++        gsi->failure_regs[1] = k60_ipa_gsi_read_gsi(gsi, channel + 24u);
++        gsi->failure_regs[2] = k60_ipa_gsi_read_gsi(gsi, channel + 0x40u);
++        gsi->failure_regs[3] = k60_ipa_gsi_read_gsi(gsi, channel + 0x44u);
++        gsi->failure_regs[4] = k60_ipa_gsi_read_gsi(gsi, channel + 0x48u);
++        gsi->failure_regs[7] = k60_ipa_gsi_read_gsi(gsi, 0x1c000u + 16u);
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiTimeout);
++    }
++    return K60IpaNotReady;
++}
++
++static int
++k60_ipa_gsi_init_headers(K60IpaGsi *gsi)
++{
++    static const uint32_t guarded[] = {
++        0x1288u, 0x1308u, 0x1388u, 0x1408u, 0x1488u, 0x1528u,
++        0x15c8u, 0x1668u, 0x1708u, 0x1b40u, 0x3898u, 0x4ee8u,
++    };
++    K60IpaGsiImmediate header;
++    uint32_t geometry;
++    uint32_t i;
++    uint32_t back;
++
++    geometry = k60_ipa_gsi_read_reg(gsi, 0x40u);
++    gsi->restricted = (geometry >> 16) * 8u;
++    gsi->sram_bytes = (geometry & 0xffffu) * 8u;
++    /* Cold boot, before INIT_DRIVER transfers SRAM ownership to MPSS.
++     * Native ipa_setup_apps_pipes starts with HDR_INIT_LOCAL; there is no
++     * invented HPS pipeline-clear wait before the tables exist. */
++    if (gsi->sram_bytes < 0x5000u ||
++        gsi->restricted > 0xffffu - 0x5000u) {
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiNoDevice);
++    }
++    /* Match _ipa_init_sram_v3 on IPA5.1: two 4-byte canaries immediately
++     * before each shared table/header/context, modem memory and PDN region.
++     * Do not write the uC shared area at 0x1000. */
++    for (i = 0; i < sizeof(guarded) / sizeof(guarded[0]); i++) {
++        for (back = 4u; back <= 8u; back += 4u) {
++            uint32_t address = 0x10000u + gsi->restricted + guarded[i] - back;
++
++            k60_ipa_gsi_write_reg(gsi, address, 0xdeadbeefu);
++            if (k60_ipa_gsi_read_reg(gsi, address) != 0xdeadbeefu) {
++                return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++            }
++        }
++    }
++
++    memset(gsi->config.ring + K60_IPA_GSI_HEADER_OFFSET, 0,
++        K60_IPA_GSI_HEADER_BYTES);
++    k60_ipa_gsi_sync(gsi, gsi->config.ring + K60_IPA_GSI_HEADER_OFFSET,
++        K60_IPA_GSI_HEADER_BYTES, K60IpaGsiSyncClean);
++    memset(&header, 0, sizeof(header));
++    header.opcode = 9u;
++    header.bytes = 16u;
++    k60_ipa_gsi_le64(header.payload, gsi->config.ring_iova +
++        K60_IPA_GSI_HEADER_OFFSET);
++    k60_ipa_gsi_le32(header.payload + 8, 0x420u |
++        ((gsi->restricted + 0x1708u) << 12));
++    if (k60_ipa_gsi_submit_batch(gsi, &header, 1u) != K60IpaOk) {
++        return gsi->error;
++    }
++    gsi->stage = 5u;
++    return K60IpaOk;
++}
++
++static int
++k60_ipa_gsi_init_contexts(K60IpaGsi *gsi)
++{
++    static const uint32_t offsets[] = { 0x1b40u, 0x3898u, 0x2868u, 0x4ee8u };
++    static const uint32_t sizes[] = { 0xd20u, 0xd48u, 0xa48u, 0x118u };
++    K60IpaGsiImmediate commands[4];
++    uint32_t i;
++
++    memset(commands, 0, sizeof(commands));
++    for (i = 0; i < 4u; i++) {
++        commands[i].opcode = 0x13u;
++        commands[i].bytes = 16u;
++        k60_ipa_gsi_le16(commands[i].payload + 2, (uint16_t)sizes[i]);
++        k60_ipa_gsi_le16(commands[i].payload + 4,
++            (uint16_t)(gsi->restricted + offsets[i]));
++        k60_ipa_gsi_le64(commands[i].payload + 8, gsi->config.ring_iova +
++            K60_IPA_GSI_HEADER_OFFSET);
++    }
++    if (k60_ipa_gsi_submit_batch(gsi, commands, 4u) != K60IpaOk) {
++        return gsi->error;
++    }
++    gsi->stage = 7u;
++    return K60IpaOk;
++}
++
++static int
++k60_ipa_gsi_init_tables(K60IpaGsi *gsi)
++{
++    static const uint32_t opcodes[] = { 3u, 4u, 7u, 8u };
++    static const uint32_t hash[] = { 0x1288u, 0x1388u, 0x1488u, 0x15c8u };
++    static const uint32_t plain[] = { 0x1308u, 0x1408u, 0x1528u, 0x1668u };
++    const uint64_t empty_table = (K60_IPA_GSI_TABLE_BLOCK_BYTES / 8u) * 128u + 1u;
++    uint8_t *filter;
++    uint8_t *route;
++    uint64_t bitmap;
++    K60IpaGsiImmediate commands[4];
++    uint32_t i;
++
++    /* NothingOSS ipahal_{rt,flt}_generate_empty_img uses local SRAM on
++     * IPA5.1. Local encoding is (byte_offset / 8) * 128 + 1. */
++    filter = gsi->config.ring + K60_IPA_GSI_TABLE_OFFSET + 0x100u;
++    route = gsi->config.ring + K60_IPA_GSI_TABLE_OFFSET + 0x200u;
++    memset(gsi->config.ring + K60_IPA_GSI_TABLE_OFFSET, 0,
++        K60_IPA_GSI_TABLE_BLOCK_BYTES);
++    bitmap = (1ull << 1) | (1ull << 2) | (1ull << 5) | (1ull << 6) |
++        (1ull << 7) | (1ull << 10) | (1ull << 12) | (1ull << 15);
++    k60_ipa_gsi_le64(filter, bitmap);
++    for (i = 0; i < 8u; i++) {
++        k60_ipa_gsi_le64(filter + 8u + i * 8u, empty_table);
++    }
++    for (i = 0; i < 19u; i++) {
++        k60_ipa_gsi_le64(route + i * 8u, empty_table);
++    }
++    k60_ipa_gsi_sync(gsi, gsi->config.ring + K60_IPA_GSI_TABLE_OFFSET,
++        K60_IPA_GSI_TABLE_BLOCK_BYTES, K60IpaGsiSyncClean);
++
++    memset(commands, 0, sizeof(commands));
++    for (i = 0; i < 4u; i++) {
++        uint32_t size = i < 2u ? 72u : 152u;
++        uint64_t address = gsi->config.ring_iova + K60_IPA_GSI_TABLE_OFFSET +
++            (i < 2u ? 0x100u : 0x200u);
++        uint64_t fields;
++
++        commands[i].opcode = (uint16_t)opcodes[i];
++        commands[i].bytes = 24u;
++        k60_ipa_gsi_le64(commands[i].payload, address);
++        fields = (uint64_t)size |
++            ((uint64_t)(gsi->restricted + hash[i]) << 12) |
++            ((uint64_t)size << 28) |
++            ((uint64_t)(gsi->restricted + plain[i]) << 40);
++        k60_ipa_gsi_le64(commands[i].payload + 8, fields);
++        k60_ipa_gsi_le64(commands[i].payload + 16, address);
++    }
++    if (k60_ipa_gsi_submit_batch(gsi, commands, 4u) != K60IpaOk) {
++        return gsi->error;
++    }
++    gsi->stage = 9u;
++    return K60IpaOk;
++}
++
++int
++k60_ipa_gsi_start(K60IpaGsi *gsi)
++{
++    K60IpaGsiCaps caps;
++    uint64_t event_iova;
++    uint64_t channel_iova;
++    uint32_t endpoint;
++    uint32_t channel;
++    uint32_t value;
++    uint32_t offset;
++    int rc;
++
++    if (gsi == NULL || !gsi->initialized) {
++        return K60IpaBadArgument;
++    }
++    if (gsi->stage != 0u) {
++        return K60IpaGsiBusy;
++    }
++    gsi->stage = 1u;
++    gsi->error = K60IpaOk;
++
++    rc = k60_ipa_gsi_check_caps(gsi, &caps);
++    if (rc != K60IpaOk) {
++        return k60_ipa_gsi_fail(gsi, rc);
++    }
++    gsi->caps = caps;
++    gsi->channels = caps.channels;
++    gsi->events = caps.events;
++    gsi->event_state = caps.event_state;
++
++    rc = k60_ipa_gsi_owned_events(gsi, 1u);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++    /* Event0 and command channel 12 are real EE0 allocations; context
++     * fields follow GSI3.0, with ERINDEX in CNTXT1 rather than older CNTXT0. */
++    rc = k60_ipa_gsi_command(gsi, 1, K60_GSI_EVENT0, K60IpaGsiCmdAllocate, 1u);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++
++    event_iova = gsi->config.ring_iova + K60_IPA_GSI_EVENT_OFFSET;
++    k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE,
++        (16u << 24) | (1u << 7) | 2u);
++    k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE + 4u, 4096u);
++    k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE + 8u,
++        (uint32_t)event_iova);
++    k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE + 12u,
++        (uint32_t)(event_iova >> 32));
++    for (offset = 32u; offset <= 52u; offset += 4u) {
++        k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE + offset, 0u);
++    }
++    /* Original ipa_dp.c: non-NAPI command ring count 1, 16 cycles of the
++     * 32 kHz moderation clock. Zero/zero moderation is not the Pong policy. */
++    k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE + 32u, (1u << 16) | 16u);
++    k60_ipa_gsi_le64(gsi->config.ring + K60_IPA_GSI_EVENT_SHADOW_OFFSET,
++        event_iova);
++    k60_ipa_gsi_sync(gsi, gsi->config.ring + K60_IPA_GSI_EVENT_SHADOW_OFFSET,
++        64u, K60IpaGsiSyncClean);
++    k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE + 48u,
++        (uint32_t)(gsi->config.ring_iova + K60_IPA_GSI_EVENT_SHADOW_OFFSET));
++    k60_ipa_gsi_write_gsi(gsi, K60_GSI_EVENT_BASE + 52u,
++        (uint32_t)((gsi->config.ring_iova + K60_IPA_GSI_EVENT_SHADOW_OFFSET) >> 32));
++    value = k60_ipa_gsi_read_gsi(gsi, K60_GSI_EVENT_BASE + 4u);
++    if (value != 4096u ||
++        k60_ipa_gsi_read_gsi(gsi, K60_GSI_EVENT_BASE + 8u) !=
++        (uint32_t)event_iova) {
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++    }
++    k60_ipa_gsi_write_gsi(gsi, 0x24804u, 0u);
++    k60_ipa_gsi_write_gsi(gsi, 0x24800u,
++        (uint32_t)(event_iova + K60_IPA_GSI_EVENT_BYTES -
++        K60_IPA_GSI_TRE_BYTES));
++
++    rc = k60_ipa_gsi_command(gsi, 0, K60_GSI_COMMAND_CHANNEL,
++        K60IpaGsiCmdAllocate, 1u);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++    channel = K60_GSI_CHANNEL_BASE +
++        K60_GSI_COMMAND_CHANNEL * K60_GSI_CHANNEL_STRIDE;
++    channel_iova = gsi->config.ring_iova;
++    k60_ipa_gsi_write_gsi(gsi, channel, (16u << 24) | (1u << 7) | 2u);
++    k60_ipa_gsi_write_gsi(gsi, channel + 4u, 4096u);
++    k60_ipa_gsi_write_gsi(gsi, channel + 8u, (uint32_t)channel_iova);
++    k60_ipa_gsi_write_gsi(gsi, channel + 12u, (uint32_t)(channel_iova >> 32));
++    /* GSI3.0 moved QOS from the older +0x5c to +0x48; +0x5c is scratch4.
++     * bit24 makes the doorbell address-valued, and low_weight=15 matches
++     * the command channel's native policy. */
++    value = (1u << 24) | (1u << 10) | (24u << 16) | 15u;
++    k60_ipa_gsi_write_gsi(gsi, channel + 0x48u, value);
++    for (offset = 0x4cu; offset <= 0x70u; offset += 4u) {
++        k60_ipa_gsi_write_gsi(gsi, channel + offset, 0u);
++    }
++    if (k60_ipa_gsi_read_gsi(gsi, channel + 0x48u) != value ||
++        k60_ipa_gsi_read_gsi(gsi, channel + 4u) != 4096u ||
++        k60_ipa_gsi_read_gsi(gsi, channel + 8u) != (uint32_t)channel_iova) {
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++    }
++    gsi->stage = 3u;
++
++    /* Prepare the real IPA command endpoint 14 in DMA-only mode to LAN
++     * consumer 16; no WAN/RX channel is started or published here. */
++    endpoint = K60_IPA_GSI_ENDPOINT_OFFSET;
++    k60_ipa_gsi_write_reg(gsi, endpoint + 8u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 12u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 16u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 20u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 32u, 3u | (16u << 4));
++    k60_ipa_gsi_write_reg(gsi, endpoint + 36u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 52u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 56u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 60u, 0u);
++    k60_ipa_gsi_write_reg(gsi, endpoint + 64u, 0u);
++    if (k60_ipa_gsi_read_reg(gsi, endpoint + 32u) != (3u | (16u << 4))) {
++        return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++    }
++    k60_ipa_gsi_write_gsi(gsi, 0x25220u, 1u);
++    rc = k60_ipa_gsi_command(gsi, 0, K60_GSI_COMMAND_CHANNEL,
++        K60IpaGsiCmdStart, 2u);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++    gsi->stage = 4u;
++    return k60_ipa_gsi_init_headers(gsi);
++}
++
++int
++k60_ipa_gsi_poll(K60IpaGsi *gsi)
++{
++    uint32_t expected;
++    int rc;
++
++    if (gsi == NULL || !gsi->initialized) {
++        return K60IpaBadArgument;
++    }
++    if (gsi->error != K60IpaOk) {
++        return gsi->error;
++    }
++    if (gsi->stage < 4u || !gsi->pending) {
++        return K60IpaOk;
++    }
++    rc = k60_ipa_gsi_completion(gsi);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++    if (gsi->stage == 5u) {
++        gsi->stage = 6u;
++        return k60_ipa_gsi_init_contexts(gsi);
++    }
++    if (gsi->stage == 7u) {
++        gsi->stage = 8u;
++        expected = gsi->restricted + 0x1b40u;
++        k60_ipa_gsi_write_reg(gsi, 0x478u, expected);
++        if (k60_ipa_gsi_read_reg(gsi, 0x478u) != expected) {
++            return k60_ipa_gsi_fail(gsi, K60IpaGsiIoError);
++        }
++        return k60_ipa_gsi_init_tables(gsi);
++    }
++    if (gsi->stage == 9u) {
++        gsi->stage = 10u;
++    }
++    return K60IpaOk;
++}
++
++int
++k60_ipa_gsi_stop(K60IpaGsi *gsi)
++{
++    int rc = K60IpaOk;
++
++    if (gsi == NULL || !gsi->initialized) {
++        return K60IpaBadArgument;
++    }
++    if (gsi->stage >= 4u && gsi->error == K60IpaOk) {
++        rc = k60_ipa_gsi_command(gsi, 0, K60_GSI_COMMAND_CHANNEL,
++            K60IpaGsiCmdReset, 0u);
++    }
++    gsi->pending = 0;
++    gsi->stage = 0u;
++    gsi->producer = 0u;
++    gsi->event_read = 0u;
++    gsi->last_tre = 0u;
++    gsi->last_event = 0u;
++    gsi->deadline_ms = 0u;
++    gsi->error = K60IpaOk;
++    return rc;
++}
+diff --git a/bsd/dev/pong_ipa_smmu.h b/bsd/dev/pong_ipa_smmu.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_smmu.h
+@@ -0,0 +1,73 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* K60 IPA SMMU stream planner and configuration.
++ *
++ * C port of drivers/NativeUfs/SmmuTakeover.h (BSD-2-Clause-Patent):
++ * planUfsSmmuBank -> k60_ipa_smmu_bank(), planUfsSmmu -> k60_ipa_smmu_plan(),
++ * configureUfsSmmu -> k60_ipa_smmu_configure(), ufsSmmuAddressBits ->
++ * k60_ipa_smmu_address_bits().
++ *
++ * The register model is ARM SMMUv2 (IHI 0062D.c sections 1.6 and 3.7) as
++ * exposed by the K60 qcom,qsmmu-v500 instance: IDR0/IDR1/IDR2 at
++ * 0x20/0x24/0x28, SMR at 0x800 + 4*i, S2CR at 0xc00 + 4*i, SCTLR at
++ * (pages + bank) * 4096, CBAR at 0x1000 + 4*bank, CBA2R at 0x1800 + 4*bank.
++ *
++ * IPA stream 0x5c0 uses Iova 0x20000000, a 1 MiB ring and 32 KiB of
++ * ArmSmmu4K tables with ownedBanks 78 and ownedGroups 120. Planning is
++ * read-only; the caller must quiesce the IPA queue, own the SMMU mapping
++ * and keep an MMIO barrier in the write callback before calling configure.
++ */
++
++#ifndef K60_IPA_SMMU_H
++#define K60_IPA_SMMU_H
++
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Register accessors: offset is a byte offset in the owned SMMU mapping.
++ * The read callback returns the 32-bit register value. The write callback
++ * must complete an MMIO barrier before it returns.
++ */
++typedef uint32_t (*K60IpaSmmuRead)(void *context, unsigned offset);
++typedef void (*K60IpaSmmuWrite)(void *context, unsigned offset, uint32_t value);
++
++typedef struct {
++    unsigned slot;
++    unsigned bank;
++    unsigned pages;
++    uint32_t smr;
++    uint32_t s2cr;
++    unsigned previous_bank;
++    int reuse;
++    int migrate;
++    const char *error;
++} K60IpaSmmuPlan;
++
++enum {
++    K60IpaSmmuOk = 0,
++    K60IpaSmmuBadArgument = -1,
++    K60IpaSmmuUnsupported = -2,
++    K60IpaSmmuReadback = -3
++};
++
++/* Plan a context bank and stream-match slot for one IPA stream. Returns 0 on
++ * success; on refusal returns K60IpaSmmuUnsupported and leaves plan->error
++ * pointing at a static reason string. plan must not be NULL. */
++int k60_ipa_smmu_plan(K60IpaSmmuPlan *plan, uint16_t stream, uint64_t dma,
++    uint64_t bytes, K60IpaSmmuRead read, void *context,
++    unsigned owned_banks, unsigned owned_groups);
++
++/* Program a successful plan. Returns 0 after every readback matches; on
++ * failure returns K60IpaSmmuReadback and sets *error to a static string.
++ * The caller must quiesce the IPA queue and own the SMMU mapping first. */
++int k60_ipa_smmu_configure(const K60IpaSmmuPlan *plan, uint16_t stream,
++    K60IpaSmmuRead read, K60IpaSmmuWrite write, void *context,
++    const char **error);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* K60_IPA_SMMU_H */
+diff --git a/bsd/dev/pong_ipa_smmu.c b/bsd/dev/pong_ipa_smmu.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_smmu.c
+@@ -0,0 +1,323 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* K60 IPA SMMU planner and configuration.
++ *
++ * Line-by-line C translation of the UFS SMMU takeover template,
++ * drivers/NativeUfs/SmmuTakeover.h (BSD-2-Clause-Patent):
++ * planUfsSmmuBank(), planUfsSmmu(), configureUfsSmmu() and
++ * ufsSmmuAddressBits(), renamed for the IPA stream and expressed with a
++ * context pointer instead of a C++ read/write lambda.
++ *
++ * Source facts: ARM IHI 0062D.c sections 1.6 and 3.7. The Pong
++ * qcom,qsmmu-v500 instance exposes 78 owned context banks and 120
++ * owned stream-match groups; IPA uses stream 0x5c0 with Iova 0x20000000,
++ * a 1 MiB ring and 32 KiB of ArmSmmu4K tables.
++ */
++
++#include "pong_ipa_smmu.h"
++
++#define K60_IPA_SMMU_IDR0        0x20u
++#define K60_IPA_SMMU_IDR1        0x24u
++#define K60_IPA_SMMU_IDR2        0x28u
++#define K60_IPA_SMMU_SMR(i)      (0x800u + 4u * (i))
++#define K60_IPA_SMMU_S2CR(i)     (0xc00u + 4u * (i))
++#define K60_IPA_SMMU_SCTLR(p, b) (((p) + (b)) * 4096u)
++#define K60_IPA_SMMU_CBAR(bank)  (0x1000u + 4u * (bank))
++#define K60_IPA_SMMU_CBA2R(bank) (0x1800u + 4u * (bank))
++
++/* ARM IHI 0062D.c sections 1.6 and 3.7: VA64=0 still rejects inputs above
++ * 32 bits with SCTLR.M=0. With VA64=1 the bypass range is bounded by all
++ * three hardware widths, not TCR2.PASize (which only limits translation).
++ */
++static unsigned
++k60_ipa_smmu_address_bits(unsigned code)
++{
++    switch (code) {
++    case 0:
++        return 32;
++    case 1:
++        return 36;
++    case 2:
++        return 40;
++    case 3:
++        return 42;
++    case 4:
++        return 44;
++    case 5:
++        return 48;
++    default:
++        return 0;
++    }
++}
++
++static void
++k60_ipa_smmu_plan_defaults(K60IpaSmmuPlan *p)
++{
++    p->slot = 0xffffffffU;
++    p->bank = 0;
++    p->pages = 0;
++    p->smr = 0;
++    p->s2cr = 0;
++    p->previous_bank = 0xffffffffU;
++    p->reuse = 0;
++    p->migrate = 0;
++    p->error = 0;
++}
++
++static int
++k60_ipa_smmu_same(const char *left, const char *right)
++{
++    while (*left != '\0' && *left == *right) {
++        ++left;
++        ++right;
++    }
++    return *left == *right;
++}
++
++/* Translation of planUfsSmmuBank(): try one context bank, counting down from
++ * the top of the owned range with bank_from_top. */
++static K60IpaSmmuPlan
++k60_ipa_smmu_bank(uint16_t stream, uint64_t dma, uint64_t bytes,
++    K60IpaSmmuRead read, void *context, unsigned owned_banks,
++    unsigned owned_groups, unsigned bank_from_top)
++{
++    K60IpaSmmuPlan p;
++    uint32_t idr0;
++    uint32_t idr1;
++    uint32_t idr2;
++    unsigned count;
++    unsigned banks;
++    unsigned matches;
++    unsigned shift;
++    unsigned i;
++
++    k60_ipa_smmu_plan_defaults(&p);
++    idr0 = read(context, K60_IPA_SMMU_IDR0);
++    idr2 = read(context, K60_IPA_SMMU_IDR2);
++    count = idr0 & 255u;
++    if (!(idr0 & (1U << 30)) || !(idr2 & (1U << 12))) {
++        p.error = "SMMU AArch64 stage 1 unsupported";
++        return p;
++    }
++    for (shift = 0; shift <= 8u; shift += 4u) {
++        unsigned bits = k60_ipa_smmu_address_bits((idr2 >> shift) & 15u);
++
++        if (!bits || !bytes || dma >= (1ULL << bits) ||
++            bytes > (1ULL << bits) - dma) {
++            p.error = "DMA exceeds SMMU address width";
++            return p;
++        }
++    }
++    idr1 = read(context, K60_IPA_SMMU_IDR1);
++    banks = idr1 & 255u;
++    /* DT and ID registers are independent upper bounds. Firmware can expose
++     * fewer resources than the Android DT describes (Pong ID1.NUMCB=75,
++     * DT limit=78). Intersect the bounds; never expand the hardware range. */
++    if (!owned_banks || !owned_groups || !banks || !count) {
++        p.error = "empty SMMU ownership/capability range";
++        return p;
++    }
++    if (banks > owned_banks) {
++        banks = owned_banks;
++    }
++    if (count > owned_groups) {
++        count = owned_groups;
++    }
++    p.pages = 1U << (((idr1 >> 28) & 7u) + 1u);
++    if ((idr1 >> 31) || !count || p.pages > 128 || banks < 2 || banks > 128 ||
++        (p.pages + banks) * 4096u > 0x100000u) {
++        p.error = "unsupported SMMU geometry";
++        return p;
++    }
++    if (count > 128) {
++        p.error = "unsupported stream-match group count";
++        return p;
++    }
++    if (bank_from_top >= banks - 1) {
++        p.error = "no free context bank";
++        return p;
++    }
++    p.bank = banks - 1 - bank_from_top;
++    matches = 0;
++    for (i = 0; i < count; ++i) {
++        uint32_t smr = read(context, K60_IPA_SMMU_SMR(i));
++        uint32_t s2cr;
++        uint32_t mask;
++        unsigned mapped_bank;
++        int match;
++        int translate;
++        int our_bank;
++
++        if (!(smr & 0x80000000U)) {
++            if (!p.reuse && !p.migrate) {
++                p.slot = i;
++            }
++            continue;
++        }
++        s2cr = read(context, K60_IPA_SMMU_S2CR(i));
++        mask = (smr >> 16) & 0x7fffu;
++        match = ((smr ^ stream) & 0xffffu & ~mask) == 0;
++        translate = ((s2cr >> 16) & 3u) == 0;
++        mapped_bank = s2cr & 255u;
++        our_bank = translate && mapped_bank == p.bank;
++        if (match) {
++            ++matches;
++            /* A single exact firmware mapping for the IPA SID is the handoff
++             * to migrate after the queue is stopped. Never accept a masked
++             * mapping, a non-translation type, or a context bank outside the
++             * owned range. */
++            if (matches > 1 || mask || !translate || mapped_bank >= banks) {
++                p.slot = i;
++                p.smr = smr;
++                p.s2cr = s2cr;
++                p.error = "conflicting IPA stream mapping";
++                return p;
++            }
++            p.reuse = our_bank;
++            p.migrate = !our_bank;
++            p.previous_bank = mapped_bank;
++            p.slot = i;
++            p.smr = smr;
++            p.s2cr = s2cr;
++        } else if (our_bank) {
++            p.slot = i;
++            p.smr = smr;
++            p.s2cr = s2cr;
++            p.error = "reserved context bank already used";
++            return p;
++        }
++    }
++    {
++        uint32_t sctlr = read(context, K60_IPA_SMMU_SCTLR(p.pages, p.bank));
++
++        if ((sctlr & 1u) || (p.reuse &&
++            (sctlr || read(context, K60_IPA_SMMU_CBAR(p.bank)) != 0x10000u ||
++             (read(context, K60_IPA_SMMU_CBA2R(p.bank)) & ~1u)))) {
++            p.error = "reserved context bank not bypass";
++            return p;
++        }
++    }
++    if (p.slot == 0xffffffffU) {
++        p.error = "no free stream-match group";
++    }
++    return p;
++}
++
++static int
++k60_ipa_smmu_retryable(const char *error)
++{
++    return k60_ipa_smmu_same(error, "reserved context bank already used") ||
++        k60_ipa_smmu_same(error, "reserved context bank not bypass");
++}
++
++/* Translation of planUfsSmmu(): bounded warm-reset fallback over
++ * bankFromTop 1..7, intersected with the owned ranges above. Keep exact SID
++ * matching, firmware migration and VA64 checks. */
++int
++k60_ipa_smmu_plan(K60IpaSmmuPlan *plan, uint16_t stream, uint64_t dma,
++    uint64_t bytes, K60IpaSmmuRead read, void *context,
++    unsigned owned_banks, unsigned owned_groups)
++{
++    K60IpaSmmuPlan first;
++    unsigned attempt;
++
++    if (!plan || !read) {
++        if (plan) {
++            k60_ipa_smmu_plan_defaults(plan);
++            plan->error = "SMMU missing plan or read callback";
++        }
++        return K60IpaSmmuBadArgument;
++    }
++    first = k60_ipa_smmu_bank(stream, dma, bytes, read, context,
++        owned_banks, owned_groups, 0);
++    if (!first.error) {
++        *plan = first;
++        return K60IpaSmmuOk;
++    }
++    /* An inexact/masked SID is still an unconditional refusal; the planner
++     * already migrates an exact mapping from another bank. */
++    if (!k60_ipa_smmu_retryable(first.error)) {
++        *plan = first;
++        return K60IpaSmmuUnsupported;
++    }
++    for (attempt = 1; attempt < 8u; ++attempt) {
++        K60IpaSmmuPlan next = k60_ipa_smmu_bank(stream, dma, bytes, read,
++            context, owned_banks, owned_groups, attempt);
++
++        if (!next.error) {
++            *plan = next;
++            return K60IpaSmmuOk;
++        }
++        if (!k60_ipa_smmu_retryable(next.error)) {
++            break;
++        }
++    }
++    *plan = first;
++    return K60IpaSmmuUnsupported;
++}
++
++/* Translation of configureUfsSmmu(). The caller must first quiesce the IPA
++ * queue. The planner refuses other streams sharing this bank and enabled
++ * translation; no live context is disabled here. The write callback must
++ * complete an MMIO barrier before it returns. */
++int
++k60_ipa_smmu_configure(const K60IpaSmmuPlan *plan, uint16_t stream,
++    K60IpaSmmuRead read, K60IpaSmmuWrite write, void *context,
++    const char **error)
++{
++    unsigned cb;
++
++    if (!plan || !read || !write || !error) {
++        if (error) {
++            *error = "SMMU missing configure argument";
++        }
++        return K60IpaSmmuBadArgument;
++    }
++    *error = 0;
++    if (plan->error) {
++        *error = plan->error;
++        return K60IpaSmmuUnsupported;
++    }
++    cb = K60_IPA_SMMU_SCTLR(plan->pages, plan->bank);
++    if (!plan->reuse) {
++        write(context, cb, 0);
++    }
++    if (read(context, cb) != 0) {
++        *error = "SMMU bypass disable readback";
++        return K60IpaSmmuReadback;
++    }
++    /* Set VA64 before exposing a newly allocated stream. Repair an exclusive
++     * existing 32-bit bypass too; do not silently reuse the faulty state. */
++    if (read(context, K60_IPA_SMMU_CBA2R(plan->bank)) != 1u) {
++        write(context, K60_IPA_SMMU_CBA2R(plan->bank), 1u);
++    }
++    if (!plan->reuse) {
++        write(context, K60_IPA_SMMU_CBAR(plan->bank), 0x10000u);
++    }
++    if (read(context, K60_IPA_SMMU_CBA2R(plan->bank)) != 1u ||
++        read(context, K60_IPA_SMMU_CBAR(plan->bank)) != 0x10000u ||
++        read(context, cb) != 0) {
++        *error = "SMMU VA64 bypass readback";
++        return K60IpaSmmuReadback;
++    }
++    if (!plan->reuse) {
++        /* For a firmware handoff the SMR is already the exact IPA SID.
++         * Configure the new bank first, then atomically change only this
++         * slot's S2CR. */
++        write(context, K60_IPA_SMMU_S2CR(plan->slot), plan->bank);
++        if (read(context, K60_IPA_SMMU_S2CR(plan->slot)) != plan->bank) {
++            *error = "SMMU stream context readback";
++            return K60IpaSmmuReadback;
++        }
++        if (!plan->migrate) {
++            write(context, K60_IPA_SMMU_SMR(plan->slot),
++                0x80000000u | stream);
++        }
++    }
++    if (read(context, K60_IPA_SMMU_SMR(plan->slot)) !=
++            (0x80000000u | stream) ||
++        read(context, K60_IPA_SMMU_S2CR(plan->slot)) != plan->bank) {
++        *error = "SMMU stream mapping readback";
++        return K60IpaSmmuReadback;
++    }
++    return K60IpaSmmuOk;
++}

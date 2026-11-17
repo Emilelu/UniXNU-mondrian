@@ -2,7 +2,7 @@ diff --git a/bsd/dev/pong_ipa.h b/bsd/dev/pong_ipa.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.h
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,110 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path: constants, firmware validation and M1 staging.
 + *
@@ -10,8 +10,8 @@ new file mode 100644
 + * qcom,entire-ipa-block-size. The IPA register block is the wrapper plus
 + * qcom,ipa-cfg-offset 0x140000, and the GSI has its own view at 0x3e04000.
 + * M0 records those facts without touching a register. M1 adds offline image
-+ * validation and a staging routine for the 64 KiB ipa_fw_region; the PAS 15
-+ * call is deliberately left to the caller of k60_ipa_firmware_begin().
++ * validation, a staging routine for the 64 KiB ipa_fw_region, the PAS 15
++ * load, and a handoff probe that reads IPA/ipa_fws.mbn from the payload FAT.
 + *
 + * Sources: docs/research/cellular/20-IPA-V51-DATA-PATH.md sections 2 and 4,
 + *          docs/research/cellular/02-DT-TRUTH.md, dataipa ipa5.0/ipa_hwio.h.
@@ -59,6 +59,7 @@ new file mode 100644
 +    K60IpaFirmwareTooLarge = -5,
 +    K60IpaMapFailed = -6,
 +    K60IpaPasDenied = -7,
++    K60IpaClockFailed = -8,
 +};
 +
 +typedef struct {
@@ -101,6 +102,14 @@ new file mode 100644
 + * map MMIO, write a register or call PAS; those begin in M1. */
 +int k60_ipa_probe(void);
 +
++/* M1 caller: reads IPA/ipa_fws.mbn from the payload FAT (md0) when the
++ * pong_ipa boot argument is non-zero, then stages it and runs PAS 15. */
++int k60_ipa_probe_from_handoff(void);
++
++/* memdev calls this for md0; base and size are page numbers, matching
++ * k60_adsp_note_window. */
++void k60_ipa_note_window(uint64_t base, uint64_t size);
++
 +extern const char k60_ipa_marker[];
 +
 +#endif /* K60_IPA_H */
@@ -108,7 +117,7 @@ diff --git a/bsd/dev/pong_ipa.c b/bsd/dev/pong_ipa.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.c
-@@ -0,0 +1,295 @@
+@@ -0,0 +1,649 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path M0 skeleton plus M1 firmware staging.
 + *
@@ -116,8 +125,9 @@ new file mode 100644
 + * stages cannot invent a different base address. M1 validates a monolithic
 + * ipa_fws image, clears the 64 KiB ipa_fw_region, copies its load segments to
 + * their p_paddr offsets and builds the metadata block at the last 8 KiB.
-+ * Nothing maps the IPA or GSI registers and no PAS call is made here; the
-+ * caller owns the PAS 15 transitions and the GSI reset.
++ * k60_ipa_firmware_start() then performs the PAS 15 init/mem-setup/auth-reset
++ * sequence and reads the version registers; k60_ipa_probe_from_handoff()
++ * supplies the image from IPA/ipa_fws.mbn in the payload FAT.
 + */
 +
 +#include "pong_ipa.h"
@@ -129,11 +139,14 @@ new file mode 100644
 +#else
 +#include <pexpert/pexpert.h>
 +#include <sys/systm.h>
++#include "pong_fat.h" /* the kernel copy is pong_fat.h; the host build skips it */
++#include "pong_pmic_rail.h" /* the kernel copy is pong_pmic_rail.h */
 +
 +/* osfmk/arm/machine_routines.h:703; declared here keeps the include path out
 + * of the leaky kernel header set (same choice as K60ModemBoot.c). */
 +extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size,
 +    uint32_t flags);
++extern void delay(int microseconds);
 +#endif
 +
 +static int
@@ -300,6 +313,305 @@ new file mode 100644
 +    return rc;
 +}
 +
++#define K60_IPA_CMD_DB_PHYS   0x80860000u
++#define K60_IPA_CMD_DB_BYTES  0x00020000u
++#define K60_IPA_RSC_DRV2_PHYS 0x17a20000u
++#define K60_IPA_RSC_BYTES     0x00010000u
++#define K60_IPA_RSC_TCS_BASE  0x00000d00u
++#define K60_IPA_RSC_TCS_STRIDE 672u
++#define K60_IPA_RSC_TCS4      (K60_IPA_RSC_TCS_BASE + 4u * K60_IPA_RSC_TCS_STRIDE)
++#define K60_IPA_RSC_TCS3      (K60_IPA_RSC_TCS_BASE + 3u * K60_IPA_RSC_TCS_STRIDE)
++#define K60_IPA_RSC_MSGID     0x00010108u
++#define K60_IPA_RSC_IRQ_DONE  (1u << 4)
++#define K60_IPA_RSC_CMD_DONE  0x00010100u
++#define K60_IPA_RSC_CTRL_TCS  (1u << 4)
++
++static uint16_t
++k60_ipa_le16(const uint8_t *p)
++{
++    return (uint16_t)(p[0] | (uint16_t)p[1] << 8);
++}
++
++static uint32_t
++k60_ipa_le32(const uint8_t *p)
++{
++    return (uint32_t)k60_ipa_le16(p) | (uint32_t)k60_ipa_le16(p + 2) << 16;
++}
++
++static uint32_t
++k60_ipa_rd32(const volatile uint8_t *base, size_t at)
++{
++    return *(const volatile uint32_t *)(base + at);
++}
++
++static void
++k60_ipa_wr32(volatile uint8_t *base, size_t at, uint32_t value)
++{
++    *(volatile uint32_t *)(base + at) = value;
++    __asm__ volatile("dsb oshst" ::: "memory");
++}
++
++static void
++k60_ipa_fence(void)
++{
++    __asm__ volatile("dsb sy" ::: "memory");
++}
++
++static void
++k60_ipa_spin(void)
++{
++    __asm__ volatile("yield" ::: "memory");
++}
++
++static int
++k60_ipa_wait_word(const volatile uint8_t *base, size_t at, uint32_t mask,
++    uint32_t value, unsigned tries)
++{
++    for (unsigned i = 0; i < tries; i++) {
++        if ((k60_ipa_rd32(base, at) & mask) == value) {
++            return 0;
++        }
++        delay(10);
++    }
++    return -1;
++}
++
++/* Find the IP0 BCM record in the AOP command DB and read its eight-byte aux
++ * record. The first aux word is kHz per vote unit; Pong's ipaClockPrepare and
++ * NothingOSS clk-rpmh use the same record, not an ARC level table. */
++static int
++k60_ipa_find_ip0(const uint8_t *db, uint32_t *address, uint32_t *unit_khz)
++{
++    static const char id[8] = { 'I', 'P', '0', 0, 0, 0, 0, 0 };
++
++    if (db == NULL || address == NULL || unit_khz == NULL) {
++        return -1;
++    }
++    if (k60_ipa_le32(db + 4) != 0x0c0330dbu) {
++        return -1;
++    }
++    for (unsigned s = 0; s < 8; s++) {
++        const uint8_t *slave = db + 8 + 16 * s;
++        uint32_t head, data, count;
++
++        if (k60_ipa_le16(slave) == 0) {
++            break;
++        }
++        head = 144u + k60_ipa_le16(slave + 2);
++        data = 144u + k60_ipa_le16(slave + 4);
++        count = k60_ipa_le16(slave + 6);
++        if (head > K60_IPA_CMD_DB_BYTES ||
++            count > (K60_IPA_CMD_DB_BYTES - head) / 24u) {
++            break;
++        }
++        for (uint32_t n = 0; n < count; n++) {
++            const uint8_t *entry = db + head + 24 * n;
++            uint32_t bytes, at, i;
++            int same = 1;
++
++            for (i = 0; i < 8; i++) {
++                if (entry[i] != (uint8_t)id[i]) {
++                    same = 0;
++                    break;
++                }
++            }
++            if (!same) {
++                continue;
++            }
++            bytes = k60_ipa_le16(entry + 20);
++            at = data + k60_ipa_le16(entry + 22);
++            if (bytes < 4 || at > K60_IPA_CMD_DB_BYTES ||
++                bytes > K60_IPA_CMD_DB_BYTES - at) {
++                return -1;
++            }
++            *address = k60_ipa_le32(entry + 16);
++            *unit_khz = k60_ipa_le32(db + at);
++            return 0;
++        }
++    }
++    return -1;
++}
++
++static int
++k60_ipa_tcs_conflict(const volatile uint8_t *rsc, const K60RscLayout *l,
++    uint32_t tcs, uint32_t capacity, uint32_t address)
++{
++    uint32_t enable = k60_ipa_rd32(rsc, tcs + l->cmd_enable);
++
++    for (uint32_t i = 0; i < capacity && i < 16u; i++) {
++        if ((enable & (1u << i)) != 0 &&
++            k60_ipa_rd32(rsc, tcs + (size_t)i * l->cmd_stride + l->cmd_addr) == address) {
++            return -1;
++        }
++    }
++    return 0;
++}
++
++/* Same active-only TCS4 sequence as K60ModemLink's rail vote, repeated here
++ * because that helper is file-static and IPA must vote IP0 before PAS 15. */
++static int
++k60_ipa_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
++    uint32_t address, uint32_t value, uint32_t capacity)
++{
++    const size_t base = K60_IPA_RSC_TCS4;
++    uint32_t control, progressed = 0;
++    int rc = -1;
++
++    if (k60_ipa_rd32(rsc, K60_IPA_RSC_TCS3 + l->status) == 0 &&
++        k60_ipa_tcs_conflict(rsc, l, K60_IPA_RSC_TCS3, capacity, address)) {
++        return -1;
++    }
++    k60_ipa_wr32(rsc, K60_IPA_RSC_TCS_BASE,
++        k60_ipa_rd32(rsc, K60_IPA_RSC_TCS_BASE) & ~K60_IPA_RSC_CTRL_TCS);
++    control = k60_ipa_rd32(rsc, base + l->control) & ~(1u << 24);
++    k60_ipa_wr32(rsc, base + l->control, control);
++    if (k60_ipa_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
++        return -1;
++    }
++    control &= ~(1u << 16);
++    k60_ipa_wr32(rsc, base + l->control, control);
++    if (k60_ipa_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
++        return -1;
++    }
++    k60_ipa_wr32(rsc, base + l->cmd_enable, 0);
++    k60_ipa_wr32(rsc, K60_IPA_RSC_TCS_BASE + l->irq_clear, K60_IPA_RSC_IRQ_DONE);
++    if (k60_ipa_wait_word(rsc, K60_IPA_RSC_TCS_BASE + l->irq_status,
++        K60_IPA_RSC_IRQ_DONE, 0, 1000)) {
++        return -1;
++    }
++    k60_ipa_wr32(rsc, base + l->cmd_msgid, K60_IPA_RSC_MSGID);
++    k60_ipa_wr32(rsc, base + l->cmd_addr, address);
++    k60_ipa_wr32(rsc, base + l->cmd_data, value);
++    k60_ipa_wr32(rsc, base + l->wait_for_cmpl, 1);
++    k60_ipa_fence();
++    k60_ipa_wr32(rsc, base + l->cmd_enable, 1);
++    if (k60_ipa_rd32(rsc, base + l->cmd_addr) != address ||
++        k60_ipa_rd32(rsc, base + l->cmd_data) != value) {
++        goto cleanup;
++    }
++    k60_ipa_wr32(rsc, base + l->control, 1u << 16);
++    k60_ipa_fence();
++    if (k60_ipa_wait_word(rsc, base + l->control, 0xffffffffu, 1u << 16, 1000)) {
++        goto cleanup;
++    }
++    k60_ipa_fence();
++    k60_ipa_wr32(rsc, base + l->control, (1u << 16) | (1u << 24));
++    for (unsigned i = 0; i < 200000u; i++) {
++        const uint32_t status = k60_ipa_rd32(rsc, base + l->cmd_data + 4u);
++        const uint32_t idle = k60_ipa_rd32(rsc, base + l->status);
++
++        if ((status & K60_IPA_RSC_CMD_DONE) == K60_IPA_RSC_CMD_DONE && idle &&
++            k60_ipa_rd32(rsc, base + l->cmd_enable) == 1u &&
++            k60_ipa_rd32(rsc, base + l->cmd_addr) == address &&
++            k60_ipa_rd32(rsc, base + l->cmd_data) == value &&
++            (progressed || (k60_ipa_rd32(rsc, K60_IPA_RSC_TCS_BASE + l->irq_status) &
++            K60_IPA_RSC_IRQ_DONE))) {
++            rc = 0;
++            break;
++        }
++        if ((status & K60_IPA_RSC_CMD_DONE) != K60_IPA_RSC_CMD_DONE || !idle) {
++            progressed = 1;
++        }
++        if ((i & 0x0fu) == 0) {
++            delay(10);
++        } else {
++            k60_ipa_spin();
++        }
++    }
++cleanup:
++    k60_ipa_wr32(rsc, base + l->cmd_enable, 0);
++    k60_ipa_wr32(rsc, K60_IPA_RSC_TCS_BASE + l->irq_clear, K60_IPA_RSC_IRQ_DONE);
++    control = k60_ipa_rd32(rsc, base + l->control) & ~(1u << 24);
++    k60_ipa_wr32(rsc, base + l->control, control);
++    if (k60_ipa_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
++        return -1;
++    }
++    k60_ipa_fence();
++    return rc;
++}
++
++/* Vote IP0 at the native IPA5.x boot corner (SVS2, 120 MHz). The BCM value
++ * uses commit/valid bits 30/29 and the frequency in aux units in bits 13:0. */
++static int
++k60_ipa_clock_vote(void)
++{
++    volatile uint8_t *db = NULL, *rsc = NULL;
++    uint32_t drv, caps, version, capacity, address = 0, unit_khz = 0;
++    uint32_t units, vote;
++    K60RscLayout layout;
++    int rc = K60IpaClockFailed;
++
++    db = (volatile uint8_t *)(uintptr_t)ml_io_map_unmappable(
++        (vm_offset_t)K60_IPA_CMD_DB_PHYS, (vm_size_t)K60_IPA_CMD_DB_BYTES, 0x7);
++    rsc = (volatile uint8_t *)(uintptr_t)ml_io_map_unmappable(
++        (vm_offset_t)K60_IPA_RSC_DRV2_PHYS, (vm_size_t)K60_IPA_RSC_BYTES, 0x7);
++    if (db == NULL || rsc == NULL) {
++        printf("K60IPA IP0 clock map failed db=%p rsc=%p\n", (void *)db, (void *)rsc);
++        return K60IpaClockFailed;
++    }
++    drv = k60_ipa_rd32(rsc, 0);
++    caps = k60_ipa_rd32(rsc, 0x0cu);
++    version = (drv >> 16) & 0xffu;
++    layout = k60_rsc_layout(drv);
++    capacity = (caps >> 27) & 0x1fu;
++    if (version != 2u || ((caps >> 12) & 0x3fu) < 8u || capacity < 1u) {
++        printf("K60IPA IP0 clock RSC unsupported drv=%#x caps=%#x\n", drv, caps);
++        return K60IpaClockFailed;
++    }
++    if (k60_ipa_rd32(rsc, K60_IPA_RSC_TCS4 + layout.status) == 0) {
++        printf("K60IPA IP0 clock TCS4 unavailable\n");
++        return K60IpaClockFailed;
++    }
++    if (k60_ipa_find_ip0((const uint8_t *)db, &address, &unit_khz) != 0 ||
++        address == 0 || unit_khz == 0 || unit_khz > 120000u) {
++        printf("K60IPA IP0 clock record missing address=%#x unit=%u\n", address, unit_khz);
++        return K60IpaClockFailed;
++    }
++    units = (120000u + unit_khz - 1u) / unit_khz;
++    if (units == 0 || units > 0x3fffu) {
++        printf("K60IPA IP0 clock vote overflow unit=%u units=%u\n", unit_khz, units);
++        return K60IpaClockFailed;
++    }
++    vote = (1u << 30) | (1u << 29) | units;
++    if (k60_ipa_vote_tcs4(rsc, &layout, address, vote, capacity) != 0) {
++        printf("K60IPA IP0 clock vote failed address=%#x vote=%#x\n", address, vote);
++        return K60IpaClockFailed;
++    }
++    printf("K60IPA IP0 clock address=%#x unit_khz=%u vote=%#x ok\n",
++        address, unit_khz, vote);
++    rc = K60IpaOk;
++    return rc;
++}
++
++/* md0 carries the payload FAT.  memdev hands us the page numbers through
++ * k60_ipa_note_window(); convert them exactly the way k60_adsp_md_window()
++ * does, because mdevadd() keeps a kernel VA page number for a vmd entry. */
++static uint64_t k60_ipa_md_base;
++static uint64_t k60_ipa_md_size;
++
++void
++k60_ipa_note_window(uint64_t base, uint64_t size)
++{
++    k60_ipa_md_base = base;
++    k60_ipa_md_size = size;
++    printf("K60IPA md0 window noted %#llx..%#llx\n",
++        (unsigned long long)base, (unsigned long long)(base + size));
++}
++
++static int
++k60_ipa_md_window(uint64_t *base, uint64_t *size)
++{
++    if (k60_ipa_md_size != 0) {
++        const uint64_t va_pages = 0xfffffff000000000ULL >> 12;
++
++        *base = (k60_ipa_md_base - va_pages) << 12;
++        *size = k60_ipa_md_size << 12;
++        return 0;
++    }
++    printf("K60IPA md0 was never registered\n");
++    return -1;
++}
++
 +int
 +k60_ipa_firmware_start(const void *blob, uint64_t size)
 +{
@@ -309,6 +621,11 @@ new file mode 100644
 +
 +    if (!blob) {
 +        return K60IpaBadArgument;
++    }
++    rc = k60_ipa_clock_vote();
++    if (rc != K60IpaOk) {
++        printf("K60IPA IP0 clock unavailable rc=%d\n", rc);
++        return rc;
 +    }
 +    rc = k60_ipa_firmware_check(blob, size, &plan);
 +    if (rc != K60IpaOk) {
@@ -393,6 +710,52 @@ new file mode 100644
 +{
 +    (void)blob;
 +    (void)size;
++    return K60IpaNotReady;
++}
++#endif /* K60_HOST_TEST */
++
++#ifndef K60_HOST_TEST
++int
++k60_ipa_probe_from_handoff(void)
++{
++    K60FatVolume volume;
++    uint64_t base = 0, size = 0;
++    uint32_t offset = 0, length = 0;
++    vm_offset_t ram;
++    int enabled = 0;
++
++    if (!PE_parse_boot_argn("pong_ipa", &enabled, sizeof(enabled)) ||
++        enabled == 0) {
++        return 0;
++    }
++    printf("K60IPA probe begin\n");
++    if (k60_ipa_md_window(&base, &size) != 0) {
++        return -1;
++    }
++    ram = ml_io_map_unmappable((vm_offset_t)base, (vm_size_t)size, 0x2);
++    if (ram == 0) {
++        printf("K60IPA cannot map the payload FAT %#llx\n",
++            (unsigned long long)base);
++        return -1;
++    }
++    if (k60_fat_open((const void *)(uintptr_t)ram, (size_t)size,
++        &volume) != 0) {
++        printf("K60IPA payload FAT open failed\n");
++        return -1;
++    }
++    if (k60_fat_find((const void *)(uintptr_t)ram, &volume, "IPA",
++        "ipa_fws.mbn", &offset, &length) != 0) {
++        printf("K60IPA IPA/ipa_fws.mbn missing\n");
++        return -1;
++    }
++    printf("K60IPA firmware file length=%u\n", length);
++    return k60_ipa_firmware_start((const uint8_t *)(uintptr_t)ram + offset,
++        length);
++}
++#else /* K60_HOST_TEST */
++int
++k60_ipa_probe_from_handoff(void)
++{
 +    return K60IpaNotReady;
 +}
 +#endif /* K60_HOST_TEST */

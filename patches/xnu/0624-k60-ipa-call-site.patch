@@ -1,0 +1,17 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7930,6 +7930,14 @@
+ 
+ 		(void)k60_modem_probe_from_handoff();
+ 	}
++	/* 0624: IPA firmware is independent of the modem image.  The probe is
++	 * inert unless pong_ipa is set; it reads IPA/ipa_fws.mbn from the same
++	 * payload FAT md0 and hands it to PAS 15. */
++	{
++		extern int k60_ipa_probe_from_handoff(void);
++
++		(void)k60_ipa_probe_from_handoff();
++	}
+ 	native_owner_data_stage = 3;
+ 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());
+ 	printf("K60DATA root lookup error=%d vnode=%p\n", error, data_root);

@@ -5,8 +5,8 @@
  * qcom,entire-ipa-block-size. The IPA register block is the wrapper plus
  * qcom,ipa-cfg-offset 0x140000, and the GSI has its own view at 0x3e04000.
  * M0 records those facts without touching a register. M1 adds offline image
- * validation and a staging routine for the 64 KiB ipa_fw_region; the PAS 15
- * call is deliberately left to the caller of k60_ipa_firmware_begin().
+ * validation, a staging routine for the 64 KiB ipa_fw_region, the PAS 15
+ * load, and a handoff probe that reads IPA/ipa_fws.mbn from the payload FAT.
  *
  * Sources: docs/research/cellular/20-IPA-V51-DATA-PATH.md sections 2 and 4,
  *          docs/research/cellular/02-DT-TRUTH.md, dataipa ipa5.0/ipa_hwio.h.
@@ -54,6 +54,7 @@ enum {
     K60IpaFirmwareTooLarge = -5,
     K60IpaMapFailed = -6,
     K60IpaPasDenied = -7,
+    K60IpaClockFailed = -8,
 };
 
 typedef struct {
@@ -95,6 +96,14 @@ int k60_ipa_firmware_start(const void *blob, uint64_t size);
 /* M0 probe: reports that the data path is intentionally absent.  It must not
  * map MMIO, write a register or call PAS; those begin in M1. */
 int k60_ipa_probe(void);
+
+/* M1 caller: reads IPA/ipa_fws.mbn from the payload FAT (md0) when the
+ * pong_ipa boot argument is non-zero, then stages it and runs PAS 15. */
+int k60_ipa_probe_from_handoff(void);
+
+/* memdev calls this for md0; base and size are page numbers, matching
+ * k60_adsp_note_window. */
+void k60_ipa_note_window(uint64_t base, uint64_t size);
 
 extern const char k60_ipa_marker[];
 

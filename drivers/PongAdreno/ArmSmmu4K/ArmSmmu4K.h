@@ -23,12 +23,12 @@ enum {ArmSmmu4KRead=1,ArmSmmu4KWrite=2,ArmSmmu4KExecute=4,ArmSmmu4KPrivileged=8}
 typedef struct {
     uint64_t iova, physical, bytes;
     unsigned permissions;          /* Read required; optional Write/Execute/Privileged. */
-    unsigned writeback;            /* 0=normal NC, 1=normal WB/WA. */
+    unsigned writeback;            /* 0=normal NC, 1=normal WB/WA, 2=Device-nGnRE. */
     unsigned shareability;         /* 2=outer, 3=inner; explicit, no default. */
 } ArmSmmu4KRange;
 typedef struct {
     uint64_t root_physical;
-    uint64_t mair;                 /* NC at index 0, WB/WA at index 1. */
+    uint64_t mair;                 /* NC index 0, WB/WA index 1; Device-nGnRE index 2 when used. */
     size_t table_pages, leaf_pages;
     unsigned start_level;
     unsigned upper_region;        /* 0=Build TTBR0, 1=BuildUpper TTBR1. */

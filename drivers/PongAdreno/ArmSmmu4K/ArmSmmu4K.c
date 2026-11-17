@@ -26,11 +26,26 @@ static ArmSmmu4KStatus build_region(const ArmSmmu4KConfig *config,
     if ((pool & 4095) || pool >= output_limit || pool_bytes > output_limit - pool)
         return ArmSmmu4KBadRange;
     size_t leaves = 0;
+    unsigned device_memory = 0;
     uint64_t previous_end = 0;
+    /* Fragmented wired buffers can contain one range per 4K page. Identical
+     * memory attributes cannot form the conflicting physical aliases checked
+     * below; keep that common case linear without weakening mixed-attribute
+     * alias validation. */
+    unsigned uniform_attributes = 1;
+    for (size_t i = 1; i < range_count; ++i) {
+        if (ranges[i].writeback != ranges[0].writeback ||
+            ranges[i].shareability != ranges[0].shareability ||
+            ((ranges[i].permissions ^ ranges[0].permissions) & ArmSmmu4KPrivileged)) {
+            uniform_attributes = 0; break;
+        }
+    }
     for (size_t i = 0; i < range_count; ++i) {
         const ArmSmmu4KRange *r = &ranges[i];
         if (!r->bytes || ((r->iova | r->physical | r->bytes) & 4095) ||
-            (!(r->permissions & ArmSmmu4KRead) || (r->permissions & ~15u)) || r->writeback > 1 || (r->shareability != 2 && r->shareability != 3) ||
+            (!(r->permissions & ArmSmmu4KRead) || (r->permissions & ~15u)) || r->writeback > 2 ||
+            (r->writeback == 2 && (r->permissions & ArmSmmu4KExecute)) ||
+            (r->shareability != 2 && r->shareability != 3) ||
             r->physical >= output_limit || r->bytes > output_limit - r->physical)
             return ArmSmmu4KBadRange;
         if (upper ? (r->iova < UINT64_MAX-input_limit+1 || r->bytes-1 > UINT64_MAX-r->iova) :
@@ -40,13 +55,14 @@ static ArmSmmu4KStatus build_region(const ArmSmmu4KConfig *config,
         previous_end = r->iova + (r->bytes-1);
         if (r->physical < pool + pool_bytes && pool < r->physical + r->bytes)
             return ArmSmmu4KOverlap;
-        for (size_t j = 0; j < i; ++j) {
+        for (size_t j = 0; !uniform_attributes && j < i; ++j) {
             if ((r->writeback != ranges[j].writeback || r->shareability != ranges[j].shareability || ((r->permissions ^ ranges[j].permissions) & ArmSmmu4KPrivileged)) && r->physical < ranges[j].physical + ranges[j].bytes &&
                 ranges[j].physical < r->physical + r->bytes) return ArmSmmu4KOverlap;
         }
         uint64_t pages = r->bytes / PAGE_BYTES;
         if (pages > config->leaf_budget - leaves) return ArmSmmu4KBudget;
         leaves += (size_t)pages;
+        if (r->writeback == 2) device_memory = 1;
     }
     /* Each range has at least one leaf, so the validated leaf budget also
      * bounds the range/alias loops. Sorted IOVAs make prefix counting exact. */
@@ -73,7 +89,7 @@ static ArmSmmu4KStatus build_region(const ArmSmmu4KConfig *config,
         if (!(r->permissions & ArmSmmu4KPrivileged)) attributes |= 1u << 6;
         if (!(r->permissions & ArmSmmu4KWrite)) attributes |= 1u << 7;
         attributes |= (uint64_t)r->shareability << 8;
-        if (r->writeback) attributes |= 1u << 2;
+        attributes |= (uint64_t)r->writeback << 2;
         for (uint64_t offset = 0; offset < r->bytes; offset += PAGE_BYTES) {
             uint64_t va = r->iova + offset;
             size_t table = 0;
@@ -88,7 +104,7 @@ static ArmSmmu4KStatus build_region(const ArmSmmu4KConfig *config,
         }
     }
     result->root_physical = pool;
-    result->mair = 0xff44;
+    result->mair = device_memory ? 0x04ff44 : 0xff44;
     result->table_pages = required;
     result->leaf_pages = leaves;
     result->start_level = start;

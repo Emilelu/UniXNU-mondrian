@@ -15,7 +15,7 @@ static int region_valid(const ArmSmmu4KConfig *c,const ArmSmmu4KResult *r,unsign
     if(!c || !r)return !c && !r;
     if(c->input_bits<32 || c->input_bits>48 || width_code(c->output_bits)<0 ||
         (c->table_physical&4095) || r->root_physical!=c->table_physical ||
-        r->mair!=0xff44 || r->upper_region!=upper || !r->table_pages ||
+        (r->mair!=0xff44 && r->mair!=0x04ff44) || r->upper_region!=upper || !r->table_pages ||
         r->leaf_pages>c->leaf_budget || r->table_pages>UINT64_MAX/4096 ||
         r->start_level!=4-(c->input_bits-12+8)/9)return 0;
     uint64_t limit=UINT64_C(1)<<c->output_bits;
@@ -61,7 +61,7 @@ ArmSmmu4KStatus ArmSmmu4KEncodeContext(const ArmSmmu4KContextConfig *c,
     v.ttbr0=(uint64_t)c->asid<<48;v.ttbr1=v.ttbr0;
     if(c->lower)v.ttbr0|=c->lower_tables->root_physical;
     if(c->upper)v.ttbr1|=c->upper_tables->root_physical;
-    v.mair0=0xff44;v.mair1=0;
+    v.mair0=(unsigned)((c->lower?c->lower_tables->mair:0)|(c->upper?c->upper_tables->mair:0));v.mair1=0;
     v.sctlr=0x1067|(c->stall_on_fault<<7)|(c->continue_after_fault<<8);
     if(c->polled_faults)v.sctlr&=~UINT32_C(0x40); /* CFRE stays on; CFIE off. */
     if(c->shared_asid)v.sctlr&=~UINT32_C(0x1000);

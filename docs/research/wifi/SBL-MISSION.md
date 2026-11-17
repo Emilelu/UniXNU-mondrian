@@ -12,7 +12,7 @@ mission-poll candidate; c8 remains HOLD.
 |---|---|
 | What did the direct candidate prove? | The direct BHIe push works: the 2026-11-18 01:29 flight logged `amss bhie load ret=0 exec_env=1`, then the device reported `exec_env=2` (AMSS), `pm_state=4` (`MHI_PM_M0`) and `mhi_state=2` (`MHI_STATE_M0`). See `SBL-DIRECT.md` §6. |
 | Why is WiFi still failing? | `mhi_sync_power_up` (`pm.c:1277-1295`) waits on `MHI_IN_MISSION_MODE(mhi_cntrl->ee)`, but the host cached `ee=1` (SBL). The only EE event consumed was `execenv=1`; no later EE event updated the cache even though the device had reached AMSS. |
-| What changes in this candidate? | After the direct `mhi_download_amss_image()` returns 0, the same worker polls `mhi_get_exec_env` for up to 500 x 10 ms. On `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission` before returning, so `mhi_sync_power_up` sees mission mode instead of a stale SBL value. |
+| What changes in this candidate? | After the direct `mhi_download_amss_image()` returns 0, the same worker polls `mhi_get_exec_env` for up to 500 x 10 ms. On `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission` and calls `wake_up_all(&mhi_cntrl->state_event)`, so `mhi_sync_power_up` sees mission mode instead of a stale SBL value and wakes from its wait. |
 | Is this the official path? | Yes. UniXNU-sheng `516a7804` `package/MhiBoot.c:117-119` has `MhiWaitMission`, which polls the execution environment until AMSS/WFW after the BHIe image. Stock Linux has no equivalent poll after `mhi_download_amss_image`; the cached EE is only refreshed by an EE event. |
 | Is this proven on K60? | **No — built only, not flown.** The image is `hardware_tested: false` until the first flight. |
 
@@ -38,9 +38,10 @@ The patch lives in the build generator, not in a checked-in copy of the Linux
 source. `E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
 
 - `:330`: declares `int i, j, amss_ret;`.
-- `:355-365`: assigns `amss_ret = mhi_download_amss_image(mhi_cntrl);`; only
+- `:355-366`: assigns `amss_ret = mhi_download_amss_image(mhi_cntrl);`; only
   when it is zero, runs the bounded `for (j = 0; j < 500; j++)` poll. On
-  `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission` and logs
+  `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission`, calls
+  `wake_up_all(&mhi_cntrl->state_event)` and logs
   `Pong MHI: exec_env=%d after AMSS download; cached ee updated`; it stops on
   `MHI_EE_MAX` and sleeps 10 ms between samples.
 - `:240`: appends `bool pong_sbl_pushed;` to the pinned `linux/mhi.h` copy
@@ -62,7 +63,10 @@ Generated source anchors from the mission archive:
 The poll runs after `mhi_ready_state_transition` has left `pm_state=MHI_PM_POR`
 and before `mhi_sync_power_up` has changed it, so the register window is the
 same one that just completed the BHIe transfer. No new MMIO lifetime is
-introduced.
+introduced. `mhi_sync_power_up` is already sleeping in
+`wait_event_timeout(state_event, ...)`; writing the cached EE without a wake
+would still end in the 20 s timeout, so the `wake_up_all` is part of the same
+single-variable fix.
 
 ## 3. Candidate identity
 

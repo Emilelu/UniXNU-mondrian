@@ -357,7 +357,7 @@ evidence = [
   "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
   "patches/audio/0003-k60-audio-afe-selftest.patch",
 ]
-criteria = "PongAudioRing.h carries the SPSC queue (pong_ring_queue_init/used/space/write/read); ring_queue_cases() adds 27 assertions for initialization, used/space accounting, full-ring refusal, wrap writes, whole-frame copies and capacity bounds. pong_audio_submit() rejects null/zero frames with PongAudioErrBadRequest, refuses before the six-step path is ready with last_error or PongAudioErrApmNotReady, rejects a short ring with PongAudioErrRingFull while counting ring_dropped, and otherwise queues whole frames; pong_audio_ring_read() drains them. Host runner: TESTS OK 947 cases (965 with the real ACF)."
+criteria = "PongAudioRing.h carries the SPSC queue (pong_ring_queue_init/used/space/write/read); ring_queue_cases() adds 27 assertions for initialization, used/space accounting, full-ring refusal, wrap writes, whole-frame copies and capacity bounds. pong_audio_submit() rejects null/zero frames with PongAudioErrBadRequest, refuses before the six-step path is ready with last_error or PongAudioErrApmNotReady, rejects a short ring with PongAudioErrRingFull while counting ring_dropped, and otherwise queues whole frames; pong_audio_ring_read() drains them. Host runner: TESTS OK 956 cases (974 with the real ACF)."
 status = "closed"
 owner = "audio-agent"
 on_open = "without the submit queue the AFE can be ready while the service has nowhere to put a PCM frame"
@@ -438,6 +438,21 @@ criteria = "PongAudioPlayback.h fixes the 11-step order (open/config speaker, op
 status = "closed"
 owner = "audio-agent"
 on_open = "the six-step path can be ready while the speaker never receives a playback period"
+
+[[item]]
+id = "pcm-dma-feed"
+stage = "M5"
+change = "each PCM period is copied into its low-DMA slot before the AR write and a stale slot is timed out and refilled"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioPlayback.h",
+  "V: kernel.macho: PongAudio: PCM slot %u write timed out",
+]
+criteria = "pong_audio_play_submit_slot() memcpy()s each 8192-byte period from state->period to dma_va + slot*PONG_PLAY_PERIOD_BYTES before pong_ar_write(), and refuses when dma_va is zero. pong_audio_play_reap_slots() ages busy slots once per pump and releases a slot after PONG_PLAY_SLOT_TIMEOUT_PUMPS (8) without WRITE_DONE, printing PongAudio: PCM slot %u write timed out. Image n kernel_built sha256 is 098a1c96a810bb49064eed42fc678d37c1a2390dbf4be1c970503fb9ea6fc4c0 (105,545,728 B), payload_kernel 68d01e98ff90c0f71473e92e9da45706c1a840ce306344c0303fa43b721cc47e, and kernel.macho contains the timeout string once plus all eight playback strings."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the copy the DSP reads stale or silent slots even when every AR write succeeds"
 
 [[item]]
 id = "pcm-submit-path"

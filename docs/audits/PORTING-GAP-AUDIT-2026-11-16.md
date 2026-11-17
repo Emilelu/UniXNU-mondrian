@@ -76,7 +76,7 @@
 | `docs/engineering/K60-TOUCH-CHECKLIST.md:8-10` | 标题“当前状态（每轮更新）”，表内 2026-11-10 的 FAIL/阻塞易被读成当前触摸状态 | 2026-11-17 改标题为历史排障快照并加状态说明，指向 `STATUS.md` 触摸专节与 `porting.toml` input 段（2026-11-14 单指已上机） | 【已修】 |
 | `docs/engineering/HARD-RULES.md:2194-2205` | 「各硬件当前状态总览（每轮更新）」仍写触摸清单第 2 条 FAIL、WiFi/GPU/音频/基带/USB/蓝牙/电池全未开始 | 2026-11-17 复核：该表是 2026-11-10 旧状态；已改为历史快照并指向 `STATUS.md` 硬件状态明细与 `porting.toml` | 【已修】 |
 | `docs/engineering/PITFALL-TO-RULE-INDEX.md:1-5` | 标题称“99 条 PITFALLS 已全部归类”，但生成于 2026-11-11，当前台账已到 P-231，新增条目未必在本表 | 2026-11-17 改为“2026-11-11 快照”，加状态注指向 `PITFALLS.md`/`RULES.toml` | 【已修】 |
-| `docs/engineering/HARD-RULES.md:8-25` | 开头必读区仍称 PITFALLS「88 条」、反查表「99 条坑」、总量「99 条 PITFALLS」 | 2026-11-17 改为 P-01–P-231、2026-11-11 快照与不提旧总数；当前台账最大 P-231 | 【已修】 |
+| `docs/engineering/HARD-RULES.md:8-25` | 开头必读区仍称 PITFALLS「88 条」、反查表「99 条坑」、总量「99 条 PITFALLS」，第一章引言还称「这 25 条」 | 2026-11-17 改为 P-01–P-231、2026-11-11 快照与不提旧总数；当前台账最大 P-231；第一章改为「这些铁则」 | 【已修】 |
 
 **已正确、不要"修"的**：`README.md:135-136` 的 ★1–★37 / P-01–P-231 是对的；`check-readme.py` 正是为
 这两行写的（P-205 的教训：README 曾写 ★35/P-130 而实际 ★37/P-204）。**它只校验 README 与 README_EN**，

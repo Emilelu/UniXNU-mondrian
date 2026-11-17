@@ -10,15 +10,17 @@
 
 驱动已经具备：单请求状态机、协议五要素校验、有效/缺失/失败三态、原始值到 OS 值的显式换算、
 IOPMPowerSource 子类、工作循环、三个定时器、首帧后才注册、适配器字典、断链置 stale。
-2026-11-18 已重建带本轮改动的 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118c/boot.img`
-（sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`，payload
-`f871beb7249c6580c6247060fbd521c8cb0ce326a0407342e877d454352ebe16`，kernel
-`c2ab6575dbeb626541e2d393b4706add318e23b41f92794d0bd24f852af7ee46`），并于 2026-11-18 01:21
-上机启动：`console.log` 233,732 B，C1 PASS（`:429`、`:530`），C2 PASS（14 次刷新命中），
-首帧 `:530` 发布 SOC=91.00%、4292mV、397mA、35.30°C；`:530`–`:3470` 连续 14 条完整
-`physical source …` 样本证明持久刷新。缺失电池首帧也会发布 `K60BatteryFailedFields`/`K60Raw*` 并注册服务（commit `592523aa`，在 image c 之后，尚未进入镜像）。C3 仍需匹配热/电状态的 Android 同窗口基线：用 route-c
-冷战基线（28.3°C）判 FAIL，只差温度 +7°C；用 01:28 暖基线判 FAIL，差电压/电流。真机插拔/充放电
-脚本化验证仍待完成；服务重启生命周期复位已补（`6750c7bd`），IOKit 级验证仍待完成。
+2026-11-18 02:42 已构建最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118d/boot.img`
+（sha256 `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`，payload
+`0f23f3675efe1df8c45a66833272f88d901bb747c5405e862c0505fe96924749`，kernel
+`7cafead24179a329178ff65e11ea6dfa18ffdab0ecd1e7081946c5eddbab7742`），包含 `592523aa`
+（缺失电池首帧）与 `6750c7bd`（服务重启生命周期复位），尚未上机。
+2026-11-18 01:21 的上一版 image c 已上机：`console.log` 233,732 B，C1 PASS（`:429`、`:530`），
+C2 PASS（14 次刷新命中），首帧 `:530` 发布 SOC=91.00%、4292mV、397mA、35.30°C；`:530`–`:3470`
+连续 14 条完整 `physical source …` 样本证明持久刷新。C3 仍需匹配热/电状态的 Android 同窗口基线：
+用 route-c 冷战基线（28.3°C）判 FAIL，只差温度 +7°C；用 01:28 暖基线判 FAIL，差电压/电流。
+真机插拔/充放电脚本化验证仍待完成；服务重启生命周期复位已补（`6750c7bd`，image d 包含），
+IOKit 级验证仍待完成。
 
 ## 1. §4 开头：参考实现的选择（官网 :69-74）
 
@@ -203,10 +205,10 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；host 测试 71 项覆盖应答/拒绝/超时 |
 | OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；字段值与原始值换算一致（见 §7.3、§7.4） |
 | 响应超时 | host 已验证 | `test-k60-charger-subscription.c` 第 13 节：timeout 只标记未完成字段，poisoned epoch 生效；真机未制造超时 |
-| 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:155-183`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，IOKit 级 absent 注册未上真机 |
+| 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:155-183`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，最终 image d 已包含该修复，IOKit 级 absent 注册未上真机 |
 | 插拔电源 | 未验证 | 需要人工插拔并在同一次 usblog 里看 `external`/`charging`/`usb_online` 的变化；本轮未做 |
 | 充放电 | 未验证 | Android 侧 sample 为充电中（status=2、current=0），XNU 侧 status=1；放电段未采样 |
-| 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:420-428` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`），IOKit 级 stop/start 未在真机执行 |
+| 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:420-428` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image d），IOKit 级 stop/start 未在真机执行 |
 | 与 OEM/目标电量计逐项对照 | 部分/当前 FAIL | image c C1/C2 PASS；C3 用冷战基线只差温度 +7°C，用暖基线差电压/电流，尚未得到匹配热/电状态的 ≥3 对真实 Android 样本 |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
@@ -260,6 +262,22 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   `E:/k60-work/scratch/judge-conformance-0128b.txt`。结论：XNU 侧已有 14 条完整样本，C3
   缺的是同窗口、同温度/电压/电流量级的真实 Android 基线，而不是 XNU 样本数量。
 
+### 7.5 最终 image d 构建（2026-11-18 02:42，未上机）
+
+- `E:/k60-work/artifacts/power-conformance-20261118d/boot.img` 201,887,744 B，sha256
+  `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`；payload
+  `0f23f3675efe1df8c45a66833272f88d901bb747c5405e862c0505fe96924749`（201,326,592 B）；
+  kernel `7cafead24179a329178ff65e11ea6dfa18ffdab0ecd1e7081946c5eddbab7742`（129,077,248 B）。
+- 由 `fix/power-doc-conformance` `8e6031eb` 构建，battery archive
+  `b5e35df60af92401dc60bb891a85c82081e5e38949655d8889b000aa45800748`；
+  `check-image-args.py` = `image-arg-audit: OK (30 arguments, 598 bytes)`，payload 内核参数含
+  `pong_handoff_publish=1`；`verify-boot-img-payload.py` OK（payload sha `0f23...`，
+  payload kernel probe-patched，payload.json kernel `7caf...`）。
+- `strings` 验证内核含 `K60BatteryFailedFields`、`K60RawStatus`、`K60RawVoltageMicrovolts`、
+  `K60RawCurrentMicroamps`、`K60RawUsbAdapter`、`registerService left the source inactive`、
+  `physical source refreshed`。
+- 该镜像尚未上机；C3、插拔、放电与服务重启仍未获得新证据。
+
 ## 8. Host 测试覆盖
 
 `scripts/tests/test-k60-charger-subscription.c` 当前 71 项断言，覆盖：
@@ -272,7 +290,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 - 本驱动只发布测量值，不写充电器、不改电流限制、不做 PD/PPS 认证；固件继续拥有充电控制
   （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
-  1. 带本轮 conformance 改动的 battery-only 镜像已构建（`E:/k60-work/artifacts/power-conformance-20261118c/boot.img`，sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`）并于 2026-11-18 01:21 上机；§7.4 是 image c 实测，§7.3 是改动前的 route-c 对照。image c 构建于 `592523aa` 和 `6750c7bd` 之前，未包含缺失电池首帧修复与服务重启生命周期复位；后续镜像需重建。
+  1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118d/boot.img`（sha256 `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`）已于 2026-11-18 02:42 构建，包含 `592523aa`/`6750c7bd`，尚未上机。§7.4 是上一版 image c 的实测（image c 构建于这两个提交之前），§7.3 是改动前 route-c 对照；image d 上机后需补同格式实测。
   2. 真机插拔、放电未执行；服务重启的代码路径已补（`6750c7bd`），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同窗口样本；image c 已有 14 条完整 XNU sample，缺的是同窗口、同温度/电压/电流量级的真实 Android 基线。
   4. `K60Raw*` 属性已发布但尚未被 `K60BatterySmoke` 读取验证（可扩展该工具）；缺失电池首帧注册也尚未在真机验证。

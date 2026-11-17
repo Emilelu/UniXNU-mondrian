@@ -3,6 +3,8 @@
 > 依据：`docs/devices/marble-milacy.md`、`docs/devices/fuxi-oddlylabs.md`、`docs/devices/j716f.md`、`docs/devices/evb10.md`、`docs/plans/K60-TOUCH-PARAMS.md`，以及 `patches/xnu/zzzz…-pong-touch-console.patch`。
 > 结论先行：硬件上最接近 K60 的官方页是 **marble-milacy 的 Goodix GT9916S**（SPI `0x990000`、CS0、15 MHz、IRQ GPIO21、RESET GPIO20、GCC `0x100000`、GPI `0x900000`）；但 marble 页与 fuxi 页都没有可用的 Goodix 驱动源码。可执行路线只能是：**marble 的板级事实 + pong 的 Berlin-D 协议核心 + fuxi 的分阶段 GENI/HID 工程骨架 + K60 自己的无 RSC 上电策略**。
 
+> **2026-11-17 状态注**：本文是 2026-11-07 的初始移植方案，§3.1 的“三个缺口”已被后续实现关闭。当前状态以 [`docs/engineering/STATUS.md`](../engineering/STATUS.md) 的触摸段与 `porting.toml` 的 input 段为准：2026-11-14 已上机验证单指触摸，多点、边缘手势与 `tap-to-wake` 仍待验收。
+
 ## 1. 证据索引：官方页里到底有什么、能直接拿什么
 
 ### 1.1 总表
@@ -106,19 +108,17 @@
 
 ## 3. 目标实现：把 pong 的协议核装进 K60 的板级层
 
-### 3.1 现状与缺口
+### 3.1 现状与缺口（2026-11-17 复核）
 
-当前 `UniXNU-mondrian` 已经把三个 pong 触摸补丁放进 `patches/xnu/series:194-196`：
+写本文时 `UniXNU-mondrian` 把三个 pong 触摸补丁放在 `patches/xnu/series:194-196`。2026-11-17 复核：当前 `patches/xnu/series` 只启用 `:198` 的 `zzzz…-pong-touch-console.patch` 与 `:199` 的 `zzzz…-pong-physical-keys.patch`；`pong-goodix-resume` 等补丁文件仍在目录中但未进 series。触摸不再是 `planned`：`porting.toml` 的 input 段记录了 2026-11-14 单指上机验证（8 个 `goodix: type=1` 样本到 `Pong touch HID: type=1|3`），多点、边缘手势和 `tap-to-wake` 仍待验收。
 
-- `zzzz…-pong-touch-console.patch`
-- `zzzz…-pong-goodix-resume.patch`
-- `zzzz…-pong-physical-keys.patch`
+原文列出的三个缺口都已关闭：
 
-但触摸仍然是 `planned`，原因是三个具体缺口：
+1. ~~`scripts/make-pong-adt.py:207-217` 仍发射 1080/2412~~ —— `scripts/make-pong-adt.py:214` 现在发射 `max-x=14400`、`max-y=32000`（`d0956cd9`、`708f4d25`），与当前补丁第 85 行断言一致。
+2. ~~`board.toml:125` 没有 `pong_touch=1`，驱动直接返回~~ —— 当前补丁 `pong_goodix_init()` 的默认值是 `enabled=1`、`stage=6`，不传参数也会进入；`board.toml:191-193` 记录了当前故意不带 `k60_touch_se` 的原因（19 会被拒绝，stage 6 在 QUP4 GPIO SPI pin roles 就绪前到不了面板）。
+3. ~~`io_supply_on()` 用 Pong 的 ldoc3/ldoc12，`touch_thread` 无条件 map RSC~~ —— 当前补丁的 `io_supply_on()` 已改为 AVDD GPIO71 + `pong_touch_iovdd_enable()` 的 IOVDD RPMh 请求，失败时保持 RESET；不再直接读 RSC。
 
-1. `scripts/make-pong-adt.py:207-217` 仍发射 Pong 的 `max-x=1080 / max-y=2412`；本地 `pong-touch-console.patch:65` 断言的是 `max_x==14400 && max_y==32000`。两者不一致，`configuration()` 会返回 false，日志是 `Pong touch: missing/incompatible Pong DT; SKIP`。**这是第一个必须修的 bug。**
-2. `board.toml:125` 的 `kernel_args` 没有 `pong_touch=1`（也没有 `touch_flip`）；驱动虽然编译进内核，但 `pong_goodix_init()` 一开始就 `PE_parse_boot_argn("pong_touch", ...)`，没有参数直接返回。
-3. `pong_goodix.c` 的 board/power 层是 Pong 的：`io_supply_on()` 用 `ldoc3/ldoc12`；`touch_thread` 无条件 `ml_io_map(RSC_PHYS, RSC_SIZE)`；`goodix` 只走 FIFO，没有 firmware blob。K60 必须替换这些，而不是启用原样。
+剩余工作见 `porting.toml` 的 `limits`/`next_action`：多点、边缘手势、移动帧率、息屏 `tap-to-wake`，以及 `0x10308` 头长度推断。
 
 ### 3.2 推荐文件布局
 

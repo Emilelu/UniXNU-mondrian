@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <syslog.h>
+#include <sys/sysctl.h>
 #include <unistd.h>
 
 #include "PongAudioServiceAbi.h"
@@ -966,6 +967,90 @@ static OSStatus DoIOOperation(AudioServerPlugInDriverRef d, AudioObjectID o,
     return 0;
 }
 
+/* A boot-arg driven playback trial for boards whose userspace never opens a
+ * CoreAudio stream. It drives the same HAL entry points as AudioServerPlugIn,
+ * so the kernel service timer, the low-DMA lease and the host-clock handshake
+ * are all exercised without a GUI player. */
+static int selftestEnabled(void) {
+    char args[1024];
+    size_t size = sizeof(args);
+    if (sysctlbyname("kern.bootargs", args, &size, NULL, 0) != 0) {
+        return 0;
+    }
+    args[sizeof(args) - 1] = '\0';
+    return strstr(args, "pong_audio_hal_selftest=1") != NULL;
+}
+
+static void *runPlaybackSelftest(void *unused) {
+    (void)unused;
+    syslog(LOG_NOTICE, "PongAudio HAL: selftest requested");
+    int connected = 0;
+    for (unsigned i = 0; i < 120 && !connected; i++) {
+        pthread_mutex_lock(&gLock);
+        connected = connectService() == 0;
+        pthread_mutex_unlock(&gLock);
+        if (!connected) {
+            usleep(250000);
+        }
+    }
+    if (!connected || !ready()) {
+        syslog(LOG_ERR, "PongAudio HAL: selftest service not ready");
+        return NULL;
+    }
+    OSStatus result = StartIO(NULL, kDevice, 0);
+    if (result != 0) {
+        syslog(LOG_ERR, "PongAudio HAL: selftest StartIO result=%d", (int)result);
+        return NULL;
+    }
+    Float32 buffer[PONG_AUDIO_SERVICE_PERIOD_FRAMES * PONG_AUDIO_SERVICE_CHANNELS];
+    const double step = 6.283185307179586 * 440.0 / (double)PONG_AUDIO_SERVICE_RATE;
+    double phase = 0.0;
+    for (unsigned period = 0; period < 200; period++) {
+        for (uint32_t i = 0; i < PONG_AUDIO_SERVICE_PERIOD_FRAMES; i++) {
+            const Float32 sample = (Float32)(0.05 * sin(phase));
+            phase += step;
+            buffer[2 * i] = sample;
+            buffer[2 * i + 1] = sample;
+        }
+        (void)DoIOOperation(NULL, kDevice, kOutStream, 0,
+            kAudioServerPlugInIOOperationWriteMix,
+            PONG_AUDIO_SERVICE_PERIOD_FRAMES, NULL, buffer, NULL);
+        usleep(period < 24 ? 2000 : 20000);
+        if (!(period % 40)) {
+            PongAudioServiceControl *control = atomic_load(&gControl);
+            syslog(LOG_NOTICE,
+                "PongAudio HAL: selftest period=%u frames=%llu read=%llu late=%u state=0x%x",
+                period, control ? (unsigned long long)control->out_frames : 0ULL,
+                control ? (unsigned long long)control->out_read : 0ULL,
+                control ? control->out_late : 0,
+                control ? control->state : 0);
+        }
+    }
+    usleep(2000000);
+    PongAudioServiceControl *control = atomic_load(&gControl);
+    syslog(LOG_NOTICE,
+        "PongAudio HAL: selftest complete frames=%llu read=%llu late=%u state=0x%x",
+        control ? (unsigned long long)control->out_frames : 0ULL,
+        control ? (unsigned long long)control->out_read : 0ULL,
+        control ? control->out_late : 0,
+        control ? control->state : 0);
+    (void)StopIO(NULL, kDevice, 0);
+    return NULL;
+}
+
+static void startPlaybackSelftest(void) {
+    if (!selftestEnabled()) {
+        return;
+    }
+    pthread_t thread;
+    int error = pthread_create(&thread, NULL, runPlaybackSelftest, NULL);
+    if (error == 0) {
+        pthread_detach(thread);
+    } else {
+        syslog(LOG_ERR, "PongAudio HAL: selftest thread error=%d", error);
+    }
+}
+
 static OSStatus EndIOOperation(AudioServerPlugInDriverRef d, AudioObjectID o,
     UInt32 client, UInt32 op, UInt32 frames,
     const AudioServerPlugInIOCycleInfo *info) {
@@ -1018,6 +1103,7 @@ void *PongAudio_Create(CFAllocatorRef allocator, CFUUIDRef type) {
     pthread_mutex_lock(&gLock);
     (void)connectService();
     pthread_mutex_unlock(&gLock);
+    startPlaybackSelftest();
     syslog(LOG_NOTICE, "PongAudio HAL: AudioServerPlugIn factory accepted");
     return &gInterfacePtr;
 }

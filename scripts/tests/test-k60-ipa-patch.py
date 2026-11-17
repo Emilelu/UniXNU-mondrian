@@ -40,6 +40,7 @@ def kernel_copy(name: str) -> str:
                            ("K60Mdt.h", "pong_mdt.h"),
                            ("K60ModemPas.h", "pong_modem_pas.h"),
                            ("K60PmicRail.h", "pong_pmic_rail.h"),
+                           ("K60Smem.h", "pong_smem.h"),
                            ("K60Fat.h", "pong_fat.h"),
                            ("K60IpaGsi.h", "pong_ipa_gsi.h"),
                            ("K60IpaSmmu.h", "pong_ipa_smmu.h")):

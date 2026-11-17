@@ -36,6 +36,7 @@ def kernel_copy(name: str) -> str:
                            ("K60Mdt.h", "pong_mdt.h"),
                            ("K60ModemPas.h", "pong_modem_pas.h"),
                            ("K60PmicRail.h", "pong_pmic_rail.h"),
+                           ("K60Smem.h", "pong_smem.h"),
                            ("K60Fat.h", "pong_fat.h"),
                            ("K60IpaGsi.h", "pong_ipa_gsi.h"),
                            ("K60IpaSmmu.h", "pong_ipa_smmu.h")):
@@ -57,6 +58,7 @@ def main() -> int:
     assert '#include "pong_mdt.h"' in mdt_source
     assert '#include "pong_fat.h"' in source
     assert '#include "pong_pmic_rail.h"' in source
+    assert '#include "pong_smem.h"' in source
 
     body = (newfile("bsd/dev/pong_ipa.h", header)
             + newfile("bsd/dev/pong_ipa.c", source)

@@ -2,7 +2,7 @@ diff --git a/bsd/dev/pong_ipa.h b/bsd/dev/pong_ipa.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.h
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,155 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path: constants, firmware validation and M1 staging.
 + *
@@ -59,6 +59,18 @@ new file mode 100644
 +#define K60_GSI_COMMAND_CHANNEL       12u
 +#define K60_GSI_EVENT0                0u
 +
++/* M2 runtime: Pong IPA5.1 command-DMA context (PongModemIpaDma.h). The
++ * stream is SID 0x5c0 in the apps SMMU, the ring lives at IOVA 0x20000000,
++ * and the shared filter/route region is SMEM item 497 (0x9000 bytes). */
++#define K60_IPA_RUNTIME_SID           0x000005c0u
++#define K60_IPA_RUNTIME_IOVA          0x20000000u
++#define K60_IPA_SMMU_BASE             0x15000000u
++#define K60_IPA_SMMU_BYTES            0x00100000u
++#define K60_IPA_SMEM_BASE             0x80900000u
++#define K60_IPA_SMEM_BYTES            0x00200000u
++#define K60_IPA_SMEM_ITEM             497u
++#define K60_IPA_SMEM_MIN_BYTES        0x00009000u
++
 +enum {
 +    K60IpaOk = 0,
 +    K60IpaNotReady = -1,
@@ -70,6 +82,8 @@ new file mode 100644
 +    K60IpaPasDenied = -7,
 +    K60IpaClockFailed = -8,
 +    K60IpaGsiBusy = -9,
++    K60IpaSmmuFailed = -20,
++    K60IpaRuntimeFailed = -21,
 +};
 +
 +typedef struct {
@@ -148,7 +162,7 @@ diff --git a/bsd/dev/pong_ipa.c b/bsd/dev/pong_ipa.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.c
-@@ -0,0 +1,826 @@
+@@ -0,0 +1,1324 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path M0 skeleton plus M1 firmware staging.
 + *
@@ -162,6 +176,8 @@ new file mode 100644
 + */
 +
 +#include "pong_ipa.h"
++#include "pong_ipa_gsi.h"
++#include "pong_ipa_smmu.h"
 +#include "pong_modem_pas.h"
 +
 +#ifdef K60_HOST_TEST
@@ -170,14 +186,23 @@ new file mode 100644
 +#else
 +#include <pexpert/pexpert.h>
 +#include <sys/systm.h>
++#include <kern/clock.h>
++#include <mach/vm_param.h>
++#include <mach/vm_statistics.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++#include <arm/caches_internal.h>
 +#include "pong_fat.h" /* the kernel copy is pong_fat.h; the host build skips it */
 +#include "pong_pmic_rail.h" /* the kernel copy is pong_pmic_rail.h */
++#include "pong_smem.h" /* the kernel copy is pong_smem.h */
 +
 +/* osfmk/arm/machine_routines.h:703; declared here keeps the include path out
 + * of the leaky kernel header set (same choice as K60ModemBoot.c). */
 +extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size,
 +    uint32_t flags);
 +extern void delay(int microseconds);
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
++extern void flush_dcache64(addr64_t pa, unsigned length, boolean_t sync);
 +#endif
 +
 +static int
@@ -782,6 +807,487 @@ new file mode 100644
 +    return -1;
 +}
 +
++/* ------------------------------------------------------------------ *
++ * M2 runtime: the Pong IPA5.1 command-DMA owner.
++ *
++ * The structures below mirror drivers/PongAdreno/ArmSmmu4K/ArmSmmu4K.h,
++ * ArmSmmu4KContext.h and ArmSmmu4KProgram.h.  bsd/dev does not see the
++ * osfmk driver include roots, so the ABI is declared locally.
++ * ------------------------------------------------------------------ */
++typedef struct {
++    unsigned input_bits;
++    unsigned output_bits;
++    uint64_t table_physical;
++    size_t leaf_budget;
++} K60IpaArmSmmuConfig;
++
++typedef struct {
++    uint64_t iova, physical, bytes;
++    unsigned permissions;
++    unsigned writeback;
++    unsigned shareability;
++} K60IpaArmSmmuRange;
++
++typedef struct {
++    uint64_t root_physical;
++    uint64_t mair;
++    size_t table_pages, leaf_pages;
++    unsigned start_level;
++    unsigned upper_region;
++} K60IpaArmSmmuResult;
++
++typedef struct {
++    const K60IpaArmSmmuConfig *lower, *upper;
++    const K60IpaArmSmmuResult *lower_tables, *upper_tables;
++    uint32_t id0, id2;
++    unsigned asid;
++    unsigned coherent_walk;
++    unsigned stall_on_fault, continue_after_fault;
++    unsigned polled_faults;
++    unsigned ignore_top_byte;
++    unsigned shared_asid;
++} K60IpaArmSmmuContext;
++
++typedef struct {
++    uint32_t cbar, cba2r, tcr, tcr2, mair0, mair1, sctlr, reserved_zero;
++    uint64_t ttbr0, ttbr1;
++} K60IpaArmSmmuImage;
++
++typedef struct {
++    void *cookie;
++    size_t register_bytes;
++    int (*read32)(void *, size_t, uint32_t *);
++    int (*read64)(void *, size_t, uint64_t *);
++    int (*write32)(void *, size_t, uint32_t);
++    int (*write64)(void *, size_t, uint64_t);
++    int (*barrier)(void *);
++    unsigned polled_faults;
++} K60IpaArmSmmuIo;
++
++typedef struct {
++    uint64_t context_offset;
++    uint32_t id0, id1, id2, phase, writes, poll_reads, fault_status;
++    uint32_t readback_valid, enabled, disabled_verified, tlb_synchronized;
++    uint32_t must_retain_tables;
++    K60IpaArmSmmuImage readback;
++} K60IpaArmSmmuProgramResult;
++
++extern int ArmSmmu4KBuild(const K60IpaArmSmmuConfig *, const K60IpaArmSmmuRange *,
++    size_t, uint64_t *, size_t, K60IpaArmSmmuResult *);
++extern int ArmSmmu4KProgramDisabledContext(const K60IpaArmSmmuIo *, unsigned,
++    const K60IpaArmSmmuContext *, unsigned, K60IpaArmSmmuProgramResult *);
++
++typedef struct {
++    volatile uint8_t *smmu;
++} K60IpaSmmuView;
++
++typedef struct {
++    volatile uint8_t *gsi;
++    volatile uint8_t *ipa;
++    uint8_t *ring;
++    uint64_t ring_pa;
++    uint8_t *tables;
++    uint64_t tables_pa;
++    K60IpaGsi state;
++} K60IpaRuntime;
++
++static K60IpaRuntime k60_ipa_runtime;
++
++static uint32_t
++k60_ipa_rt_read_gsi(void *cookie, uint32_t offset)
++{
++    K60IpaRuntime *rt = cookie;
++
++    return *(volatile uint32_t *)(rt->gsi + offset);
++}
++
++static void
++k60_ipa_rt_write_gsi(void *cookie, uint32_t offset, uint32_t value)
++{
++    K60IpaRuntime *rt = cookie;
++
++    *(volatile uint32_t *)(rt->gsi + offset) = value;
++    __asm__ volatile("dsb sy" ::: "memory");
++}
++
++static uint32_t
++k60_ipa_rt_read_ipa(void *cookie, uint32_t offset)
++{
++    K60IpaRuntime *rt = cookie;
++
++    return *(volatile uint32_t *)(rt->ipa + offset);
++}
++
++static void
++k60_ipa_rt_write_ipa(void *cookie, uint32_t offset, uint32_t value)
++{
++    K60IpaRuntime *rt = cookie;
++
++    *(volatile uint32_t *)(rt->ipa + offset) = value;
++    __asm__ volatile("dsb sy" ::: "memory");
++}
++
++static void
++k60_ipa_rt_delay_us(void *cookie, uint32_t microseconds)
++{
++    (void)cookie;
++    delay((int)microseconds);
++}
++
++static uint64_t
++k60_ipa_rt_now_ms(void *cookie)
++{
++    clock_sec_t secs = 0;
++    clock_nsec_t nsecs = 0;
++
++    (void)cookie;
++    clock_get_system_nanotime(&secs, &nsecs);
++    return (uint64_t)secs * 1000u + (uint64_t)nsecs / 1000000u;
++}
++
++static void
++k60_ipa_rt_sync(void *cookie, const void *address, size_t bytes, int direction)
++{
++    K60IpaRuntime *rt = cookie;
++    uintptr_t value = (uintptr_t)address;
++    uintptr_t ring = (uintptr_t)rt->ring;
++    uintptr_t tables = (uintptr_t)rt->tables;
++    uint64_t physical = 0;
++
++    (void)direction;
++    if (value >= ring && value < ring + K60_IPA_GSI_RING_BYTES) {
++        physical = rt->ring_pa + (value - ring);
++    } else if (value >= tables && value < tables + K60_IPA_GSI_TABLE_BYTES) {
++        physical = rt->tables_pa + (value - tables);
++    }
++    if (physical != 0) {
++        flush_dcache64((addr64_t)physical, (unsigned)bytes, TRUE);
++    }
++}
++
++static uint32_t
++k60_ipa_smmu_read(void *context, unsigned offset)
++{
++    K60IpaSmmuView *view = context;
++
++    return *(volatile uint32_t *)(view->smmu + offset);
++}
++
++static int
++k60_ipa_smmu_read32(void *cookie, size_t offset, uint32_t *value)
++{
++    K60IpaSmmuView *view = cookie;
++
++    *value = *(volatile uint32_t *)(view->smmu + offset);
++    return 0;
++}
++
++static int
++k60_ipa_smmu_read64(void *cookie, size_t offset, uint64_t *value)
++{
++    K60IpaSmmuView *view = cookie;
++
++    *value = *(volatile uint64_t *)(view->smmu + offset);
++    return 0;
++}
++
++static int
++k60_ipa_smmu_write32(void *cookie, size_t offset, uint32_t value)
++{
++    K60IpaSmmuView *view = cookie;
++
++    *(volatile uint32_t *)(view->smmu + offset) = value;
++    __asm__ volatile("dsb sy" ::: "memory");
++    return 0;
++}
++
++static int
++k60_ipa_smmu_write64(void *cookie, size_t offset, uint64_t value)
++{
++    K60IpaSmmuView *view = cookie;
++
++    *(volatile uint64_t *)(view->smmu + offset) = value;
++    __asm__ volatile("dsb sy" ::: "memory");
++    return 0;
++}
++
++static int
++k60_ipa_smmu_barrier(void *cookie)
++{
++    (void)cookie;
++    __asm__ volatile("dsb sy" ::: "memory");
++    return 0;
++}
++
++static int
++k60_ipa_runtime_alloc(uint8_t **va, uint64_t *pa, vm_size_t bytes,
++    vm_offset_t mask)
++{
++    vm_offset_t address = 0;
++    ppnum_t page;
++
++    if (kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0,
++        KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) !=
++        KERN_SUCCESS) {
++        return K60IpaRuntimeFailed;
++    }
++    page = pmap_find_phys(kernel_pmap, (addr64_t)address);
++    if (page == 0 || ptoa_64(page) + bytes > (1ull << 36)) {
++        return K60IpaRuntimeFailed;
++    }
++    *va = (uint8_t *)address;
++    *pa = ptoa_64(page);
++    return K60IpaOk;
++}
++
++
++static int
++k60_ipa_runtime_smmu(K60IpaRuntime *rt)
++{
++    K60IpaSmmuView view;
++    K60IpaSmmuPlan plan;
++    K60IpaArmSmmuConfig config;
++    K60IpaArmSmmuRange ranges[3];
++    K60IpaArmSmmuResult built;
++    K60IpaArmSmmuContext context;
++    K60IpaArmSmmuIo io;
++    K60IpaArmSmmuProgramResult programmed;
++    K60Smem smem;
++    K60SmemPartition partition;
++    volatile uint8_t *smmu;
++    volatile uint8_t *smem_window;
++    uint64_t smem_address, smem_start, smem_size;
++    uint32_t smem_offset = 0, smem_length = 0;
++    int rc, status;
++
++    smmu = (volatile uint8_t *)(uintptr_t)ml_io_map_unmappable(
++        (vm_offset_t)K60_IPA_SMMU_BASE, (vm_size_t)K60_IPA_SMMU_BYTES, 0x7);
++    if (smmu == 0) {
++        printf("K60IPA M2 SMMU map failed\n");
++        return K60IpaMapFailed;
++    }
++    view.smmu = smmu;
++    rc = k60_ipa_smmu_plan(&plan, K60_IPA_RUNTIME_SID,
++        K60_IPA_RUNTIME_IOVA, K60_IPA_GSI_RING_BYTES,
++        k60_ipa_smmu_read, &view, 78u, 120u);
++    if (rc != K60IpaSmmuOk) {
++        printf("K60IPA M2 SMMU plan failed: %s\n",
++            plan.error ? plan.error : "unknown");
++        return K60IpaSmmuFailed;
++    }
++
++    smem_window = (volatile uint8_t *)(uintptr_t)ml_io_map_unmappable(
++        (vm_offset_t)K60_IPA_SMEM_BASE, (vm_size_t)K60_IPA_SMEM_BYTES, 0x7);
++    if (smem_window == 0) {
++        printf("K60IPA M2 SMEM map failed\n");
++        return K60IpaMapFailed;
++    }
++    smem.base = smem_window;
++    smem.size = K60_IPA_SMEM_BYTES;
++    rc = k60_smem_partition(&smem, 0, 1, &partition);
++    if (rc != K60SmemOk ||
++        k60_smem_find(&smem, &partition, K60_IPA_SMEM_ITEM, &smem_offset,
++        &smem_length) != K60SmemOk ||
++        smem_length < K60_IPA_SMEM_MIN_BYTES ||
++        smem_offset > K60_IPA_SMEM_BYTES - K60_IPA_SMEM_MIN_BYTES) {
++        printf("K60IPA M2 SMEM item 497 missing rc=%d offset=%u length=%u\n",
++            rc, smem_offset, smem_length);
++        return K60IpaSmmuFailed;
++    }
++    smem_address = K60_IPA_SMEM_BASE + smem_offset;
++    smem_start = smem_address & ~0xfffull;
++    smem_size = ((smem_address + K60_IPA_SMEM_MIN_BYTES + 0xfffull) &
++        ~0xfffull) - smem_start;
++
++    config.input_bits = 32u;
++    config.output_bits = 36u;
++    config.table_physical = rt->tables_pa;
++    config.leaf_budget = (size_t)((K60_IPA_GSI_RING_BYTES + 0x2000u +
++        smem_size) / 4096u);
++    ranges[0].iova = 0x146a8000u;
++    ranges[0].physical = 0x146a8000u;
++    ranges[0].bytes = 0x2000u;
++    ranges[0].permissions = 3u;
++    ranges[0].writeback = 2u;
++    ranges[0].shareability = 2u;
++    ranges[1].iova = K60_IPA_RUNTIME_IOVA;
++    ranges[1].physical = rt->ring_pa;
++    ranges[1].bytes = K60_IPA_GSI_RING_BYTES;
++    ranges[1].permissions = 3u;
++    ranges[1].writeback = 1u;
++    ranges[1].shareability = 3u;
++    ranges[2].iova = smem_start;
++    ranges[2].physical = smem_start;
++    ranges[2].bytes = smem_size;
++    ranges[2].permissions = 3u;
++    ranges[2].writeback = 0u;
++    ranges[2].shareability = 2u;
++    status = ArmSmmu4KBuild(&config, ranges, 3u,
++        (uint64_t *)(uintptr_t)rt->tables, K60_IPA_GSI_TABLE_BYTES / 4096u,
++        &built);
++    if (status != 0) {
++        printf("K60IPA M2 SMMU table build failed status=%d\n", status);
++        return K60IpaSmmuFailed;
++    }
++    flush_dcache64((addr64_t)rt->tables_pa,
++        (unsigned)(built.table_pages * 4096u), TRUE);
++
++    memset(&context, 0, sizeof(context));
++    context.lower = &config;
++    context.lower_tables = &built;
++    context.id0 = *(volatile uint32_t *)(smmu + 0x20u);
++    context.id2 = *(volatile uint32_t *)(smmu + 0x28u);
++    context.asid = K60_IPA_RUNTIME_SID;
++    context.coherent_walk = 1u;
++    context.polled_faults = 1u;
++    context.ignore_top_byte = 1u;
++    context.shared_asid = 1u;
++    memset(&io, 0, sizeof(io));
++    io.cookie = &view;
++    io.register_bytes = K60_IPA_SMMU_BYTES;
++    io.read32 = k60_ipa_smmu_read32;
++    io.read64 = k60_ipa_smmu_read64;
++    io.write32 = k60_ipa_smmu_write32;
++    io.write64 = k60_ipa_smmu_write64;
++    io.barrier = k60_ipa_smmu_barrier;
++    io.polled_faults = 1u;
++    memset(&programmed, 0, sizeof(programmed));
++    status = ArmSmmu4KProgramDisabledContext(&io, plan.bank, &context, 20000u,
++        &programmed);
++    if (status != 0) {
++        printf("K60IPA M2 SMMU program failed status=%d phase=%u FSR=%#x\n",
++            status, programmed.phase, programmed.fault_status);
++        return K60IpaSmmuFailed;
++    }
++    *(volatile uint32_t *)(smmu + 0xc00u + 4u * plan.slot) = plan.bank;
++    if (!plan.migrate && !plan.reuse) {
++        *(volatile uint32_t *)(smmu + 0x800u + 4u * plan.slot) =
++            0x80000000u | K60_IPA_RUNTIME_SID;
++    }
++    __asm__ volatile("dsb sy" ::: "memory");
++    if (*(volatile uint32_t *)(smmu + 0xc00u + 4u * plan.slot) != plan.bank ||
++        *(volatile uint32_t *)(smmu + 0x800u + 4u * plan.slot) !=
++        (0x80000000u | K60_IPA_RUNTIME_SID)) {
++        printf("K60IPA M2 SMMU stream readback failed\n");
++        return K60IpaSmmuFailed;
++    }
++    printf("K60IPA M2 SMMU bank=%u slot=%u pages=%u leaf=%u smem=%#llx/%#llx\n",
++        plan.bank, plan.slot, built.table_pages, built.leaf_pages,
++        (unsigned long long)smem_start, (unsigned long long)smem_size);
++    return K60IpaOk;
++}
++
++
++static int
++k60_ipa_runtime_gsi_init(K60IpaRuntime *rt)
++{
++    K60IpaGsiConfig config;
++    int rc;
++
++    memset(&config, 0, sizeof(config));
++    config.callbacks.read_gsi = k60_ipa_rt_read_gsi;
++    config.callbacks.write_gsi = k60_ipa_rt_write_gsi;
++    config.callbacks.read_reg = k60_ipa_rt_read_ipa;
++    config.callbacks.write_reg = k60_ipa_rt_write_ipa;
++    config.callbacks.delay_us = k60_ipa_rt_delay_us;
++    config.callbacks.now_ms = k60_ipa_rt_now_ms;
++    config.callbacks.sync = k60_ipa_rt_sync;
++    config.callbacks.cookie = rt;
++    config.ring = rt->ring;
++    config.ring_size = K60_IPA_GSI_RING_BYTES;
++    config.ring_iova = K60_IPA_RUNTIME_IOVA;
++    config.tables = rt->tables;
++    config.tables_size = K60_IPA_GSI_TABLE_BYTES;
++    config.tables_iova = K60_IPA_RUNTIME_IOVA + K60_IPA_GSI_RING_BYTES;
++    config.gsi_bytes = K60_GSI_BYTES;
++    rc = k60_ipa_gsi_init(&rt->state, &config);
++    if (rc != K60IpaOk) {
++        printf("K60IPA M2 GSI init failed rc=%d\n", rc);
++    }
++    return rc;
++}
++
++static int
++k60_ipa_runtime_gsi(K60IpaRuntime *rt)
++{
++    uint64_t deadline;
++    int rc;
++
++    rc = k60_ipa_gsi_start(&rt->state);
++    if (rc != K60IpaOk) {
++        printf("K60IPA M2 GSI start failed rc=%d stage=%u\n", rc,
++            rt->state.stage);
++        return rc;
++    }
++    deadline = k60_ipa_rt_now_ms(rt) + 5000u;
++    while (rt->state.stage != 10u && k60_ipa_rt_now_ms(rt) < deadline) {
++        rc = k60_ipa_gsi_poll(&rt->state);
++        if (rc == K60IpaOk) {
++            continue;
++        }
++        if (rc != K60IpaNotReady) {
++            printf("K60IPA M2 GSI poll failed rc=%d stage=%u\n", rc,
++                rt->state.stage);
++            return rc;
++        }
++        delay(1000);
++    }
++    if (rt->state.stage != 10u || rt->state.error != K60IpaOk) {
++        printf("K60IPA M2 GSI timeout stage=%u error=%d completed=%u\n",
++            rt->state.stage, rt->state.error, rt->state.completed_commands);
++        return K60IpaRuntimeFailed;
++    }
++    printf("K60IPA M2 GSI ready stage=%u channels=%u events=%u restricted=%#x sram=%#x completed=%u\n",
++        rt->state.stage, rt->state.channels, rt->state.events,
++        rt->state.restricted, rt->state.sram_bytes,
++        rt->state.completed_commands);
++    return K60IpaOk;
++}
++
++static int
++k60_ipa_runtime_start(volatile uint8_t *gsi, volatile uint8_t *ipa)
++{
++    int enabled = 0;
++    int rc;
++
++    if (!PE_parse_boot_argn("pong_ipa_m2", &enabled, sizeof(enabled)) ||
++        enabled == 0) {
++        return K60IpaOk;
++    }
++    if (gsi == 0 || ipa == 0) {
++        return K60IpaBadArgument;
++    }
++    memset(&k60_ipa_runtime, 0, sizeof(k60_ipa_runtime));
++    k60_ipa_runtime.gsi = gsi;
++    k60_ipa_runtime.ipa = ipa;
++    rc = k60_ipa_runtime_alloc(&k60_ipa_runtime.ring,
++        &k60_ipa_runtime.ring_pa, K60_IPA_GSI_RING_BYTES, 0xffffu);
++    if (rc != K60IpaOk) {
++        printf("K60IPA M2 ring allocation failed rc=%d\n", rc);
++        return rc;
++    }
++    rc = k60_ipa_runtime_alloc(&k60_ipa_runtime.tables,
++        &k60_ipa_runtime.tables_pa, K60_IPA_GSI_TABLE_BYTES, 0xfffu);
++    if (rc != K60IpaOk) {
++        printf("K60IPA M2 table allocation failed rc=%d\n", rc);
++        return rc;
++    }
++    printf("K60IPA M2 ring=%#llx tables=%#llx\n",
++        (unsigned long long)k60_ipa_runtime.ring_pa,
++        (unsigned long long)k60_ipa_runtime.tables_pa);
++    /* k60_ipa_gsi_init() zeroes the 0x8000-byte table block; build the SMMU
++     * page tables only after that so the init cannot erase them. */
++    rc = k60_ipa_runtime_gsi_init(&k60_ipa_runtime);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++    rc = k60_ipa_runtime_smmu(&k60_ipa_runtime);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++    return k60_ipa_runtime_gsi(&k60_ipa_runtime);
++}
++
 +int
 +k60_ipa_firmware_start(const void *blob, uint64_t size)
 +{
@@ -890,7 +1396,7 @@ new file mode 100644
 +    }
 +    {
 +        volatile uint8_t *cfg = (volatile uint8_t *)(uintptr_t)
-+            ml_io_map_unmappable((vm_offset_t)K60_IPA_CFG_BASE, 0x1000, 0x7);
++            ml_io_map_unmappable((vm_offset_t)K60_IPA_CFG_BASE, 0x20000, 0x7);
 +        uint32_t version, comp;
 +
 +        if (cfg == NULL) {
@@ -904,8 +1410,14 @@ new file mode 100644
 +            printf("K60IPA IPAREADY not set\n");
 +            return K60IpaNotReady;
 +        }
-+        rc = k60_ipa_resources_prepare((void *)(uintptr_t)cfg, 0x1000);
++        rc = k60_ipa_resources_prepare((void *)(uintptr_t)cfg, 0x20000);
 +        printf("K60IPA resources ready=%d\n", rc == K60IpaOk);
++        if (rc != K60IpaOk) {
++            return rc;
++        }
++        rc = k60_ipa_runtime_start((volatile uint8_t *)(uintptr_t)gsi_map,
++            (volatile uint8_t *)cfg);
++        printf("K60IPA M2 runtime ready=%d\n", rc == K60IpaOk);
 +        if (rc != K60IpaOk) {
 +            return rc;
 +        }

@@ -54,6 +54,18 @@
 #define K60_GSI_COMMAND_CHANNEL       12u
 #define K60_GSI_EVENT0                0u
 
+/* M2 runtime: Pong IPA5.1 command-DMA context (PongModemIpaDma.h). The
+ * stream is SID 0x5c0 in the apps SMMU, the ring lives at IOVA 0x20000000,
+ * and the shared filter/route region is SMEM item 497 (0x9000 bytes). */
+#define K60_IPA_RUNTIME_SID           0x000005c0u
+#define K60_IPA_RUNTIME_IOVA          0x20000000u
+#define K60_IPA_SMMU_BASE             0x15000000u
+#define K60_IPA_SMMU_BYTES            0x00100000u
+#define K60_IPA_SMEM_BASE             0x80900000u
+#define K60_IPA_SMEM_BYTES            0x00200000u
+#define K60_IPA_SMEM_ITEM             497u
+#define K60_IPA_SMEM_MIN_BYTES        0x00009000u
+
 enum {
     K60IpaOk = 0,
     K60IpaNotReady = -1,
@@ -65,6 +77,8 @@ enum {
     K60IpaPasDenied = -7,
     K60IpaClockFailed = -8,
     K60IpaGsiBusy = -9,
+    K60IpaSmmuFailed = -20,
+    K60IpaRuntimeFailed = -21,
 };
 
 typedef struct {

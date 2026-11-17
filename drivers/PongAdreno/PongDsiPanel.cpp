@@ -63,6 +63,7 @@ unsigned panel_brightness = 0;
 int panel_on_result = -100;
 unsigned panel_120_done;
 int panel_120_result = -100;
+bool panel_120_verify_pending;
 
 /* K60 FDT: MDSS0xae00000, INTF pages0x35000..0x38000. Same SM8475
  * zizhan dpuBus/intfRate require GCC_DISP_AHB and DISP_CC_MDSS_AHB before
@@ -325,9 +326,12 @@ int dsi_write0(uint8_t cmd)
 }
 
 /* m11a timing@2 (120 Hz) timing-switch-command, packet by packet from the
- * live FDT (docs/plans/120HZ-PORT-PLAN.md): 0x2f=0x00 selects timing group 2;
- * the 0x39 packets are the vendor's fixed 0xf0 0x55 0xaa 0x52 sequence. */
-struct PanelTimingCommand { const uint8_t *data; uint32_t length; };
+ * vendor dtsi (LowTension/android_kernel_xiaomi_sm8475,
+ * dsi-panel-m11a-42-02-0a-dsc-cmd.dtsi): 0x2f=0x00 selects timing group 2;
+ * the 0x39 packets are the vendor's fixed 0xf0 0x55 0xaa 0x52 sequence.
+ * The live FDT copy is 98 B and omits the final CC 00 plus the CE 01
+ * post-wait; the vendor's timing@2 has eleven packets and 10 ms after CE. */
+struct PanelTimingCommand { const uint8_t *data; uint32_t length; uint32_t wait_ms; };
 constexpr uint8_t kTiming120_2f[] = { 0x2f, 0x00 };
 constexpr uint8_t kTiming120_8b[] = { 0x8b, 0x00 };
 constexpr uint8_t kTiming120_f0[] = { 0xf0, 0x55, 0xaa, 0x52, 0x08, 0x00 };
@@ -338,17 +342,19 @@ constexpr uint8_t kTiming120_df[] = { 0xdf, 0x20 };
 constexpr uint8_t kTiming120_f002[] = { 0xf0, 0x55, 0xaa, 0x52, 0x08, 0x02 };
 constexpr uint8_t kTiming120_cc[] = { 0xcc, 0x30 };
 constexpr uint8_t kTiming120_ce[] = { 0xce, 0x01 };
+constexpr uint8_t kTiming120_cc00[] = { 0xcc, 0x00 };
 constexpr PanelTimingCommand kTiming120[] = {
-    { kTiming120_2f, sizeof(kTiming120_2f) },
-    { kTiming120_8b, sizeof(kTiming120_8b) },
-    { kTiming120_f0, sizeof(kTiming120_f0) },
-    { kTiming120_6f03, sizeof(kTiming120_6f03) },
-    { kTiming120_c010, sizeof(kTiming120_c010) },
-    { kTiming120_6f31, sizeof(kTiming120_6f31) },
-    { kTiming120_df, sizeof(kTiming120_df) },
-    { kTiming120_f002, sizeof(kTiming120_f002) },
-    { kTiming120_cc, sizeof(kTiming120_cc) },
-    { kTiming120_ce, sizeof(kTiming120_ce) },
+    { kTiming120_2f, sizeof(kTiming120_2f), 0 },
+    { kTiming120_8b, sizeof(kTiming120_8b), 0 },
+    { kTiming120_f0, sizeof(kTiming120_f0), 0 },
+    { kTiming120_6f03, sizeof(kTiming120_6f03), 0 },
+    { kTiming120_c010, sizeof(kTiming120_c010), 0 },
+    { kTiming120_6f31, sizeof(kTiming120_6f31), 0 },
+    { kTiming120_df, sizeof(kTiming120_df), 0 },
+    { kTiming120_f002, sizeof(kTiming120_f002), 0 },
+    { kTiming120_cc, sizeof(kTiming120_cc), 0 },
+    { kTiming120_ce, sizeof(kTiming120_ce), 10 },
+    { kTiming120_cc00, sizeof(kTiming120_cc00), 0 },
 };
 
 } // namespace
@@ -378,10 +384,14 @@ extern "C" int pong_panel_switch_120(void)
                 i + 1, count, rc);
             return rc;
         }
+        if (kTiming120[i].wait_ms) {
+            IODelay(kTiming120[i].wait_ms * 1000);
+        }
     }
     IODelay(300 * 1000); /* vendor timing-switch settle time */
     panel_intf_rate("after the switch", 500);
     panel_120_result = 0;
+    panel_120_verify_pending = true;
     panel_log("K60 PANEL: timing switch to 120 Hz: %u packets, rc 0\n", count);
     return 0;
 }
@@ -442,6 +452,10 @@ extern "C" bool pong_panel_bringup(void)
 
 extern "C" void pong_panel_sample(void)
 {
+    if (panel_120_verify_pending && panel_on_result == 0) {
+        panel_120_verify_pending = false;
+        panel_intf_rate("after the UI frame", 500);
+    }
     if(panel_on_result!=0 || (!probe_enabled && !cadence_pending && !cadence_verify))return;
     const uint64_t now=mach_absolute_time();
     uint64_t elapsed=0;

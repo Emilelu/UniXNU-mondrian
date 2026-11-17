@@ -29,14 +29,16 @@
  		if (gc_enabled) {
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-@@ -994,6 +994,11 @@
+@@ -994,6 +994,13 @@
  	drawn = mach_absolute_time();
  	fSwapsShown++;
  	if (fSwapsShown == 1) {
 +		{
 +			extern int k60_screen_owned_by_ui;
++			extern "C" void pong_panel_sample(void);
 +
 +			k60_screen_owned_by_ui = 1;
++			pong_panel_sample();
 +		}
  		IOLog("K60 DISPLAY: first frame presented (swap %u, %ux%u canvas on %ux%u panel)\n",
  		    swapWord(swap, SWAP_ID), fWidth, fHeight, fPanelWidth, fPanelHeight);

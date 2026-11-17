@@ -432,7 +432,7 @@ evidence = "2026-11-14 04:48 首次上机（wifi-20261114a，pong_wifi=1 k60_wif
 
 [hardware.wifi.step.device.prediction]
 success = "mission4 console 出现 'Pong MHI: exec_env=2 after AMSS download; cached ee updated'（或 4），没有 'Pong MHI: timeout after 60000 ms ee=1'，随后出现 ath11k chip_id 0x12、fw_version、wifi: hardware registered, 102 channels、wifi: scan starts on，且 SpringBoard 行仍在。"
-failure = "没有 cached ee updated 而仍出现 'Pong MHI: timeout after 20000 ms ee=1'；或 amss bhie load ret 非 0；或 qrtr: cannot start the IPCR channels；或 panic/无 console；任一出现即停，不重复飞同一候选。"
+failure = "没有 cached ee updated 而仍出现 'Pong MHI: timeout after 60000 ms ee=1'；或 amss bhie load ret 非 0；或 qrtr: cannot start the IPCR channels；或 panic/无 console；任一出现即停，不重复飞同一候选。"
 
 [hardware.audio]
 status = "parked"

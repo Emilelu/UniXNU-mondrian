@@ -9,7 +9,7 @@
 | 4 | brightness-16 | `bfaa3912…` | `845c3c9d…` | **PASS（发布层）**：conformance=1 / 无 sig=11 / first frame / SpringBoard 129；8 位 DBV 两端 0xff 与 0x1 到达，但最低观感仍不够低（8 位底 1/255 ≈ 0.39%，Android 12 位底 1/4095 ≈ 0.024%） | `usblog-20261117-013028-658`、`usblog-20261117-013717-505` |
 | 5 | brightness-17 | `8b2d6332…` | `4f107428…` | **PASS（12 位路径 / 最低端点）**：conformance=1 / control=1 / 无 sig=11 / first frame / SpringBoard 133；请求行 14 条（level 1024→0x800、level 1→0x1）；**DBV 1 在夜间黑屏**（用户实测），最高档未拉（夜间） | `usblog-20261117-0245-brightness17` |
 | 6 | brightness-18 | `3e516e73…` | `28436472…` | **发布层 PASS**：conformance=1 / control=1 / dbv 0xfff / 无 sig=11 / first frame / SpringBoard 128；两次采集内用户未拖滑块，最低 `0x14` 观感仍待测 | `usblog-20261117-0306-brightness18`、`usblog-20261117-0313-brightness18b` |
-| 7 | brightness-19 | `25ac3889…` | `7462fe8a…` | **已飞一次（04:26），发布层 PASS，滑块未测**：最低 floor 从 `0x14` 改为 `0x4`（Android 手动最低 9.15639E-4 × 4095 = 3.75）；published conformance=1 control=1 dbv 0xfff、first frame、sig=11 0、SpringBoard 128 | `usblog-20261117-0426-brightness19` |
+| 7 | brightness-19 | `25ac3889…` | `7462fe8a…` | **PASS（两端）**：最低 floor 从 `0x14` 改为 `0x4`（Android 手动最低 9.15639E-4 × 4095 = 3.75）；11:46 第二飞 54 条请求、最低 dbv 0x4、最高 dbv 0xfff、judge PASS、用户确认“好像是修好了”；published conformance=1 control=1 dbv 0xfff、first frame、sig=11 0、SpringBoard 129 | `usblog-20261117-0426-brightness19`、`usblog-20261117-1146-brightness19` |
 
 brightness-11/12 与 brightness-14（都是 c56b507 基线、日志无计数或 control=1）已被裁定作废，不再飞。
 
@@ -174,7 +174,7 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
   **判据 2（请求可见）与判据 3（最低 `0x14` 可见）未测，不能判 PASS 或 FAIL**；发布层与
   最高 `0xfff` 已 PASS。
 
-## 第 7 轮（2026-11-17 04:05 预注册，04:26 第一飞）— brightness-19：最低 floor 改 Android 的 DBV 0x4
+## 第 7 轮（2026-11-17 04:05 预注册，04:26 第一飞，11:46 第二飞 PASS）— brightness-19：最低 floor 改 Android 的 DBV 0x4
 
 - **为什么改**：第 6 轮的 `0x14` 取自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。
   真机 Android 侧直接量到：`/sys/class/backlight/panel0-backlight/max_brightness = 4095`；
@@ -209,6 +209,7 @@ K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2
   `check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff` → 发布层 7 项通过、
   `FAIL only 1 non-zero brightness request line(s); the 12-bit range test needs at least 3`，rc=1。
   04:24 那次首次尝试被拒（target 不在 fastboot），未 boot，不算一轮。
+- **第二飞（2026-11-17 11:46，证据 `usblog-20261117-1146-brightness19`）**：用户明确说“飞”后执行；`console.log` 254,828 B（sha256 `b5b1f6545c8c7a30b70505e04a8ea7f3a60c4f41ee4c0221de74505a68e3b8ba`），capture complete、bootAccepted true。`:182` bring-up `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`、`:184` published `level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；first frame 1、SpringBoard 129、`sig=11` 0。用户拖动后共 54 条 `K60 BACKLIGHT: brightness` 请求行，最低 `level 1 -> level 1 dbv 0x4`（4 次）、最高 `level 2047 -> level 2047 dbv 0xfff`（5 次），另有 2046→0xffd；无 0x14 旧值。预注册 judge `python3 scripts/check-backlight-log.py E:/k60-work/evidence/usblog-20261117-1146-brightness19/console.log --control=1 --min-dbv=0x4 --max-dbv=0xfff` → exit 0，dimmest request 0x4、brightest request 0xfff、PASS；用户 m07575 反馈“好像是修好了”。
 
 
 

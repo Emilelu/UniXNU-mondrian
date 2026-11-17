@@ -220,4 +220,4 @@ P-62 的旧行为（只发 `IODisplayParameters`，不声明 backlight-control�
    （brightness-17 实测，用户只能盲点调高）。第 6 轮曾改用 Xiaomi 的 `mi,doze-lbm-dbv-level=0x14`，
    但那是 doze/AOD 档，不是正常滑块的底。真机 Android 的 `panel0-backlight/max_brightness=4095` 与
    `dumpsys display` 的 `mScreenBrightnessRangeMinimum=9.15639E-4` 给出 0.000915639 × 4095 = 3.75 →
-   **DBV 0x4**；第 7 轮（brightness-19）改用它作为 floor。**待 brightness-19 真机确认可见**。
+   **DBV 0x4**；第 7 轮（brightness-19）改用它作为 floor。**brightness-19 第二飞已确认：54 条请求，最低 dbv 0x4、最高 dbv 0xfff，judge PASS，用户确认可见（usblog-20261117-1146-brightness19）。**

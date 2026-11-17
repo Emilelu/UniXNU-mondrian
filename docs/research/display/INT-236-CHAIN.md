@@ -403,9 +403,9 @@ manifest repo head `a322b58`、dirty 0、series 227 / sha256 `bb14a480…`、
 | 11 | 回滚：`k60_backlight=0` 停服务、`k60_backlight_control=0` 只发布不申请；交付图 brightness-13 `c8c33b9e…` control=0 已 PASS | 产物 + 上机历史 | §11；08-on-device 第 1 轮 | 闭合 |
 | 12 | 运行时 conformance 是否真为 1 | 运行时判据 | brightness-15 `:184` `conformance=1 control=1` | 闭合 |
 | 13 | CoreBrightness 是否真的把请求写到本服务 | 运行时判据 | brightness-16 两次上机共 35 条 `K60 BACKLIGHT: brightness` 请求行；`stats[1]` 不可读，改用请求行 | 闭合 |
-| 14 | 三档物理亮度可见变化、屏幕持续更新 | 运行时判据 | brightness-15 用户可见变化；brightness-16 8 位端点 0xff/0x1；brightness-18 的 0x14 已被 13.6 的 0x4 取代；brightness-19 第一飞发布层 PASS、最低 0x4 待用户拖滑块 | 部分闭合 |
+| 14 | 三档物理亮度可见变化、屏幕持续更新 | 运行时判据 | brightness-15 用户可见变化；brightness-16 8 位端点 0xff/0x1；brightness-18 的 0x14 已被 13.6 的 0x4 取代；brightness-19 第二飞 `usblog-20261117-1146-brightness19` 54 条请求、最低 dbv 0x4、最高 dbv 0xfff、judge PASS、用户确认“好像是修好了” | 闭合 |
 
-**仍然开放的项**：第 14 条只剩 brightness-19 最低 0x4 的观感确认（brightness-18 的 0x14 已被 §13.6 取代）；其余运行时项已闭合。
+**仍然开放的项**：无；第 14 条已由 brightness-19 第二飞（最低 0x4、最高 0xfff、用户确认）闭合。
 
 **已知限制（不是缺陷，写在这里防止事后误读）**
 - 面板未标定：不发字典后由 CoreBrightness 用 Apple 默认 5/140/400 nits 建曲线，三档亮度**可见**但不保证与
@@ -484,7 +484,7 @@ Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对�
   `:1261` entered backboardd、`:2423` first frame、SpringBoard 128、`sig=11` 0；两次都没有用户拖
   滑块的请求行（仅启动默认 `:2212` 1024→0x80a 与 `:2213` brightness-nits 0.0→0x0）。
 - 待确认：最低档 `0x14` 是否还黑屏/是否比 8 位底更暗。**此值随后被 §13.6 取代：`0x14` 只是 Xiaomi 的 doze/AOD 档，正常滑块 floor 改为 Android 的 `0x4`。** §12 第 14 条的最终确认改为 brightness-19 的 `0x4`。
-### 13.6 brightness-19：floor 改 Android 手动最低的 DBV 0x4（预注册并第一飞）
+### 13.6 brightness-19：floor 改 Android 手动最低的 DBV 0x4（预注册，第二飞 PASS）
 
 - 13.5 的 `0x14` 来自 `mi,doze-lbm-dbv-level`，那是 Xiaomi 的 doze/AOD 档，不是正常滑块的底。真机 Android
   （设备 6033dbec，adb，2026-11-17 04:00）直接量到：
@@ -501,5 +501,5 @@ Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对�
   `python3 scripts/check-backlight-log.py <console.log> --control=1 --min-dbv=0x4 --max-dbv=0xfff`。
 - 构建：boot.img 201,887,744 B sha256 `25ac388989270c56a3494b18b26d90d37bda535a13ba2bdf9eb98d5670a86c5c`；`kernel_built` 105,521,152 B sha256 `7462fe8ad8372d42a4c7f0cf968fefd32df7ee509e87163f7e1d41f1fa7a38b9`；manifest head `230281a1`、dirty 0、series 227；`verify-boot-image.py --manifest` OK。
 - 第一飞（2026-11-17 04:26，`usblog-20261117-0426-brightness19`，console 231,960 B）：`:184` published level 2047 dbv 0xfff conformance=1 control=1、`:2430` first frame、SpringBoard 128、`sig=11` 0；请求行只有启动默认 `:2205` 1024→0x802 与 `:2206` brightness-nits 0.0→0x0，用户未拖滑块，最低 0x4 未测，整轮 INCONCLUSIVE（`check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff` 发布层 7 项通过、因非零请求不足 3 条 rc=1）。
-- 待用户在场重飞一次，只测最低档 0x4 是否可见。
+- **第二飞（2026-11-17 11:46，`usblog-20261117-1146-brightness19`，console 254,828 B，sha256 `b5b1f6545c8c7a30b70505e04a8ea7f3a60c4f41ee4c0221de74505a68e3b8ba`）**：用户说“飞”后执行，capture complete、bootAccepted true。`:182` bring-up `0x51 0x0f 0xff`、`:184` published `level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；first frame 1、SpringBoard 129、`sig=11` 0。用户拖动后 54 条 brightness 请求行：最低 `level 1 -> level 1 dbv 0x4`（4 次）、最高 `level 2047 -> level 2047 dbv 0xfff`（5 次，2046→0xffd 亦到顶）。预注册 judge `python3 scripts/check-backlight-log.py <console.log> --control=1 --min-dbv=0x4 --max-dbv=0xfff` → exit 0、PASS（dimmest 0x4、brightest 0xfff）。用户反馈“好像是修好了”。
 

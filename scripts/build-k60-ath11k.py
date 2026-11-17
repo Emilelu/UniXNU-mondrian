@@ -320,11 +320,10 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         # arrives, so the device waits in SBL for an image the host never sends
         # while the host waits for MISSION. The official MhiBoot.c polls
         # BHI_EXECENV and starts the BHIe image when it reads SBL. Mirror that
-        # by queueing the existing SBL state transition; its worker creates the
-        # devices and calls mhi_download_amss_image once. The poll is bounded,
-        # runs only while the READY/POR register window is valid, and leaves
-        # the fbc vector table owned by MHI. pong_sbl_pushed suppresses a
-        # second push if an EE event arrives after the proactive queue.
+        # by calling mhi_download_amss_image() in this worker pass, where the
+        # READY/POR register window is valid and fbc_image is already owned.
+        # The poll is bounded, and pong_sbl_pushed suppresses a second push if
+        # an EE event arrives after the proactive call.
         ('\t}\n\n\tdev_info(dev, "Wait for device to enter SBL or Mission mode\\n");\n',
          '\t}\n\n'
          '\tif (mhi_cntrl->fbc_download && !mhi_cntrl->pong_sbl_pushed) {\n'
@@ -425,10 +424,9 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\ttimeout_ms = mhi_cntrl->ready_timeout_ms ?\n'),
         ('\tdev_dbg(dev, "Device in READY State\\n");\n',
          '\tdev_info(dev, "Pong MHI: device in READY state\\n");\n'),
-        # A proactive queue and a late EE event can both enqueue SBL. The
-        # per-controller latch makes the existing worker's create/download
-        # path run once, while preserving the stock transition for controllers
-        # that do not use fbc.
+        # A proactive push and a late EE event can both enter the SBL case. The
+        # per-controller latch makes the create/download path run once, while
+        # preserving the stock transition for controllers that do not use fbc.
         ('\t\tcase DEV_ST_TRANSITION_SBL:\n'
          '\t\t\twrite_lock_irq(&mhi_cntrl->pm_lock);\n'
          '\t\t\tmhi_cntrl->ee = MHI_EE_SBL;\n',

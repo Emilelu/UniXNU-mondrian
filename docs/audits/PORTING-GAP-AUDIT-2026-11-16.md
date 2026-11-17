@@ -64,6 +64,7 @@
 | `docs/plans/GPU-TODO.md:25` | 硬编码上游 SHA | ★37 禁止把 pin 写进进度文档（应由 catalog/水位持有）；2026-11-17 已改为现查命令 | 【已修】 |
 | `patches/wifi/README.md:4-30,67-68` | `0001–0010`、`optional/0011`、`0010-scripts-build-xnu-4k-baseline-wifi.patch` | 实际为 `0001–0012` 共 12 个补丁、`series` 12 行，没有 `optional/` 子目录；2026-11-17 已更新表格与接线状态 | 【已修】 |
 | `docs/plans/WIFI-REBUILD-CHECKLIST.md:236` | “按 `patches/wifi/series` 顺序 `git apply` 十条落地” | 当前 `series` 12 条（0001–0012），已改为“当前 12 条，以 `series` 为准” | 【已修】 |
+| `README_EN.md:17-39` | 八步表的硬件名、未跟踪标签与表尾说明仍是中文（`触摸（Goodix GT9916R / BERLIN）`、`电源`、`诊断`、`基带`、中文 footer） | `render('en')` 一直取 TOML 的 `name`；2026-11-17 已加 `name_en` 与英文 UNTRACKED/footer，`check-readme` 现在拒绝英文表含中文 | 【已修】 |
 
 **已正确、不要"修"的**：`README.md:135-136` 的 ★1–★37 / P-01–P-230 是对的；`check-readme.py` 正是为
 这两行写的（P-205 的教训：README 曾写 ★35/P-130 而实际 ★37/P-204）。**它只校验 README 与 README_EN**，
@@ -345,14 +346,14 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 - **门禁脚本**（`scripts/`）：`check-doc-citations.py`、`check-component-pin.py`、
   `tests/test-check-doc-citations.py`、`tests/test-check-component-pin.py`、`tests/test-check-docs-tables.py`、`tests/test-check-docs-ops.py`、
-  `tests/test-check-docs-state.py`、`tests/test-check-patch-series-wifi.py`、`tests/test-gates-import-without-device-input.py`；修改 `check-docs.py`、`check-readme.py`、
+  `tests/test-check-docs-state.py`、`tests/test-check-patch-series-wifi.py`、`tests/test-gates-import-without-device-input.py`、`tests/test-render-eight-step-table.py`；修改 `check-docs.py`、`check-readme.py`、
   `check-patch-series.py`、`porting-gate.py`、`check-build-applied.py`。
 - **门禁数据**（`docs/engineering/`）：`DOC-CITATIONS-BASELINE.toml`、`COMPONENT-PINS.toml`、`PATCH-CATALOG.toml`、
   `RULES.toml`（P-231 + `expected_kern_exec_delta`）、`PITFALLS.md`（P-231）。
 - **文档**：本文、`LINE-MAP.md`、`LINE-RESEARCH-MAP.md`、`research/README.md`、`INDEX.md`、`README.md`、`README_EN.md`、
   `engineering/README.md`、`STATUS.md`、`AGENTS.md`、`ops/README.md`、`ops/HARD-RULES.md`、`ops/PITFALLS.md`、`ops/HANDOFF.md`、`ops/TWRP-FACT-CLARIFICATION.md`、`EIGHT-STEPS.toml`。
 - **合并前在目标树跑**：`check-docs`、`check-readme`、`check-patch-series`、`check-component-pin`、`check-doc-citations`，
-  以及 `tests/test-check-doc-citations.py`、`test-check-component-pin.py`、`test-check-docs-ops.py`、`test-check-patch-series-wifi.py`、`test-gates-import-without-device-input.py`；
+  以及 `tests/test-check-doc-citations.py`、`test-check-component-pin.py`、`test-check-docs-ops.py`、`test-check-patch-series-wifi.py`、`test-gates-import-without-device-input.py`、`test-render-eight-step-table.py`；
   已知红只有 iron-4/iron-5/hard-33/P-165/P-166（构建输入镜像落后，见 P-230）。
 - **不要从本分支取**：`drivers/`、`patches/`（除登记文件）、水位/基线。本分支没碰它们。
 

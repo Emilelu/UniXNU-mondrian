@@ -278,7 +278,7 @@ fi
 
 # --- kernel ------------------------------------------------------------------
 touch "$MARK"; sleep 2
-if ! "$BUILD/unixnu" build kernel -D "$DEV" --out "$OUT" > "$LOGS/kernel.log" 2>&1; then
+if ! K60_DEVICE_INPUT="$DEV" "$BUILD/unixnu" build kernel -D "$DEV" --out "$OUT" > "$LOGS/kernel.log" 2>&1; then
     tail -30 "$LOGS/kernel.log" >&2
     die "kernel build failed (see $LOGS/kernel.log)"
 fi
@@ -302,7 +302,7 @@ PAYLOAD_ARGS=()
 if [ -n "$ADDON" ]; then
     PAYLOAD_ARGS+=(--gpu-addon "$ADDON")
 fi
-if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
+if ! K60_DEVICE_INPUT="$DEV" "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
         --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
         ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
@@ -346,7 +346,7 @@ for kv in "${KARGS[@]:-}"; do
     [ -n "$kv" ] || continue
     BOOTIMG+=(--kernel-arg "$kv")
 done
-if ! "${BOOTIMG[@]}" > "$LOGS/bootimg.log" 2>&1; then
+if ! K60_DEVICE_INPUT="$DEV" "${BOOTIMG[@]}" > "$LOGS/bootimg.log" 2>&1; then
     tail -30 "$LOGS/bootimg.log" >&2
     die "bootimg failed (see $LOGS/bootimg.log)"
 fi

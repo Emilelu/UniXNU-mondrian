@@ -459,7 +459,7 @@ CoreAudio/audiomxd
    b. `PongAudio` DMA/SMMU 消费 `/chosen/pong-audio-dma`（UEFI 分配器与 ADT 占位已就绪，A 级）。
    c. `PongAudio.cpp` 的 AudioReach graph + 64 KiB ring（A 级）。
    d. K60 TDM/PRM（1.536 MHz、tx-lines=3）+ AW882xx 驱动（C 级，最大新增）。
-   e. `PongAudioService.cpp`（已落地：`drivers/PongPower/PongAudioService.cpp`，镜像 l）+ `PongAudioPlugIn.c` HAL（仍缺，20G81 ABI 重对）。
+   e. `PongAudioService.cpp`（已落地：`drivers/PongPower/PongAudioService.cpp`，镜像 l）+ 播放图 11 步与 PCM 8 槽周期泵（`PongAudioPlayback.h`，镜像 m）+ `PongAudioPlugIn.c` HAL（仍缺，20G81 ABI 重对）。
    f. 音量/路由/休眠恢复（A/B 级）。
 4. **蓝牙 B 阶段（音频之后或并行，依赖更少）**：
    a. `PongBtPower` 电源/复位（C）。

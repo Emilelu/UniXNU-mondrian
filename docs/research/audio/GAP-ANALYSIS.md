@@ -60,7 +60,7 @@
 - `kernel.macho` 含 `"PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)"`
 - 上机记录：`docs/ops/PITFALLS.md` P-58/P-59/P-63 —— `pong_audio=1 pong_aw882xx=1` → **0 日志整机死**；
   根因 `io_submap` 全内核仅 8 MiB，`ml_io_map` 打满 panic（0503 4 处、0504 5 处 map）。boot-arg 已移除。
-- `userland/` 无音频 HAL；`PongAudioService` 已落地为 `drivers/PongPower/PongAudioService.cpp`（镜像 l，`PongAudio` IOService/UserClient）；无 `drivers/audio`
+- `userland/` 无音频 HAL；`PongAudioService` 已落地为 `drivers/PongPower/PongAudioService.cpp`（镜像 l，`PongAudio` IOService/UserClient），播放图 11 步与 PCM 8 槽周期泵已进镜像 m；无 `drivers/audio`
 
 ### ⚠️ 发现一个真 bug：`adsp-base` / `adsp-size` 是错的
 

@@ -357,7 +357,7 @@ evidence = [
   "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
   "patches/audio/0003-k60-audio-afe-selftest.patch",
 ]
-criteria = "PongAudioRing.h carries the SPSC queue (pong_ring_queue_init/used/space/write/read); ring_queue_cases() adds 27 assertions for initialization, used/space accounting, full-ring refusal, wrap writes, whole-frame copies and capacity bounds. pong_audio_submit() rejects null/zero frames with PongAudioErrBadRequest, refuses before the six-step path is ready with last_error or PongAudioErrApmNotReady, rejects a short ring with PongAudioErrRingFull while counting ring_dropped, and otherwise queues whole frames; pong_audio_ring_read() drains them. Host runner: TESTS OK 913 cases (931 with the real ACF)."
+criteria = "PongAudioRing.h carries the SPSC queue (pong_ring_queue_init/used/space/write/read); ring_queue_cases() adds 27 assertions for initialization, used/space accounting, full-ring refusal, wrap writes, whole-frame copies and capacity bounds. pong_audio_submit() rejects null/zero frames with PongAudioErrBadRequest, refuses before the six-step path is ready with last_error or PongAudioErrApmNotReady, rejects a short ring with PongAudioErrRingFull while counting ring_dropped, and otherwise queues whole frames; pong_audio_ring_read() drains them. Host runner: TESTS OK 947 cases (965 with the real ACF)."
 status = "closed"
 owner = "audio-agent"
 on_open = "without the submit queue the AFE can be ready while the service has nowhere to put a PCM frame"
@@ -424,9 +424,25 @@ owner = "audio-agent"
 on_open = "a start-before-battery order loses the only adsp_apps attach and M2 never leaves pending"
 
 [[item]]
+id = "pcm-playback-graph"
+stage = "M5"
+change = "pong_audio.c drives the AudioReach playback graph after the AFE six-step and pumps PCM periods through eight AR write slots"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "drivers/PongAudio/PongAudioPlayback.h",
+  "V: kernel.macho: PongAudio: playback graph started; PCM streaming",
+  "V: kernel.macho: PongAudio: PCM write done slot=%u address=0x%llx",
+]
+criteria = "PongAudioPlayback.h fixes the 11-step order (open/config speaker, open/config playback, config shmem, map, clock, prepare speaker/playback, start speaker/playback), token 0x00030000+step and the six opcodes; host play_cases() adds 32 assertions. In image m the kernel_built sha256 is d136541dcf7d540300ebe932cb4af3084d30520bdafa07a8ceda3cb895f66e55 (105,545,728 B) and kernel.macho contains all eight playback strings once (step send, graph opening, graph mapped, graph started, PCM slot submit, PCM lead reached, PCM write done, playback stream primed) plus pong_audio_play_complete_step/send_step/submit_slot. pong_audio_play_submit_slot() writes 8192 B periods from the ring to dma_pa|1<<32 + slot*8192 through pong_ar_write(); WRITE_DONE clears the slot and pong_audio_pump_one() refills it; start waits for the 14400-frame lead."
+status = "closed"
+owner = "audio-agent"
+on_open = "the six-step path can be ready while the speaker never receives a playback period"
+
+[[item]]
 id = "pcm-submit-path"
 stage = "M5"
-change = "the remaining PCM path: the IOService/UserClient maps the ring, the userland HAL fills it, and a service period pump writes it to the AFE playback port with the vendor's period and lead"
+change = "the remaining PCM path: a userland HAL fills the ring and the service period pump keeps the playback graph fed"
 evidence_kind = "static"
 evidence = [
   "patches/audio/0003-k60-audio-afe-selftest.patch",
@@ -434,7 +450,7 @@ evidence = [
   "V: ShengAudioAbi.h:21",
   "V: PongAudio.cpp:288-300,424-436",
 ]
-criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease) and the PongAudio IOService/UserClient with the control page and 512 KiB out ring (pcm-service-userclient) are in place. The repository still needs the userland HAL (PongAudioPlugIn.c shape: IOServiceOpen and IOConnectMapMemory64) and the playback graph: AR open/config/map, periodic ar_write() from the ring to dspAddress + slot*PeriodBytes, WRITE_DONE handling, and a host or on-device test that submits at least one period without an underrun. Until those exist, M5 cannot pass."
+criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient) and the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph) are in place. The repository still needs the userland HAL (PongAudioPlugIn.c shape: IOServiceOpen and IOConnectMapMemory64) and a host or on-device test that submits at least one period through the service timer without an underrun. Until those exist, M5 cannot pass."
 status = "open"
 owner = "audio-agent"
 on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"

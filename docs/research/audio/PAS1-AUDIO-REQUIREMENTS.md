@@ -343,7 +343,7 @@ status = "pending"
 
 ### 4.1 编码器（已落地）
 
-`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 221 条断言，`afe_plan_cases()` 再用 61 条断言钉住 `pong_afe_step_packet()` 的六步完整包（总 913 例，其中 `ring_queue_cases()` 的 27 条钉住 `PongAudioRing.h` 的 SPSC 提交队列）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
+`drivers/PongAudio/PongAudioAfe.h` 把 §3 的每个包编码成字节流：GPR 24 字节头（版本 0、头长 6 字、 域 3→2）、svc 与 port 两种 set-param 信封（各 16 字节）+ 12 字节参数块、五个参数结构（时钟 20 B、 组 TDM 44 B、组使能 4 B、端口 TDM 36 B、slot mapping 28 B）与 DEVICE_START（28 B）。纯函数、不写寄存器；`afe_cases()` 在宿主侧钉住 221 条断言，`afe_plan_cases()` 再用 61 条断言钉住 `pong_afe_step_packet()` 的六步完整包（总 947 例，其中 `ring_queue_cases()` 的 27 条钉住 `PongAudioRing.h` 的 SPSC 提交队列，`play_cases()` 的 32 条钉住 `PongAudioPlayback.h` 的 11 步播放图）。provider 交出 GLINK 之后，consumer 侧只需要把 这些字节按 `pong_afe_step_*()` 给出的六步顺序交给传输层，不再自己算偏移。
 
 ## 5. provider 必须为 audio 保证什么（交给 provider 实现者的四条）
 

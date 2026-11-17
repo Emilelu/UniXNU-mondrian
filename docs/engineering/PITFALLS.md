@@ -1611,6 +1611,20 @@ if ((st & 0x10100) == 0x10100 && idle &&
   不在仓库的 `patches/xnu/series`。类似地 `buildv15.sh` 还会从别处覆盖别的文件，
   改任何构建相关文件前先 `grep` 一下 `buildv15.sh` 有没有 `cp -f` 到它。
 
+### P-91 把「调试到能用」的开放任务交给 subagent：跑完零产出
+
+- **症状**：给 subagent 的任务写成「把这个驱动调通」「查到能用为止」，它跑了很久，
+  返回一份过程描述或什么都没有，仓库里没有任何新文件、也没有任何可验证的改动。
+- **真因**：开放任务没有终点判据，subagent 无法判断何时算完成；上下文窗口耗尽后
+  只能以「还在调查」收尾，产出无法交接。
+- **修法**：派发前把任务压成「单窗口可完成 + 必须产出一个文件」：写明输入、输出路径、
+  验收命令和停止条件；调研类任务也要落到 `docs/research/` 的指定文件。
+- **30 秒判定**：任务描述里如果没有「产出文件路径 + 验收命令」，不要派。
+- **关联**：P-12（核心调研必须主 agent 亲自读）、P-61（subagent 结论交叉验证）、
+  P-72（目录存在 ≠ 交付完成）。
+- **备注**：本条编号在 `HARD-RULES.md` ★21 与 `PITFALL-TO-RULE-INDEX.md` 已引用，
+  但 PITFALLS 长期缺号，现补录。
+
 ### P-92 两个补丁在同一 hunk 锚点插入，后一个必然失败
 
 - **症状**：把 `0391-k60-embedded-init.patch` 加进 series 后，
@@ -3794,6 +3808,19 @@ strings 里 "M11HTC":  present      <- 同上
   > **两个组件仓库里都有名字像 DTB 的文件，选错一个就是 478 KB 的差距。**
 - **已写进**：`docs/engineering/REPO-MAP.md` 第四节，标明该用哪个 DTB 和判据。
 
+### P-150 调研写进文档不等于改动落地
+
+- **症状**：subagent 的调研报告写进了 `docs/research/`，结论看起来完整，
+  但对应的补丁/配置/代码一行没改；下一轮又从零调研同一个问题。
+- **真因**：只检查「文件写了」，没有检查「由这份调研派生的改动真的在树上」。
+  `docs/research/SUBAGENT-DELIVERABLES.md` 记录的 0403 固件补丁、Ath12kWifi
+  适配性、1e1a70e ADT 修复、上游 13 个分支都是同一形状。
+- **修法**：每次派 subagent 时登记一行到 `docs/research/SUBAGENT-DELIVERABLES.md`，
+  并写一条能失败的产出断言（`file:`/`grep:`/`series:`/`git:`/`exists:`）；
+  门禁 `python3 scripts/check-subagent-ledger.py` 验证断言真的成立。
+- **30 秒判定**：调研结束前问一句「哪一行代码/配置/补丁因这份结论改变了？」答不出来就是没落地。
+- **关联**：P-72（目录存在 ≠ 交付完成）、P-91（开放任务空转）、P-104（能跑的二进制必须落库）。
+
 ### P-151 ★★ pick 上游单个文件会覆盖我们对同一文件的改动
 
 - **症状**：`pick-upstream.py --apply` 取 yibiya 的 `9269d7728`（wallpaper native stock restore），
@@ -4447,6 +4474,21 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 
 **教训**：写文件时用 `write` 工具（写 UTF-8 LF），不要用 PowerShell 重定向；
 提交前看 `git diff --stat` 的增删行数是否和改动规模相符 —— 不相符就是换行符或编码翻转。
+
+### P-189 同一检出有多个输出树时，按最新存根判构建会判错
+
+- **症状**：`check-build-applied.py` 默认只读 `/opt/k60/trees/k60build/out-baseline`；
+  出现第二个输出树后，它读到另一份配置的陈旧 `xnu-inputs.json`，报
+  “构建应用了 230 个补丁，但 series 列了 223 个”，而本次构建实际没问题。
+- **真因**：`unixnu` 按 defconfig 命名输出目录（`mondrian/`、`mondrian_wifi/`），
+  门禁却只认单一路径；`K60_OUT` 一设就通过，说明错在存根定位而不是构建。
+- **修法**：在 `/opt/k60/trees` 下 `rglob` 所有 `xnu-inputs.json`，按时间取最新；
+  显式 `K60_OUT` 仍必须只认指定树。后续 P-220 进一步收紧：只有补丁名集合相同的
+  存根才有资格参与判定，否则 skip。
+- **30 秒判定**：门禁报补丁数量不一致时，先看它读的 `xnu-inputs.json` 属于哪个输出树；
+  路径不是当前 `K60_OUT` 就是 P-189 形状。
+- **关联**：P-220（fallback 不知道 fallback 到谁）、P-207（门禁只能判本轮产出的物证）。
+- **Check**：`python3 scripts/tests/test-check-build-applied.py`（registry `id = "P-189"`）。
 
 ### P-190 — 归档加进 `KERNEL_EXTRA_ARCHIVES` 却没进内核：那块代码在死分支里
 

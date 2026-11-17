@@ -656,6 +656,14 @@ check = "python3 scripts/tests/test-check-kernel-archives.py"
 note = "2026-11-15 adsp-20261115d 真机干净进桌面但 K60Handoff 命中 0 次：-DXNU_K60_PHYSICAL_BATTERY=1 只挂 KernelConfigTables.cpo_CFLAGS_ADD，iokit/bsddev/IOKitBSDInit.cpp 的 0602/0619 守卫块整体编译为空，电池入口与 ADSP 发布器自合入起是死代码。修法：build-xnu-4k-baseline.sh 把该 define 加进全局 EXTRA_CFLAGS；check-kernel-archives.py 新增 P-208 引用检查。"
 
 [[rule]]
+id = "P-189"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-189"
+statement = "同一检出存在多个输出树时，构建门禁不能默认读单一 out-baseline 或按最新存根判定；必须按当前 K60_OUT 定位，找不到匹配存根时 skip，而不是拿别的树的构建记录判本树。"
+check = "python3 scripts/tests/test-check-build-applied.py"
+note = "P-189 最初记录于 feat/wifi-integration 的 42f1e59d，未随该分支合入 main，但 check-build-applied.py 的注释与 P-220 一直在引用它；本轮补录条目并把已有测试登记为检查。P-220 进一步要求只有补丁名集合相同的存根才有资格参与判定。"
+
+[[rule]]
 id = "P-209"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-209"

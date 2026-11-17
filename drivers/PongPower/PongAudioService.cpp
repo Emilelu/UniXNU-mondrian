@@ -3,7 +3,7 @@
 // The K60 audio service the userland HAL opens after pong_audio_start(). It
 // owns the control page and playback ring, and pumps one 1024-frame period at
 // a time into pong_audio_submit(). The period pump deliberately refuses to
-// start until the AFE six-step has set pong_audio_status() == 1; this keeps a
+// start until the AFE six-step has set pong_audio_status() == PongAudioOk; this keeps a
 // HAL from believing audio is running while the DSP graph is still closed.
 
 #include <IOKit/IOService.h>
@@ -192,7 +192,7 @@ PongAudio::startOutput()
 	if (!fControl || !fOutput) {
 		return kIOReturnNotReady;
 	}
-	if (pong_audio_status() == 0) {
+	if (pong_audio_status() != 0) {
 		fControl->state = PongAudioServiceOutputReady;
 		return kIOReturnNotReady;
 	}

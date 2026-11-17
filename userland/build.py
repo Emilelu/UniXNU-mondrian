@@ -392,6 +392,60 @@ def compile_ui(out, developer, *, sdk=None, compiler='clang-18', linker='ld64.ll
     return destination
 
 
+def compile_audio(out, developer=None, *, sdk=None, compiler='clang-18',
+                  linker='ld64.lld-18', headers=None):
+    """Build the output-only PongAudio AudioServerPlugIn bundle."""
+    env = dict(os.environ)
+    if sdk is None:
+        if developer is None:
+            raise RuntimeError('audio build needs --developer or --sdk')
+        env['DEVELOPER_DIR'] = str(developer)
+        sdk = Path(subprocess.check_output(['xcrun', '--sdk', 'iphoneos',
+            '--show-sdk-path'], env=env, text=True).strip())
+        mac = Path(subprocess.check_output(['xcrun', '--sdk', 'macosx',
+            '--show-sdk-path'], env=env, text=True).strip())
+        include_root = out / 'audio-sdk-headers'
+        (include_root / 'CoreAudio').mkdir(parents=True, exist_ok=True)
+        for name in ('AudioServerPlugIn.h', 'AudioHardwareBase.h'):
+            shutil.copyfile(mac / 'System/Library/Frameworks/CoreAudio.framework/Headers' / name,
+                            include_root / 'CoreAudio' / name)
+        command = ['xcrun', 'clang']
+        link_flags = []
+    else:
+        sdk = sdk.resolve()
+        include_root = headers.resolve() if headers else (out / 'audio-sdk-headers')
+        if not (include_root / 'CoreAudio/AudioServerPlugIn.h').is_file():
+            raise RuntimeError('audio SDK headers missing: ' + str(include_root / 'CoreAudio'))
+        sdk_version = json.loads((sdk / 'SDKSettings.json').read_text())['Version']
+        command = [compiler]
+        link_flags = [f'--ld-path={shutil.which(linker) or linker}',
+                      f'-Wl,-platform_version,ios,16.6.1,{sdk_version}', '-Wl,-adhoc_codesign']
+    bundle = out / 'PongAudio.driver'
+    bundle.mkdir(parents=True, exist_ok=True)
+    target = bundle / 'PongAudio'
+    cmd = [*command, '-target', 'arm64-apple-ios16.6.1', '-isysroot', str(sdk),
+           '-Os', '-fblocks', '-bundle', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
+           *link_flags, '-Wl,-no_fixup_chains', '-I' + str(include_root),
+           '-I' + str(PROJECT / 'drivers/PongPower'),
+           '-framework', 'CoreFoundation', '-framework', 'IOKit',
+           str(USERLAND / 'PongAudioPlugIn.c'), '-o', str(target)]
+    run(cmd, env=env)
+    factory = '341D03C1-9CF6-4163-A3E9-FA3AC191C764'
+    put_plist(bundle / 'Info.plist', dict(
+        CFBundleDevelopmentRegion='en', CFBundleExecutable='PongAudio',
+        CFBundleIdentifier='org.unixnu.k60.audio', CFBundleInfoDictionaryVersion='6.0',
+        CFBundleName='PongAudio', CFBundlePackageType='BNDL',
+        CFBundleShortVersionString='1.0', CFBundleVersion='1',
+        CFBundleSupportedPlatforms=['iPhoneOS'], MinimumOSVersion='16.6.1',
+        CFPlugInFactories={factory: 'PongAudio_Create'},
+        CFPlugInTypes={'443ABAB8-E7B3-491A-B985-BEB9187030DB': [factory]},
+        AudioServerPlugIn_IOKitUserClients=['PongAudioUserClient']))
+    if developer is not None:
+        run(['codesign', '--force', '--sign', '-', '--pagesize', '4096', bundle])
+    dump(out / 'audio-compile-command.json', cmd)
+    return bundle
+
+
 def embed_ui_library(library):
     """Regenerate the existing 0340 array and its hunk, preserving its callsites."""
     patch = PROJECT / 'patches/xnu/0340-k60-uilib-deploy.patch'
@@ -411,6 +465,17 @@ def embed_ui_library(library):
     lines[hunk] = f'@@ -0,0 +1,{sum(line.startswith("+") for line in lines[hunk + 1:stop])} @@'
     patch.write_text('\n'.join(lines) + '\n')
     return patch
+
+
+def audio(a):
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    bundle = compile_audio(out, a.developer, sdk=a.sdk, compiler=a.compiler,
+                           linker=a.linker, headers=a.audio_sdk_headers)
+    dump(out / 'audio-bundle.json', dict(bundle=str(bundle),
+         executable=str(bundle / 'PongAudio'),
+         bytes=(bundle / 'PongAudio').stat().st_size))
+    print(bundle)
 
 
 def ui(a):
@@ -479,6 +544,10 @@ def prepare(a):
     (overlay / 'pong/LICENSE-HackiOS').write_bytes((USERLAND / 'LICENSE-HackiOS').read_bytes())
     (overlay / 'sbin').mkdir(exist_ok=True)
     init_signature = compile_init(out, a.developer, overlay / 'sbin/launchd')
+    audio_bundle = compile_audio(out, a.developer)
+    audio_target = overlay / 'System/Library/Audio/Plug-Ins/HAL/PongAudio.driver'
+    audio_target.parent.mkdir(parents=True, exist_ok=True)
+    merge_tree(audio_bundle, audio_target)
     counts = jobs(root, cryptex, overlay, out)
     seed = data_seed(a.os_image, root, overlay, out)
     for p in sorted((cryptex / 'usr/lib').rglob('*')):
@@ -494,6 +563,7 @@ def prepare(a):
                  os_source=str(a.os_image.resolve()), os_root=str(root), system_cryptex=str(cryptex),
                  data_source=str(a.data_image.resolve()),
                  jobs=counts, data=seed, static_init_signature=init_signature,
+                 audio_bundle=str(audio_bundle),
                  disabled=['20F66 fixed-address injection', 'Redwood sysctls',
                  'HackiOS ramfs / custom APFS ABI', 'hardware firmware and GPU libraries'],
                  system_cryptex_runtime='/private/preboot', app_cryptex='not supplied',
@@ -630,6 +700,15 @@ def main():
     sdk = s.add_mutually_exclusive_group(required=True)
     sdk.add_argument('--developer', type=Path)
     sdk.add_argument('--sdk', type=Path, help='real iOS SDK for a Linux clang/LLD build')
+    s.add_argument('--compiler', default='clang-18')
+    s.add_argument('--linker', default='ld64.lld-18')
+    s = sub.add_parser('audio', help='compile the output-only AudioServerPlugIn bundle')
+    s.add_argument('--out', type=Path, required=True)
+    sdk = s.add_mutually_exclusive_group(required=True)
+    sdk.add_argument('--developer', type=Path)
+    sdk.add_argument('--sdk', type=Path, help='real iOS SDK for a Linux clang/LLD build')
+    s.add_argument('--audio-sdk-headers', type=Path,
+                   help='directory containing CoreAudio/AudioServerPlugIn.h')
     s.add_argument('--compiler', default='clang-18')
     s.add_argument('--linker', default='ld64.lld-18')
     s = sub.add_parser('launchd_cache', help='retain event publishers in the selected service cache')

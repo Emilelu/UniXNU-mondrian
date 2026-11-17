@@ -20,7 +20,7 @@
 | `K60ModemQrtr.h` | QRTR v1 线格式：32 B 头 / 20 B control、`NEW_LOOKUP (0x0a)`、`NEW_SERVER`、`K60QrtrState`、`k60_qrtr_verdict()` |
 | `K60ModemQrtr.c` | 纯 codec：`k60_qrtr_build_hello/lookup()`、`k60_qrtr_note()`（折叠应答）、`k60_qrtr_wanted()`（21/1/11/3/16） |
 | `K60ModemLink.c` | SMEM 0x80900000 + IPCC 0x0ed18000 + GLINK item 478/479/480/435；`k60_modem_qrtr_probe()` 只读轮询、fresh-FIFO 检查、发 HELLO + NEW_LOOKUP |
-| `K60Ipa.h` / `K60Ipa.c` | IPA v5.1 APQ 常量、版本解码、M0 惰性 probe、`k60_ipa_firmware_check()` 离线布局校验、`k60_ipa_firmware_stage()` 固件暂存与 `k60_ipa_firmware_start()` PAS 15 路径 |
+| `K60Ipa.h` / `K60Ipa.c` | IPA v5.1 APQ 常量、版本解码、M0 惰性 probe、`k60_ipa_firmware_check()` 离线布局校验、`k60_ipa_firmware_stage()` 固件暂存、`k60_ipa_firmware_start()` PAS 15 路径与 `k60_ipa_gsi_check()` 的 M2a GSI 能力/所有权预检 |
 | `K60Mdt.h` / `K60Mdt.c` | BSD-2-Clause-Patent 的 MDT/ELF 解析器（`pong-power/QcomMdt` 移植），供 IPA 固件检查 |
 
 进内核的路径：`patches/xnu/0620-k60-modem-image.patch`（L1 三文件）+ `patches/xnu/0621-k60-modem-pas.patch`（L2 三文件 + `kern_exec.c` Data 挂载后调用点）+ `patches/xnu/0622-k60-modem-qrtr.patch`（L3 三文件 + `PongPower/QcomGlink.{c,h}` 的 `bsd/dev` 副本，符号改名 `k60m_glink_` 以避开电池归档 force-load 的 `qcom_glink_*`）
@@ -49,7 +49,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 | L2 | QRTR 名字服务只读枚举（HELLO + `NEW_LOOKUP` + `NEW_SERVER` 表） | 无（照 Linux `net/qrtr/` 协议定义自研） | **已落地**（`K60ModemQrtr.c` + `K60ModemLink.c`） |
 | L2 | QMI client 分配 / CTL 服务 / `servreg` 查询 | 参考实现 `hakios.qmi.c` | 未开始（L4） |
 
-**当前不装**：IPA 数据面实现（M2 及以后）、QMAP、EFS/NV 服务、mbn 选择、IMS/VoLTE（`03-SCOPE.md` §4 已标为历史范围；数据面计划见 `20-IPA-V51-DATA-PATH.md`）。M1 目前只有固件暂存与 PAS 调用函数，还没有调用点或 Android 固件加载路径。
+**当前不装**：IPA 数据面实现（M2 GSI ring/command DMA 及以后）、QMAP、EFS/NV 服务、mbn 选择、IMS/VoLTE（`03-SCOPE.md` §4 已标为历史范围；数据面计划见 `20-IPA-V51-DATA-PATH.md`）。M1 已有 payload FAT 调用点和 `IPA/ipa_fws.mbn` 路径；M2a 只读 GSI 能力/所有权预检，尚未编程 ring、doorbell 或 SMMU 上下文。
 
 ## 2. 关键常量（已取证，勿凭记忆改）
 
@@ -78,7 +78,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 2. **L1/L2 阶段只读** `modemst1`/`modemst2`/`fsg`/`fsc`，不写。
 3. **加载 modem 前先查它是否已在运行** —— 从 Android 热重启进 XNU 时，modem 可能仍活着；
    直接 `PAS_AUTH_AND_RESET` 会打断一个正在运行的 modem（`03-SCOPE.md` §5）。
-4. IPA 代码已写 M0 骨架与 M1 固件校验/暂存/PAS 路径（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟、初始化 IPA5.1 资源表并预检 GSI EE0；尚未上机。
+4. IPA 代码已写 M0 骨架与 M1 固件校验/暂存/PAS 路径（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟、初始化 IPA5.1 资源表并预检 GSI EE0（M2a 只读检查，不写 ring/doorbell）；尚未上机。
 5. **不自行 boot**：镜像与脚本交给 Lead，由 Lead 在用户明确同意后执行 `fastboot boot`。
 
 ## 4. 开工前必须存在的前置件

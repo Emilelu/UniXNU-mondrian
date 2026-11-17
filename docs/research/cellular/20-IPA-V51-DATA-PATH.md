@@ -1,7 +1,7 @@
 # 20 — K60 IPA v5.1 数据通路（IPA/GSI、QMAP、PDP）
 
 - 日期：2026-11-18
-- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化与 GSI EE0 预检已实现并通过 host tests 与内核 nm 验收；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
+- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化与 GSI 能力/所有权预检（M2 前置）已实现并通过 host tests 与内核 nm 验收；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
 - 范围：按 `E:/hackios/UniXNU/docs/zh/porting/baseband.md` 第 2、4 节，给出 K60（mondrian/SM8475）IPA v5.1 数据面的硬件事实、v4.2 复用边界、分阶段计划和首个离线测试。
 - 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）数据面仍缺失，M0 只有编译骨架、M1 已有固件暂存/PAS 15 路径、payload FAT handoff 调用点与 IP0 时钟投票**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。
 
@@ -16,11 +16,11 @@
 | L1 SoC/板级 | 电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | modem PAS 已按 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` 推进；IPA 保留内存已在 DT；IPA 固件未加载，IPA 时钟/电源未证实 | IPA 的 power/clock/interconnect 资源尚未建模 |
 | L2 控制桥 | QMUX 帧、QMI client 分配、服务发现/回复路由 | `K60ModemLink.c` 已接 GLINK/QRTR，能枚举 AppleBaseband；IPA 服务 0x31 未服务 | 缺 IPA QMI 服务端 |
 | L3 iOS 接口 | 基带服务、channel、异步读写与启动交互 | `coachz_baseband_*` 控制桥和 PDP 控制对象存在 | 数据回调仍落到 ENETDOWN |
-| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟、IPA5.1 资源表初始化与 GSI EE0 预检；只映射固件区、GSI 状态与版本寄存器，未启动 GSI）** | 全部 |
+| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟、IPA5.1 资源表初始化与 GSI 能力/所有权预检；只映射固件区、GSI 状态与版本寄存器，未启动 GSI）** | 全部 |
 
 L4 逐项状态：
 
-- **IPA/GSI**：M0 只有常量与版本解码；M1 已落地 MDT 解析、ipa_fws 布局校验、`k60_ipa_firmware_stage()` 暂存、`k60_ipa_clock_vote()` 的 IP0 TCS4 投票、`k60_ipa_resources_prepare()` 的 IPA5.1 QMB/timer 与源/目的资源表初始化、GSI EE0 预检和 `k60_ipa_firmware_start()` 的 PAS 15 顺序，并由 `k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 调用；仍没有 GSI 初始化、ring/doorbell、中断处理，也没有在硬件上读过 IPA_VERSION。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
+- **IPA/GSI**：M0 只有常量与版本解码；M1 已落地 MDT 解析、ipa_fws 布局校验、`k60_ipa_firmware_stage()` 暂存、`k60_ipa_clock_vote()` 的 IP0 TCS4 投票、`k60_ipa_resources_prepare()` 的 IPA5.1 QMB/timer 与源/目的资源表初始化、`k60_ipa_gsi_check()` 的 GSI 能力/所有权预检（status/channels/events、command12/event0、EE0）和 `k60_ipa_firmware_start()` 的 PAS 15 顺序，并由 `k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 调用；仍没有 GSI 初始化、ring/doorbell、中断处理，也没有在硬件上读过 IPA_VERSION。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
 - **QMAP mux**：没有 WDA Set Data Format、没有 QMAP endpoint 配置、没有 mux 1..4 注册。
 - **net interface**：QcomBaseband 的 `coachz_bb_pdp.cpp:122-156` 会注册 `pdp_ip0..pdp_ip3`，`:83-120` 有 raw-IP TX/RX；但 K60 的 `coachz_modem_data_send` 是 ENETDOWN，所以 ifnet 只能挂载、不能通包。
 - **WDS/QOS binding**：没有 DPM Open Port、没有 WDS Bind Mux Data Port（0x00a2）、没有 QOS Bind Data Port（0x002b）。
@@ -85,6 +85,7 @@ L4 逐项状态：
 
 ### M2 — GSI 初始化 / ring 分配
 
+- 状态：2026-11-18 GSI 能力/所有权预检已实现（`K60Ipa.h`/`K60Ipa.c` 的 `k60_ipa_gsi_check()`，host `K60 IPA GSI PASS`，代码提交 `b636f2e5`）；只读寄存器，ring/doorbell 未写。
 - 内容：映射 GSI 0x3e04000；按 `gsihal_reg.c:1856-1882` 写 `GSI_STATUS`/`GSI_CH_CMD`/`EV_CH_CMD`；从 `ipa_gsi_region` 分配 channel/event ring；16 B TRE 草案；轮询或中断 `gsi-irq=432`。
 - 验收：`GSI_STATUS` 读到 ENABLED；每个 WAN/command/LAN 通道 state 到 `ENABLED`；ring 基址/长度打印且 64 KiB 对齐；无 GSI command timeout。
 - 风险：v5.1 APQ 的 ring 数量/深度未知；40 KiB 可能不够；GSI 3.0 命令超时 50 ms 与 v4.2 不同需实测。
@@ -130,7 +131,7 @@ L4 逐项状态：
 **当前明确未实现：**
 
 - 没有上机验证：`k60_ipa_probe_from_handoff()` 已能从 payload FAT 读取 `IPA/ipa_fws.mbn` 并调用 `k60_ipa_firmware_start()`，但还没有在硬件上执行过 PAS 15，也没有设备侧 IPA_VERSION 读数；host 侧可用 `k60_ipa_firmware_stage()` 验证真实映像。
-- 只在 `k60_ipa_firmware_start()` 里映射固件区、GSI 状态与 IPA_VERSION 寄存器并读取版本，IPA5.1 资源表已初始化；没有 GSI ring、doorbell 或 IRQ 654/432 处理。
+- `k60_ipa_firmware_start()` 映射固件区、GSI 与 IPA_VERSION 寄存器，IPA5.1 资源表已初始化，`k60_ipa_gsi_check()` 只读 GSI status/channels/events 和 command12/event0 状态；没有 GSI ring、doorbell 或 IRQ 654/432 处理。
 - 没有 GSI 初始化、ring、doorbell、GSI IRQ 432 处理。
 - 没有 IPA QMI 服务 0x31 的 `INIT_DRIVER/INIT_COMPLETE/DRIVER_INIT_COMPLETE`。
 - 没有 WDS 0x00a2 / QOS 0x002b / DPM Open Port / WDA Set Data Format。

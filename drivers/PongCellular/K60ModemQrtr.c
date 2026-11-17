@@ -18,11 +18,11 @@ static uint32_t get32(const uint8_t *at)
 	return (uint32_t)at[0] | (uint32_t)at[1] << 8 | (uint32_t)at[2] << 16 | (uint32_t)at[3] << 24;
 }
 
-static void put_header(uint8_t *out, uint32_t type, uint32_t from_port, uint32_t to_node, uint32_t to_port, uint32_t payload)
+static void put_header(uint8_t *out, uint32_t type, uint32_t from_node, uint32_t from_port, uint32_t to_node, uint32_t to_port, uint32_t payload)
 {
 	put32(out + 0, K60_QRTR_VERSION);
 	put32(out + 4, type);
-	put32(out + 8, 0);            /* from_node: 0 is this host (the APSS side) */
+	put32(out + 8, from_node);
 	put32(out + 12, from_port);
 	put32(out + 16, 0);           /* confirm: no reply is requested */
 	put32(out + 20, payload);
@@ -31,7 +31,7 @@ static void put_header(uint8_t *out, uint32_t type, uint32_t from_port, uint32_t
 }
 
 uint32_t
-k60_qrtr_build_hello(uint8_t *out, size_t cap, uint32_t from_port)
+k60_qrtr_build_hello(uint8_t *out, size_t cap)
 {
 	K60QrtrControl control;
 
@@ -43,8 +43,8 @@ k60_qrtr_build_hello(uint8_t *out, size_t cap, uint32_t from_port)
 	control.words[1] = 0;
 	control.words[2] = 0;
 	control.words[3] = 0;
-	put_header(out, K60QrtrHello, from_port, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_PORT,
-	    K60_QRTR_CONTROL_BYTES);
+	put_header(out, K60QrtrHello, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
+	    K60_QRTR_BROADCAST_NODE, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_BYTES);
 	put32(out + K60_QRTR_HEADER_BYTES + 0, control.command);
 	put32(out + K60_QRTR_HEADER_BYTES + 4, control.words[0]);
 	put32(out + K60_QRTR_HEADER_BYTES + 8, control.words[1]);
@@ -57,13 +57,13 @@ k60_qrtr_build_hello(uint8_t *out, size_t cap, uint32_t from_port)
  * The modem's own name service (node 0) answers with one NEW_SERVER per
  * service; that is the reply the completion criterion is written against. */
 uint32_t
-k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t from_port)
+k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node)
 {
 	if (out == NULL || cap < K60_QRTR_LOOKUP_BYTES) {
 		return 0;
 	}
-	put_header(out, K60QrtrNewLookup, from_port, K60_QRTR_BROADCAST_NODE, K60_QRTR_CONTROL_PORT,
-	    K60_QRTR_CONTROL_BYTES);
+	put_header(out, K60QrtrNewLookup, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
+	    to_node, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_BYTES);
 	put32(out + K60_QRTR_HEADER_BYTES + 0, K60QrtrNewLookup);
 	put32(out + K60_QRTR_HEADER_BYTES + 4, 0);
 	put32(out + K60_QRTR_HEADER_BYTES + 8, 0);
@@ -131,6 +131,7 @@ k60_qrtr_note(K60QrtrState *state, const uint8_t *data, size_t length)
 	}
 	if (header.type == K60QrtrHello) {
 		state->hello_acks++;
+		state->remote_node = header.from_node;
 		return K60QrtrOk;
 	}
 	if (header.type != K60QrtrNewServer && header.type != K60QrtrDelServer) {

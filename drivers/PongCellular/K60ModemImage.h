@@ -38,6 +38,7 @@ typedef struct {
 typedef struct {
     uint32_t base;
     uint32_t window;
+    uint32_t span;      /* highest segment end - base, the qcom_mdt_span */
     uint32_t segments;
     uint32_t copied;
     uint32_t zeroed;

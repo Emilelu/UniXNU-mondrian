@@ -23,6 +23,7 @@
 #define K60_QRTR_LOOKUP_BYTES   (K60_QRTR_HEADER_BYTES + K60_QRTR_CONTROL_BYTES)
 #define K60_QRTR_CONTROL_PORT   0xfffffffeu  /* the name service's port */
 #define K60_QRTR_BROADCAST_NODE 0xffffffffu  /* "every node", what a lookup is sent to */
+#define K60_QRTR_AP_NODE        1u           /* this AP's QRTR node id */
 #define K60_QRTR_FIRST_PORT     0x4000u      /* first port we hand out */
 #define K60_QRTR_MAX_SERVICES   64u
 /* The five services that prove the modem's own name service answered:
@@ -53,6 +54,7 @@ typedef struct {
 
 typedef struct {
 	uint32_t services;      /* NEW_SERVER replies recorded (including repeats) */
+	uint32_t remote_node;   /* learned from HELLO; broadcast until then */
 	uint32_t from_node0;    /* of those, the ones that came from node 0 */
 	uint32_t wanted;        /* of those, the ones whose service is EFS/WDS/UIM/NAS/PDS */
 	uint32_t hello_acks;
@@ -60,9 +62,11 @@ typedef struct {
 	K60QrtrServer table[K60_QRTR_MAX_SERVICES];
 } K60QrtrState;
 
-/* Builds the 52 byte datagram a lookup consists of. Returns its length or 0. */
-uint32_t k60_qrtr_build_hello(uint8_t *out, size_t cap, uint32_t from_port);
-uint32_t k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t from_port);
+/* Builds the 52 byte datagram a lookup consists of. Returns its length or 0.
+ * Control messages come from node 1, port 0xfffffffe, exactly as Pong emits
+ * them; HELLO goes to the broadcast node and LOOKUP to the learned modem. */
+uint32_t k60_qrtr_build_hello(uint8_t *out, size_t cap);
+uint32_t k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node);
 /* Splits one datagram: header, then the payload that follows it. */
 int k60_qrtr_parse(const uint8_t *data, size_t length, K60QrtrHeader *header, const uint8_t **payload);
 /* Folds one received datagram into the state. Unknown types are counted as

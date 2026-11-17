@@ -28,7 +28,7 @@ int k60_modem_plan(K60ModemPlan *plan)
         return K60ModemBadArg;
     }
     uint32_t copied = 0, zeroed = 0;
-    uint32_t prev_end = 0;
+    uint32_t prev_end = 0, max_end = K60_MODEM_BASE;
 
     for (uint32_t i = 0; i < K60_MODEM_SEGMENTS; i++) {
         const K60ModemSegment *s = &k60_modem_segments[i];
@@ -46,12 +46,16 @@ int k60_modem_plan(K60ModemPlan *plan)
             return K60ModemOverlap;
         }
         prev_end = s->paddr + s->bytes + s->bss;
+        if (prev_end > max_end) {
+            max_end = prev_end;
+        }
         copied += s->bytes;
         zeroed += s->bss;
     }
 
     plan->base = K60_MODEM_BASE;
     plan->window = K60_MODEM_WINDOW;
+    plan->span = max_end - K60_MODEM_BASE;
     plan->segments = K60_MODEM_SEGMENTS;
     plan->copied = copied;
     plan->zeroed = zeroed;

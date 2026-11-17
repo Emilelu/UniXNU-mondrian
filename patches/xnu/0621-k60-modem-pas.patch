@@ -213,7 +213,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_boot.c
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,207 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* Modem (MSS) bring-up order: prove the image table is sane, copy it into the
 + * mpss carveout when a carrier supplies the bytes, hand the metadata page to
@@ -339,14 +339,13 @@ index 0000000..1111111
 +	}
 +#endif
 +
-+	rc = k60_modem_mem_setup((uint64_t)K60_MODEM_BASE,
-+	    (uint64_t)K60_MODEM_WINDOW);
++	rc = k60_modem_mem_setup((uint64_t)plan.base, (uint64_t)plan.span);
 +	if (rc != K60ModemPasOk) {
 +		printf("K60MODEM mem_setup failed rc=%d\n", rc);
 +		return rc;
 +	}
 +	printf("K60MODEM mem_setup ok base=%#x span=%#x\n",
-+	    (unsigned)K60_MODEM_BASE, (unsigned)K60_MODEM_WINDOW);
++	    (unsigned)plan.base, (unsigned)plan.span);
 +
 +	if (phase == K60_MODEM_PHASE_METADATA_ONLY) {
 +		printf("K60MODEM diagnostic stop after mem_setup: auth_reset not sent\n");
@@ -414,7 +413,10 @@ index 0000000..1111111
 +	if (enabled >= 2) {
 +		extern int k60_modem_qrtr_probe(void);
 +
-+		(void)k60_modem_qrtr_probe();
++		rc = k60_modem_qrtr_probe();
++		if (rc != 0) {
++			return rc;
++		}
 +	}
 +	return rc;
 +}

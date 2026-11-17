@@ -35,6 +35,7 @@ extern void delay(int microseconds);
 
 #define K60_MODEM_SMEM_BASE      0x80900000u
 #define K60_MODEM_SMEM_BYTES     0x00200000u
+#define K60_MODEM_SMEM_MUTEX_BASE 0x1f43000u
 #define K60_MODEM_IPCC_BASE      0x0ed18000u
 #define K60_MODEM_IPCC_CLIENT    2u
 #define K60_MODEM_IPCC_SIGNAL    0u
@@ -55,7 +56,7 @@ extern void delay(int microseconds);
 #define K60_QRTR_INTENT_SIZE     0x4400u
 #define K60_QRTR_INTENT_COUNT    4u
 #define K60_QRTR_POLL_US         2000
-#define K60_QRTR_POLLS           500    /* one second of polling at most */
+#define K60_QRTR_POLLS           5000   /* ten seconds of polling at most */
 
 static QcomGlink k60_qrtr_link;
 static QcomGlinkChannel *k60_qrtr_channel;
@@ -63,7 +64,9 @@ static uint8_t k60_qrtr_intents[K60_QRTR_INTENT_COUNT * K60_QRTR_INTENT_SIZE];
 static K60QrtrState k60_qrtr_state;
 static volatile uint8_t *k60_qrtr_ipcc;
 static int k60_qrtr_up;
-static int k60_qrtr_sent;
+static int k60_qrtr_glink_ready;
+static int k60_qrtr_hello_sent;
+static int k60_qrtr_lookup_sent;
 
 static void
 k60_qrtr_kick(void *context)
@@ -187,6 +190,7 @@ k60_transport_item(K60Smem *smem, K60SmemPartition *partition, uint16_t id,
 
 #define K60_MODEM_AOSS_BASE       0x0c300000u
 #define K60_MODEM_AOSS_BYTES      0x00001000u
+#define K60_MODEM_QMP_RAM_BYTES   0x00000400u
 #define K60_MODEM_AOP_SEND        0x0cu
 
 #define K60_MODEM_QMP_DESC_MAGIC          0x0u
@@ -254,7 +258,11 @@ k60_modem_wait_word(const volatile uint8_t *base, size_t at, uint32_t mask,
 		if ((k60_modem_rd32(base, at) & mask) == value) {
 			return 0;
 		}
-		delay(10);
+		if ((i & 0x0fu) == 0) {
+			delay(10);
+		} else {
+			k60_modem_spin();
+		}
 	}
 	return -1;
 }
@@ -292,8 +300,8 @@ k60_modem_qmp_open(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t *box
 	    k60_modem_rd32(d, K60_MODEM_QMP_DESC_VERSION) != K60_MODEM_QMP_VERSION) {
 		return -1;
 	}
-	if ((box & 3u) != 0 || box < 0x3cu || bytes > K60_MODEM_AOSS_BYTES ||
-	    box > bytes || bytes - box < K60_MODEM_QMP_MSG_BYTES + 4u) {
+	if ((box & 3u) != 0 || box < 0x3cu || bytes > K60_MODEM_QMP_RAM_BYTES ||
+	    box > K60_MODEM_QMP_RAM_BYTES - (K60_MODEM_QMP_MSG_BYTES + 4u)) {
 		return -1;
 	}
 	*box_out = box;
@@ -305,14 +313,15 @@ k60_modem_qmp_open(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t *box
 		return 0;
 	}
 	for (phase = 0; phase < 4; phase++) {
-		if (k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_LINK) != K60_MODEM_QMP_STATE_UP) {
+		if (k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_LINK) != K60_MODEM_QMP_STATE_UP ||
+		    k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_LINK_ACK) != K60_MODEM_QMP_STATE_UP) {
 			k60_modem_wr32(d, K60_MODEM_QMP_DESC_UCORE_LINK_ACK,
 			    k60_modem_rd32(d, K60_MODEM_QMP_DESC_UCORE_LINK));
 			k60_modem_wr32(d, K60_MODEM_QMP_DESC_MCORE_LINK, K60_MODEM_QMP_STATE_UP);
 			k60_modem_fence();
 			k60_modem_aop_kick(ipcc);
 			if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_MCORE_LINK_ACK,
-			    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
+			    0xffffu, K60_MODEM_QMP_STATE_UP, 10000)) {
 				continue;
 			}
 		}
@@ -320,14 +329,14 @@ k60_modem_qmp_open(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t *box
 		k60_modem_fence();
 		k60_modem_aop_kick(ipcc);
 		if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_UCORE_CH,
-		    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
+		    0xffffu, K60_MODEM_QMP_STATE_UP, 10000)) {
 			continue;
 		}
 		k60_modem_wr32(d, K60_MODEM_QMP_DESC_UCORE_CH_ACK, K60_MODEM_QMP_STATE_UP);
 		k60_modem_fence();
 		k60_modem_aop_kick(ipcc);
 		if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_MCORE_CH_ACK,
-		    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
+		    0xffffu, K60_MODEM_QMP_STATE_UP, 10000)) {
 			continue;
 		}
 		return 0;
@@ -361,7 +370,7 @@ k60_modem_qmp_load_state(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_
 	k60_modem_wr32(mailbox, 0, K60_MODEM_QMP_MSG_BYTES);
 	k60_modem_fence();
 	k60_modem_aop_kick(ipcc);
-	return k60_modem_wait_word(aoss, box, 0xffffffffu, 0, 200000);
+	return k60_modem_wait_word(aoss, box, 0xffffffffu, 0, 20000);
 }
 
 static int
@@ -394,8 +403,9 @@ k60_modem_tcs_conflict(const volatile uint8_t *rsc, const K60RscLayout *l,
 }
 
 /* One RPMh active-only command into TCS4, the sequence that powers the modem
- * rails on this board: clear the old command, publish msgid/address/data, set
- * control bits 16 and 24, then wait for the command and TCS status. */
+ * rails on this board. The TCS trigger lives at RSC_DRV + 0xd00; completion
+ * status and IRQ clear live at +0xd04 and +0xd08, not at the RSC DRV_ID page.
+ * Readback happens after wait_for_cmpl/cmd_enable, matching Pong rawVote. */
 static int
 k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
     uint32_t address, uint32_t value, uint32_t capacity)
@@ -404,13 +414,14 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 	uint32_t control;
 	uint32_t progressed = 0;
 	unsigned i;
+	int rc = -1;
 
 	if (k60_modem_rd32(rsc, K60_MODEM_TCS3 + l->status) == 0 &&
 	    k60_modem_tcs_conflict(rsc, l, K60_MODEM_TCS3, capacity, address)) {
 		return -1;
 	}
-	k60_modem_wr32(rsc, K60_MODEM_RSC_DRV_CONTROL,
-	    k60_modem_rd32(rsc, K60_MODEM_RSC_DRV_CONTROL) & ~K60_MODEM_RSC_CTRL_TCS);
+	k60_modem_wr32(rsc, K60_MODEM_TCS_BASE,
+	    k60_modem_rd32(rsc, K60_MODEM_TCS_BASE) & ~K60_MODEM_RSC_CTRL_TCS);
 	control = k60_modem_rd32(rsc, base + l->control) & ~(1u << 24);
 	k60_modem_wr32(rsc, base + l->control, control);
 	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
@@ -422,21 +433,23 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 		return -1;
 	}
 	k60_modem_wr32(rsc, base + l->cmd_enable, 0);
-	k60_modem_wr32(rsc, K60_MODEM_RSC_IRQ_CLEAR, K60_MODEM_RSC_IRQ_DONE);
-	(void)k60_modem_wait_word(rsc, K60_MODEM_RSC_IRQ_STATUS, K60_MODEM_RSC_IRQ_DONE, 0, 1000);
+	k60_modem_wr32(rsc, base + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
+	if (k60_modem_wait_word(rsc, base + l->irq_status,
+	    K60_MODEM_RSC_IRQ_DONE, 0, 1000)) {
+		return -1;
+	}
 	k60_modem_wr32(rsc, base + l->cmd_msgid, K60_MODEM_RSC_MSGID);
 	k60_modem_wr32(rsc, base + l->cmd_addr, address);
 	k60_modem_wr32(rsc, base + l->cmd_data, value);
-	if (k60_modem_rd32(rsc, base + l->cmd_addr) != address ||
-	    k60_modem_rd32(rsc, base + l->cmd_data) != value) {
-		return -1;
-	}
 	k60_modem_wr32(rsc, base + l->wait_for_cmpl, 1);
 	k60_modem_fence();
 	k60_modem_wr32(rsc, base + l->cmd_enable, 1);
-	k60_modem_wr32(rsc, base + l->control, 1u << 16);
+	if (k60_modem_rd32(rsc, base + l->cmd_addr) != address ||
+	    k60_modem_rd32(rsc, base + l->cmd_data) != value) {
+		goto cleanup;
+	}
 	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, 1u << 16, 1000)) {
-		return -1;
+		goto cleanup;
 	}
 	k60_modem_fence();
 	k60_modem_wr32(rsc, base + l->control, (1u << 16) | (1u << 24));
@@ -448,8 +461,9 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 		    k60_modem_rd32(rsc, base + l->cmd_enable) == 1u &&
 		    k60_modem_rd32(rsc, base + l->cmd_addr) == address &&
 		    k60_modem_rd32(rsc, base + l->cmd_data) == value &&
-		    (progressed || (k60_modem_rd32(rsc, K60_MODEM_RSC_IRQ_STATUS) &
+		    (progressed || (k60_modem_rd32(rsc, base + l->irq_status) &
 		    K60_MODEM_RSC_IRQ_DONE))) {
+			rc = 0;
 			break;
 		}
 		if ((status & K60_MODEM_RSC_CMD_DONE) != K60_MODEM_RSC_CMD_DONE || !idle) {
@@ -461,18 +475,16 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 			k60_modem_spin();
 		}
 	}
-	if (i == 200000u) {
-		return -1;
-	}
+cleanup:
 	k60_modem_wr32(rsc, base + l->cmd_enable, 0);
-	k60_modem_wr32(rsc, K60_MODEM_RSC_IRQ_CLEAR, K60_MODEM_RSC_IRQ_DONE);
+	k60_modem_wr32(rsc, base + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
 	control = k60_modem_rd32(rsc, base + l->control) & ~(1u << 24);
 	k60_modem_wr32(rsc, base + l->control, control);
 	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
 		return -1;
 	}
 	k60_modem_fence();
-	return 0;
+	return rc;
 }
 
 /* Send AOP the modem load_state message, then vote the three rails Pong votes
@@ -564,6 +576,12 @@ fail:
 	return -1;
 }
 
+static int k60_qrtr_modem_ready(volatile uint8_t *smem, uint32_t offset,
+    uint32_t bytes, uint32_t *seen);
+static int k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
+    uint32_t desc_bytes, uint32_t tx_offset, uint32_t tx_bytes,
+    uint32_t rx_offset, uint32_t rx_bytes);
+
 int
 k60_modem_transport_prepare(void)
 {
@@ -574,13 +592,14 @@ k60_modem_transport_prepare(void)
 	const uint32_t bytes[3] = { K60_MODEM_SMP2P_ITEM_WORDS * 4u, 32u,
 	    K60_MODEM_GLINK_TX_BYTES };
 	uint32_t offsets[3] = { 0, 0, 0 }, sizes[3] = { 0, 0, 0 };
-	volatile uint8_t *window;
+	uint32_t guard_offset = 0, guard_size = 0, guard_seen = 0;
+	volatile uint8_t *window, *mutex;
 	volatile uint32_t *out, *desc;
 	unsigned i;
-	int rc;
+	int rc, locked = 0;
 
 	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
-	    K60_MODEM_SMEM_BYTES, 0x2);
+	    K60_MODEM_SMEM_BYTES, 0x7);
 	if (window == NULL) {
 		printf("K60MODEM transport: smem map failed at %#x\n",
 		    K60_MODEM_SMEM_BASE);
@@ -593,15 +612,50 @@ k60_modem_transport_prepare(void)
 		printf("K60MODEM transport: no modem smem partition rc=%d\n", rc);
 		return rc;
 	}
+	/* Pong refuses to reset a modem that still owns the inbound SMP2P
+	 * block. Read the old 435 state before touching 428 or the GLINK
+	 * descriptor so a stale modem is never silently overwritten. */
+	if (k60_smem_find(&smem, &partition, K60_MODEM_SMP2P_THEIRS,
+	    &guard_offset, &guard_size) == K60SmemOk &&
+	    k60_qrtr_modem_ready(window, guard_offset, guard_size, &guard_seen)) {
+		printf("K60MODEM transport: modem still owns smp2p entries=%u, refusing reset\n",
+		    guard_seen);
+		return -16;
+	}
+	/* The SMEM allocator is shared with the ADSP; take the TCSR SMEM
+	 * mutex 0x1f43000 exactly as Pong does around item allocation. */
+	mutex = (volatile uint8_t *)ml_io_map_unmappable(
+	    K60_MODEM_SMEM_MUTEX_BASE, 0x1000, 0x7);
+	if (mutex == NULL) {
+		printf("K60MODEM transport: smem mutex map failed\n");
+		return -1;
+	}
+	for (i = 0; i < 1000; i++) {
+		*(volatile uint32_t *)mutex = 1;
+		k60_modem_fence();
+		if (*(volatile uint32_t *)mutex == 1u) {
+			locked = 1;
+			break;
+		}
+		delay(10);
+	}
+	if (!locked) {
+		printf("K60MODEM transport: smem mutex timeout\n");
+		return -1;
+	}
 	for (i = 0; i < 3; i++) {
 		rc = k60_transport_item(&smem, &partition, ids[i], bytes[i],
 		    &offsets[i], &sizes[i]);
 		if (rc != K60SmemOk) {
+			*(volatile uint32_t *)mutex = 0;
+			k60_modem_fence();
 			printf("K60MODEM transport: item %u unavailable rc=%d\n",
 			    ids[i], rc);
 			return rc;
 		}
 	}
+	*(volatile uint32_t *)mutex = 0;
+	k60_modem_fence();
 	out = (volatile uint32_t *)(window + offsets[0]);
 	k60_smp2p_init_out(out);
 	if (k60_smp2p_add_entry(out, "master-kernel") < 0 ||
@@ -614,6 +668,27 @@ k60_modem_transport_prepare(void)
 		desc[i] = 0;
 	}
 	k60_smp2p_barrier();
+	{
+		uint32_t rx_offset = 0, rx_size = 0;
+
+		if (k60_smem_find(&smem, &partition, K60_MODEM_GLINK_THEIRS,
+		    &rx_offset, &rx_size) == K60SmemOk) {
+			k60_qrtr_ipcc = (volatile uint8_t *)ml_io_map_unmappable(
+			    K60_MODEM_IPCC_BASE, 0x1000, 0x7);
+			if (k60_qrtr_ipcc == NULL) {
+				printf("K60MODEM transport: ipcc map failed\n");
+				return -1;
+			}
+			rc = k60_modem_glink_start(window, offsets[1], sizes[1],
+			    offsets[2], sizes[2], rx_offset, rx_size);
+			if (rc != 0) {
+				printf("K60MODEM transport: glink init rc=%d\n", rc);
+				return rc;
+			}
+		} else {
+			printf("K60MODEM transport: remote glink fifo absent, defer IPCRTR\n");
+		}
+	}
 	printf("K60MODEM transport ok smp2p=%#x/%u desc=%#x/%u tx=%#x/%u\n",
 	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
 	return 0;
@@ -661,6 +736,54 @@ k60_qrtr_modem_ready(volatile uint8_t *smem, uint32_t offset, uint32_t bytes, ui
 	return 0;
 }
 
+/* Adopt the AP-owned GLINK pair and open IPCRTR as the initiator. Pong does
+ * this after PAS_INIT_IMAGE and before PAS_MEM_SETUP, not after AUTH. */
+static int
+k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
+    uint32_t desc_bytes, uint32_t tx_offset, uint32_t tx_bytes,
+    uint32_t rx_offset, uint32_t rx_bytes)
+{
+	volatile uint32_t *desc;
+	QcomGlinkFifo tx, rx;
+	const QcomGlinkClient callbacks = {k60_qrtr_state_cb, k60_qrtr_receive_cb};
+	int rc;
+
+	if (desc_bytes != 32 || tx_bytes < 1024 || rx_bytes < 1024) {
+		printf("K60MODEM glink: geometry wrong desc=%u tx=%u rx=%u\n",
+		    desc_bytes, tx_bytes, rx_bytes);
+		return -1;
+	}
+	desc = (volatile uint32_t *)(window + desc_offset);
+	if (desc[1] != 0 || desc[2] != 0) {
+		printf("K60MODEM glink: fifo not fresh (head=%u tail=%u)\n",
+		    desc[1], desc[2]);
+		return -1;
+	}
+	tx.head = &desc[1];
+	tx.tail = &desc[0];
+	tx.data = (volatile uint8_t *)(window + tx_offset);
+	tx.length = tx_bytes;
+	rx.head = &desc[3];
+	rx.tail = &desc[2];
+	rx.data = (volatile uint8_t *)(window + rx_offset);
+	rx.length = rx_bytes;
+	rc = qcom_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
+	if (rc != QcomGlinkOk) {
+		printf("K60MODEM glink: adopt rc=%d\n", rc);
+		return rc;
+	}
+	k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
+	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
+	    &callbacks, NULL, 1);
+	if (k60_qrtr_channel == NULL) {
+		printf("K60MODEM glink: no channel slot for IPCRTR\n");
+		return -1;
+	}
+	k60_qrtr_glink_ready = 1;
+	printf("K60MODEM glink: IPCRTR opened as initiator\n");
+	return 0;
+}
+
 int
 k60_modem_qrtr_probe(void)
 {
@@ -680,12 +803,12 @@ k60_modem_qrtr_probe(void)
 		return 0;   /* default: not one byte is touched */
 	}
 	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
-	    K60_MODEM_SMEM_BYTES, 0x2);
+	    K60_MODEM_SMEM_BYTES, 0x7);
 	if (window == NULL) {
 		printf("K60MODEM qrtr: smem map failed at %#x\n", K60_MODEM_SMEM_BASE);
 		return -1;
 	}
-	k60_qrtr_ipcc = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_IPCC_BASE, 0x1000, 0x2);
+	k60_qrtr_ipcc = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_IPCC_BASE, 0x1000, 0x7);
 	if (k60_qrtr_ipcc == NULL) {
 		printf("K60MODEM qrtr: ipcc map failed at %#x\n", K60_MODEM_IPCC_BASE);
 		return -1;
@@ -706,44 +829,56 @@ k60_modem_qrtr_probe(void)
 	}
 	printf("K60MODEM qrtr: glink desc=%#x/%u ours=%#x/%u theirs=%#x/%u\n",
 	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
-	if (!k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
-		printf("K60MODEM qrtr: modem not ready (smp2p items=%u state=%#x)\n",
-		    seen, seen != 0 ? ((volatile uint32_t *)(window + offsets[3]))[4] : 0);
-		return 0;
+	for (i = 0; i < K60_QRTR_POLLS; i++) {
+		if (k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
+			break;
+		}
+		delay(K60_QRTR_POLL_US);
 	}
-	if (sizes[0] != 32 || sizes[1] < 1024 || sizes[2] < 1024) {
-		printf("K60MODEM qrtr: glink geometry wrong desc=%u ours=%u theirs=%u\n",
-		    sizes[0], sizes[1], sizes[2]);
-		return -1;
+	if (i == K60_QRTR_POLLS) {
+		printf("K60MODEM qrtr: modem not ready after %u ms (smp2p items=%u)\n",
+		    K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u, seen);
+		return -2;
 	}
-	desc = (volatile uint32_t *)(window + offsets[0]);
-	/* A live Android epoch owns these indices; we never reset them. A fresh
-	 * epoch has our head and its tail at zero, which is what we adopt. */
-	if (desc[1] != 0 || desc[2] != 0) {
-		printf("K60MODEM qrtr: glink fifo not fresh (our_head=%u their_tail=%u), not adopted\n",
-		    desc[1], desc[2]);
-		return 0;
+	printf("K60MODEM qrtr: modem ready (smp2p items=%u)\n", seen);
+	if (!k60_qrtr_glink_ready) {
+		if (sizes[0] != 32 || sizes[1] < 1024 || sizes[2] < 1024) {
+			printf("K60MODEM qrtr: glink geometry wrong desc=%u ours=%u theirs=%u\n",
+			    sizes[0], sizes[1], sizes[2]);
+			return -1;
+		}
+		desc = (volatile uint32_t *)(window + offsets[0]);
+		/* A live Android epoch owns these indices; we never reset them. A
+		 * fresh epoch has our head and its tail at zero, which is what we adopt. */
+		if (desc[1] != 0 || desc[2] != 0) {
+			printf("K60MODEM qrtr: glink fifo not fresh (our_head=%u their_tail=%u), not adopted\n",
+			    desc[1], desc[2]);
+			return 0;
+		}
+		tx.head = &desc[1];
+		tx.tail = &desc[0];
+		tx.data = (volatile uint8_t *)(window + offsets[1]);
+		tx.length = sizes[1];
+		rx.head = &desc[3];
+		rx.tail = &desc[2];
+		rx.data = (volatile uint8_t *)(window + offsets[2]);
+		rx.length = sizes[2];
+		rc = qcom_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
+		if (rc != QcomGlinkOk) {
+			printf("K60MODEM qrtr: glink adopt rc=%d\n", rc);
+			return -1;
+		}
+		k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
+		    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
+		    &callbacks, NULL, 1);
+		if (k60_qrtr_channel == NULL) {
+			printf("K60MODEM qrtr: no channel slot for IPCRTR\n");
+			return -1;
+		}
+	} else {
+		printf("K60MODEM qrtr: GLINK already opened by transport\n");
 	}
-	tx.head = &desc[1];
-	tx.tail = &desc[0];
-	tx.data = (volatile uint8_t *)(window + offsets[1]);
-	tx.length = sizes[1];
-	rx.head = &desc[3];
-	rx.tail = &desc[2];
-	rx.data = (volatile uint8_t *)(window + offsets[2]);
-	rx.length = sizes[2];
-	rc = qcom_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
-	if (rc != QcomGlinkOk) {
-		printf("K60MODEM qrtr: glink adopt rc=%d\n", rc);
-		return -1;
-	}
-	k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
-	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents, &callbacks, NULL, 0);
-	if (k60_qrtr_channel == NULL) {
-		printf("K60MODEM qrtr: no channel slot for IPCRTR\n");
-		return -1;
-	}
-	printf("K60MODEM qrtr: waiting for the modem to open IPCRTR\n");
+	printf("K60MODEM qrtr: opening IPCRTR as initiator\n");
 	for (i = 0; i < K60_QRTR_POLLS; i++) {
 		const int polls = qcom_glink_poll(&k60_qrtr_link);
 
@@ -751,22 +886,46 @@ k60_modem_qrtr_probe(void)
 			printf("K60MODEM qrtr: glink poll rc=%d at %u\n", polls, i);
 			return polls;
 		}
-		if (k60_qrtr_up && !k60_qrtr_sent) {
+		if (k60_qrtr_up && !k60_qrtr_hello_sent) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
 
-			if (k60_qrtr_build_hello(packet, sizeof(packet), K60_QRTR_FIRST_PORT) != 0) {
-				(void)qcom_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet,
-				    K60_QRTR_LOOKUP_BYTES);
+			if (k60_qrtr_build_hello(packet, sizeof(packet)) != 0) {
+				const int send_rc = qcom_glink_send(&k60_qrtr_link,
+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
+
+				if (send_rc == QcomGlinkOk) {
+					k60_qrtr_hello_sent = 1;
+					printf("K60MODEM qrtr: sent hello from node %u port %#x\n",
+					    K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT);
+				} else if (send_rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: hello send rc=%d\n", send_rc);
+					return send_rc;
+				}
 			}
-			if (k60_qrtr_build_lookup(packet, sizeof(packet), K60_QRTR_FIRST_PORT) != 0) {
-				(void)qcom_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet,
-				    K60_QRTR_LOOKUP_BYTES);
-			}
-			k60_qrtr_sent = 1;
-			printf("K60MODEM qrtr: sent hello and new_lookup (0x0a) from port %#x\n",
-			    K60_QRTR_FIRST_PORT);
 		}
-		if (k60_qrtr_sent && k60_qrtr_state.services != 0 && i > 60) {
+		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
+		    !k60_qrtr_lookup_sent) {
+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
+			uint32_t to_node = k60_qrtr_state.remote_node;
+
+			if (to_node == K60_QRTR_CONTROL_PORT || to_node == K60_QRTR_AP_NODE) {
+				to_node = K60_QRTR_BROADCAST_NODE;
+			}
+			if (k60_qrtr_build_lookup(packet, sizeof(packet), to_node) != 0) {
+				const int send_rc = qcom_glink_send(&k60_qrtr_link,
+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
+
+				if (send_rc == QcomGlinkOk) {
+					k60_qrtr_lookup_sent = 1;
+					printf("K60MODEM qrtr: sent new_lookup (0x0a) to node %u\n",
+					    to_node);
+				} else if (send_rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: lookup send rc=%d\n", send_rc);
+					return send_rc;
+				}
+			}
+		}
+		if (k60_qrtr_lookup_sent && k60_qrtr_state.services != 0 && i > 60) {
 			break;
 		}
 		delay(K60_QRTR_POLL_US);

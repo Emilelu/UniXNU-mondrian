@@ -38,31 +38,33 @@ static size_t server_packet(uint8_t *out, uint32_t service, uint32_t instance, u
 static void check_lookup(void)
 {
 	uint8_t packet[64];
-	uint32_t n = k60_qrtr_build_lookup(packet, sizeof(packet), K60_QRTR_FIRST_PORT);
+	uint32_t n = k60_qrtr_build_lookup(packet, sizeof(packet), K60_QRTR_BROADCAST_NODE);
 	assert(n == 52);
 	assert(le32(packet + 0) == 1);                    /* version */
 	assert(le32(packet + 4) == 10);                   /* NEW_LOOKUP */
-	assert(le32(packet + 8) == 0);                    /* from_node: us */
-	assert(le32(packet + 12) == 0x4000);              /* from_port */
+	assert(le32(packet + 8) == K60_QRTR_AP_NODE);     /* from_node: us */
+	assert(le32(packet + 12) == 0xfffffffeu);         /* from_port: control */
 	assert(le32(packet + 16) == 0);                   /* confirm */
 	assert(le32(packet + 20) == 20);                  /* size */
 	assert(le32(packet + 24) == 0xffffffffu);         /* broadcast node */
 	assert(le32(packet + 28) == 0xfffffffeu);         /* control port */
 	assert(le32(packet + 32) == 10);                  /* command */
 	assert(le32(packet + 36) == 0 && le32(packet + 48) == 0);
-	assert(k60_qrtr_build_lookup(packet, 51, 0) == 0); /* refuses a short buffer */
-	assert(k60_qrtr_build_lookup(NULL, 64, 0) == 0);
+	assert(k60_qrtr_build_lookup(packet, 51, K60_QRTR_BROADCAST_NODE) == 0); /* short buffer */
+	assert(k60_qrtr_build_lookup(NULL, 64, K60_QRTR_BROADCAST_NODE) == 0);
 	printf("lookup ok: 52 bytes, type 10, node 0xffffffff port 0xfffffffe\n");
 }
 
 static void check_hello(void)
 {
 	uint8_t packet[64];
-	assert(k60_qrtr_build_hello(packet, sizeof(packet), 0x4000) == 52);
+	assert(k60_qrtr_build_hello(packet, sizeof(packet)) == 52);
 	assert(le32(packet + 4) == 2);
+	assert(le32(packet + 8) == K60_QRTR_AP_NODE);
+	assert(le32(packet + 12) == 0xfffffffeu);
 	assert(le32(packet + 32) == 2);
-	assert(le32(packet + 24) == 0xfffffffeu);
-	printf("hello ok: type 2 to the control port\n");
+	assert(le32(packet + 24) == K60_QRTR_BROADCAST_NODE);
+	printf("hello ok: type 2 from node 1 to the broadcast node\n");
 }
 
 static void check_parse_and_verdict(void)

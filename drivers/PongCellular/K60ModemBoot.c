@@ -123,14 +123,13 @@ k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read, int pha
 	}
 #endif
 
-	rc = k60_modem_mem_setup((uint64_t)K60_MODEM_BASE,
-	    (uint64_t)K60_MODEM_WINDOW);
+	rc = k60_modem_mem_setup((uint64_t)plan.base, (uint64_t)plan.span);
 	if (rc != K60ModemPasOk) {
 		printf("K60MODEM mem_setup failed rc=%d\n", rc);
 		return rc;
 	}
 	printf("K60MODEM mem_setup ok base=%#x span=%#x\n",
-	    (unsigned)K60_MODEM_BASE, (unsigned)K60_MODEM_WINDOW);
+	    (unsigned)plan.base, (unsigned)plan.span);
 
 	if (phase == K60_MODEM_PHASE_METADATA_ONLY) {
 		printf("K60MODEM diagnostic stop after mem_setup: auth_reset not sent\n");
@@ -198,7 +197,10 @@ k60_modem_probe_from_handoff(void)
 	if (enabled >= 2) {
 		extern int k60_modem_qrtr_probe(void);
 
-		(void)k60_modem_qrtr_probe();
+		rc = k60_modem_qrtr_probe();
+		if (rc != 0) {
+			return rc;
+		}
 	}
 	return rc;
 }

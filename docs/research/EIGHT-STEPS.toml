@@ -239,7 +239,7 @@ local_verified = true
 evidence = "构建通过且产物含 K60 PANEL（8 处）与 K60 DISPLAY 字符串；kernel.macho sha256 5600824f，2026-11-12 多次构建均保留。"
 static_check = "分帧调用顺序与官方 show() 语义一致（iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032）；弱桩与真实 archive 共存已验证：git apply 通过，链接无 undefined（P-140）。"
 unit_test = "scripts/check-panel-timing.py：10 个 timing@2 包逐字节、p120 门控、INTF1 前后采样与 300 ms 等待全部断言；check-brightness-encoder.py 仍通过。"
-artifact_check = "产物字符串核对通过：K60 PANEL 命中 8 次，K60 DISPLAY 命中 1 次。"
+artifact_check = "brightness-19 产物字符串核对通过（K60 PANEL 8 次、K60 DISPLAY 1 次）；120hz-1 boot.img 201,887,744 B sha256 ff44c7a8e225d18a423e0ff22c96bf2235fd360fe34ad26d0a6a568897fa0b42、kernel_built 105,521,152 B sha256 5e39e26c042c257aa5e14b00444876543f7323b6c650e3506032a58124ed27bc，manifest head b27ca3d8、p120=1、image-arg-audit OK (30 arguments, 582 bytes)。"
 
 [hardware.display.step.device]
 done = true

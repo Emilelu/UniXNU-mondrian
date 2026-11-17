@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: implementation complete (code commit 410159c7), awaiting the 120hz-1 build and flight, 2026-11-17. Branch: `feat/120hz-panel`.
+Status: build complete (`120hz-1`, 2026-11-17 13:23 +08:00), awaiting the flight; code commit 410159c7, docs HEAD b27ca3d8. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -62,6 +62,19 @@ DarwinBoot accepts at most 607 bytes (`DARWIN_BOOT_LINE_LENGTH == 608`,
 `p120=1` adds 7 bytes (582). If `k60_backlight_control=1` is also used, the
 line is 606 bytes. The image audit must print `image-arg-audit: OK` with the
 actual count and byte length.
+
+## Build record (2026-11-17 13:23 +08:00)
+
+`120hz-1` was built from branch `feat/120hz-panel` at HEAD `b27ca3d8`
+(clean tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg p120=1`:
+
+- `boot.img` 201,887,744 B, SHA-256
+  `ff44c7a8e225d18a423e0ff22c96bf2235fd360fe34ad26d0a6a568897fa0b42`
+- `kernel_built` 105,521,152 B, SHA-256
+  `5e39e26c042c257aa5e14b00444876543f7323b6c650e3506032a58124ed27bc`
+- manifest `E:/k60-work/artifacts/120hz-1/build-manifest.json`;
+  `kernel_args_requested=["p120=1"]`; `image-arg-audit: OK (30 arguments, 582 bytes)`;
+  `verify-boot-image: OK`.
 
 ## Pre-registered success criteria (write before the flight)
 

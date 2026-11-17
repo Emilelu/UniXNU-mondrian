@@ -51,7 +51,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 | L2 | QRTR 名字服务只读枚举（HELLO + `NEW_LOOKUP` + `NEW_SERVER` 表） | 无（照 Linux `net/qrtr/` 协议定义自研） | **已落地**（`K60ModemQrtr.c` + `K60ModemLink.c`） |
 | L2 | QMI client 分配 / CTL 服务 / `servreg` 查询 | 参考实现 `hakios.qmi.c` | 未开始（L4） |
 
-**当前不装**：QMAP、EFS/NV 服务、mbn 选择、IMS/VoLTE（`03-SCOPE.md` §4 已标为历史范围；数据面计划见 `20-IPA-V51-DATA-PATH.md`）。M1 已有 payload FAT 调用点和 `IPA/ipa_fws.mbn` 路径；M2a 只读 GSI 能力/所有权预检；M2 host 模块与运行时 glue 已写并编进内核（kernel 09fd0a0c），但未上机，ring/GSI/SMMU 没有硬件验证。
+**当前不装**：QMAP、EFS/NV 服务、mbn 选择、IMS/VoLTE（`03-SCOPE.md` §4 已标为历史范围；数据面计划见 `20-IPA-V51-DATA-PATH.md`）。M1 已有 payload FAT 调用点和 `IPA/ipa_fws.mbn` 路径；M2a 只读 GSI 能力/所有权预检；M2 host 模块与运行时 glue 已写并编进内核（kernel 63645bc3），但未上机，ring/GSI/SMMU 没有硬件验证。
 
 ## 2. 关键常量（已取证，勿凭记忆改）
 
@@ -80,7 +80,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 2. **L1/L2 阶段只读** `modemst1`/`modemst2`/`fsg`/`fsc`，不写。
 3. **加载 modem 前先查它是否已在运行** —— 从 Android 热重启进 XNU 时，modem 可能仍活着；
    直接 `PAS_AUTH_AND_RESET` 会打断一个正在运行的 modem（`03-SCOPE.md` §5）。
-4. IPA 代码已写 M0 骨架、M1 固件校验/暂存/PAS 路径与 M2 运行时 glue（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`/`K60IpaGsi.h`/`K60IpaGsi.c`/`K60IpaSmmu.h`/`K60IpaSmmu.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟、初始化 IPA5.1 资源表并预检 GSI EE0（M2a 只读检查）；M2 运行时在 `pong_ipa=2` 门控下分配 1 MiB ring 与 0x8000 SMMU 表块、构建 ArmSmmu4K 三区间页表并启动 GSI command-DMA，已编进内核 f0d90680，并生成三张 k8 M2 诊断镜像（C/C0/IPA-only）；但尚未上机，ring/GSI/SMMU 没有硬件验证。
+4. IPA 代码已写 M0 骨架、M1 固件校验/暂存/PAS 路径与 M2 运行时 glue（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`/`K60IpaGsi.h`/`K60IpaGsi.c`/`K60IpaSmmu.h`/`K60IpaSmmu.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟、初始化 IPA5.1 资源表并预检 GSI EE0（M2a 只读检查）；M2 运行时在 `pong_ipa=2` 门控下分配 1 MiB ring 与 0x8000 SMMU 表块、构建 ArmSmmu4K 三区间页表并启动 GSI command-DMA，已编进内核 63645bc3，并生成四张 k9 M2 诊断镜像（C/C0/IPA-only/B-full）与标准镜像；但尚未上机，ring/GSI/SMMU 没有硬件验证。
 5. **不自行 boot**：镜像与脚本交给 Lead，由 Lead 在用户明确同意后执行 `fastboot boot`。
 
 ## 4. 开工前必须存在的前置件

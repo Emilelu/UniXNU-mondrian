@@ -289,7 +289,7 @@
 	 *
 	 * Omitted for the reason in note 2: clocks, memory-regions, interconnects,
 	 * and every iommus / qcom,smem-states / interrupts-extended inside the
-	 * child nodes. qcom,ipa-hw-ver = 0x16 is IPAv4.5 and qcom,ipa-hw-mode = 0
+	 * child nodes. qcom,ipa-hw-ver = 0x16 is IPA v5.1 APQ under the working assumption in docs/research/cellular/20-IPA-V51-DATA-PATH.md and qcom,ipa-hw-mode = 0
 	 * is the GSI mode; both are firmware facts, not configuration.
 	 */
 	qcom,ipa@3e00000 {

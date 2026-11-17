@@ -84,6 +84,24 @@
 
 获取 pinned 源时发现本机网络拒绝 `raw.githubusercontent.com`（SSL EOF），而 `api.github.com` 的 contents API 在同 commit 返回同样字节；`fetch-adreno-inputs.py` 已加该回退，28 个 pinned 输入全部按 sha256 校验通过。
 
+### 2.3 M3 实测：官方链能构建，但产物是 iOS 17.0（2026-11-18）
+
+在 LAN Mac 上按官方三步实际构建（commit pin `642c4fe`，`drivers/AdrenoMetal` = `ce63701`、`metal2vulkan` = `963f0e6`）：
+
+| 产物 | 字节 | 结论 |
+|---|---:|---|
+| `libadreno_metal_bridge.a` | 238,014,520 | 静态桥接，arm64 |
+| `NativeAdrenoMetal.bundle/NativeAdrenoMetal` | 20,180,432 | Mach-O bundle arm64 |
+| `NativeAdrenoMetal.bundle/libvulkan_freedreno.dylib` | 17,293,520 | 复用已编 Turnip |
+| `adrenoprobed` | 129,568 | daemon |
+| `NativeAdrenoMetal.gpuaddon` | 12,784,432 | `NGPUADD2`，10 条目，含 5 个 bundle 文件 + `.publish` + daemon plists |
+
+**阻断（决定性）**：官方 `--target ios` 产出 `LC_BUILD_VERSION minos 17.0`、`MinimumOSVersion 17.0`；本机 OS 是 **iOS/iPadOS 16.6.1（20G81）**，插件不会加载。强行 `-target arm64-apple-ios16.6.1` 在 `NativeBridgeMetalFrontend.mm:822` 因 `MTLLanguageVersion3_1`（iOS 17 才可用，`-Werror,-Wunguarded-availability-new`）失败。
+
+**另一个仓库缺陷**：当前框架 HEAD `4eaf2b9` 的 `drivers/AdrenoMetal` gitlink 是 `ce5e19e`（16 个补丁），而同一提交的 `scripts/build-adreno-metal-bridge.py` 仍列 25 个补丁（只在 `ce63701` 存在）⇒ HEAD 自相矛盾，官方链只能锚在 `642c4fe` 这套一致 pin 上构建。
+
+⇒ 官方插件在本机 OS 上**不可直接用**；要用它必须先做 16.6 回移（至少 `MTLLanguageVersion3_1` 的可用性守卫 + 逐个 MSL 3.1 特性核对），或把 OS 升到 17。两条都不在「首帧」最短路径上：现有 Pong 插件就是 16.6.1 原生、且已能创建设备。
+
 ## 3. 里程碑与验收（每条都先有离线证据再上机）
 
 - **M1 生成 A730 寄存器表**：`scripts/derive-a730-hwinit.py`（从 `derive-a740-hwinit.py` 派生）+ 单测断言表内每个符号都能在 pinned XML 里解析、`a730_protect` 计数与 `DECLARE_ADRENO_PROTECT(a730_protect, N)` 一致。产出 `NativeAdrenoA730HwInit.h`，与 A740 版本做 diff 报告（哪些寄存器偏移不同）。

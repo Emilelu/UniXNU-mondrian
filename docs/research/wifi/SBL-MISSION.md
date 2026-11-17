@@ -1,10 +1,11 @@
 # SBL mission poll: cache AMSS after the direct BHIe push
 
 Written 2026-11-18. Scope: why the direct candidate's remaining failure is the
-host's cached execution environment, the single-variable successor that polls
-`BHI_EXECENV` after `mhi_download_amss_image()`, and the prewritten acceptance
-criteria for `wifi-20261118sbl-mission`. This is the evidence record for the
-mission-poll candidate; c8 remains HOLD.
+host's cached execution environment, the successor that polls `BHI_EXECENV`
+after `mhi_download_amss_image()` and then creates the MHI devices for the
+AMSS channels, and the prewritten acceptance criteria for
+`wifi-20261118sbl-mission2`. This is the evidence record for the mission-poll
+candidate; c8 remains HOLD.
 
 ## 0. Conclusion first
 
@@ -12,7 +13,7 @@ mission-poll candidate; c8 remains HOLD.
 |---|---|
 | What did the direct candidate prove? | The direct BHIe push works: the 2026-11-18 01:29 flight logged `amss bhie load ret=0 exec_env=1`, then the device reported `exec_env=2` (AMSS), `pm_state=4` (`MHI_PM_M0`) and `mhi_state=2` (`MHI_STATE_M0`). See `SBL-DIRECT.md` §6. |
 | Why is WiFi still failing? | `mhi_sync_power_up` (`pm.c:1277-1295`) waits on `MHI_IN_MISSION_MODE(mhi_cntrl->ee)`, but the host cached `ee=1` (SBL). The only EE event consumed was `execenv=1`; no later EE event updated the cache even though the device had reached AMSS. |
-| What changes in this candidate? | After the direct `mhi_download_amss_image()` returns 0, the same worker polls `mhi_get_exec_env` for up to 500 x 10 ms. On `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission` and calls `wake_up_all(&mhi_cntrl->state_event)`, so `mhi_sync_power_up` sees mission mode instead of a stale SBL value and wakes from its wait. |
+| What changes in this candidate? | After the direct `mhi_download_amss_image()` returns 0, the same worker polls `mhi_get_exec_env` for up to 500 x 10 ms. On `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission`, calls `mhi_create_devices(mhi_cntrl)` so the IPCR channels (`ee_mask = 0x4`, AMSS-only) are created, and calls `wake_up_all(&mhi_cntrl->state_event)`, so `mhi_sync_power_up` sees mission mode instead of a stale SBL value and wakes from its wait. |
 | Is this the official path? | Yes. UniXNU-sheng `516a7804` `package/MhiBoot.c:117-119` has `MhiWaitMission`, which polls the execution environment until AMSS/WFW after the BHIe image. Stock Linux has no equivalent poll after `mhi_download_amss_image`; the cached EE is only refreshed by an EE event. |
 | Is this proven on K60? | **No — built only, not flown.** The image is `hardware_tested: false` until the first flight. |
 
@@ -41,6 +42,8 @@ source. `E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
 - `:355-366`: assigns `amss_ret = mhi_download_amss_image(mhi_cntrl);`; only
   when it is zero, runs the bounded `for (j = 0; j < 500; j++)` poll. On
   `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission`, calls
+  `mhi_create_devices(mhi_cntrl)` at `:361` so the AMSS-only IPCR channels
+  (`ee_mask = 0x4`) get MHI device objects, calls
   `wake_up_all(&mhi_cntrl->state_event)` and logs
   `Pong MHI: exec_env=%d after AMSS download; cached ee updated`; it stops on
   `MHI_EE_MAX` and sleeps 10 ms between samples.
@@ -56,7 +59,7 @@ Generated source anchors from the mission archive:
 
 | file | anchor |
 |---|---|
-| `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-662; mission log :656 |
+| `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-662; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :656 |
 | `mhi/pm.c` | guard :828; latch :834; fallback download :843 |
 | `pinned/linux/mhi.h` | `bool pong_sbl_pushed;` at :445 |
 
@@ -72,27 +75,28 @@ single-variable fix.
 
 | field | value |
 |---|---|
-| tag | `wifi-20261118sbl-mission` |
-| built_at | 2026-11-18T01:56:25+08:00 |
-| branch / head | `fix/wifi-mission-poll` / `b60bd6ef231fdfac775c41d07ecf4e43ef69df0f` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission/boot.img`, 201,887,744 B, SHA256 `be6ba473de4c89cdbd9f2869e198519365a7beb661ae057be607c0d58cb346c2` |
-| kernel | `94ffafa81d390f2c191593844231bd8850cb2070acf9cc4428e7c0eec01f7419` |
-| payload kernel | `21d47b644d25b5210867989eaccebdb7bc4409b9b451ef0da48e71206c447294` |
-| WiFi archive | `53e8e8a2898bb56065b91e53165a1360d0674b522b21f04ff620c02675982bd6` |
-| ath11k archive | `f4fb41cb1b13d0adfcb59ab19b5b80d0f1d41bf4df3e379fbac156726a852a0d` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission/build-manifest.json` |
+| tag | `wifi-20261118sbl-mission2` |
+| built_at | 2026-11-18T02:22:29+08:00 |
+| branch / head | `fix/wifi-mission-poll` / `3bb68355e5a46eaba0c58d9795377652bce29237` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission2/boot.img`, 201,887,744 B, SHA256 `deeadc2c0dd27ffe00db25f6259400bcfbe94d726b8d175d71fdffb4c9611c07` |
+| kernel | `38c6c11f52361192513d38f01bb4d19b7f0601841575041dc339c5083fa283c6` |
+| payload kernel | `5f02003356bae7dc6a33c6e5e5bdc60963462b44ce2a93eeeacf0767cf3a850b` |
+| WiFi archive | `16d8d06219a9c16c01210d3f47fdff230c63505b99a32f0d1b936db8fc037328` |
+| ath11k archive | `c13c4385fee8606dd39a40b1d6264e1c5fbc6f540895c225653d18b91b1bba35` |
+| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission2/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
 
-This candidate is a single-variable test: stock six WLAN rails, `amss20.bin`,
-`k60_wifi_rsc=2`, no MHI pre-load, no IPA rail, no c8 raw-register dump. The
-earlier queue image `wifi-20261118sbl-gated` must not be re-flown; its first
-flight is recorded in `SBL-QUEUE.md` §6. The direct image
-`wifi-20261118sbl-direct` was flown once and its result is in `SBL-DIRECT.md`
-§6.
+This candidate is the mission-poll successor plus the `mhi_create_devices`
+call: stock six WLAN rails, `amss20.bin`, `k60_wifi_rsc=2`, no MHI pre-load,
+no IPA rail, no c8 raw-register dump. The earlier queue image
+`wifi-20261118sbl-gated` must not be re-flown; its first flight is recorded in
+`SBL-QUEUE.md` §6. The direct image `wifi-20261118sbl-direct` was flown once and
+its result is in `SBL-DIRECT.md` §6. The pre-device-creation mission image
+`wifi-20261118sbl-mission` was built but never flown and is superseded.
 
 Offline checks performed:
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
-- `python3 scripts/tests/test-wifi-sbl-mission.py` — 25 source/artifact checks,
+- `python3 scripts/tests/test-wifi-sbl-mission.py` — 27 source/artifact checks,
   0 failures.
 - WSL `python3 scripts/verify-boot-image.py --manifest /mnt/e/...` — OK.
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
@@ -112,6 +116,8 @@ The image is only valid with a serial console captured before `fastboot boot`.
   appear.
 - The new line `Pong MHI: exec_env=2 after AMSS download; cached ee updated`
   appears (or `exec_env=4` for WFW), with no matching `Pong MHI: timeout after 20000 ms`.
+- No `qrtr: cannot start the IPCR channels`; the two IPCR MHI devices exist after
+  `mhi_create_devices`.
 - `ath11k: chip_id 0x12 ...` and `fw_version ...` appear, with no
   `ath11k: failed to power up mhi: -110`.
 

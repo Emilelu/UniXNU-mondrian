@@ -44,6 +44,44 @@
 
 ⇒ 代际差异只剩 **11 条时钟门控写**，其余全是板级文件（时钟/电源/固件名）。官方 KMD 的「代际工作量」比 §2 的估算还小。
 
+### 2.2 K60 板级数据（实测自 live FDT `reports/live-6033dbec-fdt.dtb` 与设备固件）
+
+官方 KMD 的 `NativeAdrenoGmuPlatform` 只要**五个已经映射并上电的窗口**加真实时间回调，本身不做任何 map/clock/power。本机对应值（`dtc -I dtb -O dts` 后 `/soc/qcom,kgsl-3d0@3d00000` 与 `/soc/qcom,gmu@3d69000`）：
+
+| 用途 | 节点 | 基址 | 长度 |
+|---|---|---|---|
+| GPU 寄存器窗口 | kgsl-3d0 `kgsl_3d0_reg_memory` | `0x3d00000` | `0x40000` |
+| GMU core | gmu `gmu` | `0x3d68000` | `0x37000` |
+| RSCC | kgsl-3d0 `rscc` | `0x3d50000` | `0x10000` |
+| PDC | gmu `gmu_pdc` | `0xb290000` | `0x10000` |
+| CX misc | kgsl-3d0 `cx_misc` | `0x3d9e000` | `0x1000` |
+| （备用）CX DBGC | kgsl-3d0 `cx_dbgc` | `0x3d61000` | `0x800` |
+| （备用）GMU AO | gmu `gmu_ao_blk_dec0` | `0x3d40000` | `0x10000` |
+
+- 标识：`compatible = "qcom,adreno-gpu-gen7-4-0", "qcom,kgsl-3d0"`、`qcom,gpu-model = "Adreno730v3"`、`qcom,chipid = <0x7030002>`、`qcom,ubwc-mode = <0x04>`、`qcom,min-access-length = <0x20>`、`qcom,initial-pwrlevel = <0x0b>`。
+- 中断：GPU `0x12c`(300) + `0x11e`(286)；GMU `0x130`(304) + `0x131`(305)。
+- 电源：GMU 节点 `regulator-names = "vddcx", "vdd"`；`iommus = <0x221 0x05 0x400>`、`qcom,iommu-dma = "disabled"`（SID 由 `NativeAdrenoBoard::parseIommus` 从同一属性提取，不猜 context bank）。
+- **固件（已在本机，来自设备只读提取）**：`gmu_gen70000.bin` 57,272 B（GMU，gen70000 即 A730）、`a730_sqe.fw` 74,676 B（SQE）、`a730_zap.mdt` 3,564 B + `a730_zap.b01` 2,236 B + `a730_zap.b02` 3,416 B（Zap shader）。路径 `E:/k60-work/adsp-device-20261116/.cache/firmware/k60-gpu/`。
+- **时钟档表（12 档，`qcom,gpu-pwrlevels`，实测原值）**：
+
+| 档 | MHz | level |
+|---|---|---|
+| 0 | 900 | 0x1a0 |
+| 1 | 862 | 0x180 |
+| 2 | 815 | 0x140 |
+| 3 | 765 | 0x100 |
+| 4 | 710 | 0x0e0 |
+| 5 | 645 | 0x0c0 |
+| 6 | 580 | 0x090 |
+| 7 | 515 | 0x080 |
+| 8 | 439 | 0x060 |
+| 9 | 364 | 0x050 |
+| 10 | 324 | 0x040 |
+| 11 | 285 | 0x038 |
+
+⇒ M2 的「板级文件」在本机不是空缺：窗口地址、IRQ、SID 属性、三套固件、12 档频率全部有实测来源；要写的只是一个把 Pong 侧已有的时钟/电源/映射接到 `NativeAdrenoGmuPlatform` 的适配层。
+
+
 获取 pinned 源时发现本机网络拒绝 `raw.githubusercontent.com`（SSL EOF），而 `api.github.com` 的 contents API 在同 commit 返回同样字节；`fetch-adreno-inputs.py` 已加该回退，28 个 pinned 输入全部按 sha256 校验通过。
 
 ## 3. 里程碑与验收（每条都先有离线证据再上机）

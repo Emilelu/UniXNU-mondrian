@@ -278,7 +278,8 @@ def main(argv):
              {'"QcomGlink.h"': '"qcom_glink.h"'}),
             ("drivers/PongCellular/K60ModemLink.c", "bsd/dev/pong_modem_link.c",
              {'"K60ModemQrtr.h"': '"pong_modem_qrtr.h"', '"K60Smem.h"': '"pong_smem.h"',
-              '"QcomGlink.h"': '"qcom_glink.h"'}),
+              '"QcomGlink.h"': '"qcom_glink.h"',
+              '"K60PmicRail.h"': '"pong_pmic_rail.h"'}),
         ]
         for repo_rel, patch_rel, include_map in qrtr_pairs:
             local = REPO / repo_rel

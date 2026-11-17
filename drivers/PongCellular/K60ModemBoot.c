@@ -56,6 +56,11 @@ extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32
 #define K60_MODEM_PHASE_FULL 0
 #define K60_MODEM_PHASE_METADATA_ONLY 1
 
+#ifndef K60_HOST_TEST
+extern int k60_modem_transport_prepare(void);
+extern int k60_modem_rails_vote(void);
+#endif
+
 int
 k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read, int phase)
 {
@@ -84,6 +89,17 @@ k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read, int pha
 		    plan.base);
 	}
 
+#ifndef K60_HOST_TEST
+	if (phase != K60_MODEM_PHASE_METADATA_ONLY) {
+		rc = k60_modem_rails_vote();
+		if (rc != 0) {
+			printf("K60MODEM power failed rc=%d\n", rc);
+			return rc;
+		}
+		printf("K60MODEM power prepared\n");
+	}
+#endif
+
 	/* One call, with the metadata page. INIT_IMAGE must not be replayed per
 	 * segment: the monitor reads the ELF header and the hash from this page
 	 * to find every segment itself. */
@@ -95,6 +111,17 @@ k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read, int pha
 	}
 	printf("K60MODEM init_image ok metadata=%#x bytes=%u\n",
 	    (unsigned)K60_MODEM_METADATA, (unsigned)K60_MODEM_METADATA_BYTES);
+
+#ifndef K60_HOST_TEST
+	if (phase != K60_MODEM_PHASE_METADATA_ONLY) {
+		rc = k60_modem_transport_prepare();
+		if (rc != 0) {
+			printf("K60MODEM transport failed rc=%d\n", rc);
+			return rc;
+		}
+		printf("K60MODEM transport prepared\n");
+	}
+#endif
 
 	rc = k60_modem_mem_setup((uint64_t)K60_MODEM_BASE,
 	    (uint64_t)K60_MODEM_WINDOW);

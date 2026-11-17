@@ -78,7 +78,7 @@
 | 1. GLINK 通道 `IPCRTR` 建立 | DT: `qcom,glink-channels = "IPCRTR"`、3 组 intents（`0x800×5`、`0x2000×3`、`0x4400×2`） | GLINK 协议已有，多通道化缺 | 对端在通道建立后会发 `OPEN` ack；Android 侧同名通道在 `/sys/class/remoteproc/remoteproc2/.../IPCRTR` 可见（已取证） |
 | 2. AF_QIPCRTR 内核协议 | Linux 里是 `net/qrtr/` 一个独立协议族（`QIPCRTR`，`/proc/net/protocols` 已见） | **缺**（XNU 无此协议族） | 能 `socket(AF_QIPCRTR)` 并收发 |
 | 3. QRTR 名字服务 | 需要 QRTR NS 逻辑（`QRTR_TYPE_NEW_LOOKUP` 广播 → `NEW_SERVER` 回应） | **缺** | 能列出 `servreg`/`gps_service`；**基准已实测**：Android 侧同一广播收到 node 0 的 36 条服务应答（`01` §5.4.1） |
-| 4. `servreg` 查询拿版本 | `modemr.jsn` 给出 `soc=msm, domain=modem, subdomain=root_pd, qmi_instance_id=180` | **缺** | 返回 `MPSS.DE.2.0.c1-CN-Jan 13 2026-02:08:51` 或等价版本串 |
+| 4. `servreg` 查询拿版本 | `modemr.jsn` 给出 `soc=msm, domain=modem, subdomain=root_pd, qmi_instance_id=180` | **已实现（离线）**：`K60ModemQrtr.c` 的 service-64 servloc 应答与 DMS GetRevision(0x23) | 返回 `MPSS.DE.2.0.c1-CN-Jan 13 2026-02:08:51` 或等价版本串 |
 
 **最小可行路径**（建议按这个顺序做，每步都能独立验证）：
 

@@ -15,7 +15,12 @@ Cases:
   5. a gate table naming a script that does not exist fails;
   6. a build-strict gate missing from the README table fails;
   7. ZH and EN tables naming different sets fails;
-  8. the real repo is self-consistent (regression canary).
+  8. a stale eight-step table fails;
+  9. a ledger-less fixture skips the table check;
+ 10. Chinese text in README_EN fails;
+ 11. a heading-count mismatch fails;
+ 12. a code-fence mismatch fails;
+ 13. the real repo is self-consistent (regression canary).
 """
 
 from __future__ import annotations
@@ -207,6 +212,39 @@ def a_repo_without_a_ledger_skips_the_table_check():
     problems = gate.run_checks(repo=str(tmp))
     assert not any("八步" in x for x in problems), \
         f"a ledger-less fixture must skip the table check, got {problems}"
+
+
+@case
+def a_chinese_paragraph_in_readme_en_fails():
+    gate = load_gate()
+    tmp = make_fixture()
+    p = tmp / "README_EN.md"
+    p.write_text(p.read_text(encoding="utf-8") + "\n这是中文。\n", encoding="utf-8")
+    problems = gate.run_checks(repo=str(tmp))
+    assert any("仍有中文" in x for x in problems), \
+        f"expected an untranslated-text problem, got {problems}"
+
+
+@case
+def a_heading_mismatch_fails():
+    gate = load_gate()
+    tmp = make_fixture()
+    p = tmp / "README_EN.md"
+    p.write_text(p.read_text(encoding="utf-8") + "\n## Extra section\n", encoding="utf-8")
+    problems = gate.run_checks(repo=str(tmp))
+    assert any("章节数量/层级不一致" in x for x in problems), \
+        f"expected a heading-structure problem, got {problems}"
+
+
+@case
+def a_code_fence_mismatch_fails():
+    gate = load_gate()
+    tmp = make_fixture()
+    p = tmp / "README_EN.md"
+    p.write_text(p.read_text(encoding="utf-8") + "\n```\n", encoding="utf-8")
+    problems = gate.run_checks(repo=str(tmp))
+    assert any("代码块数量不一致" in x for x in problems), \
+        f"expected a code-fence problem, got {problems}"
 
 
 @case

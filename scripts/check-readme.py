@@ -24,7 +24,10 @@ reconciliation keeps it honest. This script checks:
      updating the READMEs fails);
   5. eight-step table: the EIGHT-STEP-TABLE block in both READMEs equals what
      render-eight-step-table.py would render from EIGHT-STEPS.toml (so a merge
-     that adds a [hardware.*] line without regenerating the tables fails).
+     that adds a [hardware.*] line without regenerating the tables fails);
+  6. translation: README_EN may only contain Chinese on its two language-link
+     labels, and it must keep the same heading levels and code-fence count as
+     README.md (the user's rule: README_EN is a full translation of README).
 
 Usage: python3 scripts/check-readme.py   (exit 0 = consistent)
 """
@@ -227,6 +230,31 @@ def check_gate_table():
     return problems
 
 
+def check_translation():
+    problems = []
+    zh = read(README)
+    en = read(README_EN)
+    allowed = {
+        '[中文版](README.md)',
+        '| [`README.md`](README.md) | 中文版 |',
+    }
+    for lineno, line in enumerate(en.splitlines(), 1):
+        if re.search(r'[\u4e00-\u9fff]', line) and line.strip() not in allowed:
+            problems.append('README_EN.md:%d 仍有中文（英文版必须是完整翻译）：%s' %
+                            (lineno, line.strip()))
+    zh_headings = [len(m.group(1)) for m in
+                   re.finditer(r'^(#{1,3})\s+\S', zh, re.M)]
+    en_headings = [len(m.group(1)) for m in
+                   re.finditer(r'^(#{1,3})\s+\S', en, re.M)]
+    if zh_headings != en_headings:
+        problems.append('README_EN.md 与 README.md 的章节数量/层级不一致，英文版必须是完整翻译')
+    zh_fences = len(re.findall(r'^```', zh, re.M))
+    en_fences = len(re.findall(r'^```', en, re.M))
+    if zh_fences != en_fences:
+        problems.append('README_EN.md 与 README.md 的代码块数量不一致，英文版必须是完整翻译')
+    return problems
+
+
 def check_eight_step_table():
     """The EIGHT-STEP-TABLE blocks equal the freshly rendered tables."""
     problems = []
@@ -284,6 +312,7 @@ def run_checks(repo=None):
     problems += check_dates()
     problems += check_ranges()
     problems += check_gate_table()
+    problems += check_translation()
     problems += check_eight_step_table()
     return problems
 
@@ -295,7 +324,7 @@ def main():
             print('❌ %s' % p)
         print('README 与现状不一致：%d 处。请更新 README.md / README_EN.md' % len(problems))
         sys.exit(1)
-    print('✅ README 与 STATUS、HARD-RULES/PITFALLS 编号、build-strict 门禁、八步表全部一致')
+    print('✅ README 与 STATUS、HARD-RULES/PITFALLS 编号、build-strict 门禁、八步表、翻译全部一致')
     sys.exit(0)
 
 

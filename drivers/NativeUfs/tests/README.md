@@ -54,5 +54,9 @@ IOKit. `PongUfsTransport.cpp` now calls the verifier under
 `NATIVE_VERIFIED_BLOCK` (default off); `build-pong-ufs-probe-macos.py --verified-root`
 also compiles `verified_root.c` and `xnu_crypto.c` into the archive, while the kernel
 link must still supply the generated policy bundle (`verified_root_policies` and
-`verified_root_key`) when that switch is enabled. See step 2b in
-`docs/plans/SHENGUFS-VERIFIED-TABLE-PORT.md`.
+`verified_root_key`) when that switch is enabled. Step 3b splits `PongUfsBlock`
+into `prepareForPublish`/`publishWindow` and publishes the root windows
+asynchronously through `ufsPrepareRootWindows`/`ufsPublishRootWindows`; OS and
+SystemOS require a verified UUID, Data keeps the ancestor match. The IOKit path
+is compiled in the probe build but has not run on hardware. See steps 2b and 3b
+in `docs/plans/SHENGUFS-VERIFIED-TABLE-PORT.md`.

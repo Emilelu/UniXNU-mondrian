@@ -1260,6 +1260,9 @@ static bool pipelineArchives(NSArray *list,std::vector<NmbBinaryArchive *> &arch
 // creation threw and iconservicesagent aborted while rasterizing symbol glyphs. The GPU has no memory of its own; it shares the system's.
 - (uint64_t)dedicatedMemorySize {return 0;}
 - (uint64_t)sharedMemorySize {return [NSProcessInfo processInfo].physicalMemory;}
+// Core Image/MPS's CIMetalDeviceGetLimits reads gpuCoreCount. This is board topology, not a runtime query: SM8475's
+// A730 has four SP/CCU blocks, as against the eight of the A740 board the original frontend was written for.
+- (NSUInteger)gpuCoreCount {return 4;}
 - (BOOL)isLowPower {return NO;}
 - (BOOL)isRemovable {return NO;}
 - (BOOL)isHeadless {return NO;}
@@ -1512,6 +1515,9 @@ static BOOL flagArgAnswer(id,SEL cmd,NSUInteger arg) {return askAnswer(cmd,arg)!
 static void installAnswers(Class cls) {
  uint32_t kind=0;
  for(size_t i=0;const char *name=nmb_device_answer_selector(i,&kind);i++) {
+  // Board methods were installed first. Do not probe the runtime's generic absent answer for a selector the qualified
+  // frontend already implements.
+  if(class_getInstanceMethod([NBDeviceMethods class],sel_registerName(name)))continue;
   SEL sel=sel_registerName(name);uint64_t value=0;
   switch(kind) {
   case NMB_ANSWER_COUNT: case NMB_ANSWER_FLAG:

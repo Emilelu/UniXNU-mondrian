@@ -389,10 +389,26 @@ evidence = [
   "patches/xnu/0602-k60-physical-battery.patch",
   "V: kernel.macho: PongAudioUserClient",
 ]
-criteria = "Image l builds PongAudioService.cpp into libK60PhysicalBattery.a (91,896 B / sha256 85a0c28f465af4c5ea13b16ea6e31e98a56e58e9fa5273ca66d4eb3cbf63f004) and its kernel_built sha256 is 94b1df0ad6a3c81e864ad94496dbf9b7be76c6ff8f34a9f85c9cc0385ffe4939; kernel.macho contains PongAudioUserClient 26 times (including mangled symbols), NativeSandboxGrantProcess 1, k60_audio_service 1 and pong_audio_service_start 1. PongAudioServiceAbi.h fixes control 56 B, out ring 524288 B, 48 kHz stereo S24_LE, 1024-frame period, memory types control=0/output=1, selectors StartOutput=0/StopOutput=1/SetHostClock=4. startAudio() allocates both IOBufferMemoryDescriptors, sets the sandbox grant and IOUserClientClass, and registers; clientMemoryForType maps both; externalMethod rejects arguments and forwards Start/Stop; the timer period is 21333 us and startOutput() returns kIOReturnNotReady until pong_audio_status()==1. The service shape is closed; the userland HAL and the AR write pump remain in pcm-submit-path."
+criteria = "Image o builds PongAudioService.cpp into libK60PhysicalBattery.a (91,896 B / sha256 ef91f371db9476cb5e0f4b768f530431d5162dce42226f84676cc0f45950b747) and its kernel_built sha256 is 1edac302c42813d2670986b183faa98f05855c78f51c7ad6fc38ef9c791f7507; kernel.macho contains PongAudioUserClient 26 times (including mangled symbols), NativeSandboxGrantProcess 1, k60_audio_service 1 and pong_audio_service_start 1. PongAudioServiceAbi.h fixes control 56 B, out ring 524288 B, 48 kHz stereo S24_LE, 1024-frame period, memory types control=0/output=1, selectors StartOutput=0/StopOutput=1/SetHostClock=4. startAudio() allocates both IOBufferMemoryDescriptors, sets the sandbox grant and IOUserClientClass, and registers; clientMemoryForType maps both; externalMethod rejects arguments and forwards Start/Stop; the timer period is 21333 us and startOutput() returns kIOReturnNotReady when pong_audio_status() != PongAudioOk. The service shape is closed; the end-to-end period test remains in pcm-submit-path."
 status = "closed"
 owner = "audio-agent"
 on_open = "without the service the ring and control page cannot be mapped by a userland HAL"
+
+[[item]]
+id = "pcm-hal-plugin"
+stage = "M5"
+change = "an output-only AudioServerPlugIn maps the PongAudio control page and ring, converts CoreAudio float frames to the K60 S24 format and drives StartOutput/StopOutput"
+evidence_kind = "artifact"
+evidence = [
+  "userland/PongAudioPlugIn.c",
+  "userland/build.py",
+  "/mnt/e/k60-work/scratch/audio-work/build-audio/PongAudio.driver/PongAudio",
+  "V: PongAudio.driver/PongAudio: PongAudio_Create",
+]
+criteria = "userland/PongAudioPlugIn.c is a 38,142-byte output-only AudioServerPlugIn with plugin/device/output-stream/volume/mute objects, device UID K60AudioDevice and bundle org.unixnu.k60.audio. connectService() uses IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(PONG_AUDIO_SERVICE_CLASS)), IOServiceOpen and IOConnectMapMemory64 for memory types 0 (control, sizeof(PongAudioServiceControl)) and 1 (ring, PONG_AUDIO_SERVICE_RING_BYTES), and refuses a mismatched magic/version/rate/channels/frame_bytes/period_frames/ring_frames/state. DoIOOperation() scales by currentVolume()*muted, converts float to S24/Q31 and advances out_write with a ring-space guard; StartIO/StopIO use the PongAudioUserClient selectors; GetZeroTimeStamp() derives a 48 kHz frame clock from mach_timebase. userland/build.py compile_audio() links it with clang-18/ld64.lld-18 into PongAudio.driver/PongAudio (69,920 B, sha256 fa4780ea79d046b4551248154d4538f4c20ad840a457cb59acea749983d9336e) and writes Info.plist with factory 341D03C1-9CF6-4163-A3E9-FA3AC191C764, type 443ABAB8-E7B3-491A-B985-BEB9187030DB and AudioServerPlugIn_IOKitUserClients=[PongAudioUserClient]. llvm-nm -gU exports only _PongAudio_Create. The HAL source and bundle are closed; the end-to-end period test remains in pcm-submit-path."
+status = "closed"
+owner = "audio-agent"
+on_open = "without a HAL the ring is filled only by the kernel selftest, not by CoreAudio"
 
 [[item]]
 id = "pong-audio-dma-in-adt"
@@ -462,10 +478,12 @@ evidence_kind = "static"
 evidence = [
   "patches/audio/0003-k60-audio-afe-selftest.patch",
   "drivers/PongAudio/PongAudioRing.h",
+  "userland/PongAudioPlugIn.c",
+  "userland/build.py",
   "V: ShengAudioAbi.h:21",
   "V: PongAudio.cpp:288-300,424-436",
 ]
-criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient) and the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph) are in place. The repository still needs the userland HAL (PongAudioPlugIn.c shape: IOServiceOpen and IOConnectMapMemory64) and a host or on-device test that submits at least one period through the service timer without an underrun. Until those exist, M5 cannot pass."
+criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient), the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph), the DMA-slot copy/timeout (pcm-dma-feed) and the output-only AudioServerPlugIn (pcm-hal-plugin) are in place. The remaining proof is a host or on-device test that opens the service, maps control/ring through the HAL and submits at least one period through the service timer without an underrun. Until that test exists, M5 cannot pass."
 status = "open"
 owner = "audio-agent"
 on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"

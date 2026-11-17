@@ -406,8 +406,8 @@ CoreAudio/audiomxd
 | A2 | SMEM/SMP2P/GLINK/GPR | **A** | `ShengGpr.c`/`QcomSmem.c`/`QcomSmp2p.c`/`QcomGlink.c` 在 PongPower/Sheng；K60 FDT 的 `adsp_apps`/intents 与 Pong 相同 |
 | A3 | AudioReach APM graph | **A** | `ShengAudioReach.c` 17,119 B；参数/容器/媒体格式齐全；K60 改 TDM 线路/时钟 |
 | A4 | 64 KiB low DMA + SID1801 + SMMU | **A（驱动）** | `PongAudio.cpp:124-132` 有完整驱动；K60 UEFI `DarwinBoot.c:767-775,830-833` 已分配并回写 `/chosen/pong-audio-dma`，`board.toml:298-305` 占位已进镜像 j ADT；剩驱动侧 low-DMA lease/SMMU 消费（`pcm-submit-path`） |
-| A5 | `PongAudio` 内核服务/UserClient | **A** | `PongAudioService.cpp` 6,346 B；`NativeSandboxGrantProcess`/shared memory/selector 齐全 |
-| A6 | `PongAudioPlugIn.c` HAL 插件 | **A（代码）/ B（20G81 ABI）** | 41,210 B；对象/属性/StartIO/StopIO 完整；22H374 地址需要按 20G81 重对 |
+| A5 | `PongAudio` 内核服务/UserClient | **A（已落地）** | K60 实现：`drivers/PongPower/PongAudioService.cpp` + `PongAudioServiceAbi.h`；`NativeSandboxGrantProcess`/shared memory/selector 齐全，镜像 l 起编入电池归档；`startOutput()` 以 `pong_audio_status() != PongAudioOk` 为拒绝条件 |
+| A6 | `PongAudioPlugIn.c` HAL 插件 | **A（已落地代码）/ B（20G81 运行验证）** | K60 实现：`userland/PongAudioPlugIn.c` 38,142 B；output-only 对象/属性/StartIO/StopIO 完整；`userland/build.py audio` 编译成 `PongAudio.driver/PongAudio` 69,920 B（sha256 `fa4780ea…`）；20G81 实机播放验证仍待 |
 | A7 | `PongAudioRoute.h` VirtualAudio 路由 | **A（代码）/ B（20G81 地址）** | 17,861 B；`pibi`/`prts`/`rtcf`/`vcsp` 逻辑完整；22H374 MediaExperience 指令偏移不能直接用 |
 | A8 | `audio_clock18.h` 24→19.2 MHz 时钟 | **A（代码）/ B（20G81）** | `PongAudioService.cpp:24-50`/`audio_clock18.h` 有实现；20G81 的 CoreAudio double 地址需重找 |
 | A9 | `audio_codecs18.h` 软件解码回退 | **A** | 本机 Pong userland 完整 |
@@ -459,7 +459,7 @@ CoreAudio/audiomxd
    b. `PongAudio` DMA/SMMU 消费 `/chosen/pong-audio-dma`（UEFI 分配器与 ADT 占位已就绪，A 级）。
    c. `PongAudio.cpp` 的 AudioReach graph + 64 KiB ring（A 级）。
    d. K60 TDM/PRM（1.536 MHz、tx-lines=3）+ AW882xx 驱动（C 级，最大新增）。
-   e. `PongAudioService.cpp`（已落地：`drivers/PongPower/PongAudioService.cpp`，镜像 l）+ 播放图 11 步与 PCM 8 槽周期泵（`PongAudioPlayback.h`，镜像 m）+ `PongAudioPlugIn.c` HAL（仍缺，20G81 ABI 重对）。
+   e. `PongAudioService.cpp`（已落地：`drivers/PongPower/PongAudioService.cpp`，镜像 l）+ 播放图 11 步与 PCM 8 槽周期泵（`PongAudioPlayback.h`，镜像 m）+ `PongAudioPlugIn.c` HAL（已落地：`userland/PongAudioPlugIn.c`，`userland/build.py audio` 编译通过；20G81 实机运行验证仍待）。
    f. 音量/路由/休眠恢复（A/B 级）。
 4. **蓝牙 B 阶段（音频之后或并行，依赖更少）**：
    a. `PongBtPower` 电源/复位（C）。

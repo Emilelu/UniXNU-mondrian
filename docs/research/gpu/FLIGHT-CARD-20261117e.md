@@ -1,54 +1,59 @@
-# 上机卡 2026-11-17e：把 addons 挂到 `/System/Library/Extensions`，让 Metal 发现插件
-
-- 镜像标签：`gpu-addonmount-20261117`
-- 分支/提交：`feat/gpu-metal-hw` @ 本卡之后的代码提交
-- 新增 boot-arg：`gpu-addon=1`（`ALLOWED_ADDITIONS` 内的实验项；命令行 30→31 项、594→606 B，上限 607）
+# 上机卡 2026-11-17e —— 打开 addon 联合挂载，让 Metal 能找到 PongAdrenoMetal.bundle
 
 ## 1. 目的
 
-`gpu-loadmark-20261117` 已证明插件被 dyld 装进 backboardd（`:1288 Pong Metal: plugin loaded`），
-但从未被实例化。读源码后确认设备发现路径是：
-`PongAdrenoAccelerator.cpp:45` 给 IOService 设 `MetalPluginClassName=PongAdrenoMetalDevice`
-→ Metal 框架到 **`/System/Library/Extensions/<name>.bundle`** 找插件
-（`NativeAdrenoAccelerator.cpp:3` 注释、`drivers/PongMetal/README.md:19`）。
+上一飞（`gpu-loadmark-20261117`）证明插件被 dyld 装进 backboardd（`:1288 Pong Metal: plugin loaded`），
+但除构造函数外没有任何 `Pong Metal:` 输出 ⇒ Metal 从未向插件要过设备。
 
-而 `zzy-native-gpu-addon-mount.patch` 正是把 `/private/var/ngpu/addons` 联合挂到
-`/System/Library/Extensions` 的那一步 —— 它由 boot-arg 控制，**我们的命令行从来
-没有这个参数**，所以挂载从未发生，`/System/Library/Extensions/PongAdrenoMetal.bundle`
-不存在，Metal 自然找不到设备类。
+上游 `8cdfcff feat(gpu): decouple the GPU addon mount from the offline broker` 的提交说明写明：
 
-本轮只做两件事：把该 boot-arg 改名成能放进 607 B 的 `gpu-addon=1`
-（原名 `sheng-gpu-addon=1` 需 19 B，命令行只剩 13 B），并在挂载后打印一行结果。
+> The plugin is reached through MetalPluginName -> /System/Library/Extensions/PongAdrenoMetal.bundle,
+> a sealed read-only volume, so zzy-native-gpu-addon-mount is not optional for scanout: it is the only
+> way that bundle can exist.
 
-## 2. 前提证据（上机前已具备）
+也就是说：插件虽然装进了 `/private/var/pong`（init 注入）与 `/private/var/ngpu/addons`（我们的双 root 部署），
+但 **Metal 只会在 `/System/Library/Extensions/<MetalPluginName>.bundle` 找它**，而那是只读卷。
+唯一通路是 `zzy-native-gpu-addon-mount.patch` 把 `/private/var/ngpu/addons` 联合挂载上去，
+该补丁由 boot-arg `sheng-gpu-addon=1` 打开。
 
-| 类别 | 证据 |
-| --- | --- |
-| 静态 | `scripts/check-patch-apply.py` ✅（改名与新增打印后仍逐 hunk 可应用） |
-| 单元 | `scripts/tests/test-metal-plugin-load-marker.py` 6/6 ✅；`scripts/tests/test-check-image-args.py` 全过（`gpu-addon` 已进 `ALLOWED_ADDITIONS`） |
-| 产物 | `verify-boot-image: OK`；`image-arg-audit: OK (31 arguments, 606 bytes)` |
+本飞只做这一件事：打开 `sheng-gpu-addon=1`，验证联合挂载成功，并观察插件是否因此被 Metal 实例化。
+
+## 2. 前提证据（上机前必须全部成立）
+
+| 编号 | 证据 | 结果 |
+| --- | --- | --- |
+| P1 | `board.toml` 的 `kernel_args` 含 `sheng-gpu-addon=1`，且总字节 ≤ 607 | 30 项 / 597 B |
+| P2 | `0398-k60-pong-runtime-directories.patch` 在 series 中，创建 `/private/var/ngpu`、`addons`、`daemons` | 是（series:214） |
+| P3 | `zzy-native-gpu-addon-mount.patch` 在 series 中，gate 名为 `sheng-gpu-addon`，校验路径为 `PongAdrenoMetal.bundle/Info.plist` | 是（series:215） |
+| P4 | `CONFIG_XNU_GPU_ADDON=y` | 是（defconfig:27） |
+| P5 | `check-patch-apply.py` 通过 | 见构建日志 |
+| P6 | `image-arg-audit: OK` 且点名 `sheng-gpu-addon=1` | 见构建日志 |
+| P7 | `verify-boot-image: OK` | 见构建日志 |
 
 ## 3. 抓取
 
-- 复用 `scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`。
+`K60_DEVICE_INPUT=/opt/k60/trees/gates-device K60_FORCE_NEW=1 bash scripts/flash.sh <boot.img> 240`，
+证据落 `E:/k60-work/evidence/usblog-<时间戳>/`（`console.log` + `capture.json` + `boot.json`）。
 
 ## 4. 判据
 
-### 成功判据（全部满足才算通过）
+**成功（S，全部满足才算修好一步）**
 
-- **S1** 内核无异常：`K60KEXC` 出现 0 次（banner 不计）。
-- **S2** 挂载成功：出现 `K60GPUADDON addons stage=5 status=0 daemons …`。
-- **S3** 插件被实例化：出现 `Pong Metal: real Vulkan-backed device created`。
-- **S4** 出帧：出现至少一行 `present #`。
+- S1 `K60KEXC` 命中 0（无内核异常）。
+- S2 `console.log` 出现 `K60GPUADDON addons stage=5 status=0` —— 联合挂载完成，且
+  `/System/Library/Extensions/PongAdrenoMetal.bundle/Info.plist` 通过该联合可见。
+- S3 `Pong Metal:` 行数 ≥ 2（构造函数之外的任何一行，说明 Metal 真的向插件要了设备）。
+- S4 `present #` 命中 ≥ 1（`GpuScanoutPresenter` 真的出了一帧）。
+- S5 `crashed: backboardd` 命中 0。
 
-### 失败判据（任一命中即 FAIL，并写明哪一条）
+**失败（F，任一命中即判 FAIL，并在卡片 §5 记录命中的是哪一条）**
 
-- **F1** 出现 panic / `K60KEXC`（除 banner）。
-- **F2** 没有 `K60GPUADDON` 行：`native_gpu_addon_prepare()` 没被调用，或 boot-arg 没生效。
-- **F3** 有 `K60GPUADDON` 但 `stage<5` 或 `status!=0`：联合挂载被拒（记录 stage/status 数值）。
-- **F4** 挂载成功但没有 `real Vulkan-backed device created`：设备发现仍缺一环，
-  下一步查 Metal 框架对 `/System/Library/Extensions` 的扫描时机与 `MetalPluginClassName` 的读取方。
+- F1 出现 panic / `K60KEXC` / 抓取被复位中断。
+- F2 `K60GPUADDON addons stage` 小于 5（在 §5 记下 stage 与 status 的具体值）。
+- F3 `Pong Metal:` 行数 ≤ 1（插件仍未被实例化）。
+- F4 `present #` = 0。
+- F5 `crashed: backboardd` ≥ 1。
 
 ## 5. 结果登记
 
-（上机后填写。）
+（上机后填写：镜像名、boot.img sha256、证据目录、S1–S5 与 F1–F5 的实测值、判决。）

@@ -210,3 +210,10 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
   `sample=6`、`sample=33` 还各出现一次 `no publication ... sign=0`，只能证明首帧，不能证明电池 UI 持续刷新。
   需要 Lead 二选一：提供充/放电 wire capture 把 `charging_current_sign` 定为 ±1，或书面同意把 C1 的电流口径改为
   “USB 输入电流回退”并登记为独立判据；本线不自行改判据。
+
+### 8.2 C1 的 A 选项在当前硬件上不可满足（2026-11-17 11:50）
+
+- 07 的 A 选项要求 `--charging-wire` / `--discharging-wire` 的每份 capture 都出现 `OP_BATTERY` property 9 的带符号回包：`scripts/build-k60-physical-battery.py:196-220` 的 `current_pair()` 只在 `prop == 9` 时收集 current，否则抛 `ValueError('Wire capture lacks stable status1/signed-current9 evidence')`（:219）。
+- 实际 K60 的 property 9 不回答：`E:/k60-work/evidence/route-a/usblog-boot-20261117-0620-intentid/console.log:554` 与 `E:/k60-work/evidence/route-a/usblog-boot-20261117-0630-battrx/console.log:692` 都是 `K60Battery: physical PMIC request timeout op=30 property=9 ... quarantining old channel`；Route A 代码因此 `K60Battmgr.c:147` 跳过该字段，`scripts/tests/test-k60-charger-subscription.c:128` 断言 `CURRENT_NOW property 9 is skipped`。
+- `qualification()` 只有在两份 capture 都成功时才把 sign 设为 ±1（`:223-236`），否则保持 0（`K60BatteryConfig.h:45`）。因此任何诚实的 K60 构建都只能得到 `measured sign=0`，07 C1 的 `measured sign=±1` 永远不会成立。
+- 结论：A 选项不是缺一份 wire capture，而是在本机不可实现。建议 Lead 批准 B：把 C1 的电流口径改为“USB 输入电流回退”，并在 sample 行增加 `current-source=usb` 作为独立证据字段；本线可在批准后提交 judge/文档/日志字段补丁，不自行改判据。

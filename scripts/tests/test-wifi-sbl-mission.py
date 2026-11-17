@@ -96,10 +96,12 @@ def main() -> int:
     boot = build / "mhi" / "boot.c"
     pm = build / "mhi" / "pm.c"
     header = build / "pinned" / "linux" / "mhi.h"
-    if boot.is_file() and pm.is_file() and header.is_file():
+    mhi_c = build / "mhi.c"
+    if boot.is_file() and pm.is_file() and header.is_file() and mhi_c.is_file():
         btext = boot.read_text(encoding="utf-8")
         ptext = pm.read_text(encoding="utf-8")
         htext = header.read_text(encoding="utf-8")
+        ctext = mhi_c.read_text(encoding="utf-8")
         check("generated boot.c has the direct SBL push",
               "BHI_STATUS=%#x; pushing the AMSS image" in btext and
               "status = bhi >> 30;" in btext and
@@ -117,6 +119,9 @@ def main() -> int:
               "mhi_cntrl->pong_sbl_pushed = true;" in ptext)
         check("generated mhi.h has the latch field",
               "bool pong_sbl_pushed;" in htext)
+        check("generated mhi.c raises the ready wait to 60 s",
+              "ab_pci->mhi_ctrl->ready_timeout_ms = 60000;" in ctext and
+              "ab_pci->mhi_ctrl->timeout_ms = MHI_TIMEOUT_DEFAULT_MS;" in ctext)
     else:
         print("  SKIP  generated tree not present at %s" % build)
 

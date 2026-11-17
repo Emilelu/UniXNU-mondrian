@@ -99,7 +99,8 @@ Offline checks performed:
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
 - At build time `python3 scripts/tests/test-wifi-sbl-queue.py` — 14
   source/artifact checks (including the BHI_STATUS success gate), 0 failures.
-  The successor renamed this test to `test-wifi-sbl-direct.py`.
+  The direct successor renamed this test to `test-wifi-sbl-direct.py`; the
+mission successor renamed it again to `test-wifi-sbl-mission.py`.
 - `verify-boot-image.py --manifest ...` — OK.
 - `check-image-args.py --image ...` — OK (31 arguments, 602 bytes).
 - `build-strict`: eight-step 36 checks, series 227, WiFi driver present in the

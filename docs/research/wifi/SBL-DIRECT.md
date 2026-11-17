@@ -99,7 +99,8 @@ flight is recorded in `SBL-QUEUE.md` §6.
 Offline checks performed:
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
 - `python3 scripts/tests/test-wifi-sbl-direct.py` — 17 source/artifact checks,
-  0 failures.
+  0 failures. The mission successor renamed this file to
+  `test-wifi-sbl-mission.py`.
 - WSL `python3 scripts/verify-boot-image.py --manifest /mnt/e/...` — OK.
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
   arguments / 602 bytes).

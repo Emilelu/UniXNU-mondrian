@@ -90,6 +90,15 @@ flight is recorded in `SBL-QUEUE.md` §6. The direct image
 `wifi-20261118sbl-direct` was flown once and its result is in `SBL-DIRECT.md`
 §6.
 
+Offline checks performed:
+- `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
+- `python3 scripts/tests/test-wifi-sbl-mission.py` — 25 source/artifact checks,
+  0 failures.
+- WSL `python3 scripts/verify-boot-image.py --manifest /mnt/e/...` — OK.
+- WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
+  arguments / 602 bytes).
+- `boot.json` records `hardware_tested: false`; this image has not been flown.
+
 ## 4. Prewritten flight criteria
 
 The image is only valid with a serial console captured before `fastboot boot`.

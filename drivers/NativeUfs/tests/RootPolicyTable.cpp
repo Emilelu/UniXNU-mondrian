@@ -65,6 +65,31 @@ int main (int argc, char **argv) {
   assert (rootPolicySelect (headerOnly, 1, imageBytes, &cached));
   assert (cached.headerOnly && cached.tableBytes == tableBytes);
 
+  // A header-only manifest whose declared block count would overflow the
+  // table-size arithmetic is refused before any table read.
+  {
+    std::vector<uint8_t> huge = header;
+    const uint64_t blocks = UINT64_MAX / 32;
+    for (unsigned i = 0; i < 8; ++i) {
+      huge[24 + i] = static_cast<uint8_t>((imageBytes >> (8 * i)) & 0xff);
+      huge[32 + i] = static_cast<uint8_t>((blocks >> (8 * i)) & 0xff);
+    }
+    NativeVerifiedBlockPolicy bad[1] = {{huge.data (), huge.size ()}};
+    RootPolicySelection selection {};
+    assert (!rootPolicySelect (bad, 1, imageBytes, &selection));
+  }
+
+  // A userdata base that cannot be multiplied by 4096 is refused.
+  {
+    Window badWindow[1] = {};
+    std::strcpy (badWindow[0].name, "OS.vroot");
+    badWindow[0].offset = 4096;
+    badWindow[0].size = tableBytes;
+    uint64_t lba = 0;
+    assert (!rootPolicyTableLba (badWindow, 1, UINT64_MAX / VR_BLOCK_BYTES + 1, "OS",
+                                 tableBytes, &lba));
+  }
+
   Window windows[2] = {};
   std::strcpy (windows[0].name, "OS");
   windows[0].offset = 0;

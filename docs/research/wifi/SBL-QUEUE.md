@@ -67,20 +67,24 @@ this candidate isolates.
 
 | field | value |
 |---|---|
-| tag | `wifi-20261117sbl-queue` |
-| branch / head | `fix/wifi-bhi-execenv-wifi` / `e6b71ba889e0bdbedf86b3c6b9b622693f5f91f1` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261117sbl-queue/boot.img`, 201,887,744 B, SHA256 `ebdb312972685189aa2417ec5ca0e0d75e604ddb71c01683a344837fcbf27232` |
-| kernel | `d737c568e18ebfbe2a197581ead795607d5aa431af383ccb3b851c270de8c6e6` |
-| payload kernel | `d825506da800642f6e1c79635a186cbdc9413f76ecff7b2bee64b34f65d12995` |
-| WiFi archive | `019d8304528060826a2c02180fcd9ce1d6463c16e56e0cb59e133ee131333430` |
-| manifest | `E:/k60-work/artifacts/wifi-20261117sbl-queue/build-manifest.json` |
+| tag | `wifi-20261118sbl-gated` |
+| branch / head | `fix/wifi-bhi-execenv-wifi` / `4e00d56943d2fd280cd83cf06e630395050c1b1c` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-gated/boot.img`, 201,887,744 B, SHA256 `34867c7f26e975c7043e5d4c9ea7c00259374d7eeb24e83bbb655a3b1967e24c` |
+| kernel | `4603d0c6ccb86a287049479720e6af96af51eb67f52443f21cb7ba2995ae7754` |
+| payload kernel | `f857369b948f6d56b642e8c8985a9cff391dbba3b01e8c1811dcda23078a7dba` |
+| WiFi archive | `c03534a77386b6ed17094e0fc63116dcf80e5d20911cebe5ea6732bd9cd44f8e` |
+| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-gated/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
+
+The earlier `wifi-20261117sbl-queue` image (head `e6b71ba8`) was built before
+the BHI_STATUS gate existed and was never flown; it is superseded by the gated
+candidate above and must not be booted.
 
 Offline checks performed:
 
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
-- `python3 scripts/tests/test-wifi-sbl-queue.py` — 12 source/artifact checks,
-  0 failures.
+- `python3 scripts/tests/test-wifi-sbl-queue.py` — 14 source/artifact checks
+  (including the BHI_STATUS success gate), 0 failures.
 - `verify-boot-image.py --manifest ...` — OK.
 - `check-image-args.py --image ...` — OK (31 arguments, 602 bytes).
 - `build-strict`: eight-step 36 checks, series 227, WiFi driver present in the

@@ -100,6 +100,82 @@ def a_missing_symbol_fails_the_gate():
 
 
 @case
+def a_stale_kernel_pair_is_skipped_not_failed():
+    """P-207: a configured-but-not-rebuilt out tree must not fail the build it
+    is gating -- the registry runs before the rebuild that would refresh the
+    symbol list (same shape as the P-194 deadlock)."""
+    import os
+    import time
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        board = Path(tmp) / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        kernel = board / "kernel" / "kernel.macho"
+        kernel.write_bytes(b"\x00" * 64)
+        time.sleep(0.02)
+        (board / ".config").write_text(
+            "CONFIG_XNU_K60_PHYSICAL_BATTERY=y\n", encoding="utf-8")
+        os.utime(board / ".config", None)
+        rc = gate.main(["--out", tmp, "--kernel", str(kernel)])
+        assert rc == 0, f"expected 0 for a stale kernel/.config pair, got {rc}"
+
+
+@case
+def a_guarded_call_site_that_compiled_away_fails():
+    """P-208: a force-loaded archive with no call site is inert but links."""
+    import time
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        board = out / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        kernel = board / "kernel" / "kernel.macho"
+        (board / ".config").write_text(
+            "CONFIG_XNU_K60_PHYSICAL_BATTERY=y\n", encoding="utf-8")
+        time.sleep(0.02)
+        kernel.write_bytes(b"\x00" * 64)
+        tree = board / "tree"
+        (tree / "build" / "k60-battery").mkdir(parents=True)
+        (tree / "build" / "k60-battery" / "libK60PhysicalBattery.a").write_bytes(b"!<arch>\n")
+        obj = tree / "build" / "xnu" / "ios-obj" / "X" / "iokit" / "DEVELOPMENT" / "IOKitBSDInit.cpo"
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(b"no references here")
+        rc = gate.main(["--out", str(out), "--kernel", str(kernel)])
+        assert rc == 1, f"expected 1 when the call site compiled away, got {rc}"
+
+
+@case
+def a_guarded_call_site_that_compiled_in_passes():
+    """Same tree, but the object names the publisher: the block is live."""
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        board = out / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        kernel = board / "kernel" / "kernel.macho"
+        # The kernel must carry every configured archive symbol for P-190.
+        kernel.write_bytes(b"\x00" * 64)
+        (board / ".config").write_text(
+            "CONFIG_XNU_K60_PHYSICAL_BATTERY=y\n", encoding="utf-8")
+        tree = board / "tree"
+        (tree / "build" / "k60-battery").mkdir(parents=True)
+        (tree / "build" / "k60-battery" / "libK60PhysicalBattery.a").write_bytes(b"!<arch>\n")
+        obj = tree / "build" / "xnu" / "ios-obj" / "X" / "iokit" / "DEVELOPMENT" / "IOKitBSDInit.cpo"
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(b"U _k60_adsp_handoff_publish")
+        # nm cannot read the fixture, so the gate falls back to the bytes and
+        # the kernel-symbol half is satisfied by patching kernel_symbols.
+        original = gate.kernel_symbols
+        gate.kernel_symbols = lambda kernel, nm: {"k60_physical_battery_start"}
+        try:
+            rc = gate.main(["--out", str(out), "--kernel", str(kernel)])
+        finally:
+            gate.kernel_symbols = original
+        assert rc == 0, f"expected 0 when the call site is live, got {rc}"
+
+@case
 def no_kernel_is_an_error():
     gate = load_gate()
     with tempfile.TemporaryDirectory() as tmp:
@@ -118,6 +194,31 @@ def a_configured_but_unbuilt_tree_is_skipped():
         rc = gate.main(["--out", tmp])
         assert rc == 0, f"expected 0 for a configured but unbuilt tree, got {rc}"
 
+@case
+def the_newest_kernel_wins_not_the_first_in_path_order():
+    """P-202: a stale kernel.macho must never be graded as this build's."""
+    import os
+    import time
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        # Two boards, each with a kernel.  The lexicographically first path is
+        # the OLD one, which is exactly the shape that fooled the old code.
+        old = out / "mondrian" / "aaa-sdk" / "aaa-board" / "kernel"
+        new = out / "mondrian" / "zzz-sdk" / "zzz-board" / "kernel"
+        old.mkdir(parents=True)
+        new.mkdir(parents=True)
+        (old / "kernel.macho").write_bytes(b"old")
+        time.sleep(0.02)
+        (new / "kernel.macho").write_bytes(b"new")
+        os.utime(new / "kernel.macho", None)
+
+        picked = gate.find_kernel(out)
+        assert picked is not None, "expected a kernel"
+        assert picked.read_bytes() == b"new", (
+            f"graded the stale kernel at {picked}; find_kernel must pick the newest"
+        )
 
 def main() -> int:
     failures = 0

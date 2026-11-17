@@ -12,7 +12,9 @@ enum {
     K60AdspBadSegment = -2,
     K60AdspOutsideWindow = -3,
     K60AdspOverlap = -4,
-    K60AdspReadFailed = -5,
+    K60AdspReadFailed = -5, /* partial/exact-size failure */
+    K60AdspPartMissing = -6, /* reader source/name absent */
+    K60AdspReadBounds = -7, /* reader container/range invalid */
 };
 
 typedef struct {
@@ -33,7 +35,10 @@ typedef struct {
 } K60AdspPlan;
 
 /* read(part, dst, bytes) fills dst from the named firmware file; 0 on success. */
+#ifndef K60_ADSP_READ_TYPE_DEFINED
+#define K60_ADSP_READ_TYPE_DEFINED
 typedef int (*K60AdspRead)(const char *part, void *dst, uint32_t bytes);
+#endif
 
 /* Validates the table only; no allocation, no device access. */
 int k60_adsp_plan(K60AdspPlan *plan);

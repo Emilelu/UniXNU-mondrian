@@ -18,6 +18,7 @@
 """
 import argparse
 import datetime
+import hashlib
 import io
 import os
 import re
@@ -111,7 +112,14 @@ def discover_branches():
         r = subprocess.run(['git', 'for-each-ref', '--format=%(refname:short)',
                             'refs/remotes/origin/'], capture_output=True, text=True, cwd=d)
         for ref in (r.stdout or '').strip().split('\n'):
-            if not ref.strip() or ref.endswith('/HEAD'):
+            ref = ref.strip()
+            # P-221: `refs/remotes/origin/` itself is a ref named `origin`, and
+            # `origin/HEAD` is a symref. Neither is a branch. Keeping `origin`
+            # made rev-parse return the literal string `origin/origin`, which
+            # was written into the seen file as a watermark that can never equal
+            # a real sha — so every run treated it as a brand new branch and
+            # re-diffed all ~5,000 files against the tree.
+            if not ref or ref == 'origin' or ref.endswith('/HEAD'):
                 continue
             out.append((key, ref.replace('origin/', '')))
     return sorted(out)
@@ -120,6 +128,55 @@ def discover_branches():
 def git(d, *args):
     r = subprocess.run(['git'] + list(args), capture_output=True, text=True, cwd=d)
     return (r.stdout or '').strip()
+
+
+def blob_sha(data):
+    """git 的 blob 对象 id。用来在本地算文件哈希，和 ls-tree 给的 sha 直接比。"""
+    h = hashlib.sha1()
+    h.update(b'blob %d\0' % len(data))
+    h.update(data)
+    return h.hexdigest()
+
+
+def file_blob_sha(path):
+    """本地文件在 git 眼里的 blob id；读不了返回 None。"""
+    try:
+        with open(path, 'rb') as handle:
+            return blob_sha(handle.read())
+    except OSError:
+        return None
+
+
+def tree_blobs(d, ref):
+    """一次 ls-tree 拿到 (path, blob sha)。P-221：以前是逐文件 git show。"""
+    r = subprocess.run(['git', 'ls-tree', '-r', '-z', ref],
+                       capture_output=True, cwd=d)
+    if r.returncode != 0:
+        return {}
+    out = {}
+    for entry in (r.stdout or b'').split(b'\0'):
+        if not entry:
+            continue
+        meta, _, path = entry.partition(b'\t')
+        fields = meta.split()
+        # <mode> SP <type> SP <object> TAB <path>；type 为 commit 的是 gitlink。
+        if len(fields) < 3 or fields[1] != b'blob':
+            continue
+        out[path.decode('utf-8', 'replace')] = fields[2].decode('ascii')
+    return out
+
+
+def is_ancestor(d, maybe_ancestor, descendant):
+    """maybe_ancestor 是 descendant 的祖先（或二者同点）时返回 True。
+
+    P-221: 新分支必须先过这一关。yibiya 反复从 main 拉出 fix/* 分支，
+    这些分支的尖端本身就在 main 的历史里 —— 对它做「文件收敛」会报
+    5,000+ 个差异（全是设备仓库本来就不带的 XNU 头文件），而实际可 pick
+    的内容是零。祖先判定用 `merge-base --is-ancestor` 一次搞定。
+    """
+    r = subprocess.run(['git', 'merge-base', '--is-ancestor', maybe_ancestor, descendant],
+                       cwd=d, capture_output=True)
+    return r.returncode == 0
 
 
 def classify(path):
@@ -141,15 +198,21 @@ def load_seen():
     import json
     if os.path.isfile(SEEN):
         try:
-            return json.load(open(SEEN))
+            with io.open(SEEN, encoding='utf-8') as handle:
+                raw = json.load(handle)
         except Exception:
-            pass
+            return {}
+        # P-221: 旧版把裸 `origin` 当成分支，写进了 `…/origin: "origin/origin"`
+        # 这种永远不等于真实 sha 的水位。留着它每次都会重跑全量比对。
+        return {k: v for k, v in raw.items()
+                if not (k.endswith('/origin') or v == 'origin/origin')}
     return {}
 
 
 def save_seen(d):
     import json
-    json.dump(d, open(SEEN, 'w'), indent=2, sort_keys=True)
+    with io.open(SEEN, 'w', encoding='utf-8') as handle:
+        json.dump(d, handle, indent=2, sort_keys=True)
 
 
 def collect(fetch=True):
@@ -178,31 +241,26 @@ def collect(fetch=True):
             # 而且会把我们删掉的文件复活。正确目标只有一个：让这个分支的
             # 尖端状态出现在我们的树里，只写真正不同的文件。
             baseline[k] = head
+            # P-221: 但「文件收敛」对一个从未见过的分支仍然会报 5,000+ 个差异，
+            # 因为设备仓库本来就不带 XNU 头文件。先做一次祖先判定：尖端已经在
+            # origin/main 里的分支没有任何新内容可 pick。
+            if is_ancestor(d, ref, 'origin/main'):
+                continue
             target = TARGETS.get(key, REPO)
             differ = []
-            r2 = subprocess.run(['git', 'ls-tree', '-r', '--name-only', ref],
-                                capture_output=True, text=True, cwd=d)
-            for f in (r2.stdout or '').split('\n'):
-                f = f.strip()
-                if not f:
-                    continue
+            # P-221: 逐文件 `git show ref:path` 在 5,000 个文件的镜像上要 15,000+
+            # 次子进程，实测三次超时（600 s / 900 s / 300 s 全 rc=124）而输出
+            # 恒为 0 行 —— 定时任务因此一直跑不完。改成一次 ls-tree 拿 blob id，
+            # 本地按同样的 blob 头算 sha1 比对，零子进程。
+            blobs = tree_blobs(d, ref)
+            for f, want in blobs.items():
                 if any(f == p or f.startswith(p) for p in SKIP_PATHS):
                     continue
                 op = os.path.join(target, f)
-                r3 = subprocess.run(['git', 'show', '%s:%s' % (ref, f)],
-                                    capture_output=True, cwd=d)
-                if r3.returncode != 0:
-                    continue
                 if os.path.isdir(op):
                     continue          # submodule
-                if not os.path.exists(op):
+                if file_blob_sha(op) != want:
                     differ.append(f)
-                else:
-                    try:
-                        if open(op, 'rb').read() != r3.stdout:
-                            differ.append(f)
-                    except OSError:
-                        differ.append(f)
             if differ:
                 date = git(d, 'log', '-1', '--format=%ci', ref) or ''
                 out.append((key, branch, head, date, 'sync branch tip: %d files' % len(differ), differ))
@@ -354,10 +412,21 @@ def converge(target_key, mirror, target_tree, dry_run=True):
 
     # 3) 逐个比内容
     written, skipped = [], []
+    blob_cache = {}
+
+    def blobs_for(ref):
+        if ref not in blob_cache:
+            blob_cache[ref] = tree_blobs(mirror, ref)
+        return blob_cache[ref]
+
     for f, (ts, ref, path) in sorted(newest.items()):
         dst = os.path.join(target_tree, f)
         if os.path.isdir(dst):
             skipped.append((f, 'submodule'))
+            continue
+        # P-221: 先按 blob id 比，只有真的不同才取内容，省掉逐文件 git show。
+        want = blobs_for(ref).get(path)
+        if want is not None and file_blob_sha(dst) == want:
             continue
         r4 = subprocess.run(['git', 'show', '%s:%s' % (ref, path)], capture_output=True, cwd=mirror)
         if r4.returncode != 0:

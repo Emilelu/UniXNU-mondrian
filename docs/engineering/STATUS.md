@@ -3,7 +3,7 @@
 > 本文件收纳 README 里的详细状态表与阶段性变更摘要。
 > README 只保留设备身份、八步进度、仓库结构与构建入口。
 
-本轮更新时间：2026-11-14
+本轮更新时间：2026-11-16
 
 ---
 
@@ -62,7 +62,8 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 | 实体键（电源/音量） | 🔄 | 驱动已编译/链接/调用（`bsd_init.o` 有 `_pong_buttons_init`），`configuration()` 结果不可观测 |
 | 触摸 | ✅ | 单指已真机验证，见下方「触摸」专节 |
 | GPU（Adreno 730v3） | 🔄 | 见下方「GPU」专节 |
-| WiFi / 蓝牙 / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
+| 蓝牙（QCA6490 / SE20） | 🔄 | 内核侧已通：`[bluetooth] QCA controller version 0x12110201` + `addon: serving` 分片（`usblog-20261116-064150`，P-219）；用户态缺 ADT `bluetooth` 节点 |
+| WiFi / 音频 / 相机 / 传感器 | 📋 | planned，见 `porting.toml` |
 
 ### 触摸
 
@@ -169,6 +170,166 @@ Goodix 的 Berlin 系列在 vendor 内核里也用它加载（内部走 `goodix_
 - `docs/research/EIGHT-STEPS.toml`：逐硬件的八步证据。
 - `docs/research/SOURCES.toml`：研究完整性清单。
 - `CREDITS.md`：贡献者与外部来源。
+
+---
+
+## 六、2026-11-16 变更摘要
+
+### 蓝牙阶梯第一次跑通，读到 QCA6490 的版本寄存器（P-219）
+
+`ml_io_map` 的 `io_submap` 只有 8 MiB（`osfmk/arm/io_map.c:65`），而全内核 37 个
+`ml_io_map` 调用点已占 7.23 MiB（`scripts/check-io-map-budget.py` 在已应用树上实测）。
+蓝牙完整阶梯再要 1 MiB 的 TLMM 窗口（`K60_TLMM_SIZE = 0x00100000`）必然撞穿，
+而 `:128` 的 `kmem_alloc` 在 `KMA_NOFAIL` 下不看返回值 —— 于是 `kmem_alloc(... 0x100021):
+failed with 3` 变成控制台起来**之前**的 panic，现象是 0 字节日志，和「驱动从未运行」
+完全无法区分。
+
+`patches/xnu/0621-k60-io-submap-budget.patch` 把 `IO_MAP_SIZE` 提到 32 MiB（子图只预留
+虚拟地址，未 map 的部分不花物理页）。单变量验证 `bt-d5-iomap`（series 233，同一配方只多
+这一条）上机 `usblog-20261116-064150`：3,241 行 / 224,863 B / SpringBoard 132 / panic 0，
+阶梯完整跑到固件下载 —— `:486 smmu plan sid 0x483 slot 110 bank 72 action install
+dma 0x90bc20000`、`:488 dma buffer and smmu bypass ready`、`:493 clocks vote cbcr
+core=0x4220`、`:494 full: qbt_boot enter`、**`:707 [bluetooth] QCA controller version
+0x12110201`**、`:708 addon: serving 146068 0`、`:724 addon: serving 6442 0`。
+
+下一层缺口在用户态：`:1345 marconi-bt: Unable to match bluetooth service in device tree.`
+与 `:1346 Not a valid MAC address (all 00s)` —— 但同一份日志 `:186 K60 BT: published local
+address ee:98:c5:8a:6b:4e` 与 `:1347 bluetooth: Got local-mac-address` 证明 0509 的身份
+发布是生效的，缺的是 ADT 里的 `bluetooth` 服务节点。
+
+### 固件卷重建：能用，但不可复现（P-216，P-154 关闭）
+
+同一检出、同一 pin、无未提交改动，三次重建固件卷得到三个哈希
+（`ce12d145a71e` / `77ad2474a468` / `9f20de15388a`）。根因是 LLD 派生的 CodeView
+build-id 不受 `SOURCE_DATE_EPOCH` 影响，而固件卷是压缩的，一个 GUID 变了就重写整个
+压缩段——3,145,728 B 里 453,604 B 不同、1,739 个不连续区间。
+
+**同一 payload 只换卷上机**（`fdtest-20261116a`，`boot.img 51d20538…`，证据
+`usblog-20261116-025525`）：3384 行 / 230,107 B / SpringBoard 129 / `Early boot complete`
+1 次 / `K60DATA mounted` 1 次 / panic 0 / `menu:` 与 `config: no boot entry` 0 次。
+⇒ **P-154 关闭**：从当前 pin 重建的卷能找到 payload。FD 的 sha256 从此只当「这一次构建的
+标识」，不当身份。新门禁 `scripts/check-firmware-volume.py`（9 例测试）。
+
+### 固件卷的构建依赖一个只存在于本机的 commit（P-217）
+
+`board.toml` 的 `[firmware].patches` 原本是空列表，注释称记录的 pin `6f805f2` 已含全部六个
+K60 修复、本机的 `3d2a9fa` 是它的祖先。**两句都不成立**：`git merge-base 3d2a9fa 6f805f2`
+返回空；`3d2a9fa` 的父提交 `3c9c7b2` 不在任何远程分支；11 个文件逐文件对比，pin 上只有
+`AsmMacroLib.h` 是修好的（且上游用的是另一种修法），其余 10 个是原始状态。`Mu_Basecore`
+是嵌套仓，构建读工作树内容而非 gitlink —— 所以本机一直能构建，**干净 clone 会构建出坏的卷**。
+
+修法：工作树切到 `6f805f2`，五个修复改由 `[firmware].patches` 施加
+（`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch`，
+均已被 `origin/main` 跟踪、对 pin `git apply --check` 全通过；应用后与 `3d2a9fa` 的 11 个文件
+有 10 个逐字节相同）。新门禁 `scripts/check-basecore-pin.py`（10 例测试）钉住三件事：
+工作树 HEAD 等于记录的 pin、每个补丁存在且能 apply、故意偏离必须在手册里写明。
+
+### wifi 家族七张 0 字节镜像的真因（P-215）
+
+`wifi-20261116c3`（`patches/wifi/0012` 让 `pong_smmu_lease_lock()` 惰性自建锁）上机
+`usblog-20261116-015128`：221,429 B / 3,202 行 / **SpringBoard 132** / panic 0 /
+`:482 K60DATA mounted` / `:972 Early boot complete`。
+
+真因：UFS 的 `hostBringUp()` 取同一把 Apps SMMU 锁，而锁只在 `pong_rpmh_init()` 里分配、
+后者由 `pong_wifi_start_optional()` 调用——UFS 更早。锁为 NULL 时 `pong_smmu_lease_lock()`
+返回 false，UFS 直接 `transportFailure("Apps SMMU lease unavailable")` 放弃 transport，
+没有根设备，内核在 console worker 起来前死掉，日志一个字节都没有。
+
+### series 指纹双命名空间（P-214）
+
+`build-strict.sh` 量的是 series **文件字节**（64 hex），`porting-gate.py` /
+`record-boot.py` 量的是 `names+sizes`（16 hex），两者永远不相等，iron-4/hard-33 在 main
+上恒红。修法：唯一实现 `scripts/series-fingerprint.py` + manifest 带
+`"namespace": "names+sizes"` + 读者拒绝跨命名空间比较。
+
+### 其它
+
+- P-212（把配置打印成证据的日志）、P-213（门禁只读字面量不读变量传播）落账。
+- bt 二分八张矩阵全部实飞：`h34`（h3+h4，不带 h1/h2）能起（SB 128），推翻「致命集是
+  h3×h4」与「h2 是前置」两条推断；唯一站得住的表述是**全量 0005 四者齐备才 silent**。
+- `probe: armed` 与 `[bluetooth] power=` 的缺失是 **h3 单独**造成的可观测性副作用。
+
+## 五、2026-11-15 变更摘要
+
+### 电池入口与 ADSP 发布器曾是死代码（P-208）
+
+`adsp-20261115d`（`pong_handoff_publish=1`）真机 SpringBoard 132、panic 0，却
+`K60Handoff:` 命中 0 次。`nm -u IOKitBSDInit.cpo` 显示该 TU 从未引用
+`k60_adsp_handoff_publish` / `k60_physical_battery_start`：`-DXNU_K60_PHYSICAL_BATTERY=1`
+只挂在 `KernelConfigTables.cpo` 上，`iokit/bsddev/IOKitBSDInit.cpp` 的守卫块整块编译成空，
+而 `-force_load` 让符号永远在 kernel 里，所以 P-190 一直假绿。define 已进全局
+`EXTRA_CFLAGS`，并新增 P-208 门禁（要求 `IOKitBSDInit.cpo` 引用该符号，仅在
+`--kernel` 显式给出时判决）。`baseline-20261115a` 的桩路径（无载体）也已验证通过。
+
+### ADSP 固件载体合入 main（PAS1 解锁的第一步）
+
+- `feat/adsp-carrier`（27 提交）no-ff 合入（`996aac6`）：26 记录 / 23,506,184 B 的
+  ADSP 镜像容器经 `0620-k60-adsp-blob.patch` + `osfmk/arm64/k60_adsp_blob.s` 内嵌进
+  内核（P-197 的载体 workaround），`build-strict.sh --adsp-blob` 负责生成、校验、
+  输入 pin 与 manifest 键。
+- 上机验证 `adsp-20261115c`（kernel `402f8cb1…` 128,991,232 B）：真机
+  `usblog-20261115-213413` 干净进桌面（SpringBoard 128 行、panic 0）；发布器按设计
+  休眠（该图没有 `pong_handoff_publish=1`）。功能图 `adsp-20261115d` 已出
+  （30 args / 598 B），等上机窗口。
+- 补 `f760086`：无 `--adsp-blob` 的构建写一字节桩 + `len=0`，否则 0620 无条件登记
+  的 `.s` 会让内核 make 缺源失败。
+
+### refmine 判决工具合入 main
+
+- `feat/judge-tools` 原基于 `9176f5c`（旧 main），直接合并会删掉 charger 六篇、
+  P-205/P-206 与 identity seed 文件；Lead 先 rebase 到 main 再 no-ff 合并
+  （`4f56970`）。新增 `scripts/judge-z0.sh`、`scripts/judge-wifi-boot.py`
+  与两套测试（11 + 14 例），以及 `docs/wifi` 判决账本修正（P-201 口径）。
+
+### 平台身份种子（identity seed）落地并真机验证
+
+- `board.toml` 的 `[payload."adt"]` 增加 `"unique_chip_id" = "required"`；
+  `build-strict.sh` 默认 `UNIXNU_UNIQUE_CHIP_ID=4B36305400000001` 并转发
+  `--unique-chip-id`（`3ea8d71` / `dafa502` / `2f9f991`）。
+- 离线 payload 验证：`unique-chip-id` 5 处、`chip-id` 9 处（此前 0）。
+- `seed-20261115a`（kernel `a07e9565…`、boot.img `1fc1169e…`）真机：
+  `usblog-20261115-155741`，247,731 B / SpringBoard 183 / 无 panic /
+  `no platform identity` 0 命中 → `3ea8d71` 记 `state="booted"`（`3e59ba5`）。
+
+### 上机窗口（2026-11-15）
+
+- `wifi-20261116t2`（固件挪 `__DATA,__const`）：port-not-observed → 固件驻留
+  假设否证，wifi 只剩 DarwinBoot pool/窗口通道方向。
+- `bt-s4c-20261115c`（负向，空 blob）：进桌面，`addon: no GpuAddon property`
+  判据命中、`K60 BT: published local address ee:98:c5:8a:6b:4e`（identity 生效）；
+  新崩溃族 C：backboardd `getBytes:range:`（根因 = `0509` 三属性发成 OSString，
+  已立项 `docs/research/display/BACKBOARD-CRASH-FAMILIES.md`）。
+- `bt-s4b-20261115c`（正向，带 blob）：port-not-observed → 唯一变量 =
+  `patches/bt/0005` 与 blob 的组合，bt 线四 hunk 二分图（h1–h4）已备齐待飞。
+- `usb-20261115c`（mode-2）：boot-and-echo 全流程 PASS（COM5 9.5 s、
+  sent=64 received=64）；`usb-20261115d`（mode-1）：265,561 B / SB 133 /
+  五条 `K60BEACON` 自发信标，主机侧 MI_00=COM6、MI_02=vendor 无驱动（预期）。
+  P1+P2 合体经真机验证，usb 线收工。
+- `thermal-20261115b`（bias=85000）：22 passed / 0 failed、tsens zone 发布
+  `Thermal_Level_Warning=3`；cooling 终局排序 ddr 停核 > cpufreq-cdev（EPSS 只读）。
+
+### 流程与门禁
+
+- P-203：`git worktree prune` 在 linked worktree 里跑会清掉主仓 `.git/worktrees/`
+  下全部管理目录（19 棵全挂、不可逆）——guard 拒 shared-metadata 动词 +
+  `scripts/repair-worktrees.py` 通用修复器（29 例宿主测试）。
+- P-204：判据不能建立在「某个串出现 N 次」上（一天三次同形错误），判据必须
+  自证、指向具体对象、格式串从源码抄。
+- P-205 加强（`2152c6e`）：`check-readme.py` 新增第五条对账——两份 README 的
+  八步表块必须等于 `render-eight-step-table.py` 从 EIGHT-STEPS.toml 现场渲染的
+  结果。从此「合并一个新增 `[hardware.*]` 行的分支而没重生成八步图」会在
+  check-rules 直接红（自测 10 例）。
+- `feat/charger` 11 提交 no-ff 合入 main（`fd6adeb`）：订阅 ACK 按 ADSP 固件
+  opcode-4 handler 钉死 (type=1, 16 B)，`build-k60-physical-battery.py` 产出
+  `MEASURED_NOTIFY_REPLY=(1,16)` 且抓包只能确认不能覆盖；GLINK 契约与
+  `K60Battmgr` 白名单对齐；104 字节 handoff 发布规范落库。八步表新增充电行
+- P-206（`c97a4cf`）：`check-build-env.py` 不再写死 `mondrian` board 目录——从
+  out 树按 mtime 推导（wifi 线的 `mondrian_wifi` 首次构建死在
+  `Availability.h` file not found 而门禁一直验旧树假绿）；`FAKEROOT_FILES`
+  2→5（三个 Availability 头 + 两个 firehose 文件）。
+  （①–⑦ ✅、⑧ 待上机），真机验证排在 ADSP PAS1 之后。
+- P-205 + ★36 第 7 条：README 的日期、编号、门禁点名必须与 STATUS /
+  HARD-RULES / PITFALLS / build-strict.sh 可对账，新门禁 `scripts/check-readme.py`。
 
 ---
 

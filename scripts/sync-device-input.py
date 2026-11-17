@@ -19,7 +19,17 @@ REPO = os.path.abspath(os.environ.get('K60_REPO')
                       or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 构建输入镜像。默认是共享目录；并行工作时用 K60_DEVICE_INPUT 指向自己的一份，
 # 否则谁最后同步谁就决定了别人构建用的补丁集（P-184 同类问题）。
-DEV = os.environ.get('K60_DEVICE_INPUT') or '/opt/k60/trees/usb-cdc-mainline/device'
+# 构建输入镜像必须由调用者显式给出，读和写都一样。
+# 以前 --check 会回落到共享目录，于是 registry 里的 iron-5 拿**别人的**镜像去判你的树：
+# 2026-11-16 实测，不设该变量时 iron-4/iron-5/hard-33/P-165/P-166 报 5 条假红，
+# 设上同一个变量后全绿（787 文件一致）。判据缺输入时必须拒绝，不能替换
+# （P-190/P-207/P-220 同族：门禁自己找 fallback 而不是拒绝）。
+DEV = os.environ.get('K60_DEVICE_INPUT')
+if not DEV:
+    sys.exit('sync-device-input: K60_DEVICE_INPUT is not set; refusing to compare or write a '
+             'mirror the caller did not name. Export your own mirror (P-184: the wifi line once '
+             'cross-polluted the shared tree; 2026-11-16: an unset variable produced five false '
+             'reds in check-rules).')
 # 单一工作树时才写这份共享镜像。多 agent 并行时每人有自己的 K60_DEVICE_INPUT，
 # 若仍写同一个文件，最后同步的人就决定了别人 porting-gate 看到的 series
 # （2026-11-14 五个 agent 同时工作后实测：BT 的 0507 出现在 Lead 的树里）。
@@ -42,6 +52,9 @@ FRAMEWORK_PAIRS = [
 ]
 
 ITEMS = [
+    # Fresh device inputs need both feed declarations and their resolved pins.
+    'feeds.toml',
+    'unixnu.lock',
     'board.toml',
     'porting.toml',
     'local.toml',

@@ -6,7 +6,9 @@
 No firmware/PAS startup or synthetic handoff is generated. Hardware resources
 come from the captured FDT; the vendor module property map is checked. Current
 polarity stays unqualified unless actual charging/discharging wire captures
-prove it. Subscription stays off unless its exact wire ACK was captured.
+prove it. The subscription ACK is not inferred: the ADSP firmware's own
+opcode-0x04 handler answers 16 B with type 1, and a wire capture may only
+confirm that pair, never replace it.
 """
 import argparse
 import hashlib
@@ -22,6 +24,11 @@ import sys
 DEVICE = Path(__file__).resolve().parents[1]
 CONFIG_BYTES = 112
 OWNER = 32778
+# Measured from the K60 ADSP firmware's opcode-0x04 handler at 0x60155910,
+# which answers {owner=0x800a, type=1, opcode=4, result} in 16 bytes. A wire
+# capture can only confirm this pair; see
+# docs/research/charger/06-SUBSCRIPTION-CONSTANT.md.
+MEASURED_NOTIFY_REPLY = (1, 16)
 
 
 def sha256(path):
@@ -156,16 +163,31 @@ def elf_symbols(path):
     return found
 
 
-def wire_messages(path):
+def wire_messages(path, *, strict=False):
     if path is None:
         return []
     result = []
-    for line in path.read_text(errors='strict').splitlines():
-        match = re.search(r'\b(Tx|Rx) data:\s*((?:[0-9a-fA-F]{2}(?:\s+|$))+)', line)
-        if not match:
-            continue
+    for number, line in enumerate(path.read_text(errors='strict').splitlines(), 1):
+        if strict:
+            # Qualification must not silently discard a damaged frame or parse
+            # a valid hex prefix followed by a truncated/invalid byte token.
+            match = re.search(r'\b(Tx|Rx) data:(.*)$', line)
+            if not match:
+                continue
+            if not re.fullmatch(r'\s*(?:[0-9a-fA-F]{2}\s+)*[0-9a-fA-F]{2}\s*', match.group(2)):
+                raise ValueError(f'Malformed wire data at {path}:{number}')
+        else:
+            match = re.search(r'\b(Tx|Rx) data:\s*((?:[0-9a-fA-F]{2}(?:\s+|$))+)', line)
+            if not match:
+                continue
         data = bytes.fromhex(match.group(2))
-        if len(data) < 12 or struct.unpack_from('<I', data)[0] != OWNER:
+        if len(data) < 12 or (strict and len(data) % 4):
+            if strict:
+                raise ValueError(f'Truncated wire frame at {path}:{number}: {len(data)} bytes')
+            continue
+        if struct.unpack_from('<I', data)[0] != OWNER:
+            if strict:
+                raise ValueError(f'Unexpected wire owner at {path}:{number}')
             continue
         result.append((match.group(1), data))
     return result
@@ -212,27 +234,41 @@ def qualification(charging, discharging, notify):
         current_evidence = dict(charging_ua=charge, discharging_ua=drain,
             charging_capture=str(charging), charging_sha256=sha256(charging),
             discharging_capture=str(discharging), discharging_sha256=sha256(discharging))
-    reply_type, reply_bytes = 0, 0
-    notify_evidence = None
+    reply_type, reply_bytes = MEASURED_NOTIFY_REPLY
+    notify_evidence = dict(source='adsp-opcode4-handler', type=reply_type,
+        bytes=reply_bytes, reference='docs/research/charger/06-SUBSCRIPTION-CONSTANT.md')
     if notify:
+        # A qualification file is a complete, single-epoch owner-0x800a
+        # capture: retries or orphan ACKs cannot establish an exact pair.
         pending = False
         replies = []
-        for direction, data in wire_messages(notify):
+        for direction, data in wire_messages(notify, strict=True):
             _, kind, opcode = struct.unpack_from('<III', data)
             if opcode != 4:
                 continue
-            if direction == 'Tx' and kind == 2 and len(data) == 28 and not any(data[12:]):
+            if direction == 'Tx':
+                if kind != 2 or len(data) != 28 or any(data[12:]):
+                    raise ValueError(f'Unqualified subscription request type/length/payload: {data.hex()}')
+                if pending:
+                    raise ValueError('Repeated opcode4 subscription request before its response')
                 pending = True
-            elif direction == 'Rx' and pending:
+            else:
+                if not pending:
+                    raise ValueError('Opcode4 subscription response without a pending request')
                 if kind not in (1, 2) or len(data) not in (12, 16, 24, 28) or any(data[12:]):
                     raise ValueError(f'Unqualified subscription ACK type/length/payload: {data.hex()}')
                 replies.append((kind, len(data)))
                 pending = False
+        if pending:
+            raise ValueError('Wire capture ends with an unanswered opcode4 subscription request')
         if not replies or len(set(replies)) != 1:
             raise ValueError('Wire capture lacks one unambiguous measured opcode4 subscription response')
+        if replies[0] != MEASURED_NOTIFY_REPLY:
+            raise ValueError('Wire capture contradicts the measured ADSP opcode-4 reply '
+                             f'{MEASURED_NOTIFY_REPLY}: {replies[0]}')
         reply_type, reply_bytes = replies[0]
         notify_evidence = dict(capture=str(notify), sha256=sha256(notify),
-                               type=reply_type, bytes=reply_bytes)
+                               type=reply_type, bytes=reply_bytes, source='wire-capture')
     return sign, reply_type, reply_bytes, current_evidence, notify_evidence
 
 
@@ -275,7 +311,7 @@ def main():
         '#include "K60BatteryConfig.h"\nconst uint8_t K60BatteryBoardConfig[K60_BATTERY_CONFIG_BYTES]={\n' +
         rows + '};\nconst size_t K60BatteryBoardConfigBytes=sizeof(K60BatteryBoardConfig);\n')
     (out / 'K60BatteryProtocol.generated.h').write_text(
-        '/* Zero until exact subscription ACK wire capture qualifies it. */\n'
+        '/* Measured ADSP opcode-4 ACK: 16 B, type 1 (firmware handler 0x60155910). */\n'
         f'#define K60_BATTERY_NOTIFY_REPLY_TYPE {notify_type}u\n'
         f'#define K60_BATTERY_NOTIFY_REPLY_BYTES {notify_bytes}u\n')
     (out / 'captured-board-config.bin').write_bytes(encoded)
@@ -284,7 +320,8 @@ def main():
         battery_module=str(args.battery_module.resolve()), battery_module_sha256=sha256(args.battery_module),
         checked_module_maps=maps, current_qualification=current_evidence, notification_qualification=notify_evidence,
         required_platform_handoff='K60BatteryConfig.h K6BH v1, authenticated PAS1 owner and exclusive fresh APSS GLINK epoch',
-        firmware_start_implemented=False, synthetic_handoff=False, battery_readings_embedded=False,
+        firmware_start_implemented=False, owner_orchestration_implemented=True,
+        platform_backend_installed=False, synthetic_handoff=False, battery_readings_embedded=False,
         current_sign_qualified=sign != 0, subscription_qualified=notify_bytes != 0,
         hardware_qualified=False, archive_built=False, commands=[])
     if not args.emit_config_only:
@@ -298,6 +335,11 @@ def main():
         common = ['-target', 'arm64-apple-ios16.0', '-isysroot', sdk,
             '-mkernel', '-ffreestanding', '-fno-builtin', '-fno-stack-protector', '-mgeneral-regs-only', '-Os',
             '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1', '-DARM64_BOARD_CONFIG_PONG=1',
+            # Kernel.framework's public string.h intentionally includes the private
+            # san/memintrinsics.h behind __has_include (XNU compiles the same chain);
+            # the host clang's framework policy turns that sanctioned include into a
+            # -Werror failure the moment any archive member pulls sys/systm.h.
+            '-Wno-framework-include-private-from-public',
             # Public headers first: PrivateHeaders/IOKit/IOLib.h expands
             # IOTypedOperatorsMixin in a way this host compiler rejects, while the
             # public IOLib.h plus the private IOPMPowerSource.h compile cleanly.
@@ -309,7 +351,13 @@ def main():
         # a second copy fails the link with three duplicate symbols (P-190).
         # The archive therefore references the kernel's copy, exactly like the
         # other in-tree consumers do.
+        # SMEM, handoff serialization and startup arbitration are kernel objects
+        # (0611/0619), not duplicate archive members (P-190).
         for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
+                     'K60AdspOwner.c', 'K60AdspOwnerStages.c', 'K60AdspMdt.c',
+                     'K60AdspImageReader.c', 'K60AdspPlatform.c',
+                     'K60AdspPlatformNative.cpp',
+                     'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file
             obj = out / (path.stem + '.o')

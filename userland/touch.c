@@ -7,14 +7,35 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <mach/mach_time.h>
+#include <sys/sysctl.h>
 #include "touch.h"
-#define say(...) fprintf(stderr,__VA_ARGS__)
+static int diagnostic_mib[CTL_MAXNAME];
+static size_t diagnostic_mib_count;
+
+/* Daemon stderr is not carried by every prepared launchd cache. Reuse the
+ * UI library's bounded kernel-console channel; retain stderr on failure. */
+static void say(const char *format, ...)
+{
+    int saved_errno=errno;
+    char line[768];va_list arguments;
+    va_start(arguments,format);
+    int n=vsnprintf(line,sizeof(line),format,arguments);
+    va_end(arguments);
+    if (n>0) {
+        size_t length=(size_t)n<sizeof(line)?(size_t)n:sizeof(line)-1;
+        if (!diagnostic_mib_count ||
+            sysctl(diagnostic_mib,(u_int)diagnostic_mib_count,NULL,NULL,line,length)!=0)
+            (void)write(STDERR_FILENO,line,length);
+    }
+    errno=saved_errno;
+}
 /* IOKit's HID event system, the part that has no public header on iOS (prototypes checked against 20F66) */
 typedef struct __IOHIDEvent *IOHIDEventRef;
 typedef struct __IOHIDEventSystemClient *IOHIDEventSystemClientRef;
@@ -313,12 +334,14 @@ static void *
 input_thread(void *unused)
 {
     (void)unused;pthread_setname_np("Pong touch HID");
+    say("Pong touch HID: input worker entered; opening /dev/pong-touch\n");
     int device=-1;
     for (unsigned i=0;i<30 && device<0;i++) {
         device=open("/dev/pong-touch",O_RDONLY);
         if (device<0) sleep(1);
     }
     if (device<0) {say("Pong touch HID: real touch device unavailable (%s); SKIP\n",strerror(errno));return NULL;}
+    say("Pong touch HID: real /dev/pong-touch opened fd=%d\n",device);
     IOHIDEventSystemClientRef client=NULL;IOHIDServiceClientRef screen=NULL,wake_control=NULL;
     const int types[]={HID_CLIENT_SIMPLE,HID_CLIENT_RATE_CONTROLLED};
     /* Register during BackBoard's main-screen digitizer initialization.
@@ -331,11 +354,12 @@ input_thread(void *unused)
         if (!screen) CFRelease(client);
     }
     if (!screen) {say("Pong touch HID: server did not open digitizer; SKIP\n");close(device);return NULL;}
+    say("Pong touch HID: display-integrated digitizer opened\n");
     if (IOHIDEventCreateKeyboardEvent)
         wake_control=make_service(client,"Pong touch wake control",HID_PAGE_CONSUMER,HID_USAGE_CONSUMER_CONTROL,false);
-    say("Pong touch HID: display-integrated digitizer opened\n");
     if (wake_control) say("Pong touch HID: tap-to-wake consumer opened\n");
     struct pong_touch sample;unsigned count=0,waking=0;ssize_t length;
+    say("Pong touch HID: reading only physical down/move/up samples\n");
     while ((length=read(device,&sample,sizeof(sample)))>0 || (length<0 && errno==EINTR)) {
         if (length<0) continue;
         if (length!=(ssize_t)sizeof(sample) || sample.type<PONG_TOUCH_DOWN || sample.type>PONG_TOUCH_UP) continue;
@@ -352,7 +376,10 @@ input_thread(void *unused)
         }
         if (waking&bit) {if (sample.type==PONG_TOUCH_UP) waking&=~bit;continue;}
         if (!send_touch(screen,&sample)) break;
+        if (count<=4) say("Pong touch HID: dispatched type=%u finger=%u\n",sample.type,sample.finger);
     }
+    if (length<0) say("Pong touch HID: physical read failed (%s); stopping\n",strerror(errno));
+    else if (!length) say("Pong touch HID: physical source reached EOF; stopping\n");
     /* Release outstanding contacts if the physical source goes away. */
     release_contacts(screen,mach_absolute_time());
     if (wake_control) {IOHIDVirtualServiceClientRemove(wake_control);CFRelease(wake_control);}
@@ -364,9 +391,11 @@ static void *
 buttons_thread(void *unused)
 {
     (void)unused;pthread_setname_np("Pong physical keys");
+    say("Pong keys HID: input worker entered; opening /dev/pong-buttons\n");
     int fd=-1;
     for (unsigned i=0;i<30 && fd<0;i++) {fd=open("/dev/pong-buttons",O_RDONLY);if (fd<0) sleep(1);}
-    if (fd<0) {say("Pong keys HID: verified PMIC input unavailable; SKIP\n");return NULL;}
+    if (fd<0) {say("Pong keys HID: verified PMIC input unavailable (%s); SKIP\n",strerror(errno));return NULL;}
+    say("Pong keys HID: real /dev/pong-buttons opened fd=%d\n",fd);
     IOHIDEventSystemClientRef client=NULL;IOHIDServiceClientRef keys=NULL;
     const int types[]={HID_CLIENT_SIMPLE,HID_CLIENT_RATE_CONTROLLED};
     for (unsigned i=0;i<2 && !keys;i++) {
@@ -393,6 +422,8 @@ buttons_thread(void *unused)
         if (down) held|=1u<<sample.finger;else held&=~(1u<<sample.finger);
         say("Pong keys HID: key=%u down=%u sent=%u\n",sample.finger,down,sent);
     }
+    if (n<0) say("Pong keys HID: physical read failed (%s); stopping\n",strerror(errno));
+    else say("Pong keys HID: physical source reached EOF; stopping\n");
     for (unsigned i=0;i<3;i++) if (held&(1u<<i)) {
         IOHIDEventRef up=IOHIDEventCreateKeyboardEvent(NULL,mach_absolute_time(),HID_PAGE_CONSUMER,usages[i],false,0);
         if (up) {IOHIDVirtualServiceClientDispatchEvent(keys,up);CFRelease(up);}
@@ -403,12 +434,20 @@ buttons_thread(void *unused)
 void
 pong_touch_start(void)
 {
-#define RESOLVE(name) do { name=(__typeof__(name))dlsym(RTLD_DEFAULT,#name); if (!name) {say("Pong touch HID: unavailable " #name "; SKIP\n");return;} } while (0)
-    /* 20G81 has no ...CreateWithType; fall back to the legacy creator. */
-    IOHIDEventSystemClientCreateWithType=(__typeof__(IOHIDEventSystemClientCreateWithType))dlsym(RTLD_DEFAULT,"IOHIDEventSystemClientCreateWithType");
-    IOHIDEventSystemClientCreate=(__typeof__(IOHIDEventSystemClientCreate))dlsym(RTLD_DEFAULT,"IOHIDEventSystemClientCreate");
+    diagnostic_mib_count=CTL_MAXNAME;
+    if (sysctlnametomib("kern.pong_diagnostic",diagnostic_mib,&diagnostic_mib_count)!=0)
+        diagnostic_mib_count=0;
+    say("Pong touch HID: BackBoard consumer initializer entered\n");
+    /* The injected dylib links CoreFoundation/CoreGraphics, not IOKit.
+     * Load the real framework before resolving HID APIs, and retain this
+     * dlopen reference for the lifetime of both physical-input workers. */
+    void *iokit=dlopen("/System/Library/Frameworks/IOKit.framework/IOKit",RTLD_NOW|RTLD_GLOBAL);
+    if (!iokit) {say("Pong touch HID: IOKit load failed (%s); SKIP\n",dlerror());return;}
+#define RESOLVE(name) do { name=(__typeof__(name))dlsym(iokit,#name); if (!name) {say("Pong touch HID: unavailable " #name " (%s); SKIP\n",dlerror());return;} } while (0)
+    IOHIDEventSystemClientCreateWithType=(__typeof__(IOHIDEventSystemClientCreateWithType))dlsym(iokit,"IOHIDEventSystemClientCreateWithType");
+    IOHIDEventSystemClientCreate=(__typeof__(IOHIDEventSystemClientCreate))dlsym(iokit,"IOHIDEventSystemClientCreate");
     if (!IOHIDEventSystemClientCreateWithType && !IOHIDEventSystemClientCreate) {
-        say("Pong touch HID: no IOHIDEventSystemClientCreate variant; SKIP\n");return;
+        say("Pong touch HID: no IOHIDEventSystemClientCreate variant (%s); SKIP\n",dlerror());return;
     }
     RESOLVE(IOHIDEventSystemClientScheduleWithDispatchQueue);
     RESOLVE(IOHIDVirtualServiceClientCreateWithCallbacks);
@@ -417,11 +456,19 @@ pong_touch_start(void)
     RESOLVE(IOHIDEventCreateDigitizerEvent);
     RESOLVE(IOHIDEventCreateDigitizerFingerEvent);
     /* Physical touches remain available if this optional wake API is absent. */
-    IOHIDEventCreateKeyboardEvent=(__typeof__(IOHIDEventCreateKeyboardEvent))dlsym(RTLD_DEFAULT,"IOHIDEventCreateKeyboardEvent");
+    IOHIDEventCreateKeyboardEvent=(__typeof__(IOHIDEventCreateKeyboardEvent))dlsym(iokit,"IOHIDEventCreateKeyboardEvent");
     RESOLVE(IOHIDEventAppendEvent);
     RESOLVE(IOHIDEventSetIntegerValue);
 #undef RESOLVE
+    say("Pong touch HID: real IOKit HID APIs resolved; creator=%s\n",
+        IOHIDEventSystemClientCreateWithType?"IOHIDEventSystemClientCreateWithType":"IOHIDEventSystemClientCreate");
     pthread_t thread;
-    if (!pthread_create(&thread,NULL,input_thread,NULL)) pthread_detach(thread);
-    if (IOHIDEventCreateKeyboardEvent && !pthread_create(&thread,NULL,buttons_thread,NULL)) pthread_detach(thread);
+    int error=pthread_create(&thread,NULL,input_thread,NULL);
+    if (error) say("Pong touch HID: input worker creation failed (%s); SKIP\n",strerror(error));
+    else pthread_detach(thread);
+    if (IOHIDEventCreateKeyboardEvent) {
+        error=pthread_create(&thread,NULL,buttons_thread,NULL);
+        if (error) say("Pong keys HID: input worker creation failed (%s); SKIP\n",strerror(error));
+        else pthread_detach(thread);
+    } else say("Pong keys HID: unavailable IOHIDEventCreateKeyboardEvent; SKIP\n");
 }

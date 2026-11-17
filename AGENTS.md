@@ -157,6 +157,10 @@ prose is a red build, not a wish.
 | Eight-step | `python3 scripts/eight-step-gate.py --build` / `--flash` | ①–⑥ for build, ①–⑦ plus the ⑧ prediction for flash |
 | Porting | `python3 scripts/porting-gate.py --quick` | `porting.toml` matches the official schema; the README table matches the data |
 | Docs | `python3 scripts/check-docs.py` | Link integrity, INDEX coverage, root-doc links, section order, bilingual |
+| README sync | `python3 scripts/check-readme.py` | README/README_EN mutual links, README date not older than STATUS, ★N/P-N range claims equal the real headings, the gate table names the same set as `build-strict.sh` embeds (P-205) |
+| Firmware volume | `python3 scripts/check-firmware-volume.py` | The firmware-volume manual does not claim the volume is reproducible, and does not present a volume hash as an identity rather than one build's identifier (P-216) |
+| Bisect coverage | `python3 scripts/check-bisect-coverage.py --prefix <tag-prefix>` | 已构建但从未飞行的镜像（P-218） |
+| Basecore pin | `python3 scripts/check-basecore-pin.py` | The Mu_Basecore worktree sits on the commit the repo records, every `[firmware].patches` entry exists and applies, and any deliberate deviation is written down in the firmware manual (P-217) |
 | Scope freeze | `python3 scripts/check-scope-freeze.py` | Nothing under a frozen path in `docs/SCOPE-FREEZE.toml` changed since its baseline; frozen areas warn instead of fail |
 | DT asserts | `python3 scripts/check-dt-asserts.py` | Every `property(entry,"X",...)` a driver patch reads exists in `dts/mondrian.dts`; a missing one means the driver returns false and its diagnostics never run (P-147) |
 | Input sync | `python3 scripts/sync-device-input.py --check` | The build input matches the repository; nothing exists in only one of them (iron rule 5) |
@@ -227,6 +231,26 @@ prose is a red build, not a wish.
   `git cherry-pick -x <sha>`; if you copy by hand, add
   `Co-authored-by: Name <email>` to the commit message. Otherwise GitHub's
   contributor graph credits the wrong person. See `CREDITS.md` and P-130.
+
+## Agent coordination (reply md channel)
+
+Reports and replies between the lead and each line agent travel through one
+scratch file per line (the user asked for this channel on 2026-11-15):
+
+- File: `E:\k60-work\scratch\reply-<line>-<YYYYMMDD>.md` (e.g.
+  `reply-adsp-20261115.md`). Lines: adsp, audio, bt, cellular, display,
+  refmine, springboard, thermal, usb, wifi.
+- **Bidirectional and overwrite-based.** An agent reports by overwriting its
+  file with the latest report; the lead replies by overwriting the same file
+  with the reply. The file always holds the newest message of one side.
+- **Read before overwrite.** If the other side has already written a new
+  report, act on or answer it first, then overwrite the whole file with this
+  round's reply.
+- **Do not paste full reports into chat.** Chat only announces that replies
+  are written; the file is the payload. This keeps the transcript small.
+- The files live in `scratch`, not the repo: they are coordination artifacts,
+  not deliverables. Substantive findings must still land in
+  `docs/research/` (or the equivalent repo doc) before a line is done.
 
 ## Device rules
 

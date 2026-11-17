@@ -23,11 +23,13 @@ TAG=${1:?usage: build-strict.sh <tag> --fd <file.fd> [--kernel-arg K=V ...]}
 shift
 FD=""
 ADDON=""
+ADSP_DIR=""
 KARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --fd) FD=${2:?--fd needs a file}; shift 2 ;;
         --gpu-addon) ADDON=${2:?--gpu-addon needs a file}; shift 2 ;;
+        --adsp-blob) ADSP_DIR=${2:?--adsp-blob needs a firmware directory}; shift 2 ;;
         --kernel-arg) KARGS+=("${2:?--kernel-arg needs NAME=VALUE}"); shift 2 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -36,6 +38,7 @@ done
 [ -n "$FD" ] || die "--fd is required; a build must name the firmware volume it packs"
 [ -f "$FD" ] || die "--fd $FD does not exist"
 [ -z "$ADDON" ] || [ -f "$ADDON" ] || die "--gpu-addon $ADDON does not exist"
+[ -z "$ADSP_DIR" ] || [ -d "$ADSP_DIR" ] || die "--adsp-blob $ADSP_DIR is not a directory"
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 DEV=${K60_DEVICE_INPUT:-/opt/k60/trees/usb-cdc-mainline/device}
@@ -46,6 +49,11 @@ RUN=$ART/$TAG
 LOGS=$RUN/logs
 MARK=$RUN/.build-marker
 export HOME=${HOME:-/root}
+# Platform identity seed. "required" in board.toml makes payload.py demand it
+# (payload.py:173-174); the default keeps every line's image identity stable.
+# Change it only when a new device identity is wanted: the BT MAC derives
+# from it and existing pairings break.
+export UNIXNU_UNIQUE_CHIP_ID="${UNIXNU_UNIQUE_CHIP_ID:-4B36305400000001}"
 export K60_REPO=$REPO
 # The registry runs as a child process. If these are not exported it falls back
 # to the default mirror/tree, judges a different series than the one being built,
@@ -63,27 +71,74 @@ mkdir -p "$LOGS" "$ART/fd" || die "cannot create $RUN"
 [ -d "$DEV" ] || die "device input $DEV missing"
 [ -d "$BUILD" ] || die "build tree $BUILD missing"
 
+# --- gate-table:BEGIN ---
+# Every check call between these markers is a gate; scripts/check-readme.py
+# reconciles this list against the README gate table (P-205). A new gate here
+# without a README table row fails the registry.
 # A fresh worktree has the code but not the environment (P-185): no Darwin tool
 # shims and an empty fakeroot. Name the missing piece now instead of discovering
 # it 13 minutes into the build as `xcodebuild: command not found`.
 python3 "$REPO/scripts/check-build-env.py" || die "build environment is incomplete (P-185)"
 
-M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian
+# --- board directory ---------------------------------------------------------
+# The build directory is named after the defconfig, not the board: the default
+# configuration builds into `mondrian/`, the wifi one into `mondrian_wifi/`, and
+# both can sit under one OUT (out-wifi has both today).  M drives .config,
+# kernel.macho, payload.img, hardware.dtb and the metal blob, so the wrong pick
+# is not cosmetic.
+#
+# "Newest .config wins" is worse than it looks.  mondrian_wifi/.config names
+# neither CONFIG_XNU_GPU_ADDON nor CONFIG_XNU_K60_PHYSICAL_BATTERY, and both
+# reads below are `sed -n 's/^KEY=y$/1/p'`, so a wrong pick silently drops the
+# Metal plugin and the battery archive while the build still reports success
+# (P-202).  So rank by whether the .config actually names those keys -- a
+# config produced by the full defconfig names both, a partial one names neither
+# -- and only fall back to mtime among equals.  K60_BOARD_DIR overrides.
+board_dir() {
+    if [ -n "${K60_BOARD_DIR:-}" ]; then
+        [ -f "$K60_BOARD_DIR/.config" ] || die "K60_BOARD_DIR=$K60_BOARD_DIR has no .config"
+        echo "$K60_BOARD_DIR"
+        return 0
+    fi
+    local all=() full=() d
+    for d in "$OUT"/mondrian/ipados-*/*/; do
+        d=${d%/}
+        [ -f "$d/.config" ] || continue
+        all+=("$d")
+        if grep -q "^CONFIG_XNU_GPU_ADDON=\|^CONFIG_XNU_K60_PHYSICAL_BATTERY=" "$d/.config"; then
+            full+=("$d")
+        fi
+    done
+    if [ ${#all[@]} -eq 0 ]; then
+        echo "$OUT/mondrian/ipados-16.6.1-20G81/mondrian"
+        return 0
+    fi
+    # A candidate that names the keys beats one that does not, regardless of age.
+    local pool=("${all[@]}")
+    if [ ${#full[@]} -gt 0 ]; then
+        pool=("${full[@]}")
+    fi
+    local best="" tied=0
+    for d in "${pool[@]}"; do
+        if [ -z "$best" ] || [ "$d/.config" -nt "$best/.config" ]; then
+            best=$d
+            tied=0
+        elif [ "$d/.config" -nt "$best/.config" ] || [ "$d/.config" -ef "$best/.config" ]; then
+            tied=$((tied + 1))
+        fi
+    done
+    if [ ${#all[@]} -gt 1 ]; then
+        echo "build-strict: board dir ${best#*/ipados-*/} chosen among ${#all[@]} candidates (K60_BOARD_DIR overrides)" >&2
+    fi
+    if [ ${#full[@]} -eq 0 ] && [ ${#all[@]} -gt 1 ]; then
+        echo "build-strict: WARNING no candidate names CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY; the Metal plugin and battery archive will be skipped silently (P-202)" >&2
+    fi
+    echo "$best"
+}
+
+M=$(board_dir)
 KERNEL=$M/kernel/kernel.macho
 
-# --- frozen inputs -----------------------------------------------------------
-# Every file that can change the kernel is hashed before the build; a later
-# boot is only comparable if the same list hashes the same.
-freeze() {
-    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f -print0 \
-        | sort -z | xargs -0 sha256sum )
-}
-freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"
-FROZEN_SHA=$(sha256sum "$RUN/frozen-before.txt" | cut -d' ' -f1)
-SERIES_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)
-SERIES_COUNT=$(grep -c . "$REPO/patches/xnu/series")
-
-echo "build-strict: tag=$TAG series=$SERIES_COUNT frozen=$FROZEN_SHA"
 
 # --- eight-step gate ---------------------------------------------------------
 # Iron rule 3: a build is only allowed when the eight-step evidence is complete.
@@ -97,6 +152,39 @@ if ! python3 "$REPO/scripts/eight-step-gate.py" --build > "$LOGS/eight-step.log"
 fi
 EIGHT_STEP_SUMMARY=$(grep -E '通过 [0-9]+ 项检查' "$LOGS/eight-step.log" | tail -1)
 echo "build-strict: eight-step ${EIGHT_STEP_SUMMARY:-passed}"
+# --- gate-table:END ---
+
+# --- frozen inputs -----------------------------------------------------------
+# Every file that can change the kernel is hashed before the build; a later
+# boot is only comparable if the same list hashes the same.
+#
+# Bytecode caches are not inputs (P-224).  The build imports these scripts,
+# python then rewrites scripts/__pycache__/*.pyc on its own, and the final
+# comparison below declares the run void for a change nobody made.  This was
+# live on main: the frozen list carried 21 .pyc entries, and wifi-20261116c7 was
+# thrown away for exactly that.  Exclude the cache rather than hash it, so a
+# build that changed nothing hashes the same on both ends.
+freeze() {
+    ( cd "$REPO" && find board.toml dts patches/xnu scripts -type f \
+        ! -path '*/__pycache__/*' ! -name '*.pyc' -print0 \
+        | sort -z | xargs -0 sha256sum )
+}
+freeze > "$RUN/frozen-before.txt" || die "cannot hash the frozen inputs"
+FROZEN_SHA=$(sha256sum "$RUN/frozen-before.txt" | cut -d' ' -f1)
+# P-214: the ledger and porting-gate compare sha256(names + sizes)[:16]; the file
+# bytes are a different namespace and never matched.  One implementation decides.
+SERIES_SHA=$(python3 "$REPO/scripts/series-fingerprint.py" | cut -d' ' -f1) || die "cannot fingerprint the series"
+SERIES_COUNT=$(python3 "$REPO/scripts/series-fingerprint.py" | cut -d' ' -f2)
+SERIES_FILE_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)
+
+echo "build-strict: tag=$TAG series=$SERIES_COUNT frozen=$FROZEN_SHA"
+
+
+# A missing .config would silently drop every defconfig-driven feature (P-202):
+# GPU_ADDON and BATTERY_ON below are both read with sed, and sed on a missing
+# file writes to stderr and yields nothing, so the build would quietly produce a
+# kernel without the Metal plugin or the battery class and still report success.
+[ -f "$M/.config" ] || die "no $M/.config; generate it first: $BUILD/unixnu defconfig mondrian_defconfig -D $DEV --out $OUT"
 
 # --- gpu addon (0610) -------------------------------------------------------
 # The Metal plugin travels inside the kernel as an .incbin blob, so the build
@@ -116,6 +204,36 @@ if [ -n "$GPU_ADDON" ]; then
   fi
   export K60_METAL_PLUGIN_DIR=$PLUGIN_DIR
   echo "build-strict: metal plugin $(cat "$LOGS/metal-plugin.log")"
+fi
+
+# ADSP firmware carrier: the kernel owns the DSP image through an embedded
+# blob (firmware has no loader, P-197). Generate and validate the container
+# before the kernel build so the force-load step cannot pick up a stale one.
+if [ -n "$ADSP_DIR" ]; then
+  ADSP_STAGE=$RUN/adsp-carrier
+  mkdir -p "$ADSP_STAGE" || die "cannot stage ADSP carrier"
+  if ! python3 "$REPO/scripts/gen-k60-adsp-blob.py" \
+        --firmware-dir "$ADSP_DIR" --output "$ADSP_STAGE/k60_adsp_blob.s" \
+        --dump "$ADSP_STAGE/k60_adsp_blob.bin" \
+        > "$LOGS/adsp-generate.log" 2>&1; then
+    tail -10 "$LOGS/adsp-generate.log" >&2
+    die "ADSP carrier generation failed (see $LOGS/adsp-generate.log)"
+  fi
+  if ! python3 "$REPO/scripts/check-adsp-blob.py" "$ADSP_STAGE/k60_adsp_blob.s" \
+        > "$LOGS/adsp-blob.log" 2>&1; then
+    tail -10 "$LOGS/adsp-blob.log" >&2
+    die "ADSP carrier is inconsistent (see $LOGS/adsp-blob.log)"
+  fi
+  export K60_ADSP_BLOB_S=$ADSP_STAGE/k60_adsp_blob.s
+  ADSP_CONTAINER_SHA=$(sha256sum "$ADSP_STAGE/k60_adsp_blob.bin" | cut -d' ' -f1)
+  ADSP_INPUTS=$ADSP_STAGE/inputs.sha256
+  ( cd "$ADSP_DIR" && find . -maxdepth 1 -type f -name 'adsp.*' \
+      | sort | xargs sha256sum ) > "$ADSP_INPUTS" \
+    || die "cannot hash the ADSP firmware inputs"
+  ADSP_RECORDS=$(wc -l < "$ADSP_INPUTS")
+  [ "$ADSP_RECORDS" -gt 0 ] || die "--adsp-blob $ADSP_DIR has no adsp.* files"
+  ADSP_INPUTS_SHA=$(sha256sum "$ADSP_INPUTS" | cut -d' ' -f1)
+  echo "build-strict: ADSP carrier $ADSP_CONTAINER_SHA ($ADSP_RECORDS records)"
 fi
 
 # The battery class lives in a host-built archive that the kernel script only
@@ -150,7 +268,7 @@ echo "build-strict: kernel $KERNEL_SHA $(stat -c %s "$KERNEL") bytes"
 # argument for names it is given.  Forwarding the flag to bootimg alone produced
 # an image whose command line was identical to a build without it.
 PAYLOAD_ARGS_CMD=()
-for kv in "${KARGS[@]:-}"; do
+for kv in ${KARGS[@]+"${KARGS[@]}"}; do
     [ -n "$kv" ] || continue
     PAYLOAD_ARGS_CMD+=(--kernel-arg "$kv")
 done
@@ -159,7 +277,21 @@ PAYLOAD_ARGS=()
 if [ -n "$ADDON" ]; then
     PAYLOAD_ARGS+=(--gpu-addon "$ADDON")
 fi
+# The modem carrier is a payload-side input pair: 27 LZMA streams under
+# EFI/UniXNU/MODEM plus the 16-byte K60ModemImage placeholder in
+# /chosen/memory-map.  DarwinBoot refuses to boot on either half alone
+# (uefi 72e51ca / 5d96806), so the switch has to reach this step.
+MODEM_STREAMS=0
+MODEM_TABLE_SHA=""
+if [ -n "${K60_MODEM_CARRIER:-}" ]; then
+    [ -d "$K60_MODEM_CARRIER" ] || die "K60_MODEM_CARRIER is not a directory: $K60_MODEM_CARRIER"
+    [ -f "$K60_MODEM_CARRIER/modem-table.txt" ] || die "K60_MODEM_CARRIER has no modem-table.txt: $K60_MODEM_CARRIER"
+    MODEM_STREAMS=$(grep -c . "$K60_MODEM_CARRIER/modem-table.txt")
+    MODEM_TABLE_SHA=$(sha256sum "$K60_MODEM_CARRIER/modem-table.txt" | cut -d' ' -f1)
+    PAYLOAD_ARGS+=(--modem-carrier "$K60_MODEM_CARRIER")
+fi
 if ! "$BUILD/unixnu" build payload -D "$DEV" --out "$OUT" --kernel "$KERNEL" \
+        --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
         ${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"} > "$LOGS/payload.log" 2>&1; then
     tail -30 "$LOGS/payload.log" >&2
     die "payload build failed (see $LOGS/payload.log)"
@@ -167,6 +299,16 @@ fi
 PAYLOAD=$M/payload/payload.img
 [ -s "$PAYLOAD" ] || die "payload.img missing"
 PAYLOAD_SHA=$(sha256sum "$PAYLOAD" | cut -d' ' -f1)
+# The payload step reports the carrier in payload.json, but the image is what
+# ships.  Count the streams inside the FAT against the table: a carrier that
+# silently lost half its segments would otherwise only fail on the device, and
+# an input that cannot be compared is not checked at all (P-190).
+if [ "$MODEM_STREAMS" -gt 0 ]; then
+    SHIPPED=$(mdir -i "$PAYLOAD" -b ::/EFI/UniXNU/MODEM 2>/dev/null | grep -ci 'modem\.b[0-9][0-9]\.lzma')
+    [ "${SHIPPED:-0}" -eq "$MODEM_STREAMS" ] || \
+        die "payload ships ${SHIPPED:-0} modem streams; the table lists $MODEM_STREAMS"
+    echo "build-strict: payload modem streams $SHIPPED (table $MODEM_STREAMS)"
+fi
 # The payload step stages EFI/UniXNU/Payloads/ in a temporary directory and then
 # packs it into the FAT; nothing is left behind at $M/payload/kernel.macho.adt.
 # Read the ADT and the kernel back OUT of the payload image, which is also what
@@ -198,7 +340,7 @@ BOOTIMG=("$BUILD/unixnu" bootimg -D "$DEV" --out "$OUT"
          --edk2 /mnt/e/hackios/uefi-mondrian/Mu_Basecore
          --dtb "$M/device-tree/hardware.dtb"
          --fd "$FD_ARCH" -o "$RUN/boot.img")
-for kv in "${KARGS[@]:-}"; do
+for kv in ${KARGS[@]+"${KARGS[@]}"}; do
     [ -n "$kv" ] || continue
     BOOTIMG+=(--kernel-arg "$kv")
 done
@@ -214,6 +356,14 @@ if ! cmp -s "$RUN/frozen-before.txt" "$RUN/frozen-after.txt"; then
     diff -u "$RUN/frozen-before.txt" "$RUN/frozen-after.txt" >&2 || true
     die "frozen inputs changed during the build; this run is void"
 fi
+# The ADSP firmware dir is a frozen input too, but it lives outside the repo.
+if [ -n "$ADSP_DIR" ]; then
+    ( cd "$ADSP_DIR" && find . -maxdepth 1 -type f -name 'adsp.*' \
+        | sort | xargs sha256sum ) > "$RUN/adsp-inputs-after.txt" \
+      || die "cannot re-hash the ADSP firmware inputs"
+    cmp -s "$ADSP_INPUTS" "$RUN/adsp-inputs-after.txt" \
+      || die "ADSP firmware inputs changed during the build; this run is void"
+fi
 
 # --- manifest ----------------------------------------------------------------
 sha_or_empty() { [ -f "$1" ] && sha256sum "$1" | cut -d' ' -f1 || echo ""; }
@@ -222,6 +372,19 @@ GIT_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unkn
 GIT_HEAD=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY=$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l)
 
+# Two receipt fields used to be written by expanding a variable that is empty
+# when the feature is off, so the receipt invented a plausible value instead of
+# recording "nothing was requested" (P-190 shape):
+#   kernel_args_requested  became a one-element array holding an empty string
+#   adsp_blob_path         became a root-level path that never existed
+# Both are computed here instead, and both stay empty when off.  The legacy
+# expansions are deliberately not repeated in this comment so a lint can look
+# for them without matching prose.
+KARGS_JSON=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \
+    ${KARGS[@]+"${KARGS[@]}"}) || die "cannot serialise the requested kernel args"
+ADSP_BLOB_PATH=""
+if [ -n "$ADSP_DIR" ]; then ADSP_BLOB_PATH="$ADSP_STAGE/k60_adsp_blob.bin"; fi
+
 python3 - "$RUN/build-manifest.json" <<PY || die "cannot write the manifest"
 import json, sys, pathlib
 out = pathlib.Path(sys.argv[1])
@@ -229,7 +392,7 @@ m = {
     "tag": "$TAG",
     "built_at": "$(date -Iseconds)",
     "repo": {"branch": "$GIT_BRANCH", "head": "$GIT_HEAD", "dirty_files": $GIT_DIRTY},
-    "series": {"count": $SERIES_COUNT, "sha256": "$SERIES_SHA"},
+    "series": {"count": $SERIES_COUNT, "sha256": "$SERIES_SHA", "file_sha256": "$SERIES_FILE_SHA", "namespace": "names+sizes"},
     "frozen": {"list_sha256": "$FROZEN_SHA", "file": "frozen-before.txt"},
     "eight_step_items": "${K60_EIGHT_STEP_ITEMS:-all}",
     "gates": {"eight_step": "passed", "eight_step_log": "$LOGS/eight-step.log",
@@ -246,8 +409,16 @@ m = {
         "boot_img_path": "$RUN/boot.img",
         "gpu_addon": "$(sha_or_empty "$ADDON")",
         "gpu_addon_path": "${ADDON:-}",
+        "adsp_blob": "${ADSP_CONTAINER_SHA:-}",
+        "adsp_blob_path": "$ADSP_BLOB_PATH",
+        "adsp_inputs": {"count": ${ADSP_RECORDS:-0},
+                        "sha256": "${ADSP_INPUTS_SHA:-}",
+                        "file": "${ADSP_INPUTS:-}"},
+        "modem_carrier": {"path": "${K60_MODEM_CARRIER:-}",
+                          "streams": $MODEM_STREAMS,
+                          "table_sha256": "$MODEM_TABLE_SHA"},
     },
-    "kernel_args_requested": [$(printf '"%s",' "${KARGS[@]:-}" | sed 's/,$//')],
+    "kernel_args_requested": $KARGS_JSON,
     "payload_args": "$(printf '%s' "$PAYLOAD_ARGS" | sed 's/"/\\"/g')",
     "logs": "$LOGS",
 }
@@ -256,7 +427,10 @@ print("build-strict: manifest", out)
 PY
 
 echo "build-strict: boot.img $BOOT_SHA"
-python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" || die "a force-loaded archive did not reach the kernel (P-190)"
+# --- gate-table:BEGIN ---
+ADSP_GATE_FLAG=""
+[ -n "$ADSP_DIR" ] && ADSP_GATE_FLAG="--adsp-blob"
+python3 "$REPO/scripts/check-kernel-archives.py" --out "$OUT" --kernel "$KERNEL" $ADSP_GATE_FLAG || die "a force-loaded archive did not reach the kernel (P-190)"
 # The Metal plugin travels inside the kernel as a K60M container. Nothing
 # else inspects that generated table, and on 2026-11-14 its length constant
 # omitted the alignment padding between bodies, so the device rejected the
@@ -272,4 +446,5 @@ fi
 # DarwinBoot ceiling; both boots produced zero console bytes.
 python3 "$REPO/scripts/check-image-args.py" --image "$RUN/boot.img" --board "$REPO/board.toml" \
     | tee "$LOGS/image-args.log" || die "the boot image command line is not the board contract (check-image-args.py)"
+# --- gate-table:END ---
 echo "build-strict: verify with scripts/verify-boot-image.py --manifest $RUN/build-manifest.json"

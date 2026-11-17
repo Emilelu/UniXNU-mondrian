@@ -45,9 +45,17 @@ KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
           'ipados-16.6.1-20G81/mondrian/kernel/kernel.macho')
 # 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
 # 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
-DEV = (os.environ.get('K60_DEVICE_INPUT')
-       or '/opt/k60/trees/usb-cdc-mainline/device') + '/patches/xnu'
+_INPUT_ENV = os.environ.get('K60_DEVICE_INPUT')
+if not _INPUT_ENV:
+    sys.exit('porting-gate: K60_DEVICE_INPUT is not set; refusing to judge this tree against a '
+             'mirror the caller did not name. Export your own mirror (2026-11-16: the silent '
+             'fallback turned one unset variable into five false reds in check-rules).')
+DEV = _INPUT_ENV + '/patches/xnu'
 LEDGER = WORK + '/ledger.jsonl'
+# 铁则 9 的基线账本。它按 series 指纹记「这一套补丁曾经真的上机启动过」，
+# 而 ledger.jsonl 是跨 worktree 全局的，别的分支飞一次就会把「上次成功」
+# 覆盖掉（P-222）。所以判 [S] 时要先问账本，再退回全局 ledger。
+BOOK = REPO + '/docs/engineering/MAIN-BASELINE.toml'
 
 QUICK = '--quick' in sys.argv
 FORCE_NEW = '--force-new-series' in sys.argv
@@ -85,6 +93,30 @@ def series_fingerprint():
         if os.path.exists(p):
             h.update(str(os.path.getsize(p)).encode())
     return h.hexdigest()[:16], len(names)
+
+
+def booted_series():
+    """series_sha256 -> (sha, image, console) for every booted baseline.
+
+    Only `state = "booted"` entries count: a build-only entry has never been
+    on a device, so it cannot vouch for anything.
+    """
+    out = {}
+    try:
+        text = io.open(BOOK, encoding='utf-8', errors='ignore').read()
+    except Exception:
+        return out
+    for m in re.finditer(r'\[\[entry\]\](.*?)(?=\n\[\[|\Z)', text, re.S):
+        block = m.group(1)
+        fields = dict(re.findall(r'^(\w+)\s*=\s*"([^"]*)"', block, re.M))
+        if fields.get('state') != 'booted':
+            continue
+        fp = fields.get('series_sha256')
+        if not fp:
+            continue
+        out[fp] = (fields.get('sha', ''), fields.get('image', ''),
+                   fields.get('console', ''))
+    return out
 
 
 
@@ -309,6 +341,14 @@ else:
         ok('S', '与上次成功启动的补丁集相同', last_ok_at or '')
     else:
         detail = '上次成功 %s (%s) != 现在 %s' % (last_ok_fp, last_ok_at, fp)
+        proven = booted_series().get(fp)
+        if proven:
+            # 这套补丁曾经真的启动过，账本里记着镜像和 console 路径。
+            ok('S', '补丁集与一条已上机基线相同', '%s %s %s' % (proven[0], proven[1], proven[2]))
+            proven = None
+            skip_branch_check = True
+        else:
+            skip_branch_check = False
         branch = ''
         try:
             branch = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
@@ -316,7 +356,9 @@ else:
                                     cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).stdout.strip()
         except Exception:
             pass
-        if FORCE_NEW:
+        if skip_branch_check:
+            pass
+        elif FORCE_NEW:
             ok('S', '补丁集变了（已声明为预期）', detail)
         elif branch and branch != 'main':
             ok('S', '补丁集变了（特性分支允许试错，合回 main 前必须重新上机）',

@@ -42,6 +42,7 @@
 | `k60_backlight_control` | uint32 | **1** | `drivers/PongAdreno/K60Backlight.cpp:292` | `K60Backlight::publishFirst()` | 1 = impersonate AppleARMBacklight and publish `backlight-control`; 0 = publish the level only, never claim the control property (int-236 escape hatch). |
 | `k60_backlight_invert` | uint32 | 0 | `drivers/PongAdreno/K60Backlight.cpp:346` | `K60Backlight::start()` | 1 = invert the level-to-DBV mapping when the panel is wired the other way round. |
 | `pong_thermal_bias` | int32 (mC) | 0 | `drivers/PongThermal/pong_thermal.c:277` | `pong_thermal_start()` | Synthetic offset added to every sensor reading so a cold device can be pushed up the zone ladder: 50000 = level 1, 75000 = level 2, 85000 = level 3. |
+| `gprobe` | uint32 | 0 | `drivers/PongAdreno/PongDsiPanel.cpp:330` | `pong_panel_bring_up()` / `pong_panel_sample()` | 1 = arm the bounded 120 s panel-cadence observation window (GCC_DISP_AHB gate, DISPCC, MDSS) and let `K60 CADENCE:` lines print; 0 = the sample hook stays silent unless the one-shot post-bring-up check is still pending. |
 | `k60_fontscale` | 显示 | 整数 | 代码默认 | `0214-k60-console-font-scale.patch` 控制台字号倍率 | — |
 | `k60_textonly` | 显示 | 真值 | 代码默认 | 只跑文本控制台，不初始化图形帧 | 用于隔离显示问题 |
 | `fb_threads` | 显示 | 整数 | 代码默认 | `zzzz…-pong-hackios-ui-foundation.patch` framebuffer 线程数 | — |
@@ -294,6 +295,20 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 `panicMarker=null`），但一次存活不足以改成默认。所以：只读、单次、必须显式开启；**写 TCS 与
 `CONTROL_TRIGGER` 仍然全面禁止**，供电投票等 ABL 方案。
 
+### `pong_handoff_publish`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不发布） |
+| 取值 | 0 / 1 |
+| 来源 | `patches/xnu/0619-k60-adsp-glink-handoff.patch`（`iokit/bsddev/IOKitBSDInit.cpp`，`PE_parse_boot_argn("pong_handoff_publish", …) == 1u`）|
+| 作用 | 1 = 在 IOKitBSDInit 早期跑 `k60_adsp_handoff_publish()`：claim owner=1 → 解析电池板配置 → 范围重叠检查 → `/chosen` 查找 → `k60_adsp_owner_acquire`（阶段 1–4：PAS1 bring-up / discovery / build / self-parse）→ 发布 104 字节认证 lease。成功打 `K60Handoff: published authenticated PAS1 epoch=%u bytes=104 flags=15`，失败打 `K60Handoff: PAS1 bring-up/retained ownership failed rc=%d`。 |
+
+**当前状态（2026-11-15）**：owner=1 先 claim 后，`kern_exec.c` 的 legacy `k60_adsp_startup_claim(2u)` 会失败并打
+`K60PAS legacy startup excluded by earlier ADSP owner/attempt`——该行在此参数下是**预期输出**，证明发布器先跑。
+载体是内核内嵌 `k60_adsp_blob`（26 记录容器，P-197 workaround），与 `pong_adsp` 的 md0 死路无关。
+
 ### `pong_adsp`
 
 | 项 | 值 |
@@ -328,6 +343,25 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 先按 opt-in 上机验证（判据：`native_gpu_addon_prepare` 打印挂载成功 + 不再出现
 `software-only platform` + 出现 `[direct scanout]`），确认无副作用后再评估是否改成默认。
 缺目录或挂载被拒只打印失败，不会 panic。
+
+### `gprobe`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0 |
+| 取值 | 0 / 1 |
+| 来源 | `drivers/PongAdreno/PongDsiPanel.cpp:330`（`PE_parse_boot_argn("gprobe", &probe, sizeof(probe)) && probe == 1`），由 `pong_panel_bring_up()` 末尾设置；消费点是 `pong_panel_sample()`（`PongAdrenoScanout.cpp:171` 每帧调用） |
+| 作用 | 1 = 开启有界（120 秒）面板节拍观测：读 `GCC_DISP_AHB` 时钟门、`DISPCC` 与 `MDSS` 的计数器，按 5 秒间隔打印 `K60 CADENCE:` 行；0 = 只有 bring-up 之后那一次自动校验仍会跑，其余采样静默 |
+
+**为什么要它**：显示线要回答「面板真的按 120 Hz 在刷新吗、有没有帧被丢掉」，
+只能读 `DISPCC`/`MDSS` 的节拍计数器；这些寄存器在 `IO_MAP_SIZE` 8 MiB 的窗口之外
+（P-63），必须用 `ml_io_map` 单独映射，所以只能按需开启，不能常驻。
+
+**陷阱**：窗口是**有界**的（`elapsed >= 120 * NSEC_PER_SEC` 后自动关闭），不要指望整场
+启动都有 `K60 CADENCE:` 行；`GCC_DISP_AHB off` 一行表示时钟门还没开，此时不会去读
+`DISPCC`/`MDSS`（避免对未上电模块做 MMIO，P-161/HR-01 同一个形状）。缺映射时打印
+`no GCC mapping` / `no DISPCC mapping` 后直接返回，不会 panic。
 
 ### `pong_thermal_bias`
 

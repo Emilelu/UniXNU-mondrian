@@ -13,6 +13,7 @@ ANCHOR = "bsd/dev/pong_buttons.c\t\t\tstandard"
 ENTRIES = [
     "bsd/dev/pong_smem.c\t\t\tstandard",
     "bsd/dev/pong_handoff.c\t\t\tstandard",
+    "bsd/dev/pong_adsp_startup.c\t\t\tstandard",
     "bsd/dev/pong_adsp_boot.c\t\t\tstandard",
     "bsd/dev/pong_adsp_pas.c\t\t\tstandard",
     "bsd/dev/pong_adsp_image.c\t\t\tstandard",

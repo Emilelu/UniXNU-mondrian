@@ -341,8 +341,8 @@ prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppi
 
 [hardware.bluetooth]
 status = "parked"
-paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "scripts/make-bt-firmware-addon.py", "scripts/check-image-args.py"]
-parked_why = "镜像已构建（S1c 五档阶梯 + S4 正/负样本），等上机窗口；⑦ 只到离线路由，⑧ 从未上机"
+paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/check-image-args.py"]
+parked_why = "⑦ 已完成（离线全绿 + 真机到达控制器）；⑧ 已上机并拿到控制器版本，但用户态还缺 ADT bluetooth 节点/本地 MAC。2026-11-16 的 bt-d5-iomap（series 233，含 P-219 的 0621）第一次让完整阶梯跑到固件下载：power_on → SMMU 旁路 → 时钟投票 → qbt_boot → [bluetooth] QCA controller version 0x12110201 → addon: serving 146068 0 / 6442 0，SpringBoard 132 行、panic 0。仍未做的是 S5 UART.SK 与 S6 bluetoothd：console.log:1345 marconi-bt: Unable to match bluetooth service in device tree. 与 :1346 Not a valid MAC address (all 00s) 说明 ADT 里没有 bluetooth 服务节点，而内核侧 :186 K60 BT: published local address ee:98:c5:8a:6b:4e 与 :1347 bluetooth: Got local-mac-address 说明 0509 的身份发布是生效的——缺口在 ADT"
 why = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
 
 [hardware.bluetooth.step.same_model]
@@ -365,27 +365,27 @@ evidence = "广域交叉验证完成：同 SoC 的 pong（SM8475）没有蓝牙�
 
 [hardware.bluetooth.step.plan]
 done = true
-evidence = "方案是六个阶段、每阶段一条 boot-arg、一次判决（docs/research/bt/RESEARCH.md:165-177）：S1 只读探针 k60bt=1（0507）→ S2 时钟+引脚+引擎（0508 修 F1/F3/F11/F12）→ S3 上电时序与 HCI Reset → S4 固件下载（0510 addon 通道）→ S5 UART.SK 通道 → S6 用户态 bluetoothd。上机判据写死在同一处：只认 capture.json 的 verdict/panicMarker，不看 logstat 的 panic 计数（RESEARCH.md:187-191）。阶梯与命令行预算：探针在每次寄存器访问【之前】打点，所以控制台最后一行就是死因（docs/research/bt/S1-PROBE-SPEC.md:231-262）——五档 A1 k60bt_step=1 → A2 =4 → A3 =5 → A4 =7 → A5 =9，参数一律只有 k60bt=1 k60bt_step=N（596 B；DarwinBoot 上限 607 B，见 docs/engineering/BOOT-ARGS.md；k60bt_stage=1 是冗余的 17 B，因为 qbt_k60_start() 默认 stage=1）。判死表：probe: done → 进 S2；停在 s1 → ml_io_map；停在 s2 → GCC 首访即死；停在 s4 halt → 该分支 CBCR 未上电；停在 s5 read se20 rcg → RCG 窗口未上电；s6 root_on=0 或 s7 latched=0 → 停线查 GDSC/父时钟；s8 → 根时钟已开仍首访即死，回填 GENI-ACCESS-PRECONDITIONS.md。S4 阶梯（docs/research/bt/S4-SPEC.md:436-455）：负向 bt-s4-20261114b 期望 [bluetooth] addon: no GpuAddon property，正向 bt-s4a-20261114f 期望 [bluetooth] addon: loaded bytes records 1027584 106 → addon: serving 201560 0 → QCA controller version 0x…，两者命令行都是 583 B。"
+evidence = "方案是六个阶段、每阶段一条 boot-arg、一次判决（docs/research/bt/RESEARCH.md:165-177）：S1 只读探针 k60bt=1（0507）→ S2 时钟+引脚+引擎（0508 修 F1/F3/F11/F12）→ S3 上电时序与 HCI Reset → S4 固件下载（0510 addon 通道）→ S5 UART.SK 通道 → S6 用户态 bluetoothd。上机判据写死在同一处：只认 capture.json 的 verdict/panicMarker，不看 logstat 的 panic 计数（RESEARCH.md:187-191）。阶梯与命令行预算：探针在每次寄存器访问【之前】打点，所以控制台最后一行就是死因（docs/research/bt/S1-PROBE-SPEC.md:231-262）——五档 A1 k60bt_step=1 → A2 =4 → A3 =5 → A4 =7 → A5 =9，参数一律只有 k60bt=1 k60bt_step=N（596 B；DarwinBoot 上限 607 B，见 docs/engineering/BOOT-ARGS.md；k60bt_stage=1 是冗余的 17 B，因为 qbt_k60_start() 默认 stage=1）。判死表：probe: done → 进 S2；停在 s1 → ml_io_map；停在 s2 → GCC 首访即死；停在 s4 halt → 该分支 CBCR 未上电；停在 s5 read se20 rcg → RCG 窗口未上电；s6 root_on=0 或 s7 latched=0 → 停线查 GDSC/父时钟；s8 → 根时钟已开仍首访即死，回填 GENI-ACCESS-PRECONDITIONS.md。S4 阶梯（docs/research/bt/S4-SPEC.md:519-538）：通道已按 P-197 换成内核内嵌 blob（scripts/gen-k60-bt-blob.py 把 NGPUADD2 容器写成 k60_bt_blob.s 的 .incbin，0510 读 k60_bt_blob/k60_bt_blob_len）。负向 bt-s4c-20261115a 期望 [bluetooth] addon: no GpuAddon property，正向 bt-s4b-20261115b 期望 [bluetooth] addon: linked blob bytes=1027584 records=106（S4a 内嵌载体），两者命令行都是 583 B；QCA-controller-version 是 level 6 死判据（S4-SPEC.md §7.1），唯一可见的固件判据行是 [bluetooth] power=1 result=0 baud=… firmware=<build label>。"
 
 [hardware.bluetooth.step.deep]
 done = true
 evidence = "深挖到源码级，产出 11 项已验证（V1-V11）与 13 项偏差（F1-F13）并与 Linux GENI/clk 源逐行对照（docs/research/bt/06-DEEP-DIVE.md:21 的 Verdict 与 :83-342 的偏差表）。三项必须在 S2 前定性且已修：F1 GENI DMA 把虚拟地址当物理地址、SMMU 流 0x483 从未 bypass（0508 改为 kmem_alloc_contig + pmap_find_phys + ptoa_64 后 k60_smmu_bypass）；F3 k60_stop_engine() 轮询的 0xe40 在两个 GENI 头文件里都不存在，会恒定 -ETIMEDOUT（改为 TX/RX_RESET_DONE 0xc40/0xd40 BIT(3)）；F11 SE20 RCG 根时钟从不置 CMD_ROOT_EN（0508 增加 set_rate 的 ROOT_EN → 轮询 ROOT_OFF → CFG → UPDATE 序列，并按 clk_rcg2.c:64-75 的 (cmd & CMD_ROOT_OFF)==0 判据）。深挖还给出 F2：0x2ac 被写成组件从不使用的 0x80000001。"
 
 [hardware.bluetooth.step.verify]
-done = false
+done = true
 local_verified = true
-evidence = "离线部分已完成（未上机）：五档 S1c 阶梯镜像 bt-s1c-a1/a4/a5/a7/a9-20261114c 全部 image-arg-audit: OK (31 arguments, 596 bytes)；S4 负向 bt-s4-20261114b（583 B）与正向 bt-s4a-20261115a（583 B）都 verify-boot-image: OK；正向镜像里 payload FAT 有 kernel.macho.gpuaddon 1,027,584 B，mcopy 出来的 sha256 与打包器输出逐字节相同（febdc20d…2037），ADT 有 GpuAddon 一次，内核有 NGPUADD2 一次与 loaded bytes records / no GpuAddon property 各一次。仍缺上机：SE20 是否可达、QCA 固件是否真的下载，只有 ⑧ 能判。"
+evidence = "离线部分已完成（未上机）：五档 S1c 阶梯镜像 bt-s1c-a1/a4/a5/a7/a9-20261114c 全部 image-arg-audit: OK (31 arguments, 596 bytes)；S4 受控对照对（同一 HEAD 68a38f3、同一份 453 条冻结清单，只差 --bt-blob）负向 bt-s4c-20261115a（583 B）与正向 bt-s4b-20261115b（583 B，内嵌 blob 通道）都 verify-boot-image: OK，两份 frozen-before.txt 逐字节相同（931d391d…08e）。正向镜像四项独立核对：llvm-nm 给出 _k60_bt_blob@fffffff0071b8818 与 _k60_bt_blob_len@fffffff0072b3618（差 1,027,584 = 容器字节数）；按字节在 kernel.macho 里定位容器的偏移 1,787,928 并取出 1,027,584 字节，sha256 = febdc20d…2037 = 打包器输出；strings 命中 addon: blob bad magic 与 linked blob；scripts/tests/test-k60-bt-blob.py --assembly … --container … 报 container table is self-consistent。仍缺上机：SE20 是否可达、QCA 固件是否真的下载，只有 ⑧ 能判。"
 static_check = "补丁级静态对照：0507/0508/0509/0510 四个补丁 git apply 全部干净，series 227/228 行内无重复（scripts/check-patch-apply.py --all 全绿）；寄存器地址逐个对照 Linux clk-rcg2.c 与 geni-se.h，出处写在 docs/research/bt/S1-PROBE-SPEC.md:97-116 与 S2-SPEC.md。"
 unit_test = "scripts/tests/test-check-image-args.py 覆盖命令行预算（含 k60bt_stage=0..39 的溢出用例）；本轮另外实测 check-image-args.py 对本线五份阶梯镜像与两份 S4 镜像全部 OK。"
-artifact_check = "产物字符串与哈希：kernel.macho 命中 NGPUADD2/loaded bytes records/no GpuAddon property；payload 里 ADT 的 GpuAddon 计数 1、TrustCache 0；addon 内容与 firmware/bluetooth/manifest.json 的 106 条记录逐条一致（1,022,742 B 固件 → 1,027,584 B 容器）。"
+artifact_check = "产物字符串与哈希：kernel.macho 命中 NGPUADD2 / linked blob / addon: blob bad magic / no GpuAddon property，且 _k60_bt_blob 到 _k60_bt_blob_len 的地址差 1,027,584 等于容器字节数；容器内容与 firmware/bluetooth/manifest.json 的 106 条记录逐条一致（1,022,742 B 固件 → 1,027,584 B 容器），内嵌副本与 out/pong-bt-firmware.bin 逐字节相同（sha256 febdc20d…2037）。"
 
 [hardware.bluetooth.step.device]
 done = false
-evidence = "从未上机（S1a 那次是无效证据：命令行 610 B 超过 DarwinBoot 的 607 B 上限，内核根本没进门，见 docs/research/bt/S1-PROBE-SPEC.md:12-45）。"
+evidence = "2026-11-16 真机两轮（均由 Lead 实飞）：一，bt-d4-late（series 232，全量 0511 阶梯 + pong_bt_late=1）把阶梯挪到 Data 挂载之后，控制台活下来并给出确切死因——usblog-20261116-055237 的 :485 K60PANICFMT caller=0xfffffff007b83384 fmt=kmem_%s(%p, %zd, 0x%x): failed with %d 与 :486 K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178，即 ml_io_map 在 8 MiB 的 io_submap 里要 1 MiB（= K60_TLMM_SIZE）时拿到 KERN_NO_SPACE（P-219）。二，bt-d5-iomap（series 233，同一配方只多 0621 把 IO_MAP_SIZE 提到 32 MiB）——usblog-20261116-064150：3,241 行 / 224,863 B / SpringBoard 132 / panic 标记 0 / supervisor rc=0，阶梯完整跑通：:484 full: power_on enter、:486 smmu plan sid 0x483 slot 110 bank 72 action install dma 0x90bc20000、:487 SMR 0x80000483 S2CR 0x48 CBAR 0x10000、:488 dma buffer and smmu bypass ready、:489 uart pins parked、:493 clocks vote cbcr core=0x4220 core2x=0x4220 s=0x80000002 se=0x80004220、:494 full: qbt_boot enter、:707 QCA controller version 0x12110201、:708 addon: serving 146068 0、:724 addon: serving 6442 0。⇒ 内核侧 power_on/SMMU/时钟/GENI/固件分片全部成立：读得到版本寄存器，控制器能按需取走分片。用户态仍未通：:1343 could not find BT_DEVICE_ADDRESS env variable、:1345 marconi-bt: Unable to match bluetooth service in device tree.、:1346 marconi-bt: Not a valid MAC address (all 00s)——但同一份日志 :186 K60 BT: published local address ee:98:c5:8a:6b:4e 与 :1347 bluetooth: Got local-mac-address: ee:98:c5:8a:6b:4e 证明 0509 的身份发布生效，缺的是 ADT 里的 bluetooth 服务节点（下一步：board.toml 加节点 + 核对 0509 的属性名，不是驱动问题）。"
 
 [hardware.bluetooth.step.device.prediction]
-success = "S1c 阶梯出现 [bluetooth probe] probe: done 且机器继续跑到用户态；S4a/S4b/S4c 出现 [bluetooth] addon: loaded bytes records 1027584 106 → [bluetooth] addon: serving 201560 0 → QCA controller version 0x…，capture.json verdict 正常收尾且无 panicMarker"
-failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行就是死因，按 S1-PROBE-SPEC.md:231-262 的判死表）；正向镜像出现 [bluetooth] addon: no GpuAddon property 说明 addon 没进 payload；出现 [bluetooth] power=0 或 ENXIO 说明引擎协议或固件名不对"
+success = "bt-d5-iomap 出现 :707 [bluetooth] QCA controller version 0x12110201，且 :708/:724 addon: serving 行存在，且无 kmem_alloc(... 0x100021) panic——2026-11-16 已实测成立（usblog-20261116-064150，SpringBoard 132、panic 0）。更早的 S1c/S4 判据保留：S1c 阶梯出现 [bluetooth probe] probe: done 且机器继续跑到用户态；S4a 出现 addon: linked blob bytes=1027584 records=106。"
+failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行就是死因，按 S1-PROBE-SPEC.md:231-262 的判死表）；正向镜像出现 [bluetooth] addon: no GpuAddon property 说明内核里没链接进 blob（构建漏了 --bt-blob）；出现 [bluetooth] addon: unusable range 0 0 说明镜像走的是旧 payload addon 通道（P-197 的实测症状，不是失败）；出现 [bluetooth] power=0 或 ENXIO 说明引擎协议或固件名不对"
 
 [hardware.wifi]
 status = "parked"
@@ -403,7 +403,7 @@ evidence = "官方组件 Ath12kWifi 面向 ath12k（qcc2072/qcn9274/wcn7850）�
 
 [hardware.wifi.step.decompile]
 done = false
-evidence = "K60 的 PCI device id / BAR0 / subsystem_device / PCIe0 GDSC 偏移 / SPMI 通道号均未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
+evidence = "K60 的 PCI device id / BAR0 / subsystem_device 已于 2026-11-14 实测（17CB:1103 / 0x60200000-0x603fffff 2 MiB / 0x0108，证据 E:/k60-work/evidence/pci-id-20261114/）；PCIe0 GDSC 偏移 / SPMI 通道号仍未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
 
 [hardware.wifi.step.wide]
 done = true
@@ -461,22 +461,23 @@ done = false
 evidence = "从未上机。"
 
 [hardware.battery]
-status = "planned"
-paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60Smem", "patches/xnu/0602"]
-parked_why = "尚未开始，见各步 evidence"
+status = "active"
+paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60AdspOwner", "drivers/PongPower/K60AdspImageReader", "drivers/PongPower/K60AdspMdt", "drivers/PongPower/K60AdspStartup", "drivers/PongPower/K60Smem", "scripts/gen-k60-adsp-blob.py", "scripts/check-adsp-blob.py", "scripts/tests/test-k60-adsp-reader.c", "scripts/tests/test-k60-adsp-blob.c", "patches/xnu/0602", "patches/xnu/0619"]
+parked_why = ""
 why = "电池 / 充电（IOPMPowerSource）"
 
 [hardware.battery.step.same_model]
 done = true
-evidence = "参考 yibiya 04bda86 的 K60Battery.cpp（446 行）+ K60BatteryConfig.h/c + K60BatterySmoke.c；我们仓库没有 PongPower 目录。"
+evidence = "已比对同型号消费者、MDT/PAS和GLINK资源路径；当前新增K60AdspOwnerStages五阶段编排及持久wrapper，复用真实MDT/SMEM/build/parser。旧PAS诊断顺序与raw SMC缺少完整后端契约，未直接接入。见 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"
 
 [hardware.battery.step.official]
 done = true
-evidence = "官方 ABI 是 IOPMPowerSource；K60Battery 直接继承它并实现 initProperties/publish/updateAdapter。"
+evidence = "官方 ABI 是 IOPMPowerSource；当前 drivers/PongPower/K60Battery.cpp 直接继承并实现属性发布，IOKit的IORegistryEntry/OSData用于chosen属性。具体时序与字段经本机消费者校验；见 docs/research/battery/HANDOFF-PUBLISH.md 和 docs/research/battery/RESEARCH.md。"
 
 [hardware.battery.step.decompile]
-done = false
-evidence = "未做。"
+done = true
+
+evidence = "两轮反编译在 2026-11-14 完成，全部落在 docs/research/charger/。一，.ko 侧：qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58）全量 llvm-objdump，订阅帧 28 B {owner 0x800a, type 2, opcode 4, +0xc 起全 0} 出现在 battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0（docs/research/charger/03-REVERSE.md:270）；rx 侧 battery_chg_callback 0x211c 用 .rodata+0x9 的字节跳转表（表项×4）把 opcode 4 引到 0x2464，那里只有 complete(&bcdev->wait)，不读 type、不读长度（03-REVERSE.md:204-225）。二，ADSP 固件侧：adsp.b14（段 14 p_vaddr 0x60000000，sha256 2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d）反汇编后定位 opcode 分发器 0x60155570（4 字节绝对表 @0x602bfc28，cmp.gtu #0x51）与 opcode 4 handler 0x60155910，后者回 16 B {0x800a, type 1, opcode 4, result}（锚点字节 0x601559c0 0ac0423c / 0x601559cc 81c0423c / 0x601559d8 04c1423c / 0x601559f0 03c20078 / 0x601559f4 c6faff5b），见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 与 02-GLINK-CONTRACT.md 第 10 节。三，同型/官方实现三方对照：上游 Linux drivers_power_supply_qcom_battmgr.c:1000-1011 只要求 payload_len>=4 且不校验 type，参考实现 ShengBattmgr.c:170-183 两种 type 都收 —— 都不构成反证。"
 
 [hardware.battery.step.wide]
 done = true
@@ -485,19 +486,72 @@ catalog_checked = true
 catalog_result = "components.toml 无电池组件；官方实现全在 UniXNU-sheng 板级 package/（ShengBattmgr.h/.c、ShengBattery.cpp、BatteryProbe.cpp），另有 Linux qcom_battmgr.c 作协议变体参考。不可当组件复用。详见 docs/research/battery/RESEARCH.md。"
 [hardware.battery.step.plan]
 done = true
-evidence = "方案受硬前置约束，解锁链必须是 PAS1（ADSP 认证与启动）-> GLINK 通道 -> PMIC GLINK -> 电池协议 -> IOPMPowerSource。任何跳过前两层的做法只会得到 physical transport initialization rejected（K60Battery::begin 的失败分支）。K60AdspGlinkHandoff 要求四个标志全真（Authenticated/ResourcesHeld/GlinkExclusive/FreshHostFifos = 0xf），且头文件明确由平台或 loader 的 PAS1 owner 提供，配置生成器不得伪造。因此先做音频的 DSP 传输，两者共用同一套 PAS1+SMEM+SMP2P+GLINK 基础设施。详见 docs/research/battery/RESEARCH.md。"
+evidence = "runtime在配置/RAM/chosen/OSData前置检查后调用k60_adsp_platform_install，再执行claim→fresh FIFO→INIT/MEM/COPY/BSS/CACHE/AUTH→ready→existing-only build/selfparse→原子发布。完整version1/sizeof ops已注册，持久reader/metadata已接线；板级ownership/resources/stopped/shared SCM lock服务未供应时available=0且早于物理访问。不改默认参数与patches。见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
 
 [hardware.battery.step.deep]
 done = true
-evidence = "深挖结论有三条。一，电流符号是唯一的隐性错误源：官方明确要求使用前确认目标协议的符号，因此实现必须把它参数化（sign=+1 正值充电 / -1 正值放电），不能硬编码方向；scripts/tests/test-battery-units.py 用不变量固定了这一点（符号翻转后绝对值不变）。二，每次只能保留一个未完成请求，处理其超时后再推进刷新周期 —— 并发请求会让协议状态机失去对齐。三，固件负责充电控制时必须保留其所有权，驱动只做测量值发布；主机控制的充电器需要独立的控制协议、限值和温控策略，这是另一条产品线。见 docs/research/battery/RESEARCH.md。"
+evidence = "五阶段锁/PAS生命周期及platform/native完成独立审查：最终TCSR仅build_existing+selfparse，非unlock回调在锁内无服务/状态/输出效果。AUTH shutdown后须独立stopped证明才释放；WAITQ_SLEEP/未知positive或resume耗尽保留SCM锁/metadata/resources并Poisoned。native具备releasable映射、显式noncache contiguous metadata和shared-lock SCM代码，板级租约服务尚缺，不能声称真实PAS后端可用。见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
 
 [hardware.battery.step.verify]
-done = false
+
+done = true
 local_verified = true
-evidence = "离线部分已完成：scripts/tests/test-battery-units.py 27/27 通过（2026-11-12），固定了官方 power 页第 4 节列出的四个转换与电流符号 —— 微伏转毫伏、微安转毫安、0.01% 转百分比、秒转分钟，外加符号翻转后绝对值不变的不变量。仍缺上机：真实电量计读数与 Android 侧对比。"
-static_check = "转换函数按官方描述实现：四舍五入到最近整数；剩余时间向上取整，宁可多报不可少报。电流符号按协议参数化，不硬编码方向。"
-unit_test = "scripts/tests/test-battery-units.py：27 个用例覆盖电压/电流/容量/时间的边界（0、499/500、49/50、60/61、负数）与符号不变量，全部通过。"
-artifact_check = "不适用：本步验证的是纯算术，产物里没有可核对的字符串。"
+evidence = "两类离线核验全部通过。一，单位与符号：scripts/tests/test-battery-units.py 27/27 通过（2026-11-12），固定了官方 power 页第 4 节列出的四个转换与电流符号 —— 微伏转毫伏、微安转毫安、0.01% 转百分比、秒转分钟，外加符号翻转后绝对值不变的不变量。二，订阅协议状态机：scripts/tests/test-k60-charger-subscription.c 在 2026-11-14 通过 30 个断言（TESTS OK 30），把 K60_BATTERY_NOTIFY_REPLY_TYPE=1 / _BYTES=16 钉死，并覆盖订阅帧形状、四类错形 ACK 被忽略、result=0x206 报错、通知 16 B type 2 放行。仍缺上机：真实电量计读数与 Android 侧对比（本轮不自行 boot）。"
+static_check = "订阅常量逐行对照 ADSP 固件 handler 0x60155910：组包 0x800a/1/4 + result 字，r3=#0x10 发送（docs/research/charger/06-SUBSCRIPTION-CONSTANT.md §2）。消费方 drivers/PongPower/K60Battmgr.c:47-56 的 init 白名单 (type∈{1,2})∧(bytes∈{12,16,24,28}) 与 :162-171 的 ACK 校验（bytes/type 必须等于实测值、+0xc 起逐 4 字全 0）与 (1,16) 自洽；:75-90 的订阅帧 28 B 与 .ko 0xedc-0xf08 逐字节一致。单位转换仍按官方描述：四舍五入到最近整数、剩余时间向上取整、电流符号参数化不硬编码方向。"
+unit_test = "scripts/tests/test-k60-charger-subscription.c（30 断言，TESTS OK 30）覆盖 ①init 接受 (1,16) ②(0,0) 时 subscribe_due=0 且下一帧退化为 24 B 属性请求 ③channel_up 后订阅帧 28 B {0x800a,2,4,四零字}、flight=2、opcode=4 ④28 B / 16 B(type2) / 24 B / 12 B 四种错形 ACK 全部 ignored 且不置 subscribed ⑤result=0x206 时返回 K60BmAnswer、errors=1、flight 释放 ⑥16 B type1 result=0 返回 K60BmSubscribed 且下一帧是 24 B type1 opcode 0x30 ⑦16 B type2 opcode 7 通知返回 K60BmNotified。另有 scripts/tests/test-battery-units.py 27 个用例覆盖电压/电流/容量/时间边界与符号不变量。"
+artifact_check = "生成器 scripts/build-k60-physical-battery.py 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对：qualification(None,None,None) 返回 (0,1,16,None,{'source':'adsp-opcode4-handler','type':1,'bytes':16})；给一份 Tx 28 B + Rx 16 B(type1) 的抓包返回 (1,16)；给 Rx 28 B(type2) 的抓包按设计抛 ValueError('Wire capture contradicts the measured ADSP opcode-4 reply (1, 16): (2, 28)')。即产物常量不再是 0，且抓包只能确认、不能覆盖实测值。"
+
+[hardware.battery.step.device]
+done = false
+evidence = "实测 adsp-20261115e（kernel 5ef19e12… 128,991,232 B、boot.img feb7131f…、30 args / 598 B，末项 pong_handoff_publish=1；证据 usblog-20261115-223916：console.log 3,312 行、SpringBoard 120、panic 0、record-boot series 9688ad85…(226)）：发布器**确实被调用**（P-208 修好后 IOKitBSDInit 的守卫块不再被编译掉），但止步于 owner 安装：`K60ADSP owner stage=1 rc=-1000`（K60AdspOwner.c:24-27，configured 仍为 0）、`K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published`、`K60Battery: blocked rc=-4: no authenticated exclusive PAS1/SMEM/GLINK platform handoff; no MMIO, FIFO writes or power-source publication`；旁证 `K60PAS legacy startup excluded by earlier ADSP owner/attempt` 成立（0619 的 kern_exec.c:7839 claim 被前面的 owner 占位，属预期输出，不计为失败）。根因：`k60_adsp_owner_install()` 在内核里没有任何调用点（仓库内只有 K60AdspOwnerStages.h:92 的声明与 scripts/tests/test-k60-owner-publish.c 的用例），状态机、ops 契约、载体 ABI、bounded reader 都已就位，缺的是 K60OwnerOps 的平台实现；该实现由 adsp 线补（drivers/PongPower/K60AdspPlatform.c），接线与上机归 Lead。。2026-11-16 更新：adsp 线已交出完整 platform ops（drivers/PongPower/K60AdspPlatform.c/.h + K60AdspPlatformNative.cpp，21 个回调）与 runtime 安装点（K60HandoffRuntime.cpp:47 首次 acquire 前调 k60_adsp_platform_install()），归档编译表已含这两个文件；但 native 仍缺板级 ownership/resources/stopped 服务，available=0 继续拒绝 SMC/SMEM/TCSR，故 device 仍为 false。证据与场景矩阵见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
+
+[hardware.battery.step.device.prediction]
+success = "`K60Handoff: published authenticated PAS1 epoch=` 出现且同行为 `bytes=104 flags=15`；日志无 panic 标记（`panic(` / `K60PANIC: ring kept` / `initproc exited` / `Debugger called` 各 0 次）；SpringBoard 行数 ≥100"
+failure = "出现 `K60Handoff: PAS1 bring-up/retained ownership failed rc=`（任何 rc，含 -1000 表示没有真实 backend/reader）；或 boot 后 `K60Handoff:` 命中 0 次（说明 pong_handoff_publish 没进内核命令行 / 发布器未被调用）；或出现任何 panic 标记"
+
+[hardware.charger]
+status = "planned"
+name = "充电 / 电池协议（qti_battery_charger + pmic_glink）"
+why = "PMIC GLINK 电池/充电通道：订阅常量、属性映射、GLINK 契约与 handoff 发布规范"
+parked_why = "研究线：订阅常量与 GLINK 契约已定，驱动改动与上机等 PAS1/GLINK 落地后由 Lead 统一执行（本轮禁止自行 boot）"
+
+[hardware.charger.step.same_model]
+done = true
+evidence = "同型参考实现 /mnt/e/k60-work/references/pong-power/ShengBattmgr.c:170-197（opcode 0x04 订阅判定 (type==REQUEST||type==NOTIFY) 且不校验长度；opcode 0x07 通知要求 type==NOTIFY && length>=16）与 ShengBattmgr.h:16-26（OWNER 32778u / REQUEST_BYTES 24u / ENABLE_BYTES 28u）。K60 自己的 .ko 是 /mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58），订阅帧 28 B 与参考实现逐字节一致。见 docs/research/charger/01-SYMBOL-MAP.md。"
+
+[hardware.charger.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/power 第 4 节（owner/消息类型/opcode/属性 ID/响应长度五项核对，单飞行请求，超时后推进）作为 ABI 与状态机依据。上游 Linux 驱动 drivers_power_supply_qcom_battmgr.c:91-104 给出请求结构（enable_request 28 B、property_request 24 B），:1000-1011 与 :1260-1269 的 BATTMGR_REQUEST_NOTIFICATION 分支只置 battmgr->error=0 并 complete，:1286-1299 的 enable_worker 组 28 B {owner=PMIC_GLINK_OWNER_BATTMGR, type=PMIC_GLINK_NOTIFY, opcode=BATTMGR_REQUEST_NOTIFICATION}。见 docs/research/charger/02-GLINK-CONTRACT.md。"
+
+[hardware.charger.step.decompile]
+done = true
+evidence = "两侧反汇编都做了。.ko 侧：battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0 组 28 B {0x800a, 2, 4, +0xc 起全 0}（03-REVERSE.md:270）；battery_chg_callback 0x211c 的 .rodata+0x9 字节跳转表把 opcode 4 引到 0x2464，那里只有 complete(&bcdev->wait)（03-REVERSE.md:204-225）。ADSP 侧：adsp.b14（p_vaddr 0x60000000，sha256 2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d）的 opcode 分发器 0x60155570（4 字节绝对表 @0x602bfc28）与 opcode 4 handler 0x60155910 回 16 B {0x800a, 1, 4, result}，锚点字节 0x601559c0=0ac0423c / 0x601559f0=03c20078(r3=#0x10) / 0x601559f4=c6faff5b。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md。"
+
+[hardware.charger.step.wide]
+done = true
+catalog_checked = true
+evidence = "广域交叉核对三方语义：仓库消费方 drivers/PongPower/K60Battmgr.c:47-56 init 白名单、:147-171 ACK 校验、:194-200 超时作废；上游 Linux qcom_battmgr 只要求总长 >=16 且不校验 type；参考实现 ShengBattmgr 两种 type 都收。三者对 (type 1, 16 B) 均无反证，且 ADSP 侧穷举全固件 30 处 0x800a 组包点，type 直方图 {1:27, 2:1, 无:2}，唯一 type 2 的是 0x60158884（opcode 7 主动通知，不是应答）。见 docs/research/charger/05-OPEN-QUESTIONS.md 与 06-SUBSCRIPTION-CONSTANT.md 第 3 节。"
+catalog_result = "逐个核对 UniXNU/components.toml 的 25 个组件，没有电池/充电组件：QcomDwc3（drivers/QcomDwc3，:513-531）的 board_dependencies 提到 'UCSI over the charger channel'，只是 UCSI 走充电通道的声明，不含 battmgr 协议；QcomBaseband（:563-580）含 'GLINK/QRTR transport and rmtfs'，可作 GLINK/QRTR 传输层参考但协议不同；ShengPreflight 是板级固件预检。结论：充电协议没有可复用组件，只能按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建。"
+
+[hardware.charger.step.plan]
+done = true
+evidence = "方案分两段。传输层：ADSP 侧 pmic_glink 无端口号也无 GUID，用名字三元组 transport=\"SMEM\"/remote_ss=\"apss\"/channel=\"PMIC_RTR_ADSP_APPS\"，配置结构 0x603cae78，open 路径 0x7c95b0 -> 0x862754 -> 0x67b9a8，rx intent 100 x 8192 B（02-GLINK-CONTRACT.md 第 10 节）。发布层：104 B handoff 逐字节真值表与发布时机（k60_physical_battery_start() 在 IOKitBSDInit() 里，早于 vfs_mountroot，所以不能等 data mount），见 docs/research/battery/HANDOFF-PUBLISH-SPEC.md 第 4、7 节。协议层常量按 06-SUBSCRIPTION-CONSTANT.md 定死。"
+
+[hardware.charger.step.deep]
+done = true
+evidence = "深挖结论三条。一，订阅 ACK 的 type/长度只能从固件定：.ko 与上游都不校验，仓库消费方却要求精确匹配，所以必须反汇编 ADSP handler（0x60155910 回 16 B type 1），不能照抄 Linux 的宽松判据。二，opcode 4 的应答与 opcode 7 的通知是不同帧：0x800a 的 type 2 帧只用于主动推 opcode 7（16 B），订阅应答是 type 1，混淆会让订阅永远不成立。三，协议无 transaction id，超时只能靠 poisoned + 重开通道兜底（K60Battmgr.c:194-200），因此单飞行请求是硬约束。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 与 04-PROP-MAP.md。"
+
+[hardware.charger.step.verify]
+done = true
+local_verified = true
+evidence = "离线核验通过：scripts/tests/test-k60-charger-subscription.c 30 个断言全过（TESTS OK 30，2026-11-14），把 K60_BATTERY_NOTIFY_REPLY_TYPE=1 / _BYTES=16 钉死并覆盖订阅帧形状、四类错形 ACK 被忽略、result=0x206 报错、opcode 7 通知放行；生成器 scripts/build-k60-physical-battery.py 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对无抓包时输出 (1,16)、抓包矛盾时报错。仍缺上机。"
+static_check = "逐行对照 ADSP handler 0x60155910 的组包顺序（result 字 -> owner 0x800a -> type 1 -> opcode 4 -> r3=#0x10 发送）与消费方 K60Battmgr.c:162-171 的校验（bytes==notify_reply_bytes、type==notify_reply_type、+0xc 起逐 4 字全 0），两者在 (1,16) 上自洽；订阅帧 28 B 与 .ko 0xedc-0xf08 逐字节一致。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 第 2、4 节。"
+unit_test = "cc -Wall -Wextra -std=c11 -o /tmp/tk60sub scripts/tests/test-k60-charger-subscription.c && /tmp/tk60sub 输出 TESTS OK 30，无警告。覆盖 ①init 接受 (1,16) ②(0,0) 时不订阅 ③订阅帧 28 B 四零字 + flight/opcode ④四种错形 ACK ignored ⑤result=0x206 报错 ⑥16 B type1 result=0 订阅成立且下一帧 24 B opcode 0x30 ⑦16 B type2 opcode 7 通知放行。"
+artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入 scripts/build-k60-physical-battery.py:27-31，头注释改为 'Measured ADSP opcode-4 ACK: 16 B, type 1 (firmware handler 0x60155910)'；qualification(None,None,None) 返回 bytes=16，抓包矛盾时抛 ValueError，即常量不再为 0。"
+
+[hardware.charger.step.device]
+done = false
+evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。"
 
 [hardware.thermal]
 status = "planned"

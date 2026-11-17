@@ -245,6 +245,9 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   基线 28.3°C）：C1 PASS（`:429,:530`）、C2 PASS（14 hits）、C3 FAIL，仅温度超差
   ΔT=+7.00/+6.80/+7.00/+7.20°C（阈值 ±3°C），|ΔV|≤51mV、|ΔSOC|≤2.00pp；报告
   `E:/k60-work/scratch/judge-conformance-0120.txt`。
+- 同一日志改用 route-c dmesg 窗口 `16447–16652`（122 行，28.2–29.2°C）：C1/C2 PASS、C3 FAIL，
+  8 对全部仅温度超差 ΔT=+6.40~+7.30°C（|ΔV|=53mV/±60、|ΔSOC|=3.00pp/±3，电流跳过），报告
+  `E:/k60-work/scratch/judge-conformance-0120-dmesg.txt`。
 - 同一日志改用 2026-11-18 01:28 暖 Android 基线（36.3–37.0°C）判：C1/C2 PASS，C3 FAIL，
   `:530` ΔV=78mV/±60、ΔI=-384mA/±150，后续 `:753`/`:775` ΔI=-462/-616mA；报告
   `E:/k60-work/scratch/judge-conformance-0128b.txt`。结论：XNU 侧已有 14 条完整样本，C3

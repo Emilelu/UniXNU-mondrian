@@ -53,22 +53,22 @@ mission poll. No QMI, WMI, PCIe, rail or DMA change is included.
 The patch lives in the build generator, not in a checked-in copy of the Linux
 source. `E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
 
-- `:330`: declares `int i, j, amss_ret;`.
-- `:355-366`: assigns `amss_ret = mhi_download_amss_image(mhi_cntrl);`; only
+- `:331`: declares `int i, j, amss_ret;`.
+- `:356-370`: assigns `amss_ret = mhi_download_amss_image(mhi_cntrl);`; only
   when it is zero, runs the bounded `for (j = 0; j < 2500; j++)` poll. On
   `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission`, calls
-  `mhi_create_devices(mhi_cntrl)` at `:361` so the AMSS-only IPCR channels
+  `mhi_create_devices(mhi_cntrl)` at `:362` so the AMSS-only IPCR channels
   (`ee_mask = 0x4`) get MHI device objects, calls
   `wake_up_all(&mhi_cntrl->state_event)` and logs
   `Pong MHI: exec_env=%d after AMSS download; cached ee updated`; it stops on
   `MHI_EE_MAX` and sleeps 10 ms between samples.
-- `:240`: appends `bool pong_sbl_pushed;` to the pinned `linux/mhi.h` copy
+- `:236-241`: appends `bool pong_sbl_pushed;` to the pinned `linux/mhi.h` copy
   after `bool fbc_download;`.
-- `:319-329`: the bounded 200 x 10 ms `BHI_EXECENV` poll, BHI_STATUS success
+- `:330-379`: the bounded 200 x 10 ms `BHI_EXECENV` poll, BHI_STATUS success
   gate and direct push that are unchanged from the direct candidate.
-- `:435-443`: the `pm.c` SBL one-shot latch remains; a later EE event cannot
+- `:448-459`: the `pm.c` SBL one-shot latch remains; a later EE event cannot
   download twice.
-- `:274-286`: the `mhi_fw_load_bhie` status diagnostic remains available.
+- `:275-287`: the `mhi_fw_load_bhie` status diagnostic remains available.
 - `:158-163`: the generated `ath11k/mhi.c` gets
   `ab_pci->mhi_ctrl->ready_timeout_ms = 60000;`; generated anchor
   `ath11k/mhi.c:450`.

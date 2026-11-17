@@ -222,7 +222,7 @@ EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_K60_ACCEL_STUB=$((1 - PONG_ADRENO_PLATFORM))"
 
 | 项 | Pong | K60 | 结论 |
 |---|---|---|---|
-| 面板尺寸 | `pong-touch-console.patch:61-65` 要求 `max_x==1080 && max_y==2412`（触摸坐标上限，不是 GPU 补丁） | `0210:22-24` 定义 `K60_PANEL_WIDTH 1440`、`K60_PANEL_HEIGHT 3200`，注释写明 DSC video mode、60 Hz | **不改 GPU 补丁**。`SCANOUT` 用的是 `fPanelWidth/fPanelHeight`（来自 `vinfo`），不是硬编码；`0210` 负责把 canvas 固定为 1440×3200（`0210:37-60`）。不要把 pong 的 1080×2412 抄过来。 |
+| 面板尺寸 | `pong-touch-console.patch:61-65` 的 Pong 原值 `max_x==1080 && max_y==2412`（触摸坐标上限，不是 GPU 补丁；本仓补丁已改为 K60 的 14400/32000，见 `MZYSL-DIFF.md:115`） | `0210:22-24` 定义 `K60_PANEL_WIDTH 1440`、`K60_PANEL_HEIGHT 3200`，注释写明 DSC video mode、60 Hz | **不改 GPU 补丁**。`SCANOUT` 用的是 `fPanelWidth/fPanelHeight`（来自 `vinfo`），不是硬编码；`0210` 负责把 canvas 固定为 1440×3200（`0210:37-60`）。不要把 pong 的 1080×2412 抄过来。 |
 | 面板选择 selector | `pong-panel-selection.patch:30-35` 只接受 `SetDisplayDevice(0)`，其他返回 unsupported | `0213:34-40` 的 `GetDisplayDevice` 返回 `kFBDisplayID=1` | 二者不冲突：一个管 set，一个管 get；K60 没有第二块面板，`SetDisplayDevice(0)` 语义正确。无需改。 |
 | 画布/缩放 | 通用 `MiniIOMobileFramebuffer` 有 `fbwidth/fbheight/fbscale` 分支（`0210:17` 的注释：K60 上这些值被拒绝，`k60_panel=0` 才回到 generic） | `0210:44-56` 在 `k60PanelNative()` 时拒绝 `fbwidth/fbheight/fbscale`，canvas 就是面板 | **K60 专属，保持**。GPU scanout 只接受 `source/destination == panel` 的 swap（`SCANOUT:48-53`）；如果允许缩放，GPU 路径会直接拒绝并回 CPU。 |
 
@@ -265,7 +265,7 @@ EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_K60_ACCEL_STUB=$((1 - PONG_ADRENO_PLATFORM))"
 ### 3.6 `max_x` / `max_y`
 
 - 只出现在 `pong-touch-console.patch:43,61-65,745-746,780-786`，是 **Goodix 触摸**的坐标上限，不是 GPU/scanout 的一部分。
-- K60 的触摸面板是 1440×3200（`0210:22-24`）；如果把这个补丁原样带进 K60，`:61-65` 的 `max_x==1080 && max_y==2412` 会直接拒绝面板，触摸不工作。
+- K60 的触摸面板是 1440×3200（`0210:22-24`）；Pong 原始补丁的 `:61-65` 是 `max_x==1080 && max_y==2412`，但本仓补丁已改为 14400/32000（`MZYSL-DIFF.md:115`），不会再拒绝面板。
 - **结论**：GPU 启用不碰 `max_x/max_y`；如果以后移植 pong 的 touch，必须把这两个值改成 K60 的实测值。它不是“Pong 专属要改的 GPU 参数”，而是“不要误带的触摸参数”。
 
 ### 3.7 `configs/pong-iogpu-20G81.json`

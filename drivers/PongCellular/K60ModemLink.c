@@ -836,7 +836,8 @@ k60_modem_qrtr_probe(void)
 		rc = k60_smem_find(&smem, &partition, (uint16_t)items[3],
 		    &offsets[3], &sizes[3]);
 		if (rc == K60SmemOk &&
-		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
+		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen) &&
+		    sizes[2] != 0) {
 			break;
 		}
 		delay(K60_QRTR_POLL_US);

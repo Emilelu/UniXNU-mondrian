@@ -921,7 +921,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,953 @@
+@@ -0,0 +1,954 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1760,7 +1760,8 @@ index 0000000..1111111
 +		rc = k60_smem_find(&smem, &partition, (uint16_t)items[3],
 +		    &offsets[3], &sizes[3]);
 +		if (rc == K60SmemOk &&
-+		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
++		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen) &&
++		    sizes[2] != 0) {
 +			break;
 +		}
 +		delay(K60_QRTR_POLL_US);

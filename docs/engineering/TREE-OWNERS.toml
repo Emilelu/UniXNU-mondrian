@@ -62,6 +62,14 @@ owner = "audio-agent"
 scope = ["drivers/PongAudio", "docs/research/audio", "patches/audio", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505"]
 note = "Merge worktree (feat/audio-merge): the line that carries the amp probe, the ACF reader and the AFE encoder."
 
+# The audio line's Route A integration worktree (2026-11-17): ADSP carrier
+# plus the PCM service/HAL and playback graph.
+[[tree]]
+path = "/mnt/e/hackios/k60-audio-adsp"
+owner = "audio-agent"
+scope = ["drivers/PongAudio", "drivers/PongPower", "patches/audio", "patches/xnu/0617", "userland/PongAudio*", "docs/research/audio"]
+note = "Audio/ADSP integration worktree (feat/audio-adsp-merge)."
+
 [[tree]]
 path = "/mnt/e/hackios/k60-thermal"
 owner = "thermal-agent"

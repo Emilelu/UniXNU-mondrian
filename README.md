@@ -64,6 +64,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | `scripts/eight-step-gate.py` | 八步证据完整；`build` 需 ①–⑥，`flash` 需 ①–⑦ + ⑧ 预测 |
 | `scripts/check-kernel-archives.py` | 强制链接的归档确实进了内核（P-190） |
 | `scripts/check-metal-blob.py` | Metal 插件容器自洽（magic/条目数/对齐/不重叠） |
+| `scripts/check-k60-audio-hal-blob.py` | 音频 HAL 容器自洽（magic/条目数/对齐/不重叠，0617） |
 | `scripts/check-image-args.py` | 镜像命令行 ≤607 B、无 `debug=1`/`epoch=1`、无未声明参数 |
 | `scripts/verify-boot-image.py` | boot 镜像可解包、kernel/payload 槽位与 manifest 一致 |
 | `scripts/render-eight-step-table.py --check` | README 八步表与 `EIGHT-STEPS.toml` 一致 |

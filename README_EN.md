@@ -65,6 +65,7 @@ build entry point `scripts/build-strict.sh` embeds these checks:
 | `scripts/eight-step-gate.py` | Eight-step evidence is complete; `build` needs ①–⑥, `flash` needs ①–⑦ plus the ⑧ prediction |
 | `scripts/check-kernel-archives.py` | Every force-loaded archive actually reached the kernel (P-190) |
 | `scripts/check-metal-blob.py` | The Metal plugin container is self-consistent (magic/entry count/alignment/no overlap) |
+| `scripts/check-k60-audio-hal-blob.py` | The audio HAL container is self-consistent (magic/entry count/alignment/no overlap; 0617) |
 | `scripts/check-image-args.py` | The image command line is ≤607 B, with no `debug=1`/`epoch=1` and no undeclared arguments |
 | `scripts/verify-boot-image.py` | The boot image unpacks; kernel/payload slots match the manifest |
 | `scripts/render-eight-step-table.py --check` | The README table matches `EIGHT-STEPS.toml` |

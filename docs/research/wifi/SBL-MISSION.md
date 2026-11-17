@@ -59,7 +59,7 @@ Generated source anchors from the mission archive:
 
 | file | anchor |
 |---|---|
-| `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-662; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :656 |
+| `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-662; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :658 |
 | `mhi/pm.c` | guard :828; latch :834; fallback download :843 |
 | `pinned/linux/mhi.h` | `bool pong_sbl_pushed;` at :445 |
 

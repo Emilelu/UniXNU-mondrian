@@ -120,12 +120,14 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 
 ## 5. 飞行顺序
 
-1. **C（诊断，先飞）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`。
+1. **C（诊断，先飞）**：`pong_modem=3`，用
+   `E:/k60-work/artifacts/modem-20261117c/boot-modem-c-diagnostic.img`，只到 `mem_setup`，不发 `auth_reset`。
    用途：在不动 modem 的前提下证明 U1（metadata 行）和 S3 的 `init_image`/`mem_setup` 两行
    （C 不执行 power/transport）；预期在
    `K60MODEM diagnostic stop after mem_setup: auth_reset not sent` 停。
-2. **B（完整，后飞）**：C 全绿且真候选存在后，`pong_modem=2`，按 §4 的 S/F 判。
-   两张必须是同一份 UEFI 与 payload 构建，只改启动参数；不得在 B 上顺手改代码。
+2. **B（完整，后飞）**：C 全绿且真候选存在后，`pong_modem=2`，用
+   `E:/k60-work/artifacts/modem-20261117c/boot-modem-power-candidate.img`，按 §4 的 S/F 判。
+   C/B 必须是同一份 kernel/UEFI/DTB/carrier，只在打包 payload 时改 `--kernel-arg`；不得在 B 上顺手改代码。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

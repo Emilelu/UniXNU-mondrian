@@ -204,7 +204,7 @@ success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs�
 failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
 [hardware.display]
 status = "active"
-paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
+paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "drivers/PongAdreno/PongDsiPanel.cpp", "drivers/PongAdreno/PongDsiPanel.h", "scripts/check-panel-timing.py", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
 why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"
 
 [hardware.display.step.same_model]
@@ -238,7 +238,7 @@ done = true
 local_verified = true
 evidence = "构建通过且产物含 K60 PANEL（8 处）与 K60 DISPLAY 字符串；kernel.macho sha256 5600824f，2026-11-12 多次构建均保留。"
 static_check = "分帧调用顺序与官方 show() 语义一致（iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032）；弱桩与真实 archive 共存已验证：git apply 通过，链接无 undefined（P-140）。"
-unit_test = "无独立单测：显示是硬件时序，离线无法模拟。"
+unit_test = "scripts/check-panel-timing.py：10 个 timing@2 包逐字节、p120 门控、INTF1 前后采样与 300 ms 等待全部断言；check-brightness-encoder.py 仍通过。"
 artifact_check = "产物字符串核对通过：K60 PANEL 命中 8 次，K60 DISPLAY 命中 1 次。"
 
 [hardware.display.step.device]

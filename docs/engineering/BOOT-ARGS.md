@@ -4,7 +4,7 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 591 字节，余 17。
+**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。board.toml 当前 29 项 575 字节；`p120=1` 追加 7 字节为 582，再叠加 `k60_backlight_control=1` 为 606，仍不越过 607 字节的镜像审计上限。
 
 ## 一览
 
@@ -43,6 +43,7 @@
 | `k60_backlight_invert` | uint32 | 0 | `drivers/PongAdreno/K60Backlight.cpp:390` | `K60Backlight::startService()` | 1 = invert the level-to-DBV mapping when the panel is wired the other way round. |
 | `pong_thermal_bias` | int32 (mC) | 0 | `drivers/PongThermal/pong_thermal.c:277` | `pong_thermal_start()` | Synthetic offset added to every sensor reading so a cold device can be pushed up the zone ladder: 50000 = level 1, 75000 = level 2, 85000 = level 3. |
 | `gprobe` | uint32 | 0 | `drivers/PongAdreno/PongDsiPanel.cpp:330` | `pong_panel_bring_up()` / `pong_panel_sample()` | 1 = arm the bounded 120 s panel-cadence observation window (GCC_DISP_AHB gate, DISPCC, MDSS) and let `K60 CADENCE:` lines print; 0 = the sample hook stays silent unless the one-shot post-bring-up check is still pending. |
+| `p120` | 显示 | uint32 | 0 | `patches/xnu/0506-k60-120hz-refresh.patch` + `drivers/PongAdreno/PongDsiPanel.cpp` | `refreshHz()` / `pong_panel_switch_120()` | 1 = report 120 Hz to CoreAnimation and send the m11a timing@2 ten-packet switch once during panel bring-up; 0 (default) = keep the native 60 Hz mode. The switch is only claimed when the `K60 PANEL: INTF1 ... te .../s` log shows about 120/s. |
 | `k60_fontscale` | 显示 | 整数 | 代码默认 | `0214-k60-console-font-scale.patch` 控制台字号倍率 | — |
 | `k60_textonly` | 显示 | 真值 | 代码默认 | 只跑文本控制台，不初始化图形帧 | 用于隔离显示问题 |
 | `fb_threads` | 显示 | 整数 | 代码默认 | `zzzz…-pong-hackios-ui-foundation.patch` framebuffer 线程数 | — |

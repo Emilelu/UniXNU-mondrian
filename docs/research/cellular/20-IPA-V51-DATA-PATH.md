@@ -1,7 +1,7 @@
 # 20 — K60 IPA v5.1 数据通路（IPA/GSI、QMAP、PDP）
 
 - 日期：2026-11-18
-- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化、GSI 能力/所有权预检（M2 前置）、可宿主测试的 M2 GSI command-DMA 与 SMMU 规划模块，以及 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表块、ArmSmmu4K 三区间页表、SID 0x5c0、SMEM item 497、GSI MMIO/回调，pong_ipa=2 门控）已实现并通过 host tests 与内核编译验收（kernel 06e31af4（EE0 后置语义修复 + ArmSmmu4K Device-nGnRE 支持），k10 标准镜像与 k11 M2 诊断镜像）；固件加载区已按活 FDT 修正为 `memory-regions -> ipa_gsi_region@8b910000/0xa000`（metadata 仍在 `ipa_fw_region` 最后 8 KiB）；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
+- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化、GSI 能力/所有权预检（M2 前置）、可宿主测试的 M2 GSI command-DMA 与 SMMU 规划模块，以及 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表块、ArmSmmu4K 三区间页表、SID 0x5c0、SMEM item 497、GSI MMIO/回调，pong_ipa=2 门控）已实现并通过 host tests 与内核编译验收（kernel 06e31af4（EE0 后置语义修复 + ArmSmmu4K Device-nGnRE 支持），k11 标准与 M2 诊断镜像）；固件加载区已按活 FDT 修正为 `memory-regions -> ipa_gsi_region@8b910000/0xa000`（metadata 仍在 `ipa_fw_region` 最后 8 KiB）；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
 - 范围：按 `E:/hackios/UniXNU/docs/zh/porting/baseband.md` 第 2、4 节，给出 K60（mondrian/SM8475）IPA v5.1 数据面的硬件事实、v4.2 复用边界、分阶段计划和首个离线测试。
 - 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）数据面仍缺失，M0 只有编译骨架、M1 已有固件暂存/PAS 15 路径、payload FAT handoff 调用点与 IP0 时钟投票**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。
 
@@ -16,7 +16,7 @@
 | L1 SoC/板级 | 电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | modem PAS 已按 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` 推进；IPA 保留内存已在 DT；IPA 固件未加载，IPA 时钟/电源未证实 | IPA 的 power/clock/interconnect 资源尚未建模 |
 | L2 控制桥 | QMUX 帧、QMI client 分配、服务发现/回复路由 | `K60ModemLink.c` 已接 GLINK/QRTR，能枚举 AppleBaseband；IPA 服务 0x31 未服务 | 缺 IPA QMI 服务端 |
 | L3 iOS 接口 | 基带服务、channel、异步读写与启动交互 | `coachz_baseband_*` 控制桥和 PDP 控制对象存在 | 数据回调仍落到 ENETDOWN |
-| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟、IPA5.1 资源表初始化、GSI 能力/所有权预检、M2 host 模块（GSI command DMA、SMMU 规划）与 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表、ArmSmmu4K、SMEM 497、GSI MMIO，pong_ipa=2 门控）；已进入内核编译并生成 k10 标准镜像与 k11 M2 诊断镜像，未上机，未验证真实 GSI/IRQ）** | 全部 |
+| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟、IPA5.1 资源表初始化、GSI 能力/所有权预检、M2 host 模块（GSI command DMA、SMMU 规划）与 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表、ArmSmmu4K、SMEM 497、GSI MMIO，pong_ipa=2 门控）；已进入内核编译并生成 k11 标准与 M2 诊断镜像，未上机，未验证真实 GSI/IRQ）** | 全部 |
 
 L4 逐项状态：
 
@@ -148,4 +148,4 @@ L4 逐项状态：
 3. 与 DT 的两个 region 比较结果：`0x8568`（34,152 B）≤ `0xa000`，当前 `memory-regions -> ipa_gsi_region@8b910000` 可容纳全部 PT_LOAD；metadata `0xe8c` 走 `ipa_fw_region@8b900000` 的最后 8 KiB。M1 的 40 KiB 风险解除。
 4. 同时用 `dtc`/FDT 属性导出核对 `firmware-names`、`memory-regions`、`pas-ids` 的 index 对齐（`DIPA/ipa_v3/ipa.c:8117-8128` 要求同 index）。
 
-**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与 payload FAT handoff 调用点、M2 host 模块与运行时 glue 已落地，内核 06e31af4 已编译，k10 标准镜像与 k11 M2 诊断镜像（C/C0/IPA-only/B-full，pong_ipa=2）已生成；下一步是上机读 IPA_VERSION，确认 PAS 15、时钟投票与 GSI status，再用 `pong_ipa=2` 开一次受控 M2 运行时并抓 ring/GSI 状态。M2 未上机通过前不要写 QMAP 代码。
+**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与 payload FAT handoff 调用点、M2 host 模块与运行时 glue 已落地，内核 06e31af4 已编译，k11 标准与 M2 诊断镜像（C/C0/IPA-only/B-full，pong_ipa=2）已生成；下一步是上机读 IPA_VERSION，确认 PAS 15、时钟投票与 GSI status，再用 `pong_ipa=2` 开一次受控 M2 运行时并抓 ring/GSI 状态。M2 未上机通过前不要写 QMAP 代码。

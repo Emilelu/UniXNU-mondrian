@@ -80,7 +80,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 2. **L1/L2 阶段只读** `modemst1`/`modemst2`/`fsg`/`fsc`，不写。
 3. **加载 modem 前先查它是否已在运行** —— 从 Android 热重启进 XNU 时，modem 可能仍活着；
    直接 `PAS_AUTH_AND_RESET` 会打断一个正在运行的 modem（`03-SCOPE.md` §5）。
-4. IPA 代码已写 M0 骨架、M1 固件校验/暂存/PAS 路径与 M2 运行时 glue（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`/`K60IpaGsi.h`/`K60IpaGsi.c`/`K60IpaSmmu.h`/`K60IpaSmmu.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟、初始化 IPA5.1 资源表并预检 GSI EE0（M2a 只读检查）；M2 运行时在 `pong_ipa=2` 门控下分配 1 MiB ring 与 0x8000 SMMU 表块、构建 ArmSmmu4K 三区间页表并启动 GSI command-DMA，已编进内核 06e31af4，并生成 k10 标准镜像与四张 k11 M2 诊断镜像（C/C0/IPA-only/B-full）；但尚未上机，ring/GSI/SMMU 没有硬件验证。
+4. IPA 代码已写 M0 骨架、M1 固件校验/暂存/PAS 路径与 M2 运行时 glue（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`/`K60IpaGsi.h`/`K60IpaGsi.c`/`K60IpaSmmu.h`/`K60IpaSmmu.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟、初始化 IPA5.1 资源表并预检 GSI EE0（M2a 只读检查）；M2 运行时在 `pong_ipa=2` 门控下分配 1 MiB ring 与 0x8000 SMMU 表块、构建 ArmSmmu4K 三区间页表并启动 GSI command-DMA，已编进内核 06e31af4，并生成 k11 标准镜像与四张 k11 M2 诊断镜像（C/C0/IPA-only/B-full）；但尚未上机，ring/GSI/SMMU 没有硬件验证。
 5. **不自行 boot**：镜像与脚本交给 Lead，由 Lead 在用户明确同意后执行 `fastboot boot`。
 
 ## 4. 开工前必须存在的前置件

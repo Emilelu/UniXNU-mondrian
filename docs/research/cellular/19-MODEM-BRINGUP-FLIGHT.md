@@ -3,7 +3,7 @@
 - 日期：2026-11-18
 - 状态：**判据已冻结；C/B/C0/IPA-only 候选已重建（2026-11-18 07:24，k10 代：QcomBaseband 设备 patch + IPA M0 骨架 + M1 固件暂存/PAS 路径 + payload FAT 调用点 + IP0 时钟 + IPA 资源表初始化 + GSI EE0 预检 + M2 运行时 glue（1 MiB ring、ArmSmmu4K、SMEM 497、GSI command-DMA，pong_ipa=2 门控），kernel 7094936d）；2026-11-18 01:49 的 C 首飞因旧 FD 无 metadata 未取得 console，待复飞；本文件仍不是飞行许可**
 - k10 M2 诊断：2026-11-18 07:24 另生成 C/C0/IPA-only/B-full 四张 `pong_ipa=2` 镜像（kernel 7094936d），只用于 M2 运行时验证，不是完整 B 候选；细节见 `20-IPA-V51-DATA-PATH.md`。
-- k11 M2 诊断：2026-11-18 07:42 修正 K60 PongAdreno `ArmSmmu4K` 构建器对 Device-nGnRE（writeback=2）的拒绝（代码提交 `b9de56b9`），重编 kernel `06e31af4`（105,562,112 B）；四张 `pong_ipa=2` boot：C `6177500f...`、C0 `c3f58d8f...`、IPA-only `9639b6c2...`、B-full `9d128c7c...`，只用于 M2 运行时验证，不是标准/完整 B 候选；细节见 `20-IPA-V51-DATA-PATH.md`。
+- k11 完整代：2026-11-18 07:42 修正 K60 PongAdreno `ArmSmmu4K` 构建器对 Device-nGnRE（writeback=2）的拒绝（代码提交 `b9de56b9`），重编 kernel `06e31af4`（105,562,112 B）；标准 `pong_ipa=1` boot：C `a97eafa1...`、C0 `91c846c7...`、IPA-only `73fcab2c...`、B `5fd14161...`，M2 `pong_ipa=2` boot：C `6177500f...`、C0 `c3f58d8f...`、IPA-only `9639b6c2...`、B-full `9d128c7c...`；标准 C/B 由 fly-modem.ps1 指向，M2 用 fly-modem-m2.ps1；细节见 `20-IPA-V51-DATA-PATH.md`。
 - 范围：UEFI 把 5,884 B 的 PAS metadata 放进 DRAM；内核在完整模式下按 `power → init_image → transport → mem_setup → auth_reset` 发 SMC，并如实报告 rc；QRTR 侧接 QcomBaseband 的 AppleBaseband 控制桥，完成 servloc 应答与 DMS 版本读取。
 - 本飞只声称：**UEFI 能放对 metadata，内核能按顺序发 SMC 并报出 rc，QRTR 能枚举并读到 DMS 版本**。不声称基带数据业务可用。
 

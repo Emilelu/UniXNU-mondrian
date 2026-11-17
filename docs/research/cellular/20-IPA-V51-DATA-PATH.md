@@ -1,7 +1,7 @@
 # 20 — K60 IPA v5.1 数据通路（IPA/GSI、QMAP、PDP）
 
 - 日期：2026-11-18
-- 状态：**研究完成；M0 编译骨架已实现并通过 host tests 与内核 nm 验收；数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
+- 状态：**研究完成；M0 编译骨架与 M1 的 MDT/PAS 前置解析已实现并通过 host tests 与内核 nm 验收；数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
 - 范围：按 `E:/hackios/UniXNU/docs/zh/porting/baseband.md` 第 2、4 节，给出 K60（mondrian/SM8475）IPA v5.1 数据面的硬件事实、v4.2 复用边界、分阶段计划和首个离线测试。
 - 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）数据面仍缺失，M0 仅编译骨架**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。
 
@@ -16,11 +16,11 @@
 | L1 SoC/板级 | 电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | modem PAS 已按 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` 推进；IPA 保留内存已在 DT；IPA 固件未加载，IPA 时钟/电源未证实 | IPA 的 power/clock/interconnect 资源尚未建模 |
 | L2 控制桥 | QMUX 帧、QMI client 分配、服务发现/回复路由 | `K60ModemLink.c` 已接 GLINK/QRTR，能枚举 AppleBaseband；IPA 服务 0x31 未服务 | 缺 IPA QMI 服务端 |
 | L3 iOS 接口 | 基带服务、channel、异步读写与启动交互 | `coachz_baseband_*` 控制桥和 PDP 控制对象存在 | 数据回调仍落到 ENETDOWN |
-| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 仅编译骨架）** | 全部 |
+| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 前置 MDT 解析，未映射寄存器）** | 全部 |
 
 L4 逐项状态：
 
-- **IPA/GSI**：M0 只有常量与版本解码，没有寄存器 MMIO、GSI 初始化、ring/doorbell、中断处理。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
+- **IPA/GSI**：M0 只有常量与版本解码；M1 前置的 MDT 解析与 ipa_fws 布局校验已落地，但没有寄存器 MMIO、GSI 初始化、ring/doorbell、中断处理。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
 - **QMAP mux**：没有 WDA Set Data Format、没有 QMAP endpoint 配置、没有 mux 1..4 注册。
 - **net interface**：QcomBaseband 的 `coachz_bb_pdp.cpp:122-156` 会注册 `pdp_ip0..pdp_ip3`，`:83-120` 有 raw-IP TX/RX；但 K60 的 `coachz_modem_data_send` 是 ENETDOWN，所以 ifnet 只能挂载、不能通包。
 - **WDS/QOS binding**：没有 DPM Open Port、没有 WDS Bind Mux Data Port（0x00a2）、没有 QOS Bind Data Port（0x002b）。
@@ -77,6 +77,7 @@ L4 逐项状态：
 
 ### M1 — IPA 固件经 PAS 加载
 
+- 状态：2026-11-18 已完成离线前置件。新增 `K60Mdt.h`/`K60Mdt.c`（从 pong-power QcomMdt 的 BSD-2-Clause-Patent 实现移植并改名为 K60 命名空间）与 `K60Ipa.c` 的 `k60_ipa_firmware_check(blob,size,plan)`：解析 ELF32/ELF64、program headers、hash 段、PT_LOAD 地址与尺寸，要求 `!elf64 && relocatable && min_address==0 && span<=0x10000 && metadata<=0x2000`。`scripts/tests/test-k60-mdt.c` 用合成 ELF 覆盖合法/非重定位/超限/短包，host tests 与 patch 0623 gate 通过；内核 105,521,152 B sha256 `93858624df37a534ec592755869e56aedfb4c170136c0b3232cc7b1fd11a406c` 的 llvm-nm 含 `_k60_mdt_parse`、`_k60_mdt_metadata_size`、`_k60_ipa_firmware_check`。真正的 PAS 15 加载仍被本地缺少 `ipa_fws.mdt` 阻塞，未调用 `auth_and_reset`。
 - 内容：按 `DIPA/ipa_v3/ipa.c:8104-8167` 的顺序实现：匹配 `firmware-names=ipa_fws`，取同 index `memory-regions`（当前是 `ipa_gsi_region@8b910000`），加载 `ipa_fws.mdt`，调 PAS 15 的 `auth_and_reset`。**先离线核对 DT 的 40 KiB 与 64 KiB 的配对，再上机。**
 - 验收：PAS 返回 0；能读 `0x3f40028` 得到非 0/非 0xffffffff 的 `IPA_VERSION`；打印 IPA 版本和时钟状态，不启动 GSI。
 - 风险：**最大风险**。DT 把 `memory-regions` 指向 40 KiB `ipa_gsi_region`，而 `ipa_fw_region` 有 64 KiB；若 `ipa_fws.mdt` 的 PT_LOAD 总和超过 0xa000，当前 DT 会截断或加载失败。IPA 时钟/电源未在 XNU 建模也会让第一次 MMIO 读挂死。
@@ -128,7 +129,7 @@ L4 逐项状态：
 
 **当前明确未实现：**
 
-- 没有 IPA 固件加载：内核没有对 PAS 15/`ipa_fws.mdt` 的调用。
+- 没有 IPA 固件加载：内核没有对 PAS 15/`ipa_fws.mdt` 的调用；现有 M1 前置只有离线 MDT 解析与布局校验，`k60_ipa_firmware_check()` 不改任何寄存器。
 - 没有 IPA 寄存器映射、没有读 `IPA_VERSION`、没有 IPA IRQ 654 处理。
 - 没有 GSI 初始化、ring、doorbell、GSI IRQ 432 处理。
 - 没有 IPA QMI 服务 0x31 的 `INIT_DRIVER/INIT_COMPLETE/DRIVER_INIT_COMPLETE`。
@@ -140,7 +141,7 @@ L4 逐项状态：
 **首个最小安全离线测试：**
 
 1. 先找到 `ipa_fws.mdt`（或 Android firmware 分区里的 IPA 固件；本地 `E:/k60-work` 下目前没有该文件，这是当前 blocker，标 **UNKNOWN**）。
-2. 使用已实现的 host-only gate `scripts/tests/test-k60-modem-ipa-fw.py --mdt <ipa_fws.mdt>`（不启动设备、不写内核）解析 ELF program headers，求所有 `PT_LOAD` 的 `p_memsz` 总和，打印每个段的 `p_paddr/p_filesz/p_memsz`；`--selftest` 可在没有固件时验证解析器。
+2. 使用已实现的 host-only gate `scripts/tests/test-k60-modem-ipa-fw.py --mdt <ipa_fws.mdt>`（不启动设备、不写内核）解析 ELF program headers，求所有 `PT_LOAD` 的 `p_memsz` 总和，打印每个段的 `p_paddr/p_filesz/p_memsz`；`--selftest` 可在没有固件时验证解析器。`K60Mdt`/`k60_ipa_firmware_check()` 提供同样的 span 与 metadata 约束，Python gate 与内核解析必须给出相同结论。
 3. 与 DT 的两个 region 比较：若总和 ≤ `0xa000`，当前 `memory-regions -> ipa_gsi_region@8b910000` 可能成立；若 `0xa000 < 总和 ≤ 0x10000`，则 DT 的 40 KiB 配对错误，必须改为 `ipa_fw_region@8b900000`，否则 M1 永远失败。
 4. 同时用 `dtc`/FDT 属性导出核对 `firmware-names`、`memory-regions`、`pas-ids` 的 index 对齐（`DIPA/ipa_v3/ipa.c:8117-8128` 要求同 index）。
 

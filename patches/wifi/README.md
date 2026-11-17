@@ -33,7 +33,7 @@ done
 
 > `0010` 只做 `build-xnu-4k-baseline.sh` 的 archive 接线。当前主仓 `0010` 只覆盖 `KERNEL_EXTRA_ARCHIVES`；`k60-wifi` 的更新版还覆盖 `PLATFORM_ARCHIVES`（见“与 k60-wifi/feat/wifi-bringup 的系列漂移”）。旧文提到的 `K60_WIFI_SHENG` 回退在当前 `0010` 中不存在，已删。
 >
-> 2026-11-17 08:27：四处补丁字节差已同步到干净分支 `feat/wifi-patch-sync`（`5d70dd08`，从 `origin/main` 拉出，只改 4 个补丁文件，另带本 README 的同步版）；该分支 12 个补丁与 `k60-wifi` 逐字节一致，合并前 `main` 仍是旧字节，等 Lead 接线。旧的 `feat/wifi-series-sync`（`e1a46146`）基于 docs 分支 `d26f936c`，含整条审计文档历史，不可直接合 main，保留为历史。
+> 2026-11-17 08:27：四处补丁字节差已同步到干净分支 `feat/wifi-patch-sync`（`5d70dd08`，从 `origin/main` 拉出，只改 4 个补丁文件，另带本 README 的同步版（`78d17a8c`））；该分支 12 个补丁与 `k60-wifi` 逐字节一致，合并前 `main` 仍是旧字节，等 Lead 接线。旧的 `feat/wifi-series-sync`（`e1a46146`）基于 docs 分支 `d26f936c`，含整条审计文档历史，不可直接合 main，保留为历史。
 
 ## 与 k60-wifi/feat/wifi-bringup 的系列漂移（2026-11-17 实测）
 

@@ -1,6 +1,6 @@
 # ADSP 载体实验：零售机第一次受控 PAS 上机
 
-状态：产物已就绪（2026-11-17，tag `carrier-20261117c`），等 Lead 在用户同意后上机。
+状态：已被 ADSP Route A 真机结果取代（2026-11-17）；本实验不再需要上机，`carrier-20261117c` 不应 boot。
 分支：`feat/adsp-carrier`（基于 `origin/main 74c0d24e`，不混 `feat/charger`）。
 执行人：Lead（本线禁止自行 boot，见 m01673 与用户 m03715 铁律）。
 
@@ -185,3 +185,15 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
 - 构建：`/mnt/e/k60-work/artifacts/carrier-20261117c/`（manifest、logs、adsp-carrier/）。
 - 上机：`/mnt/e/k60-work/evidence/usblog-<ts>/console.log`（Lead 采集）。
 - 判读结果按 §0.1 表逐行贴回 `E:/k60-work/scratch/reply-charger-20261115.md`。
+
+## 8 Route A 取代关系（2026-11-17）
+
+- `E:/hackios/k60-adsp-handoff/docs/research/audio/ADSP-ROUTE-A.md` 记录真机结果：
+  镜像 `E:/k60-work/artifacts/adsp-board-20261116/route-a/boot.img`，201,887,744 B，
+  sha256 `6aa9107c30cab42bf4fd1a8555f5d622774eeb242fd79606ca2bec36226061f1`；
+  `console.log:189` 为 `K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15`，
+  `console.log:596` 为 `K60Battery: physical source published sample=4 SOC=100.00% ... current=397mA`。
+- 结论：零售 K60 的 PAS1 鉴权、PAS1 handoff 发布和电池物理源已在 Route A 路径上真机通过；
+  本文原问题“SCM 是否放行 PAS”已被回答，carrier-20261117c 没有剩余上机价值，也不应合入 main。
+- 本线的 D1–D6 中只有 D5（ADC 兜底调研）保留参考价值；D1–D4 的 carrier 代码保留在本分支作离线证据，
+  不作为生产路径。下一步以 Route A 镜像/分支为基线验证 charger/battery 行为，而不是再 boot c。

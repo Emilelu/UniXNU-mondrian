@@ -4,7 +4,7 @@ Written 2026-11-18. Scope: why the direct candidate's remaining failure is the
 host's cached execution environment, the successor that polls `BHI_EXECENV`
 after `mhi_download_amss_image()` and then creates the MHI devices for the
 AMSS channels, and the prewritten acceptance criteria for
-`wifi-20261118sbl-mission3`. This is the evidence record for the mission-poll
+`wifi-20261118sbl-mission4`. This is the evidence record for the mission-poll
 candidate; c8 remains HOLD.
 
 ## 0. Conclusion first
@@ -31,11 +31,15 @@ It records:
 
 Because the direct console exposes `exec_env=2` only in the 20 s timeout line,
 the earlier 5 s mission poll was too short to rely on. The mission3 candidate
-polls for 25 s, which covers the full 20 s `mhi_sync_power_up` wait plus margin.
+polls for 25 s, but that poll starts only after `mhi_download_amss_image()`
+returns; `mhi_sync_power_up` still gives up after its own fixed 20 s wait. The
+mission4 candidate therefore raises `mhi_ctrl->ready_timeout_ms` to 60 s in
+`ath11k_mhi_start` (generated `ath11k/mhi.c:450`) while keeping the 25 s poll.
+This lets the sync waiter stay alive long enough for the poll to cache AMSS.
 
-`mhi_sync_power_up` is the waiter that turns that cache into a 20 s timeout.
-The fix is intentionally confined to the value it waits on: no QMI, WMI, PCIe,
-rail or DMA change is included in this candidate.
+`mhi_sync_power_up` is the waiter that turns a stale cache into the final
+`-ETIMEDOUT`; the fix is intentionally confined to that wait plus the existing
+mission poll. No QMI, WMI, PCIe, rail or DMA change is included.
 
 ## 2. Source anchors
 
@@ -58,6 +62,9 @@ source. `E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
 - `:435-443`: the `pm.c` SBL one-shot latch remains; a later EE event cannot
   download twice.
 - `:274-286`: the `mhi_fw_load_bhie` status diagnostic remains available.
+- `:158-163`: the generated `ath11k/mhi.c` gets
+  `ab_pci->mhi_ctrl->ready_timeout_ms = 60000;`; generated anchor
+  `ath11k/mhi.c:450`.
 
 Generated source anchors from the mission archive:
 
@@ -66,6 +73,7 @@ Generated source anchors from the mission archive:
 | `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-664; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :658 |
 | `mhi/pm.c` | guard :828; latch :834; fallback download :843 |
 | `pinned/linux/mhi.h` | `bool pong_sbl_pushed;` at :445 |
+| `ath11k/mhi.c` | `ready_timeout_ms = 60000` at :450 |
 
 The poll runs after `mhi_ready_state_transition` has left `pm_state=MHI_PM_POR`
 and before `mhi_sync_power_up` has changed it, so the register window is the
@@ -81,19 +89,19 @@ must also run for the IPCR channels, because `nw_qrtr_mhi` calls
 
 | field | value |
 |---|---|
-| tag | `wifi-20261118sbl-mission3` |
-| built_at | 2026-11-18T03:07:49+08:00 |
-| branch / head | `fix/wifi-mission-poll` / `5d973b58abe67a6ac9c1d4d494708f5b38af5b03` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission3/boot.img`, 201,887,744 B, SHA256 `7bd5cd01fbc2487547270bcd0408d6899c0db29657bf13e38bb76187ce425db2` |
-| kernel | `501bc111cab661f027a3b476374f6150c905d0fa08143fbf20abd5208a558cbc` |
-| payload kernel | `ea062841636ce4258a4a2e14087d8cd137e81056822aced4175f238c57c3490a` |
-| WiFi archive | `5756ae08f4dbc313ffe0f5deda52d93acefbc1dc01ace5290711a8266a6097ac` |
-| ath11k archive | `757ddaca951f6bf1a9f2131edb7279ba898435b41042329e0563cbca41c0a8da` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission3/build-manifest.json` |
+| tag | `wifi-20261118sbl-mission4` |
+| built_at | 2026-11-18T03:41:57+08:00 |
+| branch / head | `fix/wifi-mission-timeout` / `91c21c7cc71de684dc0b98cbd6784afdb9d5f5f3` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission4/boot.img`, 201,887,744 B, SHA256 `7646f5caf1b6fd03628587df2cdc915a24d8aca7115816af379858d9e6ac4a26` |
+| kernel | `1ee83183537da2488267e98031f9ef41fb94baba24a3507d81ead5ef7023f4b3` |
+| payload kernel | `e308664056ce2cb167a2c385ff6e3af7610ec36bbb5504a31724629b0e986987` |
+| WiFi archive | `abe04821139df9b184df82bdd04f355e9374615807ca5e62629846ea867563a7` |
+| ath11k archive | `a3793b0c3f587b20d148f04938436b96aaa18ccc41f78c087d77cdd487f2b120` |
+| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission4/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
 
 This candidate is the mission-poll successor plus the `mhi_create_devices`
-call: stock six WLAN rails, `amss20.bin`, `k60_wifi_rsc=2`, no MHI pre-load,
+call and the 60 s `ready_timeout_ms` wait: stock six WLAN rails, `amss20.bin`, `k60_wifi_rsc=2`, no MHI pre-load,
 no IPA rail, no c8 raw-register dump. The earlier queue image
 `wifi-20261118sbl-gated` must not be re-flown; its first flight is recorded in
 `SBL-QUEUE.md` §6. The direct image `wifi-20261118sbl-direct` was flown once and
@@ -102,7 +110,7 @@ its result is in `SBL-DIRECT.md` §6. The pre-device-creation mission image
 
 Offline checks performed:
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
-- `python3 scripts/tests/test-wifi-sbl-mission.py` — 27 source/artifact checks,
+- `python3 scripts/tests/test-wifi-sbl-mission.py` — 28 source/artifact checks,
   0 failures.
 - WSL `python3 scripts/verify-boot-image.py --manifest /mnt/e/...` — OK.
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
@@ -121,7 +129,7 @@ The image is only valid with a serial console captured before `fastboot boot`.
 - `Pong MHI: amss download begin entries=...` and `Pong MHI: amss bhie load ret=0 exec_env=1`
   appear.
 - The new line `Pong MHI: exec_env=2 after AMSS download; cached ee updated`
-  appears (or `exec_env=4` for WFW), with no matching `Pong MHI: timeout after 20000 ms`.
+  appears (or `exec_env=4` for WFW), with no matching `Pong MHI: timeout after 60000 ms`.
 - No `qrtr: cannot start the IPCR channels`; the two IPCR MHI devices exist after
   `mhi_create_devices`.
 - `ath11k: chip_id 0x12 ...` and `fw_version ...` appear, with no
@@ -129,9 +137,9 @@ The image is only valid with a serial console captured before `fastboot boot`.
 
 ### Failure / stop
 
-- No `cached ee updated` line and a `Pong MHI: timeout after 20000 ms` with
-  `ee=1`: the poll did not see AMSS/WFW in 25 s; stop and inspect the
-  `exec_env` samples.
+- No `cached ee updated` line and a `Pong MHI: timeout after 60000 ms` with
+  `ee=1`: the poll did not see AMSS/WFW before the 60 s ready wait expired; stop
+  and inspect the `exec_env` samples.
 - `amss bhie load ret` non-zero: BHIe failed before the mission poll; stop.
 - More than one `amss download begin`: the latch is not effective; stop.
 - Any panic, cache-policy failure, duplicate download, or missing console: stop

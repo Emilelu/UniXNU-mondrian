@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: `120hz-5` built (line-counter frame measurement, first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); flight pending. Branch: `feat/120hz-panel`.
+Status: `120hz-6` prepared (active-INTF line counter enabled before measurement, first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); build pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -15,14 +15,14 @@ frame count and the plain frame counter only advances on DPU commits.
 The prior software-only declaration is in
 `patches/xnu/0506-k60-120hz-refresh.patch`: while a request is active it reports
 the requested 120 Hz to TimingElements (published once at start), while the
-panel driver separately logs the INTF1-measured rate. It never touches DSI
+panel driver separately logs the active-INTF-measured rate. It never touches DSI
 timing itself.
 `drivers/PongAdreno/PongDsiPanel.cpp:116` already says the cadence correction
 does not establish a 120 Hz display mode. This plan adds the missing panel-side
 switch and accepts both the project gate `p120=1` and the official reference
 spelling `vsync=120`; every image without either stays at the native 60 Hz
 declaration. The one-time TimingElements publication reports the requested
-120 Hz; the separate `K60 PANEL: INTF1 ...` line records what the panel
+120 Hz; the separate `K60 PANEL: INTF<n> ...` line records what the panel
 actually produced, and a failed switch is judged from that line.
 
 ## Data source (live FDT plus vendor dtsi)
@@ -58,11 +58,16 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
    the switch runs once at the first completed GPU frame (the zizhan `panelHz()`
    point), so the panel is already receiving UI frames. It sends each packet
    through the existing `dsi_dcs()` path, honours the per-packet post-wait
-   (10 ms after `CE 01`), waits 300 ms, writes the INTF1 tear-check
-   `vsync_count` from 100 to 50 when the inherited value is the known 60 Hz
-   state, and measures the INTF1 line-counter wrap period before (200 ms) and
-   after (500 ms). `pong_panel_sample()` takes a second observation
-   (`after the UI frame`) once the real UI frame is presented.
+   (10 ms after `CE 01`), waits 300 ms, selects the active interface from the
+   CTL_INTF_ACTIVE mask (CTL pages 0x0ae16000 + i*0x1000, offset 0xf4), writes
+   that INTF's tear-check `vsync_count` from 100 to 50 when the inherited value
+   is the known 60 Hz state, and sets its autorefresh frame count to 1 when
+   bit31 is enabled. The rate observation first enables the active INTF's
+   frame/line counter (0xa8 |= 3) and prints INTF0-3 config, vsync period,
+   count enable, frame, line and tear-check state; it then measures the active
+   INTF's line-counter wrap period before (200 ms) and after (500 ms).
+   `pong_panel_sample()` takes a second observation (`after the UI frame`)
+   once the real UI frame is presented.
 2. `drivers/PongAdreno/PongDsiPanel.h`: expose the switch and its return
    values; document that the reported rate is the requested 120 Hz while a
    request is active, otherwise the INTF1 observation.
@@ -76,14 +81,15 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
    additions.
 5. `scripts/check-panel-timing.py`: static proof that the eleven packets, the
    p120/vsync gates, the first-frame switch, the requested-refresh accessor,
-   the INTF vsync_count update, and the pre-/post-switch and post-first-frame
-   INTF1 observations are present.
+   the active-INTF discovery, the 0xa8 line-counter enable, the INTF
+   vsync_count update, the autorefresh update, and the pre-/post-switch and
+   post-first-frame active-INTF observations are present.
 6. `scripts/check-120hz-log.py`: log-side judge for the pre-registered
    criteria (first-frame switch, eleven packets rc 0, before 55–65/s,
    after-UI TE 110–130/s, first frame, SpringBoard, sig=11, DCS failures,
-   backlight conformance/control). Its selftest carries the healthy, 120hz-3
-   failed, 12/s, missing-observation, missing-backlight, DCS-failure and
-   no-panel shapes.
+   backlight conformance/control). It accepts the active `INTF<n>` label. Its
+   selftest carries the healthy, 120hz-3 failed, 12/s, missing-observation,
+   missing-backlight, DCS-failure and no-panel shapes.
 
 ## Boot-argument budget
 
@@ -159,6 +165,21 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and
   `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
   `check-panel-timing: ok`.
 
+## Flight records
+
+`120hz-4` (`E:/k60-work/evidence/usblog-20261118-010106`) reached the
+first-GPU-frame switch, eleven packets rc 0, first frame and backlight
+`conformance=1 control=1`; its after-UI `te 55->1` was a uint16 wrap of the
+0x298 read-pointer count (130,964/s), not a panel rate, so it was rejected.
+
+`120hz-5` (`E:/k60-work/evidence/usblog-20261118-013515`) also reached the
+switch, eleven packets rc 0, first frame, SpringBoard 132, sig=11 0 and
+backlight `conformance=1 control=1`. Its `INTF1 ... count_enable 0` lines show
+the 0xa8 frame/line counter was never enabled, and the line counter read
+1098->1 and then 1->1, so the before and after-UI rates are 0/s and
+`check-120hz-log.py` FAILs. 120hz-6 enables the active INTF counter and prints
+the CTL/INTF state before measuring.
+
 ## Pre-registered success criteria (write before the flight)
 
 PASS requires all of the following in one capture, with the image SHA-256
@@ -169,7 +190,7 @@ matching the build manifest:
    returns OK.
 2. The log contains `K60 PANEL: 120 Hz switch at the first GPU frame`
    followed by `K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0`.
-3. The log contains a `K60 PANEL: INTF1 after the UI frame te .../s` line
+3. The log contains a `K60 PANEL: INTF<n> after the UI frame te .../s` line
    with the rate in the range 110–130 per second. That `te` value is computed
    from the `INTF_LINE_COUNT` (0xb0) wrap period: one wrap is one panel frame
    and the shortest interval between two wraps is the frame period, the method
@@ -195,7 +216,7 @@ built SHA-256.
 ## Flight procedure
 
 1. Build with the display input/output trees:
-   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-4 --kernel-arg p120=1 --kernel-arg k60_backlight_control=1 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
+   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-6 --kernel-arg p120=1 --kernel-arg k60_backlight_control=1 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
 2. Verify `boot.img` with `scripts/verify-boot-image.py --manifest` and
    `scripts/check-image-args.py --image ... --board board.toml`.
 3. Only `fastboot boot`; never `fastboot flash`. Collect a 300 s USB log and

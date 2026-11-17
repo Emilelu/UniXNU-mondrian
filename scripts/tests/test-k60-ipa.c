@@ -74,6 +74,58 @@ main(int argc, char **argv)
         }
         printf("K60 IPA RES PASS\n");
     }
+    {
+        unsigned char gsi[0x30000];
+        K60IpaGsiCaps caps;
+
+        memset(gsi, 0, sizeof(gsi));
+        if (k60_ipa_gsi_check(NULL, sizeof(gsi), &caps) != K60IpaBadArgument ||
+            k60_ipa_gsi_check(gsi, 0x100, &caps) != K60IpaBadArgument) {
+            printf("FAIL GSI argument checks\n");
+            return 1;
+        }
+        if (k60_ipa_gsi_check(gsi, sizeof(gsi), &caps) != K60IpaNotReady) {
+            printf("FAIL GSI disabled EE0\n");
+            return 1;
+        }
+        *(volatile uint32_t *)(gsi + K60_GSI_CHANNELS_OFFSET) = 13u;
+        *(volatile uint32_t *)(gsi + K60_GSI_EVENTS_OFFSET) = 1u;
+        if (k60_ipa_gsi_check(gsi, sizeof(gsi), &caps) != K60IpaOk ||
+            caps.status != 0u || caps.channels != 13u || caps.events != 1u) {
+            printf("FAIL GSI ready caps\n");
+            return 1;
+        }
+        *(volatile uint32_t *)(gsi + K60_GSI_STATUS_OFFSET) = 1u;
+        if (k60_ipa_gsi_check(gsi, sizeof(gsi), &caps) != K60IpaGsiBusy) {
+            printf("FAIL GSI foreign EE0\n");
+            return 1;
+        }
+        *(volatile uint32_t *)(gsi + K60_GSI_STATUS_OFFSET) = 0u;
+        *(volatile uint32_t *)(gsi + K60_GSI_CHANNEL_BASE +
+            K60_GSI_COMMAND_CHANNEL * K60_GSI_CHANNEL_STRIDE) = 1u << 20;
+        if (k60_ipa_gsi_check(gsi, sizeof(gsi), &caps) != K60IpaGsiBusy ||
+            caps.command_state != 1u) {
+            printf("FAIL GSI foreign command channel\n");
+            return 1;
+        }
+        *(volatile uint32_t *)(gsi + K60_GSI_CHANNEL_BASE +
+            K60_GSI_COMMAND_CHANNEL * K60_GSI_CHANNEL_STRIDE) = 0;
+        *(volatile uint32_t *)(gsi + K60_GSI_EVENT_BASE +
+            K60_GSI_EVENT0 * 0x80u) = 2u << 20;
+        if (k60_ipa_gsi_check(gsi, sizeof(gsi), &caps) != K60IpaGsiBusy ||
+            caps.event_state != 2u) {
+            printf("FAIL GSI foreign event ring\n");
+            return 1;
+        }
+        *(volatile uint32_t *)(gsi + K60_GSI_EVENT_BASE +
+            K60_GSI_EVENT0 * 0x80u) = 0;
+        *(volatile uint32_t *)(gsi + K60_GSI_CHANNELS_OFFSET) = 12u;
+        if (k60_ipa_gsi_check(gsi, sizeof(gsi), &caps) != K60IpaNotReady) {
+            printf("FAIL GSI channel count\n");
+            return 1;
+        }
+        printf("K60 IPA GSI PASS\n");
+    }
     if (argc > 1) {
         FILE *f = fopen(argv[1], "rb");
         long size;

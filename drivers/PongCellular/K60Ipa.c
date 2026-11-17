@@ -257,6 +257,42 @@ k60_ipa_resources_prepare(void *registers, size_t bytes)
     return ready ? K60IpaOk : K60IpaNotReady;
 }
 
+static uint32_t
+k60_ipa_gsi_word(void *gsi, size_t at)
+{
+    return *(const volatile uint32_t *)((const uint8_t *)gsi + at);
+}
+
+int
+k60_ipa_gsi_check(void *gsi, size_t bytes, K60IpaGsiCaps *caps)
+{
+    size_t command = K60_GSI_CHANNEL_BASE +
+        K60_GSI_COMMAND_CHANNEL * K60_GSI_CHANNEL_STRIDE;
+    size_t event = K60_GSI_EVENT_BASE + K60_GSI_EVENT0 * 0x80u;
+
+    if (gsi == NULL || caps == NULL || bytes <= K60_GSI_STATUS_OFFSET) {
+        return K60IpaBadArgument;
+    }
+    if (bytes <= command + 4u || bytes <= event + 4u) {
+        return K60IpaBadArgument;
+    }
+    caps->status = k60_ipa_gsi_word(gsi, K60_GSI_STATUS_OFFSET);
+    caps->channels = k60_ipa_gsi_word(gsi, K60_GSI_CHANNELS_OFFSET);
+    caps->events = k60_ipa_gsi_word(gsi, K60_GSI_EVENTS_OFFSET);
+    caps->command_state = (k60_ipa_gsi_word(gsi, command) >> 20) & 0xfu;
+    caps->event_state = (k60_ipa_gsi_word(gsi, event) >> 20) & 0xfu;
+    if (caps->status == 0xffffffffu || (caps->status & 1u) != 0) {
+        return K60IpaGsiBusy;
+    }
+    if (caps->channels <= K60_GSI_COMMAND_CHANNEL || caps->events == 0) {
+        return K60IpaNotReady;
+    }
+    if (caps->command_state != 0 || caps->event_state != 0) {
+        return K60IpaGsiBusy;
+    }
+    return K60IpaOk;
+}
+
 #ifndef K60_HOST_TEST
 static int
 k60_ipa_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
@@ -629,12 +665,16 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
         return K60IpaMapFailed;
     }
     {
-        uint32_t status = *(volatile uint32_t *)(gsi_map + 0x25000);
+        K60IpaGsiCaps caps;
 
-        printf("K60IPA pre-PAS GSI status=%#x\n", status);
-        if (status == 0xffffffffu || (status & 1u) != 0) {
-            printf("K60IPA GSI EE0 already owned; refusing firmware load\n");
-            return K60IpaGsiBusy;
+        rc = k60_ipa_gsi_check((void *)(uintptr_t)gsi_map, K60_GSI_BYTES,
+            &caps);
+        printf("K60IPA pre-PAS GSI status=%#x channels=%u events=%u cmd=%u ev0=%u\n",
+            caps.status, caps.channels, caps.events, caps.command_state,
+            caps.event_state);
+        if (rc != K60IpaOk) {
+            printf("K60IPA GSI not available for IPA rc=%d\n", rc);
+            return rc;
         }
     }
     /* Both IPA regions are DDR carveouts, not device memory: use the same

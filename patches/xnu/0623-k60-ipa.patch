@@ -2,7 +2,7 @@ diff --git a/bsd/dev/pong_ipa.h b/bsd/dev/pong_ipa.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.h
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,141 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path: constants, firmware validation and M1 staging.
 + *
@@ -50,6 +50,14 @@ new file mode 100644
 +#define K60_GSI_CH_DOORBELL_BASE      0x03e28000u
 +#define K60_GSI_EV_DOORBELL_BASE      0x03e28800u
 +#define K60_GSI_STATUS                0x03e29000u
++#define K60_GSI_STATUS_OFFSET         0x00025000u
++#define K60_GSI_CHANNELS_OFFSET       0x00025040u
++#define K60_GSI_EVENTS_OFFSET         0x00025050u
++#define K60_GSI_CHANNEL_BASE          0x00014000u
++#define K60_GSI_CHANNEL_STRIDE        0x00000080u
++#define K60_GSI_EVENT_BASE            0x0001c000u
++#define K60_GSI_COMMAND_CHANNEL       12u
++#define K60_GSI_EVENT0                0u
 +
 +enum {
 +    K60IpaOk = 0,
@@ -101,6 +109,20 @@ new file mode 100644
 + * the same code as the kernel. It refuses a zero or all-ones version. */
 +int k60_ipa_resources_prepare(void *registers, size_t bytes);
 +
++/* M2 precondition: reads the GSI capability and ownership registers in the
++ * caller-provided view. It refuses an enabled EE0, too few channels or events,
++ * and a command channel or event ring already owned by another manager. Pure
++ * register reads, so the host test exercises the same code as the kernel. */
++typedef struct {
++    uint32_t status;
++    uint32_t channels;
++    uint32_t events;
++    uint32_t command_state;
++    uint32_t event_state;
++} K60IpaGsiCaps;
++
++int k60_ipa_gsi_check(void *gsi, size_t bytes, K60IpaGsiCaps *caps);
++
 +/* M1 load: stages the image into the live IPA firmware carveout and hands it
 + * to PAS 15 (INIT_IMAGE, MEM_SETUP, AUTH_AND_RESET). It refuses a GSI EE0
 + * already enabled by another owner and reports channels/events afterwards.
@@ -126,7 +148,7 @@ diff --git a/bsd/dev/pong_ipa.c b/bsd/dev/pong_ipa.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.c
-@@ -0,0 +1,786 @@
+@@ -0,0 +1,826 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path M0 skeleton plus M1 firmware staging.
 + *
@@ -384,6 +406,42 @@ new file mode 100644
 +        }
 +    }
 +    return ready ? K60IpaOk : K60IpaNotReady;
++}
++
++static uint32_t
++k60_ipa_gsi_word(void *gsi, size_t at)
++{
++    return *(const volatile uint32_t *)((const uint8_t *)gsi + at);
++}
++
++int
++k60_ipa_gsi_check(void *gsi, size_t bytes, K60IpaGsiCaps *caps)
++{
++    size_t command = K60_GSI_CHANNEL_BASE +
++        K60_GSI_COMMAND_CHANNEL * K60_GSI_CHANNEL_STRIDE;
++    size_t event = K60_GSI_EVENT_BASE + K60_GSI_EVENT0 * 0x80u;
++
++    if (gsi == NULL || caps == NULL || bytes <= K60_GSI_STATUS_OFFSET) {
++        return K60IpaBadArgument;
++    }
++    if (bytes <= command + 4u || bytes <= event + 4u) {
++        return K60IpaBadArgument;
++    }
++    caps->status = k60_ipa_gsi_word(gsi, K60_GSI_STATUS_OFFSET);
++    caps->channels = k60_ipa_gsi_word(gsi, K60_GSI_CHANNELS_OFFSET);
++    caps->events = k60_ipa_gsi_word(gsi, K60_GSI_EVENTS_OFFSET);
++    caps->command_state = (k60_ipa_gsi_word(gsi, command) >> 20) & 0xfu;
++    caps->event_state = (k60_ipa_gsi_word(gsi, event) >> 20) & 0xfu;
++    if (caps->status == 0xffffffffu || (caps->status & 1u) != 0) {
++        return K60IpaGsiBusy;
++    }
++    if (caps->channels <= K60_GSI_COMMAND_CHANNEL || caps->events == 0) {
++        return K60IpaNotReady;
++    }
++    if (caps->command_state != 0 || caps->event_state != 0) {
++        return K60IpaGsiBusy;
++    }
++    return K60IpaOk;
 +}
 +
 +#ifndef K60_HOST_TEST
@@ -758,12 +816,16 @@ new file mode 100644
 +        return K60IpaMapFailed;
 +    }
 +    {
-+        uint32_t status = *(volatile uint32_t *)(gsi_map + 0x25000);
++        K60IpaGsiCaps caps;
 +
-+        printf("K60IPA pre-PAS GSI status=%#x\n", status);
-+        if (status == 0xffffffffu || (status & 1u) != 0) {
-+            printf("K60IPA GSI EE0 already owned; refusing firmware load\n");
-+            return K60IpaGsiBusy;
++        rc = k60_ipa_gsi_check((void *)(uintptr_t)gsi_map, K60_GSI_BYTES,
++            &caps);
++        printf("K60IPA pre-PAS GSI status=%#x channels=%u events=%u cmd=%u ev0=%u\n",
++            caps.status, caps.channels, caps.events, caps.command_state,
++            caps.event_state);
++        if (rc != K60IpaOk) {
++            printf("K60IPA GSI not available for IPA rc=%d\n", rc);
++            return rc;
 +        }
 +    }
 +    /* Both IPA regions are DDR carveouts, not device memory: use the same

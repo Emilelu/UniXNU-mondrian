@@ -45,6 +45,14 @@
 #define K60_GSI_CH_DOORBELL_BASE      0x03e28000u
 #define K60_GSI_EV_DOORBELL_BASE      0x03e28800u
 #define K60_GSI_STATUS                0x03e29000u
+#define K60_GSI_STATUS_OFFSET         0x00025000u
+#define K60_GSI_CHANNELS_OFFSET       0x00025040u
+#define K60_GSI_EVENTS_OFFSET         0x00025050u
+#define K60_GSI_CHANNEL_BASE          0x00014000u
+#define K60_GSI_CHANNEL_STRIDE        0x00000080u
+#define K60_GSI_EVENT_BASE            0x0001c000u
+#define K60_GSI_COMMAND_CHANNEL       12u
+#define K60_GSI_EVENT0                0u
 
 enum {
     K60IpaOk = 0,
@@ -95,6 +103,20 @@ int k60_ipa_firmware_stage(const void *blob, uint64_t size, void *region,
  * function only touches memory supplied by the caller, so the host test uses
  * the same code as the kernel. It refuses a zero or all-ones version. */
 int k60_ipa_resources_prepare(void *registers, size_t bytes);
+
+/* M2 precondition: reads the GSI capability and ownership registers in the
+ * caller-provided view. It refuses an enabled EE0, too few channels or events,
+ * and a command channel or event ring already owned by another manager. Pure
+ * register reads, so the host test exercises the same code as the kernel. */
+typedef struct {
+    uint32_t status;
+    uint32_t channels;
+    uint32_t events;
+    uint32_t command_state;
+    uint32_t event_state;
+} K60IpaGsiCaps;
+
+int k60_ipa_gsi_check(void *gsi, size_t bytes, K60IpaGsiCaps *caps);
 
 /* M1 load: stages the image into the live IPA firmware carveout and hands it
  * to PAS 15 (INIT_IMAGE, MEM_SETUP, AUTH_AND_RESET). It refuses a GSI EE0

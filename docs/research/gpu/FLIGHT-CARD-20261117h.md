@@ -57,5 +57,22 @@
 - **F5** `crashed: backboardd` ≥ 1。
 
 ## 5. 结果登记
+### 2026-11-17 13:13 — gpu-addon4-20261117
+
+- 镜像：`gpu-addon4-20261117/boot.img`，sha256 `0614aa977e7e7b212517a4fea3460c934e1fc9347a7ed3f3a7902988d5722622`
+- 证据：`E:/k60-work/evidence/usblog-20261117-130912`（198,320 B，抓取完整、未因 panic/复位中断）
+- 实测：S1 通过（`K60KEXC` 0）；S2 通过（`:484 K60GPUADDON addons stage=5 status=0 daemons stage=4 status=2`）；
+  S3 通过（`Pong Metal:` **91** 行，含 `:1370 real Vulkan-backed device created status=0x0`、
+  `:1374 real device returned to stock20G81 discovery`、`:1382 real GPU scanout worker ready`）；
+  S4 未通过（`present #` **0**）；S5 通过（`crashed: backboardd` **0**，崩溃只有 syncdefaultsd/mmaintenanced）。
+- 判决：**FAIL(F4)** —— Metal 设备发现与插件实例化首次成立，但还没有一帧被提交、呈现。
+- 新观测：`Pong Metal: S c0/0 d0 p0 x6 R0 D0 F0 M0k C0 B0` 出现 4 次（`x6` = 6 个越过 import 的帧，
+  `c0`/`p0` = 0 提交 0 呈现）；`Pong Metal: W metal2vulkan: … Turnip Adreno (TM) 725 …` 8 次
+  （bridge 已与真实 Vulkan 设备通信）；`PONG SCANOUT: actual framebuffer handoff available sequence=0 status=0x0`（:180/:181）。
+- 本轮修的缺陷：`Info.plist` 只有 `NSPrincipalClass`，缺 `MetalPluginName` / `MetalPluginClassName`
+  （Metal 读的是这两个键），插件被 dyld 装载但从未实例化。修法：`scripts/ensure-metal-plugin-keys.py`
+  + `stage-metal-plugin.sh` 在暂存阶段补齐（blob 走 `.incbin`，必须在暂存文件上改），
+  测试 `test-metal-stage-keys.py` 3 例 + `test-metal-blob-info-plist.py` 3 例。
+
 
 （上机后填写：镜像名、boot.img sha256、证据目录、S1–S5 与 F1–F5 的实测值、判决。）

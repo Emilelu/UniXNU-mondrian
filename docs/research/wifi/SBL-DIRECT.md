@@ -38,7 +38,9 @@ worker-queue delay without changing the device-side handshake.
 ## 2. Source anchors
 
 The patch lives in the build generator, not in a checked-in copy of the Linux
-source. `E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
+source. The line numbers in this section are as of the direct build head
+`0782eddc`; the current head has the same direct block at `:330-379`.
+`E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
 
 - `:319-364`: replaces the passive wait with a bounded `for (i = 0; i < 200; i++)`
   poll while `MHI_REG_ACCESS_VALID(pm_state)`. It reads `mhi_get_exec_env`;

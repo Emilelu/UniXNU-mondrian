@@ -10,16 +10,17 @@
 
 驱动已经具备：单请求状态机、协议五要素校验、有效/缺失/失败三态、原始值到 OS 值的显式换算、
 IOPMPowerSource 子类、工作循环、三个定时器、首帧后才注册、适配器字典、断链置 stale。
-2026-11-18 02:42 已构建最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118d/boot.img`
-（sha256 `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`，payload
-`0f23f3675efe1df8c45a66833272f88d901bb747c5405e862c0505fe96924749`，kernel
-`7cafead24179a329178ff65e11ea6dfa18ffdab0ecd1e7081946c5eddbab7742`），包含 `592523aa`
-（缺失电池首帧）与 `6750c7bd`（服务重启生命周期复位），尚未上机。
+2026-11-18 03:22 已构建最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118e/boot.img`
+（sha256 `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`，payload
+`9c96ac4956151fbc1b1fdccc3cd0c3cef77b29d9a4618d6e5f3c72a3e084eb99`，kernel
+`9df566917f55d7a31573457523422b706c648c629dccb66d96c581b498bcc319`），包含 `592523aa`
+（缺失电池首帧）、`6750c7bd`（服务重启生命周期复位）与 `af759fe4`（容量百分比发布），尚未上机。
+2026-11-18 02:42 的 image d（sha256 `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`）是上一版，包含前两项但不含容量修正。
 2026-11-18 01:21 的上一版 image c 已上机：`console.log` 233,732 B，C1 PASS（`:429`、`:530`），
 C2 PASS（14 次刷新命中），首帧 `:530` 发布 SOC=91.00%、4292mV、397mA、35.30°C；`:530`–`:3470`
 连续 14 条完整 `physical source …` 样本证明持久刷新。C3 仍需匹配热/电状态的 Android 同窗口基线：
 用 route-c 冷战基线（28.3°C）判 FAIL，只差温度 +7°C；用 01:28 暖基线判 FAIL，差电压/电流。
-真机插拔/充放电脚本化验证仍待完成；服务重启生命周期复位已补（`6750c7bd`，image d 包含），
+真机插拔/充放电脚本化验证仍待完成；服务重启生命周期复位已补（`6750c7bd`，image e 包含），
 IOKit 级验证仍待完成。
 
 ## 1. §4 开头：参考实现的选择（官网 :69-74）
@@ -28,8 +29,8 @@ IOKit 级验证仍待完成。
 | --- | --- | --- |
 | `ShengBattmgr.h` / `ShengBattmgr.c` | 请求/响应格式、刷新状态机、单位转换 | `drivers/PongPower/K60Battmgr.h`、`K60Battmgr.c`；协议字段来自 m81.ko 反编译，见 `docs/research/charger/02-GLINK-CONTRACT.md`、`04-PROP-MAP.md` |
 | `ShengBattery.cpp` | IOPMPowerSource 属性、工作循环、计时器、通知 | `drivers/PongPower/K60Battery.cpp` |
-| `BatteryProbe.cpp` | 类注册与服务启动 | `K60Battery.cpp:496` `k60_physical_battery_start()`，由 `patches/xnu/0602-k60-physical-battery.patch` 在 `IOService::publishResource("IOBSD")` 后调用 |
-| XNU `IOPMPowerSource.h` | 属性设置与状态发布 API | 继承 `IOPMPowerSource`（`K60Battery.cpp:46`），使用 `setPSProperty` / `updateStatus` / `registerService` |
+| `BatteryProbe.cpp` | 类注册与服务启动 | `K60Battery.cpp:505` `k60_physical_battery_start()`，由 `patches/xnu/0602-k60-physical-battery.patch` 在 `IOService::publishResource("IOBSD")` 后调用 |
+| XNU `IOPMPowerSource.h` | 属性设置与状态发布 API | 继承 `IOPMPowerSource`（`K60Battery.cpp:53`），使用 `setPSProperty` / `updateStatus` / `registerService` |
 | Linux `qcom_battmgr.c` | Qualcomm 协议变体与属性处理 | 只作为协议对照；K60 的 owner=32778、opcode/property 映射以本机 m81.ko 为准（`K60Battmgr.c:23-30`） |
 
 ## 2. §4 第一段：协议校验、单请求、超时（官网 :75）
@@ -53,15 +54,15 @@ IOKit 级验证仍待完成。
 ### 2.2 每次只有一个未完成请求
 
 - `k60_battmgr_next()` 在 `b->flight != 0` 时直接返回 0（`K60Battmgr.c:76-91`）。
-- 请求发出成功后 `k60_battmgr_sent()` 才设置 `flight`（`:92-97`），FIFO 背压时由 `K60Battery.cpp:324-327` 重试，未写入不算已发。
+- 请求发出成功后 `k60_battmgr_sent()` 才设置 `flight`（`:92-97`），FIFO 背压时由 `K60Battery.cpp:333-336` 重试，未写入不算已发。
 - 收到匹配应答后 `finish_field()` 清 `flight` 并把 cursor 推进（`:140-157`）。
 
 ### 2.3 超时后才推进刷新周期
 
-- 每个请求由 `requestTimer` 计时（`K60Battery.cpp:332` 设置 `kRequestMs=3000`，`:25`）。
-- `requestAction()`（`K60Battery.cpp:398-410`）打印超时行后调用 `k60_battmgr_timeout()`：
+- 每个请求由 `requestTimer` 计时（`K60Battery.cpp:341` 设置 `kRequestMs=3000`，`:25`）。
+- `requestAction()`（`K60Battery.cpp:407-419`）打印超时行后调用 `k60_battmgr_timeout()`：
   `timeouts++`、`poisoned=1`、清 `valid/fresh/completed/last_fresh`（`K60Battmgr.c:206-213`）。
-- 其后必须 `transport.reopen()` 才继续（`K60Battery.cpp:409`）；`pump()` 在 `poisoned` 时不发请求（`:320`）。
+- 其后必须 `transport.reopen()` 才继续（`K60Battery.cpp:418`）；`pump()` 在 `poisoned` 时不发请求（`:329`）。
   这保证迟到的旧应答不可能满足下一轮的同一属性（`K60Battmgr.h:78-81` 注释）。
 
 ## 3. §4 第二段：有效/缺失/失败三态与快照（官网 :76）
@@ -83,7 +84,7 @@ IOKit 级验证仍待完成。
 `s->valid = b->last_fresh; s->failed = b->failed; s->raw[i] = b->value[i]`，所以 OS 侧可以同时回答
 “哪些值有效、哪些失败了、原始值是多少”。
 
-`publish()` 的缺失电池分支（`K60Battery.cpp:155-183`）也调用 `rawNumbers(s)`，因此
+`publish()` 的缺失电池分支（`K60Battery.cpp:163-191`）也调用 `rawNumbers(s)`，因此
 `K60BatteryFailedFields` 和全部 `K60Raw*` 在电池缺失时同样可见；有效位图仍由
 `K60BatteryValidFields` 携带。
 
@@ -91,36 +92,36 @@ IOKit 级验证仍待完成。
 
 | 官网字段 | `K60BatterySample` 成员 | 发布键 | 代码 |
 | --- | --- | --- | --- |
-| 电池存在 | `present` | `kIOPMBatteryInstalledKey`（`setBatteryInstalled`） | `K60Battery.cpp:216` |
-| 外接电源 | `external` | `kIOPMPSExternalConnectedKey` | `:217` |
-| 充电状态 | `charging` | `kIOPMPSIsChargingKey` | `:217` |
-| 容量 | `current_mah` / `capacity_hundredths` | `kIOPMPSCurrentCapacityKey` / `K60CapacityHundredths` | `:184,188` |
-| 满充/设计容量 | `full_mah` / `design_mah` | `kIOPMPSMaxCapacityKey` / `NominalChargeCapacity` / `DesignCapacity` | `:184,188` |
-| 电压 | `voltage_mv` | `kIOPMPSVoltageKey` | `:184` |
-| 电流 | `current_ma` / `current_source` | `kIOPMPSAmperageKey` / `InstantAmperage` / `K60CurrentCapacityBasis` 来源说明 | `:185,187,221` |
-| 温度 | `temperature_hundredths` | `kIOPMPSBatteryTemperatureKey` | `:187` |
-| 剩余时间 | `time_remaining_min` | `kIOPMPSTimeRemainingKey` | `:186` |
-| 循环次数 | `cycles` | `kIOPMPSCycleCountKey` | `:185` |
-| 适配器 | `adapter_mv/ma/type` | `kIOPMPSAdapterDetailsKey` 字典 | `:282-317` |
+| 电池存在 | `present` | `kIOPMBatteryInstalledKey`（`setBatteryInstalled`） | `K60Battery.cpp:225` |
+| 外接电源 | `external` | `kIOPMPSExternalConnectedKey` | `:226` |
+| 充电状态 | `charging` | `kIOPMPSIsChargingKey` | `:226` |
+| 容量 | `capacity_hundredths` / `current_mah` | `kIOPMPSCurrentCapacityKey`（百分比）/ `K60CapacityHundredths`（0.01%）/ `AppleRawCurrentCapacity`（mAh） | `:192,196,203` |
+| 满充/设计容量 | `full_mah` / `design_mah` | `kIOPMPSMaxCapacityKey`（固定 100%）/ `AppleRawMaxCapacity` / `NominalChargeCapacity` / `DesignCapacity` | `:192,196,203` |
+| 电压 | `voltage_mv` | `kIOPMPSVoltageKey` | `:192` |
+| 电流 | `current_ma` / `current_source` | `kIOPMPSAmperageKey` / `InstantAmperage` / `K60CurrentCapacityBasis` 来源说明 | `:193,195,230` |
+| 温度 | `temperature_hundredths` | `kIOPMPSBatteryTemperatureKey` | `:195` |
+| 剩余时间 | `time_remaining_min` | `kIOPMPSTimeRemainingKey` | `:194` |
+| 循环次数 | `cycles` | `kIOPMPSCycleCountKey` | `:193` |
+| 适配器 | `adapter_mv/ma/type` | `kIOPMPSAdapterDetailsKey` 字典 | `:291-326` |
 
 ### 3.3 原始值 → OS 值换算（含发布出来的 raw 键）
 
 | 字段 | 原始单位（ADSP） | OS 值 | 换算 | 代码 |
 | --- | --- | --- | --- | --- |
-| 容量百分比 | 0.01%（`K60BmCapacity`） | `K60CapacityHundredths` 保持 0.01%，`current_mah` 由 SOC×满充算 | `capacity_hundredths = raw`；`current_mah = (SOC_hundredths × full_uAh + 5,000,000) / 10,000,000`，上限 `full_mah` | `K60Battmgr.c:245-250` |
-| 满充/设计容量 | µAh | mAh | `/1000` | `:246` |
+| 容量百分比 | 0.01%（`K60BmCapacity`） | `CurrentCapacity` 百分比；`K60CapacityHundredths` 保持 0.01%；`AppleRawCurrentCapacity` 为估算 mAh | `percent = (capacity_hundredths + 50) / 100`，钳位 0..100；`capacity_hundredths = raw`；`current_mah = (SOC_hundredths × full_uAh + 5,000,000) / 10,000,000`，上限 `full_mah` | `K60Battmgr.c:245-250`、`K60Battery.cpp:44-51,192,203` |
+| 满充/设计容量 | µAh | `AppleRawMaxCapacity`/`NominalChargeCapacity` mAh；`MaxCapacity` 固定 100% | `/1000` | `:246`、`K60Battery.cpp:192,196,203` |
 | 电压 | µV | mV | `/1000` | `:251` |
 | 电流 | µA（带符号） | mA | `charging_current_sign × raw/1000`；无电池电流时，充电中外接电源用 USB 电流 `raw/1000` | `:252-262` |
 | 温度 | 0.01 °C | 0.01 °C（IOPMPowerSource 约定） | 原样保留 | `:264` |
-| 剩余时间 | 秒 | 分钟 | `/60`；`0xffff` 或无值 → `-1` → 发布为 `0xffff`（unknown） | `:265-269`、`K60Battery.cpp:186` |
+| 剩余时间 | 秒 | 分钟 | `/60`；`0xffff` 或无值 → `-1` → 发布为 `0xffff`（unknown） | `:265-269`、`K60Battery.cpp:194` |
 | 适配器电压/最大电流 | µV / µA | mV / mA | `/1000`；输入限流取二者较小值 | `:270-275` |
-| 适配器功率 | — | W | `mV × mA / 1,000,000` | `K60Battery.cpp:291` |
+| 适配器功率 | — | W | `mV × mA / 1,000,000` | `K60Battery.cpp:300` |
 
-原始值本身也发布为 `K60Raw*` 属性（`K60Battery.cpp:104-108` 声明，`:252-267` `rawNumbers()` 赋值；缺失分支在 `:162` 调用）：
+原始值本身也发布为 `K60Raw*` 属性（`K60Battery.cpp:111-116` 声明，`:261-276` `rawNumbers()` 赋值；缺失分支在 `:170` 调用）：
 `K60RawStatus`、`K60RawCapacityHundredths`、`K60RawVoltageMicrovolts`、`K60RawCurrentMicroamps`、
 `K60RawTemperatureHundredths`、`K60RawFullChargeMicroampHours`、`K60RawDesignChargeMicroampHours`、
 `K60RawUsbVoltageMicrovolts`、`K60RawUsbCurrentMicroamps`、`K60RawTimeToFullSeconds`、
-`K60RawTimeToEmptySeconds`、`K60RawUsbAdapter`。失败位图发布为 `K60BatteryFailedFields`（`:254`），
+`K60RawTimeToEmptySeconds`、`K60RawUsbAdapter`。失败位图发布为 `K60BatteryFailedFields`（`:263`），
 与 `K60BatteryValidFields` 配对，满足“有效读数与缺失/失败状态分开保存”。
 
 ### 3.4 充电电流符号
@@ -133,50 +134,50 @@ Route-c 真机行的 `measured sign=-1`（`console.log:401`）与充电中 `curr
 
 ## 4. §4 第三段：IOPMPowerSource、工作循环、响应队列、计时器（官网 :77）
 
-- 类声明：`class K60Battery : public IOPMPowerSource`（`K60Battery.cpp:46`）。`begin()` 在
-  `:420-428` 重置 `stopped`/`published`/`up`/`waitingSince`/`lastRefreshLog`/`publishFailed`，再调
-  `IOPMPowerSource::start(provider)`（`:429`）；同一对象 stop/start 不会因旧状态保持静默。
-- 工作循环：`IOWorkLoop::workLoop()`（`:433`）；所有 GLINK 回调、定时器动作都在该 loop 上执行。
+- 类声明：`class K60Battery : public IOPMPowerSource`（`K60Battery.cpp:53`）。`begin()` 在
+  `:429-437` 重置 `stopped`/`published`/`up`/`waitingSince`/`lastRefreshLog`/`publishFailed`，再调
+  `IOPMPowerSource::start(provider)`（`:438`）；同一对象 stop/start 不会因旧状态保持静默。
+- 工作循环：`IOWorkLoop::workLoop()`（`:442`）；所有 GLINK 回调、定时器动作都在该 loop 上执行。
 - 响应队列：GLINK 的 `receive` 回调只把数据交给 `k60_battmgr_receive()`，不在回调里发下一笔；
-  `K60Battery.cpp:370-371` 注释明确要求先把 RX_DONE 放回 FIFO，再由 `pollAction` 的 `pump()` 发送。
+  `K60Battery.cpp:379-380` 注释明确要求先把 RX_DONE 放回 FIFO，再由 `pollAction` 的 `pump()` 发送。
 - 计时器：`pollTimer`（20 ms，`kPollMs`）、`requestTimer`（3000 ms，`kRequestMs`）、
-  `refreshTimer`（5000 ms，`kRefreshMs`）均在 `:434-436` 创建、`:438-443` 加入 loop；
-  `shutdownAction` 在 `:453-462` 取消三个定时器并关闭 transport。
+  `refreshTimer`（5000 ms，`kRefreshMs`）均在 `:443-445` 创建、`:447-452` 加入 loop；
+  `shutdownAction` 在 `:462-471` 取消三个定时器并关闭 transport。
 - 解码器只在快照完整后更新属性：`receive()` 收到 `K60BmCycleDone` 才调用 `k60_battmgr_sample()`，
-  成功才 `publish()`（`:355-359`）。
+  成功才 `publish()`（`:364-368`）。
 
 ## 5. §4 第四段：registerService、updateStatus、一致性、适配器（官网 :78）
 
 ### 5.1 首帧有效属性后才注册
 
 `publish()` 只在 `k60_battmgr_sample()` 返回 1 时被调用；在注册之前，所有属性已经通过
-`setPSProperty` 写入（`K60Battery.cpp:204-222`），然后：
+`setPSProperty` 写入（`K60Battery.cpp:213-231`），然后：
 
-1. `updateStatus()`（`:226`）把属性字典复制到电源源快照；
-2. `if (settingsChangedSinceUpdate) return;`（`:227`）——复制失败则不暴露半套初始属性；
-3. 首次成功才走 `registerSource()`（`:268-281`）：`registerService()` 后用 `isInactive()` 检查是否真的生效；
+1. `updateStatus()`（`:235`）把属性字典复制到电源源快照；
+2. `if (settingsChangedSinceUpdate) return;`（`:236`）——复制失败则不暴露半套初始属性；
+3. 首次成功才走 `registerSource()`（`:277-290`）：`registerService()` 后用 `isInactive()` 检查是否真的生效；
    未生效则清 `published` 并打印 `registerService left the source inactive; retrying on the next sample`
-   （`:277`），下一次有效样本会重试。正常路径的调用点是 `:228`；缺失电池分支在 `:180` 也调用同一函数。
+   （`:286`），下一次有效样本会重试。正常路径的调用点是 `:237`；缺失电池分支在 `:188` 也调用同一函数。
 
 ### 5.2 后续变化 updateStatus
 
-每一帧合格样本都会重新设置属性并调用 `updateStatus()`（`:204-228`）；`IOPMPowerSource::updateStatus()`
+每一帧合格样本都会重新设置属性并调用 `updateStatus()`（`:213-237`）；`IOPMPowerSource::updateStatus()`
 只在 `settingsChangedSinceUpdate` 为真时通知客户端（XNU `iokit/Kernel/IOPMPowerSource.cpp:174`），
-避免无变化刷新风暴。变化日志只在外部/充电/满/容量变化时打印（`:229-237`）。
+避免无变化刷新风暴。变化日志只在外部/充电/满/容量变化时打印（`:238-246`）。
 
 ### 5.3 存在/外接/充电与容量、测量值一致
 
 - `present=1` 走正常发布；无电池走 `setBatteryInstalled(false)`、保留 stale，并同样发布
-  `K60BatteryFailedFields`/`K60Raw*` 诊断属性和注册服务（`:155-183`）。
+  `K60BatteryFailedFields`/`K60Raw*` 诊断属性和注册服务（`:163-191`）。
 - `external = usb || wireless`（`K60Battmgr.c:241`）；`charging = external && status==1`、`full = external && status==4`（`K60Battmgr.c:243`）。
 - `status==1 && !external` 直接拒绝样本（`K60Battmgr.c:244`）；满充/设计容量比值必须在 [0.5, 1.5]（`K60Battmgr.c:233-234`）。
 - 容量与测量值同帧来自同一 `K60BatterySample`，不存在跨帧拼接。
 
 ### 5.4 适配器信息
 
-`updateAdapter()`（`K60Battery.cpp:282-317`）填 family / voltage / amperage / watts 四项；
+`updateAdapter()`（`K60Battery.cpp:291-326`）填 family / voltage / amperage / watts 四项；
 family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPSFamilyCodeUSBUnknown`，不丢整个字典
-（`:294-299`）；未外接时只填 disconnected family（`:293`）。可选失败字段不填 0 瓦假事实（`:284-286` 注释）。
+（`:303-308`）；未外接时只填 disconnected family（`:302`）。可选失败字段不填 0 瓦假事实（`:293-295` 注释）。
 
 ## 6. §4 第五段：订阅通知、周期刷新、断链 stale（官网 :79）
 
@@ -184,12 +185,12 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   （`K60Battmgr.c:64-69`）；`next()` 生成 type2/op4 请求（`:81-86`）；只有收到类型/长度匹配且
   data[12..] 全 0 的应答才 `subscribed=1`（`:174-182`）。
 - 通知：`OP_NOTIFY` 只接受 type2/16 B 和四个已知 property group（`:163-172`），置 `sample_dirty` 并触发刷新。
-- 周期刷新：`refreshTimer` 每 5000 ms 调 `k60_battmgr_refresh()`（`K60Battery.cpp:411-417`）；
+- 周期刷新：`refreshTimer` 每 5000 ms 调 `k60_battmgr_refresh()`（`K60Battery.cpp:420-426`）；
   `k60_battmgr_refresh()` 在周期/请求进行中只置 `refresh_due`，完成后由 `receive()` 补下一轮
-  （`K60Battmgr.c:70-75`、`K60Battery.cpp:368`）。
+  （`K60Battmgr.c:70-75`、`K60Battery.cpp:377`）。
 - 传输断开：`pollAction()` 检测 `transport.poll() < 0 || !alive()` 时取消两个定时器、打印
-  `physical transport stopped error=%d; no DSP/FIFO reset`（`:373-381`）；通道 down 回调和握手超时也走
-  `stale()`（`:334-349`、`:383-388`）。`stale()` 保留最后测量值并置 `K60BatteryStale=true`（`:144-151`）。
+  `physical transport stopped error=%d; no DSP/FIFO reset`（`:382-390`）；通道 down 回调和握手超时也走
+  `stale()`（`:354-358`、`:392-397`）。`stale()` 保留最后测量值并置 `K60BatteryStale=true`（`:152-159`）。
 
 ## 7. §4 第六段：原始对照、插拔/充放电/超时/服务重启（官网 :80）
 
@@ -205,10 +206,10 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；host 测试 71 项覆盖应答/拒绝/超时 |
 | OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；字段值与原始值换算一致（见 §7.3、§7.4） |
 | 响应超时 | host 已验证 | `test-k60-charger-subscription.c` 第 13 节：timeout 只标记未完成字段，poisoned epoch 生效；真机未制造超时 |
-| 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:155-183`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，最终 image d 已包含该修复，IOKit 级 absent 注册未上真机 |
+| 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:163-191`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，最终 image e 已包含该修复，IOKit 级 absent 注册未上真机 |
 | 插拔电源 | 未验证 | 需要人工插拔并在同一次 usblog 里看 `external`/`charging`/`usb_online` 的变化；本轮未做 |
 | 充放电 | 未验证 | Android 侧 sample 为充电中（status=2、current=0），XNU 侧 status=1；放电段未采样 |
-| 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:420-428` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image d），IOKit 级 stop/start 未在真机执行 |
+| 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:429-437` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image e），IOKit 级 stop/start 未在真机执行 |
 | 与 OEM/目标电量计逐项对照 | 部分/当前 FAIL | image c C1/C2 PASS；C3 用冷战基线只差温度 +7°C，用暖基线差电压/电流，尚未得到匹配热/电状态的 ≥3 对真实 Android 样本 |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
@@ -262,7 +263,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   `E:/k60-work/scratch/judge-conformance-0128b.txt`。结论：XNU 侧已有 14 条完整样本，C3
   缺的是同窗口、同温度/电压/电流量级的真实 Android 基线，而不是 XNU 样本数量。
 
-### 7.5 最终 image d 构建（2026-11-18 02:42，未上机）
+### 7.5 image d 构建（2026-11-18 02:42，未上机）
 
 - `E:/k60-work/artifacts/power-conformance-20261118d/boot.img` 201,887,744 B，sha256
   `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`；payload
@@ -278,6 +279,23 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   `physical source refreshed`。
 - 该镜像尚未上机；C3、插拔、放电与服务重启仍未获得新证据。
 
+### 7.6 最终 image e 构建（2026-11-18 03:22，含容量修正，未上机）
+
+- `E:/k60-work/artifacts/power-conformance-20261118e/boot.img` 201,887,744 B，sha256
+  `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`；payload
+  `9c96ac4956151fbc1b1fdccc3cd0c3cef77b29d9a4618d6e5f3c72a3e084eb99`（201,326,592 B）；
+  kernel `9df566917f55d7a31573457523422b706c648c629dccb66d96c581b498bcc319`（129,077,248 B）。
+- 构建树为 `fix/battery-sample-dirty-build` `1a64347f`（含 `592523aa`/`6750c7bd`）；battery archive
+  由 `fix/power-doc-conformance` `845f439b`（含 `af759fe4` 容量百分比）编译后注入，
+  `11e4da65586b183e117127083350c1021732d0b7d8f6e5fa8b83bf4a034ef804`（116,960 B）；
+  `check-image-args.py` = `image-arg-audit: OK (30 arguments, 598 bytes)`，payload 内核参数含
+  `pong_handoff_publish=1`；`verify-boot-img-payload.py` OK（payload sha `9c96ac...`，
+  payload kernel probe-patched `e92b0660cc27be67...`，payload.json kernel `9df566...`）。
+- `strings` 验证内核含 `K60BatteryFailedFields`、`K60RawVoltageMicrovolts`、
+  `AppleRawCurrentCapacity`、`AppleRawMaxCapacity`、`registerService left the source inactive`、
+  `physical source refreshed`。
+- 该镜像尚未上机；C3、插拔、放电与服务重启仍未获得新证据。
+
 ## 8. Host 测试覆盖
 
 `scripts/tests/test-k60-charger-subscription.c` 当前 71 项断言，覆盖：
@@ -290,7 +308,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 - 本驱动只发布测量值，不写充电器、不改电流限制、不做 PD/PPS 认证；固件继续拥有充电控制
   （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
-  1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118d/boot.img`（sha256 `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`）已于 2026-11-18 02:42 构建，包含 `592523aa`/`6750c7bd`，尚未上机。§7.4 是上一版 image c 的实测（image c 构建于这两个提交之前），§7.3 是改动前 route-c 对照；image d 上机后需补同格式实测。
+  1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118e/boot.img`（sha256 `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`）已于 2026-11-18 03:22 构建，包含 `592523aa`/`6750c7bd`/`af759fe4`，尚未上机；上一版 image d（`9e66ef...`）不含容量修正。§7.4 是 image c 的实测（image c 构建于这些提交之前），§7.3 是改动前 route-c 对照；image e 上机后需补同格式实测。
   2. 真机插拔、放电未执行；服务重启的代码路径已补（`6750c7bd`），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同窗口样本；image c 已有 14 条完整 XNU sample，缺的是同窗口、同温度/电压/电流量级的真实 Android 基线。
-  4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；缺失电池首帧注册尚未在真机验证。
+  4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；标准 `CurrentCapacity`/`MaxCapacity` 现在按官网发布为百分比（`MaxCapacity=100`），`AppleRawCurrentCapacity`/`AppleRawMaxCapacity` 保留 mAh，smoke 同时校验这两组值；缺失电池首帧注册尚未在真机验证。

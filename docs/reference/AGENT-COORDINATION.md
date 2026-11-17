@@ -3250,8 +3250,9 @@ DarwinBoot：pong 那份是 DarwinBoot24（boot_args 0x480 / 1024 cmdline），K
 - **FVMAIN 99% 满**（剩 1936 B）。再加驱动要先腾空间。
 - device 仓 `board.toml` 的 `[firmware].packages` 仍列 `{tree}/package` 与 `{tree}/drivers/DarwinBoot22`：
   因 `Platforms/Xiaomi` 在 `DeviceBuild.py` 里排在前面，**仓内副本会先命中，不改也能跑**；后续可删（不属本线，未动 device 仓）。
-- `DarwinBootPkg` 里 pong 专属 DT 契约（`pong-allocatable-ram` / `pong-audio-dma` / `darwinboot-memory-ranges`）保留未删，
-  K60 DTB 无这些节点 → `ClaimPongRam` 提前返回，等价 no-op。待上机确认后再决定是否裁剪。
+- `DarwinBootPkg` 里 pong 专属 DT 契约（`pong-allocatable-ram` / `pong-audio-dma` / `darwinboot-memory-ranges`）保留未删；
+  2026-11-17 更新：`pong-audio-dma` 已由 `DarwinBoot.c:264-267,767-775,830-833` 消费并写回 `/chosen`，ADT 占位已进镜像 j；
+  `pong-allocatable-ram` / `darwinboot-memory-ranges` 在 K60 仍无节点、等价 no-op，待上机确认后决定是否裁剪。
 - **未上机验证**（A5 无手机）：以上均为编译期 + 产物级证据。
 - `Status.md` 首句仍写 "The Pong firmware builds from the board package in this repository"，是 copy 残留，留待文档收口。
 

@@ -946,7 +946,14 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 i（2026-11-17）**：修正 0003 的 GPR 端口——`pong_afe_gpr_spf_state_query()` 组 24 B `GET_SPF_STATE`，src 0x2001 / dst 1（此前 `src_port=0` 与参考 `PongAudio.cpp`/`ShengGpr.c` 不一致）。HEAD `a863878f`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
 - `kernel_built` sha256 `923f9f44…`（105,525,248 B）、`payload_kernel 57f76659…`、`payload 0e7980a4…`、`adt a0fe139e…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `07d6003b…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117i/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；`battery archive f67b86e7…`；
-- `kernel.macho` 上 `PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d` 1 处，`QcomGlink max_channels=2u local_intents=20u`、`PongAudio: glink adsp_apps slot queued (512x20)`、`PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d`、`PongAudio: APM ready; starting AFE six-step`、`PongAudio: AFE six-step complete; speaker path ready` 各 1 处；i 是当前候选，未 boot、run 2 未申请。
+- `kernel.macho` 上 `PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d` 1 处，`QcomGlink max_channels=2u local_intents=20u`、`PongAudio: glink adsp_apps slot queued (512x20)`、`PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d`、`PongAudio: APM ready; starting AFE six-step`、`PongAudio: AFE six-step complete; speaker path ready` 各 1 处；i 已被 j 取代（见下）。
+
+**镜像 j（2026-11-17）**：在 `board.toml` 写入 `[adt.chosen.bytes] pong-audio-dma` 16 字节零占位（UEFI `DarwinBoot.c` 分配 64 KiB `EfiReservedMemoryType` 并回写 `[PA,65536]`），同时把 `K60PmicGlink` 的音频 attach 延迟到 `open()`，避免 `pong_audio_start()` 早于电池 GLINK 时丢失唯一 adsp_apps 客户端。HEAD `4cf2a910`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`、`image-arg-audit: OK (30 arguments, 594 bytes)`。
+- `kernel_built` sha256 `bfacd35c…`（105,525,248 B）、`payload_kernel 326e8fe3…`、`payload 5f6eaf1a…`、`adt 784c097a…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `dff33d7a…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117j/build-manifest.json`；`battery archive 2d1015d0…`；
+- `kernel.macho` 上 `K60Battery: deferred audio attach failed: %d` 1 处，`PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d`、`PongAudio: glink adsp_apps slot queued (512x20)`、`PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d`、`PongAudio: APM ready; starting AFE six-step`、`PongAudio: AFE six-step complete; speaker path ready`、`QcomGlink max_channels=2u local_intents=20u` 各 1 处；
+- 从 `payload.img` 的 `EFI/UniXNU/PAYLOADS/kernel.macho.adt` 抽出 ADT，sha256 `784c097a6aa15566bf87f044fbf0e3ff7e613dc7a2cd365da9d0f51809a3f0e9` 与 manifest `components.adt` 一致，`/chosen/pong-audio-dma` 为 16 个零字节；
+- j 是当前候选，未 boot、run 2 未申请。
 
 ### 9.6 run 2 的判据（可执行）
 

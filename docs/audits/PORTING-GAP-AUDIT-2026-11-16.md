@@ -72,6 +72,7 @@
 | `docs/plans/GPU-ENABLE-PLAN.md:225,268` | 称 `pong-touch-console.patch:61-65` 要求 1080/2412 | 本仓补丁已改为 14400/32000（`MZYSL-DIFF.md:115`）；已注明 1080/2412 是 Pong 原值 | 【已修】 |
 | `docs/plans/GOODIX-TOUCH-PORT.md:109-121` | §3.1 称触摸仍是 `planned`，并列三个缺口（ADT 1080/2412、缺 `pong_touch=1`、Pong 的 ldoc3/ldoc12 与 RSC） | 2026-11-17 复核：ADT 已由 `d0956cd9`/`708f4d25` 改为 14400/32000；驱动默认 `enabled=1`、`stage=6`；`io_supply_on()` 已改为 AVDD GPIO71 + IOVDD RPMh；2026-11-14 已单指上机，§3.1 已改为复核记录 | 【已修】 |
 | `docs/engineering/STATUS.md:86-89`、`docs/engineering/BOOT-ARGS.md:26,154-160,238-256` | 称当前触摸新实现使用 `k60_touch_se=5`/默认 6，且“当前状态（2026-11-12）”仍启用 `pong_metal=1` + `k60_touch_se=6` | 当前 `board.toml:191-193` 故意不设 `k60_touch_se`（驱动拒绝 19，stage 6 在 QUP4 GPIO SPI pin roles 前到不了面板）；当前 kernel_args 为 `pong_metal=2`/`k60_autoreset=300`/`applog=1`；已改为历史限定与当前注 | 【已修】 |
+| `README.md:139`、`docs/INDEX.md:66`、`docs/engineering/README.md:46` | “LINE-MAP 18 条线” | 2026-11-17 复核 LINE-MAP §1 已有 21 个数据行（新增 refmine/UFS/WiFi 干净分支三行后）；三处已改为 21 | 【已修】 |
 
 **已正确、不要"修"的**：`README.md:135-136` 的 ★1–★37 / P-01–P-230 是对的；`check-readme.py` 正是为
 这两行写的（P-205 的教训：README 曾写 ★35/P-130 而实际 ★37/P-204）。**它只校验 README 与 README_EN**，

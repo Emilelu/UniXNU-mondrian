@@ -43,7 +43,7 @@
 | [ENVIRONMENT.md](ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
 | [LOCAL-ASSETS.md](LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [REPO-INVENTORY.md](REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
-| [LINE-MAP.md](LINE-MAP.md) | 线 → 检出 → 分支地图：18 条线的研究文件数、owner 与两个未登记检出 |
+| [LINE-MAP.md](LINE-MAP.md) | 线 → 检出 → 分支地图：21 条线的研究文件数、owner 与两个未登记检出 |
 
 ## 五、本目录
 

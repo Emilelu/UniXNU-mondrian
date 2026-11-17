@@ -63,7 +63,7 @@ docs/
 | [`ENVIRONMENT.md`](engineering/ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
 | [`LOCAL-ASSETS.md`](engineering/LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
-| [`LINE-MAP.md`](engineering/LINE-MAP.md) | **线 → 检出 → 分支地图**：18 条线/检出/HEAD/研究文件数/owner，两个未登记检出，结案搬运读法 |
+| [`LINE-MAP.md`](engineering/LINE-MAP.md) | **线 → 检出 → 分支地图**：21 条线/检出/HEAD/研究文件数/owner，两个未登记检出，结案搬运读法 |
 | [`README.md`](engineering/README.md) | 本目录的简介与阅读顺序 |
 | [`BATTERY-INTEGRATION.md`](engineering/BATTERY-INTEGRATION.md) | 电池栈编译集成：构建脚本 4 处改动、defconfig 开关、宏链路、归档构建时机、无 PAS1 时的运行时行为 |
 | [`BOOT-ARGS.md`](engineering/BOOT-ARGS.md) | Boot 参数参考：每个参数的接受值/默认/陷阱，608 字节预算，三个 GPU 开关的串行依赖 |

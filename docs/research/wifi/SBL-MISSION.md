@@ -130,7 +130,7 @@ The image is only valid with a serial console captured before `fastboot boot`.
 ### Failure / stop
 
 - No `cached ee updated` line and a `Pong MHI: timeout after 20000 ms` with
-  `ee=1`: the poll did not see AMSS/WFW in 5 s; stop and inspect the
+  `ee=1`: the poll did not see AMSS/WFW in 25 s; stop and inspect the
   `exec_env` samples.
 - `amss bhie load ret` non-zero: BHIe failed before the mission poll; stop.
 - More than one `amss download begin`: the latch is not effective; stop.

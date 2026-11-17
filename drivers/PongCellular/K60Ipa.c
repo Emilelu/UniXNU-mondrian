@@ -154,6 +154,109 @@ k60_ipa_firmware_stage(const void *blob, uint64_t size, void *region,
     return K60IpaOk;
 }
 
+static uint32_t
+k60_ipa_reg_read(const void *registers, size_t at)
+{
+    return *(const volatile uint32_t *)((const uint8_t *)registers + at);
+}
+
+static void
+k60_ipa_reg_write(void *registers, size_t at, uint32_t value)
+{
+    *(volatile uint32_t *)((uint8_t *)registers + at) = value;
+#ifndef K60_HOST_TEST
+    __asm__ volatile("dsb sy" ::: "memory");
+#endif
+}
+
+/* Pong's ipaResourcesPrepare sequence, kept as pure register access so both
+ * the kernel and the host test exercise the same field encodings. */
+int
+k60_ipa_resources_prepare(void *registers, size_t bytes)
+{
+    static const uint8_t src[5][6][2] = {
+        {{7, 12}, {0, 0}, {0, 0}, {0, 0}, {1, 63}, {0, 63}},
+        {{21, 21}, {0, 0}, {0, 0}, {0, 0}, {10, 10}, {0, 0}},
+        {{33, 33}, {0, 0}, {0, 0}, {0, 0}, {20, 20}, {0, 0}},
+        {{0, 63}, {0, 0}, {0, 63}, {0, 63}, {1, 63}, {0, 63}},
+        {{38, 38}, {0, 0}, {0, 0}, {0, 0}, {16, 16}, {0, 0}}
+    };
+    static const uint8_t dst[3][8][2] = {
+        {{6, 6}, {5, 5}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {39, 39}, {0, 0}},
+        {{0, 3}, {0, 3}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}},
+        {{0, 63}, {0, 63}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}
+    };
+    uint32_t comp, qsb_writes, qsb_reads, timestamp, gran, divider;
+    int ready = 1;
+
+    if (registers == NULL || bytes < 0x6a8u) {
+        return K60IpaBadArgument;
+    }
+    if (k60_ipa_reg_read(registers, K60_IPA_VERSION_REG) == 0 ||
+        k60_ipa_reg_read(registers, K60_IPA_VERSION_REG) == 0xffffffffu) {
+        return K60IpaNotReady;
+    }
+    comp = k60_ipa_reg_read(registers, 0x2cu) | 0x180u;
+    k60_ipa_reg_write(registers, 0x2cu, comp);
+    qsb_writes = k60_ipa_reg_read(registers, 0x54u) & ~0xffu;
+    qsb_reads = k60_ipa_reg_read(registers, 0x58u) & ~0xffff00ffu;
+    k60_ipa_reg_write(registers, 0x54u, qsb_writes);
+    k60_ipa_reg_write(registers, 0x58u, qsb_reads);
+    timestamp = (k60_ipa_reg_read(registers, 0x4acu) & ~0x1f1f9fu) |
+        14u | 0x80u | (14u << 8) | (24u << 16);
+    k60_ipa_reg_write(registers, 0x4acu, timestamp);
+    gran = (k60_ipa_reg_read(registers, 0x4b4u) & ~0xfffu) |
+        3u | (4u << 3) | (5u << 6) | (5u << 9);
+    k60_ipa_reg_write(registers, 0x4b4u, gran);
+    divider = k60_ipa_reg_read(registers, 0x4b0u);
+    if ((divider & (1u << 31)) != 0) {
+        k60_ipa_reg_write(registers, 0x4b0u, divider & ~(1u << 31));
+    }
+    k60_ipa_reg_write(registers, 0x4b0u, divider | (1u << 31));
+    if (k60_ipa_reg_read(registers, 0x2cu) != comp ||
+        k60_ipa_reg_read(registers, 0x54u) != qsb_writes ||
+        k60_ipa_reg_read(registers, 0x58u) != qsb_reads ||
+        k60_ipa_reg_read(registers, 0x4acu) != timestamp ||
+        k60_ipa_reg_read(registers, 0x4b4u) != gran ||
+        (k60_ipa_reg_read(registers, 0x4b0u) & (1u << 31)) == 0) {
+        return K60IpaNotReady;
+    }
+    for (unsigned direction = 0; direction < 2 && ready; direction++) {
+        const unsigned types = direction ? 3u : 5u;
+        const unsigned pairs = direction ? 4u : 3u;
+        for (unsigned t = 0; t < types && ready; t++) {
+            for (unsigned pair = 0; pair < pairs; pair++) {
+                const uint8_t *x = direction ? dst[t][pair * 2] : src[t][pair * 2];
+                const uint8_t *y = direction ? dst[t][pair * 2 + 1] : src[t][pair * 2 + 1];
+                const size_t offset = (direction ? 0x600u : 0x500u) +
+                    t * 0x20u + pair * 4u;
+                const uint32_t fields = (uint32_t)x[0] | ((uint32_t)x[1] << 8) |
+                    ((uint32_t)y[0] << 16) | ((uint32_t)y[1] << 24);
+                const uint32_t value = (k60_ipa_reg_read(registers, offset) &
+                    ~0x3f3f3f3fu) | fields;
+                k60_ipa_reg_write(registers, offset, value);
+                if (k60_ipa_reg_read(registers, offset) != value) {
+                    ready = 0;
+                    break;
+                }
+            }
+        }
+    }
+    if (ready) {
+        const uint32_t config = (k60_ipa_reg_read(registers, 0x6a0u) &
+            ~0x3f1ff171u) | 0x41u;
+        k60_ipa_reg_write(registers, 0x6a0u, config);
+        ready = k60_ipa_reg_read(registers, 0x6a0u) == config;
+        if (ready) {
+            const uint32_t ext = (k60_ipa_reg_read(registers, 0x6a4u) &
+                ~0x70u) | 0x10u;
+            k60_ipa_reg_write(registers, 0x6a4u, ext);
+            ready = k60_ipa_reg_read(registers, 0x6a4u) == ext;
+        }
+    }
+    return ready ? K60IpaOk : K60IpaNotReady;
+}
+
 #ifndef K60_HOST_TEST
 static int
 k60_ipa_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
@@ -496,7 +599,7 @@ int
 k60_ipa_firmware_start(const void *blob, uint64_t size)
 {
     K60IpaFirmwarePlan plan;
-    vm_offset_t firmware, metadata;
+    vm_offset_t firmware, metadata, gsi_map;
     int rc;
 
     if (!blob) {
@@ -516,6 +619,24 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
     printf("K60IPA firmware plan span=%#llx metadata=%#llx loads=%u\n",
         (unsigned long long)plan.span, (unsigned long long)plan.metadata,
         plan.load_segments);
+    /* The TZ-owned GSI global block must not be overwritten. A set EE0 bit
+     * before PAS means another manager already owns the block; Pong checks
+     * the same status before its signed firmware load. */
+    gsi_map = ml_io_map_unmappable((vm_offset_t)K60_GSI_BASE,
+        (vm_size_t)K60_GSI_BYTES, 0x7);
+    if (gsi_map == 0) {
+        printf("K60IPA cannot map GSI view %#x\n", K60_GSI_BASE);
+        return K60IpaMapFailed;
+    }
+    {
+        uint32_t status = *(volatile uint32_t *)(gsi_map + 0x25000);
+
+        printf("K60IPA pre-PAS GSI status=%#x\n", status);
+        if (status == 0xffffffffu || (status & 1u) != 0) {
+            printf("K60IPA GSI EE0 already owned; refusing firmware load\n");
+            return K60IpaGsiBusy;
+        }
+    }
     /* Both IPA regions are DDR carveouts, not device memory: use the same
      * VM_WIMG_DEFAULT flag K60ModemBoot and K60AdspBoot use. */
     firmware = ml_io_map_unmappable((vm_offset_t)K60_IPA_FW_REGION_BASE,
@@ -566,6 +687,17 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
     }
     printf("K60IPA auth_and_reset ok\n");
     {
+        uint32_t status = *(volatile uint32_t *)(gsi_map + 0x25000);
+        uint32_t channels = *(volatile uint32_t *)(gsi_map + 0x25040) & 0xffu;
+        uint32_t events = *(volatile uint32_t *)(gsi_map + 0x25050) & 0xffu;
+
+        printf("K60IPA post-PAS GSI status=%#x channels=%u events=%u\n",
+            status, channels, events);
+        if ((status & 1u) == 0) {
+            printf("K60IPA GSI EE0 not enabled after auth\n");
+        }
+    }
+    {
         volatile uint8_t *cfg = (volatile uint8_t *)(uintptr_t)
             ml_io_map_unmappable((vm_offset_t)K60_IPA_CFG_BASE, 0x1000, 0x7);
         uint32_t version, comp;
@@ -580,6 +712,11 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
         if (version == 0 || version == 0xffffffffu) {
             printf("K60IPA IPAREADY not set\n");
             return K60IpaNotReady;
+        }
+        rc = k60_ipa_resources_prepare((void *)(uintptr_t)cfg, 0x1000);
+        printf("K60IPA resources ready=%d\n", rc == K60IpaOk);
+        if (rc != K60IpaOk) {
+            return rc;
         }
     }
     return K60IpaOk;

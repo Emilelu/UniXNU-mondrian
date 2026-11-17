@@ -15,6 +15,7 @@
 #ifndef K60_IPA_H
 #define K60_IPA_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "K60Mdt.h"
@@ -55,6 +56,7 @@ enum {
     K60IpaMapFailed = -6,
     K60IpaPasDenied = -7,
     K60IpaClockFailed = -8,
+    K60IpaGsiBusy = -9,
 };
 
 typedef struct {
@@ -88,9 +90,16 @@ int k60_ipa_firmware_stage(const void *blob, uint64_t size, void *region,
     uint64_t region_size, void *metadata, uint64_t metadata_size,
     K60IpaFirmwarePlan *plan);
 
+/* M1 resource prerequisites: applies the native IPA5.1 QMB/timer and
+ * source/destination resource tables to a mapped IPA register block. The
+ * function only touches memory supplied by the caller, so the host test uses
+ * the same code as the kernel. It refuses a zero or all-ones version. */
+int k60_ipa_resources_prepare(void *registers, size_t bytes);
+
 /* M1 load: stages the image into the live IPA firmware carveout and hands it
- * to PAS 15 (INIT_IMAGE, MEM_SETUP, AUTH_AND_RESET). This maps MMIO and makes
- * SMC calls; it is not built in the host tests. */
+ * to PAS 15 (INIT_IMAGE, MEM_SETUP, AUTH_AND_RESET). It refuses a GSI EE0
+ * already enabled by another owner and reports channels/events afterwards.
+ * This maps MMIO and makes SMC calls; it is not built in the host tests. */
 int k60_ipa_firmware_start(const void *blob, uint64_t size);
 
 /* M0 probe: reports that the data path is intentionally absent.  It must not

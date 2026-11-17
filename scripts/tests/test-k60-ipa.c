@@ -38,6 +38,42 @@ main(int argc, char **argv)
     }
     printf("K60 IPA M0 PASS version=%u.%u.%u cfg=%#x gsi=%#x\n",
         v.major, v.minor, v.step, K60_IPA_CFG_BASE, K60_GSI_BASE);
+    {
+        unsigned char regs[0x1000];
+
+        memset(regs, 0, sizeof(regs));
+        if (k60_ipa_resources_prepare(NULL, 0) != K60IpaBadArgument) {
+            printf("FAIL resource short buffer\n");
+            return 1;
+        }
+        if (k60_ipa_resources_prepare(regs, sizeof(regs)) != K60IpaNotReady) {
+            printf("FAIL resource zero version\n");
+            return 1;
+        }
+        *(volatile uint32_t *)(regs + 0x28) = 0x51000002u;
+        *(volatile uint32_t *)(regs + 0x2c) = 0x100u;
+        *(volatile uint32_t *)(regs + 0x54) = 0x1234u;
+        *(volatile uint32_t *)(regs + 0x58) = 0xabcd1234u;
+        *(volatile uint32_t *)(regs + 0x4b0) = 0x80000000u;
+        *(volatile uint32_t *)(regs + 0x6a0) = 0xffffffffu;
+        *(volatile uint32_t *)(regs + 0x6a4) = 0xffffffffu;
+        if (k60_ipa_resources_prepare(regs, sizeof(regs)) != K60IpaOk) {
+            printf("FAIL resource prepare\n");
+            return 1;
+        }
+        if (*(volatile uint32_t *)(regs + 0x2c) != 0x180u ||
+            *(volatile uint32_t *)(regs + 0x54) != 0x1200u ||
+            *(volatile uint32_t *)(regs + 0x58) != 0x1200u ||
+            *(volatile uint32_t *)(regs + 0x4ac) != 0x180e8eu ||
+            *(volatile uint32_t *)(regs + 0x4b4) != 0xb63u ||
+            (*(volatile uint32_t *)(regs + 0x4b0) & 0x80000000u) == 0 ||
+            *(volatile uint32_t *)(regs + 0x6a0) != 0xc0e00ecfu ||
+            *(volatile uint32_t *)(regs + 0x6a4) != 0xffffff9fu) {
+            printf("FAIL resource register values\n");
+            return 1;
+        }
+        printf("K60 IPA RES PASS\n");
+    }
     if (argc > 1) {
         FILE *f = fopen(argv[1], "rb");
         long size;

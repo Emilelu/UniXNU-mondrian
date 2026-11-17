@@ -1,6 +1,6 @@
 # 线 → 检出 → 分支地图（LINE-MAP）
 
-> 最后更新 **2026-11-17 12:37**。HEAD 是当天的快照，会漂移；它只用来回答「哪个检出的哪个分支有这条线的什么」。
+> 最后更新 **2026-11-17 12:56**。HEAD 是当天的快照，会漂移；它只用来回答「哪个检出的哪个分支有这条线的什么」。
 > 研究文件的逐文件清单在 [docs/research/LINE-RESEARCH-MAP.md](../research/LINE-RESEARCH-MAP.md)；文档索引在 [docs/INDEX.md](../INDEX.md)。
 > 检出所有权以 [TREE-OWNERS.toml](TREE-OWNERS.toml) 为准，本表只是它的阅读视图。
 
@@ -20,12 +20,12 @@ main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 
 | WiFi 系列同步（旧文档分支，勿直接合） | `k60-refmine` | `feat/wifi-series-sync` | `e1a46146`（2026-11-17 07:20，基于 `docs/porting-gap-audit`） | 0（补丁字节，无研究文档） | `refmine-agent` |
 | WiFi | `k60-wifi` | `feat/wifi-bringup` | `136f95c2` | 14 | `wifi-agent` |
 | WiFi 集成 | `k60-wifi-lead` | `feat/wifi-integration` | `b4dbb3a0` | 3（全部是 k60-wifi 的副本） | `lead` |
-| 蓝牙 | `k60-bt` | `feat/bt-research` | `58764b71` | 11 | `bt-agent` |
-| 蜂窝 | `k60-cellular` | `feat/cellular` | `98d0901f` | 19 | `cellular-agent` |
-| 热管理 | `k60-thermal` | `feat/thermal-tsens` | `c7b170b9` | 12 | `thermal-agent` |
+| 蓝牙 | `k60-bt` | `feat/bt-research` | `ec3ab5e1` | 11 | `bt-agent` |
+| 蜂窝 | `k60-cellular` | `feat/cellular` | `89d52e0a` | 19 | `cellular-agent` |
+| 热管理 | `k60-thermal` | `feat/thermal-tsens` | `c48fd969` | 12 | `thermal-agent` |
 | USB | `k60-usb` | `feat/usb-console` | `f5aa46de` | 7 | `usb-agent` |
 | 音频 | `k60-audio` | `feat/audio-codec` | `5a8d8065` | 3 | `audio-agent` |
-| 音频合并 | `k60-audio-merge` | `feat/audio-merge` | `f05eef67` | 9 | **未登记**（见 §2） |
+| 音频合并 | `k60-audio-merge` | `feat/audio-merge` | `a1a4af95` | 9 | **未登记**（见 §2） |
 | ADSP handoff | `k60-adsp-handoff` | `feat/adsp-handoff-owner` | `f8bbd8d8` | 5 | `adsp-handoff-agent` |
 | 显示 | `k60-display` | `feat/display` | `7e4a75da` | 6 | `display-agent` |
 | 触摸 | `UniXNU-mondrian`（共享） | `feat/adsp-glink-handoff` | `9176f5c1` | 0（研究在 main） | `touch-agent` |
@@ -33,7 +33,7 @@ main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 
 | SpringBoard | `k60-springboard` | `feat/springboard` | `9b8d78ad` | 3 | `springboard-agent` |
 | GPU 用户态 | `k60-gpu-user` | `feat/gpu-user` | `042de9d9` | 2 | `gpu-user-agent` |
 | iOS profile | `k60-ios-profile` | `feat/ios-profile` | `10deb6bb` | 1 | `ios-profile-agent` |
-| 门禁 | `k60-gates` | `feat/gpu-metal-hw` | `1ce84202` | 6 | `lead` |
+| 门禁 | `k60-gates` | `feat/gpu-metal-hw` | `eab1025b` | 6 | `lead` |
 | 兄弟项目 | `UniXNU-zizhan` | `main` | `034a0b0` | 4 | **未登记**（见 §2） |
 
 研究文件 0 个、但同样有主人的检出：`k60-charger`（`feat/adsp-carrier` @ `af60b066`，另有 2 个分支研究文件）、

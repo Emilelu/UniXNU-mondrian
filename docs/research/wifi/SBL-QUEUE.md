@@ -13,7 +13,7 @@ note is the evidence record for the gated SBL-queue candidate; c8 remains HOLD.
 | What does the official path do? | `MhiBoot.c:91-98` requires `BHI_STATUS >> 30 == 2`; `MhiBoot.c:104-107` polls `BHI_EXECENV` and calls `start_image()` (BHIe write of `TXVECADDR/TXVECSIZE/TXVECDB`) when it reads `MHI_EE_SBL`. It never waits for an EE event packet. |
 | What is the K60 change? | Build-time host patch: after `mhi_ready_state_transition`, poll `mhi_get_exec_env` for up to 200 x 10 ms while `MHI_REG_ACCESS_VALID(pm_state)`; on SBL read `BHI_STATUS` and queue the stock `DEV_ST_TRANSITION_SBL` work item **only when `BHI_STATUS >> 30 == 2` (success)**, stop on `== 3` (error), and keep waiting otherwise. A `pong_sbl_pushed` latch makes the existing worker's `mhi_create_devices` + `mhi_download_amss_image` run once. |
 | Why not call `mhi_download_amss_image` from boot.c? | c8's direct call was held because it assumed a powered MMIO/DMA lease and could duplicate an already queued SBL transition. Queueing the stock transition keeps the worker, locks and `fbc_image` ownership in one place; the only new register reads use the existing MHI helpers while `pm_state` says access is valid. |
-| Is this proven on K60? | **No.** The image exists and the offline gates pass; it has not flown. `boot.json` records `hardware_tested: false`. |
+| Is this proven on K60? | **No — the queue path failed on its first flight (2026-11-18 00:55, §6).** The image exists and the offline gates pass; it was flown once and did not reach MISSION. `boot.json` still records `hardware_tested: false`. |
 
 ## 1. The source anchors
 
@@ -97,8 +97,9 @@ candidate above and must not be booted.
 Offline checks performed:
 
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
-- `python3 scripts/tests/test-wifi-sbl-queue.py` — 14 source/artifact checks
-  (including the BHI_STATUS success gate), 0 failures.
+- At build time `python3 scripts/tests/test-wifi-sbl-queue.py` — 14
+  source/artifact checks (including the BHI_STATUS success gate), 0 failures.
+  The successor renamed this test to `test-wifi-sbl-direct.py`.
 - `verify-boot-image.py --manifest ...` — OK.
 - `check-image-args.py --image ...` — OK (31 arguments, 602 bytes).
 - `build-strict`: eight-step 36 checks, series 227, WiFi driver present in the
@@ -143,6 +144,38 @@ operator present.
 
 It does not claim WiFi works: QMI, WMI, 102 channels, `en0`, scan, WPA2, DHCP
 and HTTPS remain after MHI. It also does not replace c8's audit status: c8 is
-still HOLD and must not be built, booted or merged. If this candidate fails with
-the same timeout, the next step is the BHI_STATUS / event-ring diagnostic track
-from the official `native_wifi_mhi[16]` interface, not another blind flight.
+still HOLD and must not be built, booted or merged.
+
+## 6. First flight of the queue candidate (2026-11-18 00:55)
+
+The gated queue image `wifi-20261118sbl-gated` was flown with serial capture
+attached before boot. It reached SpringBoard, and the log is complete:
+`E:/k60-work/evidence/usblog-20261118-005525/console.log` (143,253 bytes,
+2,079 lines). The MHI sequence is:
+
+- `:586` 64 MiB wired DMA mapped, 35 native-4K table pages.
+- `:600` `Pong MHI start: timeout=20000 ... ee=0 state=0`; `:614` firmware
+  serial `0x22d0a7f3`, `ee=0 fbc=1`; `:616` `amss20.bin bytes=5296128`.
+- `:629` device in READY state.
+- `:631` `Pong MHI: device is in SBL without an EE event, BHI_STATUS=0x8b9a74ae; queueing the SBL transition`.
+  The top two bits are `2`, so the BHI_STATUS success gate passed.
+- `:635` `Pong MHI: timeout after 20000 ms ee=0 pm_state=2 exec_env=1 mhi_state=1 MHISTATUS=0x101 MHICTRL=0x200`.
+- `:637` AMSS vector table reported (`entries=12 last dma=0xa0001ec0 len=176`),
+  `:645` `amss download begin entries=12`, then `:651`
+  `amss bhie load ret=-5 exec_env=1` and `:653` `MHI did not load AMSS, ret:-5`.
+- `:655` `ath11k: failed to power up mhi: -110`; SpringBoard still boots at
+  `:1380` `Pong UI: 20G81 compatibility library entered SpringBoard`.
+
+Interpretation: the queued SBL work item was not executed while the power-up
+state was valid. `mhi_sync_power_up` (`pm.c:1277-1295`) times out first and
+calls `mhi_power_down` (`pm.c:1212-1259`), which sets
+`pm_state = MHI_PM_LD_ERR_FATAL_DETECT` and flushes `st_worker`. The queued SBL
+item then runs during that flush; `mhi_fw_load_bhie` (`boot.c:210-223`) returns
+`-EIO` immediately because `MHI_REG_ACCESS_VALID(pm_state)` is false. This
+explains `amss bhie load ret=-5` without proving a device-side BHIe error.
+
+The successor therefore calls `mhi_download_amss_image` directly in the same
+`mhi_fw_load_handler` pass after READY and BHI_STATUS success, before the
+power-up wait can tear the state down. It keeps the bounded 200 x 10 ms
+`BHI_EXECENV` poll and the one-shot `pong_sbl_pushed` latch, and adds a
+`BHIE_TXVECSTATUS` sequence/status/ret log. See `SBL-DIRECT.md`.

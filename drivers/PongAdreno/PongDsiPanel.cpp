@@ -63,6 +63,8 @@ unsigned panel_brightness = 0;
 int panel_on_result = -100;
 unsigned panel_120_done;
 int panel_120_result = -100;
+bool panel_120_requested;
+bool panel_120_switch_pending;
 bool panel_120_verify_pending;
 unsigned panel_measured_hz; /* INTF1 TE/frame observation, 0 = not measured */
 
@@ -79,7 +81,7 @@ uint32_t probe_frames[4];
 uint16_t probe_te[2];
 uint64_t probe_sampled[4];
 bool cadence_pending,cadence_verify;
-constexpr uint32_t IntfFrameCount=0xac,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
+constexpr uint32_t IntfFrameCount=0xac,IntfTearSyncVsync=0x288,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
 constexpr uint32_t CadenceInherited=0x8000003cu,CadenceEveryFrame=0x80000001u;
 
 void panel_log(const char *fmt, ...)
@@ -394,6 +396,22 @@ extern "C" int pong_panel_switch_120(void)
         }
     }
     IODelay(300 * 1000); /* vendor timing-switch settle time */
+    /* Android's sde_encoder_phys_cmd.c derives the TE-check vsync_count as
+     * 19.2 MHz / (vtotal * fps). K60 vtotal is 3200: 100 at 60 Hz, 50 at
+     * 120 Hz. Only rewrite the known inherited value; preserve bits 19/20. */
+    const vm_offset_t intf=probe_page(4,0x0ae36000);
+    if(intf) {
+        const uint32_t cfg=probe_read(intf,IntfTearSyncVsync);
+        if((cfg&0x7ffffu)==100u) {
+            *reinterpret_cast<volatile uint32_t *>(intf+IntfTearSyncVsync)=
+                (cfg&~0x7ffffu)|50u;
+            __asm__ volatile("dsb sy" ::: "memory");
+            panel_log("K60 PANEL: INTF1 vsync_count %u -> 50 (sync_cfg %#x)\n",
+                cfg&0x7ffffu,probe_read(intf,IntfTearSyncVsync));
+        } else {
+            panel_log("K60 PANEL: INTF1 vsync_count %u left unchanged\n",cfg&0x7ffffu);
+        }
+    }
     panel_intf_rate("after the switch", 500);
     panel_120_result = 0;
     panel_120_verify_pending = true;
@@ -452,8 +470,10 @@ extern "C" bool pong_panel_bringup(void)
     const bool p120=PE_parse_boot_argn("p120",&panel_120,sizeof(panel_120)) && panel_120==1;
     const bool vsync120=PE_parse_boot_argn("vsync",&vsync,sizeof(vsync)) && vsync==120;
     if (p120 || vsync120) {
-        panel_log("K60 PANEL: 120 Hz requested by %s\n",p120?"p120=1":"vsync=120");
-        (void)pong_panel_switch_120();
+        panel_120_requested=true;
+        panel_120_switch_pending=true;
+        panel_log("K60 PANEL: 120 Hz requested by %s; switch deferred to the first GPU frame\n",
+            p120?"p120=1":"vsync=120");
     }
 	return true;
 }
@@ -463,6 +483,12 @@ extern "C" uint32_t pong_panel_refresh_hz(void)
     if (panel_on_result != 0) {
         return 0;
     }
+    /* TimingElements is published once during start(). A requested 120 Hz
+     * mode must be reported before the panel has produced UI frames; the
+     * measured value is logged separately and must not downgrade this. */
+    if (panel_120_requested) {
+        return 120;
+    }
     if (panel_measured_hz >= 1 && panel_measured_hz <= 240) {
         return panel_measured_hz;
     }
@@ -471,6 +497,11 @@ extern "C" uint32_t pong_panel_refresh_hz(void)
 
 extern "C" void pong_panel_sample(void)
 {
+    if (panel_120_switch_pending && panel_on_result == 0) {
+        panel_120_switch_pending = false;
+        panel_log("K60 PANEL: 120 Hz switch at the first GPU frame\n");
+        (void)pong_panel_switch_120();
+    }
     if (panel_120_verify_pending && panel_on_result == 0) {
         panel_120_verify_pending = false;
         panel_intf_rate("after the UI frame", 500);

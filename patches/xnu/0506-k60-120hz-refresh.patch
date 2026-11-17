@@ -19,7 +19,7 @@
 +static TUNABLE(uint32_t, gK60Panel120, "p120", 0);
  
  /* The boot framebuffer is the K60 panel at its native size. */
-@@ -186,10 +189,21 @@
+@@ -186,10 +189,22 @@
  	absolutetime_to_nanoseconds(absolute, &ns);
  	return ns / 1000;
  }
@@ -29,14 +29,15 @@
  static inline uint32_t
  refreshHz(void)
  {
-+	uint32_t measured = 0;
++	uint32_t reported = 0;
 +
-+	/* P1: report what the panel actually does; a request alone is not a mode. */
++	/* P1: publish the requested 120 Hz mode at start; the panel driver logs
++	 * the separately measured INTF1 rate. */
 +	if (k60PanelNative()) {
-+		measured = pong_panel_refresh_hz();
++		reported = pong_panel_refresh_hz();
 +	}
-+	if (measured >= 1 && measured <= 240) {
-+		return measured;
++	if (reported >= 1 && reported <= 240) {
++		return reported;
 +	}
  	return gRefreshHz >= 1 && gRefreshHz <= 240 ? gRefreshHz : kFBRefreshHz;
  }

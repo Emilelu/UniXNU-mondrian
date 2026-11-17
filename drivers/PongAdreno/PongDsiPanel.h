@@ -23,8 +23,10 @@ extern "C" int pong_panel_switch_120(void);
 /* Last brightness written (0 when bring-up has not succeeded yet). */
 extern "C" uint32_t pong_panel_brightness(void);
 
-/* Refresh rate the panel is actually running, observed from the INTF1 TE/frame
- * counters (60 when no observation is available; 0 when the panel is down). */
+/* Refresh rate reported to TimingElements: the requested 120 Hz mode while a
+ * p120/vsync=120 request is active, otherwise the INTF1-observed rate (60
+ * when no observation is available; 0 when the panel is down). The measured
+ * value stays in the K60 PANEL log and never downgrades a requested mode. */
 extern "C" uint32_t pong_panel_refresh_hz(void);
 
 /* Wire order for DCS 0x51: a 12 bit DBV, most significant byte first, which is

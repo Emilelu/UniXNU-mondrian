@@ -76,16 +76,18 @@ def main() -> int:
         fail("p120 boot argument is not parsed")
     if 'PE_parse_boot_argn("vsync"' not in text:
         fail("vsync boot argument is not parsed")
-    if "pong_panel_switch_120()" not in text:
-        fail("pong_panel_switch_120 is not called from panel bring-up")
+    if "panel_120_switch_pending" not in text or "pong_panel_switch_120();" not in text:
+        fail("pong_panel_switch_120 is not armed for the first GPU frame")
     if "panel_intf_rate(\"before the switch\", 200)" not in text:
         fail("missing the before-switch INTF1 rate observation")
     if "panel_intf_rate(\"after the switch\", 500)" not in text:
         fail("missing the after-switch INTF1 rate observation")
     if "panel_120_verify_pending" not in text or 'panel_intf_rate("after the UI frame", 500)' not in text:
         fail("missing the post-first-frame INTF1 rate observation")
-    if "panel_measured_hz" not in text or "pong_panel_refresh_hz" not in text:
-        fail("missing the measured panel refresh report")
+    if "panel_120_requested" not in text or "pong_panel_refresh_hz" not in text:
+        fail("missing the requested panel refresh report")
+    if "IntfTearSyncVsync" not in text or "(cfg&~0x7ffffu)|50u" not in text:
+        fail("missing the 120 Hz INTF vsync_count update")
     first_frame = ROOT / "patches/xnu/0365-k60-ui-owns-screen.patch"
     if "pong_panel_sample();" not in first_frame.read_text():
         fail("the first-frame patch does not call pong_panel_sample")
@@ -97,7 +99,7 @@ def main() -> int:
     if '"p120"' not in args or '"vsync"' not in args:
         fail("check-image-args.py does not allow p120 and vsync")
 
-    print(f"check-panel-timing: ok ({len(EXPECTED)} packets, p120/vsync gates and measured refresh present)")
+    print(f"check-panel-timing: ok ({len(EXPECTED)} packets, p120/vsync gates, first-frame switch and requested refresh present)")
     return 0
 
 

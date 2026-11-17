@@ -21,7 +21,7 @@
 | G9 | **已退役的前身**缺少可见的退役登记（2026-11-16 状态）：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾；2026-11-17 已由 `3dae8347` 在 `PATCH-CATALOG.toml:98-102` 登记为 `retired`（evidence `3a8d61d8`），文件保留，删除前仍需 wifi 线确认 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
-> 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,203 处引用 / **101** 个目标缺失 / 0 处行号越界，
+> 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,204 处引用 / **101** 个目标缺失 / 0 处行号越界，
 > 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（108 个分支文件，05:45 复核）与 `LINE-MAP.md`（18 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
 > G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7 的 UFS 部分已在 `k60-ufs-verified:feat/ufs-verified-table` 移植（verified-root policy/cache/read path + 3b 异步根发布 `46545497`，`NATIVE_VERIFIED_BLOCK` 默认关闭，未合 main）；PongMetal、G8 与 AW882xx/pong-metal 两项仍只报告、未动（G8 的补丁字节差已在干净分支 `feat/wifi-patch-sync` `5d70dd08` 同步，等合入与接线；旧的 `feat/wifi-series-sync` `e1a46146` 基于 docs 分支、不可直接合 main，保留为历史）。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
@@ -331,7 +331,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 - **门禁**：新增 `check-doc-citations.py`（基线 102）、`check-component-pin.py`（P-231，3 条 deviation）、
   `PATCH-CATALOG.toml`（41 条 series 外补丁）+ `check_catalog()`、P-155 的 `expected_kern_exec_delta = 1713`、
   `check-readme` 数字校验扩到四份文档（含 `RULES.toml` 的 108 条规则数）、`check-docs` 递归 research
-  与 189 个 Markdown 的表格列数校验（6 例单测）、docs/ops 的 4 个历史快照横幅（3 例单测）、两个门禁脚本可 import。
+  与 189 个 Markdown 的表格列数校验（6 例单测）、`docs/INDEX.md` 的阅读顺序表校验（5 例单测）、docs/ops 的 4 个历史快照横幅（3 例单测）、两个门禁脚本可 import。
 - **研究可见性**：`LINE-RESEARCH-MAP.md`（108 个分支文件）、`LINE-MAP.md`（18 条线）；`SOURCES.toml` 三种路径前缀与 5 条新 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1），研究源 53→58。
 
 **待 Lead 决定（本文只报告，不动）**：
@@ -348,14 +348,14 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 
 - **门禁脚本**（`scripts/`）：`check-doc-citations.py`、`check-component-pin.py`、
   `tests/test-check-doc-citations.py`、`tests/test-check-component-pin.py`、`tests/test-check-docs-tables.py`、`tests/test-check-docs-ops.py`、
-  `tests/test-check-docs-state.py`、`tests/test-check-patch-series-wifi.py`、`tests/test-gates-import-without-device-input.py`、`tests/test-render-eight-step-table.py`；修改 `check-docs.py`、`check-readme.py`、
+  `tests/test-check-docs-state.py`、`tests/test-check-docs-index-order.py`、`tests/test-check-patch-series-wifi.py`、`tests/test-gates-import-without-device-input.py`、`tests/test-render-eight-step-table.py`；修改 `check-docs.py`、`check-readme.py`、
   `check-patch-series.py`、`porting-gate.py`、`check-build-applied.py`。
 - **门禁数据**（`docs/engineering/`）：`DOC-CITATIONS-BASELINE.toml`、`COMPONENT-PINS.toml`、`PATCH-CATALOG.toml`、
   `RULES.toml`（P-231 + `expected_kern_exec_delta`）、`PITFALLS.md`（P-231）。
 - **文档**：本文、`LINE-MAP.md`、`LINE-RESEARCH-MAP.md`、`research/README.md`、`INDEX.md`、`README.md`、`README_EN.md`、
   `engineering/README.md`、`STATUS.md`、`AGENTS.md`、`ops/README.md`、`ops/HARD-RULES.md`、`ops/PITFALLS.md`、`ops/HANDOFF.md`、`ops/TWRP-FACT-CLARIFICATION.md`、`EIGHT-STEPS.toml`。
 - **合并前在目标树跑**：`check-docs`、`check-readme`、`check-patch-series`、`check-component-pin`、`check-doc-citations`，
-  以及 `tests/test-check-doc-citations.py`、`test-check-component-pin.py`、`test-check-docs-ops.py`、`test-check-patch-series-wifi.py`、`test-gates-import-without-device-input.py`、`test-render-eight-step-table.py`；
+  以及 `tests/test-check-doc-citations.py`、`test-check-component-pin.py`、`test-check-docs-ops.py`、`test-check-docs-index-order.py`、`test-check-patch-series-wifi.py`、`test-gates-import-without-device-input.py`、`test-render-eight-step-table.py`；
   已知红只有 iron-4/iron-5/hard-33/P-165/P-166（构建输入镜像落后，见 P-230）。
 - **不要从本分支取**：`drivers/`、`patches/`（除登记文件）、水位/基线。本分支没碰它们。
 

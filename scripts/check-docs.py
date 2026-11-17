@@ -89,6 +89,51 @@ def check_index_coverage(verbose=True):
     return problems, counted
 
 
+_CN_DIGITS = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+              '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
+
+
+def check_index_reading_order(verbose=True):
+    """docs/INDEX.md 的“先读这 N 份”标题必须与表格编号一致且连续。"""
+    index = REPO + '/docs/INDEX.md'
+    if not os.path.exists(index):
+        return ['docs/INDEX.md 不存在'], 0
+    lines = io.open(index, encoding='utf-8', errors='ignore').read().splitlines()
+    problems = []
+    checked = 0
+    for i, line in enumerate(lines):
+        m = re.match(r'^## 0\. 先读这([0-9]+|[一二三四五六七八九十]+)份$', line.strip())
+        if not m:
+            continue
+        checked += 1
+        token = m.group(1)
+        declared = int(token) if token.isdigit() else _CN_DIGITS.get(token)
+        if declared is None:
+            problems.append('docs/INDEX.md: 无法识别先读份数 %r' % token)
+            continue
+        rows = []
+        j = i + 1
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        while j < len(lines) and lines[j].strip().startswith('|'):
+            cells = _table_cells(lines[j])
+            if cells and re.fullmatch(r'[0-9]+', cells[0]):
+                rows.append(int(cells[0]))
+            j += 1
+        if len(rows) != declared:
+            problems.append('docs/INDEX.md: 标题声明先读 %d 份，表格有 %d 行编号'
+                            % (declared, len(rows)))
+        expected = list(range(1, len(rows) + 1))
+        if rows != expected:
+            problems.append('docs/INDEX.md: 先读表编号应为 %s，实际 %s'
+                            % (expected, rows))
+    if checked == 0:
+        problems.append('docs/INDEX.md: 缺少“## 0. 先读这 N 份”阅读顺序表')
+    if verbose:
+        print('  检查 docs/INDEX.md 的阅读顺序表')
+    return problems, checked
+
+
 def check_bilingual(verbose=True):
     """README 与 README_EN 互链 + 都有八步表格标记"""
     problems = []
@@ -445,7 +490,7 @@ def check_citations(verbose=True):
 def run(verbose=True):
     all_problems = []
     total = 0
-    for fn in (check_links, check_index_coverage, check_subdir_indexes,
+    for fn in (check_links, check_index_coverage, check_index_reading_order, check_subdir_indexes,
                check_root_docs_linked, check_section_order, check_no_hardcoded_sha,
                check_bilingual, check_freshness, check_readme_links,
                check_ops_snapshots, check_tables, check_citations):

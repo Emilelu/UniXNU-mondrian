@@ -319,9 +319,10 @@ new file mode 100644
 +}
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -109,10 +109,18 @@
+@@ -109,11 +109,19 @@
  #if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
  extern "C" void k60_physical_battery_start(void);
+ extern "C" void pong_audio_service_start(void);
 +extern "C" int k60_adsp_handoff_publish(void);
  #endif
  

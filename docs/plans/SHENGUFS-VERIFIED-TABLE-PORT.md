@@ -137,6 +137,7 @@
 - 2026-11-17 08:36：`RootPublication`、`RootWindowRead`、`VerifiedTableCache` 三项在 `-fsanitize=address,undefined -fno-omit-frame-pointer` 下重编译并运行通过（无 ASan/UBSan 报告）；`VerifiedTableCache` 本轮 concurrent hits=740 misses=860 reads=860 evictions=858 waits=3706。`check-verified-root.py` 的 OpenSSL fixture 也通过 `CC`/`CXX` 包装脚本在 ASan/UBSan 下重跑，policy selection/header-only、per-window verifier、verified window read 三项 PASS。
 - 2026-11-17 11:25：`RootPolicyTable` 宿主测试补策略算术边界——header-only manifest 的 `block_count` 置为 `UINT64_MAX / 32` 断言 `rootPolicySelect` 拒绝、`userdataFirst` 置为 `UINT64_MAX / VR_BLOCK_BYTES + 1` 断言 `rootPolicyTableLba` 拒绝；`check-verified-root.py` 四项 fixture 全过（`bb4a2570`）。
 - 2026-11-17 11:42：`RootWindowVerifier.h` 的 `rootWindowTablePages` 改为除法加取余，避免 `tableBytes + VR_BLOCK_BYTES - 1` 在接近 `UINT64_MAX` 时回绕；`RootWindowVerifier` 宿主测试补 0/1/页边界与 `UINT64_MAX` 断言，`check-verified-root.py` 三项 PASS（`4cf32ce4`）。
+- 2026-11-17 12:34：`RootPolicyTable.h` 的 `rootPolicyReadTable` 改为按实际拷贝字节推进（`while` + `done += take`），避免固定 `VR_BLOCK_BYTES` 增量在 `tableBytes` 接近 `UINT64_MAX` 时回绕；宿主测试新增 2 页 + 17 字节表的三次读取断言，`check-verified-root.py` 三项 PASS（`43c4fc3c`）。
 
 ## 3.7 步骤 2b 构建入口补全（2026-11-17 07:40）
 

@@ -321,11 +321,11 @@ if [ -f "patches/xnu/0617-k60-audio-hal-deploy.patch" ]; then
   K60_AUDIO_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_audio_hal_blob.s
   mkdir -p "$(dirname "$K60_AUDIO_ASM")"
   if [ -n "$K60_AUDIO_HAL_PLUGIN_DIR" ] && [ -d "$K60_AUDIO_HAL_PLUGIN_DIR" ]; then
-    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-audio-hal-blob.py" \
+    python3 "$ROOT/scripts/gen-k60-audio-hal-blob.py" \
       --bundle-dir "$K60_AUDIO_HAL_PLUGIN_DIR" --assembly --output "$K60_AUDIO_ASM" \
       >&2 || { echo 'k60_audio_hal_blob generation failed' >&2; exit 1; }
   else
-    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-audio-hal-blob.py" \
+    python3 "$ROOT/scripts/gen-k60-audio-hal-blob.py" \
       --empty --assembly --output "$K60_AUDIO_ASM" \
       >&2 || { echo 'k60_audio_hal_blob generation failed' >&2; exit 1; }
   fi

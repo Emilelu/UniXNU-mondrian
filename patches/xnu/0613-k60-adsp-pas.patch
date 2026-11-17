@@ -166,7 +166,7 @@ new file mode 100644
 diff --git a/bsd/dev/pong_adsp_boot.c b/bsd/dev/pong_adsp_boot.c
 new file mode 100644
 --- /dev/null
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,517 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* ADSP bring-up: place the image in the carveout the board reserved, prove the
 + * placement, then let the secure monitor authenticate it.

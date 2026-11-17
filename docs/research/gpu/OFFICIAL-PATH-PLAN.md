@@ -34,6 +34,18 @@
 
 这把「官方路线 = 数周」改判为「官方 KMD 移植 ≈ 750 行代际工作 + 板级文件」，与 §1 的交付层复用相加，是可执行的。
 
+### 2.1 已实测的 A730 表（2026-11-17）
+
+`scripts/derive-a730-hwinit.py`（框架 `fork/feat/a730-hwinit`，提交 `4eaf2b9`）从同一份 pinned msm 源生成 A730 表：
+
+- **55 个寄存器偏移与 A740 完全一致**（XML 的 variant 选择对两档都落 A7XX），即寄存器地址层零移植；
+- hwcg 条目 **A730 = 53 / A740 = 54**，其中 43 个 `(offset, value)` 对相同；
+- CP protect 写次数两边都是 **46**，因为 `a730_protect` 本来就是两档共用。
+
+⇒ 代际差异只剩 **11 条时钟门控写**，其余全是板级文件（时钟/电源/固件名）。官方 KMD 的「代际工作量」比 §2 的估算还小。
+
+获取 pinned 源时发现本机网络拒绝 `raw.githubusercontent.com`（SSL EOF），而 `api.github.com` 的 contents API 在同 commit 返回同样字节；`fetch-adreno-inputs.py` 已加该回退，28 个 pinned 输入全部按 sha256 校验通过。
+
 ## 3. 里程碑与验收（每条都先有离线证据再上机）
 
 - **M1 生成 A730 寄存器表**：`scripts/derive-a730-hwinit.py`（从 `derive-a740-hwinit.py` 派生）+ 单测断言表内每个符号都能在 pinned XML 里解析、`a730_protect` 计数与 `DECLARE_ADRENO_PROTECT(a730_protect, N)` 一致。产出 `NativeAdrenoA730HwInit.h`，与 A740 版本做 diff 报告（哪些寄存器偏移不同）。

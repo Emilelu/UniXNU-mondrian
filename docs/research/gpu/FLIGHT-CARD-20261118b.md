@@ -35,4 +35,17 @@
 
 ## 5. 结果登记
 
-（上机后填写。）
+判决：**FAIL(F4)**，但策略项由红转绿。
+
+| 判据 | 结果 |
+|---|---|
+| S1 K60KEXC=0 | ✅ 0 |
+| S2 `decoded-image policy unavailable`=0 | ✅ **0**（修复前是 `-6`） |
+| S3 设备创建 | ✅ `real Vulkan-backed device created status=0x0`（:1421） |
+| S4 p>0 或 present # | ❌ `Pong Metal: c0/0 d0 p0 x3`（:1733/:2143/:2393）、`present #` 0 |
+| S5 bbcrash=0 | ✅ 0 |
+
+其余：`real device returned to stock20G81 discovery`（:1423）、`real GPU scanout worker ready`（:1433）、
+`SpringBoard` 3、`K60KEXC` 0。证据 `E:/k60-work/evidence/usblog-20261118-011543`。
+=> QuartzCore 策略回归确认修好（S2 从 `-6` 变 0）；`p0` 仍未解决，按 F4 转到 backboardd 的
+drawable/CA 事务路径，见 `docs/research/gpu/FIRST-FRAME-GAP.md`。

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Pin the official BHI_EXECENV/SBL path in the K60 MHI builder.
+"""Pin the official BHI_EXECENV/SBL direct-push path in the K60 MHI builder.
 
 Why this test exists: c7 reaches MHI READY with ee=0 and exec_env=1 (SBL) but
-never receives an EE event. The official MhiBoot.c polls BHI_EXECENV and pushes
-the BHIe image when it reads SBL. The K60 builder mirrors that with a bounded
-poll and a one-shot latch; this test keeps the queue bounded, keeps the latch,
-and keeps the direct AMSS call out of the boot path.
+never receives an EE event. The official MhiBoot.c polls BHI_EXECENV and sends
+the BHIe image when it reads SBL. The first K60 attempt queued
+DEV_ST_TRANSITION_SBL; the queued worker ran only during the power-up timeout
+teardown, when registers were no longer valid, and returned -EIO. This test pins
+the successor: a direct mhi_download_amss_image() call in the same worker pass
+after BHI_STATUS success, with a one-shot latch and bounded polling.
 
-Run: python3 scripts/tests/test-wifi-sbl-queue.py
+Run: python3 scripts/tests/test-wifi-sbl-direct.py
 """
 from __future__ import annotations
 
@@ -32,7 +34,7 @@ def main() -> int:
     check("MHI header grows one pong_sbl_pushed field",
           text.count("bool pong_sbl_pushed;") == 1,
           "count=%d" % text.count("bool pong_sbl_pushed;"))
-    check("boot path queues only when fbc and not latched",
+    check("boot path pushes only when fbc and not latched",
           text.count("if (mhi_cntrl->fbc_download && !mhi_cntrl->pong_sbl_pushed) {") == 1)
     check("poll is bounded to 200 samples",
           "for (i = 0; i < 200; i++) {" in text)
@@ -40,26 +42,32 @@ def main() -> int:
           "if (!MHI_REG_ACCESS_VALID(mhi_cntrl->pm_state))" in text)
     check("poll reads BHI_EXECENV",
           "ee = mhi_get_exec_env(mhi_cntrl);" in text)
-    check("SBL queues the stock transition once",
-          text.count("mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);") == 1)
-    check("SBL logs BHI_STATUS before queueing",
-          "BHI_STATUS=%#x; queueing the SBL transition" in text)
-    check("SBL gates the queue on BHI_STATUS success",
+    check("SBL sets the cached execution environment before the push",
+          "mhi_cntrl->ee = MHI_EE_SBL;" in text)
+    check("SBL logs BHI_STATUS before pushing",
+          "BHI_STATUS=%#x; pushing the AMSS image" in text)
+    check("SBL gates the push on BHI_STATUS success",
           "status = bhi >> 30;" in text and
           "if (status != BHI_STATUS_SUCCESS) {" in text)
     check("SBL stops on BHI_STATUS error",
           "if (status == BHI_STATUS_ERROR) {" in text)
+    check("SBL calls the AMSS download exactly once in the boot path",
+          text.count("(void)mhi_download_amss_image(mhi_cntrl);") == 1,
+          "count=%d" % text.count("(void)mhi_download_amss_image(mhi_cntrl);"))
+    check("SBL no longer queues the stock transition",
+          "mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);" not in text)
     check("pm SBL handler has a one-shot latch",
           text.count("if (mhi_cntrl->pong_sbl_pushed) {") == 1 and
-          text.count("mhi_cntrl->pong_sbl_pushed = true;") == 1)
-    check("boot path does not call the download directly",
-          "mhi_download_amss_image(mhi_cntrl);" not in text)
+          text.count("mhi_cntrl->pong_sbl_pushed = true;") == 2)
+    check("BHIE wait keeps the transfer status and sequence for the log",
+          "u32 tx_status = 0, sequence_id;" in text and
+          "Pong MHI: bhie tx_status=%#x seq=%#x expected=%#x ret=%d" in text)
 
-    # A built tree may be supplied for an end-to-end source-shape check.  The
+    # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors
     # above are the source of truth, and the generated files are a projection.
     build = pathlib.Path(os.environ.get("K60_SBL_BUILD_DIR",
-                                        "E:/k60-work/build/wifi-sbl-queue-v2"))
+                                        "E:/k60-work/build/wifi-sbl-direct"))
     boot = build / "mhi" / "boot.c"
     pm = build / "mhi" / "pm.c"
     header = build / "pinned" / "linux" / "mhi.h"
@@ -67,11 +75,14 @@ def main() -> int:
         btext = boot.read_text(encoding="utf-8")
         ptext = pm.read_text(encoding="utf-8")
         htext = header.read_text(encoding="utf-8")
-        check("generated boot.c has the bounded SBL queue",
-              "device is in SBL without an EE event" in btext and
+        check("generated boot.c has the direct SBL push",
+              "BHI_STATUS=%#x; pushing the AMSS image" in btext and
               "status = bhi >> 30;" in btext and
               "if (status != BHI_STATUS_SUCCESS) {" in btext and
-              "mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);" in btext)
+              "(void)mhi_download_amss_image(mhi_cntrl);" in btext and
+              "mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);" not in btext)
+        check("generated boot.c logs the BHIE transfer status",
+              "bhie tx_status=%#x seq=%#x expected=%#x ret=%d" in btext)
         check("generated pm.c keeps the latch",
               "mhi_cntrl->pong_sbl_pushed = true;" in ptext)
         check("generated mhi.h has the latch field",

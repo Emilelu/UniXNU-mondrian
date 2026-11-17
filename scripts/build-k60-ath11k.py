@@ -272,6 +272,18 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         dest.write_text(text)
 
     patch_mhi_source('boot.c', [
+        # The BHIE transfer completion uses the same status word as BHI. Keep
+        # the sequence and status visible when the stock wait returns early.
+        ('\tu32 tx_status, sequence_id;\n\tint ret;\n',
+         '\tu32 tx_status = 0, sequence_id;\n\tint ret;\n'),
+        ('\tif (MHI_PM_IN_ERROR_STATE(mhi_cntrl->pm_state) ||\n'
+         '\t    tx_status != BHIE_TXVECSTATUS_STATUS_XFER_COMPL)\n'
+         '\t\treturn -EIO;\n',
+         '\tdev_info(dev, "Pong MHI: bhie tx_status=%#x seq=%#x expected=%#x ret=%d\\n",\n'
+         '\t\t tx_status, tx_status & BHIE_TXVECSTATUS_SEQNUM_BMSK, sequence_id, ret);\n'
+         '\tif (MHI_PM_IN_ERROR_STATE(mhi_cntrl->pm_state) ||\n'
+         '\t    tx_status != BHIE_TXVECSTATUS_STATUS_XFER_COMPL)\n'
+         '\t\treturn -EIO;\n'),
         # A device that never enters MISSION after READY may have rejected the
         # segment table rather than the handshake. Report what the host handed
         # over: the entry count, the last buffer (the vector table) and the
@@ -330,7 +342,7 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\t\t\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->bhi, BHI_STATUS, &bhi);\n'
          '\t\t\t\tstatus = bhi >> 30;\n'
          '\t\t\t\tif (status == BHI_STATUS_ERROR) {\n'
-         '\t\t\t\t\tdev_err(dev, "Pong MHI: BHI_STATUS=%#x error while in SBL; not queueing the SBL transition\\n", bhi);\n'
+         '\t\t\t\t\tdev_err(dev, "Pong MHI: BHI_STATUS=%#x error while in SBL; not pushing the AMSS image\\n", bhi);\n'
          '\t\t\t\t\tbreak;\n'
          '\t\t\t\t}\n'
          '\t\t\t\tif (status != BHI_STATUS_SUCCESS) {\n'
@@ -338,8 +350,10 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\t\t\t\t\tmsleep(10);\n'
          '\t\t\t\t\tcontinue;\n'
          '\t\t\t\t}\n'
-         '\t\t\t\tdev_info(dev, "Pong MHI: device is in SBL without an EE event, BHI_STATUS=%#x; queueing the SBL transition\\n", bhi);\n'
-         '\t\t\t\tmhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);\n'
+         '\t\t\t\tdev_info(dev, "Pong MHI: device is in SBL without an EE event, BHI_STATUS=%#x; pushing the AMSS image\\n", bhi);\n'
+         '\t\t\t\tmhi_cntrl->ee = MHI_EE_SBL;\n'
+         '\t\t\t\tmhi_cntrl->pong_sbl_pushed = true;\n'
+         '\t\t\t\t(void)mhi_download_amss_image(mhi_cntrl);\n'
          '\t\t\t\tbreak;\n'
          '\t\t\t}\n'
          '\t\t\tif (ee == MHI_EE_MAX || MHI_IN_MISSION_MODE(ee))\n'

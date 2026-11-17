@@ -147,7 +147,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 sha256 `4E8DA23012D88D5C3C01992B0286F1D0BBBA7D83980E0EDE3AAEDB3D95BBEA96`。
 若 F1 或任何 UEFI 回归，飞回这张；不要在失败的开机里重试。
 
-## 8. 当前状态（更新于 2026-11-18 01:40）
+## 8. 当前状态（更新于 2026-11-18 01:53）
 
 - QcomBaseband 控制桥已接入：`board.toml` 选择 `component:QcomBaseband`，`K60ModemLink.c` 在 QRTR 上转发 NEW_SERVER/DEL_SERVER/DATA 到 `coachz_baseband_*`，probe 打开 GLINK 后调用 `coachz_baseband_configure()`；ADT 增加 `chosen/coachz-baseband=1` 与 `product/baseband-chipset=mav16`。
 - 共享 `kernel.macho`：`E:/k60-work/artifacts/modem-20261117j/kernel.macho`，105,689,088 B / `a0258c17592c918295b169d4deb5a6d14ee7cc6f9b8fdc0b343fc91a5b64459d`；源码提交 k60-cellular `3d4a4be409a1b775ed8f0eca5d9518507f5b4b8d`。
@@ -158,4 +158,5 @@ sha256 `4E8DA23012D88D5C3C01992B0286F1D0BBBA7D83980E0EDE3AAEDB3D95BBEA96`。
 - kernel.macho 内可见 `K60MODEM power ok`、`power prepared`、`init_image ok`、`transport ok`、`transport prepared`、`glink: IPCRTR opened as initiator`、`mem_setup ok`、`auth_reset ok`、`diagnostic stop after mem_setup`，以及 `K60MODEM baseband: bridge`、`K60MODEM qrtr: dms revision`、`COACHZ baseband: %d of %u services published` 等桥接字符串。
 - 2026-11-18 modem-review 的 P0/P1/P2 修复已进入 `3d4a4be4`：RSC IRQ 状态/清除改用 `K60_MODEM_TCS_BASE + 0xd04/0xd08`；item 435 的 stale/Ready 检查前移到 copy/init_image/rails 之前（`k60_modem_transport_stale`，Ready 返回 -16）；QMP mailbox 边界补全并给 AOP QMP open/load_state 有界重试；GLINK descriptor 只清 AP-owned `desc[1]/desc[2]`；`k60_modem_wr32` 后加 `dsb oshst`；QcomBaseband provider NULL 时不再 latch `bb_published`，K60 每秒重试 `coachz_baseband_configure()`。
 - 离线门禁：`test-k60-modem-image.py`（30 segments）、`run-host-tests.sh`（9/5/13/16）、`test-bootimg-layout.py`（两张均 kernel=559358 ramdisk=201326592 DTB=4024）、`check-modem-metadata.py`（14 PASS）、`check-docs.py`、`check-line-endings.py`、`check-secrets.py` 均通过；`check-build-applied.py` 的 P-166 仍报告仓库与输入的历史 audio patch 漂移。
+- 2026-11-18 01:49:46 C 诊断首次上机：fastboot 报 `Sending 'boot.img' ... OKAY` 与 `Booting ... OKAY`，`captureArmed=true`；到 01:53 未枚举 USB serial，`console.log` 为空，`k60-device.sh` 报 `none`。本飞未取得 S1/S3 证据，按未分类处理，B 未启动。
 - **本候选不是飞行许可**：payload 与 bootimg 均使用 `--skip-gates`，因为本机合规注册表当前为红（P-165/P-166 等历史 sync/build 输入漂移）；§3 的 1/2/4/5 项还必须在飞行前逐条实跑并记录真实 rc，且必须由 Lead 授权后按 §5 的 C → B 顺序飞行。禁止自行上机。

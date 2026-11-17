@@ -176,6 +176,20 @@ status = "closed"
 owner = "audio-agent"
 
 [[item]]
+id = "audio-adsp-integration"
+stage = "M1"
+change = "the audio candidate carries the provider Route A handoff and the ADSP carrier in the same kernel image"
+evidence_kind = "artifact"
+evidence = [
+  "patches/xnu/0619-k60-adsp-glink-handoff.patch",
+  "patches/xnu/0620-k60-adsp-blob.patch",
+  "V: kernel.macho: K60Handoff: published authenticated PAS1",
+]
+criteria = "Image q (audio-probe-20261117q) is built from feat/audio-adsp-merge HEAD f0cea04d, series 230; its ADSP carrier is 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319 with 26 records and inputs sha256 900941c0e7279430f7d8efe271fe219e9fc410fba7ccaf8ba6d2662d6917ed76. The merged battery archive is d61b73e6d2e55ecace440c82a3a201da0f8f410123c0bdf2167e331fa5873d4e (149,520 B); kernel_built is 19c638055ab987597cae231889212eb9121b94543808564403e278bede075c4d (129,167,360 B), payload_kernel 65862f437ec6488b5fe26c918934864aba43a428063b99eac715494d12d1e73a, adt 1577dc715ea263d5495fdca5feb9370cdd13187d021f313af29cb0daa6c86ab4 and boot.img f762ec3d2dba878c6edfc47069b477b9829ed12579656d7cc7c45c5311f7a31d. kernel.macho contains K60Handoff: published authenticated PAS1 once, K60PAS 25, K60ADSP 17, k60_adsp_blob 2, and the full playback/HAL strings; the ADT /chosen/pong-audio-dma is 16 zero bytes. This proves integration only; pcm-submit-path remains open until a period test runs."
+status = "closed"
+owner = "audio-agent"
+
+[[item]]
 id = "glink-two-slot-prototype"
 stage = "M2"
 change = "one QcomGlink instance carries two channel slots (PMIC_RTR_ADSP_APPS and adsp_apps)"
@@ -514,7 +528,7 @@ evidence = [
   "V: ShengAudioAbi.h:21",
   "V: PongAudio.cpp:288-300,424-436",
 ]
-criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient), the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph), the DMA-slot copy/timeout (pcm-dma-feed), the output-only AudioServerPlugIn (pcm-hal-plugin) and its kernel deployment into empty-hal (pcm-hal-deploy) are in place. The remaining proof is a host or on-device test that opens the service, maps control/ring through the HAL and submits at least one period through the service timer without an underrun. Until that test exists, M5 cannot pass."
+criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient), the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph), the DMA-slot copy/timeout (pcm-dma-feed), the output-only AudioServerPlugIn (pcm-hal-plugin) and its kernel deployment into empty-hal (pcm-hal-deploy) are in place. Image q (kernel 19c638055ab987597cae231889212eb9121b94543808564403e278bede075c4d, ADSP carrier 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319) is the first candidate with all of these in one kernel, but it has not been booted. The remaining proof is a host or on-device test that opens the service, maps control/ring through the HAL and submits at least one period through the service timer without an underrun. Until that test exists, M5 cannot pass."
 status = "open"
 owner = "audio-agent"
 on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"

@@ -82,8 +82,7 @@ Hard rules ★1–★37 / Pitfall log P-01–P-205
 STATUS = """本轮更新时间：2026-11-15
 """
 
-HARD_RULES = """## ★37 文档同步
-"""
+HARD_RULES = "\n".join("## ★%d rule %d" % (i, i) for i in range(1, 38)) + "\n"
 
 PITFALLS = """## P-205 文档里的日期编号漂移
 """
@@ -148,6 +147,29 @@ def a_range_claim_lagging_the_headings_fails():
         "## P-206 a newer pitfall\n", encoding="utf-8")
     problems = gate.run_checks(repo=str(tmp))
     assert any("实际最大号是 206" in x for x in problems), f"expected a range problem, got {problems}"
+
+
+@case
+def an_undeclared_star_numbering_gap_fails():
+    gate = load_gate()
+    tmp = make_fixture()
+    p = tmp / "docs" / "engineering" / "HARD-RULES.md"
+    p.write_text(p.read_text(encoding="utf-8").replace("## ★30 rule 30\n", ""), encoding="utf-8")
+    problems = gate.run_checks(repo=str(tmp))
+    assert any("★30" in x and "编号说明" in x for x in problems), \
+        f"expected an undeclared-numbering-gap problem, got {problems}"
+
+
+@case
+def a_declared_star_numbering_gap_passes():
+    gate = load_gate()
+    tmp = make_fixture()
+    p = tmp / "docs" / "engineering" / "HARD-RULES.md"
+    text = p.read_text(encoding="utf-8").replace("## ★30 rule 30\n", "")
+    p.write_text("> **编号说明**：★30 为测试省略。\n" + text, encoding="utf-8")
+    problems = gate.run_checks(repo=str(tmp))
+    assert not any("★ 编号" in x for x in problems), \
+        f"a declared gap must pass, got {problems}"
 
 
 @case

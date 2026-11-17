@@ -192,6 +192,28 @@ def check_ranges():
     return problems
 
 
+def check_rule_numbering():
+    """Every gap in the ★ numbering must be declared in HARD-RULES.md."""
+    problems = []
+    if not HARD_RULES.exists():
+        return problems
+    text = read(HARD_RULES)
+    star_re = re.compile(r'^## ★(\d+)', re.M)
+    numbers = sorted({int(m.group(1)) for m in star_re.finditer(text)})
+    if not numbers:
+        return problems
+    present = set(numbers)
+    gaps = [n for n in range(1, numbers[-1] + 1) if n not in present]
+    if not gaps:
+        return problems
+    notes = '\n'.join(line for line in text.splitlines() if '编号说明' in line)
+    missing = [n for n in gaps if ('★%d' % n) not in notes]
+    if missing:
+        problems.append('HARD-RULES.md 的 ★ 编号缺少 %s，但「编号说明」没有列全这些空缺'
+                        % '、'.join('★%d' % n for n in missing))
+    return problems
+
+
 def _names_in_block(text, begin, end, what):
     names = set()
     for seg in text.split(begin)[1:]:
@@ -311,6 +333,7 @@ def run_checks(repo=None):
     problems += check_links()
     problems += check_dates()
     problems += check_ranges()
+    problems += check_rule_numbering()
     problems += check_gate_table()
     problems += check_translation()
     problems += check_eight_step_table()

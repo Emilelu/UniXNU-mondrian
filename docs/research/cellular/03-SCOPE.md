@@ -8,7 +8,9 @@
 
 ## 0. 结论
 
-**把 cellular 判为"范围内，但只到枚举（enumeration）为止"，不做数据/语音。**
+**原判定（2026-11-14）：把 cellular 判为"范围内，但只到枚举（enumeration）为止"，不做数据/语音。**
+
+> **2026-11-18 更新：** 任务 m15429 要求严格按官方 `porting/baseband` 的四层完成，L3/L4 不再排除；本文件保留为初始范围判定，L4 的硬件事实、v4.2 复用边界和 M0–M6 计划见 `20-IPA-V51-DATA-PATH.md`。
 
 具体分三层：
 
@@ -16,7 +18,7 @@
 |---|---|---|---|
 | **L1 固件加载** | 读 `modem_a` 分区 → 解析 `modem.mdt` 段表 → PAS 搬进 `mpss_region` → 等 `ready` | ✅ **在范围内，且已有 70% 代码** | ADSP 的 PAS 加载器已在 `drivers/PongPower/K60AdspPas.c` 跑通，modem 是"第二个实例" |
 | **L2 QRTR 枚举** | GLINK `IPCRTR` 通道 → AF_QIPCRTR → `servreg` 查询 → 读出固件版本串 | ✅ **在范围内**（这就是 `completion` 的判据） | 通道名/intents 在 DT 里写死；`modemr.jsn` 给了 PD 身份；GLINK 传输已有 |
-| **L3 数据/语音** | IPA 数据面、QMAP、mbn 选择、EFS/NV 代读、SIM 访问、IMS/VoLTE | ❌ **不在范围内** | IPA 是"全有或全无"（§4.2）；EFS 需要 `tftp_server` 等价物；mbn 选择是 Android 用户态逻辑；VoLTE 依赖 Android 的 IMS 栈 |
+| **L3 数据/语音** | IPA 数据面、QMAP、mbn 选择、EFS/NV 代读、SIM 访问、IMS/VoLTE | ⚠️ **初始排除；m15429 已改为范围内，研究完成、未实现** | IPA 是全有或全无（§4.2）；EFS 需要 `tftp_server` 等价物；mbn 选择是 Android 用户态逻辑；VoLTE 依赖 Android 的 IMS 栈。数据面计划见 `20-IPA-V51-DATA-PATH.md` |
 
 `porting.toml` 里写的 completion 是
 **"A device boot shows the modem enumerated over QRTR with a readable firmware revision."**

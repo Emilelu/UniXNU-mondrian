@@ -73,6 +73,8 @@ private:
     void stale(const char *);
     void publish(const K60BatterySample &);
     void logSample(const char *, const K60BatterySample &);
+    void rawNumbers(const K60BatterySample &);
+    bool registerSource();
     void number(unsigned, uint64_t);
     void pump();
     void updateAdapter(const K60BatterySample &);
@@ -151,9 +153,18 @@ void K60Battery::publish(const K60BatterySample &s)
 {
     publishFailed = false;
     if (!s.present) {
-        if (!published) return;
+        const bool first = !published;
+        number(11, manager.generations); number(12, milliseconds()); number(13, s.valid);
+        number(14, manager.responses); number(15, manager.notifications); number(16, manager.timeouts);
+        number(17, manager.errors); number(18, manager.ignored); number(19, transport.epoch());
+        number(20, transport.received()); number(21, transport.transmitted());
+        number(22, manager.value[K60BmUsbOnline]); number(23, manager.value[K60BmWirelessOnline]);
+        rawNumbers(s);
         updateAdapter(s);
         if (publishFailed) {discardPending(); stale("property allocation failed"); return;}
+        for (auto &entry : numbers) {
+            if (entry.pending) setPSProperty(entry.key, entry.pending);
+        }
         if (pendingAdapter) {
             setPSProperty(adapterKey, pendingAdapter); adapterMask = pendingAdapterMask;
             for (unsigned i = 0; i < 4; ++i) adapterValues[i] = pendingAdapterValues[i];
@@ -163,7 +174,10 @@ void K60Battery::publish(const K60BatterySample &s)
         setExternalChargeCapable(s.external); setIsCharging(false);
         setAtWarnLevel(false); setAtCriticalLevel(false);
         setPSProperty(fullKey, kOSBooleanFalse); setPSProperty(staleKey, kOSBooleanTrue);
+        setPSProperty(sourceKindKey, capacityBasis);
         updateStatus();
+        if (settingsChangedSinceUpdate) return;
+        if (first && !registerSource()) return;
         IOLog("K60Battery: measured battery absent; last pack measurements are unavailable\n");
         return;
     }
@@ -177,19 +191,7 @@ void K60Battery::publish(const K60BatterySample &s)
     number(17, manager.errors); number(18, manager.ignored); number(19, transport.epoch());
     number(20, transport.received()); number(21, transport.transmitted());
     number(22, manager.value[K60BmUsbOnline]); number(23, manager.value[K60BmWirelessOnline]);
-    number(24, s.failed);
-    number(25, uint64_t(int64_t(s.raw[K60BmStatus])));
-    number(26, uint64_t(int64_t(s.raw[K60BmCapacity])));
-    number(27, uint64_t(int64_t(s.raw[K60BmVoltage])));
-    number(28, uint64_t(int64_t(s.raw[K60BmCurrent])));
-    number(29, uint64_t(int64_t(s.raw[K60BmTemperature])));
-    number(30, uint64_t(int64_t(s.raw[K60BmFull])));
-    number(31, uint64_t(int64_t(s.raw[K60BmDesign])));
-    number(32, uint64_t(int64_t(s.raw[K60BmUsbVoltage])));
-    number(33, uint64_t(int64_t(s.raw[K60BmUsbCurrent])));
-    number(34, uint64_t(int64_t(s.raw[K60BmTimeToFull])));
-    number(35, uint64_t(int64_t(s.raw[K60BmTimeToEmpty])));
-    number(36, uint64_t(int64_t(s.raw[K60BmUsbAdapter])));
+    rawNumbers(s);
     if (s.model[0]) {
         OSSymbol *old = model();
         if (!old || strcmp(old->getCStringNoCopy(), s.model)) {
@@ -223,16 +225,7 @@ void K60Battery::publish(const K60BatterySample &s)
      * discover the service. updateStatus copies the power-source dictionary. */
     updateStatus();
     if (settingsChangedSinceUpdate) return; /* registry copy failed: do not expose partial initial properties */
-    if (first) {
-        registerService();
-        published = true;
-        if (isInactive()) {
-            /* Registration did not take: keep the service unpublished so the
-             * next coherent sample registers it again. */
-            published = false;
-            IOLog("K60Battery: registerService left the source inactive; retrying on the next sample\n");
-        }
-    }
+    if (first && !registerSource()) return;
     if (first || s.external != lastSample.external || s.charging != lastSample.charging || s.full != lastSample.full ||
         s.capacity_hundredths != lastSample.capacity_hundredths)
         logSample(first ? "physical source published" : "physical source updated", s);
@@ -256,6 +249,36 @@ void K60Battery::logSample(const char *kind, const K60BatterySample &s)
         s.external, s.charging, s.full, manager.subscribed);
 }
 
+void K60Battery::rawNumbers(const K60BatterySample &s)
+{
+    number(24, s.failed);
+    number(25, uint64_t(int64_t(s.raw[K60BmStatus])));
+    number(26, uint64_t(int64_t(s.raw[K60BmCapacity])));
+    number(27, uint64_t(int64_t(s.raw[K60BmVoltage])));
+    number(28, uint64_t(int64_t(s.raw[K60BmCurrent])));
+    number(29, uint64_t(int64_t(s.raw[K60BmTemperature])));
+    number(30, uint64_t(int64_t(s.raw[K60BmFull])));
+    number(31, uint64_t(int64_t(s.raw[K60BmDesign])));
+    number(32, uint64_t(int64_t(s.raw[K60BmUsbVoltage])));
+    number(33, uint64_t(int64_t(s.raw[K60BmUsbCurrent])));
+    number(34, uint64_t(int64_t(s.raw[K60BmTimeToFull])));
+    number(35, uint64_t(int64_t(s.raw[K60BmTimeToEmpty])));
+    number(36, uint64_t(int64_t(s.raw[K60BmUsbAdapter])));
+}
+bool K60Battery::registerSource()
+{
+    if (published) return true;
+    registerService();
+    published = true;
+    if (isInactive()) {
+        /* Registration did not take: keep the service unpublished so the next
+         * coherent sample registers it again. */
+        published = false;
+        IOLog("K60Battery: registerService left the source inactive; retrying on the next sample\n");
+        return false;
+    }
+    return true;
+}
 void K60Battery::updateAdapter(const K60BatterySample &s)
 {
     /* Optional failed adapter properties remain absent, never zero-watt facts.

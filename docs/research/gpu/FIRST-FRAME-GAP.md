@@ -30,3 +30,15 @@
    确认 backboardd 的 CA 渲染线程是否因设备替换而改走另一条未被 hook 的路径。
 3. SpringBoard 的同步 Mach 调用（BackBoardServices -> FrontBoard）在等哪一条回复；
    用 `dyld-index-20G81.json` 继续符号化该线程帧。
+
+## 01:15 追加：上游也只注入 backboardd
+
+- 上游 `userland/init.c:388` 同样只有 `"; /private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal backboardd"`，
+  所以「SpringBoard 没设备」不是我们的差异，他那侧也只有 backboardd 有设备。
+- 我们的 clients 种子（122 B）已包含 `backboardd/SpringBoard/CollectionsPoster/WidgetRenderer_Default/PosterBoard/Weather/WeatherPoster/GradientPosterExtension`，与上游一致。
+- 因此差异只能落在 **backboardd 自己的合成路径**：他出 `present #` 说明 backboardd 仍在产出帧并交给
+  presenter；我们的 metal 飞连 `MiniIOSurface` 都没有，说明 backboardd 换到 GPU 设备后没有走
+  「软件合成 + GPU blit」这条路，也没有任何别的路径送帧。
+- 下一步定死：在 `PongMetalPlugin.mm` 的 `startPresentation()` 里打印 backboardd 的
+  `CARenderServerStart` 之后的帧来源判定（把 `PongScanoutWire.h` 的 wait 超时也计数），
+  用一张只加日志的镜像区分「backboardd 没产帧」与「产了但没送到 scanout 服务」。

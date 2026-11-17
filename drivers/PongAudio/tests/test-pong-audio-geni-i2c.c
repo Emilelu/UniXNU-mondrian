@@ -33,6 +33,7 @@
 #include "PongAudioAmpReplay.h"
 #include "PongAudioGeniI2c.h"
 #include "PongAudioPlan.h"
+#include "PongAudioPlayback.h"
 #include "PongAudioRing.h"
 #include "PongAudioRegs.h"
 #include "PongAudioTlmm.h"
@@ -2591,6 +2592,51 @@ afe_plan_cases(void)
         "planner rejects an out-of-range step");
 }
 
+/* The audio graph order follows PongAudio.cpp openGraphs()/start(): open and
+ * configure both endpoints, map their shared buffer, vote the bit clock, then
+ * prepare and start speaker before playback. The token separates this stage
+ * from the AFE six-step (0x0002xxxx) and the write stream (0x1000xxxx). */
+static void
+play_cases(void)
+{
+    static const uint32_t opcodes[PongPlayStepCount] = {
+        PONG_PLAY_OP_GRAPH_OPEN,
+        PONG_PLAY_OP_SET_CFG,
+        PONG_PLAY_OP_GRAPH_OPEN,
+        PONG_PLAY_OP_SET_CFG,
+        PONG_PLAY_OP_SET_CFG,
+        PONG_PLAY_OP_MEM_MAP,
+        PONG_PLAY_OP_PRM_REQUEST,
+        PONG_PLAY_OP_GRAPH_PREPARE,
+        PONG_PLAY_OP_GRAPH_PREPARE,
+        PONG_PLAY_OP_GRAPH_START,
+        PONG_PLAY_OP_GRAPH_START,
+    };
+    static const uint32_t sgs[PongPlayStepCount] = {
+        PONG_PLAY_SG_SPEAKER, PONG_PLAY_SG_SPEAKER,
+        PONG_PLAY_SG_PLAY, PONG_PLAY_SG_PLAY, PONG_PLAY_SG_PLAY,
+        0ul, 0ul,
+        PONG_PLAY_SG_SPEAKER, PONG_PLAY_SG_PLAY,
+        PONG_PLAY_SG_SPEAKER, PONG_PLAY_SG_PLAY,
+    };
+    unsigned step;
+
+    expect_eq(PongPlayStepCount, 11ul, "playback step count");
+    expect_eq(pong_play_token(PongPlayOpenSpeaker), 0x00030000ul, "playback first token");
+    expect_eq(pong_play_token(PongPlayStartPlayback), 0x0003000aul, "playback last token");
+    for (step = 0; step < (unsigned)PongPlayStepCount; step++) {
+        expect_eq(pong_play_opcode(step), opcodes[step], "playback opcode");
+        expect_eq(pong_play_sg(step), sgs[step], "playback subgroup");
+    }
+    expect(!pong_play_is_graph_step(PongPlayOpenSpeaker), "open is not a graph command");
+    expect(!pong_play_is_graph_step(PongPlayMap), "map is not a graph command");
+    expect(!pong_play_is_graph_step(PongPlayClock), "clock is not a graph command");
+    expect(pong_play_is_graph_step(PongPlayPrepareSpeaker), "prepare speaker is a graph command");
+    expect(pong_play_is_graph_step(PongPlayStartPlayback), "start playback is a graph command");
+    expect_eq(pong_play_opcode(PongPlayStepCount), 0ul, "playback rejects an out-of-range opcode");
+    expect_eq(pong_play_sg(PongPlayStepCount), 0ul, "playback rejects an out-of-range subgroup");
+}
+
 static void
 afe_cases(void)
 {
@@ -2616,6 +2662,7 @@ status_cases(void)
     expect_eq((unsigned long)(uint32_t)PongAudioErrAfeRefused, 0xfffff82bul, "status afe refused");
     expect_eq((unsigned long)(uint32_t)PongAudioErrBadRequest, 0xfffff82aul, "status bad request");
     expect_eq((unsigned long)(uint32_t)PongAudioErrRingFull, 0xfffff829ul, "status ring full");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrPlayback, 0xfffff828ul, "status playback");
     expect(strcmp(pong_audio_error_name(PongAudioOk), "PongAudioOk") == 0, "status name ok");
     expect(strcmp(pong_audio_error_name(PongAudioErrNoHandoff), "PongAudioErrNoHandoff") == 0, "status name no handoff");
     expect(strcmp(pong_audio_error_name(PongAudioErrNoLease), "PongAudioErrNoLease") == 0, "status name no lease");
@@ -2624,6 +2671,7 @@ status_cases(void)
     expect(strcmp(pong_audio_error_name(PongAudioErrAfeRefused), "PongAudioErrAfeRefused") == 0, "status name afe refused");
     expect(strcmp(pong_audio_error_name(PongAudioErrBadRequest), "PongAudioErrBadRequest") == 0, "status name bad request");
     expect(strcmp(pong_audio_error_name(PongAudioErrRingFull), "PongAudioErrRingFull") == 0, "status name ring full");
+    expect(strcmp(pong_audio_error_name(PongAudioErrPlayback), "PongAudioErrPlayback") == 0, "status name playback");
     expect(strcmp(pong_audio_error_name(12345), "PongAudioErrUnknown") == 0, "status name unknown");
 }
 
@@ -2642,6 +2690,7 @@ main(void)
 	acf_cases();
 	replay_cases();
 	afe_cases();
+	play_cases();
 	status_cases();
 	tlmm_cases();
 	ring_cases();

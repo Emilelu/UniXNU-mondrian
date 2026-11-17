@@ -1,7 +1,7 @@
 # 20 — K60 IPA v5.1 数据通路（IPA/GSI、QMAP、PDP）
 
 - 日期：2026-11-18
-- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点与 IP0 时钟投票已实现并通过 host tests 与内核 nm 验收；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
+- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化与 GSI EE0 预检已实现并通过 host tests 与内核 nm 验收；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
 - 范围：按 `E:/hackios/UniXNU/docs/zh/porting/baseband.md` 第 2、4 节，给出 K60（mondrian/SM8475）IPA v5.1 数据面的硬件事实、v4.2 复用边界、分阶段计划和首个离线测试。
 - 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）数据面仍缺失，M0 只有编译骨架、M1 已有固件暂存/PAS 15 路径、payload FAT handoff 调用点与 IP0 时钟投票**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。
 
@@ -16,11 +16,11 @@
 | L1 SoC/板级 | 电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | modem PAS 已按 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` 推进；IPA 保留内存已在 DT；IPA 固件未加载，IPA 时钟/电源未证实 | IPA 的 power/clock/interconnect 资源尚未建模 |
 | L2 控制桥 | QMUX 帧、QMI client 分配、服务发现/回复路由 | `K60ModemLink.c` 已接 GLINK/QRTR，能枚举 AppleBaseband；IPA 服务 0x31 未服务 | 缺 IPA QMI 服务端 |
 | L3 iOS 接口 | 基带服务、channel、异步读写与启动交互 | `coachz_baseband_*` 控制桥和 PDP 控制对象存在 | 数据回调仍落到 ENETDOWN |
-| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径与 handoff 调用点；只映射固件区和版本寄存器，未启动 GSI）** | 全部 |
+| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟、IPA5.1 资源表初始化与 GSI EE0 预检；只映射固件区、GSI 状态与版本寄存器，未启动 GSI）** | 全部 |
 
 L4 逐项状态：
 
-- **IPA/GSI**：M0 只有常量与版本解码；M1 已落地 MDT 解析、ipa_fws 布局校验、`k60_ipa_firmware_stage()` 暂存、`k60_ipa_clock_vote()` 的 IP0 TCS4 投票和 `k60_ipa_firmware_start()` 的 PAS 15 顺序，并由 `k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 调用；仍没有 GSI 初始化、ring/doorbell、中断处理，也没有在硬件上读过 IPA_VERSION。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
+- **IPA/GSI**：M0 只有常量与版本解码；M1 已落地 MDT 解析、ipa_fws 布局校验、`k60_ipa_firmware_stage()` 暂存、`k60_ipa_clock_vote()` 的 IP0 TCS4 投票、`k60_ipa_resources_prepare()` 的 IPA5.1 QMB/timer 与源/目的资源表初始化、GSI EE0 预检和 `k60_ipa_firmware_start()` 的 PAS 15 顺序，并由 `k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 调用；仍没有 GSI 初始化、ring/doorbell、中断处理，也没有在硬件上读过 IPA_VERSION。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
 - **QMAP mux**：没有 WDA Set Data Format、没有 QMAP endpoint 配置、没有 mux 1..4 注册。
 - **net interface**：QcomBaseband 的 `coachz_bb_pdp.cpp:122-156` 会注册 `pdp_ip0..pdp_ip3`，`:83-120` 有 raw-IP TX/RX；但 K60 的 `coachz_modem_data_send` 是 ENETDOWN，所以 ifnet 只能挂载、不能通包。
 - **WDS/QOS binding**：没有 DPM Open Port、没有 WDS Bind Mux Data Port（0x00a2）、没有 QOS Bind Data Port（0x002b）。
@@ -77,7 +77,7 @@ L4 逐项状态：
 
 ### M1 — IPA 固件经 PAS 加载
 
-- 状态：2026-11-18 已完成固件校验/暂存、IP0 时钟投票、PAS 15 路径与 handoff 调用点。新增 `K60Mdt.h`/`K60Mdt.c`（从 pong-power QcomMdt 的 BSD-2-Clause-Patent 实现移植并改名为 K60 命名空间）、`k60_ipa_firmware_check(blob,size,plan)`、`k60_ipa_firmware_stage(blob,size,region,region_size,metadata,metadata_size,plan)`、`k60_ipa_clock_vote()` 与 `k60_ipa_firmware_start(blob,size)`。真实 Xiaomi mondrian `ipa_fws` 已提取并校验：monolithic 40,376 B sha256 `305173004278a0fbb79aaff1683033226a423822499cc02f626768252d48b5b6`，PT_LOAD span 0x9000、metadata 0xe8c、3 个 load 段、relocatable；`K60IPA_FW_PASS`/`K60IPA_STAGE_PASS` 均通过。`k60_ipa_probe_from_handoff()` 通过 md0 的 payload FAT 读取 `IPA/ipa_fws.mbn`；`k60_ipa_firmware_start()` 先投 IP0、映射 64 KiB `ipa_fw_region` 与最后 8 KiB metadata、按 K60Mdt 段表暂存、依次发 PAS 15 `INIT_IMAGE`/`MEM_SETUP`/`AUTH_AND_RESET`，然后读 `0x3f40028` 的 IPA_VERSION。内核 105,558,016 B sha256 `1bee79534cb8e2c2660774eff1a781da52baa163910c20d82f9768b32ebd4064` 的 llvm-nm 含 `_k60_ipa_firmware_stage`、`_k60_ipa_firmware_start`、`_k60_ipa_probe_from_handoff`；尚未上机。
+- 状态：2026-11-18 已完成固件校验/暂存、IP0 时钟投票、PAS 15 路径与 handoff 调用点。新增 `K60Mdt.h`/`K60Mdt.c`（从 pong-power QcomMdt 的 BSD-2-Clause-Patent 实现移植并改名为 K60 命名空间）、`k60_ipa_firmware_check(blob,size,plan)`、`k60_ipa_firmware_stage(blob,size,region,region_size,metadata,metadata_size,plan)`、`k60_ipa_clock_vote()` 与 `k60_ipa_firmware_start(blob,size)`。真实 Xiaomi mondrian `ipa_fws` 已提取并校验：monolithic 40,376 B sha256 `305173004278a0fbb79aaff1683033226a423822499cc02f626768252d48b5b6`，PT_LOAD span 0x9000、metadata 0xe8c、3 个 load 段、relocatable；`K60IPA_FW_PASS`/`K60IPA_STAGE_PASS` 均通过。`k60_ipa_probe_from_handoff()` 通过 md0 的 payload FAT 读取 `IPA/ipa_fws.mbn`；`k60_ipa_firmware_start()` 先投 IP0、映射 64 KiB `ipa_fw_region` 与最后 8 KiB metadata、按 K60Mdt 段表暂存、依次发 PAS 15 `INIT_IMAGE`/`MEM_SETUP`/`AUTH_AND_RESET`，然后读 `0x3f40028` 的 IPA_VERSION。内核 105,558,016 B sha256 `1bee79534cb8e2c2660774eff1a781da52baa163910c20d82f9768b32ebd4064` 的 llvm-nm 含 `_k60_ipa_firmware_stage`、`_k60_ipa_firmware_start`、`_k60_ipa_probe_from_handoff`；资源表初始化与 GSI EE0 预检追加后的最终内核为同尺寸 sha256 `90e2d682a53134f5b162367ffa7d7a2cdfbb671f7536bafab624cec0d3a16ad9`；尚未上机。
 - 内容：按 `DIPA/ipa_v3/ipa.c:8104-8167` 的顺序实现：匹配 `firmware-names=ipa_fws`，取同 index `memory-regions`（当前是 `ipa_gsi_region@8b910000`），加载 `ipa_fws.mdt`，调 PAS 15 的 `auth_and_reset`。离线核对已完成：3 个 PT_LOAD 总 span 0x9000，40 KiB `ipa_gsi_region` 足够；metadata 0xe8c 放 64 KiB `ipa_fw_region` 的最后 8 KiB（0x8b90e000）。
 - 验收：PAS 返回 0；能读 `0x3f40028` 得到非 0/非 0xffffffff 的 `IPA_VERSION`；打印 IPA 版本和时钟状态，不启动 GSI。
 - 风险：原 40 KiB 配对风险已解除（3 段总 span 0x8568，metadata 0xe8c 走 `ipa_fw_region` 最后 8 KiB）。IP0 时钟已通过 RSC TCS4 投票；剩余风险是 `AUTH_AND_RESET` 后 `IPA_VERSION` 的轮询边界和硬件上的时钟/电源状态。
@@ -130,7 +130,7 @@ L4 逐项状态：
 **当前明确未实现：**
 
 - 没有上机验证：`k60_ipa_probe_from_handoff()` 已能从 payload FAT 读取 `IPA/ipa_fws.mbn` 并调用 `k60_ipa_firmware_start()`，但还没有在硬件上执行过 PAS 15，也没有设备侧 IPA_VERSION 读数；host 侧可用 `k60_ipa_firmware_stage()` 验证真实映像。
-- 只在 `k60_ipa_firmware_start()` 里映射固件区与 IPA_VERSION 寄存器并读取版本；没有 GSI/IRQ 654 处理，也没有 GSI IRQ 432 处理。
+- 只在 `k60_ipa_firmware_start()` 里映射固件区、GSI 状态与 IPA_VERSION 寄存器并读取版本，IPA5.1 资源表已初始化；没有 GSI ring、doorbell 或 IRQ 654/432 处理。
 - 没有 GSI 初始化、ring、doorbell、GSI IRQ 432 处理。
 - 没有 IPA QMI 服务 0x31 的 `INIT_DRIVER/INIT_COMPLETE/DRIVER_INIT_COMPLETE`。
 - 没有 WDS 0x00a2 / QOS 0x002b / DPM Open Port / WDA Set Data Format。

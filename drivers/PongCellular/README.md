@@ -70,7 +70,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 | MX 供电轨 | PM8350C **S4**（phandle `0x9c`，`msslvl`） | DT `mx-supply` |
 | IPCC 信号 | client 0：fatal=0, handover=1, ready=2, stop-ack=3, shutdown-ack=7 | DT `interrupts-extended` |
 | modem root PD | `soc=msm, domain=modem, subdomain=root_pd, qmi_instance_id=180` | `/vendor/firmware_mnt/image/modemr.jsn` |
-| IPA（M0 骨架 + M1 固件暂存/调用点/IP0 时钟） | `qcom,ipa@3e00000`，`pas-ids=<0x0f>`，IPA v5.1 APQ 工作假设（DT `qcom,ipa-hw-ver=0x16`） | `dts/mondrian.dts:295-334`；`docs/research/cellular/20-IPA-V51-DATA-PATH.md` |
+| IPA（M0 骨架 + M1 固件暂存/调用点/IP0 时钟/资源表/GSI 预检） | `qcom,ipa@3e00000`，`pas-ids=<0x0f>`，IPA v5.1 APQ 工作假设（DT `qcom,ipa-hw-ver=0x16`） | `dts/mondrian.dts:295-334`；`docs/research/cellular/20-IPA-V51-DATA-PATH.md` |
 
 ## 3. 禁止事项（双系统铁则）
 
@@ -78,7 +78,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 2. **L1/L2 阶段只读** `modemst1`/`modemst2`/`fsg`/`fsc`，不写。
 3. **加载 modem 前先查它是否已在运行** —— 从 Android 热重启进 XNU 时，modem 可能仍活着；
    直接 `PAS_AUTH_AND_RESET` 会打断一个正在运行的 modem（`03-SCOPE.md` §5）。
-4. IPA 代码已写 M0 骨架与 M1 固件校验/暂存/PAS 路径（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟；尚未上机。
+4. IPA 代码已写 M0 骨架与 M1 固件校验/暂存/PAS 路径（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），`k60_ipa_probe_from_handoff()` 从 payload FAT 的 `IPA/ipa_fws.mbn` 读取并交给 `k60_ipa_firmware_start()`，同时经 TCS4 投 IP0 时钟、初始化 IPA5.1 资源表并预检 GSI EE0；尚未上机。
 5. **不自行 boot**：镜像与脚本交给 Lead，由 Lead 在用户明确同意后执行 `fastboot boot`。
 
 ## 4. 开工前必须存在的前置件

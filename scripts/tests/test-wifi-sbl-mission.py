@@ -68,8 +68,8 @@ def main() -> int:
     check("mission poll runs only after a successful AMSS load",
           "amss_ret = mhi_download_amss_image(mhi_cntrl);" in text and
           "if (!amss_ret) {" in text)
-    check("mission poll is bounded to 500 samples",
-          "for (j = 0; j < 500; j++) {" in text)
+    check("mission poll is bounded to 2500 samples",
+          "for (j = 0; j < 2500; j++) {" in text)
     check("mission poll reads BHI_EXECENV",
           "enum mhi_ee_type mission = mhi_get_exec_env(mhi_cntrl);" in text)
     check("mission poll accepts AMSS or WFW",
@@ -90,7 +90,7 @@ def main() -> int:
     # repository test still runs when no build is present: the builder anchors
     # above are the source of truth, and the generated files are a projection.
     build = pathlib.Path(os.environ.get("K60_SBL_BUILD_DIR",
-                                        "E:/k60-work/build/wifi-sbl-mission2"))
+                                        "E:/k60-work/build/wifi-sbl-mission3"))
     boot = build / "mhi" / "boot.c"
     pm = build / "mhi" / "pm.c"
     header = build / "pinned" / "linux" / "mhi.h"
@@ -105,7 +105,7 @@ def main() -> int:
               "amss_ret = mhi_download_amss_image(mhi_cntrl);" in btext and
               "mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);" not in btext)
         check("generated boot.c has the mission poll",
-              "for (j = 0; j < 500; j++) {" in btext and
+              "for (j = 0; j < 2500; j++) {" in btext and
               "if (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {" in btext and
               "mhi_cntrl->ee = mission;" in btext and
               "mhi_create_devices(mhi_cntrl);" in btext)

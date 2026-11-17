@@ -354,7 +354,7 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\t\t\t\tmhi_cntrl->pong_sbl_pushed = true;\n'
          '\t\t\t\tamss_ret = mhi_download_amss_image(mhi_cntrl);\n'
          '\t\t\t\tif (!amss_ret) {\n'
-         '\t\t\t\t\tfor (j = 0; j < 500; j++) {\n'
+         '\t\t\t\t\tfor (j = 0; j < 2500; j++) {\n'
          '\t\t\t\t\t\tenum mhi_ee_type mission = mhi_get_exec_env(mhi_cntrl);\n'
          '\t\t\t\t\t\tif (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {\n'
          '\t\t\t\t\t\t\tmhi_cntrl->ee = mission;\n'

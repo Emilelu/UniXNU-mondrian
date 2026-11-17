@@ -20,9 +20,10 @@ battery: the source registers only after its hardware validation.
 
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -109,8 +109,16 @@
+@@ -109,8 +109,18 @@
 +#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
 +extern "C" void k60_physical_battery_start(void);
++extern "C" void pong_audio_service_start(void);
 +#endif
 +
  kern_return_t
@@ -32,6 +33,7 @@ battery: the source registers only after its hardware validation.
  
 +#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY
 +	k60_physical_battery_start();
++	pong_audio_service_start();
 +#endif
 +
  #if IOPOLLED_COREFILE

@@ -1019,7 +1019,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 **镜像 v（2026-11-18）**：把音频路径收成一个 boot 门——`pong_audio=1` 同时启动 PCM/AFE 路径、触发 0619 的 authenticated PAS1 handoff（音频的 PMIC GLINK attach 需要它），并让 HAL 插件自动跑 boot-arg 播放自测（`PongAudio HAL: selftest period=...`）。HEAD `d95ca143`、series 230 条（sha256 `999d0c27…`）、`repo.dirty_files 0`、`verify-boot-image: OK`、`image-arg-audit: OK (31 arguments, 607 bytes)`。
 - `adsp_blob 66336946…`（26 records，inputs `900941c0…`）、`kernel_built ee8fcc1d1b9ceaa5be73ecaa5c64136c93d16e4c80fdaf17437ead2f51f6da24`（129,183,744 B）、`payload_kernel 6c0db672…`、`payload 463fef89…`、`adt f2f4601e…`、`dtb 2d044eaa…`、`fd e007de8a…`；
 - `boot.img` sha256 `678107b0a8c3af3633fa8e36a31fa9f87b637e2eed27b722cc9a729e7106f93c`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261118v/build-manifest.json`；`audio_hal 2a3831cf0429e5fb7899ae0deaad3d890422291c27b9adbbb693fd5f2b0f6041`（86,704 B，含 selftest）；`battery archive 551f1aaf…`（150,888 B）；
-- 尚未 boot（等待 free fastboot）；run 2 未申请。
+- 构建完成，等待 free fastboot；HAL selftest 会在 `pong_audio=1` 时自动触发，run 2 未申请。
 
 **ADSP/PAS1 前置（2026-11-17）**：provider 线在 K60 真机跑通 Route A，镜像 sha256 `6aa9107c30cab42bf4fd1a8555f5d622774eeb242fd79606ca2bec36226061f1`（201,887,744 B，源码提交 `f80c2e63`），console line 189 为 `K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15`，line 596 为电池 physical source `sample=4 … current=397mA`，owner stage 1-5 全部 rc=0；证据在 `E:/hackios/k60-adsp-handoff/docs/research/audio/ADSP-ROUTE-A.md`。这解除了等待 ADSP/PAS1 的前置，但**不等于音频线的 PCM 成功**：音频候选 q 已把 Route A 合并进同一内核（见上）；ADSP/PAS1 前置具备，但 `pcm-submit-path` 仍需一次至少一个 period 无 underrun 的测试，保持 open。
 

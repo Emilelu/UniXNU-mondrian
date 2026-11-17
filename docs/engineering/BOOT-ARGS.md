@@ -4,7 +4,7 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 31 项 594 字节，余 14（2026-11-14 实测：`porting-gate.py --quick` 报 575/608，加 ` pong_audio_probe=1` 共 594）。
+**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 image v 实测 31 项 607 字节，余 1（`image-arg-audit: OK (31 arguments, 607 bytes)`；2026-11-14 的 31 项 594 字节记录已过期）。
 
 ## 一览
 
@@ -33,6 +33,7 @@
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `pong_audio_probe` | 音频 / 功放 | 必须 == 1 | 未设 = 不探测 | 先只读探测两颗 AW882xx（GENI I2C 读 chip id/状态），再跑一遍**回放层**：软复位 + 57 对 Music profile + fuse 算出的 vcalb + 静音音量，每次写都回读并打印（`AMPS.md` §9）。功放保持掉电与静音（PWDN/AMPPD/HMUTE 保留硬件值、ULS_HMUTE 强制置位、TXEN 清零），没有 bit clock 所以不会出声 |
+| `pong_audio` | 音频 / PCM | 必须 == 1 | 未设 = 不启动 | 启动 PCM/AFE 路径：低 4 GiB DMA（ADT 无 lease 时 `kmem_alloc_contig` fallback）、APM/GLINK attach、AFE 六步；同时让 0619 发布 authenticated PAS1 handoff（音频 attach 需要 PMIC GLINK），并让 HAL 插件自动跑 boot-arg 播放自测（`PongAudio HAL: selftest period=...`）。不能与 `pong_aw882xx` 同时传（P-58/P-59） |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
 | `k60_usblog` | 调试 | 0/1/2 | 代码默认 | `0300-k60-usblog-ep0.patch` USB 日志级别 | 刷机时的主要日志通道 |
@@ -302,10 +303,10 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 | 类型 | uint32 |
 | 默认 | 0（不发布） |
 | 取值 | 0 / 1 |
-| 来源 | `patches/xnu/0619-k60-adsp-glink-handoff.patch`（`iokit/bsddev/IOKitBSDInit.cpp`，`PE_parse_boot_argn("pong_handoff_publish", …) == 1u`）|
-| 作用 | 1 = 在 IOKitBSDInit 早期跑 `k60_adsp_handoff_publish()`：claim owner=1 → 配置/范围/载体预检 → 安装 board/platform → `k60_adsp_owner_acquire`。当前真实 board 的 `resources()` 在 lease/排他/stopped 通过后仍返回 `K60BoardUnsupported`(-63)，打印 `K60ADSP: rails not verified for handoff; no PAS/SMEM mutation`；owner 拒绝在下游 map_smem、SMEM 分配、INIT_IMAGE、MEM_SETUP、COPY/BSS、AUTH、104 字节 lease 发布之前。`published authenticated ... flags=15` 是未来完整证明后的验收日志，非当前可达成功。 |
+| 来源 | `patches/xnu/0619-k60-adsp-glink-handoff.patch`（`iokit/bsddev/IOKitBSDInit.cpp`，`PE_parse_boot_argn("pong_handoff_publish", …) == 1u`；2026-11-18 起同一门也接受 `pong_audio == 1u`）|
+| 作用 | 1 = 在 IOKitBSDInit 早期跑 `k60_adsp_handoff_publish()`：claim owner=1 → 配置/范围/载体预检 → 安装 board/platform → `k60_adsp_owner_acquire`。2026-11-17 Route A 真机已经走通完整发布：console 行 189 `K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15`，行 190 `K60Battery: adopting authenticated PAS1 GLINK ...`；现在音频的 `pong_audio=1` 也会触发同一发布，因为 GPR/PMIC GLINK attach 需要它。 |
 
-**当前状态（2026-11-16 15:03）**：本轮不开 `pong_handoff_publish` 或 `pong_adsp`、不出功能图。历史 owner=1 先 claim 后，`kern_exec.c` 的 legacy `k60_adsp_startup_claim(2u)` 会失败并打
+**当前状态（2026-11-18）**：Route A 的 provider 线已在 K60 真机成功（`docs/research/audio/ADSP-ROUTE-A.md`；console 189/190 见上），2026-11-16 的“`resources()` 返回 -63、发布尚未验证”是历史状态，已被该真机结果取代。历史 owner=1 先 claim 后，`kern_exec.c` 的 legacy `k60_adsp_startup_claim(2u)` 会失败并打
 `K60PAS legacy startup excluded by earlier ADSP owner/attempt`——该行在此参数下是**预期输出**，证明发布器先跑。
 载体是内核内嵌 `k60_adsp_blob`（26 记录容器，P-197 workaround），与 `pong_adsp` 的 md0 死路无关。
 

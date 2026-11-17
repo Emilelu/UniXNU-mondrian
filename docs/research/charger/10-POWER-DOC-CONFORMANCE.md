@@ -13,9 +13,12 @@ IOPMPowerSource 子类、工作循环、三个定时器、首帧后才注册、�
 2026-11-18 已重建带本轮改动的 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118c/boot.img`
 （sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`，payload
 `f871beb7249c6580c6247060fbd521c8cb0ce326a0407342e877d454352ebe16`，kernel
-`c2ab6575dbeb626541e2d393b4706add318e23b41f92794d0bd24f852af7ee46`），尚未上机复测；
-真机插拔/充放电脚本化验证、服务重启的 IOKit 级验证、与 Android 的 ≥3 对同窗口 C3 仍待完成
-（route-c 当前只有 2 行 XNU sample，判 INVALID 而不是 FAIL）。
+`c2ab6575dbeb626541e2d393b4706add318e23b41f92794d0bd24f852af7ee46`），并于 2026-11-18 01:21
+上机启动：`console.log` 233,732 B，C1 PASS（`:429`、`:530`），C2 PASS（14 次刷新命中），
+首帧 `:530` 发布 SOC=91.00%、4292mV、397mA、35.30°C；`:530`–`:3470` 连续 14 条完整
+`physical source …` 样本证明持久刷新。C3 仍需匹配热/电状态的 Android 同窗口基线：用 route-c
+冷战基线（28.3°C）判 FAIL，只差温度 +7°C；用 01:28 暖基线判 FAIL，差电压/电流。真机插拔/充放电
+脚本化验证、服务重启的 IOKit 级验证仍待完成。
 
 ## 1. §4 开头：参考实现的选择（官网 :69-74）
 
@@ -191,13 +194,13 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 
 | 验证项 | 状态 | 证据 / 缺口 |
 | --- | --- | --- |
-| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；host 测试 71 项覆盖应答/拒绝/超时 |
-| OS 可见更新 | 已验证 | `:534` `physical source published`、`:761` `physical source updated`，字段值与原始值换算一致（见 §7.3） |
+| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；host 测试 71 项覆盖应答/拒绝/超时 |
+| OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；字段值与原始值换算一致（见 §7.3、§7.4） |
 | 响应超时 | host 已验证 | `test-k60-charger-subscription.c` 第 13 节：timeout 只标记未完成字段，poisoned epoch 生效；真机未制造超时 |
 | 插拔电源 | 未验证 | 需要人工插拔并在同一次 usblog 里看 `external`/`charging`/`usb_online` 的变化；本轮未做 |
 | 充放电 | 未验证 | Android 侧 sample 为充电中（status=2、current=0），XNU 侧 status=1；放电段未采样 |
 | 服务重启 | host 部分验证 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；IOKit 级 stop/start 未在真机执行 |
-| 与 OEM/目标电量计逐项对照 | 部分 | C1/C2 已过（route-c），C3 只有 2 对 XNU/Android 样本，判 INVALID；补 ≥3 对后才能结案 |
+| 与 OEM/目标电量计逐项对照 | 部分/当前 FAIL | image c C1/C2 PASS；C3 用冷战基线只差温度 +7°C，用暖基线差电压/电流，尚未得到匹配热/电状态的 ≥3 对真实 Android 样本 |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
 
@@ -208,6 +211,44 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   `89.00% = 8900 × 0.01%`；`4078 mAh ≈ 8900 × 4582 / 10000`（四舍五入误差在 1 mAh 内）。
 - `judge-battery.py` 结果：C1 PASS（`:401,:534`）、C2 PASS（`:534,:761`）、
   C3 INVALID（只有 2 对，阈值 `MIN_PAIRS=3`，`judge-battery.py:107`）。报告 `E:/k60-work/scratch/judge-routec.txt`。
+
+### 7.4 Conformance image c 实测（2026-11-18 01:21 boot）
+
+镜像 `E:/k60-work/artifacts/power-conformance-20261118c/boot.img`（sha256
+`f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`），console
+`E:/k60-work/evidence/power-conformance/usblog-boot-20261118-0120/console.log`（233,732 B）。
+
+- 启动链：`:127` board ownership init rc=0、`:128` installed rc=0、`:130` platform install
+  rc=0 carrier_rc=0、`:143` Route A resources held、`:188` published authenticated PAS1
+  epoch=1 flags=15、`:189` K60Battery adopting、`:429` actual PMIC_RTR_ADSP_APPS channel up
+  measured sign=-1、`:530` 首帧。
+- 连续完整样本（同一行格式，均含 `physical source published|updated|refreshed`）：
+
+| sample | 行 | SOC | voltage | current | temp |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | `:530` | 91.00% | 4292 mV | 397 mA | 35.30°C |
+| 7 | `:753` | 91.00% | 4255 mV | 397 mA | 35.10°C |
+| 13 | `:775` | 91.00% | 4255 mV | 397 mA | 35.10°C |
+| 19 | `:1345` | 91.00% | 4226 mV | 397 mA | 35.30°C |
+| 25 | `:2099` | 91.00% | 4246 mV | 397 mA | 35.50°C |
+| 31 | `:2567` | 91.00% | 4261 mV | 397 mA | 36.00°C |
+| 37 | `:2687` | 91.00% | 4263 mV | 397 mA | 36.00°C |
+| 43 | `:2925` | 91.00% | 4264 mV | 397 mA | 36.00°C |
+| 49 | `:3106` | 91.00% | 4261 mV | 397 mA | 36.00°C |
+| 55 | `:3181` | 91.00% | 4264 mV | 397 mA | 35.90°C |
+| 61 | `:3305` | 91.00% | 4262 mV | 397 mA | 35.90°C |
+| 67 | `:3404` | 91.00% | 4262 mV | 397 mA | 35.90°C |
+| 72 | `:3464` | 90.00% | 4261 mV | 397 mA | 35.80°C |
+| 73 | `:3470` | 90.00% | 4260 mV | 397 mA | 35.80°C |
+
+- `judge-battery.py`（`--window-start 1794927869 --window-end 1794927891`，route-c 冷战 Android
+  基线 28.3°C）：C1 PASS（`:429,:530`）、C2 PASS（14 hits）、C3 FAIL，仅温度超差
+  ΔT=+7.00/+6.80/+7.00/+7.20°C（阈值 ±3°C），|ΔV|≤51mV、|ΔSOC|≤2.00pp；报告
+  `E:/k60-work/scratch/judge-conformance-0120.txt`。
+- 同一日志改用 2026-11-18 01:28 暖 Android 基线（36.3–37.0°C）判：C1/C2 PASS，C3 FAIL，
+  `:530` ΔV=78mV/±60、ΔI=-384mA/±150，后续 `:753`/`:775` ΔI=-462/-616mA；报告
+  `E:/k60-work/scratch/judge-conformance-0128b.txt`。结论：XNU 侧已有 14 条完整样本，C3
+  缺的是同窗口、同温度/电压/电流量级的真实 Android 基线，而不是 XNU 样本数量。
 
 ## 8. Host 测试覆盖
 
@@ -221,7 +262,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 - 本驱动只发布测量值，不写充电器、不改电流限制、不做 PD/PPS 认证；固件继续拥有充电控制
   （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
-  1. 带本轮 conformance 改动的 battery-only 镜像已构建（`E:/k60-work/artifacts/power-conformance-20261118c/boot.img`，sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`），但尚未上机；§7.3 是改动前的 route-c 镜像。
+  1. 带本轮 conformance 改动的 battery-only 镜像已构建（`E:/k60-work/artifacts/power-conformance-20261118c/boot.img`，sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`）并于 2026-11-18 01:21 上机；§7.4 是 image c 实测，§7.3 是改动前的 route-c 对照。
   2. 真机插拔、放电、服务重启三项未执行。
-  3. C3 需要至少 3 对同窗口样本；当前 2 对。
+  3. C3 需要至少 3 对同窗口样本；image c 已有 14 条完整 XNU sample，缺的是同窗口、同温度/电压/电流量级的真实 Android 基线。
   4. `K60Raw*` 属性已发布但尚未被 `K60BatterySmoke` 读取验证（可扩展该工具）。

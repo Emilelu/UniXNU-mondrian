@@ -233,8 +233,8 @@ python3 scripts/verify-boot-image.py --manifest <build-manifest.json>
    `K60_BUILD_TREE` 与 `K60_OUT` 用新目录（不要复用 `out-wifi`，否则 `.config` 会沿用 mhi4 的）。
 2. **补齐 wifi 侧输入**：main 上 `drivers/PongWifi/`、`configs/mondrian-wifi-*`、
    `scripts/{build-k60-ath11k.py,build-k60-wifi-native.py,prepare-k60-wifi.py,pong_paths.py}`
-   **都不存在**，只能按 `patches/wifi/series` 顺序 `git apply` 十条落地（逐条 `git apply --check`
-   会假失败，后一条依赖前一条已落地）。
+   **都不存在**，只能按 `patches/wifi/series` 顺序逐条 `git apply`（当前 12 条，以 `series` 为准；
+   逐条 `git apply --check` 会假失败，后一条依赖前一条已落地）。
 3. **决定 §3.1 的 0010**：要么把 wifi 版 0010（双 hunk）取过来，要么接受「内核里没有驱动」并明说。
 4. **决定 §3.3 的 `.config`**：手写 `.config`（PONG_WIFI=y、GPU_ADDON 无、PHYSICAL_BATTERY not set），
    或改用 `mondrian_wifi_defconfig` 并接受目录名与 UUID 变化。

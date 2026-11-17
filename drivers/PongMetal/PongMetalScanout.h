@@ -3,6 +3,7 @@
  * No readback checks, test draws, physical-address API or fabricated fence. */
 #pragma once
 #include <pthread.h>
+#include <time.h>
 #include "../PongAdreno/PongScanoutWire.h"
 #include "GpuScanoutPresenter.h"
 namespace pongscanout {
@@ -42,6 +43,12 @@ static void *serve(void *opaque)
             }
             refusals=0;
             if(copies++<3)report("actual GPU scanout copy completed",0);
+            if(!(copies%60)) {
+                struct timespec now={};clock_gettime(CLOCK_MONOTONIC,&now);
+                char rate[96];snprintf(rate,sizeof(rate),"scanout frames=%u at %lld.%03lld s",copies,
+                    (long long)now.tv_sec,(long long)(now.tv_nsec/1000000));
+                report(rate,0);
+            }
         }
     }
 }

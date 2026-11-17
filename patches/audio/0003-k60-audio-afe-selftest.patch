@@ -109,8 +109,8 @@
 +	 * the slots directly, so a normal cached kernel mapping would go stale. */
 +	vm_offset_t alloc_va = 0;
 +	kern_return_t kr = kmem_alloc_contig(kernel_map, &alloc_va, bytes,
-+	    PAGE_MASK, 0xfffff, 0, KMA_DATA | KMA_KOBJECT,
-+	    VM_KERN_MEMORY_IOKIT);
++	    PAGE_MASK, (ppnum_t)(atop_64(0x100000000ULL - bytes)), 0,
++	    KMA_DATA | KMA_KOBJECT, VM_KERN_MEMORY_IOKIT);
 +	if (kr == KERN_SUCCESS) {
 +		pa = kvtophys(alloc_va);
 +		if (pa != 0 && (pa & 0xfffu) == 0u &&

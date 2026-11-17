@@ -417,6 +417,15 @@ void K60Battery::refreshAction(OSObject *owner, IOTimerEventSource *timer)
 }
 bool K60Battery::begin(IOService *provider, const K60BatteryConfig &config, const K60AdspGlinkHandoff &handoff)
 {
+    /* IOService may restart this object after stop(); every lifecycle flag and
+     * timer deadline has to start clean or the restarted instance stays
+     * silent. Publication is re-established by the first valid sample. */
+    stopped = false;
+    published = false;
+    up = false;
+    waitingSince = 0;
+    lastRefreshLog = 0;
+    publishFailed = false;
     if (!IOPMPowerSource::start(provider)) return false;
     k60_battmgr_init(&manager, config.charging_current_sign,
         K60_BATTERY_NOTIFY_REPLY_TYPE, K60_BATTERY_NOTIFY_REPLY_BYTES);

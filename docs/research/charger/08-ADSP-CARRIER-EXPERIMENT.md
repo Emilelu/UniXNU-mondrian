@@ -230,3 +230,12 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
 - 单测：`cc -Wall -Wextra -Werror -std=c11 -o /tmp/k60sub-new2 scripts/tests/test-k60-charger-subscription.c && /tmp/k60sub-new2` → `TESTS OK 49`（含新增 5 条断言）。
 - 产物：电池归档 `d34b5c7c11de598d427f60e9d902317569b6cf45a91a6b29296e76bc2a6bc012`（114,080 B）；route-b boot.img `762645bc80643dad6a7fa26528bd5937eb11f18a99ff4bd1763a66f196e56911`（201,887,744 B，`/mnt/e/k60-work/artifacts/adsp-board-20261116/route-b/boot.img`）；kernel `f6e10fa28d67a84b8763e783b10abcc00f86842764aa2fa142881d3cf9a3ea7c`；payload `67800d3b7ecb5a4c02dd32a9c62bdf4ebf3687c5825509d667e2adcbba8bd6c0`；`check-image-args.py` → `image-arg-audit: OK (30 arguments, 598 bytes)`；kernel strings：`current-source=`×1、`K60Battery: no publication`×1。
 - 状态：未 boot。route-b 仍按 Route A 的 `pong_handoff_publish=1` 参数构建；C1 判据仍是 07 原口径，需 Lead 批准 B 或另行裁决后才能把 `current-source=usb` 作为独立证据登记。
+### 8.5 route-b 上机判据（2026-11-17 13:10，先写死）
+
+- 前置：Lead 批准 B（C1 电流口径 = USB 输入电流回退，`current-source=usb` 作为独立证据），且镜像 sha256 必须等于 `762645bc80643dad6a7fa26528bd5937eb11f18a99ff4bd1763a66f196e56911`。
+- C0 可达：console 出现 `K60Battery: actual PMIC_RTR_ADSP_APPS channel up`，且不出现 `K60Battery: blocked` 或 Data mount 失败；否则本镜像不计入 D4 的 ADSP 尝试。
+- C1 订阅：`channel up` 行 `subscription-ack=1/16`，且首帧 `physical source published` 行尾 `subscribed=1`。
+- C2 电流来源：首帧 sample 行含 `current-source=usb`（B 口径）或 `current-source=cell`（仅当 sign 已由 wire capture 定为 ±1）；两者都没有则 FAIL。
+- C3 刷新修复：60 秒内所有 `K60Battery: no publication` 行的 `dirty=` 必须为 0；出现 `dirty=1` 即 FAIL（说明 `sample_dirty` 修复没有生效）。
+- C4 存活：60 秒内 `panic(` 与 `esr=` 均 0 次，且无 `K60Battery: blocked`。
+- 结论：C1–C4 全部 PASS 才判 PASS；任一 FAIL 打对应行；C0 不成立判 INVALID。本线不自行 boot，由 Lead 用 fastboot boot 执行。

@@ -128,6 +128,39 @@ int main(void)
         expect(le32(frame + 16) == 13u, "CURRENT_NOW property 9 is skipped");
     }
 
+    /* 9. A notification during a cycle must not discard the completed sample. */
+    {
+        K60Battmgr d;
+        K60BatterySample sample;
+        k60_battmgr_init(&d, 0, 0, 0);
+        d.cycle_active = 1;
+        d.cursor = K60BmFields - 1;
+        d.sample_dirty = 1;
+        d.notifications = 1;
+        d.fresh = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline) | BIT(K60BmUsbCurrent);
+        d.value[K60BmStatus] = 1;
+        d.value[K60BmPresent] = 1;
+        d.value[K60BmCapacity] = 5000;
+        d.value[K60BmVoltage] = 4300000;
+        d.value[K60BmTemperature] = 3000;
+        d.value[K60BmFull] = 5000000;
+        d.value[K60BmDesign] = 5500000;
+        d.value[K60BmCycles] = 100;
+        d.value[K60BmUsbOnline] = 1;
+        d.value[K60BmUsbVoltage] = 5000000;
+        d.value[K60BmUsbCurrent] = 397000;
+        d.valid = BIT(K60BmUsbCurrent);
+        expect(finish_field(&d) == K60BmCycleDone, "notification-dirty cycle finishes");
+        expect(d.sample_dirty == 0, "finish_field clears the notification flag");
+        expect(d.refresh_due == 1, "finish_field keeps the extra refresh request");
+        expect(k60_battmgr_sample(&d, &sample) == 1, "completed sample survives the notification");
+        expect(sample.current_source == K60BatteryCurrentUsb && sample.current_ma == 397,
+               "USB input current is tagged as the source");
+    }
+
     if (fails) { printf("FAILURES %d\n", fails); return 1; }
     printf("TESTS OK %d\n", checks);
     return 0;

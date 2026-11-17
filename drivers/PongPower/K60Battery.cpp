@@ -206,10 +206,12 @@ void K60Battery::publish(const K60BatterySample &s)
     if (first) {published = true; registerService();}
     if (first || s.external != lastSample.external || s.charging != lastSample.charging || s.full != lastSample.full ||
         s.capacity_hundredths != lastSample.capacity_hundredths) {
-        IOLog("K60Battery: %s sample=%u SOC=%u.%02u%% charge=%u/%umAh design=%umAh cycles=%u voltage=%umV current=%dmA temp=%d.%02uC external=%d charging=%d full=%d subscribed=%u\n",
+        IOLog("K60Battery: %s sample=%u SOC=%u.%02u%% charge=%u/%umAh design=%umAh cycles=%u voltage=%umV current=%dmA current-source=%s temp=%d.%02uC external=%d charging=%d full=%d subscribed=%u\n",
             first ? "physical source published" : "physical source updated", manager.generations,
             s.capacity_hundredths / 100, s.capacity_hundredths % 100, s.current_mah, s.full_mah, s.design_mah,
-            s.cycles, s.voltage_mv, s.current_ma, s.temperature_hundredths / 100,
+            s.cycles, s.voltage_mv, s.current_ma,
+            s.current_source == K60BatteryCurrentCell ? "cell" : s.current_source == K60BatteryCurrentUsb ? "usb" : "none",
+            s.temperature_hundredths / 100,
             unsigned(s.temperature_hundredths < 0 ? -s.temperature_hundredths : s.temperature_hundredths) % 100,
             s.external, s.charging, s.full, manager.subscribed);
     }
@@ -292,9 +294,11 @@ void K60Battery::receive(void *owner, const uint8_t *data, unsigned bytes)
         if (k60_battmgr_sample(&self->manager, &sample)) self->publish(sample);
         else {
             self->stale("incomplete/unqualified sample");
-            IOLog("K60Battery: no publication sample=%u fresh=%x errors=%u sign=%d raw-current=%d raw-temp=%d\n",
+            IOLog("K60Battery: no publication sample=%u fresh=%x errors=%u sign=%d status=%d dirty=%d refresh=%d notifications=%u valid=%x raw-current=%d raw-temp=%d\n",
                 self->manager.generations, self->manager.last_fresh, self->manager.errors,
-                int(self->manager.charging_current_sign), self->manager.value[K60BmCurrent], self->manager.value[K60BmTemperature]);
+                int(self->manager.charging_current_sign), self->manager.value[K60BmStatus],
+                self->manager.sample_dirty, self->manager.refresh_due, self->manager.notifications,
+                self->manager.valid, self->manager.value[K60BmCurrent], self->manager.value[K60BmTemperature]);
         }
         if (self->manager.refresh_due) k60_battmgr_refresh(&self->manager);
     }

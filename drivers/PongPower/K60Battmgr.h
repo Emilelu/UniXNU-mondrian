@@ -41,6 +41,12 @@ typedef struct {
     char model[K60_BATTMGR_MODEL_BYTES];
 } K60Battmgr;
 
+typedef enum {
+    K60BatteryCurrentNone = 0,
+    K60BatteryCurrentCell = 1,
+    K60BatteryCurrentUsb = 2
+} K60BatteryCurrentSource;
+
 typedef struct {
     uint32_t valid;
     int present, external, charging, full, usb_connected;
@@ -48,6 +54,7 @@ typedef struct {
     uint32_t voltage_mv, adapter_mv, adapter_ma, adapter_type;
     int32_t current_ma, temperature_hundredths;
     int time_remaining_min;
+    uint8_t current_source;
     char model[K60_BATTMGR_MODEL_BYTES];
 } K60BatterySample;
 

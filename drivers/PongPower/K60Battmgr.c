@@ -148,7 +148,12 @@ static int finish_field(K60Battmgr *b)
         return K60BmAnswer;
     }
     b->last_fresh = b->fresh; b->last_completed = b->completed;
-    b->cycle_active = 0; b->generations++;
+    b->cycle_active = 0;
+    /* A notification that arrived during this cycle must not discard the
+     * completed sample: keep the extra cycle request, publish what completed. */
+    if (b->sample_dirty) b->refresh_due = 1;
+    b->sample_dirty = 0;
+    b->generations++;
     return K60BmCycleDone;
 }
 int k60_battmgr_receive(K60Battmgr *b, const uint8_t *data, unsigned bytes)
@@ -240,13 +245,17 @@ int k60_battmgr_sample(const K60Battmgr *b, K60BatterySample *s)
     s->current_mah = (uint32_t)(((uint64_t)s->capacity_hundredths * full + 5000000) / 10000000);
     if (s->current_mah > s->full_mah) s->current_mah = s->full_mah;
     s->voltage_mv = (uint32_t)b->value[K60BmVoltage] / 1000;
-    s->current_ma = (b->last_fresh & BIT(K60BmCurrent)) && b->charging_current_sign
-        ? b->charging_current_sign * (b->value[K60BmCurrent] / 1000) : 0;
+    if ((b->last_fresh & BIT(K60BmCurrent)) && b->charging_current_sign) {
+        s->current_ma = b->charging_current_sign * (b->value[K60BmCurrent] / 1000);
+        s->current_source = K60BatteryCurrentCell;
+    }
     /* The battery CURRENT_NOW getter is silent on this ADSP, but the USB
      * power-supply domain reports the measured input current. It is a fair
      * positive charging current while external power is present. */
-    if (!s->current_ma && s->charging && (s->valid & BIT(K60BmUsbCurrent)))
+    if (!s->current_ma && s->charging && (s->valid & BIT(K60BmUsbCurrent))) {
         s->current_ma = b->value[K60BmUsbCurrent] / 1000;
+        s->current_source = K60BatteryCurrentUsb;
+    }
     if ((status == 2 && s->current_ma > 0) || (status == 1 && s->current_ma < 0)) return 0;
     s->temperature_hundredths = b->value[K60BmTemperature]; s->cycles = (uint32_t)b->value[K60BmCycles];
     s->time_remaining_min = -1;

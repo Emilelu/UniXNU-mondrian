@@ -4,7 +4,7 @@ Written 2026-11-18. Scope: why the direct candidate's remaining failure is the
 host's cached execution environment, the successor that polls `BHI_EXECENV`
 after `mhi_download_amss_image()` and then creates the MHI devices for the
 AMSS channels, and the prewritten acceptance criteria for
-`wifi-20261118sbl-mission2`. This is the evidence record for the mission-poll
+`wifi-20261118sbl-mission3`. This is the evidence record for the mission-poll
 candidate; c8 remains HOLD.
 
 ## 0. Conclusion first
@@ -28,6 +28,10 @@ It records:
 - `:687` `Pong MHI: amss bhie load ret=0 exec_env=1` — the vector-table transfer completed.
 - `:691` `Pong MHI: timeout after 20000 ms ee=1 pm_state=4 exec_env=2 mhi_state=2 MHISTATUS=0x201 MHICTRL=0x200`.
   The device is already in AMSS/M0; the host's `ee` cache is still 1/SBL.
+
+Because the direct console exposes `exec_env=2` only in the 20 s timeout line,
+the earlier 5 s mission poll was too short to rely on. The mission3 candidate
+polls for 25 s, which covers the full 20 s `mhi_sync_power_up` wait plus margin.
 
 `mhi_sync_power_up` is the waiter that turns that cache into a 20 s timeout.
 The fix is intentionally confined to the value it waits on: no QMI, WMI, PCIe,
@@ -59,7 +63,7 @@ Generated source anchors from the mission archive:
 
 | file | anchor |
 |---|---|
-| `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-662; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :658 |
+| `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-664; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :658 |
 | `mhi/pm.c` | guard :828; latch :834; fallback download :843 |
 | `pinned/linux/mhi.h` | `bool pong_sbl_pushed;` at :445 |
 
@@ -77,15 +81,15 @@ must also run for the IPCR channels, because `nw_qrtr_mhi` calls
 
 | field | value |
 |---|---|
-| tag | `wifi-20261118sbl-mission2` |
-| built_at | 2026-11-18T02:22:29+08:00 |
-| branch / head | `fix/wifi-mission-poll` / `3bb68355e5a46eaba0c58d9795377652bce29237` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission2/boot.img`, 201,887,744 B, SHA256 `deeadc2c0dd27ffe00db25f6259400bcfbe94d726b8d175d71fdffb4c9611c07` |
-| kernel | `38c6c11f52361192513d38f01bb4d19b7f0601841575041dc339c5083fa283c6` |
-| payload kernel | `5f02003356bae7dc6a33c6e5e5bdc60963462b44ce2a93eeeacf0767cf3a850b` |
-| WiFi archive | `16d8d06219a9c16c01210d3f47fdff230c63505b99a32f0d1b936db8fc037328` |
-| ath11k archive | `c13c4385fee8606dd39a40b1d6264e1c5fbc6f540895c225653d18b91b1bba35` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission2/build-manifest.json` |
+| tag | `wifi-20261118sbl-mission3` |
+| built_at | 2026-11-18T03:07:49+08:00 |
+| branch / head | `fix/wifi-mission-poll` / `5d973b58abe67a6ac9c1d4d494708f5b38af5b03` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission3/boot.img`, 201,887,744 B, SHA256 `7bd5cd01fbc2487547270bcd0408d6899c0db29657bf13e38bb76187ce425db2` |
+| kernel | `501bc111cab661f027a3b476374f6150c905d0fa08143fbf20abd5208a558cbc` |
+| payload kernel | `ea062841636ce4258a4a2e14087d8cd137e81056822aced4175f238c57c3490a` |
+| WiFi archive | `5756ae08f4dbc313ffe0f5deda52d93acefbc1dc01ace5290711a8266a6097ac` |
+| ath11k archive | `757ddaca951f6bf1a9f2131edb7279ba898435b41042329e0563cbca41c0a8da` |
+| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission3/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
 
 This candidate is the mission-poll successor plus the `mhi_create_devices`

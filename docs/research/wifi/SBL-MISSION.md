@@ -73,13 +73,13 @@ single-variable fix.
 | field | value |
 |---|---|
 | tag | `wifi-20261118sbl-mission` |
-| built_at | TBD |
-| branch / head | `fix/wifi-mission-poll` / TBD |
-| `boot.img` | TBD |
-| kernel | TBD |
-| payload kernel | TBD |
-| WiFi archive | TBD |
-| ath11k archive | TBD |
+| built_at | 2026-11-18T01:56:25+08:00 |
+| branch / head | `fix/wifi-mission-poll` / `b60bd6ef231fdfac775c41d07ecf4e43ef69df0f` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission/boot.img`, 201,887,744 B, SHA256 `be6ba473de4c89cdbd9f2869e198519365a7beb661ae057be607c0d58cb346c2` |
+| kernel | `94ffafa81d390f2c191593844231bd8850cb2070acf9cc4428e7c0eec01f7419` |
+| payload kernel | `21d47b644d25b5210867989eaccebdb7bc4409b9b451ef0da48e71206c447294` |
+| WiFi archive | `53e8e8a2898bb56065b91e53165a1360d0674b522b21f04ff620c02675982bd6` |
+| ath11k archive | `f4fb41cb1b13d0adfcb59ab19b5b80d0f1d41bf4df3e379fbac156726a852a0d` |
 | manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
 

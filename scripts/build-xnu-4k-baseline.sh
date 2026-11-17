@@ -1175,6 +1175,12 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $BATTERY_ARCHIVE"
   fi
+  # QcomBaseband's control bridge archive (board [components] QcomBaseband).
+  # This block, not the XNU_SOURCE_CORECRYPTO14 branch, is the live archive
+  # list for this board; keep the generic extra-archive hook here (P-190).
+  if [ -n "${XNU_EXTRA_LD_ARCHIVES:-}" ]; then
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES ${XNU_EXTRA_LD_ARCHIVES}"
+  fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a
     RAM_BLOCK_OBJECT=$ROOT/build/native-ram-block/NativeRamBlock.o

@@ -11,14 +11,14 @@ kit = "mondrian"
 # The kernel and prelink inputs live in the OS profile (profiles/os/ipados-16.6.1-20G81),
 # the SM8475 resources in the SoC source, and the board wiring in dts/mondrian.dts.
 [components]
-include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "PongUfs"]
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "PongUfs", "QcomBaseband"]
 
 [kernel]
 defconfig = "mondrian_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "os:configs/ipados.config"]
 # The K60 series still carries every patch; the shared layers have empty series for now.
 patch_series = ["device:patches/xnu/series"]
-archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs"]
+archives = ["component:ArmDTPlatform", "component:ArmCpu", "component:PongUfs", "component:QcomBaseband"]
 driver_records = "DEVELOPMENT_ARM64_PONG"
 # The Pong Adreno / UI provider scripts are not selected by this key. The kernel
 # build only reads the PONG_NATIVE_DRIVER_SOURCE environment variable:
@@ -295,3 +295,13 @@ button-names = ["hold", "voldown", "volup"]
 
 [adt.buttons.u32]
 home-button-type = 2
+
+# QcomBaseband control bridge. coachz_baseband_enabled() reads this 4-byte
+# u32 from /chosen; the bridge publishes AppleBaseband and its UserClients
+# only when it is nonzero. baseband-chipset is the Mav16 generation string
+# the reference coachz DTS publishes for AppleBaseband's matching.
+[adt.chosen.u32]
+coachz-baseband = 1
+
+[adt.product.string]
+baseband-chipset = "mav16"

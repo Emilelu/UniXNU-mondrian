@@ -24,7 +24,84 @@
 #include "QcomGlink.h"
 #include "K60PmicRail.h"
 
+/* QcomBaseband's C ABI (drivers/QcomBaseband/baseband/QcomBaseband.h). The
+ * bridge is a separate component archive; keep the declarations here so this
+ * file stays one patch hunk and does not depend on the archive's header path. */
+extern int coachz_baseband_enabled(void);
+extern void coachz_baseband_configure(void (*send)(uint32_t, uint32_t,
+    uint32_t, const void *, uint32_t), void (*del_client)(uint32_t));
+extern void coachz_baseband_new_server(uint32_t service,
+    uint32_t version_instance, uint32_t node, uint32_t port);
+extern void coachz_baseband_del_server(uint32_t service, uint32_t node,
+    uint32_t port);
+extern int coachz_baseband_qrtr(uint32_t dst_port, uint32_t src_node,
+    uint32_t src_port, const void *body, uint32_t size);
+extern void coachz_baseband_poll(void);
+extern void coachz_baseband_report(unsigned second);
+extern int coachz_modem_data_send(uint32_t mux, const uint8_t *ip,
+    uint32_t length);
+extern void coachz_modem_data_receiver(void (*receiver)(uint32_t mux,
+    const uint8_t *ip, uint32_t length, uint32_t ip_version));
+
 #ifndef K60_HOST_TEST
+
+/* The XNU compile-record bootstrap pass links this object before any component
+ * archive exists. Keep weak fallbacks so that pass links; the real link
+ * force-loads libQcomBaseband.a and its strong definitions replace these. */
+__attribute__((weak)) int
+coachz_baseband_enabled(void)
+{
+	return 0;
+}
+
+__attribute__((weak)) void
+coachz_baseband_configure(void (*send)(uint32_t, uint32_t, uint32_t,
+    const void *, uint32_t), void (*del_client)(uint32_t))
+{
+	(void)send;
+	(void)del_client;
+}
+
+__attribute__((weak)) void
+coachz_baseband_new_server(uint32_t service, uint32_t version_instance,
+    uint32_t node, uint32_t port)
+{
+	(void)service;
+	(void)version_instance;
+	(void)node;
+	(void)port;
+}
+
+__attribute__((weak)) void
+coachz_baseband_del_server(uint32_t service, uint32_t node, uint32_t port)
+{
+	(void)service;
+	(void)node;
+	(void)port;
+}
+
+__attribute__((weak)) int
+coachz_baseband_qrtr(uint32_t dst_port, uint32_t src_node, uint32_t src_port,
+    const void *body, uint32_t size)
+{
+	(void)dst_port;
+	(void)src_node;
+	(void)src_port;
+	(void)body;
+	(void)size;
+	return 0;
+}
+
+__attribute__((weak)) void
+coachz_baseband_poll(void)
+{
+}
+
+__attribute__((weak)) void
+coachz_baseband_report(unsigned second)
+{
+	(void)second;
+}
 
 #include <pexpert/pexpert.h>
 #include <sys/systm.h>
@@ -67,6 +144,21 @@ static int k60_qrtr_up;
 static int k60_qrtr_glink_ready;
 static int k60_qrtr_hello_sent;
 static int k60_qrtr_lookup_sent;
+static int k60_qrtr_server_sent;
+static int k60_qrtr_dms_requested;
+static uint16_t k60_qrtr_dms_transaction;
+static int k60_baseband_configured;
+static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
+    uint32_t length, uint32_t ip_version);
+static unsigned k60_modem_data_drops;
+
+#define K60_QRTR_REPLY_MAX 8u
+struct K60QrtrReply {
+	uint32_t from_port, node, port, length;
+	uint8_t data[K60_QRTR_MAX_PACKET];
+};
+static struct K60QrtrReply k60_qrtr_replies[K60_QRTR_REPLY_MAX];
+static unsigned k60_qrtr_reply_head, k60_qrtr_reply_count;
 
 static void
 k60_qrtr_kick(void *context)
@@ -90,6 +182,106 @@ k60_qrtr_state_cb(void *context, QcomGlinkChannel *channel, int up)
 	printf("K60MODEM qrtr: channel %s\n", up ? "up" : "down");
 }
 
+static int
+k60_qrtr_queue_reply(uint32_t from_port, uint32_t node, uint32_t port,
+    const uint8_t *payload, uint32_t length)
+{
+	struct K60QrtrReply *reply;
+
+	if (k60_qrtr_reply_count >= K60_QRTR_REPLY_MAX ||
+	    length > K60_QRTR_MAX_PACKET) {
+		return -1;
+	}
+	reply = &k60_qrtr_replies[(k60_qrtr_reply_head + k60_qrtr_reply_count) %
+	    K60_QRTR_REPLY_MAX];
+	reply->from_port = from_port;
+	reply->node = node;
+	reply->port = port;
+	reply->length = length;
+	for (uint32_t i = 0; i < length; ++i) {
+		reply->data[i] = payload[i];
+	}
+	++k60_qrtr_reply_count;
+	return 0;
+}
+
+static int
+k60_qrtr_send_data_packet(uint32_t from_port, uint32_t node, uint32_t port,
+    const uint8_t *payload, uint32_t length)
+{
+	uint8_t packet[K60_QRTR_HEADER_BYTES + K60_QRTR_MAX_PACKET];
+	uint32_t bytes;
+
+	bytes = k60_qrtr_build_data(packet, sizeof(packet), from_port, node, port,
+	    payload, length);
+	if (bytes == 0) {
+		return K60QrtrBadArg;
+	}
+	return qcom_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet, bytes);
+}
+
+static int
+k60_qrtr_flush_replies(void)
+{
+	while (k60_qrtr_reply_count != 0) {
+		struct K60QrtrReply *reply = &k60_qrtr_replies[k60_qrtr_reply_head];
+		const int rc = k60_qrtr_send_data_packet(reply->from_port, reply->node,
+		    reply->port, reply->data, reply->length);
+
+		if (rc == QcomGlinkAgain) {
+			return 0;   /* keep it queued and retry on the next poll */
+		}
+		if (rc != QcomGlinkOk) {
+			return rc;
+		}
+		k60_qrtr_reply_head = (k60_qrtr_reply_head + 1u) % K60_QRTR_REPLY_MAX;
+		--k60_qrtr_reply_count;
+	}
+	return 0;
+}
+
+/* The QcomBaseband bridge hands back QMI replies for the clients it owns.
+ * Queue them under the port the bridge named; the next poll loop flushes
+ * them through the same GLINK channel as the locator and DMS answers. */
+static void
+k60_baseband_send(uint32_t local_port, uint32_t node, uint32_t port,
+    const void *message, uint32_t length)
+{
+	if (k60_qrtr_queue_reply(local_port, node, port, message, length) != 0) {
+		printf("K60MODEM baseband: reply dropped port=%#x len=%u\n",
+		    local_port, length);
+	}
+}
+
+static void
+k60_baseband_del_client(uint32_t port)
+{
+	printf("K60MODEM baseband: client port %#x released\n", port);
+}
+
+/* K60 has no IPA/GSI data path yet. The control bridge can still enumerate
+ * and publish AppleBaseband; the PDP data plane reports ENETDOWN until the
+ * IPA v5.1 adapter exists. */
+int
+coachz_modem_data_send(uint32_t mux, const uint8_t *ip, uint32_t length)
+{
+	(void)ip;
+	if (k60_modem_data_drops++ == 0) {
+		printf("K60MODEM baseband: no IPA data path, dropping mux %u len %u\n",
+		    mux, length);
+	}
+	return -50;   /* ENETDOWN */
+}
+
+void
+coachz_modem_data_receiver(void (*receiver)(uint32_t mux, const uint8_t *ip,
+    uint32_t length, uint32_t ip_version))
+{
+	k60_modem_data_receiver = receiver;
+	printf("K60MODEM baseband: data receiver %s\n",
+	    receiver != NULL ? "registered" : "cleared");
+}
+
 static void
 k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *data, uint32_t length)
 {
@@ -98,8 +290,50 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 
 	(void)context;
 	(void)channel;
-	if (k60_qrtr_parse(data, length, &header, &payload) == K60QrtrOk &&
-	    header.type == K60QrtrNewServer && header.size == K60_QRTR_CONTROL_BYTES) {
+	if (k60_qrtr_parse(data, length, &header, &payload) != K60QrtrOk) {
+		return;
+	}
+	if (header.type == K60QrtrData) {
+		if (header.to_port == K60_QRTR_LOCATOR_PORT) {
+			uint8_t answer[K60_QRTR_MAX_PACKET];
+			uint32_t bytes;
+
+			++k60_qrtr_state.locator_requests;
+			bytes = k60_qrtr_servloc_answer(payload, header.size, answer,
+			    sizeof(answer));
+			if (bytes == 0 ||
+			    k60_qrtr_queue_reply(K60_QRTR_LOCATOR_PORT, header.from_node,
+			    header.from_port, answer, bytes) != 0) {
+				printf("K60MODEM qrtr: locator answer dropped (%u bytes)\n", bytes);
+			}
+		} else if (header.to_port == K60_QRTR_DMS_PORT &&
+		    header.from_node == k60_qrtr_state.dms_node &&
+		    header.from_port == k60_qrtr_state.dms_port) {
+			char revision[sizeof(k60_qrtr_state.revision)];
+			const int bytes = k60_qmi_dms_revision(payload, header.size,
+			    k60_qrtr_state.dms_transaction, revision, sizeof(revision));
+
+			if (bytes > 0) {
+				for (int i = 0; i <= bytes; ++i) {
+					k60_qrtr_state.revision[i] = revision[i];
+				}
+				k60_qrtr_state.revision_bytes = (uint32_t)bytes;
+				k60_qrtr_state.dms_answered = 1;
+				printf("K60MODEM qrtr: dms revision %s\n", revision);
+			} else {
+				++k60_qrtr_state.dms_errors;
+			}
+		} else if (header.to_port == K60_QRTR_DMS_PORT) {
+			++k60_qrtr_state.dms_errors;
+		} else {
+			/* Ports owned by the QcomBaseband control bridge (CBQ_PORT_BASE
+			 * and above). The bridge copies what it needs; unknown ports
+			 * simply return zero. */
+			(void)coachz_baseband_qrtr(header.to_port, header.from_node,
+			    header.from_port, payload, header.size);
+		}
+	}
+	if (header.type == K60QrtrNewServer && header.size == K60_QRTR_CONTROL_BYTES) {
 		const uint32_t service = (uint32_t)payload[4] | (uint32_t)payload[5] << 8 |
 		    (uint32_t)payload[6] << 16 | (uint32_t)payload[7] << 24;
 		const uint32_t instance = (uint32_t)payload[8] | (uint32_t)payload[9] << 8 |
@@ -111,6 +345,19 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 
 		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u\n",
 		    service, service, instance, node, port);
+		coachz_baseband_new_server(service, instance, node, port);
+	}
+	if (header.type == K60QrtrDelServer && header.size == K60_QRTR_CONTROL_BYTES) {
+		const uint32_t service = (uint32_t)payload[4] | (uint32_t)payload[5] << 8 |
+		    (uint32_t)payload[6] << 16 | (uint32_t)payload[7] << 24;
+		const uint32_t node = (uint32_t)payload[12] | (uint32_t)payload[13] << 8 |
+		    (uint32_t)payload[14] << 16 | (uint32_t)payload[15] << 24;
+		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
+		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
+
+		printf("K60MODEM qrtr: service %u (%#x) removed node %u port %u\n",
+		    service, service, node, port);
+		coachz_baseband_del_server(service, node, port);
 	}
 	(void)k60_qrtr_note(&k60_qrtr_state, data, length);
 }
@@ -893,12 +1140,22 @@ k60_modem_qrtr_probe(void)
 		printf("K60MODEM qrtr: GLINK already opened by transport\n");
 	}
 	printf("K60MODEM qrtr: opening IPCRTR as initiator\n");
+	if (!k60_baseband_configured) {
+		printf("K60MODEM baseband: bridge %s\n",
+		    coachz_baseband_enabled() ? "enabled" : "disabled");
+		coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
+		k60_baseband_configured = 1;
+	}
 	for (i = 0; i < K60_QRTR_POLLS; i++) {
 		const int polls = qcom_glink_poll(&k60_qrtr_link);
 
 		if (polls < 0) {
 			printf("K60MODEM qrtr: glink poll rc=%d at %u\n", polls, i);
 			return polls;
+		}
+		coachz_baseband_poll();
+		if (i % 500u == 0u) {
+			coachz_baseband_report(i / 500u);
 		}
 		if (k60_qrtr_up && !k60_qrtr_hello_sent) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
@@ -913,6 +1170,31 @@ k60_modem_qrtr_probe(void)
 					    K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT);
 				} else if (send_rc != QcomGlinkAgain) {
 					printf("K60MODEM qrtr: hello send rc=%d\n", send_rc);
+					return send_rc;
+				}
+			}
+		}
+		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
+		    !k60_qrtr_server_sent) {
+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
+			uint32_t to_node = k60_qrtr_state.remote_node;
+
+			if (to_node == K60_QRTR_CONTROL_PORT || to_node == K60_QRTR_AP_NODE) {
+				to_node = K60_QRTR_BROADCAST_NODE;
+			}
+			if (k60_qrtr_build_new_server(packet, sizeof(packet),
+			    K60_QRTR_SERVLOC_SERVICE, K60_QRTR_SERVLOC_INSTANCE,
+			    to_node, K60_QRTR_LOCATOR_PORT) != 0) {
+				const int send_rc = qcom_glink_send(&k60_qrtr_link,
+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
+
+				if (send_rc == QcomGlinkOk) {
+					k60_qrtr_server_sent = 1;
+					printf("K60MODEM qrtr: announced servloc service %u instance %#x port %#x\n",
+					    K60_QRTR_SERVLOC_SERVICE, K60_QRTR_SERVLOC_INSTANCE,
+					    K60_QRTR_LOCATOR_PORT);
+				} else if (send_rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: servloc announce rc=%d\n", send_rc);
 					return send_rc;
 				}
 			}
@@ -939,16 +1221,57 @@ k60_modem_qrtr_probe(void)
 				}
 			}
 		}
-		if (k60_qrtr_lookup_sent && k60_qrtr_state.services != 0 && i > 60) {
+		if (k60_qrtr_lookup_sent && k60_qrtr_state.dms_found &&
+		    !k60_qrtr_dms_requested) {
+			uint8_t query[K60_QMI_HEADER];
+			uint16_t transaction = ++k60_qrtr_dms_transaction;
+
+			if (transaction == 0) {
+				transaction = ++k60_qrtr_dms_transaction;
+			}
+			if (k60_qmi_build_dms_revision(query, sizeof(query), transaction) != 0) {
+				k60_qrtr_state.dms_transaction = transaction;
+				rc = k60_qrtr_send_data_packet(K60_QRTR_DMS_PORT,
+				    k60_qrtr_state.dms_node, k60_qrtr_state.dms_port,
+				    query, sizeof(query));
+				if (rc == QcomGlinkOk) {
+					k60_qrtr_dms_requested = 1;
+					k60_qrtr_state.dms_sent = 1;
+					printf("K60MODEM qrtr: sent dms get_revision to node %u port %u txn %u\n",
+					    k60_qrtr_state.dms_node, k60_qrtr_state.dms_port,
+					    transaction);
+				} else if (rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: dms send rc=%d\n", rc);
+					return rc;
+				}
+			}
+		}
+		rc = k60_qrtr_flush_replies();
+		if (rc != 0) {
+			printf("K60MODEM qrtr: reply send rc=%d at %u\n", rc, i);
+			return rc;
+		}
+		if (k60_qrtr_lookup_sent && k60_qrtr_state.dms_answered &&
+		    k60_qrtr_verdict(&k60_qrtr_state)) {
 			break;
 		}
 		delay(K60_QRTR_POLL_US);
 	}
-	printf("K60MODEM qrtr: verdict %s services=%u node0=%u wanted=%u malformed=%u polls=%u\n",
+	printf("K60MODEM qrtr: verdict %s services=%u node0=%u wanted=%u malformed=%u locator=%u dms=%s polls=%u\n",
 	    k60_qrtr_verdict(&k60_qrtr_state) ? "ok" : "no reply",
 	    k60_qrtr_state.services, k60_qrtr_state.from_node0, k60_qrtr_state.wanted,
-	    k60_qrtr_state.malformed, i);
-	return k60_qrtr_verdict(&k60_qrtr_state) ? 0 : -2;
+	    k60_qrtr_state.malformed, k60_qrtr_state.locator_requests,
+	    k60_qrtr_state.dms_answered ? k60_qrtr_state.revision : "none", i);
+	if (!k60_qrtr_verdict(&k60_qrtr_state)) {
+		return -2;
+	}
+	if (!k60_qrtr_state.dms_answered) {
+		printf("K60MODEM qrtr: dms revision missing after %u ms (errors=%u)\n",
+		    K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u,
+		    k60_qrtr_state.dms_errors);
+		return -2;
+	}
+	return 0;
 }
 
 #endif /* K60_HOST_TEST */

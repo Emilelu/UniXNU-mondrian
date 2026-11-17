@@ -76,3 +76,7 @@ CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=n
 CONFIG_XNU_BUILD_ARCHIVES=y
 # K60 PMIC-GLINK battery: registers only after an authenticated PAS1 lease
 CONFIG_XNU_K60_PHYSICAL_BATTERY=y
+# QcomBaseband baseband bridge: build.py emits build/qcom-baseband/libQcomBaseband.a
+# from the selected component; force-load it so the AppleBaseband classes are
+# present even before anything in the tree references them.
+CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/qcom-baseband/libQcomBaseband.a"

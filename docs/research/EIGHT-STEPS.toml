@@ -420,10 +420,10 @@ evidence = "读了 Ath12kWifi 的 include/nw_abi.h 与 src/nw_wifi.c（f6bf561�
 [hardware.wifi.step.verify]
 done = true
 local_verified = true
-evidence = "三类本地核验齐全（mission4，2026-11-18）：test-wifi-sbl-mission.py 28 项 0 失败；verify-boot-image.py 对 E:/k60-work/artifacts/wifi-20261118sbl-mission4/build-manifest.json 返回 OK；check-image-args.py 返回 OK（31 参数/602 B）；boot.img 201,887,744 B SHA256 7646f5caf1b6fd03628587df2cdc915a24d8aca7115816af379858d9e6ac4a26；台账见 docs/research/wifi/SBL-MISSION.md §3。"
-static_check = "test-wifi-sbl-mission.py 27 项：BHI_STATUS 成功门、2500x10 ms mission poll、mhi_create_devices 顺序、wake_up_all、无 queue 调用、生成树锚点；0 失败。"
+evidence = "三类本地核验齐全（mission4，2026-11-18）：test-wifi-sbl-mission.py 全部 29 项 0 失败；verify-boot-image.py 对 E:/k60-work/artifacts/wifi-20261118sbl-mission4/build-manifest.json 返回 OK；check-image-args.py 返回 OK（31 参数/602 B）；boot.img 201,887,744 B SHA256 7646f5caf1b6fd03628587df2cdc915a24d8aca7115816af379858d9e6ac4a26；台账见 docs/research/wifi/SBL-MISSION.md §3。"
+static_check = "test-wifi-sbl-mission.py 29 项：BHI_STATUS 成功门、2500x10 ms mission poll、mhi_create_devices 顺序、wake_up_all、无 queue 调用、生成树锚点；0 失败。"
 unit_test = "PWF2 六条目 offset/size/sha256 与源文件逐条一致；native archive SHA256 5756ae08f4dbc313ffe0f5deda52d93acefbc1dc01ace5290711a8266a6097ac；test-wifi-sbl-mission.py 同时校验生成 mhi/boot.c/pm.c/mhi.h 锚点。"
-artifact_check = "verify-boot-image: OK；check-image-args: OK（31 参数/602 B）；boot.img 201,887,744 B SHA256 7bd5cd01fbc2487547270bcd0408d6899c0db29657bf13e38bb76187ce425db2；hardware_tested=false。"
+artifact_check = "verify-boot-image: OK；check-image-args: OK（31 参数/602 B）；boot.img 201,887,744 B SHA256 7646f5caf1b6fd03628587df2cdc915a24d8aca7115816af379858d9e6ac4a26；hardware_tested=false。"
 
 
 [hardware.wifi.step.device]

@@ -110,7 +110,7 @@ its result is in `SBL-DIRECT.md` §6. The pre-device-creation mission image
 
 Offline checks performed:
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
-- `python3 scripts/tests/test-wifi-sbl-mission.py` — 28 source/artifact checks,
+- `python3 scripts/tests/test-wifi-sbl-mission.py` — all 29 source/artifact checks,
   0 failures.
 - WSL `python3 scripts/verify-boot-image.py --manifest /mnt/e/...` — OK.
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31

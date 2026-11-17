@@ -23,7 +23,7 @@
 
 namespace {
 constexpr uint32_t kPollMs = 20, kRefreshMs = 5000, kRequestMs = 3000, kChannelMs = 5000;
-constexpr unsigned kPropertyNumbers = 37;
+constexpr unsigned kPropertyNumbers = 39;
 uint64_t milliseconds()
 {
     clock_sec_t seconds; clock_usec_t fraction;
@@ -40,6 +40,13 @@ uint32_t adapterFamily(uint32_t type)
     case 6: case 7: case 8: return kIOPSFamilyCodeUSBCPD;
     default: return kIOPSFamilyCodeUSBUnknown;
     }
+}
+uint32_t capacityPercent(const K60BatterySample &s)
+{
+    const int32_t percent = (int32_t)((s.capacity_hundredths + 50) / 100);
+    if (percent < 0) return 0;
+    if (percent > 100) return 100;
+    return uint32_t(percent);
 }
 }
 
@@ -105,7 +112,8 @@ bool K60Battery::initProperties()
         "K60RawVoltageMicrovolts", "K60RawCurrentMicroamps", "K60RawTemperatureHundredths",
         "K60RawFullChargeMicroampHours", "K60RawDesignChargeMicroampHours",
         "K60RawUsbVoltageMicrovolts", "K60RawUsbCurrentMicroamps",
-        "K60RawTimeToFullSeconds", "K60RawTimeToEmptySeconds", "K60RawUsbAdapter"
+        "K60RawTimeToFullSeconds", "K60RawTimeToEmptySeconds", "K60RawUsbAdapter",
+        "AppleRawCurrentCapacity", "AppleRawMaxCapacity"
     };
     for (unsigned i = 0; i < kPropertyNumbers; ++i) {
         numbers[i].key = OSSymbol::withCString(keys[i]);
@@ -181,7 +189,7 @@ void K60Battery::publish(const K60BatterySample &s)
         IOLog("K60Battery: measured battery absent; last pack measurements are unavailable\n");
         return;
     }
-    number(0, s.current_mah); number(1, s.full_mah); number(2, s.voltage_mv);
+    number(0, capacityPercent(s)); number(1, 100); number(2, s.voltage_mv);
     number(3, uint32_t(s.current_ma)); number(4, s.cycles);
     number(5, uint32_t(s.time_remaining_min < 0 ? 0xffff : s.time_remaining_min));
     number(6, uint32_t(s.current_ma)); number(7, uint32_t(s.temperature_hundredths));
@@ -192,6 +200,7 @@ void K60Battery::publish(const K60BatterySample &s)
     number(20, transport.received()); number(21, transport.transmitted());
     number(22, manager.value[K60BmUsbOnline]); number(23, manager.value[K60BmWirelessOnline]);
     rawNumbers(s);
+    number(37, s.current_mah); number(38, s.full_mah);
     if (s.model[0]) {
         OSSymbol *old = model();
         if (!old || strcmp(old->getCStringNoCopy(), s.model)) {

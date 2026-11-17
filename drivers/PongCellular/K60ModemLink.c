@@ -258,11 +258,7 @@ k60_modem_wait_word(const volatile uint8_t *base, size_t at, uint32_t mask,
 		if ((k60_modem_rd32(base, at) & mask) == value) {
 			return 0;
 		}
-		if ((i & 0x0fu) == 0) {
-			delay(10);
-		} else {
-			k60_modem_spin();
-		}
+		delay(10);
 	}
 	return -1;
 }
@@ -321,7 +317,7 @@ k60_modem_qmp_open(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t *box
 			k60_modem_fence();
 			k60_modem_aop_kick(ipcc);
 			if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_MCORE_LINK_ACK,
-			    0xffffu, K60_MODEM_QMP_STATE_UP, 10000)) {
+			    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
 				continue;
 			}
 		}
@@ -329,14 +325,14 @@ k60_modem_qmp_open(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t *box
 		k60_modem_fence();
 		k60_modem_aop_kick(ipcc);
 		if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_UCORE_CH,
-		    0xffffu, K60_MODEM_QMP_STATE_UP, 10000)) {
+		    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
 			continue;
 		}
 		k60_modem_wr32(d, K60_MODEM_QMP_DESC_UCORE_CH_ACK, K60_MODEM_QMP_STATE_UP);
 		k60_modem_fence();
 		k60_modem_aop_kick(ipcc);
 		if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_MCORE_CH_ACK,
-		    0xffffu, K60_MODEM_QMP_STATE_UP, 10000)) {
+		    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
 			continue;
 		}
 		return 0;
@@ -370,7 +366,7 @@ k60_modem_qmp_load_state(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_
 	k60_modem_wr32(mailbox, 0, K60_MODEM_QMP_MSG_BYTES);
 	k60_modem_fence();
 	k60_modem_aop_kick(ipcc);
-	return k60_modem_wait_word(aoss, box, 0xffffffffu, 0, 20000);
+	return k60_modem_wait_word(aoss, box, 0xffffffffu, 0, 100000);
 }
 
 static int
@@ -448,6 +444,8 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 	    k60_modem_rd32(rsc, base + l->cmd_data) != value) {
 		goto cleanup;
 	}
+	k60_modem_wr32(rsc, base + l->control, 1u << 16);
+	k60_modem_fence();
 	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, 1u << 16, 1000)) {
 		goto cleanup;
 	}
@@ -820,17 +818,25 @@ k60_modem_qrtr_probe(void)
 		printf("K60MODEM qrtr: no modem smem partition rc=%d\n", rc);
 		return -1;
 	}
-	for (i = 0; i < 4; i++) {
+	/* 478/479 are AP-owned and must exist now. 480 and 435 are created by
+	 * the modem during its own boot; wait for both instead of failing the
+	 * cold boot before the readiness poll. */
+	for (i = 0; i < 2; i++) {
 		rc = k60_smem_find(&smem, &partition, (uint16_t)items[i], &offsets[i], &sizes[i]);
 		if (rc != K60SmemOk) {
 			printf("K60MODEM qrtr: smem item %u missing rc=%d\n", items[i], rc);
 			return -1;
 		}
 	}
-	printf("K60MODEM qrtr: glink desc=%#x/%u ours=%#x/%u theirs=%#x/%u\n",
-	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
 	for (i = 0; i < K60_QRTR_POLLS; i++) {
-		if (k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
+		if (sizes[2] == 0) {
+			(void)k60_smem_find(&smem, &partition, (uint16_t)items[2],
+			    &offsets[2], &sizes[2]);
+		}
+		rc = k60_smem_find(&smem, &partition, (uint16_t)items[3],
+		    &offsets[3], &sizes[3]);
+		if (rc == K60SmemOk &&
+		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
 			break;
 		}
 		delay(K60_QRTR_POLL_US);
@@ -840,6 +846,13 @@ k60_modem_qrtr_probe(void)
 		    K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u, seen);
 		return -2;
 	}
+	if (sizes[2] == 0) {
+		printf("K60MODEM qrtr: remote glink fifo item %u missing after %u ms\n",
+		    items[2], K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u);
+		return -2;
+	}
+	printf("K60MODEM qrtr: glink desc=%#x/%u ours=%#x/%u theirs=%#x/%u\n",
+	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
 	printf("K60MODEM qrtr: modem ready (smp2p items=%u)\n", seen);
 	if (!k60_qrtr_glink_ready) {
 		if (sizes[0] != 32 || sizes[1] < 1024 || sizes[2] < 1024) {
@@ -853,7 +866,7 @@ k60_modem_qrtr_probe(void)
 		if (desc[1] != 0 || desc[2] != 0) {
 			printf("K60MODEM qrtr: glink fifo not fresh (our_head=%u their_tail=%u), not adopted\n",
 			    desc[1], desc[2]);
-			return 0;
+			return -1;
 		}
 		tx.head = &desc[1];
 		tx.tail = &desc[0];

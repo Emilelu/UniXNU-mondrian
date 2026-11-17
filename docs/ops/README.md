@@ -6,7 +6,7 @@
 
 | 文件 | 实际是什么 | 权威版本在哪 |
 |---|---|---|
-| [HARD-RULES.md](HARD-RULES.md) | 上游 12 条「HR-NN」规则（467 行）。其中 HR-01「默认禁止访问 RSC」已被 `docs/engineering/HARD-RULES.md` 的 ★7 推翻 | [`docs/engineering/HARD-RULES.md`](../engineering/HARD-RULES.md)（★1–★37） |
+| [HARD-RULES.md](HARD-RULES.md) | 上游 12 条「HR-NN」规则（467 行）。其中 HR-01「默认禁止访问 RSC」已被 `docs/engineering/HARD-RULES.md` 的 ★7 推翻 | [`docs/engineering/HARD-RULES.md`](../engineering/HARD-RULES.md)（★1–★37，33 条，缺 ★29–★31、★35） |
 | [PITFALLS.md](PITFALLS.md) | 上游坑台账（1,169 行），编号只到 **P-76**，与本地 P 编号空间冲突 | [`docs/engineering/PITFALLS.md`](../engineering/PITFALLS.md)（P-01–P-231） |
 | [HANDOFF.md](HANDOFF.md) | 2026-11-09 12:30 的状态快照（当时内核 `7f99d2fa`、镜像 `boot-v15-20261108.img`），不是当前状态 | [`docs/engineering/STATUS.md`](../engineering/STATUS.md) |
 | [TWRP-FACT-CLARIFICATION.md](TWRP-FACT-CLARIFICATION.md) | 2026-11-09 维护者对 TWRP 可进入性的事实订正快照 | [`docs/engineering/BOOT-PROCEDURE.md`](../engineering/BOOT-PROCEDURE.md)、[`docs/engineering/HARD-RULES.md`](../engineering/HARD-RULES.md) |

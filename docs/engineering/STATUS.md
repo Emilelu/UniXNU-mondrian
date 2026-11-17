@@ -341,7 +341,7 @@ K60 修复、本机的 `3d2a9fa` 是它的祖先。**两句都不成立**：`git
 | 文档 | 内容 |
 |---|---|
 | `docs/engineering/EIGHT-STEP-SPEC.md` | 八步流程规范 |
-| `docs/engineering/HARD-RULES.md` | 铁则 ★1–★37 |
+| `docs/engineering/HARD-RULES.md` | 铁则 ★1–★37（33 条，缺 ★29–★31、★35） |
 | `docs/engineering/PITFALLS.md` | 坑记录 P-01–P-231 |
 | `docs/engineering/ANDROID-HW-TRUTH.md` | Android 实机硬件真值 |
 | `docs/engineering/TOUCH-STATEMACHINE.md` | 官方 Goodix 驱动状态机 |

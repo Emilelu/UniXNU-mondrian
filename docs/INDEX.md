@@ -16,7 +16,7 @@
 | 2 | [`engineering/REPO-MAP.md`](engineering/REPO-MAP.md) | **仓库与目录登记表**：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
 | 3 | [`engineering/STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细与变更记录 |
 | 4 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
-| 5 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，从踩过的坑提炼的可执行规则 |
+| 5 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37（33 条，缺 ★29–★31、★35），从踩过的坑提炼的可执行规则 |
 | 6 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-231，每条含症状/根因/判据/教训 |
 
 **要做触摸/GPU 之前，额外读：**
@@ -50,7 +50,7 @@ docs/
 | [`EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程规范：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机 |
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
-| [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
+| [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37（33 条，缺 ★29–★31、★35），每条含来源、硬规则、判别方法 |
 | [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-231：症状 → 真因 → 判别 → 教训 |
 | [`TAGS.md`](engineering/TAGS.md) | tag 策略：只留 boot-proven、main 基线、版本里程碑三种 |
 | [`PITFALL-TO-RULE-INDEX.md`](engineering/PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |

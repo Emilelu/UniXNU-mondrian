@@ -136,7 +136,7 @@ table row naming a nonexistent script, fails the build.
 | [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status detail and change log |
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
 | [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why one pin rebuilds to three different hashes (P-216), why `Mu_Basecore` must stay on the recorded pin (P-217), the four volumes in the field, P-154 closed, and the next rebuild protocol |
-| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
+| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 (33 rules; ★29–★31 and ★35 absent) |
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-231 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
 | [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) | Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack |

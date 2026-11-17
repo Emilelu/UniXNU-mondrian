@@ -3,6 +3,7 @@
 > ## 开工前必读（环境事实全在下面这些文档里，不要问用户）
 >
 > **路径说明（2026-11-17）**：`docs/engineering/...` 指本仓库文档；只写 `docs/<name>.md` 的条目指 workspace 文档树 `E:/k60-work/docs/<name>.md`（`DATA-VOLUME-DEPLOY.md`、`PHK110-REFERENCE.md`、`YIBIYA-PICK.md`、`OFFICIAL-8STEPS.md`、`EIGHT-STEP-EVIDENCE.md` 尚未收入本仓库）。
+> **编号说明（2026-11-17）**：本文件共 33 条铁则，编号为 ★1–★37；★29、★30、★31、★35 在历史合并中不存在（并非漏页），引用时以实际标题为准。
 > **`docs/engineering/ENVIRONMENT.md`** — 手机序列号/ADB 切 fastboot/Mac SSH 凭据/WSL 网关/构建命令
 > **`docs/engineering/REPO-INVENTORY.md`** — 48 个本地 git 仓库清单
 > **`docs/engineering/LOCAL-ASSETS.md`** — 官方驱动源码/固件/反汇编产物索引

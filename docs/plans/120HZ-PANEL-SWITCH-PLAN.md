@@ -76,6 +76,12 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
    p120/vsync gates, the first-frame switch, the requested-refresh accessor,
    the INTF vsync_count update, and the pre-/post-switch and post-first-frame
    INTF1 observations are present.
+6. `scripts/check-120hz-log.py`: log-side judge for the pre-registered
+   criteria (first-frame switch, eleven packets rc 0, before 55–65/s,
+   after-UI TE 110–130/s, first frame, SpringBoard, sig=11, DCS failures,
+   backlight conformance/control). Its selftest carries the healthy, 120hz-3
+   failed, 12/s, missing-observation, missing-backlight, DCS-failure and
+   no-panel shapes.
 
 ## Boot-argument budget
 
@@ -148,10 +154,13 @@ matching the build manifest:
 2. The log contains `K60 PANEL: 120 Hz switch at the first GPU frame`
    followed by `K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0`.
 3. The log contains a `K60 PANEL: INTF1 after the UI frame te .../s` line
-   with TE and frame rates in the range 110–130 per second. The before-switch
-   line should be in the range 55–65 per second. The earlier `after the
-   switch` line is supporting evidence; the post-first-frame line is the
-   decisive one. A switch with no TE/rate evidence is INCONCLUSIVE, not PASS.
+   with the TE rate in the range 110–130 per second. `INTF_TEAR_INT_COUNT_VAL`
+   (0x298) high 16 bits is the tear/frame counter and is the panel rate; the
+   `frames .../s` value is `INTF_FRAME_COUNT` (0xac, DPU commits) and is
+   recorded separately because a static UI can show a low commit rate. The
+   before-switch TE line should be in the range 55–65 per second. The earlier
+   `after the switch` line is supporting evidence; the post-first-frame line
+   is the decisive one. A switch with no TE evidence is INCONCLUSIVE, not PASS.
 4. The log contains `K60 DISPLAY: first frame presented` at least once, at
    least 100 `SpringBoard` lines, and zero `sig=11` lines.
 5. No `K60 PANEL: DCS ... failed` line appears after the switch begins, and
@@ -172,9 +181,9 @@ built SHA-256.
    `scripts/check-image-args.py --image ... --board board.toml`.
 3. Only `fastboot boot`; never `fastboot flash`. Collect a 300 s USB log and
    preserve `boot.json`/`capture.json`.
-4. Judge with `scripts/check-panel-timing.py` and grep the captured
-   `console.log` for the four log lines above. Record the evidence directory,
-   SHA-256, line numbers, and the actual TE/frame counts.
+4. Judge with `scripts/check-panel-timing.py` (static) and
+   `scripts/check-120hz-log.py <console.log>` (capture). Record the evidence
+   directory, SHA-256, line numbers, and the actual TE/frame counts.
 
 ## Rollback
 

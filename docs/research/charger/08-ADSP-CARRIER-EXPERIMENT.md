@@ -197,3 +197,16 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
   本文原问题“SCM 是否放行 PAS”已被回答，carrier-20261117c 没有剩余上机价值，也不应合入 main。
 - 本线的 D1–D6 中只有 D5（ADC 兜底调研）保留参考价值；D1–D4 的 carrier 代码保留在本分支作离线证据，
   不作为生产路径。下一步以 Route A 镜像/分支为基线验证 charger/battery 行为，而不是再 boot c。
+
+### 8.1 Route A 电池判据复核（2026-11-17 11:25）
+
+- 判据命令：`python3 scripts/judge-battery.py --log /mnt/e/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log`；
+  输出 `battery-judge: FAIL (C1+C2+C3)`：C1 FAIL（`measured sign=0`，命中 0 次），
+  C2 PASS（`sample=4`：4379 mV / 397 mA / 100.00 % / 34.30 °C），C3 INVALID（未提供 Android 同窗口样本）。
+- 口径差异：`07-DEVICE-CRITERIA.md:52-56` 要求 `measured sign=±1`，且 C1 只能由带 `subscribed=1` 的 sample 行证明；
+  Route A 分支的 `K60Battmgr.c:147` 跳过 property 9（CURRENT_NOW）请求，`:216` 不再用 `charging_current_sign` 拒绝 sample，
+  `:243-249` 在电芯电流缺失时回退到 `K60BmUsbCurrent`，所以 sample 行存在，但 397 mA 是 USB 输入电流回退，不是电芯电流极性。
+- 结论：ADSP/PAS1 等待可以解除（owner stage 1-5 rc=0、PAS1 epoch=1）；电池步骤不能按 07 宣布通过，C3 仍缺 Android 样本；
+  `sample=6`、`sample=33` 还各出现一次 `no publication ... sign=0`，只能证明首帧，不能证明电池 UI 持续刷新。
+  需要 Lead 二选一：提供充/放电 wire capture 把 `charging_current_sign` 定为 ±1，或书面同意把 C1 的电流口径改为
+  “USB 输入电流回退”并登记为独立判据；本线不自行改判据。

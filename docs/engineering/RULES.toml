@@ -792,7 +792,7 @@ note = "被构建流程调用的测试不能在断言里依赖「当前检出就
 id = "P-230"
 kind = "pitfall"
 title = "判据缺输入时不许替换成默认镜像"
-check = "python3 scripts/tests/test-device-input-must-be-named.py"
+check = "python3 scripts/tests/test-device-input-must-be-named.py && python3 scripts/tests/test-porting-gate-kernel-path.py"
 
 [[rule]]
 id = "hard-41"

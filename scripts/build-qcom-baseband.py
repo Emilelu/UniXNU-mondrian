@@ -41,7 +41,7 @@ def normalise(arguments):
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--tree', type=Path, required=True)
+parser.add_argument('--tree', type=Path, default=ROOT)
 parser.add_argument('--coachz', action='store_true', help='include the SC7180 IPA v4.2 board adapter')
 args = parser.parse_args()
 tree = args.tree.resolve()

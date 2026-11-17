@@ -152,7 +152,7 @@ static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
     uint32_t length, uint32_t ip_version);
 static unsigned k60_modem_data_drops;
 
-#define K60_QRTR_REPLY_MAX 8u
+#define K60_QRTR_REPLY_MAX 32u
 struct K60QrtrReply {
 	uint32_t from_port, node, port, length;
 	uint8_t data[K60_QRTR_MAX_PACKET];

@@ -1085,8 +1085,12 @@ k60_ipa_runtime_start(volatile uint8_t *gsi, volatile uint8_t *ipa)
     int enabled = 0;
     int rc;
 
-    if (!PE_parse_boot_argn("pong_ipa_m2", &enabled, sizeof(enabled)) ||
-        enabled == 0) {
+    /* Value 1 runs the M1 firmware/PAS path only; value 2 additionally
+     * enables the M2 runtime. The extra level keeps the shared 608-byte
+     * boot-argument budget intact. */
+    if (!PE_parse_boot_argn("pong_ipa", &enabled, sizeof(enabled)) ||
+        enabled < 2) {
+        printf("K60IPA M2 runtime gated pong_ipa=%d\n", enabled);
         return K60IpaOk;
     }
     if (gsi == 0 || ipa == 0) {
@@ -1252,8 +1256,8 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
         }
         rc = k60_ipa_runtime_start((volatile uint8_t *)(uintptr_t)gsi_map,
             (volatile uint8_t *)cfg);
-        printf("K60IPA M2 runtime ready=%d\n", rc == K60IpaOk);
         if (rc != K60IpaOk) {
+            printf("K60IPA M2 runtime failed rc=%d\n", rc);
             return rc;
         }
     }

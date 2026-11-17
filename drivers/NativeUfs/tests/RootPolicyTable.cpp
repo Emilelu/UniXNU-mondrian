@@ -21,9 +21,13 @@ struct Ops {
   uint64_t firstLba;
   unsigned reads = 0;
   bool read4k (uint64_t lba, uint32_t blocks, void *dst) {
-    if (blocks != 1 || lba != firstLba) return false;
+    if (blocks != 1 || lba < firstLba) return false;
+    const uint64_t offset = (lba - firstLba) * VR_BLOCK_BYTES;
+    if (offset >= table.size ()) return false;
     std::memset (dst, 0, VR_BLOCK_BYTES);
-    std::memcpy (dst, table.data (), table.size ());
+    const size_t remain = table.size () - static_cast<size_t> (offset);
+    const size_t take = remain < VR_BLOCK_BYTES ? remain : VR_BLOCK_BYTES;
+    std::memcpy (dst, table.data () + offset, take);
     ++reads;
     return true;
   }
@@ -130,6 +134,17 @@ int main (int argc, char **argv) {
     }
     loaded[0] ^= 0x80;
     assert (vr_verify_block (&view, 0, image.data (), 4096, &vr_openssl_crypto) == VR_BLOCK);
+  }
+
+  // A table that is not page-aligned advances by the bytes actually copied.
+  // The old fixed 4 KiB increment would wrap its counter near UINT64_MAX.
+  {
+    std::vector<uint8_t> bytes (VR_BLOCK_BYTES * 2 + 17);
+    for (size_t i = 0; i < bytes.size (); ++i) bytes[i] = static_cast<uint8_t> (i * 7 + 3);
+    Ops multi {bytes, firstLba};
+    std::vector<uint8_t> loaded (bytes.size ());
+    assert (rootPolicyReadTable (multi, firstLba, loaded.data (), loaded.size ()));
+    assert (multi.reads == 3 && loaded == bytes);
   }
 
   // Wrong anchor, wrong table, missing window and a truncated header are refused.

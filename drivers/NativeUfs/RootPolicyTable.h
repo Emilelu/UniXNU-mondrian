@@ -80,11 +80,13 @@ template <typename Ops>
 static bool rootPolicyReadTable (Ops &ops, uint64_t firstLba, uint8_t *table, uint64_t tableBytes)
 {
   if (!table || !tableBytes) return false;
-  for (uint64_t done = 0; done < tableBytes; done += VR_BLOCK_BYTES) {
+  uint64_t done = 0;
+  while (done < tableBytes) {
     uint8_t page[VR_BLOCK_BYTES];
     if (!ops.read4k (firstLba + done / VR_BLOCK_BYTES, 1, page)) return false;
     const uint64_t take = tableBytes - done < VR_BLOCK_BYTES ? tableBytes - done : VR_BLOCK_BYTES;
     memcpy (table + done, page, static_cast<size_t> (take));
+    done += take;
   }
   return true;
 }

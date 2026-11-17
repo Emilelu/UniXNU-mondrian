@@ -227,7 +227,7 @@ limits = [
   "Android's qrtr-lookup writes its table to /data/vendor/qrtr/qrtr-lookup.txt and prints only the header row to stdout, so its output must be read from that file; the earlier reading of the empty stdout as a failed enumerator was a tool-usage error, corrected on 2026-11-14.",
 ]
 next_action = [
-  "The carrier is staged through the firmware DXE path (27 modem streams, 109,060,761 bytes declared, K60ModemImage placeholder in the ADT). Two rebuilt candidates in docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md (2026-11-17 10:40, review and B-2 fixes in 6a02c710) await Lead authorization: fly C (pong_modem=3, metadata-only) then B (pong_modem=2, full) only after that authorization.",
+  "The carrier is staged through the firmware DXE path (27 modem streams, 109,060,761 bytes declared, K60ModemImage placeholder in the ADT). Two rebuilt candidates in docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md (2026-11-17 10:40, review and B-2 fixes in 6a02c710) are code-level review approved but await Lead authorization: fly C (pong_modem=3, metadata-only) then B (pong_modem=2, full) only after that authorization.",
   "The acceptance test is a node-0 reply to the QRTR_TYPE_NEW_LOOKUP whose service id falls in {21, 1, 11, 3, 16}; the probe prints that as K60MODEM qrtr: verdict ok services=N node0=M wanted=K, and the Android-side baseline to compare against is 37 rows on node 0 in docs/research/cellular/08-QRTR-SERVICES.md.",
 ]
 evidence = [

@@ -158,6 +158,7 @@ sha256 `4E8DA23012D88D5C3C01992B0286F1D0BBBA7D83980E0EDE3AAEDB3D95BBEA96`。
 - 2026-11-17 review 的 B 阻塞项已修复并进入 `6a02c710`：TCS4 等待前写入 `1u<<16` 触发位；
   `k60_modem_wait_word` 每次迭代 `delay(10)`，QMP 握手/load_state 等待 1 s，TCS 等待 10 ms；
   QRTR probe 先只要求 AP-owned 478/479，再在 10 s 内轮询 modem-owned 480/435；只有 480 与 435 都出现才退出轮询，stale FIFO 返回 -1。
+- 2026-11-17 复核结论：C 与 B 均通过 code-level review；仍不是飞行许可，必须等 Lead 授权。
 - kernel.macho 内可见 `K60MODEM power ok`、`power prepared`、`init_image ok`、`transport ok`、
   `transport prepared`、`glink: IPCRTR opened as initiator`、`mem_setup ok`、`auth_reset ok` 与
   `diagnostic stop after mem_setup` 字符串。

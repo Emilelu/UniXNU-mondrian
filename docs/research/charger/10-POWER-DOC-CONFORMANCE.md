@@ -18,7 +18,7 @@ IOPMPowerSource 子类、工作循环、三个定时器、首帧后才注册、�
 首帧 `:530` 发布 SOC=91.00%、4292mV、397mA、35.30°C；`:530`–`:3470` 连续 14 条完整
 `physical source …` 样本证明持久刷新。缺失电池首帧也会发布 `K60BatteryFailedFields`/`K60Raw*` 并注册服务（commit `592523aa`，在 image c 之后，尚未进入镜像）。C3 仍需匹配热/电状态的 Android 同窗口基线：用 route-c
 冷战基线（28.3°C）判 FAIL，只差温度 +7°C；用 01:28 暖基线判 FAIL，差电压/电流。真机插拔/充放电
-脚本化验证、服务重启的 IOKit 级验证仍待完成。
+脚本化验证仍待完成；服务重启生命周期复位已补（`6750c7bd`），IOKit 级验证仍待完成。
 
 ## 1. §4 开头：参考实现的选择（官网 :69-74）
 
@@ -26,7 +26,7 @@ IOPMPowerSource 子类、工作循环、三个定时器、首帧后才注册、�
 | --- | --- | --- |
 | `ShengBattmgr.h` / `ShengBattmgr.c` | 请求/响应格式、刷新状态机、单位转换 | `drivers/PongPower/K60Battmgr.h`、`K60Battmgr.c`；协议字段来自 m81.ko 反编译，见 `docs/research/charger/02-GLINK-CONTRACT.md`、`04-PROP-MAP.md` |
 | `ShengBattery.cpp` | IOPMPowerSource 属性、工作循环、计时器、通知 | `drivers/PongPower/K60Battery.cpp` |
-| `BatteryProbe.cpp` | 类注册与服务启动 | `K60Battery.cpp:487` `k60_physical_battery_start()`，由 `patches/xnu/0602-k60-physical-battery.patch` 在 `IOService::publishResource("IOBSD")` 后调用 |
+| `BatteryProbe.cpp` | 类注册与服务启动 | `K60Battery.cpp:496` `k60_physical_battery_start()`，由 `patches/xnu/0602-k60-physical-battery.patch` 在 `IOService::publishResource("IOBSD")` 后调用 |
 | XNU `IOPMPowerSource.h` | 属性设置与状态发布 API | 继承 `IOPMPowerSource`（`K60Battery.cpp:46`），使用 `setPSProperty` / `updateStatus` / `registerService` |
 | Linux `qcom_battmgr.c` | Qualcomm 协议变体与属性处理 | 只作为协议对照；K60 的 owner=32778、opcode/property 映射以本机 m81.ko 为准（`K60Battmgr.c:23-30`） |
 
@@ -131,14 +131,15 @@ Route-c 真机行的 `measured sign=-1`（`console.log:401`）与充电中 `curr
 
 ## 4. §4 第三段：IOPMPowerSource、工作循环、响应队列、计时器（官网 :77）
 
-- 类声明：`class K60Battery : public IOPMPowerSource`（`K60Battery.cpp:46`），`begin()` 先调
-  `IOPMPowerSource::start(provider)`（`:420`）。
-- 工作循环：`IOWorkLoop::workLoop()`（`:424`）；所有 GLINK 回调、定时器动作都在该 loop 上执行。
+- 类声明：`class K60Battery : public IOPMPowerSource`（`K60Battery.cpp:46`）。`begin()` 在
+  `:420-428` 重置 `stopped`/`published`/`up`/`waitingSince`/`lastRefreshLog`/`publishFailed`，再调
+  `IOPMPowerSource::start(provider)`（`:429`）；同一对象 stop/start 不会因旧状态保持静默。
+- 工作循环：`IOWorkLoop::workLoop()`（`:433`）；所有 GLINK 回调、定时器动作都在该 loop 上执行。
 - 响应队列：GLINK 的 `receive` 回调只把数据交给 `k60_battmgr_receive()`，不在回调里发下一笔；
   `K60Battery.cpp:370-371` 注释明确要求先把 RX_DONE 放回 FIFO，再由 `pollAction` 的 `pump()` 发送。
 - 计时器：`pollTimer`（20 ms，`kPollMs`）、`requestTimer`（3000 ms，`kRequestMs`）、
-  `refreshTimer`（5000 ms，`kRefreshMs`）均在 `:425-427` 创建、`:429-434` 加入 loop；
-  `shutdownAction` 在 `:444-453` 取消三个定时器并关闭 transport。
+  `refreshTimer`（5000 ms，`kRefreshMs`）均在 `:434-436` 创建、`:438-443` 加入 loop；
+  `shutdownAction` 在 `:453-462` 取消三个定时器并关闭 transport。
 - 解码器只在快照完整后更新属性：`receive()` 收到 `K60BmCycleDone` 才调用 `k60_battmgr_sample()`，
   成功才 `publish()`（`:355-359`）。
 
@@ -205,7 +206,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:155-183`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，IOKit 级 absent 注册未上真机 |
 | 插拔电源 | 未验证 | 需要人工插拔并在同一次 usblog 里看 `external`/`charging`/`usb_online` 的变化；本轮未做 |
 | 充放电 | 未验证 | Android 侧 sample 为充电中（status=2、current=0），XNU 侧 status=1；放电段未采样 |
-| 服务重启 | host 部分验证 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；IOKit 级 stop/start 未在真机执行 |
+| 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:420-428` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`），IOKit 级 stop/start 未在真机执行 |
 | 与 OEM/目标电量计逐项对照 | 部分/当前 FAIL | image c C1/C2 PASS；C3 用冷战基线只差温度 +7°C，用暖基线差电压/电流，尚未得到匹配热/电状态的 ≥3 对真实 Android 样本 |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
@@ -271,7 +272,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 - 本驱动只发布测量值，不写充电器、不改电流限制、不做 PD/PPS 认证；固件继续拥有充电控制
   （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
-  1. 带本轮 conformance 改动的 battery-only 镜像已构建（`E:/k60-work/artifacts/power-conformance-20261118c/boot.img`，sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`）并于 2026-11-18 01:21 上机；§7.4 是 image c 实测，§7.3 是改动前的 route-c 对照。image c 构建于 `592523aa` 之前，未包含缺失电池首帧修复；后续镜像需重建。
-  2. 真机插拔、放电、服务重启三项未执行。
+  1. 带本轮 conformance 改动的 battery-only 镜像已构建（`E:/k60-work/artifacts/power-conformance-20261118c/boot.img`，sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`）并于 2026-11-18 01:21 上机；§7.4 是 image c 实测，§7.3 是改动前的 route-c 对照。image c 构建于 `592523aa` 和 `6750c7bd` 之前，未包含缺失电池首帧修复与服务重启生命周期复位；后续镜像需重建。
+  2. 真机插拔、放电未执行；服务重启的代码路径已补（`6750c7bd`），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同窗口样本；image c 已有 14 条完整 XNU sample，缺的是同窗口、同温度/电压/电流量级的真实 Android 基线。
   4. `K60Raw*` 属性已发布但尚未被 `K60BatterySmoke` 读取验证（可扩展该工具）；缺失电池首帧注册也尚未在真机验证。

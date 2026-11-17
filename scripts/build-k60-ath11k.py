@@ -358,6 +358,7 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\t\t\t\t\t\tenum mhi_ee_type mission = mhi_get_exec_env(mhi_cntrl);\n'
          '\t\t\t\t\t\tif (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {\n'
          '\t\t\t\t\t\t\tmhi_cntrl->ee = mission;\n'
+         '\t\t\t\t\t\t\twake_up_all(&mhi_cntrl->state_event);\n'
          '\t\t\t\t\t\t\tdev_info(dev, "Pong MHI: exec_env=%d after AMSS download; cached ee updated\\n", (int)mission);\n'
          '\t\t\t\t\t\t\tbreak;\n'
          '\t\t\t\t\t\t}\n'

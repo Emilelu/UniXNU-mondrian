@@ -76,6 +76,8 @@ def main() -> int:
           "if (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {" in text)
     check("mission poll caches the new execution environment",
           "mhi_cntrl->ee = mission;" in text)
+    check("mission poll wakes the power-up waiter",
+          "wake_up_all(&mhi_cntrl->state_event);" in text)
     check("mission poll logs the cached EE",
           "exec_env=%d after AMSS download; cached ee updated" in text)
 

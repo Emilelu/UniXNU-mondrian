@@ -293,4 +293,4 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118d/boot.img`（sha256 `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`）已于 2026-11-18 02:42 构建，包含 `592523aa`/`6750c7bd`，尚未上机。§7.4 是上一版 image c 的实测（image c 构建于这两个提交之前），§7.3 是改动前 route-c 对照；image d 上机后需补同格式实测。
   2. 真机插拔、放电未执行；服务重启的代码路径已补（`6750c7bd`），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同窗口样本；image c 已有 14 条完整 XNU sample，缺的是同窗口、同温度/电压/电流量级的真实 Android 基线。
-  4. `K60Raw*` 属性已发布但尚未被 `K60BatterySmoke` 读取验证（可扩展该工具）；缺失电池首帧注册也尚未在真机验证。
+  4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`），同时打印 raw 电流；缺失电池首帧注册尚未在真机验证。

@@ -7,8 +7,8 @@ diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
  		}
 +	}
 +	/* 0617: place the PongAudio HAL bundle in the empty-hal bind source.
-+	 * init binds that directory over the sealed HAL search path before
-+	 * mediaserverd scans it, so the plugin must exist by then. */
++	 * The kernel mounts that directory over the sealed HAL search path before
++	 * mediaserverd scans it; init's own bindfs view is refused before AMFI. */
 +	{
 +		extern int k60_audio_hal_deploy(proc_t, user_addr_t);
 +
@@ -42,16 +42,17 @@ diff --git a/bsd/dev/k60_audio_hal.c b/bsd/dev/k60_audio_hal.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/k60_audio_hal.c
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,240 @@
 +/*
 + * 0617: deploy the PongAudio AudioServerPlugIn onto the Data volume.
 + *
 + * AudioServerPlugIn discovery is rooted in /System/Library/Audio/Plug-Ins/HAL,
-+ * a directory on the sealed read-only system volume.  init already bind-mounts
++ * a directory on the sealed read-only system volume.  init's bind mount of
 + * /private/var/pong/empty-hal over that directory (0398 creates the source and
-+ * keeps it root-owned), so writing the bundle into the bind source makes it
-+ * visible to mediaserverd without touching the sealed volume and without a
-+ * second copy in /Library.
++ * keeps it root-owned) is refused with EPERM because init runs before AMFI.
++ * This driver mounts the same source itself after the Data mount, before
++ * launchd starts, so mediaserverd sees the bundle without touching the
++ * sealed volume and without a second copy in /Library.
 + *
 + * The bytes travel inside kernel.macho as a flat table produced by
 + * scripts/gen-k60-audio-hal-blob.py:
@@ -72,6 +73,7 @@ new file mode 100644
 +#include <sys/systm.h>
 +#include <sys/proc.h>
 +#include <sys/namei.h>
++#include <sys/mount.h>
 +#include <sys/sysproto.h>
 +#include <pexpert/pexpert.h>
 +
@@ -133,6 +135,45 @@ new file mode 100644
 +	error = mkdir(p, &args, &ret);
 +	if (error == EEXIST) {
 +		return 0;
++	}
++	return error;
++}
++
++extern volatile int native_bindfs_boot_mount;
++
++static int
++k60_audio_hal_mount(proc_t p, user_addr_t scratch)
++{
++	struct mount_args request;
++	static const char point[] = "/System/Library/Audio/Plug-Ins/HAL";
++	int32_t result = 0;
++	vnode_t probe = NULLVP;
++	int error;
++
++	request.type = scratch + 0xC00;
++	request.path = scratch + 0xC20;
++	request.flags = MNT_RDONLY | MNT_UNION;
++	request.data = scratch + 0xD00;
++	if ((error = copyout("bindfs", request.type, 7)) != 0 ||
++	    (error = copyout(point, request.path, sizeof(point))) != 0 ||
++	    (error = copyout(K60_AUDIO_HAL_ROOT, request.data, sizeof(K60_AUDIO_HAL_ROOT))) != 0) {
++		printf("K60AUDIOHAL mount copy error=%d\n", error);
++		return error;
++	}
++	native_bindfs_boot_mount = 1;
++	error = mount(p, &request, &result);
++	native_bindfs_boot_mount = 0;
++	if (error) {
++		printf("K60AUDIOHAL mount point=%s error=%d result=%d\n", point, error, result);
++		return error;
++	}
++	error = vnode_lookup("/System/Library/Audio/Plug-Ins/HAL/PongAudio.driver/Info.plist",
++	    0, &probe, vfs_context_current());
++	if (!error) {
++		vnode_put(probe);
++		printf("K60AUDIOHAL mount point=%s files=2/2 error=0\n", point);
++	} else {
++		printf("K60AUDIOHAL mount point=%s lookup error=%d\n", point, error);
 +	}
 +	return error;
 +}
@@ -237,5 +278,8 @@ new file mode 100644
 +	}
 +
 +	printf("K60AUDIOHAL deploy files=%u/%u error=%d\n", written, count, error);
++	if (!error) {
++		(void) k60_audio_hal_mount(p, scratch);
++	}
 +	return error;
 +}

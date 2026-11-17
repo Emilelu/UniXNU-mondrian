@@ -217,3 +217,10 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
 - 实际 K60 的 property 9 不回答：`E:/k60-work/evidence/route-a/usblog-boot-20261117-0620-intentid/console.log:554` 与 `E:/k60-work/evidence/route-a/usblog-boot-20261117-0630-battrx/console.log:692` 都是 `K60Battery: physical PMIC request timeout op=30 property=9 ... quarantining old channel`；Route A 代码因此 `K60Battmgr.c:147` 跳过该字段，`scripts/tests/test-k60-charger-subscription.c:128` 断言 `CURRENT_NOW property 9 is skipped`。
 - `qualification()` 只有在两份 capture 都成功时才把 sign 设为 ±1（`:223-236`），否则保持 0（`K60BatteryConfig.h:45`）。因此任何诚实的 K60 构建都只能得到 `measured sign=0`，07 C1 的 `measured sign=±1` 永远不会成立。
 - 结论：A 选项不是缺一份 wire capture，而是在本机不可实现。建议 Lead 批准 B：把 C1 的电流口径改为“USB 输入电流回退”，并在 sample 行增加 `current-source=usb` 作为独立证据字段；本线可在批准后提交 judge/文档/日志字段补丁，不自行改判据。
+
+### 8.3 Route A 电池刷新：一个已知行为缺口（2026-11-17 12:30）
+
+- `K60Battmgr.c:163` 在收到 type 2 / opcode 7 通知时置 `sample_dirty=1`；该标志只在 `begin_cycle()`（`:46`）清除，而 `k60_battmgr_sample()` 在 `:216` 遇到它非零就直接返回 0。`K60Battery.cpp:298-303` 先调用 sample，再检查 `refresh_due`，所以**在周期进行中到达的通知会让该周期完成后的 sample 被丢弃**，然后才启动额外一轮。
+- 这正是 `E:/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:665-666` 的形态：先 `hardware sample unavailable (incomplete/unqualified sample)`，随后 `no publication sample=6 fresh=7ffef errors=0 sign=0 raw-current=0 raw-temp=3430`。`fresh=7ffef` 说明除 current 外的字段都已完成；缺的不是数据，而是采样窗口内的通知撞上了周期。
+- 这不证明电池 UI 永久停更：`K60Battery.cpp:207-214` 只在首帧或 external/charging/full/capacity 变化时打印 sample，成功但值不变的刷新是静默的。它证明的是一条已完成的 sample 可能被丢掉；若通知每个周期都来，刷新会被反复推迟。
+- 建议的 instrumentation-only 补丁（不改 07 判据，待 Lead 决定 B 后落地）：`K60BatterySample` 增加 `current_source`（none/cell/usb），在 `k60_battmgr_sample()` 的电芯分支与 USB 回退分支分别置值；sample 行打印 `current-source=%s`；`no publication` 行补 `status=%d dirty=%d refresh=%d notifications=%u valid=%x`；`finish_field()` 在周期完成时把 `sample_dirty` 清 0 并保留 `refresh_due`，避免丢弃已完成周期；`scripts/tests/test-k60-charger-subscription.c` 增加“周期中通知不得丢掉完成 sample”的 host 用例。

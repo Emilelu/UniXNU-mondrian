@@ -2,22 +2,22 @@
 
 > 唯一文档入口。目标：新接手的人 5 分钟内知道**先读什么、文档在哪、哪些已过时**。
 >
-> 最后更新：2026-11-16。本索引由 `scripts/check-docs.py` 校验：文中每个相对链接
+> 最后更新：2026-11-17。本索引由 `scripts/check-docs.py` 校验：文中每个相对链接
 > 必须指向真实存在的文件。最近一次全量疏漏审计见
 > [`audits/PORTING-GAP-AUDIT-2026-11-16.md`](audits/PORTING-GAP-AUDIT-2026-11-16.md)。
 
 ---
 
-## 0. 先读这五份
+## 0. 先读这六份
 
 | 顺序 | 文档 | 为什么先读 |
 |---|---|---|
 | 1 | [`../README.md`](../README.md) / [`../README_EN.md`](../README_EN.md) | 设备身份、八步进度、仓库结构、构建入口 |
-| 0 | [`engineering/REPO-MAP.md`](engineering/REPO-MAP.md) | **仓库与目录登记表**：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
-| 2 | [`engineering/STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细与变更记录 |
-| 3 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
-| 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，从踩过的坑提炼的可执行规则 |
-| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-231，每条含症状/根因/判据/教训 |
+| 2 | [`engineering/REPO-MAP.md`](engineering/REPO-MAP.md) | **仓库与目录登记表**：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
+| 3 | [`engineering/STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细与变更记录 |
+| 4 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
+| 5 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，从踩过的坑提炼的可执行规则 |
+| 6 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-231，每条含症状/根因/判据/教训 |
 
 **要做触摸/GPU 之前，额外读：**
 - [`research/EIGHT-STEPS.toml`](research/EIGHT-STEPS.toml) — 该硬件的八步证据，⑦ 未通过不得刷机
@@ -151,7 +151,7 @@ docs/
 | `plans/K60-TOUCH-PARAMS.md` | K60 Goodix / GENI-SPI 触摸参数表 |
 | `plans/120HZ-PORT-PLAN.md` | 120Hz 移植方案 |
 | [`plans/WIFI-REBUILD-CHECKLIST.md`](plans/WIFI-REBUILD-CHECKLIST.md) | **WiFi 对照镜像重出核对清单**：从 origin/main 按 4.5 GiB 窗口重出，对照 mhi3/mhi4 逐字段；五条硬差异（0010 装配路径、当时的 series 224 vs 229、`.config` 开关、buttons 节点、freeze 盲区）；series 现为 227，清单需按当前树复核 |
-| [`plans/SHENGUFS-VERIFIED-TABLE-PORT.md`](plans/SHENGUFS-VERIFIED-TABLE-PORT.md) | **ShengUfs 验证表/根发布层移植草案**：3 个头文件 + 3 个测试的只读搬运、接线点与三步落地（未改代码） |
+| [`plans/SHENGUFS-VERIFIED-TABLE-PORT.md`](plans/SHENGUFS-VERIFIED-TABLE-PORT.md) | **ShengUfs 验证表/根发布层移植记录**：3 个头文件 + 3 个测试的只读搬运、接线点与三步落地；步骤 1–3b 已在 `k60-ufs-verified:feat/ufs-verified-table` 实现（`NATIVE_VERIFIED_BLOCK` 默认关闭，未合 main） |
 | 其余 | 见目录 |
 
 ---

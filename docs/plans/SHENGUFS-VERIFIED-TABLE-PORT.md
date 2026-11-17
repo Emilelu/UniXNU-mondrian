@@ -1,8 +1,9 @@
 # ShengUfs 验证表与根发布层的移植草案（2026-11-17）
 
-> 状态：只读审计产出，未改任何代码。来源 `references/ShengUfs@9d527ae`（本地参考树），
-> 许可证 `BSD-2-Clause-Patent`（每个文件头 SPDX 已写明）。
-> 目标代码树：`drivers/NativeUfs`。合并这条线必须另开 `feat/ufs-verified-table`，不要进 `docs/porting-gap-audit`。
+> 状态：设计草案 + 执行记录。本文初稿是只读审计产出，未改任何代码；2026-11-17 的实现已在
+> `k60-ufs-verified:feat/ufs-verified-table` 落地（步骤 1 / 1.5 / 2a / 2b / 3a / 3b，`NATIVE_VERIFIED_BLOCK` 默认关闭，未合 main）。
+> 来源 `references/ShengUfs@9d527ae`（本地参考树），许可证 `BSD-2-Clause-Patent`（每个文件头 SPDX 已写明）。
+> 目标代码树：`drivers/NativeUfs`；实现分支已单独拉出，未进 `docs/porting-gap-audit`。
 
 ## 0. 为什么要它
 

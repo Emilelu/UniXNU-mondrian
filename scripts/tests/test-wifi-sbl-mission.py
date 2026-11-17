@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Pin the official BHI_EXECENV/SBL direct-push path in the K60 MHI builder.
+"""Pin the official BHI_EXECENV/SBL direct-push and mission-poll path.
 
 Why this test exists: c7 reaches MHI READY with ee=0 and exec_env=1 (SBL) but
 never receives an EE event. The official MhiBoot.c polls BHI_EXECENV and sends
 the BHIe image when it reads SBL. The first K60 attempt queued
-DEV_ST_TRANSITION_SBL; the queued worker ran only during the power-up timeout
-teardown, when registers were no longer valid, and returned -EIO. This test pins
-the successor: a direct mhi_download_amss_image() call in the same worker pass
-after BHI_STATUS success, with a one-shot latch and bounded polling.
+DEV_ST_TRANSITION_SBL and failed during teardown. The direct successor proves
+the BHIe transfer works, but the host keeps cached ee=1 while the device is
+already AMSS/M0. This test pins the next single-variable step: poll
+BHI_EXECENV after the direct AMSS download and cache AMSS/WFW before
+mhi_sync_power_up resumes.
 
-Run: python3 scripts/tests/test-wifi-sbl-direct.py
+Run: python3 scripts/tests/test-wifi-sbl-mission.py
 """
 from __future__ import annotations
 
@@ -52,8 +53,8 @@ def main() -> int:
     check("SBL stops on BHI_STATUS error",
           "if (status == BHI_STATUS_ERROR) {" in text)
     check("SBL calls the AMSS download exactly once in the boot path",
-          text.count("(void)mhi_download_amss_image(mhi_cntrl);") == 1,
-          "count=%d" % text.count("(void)mhi_download_amss_image(mhi_cntrl);"))
+          text.count("amss_ret = mhi_download_amss_image(mhi_cntrl);") == 1,
+          "count=%d" % text.count("amss_ret = mhi_download_amss_image(mhi_cntrl);"))
     check("SBL no longer queues the stock transition",
           "mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);" not in text)
     check("pm SBL handler has a one-shot latch",
@@ -62,12 +63,27 @@ def main() -> int:
     check("BHIE wait keeps the transfer status and sequence for the log",
           "u32 tx_status = 0, sequence_id;" in text and
           "Pong MHI: bhie tx_status=%#x seq=%#x expected=%#x ret=%d" in text)
+    check("mission poll declares its own counters",
+          "int i, j, amss_ret;" in text)
+    check("mission poll runs only after a successful AMSS load",
+          "amss_ret = mhi_download_amss_image(mhi_cntrl);" in text and
+          "if (!amss_ret) {" in text)
+    check("mission poll is bounded to 500 samples",
+          "for (j = 0; j < 500; j++) {" in text)
+    check("mission poll reads BHI_EXECENV",
+          "enum mhi_ee_type mission = mhi_get_exec_env(mhi_cntrl);" in text)
+    check("mission poll accepts AMSS or WFW",
+          "if (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {" in text)
+    check("mission poll caches the new execution environment",
+          "mhi_cntrl->ee = mission;" in text)
+    check("mission poll logs the cached EE",
+          "exec_env=%d after AMSS download; cached ee updated" in text)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors
     # above are the source of truth, and the generated files are a projection.
     build = pathlib.Path(os.environ.get("K60_SBL_BUILD_DIR",
-                                        "E:/k60-work/build/wifi-sbl-direct"))
+                                        "E:/k60-work/build/wifi-sbl-mission"))
     boot = build / "mhi" / "boot.c"
     pm = build / "mhi" / "pm.c"
     header = build / "pinned" / "linux" / "mhi.h"
@@ -79,8 +95,12 @@ def main() -> int:
               "BHI_STATUS=%#x; pushing the AMSS image" in btext and
               "status = bhi >> 30;" in btext and
               "if (status != BHI_STATUS_SUCCESS) {" in btext and
-              "(void)mhi_download_amss_image(mhi_cntrl);" in btext and
+              "amss_ret = mhi_download_amss_image(mhi_cntrl);" in btext and
               "mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);" not in btext)
+        check("generated boot.c has the mission poll",
+              "for (j = 0; j < 500; j++) {" in btext and
+              "if (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {" in btext and
+              "mhi_cntrl->ee = mission;" in btext)
         check("generated boot.c logs the BHIE transfer status",
               "bhie tx_status=%#x seq=%#x expected=%#x ret=%d" in btext)
         check("generated pm.c keeps the latch",

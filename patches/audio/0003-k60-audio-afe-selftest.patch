@@ -1,15 +1,17 @@
 --- a/bsd/dev/pong_audio.c
 +++ b/bsd/dev/pong_audio.c
-@@ -43,6 +43,8 @@
+@@ -43,6 +43,10 @@
  #include <stdbool.h>
  #include <stdint.h>
  #include <string.h>
++#include <pexpert/device_tree.h>
 +#include "PongAudioAfe.h"
 +#include "K60PmicGlinkAudio.h"
++#include "PongAudioRing.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void thread_terminate_self(void);
-@@ -816,6 +818,14 @@
+@@ -816,6 +820,20 @@
  	uint32_t graph_state;
  	bool mapped;
  	bool service_ready;
@@ -21,13 +23,84 @@
 +	unsigned afe_retry;
 +	uint32_t gpr_token;
 +	uint32_t afe_token;
++	vm_offset_t dma_va;
++	PongRing ring;
++	uint8_t ring_storage[PONG_RING_RING_BYTES];
++	bool ring_ready;
++	uint64_t ring_frames;
++	uint64_t ring_dropped;
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -859,6 +869,148 @@
+@@ -858,6 +876,212 @@
+ int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
- static void
++static uint64_t
++pong_audio_le64(const uint8_t *bytes)
++{
++	uint64_t value = 0;
++	for (unsigned i = 0; i < 8; i++) {
++		value |= (uint64_t)bytes[i] << (8u * i);
++	}
++	return value;
++}
++
++static bool
++pong_audio_dma_lease(void)
++{
++	DTEntry chosen;
++	void const *property = NULL;
++	unsigned int size = 0;
++	uint64_t pa = 0;
++	uint64_t bytes = 0;
++
++	if (g_pong_audio.dma_pa != 0) {
++		return true;
++	}
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
++	    SecureDTGetProperty(chosen, "pong-audio-dma", &property, &size) != kSuccess ||
++	    size != 16u) {
++		printf("PongAudio: low DMA unavailable: %s\n",
++		    pong_audio_error_name(PongAudioErrNoHandoff));
++		return false;
++	}
++	const uint8_t *value = (const uint8_t *)property;
++	pa = pong_audio_le64(value);
++	bytes = pong_audio_le64(value + 8);
++	if (bytes != PONG_AUDIO_DMA_BYTES || (pa & 0xfffu) != 0u ||
++	    pa > 0x100000000ULL - bytes) {
++		printf("PongAudio: low DMA invalid pa=0x%llx size=0x%llx: %s\n",
++		    (unsigned long long)pa, (unsigned long long)bytes,
++		    pong_audio_error_name(PongAudioErrNoHandoff));
++		return false;
++	}
++	vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
++	if (va == 0) {
++		printf("PongAudio: low DMA map failed pa=0x%llx size=0x%llx: %s\n",
++		    (unsigned long long)pa, (unsigned long long)bytes,
++		    pong_audio_error_name(PongAudioErrNoHandoff));
++		return false;
++	}
++	g_pong_audio.dma_pa = pa;
++	g_pong_audio.dma_size = (uint32_t)bytes;
++	g_pong_audio.dma_va = va;
++	printf("PongAudio: low DMA lease pa=0x%llx size=0x%x\n",
++	    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
++	return true;
++}
++
++static void
++pong_audio_ring_reset(void)
++{
++	pong_ring_queue_init(&g_pong_audio.ring, g_pong_audio.ring_storage,
++	    PONG_RING_FRAMES);
++	g_pong_audio.ring_ready = true;
++	g_pong_audio.ring_frames = 0;
++	g_pong_audio.ring_dropped = 0;
++}
++
++static void
 +pong_audio_afe_selftest(void)
 +{
 +	uint8_t pkt[PONG_AFE_PRM_CLOCK_BYTES];
@@ -169,14 +242,19 @@
 +	}
 +}
 +
-+static void
+ static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
- 	(void)pong_audio_start();
-@@ -896,6 +1048,26 @@
+@@ -896,6 +1120,32 @@
  	if (!pong_audio_map()) {
  		return -1;
  	}
++	if (!pong_audio_dma_lease()) {
++		g_pong_audio.last_error = PongAudioErrNoHandoff;
++		g_pong_audio.refusal_printed = true;
++		return -1;
++	}
++	pong_audio_ring_reset();
 +	pong_audio_afe_selftest();
 +	const K60PmicGlinkAudioClient link_client = {
 +	    pong_audio_glink_state, pong_audio_glink_receive
@@ -200,7 +278,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,6 +1079,14 @@
+@@ -907,23 +1157,69 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -212,10 +290,52 @@
 +	g_pong_audio.afe_retry = 0;
 +	g_pong_audio.afe_token = 0;
 +	g_pong_audio.gpr_token = 0;
++	g_pong_audio.ring_ready = false;
++	g_pong_audio.ring_frames = 0;
++	g_pong_audio.ring_dropped = 0;
  	return 0;
  }
  
-@@ -923,7 +1103,17 @@
+ int
+ pong_audio_submit(const void *frames, uint32_t frame_count)
+ {
+-	(void)frames;
+-	(void)frame_count;
+-	/* TODO(k60): connect to PongAudio.cpp:285-327 submit() and the
+-	 * AudioReach AR_OP_WRITE path once the graph is open. */
+-	return ENOTSUP;
++	if (frames == NULL || frame_count == 0u) {
++		return PongAudioErrBadRequest;
++	}
++	if (!g_pong_audio.service_ready) {
++		return g_pong_audio.last_error ? g_pong_audio.last_error :
++		    PongAudioErrApmNotReady;
++	}
++	if (frame_count > pong_ring_queue_space(&g_pong_audio.ring)) {
++		g_pong_audio.ring_dropped += frame_count;
++		return PongAudioErrRingFull;
++	}
++	const uint32_t written = pong_ring_queue_write(&g_pong_audio.ring, frames,
++	    frame_count);
++	g_pong_audio.ring_frames += written;
++	if (written != frame_count) {
++		g_pong_audio.ring_dropped += frame_count - written;
++		return PongAudioErrRingFull;
++	}
++	return PongAudioOk;
++}
++
++/* The AFE period pump calls this once per period; it is deliberately separate
++ * from pong_audio_submit so the producer never blocks on the consumer. */
++uint32_t
++pong_audio_ring_read(void *frames, uint32_t frame_count)
++{
++	if (frames == NULL || frame_count == 0u || !g_pong_audio.ring_ready) {
++		return 0;
++	}
++	return pong_ring_queue_read(&g_pong_audio.ring, frames, frame_count);
+ }
+ 
  int
  pong_audio_status(void)
  {

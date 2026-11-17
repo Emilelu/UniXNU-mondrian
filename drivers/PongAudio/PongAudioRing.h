@@ -31,6 +31,7 @@
 #define PONG_RING_START_THRESHOLD_FRAMES (PONG_RING_PERIOD_FRAMES / 4u)
 #define PONG_RING_LEAD_FRAMES          14400u /* 300 ms at 48 kHz */
 #define PONG_RING_FRAMES               65536u
+#define PONG_RING_RING_BYTES           (PONG_RING_FRAMES * PONG_RING_FRAME_BYTES)
 #define PONG_RING_INVALID              0xffffffffu
 
 static inline uint32_t
@@ -90,6 +91,110 @@ pong_ring_geometry_ok(void)
 {
 	return PONG_RING_LEAD_FRAMES + PONG_RING_PERIOD_COUNT * PONG_RING_PERIOD_FRAMES
 	    <= PONG_RING_FRAMES;
+}
+
+/* One producer (the audio service's submit path) and one consumer (the AFE
+ * period pump) share this queue. Positions are frame indices in
+ * [0, capacity_frames); one slot stays empty so full and empty cannot look
+ * alike. The queue copies whole frames only; callers pass frame counts, never
+ * bytes, so a partial audio frame cannot enter the ring. */
+typedef struct {
+	uint8_t *storage;
+	uint32_t capacity_frames;
+	volatile uint32_t read;
+	volatile uint32_t write;
+} PongRing;
+
+static inline void
+pong_ring_queue_init(PongRing *ring, void *storage, uint32_t capacity_frames)
+{
+	ring->storage = (uint8_t *)storage;
+	ring->capacity_frames = capacity_frames;
+	ring->read = 0;
+	ring->write = 0;
+}
+
+static inline uint32_t
+pong_ring_queue_used(const PongRing *ring)
+{
+	if (ring->capacity_frames == 0 || ring->read >= ring->capacity_frames ||
+	    ring->write >= ring->capacity_frames) {
+		return PONG_RING_INVALID;
+	}
+	return (ring->write + ring->capacity_frames - ring->read) %
+	    ring->capacity_frames;
+}
+
+static inline uint32_t
+pong_ring_queue_space(const PongRing *ring)
+{
+	uint32_t used = pong_ring_queue_used(ring);
+	return used == PONG_RING_INVALID || ring->capacity_frames == 0 ?
+	    PONG_RING_INVALID : ring->capacity_frames - 1u - used;
+}
+
+static inline uint32_t
+pong_ring_queue_write(PongRing *ring, const void *frames, uint32_t frame_count)
+{
+	uint32_t room = pong_ring_queue_space(ring);
+	uint32_t frame_bytes = pong_ring_frame_bytes();
+	const uint8_t *src = (const uint8_t *)frames;
+	uint32_t position;
+	uint32_t copied;
+	uint32_t i;
+
+	if (room == PONG_RING_INVALID || frame_count > room) {
+		return 0;
+	}
+	position = ring->write;
+	copied = 0;
+	while (copied < frame_count) {
+		uint32_t contiguous = ring->capacity_frames - position;
+		uint32_t take = frame_count - copied;
+		if (take > contiguous) {
+			take = contiguous;
+		}
+		for (i = 0; i < take * frame_bytes; i++) {
+			ring->storage[position * frame_bytes + i] = src[i];
+		}
+		src += take * frame_bytes;
+		copied += take;
+		position = (position + take) % ring->capacity_frames;
+	}
+	ring->write = position;
+	return frame_count;
+}
+
+static inline uint32_t
+pong_ring_queue_read(PongRing *ring, void *frames, uint32_t frame_count)
+{
+	uint32_t used = pong_ring_queue_used(ring);
+	uint32_t frame_bytes = pong_ring_frame_bytes();
+	uint8_t *dst = (uint8_t *)frames;
+	uint32_t position;
+	uint32_t copied;
+	uint32_t i;
+
+	if (used == PONG_RING_INVALID || frame_count > used) {
+		return 0;
+	}
+	position = ring->read;
+	copied = 0;
+	while (copied < frame_count) {
+		uint32_t contiguous = ring->capacity_frames - position;
+		uint32_t take = frame_count - copied;
+		if (take > contiguous) {
+			take = contiguous;
+		}
+		for (i = 0; i < take * frame_bytes; i++) {
+			dst[i] = ring->storage[position * frame_bytes + i];
+		}
+		dst += take * frame_bytes;
+		copied += take;
+		position = (position + take) % ring->capacity_frames;
+	}
+	ring->read = position;
+	return frame_count;
 }
 
 #endif /* PONG_AUDIO_RING_H */

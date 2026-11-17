@@ -2440,6 +2440,54 @@ tlmm_cases(void)
     expect_eq(pong_audio_pad_phys(PONG_AUDIO_SPKSW_GPIO), 0x0f134000ul, "spksw pad phys");
 }
 
+/* The PCM ring queue keeps whole frames, wraps without copying across the
+ * end twice, and rejects a write that cannot fit instead of truncating it. */
+static void
+ring_queue_cases(void)
+{
+    uint8_t storage[64 * PONG_RING_FRAME_BYTES];
+    uint8_t in[64 * PONG_RING_FRAME_BYTES];
+    uint8_t more[10 * PONG_RING_FRAME_BYTES];
+    uint8_t out[60 * PONG_RING_FRAME_BYTES];
+    PongRing q;
+    unsigned f, b;
+
+    for (f = 0; f < 64; f++) {
+        for (b = 0; b < PONG_RING_FRAME_BYTES; b++) {
+            in[f * PONG_RING_FRAME_BYTES + b] = (uint8_t)f;
+        }
+    }
+    for (f = 0; f < 10; f++) {
+        for (b = 0; b < PONG_RING_FRAME_BYTES; b++) {
+            more[f * PONG_RING_FRAME_BYTES + b] = (uint8_t)(100 + f);
+        }
+    }
+    pong_ring_queue_init(&q, storage, 64);
+    expect_eq(q.capacity_frames, 64ul, "ring queue capacity");
+    expect_eq(pong_ring_queue_used(&q), 0ul, "ring queue starts empty");
+    expect_eq(pong_ring_queue_space(&q), 63ul, "ring queue keeps one slot empty");
+    expect_eq(pong_ring_queue_write(&q, in, 60), 60ul, "ring queue writes a lead");
+    expect_eq(pong_ring_queue_used(&q), 60ul, "ring queue used after write");
+    expect_eq(pong_ring_queue_space(&q), 3ul, "ring queue space after write");
+    expect_eq(pong_ring_queue_write(&q, in, 4), 0ul, "ring queue rejects a full write");
+    expect_eq(pong_ring_queue_used(&q), 60ul, "rejected write keeps used frames");
+    expect_eq(pong_ring_queue_read(&q, out, 10), 10ul, "ring queue reads a prefix");
+    expect_eq(out[0], 0ul, "ring queue prefix frame 0");
+    expect_eq(out[9 * PONG_RING_FRAME_BYTES], 9ul, "ring queue prefix frame 9");
+    expect_eq(pong_ring_queue_write(&q, more, 10), 10ul, "ring queue writes across wrap");
+    expect_eq(pong_ring_queue_read(&q, out, 50), 50ul, "ring queue reads the wrapped remainder");
+    expect_eq(out[0], 10ul, "ring queue wrapped frame 10");
+    expect_eq(out[49 * PONG_RING_FRAME_BYTES], 59ul, "ring queue wrapped frame 59");
+    expect_eq(pong_ring_queue_read(&q, out, 10), 10ul, "ring queue reads the new tail");
+    expect_eq(out[0], 100ul, "ring queue tail frame 100");
+    expect_eq(out[9 * PONG_RING_FRAME_BYTES], 109ul, "ring queue tail frame 109");
+    expect_eq(pong_ring_queue_used(&q), 0ul, "ring queue drains");
+    expect_eq(pong_ring_queue_read(&q, out, 1), 0ul, "ring queue rejects an empty read");
+    expect_eq(pong_ring_queue_write(&q, in, 64), 0ul, "ring queue rejects more than capacity");
+    expect_eq(pong_ring_queue_write(&q, in, 63), 63ul, "ring queue fills after drain");
+    expect_eq(pong_ring_queue_space(&q), 0ul, "ring queue is full at capacity minus one");
+}
+
 /* The PCM ring uses the vendor AGM period and the ShengAudioAbi lead. */
 static void
 ring_cases(void)
@@ -2467,6 +2515,7 @@ ring_cases(void)
     expect(pong_ring_can_start(256), "ring can start at the threshold");
     expect(pong_ring_geometry_ok(), "ring holds the lead and two periods");
     expect_eq((PONG_RING_LEAD_FRAMES * 1000ul) / PONG_RING_RATE, 300ul, "ring lead is 300 ms");
+    ring_queue_cases();
 }
 
 static void
@@ -2565,12 +2614,16 @@ status_cases(void)
     expect_eq((unsigned long)(uint32_t)PongAudioErrStaleLease, 0xfffff82dul, "status stale lease");
     expect_eq((unsigned long)(uint32_t)PongAudioErrApmNotReady, 0xfffff82cul, "status apm not ready");
     expect_eq((unsigned long)(uint32_t)PongAudioErrAfeRefused, 0xfffff82bul, "status afe refused");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrBadRequest, 0xfffff82aul, "status bad request");
+    expect_eq((unsigned long)(uint32_t)PongAudioErrRingFull, 0xfffff829ul, "status ring full");
     expect(strcmp(pong_audio_error_name(PongAudioOk), "PongAudioOk") == 0, "status name ok");
     expect(strcmp(pong_audio_error_name(PongAudioErrNoHandoff), "PongAudioErrNoHandoff") == 0, "status name no handoff");
     expect(strcmp(pong_audio_error_name(PongAudioErrNoLease), "PongAudioErrNoLease") == 0, "status name no lease");
     expect(strcmp(pong_audio_error_name(PongAudioErrStaleLease), "PongAudioErrStaleLease") == 0, "status name stale lease");
     expect(strcmp(pong_audio_error_name(PongAudioErrApmNotReady), "PongAudioErrApmNotReady") == 0, "status name apm not ready");
     expect(strcmp(pong_audio_error_name(PongAudioErrAfeRefused), "PongAudioErrAfeRefused") == 0, "status name afe refused");
+    expect(strcmp(pong_audio_error_name(PongAudioErrBadRequest), "PongAudioErrBadRequest") == 0, "status name bad request");
+    expect(strcmp(pong_audio_error_name(PongAudioErrRingFull), "PongAudioErrRingFull") == 0, "status name ring full");
     expect(strcmp(pong_audio_error_name(12345), "PongAudioErrUnknown") == 0, "status name unknown");
 }
 

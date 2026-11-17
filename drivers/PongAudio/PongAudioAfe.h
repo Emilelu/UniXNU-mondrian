@@ -63,7 +63,9 @@ typedef enum {
     PongAudioErrNoLease = -2002,
     PongAudioErrStaleLease = -2003,
     PongAudioErrApmNotReady = -2004,
-    PongAudioErrAfeRefused = -2005
+    PongAudioErrAfeRefused = -2005,
+    PongAudioErrBadRequest = -2006,
+    PongAudioErrRingFull = -2007
 } PongAudioStatus;
 
 static inline const char *
@@ -82,6 +84,10 @@ pong_audio_error_name(int status)
         return "PongAudioErrApmNotReady";
     case PongAudioErrAfeRefused:
         return "PongAudioErrAfeRefused";
+    case PongAudioErrBadRequest:
+        return "PongAudioErrBadRequest";
+    case PongAudioErrRingFull:
+        return "PongAudioErrRingFull";
     default:
         return "PongAudioErrUnknown";
     }

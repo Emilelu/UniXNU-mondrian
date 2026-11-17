@@ -18,7 +18,7 @@
 | G6 | `EIGHT-STEPS.toml` 的 wifi 条目仍写"从未上机 / parked" | `docs/research/EIGHT-STEPS.toml:390-426` | 与 c1–c8 实飞、P-215 结案矛盾；这是唯一一处**门禁数据源**与事实相反 |
 | G7 | 复用缺口不是"没有轮子"，是"抄了早期版本没跟上" | PongMetal 前端 109,178 B vs 参考 225,616 B；ShengUfs 参考 `9d527ae` 的 `VerifiedTableCache.h` 6,878 B、`RootPublication.h` 3,225 B 已在 `k60-ufs-verified:feat/ufs-verified-table` 移植（含 `RootWindowRead.h`/`RootPolicyTable.h`/`RootWindowVerifier.h`、3b 异步根发布与 host 测试，未合 main） | PongMetal 仍是主要缺口；UFS 复用已推进到分支 |
 | G8 | `patches/wifi/` 主仓 12 个补丁 **221,744 B**（`k60-wifi` 检出同 series **228,302 B**，5 个文件不同）在 main 上没有任何构建路径引用 | `grep -rn 'patches/wifi' scripts/*.py scripts/*.sh` 只命中测试断言；`patches/wifi/series` 无读者；main 的 `0007` 仍写旧 Data UUID `6DCCF70A-...`，`0010` 只加 `KERNEL_EXTRA_ARCHIVES` 分支，k60-wifi 已改 `1BCD69FF-...` 并补 `PLATFORM_ARCHIVES` | main 侧 WiFi 接线缺位；P-215 的补丁字节在 main 但**不是最新**，直接接线会静默漏掉 PongWifi；字节差已在 `feat/wifi-patch-sync` `5d70dd08` 同步（从 `origin/main` 拉出的仅 4 文件分支），等合入与接线；2026-11-17 07:28 用与 `5d70dd08` 字节相同的同步补丁（当时取自 `e1a46146`）在 `k60-wifi` 的 `b9a8e981^` 干净树上按 series 顺序 apply 12/12 通过（548 个文件），应用后 Data UUID 为 `1BCD69FF-...`、脚本同时含 `KERNEL_EXTRA_ARCHIVES`/`PLATFORM_ARCHIVES` |
-| G9 | **已退役的前身**没有退役登记：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾，但删之前要确认 wifi 线不再需要；只报告未动 |
+| G9 | **已退役的前身**缺少可见的退役登记（2026-11-16 状态）：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾；2026-11-17 已由 `3dae8347` 在 `PATCH-CATALOG.toml:98-102` 登记为 `retired`（evidence `3a8d61d8`），文件保留，删除前仍需 wifi 线确认 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
 > 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,203 处引用 / **101** 个目标缺失 / 0 处行号越界，
@@ -218,6 +218,8 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
 `scripts/tests/test-series-source.py:8` 已把它记作 retired——它是 `0610-k60-metal-plugin-deploy.patch` 的
 **退役前身**，不是没人要的垃圾。正确处置是给它一条退役登记（或与 wifi 线确认后删除），
 而不是按「没人用的补丁」直接删：`PITFALLS.md:3978` 记的正是它被误接进序列后出事的现场。
+
+2026-11-17 已由 `3dae8347` 在 `PATCH-CATALOG.toml:98-102` 登记为 `retired`（evidence `3a8d61d8`）；文件保留，删除与否等 wifi 线确认。
 
 ### 7.1 Top 8 落地顺序（2026-11-17 修订版）
 

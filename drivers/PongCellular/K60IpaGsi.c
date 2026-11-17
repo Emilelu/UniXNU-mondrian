@@ -217,8 +217,11 @@ k60_ipa_gsi_check_caps(K60IpaGsi *gsi, K60IpaGsiCaps *caps)
     caps->event_state =
         (k60_ipa_gsi_read_gsi(gsi, event_offset) >> 20) & 0xfu;
 
-    if (caps->status == 0xffffffffu || (caps->status & 1u) != 0) {
-        return K60IpaGsiBusy;
+    /* This is the post-firmware check: PAS AUTH_AND_RESET leaves EE0
+     * enabled, so bit 0 must be set. The pre-PAS k60_ipa_gsi_check() in
+     * K60Ipa.c rejects an enabled EE0 because another owner holds it. */
+    if (caps->status == 0xffffffffu || (caps->status & 1u) == 0) {
+        return K60IpaGsiNoDevice;
     }
     if (caps->channels <= K60_GSI_COMMAND_CHANNEL || caps->events == 0) {
         return K60IpaNotReady;

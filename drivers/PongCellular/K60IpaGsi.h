@@ -134,10 +134,11 @@ typedef struct {
  * the 1 MiB ring and 0x8000 tables. It performs no MMIO. */
 int k60_ipa_gsi_init(K60IpaGsi *gsi, const K60IpaGsiConfig *config);
 
-/* Capability and ownership precheck through the same callbacks. The checks
- * are identical to k60_ipa_gsi_check() in K60Ipa.c: status must not be
- * all-ones or already EE0-enabled, there must be more than the command
- * channel and at least one event, and command12/event0 must be unowned. */
+/* Post-firmware capability check through the same callbacks. Unlike the
+ * pre-PAS k60_ipa_gsi_check() in K60Ipa.c, this expects EE0 to be enabled:
+ * status must not be all-ones, bit 0 must be set, there must be more than
+ * the command channel and at least one event, and command12/event0 must be
+ * unowned. */
 int k60_ipa_gsi_check_caps(K60IpaGsi *gsi, K60IpaGsiCaps *caps);
 
 /* Start EE0 ownership, event0 and command channel 12, program both ring

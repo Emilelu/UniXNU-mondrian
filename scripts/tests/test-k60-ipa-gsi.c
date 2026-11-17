@@ -2,7 +2,7 @@
  *
  * The test simulates the GSI and IPA register windows as byte arrays and
  * drives the same k60_ipa_gsi_* code the kernel uses. It checks the Pong
- * sequence: busy-EE0 refusal, owned event sources, ring context pointers,
+ * sequence: missing-EE0 refusal, owned event sources, ring context pointers,
  * one 16-byte TRE with a 32-byte payload slot, the command doorbell, both
  * accepted completion statuses (1 and 2), and stop/cleanup.
  */
@@ -146,6 +146,7 @@ sim_reset(Sim *sim)
     sim->delay_calls = 0u;
     /* restricted = 0x100 * 8 = 0x800; SRAM = 0x0c00 * 8 = 0x6000. */
     sim_write32(g_regs, sizeof(g_regs), 0x40u, 0x01000c00u);
+    sim_write32(g_gsi, sizeof(g_gsi), K60_GSI_STATUS_OFFSET, 1u);
     sim_write32(g_gsi, sizeof(g_gsi), K60_GSI_CHANNELS_OFFSET, 64u);
     sim_write32(g_gsi, sizeof(g_gsi), K60_GSI_EVENTS_OFFSET, 16u);
 }
@@ -225,18 +226,18 @@ main(void)
         return fail("null init");
     }
 
-    /* 1. A GSI EE0 already enabled by TZ or another owner must be refused. */
+    /* 1. Missing EE0 enable after firmware/PAS must be refused. */
     sim_reset(&sim);
     make_config(&config, &sim);
-    sim_write32(g_gsi, sizeof(g_gsi), K60_GSI_STATUS_OFFSET, 1u);
+    sim_write32(g_gsi, sizeof(g_gsi), K60_GSI_STATUS_OFFSET, 0u);
     if (k60_ipa_gsi_init(&gsi, &config) != K60IpaOk) {
-        return fail("init busy case");
+        return fail("init missing EE0 case");
     }
-    if (k60_ipa_gsi_start(&gsi) != K60IpaGsiBusy) {
-        return fail("busy EE0 not refused");
+    if (k60_ipa_gsi_start(&gsi) != K60IpaGsiNoDevice) {
+        return fail("missing EE0 not refused");
     }
-    if (gsi.error != K60IpaGsiBusy) {
-        return fail("busy EE0 error code");
+    if (gsi.error != K60IpaGsiNoDevice) {
+        return fail("missing EE0 error code");
     }
 
     /* 2. Normal start: ownership, ring contexts, endpoint, first HDR_INIT. */

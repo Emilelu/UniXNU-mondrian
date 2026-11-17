@@ -1764,7 +1764,7 @@ diff --git a/bsd/dev/pong_ipa_gsi.h b/bsd/dev/pong_ipa_gsi.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa_gsi.h
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,167 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA GSI 3.0 command DMA owner (M2, host-testable).
 + *
@@ -1901,10 +1901,11 @@ new file mode 100644
 + * the 1 MiB ring and 0x8000 tables. It performs no MMIO. */
 +int k60_ipa_gsi_init(K60IpaGsi *gsi, const K60IpaGsiConfig *config);
 +
-+/* Capability and ownership precheck through the same callbacks. The checks
-+ * are identical to k60_ipa_gsi_check() in K60Ipa.c: status must not be
-+ * all-ones or already EE0-enabled, there must be more than the command
-+ * channel and at least one event, and command12/event0 must be unowned. */
++/* Post-firmware capability check through the same callbacks. Unlike the
++ * pre-PAS k60_ipa_gsi_check() in K60Ipa.c, this expects EE0 to be enabled:
++ * status must not be all-ones, bit 0 must be set, there must be more than
++ * the command channel and at least one event, and command12/event0 must be
++ * unowned. */
 +int k60_ipa_gsi_check_caps(K60IpaGsi *gsi, K60IpaGsiCaps *caps);
 +
 +/* Start EE0 ownership, event0 and command channel 12, program both ring
@@ -1935,7 +1936,7 @@ diff --git a/bsd/dev/pong_ipa_gsi.c b/bsd/dev/pong_ipa_gsi.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa_gsi.c
-@@ -0,0 +1,826 @@
+@@ -0,0 +1,829 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA GSI 3.0 command DMA owner, ported from PongModemIpaDma.h.
 + *
@@ -2155,8 +2156,11 @@ new file mode 100644
 +    caps->event_state =
 +        (k60_ipa_gsi_read_gsi(gsi, event_offset) >> 20) & 0xfu;
 +
-+    if (caps->status == 0xffffffffu || (caps->status & 1u) != 0) {
-+        return K60IpaGsiBusy;
++    /* This is the post-firmware check: PAS AUTH_AND_RESET leaves EE0
++     * enabled, so bit 0 must be set. The pre-PAS k60_ipa_gsi_check() in
++     * K60Ipa.c rejects an enabled EE0 because another owner holds it. */
++    if (caps->status == 0xffffffffu || (caps->status & 1u) == 0) {
++        return K60IpaGsiNoDevice;
 +    }
 +    if (caps->channels <= K60_GSI_COMMAND_CHANNEL || caps->events == 0) {
 +        return K60IpaNotReady;

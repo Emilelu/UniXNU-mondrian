@@ -11,10 +11,11 @@ way a missing optional source is tolerated elsewhere in this list.
 diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
 --- a/osfmk/conf/files.arm64
 +++ b/osfmk/conf/files.arm64
-@@ -22,6 +22,7 @@
+@@ -22,7 +22,8 @@
  osfmk/arm64/WKdmCompress_16k.s		standard
  osfmk/arm64/WKdmDecompress_4k.s	standard
  osfmk/arm64/k60_metal_blob.s	standard
+ osfmk/arm64/k60_audio_hal_blob.s	standard
 +osfmk/arm64/k60_adsp_blob.s	standard
  osfmk/arm64/WKdmCompress_4k.s	standard
  osfmk/arm64/WKdmData.s		standard

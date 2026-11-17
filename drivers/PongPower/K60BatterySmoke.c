@@ -80,14 +80,15 @@ int main(int argc, char **argv)
         CFMutableDictionaryRef d = NULL;
         if (properties(source, &d, kCFAllocatorDefault, 0) != KERN_SUCCESS || !d) {result = 1; break;}
         int present, stale, external, charging, full;
-        int64_t sequence, stamp, epoch, capacity, maximum, voltage, amperage, temperature, cycles, responses;
+        int64_t sequence, stamp, epoch, capacity, maximum, raw_capacity, raw_maximum, voltage, amperage, temperature, cycles, responses;
         int64_t valid_fields, failed_fields, raw_voltage, raw_current, raw_temperature, raw_usb_current;
         const int complete = flag(d, CFSTR("BatteryInstalled"), &present) &&
             flag(d, CFSTR("K60BatteryStale"), &stale) && flag(d, CFSTR("ExternalConnected"), &external) &&
             flag(d, CFSTR("IsCharging"), &charging) && flag(d, CFSTR("FullyCharged"), &full) &&
             number(d, CFSTR("K60BatterySampleSequence"), &sequence) && number(d, CFSTR("K60BatterySampleUptimeMS"), &stamp) &&
             number(d, CFSTR("K60GlinkEpoch"), &epoch) && number(d, CFSTR("CurrentCapacity"), &capacity) &&
-            number(d, CFSTR("MaxCapacity"), &maximum) && number(d, CFSTR("Voltage"), &voltage) &&
+            number(d, CFSTR("MaxCapacity"), &maximum) && number(d, CFSTR("AppleRawCurrentCapacity"), &raw_capacity) &&
+            number(d, CFSTR("AppleRawMaxCapacity"), &raw_maximum) && number(d, CFSTR("Voltage"), &voltage) &&
             number(d, CFSTR("Amperage"), &amperage) && number(d, CFSTR("Temperature"), &temperature) &&
             number(d, CFSTR("CycleCount"), &cycles) && number(d, CFSTR("K60BatteryResponses"), &responses) &&
             number(d, CFSTR("K60BatteryValidFields"), &valid_fields) &&
@@ -107,7 +108,8 @@ int main(int argc, char **argv)
         }
         const uint64_t now = uptime_ms();
         if (!present || stale || valid_fields <= 0 || epoch <= 0 || sequence <= 0 || responses <= 0 || capacity < 0 || maximum <= 0 ||
-            capacity > maximum || voltage < 2000 || voltage > 5500 || cycles < 0 ||
+            capacity > maximum || raw_maximum <= 0 || raw_capacity > raw_maximum ||
+            voltage < 2000 || voltage > 5500 || cycles < 0 ||
             stamp < 0 || !now || now < (uint64_t)stamp || now - (uint64_t)stamp > 15000) {
             fprintf(stderr, "invalid/stale hardware sample: present=%d stale=%d sequence=%lld epoch=%lld\n",
                 present, stale, (long long)sequence, (long long)epoch);
@@ -115,9 +117,9 @@ int main(int argc, char **argv)
         }
         if (first_sequence < 0) first_sequence = sequence;
         if (sequence > first_sequence) advanced = 1;
-        printf("sample=%lld stamp=%lldms physical-epoch=%lld current=%lld/%lldmAh voltage=%lldmV amperage=%dmA temp=%d/100C cycles=%lld external=%d charging=%d full=%d responses=%lld valid=0x%llx failed=0x%llx raw=%llduV/%llduA/%lld/100C\n",
+        printf("sample=%lld stamp=%lldms physical-epoch=%lld current=%lld%% raw=%lld/%lldmAh voltage=%lldmV amperage=%dmA temp=%d/100C cycles=%lld external=%d charging=%d full=%d responses=%lld valid=0x%llx failed=0x%llx raw=%llduV/%llduA/%lld/100C\n",
             (long long)sequence, (long long)stamp, (long long)epoch, (long long)capacity, (long long)maximum,
-            (long long)voltage, (int32_t)amperage, (int32_t)temperature, (long long)cycles,
+            (long long)raw_capacity, (long long)raw_maximum, (long long)voltage, (int32_t)amperage, (int32_t)temperature, (long long)cycles,
             external, charging, full, (long long)responses, (unsigned long long)valid_fields, (unsigned long long)failed_fields,
             (long long)raw_voltage, (long long)raw_current, (long long)raw_temperature);
         fflush(stdout);

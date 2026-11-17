@@ -1,7 +1,7 @@
 # 20 — K60 IPA v5.1 数据通路（IPA/GSI、QMAP、PDP）
 
 - 日期：2026-11-18
-- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化、GSI 能力/所有权预检（M2 前置）、可宿主测试的 M2 GSI command-DMA 与 SMMU 规划模块，以及 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表块、ArmSmmu4K 三区间页表、SID 0x5c0、SMEM item 497、GSI MMIO/回调，pong_ipa_m2 门控）已实现并通过 host tests 与内核编译验收（kernel 09fd0a0c）；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
+- 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化、GSI 能力/所有权预检（M2 前置）、可宿主测试的 M2 GSI command-DMA 与 SMMU 规划模块，以及 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表块、ArmSmmu4K 三区间页表、SID 0x5c0、SMEM item 497、GSI MMIO/回调，pong_ipa=2 门控）已实现并通过 host tests 与内核编译验收（kernel f0d90680，k8 M2 诊断镜像）；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
 - 范围：按 `E:/hackios/UniXNU/docs/zh/porting/baseband.md` 第 2、4 节，给出 K60（mondrian/SM8475）IPA v5.1 数据面的硬件事实、v4.2 复用边界、分阶段计划和首个离线测试。
 - 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）数据面仍缺失，M0 只有编译骨架、M1 已有固件暂存/PAS 15 路径、payload FAT handoff 调用点与 IP0 时钟投票**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。
 
@@ -16,7 +16,7 @@
 | L1 SoC/板级 | 电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | modem PAS 已按 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` 推进；IPA 保留内存已在 DT；IPA 固件未加载，IPA 时钟/电源未证实 | IPA 的 power/clock/interconnect 资源尚未建模 |
 | L2 控制桥 | QMUX 帧、QMI client 分配、服务发现/回复路由 | `K60ModemLink.c` 已接 GLINK/QRTR，能枚举 AppleBaseband；IPA 服务 0x31 未服务 | 缺 IPA QMI 服务端 |
 | L3 iOS 接口 | 基带服务、channel、异步读写与启动交互 | `coachz_baseband_*` 控制桥和 PDP 控制对象存在 | 数据回调仍落到 ENETDOWN |
-| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟、IPA5.1 资源表初始化、GSI 能力/所有权预检、M2 host 模块（GSI command DMA、SMMU 规划）与 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表、ArmSmmu4K、SMEM 497、GSI MMIO，pong_ipa_m2 门控）；已进入内核编译，未上机，未验证真实 GSI/IRQ）** | 全部 |
+| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 骨架 + M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟、IPA5.1 资源表初始化、GSI 能力/所有权预检、M2 host 模块（GSI command DMA、SMMU 规划）与 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表、ArmSmmu4K、SMEM 497、GSI MMIO，pong_ipa=2 门控）；已进入内核编译并生成 k8 诊断镜像，未上机，未验证真实 GSI/IRQ）** | 全部 |
 
 L4 逐项状态：
 
@@ -85,7 +85,8 @@ L4 逐项状态：
 
 ### M2 — GSI 初始化 / ring 分配
 
-- 状态：2026-11-18 GSI 能力/所有权预检已实现（`K60Ipa.h`/`K60Ipa.c` 的 `k60_ipa_gsi_check()`，host `K60 IPA GSI PASS`，代码提交 `b636f2e5`）；M2 host 模块已落地（`K60IpaGsi.h`/`K60IpaGsi.c` 的 GSI 3.0 command-DMA、`K60IpaSmmu.h`/`K60IpaSmmu.c` 的 SMMU 流规划，host `K60 IPA GSI DMA PASS`/`K60 IPA SMMU PASS`，代码提交 `5c217091`）；M2 运行时 glue 已写入 `K60Ipa.c`：`kmem_alloc_contig()` 分配 1 MiB ring（64 KiB 对齐）与 0x8000 表块（页对齐），`ArmSmmu4KBuild()` 建 `{0x146a8000/0x2000, ring_pa/1MiB, SMEM item 497}` 三区间页表，`ArmSmmu4KProgramDisabledContext()` 后直接写 SMR/S2CR（SID 0x5c0），再调用 `k60_ipa_gsi_init()/start()/poll()`；整段由 boot arg `pong_ipa_m2` 门控，host tests 通过且内核已编译（kernel 09fd0a0c，105,562,112 B），但未上机。
+- 状态：2026-11-18 GSI 能力/所有权预检已实现（`K60Ipa.h`/`K60Ipa.c` 的 `k60_ipa_gsi_check()`，host `K60 IPA GSI PASS`，代码提交 `b636f2e5`）；M2 host 模块已落地（`K60IpaGsi.h`/`K60IpaGsi.c` 的 GSI 3.0 command-DMA、`K60IpaSmmu.h`/`K60IpaSmmu.c` 的 SMMU 流规划，host `K60 IPA GSI DMA PASS`/`K60 IPA SMMU PASS`，代码提交 `5c217091`）；M2 运行时 glue 已写入 `K60Ipa.c`：`kmem_alloc_contig()` 分配 1 MiB ring（64 KiB 对齐）与 0x8000 表块（页对齐），`ArmSmmu4KBuild()` 建 `{0x146a8000/0x2000, ring_pa/1MiB, SMEM item 497}` 三区间页表，`ArmSmmu4KProgramDisabledContext()` 后直接写 SMR/S2CR（SID 0x5c0），再调用 `k60_ipa_gsi_init()/start()/poll()`；整段由 boot arg `pong_ipa` 的级别门控：`pong_ipa=1` 只到 M1，`pong_ipa=2` 才运行 M2，避免新增参数把 arm64 命令行推过 DarwinBoot 的 607 字节上限。host tests 通过，内核 f0d90680（105,562,112 B）已编译；k8 M2 诊断镜像已生成三张（C/C0/IPA-only，pong_ipa=2），但未上机。
+- k8 M2 诊断镜像（2026-11-18 06:48）：C `boot-modem-c-diagnostic-m2.img` sha256 `5f73c42a7193855c754ad1d65efbe40b6f6682c4fbae466ff2abb2fbc063e554`；C0 `boot-modem-c-nocarrier-m2.img` sha256 `4d9eb4d81082602a818e46c9ebd4a3c9e7b5fd584a888421d877f1e10534f114`；IPA-only `boot-modem-ipa-only-m2.img` sha256 `61b54fa693d38808f514535ffda378e72d89473d84799d6dd386228ef5f7369f`；三张均 201,895,936 B，kernel_args 以 `pong_ipa=2` 结尾。
 - 内容：映射 GSI 0x3e04000；按 `gsihal_reg.c:1856-1882` 写 `GSI_STATUS`/`GSI_CH_CMD`/`EV_CH_CMD`；从 `ipa_gsi_region` 分配 channel/event ring；16 B TRE 草案；轮询或中断 `gsi-irq=432`。
 - 验收：`GSI_STATUS` 读到 ENABLED；每个 WAN/command/LAN 通道 state 到 `ENABLED`；ring 基址/长度打印且 64 KiB 对齐；无 GSI command timeout。
 - 风险：v5.1 APQ 的 ring 数量/深度未知；40 KiB 可能不够；GSI 3.0 命令超时 50 ms 与 v4.2 不同需实测。
@@ -130,7 +131,7 @@ L4 逐项状态：
 
 **当前明确未实现：**
 
-- 没有上机验证：`k60_ipa_probe_from_handoff()` 已能从 payload FAT 读取 `IPA/ipa_fws.mbn` 并调用 `k60_ipa_firmware_start()`，但还没有在硬件上执行过 PAS 15，也没有设备侧 IPA_VERSION 读数；host 侧可用 `k60_ipa_firmware_stage()` 验证真实映像。M2 运行时由 boot arg `pong_ipa_m2` 显式启用（默认关闭），k6/k7 候选都没有设置该参数。
+- 没有上机验证：`k60_ipa_probe_from_handoff()` 已能从 payload FAT 读取 `IPA/ipa_fws.mbn` 并调用 `k60_ipa_firmware_start()`，但还没有在硬件上执行过 PAS 15，也没有设备侧 IPA_VERSION 读数；host 侧可用 `k60_ipa_firmware_stage()` 验证真实映像。M2 运行时由 boot arg `pong_ipa` 的级别显式启用：`pong_ipa=1` 只到 M1，`pong_ipa=2` 才运行 M2（默认关闭）；k6/k7 候选只设 `pong_ipa=1`，k8 M2 诊断镜像设 `pong_ipa=2`。
 - `k60_ipa_firmware_start()` 映射固件区、GSI 与 IPA_VERSION 寄存器，IPA5.1 资源表已初始化，`k60_ipa_gsi_check()` 只读 GSI status/channels/events 和 command12/event0 状态；M2 运行时接着分配 ring/表块并启动 GSI command-DMA，但没有硬件执行过，也没有接 IRQ 654/432。
 - GSI 运行时初始化、1 MiB ring 与 0x8000 表块已在内核代码里绑定（`kmem_alloc_contig`、`pmap_find_phys`、MMIO 回调、命令 channel12/event0），但没有硬件执行；没有 GSI IRQ 432 处理，只轮询 event shadow；`K60IpaGsi.c` 的宿主状态机测试仍是唯一的代码级证据。
 - `K60IpaSmmu.c` 仍是宿主 SMMU 寄存器模型；内核页表由 `K60Ipa.c` 直接调用 `ArmSmmu4KBuild()` 构建（三区间、输出 36 位、8 表页），要求 SMEM item 497 ≥ 0x9000，并写 SID 0x5c0 的 SMR/S2CR；没有 SMMU 抢占/lease，没有硬件执行。
@@ -147,4 +148,4 @@ L4 逐项状态：
 3. 与 DT 的两个 region 比较结果：`0x8568`（34,152 B）≤ `0xa000`，当前 `memory-regions -> ipa_gsi_region@8b910000` 可容纳全部 PT_LOAD；metadata `0xe8c` 走 `ipa_fw_region@8b900000` 的最后 8 KiB。M1 的 40 KiB 风险解除。
 4. 同时用 `dtc`/FDT 属性导出核对 `firmware-names`、`memory-regions`、`pas-ids` 的 index 对齐（`DIPA/ipa_v3/ipa.c:8117-8128` 要求同 index）。
 
-**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与 payload FAT handoff 调用点、M2 host 模块与运行时 glue 已落地，内核 09fd0a0c 已编译；下一步是上机读 IPA_VERSION，确认 PAS 15、时钟投票与 GSI status，再用 `pong_ipa_m2=1` 开一次受控 M2 运行时并抓 ring/GSI 状态。M2 未上机通过前不要写 QMAP 代码。
+**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与 payload FAT handoff 调用点、M2 host 模块与运行时 glue 已落地，内核 f0d90680 已编译，k8 M2 诊断镜像（C/C0/IPA-only，pong_ipa=2）已生成；下一步是上机读 IPA_VERSION，确认 PAS 15、时钟投票与 GSI status，再用 `pong_ipa=2` 开一次受控 M2 运行时并抓 ring/GSI 状态。M2 未上机通过前不要写 QMAP 代码。

@@ -47,7 +47,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +890,567 @@
+@@ -858,6 +890,572 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -104,23 +104,28 @@
 +			return true;
 +		}
 +	}
-+	/* The loader lease is optional: allocate the same 64 KiB below 4 GiB. */
-+	vm_offset_t va = 0;
-+	kern_return_t kr = kmem_alloc_contig(kernel_map, &va, bytes,
++	/* The loader lease is optional: allocate the same 64 KiB below 4 GiB.
++	 * Keep the physical allocation and map it as I/O memory; the DSP reads
++	 * the slots directly, so a normal cached kernel mapping would go stale. */
++	vm_offset_t alloc_va = 0;
++	kern_return_t kr = kmem_alloc_contig(kernel_map, &alloc_va, bytes,
 +	    PAGE_MASK, 0xfffff, 0, KMA_DATA | KMA_KOBJECT,
 +	    VM_KERN_MEMORY_IOKIT);
 +	if (kr == KERN_SUCCESS) {
-+		pa = kvtophys(va);
++		pa = kvtophys(alloc_va);
 +		if (pa != 0 && (pa & 0xfffu) == 0u &&
 +		    pa <= 0x100000000ULL - bytes) {
-+			g_pong_audio.dma_pa = pa;
-+			g_pong_audio.dma_size = (uint32_t)bytes;
-+			g_pong_audio.dma_va = va;
-+			printf("PongAudio: low DMA allocated pa=0x%llx size=0x%x\n",
-+			    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
-+			return true;
++			vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
++			if (va != 0) {
++				g_pong_audio.dma_pa = pa;
++				g_pong_audio.dma_size = (uint32_t)bytes;
++				g_pong_audio.dma_va = va;
++				printf("PongAudio: low DMA allocated pa=0x%llx size=0x%x\n",
++				    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
++				return true;
++			}
 +		}
-+		kmem_free(kernel_map, va, bytes);
++		kmem_free(kernel_map, alloc_va, bytes);
 +	}
 +	printf("PongAudio: low DMA unavailable: %s\n",
 +	    pong_audio_error_name(PongAudioErrNoHandoff));

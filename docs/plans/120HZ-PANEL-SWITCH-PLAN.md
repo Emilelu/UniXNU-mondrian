@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: `120hz-4` prepared (first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); build pending. Branch: `feat/120hz-panel`.
+Status: `120hz-4` built (first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); flight pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -122,6 +122,20 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg vsync=120`
 - manifest `E:/k60-work/artifacts/120hz-3/build-manifest.json`;
   `kernel_args_requested=["vsync=120"]`; `image-arg-audit: OK (30 arguments, 585 bytes)`;
   `verify-boot-image: OK`; `check-panel-timing: ok`.
+
+`120hz-4` was built from branch `feat/120hz-panel` at HEAD `58eed3fc` (clean
+tree), with `K60_EIGHT_STEP_ITEMS=display` and
+`--kernel-arg p120=1 --kernel-arg k60_backlight_control=1`
+(built_at `2026-11-18T00:56:24+08:00`):
+
+- `boot.img` 201,887,744 B, SHA-256
+  `54784067b2a2449a1457760d08fa48f8cc7137f9e51cbc7b4367ce5457ea0c86`
+- `kernel_built` 105,525,248 B, SHA-256
+  `f0d54b8be5dde5a169b1576c7a6edb01e1aba544cf0be6e98f9efd996522a7a4`
+- manifest `E:/k60-work/artifacts/120hz-4/build-manifest.json`;
+  `kernel_args_requested=["p120=1","k60_backlight_control=1"]`;
+  `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
+  `check-panel-timing: ok`.
 
 ## Pre-registered success criteria (write before the flight)
 

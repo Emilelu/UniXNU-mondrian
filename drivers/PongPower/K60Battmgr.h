@@ -30,7 +30,7 @@ enum K60BatteryResponse {
 
 typedef struct {
     int32_t value[K60BmFields];
-    uint32_t valid, fresh, completed, last_fresh, last_completed;
+    uint32_t valid, fresh, completed, last_fresh, last_completed, failed;
     uint32_t generations, responses, notifications, errors, timeouts, ignored;
     uint32_t last_remote_error;
     uint16_t notify_reply_bytes;
@@ -48,7 +48,10 @@ typedef enum {
 } K60BatteryCurrentSource;
 
 typedef struct {
-    uint32_t valid;
+    uint32_t valid, failed;
+    /* Raw wire values, in the exact units the ADSP reports. The valid and
+     * failed masks say which entries are measured; unreported entries stay 0. */
+    int32_t raw[K60BmFields];
     int present, external, charging, full, usb_connected;
     uint32_t capacity_hundredths, current_mah, full_mah, design_mah, cycles;
     uint32_t voltage_mv, adapter_mv, adapter_ma, adapter_type;

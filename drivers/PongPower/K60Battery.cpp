@@ -23,7 +23,7 @@
 
 namespace {
 constexpr uint32_t kPollMs = 20, kRefreshMs = 5000, kRequestMs = 3000, kChannelMs = 5000;
-constexpr unsigned kPropertyNumbers = 24;
+constexpr unsigned kPropertyNumbers = 37;
 uint64_t milliseconds()
 {
     clock_sec_t seconds; clock_usec_t fraction;
@@ -72,6 +72,7 @@ private:
     void cleanup();
     void stale(const char *);
     void publish(const K60BatterySample &);
+    void logSample(const char *, const K60BatterySample &);
     void number(unsigned, uint64_t);
     void pump();
     void updateAdapter(const K60BatterySample &);
@@ -97,7 +98,12 @@ bool K60Battery::initProperties()
         "NominalChargeCapacity", "DesignCapacity", "K60CapacityHundredths", "K60BatterySampleSequence",
         "K60BatterySampleUptimeMS", "K60BatteryValidFields", "K60BatteryResponses", "K60BatteryNotifications",
         "K60BatteryTimeouts", "K60BatteryErrors", "K60BatteryIgnored", "K60GlinkEpoch",
-        "K60GlinkReceived", "K60GlinkTransmitted", "K60UsbOnline", "K60WirelessOnline"
+        "K60GlinkReceived", "K60GlinkTransmitted", "K60UsbOnline", "K60WirelessOnline",
+        "K60BatteryFailedFields", "K60RawStatus", "K60RawCapacityHundredths",
+        "K60RawVoltageMicrovolts", "K60RawCurrentMicroamps", "K60RawTemperatureHundredths",
+        "K60RawFullChargeMicroampHours", "K60RawDesignChargeMicroampHours",
+        "K60RawUsbVoltageMicrovolts", "K60RawUsbCurrentMicroamps",
+        "K60RawTimeToFullSeconds", "K60RawTimeToEmptySeconds", "K60RawUsbAdapter"
     };
     for (unsigned i = 0; i < kPropertyNumbers; ++i) {
         numbers[i].key = OSSymbol::withCString(keys[i]);
@@ -171,6 +177,19 @@ void K60Battery::publish(const K60BatterySample &s)
     number(17, manager.errors); number(18, manager.ignored); number(19, transport.epoch());
     number(20, transport.received()); number(21, transport.transmitted());
     number(22, manager.value[K60BmUsbOnline]); number(23, manager.value[K60BmWirelessOnline]);
+    number(24, s.failed);
+    number(25, uint64_t(int64_t(s.raw[K60BmStatus])));
+    number(26, uint64_t(int64_t(s.raw[K60BmCapacity])));
+    number(27, uint64_t(int64_t(s.raw[K60BmVoltage])));
+    number(28, uint64_t(int64_t(s.raw[K60BmCurrent])));
+    number(29, uint64_t(int64_t(s.raw[K60BmTemperature])));
+    number(30, uint64_t(int64_t(s.raw[K60BmFull])));
+    number(31, uint64_t(int64_t(s.raw[K60BmDesign])));
+    number(32, uint64_t(int64_t(s.raw[K60BmUsbVoltage])));
+    number(33, uint64_t(int64_t(s.raw[K60BmUsbCurrent])));
+    number(34, uint64_t(int64_t(s.raw[K60BmTimeToFull])));
+    number(35, uint64_t(int64_t(s.raw[K60BmTimeToEmpty])));
+    number(36, uint64_t(int64_t(s.raw[K60BmUsbAdapter])));
     if (s.model[0]) {
         OSSymbol *old = model();
         if (!old || strcmp(old->getCStringNoCopy(), s.model)) {
@@ -204,28 +223,37 @@ void K60Battery::publish(const K60BatterySample &s)
      * discover the service. updateStatus copies the power-source dictionary. */
     updateStatus();
     if (settingsChangedSinceUpdate) return; /* registry copy failed: do not expose partial initial properties */
-    if (first) {published = true; registerService();}
-    if (first || s.external != lastSample.external || s.charging != lastSample.charging || s.full != lastSample.full ||
-        s.capacity_hundredths != lastSample.capacity_hundredths) {
-        IOLog("K60Battery: %s sample=%u SOC=%u.%02u%% charge=%u/%umAh design=%umAh cycles=%u voltage=%umV current=%dmA current-source=%s temp=%d.%02uC external=%d charging=%d full=%d subscribed=%u\n",
-            first ? "physical source published" : "physical source updated", manager.generations,
-            s.capacity_hundredths / 100, s.capacity_hundredths % 100, s.current_mah, s.full_mah, s.design_mah,
-            s.cycles, s.voltage_mv, s.current_ma,
-            s.current_source == K60BatteryCurrentCell ? "cell" : s.current_source == K60BatteryCurrentUsb ? "usb" : "none",
-            s.temperature_hundredths / 100,
-            unsigned(s.temperature_hundredths < 0 ? -s.temperature_hundredths : s.temperature_hundredths) % 100,
-            s.external, s.charging, s.full, manager.subscribed);
+    if (first) {
+        registerService();
+        published = true;
+        if (isInactive()) {
+            /* Registration did not take: keep the service unpublished so the
+             * next coherent sample registers it again. */
+            published = false;
+            IOLog("K60Battery: registerService left the source inactive; retrying on the next sample\n");
+        }
     }
+    if (first || s.external != lastSample.external || s.charging != lastSample.charging || s.full != lastSample.full ||
+        s.capacity_hundredths != lastSample.capacity_hundredths)
+        logSample(first ? "physical source published" : "physical source updated", s);
     const uint32_t generations = manager.generations;
     if (first) lastRefreshLog = generations;
     else if (generations >= lastRefreshLog + 6) {
         lastRefreshLog = generations;
-        IOLog("K60Battery: refresh sample=%u voltage=%umV current=%dmA current-source=%s SOC=%u.%02u%% subscribed=%u\n",
-            generations, s.voltage_mv, s.current_ma,
-            s.current_source == K60BatteryCurrentCell ? "cell" : s.current_source == K60BatteryCurrentUsb ? "usb" : "none",
-            s.capacity_hundredths / 100, s.capacity_hundredths % 100, manager.subscribed);
+        logSample("physical source refreshed", s);
     }
     lastSample = s;
+}
+void K60Battery::logSample(const char *kind, const K60BatterySample &s)
+{
+    IOLog("K60Battery: %s sample=%u SOC=%u.%02u%% charge=%u/%umAh design=%umAh cycles=%u voltage=%umV current=%dmA current-source=%s temp=%d.%02uC external=%d charging=%d full=%d subscribed=%u\n",
+        kind, manager.generations,
+        s.capacity_hundredths / 100, s.capacity_hundredths % 100, s.current_mah, s.full_mah, s.design_mah,
+        s.cycles, s.voltage_mv, s.current_ma,
+        s.current_source == K60BatteryCurrentCell ? "cell" : s.current_source == K60BatteryCurrentUsb ? "usb" : "none",
+        s.temperature_hundredths / 100,
+        unsigned(s.temperature_hundredths < 0 ? -s.temperature_hundredths : s.temperature_hundredths) % 100,
+        s.external, s.charging, s.full, manager.subscribed);
 }
 
 void K60Battery::updateAdapter(const K60BatterySample &s)
@@ -240,8 +268,12 @@ void K60Battery::updateAdapter(const K60BatterySample &s)
         s.adapter_mv, s.adapter_ma, uint32_t(uint64_t(s.adapter_mv) * s.adapter_ma / 1000000)};
     uint32_t mask = 0;
     if (!s.external) mask = 1;
-    else if (s.usb_connected)
-        for (unsigned i = 0; i < 4; ++i) if ((s.valid & fields[i]) == fields[i]) mask |= 1u << i;
+    else if (s.usb_connected) {
+        /* The family is known even when the adapter type is missing: report
+         * USBUnknown rather than dropping the whole dictionary. */
+        mask = 1;
+        for (unsigned i = 1; i < 4; ++i) if ((s.valid & fields[i]) == fields[i]) mask |= 1u << i;
+    }
     bool changed = mask != adapterMask;
     for (unsigned i = 0; i < 4; ++i) if ((mask & (1u << i)) && values[i] != adapterValues[i]) changed = true;
     if (!changed) return;

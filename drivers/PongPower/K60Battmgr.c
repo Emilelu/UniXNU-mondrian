@@ -42,7 +42,7 @@ static void zero(void *p, unsigned bytes)
 }
 static void begin_cycle(K60Battmgr *b)
 {
-    b->cursor = 0; b->fresh = b->completed = 0;
+    b->cursor = 0; b->fresh = b->completed = b->failed = 0;
     b->cycle_active = 1; b->refresh_due = b->sample_dirty = 0;
 }
 void k60_battmgr_init(K60Battmgr *b, int sign, unsigned reply_type, unsigned reply_bytes)
@@ -57,7 +57,7 @@ void k60_battmgr_init(K60Battmgr *b, int sign, unsigned reply_type, unsigned rep
 }
 void k60_battmgr_channel_down(K60Battmgr *b)
 {
-    b->valid = b->fresh = b->completed = b->last_fresh = b->last_completed = 0;
+    b->valid = b->fresh = b->completed = b->last_fresh = b->last_completed = b->failed = 0;
     b->flight = FLIGHT_NONE; b->cycle_active = b->subscribed = b->subscribe_due = 0;
     b->refresh_due = b->poisoned = b->sample_dirty = 0;
 }
@@ -189,7 +189,7 @@ int k60_battmgr_receive(K60Battmgr *b, const uint8_t *data, unsigned bytes)
     if (f == K60BmModel && bytes == 16 + K60_BATTMGR_MODEL_BYTES) {
         b->responses++; b->completed |= BIT(f);
         if (model_valid(b, data + 16)) {b->valid |= BIT(f); b->fresh |= BIT(f);}
-        else {b->valid &= ~BIT(f); b->errors++;}
+        else {b->valid &= ~BIT(f); b->failed |= BIT(f); b->errors++;}
         return finish_field(b);
     }
     if (bytes != 24) {b->ignored++; return K60BmIgnored;}
@@ -199,7 +199,7 @@ int k60_battmgr_receive(K60Battmgr *b, const uint8_t *data, unsigned bytes)
     if (!result && f != K60BmModel && value_valid(f, value)) {
         b->value[f] = value; b->valid |= BIT(f); b->fresh |= BIT(f);
     } else {
-        b->valid &= ~BIT(f); b->errors++;
+        b->valid &= ~BIT(f); b->failed |= BIT(f); b->errors++;
     }
     return finish_field(b);
 }
@@ -207,6 +207,7 @@ void k60_battmgr_timeout(K60Battmgr *b)
 {
     if (b->flight == FLIGHT_NONE) return;
     b->timeouts++; b->poisoned = 1;
+    b->failed |= ((1u << K60BmFields) - 1) & ~b->completed;
     b->valid = b->fresh = b->completed = b->last_fresh = 0;
     b->cycle_active = 0;
 }
@@ -221,7 +222,8 @@ int k60_battmgr_sample(const K60Battmgr *b, K60BatterySample *s)
     if (!s || b->poisoned || b->sample_dirty ||
         (b->last_fresh & (source | BIT(K60BmPresent))) != (source | BIT(K60BmPresent))) return 0;
     if (!b->value[K60BmPresent]) {
-        zero(s, sizeof(*s)); s->valid = b->last_fresh;
+        zero(s, sizeof(*s)); s->valid = b->last_fresh; s->failed = b->failed;
+        for (unsigned i = 0; i < K60BmFields; ++i) s->raw[i] = b->value[i];
         s->external = b->value[K60BmUsbOnline] || b->value[K60BmUsbVoltage] >= 4000000 || b->value[K60BmWirelessOnline];
         return 1;
     }
@@ -231,7 +233,9 @@ int k60_battmgr_sample(const K60Battmgr *b, K60BatterySample *s)
     const uint32_t full = (uint32_t)b->value[K60BmFull], design = (uint32_t)b->value[K60BmDesign];
     if ((uint64_t)full * 2 < design || (uint64_t)full > (uint64_t)design * 3 / 2) return 0;
     zero(s, sizeof(*s));
-    s->valid = b->last_fresh; s->present = 1;
+    s->valid = b->last_fresh; s->failed = b->failed;
+    for (unsigned i = 0; i < K60BmFields; ++i) s->raw[i] = b->value[i];
+    s->present = 1;
     const int usb = b->value[K60BmUsbOnline] != 0 || b->value[K60BmUsbVoltage] >= 4000000;
     s->usb_connected = usb;
     s->external = usb || b->value[K60BmWirelessOnline] != 0;

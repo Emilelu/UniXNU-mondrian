@@ -16,6 +16,10 @@ extern "C" bool pong_panel_bringup(void);
 /* 0..4095 (12 bit DCS 0x51); returns 0 on success. */
 extern "C" int pong_panel_set_brightness(uint32_t level);
 
+/* Switch the m11a timing group to 120 Hz once. 0 = switched; negative =
+ * the DCS write failed; -100 = bring-up not complete. */
+extern "C" int pong_panel_switch_120(void);
+
 /* Last brightness written (0 when bring-up has not succeeded yet). */
 extern "C" uint32_t pong_panel_brightness(void);
 

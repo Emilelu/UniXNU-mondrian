@@ -61,6 +61,8 @@ unsigned dsi_mdp_waits;
 unsigned panel_on_done;
 unsigned panel_brightness = 0;
 int panel_on_result = -100;
+unsigned panel_120_done;
+int panel_120_result = -100;
 
 /* K60 FDT: MDSS0xae00000, INTF pages0x35000..0x38000. Same SM8475
  * zizhan dpuBus/intfRate require GCC_DISP_AHB and DISP_CC_MDSS_AHB before
@@ -75,7 +77,7 @@ uint32_t probe_frames[4];
 uint16_t probe_te[2];
 uint64_t probe_sampled[4];
 bool cadence_pending,cadence_verify;
-constexpr uint32_t IntfFrameCount=0xac,IntfTearAutorefresh=0x2b4;
+constexpr uint32_t IntfFrameCount=0xac,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
 constexpr uint32_t CadenceInherited=0x8000003cu,CadenceEveryFrame=0x80000001u;
 
 void panel_log(const char *fmt, ...)
@@ -104,6 +106,49 @@ vm_offset_t probe_page(unsigned slot,uint32_t physical)
 uint32_t probe_read(vm_offset_t base,unsigned offset)
 {
     return *reinterpret_cast<volatile uint32_t *>(base+offset);
+}
+
+/* Read the INTF1 frame and TE counters over a short bounded window. This is
+ * the H-level observation for the timing switch: a panel that accepted the
+ * command but stayed at 60 Hz must not be reported as 120 Hz. */
+bool panel_intf_rate(const char *phase,uint32_t milliseconds)
+{
+    if(!milliseconds)return false;
+    const vm_offset_t gcc=probe_page(0,0x00137000);
+    if(!gcc) {
+        panel_log("K60 PANEL: INTF1 %s: no GCC mapping, rate unavailable\n",phase);
+        return false;
+    }
+    const uint32_t gate=probe_read(gcc,4);
+    if(gate&0x80000000u) {
+        panel_log("K60 PANEL: INTF1 %s: GCC_DISP_AHB off=%#x, rate unavailable\n",phase,gate);
+        return false;
+    }
+    const vm_offset_t dc=probe_page(1,0x0af08000),power=probe_page(2,0x0af09000);
+    if(!dc || !power) {
+        panel_log("K60 PANEL: INTF1 %s: no DISPCC mapping, rate unavailable\n",phase);
+        return false;
+    }
+    const uint32_t ahb=probe_read(dc,0xa4),gdsc=probe_read(power,0);
+    if((ahb&0x80000000u) || !(gdsc&0x80000000u)) {
+        panel_log("K60 PANEL: INTF1 %s: MDSS gate=%#x power=%#x, rate unavailable\n",phase,ahb,gdsc);
+        return false;
+    }
+    const vm_offset_t base=probe_page(4,0x0ae36000);
+    if(!base) {
+        panel_log("K60 PANEL: INTF1 %s: no INTF1 mapping, rate unavailable\n",phase);
+        return false;
+    }
+    const uint16_t te0=uint16_t(probe_read(base,IntfTeCount)>>16);
+    const uint32_t frames0=probe_read(base,IntfFrameCount);
+    for(uint32_t elapsed=0;elapsed<milliseconds;elapsed+=10)IODelay(10*1000);
+    const uint16_t te1=uint16_t(probe_read(base,IntfTeCount)>>16);
+    const uint32_t frames1=probe_read(base,IntfFrameCount);
+    const uint32_t dte=uint16_t(te1-te0),dframes=frames1-frames0;
+    panel_log("K60 PANEL: INTF1 %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u)\n",
+        phase,dte*1000u/milliseconds,dframes*1000u/milliseconds,milliseconds,
+        unsigned(te0),unsigned(te1),frames0,frames1);
+    return true;
 }
 
 /* Qualcomm-authored SM8475 register facts, mirrored (not a matched K60
@@ -279,7 +324,67 @@ int dsi_write0(uint8_t cmd)
 	return dsi_dcs(&cmd, 1, false);
 }
 
+/* m11a timing@2 (120 Hz) timing-switch-command, packet by packet from the
+ * live FDT (docs/plans/120HZ-PORT-PLAN.md): 0x2f=0x00 selects timing group 2;
+ * the 0x39 packets are the vendor's fixed 0xf0 0x55 0xaa 0x52 sequence. */
+struct PanelTimingCommand { const uint8_t *data; uint32_t length; };
+constexpr uint8_t kTiming120_2f[] = { 0x2f, 0x00 };
+constexpr uint8_t kTiming120_8b[] = { 0x8b, 0x00 };
+constexpr uint8_t kTiming120_f0[] = { 0xf0, 0x55, 0xaa, 0x52, 0x08, 0x00 };
+constexpr uint8_t kTiming120_6f03[] = { 0x6f, 0x03 };
+constexpr uint8_t kTiming120_c010[] = { 0xc0, 0x10 };
+constexpr uint8_t kTiming120_6f31[] = { 0x6f, 0x31 };
+constexpr uint8_t kTiming120_df[] = { 0xdf, 0x20 };
+constexpr uint8_t kTiming120_f002[] = { 0xf0, 0x55, 0xaa, 0x52, 0x08, 0x02 };
+constexpr uint8_t kTiming120_cc[] = { 0xcc, 0x30 };
+constexpr uint8_t kTiming120_ce[] = { 0xce, 0x01 };
+constexpr PanelTimingCommand kTiming120[] = {
+    { kTiming120_2f, sizeof(kTiming120_2f) },
+    { kTiming120_8b, sizeof(kTiming120_8b) },
+    { kTiming120_f0, sizeof(kTiming120_f0) },
+    { kTiming120_6f03, sizeof(kTiming120_6f03) },
+    { kTiming120_c010, sizeof(kTiming120_c010) },
+    { kTiming120_6f31, sizeof(kTiming120_6f31) },
+    { kTiming120_df, sizeof(kTiming120_df) },
+    { kTiming120_f002, sizeof(kTiming120_f002) },
+    { kTiming120_cc, sizeof(kTiming120_cc) },
+    { kTiming120_ce, sizeof(kTiming120_ce) },
+};
+
 } // namespace
+
+extern "C" int pong_panel_switch_120(void)
+{
+    if (panel_on_result != 0) {
+        return -100;
+    }
+    if (panel_120_done) {
+        return panel_120_result;
+    }
+    panel_120_done = 1;
+    panel_120_result = -1;
+    if (!dsi_map) {
+        panel_log("K60 PANEL: timing switch to 120 Hz: DSI0 not mapped\n");
+        return -1;
+    }
+
+    panel_intf_rate("before the switch", 200);
+    const uint32_t count = sizeof(kTiming120) / sizeof(kTiming120[0]);
+    for (uint32_t i = 0; i < count; ++i) {
+        const int rc = dsi_dcs(kTiming120[i].data, kTiming120[i].length, false);
+        if (rc) {
+            panel_120_result = rc;
+            panel_log("K60 PANEL: timing switch to 120 Hz: packet %u/%u failed rc %d\n",
+                i + 1, count, rc);
+            return rc;
+        }
+    }
+    IODelay(300 * 1000); /* vendor timing-switch settle time */
+    panel_intf_rate("after the switch", 500);
+    panel_120_result = 0;
+    panel_log("K60 PANEL: timing switch to 120 Hz: %u packets, rc 0\n", count);
+    return 0;
+}
 
 extern "C" bool pong_panel_bringup(void)
 {
@@ -328,6 +433,10 @@ extern "C" bool pong_panel_bringup(void)
     unsigned probe=0;
     probe_enabled=PE_parse_boot_argn("gprobe",&probe,sizeof(probe)) && probe==1;
     cadence_pending=true;
+    unsigned panel_120=0;
+    if (PE_parse_boot_argn("p120",&panel_120,sizeof(panel_120)) && panel_120==1) {
+        (void)pong_panel_switch_120();
+    }
 	return true;
 }
 

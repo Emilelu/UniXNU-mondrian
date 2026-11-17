@@ -86,7 +86,10 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 - **2026-11-12 变更**：触摸驱动整体换成 yibiya `fix/touch-gpu-bringup`
   分支的干净实现（47,040 B / 1,039 行，替换原有的 239,781 B / 5,452 行
   诊断版）。新实现使用真实触摸坐标范围 `14400×32000`、显式
-  `bitbang-pins` 角色元组、`k60_touch_se=5 k60_touch_rcg=1`。
+  `bitbang-pins` 角色元组；2026-11-12 镜像的 boot-args 曾设
+  `k60_touch_se=5 k60_touch_rcg=1`，当前 `board.toml:191-193` 已说明故意
+  不设 `k60_touch_se`（驱动拒绝 19，stage 6 在 QUP4 GPIO SPI pin roles
+  前到不了面板），2026-11-14 单指验证按补丁默认 stage 6 进行。
 
 ### GPU
 

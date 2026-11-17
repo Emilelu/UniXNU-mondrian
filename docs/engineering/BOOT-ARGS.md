@@ -23,7 +23,7 @@
 | `native-ufs-probe` | 存储 | 任意 | 代码默认 | — |
 | `native-ufs-wait` | 存储 | 0=Paced 1=Spin 2=Sleep | 1（Spin） | >2 会被忽略回落默认 |
 | `sheng-data-reset` | 存储 | 1 或 2 | 不重置 | 会清 Data |
-| `k60_touch_se` | 触摸 | 0..7 | 6 | 2026-11-12 显式设为 6；<6 不发布设备 |
+| `k60_touch_se` | 触摸 | 0..7 | 6 | 代码默认 6；当前 board.toml 故意未设（stage 6 在 QUP4 GPIO SPI pin roles 前到不了面板，驱动拒绝 19） |
 | `k60_touch_rcg` | 触摸 | 0 或 1 | 0 | — |
 | `k60touchhz` | 触摸 | ≤ 15000000 | 4000000 | 超范围整体拒绝 |
 | `k60touchdelay` | 触摸 | ≤ 60（秒） | 8 | 超范围整体拒绝 |
@@ -157,7 +157,7 @@
 - **接受值**：0..7
 - **未设时**：6
 - **作用**：触摸阶段：1 只映射 2 GPIO/AVDD 5 识别 6 发布 /dev/pong-touch 7 GPIO 识别
-- **陷阱**：2026-11-12 显式设为 6；<6 不发布设备
+- **陷阱**：代码默认 6；当前 `board.toml:191-193` 故意不设（驱动拒绝 19，stage 6 在 QUP4 GPIO SPI pin roles 前到不了面板）；<6 不发布设备
 
 ### `k60_touch_rcg`
 
@@ -235,9 +235,9 @@ pong_gpu_scanout=1  需 19  -> 超限 14
 
 候选让位项：`k60_selftest_reboot=300`（23 字节，手动测试不需要）。
 
-## 当前状态（2026-11-12）
+## 历史状态（2026-11-12）
 
-已启用：
+当时镜像已启用：
 
 ```
 pong_adreno_start=1   平台线程
@@ -245,15 +245,19 @@ pong_metal=1          accelerator 发布
 k60_touch_se=6        触摸发布
 ```
 
-未启用（按依赖顺序应当后开）：
+当时未启用（按依赖顺序应当后开）：
 
 ```
 pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 accelerator 已发布
 ```
 
-为给 `pong_metal=1` 腾空间，已移除 `k60_selftest_reboot=300`（23 字节）。
+为给 `pong_metal=1` 腾空间，当时移除了 `k60_selftest_reboot=300`（23 字节）。
 它是无人值守自检后的自动重启看门狗：手动上机测试时不需要，
 而且在观察过程中会把设备重启掉。
+
+**当前可启动参数以 `board.toml` 的 `kernel_args` 为准**：`pong_metal=2`、
+`k60_autoreset=300`、`applog=1`，且不含 `k60_touch_se`（原因见
+`board.toml:191-193` 与 P-160）。
 
 ---
 

@@ -139,7 +139,7 @@ L4 逐项状态：
 **首个最小安全离线测试：**
 
 1. 先找到 `ipa_fws.mdt`（或 Android firmware 分区里的 IPA 固件；本地 `E:/k60-work` 下目前没有该文件，这是当前 blocker，标 **UNKNOWN**）。
-2. 写一个 host-only 脚本（不启动设备、不写内核）解析 `ipa_fws.mdt` 的 ELF program headers，求所有 `PT_LOAD` 的 `p_memsz` 总和，打印每个段的 `p_paddr/p_filesz/p_memsz`。
+2. 使用已实现的 host-only gate `scripts/tests/test-k60-modem-ipa-fw.py --mdt <ipa_fws.mdt>`（不启动设备、不写内核）解析 ELF program headers，求所有 `PT_LOAD` 的 `p_memsz` 总和，打印每个段的 `p_paddr/p_filesz/p_memsz`；`--selftest` 可在没有固件时验证解析器。
 3. 与 DT 的两个 region 比较：若总和 ≤ `0xa000`，当前 `memory-regions -> ipa_gsi_region@8b910000` 可能成立；若 `0xa000 < 总和 ≤ 0x10000`，则 DT 的 40 KiB 配对错误，必须改为 `ipa_fw_region@8b900000`，否则 M1 永远失败。
 4. 同时用 `dtc`/FDT 属性导出核对 `firmware-names`、`memory-regions`、`pas-ids` 的 index 对齐（`DIPA/ipa_v3/ipa.c:8117-8128` 要求同 index）。
 

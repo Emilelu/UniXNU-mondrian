@@ -58,4 +58,33 @@ Metal 逻辑、不改内核、不改 boot-arg、不改部署。
 
 ## 5. 结果登记
 
-（上机后填写。）
+**判决：PASS（S1/S2/S3 全部满足）。** 证据 `E:/k60-work/evidence/usblog-20261117-110349`
+（`console.log` 3,064 行 / 190,081 B，抓取完整、未因 panic/复位中断，supervisor rc=0）。
+
+| 判据 | 实测 | 结果 |
+| --- | --- | --- |
+| S1 `K60KEXC` | `grep -c` = **0** | ✅ |
+| S2 部署双根 | `:480 K60METAL deploy files=6/6 inject=6 error=0` | ✅ |
+| S3 插件装载 | `:1288 Pong Metal: plugin loaded status=0x0` | ✅ |
+
+旁证：`crashed: backboardd` = **0**；`present #` = 0；`optional camera-filter GPU prewarm
+skipped (software-only platform)` = 1（`:1670`）。
+
+**本轮最重要的三个新事实**
+
+1. **插件确实被 dyld 装进了 backboardd**（`:1288`，紧接 `:1276 Pong UI: 20G81 compatibility
+   library entered backboardd` 之后）。「注入机制不生效」这一整类假设到此排除。
+2. **但插件一次都没被实例化**：除构造函数那一行外没有任何 `Pong Metal:` 输出，
+   特别是没有 `real Vulkan-backed device created` / `runtime refused device`。
+3. **`:1282 Pong UI: 20G81 software renderer fallback installed (protection=0)` 不是
+   「Metal 不可用」的证据** —— 读 `userland/ui_compat.c:943-951` 可知它只是把
+   `renderer`/`framebuffer_format`/`display_ready` 等函数指针替换进 QuartzCore 的
+   `install_renderer_hook()`，无论 Metal 是否可用都会打印。真正的 nil 信号是
+   `:1670` 的 `software-only platform`。
+
+**下一层（写死）**：查 `MTLCreateSystemDefaultDevice()` 的**设备发现路径** ——
+插件里的 `PongAdrenoMetalDevice` 类如何被 Metal 框架找到并实例化
+（`Info.plist` 的 `NSPrincipalClass`、`.clients`/`.publish` 的消费方、
+以及 SpringBoard 进程根本没有注入插件这一事实：`:1658` 的 SpringBoard 只有
+libpong-ui）。下一步要么在 SpringBoard 也注入插件，要么证明设备发现走的是
+backboardd 发布的 Mach 服务。

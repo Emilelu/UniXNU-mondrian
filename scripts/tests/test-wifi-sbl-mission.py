@@ -76,9 +76,11 @@ def main() -> int:
           "if (mission == MHI_EE_AMSS || mission == MHI_EE_WFW) {" in text)
     check("mission poll caches the new execution environment",
           "mhi_cntrl->ee = mission;" in text)
-    check("mission poll creates MHI devices before waking",
-          text.count("mhi_create_devices(mhi_cntrl);") == 1,
-          "count=%d" % text.count("mhi_create_devices(mhi_cntrl);"))
+    check("mission poll caches the EE, creates MHI devices, then wakes",
+          text.count("mhi_create_devices(mhi_cntrl);") == 1 and
+          0 <= text.find("mhi_cntrl->ee = mission;") <
+          text.find("mhi_create_devices(mhi_cntrl);") <
+          text.find("wake_up_all(&mhi_cntrl->state_event);"))
     check("mission poll wakes the power-up waiter",
           "wake_up_all(&mhi_cntrl->state_event);" in text)
     check("mission poll logs the cached EE",

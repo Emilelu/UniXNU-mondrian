@@ -48,11 +48,12 @@ CHANNEL_UP_BAD_CONST = (
 # The real shape of the sample line, from K60Battery.cpp:209-214.
 def sample(voltage=4333, current=836, soc=(57, 30), temp=(35, 80), external=1,
            charging=1, full=0, subscribed=1, kind="physical source published",
-           generations=1):
+           generations=1, source="usb"):
+    origin = f" current-source={source}" if source else ""
     return (
         f"K60Battery: {kind} sample={generations} SOC={soc[0]}.{soc[1]:02d}% "
         f"charge=2865/5000mAh design=5000mAh cycles=120 voltage={voltage}mV "
-        f"current={current}mA temp={temp[0]}.{temp[1]:02d}C external={external} "
+        f"current={current}mA{origin} temp={temp[0]}.{temp[1]:02d}C external={external} "
         f"charging={charging} full={full} subscribed={subscribed}\n"
     )
 
@@ -103,6 +104,11 @@ def main() -> int:
     healthy = write("healthy.log", LEASE_OK + CHANNEL_UP + sample())
     check("a lease + (1,16) channel up + subscribed=1 sample is PASS", healthy, 0,
           ["C1 订阅成立 : PASS", "C2 四属性可读 : PASS", "TOTAL: 2 PASS / 0 FAIL / 0 INVALID"])
+
+    # --- 1b. the pre-current-source shape still parses -------------------
+    legacy = write("legacy.log", LEASE_OK + CHANNEL_UP + sample(source=None))
+    check("a sample line without current-source still parses", legacy, 0,
+          ["C2 四属性可读 : PASS"])
 
     # --- 2. no lease: nothing was measurable, so INVALID not FAIL ----------
     blocked = write("blocked.log", LEASE_FAIL + BLOCKED)

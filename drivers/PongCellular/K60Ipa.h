@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
-/* K60 IPA data path: constant definitions and the M0 compile-time skeleton.
+/* K60 IPA data path: constants, firmware validation and M1 staging.
  *
  * The live DT describes the IPA wrapper at 0x3e00000 with a 2 MiB
  * qcom,entire-ipa-block-size. The IPA register block is the wrapper plus
  * qcom,ipa-cfg-offset 0x140000, and the GSI has its own view at 0x3e04000.
- * This header records those facts without touching a register; M0 only
- * proves the kernel can carry the definitions and the probe symbol.
+ * M0 records those facts without touching a register. M1 adds offline image
+ * validation and a staging routine for the 64 KiB ipa_fw_region; the PAS 15
+ * call is deliberately left to the caller of k60_ipa_firmware_begin().
  *
  * Sources: docs/research/cellular/20-IPA-V51-DATA-PATH.md sections 2 and 4,
  *          docs/research/cellular/02-DT-TRUTH.md, dataipa ipa5.0/ipa_hwio.h.
@@ -35,6 +36,9 @@
 #define K60_IPA_FW_NAME               "ipa_fws"
 #define K60_IPA_FW_REGION_BASE        0x8b900000u
 #define K60_IPA_FW_REGION_BYTES       0x00010000u
+#define K60_IPA_METADATA_OFFSET       0x0000e000u
+#define K60_IPA_METADATA_BYTES        0x00002000u
+#define K60_IPA_METADATA_BASE         (K60_IPA_FW_REGION_BASE + K60_IPA_METADATA_OFFSET)
 #define K60_IPA_GSI_REGION_BASE       0x8b910000u
 #define K60_IPA_GSI_REGION_BYTES      0x0000a000u
 #define K60_GSI_CH_DOORBELL_BASE      0x03e28000u
@@ -47,6 +51,9 @@ enum {
     K60IpaBadArgument = -2,
     K60IpaFirmwareBadImage = -3,
     K60IpaFirmwareLayout = -4,
+    K60IpaFirmwareTooLarge = -5,
+    K60IpaMapFailed = -6,
+    K60IpaPasDenied = -7,
 };
 
 typedef struct {
@@ -70,6 +77,20 @@ typedef struct {
 } K60IpaFirmwarePlan;
 
 int k60_ipa_firmware_check(const void *blob, uint64_t size, K60IpaFirmwarePlan *plan);
+
+/* M1 staging: copies a validated monolithic ipa_fws image into the caller's
+ * firmware region and writes its metadata blob into the caller's metadata
+ * buffer. Pure memory movement, so the host tests exercise the same code as
+ * the kernel. Both buffers must be writable and sized from the passed sizes;
+ * the region is zeroed before the segments are placed. */
+int k60_ipa_firmware_stage(const void *blob, uint64_t size, void *region,
+    uint64_t region_size, void *metadata, uint64_t metadata_size,
+    K60IpaFirmwarePlan *plan);
+
+/* M1 load: stages the image into the live IPA firmware carveout and hands it
+ * to PAS 15 (INIT_IMAGE, MEM_SETUP, AUTH_AND_RESET). This maps MMIO and makes
+ * SMC calls; it is not built in the host tests. */
+int k60_ipa_firmware_start(const void *blob, uint64_t size);
 
 /* M0 probe: reports that the data path is intentionally absent.  It must not
  * map MMIO, write a register or call PAS; those begin in M1. */

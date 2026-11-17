@@ -32,7 +32,9 @@ def newfile(path_in_tree: str, text: str) -> str:
 
 def kernel_copy(name: str) -> str:
     text = (SRC / name).read_text()
-    for source, target in (("K60Ipa.h", "pong_ipa.h"), ("K60Mdt.h", "pong_mdt.h")):
+    for source, target in (("K60Ipa.h", "pong_ipa.h"),
+                           ("K60Mdt.h", "pong_mdt.h"),
+                           ("K60ModemPas.h", "pong_modem_pas.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
     return text
 

@@ -36,7 +36,9 @@ def fail(message: str) -> int:
 
 def kernel_copy(name: str) -> str:
     text = (REPO / "drivers/PongCellular" / name).read_text()
-    for source, target in (("K60Ipa.h", "pong_ipa.h"), ("K60Mdt.h", "pong_mdt.h")):
+    for source, target in (("K60Ipa.h", "pong_ipa.h"),
+                           ("K60Mdt.h", "pong_mdt.h"),
+                           ("K60ModemPas.h", "pong_modem_pas.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
     return text
 

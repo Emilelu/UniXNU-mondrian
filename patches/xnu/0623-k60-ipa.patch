@@ -2,15 +2,16 @@ diff --git a/bsd/dev/pong_ipa.h b/bsd/dev/pong_ipa.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.h
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,101 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
-+/* K60 IPA data path: constant definitions and the M0 compile-time skeleton.
++/* K60 IPA data path: constants, firmware validation and M1 staging.
 + *
 + * The live DT describes the IPA wrapper at 0x3e00000 with a 2 MiB
 + * qcom,entire-ipa-block-size. The IPA register block is the wrapper plus
 + * qcom,ipa-cfg-offset 0x140000, and the GSI has its own view at 0x3e04000.
-+ * This header records those facts without touching a register; M0 only
-+ * proves the kernel can carry the definitions and the probe symbol.
++ * M0 records those facts without touching a register. M1 adds offline image
++ * validation and a staging routine for the 64 KiB ipa_fw_region; the PAS 15
++ * call is deliberately left to the caller of k60_ipa_firmware_begin().
 + *
 + * Sources: docs/research/cellular/20-IPA-V51-DATA-PATH.md sections 2 and 4,
 + *          docs/research/cellular/02-DT-TRUTH.md, dataipa ipa5.0/ipa_hwio.h.
@@ -40,6 +41,9 @@ new file mode 100644
 +#define K60_IPA_FW_NAME               "ipa_fws"
 +#define K60_IPA_FW_REGION_BASE        0x8b900000u
 +#define K60_IPA_FW_REGION_BYTES       0x00010000u
++#define K60_IPA_METADATA_OFFSET       0x0000e000u
++#define K60_IPA_METADATA_BYTES        0x00002000u
++#define K60_IPA_METADATA_BASE         (K60_IPA_FW_REGION_BASE + K60_IPA_METADATA_OFFSET)
 +#define K60_IPA_GSI_REGION_BASE       0x8b910000u
 +#define K60_IPA_GSI_REGION_BYTES      0x0000a000u
 +#define K60_GSI_CH_DOORBELL_BASE      0x03e28000u
@@ -52,6 +56,9 @@ new file mode 100644
 +    K60IpaBadArgument = -2,
 +    K60IpaFirmwareBadImage = -3,
 +    K60IpaFirmwareLayout = -4,
++    K60IpaFirmwareTooLarge = -5,
++    K60IpaMapFailed = -6,
++    K60IpaPasDenied = -7,
 +};
 +
 +typedef struct {
@@ -76,6 +83,20 @@ new file mode 100644
 +
 +int k60_ipa_firmware_check(const void *blob, uint64_t size, K60IpaFirmwarePlan *plan);
 +
++/* M1 staging: copies a validated monolithic ipa_fws image into the caller's
++ * firmware region and writes its metadata blob into the caller's metadata
++ * buffer. Pure memory movement, so the host tests exercise the same code as
++ * the kernel. Both buffers must be writable and sized from the passed sizes;
++ * the region is zeroed before the segments are placed. */
++int k60_ipa_firmware_stage(const void *blob, uint64_t size, void *region,
++    uint64_t region_size, void *metadata, uint64_t metadata_size,
++    K60IpaFirmwarePlan *plan);
++
++/* M1 load: stages the image into the live IPA firmware carveout and hands it
++ * to PAS 15 (INIT_IMAGE, MEM_SETUP, AUTH_AND_RESET). This maps MMIO and makes
++ * SMC calls; it is not built in the host tests. */
++int k60_ipa_firmware_start(const void *blob, uint64_t size);
++
 +/* M0 probe: reports that the data path is intentionally absent.  It must not
 + * map MMIO, write a register or call PAS; those begin in M1. */
 +int k60_ipa_probe(void);
@@ -87,26 +108,33 @@ diff --git a/bsd/dev/pong_ipa.c b/bsd/dev/pong_ipa.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.c
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,295 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
-+/* K60 IPA data path M0 skeleton.
++/* K60 IPA data path M0 skeleton plus M1 firmware staging.
 + *
-+ * M0 is deliberately inert. It carries the register-map constants and the
-+ * version decoder so later stages cannot invent a different base address,
-+ * but it maps no MMIO and performs no PAS call. The only runtime entry point
-+ * returns K60IpaNotReady; no existing modem path calls it yet.
++ * M0 carries the register-map constants and the version decoder so later
++ * stages cannot invent a different base address. M1 validates a monolithic
++ * ipa_fws image, clears the 64 KiB ipa_fw_region, copies its load segments to
++ * their p_paddr offsets and builds the metadata block at the last 8 KiB.
++ * Nothing maps the IPA or GSI registers and no PAS call is made here; the
++ * caller owns the PAS 15 transitions and the GSI reset.
 + */
 +
 +#include "pong_ipa.h"
++#include "pong_modem_pas.h"
 +
 +#ifdef K60_HOST_TEST
 +#include <stdio.h>
 +#include <string.h>
 +#else
++#include <pexpert/pexpert.h>
 +#include <sys/systm.h>
-+#endif
 +
-+#define K60_IPA_METADATA_BYTES 0x2000u
++/* osfmk/arm/machine_routines.h:703; declared here keeps the include path out
++ * of the leaky kernel header set (same choice as K60ModemBoot.c). */
++extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size,
++    uint32_t flags);
++#endif
 +
 +static int
 +k60_ipa_blob_read(void *context, uint64_t offset, void *to, size_t length)
@@ -127,8 +155,11 @@ new file mode 100644
 +    "IPA/GSI GIC interrupts must match the live DT");
 +_Static_assert(K60_IPA_PAS_ID == 15u,
 +    "IPA firmware uses PAS id 15 on this board");
++_Static_assert(K60_IPA_METADATA_BASE + K60_IPA_METADATA_BYTES ==
++    K60_IPA_FW_REGION_BASE + K60_IPA_FW_REGION_BYTES,
++    "IPA metadata must be the last 8 KiB of the 64 KiB firmware region");
 +
-+const char k60_ipa_marker[] = "K60IPA M0 skeleton linked";
++const char k60_ipa_marker[] = "K60IPA M1 staging linked";
 +
 +K60IpaVersion
 +k60_ipa_decode_comp_hw_version(uint32_t raw)
@@ -174,9 +205,202 @@ new file mode 100644
 +}
 +
 +int
++k60_ipa_firmware_stage(const void *blob, uint64_t size, void *region,
++    uint64_t region_size, void *metadata, uint64_t metadata_size,
++    K60IpaFirmwarePlan *plan)
++{
++    K60MdtImage image;
++    K60IpaFirmwarePlan local;
++    int rc;
++
++    if (!blob || !region || !metadata) {
++        return K60IpaBadArgument;
++    }
++    rc = k60_ipa_firmware_check(blob, size, &local);
++    if (rc != K60IpaOk) {
++        return rc;
++    }
++    if (region_size < local.span) {
++        return K60IpaFirmwareTooLarge;
++    }
++    if (metadata_size < local.metadata) {
++        return K60IpaFirmwareTooLarge;
++    }
++    rc = k60_mdt_parse(&image, size, k60_ipa_blob_read, (void *)blob);
++    if (rc != K60MdtOk) {
++        return K60IpaFirmwareBadImage;
++    }
++    memset(region, 0, (size_t)region_size);
++    for (uint32_t i = 0; i < image.count; i++) {
++        const K60MdtSegment *s = &image.segment[i];
++        uint64_t offset;
++
++        if (!s->load) {
++            continue;
++        }
++        rc = k60_mdt_place(&image, i, K60_IPA_FW_REGION_BASE, region_size,
++            &offset);
++        if (rc != K60MdtOk) {
++            return K60IpaFirmwareLayout;
++        }
++        memcpy((uint8_t *)region + offset,
++            (const uint8_t *)blob + s->file_offset, (size_t)s->file_size);
++        if (s->memory_size > s->file_size) {
++            memset((uint8_t *)region + offset + s->file_size, 0,
++                (size_t)(s->memory_size - s->file_size));
++        }
++    }
++    rc = k60_mdt_metadata(&image, k60_ipa_blob_read, (void *)blob,
++        metadata, metadata_size);
++    if (rc != K60MdtOk) {
++        return K60IpaFirmwareLayout;
++    }
++    if (plan) {
++        *plan = local;
++    }
++    return K60IpaOk;
++}
++
++#ifndef K60_HOST_TEST
++static int
++k60_ipa_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
++    uint64_t c, uint64_t *rx0, uint64_t *rx1)
++{
++    register uint64_t x0 __asm__("x0") = fn;
++    register uint64_t x1 __asm__("x1") = arginfo;
++    register uint64_t x2 __asm__("x2") = a;
++    register uint64_t x3 __asm__("x3") = b;
++    register uint64_t x4 __asm__("x4") = c;
++    register uint64_t x5 __asm__("x5") = 0;
++    register uint64_t x6 __asm__("x6") = 0;
++    register uint64_t x7 __asm__("x7") = 0;
++
++    __asm__ volatile("smc #0"
++        : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
++        : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
++        : "memory");
++
++    *rx0 = x0;
++    *rx1 = x1;
++    return k60_modem_scm_ok(x0, x1) ? K60IpaOk : K60IpaPasDenied;
++}
++
++static int
++k60_ipa_pas_call(uint32_t cmd, uint32_t arginfo, uint64_t a, uint64_t b,
++    uint64_t c)
++{
++    uint64_t x0 = 0, x1 = 0;
++    int rc = k60_ipa_scm_call(k60_modem_scm_fn(K60M_SCM_SVC_PIL, cmd),
++        arginfo, a, b, c, &x0, &x1);
++
++    if (rc != K60IpaOk) {
++        printf("K60IPA scm cmd=%#x rc=%d x0=%#llx x1=%#llx\n", cmd, rc,
++            (unsigned long long)x0, (unsigned long long)x1);
++    }
++    return rc;
++}
++
++int
++k60_ipa_firmware_start(const void *blob, uint64_t size)
++{
++    K60IpaFirmwarePlan plan;
++    vm_offset_t firmware, metadata;
++    int rc;
++
++    if (!blob) {
++        return K60IpaBadArgument;
++    }
++    rc = k60_ipa_firmware_check(blob, size, &plan);
++    if (rc != K60IpaOk) {
++        printf("K60IPA firmware check failed rc=%d size=%llu\n", rc,
++            (unsigned long long)size);
++        return rc;
++    }
++    printf("K60IPA firmware plan span=%#llx metadata=%#llx loads=%u\n",
++        (unsigned long long)plan.span, (unsigned long long)plan.metadata,
++        plan.load_segments);
++    /* Both IPA regions are DDR carveouts, not device memory: use the same
++     * VM_WIMG_DEFAULT flag K60ModemBoot and K60AdspBoot use. */
++    firmware = ml_io_map_unmappable((vm_offset_t)K60_IPA_FW_REGION_BASE,
++        (vm_size_t)K60_IPA_FW_REGION_BYTES, 0x2);
++    if (firmware == 0) {
++        printf("K60IPA cannot map firmware region %#x\n",
++            K60_IPA_FW_REGION_BASE);
++        return K60IpaMapFailed;
++    }
++    metadata = ml_io_map_unmappable((vm_offset_t)K60_IPA_METADATA_BASE,
++        (vm_size_t)K60_IPA_METADATA_BYTES, 0x2);
++    if (metadata == 0) {
++        printf("K60IPA cannot map metadata region %#x\n",
++            K60_IPA_METADATA_BASE);
++        return K60IpaMapFailed;
++    }
++    rc = k60_ipa_firmware_stage(blob, size, (void *)firmware,
++        K60_IPA_FW_REGION_BYTES, (void *)metadata, K60_IPA_METADATA_BYTES,
++        &plan);
++    if (rc != K60IpaOk) {
++        printf("K60IPA firmware stage failed rc=%d\n", rc);
++        return rc;
++    }
++    printf("K60IPA firmware staged at %#x metadata=%#x\n",
++        K60_IPA_FW_REGION_BASE, K60_IPA_METADATA_BASE);
++    rc = k60_ipa_pas_call(K60M_SCM_PAS_INIT_IMAGE,
++        k60_modem_scm_args(2, K60M_SCM_VAL, K60M_SCM_RW, 0),
++        K60_IPA_PAS_ID, K60_IPA_METADATA_BASE, 0);
++    if (rc != K60IpaOk) {
++        printf("K60IPA init_image failed rc=%d\n", rc);
++        return rc;
++    }
++    printf("K60IPA init_image ok\n");
++    rc = k60_ipa_pas_call(K60M_SCM_PAS_MEM_SETUP,
++        k60_modem_scm_args(3, 0, 0, 0), K60_IPA_PAS_ID,
++        K60_IPA_FW_REGION_BASE, plan.span);
++    if (rc != K60IpaOk) {
++        printf("K60IPA mem_setup failed rc=%d\n", rc);
++        return rc;
++    }
++    printf("K60IPA mem_setup ok base=%#x span=%#llx\n",
++        K60_IPA_FW_REGION_BASE, (unsigned long long)plan.span);
++    rc = k60_ipa_pas_call(K60M_SCM_PAS_AUTH_AND_RESET,
++        k60_modem_scm_args(1, 0, 0, 0), K60_IPA_PAS_ID, 0, 0);
++    if (rc != K60IpaOk) {
++        printf("K60IPA auth_and_reset failed rc=%d\n", rc);
++        return rc;
++    }
++    printf("K60IPA auth_and_reset ok\n");
++    {
++        volatile uint8_t *cfg = (volatile uint8_t *)(uintptr_t)
++            ml_io_map_unmappable((vm_offset_t)K60_IPA_CFG_BASE, 0x1000, 0x7);
++        uint32_t version, comp;
++
++        if (cfg == NULL) {
++            printf("K60IPA cannot map cfg page %#x\n", K60_IPA_CFG_BASE);
++            return K60IpaMapFailed;
++        }
++        version = *(volatile uint32_t *)(cfg + K60_IPA_VERSION_REG);
++        comp = *(volatile uint32_t *)(cfg + K60_IPA_COMP_HW_VERSION_REG);
++        printf("K60IPA version=%#x comp=%#x\n", version, comp);
++        if (version == 0 || version == 0xffffffffu) {
++            printf("K60IPA IPAREADY not set\n");
++            return K60IpaNotReady;
++        }
++    }
++    return K60IpaOk;
++}
++#else /* K60_HOST_TEST */
++int
++k60_ipa_firmware_start(const void *blob, uint64_t size)
++{
++    (void)blob;
++    (void)size;
++    return K60IpaNotReady;
++}
++#endif /* K60_HOST_TEST */
++
++int
 +k60_ipa_probe(void)
 +{
-+    printf("K60IPA M0 skeleton: cfg=0x%x gsi=0x%x irq=%u/%u state=not-ready\n",
++    printf("K60IPA probe: cfg=0x%x gsi=0x%x irq=%u/%u state=not-ready\n",
 +        K60_IPA_CFG_BASE, K60_GSI_BASE, K60_IPA_IRQ, K60_GSI_IRQ);
 +    return K60IpaNotReady;
 +}

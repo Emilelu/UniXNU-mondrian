@@ -420,10 +420,10 @@ evidence = "读了 Ath12kWifi 的 include/nw_abi.h 与 src/nw_wifi.c（f6bf561�
 [hardware.wifi.step.verify]
 done = true
 local_verified = true
-evidence = "三类本地核验齐全：static_check（补丁全量 git apply --check、符号面 341->31->1->0 收敛、十处 stage 门逐行核对）、unit_test（PWF2 四文件与六文件包逐条 offset/size/sha256 校验，自写 LC_SEGMENT_64 解析器比对内核内嵌 blob）、artifact_check（scripts/verify-boot-image.py 七项全过；kernel.macho 里 _pong_wifi_start_optional / _pong_wifi_firmware(_end) / _pong_smmu_lease_lock(unlock) 全部存在，llvm-nm -u 无 pong 未定义符号）。台账见 docs/research/wifi/LOCAL-VERIFICATION.md。"
-static_check = "archive 符号面 341->31->1->0；0010 双 hunk 覆盖 KERNEL_EXTRA_ARCHIVES 与 PLATFORM_ARCHIVES 两条互斥路径；十处 stage 门行号与源码一致（见 LOCAL-VERIFICATION.md 第 2 节）。"
-unit_test = "PWF2 六条目 offset/size/sha256 全部与源文件一致，内核内嵌固件与包逐字节相同（LOCAL-VERIFICATION.md 第 3 节）。"
-artifact_check = "verify-boot-image: OK；linkarchives 含 -Wl,-force_load,.../libPongWifiNative.a；kernel.macho 65,978,368 B（LOCAL-VERIFICATION.md 第 4 节）。"
+evidence = "三类本地核验齐全（mission3，2026-11-18）：test-wifi-sbl-mission.py 27 项 0 失败；verify-boot-image.py 对 E:/k60-work/artifacts/wifi-20261118sbl-mission3/build-manifest.json 返回 OK；check-image-args.py 返回 OK（31 参数/602 B）；boot.img 201,887,744 B SHA256 7bd5cd01fbc2487547270bcd0408d6899c0db29657bf13e38bb76187ce425db2；台账见 docs/research/wifi/SBL-MISSION.md §3。"
+static_check = "test-wifi-sbl-mission.py 27 项：BHI_STATUS 成功门、2500x10 ms mission poll、mhi_create_devices 顺序、wake_up_all、无 queue 调用、生成树锚点；0 失败。"
+unit_test = "PWF2 六条目 offset/size/sha256 与源文件逐条一致；native archive SHA256 5756ae08f4dbc313ffe0f5deda52d93acefbc1dc01ace5290711a8266a6097ac；test-wifi-sbl-mission.py 同时校验生成 mhi/boot.c/pm.c/mhi.h 锚点。"
+artifact_check = "verify-boot-image: OK；check-image-args: OK（31 参数/602 B）；boot.img 201,887,744 B SHA256 7bd5cd01fbc2487547270bcd0408d6899c0db29657bf13e38bb76187ce425db2；hardware_tested=false。"
 
 
 [hardware.wifi.step.device]

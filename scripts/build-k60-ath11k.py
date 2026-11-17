@@ -228,6 +228,16 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         dest = pinned / target; dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists() or dest.is_symlink(): dest.unlink()
         dest.symlink_to(src)
+    # The SBL push needs one per-controller latch. Pin a patched copy of the
+    # public MHI header so the generated host sources see the field; the
+    # source header and every other pinned header stay untouched.
+    mhi_header = (linux / 'include/linux/mhi.h').read_text()
+    needle = '\tbool fbc_download;\n'
+    if mhi_header.count(needle) != 1:
+        raise RuntimeError('Linux MHI controller header differs: fbc_download')
+    dest = pinned / 'linux/mhi.h'
+    if dest.exists() or dest.is_symlink(): dest.unlink()
+    dest.write_text(mhi_header.replace(needle, needle + '\tbool pong_sbl_pushed;\n'))
     # tools/pin-headers.sh derives netdevice_enums.h from netdevice.h. The
     # shim's lx_skb.h includes that split header, so reproduce the exact
     # three upstream enum blocks instead of inventing definitions.
@@ -294,40 +304,36 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         ('fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n',
          'fw_load_ready_state:\n\t/* Transitioning into MHI RESET->READY state */\n'
          '\tdev_info(dev, "Pong MHI: waiting for the device to clear reset and set ready\\n");\n'),
-        # c8: the EE event that should start the AMSS push never arrives, so the
-        # device waits in SBL for an image the host never sends while the host
-        # waits for MISSION. Push it when the hardware execution environment
-        # says SBL, and report the MHI base and limit registers the device was
-        # given, before and after the push.
+        # Successor to c8: the EE event that starts the AMSS push never
+        # arrives, so the device waits in SBL for an image the host never sends
+        # while the host waits for MISSION. The official MhiBoot.c polls
+        # BHI_EXECENV and starts the BHIe image when it reads SBL. Mirror that
+        # by queueing the existing SBL state transition; its worker creates the
+        # devices and calls mhi_download_amss_image once. The poll is bounded,
+        # runs only while the READY/POR register window is valid, and leaves
+        # the fbc vector table owned by MHI. pong_sbl_pushed suppresses a
+        # second push if an EE event arrives after the proactive queue.
         ('\t}\n\n\tdev_info(dev, "Wait for device to enter SBL or Mission mode\\n");\n',
          '\t}\n\n'
-         '\tif (mhi_cntrl->fbc_download &&\n'
-         '\t    mhi_get_exec_env(mhi_cntrl) == MHI_EE_SBL) {\n'
-         '\t\tu32 status = 0, ctrl = 0;\n'
-         '\t\tu32 ctllo = 0, ctlhi = 0, datalo = 0, datahi = 0;\n'
-         '\t\tu32 eclo = 0, echi = 0;\n'
+         '\tif (mhi_cntrl->fbc_download && !mhi_cntrl->pong_sbl_pushed) {\n'
+         '\t\tint i;\n'
+         '\t\tfor (i = 0; i < 200; i++) {\n'
+         '\t\t\tenum mhi_ee_type ee;\n'
+         '\t\t\tu32 bhi = 0;\n'
          '\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHISTATUS, &status);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRL, &ctrl);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRLBASE_LOWER, &ctllo);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRLBASE_HIGHER, &ctlhi);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHIDATABASE_LOWER, &datalo);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHIDATABASE_HIGHER, &datahi);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, ECABAP_LOWER, &eclo);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, ECABAP_HIGHER, &echi);\n'
-         '\t\tdev_info(dev, "Pong MHI: pre-push exec_env=%d MHISTATUS=%#x MHICTRL=%#x\\n",\n'
-         '\t\t\t (int)mhi_get_exec_env(mhi_cntrl), status, ctrl);\n'
-         '\t\tdev_info(dev, "Pong MHI: pre-push ctlbase=%#x%08x database=%#x%08x ecabap=%#x%08x iova=[%#llx,%#llx]\\n",\n'
-         '\t\t\t ctlhi, ctllo, datahi, datalo, echi, eclo,\n'
-         '\t\t\t (unsigned long long)mhi_cntrl->iova_start,\n'
-         '\t\t\t (unsigned long long)mhi_cntrl->iova_stop);\n'
-         '\t\tmhi_cntrl->ee = MHI_EE_SBL;\n'
-         '\t\tdev_info(dev, "Pong MHI: device sits in SBL with no EE event; pushing AMSS proactively\\n");\n'
-         '\t\tmhi_download_amss_image(mhi_cntrl);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHISTATUS, &status);\n'
-         '\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->regs, MHICTRL, &ctrl);\n'
-         '\t\tdev_info(dev, "Pong MHI: post-push exec_env=%d MHISTATUS=%#x MHICTRL=%#x\\n",\n'
-         '\t\t\t (int)mhi_get_exec_env(mhi_cntrl), status, ctrl);\n'
+         '\t\t\tif (!MHI_REG_ACCESS_VALID(mhi_cntrl->pm_state))\n'
+         '\t\t\t\tbreak;\n'
+         '\t\t\tee = mhi_get_exec_env(mhi_cntrl);\n'
+         '\t\t\tif (ee == MHI_EE_SBL) {\n'
+         '\t\t\t\t(void)mhi_read_reg(mhi_cntrl, mhi_cntrl->bhi, BHI_STATUS, &bhi);\n'
+         '\t\t\t\tdev_info(dev, "Pong MHI: device is in SBL without an EE event, BHI_STATUS=%#x; queueing the SBL transition\\n", bhi);\n'
+         '\t\t\t\tmhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);\n'
+         '\t\t\t\tbreak;\n'
+         '\t\t\t}\n'
+         '\t\t\tif (ee == MHI_EE_MAX || MHI_IN_MISSION_MODE(ee))\n'
+         '\t\t\t\tbreak;\n'
+         '\t\t\tmsleep(10);\n'
+         '\t\t}\n'
          '\t}\n'
          '\n'
          '\tdev_info(dev, "Wait for device to enter SBL or Mission mode\\n");\n'),
@@ -393,6 +399,22 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
          '\ttimeout_ms = mhi_cntrl->ready_timeout_ms ?\n'),
         ('\tdev_dbg(dev, "Device in READY State\\n");\n',
          '\tdev_info(dev, "Pong MHI: device in READY state\\n");\n'),
+        # A proactive queue and a late EE event can both enqueue SBL. The
+        # per-controller latch makes the existing worker's create/download
+        # path run once, while preserving the stock transition for controllers
+        # that do not use fbc.
+        ('\t\tcase DEV_ST_TRANSITION_SBL:\n'
+         '\t\t\twrite_lock_irq(&mhi_cntrl->pm_lock);\n'
+         '\t\t\tmhi_cntrl->ee = MHI_EE_SBL;\n',
+         '\t\tcase DEV_ST_TRANSITION_SBL:\n'
+         '\t\t\twrite_lock_irq(&mhi_cntrl->pm_lock);\n'
+         '\t\t\tif (mhi_cntrl->pong_sbl_pushed) {\n'
+         '\t\t\t\twrite_unlock_irq(&mhi_cntrl->pm_lock);\n'
+         '\t\t\t\tbreak;\n'
+         '\t\t\t}\n'
+         '\t\t\tmhi_cntrl->ee = MHI_EE_SBL;\n'
+         '\t\t\tif (mhi_cntrl->fbc_download)\n'
+         '\t\t\t\tmhi_cntrl->pong_sbl_pushed = true;\n'),
     ])
     # The interrupt handler returns silently when the event ring has not moved,
     # so an interrupt that never arrived and one that found nothing look the
@@ -454,8 +476,8 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         '-Wno-incompatible-pointer-types', '-Wno-error', '-Wno-unused-value',
         '-nostdinc', '-isystem', str(shared / 'shim/libc'), '-isystem', resource,
         '-I', str(overlay), '-include', 'PongCompat.h', '-I', str(shared / 'shim/include'),
-        '-I', str(linux / 'include'), '-I', str(linux / 'include/uapi'),
-        '-I', str(shared / 'include'), '-I', str(pinned), '-I', str(shared / 'src'),
+        '-I', str(pinned), '-I', str(linux / 'include'), '-I', str(linux / 'include/uapi'),
+        '-I', str(shared / 'include'), '-I', str(shared / 'src'),
         '-I', str(gen), '-I', str(out), '-I', str(source.parent), '-DCONFIG_ATH11K_PCI=1',
         '-DLX_BOOT_SETTLE_MS=0']
     ath = 'core hal hal_tx hal_rx wmi mac reg htc qmi dp dp_tx dp_rx ce peer dbring hw pcic fw p2p mhi pci'.split()

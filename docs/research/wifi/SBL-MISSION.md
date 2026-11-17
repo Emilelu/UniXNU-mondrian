@@ -37,6 +37,9 @@ returns; `mhi_sync_power_up` still gives up after its own fixed 20 s wait. The
 mission4 candidate therefore raises `mhi_ctrl->ready_timeout_ms` to 60 s in
 `ath11k_mhi_start` (generated `ath11k/mhi.c:450`) while keeping the 25 s poll.
 This lets the sync waiter stay alive long enough for the poll to cache AMSS.
+The value survives `mhi_prepare_for_power_up`: that function only initializes
+the device contexts and BHI/BHIE offsets (`init.c:1108-1188`) and does not
+write either timeout field.
 
 The path is reachable on this board: the direct flight logged
 `Pong MHI: serial=0x22d0a7f3 ee=0 fbc=1 fw_sz=0` at `:632`, so

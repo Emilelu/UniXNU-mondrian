@@ -35,6 +35,15 @@ source. `scripts/build-k60-ath11k.py`:
   `mhi_download_amss_image`, so a successful BHIe handoff is visible as
   `amss download begin entries=...` and `amss bhie load ret=... exec_env=...`.
 
+The queue is safe to issue from the same worker that is running the PBL
+handler: Linux workqueue clears `WORK_STRUCT_PENDING_BIT` in
+`process_one_work()` before it calls `worker->current_func(work)`, so a
+`queue_work()` issued from inside `mhi_pm_st_worker()` schedules a fresh pass
+instead of being dropped. The queued `DEV_ST_TRANSITION_SBL` item then runs
+through `case DEV_ST_TRANSITION_SBL` in the same `mhi_pm_st_worker()` and calls
+`mhi_create_devices()` + `mhi_download_amss_image()` exactly once (the
+`pong_sbl_pushed` latch guards a later EE event).
+
 Generated source identities (copied from the build):
 
 | file | anchor |

@@ -29,13 +29,18 @@
  		if (gc_enabled) {
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-@@ -994,6 +994,13 @@
+@@ -37,4 +37,5 @@
+ extern "C" {
+ #include <console/video_console.h>
+ extern struct vc_info vinfo;            /* the boot framebuffer, as the text console knows it */
++extern void pong_panel_sample(void);
+ }
+@@ -994,6 +994,12 @@
  	drawn = mach_absolute_time();
  	fSwapsShown++;
  	if (fSwapsShown == 1) {
 +		{
 +			extern int k60_screen_owned_by_ui;
-+			extern "C" void pong_panel_sample(void);
 +
 +			k60_screen_owned_by_ui = 1;
 +			pong_panel_sample();

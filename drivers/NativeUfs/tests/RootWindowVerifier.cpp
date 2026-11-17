@@ -60,6 +60,10 @@ int main (int argc, char **argv) {
   assert (header.size () == VR_HEADER_BYTES + VR_SIGNATURE_BYTES);
   const uint64_t imageBytes = image.size ();
   const uint64_t tableBytes = table.size ();
+  assert (rootWindowTablePages (0) == 0);
+  assert (rootWindowTablePages (1) == 1);
+  assert (rootWindowTablePages (VR_BLOCK_BYTES) == 1);
+  assert (rootWindowTablePages (UINT64_MAX) == UINT64_MAX / VR_BLOCK_BYTES + 1);
   const uint64_t tablePages = (tableBytes + VR_BLOCK_BYTES - 1) / VR_BLOCK_BYTES;
   const uint64_t tableLba = (2 * VR_BLOCK_BYTES + 4096) / VR_BLOCK_BYTES;
   const auto disk = makeDisk (table, tableLba, tablePages);

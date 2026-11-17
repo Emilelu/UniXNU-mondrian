@@ -48,7 +48,7 @@ static inline uint64_t rootWindowTableBytes (const struct vr_view &view)
 
 static inline uint64_t rootWindowTablePages (uint64_t tableBytes)
 {
-  return (tableBytes + VR_BLOCK_BYTES - 1) / VR_BLOCK_BYTES;
+  return tableBytes / VR_BLOCK_BYTES + (tableBytes % VR_BLOCK_BYTES != 0);
 }
 
 // Authenticate the policy, then (header-only) read the table object once, hash it page by page

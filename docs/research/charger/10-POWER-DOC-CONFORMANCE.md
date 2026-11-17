@@ -95,10 +95,10 @@ IOKit 级验证仍待完成。
 | 电池存在 | `present` | `kIOPMBatteryInstalledKey`（`setBatteryInstalled`） | `K60Battery.cpp:225` |
 | 外接电源 | `external` | `kIOPMPSExternalConnectedKey` | `:226` |
 | 充电状态 | `charging` | `kIOPMPSIsChargingKey` | `:226` |
-| 容量 | `capacity_hundredths` / `current_mah` | `kIOPMPSCurrentCapacityKey`（百分比）/ `K60CapacityHundredths`（0.01%）/ `AppleRawCurrentCapacity`（mAh） | `:192,196,203` |
+| 容量 | `capacity_hundredths` / `current_mah` | `kIOPMPSCurrentCapacityKey`（百分比）/ `K60CapacityHundredths`（0.01%）/ `AppleRawCurrentCapacity`（mAh）/ `K60CurrentCapacityBasis`（来源说明） | `:192,196,203` |
 | 满充/设计容量 | `full_mah` / `design_mah` | `kIOPMPSMaxCapacityKey`（固定 100%）/ `AppleRawMaxCapacity` / `NominalChargeCapacity` / `DesignCapacity` | `:192,196,203` |
 | 电压 | `voltage_mv` | `kIOPMPSVoltageKey` | `:192` |
-| 电流 | `current_ma` / `current_source` | `kIOPMPSAmperageKey` / `InstantAmperage` / `K60CurrentCapacityBasis` 来源说明 | `:193,195,230` |
+| 电流 | `current_ma` / `current_source` | `kIOPMPSAmperageKey` / `InstantAmperage` | `:193,195,230` |
 | 温度 | `temperature_hundredths` | `kIOPMPSBatteryTemperatureKey` | `:195` |
 | 剩余时间 | `time_remaining_min` | `kIOPMPSTimeRemainingKey` | `:194` |
 | 循环次数 | `cycles` | `kIOPMPSCycleCountKey` | `:193` |

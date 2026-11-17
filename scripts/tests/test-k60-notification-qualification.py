@@ -61,14 +61,14 @@ class NotificationQualificationTests(unittest.TestCase):
 
     def test_no_capture_preserves_measured_defaults(self):
         self.assertEqual(qualification(None, None, None),
-                         (0, 1, 16, None, dict(source='adsp-opcode4-handler',
+                         (-1, 1, 16, None, dict(source='adsp-opcode4-handler',
                           type=1, bytes=16,
                           reference='docs/research/charger/06-SUBSCRIPTION-CONSTANT.md')))
 
     def test_measured_shape_qualifies_with_capture_evidence(self):
         fixture = capture(('Tx', frame()), ('Rx', frame(1, size=16)))
         sign, reply_type, reply_bytes, current, evidence = self.qualify(fixture)
-        self.assertEqual((sign, reply_type, reply_bytes, current), (0, 1, 16, None))
+        self.assertEqual((sign, reply_type, reply_bytes, current), (-1, 1, 16, None))
         self.assertEqual(evidence, dict(capture=str(fixture),
             sha256=hashlib.sha256(fixture.read_bytes()).hexdigest(),
             type=1, bytes=16, source='wire-capture'))

@@ -26,7 +26,13 @@ OWNER_SOURCES=(drivers/PongPower/K60AdspOwner.c drivers/PongPower/K60AdspOwnerSt
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-owner.c "${OWNER_SOURCES[@]}" -o "$OUT/owner"
 "$OUT/owner"
 for stage in claim prepare auth build publish; do
-  cc "${CFLAGS[@]}" "scripts/tests/test-k60-owner-$stage.c" "${OWNER_SOURCES[@]}" -o "$OUT/owner-$stage"
+  CLAIM_SOURCES=()
+  if [ "$stage" = claim ]; then
+    CLAIM_SOURCES=(drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60AdspStartup.c
+      -Wl,--wrap=k60_smem_alloc)
+  fi
+  cc "${CFLAGS[@]}" "scripts/tests/test-k60-owner-$stage.c" "${OWNER_SOURCES[@]}" \
+    "${CLAIM_SOURCES[@]}" -o "$OUT/owner-$stage"
   "$OUT/owner-$stage"
 done
 mkdir -p "$OUT/carrier"
@@ -60,6 +66,24 @@ done
 cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-startup.c drivers/PongPower/K60AdspStartup.c -o "$OUT/startup"
 "$OUT/startup" 1
 "$OUT/startup" 2
+# Board ownership links ONLY the board, SMEM and startup arbitration. Route A is
+# stubbed: resources() must fail closed when the acquisition fails, so a missing
+# dependency fails the link (P-223). The real board refusal also runs through
+# production owner acquire above, with direct alloc counting. The PAS transport is
+# absent for the same reason: "no monitor call" is a link-time fact here.
+cc "${CFLAGS[@]}" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c \
+  drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspStartup.c -o "$OUT/board"
+"$OUT/board"
+# The rail parser, the TCS-slot match and the ledger are pure host code; the
+# probe itself is kernel-only, so this covers everything up to the map calls.
+cc "${CFLAGS[@]}" scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c \
+  -o "$OUT/rail"
+"$OUT/rail"
+# Route A: QMP load_state, cmd-db lookup and two TCS4 votes, with every map,
+# read and write counted by the test's fake windows.
+cc "${CFLAGS[@]}" scripts/tests/test-k60-route-a.c drivers/PongPower/K60AdspRouteA.c \
+  drivers/PongPower/K60PmicRail.c -o "$OUT/route-a"
+"$OUT/route-a"
 python3 scripts/tests/test-k60-adsp-mdt.py --output "$OUT/mdt" --firmware /mnt/e/k60-work/firmware/adsp
 python3 scripts/tests/test-k60-notification-qualification.py
 python3 scripts/tests/test-battery-units.py
@@ -72,4 +96,11 @@ clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" -mkernel -ffreestanding \
   -I "$FRAMEWORK/Headers" -I "$FRAMEWORK/PrivateHeaders" -I drivers/PongPower \
   -fno-exceptions -fno-rtti -std=gnu++17 -fblocks -Wno-deprecated-declarations \
   -fsyntax-only drivers/PongPower/K60HandoffRuntime.cpp drivers/PongPower/K60AdspPlatformNative.cpp
+clang -target arm64-apple-ios16.0 -isysroot "$SDK" -mkernel -ffreestanding \
+  -fno-builtin -fno-stack-protector -mgeneral-regs-only -DKERNEL=1 \
+  -DKERNEL_PRIVATE=1 -DXNU_KERNEL_PRIVATE=1 -DARM64_BOARD_CONFIG_PONG=1 \
+  -I "$FRAMEWORK/Headers" -I "$FRAMEWORK/PrivateHeaders" -I drivers/PongPower \
+  -std=gnu11 -Wall -Wextra -Werror -Wno-framework-include-private-from-public \
+  -fsyntax-only drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60AdspRouteA.c \
+  drivers/PongPower/K60PmicRail.c
 printf "TESTS OK: arm64 Darwin kernel adapter syntax (not a link)\n"

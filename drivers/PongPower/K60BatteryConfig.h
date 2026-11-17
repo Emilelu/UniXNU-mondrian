@@ -42,7 +42,7 @@ typedef struct {
     uint32_t remote_pid, ipcc_client, ipcc_signal;
     uint32_t desc_item, tx_item, rx_item, smp2p_item;
     uint32_t protocol;
-    int32_t charging_current_sign; /* 0 until actual charging/discharging wire pair qualifies +/-1 */
+    int32_t charging_current_sign; /* -1 from the PMIC-GLINK reference; a wire pair may override */
 } K60BatteryConfig;
 
 typedef struct {

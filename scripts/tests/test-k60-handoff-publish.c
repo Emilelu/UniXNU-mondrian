@@ -5,7 +5,7 @@
 #include <string.h>
 #include "../../drivers/PongPower/K60HandoffPublish.h"
 
-#define TOTAL 32768u
+#define TOTAL 131072u
 #define PART 256u
 static union { uint64_t align; uint8_t bytes[TOTAL]; } memory;
 static char order[32];
@@ -45,9 +45,9 @@ static void setup(void)
     cfg.smp2p_item=443; cfg.protocol=1;
     smem.base=memory.bytes; smem.size=TOTAL;
     put32(TOTAL-4096,0x434f5424); put32(TOTAL-4092,1); put32(TOTAL-4088,1);
-    put32(TOTAL-4064,PART); put32(TOTAL-4060,0x6000); put32(TOTAL-4052,2u<<16); put32(TOTAL-4048,8);
-    put32(PART,0x54525024); put32(PART+4,2u<<16); put32(PART+8,0x6000);
-    put32(PART+12,32); put32(PART+16,0x6000);
+    put32(TOTAL-4064,PART); put32(TOTAL-4060,0x10000); put32(TOTAL-4052,2u<<16); put32(TOTAL-4048,8);
+    put32(PART,0x54525024); put32(PART+4,2u<<16); put32(PART+8,0x10000);
+    put32(PART+12,32); put32(PART+16,0xfc00);
     /* A remote-created SMP2P item, not a readiness record invented by publisher. */
     K60SmemPartition part; uint32_t offset, bytes;
     if (k60_smem_partition(&smem,0,2,&part) || k60_smem_alloc(&smem,&part,443,40,&offset,&bytes)) {
@@ -56,7 +56,7 @@ static void setup(void)
     put32(offset,0x504d5324); put32(offset+4,1); put32(offset+8,2); put32(offset+12,0x10001);
     memcpy(memory.bytes+offset+20,"slave-kernel",12); put32(offset+36,2);
     /* The genuine PAS owner prepares these while ADSP is stopped. */
-    const uint16_t ids[3]={478,479,480}; const uint32_t sizes[3]={32,4096,4096};
+    const uint16_t ids[3]={478,479,480}; const uint32_t sizes[3]={32,16384,16384};
     for (unsigned i=0;i<3;i++)
         if (k60_smem_alloc(&smem,&part,ids[i],sizes[i],&offset,&bytes)) puts("fixture rings failure");
     initial_up=get32(memory.bytes+PART+12);
@@ -70,7 +70,7 @@ int main(void)
     setup(); CHECK(run()==0); CHECK(strcmp(order,"PRLUW")==0); CHECK(acquired==1 && released==1);
     CHECK(publications==1); CHECK(get32(published+12)==15); CHECK(get32(published+88)==2);
     CHECK(get32(published+92)==443); CHECK(k60_adsp_handoff_parse(published,sizeof published,&cfg,&parsed)==0);
-    CHECK(parsed.desc_bytes==32 && parsed.tx_bytes==4096 && parsed.rx_bytes==4096);
+    CHECK(parsed.desc_bytes==32 && parsed.tx_bytes==16384 && parsed.rx_bytes==16384);
     CHECK(get32(memory.bytes+PART+12)==initial_up);
     setup(); pas_rc=-17; CHECK(run()==K60PublishPasFailed); CHECK(strcmp(order,"P")==0);
     CHECK(publications==0 && acquired==0 && get32(memory.bytes+PART+12)==initial_up);

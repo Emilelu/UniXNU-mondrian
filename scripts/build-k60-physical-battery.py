@@ -5,10 +5,12 @@
 
 No firmware/PAS startup or synthetic handoff is generated. Hardware resources
 come from the captured FDT; the vendor module property map is checked. Current
-polarity stays unqualified unless actual charging/discharging wire captures
-prove it. The subscription ACK is not inferred: the ADSP firmware's own
-opcode-0x04 handler answers 16 B with type 1, and a wire capture may only
-confirm that pair, never replace it.
+polarity uses the PMIC-GLINK reference convention: the board reports discharge
+positive and IOPMPowerSource expects charge positive, so the default sign is
+-1; a complete charging/discharging wire pair may confirm or override it. The
+subscription ACK is not inferred: the ADSP firmware's own opcode-0x04 handler
+answers 16 B with type 1, and a wire capture may only confirm that pair, never
+replace it.
 """
 import argparse
 import hashlib
@@ -29,6 +31,12 @@ OWNER = 32778
 # capture can only confirm this pair; see
 # docs/research/charger/06-SUBSCRIPTION-CONSTANT.md.
 MEASURED_NOTIFY_REPLY = (1, 16)
+# The PMIC-GLINK reference reads battery property 9 as a discharge-positive
+# current: ShengBattmgr.c:228 does `s->current_ma = -V(BmCurrent) / 1000`, and
+# ShengBattmgr.h:56-64 says the board reports discharge positive while the
+# power source reports charge positive. K60 uses the same owner 0x800a and
+# property 9, so the default normalization is -1, not an unqualified zero.
+REFERENCE_CHARGING_SIGN = -1
 
 
 def sha256(path):
@@ -221,7 +229,7 @@ def current_pair(messages, expected_status):
 
 
 def qualification(charging, discharging, notify):
-    sign = 0
+    sign = REFERENCE_CHARGING_SIGN
     current_evidence = None
     if bool(charging) != bool(discharging):
         raise ValueError('Qualify current with both --charging-wire and --discharging-wire')
@@ -356,7 +364,8 @@ def main():
         for file in ('K60BatteryConfig.c', 'QcomGlink.c', 'K60Battmgr.c',
                      'K60AdspOwner.c', 'K60AdspOwnerStages.c', 'K60AdspMdt.c',
                      'K60AdspImageReader.c', 'K60AdspPlatform.c',
-                     'K60AdspPlatformNative.cpp',
+                     'K60AdspPlatformNative.cpp', 'K60AdspBoard.c',
+                     'K60AdspRouteA.c',
                      'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
                      'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file

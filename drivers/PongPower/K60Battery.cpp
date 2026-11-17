@@ -242,6 +242,15 @@ void K60Battery::publish(const K60BatterySample &s)
         lastRefreshLog = generations;
         logSample("physical source refreshed", s);
     }
+    const uint32_t generations = manager.generations;
+    if (first) lastRefreshLog = generations;
+    else if (generations >= lastRefreshLog + 6) {
+        lastRefreshLog = generations;
+        IOLog("K60Battery: refresh sample=%u voltage=%umV current=%dmA current-source=%s SOC=%u.%02u%% subscribed=%u\n",
+            generations, s.voltage_mv, s.current_ma,
+            s.current_source == K60BatteryCurrentCell ? "cell" : s.current_source == K60BatteryCurrentUsb ? "usb" : "none",
+            s.capacity_hundredths / 100, s.capacity_hundredths % 100, manager.subscribed);
+    }
     lastSample = s;
 }
 void K60Battery::logSample(const char *kind, const K60BatterySample &s)

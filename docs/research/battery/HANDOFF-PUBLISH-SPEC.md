@@ -32,7 +32,7 @@
    发布者不能只写 104 个字节就完事（见 §10）。
 6. **`k60_handoff_build()` 自己不持有 TCSR 硬件互斥量**：`K60Smem.c` 里的
    `acquire()`/`release()`（`:17-22`、`:28-33`）只有 `dmb osh` 屏障，没有写
-   `0x1f4100c`。调用者必须在调用前后自己持锁（照 `K60PmicGlink.cpp:38-56` 的
+   `0x1f43000`。调用者必须在调用前后自己持锁（照 `K60PmicGlink.cpp:38-56` 的
    `lockSmem()/unlockSmem()`），否则和 ADSP 侧并发改 SMEM 分配表（见 §9.2）。
 7. **失败必须打印一条独立错误行**，不允许静默跳过：`K60Battery.cpp:432` 那条
    `blocked rc=%d` 是消费者侧的兜底，发布者侧必须自己说清是哪一级失败（见 §8）。
@@ -63,7 +63,7 @@
 | `adsp_base` | `0x9fd00000` | `dts/mondrian.dts:152-155` `adsp_region@9fd00000` |
 | `adsp_bytes` | `0x3100000`（49 MiB） | 同上 |
 | `ipcc_base` | `0xed18000`（4096 B） | `dts/mondrian.dts:142-150` `mailbox@ed18000` |
-| `mutex_base` | `0x1f4100c` | `dts/mondrian.dts:125-140`：`syscon@1f40000` + `0x1000` + hwlock `3`×4 |
+| `mutex_base` | `0x1f43000` | `dts/mondrian.dts:125-140`：`syscon@1f40000` + hwlock `3`×`0x1000`（`qcom_hwspinlock` 的 syscon offset=0、stride=0x1000） |
 | `remote_pid` | `2` | `dts/mondrian.dts:163-176` `qcom,remote-pid = <2>` |
 | `ipcc_client` / `ipcc_signal` | `3` / `0` | `dts/mondrian.dts:165` `mboxes = <&ipcc 0x03 0x00>` |
 | `desc_item` / `tx_item` / `rx_item` | `478` / `479` / `480` | `build-k60-physical-battery.py:109` |
@@ -84,7 +84,7 @@
 
 | # | 动作 | 现有实现 | 失败含义 |
 |---|---|---|---|
-| 1 | 装载并释放 ADSP 固件（PAS1 auth + reset + 逐段 INIT_IMAGE + MEM_SETUP） | `bsd/dev/pong_adsp_boot.c`（patches/xnu/0613） `k60_adsp_probe_from_handoff()` → `k60_adsp_bring_up()` | ADSP 没起来，后面全废 |
+| 1 | 装载并释放 ADSP 固件（目标顺序：一次 metadata INIT_IMAGE + region MEM_SETUP + 逐段 COPY/BSS + auth/reset；0613 legacy 仍逐段 INIT_IMAGE） | `bsd/dev/pong_adsp_boot.c`（patches/xnu/0613） `k60_adsp_probe_from_handoff()` → `k60_adsp_bring_up()` | ADSP 没起来，后面全废 |
 | 2 | 等 SMP2P 条目 `"slave-kernel"` 的 `state & 2` 置位、`state & 1` 清零 | 判定逻辑现成在 `K60PmicGlink.cpp:88-109` `remoteReady()` | 远端未就绪 |
 | 3 | 拿 TCSR 互斥量（`mutex_base`，写 `1` 表示 APSS owner） | 现成在 `K60PmicGlink.cpp:38-56` | 拿不到锁 = 不能改 SMEM |
 | 4 | `k60_smem_partition(&smem, 0, 2, &part)` 定位分区 | `K60Smem.c:49-71` | `K60SmemNoTable`/`NoPartition` |
@@ -121,14 +121,15 @@ typedef struct {
 | `adsp_base` / `adsp_bytes` | `0x9fd00000` / `0x3100000` | `K60HandoffBuild.c:23`；`K60BatteryConfig.c:69` |
 | 四个 `*_item` | `478/479/480/443`，两两不同且非 0 | `K60HandoffBuild.c:50-55` |
 | `desc_bytes` | **必须 32** | `K60HandoffBuild.c:24`；`K60BatteryConfig.c:77` |
-| `tx_bytes` / `rx_bytes` | 建议 `4096`；合法域 256–65536 且 8 对齐 | `K60HandoffBuild.c:15` `ring_ok()`；`K60BatteryConfig.c:78-79` |
+| `tx_bytes` / `rx_bytes` | K60 当前计划固定 `0x4000`（16384）；合法域 256–65536 且 8 对齐 | `K60HandoffBuild.c:15` `ring_ok()`；`K60BatteryConfig.c:78-79`；`K60AdspOwner.c:38` |
 | `smp2p_bytes` | 20–340；建议直接取 SMEM 里 443 条目的实际大小 | `K60HandoffBuild.c:26`；`K60PmicGlink.cpp:70` |
 | `host_tx_head` / `host_rx_tail` | **必须 0** | `K60HandoffBuild.c:28`；`K60BatteryConfig.c:75` |
 | `remote_restart_flag` | `≤1`，且必须等于 SMP2P 里的重启位 | `K60HandoffBuild.c:29`；`K60PmicGlink.cpp:95` |
 
-`tx_bytes=rx_bytes=4096` 的理由：`.ko` 单帧最大 220 B（`wls_debug_store`），
-0x41 分片帧 144 B，0x30 收 144 B；4096 有 18 倍余量，且和
-`scripts/tests/test-k60-handoff-build.c:37` 的已验证取值一致。
+`tx_bytes=rx_bytes=0x4000`（16384）的理由：K60 真机 stage-2 调试启动读到
+Android 原厂 GLINK TX 条目 479 的大小就是 16384 B；Zizhan 的 `kGlinkFifo` 也是
+`0x4000`（`PongAdsp.cpp:52`），且 `K60PmicGlink.cpp:67-70` 要求复用条目尺寸与
+lease 的 `tx_bytes/rx_bytes` 完全相等。此前的 4096 只是没有真机依据的最小合理值。
 注意 AP 侧 GLINK intent 是 `256 B × 4`（`K60PmicGlink.cpp:84`），环大小与 intent 大小无关。
 
 ---
@@ -312,7 +313,7 @@ bsd_autoconf()
 ### 9.2 `k60_handoff_build()` 不持锁
 
 `K60Smem.c:17-22` 的 `acquire()` 和 `:28-33` 的 `release()` 只有 `dmb osh`，**没有**写
-`0x1f4100c`。而 `K60PmicGlink.cpp:38-49` 的 `lockSmem()` 才是真正的 TCSR 互斥量
+`0x1f43000`。而 `K60PmicGlink.cpp:38-49` 的 `lockSmem()` 才是真正的 TCSR 互斥量
 （`*mutex = 1` + `dsb sy` + `dmb osh`，1000 µs 超时）。
 SMEM 分配表是 APSS 与 ADSP 共享的，发布者必须自己持锁包住整个 `k60_handoff_build()`。
 
@@ -388,8 +389,9 @@ SMEM 分配表是 APSS 与 ADSP 共享的，发布者必须自己持锁包住整
    不表示 ADSP 已初始化完 pmic_glink。需要真机测一个上界（建议先按 2 s 轮询、20 ms 间隔）。
 4. **`remote_restart_flag` 的来源语义。** 现在只知道它必须等于 `remoteState[4] & 1`，
    不知道 ADSP 什么时候会翻这一位（重启后由谁清）。建议第一次实现就按「发布前现读」处理。
-5. **`tx_bytes`/`rx_bytes` 的真实值。** 4096 是能满足约束的最小合理值，但没有和
-   Android 原厂的环大小对齐过；若真机出现 GLINK 环满/背压，优先怀疑这里偏小。
+5. **`tx_bytes`/`rx_bytes` 的真实值。** 已由 K60 真机 stage-2 调试启动确定：
+   Android 原厂 GLINK TX 条目 479 为 16384 B，因此按 `0x4000` 对齐；若真机仍出现
+   GLINK 环满/背压，应优先怀疑队列调度而不是环尺寸。
 
 ---
 

@@ -1,0 +1,22 @@
+diff --git a/baseband/coachz_baseband.cpp b/baseband/coachz_baseband.cpp
+index fae6161..7ac25f0 100644
+--- a/baseband/coachz_baseband.cpp
++++ b/baseband/coachz_baseband.cpp
+@@ -1155,12 +1155,16 @@ extern "C" void coachz_baseband_configure(void (*send)(uint32_t, uint32_t, uint3
+   bb_del_client = del_client;
+   IOService *provider = IOService::getResourceService();
+   int made = 0;
++  if (!provider) {
++    printf("COACHZ baseband: resource service not ready, publication deferred\n");
++    return;
++  }
+   made += provider && bb_publish<AppleBaseband>(provider);
+   made += provider && bb_publish<AppleBasebandPCIControl>(provider);
+   for (uint32_t c = 0; c < CBH_PUBLISHED; c++) made += provider && bb_publish<AppleBasebandPCIInterface>(provider, c);
+   made += provider && bb_publish<AppleBasebandPCIMAVPDPManager>(provider);
+   made += provider && bb_publish<AppleIPAppender>(provider);
+-  bb_published = 1;
++  if (made > 0) bb_published = 1;
+   printf("COACHZ baseband: %d of %u services published (AppleBaseband, AppleBasebandPCIControl, %u channels, the PDP manager, AppleIPAppender)\n", made, 4u + CBH_PUBLISHED, CBH_PUBLISHED);
+ }
+ 

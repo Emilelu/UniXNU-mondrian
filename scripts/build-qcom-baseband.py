@@ -4,14 +4,27 @@
 K60 device-local copy of the component build script. The upstream script
 expects a macOS XNU record set with xcrun; this copy normalises the arguments
 the K60 tree records, adds the missing -c, and uses llvm-ar on Linux. The
-device copy overrides the root wrapper in tree/scripts, so a clean K60 build
-does not depend on a patched QcomBaseband submodule.
+device copy overrides the root wrapper in tree/scripts. The upstream
+QcomBaseband checkout is pinned to dd0199cf; this script applies the device
+patch that defers publication until IOResources is ready, so a clean build does
+not need a private QcomBaseband branch.
 """
 import argparse, hashlib, json, os, shutil, subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'drivers/QcomBaseband'
+QCOM_BASEBAND_PATCH_NAME = '0001-coachz-defer-publication.patch'
+
+
+def qcom_baseband_patch():
+    """Find the device patch in the repository or the assembled tree."""
+    bases = [ROOT / 'patches/qcombaseband', *sorted(ROOT.glob('kits/*/patches/qcombaseband'))]
+    for base in bases:
+        candidate = base / QCOM_BASEBAND_PATCH_NAME
+        if candidate.is_file():
+            return candidate
+    raise SystemExit(f'{QCOM_BASEBAND_PATCH_NAME}: device patch not found under {ROOT}')
 
 
 def normalise(arguments):
@@ -40,6 +53,26 @@ def normalise(arguments):
     return out
 
 
+def prepare_source(source, out, patch):
+    """Stage a QcomBaseband source and apply the device fix when needed."""
+    data = source.read_bytes()
+    if patch is None or b'if (made > 0) bb_published = 1;' in data:
+        return source, False
+    if b'bb_published = 1;' not in data:
+        raise SystemExit(f'{source}: unrecognised QcomBaseband source')
+    staged_root = out / 'src'
+    staged = staged_root / source.relative_to(SOURCE)
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_bytes(data)
+    result = subprocess.run(['git', 'apply', str(patch)], cwd=staged_root,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if result.returncode:
+        raise SystemExit(result.stdout[-6000:])
+    if b'if (made > 0) bb_published = 1;' not in staged.read_bytes():
+        raise SystemExit(f'{patch}: device fix not present after apply')
+    return staged, True
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--tree', type=Path, default=ROOT)
 parser.add_argument('--coachz', action='store_true', help='include the SC7180 IPA v4.2 board adapter')
@@ -58,11 +91,12 @@ def record_for(name):
 
 cpp = record_for('IOPlatformExpert.cpo.json')
 c = record_for('vfs_conf.o.json') if args.coachz else None
-sources = [(SOURCE / 'baseband/coachz_baseband.cpp', cpp)]
+sources = [(SOURCE / 'baseband/coachz_baseband.cpp', cpp, qcom_baseband_patch())]
 if args.coachz:
-    sources += [(SOURCE / name, c) for name in ('ipa/coachz_ipa_config.c', 'ipa/coachz_gsi.c', 'platform/coachz/coachz_modem.c')]
+    sources += [(SOURCE / name, c, None) for name in ('ipa/coachz_ipa_config.c', 'ipa/coachz_gsi.c', 'platform/coachz/coachz_modem.c')]
 objects, report = [], []
-for source, record in sources:
+for source, record, patch in sources:
+    compiled_source, patched = prepare_source(source, out, patch)
     obj = out / (source.stem + '.o')
     argv, i = [], 0
     raw = normalise(record['arguments'])
@@ -75,14 +109,14 @@ for source, record in sources:
             i += 2
             continue
         if value == record['file'] or (value.endswith(('.cpp', '.c')) and not value.startswith('-')):
-            value = str(source)
+            value = str(compiled_source)
         if value not in ('-MD', '-MP') and not value.startswith('-W'):
             argv.append(value)
         i += 1
     if '-c' not in argv:
         argv.append('-c')
     argv += ['-o', str(obj), '-I', str(SOURCE / 'baseband'), '-I', str(SOURCE / 'ipa'), '-mgeneral-regs-only', '-Wall', '-Wextra']
-    if str(source) not in argv:
+    if str(compiled_source) not in argv:
         raise SystemExit('Compile record did not name its source: ' + record['file'])
     result = subprocess.run(argv, cwd=record['directory'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (out / (source.stem + '.log')).write_text(result.stdout)
@@ -90,7 +124,11 @@ for source, record in sources:
     if result.returncode:
         raise SystemExit(result.stdout[-6000:])
     objects.append(obj)
-    report.append(dict(source=str(source.relative_to(SOURCE)), sha256=hashlib.sha256(source.read_bytes()).hexdigest(), object_sha256=hashlib.sha256(obj.read_bytes()).hexdigest()))
+    report.append(dict(source=str(source.relative_to(SOURCE)),
+                       sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                       compiled_sha256=hashlib.sha256(compiled_source.read_bytes()).hexdigest(),
+                       device_patch=patched,
+                       object_sha256=hashlib.sha256(obj.read_bytes()).hexdigest()))
 archive = out / 'libQcomBaseband.a'
 archive.unlink(missing_ok=True)
 ar = os.environ.get('AR') or shutil.which('llvm-ar') or shutil.which('ar')

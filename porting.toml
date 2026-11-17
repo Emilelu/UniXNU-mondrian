@@ -222,7 +222,7 @@ completion = [
   "A device boot shows the modem enumerated over QRTR with a readable firmware revision.",
 ]
 limits = [
-  "The only device-side modem observation is still the earlier pong_modem=2 boot that ended at the carrier check before any PAS SCM call; the new carrier, power and transport path has not been observed on hardware. The remediated 2026-11-17 10:07 candidates are offline-only, were packed with --skip-gates and are not flight permits: C diagnostics has payload 453cc2d5... and boot 99e8d227... with pong_modem=3; B full has payload 3ae782df... and boot ff7d1585... with pong_modem=2. Both kernel_args are 604 of the 608-byte arm64 limit.",
+  "The only device-side modem observation is still the earlier pong_modem=2 boot that ended at the carrier check before any PAS SCM call; the new carrier, power and transport path has not been observed on hardware. The remediated 2026-11-17 10:07 candidates are offline-only, were packed with --skip-gates and are not flight permits: C diagnostics has payload 453cc2d5... and boot 99e8d227... with pong_modem=3; B full has payload 3ae782df... and boot ff7d1585... with pong_modem=2. Both kernel_args measure 588 of the 608-byte arm64 limit.",
   "No X65 marketing-model string exists in the DT or in the firmware; the DT only carries the codename cape, so the X65 name rests on Qualcomm platform naming and is not used as DT evidence.",
   "Android's qrtr-lookup writes its table to /data/vendor/qrtr/qrtr-lookup.txt and prints only the header row to stdout, so its output must be read from that file; the earlier reading of the empty stdout as a failed enumerator was a tool-usage error, corrected on 2026-11-14.",
 ]

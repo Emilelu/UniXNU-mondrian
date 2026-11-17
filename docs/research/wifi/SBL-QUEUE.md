@@ -3,7 +3,7 @@
 Written 2026-11-17. Scope: why the K60 MHI host never sees an EE event after
 READY, what the official UniXNU MhiBoot does instead, and the prewritten
 acceptance criteria for the successor candidate built from that reading. This
-note is the evidence record for `wifi-20261117sbl-queue`; c8 remains HOLD.
+note is the evidence record for the gated SBL-queue candidate; c8 remains HOLD.
 
 ## 0. Conclusion first
 
@@ -11,7 +11,7 @@ note is the evidence record for `wifi-20261117sbl-queue`; c8 remains HOLD.
 |---|---|
 | What does c7 prove? | MHI reaches READY and M0, but `ee=0`, `pm_state=2`, `exec_env=1` (SBL); the event-ring read pointer never advances. The host waits for an EE event that never arrives. `E:/k60-work/evidence/usblog-20261116-122546/console.log:632` |
 | What does the official path do? | `MhiBoot.c:91-98` requires `BHI_STATUS >> 30 == 2`; `MhiBoot.c:104-107` polls `BHI_EXECENV` and calls `start_image()` (BHIe write of `TXVECADDR/TXVECSIZE/TXVECDB`) when it reads `MHI_EE_SBL`. It never waits for an EE event packet. |
-| What is the K60 change? | Build-time host patch: after `mhi_ready_state_transition`, poll `mhi_get_exec_env` for up to 200 x 10 ms while `MHI_REG_ACCESS_VALID(pm_state)`; on SBL read `BHI_STATUS`, log it, and queue the stock `DEV_ST_TRANSITION_SBL` work item. A `pong_sbl_pushed` latch makes the existing worker's `mhi_create_devices` + `mhi_download_amss_image` run once. |
+| What is the K60 change? | Build-time host patch: after `mhi_ready_state_transition`, poll `mhi_get_exec_env` for up to 200 x 10 ms while `MHI_REG_ACCESS_VALID(pm_state)`; on SBL read `BHI_STATUS` and queue the stock `DEV_ST_TRANSITION_SBL` work item **only when `BHI_STATUS >> 30 == 2` (success)**, stop on `== 3` (error), and keep waiting otherwise. A `pong_sbl_pushed` latch makes the existing worker's `mhi_create_devices` + `mhi_download_amss_image` run once. |
 | Why not call `mhi_download_amss_image` from boot.c? | c8's direct call was held because it assumed a powered MMIO/DMA lease and could duplicate an already queued SBL transition. Queueing the stock transition keeps the worker, locks and `fbc_image` ownership in one place; the only new register reads use the existing MHI helpers while `pm_state` says access is valid. |
 | Is this proven on K60? | **No.** The image exists and the offline gates pass; it has not flown. `boot.json` records `hardware_tested: false`. |
 
@@ -22,12 +22,13 @@ source. `scripts/build-k60-ath11k.py`:
 
 - `:231-240`: pins `include/linux/mhi.h` and appends `bool pong_sbl_pushed;`
   after `bool fbc_download;`. The source header stays untouched.
-- `:307-339`: inserts the bounded poll before the stock
-  `Wait for device to enter SBL or Mission mode` line. On SBL it logs
+- `:307-351`: inserts the bounded poll before the stock
+  `Wait for device to enter SBL or Mission mode` line. On SBL it reads `BHI_STATUS`: `BHI_STATUS >> 30 == 3` stops with an error log;
+  any value other than `2` (success) waits and retries; `2` logs
   `Pong MHI: device is in SBL without an EE event, BHI_STATUS=%#x; queueing the SBL transition`
   and calls `mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);`.
   It does not call the download directly and does not dump raw registers.
-- `:402-417`: adds the one-shot guard to the existing
+- `:409-429`: adds the one-shot guard to the existing
   `case DEV_ST_TRANSITION_SBL` in `pm.c`; the first worker pass sets
   `pong_sbl_pushed = true` when `fbc_download` is true.
 - `:340-367`: retains the c8 AMSS vector logging inside
@@ -38,7 +39,7 @@ Generated source identities (copied from the build):
 
 | file | anchor |
 |---|---|
-| `mhi/boot.c` | `if (mhi_cntrl->fbc_download && !mhi_cntrl->pong_sbl_pushed) {` at :622; queue at :634 |
+| `mhi/boot.c` | `if (mhi_cntrl->fbc_download && !mhi_cntrl->pong_sbl_pushed) {` at :622; BHI status gate at :635-642; queue at :646 |
 | `mhi/pm.c` | `if (mhi_cntrl->pong_sbl_pushed) {` at :828; latch at :834 |
 | `pinned/linux/mhi.h` | `bool pong_sbl_pushed;` at :445 |
 
@@ -100,7 +101,7 @@ operator present.
 
 - The device reaches SpringBoard (`Pong UI: ... entered SpringBoard`).
 - No line matching c7's exact `Pong MHI: timeout after 20000 ms ee=0 ...`.
-- New line `Pong MHI: device is in SBL without an EE event, BHI_STATUS=0x...; queueing the SBL transition`.
+- New line `Pong MHI: device is in SBL without an EE event, BHI_STATUS=0x80000000; queueing the SBL transition` (the top two bits must decode to 2).
 - Followed by `Pong MHI: amss download begin entries=...` and
   `Pong MHI: amss bhie load ret=0 exec_env=...`.
 - Then the MHI/QMI advance becomes visible: `ath11k: chip_id 0x12 ...`,
@@ -112,6 +113,8 @@ operator present.
   within 2 s (or register access was invalid); stop, do not fly twice.
 - `device is in SBL` present but same timeout and no `amss download begin`:
   the queue/latch did not execute; stop and inspect the worker order.
+- `BHI_STATUS=... not successful` repeats for the whole poll and no queue line:
+  the device never reported BHI success; stop and inspect BHI_STATUS/error code.
 - `amss bhie load ret` is non-zero: BHIe handoff failed; stop.
 - More than one `amss download begin` line: the latch is not effective; stop.
 - Any panic, cache-policy failure, or missing console: stop and follow the

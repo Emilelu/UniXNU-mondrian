@@ -338,7 +338,7 @@ ShengUfs 的 main 与 catalog pin 不同步；`PongUfs` 本身也是 catalog 组
   `PATCH-CATALOG.toml`（41 条 series 外补丁）+ `check_catalog()`、P-155 的 `expected_kern_exec_delta = 1713`、
   `check-readme` 数字校验扩到四份文档（含 `RULES.toml` 的 108 条规则数）、`check-docs` 递归 research
   与 189 个 Markdown 的表格列数校验（6 例单测）、`docs/INDEX.md` 的阅读顺序表校验（5 例单测）、docs/ops 的 4 个历史快照横幅（3 例单测）、两个门禁脚本可 import。
-- **研究可见性**：`LINE-RESEARCH-MAP.md`（108 个分支文件）、`LINE-MAP.md`（18 条线）；`SOURCES.toml` 三种路径前缀与 5 条新 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1），研究源 53→58。
+- **研究可见性**：`LINE-RESEARCH-MAP.md`（108 个分支文件）、`LINE-MAP.md`（当时 18 条线，2026-11-17 已扩到 21 条）；`SOURCES.toml` 三种路径前缀与 5 条新 required（QcaBluetooth×3、liuqin×1、Device-Binaries×1），研究源 53→58。
 
 **待 Lead 决定（本文只报告，不动）**：
 

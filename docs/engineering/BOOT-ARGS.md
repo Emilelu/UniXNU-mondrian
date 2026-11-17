@@ -36,7 +36,7 @@
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
 | `k60_usblog` | 调试 | 0/1/2 | 代码默认 | `0300-k60-usblog-ep0.patch` USB 日志级别 | 刷机时的主要日志通道 |
 | `k60_usbvend` | 调试 / USB | 0/1/2 | 0（= 0409 原样） | `0410-k60-usb-vendor-loopback.patch`：0 = 67 字节两接口 CDC-ACM、无回环；1 = 98 字节复合描述符（IAD + IF2 vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN）+ EP6→EP7 回环；2 = 控制台描述符不变、回环跑 CDC 数据对 EP2→EP3（普通 COM 口可验） | mode 1 的 IF2 主机侧没有驱动，要用 libusb 直接开；mode 2 必须同时开 `k60_usblog`（控制台让位给回环） |
-| `pong_modem` | uint32 | 0 | `patches/xnu/0621-k60-modem-pas.patch:325` | `bsd/dev/pong_modem_pas.c` | 0 = quiet; 1 = modem image stage; 2 = image + QRTR verdict `K60MODEM qrtr: verdict ok` (cellular L3). |
+| `pong_modem` | uint32 | 0 | `patches/xnu/0621-k60-modem-pas.patch:325` | `bsd/dev/pong_modem_pas.c` | 0 = quiet; 1 = full modem bring-up; 2 = full + QRTR verdict `K60MODEM qrtr: verdict ok` (cellular L3); 3 = metadata-only diagnostic (`init_image` + `mem_setup`, no power/transport/auth). |
 | `k60_wallpaper_reset` | uint32 | 0 | `userland/ui_compat.c:677` | `select_initial_wallpaper()` | 1 = SpringBoard restores the stock 7410 wallpaper through the native setter on the next boot (springboard F1). |
 | `k60_backlight` | uint32 | 1 | `drivers/PongAdreno/K60Backlight.cpp:399` | `k60_backlight_start()` | 0 = never start the backlight service (panel keeps the DBV bring-up left, 0xff). |
 | `k60_backlight_control` | uint32 | **1** | `drivers/PongAdreno/K60Backlight.cpp:292` | `K60Backlight::publishFirst()` | 1 = impersonate AppleARMBacklight and publish `backlight-control`; 0 = publish the level only, never claim the control property (int-236 escape hatch). |
@@ -312,9 +312,9 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 |---|---|
 | 类型 | uint32 |
 | 默认 | 0（不探测，不映射 0x8bc00000，不发任何 SMC） |
-| 取值 | 0 / 1 / 2 |
+| 取值 | 0 / 1 / 2 / 3 |
 | 来源 | `drivers/PongCellular/K60ModemBoot.c`（`PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled))`），调用点在 `patches/xnu/0621-k60-modem-pas.patch` 往 `bsd/kern/kern_exec.c` 插的 Data 挂载后块 |
-| 作用 | 1 = 启动 modem（MSS）PAS 探针：先 plan 段表，再读 carveout 头页 16 B 签名判断镜像是否已在位，在位则按 auth_reset → 逐段 init_image → mem_setup 顺序发 SMC，每步打印一行 `K60MODEM` 判决；2 = 在 1 之前先做 QRTR 只读枚举（发一个 HELLO 与一个 `NEW_LOOKUP (0x0a)`，把 node 0 的 `NEW_SERVER` 应答折叠成表），再走 PAS |
+| 作用 | 1 = 启动 modem（MSS）PAS 全流程：先 plan 段表，再读 carveout 头页 16 B 签名判断镜像是否已在位；在位则按 power（AOP QMP `load_state modem on` + `cx.lvl`/`mss.lvl`/`xo.lvl` RPMh 投票）→ 逐段 `init_image` → transport（SMEM 428/478/479、SMP2P、GLINK IPCRTR）→ `mem_setup` → `auth_reset` 顺序执行，每步打印一行 `K60MODEM` 判决；2 = 在 1 的 QRTR 阶段额外做只读枚举（HELLO + `NEW_LOOKUP (0x0a)`，把 node 0 的 `NEW_SERVER` 应答折叠成表）；3 = 只做 metadata 诊断：`init_image` → `mem_setup`，然后打印 `diagnostic stop after mem_setup`，不做 power、transport 和 `auth_reset` |
 
 **为什么默认关闭**：这是全仓库第一条**会向安全监控器发 SMC 去动 modem** 的路径。设备从 Android
 热重启过来时 modem 已在运行（`/sys/class/remoteproc/4080000.remoteproc-mss/state` = `running`），
@@ -332,6 +332,11 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 若打印 `K60MODEM qrtr: glink fifo not fresh (...), not adopted`，说明 Android 侧的 GLINK 栈
 仍持有这条 FIFO —— 本实现拒绝 reset 活 FIFO，属设计行为，不是崩溃。详见
 `docs/research/cellular/07-QRTR-ENUMERATION.md`。
+
+`pong_modem=3` 是 metadata-only 诊断模式：日志应出现 `K60MODEM init_image ok` 与
+`K60MODEM mem_setup ok`，随后 `K60MODEM diagnostic stop after mem_setup`；**不应**出现
+`K60MODEM power` 或 `K60MODEM transport` 行，也不应出现 `auth_reset`。它用于单独验证
+UEFI metadata 放置和 PAS `init_image`/`mem_setup` 参数，不启动 modem 固件。
 
 ### `sheng-gpu-addon`
 

@@ -235,7 +235,7 @@ finding = """IOAudio2 驱动接口，23,857 B。是 macOS/iOS 音频栈的内核
 path = "docs/research/audio/RESEARCH.md"
 why = "本次 ①②③ 调研记录"
 examined = "2026-11-12"
-finding = """本次 ①②③ 调研。① 同型：Pong 有约 107 KB 的完整音频栈（ADSP 34 KB + Audio 29 KB + IOAudio2 24 KB + WCD938x 6 KB + Service 7 KB）。② 官方：components.toml 25 个组件里没有音频组件，官方唯一的音频代码在 UniXNU-sheng 的板级实现里，参考链只能是 Pong + UniXNU-sheng + NothingOSS audio-kernel。③ 反编译：K60 与 Pong 同为 SM8475，codec 大概率也是 WCD938x，但必须实测；K60 还有独立的 aw882xx smart PA，Pong 可能没有，这是额外驱动。"""
+finding = """本次 ①②③ 调研。① 同型：Pong 有约 107 KB 的完整音频栈（ADSP 34 KB + Audio 29 KB + IOAudio2 24 KB + WCD938x 6 KB + Service 7 KB）。② 官方：components.toml 当时 25 个组件（2026-11-17 复核 29 个）里没有音频组件，官方唯一的音频代码在 UniXNU-sheng 的板级实现里，参考链只能是 Pong + UniXNU-sheng + NothingOSS audio-kernel。③ 反编译：K60 与 Pong 同为 SM8475，codec 大概率也是 WCD938x，但必须实测；K60 还有独立的 aw882xx smart PA，Pong 可能没有，这是额外驱动。"""
 
 [[subsystem.audio.required]]
 path = "evidence/audio-probe-j/run1/console.log"

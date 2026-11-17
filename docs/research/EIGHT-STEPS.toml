@@ -38,7 +38,7 @@ evidence = "Android 实机取证写入 docs/engineering/ANDROID-HW-TRUTH.md：IO
 done = true
 catalog_checked = true
 evidence = "同 SoC SM8475 兄弟移植 references/phk110-port/docs/phk110/waves/wave12c-electrical.md 记录触摸 PASS 全流程（20ms 节拍 + 分帧收割）；wave12b-probe-verdict.md 记录软件链 1-4 环闭环；wave12-touch-buttons.md 记录 cape/sm8475 的 GCC 与 mainline sm8450 不同（m/s_ahb FDT 索引 134/135 vs 118/119）。同外设芯片参考 references/phk110-port/drivers/input/hakios.goodix.c 是 POCO X5 Pro(redwood/SM8350) 的，机型不同已标注。"
-catalog_result = """逐个核对 UniXNU/components.toml 25 个组件中与触摸相关的 4 个：
+catalog_result = """逐个核对 UniXNU/components.toml 当时 25 个组件（2026-11-17 复核 29 个）中与触摸相关的 4 个：
 - QcomGeniSpi（drivers/QcomGeniSpi/GeniSpi.c，revision eac47bae）：【可直接用】GENI SPI 控制器，含 transfer_dma() 路径；GeniSpi.c:80 明确 fifo_disabled 时只要 use_dma 就继续，且 GeniSpi.c:113-118 有完整的 DMA 模式切换。这正是我们卡住的『FIFO 被禁只能退回 bitbang』问题的官方解。verified_devices 为空，需自行验证。
 - ShengNovatekTouch：不可用，是 Novatek NT36532 协议，我们是 Goodix GT9916R。
 - ShengHidInput：可参考架构（NativeHidInput.cpp 通过 IOHIDDevice 上报），但依赖 ShengNovatekTouch，需换成我们的 Goodix 源。
@@ -366,7 +366,7 @@ evidence = "三条实机取证：一，live FDT 给出全部硬件事实——bt
 [hardware.bluetooth.step.wide]
 done = true
 catalog_checked = true
-catalog_result = "逐个核对 UniXNU/components.toml 里与蓝牙相关的组件：QcaBluetooth（drivers/QcaBluetooth，revision 22ff97f9）【可用但要适配】——它是 sheng（SM8550）验证的官方驱动，运行时标识符是我们要用的 qbt_transport / com.apple.uart.sk.bluetooth / kern.qbt_*，但板级寄存器（SE20 0x894000、SMMU SID 0x483、RCG 0x2e618）必须按 SM8475 重填；AdrenoMetal / Adreno740 无关；其余 25 个组件无蓝牙。UniXNU-pong 无蓝牙；phk110-port 只有 143 行只读诊断；mainline btqca/hci_qca 可当协议参考但不是组件。"
+catalog_result = "逐个核对 UniXNU/components.toml 里与蓝牙相关的组件：QcaBluetooth（drivers/QcaBluetooth，revision 22ff97f9）【可用但要适配】——它是 sheng（SM8550）验证的官方驱动，运行时标识符是我们要用的 qbt_transport / com.apple.uart.sk.bluetooth / kern.qbt_*，但板级寄存器（SE20 0x894000、SMMU SID 0x483、RCG 0x2e618）必须按 SM8475 重填；AdrenoMetal / Adreno740 无关；其余当时 25 个组件（2026-11-17 复核 29 个）无蓝牙。UniXNU-pong 无蓝牙；phk110-port 只有 143 行只读诊断；mainline btqca/hci_qca 可当协议参考但不是组件。"
 evidence = "广域交叉验证完成：同 SoC 的 pong（SM8475）没有蓝牙实现（docs/research/bt/RESEARCH.md:158），phk110-port 只有只读诊断（RESEARCH.md:159）；内核侧确实没有 Apple HCI 栈（RESEARCH.md:127-152），而 UniXNU-pong 的 board_services18.py:84-89 直接把 bluetoothd 挡掉，说明用户态路线要和 S3 的身份发布配套才能走通（docs/research/bt/S3-SPEC.md:89-121）。"
 
 [hardware.bluetooth.step.plan]
@@ -446,7 +446,7 @@ evidence = "Pong 的音频栈约 107 KB（PongAdsp.cpp 34,547 B / PongAudio.cpp 
 
 [hardware.audio.step.official]
 done = true
-evidence = "components.toml 25 个组件里没有音频组件；官方唯一的音频代码在 UniXNU-sheng 的板级实现里。"
+evidence = "components.toml 当时 25 个组件（2026-11-17 复核 29 个）里没有音频组件；官方唯一的音频代码在 UniXNU-sheng 的板级实现里。"
 
 [hardware.audio.step.decompile]
 done = true
@@ -455,7 +455,7 @@ evidence = "反编译无先例可循，但 live FDT 已给出 8 个待测值：a
 done = true
 evidence = "官方文档 https://unixnu.com/zh/porting/power 读完（2026-11-12）。硬前置是平台内存/中断/DMA。四类输入（DSP/音频/电池/电源）与产物明确。DSP 传输参考 ShengAdsp：sheng_adsp_channel(name,intent_size,intent_count,initiator,callbacks,context)，sheng_adsp_send 返回 0=入队/-1=满或过长/-2=参数错，SHENG_ADSP_MAX_MESSAGE=512 字节；回调在 DSP 线程，须复制到有界队列再唤醒消费者。音频参考 AudioReach/GPR 与 Linux q6apm.c/audioreach.c。"
 catalog_checked = true
-catalog_result = "components.toml 25 个组件里没有音频组件；官方实现全在 UniXNU-sheng 的板级 package/ 下（AdspProbe.cpp / ShengAdsp.h / ShengGpr.h / ShengAudioReach.h / AudioProbe.cpp / ShengAudioService.cpp / ShengAudioPlugIn.c）。不能当组件复用，只能参考实现。"
+catalog_result = "components.toml 当时 25 个组件（2026-11-17 复核 29 个）里没有音频组件；官方实现全在 UniXNU-sheng 的板级 package/ 下（AdspProbe.cpp / ShengAdsp.h / ShengGpr.h / ShengAudioReach.h / AudioProbe.cpp / ShengAudioService.cpp / ShengAudioPlugIn.c）。不能当组件复用，只能参考实现。"
 [hardware.audio.step.plan]
 done = true
 evidence = "四步方案见 docs/research/audio/RESEARCH.md 的 ⑤ 节。第一步 DSP 传输（ShengAdspClient 形状：PAS1 固件加载 + SMEM + SMP2P + GLINK + 邮箱，先建立 ready/crash 通知路径再打开通道），判据是通道能打开且有超时的请求/响应。第二步 AudioReach 图先做播放（比采集少 SoundWire）。第三步采集需要 codec 上电 + SoundWire 枚举 + 模拟通路 + 数字通路四段。第四步接 OS 音频 provider。两条 SM8550 硬事实直接适用 K60：周期缓冲区必须放在 4 GiB 以下（DSP 收 32 位地址、高 32 位放流索引 0x1001&0xf）；时基 19.2 MHz 时必须修正 CoreAudio 假定的 24 MHz 常量，否则 IO 周期长 25% 导致播放录音卡顿。"
@@ -542,7 +542,7 @@ evidence = "两侧反汇编都做了。.ko 侧：battery_chg_probe 0xedc-0xf08 �
 done = true
 catalog_checked = true
 evidence = "广域交叉核对三方语义：仓库消费方 drivers/PongPower/K60Battmgr.c:47-56 init 白名单、:147-171 ACK 校验、:194-200 超时作废；上游 Linux qcom_battmgr 只要求总长 >=16 且不校验 type；参考实现 ShengBattmgr 两种 type 都收。三者对 (type 1, 16 B) 均无反证，且 ADSP 侧穷举全固件 30 处 0x800a 组包点，type 直方图 {1:27, 2:1, 无:2}，唯一 type 2 的是 0x60158884（opcode 7 主动通知，不是应答）。见 docs/research/charger/05-OPEN-QUESTIONS.md 与 06-SUBSCRIPTION-CONSTANT.md 第 3 节。"
-catalog_result = "逐个核对 UniXNU/components.toml 的 25 个组件，没有电池/充电组件：QcomDwc3（drivers/QcomDwc3，:513-531）的 board_dependencies 提到 'UCSI over the charger channel'，只是 UCSI 走充电通道的声明，不含 battmgr 协议；QcomBaseband（:563-580）含 'GLINK/QRTR transport and rmtfs'，可作 GLINK/QRTR 传输层参考但协议不同；ShengPreflight 是板级固件预检。结论：充电协议没有可复用组件，只能按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建。"
+catalog_result = "逐个核对 UniXNU/components.toml 的当时 25 个组件（2026-11-17 复核 29 个），没有电池/充电组件：QcomDwc3（drivers/QcomDwc3，:513-531）的 board_dependencies 提到 'UCSI over the charger channel'，只是 UCSI 走充电通道的声明，不含 battmgr 协议；QcomBaseband（:563-580）含 'GLINK/QRTR transport and rmtfs'，可作 GLINK/QRTR 传输层参考但协议不同；ShengPreflight 是板级固件预检。结论：充电协议没有可复用组件，只能按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建。"
 
 [hardware.charger.step.plan]
 done = true

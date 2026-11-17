@@ -72,6 +72,11 @@ stock MHI host; that proves HW2.1 + amss20 can reach MISSION on this chip. It
 does not prove the K60's c7 EE-event path works, which is exactly the variable
 this candidate isolates.
 
+The official reference also rules out one near-miss: `WifiProbe.cpp:1195` calls
+`mhi_boot_begin(&boot, 0, ...)` with `msi_vector = 0`, so the stock Linux
+`BHI_INTVEC = 0` write is not a K60/Pong divergence and must not be tried as
+the next candidate.
+
 ## 3. Candidate identity
 
 | field | value |

@@ -10,6 +10,7 @@
 #include <CoreAudio/AudioServerPlugIn.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
+#include <dlfcn.h>
 #include <mach/mach_time.h>
 #include <math.h>
 #include <pthread.h>
@@ -61,7 +62,7 @@ static atomic_uint gOutActive = 1;
 static _Atomic(Float32) gVolume = 0.25f;
 static atomic_uint gMuted;
 static Float64 gHostTicksPerFrame;
-static uint64_t gZeroHost;
+static uint64_t gZeroOrigin;
 static uint64_t gZeroSeed;
 static uint64_t gWriteFrames;
 
@@ -193,6 +194,37 @@ static kern_return_t call(uint32_t selector) {
         NULL, NULL) : KERN_FAILURE;
 }
 
+/* CoreAudio loads its host frequency from the dyld shared cache and assumes
+ * 24 MHz. K60's architectural counter is 19.2 MHz, so resolve the constant
+ * from AudioGetHostClockFrequency's instruction pair and let the service
+ * rewrite that double. Without this the audio server's IO cycle runs 25
+ * percent long, as porting/power requires us to correct at service start. */
+static void setHostClock(void) {
+    uintptr_t symbol = (uintptr_t)dlsym(RTLD_DEFAULT,
+        "AudioGetHostClockFrequency") & ((((uintptr_t)1) << 47) - 1);
+    if (!symbol || !gConnect) {
+        return;
+    }
+    const uint32_t *code = (const uint32_t *)symbol;
+    uint32_t adrp = code[0], ldr = code[1];
+    if ((adrp & 0x9f000000u) != 0x90000000u ||
+        (ldr & 0xffc00000u) != 0xfd400000u ||
+        ((ldr >> 5) & 31) != (adrp & 31)) {
+        return;
+    }
+    int64_t pages = (int64_t)(((adrp >> 5) & 0x7ffffu) << 2 |
+        ((adrp >> 29) & 3));
+    if (pages & (1 << 20)) {
+        pages -= 1 << 21;
+    }
+    uint64_t address = (symbol & ~(uintptr_t)0xfff) +
+        (uint64_t)(pages * 4096) + ((ldr >> 10) & 0xfff) * 8;
+    kern_return_t r = IOConnectCallScalarMethod(gConnect,
+        PongAudioServiceSetHostClock, &address, 1, NULL, NULL);
+    syslog(r ? LOG_ERR : LOG_NOTICE,
+        "PongAudio HAL: host clock adjustment result=%x", r);
+}
+
 /* ---- Helpers ----------------------------------------------------------- */
 
 static AudioStreamBasicDescription format(UInt32 channels) {
@@ -247,7 +279,11 @@ static OSStatus Initialize(AudioServerPlugInDriverRef d,
     (void)d;
     gHost = host;
     pthread_mutex_lock(&gLock);
-    (void)connectService();
+    const int alreadyConnected = atomic_load(&gControl) != NULL;
+    const int connected = connectService() == 0;
+    if (connected && alreadyConnected) {
+        setHostClock();
+    }
     pthread_mutex_unlock(&gLock);
     syslog(LOG_NOTICE, "PongAudio HAL: AudioServerPlugIn initialized");
     pthread_t worker;
@@ -783,6 +819,7 @@ static OSStatus StartIO(AudioServerPlugInDriverRef d, AudioObjectID o,
         } else if (call(PongAudioServiceStartOutput) != KERN_SUCCESS) {
             r = kAudioHardwareNotRunningError;
         } else {
+            setHostClock();
             PongAudioServiceControl *control = atomic_load(&gControl);
             unsigned i;
             for (i = 0; i < 200 && ready() &&
@@ -794,7 +831,11 @@ static OSStatus StartIO(AudioServerPlugInDriverRef d, AudioObjectID o,
                 r = kAudioHardwareNotRunningError;
             } else {
                 gWriteFrames = __atomic_load_n(&control->out_write, __ATOMIC_ACQUIRE);
-                gZeroHost = mach_absolute_time();
+                const uint64_t host = mach_absolute_time();
+                const uint64_t anchor = __atomic_load_n(
+                    &control->out_anchor_host, __ATOMIC_ACQUIRE);
+                gZeroOrigin = host > anchor && gHostTicksPerFrame > 0 ?
+                    (uint64_t)((Float64)(host - anchor) / gHostTicksPerFrame) : 0;
                 gZeroSeed++;
             }
         }
@@ -828,13 +869,39 @@ static OSStatus GetZeroTimeStamp(AudioServerPlugInDriverRef d, AudioObjectID o,
     if (!ready()) {
         return kAudioHardwareNotRunningError;
     }
+    PongAudioServiceControl *control = atomic_load(&gControl);
+    if (!control || gHostTicksPerFrame <= 0) {
+        return kAudioHardwareNotRunningError;
+    }
+    uint32_t seq = 0;
+    uint64_t anchor = 0;
+    bool stable = false;
+    for (unsigned attempt = 0; attempt < 128; attempt++) {
+        seq = __atomic_load_n(&control->out_seq, __ATOMIC_ACQUIRE);
+        if (seq & 1) {
+            continue;
+        }
+        anchor = __atomic_load_n(&control->out_anchor_host, __ATOMIC_RELAXED);
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (seq == __atomic_load_n(&control->out_seq, __ATOMIC_RELAXED)) {
+            stable = true;
+            break;
+        }
+    }
+    if (!stable) {
+        return kAudioHardwareNotRunningError;
+    }
     const uint64_t now = mach_absolute_time();
-    const uint64_t elapsed = now > gZeroHost ? now - gZeroHost : 0;
-    const Float64 frames = gHostTicksPerFrame > 0 ?
-        (Float64)elapsed / gHostTicksPerFrame : 0;
-    *sampleTime = frames;
-    *hostTime = gZeroHost + (uint64_t)(frames * gHostTicksPerFrame);
-    *seed = gZeroSeed;
+    const Float64 period = gHostTicksPerFrame *
+        PONG_AUDIO_SERVICE_RING_FRAMES;
+    const uint64_t origin = anchor +
+        (uint64_t)((Float64)gZeroOrigin * gHostTicksPerFrame);
+    const uint64_t wraps = now > origin ?
+        (uint64_t)((Float64)(now - origin) / period) : 0;
+    *sampleTime = (Float64)(gZeroOrigin +
+        wraps * PONG_AUDIO_SERVICE_RING_FRAMES);
+    *hostTime = origin + (uint64_t)((Float64)wraps * period);
+    *seed = 1 + seq / 2 + gZeroSeed;
     return 0;
 }
 

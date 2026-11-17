@@ -617,8 +617,9 @@ static void bridge_cases(void)
     expect_name(bridge.channel->name, K60_AUDIO_GLINK_NAME, "bridge: the slot carries adsp_apps");
     expect_eq(bridge.channel->intent_count, K60_AUDIO_GLINK_INTENT_COUNT,
               "bridge: twenty receive intents");
+    expect_eq(K60_AUDIO_GLINK_INTENT_BYTES, 560u, "bridge: 560-byte intents");
     expect_eq(bridge.channel->intent_size, K60_AUDIO_GLINK_INTENT_BYTES,
-              "bridge: 512-byte intents");
+              "bridge: advertised intent size matches the message limit");
     expect_eq(k60_audio_glink_ready(&bridge), 0, "bridge: registered is not up");
 
     expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll writes VERSION");

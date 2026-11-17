@@ -1,9 +1,10 @@
 --- a/bsd/dev/pong_audio.c
 +++ b/bsd/dev/pong_audio.c
-@@ -43,6 +43,11 @@
+@@ -43,6 +43,12 @@
  #include <stdbool.h>
  #include <stdint.h>
  #include <string.h>
++#include <vm/vm_kern.h>
 +#include <pexpert/device_tree.h>
 +#include "PongAudioAfe.h"
 +#include "PongAudioPlayback.h"
@@ -60,6 +61,8 @@
 +	return value;
 +}
 +
++extern uint64_t kvtophys(vm_offset_t va);
++
 +static bool
 +pong_audio_dma_lease(void)
 +{
@@ -67,41 +70,59 @@
 +	void const *property = NULL;
 +	unsigned int size = 0;
 +	uint64_t pa = 0;
-+	uint64_t bytes = 0;
++	uint64_t bytes = PONG_AUDIO_DMA_BYTES;
 +
 +	if (g_pong_audio.dma_pa != 0) {
 +		return true;
 +	}
-+	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
-+	    SecureDTGetProperty(chosen, "pong-audio-dma", &property, &size) != kSuccess ||
-+	    size != 16u) {
-+		printf("PongAudio: low DMA unavailable: %s\n",
-+		    pong_audio_error_name(PongAudioErrNoHandoff));
-+		return false;
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) == kSuccess &&
++	    SecureDTGetProperty(chosen, "pong-audio-dma", &property, &size) == kSuccess &&
++	    size == 16u) {
++		const uint8_t *value = (const uint8_t *)property;
++		pa = pong_audio_le64(value);
++		bytes = pong_audio_le64(value + 8);
++		if (bytes != PONG_AUDIO_DMA_BYTES || (pa & 0xfffu) != 0u ||
++		    pa > 0x100000000ULL - bytes) {
++			printf("PongAudio: low DMA invalid pa=0x%llx size=0x%llx: %s\n",
++			    (unsigned long long)pa, (unsigned long long)bytes,
++			    pong_audio_error_name(PongAudioErrNoHandoff));
++			return false;
++		}
++		vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
++		if (va == 0) {
++			printf("PongAudio: low DMA map failed pa=0x%llx size=0x%llx: %s\n",
++			    (unsigned long long)pa, (unsigned long long)bytes,
++			    pong_audio_error_name(PongAudioErrNoHandoff));
++			return false;
++		}
++		g_pong_audio.dma_pa = pa;
++		g_pong_audio.dma_size = (uint32_t)bytes;
++		g_pong_audio.dma_va = va;
++		printf("PongAudio: low DMA lease pa=0x%llx size=0x%x\n",
++		    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
++		return true;
 +	}
-+	const uint8_t *value = (const uint8_t *)property;
-+	pa = pong_audio_le64(value);
-+	bytes = pong_audio_le64(value + 8);
-+	if (bytes != PONG_AUDIO_DMA_BYTES || (pa & 0xfffu) != 0u ||
-+	    pa > 0x100000000ULL - bytes) {
-+		printf("PongAudio: low DMA invalid pa=0x%llx size=0x%llx: %s\n",
-+		    (unsigned long long)pa, (unsigned long long)bytes,
-+		    pong_audio_error_name(PongAudioErrNoHandoff));
-+		return false;
++	/* The loader lease is optional: allocate the same 64 KiB below 4 GiB. */
++	vm_offset_t va = 0;
++	kern_return_t kr = kmem_alloc_contig(kernel_map, &va, bytes,
++	    PAGE_MASK, 0xfffff, 0, KMA_DATA | KMA_KOBJECT,
++	    VM_KERN_MEMORY_IOKIT);
++	if (kr == KERN_SUCCESS) {
++		pa = kvtophys(va);
++		if (pa != 0 && (pa & 0xfffu) == 0u &&
++		    pa <= 0x100000000ULL - bytes) {
++			g_pong_audio.dma_pa = pa;
++			g_pong_audio.dma_size = (uint32_t)bytes;
++			g_pong_audio.dma_va = va;
++			printf("PongAudio: low DMA allocated pa=0x%llx size=0x%x\n",
++			    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
++			return true;
++		}
++		kmem_free(kernel_map, va, bytes);
 +	}
-+	vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
-+	if (va == 0) {
-+		printf("PongAudio: low DMA map failed pa=0x%llx size=0x%llx: %s\n",
-+		    (unsigned long long)pa, (unsigned long long)bytes,
-+		    pong_audio_error_name(PongAudioErrNoHandoff));
-+		return false;
-+	}
-+	g_pong_audio.dma_pa = pa;
-+	g_pong_audio.dma_size = (uint32_t)bytes;
-+	g_pong_audio.dma_va = va;
-+	printf("PongAudio: low DMA lease pa=0x%llx size=0x%x\n",
-+	    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
-+	return true;
++	printf("PongAudio: low DMA unavailable: %s\n",
++	    pong_audio_error_name(PongAudioErrNoHandoff));
++	return false;
 +}
 +
 +static void
@@ -191,7 +212,7 @@
 +		break;
 +	case PongPlayClock:
 +		bytes = pong_ar_prm_clock(packet, sizeof(packet),
-+		    PONG_AUDIO_GPR_PORT, token, PONG_AFE_CLOCK_TERT_TDM_IBIT,
++		    AR_PRM_IID, token, PONG_AFE_CLOCK_TERT_TDM_IBIT,
 +		    PONG_AUDIO_TDM_CLK_HZ);
 +		break;
 +	case PongPlayPrepareSpeaker:
@@ -610,7 +631,7 @@
 +	g_pong_audio.refusal_printed = true;
 +	if (link_rc == K60_PMIC_GLINK_AUDIO_OK) {
 +		g_pong_audio.last_error = PongAudioErrApmNotReady;
-+		printf("PongAudio: glink adsp_apps slot queued (512x20)\n");
++		printf("PongAudio: glink adsp_apps slot queued (560x20)\n");
 +		printf("PongAudio: APM query pending: PongAudioErrApmNotReady\n");
 +		printf("PongAudio: speaker path unavailable: PongAudioErrApmNotReady (GLINK queued, GET_SPF_STATE pending)\n");
 +	} else {

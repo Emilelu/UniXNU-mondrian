@@ -12,7 +12,7 @@
 
 #define PONG_AUDIO_SERVICE_CLASS              "PongAudio"
 #define PONG_AUDIO_SERVICE_MAGIC              0x53484155u /* 'SHAU' */
-#define PONG_AUDIO_SERVICE_VERSION            2u
+#define PONG_AUDIO_SERVICE_VERSION            3u
 #define PONG_AUDIO_SERVICE_RATE               48000u
 #define PONG_AUDIO_SERVICE_CHANNELS           2u
 #define PONG_AUDIO_SERVICE_FRAME_BYTES        8u /* two S24_LE words */
@@ -42,6 +42,13 @@ enum {
  * HAL writes at out_write % ring_frames and advances out_write; the service
  * reads at out_read % ring_frames and advances out_read after each period.
  * Both counters are 64-bit so a long-running HAL cannot wrap a 32-bit count.
+ *
+ * ticks_per_frame_q32 / out_anchor_host / out_frames make the machine clock
+ * explicit to CoreAudio: sample time zero is the frame played at
+ * out_anchor_host and one frame lasts ticks_per_frame_q32 / 2^32 host ticks.
+ * out_seq is incremented around anchor updates (odd while writing). This is
+ * the 19.2 MHz handshake from porting/power; CoreAudio otherwise assumes a
+ * 24 MHz host clock and runs its IO cycle 25 percent long.
  */
 typedef struct {
 	uint32_t magic;
@@ -56,6 +63,11 @@ typedef struct {
 	volatile uint32_t out_late;
 	volatile uint64_t out_write;
 	volatile uint64_t out_read;
+	volatile uint32_t out_seq;
+	uint32_t reserved0;
+	volatile uint64_t ticks_per_frame_q32;
+	volatile uint64_t out_anchor_host;
+	volatile uint64_t out_frames;
 } PongAudioServiceControl;
 
 #endif /* PONG_AUDIO_SERVICE_ABI_H */

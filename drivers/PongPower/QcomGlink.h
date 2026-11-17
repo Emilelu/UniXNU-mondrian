@@ -21,7 +21,7 @@ extern "C" {
 /* DSP advertises 24 small intents before its larger command buffer.
  * Keep room for that later advertisement (shared transport, not SM8850 MMIO). */
 #define QCOM_GLINK_MAX_REMOTE_INTENTS 48u
-#define QCOM_GLINK_MAX_LOCAL_INTENTS 20u /* adsp_apps owns 20 x 512-byte intents; PMIC uses 4 */
+#define QCOM_GLINK_MAX_LOCAL_INTENTS 20u /* adsp_apps owns 20 x 560-byte intents; PMIC uses 4 */
 #define QCOM_GLINK_NAME 32u
 #define QCOM_GLINK_FEATURE_INTENT_REUSE 1u
 

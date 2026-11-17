@@ -11,8 +11,10 @@
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IOPlatformExpert.h>
 #include <IOKit/IOLib.h>
+#include <IOKit/IOMemoryDescriptor.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <kern/clock.h>
 #include <kern/task.h>
 
 #include "PongAudioServiceAbi.h"
@@ -20,6 +22,9 @@
 
 extern "C" int pong_audio_submit(const void *frames, uint32_t frame_count);
 extern "C" int pong_audio_status(void);
+extern "C" vm_offset_t phystokv(uint64_t pa);
+extern "C" uint64_t pmap_find_pa(void *pmap, uint64_t va);
+extern "C" struct pmap *get_task_pmap(task_t task);
 
 extern "C" {
 volatile int32_t k60_audio_service[8];
@@ -29,6 +34,70 @@ volatile int32_t k60_audio_service[8];
 	((PONG_AUDIO_SERVICE_PERIOD_FRAMES * 1000000u) / PONG_AUDIO_SERVICE_RATE)
 #define PONG_AUDIO_SERVICE_PERIOD_BYTES \
 	(PONG_AUDIO_SERVICE_PERIOD_FRAMES * PONG_AUDIO_SERVICE_FRAME_BYTES)
+
+static uint64_t
+pong_audio_ticks_per_frame(void)
+{
+	mach_timebase_info_data_t tb;
+	clock_timebase_info(&tb);
+	return ((1000000000ull << 32) / PONG_AUDIO_SERVICE_RATE) *
+	    tb.denom / tb.numer;
+}
+
+/* CoreAudio loads its host frequency from the dyld shared cache and assumes
+ * 24 MHz. K60's architectural counter is 19.2 MHz, so rewrite just that
+ * double after resolving it in the caller's pmap. This follows the clock
+ * handoff required by porting/power; without it the audio server's IO cycle
+ * runs 25 percent long. */
+static IOReturn
+pong_audio_set_host_clock(task_t task, uint64_t address)
+{
+	const uint64_t apple = 0x4176e36000000000ull;
+
+	if (task != current_task() || (address & 7) ||
+	    address < 0x180000000ull || address >= 0x400000000ull) {
+		return kIOReturnBadArgument;
+	}
+	IOMemoryDescriptor *memory = IOMemoryDescriptor::withAddressRange(
+	    address, 8, kIODirectionOut, task);
+	if (!memory) {
+		return kIOReturnNoMemory;
+	}
+	IOReturn result = memory->prepare();
+	if (result != kIOReturnSuccess) {
+		memory->release();
+		return result;
+	}
+	uint64_t seen = 0;
+	if (copyin(address, &seen, 8)) {
+		result = kIOReturnNotReadable;
+	} else {
+		const uint64_t pa = pmap_find_pa(get_task_pmap(task), address);
+		result = kIOReturnNoResources;
+		if (pa) {
+			mach_timebase_info_data_t tb;
+			clock_timebase_info(&tb);
+			const uint64_t hz = 1000000000ull * tb.denom / tb.numer;
+			const unsigned top = 63 - (unsigned)__builtin_clzll(hz);
+			if (top <= 52) {
+				const uint64_t bits = (uint64_t)(1023 + top) << 52 |
+				    ((hz << (52 - top)) & ((1ull << 52) - 1));
+				volatile uint64_t *value =
+				    reinterpret_cast<volatile uint64_t *>(phystokv(pa));
+				result = kIOReturnUnsupported;
+				if (*value == seen && (seen == apple || seen == bits)) {
+					*value = bits;
+					__asm__ volatile("dsb sy" ::: "memory");
+					result = kIOReturnSuccess;
+					IOLog("PongAudioService: CoreAudio host clock=%llu Hz\n", hz);
+				}
+			}
+		}
+	}
+	memory->complete();
+	memory->release();
+	return result;
+}
 
 class PongAudio : public IOService {
 	OSDeclareDefaultStructors(PongAudio)
@@ -56,6 +125,7 @@ public:
 	IOReturn startOutput();
 	IOReturn stopOutput();
 	IOReturn request(uint32_t selector);
+	IOReturn setHostClock(task_t task, uint64_t address);
 };
 
 OSDefineMetaClassAndStructors(PongAudio, IOService)
@@ -95,6 +165,11 @@ PongAudio::allocateBuffers()
 	fControl->out_late = 0;
 	fControl->out_write = 0;
 	fControl->out_read = 0;
+	fControl->out_seq = 0;
+	fControl->reserved0 = 0;
+	fControl->ticks_per_frame_q32 = pong_audio_ticks_per_frame();
+	fControl->out_anchor_host = mach_absolute_time();
+	fControl->out_frames = 0;
 	return true;
 }
 
@@ -198,6 +273,12 @@ PongAudio::startOutput()
 	}
 	fControl->out_read = fControl->out_write;
 	fControl->out_late = 0;
+	const uint32_t seq = __atomic_load_n(&fControl->out_seq, __ATOMIC_RELAXED);
+	__atomic_store_n(&fControl->out_seq, seq + 1, __ATOMIC_RELAXED);
+	fControl->ticks_per_frame_q32 = pong_audio_ticks_per_frame();
+	fControl->out_anchor_host = mach_absolute_time();
+	fControl->out_frames = 0;
+	__atomic_store_n(&fControl->out_seq, seq + 2, __ATOMIC_RELEASE);
 	fControl->state = PongAudioServiceOutputReady |
 	    PongAudioServiceOutputRunning;
 	const IOReturn result = startTimer();
@@ -230,6 +311,12 @@ PongAudio::request(uint32_t selector)
 	default:
 		return kIOReturnUnsupported;
 	}
+}
+
+IOReturn
+PongAudio::setHostClock(task_t task, uint64_t address)
+{
+	return pong_audio_set_host_clock(task, address);
 }
 
 void
@@ -267,6 +354,8 @@ PongAudio::timerFired()
 		if (rc == 0) {
 			__atomic_store_n(&fControl->out_read,
 			    read + PONG_AUDIO_SERVICE_PERIOD_FRAMES, __ATOMIC_RELEASE);
+			__atomic_fetch_add(&fControl->out_frames,
+			    PONG_AUDIO_SERVICE_PERIOD_FRAMES, __ATOMIC_RELEASE);
 		} else {
 			fControl->out_late++;
 		}
@@ -351,12 +440,24 @@ PongAudioUserClient::externalMethod(uint32_t selector,
     IOExternalMethodArguments *args, IOExternalMethodDispatch *dispatch,
     OSObject *target, void *reference)
 {
+	if (selector == PongAudioServiceSetHostClock) {
+		if (!args || args->scalarInputCount != 1 || args->structureInputSize ||
+		    args->scalarOutputCount || args->structureOutputSize) {
+			return kIOReturnBadArgument;
+		}
+		if (!fProvider) {
+			return kIOReturnNotReady;
+		}
+		const IOReturn result = fProvider->setHostClock(fOwner,
+		    args->scalarInput[0]);
+		if (result != kIOReturnSuccess) {
+			k60_audio_service[4] = k60_audio_service[4] + 1;
+		}
+		return result;
+	}
 	if (!args || args->scalarInputCount || args->structureInputSize ||
 	    args->scalarOutputCount || args->structureOutputSize) {
 		return kIOReturnBadArgument;
-	}
-	if (selector == PongAudioServiceSetHostClock) {
-		return kIOReturnUnsupported;
 	}
 	if (!fProvider) {
 		return kIOReturnNotReady;

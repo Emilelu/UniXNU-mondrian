@@ -954,7 +954,7 @@
 +	    0x10000000ull, PONG_AUDIO_DMA_BYTES);
 +	built += pong_ar_write(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 8,
 +	    0x10000000ull, 1, PONG_AUDIO_PERIOD_BYTES);
-+	built += pong_ar_prm_clock(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 9,
++	built += pong_ar_prm_clock(buf, sizeof(buf), AR_PRM_IID, 9,
 +	    0x204u, PONG_AUDIO_TDM_CLK_HZ);
 +	PongGprPacket p = { 0 };
 +	p.dst_domain = GPR_DOMAIN_ADSP;

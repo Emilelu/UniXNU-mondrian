@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 #define K60_AUDIO_GLINK_NAME "adsp_apps"
-#define K60_AUDIO_GLINK_INTENT_BYTES 512u
+#define K60_AUDIO_GLINK_INTENT_BYTES 560u /* V: porting/power: 560-byte message limit */
 #define K60_AUDIO_GLINK_INTENT_COUNT 20u
 #define K60_AUDIO_GLINK_SEND_MAX 560u /* one maximum GPR packet */
 

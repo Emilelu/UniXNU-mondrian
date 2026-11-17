@@ -10,9 +10,9 @@
 
 | # | 疏漏 | 证据 | 影响 |
 |---|---|---|---|
-| G1 | 三处入口文档仍把固件卷写成"同源同字节、现场两个卷、P-154 现状" | `README.md:134`、`docs/INDEX.md:52` 一带、`docs/engineering/README.md` | 与 main 上已改写的 `docs/engineering/FIRMWARE-REBUILD.md`（"它不是确定性的 / P-216 / P-154 已关闭"）直接矛盾 |
+| G1 | 三处入口文档仍把固件卷写成"同源同字节、现场两个卷、P-154 现状" | `README.md:134`、`docs/INDEX.md:51`、`docs/engineering/README.md` | 与 main 上已改写的 `docs/engineering/FIRMWARE-REBUILD.md`（"它不是确定性的 / P-216 / P-154 已关闭"）直接矛盾 |
 | G2 | `docs/ops/` 是 2026-11-12 从 yibiya 一次 pick 进来的上游快照，却在文件头自称"唯一权威" | `docs/ops/HARD-RULES.md:1-4`、上游 pick `97b84eb7` | 两份 HARD-RULES（★1–★37 vs HR-01–HR-12）、三份 PITFALLS（P-230 vs P-76 vs 148 行副本）编号空间互不相容 |
-| G3 | 文档总入口自身过期且结构断裂 | `docs/INDEX.md:5`（日期、校验脚本名）、`:18-19`/`:52-53`（★35/P-130）、`:15`（3 列表只有 2 格）、`:121-122`、`:138` | 新接手的人按索引读，会先读到错数字 |
+| G3 | 文档总入口自身过期且结构断裂 | `docs/INDEX.md:5`（日期、校验脚本名）、`:18-19`/`:52-53`（★35/P-130）、`:15`（3 列表只有 2 格）、`:68-69`、`:153` | 新接手的人按索引读，会先读到错数字 |
 | G4 | 引用完整性没有任何门禁 | 2207 处仓库内路径引用中 **217 个目标不存在**（436 处）；**14 处行号越界** | 文档里的 `file:line` 是主要证据形式，坏引用等于证据失效 |
 | G5 | 92 个研究文件只在各线分支上，main 只有 71 个，且没有"哪条线在哪"的映射 | 20 个并行检出实测（cellular 18、wifi 14、thermal 12、bt 10…） | 研究不可见 = 重复考古；`EIGHT-STEPS.toml` 已因此引用 7 个 main 上不存在的文件 |
 | G6 | `EIGHT-STEPS.toml` 的 wifi 条目仍写"从未上机 / parked" | `docs/research/EIGHT-STEPS.toml:390-426` | 与 c1–c8 实飞、P-215 结案矛盾；这是唯一一处**门禁数据源**与事实相反 |
@@ -52,9 +52,9 @@
 | `README.md:50` | "本地构建脚本位于工作区（不在仓库内）" | `scripts/build-strict.sh` 等就在仓库里；工作区那份是构建副本 | 【实测】 |
 | `README.md:138-140` | 三条项目符号插在文档表格中间 | 表格被截断，Markdown 渲染错位 | 【实测】 |
 | `docs/INDEX.md:15` | REPO-MAP 行只有 2 个单元格 | 该表 3 列 | 【实测】 |
-| `docs/INDEX.md:121-122` | `engineering/BATTERY-INTEGRATION.md`、`BOOT-ARGS.md` 列在 state/ 表 | 两者都在 `docs/engineering/` | 【实测】 |
-| `docs/INDEX.md:138` | "series 224 vs 229" 的旧对照 | 当前 series 227，且 wifi 已按 P-215 结案 | 【实测】 |
-| `docs/INDEX.md:148-149` | WIFI-REBUILD-CHECKLIST 行被截断，五条硬差异串到 SHENGUFS 行 | 两行已修复，WIFI 的五条差异归回本行 | 【实测】 |
+| `docs/INDEX.md:68-69` | `engineering/BATTERY-INTEGRATION.md`、`BOOT-ARGS.md` 列在 state/ 表 | 两者都在 `docs/engineering/` | 【实测】 |
+| `docs/INDEX.md:153` | "series 224 vs 229" 的旧对照 | 当前 series 227，且 wifi 已按 P-215 结案 | 【实测】 |
+| `docs/INDEX.md:153-154` | WIFI-REBUILD-CHECKLIST 行被截断，五条硬差异串到 SHENGUFS 行 | 两行已修复，WIFI 的五条差异归回本行 | 【实测】 |
 | `docs/engineering/BOOT-ARGS.md:36-61` | 26 行有 6 个单元格，表头只有 5 列，Markdown 渲染错位 | 已把末两列合并为一列（内容不变），全表统一 5 列 | 【实测】 |
 | 13 个文档的 16 行表格，另有 `UNIXNU-SITE-INDEX.md` 的 4 行 | 未转义的 `\|`、未闭合反引号或缺列，渲染时列错位 | 2026-11-17 全量表格扫描后逐行修复：`docs/ops/HANDOFF.md:1496`、`docs/engineering/TOOLBOX.md:115-122`、`docs/plans/120HZ-PORT-PLAN.md:207`、`docs/plans/DOCS-CORE-ALL.md:568`、`docs/plans/DOCS-PORTING-ALL.md:762`、`docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:237`、`docs/reference/ZCODE-RESEARCH-REPORT.md:350`、`docs/research/REFERENCE-INDEX.md:581/931/936`、`docs/research/charger/02-GLINK-CONTRACT.md:189-190`、`docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:158`；另修 `docs/reference/UNIXNU-SITE-INDEX.md:68/85/96/369` 的未闭合反引号；内容不变 | 【实测】 |
 | `docs/state/STATE-2026-11-07.md:1-3` | "唯一‘当前状态’入口" | 本文件是 2026-11-07 快照；当前入口是 `docs/engineering/STATUS.md`，INDEX:132 已标过时但文件本身没标 | 【实测】 |

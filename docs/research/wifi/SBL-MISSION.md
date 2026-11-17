@@ -102,6 +102,13 @@ a skipped command ring. The direct console shows only the SBL EE event (`:668`);
 no later mission-mode EE event is present, so the stock mission transition does
 not destroy and recreate the IPCR devices on this path.
 
+Failure triage: `mhi_get_exec_env`
+(`E:/k60-work/impl/wifi/work/src/linux-7.0.14/drivers/bus/mhi/host/main.c:153-158`)
+returns `MHI_EE_MAX` when the `BHI_EXECENV` read fails, and the mission poll
+treats that value as a hard stop. If a flight reaches AMSS but misses the
+`cached ee updated` line, inspect the BHI register lifetime and this break before
+concluding that the 25 s poll is too short.
+
 ## 3. Candidate identity
 
 | field | value |

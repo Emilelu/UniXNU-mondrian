@@ -11,9 +11,21 @@
 
 #ifdef K60_HOST_TEST
 #include <stdio.h>
+#include <string.h>
 #else
 #include <sys/systm.h>
 #endif
+
+#define K60_IPA_METADATA_BYTES 0x2000u
+
+static int
+k60_ipa_blob_read(void *context, uint64_t offset, void *to, size_t length)
+{
+    const uint8_t *blob = context;
+
+    memcpy(to, blob + offset, length);
+    return 0;
+}
 
 _Static_assert(K60_IPA_CFG_BASE == 0x03f40000u,
     "IPA register block must be wrapper 0x3e00000 + cfg offset 0x140000");
@@ -38,6 +50,37 @@ k60_ipa_decode_comp_hw_version(uint32_t raw)
     version.minor = (raw & 0x0fff0000u) >> 16;
     version.step = raw & 0x0000ffffu;
     return version;
+}
+
+int
+k60_ipa_firmware_check(const void *blob, uint64_t size, K60IpaFirmwarePlan *plan)
+{
+    K60MdtImage image;
+    uint32_t load = 0;
+    int rc;
+
+    if (!blob || !plan) {
+        return K60IpaBadArgument;
+    }
+    rc = k60_mdt_parse(&image, size, k60_ipa_blob_read, (void *)blob);
+    if (rc != K60MdtOk) {
+        return K60IpaFirmwareBadImage;
+    }
+    for (uint32_t i = 0; i < image.count; i++) {
+        if (image.segment[i].load) {
+            load++;
+        }
+    }
+    plan->span = k60_mdt_span(&image);
+    plan->metadata = k60_mdt_metadata_size(&image);
+    plan->load_segments = load;
+    plan->relocatable = image.relocatable;
+    if (image.elf64 || !image.relocatable || image.min_address != 0 ||
+        plan->span > K60_IPA_FW_REGION_BYTES ||
+        plan->metadata > K60_IPA_METADATA_BYTES) {
+        return K60IpaFirmwareLayout;
+    }
+    return K60IpaOk;
 }
 
 int

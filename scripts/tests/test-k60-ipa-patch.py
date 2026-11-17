@@ -34,23 +34,34 @@ def fail(message: str) -> int:
     return 1
 
 
+def kernel_copy(name: str) -> str:
+    text = (REPO / "drivers/PongCellular" / name).read_text()
+    for source, target in (("K60Ipa.h", "pong_ipa.h"), ("K60Mdt.h", "pong_mdt.h")):
+        text = text.replace('#include "%s"' % source, '#include "%s"' % target)
+    return text
+
+
 def main() -> int:
     if not PATCH.is_file():
         return fail("patch 0623 is missing")
     patch = PATCH.read_text()
-    header = (REPO / "drivers/PongCellular/K60Ipa.h").read_text()
-    source = (REPO / "drivers/PongCellular/K60Ipa.c").read_text()
-    source = source.replace('#include "K60Ipa.h"', '#include "pong_ipa.h"')
 
-    if added_lines(patch, "bsd/dev/pong_ipa.h") != header:
-        return fail("pong_ipa.h differs from K60Ipa.h")
-    if added_lines(patch, "bsd/dev/pong_ipa.c") != source:
-        return fail("pong_ipa.c differs from K60Ipa.c")
+    expected = (
+        ("bsd/dev/pong_ipa.h", kernel_copy("K60Ipa.h")),
+        ("bsd/dev/pong_ipa.c", kernel_copy("K60Ipa.c")),
+        ("bsd/dev/pong_mdt.h", kernel_copy("K60Mdt.h")),
+        ("bsd/dev/pong_mdt.c", kernel_copy("K60Mdt.c")),
+    )
+    for target, text in expected:
+        if added_lines(patch, target) != text:
+            return fail("%s differs from its PongCellular source" % target)
     if "0623-k60-ipa.patch" not in SERIES.read_text().splitlines():
         return fail("0623 is not in patches/xnu/series")
     if "bsd/dev/pong_ipa.c" not in CONFFILES.read_text():
         return fail("append-conffiles.py has no pong_ipa.c entry")
-    print("K60 IPA PATCH PASS 0623 carries pong_ipa.h and pong_ipa.c")
+    if "bsd/dev/pong_mdt.c" not in CONFFILES.read_text():
+        return fail("append-conffiles.py has no pong_mdt.c entry")
+    print("K60 IPA PATCH PASS 0623 carries pong_ipa.h/.c and pong_mdt.h/.c")
     return 0
 
 

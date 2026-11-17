@@ -16,6 +16,8 @@
 
 #include <stdint.h>
 
+#include "K60Mdt.h"
+
 #define K60_IPA_WRAPPER_BASE          0x03e00000u
 #define K60_IPA_BLOCK_BYTES           0x00200000u
 #define K60_IPA_CFG_OFFSET            0x00140000u
@@ -43,6 +45,8 @@ enum {
     K60IpaOk = 0,
     K60IpaNotReady = -1,
     K60IpaBadArgument = -2,
+    K60IpaFirmwareBadImage = -3,
+    K60IpaFirmwareLayout = -4,
 };
 
 typedef struct {
@@ -54,6 +58,18 @@ typedef struct {
 
 /* Decode IPA_COMP_HW_VERSION: major[31:28], minor[23:16], step[15:0]. */
 K60IpaVersion k60_ipa_decode_comp_hw_version(uint32_t raw);
+
+/* Offline check of an ipa_fws image against the K60 carveout layout. It parses
+ * the ELF headers and reports the span and metadata size without mapping or
+ * allocating anything; M1 uses the same parse before the PAS calls. */
+typedef struct {
+    uint64_t span;
+    uint64_t metadata;
+    uint32_t load_segments;
+    uint32_t relocatable;
+} K60IpaFirmwarePlan;
+
+int k60_ipa_firmware_check(const void *blob, uint64_t size, K60IpaFirmwarePlan *plan);
 
 /* M0 probe: reports that the data path is intentionally absent.  It must not
  * map MMIO, write a register or call PAS; those begin in M1. */

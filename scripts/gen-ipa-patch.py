@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate patches/xnu/0623-k60-ipa.patch from the PongCellular sources.
 
-The kernel copy uses the bsd/dev names pong_ipa.h/pong_ipa.c; the in-tree
-sources keep the K60Ipa names. Nothing else changes.
+The kernel copy uses the bsd/dev names pong_ipa.h/pong_ipa.c and
+pong_mdt.h/pong_mdt.c; the in-tree sources keep the K60 names. Nothing else
+changes.
 """
 
 import pathlib
@@ -29,14 +30,26 @@ def newfile(path_in_tree: str, text: str) -> str:
     )
 
 
+def kernel_copy(name: str) -> str:
+    text = (SRC / name).read_text()
+    for source, target in (("K60Ipa.h", "pong_ipa.h"), ("K60Mdt.h", "pong_mdt.h")):
+        text = text.replace('#include "%s"' % source, '#include "%s"' % target)
+    return text
+
+
 def main() -> int:
-    header = (SRC / "K60Ipa.h").read_text()
-    source = (SRC / "K60Ipa.c").read_text()
-    source = source.replace('#include "K60Ipa.h"', '#include "pong_ipa.h"')
+    header = kernel_copy("K60Ipa.h")
+    source = kernel_copy("K60Ipa.c")
+    mdt_header = kernel_copy("K60Mdt.h")
+    mdt_source = kernel_copy("K60Mdt.c")
     assert '#include "pong_ipa.h"' in source
+    assert '#include "pong_mdt.h"' in header
+    assert '#include "pong_mdt.h"' in mdt_source
 
     body = (newfile("bsd/dev/pong_ipa.h", header)
-            + newfile("bsd/dev/pong_ipa.c", source))
+            + newfile("bsd/dev/pong_ipa.c", source)
+            + newfile("bsd/dev/pong_mdt.h", mdt_header)
+            + newfile("bsd/dev/pong_mdt.c", mdt_source))
     OUT.write_text(body)
     print("patch bytes", OUT.stat().st_size)
 

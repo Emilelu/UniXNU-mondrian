@@ -100,7 +100,7 @@ Android 命令 + 完整输出
 **必做（按顺序，缺一不可）**
 
 1. **★ 查 UniXNU 官方组件目录**
-   - 文件：`UniXNU/components.toml`（25 个组件）
+   - 文件：`UniXNU/components.toml`（截至 2026-11-17 共 29 个组件，以文件为准）
    - 网页：`https://unixnu.com/zh/reference/components`
    - **必须逐个回答**：有没有能直接用的？如果没有，为什么不能？
 
@@ -120,7 +120,7 @@ Android 命令 + 完整输出
 
 **证据格式**
 ```
-[catalog_checked] UniXNU/components.toml 25 个组件逐个比对：
+[catalog_checked] UniXNU/components.toml 29 个组件（2026-11-17）逐个比对：
   - QcomGeniSpi: 可用/不可用 + 理由
   - AdrenoMetal: 可用/不可用 + 理由
   ...

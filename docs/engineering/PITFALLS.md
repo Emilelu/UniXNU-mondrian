@@ -3053,6 +3053,16 @@ goodix_brl_hw.c:553-559
      我们如果能早点读到就不必重复。
   4. **结论翻转时要立刻改文档**，不能让错误结论继续指导后续工作。
 
+### P-130 ★★ 手工搬运 fork 里的代码会丢失 GitHub contributors 署名
+
+- **症状**：从 fork 手工复制补丁或源码后，GitHub contributors 图只显示本仓提交者，原作者丢失。
+- **真因**：手工复制不会保留原提交的 author 与来源 trailer；`git cherry-pick` 才会。
+- **修复**：
+  1. 优先 `git cherry-pick -x <sha>`，保留原 author 并自动追加 `(cherry picked from commit <sha>)`。
+  2. 手工复制时在提交信息加 `Co-authored-by: 姓名 <邮箱>`。
+  3. 新来源出现时同步更新 `CREDITS.md` 的引用规范。
+- **核对**：`git log --format='%an <%ae>' -1` 与来源提交比对；`CREDITS.md` 第四节有完整规范。
+
 ### P-131 ★★★ Windows checkout 的 CRLF 行尾符让整个参考仓库"变脏"
 
 - **症状**：`sync-all-repos-v2.sh` 报告 5 个 Pong 仓库"脏文件过多（>50）违反 HR-40"，

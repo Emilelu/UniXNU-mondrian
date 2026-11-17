@@ -109,9 +109,9 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 
 | 仓库 | 我们参考的部分 |
 |---|---|
-| `UniXNU/UniXNU` | 框架、`components.toml` 组件目录（25 个组件）、`porting-record.py` 校验器、文档站 |
+| `UniXNU/UniXNU` | 框架、`components.toml` 组件目录（截至 2026-11-17 共 29 个组件）、`porting-record.py` 校验器、文档站 |
 | `UniXNU/UniXNU-pong` | 官方 Pong 设备仓库 |
-| `UniXNU/UniXNU-sheng` | 官方 sheng 设备（SM8550，Novatek 触摸 + GPU 调度） |
+| `UniXNU/UniXNU-sheng` | 官方 sheng 设备（SM8550，Novatek 触摸 + GPU 调度）；音频 codec 参考（`ShengAudioReach` / `ShengGpr` / `ShengCs35l43`） |
 | `UniXNU/UniXNU-zizhan` | 同 SoC SM8475 设备（ST FTS 触摸 + Adreno 730） |
 | `Emilelu/UniXNU-sm8475-common` | SM8475 SoC 公共层（本项目的 SoC 仓库） |
 | `UniXNU/UniXNU-sm8550-common` | SM8550 SoC 公共层（`Sm8550Platform` 组件） |
@@ -136,7 +136,6 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | `UniXNU/QcaBluetooth` | 蓝牙参考 |
 | `UniXNU/QcomDwc3` | USB DWC3 参考 |
 | `UniXNU/Ath12kWifi` | WiFi 参考 |
-| `UniXNU/Ath12kWifi` | 音频 codec 参考 |
 
 ### 3.5 文档站
 
@@ -166,4 +165,4 @@ e6c4c60  ci: touch the OS window workflow so forks register it
    ```
    git author 与 GitHub 账号可能不一致。
 
-参见 `docs/engineering/PITFALLS.md` P-130 与 `docs/engineering/HARD-RULES.md` ★35。
+参见 `docs/engineering/PITFALLS.md` P-130 与本节第 1–2 条。

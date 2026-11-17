@@ -47,7 +47,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +890,565 @@
+@@ -858,6 +890,567 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -83,24 +83,26 @@
 +		bytes = pong_audio_le64(value + 8);
 +		if (bytes != PONG_AUDIO_DMA_BYTES || (pa & 0xfffu) != 0u ||
 +		    pa > 0x100000000ULL - bytes) {
-+			printf("PongAudio: low DMA invalid pa=0x%llx size=0x%llx: %s\n",
-+			    (unsigned long long)pa, (unsigned long long)bytes,
-+			    pong_audio_error_name(PongAudioErrNoHandoff));
-+			return false;
++			printf("PongAudio: low DMA lease invalid pa=0x%llx size=0x%llx; allocating below 4 GiB\n",
++			    (unsigned long long)pa, (unsigned long long)bytes);
++			pa = 0;
++			bytes = PONG_AUDIO_DMA_BYTES;
 +		}
-+		vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
-+		if (va == 0) {
-+			printf("PongAudio: low DMA map failed pa=0x%llx size=0x%llx: %s\n",
-+			    (unsigned long long)pa, (unsigned long long)bytes,
-+			    pong_audio_error_name(PongAudioErrNoHandoff));
-+			return false;
++		if (pa != 0) {
++			vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
++			if (va == 0) {
++				printf("PongAudio: low DMA map failed pa=0x%llx size=0x%llx: %s\n",
++				    (unsigned long long)pa, (unsigned long long)bytes,
++				    pong_audio_error_name(PongAudioErrNoHandoff));
++				return false;
++			}
++			g_pong_audio.dma_pa = pa;
++			g_pong_audio.dma_size = (uint32_t)bytes;
++			g_pong_audio.dma_va = va;
++			printf("PongAudio: low DMA lease pa=0x%llx size=0x%x\n",
++			    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
++			return true;
 +		}
-+		g_pong_audio.dma_pa = pa;
-+		g_pong_audio.dma_size = (uint32_t)bytes;
-+		g_pong_audio.dma_va = va;
-+		printf("PongAudio: low DMA lease pa=0x%llx size=0x%x\n",
-+		    (unsigned long long)pa, (unsigned)g_pong_audio.dma_size);
-+		return true;
 +	}
 +	/* The loader lease is optional: allocate the same 64 KiB below 4 GiB. */
 +	vm_offset_t va = 0;

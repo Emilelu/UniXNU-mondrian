@@ -72,16 +72,16 @@ unsigned panel_measured_hz; /* INTF1 TE/frame observation, 0 = not measured */
  * zizhan dpuBus/intfRate require GCC_DISP_AHB and DISP_CC_MDSS_AHB before
  * any MDSS access: scanning alone does not imply the register clock is on.
  * Never enable clocks; only INTF1's known inherited autorefresh may change. */
-IOMemoryDescriptor *probe_desc[7];
-IOMemoryMap *probe_maps[7];
-vm_offset_t probe_va[7];
+IOMemoryDescriptor *probe_desc[13];
+IOMemoryMap *probe_maps[13];
+vm_offset_t probe_va[13];
 bool probe_enabled;
 uint64_t probe_started,probe_previous;
 uint32_t probe_frames[4];
 uint16_t probe_te[2];
 uint64_t probe_sampled[4];
 bool cadence_pending,cadence_verify;
-constexpr uint32_t IntfFrameCount=0xac,IntfLineCount=0xb0,IntfCountEnable=0xa8,IntfTearSyncVsync=0x288,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
+constexpr uint32_t IntfConfig=0x04,IntfVsyncPeriod=0x0c,IntfCountEnable=0xa8,IntfFrameCount=0xac,IntfLineCount=0xb0,IntfTearCheckEn=0x284,IntfTearSyncVsync=0x288,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
 constexpr uint32_t CadenceInherited=0x8000003cu,CadenceEveryFrame=0x80000001u;
 
 void panel_log(const char *fmt, ...)
@@ -101,7 +101,7 @@ vm_offset_t probe_page(unsigned slot,uint32_t physical)
 {
     if(!probe_va[slot]) {
         probe_desc[slot]=IOMemoryDescriptor::withPhysicalAddress(physical,4096,
-            slot==4?kIODirectionInOut:kIODirectionIn);
+            (slot>=3 && slot<=6)?kIODirectionInOut:kIODirectionIn);
         if(probe_desc[slot])probe_maps[slot]=probe_desc[slot]->map();
         if(probe_maps[slot])probe_va[slot]=probe_maps[slot]->getVirtualAddress();
     }
@@ -112,7 +112,28 @@ uint32_t probe_read(vm_offset_t base,unsigned offset)
     return *reinterpret_cast<volatile uint32_t *>(base+offset);
 }
 
-/* Measure the INTF1 panel frame period from its line counter, the method in
+/* The DPU's CTL block reports which interface is active in CTL_INTF_ACTIVE
+ * (0xf4). zizhan's dbFindPipes uses the same six 0x1000 CTL pages at
+ * 0x0ae16000. Read only; if no bit is set fall back to INTF1, the page the
+ * previous driver work assumed. */
+uint32_t panel_ctl_intf_mask(void)
+{
+    uint32_t mask=0;
+    for(unsigned i=0;i<6;++i) {
+        const vm_offset_t ctl=probe_page(7+i,0x0ae16000u+i*0x1000u);
+        if(ctl)mask|=probe_read(ctl,0xf4);
+    }
+    return mask;
+}
+
+int panel_active_intf(void)
+{
+    const uint32_t mask=panel_ctl_intf_mask();
+    for(unsigned i=0;i<4;++i)if(mask&(1u<<i))return int(i);
+    return 1;
+}
+
+/* Measure the active INTF's panel frame period from its line counter, the method in
  * the official DisplayTimingProbe reference (UniXNU-sheng
  * package/DisplayTimingProbe.cpp:45-70): a running line counter wraps once per
  * panel frame, so the shortest interval between two wraps is the frame period.
@@ -142,12 +163,29 @@ bool panel_intf_rate(const char *phase,uint32_t milliseconds)
         panel_log("K60 PANEL: INTF1 %s: MDSS gate=%#x power=%#x, rate unavailable\n",phase,ahb,gdsc);
         return false;
     }
-    const vm_offset_t base=probe_page(4,0x0ae36000);
+    const uint32_t mask=panel_ctl_intf_mask();
+    int active=1;
+    for(unsigned i=0;i<4;++i)if(mask&(1u<<i)){active=int(i);break;}
+    const vm_offset_t base=probe_page(3+unsigned(active),0x0ae35000u+unsigned(active)*4096u);
     if(!base) {
-        panel_log("K60 PANEL: INTF1 %s: no INTF1 mapping, rate unavailable\n",phase);
+        panel_log("K60 PANEL: INTF%d %s: no INTF mapping, rate unavailable\n",active,phase);
         return false;
     }
-    const uint32_t count_enable=probe_read(base,IntfCountEnable);
+    panel_log("K60 PANEL: CTL intf active=%#x, using INTF%d\n",mask,active);
+    for(unsigned i=0;i<4;++i) {
+        const vm_offset_t p=probe_page(3+i,0x0ae35000u+i*4096u);
+        if(p)panel_log("K60 PANEL: INTF%u config=%#x vsync_period=%#x count_enable=%#x frame=%u line=%u tear_check=%#x\n",
+            i,probe_read(p,IntfConfig),probe_read(p,IntfVsyncPeriod),probe_read(p,IntfCountEnable),
+            probe_read(p,IntfFrameCount),probe_read(p,IntfLineCount)&0xffffu,probe_read(p,IntfTearCheckEn));
+    }
+    uint32_t count_enable=probe_read(base,IntfCountEnable);
+    if((count_enable&3u)!=3u) {
+        const uint32_t before=count_enable;
+        *reinterpret_cast<volatile uint32_t *>(base+IntfCountEnable)=(count_enable|3u);
+        __asm__ volatile("dsb sy" ::: "memory");
+        count_enable=probe_read(base,IntfCountEnable);
+        panel_log("K60 PANEL: INTF%d count_enable %#x -> %#x\n",active,before,count_enable);
+    }
     const uint32_t frames0=probe_read(base,IntfFrameCount);
     const uint32_t te0=probe_read(base,IntfTeCount);
     const uint32_t line0=probe_read(base,IntfLineCount)&0xffffu;
@@ -186,8 +224,8 @@ bool panel_intf_rate(const char *phase,uint32_t milliseconds)
      * DPU commits and the tear counter is a read-pointer count. Publish the
      * line-counter period, falling back to commits only when no wrap was seen. */
     panel_measured_hz=te_hz?te_hz:frame_hz;
-    panel_log("K60 PANEL: INTF1 %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u) line %u->%u wraps %u wrap %u/s period %llu us count_enable %#x\n",
-        phase,te_hz,frame_hz,milliseconds,
+    panel_log("K60 PANEL: INTF%d %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u) line %u->%u wraps %u wrap %u/s period %llu us count_enable %#x\n",
+        active,phase,te_hz,frame_hz,milliseconds,
         unsigned(te0>>16),unsigned(te1>>16),frames0,frames1,
         line0,line1,wraps,wrap_hz,best_us,count_enable);
     return true;
@@ -433,17 +471,31 @@ extern "C" int pong_panel_switch_120(void)
     /* Android's sde_encoder_phys_cmd.c derives the TE-check vsync_count as
      * 19.2 MHz / (vtotal * fps). K60 vtotal is 3200: 100 at 60 Hz, 50 at
      * 120 Hz. Only rewrite the known inherited value; preserve bits 19/20. */
-    const vm_offset_t intf=probe_page(4,0x0ae36000);
+    const int active=panel_active_intf();
+    const vm_offset_t intf=probe_page(3+unsigned(active),0x0ae35000u+unsigned(active)*4096u);
     if(intf) {
         const uint32_t cfg=probe_read(intf,IntfTearSyncVsync);
         if((cfg&0x7ffffu)==100u) {
             *reinterpret_cast<volatile uint32_t *>(intf+IntfTearSyncVsync)=
                 (cfg&~0x7ffffu)|50u;
             __asm__ volatile("dsb sy" ::: "memory");
-            panel_log("K60 PANEL: INTF1 vsync_count %u -> 50 (sync_cfg %#x)\n",
-                cfg&0x7ffffu,probe_read(intf,IntfTearSyncVsync));
+            panel_log("K60 PANEL: INTF%d vsync_count %u -> 50 (sync_cfg %#x)\n",
+                active,cfg&0x7ffffu,probe_read(intf,IntfTearSyncVsync));
         } else {
-            panel_log("K60 PANEL: INTF1 vsync_count %u left unchanged\n",cfg&0x7ffffu);
+            panel_log("K60 PANEL: INTF%d vsync_count %u left unchanged\n",active,cfg&0x7ffffu);
+        }
+        /* The inherited command-mode autorefresh divider is 60 frames. At
+         * 120 Hz that is a one-second idle interval; ask the DPU to refresh
+         * every frame while the 120 Hz mode is selected, which is also what
+         * cadence_update was written to do for the 60 Hz path. */
+        const uint32_t auto_cfg=probe_read(intf,IntfTearAutorefresh);
+        if((auto_cfg&0x80000000u) && (auto_cfg&0xffffu)!=1u) {
+            const uint32_t before=auto_cfg;
+            *reinterpret_cast<volatile uint32_t *>(intf+IntfTearAutorefresh)=
+                (auto_cfg&~0xffffu)|1u;
+            __asm__ volatile("dsb sy" ::: "memory");
+            panel_log("K60 PANEL: INTF%d autorefresh %#x -> %#x\n",
+                active,before,probe_read(intf,IntfTearAutorefresh));
         }
     }
     panel_intf_rate("after the switch", 500);

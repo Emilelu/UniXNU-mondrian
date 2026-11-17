@@ -3,7 +3,7 @@
 
 This is deliberately a source-level check: the panel is only present on the
 device, so the exact 11-packet timing@2 sequence, the p120/vsync gates, the
-measured-refresh report and the INTF1 observations must all be provable
+measured-refresh report and the active-INTF observations must all be provable
 before an image is built.
 """
 from __future__ import annotations
@@ -90,6 +90,14 @@ def main() -> int:
         fail("missing the 120 Hz INTF vsync_count update")
     if "IntfLineCount=0xb0" not in text or "IntfCountEnable=0xa8" not in text:
         fail("missing the INTF line-counter measurement constants")
+    if "IntfVsyncPeriod=0x0c" not in text or "IntfTearCheckEn=0x284" not in text:
+        fail("missing the INTF diagnostic register constants")
+    if "panel_ctl_intf_mask" not in text or "panel_active_intf" not in text:
+        fail("missing the CTL active-interface discovery")
+    if "count_enable&3u" not in text or "count_enable|3u" not in text:
+        fail("the active INTF line counter is not enabled before measuring")
+    if "IntfTearAutorefresh" not in text or "(auto_cfg&~0xffffu)|1u" not in text:
+        fail("missing the per-frame INTF autorefresh update")
     if "line<previous/2u" not in text or "best_us" not in text:
         fail("missing the line-counter wrap-period measurement")
     first_frame = ROOT / "patches/xnu/0365-k60-ui-owns-screen.patch"
@@ -103,7 +111,7 @@ def main() -> int:
     if '"p120"' not in args or '"vsync"' not in args:
         fail("check-image-args.py does not allow p120 and vsync")
 
-    print(f"check-panel-timing: ok ({len(EXPECTED)} packets, p120/vsync gates, first-frame switch and requested refresh present)")
+    print(f"check-panel-timing: ok ({len(EXPECTED)} packets, p120/vsync gates, first-frame switch, active-INTF line counter and requested refresh present)")
     return 0
 
 

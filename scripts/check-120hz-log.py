@@ -3,13 +3,13 @@
 
 This is the log-side companion to scripts/check-panel-timing.py.  The static
 checker proves the image contains the eleven-packet timing@2 switch, the
-first-GPU-frame trigger and the INTF1 vsync_count update.  This checker proves
-the image, once booted, actually produced the pre-registered evidence:
+first-GPU-frame trigger and the active-INTF vsync_count update.  This checker
+proves the image, once booted, actually produced the pre-registered evidence:
 
   * "K60 PANEL: 120 Hz switch at the first GPU frame"
   * "K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0"
-  * after the UI frame, INTF1 TE rate 110-130/s
-  * before the switch, INTF1 TE rate 55-65/s (supporting)
+  * after the UI frame, active-INTF TE rate 110-130/s
+  * before the switch, active-INTF TE rate 55-65/s (supporting)
   * first frame presented, at least 100 SpringBoard lines, zero sig=11
   * no K60 PANEL DCS failure after the switch starts
   * K60 BACKLIGHT published level ... conformance=1 control=1
@@ -40,7 +40,7 @@ from pathlib import Path
 REQUESTED = "K60 PANEL: 120 Hz switch at the first GPU frame"
 SWITCH = re.compile(r"K60 PANEL: timing switch to 120 Hz: (\d+) packets, rc (\d+)")
 INTF = re.compile(
-    r"K60 PANEL: INTF1 (.+?) te (\d+)/s frames (\d+)/s over (\d+) ms"
+    r"K60 PANEL: INTF\d+ (.+?) te (\d+)/s frames (\d+)/s over (\d+) ms"
     r" \(te (\d+)->(\d+) frames (\d+)->(\d+)\)")
 BACKLIGHT = re.compile(
     r"K60 BACKLIGHT: published level (\d+) dbv 0x([0-9a-fA-F]+)"
@@ -144,7 +144,7 @@ def judge(found: dict) -> tuple[int, list[str]]:
                 label, row["te"], row["frames"], row["ms"],
                 " (supporting)" if label == "after the switch" else ""))
         else:
-            lines.append("WARN no '%s' INTF1 rate line" % label)
+            lines.append("WARN no '%s' INTF rate line" % label)
     if before:
         if not 55 <= before[-1]["te"] <= 65:
             failures += 1
@@ -153,7 +153,7 @@ def judge(found: dict) -> tuple[int, list[str]]:
             lines.append("before-switch TE %d/s in 55-65/s" % before[-1]["te"])
     if not ui:
         unknown += 1
-        lines.append("INCONCLUSIVE no 'after the UI frame' INTF1 rate line: "
+        lines.append("INCONCLUSIVE no 'after the UI frame' INTF rate line: "
                      "the switch has no post-UI TE evidence")
     else:
         row = ui[-1]

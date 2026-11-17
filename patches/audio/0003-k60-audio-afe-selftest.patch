@@ -47,7 +47,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +890,545 @@
+@@ -858,6 +890,565 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  

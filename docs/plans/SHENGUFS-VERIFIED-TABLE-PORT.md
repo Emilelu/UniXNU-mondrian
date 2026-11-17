@@ -121,7 +121,7 @@
 
 ## 3.6 步骤 3b 执行记录（2026-11-17 07:51）
 
-- 分支 `feat/ufs-verified-table`，从步骤 2a 的 `935f89c0` 继续；提交 `46545497` `feat(ufs): publish verified root windows asynchronously`（`PongUfsTransport.cpp` +215/−2）。
+- 分支 `feat/ufs-verified-table`，从步骤 2b 的 `935f89c0` 继续；提交 `46545497` `feat(ufs): publish verified root windows asynchronously`（`PongUfsTransport.cpp` +215/−2）。
 - `PongUfsBlock` 拆成 `prepareForPublish`（bounce/mutex、首块读取与签名、非 Data 的 `configureVerification`、Pong* 属性）与 `publishWindow`（`IOBlockStorageDevice::start`、online、`registerService`、`PongProbeRecord`）；原 `start` 保持 `prepareForPublish && publishWindow`。
 - `verifiedVolumeUuid` 从 `verifier.view.volume_uuid` 生成大写 8-4-4-4-12；未 ready 或全零 UUID 返回 false。
 - `#if NATIVE_VERIFIED_BLOCK` 下新增 `gPendingBlocks/gPendingAttached/gPendingStarted/gPendingUuid/gPendingCount/gPendingProvider/gPublicationPlan` 与 `PongUfsPublicationOps`：`prepare` 创建/init/attach/prepareForPublish，`validate` 只强校验 OS/SystemOS（Data 跳过，保留 P-152/P-153 的旧属性/祖先路径），`schedule` retain provider 后 `kernel_thread_start`，`start` 调 publishWindow，`wait` 调 `pongUfsWaitForMedia`，`discard` 只释放未 start 对象。各阶段写 `gRootDiagnostic.stage/publicationPhase/publicationWindow`。
@@ -130,6 +130,8 @@
 - `pong_ufs_transport_start` 的 verified 路径调 `ufsPrepareRootWindows(publication, gRootWindowCount)`，非 Complete 返回 `transportFailure("root window preparation")`；成功直接返回，异步线程继续发布。`#else` 保留 3a 的同步发布循环。
 - 参考实现：`references/ShengUfs/NativeUfs.cpp:2689-2742` 的 `publishThread` 与 `:2960-3040` 的 `Operations`。我们的 `prepareForPublish` 比参考多做首块读取与属性设置（沿用旧 `PongUfsTransport::start` 行为）；Data 不进入强校验的理由见 2026-11-17 07:15 证据：两个参考 policy 集都只有 `OS/`、`SystemOS/`。
 - 验证：宿主测试全过（`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`、`RootWindowReadVerified`，2026-11-17 07:51 复跑）；Mac probe 构建未跑，`NATIVE_VERIFIED_BLOCK` 默认关闭、`native-vroot-cache` 关闭、未 boot。上机验收仍需 `PONG APFS` 三窗顺序与 `K60DATA mounted ro=0` 日志，由 Lead 安排。
+- 上机前检查 `build-report.json`：`verified_root` 必须是「compiled with verified_root.c and xnu_crypto.c…」；`verified_root_objects` 必须列出 `verified_root.o` 与 `xnu_crypto.o`，否则 `--verified-root` 没有生效，内核链接会缺 `vr_*` 符号。
+- 上机日志判据：`PONG APFS: UUID … bound to … UFS window OS/SystemOS` 与 `K60DATA mounted ro=0` 必须同时出现；三窗顺序按 `UfsRootPlan`（SystemOS 第一、OS 最后）。如果先出现 `PONG_UFS TRANSPORT … stage=root window preparation/root window start/root media wait`，按 fail closed 处理，不得把部分窗口当成成功。
 
 ## 3.7 步骤 2b 构建入口补全（2026-11-17 07:40）
 

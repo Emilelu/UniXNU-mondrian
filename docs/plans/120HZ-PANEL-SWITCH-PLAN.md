@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: implementation updated for `120hz-3` (vendor 11-packet sequence, official `vsync=120` alias, measured refresh report), build pending. Branch: `feat/120hz-panel`.
+Status: `120hz-3` built (vendor 11-packet sequence, official `vsync=120` alias, measured refresh report); device flight pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -50,7 +50,7 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
 
 1. `drivers/PongAdreno/PongDsiPanel.cpp`: add the eleven-packet `kTiming120`
    table and `pong_panel_switch_120()`. It runs once, after the existing
-   `0x11/0x29/0x51` bring-up, only when boot argument `p120=1`. It sends
+   `0x11/0x29/0x51` bring-up, only when boot argument `p120=1` or `vsync=120`. It sends
    each packet through the existing `dsi_dcs()` path, honours the per-packet
    post-wait (10 ms after `CE 01`), waits 300 ms, and measures INTF1 frame/TE
    counters before (200 ms) and after (500 ms). The first-frame patch also
@@ -79,7 +79,7 @@ backlight argument would be 609 bytes, so the two spellings are alternatives,
 not additive. The image audit must print `image-arg-audit: OK` with the actual
 count and byte length.
 
-## Build record (2026-11-17 13:23 +08:00)
+## Build records
 
 `120hz-1` was built from branch `feat/120hz-panel` at HEAD `b27ca3d8`
 (clean tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg p120=1`:
@@ -101,6 +101,18 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg p120=1`:
   `a4547e223f3f65405a3db326e249e445de3de4894bb5a9cd839b8ddc7fcd3c8a`
 - manifest `E:/k60-work/artifacts/120hz-2/build-manifest.json`;
   `kernel_args_requested=["p120=1"]`; `image-arg-audit: OK (30 arguments, 582 bytes)`;
+  `verify-boot-image: OK`; `check-panel-timing: ok`.
+
+`120hz-3` was built from branch `feat/120hz-panel` at HEAD `acbf6b0a` (clean
+tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg vsync=120`
+(built_at `2026-11-18T00:04:38+08:00`):
+
+- `boot.img` 201,887,744 B, SHA-256
+  `7c6f69edf120b5c176b06003beda39740cb036183de6582bd7653451a91a6f40`
+- `kernel_built` 105,525,248 B, SHA-256
+  `10dfed8ae736aa45ab13ffdccf4eda3d75bc9ae692298916f6772d170d4d6a45`
+- manifest `E:/k60-work/artifacts/120hz-3/build-manifest.json`;
+  `kernel_args_requested=["vsync=120"]`; `image-arg-audit: OK (30 arguments, 585 bytes)`;
   `verify-boot-image: OK`; `check-panel-timing: ok`.
 
 ## Pre-registered success criteria (write before the flight)

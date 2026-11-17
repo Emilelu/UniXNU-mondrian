@@ -58,7 +58,8 @@ typedef struct {
     char model[K60_BATTMGR_MODEL_BYTES];
 } K60BatterySample;
 
-/* sign: +1 wire charging-positive, -1 discharge-positive, 0 unqualified.
+/* sign: +1 wire charging-positive, -1 discharge-positive (the PMIC-GLINK
+ * reference convention used by default), 0 unqualified.
  * reply type/length are measured from the ADSP opcode-0x04 handler, which
  * answers 16 bytes with type 1 (docs/research/charger/06-SUBSCRIPTION-CONSTANT.md);
  * a zero reply length still disables subscription, real polling remains. */

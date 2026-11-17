@@ -157,6 +157,7 @@ def main():
          '\treturn 0;'),
         ('\tab_pci->mhi_ctrl->timeout_ms = MHI_TIMEOUT_DEFAULT_MS;\n',
          '\tab_pci->mhi_ctrl->timeout_ms = MHI_TIMEOUT_DEFAULT_MS;\n'
+         '\tab_pci->mhi_ctrl->ready_timeout_ms = 60000;\n'
          '\tath11k_info(ab, "Pong MHI start: timeout=%u regs=%#lx ee=%d state=%d\\n",\n'
          '\t\t     ab_pci->mhi_ctrl->timeout_ms, (unsigned long)ab_pci->mhi_ctrl->regs,\n'
          '\t\t     (int)ab_pci->mhi_ctrl->ee, (int)ab_pci->mhi_ctrl->dev_state);\n'),

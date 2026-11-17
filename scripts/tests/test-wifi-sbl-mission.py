@@ -85,12 +85,14 @@ def main() -> int:
           "wake_up_all(&mhi_cntrl->state_event);" in text)
     check("mission poll logs the cached EE",
           "exec_env=%d after AMSS download; cached ee updated" in text)
+    check("ath11k MHI start raises the ready wait to 60 s",
+          "ab_pci->mhi_ctrl->ready_timeout_ms = 60000;" in text)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors
     # above are the source of truth, and the generated files are a projection.
     build = pathlib.Path(os.environ.get("K60_SBL_BUILD_DIR",
-                                        "E:/k60-work/build/wifi-sbl-mission3"))
+                                        "E:/k60-work/build/wifi-sbl-mission4"))
     boot = build / "mhi" / "boot.c"
     pm = build / "mhi" / "pm.c"
     header = build / "pinned" / "linux" / "mhi.h"

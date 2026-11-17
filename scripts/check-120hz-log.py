@@ -14,12 +14,14 @@ the image, once booted, actually produced the pre-registered evidence:
   * no K60 PANEL DCS failure after the switch starts
   * K60 BACKLIGHT published level ... conformance=1 control=1
 
-Why TE only: INTF_TEAR_INT_COUNT_VAL (0x298) high 16 bits is the tear/frame
-counter used for the panel rate (the zizhan reference documents it as frames
-per second = TE rate).  INTF_FRAME_COUNT (0xac) counts DPU commits, so a static
-UI can legitimately show a low frame rate while the panel itself runs at
-120 Hz.  The plan's "TE and frame rates" wording is clarified in the same
-change: TE is decisive, frames is recorded separately.
+Why the line counter: INTF_LINE_COUNT (0xb0) is the panel scan line counter;
+one wrap is one frame, and the official DisplayTimingProbe reference measures
+the shortest interval between two wraps (DisplayTimingProbe.cpp:45-70).
+INTF_TEAR_INT_COUNT_VAL (0x298) high 16 bits is a read-pointer frame count and
+was observed wrapping to 55->1 in the 120hz-4 log, so it is not a TE rate.
+INTF_FRAME_COUNT (0xac) counts DPU command-FIFO commits, so a static UI can
+legitimately show a low frame rate while the panel itself runs at 120 Hz.  All
+three are recorded in the log; only the line-counter period decides the rate.
 
 Exit status: 0 PASS, 1 FAIL, 2 INCONCLUSIVE (switch happened but no post-UI
 TE observation, or the log has no K60 PANEL line at all).

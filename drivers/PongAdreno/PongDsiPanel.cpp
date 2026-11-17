@@ -81,7 +81,7 @@ uint32_t probe_frames[4];
 uint16_t probe_te[2];
 uint64_t probe_sampled[4];
 bool cadence_pending,cadence_verify;
-constexpr uint32_t IntfFrameCount=0xac,IntfTearSyncVsync=0x288,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
+constexpr uint32_t IntfFrameCount=0xac,IntfLineCount=0xb0,IntfCountEnable=0xa8,IntfTearSyncVsync=0x288,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
 constexpr uint32_t CadenceInherited=0x8000003cu,CadenceEveryFrame=0x80000001u;
 
 void panel_log(const char *fmt, ...)
@@ -112,9 +112,13 @@ uint32_t probe_read(vm_offset_t base,unsigned offset)
     return *reinterpret_cast<volatile uint32_t *>(base+offset);
 }
 
-/* Read the INTF1 frame and TE counters over a short bounded window. This is
- * the H-level observation for the timing switch: a panel that accepted the
- * command but stayed at 60 Hz must not be reported as 120 Hz. */
+/* Measure the INTF1 panel frame period from its line counter, the method in
+ * the official DisplayTimingProbe reference (UniXNU-sheng
+ * package/DisplayTimingProbe.cpp:45-70): a running line counter wraps once per
+ * panel frame, so the shortest interval between two wraps is the frame period.
+ * The tear-counter high 16 bits are a read-pointer frame count and the plain
+ * frame counter only advances when the command FIFO submits; neither is a TE
+ * rate. Keep both in the diagnostic bracket, but never use them as the rate. */
 bool panel_intf_rate(const char *phase,uint32_t milliseconds)
 {
     if(!milliseconds)return false;
@@ -143,19 +147,49 @@ bool panel_intf_rate(const char *phase,uint32_t milliseconds)
         panel_log("K60 PANEL: INTF1 %s: no INTF1 mapping, rate unavailable\n",phase);
         return false;
     }
-    const uint16_t te0=uint16_t(probe_read(base,IntfTeCount)>>16);
+    const uint32_t count_enable=probe_read(base,IntfCountEnable);
     const uint32_t frames0=probe_read(base,IntfFrameCount);
-    for(uint32_t elapsed=0;elapsed<milliseconds;elapsed+=10)IODelay(10*1000);
-    const uint16_t te1=uint16_t(probe_read(base,IntfTeCount)>>16);
+    const uint32_t te0=probe_read(base,IntfTeCount);
+    const uint32_t line0=probe_read(base,IntfLineCount)&0xffffu;
+    const uint64_t begin=mach_absolute_time();
+    uint64_t last_wrap=0,best_us=0;
+    uint32_t wraps=0,previous=line0;
+    for(;;) {
+        const uint32_t line=probe_read(base,IntfLineCount)&0xffffu;
+        const uint64_t now=mach_absolute_time();
+        uint64_t elapsed_ns=0;
+        absolutetime_to_nanoseconds(now-begin,&elapsed_ns);
+        if(elapsed_ns>=uint64_t(milliseconds)*1000000ull)break;
+        if(line<previous/2u) {
+            if(last_wrap) {
+                uint64_t gap_ns=0;
+                absolutetime_to_nanoseconds(now-last_wrap,&gap_ns);
+                const uint64_t gap_us=gap_ns/1000ull;
+                if(gap_us && (!best_us || gap_us<best_us))best_us=gap_us;
+            }
+            last_wrap=now;
+            ++wraps;
+        }
+        previous=line;
+        IODelay(1000);
+    }
+    const uint32_t line1=probe_read(base,IntfLineCount)&0xffffu;
     const uint32_t frames1=probe_read(base,IntfFrameCount);
-    const uint32_t dte=uint16_t(te1-te0),dframes=frames1-frames0;
-    const uint32_t te_hz=dte*1000u/milliseconds,frame_hz=dframes*1000u/milliseconds;
-    /* Publish the observed rate, preferring the TE count: the frame counter is
-     * a command-FIFO counter, the TE count is the panel's own scan tick. */
+    const uint32_t te1=probe_read(base,IntfTeCount);
+    uint64_t elapsed_ns=0;
+    absolutetime_to_nanoseconds(mach_absolute_time()-begin,&elapsed_ns);
+    const uint32_t elapsed_ms=uint32_t(elapsed_ns/1000000ull);
+    const uint32_t te_hz=best_us?uint32_t(1000000ull/best_us):0;
+    const uint32_t frame_hz=elapsed_ms?uint32_t(uint64_t(frames1-frames0)*1000ull/elapsed_ms):0;
+    const uint32_t wrap_hz=elapsed_ms?uint32_t(uint64_t(wraps)*1000ull/elapsed_ms):0;
+    /* The line counter is the panel scan timebase; the frame counter is only
+     * DPU commits and the tear counter is a read-pointer count. Publish the
+     * line-counter period, falling back to commits only when no wrap was seen. */
     panel_measured_hz=te_hz?te_hz:frame_hz;
-    panel_log("K60 PANEL: INTF1 %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u)\n",
+    panel_log("K60 PANEL: INTF1 %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u) line %u->%u wraps %u wrap %u/s period %llu us count_enable %#x\n",
         phase,te_hz,frame_hz,milliseconds,
-        unsigned(te0),unsigned(te1),frames0,frames1);
+        unsigned(te0>>16),unsigned(te1>>16),frames0,frames1,
+        line0,line1,wraps,wrap_hz,best_us,count_enable);
     return true;
 }
 

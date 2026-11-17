@@ -88,6 +88,10 @@ def main() -> int:
         fail("missing the requested panel refresh report")
     if "IntfTearSyncVsync" not in text or "(cfg&~0x7ffffu)|50u" not in text:
         fail("missing the 120 Hz INTF vsync_count update")
+    if "IntfLineCount=0xb0" not in text or "IntfCountEnable=0xa8" not in text:
+        fail("missing the INTF line-counter measurement constants")
+    if "line<previous/2u" not in text or "best_us" not in text:
+        fail("missing the line-counter wrap-period measurement")
     first_frame = ROOT / "patches/xnu/0365-k60-ui-owns-screen.patch"
     if "pong_panel_sample();" not in first_frame.read_text():
         fail("the first-frame patch does not call pong_panel_sample")

@@ -69,7 +69,9 @@ same one that just completed the BHIe transfer. No new MMIO lifetime is
 introduced. `mhi_sync_power_up` is already sleeping in
 `wait_event_timeout(state_event, ...)`; writing the cached EE without a wake
 would still end in the 20 s timeout, so the `wake_up_all` is part of the same
-single-variable fix.
+fix. Once the cached EE names AMSS, the SBL transition's `mhi_create_devices`
+must also run for the IPCR channels, because `nw_qrtr_mhi` calls
+`mhi_prepare_for_transfer` as soon as the worker probes.
 
 ## 3. Candidate identity
 

@@ -60,6 +60,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
   （`qcom,glink-channels = "adsp_apps"; qcom,intents = <512 20>`）、
   `references/pong-power/PongAudio.cpp:438`（`sheng_adsp_channel("adsp_apps",512,20,1,&client,nullptr)`）、
   `references/pong-power/ShengGpr.h` 头注释。
+- **K60 实现**：按官方 power 页的 560 字节消息上限，`K60AudioGlink` 使用 560 B × 20（2026-11-18 起）；上面 512 是 vendor DT 与 Pong 参考的旧值。
 - **协议头**：24 字节 GPR（`struct gpr_hdr`，`include/linux/soc/qcom/apr.h:79-90`），布局与我们 0504 的
   `pong_gpr_encode` 逐字一致（version/header 字数/总长 → dst_domain/src_domain → src_port → dst_port → token → opcode）。
 - **首个交换**：`GET_SPF_STATE` 问 APM 是否 ready（应答 `APM_CMD_RSP_GET_SPF_STATE 0x02001007`，payload `{status}`，1 = ready）。
@@ -99,7 +100,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 
 证据（已落地，可直接复核）：`drivers/PongPower/QcomGlink.h:17` 现为 `#define QCOM_GLINK_MAX_CHANNELS 2u`
 （2026-11-17 音频线落地；历史原型补丁 `patches/audio/0002-k60-glink-multislot.patch` 已退役），
-`drivers/PongPower/K60PmicGlink.cpp:128` 打印 `QcomGlink max_channels=2u local_intents=20 channel_bytes=904 audio_intent_bytes=10240` 构建标签；
+`drivers/PongPower/K60PmicGlink.cpp:128` 打印 `QcomGlink max_channels=2u local_intents=20 channel_bytes=904 audio_intent_bytes=11200` 构建标签；
 `drivers/PongAudio/tests/test-glink-multislot.c`（两个消费者各注册 `PMIC_RTR_ADSP_APPS` 与 `adsp_apps`，
 自扮 DSP 做 OPEN/advertise/TX_DATA，断言各收各的 rx、乱序 open 不串、重放不串、陌生名字不给 ACK、陌生 rcid 计入
 `dropped`、`stop` 两槽各回调一次；runner 直接编译真实源，`sh drivers/PongAudio/tests/run-glink-multislot-tests.sh`
@@ -107,7 +108,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 
 #### 方案 B：provider 把 GPR/APM 的 open 也纳入自己
 
-做法：provider 在 publish 后自己 `qcom_glink_channel("adsp_apps", 512, 20, ...)`，向音频暴露一对 send/receive API
+做法：provider 在 publish 后自己 `qcom_glink_channel("adsp_apps", 560, 20, ...)`，向音频暴露一对 send/receive API
 （GPR 帧、token、intent 全由 provider 管）；音频不再直接碰传输层。
 
 代价（五条）：
@@ -229,7 +230,7 @@ PongAudio: no handoff property; GLINK adopt skipped
 provider:  acquire(flags==15) -> SMP2P(443) -> TCSR -> /chosen(104B) -> publish
                                                                   |
 consumer:                                                          v
-           adopt FIFO -> 建槽 "adsp_apps"(512x20) -> 等 channel up
+           adopt FIFO -> 建槽 "adsp_apps"(560x20) -> 等 channel up
            -> GET_SPF_STATE(status==1) -> AFE 六步(TDMS §3)
            每一步发包前 revalidate(lease) 且 epoch 未变
 ```
@@ -356,7 +357,7 @@ status = "pending"
 
 2. **建槽时机**：`qcom_glink_channel()` 必须在 DSP 发来 OPEN **之前**调用。`QcomGlink.c:331-364` 的 `case QCOM_GLINK_OPEN`
    按名字在 `channel[]` 里找已 used 的同名槽，找不到就 `unknown_opens++`、把名字记进 `last_unknown`、`note_unknown()` 后**丢弃**；
-   找到才回 `QCOM_GLINK_OPEN_ACK` 并置 `remote_open`。所以音频侧在 publish 返回后立刻建 `adsp_apps`（512 B × 20 intent）槽，
+   找到才回 `QCOM_GLINK_OPEN_ACK` 并置 `remote_open`。所以音频侧在 publish 返回后立刻建 `adsp_apps`（560 B × 20 intent）槽，
    provider 只需保证 publish 成功时 FIFO 已就位、远端已 ready（SMP2P item 443）。
 
 3. **独占语义改写**：`lease.flags` 的 bit2 `GlinkExclusive` 约束的是 **acquire 持有期内的 provider 自己**
@@ -443,7 +444,7 @@ int k60_adsp_owner_publish(const K60AdspOwnerLease *lease,
       不新开第二个 QcomGlink 实例（一对 SMEM FIFO 只有一个采纳者：`qcom_glink_adopt` 要求
       `*tx.head==0 && *rx.tail==0`）、不新增 API、锁或 worker；「音频不做第二个 owner」。
       宿主 376 条断言已证明 `QcomGlink.c` 零改动、两槽各自分发；**音频侧已经用 `K60AudioGlink.c`
-      把 `adsp_apps`（512×20 intent）注册封装好（`pong_audio_start()` 排队，`K60PmicGlink::poll()`
+      把 `adsp_apps`（560×20 intent）注册封装好（`pong_audio_start()` 排队，`K60PmicGlink::poll()`
       在 `qcom_glink_poll()` 前 service），provider 不再需要编写注册代码**。provider 只需按契约提供
       `k60_adsp_owner_acquire()` 的真 lease 与已采纳的 FIFO；这一项不再由音频侧代做。
 
@@ -451,7 +452,7 @@ int k60_adsp_owner_publish(const K60AdspOwnerLease *lease,
 
 前置常量（consumer 侧，与 mainline 对齐）：GPR 头 24 字节、版本 0；域 ADSP=2 / APPS=3；
 APM 端口 1；`GET_SPF_STATE 0x01001021`、`SPF_STATE 0x02001007`（payload status==1 即 ready）、
-`BASIC_RSP_RESULT 0x02001005`；GLINK 通道名 `adsp_apps`、intent 512 B × 20。
+`BASIC_RSP_RESULT 0x02001005`；GLINK 通道名 `adsp_apps`、intent 560 B × 20。
 
 顺序（0 → 6，任何一步失败按该步「失败时」执行，不跳步）：
 
@@ -464,7 +465,7 @@ APM 端口 1；`GET_SPF_STATE 0x01001021`、`SPF_STATE 0x02001007`（payload sta
    （`QcomGlink.h:86`）。要求 `*tx.head==0 && *rx.tail==0`，否则返回 Argument。
    失败 → 不碰 FIFO，打印具名原因，跳过 3–6。
 3. **建槽**：在第一次 `qcom_glink_poll()` 之前、DSP 发 OPEN 之前调用
-   `qcom_glink_channel(&g, "adsp_apps", 512, 20, storage, &client, ctx, 1)`
+   `qcom_glink_channel(&g, "adsp_apps", 560, 20, storage, &client, ctx, 1)`
    （DSP 的 OPEN 按名字找已 used 槽，找不到就当 unknown 丢弃，`QcomGlink.c:331-364`）。
    返回 0（无槽）或 DSP 的 OPEN 先到 → 不重试 lease，报 `PongAudioErrNoLease` 类具名错误。
    音频侧已把这一步封装成 `K60AudioGlink`：`pong_audio_start()` 排队，`K60PmicGlink::poll()`

@@ -407,7 +407,7 @@ CoreAudio/audiomxd
 | A3 | AudioReach APM graph | **A** | `ShengAudioReach.c` 17,119 B；参数/容器/媒体格式齐全；K60 改 TDM 线路/时钟 |
 | A4 | 64 KiB low DMA + SID1801 + SMMU | **A（驱动）** | `PongAudio.cpp:124-132` 有完整驱动；K60 UEFI `DarwinBoot.c:767-775,830-833` 已分配并回写 `/chosen/pong-audio-dma`，`board.toml:298-305` 占位已进镜像 j ADT；low-DMA lease 已由 `pcm-low-dma-lease` 闭合；SMMU/真实周期仍随 `pcm-submit-path` 待验证 |
 | A5 | `PongAudio` 内核服务/UserClient | **A（已落地）** | K60 实现：`drivers/PongPower/PongAudioService.cpp` + `PongAudioServiceAbi.h`；`NativeSandboxGrantProcess`/shared memory/selector 齐全，镜像 l 起编入电池归档；`startOutput()` 以 `pong_audio_status() != PongAudioOk` 为拒绝条件 |
-| A6 | `PongAudioPlugIn.c` HAL 插件 | **A（已落地代码+内核部署）/ B（20G81 运行验证）** | K60 实现：`userland/PongAudioPlugIn.c` 38,142 B；output-only 对象/属性/StartIO/StopIO 完整；`userland/build.py audio` 编译成 `PongAudio.driver/PongAudio` 69,920 B（sha256 `fa4780ea…`）；镜像 p 起由 `patches/xnu/0617` 把 bundle 写入 `/private/var/pong/empty-hal`（init 已 bind 到 HAL 搜索路径，不需要 `apply()` 改 sealed system）；20G81 实机播放验证仍待 |
+| A6 | `PongAudioPlugIn.c` HAL 插件 | **A（已落地代码+内核部署）/ B（20G81 运行验证）** | K60 实现：`userland/PongAudioPlugIn.c` 40,914 B；output-only 对象/属性/StartIO/StopIO 完整；`userland/build.py audio` 编译成 `PongAudio.driver/PongAudio` 70,000 B（sha256 `128a47e7…`）；镜像 p 起由 `patches/xnu/0617` 把 bundle 写入 `/private/var/pong/empty-hal`（init 已 bind 到 HAL 搜索路径，不需要 `apply()` 改 sealed system）；20G81 实机播放验证仍待 |
 | A7 | `PongAudioRoute.h` VirtualAudio 路由 | **A（代码）/ B（20G81 地址）** | 17,861 B；`pibi`/`prts`/`rtcf`/`vcsp` 逻辑完整；22H374 MediaExperience 指令偏移不能直接用 |
 | A8 | `audio_clock18.h` 24→19.2 MHz 时钟 | **A（代码）/ B（20G81）** | `PongAudioService.cpp:24-50`/`audio_clock18.h` 有实现；20G81 的 CoreAudio double 地址需重找 |
 | A9 | `audio_codecs18.h` 软件解码回退 | **A** | 本机 Pong userland 完整 |

@@ -147,7 +147,7 @@ K60 与 Pong 同为 SM8475，音频 codec 大概率也是 **WCD938x**，
 ```c
 sheng_adsp_channel(name, intent_size, intent_count, initiator, callbacks, context);
 sheng_adsp_send(...);   // 0=已入队  -1=队列满或消息过长  -2=参数错
-#define SHENG_ADSP_MAX_MESSAGE 512
+#define SHENG_ADSP_MAX_MESSAGE 560
 ```
 
 **所有权**：回调运行在 DSP 线程，必须把字节**复制到有界队列**再唤醒消费者工作循环；

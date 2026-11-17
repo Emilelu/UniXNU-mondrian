@@ -222,7 +222,7 @@ owner = "audio-agent"
 [[item]]
 id = "glink-adsp-apps-registration"
 stage = "M2"
-change = "the audio consumer registers adsp_apps (512 x 20 intents) on the shared QcomGlink instance"
+change = "the audio consumer registers adsp_apps (560 x 20 intents) on the shared QcomGlink instance"
 evidence_kind = "unit"
 evidence = [
   "drivers/PongPower/K60AudioGlink.c",
@@ -231,7 +231,7 @@ evidence = [
   "drivers/PongPower/K60PmicGlink.cpp:97,142,167",
   "drivers/PongAudio/tests/test-glink-multislot.c",
 ]
-criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 512 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 376-case runner reaches state up and routes peer data only to the audio consumer."
+criteria = "K60AudioGlink queues an adsp_apps channel with the adsp_apps name, 560 x 20 intents, through K60PmicGlink::attachAudio(); K60PmicGlink::poll() services it before qcom_glink_poll(); the 376-case runner reaches state up and routes peer data only to the audio consumer."
 status = "closed"
 owner = "audio-agent"
 
@@ -246,7 +246,7 @@ evidence = [
   "drivers/PongPower/K60PmicGlink.cpp",
   "drivers/PongAudio/tests/test-glink-multislot.c",
 ]
-criteria = "376-case runner: after the DSP advertises a 512-byte send intent, k60_audio_glink_send() writes TX_DATA with local lcid 1 / remote intent id 0x2001 / payload gpr; a 4096-byte send returns QcomGlinkTooBig; after stop the same call returns -2002; no transport returns -2001."
+criteria = "376-case runner: after the DSP advertises a 560-byte send intent, k60_audio_glink_send() writes TX_DATA with local lcid 1 / remote intent id 0x2001 / payload gpr; a 4096-byte send returns QcomGlinkTooBig; after stop the same call returns -2002; no transport returns -2001."
 status = "closed"
 owner = "audio-agent"
 
@@ -406,6 +406,20 @@ owner = "audio-agent"
 on_open = "without a low-DMA consumer the playback graph has no buffer the ADSP can read"
 
 [[item]]
+id = "pcm-low-dma-fallback"
+stage = "M5"
+change = "when the /chosen/pong-audio-dma lease is absent or empty, pong_audio.c allocates its own 64 KiB buffer below 4 GiB with kmem_alloc_contig and keeps it mapped"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "V: kernel.macho: PongAudio: low DMA allocated pa=0x%llx size=0x%x",
+]
+criteria = "pong_audio_dma_lease() still consumes a valid 16-byte /chosen/pong-audio-dma lease when present; when the property is absent or zero-length it calls kmem_alloc_contig(kernel_map, &va, 0x10000, PAGE_MASK, 0xfffff, 0, KMA_DATA|KMA_KOBJECT, VM_KERN_MEMORY_IOKIT), requires kvtophys() page alignment and PA+0x10000 <= 4 GiB, and never frees the buffer. Image r (kernel_built f739d730ff26b0e156565063c2dfe401045ee2dc53a9fef08242c1de06a32f61, 129,167,360 B) contains PongAudio: low DMA allocated pa=0x%llx size=0x%x once; its ADT still has 16 zero bytes at /chosen/pong-audio-dma."
+status = "closed"
+owner = "audio-agent"
+on_open = "the ADT placeholder is empty on every image; without the fallback the whole PCM path refuses to start"
+
+[[item]]
 id = "pcm-service-userclient"
 stage = "M5"
 change = "the PongAudio IOService/UserClient publishes a control page and a 512 KiB playback ring to a userland HAL"
@@ -417,10 +431,26 @@ evidence = [
   "patches/xnu/0602-k60-physical-battery.patch",
   "V: kernel.macho: PongAudioUserClient",
 ]
-criteria = "Image o builds PongAudioService.cpp into libK60PhysicalBattery.a (91,896 B / sha256 ef91f371db9476cb5e0f4b768f530431d5162dce42226f84676cc0f45950b747) and its kernel_built sha256 is 1edac302c42813d2670986b183faa98f05855c78f51c7ad6fc38ef9c791f7507; kernel.macho contains PongAudioUserClient 26 times (including mangled symbols), NativeSandboxGrantProcess 1, k60_audio_service 1 and pong_audio_service_start 1. PongAudioServiceAbi.h fixes control 56 B, out ring 524288 B, 48 kHz stereo S24_LE, 1024-frame period, memory types control=0/output=1, selectors StartOutput=0/StopOutput=1/SetHostClock=4. startAudio() allocates both IOBufferMemoryDescriptors, sets the sandbox grant and IOUserClientClass, and registers; clientMemoryForType maps both; externalMethod rejects arguments and forwards Start/Stop; the timer period is 21333 us and startOutput() returns kIOReturnNotReady when pong_audio_status() != PongAudioOk. The service shape is closed; the end-to-end period test remains in pcm-submit-path."
+criteria = "Image r builds PongAudioService.cpp into libK60PhysicalBattery.a (150,888 B / sha256 551f1aaff125ec603e6ba4a9048e7c20ae77c16708e1e72e65c320115ef6a0f1) and its kernel_built sha256 is f739d730ff26b0e156565063c2dfe401045ee2dc53a9fef08242c1de06a32f61 (129,167,360 B); kernel.macho contains PongAudioUserClient, NativeSandboxGrantProcess 1, k60_audio_service 1 and pong_audio_service_start 1. PongAudioServiceAbi.h fixes control 88 B version 3 with out_seq/reserved0/ticks_per_frame_q32/out_anchor_host/out_frames, out ring 524288 B, 48 kHz stereo S24_LE, 1024-frame period, memory types control=0/output=1, selectors StartOutput=0/StopOutput=1/SetHostClock=4. startAudio() allocates both IOBufferMemoryDescriptors, sets the sandbox grant and IOUserClientClass, and registers; clientMemoryForType maps both; externalMethod requires one scalar input for SetHostClock and forwards Start/Stop; the timer period is 21333 us, startOutput() publishes anchor/ticks/frames and returns kIOReturnNotReady when pong_audio_status() != PongAudioOk. The service shape is closed; pcm-clock-handshake covers the clock ABI and the end-to-end period test remains in pcm-submit-path."
 status = "closed"
 owner = "audio-agent"
 on_open = "without the service the ring and control page cannot be mapped by a userland HAL"
+
+[[item]]
+id = "pcm-clock-handshake"
+stage = "M5"
+change = "the service publishes the 19.2 MHz-derived frame clock and the HAL corrects CoreAudio's 24 MHz assumption through SetHostClock"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/PongAudioServiceAbi.h",
+  "drivers/PongPower/PongAudioService.cpp",
+  "userland/PongAudioPlugIn.c",
+  "V: kernel.macho: PongAudioService: CoreAudio host clock=%llu Hz",
+]
+criteria = "PongAudioServiceAbi.h version 3 grows control to 88 B with out_seq/reserved0/ticks_per_frame_q32/out_anchor_host/out_frames; startOutput() publishes ticks_per_frame_q32 = ((1e9<<32)/48000)*tb.denom/tb.numer and out_anchor_host at each sequence boundary, timerFired() adds 1024 to out_frames after each successful submit; externalMethod selector 4 requires exactly one scalar input and calls pong_audio_set_host_clock() (AudioGetHostClockFrequency resolution, task/address checks, Apple 24 MHz constant and bits rewrite). PongAudioPlugIn.c calls dlsym(RTLD_DEFAULT, \"AudioGetHostClockFrequency\"), parses the adrp/ldr pair and invokes selector 4 in Initialize/StartIO; GetZeroTimeStamp() reads out_seq/out_anchor_host with a seqlock and derives sampleTime/hostTime from the 65536-frame ring period. Image r contains PongAudioService: CoreAudio host clock=%llu Hz once; plugin PongAudio.driver/PongAudio is 70,000 B / sha256 128a47e76d8b50742271baf210d7eefccccf59493bf5a91306c1aabd55efd1ed."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the handshake CoreAudio's 24 MHz constant makes every IO period 25% long on the 19.2 MHz timebase"
 
 [[item]]
 id = "pcm-hal-plugin"
@@ -430,10 +460,10 @@ evidence_kind = "artifact"
 evidence = [
   "userland/PongAudioPlugIn.c",
   "userland/build.py",
-  "/mnt/e/k60-work/scratch/audio-work/build-audio/PongAudio.driver/PongAudio",
+  "/mnt/e/k60-work/scratch/audio-work/build-audio-clock/PongAudio.driver/PongAudio",
   "V: PongAudio.driver/PongAudio: PongAudio_Create",
 ]
-criteria = "userland/PongAudioPlugIn.c is a 38,142-byte output-only AudioServerPlugIn with plugin/device/output-stream/volume/mute objects, device UID K60AudioDevice and bundle org.unixnu.k60.audio. connectService() uses IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(PONG_AUDIO_SERVICE_CLASS)), IOServiceOpen and IOConnectMapMemory64 for memory types 0 (control, sizeof(PongAudioServiceControl)) and 1 (ring, PONG_AUDIO_SERVICE_RING_BYTES), and refuses a mismatched magic/version/rate/channels/frame_bytes/period_frames/ring_frames/state. DoIOOperation() scales by currentVolume()*muted, converts float to S24/Q31 and advances out_write with a ring-space guard; StartIO/StopIO use the PongAudioUserClient selectors; GetZeroTimeStamp() derives a 48 kHz frame clock from mach_timebase. userland/build.py compile_audio() links it with clang-18/ld64.lld-18 into PongAudio.driver/PongAudio (69,920 B, sha256 fa4780ea79d046b4551248154d4538f4c20ad840a457cb59acea749983d9336e) and writes Info.plist with factory 341D03C1-9CF6-4163-A3E9-FA3AC191C764, type 443ABAB8-E7B3-491A-B985-BEB9187030DB and AudioServerPlugIn_IOKitUserClients=[PongAudioUserClient]. llvm-nm -gU exports only _PongAudio_Create. The HAL source and bundle are closed; 0617 carries the built bundle into the kernel and deploys it into the empty-hal bind source (pcm-hal-deploy), while the end-to-end period test remains in pcm-submit-path."
+criteria = "userland/PongAudioPlugIn.c is a 40,914-byte output-only AudioServerPlugIn with plugin/device/output-stream/volume/mute objects, device UID K60AudioDevice and bundle org.unixnu.k60.audio. connectService() uses IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(PONG_AUDIO_SERVICE_CLASS)), IOServiceOpen and IOConnectMapMemory64 for memory types 0 (control, sizeof(PongAudioServiceControl)) and 1 (ring, PONG_AUDIO_SERVICE_RING_BYTES), and refuses a mismatched magic/version/rate/channels/frame_bytes/period_frames/ring_frames/state. DoIOOperation() scales by currentVolume()*muted, converts float to S24/Q31 and advances out_write with a ring-space guard; StartIO/StopIO use the PongAudioUserClient selectors; setHostClock() resolves AudioGetHostClockFrequency through dlsym and calls selector 4; StartIO reads out_anchor_host; GetZeroTimeStamp() uses out_seq seqlock. userland/build.py compile_audio() links it with clang-18/ld64.lld-18 into PongAudio.driver/PongAudio (70,000 B, sha256 128a47e76d8b50742271baf210d7eefccccf59493bf5a91306c1aabd55efd1ed) and writes Info.plist with factory 341D03C1-9CF6-4163-A3E9-FA3AC191C764, type 443ABAB8-E7B3-491A-B985-BEB9187030DB and AudioServerPlugIn_IOKitUserClients=[PongAudioUserClient]. llvm-nm -gU exports only _PongAudio_Create. The HAL source and bundle are closed; 0617 carries the built bundle into the kernel and deploys it into the empty-hal bind source (pcm-hal-deploy), while the end-to-end period test remains in pcm-submit-path."
 status = "closed"
 owner = "audio-agent"
 on_open = "without a HAL the ring is filled only by the kernel selftest, not by CoreAudio"
@@ -449,7 +479,7 @@ evidence = [
   "scripts/check-k60-audio-hal-blob.py",
   "V: kernel.macho: K60AUDIOHAL deploy files=%u/%u error=%d",
 ]
-criteria = "0617-k60-audio-hal-deploy.patch (7,396 B / 241 lines / sha256 ee69bfc645fcc305f6e34ddf04d3121832b783a2799c91c224deafd7ed5c79de) adds bsd/dev/k60_audio_hal.c, which parses a K60A table (magic 0x4130364b, count <= 2, 10-byte entries, 8-byte aligned bodies) and writes PongAudio.driver/Info.plist (0644) and PongAudio.driver/PongAudio (0755) into /private/var/pong/empty-hal; init already bind-mounts that directory over /System/Library/Audio/Plug-Ins/HAL and /Library/Audio/Plug-Ins/HAL, so the bundle is visible without apply() touching the sealed system volume. Build-strict compiles the bundle when CONFIG_XNU_K60_AUDIO_HAL=y, records manifest audio_hal fa4780ea79d046b4551248154d4538f4c20ad840a457cb59acea749983d9336e (69,920 B), and checks k60_audio_hal_blob.s. Image p kernel_built sha256 is 19cccd2b07c061497de0107227251f0338519d0f39ee2694bfee461cedd03df4 (105,615,360 B), payload_kernel is 030cdff728f284513d8487f77b6d2957dd39e1459c9a88e922c509272dbe61bb, and kernel.macho contains K60AUDIOHAL deploy files=%u/%u error=%d, bad magic, bad count, entry body out of range, entry name out of range, open, write and removed a stale file once each, plus k60_audio_hal_deploy/k60_audio_hal_blob symbols."
+criteria = "0617-k60-audio-hal-deploy.patch (7,396 B / 241 lines / sha256 ee69bfc645fcc305f6e34ddf04d3121832b783a2799c91c224deafd7ed5c79de) adds bsd/dev/k60_audio_hal.c, which parses a K60A table (magic 0x4130364b, count <= 2, 10-byte entries, 8-byte aligned bodies) and writes PongAudio.driver/Info.plist (0644) and PongAudio.driver/PongAudio (0755) into /private/var/pong/empty-hal; init already bind-mounts that directory over /System/Library/Audio/Plug-Ins/HAL and /Library/Audio/Plug-Ins/HAL, so the bundle is visible without apply() touching the sealed system volume. Build-strict compiles the bundle when CONFIG_XNU_K60_AUDIO_HAL=y, records manifest audio_hal 128a47e76d8b50742271baf210d7eefccccf59493bf5a91306c1aabd55efd1ed (70,000 B), and checks k60_audio_hal_blob.s. Image r kernel_built sha256 is f739d730ff26b0e156565063c2dfe401045ee2dc53a9fef08242c1de06a32f61 (129,167,360 B), payload_kernel is 656d96d83e8e3c441a22edbdf1ff4f2e2fb682ce6f977a86644e5afffcbdf12c, and kernel.macho contains K60AUDIOHAL deploy files=%u/%u error=%d, bad magic, bad count, entry body out of range, entry name out of range, open, write and removed a stale file once each, plus k60_audio_hal_deploy/k60_audio_hal_blob symbols."
 status = "closed"
 owner = "audio-agent"
 on_open = "without deployment the HAL bundle only exists in the build tree and mediaserverd never loads it"
@@ -482,6 +512,22 @@ criteria = "k60_pmic_glink_attach_audio() stores the client, returns K60_PMIC_GL
 status = "closed"
 owner = "audio-agent"
 on_open = "a start-before-battery order loses the only adsp_apps attach and M2 never leaves pending"
+
+[[item]]
+id = "glink-message-limit-560"
+stage = "M2"
+change = "the adsp_apps GLINK channel advertises 560-byte intents to match the page's message limit"
+evidence_kind = "artifact"
+evidence = [
+  "drivers/PongPower/K60AudioGlink.h",
+  "drivers/PongPower/QcomGlink.h",
+  "drivers/PongAudio/tests/test-glink-multislot.c",
+  "V: kernel.macho: PongAudio: glink adsp_apps slot queued (560x20)",
+]
+criteria = "K60_AUDIO_GLINK_INTENT_BYTES is 560u, storage is 20*560 = 11,200 B; QcomGlink advertises c->intent_size and rejects received chunks beyond it; test-glink-multislot.c asserts K60_AUDIO_GLINK_INTENT_BYTES=560 and channel->intent_size equals it. Image r kernel.macho contains PongAudio: glink adsp_apps slot queued (560x20) once."
+status = "closed"
+owner = "audio-agent"
+on_open = "a short intent cannot carry the page's 560-byte message"
 
 [[item]]
 id = "pcm-playback-graph"
@@ -528,7 +574,7 @@ evidence = [
   "V: ShengAudioAbi.h:21",
   "V: PongAudio.cpp:288-300,424-436",
 ]
-criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient), the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph), the DMA-slot copy/timeout (pcm-dma-feed), the output-only AudioServerPlugIn (pcm-hal-plugin) and its kernel deployment into empty-hal (pcm-hal-deploy) are in place. Image q (kernel 19c638055ab987597cae231889212eb9121b94543808564403e278bede075c4d, ADSP carrier 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319) is the first candidate with all of these in one kernel, but it has not been booted. The remaining proof is a host or on-device test that opens the service, maps control/ring through the HAL and submits at least one period through the service timer without an underrun. Until that test exists, M5 cannot pass."
+criteria = "The ring queue (pcm-ring-submit), the low-DMA lease (pcm-low-dma-lease), the PongAudio IOService/UserClient (pcm-service-userclient), the playback graph with periodic ar_write/WRITE_DONE (pcm-playback-graph), the DMA-slot copy/timeout (pcm-dma-feed), the output-only AudioServerPlugIn (pcm-hal-plugin), its kernel deployment into empty-hal (pcm-hal-deploy), the clock handshake (pcm-clock-handshake), the 560-byte adsp_apps intent (glink-message-limit-560) and the low-DMA fallback (pcm-low-dma-fallback) are in place. Image r (kernel f739d730ff26b0e156565063c2dfe401045ee2dc53a9fef08242c1de06a32f61, ADSP carrier 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319) is the first candidate with all of these plus 560-byte intents, PRM source port 2, ABI version 3/SetHostClock, the 19.2 MHz clock handshake and the kmem_alloc_contig low-DMA fallback, but it has not been booted. The remaining proof is a host or on-device test that opens the service, maps control/ring through the HAL and submits at least one period through the service timer without an underrun. Until that test exists, M5 cannot pass."
 status = "open"
 owner = "audio-agent"
 on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"

@@ -130,7 +130,7 @@ mainline `aw88261.c:1177-1186` 把 DT 的 audio-channel 读进 `aw_dev->channel`
 
 ### 8.1 三块补充（详见 `PAS1-AUDIO-REQUIREMENTS.md`）
 
-- **GPR/APM 注册与 GLINK 独占**：音频在 publish **之后**作为 consumer 开 `adsp_apps`（intent 512×20、APM 端口 1），不做第二个 owner；与 `K60AdspOwnerLease` 的 bit2 `GlinkExclusive` 不冲突（契约第 7 条「GLINK 交给既有 consumer」）。`QcomGlink.h:17` 的 `QCOM_GLINK_MAX_CHANNELS` 已于 2026-11-17 落成 `2u`（见 `AUDIO-CLOSURE.toml` 的 `glink-two-slot-in-kernel`），且**不能另起实例**（FIFO 是共享物理资源）。
+- **GPR/APM 注册与 GLINK 独占**：音频在 publish **之后**作为 consumer 开 `adsp_apps`（intent 560×20、APM 端口 1），不做第二个 owner；与 `K60AdspOwnerLease` 的 bit2 `GlinkExclusive` 不冲突（契约第 7 条「GLINK 交给既有 consumer」）。`QcomGlink.h:17` 的 `QCOM_GLINK_MAX_CHANNELS` 已于 2026-11-17 落成 `2u`（见 `AUDIO-CLOSURE.toml` 的 `glink-two-slot-in-kernel`），且**不能另起实例**（FIFO 是共享物理资源）。
 - **降级**：照 `PongCodecProbe.c:37-41` 的具名错误范式，handoff / lease / epoch / APM / AFE 五级各有枚举；PAS1 没好之前零寄存器访问（含 TLMM 引脚复用）。
 - **AFE 参数时序**：acquire 之后、publish **之后**（consumer 侧）。acquire 与 publish 之间是 provider 临界区，发参数即违反独占；且 GLINK 的 adopt 依据 `/chosen/k60-adsp-glink-handoff`（104 B）publish 时才出现。
 - **provider 侧的验收项**：§8 五条的落地版是 `PAS1-AUDIO-REQUIREMENTS.md` §5 的四条（单实例多槽的 `QCOM_GLINK_MAX_CHANNELS` 已落成 2、`qcom_glink_channel()` 必须早于 DSP 的 OPEN、bit2 独占的正确读法、AFE 包由 consumer 在 publish 之后发）。

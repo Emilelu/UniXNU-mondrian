@@ -38,7 +38,7 @@
 | ① 同型 | true | Pong 音频栈 ~107 KB（PongAdsp 34,547 / PongAudio 29,263 / PongIOAudio2.h 23,857 / PongWcd938.h 6,262 / PongAudioService 7,509）|
 | ② 官方 | true | components.toml 25 组件无音频，官方实现全在 UniXNU-sheng 板级 |
 | ③ 反编译 | **false** | codec 型号 / PAS id / PMIC 轨道 / SWR / GPIO 全待测；aw882xx 零先例 |
-| ④ 广域 | true | 官方 power 页；ShengAdsp channel/send，MAX_MESSAGE=512；AudioReach/GPR |
+| ④ 广域 | true | 官方 power 页；ShengAdsp channel/send，MAX_MESSAGE=560；AudioReach/GPR |
 | ⑤ 方案 | true | 四步方案 + 两条 SM8550 硬事实 |
 | ⑥ 深挖 | true | DT 节点已建（9 个 0 占位）+ 三条结论 |
 | ⑦ 核验 | **false** | 未做 |

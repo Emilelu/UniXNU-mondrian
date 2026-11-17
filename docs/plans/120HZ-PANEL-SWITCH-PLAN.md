@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: build complete (`120hz-1`, 2026-11-17 13:23 +08:00), awaiting the flight; code commit 410159c7, docs HEAD d6f8dac2. Branch: `feat/120hz-panel`.
+Status: implementation updated for `120hz-2` (vendor 11-packet sequence), build pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -18,15 +18,20 @@ correction does not establish a 120 Hz display mode. This plan adds the missing
 panel-side switch and gates both halves behind `p120=1`; every image without
 it stays at the native 60 Hz declaration.
 
-## Data source (live FDT, not the sharp reference)
+## Data source (live FDT plus vendor dtsi)
 
 The live K60 FDT node is `qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd`. Timing group 2
 is 120 Hz:
 
-- `qcom,mdss-dsi-timing-switch-command` has ten packets, 98 bytes total:
+- The vendor dtsi (`LowTension/android_kernel_xiaomi_sm8475`,
+  `dsi-panel-m11a-42-02-0a-dsc-cmd.dtsi`) has eleven packets:
   `0x15 2f 00`, `0x15 8b 00`, `0x39 f0 55 aa 52 08 00`, `0x15 6f 03`,
   `0x15 c0 10`, `0x15 6f 31`, `0x15 df 20`, `0x39 f0 55 aa 52 08 02`,
-  `0x15 cc 30`, `0x15 ce 01`.
+  `0x15 cc 30`, `0x15 ce 01` (post_wait 10 ms), `0x15 cc 00`.
+- The live FDT copy is only 98 bytes / ten packets: it omits the final
+  `CC 00` and the `CE 01` 10 ms post-wait. That is a truncated copy, not
+  the full vendor switch; the first flight sent only ten packets and left
+  the panel at an unverified rate.
 - 60 Hz differs only in `2f 02`, `8b 00`, `df 21`; 90 Hz differs only in
   `2f 01`, `8b 10`, `df 20`.
 - All three timing groups have the same clock rate (1,200,000,000), porch
@@ -41,19 +46,23 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
 
 ## Implementation
 
-1. `drivers/PongAdreno/PongDsiPanel.cpp`: add the ten-packet `kTiming120`
+1. `drivers/PongAdreno/PongDsiPanel.cpp`: add the eleven-packet `kTiming120`
    table and `pong_panel_switch_120()`. It runs once, after the existing
    `0x11/0x29/0x51` bring-up, only when boot argument `p120=1`. It sends
-   each packet through the existing `dsi_dcs()` path, waits 300 ms, and
-   measures INTF1 frame/TE counters before (200 ms) and after (500 ms).
+   each packet through the existing `dsi_dcs()` path, honours the per-packet
+   post-wait (10 ms after `CE 01`), waits 300 ms, and measures INTF1 frame/TE
+   counters before (200 ms) and after (500 ms). The first-frame patch also
+   calls `pong_panel_sample()`, which takes a second INTF1 observation
+   (`after the UI frame`) once the real UI frame is presented.
 2. `drivers/PongAdreno/PongDsiPanel.h`: expose the switch and its return
    values.
 3. `patches/xnu/0506-k60-120hz-refresh.patch`: add
    `static TUNABLE(uint32_t, gK60Panel120, "p120", 0)` and make
    `refreshHz()` return 120 only when `k60PanelNative() && gK60Panel120 == 1`.
 4. `scripts/check-image-args.py`: allow the documented `p120` addition.
-5. `scripts/check-panel-timing.py`: static proof that the ten packets, the
-   p120 gate, and both INTF1 observations are present.
+5. `scripts/check-panel-timing.py`: static proof that the eleven packets, the
+   p120 gate, and the pre-/post-switch and post-first-frame INTF1 observations
+   are present.
 
 ## Boot-argument budget
 
@@ -83,11 +92,12 @@ matching the build manifest:
 
 1. The image command line contains `p120=1`, contains every board argument
    unchanged, and is at most 607 bytes; `image-arg-audit` returns OK.
-2. The log contains `K60 PANEL: timing switch to 120 Hz: 10 packets, rc 0`.
-3. The log contains a `K60 PANEL: INTF1 after the switch te .../s` line with
-   TE and frame rates in the range 110–130 per second. The before-switch line
-   should be in the range 55–65 per second. A switch with no TE/rate evidence
-   is INCONCLUSIVE, not PASS.
+2. The log contains `K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0`.
+3. The log contains a `K60 PANEL: INTF1 after the UI frame te .../s` line
+   with TE and frame rates in the range 110–130 per second. The before-switch
+   line should be in the range 55–65 per second. The earlier `after the
+   switch` line is supporting evidence; the post-first-frame line is the
+   decisive one. A switch with no TE/rate evidence is INCONCLUSIVE, not PASS.
 4. The log contains `K60 DISPLAY: first frame presented` at least once, at
    least 100 `SpringBoard` lines, and zero `sig=11` lines.
 5. No `K60 PANEL: DCS ... failed` line appears after the switch begins, and
@@ -100,7 +110,7 @@ built SHA-256.
 ## Flight procedure
 
 1. Build with the display input/output trees:
-   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-1 --kernel-arg p120=1 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
+   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-2 --kernel-arg p120=1 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
 2. Verify `boot.img` with `scripts/verify-boot-image.py --manifest` and
    `scripts/check-image-args.py --image ... --board board.toml`.
 3. Only `fastboot boot`; never `fastboot flash`. Collect a 300 s USB log and

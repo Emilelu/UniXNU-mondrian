@@ -3,8 +3,9 @@
  *
  * M0 carries the register-map constants and the version decoder so later
  * stages cannot invent a different base address. M1 validates a monolithic
- * ipa_fws image, clears the 64 KiB ipa_fw_region, copies its load segments to
- * their p_paddr offsets and builds the metadata block at the last 8 KiB.
+ * ipa_fws image, clears the 40 KiB ipa_gsi_region that the live DT names in
+ * memory-regions, copies its load segments to their p_paddr offsets and builds
+ * the metadata block at the last 8 KiB of the 64 KiB ipa_fw_region.
  * k60_ipa_firmware_start() then performs the PAS 15 init/mem-setup/auth-reset
  * sequence and reads the version registers; k60_ipa_probe_from_handoff()
  * supplies the image from IPA/ipa_fws.mbn in the payload FAT.
@@ -61,7 +62,10 @@ _Static_assert(K60_IPA_PAS_ID == 15u,
     "IPA firmware uses PAS id 15 on this board");
 _Static_assert(K60_IPA_METADATA_BASE + K60_IPA_METADATA_BYTES ==
     K60_IPA_FW_REGION_BASE + K60_IPA_FW_REGION_BYTES,
-    "IPA metadata must be the last 8 KiB of the 64 KiB firmware region");
+    "IPA metadata must be the last 8 KiB of the 64 KiB ipa_fw_region");
+_Static_assert(K60_IPA_FIRMWARE_BASE == 0x8b910000u &&
+    K60_IPA_FIRMWARE_BYTES == 0x0000a000u,
+    "IPA image must load in the live DT ipa_gsi_region");
 
 const char k60_ipa_marker[] = "K60IPA M1 staging linked";
 
@@ -101,7 +105,7 @@ k60_ipa_firmware_check(const void *blob, uint64_t size, K60IpaFirmwarePlan *plan
     plan->load_segments = load;
     plan->relocatable = image.relocatable;
     if (image.elf64 || !image.relocatable || image.min_address != 0 ||
-        plan->span > K60_IPA_FW_REGION_BYTES ||
+        plan->span > K60_IPA_FIRMWARE_BYTES ||
         plan->metadata > K60_IPA_METADATA_BYTES) {
         return K60IpaFirmwareLayout;
     }
@@ -142,7 +146,7 @@ k60_ipa_firmware_stage(const void *blob, uint64_t size, void *region,
         if (!s->load) {
             continue;
         }
-        rc = k60_mdt_place(&image, i, K60_IPA_FW_REGION_BASE, region_size,
+        rc = k60_mdt_place(&image, i, K60_IPA_FIRMWARE_BASE, region_size,
             &offset);
         if (rc != K60MdtOk) {
             return K60IpaFirmwareLayout;
@@ -1175,11 +1179,11 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
     }
     /* Both IPA regions are DDR carveouts, not device memory: use the same
      * VM_WIMG_DEFAULT flag K60ModemBoot and K60AdspBoot use. */
-    firmware = ml_io_map_unmappable((vm_offset_t)K60_IPA_FW_REGION_BASE,
-        (vm_size_t)K60_IPA_FW_REGION_BYTES, 0x2);
+    firmware = ml_io_map_unmappable((vm_offset_t)K60_IPA_FIRMWARE_BASE,
+        (vm_size_t)K60_IPA_FIRMWARE_BYTES, 0x2);
     if (firmware == 0) {
         printf("K60IPA cannot map firmware region %#x\n",
-            K60_IPA_FW_REGION_BASE);
+            K60_IPA_FIRMWARE_BASE);
         return K60IpaMapFailed;
     }
     metadata = ml_io_map_unmappable((vm_offset_t)K60_IPA_METADATA_BASE,
@@ -1190,14 +1194,14 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
         return K60IpaMapFailed;
     }
     rc = k60_ipa_firmware_stage(blob, size, (void *)firmware,
-        K60_IPA_FW_REGION_BYTES, (void *)metadata, K60_IPA_METADATA_BYTES,
+        K60_IPA_FIRMWARE_BYTES, (void *)metadata, K60_IPA_METADATA_BYTES,
         &plan);
     if (rc != K60IpaOk) {
         printf("K60IPA firmware stage failed rc=%d\n", rc);
         return rc;
     }
     printf("K60IPA firmware staged at %#x metadata=%#x\n",
-        K60_IPA_FW_REGION_BASE, K60_IPA_METADATA_BASE);
+        K60_IPA_FIRMWARE_BASE, K60_IPA_METADATA_BASE);
     rc = k60_ipa_pas_call(K60M_SCM_PAS_INIT_IMAGE,
         k60_modem_scm_args(2, K60M_SCM_VAL, K60M_SCM_RW, 0),
         K60_IPA_PAS_ID, K60_IPA_METADATA_BASE, 0);
@@ -1208,13 +1212,13 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
     printf("K60IPA init_image ok\n");
     rc = k60_ipa_pas_call(K60M_SCM_PAS_MEM_SETUP,
         k60_modem_scm_args(3, 0, 0, 0), K60_IPA_PAS_ID,
-        K60_IPA_FW_REGION_BASE, plan.span);
+        K60_IPA_FIRMWARE_BASE, plan.span);
     if (rc != K60IpaOk) {
         printf("K60IPA mem_setup failed rc=%d\n", rc);
         return rc;
     }
     printf("K60IPA mem_setup ok base=%#x span=%#llx\n",
-        K60_IPA_FW_REGION_BASE, (unsigned long long)plan.span);
+        K60_IPA_FIRMWARE_BASE, (unsigned long long)plan.span);
     rc = k60_ipa_pas_call(K60M_SCM_PAS_AUTH_AND_RESET,
         k60_modem_scm_args(1, 0, 0, 0), K60_IPA_PAS_ID, 0, 0);
     if (rc != K60IpaOk) {

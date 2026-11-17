@@ -153,7 +153,7 @@ main(int argc, char **argv)
         {
             K60MdtImage image;
             K60IpaFirmwarePlan staged;
-            unsigned char *region = calloc(1, K60_IPA_FW_REGION_BYTES);
+            unsigned char *region = calloc(1, K60_IPA_FIRMWARE_BYTES);
             unsigned char *metadata = calloc(1, K60_IPA_METADATA_BYTES);
             if (!region || !metadata) {
                 printf("FAIL alloc\n");
@@ -164,7 +164,7 @@ main(int argc, char **argv)
                 return 1;
             }
             if (k60_ipa_firmware_stage(blob, (uint64_t)size, region,
-                    K60_IPA_FW_REGION_BYTES, metadata, K60_IPA_METADATA_BYTES,
+                    K60_IPA_FIRMWARE_BYTES, metadata, K60_IPA_METADATA_BYTES,
                     &staged) != K60IpaOk) {
                 printf("FAIL stage\n");
                 return 1;
@@ -184,8 +184,8 @@ main(int argc, char **argv)
                 if (!image.segment[i].load || image.segment[i].file_size == 0) {
                     continue;
                 }
-                if (k60_mdt_place(&image, i, K60_IPA_FW_REGION_BASE,
-                        K60_IPA_FW_REGION_BYTES, &offset) != K60MdtOk ||
+                if (k60_mdt_place(&image, i, K60_IPA_FIRMWARE_BASE,
+                        K60_IPA_FIRMWARE_BYTES, &offset) != K60MdtOk ||
                     memcmp(region + offset, blob + image.segment[i].file_offset,
                         (size_t)image.segment[i].file_size) != 0) {
                     printf("FAIL segment %u placement\n", i);
@@ -199,7 +199,7 @@ main(int argc, char **argv)
                 return 1;
             }
             if (k60_ipa_firmware_stage(blob, (uint64_t)size, region,
-                    K60_IPA_FW_REGION_BYTES, metadata, plan.metadata - 1, NULL) !=
+                    K60_IPA_FIRMWARE_BYTES, metadata, plan.metadata - 1, NULL) !=
                 K60IpaFirmwareTooLarge) {
                 printf("FAIL short metadata accepted\n");
                 return 1;

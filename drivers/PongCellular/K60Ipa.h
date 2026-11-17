@@ -5,8 +5,9 @@
  * qcom,entire-ipa-block-size. The IPA register block is the wrapper plus
  * qcom,ipa-cfg-offset 0x140000, and the GSI has its own view at 0x3e04000.
  * M0 records those facts without touching a register. M1 adds offline image
- * validation, a staging routine for the 64 KiB ipa_fw_region, the PAS 15
- * load, and a handoff probe that reads IPA/ipa_fws.mbn from the payload FAT.
+ * validation, a staging routine for the 40 KiB ipa_gsi_region that carries the
+ * image, the PAS 15 load, and a handoff probe that reads IPA/ipa_fws.mbn from
+ * the payload FAT.
  *
  * Sources: docs/research/cellular/20-IPA-V51-DATA-PATH.md sections 2 and 4,
  *          docs/research/cellular/02-DT-TRUTH.md, dataipa ipa5.0/ipa_hwio.h.
@@ -35,6 +36,10 @@
 #define K60_GSI_IRQ                   432u
 #define K60_IPA_PAS_ID                15u
 #define K60_IPA_FW_NAME               "ipa_fws"
+/* The live DT names ipa_gsi_region in the IPA node's memory-regions
+ * property; Android's PIL loads ipa_fws there, not into the region whose name
+ * says firmware. The 64 KiB ipa_fw_region is used only as a metadata lease at
+ * its last 8 KiB, disjoint from the image. */
 #define K60_IPA_FW_REGION_BASE        0x8b900000u
 #define K60_IPA_FW_REGION_BYTES       0x00010000u
 #define K60_IPA_METADATA_OFFSET       0x0000e000u
@@ -42,6 +47,8 @@
 #define K60_IPA_METADATA_BASE         (K60_IPA_FW_REGION_BASE + K60_IPA_METADATA_OFFSET)
 #define K60_IPA_GSI_REGION_BASE       0x8b910000u
 #define K60_IPA_GSI_REGION_BYTES      0x0000a000u
+#define K60_IPA_FIRMWARE_BASE         K60_IPA_GSI_REGION_BASE
+#define K60_IPA_FIRMWARE_BYTES        K60_IPA_GSI_REGION_BYTES
 #define K60_GSI_CH_DOORBELL_BASE      0x03e28000u
 #define K60_GSI_EV_DOORBELL_BASE      0x03e28800u
 #define K60_GSI_STATUS                0x03e29000u

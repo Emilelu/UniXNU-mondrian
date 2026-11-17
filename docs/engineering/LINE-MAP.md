@@ -1,12 +1,12 @@
 # 线 → 检出 → 分支地图（LINE-MAP）
 
-> 最后更新 **2026-11-17 12:23**。HEAD 是当天的快照，会漂移；它只用来回答「哪个检出的哪个分支有这条线的什么」。
+> 最后更新 **2026-11-17 12:37**。HEAD 是当天的快照，会漂移；它只用来回答「哪个检出的哪个分支有这条线的什么」。
 > 研究文件的逐文件清单在 [docs/research/LINE-RESEARCH-MAP.md](../research/LINE-RESEARCH-MAP.md)；文档索引在 [docs/INDEX.md](../INDEX.md)。
 > 检出所有权以 [TREE-OWNERS.toml](TREE-OWNERS.toml) 为准，本表只是它的阅读视图。
 
 ## 0. 一句话
 
-main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 下现有 **23 个 `k60-*` 检出**（含临时实验 worktree），
+main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 下现有 **25 个 `k60-*` 检出**（含临时实验 worktree），
 其中 16 个原有检出在分支上另有 **108 个**研究文件（含重复副本），`k60-charger` 另有 2 个、三个 wifi 临时 worktree 另有 25 个。
 一个能力结案时，应当**整目录搬回 main**（见 LINE-RESEARCH-MAP §1 的搬运规则），而不是在聊天里贴结论。
 
@@ -14,8 +14,8 @@ main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 
 
 | 线 | 检出 | 分支 | HEAD（2026-11-17） | main 外的研究文件 | owner |
 |---|---|---|---|---|---|
-| 参考/取证 | `k60-refmine` | `docs/porting-gap-audit` | 本分支 `8237846c`（2026-11-17 12:23） | 2（`LINE-RESEARCH-MAP.md`、`wifi/MHI-AMSS-PROTOCOL.md`） | `refmine-agent` |
-| UFS verified-root | `k60-ufs-verified` | `feat/ufs-verified-table` | `4cf32ce4`（2026-11-17 11:42） | 0（代码分支） | `refmine-agent` |
+| 参考/取证 | `k60-refmine` | `docs/porting-gap-audit` | 本分支 `61760d85`（2026-11-17 12:37） | 2（`LINE-RESEARCH-MAP.md`、`wifi/MHI-AMSS-PROTOCOL.md`） | `refmine-agent` |
+| UFS verified-root | `k60-ufs-verified` | `feat/ufs-verified-table` | `43c4fc3c`（2026-11-17 12:34） | 0（代码分支） | `refmine-agent` |
 | WiFi 系列同步（干净分支） | `k60-refmine` | `feat/wifi-patch-sync` | `78d17a8c`（2026-11-17 09:38，基于 `origin/main`，4 个补丁文件 + README） | 0（补丁字节，无研究文档） | `refmine-agent` |
 | WiFi 系列同步（旧文档分支，勿直接合） | `k60-refmine` | `feat/wifi-series-sync` | `e1a46146`（2026-11-17 07:20，基于 `docs/porting-gap-audit`） | 0（补丁字节，无研究文档） | `refmine-agent` |
 | WiFi | `k60-wifi` | `feat/wifi-bringup` | `136f95c2` | 14 | `wifi-agent` |

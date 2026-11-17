@@ -14,7 +14,7 @@ main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 
 
 | 线 | 检出 | 分支 | HEAD（2026-11-17） | main 外的研究文件 | owner |
 |---|---|---|---|---|---|
-| 参考/取证 | `k60-refmine` | `docs/porting-gap-audit` | 本分支 `60212f6c`（2026-11-17 11:02） | 0（写 main 文档） | `refmine-agent` |
+| 参考/取证 | `k60-refmine` | `docs/porting-gap-audit` | 本分支 `60212f6c`（2026-11-17 11:02） | 2（`LINE-RESEARCH-MAP.md`、`wifi/MHI-AMSS-PROTOCOL.md`） | `refmine-agent` |
 | UFS verified-root | `k60-ufs-verified` | `feat/ufs-verified-table` | `71a33f95`（2026-11-17 08:39） | 0（代码分支） | `refmine-agent` |
 | WiFi 系列同步（干净分支） | `k60-refmine` | `feat/wifi-patch-sync` | `78d17a8c`（2026-11-17 09:38，基于 `origin/main`，4 个补丁文件 + README） | 0（补丁字节，无研究文档） | `refmine-agent` |
 | WiFi 系列同步（旧文档分支，勿直接合） | `k60-refmine` | `feat/wifi-series-sync` | `e1a46146`（2026-11-17 07:20，基于 `docs/porting-gap-audit`） | 0（补丁字节，无研究文档） | `refmine-agent` |

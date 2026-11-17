@@ -66,6 +66,7 @@ private:
     OSDictionary *pendingAdapter = nullptr;
     const OSSymbol *pendingModel = nullptr;
     uint32_t pendingAdapterValues[4] = {}, pendingAdapterMask = 0;
+    uint32_t lastRefreshLog = 0;
     bool publishFailed = false;
     bool initProperties();
     void cleanup();
@@ -214,6 +215,15 @@ void K60Battery::publish(const K60BatterySample &s)
             s.temperature_hundredths / 100,
             unsigned(s.temperature_hundredths < 0 ? -s.temperature_hundredths : s.temperature_hundredths) % 100,
             s.external, s.charging, s.full, manager.subscribed);
+    }
+    const uint32_t generations = manager.generations;
+    if (first) lastRefreshLog = generations;
+    else if (generations >= lastRefreshLog + 6) {
+        lastRefreshLog = generations;
+        IOLog("K60Battery: refresh sample=%u voltage=%umV current=%dmA current-source=%s SOC=%u.%02u%% subscribed=%u\n",
+            generations, s.voltage_mv, s.current_ma,
+            s.current_source == K60BatteryCurrentCell ? "cell" : s.current_source == K60BatteryCurrentUsb ? "usb" : "none",
+            s.capacity_hundredths / 100, s.capacity_hundredths % 100, manager.subscribed);
     }
     lastSample = s;
 }

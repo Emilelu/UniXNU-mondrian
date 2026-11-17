@@ -44,4 +44,29 @@
 
 ## 5. 结果登记
 
-（上机后填写。此节为空表示尚未执行。）
+**判决：目标假设成立（PASS）；首帧仍未达成（FAIL(F4/F6)）。**
+
+证据 `E:/k60-work/evidence/usblog-20261118-003847`，`console.log` 3,072 行，抓取完整、未因 panic 中断。
+
+| 判据 | 实测 | 结果 |
+|---|---|---|
+| S1 `K60KEXC` | 0 | ✅ |
+| S2 `K60METAL deploy` | 1 次，`files=6/6 inject=6 error=0` | ✅ |
+| S3 `Pong Metal: S` 的 `x` | **3**（修复前 6） | ✅ |
+| S4 `Pong Metal:` 行数 | **7**（阈值 10） | ❌ |
+| S5 `crashed: backboardd` | 0 | ✅ |
+| S6 `turns>0` | 无 `main snapshot … turns=` 行，只有 `main frame 0..11` | ❌ |
+
+关键行（原文）：
+
+```
+Pong Metal: real Vulkan-backed device created status=0x0
+Pong Metal: real device returned to stock20G81 discovery status=0x0
+Pong Metal: real GPU scanout worker ready status=0x0
+Pong Metal: c0/0 d0 p0 x3 R0 D0 F0 M0 C0 B0 native-metal: no device answer: the device has no answer for supportsConditionalLoadStore | …
+```
+
+结论：两个 selector 的修复**按设计生效**（问题数 6→3，剩下的三条正是按设计不回答的私有能力位）；设备仍能创建、扫描输出线程仍就绪、backboardd 零崩溃。S4 的 10 行阈值写错了（本插件版本没有构造标记，正常只有 7 行），按 F4 的本意（插件未执行）不成立。
+
+仍未达成首帧：`p0`（零次提交/绘制）。主线程只剩 `main frame` 栈帧转储、没有 `turns` 行，说明 SpringBoard 仍卡在发往 backboardd 的同步调用上。下一层问题不在 selector，而在 backboardd 拿到设备后**为什么不提交帧**以及主线程为何等不到回应。
+

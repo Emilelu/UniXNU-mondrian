@@ -88,7 +88,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 - **注意：payload 与 bootimg 都使用了 `--skip-gates`**；本机 `unixnu bootimg` 的合规注册表当前为红（P-165/P-166 等历史 sync/build 输入漂移），所以这两张候选不是“门禁全绿”的产物，也不是飞行许可。
 - 飞行工具：`E:/k60-work/artifacts/fly-modem.ps1`（先校验 C/B 哈希，再调用 `boot-and-capture.ps1` 和 `check-modem-flight.py`）、`E:/k60-work/artifacts/modem-20261117h/FLIGHT-README.md`、`manifest-cb.json`；未获 Lead 授权不要加 `-Execute`。
 
-## 4. 预先写死的判据（S1–S5 / F1–F6）
+## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 ### 4.1 成功判据（全部满足才算 S）
 
@@ -109,6 +109,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
   `K60MODEM qrtr: modem not ready`、`K60MODEM qrtr: dms revision missing`。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
   `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。
+- **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published` 的 N 大于 0；bridge disabled 或 N=0 都算失败。
 
 ### 4.2 失败判据（一条失败即停，一次开机只归一类，不重试）
 
@@ -120,6 +121,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 - **F4**：`K60MODEM auth_reset failed rc!=0` ⇒ power 已投票但 PAS 仍失败；下一飞复查 `cx.lvl/mss.lvl` 投票与 AOP 顺序。
 - **F5**：auth_reset ok 但 S4 超时（出现 `modem not ready` 或没有 `glink desc`）⇒ 固件/SMP2P；下一飞补写 host item 428。
 - **F6**：S4 过但 S5 不是 `verdict ok` ⇒ GLINK/QRTR；转 QRTR 调查，不再改 PAS。
+- **F7**：S4/S5 通过但 S6 失败 ⇒ QcomBaseband 控制桥/ADT；下一飞只查 `chosen/coachz-baseband`、AppleBaseband 类注册和 `coachz_baseband_configure()`。
 
 ## 5. 飞行顺序
 

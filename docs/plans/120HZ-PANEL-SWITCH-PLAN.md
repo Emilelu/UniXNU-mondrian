@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: implementation updated for `120hz-2` (vendor 11-packet sequence), build pending. Branch: `feat/120hz-panel`.
+Status: implementation updated for `120hz-3` (vendor 11-packet sequence, official `vsync=120` alias, measured refresh report), build pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -11,12 +11,14 @@ question is only whether the m11a panel accepts timing@2 and whether the INTF
 TE counter and frame counter advance at about 120 per second.
 
 The prior software-only declaration is in
-`patches/xnu/0506-k60-120hz-refresh.patch`: it makes
-`MiniIOMobileFramebuffer::refreshHz()` return 120, but it never touches DSI
-timing. `drivers/PongAdreno/PongDsiPanel.cpp:116` already says the cadence
-correction does not establish a 120 Hz display mode. This plan adds the missing
-panel-side switch and gates both halves behind `p120=1`; every image without
-it stays at the native 60 Hz declaration.
+`patches/xnu/0506-k60-120hz-refresh.patch`: it now reports the rate the panel
+driver actually measured from INTF1, but it never touches DSI timing itself.
+`drivers/PongAdreno/PongDsiPanel.cpp:116` already says the cadence correction
+does not establish a 120 Hz display mode. This plan adds the missing panel-side
+switch and accepts both the project gate `p120=1` and the official reference
+spelling `vsync=120`; every image without either stays at the native 60 Hz
+declaration, and a failed switch reports the observed 60 Hz rather than the
+request.
 
 ## Data source (live FDT plus vendor dtsi)
 
@@ -57,20 +59,25 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
 2. `drivers/PongAdreno/PongDsiPanel.h`: expose the switch and its return
    values.
 3. `patches/xnu/0506-k60-120hz-refresh.patch`: add
-   `static TUNABLE(uint32_t, gK60Panel120, "p120", 0)` and make
-   `refreshHz()` return 120 only when `k60PanelNative() && gK60Panel120 == 1`.
-4. `scripts/check-image-args.py`: allow the documented `p120` addition.
+   `static TUNABLE(uint32_t, gK60Panel120, "p120", 0)`, declare
+   `pong_panel_refresh_hz()`, and make `refreshHz()` return the measured INTF1
+   rate when the panel is native (falling back to `fb_hz` when no measurement
+   exists). A request alone never reports 120.
+4. `scripts/check-image-args.py`: allow the documented `p120` and `vsync`
+   additions.
 5. `scripts/check-panel-timing.py`: static proof that the eleven packets, the
-   p120 gate, and the pre-/post-switch and post-first-frame INTF1 observations
-   are present.
+   p120/vsync gates, the measured-refresh accessor, and the pre-/post-switch
+   and post-first-frame INTF1 observations are present.
 
 ## Boot-argument budget
 
 DarwinBoot accepts at most 607 bytes (`DARWIN_BOOT_LINE_LENGTH == 608`,
 `DarwinBoot.c:681`). The board contract is 29 arguments/575 bytes.
-`p120=1` adds 7 bytes (582). If `k60_backlight_control=1` is also used, the
-line is 606 bytes. The image audit must print `image-arg-audit: OK` with the
-actual count and byte length.
+`p120=1` adds 7 bytes (582); `vsync=120` adds 10 bytes (585).
+`p120=1` plus `k60_backlight_control=1` is 606 bytes; `vsync=120` plus the same
+backlight argument would be 609 bytes, so the two spellings are alternatives,
+not additive. The image audit must print `image-arg-audit: OK` with the actual
+count and byte length.
 
 ## Build record (2026-11-17 13:23 +08:00)
 
@@ -85,13 +92,25 @@ actual count and byte length.
   `kernel_args_requested=["p120=1"]`; `image-arg-audit: OK (30 arguments, 582 bytes)`;
   `verify-boot-image: OK`.
 
+`120hz-2` was built from branch `feat/120hz-panel` at HEAD `b786416d` (clean
+tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg p120=1`:
+
+- `boot.img` 201,887,744 B, SHA-256
+  `bbe05b601762152a4ba16942e099f9bc818c00c8f970b0dab803c9ef87bf6cd7`
+- `kernel_built` 105,521,152 B, SHA-256
+  `a4547e223f3f65405a3db326e249e445de3de4894bb5a9cd839b8ddc7fcd3c8a`
+- manifest `E:/k60-work/artifacts/120hz-2/build-manifest.json`;
+  `kernel_args_requested=["p120=1"]`; `image-arg-audit: OK (30 arguments, 582 bytes)`;
+  `verify-boot-image: OK`; `check-panel-timing: ok`.
+
 ## Pre-registered success criteria (write before the flight)
 
 PASS requires all of the following in one capture, with the image SHA-256
 matching the build manifest:
 
-1. The image command line contains `p120=1`, contains every board argument
-   unchanged, and is at most 607 bytes; `image-arg-audit` returns OK.
+1. The image command line contains `p120=1` or `vsync=120`, contains every
+   board argument unchanged, and is at most 607 bytes; `image-arg-audit`
+   returns OK.
 2. The log contains `K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0`.
 3. The log contains a `K60 PANEL: INTF1 after the UI frame te .../s` line
    with TE and frame rates in the range 110–130 per second. The before-switch
@@ -110,7 +129,7 @@ built SHA-256.
 ## Flight procedure
 
 1. Build with the display input/output trees:
-   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-2 --kernel-arg p120=1 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
+   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-3 --kernel-arg vsync=120 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
 2. Verify `boot.img` with `scripts/verify-boot-image.py --manifest` and
    `scripts/check-image-args.py --image ... --board board.toml`.
 3. Only `fastboot boot`; never `fastboot flash`. Collect a 300 s USB log and

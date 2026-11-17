@@ -21,7 +21,7 @@
 | G9 | **已退役的前身**缺少可见的退役登记（2026-11-16 状态）：`patches/xnu/0610-k60-metal-seeds.patch`（4,364 B）不在 series | series `:218` 是 `0610-k60-metal-plugin-deploy.patch`；`scripts/tests/test-series-source.py:8` 称其 retired，`WIFI-REBUILD-CHECKLIST.md:99` 记为 wifi 线的等价实现 | 不是垃圾；2026-11-17 已由 `3dae8347` 在 `PATCH-CATALOG.toml:98-102` 登记为 `retired`（evidence `3a8d61d8`），文件保留，删除前仍需 wifi 线确认 |
 | G10 | 三处"现在就该抄"的外部实现没进任何清单 | BT：新发现 `daimile2/renoir_xnu_bluethooth`（QCA6490 XNU，BSD-3-Clause，未考察）；音频：AW882xx 本地无副本（GPL-2.0 候选）；Metal：`pong-metal@0b3b34a` | 见 §7、§8 |
 
-> 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,240 处引用 / **101** 个目标缺失 / 0 处行号越界，
+> 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,283 处引用 / **101** 个目标缺失 / 0 处行号越界，
 > 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（108 个分支文件，05:45 复核）与 `LINE-MAP.md`（21 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
 > G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7 的 UFS 部分已在 `k60-ufs-verified:feat/ufs-verified-table` 移植（verified-root policy/cache/read path + 3b 异步根发布 `46545497`，`NATIVE_VERIFIED_BLOCK` 默认关闭，未合 main）；PongMetal、G8 与 AW882xx/pong-metal 两项仍只报告、未动（G8 的补丁字节差已在干净分支 `feat/wifi-patch-sync` `5d70dd08` 同步，等合入与接线；旧的 `feat/wifi-series-sync` `e1a46146` 基于 docs 分支、不可直接合 main，保留为历史）。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
@@ -79,6 +79,7 @@
 | `docs/engineering/HARD-RULES.md:8-25` | 开头必读区仍称 PITFALLS「88 条」、反查表「99 条坑」、总量「99 条 PITFALLS」，第一章引言还称「这 25 条」 | 2026-11-17 改为 P-01–P-231、2026-11-11 快照与不提旧总数；当前台账最大 P-231；第一章改为「这些铁则」 | 【已修】 |
 | `CREDITS.md:112,139,169`、`docs/engineering/EIGHT-STEP-SPEC.md:103,123`、`docs/engineering/PITFALLS.md`（缺 P-130） | CREDITS 称 components.toml「25 个组件」、把音频来源重复写成 `UniXNU/Ath12kWifi`、末尾引用不存在的 P-130 与 ★35；EIGHT-STEP-SPEC 也写 25 个组件；PITFALLS 没有 P-130 条目，但 CREDITS、工程 README 与 AGENTS 都引用它 | 2026-11-17 复核官方 `UniXNU/components.toml`（HEAD 92bb60f）为 29 个组件；CREDITS 改 29、把音频参考并入 `UniXNU-sheng` 行并删重复行、末尾改指真实 P-130；补写 P-130（手工搬运代码必须保留署名）；EIGHT-STEP-SPEC 两处改为 29 | 【已修】 |
 | `docs/engineering/PITFALLS.md`（P-91/P-150/P-189） | 三个编号在 HARD-RULES、PITFALL-TO-RULE-INDEX、SUBAGENT-DELIVERABLES、check-subagent-ledger.py、check-build-applied.py 与 P-220 中被引用，但 PITFALLS 无对应标题；P-189 条目只存在于未合入 main 的 `feat/wifi-integration` 分支 | 2026-11-17 补录三条：P-91 开放任务空转、P-150 调研写文档不等于改动落地、P-189 多输出树按最新存根判错；P-189 在 RULES.toml 登记 `test-check-build-applied.py` 为检查 | 【已修】 |
+| `docs/engineering/HARD-RULES.md`、`docs/engineering/PITFALLS.md` | 大量纯文本 `docs/*.md` 路径仍指文档搬走前的旧位置（如 `docs/PITFALLS.md`、`docs/TOOLBOX.md`、`docs/DATA-VOLUME-DEPLOY.md`），check-docs 只查 Markdown 链接、抓不到反引号路径 | 2026-11-17 复核：34 处改为 `docs/engineering/...`；HARD-RULES 顶部加 workspace 文档路径说明（`E:/k60-work/docs/` 下 5 份未收入仓库）；PITFALLS 的 `PITFALLS-FROM-HISTORY.md` 改为 `docs/reference/...`，USB/DATA 证据改为 workspace 绝对路径 | 【已修】 |
 
 **已正确、不要"修"的**：`README.md:135-136` 的 ★1–★37 / P-01–P-231 是对的；`check-readme.py` 正是为
 这两行写的（P-205 的教训：README 曾写 ★35/P-130 而实际 ★37/P-204）。**它只校验 README 与 README_EN**，

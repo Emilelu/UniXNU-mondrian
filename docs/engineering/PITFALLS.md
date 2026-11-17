@@ -2,10 +2,10 @@
 
 > **用途**：踩坑台账——**「不要重复踩什么」的权威源之一**，编号 `P-NN`。
 > **谁该读**：新 agent 进场必读三份之一；动手做任何操作前先翻 30 秒判定列。
-> **边界**：本册收**当前代码树/流程**的坑；commit 史与按轮次汇编的坑在 `PITFALLS-FROM-HISTORY.md`（第 N 条编号），两册互引不重复展开。
+> **边界**：本册收**当前代码树/流程**的坑；commit 史与按轮次汇编的坑在 `docs/reference/PITFALLS-FROM-HISTORY.md`（第 N 条编号），两册互引不重复展开。
 > 每条固定字段：**症状 / 触发条件 / 为什么当初走错 / 正确做法 / 证据 / 下次 30 秒判定**。
 > 目的：让同一个坑最多只踩一次。新坑追加到末尾，编号连续。
-> 历史坑的批量汇编见 `PITFALLS-FROM-HISTORY.md`（另一 agent 产出）。
+> 历史坑的批量汇编见 `docs/reference/PITFALLS-FROM-HISTORY.md`（另一 agent 产出）。
 
 ---
 
@@ -272,7 +272,7 @@
   2. `--apply` 后必须再 `--check`，期望 **`already patched`**，并确认字节 `ff8304d1fc6f0ca9 → 20008052c0035fd6`（`mov w0,#1 ; ret`）；
   3. 打入 payload 后做**三段自检**：`header+kernel == template[0:552960]`、`ramdisk == payload` 逐字节、`trailer == template[201879552:]`；
   4. 核对 `ksize == 548774`、`ramdisk_size == 0`。
-- **证据**：`scratch/ARMCPUFIX.txt`（`--check` 原文、`patched: mov w0,#1 ; ret`、`already patched`、三段自检全 True）；历史条目 `docs/PITFALLS-FROM-HISTORY.md:613` 第 64 条；`docs/references/USB-SERIAL-AND-AMFI-CHANNEL-20261105.md:28`。
+- **证据**：`scratch/ARMCPUFIX.txt`（`--check` 原文、`patched: mov w0,#1 ; ret`、`already patched`、三段自检全 True）；历史条目 `docs/reference/PITFALLS-FROM-HISTORY.md:613` 第 64 条；workspace 证据 `E:/k60-work/docs/references/USB-SERIAL-AND-AMFI-CHANNEL-20261105.md:28`。
 - **30 秒判定**：看到 `AppleARMCPU.cpp:111` → **不要查内核代码、不要查 ADT**，先对打包用的 kernel 跑 `patch-armcpu-validate.py --check`；不是 `already patched` 就是这条。
 
 ---
@@ -1557,7 +1557,7 @@ if ((st & 0x10100) == 0x10100 && idle &&
 
 - **症状**：多个外部参考（ruby §5.3、PHK110 subagent）对 `0x10308` 是否为
   触摸报告地址给出相反结论，导致反复换地址试。
-- **权威判定**（2026-11-11，`docs/K60-TOUCH-DT-EVIDENCE.md`）：
+- **权威判定**（2026-11-11，`docs/engineering/K60-TOUCH-DT-EVIDENCE.md`）：
   - K60 DT `goodix,panel-max-x/y` = **14400 / 32000**
   - 我们按 vendor 公式走完五张列表（`off=49`）后，IC_INFO `+138/+140` 读出
     **14400 / 32000**，与 DT 完全一致
@@ -2094,7 +2094,7 @@ if ((st & 0x10100) == 0x10100 && idle &&
 - **症状**：GPU 全链路 `result=0`，`PONG METAL: real IOAcceleratorES provider published`
   也出现了，但 Metal 插件没加载、dock 没有模糊。
 - **根因链（两个独立错误叠加）**：
-  1. **`docs/DATA-VOLUME-DEPLOY.md:49-50` 声称 payload 里已有两个种子文件，
+  1. **`E:/k60-work/docs/DATA-VOLUME-DEPLOY.md:49-50` 声称 payload 里已有两个种子文件，
      实际没有**：
      ```
      mdir -i payload.img ::/METAL

@@ -1,19 +1,21 @@
 # 硬性铁则
 
 > ## 开工前必读（环境事实全在下面这些文档里，不要问用户）
-> **`docs/ENVIRONMENT.md`** — 手机序列号/ADB 切 fastboot/Mac SSH 凭据/WSL 网关/构建命令
-> **`docs/REPO-INVENTORY.md`** — 48 个本地 git 仓库清单
-> **`docs/LOCAL-ASSETS.md`** — 官方驱动源码/固件/反汇编产物索引
-> **`docs/YIBIYA-PICK.md`** — yibiya fork 采纳分析
-> **`docs/PITFALLS.md`** — 已踩过的坑（P-01–P-231）
 >
-> **`docs/PITFALL-TO-RULE-INDEX.md`** — 坑 → 铁则反查表（2026-11-11 快照，新增条目见 `PITFALLS.md`）
+> **路径说明（2026-11-17）**：`docs/engineering/...` 指本仓库文档；只写 `docs/<name>.md` 的条目指 workspace 文档树 `E:/k60-work/docs/<name>.md`（`DATA-VOLUME-DEPLOY.md`、`PHK110-REFERENCE.md`、`YIBIYA-PICK.md`、`OFFICIAL-8STEPS.md`、`EIGHT-STEP-EVIDENCE.md` 尚未收入本仓库）。
+> **`docs/engineering/ENVIRONMENT.md`** — 手机序列号/ADB 切 fastboot/Mac SSH 凭据/WSL 网关/构建命令
+> **`docs/engineering/REPO-INVENTORY.md`** — 48 个本地 git 仓库清单
+> **`docs/engineering/LOCAL-ASSETS.md`** — 官方驱动源码/固件/反汇编产物索引
+> **`docs/YIBIYA-PICK.md`** — yibiya fork 采纳分析
+> **`docs/engineering/PITFALLS.md`** — 已踩过的坑（P-01–P-231）
+>
+> **`docs/engineering/PITFALL-TO-RULE-INDEX.md`** — 坑 → 铁则反查表（2026-11-11 快照，新增条目见 `PITFALLS.md`）
 >   （遇到现象先查这里，就知道该守哪条铁则）
-> **`docs/TOOLBOX.md`** — **所有可复用工具的位置与用法（做之前先搜这里）**
-> **`docs/PLAYBOOKS.md`** — **可复用操作流程 PB-1..PB-9（复制粘贴可复现）**
+> **`docs/engineering/TOOLBOX.md`** — **所有可复用工具的位置与用法（做之前先搜这里）**
+> **`docs/engineering/PLAYBOOKS.md`** — **可复用操作流程 PB-1..PB-9（复制粘贴可复现）**
 > **`docs/DATA-VOLUME-DEPLOY.md`** — **往 Data 卷放文件的三种方法**
 > **`docs/PHK110-REFERENCE.md`** — 同 SoC 邻居项目 684 行调研
-> **`docs/K60-TOUCH-DT-EVIDENCE.md`** — 触摸从 Android 取到的权威硬件数据
+> **`docs/engineering/K60-TOUCH-DT-EVIDENCE.md`** — 触摸从 Android 取到的权威硬件数据
 >
 > **任何环境问题先在上述文档里查，查不到才动手探测。**
 > **要做某件事之前，先在 TOOLBOX 搜工具、在 PLAYBOOKS 搜流程。**
@@ -24,7 +26,7 @@
 
 这些铁则是从 PITFALLS 提炼出的根因，违反任何一条都会重复犯错。
 
-> **反查表**：`docs/PITFALL-TO-RULE-INDEX.md`（按现象查该守哪条）
+> **反查表**：`docs/engineering/PITFALL-TO-RULE-INDEX.md`（按现象查该守哪条）
 
 ## ★1（原 HR-33）先整篇读，禁止先 grep
 
@@ -360,7 +362,7 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 1. **写出了一个能跑通的脚本/命令序列** → 存到 `scripts/` 或 `scratch/`，
    并在对应手册里登记
 2. **发现了一个工具的位置**（apfsck、linux-apfs-rw、mcopy、otool…）→
-   写进 `docs/TOOLBOX.md`
+   写进 `docs/engineering/TOOLBOX.md`
 3. **走通了一条以前没走过或走得很痛苦的流程**（如 dd 整个分区、payload 注入、
    挂载 APFS、构建 userland）→ 写成步骤文档
 4. **发现某个已有文档写了但不完整**（比如 TWRP dd 流程只在 archive 里）→
@@ -376,20 +378,20 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 | 内容类型 | 落点 |
 |---|---|
-| 环境事实（IP/凭据/串口/设备状态） | `docs/ENVIRONMENT.md` |
-| 流程/铁则/禁止事项 | `docs/HARD-RULES.md` |
-| **可复用工具清单** | **`docs/TOOLBOX.md`** |
-| **可复用操作流程** | **`docs/PLAYBOOKS.md`** |
+| 环境事实（IP/凭据/串口/设备状态） | `docs/engineering/ENVIRONMENT.md` |
+| 流程/铁则/禁止事项 | `docs/engineering/HARD-RULES.md` |
+| **可复用工具清单** | **`docs/engineering/TOOLBOX.md`** |
+| **可复用操作流程** | **`docs/engineering/PLAYBOOKS.md`** |
 | 某个子系统的专向手册 | `docs/<TOPIC>.md`（如 `DATA-VOLUME-DEPLOY.md`） |
-| 踩过的坑 | `docs/PITFALLS.md` |
-| 文件/仓库在哪 | `docs/LOCAL-ASSETS.md` / `docs/REPO-INVENTORY.md` |
+| 踩过的坑 | `docs/engineering/PITFALLS.md` |
+| 文件/仓库在哪 | `docs/engineering/LOCAL-ASSETS.md` / `docs/engineering/REPO-INVENTORY.md` |
 
 ### 已因此建立的文档（示例）
 
 - `docs/DATA-VOLUME-DEPLOY.md` — 往 Data 卷放文件的三条路径（payload.img /
   dd unixnu / 内核内嵌 blob），含本地 APFS 工具清单
-- `docs/TOOLBOX.md` — 所有可复用工具的位置与用法
-- `docs/PLAYBOOKS.md` — 可复用操作流程
+- `docs/engineering/TOOLBOX.md` — 所有可复用工具的位置与用法
+- `docs/engineering/PLAYBOOKS.md` — 可复用操作流程
 
 ### 反面教材（真实发生）
 
@@ -425,12 +427,12 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 | 类型 | 落点 | 要求 |
 |---|---|---|
-| 踩过的坑 | `docs/PITFALLS.md` | 编号 `P-NN`，含：症状 / 真因 / 正确做法 / 判别命令 / 教训 |
-| 流程规则 | `docs/HARD-RULES.md` | 编号 `HR-NN`；最重要的进「第一章 ★N」 |
-| 可复用工具 | `docs/TOOLBOX.md` | 路径 + 用法 + **默认扫描范围** |
-| 可复用流程 | `docs/PLAYBOOKS.md` | 编号 `PB-N`，复制粘贴可复现 |
-| 环境事实 | `docs/ENVIRONMENT.md` | 路径/凭据/版本，一句话可查 |
-| 硬件权威数据 | `docs/K60-<HW>-DT-EVIDENCE.md` 等 | 从实机读到的原始值 + 来源 |
+| 踩过的坑 | `docs/engineering/PITFALLS.md` | 编号 `P-NN`，含：症状 / 真因 / 正确做法 / 判别命令 / 教训 |
+| 流程规则 | `docs/engineering/HARD-RULES.md` | 编号 `HR-NN`；最重要的进「第一章 ★N」 |
+| 可复用工具 | `docs/engineering/TOOLBOX.md` | 路径 + 用法 + **默认扫描范围** |
+| 可复用流程 | `docs/engineering/PLAYBOOKS.md` | 编号 `PB-N`，复制粘贴可复现 |
+| 环境事实 | `docs/engineering/ENVIRONMENT.md` | 路径/凭据/版本，一句话可查 |
+| 硬件权威数据 | `docs/engineering/K60-<HW>-DT-EVIDENCE.md` 等 | 从实机读到的原始值 + 来源 |
 
 ### 硬性形式要求（否则等于没记）
 
@@ -673,7 +675,7 @@ if (!map) { printf("map failed %#lx\n", phys); return; }   // 必须判空
 
 1. **不查 `UniXNU-zizhan`（同 SoC 超集）就动手 = 必然重复造轮子**（P-76）
 2. **跳过八步③（Android 反编译）→ 协议用错，整段白费**（P-75）
-3. **本地已有工具/源码/固件要先检索**：`docs/LOCAL-ASSETS.md` + `docs/TOOLBOX.md`
+3. **本地已有工具/源码/固件要先检索**：`docs/engineering/LOCAL-ASSETS.md` + `docs/engineering/TOOLBOX.md`
 4. **「某资源不存在」的结论必须先用 `find` 全盘确认**（P-95：
    iPhoneOS SDK 一直在 Mac 上，`xcrun` 查不到而已）
 
@@ -1430,7 +1432,7 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
 
 ### 已发生的违规
 `repro-audit/RISKS.md` §R7 判定 TWRP 不可得（C 级）→ 实际是 B 级（标准刷入操作）。
-详见 `docs/TWRP-FACT-CLARIFICATION.md`。
+详见 `docs/ops/TWRP-FACT-CLARIFICATION.md`。
 
 ---
 
@@ -2029,7 +2031,7 @@ ruby 文档 §5.3 白纸黑字写着：
 ```
 1. docs/<TARGET>-CHECKLIST.md    ← 当前执行到清单第几条，哪些 PASS/FAIL
 2. docs/RUBY-TOUCH-REFERENCE.md  ← 参考文档的关键数值与结论
-3. docs/PITFALLS.md 的最近 3 条  ← 刚踩过什么坑
+3. docs/engineering/PITFALLS.md 的最近 3 条  ← 刚踩过什么坑
 ```
 
 **这三个文件是唯一的进度真相源。** 记忆、日志摘要、上一轮的叙述都不可靠。
@@ -2045,7 +2047,7 @@ ruby 文档 §5.3 白纸黑字写着：
 
 **铁则（强制）**
 
-每排除一个假设，立刻写入 `docs/PITFALLS.md`，格式：
+每排除一个假设，立刻写入 `docs/engineering/PITFALLS.md`，格式：
 
 ```
 ### P-NN <假设> 已排除（<日期> <日志文件名>）
@@ -2142,15 +2144,15 @@ ruby 文档 §5.3 白纸黑字写着：
 ```
 1. docs/<HW>-CHECKLIST.md          ← 该硬件执行到第几条
 2. docs/<HW>-REFERENCE.md          ← 参考文档的关键数值
-3. docs/PITFALLS.md 最近 5 条       ← 刚踩过什么坑
-4. docs/HANDOFF.md 该硬件章节       ← 历史结论
+3. docs/engineering/PITFALLS.md 最近 5 条       ← 刚踩过什么坑
+4. docs/ops/HANDOFF.md 该硬件章节       ← 历史结论
 ```
 
 **这三个文件是唯一的进度真相源。记忆、日志摘要、上一轮叙述都不可靠。**
 
 ## HR-36 已排除假设必须按硬件分区登记（强化 HR-30）
 
-`docs/PITFALLS.md` 中每条必须带硬件标签：
+`docs/engineering/PITFALLS.md` 中每条必须带硬件标签：
 
 ```
 ### P-NN [TOUCH] <假设> 已排除（<日期> <日志文件名>）
@@ -2176,7 +2178,7 @@ ruby 文档 §5.3 白纸黑字写着：
 
 ## HR-38 每次硬件切换前必须写交接段落
 
-**从一个硬件转到另一个时**，必须先在 `docs/HANDOFF.md` 写一段：
+**从一个硬件转到另一个时**，必须先在 `docs/ops/HANDOFF.md` 写一段：
 
 ```
 ## [HW] 当前状态（YYYY-MM-DD HH:MM）
@@ -2240,7 +2242,7 @@ BerlinD 驱动源码**（`goodix_brl_hw.c`、`goodix_brl_spi.c`、`goodix_cfg_bi
    ```
    把结果登记进索引。**没查全盘之前禁止改代码。**
 
-3. **建立全局索引文件 `docs/LOCAL-ASSETS.md`**，分区列出所有参考源：
+3. **建立全局索引文件 `docs/engineering/LOCAL-ASSETS.md`**，分区列出所有参考源：
    - 官方驱动源码（impl/touch-protocol/refs/）
    - 各硬件参考仓库（references/）
    - 固件/bin/配置（scratch/goodix-fw/ 等）
@@ -2484,12 +2486,12 @@ adb reboot bootloader && sleep 8 && fastboot devices
 **铁则（强制）**
 
 1. **用户第二次提到同一件事时，立刻做两件事**：
-   - 写进 `docs/ENVIRONMENT.md`（环境事实）或 `docs/HARD-RULES.md`（流程规则）
+   - 写进 `docs/engineering/ENVIRONMENT.md`（环境事实）或 `docs/engineering/HARD-RULES.md`（流程规则）
    - 在回复里指出写到了哪个文件哪一节
 
 2. **禁止只回答「记住了」「明白了」而不落文档**——那等于没记住。
 
-3. **每次开工前先读 `docs/ENVIRONMENT.md`**，不要靠上下文记忆。
+3. **每次开工前先读 `docs/engineering/ENVIRONMENT.md`**，不要靠上下文记忆。
 
 4. **判断标准**：
    - 环境/凭据/路径/设备状态 → `ENVIRONMENT.md`

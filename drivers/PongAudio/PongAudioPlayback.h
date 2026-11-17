@@ -22,6 +22,11 @@
 #define PONG_PLAY_SG_PLAY           0x4001u
 #define PONG_PLAY_SG_SPEAKER        0x4005u
 
+#define PONG_PLAY_SLOT_COUNT        8u
+#define PONG_PLAY_PERIOD_BYTES      8192u
+#define PONG_PLAY_PRIME_SLOTS       4u
+#define PONG_PLAY_SLOT_TIMEOUT_PUMPS 8u
+
 typedef enum {
 	PongPlayOpenSpeaker = 0,
 	PongPlayConfigSpeaker,
@@ -87,6 +92,19 @@ pong_play_sg(unsigned step)
 	default:
 		return 0;
 	}
+}
+
+static inline bool
+pong_play_slot_expired(uint32_t age)
+{
+	return age >= PONG_PLAY_SLOT_TIMEOUT_PUMPS;
+}
+
+static inline uint64_t
+pong_play_slot_address(uint64_t dma_pa, unsigned slot)
+{
+	return (dma_pa | (1ull << 32)) +
+	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES;
 }
 
 static inline bool

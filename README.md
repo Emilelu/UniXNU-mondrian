@@ -26,11 +26,9 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **thermal** | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ◐ | ✅ | device-verified |
-
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
-| thermal | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | USB | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |

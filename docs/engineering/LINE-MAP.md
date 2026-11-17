@@ -6,7 +6,7 @@
 
 ## 0. 一句话
 
-main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 下现有 **25 个 `k60-*` 检出**（含临时实验 worktree），
+main 的 `docs/research/` 有 67 个 `.md`（80 个文件）；`/mnt/e/hackios` 下现有 **23 个 `k60-*` 检出**（含临时实验 worktree），
 其中 16 个原有检出在分支上另有 **108 个**研究文件（含重复副本），`k60-charger` 另有 2 个、三个 wifi 临时 worktree 另有 25 个。
 一个能力结案时，应当**整目录搬回 main**（见 LINE-RESEARCH-MAP §1 的搬运规则），而不是在聊天里贴结论。
 

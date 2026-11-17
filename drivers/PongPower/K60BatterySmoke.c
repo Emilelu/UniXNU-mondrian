@@ -81,7 +81,7 @@ int main(int argc, char **argv)
         if (properties(source, &d, kCFAllocatorDefault, 0) != KERN_SUCCESS || !d) {result = 1; break;}
         int present, stale, external, charging, full;
         int64_t sequence, stamp, epoch, capacity, maximum, voltage, amperage, temperature, cycles, responses;
-        int64_t failed_fields, raw_voltage, raw_current, raw_temperature;
+        int64_t failed_fields, raw_voltage, raw_current, raw_temperature, raw_usb_current;
         const int complete = flag(d, CFSTR("BatteryInstalled"), &present) &&
             flag(d, CFSTR("K60BatteryStale"), &stale) && flag(d, CFSTR("ExternalConnected"), &external) &&
             flag(d, CFSTR("IsCharging"), &charging) && flag(d, CFSTR("FullyCharged"), &full) &&
@@ -93,12 +93,15 @@ int main(int argc, char **argv)
             number(d, CFSTR("K60BatteryFailedFields"), &failed_fields) &&
             number(d, CFSTR("K60RawVoltageMicrovolts"), &raw_voltage) &&
             number(d, CFSTR("K60RawCurrentMicroamps"), &raw_current) &&
-            number(d, CFSTR("K60RawTemperatureHundredths"), &raw_temperature);
+            number(d, CFSTR("K60RawTemperatureHundredths"), &raw_temperature) &&
+            number(d, CFSTR("K60RawUsbCurrentMicroamps"), &raw_usb_current);
         if (!complete) {fprintf(stderr, "incomplete physical registry sample\n"); CFRelease(d); result = 1; break;}
-        if (raw_voltage / 1000 != voltage || raw_current / 1000 != amperage || raw_temperature != temperature) {
-            fprintf(stderr, "raw/OS mismatch: raw=%llduV/%llduA/%lld/100C os=%lldmV/%dmA/%lld/100C failed=0x%llx\n",
-                (long long)raw_voltage, (long long)raw_current, (long long)raw_temperature, (long long)voltage,
-                (int32_t)amperage, (long long)temperature, (unsigned long long)failed_fields);
+        const int64_t expected_current = (raw_current / 1000) != 0 ? raw_current / 1000 : raw_usb_current / 1000;
+        if (raw_voltage / 1000 != voltage || raw_temperature != temperature ||
+            (amperage != 0 && expected_current != amperage)) {
+            fprintf(stderr, "raw/OS mismatch: raw=%llduV/%llduA/%lld/100C usb=%llduA os=%lldmV/%dmA/%lld/100C failed=0x%llx\n",
+                (long long)raw_voltage, (long long)raw_current, (long long)raw_temperature, (long long)raw_usb_current,
+                (long long)voltage, (int32_t)amperage, (long long)temperature, (unsigned long long)failed_fields);
             CFRelease(d); result = 1; break;
         }
         const uint64_t now = uptime_ms();

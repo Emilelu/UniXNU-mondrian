@@ -16,21 +16,21 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 |---|---|---|---|---|---|---|---|---|---|
 | **触摸（Goodix GT9916R / BERLIN）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **GPU（Adreno 730v3 / Metal）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **storage** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **display** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **bootchain** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **buttons** | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **bluetooth** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
-| **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
-| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **存储（UFS 3.1 / unixnu 三窗分区）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **显示（m11a 面板 / DSI / 背光）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **固件与启动链（UEFI / DarwinBoot / payload）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **按键（power / volume）** | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **蓝牙（QCA6490 / HCI over UART）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **无线（QCA6490 / PCIe + MHI）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
+| **音频（WCD938x + AW88261 / ADSP PAS1）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
+| **电池（IOPMPowerSource / PMIC GLINK）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **USB（DWC3 复合设备 / 控制台 / 回环）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **温控（TSENS / thermal zone / 分级）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **蜂窝（X70 modem / DXE 载具 / QRTR）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| thermal | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| USB | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 
 > ✅ done　◐ partial　❌ not done　— no record
@@ -49,6 +49,9 @@ Output: `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`.
 
 Local build scripts live in the workspace (not in this repository); see
 [`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md) for the flow.
+Free space and WSL virtual-disk reclamation are checked by a gate (`hard-41`); the
+cleanup procedure is in
+[`docs/engineering/DISK-HYGIENE.md`](docs/engineering/DISK-HYGIENE.md).
 
 ## Gates
 

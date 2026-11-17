@@ -41,6 +41,7 @@
 | 文件 | 内容 |
 |---|---|
 | [ENVIRONMENT.md](ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
+| [DISK-HYGIENE.md](DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据（hard-41）、回收顺序、WSL 虚拟盘压缩（需管理员） |
 | [LOCAL-ASSETS.md](LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [REPO-INVENTORY.md](REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 

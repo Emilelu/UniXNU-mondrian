@@ -62,6 +62,7 @@ docs/
 | [`ENVIRONMENT.md`](engineering/ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
 | [`LOCAL-ASSETS.md`](engineering/LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
+| [`DISK-HYGIENE.md`](engineering/DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据、回收顺序、WSL 虚拟盘压缩（需管理员） |
 | [`README.md`](engineering/README.md) | 本目录的简介与阅读顺序 |
 
 ---

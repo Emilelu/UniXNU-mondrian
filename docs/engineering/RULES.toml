@@ -787,3 +787,11 @@ kind = "pitfall"
 title = "门禁的测试断言了当前分支身份，导致任何改补丁的分支都构建不了"
 check = "python3 scripts/tests/test-porting-gate-book.py"
 note = "被构建流程调用的测试不能在断言里依赖「当前检出就是 main」；状态相关的一条必须允许 skipTest 并说明这是正确的拒绝，其余用合成 fixture。P-165（registry 继承 K60_BUILD_IN_PROGRESS）是同一问题域的另一端"
+
+[[rule]]
+id = "hard-41"
+kind = "hard"
+source = "scripts/check-disk-space.py"
+statement = "磁盘余量与 WSL 虚拟盘回收由门禁自己检查：任一文档可用空间低于阻断线即不得继续构建；虚拟盘比盘内数据大 30 GiB 以上必须回收"
+check = "python3 scripts/tests/test-check-disk-space.py"
+note = "2026-11-17 用户第三次提醒清理磁盘后落的门禁：此前 /opt/k60/trees 每棵树留一份 17-18 GiB 旧 out-*、scratch 里躺着 24 GiB 一次性 data-window.img、WSL 虚拟盘 161.53 GB 只装 60 GiB 数据。清理不该靠人提醒。回收流程见 docs/engineering/DISK-HYGIENE.md"

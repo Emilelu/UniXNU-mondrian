@@ -10,8 +10,12 @@
 
 驱动已经具备：单请求状态机、协议五要素校验、有效/缺失/失败三态、原始值到 OS 值的显式换算、
 IOPMPowerSource 子类、工作循环、三个定时器、首帧后才注册、适配器字典、断链置 stale。
-尚未完成：带本轮改动的镜像重建与真机复测、真机插拔/充放电脚本化验证、服务重启的 IOKit 级验证、
-与 Android 的 ≥3 对同窗口 C3（当前只有 2 行 XNU sample，判 INVALID 而不是 FAIL）。
+2026-11-18 已重建带本轮改动的 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118c/boot.img`
+（sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`，payload
+`f871beb7249c6580c6247060fbd521c8cb0ce326a0407342e877d454352ebe16`，kernel
+`c2ab6575dbeb626541e2d393b4706add318e23b41f92794d0bd24f852af7ee46`），尚未上机复测；
+真机插拔/充放电脚本化验证、服务重启的 IOKit 级验证、与 Android 的 ≥3 对同窗口 C3 仍待完成
+（route-c 当前只有 2 行 XNU sample，判 INVALID 而不是 FAIL）。
 
 ## 1. §4 开头：参考实现的选择（官网 :69-74）
 
@@ -217,7 +221,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 - 本驱动只发布测量值，不写充电器、不改电流限制、不做 PD/PPS 认证；固件继续拥有充电控制
   （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
-  1. 带本轮 conformance 改动的镜像尚未构建/未上机；§7.3 是改动前的 route-c 镜像。
+  1. 带本轮 conformance 改动的 battery-only 镜像已构建（`E:/k60-work/artifacts/power-conformance-20261118c/boot.img`，sha256 `f0869f889f34425a36ed0a20d15fe80fa0b0d51cac3c2e65ef511e95908b049d`），但尚未上机；§7.3 是改动前的 route-c 镜像。
   2. 真机插拔、放电、服务重启三项未执行。
   3. C3 需要至少 3 对同窗口样本；当前 2 对。
   4. `K60Raw*` 属性已发布但尚未被 `K60BatterySmoke` 读取验证（可扩展该工具）。

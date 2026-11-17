@@ -793,3 +793,11 @@ id = "P-230"
 kind = "pitfall"
 title = "判据缺输入时不许替换成默认镜像"
 check = "python3 scripts/tests/test-device-input-must-be-named.py"
+
+[[rule]]
+id = "hard-41"
+kind = "hard"
+source = "scripts/check-disk-space.py"
+statement = "磁盘余量与 WSL 虚拟盘回收由门禁自己检查：任一文档可用空间低于阻断线即不得继续构建；虚拟盘比盘内数据大 30 GiB 以上必须回收"
+check = "python3 scripts/tests/test-check-disk-space.py"
+note = "2026-11-17 用户第三次提醒清理磁盘后落的门禁：此前 /opt/k60/trees 每棵树留一份 17-18 GiB 旧 out-*、scratch 里躺着 24 GiB 一次性 data-window.img、WSL 虚拟盘 161.53 GB 只装 60 GiB 数据。清理不该靠人提醒。回收流程见 docs/engineering/DISK-HYGIENE.md"

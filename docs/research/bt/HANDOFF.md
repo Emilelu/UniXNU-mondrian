@@ -1022,6 +1022,10 @@ Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远�
 - 产物：boot.img `8a211a76…`（201887744 bytes）、kernel `dd9cbbd6…`、payload `ad412eb7…`、payload_kernel `04a9f928…`、ADT `0e7a6fbc…`、dtb `2d044eaa…`、fd `cf448571…`、bt_blob `febdc20d…`；kernel.log:253 有 0516 patch，八步 build 6 项通过，check-image-args 31 arguments/598 bytes、kernel archives 4 个全在、metal/bt blob container self-consistent、`verify-boot-image.py --manifest ...` → OK、boot.json `hardware_tested=false`。
 - 边界：这是 HOST-ONLY + 离线构建证据，不证明控制器 UART/DMA/IBS、真实 NVM 完成、蓝牙可用；0516 未上机，仍需 Lead 批准 d9；d8 的 PATCH 成功、两次 NVM 失败、`result=-60` 不变，⑧ 不改。
 
+### 43. d9 实飞：0516 仍失败（2026-11-17 12:03）
+
+用户 11:56 明确授权后，按 D9-PLAN 只执行一次 `fastboot boot E:/k60-work/artifacts/bt-0516-uart-clock/boot.img`，未 flash、未写 persist/sda38。证据目录 `E:/k60-work/evidence/usblog-20261117-115842`：boot.img `8a211a76…`，boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、panic/reset null、`stopReason=budget`。console 与 d8 同形：PATCH `segs=602 ret=0`，NVM 第一次 `segs=7 ret=-60`，fallback `segs=21 ret=-60`，`power=1 result=-60`，无 `nvm done`。按预声明判据判 **FAIL**；0516 不能作为修复，下一步需要新的控制器/UART 观测或新的单变量候选，不能直接改预算/段长掩盖。
+
 ### 42. d9 单变量飞行计划已准备（2026-11-17 02:00，未批准）
 
 新增 `docs/research/bt/D9-PLAN.md`：候选 `E:/k60-work/artifacts/bt-0516-uart-clock/boot.img`

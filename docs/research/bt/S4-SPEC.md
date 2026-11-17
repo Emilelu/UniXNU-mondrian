@@ -1733,11 +1733,13 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **结论**：候选产物已可交给 Lead 作为单变量飞行对象；在 Lead 批准 d9 前不飞、不重建、不改预算/段长/状态机/地址。d8 的 PATCH 成功、两次 NVM 失败、`result=-60` 不变；⑧ 仍为 false。具体飞前检查、预声明成功/失败判据与结果处理见 `docs/research/bt/D9-PLAN.md`（未批准、未上机）。
 
+**d9 实飞结果（2026-11-17 12:03，FAIL）**：用户授权后按单变量执行，证据 `E:/k60-work/evidence/usblog-20261117-115842`；boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、panic/reset null、`stopReason=budget`。console 仍是 PATCH `segs=602 ret=0`、NVM 第一次 `segs=7 ret=-60`、fallback `segs=21 ret=-60`、`power=1 result=-60`；未出现 `nvm done`。预声明判据中镜像/启动/采集通过，但 budget exhausted、最后 NVM ret=-60、power -60 三项失败，判定 FAIL；0516 对 NVM 失败形状没有改变，不能作为修复。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 当前范围
 
-**当前有效状态（2026-11-17 01:47 0516 候选构建完成）**：蓝牙账本已切到 `bt-0516-uart-clock` 候选构建：只追加 QcaBluetooth `986d631` 的 UART clock/control 修复，未改预算、段长、状态机或地址；d8 仍保留为失败观测与回滚基线（boot `0297012d…`）。0516 已构建但未上机，⑧仍为 false；d8 的 PATCH 软件路径返回成功，两次 NVM 尝试均失败，最终 `result=-60`。
+**当前有效状态（2026-11-17 12:03 d9 FAIL）**：蓝牙账本保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。
 本树默认 `python3 scripts/eight-step-gate.py --flash` 在 d8 时已实际列出 7 项（含 bluetooth）、56 项通过、RC=0，
 见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`；0516 候选在同一默认 flash 门禁下同样列出 7 项（含 bluetooth）、56 项通过、RC=0，见 `E:/k60-work/scratch/bt-s4/0516-flash-gate-20261117.log`；0516 候选构建的八步日志只有 build 6 项
 （`E:/k60-work/artifacts/bt-0516-uart-clock/logs/eight-step.log`），不追改 d8 manifest，也不把后补离线核验冒充原构建覆盖。

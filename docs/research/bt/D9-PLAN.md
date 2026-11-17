@@ -1,7 +1,6 @@
 # d9 单变量飞行计划（bt-0516-uart-clock，2026-11-17）
 
-状态：**候选已构建，未批准、未上机**。本页是给 Lead 的飞行前计划，不是自动执行脚本；
-只有 Lead 可以 boot，bt-agent 不开机、不刷机。
+状态：**2026-11-17 12:03 已飞，结果 FAIL（NVM ret=-60、power=-60）。** 本页原为飞行前计划；用户在 11:56 明确授权后，bt-agent 只执行了一次 `fastboot boot`，未 flash、未写 persist。
 
 ## 1. 唯一变量
 
@@ -107,3 +106,10 @@ bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0516-uart-clock/boot.im
 - bt-agent 不开机、不刷机；设备观测与 d9 由 Lead 执行或明确授权。
 - d8 产物、d8 结论（PATCH 软件路径返回成功、两次 NVM 失败、`result=-60`、蓝牙不可用）不变。
 - 本页不改变 `EIGHT-STEPS.toml` 的 ⑧，也不把 0516 宿主用例算成设备证据。
+
+## 8. d9 实飞结果（2026-11-17 12:03，FAIL）
+
+- 证据目录 `E:/k60-work/evidence/usblog-20261117-115842`；boot.img `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`，boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、`panicMarker=null`、`resetMarker=null`、`stopReason=budget`。
+- console：PATCH `tlv done type=1 segs=602 sent=602 acks=1 final=0 ret=0`；NVM 第一次 `type=2 segs=7 ret=-60`；fallback `type=2 segs=21 ret=-60`；`power=1 result=-60`；仍无 `nvm done`。
+- 对预声明判据：镜像哈希、boot 接受、capture 完整通过；但出现 `boot: budget exhausted`、最后一个 NVM `done type=2 ret=-60`、`power=1 result=-60`，因此 **FAIL**。
+- 结论：0516 的 UART-clock/control 修复没有改变 NVM 失败形状；它不是足够修复。下一步在未取得控制器/UART 新观测前不要改预算、段长、下载模式、状态机或地址。

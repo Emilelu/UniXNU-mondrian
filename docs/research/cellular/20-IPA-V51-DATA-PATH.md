@@ -1,9 +1,9 @@
 # 20 — K60 IPA v5.1 数据通路（IPA/GSI、QMAP、PDP）
 
 - 日期：2026-11-18
-- 状态：**研究完成；未实现。K60 数据面仍为 ENETDOWN，不能声称可上网。**
+- 状态：**研究完成；M0 编译骨架已实现并通过 host tests 与内核 nm 验收；数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
 - 范围：按 `E:/hackios/UniXNU/docs/zh/porting/baseband.md` 第 2、4 节，给出 K60（mondrian/SM8475）IPA v5.1 数据面的硬件事实、v4.2 复用边界、分阶段计划和首个离线测试。
-- 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）完全缺失**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。
+- 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）数据面仍缺失，M0 仅编译骨架**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。
 
 路径缩写：`BASE = E:/hackios/UniXNU/docs/zh/porting/baseband.md`；`QB = E:/hackios/UniXNU/drivers/QcomBaseband`；`DIPA = E:/k60-work/vendor-src/kernel-sm8450-modules/qcom/opensource/dataipa/drivers/platform/msm`；`K60 = E:/hackios/k60-cellular/drivers/PongCellular`；`DTTRUTH = E:/hackios/k60-cellular/docs/research/cellular/02-DT-TRUTH.md`；`FDT = E:/k60-work/reports/live-6033dbec-fdt.dtb`（二进制 FDT，行号不适用）。
 
@@ -16,11 +16,11 @@
 | L1 SoC/板级 | 电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | modem PAS 已按 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` 推进；IPA 保留内存已在 DT；IPA 固件未加载，IPA 时钟/电源未证实 | IPA 的 power/clock/interconnect 资源尚未建模 |
 | L2 控制桥 | QMUX 帧、QMI client 分配、服务发现/回复路由 | `K60ModemLink.c` 已接 GLINK/QRTR，能枚举 AppleBaseband；IPA 服务 0x31 未服务 | 缺 IPA QMI 服务端 |
 | L3 iOS 接口 | 基带服务、channel、异步读写与启动交互 | `coachz_baseband_*` 控制桥和 PDP 控制对象存在 | 数据回调仍落到 ENETDOWN |
-| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失** | 全部 |
+| L4 数据通路 | IPA/GSI、QMAP mux、系统 NIC TX/RX | **缺失（M0 仅编译骨架）** | 全部 |
 
 L4 逐项状态：
 
-- **IPA/GSI**：没有 IPA 寄存器映射、没有 GSI 初始化、没有 ring/doorbell、没有中断处理。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
+- **IPA/GSI**：M0 只有常量与版本解码，没有寄存器 MMIO、GSI 初始化、ring/doorbell、中断处理。`K60/K60ModemLink.c:261-282` 明确写着 "K60 has no IPA/GSI data path yet"，`coachz_modem_data_send()` 直接丢包并返回 `-50 (ENETDOWN)`。
 - **QMAP mux**：没有 WDA Set Data Format、没有 QMAP endpoint 配置、没有 mux 1..4 注册。
 - **net interface**：QcomBaseband 的 `coachz_bb_pdp.cpp:122-156` 会注册 `pdp_ip0..pdp_ip3`，`:83-120` 有 raw-IP TX/RX；但 K60 的 `coachz_modem_data_send` 是 ENETDOWN，所以 ifnet 只能挂载、不能通包。
 - **WDS/QOS binding**：没有 DPM Open Port、没有 WDS Bind Mux Data Port（0x00a2）、没有 QOS Bind Data Port（0x002b）。
@@ -69,6 +69,7 @@ L4 逐项状态：
 
 ### M0 — 仅编译骨架（IKM）
 
+- 状态：2026-11-18 已实现，代码提交 `4405e3710e64ee249335bb4574b1d5b5f1336a4a`。新增 `K60Ipa.h`/`K60Ipa.c`，生成 `patches/xnu/0623-k60-ipa.patch`，host tests 与 patch gate 通过；内核构建通过，kernel sha256 `31991c62e390a6f61b4ebaad9b6228c4a0fb02f34b396d83cb746eb0ded7b2f8`（105,521,152 B），`llvm-nm` 确认 `_k60_ipa_probe`、`_k60_ipa_decode_comp_hw_version`、`_k60_ipa_marker`。
 - 内容：新增 `K60Ipa.h`/`K60Ipa.c`，只放常量、结构体和空的 `k60_ipa_probe()`；不映射 MMIO、不写寄存器、不调用 PAS。
 - 验收：内核编译通过；`nm` 能看到 `k60_ipa_probe`；编译期 static assert 为 `K60_IPA_CFG_BASE=0x3f40000`、`K60_GSI_BASE=0x3e04000`、`K60_IPA_IRQ=654`、`K60_GSI_IRQ=432`；启动不 panic、不改现有 modem 行为。
 - 风险：XNU 构建文件需要新增条目（可能通过扩展 `patches/xnu/0622-k60-modem-qrtr.patch` 或新 patch）。
@@ -143,4 +144,4 @@ L4 逐项状态：
 3. 与 DT 的两个 region 比较：若总和 ≤ `0xa000`，当前 `memory-regions -> ipa_gsi_region@8b910000` 可能成立；若 `0xa000 < 总和 ≤ 0x10000`，则 DT 的 40 KiB 配对错误，必须改为 `ipa_fw_region@8b900000`，否则 M1 永远失败。
 4. 同时用 `dtc`/FDT 属性导出核对 `firmware-names`、`memory-regions`、`pas-ids` 的 index 对齐（`DIPA/ipa_v3/ipa.c:8117-8128` 要求同 index）。
 
-**下一步代码动作：** 先做 M0 的 `K60Ipa.h`/`K60Ipa.c` 编译骨架和 static assert；不要先写 QMAP/GSI 代码。M0 通过后再做上述离线 `ipa_fws.mdt` 尺寸检查；检查通过才允许 M1 的 PAS 加载。
+**下一步代码动作：** M0 骨架已落地并通过内核 `nm` 验收（kernel `31991c62...`）；下一步先做上述离线 `ipa_fws.mdt` 尺寸检查，检查通过才允许 M1 的 PAS 加载。不要先写 QMAP/GSI 代码。

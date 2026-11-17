@@ -68,7 +68,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 | MX 供电轨 | PM8350C **S4**（phandle `0x9c`，`msslvl`） | DT `mx-supply` |
 | IPCC 信号 | client 0：fatal=0, handover=1, ready=2, stop-ack=3, shutdown-ack=7 | DT `interrupts-extended` |
 | modem root PD | `soc=msm, domain=modem, subdomain=root_pd, qmi_instance_id=180` | `/vendor/firmware_mnt/image/modemr.jsn` |
-| IPA（不碰） | `qcom,ipa@3e00000`，`pas-ids=<0x0f>`，IPAv4.5 | `dts/mondrian.dts:295-334` |
+| IPA（M0 骨架） | `qcom,ipa@3e00000`，`pas-ids=<0x0f>`，IPA v5.1 APQ 工作假设（DT `qcom,ipa-hw-ver=0x16`） | `dts/mondrian.dts:295-334`；`docs/research/cellular/20-IPA-V51-DATA-PATH.md` |
 
 ## 3. 禁止事项（双系统铁则）
 
@@ -76,7 +76,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 2. **L1/L2 阶段只读** `modemst1`/`modemst2`/`fsg`/`fsc`，不写。
 3. **加载 modem 前先查它是否已在运行** —— 从 Android 热重启进 XNU 时，modem 可能仍活着；
    直接 `PAS_AUTH_AND_RESET` 会打断一个正在运行的 modem（`03-SCOPE.md` §5）。
-4. 不在本目录写 IPA 代码（`03-SCOPE.md` §4.1：全有或全无）。
+4. IPA 代码只写 M0 骨架（`K60Ipa.h`/`K60Ipa.c`）；M1 起需要 PAS 固件实测。
 5. **不自行 boot**：镜像与脚本交给 Lead，由 Lead 在用户明确同意后执行 `fastboot boot`。
 
 ## 4. 开工前必须存在的前置件

@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: `120hz-3` built (vendor 11-packet sequence, official `vsync=120` alias, measured refresh report); device flight pending. Branch: `feat/120hz-panel`.
+Status: `120hz-4` prepared (first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); build pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -11,14 +11,17 @@ question is only whether the m11a panel accepts timing@2 and whether the INTF
 TE counter and frame counter advance at about 120 per second.
 
 The prior software-only declaration is in
-`patches/xnu/0506-k60-120hz-refresh.patch`: it now reports the rate the panel
-driver actually measured from INTF1, but it never touches DSI timing itself.
+`patches/xnu/0506-k60-120hz-refresh.patch`: while a request is active it reports
+the requested 120 Hz to TimingElements (published once at start), while the
+panel driver separately logs the INTF1-measured rate. It never touches DSI
+timing itself.
 `drivers/PongAdreno/PongDsiPanel.cpp:116` already says the cadence correction
 does not establish a 120 Hz display mode. This plan adds the missing panel-side
 switch and accepts both the project gate `p120=1` and the official reference
 spelling `vsync=120`; every image without either stays at the native 60 Hz
-declaration, and a failed switch reports the observed 60 Hz rather than the
-request.
+declaration. The one-time TimingElements publication reports the requested
+120 Hz; the separate `K60 PANEL: INTF1 ...` line records what the panel
+actually produced, and a failed switch is judged from that line.
 
 ## Data source (live FDT plus vendor dtsi)
 
@@ -49,25 +52,30 @@ sequence is also recorded in `docs/plans/120HZ-PORT-PLAN.md`.
 ## Implementation
 
 1. `drivers/PongAdreno/PongDsiPanel.cpp`: add the eleven-packet `kTiming120`
-   table and `pong_panel_switch_120()`. It runs once, after the existing
-   `0x11/0x29/0x51` bring-up, only when boot argument `p120=1` or `vsync=120`. It sends
-   each packet through the existing `dsi_dcs()` path, honours the per-packet
-   post-wait (10 ms after `CE 01`), waits 300 ms, and measures INTF1 frame/TE
-   counters before (200 ms) and after (500 ms). The first-frame patch also
-   calls `pong_panel_sample()`, which takes a second INTF1 observation
+   table and `pong_panel_switch_120()`. The bring-up only records the request;
+   the switch runs once at the first completed GPU frame (the zizhan `panelHz()`
+   point), so the panel is already receiving UI frames. It sends each packet
+   through the existing `dsi_dcs()` path, honours the per-packet post-wait
+   (10 ms after `CE 01`), waits 300 ms, writes the INTF1 tear-check
+   `vsync_count` from 100 to 50 when the inherited value is the known 60 Hz
+   state, and measures INTF1 frame/TE counters before (200 ms) and after
+   (500 ms). `pong_panel_sample()` takes a second observation
    (`after the UI frame`) once the real UI frame is presented.
 2. `drivers/PongAdreno/PongDsiPanel.h`: expose the switch and its return
-   values.
+   values; document that the reported rate is the requested 120 Hz while a
+   request is active, otherwise the INTF1 observation.
 3. `patches/xnu/0506-k60-120hz-refresh.patch`: add
    `static TUNABLE(uint32_t, gK60Panel120, "p120", 0)`, declare
-   `pong_panel_refresh_hz()`, and make `refreshHz()` return the measured INTF1
-   rate when the panel is native (falling back to `fb_hz` when no measurement
-   exists). A request alone never reports 120.
+   `pong_panel_refresh_hz()`, and make `refreshHz()` return the requested
+   120 Hz while the panel driver has an active request; otherwise use the
+   measured INTF1 rate and fall back to `fb_hz`. The measured value is kept in
+   the K60 PANEL log and never downgrades the one-time TimingElements value.
 4. `scripts/check-image-args.py`: allow the documented `p120` and `vsync`
    additions.
 5. `scripts/check-panel-timing.py`: static proof that the eleven packets, the
-   p120/vsync gates, the measured-refresh accessor, and the pre-/post-switch
-   and post-first-frame INTF1 observations are present.
+   p120/vsync gates, the first-frame switch, the requested-refresh accessor,
+   the INTF vsync_count update, and the pre-/post-switch and post-first-frame
+   INTF1 observations are present.
 
 ## Boot-argument budget
 
@@ -123,7 +131,8 @@ matching the build manifest:
 1. The image command line contains `p120=1` or `vsync=120`, contains every
    board argument unchanged, and is at most 607 bytes; `image-arg-audit`
    returns OK.
-2. The log contains `K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0`.
+2. The log contains `K60 PANEL: 120 Hz switch at the first GPU frame`
+   followed by `K60 PANEL: timing switch to 120 Hz: 11 packets, rc 0`.
 3. The log contains a `K60 PANEL: INTF1 after the UI frame te .../s` line
    with TE and frame rates in the range 110–130 per second. The before-switch
    line should be in the range 55–65 per second. The earlier `after the
@@ -133,6 +142,9 @@ matching the build manifest:
    least 100 `SpringBoard` lines, and zero `sig=11` lines.
 5. No `K60 PANEL: DCS ... failed` line appears after the switch begins, and
    the panel does not go black.
+6. The same image contains `k60_backlight_control=1`; the log contains
+   `K60 BACKLIGHT: published level ... conformance=1 control=1` and the user
+   can move the brightness slider through both endpoints.
 
 FAIL if any DCS packet fails, the panel black-screens, the first frame never
 arrives, the measured rate stays near 60, or the image cannot be tied to the
@@ -141,7 +153,7 @@ built SHA-256.
 ## Flight procedure
 
 1. Build with the display input/output trees:
-   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-3 --kernel-arg vsync=120 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
+   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-4 --kernel-arg p120=1 --kernel-arg k60_backlight_control=1 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
 2. Verify `boot.img` with `scripts/verify-boot-image.py --manifest` and
    `scripts/check-image-args.py --image ... --board board.toml`.
 3. Only `fastboot boot`; never `fastboot flash`. Collect a 300 s USB log and

@@ -5,10 +5,10 @@
 > **`docs/REPO-INVENTORY.md`** — 48 个本地 git 仓库清单
 > **`docs/LOCAL-ASSETS.md`** — 官方驱动源码/固件/反汇编产物索引
 > **`docs/YIBIYA-PICK.md`** — yibiya fork 采纳分析
-> **`docs/PITFALLS.md`** — 已踩过的坑（88 条）
+> **`docs/PITFALLS.md`** — 已踩过的坑（P-01–P-231）
 >
-> **`docs/PITFALL-TO-RULE-INDEX.md`** — **99 条坑 → 12 条铁则的反查表
->   （遇到现象先查这里，就知道该守哪条铁则）**
+> **`docs/PITFALL-TO-RULE-INDEX.md`** — 坑 → 铁则反查表（2026-11-11 快照，新增条目见 `PITFALLS.md`）
+>   （遇到现象先查这里，就知道该守哪条铁则）
 > **`docs/TOOLBOX.md`** — **所有可复用工具的位置与用法（做之前先搜这里）**
 > **`docs/PLAYBOOKS.md`** — **可复用操作流程 PB-1..PB-9（复制粘贴可复现）**
 > **`docs/DATA-VOLUME-DEPLOY.md`** — **往 Data 卷放文件的三种方法**
@@ -22,7 +22,7 @@
 
 # 第一章 最高优先级铁则（违反即返工，无例外）
 
-这 25 条是 99 条 PITFALLS 提炼出的根因，违反任何一条都会重复犯错。
+这 25 条是从 PITFALLS 提炼出的根因，违反任何一条都会重复犯错。
 
 > **反查表**：`docs/PITFALL-TO-RULE-INDEX.md`（按现象查该守哪条）
 

@@ -246,3 +246,9 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
 - 代码分支 `fix/battery-sample-dirty`：`40e06370` 使用参考符号 -1，`5c960671` 增加周期刷新日志，`263ee626` 记录 07 的符号约定；`python3 -B scripts/tests/test-k60-notification-qualification.py` → 22 tests OK，host `TESTS OK 49`，电池归档 `88a1ad8d50903dba01b6039bbe333044b82bbb00860e8971fd35361fa2572671`（`build-report.json` 的 `charging_current_sign: -1`，`captured-board-config.bin` byte 96 = -1）。
 - route-c 产物取代 route-b：boot.img `/mnt/e/k60-work/artifacts/adsp-board-20261116/route-c/boot.img`，201,887,744 B，sha256 `e83c9513818d768a9138a4cd2eeb43b534ebcc8fa8c66650db2963608841ed3f`；kernel `6f0b7a48e0fbcbbecd789a9c656c8d8659b0b929fbd697ec26185d45a60e9fa9`；payload `ca0f6e60a13d8d50939b0776133522138113cf7321e738f47e0116bba47e21ba`；`image-arg-audit: OK (30 arguments, 598 bytes)`；kernel strings：`current-source=`×2、`K60Battery: refresh sample=`×1、`K60Battery: no publication`×1。
 - 上机判据沿用 §8.5，但镜像 sha256 改为 `e83c9513...`，C1 的期望改为 `measured sign=-1`；C2 的 `current-source=usb` 仍表示 **USB 输入电流回退**，不是电芯电流。route-b 的 `762645bc...` 不再 boot。
+
+### 8.7 Android 侧 C3 样本（2026-11-17 23:05）
+
+- 采集目录：`E:/k60-work/evidence/route-c/android-20261117-2305/`。设备 6033dbec，Android 17（CP2A.260605.016），内核 5.10.237；采集时 AC 供电、USB powered=false、充电器类型 CDP、status Charging、89%、4277 mV、0 mA、28.3 °C、charge counter 3913。
+- `samples.tsv` 有 5 条 sysfs 样本（epoch 1794927869..1794927891）；`dmesg.txt` 含 122 条 `fg_update_status` 与 115 条 `usb_present`；`dumpsys-battery.txt` 与 `props.txt` 为同一时刻快照。哈希见该目录 README.md。
+- 判读命令：`python3 scripts/judge-battery.py --log <route-c console.log> --android E:/k60-work/evidence/route-c/android-20261117-2305/samples.tsv --window-start 1794927869 --window-end 1794927891`。当前 `current_now=0`，C3 的电流项在两侧不同时 ≥100 mA 时按 07 §3.2 跳过；若 boot 晚于该窗口，boot 前用 `E:/hackios/_scratch/charger-ko/capture-android-battery.sh` 重采并换窗口。

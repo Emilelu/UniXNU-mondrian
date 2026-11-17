@@ -12,7 +12,7 @@ the evidence record for the direct candidate; c8 remains HOLD.
 | What did the queue candidate prove? | The device really sits in SBL with `exec_env=1` and reports BHI_STATUS success (`0x8b9a74ae`), so the official BHI_EXECENV read is meaningful. But the queued `DEV_ST_TRANSITION_SBL` work item ran only after `mhi_sync_power_up` timed out and `mhi_power_down` had invalidated the register window; `mhi_fw_load_bhie` returned `-EIO` (`amss bhie load ret=-5`). |
 | What changes in this candidate? | After the BHI_STATUS success gate, the boot path sets `ee = MHI_EE_SBL`, latches `pong_sbl_pushed = true`, and calls `mhi_download_amss_image()` **directly in the same `mhi_fw_load_handler` worker pass**, where READY/POR still makes register access valid and `fbc_image` is already owned. The 200 x 10 ms bounded poll and the one-shot latch stay. |
 | Why is this still the official path? | UniXNU-sheng `516a7804` `package/MhiBoot.c:104-107` polls `BHI_EXECENV` and writes the BHIe vector table (`start_image()`, `:65-75`) when it reads `MHI_EE_SBL`; it never waits for an EE event packet. Stock Linux instead returns after READY and `mhi_sync_power_up` waits the cached EE. This candidate mirrors the official polling point and keeps the stock MHI vector-table transfer. |
-| Is this proven on K60? | **No — built only, not flown.** `hardware_tested: false`. |
+| Is this proven on K60? | **Partly — the direct BHIe push works.** The 2026-11-18 01:29 flight logged `amss bhie load ret=0 exec_env=1`, then the device reported `exec_env=2` (AMSS) and M0. WiFi still fails because the host keeps cached `ee=1` (SBL) and `mhi_sync_power_up` times out; see §6. |
 
 ## 1. Why the queue form was replaced
 
@@ -81,6 +81,7 @@ vector table is already owned and no duplicate allocation occurs.
 |---|---|
 | tag | `wifi-20261118sbl-direct` |
 | built_at | 2026-11-18T01:26:58+08:00 |
+| first flight | 2026-11-18 01:29, console `E:/k60-work/evidence/usblog-20261118-012938/console.log`, 237,343 B / 3,591 lines, SHA256 `9fff4a26237a3b6e795263a0a241c4dd2ab6aa42a84adbdde6b28cdaa3609c05` |
 | branch / head | `fix/wifi-bhie-direct` / `0782eddcfbd3f503db8089a4f7b8a3d1de9c0200` (dirty 0) |
 | `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-direct/boot.img`, 201,887,744 B, SHA256 `03e11c823672930b8c4140b27b4576d68a10459baa9bfcdf9ef03d18979332e1` |
 | kernel | `64694fa5e1b6e7c83f5cd4080ef781ebe4355693bd1fc25b75ed561b5c117ba5` (117,342,208 B) |
@@ -103,7 +104,7 @@ Offline checks performed:
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
   arguments / 602 bytes).
 - `strings -a kernel.macho | grep -c 'device is in SBL without an EE event'` — 1.
-- `boot.json` records `hardware_tested: false`; the image is built, not flown.
+- `boot.json` recorded `hardware_tested: false` before the flight; the first flight is in §6.
 
 ## 4. Prewritten flight criteria
 
@@ -141,3 +142,48 @@ The image is only valid with a serial console captured before `fastboot boot`.
 It does not claim WiFi works: QMI, WMI, 102 channels, `en0`, scan, WPA2, DHCP
 and HTTPS remain after MHI. It does not replace c8's audit status: c8 is still
 HOLD and must not be built, booted or merged.
+
+## 6. First flight of the direct candidate (2026-11-18 01:29)
+
+The direct image `wifi-20261118sbl-direct` was flown with serial capture
+attached before boot. The log is complete:
+`E:/k60-work/evidence/usblog-20261118-012938/console.log` (237,343 bytes,
+3,591 lines, SHA256 `9fff4a26237a3b6e795263a0a241c4dd2ab6aa42a84adbdde6b28cdaa3609c05`).
+Boot was accepted, the console was captured, and SpringBoard was reached at
+`:1630`.
+
+The direct-push sequence is:
+
+- `:646` `Pong MHI: device in READY state`.
+- `:648` `Pong MHI: device is in SBL without an EE event, BHI_STATUS=0x8b9a74ae; pushing the AMSS image`.
+  The top two bits are 2, so the success gate passed.
+- `:650` AMSS vector table reported (`entries=12 last dma=0xa0001ec0 len=176`);
+  `:658` `amss download begin entries=12`.
+- `:664`/`:666` event types 32 and 64; `:668` `Pong MHI: EE event execenv=1`.
+- `:685` `Pong MHI: bhie tx_status=0x2 seq=0x2 expected=0x24e1b3ae ret=19369`.
+  The `ret=19369` is diagnostic garbage from an uninitialized local in the
+  added log; the actual return is the next line.
+- `:687` `Pong MHI: amss bhie load ret=0 exec_env=1` — **BHIe transfer
+  succeeded**.
+- `:691` `Pong MHI: timeout after 20000 ms ee=1 pm_state=4 exec_env=2 mhi_state=2 MHISTATUS=0x201 MHICTRL=0x200`.
+  `pm_state=4` is `MHI_PM_M0`, `mhi_state=2` is `MHI_STATE_M0`, and
+  `exec_env=2` is AMSS; the device is in mission mode.
+- `:693` `ath11k: failed to power up mhi: -110`; SpringBoard still boots at
+  `:1630`.
+
+Interpretation: the direct BHIe path is correct and reaches AMSS. The remaining
+single variable is the host's cached EE. The only EE event consumed was
+`execenv=1` (SBL); after the image starts, the device reports `exec_env=2`
+(AMSS) but no second EE event updates `mhi_cntrl->ee`. `mhi_sync_power_up`
+(`pm.c:1277-1295`) waits on `MHI_IN_MISSION_MODE(mhi_cntrl->ee)`, sees
+`ee=1`, and times out even though the device is already in M0/AMSS. This is
+exactly the gap the official `MhiBoot.c:117-119` `MhiWaitMission` covers:
+it polls `BHI_EXECENV` until AMSS/WFW; the direct candidate still returns to
+stock `mhi_sync_power_up` with the stale cached value.
+
+Next single-variable candidate: after `mhi_download_amss_image()` returns 0,
+poll `mhi_get_exec_env` for up to 2 s; when it reads `MHI_EE_AMSS` or
+`MHI_EE_WFW`, assign that value to `mhi_cntrl->ee` before
+`mhi_sync_power_up` resumes. Keep the direct push, the BHI_STATUS gate and the
+one-shot latch. Do not add QMI/WMI changes in the same flight.
+

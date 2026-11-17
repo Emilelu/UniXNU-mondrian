@@ -132,6 +132,7 @@
 - 验证：宿主测试全过（`RootPublication`、`RootWindowRead`、`VerifiedTableCache`、`RootPolicyTable`、`RootWindowVerifier`、`RootWindowReadVerified`，2026-11-17 07:51 复跑）；Mac probe 构建未跑，`NATIVE_VERIFIED_BLOCK` 默认关闭、`native-vroot-cache` 关闭、未 boot。上机验收仍需 `PONG APFS` 三窗顺序与 `K60DATA mounted ro=0` 日志，由 Lead 安排。
 - 上机前检查 `build-report.json`：`verified_root` 必须是「compiled with verified_root.c and xnu_crypto.c…」；`verified_root_objects` 必须列出 `verified_root.o` 与 `xnu_crypto.o`，否则 `--verified-root` 没有生效，内核链接会缺 `vr_*` 符号。
 - 上机日志判据：`PONG APFS: UUID … bound to … UFS window OS/SystemOS` 与 `K60DATA mounted ro=0` 必须同时出现；三窗顺序按 `UfsRootPlan`（SystemOS 第一、OS 最后）。如果先出现 `PONG_UFS TRANSPORT … stage=root window preparation/root window start/root media wait`，按 fail closed 处理，不得把部分窗口当成成功。
+- 2026-11-17 08:16：`RootPublication` 宿主测试补 2 窗与 3 窗的合法顺序断言（`01950044`），六项宿主测试仍全过。
 
 ## 3.7 步骤 2b 构建入口补全（2026-11-17 07:40）
 

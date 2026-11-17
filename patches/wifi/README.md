@@ -33,13 +33,13 @@ done
 
 > `0010` 只做 `build-xnu-4k-baseline.sh` 的 archive 接线。当前主仓 `0010` 只覆盖 `KERNEL_EXTRA_ARCHIVES`；`k60-wifi` 的更新版还覆盖 `PLATFORM_ARCHIVES`（见“与 k60-wifi/feat/wifi-bringup 的系列漂移”）。旧文提到的 `K60_WIFI_SHENG` 回退在当前 `0010` 中不存在，已删。
 >
-> 2026-11-17 07:25：四处补丁字节差已同步到分支 `feat/wifi-series-sync`（`e1a46146`，基于本分支 `d26f936c`）；该分支 12 个补丁与 `k60-wifi` 逐字节一致，`main` 仍是旧字节，等 Lead 接线。
+> 2026-11-17 08:27：四处补丁字节差已同步到干净分支 `feat/wifi-patch-sync`（`5d70dd08`，从 `origin/main` 拉出，只含 4 个补丁文件）；该分支 12 个补丁与 `k60-wifi` 逐字节一致，`main` 仍是旧字节，等 Lead 接线。旧的 `feat/wifi-series-sync`（`e1a46146`）基于 docs 分支 `d26f936c`，含整条审计文档历史，不可直接合 main，保留为历史。
 
 ## 与 k60-wifi/feat/wifi-bringup 的系列漂移（2026-11-17 实测）
 
 主仓这套 `patches/wifi` 比 `k60-wifi` 检出 `feat/wifi-bringup` 的同目录旧：两边 `series` 都是 12 行，
 但主仓 12 个补丁合计 **221,744 B**，k60-wifi 为 **228,302 B**；5 个文件字节不同。
-下表是 **2026-11-17 07:25 同步前** 的主仓快照；同步后 `feat/wifi-series-sync` 的 12 个补丁已与 k60-wifi 一致，只有 README 仍是两套文档：
+下表是 **2026-11-17 07:25 同步前** 的主仓快照；同步后 `feat/wifi-patch-sync` 的 12 个补丁已与 k60-wifi 一致，只有 README 仍是两套文档：
 
 | 文件 | 主仓 | k60-wifi | 差在哪 |
 |---|---|---|---|
@@ -49,7 +49,7 @@ done
 | `0010-scripts-build-xnu-wifi-archive.patch` | 1,629 B | 2,575 B | 主仓只把 `XNU_PONG_WIFI` 加到 `KERNEL_EXTRA_ARCHIVES`；mondrian 实际走 `PLATFORM_ARCHIVES`，k60-wifi 已补第二个分支，否则内核会静默不带 PongWifi |
 | `README.md` | 7,481 B | 8,282 B | k60-wifi 版保留更多历史说明 |
 
-> **结论**：主仓 `patches/wifi` 不能直接接进构建；补丁字节差已在 `feat/wifi-series-sync` `e1a46146` 同步，等 Lead 把它合入并接线。两边 `board.toml:20` 都仍只挂 `patches/xnu/series`，没有自动 applier。
+> **结论**：主仓 `patches/wifi` 不能直接接进构建；补丁字节差已在 `feat/wifi-patch-sync` `5d70dd08` 同步，等 Lead 把它合入并接线。两边 `board.toml:20` 都仍只挂 `patches/xnu/series`，没有自动 applier。
 
 ## `build-k60-ath11k.py` 相对 zizhan 原脚本的 5 处兼容修复（0009 内含）
 
@@ -78,7 +78,7 @@ bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
 
 > 原补丁与原始 `new/` 文件曾保留在 `patches/original/` 供对照，但 2026-11-17 复核时该目录在这两个检出中都不存在；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。
 >
-> 2026-11-17 07:28 复核：以 `k60-wifi` 的 `b9a8e981^`（series 入库前的干净树）为基线，用 `feat/wifi-series-sync`（`e1a46146`）里的 12 个补丁按 `series` 顺序执行 `git apply --check` + `git apply`，全部通过（548 个文件）。应用后 `configs/mondrian_wifi_defconfig` 的 Data UUID 为 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`，`build-xnu-4k-baseline.sh` 同时含 `KERNEL_EXTRA_ARCHIVES` 与 `PLATFORM_ARCHIVES` 分支，`PongWifiPlatform.cpp` 为 TCS4 探针；只有 `scripts/build-pong-platform-macos.py` 的 100644/100755 模式警告，不影响应用。
+> 2026-11-17 07:28 复核：以 `k60-wifi` 的 `b9a8e981^`（series 入库前的干净树）为基线，用 `feat/wifi-patch-sync`（`5d70dd08`）里的 12 个补丁按 `series` 顺序执行 `git apply --check` + `git apply`，全部通过（548 个文件）。应用后 `configs/mondrian_wifi_defconfig` 的 Data UUID 为 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`，`build-xnu-4k-baseline.sh` 同时含 `KERNEL_EXTRA_ARCHIVES` 与 `PLATFORM_ARCHIVES` 分支，`PongWifiPlatform.cpp` 为 TCS4 探针；只有 `scripts/build-pong-platform-macos.py` 的 100644/100755 模式警告，不影响应用。
 
 ---
 

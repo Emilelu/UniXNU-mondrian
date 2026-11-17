@@ -44,6 +44,11 @@ def main() -> int:
           text.count("mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);") == 1)
     check("SBL logs BHI_STATUS before queueing",
           "BHI_STATUS=%#x; queueing the SBL transition" in text)
+    check("SBL gates the queue on BHI_STATUS success",
+          "status = bhi >> 30;" in text and
+          "if (status != BHI_STATUS_SUCCESS) {" in text)
+    check("SBL stops on BHI_STATUS error",
+          "if (status == BHI_STATUS_ERROR) {" in text)
     check("pm SBL handler has a one-shot latch",
           text.count("if (mhi_cntrl->pong_sbl_pushed) {") == 1 and
           text.count("mhi_cntrl->pong_sbl_pushed = true;") == 1)
@@ -54,7 +59,7 @@ def main() -> int:
     # repository test still runs when no build is present: the builder anchors
     # above are the source of truth, and the generated files are a projection.
     build = pathlib.Path(os.environ.get("K60_SBL_BUILD_DIR",
-                                        "E:/k60-work/build/wifi-sbl-queue"))
+                                        "E:/k60-work/build/wifi-sbl-queue-v2"))
     boot = build / "mhi" / "boot.c"
     pm = build / "mhi" / "pm.c"
     header = build / "pinned" / "linux" / "mhi.h"
@@ -64,6 +69,8 @@ def main() -> int:
         htext = header.read_text(encoding="utf-8")
         check("generated boot.c has the bounded SBL queue",
               "device is in SBL without an EE event" in btext and
+              "status = bhi >> 30;" in btext and
+              "if (status != BHI_STATUS_SUCCESS) {" in btext and
               "mhi_queue_state_transition(mhi_cntrl, DEV_ST_TRANSITION_SBL);" in btext)
         check("generated pm.c keeps the latch",
               "mhi_cntrl->pong_sbl_pushed = true;" in ptext)

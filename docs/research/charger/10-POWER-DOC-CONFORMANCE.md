@@ -312,3 +312,4 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   2. 真机插拔、放电未执行；服务重启的代码路径已补（`6750c7bd`），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同窗口样本；image c 已有 14 条完整 XNU sample，缺的是同窗口、同温度/电压/电流量级的真实 Android 基线。
   4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；标准 `CurrentCapacity`/`MaxCapacity` 现在按官网发布为百分比（`MaxCapacity=100`），`AppleRawCurrentCapacity`/`AppleRawMaxCapacity` 保留 mAh，smoke 同时校验这两组值；缺失电池首帧注册尚未在真机验证。
+- 设备状态（2026-11-18 03:33）：`k60-device.sh state` 为 `none`，`adb`/`fastboot` 和 `COM5` 均无；`E:/k60-work/scratch/controlled-final-image-e.sh` 已在后台等待，需物理断电重启恢复。

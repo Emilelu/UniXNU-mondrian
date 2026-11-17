@@ -25,6 +25,7 @@ The direct candidate's console is complete:
 It records:
 
 - `:648` `Pong MHI: device is in SBL without an EE event, BHI_STATUS=0x8b9a74ae; pushing the AMSS image`.
+- `:685` `Pong MHI: bhie tx_status=0x2 seq=0x2 expected=0x24e1b3ae ret=19369` — the remaining-jiffy count shows the BHIe wait returned early; most of the 20 s was spent without a mission poll, not in the transfer.
 - `:687` `Pong MHI: amss bhie load ret=0 exec_env=1` — the vector-table transfer completed.
 - `:691` `Pong MHI: timeout after 20000 ms ee=1 pm_state=4 exec_env=2 mhi_state=2 MHISTATUS=0x201 MHICTRL=0x200`.
   The device is already in AMSS/M0; the host's `ee` cache is still 1/SBL.
@@ -36,6 +37,12 @@ returns; `mhi_sync_power_up` still gives up after its own fixed 20 s wait. The
 mission4 candidate therefore raises `mhi_ctrl->ready_timeout_ms` to 60 s in
 `ath11k_mhi_start` (generated `ath11k/mhi.c:450`) while keeping the 25 s poll.
 This lets the sync waiter stay alive long enough for the poll to cache AMSS.
+
+The path is reachable on this board: the direct flight logged
+`Pong MHI: serial=0x22d0a7f3 ee=0 fbc=1 fw_sz=0` at `:632`, so
+`mhi_async_power_up` saw PBL and queued `DEV_ST_TRANSITION_PBL`; the PBL case
+calls `mhi_fw_load_handler`, which calls `mhi_ready_state_transition` at
+generated `mhi/boot.c:618` and then enters the direct block at `:624`.
 
 `mhi_sync_power_up` is the waiter that turns a stale cache into the final
 `-ETIMEDOUT`; the fix is intentionally confined to that wait plus the existing
@@ -70,7 +77,7 @@ Generated source anchors from the mission archive:
 
 | file | anchor |
 |---|---|
-| `mhi/boot.c` | direct block at :624-672; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-664; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :658 |
+| `mhi/boot.c` | direct block at :624-674; ready transition call :618; push log :647; `mhi_cntrl->ee = MHI_EE_SBL` :648; latch :649; `amss_ret = mhi_download_amss_image` :650; mission poll :651-664; `mhi_cntrl->ee = mission` :655; `mhi_create_devices(mhi_cntrl)` :656; wake :657; mission log :658 |
 | `mhi/pm.c` | guard :828; latch :834; fallback download :843 |
 | `pinned/linux/mhi.h` | `bool pong_sbl_pushed;` at :445 |
 | `ath11k/mhi.c` | `ready_timeout_ms = 60000` at :450 |
@@ -81,7 +88,7 @@ same one that just completed the BHIe transfer. No new MMIO lifetime is
 introduced. `mhi_sync_power_up` is already sleeping in
 `wait_event_timeout(state_event, ...)`; writing the cached EE without a wake
 would still end in the 20 s timeout, so the `wake_up_all` is part of the same
-fix. Once the cached EE names AMSS, the SBL transition's `mhi_create_devices`
+fix. Once the cached EE names AMSS, the mission block's `mhi_create_devices`
 must also run for the IPCR channels, because `nw_qrtr_mhi` calls
 `mhi_prepare_for_transfer` as soon as the worker probes.
 

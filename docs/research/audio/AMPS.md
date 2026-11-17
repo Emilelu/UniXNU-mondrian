@@ -206,17 +206,18 @@ chip ID 表（`hakios.speaker.c:340-350`）：0x2013 AW88264 / 0x2032 AW88266 / 
 | `PongAudioAcf.h` | A5 的落点：AW88261 配置档（ACF）的读取与校验做成纯函数 —— 头判据、按 `dev_index + profile + kind` 定位块、两种和校验、16×16 寄存器对表、双 PA 通道映射、fuse → icalk/vcalk → vcalb。无 MMIO、无内核头，见 §8.8 |
 | `PongAudioGeniI2c.h` / `.c` | Pong `GeniI2c.c` 的移植，符号改 `pong_geni_*` 避免与 Pong 副本冲突，状态机逻辑逐字保留 |
 | `PongAudioAmp.c` | A1–A7 的实现：8 页 TLMM 回读 → GCC wrapper2 投票 → I2C 引脚 → SE15 引擎 → 放 reset → 只读 13 个寄存器；然后对每颗应答的功放跑一遍**回放层**（软复位 + 57 对 Music profile + fuse 算的 vcalb + 静音音量，见 §9）；每次传输前 `bus_recover()` 把可能卡死的状态机走回 Idle；boot-arg `pong_audio_probe=1` 才跑，失败只报数不 panic |
+| `PongAudioRing.h` | PCM 环几何与 SPSC 队列：48 kHz 立体声 S24_LE、1024 帧周期（8192 B）、2 周期、256 帧启动阈值、14400 帧（300 ms）lead、65536 帧环；`pong_ring_queue_*` 提供无锁单生产者/单消费者入环出环，`pong_audio_submit()` 写、`pong_audio_ring_read()` 读。无 MMIO；0001 以 `bsd/dev/PongAudioRing.h` 放进补丁，0003 include。 |
 | `README.md` | 逐步骤做了什么、为什么是这个顺序、期望日志形状、上机命令、八步自评 |
 
-补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（113,979 B，2,961 行，13 段，sha256 `16aaea22603c4d666fdd9659ff929bc3ab21edabbc9f69e48b9876aad93d2659`（前 8 位 `16aaea22`））+ `patches/audio/0003-k60-audio-afe-selftest.patch`（7,882 B，6 段，sha256 `87a9cf82…dd02fd`）+ `patches/audio/series`。
+补丁：`patches/audio/0001-k60-audio-amp-probe.patch`（120,609 B，3,171 行，14 段，sha256 `6e892445b1b39e5646b80a2a0cbed40b657a1bd5283ef24e444137e4234c7f66`（前 8 位 `6e892445`））+ `patches/audio/0003-k60-audio-afe-selftest.patch`（11,538 B，5 段，sha256 `1d39530f…6e6b51d`）+ `patches/audio/series`。
 
-- 11 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/`、`drivers/PongPower/` 完全一致；
+- 12 个文件**逐字**放进 `bsd/dev/`：应用后已用 `cmp` 证明与 `drivers/PongAudio/`、`drivers/PongPower/` 完全一致；
 - `bsd/conf/files` 加两条对象（`bsd/dev/PongAudioGeniI2c.c standard`、`bsd/dev/PongAudioAmp.c standard`）；
 - `bsd/kern/bsd_init.c` 加一段调用，锚在 0505 的 `pong_audio_bootstrap()` 之后。
-- **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。十一个新文件与 `drivers/PongAudio/`、`drivers/PongPower/` 逐字节相同（`PongCodecPlan.h` 仍不在其中：内核侧还没有 `.c` include 它；`PongAudioAcf.h`/`PongAudioAmpProfile.h`/`PongAudioAmpReplay.h`/`PongAudioAfe.h`/`K60PmicGlinkAudio.h` **在**，被 `PongAudioAmp.c`/`pong_audio.c` include，见 §9）。完整 transcript 见 `patches/audio/README.md`。
-- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) **镜像 k 的内核构建**证明 8 文件补丁（含回放层）在真实 kernel flags 下编译通过（`audio-probe-20261114k`，`kernel.log:228-231` 的 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe` 顺序，`kernel.macho` sha256 `0640f6c7…`，见 §9.5）；(b) 回放层与编码器全部语义在宿主侧被 886/904 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
+- **顺序要求**：必须在 `patches/xnu/0501` 与 `0505` 之后，因为两处锚点分别由 0501（`bsd/dev/qbt/btqca.c`）和 0505（`pong_audio_bootstrap()`）建立；而 0501 又依赖 0300/0243/0340 已加进 `bsd/conf/files` 的 `k60_usblog` / `k60_uilib` / `k60_console_export` 三行。**已用真实链验证**（不是合成预映像）：在构建缓存 `.../tree/.cache/xnu-work` 的 `bsd/conf/files`+`bsd/kern/bsd_init.c` 上按 0501 → 0505 → 本补丁顺序 `patch -p1 --forward` 落地，**rc=0、无 reject**。本补丁**无 fuzz**，只有行偏移（conf/files +6、bsd_init.c +15）；链条中唯一带 fuzz 的是 0505 自身（`Hunk #1 succeeded at 1329 with fuzz 1 (offset -19 lines)`，它的锚点与该前映像有 1 行差异，与本补丁无关）。十二个新文件与 `drivers/PongAudio/`、`drivers/PongPower/` 逐字节相同（`PongCodecPlan.h` 仍不在其中：内核侧还没有 `.c` include 它；`PongAudioAcf.h`/`PongAudioAmpProfile.h`/`PongAudioAmpReplay.h`/`PongAudioAfe.h`/`K60PmicGlinkAudio.h` **在**，被 `PongAudioAmp.c`/`pong_audio.c` include，见 §9）。完整 transcript 见 `patches/audio/README.md`。
+- 编译核验：`PongAudioGeniI2c.c` 曾在真实 XNU bsd 构建目录里用 `-fsyntax-only` + `-DARM64_BOARD_CONFIG_PONG` + `-Werror` 过（`PASS: PongAudioGeniI2c.c`）。回放层加入后这轮**没有复现**同一核验：fakeroot 的 `usr/include` 没有 `stdint.h`，而 `mach/arm/vm_types.h:75` 要 include 它，四种 flags 变体都在 `uintptr_t` 上失败——与本次改动无关，是 flag 集合缺 include 路径。替代证据：(a) **镜像 k 的内核构建**证明 8 文件补丁（含回放层）在真实 kernel flags 下编译通过（`audio-probe-20261114k`，`kernel.log:228-231` 的 `0503 → 0504 → 0505 → 0001-k60-audio-amp-probe` 顺序，`kernel.macho` sha256 `0640f6c7…`，见 §9.5）；(b) 回放层与编码器全部语义在宿主侧被 913/931 例单测钉住（§9.3）。不再声称 `PASS: PongAudioAmp.c`。
 
-### 6.1 宿主单测（八步 ⑦ 的本地核验，886 例；带真实 ACF 时 904 例）
+### 6.1 宿主单测（八步 ⑦ 的本地核验，913 例；带真实 ACF 时 931 例）
 
 `drivers/PongAudio/tests/` **不进内核、也不进补丁**：它只编译 `PongAudioGeniI2c.c`（纯状态机，无 XNU 头依赖），
 用假 MMIO 喂 `M_IRQ_STATUS` 序列，把「读事务必须两段（写指针持 stop → 读数据）」这类只靠上机才会暴露的错误变成可重复的本地检查。
@@ -257,9 +258,9 @@ slave id 是两次普通寄存器读（`0x530+8n` / `0x534+8n`，S:`PongWcd938.h
 ```
 # Windows 侧没有 cc/gcc/clang（PATH 里只有 winuxcmd），必须在 WSL 里跑：
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 886 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
+# → TESTS OK 913 cases   (cc -std=gnu11 -Wall -Wextra -Werror)
 # 带上真实 ACF（它不入库）：PONG_ACF_FILE=<aw882xx_acf.bin> sh drivers/PongAudio/tests/run-tests.sh
-# → TESTS OK 904 cases
+# → TESTS OK 931 cases
 ```
 
 覆盖范围：
@@ -793,9 +794,9 @@ phk110 `hakios.speaker.c:430-431` 写得很清楚：
 
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 886 cases
+# → TESTS OK 913 cases
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && PONG_ACF_FILE=/mnt/e/k60-work/scratch/audio-work/refs/acf/aw882xx_acf.bin sh drivers/PongAudio/tests/run-tests.sh'
-# → TESTS OK 904 cases
+# → TESTS OK 931 cases
 ```
 
 `PongAudioAcf.h` **现在进补丁了**（回放层让 `PongAudioAmp.c` include 它，见 §9）；`PongCodecPlan.h` 仍不进（内核侧还没有 `.c` include 它）。
@@ -849,7 +850,9 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `scripts/judge-audio-capture.py` 的**探针**判据不需要改（`MARK_START` 是前缀匹配、`MARK_ID` 要求 `id=0x`
   且 `MARK_DONE` 要求 `amp probe done found=`，回放行不会误命中）；**回放判据**由同一脚本的 `--replay` 承担，见 §9.6。
 
-### 9.3 宿主侧钉住了什么（886 例 / 带真实 ACF 904 例）
+### 9.3 宿主侧钉住了什么（913 例 / 带真实 ACF 931 例）
+
+`ring_queue_cases()` 另有 27 条断言：SPSC 队列初始化、已用/剩余空间、写满拒绝、跨尾写入、整帧复制、容量边界，以及 `pong_audio_submit()` 的空缓冲/入环与 `pong_audio_ring_read()` 出环。
 
 `replay_cases()` 新增 49 条断言，关键几条：
 
@@ -943,7 +946,7 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `boot.img` sha256 `ce78d96c…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117h/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；`battery archive f67b86e7…`；
 - `kernel.macho` 上 `PongAudio: GPR GET_SPF_STATE send bytes=%u rc=%d`、`PongAudio: glink adsp_apps slot queued (512x20)`、`PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d`、`PongAudio: APM ready; starting AFE six-step`、`PongAudio: AFE six-step complete; speaker path ready`、`QcomGlink max_channels=2u local_intents=20` 各 1 处，`PongAudioErrNoLease` 2 处。
 
-**镜像 i（2026-11-17）**：修正 0003 的 GPR 端口——`pong_afe_gpr_spf_state_query()` 组 24 B `GET_SPF_STATE`，src 0x2001 / dst 1（此前 `src_port=0` 与参考 `PongAudio.cpp`/`ShengGpr.c` 不一致）。HEAD `a863878f`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`。
+**镜像 i（2026-11-17）**：修正 0003 的 GPR 端口——`pong_afe_gpr_spf_state_query()` 组 24 B `GET_SPF_STATE`，src 0x2001 / dst 1（此前 `src_port=0` 与参考 `PongAudio.cpp`/`ShengGpr.c` 不一致）。HEAD `a863878f`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`；i 已被 j 取代（见下）。
 - `kernel_built` sha256 `923f9f44…`（105,525,248 B）、`payload_kernel 57f76659…`、`payload 0e7980a4…`、`adt a0fe139e…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
 - `boot.img` sha256 `07d6003b…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117i/build-manifest.json`；`kernel_args_requested: ["pong_audio_probe=1"]`，`image-arg-audit: OK (30 arguments, 594 bytes)`；`battery archive f67b86e7…`；
 - `kernel.macho` 上 `PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d` 1 处，`QcomGlink max_channels=2u local_intents=20u`、`PongAudio: glink adsp_apps slot queued (512x20)`、`PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d`、`PongAudio: APM ready; starting AFE six-step`、`PongAudio: AFE six-step complete; speaker path ready` 各 1 处；i 已被 j 取代（见下）。
@@ -953,7 +956,14 @@ PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0 failed=0 tra
 - `boot.img` sha256 `dff33d7a…`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117j/build-manifest.json`；`battery archive 2d1015d0…`；
 - `kernel.macho` 上 `K60Battery: deferred audio attach failed: %d` 1 处，`PongAudio: GPR GET_SPF_STATE send bytes=%u src=0x%x dst=0x%x rc=%d`、`PongAudio: glink adsp_apps slot queued (512x20)`、`PongAudio: AFE step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d`、`PongAudio: APM ready; starting AFE six-step`、`PongAudio: AFE six-step complete; speaker path ready`、`QcomGlink max_channels=2u local_intents=20u` 各 1 处；
 - 从 `payload.img` 的 `EFI/UniXNU/PAYLOADS/kernel.macho.adt` 抽出 ADT，sha256 `784c097a6aa15566bf87f044fbf0e3ff7e613dc7a2cd365da9d0f51809a3f0e9` 与 manifest `components.adt` 一致，`/chosen/pong-audio-dma` 为 16 个零字节；
-- j 是当前候选，未 boot、run 2 未申请。
+- j 已被 k 取代（见下），未 boot、run 2 未申请。
+
+**镜像 k（2026-11-17）**：把 PCM 提交环和低 DMA lease 接进 0003——`PongAudioRing.h` 的 SPSC 环（65536 帧、8192 B 周期、256 帧启动阈值、14400 帧 lead）由 `pong_audio_submit()` 入环、`pong_audio_ring_read()` 作为后续服务周期泵；`pong_audio_dma_lease()` 从 `/chosen/pong-audio-dma` 读取 UEFI 分配的 64 KiB。HEAD `1f49b6ad`、series 226 条（sha256 `27268442…`）、`repo.dirty_files 0`、`verify-boot-image: OK`、`image-arg-audit: OK (30 arguments, 594 bytes)`。
+- `kernel_built` sha256 `08186a2454df694e528187880b93cbd492b45e36103e40b5846b08f8b3f057b8`（105,525,248 B）、`payload_kernel a9ac45dc…`、`payload b47cc9d7…`、`adt 5d806da1…`、`dtb 2d044eaa…`、`fd 38c1293b…`；
+- `boot.img` sha256 `3079b8cd43513d4d4a45e34958c9b1d3958d22da5752f410ec143a78f1d02761`（201,895,936 B），manifest `/mnt/e/k60-work/artifacts/audio-probe-20261117k/build-manifest.json`；`battery archive 2d1015d0…`；
+- `kernel.macho` 上 `PongAudio: low DMA lease pa=0x%llx size=0x%x` 1 处，`PongAudio: low DMA unavailable`/`invalid`/`map failed` 各 1 处；既有 `PongAudio: GPR GET_SPF_STATE...`、`PongAudio: glink adsp_apps slot queued (512x20)`、AFE 六步三条、`K60Battery: deferred audio attach failed: %d`、`QcomGlink max_channels=2u local_intents=20u` 各 1 处；
+- 从 `payload.img` 的 `EFI/UniXNU/PAYLOADS/kernel.macho.adt` 抽出 ADT，sha256 `5d806da1bae605e64672f95e69d38bf71d94770a021de2169123f9093759afa3`（16,024 B）与 manifest `components.adt` 一致，`/chosen/pong-audio-dma` 为 16 个零字节；
+- k 是当前候选，未 boot、run 2 未申请；M5 的 IOService/UserClient、用户态 HAL 与 AR write 仍未闭合（`pcm-submit-path` open）。
 
 ### 9.6 run 2 的判据（可执行）
 

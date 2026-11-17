@@ -348,6 +348,36 @@ owner = "audio-agent"
 on_open = "no frames means no sound even with a perfect AFE setup"
 
 [[item]]
+id = "pcm-ring-submit"
+stage = "M5"
+change = "pong_audio_submit() queues PCM frames into the SPSC ring, and pong_audio_ring_read() drains them for the service period pump"
+evidence_kind = "unit"
+evidence = [
+  "drivers/PongAudio/PongAudioRing.h",
+  "drivers/PongAudio/tests/test-pong-audio-geni-i2c.c",
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+]
+criteria = "PongAudioRing.h carries the SPSC queue (pong_ring_queue_init/used/space/write/read); ring_queue_cases() adds 27 assertions for initialization, used/space accounting, full-ring refusal, wrap writes, whole-frame copies and capacity bounds. pong_audio_submit() rejects null/zero frames with PongAudioErrBadRequest, refuses before the six-step path is ready with last_error or PongAudioErrApmNotReady, rejects a short ring with PongAudioErrRingFull while counting ring_dropped, and otherwise queues whole frames; pong_audio_ring_read() drains them. Host runner: TESTS OK 913 cases (931 with the real ACF)."
+status = "closed"
+owner = "audio-agent"
+on_open = "without the submit queue the AFE can be ready while the service has nowhere to put a PCM frame"
+
+[[item]]
+id = "pcm-low-dma-lease"
+stage = "M5"
+change = "pong_audio.c reads the UEFI-reserved 64 KiB low-DMA lease from /chosen/pong-audio-dma and maps it for the playback path"
+evidence_kind = "artifact"
+evidence = [
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
+  "board.toml:298-305",
+  "V: kernel.macho: PongAudio: low DMA lease pa=0x%llx size=0x%x",
+]
+criteria = "Image k kernel.macho contains PongAudio: low DMA lease pa=0x%llx size=0x%x once and the unavailable/invalid/map-failed refusals once each. pong_audio_dma_lease() reads the 16-byte /chosen/pong-audio-dma property, requires size 0x10000, 4 KiB alignment and PA+0x10000 <= 4 GiB, then ml_io_map()s the range; the image-k kernel_built sha256 is 08186a2454df694e528187880b93cbd492b45e36103e40b5846b08f8b3f057b8."
+status = "closed"
+owner = "audio-agent"
+on_open = "without a low-DMA consumer the playback graph has no buffer the ADSP can read"
+
+[[item]]
 id = "pong-audio-dma-in-adt"
 stage = "M5"
 change = "the /chosen/pong-audio-dma placeholder is present in the shipped ADT so DarwinBoot can reserve the 64 KiB low DMA and write back [PA, 65536]"
@@ -379,13 +409,15 @@ on_open = "a start-before-battery order loses the only adsp_apps attach and M2 n
 [[item]]
 id = "pcm-submit-path"
 stage = "M5"
-change = "pong_audio_submit() carries PCM frames from the ring to the AFE playback port with the vendor's period and lead"
+change = "the remaining PCM path: the IOService/UserClient maps the ring, the userland HAL fills it, and a service period pump writes it to the AFE playback port with the vendor's period and lead"
 evidence_kind = "static"
 evidence = [
-  "patches/xnu/0504-k60-audio-pong-audio.patch:917",
+  "patches/audio/0003-k60-audio-afe-selftest.patch",
   "drivers/PongAudio/PongAudioRing.h",
+  "V: ShengAudioAbi.h:21",
+  "V: PongAudio.cpp:288-300,424-436",
 ]
-criteria = "pong_audio_submit() must stop returning ENOTSUP and must own the ring read pointer, the 1024-frame period, the 256-frame start threshold and the 14400-frame lead, plus the low-DMA consumer that reads the now-present /chosen/pong-audio-dma lease. The repository also needs the IOService/UserClient (PongAudioService.cpp shape) and the userland HAL (PongAudioPlugIn.c shape), neither of which exists in this tree today. Until both exist and a host or on-device test submits at least one period without an underrun, M5 cannot pass."
+criteria = "The ring queue (pcm-ring-submit) and the low-DMA lease (pcm-low-dma-lease) are in place, but the repository still needs the IOService/UserClient (PongAudioService.cpp shape: control/outRing memory, externalMethod, sheng_audio_request), the userland HAL (PongAudioPlugIn.c shape: IOServiceOpen and IOConnectMapMemory64), and the periodic ar_write() pump from the ring to dspAddress + slot*PeriodBytes using the six-step AFE graph. Until those exist and a host or on-device test submits at least one period without an underrun, M5 cannot pass."
 status = "open"
 owner = "audio-agent"
 on_open = "the AFE can be six-step ready and still never receive a PCM frame; M5 sound cannot pass"

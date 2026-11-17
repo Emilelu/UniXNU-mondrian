@@ -239,3 +239,10 @@ carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0
 - C3 刷新修复：60 秒内所有 `K60Battery: no publication` 行的 `dirty=` 必须为 0；出现 `dirty=1` 即 FAIL（说明 `sample_dirty` 修复没有生效）。
 - C4 存活：60 秒内 `panic(` 与 `esr=` 均 0 次，且无 `K60Battery: blocked`。
 - 结论：C1–C4 全部 PASS 才判 PASS；任一 FAIL 打对应行；C0 不成立判 INVALID。本线不自行 boot，由 Lead 用 fastboot boot 执行。
+
+### 8.6 route-c 构建与参考电流符号（2026-11-17 13:45）
+
+- 官方 porting/power 页 §4 明确：电流符号是协议输入，参考源码给出真值。`E:/hackios/UniXNU-sheng/package/ShengBattmgr.c:228` 为 `s->current_ma = HAS(BmCurrent) ? -V(BmCurrent) / 1000 : 0;`，`ShengBattmgr.h:56-64` 说明板端按放电正汇报、电源源按充电正消费；K60 的 owner `32778` 与参考实现同为 `0x800a`。因此 `charging_current_sign` 的默认值应为 **-1**，不再要求 wire capture 才能定符号。
+- 代码分支 `fix/battery-sample-dirty`：`40e06370` 使用参考符号 -1，`5c960671` 增加周期刷新日志，`263ee626` 记录 07 的符号约定；`python3 -B scripts/tests/test-k60-notification-qualification.py` → 22 tests OK，host `TESTS OK 49`，电池归档 `88a1ad8d50903dba01b6039bbe333044b82bbb00860e8971fd35361fa2572671`（`build-report.json` 的 `charging_current_sign: -1`，`captured-board-config.bin` byte 96 = -1）。
+- route-c 产物取代 route-b：boot.img `/mnt/e/k60-work/artifacts/adsp-board-20261116/route-c/boot.img`，201,887,744 B，sha256 `e83c9513818d768a9138a4cd2eeb43b534ebcc8fa8c66650db2963608841ed3f`；kernel `6f0b7a48e0fbcbbecd789a9c656c8d8659b0b929fbd697ec26185d45a60e9fa9`；payload `ca0f6e60a13d8d50939b0776133522138113cf7321e738f47e0116bba47e21ba`；`image-arg-audit: OK (30 arguments, 598 bytes)`；kernel strings：`current-source=`×2、`K60Battery: refresh sample=`×1、`K60Battery: no publication`×1。
+- 上机判据沿用 §8.5，但镜像 sha256 改为 `e83c9513...`，C1 的期望改为 `measured sign=-1`；C2 的 `current-source=usb` 仍表示 **USB 输入电流回退**，不是电芯电流。route-b 的 `762645bc...` 不再 boot。

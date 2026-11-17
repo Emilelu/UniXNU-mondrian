@@ -92,6 +92,16 @@ fix. Once the cached EE names AMSS, the mission block's `mhi_create_devices`
 must also run for the IPCR channels, because `nw_qrtr_mhi` calls
 `mhi_prepare_for_transfer` as soon as the worker probes.
 
+State-worker safety: the `mhi_create_devices` call runs inside
+`mhi_fw_load_handler`, which is executed by `mhi_pm_st_worker`; the MHI event
+tasklet can still run `mhi_pm_m0_transition`
+(`E:/k60-work/impl/wifi/work/src/linux-7.0.14/drivers/bus/mhi/host/main.c:861-862`)
+and `mhi_send_cmd` rings the command doorbell itself (`main.c:1298-1303`), so
+the synchronous `device_add` -> `nw_qrtr_mhi` probe cannot deadlock on M0 or on
+a skipped command ring. The direct console shows only the SBL EE event (`:668`);
+no later mission-mode EE event is present, so the stock mission transition does
+not destroy and recreate the IPCR devices on this path.
+
 ## 3. Candidate identity
 
 | field | value |
@@ -123,6 +133,7 @@ Offline checks performed:
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
   arguments / 602 bytes).
 - `boot.json` records `hardware_tested: false`; this image has not been flown.
+- `python3 /mnt/e/k60-work/scratch/judge-sbl-mission2.py` — positive synthetic mission4 log passes 9/9; negative log with `timeout after 60000 ms` and no cached-ee line fails/stops as designed.
 
 ## 4. Prewritten flight criteria
 

@@ -759,7 +759,9 @@ k60_modem_rails_vote(void)
 		goto fail;
 	}
 	why = "qmp open";
-	for (attempt = 0; attempt < 600u; attempt++) {
+	/* qmp_open can spend up to 12 s in its four handshake phases; ten
+	 * attempts bound the wait at about two minutes instead of two hours. */
+	for (attempt = 0; attempt < 10u; attempt++) {
 		if (k60_modem_qmp_open(aoss, ipcc, &box) == 0) {
 			why = "qmp load_state";
 			if (k60_modem_qmp_load_state(aoss, ipcc, box) == 0) {
@@ -768,7 +770,7 @@ k60_modem_rails_vote(void)
 		}
 		delay(100000);
 	}
-	if (attempt == 600u) {
+	if (attempt == 10u) {
 		why = "qmp open/load_state";
 		goto fail;
 	}
@@ -1043,11 +1045,8 @@ k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
 		return -1;
 	}
 	desc = (volatile uint32_t *)(window + desc_offset);
-	if (desc[1] != 0 || desc[2] != 0) {
-		printf("K60MODEM glink: fifo not fresh (head=%u tail=%u)\n",
-		    desc[1], desc[2]);
-		return -1;
-	}
+	/* The AP-owned indices are cleared by transport_prepare after the item
+	 * 435 stale check; this function no longer pretends to gate freshness. */
 	tx.head = &desc[1];
 	tx.tail = &desc[0];
 	tx.data = (volatile uint8_t *)(window + tx_offset);

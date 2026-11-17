@@ -551,8 +551,8 @@ artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入
 
 [hardware.charger.step.device]
 done = false
-evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。ADSP 载体实验的判据表与产物见 docs/research/charger/08-ADSP-CARRIER-EXPERIMENT.md 的 §0.1 与 §2（C0–C4，tag carrier-20261117a）。"
+evidence = "本线尚未用电池分支上机。ADSP/PAS1 已由 ADSP 线 Route A 真机打通（08 §8：K60Handoff: published authenticated PAS1 epoch=1；K60Battery: channel up measured sign=0 subscription-ack=1/16；physical source published sample=4），但按 07 §1.3 的 C1 电流极性判据该日志 sign=0、sample 停在 6/33，不能算本步通过；复核见 08 §8.1。"
 
 [hardware.charger.step.device.prediction]
-success = "`K60PAS auth ok` 出现 1 次，且随后 `K60PAS carrier verdict PASS auth=ok base=0x9fd00000 span=0x3100000`；60 s 内无 panic（`panic(` / `esr=` 各 0 次）。判据全表见 docs/research/charger/08-ADSP-CARRIER-EXPERIMENT.md §0.1。"
-failure = "`K60PAS auth refused rc=` 或 `K60PAS carrier verdict FAIL rc=`；或 `K60PAS carrier absent rc=`（blob 没进镜像）；或出现 panic（贴首行与 esr=）。"
+success = "`K60Battery: actual PMIC_RTR_ADSP_APPS channel up; measured sign=+1` 或 `-1` 且 `subscription-ack=1/16`，随后 sample 行 `subscribed=1` 且四属性齐全；同窗口 Android 至少 3 对有效样本（07 §1.3、§3.4）；60 s 内无 panic（`panic(` / `esr=` 各 0 次）。"
+failure = "`measured sign=0`（07 §1.3 直接 FAIL）；`subscription-ack` 不是 `1/16`；sample 行 `subscribed=0`；channel up 后无 sample；或出现 panic（贴首行与 esr=）。"

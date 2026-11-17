@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: build complete (`120hz-1`, 2026-11-17 13:23 +08:00), awaiting the flight; code commit 410159c7, docs HEAD b27ca3d8. Branch: `feat/120hz-panel`.
+Status: build complete (`120hz-1`, 2026-11-17 13:23 +08:00), awaiting the flight; code commit 410159c7, docs HEAD d6f8dac2. Branch: `feat/120hz-panel`.
 
 ## Scope
 

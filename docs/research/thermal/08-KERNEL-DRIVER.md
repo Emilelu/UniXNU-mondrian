@@ -417,3 +417,43 @@ _k60tz_table|_k60tz_step|_k60tz_closest|_k60tz_zone_level|_k60tz_names`。
 结论：合并后的树在 `thermal-20261117c` 上完整构建通过，内核里仍是同一份 15 串/12 符号的
 in-tree 驱动；下一次上机只需按 `CRITERIA.toml` 的 cold profile 判读。
 
+## 9 2026-11-17 真机冷机（thermal-20261117c）
+
+2026-11-17 12:28 用户授权后，用 `scripts/flash.sh` 把 `thermal-20261117c/boot.img` 通过
+`fastboot boot` 启动（未 flash，未写任何分区）。证据目录
+`E:\k60-work\evidence\usblog-20261117-122800`。
+
+| 项 | 值 |
+| --- | --- |
+| boot.img | 201,887,744 B，sha256 `31441566e9b89c01ba0242628c99518e5ba84798d526bb8e785a3ee30e404a17` |
+| console.log | 247,186 B，3,588 行，sha256 `C4F66F6953E81F666669A17FE22590014D4BD60E6186AE90F2B087A6D4421222` |
+| boot.json | `bootAccepted=true`、`bootExitCode=0`，startedAt 12:28:02、finishedAt 12:32:26 |
+| capture.json | `captured-budget-complete`、`complete=true`、`portSeen=true`、`portOpened=true`、`openErrors=0`、`panicMarker=null`、`resetMarker=null`、`stopReason=budget` |
+| supervisor | rc=0，`captured-budget-complete; bytes=247186; complete=True` |
+| 判据 | `python3 scripts/check-thermal-log.py --log ... --profile cold` → **21 passed, 0 failed, 0 advisory**，EXIT=0 |
+
+计数：`PongThermal: ` 241 行；控制器 2 行（`tsens0 tm=0xc263000 srot=0xc222000 ver=2.8.0 ctrl=0x9d67fff9 enabled=1`、
+`tsens1 tm=0xc265000 srot=0xc223000` 同值）；polling 1 行（2 controllers every 1000 ms）；
+传感器 32 行、32/32 标签（`tsens0[3] cpuss-2 zone27 44.2 C` 在列）；域行 192 行；等级行 8 条，
+全部 `level 0/3 nominal (domains 0/3); closest ddr ... C, ... C below tier 1`；published 恰 1 条
+`level nominal (0) published as Thermal_Level_Warning=0`；bias 0 条；`no-valid-reading` 0 条；
+`window mapping failed` / `no controller mapped` / `worker thread failed` / `disabled by boot-arg` /
+`no zone has a reading` / `level 4/3` 全部 0 条。
+
+原文三行：
+
+```
+PongThermal: tsens0[3] cpuss-2 zone27 44.2 C
+PongThermal: level 0/3 nominal (domains 0/3); closest ddr 43.6 C, 46.4 C below tier 1
+PongThermal: level nominal (0) published as Thermal_Level_Warning=0
+```
+
+日志里的 2 条 `panic` 是 `K60PANIC: restart windows ready` 与启动参数串 `k60_panic_reset=1`；
+8 条 `crashed` 是 `syncdefaultsd` / `amfid` / `mmaintenanced` 的 userland corpse 消息（如
+`Process[223] crashed: syncdefaultsd. Too many corpses being created.`），没有 thermal 相关 panic。
+冷机温度 40-52 C，未触及最近被动档 90 C，故等级保持 0/3 是预期；高等级路径由
+`thermal-20261115b` 的 `pong_thermal_bias=85000` 上机（22 passed，published=3）覆盖。
+
+结论：合并 main 后的 `thermal-20261117c` 在 6033dbec 上完成 cold profile 的 21/21 判据，
+32 路 tsens、0..3 阶梯与 `Thermal_Level_Warning` 发布层均在真机工作。
+

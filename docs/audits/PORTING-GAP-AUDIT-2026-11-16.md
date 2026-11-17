@@ -64,7 +64,7 @@
 | `docs/plans/GPU-TODO.md:25` | 硬编码上游 SHA | ★37 禁止把 pin 写进进度文档（应由 catalog/水位持有）；2026-11-17 已改为现查命令 | 【已修】 |
 | `patches/wifi/README.md:4-30,67-68` | `0001–0010`、`optional/0011`、`0010-scripts-build-xnu-4k-baseline-wifi.patch` | 实际为 `0001–0012` 共 12 个补丁、`series` 12 行，没有 `optional/` 子目录；2026-11-17 已更新表格与接线状态 | 【已修】 |
 | `docs/plans/WIFI-REBUILD-CHECKLIST.md:236` | “按 `patches/wifi/series` 顺序 `git apply` 十条落地” | 当前 `series` 12 条（0001–0012），已改为“当前 12 条，以 `series` 为准” | 【已修】 |
-| `README_EN.md:17-39` | 八步表的硬件名、未跟踪标签与表尾说明仍是中文（`触摸（Goodix GT9916R / BERLIN）`、`电源`、`诊断`、`基带`、中文 footer） | `render('en')` 一直取 TOML 的 `name`；2026-11-17 已加 `name_en` 与英文 UNTRACKED/footer，`check-readme` 现在拒绝英文表含中文 | 【已修】 |
+| `README_EN.md:17-39` | 八步表的硬件名、未跟踪标签与表尾说明仍是中文（`触摸（Goodix GT9916R / BERLIN）`、`电源`、`诊断`、`基带`、中文 footer） | `render('en')` 一直取 TOML 的 `name`；2026-11-17 已加 `name_en` 与英文 UNTRACKED/footer，`check-readme` 现在扫描整个 README_EN（只放行两处语言链接标签）并校验标题层级与代码块数量 | 【已修】 |
 
 **已正确、不要"修"的**：`README.md:135-136` 的 ★1–★37 / P-01–P-230 是对的；`check-readme.py` 正是为
 这两行写的（P-205 的教训：README 曾写 ★35/P-130 而实际 ★37/P-204）。**它只校验 README 与 README_EN**，

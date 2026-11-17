@@ -224,7 +224,7 @@ evidence = []
 
 [[area]]
 id = "thermal"
-status = "planned"
+status = "device-verified"
 components = []
 paths = [
   "docs/research/thermal/**",
@@ -299,5 +299,7 @@ evidence = [
   { kind = "source", reference = "scripts/check-kernel-archives.py", result = "The archive gate now carries ('XNU_PONG_THERMAL', 'build/thermal-kext/libK60ThermalKext.a', 'k60_thermal_start'), so with CONFIG_XNU_PONG_THERMAL=y it fails with the P-190 message if the archive was force-loaded into a branch that does not run. Run against the private out-thermal tree after the thermal build it reported '✅ kernel archives: 4 enabled archive(s) all present in kernel.macho'." },
   { kind = "source", reference = "scripts/build-thermal-kext.sh", result = "Compiles the three thermal sources into a Darwin archive against a built XNU tree (fakeroot isysroot, patched sources, EXPORT_HDRS, all-kpi.exp) and proves linkability: 160 defined symbols, 10 required ones present, 219 kernel imports all exported. Requires -fno-c++-static-destructors -fno-use-cxa-atexit because the kernel does not export __cxa_atexit, and it matches llvm-nm names both with and without the Mach-O leading underscore." },
   { kind = "source", reference = "scripts/tests/test-k60-thermal-tsens.c", result = "Host test with a fake TM window: 16 assertion groups covering conversion, negative sign extension, VALID and out-of-range rejection, 0xa0+4n indexing, per-controller valid counts, TRDY, and the table length/names/zone ids; prints TESTS OK 16." },
+  { kind = "host", reference = "docs/research/thermal/08-KERNEL-DRIVER.md", command = "bash scripts/build-strict.sh thermal-20261117c --fd /mnt/e/k60-work/artifacts/fd/thermal-20261117c-cf4485712c29.fd", revision = "fb876fe1d4ad5ed0d83290620bb4f77f35a891c5", result = "The post-merge tree built end to end: kernel.macho 105,521,152 B sha256 99470ca92c21f8cc3bba79f4a20bc8c9e9a1a3861dd4417c2663920e8251d4a8, payload b0f0e69df21e12f8f41e86ade82eebdeca7c9b6a46f6e6f1fffc1c7bab984a67, payload kernel f08c9d8965a19297a3bdefb77b58c657919884b96150e05ca682bf2819d6ac34, payload adt 39dffcb00afa600d381dc3284df901f225e75acf8aeb22b40d01732f9ff5a640, dtb 2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd, boot.img 201,887,744 B sha256 31441566e9b89c01ba0242628c99518e5ba84798d526bb8e785a3ee30e404a17; verify-boot-image OK; 15 PongThermal strings and all twelve expected symbols in kernel.macho. Gates: check-thermal-kernel-patch 14 checks, check-thermal-log self-test OK, check-docs 202 items, eight-step 48 checks, render table OK, porting-gate 7 warnings; host tests 264/72/16/478 plus log 260." },
+  { kind = "device", reference = "docs/research/thermal/08-KERNEL-DRIVER.md", command = "python3 scripts/check-thermal-log.py --profile bias-85000 --log /mnt/e/k60-work/evidence/usblog-20261115-135227/console.log", revision = "344e47d52a6d7ba7a4878b1d5228934e05e7b357", result = "thermal-20261115b booted on device 6033dbec on 2026-11-15 13:52: the criteria reader returned EXIT=0 with 22 passed, 0 failed, 0 advisory (profile bias-85000); all 32 sensor lines, the three level tiers and one published Thermal_Level_Warning=3 appeared, capture.json state=captured-budget-complete with no panic/reset marker, boot.json bootAccepted=true and bootExitCode=0." },
 ]
 

@@ -358,3 +358,62 @@ device 目录里必须存在 `feeds.toml`，`sync-device-input.py` 不复制它�
    `gIOPMWorkLoop`（`:8124`）。如果上机后看到 workloop 卡顿或 `Power Status` 属性更新丢事件，
    第一件事是把发布点从 worker 线程移到 `IOWorkLoop` 上再测一次。
 
+## 8 2026-11-17 合并 main 后的重建（thermal-20261117c）
+
+2026-11-17 把 `main`（74c0d24e）合入 `feat/thermal-tsens`：七个冲突按并集解决（README 两行
+`battery`+`thermal`、`BOOT-ARGS.md` 的 `gprobe`+`pong_thermal_bias`、`TREE-OWNERS.toml` 两个
+`[[tree]]`、`EIGHT-STEPS.toml` 的 battery/charger 全节+thermal 全节、`SUBAGENT-DELIVERABLES.md`
+的 SA-04/SA-05+thermal SA-06、`patches/xnu/series` 保留 0619/0620/0621 并把 0617 移到最后），
+commit `df4b6010`；`render-eight-step-table.py` 的 UNTRACKED 列表里重复的 thermal 行删掉，
+commit `fb876fe1`。合并后 `tomllib` 解析 EIGHT-STEPS/TREE-OWNERS/porting.toml 全通过，
+`porting.toml` 相对 main 只多一个 thermal area（15 vs 14 areas）。
+
+构建 `thermal-20261117c`（fd `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`）：
+
+| 项 | 值 |
+| --- | --- |
+| 构建输入 | `sync-device-input.py` 同步 117 个文件；`--check` 811 文件全部一致 |
+| series | 228 条，`file_sha256 4e52fc605a90b407dd1359746b6226fe9be06311fdc5941e8e6e5417183b9037` |
+| frozen | `list_sha256 901811126d5b62ebc30aaacfb23c2ba426bc34be0803922c5360cb732d50ac2d` |
+| kernel.macho | 105,521,152 B，sha256 `99470ca92c21f8cc3bba79f4a20bc8c9e9a1a3861dd4417c2663920e8251d4a8` |
+| payload | `b0f0e69df21e12f8f41e86ade82eebdeca7c9b6a46f6e6f1fffc1c7bab984a67` |
+| payload kernel | `f08c9d8965a19297a3bdefb77b58c657919884b96150e05ca682bf2819d6ac34` |
+| payload adt | `39dffcb00afa600d381dc3284df901f225e75acf8aeb22b40d01732f9ff5a640` |
+| dtb | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| boot.img | 201,887,744 B，sha256 `31441566e9b89c01ba0242628c99518e5ba84798d526bb8e785a3ee30e404a17` |
+| manifest | `/mnt/e/k60-work/artifacts/thermal-20261117c/build-manifest.json` |
+
+`python3 scripts/verify-boot-image.py --manifest …/build-manifest.json` 打印 `verify-boot-image: OK`；
+`strings -a kernel.macho | grep -c 'PongThermal: '` = **15**（与 `thermal-20261115a` 相同，
+即 §3.1 的全部串），且能找到 `_pong_thermal_init|_pong_thermal_worker|_pong_thermal_sample|
+_pong_thermal_sensors|_pong_thermal_controllers|_pong_thermal_bias_mc|_pong_thermal_pm_publish|
+_k60tz_table|_k60tz_step|_k60tz_closest|_k60tz_zone_level|_k60tz_names`。
+
+构建日志里的 `skip: CONFIG_XNU_PONG_THERMAL is not enabled in .config` 是 kext 归档路线的检查：
+本轮走的是 in-tree 补丁 0617，defconfig 里该开关保持 `n`，十五个日志串与 `_pong_thermal_*` 符号
+已经证明驱动确实编进内核；`check-kernel-archives.py` 仍报告四个已启用的归档全部在 kernel.macho 中。
+
+### 8.1 本轮的门禁与测试
+
+| 检查 | 结果 |
+| --- | --- |
+| `check-thermal-kernel-patch.py` | OK (14 checks)：series 228 条且 0617 最后，七个内核文件与 `drivers/PongThermal/` 逐字节一致，conf/files、bsd_init 调用、只读检查、发布层与 32 zone 阶梯全部成立 |
+| `check-thermal-log.py --self-test` | `self-test OK: the clean logs pass and every mutation fails` |
+| `check-docs.py` | 202 项，✅ 文档一致性通过 |
+| `eight-step-gate.py --quick` | 通过 48 项检查，✅ 八步流程通过（可以刷机） |
+| `render-eight-step-table.py --check` | ✅ README 的八步表格与 EIGHT-STEPS.toml 一致 |
+| `porting-gate.py --quick` | ✅ 门禁通过（7 项警告） |
+| host tests | TESTS OK 264（kernel）/ 72（level）/ 16（tsens）/ 478（zones）/ 260（log） |
+
+### 8.2 构建输入的两个环境坑（与本补丁无关）
+
+1. `/opt/k60/trees/thermal-device` 必须先用 `sync-device-input.py` 从仓库同步；停在 11-14 的
+   旧目录会让合规门禁报「只在仓库有 0619/0620/0621」。同步后 `--check` 811 文件一致。
+2. prelink 的 kernelcache 查找走 `UNIXNU_KERNELCACHE`；不导出时会回落到 `board.toml` 的远程
+   URL，当前网络下报 `URLError: [SSL: UNEXPECTED_EOF_WHILE_READING]`。把
+   `UNIXNU_KERNELCACHE=/opt/k60/trees/k60build/bt-out-s1c/ipsw/20G81/kernelcache.decompressed`
+   导出后走本地缓存（先例：`E:/k60-work/scratch/bt-s4/bisect/wsl-build-d.sh:26`）。
+
+结论：合并后的树在 `thermal-20261117c` 上完整构建通过，内核里仍是同一份 15 串/12 符号的
+in-tree 驱动；下一次上机只需按 `CRITERIA.toml` 的 cold profile 判读。
+

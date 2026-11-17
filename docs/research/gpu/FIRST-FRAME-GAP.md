@@ -42,3 +42,16 @@
 - 下一步定死：在 `PongMetalPlugin.mm` 的 `startPresentation()` 里打印 backboardd 的
   `CARenderServerStart` 之后的帧来源判定（把 `PongScanoutWire.h` 的 wait 超时也计数），
   用一张只加日志的镜像区分「backboardd 没产帧」与「产了但没送到 scanout 服务」。
+
+## 01:30 决定性：presenter 只是 blitter，帧只能来自内核合成路径
+
+- 内核侧 `pong_scanout_frame(...)`（`drivers/PongAdreno/PongAdrenoScanout.h:7`）是唯一把帧放进
+  scanout 队列的入口；全仓只有 **`patches/xnu/0600-k60-display-composition.patch`** 调它
+  （`:786`/`:857`，在显示合成路径里）。
+- 用户态 `PongMetalScanout.h:19-26` 的 `serve()` 只是 `PongScanoutWait` → `presenter->present()`
+  → `PongScanoutComplete`，它**不产帧**，只把内核送来的帧 blit 到 GPU。
+- 所以 `p0` 的充要条件就是「内核合成路径没有调用 `pong_scanout_frame`」。我们的 metal 飞
+  连 `MiniIOSurface` 都不建，正是这条路径没跑。
+- 下一步（可执行）：查 `0211-k60-display-startup.patch` 里 `start()` 对 `pong_gpu_only` 的解析，
+  以及 `0600` 里 `pong_scanout_frame` 的调用是否有「有 Metal 设备就跳过 CPU 合成」的分支；
+  若有，改成「CPU 合成照常产出帧、GPU 只负责 blit」，即官方文档的 scanout 语义。

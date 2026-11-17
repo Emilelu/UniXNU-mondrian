@@ -41,6 +41,11 @@ g++ -std=c++17 -I drivers/NativeUfs/tests -I drivers/NativeUfs/tests/support \
 python3 drivers/NativeUfs/tests/check-verified-root.py
 ```
 
+For ASan/UBSan, add `-fsanitize=address,undefined -fno-omit-frame-pointer` to the
+three compiles above; `CC=<cc-wrapper> CXX=<cxx-wrapper> python3
+drivers/NativeUfs/tests/check-verified-root.py` runs the OpenSSL fixture under
+the same sanitizers. Both were run on 2026-11-17.
+
 `check-verified-root.py` generates owner and wrong-owner RSA-3072 keys with
 OpenSSL, builds signed full/header-only manifests, compiles the kernel-side
 `verified_root.c` plus the OpenSSL provider, and exercises policy selection,

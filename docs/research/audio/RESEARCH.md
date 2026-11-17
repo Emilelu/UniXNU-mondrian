@@ -62,7 +62,7 @@ Pong WCD938: physical PRM clock=%x Hz=%u attribute=%u ACK=%u error=%d
 
 ## ② 官方：UniXNU 组件目录
 
-**查 `components.toml` 25 个组件：无音频组件。**
+**查 `components.toml`：当时 25 个组件无音频（2026-11-17 复核 29 个，仍无音频组件）。**
 
 官方唯一的音频相关代码在 `UniXNU-sheng` 设备仓库里（`sheng_audio_service_start()` 被 Pong 引用），
 但那是 Novatek/SM8550 的板级实现，不是可复用组件。

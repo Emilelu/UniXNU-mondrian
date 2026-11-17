@@ -59,7 +59,7 @@ K60AdspHandoffRequired = 15u   // 四个全要
 
 ## ② 官方：组件目录
 
-`components.toml` 25 个组件里没有电池组件。官方实现全在 UniXNU-sheng 的
+当时 `components.toml` 的 25 个组件里没有电池组件（2026-11-17 复核 29 个，仍无电池组件）。官方实现全在 UniXNU-sheng 的
 板级 `package/` 下（`ShengBattmgr.c/h`、`ShengBattery.cpp`、`BatteryProbe.cpp`）。
 
 ---

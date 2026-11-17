@@ -51,9 +51,13 @@
 
 ## 3. 上游自身的缺陷（用户 m36317 要求一并修）
 
-### YB-01 `zzy-native-gpu-addon-mount.patch` 的校验路径与真实 bundle 名不一致
+### YB-01 `zzy-native-gpu-addon-mount.patch` 的校验路径与真实 bundle 名不一致（上游缺陷，我方已修）
 
-`patches/xnu/zzy-native-gpu-addon-mount.patch:77-78`：
+**我方副本已经是正确的**（`patches/xnu/zzy-native-gpu-addon-mount.patch` 里探测
+`/System/Library/Extensions/PongAdrenoMetal.bundle/Info.plist`），**上游副本**仍是错的，见下。
+这条记录的意义是：与 yibiya 对齐时**不能**把这行一起对齐回去。
+
+上游 `E:/k60-work/references/yibiya-upstream/patches/xnu/zzy-native-gpu-addon-mount.patch:77-78`：
 
 ```
 sizeof(extensions_point), "/System/Library/Extensions/AGXMetalA10.bundle",
@@ -66,7 +70,7 @@ sizeof(extensions_point), "/System/Library/Extensions/AGXMetalA10.bundle",
 `NativeAdrenoMetal.bundle`**，所以即使打开 `sheng-gpu-addon=1`，stage 校验也会停在 3 而不会走到
 「挂载成功」。这正是「yibiya 没完善/有 bug」的一处，也是我们打开 addon 时必然踩到的坑。
 
-修法：把校验路径改为 `/System/Library/Extensions/PongAdrenoMetal.bundle/Info.plist`，并补一个
+修法（我方已具备前者）：校验路径必须是 `PongAdrenoMetal.bundle/Info.plist`；另外建议补一个
 `drivers/PongMetal/seeds/Info.plist` 的 `CFBundleIdentifier` 与 `MetalPluginName` 一致性断言，
 防止将来 bundle 改名再漂移。
 

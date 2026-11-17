@@ -260,6 +260,8 @@ def check_eight_step_table():
         except Exception as exc:  # noqa: BLE001 - a broken ledger is a failure
             problems.append('EIGHT-STEPS.toml 渲染失败: %s' % exc)
             continue
+        if lang == 'en' and re.search(r'[\u4e00-\u9fff]', rendered):
+            problems.append('README_EN 的八步表仍含中文，英文表必须翻译硬件名称')
         if rendered.strip() not in block:
             problems.append('%s 的八步表格与 EIGHT-STEPS.toml 不一致，请运行 '
                             'render-eight-step-table.py --apply' % path.name)

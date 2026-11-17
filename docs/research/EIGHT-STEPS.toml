@@ -20,6 +20,7 @@
 status = "active"
 paths = ["drivers/PongPower/", "patches/xnu/zzzz", "patches/xnu/0399", "board.toml"]
 name = "触摸（Goodix GT9916R / BERLIN）"
+name_en = "Touch (Goodix GT9916R / BERLIN)"
 
 [hardware.touch.step.same_model]
 done = true
@@ -96,6 +97,7 @@ failure = "`goodix: COORD-ON` 报 `completion timeout` 或非 0x80 的 ack；或
 status = "active"
 paths = ["drivers/PongAdreno/", "drivers/PongMetal/", "patches/xnu/0600", "patches/xnu/0610", "patches/xnu/0404", "patches/xnu/zzy"]
 name = "GPU（Adreno 730v3 / Metal）"
+name_en = "GPU (Adreno 730v3 / Metal)"
 
 [hardware.gpu.step.same_model]
 done = true
@@ -520,6 +522,7 @@ failure = "出现 `K60Handoff: PAS1 bring-up/retained ownership failed rc=`（�
 [hardware.charger]
 status = "planned"
 name = "充电 / 电池协议（qti_battery_charger + pmic_glink）"
+name_en = "Charger / battery protocol (qti_battery_charger + pmic_glink)"
 why = "PMIC GLINK 电池/充电通道：订阅常量、属性映射、GLINK 契约与 handoff 发布规范"
 parked_why = "研究线：订阅常量与 GLINK 契约已定，驱动改动与上机等 PAS1/GLINK 落地后由 Lead 统一执行（本轮禁止自行 boot）"
 

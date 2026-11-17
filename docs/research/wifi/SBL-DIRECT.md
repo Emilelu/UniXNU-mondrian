@@ -80,8 +80,11 @@ vector table is already owned and no duplicate allocation occurs.
 | field | value |
 |---|---|
 | tag | `wifi-20261118sbl-direct` |
-| branch / head | `fix/wifi-bhie-direct` / (recorded after the clean rebuild) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-direct/boot.img` (identity filled after the clean rebuild) |
+| built_at | 2026-11-18T01:26:58+08:00 |
+| branch / head | `fix/wifi-bhie-direct` / `0782eddcfbd3f503db8089a4f7b8a3d1de9c0200` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-direct/boot.img`, 201,887,744 B, SHA256 `03e11c823672930b8c4140b27b4576d68a10459baa9bfcdf9ef03d18979332e1` |
+| kernel | `64694fa5e1b6e7c83f5cd4080ef781ebe4355693bd1fc25b75ed561b5c117ba5` (117,342,208 B) |
+| payload kernel | `41c7ef00db65af102523dba2ef44c7f9826a7480b6f650f35208b78b76704f61` |
 | WiFi archive | `a9cf5a4397078d660fb04573ebf0341de39d5fd42e0cd673d43c8938e1cc744e` |
 | ath11k archive | `82463ea28fc3f1e424e55ba1621318e23119b1f132a09300acce2f82b1a04af6` |
 | manifest | `E:/k60-work/artifacts/wifi-20261118sbl-direct/build-manifest.json` |
@@ -92,7 +95,7 @@ This candidate is a single-variable test: stock six WLAN rails, `amss20.bin`,
 earlier queue image `wifi-20261118sbl-gated` must not be re-flown; its first
 flight is recorded in `SBL-QUEUE.md` §6.
 
-Offline checks required before the flight:
+Offline checks performed:
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
 - `python3 scripts/tests/test-wifi-sbl-direct.py` — 17 source/artifact checks,
   0 failures.
@@ -100,6 +103,7 @@ Offline checks required before the flight:
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
   arguments / 602 bytes).
 - `strings -a kernel.macho | grep -c 'device is in SBL without an EE event'` — 1.
+- `boot.json` records `hardware_tested: false`; the image is built, not flown.
 
 ## 4. Prewritten flight criteria
 

@@ -1,8 +1,8 @@
 # 19 — 基带 PAS 上机计划（route B/C）
 
 - 日期：2026-11-17
-- 状态：**判据已冻结；候选已生成（2026-11-17 07:28），但本文件仍不是飞行许可**
-- 范围：UEFI 把 5,884 B 的 PAS metadata 放进 DRAM；内核按 `init_image → mem_setup → auth_reset` 发 SMC，并如实报告 rc。
+- 状态：**判据已冻结；候选已生成（2026-11-17 09:52），但本文件仍不是飞行许可**
+- 范围：UEFI 把 5,884 B 的 PAS metadata 放进 DRAM；内核在完整模式下按 `power → init_image → transport → mem_setup → auth_reset` 发 SMC，并如实报告 rc。
 - 本飞只声称一件事：**UEFI 能放对 metadata，内核能按顺序发 SMC 并报出 rc**。不声称基带数据业务可用。
 
 ## 0. 为什么先做这一次飞行
@@ -23,7 +23,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 | 件 | 仓库 / 提交 | 说明 |
 |---|---|---|
 | metadata 工具 | k60-cellular `80c72f16` | `scripts/build-modem-metadata.py`；从 `modem.mdt` 取 ELF 头 + hash 段，产出 5,884 B |
-| 内核顺序 | k60-cellular `d7890e26` | `K60ModemBoot.c`：`init_image(0xB7FF0000)` 一次 → `mem_setup(0x8bc00000,0x13200000)` → `auth_and_reset`；`pong_modem=3` 在 `mem_setup` 后停 |
+| 内核顺序 | k60-cellular `ac091715` | `K60ModemBoot.c`：`power` → `init_image(0xB7FF0000)` 一次 → `transport` → `mem_setup(base,span)` → `auth_and_reset`；`pong_modem=3` 在 `mem_setup` 后停，不执行 power/transport |
 | UEFI metadata 页 | uefi-mondrian `c1ea878` | `ImageCarrierLib.c` 的 `CarrierLoadMetadata()`；`K60ModemMetadata.h` 内嵌 5,884 B；写 `0xB7FF0000` 后 `WriteBackDataCacheRange` |
 | metadata 门禁 | k60-cellular `fc69e861` | `scripts/check-modem-metadata.py`；14 项全部 PASS |
 | 宿主顺序测试 | k60-cellular `d7890e26` | `scripts/tests/test-k60-modem-bringup.c`；`TESTS OK 9`，含顺序、次数与 3 个反例 |
@@ -73,14 +73,14 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 |---|---|---:|---|
 | FD | `E:/hackios/uefi-mondrian/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd` | 3,145,728 | `38c1293b11fa7e48f9a701d4d94ec838657fca9e8d03bc975c339eb318f33c61` |
 | DTB | `E:/hackios/uefi-mondrian/Resources/DTBs/mondrian.dtb` | 4,024 | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
-| kernel.macho | `E:/k60-work/artifacts/modem-order-20261117a/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` | 105,541,632 | `e787569bf95165c0a97d190c916ebd0e193e9f1a63df6f886e213018e8f94c13` |
-| payload.img | `E:/k60-work/artifacts/modem-order-20261117a/mondrian/ipados-16.6.1-20G81/mondrian/payload/payload.img` | 201,326,592 | `ec21632c108e774174cf211c166cfbda7e98a8e9d652bcc56ab455adf5402d1c` |
-| boot.img | `E:/k60-work/artifacts/modem-20261117b/boot-modem-candidate.img` | 201,895,936 | `bd4d48b9c2b215d9426191401a622aa8e097d89a540df04e7ab7aa72852ce321` |
+| kernel.macho | `E:/k60-work/artifacts/modem-order-20261117c/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` | 105,517,056 | `d76eb7d95284521014216c93d6f42cc60a8a87d2c9f7228c9833746e4bab6afe` |
+| payload.img | `E:/k60-work/artifacts/modem-order-20261117c/mondrian/ipados-16.6.1-20G81/mondrian/payload/payload.img` | 201,326,592 | `34e5fef7c35e25bdb64c9d428eafbb81929927147f56bd4e13635836531ef90e` |
+| boot.img | `E:/k60-work/artifacts/modem-20261117c/boot-modem-power-candidate.img` | 201,895,936 | `904060db7b93e546a25716dd35f27eeb9c314460f29de492c2639ead6df37f2f` |
 
-- 构建源：k60-cellular `98d0901f26dacea31d310b76c567ffccb03e6ab1`（`d7890e26` 是其祖先）；UEFI `c1ea878`。
+- 构建源：k60-cellular `ac0917155f8f999613894d9199b5b71941f16837`（含 `0c5a0796` 的 power/transport 与本次 review 修复）；UEFI `c1ea878`。
 - boot.img 头：`kernel_size=559,358`，`ramdisk_size=201,326,592`；`4096 + ceil(559358/4096)*4096 + 201326592 + 4096 = 201,895,936`，与文件大小相等。
-- boot.img 内的 ramdisk 切片 sha256 = payload.img 的 `ec21632c...`，说明 payload 原样嵌入。
-- 实测 payload：`mdir ::/EFI/UniXNU/MODEM` 恰好列出 27 个 `.lzma`（名称 b01–b13 / b15–b20 / b22–b29），`/EFI/UniXNU/Payloads/kernel.macho.adt` 的 `/chosen/memory-map["K60ModemImage"]` 是 16 个零字节。
+- boot.img 内的 ramdisk 切片 sha256 = payload.img 的 `34e5fef7...`，说明 payload 原样嵌入。
+- 实测 payload：`mdir ::/EFI/UniXNU/MODEM` 恰好列出 27 个 `.lzma`（名称 b01–b13 / b15–b20 / b22–b29），`/EFI/UniXNU/Payloads/kernel.macho.adt` 的 `/chosen/memory-map["K60ModemImage"]` 是 16 个零字节；payload.json 记录 `kernel_sha256=d76eb7d9...` / `payload_kernel_sha256=266e34d0...`。
 - **注意：bootimg 使用了 `--skip-gates`**；本机 `unixnu bootimg` 的合规注册表当前为红（P-165/P-166 等历史 sync/build 输入漂移），所以这张候选不是“门禁全绿”的产物，也不是飞行许可。
 
 ## 4. 预先写死的判据（S1–S5 / F1–F6）
@@ -93,8 +93,11 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 - **S2**：27 个 `.lzma` 全部成功（无 `did not decompress` / `decoded ..., table says ...` 失败行）；三条 D3 行一条不少：
   `modem-image: chosen dtb at `、`modem-image: window 0x8bc00000..0x9ee00000`、`modem-image: abl staging ends at `；
   carrier 汇总行存在；`K60ModemImage` 照常发布；XNU 起得来。
-- **S3**：以下三行都出现且 rc=0：
+- **S3**：B 要求以下五行都出现且 rc=0；C 只要求 `init_image`、`mem_setup` 和诊断停机行
+  （C 不执行 power/transport）：
+  `K60MODEM power ok cx=`（含 mss/xo）
   `K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884`
+  `K60MODEM transport ok smp2p=`
   `K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000`
   `K60MODEM auth_reset ok`
 - **S4**：auth 后 10 秒内出现 `K60MODEM qrtr: glink desc=`，且没有
@@ -107,14 +110,17 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 - **F1**：S1 缺失，或 XNU 没起来 ⇒ UEFI 回归，飞回回滚镜像；不解释 PAS。
 - **F2**：`K60MODEM init_image failed ... rc=-22` ⇒ metadata 内容/地址分支；下一飞换页或重算 blob。
 - **F3**：`K60MODEM init_image failed ... rc=-13` ⇒ TZ 不放行；下一飞换 PA 或查 TZ 策略。
-- **F4**：`K60MODEM auth_reset failed rc!=0` ⇒ 电源路径；下一飞抄 pong 的 `cx.lvl/mss.lvl` RPMh 投票与 AOP（route B）。
+- **F4a**：`K60MODEM power failed:` 出现在 init_image 之前 ⇒ AOP QMP/RPMh 路径；记录冒号后的原因，下一飞只修 power，不发送 PAS。
+- **F4b**：`K60MODEM transport failed rc!=0` 出现在 init_image 之后 ⇒ SMEM item 428/478/479 或 modem 分区；下一飞只修 transport。
+- **F4**：`K60MODEM auth_reset failed rc!=0` ⇒ power 已投票但 PAS 仍失败；下一飞复查 `cx.lvl/mss.lvl` 投票与 AOP 顺序。
 - **F5**：auth_reset ok 但 S4 超时（出现 `modem not ready` 或没有 `glink desc`）⇒ 固件/SMP2P；下一飞补写 host item 428。
 - **F6**：S4 过但 S5 不是 `verdict ok` ⇒ GLINK/QRTR；转 QRTR 调查，不再改 PAS。
 
 ## 5. 飞行顺序
 
 1. **C（诊断，先飞）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`。
-   用途：在不动 modem 的前提下证明 U1（metadata 行）和 S3 的前两行；预期在
+   用途：在不动 modem 的前提下证明 U1（metadata 行）和 S3 的 `init_image`/`mem_setup` 两行
+   （C 不执行 power/transport）；预期在
    `K60MODEM diagnostic stop after mem_setup: auth_reset not sent` 停。
 2. **B（完整，后飞）**：C 全绿且真候选存在后，`pong_modem=2`，按 §4 的 S/F 判。
    两张必须是同一份 UEFI 与 payload 构建，只改启动参数；不得在 B 上顺手改代码。
@@ -132,16 +138,27 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 sha256 `4E8DA23012D88D5C3C01992B0286F1D0BBBA7D83980E0EDE3AAEDB3D95BBEA96`。
 若 F1 或任何 UEFI 回归，飞回这张；不要在失败的开机里重试。
 
-## 8. 当前状态（更新于 2026-11-17 07:33）
+## 8. 当前状态（更新于 2026-11-17 09:52）
 
-- 真候选 payload 已生成：`kernel.macho` 105,541,632 B / `e787569bf95165c0a97d190c916ebd0e193e9f1a63df6f886e213018e8f94c13`；
-  `payload.img` 201,326,592 B / `ec21632c108e774174cf211c166cfbda7e98a8e9d652bcc56ab455adf5402d1c`；
-  payload.json 记录 27 streams / 109,060,761 declared / 48,591,795 compressed / 16 B placeholder。
-- 内核构建源为 k60-cellular `98d0901f26dacea31d310b76c567ffccb03e6ab1`（含 `d7890e26` 的顺序修复）；
-  kernel.macho 内可见 `K60MODEM init_image ok metadata=%#x bytes=%u`、`mem_setup ok`、
-  `auth_reset ok` 与 `diagnostic stop after mem_setup` 字符串。
-- boot.img 已打包：`E:/k60-work/artifacts/modem-20261117b/boot-modem-candidate.img`，201,895,936 B /
-  `bd4d48b9c2b215d9426191401a622aa8e097d89a540df04e7ab7aa72852ce321`；公式与头字段见 §3.2。
+- 真候选 payload 已生成：`kernel.macho` 105,517,056 B / `d76eb7d95284521014216c93d6f42cc60a8a87d2c9f7228c9833746e4bab6afe`；
+  `payload.img` 201,326,592 B / `34e5fef7c35e25bdb64c9d428eafbb81929927147f56bd4e13635836531ef90e`；
+  payload.json 记录 27 streams / 109,060,761 declared / 48,591,795 compressed / 16 B placeholder，
+  `payload_kernel_sha256=266e34d073c3fa72ba68fb6fdd6d8fe36c9fceb5c6cb7f2c8c2f142a40af3971`。
+- 内核构建源为 k60-cellular `ac0917155f8f999613894d9199b5b71941f16837`（含 `0c5a0796` 的 power/transport 与本次 review 修复）；
+  kernel.macho 内可见 `K60MODEM power ok`、`power prepared`、`init_image ok`、`transport ok`、
+  `transport prepared`、`glink: IPCRTR opened as initiator`、`mem_setup ok`、`auth_reset ok` 与
+  `diagnostic stop after mem_setup` 字符串。
+- review 修复已落地（2026-11-17 09:58）：RSC TCS4 的触发/IRQ 使用 `0xd00/0xd04/0xd08`，超时清理
+  `cmd_enable/wait_for_cmpl/trigger`；QMP 邮箱限制在 0x400 B；SMEM/IPCC 可写映射改为非缓存；
+  transport 先检查旧 SMP2P 435 并取 TCSR `0x1f43000` 互斥；IPCRTR 在 PAS 前以 initiator 打开；
+  QRTR HELLO/LOOKUP 使用 AP node 1、control port 0xfffffffe 和广播/远端 node，send retry，ready 轮询 10 s；
+  MEM_SETUP 使用解析出的 segment span。
+- boot.img 已打包：`E:/k60-work/artifacts/modem-20261117c/boot-modem-power-candidate.img`，201,895,936 B /
+  `904060db7b93e546a25716dd35f27eeb9c314460f29de492c2639ead6df37f2f`；公式与头字段见 §3.2。
+- 离线门禁：`test-k60-modem-image.py`（30 segments）、`run-host-tests.sh`（9/5/6/16）、
+  `scripts/tests/test-bootimg-layout.py`（kernel=559358 ramdisk=201326592 DTB=4024）、
+  `check-modem-metadata.py`（14 PASS）、`check-docs.py`、`check-line-endings.py`、`check-secrets.py` 均通过。
+  `check-build-applied.py` 的 P-166 仍报告仓库与输入的历史 audio patch 漂移。
 - **本候选不是飞行许可**：bootimg 使用了 `--skip-gates`，因为本机合规注册表当前为红
   （P-165/P-166 等历史 sync/build 输入漂移）；§3 的 1/2/4/5 项还必须在飞行前逐条实跑并记录真实 rc，
   且必须由 Lead 授权后按 §5 的 C → B 顺序飞行。禁止自行上机。

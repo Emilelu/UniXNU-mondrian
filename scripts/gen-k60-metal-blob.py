@@ -54,13 +54,35 @@ SEEDS = (
 )
 
 
+def _with_metal_keys(data: bytes, source: Path) -> bytes:
+    """Add MetalPluginName/MetalPluginClassName if the bundle does not declare them.
+
+    Metal resolves the accelerator's MetalPluginName to <name>.bundle and then
+    asks that bundle for MetalPluginClassName.  A bundle that only declares
+    NSPrincipalClass is loaded but never instantiated, which is exactly the
+    symptom measured on 2026-11-17: the dyld constructor ran and no other
+    plugin line ever appeared.
+    """
+    if b'MetalPluginClassName' in data:
+        return data
+    marker = b'</dict>'
+    if marker not in data:
+        raise SystemExit(f'{source}: not a plist with a </dict>')
+    extra = (b'\t<key>MetalPluginName</key><string>PongAdrenoMetal</string>\n'
+             b'\t<key>MetalPluginClassName</key><string>PongAdrenoMetalDevice</string>\n')
+    return data.replace(marker, extra + marker, 1)
+
+
 def build(plugin_dir: Path, publish: bool) -> bytes:
     bodies = []
     for rel, mode in FILES:
         source = plugin_dir / rel.replace('addons/PongAdrenoMetal.bundle/', '')
         if not source.is_file():
             raise SystemExit(f'missing input: {source}')
-        bodies.append((rel.encode(), source.read_bytes(), mode))
+        data = source.read_bytes()
+        if rel.endswith('Info.plist'):
+            data = _with_metal_keys(data, source)
+        bodies.append((rel.encode(), data, mode))
     # The publication marker is what PongMetalPlugin::selectedClient() reads; it
     # ships as '0' from the build scripts on purpose, so enable it explicitly.
     clients = plugin_dir / SEEDS[0][0].replace("addons/", "")

@@ -213,7 +213,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_boot.c
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,216 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* Modem (MSS) bring-up order: prove the image table is sane, copy it into the
 + * mpss carveout when a carrier supplies the bytes, hand the metadata page to
@@ -275,6 +275,7 @@ index 0000000..1111111
 +#ifndef K60_HOST_TEST
 +extern int k60_modem_transport_prepare(void);
 +extern int k60_modem_rails_vote(void);
++extern int k60_modem_transport_stale(void);
 +#endif
 +
 +int
@@ -290,6 +291,14 @@ index 0000000..1111111
 +	}
 +	printf("K60MODEM plan rows=%u copied=%u zeroed=%u base=%#x window=%#x\n",
 +	    plan.segments, plan.copied, plan.zeroed, plan.base, plan.window);
++
++#ifndef K60_HOST_TEST
++	rc = k60_modem_transport_stale();
++	if (rc != 0) {
++		printf("K60MODEM stale check failed rc=%d\n", rc);
++		return rc;
++	}
++#endif
 +
 +	if (read != NULL) {
 +		rc = k60_modem_copy(window, window_bytes, read);

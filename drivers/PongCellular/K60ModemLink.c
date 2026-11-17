@@ -147,7 +147,6 @@ static int k60_qrtr_lookup_sent;
 static int k60_qrtr_server_sent;
 static int k60_qrtr_dms_requested;
 static uint16_t k60_qrtr_dms_transaction;
-static int k60_baseband_configured;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
     uint32_t length, uint32_t ip_version);
 static unsigned k60_modem_data_drops;
@@ -481,6 +480,9 @@ static void
 k60_modem_wr32(volatile uint8_t *base, size_t at, uint32_t value)
 {
 	*(volatile uint32_t *)(base + at) = value;
+	/* Match PongPlatformResources::wr: do not let a posted MMIO write
+	 * race the immediate control/IRQ readbacks below. */
+	__asm__ volatile("dsb oshst" ::: "memory");
 }
 
 static void
@@ -543,8 +545,10 @@ k60_modem_qmp_open(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t *box
 	    k60_modem_rd32(d, K60_MODEM_QMP_DESC_VERSION) != K60_MODEM_QMP_VERSION) {
 		return -1;
 	}
-	if ((box & 3u) != 0 || box < 0x3cu || bytes > K60_MODEM_QMP_RAM_BYTES ||
-	    box > K60_MODEM_QMP_RAM_BYTES - (K60_MODEM_QMP_MSG_BYTES + 4u)) {
+	if ((box & 3u) != 0 || box < 0x3cu ||
+	    bytes < K60_MODEM_QMP_MSG_BYTES + 4u ||
+	    bytes > K60_MODEM_QMP_RAM_BYTES || box > bytes ||
+	    bytes - box < K60_MODEM_QMP_MSG_BYTES + 4u) {
 		return -1;
 	}
 	*box_out = box;
@@ -676,8 +680,8 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 		return -1;
 	}
 	k60_modem_wr32(rsc, base + l->cmd_enable, 0);
-	k60_modem_wr32(rsc, base + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
-	if (k60_modem_wait_word(rsc, base + l->irq_status,
+	k60_modem_wr32(rsc, K60_MODEM_TCS_BASE + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
+	if (k60_modem_wait_word(rsc, K60_MODEM_TCS_BASE + l->irq_status,
 	    K60_MODEM_RSC_IRQ_DONE, 0, 1000)) {
 		return -1;
 	}
@@ -706,7 +710,7 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 		    k60_modem_rd32(rsc, base + l->cmd_enable) == 1u &&
 		    k60_modem_rd32(rsc, base + l->cmd_addr) == address &&
 		    k60_modem_rd32(rsc, base + l->cmd_data) == value &&
-		    (progressed || (k60_modem_rd32(rsc, base + l->irq_status) &
+		    (progressed || (k60_modem_rd32(rsc, K60_MODEM_TCS_BASE + l->irq_status) &
 		    K60_MODEM_RSC_IRQ_DONE))) {
 			rc = 0;
 			break;
@@ -722,7 +726,7 @@ k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
 	}
 cleanup:
 	k60_modem_wr32(rsc, base + l->cmd_enable, 0);
-	k60_modem_wr32(rsc, base + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
+	k60_modem_wr32(rsc, K60_MODEM_TCS_BASE + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
 	control = k60_modem_rd32(rsc, base + l->control) & ~(1u << 24);
 	k60_modem_wr32(rsc, base + l->control, control);
 	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
@@ -740,6 +744,7 @@ k60_modem_rails_vote(void)
 	volatile uint8_t *aoss = NULL, *ipcc = NULL, *db = NULL, *rsc = NULL;
 	K60RpmhResource cx = { 0 }, mss = { 0 }, xo = { 0 };
 	uint32_t cx_index = 0, mss_index = 0, xo_index = 0, box = 0;
+	unsigned attempt;
 	uint32_t drv, caps, version, capacity;
 	K60RscLayout layout;
 	const char *why = "aoss map";
@@ -754,11 +759,17 @@ k60_modem_rails_vote(void)
 		goto fail;
 	}
 	why = "qmp open";
-	if (k60_modem_qmp_open(aoss, ipcc, &box) != 0) {
-		goto fail;
+	for (attempt = 0; attempt < 600u; attempt++) {
+		if (k60_modem_qmp_open(aoss, ipcc, &box) == 0) {
+			why = "qmp load_state";
+			if (k60_modem_qmp_load_state(aoss, ipcc, box) == 0) {
+				break;
+			}
+		}
+		delay(100000);
 	}
-	why = "qmp load_state";
-	if (k60_modem_qmp_load_state(aoss, ipcc, box) != 0) {
+	if (attempt == 600u) {
+		why = "qmp open/load_state";
 		goto fail;
 	}
 	why = "cmd-db map";
@@ -909,9 +920,10 @@ k60_modem_transport_prepare(void)
 		return -1;
 	}
 	desc = (volatile uint32_t *)(window + offsets[1]);
-	for (i = 0; i < 8u; i++) {
-		desc[i] = 0;
-	}
+	/* Only the AP-owned indices are reset; desc[0]/desc[3] belong to the
+	 * remote and must stay intact so a live FIFO is never mistaken for fresh. */
+	desc[1] = 0;
+	desc[2] = 0;
 	k60_smp2p_barrier();
 	{
 		uint32_t rx_offset = 0, rx_size = 0;
@@ -977,6 +989,38 @@ k60_qrtr_modem_ready(volatile uint8_t *smem, uint32_t offset, uint32_t bytes, ui
 		if (same) {
 			return (state & 2u) != 0 && (state & 1u) == 0;
 		}
+	}
+	return 0;
+}
+
+/* Read-only guard used by k60_modem_bring_up before it copies an image or
+ * touches PAS. Pong refuses a stale modem at item 435 before PAS_INIT_IMAGE. */
+int
+k60_modem_transport_stale(void)
+{
+	K60Smem smem;
+	K60SmemPartition partition;
+	uint32_t offset = 0, size = 0, seen = 0;
+	volatile uint8_t *window;
+	int rc;
+
+	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
+	    K60_MODEM_SMEM_BYTES, 0x7);
+	if (window == NULL) {
+		printf("K60MODEM stale check: smem map failed\n");
+		return -1;
+	}
+	smem.base = window;
+	smem.size = K60_MODEM_SMEM_BYTES;
+	rc = k60_smem_partition(&smem, 0, 1, &partition);
+	if (rc != K60SmemOk) {
+		printf("K60MODEM stale check: no modem smem partition rc=%d\n", rc);
+		return -1;
+	}
+	rc = k60_smem_find(&smem, &partition, K60_MODEM_SMP2P_THEIRS, &offset, &size);
+	if (rc == K60SmemOk && k60_qrtr_modem_ready(window, offset, size, &seen)) {
+		printf("K60MODEM stale check: modem still owns smp2p entries=%u, refusing reset\n", seen);
+		return -16;
 	}
 	return 0;
 }
@@ -1140,12 +1184,9 @@ k60_modem_qrtr_probe(void)
 		printf("K60MODEM qrtr: GLINK already opened by transport\n");
 	}
 	printf("K60MODEM qrtr: opening IPCRTR as initiator\n");
-	if (!k60_baseband_configured) {
-		printf("K60MODEM baseband: bridge %s\n",
-		    coachz_baseband_enabled() ? "enabled" : "disabled");
-		coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
-		k60_baseband_configured = 1;
-	}
+	printf("K60MODEM baseband: bridge %s\n",
+	    coachz_baseband_enabled() ? "enabled" : "disabled");
+	coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
 	for (i = 0; i < K60_QRTR_POLLS; i++) {
 		const int polls = qcom_glink_poll(&k60_qrtr_link);
 
@@ -1154,7 +1195,10 @@ k60_modem_qrtr_probe(void)
 			return polls;
 		}
 		coachz_baseband_poll();
-		if (i % 500u == 0u) {
+		if (i != 0u && i % 500u == 0u) {
+			/* QcomBaseband defers publication when IOResources is not ready;
+			 * retry once a second instead of latching the first failure. */
+			coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
 			coachz_baseband_report(i / 500u);
 		}
 		if (k60_qrtr_up && !k60_qrtr_hello_sent) {

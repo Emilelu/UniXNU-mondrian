@@ -59,6 +59,7 @@ extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32
 #ifndef K60_HOST_TEST
 extern int k60_modem_transport_prepare(void);
 extern int k60_modem_rails_vote(void);
+extern int k60_modem_transport_stale(void);
 #endif
 
 int
@@ -74,6 +75,14 @@ k60_modem_bring_up(void *window, size_t window_bytes, K60ModemRead read, int pha
 	}
 	printf("K60MODEM plan rows=%u copied=%u zeroed=%u base=%#x window=%#x\n",
 	    plan.segments, plan.copied, plan.zeroed, plan.base, plan.window);
+
+#ifndef K60_HOST_TEST
+	rc = k60_modem_transport_stale();
+	if (rc != 0) {
+		printf("K60MODEM stale check failed rc=%d\n", rc);
+		return rc;
+	}
+#endif
 
 	if (read != NULL) {
 		rc = k60_modem_copy(window, window_bytes, read);

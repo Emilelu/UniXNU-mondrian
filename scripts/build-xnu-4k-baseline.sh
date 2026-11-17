@@ -308,6 +308,28 @@ if [ -n "$K60_METAL_PLUGIN_DIR" ] && [ -d "$K60_METAL_PLUGIN_DIR" ] && \
     --plugin-dir "$K60_METAL_PLUGIN_DIR" --assembly --output "$K60_METAL_ASM" \
     >&2 || { echo 'k60_metal_blob generation failed' >&2; exit 1; }
 fi
+# 0617: the PongAudio AudioServerPlugIn travels inside the kernel, because
+# /private/var/pong/empty-hal lives on the APFS Data volume and no host tool
+# here can write it.  The generator emits an .incbin assembly file; an empty
+# table keeps the kernel linkable when the feature is not selected.
+K60_AUDIO_HAL_PLUGIN_DIR=${K60_AUDIO_HAL_PLUGIN_DIR:-}
+if [ -f "patches/xnu/0617-k60-audio-hal-deploy.patch" ]; then
+  if [ -z "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
+    echo 'PONG_NATIVE_DRIVER_SOURCE is required for the audio HAL blob' >&2
+    exit 1
+  fi
+  K60_AUDIO_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_audio_hal_blob.s
+  mkdir -p "$(dirname "$K60_AUDIO_ASM")"
+  if [ -n "$K60_AUDIO_HAL_PLUGIN_DIR" ] && [ -d "$K60_AUDIO_HAL_PLUGIN_DIR" ]; then
+    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-audio-hal-blob.py" \
+      --bundle-dir "$K60_AUDIO_HAL_PLUGIN_DIR" --assembly --output "$K60_AUDIO_ASM" \
+      >&2 || { echo 'k60_audio_hal_blob generation failed' >&2; exit 1; }
+  else
+    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-audio-hal-blob.py" \
+      --empty --assembly --output "$K60_AUDIO_ASM" \
+      >&2 || { echo 'k60_audio_hal_blob generation failed' >&2; exit 1; }
+  fi
+fi
 if [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
   export PONG_NATIVE_DRIVER_SOURCE
 fi

@@ -1,7 +1,7 @@
 # 19 — 基带 PAS 上机计划（route B/C）
 
 - 日期：2026-11-18
-- 状态：**判据已冻结；C/B/C0 候选已重建（2026-11-18 04:38，k3 代：QcomBaseband 设备 patch + IPA M0/M1 离线解析构建，kernel 93858624）；2026-11-18 01:49 的 C 首飞因旧 FD 无 metadata 未取得 console，待复飞；本文件仍不是飞行许可**
+- 状态：**判据已冻结；C/B/C0 候选已重建（2026-11-18 05:08，k4 代：QcomBaseband 设备 patch + IPA M0 骨架 + M1 固件暂存/PAS 路径（无调用点）构建，kernel d2b2e8b7）；2026-11-18 01:49 的 C 首飞因旧 FD 无 metadata 未取得 console，待复飞；本文件仍不是飞行许可**
 - 范围：UEFI 把 5,884 B 的 PAS metadata 放进 DRAM；内核在完整模式下按 `power → init_image → transport → mem_setup → auth_reset` 发 SMC，并如实报告 rc；QRTR 侧接 QcomBaseband 的 AppleBaseband 控制桥，完成 servloc 应答与 DMS 版本读取。
 - 本飞只声称：**UEFI 能放对 metadata，内核能按顺序发 SMC 并报出 rc，QRTR 能枚举并读到 DMS 版本**。不声称基带数据业务可用。
 
@@ -74,21 +74,21 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 |---|---|---:|---|
 | FD | `E:/hackios/uefi-mondrian/Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd` | 3,145,728 | `e007de8a2cbed4ec22d8502a89ff3eef79337bc712ccb6c2414c4b175b5d2589` |
 | DTB | `E:/hackios/uefi-mondrian/Resources/DTBs/mondrian.dtb` | 4,024 | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
-| kernel.macho | `E:/k60-work/artifacts/modem-20261117k3/kernel.macho` | 105,521,152 | `93858624df37a534ec592755869e56aedfb4c170136c0b3232cc7b1fd11a406c` |
-| payload.img (C, `pong_modem=3`) | `E:/k60-work/artifacts/modem-20261117k3/payload-c-diagnostic/payload.img` | 201,326,592 | `bd5b54b474b206e0abd3110f3d1e69e41a0ce7e72789d9e1757096784d8d1b10` |
-| boot.img (C, `pong_modem=3`) | `E:/k60-work/artifacts/modem-20261117k3/boot-modem-c-diagnostic.img` | 201,895,936 | `f4ba1d3a7cc4a60323c12e9e68f6db0a2178f55a15e6a1104df6ee75012e29d7` |
-| payload.img (C0, no carrier control) | `E:/k60-work/artifacts/modem-20261117k3/payload-c-nocarrier/payload.img` | 201,326,592 | `630a55a32bc2a4fe024532784e0b72b86cc9dce45bab789aba92ce8c69770e44` |
-| boot.img (C0, no carrier control) | `E:/k60-work/artifacts/modem-20261117k3/boot-modem-c-nocarrier.img` | 201,895,936 | `34825867ec4fbb93c5184345d03fb37986d0c84af1f537cd62ac688107fac4cd` |
-| payload.img (B, `pong_modem=2`) | `E:/k60-work/artifacts/modem-20261117k3/payload-b-full/payload.img` | 201,326,592 | `479d7204876dbf68a3ab9d935c160fc16d9014bb63b281800f9fb3ed64f25d71` |
-| boot.img (B, canonical) | `E:/k60-work/artifacts/modem-20261117k3/boot-modem-b-full.img` | 201,895,936 | `ae8060a8ecf7889a12e4f9b13d551442dd583d537b783dc657050740902d5b15` |
+| kernel.macho | `E:/k60-work/artifacts/modem-20261117k4/kernel.macho` | 105,521,152 | `d2b2e8b76e826656f140b6f0253c4a141d90bdf2fbe8e191656b3eb6ee379608` |
+| payload.img (C, `pong_modem=3`) | `E:/k60-work/artifacts/modem-20261117k4/payload-c-diagnostic/payload.img` | 201,326,592 | `5cbcc55840b68f1b6eca6cd3df55e82230728dab442822b483f167494f552cef` |
+| boot.img (C, `pong_modem=3`) | `E:/k60-work/artifacts/modem-20261117k4/boot-modem-c-diagnostic.img` | 201,895,936 | `d358c1b6ae4c9c6e4b71523e3eca43ad5d6256b712cb4292db774bf55bb82bf5` |
+| payload.img (C0, no carrier control) | `E:/k60-work/artifacts/modem-20261117k4/payload-c-nocarrier/payload.img` | 201,326,592 | `72ac709cb13ef331d799dacd6c44a043fb94e694481a9e9b6b2c459a93ae112f` |
+| boot.img (C0, no carrier control) | `E:/k60-work/artifacts/modem-20261117k4/boot-modem-c-nocarrier.img` | 201,895,936 | `e44719c05a669fb0a28a5f415d8d4530237b16d19b089f3adc2cb41ce7e75615` |
+| payload.img (B, `pong_modem=2`) | `E:/k60-work/artifacts/modem-20261117k4/payload-b-full/payload.img` | 201,326,592 | `acbb5eec38171a36237d9eeaf826a2a88926b47a21f9fb91ef4a63312e16ba92` |
+| boot.img (B, canonical) | `E:/k60-work/artifacts/modem-20261117k4/boot-modem-b-full.img` | 201,895,936 | `43a868c30310483f2ce9e03be6c691c8e50ed82cd6e48db885331653dd8f381c` |
 
-- 构建源：k60-cellular feat/cellular 的 k3 代工作树（QcomBaseband 控制桥 + QMI servloc/DMS + IPA M0/M1 离线解析，代码提交 `c00be8a5`，基于携带设备 patch 的 `8af93c9a`、`352d7f30` 与 `3d4a4be4` 的 P0/P1/P2 修复和 `6a02c710` 的 power/transport）；UEFI `c1ea878`；payload 由 UniXNU `feat/modem-carrier`（`92bb60f`）的 `unixnu` 生成（`--modem-carrier E:/k60-work/artifacts/modem-carrier`）。k3 沿用 j2 的 UEFI FD e007de8a；kernel 由 `scripts/build-qcom-baseband.py` 对上游 `dd0199cf` 暂存并 apply `patches/qcombaseband/0001-coachz-defer-publication.patch` 后重建（build-report 的 `compiled_sha256=9a51613d...`，`device_patch=true`）。C/B 使用同一份 kernel、UEFI、DTB 与 modem carrier，只在打包 payload 时分别追加 `--kernel-arg pong_modem=3` / `--kernel-arg pong_modem=2`；C0 使用同一份 kernel、UEFI、DTB，但不带 carrier，`--kernel-arg pong_modem=3`；payload.json 的 kernel_args 分别以这两个参数结尾。
+- 构建源：k60-cellular feat/cellular 的 k4 代工作树（QcomBaseband 控制桥 + QMI servloc/DMS + IPA M0 骨架 + M1 固件暂存/PAS 路径（无调用点），代码提交 `04dfde6c`，基于携带设备 patch 的 `8af93c9a`、`352d7f30` 与 `3d4a4be4` 的 P0/P1/P2 修复和 `6a02c710` 的 power/transport）；UEFI `c1ea878`；payload 由 UniXNU `feat/modem-carrier`（`92bb60f`）的 `unixnu` 生成（`--modem-carrier E:/k60-work/artifacts/modem-carrier`）。k4 沿用 j2 的 UEFI FD e007de8a；kernel 由 `scripts/build-qcom-baseband.py` 对上游 `dd0199cf` 暂存并 apply `patches/qcombaseband/0001-coachz-defer-publication.patch` 后重建（build-report 的 `compiled_sha256=9a51613d...`，`device_patch=true`）。C/B 使用同一份 kernel、UEFI、DTB 与 modem carrier，只在打包 payload 时分别追加 `--kernel-arg pong_modem=3` / `--kernel-arg pong_modem=2`；C0 使用同一份 kernel、UEFI、DTB，但不带 carrier，`--kernel-arg pong_modem=3`；payload.json 的 kernel_args 分别以这两个参数结尾。
 - boot.img 头（三张相同）：`kernel_size=559,476`，`ramdisk_size=201,326,592`；`4096 + ceil(559476/4096)*4096 + 201326592 + 4096 = 201,895,936`，与文件大小相等；`test-bootimg-layout.py` 三张均 OK。
-- boot.img 内 ramdisk 切片 sha256：C = payload 的 `bd5b54b4...`，C0 = payload 的 `630a55a3...`，B = payload 的 `479d7204...`，说明 payload 原样嵌入。
-- k3 代 QRTR 在 f 的 QMI 面（AP 以 service 64 / instance 0x101 / port 0x100 应答 servloc 的 GET_DOMAIN_LIST，并从 modem 的 service 2 NEW_SERVER 端点发送 DMS GetRevision（message 0x23））之外，把 NEW_SERVER/DEL_SERVER/DATA 转给 QcomBaseband 的 `coachz_baseband_*`，并在打开 GLINK 后调用 `coachz_baseband_configure()` 发布 AppleBaseband/AppleBasebandPCIControl/AppleBasebandPCIInterface；S4 仍要求读到版本串。
-- 实测 payload（C/B 相同，C0 无 carrier）：`mdir ::/EFI/UniXNU/MODEM` 恰好列出 27 个 `.lzma`（名称 b01–b13 / b15–b20 / b22–b29），`/EFI/UniXNU/Payloads/kernel.macho.adt` 的 `/chosen/memory-map["K60ModemImage"]` 是 16 个零字节；payload.json 记录 `kernel_sha256=93858624...` / `payload_kernel_sha256=c73bfd10...`，ADT C=`01f43439...`、B=`17443c03...`、C0=`4cf83267...`。
+- boot.img 内 ramdisk 切片 sha256：C = payload 的 `5cbcc558...`，C0 = payload 的 `72ac709c...`，B = payload 的 `acbb5eec...`，说明 payload 原样嵌入。
+- k4 代 QRTR 在 f 的 QMI 面（AP 以 service 64 / instance 0x101 / port 0x100 应答 servloc 的 GET_DOMAIN_LIST，并从 modem 的 service 2 NEW_SERVER 端点发送 DMS GetRevision（message 0x23））之外，把 NEW_SERVER/DEL_SERVER/DATA 转给 QcomBaseband 的 `coachz_baseband_*`，并在打开 GLINK 后调用 `coachz_baseband_configure()` 发布 AppleBaseband/AppleBasebandPCIControl/AppleBasebandPCIInterface；S4 仍要求读到版本串。
+- 实测 payload（C/B 相同，C0 无 carrier）：`mdir ::/EFI/UniXNU/MODEM` 恰好列出 27 个 `.lzma`（名称 b01–b13 / b15–b20 / b22–b29），`/EFI/UniXNU/Payloads/kernel.macho.adt` 的 `/chosen/memory-map["K60ModemImage"]` 是 16 个零字节；payload.json 记录 `kernel_sha256=d2b2e8b7...` / `payload_kernel_sha256=a0aca4dc...`，ADT C=`d46def23...`、B=`d76bcc9e...`、C0=`52b0226b...`。
 - **注意：payload 与 bootimg 都使用了 `--skip-gates`**；本机 `unixnu bootimg` 的合规注册表当前为红（P-165/P-166 等历史 sync/build 输入漂移），所以这些候选不是“门禁全绿”的产物，也不是飞行许可。
-- 飞行工具：`E:/k60-work/artifacts/fly-modem.ps1`（先校验 C/B 哈希，再调用 `boot-and-capture.ps1` 和 `check-modem-flight.py`）、`E:/k60-work/artifacts/modem-20261117k3/FLIGHT-README.md`、`manifest-k3.json`；未获 Lead 授权不要加 `-Execute`。
+- 飞行工具：`E:/k60-work/artifacts/fly-modem.ps1`（先校验 C/B 哈希，再调用 `boot-and-capture.ps1` 和 `check-modem-flight.py`）、`E:/k60-work/artifacts/modem-20261117k4/FLIGHT-README.md`、`manifest-k4.json`；未获 Lead 授权不要加 `-Execute`。
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
@@ -128,12 +128,12 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 ## 5. 飞行顺序
 
 1. **C（诊断，先飞）**：`pong_modem=3`，用
-   `E:/k60-work/artifacts/modem-20261117k3/boot-modem-c-diagnostic.img`，只到 `mem_setup`，不发 `auth_reset`。
+   `E:/k60-work/artifacts/modem-20261117k4/boot-modem-c-diagnostic.img`，只到 `mem_setup`，不发 `auth_reset`。
    用途：在不动 modem 的前提下证明 U1（metadata 行）和 S3 的 `init_image`/`mem_setup` 两行
    （C 不执行 power/transport）；预期在
    `K60MODEM diagnostic stop after mem_setup: auth_reset not sent` 停。
 2. **B（完整，后飞）**：C 全绿且真候选存在后，`pong_modem=2`，用
-   `E:/k60-work/artifacts/modem-20261117k3/boot-modem-b-full.img`，按 §4 的 S/F 判。
+   `E:/k60-work/artifacts/modem-20261117k4/boot-modem-b-full.img`，按 §4 的 S/F 判。
    C/B 必须是同一份 kernel/UEFI/DTB/carrier，只在打包 payload 时改 `--kernel-arg`；不得在 B 上顺手改代码。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
@@ -149,17 +149,17 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 sha256 `4E8DA23012D88D5C3C01992B0286F1D0BBBA7D83980E0EDE3AAEDB3D95BBEA96`。
 若 F1 或任何 UEFI 回归，飞回这张；不要在失败的开机里重试。
 
-## 8. 当前状态（更新于 2026-11-18 04:38）
+## 8. 当前状态（更新于 2026-11-18 05:08）
 
 - QcomBaseband 控制桥已接入：`board.toml` 选择 `component:QcomBaseband`，`K60ModemLink.c` 在 QRTR 上转发 NEW_SERVER/DEL_SERVER/DATA 到 `coachz_baseband_*`，probe 打开 GLINK 后调用 `coachz_baseband_configure()`；ADT 增加 `chosen/coachz-baseband=1` 与 `product/baseband-chipset=mav16`。
-- 共享 `kernel.macho`：`E:/k60-work/artifacts/modem-20261117k3/kernel.macho`，105,521,152 B / `93858624df37a534ec592755869e56aedfb4c170136c0b3232cc7b1fd11a406c`；源码提交 k60-cellular `c00be8a5`（含 IPA M0/M1 离线解析），基于携带 QcomBaseband 设备 patch 的 `8af93c9a`、`352d7f30` / `3d4a4be4`。
-- 三张 payload 均为 201,326,592 B：C（`pong_modem=3`）`bd5b54b474b206e0abd3110f3d1e69e41a0ce7e72789d9e1757096784d8d1b10`，C0（`pong_modem=3` 且无 carrier）`630a55a32bc2a4fe024532784e0b72b86cc9dce45bab789aba92ce8c69770e44`，B（`pong_modem=2`）`479d7204876dbf68a3ab9d935c160fc16d9014bb63b281800f9fb3ed64f25d71`。
-- k3 代沿用 j2 的 UEFI FD 修正；j2 代的关键变化是 UEFI FD：旧 FD `38c1293b...` 的 mtime 01:28:38 早于 `c1ea878`（01:35:06，新增 `CarrierLoadMetadata`），不含 metadata page；新 FD `e007de8a2cbed4ec22d8502a89ff3eef79337bc712ccb6c2414c4b175b5d2589` mtime 02:17:24，已把 `CarrierLoadMetadata` 编进 ImageCarrierLib。k3 代沿用 e007de8a；C 于 01:49 使用旧 FD，因此连 S1 的 metadata 行都不可能出现，不能据此判断 kernel 或 QcomBaseband 桥。
-- 三张 boot.img 均 201,895,936 B：C = `E:/k60-work/artifacts/modem-20261117k3/boot-modem-c-diagnostic.img` / `f4ba1d3a7cc4a60323c12e9e68f6db0a2178f55a15e6a1104df6ee75012e29d7`；C0 = `E:/k60-work/artifacts/modem-20261117k3/boot-modem-c-nocarrier.img` / `34825867ec4fbb93c5184345d03fb37986d0c84af1f537cd62ac688107fac4cd`；B = `E:/k60-work/artifacts/modem-20261117k3/boot-modem-b-full.img` / `ae8060a8ecf7889a12e4f9b13d551442dd583d537b783dc657050740902d5b15`。boot 头 kernel_size=559,476、ramdisk=201,326,592、payload_offset=565,248，公式与 §3.2 一致；`test-bootimg-layout.py` 三张均 OK。
+- 共享 `kernel.macho`：`E:/k60-work/artifacts/modem-20261117k4/kernel.macho`，105,521,152 B / `d2b2e8b76e826656f140b6f0253c4a141d90bdf2fbe8e191656b3eb6ee379608`；源码提交 k60-cellular `04dfde6c`（含 IPA M0 骨架 + M1 固件暂存/PAS 路径（无调用点）），基于携带 QcomBaseband 设备 patch 的 `8af93c9a`、`352d7f30` / `3d4a4be4`。
+- 三张 payload 均为 201,326,592 B：C（`pong_modem=3`）`5cbcc55840b68f1b6eca6cd3df55e82230728dab442822b483f167494f552cef`，C0（`pong_modem=3` 且无 carrier）`72ac709cb13ef331d799dacd6c44a043fb94e694481a9e9b6b2c459a93ae112f`，B（`pong_modem=2`）`acbb5eec38171a36237d9eeaf826a2a88926b47a21f9fb91ef4a63312e16ba92`。
+- k4 代沿用 j2 的 UEFI FD 修正；j2 代的关键变化是 UEFI FD：旧 FD `38c1293b...` 的 mtime 01:28:38 早于 `c1ea878`（01:35:06，新增 `CarrierLoadMetadata`），不含 metadata page；新 FD `e007de8a2cbed4ec22d8502a89ff3eef79337bc712ccb6c2414c4b175b5d2589` mtime 02:17:24，已把 `CarrierLoadMetadata` 编进 ImageCarrierLib。k4 代沿用 e007de8a；C 于 01:49 使用旧 FD，因此连 S1 的 metadata 行都不可能出现，不能据此判断 kernel 或 QcomBaseband 桥。
+- 三张 boot.img 均 201,895,936 B：C = `E:/k60-work/artifacts/modem-20261117k4/boot-modem-c-diagnostic.img` / `d358c1b6ae4c9c6e4b71523e3eca43ad5d6256b712cb4292db774bf55bb82bf5`；C0 = `E:/k60-work/artifacts/modem-20261117k4/boot-modem-c-nocarrier.img` / `e44719c05a669fb0a28a5f415d8d4530237b16d19b089f3adc2cb41ce7e75615`；B = `E:/k60-work/artifacts/modem-20261117k4/boot-modem-b-full.img` / `43a868c30310483f2ce9e03be6c691c8e50ed82cd6e48db885331653dd8f381c`。boot 头 kernel_size=559,476、ramdisk=201,326,592、payload_offset=565,248，公式与 §3.2 一致；`test-bootimg-layout.py` 三张均 OK。
 - 三张 boot.img 的 `kernel_args` 分别以 `pong_modem=3`（C/C0）与 `pong_modem=2`（B）恰一次结尾；C 只到 `mem_setup` 后诊断停机，B 走完整 power/transport/auth/QRTR。
 - 2026-11-17 review 的 B 阻塞项已修复并进入 `6a02c710`：TCS4 等待前写入 `1u<<16` 触发位；`k60_modem_wait_word` 每次迭代 `delay(10)`，QMP 握手/load_state 等待 1 s，TCS 等待 10 ms；QRTR probe 先只要求 AP-owned 478/479，再在 10 s 内轮询 modem-owned 480/435；只有 480 与 435 都出现才退出轮询，stale FIFO 返回 -1。
 - 2026-11-18 modem-review 的 P0/P1/P2 修复已进入 `3d4a4be4`：RSC IRQ 状态/清除改用 `K60_MODEM_TCS_BASE + 0xd04/0xd08`；item 435 的 stale/Ready 检查前移到 copy/init_image/rails 之前（`k60_modem_transport_stale`，Ready 返回 -16）；QMP mailbox 边界补全并给 AOP QMP open/load_state 有界重试；GLINK descriptor 只清 AP-owned `desc[1]/desc[2]`；`k60_modem_wr32` 后加 `dsb oshst`；QcomBaseband provider NULL 时不再 latch `bb_published`，K60 每秒重试 `coachz_baseband_configure()`。
 - 2026-11-18 复评后的收口在 `352d7f30`：QMP open/load_state 重试由 600 次改为 10 次（约 2 分钟上界），并删除 `k60_modem_glink_start()` 中恒假的 `desc[1]/desc[2] != 0` 门禁；QcomBaseband provider 修复改为 k60-cellular 的 `patches/qcombaseband/0001-coachz-defer-publication.patch`：`scripts/build-qcom-baseband.py` 对上游 `dd0199cf` 的 `baseband/coachz_baseband.cpp` 暂存并 apply，不再依赖私有分支或工作树脏文件。
 - 离线门禁：`test-k60-modem-image.py`（30 segments）、`run-host-tests.sh`（9/5/13/16）、`test-bootimg-layout.py`（三张均 kernel=559476 ramdisk=201326592 DTB=4024）、`check-modem-metadata.py`（14 PASS）、`check-docs.py`、`check-line-endings.py`、`check-secrets.py` 均通过；`check-build-applied.py` 的 P-166 仍报告仓库与输入的历史 audio patch 漂移。
-- 2026-11-18 04:38 设备状态为 `none`（adb/fastboot 都没有）；未 boot、未 flash。k3 的 C/C0/B 仍在等待设备恢复 fastboot 后按 C → C0（仅当 C 无 console）→ B 顺序验证。
+- 2026-11-18 05:08 设备状态为 `none`（adb/fastboot 都没有）；未 boot、未 flash。k4 的 C/C0/B 仍在等待设备恢复 fastboot 后按 C → C0（仅当 C 无 console）→ B 顺序验证。
 - **本候选不是飞行许可**：payload 与 bootimg 均使用 `--skip-gates`，因为本机合规注册表当前为红（P-165/P-166 等历史 sync/build 输入漂移）；§3 的 1/2/4/5 项还必须在飞行前逐条实跑并记录真实 rc，且必须由 Lead 授权后按 §5 的 C → B 顺序飞行。禁止自行上机。

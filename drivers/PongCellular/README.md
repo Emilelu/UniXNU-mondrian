@@ -20,11 +20,11 @@
 | `K60ModemQrtr.h` | QRTR v1 线格式：32 B 头 / 20 B control、`NEW_LOOKUP (0x0a)`、`NEW_SERVER`、`K60QrtrState`、`k60_qrtr_verdict()` |
 | `K60ModemQrtr.c` | 纯 codec：`k60_qrtr_build_hello/lookup()`、`k60_qrtr_note()`（折叠应答）、`k60_qrtr_wanted()`（21/1/11/3/16） |
 | `K60ModemLink.c` | SMEM 0x80900000 + IPCC 0x0ed18000 + GLINK item 478/479/480/435；`k60_modem_qrtr_probe()` 只读轮询、fresh-FIFO 检查、发 HELLO + NEW_LOOKUP |
-| `K60Ipa.h` / `K60Ipa.c` | IPA v5.1 APQ 常量、版本解码、M0 惰性 probe 与 `k60_ipa_firmware_check()` 离线布局校验 |
+| `K60Ipa.h` / `K60Ipa.c` | IPA v5.1 APQ 常量、版本解码、M0 惰性 probe、`k60_ipa_firmware_check()` 离线布局校验、`k60_ipa_firmware_stage()` 固件暂存与 `k60_ipa_firmware_start()` PAS 15 路径 |
 | `K60Mdt.h` / `K60Mdt.c` | BSD-2-Clause-Patent 的 MDT/ELF 解析器（`pong-power/QcomMdt` 移植），供 IPA 固件检查 |
 
 进内核的路径：`patches/xnu/0620-k60-modem-image.patch`（L1 三文件）+ `patches/xnu/0621-k60-modem-pas.patch`（L2 三文件 + `kern_exec.c` Data 挂载后调用点）+ `patches/xnu/0622-k60-modem-qrtr.patch`（L3 三文件 + `PongPower/QcomGlink.{c,h}` 的 `bsd/dev` 副本，符号改名 `k60m_glink_` 以避开电池归档 force-load 的 `qcom_glink_*`）
-+ `patches/xnu/0623-k60-ipa.patch`（IPA M0 骨架 + M1 前置 MDT 解析）+ `patches/xnu/series` + `scripts/append-conffiles.py` 的 `bsd/dev/pong_modem_image.c` / `pong_modem_pas.c` / `pong_modem_boot.c` / `pong_modem_qrtr.c` / `pong_modem_link.c` / `qcom_glink.c` / `pong_ipa.c` / `pong_mdt.c` 八条目。
++ `patches/xnu/0623-k60-ipa.patch`（IPA M0 骨架 + M1 固件暂存/PAS 加载路径）+ `patches/xnu/series` + `scripts/append-conffiles.py` 的 `bsd/dev/pong_modem_image.c` / `pong_modem_pas.c` / `pong_modem_boot.c` / `pong_modem_qrtr.c` / `pong_modem_link.c` / `qcom_glink.c` / `pong_ipa.c` / `pong_mdt.c` 八条目。
 
 宿主验证：
 
@@ -38,7 +38,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 
 ## 1. 这个目录将来装什么
 
-装 **L1 + L2**，以及 IPA 的 M0 骨架与 M1 离线 MDT 解析（见 `03-SCOPE.md` §0 与 `docs/research/cellular/20-IPA-V51-DATA-PATH.md`）：
+装 **L1 + L2**，以及 IPA 的 M0 骨架与 M1 固件校验/暂存/PAS 路径（见 `03-SCOPE.md` §0 与 `docs/research/cellular/20-IPA-V51-DATA-PATH.md`）：
 
 | 层 | 组件 | 复用来源 | 状态 |
 |---|---|---|---|
@@ -49,7 +49,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 | L2 | QRTR 名字服务只读枚举（HELLO + `NEW_LOOKUP` + `NEW_SERVER` 表） | 无（照 Linux `net/qrtr/` 协议定义自研） | **已落地**（`K60ModemQrtr.c` + `K60ModemLink.c`） |
 | L2 | QMI client 分配 / CTL 服务 / `servreg` 查询 | 参考实现 `hakios.qmi.c` | 未开始（L4） |
 
-**当前不装**：IPA 数据面实现（M2 及以后）、QMAP、EFS/NV 服务、mbn 选择、IMS/VoLTE（`03-SCOPE.md` §4 已标为历史范围；数据面计划见 `20-IPA-V51-DATA-PATH.md`）。
+**当前不装**：IPA 数据面实现（M2 及以后）、QMAP、EFS/NV 服务、mbn 选择、IMS/VoLTE（`03-SCOPE.md` §4 已标为历史范围；数据面计划见 `20-IPA-V51-DATA-PATH.md`）。M1 目前只有固件暂存与 PAS 调用函数，还没有调用点或 Android 固件加载路径。
 
 ## 2. 关键常量（已取证，勿凭记忆改）
 
@@ -70,7 +70,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 | MX 供电轨 | PM8350C **S4**（phandle `0x9c`，`msslvl`） | DT `mx-supply` |
 | IPCC 信号 | client 0：fatal=0, handover=1, ready=2, stop-ack=3, shutdown-ack=7 | DT `interrupts-extended` |
 | modem root PD | `soc=msm, domain=modem, subdomain=root_pd, qmi_instance_id=180` | `/vendor/firmware_mnt/image/modemr.jsn` |
-| IPA（M0 骨架 + M1 MDT 解析） | `qcom,ipa@3e00000`，`pas-ids=<0x0f>`，IPA v5.1 APQ 工作假设（DT `qcom,ipa-hw-ver=0x16`） | `dts/mondrian.dts:295-334`；`docs/research/cellular/20-IPA-V51-DATA-PATH.md` |
+| IPA（M0 骨架 + M1 固件暂存） | `qcom,ipa@3e00000`，`pas-ids=<0x0f>`，IPA v5.1 APQ 工作假设（DT `qcom,ipa-hw-ver=0x16`） | `dts/mondrian.dts:295-334`；`docs/research/cellular/20-IPA-V51-DATA-PATH.md` |
 
 ## 3. 禁止事项（双系统铁则）
 
@@ -78,7 +78,7 @@ gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular \
 2. **L1/L2 阶段只读** `modemst1`/`modemst2`/`fsg`/`fsc`，不写。
 3. **加载 modem 前先查它是否已在运行** —— 从 Android 热重启进 XNU 时，modem 可能仍活着；
    直接 `PAS_AUTH_AND_RESET` 会打断一个正在运行的 modem（`03-SCOPE.md` §5）。
-4. IPA 代码已写 M0 骨架与 M1 前置 MDT 解析（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`）；真正的 PAS 固件加载需要 `ipa_fws.mdt` 实测。
+4. IPA 代码已写 M0 骨架与 M1 固件校验/暂存/PAS 路径（`K60Ipa.h`/`K60Ipa.c`/`K60Mdt.h`/`K60Mdt.c`）；`ipa_fws` 已从 Xiaomi mondrian 固件提取并完成离线校验（40,376 B monolithic，span 0x9000，metadata 0xe8c），真正调用需要加载器把该映像交给 `k60_ipa_firmware_start()`，尚未上机。
 5. **不自行 boot**：镜像与脚本交给 Lead，由 Lead 在用户明确同意后执行 `fastboot boot`。
 
 ## 4. 开工前必须存在的前置件

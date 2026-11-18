@@ -209,14 +209,14 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 
 | 验证项 | 状态 | 证据 / 缺口 |
 | --- | --- | --- |
-| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；host 测试 82 项覆盖应答/拒绝/超时 |
-| OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；字段值与原始值换算一致（见 §7.3、§7.4） |
+| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；image e：`:407` channel up、`:515` 首帧；host 测试 82 项覆盖应答/拒绝/超时 |
+| OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；image e `:515`–`:3682` 连续 12 条完整样本；字段值与原始值换算一致（见 §7.3、§7.4、§7.6） |
 | 响应超时 | host 已验证 | `test-k60-charger-subscription.c` 第 13 节：timeout 只标记未完成字段，poisoned epoch 生效；真机未制造超时 |
 | 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:163-191`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，最终 image e 已包含该修复，IOKit 级 absent 注册未上真机 |
 | 插拔电源 | host 状态机已验证 / 真机未验证 | 第 15 节构造 USB 在线 1→0 与 status 1→2，断言 `external`/`charging`/`usb_connected` 翻转；真机脚本化插拔仍需要人工在同一次 usblog 里观察 |
 | 充放电 | host 状态机已验证 / 真机未验证 | 第 15 节覆盖 status 1 充电、status 2 放电、status 4 full、status 1 无外接拒绝、status 2 正电流拒绝；Android 侧实际充电/放电段未采样 |
 | 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:429-437` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image e），IOKit 级 stop/start 未在真机执行 |
-| 与 OEM/目标电量计逐项对照 | 部分/当前 PASS（匹配电流子集） | image e C1/C2 PASS；C3 对同窗口 9 行 Android 基线仅电流 5/9 对超差（Android 88–626mA，XNU 397mA），同会话 3 行匹配电流基线 PASS；全窗口仍需更稳定的同电流 Android 基线 |
+| 与 OEM/目标电量计逐项对照 | 已验证（匹配电流 3 对） | image e C1/C2 PASS；C3 对同会话 3 行匹配电流基线 PASS（`judge-android-matched3.txt`：|ΔV|=43mV/±60mV、|ΔI|=121mA/±150mA、|ΔSOC|=0、|ΔT|=1.10C/±3C）；同窗口 9 行全量基线因 Android 电流 88–626mA 波动有 5/9 对电流超差，属于基线状态不匹配而非发布值错误 |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
 

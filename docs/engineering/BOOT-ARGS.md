@@ -32,7 +32,7 @@
 | `pong_touch` | 触摸 | 真值 | 1 | 0 则整条触摸线不跑 |
 | `pong_init_path` | 启动链 | 路径 | 代码默认 | — |
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
-| `pong_gpu_dcvs` | 电源 / GPU | 0 或 1 | 0（关闭） | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；1=16 ms 读 GMU XO 忙碌计数器并经 HFI id 30 投票，连续 8 次被拒停线程；未上机（image o 2026-11-19 构建） |
+| `pong_gpu_dcvs` | 电源 / GPU | 0 / 1 / 2 | 0（关闭） | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；1=16 ms 读 GMU XO 忙碌计数器并经 HFI id 30 投票，连续 8 次被拒停线程；2=再在启动时做一次升档投票并立即还原；image o 02:14 已上机（空闲、24 窗口、无投票）；image q 02:36 用 2 验证 HFI id 30 投票被接受（升档+还原各一次、错误码 0） |
 | `pong_gpu_max_level` | 电源 / GPU | 1..13 | 13 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；DCVS 可投的最高档，越界回落 13，仅在 `pong_gpu_dcvs=1` 时读取 |
 | `pong_gpu_dcvs_min` | 电源 / GPU | 1..13 | 1 | 同上；空闲时允许降到的最低档，小于 1 夹到 1、大于最高档夹到最高档 |
 | `pong_gpu_dcvs_boost_ms` | 电源 / GPU | ≥ 0（毫秒） | 50 | 同上；GMU 忙碌计数从零转非零后唤醒档（两倍频率、至少 578 MHz）的保持时间，0 = 不保持 |
@@ -320,11 +320,11 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 |---|---|
 | 类型 | uint32 |
 | 默认 | 0（不启动 DCVS） |
-| 取值 | 1（其它值不启动） |
+| 取值 | 0 = 关闭；1 = 启动 DCVS；2 = 启动并做一次 HFI 投票探针（升一档再立刻还原） |
 | 来源 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`（`PE_parse_boot_argn("pong_gpu_dcvs", &on, sizeof(on))`）；`PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后调用 `pong_adreno_dcvs_start()`，CP 启动失败则不启动 |
-| 作用 | 1 = 起 16 ms 线程：读 GMU XO 忙碌计数器 → `k60_gpu_governor_window()` → HFI id 30 投 `{1, level, bandwidth}`；计数器从零转非零时给 50 ms 唤醒档（两倍频率、至少 578 MHz）；连续 8 次投票被拒就停线程并毒化 HFI。日志前缀 `PONG ADRENO: `，每 10 s 一条档位汇总。 |
+| 作用 | ≥1 = 起 16 ms 线程：读 GMU XO 忙碌计数器 → `k60_gpu_governor_window()` → HFI id 30 投 `{1, level, bandwidth}`；计数器从零转非零时给 50 ms 唤醒档（两倍频率、至少 578 MHz）；连续 8 次投票被拒就停线程并毒化 HFI。=2 时另在进入循环前投一档（`DCVS probe up`）并立即还原（`DCVS probe restore`），用于无 GPU 负载时验证 HFI id 30 是否被接受。日志前缀 `PONG ADRENO: `，每 10 s 一条档位汇总。 |
 
-伴随参数（都未列入 board 契约，只有 `pong_gpu_dcvs=1` 时才读取）：
+伴随参数（都未列入 board 契约，只有 `pong_gpu_dcvs`≥1 时才读取）：
 
 | 参数 | 默认 | 含义 |
 |---|---|---|
@@ -337,7 +337,11 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 
 **陷阱**：image o（2026-11-19）用探针 board（去掉 `applog=1`）+ `pong_handoff_publish=1` +
 `pong_gpu_dcvs=1`，共 30 项 606 字节，在 607 字节上限内；再加 `applog=1` 会超限。
-该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`。尚未上机。
+该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`。image o 已于 02:14 上机：
+线程启动、24 条空闲汇总、无投票、无 panic；因为整轮没有 GPU 提交，投票路径只有 `=2` 的探针能验证。
+image q（`pong_gpu_dcvs=2`，2026-11-19 02:36）返回
+`DCVS probe up result=0 a=0x200000000 b=0x1` 与 `DCVS probe restore result=0 a=0x100000000 b=0x0`：
+HFI id 30 的升档与还原投票都被固件接受（错误码 0），整轮仍空闲、29 条汇总窗口、无 panic。
 
 ### `pong_handoff_publish`
 

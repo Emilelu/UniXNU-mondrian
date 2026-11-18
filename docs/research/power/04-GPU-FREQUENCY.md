@@ -1,7 +1,8 @@
 # GPU 调频（官网 §5 的 GPU 条目）
 
 状态：**GMU XO 忙碌计数器、HFI id 30 投票与 16 ms governor 线程已实现，host 123 项断言；
-opt-in（`pong_gpu_dcvs=1`），已构建进 image o（修复前策略）与 image p，尚未上机**。
+opt-in（`pong_gpu_dcvs=1`）。image o（02:14）验证了线程与计数器读取（24 条窗口、无 panic）；
+image q（02:36，`pong_gpu_dcvs=2`）进一步验证了 HFI id 30 投票：升一档被接受、随即还原到 floor 也被接受**。
 官网 `https://unixnu.com/zh/porting/power` §5 对 GPU 的要求只有一句（快照
 `E:/k60-work/scratch/power-page-20261117.txt:114`）：
 
@@ -105,9 +106,10 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
 
 ## 4. 边界
 
-- **DCVS 未上机**：`pong_gpu_dcvs=1` 的 image o（内联策略）和 image p（抽出的窗口规则）
-  都已构建，但尚未启动；没有一条真实计数器读数、投票结果或帧时间证据。
-  计数器与投票路径只在 host 侧与静态检查中验证过。
+- **DCVS 验证到「空闲 + 单次投票」**：image o 02:14 上机验证线程与计数器读取（24 条窗口、
+  计数器恒 0）；image q 02:36 用 `pong_gpu_dcvs=2` 验证 HFI id 30 投票被接受（升档、还原各一次，
+  错误码 0）。仍缺的是**负载驱动**：没有一次「忙碌计数升高 → governor 升档 → 投票 → 频率/帧时间变化」
+  的闭环数据，也没有真实带宽需求；image p（抽出的窗口规则）与含 CP 提交窗口的镜像仍未上机。
 - image p：`boot.img` 201,887,744 B sha256 `5a03277403d68358c07910a551e3376e3aacebc8a877700f397d8e814a35b676`，
   kernel `4b9fa1f96302afc6604afaac306cd9c6b389ad5638c4d1b9b1c1f3f0147d3849`，
   payload `7a6c891224c6045dee50b79a55035b8b595095e259dadf704a2d4025d789387e`；
@@ -118,6 +120,19 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
   也没有帧提交计数与 fence 截止时间，所以 1 s 触摸保持、300 ms 内抬到 60 % 的
   CPU 投票都还没执行——floor 只有值，没有消费者。当前的 50 ms 唤醒档仍只由
   「计数器从零变为非零」触发。
+- **2026-11-19 02:14 真机（image o）**：启动 22 个阶段全部成功，`:714` 打出
+  `PONG ADRENO: DCVS started result=0 a=0xd00000001 b=0x1`（top 13、floor 1、初始 level 1），
+  之后每 10 s 一条 `DCVS window result=1 a=0x0 b=0x0`，共 24 条（约 4 分钟，控制台 138,144 B，
+  sha256 `ba1d374b805be831935d07f8878c92854369105f3effb5c747b5357c4a9b756e`），
+  无 `STOP DCVS`、无 panic、无失败投票。含义：16 ms 线程在 XNU 里稳定运行、GMU 忙碌计数器
+  每次读取都返回 0（整轮无 GPU 提交），governor 停在 floor，HFI 投票路径一次也没走到。
+- **2026-11-19 02:36 真机（image q，`pong_gpu_dcvs=2`）**：启动时先打
+  `DCVS probe up result=0 a=0x200000000 b=0x1`（目标档 2，HFI 错误码 0，原档 1），
+  紧接着 `DCVS probe restore result=0 a=0x100000000 b=0x0`（回 floor 1，错误码 0）。
+  说明 **HFI id 30 `{1, level, bandwidth}` 投票在本板固件上被接受**，不只是构造出报文。
+  整轮仍是空闲（29 条汇总窗口、计数器 0），所以「负载→升档」的闭环还没有数据；控制台
+  139,802 B、sha256 `e6aae5c1941fe5f3132c863005b0d3f43d5bc1dd5e64263e015d146754489e36`，
+  无 panic、无 `STOP DCVS`。
 - **没有温控/电压顺序**：升档只发 HFI 投票，没有先检查温控、也没有按官网 §5 :108
   的顺序处理稳压器与互连；如果固件自己降频，投票可能被拒，连续 8 次拒绝会停线程。
 - **带宽来自静态表**：`PongAdrenoPowerLevels[13-want].bus` 是 power 表里的保留值，

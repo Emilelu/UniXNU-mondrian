@@ -118,6 +118,13 @@ kernel_args = [
 # T8140 = iPhone 16 Pro Max (iPhone17,2, D94AP): the OS profile's identity.
 "chip_id" = "8140"
 "unique_chip_id" = "required"
+# /chosen/random-seed decides the physmap slide, and a random one kills about
+# one build in three in pmap_map_bd in a way that reads as memory corruption.
+# The reference board table pins 64 bytes of 0x11 and xnu-12377 reads four
+# 64-byte seeds, so the value repeats to fill all 256. Pinning it also makes
+# the payload image reproducible. Stage 0 only; a shipped system must not
+# carry a seed published in this repository.
+"random_seed" = "11"
 # The OS volume UUID of the 24A446 iPhone17,2 root, from the profile.
 "root_match_volume_uuid" = "E3F4AED0-4454-4D5B-833C-E27E99C4F67B"
 # 4.5 GiB managed window: the board contract inherited from the iOS 16 line.

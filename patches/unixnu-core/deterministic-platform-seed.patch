@@ -1,0 +1,40 @@
+diff --git a/scripts/unixnu/devicetree.py b/scripts/unixnu/devicetree.py
+index 3dde210..abff77c 100644
+--- a/scripts/unixnu/devicetree.py
++++ b/scripts/unixnu/devicetree.py
+@@ -287,6 +287,26 @@ def platform_node(name, table):
+     return node(name, properties, children)
+ 
+ 
++def platform_seed(options):
++    """The 256 bytes of /chosen/random-seed, or fresh randomness.
++
++    The seed sets the physmap slide, so a random one makes a fixed share of
++    boots die in pmap_map_bd and read as memory corruption. A board that pins
++    `adt.random_seed` gets one slide for every build; the hexadecimal value is
++    repeated to fill the four 64-byte seeds xnu-12377 reads.
++    """
++    text = options.get('random_seed')
++    if text is None:
++        return os.urandom(256)
++    try:
++        raw = bytes.fromhex(str(text))
++    except ValueError:
++        raise Error('adt.random_seed must be hexadecimal')
++    if not raw:
++        raise Error('adt.random_seed must not be empty')
++    return (raw * (256 // len(raw) + 1))[:256]
++
++
+ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon=False, root_policies=False):
+     root = read_fdt(Path(dtb).read_bytes())
+     entries = list(root.walk())
+@@ -306,7 +326,7 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
+     if payload.get('dram_size') is not None and int(str(payload['dram_size']), 0) != dram_size:
+         raise Error('payload.dram_size differs from the hardware DTS')
+     # xnu-12377 takes 4 x 64 seed bytes on ARM and panics with fewer; older kernels read the first 64.
+-    chosen = [('random-seed', os.urandom(256)), ('dram-base', struct.pack('<Q', dram_base)),
++    chosen = [('random-seed', platform_seed(options)), ('dram-base', struct.pack('<Q', dram_base)),
+               ('dram-size', struct.pack('<Q', dram_size)), *empty_nvram_proxy()]
+     if unique_chip_id:
+         seed = int(str(unique_chip_id), 16)

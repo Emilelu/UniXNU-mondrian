@@ -14,7 +14,9 @@
 #   sh scripts/build-ios27-linux.sh [extra unixnu build kernel arguments]
 #
 # UNIXNU points at the framework checkout (default ../UniXNU next to this repo);
-# UNIXNU_OUT at the output root (default $HOME/ios27-out).
+# UNIXNU_OUT at the output root (default $HOME/ios27-out). UNIXNU_UEFI points at
+# a staged uefi-mondrian checkout with its submodules; when it is set the script
+# also builds the firmware volume and packs boot.img.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 UNIXNU=${UNIXNU:-$ROOT/../UniXNU}
@@ -40,4 +42,17 @@ python3 ./unixnu fetch --device "$ROOT"
 python3 ./unixnu defconfig mondrian_ios27_defconfig --device "$ROOT"
 python3 ./unixnu build kernel --device "$ROOT" --skip-prelink "$@"
 python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
-echo "build-ios27-linux: kernel and payload under $UNIXNU_OUT"
+
+if [ -n "${UNIXNU_UEFI:-}" ]; then
+	if [ ! -f "$UNIXNU_UEFI/Resources/Scripts/mkbootimg.py" ]; then
+		echo "build-ios27-linux: no uefi-mondrian checkout at $UNIXNU_UEFI" >&2
+		exit 2
+	fi
+	python3 ./unixnu build firmware --device "$ROOT" --uefi "$UNIXNU_UEFI" -j "${UNIXNU_JOBS:-$(nproc)}"
+	# No [bootimg] dtb in board.toml: the appended tree is the hardware DTS the
+	# payload step compiled.
+	python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
+		--dtb "$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb"
+fi
+
+echo "build-ios27-linux: artifacts under $UNIXNU_OUT"

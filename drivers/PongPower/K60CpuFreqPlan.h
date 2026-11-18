@@ -85,6 +85,21 @@ unsigned k60_cpufreq_step(const K60CpuFreqTable *table, unsigned *current,
 unsigned k60_cpufreq_domain_of_cpu(unsigned cpu);
 unsigned k60_cpufreq_domain_cores(unsigned domain);
 
+/* The write set the reference uses to place one domain at a level: the
+ * perf_state row always, plus one row per extra core when the dcvs control
+ * bit is set. "level" is the LUT row index, not the table index.
+ * k60_cpufreq_build_votes returns the number of writes, or 0 when the caller's
+ * buffer is too small (nothing is written in that case). */
+#define K60_CPU_FREQ_MAX_WRITES 8u
+typedef struct {
+    uint32_t offset; /* register offset inside the domain window */
+    uint32_t value;
+} K60CpuFreqWrite;
+
+unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned level,
+    K60CpuFreqWrite *out, unsigned capacity);
+unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigned capacity);
+
 #ifdef __cplusplus
 }
 #endif

@@ -131,3 +131,27 @@ unsigned k60_cpufreq_domain_cores(unsigned domain)
     static const unsigned cores[K60_CPU_FREQ_DOMAINS] = {4, 3, 1};
     return domain < K60_CPU_FREQ_DOMAINS ? cores[domain] : 0;
 }
+
+unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned level,
+    K60CpuFreqWrite *out, unsigned capacity)
+{
+    const unsigned cores = k60_cpufreq_domain_cores(domain);
+    unsigned writes = dcvs_ctrl && cores > 1 ? cores : 1, i;
+
+    if (!out || capacity < writes) return 0;
+    out[0].offset = K60_CPU_FREQ_REG_PERF_STATE;
+    out[0].value = level;
+    for (i = 1; i < writes; ++i) {
+        out[i].offset = K60_CPU_FREQ_REG_PERF_STATE + i * 4;
+        out[i].value = level;
+    }
+    return writes;
+}
+
+unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigned capacity)
+{
+    if (!out || !capacity) return 0;
+    out[0].offset = K60_CPU_FREQ_REG_L3_VOTE;
+    out[0].value = level;
+    return 1;
+}

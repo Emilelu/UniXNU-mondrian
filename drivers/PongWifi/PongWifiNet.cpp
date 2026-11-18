@@ -253,9 +253,9 @@ void on_link_lost(int reason) {
   lck_mtx_lock(gLock);pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
 }
 
-// What the address configuration exchanges, as it crosses the interface: DHCP messages (type, transaction, offered address) and ARP, the first
-// ones of each direction, and per-kind counts for the traffic line.
-struct Kinds { uint32_t arp, ip4, dhcp, ip6, other; } gKindsIn, gKindsOut;
+// What crosses the interface, for the traffic line: DHCP messages (type, transaction, offered address), ARP, TLS on port 443 and DNS, with
+// the first packet of each direction logged so a run shows what the network is actually used for.
+struct Kinds { uint32_t arp, ip4, dhcp, ip6, other, dns, https; } gKindsIn, gKindsOut;
 void note_frame(const uint8_t *e, size_t n, bool out) {
   Kinds &k = out ? gKindsOut : gKindsIn; const unsigned type = n >= 14 ? (e[12] << 8 | e[13]) : 0; const char *dir = out ? "out" : "in";
   if (type == 0x0806) {
@@ -264,9 +264,26 @@ void note_frame(const uint8_t *e, size_t n, bool out) {
     return; }
   if (type == 0x86dd) { k.ip6++; return; }
   if (type != 0x0800 || n < 34) { k.other++; return; }
-  k.ip4++; const uint8_t *ip = e + 14; const unsigned ihl = (ip[0] & 15) * 4;
-  if (ip[9] != 17 || n < 14 + ihl + 8) return;
+  k.ip4++; const uint8_t *ip = e + 14; const unsigned ihl = (ip[0] & 15) * 4; const unsigned proto = ip[9];
+  // TLS is where a webpage ends up and DNS is what names the server it goes to. The first packet of each direction is logged, so a run
+  // shows whether the device reaches the network at all, not only that it was given an address.
+  if (proto == 6 && n >= 14 + ihl + 20) {
+    const uint8_t *tcp = ip + ihl; const unsigned sp = pong_wifi_be16(tcp), dp = pong_wifi_be16(tcp + 2), flags = tcp[13];
+    if (sp == 443 || dp == 443) { k.https++; static unsigned shown[2];
+      if (shown[out]++ < 24) log(6, "wifi-net: https %s %u.%u.%u.%u:%u -> %u.%u.%u.%u:%u flags 0x%02x len %u", dir,
+          ip[12], ip[13], ip[14], ip[15], sp, ip[16], ip[17], ip[18], ip[19], dp, flags, pong_wifi_be16(ip + 2)); }
+    return; }
+  if (proto != 17 || n < 14 + ihl + 8) return;
   const uint8_t *udp = ip + ihl; const unsigned sp = udp[0] << 8 | udp[1], dp = udp[2] << 8 | udp[3];
+  if (sp == 53 || dp == 53) { k.dns++; static unsigned shown[2];
+    if (shown[out]++ < 12) { const uint8_t *d = udp + 8; const size_t dl = n - (d - e); char name[80] = ""; int at = 0;
+      if (dl >= 12 && !(d[2] & 0x80)) for (size_t o = 12; o < dl && d[o] && at < 76;) {
+        const unsigned l = d[o]; if (l > 63 || o + 1 + l > dl) break; if (at) name[at++] = '.';
+        for (unsigned i = 0; i < l && at < 76; ++i) { const unsigned c = d[o + 1 + i]; name[at++] = c >= 33 && c < 127 && c != '.' && c != ' ' ? static_cast<char>(c) : '?'; }
+        o += 1 + l; }
+      name[at] = 0;
+      if (name[0]) log(6, "wifi-net: dns %s query %s", dir, name); else log(6, "wifi-net: dns %s len %u", dir, static_cast<unsigned>(dl)); }
+    return; }
   if (!((sp == 67 || sp == 68) && (dp == 67 || dp == 68))) return;
   k.dhcp++; const uint8_t *b = udp + 8; const size_t bl = n - (b - e); unsigned msg = 0;
   if (ihl >= 20 && !(pong_wifi_be16(ip + 6) & 0x3fff)) {
@@ -742,6 +759,8 @@ class IO80211Interface : public IONetworkInterface {
 public:
   IOReturn newUserClient(task_t task,void *security,UInt32 type,OSDictionary *properties,IOUserClient **out) override {
     if(type!=0)return kIOReturnUnsupported;
+    char who[32] = "?"; proc_selfname(who, sizeof who);
+    log(6, "wifi-net: 80211 user client opened by %s type %u", who, static_cast<unsigned>(type));
     auto client=OSTypeAlloc(Pong80211UserClient);
     if(!client || !client->initWithTask(task,security,type,properties)) {
       OSSafeReleaseNULL(client);return kIOReturnNotPermitted;
@@ -867,6 +886,7 @@ void log_traffic() {
   log(6, "wifi-net: tx %s", tx);
   log(6, "wifi-net: in arp %u ip4 %u dhcp %u ip6 %u other %u", gKindsIn.arp, gKindsIn.ip4, gKindsIn.dhcp, gKindsIn.ip6, gKindsIn.other);
   log(6, "wifi-net: out arp %u ip4 %u dhcp %u ip6 %u other %u", gKindsOut.arp, gKindsOut.ip4, gKindsOut.dhcp, gKindsOut.ip6, gKindsOut.other);
+  log(6, "wifi-net: tcp443 in %u out %u, dns in %u out %u", gKindsIn.https, gKindsOut.https, gKindsIn.dns, gKindsOut.dns);
   log(6, "wifi-net: input stalls %u, kicks %u, cleared after a kick %u, longest %u s", gStall.count, gStall.kicks, gStall.cleared, gStall.longest);
   log(6, "wifi-net: rx no buffer %u, chained %u, longest frame %u", gRxNoBuffer, gRxChains, gRxLongest);
   IOService *root = IOService::getServiceRoot();

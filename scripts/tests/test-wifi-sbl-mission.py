@@ -137,6 +137,11 @@ def main() -> int:
     check("the stack user client reports external methods and its close",
           '"wifi-net: network stack method %u in %u out %u"' in net and
           '"wifi-net: the network stack client closed"' in net)
+    check("the interface counts TLS and DNS traffic and names its opener",
+          '"wifi-net: tcp443 in %u out %u, dns in %u out %u"' in net and
+          '"wifi-net: dns %s query %s"' in net and
+          '"wifi-net: 80211 user client opened by %s type %u"' in net and
+          "k.https++" in net and "k.dns++" in net)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors

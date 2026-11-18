@@ -32,7 +32,8 @@ is work without a payoff at stage 0.
 
 The IPSW is downloaded and unpacked on macOS: `./unixnu userdata --os 27`
 needs `/usr/bin/aea` for the encrypted images. The host does not need the
-phone for any of it.
+phone for any of it. The driver takes the URL directly (`unixnu fetch --ipsw
+PATH_OR_URL`), so the 12.3 GB download does not have to be driven by hand.
 
 The SoC layer's `xnu-12377` series lives on this branch's
 `UniXNU-sm8475-common` fork (`feat/xnu-12377`), not at the upstream commit the

@@ -109,12 +109,11 @@ argument); upstream clang rejects it. The device series carries
 `ptrauth-string-discriminator.patch`, which keeps Apple clang's spelling and
 uses the three-argument form otherwise. Only `ucred.cr_label` is affected.
 
-The **LTO fileset reference** is the one artifact this host cannot produce:
-cctools-port's ld64 reads no LLVM bitcode (`unknown-unsupported file format`),
-and the LLVM 24 install has no `llvm-link` to merge it. `board.toml` therefore
-builds the reference without `--lto`. Chained fixups and the segment layout
-remain, but the prelink must be re-run against an Xcode 26 LTO reference before
-F2 is called done.
+The **fileset reference** is the one archive this host does not build. It needs
+`--lto` for parity with the release kernel; cctools-port's ld64 reads no LLVM
+bitcode, the pinned LLVM 24 has no `llvm-link` to merge it, and the non-LTO
+variant hits the profile runtime and ArmCpu's weak sleep hook. It stays an
+Xcode 26 artifact for F2, and the kernel link does not include it.
 
 On a WSL host whose checkouts live under `/mnt/c`, point `UNIXNU_OUT` at ext4:
 

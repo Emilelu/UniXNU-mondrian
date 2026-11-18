@@ -1055,7 +1055,7 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 构建：tag `bt-0518-gic-intid`，`built_at=2026-11-18T18:08:47+08:00`，head `3aa6910a`、dirty 0；manifest boot `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`（201,887,744 B）、kernel `6f44a07f…`、payload `1a6cf06f…`、payload_kernel `46da4e24…`、ADT `4b91e549…`、dtb `2d044eaa…`、fd `cf448571…`、bt_blob `febdc20d…`；kernel.log:271 记录 0518，八步 build 6 项通过，image-arg-audit 31/598，kernel archives 4 个全在，metal/bt blob self-consistent，`verify-boot-image.py --manifest` → OK，boot.json `hardware_tested=false`、`kernel_sha256=83b52b56…`。
 - 宿主：0518 套件 35、0517 套件 53、0516 套件 82、d8 adapter 90，全部 0 failure；均 HOST-ONLY，不证明控制器/UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
 - 回滚恢复：d8 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b` 与 d10 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69` 已按各自 manifest 用“0518 donor 镜像 + 对应 payload”重组，两枚均 201,887,744 B，`verify-boot-image` 与 image-arg-audit 均 OK。d9 `8a211a76…` 仍不可用，不得声称保留；d8 产物目录保持不动。
-- 计划：`docs/research/bt/D11-PLAN.md` 已写明 d11 是 0517+0518 累积候选，**相对 d10 的唯一差别是 0518**；权威顺序是先 d10、后 d11。（历史，截至 18:08：当时 d10 未批准；21:32 已飞 FAIL，见 item 46。d11 仍未飞，⑧ 仍 false。）
+- 计划：`docs/research/bt/D11-PLAN.md` 已写明 d11 是 0517+0518 累积候选，**相对 d10 的唯一差别是 0518**；权威顺序是先 d10、后 d11。（历史，截至 18:08；d10 21:32 FAIL、d11 22:19 PASS，见 item 46/47。）
 
 ### 46. d10（0517）已飞，FAIL（2026-11-18 21:32–21:36）
 
@@ -1064,4 +1064,12 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 采集：`E:/k60-work/evidence/usblog-20261118-213228`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=201732、panic/reset=null、stopReason=budget；console 3290 行，logSha256 `6A9AF54A…`。
 - 判决：PATCH `segs=602 ret=0`；NVM 主轮 `segs=7 ret=-60`（i=0..5 每段约 10 s）；fallback 这次 `segs=1 ret=-60`；`budget exhausted at op=0xfc00`；`power=1 result=-60`；无 `nvm done`；`bluetoothd exit=1`。按预声明判据 **FAIL**。
 - 形状：主轮仍是 7 段/每段约 10 s，但 fallback 从 d9 的 21 段变成 1 段，**不能说失败形状完全不变**，也不能说 0517 完全无效。
-- 下一步：先补控制器/UART 观测（官网 `trace_hci` 的 TX_UART/RX_CONTROLLER/missed/dropped，或 IRQ 计数），解释 0517 改了什么；d11 仍可相对 d10 做单变量，但不得单独解释 NVM `-60`。d11 未飞，⑧ 仍 false。
+- 下一步：d11（0517+0518）已于 22:19 飞行 PASS，见 item 47；NVM 问题由 0518 的 GIC INTID 修正解释，不再需要先补观测。
+
+### 47. d11（0518）已飞，PASS：蓝牙固件下载路径打通（2026-11-18 22:19–22:23）
+
+- 权限口径同 item 46：先到先得、单设备单写者；只 `fastboot boot`，未 flash。设备 `6033dbec`，镜像 `d6beec4c…`（201,887,744 B），supervisor rc=0。
+- 采集：`E:/k60-work/evidence/usblog-20261118-221925`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=278123、panic/reset=null、stopReason=budget；console 278123 B，logSha256 `591CD9A6…`。
+- 蓝牙：PATCH `segs=602 ret=0`；NVM 单轮 27 段，26 段 `dt_ms=1`、末段 124 B `dt_ms=120`，`segs=27 sent=629 acks=28 final=0 ret=0`；`nvm done`、`hci reset done`、`bdaddr check done`、`uart setup done e=0`、`set bdaddr done e=0`、`return e=0 baud=3000000`；`power=1 result=0 ... firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1`；`[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0`。
+- 因果：d11 相对 d10 唯一差别是 0518。此前 UART RX 中断挂在 INTID 587 而不是 619，每段 ack 只能等 10 s 命令期限；0518 修正后 ack 约 1 ms 到达。**0518 是修复，0517 不是。**
+- 边界：只证明 patch/NVM 下载、HCI reset、BD_ADDR 设置与 UART SK 注册；用户态 `marconi-bt` 仍报 `Unable to match bluetooth service in device tree` 和全零 MAC，`bluetoothd` 已由 `xpcproxy` 拉起但只进入 msg loop。蓝牙可用性仍未证明。

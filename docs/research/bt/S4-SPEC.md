@@ -1768,7 +1768,7 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **宿主证据**：`python3 scripts/tests/test-bt-0518-gic-intid.py` → `TESTS OK: 35 case(s), 0 failure(s)`；0517 套件 53、0516 套件 82、d8 adapter 90，全绿。以上为 HOST-ONLY，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
 
-**结论**：0518 候选已可交给 Lead，但 `D11-PLAN.md` 明确规定 d11 是“d10 之后”的累积单变量：相对 d10 只多 0518。d10 已飞 FAIL 且 fallback 形状改变；d11 未飞，先补控制器/UART 观测再决定。d8 结论不变，⑧ 仍 false。
+**结论**：0518 候选已可交给 Lead，`D11-PLAN.md` 规定 d11 是“d10 之后”的累积单变量：相对 d10 只多 0518。d11 已于 2026-11-18 22:19 飞行 PASS，见 §7.27；d8 结论不变。
 
 ### 7.26 d10（0517）设备结果（2026-11-18 21:32，FAIL）
 
@@ -1776,7 +1776,15 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 - `E:/k60-work/evidence/usblog-20261118-213228`：`boot.json` bootAccepted=true、bootExitCode=0、returnedToFastboot=false；`capture.json` complete=true、bytes=201732、panic/reset=null、stopReason=budget；console 3290 行，logSha256 `6A9AF54A…`。
 - 蓝牙：493 行 enter；1326 行 PATCH `type=1 segs=602 sent=602 acks=1 final=0 ret=0`；NVM 主轮 `type=2 segs=7 ret=-60`（i=0..5 每段约 10 s）；fallback 这次 `type=2 segs=1 ret=-60`（d9 为 21 段）；2584/2589 行 `budget exhausted at op=0xfc00`；2598 行 `power=1 result=-60 ... tlv_sent=610 tlv_acks=8 tlv_final=0`；无 `nvm done`；`bluetoothd exit=1`。
 - 结论：按预声明判据 **FAIL**；0517 没有修复 NVM。主轮形状与 d9 相同，但 fallback 形状改变，故不能声称 0517 完全无效；下一步先补控制器/UART 观测，再决定 d11。
-- d11 未飞；d8 回滚 `0297012d…` 与 d10 镜像 `6c631bc4…` 均保留；⑧ 仍 false。
+- d11 后于 22:19 飞行 PASS，见 §7.27；d8 回滚 `0297012d…`、d10 镜像 `6c631bc4…` 与 d11 镜像 `d6beec4c…` 均保留。
+
+### 7.27 d11（0518）设备结果（2026-11-18 22:19，PASS）
+
+- 设备 `6033dbec`；镜像 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`；命令 `K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/k60-work/artifacts/bt-0518-gic-intid/boot.img 220`；supervisor rc=0。
+- `E:/k60-work/evidence/usblog-20261118-221925`：`boot.json` bootAccepted=true、bootExitCode=0、returnedToFastboot=false（22:19:28–22:23:33）；`capture.json` complete=true、bytes=278123、panic/reset=null、stopReason=budget；console 278123 B，logSha256 `591CD9A6…`。
+- 蓝牙：PATCH `type=1 segs=602 ret=0`；NVM 单轮 `type=2 segs=27 sent=629 acks=28 final=0 ret=0`，26 段 `dt_ms=1`、末段 124 B `dt_ms=120`；`boot: nvm done`、`hci reset done`、`bdaddr check done`、`uart setup done e=0`、`set bdaddr done e=0`、`return e=0 baud=3000000`；`power=1 result=0 ... firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1`；`[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0`。
+- 结论：按预声明判据 **PASS**。d11 相对 d10 唯一差别是 0518，证明 NVM 每段约 10 s 的停顿是 UART RX 中断挂错 INTID（587 而非 619）导致 ack 只能等命令期限；0518 修正后 ack 约 1 ms 到达。0518 是修复，0517 不是。
+- 边界：这只证明 patch/NVM 下载、HCI reset、BD_ADDR 设置与 UART SK 注册的传输路径；用户态 `marconi-bt` 仍报 `Unable to match bluetooth service in device tree` 和全零 MAC，`bluetoothd` 已由 `xpcproxy` 拉起但只进入 msg loop。蓝牙可用性仍未证明。
 
 ---
 

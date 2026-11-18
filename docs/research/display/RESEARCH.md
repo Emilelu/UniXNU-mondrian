@@ -163,8 +163,26 @@ sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
 | ~~XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算~~ **不需要换算** | 上电时序以 DTB 为准（`<1 11 0 1 1 11>`，见第 3 节），XML 那行只描述同一件事的另一种编码，不参与构建 |
 | ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧（2026-11-14 用 `scratch/refmine/fps_boots.py` 重跑，证据目录只增不减，故数字随抓取增长）：494 个 `console.log` 中 453 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（273 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
 | 面板供电真上电验证 | 3 条 RPMh LDO 的 cmd-db 资源地址与投票参数未取（RSC drv-2 已实测可读写，不是 RSC 阻塞）；在此之前无法自证 |
+| 亮度滑块三档真机验收 | 发布层 PASS（brightness-13，`usblog-20261115-134638`），但默认形态不发 `backlight-control`；滑块是否改变物理亮度待用户在场实测，见 [`08-on-device.md`](08-on-device.md) |
 
-## 9. 交叉引用
+## 9. on-device（背光发布层已验，2026-11-15）
+
+brightness-13（默认形态，`k60_backlight_control=0`）实测 **PASS（发布层）**：
+证据 `usblog-20261115-134638`，判定器 `scripts/check-backlight-log.py` EXIT=0，
+SpringBoard 128 行、无 `sig=11`、`K60 DISPLAY: first frame presented` 出现。
+决定性日志行（`console.log:183`）：
+
+```
+K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)
+```
+
+对照：brightness-4（`control=1`）在同一发布层之后 backboardd 崩 4 次、SpringBoard 停在 7 行
+（int-236 形状）；brightness-9 旧格式日志行为同 13（`usblog-20261115-134001`，SpringBoard 208 行，
+判定器因日志无 `stats=` 只能给 INCONCLUSIVE，用 `--old-form` 复判）。
+**尚未验收**：滑块三档是否真的改变物理亮度（`stats[1]` 是否随滑动增加、屏幕是否变化）。
+逐轮记录与三档读法见 [`08-on-device.md`](08-on-device.md)；槽位语义见 [`STATS-INDEX.md`](STATS-INDEX.md)。
+
+## 10. 交叉引用
 
 - 证据行：[`../REFERENCE-INDEX.md`](../REFERENCE-INDEX.md) 第 7 节（7.2 节点 / 7.3 timing / 7.4 供电 / 7.5 基址 / 7.6 背光 / **7.7 厂商 panel XML 逐包比对**）、14.6、14.7
 - 本板 `Display Reserved 0xB8000000+0x2B00000` 与 `video_region 0x85700000+0x700000`：[`memory/RESEARCH.md`](../memory/RESEARCH.md)

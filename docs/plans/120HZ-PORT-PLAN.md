@@ -19,7 +19,7 @@
 
 # K60 120 Hz 移植方案（GPU scanout 生效之后执行）
 
-> 状态：方案稿，**未实施**。每条结论后附 `文件:行`；无法证实的集中在 §5。
+> 状态：方案稿，**未实施**；2026-11-17 的可执行版本与预注册判据见 `docs/plans/120HZ-PANEL-SWITCH-PLAN.md`。本文件 §3.2 的“当前无 DSI host/PHY/PLL 驱动”已过时：当前 `drivers/PongAdreno/PongDsiPanel.cpp` 已有 DSI0 命令 FIFO。每条结论后附 `文件:行`；无法证实的集中在 §5。
 > 取证基准一：`patches/xnu/series` 第 101/102/104/130 行（= 当前 K60 内核的显示补丁集）。
 > 取证基准二：`E:/hackios/work-display/xnu`（= xnu-8796.141.3 + `zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch`
 > + 0210/0211/0213 的展开树）。该树行号与既有文档一致：`HANDOFF-2026-10-31.md:234` 引的

@@ -61,21 +61,27 @@ unsigned dsi_mdp_waits;
 unsigned panel_on_done;
 unsigned panel_brightness = 0;
 int panel_on_result = -100;
+unsigned panel_120_done;
+int panel_120_result = -100;
+bool panel_120_requested;
+bool panel_120_switch_pending;
+bool panel_120_verify_pending;
+unsigned panel_measured_hz; /* INTF1 TE/frame observation, 0 = not measured */
 
 /* K60 FDT: MDSS0xae00000, INTF pages0x35000..0x38000. Same SM8475
  * zizhan dpuBus/intfRate require GCC_DISP_AHB and DISP_CC_MDSS_AHB before
  * any MDSS access: scanning alone does not imply the register clock is on.
  * Never enable clocks; only INTF1's known inherited autorefresh may change. */
-IOMemoryDescriptor *probe_desc[7];
-IOMemoryMap *probe_maps[7];
-vm_offset_t probe_va[7];
+IOMemoryDescriptor *probe_desc[13];
+IOMemoryMap *probe_maps[13];
+vm_offset_t probe_va[13];
 bool probe_enabled;
 uint64_t probe_started,probe_previous;
 uint32_t probe_frames[4];
 uint16_t probe_te[2];
 uint64_t probe_sampled[4];
 bool cadence_pending,cadence_verify;
-constexpr uint32_t IntfFrameCount=0xac,IntfTearAutorefresh=0x2b4;
+constexpr uint32_t IntfConfig=0x04,IntfVsyncPeriod=0x0c,IntfCountEnable=0xa8,IntfFrameCount=0xac,IntfLineCount=0xb0,IntfTearCheckEn=0x284,IntfTearSyncVsync=0x288,IntfTearAutorefresh=0x2b4,IntfTeCount=0x298;
 constexpr uint32_t CadenceInherited=0x8000003cu,CadenceEveryFrame=0x80000001u;
 
 void panel_log(const char *fmt, ...)
@@ -95,7 +101,7 @@ vm_offset_t probe_page(unsigned slot,uint32_t physical)
 {
     if(!probe_va[slot]) {
         probe_desc[slot]=IOMemoryDescriptor::withPhysicalAddress(physical,4096,
-            slot==4?kIODirectionInOut:kIODirectionIn);
+            (slot>=3 && slot<=6)?kIODirectionInOut:kIODirectionIn);
         if(probe_desc[slot])probe_maps[slot]=probe_desc[slot]->map();
         if(probe_maps[slot])probe_va[slot]=probe_maps[slot]->getVirtualAddress();
     }
@@ -104,6 +110,128 @@ vm_offset_t probe_page(unsigned slot,uint32_t physical)
 uint32_t probe_read(vm_offset_t base,unsigned offset)
 {
     return *reinterpret_cast<volatile uint32_t *>(base+offset);
+}
+
+/* The DPU's CTL block reports which interface is active in CTL_INTF_ACTIVE
+ * (0xf4). zizhan's dbFindPipes uses the same six 0x1000 CTL pages at
+ * 0x0ae16000. Read only; if no bit is set fall back to INTF1, the page the
+ * previous driver work assumed. */
+uint32_t panel_ctl_intf_mask(void)
+{
+    uint32_t mask=0;
+    for(unsigned i=0;i<6;++i) {
+        const vm_offset_t ctl=probe_page(7+i,0x0ae16000u+i*0x1000u);
+        if(ctl)mask|=probe_read(ctl,0xf4);
+    }
+    return mask;
+}
+
+int panel_active_intf(void)
+{
+    const uint32_t mask=panel_ctl_intf_mask();
+    for(unsigned i=0;i<4;++i)if(mask&(1u<<i))return int(i);
+    return 1;
+}
+
+/* Measure the active INTF's panel frame period from its line counter, the method in
+ * the official DisplayTimingProbe reference (UniXNU-sheng
+ * package/DisplayTimingProbe.cpp:45-70): a running line counter wraps once per
+ * panel frame, so the shortest interval between two wraps is the frame period.
+ * The tear-counter high 16 bits are a read-pointer frame count and the plain
+ * frame counter only advances when the command FIFO submits; neither is a TE
+ * rate. Keep both in the diagnostic bracket, but never use them as the rate. */
+bool panel_intf_rate(const char *phase,uint32_t milliseconds)
+{
+    if(!milliseconds)return false;
+    const vm_offset_t gcc=probe_page(0,0x00137000);
+    if(!gcc) {
+        panel_log("K60 PANEL: INTF1 %s: no GCC mapping, rate unavailable\n",phase);
+        return false;
+    }
+    const uint32_t gate=probe_read(gcc,4);
+    if(gate&0x80000000u) {
+        panel_log("K60 PANEL: INTF1 %s: GCC_DISP_AHB off=%#x, rate unavailable\n",phase,gate);
+        return false;
+    }
+    const vm_offset_t dc=probe_page(1,0x0af08000),power=probe_page(2,0x0af09000);
+    if(!dc || !power) {
+        panel_log("K60 PANEL: INTF1 %s: no DISPCC mapping, rate unavailable\n",phase);
+        return false;
+    }
+    const uint32_t ahb=probe_read(dc,0xa4),gdsc=probe_read(power,0);
+    if((ahb&0x80000000u) || !(gdsc&0x80000000u)) {
+        panel_log("K60 PANEL: INTF1 %s: MDSS gate=%#x power=%#x, rate unavailable\n",phase,ahb,gdsc);
+        return false;
+    }
+    const uint32_t mask=panel_ctl_intf_mask();
+    int active=1;
+    for(unsigned i=0;i<4;++i)if(mask&(1u<<i)){active=int(i);break;}
+    const vm_offset_t base=probe_page(3+unsigned(active),0x0ae35000u+unsigned(active)*4096u);
+    if(!base) {
+        panel_log("K60 PANEL: INTF%d %s: no INTF mapping, rate unavailable\n",active,phase);
+        return false;
+    }
+    panel_log("K60 PANEL: CTL intf active=%#x, using INTF%d\n",mask,active);
+    for(unsigned i=0;i<4;++i) {
+        const vm_offset_t p=probe_page(3+i,0x0ae35000u+i*4096u);
+        if(p)panel_log("K60 PANEL: INTF%u config=%#x vsync_period=%#x count_enable=%#x frame=%u line=%u tear_check=%#x\n",
+            i,probe_read(p,IntfConfig),probe_read(p,IntfVsyncPeriod),probe_read(p,IntfCountEnable),
+            probe_read(p,IntfFrameCount),probe_read(p,IntfLineCount)&0xffffu,probe_read(p,IntfTearCheckEn));
+    }
+    uint32_t count_enable=probe_read(base,IntfCountEnable);
+    if((count_enable&3u)!=3u) {
+        const uint32_t before=count_enable;
+        *reinterpret_cast<volatile uint32_t *>(base+IntfCountEnable)=(count_enable|3u);
+        __asm__ volatile("dsb sy" ::: "memory");
+        count_enable=probe_read(base,IntfCountEnable);
+        panel_log("K60 PANEL: INTF%d count_enable %#x -> %#x\n",active,before,count_enable);
+    }
+    const uint32_t frames0=probe_read(base,IntfFrameCount);
+    const uint32_t te0=probe_read(base,IntfTeCount);
+    const uint32_t line0=probe_read(base,IntfLineCount)&0xffffu;
+    const uint64_t begin=mach_absolute_time();
+    uint64_t last_wrap=0,best_us=0;
+    uint32_t wraps=0,previous=line0;
+    for(;;) {
+        const uint32_t line=probe_read(base,IntfLineCount)&0xffffu;
+        const uint64_t now=mach_absolute_time();
+        uint64_t elapsed_ns=0;
+        absolutetime_to_nanoseconds(now-begin,&elapsed_ns);
+        if(elapsed_ns>=uint64_t(milliseconds)*1000000ull)break;
+        if(line<previous/2u) {
+            if(last_wrap) {
+                uint64_t gap_ns=0;
+                absolutetime_to_nanoseconds(now-last_wrap,&gap_ns);
+                const uint64_t gap_us=gap_ns/1000ull;
+                if(gap_us && (!best_us || gap_us<best_us))best_us=gap_us;
+            }
+            last_wrap=now;
+            ++wraps;
+        }
+        previous=line;
+        IODelay(1000);
+    }
+    const uint32_t line1=probe_read(base,IntfLineCount)&0xffffu;
+    const uint32_t frames1=probe_read(base,IntfFrameCount);
+    const uint32_t te1=probe_read(base,IntfTeCount);
+    uint64_t elapsed_ns=0;
+    absolutetime_to_nanoseconds(mach_absolute_time()-begin,&elapsed_ns);
+    const uint32_t elapsed_ms=uint32_t(elapsed_ns/1000000ull);
+    const uint32_t frame_hz=elapsed_ms?uint32_t(uint64_t(frames1-frames0)*1000ull/elapsed_ms):0;
+    const uint32_t wrap_hz=elapsed_ms?uint32_t(uint64_t(wraps)*1000ull/elapsed_ms):0;
+    const uint32_t period_hz=best_us?uint32_t(1000000ull/best_us):0;
+    /* The line counter is the panel scan timebase; the frame counter is only
+     * DPU commits and the tear counter is a read-pointer count. Prefer the
+     * average wrap rate over many frames; the shortest single period is only
+     * a fallback, because one 7.6 ms interval is 131 Hz while the same 500 ms
+     * window has 61 wraps (122 Hz). */
+    const uint32_t te_hz=(wraps>=2u&&wrap_hz)?wrap_hz:period_hz;
+    panel_measured_hz=te_hz?te_hz:frame_hz;
+    panel_log("K60 PANEL: INTF%d %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u) line %u->%u wraps %u wrap %u/s period %llu us count_enable %#x\n",
+        active,phase,te_hz,frame_hz,milliseconds,
+        unsigned(te0>>16),unsigned(te1>>16),frames0,frames1,
+        line0,line1,wraps,wrap_hz,best_us,count_enable);
+    return true;
 }
 
 /* Qualcomm-authored SM8475 register facts, mirrored (not a matched K60
@@ -274,21 +402,119 @@ int dsi_dcs(const uint8_t *buf, uint32_t len, bool lp)
 	return rc;
 }
 
-int dsi_write1(uint8_t cmd, uint8_t value)
-{
-	uint8_t buf[2] = { cmd, value };
-	if (value == 0xff && cmd == 0x51) {
-		return dsi_dcs(buf, 2, false);
-	}
-	return dsi_dcs(buf, 2, false);
-}
-
 int dsi_write0(uint8_t cmd)
 {
 	return dsi_dcs(&cmd, 1, false);
 }
 
+/* m11a timing@2 (120 Hz) timing-switch-command, packet by packet from the
+ * vendor dtsi (LowTension/android_kernel_xiaomi_sm8475,
+ * dsi-panel-m11a-42-02-0a-dsc-cmd.dtsi): 0x2f=0x00 selects timing group 2;
+ * the 0x39 packets are the vendor's fixed 0xf0 0x55 0xaa 0x52 sequence.
+ * The live FDT copy is 98 B and omits the final CC 00 plus the CE 01
+ * post-wait; the vendor's timing@2 has eleven packets and 10 ms after CE. */
+struct PanelTimingCommand { const uint8_t *data; uint32_t length; uint32_t wait_ms; };
+constexpr uint8_t kTiming120_2f[] = { 0x2f, 0x00 };
+constexpr uint8_t kTiming120_8b[] = { 0x8b, 0x00 };
+constexpr uint8_t kTiming120_f0[] = { 0xf0, 0x55, 0xaa, 0x52, 0x08, 0x00 };
+constexpr uint8_t kTiming120_6f03[] = { 0x6f, 0x03 };
+constexpr uint8_t kTiming120_c010[] = { 0xc0, 0x10 };
+constexpr uint8_t kTiming120_6f31[] = { 0x6f, 0x31 };
+constexpr uint8_t kTiming120_df[] = { 0xdf, 0x20 };
+constexpr uint8_t kTiming120_f002[] = { 0xf0, 0x55, 0xaa, 0x52, 0x08, 0x02 };
+constexpr uint8_t kTiming120_cc[] = { 0xcc, 0x30 };
+constexpr uint8_t kTiming120_ce[] = { 0xce, 0x01 };
+constexpr uint8_t kTiming120_cc00[] = { 0xcc, 0x00 };
+constexpr PanelTimingCommand kTiming120[] = {
+    { kTiming120_2f, sizeof(kTiming120_2f), 0 },
+    { kTiming120_8b, sizeof(kTiming120_8b), 0 },
+    { kTiming120_f0, sizeof(kTiming120_f0), 0 },
+    { kTiming120_6f03, sizeof(kTiming120_6f03), 0 },
+    { kTiming120_c010, sizeof(kTiming120_c010), 0 },
+    { kTiming120_6f31, sizeof(kTiming120_6f31), 0 },
+    { kTiming120_df, sizeof(kTiming120_df), 0 },
+    { kTiming120_f002, sizeof(kTiming120_f002), 0 },
+    { kTiming120_cc, sizeof(kTiming120_cc), 0 },
+    { kTiming120_ce, sizeof(kTiming120_ce), 10 },
+    { kTiming120_cc00, sizeof(kTiming120_cc00), 0 },
+};
+
 } // namespace
+
+/* Set the inherited 60-frame autorefresh divider to one frame so the panel
+ * produces line-counter wraps even while the desktop is static. This is a
+ * measurement precondition and must happen before the before-switch sample. */
+static void panel_autorefresh_one(const char *phase)
+{
+    const int active=panel_active_intf();
+    const vm_offset_t intf=probe_page(3+unsigned(active),0x0ae35000u+unsigned(active)*4096u);
+    if(!intf)return;
+    const uint32_t auto_cfg=probe_read(intf,IntfTearAutorefresh);
+    if((auto_cfg&0x80000000u) && (auto_cfg&0xffffu)!=1u) {
+        const uint32_t before=auto_cfg;
+        *reinterpret_cast<volatile uint32_t *>(intf+IntfTearAutorefresh)=
+            (auto_cfg&~0xffffu)|1u;
+        __asm__ volatile("dsb sy" ::: "memory");
+        panel_log("K60 PANEL: INTF%d autorefresh %#x -> %#x (%s)\n",
+            active,before,probe_read(intf,IntfTearAutorefresh),phase);
+    }
+}
+
+extern "C" int pong_panel_switch_120(void)
+{
+    if (panel_on_result != 0) {
+        return -100;
+    }
+    if (panel_120_done) {
+        return panel_120_result;
+    }
+    panel_120_done = 1;
+    panel_120_result = -1;
+    if (!dsi_map) {
+        panel_log("K60 PANEL: timing switch to 120 Hz: DSI0 not mapped\n");
+        return -1;
+    }
+
+    panel_autorefresh_one("before the switch");
+    panel_intf_rate("before the switch", 200);
+    const uint32_t count = sizeof(kTiming120) / sizeof(kTiming120[0]);
+    for (uint32_t i = 0; i < count; ++i) {
+        const int rc = dsi_dcs(kTiming120[i].data, kTiming120[i].length, false);
+        if (rc) {
+            panel_120_result = rc;
+            panel_log("K60 PANEL: timing switch to 120 Hz: packet %u/%u failed rc %d\n",
+                i + 1, count, rc);
+            return rc;
+        }
+        if (kTiming120[i].wait_ms) {
+            IODelay(kTiming120[i].wait_ms * 1000);
+        }
+    }
+    IODelay(300 * 1000); /* vendor timing-switch settle time */
+    /* Android's sde_encoder_phys_cmd.c derives the TE-check vsync_count as
+     * 19.2 MHz / (vtotal * fps). K60 vtotal is 3200: 100 at 60 Hz, 50 at
+     * 120 Hz. Only rewrite the known inherited value; preserve bits 19/20. */
+    const int active=panel_active_intf();
+    const vm_offset_t intf=probe_page(3+unsigned(active),0x0ae35000u+unsigned(active)*4096u);
+    if(intf) {
+        const uint32_t cfg=probe_read(intf,IntfTearSyncVsync);
+        if((cfg&0x7ffffu)==100u) {
+            *reinterpret_cast<volatile uint32_t *>(intf+IntfTearSyncVsync)=
+                (cfg&~0x7ffffu)|50u;
+            __asm__ volatile("dsb sy" ::: "memory");
+            panel_log("K60 PANEL: INTF%d vsync_count %u -> 50 (sync_cfg %#x)\n",
+                active,cfg&0x7ffffu,probe_read(intf,IntfTearSyncVsync));
+        } else {
+            panel_log("K60 PANEL: INTF%d vsync_count %u left unchanged\n",active,cfg&0x7ffffu);
+        }
+    }
+    panel_autorefresh_one("after the switch");
+    panel_intf_rate("after the switch", 500);
+    panel_120_result = 0;
+    panel_120_verify_pending = true;
+    panel_log("K60 PANEL: timing switch to 120 Hz: %u packets, rc 0\n", count);
+    return 0;
+}
 
 extern "C" bool pong_panel_bringup(void)
 {
@@ -317,23 +543,66 @@ extern "C" bool pong_panel_bringup(void)
 	}
 	IODelay(20 * 1000);
 
-	panel_log("K60 PANEL: sending DCS 0x51 0xff (brightness max)\n");
-	rc = dsi_write1(0x51, 0xff);
+	/* The vendor range is 12 bit (live FDT bl-max = 0xfff) and Android writes
+	 * it as two bytes: mipi_dsi_dcs_set_display_brightness() always sends
+	 * {v & 0xff, v >> 8}, and bl-inverted-dbv byte-swaps that to {0x0f, 0xff}
+	 * for the maximum. A single 0xff byte is read left aligned by this panel
+	 * (0xff00 clamped to 0xfff), which is why the old 8 bit path could not go
+	 * dark at the bottom of the slider. */
+	panel_log("K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)\n");
+	uint8_t brightness[3] = { 0x51, 0, 0 };
+	pong_panel_dbv_bytes(0xfff, &brightness[1]);
+	rc = dsi_dcs(brightness, sizeof(brightness), false);
 	if (rc) {
 		panel_on_result = rc;
 		return false;
 	}
-	panel_brightness = 0xff;
+	panel_brightness = 0xfff;
 	panel_on_result = 0;
 	panel_log("K60 PANEL: bring-up complete (0x11/0x29/0x51), MDP-busy waits=%u\n", dsi_mdp_waits);
     unsigned probe=0;
     probe_enabled=PE_parse_boot_argn("gprobe",&probe,sizeof(probe)) && probe==1;
     cadence_pending=true;
+    unsigned panel_120=0,vsync=0;
+    const bool p120=PE_parse_boot_argn("p120",&panel_120,sizeof(panel_120)) && panel_120==1;
+    const bool vsync120=PE_parse_boot_argn("vsync",&vsync,sizeof(vsync)) && vsync==120;
+    if (p120 || vsync120) {
+        panel_120_requested=true;
+        panel_120_switch_pending=true;
+        panel_log("K60 PANEL: 120 Hz requested by %s; switch deferred to the first GPU frame\n",
+            p120?"p120=1":"vsync=120");
+    }
 	return true;
+}
+
+extern "C" uint32_t pong_panel_refresh_hz(void)
+{
+    if (panel_on_result != 0) {
+        return 0;
+    }
+    /* TimingElements is published once during start(). A requested 120 Hz
+     * mode must be reported before the panel has produced UI frames; the
+     * measured value is logged separately and must not downgrade this. */
+    if (panel_120_requested) {
+        return 120;
+    }
+    if (panel_measured_hz >= 1 && panel_measured_hz <= 240) {
+        return panel_measured_hz;
+    }
+    return 60;
 }
 
 extern "C" void pong_panel_sample(void)
 {
+    if (panel_120_switch_pending && panel_on_result == 0) {
+        panel_120_switch_pending = false;
+        panel_log("K60 PANEL: 120 Hz switch at the first GPU frame\n");
+        (void)pong_panel_switch_120();
+    }
+    if (panel_120_verify_pending && panel_on_result == 0) {
+        panel_120_verify_pending = false;
+        panel_intf_rate("after the UI frame", 500);
+    }
     if(panel_on_result!=0 || (!probe_enabled && !cadence_pending && !cadence_verify))return;
     const uint64_t now=mach_absolute_time();
     uint64_t elapsed=0;
@@ -390,10 +659,15 @@ extern "C" int pong_panel_set_brightness(uint32_t level)
 	if (!panel_on_done || panel_on_result != 0) {
 		return -1;
 	}
-	if (level > 0xff) {
-		level = 0xff;
+	if (level > 0xfff) {
+		level = 0xfff;
 	}
-	const int rc = dsi_write1(0x51, (uint8_t)level);
+	/* Two-byte DCS 0x51: 12 bit DBV, most significant byte first, which is the
+	 * same wire order Android produces for this panel's bl-inverted-dbv. The
+	 * controller takes a three-byte command as a long write (dsi_dcs len > 2). */
+	uint8_t payload[3] = { 0x51, 0, 0 };
+	pong_panel_dbv_bytes(level, &payload[1]);
+	const int rc = dsi_dcs(payload, sizeof(payload), false);
 	if (!rc) {
 		panel_brightness = level;
 	}

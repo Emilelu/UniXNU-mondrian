@@ -78,7 +78,8 @@ int k60_cpufreq_pick_lowest(const K60CpuFreqTable *table, unsigned *index,
     uint32_t *khz);
 
 /* One governor window. busy_permille is the busiest CPU of the domain;
- * shared_cluster is 0 for the boot cluster (domain 0) and 1 for the others,
+ * boost pins the top for every domain (touch hold). shared_cluster is 0 for
+ * the boot cluster (domain 0) and 1 for the others,
  * matching the reference where only shared clusters get the boost/quiet
  * floor. framing and boost are the caller's current flags. */
 unsigned k60_cpufreq_target(const K60CpuFreqTable *table, unsigned current,

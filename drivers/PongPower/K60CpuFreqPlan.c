@@ -99,13 +99,15 @@ unsigned k60_cpufreq_target(const K60CpuFreqTable *table, unsigned current,
             K60_CPU_FREQ_FRAME_PCT / 100u;
         while (want + 1 < table->count && table->khz[want] < floor) ++want;
     }
-    if (shared_cluster) {
-        if (boost) {
-            want = table->count - 1;
-        } else if (quiet_windows < K60_CPU_FREQ_QUIET_WINDOWS) {
-            const uint64_t half = table->khz[table->count - 1] / 2u;
-            while (want + 1 < table->count && table->khz[want] < half) ++want;
-        }
+    if (boost) {
+        /* A touch boost holds every domain at the top. The shared clusters
+         * take it on their own rail; the boot cluster needs it too, because
+         * the performance clusters ignore the vote and this is the only
+         * cluster where the boost becomes visible in the hardware. */
+        want = table->count - 1;
+    } else if (shared_cluster && quiet_windows < K60_CPU_FREQ_QUIET_WINDOWS) {
+        const uint64_t half = table->khz[table->count - 1] / 2u;
+        while (want + 1 < table->count && table->khz[want] < half) ++want;
     }
     return want;
 }

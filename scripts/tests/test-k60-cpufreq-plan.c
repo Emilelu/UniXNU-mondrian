@@ -100,13 +100,15 @@ int main(void)
     check("target_idle", k60_cpufreq_target(&clock, 4, 100, 0, 0, 0, 0), 0);
     /* Frame floor is 60% of the top = 921.6 MHz -> level 2 (960 MHz). */
     check("target_frame", k60_cpufreq_target(&clock, 0, 0, 0, 0, 1, 0), 2);
-    /* Shared clusters: boost pins the top, quiet holds at least the half. */
+    /* Boost pins the top on every domain; quiet holds at least the half on
+     * the shared clusters only. */
     check("target_boost", k60_cpufreq_target(&clock, 0, 0, 1, 1, 0, 0), 4);
+    check("target_boost_boot", k60_cpufreq_target(&clock, 0, 0, 0, 1, 0, 0), 4);
     check("target_quiet", k60_cpufreq_target(&clock, 0, 0, 1, 0, 0, 0), 1);
     check("target_quiet_done", k60_cpufreq_target(&clock, 0, 0, 1, 0, 0,
         K60_CPU_FREQ_QUIET_WINDOWS), 0);
-    /* The boot cluster never takes the shared-cluster floors. */
-    check("target_boot_boost", k60_cpufreq_target(&clock, 0, 0, 0, 1, 0, 0), 0);
+    /* The boot cluster never takes the shared-cluster quiet floor. */
+    check("target_boot_quiet", k60_cpufreq_target(&clock, 0, 0, 0, 0, 0, 0), 0);
     check("target_empty", k60_cpufreq_target(NULL, 0, 0, 0, 0, 0, 0), 0);
 
     {
@@ -216,6 +218,8 @@ int main(void)
         k60_cpufreq_governor_reset(&gov, 0);
         check("gov_boost_up", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 1, 0), 1);
         check("gov_boost_level", gov.current[1], 4);
+        check("gov_boost_boot_up", k60_cpufreq_governor_window(&gov, &clock, 0, 0, 1, 0), 1);
+        check("gov_boost_boot_level", gov.current[0], 4);
         for (i = 0; i < K60_CPU_FREQ_DOWN_WINDOWS - 1; ++i)
             check("gov_release_hold", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 0);
         check("gov_release_lands", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 1);

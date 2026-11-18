@@ -905,6 +905,10 @@ k60_ipa_runtime_smmu(K60IpaRuntime *rt)
         printf("K60IPA M2 SMMU map failed\n");
         return K60IpaMapFailed;
     }
+    printf("K60IPA M2 SMMU idr id0=%#x id1=%#x id2=%#x\n",
+        *(volatile uint32_t *)(smmu + 0x20u),
+        *(volatile uint32_t *)(smmu + 0x24u),
+        *(volatile uint32_t *)(smmu + 0x28u));
     view.smmu = smmu;
     rc = k60_ipa_smmu_plan(&plan, K60_IPA_RUNTIME_SID,
         K60_IPA_RUNTIME_IOVA, K60_IPA_GSI_RING_BYTES,
@@ -998,6 +1002,9 @@ k60_ipa_runtime_smmu(K60IpaRuntime *rt)
             status, programmed.phase, programmed.fault_status);
         return K60IpaSmmuFailed;
     }
+    printf("K60IPA M2 SMMU context id0=%#x id1=%#x id2=%#x cbar=%#x sctlr=%#x\n",
+        programmed.id0, programmed.id1, programmed.id2,
+        programmed.readback.cbar, programmed.readback.sctlr);
     *(volatile uint32_t *)(smmu + 0xc00u + 4u * plan.slot) = plan.bank;
     if (!plan.migrate && !plan.reuse) {
         *(volatile uint32_t *)(smmu + 0x800u + 4u * plan.slot) =

@@ -13,7 +13,7 @@
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void thread_terminate_self(void);
-@@ -816,6 +821,33 @@
+@@ -816,6 +822,34 @@
  	uint32_t graph_state;
  	bool mapped;
  	bool service_ready;
@@ -21,6 +21,7 @@
 +	bool refusal_printed;
 +	bool glink_up;
 +	bool apm_ready;
++	bool afe_group_probe;
 +	unsigned afe_step;
 +	unsigned afe_retry;
 +	uint32_t gpr_token;
@@ -47,7 +48,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +890,572 @@
+@@ -858,6 +892,582 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -514,6 +515,11 @@
 +static void
 +pong_audio_afe_next(PongAudioState *state)
 +{
++	if (state->afe_group_probe && state->afe_step == (unsigned)PongAfeStepGroupTdm) {
++		state->afe_token = 0;
++		printf("PongAudio: AFE group probe accepted; not starting speaker or PCM\n");
++		return;
++	}
 +	if (state->afe_step + 1u >= (unsigned)PongAfeStepCount) {
 +		state->service_ready = true;
 +		state->last_error = PongAudioOk;
@@ -569,8 +575,13 @@
 +		printf("PongAudio: glink adsp_apps rx bytes=%u (bad gpr)\n", bytes);
 +		return;
 +	}
-+	printf("PongAudio: glink adsp_apps rx bytes=%u kind=%d opcode=0x%08x token=0x%08x status=%u\n",
-+	    bytes, kind, answer.opcode, answer.token, answer.status);
++	/* The parser has already validated the GPR header and payload. */
++	const uint32_t domains = pong_le32(data + 4);
++	printf("PongAudio: glink adsp_apps rx bytes=%u kind=%d opcode=0x%08x token=0x%08x status=%u "
++	    "src=%u:0x%x dst=%u:0x%x echoed=0x%08x\n",
++	    bytes, kind, answer.opcode, answer.token, answer.status,
++	    (domains >> 8) & 0xffu, answer.src_port, domains & 0xffu, pong_le32(data + 12),
++	    answer.result_opcode);
 +	if (pong_audio_play_receive(state, kind, &answer)) {
 +		return;
 +	}
@@ -602,7 +613,7 @@
 +		return;
 +	}
 +	if (kind == PongArBasicResult) {
-+		if (answer.token != state->afe_token) {
++		if (state->afe_token == 0u || answer.token != state->afe_token) {
 +			printf("PongAudio: AFE stale result token=0x%08x\n", answer.token);
 +			return;
 +		}
@@ -620,7 +631,7 @@
  static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
-@@ -896,6 +1467,32 @@
+@@ -896,6 +1506,35 @@
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -630,6 +641,9 @@
 +		return -1;
 +	}
 +	pong_audio_ring_reset();
++	unsigned int group_probe = 0;
++	g_pong_audio.afe_group_probe = PE_parse_boot_argn("pong_audio_group_probe",
++	    &group_probe, sizeof(group_probe)) && group_probe == 1u;
 +	pong_audio_afe_selftest();
 +	const K60PmicGlinkAudioClient link_client = {
 +	    pong_audio_glink_state, pong_audio_glink_receive
@@ -653,7 +667,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,23 +1504,71 @@
+@@ -907,23 +1546,71 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;

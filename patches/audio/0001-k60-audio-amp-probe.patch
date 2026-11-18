@@ -2067,10 +2067,10 @@
 
 --- /dev/null
 +++ b/bsd/dev/PongAudioAfe.h
-@@ -0,0 +1,698 @@
+@@ -0,0 +1,688 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
-+ * Offline encoder for the AFE parameter packets the PRI_TDM speaker path
++ * Offline encoder for the AFE parameter packets the TERT_TDM speaker path
 + * will have to send once the ADSP is up (the PAS1 line). Byte packing only:
 + * every function writes a little-endian packet into a caller-supplied
 + * buffer and returns its length. No MMIO, no kernel headers, nothing sent.
@@ -2082,16 +2082,12 @@
 + * no serial console. Packing them here, where the host test can read every
 + * byte, means the kernel side only moves bytes it already trusts.
 + *
-+ * Layouts are the vendor AudioReach-era ones, from the APSL-2.0 reference
-+ * (P: hakios.sound.c:349-385, facts only, no code copied) - the same set
-+ * mainline agrees with where it has an equivalent
-+ * (M: sound/soc/qcom/qdsp6/q6afe.c:396-417 afe_param_id / param_data_v2,
-+ * and q6afe.h:180-194 q6afe_tdm_cfg for the field order of the port TDM
-+ * parameter). Where the two disagree the vendor layout wins, because the
-+ * DSP in this phone speaks the vendor one; the disagreements are recorded
-+ * in TDMS.md section 3.
++ * Legacy AFE payload layouts come from the APSL-2.0 reference
++ * (P: hakios.sound.c:349-385, facts only). These probes wrap them in GPR;
++ * K60 firmware acceptance of that combination is not established. The
++ * separate PRM clock request uses the AudioReach command header.
 + *
-+ * Two packet shapes, both carrying the parameters in band
++ * Legacy probe packets carry their parameters in band
 + * (address lsw/msw and mem_map_handle all zero, M: q6afe.c:1076-1085):
 + *
 + *   service scoped  [GPR 24][svc_cmd_set_param 16][param 12][payload]
@@ -2107,15 +2103,12 @@
 + * 2026-11-15 (PAS1-AUDIO-REQUIREMENTS.md section 1.3). The constants
 + * below are what the host test pins.
 + *
-+ * The K60 values (port 0x9020 TERT TDM RX, group 0x9120, 24-bit samples in
-+ * TDMS.md sections 3 and 4; this file encodes whatever it is given and
-+ * offers the K60 defaults as named constants, nothing more.
++ * The K60 board uses port 0x9020 TERT TDM RX and group 0x9120 (TDMS.md).
 + *
 + * Pure: no MMIO, no kernel headers.
 + *
-+ * This header is part of the kernel patch through patches/audio/0003: the
-+ * AFE selftest in pong_audio.c includes it and calls the encoder. Keep it in
-+ * the generator NEW_FILES list (AMPS.md section 6).
++ * Keep this header in the patches/audio/0001 file list: the AFE selftest
++ * in patches/audio/0003 includes it and calls the encoder.
 + */
 +#ifndef PONG_AUDIO_AFE_H
 +#define PONG_AUDIO_AFE_H
@@ -2195,10 +2188,9 @@
 +#define PONG_AFE_PRM_MAX_CLOCKS                 1u
 +#define PONG_AFE_PRM_CLOCK_BYTES                76u         /* 24 + 16 + 16 + 4 + 16 */
 +
-+/* The K60 speaker port: PRI_TDM_RX_0 and its group (TDMS.md sections 3, 5). */
++/* The K60 speaker port: TERT_TDM_RX_0 and its group (TDMS.md section 5). */
 +#define PONG_AFE_PORT_TERT_TDM_RX_0 0x9020u
 +#define PONG_AFE_GROUP_TERT_TDM_RX  0x9120u
-+#define PONG_AFE_GROUP_OTHER_PORT   0x9022u
 +#define PONG_AFE_PORT_INVALID       0xffffu
 +
 +/* Bit clock id and attribute (V: audio_prm.h:457,570). The rate is rate x
@@ -2353,9 +2345,8 @@
 +/* Port-scoped parameter: the port id goes in the first two bytes and the
 + * payload size in the next two (P: afe_port_param :404-420, the same
 + * 16-byte shape as M: q6afe.c:411-417 afe_port_cmd_set_param_v2). The packet
-+ * travels from our client port to the AFE service, like the PRM vote travels
-+ * from ASM to the PRM instance: a zero destination reached no service at all
-+ * and the DSP answered GPR_IBASIC_RSP_RESULT status 1 (aj console 549). */
++ * uses GPR client 0x2001 to AFE port 4 as the ak diagnostic baseline.
++ * The returned failure status does not establish legacy command support. */
 +static inline size_t
 +pong_afe_port_set_param(uint8_t *buf, size_t bytes, uint16_t port_id,
 +    uint32_t module_id, uint32_t param_id, const uint8_t *payload,
@@ -2471,8 +2462,8 @@
 +/* struct afe_group_tdm (P: :360-366, packed 44 bytes):
 + *   version (u32), group, reserved (u16), ports[8] (u16),
 + *   channels, rate, bits (u32), slots, slot_bits (u16), slot_mask (u32)
-+ * The K60 group lists 0x9020 only (the DT says group-num-ports = 1);
-+ * 0x9022 is the vendor's unused second port. */
++ * The K60 group lists 0x9020 only (the live DT says group-num-ports = 1).
++ * All seven remaining member slots are invalid (0xffff). */
 +static inline size_t
 +pong_afe_group_tdm(uint8_t *out, size_t bytes, uint16_t group,
 +    const uint16_t *ports, uint32_t channels, uint32_t rate, uint32_t bits,
@@ -2712,7 +2703,6 @@
 +            ports[i] = PONG_AFE_PORT_INVALID;
 +        }
 +        ports[0] = PONG_AFE_PORT_TERT_TDM_RX_0;
-+        ports[1] = PONG_AFE_GROUP_OTHER_PORT;
 +        n = pong_afe_group_tdm(payload, sizeof(payload),
 +            PONG_AFE_GROUP_TERT_TDM_RX, ports, PONG_AFE_SLOTS, PONG_AFE_RATE,
 +            PONG_AFE_SLOT_BITS, (uint16_t)PONG_AFE_SLOTS,

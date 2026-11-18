@@ -2378,7 +2378,7 @@ afe_step_cases(void)
         PONG_AFE_PORT_CMD_DEVICE_START, "device start opcode");
     expect_eq(PONG_AFE_PORT_TERT_TDM_RX_0, 0x9020ul, "speaker port");
     expect_eq(PONG_AFE_GROUP_TERT_TDM_RX, 0x9120ul, "speaker group");
-    expect_eq(PONG_AFE_GROUP_OTHER_PORT, 0x9022ul, "group other port");
+    expect_eq(PONG_AFE_PORT_INVALID, 0xfffful, "unused AFE port id");
     expect_eq(PONG_AFE_MAX_CHANNELS, 8ul, "max channels 8");
 }
 
@@ -2556,7 +2556,10 @@ afe_plan_cases(void)
     expect_eq(n, 96ul, "plan group tdm length");
     expect_eq(le16(p + 56), PONG_AFE_GROUP_TERT_TDM_RX, "plan group id");
     expect_eq(le16(p + 60), PONG_AFE_PORT_TERT_TDM_RX_0, "plan group port 0");
-    expect_eq(le16(p + 62), PONG_AFE_GROUP_OTHER_PORT, "plan group port 1");
+    for (unsigned i = 1; i < PONG_AFE_MAX_CHANNELS; ++i) {
+        expect_eq(le16(p + 60 + i * 2), PONG_AFE_PORT_INVALID,
+            "plan group leaves the unused ports invalid");
+    }
     expect_eq(le32(p + 76), PONG_AFE_SLOTS, "plan group channels");
     expect_eq(le32(p + 80), PONG_AFE_RATE, "plan group rate");
     expect_eq(le32(p + 84), PONG_AFE_SLOT_BITS, "plan group bits");

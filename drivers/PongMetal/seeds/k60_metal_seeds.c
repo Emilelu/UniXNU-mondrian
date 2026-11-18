@@ -92,11 +92,17 @@ k60_metal_seeds_deploy(void)
 	/* Publish last: a process that starts while .publish is already "1"
 	 * but .clients is still missing reads an empty client list and gets no
 	 * device for the whole boot. Bundle and list first, marker at the end. */
-	k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.bundle/Info.plist",
+	int error = k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.bundle/Info.plist",
 	    k60_metal_plist, sizeof(k60_metal_plist) - 1);
-	k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.clients",
-	    k60_metal_clients, sizeof(k60_metal_clients) - 1);
-	k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.publish",
-	    k60_metal_publish, sizeof(k60_metal_publish) - 1);
-	return 0;
+	if (!error) {
+		error = k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.clients",
+		    k60_metal_clients, sizeof(k60_metal_clients) - 1);
+	}
+	/* Fail closed: without the bundle and the list a published marker only
+	 * makes every client read an empty list and keep a nil device. */
+	if (!error) {
+		error = k60_metal_seed_write("/private/var/pong/PongAdrenoMetal.publish",
+		    k60_metal_publish, sizeof(k60_metal_publish) - 1);
+	}
+	return error;
 }

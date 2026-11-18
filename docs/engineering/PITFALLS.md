@@ -6420,3 +6420,38 @@ rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**
    成立、在运行时从不成立——假安全比没有保护更贵，因为它会让人停止怀疑。
    守则：锁的探测与获取必须是同一个 API；跨语言的第二个探测点只允许是"报告持有者"，
    不允许参与放行判断。
+
+## P-239
+
+**用块切分做登记表 union 会吃掉块外的尾行：P-230 的 check 就这样没了，构建被自己人拦下**
+
+2026-11-19 把 `consolidate/20261119` 合进 `feat/gpu-metal-hw` 时，`docs/engineering/RULES.toml`
+两边都只追加了 `[[rule]]` 块，于是我用「按 `[[rule]]` 切块 → 按编号排序 → 合并」的 union
+统一它们。P-230 的 `check = "python3 scripts/tests/test-device-input-must-be-named.py"`
+那一行在冲突近侧的最后一个块之后，切分器不认为它属于任何块，就把它一起丢了。
+结果是 117 条规则里有 1 条既没有 `check` 也没有 `waiver`，`check-rules.py` 报
+
+```
+❌ 覆盖缺口：
+   - P-230 既没有 check 也没有 waiver
+```
+
+`unixnu build` 随即 `build refused: the compliance registry failed`，整次构建作废。
+
+真因不是「不小心」，而是**切分器假设了块的边界等于字段的边界**。冲突近侧的文本
+在最后一块之后还可能有合法的字段行（这里是块尾多出来的 `check`），按块切就会丢。
+同一形状也适用于 `MAIN-BASELINE.toml` 的 `[[entry]]`：我第一次 union 时还因为
+正则插入了 `[[entry]]` 头，造出一个没有 `sha` 的空 entry，只能从 merge stage 重建。
+
+修法与教训：
+
+1. union 之后**必须重新断言 schema**，而不是相信切分。这里断言的是
+   「每条规则有 `check` 或 `waiver`、id 唯一、家族内编号递增、`check` 指向的文件存在」，
+   落成 `python3 scripts/tests/test-rule-registry-schema.py`（新增，独立于合并脚本，
+   因此手改也能被抓到）。
+2. 恢复 P-230 的 `source`/`check`/`note` 三个字段，并把这段经过写进它的 `note`，
+   让下一个人知道这行为什么曾经消失。
+3. 顺手把 `P-193` 与 `P-194` 的登记顺序纠正过来（`P-193` 原本登记在 `P-194` 之后），
+   新测试才有意义：编号顺序本身就是 union 插错位置的可观察信号。
+4. 一个「登记表合并」的正确形状是：读两边的 TOML、按 id 合并成 dict、再整文件重写；
+   用正则切片只有在能证明切分覆盖了整个冲突近侧时才安全。

@@ -1,19 +1,3 @@
-# Compliance registry: every iron rule, every gated pitfall and every normative
-# requirement this repository asks for lives here with an executable check.
-#
-# `scripts/check-rules.py` reads this file, runs every `check`, and fails when
-#   * a registered check exits non-zero,
-#   * an iron rule has no entry,
-#   * a pitfall newer than `grandfather_through` has no entry.
-#
-# A rule that cannot be machine-checked yet still needs an entry with a `waiver`
-# that explains why and names what would make it checkable. A waiver is a debt,
-# not an exemption: it is printed in every report.
-version = 1
-grandfather_through = 151   # P-001..P-151 predate the registry; new ones must register
-
-# ---------------------------------------------------------------- iron rules
-
 [[rule]]
 id = "iron-1"
 kind = "iron"
@@ -532,18 +516,18 @@ statement = "门禁要能按线收窄作用域，否则会逼人绕过构建器�
 check = "python3 scripts/tests/test-eight-step-scope.py"
 
 [[rule]]
-id = "P-194"
-kind = "pitfall"
-source = "docs/engineering/PITFALLS.md:P-194"
-statement = "补丁集指纹必须来自构建实际应用的 series，并与 build-manifest.json 的条数一致"
-check = "python3 scripts/tests/test-series-source.py"
-
-[[rule]]
 id = "P-193"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-193"
 statement = "门禁不许写死检出路径；参考源按前缀元组解析，失败信息必须说明试过几个前缀"
 check = "python3 scripts/tests/test-research-gate-prefixes.py"
+
+[[rule]]
+id = "P-194"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-194"
+statement = "补丁集指纹必须来自构建实际应用的 series，并与 build-manifest.json 的条数一致"
+check = "python3 scripts/tests/test-series-source.py"
 
 [[rule]]
 id = "hard-39"
@@ -873,4 +857,12 @@ title = "先到先得的规则必须先有单写者：Local 互斥体不是机�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-boot-lock.py"
 note = "2026-11-18 用户把上机规则改为先到先得；原 capture 互斥体是 Local\\ 每会话作用域、supervisor 无锁、flash.sh 在探测前就 adb reboot bootloader。改为 FileShare.None 机器级 claim + K60_AGENT_ID 署名 + rc=6/7，check-boot-procedure.py 增加 B2。"
+
+[[rule]]
+id = "P-239"
+kind = "pitfall"
+title = "登记表 union 按块切分会吃掉块外尾行：union 后必须重新断言 schema"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-rule-registry-schema.py"
+note = "2026-11-19 合并 consolidate 时 P-230 的 check 行落在最后一个 [[rule]] 块之外被丢弃，registry 报覆盖缺口、构建被拒；MAIN-BASELINE 的第一次 union 还造出无 sha 空 entry。正确形状是读两边 TOML 按 id 合并再整文件重写，并断言 check/waiver、id 唯一、家族内编号递增、check 指向的文件存在。"
 

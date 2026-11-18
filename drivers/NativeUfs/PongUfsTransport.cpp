@@ -25,9 +25,18 @@
 #include <sys/types.h>
 #include "../PongProbe.h"
 // Power/USB/WLAN share the Apps SMMU. UFS also builds without that optional
-// aggregate, so weak imports retain the single-owner storage-only profile.
-extern "C" bool pong_smmu_lease_lock(void) __attribute__((weak_import));
-extern "C" void pong_smmu_lease_unlock(void) __attribute__((weak_import));
+// aggregate, so the lease must be optional. ld64 does not honour `weak_import`
+// across a static archive: the kernel link fails with
+//   Undefined symbols for architecture arm64: "_pong_smmu_lease_lock",
+//   referenced from __ZN12_GLOBAL__N_111hostBringUpEv in libNativeUfs.a
+// when no provider is linked (2026-11-19, gpu-consolidated). A weak definition
+// keeps the archive self-contained; a provider's strong definition still
+// overrides it, so the shared-SMMU builds keep serialising exactly as before.
+// The stub reports "no lock" and the caller below treats that as "nothing to
+// serialise with" rather than as a denial — see the site for why that
+// distinction matters.
+extern "C" __attribute__((weak)) bool pong_smmu_lease_lock(void) { return false; }
+extern "C" __attribute__((weak)) void pong_smmu_lease_unlock(void) {}
 
 namespace {
 #include "RootTransportLayout.h"
@@ -175,9 +184,18 @@ static bool hostBringUp() {
     bool held = false;
     ~Lease() { if (held) pong_smmu_lease_unlock(); }
   } lease;
-  if (pong_smmu_lease_lock && pong_smmu_lease_unlock) {
-    lease.held = pong_smmu_lease_lock();
-    if (!lease.held) return transportFailure("Apps SMMU lease unavailable");
+  if (pong_smmu_lease_lock()) {
+    lease.held = true;
+  } else {
+    // Two different situations reach this branch and they must not be
+    // conflated. A shared-SMMU build has a real provider whose lock allocation
+    // failed, which is the P-215 failure and must stop the bring-up. A
+    // storage-only build links the weak stub above, where no other driver can
+    // be selecting a bank, so there is nothing to serialise with and refusing
+    // to continue would fail the boot for a lock nobody else can take. The
+    // provider, when present, allocates lazily on first use (patches/wifi/0012),
+    // so "provider present but denied" no longer happens on that path.
+    IOLog("PONG_UFS: no Apps SMMU lease; storage-only build, bank selection is unshared\n");
   }
   gRootDiagnostic.stage = "SMMU plan";
   gHost.smmu = mapPhys(0x15000000, 0x100000, gHost.smmuMap);

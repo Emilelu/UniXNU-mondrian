@@ -1,0 +1,15 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+index 0164a53..201d7ab 100644
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -53,6 +53,10 @@
+ #include <mach/vm_statistics.h>
+ #include <vm/pmap.h>
+ #include <vm/vm_kern.h>
++/* 12377 moved the kmem allocator API (kma_flags_t, KMA_*, kmem_alloc_contig)
++ * out of vm_kern.h into vm_kern_xnu.h; 8792 still kept it in vm_kern.h, which
++ * is why the iOS 16 series compiled without this include. */
++#include <vm/vm_kern_xnu.h>
+ /* vm/pmap.h does not expose this one in the BSD compilation unit. */
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ #if defined(__arm64__)

@@ -605,6 +605,15 @@ void samplerThread(void *, wait_result_t)
             applyStart = window;
             applySpan = touchActive ? kTouchSpanWindows : kFrameSpanWindows;
             signalArmed = true;
+            /* The restore handed the domain back to firmware, but gov.current
+             * still names the level this driver voted last, so the equality
+             * check would skip the vote the signal just asked for. Force one
+             * fresh vote per signal window; the span and the vote budget still
+             * bound it. */
+            if (allowRaise) {
+                for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
+                    if (ready[domain] && applyReady[domain]) votedIndex[domain] = ~0u;
+            }
             IOLog("K60CpuFreq: mode%u %s window win=%llu span=%llu\n", applyMode,
                 touchActive ? "touch" : "frame",
                 static_cast<unsigned long long>(window),

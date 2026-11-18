@@ -86,6 +86,17 @@ int main(void)
     check("vote rejects bw", k60_gpu_vote_payload(1, 256, out), 0);
     check("vote rejects null", k60_gpu_vote_payload(1, 1, 0), 0);
 
+    check("level exact", k60_gpu_level_for_khz(&table, 515000), 6);
+    check("level between", k60_gpu_level_for_khz(&table, 600000), 8);
+    check("level below", k60_gpu_level_for_khz(&table, 200000), 1);
+    check("level above", k60_gpu_level_for_khz(&table, 990000), 13);
+    check("level null", k60_gpu_level_for_khz(0, 515000), 0);
+    check("wake min 578", k60_gpu_wake_level(&table, 1, 578000), 7);
+    check("wake doubles", k60_gpu_wake_level(&table, 4, 578000), 10);
+    check("wake clamps top", k60_gpu_wake_level(&table, 13, 578000), 13);
+    check("wake zero level", k60_gpu_wake_level(&table, 0, 578000), 0);
+    check("wake null", k60_gpu_wake_level(0, 4, 578000), 0);
+
     if (failures) printf("TESTS FAILED %u failures / %u checks\n", failures, checks);
     else printf("TESTS OK %u checks (0 failures)\n", checks);
     return failures ? 1 : 0;

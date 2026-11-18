@@ -53,4 +53,29 @@
 
 ## 5. 结果登记
 
-（上机后填写：镜像 sha、证据目录、S/F 命中情况、判决、以及「与 B 变体的差异」。）
+2026-11-18 12:43:17 飞 `gpu-drawfix-20261118`（`boot.img 4a26a99c…`），证据
+`E:/k60-work/evidence/usblog-20261118-124317`（console 5,611,548 B / 54,518 行，抓取完整、无 panic）。
+
+| 判据 | 实测 | 结论 |
+| --- | --- | --- |
+| S1 `K60KEXC`=0 | 0 | ✅ |
+| S2 `K60METAL deploy` 且 error=0 | 出现在前序行 | ✅ |
+| S3 `real Vulkan-backed device created` | 1 | ✅ |
+| S4 `S c`>0 | `Pong Metal: S` 汇总行 **0 次**；同处只有 `Pong Metal: c0/0 d0 p14 x4 R6 D0 F0 M18 C0 B2` | ❌ |
+| S5 `K60DRAW leave` ≥1 | 0（`K60DRAW enter` 也 0） | ❌ |
+| S6 `crashed: backboardd`=0 | 0 | ✅ |
+
+**判决：FAIL(F4/F5)** —— 0013 没有解开 `nmb_render_draw`：这张图根本没走到 draw
+（`K60DRAW enter` 0），因此「每 draw 分配收敛」无从生效。**映射风暴反而更大**：
+`IOMemoryDescriptor physical with managed page` 5,517 → **25,149**（每页 0x1000），
+`K60HB` 从 t=75 起 `lag=1` 并持续到 240 s 预算结束。
+
+**这张图真正揭示的新事实（比原假设更重要）**：
+
+- `Pong Metal: scanout frames=60 at 104.572 s` / `scanout frames=480 at 183.780 s`
+  ⇒ **GPU 扫描输出真的在出帧**：104 s 时 60 帧、184 s 时 480 帧（104→184 s 区间约 5.3 fps），
+  `actual GPU scanout copy completed` 1 次、`GPU frame completed` 2 次、`crashed: backboardd` 0。
+- 也就是说「卡」不是「没有硬件加速」，而是**每秒只有 ~5 帧**，且伴随每页一次的映射风暴。
+- 叠加因素：本镜像基于 main 基线，**没有并入 brightness / 120 Hz 两条线**（面板 60 Hz、
+  背光固定），观感会比那两条线合入后更差。
+- `native-metal: no device answer: … supportsConditionalLoadStore` 仍在，属按设计不回答的私有位。

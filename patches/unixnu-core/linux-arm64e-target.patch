@@ -1,0 +1,75 @@
+diff --git a/scripts/linux/prepare-xnu.py b/scripts/linux/prepare-xnu.py
+index efef7a6..e96f148 100755
+--- a/scripts/linux/prepare-xnu.py
++++ b/scripts/linux/prepare-xnu.py
+@@ -9,6 +9,7 @@
+ Each rewrite checks whether it is still needed, so both modes can run on every build.
+ """
+ from pathlib import Path
++import os
+ import shutil
+ import subprocess
+ import sys
+@@ -109,8 +110,11 @@ def build_cc_kext():
+     # kernel headers (Kernel.framework); inttypes.h, stdio.h and gethostuuid.h come from Libc and Libsyscall, as they
+     # do from an SDK's usr/include.
+     out = FAKEROOT / 'usr/local/lib/kernel/libcc_kext.a'
+-    if out.is_file():
+-        return
++    # The kernel's own target, not a fixed arm64/iOS 17: an arm64e kernel refuses
++    # an arm64 archive ("ignoring file ... building for iOS-arm64e but attempting
++    # to link with file built for iOS-arm64") and loses the profile symbols.
++    arch = os.environ.get('UNIXNU_XNU_ARCH', 'arm64')
++    ios = os.environ.get('UNIXNU_IOS_VERSION', '17.0')
+     src = ROOT / '.cache/linux'
+     fetch(src / 'llvm-project', 'https://github.com/llvm/llvm-project', LLVM_COMMIT,
+           'compiler-rt/lib/profile', 'compiler-rt/include/profile')
+@@ -120,7 +124,7 @@ def build_cc_kext():
+     objects.mkdir(parents=True, exist_ok=True)
+     out.parent.mkdir(parents=True, exist_ok=True)
+     for name in PROFILE_SOURCES:
+-        subprocess.run(['xcrun', 'clang', '-target', 'arm64-apple-ios17.0', '-arch', 'arm64', '-isysroot', FAKEROOT,
++        subprocess.run(['xcrun', 'clang', '-target', f'{arch}-apple-ios{ios}', '-arch', arch, '-isysroot', FAKEROOT,
+                         '-mkernel', '-DKERNEL_USE', '-O3', '-fPIC', '-w',
+                         '-I', rt / 'include', '-I', FAKEROOT / 'System/Library/Frameworks/Kernel.framework/Headers',
+                         '-idirafter', src / 'Libc/include', '-idirafter', XNU / 'libsyscall/wrappers',
+diff --git a/scripts/unixnu/kernel.py b/scripts/unixnu/kernel.py
+index 7858f42..d0e1325 100644
+--- a/scripts/unixnu/kernel.py
++++ b/scripts/unixnu/kernel.py
+@@ -86,8 +86,11 @@ def toolchain_path(path=None):
+ def linux_env(ctx):
+     """Environment of the kernel step on a Linux host, with the toolchain of scripts/linux/setup-toolchain.py.
+ 
+-    The xcrun shim answers every --sdk query with the fakeroot this build makes. The target is plain arm64 for
+-    iOS 17, so the clang wrapper adds only the flag that keeps C++ static destructors in __mod_term_func.
++    The xcrun shim answers every --sdk query with the fakeroot this build makes. The target comes from the
++    arch and OS profiles (arm64 iOS 17 when they say nothing): the clang wrapper prepends it to every compile,
++    so a hardcoded iOS 17 target here would make an arm64e iOS 27 kernel compile against the wrong deployment.
++    The wrapper also adds the ptrauth discrimination flag Apple turns on for -mkernel, which upstream clang
++    leaves opt-in, and the flag that keeps C++ static destructors in __mod_term_func.
+     CCC_OVERRIDE_OPTIONS (read by the clang driver itself, so also by the archive builders that replay xnu's
+     compile records) turns off two warnings that upstream clang has and Apple clang does not; the builders compile
+     with -Werror.
+@@ -99,13 +102,18 @@ def linux_env(ctx):
+         if not path.exists():
+             raise Error(f'{path} missing; run "sudo scripts/linux/setup-toolchain.py {toolchain}"')
+     fakeroot = ctx.tree / '.cache/fakeroot'
++    arch = ctx.board.get('arch', {}).get('name', 'arm64')
++    ios = str(ctx.board.get('os', {}).get('ios_version', '17.0'))
++    extra = '-mllvm -disable-atexit-based-global-dtor-lowering'
++    if arch == 'arm64e':
++        extra = '-fptrauth-function-pointer-type-discrimination ' + extra
+     return {'PATH': os.pathsep.join([str(clt / 'bin'), str(toolchain / 'bin'), os.environ.get('PATH', '')]),
+             'LC_ALL': 'C', 'CLT_PREFIX': str(clt), 'XCTOOLCHAIN_PREFIX': str(xctoolchain),
+             'XNU_TOOLCHAIN_BIN': f'{clt / "bin"} {xctoolchain / "bin"}',
+-            'UNIXNU_SDKROOT': str(fakeroot), 'UNIXNU_SDK_VERSION': '17.0',
++            'UNIXNU_SDKROOT': str(fakeroot), 'UNIXNU_SDK_VERSION': ios,
+             'UNIXNU_PLATFORM_PATH': str(fakeroot / 'Platforms/iPhoneOS.platform'),
+-            'CROSS_CLANG': str(toolchain / 'llvm/bin/clang'), 'DARWIN_TRIPLE': 'arm64-apple-ios17.0',
+-            'CROSS_EXTRA_FLAGS': '-mllvm -disable-atexit-based-global-dtor-lowering',
++            'CROSS_CLANG': str(toolchain / 'llvm/bin/clang'), 'DARWIN_TRIPLE': f'{arch}-apple-ios{ios}',
++            'CROSS_EXTRA_FLAGS': extra,
+             'CCC_OVERRIDE_OPTIONS': '# +-Wno-missing-designated-field-initializers +-Wno-unused-but-set-global'}
+ 
+ 

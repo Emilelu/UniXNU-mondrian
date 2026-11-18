@@ -48,8 +48,14 @@ manifest.write_text('\n'.join([
     'libc="0.2"','[profile.release]','panic="unwind"','debug=0','',
 ]))
 env['PATH']='/Users/desktop/.cargo/bin:'+env['PATH']
-env['SDKROOT']=sdk
+# Never export SDKROOT: rustc's host cc reads it for *every* link step, so an
+# iPhoneOS value makes the x86_64 host build fail with "missing required
+# architecture x86_64".  The iOS sysroot goes to the iOS target only, below.
 env['RUSTFLAGS']='-C link-arg=-miphoneos-version-min=16.6.1'
+env['CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS']='-Clink-arg=-isysroot -Clink-arg='+sdk
+host_sdk=subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],env=env,text=True).strip()
+env['CC_x86_64_apple_darwin']='clang'
+env['CFLAGS_x86_64_apple_darwin']='-isysroot '+host_sdk
 cargo=['cargo','build','--release','--manifest-path',str(manifest),
     '--target','aarch64-apple-ios','--target-dir',str(out/'target')]
 with (out/'cargo-build.log').open('w') as log:

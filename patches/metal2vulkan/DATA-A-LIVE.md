@@ -41,3 +41,13 @@
 **4 个已过时**（`0010` 面向 22H374；`0015`、`0016`、`0018` 的 hunk 与当前 pin 不符），
 且累计应用 `0008+0009+0013` 与 `0008+0009+0013+0011+0012+0017+0019` 两次都干净通过。
 本次只开 `0013` 一个变量，其余仍留在「未启用」里等单变量证据。
+
+构建侧顺带修掉的真缺陷（2026-11-18）：`scripts/build-pong-metal-bridge.py` 原来把
+`SDKROOT=<iPhoneOS>` 导出给整个 cargo 环境，rustc 的 **host** cc 也读它，于是 x86_64 主机
+链接报 `missing required architecture x86_64`（`ld: ignoring ... iPhoneOS.sdk/usr/lib/libSystem.tbd`）。
+修法：不再导出 `SDKROOT`，iOS sysroot 只经
+`CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS=-Clink-arg=-isysroot -Clink-arg=<ios sdk>`
+给目标三元组，host 侧用 `CC_x86_64_apple_darwin` / `CFLAGS_x86_64_apple_darwin` 钉到 macOS SDK。
+修好后桥接层产物：`PongMetalBridge.dylib` 32,962,136 B，sha256
+`b16d367a295a0b7c888bb7d03ef32729343397a9efc9211c9caea08abd22476d`（上一版 33,246,528 B /
+`3ee9e5c8…`，不含 0013）。

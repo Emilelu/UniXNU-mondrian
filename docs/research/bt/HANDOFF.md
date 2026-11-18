@@ -1038,3 +1038,12 @@ check-image-args 31/598 OK。计划预先写死成功判据（镜像哈希、boo
 NVM `ret=0`、`power=1 result=0`）与失败判据（budget exhausted、NVM `-60`、power `-60`、
 panic/reset、哈希不符），并明确成功也只证明传输/下载路径，不证明蓝牙可用。d9 未批准；
 bt-agent 不开机、不刷机，只由 Lead 执行或明确授权。
+
+### 44. 0517 上电顺序候选已构建（2026-11-18 16:47，未上机）
+
+- 0517 只对齐官网顺序与 100/60 ms：BT_EN 低 100 ms → 串口时钟 → QUP/engine → UART/wake IRQ → XO pulse/BT_EN 高 → 60 ms → 引脚；不改 budget、10 s deadline、243 B 段长、下载模式/type、状态机、地址、SMMU 或固件。补丁 `patches/xnu/0517-k60-bt-power-order.patch` 64 行/3 hunk，sha256 `ebd0fe35…`；series 237 条（`3339e34f…`），前 236 行仍 `e7de3927…`。
+- 真实源码 base 是 2235 行，不是首版误用的 1267 行：由 0500→…→0515 逐条应用 `bsd/dev/qbt_k60.c` 得到 `35887d2f…`，应用 0517 后 `4a3947d5…`，仍 2235 行；首版在真实 series 上 `git apply` 失败，已重生成并重跑测试。
+- 构建：`K60_OUT=/opt/k60/trees/k60build/bt-out-0517`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`、tag `bt-0517-power-order`，`RAW_RC=0`；manifest `built_at=2026-11-18T16:47:01+08:00`、head `2c7d948d`、dirty 0、series 237、frozen `2aaa4903…`。
+- 产物：boot.img `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`（201887744 B）、kernel `c40e4277…`、payload `9acde534…`、payload_kernel `a44053e4…`、ADT `db998204…`、dtb `2d044eaa…`、fd `cf448571…`、bt_blob `febdc20d…`；kernel.log:254 记录 0517，八步 build 6 项通过，image-arg-audit 31/598，kernel archives 4 个全在，metal/bt blob self-consistent，`verify-boot-image.py --manifest` → OK，boot.json `hardware_tested=false`。
+- 宿主：0517 测试 52、0516 测试 82、d8 adapter 90，全绿；均 HOST-ONLY，不证明控制器/NVM/蓝牙可用。
+- 边界：0517 未上机；d10 未批准。下一步需 Lead 审核 `D10-PLAN.md` 并决定是否授权单变量飞行；回滚 d8 `0297012d…`，上一候选 d9 `8a211a76…`。d8 产物 `E:/k60-work/artifacts/bt-d8-tlv` 保持不动，⑧ 仍 false。

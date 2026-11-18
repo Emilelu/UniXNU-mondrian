@@ -1735,6 +1735,23 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **d9 实飞结果（2026-11-17 12:03，FAIL）**：用户授权后按单变量执行，证据 `E:/k60-work/evidence/usblog-20261117-115842`；boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、panic/reset null、`stopReason=budget`。console 仍是 PATCH `segs=602 ret=0`、NVM 第一次 `segs=7 ret=-60`、fallback `segs=21 ret=-60`、`power=1 result=-60`；未出现 `nvm done`。预声明判据中镜像/启动/采集通过，但 budget exhausted、最后 NVM ret=-60、power -60 三项失败，判定 FAIL；0516 对 NVM 失败形状没有改变，不能作为修复。
 
+### 7.24 0517 上电顺序候选构建（2026-11-18 16:47 已构建，未上机）
+
+**目的与边界**：d9 证明 0516 不能改变 NVM 失败形状；0517 只把 `k60_bt_power_on` 的顺序与 100/60 ms 对齐官网 `https://unixnu.com/zh/porting/bluetooth`：BT_EN 低 100 ms → 串口时钟 → QUP/engine → UART/wake IRQ → XO pulse/BT_EN 高 → 60 ms → 引脚。没有改 90 s budget、10 s command deadline、243 B 段长、`dnld_mode`/type、状态机、地址、SMMU 或固件；WLAN_EN 低时的 100 ms 放电保留为板级前置。0517 未上机。
+
+**补丁与源码身份**：`patches/xnu/0517-k60-bt-power-order.patch`（64 行，3 hunk，sha256 `ebd0fe356a28281169b6d6aebe177020672ccbe4237a8b78735a4429ec7f5cbe`），追加在 236 条 0516 series 后，series 共 237 条（全文件 `3339e34f664d8eee48ab366ec98bffd00018aafe82821c1b7f9b5eecd8dcbcba`，前 236 行仍 `e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db2`）。0517 首版按 1267 行旧 base 生成，在真实 series 上 `git apply` 失败后按真实 2235 行源码重生成；真实 base 由 0500→…→0515 逐条应用 `bsd/dev/qbt_k60.c` 得到，sha256 `35887d2f8d7fea837fd25937e74e32fdeaf0b37b7c02e04fd7ac7e1be8a0f6ca`，应用 0517 后 `4a3947d5926d8a636d29d914530509cdf7208ed46fcb3e2022002798e8792b0e`，仍 2235 行。hunk 1 改常量 100u/60u；hunk 2 把 `powered=true`、WLAN 放电、SW_CTRL、串口时钟、stop/prepare engine 放进 BT_EN 低窗口；hunk 3 把 XO pulse、BT_EN 高、XO release、60 ms、pins active 放到 IRQ 之后、`qbt_geni_start` 之前。`power_off` 未改。
+
+**构建与产物（`E:/k60-work/artifacts/bt-0517-power-order/`）**：
+- 构建命令（`K60_OUT=/opt/k60/trees/k60build/bt-out-0517`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`、`K60_EIGHT_STEP_ITEMS=bluetooth`）：`bash scripts/build-strict.sh bt-0517-power-order --fd .../fd/bt-0517-power-order-cf4485712c29.fd --bt-blob .../pong-bt-firmware.bin --kernel-arg k60bt=1 --kernel-arg pong_bt_late=1`；`RAW_RC=0`。
+- `build-manifest.json`：`built_at=2026-11-18T16:47:01+08:00`，`repo.head=2c7d948dc5f8c6f597cf708c4fb2e34a960c4564`、`dirty_files=0`，`series.count=237`、`namespace=names+sizes`、`series.sha256=b89176283ff9f6fc`、`frozen.list_sha256=2aaa4903cdcd3604879ba6813942eb33699a0fdb81d651d5e99e7bf616a9dacb`；frozen-before/after 相同。
+- 产物：`boot.img` sha256 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`（201887744 bytes）、`kernel_built=c40e42770038054443264583bd1b1646650abacf5b353e54b914607b283e73f6`（106598400 bytes）、`payload=9acde5345d716f09c4a4a457026c2c49aab80be9472d18256c5380765554c254`、`payload_kernel=a44053e4473c094718df4ca21985e0541c59d0e22d231269b021647dbf7c1bb2`、`ADT=db9982047de192883a54d1849606795f08d2913513316eb040d872f04901833f`、`dtb=2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`、`fd=cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`、`bt_blob=febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037`（1027584 bytes）。`boot.json` 的 `kernel_sha256=83b52b566b9cd0e0a2f13854f7da4c67175c956d798d009dcf94fc5d7cb7707c`、`hardware_tested=false`。
+- 门禁：八步 build 6 项通过；`kernel.log:254` 记录 `patch 0517-k60-bt-power-order.patch`；kernel archives 4 个全部到 kernel.macho；metal/bt blob container self-consistent；`image-arg-audit: OK (31 arguments, 598 bytes)`；`verify-boot-image.py --manifest ...` → OK。
+- 构建目录在成功后由流程清理，不能事后从 `xnu-work` 取源码；应用结果用 series 重建独立复核为 `4a3947d5…`，与构建前 dry-run 相同。
+
+**宿主证据**：`python3 scripts/tests/test-bt-0517-power-order.py` → `TESTS OK: 52 case(s), 0 failure(s)`；`test-bt-0516-uart-clock.py` → 82 通过；d8 adapter → 90 通过。以上为 HOST-ONLY，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
+
+**结论**：bt-0517-power-order 产物已可交给 Lead 作为下一次单变量飞行对象；d10 未批准，未上机，不重建、不改预算/段长/状态机/地址。预声明判据与边界见 `docs/research/bt/D10-PLAN.md`。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 当前范围

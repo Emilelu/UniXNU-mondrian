@@ -95,7 +95,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 1. **跨线改动**：`drivers/PongPower/` 是 adsp-handoff 线 scope；用户 2026-11-17 已把该目录划给音频线，本次落地由音频线完成。
 2. **内存**：两槽使 `sizeof(QcomGlink)` 从 960 B 涨到 2,056 B（每槽 904 B，含 20 个本地 intent 槽；宿主实测），对内核可忽略。
 3. **provider 必须接受「publish 后有两个 consumer」这个事实**：PMIC 通道与音频通道共享同一对 SMEM FIFO、同一个 `qcom_glink_poll()` 循环与同一个 IPCC kick；
-   但**每个槽的 intent 表、lcid/rcid、分片状态完全独立**（`QcomGlink.c:249-282` 按 rcid 分发），一个 consumer 卡住不会吃掉另一个的消息（宿主 376 条断言已证）。
+   但**每个槽的 intent 表、lcid/rcid、分片状态完全独立**（`QcomGlink.c:249-282` 按 rcid 分发），一个 consumer 卡住不会吃掉另一个的消息（宿主 379 条断言已证）。
 4. **独占语义要改写一句**：bit2 约束 provider 自己，不约束 consumer 数量；契约第 7 条「交给既有 consumer」应读成「交给同一实例上的既有与新增槽」。
 
 证据（已落地，可直接复核）：`drivers/PongPower/QcomGlink.h:17` 现为 `#define QCOM_GLINK_MAX_CHANNELS 2u`
@@ -104,7 +104,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 `drivers/PongAudio/tests/test-glink-multislot.c`（两个消费者各注册 `PMIC_RTR_ADSP_APPS` 与 `adsp_apps`，
 自扮 DSP 做 OPEN/advertise/TX_DATA，断言各收各的 rx、乱序 open 不串、重放不串、陌生名字不给 ACK、陌生 rcid 计入
 `dropped`、`stop` 两槽各回调一次；runner 直接编译真实源，`sh drivers/PongAudio/tests/run-glink-multislot-tests.sh`
-→ `TESTS OK 376 cases`）。详见 `GLINK-MULTISLOT.md`。
+→ `TESTS OK 379 cases`）。详见 `GLINK-MULTISLOT.md`。
 
 #### 方案 B：provider 把 GPR/APM 的 open 也纳入自己
 
@@ -443,9 +443,8 @@ int k60_adsp_owner_publish(const K60AdspOwnerLease *lease,
       同一 IPCC kick 服务 `PMIC_RTR_ADSP_APPS`（电池）与 `adsp_apps`（音频）两个槽。
       不新开第二个 QcomGlink 实例（一对 SMEM FIFO 只有一个采纳者：`qcom_glink_adopt` 要求
       `*tx.head==0 && *rx.tail==0`）、不新增 API、锁或 worker；「音频不做第二个 owner」。
-      宿主 376 条断言已证明 `QcomGlink.c` 零改动、两槽各自分发；**音频侧已经用 `K60AudioGlink.c`
-      把 `adsp_apps`（560×20 intent）注册封装好（`pong_audio_start()` 排队，`K60PmicGlink::poll()`
-      在 `qcom_glink_poll()` 前 service），provider 不再需要编写注册代码**。provider 只需按契约提供
+      宿主 379 条断言已证明 `QcomGlink.c` 零改动、两槽各自分发；**音频侧已经用 `K60AudioGlink.c`
+      把 `adsp_apps`（560×20 intent）注册封装好（`K60PmicGlink::discover()` 先 passive 预注册槽，`pong_audio_start()` 只排队，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前 service），provider 不再需要编写注册代码**。provider 只需按契约提供
       `k60_adsp_owner_acquire()` 的真 lease 与已采纳的 FIFO；这一项不再由音频侧代做。
 
 ### 9.3 音频侧拿到 lease 之后的调用顺序（每步附失败动作）

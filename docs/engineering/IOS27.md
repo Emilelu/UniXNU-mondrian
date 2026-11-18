@@ -22,18 +22,17 @@ is work without a payoff at stage 0.
 
 ## Inputs
 
-| Input | Value |
+| Input | Where the pin lives |
 | --- | --- |
-| IPSW | `iPhone17,2_27.0.1_24A446_Restore.ipsw`, 12,314,041,166 bytes, sha256 `2b846dfd495f17eb074dacc6d892529df7f18587afdf930645747cd42286f538` |
-| kernelcache | decompressed arm64e Mach-O (`MH_FILESET`, 305 entries), sha256 `fa07057bf34f33af1ec26681ad0c87c13e5aaa548a300740eddb0e92876e5f95` |
-| OS volume | `E3F4AED0-4454-4D5B-833C-E27E99C4F67B` |
-| SystemOS volume | `8B599D21-9ABD-4050-8BA2-C61349890BED` |
-| toolchain | Xcode 26: xnu-12377 uses the four-argument `__ptrauth` qualifier |
+| IPSW | `profiles/os/ios-27.0.1-24A446/profile.toml`: name, byte size, sha256 and URL of `iPhone17,2` 27.0.1 (24A446) |
+| kernelcache | same profile: the decompressed arm64e `MH_FILESET` sha256, the 305-entry count and the AMFI early-init address |
+| OS / SystemOS volumes | `board.toml` `root_match_volume_uuid` and the profile's volume table |
+| toolchain | Xcode 26, because xnu-12377 uses the four-argument `__ptrauth` qualifier; the Linux host path is below |
 
 The IPSW is downloaded and unpacked on macOS: `./unixnu userdata --os 27`
 needs `/usr/bin/aea` for the encrypted images. The host does not need the
 phone for any of it. The driver takes the URL directly (`unixnu fetch --ipsw
-PATH_OR_URL`), so the 12.3 GB download does not have to be driven by hand.
+PATH_OR_URL`), so the download does not have to be driven by hand.
 
 The SoC layer's `xnu-12377` series lives on the `feat/xnu-12377` branch of
 `xNekom/UniXNU-sm8475-common`. `feeds.toml` names that fork and pins the

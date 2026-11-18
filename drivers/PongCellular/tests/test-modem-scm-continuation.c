@@ -14,6 +14,10 @@ enum {
 	MON_INTERRUPT_ONCE,
 	MON_INTERRUPT_FOREVER,
 	MON_PAYLOAD_DENIED,
+	MON_INTERRUPT_MANY,
+	MON_INTERRUPT_THEN_DENIED,
+	MON_TRANSPORT_ERROR,
+	MON_LAST_CALL_SUCCESS,
 };
 
 static int mode;
@@ -21,6 +25,12 @@ static int calls;
 static uint64_t first[8];
 static uint64_t entered[8];
 static uint64_t last[8];
+
+static uint64_t
+context_for_call(unsigned n)
+{
+	return 0x1234567800000000ull + n;
+}
 
 void
 k60_modem_scm_invoke(uint64_t regs[8])
@@ -33,16 +43,35 @@ k60_modem_scm_invoke(uint64_t regs[8])
 		}
 		entered[i] = regs[i];
 	}
+	if (calls != 0) {
+		assert(regs[0] == K60M_SCM_INTERRUPTED);
+		for (i = 1; i <= 5; i++) {
+			assert(regs[i] == first[i]);
+		}
+		assert(regs[6] == context_for_call((unsigned)calls));
+		assert(regs[7] == first[7]);
+	}
 	calls++;
 
 	if (mode == MON_INTERRUPT_FOREVER ||
-	    (mode == MON_INTERRUPT_ONCE && calls == 1)) {
+	    (mode == MON_INTERRUPT_ONCE && calls == 1) ||
+	    (mode == MON_INTERRUPT_MANY && calls <= 3) ||
+	    (mode == MON_INTERRUPT_THEN_DENIED && calls <= 2) ||
+	    (mode == MON_LAST_CALL_SUCCESS && calls < (int)K60M_SCM_MAX_CALLS)) {
 		regs[0] = K60M_SCM_INTERRUPTED;
-		regs[6] = 0x1234u + (uint64_t)(calls - 1);
-	} else if (mode == MON_PAYLOAD_DENIED) {
+		regs[6] = context_for_call((unsigned)calls);
+		/* Deliberately clobber input registers to prove they are reloaded. */
+		for (i = 1; i <= 5; i++) {
+			regs[i] = ~((uint64_t)calls + (unsigned)i);
+		}
+		regs[7] = ~0ull;
+	} else if (mode == MON_PAYLOAD_DENIED || mode == MON_INTERRUPT_THEN_DENIED) {
 		regs[0] = 0;
 		regs[1] = 0x82u;
 		regs[6] = 0x5678u;
+	} else if (mode == MON_TRANSPORT_ERROR) {
+		regs[0] = (uint64_t)(int64_t)-12;
+		regs[1] = 0;
 	} else {
 		regs[0] = 0;
 		regs[1] = 0;
@@ -74,7 +103,7 @@ check_success_after_one_interrupt(void)
 	assert(entered[0] == K60M_SCM_INTERRUPTED);
 	assert(entered[1] == k60_modem_scm_args(2, K60M_SCM_VAL, K60M_SCM_RW, 0));
 	assert(entered[2] == K60_PAS_MODEM && entered[3] == 0xB7FF0000u);
-	assert(entered[4] == 0 && entered[5] == 0 && entered[6] == 0x1234u && entered[7] == 0);
+	assert(entered[4] == 0 && entered[5] == 0 && entered[6] == context_for_call(1) && entered[7] == 0);
 	assert(last[0] == 0 && last[1] == 0 && last[6] == 0x5678u);
 }
 
@@ -98,6 +127,46 @@ check_interrupt_budget(void)
 	assert(calls == K60M_SCM_MAX_CALLS);
 	check_init_args();
 	assert(last[0] == K60M_SCM_INTERRUPTED);
+}
+
+static void
+check_repeated_interrupts(void)
+{
+	mode = MON_INTERRUPT_MANY;
+	calls = 0;
+	assert(k60_modem_init_image(0xB7FF0000u) == K60ModemPasOk);
+	assert(calls == 4);
+	check_init_args();
+}
+
+static void
+check_denied_after_resume(void)
+{
+	mode = MON_INTERRUPT_THEN_DENIED;
+	calls = 0;
+	assert(k60_modem_init_image(0xB7FF0000u) == K60ModemPasDenied);
+	assert(calls == 3);
+	assert(last[0] == 0 && last[1] == 0x82u);
+}
+
+static void
+check_transport_error(void)
+{
+	mode = MON_TRANSPORT_ERROR;
+	calls = 0;
+	assert(k60_modem_init_image(0xB7FF0000u) == K60ModemPasDenied);
+	assert(calls == 1);
+	assert(last[0] == (uint64_t)(int64_t)-12);
+}
+
+static void
+check_success_at_budget(void)
+{
+	mode = MON_LAST_CALL_SUCCESS;
+	calls = 0;
+	assert(k60_modem_init_image(0xB7FF0000u) == K60ModemPasOk);
+	assert(calls == (int)K60M_SCM_MAX_CALLS);
+	assert(last[0] == 0 && last[1] == 0);
 }
 
 static void
@@ -128,7 +197,11 @@ main(void)
 	check_success_after_one_interrupt();
 	check_payload_denied();
 	check_interrupt_budget();
+	check_repeated_interrupts();
+	check_denied_after_resume();
+	check_transport_error();
+	check_success_at_budget();
 	check_other_entry_points();
-	printf("TESTS OK 4 groups (resume-once, payload-denied, budget, entry-points)\n");
+	printf("TESTS OK 8 groups (resume-once, payload-denied, budget, repeated, resume-denied, transport-error, last-call, entry-points)\n");
 	return 0;
 }

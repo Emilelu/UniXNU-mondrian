@@ -1085,3 +1085,11 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 时间：`:2082` 的 wall clock 是 `04:32:51.607`，`:2867` 是 `04:33:24.445`，`:2871` 是 `KX! 15 137 BlueTool exit=1`。exec→exit 约 33 s，等于静态分析的 30 s XPC 看门狗（`dispatch_time(0,0x6FC23AC00)`，`0x1000430f0` → `_exit(1)`），不是坏参数的瞬时退出。
 - 判定：D12-C 形态，但 §6 要求的"至少一次 connect"没有出现，按探针门槛未达记录；结论（看门狗在传输打开前触发）靠时间差成立。0519 的电源节点未被打开，0520 的名字别名错配也被排除为直接原因。
 - 边界：不证明卡在哪一步（XPC 等待、平台/芯片探测、设备树读取），不证明蓝牙可用；内核栈自 d11 起未变。离线补充：从 20G81 IPSW 解出 `com.apple.BlueTool.plist`（`-R`、MachServices `com.apple.BlueTool`、无 RunAtLoad）与 `com.apple.bluetoothd.plist`（RunAtLoad、KeepAlive SuccessfulExit=false），bluetoothd 字符串同时含 `com.apple.uart.sk.bluetooth` 与 `/dev/btwake`。
+
+### 49. 用户态难度对比：iOS 16 停在测试床，用户态预算转向 iOS 27（2026-11-19 00:35）
+
+- 新文件 `docs/plans/BT-USERLAND-COMPARE.md`（114 行）回答用户 2026-11-18 的决定性问题：先修 20G81 的用户态，还是把用户态留给 iOS 27。
+- 事实骨架：20G81 的 `bluetoothd`（sha256 `2cf8d9cd…ea4a`）**完全没有 QCA 支持**——`grep -i 'QCA\|Qualcomm\|wcn'` 零命中，芯片表是 `Server/Chipsets/LEHardwareModel.cpp` 的 BCM/CSR 语义；BlueTool 内置 firmwareList 也是 BCM 专用，QCA 无条目（`0x100014f10`）。反过来 iOS 27 的替换用户态（QcaBluetooth `BlueTool.c` 63 行 + `Type0.c` 217 行 + `native_ios27.py` 496 行）已在 sheng/aston 上验证。
+- 差距归因：iOS 16 差的是**为一个 build 重做 496 行地址重定位**（`native_ios16.py` + 20G81 布局）与**安装路径**（20G81 profile 没有 `[payload.runtime]`；sealed root 拒绝 bindfs，见 `0404-k60-metal-deploy.patch:210-224` 的 P-27）；iOS 27 那两条都是现成的。
+- 估时（带“约”）：iOS 16 顺利 1–2 周（只做 BlueTool 身份伪装，成功率未知）、稳妥 4–6 周（daemon 重定位，且不可迁移）；iOS 27 用户态 1–3 天，风险全在内核 bring-up（F1 的 `LD_KERNEL_LIBS` 一行修复 → F2 prelink 到 bsd_init → F3 存储 → F4 面板）。
+- 建议与分界点：iOS 16 内核侧到此为止（d11 PASS + d12 观测已记录），用户态不再投入；若 F1/F2 在约两周内看不到 bsd_init，再回头评估 20G81 的 daemon 重定位。`porting.toml` 的 bluetooth `next_action` 与 `limits` 已同步改口径，并把 `marconi-bt` 的归属更正为 `com.apple.driver.AppleSPU`。

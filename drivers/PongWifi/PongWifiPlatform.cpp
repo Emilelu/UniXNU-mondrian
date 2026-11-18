@@ -590,11 +590,11 @@ void probeFiles() {
   vnode_t vp=NULLVP;
   int err=vnode_lookup(paths[i],0,&vp,ctx);
   if(err||!vp){IOLog("PongWifi: probe %s -> absent (%d)\n",paths[i],err);continue;}
-  struct vnode_attr va;VATTR_INIT(&va);VATTR_WANTED(&va,va_type);VATTR_WANTED(&va,va_size);
+  struct vnode_attr va;VATTR_INIT(&va);VATTR_WANTED(&va,va_type);VATTR_WANTED(&va,va_data_size);
   int attr=vnode_getattr(vp,&va,ctx);
   if(attr)IOLog("PongWifi: probe %s -> present, attr %d\n",paths[i],attr);
   else IOLog("PongWifi: probe %s -> %s size=%llu\n",paths[i],
-   va.va_type==VREG?"file":(va.va_type==VDIR?"dir":"other"),(unsigned long long)va.va_size);
+   va.va_type==VREG?"file":(va.va_type==VDIR?"dir":"other"),(unsigned long long)va.va_data_size);
   vnode_put(vp);
  }
 }

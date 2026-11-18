@@ -48,7 +48,7 @@ static int k60_modem_scm_called;
 
 static int
 k60_modem_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
-    uint64_t c, uint64_t *rx0, uint64_t *rx1)
+    uint64_t c, uint64_t *rx0, uint64_t *rx1, unsigned *calls_out)
 {
 	uint64_t regs[8];
 	uint64_t context = 0;
@@ -76,6 +76,7 @@ k60_modem_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
 
 	*rx0 = regs[0];
 	*rx1 = regs[1];
+	*calls_out = calls;
 	if (regs[0] == K60M_SCM_INTERRUPTED) {
 		return K60ModemPasInterrupted;
 	}
@@ -87,12 +88,15 @@ k60_modem_pas_call(uint32_t cmd, uint32_t arginfo, uint64_t a, uint64_t b,
     uint64_t c)
 {
 	uint64_t x0 = 0, x1 = 0;
+	unsigned calls = 0;
 	int r = k60_modem_scm_call(k60_modem_scm_fn(K60M_SCM_SVC_PIL, cmd),
-	    arginfo, a, b, c, &x0, &x1);
+	    arginfo, a, b, c, &x0, &x1, &calls);
 
 	if (r != K60ModemPasOk) {
-		printf("K60MODEM scm cmd=%#x rc=%d x0=%#llx x1=%#llx\n", cmd, r,
-		    (unsigned long long)x0, (unsigned long long)x1);
+		printf("K60MODEM scm cmd=%#x rc=%d calls=%u x0=%#llx x1=%#llx\n", cmd, r,
+		    calls, (unsigned long long)x0, (unsigned long long)x1);
+	} else if (calls > K60M_SCM_LOG_CALLS) {
+		printf("K60MODEM scm cmd=%#x ok calls=%u\n", cmd, calls);
 	}
 	return r;
 }

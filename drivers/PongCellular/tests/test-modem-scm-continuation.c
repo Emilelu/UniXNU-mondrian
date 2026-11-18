@@ -55,7 +55,7 @@ k60_modem_scm_invoke(uint64_t regs[8])
 
 	if (mode == MON_INTERRUPT_FOREVER ||
 	    (mode == MON_INTERRUPT_ONCE && calls == 1) ||
-	    (mode == MON_INTERRUPT_MANY && calls <= 3) ||
+	    (mode == MON_INTERRUPT_MANY && calls <= 1000) ||
 	    (mode == MON_INTERRUPT_THEN_DENIED && calls <= 2) ||
 	    (mode == MON_LAST_CALL_SUCCESS && calls < (int)K60M_SCM_MAX_CALLS)) {
 		regs[0] = K60M_SCM_INTERRUPTED;
@@ -139,7 +139,9 @@ check_repeated_interrupts(void)
 	mode = MON_INTERRUPT_MANY;
 	calls = 0;
 	assert(k60_modem_init_image(0xB7FF0000u) == K60ModemPasOk);
-	assert(calls == 4);
+	/* 1001 is deliberately past the old 100-call cap: a single PAS
+	 * transaction may resume far more often than that. */
+	assert(calls == 1001);
 	check_init_args();
 }
 

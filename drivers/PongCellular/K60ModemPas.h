@@ -38,7 +38,12 @@
 /* The monitor returns QCOM_SCM_INTERRUPTED when it needs the same call
  * resumed; x6 carries the continuation context. This is not a failure. */
 #define K60M_SCM_INTERRUPTED 1u
-#define K60M_SCM_MAX_CALLS 100u
+/* Pong resumes one PAS transaction up to 100000 times
+ * (PongModemRuntime.cpp:112-118) and AUTH_AND_RESET is the long one: on the
+ * k28 B flight the monitor was still returning INTERRUPTED when the old
+ * 100-call cap ran out, so the cap matches the reference instead of a guess. */
+#define K60M_SCM_MAX_CALLS 100000u
+#define K60M_SCM_LOG_CALLS 100u
 
 /* Peripheral id for the modem (MSS) on SM8475/cape. See the header comment. */
 #define K60_PAS_MODEM 4u

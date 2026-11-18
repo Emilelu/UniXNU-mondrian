@@ -104,6 +104,7 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | `dipa-studio/ios-sweet` | HackiOS / ios-sweet 上游（userland 注入、UIKit 兼容层思路） |
 | `oosexgang/hakios-xnu-kernel` | HakiOS XNU 内核的另一个分支参考 |
 | `blacktop/darwin-xnu-build` | XNU 构建工具链参考 |
+| IEEE 802.11-2020 12.4（SAE 认证帧） | Authentication 帧的算法号 3、事务序号与提交体长度（组 19 为 102 字节、组 20 为 150 字节）；`drivers/PongWifi/ath11k/pong_sae.c` 只是用于测量管理帧路径的定长框架，不实现 Dragonfly 交换 |
 | IEEE 802.11ax-2021 / Linux `net/mac80211/he.c` | HE Capabilities（9.4.2.248）与 HE Operation（9.4.2.249）的字段顺序、长度规则和 MCS/NSS 收敛语义；`drivers/PongWifi/ath11k/pong_he.c` 是按规范行为重写的字节编解码，未复制 GPL-2.0-only 的 mac80211 代码 |
 
 ### 3.4 UniXNU 官方

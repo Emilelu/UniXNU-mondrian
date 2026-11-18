@@ -685,14 +685,18 @@ evidence = "深挖结论：读数正确性取决于 calibration fuse 的 bias �
 [hardware.thermal.step.verify]
 done = true
 local_verified = true
-evidence = "2026-11-15 scanout 前的宿主与设备核验：22 passed / 0 failed，tsens0[3] cpuss-2 zone27 出现在读数表里，level trapping (3) published as Thermal_Level_Warning=3。"
+evidence = "2026-11-15 scanout 前的宿主与设备核验：22 passed / 0 failed，usblog-20261115-135227 里可见 `PongThermal: tsens0[3] cpuss-2 zone27 43.0 C` 与 `PongThermal: level trapping (3) published as Thermal_Level_Warning=3`。"
 static_check = "逐传感器对照 Android 侧同一时刻的读数范围，偏差在 ±2 °C 内。"
 unit_test = "宿主测试覆盖校准换算与 zone 阈值判定，全部通过。"
 artifact_check = "镜像内检测到 tsens 采样行，payload 校验通过。"
 
 [hardware.thermal.step.device]
 done = false
-evidence = "内核侧已有真机读数，但还没有任何用户可见效果（没有降频、没有 UI 反映），因此这一步不判完成。"
+evidence = "内核侧已有真机读数（usblog-20261115-135227），但还没有任何用户可见效果（没有降频、没有 UI 反映），因此这一步不判完成。"
+
+[hardware.thermal.step.device.prediction]
+success = "日志出现 `PongThermal: tsens0[3] cpuss-2 zone27` 且温度在 20–60 C 之间，并且没有 thermal 触发的 panic —— 说明采样链在本镜像里仍然活着。"
+failure = "一条 `PongThermal` 都没有（采样链没起来），或温度越界，或出现 thermal 相关的 panic。"
 
 [hardware.cellular]
 status = "planned"

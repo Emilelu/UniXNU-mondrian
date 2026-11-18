@@ -2626,30 +2626,32 @@ play_cases(void)
         PONG_PLAY_OP_GRAPH_PREPARE,
         PONG_PLAY_OP_GRAPH_START,
         PONG_PLAY_OP_GRAPH_START,
+        PONG_PLAY_OP_GRAPH_START,
     };
     static const uint32_t sgs[PongPlayStepCount] = {
         PONG_PLAY_SG_SPEAKER, PONG_PLAY_SG_SPEAKER,
         PONG_PLAY_SG_PLAY, PONG_PLAY_SG_PLAY, PONG_PLAY_SG_PLAY,
         0ul, 0ul,
         PONG_PLAY_SG_SPEAKER, PONG_PLAY_SG_PLAY,
+        0ul,
         PONG_PLAY_SG_SPEAKER, PONG_PLAY_SG_PLAY,
     };
     unsigned step;
 
-    expect_eq(PongPlayStepCount, 11ul, "playback step count");
+    expect_eq(PongPlayStepCount, 12ul, "playback step count");
     expect_eq(pong_play_token(PongPlayOpenSpeaker), 0x00030000ul, "playback first token");
-    expect_eq(pong_play_token(PongPlayStartPlayback), 0x0003000aul, "playback last token");
+    expect_eq(pong_play_token(PongPlayStartPlayback), 0x0003000bul, "playback last token");
     expect_eq(PONG_PLAY_SLOT_COUNT, 8ul, "playback slot count");
     expect_eq(PONG_PLAY_PERIOD_BYTES, 8192ul, "playback period bytes");
     expect_eq(PONG_PLAY_PRIME_SLOTS, 4ul, "playback prime slots");
     expect_eq(PONG_PLAY_SLOT_TIMEOUT_PUMPS, 8ul, "playback slot timeout");
     expect(!pong_play_slot_expired(7u), "playback slot 7 pumps is live");
     expect(pong_play_slot_expired(8u), "playback slot 8 pumps is expired");
-    expect_eq(pong_play_slot_address(0x80000000ull, 0), 0x180000000ull,
+    expect_eq(pong_play_slot_address(0x80000000ull, 0), 0x80000000ull,
         "playback slot 0 address");
-    expect_eq(pong_play_slot_address(0x80000000ull, 1), 0x180002000ull,
+    expect_eq(pong_play_slot_address(0x80000000ull, 1), 0x80002000ull,
         "playback slot 1 address");
-    expect_eq(pong_play_slot_address(0x80000000ull, 7), 0x18000e000ull,
+    expect_eq(pong_play_slot_address(0x80000000ull, 7), 0x8000e000ull,
         "playback slot 7 address");
     for (step = 0; step < (unsigned)PongPlayStepCount; step++) {
         expect_eq(pong_play_opcode(step), opcodes[step], "playback opcode");
@@ -2659,6 +2661,7 @@ play_cases(void)
     expect(!pong_play_is_graph_step(PongPlayMap), "map is not a graph command");
     expect(!pong_play_is_graph_step(PongPlayClock), "clock is not a graph command");
     expect(pong_play_is_graph_step(PongPlayPrepareSpeaker), "prepare speaker is a graph command");
+    expect(pong_play_is_graph_step(PongPlayStartPair), "start pair is a graph command");
     expect(pong_play_is_graph_step(PongPlayStartPlayback), "start playback is a graph command");
     expect_eq(pong_play_opcode(PongPlayStepCount), 0ul, "playback rejects an out-of-range opcode");
     expect_eq(pong_play_sg(PongPlayStepCount), 0ul, "playback rejects an out-of-range subgroup");

@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,631 @@
+@@ -858,6 +892,642 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -222,7 +222,7 @@
 +		break;
 +	case PongPlayMap:
 +		bytes = pong_ar_map(packet, sizeof(packet), PONG_AUDIO_GPR_PORT,
-+		    token, state->dma_pa | (1ull << 32), PONG_AUDIO_DMA_BYTES);
++		    token, state->dma_pa, PONG_AUDIO_DMA_BYTES);
 +		break;
 +	case PongPlayClock:
 +		bytes = pong_ar_prm_clock(packet, sizeof(packet),
@@ -238,6 +238,10 @@
 +		bytes = pong_ar_graph_command(packet, sizeof(packet),
 +		    PONG_AUDIO_GPR_PORT, token, AR_OP_GRAPH_PREPARE,
 +		    AR_SG_PLAY);
++		break;
++	case PongPlayStartPair:
++		bytes = pong_ar_graph_start_pair(packet, sizeof(packet),
++		    PONG_AUDIO_GPR_PORT, token);
 +		break;
 +	case PongPlayStartSpeaker:
 +		bytes = pong_ar_graph_command(packet, sizeof(packet),
@@ -356,6 +360,13 @@
 +{
 +	if (state->play_step == (unsigned)PongPlayStartSpeaker) {
 +		state->play_speaker_started = true;
++	}
++	if (state->play_step == (unsigned)PongPlayStartPair) {
++		state->play_speaker_started = true;
++		state->playback_running = true;
++		state->last_error = PongAudioOk;
++		printf("PongAudio: playback and speaker started in one command; PCM streaming\n");
++		return;
 +	}
 +	if (state->play_step == (unsigned)PongPlayClock) {
 +		state->play_graph_ready = true;

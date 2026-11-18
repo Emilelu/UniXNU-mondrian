@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/pong_audio.c
-@@ -0,0 +1,991 @@
+@@ -0,0 +1,1010 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * K60 audio core skeleton: ADSP/PAS1 + AudioReach GPR plumbing.
@@ -690,6 +690,25 @@
 +	const uint32_t at = pong_param_begin(&w, AR_APM_IID, PARAM_SG_LIST);
 +	pong_put32(&w, 1);
 +	pong_put32(&w, sg);
++	pong_param_end(&w, at);
++	pong_cmd_payload_end(&w, cmd);
++	return pong_finish(&w);
++}
++
++/* One start for the whole graph: q6apm builds a single APM_CMD_GRAPH_START
++ * from every subgraph the client opened, and the DSP refused the speaker
++ * subgraph on its own (code 1), so carry both ids here. */
++static uint32_t
++pong_ar_graph_start_pair(uint8_t *out, uint32_t capacity, uint32_t port,
++    uint32_t token)
++{
++	PongWriter w;
++	pong_begin(&w, out, capacity, port, AR_APM_IID, token, AR_OP_GRAPH_START);
++	const uint32_t cmd = pong_cmd_payload_start(&w);
++	const uint32_t at = pong_param_begin(&w, AR_APM_IID, PARAM_SG_LIST);
++	pong_put32(&w, 2);
++	pong_put32(&w, AR_SG_SPEAKER);
++	pong_put32(&w, AR_SG_PLAY);
 +	pong_param_end(&w, at);
 +	pong_cmd_payload_end(&w, cmd);
 +	return pong_finish(&w);

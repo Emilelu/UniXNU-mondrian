@@ -37,6 +37,7 @@ typedef enum {
 	PongPlayClock,
 	PongPlayPrepareSpeaker,
 	PongPlayPreparePlayback,
+	PongPlayStartPair,
 	PongPlayStartSpeaker,
 	PongPlayStartPlayback,
 	PongPlayStepCount
@@ -66,6 +67,7 @@ pong_play_opcode(unsigned step)
 	case PongPlayPrepareSpeaker:
 	case PongPlayPreparePlayback:
 		return PONG_PLAY_OP_GRAPH_PREPARE;
+	case PongPlayStartPair:
 	case PongPlayStartSpeaker:
 	case PongPlayStartPlayback:
 		return PONG_PLAY_OP_GRAPH_START;
@@ -103,8 +105,7 @@ pong_play_slot_expired(uint32_t age)
 static inline uint64_t
 pong_play_slot_address(uint64_t dma_pa, unsigned slot)
 {
-	return (dma_pa | (1ull << 32)) +
-	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES;
+	return dma_pa + (uint64_t)slot * PONG_PLAY_PERIOD_BYTES;
 }
 
 static inline bool

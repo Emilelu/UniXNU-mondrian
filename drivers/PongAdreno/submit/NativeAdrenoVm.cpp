@@ -373,10 +373,13 @@ IOReturn NativeAdrenoVm::publishMapped()
     if(sample) {
         uint64_t nanoseconds=0;
         absolutetime_to_nanoseconds(mach_absolute_time()-began,&nanoseconds);
-        IOLog("PONG VM: publish sample n=%u objects=%u imported=%u owned=%u combined=%u bytes=%llu us=%llu calls=%llu cachebytes=%llu trusted=%u ibytes=%llu obytes=%llu wbytes=%llu wskipped=%llu\n",
+        /* skips[2] is this call's cumulative count of mappings publishMapped() did not touch, so a
+         * flight shows whether the coherence skip actually ran instead of only that the ms got smaller. */
+        IOLog("PONG VM: publish sample n=%u objects=%u imported=%u owned=%u combined=%u bytes=%llu us=%llu calls=%llu cachebytes=%llu trusted=%u ibytes=%llu obytes=%llu wbytes=%llu wskipped=%llu coherent=%u skipped=%llu\n",
             (unsigned)calls,objects,imported,owned,combined,bytes,nanoseconds/1000,
             native_adreno_cache_stats[3]-calls_before,native_adreno_cache_stats[1]-bytes_before,
-            (unsigned)(distrust_write_combined_?0:1),imported_bytes,owned_bytes,combined_bytes,combined_skipped);
+            (unsigned)(distrust_write_combined_?0:1),imported_bytes,owned_bytes,combined_bytes,combined_skipped,
+            (unsigned)native_adreno_io_coherent,(unsigned long long)native_adreno_coherent_skips[2]);
     }
     return kIOReturnSuccess;
 }

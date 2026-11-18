@@ -69,4 +69,64 @@
 
 ## 5. 结果登记
 
-（飞完后填：镜像 sha256、证据目录、S1–S7 逐条、命中的 F 规则、帧间隔分布、结论与下一步。）
+**镜像** `gpu-consolidated-20261119`
+`boot.img sha256 ea157138d76f20af79b4eda43b20aa110d71690ff282fd5906dfd74f6a538ce9`
+kernel `f835582494c3cbc0a1ccbe5d7661c7d1b653663a3b33f3ba6e45f9853d80c4f6`（105,676,800 B）
+payload kernel `488b2decd6f2d1efd219c5ac68bc4f12928c87376cc86221d4929d60df64caba`
+payload adt `9a28970faf3c72ed71f61fc1e1ef9d9b1806a0bdd9cae7681312da1b1a69a720`
+series 228 / 30 args / 596 B / metal plugin `metal-plugin-20261118l`
+
+**证据** `usblog-20261119-025400`（240,846 B / 3,423 行，`capture.json complete=true`，
+`logSha256 A33E140DABDD695702D9FEA6BFFA0B1E9B3D37F11C7C197F37BCA11504AEA3E3`，supervisor rc=0）
+
+### 5.1 判据
+
+| 判据 | 结果 | 实测 |
+| --- | --- | --- |
+| S1 无 panic / K60KEXC / backboardd 崩 | ✅ | `panic(` 0、`K60KEXC` 0、`crashed: backboardd` 0 |
+| S2 面板 te 120/s（after the UI frame） | ✅ | `before the switch te 60/s` → `after the switch te 122/s` → `after the UI frame te 120/s`（period 7529 µs） |
+| S3 backlight conformance=1 control=1 | ✅ | `conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1` |
+| S4 GPU 仍出帧 | ✅ | `scanout frames=` 5 行、`MiniIOMobileFramebuffer` 最大 5 帧、`Pong Metal: c7/0 d7` |
+| S5 imports==frames | ✅ | 5/5 行成立 |
+| S6 帧间隔中位 < 40 ms | ⚠️ 未测到 | 见 5.3：屏幕静止，5 帧/202 s 是「没有工作」不是「工作慢」 |
+| S7 K60DATA 挂载、无 transportFailure | ✅ | `K60DATA` 12 次、`transportFailure` 0、`Early boot complete` 1、SpringBoard 135 行 |
+
+失败规则：**无命中**（F1–F6 均未触发）。
+
+### 5.2 这次真正回答的问题
+
+1. **合并没丢切档调用点。** 这是本卡片存在的首要理由。`K60 PANEL: INTF1 before the
+   switch te 60/s` → `after the UI frame te 120/s`，说明首帧路径上的切档在合并后的树里
+   仍然执行，11 包序列仍然被接受（无 DCS failure）。
+2. **背光没回归。** `conformance=1 control=1`，与 `brightness-19` 的判据一致。
+3. **GPU 扫出没回归。** `imports == frames` 逐行成立，纹理 untile 形状仍是 `texture untile
+   source=5888 scanout=5760 rows=3200`。
+
+### 5.3 S6 为什么判「未测到」而不是「失败」
+
+五个 stage 样本的时间戳是 88 s、90 s、142 s、202 s —— 屏幕上的内容没有变化，合成器
+不需要重绘。此时量「帧间隔」量到的是**空闲**，把它记成性能回归会让下一步优化一个
+不存在的问题。这与 P-236 是同一类错误：判据必须能在它声称的条件下失败。
+
+本卡的 S6 需要前置条件：**必须先有持续动画**。可行的驱动方式（按可实现性排序）：
+从宿主侧注入 HID 触摸事件（USB 控制台已通）、或让 SpringBoard 播放一段已知动画、
+或用 `k60_uilib` 已有的诊断口触发一次连续重绘。没有驱动之前，S6 应当写为
+「在 N 秒窗口内帧数 ≥ M 且帧间隔中位 < 40 ms」，而 M 由驱动方式决定。
+
+### 5.4 阶段中位数（n=5，仅供参考，样本太少）
+
+`import` 55 µs、`encode` 19,396 µs、`submit` 8,420 µs、`gpu` 7,283 µs、`sum` 30,248 µs。
+首帧的 `encode` 明显偏高（28,866 µs），末帧只有 593 µs —— 纹理 untile 的一次性成本
+分摊在前几帧上，这与「每帧都重建线性纹理」的预期一致，但 5 个样本不足以定论。
+
+### 5.5 结论与下一步
+
+结论：**合并后的镜像在 120 Hz 面板上稳定运行，显示与背光无回归，GPU 路径无回归。**
+帧率尚未在「有负载」的条件下测量过。
+
+下一步，按此顺序：
+1. 给 S6 加动画驱动，重测 120 Hz 下的真实帧节拍（这是所有后续优化的基线）。
+2. `present()` 的阶段数在 120 Hz 下要重新取样（`submit` 与 `gpu` 各占一半）。
+3. 三个 capability selector 的拒绝（`supportsConditionalLoadStore` /
+   `supportsComputeCompressedTextureWrite` / `isLargeMRTSupported`）在同一次飞行里
+   仍然出现，位于 `SpringBoard[26:1200]`，说明它们确实由 SpringBoard 在问。

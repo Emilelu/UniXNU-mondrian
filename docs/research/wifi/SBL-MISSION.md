@@ -977,3 +977,45 @@ returns nothing for it, and the 20G81 iPhone 13 runtime has no iPadOS 18
 counterpart in either reference tree, so there is no second binary to diff
 against.
 
+
+## 23. Mission21: the element inventory of the two bands
+
+Mission21 (image 766606e0, 201,887,744 B, head 7e8b3310, built
+2026-11-19T03:38:21+08:00, archive f6d168c7, 602 B args, k60_autoreset=900)
+flew once at 03:39:24 into
+E:/k60-work/evidence/usblog-20261119-033924/console.log (542,538 B / 7,854
+lines / SHA256 10d9351965bd76ce67ffc0224cb5dfeb22b7f0c2ea89f159a68584bfeaa3e3e1).
+The judge printed base=PASS dump=PASS list=UNOBSERVED, verdict DIAG-ONLY.
+
+HE survived the merge into the pane branch: :822 association request HT 28
+VHT 14 HE 31 bytes, :817 peer HE yes, MCS 80 rx fffa tx fffa, params
+0x25003ff4 at 5240 MHz; after the daemon moved to 2412 MHz, :5112 requests
+HT 28 VHT 0 HE 28 bytes with params 0x2b003ff4 (:5110). Association PASS at
+:1821 and :5180, lifecycle PASS at :5181 (lease=5/3).
+
+Scan tables: 11 BSS (2.4 GHz 8, 5 GHz 1, hidden 2) at :788, 28 (19/1,
+hidden 8) at :4893, 35 (26/1, hidden 8) at :4994. The 5805 MHz neighbour
+was not heard in this flight, so the only 5 GHz record is this access point
+at 5240 MHz.
+
+The element inventory is the new fact, and it shrinks the difference to one
+group of fields. The same access point on 2.4 GHz (c8:bf:4c:30:03:1d)
+carries ie 347, RSN 24 bytes at offset 37 and capability 0x0431; on 5 GHz
+(c8:bf:4c:30:03:1c) it carries ie 384, RSN 24 bytes at offset 76 and
+capability 0x0511. The RSN length is identical, three of the extra 37 bytes
+are the longer SSID, and the remaining 34 bytes are other elements.
+Mission22 prints the element-id list and the RSN bytes of both records and
+serves a copy of the 5 GHz record under the unrelated name K60SYNTH, which
+separates a name-based filter from a field-based one in a single screen.
+
+No pane list was produced: the only WiFiSettlementObserver line is its init,
+so nobody opened Settings and the daemon-side drop is still unobserved after
+six flights. wifid's band strings (guess1..guess4, "2Ghz scanned network[%@]
+has a matching known 5Ghz network") make the name hypothesis the first one
+to test.
+
+mission20 (b0ae4826, head fc8f5432, built 2026-11-19T02:25:38+08:00) was
+superseded by mission21 before it flew and is recorded as
+built-but-never-flown; mission22 (0d6a2f16, head d250f2c3, built
+2026-11-19T03:57:47+08:00) is built, verified and unflown. K60EXC appears 64
+times in every flight since mission17, so it is not a mission21 anomaly.

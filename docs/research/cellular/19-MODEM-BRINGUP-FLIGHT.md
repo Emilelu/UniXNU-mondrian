@@ -126,8 +126,8 @@ k16 是当前代：共享 kernel `03a3aeab3a5df334c70b1389b1840574efbbb7804fcc2c
 
 `92657c8f` 修正 PAS4 wrapper：保留 x6 context、每轮重送原参数，以 x0=1 继续同一事务，最多 100 次，耗尽返回 `K60ModemPasInterrupted=-3`；详见 [PAS 续调说明](06-MODEM-PAS.md#21-scm_interrupted-的续调修正2026-11-18)。
 实际 `K60ModemPas.c` 的模拟 monitor 回归 8 组通过，0621 与源码一致；k17 kernel `E:/k60-work/artifacts/modem-20261117k17/kernel.macho` 105,562,112 B，SHA256 `9b21321f3ba3b0fd77c8b572381e1c5798c42bb627c89e01ea47d16a9d08164a`，由 `--skip-gates` 离线编译。
-**metadata 阻塞**：内嵌 array 原从 CRLF 污染的 `modem.mdt` 生成，hash segment 有 25 个 `0x0d` 插入/截断，3,362 B 与 `modem.mdt.bin` 不同。已从干净 binary 重新生成（CRC32 `0xac600b5d`，SHA256 `78d5f2f4...`），但 UEFI FD 和 boot image 尚未重建；k17 目前**不是可飞行候选**。
-下一次飞行前必须先重建 FD/boot image，并在 C-M2 中验证 metadata 行、`init_image ok`、`mem_setup ok` 和诊断停机；本轮不 boot，不推进 B/M3–M6。
+**metadata 已修复**：内嵌 array 原从 CRLF 污染的 `modem.mdt` 生成，hash segment 有 25 个 `0x0d` 插入/截断，3,362 B 与 `modem.mdt.bin` 不同。已从干净 binary 重新生成（CRC32 `0xac600b5d`，SHA256 `78d5f2f4...`），并编入 clean-metadata FD `40c29d51...`；k18 C-M2 boot `1ae178bb...`（kernel `f245d506...`）已打包并离线校验，尚未上机。
+k18 是当前唯一候选；飞行后在 C-M2 中验证 metadata 行、`init_image ok`、`mem_setup ok` 和诊断停机，未通过前不推进 B/M3–M6。
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 

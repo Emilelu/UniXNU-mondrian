@@ -109,6 +109,14 @@ def main() -> int:
           "nw_wifi_scan(kWifiTestSsid,kWifiTestSsidBytes);" in platform)
 
     net = NET.read_text(encoding="utf-8")
+    check("the network stack lives under IOResources where the namer looks",
+          "IOService::getResourceService()" in net and "publish(stack, platform," not in net)
+    check("the network stack service advertises its user client class",
+          'kIOUserClientClassKey, "IONetworkStackUserClient"' in net)
+    check("the naming request is refused, so the namer learns nothing was named",
+          "return kIOReturnUnsupported;" in net and "network stack command %s" in net)
+    check("the stack user client reports who opened it and the registry's busy state",
+          "proc_selfname(who, sizeof who)" in net and "getBusyState()" in net)
     check("network stack user client initializes through the 4-argument overload",
           "initWithTask(task, security, type, properties)" in net and
           "initWithTask(task, security, type))" not in net)

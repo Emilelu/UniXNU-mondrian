@@ -7,6 +7,7 @@
 // Layouts below are those the framework reads and writes; where a field's meaning is not known it is left zero. Every request is written
 // to the log (type, direction, length) and a request that is not handled is refused, so which ones the framework needs shows in the log.
 #include <IOKit/IOLib.h>
+#include <IOKit/IOKitKeys.h>
 #include <IOKit/IOPlatformExpert.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IORegistryEntry.h>
@@ -33,6 +34,7 @@ extern "C" {
 #include <kern/thread.h>
 #include <kern/thread_call.h>
 #include <sys/systm.h>
+#include <sys/proc.h>
 #include <stdarg.h>
 #include "nw_abi.h"
 #include "PongWifiLease.h"
@@ -753,10 +755,19 @@ OSDefineMetaClassAndStructors(IO80211Interface,IONetworkInterface);
 
 // The network configuration's interface namer waits for a service of this class, opens it and only then publishes that IOKit is quiet;
 // everything that lists interfaces (the wireless daemon among them) waits for that. Interfaces here are named when they are made, so the
-// commands it sends (as properties of its connection) are only logged.
+// naming request it sends is refused; a success would tell it the name was given when nothing was named.
 class IONetworkStackUserClient : public IOUserClient {
   OSDeclareDefaultStructors(IONetworkStackUserClient);
  public:
+  bool start(IOService *provider) APPLE_KEXT_OVERRIDE {
+    if (!IOUserClient::start(provider)) return false;
+    char who[32] = "?";
+    proc_selfname(who, sizeof who);
+    IOService *root = IOService::getServiceRoot();
+    log(6, "wifi-net: the network stack was opened by %s; the registry's busy state is %u", who,
+        static_cast<unsigned>(root ? root->getBusyState() : 0));
+    return true;
+  }
   IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE {
     static unsigned said;
     if (said++ < 16) {
@@ -764,7 +775,7 @@ class IONetworkStackUserClient : public IOUserClient {
       if (OSSerialize *s = OSSerialize::withCapacity(512)) { if (properties && properties->serialize(s)) strlcpy(text, s->text(), sizeof text); s->release(); }
       log(6, "wifi-net: network stack command %s", text);
     }
-    return kIOReturnSuccess;
+    return kIOReturnUnsupported;
   }
   IOReturn clientClose() APPLE_KEXT_OVERRIDE { terminate(); return kIOReturnSuccess; }
 };
@@ -772,6 +783,12 @@ OSDefineMetaClassAndStructors(IONetworkStackUserClient, IOUserClient);
 class IONetworkStack : public IOService {
   OSDeclareDefaultStructors(IONetworkStack);
  public:
+  // The real one names its user client class as a property; do the same so a reader of the registry finds it.
+  bool start(IOService *provider) APPLE_KEXT_OVERRIDE {
+    if (!IOService::start(provider)) return false;
+    setProperty(kIOUserClientClassKey, "IONetworkStackUserClient");
+    return true;
+  }
   IOReturn newUserClient(task_t task, void *security, UInt32 type, OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE {
     IONetworkStackUserClient *client = OSTypeAlloc(IONetworkStackUserClient);
     // The 3-argument overload skips IORegistryEntry::init() when getPropertyTable()
@@ -796,8 +813,11 @@ IOService *publish(IOService *service, IOService *provider, const char *name) {
 }
 void publish_registry(const char *ifname) {
   IOService *platform = IOService::getPlatform();
+  // The real one lives at IOService:/IOResources/IONetworkStack, and the interface namer looks for it there.
+  IOService *resources = IOService::getResourceService();
   if (IONetworkStack *stack = OSTypeAlloc(IONetworkStack)) {
-    if (!stack->init() || !publish(stack, platform, "IONetworkStack")) log(3, "wifi-net: the network stack service did not start"); else stack->release(); }
+    if (!resources || !stack->init() || !publish(stack, resources, "IONetworkStack")) log(3, "wifi-net: the network stack service did not start (resources %d)", resources != nullptr);
+    else stack->release(); }
   IO80211Controller *controller = OSTypeAlloc(IO80211Controller);
   IO80211Interface *wlan = OSTypeAlloc(IO80211Interface);
   if (!platform || !controller || !wlan || !controller->init() || !wlan->init()) { OSSafeReleaseNULL(controller); OSSafeReleaseNULL(wlan); log(3, "wifi-net: registry objects not made"); return; }

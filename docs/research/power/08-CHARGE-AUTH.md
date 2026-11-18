@@ -84,26 +84,33 @@ uint32_t k60_charge_auth_wait_ms(const K60ChargeAuth *, uint64_t now_ms);
 
 - **已接线，默认关闭**：`K60Battery` 用独立的 52 字节缓冲与 `authQueued`/`authSent`
   槽位接入状态机，保持“一次一个未完成请求”；`k60_charge_auth` 默认 0。构建脚本已把
-  `K60ChargeAuth.c` 编进 `build/k60-battery/libK60PhysicalBattery.a`（135,792 B，
-  sha256 `2c0194cd410ee84dee34f92c4e87f278d2a6881776f3d6896a38465b4bef7844`），
+  `K60ChargeAuth.c` 编进 `build/k60-battery/libK60PhysicalBattery.a`（136,000 B，
+  sha256 `a5476c084b6efeea552b6298e8eff8044a95a46418da78bc4a9b785c0bb711db`），
   但该 archive 还没有链进任何镜像。
-- **触发条件**：只有当前样本 `usb_connected`、`K60BmUsbAdapter` 有效且 property 7
-  的原始值为 6/7/8 时才调用 `observe(online=1)`；样本失配或刷新失败会以
-  `observe(0)` 暂停认证并取消排队。属性 6 未请求，不用电压/电流推断 PD。
-- **crypto 已接内核回调**：`K60Battery.cpp` 用 `<libkern/crypto/sha2.h>` 的
-  SHA-256 加 0x36/0x5c 实现 HMAC-SHA256，随机源用 `read_random`；host 测试仍用
-  假 crypto，没有已知向量测试。密钥与种子是协议公开常量，本文不复制密钥值。
+- **触发条件**：`publish` 对每个已发布样本调用 `observe(online = usb_connected,
+  pd = pdType)`，其中 `pdType` 要求 `K60BmUsbAdapter` 有效且 property 7 原始值为
+  6/7/8；`observe(online=1, pd=0)` 在 `K60ChargeAuth.c:116` 走 `reconnect()` 回到
+  Idle，所以 PD 资格消失会立刻停掉旧认证。未通过限流校验的样本走 `observe(0,0)`
+  并取消排队（`K60Battery.cpp:476-484`）；刷新失败由 manager 超时 → `stale` →
+  channel down → `state(false)` → `k60_charge_auth_reconnect` 处理。属性 6 未请求，
+  不用电压/电流推断 PD。
+- **crypto 已接内核回调**：`K60ChargeHmac.h` 用 `<libkern/crypto/sha2.h>` 的
+  SHA-256 加 0x36/0x5c 实现 RFC 2104 HMAC-SHA256（超过 64 字节的密钥先哈希），随机源
+  用 `read_random`；`scripts/tests/test-k60-charge-hmac.c` 用自带 SHA-256 跑 RFC 4231
+  用例 1/2/3/6/7（含 131 字节密钥）5 项全过；状态机 host 测试仍用假 crypto。密钥与
+  种子是协议公开常量，本文不复制密钥值。
 - **没有 UCSI 数据角色**：K60 树里没有 UCSI/TypeC 驱动，`host_ready` 没有设置者；
-  若适配器 PDO2 有效，状态机在 HostRole 等 5 s 后以 `-95` 失败。电量计认证仍可完成。
+  若适配器 PDO2 有效，状态机在 HostRole 等 5 s 后以 `-95` 失败；电量计认证本身可以
+  走完，但整体状态落到 Failed，18 个诊断属性不会执行（`K60ChargeAuth.c:170-174`）。
 - **没有充电控制**：不写充电器、不改限流、不做 PD/PPS 合约或温控策略，符合官方 `:81`
   的所有权边界；认证成功只表示“电量计/适配器身份得到确认”，不表示功率协商成功。
 - **超时隔离**：认证请求超时会清空槽位并 `reopen`/关闭当前 GLINK 通道，旧通道的
-  迟到应答不能推进重试；这条路径不调用 `k60_battmgr_timeout`，所以不毒化
-  `K60Battmgr` 的 epoch，但当前订阅和未完成 cycle 会作废，channel-up 后重新订阅。
+  迟到应答不能推进重试；这条路径不调用 `k60_battmgr_timeout`，所以不会置
+  `K60Battmgr` 的 `poisoned`，但当前订阅和未完成 cycle 会作废，channel-up 后重新订阅。
 
 ## 5. Host 断言
 
-`scripts/tests/test-k60-charge-auth.c`，99 项，0 失败；ASan/UBSan 下同结果：
+`scripts/tests/test-k60-charge-auth.c`，99 项，0 失败；ASan/UBSan 下同结果（只测状态机）：
 
 ```sh
 cc -Wall -Wextra -Werror -std=c11 -Idrivers/PongPower \
@@ -117,6 +124,9 @@ cc -Wall -Wextra -Werror -std=c11 -Idrivers/PongPower \
 应答被忽略、样本失配时暂停并取消排队、认证超时后旧应答不能推进重试。
 host 侧只测状态机；`K60Battery` 的 `reopen`/GLINK 集成没有 host 覆盖。
 
+`scripts/tests/test-k60-charge-hmac.c` 另有 5 项 RFC 4231 已知向量断言，补上生产 HMAC
+的向量覆盖；状态机测试本身仍用假 crypto。
+
 archive 的未定义符号已与内核导出表对照：310 个导入、141 个本 archive 定义，244 个外部
 符号全部能在 `kernel.macho` 的 22,909 个导出里找到（缺失 0），包括 `_SHA256_Init`/
 `_SHA256_Update`/`_SHA256_Final`、`_read_random`、`_bzero`。这只证明链接输入齐备，
@@ -125,7 +135,7 @@ archive 的未定义符号已与内核导出表对照：310 个导入、141 个�
 ## 6. 下一步
 
 1. 上机时用 `k60_charge_auth=1` 只观察 `K60Battery: charge-auth` 行，不把认证结果
-   当作充电许可；release board 的 575 B 可容纳这个 18 字节 token，但 2026-11-18
+   当作充电许可；release board 的 575 B 可容纳这个 17 字节 token（含分隔空格 18 字节），但 2026-11-18
    的 603 B EPSS 探针镜像会到 621 B（超过 607），探针必须先移除另一项。
 2. 找到 K60 的 TypeC/UCSI 数据角色路径，设置 `host_ready`；否则 PDO2 有效时
    HostRole 仍会在 5 s 后以 `-95` 失败（需要产品决策）。

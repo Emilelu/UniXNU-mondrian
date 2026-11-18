@@ -138,6 +138,7 @@ QcomGlinkChannel *qcom_glink_channel(QcomGlink *g, const char *name, uint32_t in
         c->intent_count = intent_count;
         c->initiator = open_now != 0;
         c->open_sent = open_now ? 0 : 2;  /* 2: wait for the remote's OPEN before sending ours */
+        QCOM_GLINK_LOG("QcomGlink: slot %s lcid=%u open_now=%d\n", c->name, c->lcid, open_now);
         return c;
     }
     return 0;
@@ -177,6 +178,7 @@ static int send_open(QcomGlink *g, QcomGlinkChannel *c)
     if (align8(8 + n) > qcom_glink_tx_avail(&g->tx)) return QcomGlinkAgain;
     tx_write(g, m, 8, (const uint8_t *)c->name, n);
     c->open_sent = 1;
+    QCOM_GLINK_LOG("QcomGlink: OPEN sent %s lcid=%u\n", c->name, c->lcid);
     return QcomGlinkOk;
 }
 
@@ -259,6 +261,7 @@ static void progress(QcomGlink *g)
             for (unsigned k = 0; k < c->intent_count; ++k)
                 if (!c->local[k].advertised && advertise(g, c, k)) return;
             c->up = 1;
+            QCOM_GLINK_LOG("QcomGlink: channel up %s lcid=%u\n", c->name, c->lcid);
             if (c->client.state) c->client.state(c->context, c, 1);
         }
         if (c->up)
@@ -367,6 +370,8 @@ static int receive_one(QcomGlink *g)
             }
             if (same) c = k;
         }
+        QCOM_GLINK_LOG("QcomGlink: rx OPEN name=%s p1=%u known=%d hold=%d\n",
+            name, (unsigned)param1, c != 0, c ? (int)c->open_hold : -1);
         if (!c) {
             g->unknown_opens++;
             for (unsigned b = 0; b < QCOM_GLINK_NAME; ++b) g->last_unknown[b] = name[b];
@@ -393,7 +398,10 @@ static int receive_one(QcomGlink *g)
         return 1;
     }
     case QCOM_GLINK_OPEN_ACK:
-        if ((c = by_lcid(g, param1)) && c->open_sent == 1) c->open_acked = 1;
+        c = by_lcid(g, param1);
+        QCOM_GLINK_LOG("QcomGlink: rx OPEN_ACK lcid=%u known=%u sent=%u\n",
+            (unsigned)param1, c != 0, c ? (unsigned)c->open_sent : 0u);
+        if (c && c->open_sent == 1) c->open_acked = 1;
         break;
     case QCOM_GLINK_CLOSE:
         c = by_rcid(g, param1);
@@ -500,6 +508,7 @@ static int receive_one(QcomGlink *g)
 
 int qcom_glink_poll(QcomGlink *g)
 {
+    static unsigned polls;
     if (!g || g->broken) return QcomGlinkCorrupt;
     if (!fifo_valid(&g->tx) || !fifo_valid(&g->rx)) {qcom_glink_stop(g); return QcomGlinkCorrupt;}
     int handled = 0;
@@ -522,6 +531,16 @@ int qcom_glink_poll(QcomGlink *g)
         ++handled;
     }
     if (!g->broken) progress(g);
+    if ((++polls & 127u) == 0) {
+        for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i) {
+            QcomGlinkChannel *c = &g->channel[i];
+            if (!c->used || c->up) continue;
+            QCOM_GLINK_LOG("QcomGlink: ch %s lcid=%u sent=%u acked=%u remote=%u held=%u txavail=%u rxavail=%u\n",
+                c->name, c->lcid, (unsigned)c->open_sent, (unsigned)c->open_acked,
+                (unsigned)c->remote_open, (unsigned)c->open_held,
+                qcom_glink_tx_avail(&g->tx), qcom_glink_rx_avail(&g->rx));
+        }
+    }
     if (g->kick_pending && g->kick) {g->kick_pending = 0; g->kick(g->kick_context);}
     return handled;
 }

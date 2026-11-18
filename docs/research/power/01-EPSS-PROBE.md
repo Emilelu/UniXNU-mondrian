@@ -148,7 +148,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   得到（mode 6 的 81→15 说明该字段是 19.2 MHz 为单位的频率码，不是行号），映射失败时该域只读并打印
   `state=<v> not in table; apply disabled`（d1/d2 起始 state=0 且 enable=0，因此 mode 7 只写 d0）。
   在首次降档之前保持只读，因为启动突发会把三域都顶在最高档。
-  该模式尚未上机；它仍没有电压/互连/温控顺序、没有触摸/帧输入，也不处理 EPSS 硬件自主变频。
+  2026-11-19 03:26 已由 image r 上机：`mode7 armed win=854 d0 level=9` 后写入
+  `level=9 (1324800kHz) busy=666 writes=1 readback=ok state=81->69`，10 s 后
+  `mode7 restore domains=1 votes=1`，硬件回到 1.5552 GHz；同一轮 `raise refused` 出现一次。
+  它仍没有电压/互连/温控顺序、没有触摸/帧输入，也不处理 EPSS 硬件自主变频。
 - mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
   把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
   再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，
@@ -180,7 +183,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `_k60_cpufreq_tick_delta`、`_k60_cpufreq_sample_stop`、`_k60_cpufreq_pick_lowest` 等 cpufreq 符号；
   undefined-symbol 检查 imports=314 defs=140 external=242 kernel=22,909 missing=0。image l 用的是
   修复前的 130,648 字节 archive（`70856d4d`）；image m 用的是 130,592 字节（`1ebfd4d0`）版本，
-  均早于 mode 6；image n 与之后的镜像用的是 131,008 字节（`08a95bfc`）版本，含 mode 6 但早于 mode 7。
+  均早于 mode 6；image n/o/p/q 用的是 131,008 字节（`08a95bfc`）版本，含 mode 6 但早于 mode 7；
+  image r 用的是 133,632 字节（`7584fcec`）版本，含首次降档窗口的 mode 7 写回。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -400,7 +404,8 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   写后回读和恢复原值（commit `42ca4421`/`42d8e805`）。2026-11-19 02:47 image n 首次真机执行了
   mode 6：d0 `state=81->15->81`、`readback=ok restored=1`，写入与恢复都成立；**升档（mode 2/3）
   仍从未执行**——升档要抬压，而电压/互连/温控顺序未接入；没有 enable 等待、没有 dcvs 反馈、
-  没有温度/throttle 观测。governor 写回已由 mode 7 实现（只降、10–20 s、结束恢复），但尚未上机。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
+  没有温度/throttle 观测。governor 写回已由 mode 7 实现并于 image r 03:26 上机（只降、首个降档窗口后 10 s、
+  结束恢复，d0 `state=81->69` 后 `restore domains=1 votes=1`）。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，

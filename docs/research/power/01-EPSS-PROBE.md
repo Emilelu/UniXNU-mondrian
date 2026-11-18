@@ -227,6 +227,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   1,555,200 kHz）与 `vote=11`、L3 `vote=13` 是第一批真机 EPSS 读数；d0/d1/d2 的
   `rows` 14/17/20 与 `top` 1,804,800/2,496,000/2,995,200 kHz 正好对应 K60 的 4/3/1 核
   SM8475 频率上限。本轮没有写任何寄存器，mode 2/3 未执行。
+- 镜像 i 第二次上机（**重复只读 mode 1**，2026-11-18 19:14:10–19:19:37，`E:/k60-work/evidence/power-conformance-epss-20261118-1913`）：`boot.json` `bootAccepted=true`、`bootExitCode=0`、`finishedAt=19:19:37`；`console.log` 135,440 B，sha256 `01f82fa0…`。探针行在 `:191–:195`，与 17:30 首次 image i 完全一致（d0 `enable=1 state=81` = 1,555,200 kHz、`vote=11`；d1/d2 `enable=0` 是早读时序；L3 `vote=13`）。CPU 1–7 在 `:205–:210` PSCI start PASS；电池 `:472` SOC=89.00% charge=3973/4464mAh 4271mV 397mA 33.40°C，`:2183` SOC=88.00% 3928/4464mAh 4223mV 397mA 34.40°C。19:20 `k60-device.sh state` = fastboot，无 watcher。本轮无写入，mode 2/3 未执行。
 - 镜像 k 链接验证（**离线构建**，含逐行 LUT dump；2026-11-18 18:18）：
   `E:/k60-work/artifacts/power-conformance-20261118k/boot.img` 201,887,744 字节，
   sha256 `74e66779201fa61bd9038ddd3ae3e8f89a52de82576d43839a05779b27612f0b`；

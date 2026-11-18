@@ -4,7 +4,7 @@
 > 文件、行号、测试与真机证据上；有缺口的地方必须写成缺口，不用“已覆盖”掩盖。
 > 取材：官网正文抓取自 2026-11-17，本地快照 `E:/k60-work/scratch/power-page-20261117.txt:68-81`；
 > 代码基线 `fix/power-doc-conformance`（从 `fix/battery-sample-dirty` 263ee626 切出）。
-> 边界：本文件只描述测量值发布；充电控制仍归固件，见文末 §9。官网 §4 还附有 Sheng PD/PPS/MiPPS 充电认证与 Linux 充电读取镜像（`:82-104`），属于主机控制充电器的独立实现，本板未纳入本驱动。官网 §5「实现调频与电源操作」的 CPU EPSS/GPU 调频与 platform-sleep 同样是独立工作流：本分支的 `drivers/PongPower` 只有 ADSP Route A 的 rail ledger/lcx/lmx 投票和只读 `K60PmicRail`，没有 `CpuFreqProbe`/`ShengPlatformPower`/`GpuPowerProbe` 的 K60 实现。2026-11-18 起 §5 的 CPU 频率起步见 `docs/research/power/01-EPSS-PROBE.md`：默认关闭的只读 EPSS 探针与可离线验证的算术，投票/governor 尚未实现。
+> 边界：本文件只描述测量值发布；充电控制仍归固件，见文末 §9。官网 §4 还附有 Sheng PD/PPS/MiPPS 充电认证与 Linux 充电读取镜像（`:82-104`），属于主机控制充电器的独立实现，本板未纳入本驱动。官网 §5「实现调频与电源操作」是独立工作流：本分支只有离线模块（EPSS 探针/投票写集合/governor 核心、GPU 规划、平台睡眠掩码、外设投票记账），没有 governor 线程、GMU 读取、ArmCpuSleep 或真机读数；整页状态见 `docs/research/power/00-POWER-PAGE-CONFORMANCE.md`，CPU 起步见 `docs/research/power/01-EPSS-PROBE.md`。
 
 ## 0. 一句话结论
 

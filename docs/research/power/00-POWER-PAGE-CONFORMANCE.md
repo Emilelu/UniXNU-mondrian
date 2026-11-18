@@ -1,0 +1,84 @@
+# 官网 power 页逐节对照（§1–§6）
+
+本文件是 `https://unixnu.com/zh/porting/power` 的**整页**状态表。快照
+`E:/k60-work/scratch/power-page-20261117.txt` 共六节：§1 目标接口 :8-15、
+§2 DSP 传输 :16-27、§3 音频流 :28-67、§4 电池 :68-104、§5 调频与电源操作 :105-121、
+§6 构建并验证 :123-131。`docs/research/charger/10-POWER-DOC-CONFORMANCE.md`
+只覆盖 §4 的电池测量；§2/§3 由音频分支负责，本分支不重复实现。
+
+状态用语：**已验证**＝真机证据；**部分**＝有代码但缺设备证据或只覆盖一部分；
+**委派**＝另一条工作流负责；**未实现**＝本树没有对应代码。
+
+## §1 目标接口（:8-15）
+
+| 输入 | 本分支状态 | 证据与缺口 |
+| --- | --- | --- |
+| DSP 固件/PAS ID、预留内存、邮箱、共享内存、时钟电源归属 | 部分 | Route A ADSP 启动在 image e/f 上 `rc=0`，PAS1 `epoch=1 flags=15`；`docs/research/charger/02-GLINK-CONTRACT.md`、`docs/plans/OFFICIAL-DRIVER-MAP.md:44` |
+| 音频 codec/功放、总线、时钟、路由、拓扑、格式、OS ABI | 委派 | 音频分支 `feat/audio-adsp-merge`（2026-11-18 时 HEAD `c74aea80`，145 commits ahead，未合并） |
+| 电池电量计/固件协议、属性 ID、单位、电流符号、通知 | 已验证（测量）/部分（全节） | `K60Battmgr.c`、`K60Battery.cpp`；`charger/04-PROP-MAP.md`；属性 9 静默、USB 输入电流边界见 §4 |
+| 电源时钟域、OPP 表、稳压器、固件投票、温控限制 | 部分（离线） | EPSS/GPU OPP 表现场 FDT 已确认，见 `power/01-EPSS-PROBE.md`、`power/04-GPU-FREQUENCY.md`；稳压器写路径受 HR-01 限制，温控未接入 |
+| 固件清单记录来源和版本 | 未完成 | 本树未维护二进制清单；`qti_battery_charger_main_m81.ko` 等只有零散路径 |
+
+## §2 DSP 传输（:16-27）
+
+- 本树有 GLINK/SMEM/邮箱与 Route A 启动代码（`K60Adsp*`、`QcomGlink.c`），
+  电池通道的登录/订阅/单请求/超时/断链 stale 已在 image e/f 上验证。
+- 官方列出的通道注册 API（`sheng_adsp_channel`）、560 字节上限、回调复制到有界队列、
+  断链取消与重连协商属于**音频分支**的实现范围；本分支只消费电池通道。
+- 状态：**委派（音频分支）**，本分支不宣称 §2 完成。
+
+## §3 音频流（:28-67）
+
+- 本树没有音频端点/流引擎/OS 音频 ABI；`drivers/PongPower` 只有电池与 ADSP 启动路径。
+- 状态：**委派（音频分支）**，本文件不评估。
+
+## §4 电池（:68-104）
+
+详细逐条表在 `charger/10-POWER-DOC-CONFORMANCE.md` §7.2。摘要：
+
+| 条目 | 状态 |
+| --- | --- |
+| 协议 owner/type/opcode/property/length、单请求、超时 | 已验证（host 95 项 + image e/f 日志） |
+| 有效/缺失/失败三态、原始值→OS 换算、register/updateStatus、adapter | 已验证（host）；缺失包未在真机复现 |
+| 订阅、周期刷新、断链 stale | 已验证（image f 12-14 条样本） |
+| 与 Android/OEM 对照（C3） | 部分：只有低电流 3 对 PASS；匹配电流窗口因属性 9 静默、XNU 只能发 USB 输入电流而 FAIL |
+| 真机插拔、放电、超时、服务重启 | 未完成（host 第 15/16 节只模拟状态转换） |
+| 充电认证 PD/PPS/MiPPS（:82-88） | 未接入；sheng 有 `ShengChargeAuth.c` 参考，K60 固件把认证放在 DSP/固件侧，本树没有等价实现 |
+| Linux 充电读取镜像（:89-104） | 未接入；参考脚本在 sheng 仓库 |
+
+## §5 调频与电源操作（:105-121）
+
+| 条目（行号） | 状态 | 证据/缺口 |
+| --- | --- | --- |
+| CPU：16 ms 读空闲、1.25 倍余量、4 窗口降频（:113） | 部分（离线） | `K60CpuFreqPlan` 纯算术 + governor 核心（host 96 项）；无 idle 统计、无线程、未上机 |
+| GPU：GMU XO 忙碌计数、50 % 目标、HFI 投票带带宽（:114） | 部分（离线） | `K60GpuFreqPlan` 纯规划（host 56 项）；无 GMU 读取、无 HFI 投票、无线程、未上机 |
+| 触摸后 CPU P 域与 GPU 最高档保持 1 s（:115） | 未实现 | 本树没有 `native_hid_input_events` 等价输入 |
+| 帧：4 窗口中 2 个有提交时 CPU 各域 300 ms 内不低于 60 %（:116） | 未实现 | 有 Adreno 提交路径，但没有帧窗口/boost 逻辑 |
+| fence 等待睡眠到中断、最长 1 ms（:117） | 未实现 | 提交路径没有对应等待预算 |
+| 外设投票所有权/引用计数、先停 DMA/中断再释放（:109） | 部分（离线） | `K60PowerVotePlan` 纯记账（host 58 项）；无消费者、不写 RSC/TCS |
+| OS 电源回调、休眠保存/恢复（:110） | 未实现 | 见 §5 平台睡眠 |
+| 目标稳压器、互连、温控顺序（:108） | 未实现 | 只有只读 `K60PmicRail`；HR-01 禁止 RSC/TCS 写 |
+| 平台睡眠（:119-121） | 未实现 | `power/02-PLATFORM-SLEEP.md` 调研 + `K60SleepPlan` 掩码（host 53 项）；无 ArmCpuSleep、TLMM、PON、喂狗、背光/触摸恢复 |
+| 负载下测量频率并逐项验证（:111） | 未完成 | 需要设备；EPSS/GPU 都还没有真机读数 |
+
+## §6 构建并验证（:123-131）
+
+- 构建链已打通：battery archive → `./unixnu defconfig/tree/kernel/payload/bootimg`，
+  image f 三次上机（C1/C2 PASS、低电流 C3 PASS），image g/h 只做链接验证。
+- 缺：EPSS/GPU 探针的真机读数、外设转换与恢复的逐项验证、重启行为记录。
+- 状态：**部分**。
+
+## 汇总
+
+排除 §2/§3（音频分支）后，本分支的完成度估计：§1 约 80 %、§4 约 85 %、
+§5 约 20 %、§6 约 60 %；整页（含音频与充电认证）仍远未闭环。下一步的离线工作
+集中在 §5 的 boost/fence 规则、稳压器/温控顺序调研；设备恢复后再补 §4 的真机插拔/放电
+与 EPSS/GPU 读数。
+
+## 参考
+
+- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt`。
+- §4：`docs/research/charger/10-POWER-DOC-CONFORMANCE.md`。
+- §5：`docs/research/power/01-EPSS-PROBE.md`、`02-PLATFORM-SLEEP.md`、
+  `03-POWER-VOTES.md`、`04-GPU-FREQUENCY.md`。
+- 驱动映射：`docs/plans/OFFICIAL-DRIVER-MAP.md`。

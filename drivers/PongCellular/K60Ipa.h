@@ -89,6 +89,7 @@ enum {
     K60IpaGsiBusy = -9,
     K60IpaSmmuFailed = -20,
     K60IpaRuntimeFailed = -21,
+    K60IpaPasInterrupted = -22,
 };
 
 typedef struct {

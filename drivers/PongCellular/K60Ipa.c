@@ -309,27 +309,65 @@ k60_ipa_gsi_check(void *gsi, size_t bytes, K60IpaGsiCaps *caps)
 }
 
 #ifndef K60_HOST_TEST
+static void
+k60_ipa_scm_invoke(uint64_t regs[8])
+{
+    register uint64_t x0 __asm__("x0") = regs[0];
+    register uint64_t x1 __asm__("x1") = regs[1];
+    register uint64_t x2 __asm__("x2") = regs[2];
+    register uint64_t x3 __asm__("x3") = regs[3];
+    register uint64_t x4 __asm__("x4") = regs[4];
+    register uint64_t x5 __asm__("x5") = regs[5];
+    register uint64_t x6 __asm__("x6") = regs[6];
+    register uint64_t x7 __asm__("x7") = regs[7];
+
+    __asm__ volatile("smc #0"
+        : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x5),
+          "+r"(x6), "+r"(x7)
+        :
+        : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+          "x16", "x17", "cc", "memory");
+
+    regs[0] = x0;
+    regs[1] = x1;
+    regs[6] = x6;
+}
+
 static int
 k60_ipa_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
     uint64_t c, uint64_t *rx0, uint64_t *rx1)
 {
-    register uint64_t x0 __asm__("x0") = fn;
-    register uint64_t x1 __asm__("x1") = arginfo;
-    register uint64_t x2 __asm__("x2") = a;
-    register uint64_t x3 __asm__("x3") = b;
-    register uint64_t x4 __asm__("x4") = c;
-    register uint64_t x5 __asm__("x5") = 0;
-    register uint64_t x6 __asm__("x6") = 0;
-    register uint64_t x7 __asm__("x7") = 0;
+    uint64_t regs[8];
+    uint64_t context = 0;
+    unsigned calls;
 
-    __asm__ volatile("smc #0"
-        : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
-        : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
-        : "memory");
+    /* Linux __scm_smc_do_quirk resumes while res.a0 is
+     * QCOM_SCM_INTERRUPTED, reloading the original arguments and passing the
+     * returned x6 back as the continuation context. A single SMC would report
+     * the first INTERRUPTED as a PAS denial even though the monitor had
+     * accepted the transaction. */
+    for (calls = 0; calls < K60M_SCM_MAX_CALLS; calls++) {
+        regs[0] = calls == 0 ? fn : K60M_SCM_INTERRUPTED;
+        regs[1] = arginfo;
+        regs[2] = a;
+        regs[3] = b;
+        regs[4] = c;
+        regs[5] = 0;
+        regs[6] = context;
+        regs[7] = 0;
+        k60_ipa_scm_invoke(regs);
+        context = regs[6];
+        if (regs[0] != K60M_SCM_INTERRUPTED) {
+            break;
+        }
+    }
 
-    *rx0 = x0;
-    *rx1 = x1;
-    return k60_modem_scm_ok(x0, x1) ? K60IpaOk : K60IpaPasDenied;
+    *rx0 = regs[0];
+    *rx1 = regs[1];
+    if (regs[0] == K60M_SCM_INTERRUPTED) {
+        return K60IpaPasInterrupted;
+    }
+    return k60_modem_scm_ok(regs[0], regs[1]) ? K60IpaOk : K60IpaPasDenied;
 }
 
 static int

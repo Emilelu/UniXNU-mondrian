@@ -89,7 +89,14 @@ python3 ./unixnu defconfig mondrian_ios27_defconfig --device ../UniXNU-mondrian-
 python3 ./unixnu build kernel --device ../UniXNU-mondrian-ios27
 ```
 
-That path needs no Mac and no phone. The userdata image still needs macOS
+That path needs no Mac and no phone. The baseline script copies libplatform
+headers with macOS's `ditto`, which Linux lacks, so install the shim once:
+
+```sh
+sudo install -m 755 scripts/linux/ditto /usr/local/bin/ditto
+```
+
+The userdata image still needs macOS
 (`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1 does
 not.
 

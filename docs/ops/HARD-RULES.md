@@ -54,7 +54,7 @@
 | 状态 | 资源 / 投票 | 时机与所有权 | 证据 | 当前影响 |
 |---|---|---|---|---|
 | 已验证 | 触摸 IOVDD/AVDD（pm8350c ldoc2/ldoc3，ACTIVE TCS4） | Data 挂载后，驱动 stage 19；Goodix 独占 TCS4 | `E:/k60-work/evidence/usblog-20261110-191312/console.log:624-631`；审计 49 次读到能力、48 次接受 | 触摸线可继续使用，不再被全面禁令挡住 |
-| 未验证（HOLD） | IPA IP0 启动角（`k60_ipa_clock_vote()`，TCS4） | PAS15 之前；与 Goodix 共用 APPS TCS4，实机所有权未确认 | k14 未上机，无通过或失败日志 | 蜂窝 k14 继续 HOLD，直到按第 4 条完成一次可观测诊断 |
+| 已验证 | IPA IP0 启动角（`k60_ipa_clock_vote()`，TCS4） | PAS15 之前；DRV-2/ACTIVE TCS4；与 Goodix 共用 APPS TCS4，本次只占一个 command 且完成后释放 | `E:/k60-work/evidence/usblog-20261118-155707/console.log:480-483`：k15 内核 4e40af75、镜像 d704e376、`pong_modem=0 pong_ipa=1 ipclk=1`，address=0x50040 unit_khz=40 vote=0x60000bb8 rc=0，停在 FAT/PAS 之前 | 该元组解除 HOLD；k14/k15 IPA 默认路径的 IP0 投票可继续 |
 | 未验证（离线） | 调制解调器 cx.lvl / mss.lvl / xo.lvl（TCS4） | PAS 之前，K60ModemLink | 仅宿主与编译，无实机 | 不得当作已供电证据 |
 
 - **通过即晋升**：任一项从「未验证」变为「已验证」，必须在同一提交更新本表及对应研究记录，并解除只针对该元组的 HOLD；不要让已通过的路径继续被旧禁令挡住。
@@ -69,7 +69,7 @@ git grep -niE '17a[0-3]0000|rsc_phys|CONTROL_TRIGGER|TCS4' -- <变更文件>
 
 命中不是自动拒绝；核对调用时机、板上证据、所有权和失败路径，确认默认入口不会执行未验证事务。`pong_rail_probe=1` 的既有例外仍只对应 `drivers/PongPower/K60PmicRail.c` 和 `patches/xnu/0614-k60-adsp-call-site.patch` 中的受限观测。早期触摸、ADSP 或其它驱动无条件映射/直接占槽的做法，不能因本修订而获准。
 
-**对蜂窝线的具体影响：** Goodix 日志不证明 IPA 的早期 IP0 投票。k14 (`pong_ipa=1/2`) 仍 HOLD；未改驱动，未解除现有镜像冻结，也不覆盖 `porting-gate.py` 的独立构建输入检查。
+**对蜂窝线的具体影响：** Goodix 日志本身不证明 IPA 的早期 IP0 投票；该元组已由 `ipclk=1` 单变量探针单独验证（console.log:480-483，address=0x50040 unit_khz=40 vote=0x60000bb8 rc=0），k14 (`pong_ipa=1/2`) 的 IP0 HOLD 因此解除，M2 仍未上机；构建输入检查由 `K60_DEVICE_INPUT=/mnt/e/k60-work/mirror-k14-device` 满足，不是绕过。
 
 ---
 

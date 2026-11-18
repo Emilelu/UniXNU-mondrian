@@ -4,7 +4,7 @@
 本文记录寄存器事实、纯算术模块、默认关闭的只读探针、host 断言，以及 2026-11-18 三次真机
 mode 1 读数：17:30 image i 的早期快照、17:55 image j 在电池 `begin` 后的第二次快照
 （后者把 d1/d2 从“辅核未启动”的 0 变为 `enable=1`），和 18:22 image k 的逐行 LUT dump
-（66 条有效档位全部读出）。设备测试只做到只读快照；没有执行任何投票写入。
+（66 条有效档位全部读出）。设备测试只做到只读快照；投票写入路径已加守卫但尚未在真机执行。
 
 ## 1. 官方要求
 
@@ -64,7 +64,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   其他 = 19.2 MHz × L）。
 - 不同：参考的 CPU 数是 3/4/1（SM8550），K60 是 **4/3/1**。任何逐核 perf_state 行、
   quiet/boost 逻辑都必须按 K60 的核数改写，不能照抄。
-- 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 这一步只做模式 1。
+- 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 已实现模式 1–3
+  （2/3 为带守卫的瞬态写入，未上机），governor 只有纯逻辑核心。
 
 ## 5. 已实现
 
@@ -78,6 +79,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 | `4a510725` `test(power): drive the governor window sequence` | 降档闩锁/立即升档/boost 释放/错误入参 |
 | `950742e9` `feat(power): add a late EPSS read after battery start` | 电池 `begin` 成功后 5 s 再读一次（仍只读、仍受 `k60_cpufreq=1` 限制） |
 | `eba8de2a` `feat(power): dump the EPSS look-up table rows` | mode 1 早期读取逐行打印 raw/kHz/cores/turbo；延后读取只保留摘要，避免重复 51 行 |
+| `42ca4421` `feat(power): guard and undo EPSS votes` | enable/表项守卫、写后回读、恢复写前原值；mode 2/3 改为瞬态验证写 |
+| `70dd3794` `test(power): cover the EPSS vote guard` | host 覆盖守卫/回读/恢复，128 项 |
 
 `K60CpuFreqPlan`（纯 C，无 MMIO）：
 
@@ -95,6 +98,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   dcvs 控制位为 1 且该 domain 多于 1 核时，再按 `0x320 + 4×i` 写每核一行（K60 为 4/3/1 核，
   不是参考的 3/4/1）；调用方缓冲区不足时返回 0 且一条都不写。
 - `k60_cpufreq_build_l3_vote`：L3 共享投票，写 `0x90`，值同样是 LUT 行号。
+- `k60_cpufreq_vote_allowed`：拒绝 enable=0、表为空、档位不在表内、写条数超限；`k60_cpufreq_check_readback`
+  逐条比较回读值；`k60_cpufreq_build_restore` 用写前保存的原值生成恢复写集合。
 - `k60_cpufreq_governor_reset/governor_window`：参考 16 ms 循环的纯逻辑版——每个 domain 保存
   当前档、降档计数、quiet 计数；忙 90% 立即升，降档连续 4 窗口才落地；boost 结束后的
   共享簇按半速地板保持 12 个 quiet 窗口。**没有线程调用它**，寄存器仍由探针负责。
@@ -110,25 +115,30 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   延后读取不重复逐行 dump。它不是轮询，也不写寄存器。
 - mode 2：只给 domain 0 投最高非 turbo 档（参考的 mode 2 语义）。
 - mode 3：三个 domain 都投最高非 turbo 档，再投 L3（参考的 mode 3 语义）。
-- 大于 3 的值直接打印 "modes 1-3 are implemented" 并返回；mode 2/3 从未在真机上执行过。
+- mode 2/3 的写入是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器的原值，写后逐条回读，
+  再立即写回原值；日志带 `readback=ok|mismatch restored=<n>`。因此它验证写路径，不会留下持续投票；
+  仍未在真机上执行过。enable=0 的域（例如辅核启动前的 d1/d2）会直接拒绝写入。
+- 大于 3 的值直接打印 "modes 1-3 are implemented" 并返回。
 - 调用点：`k60_physical_battery_start()` 开头做第一次读取；电池 `begin` 成功后
   （`K60Battery.cpp` 的同一入口）延迟 5 s 做第二次读取。这是当前 archive 唯一由
   userland 触发的 IOKit 入口；探针不需要 ADSP 租约，也不经过电池配置解析。
 
 ## 6. 构建与验证
 
-- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 107 checks (0 failures)**。
+- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 128 checks (0 failures)**。
   覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、hispeed/frame/quiet/boost 地板、
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
-  dcvs 开/关的写条数、缓冲区不足拒绝，以及 governor 的单窗口序列（降档闩锁、立即升档、
-  boost 释放后的半速地板、错误入参），以及空闲换算（满忙/半忙/全闲/超计/零窗口）
-  和 4/3/1 域的“最忙 CPU”选择。断言使用合成的 LUT 行；真机 image k 已把 66 条有效
-  档位逐行读出。
-- archive（含逐行 dump，commit `eba8de2a`）：`build/k60-battery/libK60PhysicalBattery.a`
-  **126,120 字节**，sha256 `1cb583979b0d435142c5a033816f93f63842af6874000409659d4fc0ea609bd4`；
+  dcvs 开/关的写条数、缓冲区不足拒绝、enable/档位守卫、写后回读、恢复原值，以及 governor
+  的单窗口序列（降档闩锁、立即升档、boost 释放后的半速地板、错误入参），以及空闲换算
+  （满忙/半忙/全闲/超计/零窗口）和 4/3/1 域的“最忙 CPU”选择。断言使用合成的 LUT 行；
+  真机 image k 已把 66 条有效档位逐行读出。
+- archive（含逐行 dump 与写入守卫，commit `42ca4421`）：`build/k60-battery/libK60PhysicalBattery.a`
+  **127,688 字节**，sha256 `77841710f182eb9cc1de5cca580c74c21203c9a30568f02dc6b9c0e68843180b`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
-  `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy` 等 cpufreq 符号。
+  `_k60_cpufreq_vote_allowed/check_readback/build_restore`、
+  `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy` 等 cpufreq 符号。本轮只重建
+  archive，没有构建新镜像；image k 内仍是 `1cb58397…` 的旧 archive。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -277,9 +287,10 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
 
 ## 7. 未实现 / 边界
 
-- 投票写集合已实现（mode 2/3），但**从未在真机上执行**：没有 enable 等待、没有写后读回校验、
-  没有 dcvs 反馈；mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的三个 domain
-  均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
+- 投票写集合已实现（mode 2/3），并已在代码层加入 enable/档位守卫、写后回读和恢复原值
+  （commit `42ca4421`），但**从未在真机上执行**；没有 enable 等待、没有 dcvs 反馈，
+  也没有验证恢复后的寄存器值。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
+  三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 只有纯逻辑核心，没有线程；idle 换算已经纯逻辑化（`k60_cpufreq_domain_busy`），
   但还没有内核 `sheng_cpu_idle_mach` 等价的采样调用、
   没有触摸/帧信号输入、没有 10 s 统计窗口；核心还没有被任何代码调用。
@@ -288,7 +299,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
 - 真机已有三次 mode 1 读数：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
   已变为 `enable=1`（state 633.6/787.2 MHz、vote 16/19），所以三域均可读，早期 0 只是时序。
   image k 已把 66 条有效 LUT 档位全部读出（d0/d1/d2/L3 = 14/17/20/15 行，见 §6 表）；仍没有负载下
-  频率、温度或 throttle 读数，也没有写后回读。
+  频率、温度或 throttle 读数；写后回读与恢复只在 host 算术中验证，真机尚未执行写入。
 
 ## 8. 后续上机步骤
 
@@ -307,14 +318,16 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    - `d0 base=0x17d91000 enable=… state=… (…kHz) dcvs=… vote=… rows=… top=…kHz level=… mode1=read-only`
    - `late read begin/end` 与第二次的 d0/d1/d2/L3 行
    - CPU 各域的行跟在对应摘要后，形如 `K60CpuFreq: row=0 raw=0x0004000f khz=300000 cores=4 turbo=0`；L3 行另带 `L3 ` 前缀。
-   - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=…`、`mode3 vote L3 …`
+   - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=… readback=… restored=…`、
+     `mode3 vote L3 …`
 4. 设备空窗：image k 于 2026-11-18 18:22:22 启动、18:27:54 结束；之后仍先跑
    `list-boot-watchers.ps1` 和 `k60-device.sh state`，不要与任何 `boot-and-capture`
    抢 fastboot；启动时 `audio-probe-at` watcher（PID 11116）的镜像尚不存在，只轮询。
-5. 首次写入前：参数门禁须通过；离线补齐启用状态守卫、写后回读和恢复原投票的路径。不能仅凭
-   LUT 可读就执行早期 mode 2/3 写入（d1/d2 在辅核启动前 `enable=0`）。首次验证应限定在
-   d0 单域，分别记录请求档位、寄存器回读和负载下的 `state`，并观察温度与 throttle；
-   d1/d2/L3 多域投票和 governor 不与首测合并。`nomap`、`enable=0` 或无有效 LUT 时应拒绝写入。
+5. 首次写入前：参数门禁须通过。启用状态守卫、写后回读和恢复原投票的路径已在代码中补齐
+  （commit `42ca4421`/`70dd3794`，host 128 项），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
+  写入（d1/d2 在辅核启动前 `enable=0`）。首次验证应限定在 d0 单域，分别记录请求档位、
+  寄存器回读、恢复值和负载下的 `state`，并观察温度与 throttle；d1/d2/L3 多域投票和 governor
+  不与首测合并。`nomap`、`enable=0` 或无有效 LUT 时应拒绝写入。
 
 ## 9. 参考
 

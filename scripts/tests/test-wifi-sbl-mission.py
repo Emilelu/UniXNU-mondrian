@@ -20,6 +20,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 BUILDER = ROOT / "scripts" / "build-k60-ath11k.py"
+PLATFORM = ROOT / "drivers" / "PongWifi" / "PongWifiPlatform.cpp"
 FAILS = []
 
 
@@ -87,6 +88,12 @@ def main() -> int:
           "exec_env=%d after AMSS download; cached ee updated" in text)
     check("ath11k MHI start raises the ready wait to 60 s",
           "ab_pci->mhi_ctrl->ready_timeout_ms = 60000;" in text)
+
+    platform = PLATFORM.read_text(encoding="utf-8")
+    check("association test is gated by pong_wifi=2",
+          'PE_parse_boot_argn("pong_wifi",&mode,sizeof mode)&&mode==2' in platform)
+    check("association test accepts the scan state",
+          "if(!attempted&&(st.state==NW_STA_IDLE||st.state==NW_STA_SCANNING)) {" in platform)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors

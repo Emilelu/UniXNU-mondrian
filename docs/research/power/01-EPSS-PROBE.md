@@ -72,6 +72,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 | `e785355f` `test(power): cover the EPSS plan arithmetic` | `scripts/tests/test-k60-cpufreq-plan.c` |
 | `64ae77fd` `feat(power): add the EPSS level vote write sets` | `k60_cpufreq_build_votes/build_l3_vote`、探针 mode 2/3 |
 | `25ce9bdc` `test(power): cover the vote write sets` | 偏移/核数/L3/容量不足断言 |
+| `c39bf8ec` `feat(power): add the EPSS governor window core` | `K60CpuFreqGovernor` 状态与单窗口决策 |
+| `4a510725` `test(power): drive the governor window sequence` | 降档闩锁/立即升档/boost 释放/错误入参 |
 
 `K60CpuFreqPlan`（纯 C，无 MMIO）：
 
@@ -86,6 +88,9 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   dcvs 控制位为 1 且该 domain 多于 1 核时，再按 `0x320 + 4×i` 写每核一行（K60 为 4/3/1 核，
   不是参考的 3/4/1）；调用方缓冲区不足时返回 0 且一条都不写。
 - `k60_cpufreq_build_l3_vote`：L3 共享投票，写 `0x90`，值同样是 LUT 行号。
+- `k60_cpufreq_governor_reset/governor_window`：参考 16 ms 循环的纯逻辑版——每个 domain 保存
+  当前档、降档计数、quiet 计数；忙 90% 立即升，降档连续 4 窗口才落地；boost 结束后的
+  共享簇按半速地板保持 12 个 quiet 窗口。**没有线程调用它**，寄存器仍由探针负责。
 
 `K60CpuFreqProbe`（默认关闭，boot arg `k60_cpufreq` 选模式）：
 
@@ -100,14 +105,15 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 ## 6. 离线验证
 
-- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 80 checks (0 failures)**。
+- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 96 checks (0 failures)**。
   覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、hispeed/frame/quiet/boost 地板、
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
-  dcvs 开/关的写条数、缓冲区不足拒绝。LUT 行是合成的；真机表尚未读，因此断言的是算术而不是实测频率。
-- archive：`build/k60-battery/libK60PhysicalBattery.a` **123,816 字节**，
-  sha256 `c42a8f7b3d89a9d160ecfbfe733757897c7fc3a840048bf6f5aa66965a43a16c`；
+  dcvs 开/关的写条数、缓冲区不足拒绝，以及 governor 的单窗口序列（降档闩锁、立即升档、
+  boost 释放后的半速地板、错误入参）。LUT 行是合成的；真机表尚未读，因此断言的是算术而不是实测频率。
+- archive：`build/k60-battery/libK60PhysicalBattery.a` **124,224 字节**，
+  sha256 `7a19051a96891baa04b01323c213e7bab02e60fb4835a8d58172973dbe63b030`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_build_table`、`_k60_cpufreq_target`、
-  `_k60_cpufreq_build_votes` 等 19 个 cpufreq 符号。
+  `_k60_cpufreq_build_votes`、`_k60_cpufreq_governor_window` 等 21 个 cpufreq 符号。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -126,13 +132,15 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   pre-patch `f63db805…`，FD `cf4485712c29…`）；`check-image-args.py` OK（30 个参数，598 字节）。
   payload 字符串含 `K60CpuFreq: mode%u vote d`、`K60CpuFreq: L3 vote skipped`，
   kernel.macho 有 14 条 `k60_cpufreq` 符号；`boot.json` 仍为 `hardware_tested=false`。
+  注意 image h 内打包的是当时的 archive `c42a8f7b…`；governor 核心之后的 archive
+  `7a19051a…` 还没有打包进任何镜像。
 
 ## 7. 未实现 / 边界
 
 - 投票写集合已实现（mode 2/3），但**从未在真机上执行**：没有 enable 等待、没有写后读回校验、
   没有 dcvs 反馈；mode 1 是唯一有离线证据的模式。
-- 没有 governor 线程、没有 idle 时间统计（参考用内核 `sheng_cpu_idle_mach`）、
-  没有触摸/帧信号输入、没有 10 s 统计窗口。
+- governor 只有纯逻辑核心，没有线程、没有 idle 时间统计（参考用内核 `sheng_cpu_idle_mach`）、
+  没有触摸/帧信号输入、没有 10 s 统计窗口；核心还没有被任何代码调用。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 频率（`GpuPowerProbe.cpp` 149 KB）、
   没有外设供电投票归属/引用计数。
 - 没有任何真机 EPSS 读数；三个 domain 的 enable/state/LUT 仍未知。

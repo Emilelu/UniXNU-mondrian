@@ -182,6 +182,48 @@ unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigne
     return 1;
 }
 
+int k60_cpufreq_vote_allowed(unsigned enable, const K60CpuFreqTable *table,
+    unsigned level, unsigned writes)
+{
+    unsigned i;
+
+    if (!enable || !table || !table->count || table->count > K60_CPU_FREQ_LUT_ROWS ||
+        !writes || writes > K60_CPU_FREQ_MAX_WRITES ||
+        level >= K60_CPU_FREQ_LUT_ROWS)
+        return 0;
+    for (i = 0; i < table->count; ++i)
+        if (table->level[i] == level) return 1;
+    return 0;
+}
+
+int k60_cpufreq_check_readback(const K60CpuFreqWrite *writes,
+    const uint32_t *readback, unsigned count)
+{
+    unsigned i;
+
+    if (!writes || !readback || !count || count > K60_CPU_FREQ_MAX_WRITES)
+        return 0;
+    for (i = 0; i < count; ++i)
+        if (readback[i] != writes[i].value) return 0;
+    return 1;
+}
+
+unsigned k60_cpufreq_build_restore(const K60CpuFreqWrite *writes,
+    const uint32_t *original, unsigned count, K60CpuFreqWrite *out,
+    unsigned capacity)
+{
+    unsigned i;
+
+    if (!writes || !original || !out || !count ||
+        count > K60_CPU_FREQ_MAX_WRITES || capacity < count)
+        return 0;
+    for (i = 0; i < count; ++i) {
+        out[i].offset = writes[i].offset;
+        out[i].value = original[i];
+    }
+    return count;
+}
+
 void k60_cpufreq_governor_reset(K60CpuFreqGovernor *gov, unsigned level)
 {
     unsigned d;

@@ -113,6 +113,25 @@ unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned l
     K60CpuFreqWrite *out, unsigned capacity);
 unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigned capacity);
 
+/* Safety guard for a write set: the domain must be enabled, the level must be
+ * one of the table's hardware rows, and the write count must fit. The probe
+ * refuses a vote when this returns 0 instead of writing a disabled domain or
+ * an unlisted level. */
+int k60_cpufreq_vote_allowed(unsigned enable, const K60CpuFreqTable *table,
+    unsigned level, unsigned writes);
+
+/* Read back one value per write, in the same order. Returns 1 only when every
+ * value equals the requested one. */
+int k60_cpufreq_check_readback(const K60CpuFreqWrite *writes,
+    const uint32_t *readback, unsigned count);
+
+/* Build the undo set for a vote from the values read before the write. The
+ * offsets are copied and the values come from original[]. Returns the number
+ * of writes, or 0 when the buffer is too small or an argument is bad. */
+unsigned k60_cpufreq_build_restore(const K60CpuFreqWrite *writes,
+    const uint32_t *original, unsigned count, K60CpuFreqWrite *out,
+    unsigned capacity);
+
 /* Per-domain governor state for the reference's 16 ms window loop. Keeping the
  * state here, instead of in the probe, lets the host test drive a whole
  * sequence of windows without any kernel timer or idle counter. */

@@ -117,14 +117,19 @@ void voteDomain(unsigned domain, unsigned mode)
     Window window = {};
     K60CpuFreqTable table = {};
     K60CpuFreqWrite writes[K60_CPU_FREQ_MAX_WRITES] = {};
-    unsigned index = 0, n, i;
-    uint32_t topKhz = 0, dcvs;
+    K60CpuFreqWrite restore[K60_CPU_FREQ_MAX_WRITES] = {};
+    uint32_t original[K60_CPU_FREQ_MAX_WRITES] = {};
+    uint32_t readback[K60_CPU_FREQ_MAX_WRITES] = {};
+    unsigned index = 0, n, i, enabled, dcvs, restored;
+    uint32_t topKhz = 0;
+    int ok;
 
     if (!mapWindow(&window, kDomainBase[domain], kDomainWindow)) {
         IOLog("K60CpuFreq: d%u nomap base=0x%llx\n", domain,
             static_cast<unsigned long long>(kDomainBase[domain]));
         return;
     }
+    enabled = rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u;
     dcvs = rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u;
     if (!readTable(&window, &table) || k60_cpufreq_pick_highest(&table, 0, &index, &topKhz)) {
         IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
@@ -133,9 +138,22 @@ void voteDomain(unsigned domain, unsigned mode)
     }
     n = k60_cpufreq_build_votes(domain, dcvs, table.level[index], writes,
         K60_CPU_FREQ_MAX_WRITES);
+    if (!k60_cpufreq_vote_allowed(enabled, &table, table.level[index], n)) {
+        IOLog("K60CpuFreq: mode%u d%u vote skipped: enable=%u table=%u level=%u writes=%u\n",
+            mode, domain, enabled, table.count, table.level[index], n);
+        unmapWindow(&window);
+        return;
+    }
+    for (i = 0; i < n; ++i) original[i] = rd32(window.va, writes[i].offset);
     for (i = 0; i < n; ++i) wr32(window.va, writes[i].offset, writes[i].value);
-    IOLog("K60CpuFreq: mode%u vote d%u level=%u (%ukHz) dcvs=%u writes=%u\n",
-        mode, domain, table.level[index], topKhz, dcvs, n);
+    for (i = 0; i < n; ++i) readback[i] = rd32(window.va, writes[i].offset);
+    ok = k60_cpufreq_check_readback(writes, readback, n);
+    restored = k60_cpufreq_build_restore(writes, original, n, restore,
+        K60_CPU_FREQ_MAX_WRITES);
+    for (i = 0; i < restored; ++i) wr32(window.va, restore[i].offset, restore[i].value);
+    IOLog("K60CpuFreq: mode%u vote d%u level=%u (%ukHz) dcvs=%u writes=%u readback=%s restored=%u\n",
+        mode, domain, table.level[index], topKhz, dcvs, n,
+        ok ? "ok" : "mismatch", restored);
     unmapWindow(&window);
 }
 
@@ -168,8 +186,11 @@ void voteL3(unsigned mode)
     Window window = {};
     K60CpuFreqTable table = {};
     K60CpuFreqWrite writes[1] = {};
-    unsigned index = 0, n;
+    K60CpuFreqWrite restore[1] = {};
+    uint32_t original[1] = {}, readback[1] = {};
+    unsigned index = 0, n, restored;
     uint32_t topKhz = 0;
+    int ok;
 
     if (!mapWindow(&window, kL3Base, kL3Window)) {
         IOLog("K60CpuFreq: L3 nomap base=0x%llx\n",
@@ -182,9 +203,20 @@ void voteL3(unsigned mode)
         return;
     }
     n = k60_cpufreq_build_l3_vote(table.level[index], writes, 1);
-    if (n) wr32(window.va, writes[0].offset, writes[0].value);
-    IOLog("K60CpuFreq: mode%u vote L3 level=%u (%ukHz) writes=%u\n",
-        mode, table.level[index], topKhz, n);
+    if (!k60_cpufreq_vote_allowed(1, &table, table.level[index], n)) {
+        IOLog("K60CpuFreq: mode%u L3 vote skipped: table=%u level=%u writes=%u\n",
+            mode, table.count, table.level[index], n);
+        unmapWindow(&window);
+        return;
+    }
+    original[0] = rd32(window.va, writes[0].offset);
+    wr32(window.va, writes[0].offset, writes[0].value);
+    readback[0] = rd32(window.va, writes[0].offset);
+    ok = k60_cpufreq_check_readback(writes, readback, n);
+    restored = k60_cpufreq_build_restore(writes, original, n, restore, 1);
+    if (restored) wr32(window.va, restore[0].offset, restore[0].value);
+    IOLog("K60CpuFreq: mode%u vote L3 level=%u (%ukHz) writes=%u readback=%s restored=%u\n",
+        mode, table.level[index], topKhz, n, ok ? "ok" : "mismatch", restored);
     unmapWindow(&window);
 }
 

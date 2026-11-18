@@ -255,7 +255,7 @@ def main() -> int:
     net_src = NET.read_text(encoding="utf-8")
     check("the SAE probe is armed only by a boot argument",
           'extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak));' in net_src and
-          'PE_parse_boot_argn("pong_sae_probe", &sae, sizeof(sae))' in net_src and
+          'PE_parse_boot_argn("sae", &sae, sizeof(sae))' in net_src and
           "jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_sae.c', out / 'pong_sae.o', [])]" in text and
           (ROOT / "scripts" / "tests" / "test-pong-sae.py").is_file())
 

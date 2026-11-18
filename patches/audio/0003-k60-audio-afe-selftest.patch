@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,1063 @@
+@@ -858,6 +892,1155 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -136,6 +136,96 @@
 +	printf("PongAudio: low DMA unavailable: %s\n",
 +	    pong_audio_error_name(PongAudioErrNoHandoff));
 +	return false;
++}
++
++/* The audio SMMU stays off and the graph receives the slot address as a
++ * plain physical address, so the DSP reads the PCM slots itself. The page
++ * group the loader leases is not readable from the DSP: the graph starts, the
++ * write is accepted, and the machine dies while the DSP fetches the samples.
++ * Shared memory is the one window both sides already read, so take the slots
++ * from its tail when the heap and the item table show that nothing else
++ * lives there. */
++#define PONG_SMEM_BASE 0x80900000u
++#define PONG_SMEM_BYTES 0x200000u
++
++static uint32_t
++pong_audio_smem_walk(volatile uint32_t *m, unsigned stride)
++{
++	uint32_t used = 0;
++
++	for (unsigned i = 0; i < 512u; i++) {
++		const uint32_t addr = m[23u + i * stride + 1u];
++		const uint32_t size = m[23u + i * stride + 2u];
++		if (size == 0u || addr >= PONG_SMEM_BYTES ||
++		    size > PONG_SMEM_BYTES || addr + size > PONG_SMEM_BYTES) {
++			continue;
++		}
++		if (addr + size > used) {
++			used = addr + size;
++			if (i < 6u) {
++				printf("PongAudio: SMEM item %u stride %u addr=0x%x size=0x%x\n",
++				    i, stride, addr, size);
++			}
++		}
++	}
++	return used;
++}
++
++static bool
++pong_audio_smem_pcm(void)
++{
++	volatile uint32_t *m =
++	    (volatile uint32_t *)ml_io_map(PONG_SMEM_BASE, 0x2000);
++	uint32_t heap_end = 0;
++	uint32_t used_end = 0;
++	const uint64_t base =
++	    PONG_SMEM_BASE + PONG_SMEM_BYTES - PONG_AUDIO_DMA_BYTES;
++
++	if (m == NULL) {
++		printf("PongAudio: SMEM header map failed\n");
++		return false;
++	}
++	printf("PongAudio: SMEM hdr %08x %08x %08x %08x %08x %08x\n",
++	    m[16], m[17], m[18], m[19], m[20], m[21]);
++	/* proc_comm[4] fills words 0..15 and version words 16..17, so the
++	 * heap record sits at word 19 and the item table follows it. The item
++	 * layout changed over time, so walk both strides and keep the larger
++	 * end: over-approximating the use only moves the slots down. */
++	if (m[21] != 0u && m[21] < PONG_SMEM_BYTES &&
++	    m[22] <= PONG_SMEM_BYTES) {
++		heap_end = m[21] + m[22];
++	}
++	used_end = pong_audio_smem_walk(m, 4u);
++	{
++		const uint32_t packed = pong_audio_smem_walk(m, 3u);
++		if (packed > used_end) {
++			used_end = packed;
++		}
++	}
++	if (heap_end > used_end) {
++		used_end = heap_end;
++	}
++	printf("PongAudio: SMEM used end=0x%x\n", used_end);
++	if (used_end < 0x1000u ||
++	    used_end + PONG_AUDIO_DMA_BYTES > PONG_SMEM_BYTES) {
++		printf("PongAudio: SMEM tail does not hold the slots\n");
++		return false;
++	}
++	{
++		vm_offset_t va = ml_io_map_wcomb((vm_offset_t)base,
++		    (vm_size_t)PONG_AUDIO_DMA_BYTES);
++		if (va == 0) {
++			printf("PongAudio: SMEM PCM map failed\n");
++			return false;
++		}
++		g_pong_audio.dma_pa = base;
++		g_pong_audio.dma_size = PONG_AUDIO_DMA_BYTES;
++		g_pong_audio.dma_va = va;
++	}
++	printf("PongAudio: SMEM PCM buffer pa=0x%llx size=0x%x\n",
++	    (unsigned long long)g_pong_audio.dma_pa,
++	    (unsigned)g_pong_audio.dma_size);
++	return true;
 +}
 +
 +static void
@@ -471,8 +561,10 @@
 +		 * write never touches the buffer, so an answer here separates the
 +		 * write command from the memory the DSP has to read. */
 +		pong_audio_play_probe_zero(state);
-+		g_pong_probe_only = true;
-+		printf("PongAudio: probe-only image; no PCM slot follows\n");
++		/* The probe answered, so the write path is alive; the real
++		 * periods now leave from shared memory instead of the page group
++		 * the loader leased. */
++		printf("PongAudio: zero-byte probe answered; streaming real slots\n");
 +		return;
 +	}
 +	pong_audio_play_send_step(state, state->play_step + 1u);
@@ -1113,7 +1205,7 @@
  static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
-@@ -896,6 +1506,35 @@
+@@ -896,6 +1506,36 @@
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -1122,6 +1214,7 @@
 +		g_pong_audio.refusal_printed = true;
 +		return -1;
 +	}
++	(void)pong_audio_smem_pcm();
 +	pong_audio_ring_reset();
 +	unsigned int group_probe = 0;
 +	g_pong_audio.afe_group_probe = PE_parse_boot_argn("pong_audio_group_probe",
@@ -1149,7 +1242,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,23 +1546,93 @@
+@@ -907,23 +1546,94 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -1249,3 +1342,4 @@
  }
  
  /* Compile-time coverage of every pure packet builder. This is not a hardware
++

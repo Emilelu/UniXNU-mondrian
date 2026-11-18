@@ -134,7 +134,7 @@ L4 逐项状态：
 - 没有上机验证：`k60_ipa_probe_from_handoff()` 已能从 payload FAT 读取 `IPA/ipa_fws.mbn` 并调用 `k60_ipa_firmware_start()`，但还没有在硬件上执行过 PAS 15，也没有设备侧 IPA_VERSION 读数；host 侧可用 `k60_ipa_firmware_stage()` 验证真实映像。M2 运行时由 boot arg `pong_ipa` 的级别显式启用：`pong_ipa=1` 只到 M1，`pong_ipa=2` 才运行 M2（默认关闭）；k7 完整候选只设 `pong_ipa=1`，k13 M2 诊断镜像设 `pong_ipa=2`。
 - `k60_ipa_firmware_start()` 映射固件区、GSI 与 IPA_VERSION 寄存器，IPA5.1 资源表已初始化，`k60_ipa_gsi_check()` 只读 GSI status/channels/events 和 command12/event0 状态；M2 运行时接着分配 ring/表块并启动 GSI command-DMA，但没有硬件执行过，也没有接 IRQ 654/432。
 - GSI 运行时初始化、1 MiB ring 与 0x8000 表块已在内核代码里绑定（`kmem_alloc_contig`、`pmap_find_phys`、MMIO 回调、命令 channel12/event0），但没有硬件执行；没有 GSI IRQ 432 处理，只轮询 event shadow；`K60IpaGsi.c` 的宿主状态机测试仍是唯一的代码级证据。
-- `K60IpaSmmu.c` 仍是宿主 SMMU 寄存器模型；内核页表由 `K60Ipa.c` 直接调用 `ArmSmmu4KBuild()` 构建（三区间、输出 36 位、8 表页），在 TCSR SMEM mutex 0x1f43000 下分配/复用 SMEM item 497（≥0x9000，失败即拒绝），并写 SID 0x5c0 的 SMR/S2CR；没有 SMMU 抢占/lease，没有硬件执行。
+- `K60IpaSmmu.c` 仍是宿主 SMMU 寄存器模型；内核页表由 `K60Ipa.c` 直接调用 `ArmSmmu4KBuild()` 构建（三区间、输出 36 位、8 表页），在 TCSR SMEM mutex 0x1f43000 下分配/复用 SMEM item 497（≥0x9000，失败即拒绝），并写 SID 0x5c0 的 SMR/S2CR；没有 SMMU 抢占/lease，没有硬件执行。宿主测试现在覆盖精确运行时几何：SMEM 区间 0x80900000/0x200000，8 个表页容量下得到 7 个表页、770 个叶页。
 - 没有 IPA QMI 服务 0x31 的 `INIT_DRIVER/INIT_COMPLETE/DRIVER_INIT_COMPLETE`。
 - 没有 WDS 0x00a2 / QOS 0x002b / DPM Open Port / WDA Set Data Format。
 - 没有 QMAP mux 注册、没有 QMAPv5 常量、没有 QMAPv4 回退。

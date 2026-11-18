@@ -735,3 +735,80 @@ verdict is PANE-ONLY. Against the official page the six items pass for the
 fourth time and the Settings pane — the user's new acceptance item — is now
 proven at the protocol level, with the person-visible list limited by the
 scan gap above.
+
+## 17. Mission16: every refused request is named, and the daemon's list is the one that drops 5 GHz
+
+Mission16 (image 95e16e01def0a0efe782aa7a9c5de19e5f1225696b072f8f277a1d6384c786e9,
+head d964770e, built 2026-11-18T23:31:57+08:00) was flown once at 00:23. Console
+E:/k60-work/evidence/usblog-20261119-002257/console.log is 639,221 B, 8,729
+lines, SHA256 565cf7890195720f2534a8f1c6a52b79899cea6a2fb05f7f83236135755534ce.
+
+The diagnostics answered the first half of the question. The radio hears 5 GHz:
+scan tables of 6 BSS (2.4 GHz 3, 5 GHz 1) at :790, 31 BSS (20/1) at :4376 and
+eight tables of 33 BSS (2.4 GHz 20, 5 GHz 2, 6 GHz 0, hidden 11) from :4404,
+with Emilelu_5G at 5240 MHz -50 dBm (:4380, :4408) and a neighbour at 5805 MHz
+-86 dBm (:4409). The pane's scan request is type 10 length 5456 (:4389), the
+driver serves the list one record at a time and logs "scan result served 32 of
+33" at :4416 (the 32nd record is 2412 MHz, -81 dBm, empty SSID), and the
+supported-channel query reports 102 channels: 2.4 GHz 14, 5/6 GHz 88 (:1816).
+
+Every refused request is now named with its value, length and first bytes:
+types [6, 18, 25, 57, 115, 207, 346, 353, 365, 386, 387, 419, 422, 423], among
+them 419 set 136 bytes starting `01000000d0af…`, 115 get 1288, 207 get 10016
+and 387 get 37. Those payloads are the next contract to read, not a guess to
+encode.
+
+The second half is the daemon. wifid's own log
+`-[WiFiSettlementObserver _handleScanResults:...] scanType=2 client='Preferences'`
+prints 27-entry lists (:5608, :6453 and later). They contain Emilelu at
+c8:bf:4c:30:03:1d -50, the 5805 MHz neighbour as `d8f;-5G`
+74:86:6f:79:28:1c -86 (the garbled text is how the daemon renders that SSID),
+and an empty-SSID ce:bf:4c:30:03:1d -52, but never Emilelu_5G. The radio, the
+driver table and the driver's own logs all carry 5240; the daemon's parsed list
+does not. So the gap is in the record stream or in the daemon's handling of it,
+not in the band.
+
+Two explanations are recorded and neither is claimed yet. First, the table is
+33 records deep and is served in table order; the daemon read 32 of them, and
+whether the 5240 record is the one unread record is exactly what mission18's
+per-record dump prints (index, age, BSSID, element length, capability, SSID).
+Second, the daemon may drop that record over a field it cannot use even after
+reading it. No code was changed on the strength of either.
+
+Judge: 22 PASS, 0 FAIL, 1 PENDING (host HTTP receipt) = DIAG-ONLY. The pane
+join still came from a person (:4425 connecting to c8:bf:4c:30:03:1d at
+2412 MHz). mission16 must not be re-flown.
+
+## 18. Mission17: the station associates with an 11ax access point
+
+Mission17 (image 738c9125fcd2714d6a7ed0b197243f9a5d78bc5ace3ebc6b1a98f377267dcd37,
+head 497e512c, built 2026-11-19T00:18:00+08:00) merged the Settings-pane line
+with the HE codec and was flown once at 00:40:32. Console
+E:/k60-work/evidence/usblog-20261119-004032/console.log is 467,035 B, 6,982
+lines, SHA256 ba3b58c2e403291cbda83ef9b36bcd5bdaacfcdab460ed42f14c9a3f6292c3c6.
+
+The station announces HE and the peer entry keeps it. At :799 the association
+request states `HT 28 VHT 14 HE 31 bytes`; before it, :794 logs
+`peer HE yes, MCS 80 rx fffa tx fffa, params 0x25003ff4 nss 0xfffc` for
+c8:bf:4c:30:03:1c at 5240 MHz, width 80. The association completes and the key
+handshake follows (:3311 onwards), so the access point accepted the request
+that carries the HE element. The lifecycle test then reconnects at :3309 and a
+daemon-initiated join at :4341 (ssid length 7, key length 32, cipher 6) moves
+the link to 2412 MHz, where the request is `HT 28 VHT 0 HE 28 bytes` (:4347)
+and the peer HE operation carries params 0x2b003ff4; :4420 reports
+`WiFi lifecycle test PASS: reconnected BSSID c8:bf:4c:30:03:1d state=6 IPv4=1
+lease=5/3`. The initial association PASS is :1676.
+
+What this proves: the HE capability is encoded, sent, accepted, and the peer's
+HE capability is parsed and narrowed into the station's own state on both
+bands. What it does not prove: HE rate selection or throughput — no traffic
+measurement was made, and the peer MCS map 0xfffa is recorded as the access
+point's answer rather than interpreted.
+
+The pane line stayed intact: the scan tables are 8 BSS (2.4 GHz 4, 5 GHz 1),
+24 (14/1) and 29 (17/1), and the refused-type list now also includes 29.
+
+Judge: 24 PASS, 0 FAIL, 1 PENDING (the host-side application receipt) = base
+PASS, HE PASS. The page still cannot be loaded because WebKit is killed; that
+remains the application-layer blocker and it belongs to the WebKit/GPU line.
+mission17 must not be re-flown.

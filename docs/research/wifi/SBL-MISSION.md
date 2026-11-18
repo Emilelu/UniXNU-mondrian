@@ -196,3 +196,47 @@ It does not claim WiFi works end to end: association, DHCP and HTTPS remain
 unproven. The flight proves MHI power-up, QMI board/firmware load, 102 channels,
 `en0` up and scan (12 networks). It does not replace c8's audit status: c8 is still
 HOLD and must not be built, booted or merged.
+
+## 6. Mission5: private WPA2 association fixture
+
+Mission4 proves MHI, QMI, 102 channels, `en0` and scan, but not association. Mission5
+reuses the mission4 ath11k archive and rebuilds only the native WiFi archive with an
+optional private fixture. `pong_wifi=2` starts the same worker and, when the fixture
+is present, also enters the association test; this keeps the payload command line at
+602 bytes, so no `pong_wifi_test=1` and no SSID/PSK is placed in boot args.
+
+| field | value |
+|---|---|
+| tag | `wifi-20261118sbl-mission5` |
+| built_at | 2026-11-18T10:09:02+08:00 |
+| branch / head | `fix/wifi-mission-timeout` / `ac7d9b2b49567a014a5f14643bf6daa049508d64` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission5/boot.img`, 201,887,744 B, SHA256 `559fb736f996abea8ad80ba61e8c1ab73736d8e38a69c80f30f137fceedc039b` |
+| kernel | `adc8180ba144f2e4537ceb6fc152f6e6480a9c928e43e4c03ad4e7bacad8d02a` |
+| payload kernel | `69133fb1717d64a6e183d702017ab0c0f289d54aca21cc6bf70c9284eca62173` |
+| WiFi archive | `4f345de15ea15ae87da83cae823fae904a98c1a418c46d0ad5aa8f9f2b1374f1` |
+| ath11k archive | `a3793b0c3f587b20d148f04938436b96aaa18ccc41f78c087d77cdd487f2b120` |
+| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission5/build-manifest.json` |
+| args | 31 / 602 bytes, ending `pong_wifi=2 k60_wifi_rsc=2` |
+
+The private fixture was generated from a saved WPA2-Personal profile with
+`E:/k60-work/scratch/make-wifi-fixture.ps1`: `ssid_bytes=14`, `psk_bytes=13`.
+`PongWifiTestInputs.h` is 250 B, SHA256
+`5fa9598ebb5a2e7495476fbf2215815ec9191101eb188a79416c53bf73e5912e`; the plaintext
+JSON exists only at `E:/k60-work/scratch/wifi-test-private.json`, has a user-only ACL,
+and is never logged, committed or placed in boot args. The builder reads it through
+`PONG_WIFI_TEST_CONFIG` while compiling the native archive. `PongWifiPlatform.cpp`
+`ed38ea74` accepts either the old `pong_wifi_test=1` or the byte-neutral
+`pong_wifi=2` mode at `:579`, and its `pong_wifi_start_optional` gate accepts 1/2 at
+`:733`.
+
+The 18-check flight judge expects `PongWifi: association test RUNNING: scanned target,
+request=0`, `WiFi association test PASS: authenticated link and IPv4 address`,
+`wifi-net: en0 address ...`, `wifi-net: dhcp in type ...`, `wifi-net: dhcp out type
+...`, and non-zero `wifi-net: in ... dhcp` / `wifi-net: out ... dhcp` traffic counters.
+It stops on `WiFi association test SKIP`/`FAIL`, any MHI timeout, BHIe `ret=-`, power-up
+`-110`, IPCR failure and duplicate AMSS. Offline checks: `build-strict` eight-step 36
+checks passed; `image-arg-audit: OK (31 arguments, 602 bytes)`; `verify-boot-image: OK`;
+judge positive/negative controls pass/fail as designed. The image is built but not
+flown (`hardware_tested:false`); if it fails, do not fly the same candidate twice. A
+pass proves association, DHCP/IPv4 and RX/TX only; HTTPS/webpage remains a separate
+userland check.

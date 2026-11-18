@@ -103,6 +103,11 @@ sudo install -m 755 scripts/linux/sw_vers /usr/local/bin/sw_vers
 XNU's Makefile; the procps binary moves to `sysctl.procps` and still handles
 everything else), and `sw_vers` supplies `HOST_OS_VERSION`.
 
+xnu-12377 spells one qualifier the Apple way (`__ptrauth` with a fourth string
+argument); upstream clang rejects it. The device series carries
+`ptrauth-string-discriminator.patch`, which keeps Apple clang's spelling and
+uses the three-argument form otherwise. Only `ucred.cr_label` is affected.
+
 The userdata image still needs macOS
 (`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1 does
 not.
@@ -154,3 +159,8 @@ not force the patch: it would be a third copy of the same fix.
 - **Deleting a device script does not delete its copy in the build tree.**
   Delete `out/<board>/<profile>/<config>/tree/scripts/<name>` too, or the next
   build keeps running the removed version.
+- **The ADT seed is fresh every build.** `devicetree.py` writes `os.urandom`
+  into `/chosen/random-seed`, so the physmap slide changes whenever the payload
+  is rebuilt; `docs/research/ios-mondrian-traps.md` measured about one slide in
+  three dying in `pmap_map_bd` on this phone. Pin the seed before treating a
+  reseeded image's failure as a kernel regression.

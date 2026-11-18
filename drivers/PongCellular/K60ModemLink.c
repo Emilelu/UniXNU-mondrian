@@ -743,7 +743,7 @@ k60_modem_rails_vote(void)
 {
 	volatile uint8_t *aoss = NULL, *ipcc = NULL, *db = NULL, *rsc = NULL;
 	K60RpmhResource cx = { 0 }, mss = { 0 }, xo = { 0 };
-	uint32_t cx_index = 0, mss_index = 0, xo_index = 0, box = 0;
+	uint32_t cx_index = 0, mss_index = 0, box = 0;
 	unsigned attempt;
 	uint32_t drv, caps, version, capacity;
 	K60RscLayout layout;
@@ -809,7 +809,12 @@ k60_modem_rails_vote(void)
 		why = "mss.lvl";
 		goto fail;
 	}
-	if (k60_modem_find_rail(db, "xo.lvl", 3u, &xo, &xo_index) != K60RpmhOk) {
+	/* Pong votes xo.lvl as the literal 3 and never converts it through the
+	 * cmd-db level table (PongModemRuntime.cpp:159); the XOB resource has no
+	 * level table, so an index conversion here would either fail or vote a
+	 * different value than the proven path. */
+	if (k60_cmd_db_find((const uint8_t *)(const void *)db, K60_CMD_DB_BYTES,
+	    "xo.lvl", &xo) != K60RpmhOk) {
 		why = "xo.lvl";
 		goto fail;
 	}
@@ -822,11 +827,11 @@ k60_modem_rails_vote(void)
 		goto fail;
 	}
 	why = "xo.lvl vote";
-	if (k60_modem_vote_tcs4(rsc, &layout, xo.address, xo_index, capacity) != 0) {
+	if (k60_modem_vote_tcs4(rsc, &layout, xo.address, 3u, capacity) != 0) {
 		goto fail;
 	}
 	printf("K60MODEM power ok cx=%#x/%u mss=%#x/%u xo=%#x/%u\n",
-	    cx.address, cx_index, mss.address, mss_index, xo.address, xo_index);
+	    cx.address, cx_index, mss.address, mss_index, xo.address, 3u);
 	return 0;
 
 fail:

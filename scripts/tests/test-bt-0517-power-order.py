@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+# Copyright (c) 2026, UniXNU contributors.
 """Host-only checks for the 0517 official Bluetooth power-order candidate.
 
 The test binds the patch bytes and the series tail.  It does not boot a

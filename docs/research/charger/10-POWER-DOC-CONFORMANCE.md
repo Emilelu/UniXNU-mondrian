@@ -350,10 +350,14 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 - 官网 §4 的「sheng 的 PD、PPS 和 MiPPS」（`:82-88`）与「sheng Linux 充电读取镜像」
   （`:89-104`）不属于本文件的测量值发布范围：本板 ADSP 固件拥有充电控制，驱动没有
   充电器认证或主机控制路径；若后续要主机控制充电，需要单独实现 `ShengChargeAuth.c` 等价的
-  HMAC-SHA256 认证、PD/PPS/MiPPS 合约、限值和温控策略。
+  HMAC-SHA256 认证、PD/PPS/MiPPS 合约、限值和温控策略。当前检出的 `UniXNU-sheng`
+  `origin/main` `1108068` 不含 `package/ShengChargeAuth.c`；`ShengBattmgr.c` 注释明确
+  `no Xiaomi extensions or charger writes`，`sheng.md:519-524` 与 `fuxi.md:563-568` 都记录 ADSP 固件
+  负责 PD/PPS 协商且两节电芯和 PD adapter `read unauthenticated`。因此官网 `:82-104` 是参考流程/工具路线，
+  不是 K60 可直接复用的实现。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
-  1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118e/boot.img`（sha256 `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`）已于 2026-11-18 03:22 构建、09:38 上机，包含 `592523aa`/`6750c7bd`/`af759fe4`；C1/C2 PASS，12 条完整样本，C3 对同窗口 9 行 Android 基线仅电流 5/9 对超差，同会话匹配电流 3 行基线 C3 PASS（详见 §7.6）。上一版 image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
+  1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118e/boot.img`（sha256 `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`）已于 2026-11-18 03:22 构建、09:38 与 10:04 两次上机，包含 `592523aa`/`6750c7bd`/`af759fe4`；两次均 C1/C2 PASS、12 条完整样本；第二次对同会话 36 行 Android 基线全窗口仅电压/电流超差，匹配电流 3 行基线 C3 PASS（详见 §7.6、§7.7）。上一版 image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
   2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔与充电/放电/full 状态转换，但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e 包含），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同窗口样本；image e 已有 12 条完整 XNU sample，9 行 Android 全窗口只在电流上 5/9 对超差（Android 电流波动 88–626mA，XNU 397mA），同会话匹配电流 3 行基线已 PASS；全窗口通过仍要求更稳定的同电流 Android 基线。
   4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；标准 `CurrentCapacity`/`MaxCapacity` 现在按官网发布为百分比（`MaxCapacity=100`），`AppleRawCurrentCapacity`/`AppleRawMaxCapacity` 保留 mAh，smoke 同时校验这两组值；缺失电池首帧注册尚未在真机验证。
-- 设备状态（2026-11-18 09:44）：image e 采集完成，`K60AUTORESET` 已发布 `restart reason published`；controller 已结束（rc=0）。设备由 `k60-device.sh state` 根据当前 USB 状态判断，boot 证据见 §7.6。
+- 设备状态（2026-11-18 10:24）：第二次 image e 采集 10:14 完成（`K60AUTORESET` 已发布 `restart reason published`，controller rc=0，见 §7.7）。随后 k60-gates 的 gpu-mini 镜像于 10:18–10:22 占用设备并结束（`boot.json` `returnedToFastboot=false`）；`k60-device.sh state` 为 `none`。Windows PnP 仍显示 `USB Serial Device (COM5, VID_1209&PID_0001)`，但当前是 gpu-mini 镜像的 console，不响应本分支的 K60 USBLOG `reboot fastboot` 命令，恢复仍需物理电源键循环；下次我们的 battery 镜像在跑时 COM5 命令通道才可用。

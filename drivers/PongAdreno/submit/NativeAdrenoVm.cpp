@@ -5,7 +5,14 @@ extern "C" volatile uint32_t native_adreno_trace_stage;
 extern "C" {int (*native_adreno_dram_read32)(uint64_t,uint32_t *);int (*native_adreno_cached_read32)(uint64_t,uint32_t *);
     int (*native_adreno_line_audit)(uint64_t,size_t,uint32_t *,uint32_t *);}
 #include <string.h>
+#include <kern/clock.h>
 #include <IOKit/IOLib.h>
+/* Probe of the per-submission cache pass (2026-11-18): four flights put a constant 10.2-11.5 ms inside [MTLCommandBuffer commit] that
+ * no copy shape moved. publishMapped() maintains the whole extent of every mapped BO while preemption is disabled, so its cost is
+ * proportional to the mapped set and not to the commands. It printed nothing before, so the split between what this pass touches and
+ * what the submission actually references was unknown. Every 32nd call reports both, so the next flight measures the cost instead of
+ * inferring it from source. */
+extern "C" {volatile uint64_t native_adreno_cache_stats[5];}
 /* 1 once the board proved the GPU's cacheable inner-shareable accesses coherent with the CPU's caches in both directions (the A740's
  * ADRENO_QUIRK_HAS_CACHED_COHERENT behind the dma-coherent GPU SMMU, which Linux maps with IOMMU_CACHE): a mapping with write-back
  * attributes then needs no CPU cache maintenance. 0 keeps every mapping maintained as before. Counters: maintenance passes skipped for
@@ -331,11 +338,33 @@ IOReturn NativeAdrenoVm::invalidateTlb()
 IOReturn NativeAdrenoVm::publishMapped()
 {
     if(!attached_ || poisoned_)return kIOReturnNotReady;
+    static uint32_t calls;
+    const bool sample=!(++calls&31);
+    unsigned objects=0,imported=0,combined=0,owned=0;
+    uint64_t bytes=0,began=0;
+    uint64_t calls_before=0,bytes_before=0;
+    if(sample) {
+        began=mach_absolute_time();
+        calls_before=native_adreno_cache_stats[3];bytes_before=native_adreno_cache_stats[1];
+    }
     for(size_t i=0;i<NativeAdrenoVmMaxObjects;++i) {
         const Mapping &m=mappings_[i];
         if(!m.memory)continue;
         if(coherentMapping(m.writeback) || importedUntouched(m.memory)) {native_adreno_coherent_skips[2]=native_adreno_coherent_skips[2]+1;continue;}
+        if(sample) {
+            ++objects;bytes+=m.memory->bytes();
+            if(m.memory->imported())++imported;
+            else if(m.memory->writeCombined())++combined;
+            else ++owned;
+        }
         if(m.memory->publishForDevice(0,m.memory->bytes(),true,distrust_write_combined_))return fail(ArmSmmu4KIoError);
+    }
+    if(sample) {
+        uint64_t nanoseconds=0;
+        absolutetime_to_nanoseconds(mach_absolute_time()-began,&nanoseconds);
+        IOLog("PONG VM: publish sample n=%u objects=%u imported=%u owned=%u combined=%u bytes=%llu us=%llu calls=%llu cachebytes=%llu\n",
+            (unsigned)calls,objects,imported,owned,combined,bytes,nanoseconds/1000,
+            native_adreno_cache_stats[3]-calls_before,native_adreno_cache_stats[1]-bytes_before);
     }
     return kIOReturnSuccess;
 }

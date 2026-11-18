@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #include "NativeAdrenoSubmit.h"
 #include "AdrenoPM4.h"
+#include <kern/clock.h>
 #include <IOKit/IOLib.h>
 
 /* CP_INDIRECT_BUFFER is opcode 0x3f with a 3-word payload: 64-bit GPU address
@@ -152,8 +153,21 @@ IOReturn NativeAdrenoSubmit::submit(const NativeAdrenoSubmitBuffer *buffers,size
         }
     }
     (void)vm_->sampleWord(buffers[0].iova,&cached,&before);
+    const uint64_t publish_began=mach_absolute_time();
     IOReturn status=vm_->publishMapped();
+    const uint64_t publish_ticks=mach_absolute_time()-publish_began;
     if(!status) {
+        /* Probe (2026-11-18): publishMapped() maintains every mapped BO, so the cost should follow the mapped set and not the
+         * submission. This records the submission's own referenced bytes next to the time the pass took, so a flight shows whether
+         * the two are proportional and whether the pass is the 10.2-11.5 ms that no copy shape moved. */
+        static uint32_t probed;
+        if(!(++probed&31)) {
+            uint64_t referenced=0,nanoseconds=0;
+            for(size_t i=0;i<count;++i)referenced+=buffers[i].bytes;
+            absolutetime_to_nanoseconds(publish_ticks,&nanoseconds);
+            IOLog("PONG SUB: sample n=%u buffers=%u referenced=%llu publish=%llu us\n",
+                (unsigned)probed,(unsigned)count,referenced,nanoseconds/1000);
+        }
         (void)vm_->sampleWord(buffers[0].iova,&ignored,&after);
         native_adreno_coherence[0]=native_adreno_coherence[0]+1;
         native_adreno_coherence[1]=cached;native_adreno_coherence[2]=before;native_adreno_coherence[3]=after;

@@ -157,10 +157,11 @@ drvfs put every clang in I/O wait and produced about six objects a minute with
 the machine 95% idle; the feeds, refer clones and objects belong on ext4 and
 only the repositories stay on `/mnt/c`.
 
-The userdata image is the only step with a macOS-shaped dependency left: the
-24A446 OS/SystemOS members are AEA-encrypted, and the framework calls
-`/usr/bin/aea`. `ipsw fw aea` decrypts them on Linux, so F3 needs that framework
-patch, not a Mac.
+The userdata image builds here too. The 24A446 OS/SystemOS members are AEA
+archives; outside macOS `scripts/unixnu/ipsw.py` now calls `ipsw fw aea`, which
+unwraps the key and decrypts in Go (`patches/unixnu-core/linux-aea-decrypt.patch`).
+The decrypted raw disks matched the profile's pins byte for byte
+(`4b8719fe…` and `f6d10101…`), so the Linux path reproduces the macOS result.
 
 The 4 KiB granule assertion has its own script because the framework copy
 (`scripts/check-xnu-granules.py`) does not yet pass the two defines xnu-12377
@@ -178,7 +179,7 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 | F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | `RESULT OK arm64e-capable at EL1`; otherwise the branch stops |
 | F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-granules.sh` passes |
 | F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device `arm_init` → `bsd_init` → root-mount panic, cupid parity |
-| F3 | `PongUfs` on the 27 storage ABI + `./unixnu userdata --os 27` | OS volume matched, APFS mounted, `launchd` execs |
+| F3 | `PongUfs` on the 27 storage ABI; the userdata image is built | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
 
 ## Framework patches this branch carries
@@ -197,6 +198,9 @@ on every build. Two patches today:
 - `fileset-reference-linux.patch`: the reference kernel's two LLVM
   profile-runtime calls return zero, because a host without the macOS SDK has no
   `libclang_rt.profile` and the comparison kernel never runs.
+- `linux-aea-decrypt.patch`: outside macOS the IPSW's `.dmg.aea` members are
+  decrypted by `ipsw fw aea` instead of `/usr/bin/aea`; the macOS branch is
+  unchanged.
 
 `patches/xnu-prelink/*.patch` patches the `kits/XnuPrelink` submodule instead:
 

@@ -71,6 +71,14 @@ int main(void)
     check("pick_cap_index", index, 1);
     check("pick_cap_khz", khz, 768000);
     check("pick_cap_below", k60_cpufreq_pick_highest(&table, 200000, &index, &khz), -1);
+    check("pick_lowest", k60_cpufreq_pick_lowest(&table, &index, &khz), 0);
+    check("pick_lowest_index", index, 0);
+    check("pick_lowest_khz", khz, 300000);
+    check("pick_lowest_null", k60_cpufreq_pick_lowest(NULL, &index, &khz), -1);
+    {
+        K60CpuFreqTable empty = {};
+        check("pick_lowest_empty", k60_cpufreq_pick_lowest(&empty, &index, &khz), -1);
+    }
 
     check("build_cap", k60_cpufreq_build_table(kRows, 5, 1000000, &table), 0);
     check("build_cap_count", table.count, 2);

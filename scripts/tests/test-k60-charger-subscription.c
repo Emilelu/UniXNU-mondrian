@@ -270,6 +270,67 @@ int main(void)
         expect(k60_battmgr_sample(&rst, &smp) == 1, "a fresh cycle publishes after restart");
     }
 
+    /* 15. Plug, unplug and the charging/full states come from status plus
+     * external power, not from a fabricated conclusion. */
+    {
+        K60Battmgr p;
+        K60BatterySample sm;
+        const uint32_t all = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline) | BIT(K60BmUsbCurrent);
+        k60_battmgr_init(&p, 1, 0, 0);
+        p.last_fresh = all;
+        p.value[K60BmStatus] = 1;
+        p.value[K60BmPresent] = 1;
+        p.value[K60BmCapacity] = 5000;
+        p.value[K60BmVoltage] = 4300000;
+        p.value[K60BmTemperature] = 3000;
+        p.value[K60BmFull] = 5000000;
+        p.value[K60BmDesign] = 5500000;
+        p.value[K60BmCycles] = 100;
+        p.value[K60BmUsbOnline] = 1;
+        p.value[K60BmUsbVoltage] = 5000000;
+        p.value[K60BmUsbCurrent] = 397000;
+        expect(k60_battmgr_sample(&p, &sm) == 1, "plugged pack returns a sample");
+        expect(sm.external == 1 && sm.charging == 1 && sm.full == 0,
+               "status 1 with USB is charging");
+        expect(sm.current_ma == 397 && sm.current_source == K60BatteryCurrentUsb,
+               "USB input current feeds the charging sample");
+
+        p.value[K60BmStatus] = 2;
+        p.value[K60BmUsbOnline] = 0;
+        p.value[K60BmUsbVoltage] = 0;
+        p.value[K60BmUsbCurrent] = 0;
+        expect(k60_battmgr_sample(&p, &sm) == 1, "unplugged pack returns a sample");
+        expect(sm.external == 0 && sm.charging == 0 && sm.usb_connected == 0,
+               "unplugged status 2 is discharging");
+        expect(sm.current_ma == 0 && sm.current_source == K60BatteryCurrentNone,
+               "unplugged sample has no charging current");
+
+        p.value[K60BmStatus] = 4;
+        p.value[K60BmUsbOnline] = 1;
+        p.value[K60BmUsbVoltage] = 5000000;
+        expect(k60_battmgr_sample(&p, &sm) == 1, "full pack returns a sample");
+        expect(sm.external == 1 && sm.charging == 0 && sm.full == 1,
+               "status 4 with USB is full");
+        expect(sm.time_remaining_min == 0, "full pack has zero time remaining");
+
+        p.value[K60BmStatus] = 1;
+        p.value[K60BmUsbOnline] = 0;
+        p.value[K60BmUsbVoltage] = 0;
+        expect(k60_battmgr_sample(&p, &sm) == 0,
+               "status 1 without external power is rejected");
+
+        p.value[K60BmStatus] = 2;
+        p.value[K60BmUsbOnline] = 1;
+        p.value[K60BmUsbVoltage] = 5000000;
+        p.value[K60BmCurrent] = 500000;
+        p.last_fresh |= BIT(K60BmCurrent);
+        expect(k60_battmgr_sample(&p, &sm) == 0,
+               "status 2 with positive current is rejected");
+    }
+
     if (fails) { printf("FAILURES %d\n", fails); return 1; }
     printf("TESTS OK %d\n", checks);
     return 0;

@@ -6149,3 +6149,31 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
    区分它们只需一次产物核对（`strings` 内核找格式串），不要先改代码。
 4. 失败规则里写「归因为 X」之前，先确认 X 能用**独立证据**否证；F2 这次的归因错了，
    如果不是产物核对拦住，下一步会去重编一张根本没问题的插件。
+
+## P-234
+
+**现象（2026-11-18 17:15，`gpu-import-scope2-20261118`）**：报告行形如
+`scanout frames=300 at 202.931 s; last frame: wait=129 us copy=23 us done=0 us; imports=300 import=65 us encode=367 us submit=12008 us gpu=11043 us sum=23483 us`。
+按字面读，`copy` 只有 23 µs，而它内部四段加起来 23,483 µs —— **外层比内层小一千倍**，
+自相矛盾。当时的直觉解释是「`copy` 变快了，说明缓存删对了」，若照此写结论，
+就会得到「搬运已经免费，瓶颈全在 GPU」的完全错误归因。
+
+**真因**：`drivers/PongMetal/PongMetalScanout.h` 的 `snprintf` 把外层三段写成
+`(unsigned long long)lastWait/1000`、`lastCopy/1000`、`lastDone/1000`，
+但格式串仍是 `wait=%llu us copy=%llu us done=%llu us`。所以那三个字段实际是**毫秒**，
+四个内层段才是真微秒。换算后 `copy=23` 是 23 ms，`sum=23,483 µs` 与它相差 +1.8%，
+两边一致、判据 S6 才有意义。
+
+**修法**：去掉三处 `/1000`，整行统一微秒；`scripts/tests/test-present-stage-split.py` 增加
+两例：`'lastWait/1000' not in scanout and 'lastCopy/1000' not in scanout and 'lastDone/1000' not in scanout`、
+以及 `scanout.count('%llu us') >= 8`（单位与标签必须同时成立）。
+
+**教训**：
+1. **标签也是数据**。`%llu us` 里的 `us` 和被打印的变量是同一个断言的两半，
+   改单位必须同时改标签，否则日志本身就在撒谎。
+2. 判据里出现「外层小于内层」这种**结构性矛盾**时，先怀疑测量而不是先解释现象：
+   `sum > copy` 在物理上不可能，它不是性能发现，是缺陷信号。
+3. 数字单位不统一时，比较只能在同一个单位里做；`copy`（毫秒）对 `sum`（微秒）的任何
+   百分比都是错的，必须先换算再判 S5/S6/S8。
+4. 一条日志的字段越多，越要有一条测试钉住「字段数 × 单位 × 顺序」；只钉字段名不钉单位，
+   等于把最容易错的一半留空。

@@ -42,6 +42,20 @@ static void *serve(void *opaque)
                 size_t(frame.stride),frame.width,frame.height});
             clock_gettime(CLOCK_MONOTONIC,&t2);
             lastWait=span(t0,t1);
+            /* One line per flight, before the first rate line: which copy shape ran and the two
+             * strides it ran with. A silent branch choice kept a per-frame image allocation
+             * invisible through two flights. */
+            if(!copies) {
+                char path[192];
+                if(context->presenter->singleRun())
+                    snprintf(path,sizeof(path),"scanout copy single run stride=%zu rows=%u",
+                             context->presenter->scanoutStride(),context->presenter->rows());
+                else
+                    snprintf(path,sizeof(path),"scanout copy per row source=%zu scanout=%zu rows=%u",
+                             context->presenter->sourceStride(),context->presenter->scanoutStride(),
+                             context->presenter->rows());
+                report(path,0);
+            }
             lastCopy=span(t1,t2);
             // Presenter returns kOk only after waitUntilCompleted reports the
             // real command buffer completed. Errors never retire as success.
@@ -81,10 +95,13 @@ static void *serve(void *opaque)
                 const uint64_t encoded=context->presenter->encodeMicroseconds();
                 const uint64_t submitted=context->presenter->submitMicroseconds();
                 const uint64_t waited=context->presenter->waitMicroseconds();
+                /* Every span below is printed in microseconds. The three outer spans used to be
+                 * divided by 1000 while still carrying the "us" label, which made a 48 ms frame
+                 * read as a 48 us copy and turned P-234 into a false "the copy is free" verdict. */
                 char rate[512];snprintf(rate,sizeof(rate),
                     "scanout frames=%u at %llu.%03llu s; last frame: wait=%llu us copy=%llu us done=%llu us; imports=%llu import=%llu us encode=%llu us submit=%llu us gpu=%llu us sum=%llu us",
                     copies,(unsigned long long)absoluteUs(now)/1000000ull,(unsigned long long)(absoluteUs(now)%1000000ull)/1000ull,
-                    (unsigned long long)lastWait/1000,(unsigned long long)lastCopy/1000,(unsigned long long)lastDone/1000,
+                    (unsigned long long)lastWait,(unsigned long long)lastCopy,(unsigned long long)lastDone,
                     (unsigned long long)context->presenter->imports(),
                     (unsigned long long)imported,(unsigned long long)encoded,(unsigned long long)submitted,
                     (unsigned long long)waited,(unsigned long long)(imported+encoded+submitted+waited));

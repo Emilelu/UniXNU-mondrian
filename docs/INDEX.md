@@ -196,4 +196,4 @@ python3 scripts/render-eight-step-table.py --check
 ```
 
 四个门禁在 build / flash 前自动运行，任一失败即中止。
-- 2026-11-18 GPU 帧路径成本定位与采样节奏教训（P-233）：[STATUS 摘要](engineering/STATUS.md) · [飞行卡 j](research/gpu/FLIGHT-CARD-20261118j.md) · [飞行卡 k](research/gpu/FLIGHT-CARD-20261118k.md)
+- 2026-11-18 GPU 帧路径成本定位、采样节奏教训（P-233）与时间单位缺陷（P-234）：[STATUS 摘要](engineering/STATUS.md) · [飞行卡 j](research/gpu/FLIGHT-CARD-20261118j.md) · [飞行卡 k](research/gpu/FLIGHT-CARD-20261118k.md) · [飞行卡 l](research/gpu/FLIGHT-CARD-20261118l.md)

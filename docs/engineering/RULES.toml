@@ -815,3 +815,10 @@ title = "判据与采样节奏必须一起设计：每 60 帧一条在 22 帧的
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-frame-stage-timing.py"
 note = "2026-11-18 gpu-import-scope 飞行完整但 0 条样本；改为 copies<=8 每帧一条、之后每 10 帧一条；「某类行一条都没有」先用 strings 核对产物，再判是不是采样没触发。"
+[[rule]]
+id = "P-234"
+kind = "pitfall"
+title = "量出来的时间除以 1000 却仍标 us：外层比内层小一千倍的日志会给出反向归因"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "2026-11-18 gpu-import-scope2：wait/copy/done 打印时 /1000 但仍标 us，实为毫秒；先看到 sum>copy 的结构性矛盾再换算，才没有把 23 ms 的 copy 读成 23 µs。"

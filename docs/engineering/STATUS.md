@@ -439,3 +439,26 @@ offer_and_copy=… total=…`、渲染线程侧 `last frame: wait=… copy=… d
 120 fps 与跟手远未达成。下一步按 k 卡的 F6/F7 分支决定：`gpu` 占 `sum` 的 0.8 以上 ⇒ 转
 Turnip 渲染模式（本机被 `PongMetalPlugin.mm:136` 强制 `TU_DEBUG=sysmem,nocb`，官方默认 `gmem,nocb`）；
 `encode`+`submit` 占 0.6 以上 ⇒ 转命令提交的批量/复用。
+
+**第三飞 `gpu-import-scope2-20261118`（`boot.img f67c4983…`，证据 `usblog-20261118-171507`）** 判决 PASS：
+54 条阶段样本，S1–S8 全过（`K60KEXC` 0、backboardd 崩 0、中位 `copy` 23.0 ms、`imports==frames` 54/54）。
+归因第一次是**量出来的**而不是推的：45 条稳态样本里 `import` 0.2 %、`encode` 1.9 %、
+**`submit` 49.6 %、`gpu` 45.9 %**，`sum` 与 `copy` 中位只差 +1.8 %。
+
+两个结论由此而定：
+
+1. **删掉跨帧导入缓存没有代价**（每帧重导入中位 54 µs）——那条缓存本来只是为了性能，现在理由彻底消失。
+2. **`commit` 不是等 GPU**：`pearson r(submit, gpu) = 0.007`、`r(submit, 上一帧 gpu) = 0.088`，
+   极差 0.05–4.99 也说明它不跟随 GPU。所以 8–11 ms 的 `submit` 是翻译层里的 CPU 工作。
+
+同一飞暴露一个测量缺陷并记为 **P-234**：`wait/copy/done` 打印时除以 1000 却仍标 `us`，
+外层看起来比内层小一千倍；若照字面读会得到「copy 已经免费」的反向结论。
+
+下一张 `gpu-stride-20261118`（卡 `FLIGHT-CARD-20261118l.md`）只回答一个问题：
+这条拷贝是整段一次还是逐行 3200 次？它同时删掉线性纹理分支——那条分支会让翻译层每帧
+建一个 Vulkan image 并分配内存，正是「CPU 侧 per-frame 开销」最可能的形状。
+若本来就已是整段，则纹理分支从来不是成本，下一步转去翻译层内部测量 `commit_now`。
+
+当前里程碑：首帧（软件合成）已成立、Metal 出帧（`c>0`）已成立、**帧率仍只有 3.1 fps**（样本区间
+469 帧 / 150 s），而 `present()` 只占 23 ms（理论上限 43 fps）⇒ 帧路径之外还有别的瓶颈，
+120 fps 与跟手远未达成。

@@ -66,26 +66,23 @@ public:
         id<MTLCommandBuffer> commands = [queue_ commandBuffer];
         id<MTLBlitCommandEncoder> blit = commands ? [commands blitCommandEncoder] : nil;
         if (!blit) return kNoResource;
-        if (frame.stride == scanout_.stride) {
+        /* A pitch change is copied row by row, never through a linear texture. A texture makes
+         * the translator create a Vulkan image, allocate its memory and set up a tiling for every
+         * frame; a buffer copy does not. The 2026-11-18 flight measured the commit (CPU work
+         * inside the translator) at 8-11 ms with no correlation to the GPU time (r=0.007 over 45
+         * samples), so a per-frame image is exactly the cost this path must not pay. */
+        const bool singleRun = frame.stride == scanout_.stride;
+        if (singleRun) {
             // Equal pitch: the rows are one contiguous run.
             [blit copyFromBuffer:source sourceOffset:0 toBuffer:target_ destinationOffset:0 size:frame.stride * (frame.height - 1) + row];
         } else {
-            // A linear texture over the surface pages reads them with the surface's pitch and writes the scanout's pitch.
-            MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:frame.width
-                                                                                       height:frame.height mipmapped:NO];
-            d.storageMode = MTLStorageModeShared;
-            d.usage = MTLTextureUsageShaderRead;
-            if (frame.stride % [device_ minimumLinearTextureAlignmentForPixelFormat:MTLPixelFormatBGRA8Unorm]) {
-                for (uint32_t y = 0; y < frame.height; ++y)
-                    [blit copyFromBuffer:source sourceOffset:y * frame.stride toBuffer:target_ destinationOffset:y * scanout_.stride size:row];
-            } else {
-                id<MTLTexture> texture = [source newTextureWithDescriptor:d offset:0 bytesPerRow:frame.stride];
-                if (!texture) {[blit endEncoding]; return kNoResource;}
-                [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
-                           sourceSize:MTLSizeMake(frame.width, frame.height, 1) toBuffer:target_ destinationOffset:0
-                    destinationBytesPerRow:scanout_.stride destinationBytesPerImage:scanout_.stride * frame.height];
-            }
+            for (uint32_t y = 0; y < frame.height; ++y)
+                [blit copyFromBuffer:source sourceOffset:size_t(y) * frame.stride toBuffer:target_
+                     destinationOffset:size_t(y) * scanout_.stride size:row];
         }
+        lastSingleRun_ = singleRun;
+        lastSourceStride_ = frame.stride;
+        lastRows_ = frame.height;
         [blit endEncoding];
         clock_gettime(CLOCK_MONOTONIC, &e1);
         [commands commit];
@@ -105,6 +102,12 @@ public:
     uint64_t encodeMicroseconds() const { return lastEncodeUs_; }
     uint64_t submitMicroseconds() const { return lastSubmitUs_; }
     uint64_t waitMicroseconds() const { return lastWaitUs_; }
+    /* Which copy shape the last frame used: one contiguous run, or one copy per row. The two
+     * strides are what decide it, so both are readable for the one-line report. */
+    bool singleRun() const { return lastSingleRun_; }
+    size_t sourceStride() const { return lastSourceStride_; }
+    size_t scanoutStride() const { return scanout_.stride; }
+    uint32_t rows() const { return lastRows_; }
 private:
     bool validScanout() const {
         const size_t page = (size_t)getpagesize();
@@ -121,6 +124,9 @@ private:
     uint64_t lastEncodeUs_ = 0;
     uint64_t lastSubmitUs_ = 0;
     uint64_t lastWaitUs_ = 0;
+    bool lastSingleRun_ = true;
+    size_t lastSourceStride_ = 0;
+    uint32_t lastRows_ = 0;
 };
 
 }  // namespace gpupresent

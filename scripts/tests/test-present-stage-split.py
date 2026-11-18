@@ -121,13 +121,28 @@ def main():
     check('the report buffer holds the longer line',
           'char rate[512]' in scanout,
           'four more fields do not fit in the 448 byte buffer')
+    check('every printed span is really in microseconds',
+          'lastWait/1000' not in scanout and 'lastCopy/1000' not in scanout
+          and 'lastDone/1000' not in scanout,
+          'a span divided by 1000 under the "us" label reports milliseconds as microseconds (P-234)')
+    check('the report keeps one unit for the frame stages',
+          scanout.count('%llu us') >= 8,
+          'the label and the arithmetic have to agree, so the unit is not a formatting detail')
 
     check('the equal pitch path is still one run',
           'copyFromBuffer:source sourceOffset:0 toBuffer:target_ destinationOffset:0 size:frame.stride * (frame.height - 1) + row' in presenter,
           'the fast path must not have been replaced by a loop')
-    check('the differing pitch path still exists',
-          'copyFromTexture:texture sourceSlice:0 sourceLevel:0' in presenter,
-          'the texture path is what carries a pitch change')
+    check('a pitch change is copied row by row, not through a texture',
+          'for (uint32_t y = 0; y < frame.height; ++y)' in presenter
+          and 'copyFromBuffer:source sourceOffset:size_t(y) * frame.stride' in presenter,
+          'a linear texture makes the translator create and allocate an image every frame')
+    check('no per-frame texture survives in the copy path',
+          'newTextureWithDescriptor' not in presenter and 'copyFromTexture:' not in presenter,
+          'the texture branch turned a pitch change into per-frame image creation')
+    check('the copy shape and the strides are reported once per flight',
+          'scanout copy per row source=%zu scanout=%zu rows=%u' in scanout
+          and 'scanout copy single run stride=%zu rows=%u' in scanout,
+          'a silent branch choice hid the per-frame image allocation for two flights')
     check('the copy is still waited for', '[commands waitUntilCompleted];' in presenter,
           'an unwaiting present would report frames the GPU never retired')
 

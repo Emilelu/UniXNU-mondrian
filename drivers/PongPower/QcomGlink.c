@@ -3,6 +3,13 @@
  * K60-specific ownership, validation and deferred intent acknowledgements. */
 #include "QcomGlink.h"
 
+#if defined(KERNEL)
+#include <IOKit/IOLib.h>
+#define QCOM_GLINK_LOG(...) IOLog(__VA_ARGS__)
+#else
+#define QCOM_GLINK_LOG(...) do { } while (0)
+#endif
+
 /* The sender keeps 8 bytes so a full FIFO never looks empty, and 16 more for a READ_NOTIF when it runs out of room. */
 #define FULL_RESERVE 8u
 #define BLOCKED_RESERVE 16u
@@ -501,7 +508,16 @@ int qcom_glink_poll(QcomGlink *g)
     /* Bounded: at most one FIFO's worth of minimal messages per call. */
     for (uint32_t budget = g->rx.length / 8 + 1; g->rx.data && budget; --budget) {
         const int rc = receive_one(g);
-        if (rc < 0) {qcom_glink_stop(g); handled = rc; break;}
+        if (rc < 0) {
+            uint8_t raw[8] = {0};
+            const uint32_t avail = qcom_glink_rx_avail(&g->rx);
+            if (avail >= 8) rx_peek(&g->rx, 0, raw, 8);
+            QCOM_GLINK_LOG("QcomGlink: stop rc=%d cmd=%u p1=%u p2=%u avail=%u raw=%02x%02x%02x%02x%02x%02x%02x%02x\n",
+                rc, (unsigned)(raw[0] | raw[1] << 8), (unsigned)(raw[2] | raw[3] << 8),
+                (unsigned)le32(raw + 4), avail, raw[0], raw[1], raw[2], raw[3],
+                raw[4], raw[5], raw[6], raw[7]);
+            qcom_glink_stop(g); handled = rc; break;
+        }
         if (!rc) break;
         ++handled;
     }

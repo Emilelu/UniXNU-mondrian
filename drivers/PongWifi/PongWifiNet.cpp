@@ -911,6 +911,26 @@ extern "C" bool pong_wifi_net_has_ipv4(void) {
   return valid;
 }
 
+/* The test asks the station to leave by itself, so nothing else may be relied on
+ * to report the edge: the address that configd installed before the disconnect
+ * would otherwise outlive the link and look like the new association's. */
+extern "C" void pong_wifi_net_link_down(void) { post_link(false); }
+/* True only while the lease tracker holds an acknowledgement it witnessed after
+ * the last link edge, which is what makes a reconnected address fresh. */
+extern "C" bool pong_wifi_net_has_lease(void) {
+  if (!gLock) return false;
+  lck_mtx_lock(gLock);
+  const bool live = pong_wifi_lease_snapshot(&gLease, lease_clock()).version != 0;
+  lck_mtx_unlock(gLock);
+  return live;
+}
+extern "C" void pong_wifi_net_lease_counters(unsigned long long *link, unsigned long long *sequence) {
+  if (!gLock) { *link = 0; *sequence = 0; return; }
+  lck_mtx_lock(gLock);
+  *link = gLease.link; *sequence = gLease.sequence;
+  lck_mtx_unlock(gLock);
+}
+
 // Install worker callbacks before nw_wifi_start. The interface and its MAC
 // are published only after the real station is ready. RX already drops
 // frames before gIf exists; those buffers remain owned by the station.

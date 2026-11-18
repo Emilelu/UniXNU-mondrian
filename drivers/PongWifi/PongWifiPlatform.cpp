@@ -24,6 +24,9 @@ void pong11_lx_irq_raise_all(void);
 void pong_wifi_net_start(const uint8_t mac[6]);
 bool pong_wifi_net_prepare(void);
 bool pong_wifi_net_has_ipv4(void);
+bool pong_wifi_net_has_lease(void);
+void pong_wifi_net_link_down(void);
+void pong_wifi_net_lease_counters(unsigned long long *link, unsigned long long *sequence);
 void pong_wifi_net_diagnostics(void);
 void pong_wifi_net_failed(void);
 int nw_wifi_firmware_error(void);
@@ -634,11 +637,15 @@ void testNetwork(const nw_wifi_status &st) {
  if(__atomic_load_n(&testReconnectState,__ATOMIC_ACQUIRE)==2) {
   __atomic_store_n(&testReconnectState,3,__ATOMIC_RELEASE);
   log(6,"WiFi lifecycle test RUNNING: disconnecting station");
-  nw_wifi_disconnect(); reconnectAt=now()+10000;
+  nw_wifi_disconnect();
+  // Report the edge ourselves: the address configd installed belongs to the
+  // association that is ending, and the lease witness has to see the down.
+  pong_wifi_net_link_down();
+  reconnectAt=now()+10000;
  }
  if(reconnectAt) {
   if(now()<reconnectAt)return;
-  reconnectAt=0;attempted=false;finished=false;reconnecting=true;deadline=now()+60000;
+  reconnectAt=0;attempted=false;finished=false;reconnecting=true;addressWait=false;deadline=now()+60000;
   log(6,"WiFi lifecycle test RUNNING: reconnecting to scanned network");
  }
  if(autoCycle&&passed&&!reconnecting&&!autoArmAt) {
@@ -721,13 +728,14 @@ void testNetwork(const nw_wifi_status &st) {
   IOLog("PongWifi: association test WAIT: state=%u IPv4=%u busy=%u\n",
    (unsigned)st.state,pong_wifi_net_has_ipv4()?1:0,root?(unsigned)root->getBusyState():0);
  }
- if(attempted&&st.state==NW_STA_UP&&pong_wifi_net_has_ipv4()) {
+ if(attempted&&st.state==NW_STA_UP&&pong_wifi_net_has_ipv4()&&(!reconnecting||pong_wifi_net_has_lease())) {
   finished=true;passed=true;log(6,"WiFi association test PASS: authenticated link and IPv4 address");
   if(!reconnecting)memcpy(firstBssid,st.bssid,sizeof firstBssid);
   else {
-   IOLog("PongWifi: WiFi lifecycle test PASS: reconnected BSSID %02x:%02x:%02x:%02x:%02x:%02x state=%u IPv4=%u\n",
+   unsigned long long link=0,sequence=0;pong_wifi_net_lease_counters(&link,&sequence);
+   IOLog("PongWifi: WiFi lifecycle test PASS: reconnected BSSID %02x:%02x:%02x:%02x:%02x:%02x state=%u IPv4=%u lease=%llu/%llu\n",
     st.bssid[0],st.bssid[1],st.bssid[2],st.bssid[3],st.bssid[4],st.bssid[5],
-    (unsigned)st.state,pong_wifi_net_has_ipv4()?1:0);
+    (unsigned)st.state,pong_wifi_net_has_ipv4()?1:0,link,sequence);
    if(alternate)log(6,memcmp(firstBssid,st.bssid,sizeof firstBssid)?
     "WiFi lifecycle test AP switch PASS: associated to distinct BSSID":
     "WiFi lifecycle test AP switch FAIL: BSSID did not change");

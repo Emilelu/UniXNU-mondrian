@@ -222,6 +222,13 @@ def main() -> int:
           "<key>Label</key><string>com.pong.netprobe</string>" in p0616 and
           "<key>RunAtLoad</key><true/>" in p0616)
     plat = (ROOT / "drivers" / "PongWifi" / "PongWifiPlatform.cpp").read_text(encoding="utf-8")
+    net = (ROOT / "drivers" / "PongWifi" / "PongWifiNet.cpp").read_text(encoding="utf-8")
+    check("the reconnect reports the link edge and proves a fresh lease",
+          'extern "C" void pong_wifi_net_link_down(void) { post_link(false); }' in net and
+          "pong_wifi_lease_snapshot(&gLease, lease_clock()).version != 0" in net and
+          "pong_wifi_net_link_down();" in plat and
+          "pong_wifi_net_has_ipv4()&&(!reconnecting||pong_wifi_net_has_lease())" in plat and
+          "lease=%llu/%llu" in plat)
     check("the lifecycle test can disconnect and reconnect on its own",
           'autoCycle=enabled;' in plat and
           "WiFi lifecycle test armed: automatic disconnect in 120 s" in plat and

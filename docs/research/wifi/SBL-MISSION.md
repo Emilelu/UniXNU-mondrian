@@ -1021,3 +1021,44 @@ the P-218 gate stops reporting an image nobody will fly (the hash and head above
 are the whole record); mission22 (0d6a2f16, head d250f2c3, built
 2026-11-19T03:57:47+08:00) is built, verified and unflown. K60EXC appears 64
 times in every flight since mission17, so it is not a mission21 anomaly.
+
+## 24. The pane list on mission22: the name is not the filter
+
+mission22 (0d6a2f16, head d250f2c3, built 2026-11-19T03:57:47+08:00) flew at
+05:14:20 with a person at the screen and was the first flight that held a
+Preferences list and the per-record dumper at the same time:
+
+| field | value |
+|---|---|
+| console | E:/k60-work/evidence/usblog-20261119-051413/console.log, 889,855 B, 11,636 lines, sha256 37e0079f09c8381492b543630e74400eda5a17badac7060d75e11bdb692bf87e |
+| boot record | boot.json bootAccepted true, returnedToFastboot true, finished 05:29:47; the one-shot marker was written |
+| pane lists | 24 lists for client=Preferences (37 observer lists in all); the last holds 40 entries |
+| records | 55 distinct dumped records, 45 KEPT, 10 DROPPED |
+| join timeline | ...1c on 5240 MHz at :856 and :3545, ...1d on 2412 MHz at :4938; the lists start at :5464, after the move to 2.4 GHz |
+
+The pane does list 5 GHz: CMCC8888 at 5240 MHz -79 dBm (ie 332, cap 0x1531) and a
+hidden 5240 MHz -82 dBm are both KEPT. Emilelu_5G (c8:bf:4c:30:03:1c, 5240 MHz,
+-51 dBm, ie 384, cap 0x0511) is DROPPED. Its 2.4 GHz sibling (...:1d, cap 0x0431)
+is KEPT and carries the same 24-byte RSN (0100000f ac040100 000fac04, WPA2-PSK
+only, no SAE AKM), so the security type is not the difference either.
+
+The renamed copy settled the name hypothesis: mission22 served K60SYNTH 24 times
+and the daemon read every record of every sweep ("scan result end after serving
+46 of 46" and "49 of 49"), yet no list holds its BSSID (c8:bf:4c:30:03:5c). A
+name the daemon cannot band-steer is dropped exactly like the real one, so the
+filter is a property of the record, not of the SSID.
+
+What remains is the BSSID. ...:1c differs from the joined ...:1d in one bit, and
+the copy shared those five leading bytes. mission24 therefore serves two copies
+from the FRONT of the frozen list - K60SYNTH with the same first five bytes and
+K60SYNTH2 with the OUI's first byte flipped (ca:bf:4c:30:03:1c) - because the
+word dump only covers the first six 5 GHz records and a copy at the tail was
+unobservable in mission22. A pane that lists only K60SYNTH2 hides 5 GHz siblings
+by prefix; a pane that lists neither hides them by a record field; a pane that
+lists both means the earlier copy was simply never read.
+
+Two build facts from the same day: the kext's sae probe reference has to be a
+weak_import, otherwise a pane image linked against the HE archive fails with
+"_nw_wifi_sae_probe undefined" (the mission24 link caught it), and mission24
+builds against the ath11k-sae1 archive so the symbol resolves; its boot line
+carries no sae argument, so the probe stays off.

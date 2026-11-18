@@ -46,7 +46,7 @@ extern "C" bool pong_wifi_test_reconnect(void);
 extern "C" unsigned nw_wifi_channel_list(unsigned *, unsigned);
 extern "C" int nw_wifi_rssi_limits(int *,int *);
 // WPA3 feasibility: the station exports this only when the builder injected the probe, so the call is weak.
-extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak));
+extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak_import));
 extern "C" volatile uint64_t pong_wifi_progress[3];
 static bool gProgressDiagnostic;
 extern "C" void native_wifi_logf(int level, const char *fmt, ...);

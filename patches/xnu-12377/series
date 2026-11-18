@@ -3,3 +3,6 @@
 # between 1 and 3 arguments". The only use is ucred.cr_label, which no userland
 # object reads, so non-Apple compilers keep the type discriminator.
 ptrauth-string-discriminator.patch
+# ArmCpu's weak_import sleep hook has no definition in any component; ld64-port
+# rejects the unresolved weak data symbol when the archive joins the kernel link.
+armcpu-sleep-hook.patch

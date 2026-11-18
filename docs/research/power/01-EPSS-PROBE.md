@@ -141,7 +141,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   没有 dcvs 反馈；mode 1 是唯一有离线证据的模式。
 - governor 只有纯逻辑核心，没有线程、没有 idle 时间统计（参考用内核 `sheng_cpu_idle_mach`）、
   没有触摸/帧信号输入、没有 10 s 统计窗口；核心还没有被任何代码调用。
-- 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 频率（`GpuPowerProbe.cpp` 149 KB）、
+- 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   没有外设供电投票归属/引用计数。
 - 没有任何真机 EPSS 读数；三个 domain 的 enable/state/LUT 仍未知。
 

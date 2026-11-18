@@ -101,9 +101,10 @@ docs/
 | `charger/06-SUBSCRIPTION-CONSTANT.md` | **订阅应答常量定值**：`K60_BATTERY_NOTIFY_REPLY_TYPE = 1` / `_BYTES = 16`，依据 ADSP opcode-0x04 handler `0x60155910` 逐指令 + 四字节锚点 + 全固件 30 处 `0x800a` 组包点穷举；含生成器/测试落点与交给 touch agent 的交接段 |
 | `charger/07-DEVICE-CRITERIA.md` | **充电器 ⑧ 判据**：订阅成立（`subscription-ack=1/16` → `subscribed=1`）、四属性区间（3.3–5.0 V / 0.1–6 A / 1–100 % / 0–60 °C）、与 Android 同窗口（±60 mV、±150 mA 仅 \|I\|≥100 mA、±3 pp、±3 °C，ΔT≤10 s），每条附失败行原文 |
 | `charger/10-POWER-DOC-CONFORMANCE.md` | **电池上报 §4 逐条对照**：协议五要素、单请求/超时、有效-失败位图、原始值→OS 换算、register/updateStatus、adapter、断链 stale；逐条挂 `K60Battmgr.c` / `K60Battery.cpp` 行号与 route-c 实测值，未闭项单列 |
-| [`power/01-EPSS-PROBE.md`](research/power/01-EPSS-PROBE.md) | **CPU 频率 §5 起点**：现场 DTB 证明 EPSS 三窗口/4 字节 LUT/L3 dcvs 与 SM8550 参考一致，板级 CPU→domain 为 4/3/1；只读探针默认关闭（`k60_cpufreq=1`），纯算术 host 65 项断言；投票、governor、平台睡眠、GPU 频率均未实现 |
+| [`power/01-EPSS-PROBE.md`](research/power/01-EPSS-PROBE.md) | **CPU 频率 §5 起点**：现场 DTB 证明 EPSS 三窗口/4 字节 LUT/L3 dcvs 与 SM8550 参考一致，板级 CPU→domain 为 4/3/1；只读探针默认关闭（`k60_cpufreq=1`），纯算术 host 65 项断言；投票写集合、governor 核心、平台睡眠掩码、GPU 规划均只有离线模块 |
 | [`power/02-PLATFORM-SLEEP.md`](research/power/02-PLATFORM-SLEEP.md) | **平台睡眠调研**：官网 §5 末段要求与 sheng `ShengSleep.cpp`/ArmCpu 挂起路径逐项对照；K60 现场 FDT 只有 PMK8350 电源键、无开盖传感器，TLMM 基址 `0x0f000000`、汇总中断同为 SPI 208；本树无 `ArmCpuSleep`/TLMM/喂狗/背光触摸恢复，状态为未实现 |
 | [`power/03-POWER-VOTES.md`](research/power/03-POWER-VOTES.md) | **外设投票记账**：官网 §5 的所有权/引用计数要求做成 16 资源×32 owner 的纯逻辑（shared/exclusive、重复申请 -3、最后释放返回 1、stop-dma→mask-irq→drop-vote）；host 58 项；不写 RSC/TCS（HR-01），无消费者、未上机 |
+| [`power/04-GPU-FREQUENCY.md`](research/power/04-GPU-FREQUENCY.md) | **GPU 调频 §5**：现场 13 档 OPP（900-220MHz）与 HFI 升序 wire index、XO 忙碌计数器与带宽表；纯逻辑规划模块（50% 目标/1.1 倍/85% 到顶/4-5 窗口/80ms 空闲）host 56 项；无 GMU 读取、HFI 投票与 governor 线程 |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |
 | `memory/RESEARCH.md` | **内存布局结论层（本板真值）**：DDR 保留区与寄存器窗口，以及跨板边界——DXE Heap `0xC7000000` 与 Kernel `0xBB000000` 绝不可跨板抄 |

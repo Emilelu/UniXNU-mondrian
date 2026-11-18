@@ -217,12 +217,15 @@ bool panel_intf_rate(const char *phase,uint32_t milliseconds)
     uint64_t elapsed_ns=0;
     absolutetime_to_nanoseconds(mach_absolute_time()-begin,&elapsed_ns);
     const uint32_t elapsed_ms=uint32_t(elapsed_ns/1000000ull);
-    const uint32_t te_hz=best_us?uint32_t(1000000ull/best_us):0;
     const uint32_t frame_hz=elapsed_ms?uint32_t(uint64_t(frames1-frames0)*1000ull/elapsed_ms):0;
     const uint32_t wrap_hz=elapsed_ms?uint32_t(uint64_t(wraps)*1000ull/elapsed_ms):0;
+    const uint32_t period_hz=best_us?uint32_t(1000000ull/best_us):0;
     /* The line counter is the panel scan timebase; the frame counter is only
-     * DPU commits and the tear counter is a read-pointer count. Publish the
-     * line-counter period, falling back to commits only when no wrap was seen. */
+     * DPU commits and the tear counter is a read-pointer count. Prefer the
+     * average wrap rate over many frames; the shortest single period is only
+     * a fallback, because one 7.6 ms interval is 131 Hz while the same 500 ms
+     * window has 61 wraps (122 Hz). */
+    const uint32_t te_hz=(wraps>=2u&&wrap_hz)?wrap_hz:period_hz;
     panel_measured_hz=te_hz?te_hz:frame_hz;
     panel_log("K60 PANEL: INTF%d %s te %u/s frames %u/s over %u ms (te %u->%u frames %u->%u) line %u->%u wraps %u wrap %u/s period %llu us count_enable %#x\n",
         active,phase,te_hz,frame_hz,milliseconds,
@@ -438,6 +441,25 @@ constexpr PanelTimingCommand kTiming120[] = {
 
 } // namespace
 
+/* Set the inherited 60-frame autorefresh divider to one frame so the panel
+ * produces line-counter wraps even while the desktop is static. This is a
+ * measurement precondition and must happen before the before-switch sample. */
+static void panel_autorefresh_one(const char *phase)
+{
+    const int active=panel_active_intf();
+    const vm_offset_t intf=probe_page(3+unsigned(active),0x0ae35000u+unsigned(active)*4096u);
+    if(!intf)return;
+    const uint32_t auto_cfg=probe_read(intf,IntfTearAutorefresh);
+    if((auto_cfg&0x80000000u) && (auto_cfg&0xffffu)!=1u) {
+        const uint32_t before=auto_cfg;
+        *reinterpret_cast<volatile uint32_t *>(intf+IntfTearAutorefresh)=
+            (auto_cfg&~0xffffu)|1u;
+        __asm__ volatile("dsb sy" ::: "memory");
+        panel_log("K60 PANEL: INTF%d autorefresh %#x -> %#x (%s)\n",
+            active,before,probe_read(intf,IntfTearAutorefresh),phase);
+    }
+}
+
 extern "C" int pong_panel_switch_120(void)
 {
     if (panel_on_result != 0) {
@@ -453,6 +475,7 @@ extern "C" int pong_panel_switch_120(void)
         return -1;
     }
 
+    panel_autorefresh_one("before the switch");
     panel_intf_rate("before the switch", 200);
     const uint32_t count = sizeof(kTiming120) / sizeof(kTiming120[0]);
     for (uint32_t i = 0; i < count; ++i) {
@@ -484,20 +507,8 @@ extern "C" int pong_panel_switch_120(void)
         } else {
             panel_log("K60 PANEL: INTF%d vsync_count %u left unchanged\n",active,cfg&0x7ffffu);
         }
-        /* The inherited command-mode autorefresh divider is 60 frames. At
-         * 120 Hz that is a one-second idle interval; ask the DPU to refresh
-         * every frame while the 120 Hz mode is selected, which is also what
-         * cadence_update was written to do for the 60 Hz path. */
-        const uint32_t auto_cfg=probe_read(intf,IntfTearAutorefresh);
-        if((auto_cfg&0x80000000u) && (auto_cfg&0xffffu)!=1u) {
-            const uint32_t before=auto_cfg;
-            *reinterpret_cast<volatile uint32_t *>(intf+IntfTearAutorefresh)=
-                (auto_cfg&~0xffffu)|1u;
-            __asm__ volatile("dsb sy" ::: "memory");
-            panel_log("K60 PANEL: INTF%d autorefresh %#x -> %#x\n",
-                active,before,probe_read(intf,IntfTearAutorefresh));
-        }
     }
+    panel_autorefresh_one("after the switch");
     panel_intf_rate("after the switch", 500);
     panel_120_result = 0;
     panel_120_verify_pending = true;

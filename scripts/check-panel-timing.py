@@ -100,6 +100,8 @@ def main() -> int:
         fail("missing the per-frame INTF autorefresh update")
     if "line<previous/2u" not in text or "best_us" not in text:
         fail("missing the line-counter wrap-period measurement")
+    if "wraps>=2u" not in text or "wrap_hz" not in text:
+        fail("the line-counter rate is not averaged over multiple wraps")
     first_frame = ROOT / "patches/xnu/0365-k60-ui-owns-screen.patch"
     if "pong_panel_sample();" not in first_frame.read_text():
         fail("the first-frame patch does not call pong_panel_sample")

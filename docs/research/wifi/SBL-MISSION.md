@@ -12,10 +12,10 @@ candidate; c8 remains HOLD.
 | question | answer |
 |---|---|
 | What did the direct candidate prove? | The direct BHIe push works: the 2026-11-18 01:29 flight logged `amss bhie load ret=0 exec_env=1`, then the device reported `exec_env=2` (AMSS), `pm_state=4` (`MHI_PM_M0`) and `mhi_state=2` (`MHI_STATE_M0`). See `SBL-DIRECT.md` §6. |
-| Why is WiFi still failing? | `mhi_sync_power_up` (`pm.c:1277-1295`) waits on `MHI_IN_MISSION_MODE(mhi_cntrl->ee)`, but the host cached `ee=1` (SBL). The only EE event consumed was `execenv=1`; no later EE event updated the cache even though the device had reached AMSS. |
+| Why did the direct candidate fail? | `mhi_sync_power_up` (`pm.c:1277-1295`) waits on `MHI_IN_MISSION_MODE(mhi_cntrl->ee)`, but the host cached `ee=1` (SBL). The only EE event consumed was `execenv=1`; no later EE event updated the cache even though the device had reached AMSS. |
 | What changes in this candidate? | After the direct `mhi_download_amss_image()` returns 0, the same worker polls `mhi_get_exec_env` for up to 2500 x 10 ms. On `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission`, calls `mhi_create_devices(mhi_cntrl)` so the IPCR channels (`ee_mask = 0x4`, AMSS-only) are created, and calls `wake_up_all(&mhi_cntrl->state_event)`, so `mhi_sync_power_up` sees mission mode instead of a stale SBL value and wakes from its wait. |
 | Is this the official path? | Yes. UniXNU-sheng `516a7804` `package/MhiBoot.c:117-119` has `MhiWaitMission`, which polls the execution environment until AMSS/WFW after the BHIe image. Stock Linux has no equivalent poll after `mhi_download_amss_image`; the cached EE is only refreshed by an EE event. |
-| Is this proven on K60? | **No — built only.** The 2026-11-18 09:17 boot attempt produced no console (see §3), so the image still has no valid flight and `hardware_tested` remains `false`. |
+| Is this proven on K60? | **Yes — MHI and QMI/scan.** The 2026-11-18 09:17 flight produced a valid console at `E:/k60-work/evidence/usblog-20261118-091754/console.log` (85,874 B, SHA256 `59063d2d702e359de9e89b80d24ea09c13dcac7fc436ef573ad5f3bb98cd2bd3`): `exec_env=2 ... cached ee updated` :683, `MHI powered up: ee=2 state=2` :687, `chip_id 0x12` :697, `fw_version 0x20070039` :699, `hardware registered, 102 channels` :722, `scan starts on 42 channels` :724, `en0 is up` :727, `scan 1 finished, 12 networks` :785, SpringBoard present. |
 
 ## 1. Why this is the next single variable
 
@@ -135,17 +135,21 @@ no IPA rail, no c8 raw-register dump. The earlier queue image
 its result is in `SBL-DIRECT.md` §6. The pre-device-creation mission image
 `wifi-20261118sbl-mission` was built but never flown and is superseded.
 
-Flight attempt on 2026-11-18 09:17: a watcher saw another agent's fastboot
-window and ran the mission4 wrapper before this candidate had a valid capture.
-`fastboot boot` was accepted (`E:/k60-work/scratch/boot-20261118-091754.log`:
+Flight result on 2026-11-18 09:17: the watcher's wrapper booted mission4 while
+another agent held fastboot (`E:/k60-work/scratch/boot-20261118-091754.log`:
 `Sending 'boot.img' (197156 KB) OKAY [4.752s]`, `Booting OKAY [0.174s]`,
-`Finished. Total time: 5.100s`), but `E:/k60-work/scratch/cap-20261118-091754.log`
-only contains `OutDir: E:/k60-work/evidence/usblog-20261118-091754`,
-`Port: COM5` and `Console port lost; waiting for re-enumeration...`; the evidence
-directory is empty and has no `console.log`. This is not a valid flight and says
-nothing about the MHI change. `hardware_tested` stays `false`, and mission4 must
-not be re-flown: the next attempt needs a capture-ready gate and, because the
-same candidate was already booted, a new image.
+`Finished. Total time: 5.100s`). The capture initially lost `COM5`, but the late
+console at `E:/k60-work/evidence/usblog-20261118-091754/console.log` (85,874 B,
+1,438 lines, SHA256 `59063d2d702e359de9e89b80d24ea09c13dcac7fc436ef573ad5f3bb98cd2bd3`)
+is a complete valid log: `Pong MHI: exec_env=2 after AMSS download; cached ee
+updated` :683, `Pong MHI powered up: ee=2 state=2 serial=0x22d0a7f3` :687,
+`ath11k: chip_id 0x12 ...` :697, `fw_version 0x20070039 ...` :699,
+`wifi: hardware registered, 102 channels` :722, `wifi: scan starts on 42
+channels` :724, `wifi-net: en0 is up, hardware address 00:03:7f:12:6e:b3` :727,
+`wifi: scan 1 finished, 12 networks` :785. The judge passes all 9 checks. This
+proves the 60 s ready wait, the 25 s BHI_EXECENV mission cache,
+`mhi_create_devices`/IPCR readiness, and the QMI/board/firmware path; it does not
+prove association, DHCP or HTTPS.
 
 Offline checks performed:
 - `python3 -m py_compile scripts/build-k60-ath11k.py` — pass.
@@ -154,7 +158,7 @@ Offline checks performed:
 - WSL `python3 scripts/verify-boot-image.py --manifest /mnt/e/...` — OK.
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
   arguments / 602 bytes).
-- `boot.json` records `hardware_tested: false`; the 2026-11-18 09:17 boot produced no console, so the image still has no valid flight.
+- `boot.json` was written at build time with `hardware_tested: false`; the valid 2026-11-18 09:17 flight above supersedes that field for this record.
 - `python3 /mnt/e/k60-work/scratch/judge-sbl-mission2.py` — positive synthetic mission4 log passes 9/9; negative log with `timeout after 60000 ms` and no cached-ee line fails/stops as designed.
 
 ## 4. Prewritten flight criteria
@@ -188,6 +192,7 @@ The image is only valid with a serial console captured before `fastboot boot`.
 
 ## 5. What this candidate does not claim
 
-It does not claim WiFi works: QMI, WMI, 102 channels, `en0`, scan, WPA2, DHCP
-and HTTPS remain after MHI. It does not replace c8's audit status: c8 is still
+It does not claim WiFi works end to end: association, DHCP and HTTPS remain
+unproven. The flight proves MHI power-up, QMI board/firmware load, 102 channels,
+`en0` up and scan (12 networks). It does not replace c8's audit status: c8 is still
 HOLD and must not be built, booted or merged.

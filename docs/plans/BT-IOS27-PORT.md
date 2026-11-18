@@ -82,7 +82,10 @@ not the Apple tag alone.
 ## 5. Plan
 
 1. **P0 - carry the driver stack.** Done on `feat/bt-ios27-port`: 0507-0518
-   patches and the series entries are committed.
+   patches and the series entries are committed. They are staged in
+   `patches/xnu/series` (the iOS 16 series); the iOS 27 board selects
+   `patches/xnu-12377/series`, so **this branch does not yet build Bluetooth**.
+   See §5.1.
 2. **P1 - assemble the patched xnu-12377 base.** Check out the fork's pinned
    UniXNU and UniXNU-sm8475-common revisions, apply their arch/soc series, then
    the device series. Record the first failing patch; do not skip it.
@@ -95,10 +98,33 @@ not the Apple tag alone.
 5. **P4 - hardware only when iOS 27 reaches `bsd_init`.** Until then, every
    kernel/firmware flight stays on the iOS 16 line.
 
+### 5.1 Series staging and selection
+
+`board.toml` selects four series: `arch:patches/xnu/series`,
+`soc:patches/xnu-12377/series`, `os:patches/xnu/series`, and
+`device:patches/xnu-12377/series`. The eleven BT patches were appended to
+`patches/xnu/series`, which the iOS 27 board does not read. This is deliberate:
+moving them to `patches/xnu-12377/series` before 0501, 0502, 0509, 0510 and 0512
+are rebased would make the F1 build fail at the first incompatible hunk.
+
+Activation order once the hooks are rebased:
+
+1. port 0501 (`bsd/conf/files` entries) to the xnu-12377 file list;
+2. port 0502 (`bsd_init.c` start call) to the 24A446 init path;
+3. port 0509 (MiniBluetooth service), 0510 (blob link) and 0512 (late start);
+4. append the eleven patches to `patches/xnu-12377/series` in the same order;
+5. build and confirm the qbt source is compiled and `qbt_k60_start` is linked.
+
+Until step 5 passes, this branch's BT code is source-carried but not selected,
+and no iOS 27 build should be described as containing Bluetooth.
+
 ## 6. Open risks
 
 - The fork's iOS 27 port has no Bluetooth phase and no BT component; this branch
   is ahead of the fork's own bring-up order.
+- The eleven BT patches are staged in `patches/xnu/series`, not in the
+  `device:patches/xnu-12377/series` list the iOS 27 board reads. No F1 image
+  from this branch contains the qbt driver.
 - The iOS 27 userland Bluetooth stack (`bluetoothd`, BlueTool) is a separate
   problem from the kernel transport. Passing firmware download does not make
   Bluetooth usable.

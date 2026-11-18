@@ -108,6 +108,18 @@ argument); upstream clang rejects it. The device series carries
 `ptrauth-string-discriminator.patch`, which keeps Apple clang's spelling and
 uses the three-argument form otherwise. Only `ucred.cr_label` is affected.
 
+On a WSL host whose checkouts live under `/mnt/c`, point `UNIXNU_OUT` at ext4:
+
+```sh
+export HOME=/home/<user>        # the Windows session exports a Windows HOME
+export UNIXNU_OUT=$HOME/ios27-out
+python3 ./unixnu build kernel --device ../UniXNU-mondrian-ios27
+```
+
+drvfs put every clang in I/O wait and produced about six objects a minute with
+the machine 95% idle; the feeds, refer clones and objects belong on ext4 and
+only the repositories stay on `/mnt/c`.
+
 The userdata image still needs macOS
 (`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1 does
 not.

@@ -569,8 +569,9 @@ uint64_t scan_clock_ns() {
 // chance to appear in the same flight. The station's own association uses the access point's beacon directly,
 // not this record, so nothing on the air changes. Test branch only.
 static bool drop_scan_element(uint8_t id, uint32_t len) {
-  (void)len;
-  return id == 7;   // 802.11d Country: wifid prints the advertised country of every network before filtering
+  if (id == 7) return true;               // 802.11d Country: wifid prints and merges networks by the country they carry
+  if (id == 221 && len < 4) return true;  // vendor-specific without an OUI is not a legal element; wifid may refuse the record
+  return false;
 }
 void fill_result(scan_result24 &record, const nw_bss_info &b,uint64_t sampled_ns) {
   memset(&record, 0, sizeof record);scan_result &r=record.legacy;

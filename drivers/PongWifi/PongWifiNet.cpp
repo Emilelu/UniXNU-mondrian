@@ -255,6 +255,19 @@ void freeze_scan_list() {
     while (at && gSnap[at - 1].signal_dbm < b.signal_dbm) { gSnap[at] = gSnap[at - 1]; at--; }
     gSnap[at] = b; gSnapCount++;
   }
+  // The daemon's list holds an unrelated 5 GHz network but not this access point's 5 GHz record, so either the
+  // name (iOS guesses a 5 GHz twin of a 2.4 GHz SSID) or a field of the record is the filter. Serving a copy of
+  // this record under an unrelated name separates the two on one screen. Test-branch experiment only.
+  for (unsigned i = 0; i < gSnapCount; i++) {
+    const nw_bss_info &b = gSnap[i];
+    if (b.freq_mhz < 3000 || b.ssid_len < 2 || gSnapCount >= 63) continue;
+    nw_bss_info c = b; static const char nm[] = "K60SYNTH"; c.ssid_len = sizeof nm - 1;
+    memset(c.ssid, 0, sizeof c.ssid); memcpy(c.ssid, nm, c.ssid_len);
+    c.bssid[5] = static_cast<uint8_t>(c.bssid[5] ^ 0x40);
+    gSnap[gSnapCount++] = c;
+    log(6, "wifi-net: synthetic 5 GHz clone of %u MHz served as %s", b.freq_mhz, nm);
+    break;
+  }
 }
 // The scan list counted by band. The Settings pane builds its list from these records, so a band that is
 // missing here cannot appear there, and the strongest few per band say what the radio actually heard.
@@ -282,8 +295,10 @@ void log_scan_table() {
         i, count, b.freq_mhz, b.signal_dbm, b.age_ms, b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4],
         b.bssid[5], b.ie_len, b.caps, cc[0], cc[1], b.ssid_len, reinterpret_cast<const char *>(b.ssid));
     // The element blob is what the daemon parses for security, rates and band capability, so a record it drops
-    // despite being served differs here first. Print the inventory instead of 384 raw bytes.
-    unsigned ssid = 0, rates = 0, dsss = 0, cc_ie = 0, rsn = 0, rsn_at = 0, ht = 0, vht = 0, he = 0, width = 0;
+    // despite being served differs here first. Print the inventory, the element-id list and the RSN bytes: the
+    // 5 GHz record of this access point carries 384 bytes of elements against the 2.4 GHz record's 347, and only
+    // the id list says which 34 bytes that is.
+    unsigned ssid = 0, rates = 0, dsss = 0, cc_ie = 0, rsn = 0, rsn_at = 0, ht = 0, ht40 = 0, vht = 0, vw = 0, he = 0;
     for (unsigned o = 0; o + 2 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1]) {
       const unsigned id = b.ie[o], len = b.ie[o + 1];
       switch (id) {
@@ -291,15 +306,28 @@ void log_scan_table() {
       case 1: rates = len; break;
       case 3: dsss = 1; break;
       case 7: cc_ie = 1; break;
-      case 45: ht = 1; if (len > 1) width = (b.ie[o + 3] >> 2) & 1u; break;
+      case 45: ht = 1; if (len > 1) ht40 = (b.ie[o + 2] >> 1) & 1u; break;
       case 48: rsn = len; rsn_at = o; break;
-      case 191: vht = 1; if (len > 0) width = 1u + b.ie[o + 2]; break;
+      case 191: vht = 1; if (len >= 4) { const unsigned cap = b.ie[o + 2] | (b.ie[o + 3] << 8); vw = (cap >> 2) & 3u; } break;
       case 255: if (len >= 1 && b.ie[o + 2] == 35) he = 1; break;
       }
     }
-    log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u vht %u width %u he %u",
+    log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u ht40 %u vht %u vw %u he %u",
         b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4], b.bssid[5], ssid, rates, dsss, cc_ie, rsn, rsn_at,
-        ht, vht, width, he);
+        ht, ht40, vht, vw, he);
+    char ids[240]; unsigned at = 0; ids[0] = 0;
+    for (unsigned o = 0; o + 2 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1]) {
+      if (at + 10 >= sizeof ids) { at += static_cast<unsigned>(snprintf(ids + at, sizeof ids - at, " ...")); break; }
+      at += static_cast<unsigned>(snprintf(ids + at, sizeof ids - at, "%s%u/%u", at ? " " : "", b.ie[o], b.ie[o + 1]));
+    }
+    log(6, "wifi-net: ie-list %02x:%02x:%02x:%02x:%02x:%02x %s", b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3],
+        b.bssid[4], b.bssid[5], ids);
+    if (rsn >= 8) {
+      const uint8_t *r = b.ie + rsn_at + 2;
+      log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x",
+          b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4], b.bssid[5], r[0], r[1], r[2], r[3], r[4], r[5],
+          r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]);
+    }
   }
 }
 void on_scan_done() {

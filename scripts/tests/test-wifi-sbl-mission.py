@@ -294,9 +294,17 @@ def main() -> int:
           "if (count <= 40 || gScanServed <= 3 || gScanServed % 8 == 0)" in net and
           'log(6, "wifi-net: 5ghz %u ie %02x%02x%02x%02x%02x%02x%02x%02x' in net)
     check("every scan record prints its element inventory",
-          'log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u vht %u width %u he %u"' in net and
-          "case 191: vht = 1; if (len > 0) width = 1u + b.ie[o + 2]; break;" in net and
+          'log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u ht40 %u vht %u vw %u he %u"' in net and
+          "vw = (cap >> 2) & 3u;" in net and
           "case 255: if (len >= 1 && b.ie[o + 2] == 35) he = 1; break;" in net)
+    check("a scan record prints its element ids and RSN bytes",
+          'log(6, "wifi-net: ie-list %02x:%02x:%02x:%02x:%02x:%02x %s"' in net and
+          'snprintf(ids + at, sizeof ids - at, "%s%u/%u"' in net and
+          'log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"' in net)
+    check("a copy of the 5 GHz record is served under an unrelated name",
+          'static const char nm[] = "K60SYNTH"' in net and
+          'log(6, "wifi-net: synthetic 5 GHz clone of %u MHz served as %s", b.freq_mhz, nm);' in net and
+          "c.bssid[5] = static_cast<uint8_t>(c.bssid[5] ^ 0x40);" in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

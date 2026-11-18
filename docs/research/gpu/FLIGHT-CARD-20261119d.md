@@ -95,7 +95,12 @@ SpringBoard 下一次合成就会覆盖。若这一帧之后屏幕**仍然**是�
 
 （飞行后写在这里；`criteria-sha256` 在第一次写入时钉入。）
 
-- criteria-sha256: `28bc85968a223c8eae70745f2261e073002641e5c588ee20201fb45ef87f6897`
+- criteria-sha256: c08fd7beb17dca584a8fc72fb9491291599f65eaa1bedc591c541e323b4c139e
+
+  第一次写进 §5 的 `28bc8596…` 是错的：§4 自创建提交 `5bb92956` 起一个字节都没改过
+  （`diff` 过整段 §4 为空），门禁算出来一直是 `c08fd7be…`。钉进去的值和门禁算的
+  不一致，比不钉更糟——它会让每一次合法重飞都被拒。教训：钉摘要的脚本必须调用门禁
+  自己的函数，并在钉完当场跑一次门禁确认通过，而不是只信「我 import 了它」。
 
 ### 5.1 第一次飞（`usblog-20261119-064122`）：**F2 命中，对照没跑**
 
@@ -144,3 +149,108 @@ bytes = frame.stride * (frame.height - 1) + row = 5888 * 3199 + 5760 = 18,841,47
 
 判据未改，因此 `criteria-sha256` 不变，按 §3 P6 允许在同一张镜像之后重飞——
 但这一飞需要**新镜像**（改动在插件里）。下一张镜像 `gpu-blitprobe2-20261119`。
+
+### 5.5 第二次飞（`usblog-20261119-070345`）：**PASS，S1–S7 全过，而且这次真有动画**
+
+镜像 `gpu-blitprobe2-20261119`（`boot.img 647f277d…`、kernel `a5adfdc7…` 105,693,184 B、
+插件 `metal-plugin-20261119o` 的 `PongAdrenoMetal` 111,808 B sha256 `d55f7489…`）。
+证据 500,644 字节，`supervisor rc=0`，抓取完整，无 panic、无复位。
+
+有效性：`compositor=112 frames · client_commits=1215 · scanout_lines=106` ⇒ **有效**，
+而且这是 GPU 线上第一次有持续动画的飞行（上一飞只有 8 次 commit，静屏）。
+
+| 判据 | 结果 | 实测 |
+|---|---|---|
+| S1 无 panic | ✅ | `panic(` 0、`K60KEXC` 0、`crashed: backboardd` 0 |
+| S2 恰一行 control | ✅ | 1 行 |
+| S3 两个数都非零 | ✅ | 1,993 µs 与 1,835 µs |
+| S4 形状 + `imports==frames` | ✅ | `texture untile source=5888 scanout=5760 rows=3200`，99/99 行成立 |
+| S5 三个数都记下 | ✅ | 见下 |
+| S6 面板 ≥110 Hz | ✅ | `after the UI frame te` 122/s |
+| S7 仍在出帧 | ✅ | 106 条 `scanout frames=` |
+
+### 5.6 结论：固件帧缓冲**不是**慢的那个 —— 三处数字合起来推翻了上一轮的归因
+
+```
+scanout blit control bytes=18432000 src-to-device=1993 us device-to-scanout=1835 us
+```
+
+同一个 18,432,000 字节、同一个 `copyFromBuffer` + `commit` + `waitUntilCompleted` 形状：
+
+| 目标 | 耗时 | 吞吐 |
+|---|---|---|
+| GPU 自行分配的 shared 缓冲 | 1,993 µs | 9.25 GB/s |
+| 固件帧缓冲（物理地址导入） | 1,835 µs | 10.04 GB/s |
+
+两者相差 0.92 倍，**固件帧缓冲甚至略快**。所以：
+
+- **F4 被否**：不是「目标端不可缓存」。走 zizhan 的 `PongScanoutFrame.target`
+  （把画面拷进面板缓冲）不会因为「换了个更快的目标」而带来收益。
+- **F3 被否**：两个数都远低于 5 ms，不是全局带宽/频率/不可缓存的问题。
+- **F5 被否**：`src-to-device` 只有 2.0 ms，拷贝实现（`copyFromBuffer` → DMA 路径）本身没问题。
+
+真实路径的稳态中位（99 条 `frames>=20` 的样本）：
+
+| 段 | 中位 |
+|---|---|
+| `import` | 53 µs |
+| `encode` | 424 µs |
+| `submit` | 3,015 µs |
+| `gpu` | 5,302 µs |
+| `sum` | 12,552 µs |
+| `copy`（= `present()`） | 12,631 µs |
+
+`copy - sum` 中位 89 µs，99/99 行 `copy ≥ sum` ⇒ 四段确实构成 `present()`，账是平的。
+
+⇒ **同一个 18.4 MB，纯 buffer→buffer 只要 1.9 ms，而真实路径的 `gpu` 是 5.3 ms、
+`present()` 是 12.6 ms。差出来的 10.7 ms 不在目标端、不在带宽、不在 DMA**，
+而在拷贝的**形状**：真实路径走的是 `copyFromTexture`（linear texture untile，
+源 stride 5888 → 目标 stride 5760），对照走的是单次 `copyFromBuffer`。
+这条结论与 2026-11-18 那两次飞行（逐行 3,200 条命令 encode 15 ms、纹理 encode 0.4 ms）方向一致，
+但现在有了目标端的对照，把「目标」和「形状」彻底分开了。
+
+### 5.7 另一个更重要的数字：`present()` 只占一帧的 9 %
+
+`scanout frames=1 at 90.776 s` → `frames=1000 at 230.386 s` = 999 帧 / 139.6 s = **7.16 fps**，
+即帧间隔 **139.7 ms**。`present()` 的 12.6 ms 只占 **9.0 %**。
+
+即使把扫出做到 0，上限也只有 ~7.9 fps。**扫描路径不是 120 fps 的主要障碍** ——
+这是对前几轮结论的修正，必须写明，否则下一轮还会继续优化错的 9 %。
+
+合成器窗口（18 个）的帧率分布：`0.1 20.4 5.0 11.1 2.1 21.9 17.8 1.5 7.3 15.0 11.4 6.8 17.8 8.1 22.1 4.9 6.0 5.7`，
+中位 9.6 fps，最好 22.1 fps（该窗口 `102 frames in 5010 ms, 14036 us each in the driver`）。
+即使在最好的窗口，`present()` 的 12.6 ms 也只占 ~28 %，另外 30 ms 在别处。
+
+同一次飞行的客户端侧累计：`G commit-to-complete n=1215 total=27372ms max=752ms mean=22528us`
+（1.2 次 commit/帧 × 22.5 ms ≈ 27 ms/帧，比我们的 `present()` 还大）；
+`J completed wait n=601 total=8787ms`；`J scheduled wait n=617 total=722ms`（很小）；
+`J surface cache n=1838 bytes=24456486912 dup=8 us=694`（24.5 GB 被导入过，但没有重复导入的浪费）；
+`T pipeline n=101 total=1516ms max=715ms`、`T library n=5 total=147ms`、`V vkpipe n=0`
+⇒ 管线编译仍是一次性成本，不是稳态成本。
+
+### 5.8 这张卡自己的缺陷（必须记下来）
+
+§4.3 的六条失败规则覆盖了「目标慢」「实现慢」「全局慢」「探针没跑」「画面错位」，
+**唯独没有覆盖「两个都很快」这一支** —— 而这正是实际发生的事。
+
+后果：这一飞虽然 S1–S7 全过，判据却**没有为「真相是拷贝形状」准备任何出口**，
+结论是我事后从三个数里读出来的，不是卡预先指明的。这属于 P-242「判据存在 ≠ 判据覆盖」
+的同一族：判据枚举了所有**慢**的分支，却没枚举「对照推翻了假设」这一支。
+下一张卡的写法：每条对照实验都必须包含「两个都正常 ⇒ 假设被推翻，下一步是 X」这一支。
+
+### 5.9 下一步
+
+1. **主攻方向换成客户端绘制**：`present()` 只占 9 %，先把「一帧 139.7 ms 花在哪」
+   做一次端到端分解。现有 `T/G/J/K` 行只覆盖我们自己的 bridge，
+   缺的是 SpringBoard / CoreAnimation 那一段（合成器窗口已给出
+   「14036 us each in the driver」与「408888 us each in the driver」两个极端，
+   说明有的窗口驱动内只 14 ms、有的 34 秒只出 4 帧）。
+2. **把纹理 untile 换成单次 `copyFromBuffer`**：对照证明这条能到 1.9 ms（省 10.7 ms/帧）。
+   前提是扫描缓冲的 stride 等于 surface 的 5888 —— 即自己拥有扫描缓冲
+   （zizhan 的 `db[]` 路线，见 `ZIZHAN-DBUF.md`），并且要接受「画面不上屏」
+   直到 DPU/SSPP 编程完成。这条路能把 `present()` 从 12.6 ms 压到 ~2 ms，
+   但按 §5.7 只值 7.6 % 的帧时间。
+3. **`submit` 3.0 ms 仍未解释**：coherence 已开、`publishMapped` 已降到 51 µs，
+   这 3 ms 在别处（提交路径的固定开销）。
+4. **47 条 `native-metal: surface import refused: no-copy buffer: DeviceLost`** 是本飞新症状，
+   未查。

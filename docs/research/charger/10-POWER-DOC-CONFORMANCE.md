@@ -209,14 +209,14 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 
 | 验证项 | 状态 | 证据 / 缺口 |
 | --- | --- | --- |
-| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；host 测试 71 项覆盖应答/拒绝/超时 |
+| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；host 测试 82 项覆盖应答/拒绝/超时 |
 | OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；字段值与原始值换算一致（见 §7.3、§7.4） |
 | 响应超时 | host 已验证 | `test-k60-charger-subscription.c` 第 13 节：timeout 只标记未完成字段，poisoned epoch 生效；真机未制造超时 |
 | 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:163-191`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，最终 image e 已包含该修复，IOKit 级 absent 注册未上真机 |
-| 插拔电源 | 未验证 | 需要人工插拔并在同一次 usblog 里看 `external`/`charging`/`usb_online` 的变化；本轮未做 |
-| 充放电 | 未验证 | Android 侧 sample 为充电中（status=2、current=0），XNU 侧 status=1；放电段未采样 |
+| 插拔电源 | host 状态机已验证 / 真机未验证 | 第 15 节构造 USB 在线 1→0 与 status 1→2，断言 `external`/`charging`/`usb_connected` 翻转；真机脚本化插拔仍需要人工在同一次 usblog 里观察 |
+| 充放电 | host 状态机已验证 / 真机未验证 | 第 15 节覆盖 status 1 充电、status 2 放电、status 4 full、status 1 无外接拒绝、status 2 正电流拒绝；Android 侧实际充电/放电段未采样 |
 | 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:429-437` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image e），IOKit 级 stop/start 未在真机执行 |
-| 与 OEM/目标电量计逐项对照 | 部分/当前 FAIL | image c C1/C2 PASS；C3 用冷战基线只差温度 +7°C，用暖基线差电压/电流，尚未得到匹配热/电状态的 ≥3 对真实 Android 样本 |
+| 与 OEM/目标电量计逐项对照 | 部分/当前 PASS（匹配电流子集） | image e C1/C2 PASS；C3 对同窗口 9 行 Android 基线仅电流 5/9 对超差（Android 88–626mA，XNU 397mA），同会话 3 行匹配电流基线 PASS；全窗口仍需更稳定的同电流 Android 基线 |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
 
@@ -313,13 +313,14 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   同会话 3 行匹配电流基线 `android-matched3.tsv`（1794965733 4347mV/516mA、1794965769 4379mV/317mA、
   1794965775 4369mV/276mA）判 C3 PASS：3 对全部在阈值内，最大 |ΔV|=43mV、|ΔSOC|=0、|ΔT|=1.10°C、|ΔI|=121mA（报告 `judge-android-matched3.txt`）。
   旧 route-c dmesg 窗口 16447–16652 仍因冷战基线（ΔSOC +12pp、ΔT +7.3°C）判 FAIL，不是同状态基线。
-- 该镜像的插拔、放电、超时与服务重启仍未获得真机脚本化证据。
+- 该镜像的插拔、放电、超时与服务重启仍未获得真机脚本化证据；第 15 节只证明 manager 对待发布样本的状态转换，不代替真机插拔。
 
 ## 8. Host 测试覆盖
 
-`scripts/tests/test-k60-charger-subscription.c` 当前 71 项断言，覆盖：
+`scripts/tests/test-k60-charger-subscription.c` 当前 82 项断言，覆盖：
 字段校验/范围、有效-失败位图、原始值复制（4277000 µV / 2830 / 8900 百分之一）、
-电池缺失路径、超时只标记未完成字段、transport 重启后丢弃旧 epoch 并重新发布。
+电池缺失路径、超时只标记未完成字段、transport 重启后丢弃旧 epoch 并重新发布，
+以及第 15 节的插拔/充电/放电/full 状态转换与非法状态拒绝。
 运行方式见 `scripts/tests/run-k60-handoff-host.sh`（WSL gcc）。
 
 ## 9. 边界：固件所有权与未闭项
@@ -332,7 +333,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   HMAC-SHA256 认证、PD/PPS/MiPPS 合约、限值和温控策略。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
   1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118e/boot.img`（sha256 `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`）已于 2026-11-18 03:22 构建、09:38 上机，包含 `592523aa`/`6750c7bd`/`af759fe4`；C1/C2 PASS，12 条完整样本，C3 对同窗口 9 行 Android 基线仅电流 5/9 对超差，同会话匹配电流 3 行基线 C3 PASS（详见 §7.6）。上一版 image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
-  2. 真机插拔、放电、超时未执行；服务重启的代码路径已补（`6750c7bd`，image e 包含），IOKit 级 stop/start 未上真机。
+  2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔与充电/放电/full 状态转换，但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e 包含），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同窗口样本；image e 已有 12 条完整 XNU sample，9 行 Android 全窗口只在电流上 5/9 对超差（Android 电流波动 88–626mA，XNU 397mA），同会话匹配电流 3 行基线已 PASS；全窗口通过仍要求更稳定的同电流 Android 基线。
   4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；标准 `CurrentCapacity`/`MaxCapacity` 现在按官网发布为百分比（`MaxCapacity=100`），`AppleRawCurrentCapacity`/`AppleRawMaxCapacity` 保留 mAh，smoke 同时校验这两组值；缺失电池首帧注册尚未在真机验证。
 - 设备状态（2026-11-18 09:44）：image e 采集完成，`K60AUTORESET` 已发布 `restart reason published`；controller 已结束（rc=0）。设备由 `k60-device.sh state` 根据当前 USB 状态判断，boot 证据见 §7.6。

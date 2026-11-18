@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,1048 @@
+@@ -858,6 +892,1053 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -301,6 +301,11 @@
 +
 +	if (!state->playback_running || state->map_handle == 0u ||
 +	    state->dma_va == 0u) {
++		return false;
++	}
++	/* Flow control: four buffers in flight were enough to kill the machine,
++	 * so one stays outstanding until the DSP reports it is done with it. */
++	if (state->inflight >= 1u) {
 +		return false;
 +	}
 +	for (unsigned i = 0; i < PONG_AUDIO_SLOTS; i++) {

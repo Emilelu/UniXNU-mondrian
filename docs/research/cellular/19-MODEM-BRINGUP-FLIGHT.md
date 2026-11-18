@@ -227,7 +227,7 @@ rails（`ncalls==1`，一条 PAS 命令都没有），rail 返回 -7 时在 `ini
 `scripts/update-modem-pas-patch.py` 重生成 0621 的三段 new-file hunk（手改行数导致 patch
 不可应用的那类错误也就不会再出现），`scripts/tests/test-k60-modem-image.py` 通过。
 
-k21 内核与 `pong_modem=4 pong_ipa=0` 的图是离线候选。
+k21 内核与 `pong_modem=4 pong_ipa=0` 的图是离线候选；`3e449773` 把 xo.lvl 改成 Pong 的字面 3 之后，P1 候选换成了 §3.11 的 k22。
 
 打包结果：
 
@@ -259,6 +259,40 @@ B 图在 `mem_setup` 之后还会执行 `transport_prepare`（SMEM 428/478/479�
 `mem_setup` / `auth_reset` 行即实现有 bug。它是 HR-01 要求的「单资源、单变量、显式授权」
 诊断，尚未飞行。
 
+### 3.11 k22：xo.lvl 与 Pong 对齐（离线，未上机）
+
+上机前按仓库规则做了同型机基准对照。Pong 自己的 modem runtime
+`E:/k60-work/references/pong-baseband/PongModemRuntime.cpp:146-161` 对 cx.lvl / mss.lvl
+先用 `qcom_rpmh_level_index(&resource, 384, &level)` 把 384 换算成索引再投，而 xo.lvl 直接
+`pong_rpmh_vote(xo.address, 3)` —— 写的是字面 3，不过 level 表。我们原来的
+`k60_modem_find_rail(db, "xo.lvl", 3u, ...)` 无条件调用 `k60_rpmh_level_index`
+（`drivers/PongPower/K60PmicRail.c:120-140`：`level_count == 0` 直接返回 `K60RpmhNoLevel`），
+于是同一条 rail 要么打印 `K60MODEM power failed: xo.lvl`，要么把索引当值写进去 —— 而这正是
+P1 唯一要测的动作，属于「测之前先把被测动作改对」。
+
+`3e449773` 改成 `k60_cmd_db_find(..., "xo.lvl", &xo)` 后按字面 `3u` 投票，cx/mss 保持索引语义；
+同时新增 `scripts/update-modem-qrtr-patch.py`，按 `scripts/update-modem-pas-patch.py` 的模式从源码
+重生成 0622 的五段 new-file hunk（含 include 改名与 `qcom_glink_ → k60m_glink_`，P-190），
+`scripts/tests/test-k60-modem-image.py` 通过，宿主套件仍 `TESTS OK 12`。
+
+静态证据（k22 kernel 的 `llvm-objdump`）：`_k60_modem_rails_vote` 里只有 3 次
+`_k60_modem_vote_tcs4`、2 次 `_k60_modem_find_rail`（cx/mss）和 1 次 `_k60_cmd_db_find`（xo）；
+第三次投票前是 `mov w3, #0x3`（`fffffff00776320c`），投票值是字面 3，不是算出的索引。
+
+打包结果（P1 的新候选）：
+
+| 项 | 值 |
+|---|---|
+| kernel | `a2139ecb5e3e65e76ab29dbb8fab2584c691fc0aad7940b153d93f32d02ae147`，105,562,112 B（源 `3e449773`） |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386`（与 C 同一份 clean metadata） |
+| boot | `393d7f2f01b878ace9bfb2cafec1614b68a4e2ce23f1170072f14379a2c70947`，201,895,936 B |
+| payload | `74ade8b1a62ee63f8a1cb318a9104a41d9571c8201852efd4b90c9069c6ca752`；payload.json `0e7b52a7ce4c24be869169baf1cb323fe606072c6ecf0a51472c69180a48f496` |
+| payload kernel | `229ebe507bf6a2475f3bd390c0d48033e1bb40bfb5453adde90c445979a2d599`（strings 含 `diagnostic stop after power` 与 `K60MODEM power ok cx=`） |
+| args / 布局 | `pong_modem=4 pong_ipa=0`；560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-boot-image.py` 与 `test-bootimg-layout.py` 均 PASS |
+
+k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也随之作废，B 必须在 P1 通过后
+用同一份 k22 kernel/FD/DTB/carrier 重打。P1 判据本身不变（§4.1），只是 `xo=` 现在必须是字面 3。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 ### 4.1 成功判据（全部满足才算 S）
@@ -275,7 +309,8 @@ B 图在 `mem_setup` 之后还会执行 `transport_prepare`（SMEM 428/478/479�
   carrier 汇总行存在；`K60ModemImage` 照常发布；XNU 起得来。
 - **P1**（power-only，`pong_modem=4`）：恰好一行 `K60MODEM power ok cx=... mss=... xo=...`、
   一行 `K60MODEM power prepared` 和 `K60MODEM diagnostic stop after power: init_image not sent`；
-  不得出现 `K60MODEM init_image` / `mem_setup` / `auth_reset` 行，也不得出现 `K60MODEM power failed`。
+  不得出现 `K60MODEM init_image` / `mem_setup` / `auth_reset` 行，也不得出现 `K60MODEM power failed`；
+  `xo=` 的投票值必须是字面 3（§3.11），不是 cmd-db 的 level 索引，出现 `K60MODEM power failed: xo.lvl` 即判失败。
 - **S3**：B 要求以下五行都出现且 rc=0；C 只要求 `init_image`、`mem_setup` 和诊断停机行
   （C 不执行 power/transport）：
   `K60MODEM power ok cx=`（含 mss/xo）
@@ -307,11 +342,11 @@ B 图在 `mem_setup` 之后还会执行 `transport_prepare`（SMEM 428/478/479�
    停在 `K60MODEM diagnostic stop after mem_setup: auth_reset not sent`。
    **已飞并 PASS**：k18 `E:/k60-work/artifacts/modem-20261117k18/boot-modem-c-diagnostic-m2.img`
    （`1ae178bb…`，§3.6，2026-11-18 23:45）。此条保留为判据定义，不再重复飞。
-2. **P1（power-only，单变量，先飞）**：`pong_modem=4`，用 k21 的
-   `E:/k60-work/artifacts/modem-20261117k21/boot-modem-rails-only.img`（`7b6bb385…`，§3.10），按 P1 判；
+2. **P1（power-only，单变量，先飞）**：`pong_modem=4`，用 k22 的
+   `E:/k60-work/artifacts/modem-20261117k22/boot-modem-rails-only.img`（`393d7f2f…`，§3.11），按 P1 判；
    通过后才允许 B。HR-01 要求这类新 TCS4 用途单独授权，没有授权就不飞。
-3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用与 P1 同一份 kernel/UEFI/DTB/carrier 重新打包的 B 镜像
-   （截至 2026-11-19 尚未打包），按 §4 的 S/F 判。
+3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用与 P1 同一份 k22 kernel/UEFI/DTB/carrier 重新打包的 B 镜像
+   （k21 的 `eefe6fdf` 随 k22 作废），按 §4 的 S/F 判。
    C/P1/B 必须是同一份 kernel/UEFI/DTB/carrier，只在打包 payload 时改 `--kernel-arg`；不得在 B 上顺手改代码。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

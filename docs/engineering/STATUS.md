@@ -410,6 +410,19 @@ K60SEED /private/var/pong/PongAdrenoMetal.bundle/Info.plist bytes=555 resid=0 er
 `PongMetalBridge.dylib` ≈33 MB、`libvulkan_freedreno.dylib` ≈18 MB（必须走
 文件系统，不可能做成 C 数组）。
 
+## 2026-11-18 GPU 逐行搬运实测：比纹理慢 14.6 ms，`submit` 与搬运形状无关
+
+- `gpu-stride-20261118`（`usblog-20261118-181618`，295,620 B）判 **FAIL**，唯一失败项是 S6：
+  逐行搬运下 `submit` 中位数 11,483 µs，未达 ≤6,000 µs。
+- 与 `gpu-import-scope2` 逐项对照：`encode` 389 → 15,040 µs、`copy` 23.0 → 37.6 ms，
+  而 `submit` 11,478 → 11,483 µs。**删掉每帧纹理让每帧慢 14.6 ms**，纹理路径已恢复；
+  3,200 条命令各要 ~4.7 µs 编码，是真正的成本所在（P-235）。
+- `submit` 在两种完全不同的搬运形状下只差 5 µs，加上 45 样本的 `r(submit,gpu)=0.007`，
+  判定它是翻译层每次提交的固定 CPU 开销；下一步进 `commit_now`/`submit_batch` 打点，
+  不再在外层调搬运形状。
+- 帧率 7.04 fps（669 帧 / 95 s），与 `present()` 的单帧 23–37 ms 同量级；
+  距 120 fps（≤8.3 ms/帧）还差一个数量级。
+
 ## 2026-11-18 GPU 帧路径：成本被定位到 `presenter->present()`，采样节奏教训记入 P-233
 
 两次上机都是 Lead 自己飞的，只 `fastboot boot`，没有写过分区。

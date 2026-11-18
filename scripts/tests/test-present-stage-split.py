@@ -132,17 +132,20 @@ def main():
     check('the equal pitch path is still one run',
           'copyFromBuffer:source sourceOffset:0 toBuffer:target_ destinationOffset:0 size:frame.stride * (frame.height - 1) + row' in presenter,
           'the fast path must not have been replaced by a loop')
-    check('a pitch change is copied row by row, not through a texture',
+    check('a pitch change still goes through a linear texture',
+          'newTextureWithDescriptor' in presenter and 'copyFromTexture:' in presenter
+          and 'shape = "texture untile";' in presenter,
+          'a 2026-11-18 flight replaced it with 3,200 copy commands and made each frame 14.6 ms slower (P-235)')
+    check('the row loop survives as the fallback a misaligned stride forces',
           'for (uint32_t y = 0; y < frame.height; ++y)' in presenter
-          and 'copyFromBuffer:source sourceOffset:size_t(y) * frame.stride' in presenter,
-          'a linear texture makes the translator create and allocate an image every frame')
-    check('no per-frame texture survives in the copy path',
-          'newTextureWithDescriptor' not in presenter and 'copyFromTexture:' not in presenter,
-          'the texture branch turned a pitch change into per-frame image creation')
-    check('the copy shape and the strides are reported once per flight',
-          'scanout copy per row source=%zu scanout=%zu rows=%u' in scanout
-          and 'scanout copy single run stride=%zu rows=%u' in scanout,
-          'a silent branch choice hid the per-frame image allocation for two flights')
+          and 'copyFromBuffer:source sourceOffset:size_t(y) * frame.stride' in presenter
+          and 'minimumLinearTextureAlignmentForPixelFormat' in presenter,
+          'a stride the device cannot express as a linear texture has no other shape')
+    check('the report names the shape that ran, not a boolean',
+          'scanout copy %s source=%zu scanout=%zu rows=%u' in scanout
+          and 'copyShape()' in scanout and 'singleRun()' not in scanout
+          and 'const char *lastShape_ = "none";' in presenter,
+          'two flights could not tell which primitive ran because the branch was silent (P-235)')
     check('the copy is still waited for', '[commands waitUntilCompleted];' in presenter,
           'an unwaiting present would report frames the GPU never retired')
 

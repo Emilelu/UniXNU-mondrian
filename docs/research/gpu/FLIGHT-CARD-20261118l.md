@@ -54,4 +54,45 @@
 
 ## 5. 结果登记
 
-（判决在出帧后填写，不在镜像之前填。）
+**镜像**：`gpu-stride-20261118`，`boot.img 1860bc01e727ba1d679fcda78d6268afcb7155f1f10157fd7b66b8aeae8900ef`，
+内核 `92bcd4f26ab1d3d4d98fbd97ecfda9ce4edf8c115022f94363eb18af7a302abc`，
+Metal 插件 `metal-plugin-20261118j`（`PongAdrenoMetal` 94,256 B，sha256 `b84e053a2a509d1829c10145e4b9954c8e2ce174b4d717b03cb623352f5d8f1c`），
+series 228，参数 30 项 / 596 B。
+
+**抓取**：`E:/k60-work/evidence/usblog-20261118-181618`，295,620 B / 4,002 行，
+`capture.json complete=true`，supervisor rc=0，`K60KEXC` 0，panic 0，`crashed: backboardd` 0。
+
+**判决：FAIL**（唯一失败项是 S6，`submit` 没有降下来；其余七项全过）
+
+| 判据 | 结果 | 实测 |
+| --- | --- | --- |
+| S1 无异常 | PASS | `K60KEXC` 0，panic 0 |
+| S2 恰好一行形状行 | PASS | `scanout copy per row source=5888 scanout=5760 rows=3200` |
+| S3 ≥2 条阶段行 | PASS | 74 条 |
+| S4 `imports` 等于 `frames` | PASS | 每一行都相等（F4 计数 0） |
+| S5 `copy` ≥ `sum` | PASS | 稳态 65 个样本里 0 个反向 |
+| S6 逐行时 `submit` 中位数 ≤ 6,000 µs | **FAIL** | **11,483 µs** |
+| S7 单次搬运时 `submit` 与 11,478 µs 相差 ±30% | n/a | 本次是逐行 |
+| S8 仍出帧且 backboardd 不崩 | PASS | `actual GPU scanout copy completed` 2 次，崩溃 0 |
+
+稳态中位数（`frames≥20`，n=65）：`wait` 104 µs、`copy` **37,646 µs**、`done` 46 µs、
+`import` 35 µs、`encode` **15,040 µs**、`submit` **11,483 µs**、`gpu` **11,211 µs**、
+`sum` 37,596 µs（`sum/copy` 中位数 99.8%）。样本帧率 669 帧 / 95 s = **7.04 fps**。
+
+**这一飞的两条硬结论**
+
+1. **纹理不是 CPU 成本，逐行才是。** 与 `gpu-import-scope2`（纹理路径，n=45）逐项对照：
+   `encode` 389 → **15,040 µs**（+14.6 ms），`submit` 11,478 → **11,483 µs**（差 5 µs），
+   `gpu` 10,569 → 11,211 µs，`sum` 23,357 → 37,596 µs，`copy` 23.0 → **37.6 ms**。
+   3,200 条 `copyFromBuffer` 每条要 ~4.7 µs 去编码，而一张线性纹理只要一次命令。
+   **删掉每帧的纹理让每帧慢了 14.6 ms**，所以逐行分支被撤回，纹理路径保留（见提交
+   `perf(gpu): keep the linear texture`）。
+2. **`submit` 与搬运形状完全无关。** 两种毫不相干的搬运形状下 `submit` 是 11,478 µs 与
+   11,483 µs（0.04% 以内），再加上此前 45 个样本的 `r(submit,gpu)=0.007`、`r(submit,前帧 gpu)=0.088`，
+   可以判定 `[commands commit]` 是翻译层里**每次提交固定**的 CPU 成本，既不随搬运量变化，
+   也不在等 GPU。下一步必须进翻译层内部测（`commit_now` → `submit_batch`），
+   不能继续在外层调搬运。
+
+**为什么没命中任何失败规则**：F4 的门槛是「逐行且 `submit` > 16,000 µs」，实测 11,483 µs，
+所以 F4 不成立；这也说明**S6 的方向本来是对的、只是幅度不够**——真正的判决来自与上一飞的
+逐项对照，而不是单飞的绝对阈值。这条已写入 P-235。

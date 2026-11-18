@@ -42,18 +42,14 @@ static void *serve(void *opaque)
                 size_t(frame.stride),frame.width,frame.height});
             clock_gettime(CLOCK_MONOTONIC,&t2);
             lastWait=span(t0,t1);
-            /* One line per flight, before the first rate line: which copy shape ran and the two
-             * strides it ran with. A silent branch choice kept a per-frame image allocation
-             * invisible through two flights. */
-            if(!copies) {
+            /* One line per flight, only after the first successful copy: name the primitive and
+             * both pitches. Reporting on a refused first frame would print stale or zero shape
+             * data and the next retry would produce a second line. */
+            if(!copies && result==gpupresent::kOk) {
                 char path[192];
-                if(context->presenter->singleRun())
-                    snprintf(path,sizeof(path),"scanout copy single run stride=%zu rows=%u",
-                             context->presenter->scanoutStride(),context->presenter->rows());
-                else
-                    snprintf(path,sizeof(path),"scanout copy per row source=%zu scanout=%zu rows=%u",
-                             context->presenter->sourceStride(),context->presenter->scanoutStride(),
-                             context->presenter->rows());
+                snprintf(path,sizeof(path),"scanout copy %s source=%zu scanout=%zu rows=%u",
+                         context->presenter->copyShape(),context->presenter->sourceStride(),
+                         context->presenter->scanoutStride(),context->presenter->rows());
                 report(path,0);
             }
             lastCopy=span(t1,t2);

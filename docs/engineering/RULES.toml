@@ -822,3 +822,11 @@ title = "量出来的时间除以 1000 却仍标 us：外层比内层小一千�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-present-stage-split.py"
 note = "2026-11-18 gpu-import-scope2：wait/copy/done 打印时 /1000 但仍标 us，实为毫秒；先看到 sum>copy 的结构性矛盾再换算，才没有把 23 ms 的 copy 读成 23 µs。"
+
+[[rule]]
+id = "P-235"
+kind = "pitfall"
+title = "删掉一次分配不等于删掉那段开销：逐行搬运比线性纹理慢 14.6 ms，而 submit 差 5 µs"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "2026-11-18 gpu-stride：把纹理换成 3,200 条 copyFromBuffer，encode 389 -> 15040 us、copy 23.0 -> 37.6 ms；同一对照里 submit 11478 -> 11483 us，证明被优化的不是成本。保留纹理，行循环只做对齐兜底，并把形状名称打进日志。"

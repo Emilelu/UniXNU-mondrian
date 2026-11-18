@@ -243,7 +243,7 @@ artifact_check = "brightness-19 产物字符串核对通过（K60 PANEL 8 次、
 
 [hardware.display.step.device]
 done = true
-evidence = "STATUS.md:20 `K60 DISPLAY: first frame presented (swap 1)`；STATUS.md:21 `K60 PANEL: bring-up complete`。"
+evidence = "STATUS.md:20 `K60 DISPLAY: first frame presented (swap 1)`；STATUS.md:21 `K60 PANEL: bring-up complete`。120hz-7 飞行 E:/k60-work/evidence/usblog-20261118-094621/console.log（267,578 B，sha256 BD5C893E44C7ACEC5FDD748D31BEC7673E0B1037D9625614414A8E281A603CC9）：first-GPU-frame switch、11 packets rc 0、before te 55/s、after-UI te 120/s、first frame、SpringBoard 172、sig=11 0、无 DCS failure、backlight conformance=1 control=1；check-120hz-log.py PASS；用户亮度滑块两端确认待完成。"
 
 
 [hardware.display.step.device.prediction]

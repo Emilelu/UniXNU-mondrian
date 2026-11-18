@@ -1,6 +1,6 @@
 # K60 m11a 120 Hz panel switch — implementation and pre-registered flight plan
 
-Status: `120hz-7` built (average line-counter wrap rate, pre-switch autorefresh, first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); flight pending. Branch: `feat/120hz-panel`.
+Status: `120hz-7` flown and PASS by `check-120hz-log.py` (average line-counter wrap rate, pre-switch autorefresh, first-GPU-frame switch, requested-vs-measured refresh split, brightness control gate); brightness-slider physical confirmation pending. Branch: `feat/120hz-panel`.
 
 ## Scope
 
@@ -220,6 +220,15 @@ counter now advanced: `after the switch` wraps 60 over 500 ms (120/s) and
 divider was still in place. `check-120hz-log.py` therefore FAILed only on the
 before 0/s and after-UI 131/s fields; 120hz-7 averages the wrap rate and sets
 the autorefresh divider before the before sample.
+
+`120hz-7` (`E:/k60-work/evidence/usblog-20261118-094621`, console.log 267,578 B,
+sha256 `BD5C893E44C7ACEC5FDD748D31BEC7673E0B1037D9625614414A8E281A603CC9`)
+passed `check-120hz-log.py`: first-GPU-frame switch, eleven packets rc 0,
+before-switch `te 55/s`, after-switch `te 120/s`, after-UI `te 120/s`, first
+frame presented, SpringBoard 172, sig=11 0, no DCS failure, and backlight
+`conformance=1 control=1`. The capture ended at the 300 s auto-reset and the
+phone returned to fastboot; the only open item is the user's physical
+brightness-slider check through both endpoints.
 
 ## Pre-registered success criteria (write before the flight)
 

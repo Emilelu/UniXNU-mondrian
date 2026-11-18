@@ -56,4 +56,45 @@
 
 ## 5. 结果登记
 
-（判决在出帧后填写，不在镜像之前填。）
+### 判决：PASS（归因成功）—— 成本在 `presenter->present()`
+
+证据 `E:/k60-work/evidence/usblog-20261118-135714`（3,716 行，
+`capture.json` `complete`=true，`K60KEXC` 0，`crashed: backboardd` 0）。
+
+| 判据 | 结果 |
+| --- | --- |
+| S1 `K60KEXC` 0 | 成立 |
+| S2 `PONG SCANOUT: frame=` ≥5 | 成立（7 行） |
+| S3 `last frame: wait=` ≥1 | 成立（2 行） |
+| S4 数字自洽 | 成立（每行 `prepare + offer_and_copy ≈ total`） |
+| S5 仍出帧 | 成立（`scanout frames=180 at 201.523 s`） |
+
+实测（微秒）：
+
+| 帧 | prepare | offer_and_copy | total |
+| --- | --- | --- | --- |
+| 1 | 6 | 632,794 | 632,801 |
+| 2 | 8 | 18,009 | 18,017 |
+| 3 | 4 | 37,320 | 37,325 |
+| 4 | 4 | 22,894 | 22,899 |
+| 60 | 8 | 13,296 | 13,305 |
+| 120 | 12 | 19,943 | 19,956 |
+
+渲染线程侧：`wait=14171 us copy=19833 us done=55 us`、
+`wait=118 us copy=16813 us done=38 us`。
+
+按 F4/F5/F6 归类：**命中 F6** —— `copy`（`presenter->present()`，含
+`waitUntilCompleted`）占绝对多数；`prepare` 只有 4–12 µs（F4 不成立），
+`offer_and_copy` 与 `copy` 同阶（F5 不成立，内核只是在等这一次拷贝）。
+
+18.4 MB（1440×3200×4）用 16.8 ms 搬完约 1.1 GB/s，远低于 A730 blit 的预期带宽，
+且 `present()` 每帧都用 `newBufferWithBytesNoCopy` 重新导入同一批 surface 页。
+下一张镜像（`FLIGHT-CARD-20261118h.md`）按这个归因做导入缓存与导入计时。
+
+### 附带更正（判据本身写错一处）
+
+本卡 S5 原写作「存在 `scanout frames=` 行」。实测该行存在且帧数在增长，但
+「帧数在增长」不等于帧率达标——同一飞的帧率是 180 帧 / 201.5 s ≈ **0.9 fps**
+（早期另有 60 帧 / 104.6 s ≈ 0.57 fps 的快照），与 `MiniIOMobileFramebuffer`
+统计行给出的 4–10 fps 一致。下一张卡的 S6 已改为直接算帧率。
+

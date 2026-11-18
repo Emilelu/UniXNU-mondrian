@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,1021 @@
+@@ -858,6 +892,1053 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -381,11 +381,43 @@
 +	return true;
 +}
 +
++/* Before the first real period, send one write whose buffer size is zero.
++ * The DSP then answers, refuses or dies without reading the buffer, which
++ * separates a command-path failure from a memory-access failure. */
++static void
++pong_audio_play_probe_zero(PongAudioState *state)
++{
++	uint8_t packet[GPR_MAX_PACKET];
++	const uint32_t token = 0x10000000u;
++	const uint64_t address = pong_play_slot_address(state->dma_pa, 0u);
++	const uint32_t bytes = pong_ar_write(packet, sizeof(packet),
++	    PONG_AUDIO_GPR_PORT, token, address, state->map_handle, 0u);
++
++	if (bytes == 0u) {
++		printf("PongAudio: PCM zero-byte probe encode failed\n");
++		return;
++	}
++	state->slot_busy[0] = true;
++	state->slot_token[0] = token;
++	state->slot_age[0] = 0;
++	state->inflight++;
++	printf("PongAudio: PCM zero-byte probe send bytes=%u address=0x%llx\n",
++	    bytes, (unsigned long long)address);
++	const int rc = k60_pmic_glink_send_audio(packet, bytes);
++	printf("PongAudio: PCM zero-byte probe rc=%d inflight=%u\n", rc,
++	    state->inflight);
++}
++
 +static void
 +pong_audio_play_begin_stream(PongAudioState *state)
 +{
 +	unsigned primed = 0;
++	static bool zero_probe_done;
 +
++	if (!zero_probe_done) {
++		zero_probe_done = true;
++		pong_audio_play_probe_zero(state);
++	}
 +	while (primed < PONG_PLAY_PRIME_SLOTS &&
 +	    pong_audio_play_submit_slot(state)) {
 +		primed++;

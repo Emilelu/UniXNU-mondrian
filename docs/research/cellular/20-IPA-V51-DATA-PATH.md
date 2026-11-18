@@ -95,10 +95,11 @@ L4 逐项状态：
 
 ### M3 — WDS/QOS QMI 握手 + QMAP mux 注册
 
-- 内容：在 `K60ModemLink.c` 的 QRTR/QMI 分发里增加 IPA 服务 0x31：响应 `INIT_DRIVER`（0x21）、`INDICATION_REGISTER`（0x20）、`DRIVER_INIT_COMPLETE`（0x35），发送 `INIT_COMPLETE`（0x22）；随后做 DPM Open Port、WDS 0x00a2、QOS 0x002b、WDA Set Data Format（0x20），把 `{type 4, interface 1}` 填进 WDS/QOS 请求。
+- 内容：在 `K60ModemLink.c` 的 QRTR/QMI 分发里增加 IPA 服务 0x31：主动发送 `INIT_DRIVER`（0x21），响应 modem 发来的 `INDICATION_REGISTER`（0x20）与 `DRIVER_INIT_COMPLETE`（0x35）请求，再发送 `INIT_COMPLETE`（0x22）指示；随后做 DPM Open Port、WDS 0x00a2、QOS 0x002b、WDA Set Data Format（0x20），把 `{type 4, interface 1}` 填进 WDS/QOS 请求。
 - 验收：IPA QMI 握手 4 条消息全部有应答；WDA 返回成功；mux 1..4 注册成功；日志出现 mux id、endpoint 2/23、DAP 值。
 - 风险：QMAPv5 DAP 常量未确认；modem 可能只接受 QMAPv4；QMI 消息 TLV 版本差异；必须先 QMAPv5 → QMAPv4 → QMAP 回退。
 - 预计文件：`K60/K60IpaQmi.c`（或扩展 `K60/K60ModemLink.c`）、`K60/K60IpaQmi.h`。
+- 已落地（2026-11-19，`2c986e3f`）：`K60/K60IpaQmi.h`、`K60/K60IpaQmi.c`。先把方向钉正：**AP 主动发 `INIT_DRIVER` 0x21，modem 反过来发 0x20/0x35 请求**。Pong 在 `references/pong-baseband/PongModemWan.h:382-420` 的轮询里发送 `INIT_DRIVER`（TLV 0x10..0x22 共 17 个，`:79-95`），收到请求后回 14 字节应答（结果 TLV 0x02；rules 额外带 TLV 0x11 的计数与 id，`:391-399`），成功后再发 `INIT_COMPLETE` 指示 `{4,0,0,0x22,0,7,0,2,4,0,0,0,0,0}`（`:415-420`）；服务 49 的 modem 侧实例 0x201、AP 侧 0x101，端口 0x122/0x123（`:6`、`:61-69`）。编解码器：`k60_ipa_qmi_build_init_driver()` 生成 154 B（7 B 头 + 147 B TLV，窗口基址按 `PongModemWan.h:79-95` 的 base+偏移表），`k60_ipa_qmi_build_init_complete()` 生成 14 B，`k60_ipa_qmi_build_response()`/`k60_ipa_qmi_parse_response()` 处理 0x20/0x23/0x24/0x27/0x35 的应答与结果码，`k60_ipa_qmi_classify()`/`k60_ipa_qmi_driver_status()`/`k60_ipa_qmi_rules()` 解析进入的请求（含 64 条规则上限与截断检查）。宿主测试 `scripts/tests/test-k60-ipa-qmi.c` 覆盖头、17 个 TLV、窗口值、容量边界、坏头、规则列表，输出 `K60 IPA QMI PASS`；两个文件由 `scripts/gen-ipa-patch.py` 带进 0623（十二文件 144,081 B）并在 `scripts/append-conffiles.py` 登记；k24 内核 105,578,496 B sha256 `70c707f59c4fd5313f954fa9ba9aacc38032eb7551f6d3195142f45483f6117d` 的 `llvm-nm` 有全部七个 `_k60_ipa_qmi_*` 符号。仍无运行时调用者：接入 QRTR 分发要等 B/QRTR 上机授权。
 
 ### M4 — PDP / net interface
 

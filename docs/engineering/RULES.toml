@@ -793,3 +793,10 @@ id = "P-230"
 kind = "pitfall"
 title = "判据缺输入时不许替换成默认镜像"
 check = "python3 scripts/tests/test-device-input-must-be-named.py"
+
+[[rule]]
+id = "P-231"
+kind = "pitfall"
+title = "Metal 进度判据必须从格式串读，c 才是提交次数"
+check = "python3 scripts/tests/test-metal-trace-semantics.py"
+note = "2026-11-18 两次同镜像读错 S 行字段导致两个错误结论；格式串在 NativeBridgeMetalFrontend.mm:1604；c0/0 表示从未 commit，first frame presented 属软件合成兜底。"

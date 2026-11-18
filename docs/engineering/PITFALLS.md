@@ -6077,3 +6077,21 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 4. **修复要连带把「默认值」从代码里删掉**，否则下一个人照样能写回 `os.environ.get(..., '/opt/...')`。
    新测试 `scripts/tests/test-device-input-must-be-named.py` 逐条 grep 三个脚本，既断言拒绝行为，
    也断言不再出现共享默认路径。
+
+## P-231
+
+**Metal 进度判据必须从格式串读，`c` 才是提交次数；`first frame presented` 是软件合成的兜底**
+
+2026-11-18 两次同镜像上机（`usblog-20261118-014232` / `usblog-20261118-101832`）读同一行 `Pong Metal: S …`：
+
+- 第一次误读：把 `p` 当 present、`M` 当映射计数，进而推出「帧被丢弃 / descriptor 风暴是循环」两个错误结论。
+- 查 `NativeBridgeMetalFrontend.mm:1604` 的格式串后真相是 `c=commit/gCommitFailures`、`p=gPipelines`、`D=gDraws`、`F=gFullScreenPasses`、`M=gBiggestPass>>10`（KB）。
+- 两飞都是 **`c0/0`** ⇒ Metal 一次都没 commit；而成功那飞的 `K60 DISPLAY: first frame presented` 与 `MiniIOSurface: 2 big surfaces made` 来自**软件合成**，不是 Metal。
+
+四条教训：
+1. 任何「字段含义」结论先 `grep` 格式串，再对表；不许按位置猜（P-204 的同族）。
+2. 里程碑判据必须能区分两条渲染路径：软件合成出帧 ≠ Metal 出帧；只有 `c>0` 才算 Metal。
+3. 同一镜像两次结果不同 ⇒ 单次上机只证明「存在性」，稳定性要连续两次同判据一致。
+4. 日志必须整份读完再定性；只 grep 命中会把 77% 的正文当成噪声。
+
+守卫：`python3 scripts/tests/test-metal-trace-semantics.py`。文档：`docs/research/gpu/METAL-SUMMARY-FIELDS.md`。

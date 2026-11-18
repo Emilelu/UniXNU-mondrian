@@ -56,7 +56,6 @@ static void report(const char *phase,int status)
 }
 #include "PongMetalScanout.h"
 #include "PongQuartzCorePolicy.h"
-namespace {
 // The bridge accumulates per-commit timing (rows T/G/J/V/K) but
 // native_bridge_metal_telemetry() had no caller, so none of it reached the log.
 // Stream it a row at a time: rows are <=90 characters and report() prefixes each.

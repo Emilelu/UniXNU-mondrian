@@ -64,6 +64,17 @@ def the_plugin_splits_the_table_into_rows():
 
 
 @case
+def the_plugin_braces_balance():
+    # Cost one Mac round trip: an earlier version of the patch opened a second
+    # anonymous namespace and the plugin failed to compile with
+    # "Objective-C declarations may only appear in global scope".
+    text = read(PLUGIN)
+    assert text.count("{") == text.count("}"), \
+        "braces do not balance (%d open, %d close); a stray namespace would break the Objective-C scope" % (
+            text.count("{"), text.count("}"))
+
+
+@case
 def the_cadence_reaches_the_steady_state():
     text = read(PLUGIN)
     loop = re.search(r"for\(unsigned seconds:\{([0-9u,]+)\}\)", text)

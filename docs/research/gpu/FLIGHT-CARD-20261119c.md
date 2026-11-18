@@ -43,10 +43,14 @@
 
 - `P1` 八步门禁 `--flash` 全绿（`eight-step-gate.py --flash`）。
 - `P2` `verify-boot-image: OK`、`image-arg-audit: OK`、`kernel archives` 全在。
-- `P3` 内核里能 `strings` 到 `completed wait n=%llu`、`commit-to-complete n=%llu`、
-  `vkpipe n=%llu`、`Q timing v2:`（证表明明进了镜像，不是插件没编进）。
-- `P4` 插件二进制里能 `strings` 到 `streamTelemetry` 无关（静态函数无符号），所以改查
-  `native_bridge_metal_telemetry` 的字符串行 `Q timing v2: per-buffer API counts`。
+- `P3` **产物侧**（这些字符串在插件的 bundle 里，不在内核里——它们由 `PongMetalBridge.dylib`
+  输出、由 `PongAdrenoMetal` 调用）：
+  `PongMetalBridge.dylib` 必须能 `grep -ac` 到 `Q timing v2`、`G commit-to-complete`、
+  `J completed wait`、`T pipeline`、`V vkpipe`、`J surface cache`（各 ≥1）；
+  且 `PongAdrenoMetal` 里必须出现 `native_bridge_metal_telemetry`（≥1，证明插件真的引用它）
+  与 `streamTelemetry`（≥1）。
+- `P4` 镜像里 `metal-plugin-20261119m` 的 `PongAdrenoMetal` sha256 是
+  `1979ff0abf97154870286460092f98107ffc27a53d5f6e2e7e2a2e13a8af99e9`。
 - `P5` `K60_AGENT_ID` 已设（supervisor claim 要署名，否则 rc=7）。
 - `P6` 设备在 fastboot。
 

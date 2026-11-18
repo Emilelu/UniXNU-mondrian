@@ -264,7 +264,7 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 |---|---|
 | 类型 | uint32 |
 | 默认 | 1（启用） |
-| 来源 | `drivers/PongPower/K60Battery.cpp:420`（`PE_parse_boot_argn("k60_battery", &enabled, sizeof(enabled))`）|
+| 来源 | `drivers/PongPower/K60Battery.cpp:642`（`PE_parse_boot_argn("k60_battery", &enabled, sizeof(enabled))`）|
 | 作用 | 0 = 完全不启动电池服务；非 0 = 允许启动 |
 
 **注意**：非 0 只表示"允许尝试"。`k60_physical_battery_start()` 随后要求

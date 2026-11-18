@@ -66,8 +66,9 @@ bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0517-power-order/boot.i
   QUP version/protocol → engine → UART/wake IRQ → BT_EN 拉高 60 ms → 引脚。
 - d8/d9 的 K60 顺序是 BT_EN 低 50 ms → XO/BT_EN 高 → 50 ms → 串口时钟/engine/IRQ，
   即 BT_EN 在时钟和 engine 之前拉高，且低/高电平都比官网短。
-- d8 与 d9 的 NVM 失败形状相同：PATCH 602 段后，NVM 第一轮在 i=5 附近出现约 10 s 等待，
-  随后 `budget exhausted`、`ret=-60`；fallback 也在约 20 段后撞预算。0517 只消除“上电顺序/时序”
+- d8 与 d9 的 NVM 失败形状相同：PATCH 602 段后，NVM 第一轮 i=0..5 每段都约 10,000 ms
+  （不是只在 i=5 卡住），第 6 段后 90 s 预算耗尽；i=6 立即 `e=-60`。fallback i=0..19 为 0 ms、
+  i=20 立即 `e=-60`，再次撞预算。0517 只消除“上电顺序/时序”
   这一个官网差异；若失败形状改变，说明该差异相关；若完全不变，说明 NVM 根因不在这一项。
 - 这是假设检验，不是从 d8/d9 反推 0517 已修好。
 

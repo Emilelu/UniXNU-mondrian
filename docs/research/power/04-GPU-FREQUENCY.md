@@ -90,6 +90,14 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
   唤醒到期、floor/top 夹取、连续 8 次被拒停止都在 host 侧断言（`1db88bc2`，123 项）。
   顺带修掉一处与文档不符的行为：旧代码的 `refused` 计数跨整个运行累加，
   一次成功投票也不清零；现在按文档「连续 8 次」在成功投票后清零。
+- 2026-11-19 02:05：接上官网 §5 :116 的**提交窗口**输入。`PongAdrenoCp.cpp` 导出只读的
+  `pong_adreno_cp_pending()`（`CP_RB_RPTR != CP_RB_WPTR` 表示 CP 尚未回收，CP 未启动返回 -1），
+  DCVS 线程每 16 ms 把该窗口喂给 host 测试覆盖的 `K60BoostPlan`
+  （`k60_boost_window()`），每 10 s 额外打一条
+  `PONG ADRENO: DCVS frames result=<0..4> a=<d0 floor kHz<<32|active> b=<累计提交窗口>`。
+  floor 按 d0 顶部 1,804,800 kHz 的 60 % 计算（`K60BoostPlan` 的 40 项 host 断言覆盖
+  两窗口/四窗口判定、提交窗口滑动与 60 % 下限）。**目前只记录、不投票**：K60 还没有
+  消费该 floor 的 CPU 侧投票路径，读到的是「如果接线会要求多少」，不是实际频率。
 - 启动开关：boot-arg `pong_gpu_dcvs=1`（默认 0）；`pong_gpu_max_level`（默认 13）、
   `pong_gpu_dcvs_min`（默认 1）、`pong_gpu_dcvs_boost_ms`（默认 50）可调。
   `PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后才调用 `pong_adreno_dcvs_start()`，
@@ -104,9 +112,12 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
   kernel `4b9fa1f96302afc6604afaac306cd9c6b389ad5638c4d1b9b1c1f3f0147d3849`，
   payload `7a6c891224c6045dee50b79a55035b8b595095e259dadf704a2d4025d789387e`；
   参数 gate `OK (30 arguments, 605 bytes)`；平台 archive 含 3 个 `_k60_gpu_dcvs_*` 符号。
-- **没有触摸/帧/fence 输入**：`native_hid_input_events`、帧提交计数在 K60 上都不存在，
-  所以 1 s 触摸保持、300 ms/60 % 帧下限（CPU 侧已在 `K60BoostPlan` 里规划）仍未接。
-  当前的 50 ms 唤醒档只由「计数器从零变为非零」触发。
+- **提交窗口已接，触摸/帧/fence 未接**：`pong_adreno_cp_pending()` 现在把 CP 环
+  占用喂给 `K60BoostPlan`，四窗口内两次提交的判定与 d0 60 % 下限已能算出并写进
+  `DCVS frames` 日志；但 K60 没有触摸事件源（`native_hid_input_events` 不存在），
+  也没有帧提交计数与 fence 截止时间，所以 1 s 触摸保持、300 ms 内抬到 60 % 的
+  CPU 投票都还没执行——floor 只有值，没有消费者。当前的 50 ms 唤醒档仍只由
+  「计数器从零变为非零」触发。
 - **没有温控/电压顺序**：升档只发 HFI 投票，没有先检查温控、也没有按官网 §5 :108
   的顺序处理稳压器与互连；如果固件自己降频，投票可能被拒，连续 8 次拒绝会停线程。
 - **带宽来自静态表**：`PongAdrenoPowerLevels[13-want].bus` 是 power 表里的保留值，

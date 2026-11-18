@@ -51,8 +51,8 @@
 | 条目（行号） | 状态 | 证据/缺口 |
 | --- | --- | --- |
 | CPU：16 ms 读空闲、1.25 倍余量、4 窗口降频（:113） | 部分（真机只读） | `K60CpuFreqPlan` 纯算术 + governor 核心（host 151 项，含 mode 5 的 idle 换算、quiet 收敛与 mode 6 的 lowest 选择）；写前 enable/档位守卫、写后回读、恢复原值已离线（commit `42ca4421`）；image i 2026-11-18 17:30 早读 d0 enable=1 state=1.5552 GHz vote=11 rows=14 top=1.8048 GHz，d1/d2 因辅核未启动读到 0；image j 17:55 在电池 begin 后 5 s 延后读取，d1 enable=1 state=0.6336 GHz vote=16、d2 enable=1 state=0.7872 GHz vote=19，d0/L3 不变（L3 vote=13 rows=15 top=1.7088 GHz）；image k 18:22 转储 66 条有效 LUT 档位（d0/d1/d2/L3 = 14/17/20/15，top 1.8048/2.496/2.9952/1.7088 GHz），所列 raw 行 cores=4/turbo=0，18:16 字段不是域核数；mode 5 于 2026-11-18 23:19 以 image l 上机：274 条 `sample win=`，d0 busy 0..1000、governor 300 MHz..1.8048 GHz、hw 691.2/1555.2 MHz，d1/d2 按 shared-cluster 下限停在半档附近（image l 暴露 quiet 被降档清零的 bug，已由 `d1d3c3e3` 修复；image m 23:53 复测：busy=0 时 d1/d2 governor 已到 633.6/787.2 MHz 最低档，d0 在 300 MHz/1.8048 GHz 跟随负载，88 条样本）；只读、不写寄存器，没有 `sample stop`（300 s autoreset 先到），mode 2/3 未上机 |
-| GPU：GMU XO 忙碌计数、50 % 目标、HFI 投票带带宽（:114） | 部分（已实现，未上机） | `K60GpuFreqPlan`（host 123 项，含抽出的 DCVS 窗口规则）+ `PongAdrenoGmu` 忙碌计数器/投票 + `PongAdrenoDcvs` 16 ms 线程，opt-in `pong_gpu_dcvs=1`，已构建进 image o/p；无设备读数 |
-| 触摸后 CPU P 域与 GPU 最高档保持 1 s（:115） | 部分（离线） | `K60BoostPlan` 触摸 1000 ms 规则（host 40 项）；仍无触摸输入源 |
+| GPU：GMU XO 忙碌计数、50 % 目标、HFI 投票带带宽（:114） | 部分（已实现，未上机） | `K60GpuFreqPlan`（host 123 项，含抽出的 DCVS 窗口规则）+ `PongAdrenoGmu` 忙碌计数器/投票 + `PongAdrenoDcvs` 16 ms 线程，opt-in `pong_gpu_dcvs=1`，已构建进 image o/p；CP 环提交窗口（`pong_adreno_cp_pending`）已喂入 boost 规划，60 % 下限只记录未投票；无设备读数 |
+| 触摸后 CPU P 域与 GPU 最高档保持 1 s（:115） | 部分（离线） | `K60BoostPlan` 触摸 1000 ms 规则与四窗口提交判定（host 40 项），CP 环已作为提交输入接入 DCVS；仍无触摸输入源，60 % CPU 下限没有投票消费者 |
 | 帧：4 窗口中 2 个有提交时 CPU 各域 300 ms 内不低于 60 %（:116） | 部分（离线） | `K60BoostPlan` 4 窗口/2 帧/300 ms/60 % 规则（host 40 项）；提交路径尚未采样 |
 | fence 等待睡眠到中断、最长 1 ms（:117） | 部分（离线） | `K60BoostPlan` 1 ms 预算函数（host 40 项）；提交路径未改 |
 | 外设投票所有权/引用计数、先停 DMA/中断再释放（:109） | 部分（离线） | `K60PowerVotePlan` 纯记账（host 58 项）；无消费者、不写 RSC/TCS |
@@ -93,7 +93,7 @@
 补齐；EPSS 写入守卫、回读与恢复、mode 5 的 16 ms 只读采样、mode 6 的只降 d0 写入路径均已离线
 补齐（host 151 项），mode 5 已于 23:19（274 条）与 23:53（image m，88 条）两次上机；
 image m 复测确认 quiet 修复后 d1/d2 已稳定到 633.6/787.2 MHz 最低档，d0 可降到 300 MHz，探针不写 EPSS；
-GPU DCVS 也已接上 GMU XO 忙碌计数器、HFI id 30 投票与 16 ms 线程（host 123 项），并构建进 image o/p
+GPU DCVS 也已接上 GMU XO 忙碌计数器、HFI id 30 投票与 16 ms 线程（host 123 项），并构建进 image o/p；CP 环提交窗口已作为 boost 输入，但 60 % 下限只记录
 （`pong_gpu_dcvs=1`）。下一步用 mode 6（只降 d0，不需要抬压）做首次写频上机，日志的 `state=a->b->c`
 直接给出写入与恢复是否生效；随后用 image o/p 验证 GPU 计数器与投票，再考虑触摸/帧信号与温控顺序。
 电池插拔暂缓；充电认证移植已在 `feat/charge-auth` 分支（未接入）。

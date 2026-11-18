@@ -88,7 +88,7 @@ P-151 has no executable check or written waiver). Before a build: clean
    - `boot-proven-YYYYMMDD` - an image from this commit reached SpringBoard;
      the tag message carries its path, size, sha256 and the console log.
    - `snap-rN` - the commit registered as the `main` baseline in
-     `docs/engineering/MAIN-BASELINE.toml` (铁则 9).
+     `docs/engineering/MAIN-BASELINE.toml` (iron rule 9).
    - `vX.Y.Z-...` - a release milestone referenced by the READMEs.
 
    The rollback anchor for daily work is the pushed commit, not a tag;
@@ -109,7 +109,7 @@ P-151 has no executable check or written waiver). Before a build: clean
    not guess at UI symptoms. Procedure, evidence layout and bisect recipe:
    `docs/engineering/BOOT-PROCEDURE.md`.
 
-### 铁则 9 — main 只放可启动基线，实验走分支
+### Iron rule 9 — `main` carries only bootable baselines, experiments go on a branch
 
 `main` is the stable bootable baseline, not a workbench. Any change not yet
 verified on the device (kernel patch series, build scripts, `board.toml`,
@@ -122,7 +122,7 @@ registered there with `sha`, `tag`, `kernel_sha256` and `state`. Gate:
 `bf487cc`, `c2fa573`, `234574a`, `d1843c2`, `20ce047` and `8206fb4` - several
 reached only `BUILD OK` (P-174).
 
-### 铁则 10 — 环境不进仓库
+### Iron rule 10 — the environment stays out of the repository
 
 Addresses and passwords of external machines (a LAN Mac, a build server, a
 router) are not part of the project: the repository is public and history is
@@ -134,7 +134,7 @@ never written into `docs/`, `scripts/` or `board.toml`. Check before committing:
 `python3 scripts/check-secrets.py` (registered as `iron-10`). Already violated
 once: the ★7 probe command reached public history in `2e44f46`.
 
-### 铁则 11 — 一个检出只有一个主人
+### Iron rule 11 — one checkout, one owner
 
 One checkout has exactly one owner, registered in
 `docs/engineering/TREE-OWNERS.toml`; the Lead uses `E:/hackios/k60-lead`
@@ -152,10 +152,12 @@ green and destroyed the touch agent's work, seven files of it unrecoverable.
 
 ## Gotchas & landmines
 
-- **This file is parsed.** `check-rules.py` collects iron rules with
-  `^### 铁则 (\d+)` and requires each id in `RULES.toml`;
+- **This file is parsed.** `check-rules.py` collects iron rules from headings
+  shaped `### 铁则 N` or `### Iron rule N` and requires each id in
+  `RULES.toml`; it fails instead of passing vacuously when it finds none.
   `check-boot-procedure.py` greps `^8\. **...串口|console|serial`. Renaming or
-  renumbering a heading silently disables coverage instead of failing loudly.
+  renumbering a heading still disables that item's coverage on its own, so the
+  regex and the heading change in the same commit.
 - **LF only.** An edit from Windows converts this file to CRLF and a 37-line
   change shows as 366 insertions and 366 deletions
   (`check-line-endings.py`, `--fix` rewrites).

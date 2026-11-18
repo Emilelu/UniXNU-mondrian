@@ -176,6 +176,33 @@ int main(void)
         check("gov_null", k60_cpufreq_governor_window(NULL, &clock, 0, 0, 0, 0), -1);
     }
 
+    {
+        uint64_t idle[K60_CPU_FREQ_CPUS] = {0};
+
+        check("busy_full", k60_cpufreq_busy_permille(0, 16000000), 1000);
+        check("busy_half", k60_cpufreq_busy_permille(8000000, 16000000), 500);
+        check("busy_idle", k60_cpufreq_busy_permille(16000000, 16000000), 0);
+        check("busy_over_idle", k60_cpufreq_busy_permille(17000000, 16000000), 0);
+        check("busy_zero_window", k60_cpufreq_busy_permille(0, 0), 0);
+
+        idle[0] = 16000000;
+        idle[1] = 8000000;
+        idle[2] = 16000000;
+        idle[3] = 16000000;
+        for (unsigned c = 4; c < 8; ++c) idle[c] = 16000000;
+        check("domain0_busiest",
+            k60_cpufreq_domain_busy(idle, K60_CPU_FREQ_CPUS, 16000000, 0), 500);
+        check("domain1_idle",
+            k60_cpufreq_domain_busy(idle, K60_CPU_FREQ_CPUS, 16000000, 1), 0);
+        idle[7] = 4000000;
+        check("domain2_prime",
+            k60_cpufreq_domain_busy(idle, K60_CPU_FREQ_CPUS, 16000000, 2), 750);
+        check("domain_bad",
+            k60_cpufreq_domain_busy(idle, K60_CPU_FREQ_CPUS, 16000000, 3), 0);
+        check("domain_null", k60_cpufreq_domain_busy(NULL, 8, 16000000, 0), 0);
+        check("domain_zero_count", k60_cpufreq_domain_busy(idle, 0, 16000000, 0), 0);
+    }
+
     printf("%s %u checks (%u failure%s)\n", failures ? "TESTS FAILED" : "TESTS OK",
         checks, failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;

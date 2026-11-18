@@ -43,7 +43,7 @@
 | 订阅、周期刷新、断链 stale | 已验证（image f 12-14 条样本） |
 | 与 Android/OEM 对照（C3） | 部分：只有低电流 3 对 PASS；匹配电流窗口因属性 9 静默、XNU 只能发 USB 输入电流而 FAIL |
 | 真机插拔、放电、超时、服务重启 | 未完成（host 第 15/16 节只模拟状态转换） |
-| 充电认证 PD/PPS/MiPPS（:82-88） | 未接入；sheng 有 `ShengChargeAuth.c` 参考，K60 固件把认证放在 DSP/固件侧，本树没有等价实现 |
+| 充电认证 PD/PPS/MiPPS（:82-88） | 部分（仅移植）：`K60ChargeAuth.c` 状态机 + host 85 项在 `feat/charge-auth`，单电芯单电量计；未接 `K60Battery`、无 crypto 适配层、无 UCSI 数据角色，见 `power/08-CHARGE-AUTH.md` |
 | Linux 充电读取镜像（:89-104） | 未接入；参考脚本在 sheng 仓库 |
 
 ## §5 调频与电源操作（:105-121）
@@ -72,8 +72,9 @@
 
 排除 §2/§3（音频分支）后，本分支的完成度估计：§1 约 80 %、§4 约 85 %、
 §5 约 30 %、§6 约 60 %；整页（含音频与充电认证）仍远未闭环。离线部分已经
-把 OPP/EPSS、GPU 规划、boost、投票账本、睡眠掩码、固件清单和稳压器顺序审计
-补齐；下一步离线只剩充电认证的移植设计，温控与真机读数必须等设备窗口。
+把 OPP/EPSS、GPU 规划、boost、投票账本、睡眠掩码、固件清单、稳压器顺序审计
+和充电认证状态机移植补齐；下一步离线只剩认证接线与 crypto 适配层，温控与
+真机读数必须等设备窗口。
 
 ## 参考
 
@@ -81,5 +82,5 @@
 - §4：`docs/research/charger/10-POWER-DOC-CONFORMANCE.md`。
 - §5：`docs/research/power/01-EPSS-PROBE.md`、`02-PLATFORM-SLEEP.md`、
   `03-POWER-VOTES.md`、`04-GPU-FREQUENCY.md`、`05-BOOST-RULES.md`、
-  `06-FIRMWARE-MANIFEST.md`、`07-RAIL-ORDERING.md`。
+  `06-FIRMWARE-MANIFEST.md`、`07-RAIL-ORDERING.md`、`08-CHARGE-AUTH.md`。
 - 驱动映射：`docs/plans/OFFICIAL-DRIVER-MAP.md`。

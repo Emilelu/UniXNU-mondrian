@@ -1,7 +1,7 @@
 diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
 --- a/bsd/dev/qbt_k60.c
 +++ b/bsd/dev/qbt_k60.c
-@@ -204,8 +204,8 @@
+@@ -258,8 +258,8 @@
  #define K60_PIN_CFG(pull, drive)    (((drive) << 6) | (pull))
  
  #define K60_XO_PULSE_US             150u    /* vendor: 100..200 us before BT_EN high */
@@ -12,10 +12,10 @@ diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
  #define K60_BT_OFF_MS               100u
  #define K60_WLAN_OFF_DISCHARGE_MS   100u
  
-@@ -1047,28 +1047,23 @@
-     }
+@@ -1878,28 +1878,23 @@
      /* Keep UART pins parked while the controller is held in reset. */
      k60_uart_pins_idle();
+     k60_log(NULL, 1, "full: uart pins parked");
 -    /* Read WLAN_EN (GPIO80) without changing its mux/direction: the WLAN
 -     * driver or the bootloader owns that pin. */
 +    /* Official K60 Bluetooth bring-up order (unixnu.com/zh/porting/bluetooth):
@@ -50,7 +50,7 @@ diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
      e = k60_stop_engine();
      if (e) return e;
      e = k60_prepare_engine();
-@@ -1084,6 +1079,11 @@
+@@ -1915,6 +1910,11 @@
          if (e) return -EIO;
          k60.wake_irq = true;
      }

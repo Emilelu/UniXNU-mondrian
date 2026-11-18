@@ -23,12 +23,12 @@ SERIES_PREFIX_COUNT = 236
 SERIES_PREFIX_SHA256 = "e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db2"
 SERIES_COUNT = 237
 SERIES_SHA256 = "3339e34f664d8eee48ab366ec98bffd00018aafe82821c1b7f9b5eecd8dcbcba"
-PATCH_SHA256 = "9b6ebd89f728dab67da4b3a828805ea0845865e10fbe6cc50c0c1b50ae7bc5a3"
+PATCH_SHA256 = "ebd0fe356a28281169b6d6aebe177020672ccbe4237a8b78735a4429ec7f5cbe"
 
 HUNKS = [
-    "@@ -204,8 +204,8 @@",
-    "@@ -1047,28 +1047,23 @@",
-    "@@ -1084,6 +1079,11 @@",
+    "@@ -258,8 +258,8 @@",
+    "@@ -1878,28 +1878,23 @@",
+    "@@ -1915,6 +1910,11 @@",
 ]
 
 MARKERS = [
@@ -133,7 +133,7 @@ def main() -> None:
           "0517 hunk headers", str([line for line in diff.splitlines() if line.startswith("@@")]))
 
     rows = hunk_counts(diff)
-    check(rows == [(204, 8, 204, 8), (1047, 28, 1047, 23), (1084, 6, 1079, 11)],
+    check(rows == [(258, 8, 258, 8), (1878, 28, 1878, 23), (1915, 6, 1910, 11)],
           "0517 hunk ranges", str(rows))
 
     side = new_side(diff)

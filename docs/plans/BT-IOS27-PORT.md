@@ -1,13 +1,13 @@
 # K60 Bluetooth on iOS 27 (feat/ios27)
 
-Status: **source staged in the iOS 27 series, not built, not flown.** The
-fifteen patches (0501, 0502, 0507-0512, 0514-0520) now live in
+Status: **source staged in the iOS 27 series, not built, not flown.** Eighteen
+patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0520, 0521) now live in
 `patches/xnu-12377/series`, the list the iOS 27 board actually selects, with
-the platform hooks rebased onto the 95d9c8a1 tree. No kernel has been built from
-this branch and no device action was taken. The driver layer is additionally
-hardware-verified on the iOS 16.6.1 line: d11 (0518) completed the firmware
-download and d12 (0520) registered both control names (see `k60-bt` D11/D12
-plans).
+the platform hooks rebased onto the 95d9c8a1 tree and an empty firmware carrier
+so 0510 has its input. No kernel has been built from this branch and no device
+action was taken. The driver layer is additionally hardware-verified on the iOS
+16.6.1 line: d11 (0518) completed the firmware download and d12 (0520)
+registered both control names (see `k60-bt` D11/D12 plans).
 
 ## 1. Target
 
@@ -70,6 +70,7 @@ hooks changed; every `bsd/dev/qbt*` hunk is the iOS 16 text.
 | 0512 | `kern_exec.c`, `native_owner_data_prepare()` after `native_owner_data_stage = 4`: calls `qbt_k60_late_start()`. |
 | 0519 | Unchanged: the `MiniBluetooth` speed line (`K60_BT_TRANSPORT_SPEED 3000000u`) matches the new file, the `qbt_transport.c` power nodes are portable. |
 | 0520 | Unchanged: the `exec_extract_strings()` anchor moved to `bsd/kern/kern_exec.c:2049` but the surrounding context is identical. |
+| 0521 | New file `osfmk/arm64/k60_bt_blob.s`: the empty carrier 0510 lists. The iOS 16 line generates it at build time from `scripts/gen-k60-bt-blob.py`; this repository has no such step, so the stub the generator emits without `--container` is carried as a patch. Replacing it with a real container is a patch refresh (5.2). |
 
 `0507` and `0508` must stay before `0509`: 0509's include block
 (`mach/vm_param.h`, `mach/vm_statistics.h`, `pexpert/arm64/board_config.h`)
@@ -85,8 +86,8 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
    vanilla plus the four series was used as the adaptation base; the adapted
    patches were then validated against it from scratch (§5.1).
 3. **P2 - port the platform hooks. Done offline** (§4). No build has run.
-4. **P3 - build and inspect. Open.** Blocked on one missing build step: the
-   generated `osfmk/arm64/k60_bt_blob.s` (§5.2).
+4. **P3 - build and inspect. Open.** Every input now exists, including the
+   firmware carrier (§5.2); the build itself has not been run.
 5. **P4 - hardware only when iOS 27 reaches `bsd_init`.** Until then, every
    kernel/firmware flight stays on the iOS 16 line.
 
@@ -96,9 +97,10 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 `soc:patches/xnu-12377/series`, `os:patches/xnu/series`, and
 `device:patches/xnu-12377/series`. The Bluetooth patches are now in the fourth.
 
-Validation: a fresh checkout of the pre-Bluetooth state (base tree + 0500 +
-0502b) was patched with the series in order; all fifteen applied with no reject,
-and the results are byte-identical to the adaptation tree:
+Validation: a fresh checkout of the pre-Bluetooth tree (vanilla xnu-12377 plus
+the arch, soc and os series, with the qbt files removed) was patched with this
+series in order; all eighteen applied with no reject, and the results are
+byte-identical to the adaptation tree:
 
 | File | sha256 |
 | --- | --- |
@@ -106,27 +108,36 @@ and the results are byte-identical to the adaptation tree:
 | `bsd/kern/kern_exec.c` | `39c1b5ebe32ed38f2937d1067a44c0799d07493c11c6cabd5be5987e52cde747` |
 | `bsd/kern/bsd_init.c` | `94c8e15f91e4beeb1c81589523d29e662d131f7da467a44a73a3a9f2fa74b3f3` |
 | `iokit/Kernel/MiniBluetooth.cpp` | `5a526df5da263777276e29e547c5fe1e5c652d5199b49ce1a1015e10bb78075f` |
+| `osfmk/arm64/k60_bt_blob.s` | `a0e788aacf276750a51372ed47abc90323f7f6d6e2b4dfe230d70611429d9784` |
 
-The series order is 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
-0515, 0516, 0517, 0518, 0519, 0520. There is no 0513, as on the iOS 16 line.
+The series order is 0500, 0502b, 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
+0515, 0516, 0517, 0518, 0519, 0520, 0521. There is no 0513.
 
-### 5.2 The missing build step: the firmware blob
+### 5.2 The firmware carrier
 
 0510 lists `osfmk/arm64/k60_bt_blob.s` in `osfmk/conf/files.arm64`, but that
 file is a generated product, not a tracked source. On the iOS 16 line
 `scripts/build-xnu-4k-baseline.sh:317-323` runs
 `scripts/gen-k60-bt-blob.py --assembly --output <tree>/osfmk/arm64/k60_bt_blob.s`
-before compiling.
+before compiling, and that step does not exist here.
 
-`scripts/build-ios27-linux.sh` has no such step (it runs
-`apply-core-patches.sh`, `unixnu fetch`, `defconfig mondrian_ios27_defconfig`,
-`unixnu build kernel`, `unixnu build payload`), and `gen-k60-bt-blob.py` is not
-in this repository. Until both are wired, P3 fails at the compile step with a
-missing `k60_bt_blob.s`.
+0521 therefore carries the file itself: the exact stub the generator emits
+without `--container`, twelve lines, one zero byte and a length of zero. The
+kernel builds, links, and falls back to the empty GpuAddon range, which is the
+right shape for an F1 image that has no firmware staged.
 
-Without `--container` the generator emits a one-byte stub with length zero:
-every line still builds, and the kernel falls back to the empty GpuAddon range,
-which is what a Bluetooth-free F1 image looks like.
+To embed a real container, apply the series, run the generator in the tree and
+refresh the patch:
+
+```
+scripts/gen-k60-bt-blob.py --assembly --output osfmk/arm64/k60_bt_blob.s \
+    --container /path/to/pong-bt-firmware.bin
+```
+
+`scripts/gen-k60-bt-blob.py` is in this repository (copied from the iOS 16
+line, identical sha256). It validates the NGPUADD2 container the same way
+`k60_addon_find` does at runtime, so a container that would fail on the device
+fails the build instead.
 
 ## 6. Userspace layer: what actually makes the adapter usable
 
@@ -160,9 +171,9 @@ it is already written.
 
 ## 7. What remains before "directly usable after migration"
 
-1. Wire the blob generator into the iOS 27 build path (§5.2), then run P3 and
-   confirm the fifteen patches appear in the kernel log and `qbt_k60_start` is
-   linked. Offline: no hardware proof.
+1. Run P3: build the kernel and confirm the patches appear in the kernel log
+   and `qbt_k60_start` is linked. Offline: no hardware proof. To embed
+   firmware first, see 5.2.
 2. `[payload.runtime]` wiring plus the OS image and signing inputs (§6).
 3. Hardware only once the fork's `ios27-arm64e` area reaches `bsd_init`.
 
@@ -175,9 +186,9 @@ kernel/firmware flight is recorded there (d11 PASS, d12 observation).
   is ahead of the fork's own bring-up order.
 - The series applies, but nothing has compiled it. The first real build may still
   find header or link differences that a textual apply cannot see.
-- `k60_bt_blob.s` is generated on the iOS 16 line by a script this repository
-  does not carry yet, so a plain `build-ios27-linux.sh` run stops at 0510's
-  missing input.
+- The carrier is an empty stub. A build from this branch links, but the kernel
+  has no firmware to hand the controller until 0521 is refreshed with a real
+  container (5.2).
 - The iOS 27 userland Bluetooth stack (`bluetoothd`, BlueTool) is a separate
   problem from the kernel transport. Passing firmware download does not make
   Bluetooth usable; §6 lists the wiring it needs.

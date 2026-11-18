@@ -444,7 +444,7 @@ int k60_adsp_owner_publish(const K60AdspOwnerLease *lease,
       不新开第二个 QcomGlink 实例（一对 SMEM FIFO 只有一个采纳者：`qcom_glink_adopt` 要求
       `*tx.head==0 && *rx.tail==0`）、不新增 API、锁或 worker；「音频不做第二个 owner」。
       宿主 379 条断言已证明 `QcomGlink.c` 零改动、两槽各自分发；**音频侧已经用 `K60AudioGlink.c`
-      把 `adsp_apps`（560×20 intent）注册封装好（`K60PmicGlink::discover()` 先 passive 预注册槽，`pong_audio_start()` 只排队，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前 service），provider 不再需要编写注册代码**。provider 只需按契约提供
+      把 `adsp_apps`（560×20 intent）注册封装好（`K60PmicGlink::channelState()` 在 PMIC 通道 up 后 passive 建槽，`pong_audio_start()` 只排队，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前 service），provider 不再需要编写注册代码**。provider 只需按契约提供
       `k60_adsp_owner_acquire()` 的真 lease 与已采纳的 FIFO；这一项不再由音频侧代做。
 
 ### 9.3 音频侧拿到 lease 之后的调用顺序（每步附失败动作）

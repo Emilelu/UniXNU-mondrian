@@ -39,10 +39,10 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 
 | 改动 | 静态 | 单元 / 宿主 | 产物 |
 |---|---|---|---|
-| M1 metadata 工具 | `python3 -m py_compile scripts/build-modem-metadata.py` | `scripts/tests/test-build-modem-metadata.py` | 真实 `modem.mdt` → 5,884 B；sha256 `09180d7c3a4bc59bfe4718263668c49aa42945519087562aa106b2fc6f4dfab4`；crc32 `0x5ce97b8d` |
+| M1 metadata 工具 | `python3 -m py_compile scripts/build-modem-metadata.py` | `scripts/tests/test-build-modem-metadata.py` | 干净 `modem.mdt.bin` → 5,884 B；sha256 `78d5f2f45aefeab7d2920bc5753009ade0371aa7d9be5eb0f2d21a72704c1fb8`；crc32 `0xac600b5d`（旧的 `09180d7c…` / `0x5ce97b8d` 是 CRLF 污染 blob，仅作历史） |
 | M2/M4 双端常量与地址 | `scripts/check-modem-metadata.py` | 14 项 PASS（见 §3） | 内核 `K60_MODEM_METADATA=0xB7FF0000u` 与 UEFI `K60_MODEM_METADATA_ADDRESS=0xB7FF0000ULL` 相等；页在 `[0xA8300000,0xB8000000)` 内且 4 KiB 对齐 |
-| M3 UEFI carrier | `clang -fsyntax-only -Werror`；完整 `build_uefi.py` | DXE 无宿主 harness；逻辑集中在 M1，UEFI 只做 `CopyMem` + 清缓存 + CRC | FD 精确 3,145,728 B；sha256 `e007de8a2cbed4ec22d8502a89ff3eef79337bc712ccb6c2414c4b175b5d2589`；源码含 `CarrierLoadMetadata` |
-| M5 内核顺序 | 内核编译 `-Werror` | `run-bringup-test.sh`：`TESTS OK 9` rc0；断言 `init_image` 只调一次、先于 `mem_setup`、先于 `auth_and_reset`；3 个反例失败 | `patches/xnu/0621-k60-modem-pas.patch` 与 `K60ModemBoot.c` 一致；内核二进制应含 §4 的 verdict 行 |
+| M3 UEFI carrier | `clang -fsyntax-only -Werror`；完整 `build_uefi.py` | DXE 无宿主 harness；逻辑集中在 M1，UEFI 只做 `CopyMem` + 清缓存 + CRC | FD 精确 3,145,728 B；干净 metadata 版 sha256 `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386`（k18/k20/k21 都用它）；k16 的 fixed-window 版是 `9b7155f6…`，更早的 `e007de8a` 是污染 metadata，均已过时 |
+| M5 内核顺序 | 内核编译 `-Werror` | `run-bringup-test.sh`：`TESTS OK 12` rc0；断言 `init_image` 只调一次、先于 `mem_setup`、先于 `auth_and_reset`，并含 rail-only 停机与 rail 失败、copy 失败共 5 个反例 | `patches/xnu/0621-k60-modem-pas.patch` 与 `K60ModemBoot.c` 一致；内核二进制应含 §4 的 verdict 行 |
 | M6 夹具 | `scripts/build-modem-metadata.py` + UEFI 内嵌头（不再有第 28 个 payload 文件） | `check-modem-metadata.py` 对嵌入数组做长度/ELF/crc/sha 校验 | 当前 `boot-metadata-fixture.img` 仅为 UEFI-only 夹具；其 payload 内核早于 `d7890e26`，**不是候选** |
 | M7 boot.img | 现有 `test-bootimg-layout.py` | — | 本夹具 201,895,936 B = `4096 + ceil(559,358/4096)*4096 + 201,326,592 + 4096`（`ksz` 读自 boot.img 头 offset 8）；sha256 `1193a1e718badd2de5908c4ec24e97afc18272de4910d7c3fdd282b5cdaa3839` |
 | M8 本判据文档 | `check-docs.py` | — | 本文件提交在飞行之前；含 manifest 与回滚镜像 |
@@ -69,7 +69,7 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 | DTB `Resources/DTBs/mondrian.dtb` | 4,024 | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
 | payload `E:/k60-work/artifacts/bootimg-test/payload-modem.img` | 201,326,592 | `9eb14f6768110605b05c9c56d70a9baebfbd6651716c424385086b3bca1e6126` |
 | UEFI-only boot fixture `E:/k60-work/artifacts/modem-20261117a/boot-metadata-fixture.img` | 201,895,936 | `1193a1e718badd2de5908c4ec24e97afc18272de4910d7c3fdd282b5cdaa3839` |
-| metadata blob `E:/k60-work/artifacts/modem-metadata.bin` | 5,884 | `09180d7c3a4bc59bfe4718263668c49aa42945519087562aa106b2fc6f4dfab4` |
+| metadata blob `E:/k60-work/artifacts/modem-metadata.bin`（**已作废**） | 5,884 | 文件仍是污染 blob `09180d7c…`；当前真源是 `K60ModemMetadata.h` 的内嵌数组（sha256 `78d5f2f4…`、crc32 `0xac600b5d`），由 `check-modem-metadata.py` 直接校验 |
 
 **这张 UEFI-only 夹具的 payload 内核早于 `d7890e26`，只能证明 UEFI 的 metadata 行、不能证明内核顺序；
 禁止把它当作 PAS 候选飞行。**
@@ -249,9 +249,13 @@ k21 内核与 `pong_modem=4 pong_ipa=0` 的图是离线候选。
 
 ### 4.1 成功判据（全部满足才算 S）
 
-- **S1**：console 恰好一行
-  `modem-image: metadata 5884 bytes crc32 0x5ce97b8d at 0xb7ff0000`，
-  且 CRC 等于预计算值 `0x5ce97b8d`。
+- **S1**（静态门禁 + UEFI 日志，不是 CDC console 行）：`python3 scripts/check-modem-metadata.py` 必须 PASS，
+  内嵌数组 5,884 B、crc32 `0xac600b5d`、sha256 `78d5f2f45aefeab7…`。
+  那条 `modem-image: metadata 5884 bytes crc32 0x… at 0xb7ff0000` 是 UEFI `Print`，只出现在 UEFI 日志里
+  （`Tools → Advanced Logger` 的 QR 抓取）；USB CDC console 由 XNU 建立，**不会有这一行**，
+  不得因为 CDC console 缺它而判 F1。若这次飞行顺手抓了 UEFI 日志，CRC 必须是 `0xac600b5d`。
+  实机上的等价证明是 `K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884`（TZ 接受了这一页）。
+  历史：`0x5ce97b8d` / `09180d7c…` 属于 CRLF 污染 blob，已被干净 blob 取代（`06-MODEM-PAS.md:60`）。
 - **S2**：27 个 `.lzma` 全部成功（无 `did not decompress` / `decoded ..., table says ...` 失败行）；三条 D3 行一条不少：
   `modem-image: chosen dtb at `、`modem-image: window 0x8bc00000..0x9ee00000`、`modem-image: abl staging ends at `；
   carrier 汇总行存在；`K60ModemImage` 照常发布；XNU 起得来。
@@ -285,14 +289,16 @@ k21 内核与 `pong_modem=4 pong_ipa=0` 的图是离线候选。
 
 ## 5. 飞行顺序
 
-1. **C（诊断，先飞）**：`pong_modem=3`，用
-   `E:/k60-work/artifacts/modem-20261117k14/boot-modem-c-diagnostic.img`，只到 `mem_setup`，不发 `auth_reset`。
-   用途：在不动 modem 的前提下证明 U1（metadata 行）和 S3 的 `init_image`/`mem_setup` 两行
-   （C 不执行 power/transport）；预期在
-   `K60MODEM diagnostic stop after mem_setup: auth_reset not sent` 停。
-2. **B（完整，后飞）**：C 全绿且真候选存在后，`pong_modem=2`，用
-   `E:/k60-work/artifacts/modem-20261117k14/boot-modem-b-full.img`，按 §4 的 S/F 判。
-   C/B 必须是同一份 kernel/UEFI/DTB/carrier，只在打包 payload 时改 `--kernel-arg`；不得在 B 上顺手改代码。
+1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
+   停在 `K60MODEM diagnostic stop after mem_setup: auth_reset not sent`。
+   **已飞并 PASS**：k18 `E:/k60-work/artifacts/modem-20261117k18/boot-modem-c-diagnostic-m2.img`
+   （`1ae178bb…`，§3.6，2026-11-18 23:45）。此条保留为判据定义，不再重复飞。
+2. **P1（power-only，单变量，先飞）**：`pong_modem=4`，用 k21 的
+   `E:/k60-work/artifacts/modem-20261117k21/boot-modem-rails-only.img`（`7b6bb385…`，§3.10），按 P1 判；
+   通过后才允许 B。HR-01 要求这类新 TCS4 用途单独授权，没有授权就不飞。
+3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用与 P1 同一份 kernel/UEFI/DTB/carrier 重新打包的 B 镜像
+   （截至 2026-11-19 尚未打包），按 §4 的 S/F 判。
+   C/P1/B 必须是同一份 kernel/UEFI/DTB/carrier，只在打包 payload 时改 `--kernel-arg`；不得在 B 上顺手改代码。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 
@@ -307,7 +313,7 @@ k21 内核与 `pong_modem=4 pong_ipa=0` 的图是离线候选。
 sha256 `4E8DA23012D88D5C3C01992B0286F1D0BBBA7D83980E0EDE3AAEDB3D95BBEA96`。
 若 F1 或任何 UEFI 回归，飞回这张；不要在失败的开机里重试。
 
-## 8. 当前状态（更新于 2026-11-18 09:25）
+## 8. 历史状态（k14 代，2026-11-18 09:25；当前状态见 §3.6–§3.10）
 
 - QcomBaseband 控制桥已接入：`board.toml` 选择 `component:QcomBaseband`，`K60ModemLink.c` 在 QRTR 上转发 NEW_SERVER/DEL_SERVER/DATA 到 `coachz_baseband_*`，probe 打开 GLINK 后调用 `coachz_baseband_configure()`；ADT 增加 `chosen/coachz-baseband=1` 与 `product/baseband-chipset=mav16`。
 - 共享 `kernel.macho`：`E:/k60-work/artifacts/modem-20261117k14/kernel.macho`，105,562,112 B / `619acc64a33fc4b62ba167b5034b81951ad09d971f6671feff7b10091d3272eb`；源码提交 k60-cellular `5d59eab7`（基于 d828f3ab、71e7c43、4764d170、b9de56b9、e4b5cfd5、50aa1261 与 e7bdbf16）（含 IPA M0 骨架 + M1 固件暂存/PAS 路径 + payload FAT 调用点 + IP0 时钟 + IPA 资源表初始化 + GSI EE0 预检 + M2 运行时 glue（1 MiB ring、ArmSmmu4K、SMEM item 497 在 TCSR mutex 下分配、GSI command-DMA，pong_ipa=2 门控）），基于携带 QcomBaseband 设备 patch 的 `8af93c9a`、`352d7f30` / `3d4a4be4`。

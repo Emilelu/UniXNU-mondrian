@@ -27,10 +27,13 @@ typedef struct {
     bool pending_valid;
     bool requested;
     bool attached;
+    bool announced;
     int error;
 } K60AudioGlink;
 
 void k60_audio_glink_init(K60AudioGlink *, QcomGlink *);
+/* Reserve the adsp_apps slot before the DSP can send its OPEN. */
+int k60_audio_glink_prepare(K60AudioGlink *);
 int k60_audio_glink_request(K60AudioGlink *, const K60PmicGlinkAudioClient *, void *);
 int k60_audio_glink_service(K60AudioGlink *);
 int k60_audio_glink_send(K60AudioGlink *, const uint8_t *, unsigned);

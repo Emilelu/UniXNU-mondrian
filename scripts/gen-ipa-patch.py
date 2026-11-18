@@ -42,7 +42,8 @@ def kernel_copy(name: str) -> str:
                            ("K60IpaQmap.h", "pong_ipa_qmap.h"),
                            ("K60IpaQmi.h", "pong_ipa_qmi.h"),
                            ("K60IpaQmiServer.h", "pong_ipa_qmi_server.h"),
-                           ("K60IpaQmiTransport.h", "pong_ipa_qmi_transport.h")):
+                           ("K60IpaQmiTransport.h", "pong_ipa_qmi_transport.h"),
+                           ("K60IpaQrtr.h", "pong_ipa_qrtr.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
     return text
 
@@ -64,6 +65,8 @@ def main() -> int:
     qmi_server_source = kernel_copy("K60IpaQmiServer.c")
     qmi_transport_header = kernel_copy("K60IpaQmiTransport.h")
     qmi_transport_source = kernel_copy("K60IpaQmiTransport.c")
+    qrtr_header = kernel_copy("K60IpaQrtr.h")
+    qrtr_source = kernel_copy("K60IpaQrtr.c")
     assert '#include "pong_ipa.h"' in source
     assert '#include "pong_mdt.h"' in header
     assert '#include "pong_mdt.h"' in mdt_source
@@ -73,6 +76,8 @@ def main() -> int:
     assert '#include "pong_ipa_qmi.h"' in qmi_source
     assert '#include "pong_ipa_qmi_server.h"' in qmi_server_source
     assert '#include "pong_ipa_qmi_transport.h"' in qmi_transport_source
+    assert '#include "pong_ipa_qrtr.h"' in qrtr_source
+    assert '#include "pong_ipa_qmi_transport.h"' in qrtr_header
 
     body = (newfile("bsd/dev/pong_ipa.h", header)
             + newfile("bsd/dev/pong_ipa.c", source)
@@ -89,7 +94,9 @@ def main() -> int:
             + newfile("bsd/dev/pong_ipa_qmi_server.h", qmi_server_header)
             + newfile("bsd/dev/pong_ipa_qmi_server.c", qmi_server_source)
             + newfile("bsd/dev/pong_ipa_qmi_transport.h", qmi_transport_header)
-            + newfile("bsd/dev/pong_ipa_qmi_transport.c", qmi_transport_source))
+            + newfile("bsd/dev/pong_ipa_qmi_transport.c", qmi_transport_source)
+            + newfile("bsd/dev/pong_ipa_qrtr.h", qrtr_header)
+            + newfile("bsd/dev/pong_ipa_qrtr.c", qrtr_source))
     with OUT.open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(body)
     print("patch bytes", OUT.stat().st_size)

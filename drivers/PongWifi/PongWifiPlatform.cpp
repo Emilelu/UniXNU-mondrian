@@ -612,11 +612,11 @@ void testNetwork(const nw_wifi_status &st) {
  static unsigned rescans=0;
  static bool addressWait=false, autoCycle=false, passed=false;
  if(!checked) {
-  checked=true;uint32_t flag=0,mode=0,cycleFlag=0;
+  checked=true;uint32_t flag=0,mode=0;
   const bool testFound=PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag);
   const bool modeFound=PE_parse_boot_argn("pong_wifi",&mode,sizeof mode);
   enabled=kWifiTestSsidBytes&&kWifiTestKeyBytes;
-  autoCycle=enabled&&PE_parse_boot_argn("pong_wifi_cycle",&cycleFlag,sizeof cycleFlag)&&cycleFlag==1;
+  autoCycle=enabled;  /* the fixture marks a test image; a production image has none */
   IOLog("PongWifi: association probe: pong_wifi_test=%d/%u pong_wifi=%d/%u fixture=%u/%u state=%u\n",
    testFound?1:0,flag,modeFound?1:0,mode,(unsigned)kWifiTestSsidBytes,
    (unsigned)kWifiTestKeyBytes,(unsigned)st.state);
@@ -642,8 +642,8 @@ void testNetwork(const nw_wifi_status &st) {
   log(6,"WiFi lifecycle test RUNNING: reconnecting to scanned network");
  }
  if(autoCycle&&passed&&!reconnecting&&!autoArmAt) {
-  autoArmAt=now()+15000;
-  IOLog("PongWifi: WiFi lifecycle test armed: automatic disconnect in 15 s\n");
+  autoArmAt=now()+120000;
+  IOLog("PongWifi: WiFi lifecycle test armed: automatic disconnect in 120 s\n");
  }
  if(autoArmAt&&now()>=autoArmAt) {
   autoArmAt=0;

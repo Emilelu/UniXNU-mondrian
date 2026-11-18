@@ -223,8 +223,8 @@ def main() -> int:
           "<key>RunAtLoad</key><true/>" in p0616)
     plat = (ROOT / "drivers" / "PongWifi" / "PongWifiPlatform.cpp").read_text(encoding="utf-8")
     check("the lifecycle test can disconnect and reconnect on its own",
-          'PE_parse_boot_argn("pong_wifi_cycle"' in plat and
-          "WiFi lifecycle test armed: automatic disconnect in 15 s" in plat and
+          'autoCycle=enabled;' in plat and
+          "WiFi lifecycle test armed: automatic disconnect in 120 s" in plat and
           "WiFi lifecycle test RUNNING: automatic disconnect" in plat and
           "WiFi lifecycle test PASS: reconnected BSSID" in plat and
           "WiFi lifecycle test FAIL: reconnect" in plat)

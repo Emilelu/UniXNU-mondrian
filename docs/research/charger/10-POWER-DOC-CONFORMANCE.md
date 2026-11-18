@@ -435,6 +435,12 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   - 同一 11:47 数据的 13 行全窗口：FAIL，早期原始 +582/+1566/+1448/+1161/+929mA 为放电，
     |ΔI|=191mA（`imagef-all-negative.txt`）；把开关切回 `--android-current-sign positive` 会复现旧错误，
     |ΔI| 最大 1169mA（`imagef-all-legacy-positive.txt`）。
+- 12:19 的 Android 状态/电流复核（`E:/k60-work/evidence/power-conformance/android-status-current-20261118-1219/samples.tsv`）：
+  同一次 `status=Charging` 下 `current_now` 从 +1002mA（净放电，charge_counter 停在 4173）变到
+  -413mA（净充电，charge_counter 4172→4175）；说明 Android 的 status 表示“充电器已接入”，
+  电流符号表示净电池电流方向，两者不是一回事。XNU 的 `Amperage` 是 USB 输入电流（电池电流属性 9
+  不应答，无法读净电池电流），所以 XNU `charging=1` 且 `current=397mA` 也不表示净充电。
+  C3 全窗口把两侧当成同一电流方向比较不成立；只有两侧 |I|<100mA 的低电流窗口可以比较电压/SOC/温度。
 - 结论：11:56 之前所有 image e 匹配电流 C3 PASS 作废；C3 目前只有 image f 低电流 3 对 PASS，
   匹配电流窗口的电流幅值已对齐（ΔI 29mA），但电压仍超差（119mV）。全窗口通过仍要求同方向、
   同电流、同电压状态的 Android 基线；不能把低电流 PASS 当作 C3 完成。

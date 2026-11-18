@@ -43,6 +43,11 @@ image e 第一次上机：`console.log` 254,167 B，C1 PASS（`:407`、`:515`）
 真机插拔/放电/超时/服务重启仍待完成（host 第 15 节只模拟状态转换）；服务重启生命周期复位已补（`6750c7bd`，image e 包含），
 IOKit 级验证仍待完成。
 
+上游参考：2026-11-18 把 UniXNU-sheng fetch 到 `origin/main` `6c42e10`（2026-11-17），五个未闭项
+（电池电流属性 9、真机插拔、§5 CPU/GPU 调频与 platform sleep、§2/§3 DSP 与音频、§4 充电认证）
+在 sheng 上都有实现，K60 尚未接入；本文件此前「sheng 不含 `ShengChargeAuth.c`」的结论基于
+旧检出 `a68ee4e`/`1108068`，已作废。逐项对照见 §7.11；merge 由 lead 后续负责。
+
 ## 1. §4 开头：参考实现的选择（官网 :69-74）
 
 | 参考 | 用途 | 本仓库对应 |
@@ -237,7 +242,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:429-437` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image e/f），IOKit 级 stop/start 未在真机执行 |
 | 订阅 / 周期刷新 / 断链 stale | 已验证（断链真机未制造） | 订阅请求与 in-flight `K60Battmgr.c:81-85`/`:95`、通知 `:163-172`、应答校验与 `subscribed` 置位 `:174-182`；5 s 刷新 `K60Battery.cpp:420-426`；`transport.poll()<0` 取消定时器并 `stale()` `:382-397`，通道 down `:354-358`；`stale()` 保留最后值并置 `K60BatteryStale=true` `:152-159` |
 | 与 OEM/目标电量计逐项对照 | 部分（仅低电流 3 对 PASS） | image f 11:13 的同会话 3 行低电流基线 PASS（`judge-android.txt`：|ΔV|=46mV/±60mV、|ΔSOC|=1.00pp/±3pp、|ΔT|=1.00C/±3C；Android 侧 <100mA，电流未比较）；11:47 的 13 对匹配电流窗口归一化后 |ΔI|=29mA/±150mA，但 |ΔV|=119mV/±60mV，C3 FAIL；image e 两个匹配窗口在 11:56 符号修正后均 FAIL，旧 PASS 作废（§7.10） |
-| 固件充电所有权 | 边界已确认 | 驱动只发布测量值，不写充电器、不改限流、不做 PD/PPS 认证（§9 与官网 :81）；主机控制充电需要单独的 `ShengChargeAuth.c` 等价工作流 |
+| 固件充电所有权 | 边界已确认（上游有可移植参考） | 驱动只发布测量值，不写充电器、不改限流、不做 PD/PPS 认证（§9 与官网 :81）；主机控制充电的参考实现已在 `UniXNU-sheng` `origin/main` `6c42e10` 落地（`package/ShengChargeAuth.c`，提交 `2359a86`），K60 尚未接入（§7.11） |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
 
@@ -473,6 +478,33 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   匹配电流窗口的电流幅值已对齐（ΔI 29mA），但电压仍超差（119mV）。全窗口通过仍要求同方向、
   同电流、同电压状态的 Android 基线；不能把低电流 PASS 当作 C3 完成。
 
+### 7.11 与 UniXNU-sheng 最新实现的逐项对照（2026-11-18 13:30）
+
+2026-11-18 把 `E:/hackios/UniXNU-sheng` fetch 到 `origin/main` `6c42e10`（2026-11-17）。
+本地检出原来是 `a68ee4e`（2026-11-09），落后 484 个提交，本文件此前关于 sheng 的
+「不含 `ShengChargeAuth.c`」判断因此过期。以下五个未闭项在 sheng 上都已有实现。
+
+| 未闭项 | sheng 实现 | K60 状态 |
+| --- | --- | --- |
+| C3 全窗口电流（电池电流属性 9） | `package/ShengBattmgr.c` 读属性 9 并计算 `s->current_ma = HAS(BmCurrent) ? -V(BmCurrent)/1000 : 0`（线序放电为正），`ShengBattery.cpp:219` 用 `setAmperage` 发布电芯电流 | 无：K60 的 ADSP 属性 9 不应答，`K60Battmgr.c:144-147` 跳过该字段，只能发布 USB 输入电流 |
+| 真机插拔/放电/超时/服务重启 | `package/tests/battmgr_host.c` 17,922 B 与 `scripts/check-battery-host.py`；真机记录 macOS 27.3 PC-USB 97 %/4865mV/1109mA 输入电流；sheng 也没有脚本化插拔证据 | host 第 15/16 节已覆盖状态转换（95 项断言）；真机仍未执行 |
+| §5 CPU/GPU 调频与 platform sleep | `package/CpuFreqProbe.cpp` 19,979 B（EPSS 模式 1-4、`kDomainBase {0x17d91000,0x17d92000,0x17d93000}`、`kL3Base 0x17d90000`、16 ms governor、touch boost 1000 ms、frame floor 300 ms）、`GpuPowerProbe.cpp` 148,992 B、`ShengSleep.cpp` 10,397 B（`platform-sleep=1`）、`QcomRpmh.c`/`QcomQmp.c`、`BoardClock.*` | 无：`drivers/PongPower` 只有只读 `K60PmicRail` 和 ADSP Route A 的 lcx/lmx 投票；DTS 无 EPSS 节点，窗口需像 sheng 一样硬编码 |
+| §2 DSP transport / §3 音频流 | `AdspProbe.cpp`、`QcomGlink.c/.h`、`AdspFirmware.c`、`ShengAudioReach.c/.h`、`ShengAudioService.cpp`、`AudioProbe.cpp`，host 测试 `audioreach_host.c`/`qcom_adsp_host.c` | 在未合并的 `feat/audio-adsp-merge`（145 个提交，HEAD `c74aea80`），不在本分支 |
+| §4 充电认证（PD/PPS/MiPPS） | `ShengChargeAuth.c` 13,630 B + `.h` 2,703 B（`2359a86`），SHA-256 认证两支电量计后认证 SVID `0x2717` 的适配器 PDO2，最多 10 次重试、间隔 200 ms；`ShengBattery.cpp` 串行队列内驱动；host 测试以 CommonCrypto 为对端 | 无：`drivers/` 中 grep 不到 `ChargeAuth`/`charge_auth`/`2717` |
+
+- `ShengPlatformPower.cpp`（8,229 B）不是可用的平台电源实现：它只做 PMGR ABI 资格验证，
+  未实现的槽位会 `panic("ShengPlatformPower: unimplemented operation")`；platform sleep 由
+  `ShengSleep.cpp` 提供，入口是 boot-arg `platform-sleep=1`。
+- K60 与 sheng 共用同一条 GLINK battery manager 协议：owner `32778`、24 字节请求、
+  `TYPE_REQUEST=1`/`TYPE_NOTIFY=2`、`OP_NOTIFY_ENABLE=4`/`OP_NOTIFY=7`、battery `0x30`、
+  USB `0x32`、wireless `0x34`，属性号也相同（battery 9 = CURRENT_NOW）。因此
+  `ShengChargeAuth` 的状态机可以接到 `K60Battmgr` 的请求队列上；真正的移植工作量在
+  board get/set `0x50`/`0x51` 属性、密钥与 PD/PPS 合约。
+- 许可证：sheng 仓库 `LICENSE` 为 BSD-2-Clause-Patent（`Copyright (c) 2026, UniXNU contributors`），
+  与本仓库一致，代码可复用。
+- 结论：五个未闭项在 sheng 上都有实现，但都不在 K60；本文件只映射官网 §4 的测量值发布，
+  §5 与充电认证需要单独的工作流和新的镜像/真机验证。
+
 ## 8. Host 测试覆盖
 
 `scripts/tests/test-k60-charger-subscription.c` 当前 95 项断言，覆盖：
@@ -495,12 +527,17 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
 - 官网 §4 的「sheng 的 PD、PPS 和 MiPPS」（`:82-88`）与「sheng Linux 充电读取镜像」
   （`:89-104`）不属于本文件的测量值发布范围：本板 ADSP 固件拥有充电控制，驱动没有
-  充电器认证或主机控制路径；若后续要主机控制充电，需要单独实现 `ShengChargeAuth.c` 等价的
-  HMAC-SHA256 认证、PD/PPS/MiPPS 合约、限值和温控策略。当前检出的 `UniXNU-sheng`
-  `origin/main` `1108068` 不含 `package/ShengChargeAuth.c`；`ShengBattmgr.c` 注释明确
-  `no Xiaomi extensions or charger writes`，`sheng.md:519-524` 与 `fuxi.md:563-568` 都记录 ADSP 固件
-  负责 PD/PPS 协商且两节电芯和 PD adapter `read unauthenticated`。因此官网 `:82-104` 是参考流程/工具路线，
-  不是 K60 可直接复用的实现。
+  充电器认证或主机控制路径。此前本文件按 2026-11-09 的旧检出（本地 `main` `a68ee4e`，
+  当时记录的上游 `1108068`）判断「sheng 不含 `package/ShengChargeAuth.c`」——该结论已作废：
+  2026-11-18 fetch 后 `origin/main` 为 `6c42e10`（2026-11-17），`package/ShengChargeAuth.c`
+  13,630 B 与 `.h` 2,703 B 已在 `2359a86`（2026-11-16）落地，并由 `ShengBattery.cpp`
+  的串行请求队列驱动（`chargeAuthEnabled` 默认 true，boot-arg `authentication` 可关）；
+  host 测试 `package/tests/charge_auth_host.c` 8,678 B 以 CommonCrypto 为对端，
+  Linux 侧 `scripts/charge-sheng-linux.py` 复用同一状态机。`ShengBattmgr.c` 早先的
+  `no Xiaomi extensions or charger writes` 注释和 `sheng.md:519-524` 的
+  `read unauthenticated` 都是认证实现之前的状态，不能作为当前结论。K60 接入仍需
+  board get/set `0x50`/`0x51` 属性、HMAC-SHA256 与 PD/PPS/MiPPS 合约、限值和温控策略，
+  属独立工作流（§7.11）。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
   1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118f/boot.img`（sha256 `024466905dec75cbab5d2525f68936d6f18650a4b0d3aed6551d5ccc3df94c6e`）已于 2026-11-18 11:07 构建、11:13 上机，包含 `592523aa`/`6750c7bd`/`af759fe4`/`0bad0c61`；C1/C2 PASS、C3 对同会话 3 行低电流 Android 基线 PASS（`judge-android.txt`，|ΔV|=46mV、|ΔSOC|=1.00pp、|ΔT|=1.00°C），8 行全窗口在 11:56 符号修正后 FAIL（Android 原始正电流按 negative=charging 归一化为放电），见 §7.9/§7.10。上一版 image e（`8b1df...`）不含 `0bad0c61`（剩余时间按 charging 选择），已三次上机且 C1/C2 PASS，但 11:56 符号修正后其匹配电流 C3 PASS 全部作废（§7.10）；image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
   2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔、充电/放电/full 状态转换和剩余时间选择（95 项），但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e/f 包含），IOKit 级 stop/start 未上真机。

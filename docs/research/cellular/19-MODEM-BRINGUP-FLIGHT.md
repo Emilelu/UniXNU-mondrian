@@ -441,6 +441,41 @@ GLINK 命令解析，`k60m_glink_poll()` 因此调用 `k60m_glink_stop()` 并返
 | 判读 | S3 PASS；S4 FAIL（`channel down` + `glink poll rc=-5 at 2`，无 dms revision） |
 | 结论 | 电源/PAS/transport/mem 已上机；下一层是 GLINK 消息解析，不是 PAS 或电源 |
 
+### 3.16 k30：GLINK 损坏消息的 RX 快照（离线，未上机）
+
+k29 B 的 S4 只给出一行 `glink poll rc=-5 at 2`，不足以判断是哪一条 GLINK 命令触发了
+`QcomGlinkCorrupt`。`receive_one()` 在 Corrupt 路径上只 peek、不 advance，`k60m_glink_stop()`
+也不动 RX 环，所以坏消息在 poll 返回时仍留在环头：k30 只改 `K60ModemLink.c` 的错误路径，
+在 `return` 之前快照 RX 环头 8 字节并打印
+
+```
+K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u cmd=%#x p1=%#x p2=%#x
+```
+
+命令号按 `drivers/PongPower/QcomGlink.h` 的枚举解读（0 VERSION、1 VERSION_ACK、2 OPEN、
+3 CLOSE、4 OPEN_ACK、5 INTENT、6 RX_DONE、7 RX_INTENT_REQ、8 ACK、9 TX_DATA、11 CLOSE_ACK、
+12 TX_DATA_CONT、13 READ_NOTIF、14 RX_DONE_W_REUSE、15 SIGNALS；10 在协议里未使用）。
+这与 hakios 的 `GLINK_DATA_MORE=12 / GLINK_READ_NOTIFY=13` 编号一致
+（`E:/k60-work/references/phk110-port/drivers/modem/hakios.mpss.c:2574-2575`），所以不存在
+“我们把 12/13 记错”的假设。`drivers/PongPower/QcomGlink.c` 属充电线
+（`docs/engineering/TREE-OWNERS.toml:70`），本线只在 `K60ModemLink.c` 里做只读快照，不改它。
+
+0622 重新生成为 95,370 B / 5 files；`test-k60-modem-image.py` TESTS OK 30 segments、
+`test-k60-ipa-patch.py` PASS、`run-host-tests.sh` rc0。静态证据：`llvm-strings` 在
+kernel.macho 里恰好命中一次 `glink poll rc=%d at %u rx avail`；`llvm-nm` 有
+`_k60_modem_qrtr_probe fffffff007763ca0` 与 `_k60_ipa_qrtr_reset fffffff00776be3c`。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `3c68b7a8`（"feat(cellular): snapshot the GLINK RX message on corruption"） |
+| kernel | `E:/k60-work/artifacts/modem-20261117k30/kernel.macho`，105,582,592 B，sha256 `c6de4ad86e36ca3240cbfa2189ad3e8ed30fa43dd4717c977b8eb55918a24dfd` |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k30/boot-modem-b-full.img`，201,895,936 B，sha256 `d17550354629f4f18bdb4ced8dcb1bc05f87d652dfcc1250a79913c94195cb17` |
+| payload | `7a2d771692d56d878e449bdfc29aa602c337ebfdc89a9e0cd35f4d688b31f6b8`（json `54dc54d5…`）；payload kernel `95163b59…` |
+| args | 末尾 `pong_modem=2 pong_ipa=0`；FD `40c29d51…`；carrier 27 streams / 109,060,761 B |
+| 验证 | `scripts/verify-boot-image.py` rc0 OK；`test-bootimg-layout.py` OK（560384 / 201326592 / 3145840 / 4024） |
+| 判据 | S3 必须保持；S4 仍要求 `dms revision`。新增的 `rx avail=… cmd=… p1=… p2=…` 行只用于定位分支，不改变 S4 的通过条件 |
+| 状态 | 已打包、未上机；k29 的 S3 PASS 与这一行诊断一起构成下一次单变量飞行 |
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -478,6 +513,7 @@ GLINK 命令解析，`k60m_glink_poll()` 因此调用 `k60m_glink_stop()` 并返
   `K60MODEM qrtr: modem not ready`、`K60MODEM qrtr: dms revision missing`。
   实机结果见 §3.15：`glink desc` 出现，但随后 `channel up` → `channel down` → `glink poll rc=-5 at 2`，
   没有 dms revision，按 S4 判失败（F8）。
+  k30 起，失败行会带 `rx avail=… head=… tail=… cmd=… p1=… p2=…`（§3.16），用于区分 VERSION/OPEN/INTENT/DATA 分支。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
   `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。
 - **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published` 的 N 大于 0；bridge disabled 或 N=0 都算失败。
@@ -514,7 +550,9 @@ GLINK 命令解析，`k60m_glink_poll()` 因此调用 `k60m_glink_stop()` 并返
    报 `rc=-3 x0=0x1 x1=0x1`（§3.14）；k29 只改这一个上限与计数打印。UEFI/DTB/carrier 与 C/P1 相同。
    C/P1 已用 k22 内核证明，B 不得在同一个镜像里再顺手改第二件事。
    **k29 B 已飞（2026-11-19 06:23）**：S3 PASS（`auth_reset ok`，`calls=182`），S4 FAIL
-   （`channel up` → `channel down` → `glink poll rc=-5 at 2`，无 dms revision，§3.15）；下一飞是 k30 的 RX 快照。
+   （`channel up` → `channel down` → `glink poll rc=-5 at 2`，无 dms revision，§3.15）。
+   下一飞用 k30 的 `E:/k60-work/artifacts/modem-20261117k30/boot-modem-b-full.img`（`d1755035…`，§3.16）：
+   与 k29 只差 GLINK 错误行里的 RX 快照，S3 必须保持，S4 仍按 dms revision 判。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

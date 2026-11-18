@@ -1752,11 +1752,29 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **结论**：bt-0517-power-order 产物已可交给 Lead 作为下一次单变量飞行对象；d10 未批准，未上机，不重建、不改预算/段长/状态机/地址。预声明判据与边界见 `docs/research/bt/D10-PLAN.md`。
 
+### 7.25 0518 GIC INTID 修正候选构建（2026-11-18 18:08 已构建，未上机）
+
+**目的与边界**：0518 只修一个 GIC INTID 的 off-by-32：`armcpu_spi_attach` 需要 INTID，旧 K60 代码却直接传 DT 的 SPI 587（UART）和 208（TLMM wake）。新增 `K60_BT_UART_GIC_INTID=(32u+587u)`=619、`K60_TLMM_GIC_INTID=(32u+208u)`=240，四个调用点（`k60_gic_mask`、`armcpu_spi_mask`、UART attach、TLMM attach）全部改用 INTID。没有改 0517 的上电顺序/100-60 ms、90 s budget、10 s command deadline、243 B 段长、`dnld_mode`/type、状态机、SMMU、地址或固件。0518 未上机；d10/d11 均未批准。
+
+**依据**：`drivers/ArmCpu/ArmCpu.cpp:784-814` 的 `armcpu_spi_attach(uint32_t intid, ...)` 直接拿 `intid` 写 `GICD_ISENABLER`/`GICD_IROUTER`/`GICD_ICFGR`，并拒绝 `intid < 32`；它不是 DT 的 SPI 编号。既有 K60 调用者也都加 32（UFS `265+32`、PCIe `32+140`、pong `32+481`）。旧代码虽然调用成功返回 0，但把 UART RX handler 挂在 INTID 587、TLMM handler 挂在 INTID 208，真实线是 619/240；这与 d8/d9 的 NVM 每段约 10,000/10,001 ms 应答一致，但 console 没有 IRQ 计数，不能把 10 s 单独当成设备证据。
+
+**补丁与源码身份**：`patches/xnu/0518-k60-bt-gic-intid.patch`（51 行，2,280 B，4 hunk，sha256 `c1e2cb96ac79b26089e4a495741165d800ee8e730b0a460ab2e476853809e13f`），追加在 237 条 0517 series 后，series 共 238 条（全文件 `4a39a8d2fddf0da93dbcab18a2302c69bab8f34955d56e9172c1a395e8b12e11`，前 237 行 `3339e34f664d8eee48ab366ec98bffd00018aafe82821c1b7f9b5eecd8dcbcba`，前 236 行仍 `e7de3927…`）。base（post-0517）`4a3947d5926d8a636d29d914530509cdf7208ed46fcb3e2022002798e8792b0e`（2235 行），应用后 `4a1a4e269fce5f2bf3d964f8610d3c7943f3329aed2dce2da681dd45705ef5fb`（2239 行）；两种 `git apply --check` 与实际应用均通过。
+
+**构建与产物（`E:/k60-work/artifacts/bt-0518-gic-intid/`）**：
+- 构建命令（`K60_OUT=/opt/k60/trees/k60build/bt-out-0518`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`、`K60_EIGHT_STEP_ITEMS=bluetooth`）：`bash scripts/build-strict.sh bt-0518-gic-intid --fd .../fd/bt-0517-power-order-cf4485712c29.fd --bt-blob .../pong-bt-firmware.bin --kernel-arg k60bt=1 --kernel-arg pong_bt_late=1`；`RAW_RC=0`。
+- `build-manifest.json`：`built_at=2026-11-18T18:08:47+08:00`，`repo.head=3aa6910a720eddbc65c5adacfb75660231899450`、`dirty_files=0`，`series.count=238`、`series.sha256=4a39a8d2…`、`frozen.list_sha256=a9f4e64f33f4af7377368b4e6ac258078096d26a30ca47143ed38ea531457365`。
+- 产物：`boot.img` sha256 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`（201,887,744 B）、`kernel_built=6f44a07f6d86a0c25e55a152a4587da645314139e2abdad1aa07e8164726b624`、`payload=1a6cf06fdc6ff8380e8dce4bbdb908760b5a9d226094e0e4be42a9ea9bb2ee16`、`payload_kernel=46da4e247b91969ed72962f084a5850f97c71d370bcaacbf5eab973c4d85830e`、`ADT=4b91e5495fbf1d30c941030918040fcceb096b75af29976526d6bfd02bb27242`、`dtb=2d044eaa…`、`fd=cf448571…`、`bt_blob=febdc20d…`；`boot.json` 的 `kernel_sha256=83b52b566b9cd0e0a2f13854f7da4c67175c956d798d009dcf94fc5d7cb7707c`、`hardware_tested=false`。
+- 门禁：八步 build 6 项通过；`kernel.log:271` 记录 0518；kernel archives 4 个全在 kernel.macho；metal/bt blob container self-consistent；`image-arg-audit: OK (31 arguments, 598 bytes)`；`verify-boot-image.py --manifest ...` → OK。
+
+**宿主证据**：`python3 scripts/tests/test-bt-0518-gic-intid.py` → `TESTS OK: 35 case(s), 0 failure(s)`；0517 套件 53、0516 套件 82、d8 adapter 90，全绿。以上为 HOST-ONLY，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
+
+**结论**：0518 候选已可交给 Lead，但 `D11-PLAN.md` 明确规定 d11 是“d10 之后”的累积单变量：相对 d10 只多 0518；d10 未批准前不得用 d11 替代。d11 未批准、未上机；d8/d10 结论不变，⑧ 仍 false。
+
 ---
 
-## 8 八步账本沿革与 d8/0516 当前范围
+## 8 八步账本沿革与 d8/0516 历史范围
 
-**当前有效状态（2026-11-17 12:03 d9 FAIL）**：蓝牙账本保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。
+**历史实飞状态（2026-11-17 12:03 d9 FAIL；此后 0518 候选仅离线构建，见 §7.25）**：蓝牙账本当时保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。
 本树默认 `python3 scripts/eight-step-gate.py --flash` 在 d8 时已实际列出 7 项（含 bluetooth）、56 项通过、RC=0，
 见 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`；0516 候选在同一默认 flash 门禁下同样列出 7 项（含 bluetooth）、56 项通过、RC=0，见 `E:/k60-work/scratch/bt-s4/0516-flash-gate-20261117.log`；0516 候选构建的八步日志只有 build 6 项
 （`E:/k60-work/artifacts/bt-0516-uart-clock/logs/eight-step.log`），不追改 d8 manifest，也不把后补离线核验冒充原构建覆盖。

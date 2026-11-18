@@ -3,7 +3,8 @@
 Status: plan, revised 2026-11-18 after two read-only audits (HE association
 semantics; SAE control path and crypto provider). The HE byte codec and its
 legacy-station wiring have since landed on branch `feat/wifi6-wpa3` (see
-§0.1); nothing has been flown yet.
+§0.1); nothing has been flown yet. The S1 transport probe (§2.3) landed on
+2026-11-19 and needs one flight.
 
 The baseline is device-verified: the K60 joins a WPA2-Personal network,
 negotiates HT and VHT, gets a lease through the native DHCP path, carries
@@ -223,6 +224,33 @@ so until the control path moves the honest ceiling is WPA2-PSK **without** PMF.
    `hardware_verified=false`).
 5. The on-device matrix cannot include "HE with PMF" until `rsn_check`'s
    MFPR rejection is lifted; that is an independent change, not part of HE.
+
+### 2.3 S1 built: an SAE-sized authentication frame on the legacy path
+
+The frame path is the only WPA3 unknown a flight can answer cheaply. ath11k sends
+management frames through `ath11k_mac_op_tx` → `ath11k_mac_mgmt_tx` →
+`ath11k_wmi_mgmt_send`, which carries 64 bytes of the frame inline and the rest in
+a separate buffer; nothing in this tree has ever handed that path a frame the size
+of an SAE commit (102 bytes for group 19, 150 for group 20).
+
+`drivers/PongWifi/ath11k/pong_sae.c` builds exactly that frame — algorithm 3,
+transaction sequence 1, a deterministic filler body — and its header says what it
+is: a measuring stick, not a Dragonfly implementation. The builder splices a gate
+into the shared station (`nw_wifi_sae_probe(group)`: at most two frames once the
+link is up, plus a log line for every authentication frame the access point sends
+back), and the kext arms the gate only from the `pong_sae_probe` boot argument, so
+a normal image links the unit and never sends anything.
+
+With the access point in WPA2/WPA3 mixed mode, one flight decides:
+- firmware carries the frame and the AP answers commit or confirm → the transport
+  half of WPA3 exists, and the remaining work is the SAE state machine plus PMF;
+- firmware refuses or drops it (a `WMI_MGMT_TX` completion error, or silence) →
+  WPA3 on this path is closed, and the mac80211/cfg80211 migration (P2) is the only
+  route left.
+
+The probe is deliberately kept out of the pane image: mission22 carries the pane
+experiment, and an authentication frame in that flight would make a dropped row
+unattributable.
 
 ## 4. Open questions
 

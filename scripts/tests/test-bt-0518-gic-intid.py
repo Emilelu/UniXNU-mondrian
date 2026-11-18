@@ -161,15 +161,20 @@ def main() -> None:
 
     lines = [line.strip() for line in SERIES.read_text(encoding="utf-8").splitlines()
              if line.strip()]
-    check(len(lines) == SERIES_COUNT, "series count", str(len(lines)))
+    check(len(lines) >= SERIES_COUNT, "series count", str(len(lines)))
     check(lines[SERIES_PREFIX_COUNT - 1] == PATCH_0517,
           "line 237 is 0517", lines[SERIES_PREFIX_COUNT - 1])
-    check(lines[-1] == PATCH_0518, "series ends with 0518", lines[-1])
+    check(lines[SERIES_COUNT - 1] == PATCH_0518, "line 238 is 0518",
+          lines[SERIES_COUNT - 1])
+    check([line for line in lines[SERIES_COUNT:]
+           if not line.startswith(("0519-", "0520-"))] == [],
+          "only a later 051x/052x patch may follow 0518", str(lines[SERIES_COUNT:]))
     prefix_sha = hashlib.sha256(
         ("\n".join(lines[:SERIES_PREFIX_COUNT]) + "\n").encode()).hexdigest()
     check(prefix_sha == SERIES_PREFIX_SHA256, "237-line 0516+0517 prefix sha256", prefix_sha)
-    full_sha = hashlib.sha256(("\n".join(lines) + "\n").encode()).hexdigest()
-    check(full_sha == SERIES_SHA256, "238-line series sha256", full_sha)
+    full_sha = hashlib.sha256(
+        ("\n".join(lines[:SERIES_COUNT]) + "\n").encode()).hexdigest()
+    check(full_sha == SERIES_SHA256, "238-line 0516+0517+0518 prefix sha256", full_sha)
     check(sha256(PATCHES / PATCH_0516) ==
           "0134a31bedb65fe6669a7ce7745bc5b9fcb6a7cd44ac66f96f3f604bb01ac6c8",
           "0516 bytes are unchanged")

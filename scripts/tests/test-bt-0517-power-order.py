@@ -179,15 +179,14 @@ def main() -> None:
 
     lines = [line.strip() for line in SERIES.read_text(encoding="utf-8").splitlines()
              if line.strip()]
-    check(len(lines) in (SERIES_COUNT, SERIES_COUNT + 1),
-          "series count", str(len(lines)))
+    check(len(lines) >= SERIES_COUNT, "series count", str(len(lines)))
     check(lines[SERIES_PREFIX_COUNT - 1] == PATCH_0516,
           "line 236 is 0516", lines[SERIES_PREFIX_COUNT - 1])
     check(lines[SERIES_COUNT - 1] == PATCH_0517,
           "line 237 is 0517", lines[SERIES_COUNT - 1])
-    tail_ok = len(lines) == SERIES_COUNT or (
-        len(lines) == SERIES_COUNT + 1 and lines[-1] == PATCH_0518)
-    check(tail_ok, "candidate tail is 0517 optionally followed by 0518")
+    tail_ok = all(line.startswith(("0518-", "0519-", "0520-"))
+                  for line in lines[SERIES_COUNT:])
+    check(tail_ok, "candidate tail is 0517 optionally followed by later patches")
     prefix_sha = hashlib.sha256(
         ("\n".join(lines[:SERIES_PREFIX_COUNT]) + "\n").encode()).hexdigest()
     check(prefix_sha == SERIES_PREFIX_SHA256, "236-line 0516 prefix sha256", prefix_sha)

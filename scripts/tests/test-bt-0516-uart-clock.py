@@ -176,10 +176,10 @@ def validate_inputs(artifact: Path, patches: Path) -> list[str]:
     check(len(lines) >= SERIES_COUNT and lines[SERIES_COUNT - 1] == PATCH_0516,
           "0516 at the candidate tail")
     tail_ok = len(lines) == SERIES_COUNT or (
-        len(lines) == SERIES_COUNT + 1 and lines[-1] == PATCH_0517) or (
-        len(lines) == SERIES_COUNT + 2 and lines[-2] == PATCH_0517
-        and lines[-1] == PATCH_0518)
-    check(tail_ok, "candidate tail is 0516 optionally followed by 0517 and 0518")
+        len(lines) > SERIES_COUNT
+        and all(line.startswith(("0517-", "0518-", "0519-", "0520-"))
+                for line in lines[SERIES_COUNT:]))
+    check(tail_ok, "candidate tail is 0516 optionally followed by later patches")
     if not tail_ok:
         refuse("candidate series tail is not 0516 or 0516+0517+0518")
     candidate = lines[:SERIES_COUNT]

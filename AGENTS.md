@@ -1,276 +1,238 @@
 # Agent instructions
 
-This repository owns the Redmi K60 (mondrian, SM8475) device configuration,
+This repository owns the Redmi K60 (mondrian, SM8475) device configuration:
 peripherals, firmware selection, partition layout, power policy and packaging.
-The shared SM8475 resources live in `UniXNU-sm8475-common`; the loader lives in
-`uefi-mondrian`; the build driver, the documentation site and the component
-catalog live in `UniXNU`.
+Shared SM8475 resources live in `UniXNU-sm8475-common`, the loader in
+`uefi-mondrian`, and the build driver, the documentation site and the component
+catalog in `UniXNU`.
 
-**`feat/ios27` targets iOS 27.0.1 (24A446) as an iPhone 16 Pro Max
-(iPhone17,2), arm64e, on xnu-12377 with the Darwin 26 calls.** `main` remains
-the iOS 16.6.1 (20G81) / darwin22 port; the darwin24 route is retired and
-archived on `chore/archive-darwin24-main-20261103`. Read
-[`docs/engineering/IOS27.md`](docs/engineering/IOS27.md) before changing this
-branch: the profile, the inputs and the phase gates are there.
+**`feat/ios27` targets iOS 27.0.1 (24A446) as an iPhone 16 Pro Max (iPhone17,2),
+arm64e, on xnu-12377 with the Darwin 26 calls.** `main` remains the iOS 16.6.1
+(20G81) / darwin22 port; the darwin24 route is retired and archived on
+`chore/archive-darwin24-main-20261103`. Read `docs/engineering/IOS27.md` before
+changing this branch: the profile, the inputs and the phase gates are there.
+`porting.toml` is the authoritative device state, and every subsystem change
+updates the record in the same pull request.
 
-The porting record in `porting.toml` is the authoritative device state. Every
-subsystem change updates the record in the same pull request.
+## Commands
+
+```sh
+# build driver, from the UniXNU checkout; --device is mandatory everywhere
+./unixnu defconfig mondrian_defconfig --device ../UniXNU-mondrian
+./unixnu fetch   --device ../UniXNU-mondrian
+./unixnu status  --device ../UniXNU-mondrian --json
+./unixnu build kernel --device ../UniXNU-mondrian
+
+bash scripts/k60-device.sh state          # adb | fastboot | none
+bash scripts/k60-device.sh boot <image>   # never flashes
+```
+
+Every gate: `python3 scripts/check-rules.py` (the list is
+`docs/engineering/RULES.toml`; it fails when an iron rule or a pitfall after
+P-151 has no executable check or written waiver). Before a build: clean
+`git status --porcelain`, branch level with its remote,
+`python3 scripts/sync-device-input.py --check` reporting no drift.
 
 ## Iron rules
 
-Four rules outrank everything else in this file. They are not style preferences;
-a violation costs work that cannot be recovered.
-
 1. **Nothing durable lives in `/tmp`.** Patches, `series` entries, build
-   scripts, notes, and any generated artefact a result refers to belong in the
-   repository or under the workspace. `/tmp` is wiped without warning: on
-   2026-11-07 a cleanup removed `/tmp/usb-cdc-mainline` and took an entire day
-   of kernel patches with it, leaving only the compiled `macho` behind.
+   scripts, notes and any generated artefact a result refers to belong in the
+   repository or under the workspace. `/tmp` is wiped without warning: a
+   cleanup on 2026-11-07 took a day of kernel patches with it.
 
 2. **Source is tracked and pushed before the next step.** A patch, script or
-   document is not finished when it is written; it is finished when it is
-   committed and pushed. `git status` must not carry source changes across a
-   build, and a build tree must never be the only copy of a patch.
+   document is finished when it is committed and pushed, not when it is
+   written. `git status` must not carry source changes across a build, and a
+   build tree must never be the only copy of a patch.
 
 3. **Follow the eight-step process; no flashing without step ⑦.** Same model →
    official → reverse engineering → wide search → plan → deep dive → local
-   verification → on device. The definition of every step, its required evidence
-   and its pass condition live in
-   [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md).
-   Step ⑦ requires all three of a static check, an offline unit test and an
-   artefact check. "It compiles" is not verification.
+   verification → on device. Definitions and pass conditions live in
+   `docs/engineering/EIGHT-STEP-SPEC.md`. Step ⑦ needs all three of a static
+   check, an offline unit test and an artefact check; "it compiles" is not
+   verification.
 
 4. **Check the official component catalog before writing a driver.** Read
    `UniXNU/components.toml` and the
    [driver repository list](https://unixnu.com/zh/drivers/repositories) first.
-   Reimplementing an existing wheel is a defect, not initiative. The catalog
-   already contains a GENI SPI controller (`QcomGeniSpi`), a Metal frontend
-   (`AdrenoMetal`) and an A740 kernel driver (`Adreno740`); we hand-wrote
-   equivalents before discovering them.
+   Reimplementing an existing wheel is a defect, not initiative: the catalog
+   already carries `QcomGeniSpi`, `AdrenoMetal` and `Adreno740`, and
+   equivalents had been hand-written before someone looked.
 
-5. **The repository is the only source of truth; the build input is its mirror.**
-   `E:\hackios\UniXNU-mondrian` and `/opt/k60/trees/usb-cdc-mainline/device`
-   hold the same files, and only one direction of copying is allowed:
-   repository → build input, through `scripts/sync-device-input.py`. Editing
-   under `/opt` is lost on the next clone, and a file that exists in only one of
-   the two places is invisible to whoever reads the other. This has cost real
-   work three times: the `0403` firmware patch lived only in the build input, the
-   `pong-touch`/`pong-buttons` DT nodes existed in the build input while the
-   repository's `mondrian.dts` was a 2,364-byte stub, and the eight-step table
-   deduplication was written, verified in the rendered README, and then destroyed
-   by a `git reset --hard`.
-
-   Three corollaries, each learned the hard way:
-
+5. **The repository is the only source of truth; the build input is its
+   mirror.** `E:\hackios\UniXNU-mondrian` and
+   `/opt/k60/trees/usb-cdc-mainline/device` hold the same files, and copying
+   runs one way only: repository → build input, through
+   `scripts/sync-device-input.py`. Editing under `/opt` is lost on the next
+   clone, and a file in only one of the two is invisible to whoever reads the
+   other.
    - **`git reset --hard` before `git status` is data loss.** Uncommitted work
-     does not survive it, and nothing warns. Run `git status --porcelain` and
-     commit or stash first.
+     does not survive it and nothing warns. Commit or stash first.
    - **`git pull --rebase` replays every commit after the reset point**, so a
-     local revert is an opinion until it is pushed. The `0403` revert was undone
-     this way one round after it was made.
+     local revert is an opinion until it is pushed.
    - **Scratch is for drafts, not deliverables.** A script that passes a check
-     belongs in `scripts/` in the same turn; `check-dt-asserts.py` sat in the
-     workspace for hours while every build ran without it.
+     belongs in `scripts/` in the same turn.
 
 6. **Following upstream means judging every commit, not reporting that one
-   exists.** `scripts/track-upstream-branches.py` says what changed; that is not
-   the end of the job. Each branch carries a watermark in
-   [`docs/research/UPSTREAM-TRIAGE.toml`](docs/research/UPSTREAM-TRIAGE.toml),
-   and every commit after it gets a verdict - `picked` (with how), or
-   `not-applicable` (with why), or `deferred` (with why and when to look again).
-   `scripts/check-upstream-triage.py` fails the build while anything past a
-   watermark is unjudged.
+   exists.** `scripts/track-upstream-branches.py` says what changed; each
+   branch carries a watermark in `docs/research/UPSTREAM-TRIAGE.toml` and every
+   commit past it gets a verdict - `picked` (with how), `not-applicable` (with
+   why) or `deferred` (with why and a date to look again);
+   `scripts/check-upstream-triage.py` fails while anything is unjudged. The
+   default verdict is `picked`: a commit earns `not-applicable` only by being
+   documentation, and `deferred` only by physically not applying to our tree.
+   Where the divergence is too broad for cherry-picking, rebase onto the
+   upstream branch and re-apply our additions on top.
 
-   This rule exists because the alternative already happened: the same commits
-   were rediscovered round after round, discussed each time, and adopted zero
-   times. Reporting is not following. A deferred commit without a date is a
-   forgotten commit.
-
-   **The default verdict is `picked`.** Upstream is fixing real K60 problems and
-   every one of those fixes is worth having; a commit earns `not-applicable`
-   only by being documentation, and `deferred` only by physically not applying
-   to our tree. "I would have written it differently" is not a reason. Where the
-   divergence is broad enough that cherry-picking commit by commit stops making
-   sense, rebase onto the upstream branch and re-apply our additions on top -
-   that is the same rule followed at the right granularity, not an exception to
-   it.
-
-7. **Tags mark proven states, not progress.** A tag is a rollback anchor, so
-   it is only worth having when it points at something we verified. Three kinds
-   of tag are allowed, and nothing else:
-
-   - `boot-proven-YYYYMMDD` - an image built from this commit reached
-     SpringBoard on the device. The tag message must carry the image path,
-     size and sha256 plus the console log it was proven with.
+7. **Tags mark proven states, not progress.** Only three kinds are allowed:
+   - `boot-proven-YYYYMMDD` - an image from this commit reached SpringBoard;
+     the tag message carries its path, size, sha256 and the console log.
    - `snap-rN` - the commit registered as the `main` baseline in
-     `docs/engineering/MAIN-BASELINE.toml` (iron rule 9).
+     `docs/engineering/MAIN-BASELINE.toml` (铁则 9).
    - `vX.Y.Z-...` - a release milestone referenced by the READMEs.
 
-   Per-commit and per-round snapshot tags are forbidden: on 2026-11-13 the repo
-   had 134 tags of which 126 were noise, which makes the useful ones unfindable
-   (user: "打了一堆tag 到底哪些有用的？没用的就删掉 后面也不要乱加 只加有用的").
-   The rollback anchor for day-to-day work is the pushed commit (iron rule 2),
-   not a tag - `python3 scripts/check-snapshot-tag.py --tag` now refuses to
-   create anything unless the tree is clean and `MAIN-BASELINE.toml` lists HEAD
-   with `state = "booted"`.
+   The rollback anchor for daily work is the pushed commit, not a tag;
+   `scripts/check-snapshot-tag.py` refuses to create anything unless the tree
+   is clean and `MAIN-BASELINE.toml` lists HEAD with `state = "booted"`.
 
 8. **A boot without the serial console is a blind experiment.** Every
-   `fastboot boot` must run with the CDC-ACM capture already attached, before
-   the boot starts - not after. The console is `VID_1209&PID_0001`, it binds
-   `usbser.sys`, and its COM number exists only under
-   `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` as `\Device\USBSER000`; picking a port by
-   FriendlyName silently selects a Bluetooth modem instead. DTR must be raised or
-   the kernel never drains the console ring.
-
-   `bash /mnt/e/k60-work/scripts/flash.sh <img> <secs>` does this unconditionally
-   and reports whether the console ever appeared. `K60 console never appeared`
-   is not a broken script: it is proof that the kernel died before USB gadget
-   init, and the investigation must follow the early-boot path instead of
-   guessing at UI symptoms. The full procedure, the evidence layout and the
-   bisect recipe are in
-   [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md);
+   `fastboot boot` runs with the CDC-ACM capture attached **before** the boot
+   starts. The console is `VID_1209&PID_0001`, it binds `usbser.sys`, and its
+   COM number exists only under `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` as
+   `\Device\USBSER000`; picking a port by FriendlyName silently selects a
+   Bluetooth modem. DTR must be raised or the kernel never drains the console
+   ring. `bash /mnt/e/k60-work/scripts/flash.sh <img> <secs>` does this
+   unconditionally and reports whether the console ever appeared;
    `scripts/check-boot-procedure.py` fails the run when the wrapper stops
-   attaching the capture.
+   attaching the capture. "K60 console never appeared" is evidence that the
+   kernel died before USB gadget init - investigate the early-boot path, do
+   not guess at UI symptoms. Procedure, evidence layout and bisect recipe:
+   `docs/engineering/BOOT-PROCEDURE.md`.
 
-   This rule exists because a boot hung early on 2026-11-12 and left no log at
-   all - the failure was diagnosed by guessing ("maybe it cannot find the unixnu
-   partition") instead of reading it. Anything that depends on being remembered
-   is not a process.
+### 铁则 9 — main 只放可启动基线，实验走分支
 
-The check before every build: `git status --porcelain` is empty on the source
-tree, the branch is level with its remote, and
-`python3 scripts/sync-device-input.py --check` reports no drift. The gates below
-then run automatically and must all pass.
+`main` is the stable bootable baseline, not a workbench. Any change not yet
+verified on the device (kernel patch series, build scripts, `board.toml`,
+configs, `drivers/` sources) lands on a branch (`feat/`, `fix/`, `test/`,
+`chore/`). A merge back to `main` requires `BUILD OK` **and** an on-device pass
+(step ⑧), or an explicit `build-only` entry with its debt written down in
+`docs/engineering/MAIN-BASELINE.toml`. Every commit that lands on `main` is
+registered there with `sha`, `tag`, `kernel_sha256` and `state`. Gate:
+`scripts/check-main-baseline.py` (registered as `iron-9`). Already violated by
+`bf487cc`, `c2fa573`, `234574a`, `d1843c2`, `20ce047` and `8206fb4` - several
+reached only `BUILD OK` (P-174).
 
-## Gates
+### 铁则 10 — 环境不进仓库
 
-`python3 scripts/check-rules.py` is the registry: it runs every check below and
-also fails when an iron rule or a new pitfall has no check registered at all.
-The list itself lives in `docs/engineering/RULES.toml`, so a rule that is only
-prose is a red build, not a wish.
+Addresses and passwords of external machines (a LAN Mac, a build server, a
+router) are not part of the project: the repository is public and history is
+permanent, so one push publishes the whole history and deleting the file later
+cannot recall the clones. Documents carry placeholders only
+(`<user>@<mac-host>`, `sshpass -p <password>`, `<local-dir>`); real values live
+outside the repository (`E:\k60-work\` or `~/.k60-env`) and are `source`d,
+never written into `docs/`, `scripts/` or `board.toml`. Check before committing:
+`python3 scripts/check-secrets.py` (registered as `iron-10`). Already violated
+once: the ★7 probe command reached public history in `2e44f46`.
 
-| Gate | Command | Checks |
-|---|---|---|
-| Registry | `python3 scripts/check-rules.py` | Every iron rule and every pitfall after P-151 has an executable check or a written waiver |
-| Temp artefacts | `python3 scripts/check-tmp-artifacts.py` | No `/tmp` path is read as a durable source without an entry in `docs/engineering/TMP-ALLOWLIST.toml` (iron rule 1) |
-| Tree clean | `python3 scripts/check-tree-clean.py` | No tracked file is modified but uncommitted, and `HEAD` is not behind its upstream (iron rule 2) |
-| Data identity | `python3 scripts/check-data-identity.py` | The compiled Data volume UUID exists in the newest console log, and the UFS size ceiling covers the real window (P-152, P-153) |
-| Patch budget | `python3 scripts/check-patch-series.py` | The net line delta every series patch applies to `bsd/kern/kern_exec.c` still matches the recorded baseline (P-155) |
-| Pick shrink | `python3 scripts/check-pick-shrink.py` | A file-level upstream pick cannot silently replace a larger local file (P-151) |
-| Research | `python3 scripts/research-gate.py` | Every source in `docs/research/SOURCES.toml` has `examined` plus a written `finding` |
-| Eight-step | `python3 scripts/eight-step-gate.py --build` / `--flash` | ①–⑥ for build, ①–⑦ plus the ⑧ prediction for flash |
-| Porting | `python3 scripts/porting-gate.py --quick` | `porting.toml` matches the official schema; the README table matches the data |
-| Docs | `python3 scripts/check-docs.py` | Link integrity, INDEX coverage, root-doc links, section order, bilingual |
-| README sync | `python3 scripts/check-readme.py` | README/README_EN mutual links, README date not older than STATUS, ★N/P-N range claims equal the real headings, the gate table names the same set as `build-strict.sh` embeds (P-205) |
-| Firmware volume | `python3 scripts/check-firmware-volume.py` | The firmware-volume manual does not claim the volume is reproducible, and does not present a volume hash as an identity rather than one build's identifier (P-216) |
-| Bisect coverage | `python3 scripts/check-bisect-coverage.py --prefix <tag-prefix>` | 已构建但从未飞行的镜像（P-218） |
-| Basecore pin | `python3 scripts/check-basecore-pin.py` | The Mu_Basecore worktree sits on the commit the repo records, every `[firmware].patches` entry exists and applies, and any deliberate deviation is written down in the firmware manual (P-217) |
-| Scope freeze | `python3 scripts/check-scope-freeze.py` | Nothing under a frozen path in `docs/SCOPE-FREEZE.toml` changed since its baseline; frozen areas warn instead of fail |
-| DT asserts | `python3 scripts/check-dt-asserts.py` | Every `property(entry,"X",...)` a driver patch reads exists in `dts/mondrian.dts`; a missing one means the driver returns false and its diagnostics never run (P-147) |
-| Input sync | `python3 scripts/sync-device-input.py --check` | The build input matches the repository; nothing exists in only one of them (iron rule 5) |
-| Boot procedure | `python3 scripts/check-boot-procedure.py` | Every boot captures the serial console first and never `fastboot flash`es a partition (iron rule 8) |
+### 铁则 11 — 一个检出只有一个主人
 
-`scripts/porting-gate.py` hosts sections `[T]` (docs), `[R]` (porting schema),
-`[Q]` (patch structure), `[P]` (protocol assertion) and `[S]` (series fingerprint).
+One checkout has exactly one owner, registered in
+`docs/engineering/TREE-OWNERS.toml`; the Lead uses `E:/hackios/k60-lead`
+(a `git worktree`) and never writes the shared tree. Destructive commands
+(`checkout -- <path>`, `restore`, `reset --hard`, `clean -f`, `stash`) go
+through `scripts/git-safe.sh`: it snapshots first
+(`scripts/snapshot-worktree.py` → `E:/k60-work/scratch/snapshots/<stamp>-<tree>/`
+with `tracked.patch`, `staged.patch`, `untracked/` and `restore.sh`), then
+refuses on a tree you do not own unless `K60_I_OWN_THIS_TREE=1` is set. A build
+that needs a clean tree gets its own worktree or a narrowed gate scope
+(`K60_EIGHT_STEP_ITEMS`), never a cleanup of the shared one. Run
+`python3 scripts/check-tree-owner.py` before committing. Why: on 2026-11-14 a
+Lead ran `git checkout -- <8 files>` in the shared checkout to turn a gate
+green and destroyed the touch agent's work, seven files of it unrecoverable.
 
-## Required reading
+## Gotchas & landmines
 
-| Task | Required reading |
-|---|---|
-| **Everything** | [`README.md`](README.md) → [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) → [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) |
-| Every port | [Porting](https://unixnu.com/zh/porting/), [device repository](https://unixnu.com/zh/porting/device-repository), [component catalog](https://unixnu.com/zh/reference/components), [porting records](https://unixnu.com/zh/porting/records) |
-| Bring-up order | [Bring-up order](https://unixnu.com/zh/porting/bring-up) |
-| Touch | [Input](https://unixnu.com/zh/porting/input) plus [`docs/engineering/K60-TOUCH-CHECKLIST.md`](docs/engineering/K60-TOUCH-CHECKLIST.md) and [`docs/engineering/TOUCH-STATEMACHINE.md`](docs/engineering/TOUCH-STATEMACHINE.md) |
-| GPU | [GPU and Metal](https://unixnu.com/zh/porting/gpu) plus [`docs/plans/GPU-ENABLE-PLAN.md`](docs/plans/GPU-ENABLE-PLAN.md) |
-| Kernel | [XNU source and patches](https://unixnu.com/zh/xnu/source-and-patches), `patches/xnu/series` |
-| Images | [Prelink](https://unixnu.com/zh/concepts/prelink), [payload](https://unixnu.com/zh/concepts/payload), [UEFI firmware](https://unixnu.com/zh/porting/uefi-firmware) |
-| Prior art | [`docs/audits/FORK-REVIEW.md`](docs/audits/FORK-REVIEW.md), [`CREDITS.md`](CREDITS.md) |
-| Pitfalls | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md), [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) |
+- **This file is parsed.** `check-rules.py` collects iron rules with
+  `^### 铁则 (\d+)` and requires each id in `RULES.toml`;
+  `check-boot-procedure.py` greps `^8\. **...串口|console|serial`. Renaming or
+  renumbering a heading silently disables coverage instead of failing loudly.
+- **LF only.** An edit from Windows converts this file to CRLF and a 37-line
+  change shows as 366 insertions and 366 deletions
+  (`check-line-endings.py`, `--fix` rewrites).
+- **A zero-byte log is not a hang.** Check `debug=0x140 applog=1` in boot-args
+  before concluding anything (P-118).
+- **`wsl.exe` rebuilds its command line from argv**, so quotes around a
+  `bash -lc "..."` payload are lost and semicolons become outer-shell
+  separators. Two safe forms - a script on the Windows side fed on stdin, or a
+  script inside WSL with path conversion off:
+
+  ```sh
+  wsl.exe -d Ubuntu-24.04 -- bash -s < /c/Users/<user>/AppData/Local/Temp/step.sh
+  MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -- bash /tmp/step.sh
+  ```
+
+  Anything longer than one line belongs in a script file.
+- **`sync-device-input.py` refuses to run without `K60_DEVICE_INPUT`.** Export
+  your own mirror; an unset variable once produced five false reds (P-184).
+- **`check-data-identity.py` walks every `configs/*defconfig`**, not just
+  `mondrian_defconfig`. The wifi board's own defconfig carried a seed volume
+  UUID into a shipped build (P-210), and the UFS size ceiling is checked
+  against the newest manifest, not the seed (P-152, P-153).
+- **Only `fastboot boot`.** Never `fastboot flash` an Android partition:
+  `persist` holds the KeyMint database and a rollback destroys every key.
+- **Reports between agents travel through one scratch file per line**,
+  `E:\k60-work\scratch\reply-<line>-<YYYYMMDD>.md` (adsp, audio, bt, cellular,
+  display, refmine, springboard, thermal, usb, wifi). Bidirectional and
+  overwrite-based: read a newer report before overwriting the file with the
+  reply, announce in chat that the reply is written, and keep the payload in
+  the file. Substantive findings still land in `docs/research/` before a line
+  is done.
 
 ## Research before writing code
 
 0. **Local patches first.** `patches/xnu/` carries 245 patch files with 211
-   entries in `series`. Before adding a patch, read what the series already does
-   — a problem being solved "new" may already carry a proven answer, or a
-   constraint that explains why the obvious fix is wrong.
-
-1. **Official component catalog.** See iron rule 4. Record for each candidate
-   whether it can be used as-is, adapted, or why not.
-
-2. **Same-SoC sibling ports.** The priority order is fixed: same model → same
-   SoC → same peripheral chip → official generic driver.
-   - `Seanding1998/hakios-xnu-kernel` (`phk110-port`) — OnePlus Ace 2, SM8475.
-     `docs/phk110/waves/wave12c-electrical.md` documents the touch PASS in full
-     (20 ms cadence, chunk harvesting); `wave20-launchd.md` documents the
-     `hw.target` root cause. **Read these before touching touch or launchd.**
-   - `yibiya/UniXNU-mondrian` — fork carrying the UI library, the launchd cache
-     and the `fix/touch-gpu-bringup` touch/GPU line.
-   - `XTOM0706/ios-sweet-k60` — HackiOS iOS 16 userland precedents.
-   - `Chengdong-Yu/UniXNU-pong` and its `pong-*` submodules — the original Pong
-     port.
-
+   entries in `series`. The problem being solved "new" may already carry a
+   proven answer, or a constraint explaining why the obvious fix is wrong.
+1. **Official catalog**, as in iron rule 4: record per candidate whether it is
+   usable as-is, adaptable, or why not.
+2. **Same-SoC siblings**, in a fixed priority: same model → same SoC → same
+   peripheral chip → official generic driver. Read
+   `docs/phk110/waves/wave12c-electrical.md` (touch PASS) and
+   `wave20-launchd.md` (`hw.target` root cause) in `Seanding1998/hakios-xnu-kernel`
+   before touching touch or launchd; `yibiya/UniXNU-mondrian` carries the UI
+   library, the launchd cache and the touch/GPU line.
 3. **Sync before quoting.** `bash scripts/k60-sync-refs.sh` fetches every
-   reference repository. Never quote code from a repository you have not fetched.
-   For upstream forks, `python3 scripts/track-upstream-branches.py` reports every
-   branch and every new commit; a single-branch refspec silently hides work.
-
-4. **Record the finding before coding**: repository, branch, file:line, whether
-   it fits this board, licence status, and the reuse/adapt/build decision.
-
+   reference tree; never quote code from a repository you have not fetched.
+   For upstream forks, `scripts/track-upstream-branches.py` reports every
+   branch - a single-branch refspec silently hides work.
+4. **Record the finding before coding**: repository, branch, file:line,
+   whether it fits this board, licence status, and the reuse/adapt/build
+   decision. `docs/research/SOURCES.toml` must be `examined` with a written
+   `finding` (`scripts/research-gate.py`).
 5. **Licence rule**: hardware facts and register maps are free to reference;
-   code, patches and scripts need a licence. A repository without a licence keeps
-   all rights — read the idea, write your own.
+   code, patches and scripts need a licence. A repository without a licence
+   keeps all rights - read the idea, write your own.
 
-## Branches and commits
+## Conventions
 
-- One branch per change: `feat/<topic>`, `fix/<topic>`, `refactor/<topic>`,
-  `docs/<topic>`, `chore/<topic>`, `perf/<topic>`, `wip/<topic>`.
-- A branch merges into `main` only after the change is verified and the record
-  updated.
-- **Commit messages are in English**: `type(scope): lowercase summary`, no
-  trailing period. Example: `fix(cpu): the SM8475 cluster count is three`.
-- Submit code and documentation as separate commits.
-- Do not rewrite published history.
-- **When importing code from another repository, preserve attribution**: use
-  `git cherry-pick -x <sha>`; if you copy by hand, add
-  `Co-authored-by: Name <email>` to the commit message. Otherwise GitHub's
-  contributor graph credits the wrong person. See `CREDITS.md` and P-130.
-
-## Agent coordination (reply md channel)
-
-Reports and replies between the lead and each line agent travel through one
-scratch file per line (the user asked for this channel on 2026-11-15):
-
-- File: `E:\k60-work\scratch\reply-<line>-<YYYYMMDD>.md` (e.g.
-  `reply-adsp-20261115.md`). Lines: adsp, audio, bt, cellular, display,
-  refmine, springboard, thermal, usb, wifi.
-- **Bidirectional and overwrite-based.** An agent reports by overwriting its
-  file with the latest report; the lead replies by overwriting the same file
-  with the reply. The file always holds the newest message of one side.
-- **Read before overwrite.** If the other side has already written a new
-  report, act on or answer it first, then overwrite the whole file with this
-  round's reply.
-- **Do not paste full reports into chat.** Chat only announces that replies
-  are written; the file is the payload. This keeps the transcript small.
-- The files live in `scratch`, not the repo: they are coordination artifacts,
-  not deliverables. Substantive findings must still land in
-  `docs/research/` (or the equivalent repo doc) before a line is done.
-
-## Device rules
-
-- Probe the device before acting: `bash scripts/k60-device.sh state` reports
-  `adb`, `fastboot` or `none`, and performs the matching transition (`android`,
-  `bootloader`, `boot <image>`). Do not ask for a manual power cycle while a
-  software path exists.
-- Only `fastboot boot`. Never `fastboot flash` an Android partition. `persist`
-  holds the KeyMint database and a rollback destroys every key.
-- After every boot, update `porting.toml` and keep
-  `python3 scripts/check-porting-paths.py --quiet` at zero errors.
-- Completion levels follow the criteria in
-  [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md),
-  not the fact that hardware was touched. `implemented` is not `device-verified`.
-- Record the device observation, the command, the full 40-character revision and
-  the result.
+- One branch per change: `feat/`, `fix/`, `refactor/`, `docs/`, `chore/`,
+  `perf/`, `wip/`. Merge to `main` only after verification and the record
+  update.
+- Commit messages are English, `type(scope): lowercase summary`, no trailing
+  period. Code and documentation are separate commits. Do not rewrite
+  published history.
+- When importing code, preserve attribution: `git cherry-pick -x <sha>`, or
+  `Co-authored-by: Name <email>` when copying by hand (P-130, `CREDITS.md`).
+- `porting.toml` uses schema version 1 and needs 14 areas; every `evidence`
+  element is a table with `kind`, `reference` and `result` - a bare string
+  makes the site renderer fail with `'str' object has no attribute 'get'`
+  (P-128). Check with `python3 scripts/check-porting-paths.py --quiet` and
+  `python3 scripts/porting-gate.py --quick`.
+- Probe the device before acting (`scripts/k60-device.sh state`); never ask for
+  a power cycle while a software path exists. After every boot update
+  `porting.toml`. Completion levels follow `EIGHT-STEP-SPEC.md`:
+  `implemented` is not `device-verified`. Record the observation, the command,
+  the full 40-character revision and the result.
 
 ## Reading a failure
 
@@ -280,115 +242,5 @@ The board has no serial console; the screen and the USB log are the evidence.
 |---|---|---|
 | Before UEFI | black screen, no UniXNU trace | boot image header, firmware base and size |
 | Inside UEFI | menu or entry dies | Tools → Advanced Logger |
-| Inside DarwinBoot | loader progress line stops | last drawn line, refusal message |
+| Inside DarwinBoot | loader progress stops | last drawn line, refusal message |
 | Inside XNU | scroll starts then dies | last lines, panic screen, `boot-progress` page |
-
-**A zero-byte log is not a hang.** Check that boot-args carry `debug=0x140` and
-`applog=1` before concluding anything (P-118).
-
-## Commands
-
-Run from the UniXNU checkout:
-
-```sh
-./unixnu defconfig mondrian_defconfig --device ../UniXNU-mondrian
-./unixnu fetch --device ../UniXNU-mondrian
-./unixnu status --device ../UniXNU-mondrian --json
-./unixnu build kernel --device ../UniXNU-mondrian
-```
-
-Device state, boot and log capture:
-
-```sh
-bash scripts/k60-device.sh state
-bash scripts/k60-device.sh boot <image>
-```
-
-## Calling WSL from the host shell
-
-`wsl.exe` rebuilds its command line from argv, so quotes around a
-`bash -lc "..."` payload are lost and semicolons become outer-shell separators.
-Two safe forms:
-
-```sh
-# a script on the Windows side, fed on stdin
-wsl.exe -d Ubuntu-24.04 -- bash -s < /c/Users/Emilelu/AppData/Local/Temp/step.sh
-
-# a script inside WSL, with MSYS path conversion turned off
-MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -- bash /tmp/step.sh
-```
-
-Anything longer than one line belongs in a script file.
-
-## Porting record
-
-Read `porting.toml` and the
-[record guide](https://unixnu.com/zh/porting/records) before implementation.
-Update each affected area's findings or evidence with its code change. The record
-uses schema version 1 and needs 14 areas; every `evidence` element must be a table
-with `kind`, `reference` and `result` — a bare string makes the site renderer fail
-with `'str' object has no attribute 'get'` (P-128).
-
-```sh
-python3 scripts/check-porting-paths.py --quiet
-python3 scripts/porting-gate.py --quick
-```
-
-## Reference repositories
-
-`scripts/k60-sync-refs.sh` covers the reference trees. `CREDITS.md` lists every
-external source and what was taken from it. `docs/audits/FORK-REVIEW.md` records
-their branches and the reasoning behind every adopted change.
-
-### 铁则 9 — main 只放可启动基线，实验走分支
-
-`main` 是**稳定可启动基线**，不是工作区。任何未经过上机验证的改动（内核补丁序列、
-构建脚本、`board.toml`/configs、`drivers/` 源码）都必须先落在分支上：
-
-- 分支命名沿用上游习惯：`feat/…`、`fix/…`、`test/…`、`chore/…`
-- 合回 `main` 的条件：`BUILD OK` **且**上机通过（八步流程 ⑧），或该条目在
-  `docs/engineering/MAIN-BASELINE.toml` 里显式登记为 `build-only` 并写明欠账
-- 每个落在 `main` 的提交必须在 `MAIN-BASELINE.toml` 登记，且只有「上机验证过」或「main 基线」两种状态才打 tag（铁则 7），并在
-  `MAIN-BASELINE.toml` 登记：`sha`、`tag`、`kernel_sha256`、`state`
-- 门禁：`scripts/check-main-baseline.py`（注册为 `iron-9`）
-
-违反实例（本次自查）：`bf487cc`、`c2fa573`、`234574a`、`d1843c2`、`20ce047`、
-`8206fb4` 直接把补丁序列与驱动源码的改动提交到 `main`，其中多轮只做到 `BUILD OK`，
-没有一次上机。见 P-174。
-
-### 铁则 10 — 环境不进仓库
-
-外部机器（局域网里的 Mac、构建服务器、路由器）的**地址与口令不是项目的一部分**。
-仓库是公开的、历史是永久的：一次 push 就把整条历史发出去，事后删除文件也收不回
-别人已经克隆的副本。
-
-- 文档里只写占位符：`<user>@<mac-host>`、`sshpass -p <password>`、`<local-dir>`
-- 真实地址/口令放仓库之外的本地文件（`E:\k60-work\` 或 `~/.k60-env`），
-  并用 `source` 引入；不要写进任何 `docs/`、`scripts/`、`board.toml`
-- 提交前自查：`python3 scripts/check-secrets.py`
-- 门禁：`scripts/check-secrets.py`（注册为 `iron-10`）
-
-违反实例（2026-11-14 自查）：`docs/engineering/HARD-RULES.md` 的 ★7 探活命令
-把 Mac 的地址与口令原样写进了正文，并随 `2e44f46` 进入公开历史。已改成占位符，
-口令另行更换。
-
-### 铁则 11 — 一个检出只有一个主人
-
-2026-11-14 的事故：Lead 为了让自己那条门禁变绿，在**共用的**设备检出里执行了
-`git checkout -- <8 个文件>`，把触摸 agent 正在改的 8 个文件抹掉，其中 7 个无法恢复。
-这不是"手滑"，是**在别人的目录里做不可逆操作**。
-
-规则：
-
-1. 每个检出在 `docs/engineering/TREE-OWNERS.toml` 里登记唯一主人。Lead 用
-   `E:/hackios/k60-lead`（`git worktree`），**不再写**共用检出。
-2. 破坏性命令（`checkout -- <path>`、`restore`、`reset --hard`、`clean -f`、`stash`）
-   一律走 `scripts/git-safe.sh`：它先做完整快照（`scripts/snapshot-worktree.py` →
-   `E:/k60-work/scratch/snapshots/<时间戳>-<树名>/`，含 `tracked.patch`、`staged.patch`、
-   `untracked/` 和 `restore.sh`），再在非自有检出上直接拒绝；只有显式
-   `K60_I_OWN_THIS_TREE=1` 才放行，且放行前快照已经写完。
-   所以这个坑要再发生，需要**两个独立错误同时成立**，而且即使发生也能用
-   `bash <快照>/restore.sh` 原样恢复。
-3. 需要干净的树来构建时，换自己的 worktree 或收窄门禁范围（`K60_EIGHT_STEP_ITEMS`），
-   **绝不**靠清理共用树。
-4. 提交前跑 `python3 scripts/check-tree-owner.py`；它在共用检出有他人未提交改动时报错。

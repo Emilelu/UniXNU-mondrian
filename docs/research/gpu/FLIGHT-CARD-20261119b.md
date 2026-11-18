@@ -168,3 +168,54 @@ PONG ADRENO: IO coherence on (pong_gpu_coherent=2, probe d64/64 a1 r1024/0 w1024
 3. 若探针在重飞里又报 off（不该发生，但必须留退路）⇒ 读 `d/a/r/w/s/k` 判断是哪个方向没过，
    **不得**用 `pong_gpu_coherent=1` 强行绕过证明。
 4. 顺带登记 P-240：「一个从未被赋值的开关让三处跳过判据全部成了死代码」。
+
+### 5.6 第二飞（同一张镜像，重飞）：PASS
+
+同一份 `boot.img 58eb6724…`，第二次启动。第一飞是空帧（P-236 判无效），这一飞出帧了，
+所以「空帧」确实是 boot 侧抖动，不是 coherence 的副作用。
+
+| 项 | 值 |
+| --- | --- |
+| 证据 | `usblog-20261119-044558`，322,028 B，`complete=true`，supervisor rc=0 |
+| 有效性 | 合成器 99 帧、客户端 commit 558、`scanout frames=` 94 行 ⇒ **成立** |
+| coherence | 1 行，`on (pong_gpu_coherent=2, probe d64/64 a1 r1024/0 w1024/1024 s0 k6)` |
+| publish 样本 | 70 个，`coherent` 恒 1，`skipped` 0 → 196,372（单调） |
+| 阶段中位数 | `import` 52 / `encode` 418 / `submit` 2,288 / `gpu` 12,593 / `sum` 17,233 µs（n=89） |
+
+判据 S1–S7 **全部 PASS**，F1–F6 无一命中。
+
+**收益（同一设备、同一镜像族、同一判据口径）：**
+
+| 量 | 改前（`usblog-20261118-233946`） | 改后（`usblog-20261119-044558`） | 变化 |
+| --- | --- | --- | --- |
+| `publish`（每次提交清导入帧） | 6,635 µs | **51 µs** | **÷130** |
+| `submit`（`[MTLCommandBuffer commit]` 全程） | 8,420 µs | **2,288 µs** | **÷3.7** |
+| `sum`（一帧 `present()` 四段之和） | 30,248 µs | **17,233 µs** | −13.0 ms |
+| `skipped`（被相干判据跳过的映射数） | 0（判据是死代码） | 196,372 | 判据首次生效 |
+
+这与 zizhan 注释里的「强制开后扫出 24–35 ms → 5–6 ms」是同一个数量级，
+说明我们量到的 6.6–10.1 ms 就是同一件事：**每次提交都在为 93.2 MiB 导入帧做
+clean+invalidate，而 K60 的 Adreno 730 在 dma-coherent SMMU 后面，本来不需要做。**
+
+### 5.7 剩下的账：`gpu` 12,593 µs 成了第一项
+
+四段里的排序已经变了：
+
+- 改前：`submit` 8,420 > `gpu` 7,283（提交是瓶颈）
+- 改后：**`gpu` 12,593 ≫ `submit` 2,288 > `encode` 418 > `import` 52**（等 GPU 变成瓶颈）
+
+`sum` 17,233 µs ⇒ `present()` 自身的天花板约 **58 fps**，而 120 fps 需要 ≤8,333 µs。
+`gpu` 这一段是等待一次 18.4 MB 的 blit（1440×3200×4）完成：36.8 MB 往返 / 12.6 ms ≈ 2.9 GB/s，
+对一个 sysmem 路径的 tiled→linear 拷贝不算离谱，但它不该存在——真机上显示控制器应当
+直接扫出合成器给的那块 surface，而不是先搬进固件 framebuffer。
+
+下一步（按代价排序，都要先写卡再飞）：
+
+1. **零拷贝扫出**：抄 zizhan 的 `PongScanoutFrame{token,evict,target}`（48 B → 56 B，
+   `static_assert` 会抓住两侧不一致），让 `pong_dpu_flip` 把客户端 surface 直接交给显示控制器。
+   这是唯一能同时干掉 `gpu` 与 `encode` 的路，也是 120 fps 的必要条件。
+2. 若零拷贝一时做不完：把 `encode` 与 `gpu` 的拷贝降到「同 stride 的一次 `copyFromBuffer`」。
+   客户端 stride 5888 与固件 5760 不同才被迫走线性纹理 untile；若能拿到我们自己控制的
+   5760-stride 扫描缓冲，拷贝会退化成一条命令。
+3. `gmem` 已经在这次飞行里生效（`metal-plugin-20261118l` 就是 `setenv("TU_DEBUG","gmem,nocb",1)`
+   那一版），所以 `gpu` 12.6 ms 不是渲染模式问题——别再在渲染模式上花时间。

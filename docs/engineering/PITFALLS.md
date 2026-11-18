@@ -6455,3 +6455,39 @@ rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**
    新测试才有意义：编号顺序本身就是 union 插错位置的可观察信号。
 4. 一个「登记表合并」的正确形状是：读两边的 TOML、按 id 合并成 dict、再整文件重写；
    用正则切片只有在能证明切分覆盖了整个冲突近侧时才安全。
+
+## P-240
+
+**现象（2026-11-19，`usblog-20261118-233946`）**：`[MTLCommandBuffer commit]` 里稳定有 6.6–10.1 ms
+查不出处，逐类探针显示每次提交都在维护 93.2 MiB 的**导入帧**（`ibytes/cachebytes=1.00`），
+而 `NativeAdrenoVm::publishMapped()` 与 `acquireImported()` 里明明写着
+`if (coherentMapping(m.writeback) || importedUntouched(m.memory)) continue;` ——
+按那段代码，导入帧本该被跳过。
+
+**真因**：那两个判据都要求 `native_adreno_io_coherent` 非零，而**全仓没有任何地方给它赋值**。
+它被 `NativeAdrenoVm.cpp:20` 与 `NativeAdrenoUserClient.cpp:20` 声明了两次、被读了三处
+（`NativeAdrenoVm.cpp:21`/`:25` 两个 helper、`NativeAdrenoUserClient.cpp:268` 一个内联判据），
+定义只有 `extern "C" {volatile uint32_t native_adreno_io_coherent;}` 这一行——那既不是赋值也不是
+带初始值的定义。于是三处跳过判据全部是死代码，每次提交照旧清 93.2 MiB。
+读了这段代码也看不出来：代码本身没错，缺的是**生产者**。
+
+**修法**：
+1. 把 zizhan 的 `coherenceProbe()` 移植进 `drivers/PongAdreno/PongAdrenoNativeGlue.cpp`：
+   分配 4 页、经 `importTask` + `vm->map` 交给 GPU、先用 `CP_MEMCPY` 读一遍再用
+   `CP_WAIT_MEM_WRITES` 写回，两个方向都对着**真实 DRAM**核对（读方向要求 CPU 脏行仍在 cache
+   而 DRAM 仍是旧值；写方向要求 GPU 的写回在 CPU 侧可见）。两个方向都过才置位。
+2. 赋值必须发生在 `native_adreno_publish()` **之前**，否则第一个提交用不到它。
+3. `pong_gpu_coherent`：2=跑探针（默认）、1=强制开、0=关；`1` 是给实验留的，不是给结论留的。
+4. 真机首次证据：`PONG ADRENO: IO coherence on (pong_gpu_coherent=2, probe d64/64 a1 r1024/0
+   w1024/1024 s0 k6)` —— `r1024/0` 是「GPU 读到 1024 个字，而按物理地址直读 DRAM 是 0 个」，
+   这一条才是相干性的证据，不是猜的。
+
+**教训**：
+1. **判据存在 ≠ 判据生效。** 一个 `extern` 标志只要有人读、没人写，读它的分支就永远走不到；
+   code review 看不出来，因为每一行都对。
+2. **「谁给它赋值」必须能回答。** 门禁应当问的是生产者，而不是声明次数：现在
+   `scripts/tests/test-gpu-coherence-probe.py` 断言赋值存在、且在发布之前。
+3. **量化收益要抄那条有数的。** zizhan 注释写着强制开后扫出 24–35 ms → 5–6 ms，这正是我们
+   量到的区间；同一个病、同一副药，先照抄再谈改进。
+4. **探针要给六个数，不是一个布尔。** `d/a/r/w/s/k` 里 `k` 指向停在第几阶段，
+   探针报 off 时才能判断是读方向没过、写方向没过，还是 CP 根本没跑起来。

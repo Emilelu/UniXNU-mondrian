@@ -866,3 +866,11 @@ source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-rule-registry-schema.py"
 note = "2026-11-19 合并 consolidate 时 P-230 的 check 行落在最后一个 [[rule]] 块之外被丢弃，registry 报覆盖缺口、构建被拒；MAIN-BASELINE 的第一次 union 还造出无 sha 空 entry。正确形状是读两边 TOML 按 id 合并再整文件重写，并断言 check/waiver、id 唯一、家族内编号递增、check 指向的文件存在。"
 
+
+[[rule]]
+id = "P-240"
+kind = "pitfall"
+title = "一个没人赋值的开关让三处跳过判据全是死代码：判据存在 ≠ 判据生效"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-gpu-coherence-probe.py"
+note = "2026-11-19: native_adreno_io_coherent 被声明两次、读三处、全仓无赋值，于是 publishMapped/acquireImported/UserClient 的相干跳过全部是死代码，每次提交照旧清 93.2 MiB 导入帧（6.6-10.1 ms）。移植 zizhan 的 coherenceProbe 并在 native_adreno_publish 之前赋值后，真机首次即 d64/64 a1 r1024/0 w1024/1024 s0 k6 通过。门禁要问生产者，不是声明次数。"

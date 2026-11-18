@@ -565,19 +565,30 @@ volatile uint32_t msiArrivals;
 // identical in the log. Count the GIC entries separately.
 volatile uint32_t msiEntries;
 volatile uint32_t msiEmptyStatus;
-// Opt-in bring-up fixture (pong_wifi=2): join only the exact locally supplied
-// network, after real scanning, and report protocol results without credentials.
+// The private fixture is the opt-in: a release build carries zero-length
+// arrays, and an image carrying a real fixture is already a test image. The
+// parsed boot arguments are logged anyway so a flight can prove which mode the
+// kernel actually saw even when the association path is not reached.
 unsigned testReconnectState;
+static uint32_t ssidHash(const uint8_t *s,unsigned n) {
+ uint32_t h=2166136261u;
+ for(unsigned i=0;i<n;++i){h^=s[i];h*=16777619u;}
+ return h;
+}
 void testNetwork(const nw_wifi_status &st) {
  static bool checked=false,enabled=false,attempted=false,finished=false;
- static bool alternate=false,reconnecting=false,rescanned=false;
+ static bool alternate=false,reconnecting=false,rescanned=false,reported=false;
  static uint32_t firstBand=0;
  static uint8_t firstBssid[6];
  static uint64_t deadline=0, reconnectAt=0;
  if(!checked) {
   checked=true;uint32_t flag=0,mode=0;
-  enabled=(PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag)&&flag==1)||
-          (PE_parse_boot_argn("pong_wifi",&mode,sizeof mode)&&mode==2);
+  const bool testFound=PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag);
+  const bool modeFound=PE_parse_boot_argn("pong_wifi",&mode,sizeof mode);
+  enabled=kWifiTestSsidBytes&&kWifiTestKeyBytes;
+  IOLog("PongWifi: association probe: pong_wifi_test=%d/%u pong_wifi=%d/%u fixture=%u/%u state=%u\n",
+   testFound?1:0,flag,modeFound?1:0,mode,(unsigned)kWifiTestSsidBytes,
+   (unsigned)kWifiTestKeyBytes,(unsigned)st.state);
   alternate=enabled&&PE_parse_boot_argn("pong_wifi_alt",&flag,sizeof flag)&&flag==1;
   if(enabled&&PE_parse_boot_argn("pong_wifi_band",&firstBand,sizeof firstBand)&&
      firstBand!=0&&firstBand!=2&&firstBand!=5) {
@@ -605,8 +616,16 @@ void testNetwork(const nw_wifi_status &st) {
  // first connect request. Without this the association test never runs.
  if(!attempted&&(st.state==NW_STA_IDLE||st.state==NW_STA_SCANNING)) {
   nw_bss_info b={};
-  for(int i=0,n=nw_wifi_bss_count();i<n;++i) {
-   if(nw_wifi_bss_get(i,&b)||b.ssid_len!=kWifiTestSsidBytes||memcmp(b.ssid,kWifiTestSsid,kWifiTestSsidBytes))continue;
+  int n=nw_wifi_bss_count();
+  int failed=0;
+  for(int i=0;i<n;++i) {
+   if(nw_wifi_bss_get(i,&b)){++failed;continue;}
+   bool match=b.ssid_len==kWifiTestSsidBytes&&!memcmp(b.ssid,kWifiTestSsid,kWifiTestSsidBytes);
+   // Some scan paths count the SSID's terminating NUL in ssid_len; the
+   // association request still carries the on-air length.
+   if(!match&&b.ssid_len==kWifiTestSsidBytes+1&&
+      !memcmp(b.ssid,kWifiTestSsid,kWifiTestSsidBytes)&&!b.ssid[kWifiTestSsidBytes])match=true;
+   if(!match)continue;
    // Optional fixture control: scanner order must not decide which direction
    // a cross-band regression exercises. Only admit the same private SSID.
    const unsigned band=b.freq_mhz>=2400&&b.freq_mhz<2500?2:
@@ -621,6 +640,17 @@ void testNetwork(const nw_wifi_status &st) {
    IOLog("PongWifi: association test RUNNING: scanned target, request=%d\n",result);
    if(result){finished=true;log(3,"WiFi association test FAIL: station refused request");}
    break;
+  }
+  if(!attempted&&!reported&&nw_wifi_stats.scans&&n) {
+   reported=true;
+   IOLog("PongWifi: association target absent: target_len=%u target_hash=%08x bss=%d failed=%d state=%u\n",
+    (unsigned)kWifiTestSsidBytes,ssidHash(kWifiTestSsid,kWifiTestSsidBytes),n,failed,(unsigned)st.state);
+   b={};
+   for(int i=0;i<n;++i) {
+    if(nw_wifi_bss_get(i,&b))continue;
+    IOLog("PongWifi: bss[%d] len=%u hash=%08x freq=%u\n",i,(unsigned)b.ssid_len,
+     ssidHash(b.ssid,b.ssid_len),(unsigned)b.freq_mhz);
+   }
   }
   if(alternate&&reconnecting&&!attempted&&!rescanned) {
    rescanned=true;

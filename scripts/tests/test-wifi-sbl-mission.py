@@ -90,10 +90,19 @@ def main() -> int:
           "ab_pci->mhi_ctrl->ready_timeout_ms = 60000;" in text)
 
     platform = PLATFORM.read_text(encoding="utf-8")
-    check("association test is gated by pong_wifi=2",
-          'PE_parse_boot_argn("pong_wifi",&mode,sizeof mode)&&mode==2' in platform)
+    check("association test is enabled by the private fixture",
+          "enabled=kWifiTestSsidBytes&&kWifiTestKeyBytes;" in platform)
+    check("association probe logs the parsed boot arguments",
+          '"PongWifi: association probe: pong_wifi_test=%d/%u pong_wifi=%d/%u' in platform and
+          'PE_parse_boot_argn("pong_wifi",&mode,sizeof mode)' in platform)
     check("association test accepts the scan state",
           "if(!attempted&&(st.state==NW_STA_IDLE||st.state==NW_STA_SCANNING)) {" in platform)
+    check("association test reports an absent target with hashes",
+          '"PongWifi: association target absent: target_len=%u target_hash=%08x' in platform and
+          "ssidHash(b.ssid,b.ssid_len)" in platform)
+    check("association test tolerates a trailing NUL in ssid_len",
+          "b.ssid_len==kWifiTestSsidBytes+1" in platform and
+          "!b.ssid[kWifiTestSsidBytes]" in platform)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors

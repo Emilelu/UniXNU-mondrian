@@ -305,6 +305,22 @@ IPA 仍关闭），所以 P1 通过并拿到 B 的显式授权后无需再改代
 k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也随之作废，因为它是带 xo.lvl
 索引缺陷的内核。P1 判据本身不变（§4.1），只是 `xo=` 现在必须是字面 3。
 
+### 3.12 k22 P1 rail-only：上机 PASS（2026-11-19 04:23，单变量）
+
+`pong_modem=4` 的 k22 图（`393d7f2f…`，§3.11）在设备上只投三条 modem rail，不发送任何 PAS 命令：
+
+| 项 | 值 |
+|---|---|
+| 证据 | `E:/k60-work/evidence/usblog-20261119-042322`；`console.log` 213,490 B，sha256 `c94dceedd888e70f0dcf4ac761a51d403c5d4450bdaaa86cd59c863752a9e67e` |
+| 抓取 | `capture.json` `captured-budget-complete`、`complete=true`、无 panic/reset；`boot.json` `bootAccepted=true`，`fastboot.log` `Sending ... OKAY / Booting OKAY` |
+| 结果行 | `:481 K60MODEM carrier present at 0x8bc00000`；`:484 K60MODEM power ok cx=0x30000/6 mss=0x30060/7 xo=0x300b0/3`；`:485 K60MODEM power prepared`；`:486 K60MODEM diagnostic stop after power: init_image not sent` |
+| 判读 | `python3 scripts/check-modem-flight-log.py --phase p1 ...` → `P1: PASS`（rc 0） |
+| 结论 | 三条 TCS4 rail 在实际 RSC 上全部投票成功，xo 投票值是字面 3；P1 通过，HR-01 的“未验证（离线）”行改为已上机。未发送 init_image/mem_setup/auth_reset，QRTR 仍无证据。 |
+
+这是 k22 内核（`a2139ecb…`）第一次上机；同一内核的 B 图 `82c0cab3…`（§3.11）在 P1 PASS 后成为下一步，
+但仍受“无其他 agent 占用 console”的单一 supervisor 约束。用户 2026-11-19 04:16 明确允许：
+代码准备充分且其他 agent 没有 boot 时，可以自主上机。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -329,6 +345,7 @@ k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也
   一行 `K60MODEM power prepared` 和 `K60MODEM diagnostic stop after power: init_image not sent`；
   不得出现 `K60MODEM init_image` / `mem_setup` / `auth_reset` 行，也不得出现 `K60MODEM power failed`；
   `xo=` 的投票值必须是字面 3（§3.11），不是 cmd-db 的 level 索引，出现 `K60MODEM power failed: xo.lvl` 即判失败。
+   实机结果见 §3.12（2026-11-19 04:23，P1 PASS，`xo=0x300b0/3`）。
 - **S3**：B 要求以下五行都出现且 rc=0；C 只要求 `init_image`、`mem_setup` 和诊断停机行
   （C 不执行 power/transport）：
   `K60MODEM power ok cx=`（含 mss/xo）
@@ -362,7 +379,9 @@ k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也
    （`1ae178bb…`，§3.6，2026-11-18 23:45）。此条保留为判据定义，不再重复飞。
 2. **P1（power-only，单变量，先飞）**：`pong_modem=4`，用 k22 的
    `E:/k60-work/artifacts/modem-20261117k22/boot-modem-rails-only.img`（`393d7f2f…`，§3.11），按 P1 判；
-   通过后才允许 B。HR-01 要求这类新 TCS4 用途单独授权，没有授权就不飞。
+   **已飞并 PASS**：2026-11-19 04:23，证据 `E:/k60-work/evidence/usblog-20261119-042322`（§3.12），
+   `xo=0x300b0/3`、三条 rail 全成功、停在 `diagnostic stop after power`。
+   用户授权（2026-11-19 04:16）：代码准备充分且无其他 agent 飞行时可自主上机。
 3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用与 P1 同一份 k22 kernel/UEFI/DTB/carrier 重新打包的 B 镜像
    （k21 的 `eefe6fdf` 随 k22 作废），按 §4 的 S/F 判。
    C/P1/B 必须是同一份 kernel/UEFI/DTB/carrier，只在打包 payload 时改 `--kernel-arg`；不得在 B 上顺手改代码。

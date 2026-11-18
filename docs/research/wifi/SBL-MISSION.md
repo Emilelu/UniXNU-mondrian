@@ -647,3 +647,91 @@ Judge: 31 PASS, 7 FAIL, all seven the `k60probe` checks, so the overall
 verdict is FAIL by our own prediction. Against the official page mission14
 is the third full pass on the six items and the first with a measured
 disconnect and reconnect.
+
+## 16. Mission15: the Settings pane starts the wireless daemon
+
+Mission15 carried `6253eafc` — the packet-filter tap, the 383 property lists,
+the 470/471 flags, the current-network fallback and a reg-less `wlan` node in
+`dts/mondrian.dts`. Image
+`E:/k60-work/artifacts/wifi-20261118sbl-mission15/boot.img`, 201,887,744
+bytes, SHA256
+`8fedce4983f7e7e5f489e8da0dbeba47ee5d86642e7e81e9bf465a638819d2ca`,
+built `2026-11-18T22:25:35+08:00` at head
+`6253eafca83ff421b2ccf66e5ef1ac199950c562`, WiFi archive
+`e2f6d7259c71dc33e8f2c25b254183566c3e80b6172a1687d7084a6e6285a4fe`,
+602-byte arguments and `k60_autoreset=900`. It flew once at 22:32:23;
+console is `E:/k60-work/evidence/usblog-20261118-223223/console.log`,
+997,880 B, 12,500 newline-terminated lines, SHA256
+`12a96da390ef1a4beba3c3d842cdc9e3ed879e4cff4e6d6398a1b5c8e0928609`.
+The capture wrote `capture.ready` and the console but no `capture.json`,
+as in mission13 and mission14; the flight ended on the automatic reset
+(`K60AUTORESET: 900 s since boot; resetting to fastboot`), and the board was
+returned to Android with `scripts/k60-device.sh android`.
+
+The device tree is the gate. The ADT now publishes the `wlan` nub
+(`:91-94` intc, pong-audio, **wlan**, ufshc, pong-touch, pong-buttons;
+`:148` `registered platform cpus=8 arm-io=1 devices=6`, against 5 in
+mission14), so launchd's `_LimitLoadToDeviceTree` condition for
+`com.apple.wifid` is satisfied and the daemon finally runs:
+`:1223` `KE 27 43 xpcproxy /usr/sbin/wifid`, `:1504`
+`wifid[43:587] ----- WiFiManager starting, version: WiFiManager-1635.6 -----`,
+and `:1863`, `:1967`, `:3919` `wifi-net: 80211 user client opened by wifid
+type 0`. configd keeps opening its own client (`:1454`, `:1943`, `:3954`,
+`:4001`, `:4013`, `:4017`) and wifivelocityd adds one (`:3925`), so three
+userland daemons now speak the Apple80211 ABI to the driver.
+
+The pane's own protocol works end to end. The tap is armed twice
+(`:1463`/`:1465` and `:1538`/`:1540`, `packet filter tap mode 3` then
+`0`), the daemon writes property lists from `:3913` on and the driver logs
+them, and `IO80211InterfaceIPConfigurationBusy` moves `false` at `:3936`,
+`true` at `:4008`, `false` at `:4363`, `true` at `:4708` and `false`
+at `:4709`. The current-network query (type 103) is answered from the link
+state at `:3995-:3997`, and the hardware channel list (type 254, 4824 bytes)
+at `:3975-:3991`.
+
+The join from the pane is proven, and it is the first person-driven join on
+this port: `:8578` logs `wifi-net: join: ssid length 7, bssid given 0, key
+length 32 cipher 6` — the 32-byte key wifid derived from the typed
+passphrase — then `:8583` `connecting to c8:bf:4c:30:03:1d on 2412 MHz`,
+`:8585` `associated`, `:8587-:8589` handshake, keys installed and
+`connected`, and `:8590` `join finished: module result 0`. The judge check
+`join from the pane` passes on that sequence; no credential is printed.
+
+The network stayed up across the whole window. `:2013` OFFER
+192.168.31.71, `:2037` REQUEST, `:2038` ACK; after the lifecycle
+disconnect `:4005` REQUEST and `:4028` ACK; `:4030` `WiFi association test
+PASS` and `:4031` `WiFi lifecycle test PASS: reconnected BSSID
+c8:bf:4c:30:03:1c state=6 IPv4=1 lease=3/2`; `:9500` `en0 address
+192.168.31.71, packets in 687 out 844`; `tcp443 in 302 out 368` by
+`:12201`; the router ARPs the station in both directions.
+
+Two limits are recorded rather than claimed.
+
+1. The page still cannot be loaded, and the reason is the browser, not the
+   link: `:9046-:9054` `Process[602…609] crashed: com.apple.WebKit. Too
+   many corpses being created.` and `:9200` `KX! 154 596 MobileSafari
+   exit=0 sig=9 ns=15 code=0xdead10cc`. The application-layer HTTP result
+   therefore remains unproven, and its blocker belongs to the WebKit/GPU
+   line, not to WiFi.
+2. The pane's list does not show `Emilelu_5G`. The whole flight carries one
+   scan request (type 10, `:4846`) and one result read (type 11,
+   `:4852`), which the cursor protocol answers with a single BSS; the
+   refresh types the pane uses are refused with `EOPNOTSUPP` (`:3998` type
+   25, `:3999` 365, `:4000` 423, `:4102` 419, `:4104` 115, `:7216`
+   422) and so is channels-info 207 (`:1982`), so wifid falls back to its
+   boot-time cache. The driver's own BSS table held 17 entries after the
+   first scan and 21 later (`PongWifi: runtime … BSS=17` / `BSS=21`), and
+   the boot join associated at 5240 MHz (`:3431`), so the radio does see
+   5 GHz; the gap is feeding the daemon's list. The next image must log every
+   unhandled type with `req_val` and the first bytes, print the BSS table by
+   band, answer 207, and give the pane a scan path.
+
+Open question for that image: `dns in 0 out 0` for the entire flight, so no
+plaintext UDP 53 was observed even though TLS flowed. It is recorded as a
+tracing gap, not as a DNS defect, because no HTTP client survived to ask.
+
+Judge: 22 PASS, 0 FAIL, 1 PENDING (the host-side application receipt), so the
+verdict is PANE-ONLY. Against the official page the six items pass for the
+fourth time and the Settings pane — the user's new acceptance item — is now
+proven at the protocol level, with the person-visible list limited by the
+scan gap above.

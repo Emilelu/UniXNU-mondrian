@@ -64,7 +64,7 @@
 ## §6 构建并验证（:123-131）
 
 - 构建链已打通：battery archive → `./unixnu defconfig/tree/kernel/payload/bootimg`，
-  image f 三次上机（C1/C2 PASS、低电流 C3 PASS），image g/h 只做链接验证。
+  image f 三次上机（C1/C2 PASS、低电流 C3 PASS），image g/h/i 只做链接验证（image i 带 `k60_cpufreq=1`，参数 gate 因临时去掉 `applog=1` 未通过，见 `power/01-EPSS-PROBE.md` §6）。
 - 缺：EPSS/GPU 探针的真机读数、外设转换与恢复的逐项验证、重启行为记录。
 - 状态：**部分**。
 

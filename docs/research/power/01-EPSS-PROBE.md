@@ -139,6 +139,19 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   kernel.macho 有 14 条 `k60_cpufreq` 符号；`boot.json` 仍为 `hardware_tested=false`。
   注意 image h 内打包的是当时的 archive `c42a8f7b…`；governor 核心之后的 archive
   `7a19051a…` 还没有打包进任何镜像。
+- 镜像 i 链接验证（**离线，未启动**，带 `k60_cpufreq=1`）：`E:/k60-work/artifacts/power-conformance-20261118i/boot.img`
+  201,887,744 字节，sha256 `f2d91f1358f23d121d524c624eeafa8b03ff93b374eb3ae2515967f13b76d472`；
+  kernel.macho `e39a45cba7ea6f3b96c5f2b85d639bff8ccb1fa33ff3d64aed4670bf6859efaf`，
+  payload `d35816c3a500b83cf02e981aa5f93b8ccb76fcb6d933a0409b18132ad089a36e`。
+  `verify-boot-img-payload.py`（carrier FD `cf4485712c29…`）OK：payload @ 557056、
+  201,326,592 字节；payload 内 kernel probe-patched `ad6c3a58442bcb45…`，payload.json
+  记录 pre-patch `e39a45cb…`；ADT `919565bf30140e35…`。payload 字符串含
+  `K60CpuFreq: mode%u EPSS domains=%u cpus=%u lut-rows=%u` 及 mode 1/2/3 的全部行。
+  **参数 gate 未通过**：镜像 30 个参数、603 字节；为容纳 `k60_cpufreq=1`，构建时临时从
+  `k60-adsp-handoff/board.toml` 去掉了 `applog=1`，因此 `check-image-args.py` 报
+  `k60_cpufreq` 不在 `ALLOWED_ADDITIONS`、且 board 的 `applog=1` 缺失。上机结束后必须
+  恢复 board.toml 的 `applog=1`；该镜像只用于一次 EPSS 探针读取，不作为发布镜像。
+  `boot.json` 的 `hardware_tested` 为 `false`。
 
 ## 7. 未实现 / 边界
 
@@ -153,13 +166,14 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 ## 8. 设备空窗时的上机步骤（当前暂缓）
 
-1. 先用 mode 1（`k60_cpufreq=1`）确认表可读，再考虑 mode 2/3；当前候选 image h（sha256 `7ef07b95…`）。
+1. 先用 mode 1（`k60_cpufreq=1`）确认表可读，再考虑 mode 2/3；当前候选 image i（sha256 `f2d91f13…`，已带 `k60_cpufreq=1`；它临时去掉了 `applog=1`，只用于探针读取）。image h 保留为不带参数的前一版。
 2. 抓 `K60CpuFreq:` 开头的行：
    - `mode=1 EPSS domains=3 cpus=8 lut-rows=40`
    - `d0 base=0x17d91000 enable=… state=… (…kHz) dcvs=… vote=… rows=… top=…kHz level=… mode1=read-only`
    - `L3 base=0x17d90000 vote=… rows=… top=…kHz level=…`
    - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=…`、`mode3 vote L3 …`
-3. 判读：`enable=1` 且 `rows` 在 10–40 之间、频率随 domain 递增，才说明表可读；
+3. 设备空窗：2026-11-18 17:20 观察到 `audio-probe-ar` watcher（PID 15944，`-WaitMinutes 1440`），设备为 `none`；不得与它抢 fastboot，等 watcher 退出后再启动 image i。
+4. 判读：`enable=1` 且 `rows` 在 10–40 之间、频率随 domain 递增，才说明表可读；
    `nomap` 或 `rows=0` 则先查窗口/时钟，不得进入 mode 2/3。mode 2/3 第一次上机只投最高档，
    并同时抓 `state` 是否跟随、温度与是否触发 throttle。
 

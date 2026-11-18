@@ -375,6 +375,7 @@ resume，而 `K60M_SCM_MAX_CALLS` 只有 100，循环耗尽后我们把它当成
 | 镜像 | `E:/k60-work/artifacts/modem-20261117k29/boot-modem-b-full.img`，201,895,936 B，sha256 `92359e3d246f9df8e6578533b71772e3fb245d09ffb90c76b02a0cd04c55a57a` |
 | payload | `2b7107f9205f39b2624089fec3ebb781e351d43ad50f042375b1ddb4dd59733e`（json `911e6fac…`）；payload kernel `e9b2f946…` |
 | args | `pong_modem=2 pong_ipa=0`；FD `40c29d51…`；carrier 27 streams / 109,060,761 B |
+| 静态证据 | `llvm-objdump` `_k60_modem_pas_call`：`mov w8,#0x86a0` + `movk w8,#0x1,lsl #16` = 100000（`fffffff0077613f0`–`fffffff0077613f8`）；`cmp w20,#0x65` 是 calls>100 的打印阈值（`fffffff007761418`） |
 | 验证 | `scripts/verify-boot-image.py` rc0 OK；`test-bootimg-layout.py` OK（560384 / 201326592 / 3145840 / 4024）；主机套件 rc0 |
 | 结论 | k28 B 图作废；k29 是新的 B 候选，判据仍是 §4 的 S3/S4。判读时 auth 行必须出现 `K60MODEM scm cmd=0x5 ok calls=N` 且 `auth_reset ok`；若仍 `rc=-3` 且 `calls=100000`，说明 100000 次仍不够，属于 PAS/TZ 而不是电源。 |
 

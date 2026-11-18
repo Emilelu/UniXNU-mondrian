@@ -64,6 +64,20 @@ int k60_cpufreq_pick_highest(const K60CpuFreqTable *table, uint32_t cap_khz,
     return 0;
 }
 
+int k60_cpufreq_pick_lowest(const K60CpuFreqTable *table, unsigned *index,
+    uint32_t *khz)
+{
+    unsigned best = 0, i;
+
+    if (!table || !table->count) return -1;
+    for (i = 1; i < table->count; ++i) {
+        if (table->khz[i] < table->khz[best]) best = i;
+    }
+    if (index) *index = best;
+    if (khz) *khz = table->khz[best];
+    return 0;
+}
+
 unsigned k60_cpufreq_target(const K60CpuFreqTable *table, unsigned current,
     unsigned busy_permille, unsigned shared_cluster, unsigned boost,
     unsigned framing, unsigned quiet_windows)

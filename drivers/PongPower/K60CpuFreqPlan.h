@@ -71,6 +71,12 @@ int k60_cpufreq_build_table(const uint32_t *rows, unsigned row_count, uint32_t c
 int k60_cpufreq_pick_highest(const K60CpuFreqTable *table, uint32_t cap_khz,
     unsigned *index, uint32_t *khz);
 
+/* Lowest entry. Used by the down-only first write test: lowering a level never
+ * needs a voltage raise, so it is the safe direction before the rail/thermal
+ * ordering exists. Returns 0 on success. */
+int k60_cpufreq_pick_lowest(const K60CpuFreqTable *table, unsigned *index,
+    uint32_t *khz);
+
 /* One governor window. busy_permille is the busiest CPU of the domain;
  * shared_cluster is 0 for the boot cluster (domain 0) and 1 for the others,
  * matching the reference where only shared clusters get the boost/quiet

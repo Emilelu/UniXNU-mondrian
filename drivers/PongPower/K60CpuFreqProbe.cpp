@@ -10,8 +10,10 @@
  *
  * Off by default, and never automatic: boot argument k60_cpufreq selects the
  * mode. 1 is read-only, 2 votes domain 0 to its highest non-turbo level, 3
- * votes every domain and L3. Any other value is logged and ignored so a typo
- * cannot start a path that has never been measured. This runs from
+ * votes every domain and L3, 5 samples idle time read-only, 6 votes domain 0
+ * down to its lowest level. Mode 6 is the safe first write: a lower level never
+ * needs a voltage raise. Any other value is logged and ignored so a typo cannot
+ * start a path that has never been measured. This runs from
  * k60_physical_battery_start(), which is the only userland-triggered IOKit
  * entry the archive owns today; it does not need the ADSP handoff lease.
  */
@@ -120,7 +122,7 @@ void probeDomain(unsigned domain, bool dump)
     unmapWindow(&window);
 }
 
-void voteDomain(unsigned domain, unsigned mode)
+void voteDomain(unsigned domain, unsigned mode, bool lowest)
 {
     Window window = {};
     K60CpuFreqTable table = {};
@@ -129,6 +131,7 @@ void voteDomain(unsigned domain, unsigned mode)
     uint32_t original[K60_CPU_FREQ_MAX_WRITES] = {};
     uint32_t readback[K60_CPU_FREQ_MAX_WRITES] = {};
     unsigned index = 0, n, i, enabled, dcvs, restored;
+    unsigned stateBefore, stateAfter, stateRestored;
     uint32_t topKhz = 0;
     int ok;
 
@@ -139,7 +142,18 @@ void voteDomain(unsigned domain, unsigned mode)
     }
     enabled = rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u;
     dcvs = rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u;
-    if (!readTable(&window, &table) || k60_cpufreq_pick_highest(&table, 0, &index, &topKhz)) {
+    if (!readTable(&window, &table)) {
+        IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
+        unmapWindow(&window);
+        return;
+    }
+    if (lowest) {
+        if (k60_cpufreq_pick_lowest(&table, &index, &topKhz)) {
+            IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
+            unmapWindow(&window);
+            return;
+        }
+    } else if (k60_cpufreq_pick_highest(&table, 0, &index, &topKhz)) {
         IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
         unmapWindow(&window);
         return;
@@ -153,15 +167,20 @@ void voteDomain(unsigned domain, unsigned mode)
         return;
     }
     for (i = 0; i < n; ++i) original[i] = rd32(window.va, writes[i].offset);
+    stateBefore = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
     for (i = 0; i < n; ++i) wr32(window.va, writes[i].offset, writes[i].value);
     for (i = 0; i < n; ++i) readback[i] = rd32(window.va, writes[i].offset);
     ok = k60_cpufreq_check_readback(writes, readback, n);
+    IOSleep(20);
+    stateAfter = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
     restored = k60_cpufreq_build_restore(writes, original, n, restore,
         K60_CPU_FREQ_MAX_WRITES);
     for (i = 0; i < restored; ++i) wr32(window.va, restore[i].offset, restore[i].value);
-    IOLog("K60CpuFreq: mode%u vote d%u level=%u (%ukHz) dcvs=%u writes=%u readback=%s restored=%u\n",
+    IOSleep(20);
+    stateRestored = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    IOLog("K60CpuFreq: mode%u vote d%u level=%u (%ukHz) dcvs=%u writes=%u readback=%s restored=%u state=%u->%u->%u\n",
         mode, domain, table.level[index], topKhz, dcvs, n,
-        ok ? "ok" : "mismatch", restored);
+        ok ? "ok" : "mismatch", restored, stateBefore, stateAfter, stateRestored);
     unmapWindow(&window);
 }
 
@@ -356,8 +375,8 @@ extern "C" void k60_cpufreq_probe(void)
 
     PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
     if (!mode || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
-    if (mode == 4 || mode > 5) {
-        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3 and 5 are implemented\n", mode);
+    if (mode == 4 || mode > 6) {
+        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5 and 6 are implemented\n", mode);
         return;
     }
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
@@ -367,7 +386,11 @@ extern "C" void k60_cpufreq_probe(void)
         return;
     }
     if (mode == 2) {
-        voteDomain(0, mode);
+        voteDomain(0, mode, false);
+        return;
+    }
+    if (mode == 6) {
+        voteDomain(0, mode, true);
         return;
     }
     if (mode == 5) {
@@ -375,7 +398,7 @@ extern "C" void k60_cpufreq_probe(void)
         startSampler();
         return;
     }
-    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) voteDomain(domain, mode);
+    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) voteDomain(domain, mode, false);
     voteL3(mode);
 }
 

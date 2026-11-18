@@ -2080,11 +2080,12 @@ afe_envelope_cases(void)
     expect_eq(buf[20], 0xf3ul, "svc opcode low byte");
     expect_eq(buf[21], 0x00ul, "svc opcode second byte");
     expect_eq(buf[22], 0x01ul, "svc opcode third byte");
-    expect_eq(buf[24] | (buf[25] << 8) | (buf[26] << 16) | ((unsigned long)buf[27] << 24),
-        12ul, "svc payload size = param block only");
-    expect_eq(buf[28], 0ul, "svc address lsw 0");
-    expect_eq(buf[32], 0ul, "svc address msw 0");
-    expect_eq(buf[36], 0ul, "svc mem map handle 0");
+    expect_eq(buf[24], 0ul, "svc address lsw 0");
+    expect_eq(buf[28], 0ul, "svc address msw 0");
+    expect_eq(buf[32], 0ul, "svc mem map handle 0");
+    expect_eq((unsigned long)buf[36] | ((unsigned long)buf[37] << 8) |
+        ((unsigned long)buf[38] << 16) | ((unsigned long)buf[39] << 24),
+        12ul, "svc payload size last = param block only");
     expect_eq((unsigned long)buf[40] | ((unsigned long)buf[41] << 8) |
         ((unsigned long)buf[42] << 16) | ((unsigned long)buf[43] << 24),
         0x0001028ful, "svc module id");

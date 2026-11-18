@@ -2067,7 +2067,7 @@
 
 --- /dev/null
 +++ b/bsd/dev/PongAudioAfe.h
-@@ -0,0 +1,688 @@
+@@ -0,0 +1,695 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * Offline encoder for the AFE parameter packets the TERT_TDM speaker path
@@ -2304,15 +2304,22 @@
 +}
 +
 +/* Layout of the two packets, in bytes from the start of the packet. */
-+#define PONG_AFE_OFF_SVC_PAYLOAD_SIZE 24u
++#define PONG_AFE_OFF_SVC_ADDRESS_LSW  24u
++#define PONG_AFE_OFF_SVC_ADDRESS_MSW  28u
++#define PONG_AFE_OFF_SVC_MEM_MAP      32u
++#define PONG_AFE_OFF_SVC_PAYLOAD_SIZE 36u
 +#define PONG_AFE_OFF_PORT_ID          24u
 +#define PONG_AFE_OFF_PORT_PAYLOAD_SIZE 26u
 +#define PONG_AFE_OFF_PARAM            40u
 +#define PONG_AFE_OFF_PAYLOAD          52u
 +
 +/* Service-scoped parameter: clocks and groups (P: afe_service_param
-+ * :386-402). In band, address and handle zero. Returns the packet length,
-+ * or 0 if the buffer is too small. */
++ * :386-402). The command header carries the payload size last, the way the
++ * AudioReach APM header does: address lsw, address msw, mem map handle, then
++ * the size. The AM boot answered our size-first packet from the AFE port
++ * (dst 4) with GPR_IBASIC_RSP_RESULT status 2 (EBADPARAM), so this firmware
++ * does not parse the APR/afe_svc_cmd_set_param_v1 layout. Returns the packet
++ * length, or 0 if the buffer is too small. */
 +static inline size_t
 +pong_afe_svc_set_param(uint8_t *buf, size_t bytes, uint32_t module_id,
 +    uint32_t param_id, const uint8_t *payload, size_t payload_bytes,
@@ -2329,11 +2336,11 @@
 +            PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_SVC_AFE, total) == 0u) {
 +        return 0;
 +    }
++    pong_afe_put32(buf + PONG_AFE_OFF_SVC_ADDRESS_LSW, 0u);
++    pong_afe_put32(buf + PONG_AFE_OFF_SVC_ADDRESS_MSW, 0u);
++    pong_afe_put32(buf + PONG_AFE_OFF_SVC_MEM_MAP, 0u);
 +    pong_afe_put32(buf + PONG_AFE_OFF_SVC_PAYLOAD_SIZE,
 +        (uint32_t)(PONG_AFE_PARAM_BYTES + payload_bytes));
-+    pong_afe_put32(buf + 28, 0u);  /* payload_address_lsw */
-+    pong_afe_put32(buf + 32, 0u);  /* payload_address_msw */
-+    pong_afe_put32(buf + 36, 0u);  /* mem_map_handle */
 +    pong_afe_param(buf + PONG_AFE_OFF_PARAM, module_id, param_id,
 +        (uint16_t)payload_bytes);
 +    for (size_t i = 0; i < payload_bytes; ++i) {

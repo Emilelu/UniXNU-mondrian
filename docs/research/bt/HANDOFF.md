@@ -1107,3 +1107,15 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 估时（带“约”）：iOS 16 顺利 1–2 周（只做 BlueTool 身份伪装，成功率未知）、稳妥 4–6 周（daemon 重定位，且不可迁移）；iOS 27 用户态 1–3 天，风险全在内核 bring-up（F1 的 `LD_KERNEL_LIBS` 一行修复 → F2 prelink 到 bsd_init → F3 存储 → F4 面板）。
 - 离线追加（子代理 bluetool-flow 反汇编 `runCommandForCurrentConfig` 0x100015fa4）：打印该句之后依次是 `getManufacturer` 0x1000401a8 → **`MGIsDeviceOneOfType` 0x100040284** → `getVendor` 0x100014dbc → `MGCopyAnswer("ReleaseType")` 0x100016060 → `stat("/etc/bluetool/<HWModel>.<phase>.script")` 0x10001648c → `stat("/etc/bluetool/<platform>.<phase>.script")` 0x100016534 → 内置 firmwareList。全程只有 MobileGestalt 的同步 XPC 没有超时；看门狗取消点在 0x100042cf0，只有工作函数返回才执行，所以 33 s 被杀 ⇒ 0x100042b98 未返回，最可能是卡在 MG。`stat` 与 `fopen` 都是本地 VFS、不会无限等待；`Opening %s @ %d baud.`（0x10001d1f8）没出现也印证没到内置脚本。**该卡点属用户态**，内核侧无法推进（除非伪造 MG 回复，那是用户态/补丁层面的工作）。
 - 建议与分界点：iOS 16 内核侧到此为止（d11 PASS + d12 观测已记录），用户态不再投入；若 F1/F2 在约两周内看不到 bsd_init，再回头评估 20G81 的 daemon 重定位。`porting.toml` 的 bluetooth `next_action` 与 `limits` 已同步改口径，并把 `marconi-bt` 的归属更正为 `com.apple.driver.AppleSPU`。
+
+### 51. iOS 27 蓝牙系列首次在 GitHub Actions 上构建通过（2026-11-19 05:04）
+
+- 背景：用户 m21327 要求用 GitHub Actions 试构建。按 item 50 的口径，本轮只跑 Linux CI 构建，不启动真机、不碰 20G81 用户态。
+- 分支：fork `Emilelu/UniXNU-mondrian`，`feat/bt-ios27-port` 基于上游 `95d9c8a`；蓝牙系列 19 个补丁（0500、0502b、0501、0502、0507-0522）。触发构建的分支是 `ci/ios27-kernel`，携带 `.github/workflows/ios27-kernel.yml`。
+- 工具链：release `toolchain-linux-20261119`（`unixnu-linux-20261119.tar.gz`，68,589,703 B，sha256 `b29926aef9938d2c540bfd01f3341bede457db9efed98f78f79735c7c86f85ee`），runner 解到 `/opt/unixnu-linux`；框架固定在 `563595ab`。
+- 首次真错误：`bsd/dev/qbt_k60.c:1851:13: error: call to undeclared function 'kmem_alloc_contig'`，同处的 `KMA_DATA`/`KMA_ZERO`/`KMA_PERMANENT`/`kmem_free` 也都未声明。原因：xnu-12377 把 kmem allocator API 从 `vm_kern.h` 拆到新的 `vm_kern_xnu.h`，8792（iOS 16）仍写在 `vm_kern.h`。新增 `0522-k60-bt-vm-kern-xnu.patch` 只补这一行 include，驱动逻辑不动；之后 19/19 补丁干净应用，`bsd/dev/qbt_k60.c` 2243 行 sha256 `4b973811ed805820d8b59c1e10a624f260b1769bcf24280f546cfedcd5eedc62`。
+- 结果：run `44395638974`（head `6f27fbc`，2026-11-18T20:52:54Z→21:04:39Z，11m45s）success。`kernel/kernel.macho` 93,077,504 B sha256 `bf737397a915fd659d9c1a89c0addd7263d6a6190f3071d5c9311c544f1d8122`；`payload/payload.img` 201,326,592 B sha256 `36e0014faade8601d517608ab0d3916c2fccb5cec9cdf1ea911a9292d58eaeb4`。`xnu-patches.list` 96 条，含 0500、0502b、0501、0502 与 0507-0522。
+- 内核内容：`strings` 能看到 `[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth`、0520 的别名 `com.apple.uart.bluetooth`、`[bluetooth power]`、`K60 BT: no IOKit resource service; bluetooth not published`，说明 qbt 栈与 MiniBluetooth 发布点都进了链接。
+- 日志状态：只剩 bootstrap pass 的已知假阴性（release reference 先 `exit 2` 去掉 67 个 unavailable forced exports，再次链接 `exit 0`）；ArmCpu、ArmDTPlatform 的 `-Werror` arm64e 对象审计通过。
+- 边界：这是构建/预链接证明，不是运行证明。iOS 27 在 SM8475 上仍未到 `bsd_init`，P4 不启动；蓝牙本体继续按 item 50 待命。
+- 记录位置：fork `docs/plans/BT-IOS27-PORT.md` §5.3、fork `porting.toml` 的 `ios27-arm64e` findings；提交 `786fde0`。

@@ -15,6 +15,16 @@ image and refuses when:
     flight is a rationalisation, not a criterion);
   * the card still carries the empty verdict line from the template.
 
+Re-flights: an invalid flight (P-236) has to be repeated against the *same*
+image, and appending the verdict makes the card newer than the image. The
+invariant this gate actually wants is not "the file is older" but "the criteria
+have not moved since the first flight", so the verdict records
+
+    criteria-sha256: <hex>
+
+and a later mtime is accepted only while the live criteria digest still equals
+it. A card with no recorded digest still has to precede its image.
+
 Exit 0 = the card is fit to fly, 1 = refused, 2 = the gate could not judge.
 
 Usage:
@@ -23,6 +33,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import io
 import os
 import re
@@ -33,6 +44,24 @@ CRITERIA = u'## 4. 判据'
 SUCCESS = re.compile(r'(?m)^\s*[-*]?\s*\*\*S(\d+)\*\*')
 FAILURE = re.compile(r'(?m)^\s*[-*]?\s*\*\*F(\d+)\*\*')
 RESULTS = u"## 5. 结果登记"
+DIGEST = re.compile(r'(?m)^\s*[-*]?\s*criteria-sha256:\s*([0-9a-f]{64})\s*$')
+
+
+def criteria_digest(text):
+    """Hash the criteria section only, so a verdict cannot move a threshold.
+
+    Normalised to stripped lines joined by newlines: trailing whitespace and a
+    stray blank line should not read as "the criteria changed".
+    """
+    start = text.find(CRITERIA)
+    if start < 0:
+        return None
+    end = text.find(RESULTS, start)
+    section = text[start:end if end >= 0 else len(text)]
+    lines = [line.rstrip() for line in section.splitlines()]
+    while lines and not lines[-1]:
+        lines.pop()
+    return hashlib.sha256(u'\n'.join(lines).encode('utf-8')).hexdigest()
 
 
 def fail(message, code=1):
@@ -86,14 +115,33 @@ def main(argv=None):
     card_time = os.path.getmtime(args.card)
     image_time = os.path.getmtime(args.image)
     if card_time > image_time:
-        fail('the card was written after the image (card %d > image %d); criteria '
-             'must precede the flight' % (card_time, image_time))
+        recorded = DIGEST.findall(text)
+        live = criteria_digest(text)
+        if not recorded:
+            fail('the card was written after the image (card %d > image %d); criteria '
+                 'must precede the flight, and the card records no criteria-sha256 '
+                 'to prove the criteria have not moved since' % (card_time, image_time))
+        if len(set(recorded)) > 1:
+            fail('the card records %d different criteria-sha256 values (%s); only one '
+                 'flight of criteria can be on record'
+                 % (len(set(recorded)), u', '.join(sorted(set(recorded)))))
+        if recorded[0] != live:
+            fail('the criteria changed after the image (%s recorded, %s now); a re-flight '
+                 'may repeat the criteria, never rewrite them'
+                 % (recorded[0][:16], (live or u'none')[:16]))
+        reflight = True
+    else:
+        reflight = False
 
     # The verdict is written after the flight, so it must be EMPTY now — but the
     # card has to carry a results section for it, otherwise the verdict has no home.
     if RESULTS not in text:
         fail('the card has no results section (%r) to record the verdict in')
 
+    if reflight:
+        print(u'✅ flight card: %s re-flies %s with unchanged criteria '
+              u'(criteria-sha256 %s)' % (rel, image_name, DIGEST.findall(text)[0][:16]))
+        return 0
     print(u'✅ flight card: %s carries %d success criteria and %d failure rules, '
           u'written before %s' % (rel, len(successes), len(failures), image_name))
     return 0

@@ -36,7 +36,7 @@
 | `pong_gpu_max_level` | 电源 / GPU | 1..13 | 13 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；DCVS 可投的最高档，越界回落 13，仅在 `pong_gpu_dcvs=1` 时读取 |
 | `pong_gpu_dcvs_min` | 电源 / GPU | 1..13 | 1 | 同上；空闲时允许降到的最低档，小于 1 夹到 1、大于最高档夹到最高档 |
 | `pong_gpu_dcvs_boost_ms` | 电源 / GPU | ≥ 0（毫秒） | 50 | 同上；GMU 忙碌计数从零转非零后唤醒档（两倍频率、至少 578 MHz）的保持时间，0 = 不保持 |
-| `k60_cpufreq` | 电源 / EPSS | 1/2/3/5 | 0（关闭） | `drivers/PongPower/K60CpuFreqProbe.cpp`；1=只读三域+L3，2=d0 最高非 turbo，3=三域+L3，5=16 ms `processor_info` 只读采样；2/3 为瞬态验证写（写前守卫、写后回读、立即恢复），4 被拒绝；2/3 未上机，5 已于 2026-11-18 23:19 以 image l 只读上机（274 条样本）；探针镜像需去掉 `applog=1` 才不超 607 字节 |
+| `k60_cpufreq` | 电源 / EPSS | 1/2/3/5/6/7 | 0（关闭） | `drivers/PongPower/K60CpuFreqProbe.cpp`；1=只读三域+L3，2=d0 最高非 turbo，3=三域+L3，5=16 ms `processor_info` 只读采样，6=d0 降到最低档（已上机），7=10–20 s 按 governor 只降档写回并恢复；2/3 为瞬态验证写（写前守卫、写后回读、立即恢复），4 被拒绝；2/3 未上机，5 已于 2026-11-18 23:19 以 image l 只读上机（274 条样本），6 已于 2026-11-19 02:47 以 image n 上机，7 尚未上机；探针镜像需去掉 `applog=1` 才不超 607 字节 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
@@ -306,13 +306,13 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 |---|---|
 | 类型 | uint32 |
 | 默认 | 0（不探测） |
-| 取值 | 1 / 2 / 3 / 5 / 6（4 被拒绝） |
+| 取值 | 1 / 2 / 3 / 5 / 6 / 7（4 被拒绝） |
 | 来源 | `drivers/PongPower/K60CpuFreqProbe.cpp`（`PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode))`）；`K60Battery.cpp:517` 在电池租约判断之前做第一次读取，`K60Battery.cpp:546-550` 在 `begin` 成功后 5 s 调用 `k60_cpufreq_probe_late()` |
-| 作用 | 1 = 只读 EPSS 三域与 L3（enable/state/vote/LUT 行）；2 = 只给 domain 0 投最高非 turbo 档；3 = 三域 + L3；5 = 内核线程每 16 ms 读 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，把每 CPU 的 user/system/idle/nice tick 差分后按域取最忙 CPU，喂 governor 并打印 busy/governor/hw，只读、不投票；6 = 只给 domain 0 投**最低**非 turbo 档（降档不需要抬压，是首次写入的最安全方向）。2/3/6 是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器原值，写后逐条回读，再立即写回原值；不会留下持续投票。6 在写后与恢复后各等 20 ms，日志追加 `state=<写前>-><写后>-><恢复后>`。 |
+| 作用 | 1 = 只读 EPSS 三域与 L3（enable/state/vote/LUT 行）；2 = 只给 domain 0 投最高非 turbo 档；3 = 三域 + L3；5 = 内核线程每 16 ms 读 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，把每 CPU 的 user/system/idle/nice tick 差分后按域取最忙 CPU，喂 governor 并打印 busy/governor/hw，只读、不投票；6 = 只给 domain 0 投**最低**非 turbo 档（降档不需要抬压，是首次写入的最安全方向）。2/3/6 是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器原值，写后逐条回读，再立即写回原值；不会留下持续投票。6 在写后与恢复后各等 20 ms，日志追加 `state=<写前>-><写后>-><恢复后>`；7 = 复用 5 的采样线程，启动后第 10–20 秒之间把 governor 的**降档**决策写进 EPSS（升档请求只打印 `raise refused` 并退回已投档位，最多 16 票），每次写后回读并打印 `mode7 apply … state=<写前>-><写后>`，到第 20 秒或线程停止时恢复所有写过的域并打印 `mode7 restore …`。7 只降不升，因此同样不涉及抬压。 |
 
 **为什么默认关闭**：EPSS 是 CPU 频率/电压的现场控制点。官方 §5 要求 OS 明确外设电源投票的所有权与引用计数；在 governor、供电和温控路径接入之前，任何持续写都可能与固件或其它 owner 冲突。探针镜像必须确认设备独占空窗，首次只做 d0 单域。
 
-**陷阱**：`k60_cpufreq` 不在 `board.toml` 的默认参数里。探针镜像若保留 `applog=1`，命令行会超过 DarwinBoot 的 607 字节上限（实测 612 字节）；构建时必须临时去掉 `applog=1`，上机结束后恢复，并把该镜像视为探针镜像而非发布镜像。该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`，但参数 gate 仍会检查 board 契约的其余部分；image i/j/k 构建时 gate 尚未接受该名字。`k60_cpufreq=2/3` 的升档写入仍未上机；`k60_cpufreq=6` 已于 2026-11-19 02:47 以 image n 上机（d0 `state=81->15->81`、`readback=ok restored=1`），`k60_cpufreq=5` 已于 2026-11-18 23:19 以 image l 只读上机（159,147 B console，274 条 `sample win=`，d0 可降到 300 MHz，无 `sample stop`，因为 300 s autoreset 先到），23:53 又以 image m 复测 88 条。首次写入建议用 6 而不是 2：降档不抬压，日志里的 `state` 三元组能直接说明写入与恢复是否生效。
+**陷阱**：`k60_cpufreq` 不在 `board.toml` 的默认参数里。探针镜像若保留 `applog=1`，命令行会超过 DarwinBoot 的 607 字节上限（实测 612 字节）；构建时必须临时去掉 `applog=1`，上机结束后恢复，并把该镜像视为探针镜像而非发布镜像。该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`，但参数 gate 仍会检查 board 契约的其余部分；image i/j/k 构建时 gate 尚未接受该名字。`k60_cpufreq=2/3` 的升档写入仍未上机；`k60_cpufreq=6` 已于 2026-11-19 02:47 以 image n 上机（d0 `state=81->15->81`、`readback=ok restored=1`），`k60_cpufreq=5` 已于 2026-11-18 23:19 以 image l 只读上机（159,147 B console，274 条 `sample win=`，d0 可降到 300 MHz，无 `sample stop`，因为 300 s autoreset 先到），23:53 又以 image m 复测 88 条。`k60_cpufreq=7` 尚未上机：它会在 10–20 s 窗口内改变运行频率，探针镜像应保留 300 s 的抓取预算，并确认设备独占空窗。首次写入建议用 6 而不是 2：降档不抬压，日志里的 `state` 三元组能直接说明写入与恢复是否生效。
 
 ### `pong_gpu_dcvs`
 

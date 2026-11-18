@@ -808,6 +808,9 @@ note = "被构建流程调用的测试不能在断言里依赖「当前检出就
 id = "P-230"
 kind = "pitfall"
 title = "判据缺输入时不许替换成默认镜像"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-device-input-must-be-named.py"
+note = "2026-11-16 在干净 main 上不设 K60_DEVICE_INPUT 跑 check-rules.py 报五条红，加上变量后全绿——红的是「没给输入」而不是仓库状态；三处静默回落（sync-device-input.py、porting-gate.py、check-build-applied.py）必须改成缺输入即拒绝。合并 consolidate 时这个 check 行被 union 的块切分吃掉，门禁立刻报「P-230 既没有 check 也没有 waiver」。"
 [[rule]]
 id = "P-231"
 kind = "pitfall"

@@ -310,6 +310,9 @@ def main() -> int:
           "pr[4] = t; pr[4].caps = c.caps; pr[4].beacon_int = c.beacon_int;" in net and
           "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
           'log(6, "wifi-net: probe %s = %s + %s (ie %u cap %04x)"' in net)
+    check("the probe falls back to the 2.4 GHz record and names a sweep with no pair",
+          'mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz' in net and
+          '"wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)"' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

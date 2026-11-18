@@ -266,14 +266,22 @@ void freeze_scan_list() {
   int ti = -1, ci = -1;
   for (unsigned i = 0; i < gSnapCount; i++) {
     const nw_bss_info &b = gSnap[i];
-    if (b.freq_mhz < 3000 || b.ssid_len < 2) continue;
-    if (ti < 0 && b.ssid_len >= 7 && !memcmp(b.ssid, "Emilelu", 7)) { ti = static_cast<int>(i); continue; }
+    if (b.ssid_len < 2) continue;
+    if (ti < 0 && b.freq_mhz >= 3000 && b.ssid_len >= 7 && !memcmp(b.ssid, "Emilelu", 7)) { ti = static_cast<int>(i); continue; }
     if (ci < 0 && (b.caps & 0x0001)) ci = static_cast<int>(i);
   }
-  if (ci >= 0) {   // prefer a carrier the daemon has already listed: CMCC8888 came from the mission22 log
+  if (ti >= 0) {   // mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz
     for (unsigned i = 0; i < gSnapCount; i++) {
       const nw_bss_info &b = gSnap[i];
-      if (b.freq_mhz >= 3000 && b.ssid_len >= 8 && !memcmp(b.ssid, "CMCC8888", 8)) { ci = static_cast<int>(i); break; }
+      if (static_cast<int>(i) == ti || b.freq_mhz >= 3000) continue;
+      if (b.ssid_len == 7 && !memcmp(b.ssid, "Emilelu", 7)) { ci = static_cast<int>(i); break; }
+    }
+  }
+  if (ci >= 0) {   // otherwise a carrier the daemon has already listed: CMCC8888 came from the mission22 log
+    for (unsigned i = 0; i < gSnapCount; i++) {
+      const nw_bss_info &b = gSnap[i];
+      if (static_cast<int>(i) == ti) continue;
+      if (b.ssid_len >= 8 && !memcmp(b.ssid, "CMCC8888", 8)) { ci = static_cast<int>(i); break; }
     }
   }
   if (ti >= 0 && ci >= 0 && gSnapCount + 5 <= 64) {
@@ -298,6 +306,8 @@ void freeze_scan_list() {
           nm[k], q.freq_mhz, q.bssid[0], q.bssid[1], q.bssid[2], q.bssid[3], q.bssid[4], q.bssid[5]);
       log(6, "wifi-net: probe %s = %s + %s (ie %u cap %04x)", nm[k], base[k], what[k], q.ie_len, q.caps);
     }
+  } else {
+    log(6, "wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)", ti, ci, gSnapCount);
   }
 }
 // The scan list counted by band. The Settings pane builds its list from these records, so a band that is

@@ -173,8 +173,23 @@ IOReturn NativeAdrenoSubmit::submit(const NativeAdrenoSubmitBuffer *buffers,size
             uint64_t referenced=0,nanoseconds=0;
             for(size_t i=0;i<count;++i)referenced+=buffers[i].bytes;
             absolutetime_to_nanoseconds(publish_ticks,&nanoseconds);
-            IOLog("PONG SUB: sample n=%u buffers=%u referenced=%llu publish=%llu us\n",
-                (unsigned)probed,(unsigned)count,referenced,nanoseconds/1000);
+            /* The userspace side of a submission is inside [MTLCommandBuffer commit], and the
+             * coherence work that used to dominate it is now skipped, yet that call still takes
+             * about 3.0 ms of a 12.6 ms present(). This prints the KMD's own view of the same
+             * submit (native_adreno_method_stats[5] = NativeAdrenoMethodSubmit, cumulative total
+             * microseconds in slot 3) so one flight separates "the kernel is slow" from "the
+             * translator is slow": if sub_us is close to the userspace number the time is spent
+             * here, if it is microseconds the time is upstream of us. The counters existed with
+             * no reader since 2026-11-18 (P-241's family). */
+            /* Window: this runs INSIDE NativeAdrenoSubmit, so the counter for the current
+             * method has not been credited yet. The number printed is therefore the last
+             * COMPLETED submit, which is the previous frame's - labelled prevsub for that
+             * reason (P-237: always name the window). With one submit per frame it describes
+             * the same work within a frame interval. */
+            IOLog("PONG SUB: sample n=%u buffers=%u referenced=%llu publish=%llu us prevsub_count=%u prevsub_total=%u us\n",
+                (unsigned)probed,(unsigned)count,referenced,nanoseconds/1000,
+                (unsigned)native_adreno_method_stats[NativeAdrenoMethodSubmit][0],
+                (unsigned)native_adreno_method_stats[NativeAdrenoMethodSubmit][3]);
         }
         (void)vm_->sampleWord(buffers[0].iova,&ignored,&after);
         native_adreno_coherence[0]=native_adreno_coherence[0]+1;

@@ -78,7 +78,16 @@ public:
             // Equal pitch: the rows are one contiguous run.
             [blit copyFromBuffer:source sourceOffset:0 toBuffer:target_ destinationOffset:0 size:frame.stride * (frame.height - 1) + row];
         } else {
-            // A linear texture over the surface pages reads them with the surface's pitch and writes the scanout's pitch.
+            /* A single pitched buffer copy would be the obvious answer - one command carrying
+             * sourceBytesPerRow and destinationBytesPerRow - and Vulkan has no such call, so it
+             * would be emulated as an image round trip anyway, which is what the texture below
+             * already is. It is also not reachable from here: NBBlitEncoder implements
+             * copyFromBuffer:toBuffer: and the texture paths only, so the selector would raise
+             * and take backboardd with it. The 1.9 ms the 2026-11-19 control measured was an
+             * UNPITCHED copy; the only ways to get it are to remove the pitch change (own the
+             * scanout buffer at the surface's pitch, which needs DPU programming to scan out) or
+             * to stop copying at all. Recorded in P-243 so nobody re-adds this branch.
+             * A linear texture over the surface pages reads them with the surface's pitch and writes the scanout's pitch.
             MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:frame.width
                                                                                        height:frame.height mipmapped:NO];
             d.storageMode = MTLStorageModeShared;

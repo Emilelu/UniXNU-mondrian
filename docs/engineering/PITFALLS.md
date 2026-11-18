@@ -6552,3 +6552,40 @@ rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**
    `scripts/tests/test-gpu-blit-probe.py` 里那两条
    （`the boot-arg gate scans literals a driver matches itself` / `it therefore sees this driver's keys`）
    就是为此写的。
+
+## P-243
+
+**现象（2026-11-19，`gpu-blitprobe2-20261119` 之后）**
+对照实验证明同样 18,432,000 字节的一次纯 `copyFromBuffer` 只要 1,993 µs（到 GPU 缓冲）/
+1,835 µs（到固件帧缓冲），而真实路径的 `gpu` 段是 5,302 µs、`present()` 12,631 µs，
+差在拷贝的**形状**：真实路径要把 surface 的 5888 字节行距摊成帧缓冲的 5760。
+看上去最直接的修法是「一条命令同时带 `sourceBytesPerRow` 和 `destinationBytesPerRow`」——
+`copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:`。
+
+**真因**
+这条路同时被两件事堵死：
+1. **Vulkan 没有带行距的 buffer→buffer 拷贝**。`vkCmdCopyBuffer` 只接受紧排的 `VkBufferCopy`，
+   要带 pitch 必须走 image，也就是「buffer→image→buffer」，而我们现在的纹理 untile
+   已经是这个形状的最优写法（image 直接别名到 surface 页，零拷贝）。所以照抄 Metal 的
+   带行距重载**不可能**比现路径快，只会多一层。
+2. **我们的 bridge 根本没实现那个 selector**。`NBBlitEncoder`（`drivers/PongMetal/NativeBridgeMetalFrontend.mm:754-800`）
+   只实现了 `copyFromBuffer:toBuffer:`、`fillBuffer:`、三个纹理方向和 `synchronizeResource:`；
+   Rust 侧 `drivers/PongMetal/bridge/NativeMetalObjects.rs:1999` 也只有
+   `nmb_blit_copy_buffer`（无行距）。调用未实现的 selector 会抛
+   `unrecognized selector sent to instance`，直接打死 backboardd。
+
+**修法**
+- 撤掉这条分支，并在 `GpuScanoutPresenter.h` 的 pitch-change 分支里写明为什么它不是选项；
+- 加一条测试 `no blit selector the bridge does not implement is called`，断言源码里不再出现
+  带行距的调用形状，也不再有 `pitchedUsable`；
+- 真正能拿回那 10.7 ms 的两条路只剩：**消除行距差**（自己拥有 5888 行距的扫描缓冲，
+  由 DPU 直接扫出——即 zizhan 的 `db[]`，见 `docs/research/gpu/ZIZHAN-DBUF.md`），
+  或者**不再拷贝**（零拷贝扫出）。
+
+**教训**
+1. 「用一条命令解决」在 Metal 上成立，不等于在 Vulkan/Turnip 上成立——抄 API 之前先问
+   目标后端有没有对应的原语。
+2. 一个 selector 存不存在，要去 bridge 的实现里数，不要按 Metal 头文件的形状假设；
+   用没实现的 selector 不是「慢」，是崩。
+3. 对照实验量出来的 1.9 ms 是**无行距**拷贝的下限；把它当成「带行距拷贝的目标值」会得出
+   一条根本不存在的优化路径。测量值必须和被测形状绑定着引用。

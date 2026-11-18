@@ -132,10 +132,18 @@ def main():
     check('the equal pitch path is still one run',
           'copyFromBuffer:source sourceOffset:0 toBuffer:target_ destinationOffset:0 size:frame.stride * (frame.height - 1) + row' in presenter,
           'the fast path must not have been replaced by a loop')
-    check('a pitch change still goes through a linear texture',
+    check('no blit selector the bridge does not implement is called',
+          'sourceBytesPerRow:frame.stride' not in presenter
+          and 'pitchedUsable' not in presenter,
+          'NBBlitEncoder implements copyFromBuffer:toBuffer: and the texture paths only, so a '
+          'pitched buffer copy would raise unrecognized selector and take backboardd with it; '
+          'Vulkan has no pitched buffer-to-buffer copy anyway (P-243)')
+    check('a pitch change can still go through a linear texture',
           'newTextureWithDescriptor' in presenter and 'copyFromTexture:' in presenter
           and 'shape = "texture untile";' in presenter,
-          'a 2026-11-18 flight replaced it with 3,200 copy commands and made each frame 14.6 ms slower (P-235)')
+          'a 2026-11-18 flight replaced it with 3,200 copy commands and made each frame 14.6 ms '
+          'slower (P-235), and a driver that answers the pitched call wrongly must still have a '
+          'path that is known to be correct')
     check('the row loop survives as the fallback a misaligned stride forces',
           'for (uint32_t y = 0; y < frame.height; ++y)' in presenter
           and 'copyFromBuffer:source sourceOffset:size_t(y) * frame.stride' in presenter

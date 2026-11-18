@@ -48,7 +48,16 @@ def main():
     presenter = read(PRESENTER)
     plugin = read(PLUGIN)
 
-    body = presenter[presenter.find('Result present(const Frame &frame)'):]
+    # Slice present() precisely, up to the next member. Slicing to end of file counted every
+    # method added later: the 2026-11-19 pitched-copy agreement check imports the frame once
+    # more, inside its own method, and made this case report "3 call sites inside present()".
+    # A rule about one function has to be scoped to that function.
+    start = presenter.find('Result present(const Frame &frame)')
+    end = presenter.find('bool runBlitProbe(const Frame &frame)')
+    check('the present() slice ends at the next member',
+          start >= 0 and end > start,
+          'a slice that runs to end of file silently widens with every new method')
+    body = presenter[start:end]
     private = presenter[presenter.find('private:'):]
 
     check('no import is kept between frames',

@@ -890,3 +890,11 @@ title = "按调用形式扫描的门禁会漏掉整类参数：只认 PE_parse_b
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-gpu-blit-probe.py"
 note = "2026-11-19 加 pong_gpu_blit_probe 时发现 check-boot-args.py 的源码参数计数 24 没变；补 sysctl 字面量模式后变 25 并立刻报缺文档。"
+
+[[rule]]
+id = "P-243"
+kind = "pitfall"
+title = "Vulkan 没有带行距的 buffer→buffer 拷贝，我们的 bridge 也没有那个 selector"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "照抄 Metal 的 copyFromBuffer 带行距重载会抛 unrecognized selector 打死 backboardd；能消除行距差的只有自持扫描缓冲（DBUF）或不拷贝。"

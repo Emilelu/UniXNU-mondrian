@@ -775,6 +775,12 @@ check = "python3 scripts/tests/test-build-strict-board-dir.py && python3 scripts
 note = "board_dir() 必须按「.config 有没有写 CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY」排序，不能只按 mtime；两个候选都没有这两个键时要警告 P-202。check-config-consistency.py 的 resolve_generated() 是同一判据的第二处，不许退回 found[0]"
 
 [[rule]]
+id = "P-226"
+title = "整份取一侧的冲突解决会连另一侧的非重叠新增一起吃掉"
+check = "python3 scripts/tests/test-build-strict-blocks.py"
+note = "解 build-strict.sh 冲突时整份取 main，丢掉 board_dir()/__pycache__ prune/wifi archive 块/内核断言四块；git 报过冲突、三方合并结果本来是对的，丢在「取整份」这一步。新增 check-build-strict-blocks.py 断言这四块必须存在，九个用例含六个反向验证"
+
+[[rule]]
 id = "P-228"
 kind = "pitfall"
 title = "兼容层无条件重放 IRQ，handler 被调用过不等于硬件中断到达"

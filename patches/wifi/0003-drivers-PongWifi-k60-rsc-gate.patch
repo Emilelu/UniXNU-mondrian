@@ -2,7 +2,7 @@ diff --git a/drivers/PongWifi/PongWifiPlatform.cpp b/drivers/PongWifi/PongWifiPl
 index 7632a67..66bbedc 100644
 --- a/drivers/PongWifi/PongWifiPlatform.cpp
 +++ b/drivers/PongWifi/PongWifiPlatform.cpp
-@@ -690,6 +690,42 @@ extern "C" void pong_rpmh_init(void) {
+@@ -690,6 +690,48 @@
   if(!smmuLeaseLock)smmuLeaseLock=IOLockAlloc();
  }
  extern "C" bool pong_rpmh_vote(uint32_t address,uint32_t value) {
@@ -22,12 +22,18 @@ index 7632a67..66bbedc 100644
 +  uint32_t flag=0;
 +  if(!PE_parse_boot_argn("k60_wifi_rsc",&flag,sizeof flag)) flag=0;
 +  if(flag==1||flag==2) {
-+   // Level 1 or 2 both begin with the same read-only probe.
-+   uint32_t tcs4=0;
++   // Level 1 or 2 both begin with the same read-only probe. Offsets are
++   // relative to the mapped RSC window; the TCS4 block base is the same
++   // 0xd00 + 4*0x2a0 that rawVote() uses, so a sane probe and a vote agree.
 +   bool readable=rsc.open(0x17a20000,0x10000);
-+   if(readable) tcs4=rd(0x17a20000+0x10000);
-+   IOLog("PongWifi: RSC probe open=%d TCS4=0x%08x (level %u)\n",(int)readable,tcs4,flag);
-+   if(!readable||tcs4==0||tcs4==0xffffffffu) {
++   uint32_t id=0xffffffffu,caps=0xffffffffu,idle=0,st=0;
++   if(readable) {
++    constexpr unsigned tcs4=0xd00+4*0x2a0;
++    id=rsc.r(0);caps=rsc.r(0xc);idle=rsc.r(tcs4+0x18);st=rsc.r(tcs4+0x3c);
++    IOLog("PongWifi: RSC probe id=0x%08x caps=0x%08x tcs4Idle=0x%08x tcs4Status=0x%08x (level %u)\n",id,caps,idle,st,flag);
++   }
++   const unsigned count=(caps>>12)&63,ncpt=(caps>>27)&31;
++   if(!readable||caps==0xffffffffu||id==0xffffffffu||((id>>16)&255)>=3||count<8||ncpt<1||!idle) {
 +    IOLog("PongWifi: RSC probe failed; leaving RSC untouched\n");
 +    return false;
 +   }

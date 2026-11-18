@@ -5938,6 +5938,69 @@ P-207（门禁不许判陈旧产物）。
 `PITFALLS.md` 里从未存在过（`git log --all -S "P-187"` 零命中），是悬空引用，
 真正该指的是 P-225。
 
+## P-226
+
+**标题：整份取一侧的冲突解决会连另一侧的非重叠新增一起吃掉，git 之后一声不响**
+
+2026-11-16 的 `02014e2`（`merge: take origin/main into feat/wifi-bringup`）把
+`scripts/build-strict.sh` 的冲突**按整份取一侧**解决，结果 wifi 线在这个文件里的**四块**东西
+一起消失，而构建照旧 `BUILD OK`：
+
+| 消失的块 | 后果 |
+| --- | --- |
+| `board_dir()`（按 `.config` 找板目录） | 回落到硬编码 `mondrian/`，wifi-only 的 `mondrian_wifi/.config` 再也找不到 |
+| `freeze()` 的 `__pycache__` prune | 构建自己 import 脚本 → 重写 `.pyc` → 末尾 `cmp` 不等 → 整轮判废（P-224 的形状） |
+| `# --- wifi archive ---` 整块（`XNU_PONG_WIFI` 检测 + `die`） | `XNU_PONG_WIFI=1` 不再被校验，没有归档也能出图 |
+| 内核里的 `_pong_wifi_start_optional` 断言 | 归档没链进内核也不会有人喊（P-190 的形状） |
+
+**为什么 git 没喊**：这三件事 git 都做了，且都没错——
+
+1. 它**报了冲突**（`scripts/build-strict.sh` 在九个冲突文件里）；
+2. 它给出的三方合并结果其实**是对的**：`git merge-tree --write-tree 276f69d 207e108`
+   得到的树 `b3447083` 里 `board_dir()` 与 `__pycache__` **都在**（各 1 处和 2 处）；
+3. 丢东西发生在**人解冲突**那一步：`02014e2:scripts/build-strict.sh` 与 `207e108`（main）
+   的差异只有两行 manifest 字段（`wifi_archive` / `wifi_archive_path`）——也就是说当时的解法是
+   「拿 main 的整份文件，再把这两行加回去」。相对我们那一侧（`276f69d`，350 行）它少了四块，
+   相对 main（344 行）只多两行，合并后 346 行。
+
+所以这不是「git 静默覆盖」，而是**「整份取一侧」这种解法本身的形状**：只要冲突文件里还有
+另一侧的**非重叠新增**，取整份就等于把它们删掉，而删掉之后 git 认为冲突已解决，不会再有提示，
+`git diff` 也只会显示「相对 main 多了两行」这种看起来无害的结果。
+
+**当时的代价**：`wifi-20261116c7` 因此被判废（`frozen inputs changed`，唯一差异是九个
+`scripts/__pycache__/*.pyc`，见 P-224），随后 `c05ebb7` 靠人肉记忆把四块补回来。判废信息里
+只写了「frozen inputs changed」，没有一个字指向「这四块曾经存在过」。
+
+**修法（三道，缺一不可）**
+
+1. **解冲突时不整份取。** 要么按 hunk 解，要么取整份之后**立刻**与「被取的那一侧」和「自己这一侧」
+   各 diff 一次：`git diff <ours> -- <file>` 与 `git diff <theirs> -- <file>` 都看一遍，
+   确认自己这一侧的每一块都能在结果里找到。本次如果做了这一步，`grep -c board_dir()` 会立刻归零。
+2. **关键脚本要有「这段必须存在」的断言式门禁。** 记忆不是门禁。本次新增
+   `scripts/check-build-strict-blocks.py`：断言 `board_dir()` 存在且按两个配置键排序、
+   `K60_BOARD_DIR` 指向坏目录要 `die`、`freeze()` 有字节码 prune、`$M/.config` 守卫在、
+   gate-table 标记成对、选了 wifi 归档就必须有内核侧 `_pong_wifi_start_optional` 断言。
+   配套 `scripts/tests/test-build-strict-blocks.py` 九个用例，其中六个是**反向验证**：
+   逐块删掉，门禁必须变红。
+3. **区分两种 merge 风险。** 「行级冲突」git 会喊，人只要不漏看就不会丢东西；「整段/整份替换型
+   覆盖」git 不喊，而且合并后的 `git diff --stat` 往往很好看（本次是 `44 insertions(+), 1
+   deletion(-)`）。后者的唯一可靠发现方式是**与两侧各 diff 一次**，以及**用门禁断言块的存在**。
+
+**四条教训**
+
+1. **冲突解决是「合并」的一部分，不是「合并之后的事」。** 提交 merge commit 之前，关键文件必须
+   与两个父各 diff 一次；只跑 `git diff --check`（查冲突标记）挡不住这一类。
+2. **「取一侧」只能用于「这一侧整体更新」的文件。** 判据：另一侧对该文件是否有**任何**新增块？
+   有就不能整份取。文档类可以整份取一侧再补，脚本类不行。
+3. **门禁要断言「存在」，不要断言「没坏」。** `bash -n` 通过、构建成功、manifest 有字段，
+   都不能证明某段逻辑还在——本次构建 100% 成功。断言必须点名「这一段必须在」。
+4. **判废/失败信息要指到「少了什么」，而不只是「哪里不对」。** `frozen inputs changed` 这句话
+   成立，但它没能让人想到「四块逻辑被吃掉了」，于是补回来的依据是记忆而不是证据。
+
+关联：P-224（冻结输入把构建自己的产物算进去 —— 本次丢的正是那段 prune）、P-225（`board_dir()`
+的判据）、P-190（认不出名字就静默跳过）、P-202（`.config` 缺失时 `sed` 静默返回空）、
+P-205（新增门禁必须同时进 README 门禁表）。
+
 ## P-228
 
 **标题：兼容层无条件重放 IRQ，于是「handler 被调用过」被当成了「硬件中断到达了」**

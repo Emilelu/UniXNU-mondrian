@@ -11,6 +11,8 @@
 #include <pexpert/pexpert.h>
 #include <libkern/c++/OSMetaClass.h>
 #include <sys/random.h>
+#include <sys/vnode.h>
+#include <IOKit/IOService.h>
 #include "nw_abi.h"
 #include "../PongAdreno/ArmSmmu4K/ArmSmmu4KProgram.h"
 #include "PongWifiInputs.h"
@@ -570,6 +572,32 @@ volatile uint32_t msiEmptyStatus;
 // parsed boot arguments are logged anyway so a flight can prove which mode the
 // kernel actually saw even when the association path is not reached.
 unsigned testReconnectState;
+// What the booted OS volume actually carries for the address configuration:
+// the names are the pieces the network stack composes at start-up. A flight log
+// has no shell, so the driver reports presence and size; nothing is written.
+void probeFiles() {
+ static const char *const paths[]={
+  "/usr/libexec/wifid",
+  "/usr/libexec/configd",
+  "/System/Library/LaunchDaemons/com.apple.wifid.plist",
+  "/System/Library/SystemConfiguration/IPConfiguration.bundle",
+  "/System/Library/SystemConfiguration/InterfaceNamer.bundle",
+  "/private/var/preferences/SystemConfiguration/preferences.plist",
+  "/private/var/preferences/SystemConfiguration/NetworkInterfaces.plist",
+ };
+ vfs_context_t ctx=vfs_context_current();
+ for(unsigned i=0;i<sizeof paths/sizeof paths[0];++i) {
+  vnode_t vp=NULLVP;
+  int err=vnode_lookup(paths[i],0,&vp,ctx);
+  if(err||!vp){IOLog("PongWifi: probe %s -> absent (%d)\n",paths[i],err);continue;}
+  struct vnode_attr va;VATTR_INIT(&va);VATTR_WANTED(&va,va_type);VATTR_WANTED(&va,va_size);
+  int attr=vnode_getattr(vp,&va,ctx);
+  if(attr)IOLog("PongWifi: probe %s -> present, attr %d\n",paths[i],attr);
+  else IOLog("PongWifi: probe %s -> %s size=%llu\n",paths[i],
+   va.va_type==VREG?"file":(va.va_type==VDIR?"dir":"other"),(unsigned long long)va.va_size);
+  vnode_put(vp);
+ }
+}
 static uint32_t ssidHash(const uint8_t *s,unsigned n) {
  uint32_t h=2166136261u;
  for(unsigned i=0;i<n;++i){h^=s[i];h*=16777619u;}
@@ -580,8 +608,9 @@ void testNetwork(const nw_wifi_status &st) {
  static bool alternate=false,reconnecting=false,rescanned=false,reported=false;
  static uint32_t firstBand=0;
  static uint8_t firstBssid[6];
- static uint64_t deadline=0, reconnectAt=0, nextRescan=0;
+ static uint64_t deadline=0, reconnectAt=0, nextRescan=0, nextWait=0;
  static unsigned rescans=0;
+ static bool addressWait=false;
  if(!checked) {
   checked=true;uint32_t flag=0,mode=0;
   const bool testFound=PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag);
@@ -667,6 +696,20 @@ void testNetwork(const nw_wifi_status &st) {
    nw_wifi_scan(kWifiTestSsid,kWifiTestSsidBytes);
   }
  }
+ // The link can be up while the network stack user client is only now being
+ // opened by configd, so the association deadline would expire before any
+ // address exists. Keep the test alive after the link comes up and say what
+ // the registry looks like while it waits.
+ if(attempted&&!addressWait&&st.state==NW_STA_UP) {
+  addressWait=true;deadline=now()+600000;
+  IOLog("PongWifi: association test waits for the address configuration\n");
+ }
+ if(attempted&&!finished&&now()>=nextWait) {
+  nextWait=now()+15000;
+  IOService *root=IOService::getServiceRoot();
+  IOLog("PongWifi: association test WAIT: state=%u IPv4=%u busy=%u\n",
+   (unsigned)st.state,pong_wifi_net_has_ipv4()?1:0,root?(unsigned)root->getBusyState():0);
+ }
  if(attempted&&st.state==NW_STA_UP&&pong_wifi_net_has_ipv4()) {
   finished=true;log(6,"WiFi association test PASS: authenticated link and IPv4 address");
   if(!reconnecting)memcpy(firstBssid,st.bssid,sizeof firstBssid);
@@ -713,6 +756,7 @@ void worker(void *,wait_result_t) {
  for(;n<180&&!pong_ufs_ready();n++)IOSleep(500);
  if(n==180){fail("UFS prerequisites absent; WiFi skipped");goto done;}
  IOSleep(2000);
+ probeFiles();
  if(!coldLink())goto done;
  if(!stageOpen(9,"APPSSMMU SID 1c01 exclusive 4K context"))goto done;
  if(!isolation())goto done;

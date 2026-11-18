@@ -108,6 +108,18 @@ def main() -> int:
           '"PongWifi: association rescan %u directed' in platform and
           "nw_wifi_scan(kWifiTestSsid,kWifiTestSsidBytes);" in platform)
 
+    check("the booted volume is probed for the address configuration pieces",
+          "void probeFiles()" in platform and
+          '"/usr/libexec/wifid"' in platform and
+          '"/System/Library/SystemConfiguration/IPConfiguration.bundle"' in platform and
+          '"PongWifi: probe %s -> %s size=%llu' in platform)
+    check("the association test outlives the link wait for an address",
+          '"PongWifi: association test waits for the address configuration' in platform and
+          "addressWait=true;deadline=now()+600000;" in platform)
+    check("the association test reports the registry busy state while waiting",
+          '"PongWifi: association test WAIT: state=%u IPv4=%u busy=%u' in platform and
+          "getBusyState()" in platform)
+
     net = NET.read_text(encoding="utf-8")
     check("the network stack lives under IOResources where the namer looks",
           "IOService::getResourceService()" in net and "publish(stack, platform," not in net)
@@ -120,6 +132,11 @@ def main() -> int:
     check("network stack user client initializes through the 4-argument overload",
           "initWithTask(task, security, type, properties)" in net and
           "initWithTask(task, security, type))" not in net)
+    check("the interface reports the registry busy state",
+          '"wifi-net: registry busy state %u"' in net)
+    check("the stack user client reports external methods and its close",
+          '"wifi-net: network stack method %u in %u out %u"' in net and
+          '"wifi-net: the network stack client closed"' in net)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors

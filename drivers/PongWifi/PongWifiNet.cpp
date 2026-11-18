@@ -777,7 +777,20 @@ class IONetworkStackUserClient : public IOUserClient {
     }
     return kIOReturnUnsupported;
   }
-  IOReturn clientClose() APPLE_KEXT_OVERRIDE { terminate(); return kIOReturnSuccess; }
+  IOReturn clientClose() APPLE_KEXT_OVERRIDE {
+    log(6, "wifi-net: the network stack client closed");
+    terminate(); return kIOReturnSuccess;
+  }
+  // The namer may also drive the interface lookup through external methods
+  // rather than properties; report them, and refuse a request that would tell
+  // the caller an interface was named when nothing was named.
+  IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments,
+      IOExternalMethodDispatch *dispatch, OSObject *target, void *reference) APPLE_KEXT_OVERRIDE {
+    static unsigned said;
+    if (said++ < 8) log(6, "wifi-net: network stack method %u in %u out %u", selector,
+        arguments ? arguments->scalarInputCount : 0, arguments ? arguments->scalarOutputCount : 0);
+    return kIOReturnUnsupported;
+  }
 };
 OSDefineMetaClassAndStructors(IONetworkStackUserClient, IOUserClient);
 class IONetworkStack : public IOService {
@@ -856,6 +869,8 @@ void log_traffic() {
   log(6, "wifi-net: out arp %u ip4 %u dhcp %u ip6 %u other %u", gKindsOut.arp, gKindsOut.ip4, gKindsOut.dhcp, gKindsOut.ip6, gKindsOut.other);
   log(6, "wifi-net: input stalls %u, kicks %u, cleared after a kick %u, longest %u s", gStall.count, gStall.kicks, gStall.cleared, gStall.longest);
   log(6, "wifi-net: rx no buffer %u, chained %u, longest frame %u", gRxNoBuffer, gRxChains, gRxLongest);
+  IOService *root = IOService::getServiceRoot();
+  log(6, "wifi-net: registry busy state %u", root ? static_cast<unsigned>(root->getBusyState()) : 0);
 }
 
 }  // namespace

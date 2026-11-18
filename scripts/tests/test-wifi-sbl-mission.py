@@ -301,14 +301,12 @@ def main() -> int:
           'log(6, "wifi-net: ie-list %02x:%02x:%02x:%02x:%02x:%02x %s"' in net and
           'snprintf(ids + at, sizeof ids - at, "%s%u/%u"' in net and
           'log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"' in net)
-    check("a copy of the 5 GHz record is served under an unrelated name",
-          'static const char nm[] = "K60SYNTH"' in net and
-          'log(6, "wifi-net: synthetic 5 GHz clone of %u MHz served as %s", b.freq_mhz, nm);' in net and
-          "c.bssid[5] = static_cast<uint8_t>(c.bssid[5] ^ 0x40);" in net)
-    check("a same-name twin of the 5 GHz record is served with another BSSID",
-          "nw_bss_info t = b; t.bssid[5] = static_cast<uint8_t>(t.bssid[5] ^ 0x80);" in net and
-          'log(6, "wifi-net: synthetic twin of the 5 GHz record served as %.*s with bssid %02x:%02x:%02x:%02x:%02x:%02x"' in net and
-          "gSnapCount + 2 > 64" in net)
+    check("two synthetic copies of the 5 GHz record are served from the front of the list",
+          'static const char nmA[] = "K60SYNTH", nmB[] = "K60SYNTH2";' in net and
+          "a.bssid[5] = static_cast<uint8_t>(a.bssid[5] ^ 0x40);" in net and
+          "c.bssid[0] = static_cast<uint8_t>(c.bssid[0] ^ 0x02);" in net and
+          "memmove(&gSnap[3], &gSnap[1], (gSnapCount - 1) * sizeof gSnap[0]);" in net and
+          'log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x"' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

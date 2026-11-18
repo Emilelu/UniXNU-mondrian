@@ -263,17 +263,20 @@ void freeze_scan_list() {
   for (unsigned i = 0; i < gSnapCount; i++) {
     const nw_bss_info &b = gSnap[i];
     if (b.freq_mhz < 3000 || b.ssid_len < 2 || gSnapCount + 2 > 64) continue;
-    nw_bss_info c = b; static const char nm[] = "K60SYNTH"; c.ssid_len = sizeof nm - 1;
-    memset(c.ssid, 0, sizeof c.ssid); memcpy(c.ssid, nm, c.ssid_len);
-    c.bssid[5] = static_cast<uint8_t>(c.bssid[5] ^ 0x40);
-    gSnap[gSnapCount++] = c;
-    log(6, "wifi-net: synthetic 5 GHz clone of %u MHz served as %s", b.freq_mhz, nm);
-    // A second copy keeps the access point's own name and changes only the BSSID, so one screen separates a
-    // name filter (both copies hidden) from a BSSID-keyed multi-band collapse (only this twin appears).
-    nw_bss_info t = b; t.bssid[5] = static_cast<uint8_t>(t.bssid[5] ^ 0x80);
-    gSnap[gSnapCount++] = t;
-    log(6, "wifi-net: synthetic twin of the 5 GHz record served as %.*s with bssid %02x:%02x:%02x:%02x:%02x:%02x",
-        static_cast<int>(t.ssid_len), t.ssid, t.bssid[0], t.bssid[1], t.bssid[2], t.bssid[3], t.bssid[4], t.bssid[5]);
+    // Both copies go right after the strongest record: the daemon reads in order and only the first six 5 GHz
+    // records have their encoded words logged, so copies left at the tail keep the experiment unobservable.
+    static const char nmA[] = "K60SYNTH", nmB[] = "K60SYNTH2";
+    nw_bss_info a = b, c = b;
+    a.ssid_len = sizeof nmA - 1; memset(a.ssid, 0, sizeof a.ssid); memcpy(a.ssid, nmA, a.ssid_len);
+    a.bssid[5] = static_cast<uint8_t>(a.bssid[5] ^ 0x40);   // same first five bytes as the access point
+    c.ssid_len = sizeof nmB - 1; memset(c.ssid, 0, sizeof c.ssid); memcpy(c.ssid, nmB, c.ssid_len);
+    c.bssid[0] = static_cast<uint8_t>(c.bssid[0] ^ 0x02);   // a different OUI, so a prefix-keyed merge cannot match
+    if (gSnapCount > 1) memmove(&gSnap[3], &gSnap[1], (gSnapCount - 1) * sizeof gSnap[0]);
+    gSnap[1] = a; gSnap[2] = c; gSnapCount += 2;
+    log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
+        nmA, b.freq_mhz, a.bssid[0], a.bssid[1], a.bssid[2], a.bssid[3], a.bssid[4], a.bssid[5]);
+    log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
+        nmB, b.freq_mhz, c.bssid[0], c.bssid[1], c.bssid[2], c.bssid[3], c.bssid[4], c.bssid[5]);
     break;
   }
 }

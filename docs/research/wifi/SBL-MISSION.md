@@ -504,3 +504,47 @@ are now device-verified: scan, authentication, association, address
 configuration, receive and send. HTTPS and webpage loading are not yet separately
 proven; mission12 instruments TCP 443 and DNS traffic to settle that question.
 Mission11 must not be re-flown; its one-shot marker exists.
+
+## 13. Mission12: the trace is cut before the address, and mission13 asks from userland
+
+Mission12 (tag `wifi-20261118sbl-mission12`, built 2026-11-18T15:04:57+08:00 from
+`4d40456027b0b87e7747825dbf9adc8c9c1e9d8d`, clean tree, image
+`5c3799772e8b5fcdc74eb6cfbddfe5d1845f1375619ee757307cd17e10a1a38f`,
+201,887,744 bytes, WiFi archive `e2f79a1ba5442f810a93c64239a31293ba72ea013623cbbc3707b5f8cb10c23e`,
+602-byte arguments ending `pong_wifi=2 k60_wifi_rsc=2`) added bounded TCP/443 and
+outbound DNS counters, a DNS query-name log and the 80211 user-client opener.
+
+Its one flight at 15:08:51 is only partly captured:
+`E:/k60-work/evidence/usblog-20261118-150851/console.log` is 53,012 bytes,
+918 lines, SHA256 `3fb76775a4384cad815705cf6e705702c3b79b4d1ae611487f3fe334217b1235`,
+and stops at `:912 PongWifi: association test waits for the address configuration`
+after `:771` scan 1 finished 8 networks, `:896` RUNNING, `:899` the directed
+rescan for the pending join, `:903` connecting to c8:bf:4c:30:03:1c on 5240 MHz at
+-52 dBm, `:904` associated, `:907` message 4 acknowledged, `:908` keys installed,
+`:909` connected and `:916` K60HB t=30; `:918` K60 USBLOG st=4 ev=1320 cfg=1
+dtr=1 fl=0. The capture wrote capture.ready but no capture.json or footer, so the
+truncation is a capture/host interruption, not a proven driver regression; the
+slice contains no DHCP, DNS, TCP/443 or opener line either way. Mission12 must
+not be re-flown; its one-shot marker exists. Its observation code stays in
+mission13's tree but settles nothing by itself.
+
+Mission13 (`wifi-20261118sbl-mission13`, built 2026-11-18T16:30 from
+`a5fa535f9f2bbb28f287e8696ad4c5e4bd4d7aff`, clean tree, image
+`6625d4b3fa235a62b25f7ae0745117dd2e4e3379671f3dfa0557704341ff1521`,
+201,887,744 bytes, series fingerprint `d27beb4de6da6024` over 227 patches,
+602-byte arguments) carries a purpose-built application probe instead of relying
+on whatever userland happens to do: patch `0616` now also writes a 34,600-byte
+static binary to `/private/var/pong/k60probe`, and patch `0394`'s launchd cache
+gains `com.pong.netprobe` (24 jobs) which runs it at boot as root. The probe
+polls the gateway 192.168.31.1:80 with raw `connect()`, prints the HTTP status
+line and byte count, then requests example.com (93.184.216.34:80) and repeats the
+gateway request three times 20 s apart, so one flight answers both "does an
+application exchange complete" and "is the transfer sustained". It does not use
+the dynamic CFNetwork path: the static binary has no dyld dependency
+(`LC_UNIXTHREAD`, no `LC_LOAD_DYLINKER`), so it cannot fail the way libSystem
+would.
+
+Prediction: `k60probe: started`, `k60probe: <host> status <code> line <HTTP/1.x ...>`,
+`k60probe: <host> tag <n> bytes <n>` and `k60probe: done` appear, while the six
+official criteria stay PASS and no panic appears. If the job never runs, the next
+step is the launchd cache and job permissions, not another DHCP attempt.

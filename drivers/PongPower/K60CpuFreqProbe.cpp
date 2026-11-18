@@ -164,6 +164,12 @@ void voteL3(unsigned mode)
     unmapWindow(&window);
 }
 
+void probeAll(void)
+{
+    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) probeDomain(domain);
+    probeL3();
+}
+
 } // namespace
 
 extern "C" void k60_cpufreq_probe(void)
@@ -180,8 +186,7 @@ extern "C" void k60_cpufreq_probe(void)
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
         mode, K60_CPU_FREQ_DOMAINS, K60_CPU_FREQ_CPUS, K60_CPU_FREQ_LUT_ROWS);
     if (mode == 1) {
-        for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) probeDomain(domain);
-        probeL3();
+        probeAll();
         return;
     }
     if (mode == 2) {
@@ -190,4 +195,18 @@ extern "C" void k60_cpufreq_probe(void)
     }
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) voteDomain(domain, mode);
     voteL3(mode);
+}
+
+/* Second read-only pass for probe builds. The first pass runs before ArmCpu
+ * starts the secondary CPUs, so domains 1 and 2 can still read as disabled.
+ * This does nothing unless k60_cpufreq=1, and never votes. */
+extern "C" void k60_cpufreq_probe_late(void)
+{
+    unsigned mode = 0;
+
+    PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
+    if (mode != 1) return;
+    IOLog("K60CpuFreq: late read begin (mode 1)\n");
+    probeAll();
+    IOLog("K60CpuFreq: late read end\n");
 }

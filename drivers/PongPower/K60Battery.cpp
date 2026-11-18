@@ -505,6 +505,7 @@ void K60Battery::free()
 /* Read-only EPSS probe, gated by its own k60_cpufreq boot argument; it needs
  * neither the ADSP lease nor the battery configuration below. */
 extern "C" void k60_cpufreq_probe(void);
+extern "C" void k60_cpufreq_probe_late(void);
 
 extern "C" void k60_physical_battery_start(void)
 {
@@ -535,6 +536,16 @@ extern "C" void k60_physical_battery_start(void)
         IOLog("K60Battery: source setup rejected; no power-source publication\n");
         return;
     }
+    /* Probe-only second EPSS pass: the first pass runs before ArmCpu starts
+     * the secondary CPUs, so domains 1 and 2 can still read as disabled.
+     * Gate it on the same boot argument and never vote from here. */
+    unsigned probeMode = 0;
+    PE_parse_boot_argn("k60_cpufreq", &probeMode, sizeof(probeMode));
+    if (probeMode == 1) {
+        IOSleep(5000);
+        k60_cpufreq_probe_late();
+    }
+
     /* The builtin service retains its one owner reference for the epoch.
      * Timers only exist after the hardware lease is verified. */
 }

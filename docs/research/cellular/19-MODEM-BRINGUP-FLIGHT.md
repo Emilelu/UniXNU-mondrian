@@ -32,7 +32,8 @@ pong（Nothing Phone 2，SM8475/X65，Darwin24）是同一 SoC 的已工作先�
 | QcomBaseband 桥 | k60-cellular `3d4a4be4` / `352d7f30`；`patches/qcombaseband/0001-coachz-defer-publication.patch` | `board.toml` 选 `component:QcomBaseband`；`K60ModemLink.c` 把 NEW_SERVER/DEL_SERVER/DATA 转给 `coachz_baseband_*`，probe 打开 GLINK 后调用 `coachz_baseband_configure()`；ADT 增加 `chosen/coachz-baseband=1` 与 `product/baseband-chipset=mav16` |
 | UEFI metadata 页 | uefi-mondrian `c1ea878` | `ImageCarrierLib.c` 的 `CarrierLoadMetadata()`；`K60ModemMetadata.h` 内嵌 5,884 B；写 `0xB7FF0000` 后 `WriteBackDataCacheRange` |
 | metadata 门禁 | k60-cellular `fc69e861` | `scripts/check-modem-metadata.py`；14 项全部 PASS |
-| 宿主顺序测试 | k60-cellular `d7890e26` | `scripts/tests/test-k60-modem-bringup.c`；`TESTS OK 9`，含顺序、次数与 3 个反例 |
+| 宿主顺序测试 | k60-cellular `fbc03066` | `scripts/tests/test-k60-modem-bringup.c`；`TESTS OK 12`，含 rails → init → mem → auth 顺序、两次诊断各自的停机点、rail 失败与 copy 失败反例 |
+| power-only 诊断 | k60-cellular `fbc03066` | `pong_modem=4`：投完 cx.lvl/mss.lvl/xo.lvl 三条 rail 后停在 `init_image` 之前，不发任何 PAS 命令；0621 由 `scripts/update-modem-pas-patch.py` 重生成 |
 
 ## 2. 证据矩阵（上机前必须全绿）
 
@@ -207,6 +208,43 @@ K60IPA M2 GSI ready stage=10 channels=3825493276 events=8219 restricted=0 sram=0
 
 判读：PAS15 仍 PASS（INIT_IMAGE 续做 3 次后成功，auth_and_reset 2 次），随后 M2 runtime 完整启动——1 MiB ring 与 0x8000 表块分配、SMMU 识别/上下文编程（id0=0x4c017e71 id1=0x6000004b id2=0x5111，cbar=0x1f300，sctlr=0x27）、SMEM item 497 取得 0x9000（页对齐后 0xa000）、GSI stage=10 且 `completed=3`（命令通道实际完成 3 条命令），restricted=0、sram=0x5000。`channels=3825493276 events=8219` 是 GSI 状态寄存器的原始读数（0xE4000BFC/8219），不是通道计数。仍未做：GSI IRQ 432/654 处理、QMAP/ifnet 数据面、flight mode 与 reset 恢复。
 
+### 3.10 k21：power-only 诊断（`pong_modem=4`，离线，未上机）
+
+B 之前唯一还没有实机证据的层是三条 modem rail 的 TCS4 投票：HR-01 准入台账
+`docs/ops/HARD-RULES.md:58` 仍是「未验证（离线）」。k18 的 C 诊断不执行 power，k20 的
+IPA 图完全不碰 modem，所以 B 一旦上机会同时改变「供电」和「auth_reset」两件事，不满足
+单变量。`fbc03066` 因此加了一个只投票的相位：
+
+- `K60_MODEM_PHASE_RAILS_ONLY = 2`；`k60_modem_bring_up()` 投完三条 rail 后打印
+  `K60MODEM diagnostic stop after power: init_image not sent` 并返回，不再发 PAS SMC。
+- `pong_modem=4` 选择它；`3` 仍是 metadata-only，`2` 仍是 full + QRTR，未知值保持 full
+  （拼错不能静默少做一步）。QRTR 只在 `enabled == 2` 且 phase 为 full 时执行。
+
+宿主证据：`scripts/tests/test-k60-modem-bringup.c` 用记录型 `k60_modem_rails_vote()` 证明
+full 的顺序是 rails → `init_image` → `mem_setup` → `auth_reset`，phase 2 只调用一次
+rails（`ncalls==1`，一条 PAS 命令都没有），rail 返回 -7 时在 `init_image` 之前停止；
+`TESTS OK 12` rc0。`K60ModemBoot.c` 的改动由新脚本
+`scripts/update-modem-pas-patch.py` 重生成 0621 的三段 new-file hunk（手改行数导致 patch
+不可应用的那类错误也就不会再出现），`scripts/tests/test-k60-modem-image.py` 通过。
+
+k21 内核与 `pong_modem=4 pong_ipa=0` 的图是离线候选。
+
+打包结果：
+
+| 项 | 值 |
+|---|---|
+| kernel | `7e4832f49238a71e59346969cdd1fda234c1d72869a4c235aa5c8af720c2097f`，105,562,112 B（源 `fbc03066`） |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386`（clean metadata） |
+| boot | `7b6bb385ed2405253abdd24db076810548ff65791a4afda9434effd149b975f1`，201,895,936 B |
+| payload | `9eb54da47484498bb45c94c51ae77e31254bbe02ca1cc9d382e0264ec4836a7c`；payload.json `fd74efd6317cc0647554989ff81ac52745340aa8a25a774ea9bdab6e99fbc73f` |
+| payload kernel | `0eed483a9e01f7d4f3d7df19f1d13cc3e9adb25ba079dca747b897c84903f464`（strings 含 `diagnostic stop after power` 与 `K60MODEM power ok cx=`） |
+| args / 布局 | `pong_modem=4 pong_ipa=0`；kernel_size 560,384、ramdisk 201,326,592、解压 3,145,840、DTB 4,024；`test-bootimg-layout.py` 与 `scripts/verify-boot-image.py` 均 PASS |
+
+上机判据只有三行：`K60MODEM power ok cx=... mss=... xo=...`、`K60MODEM power prepared`、
+`K60MODEM diagnostic stop after power: init_image not sent`；出现任何 `init_image` /
+`mem_setup` / `auth_reset` 行即实现有 bug。它是 HR-01 要求的「单资源、单变量、显式授权」
+诊断，尚未飞行。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 ### 4.1 成功判据（全部满足才算 S）
@@ -217,6 +255,9 @@ K60IPA M2 GSI ready stage=10 channels=3825493276 events=8219 restricted=0 sram=0
 - **S2**：27 个 `.lzma` 全部成功（无 `did not decompress` / `decoded ..., table says ...` 失败行）；三条 D3 行一条不少：
   `modem-image: chosen dtb at `、`modem-image: window 0x8bc00000..0x9ee00000`、`modem-image: abl staging ends at `；
   carrier 汇总行存在；`K60ModemImage` 照常发布；XNU 起得来。
+- **P1**（power-only，`pong_modem=4`）：恰好一行 `K60MODEM power ok cx=... mss=... xo=...`、
+  一行 `K60MODEM power prepared` 和 `K60MODEM diagnostic stop after power: init_image not sent`；
+  不得出现 `K60MODEM init_image` / `mem_setup` / `auth_reset` 行，也不得出现 `K60MODEM power failed`。
 - **S3**：B 要求以下五行都出现且 rc=0；C 只要求 `init_image`、`mem_setup` 和诊断停机行
   （C 不执行 power/transport）：
   `K60MODEM power ok cx=`（含 mss/xo）

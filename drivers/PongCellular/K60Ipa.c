@@ -1338,12 +1338,24 @@ k60_ipa_probe_from_handoff(void)
     uint32_t offset = 0, length = 0;
     vm_offset_t ram;
     int enabled = 0;
+    int clock_probe = 0;
+    int rc;
 
     if (!PE_parse_boot_argn("pong_ipa", &enabled, sizeof(enabled)) ||
         enabled == 0) {
         return 0;
     }
     printf("K60IPA probe begin\n");
+    /* Default-off single-variable qualification of the IP0 clock vote:
+     * ipclk=1 maps command DB and DRV-2, places exactly one TCS4 command and
+     * stops before the payload FAT, PAS, SMMU and GSI. */
+    if (PE_parse_boot_argn("ipclk", &clock_probe, sizeof(clock_probe)) &&
+        clock_probe != 0) {
+        printf("K60IPA clock probe begin\n");
+        rc = k60_ipa_clock_vote();
+        printf("K60IPA clock probe result rc=%d\n", rc);
+        return rc;
+    }
     if (k60_ipa_md_window(&base, &size) != 0) {
         return -1;
     }

@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,1053 @@
+@@ -858,6 +892,1063 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -293,6 +293,11 @@
 +	printf("PongAudio: playback step %u refused rc=%d\n", step, rc);
 +}
 +
++/* Set once the zero byte probe has run: this image then never hands the DSP a
++ * real period, so a live machine here separates the write command from the
++ * memory the DSP would have to read. */
++static bool g_pong_probe_only;
++
 +static bool
 +pong_audio_play_submit_slot(PongAudioState *state)
 +{
@@ -301,6 +306,9 @@
 +
 +	if (!state->playback_running || state->map_handle == 0u ||
 +	    state->dma_va == 0u) {
++		return false;
++	}
++	if (g_pong_probe_only) {
 +		return false;
 +	}
 +	/* Flow control: four buffers in flight were enough to kill the machine,
@@ -463,6 +471,8 @@
 +		 * write never touches the buffer, so an answer here separates the
 +		 * write command from the memory the DSP has to read. */
 +		pong_audio_play_probe_zero(state);
++		g_pong_probe_only = true;
++		printf("PongAudio: probe-only image; no PCM slot follows\n");
 +		return;
 +	}
 +	pong_audio_play_send_step(state, state->play_step + 1u);

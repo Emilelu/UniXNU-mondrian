@@ -85,7 +85,7 @@
 
 ---
 
-## 3. 落地：两个常量 + 379 条宿主断言
+## 3. 落地：两个常量 + 386 条宿主断言
 
 ### 3.1 源码（已落地）
 
@@ -105,7 +105,7 @@ artifact 证据（`kernel.macho` 里可以 `strings` 到）：镜像 d（audio-p
 - 代价（宿主实测 sizeof）：QcomGlinkChannel 904 B（20 个本地 intent）；QcomGlink 从 **960 B** 涨到 **2,056 B**（+1,096 B）。
   两个槽都在 K60PmicGlink 的成员里（K60PmicGlink.h:37），不涉及堆分配；音频的 560×20 storage 是 `K60AudioGlink` 的成员，11,200 B。
 - 音频桥：`K60AudioGlink.c/.h` + `K60PmicGlinkAudio.h`；`K60PmicGlink::attachAudio()` 只排队，
-  `K60PmicGlink::discover()` 不再建音频槽；`K60PmicGlink::channelState()` 在 PMIC 通道 up 回调里调用 `k60_audio_glink_prepare()`（passive，`open_now=0`）后立即 `k60_audio_glink_service()`；`poll()` 的 `k60_audio_glink_service()` 在通道 up 后回调 client，`stop()` 时清槽；`k60_audio_glink_send()` 走 `qcom_glink_send()`，379 条断言覆盖本地队列、本槽 remote intent、TooBig、passive 预注册与 stop 后 -2002。GPR 首发也在 0003：`pong_audio_glink_state()` 第一次 up 时用 `pong_afe_gpr_spf_state_query()` 组 24 B `GET_SPF_STATE`（token 0x00010001，src 0x2001 / dst 1），经 `k60_pmic_glink_send_audio()` 发出；receive 回调解码 opcode/token。
+  `K60PmicGlink::discover()` 在 PMIC_RTR_ADSP_APPS 槽之后调用 `k60_audio_glink_prepare()`：`qcom_glink_channel(..., open_now=0)` 注册 adsp_apps 槽后立即 `qcom_glink_channel_hold()`，任何早到的 DSP OPEN 只被记录、不回 OPEN_ACK、不写任何字节；`K60PmicGlink::channelState()` 在 PMIC 通道 up 回调里调用 `k60_audio_glink_enable()` 释放 hold，`progress()` 才依次发 OPEN_ACK 和我方 OPEN，再 `k60_audio_glink_service()` 回调 client；`poll()` 的 `k60_audio_glink_service()` 在通道 up 后回调 client，`stop()` 时清槽；`k60_audio_glink_send()` 走 `qcom_glink_send()`，386 条断言覆盖本地队列、本槽 remote intent、TooBig、hold 期间静默、release 后建链与 stop 后 -2002。GPR 首发也在 0003：`pong_audio_glink_state()` 第一次 up 时用 `pong_afe_gpr_spf_state_query()` 组 24 B `GET_SPF_STATE`（token 0x00010001，src 0x2001 / dst 1），经 `k60_pmic_glink_send_audio()` 发出；receive 回调解码 opcode/token。
 
 ### 3.2 宿主测试
 
@@ -117,7 +117,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 
     $ sh drivers/PongAudio/tests/run-glink-multislot-tests.sh
     two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=904, sizeof(QcomGlink)=2056
-    TESTS OK 379 cases
+    TESTS OK 386 cases
 
 | 场景 | 断言要点 |
 | --- | --- |
@@ -127,7 +127,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 | 错序 / 重放 | 同一 liid 重放 → 仍只进同一消费者，另一个消费者零条；越界 liid → 判 QcomGlinkCorrupt 停链，**不投递给另一个槽** |
 | 无人认领 | 未注册名字的 OPEN：不回应、不碰任何槽、unknown_opens=1、last_unknown/unknown_names 记名；陌生 rcid 的数据：dropped=1，两个消费者都没收到 |
 | 发送 / 收尾 | 只有电池槽有远端 intent 时，音频槽 send 返回 `K60_PMIC_GLINK_AUDIO_OK` 并把一个最大 560 B 的包入队，service 在 intent 出现后 flush；队列满时第二个包返回 REFUSED（不越界发数据）；stop 对**两个**槽各回调一次 state(0)，第二次 stop 是 no-op；坏几何（非零索引、非 8 倍数长度、无 doorbell）被拒 |
-| 音频桥 | `K60AudioGlink` 排队一个 `adsp_apps` 请求，`service()` 在第一次 `qcom_glink_poll()` 前调用 `qcom_glink_channel()`；DSP 的 OPEN + 20 个 INTENT 后 state 变 up，peer_data 只进音频 callback；state up 后 `pong_audio.c` 发 GPR GET_SPF_STATE（见 0003）；`stop()` 后无 transport 报 -2001 |
+| 音频桥 | `K60AudioGlink` 排队一个 `adsp_apps` 请求，`service()` 在第一次 `qcom_glink_poll()` 前调用 `qcom_glink_channel()` 并 hold；DSP 的 OPEN 在 hold 期间只记录、不 ACK、不写字节，`k60_audio_glink_enable()` 释放后才发 OPEN_ACK + 我方 OPEN，再加 20 个 INTENT 后 state 变 up，peer_data 只进音频 callback；state up 后 `pong_audio.c` 发 GPR GET_SPF_STATE（见 0003）；`stop()` 后无 transport 报 -2001 |
 | 音频发送 | 音频槽有 remote intent 后 `k60_audio_glink_send()` 写 TX_DATA（local lcid 1、remote intent 0x2001、payload `gpr`）；无远端 intent 时返回 OK 并入队、队列满 REFUSED；4096 B 得 `QcomGlinkTooBig`；stop 后 -2002；无 transport -2001 |
 
 文件头的 #error 与 main() 首条 expect_eq(QCOM_GLINK_MAX_CHANNELS, 2, ...) 一起保证：
@@ -143,7 +143,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 - 真实 FIFO 几何：tx_bytes/rx_bytes 来自 lease（256..65536、8 对齐），宿主用的是 4,096；
 - 真实 DSP 行为：adsp_apps 的 OPEN 是 DSP 主动发起还是我们发起、intent 560×20 是否被接受；
 - 时序：K60PmicGlink::discover() 里 desc[1] == lease.host_tx_head 与 desc[2] == lease.host_rx_tail
-  的比对（K60PmicGlink.cpp:78）发生在音频建槽之前；音频槽改在 K60PmicGlink::channelState() 的 PMIC up 回调里注册，避免第二个槽参与 PMIC 初始握手；
+  的比对（K60PmicGlink.cpp:78）发生在音频建槽之前；音频槽在 discover() 末尾提前注册并 hold，直到 K60PmicGlink::channelState() 的 PMIC up 回调才 release，既保证 DSP OPEN 能找到槽，也保证 PMIC 初始握手前不写第二个槽的任何字节；
 - 中断 / 轮询节奏：真机上 kick 走 IPCC，两个消费者共享一个 poll 循环，谁的延迟预算是多少；
 - SMP2P 443 ready 与 GLINK 通道建立的真实先后。
 
@@ -156,7 +156,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 1. **启动点**：音频 worker 现在是 pong_audio_probe=1 直启（patches/xnu/0504 的 pong_audio_bootstrap()）。
    将来要改成等 k60_adsp_owner_acquire() 成功、且 lease.flags 的 **bit2 K60AdspGlinkExclusive（=4）**
    置位之后才启动；acquire 失败就停在降级档（PAS1-AUDIO-REQUIREMENTS.md §2 的五级表）。
-2. **建槽时机与桥接**：音频侧已经实现 `K60AudioGlink`——`K60PmicGlink::channelState()` 在 PMIC_RTR_ADSP_APPS 通道 up 的回调里先调用 `k60_audio_glink_prepare()`（passive，`open_now=0`）注册 `adsp_apps` 槽，再调用 `k60_audio_glink_service()` 完成回调；`pong_audio_start()` 只排队 client，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前继续调用 `k60_audio_glink_service()`。provider 不需要再写注册代码，只需保证 `K60PmicGlink::open()` 发生在 **lease 有效之后**（FIFO 与 epoch 已交出）。2026-11-18 实机教训：`open_now=1` 的 active 预注册会在 PMIC 通道 up 前发 OPEN，DSP 以 `QcomGlinkCorrupt (-5)` 重置共享 transport（镜像 z）；把 passive 槽提前到 `discover()` 里注册（镜像 aa）也会破坏 PMIC 初始握手，因此必须等 PMIC 通道 up 后由 `channelState()` 建槽（提交 d4e11e87）。
+2. **建槽时机与桥接**：音频侧已经实现 `K60AudioGlink`——`K60PmicGlink::discover()` 在 PMIC_RTR_ADSP_APPS 槽之后调用 `k60_audio_glink_prepare()`，用 passive `qcom_glink_channel(..., open_now=0)` 提前注册 `adsp_apps` 槽并立即 `qcom_glink_channel_hold()`；`K60PmicGlink::channelState()` 在 PMIC 通道 up 的回调里调用 `k60_audio_glink_enable()` 释放 hold，`progress()` 才发 OPEN_ACK/我方 OPEN，随后 `k60_audio_glink_service()` 完成回调；`pong_audio_start()` 只排队 client，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前继续调用 `k60_audio_glink_service()`。provider 不需要再写注册代码，只需保证 `K60PmicGlink::open()` 发生在 **lease 有效之后**（FIFO 与 epoch 已交出）。2026-11-18 实机教训：`open_now=1` 的 active 预注册会在 PMIC 通道 up 前发 OPEN，DSP 以 `QcomGlinkCorrupt (-5)` 重置共享 transport（镜像 z）；只把 passive 槽提前到 `discover()` 而不 hold（镜像 aa）也会在 DSP OPEN 时回 ACK/OPEN，破坏 PMIC 初始握手；只在 `channelState()` 建槽（镜像 ab）又太晚，DSP OPEN 已被丢弃。正确做法是 discover 提前建槽 + hold、PMIC up 后 release。
 3. **epoch 绑定与降级**：音频的 QcomGlinkChannel * 必须与电池挂在**同一个 epoch** 上；
    k60_adsp_owner_revalidate() 失败时，音频侧要主动关掉 AFE 请求并静音（PongAudioAfe.h 的六个步骤
    不再下发），而不是继续往一个死通道里 send 拿 QcomGlinkAgain。
@@ -165,7 +165,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 
 ## 5. 怎么跑 / 边界
 
-    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 379 cases
+    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 386 cases
 
 脚本直接编译当前 `drivers/PongPower/QcomGlink.c`、`QcomGlink.h` 与 `K60AudioGlink.c`，不复制、不打补丁。
 它不是任何门禁的一部分（RULES.toml 里没有规则跑它），需要人手跑——它测的是传输层与音频桥，不是某个

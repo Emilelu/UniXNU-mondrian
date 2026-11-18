@@ -82,12 +82,13 @@ catalog `ArmCpu` starts the secondary CPUs itself (there is no
 lzfse under one prefix; the build driver uses it automatically when it exists.
 
 ```sh
-cd UniXNU
-sudo python3 scripts/linux/setup-toolchain.py --jobs 12 /opt/unixnu-linux
-sh ../UniXNU-mondrian-ios27/scripts/apply-core-patches.sh .
-python3 ./unixnu defconfig mondrian_ios27_defconfig --device ../UniXNU-mondrian-ios27
-python3 ./unixnu build kernel --device ../UniXNU-mondrian-ios27
+sudo python3 UniXNU/scripts/linux/setup-toolchain.py --jobs 12 /opt/unixnu-linux
+sh scripts/build-ios27-linux.sh
 ```
+
+`scripts/build-ios27-linux.sh` applies the framework patches, fetches, configures,
+builds the kernel with `--skip-prelink` and packs the payload with the synthetic
+`MONDRIAN` chip id. Extra arguments go to `unixnu build kernel`.
 
 That path needs no Mac and no phone. XNU's makefiles still ask for macOS
 tools, so install the three shims once:

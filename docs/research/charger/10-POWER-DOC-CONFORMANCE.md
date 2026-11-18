@@ -46,7 +46,7 @@ IOKit 级验证仍待完成。
 上游参考：2026-11-18 把 UniXNU-sheng fetch 到 `origin/main` `6c42e10`（2026-11-17），五个未闭项
 （电池电流属性 9、真机插拔、§5 CPU/GPU 调频与 platform sleep、§2/§3 DSP 与音频、§4 充电认证）；
 其中 §5 的 CPU 部分本分支已起步（只读 EPSS 探针 + 离线投票写集合，见 §7.11 与 `docs/research/power/01-EPSS-PROBE.md`），
-platform sleep 已有调研与纯逻辑掩码模块（`docs/research/power/02-PLATFORM-SLEEP.md`，host 53 项）但无 ArmCpu/板级 hook、未上机，GPU 频率仍未开始；
+platform sleep 已有调研与纯逻辑掩码模块（`docs/research/power/02-PLATFORM-SLEEP.md`，host 53 项）但无 ArmCpu/板级 hook、未上机；外设投票有纯记账模块（`docs/research/power/03-POWER-VOTES.md`，host 58 项）但无消费者；GPU 频率仍未开始；
 这些在 sheng 上都有实现，K60 尚未接入；本文件此前「sheng 不含 `ShengChargeAuth.c`」的结论基于
 旧检出 `a68ee4e`/`1108068`，已作废。逐项对照见 §7.11；merge 由 lead 后续负责。
 
@@ -490,7 +490,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | --- | --- | --- |
 | C3 全窗口电流（电池电流属性 9） | `package/ShengBattmgr.c` 读属性 9 并计算 `s->current_ma = HAS(BmCurrent) ? -V(BmCurrent)/1000 : 0`（线序放电为正），`ShengBattery.cpp:219` 用 `setAmperage` 发布电芯电流 | 无：K60 的 ADSP 属性 9 不应答，`K60Battmgr.c:144-147` 跳过该字段，只能发布 USB 输入电流 |
 | 真机插拔/放电/超时/服务重启 | `package/tests/battmgr_host.c` 17,922 B 与 `scripts/check-battery-host.py`；真机记录 macOS 27.3 PC-USB 97 %/4865mV/1109mA 输入电流；sheng 也没有脚本化插拔证据 | host 第 15/16 节已覆盖状态转换（95 项断言）；真机仍未执行 |
-| §5 CPU/GPU 调频与 platform sleep | `package/CpuFreqProbe.cpp` 19,979 B（EPSS 模式 1-4、`kDomainBase {0x17d91000,0x17d92000,0x17d93000}`、`kL3Base 0x17d90000`、16 ms governor、touch boost 1000 ms、frame floor 300 ms）、`GpuPowerProbe.cpp` 148,992 B、`ShengSleep.cpp` 10,397 B（`platform-sleep=1`）、`QcomRpmh.c`/`QcomQmp.c`、`BoardClock.*` | 部分（仅离线）：只读 EPSS 探针 `K60CpuFreqProbe.cpp`（mode 1）与投票写集合（mode 2/3，写 `0x320`/`0x90`，**从未上机**），现场 FDT 已给出与 sheng 相同的窗口与 4/3/1 核映射，见 `docs/research/power/01-EPSS-PROBE.md`；无 governor 线程、idle 统计、GPU 频率与 platform sleep（后者已有调研文档与纯逻辑模块 `docs/research/power/02-PLATFORM-SLEEP.md`） |
+| §5 CPU/GPU 调频与 platform sleep | `package/CpuFreqProbe.cpp` 19,979 B（EPSS 模式 1-4、`kDomainBase {0x17d91000,0x17d92000,0x17d93000}`、`kL3Base 0x17d90000`、16 ms governor、touch boost 1000 ms、frame floor 300 ms）、`GpuPowerProbe.cpp` 148,992 B、`ShengSleep.cpp` 10,397 B（`platform-sleep=1`）、`QcomRpmh.c`/`QcomQmp.c`、`BoardClock.*` | 部分（仅离线）：只读 EPSS 探针 `K60CpuFreqProbe.cpp`（mode 1）与投票写集合（mode 2/3，写 `0x320`/`0x90`，**从未上机**），现场 FDT 已给出与 sheng 相同的窗口与 4/3/1 核映射，见 `docs/research/power/01-EPSS-PROBE.md`；无 governor 线程、idle 统计、GPU 频率；platform sleep 有调研文档与纯逻辑模块 `docs/research/power/02-PLATFORM-SLEEP.md`，外设投票有纯记账模块 `docs/research/power/03-POWER-VOTES.md`（均无消费者） |
 | §2 DSP transport / §3 音频流 | `AdspProbe.cpp`、`QcomGlink.c/.h`、`AdspFirmware.c`、`ShengAudioReach.c/.h`、`ShengAudioService.cpp`、`AudioProbe.cpp`，host 测试 `audioreach_host.c`/`qcom_adsp_host.c` | 在未合并的 `feat/audio-adsp-merge`（145 个提交，HEAD `c74aea80`），不在本分支 |
 | §4 充电认证（PD/PPS/MiPPS） | `ShengChargeAuth.c` 13,630 B + `.h` 2,703 B（`2359a86`），SHA-256 认证两支电量计后认证 SVID `0x2717` 的适配器 PDO2，最多 10 次重试、间隔 200 ms；`ShengBattery.cpp` 串行队列内驱动；host 测试以 CommonCrypto 为对端 | 无：`drivers/` 中 grep 不到 `ChargeAuth`/`charge_auth`/`2717` |
 

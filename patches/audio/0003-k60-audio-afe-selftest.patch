@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,642 @@
+@@ -858,6 +892,651 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -368,6 +368,13 @@
 +		printf("PongAudio: playback and speaker started in one command; PCM streaming\n");
 +		return;
 +	}
++	if (state->play_step == (unsigned)PongPlayPreparePlayback) {
++		/* Keep this run focused on the mapped PCM path. Starting the
++		 * TDM speaker here could make a write-side failure ambiguous. */
++		printf("PongAudio: isolation probe; skipping speaker START and starting playback only\n");
++		pong_audio_play_send_step(state, PongPlayStartPlayback);
++		return;
++	}
 +	if (state->play_step == (unsigned)PongPlayClock) {
 +		state->play_graph_ready = true;
 +		state->last_error = PongAudioOk;
@@ -375,14 +382,16 @@
 +		return;
 +	}
 +	if (state->play_step + 1u >= (unsigned)PongPlayStepCount) {
-+		if (!state->play_speaker_started) {
-+			state->last_error = PongAudioErrPlayback;
-+			printf("PongAudio: playback graph started without the speaker; not streaming\n");
-+			return;
-+		}
++		/* Run the playback graph without speaker START so this probe can
++		 * distinguish slot-submission failure from a TDM speaker failure;
++		 * whether the DSP consumes these slots is the observation. */
 +		state->playback_running = true;
 +		state->last_error = PongAudioOk;
-+		printf("PongAudio: playback graph started; PCM streaming\n");
++		if (state->play_speaker_started) {
++			printf("PongAudio: playback graph started; PCM streaming\n");
++		} else {
++			printf("PongAudio: playback graph started without the speaker; streaming the slots anyway\n");
++		}
 +		return;
 +	}
 +	pong_audio_play_send_step(state, state->play_step + 1u);

@@ -48,4 +48,32 @@ series 227→228），把 `IOMemoryDescriptor::populateDevicePager` 里那段
 - **F6** `crashed: backboardd` 出现。
 - **F7** S7 的速率 < 15 fps ⇒ 打印风暴消失但帧率没改善，卡顿另有原因（下一层查映射粒度）。
 
-## 5. 结果登记
+2026-11-18 13:10:41 飞 `gpu-quiet-20261118`（`boot.img 3893cb5d…`），证据
+`E:/k60-work/evidence/usblog-20261118-131041`（console **268,776 B / 3,748 行**，抓取完整、无 panic）。
+
+| 判据 | 实测 | 结论 |
+| --- | --- | --- |
+| S1 `K60KEXC`=0 | 0 | ✅ |
+| S2 `K60METAL deploy` 且 error=0 | 1 | ✅ |
+| S3 `real Vulkan-backed device created` | 2 | ✅ |
+| S4 `scanout frames=` ≥3 次 | **13** | ✅ |
+| S5 `IOMemoryDescriptor physical with managed page` = 0 | **0** | ✅ |
+| S6 `crashed: backboardd`=0 | 0 | ✅ |
+| S7 帧率 ≥15 fps | **7.79 fps**（首 60 帧 @101.281 s → 末 780 帧 @193.669 s） | ❌ |
+
+**判决：FAIL(F7)** —— 打印风暴确实是真实成本，但**不是帧率的根因**。
+
+**量化**：
+- 日志从 5,611,548 B / 54,518 行降到 **268,776 B / 3,748 行**（减少 95%），
+  `IOMemoryDescriptor physical` 25,149 → **0**。
+- 同 240 s 预算内出帧 480 → **780**（+62%），平均 **7.79 fps**（基准 5.3 fps，+47%）。
+- 逐段速率极不均匀：`120→180` 段 17 fps、`240→300` 段 21 fps、`300→360` 段 **28 fps**，
+  而 `180→240` 段只有 4.4 fps、`720→780` 段 4.2 fps ⇒ 不是稳定带宽限制，而是**间歇性阻塞**。
+
+**这一飞确认的事实**：
+1. `NATIVE_QUIET_MANAGED_PAGE_REPORT` 生效，内核不再为每个映射段打回溯（补丁进内核了）。
+2. 帧确实由 `Pong Metal: actual GPU scanout copy completed`（3 次）驱动，`crashed: backboardd` 0。
+3. 但 `Pong Metal: S` 仍是 **`c0/0 … D0`**：Metal 客户端**一次 commit 都没有、一次 draw 都没有**，
+   所以合成走的是软件路径（`MiniIOMobileFramebuffer`），GPU 只做最后的扫描输出拷贝。
+   ⇒ 下一个瓶颈不在打印、不在扫描输出，而在**客户端从不提交命令**（`c0`）。
+4. 峰值段 28 fps 说明硬件通路本身能跑得更快，被 `c0` 这条软路径限住。

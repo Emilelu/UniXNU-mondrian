@@ -856,3 +856,43 @@ sweep completes, serves it strongest first, and prints the first twelve 32-bit
 words of each served 5 GHz record. 49ee1b8a adds the record's Country element to
 the per-record dump, so mission19 can show whether the dropped record is the
 <BR> one.
+
+## 20. Mission19: the 5 GHz record is well formed, served first, and says CN
+
+Image `c1429161f1d02aa5fa7e875c911f2af0e013a6f8fd26b2f6d107458e41481320`
+(201,887,744 B, built 2026-11-19T01:50:48+08:00, head `20e5a2b1`, wifi archive
+`4afa1ef9`, 602-byte args, `k60_autoreset=900`), flown once at 01:53:37 into
+`E:/k60-work/evidence/usblog-20261119-015237/console.log` (482,395 B, 7,147
+lines, SHA256 `e83371ee852df28094a28c09be16bab09af43ec0887ddf934665c6a4e4dd70a9`).
+
+The sorted frozen list works: the first sweep's table of 9 BSS (2.4 GHz 6, 5 GHz
+1, hidden 2) at :781 was served with the 5 GHz record first —
+"scan result served 1 of 32: 5240 MHz, -51 dBm, Emilelu_5G" at :4386 and
+"served 2 of 34" at :4470. The record's own words, identical in both sweeps
+(:4385, :4469), decode cleanly: version 1, channel 48 with flags 0x12, noise
+-95 dBm, SNR 44, RSSI -51 dBm, beacon interval 100, capability 0x0511, BSSID
+c8:bf:4c:30:03:1c, rate count 0.
+
+The Country element column (:4385 onward) does not single the record out:
+Emilelu_5G advertises CN, Emilelu itself advertises no country element (--), and
+the only BR networks are two unrelated 2.4 GHz observations (70:85:6c:da:71:2d
+and CMCC-666 at 70:85:6c:d4:71:2e). The country lead from mission18 is
+therefore not the explanation for the missing row.
+
+Supported channels again answer 102 (2.4 GHz 14, 5/6 GHz 88) at :2040, with
+2412/2417/2422/2427 numbered 1/2/3/4 and flags 0xa. The daemon's settlement
+observer is created at :2031 with maxNetworks 10, maxScans 3, low 30, high 120.
+
+No Preferences scan list exists in this console (the only
+`WiFiSettlementObserver` line is the init at :2031): nobody opened Settings, so
+the daemon's own list is still unobserved. The daemon did join on its own at
+:4479 (ssid length 7, key length 32, cipher 6) and the baseline reconnected
+(:4546, "lifecycle test PASS ... lease=5/3"). Judge: base=PASS dump=PASS
+user=PENDING -> DIAG-ONLY.
+
+Mission20 (f0c959f0) therefore only adds observation: the scan request's first
+four words (the channel filter the daemon sends), every record it reads rather
+than one in eight, and the first sixteen bytes of each served 5 GHz record's
+element blob. It must be flown with a person at the screen who opens
+Settings -> Wi-Fi and pulls to refresh; that console will carry both the
+Preferences list and the records behind it.

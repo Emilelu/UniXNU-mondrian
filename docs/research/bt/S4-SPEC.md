@@ -1750,11 +1750,11 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **宿主证据**：`python3 scripts/tests/test-bt-0517-power-order.py` → `TESTS OK: 52 case(s), 0 failure(s)`；`test-bt-0516-uart-clock.py` → 82 通过；d8 adapter → 90 通过。以上为 HOST-ONLY，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
 
-**结论**：bt-0517-power-order 产物已可交给 Lead 作为下一次单变量飞行对象；d10 未批准，未上机，不重建、不改预算/段长/状态机/地址。预声明判据与边界见 `docs/research/bt/D10-PLAN.md`。
+**结论**：bt-0517-power-order 已于 2026-11-18 21:32 飞行一次，按预声明判据 FAIL（见 §7.26）；未重试、不重建、不改预算/段长/状态机/地址。预声明判据与边界见 `docs/research/bt/D10-PLAN.md`。
 
 ### 7.25 0518 GIC INTID 修正候选构建（2026-11-18 18:08 已构建，未上机）
 
-**目的与边界**：0518 只修一个 GIC INTID 的 off-by-32：`armcpu_spi_attach` 需要 INTID，旧 K60 代码却直接传 DT 的 SPI 587（UART）和 208（TLMM wake）。新增 `K60_BT_UART_GIC_INTID=(32u+587u)`=619、`K60_TLMM_GIC_INTID=(32u+208u)`=240，四个调用点（`k60_gic_mask`、`armcpu_spi_mask`、UART attach、TLMM attach）全部改用 INTID。没有改 0517 的上电顺序/100-60 ms、90 s budget、10 s command deadline、243 B 段长、`dnld_mode`/type、状态机、SMMU、地址或固件。0518 未上机；d10/d11 均未批准。
+**目的与边界**：0518 只修一个 GIC INTID 的 off-by-32：`armcpu_spi_attach` 需要 INTID，旧 K60 代码却直接传 DT 的 SPI 587（UART）和 208（TLMM wake）。新增 `K60_BT_UART_GIC_INTID=(32u+587u)`=619、`K60_TLMM_GIC_INTID=(32u+208u)`=240，四个调用点（`k60_gic_mask`、`armcpu_spi_mask`、UART attach、TLMM attach）全部改用 INTID。没有改 0517 的上电顺序/100-60 ms、90 s budget、10 s command deadline、243 B 段长、`dnld_mode`/type、状态机、SMMU、地址或固件。0518 未上机；d10 已飞 FAIL，d11 未飞。
 
 **依据**：`drivers/ArmCpu/ArmCpu.cpp:784-814` 的 `armcpu_spi_attach(uint32_t intid, ...)` 直接拿 `intid` 写 `GICD_ISENABLER`/`GICD_IROUTER`/`GICD_ICFGR`，并拒绝 `intid < 32`；它不是 DT 的 SPI 编号。既有 K60 调用者也都加 32（UFS `265+32`、PCIe `32+140`、pong `32+481`）。旧代码虽然调用成功返回 0，但把 UART RX handler 挂在 INTID 587、TLMM handler 挂在 INTID 208，真实线是 619/240；这与 d8/d9 的 NVM 每段约 10,000/10,001 ms 应答一致，但 console 没有 IRQ 计数，不能把 10 s 单独当成设备证据。
 
@@ -1768,7 +1768,15 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 **宿主证据**：`python3 scripts/tests/test-bt-0518-gic-intid.py` → `TESTS OK: 35 case(s), 0 failure(s)`；0517 套件 53、0516 套件 82、d8 adapter 90，全绿。以上为 HOST-ONLY，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
 
-**结论**：0518 候选已可交给 Lead，但 `D11-PLAN.md` 明确规定 d11 是“d10 之后”的累积单变量：相对 d10 只多 0518；d10 未批准前不得用 d11 替代。d11 未批准、未上机；d8/d10 结论不变，⑧ 仍 false。
+**结论**：0518 候选已可交给 Lead，但 `D11-PLAN.md` 明确规定 d11 是“d10 之后”的累积单变量：相对 d10 只多 0518。d10 已飞 FAIL 且 fallback 形状改变；d11 未飞，先补控制器/UART 观测再决定。d8 结论不变，⑧ 仍 false。
+
+### 7.26 d10（0517）设备结果（2026-11-18 21:32，FAIL）
+
+- 按用户 2026-11-18“先到先得、统一 supervisor、单设备单写者”规则，在无其他 supervisor/collector 时飞行；只 `fastboot boot`，未 flash。设备 `6033dbec`，镜像 `6c631bc4…`，supervisor rc=0。
+- `E:/k60-work/evidence/usblog-20261118-213228`：`boot.json` bootAccepted=true、bootExitCode=0、returnedToFastboot=false；`capture.json` complete=true、bytes=201732、panic/reset=null、stopReason=budget；console 3290 行，logSha256 `6A9AF54A…`。
+- 蓝牙：493 行 enter；1326 行 PATCH `type=1 segs=602 sent=602 acks=1 final=0 ret=0`；NVM 主轮 `type=2 segs=7 ret=-60`（i=0..5 每段约 10 s）；fallback 这次 `type=2 segs=1 ret=-60`（d9 为 21 段）；2584/2589 行 `budget exhausted at op=0xfc00`；2598 行 `power=1 result=-60 ... tlv_sent=610 tlv_acks=8 tlv_final=0`；无 `nvm done`；`bluetoothd exit=1`。
+- 结论：按预声明判据 **FAIL**；0517 没有修复 NVM。主轮形状与 d9 相同，但 fallback 形状改变，故不能声称 0517 完全无效；下一步先补控制器/UART 观测，再决定 d11。
+- d11 未飞；d8 回滚 `0297012d…` 与 d10 镜像 `6c631bc4…` 均保留；⑧ 仍 false。
 
 ---
 

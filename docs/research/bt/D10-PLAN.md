@@ -1,6 +1,6 @@
 # d10 单变量飞行计划（bt-0517-power-order，2026-11-18）
 
-状态：**计划，未批准、未上机。** 候选产物已于 2026-11-18 16:47 构建并通过离线门禁；是否飞行由 Lead 决定。bt-agent 不开机、不刷机。
+状态：**已于 2026-11-18 21:32 飞行一次，按预声明判据 FAIL。** 候选产物于 16:47 构建并通过离线门禁；本次按用户 2026-11-18 更新的“先到先得、统一 supervisor、单设备单写者”规则，在没有其他 supervisor/collector 占用时由 bt-agent 执行。只 fastboot boot，未 flash。
 
 ## 1. 唯一变量
 
@@ -40,7 +40,7 @@
 - 宿主 0517 套件 52 cases、0516 套件 82 cases、d8 adapter 90 cases，全部 0 failure；
   这是 host-only 软件契约，不是控制器/UART/DMA/IBS 证据。
 
-## 3. 飞前检查（Lead 执行，任何一项红就不飞）
+## 3. 飞前检查（claim 持有者执行，任何一项红就不飞）
 
 1. `bash scripts/k60-device.sh state` 返回 `fastboot`；记录设备序列 `6033dbec`。
 2. `sha256sum E:/k60-work/artifacts/bt-0517-power-order/boot.img` 必须等于
@@ -110,8 +110,19 @@ bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0517-power-order/boot.i
 
 ## 7. 边界
 
-- bt-agent 不开机、不刷机；设备观测与 d10 由 Lead 执行或明确授权。
+- 本次 d10 已按用户 2026-11-18 先到先得规则、在无其他 supervisor/collector 时由 bt-agent 执行；后续飞行仍须重新确认单设备单写者。
 - d8 产物、d8 结论（PATCH 软件路径返回成功、两次 NVM 失败、`result=-60`、蓝牙不可用）不变。
 - d9 的 FAIL 结论不变；0517 不是对 d9 的追认，而是新的单变量。
 - 本页不改变 `EIGHT-STEPS.toml` 的 ⑧，也不把 0517 宿主用例算成设备证据。
-- 未批准前不飞、不重建、不改预算/段长/状态机/地址。
+- 未获授权前不飞；本次已在用户“先到先得”规则下飞过一次（见 §8），未重试、不重建、不改预算/段长/状态机/地址。
+
+## 8. d10 飞行结果（2026-11-18 21:32–21:36，FAIL）
+
+- 设备序列 6033dbec；镜像 sha256 6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69；命令为 K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/k60-work/artifacts/bt-0517-power-order/boot.img 220，supervisor rc=0。
+- boot.json：bootAccepted=true、bootExitCode=0、returnedToFastboot=false，startedAt 21:32:30，finishedAt 21:36:33。
+- capture.json：state=captured-budget-complete、complete=true、bytes=201732、panic/reset 均为 null、stopReason=budget；console 3290 行，logSha256 6A9AF54A7A20DACEFA245B638FEA1EA739515DC4B73E8C0027A93DF48713EF0A。
+- console：493 行 [bluetooth] boot: enter speed=3000000 budget=90000ms；1326 行 PATCH tlv done type=1 segs=602 sent=602 acks=1 final=0 ret=0；NVM 第一轮 i=0..5 的 dt_ms 为 10000/10000/10000/10001/10001/10001，i=6 立即 e=-60；fallback 这次只有 segs=1（i=0 立即 e=-60），随后 2584/2589 行 budget exhausted at op=0xfc00 waiting=1；2594 行 uart setup done e=-60；2598 行 power=1 result=-60 ... tlv_sent=610 tlv_acks=8 tlv_final=0；没有 nvm done。
+- 判据：budget exhausted、NVM -60、power -60 三项同时出现，按第 5 节判 FAIL。PATCH 仍成功；0517 没有修复 NVM 失败。
+- 形状对比：d9 的 fallback 是 21 段（i=0..19 为 0 ms，i=20 立即 e=-60），d10 的 fallback 只有 1 段；主 NVM 第一轮的 7 段/每段约 10 s 形状相同。因此不能说“失败形状完全不变”，也不能说 0517 完全无效；但 NVM 仍未完成。
+- 用户态仍不可用：console 末尾 bluetoothd exit=1、marconi-bt: Unable to match bluetooth service in device tree；这只证明本次启动中蓝牙栈未起来，不是新的根因证明。
+- 本轮只飞一次，未重试；d11（0518）未飞。

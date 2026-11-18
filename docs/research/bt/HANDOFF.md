@@ -1037,7 +1037,7 @@ Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远�
 check-image-args 31/598 OK。计划预先写死成功判据（镜像哈希、boot 接受、无 budget exhausted、
 NVM `ret=0`、`power=1 result=0`）与失败判据（budget exhausted、NVM `-60`、power `-60`、
 panic/reset、哈希不符），并明确成功也只证明传输/下载路径，不证明蓝牙可用。d9 未批准；
-bt-agent 不开机、不刷机，只由 Lead 执行或明确授权。
+（历史，d9 轮）bt-agent 不开机、不刷机，只由 Lead 执行或明确授权。2026-11-18 起按先到先得规则，见 item 46。
 
 ### 44. 0517 上电顺序候选已构建（2026-11-18 16:47，未上机）
 
@@ -1046,7 +1046,7 @@ bt-agent 不开机、不刷机，只由 Lead 执行或明确授权。
 - 构建：`K60_OUT=/opt/k60/trees/k60build/bt-out-0517`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`、tag `bt-0517-power-order`，`RAW_RC=0`；manifest `built_at=2026-11-18T16:47:01+08:00`、head `2c7d948d`、dirty 0、series 237、frozen `2aaa4903…`。
 - 产物：boot.img `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`（201887744 B）、kernel `c40e4277…`、payload `9acde534…`、payload_kernel `a44053e4…`、ADT `db998204…`、dtb `2d044eaa…`、fd `cf448571…`、bt_blob `febdc20d…`；kernel.log:254 记录 0517，八步 build 6 项通过，image-arg-audit 31/598，kernel archives 4 个全在，metal/bt blob self-consistent，`verify-boot-image.py --manifest` → OK，boot.json `hardware_tested=false`。
 - 宿主：0517 测试 52、0516 测试 82、d8 adapter 90，全绿；均 HOST-ONLY，不证明控制器/NVM/蓝牙可用。
-- 边界：0517 未上机；d10 未批准。下一步需 Lead 审核 `D10-PLAN.md` 并决定是否授权单变量飞行；回滚 d8 `0297012d…`，上一候选 d9 `8a211a76…`。d8 产物 `E:/k60-work/artifacts/bt-d8-tlv` 保持不动，⑧ 仍 false。
+- 边界（截至 16:47 的历史记录）：0517 当时未上机。d10 后于 21:32 飞行 FAIL，见 item 46；回滚 d8 `0297012d…`，上一候选 d9 `8a211a76…`。
 
 ### 45. 0518 GIC INTID 候选已构建；d8/d10 回滚镜像已恢复（2026-11-18 18:08，未上机）
 
@@ -1055,4 +1055,13 @@ bt-agent 不开机、不刷机，只由 Lead 执行或明确授权。
 - 构建：tag `bt-0518-gic-intid`，`built_at=2026-11-18T18:08:47+08:00`，head `3aa6910a`、dirty 0；manifest boot `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`（201,887,744 B）、kernel `6f44a07f…`、payload `1a6cf06f…`、payload_kernel `46da4e24…`、ADT `4b91e549…`、dtb `2d044eaa…`、fd `cf448571…`、bt_blob `febdc20d…`；kernel.log:271 记录 0518，八步 build 6 项通过，image-arg-audit 31/598，kernel archives 4 个全在，metal/bt blob self-consistent，`verify-boot-image.py --manifest` → OK，boot.json `hardware_tested=false`、`kernel_sha256=83b52b56…`。
 - 宿主：0518 套件 35、0517 套件 53、0516 套件 82、d8 adapter 90，全部 0 failure；均 HOST-ONLY，不证明控制器/UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
 - 回滚恢复：d8 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b` 与 d10 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69` 已按各自 manifest 用“0518 donor 镜像 + 对应 payload”重组，两枚均 201,887,744 B，`verify-boot-image` 与 image-arg-audit 均 OK。d9 `8a211a76…` 仍不可用，不得声称保留；d8 产物目录保持不动。
-- 计划：`docs/research/bt/D11-PLAN.md` 已写明 d11 是 0517+0518 累积候选，**相对 d10 的唯一差别是 0518**；权威顺序仍是先 d10、后 d11。d10 未批准、d11 未批准；bt-agent 不开机、不刷机，⑧ 仍 false。
+- 计划：`docs/research/bt/D11-PLAN.md` 已写明 d11 是 0517+0518 累积候选，**相对 d10 的唯一差别是 0518**；权威顺序是先 d10、后 d11。（历史，截至 18:08：当时 d10 未批准；21:32 已飞 FAIL，见 item 46。d11 仍未飞，⑧ 仍 false。）
+
+### 46. d10（0517）已飞，FAIL（2026-11-18 21:32–21:36）
+
+- 权限口径：按用户 2026-11-18 更新的“先到先得、统一 supervisor、单设备单写者”规则，在没有其他 supervisor/collector 占用时由 bt-agent 执行；只 `fastboot boot`，未 flash。
+- 镜像：`E:/k60-work/artifacts/bt-0517-power-order/boot.img`，sha256 `6c631bc4…`；设备 `6033dbec`；supervisor rc=0。
+- 采集：`E:/k60-work/evidence/usblog-20261118-213228`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=201732、panic/reset=null、stopReason=budget；console 3290 行，logSha256 `6A9AF54A…`。
+- 判决：PATCH `segs=602 ret=0`；NVM 主轮 `segs=7 ret=-60`（i=0..5 每段约 10 s）；fallback 这次 `segs=1 ret=-60`；`budget exhausted at op=0xfc00`；`power=1 result=-60`；无 `nvm done`；`bluetoothd exit=1`。按预声明判据 **FAIL**。
+- 形状：主轮仍是 7 段/每段约 10 s，但 fallback 从 d9 的 21 段变成 1 段，**不能说失败形状完全不变**，也不能说 0517 完全无效。
+- 下一步：先补控制器/UART 观测（官网 `trace_hci` 的 TX_UART/RX_CONTROLLER/missed/dropped，或 IRQ 计数），解释 0517 改了什么；d11 仍可相对 d10 做单变量，但不得单独解释 NVM `-60`。d11 未飞，⑧ 仍 false。

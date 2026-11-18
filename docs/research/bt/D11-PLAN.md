@@ -1,16 +1,17 @@
 # d11 累积飞行计划（bt-0518-gic-intid，2026-11-18）
 
-状态：**计划，未批准、未上机。** 候选产物已于 2026-11-18 18:08 构建并通过离线门禁；是否飞行、何时飞行由 Lead 决定。bt-agent 不开机、不刷机。
+状态：**d11 未飞。** 候选产物已于 2026-11-18 18:08 构建并通过离线门禁。d10（0517）已于 2026-11-18 21:32 按用户“先到先得”规则飞行并 FAIL，且 fallback 形状改变（见 D10-PLAN.md §8）；因此 d11 不是自动接飞的下一步，先补控制器/UART 观测再决定。
 
 ## 1. 先读：d11 不是 d10 的替代品
 
-- d10 = 0517 单变量，候选 `E:/k60-work/artifacts/bt-0517-power-order/boot.img`，sha256 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`，**未批准、未上机**。
+- d10 = 0517 单变量，候选 `E:/k60-work/artifacts/bt-0517-power-order/boot.img`，sha256 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`，**已于 2026-11-18 21:32 飞行，FAIL**（见 `D10-PLAN.md` §8）。
 - d11 = 0517 + 0518 累积候选，候选 `E:/k60-work/artifacts/bt-0518-gic-intid/boot.img`，sha256 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`，**未批准、未上机**。
 - **相对 d10 的唯一运行时差别是 0518**（GIC INTID 修正）。相对 d9（0516）则同时多了 0517 和 0518 两个变量。
-- 因此权威顺序是 **先 d10，后 d11**：
+- 因此权威顺序是 **先 d10，后 d11**；d10 已飞 FAIL，但 fallback 从 d9 的 21 段变成 1 段，失败形状并非完全不变。
   - d10 FAIL 且失败形状不变 → d11 才有单变量意义：只把 0518 叠在 d10 上，检验“UART/TLMM handler 挂错 INTID”是否为 NVM 失败的原因。
   - d10 PASS → NVM 失败已由 0517 消除；**不要为了 NVM 再飞 d11**。0518 仍是真实的源码缺陷，但它的验证应另立目标，不能借 d10 的成功把 0518 一起追认。
-- 只有 Lead 明确书面豁免 d10 时，d11 才可作为“0517+0518 累积候选”飞行；此时相对 d9 是两个变量，**不得声称单变量，也不得把结果单独归给 0517 或 0518**。这是应急口径，不是推荐路径。
+  - 本次 d10 FAIL 但形状改变 → **先补控制器/UART 观测**（例如官网 `trace_hci` 的 TX_UART/RX_CONTROLLER/missed/dropped，或 IRQ 计数），解释 0517 改变了什么；d11 仍可相对 d10 做单变量，但不能用它单独解释 NVM `-60`。
+- 只有明确豁免 d10 时，d11 才可作为“0517+0518 累积候选”飞行；此时相对 d9 是两个变量，**不得声称单变量，也不得把结果单独归给 0517 或 0518**。
 
 ## 2. 0518 改了什么
 
@@ -45,13 +46,13 @@
 - 宿主：0518 套件 **35 cases / 0 failure**；0517 **53 / 0**；0516 **82 / 0**；d8 adapter **90 / 0**。
 - **以上全部是 HOST-ONLY + 离线构建证据**，不证明控制器 UART/DMA/IBS、真实 NVM 完成或蓝牙可用。
 
-## 4. 飞前检查（Lead 执行，任何一项红就不飞）
+## 4. 飞前检查（claim 持有者执行，任何一项红就不飞）
 
 1. `bash scripts/k60-device.sh state` 返回 `fastboot`，记录设备序列（当前 `6033dbec`）；不是 fastboot 就停。
 2. 按统一 supervisor 的机器级 boot claim 规则取得 claim；若另一个 agent 已持有 claim 或 COM 口已被 collector 占用，**不得启动**。本仓没有 claim 文件，不能用一个本地文件假装 claim。
 3. `sha256sum E:/k60-work/artifacts/bt-0518-gic-intid/boot.img` 必须等于 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`。
 4. `python3 scripts/verify-boot-image.py --manifest E:/k60-work/artifacts/bt-0518-gic-intid/build-manifest.json` → OK。
-5. 确认 d10 已有明确的设备结果（成功或失败）并已记录；没有 d10 结果时，只有 Lead 书面豁免 d10 才能继续，且按第 1 节的双变量口径记录。
+5. d10 已有设备结果：2026-11-18 21:32 飞行，FAIL，fallback 形状改变（`D10-PLAN.md` §8）。先补观测并解释该变化，再决定是否飞 d11；不得直接按旧“形状不变”路径接飞。
 6. 回滚镜像必须同时保留并核对：d8 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`，d10 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`。d9 的 `8a211a76…` 当前不可用，不得声称保留。
 7. 只用 `fastboot boot`；绝不 `fastboot flash`，绝不写 `persist` / `/dev/block/sda38`。
 8. 显式传构建输入，不依赖默认路径：`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`。`/opt/k60/trees/usb-cdc-mainline/device` 不存在；不要为此改 `flash.sh` 塞 BT 专用默认值。
@@ -113,9 +114,9 @@ bash scripts/flash.sh E:/k60-work/artifacts/bt-0518-gic-intid/boot.img
 
 ## 8. 边界
 
-- bt-agent 不开机、不刷机；设备观测与 d11 由 Lead 执行或明确授权。
+- d10 已由 bt-agent 按用户 2026-11-18 先到先得规则、在无其他 supervisor/collector 时飞行；d11 仍未飞，下一次飞行必须重新确认单设备单写者。
 - d8 产物 `E:/k60-work/artifacts/bt-d8-tlv` 与 d8 结论不变：PATCH 软件路径返回成功、两次 NVM 失败、`result=-60`、蓝牙不可用。
 - d9 的 FAIL 结论不变；0518 不是对 d9 或 d10 的追认。
 - 本页不改变 `EIGHT-STEPS.toml` 的 ⑧，也不把 0518 宿主用例算成设备证据；⑧ 仍为 false。
-- 未批准前不飞、不重建、不改预算/段长/状态机/地址。
+- d11 未飞前不重建、不改预算/段长/状态机/地址；先补观测再决定。
 - 关联：`D10-PLAN.md`、`S4-SPEC.md` §7.25、`HANDOFF.md` item 45、`docs/research/EIGHT-STEPS.toml` 的 bluetooth 块。

@@ -294,6 +294,24 @@ connect(int fd, const void *address, unsigned length)
 }
 
 int
+setsockopt(int fd, int level, int name, const void *value, unsigned length)
+{
+	return (int)SC(SYS_setsockopt, fd, level, name, value, length, 0);
+}
+
+int
+ioctl(int fd, unsigned long request, void *argument)
+{
+	return (int)SC(SYS_ioctl, fd, request, argument, 0, 0, 0);
+}
+
+int
+select(int nfds, void *readfds, void *writefds, void *exceptfds, struct timeval *timeout)
+{
+	return (int)SC(SYS_select, nfds, readfds, writefds, exceptfds, timeout, 0);
+}
+
+int
 bind(int fd, const void *address, unsigned length)
 {
 	return (int)SC(SYS_bind, fd, address, length, 0, 0, 0);

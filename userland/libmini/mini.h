@@ -23,7 +23,7 @@ enum {
 	SYS_unlink = 10, SYS_chdir = 12, SYS_chmod = 15, SYS_chown = 16, SYS_getpid = 20, SYS_getuid = 24,
 	SYS_chflags = 34, SYS_kill = 37, SYS_getppid = 39, SYS_dup = 41, SYS_ioctl = 54, SYS_reboot = 55,
 	SYS_symlink = 57, SYS_readlink = 58, SYS_execve = 59, SYS_msync = 65, SYS_munmap = 73, SYS_dup2 = 90,
-	SYS_select = 93, SYS_fsync = 95, SYS_socket = 97, SYS_connect = 98, SYS_bind = 104,
+	SYS_select = 93, SYS_fsync = 95, SYS_socket = 97, SYS_connect = 98, SYS_bind = 104, SYS_setsockopt = 105,
 	SYS_gettimeofday = 116,
 	SYS_settimeofday = 122,
 	SYS_rename = 128, SYS_mkdir = 136, SYS_rmdir = 137, SYS_utimes = 138, SYS_pread = 153, SYS_pwrite = 154,
@@ -175,6 +175,9 @@ ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset);
 int     socket(int domain, int type, int protocol);
 int     connect(int fd, const void *address, unsigned length);
 int     bind(int fd, const void *address, unsigned length);
+int     setsockopt(int fd, int level, int name, const void *value, unsigned length);
+int     ioctl(int fd, unsigned long request, void *argument);
+int     select(int nfds, void *readfds, void *writefds, void *exceptfds, struct timeval *timeout);
 
 size_t  strlen(const char *s);
 int     strcmp(const char *a, const char *b);

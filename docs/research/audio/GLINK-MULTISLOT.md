@@ -1,7 +1,7 @@
 # GLINK 多槽：把音频通道接进同一个 QcomGlink 实例
 
 > 状态：2026-11-18。**传输层与音频桥已落地并上机**——QCOM_GLINK_MAX_CHANNELS 2、MAX_LOCAL_INTENTS 20、
-> K60AudioGlink 桥；镜像 ad 证明 PMIC up 前存在第二个槽（即使静默）会让 DSP 重置共享 transport，af 改为 PMIC up 后建 initiator 槽并在 12:26 上机：530 slot opened、531 PMIC up、无 -5，但 DSP 不回应我方 OPEN，通道仍未 up；镜像 ag（b82ce0fe）加入 OPEN/OPEN_ACK/槽状态诊断。run 2 不申请。
+> K60AudioGlink 桥；镜像 ad 证明 PMIC up 前存在第二个槽（即使静默）会让 DSP 重置共享 transport，af 改为 PMIC up 后建 initiator 槽并在 12:26 上机：530 slot opened、531 PMIC up、无 -5，但 DSP 不回应我方 OPEN，通道仍未 up；镜像 ag（b82ce0fe）加入 OPEN/OPEN_ACK/槽状态诊断，12:48 上机拿到根因：DSP 在 PMIC 握手期间就发来 `adsp_apps` 的 OPEN（rcid=3），此时槽还不存在被丢弃，之后 DSP 只 ACK 我方 OPEN、不重发自己的 OPEN；提交 234558f4 记住并采纳早到的远端 OPEN（`QcomGlink: adopt remote OPEN` / `late OPEN_ACK`），镜像 ah 已构建、等 free fastboot。run 2 不申请。
 > 结论先行：传输层本身已经是每槽独立的，挡住第二个消费者的是 QcomGlink.h 的数组长度；
 > 真正的风险不在协议，而在**建槽时机**和**消费者侧的单通道假设**——后者已由 K60AudioGlink 消掉。
 
@@ -116,8 +116,8 @@ runner 直接编译 `drivers/PongPower/QcomGlink.c`、`QcomGlink.h` 与 `K60Audi
 TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、没有 SMEM、没有设备。
 
     $ sh drivers/PongAudio/tests/run-glink-multislot-tests.sh
-    two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=904, sizeof(QcomGlink)=2056
-    TESTS OK 386 cases
+    two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=904, sizeof(QcomGlink)=2328
+    TESTS OK 611 cases
 
 | 场景 | 断言要点 |
 | --- | --- |
@@ -127,7 +127,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 | 错序 / 重放 | 同一 liid 重放 → 仍只进同一消费者，另一个消费者零条；越界 liid → 判 QcomGlinkCorrupt 停链，**不投递给另一个槽** |
 | 无人认领 | 未注册名字的 OPEN：不回应、不碰任何槽、unknown_opens=1、last_unknown/unknown_names 记名；陌生 rcid 的数据：dropped=1，两个消费者都没收到 |
 | 发送 / 收尾 | 只有电池槽有远端 intent 时，音频槽 send 返回 `K60_PMIC_GLINK_AUDIO_OK` 并把一个最大 560 B 的包入队，service 在 intent 出现后 flush；队列满时第二个包返回 REFUSED（不越界发数据）；stop 对**两个**槽各回调一次 state(0)，第二次 stop 是 no-op；坏几何（非零索引、非 8 倍数长度、无 doorbell）被拒 |
-| 音频桥 | `K60AudioGlink` 排队一个 `adsp_apps` 请求，`service()` 在第一次 `qcom_glink_poll()` 前调用 `qcom_glink_channel()` 并 hold；DSP 的 OPEN 在 hold 期间立即得到 OPEN_ACK、但只记录、不写数据，`k60_audio_glink_enable()` 释放后才发我方 OPEN，再加 20 个 INTENT 后 state 变 up，peer_data 只进音频 callback；state up 后 `pong_audio.c` 发 GPR GET_SPF_STATE（见 0003）；`stop()` 后无 transport 报 -2001 |
+| 音频桥 | `K60AudioGlink` 排队一个 `adsp_apps` 请求，`service()` 在第一次 `qcom_glink_poll()` 前调用 `qcom_glink_channel()` 并 hold；PMIC up 前 `service()` 只排队、不建槽；`k60_audio_glink_open()` 在 PMIC up 回调里建 initiator 槽并发我方 OPEN；DSP 早于建槽的 OPEN 被记入 `pending_open[]`，建槽时采纳（`adopt remote OPEN`）并在我方 OPEN 被 ACK 后补发 `late OPEN_ACK`；再加 20 个 INTENT 后 state 变 up，peer_data 只进音频 callback；state up 后 `pong_audio.c` 发 GPR GET_SPF_STATE（见 0003）；`stop()` 后无 transport 报 -2001 |
 | 音频发送 | 音频槽有 remote intent 后 `k60_audio_glink_send()` 写 TX_DATA（local lcid 1、remote intent 0x2001、payload `gpr`）；无远端 intent 时返回 OK 并入队、队列满 REFUSED；4096 B 得 `QcomGlinkTooBig`；stop 后 -2002；无 transport -2001 |
 
 文件头的 #error 与 main() 首条 expect_eq(QCOM_GLINK_MAX_CHANNELS, 2, ...) 一起保证：
@@ -143,7 +143,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 - 真实 FIFO 几何：tx_bytes/rx_bytes 来自 lease（256..65536、8 对齐），宿主用的是 4,096；
 - 真实 DSP 行为：adsp_apps 的 OPEN 是 DSP 主动发起还是我们发起、intent 560×20 是否被接受；
 - 时序：K60PmicGlink::discover() 里 desc[1] == lease.host_tx_head 与 desc[2] == lease.host_rx_tail
-  的比对（K60PmicGlink.cpp:78）发生在音频建槽之前；**PMIC 通道 up 之前不注册、不发送任何音频槽字节**，音频 request 只排队。K60PmicGlink::channelState() 的 PMIC up 回调调用 k60_audio_glink_open() 建立 initiator 槽，progress() 在同一轮发我方 OPEN，DSP 回 OPEN_ACK / 反向 OPEN 后通道才 up。镜像 y/ab 的晚建槽会让 DSP 早先的 adsp_apps OPEN 被当未知通道丢弃；z/aa/ad 的提前建槽（无论是否 hold、ACK 早或晚）都会在 PMIC 握手后触发 error=-5，因此提前注册不可用；
+  的比对（K60PmicGlink.cpp:78）发生在音频建槽之前；**PMIC 通道 up 之前不注册、不发送任何音频槽字节**，音频 request 只排队。K60PmicGlink::channelState() 的 PMIC up 回调调用 k60_audio_glink_open() 建立 initiator 槽，progress() 在同一轮发我方 OPEN，DSP 回 OPEN_ACK / 反向 OPEN 后通道才 up。镜像 y/ab 的晚建槽会让 DSP 早先的 adsp_apps OPEN 被当未知通道丢弃；z/aa/ad 的提前建槽（无论是否 hold、ACK 早或晚）都会在 PMIC 握手后触发 error=-5，因此提前注册不可用；ag 进一步证明 PMIC up 后建槽虽然不再 -5，但 DSP 的 `adsp_apps` OPEN（rcid=3）在 PMIC 握手期间就到达并被当未知通道丢弃，DSP 之后只 ACK 我方 OPEN、不重发自己的 OPEN，`remote_open` 恒为 0；234558f4 因此把早到的远端 OPEN 记入 `pending_open[]`，建槽时采纳并在我方 OPEN 被 ACK 后补发 OPEN_ACK；
 - 中断 / 轮询节奏：真机上 kick 走 IPCC，两个消费者共享一个 poll 循环，谁的延迟预算是多少；
 - SMP2P 443 ready 与 GLINK 通道建立的真实先后。
 
@@ -156,7 +156,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 1. **启动点**：音频 worker 现在是 pong_audio_probe=1 直启（patches/xnu/0504 的 pong_audio_bootstrap()）。
    将来要改成等 k60_adsp_owner_acquire() 成功、且 lease.flags 的 **bit2 K60AdspGlinkExclusive（=4）**
    置位之后才启动；acquire 失败就停在降级档（PAS1-AUDIO-REQUIREMENTS.md §2 的五级表）。
-2. **建槽时机与桥接**：音频侧已经实现 `K60AudioGlink`——`K60PmicGlink::discover()` **不**建音频槽；`pong_audio_start()` 只把 client 排队，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前调用 `k60_audio_glink_service()`，PMIC up 前该函数只保留 request、不注册槽。`K60PmicGlink::channelState()` 在 PMIC 通道 up 的回调里调用 `k60_audio_glink_open()`，此时才用 initiator `qcom_glink_channel(..., open_now=1)` 注册 `adsp_apps` 槽，`progress()` 同轮发我方 OPEN。provider 不需要再写注册代码，只需保证 `K60PmicGlink::open()` 发生在 **lease 有效之后**（FIFO 与 epoch 已交出）。2026-11-18 实机教训：`open_now=1` 的提前 active 预注册会在 PMIC 通道 up 前发 OPEN，DSP 以 `QcomGlinkCorrupt (-5)` 重置共享 transport（镜像 z）；passive 槽提前到 `discover()` 但不 hold（镜像 aa）会在 DSP OPEN 时立刻 ACK+OPEN，仍在 PMIC 初始握手前写字节而失败；discover 提前建槽 + hold、连 OPEN_ACK 也压到 PMIC up（镜像 ac）会让 DSP 等 ACK 超时，PMIC up 后立即 -5；discover 提前建槽 + hold + 立即 ACK、只延迟我方 OPEN（镜像 ad）仍在 PMIC up 后立刻 -5，说明**只要第二个槽在 PMIC 握手前存在就不行**。因此正确做法是 PMIC up 前完全不建音频槽；PMIC up 回调里再建 initiator 槽并发我方 OPEN。
+2. **建槽时机与桥接**：音频侧已经实现 `K60AudioGlink`——`K60PmicGlink::discover()` **不**建音频槽；`pong_audio_start()` 只把 client 排队，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前调用 `k60_audio_glink_service()`，PMIC up 前该函数只保留 request、不注册槽。`K60PmicGlink::channelState()` 在 PMIC 通道 up 的回调里调用 `k60_audio_glink_open()`，此时才用 initiator `qcom_glink_channel(..., open_now=1)` 注册 `adsp_apps` 槽，`progress()` 同轮发我方 OPEN。provider 不需要再写注册代码，只需保证 `K60PmicGlink::open()` 发生在 **lease 有效之后**（FIFO 与 epoch 已交出）。2026-11-18 实机教训：`open_now=1` 的提前 active 预注册会在 PMIC 通道 up 前发 OPEN，DSP 以 `QcomGlinkCorrupt (-5)` 重置共享 transport（镜像 z）；passive 槽提前到 `discover()` 但不 hold（镜像 aa）会在 DSP OPEN 时立刻 ACK+OPEN，仍在 PMIC 初始握手前写字节而失败；discover 提前建槽 + hold、连 OPEN_ACK 也压到 PMIC up（镜像 ac）会让 DSP 等 ACK 超时，PMIC up 后立即 -5；discover 提前建槽 + hold + 立即 ACK、只延迟我方 OPEN（镜像 ad）仍在 PMIC up 后立刻 -5，说明**只要第二个槽在 PMIC 握手前存在就不行**。因此正确做法是 PMIC up 前完全不建音频槽；PMIC up 回调里再建 initiator 槽并发我方 OPEN。镜像 ag 证明仅此还不够：DSP 的 adsp_apps OPEN 早于建槽（`rx OPEN name=adsp_apps p1=3 known=0`），之后不会重发，所以建槽时必须从 `pending_open[]` 采纳它（`QcomGlink: adopt remote OPEN`），并在 `open_acked` 后补发 `late OPEN_ACK`（提交 234558f4，宿主 611 条断言）。
 3. **epoch 绑定与降级**：音频的 QcomGlinkChannel * 必须与电池挂在**同一个 epoch** 上；
    k60_adsp_owner_revalidate() 失败时，音频侧要主动关掉 AFE 请求并静音（PongAudioAfe.h 的六个步骤
    不再下发），而不是继续往一个死通道里 send 拿 QcomGlinkAgain。

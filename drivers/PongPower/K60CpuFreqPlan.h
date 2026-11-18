@@ -25,6 +25,7 @@ extern "C" {
 
 #define K60_CPU_FREQ_DOMAINS 3u
 #define K60_CPU_FREQ_CPUS 8u
+#define K60_CPU_FREQ_STATES 4u
 #define K60_CPU_FREQ_LUT_ROWS 40u
 #define K60_CPU_FREQ_XO_KHZ 19200u        /* bi_tcxo_div2 */
 #define K60_CPU_FREQ_GPLL_HALF_KHZ 300000u /* GPLL0 600 MHz / CLK_HW_DIV 2 */
@@ -97,6 +98,21 @@ unsigned k60_cpufreq_busy_permille(uint64_t idle_delta, uint64_t elapsed);
  * the domain's CPUs, not the average. */
 unsigned k60_cpufreq_domain_busy(const uint64_t *idle_delta, unsigned count,
     uint64_t elapsed, unsigned domain);
+
+/* Per-CPU window form of the same maximum. elapsed differs per CPU because
+ * ticks only advance while that CPU accounts time, so each CPU is divided by
+ * its own window. Returns 0 for a bad domain/null/count outside 1..8. */
+unsigned k60_cpufreq_domain_busy_elapsed(const uint64_t *idle_delta,
+    const uint64_t *elapsed, unsigned count, unsigned domain);
+
+/* Decode two cumulative CPU_STATE_* snapshots into one window. Ticks are
+ * 32-bit and wrap; every delta is taken modulo 2^32. idle receives the IDLE
+ * delta and elapsed the sum of all four states. Returns 0 on success, -1 for a
+ * null pointer or an empty window. The state order matches XNU's
+ * processor_cpu_load_info: user, system, idle, nice. */
+#define K60_CPU_FREQ_STATE_IDLE 2u
+int k60_cpufreq_tick_delta(const uint32_t previous[4], const uint32_t current[4],
+    uint64_t *idle, uint64_t *elapsed);
 
 /* The write set the reference uses to place one domain at a level: the
  * perf_state row always, plus one row per extra core when the dcvs control

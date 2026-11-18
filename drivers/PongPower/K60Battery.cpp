@@ -21,6 +21,9 @@
 #include "K60Battmgr.h"
 #include "K60BatteryProtocol.generated.h"
 
+/* Implemented in K60CpuFreqProbe.cpp; called before the workloop is torn down. */
+extern "C" void k60_cpufreq_sample_stop(void);
+
 namespace {
 constexpr uint32_t kPollMs = 20, kRefreshMs = 5000, kRequestMs = 3000, kChannelMs = 5000;
 constexpr unsigned kPropertyNumbers = 39;
@@ -472,6 +475,7 @@ IOReturn K60Battery::shutdownAction(OSObject *owner, void *, void *, void *, voi
 }
 void K60Battery::cleanup()
 {
+    k60_cpufreq_sample_stop();
     /* runAction owns the same gate as every timer/GLINK callback. Cancellation
      * alone does not serialize with an action already running on the loop. */
     if (loop) loop->runAction(shutdownAction, this);

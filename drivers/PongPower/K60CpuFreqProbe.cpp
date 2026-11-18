@@ -19,7 +19,15 @@
 #include <IOKit/IOMemoryDescriptor.h>
 #include <IOKit/IODeviceMemory.h>
 #include <pexpert/pexpert.h>
+#include <kern/processor.h>
+#include <kern/thread.h>
+#include <mach/processor_info.h>
 #include "K60CpuFreqPlan.h"
+
+/* The SDK header hides the array behind KERNEL_PRIVATE, but the kernel exports
+ * it and processor_info() needs the processor_t. The declared extent only has
+ * to cover the eight CPUs this board has. */
+extern "C" processor_t processor_array[64];
 
 namespace {
 
@@ -227,6 +235,118 @@ void probeAll(bool dump)
     probeL3(dump);
 }
 
+/* Mode 5: the 16 ms scheduler-idle sampler the official page asks for, with
+ * every vote suppressed. processor_info(PROCESSOR_CPU_LOAD_INFO) is the kernel
+ * face of the scheduler's per-CPU recount: four cumulative tick counters. One
+ * window is the delta of those counters, so a sleeping CPU (idle == elapsed)
+ * contributes 0 and a busy one approaches 1000 permille. The governor is fed
+ * the real numbers and its chosen level is logged next to the hardware state,
+ * but nothing is written: a write loop needs the rail/thermal ordering that
+ * section 5 still lacks. */
+constexpr unsigned kSampleSleepMs = 16;
+constexpr unsigned kSampleLogWindows = 64;
+
+volatile unsigned sSampleStop;
+unsigned sSampleStarted;
+
+void samplerThread(void *, wait_result_t)
+{
+    K60CpuFreqTable tables[K60_CPU_FREQ_DOMAINS] = {};
+    Window windows[K60_CPU_FREQ_DOMAINS] = {};
+    K60CpuFreqGovernor gov = {};
+    bool ready[K60_CPU_FREQ_DOMAINS] = {};
+    uint32_t previous[K60_CPU_FREQ_CPUS][K60_CPU_FREQ_STATES] = {};
+    uint64_t idle[K60_CPU_FREQ_CPUS] = {}, elapsed[K60_CPU_FREQ_CPUS] = {};
+    unsigned busy[K60_CPU_FREQ_DOMAINS] = {};
+    uint64_t window = 0;
+    bool havePrevious = false;
+    host_t host = nullptr;
+
+    k60_cpufreq_governor_reset(&gov, 0);
+    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+        uint32_t state;
+        unsigned current = 0;
+
+        if (!mapWindow(&windows[domain], kDomainBase[domain], kDomainWindow)) continue;
+        if (!readTable(&windows[domain], &tables[domain])) {
+            unmapWindow(&windows[domain]);
+            continue;
+        }
+        state = rd32(windows[domain].va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+        for (unsigned i = 0; i < tables[domain].count; ++i)
+            if (tables[domain].level[i] == state) {current = i; break;}
+        gov.current[domain] = current;
+        gov.down[domain] = 0;
+        gov.quiet[domain] = 0;
+        ready[domain] = true;
+    }
+    IOLog("K60CpuFreq: sample start every=%ums log-every=%u domains=%u\n",
+        kSampleSleepMs, kSampleLogWindows, K60_CPU_FREQ_DOMAINS);
+    while (!sSampleStop) {
+        IOSleep(kSampleSleepMs);
+        if (sSampleStop) break;
+        ++window;
+        for (unsigned cpu = 0; cpu < K60_CPU_FREQ_CPUS; ++cpu) {
+            processor_cpu_load_info_data_t load = {};
+            mach_msg_type_number_t count = PROCESSOR_CPU_LOAD_INFO_COUNT;
+            uint32_t now[K60_CPU_FREQ_STATES];
+
+            idle[cpu] = 0;
+            elapsed[cpu] = 0;
+            if (!processor_array[cpu]) continue;
+            if (processor_info(processor_array[cpu], PROCESSOR_CPU_LOAD_INFO, &host,
+                    reinterpret_cast<processor_info_t>(&load), &count) != KERN_SUCCESS)
+                continue;
+            for (unsigned state = 0; state < K60_CPU_FREQ_STATES; ++state)
+                now[state] = load.cpu_ticks[state];
+            if (havePrevious)
+                (void)k60_cpufreq_tick_delta(previous[cpu], now, &idle[cpu], &elapsed[cpu]);
+            for (unsigned state = 0; state < K60_CPU_FREQ_STATES; ++state)
+                previous[cpu][state] = now[state];
+        }
+        if (!havePrevious) {
+            havePrevious = true;
+            continue;
+        }
+        for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+            if (!ready[domain]) continue;
+            busy[domain] = k60_cpufreq_domain_busy_elapsed(idle, elapsed,
+                K60_CPU_FREQ_CPUS, domain);
+            (void)k60_cpufreq_governor_window(&gov, &tables[domain], domain,
+                busy[domain], 0, 0);
+        }
+        if ((window % kSampleLogWindows) == 0) {
+            uint32_t hardware[K60_CPU_FREQ_DOMAINS] = {};
+            for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
+                if (ready[domain])
+                    hardware[domain] = (rd32(windows[domain].va,
+                        K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu) * K60_CPU_FREQ_XO_KHZ;
+            IOLog("K60CpuFreq: sample win=%llu d0=%u/%ukHz/hw%ukHz d1=%u/%ukHz/hw%ukHz d2=%u/%ukHz/hw%ukHz\n",
+                static_cast<unsigned long long>(window),
+                busy[0], tables[0].khz[gov.current[0]], hardware[0],
+                busy[1], tables[1].khz[gov.current[1]], hardware[1],
+                busy[2], tables[2].khz[gov.current[2]], hardware[2]);
+        }
+    }
+    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
+        if (windows[domain].map) unmapWindow(&windows[domain]);
+    IOLog("K60CpuFreq: sample stop win=%llu\n", static_cast<unsigned long long>(window));
+}
+
+void startSampler(void)
+{
+    thread_t thread = nullptr;
+
+    if (__atomic_exchange_n(&sSampleStarted, 1u, __ATOMIC_ACQ_REL)) return;
+    sSampleStop = 0;
+    if (kernel_thread_start(samplerThread, nullptr, &thread) != KERN_SUCCESS) {
+        IOLog("K60CpuFreq: sample thread failed\n");
+        sSampleStarted = 0;
+        return;
+    }
+    thread_deallocate(thread);
+}
+
 } // namespace
 
 extern "C" void k60_cpufreq_probe(void)
@@ -236,8 +356,8 @@ extern "C" void k60_cpufreq_probe(void)
 
     PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
     if (!mode || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
-    if (mode > 3) {
-        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3 are implemented\n", mode);
+    if (mode == 4 || mode > 5) {
+        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3 and 5 are implemented\n", mode);
         return;
     }
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
@@ -248,6 +368,11 @@ extern "C" void k60_cpufreq_probe(void)
     }
     if (mode == 2) {
         voteDomain(0, mode);
+        return;
+    }
+    if (mode == 5) {
+        probeAll(false);
+        startSampler();
         return;
     }
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) voteDomain(domain, mode);
@@ -266,4 +391,11 @@ extern "C" void k60_cpufreq_probe_late(void)
     IOLog("K60CpuFreq: late read begin (mode 1)\n");
     probeAll(false);
     IOLog("K60CpuFreq: late read end\n");
+}
+
+/* Stopped from K60Battery::cleanup; the sampler thread owns no resource the
+ * battery path needs, so a flag is enough and the thread exits after its sleep. */
+extern "C" void k60_cpufreq_sample_stop(void)
+{
+    sSampleStop = 1;
 }

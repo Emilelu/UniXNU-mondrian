@@ -158,6 +158,40 @@ unsigned k60_cpufreq_domain_busy(const uint64_t *idle_delta, unsigned count,
     return busy;
 }
 
+unsigned k60_cpufreq_domain_busy_elapsed(const uint64_t *idle_delta,
+    const uint64_t *elapsed, unsigned count, unsigned domain)
+{
+    unsigned cpu, busy = 0;
+
+    if (!idle_delta || !elapsed || !count || count > K60_CPU_FREQ_CPUS ||
+        domain >= K60_CPU_FREQ_DOMAINS)
+        return 0;
+    for (cpu = 0; cpu < count; ++cpu) {
+        unsigned b;
+        if (k60_cpufreq_domain_of_cpu(cpu) != domain) continue;
+        b = k60_cpufreq_busy_permille(idle_delta[cpu], elapsed[cpu]);
+        if (b > busy) busy = b;
+    }
+    return busy;
+}
+
+int k60_cpufreq_tick_delta(const uint32_t previous[4], const uint32_t current[4],
+    uint64_t *idle, uint64_t *elapsed)
+{
+    uint64_t total = 0, stopped = 0;
+    unsigned state;
+
+    if (!previous || !current || !idle || !elapsed) return -1;
+    for (state = 0; state < 4; ++state) {
+        const uint32_t delta = current[state] - previous[state];
+        total += delta;
+        if (state == K60_CPU_FREQ_STATE_IDLE) stopped = delta;
+    }
+    *idle = stopped;
+    *elapsed = total;
+    return total ? 0 : -1;
+}
+
 unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned level,
     K60CpuFreqWrite *out, unsigned capacity)
 {

@@ -448,6 +448,7 @@ void samplerThread(void *, wait_result_t)
     unsigned appliedVotes = 0;
     bool deviationArmed = false;
     bool armed = false;
+    bool signalArmed = false;
     uint64_t applyStart = 0;
     uint64_t applySpan = kApplySpanWindows;
     unsigned applyMode = sSampleApply;
@@ -591,6 +592,7 @@ void samplerThread(void *, wait_result_t)
                 deviationArmed = true;
                 applyStart = window;
                 applySpan = kApplySpanWindows;
+                signalArmed = false;
                 IOLog("K60CpuFreq: mode%u armed win=%llu d%u level=%u\n",
                     applyMode, static_cast<unsigned long long>(window), domain,
                     tables[domain].level[gov.current[domain]]);
@@ -602,6 +604,7 @@ void samplerThread(void *, wait_result_t)
             armed = true;
             applyStart = window;
             applySpan = touchActive ? kTouchSpanWindows : kFrameSpanWindows;
+            signalArmed = true;
             IOLog("K60CpuFreq: mode%u %s window win=%llu span=%llu\n", applyMode,
                 touchActive ? "touch" : "frame",
                 static_cast<unsigned long long>(window),
@@ -628,7 +631,8 @@ void samplerThread(void *, wait_result_t)
                 }
                 if (gov.current[domain] == votedIndex[domain]) continue;
                 if (!armed || window < applyStart || window > applyStart + applySpan ||
-                    window > kApplyLatestEndWindow || appliedVotes >= kApplyMaxVotes) continue;
+                    (window > kApplyLatestEndWindow && !signalArmed) ||
+                    appliedVotes >= kApplyMaxVotes) continue;
                 n = k60_cpufreq_build_votes(domain,
                     rd32(windows[domain].va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u,
                     tables[domain].level[gov.current[domain]], set, K60_CPU_FREQ_MAX_WRITES);
@@ -668,11 +672,13 @@ void samplerThread(void *, wait_result_t)
                 }
             }
             if (armed && (window >= applyStart + applySpan ||
-                    window >= kApplyLatestEndWindow || appliedVotes >= kApplyMaxVotes)) {
+                    (!signalArmed && window >= kApplyLatestEndWindow) ||
+                    appliedVotes >= kApplyMaxVotes)) {
                 unsigned domains = restoreApplied(windows, applied);
                 IOLog("K60CpuFreq: mode%u restore domains=%u votes=%u\n",
                     applyMode, domains, appliedVotes);
                 armed = false;
+                signalArmed = false;
             }
         }
         if ((window % kSampleLogWindows) == 0) {

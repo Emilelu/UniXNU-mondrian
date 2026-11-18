@@ -16,6 +16,10 @@ IOPMPowerSource 子类、工作循环、三个定时器、首帧后才注册、�
 `9df566917f55d7a31573457523422b706c648c629dccb66d96c581b498bcc319`），包含 `592523aa`
 （缺失电池首帧）、`6750c7bd`（服务重启生命周期复位）与 `af759fe4`（容量百分比发布）；
 2026-11-18 09:38 已用 `fastboot boot` 上机。
+2026-11-18 11:07 构建 image f（sha256 `024466905dec75cbab5d2525f68936d6f18650a4b0d3aed6551d5ccc3df94c6e`），
+包含 `0bad0c61`（剩余时间按 charging 选择 TimeToFull/TimeToEmpty）；11:13 上机，`console.log` 244,122 B，
+C1/C2 PASS，C3 对同会话 3 行低电流 Android 基线 PASS（|ΔV|=46mV、|ΔSOC|=1.00pp、|ΔT|=1.00°C）；
+8 行全窗口仍因 Android 电流波动在电压/电流上超差，见 §7.9。image f 是当前最新镜像。
 2026-11-18 02:42 的 image d（sha256 `9e66ef5531feaa4fc4fe6d741049980ce9cb870061bab6055a0275efa9560b00`）是上一版，包含前两项但不含容量修正。
 2026-11-18 01:21 的上一版 image c 已上机：`console.log` 233,732 B，C1 PASS（`:429`、`:530`），
 C2 PASS（14 次刷新命中），首帧 `:530` 发布 SOC=91.00%、4292mV、397mA、35.30°C；`:530`–`:3470`
@@ -348,6 +352,43 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   `CurrentCapacity` 的最终用户态值仍由 `K60BatterySmoke` 的主机检查覆盖（`capacity(9900)=99`），没有单独抓取 IORegistry。
 - 该次没有 Android 同窗口基线，不用于 C3 判定；C3 的匹配电流 3 行 PASS 记录见 §7.7。
 
+### 7.9 最终 image f 构建与上机（2026-11-18 11:07 构建，11:13 上机）
+
+- `E:/k60-work/artifacts/power-conformance-20261118f/boot.img` 201,887,744 B，sha256
+  `024466905dec75cbab5d2525f68936d6f18650a4b0d3aed6551d5ccc3df94c6e`；payload
+  `8949e8ef0d3321602535685925f64c648df340902449fc54c4c69c0431c2e43b`（201,326,592 B）；
+  kernel `d8ee7d8eebdb2907b3dc121767f88c0e2a6b75eedeef4d21b5d9a13b0139e1e4`（129,077,248 B）。
+- 构建树 `fix/battery-sample-dirty-build` `1a64347f`；battery archive 由 `fix/power-doc-conformance`
+  当前源（含 `0bad0c61` 剩余时间选择）编译后注入，
+  `fa46b01a8d35703a9c950df5a06ecfa529da747b2ace2be3ec5eeb4fd9553b4c`（116,960 B）。
+  `check-image-args.py` = `image-arg-audit: OK (30 arguments, 598 bytes)`，payload 内核参数含
+  `pong_handoff_publish=1`；`verify-boot-img-payload.py` OK（payload @557056，payload kernel probe-patched
+  `e20a9c2b043f693d...`，payload.json kernel `d8ee7d8...`，FD `cf4485712c2999c1...`）。
+- `strings` 验证内核含 `K60BatteryFailedFields`、`K60RawVoltageMicrovolts`、
+  `AppleRawCurrentCapacity`、`AppleRawMaxCapacity`、`registerService left the source inactive`、
+  `physical source refreshed`。
+- 2026-11-18 11:13:50 `fastboot boot` 上机（controller `controlled-final-20261118-111022`，
+  日志 `E:/k60-work/scratch/controlled-final-image-f.log`）：boot 记录 `Booting OKAY`，
+  `console.log` 244,122 B、`complete=true`、`K60AUTORESET` 300 s 后发布 `restart reason published`。
+  C1 PASS（`:436` channel up、`:490` 首帧），C2 PASS（12 次刷新命中，`:490`、`:665`、`:751`）。
+- 上机样本（均 SOC=98.00%、4375/4464mAh、design=5500mAh、cycles=750、397mA、current-source=usb、
+  external=1、charging=1、full=0、subscribed=1）：`:490` s1 4344mV 35.80°C；`:665` s7 4314mV 35.70°C；
+  `:751` s13 4310mV 35.70°C；`:1297` s19 4293mV 35.70°C；`:2156` s25 4306mV 36.00°C；
+  `:2609` s31 4271mV 36.00°C；`:2827` s37 4323mV 36.10°C；`:3051` s43 4323mV 36.30°C；
+  `:3218` s49 4321mV 36.10°C；`:3387` s55 4320mV 36.10°C；`:3466` s61 4321mV 35.90°C；
+  `:3563` s67 4323mV 35.80°C。
+- 同会话 Android 基线 `android-samples.tsv` 8 行（epoch 1794971442–1794971483，SOC 99%，
+  4319–4360mV，电流 0–490mA，34.8–35.0°C，status=2）；取连续 3 行低电流窗口
+  `android-low.tsv`（1794971448 4359mV/11mA、1794971453 4360mV/0mA、1794971459 4352mV/92mA）
+  判 C3：PASS 3 对，最大 |ΔV|=46mV/±60mV、|ΔSOC|=1.00pp/±3pp、|ΔT|=1.00C/±3C；
+  |ΔI| 未比较（两侧没有同时 ≥100mA 的稳态窗口），报告 `judge-android.txt`。
+- 全 8 行窗口判 C3 仍 FAIL（6 对）：`:2156` ΔI=253mA、`:2609` ΔV=-83mV/ΔI=290mA，
+  最大 |ΔV|=83mV/±60mV、|ΔSOC|=1.00pp、|ΔT|=1.30°C、|ΔI|=290mA/±150mA。原因是 Android 侧电流
+  在 0–490mA 间波动而 XNU 稳定 397mA；匹配低电流 3 行窗口 PASS 不能替代全窗口通过。
+- 旧 route-c dmesg 窗口 16447–16652 仍因冷战基线判 FAIL（rc=1），不是同状态基线。
+- 该镜像的插拔、放电、超时与服务重启仍未获得真机脚本化证据；第 15 节只证明 manager 对待发布样本的状态转换，
+  不代替真机。image e 不含 `0bad0c61`，image f 起包含该修正。
+
 ## 8. Host 测试覆盖
 
 `scripts/tests/test-k60-charger-subscription.c` 当前 87 项断言，覆盖：
@@ -370,8 +411,8 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   负责 PD/PPS 协商且两节电芯和 PD adapter `read unauthenticated`。因此官网 `:82-104` 是参考流程/工具路线，
   不是 K60 可直接复用的实现。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
-  1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118e/boot.img`（sha256 `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`）已于 2026-11-18 03:22 构建、09:38、10:04 与 10:31 三次上机，包含 `592523aa`/`6750c7bd`/`af759fe4`；三次均 C1/C2 PASS、12 条完整样本；第二次对同会话 36 行 Android 基线全窗口仅电压/电流超差，匹配电流 3 行基线 C3 PASS（详见 §7.6、§7.7）；第三次 SOC=99.00%，见 §7.8；`0bad0c61` 的剩余时间选择修正（按 charging 取 TimeToFull/TimeToEmpty）不在 image e，需后续镜像验证。上一版 image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
-  2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔、充电/放电/full 状态转换和剩余时间选择（87 项），但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e 包含），IOKit 级 stop/start 未上真机。
-  3. C3 需要至少 3 对同窗口样本；image e 已有 12 条完整 XNU sample，9 行 Android 全窗口只在电流上 5/9 对超差（Android 电流波动 88–626mA，XNU 397mA），同会话匹配电流 3 行基线已 PASS；全窗口通过仍要求更稳定的同电流 Android 基线。
+  1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118f/boot.img`（sha256 `024466905dec75cbab5d2525f68936d6f18650a4b0d3aed6551d5ccc3df94c6e`）已于 2026-11-18 11:07 构建、11:13 上机，包含 `592523aa`/`6750c7bd`/`af759fe4`/`0bad0c61`；C1/C2 PASS、C3 对同会话 3 行低电流 Android 基线 PASS（`judge-android.txt`，|ΔV|=46mV、|ΔSOC|=1.00pp、|ΔT|=1.00°C），8 行全窗口仍电压/电流超差，见 §7.9。上一版 image e（`8b1df...`）不含 `0bad0c61`（剩余时间按 charging 选择），已三次上机并记录 C3 匹配通过（§7.6–§7.8）；image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
+  2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔、充电/放电/full 状态转换和剩余时间选择（87 项），但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e/f 包含），IOKit 级 stop/start 未上真机。
+  3. C3 需要至少 3 对同窗口样本；image f 的 12 条完整 XNU sample 与同会话 3 行低电流 Android 基线（11/0/92mA）已 PASS；image e 的 9 行/36 行全窗口仍只在电流上超差（Android 电流波动 88–626mA，XNU 397mA），全窗口通过仍要求更稳定的同电流 Android 基线。
   4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；标准 `CurrentCapacity`/`MaxCapacity` 现在按官网发布为百分比（`MaxCapacity=100`），`AppleRawCurrentCapacity`/`AppleRawMaxCapacity` 保留 mAh，smoke 同时校验这两组值；缺失电池首帧注册尚未在真机验证。
-- 设备状态（2026-11-18 10:48）：第三次 image e 采集 10:36 完成（`K60AUTORESET` 已发布 `restart reason published`，见 §7.8）；10:47 设备短暂处于 `fastboot`、`fastboot devices` 为 `6033dbec`，随后 k60-audio-adsp 的 audio-probe-ab watcher（`E:/k60-work/evidence/audio-probe-ab/run1-20261118-1035`，`boot.json` startedAt 10:47:19，`bootAccepted=false` 但 `fastboot.log` 显示 `Booting OKAY`）占用设备，`k60-device.sh state` 回到 `none`；在该 watcher 释放前不抢设备。此前 09:26 的 audio-probe boot（`E:/k60-work/evidence/audio-probe-y/run1-20261118-0415`，:568 SOC=100.00%）只是一个独立 audio 镜像的用户可见 100% 电池显示，不是本分支 image e，不作为 §4 一致性证据。
+- 设备状态（2026-11-18 11:23）：image f 采集 11:19:16 完成（`K60AUTORESET` 300 s 后发布 `restart reason published`，见 §7.9）；controller 报 `returnedToFastboot=False`，随后 `k60-device.sh state` 为 `none`，需要物理长按电源恢复。10:47 的 k60-audio-adsp audio-probe-ab watcher（`E:/k60-work/evidence/audio-probe-ab/run1-20261118-1035`）已结束；此前 09:26 的 audio-probe boot（`E:/k60-work/evidence/audio-probe-y/run1-20261118-0415`，:568 SOC=100.00%）只是一个独立 audio 镜像的用户可见 100% 电池显示，不是本分支 image e/f，不作为 §4 一致性证据。

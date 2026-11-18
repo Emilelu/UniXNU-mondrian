@@ -65,7 +65,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 - 不同：参考的 CPU 数是 3/4/1（SM8550），K60 是 **4/3/1**。任何逐核 perf_state 行、
   quiet/boost 逻辑都必须按 K60 的核数改写，不能照抄。
 - 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 已实现模式 1–3
-  （2/3 为带守卫的瞬态写入，未上机），governor 只有纯逻辑核心。
+  和只读采样模式 5（2/3 为带守卫的瞬态写入，未上机；5 为 16 ms 采样线程，不写寄存器），
+  governor 核心由模式 5 的线程调用但仍不写回硬件。
 
 ## 5. 已实现
 
@@ -81,6 +82,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 | `eba8de2a` `feat(power): dump the EPSS look-up table rows` | mode 1 早期读取逐行打印 raw/kHz/cores/turbo；延后读取只保留摘要，避免重复 51 行 |
 | `42ca4421` `feat(power): guard and undo EPSS votes` | enable/表项守卫、写后回读、恢复写前原值；mode 2/3 改为瞬态验证写 |
 | `70dd3794` `test(power): cover the EPSS vote guard` | host 覆盖守卫/回读/恢复，128 项 |
+| `3e9917ed` `feat(power): sample CPU idle time in a read-only probe` | mode 5：16 ms `processor_info` 采样线程、tick 差分、域内最忙、governor 回放；不写寄存器 |
+| `38b84c35` `test(power): cover the idle tick decoding` | host 覆盖逐 CPU elapsed 最大值、32 位 tick 回绕，总数 143 项 |
 
 `K60CpuFreqPlan`（纯 C，无 MMIO）：
 
@@ -102,7 +105,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   逐条比较回读值；`k60_cpufreq_build_restore` 用写前保存的原值生成恢复写集合。
 - `k60_cpufreq_governor_reset/governor_window`：参考 16 ms 循环的纯逻辑版——每个 domain 保存
   当前档、降档计数、quiet 计数；忙 90% 立即升，降档连续 4 窗口才落地；boost 结束后的
-  共享簇按半速地板保持 12 个 quiet 窗口。**没有线程调用它**，寄存器仍由探针负责。
+  共享簇按半速地板保持 12 个 quiet 窗口。mode 5 的采样线程会调用它，但只打印决策，寄存器仍由探针负责。
 
 `K60CpuFreqProbe`（默认关闭，boot arg `k60_cpufreq` 选模式）：
 
@@ -118,7 +121,13 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 - mode 2/3 的写入是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器的原值，写后逐条回读，
   再立即写回原值；日志带 `readback=ok|mismatch restored=<n>`。因此它验证写路径，不会留下持续投票；
   仍未在真机上执行过。enable=0 的域（例如辅核启动前的 d1/d2）会直接拒绝写入。
-- 大于 3 的值直接打印 "modes 1-3 are implemented" 并返回。
+- mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
+  把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
+  再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，
+  `hw` 是当次读到的硬件档位，不是写入结果。线程由 `kernel_thread_start` 启动，
+  `K60Battery::cleanup` 调 `k60_cpufreq_sample_stop` 置标志退出；不写任何寄存器、不投票。
+  没有触摸/帧输入（boost/framing 传 0），也没有把 governor 结果写回硬件。
+- mode 4 与大于 5 的值直接打印 "modes 1-3 and 5 are implemented" 并返回。
 - 调用点：`k60_physical_battery_start()` 开头做第一次读取；电池 `begin` 成功后
   （`K60Battery.cpp` 的同一入口）延迟 5 s 做第二次读取。这是当前 archive 唯一由
   userland 触发的 IOKit 入口；探针不需要 ADSP 租约，也不经过电池配置解析。
@@ -297,9 +306,9 @@ board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image 
   （commit `42ca4421`），但**从未在真机上执行**；没有 enable 等待、没有 dcvs 反馈，
   也没有验证恢复后的寄存器值。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
-- governor 只有纯逻辑核心，没有线程；idle 换算已经纯逻辑化（`k60_cpufreq_domain_busy`），
-  但还没有内核 `sheng_cpu_idle_mach` 等价的采样调用、
-  没有触摸/帧信号输入、没有 10 s 统计窗口；核心还没有被任何代码调用。
+- governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
+  但仍是只读：没有触摸/帧信号输入、没有 10 s 统计窗口、没有把决策写回 EPSS；
+  mode 5 尚未上机，也没有负载/温度/throttle 读数。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。
 - 真机已有三次 mode 1 读数：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
@@ -332,7 +341,7 @@ board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image 
    `list-boot-watchers.ps1` 和 `k60-device.sh state`，不要与任何 `boot-and-capture`
    抢 fastboot；启动时 `audio-probe-at` watcher（PID 11116）的镜像尚不存在，只轮询。
 5. 首次写入前：参数门禁须通过。启用状态守卫、写后回读和恢复原投票的路径已在代码中补齐
-  （commit `42ca4421`/`70dd3794`，host 128 项），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
+  （commit `42ca4421`/`70dd3794` 及 `38b84c35`，host 143 项含 mode 5 采样换算），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
   写入（d1/d2 在辅核启动前 `enable=0`）。首次验证应限定在 d0 单域，分别记录请求档位、
   寄存器回读、恢复值和负载下的 `state`，并观察温度与 throttle；d1/d2/L3 多域投票和 governor
   不与首测合并。`nomap`、`enable=0` 或无有效 LUT 时应拒绝写入。

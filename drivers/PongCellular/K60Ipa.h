@@ -72,6 +72,9 @@
 #define K60_IPA_SMEM_BYTES            0x00200000u
 #define K60_IPA_SMEM_ITEM             497u
 #define K60_IPA_SMEM_MIN_BYTES        0x00009000u
+/* TCSR SMEM mutex shared with the ADSP; allocation must hold it. */
+#define K60_IPA_SMEM_MUTEX_BASE       0x1f43000u
+#define K60_IPA_SMEM_MUTEX_BYTES      0x00001000u
 
 enum {
     K60IpaOk = 0,

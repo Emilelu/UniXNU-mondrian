@@ -879,6 +879,48 @@ k60_ipa_runtime_alloc(uint8_t **va, uint64_t *pa, vm_size_t bytes,
     return K60IpaOk;
 }
 
+/* SMEM item 497 is the shared IPA filter/route region. Pong allocates it from
+ * the modem partition under the TCSR SMEM mutex before mapping it; merely
+ * finding it works only when an earlier boot stage happened to create it. */
+static int
+k60_ipa_runtime_smem_item(K60Smem *smem, K60SmemPartition *partition,
+    uint32_t *offset, uint32_t *length)
+{
+    volatile uint8_t *mutex;
+    unsigned i;
+    int rc, locked = 0;
+
+    mutex = (volatile uint8_t *)(uintptr_t)ml_io_map_unmappable(
+        (vm_offset_t)K60_IPA_SMEM_MUTEX_BASE,
+        (vm_size_t)K60_IPA_SMEM_MUTEX_BYTES, 0x7);
+    if (mutex == 0) {
+        printf("K60IPA M2 SMEM mutex map failed\n");
+        return K60IpaMapFailed;
+    }
+    for (i = 0; i < 1000u; i++) {
+        *(volatile uint32_t *)mutex = 1u;
+        k60_ipa_fence();
+        if (*(volatile uint32_t *)mutex == 1u) {
+            locked = 1;
+            break;
+        }
+        delay(10);
+    }
+    if (!locked) {
+        printf("K60IPA M2 SMEM mutex timeout\n");
+        return K60IpaSmmuFailed;
+    }
+    rc = k60_smem_alloc(smem, partition, K60_IPA_SMEM_ITEM,
+        K60_IPA_SMEM_MIN_BYTES, offset, length);
+    if (rc == K60SmemExists) {
+        rc = k60_smem_find(smem, partition, K60_IPA_SMEM_ITEM, offset,
+            length);
+    }
+    *(volatile uint32_t *)mutex = 0u;
+    k60_ipa_fence();
+    return rc;
+}
+
 
 static int
 k60_ipa_runtime_smmu(K60IpaRuntime *rt)
@@ -928,12 +970,15 @@ k60_ipa_runtime_smmu(K60IpaRuntime *rt)
     smem.base = smem_window;
     smem.size = K60_IPA_SMEM_BYTES;
     rc = k60_smem_partition(&smem, 0, 1, &partition);
-    if (rc != K60SmemOk ||
-        k60_smem_find(&smem, &partition, K60_IPA_SMEM_ITEM, &smem_offset,
-        &smem_length) != K60SmemOk ||
-        smem_length < K60_IPA_SMEM_MIN_BYTES ||
+    if (rc != K60SmemOk) {
+        printf("K60IPA M2 SMEM partition missing rc=%d\n", rc);
+        return K60IpaSmmuFailed;
+    }
+    rc = k60_ipa_runtime_smem_item(&smem, &partition, &smem_offset,
+        &smem_length);
+    if (rc != K60SmemOk || smem_length < K60_IPA_SMEM_MIN_BYTES ||
         smem_offset > K60_IPA_SMEM_BYTES - K60_IPA_SMEM_MIN_BYTES) {
-        printf("K60IPA M2 SMEM item 497 missing rc=%d offset=%u length=%u\n",
+        printf("K60IPA M2 SMEM item 497 allocation failed rc=%d offset=%u length=%u\n",
             rc, smem_offset, smem_length);
         return K60IpaSmmuFailed;
     }

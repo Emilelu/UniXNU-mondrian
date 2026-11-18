@@ -93,7 +93,7 @@ adsp-handoff 线的容器提案已被 Lead 批准，ADSP 载体由 Lead 统一�
 代价（四条，都要让 provider 实现者知道）：
 
 1. **跨线改动**：`drivers/PongPower/` 是 adsp-handoff 线 scope；用户 2026-11-17 已把该目录划给音频线，本次落地由音频线完成。
-2. **内存**：两槽使 `sizeof(QcomGlink)` 从 960 B 涨到 2,056 B（每槽 904 B，含 20 个本地 intent 槽；宿主实测），对内核可忽略。
+2. **内存**：两槽使 `sizeof(QcomGlink)` 从 960 B 涨到 2,328 B（每槽 904 B，含 20 个本地 intent 槽；宿主实测），对内核可忽略。
 3. **provider 必须接受「publish 后有两个 consumer」这个事实**：PMIC 通道与音频通道共享同一对 SMEM FIFO、同一个 `qcom_glink_poll()` 循环与同一个 IPCC kick；
    但**每个槽的 intent 表、lcid/rcid、分片状态完全独立**（`QcomGlink.c:249-282` 按 rcid 分发），一个 consumer 卡住不会吃掉另一个的消息（宿主 611 条断言已证）。
 4. **独占语义要改写一句**：bit2 约束 provider 自己，不约束 consumer 数量；契约第 7 条「交给既有 consumer」应读成「交给同一实例上的既有与新增槽」。

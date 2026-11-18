@@ -117,7 +117,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 
     $ sh drivers/PongAudio/tests/run-glink-multislot-tests.sh
     two-slot transport: QCOM_GLINK_MAX_CHANNELS=2, sizeof(QcomGlinkChannel)=904, sizeof(QcomGlink)=2328
-    TESTS OK 611 cases
+    TESTS OK 800 cases
 
 | 场景 | 断言要点 |
 | --- | --- |

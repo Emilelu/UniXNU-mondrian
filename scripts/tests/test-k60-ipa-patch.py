@@ -45,7 +45,8 @@ def kernel_copy(name: str) -> str:
                            ("K60IpaGsi.h", "pong_ipa_gsi.h"),
                            ("K60IpaSmmu.h", "pong_ipa_smmu.h"),
                            ("K60IpaQmap.h", "pong_ipa_qmap.h"),
-                           ("K60IpaQmi.h", "pong_ipa_qmi.h")):
+                           ("K60IpaQmi.h", "pong_ipa_qmi.h"),
+                           ("K60IpaQmiServer.h", "pong_ipa_qmi_server.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
     return text
 
@@ -68,6 +69,8 @@ def main() -> int:
         ("bsd/dev/pong_ipa_qmap.c", kernel_copy("K60IpaQmap.c")),
         ("bsd/dev/pong_ipa_qmi.h", kernel_copy("K60IpaQmi.h")),
         ("bsd/dev/pong_ipa_qmi.c", kernel_copy("K60IpaQmi.c")),
+        ("bsd/dev/pong_ipa_qmi_server.h", kernel_copy("K60IpaQmiServer.h")),
+        ("bsd/dev/pong_ipa_qmi_server.c", kernel_copy("K60IpaQmiServer.c")),
     )
     for target, text in expected:
         if added_lines(patch, target) != text:
@@ -91,7 +94,9 @@ def main() -> int:
         return fail("append-conffiles.py has no pong_ipa_qmap.c entry")
     if "bsd/dev/pong_ipa_qmi.c" not in CONFFILES.read_text():
         return fail("append-conffiles.py has no pong_ipa_qmi.c entry")
-    print("K60 IPA PATCH PASS 0623 carries pong_ipa.h/.c, pong_mdt.h/.c, pong_ipa_gsi, pong_ipa_smmu, pong_ipa_qmap and pong_ipa_qmi")
+    if "bsd/dev/pong_ipa_qmi_server.c" not in CONFFILES.read_text():
+        return fail("append-conffiles.py has no pong_ipa_qmi_server.c entry")
+    print("K60 IPA PATCH PASS 0623 carries pong_ipa.h/.c, pong_mdt.h/.c, pong_ipa_gsi, pong_ipa_smmu, pong_ipa_qmap, pong_ipa_qmi and pong_ipa_qmi_server")
     return 0
 
 

@@ -48,7 +48,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,582 @@
+@@ -858,6 +892,589 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -570,6 +570,7 @@
 +{
 +	PongAudioState *state = (PongAudioState *)context;
 +	PongArAnswer answer;
++	static unsigned afe_skips;
 +	const int kind = pong_ar_parse(data, bytes, &answer);
 +	if (kind == PongArBad) {
 +		printf("PongAudio: glink adsp_apps rx bytes=%u (bad gpr)\n", bytes);
@@ -622,6 +623,12 @@
 +			state->last_error = PongAudioErrAfeRefused;
 +			printf("PongAudio: AFE step %u refused opcode=0x%08x status=%u\n",
 +			    state->afe_step, answer.result_opcode, answer.status);
++			if (!state->afe_group_probe && afe_skips < 8u) {
++				afe_skips++;
++				printf("PongAudio: AFE step %u skipped, continuing\n",
++				    state->afe_step);
++				pong_audio_afe_next(state);
++			}
 +			return;
 +		}
 +		pong_audio_afe_next(state);

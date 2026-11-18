@@ -52,6 +52,10 @@ ALLOWED_ADDITIONS = {
     "pong_thermal_bias",
     "pong_handoff_publish",
     "gprobe",
+    # sae has no value on the boot line: it arms the SAE-sized authentication probe
+    # in drivers/PongWifi/ath11k/pong_sae.c. See BOOT-ARGS.md and the four-byte
+    # budget note there (602 -> 606 of 607).
+    "sae",
 }
 
 # Values that are never acceptable in an experiment image, with the reason.

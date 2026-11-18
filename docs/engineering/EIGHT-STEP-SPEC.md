@@ -1,279 +1,312 @@
-# 八步流程规范（EIGHT-STEP SPEC）
+# The eight-step spec (EIGHT-STEP SPEC)
 
-> 目的：让"按八步走"变成可执行、可检查、可复现的流程，而不是八个形容词。
+> Purpose: turn "follow the eight steps" into a procedure that can be executed,
+> checked and reproduced, instead of eight adjectives.
 >
-> 核心原则：**每一步的产出必须能回答一个具体问题，答不出来就是没走完。**
+> Core principle: **the output of every step must answer one concrete question;
+> if it cannot, the step is not done.**
 
 ---
 
-## 总览
+## Overview
 
-| 步 | 名称 | 回答的问题 | 关键产出 |
+| Step | Name | Question it answers | Key output |
 |---|---|---|---|
-| ① | 同型 | 同型号机型做到哪一步了？ | 机型清单 + 最好状态 + 差距 |
-| ② | 官方 | 官方文档和官方驱动怎么要求的？ | 规范条目 + 源码 file:line |
-| ③ | 反编译 | 本机的真实参数是什么？ | 实测数据，每个参数有来源 |
-| ④ | 广域 | **有没有现成的能直接用？** | 组件目录检索结果 + 可复用清单 |
-| ⑤ | 方案 | 具体改什么、依据是什么？ | 改动清单，每条可追溯到证据 |
-| ⑥ | 深挖 | 还有哪些"不确定"？ | 不确定项清单，全部消解 |
-| ⑦ | 核验 | 不刷机怎么证明是对的？ | 本地验证命令 + 输出 |
-| ⑧ | 上机 | 真机上怎么判定成败？ | 预声明判据 + 日志行 |
+| ① | Same model | How far has the same model got? | Device list + best known state + the gap |
+| ② | Official | What do the official docs and drivers require? | Requirement list + source `file:line` |
+| ③ | Reverse engineering | What are this device's real parameters? | Measured data, every parameter with a source |
+| ④ | Wide search | **Does something off the shelf already do this?** | Component catalogue search + reuse list |
+| ⑤ | Plan | What exactly changes, and on what basis? | Change list, every item traceable to evidence |
+| ⑥ | Deep dive | Which "uncertain" items remain? | Uncertainty list, all resolved |
+| ⑦ | Local verification | How do we prove it is right without flashing? | Local verification command + output |
+| ⑧ | On device | How is success or failure decided on the real phone? | Pre-declared criteria + log lines |
 
 ---
 
-## ① 同型（Same model）
+## ① Same model (同型)
 
-**目的**：先看同型号机型，避免重复别人已经做完的事。
+**Purpose**: look at the same model first so work somebody already finished is
+not repeated.
 
-**必做**
-1. 查 `https://unixnu.com/devices/<device>` 的设备记录（有没有、状态如何）
-2. 查本地 `references/` 下同型号或同代号的分支
-3. 查公开的同机型移植（XDA / GitHub topic `unixnu`）
+**Mandatory**
+1. Check the device record at `https://unixnu.com/devices/<device>` (does one
+   exist, what state is it in)
+2. Check the branches under local `references/` for the same model or codename
+3. Check public ports of the same model (XDA / the GitHub topic `unixnu`)
 
-**证据格式**
+**Evidence format**
 ```
-机型 + 仓库 URL/commit + 他们实现了什么 + 他们卡在哪 + 我们比他们强在哪
+model + repository URL/commit + what they implemented + where they are stuck + where we go further
 ```
 
-**通过条件**
-- 能回答"同型号的最好状态是什么"
-- 能回答"我们要做的事，他们做过吗"
+**Pass condition**
+- can answer "what is the best state reached by the same model"
+- can answer "has anyone already done what we are about to do"
 
-**反模式**
-- ❌ 拿**别的机型**的驱动当同型号证据（2026-11-12：把 POCO X5 Pro 的 `hakios.goodix.c` 当成 PHK110 的）
-- ❌ 只写"参考了 pong"而不写 pong 具体做到了哪一步
+**Anti-patterns**
+- ❌ using another **model's** driver as evidence for this model
+  (2026-11-12: the POCO X5 Pro's `hakios.goodix.c` was taken as PHK110's)
+- ❌ writing "referenced pong" without saying how far pong actually got
 
 ---
 
-## ② 官方（Official）
+## ② Official (官方)
 
-**目的**：拿到权威要求，不靠猜。
+**Purpose**: obtain the authoritative requirement instead of guessing.
 
-**必做**
-1. 读 `https://unixnu.com/zh/porting/<subsystem>` 对应页面，逐条列出要求
-2. 读官方驱动源码（vendor kernel / Linux mainline），找到关键函数与结构体
+**Mandatory**
+1. Read the matching page at `https://unixnu.com/zh/porting/<subsystem>` and
+   list its requirements one by one
+2. Read the official driver source (vendor kernel / Linux mainline) and locate
+   the key functions and structures
 
-**证据格式**
+**Evidence format**
 ```
-URL + 章节号/标题；源码 file:line + 函数名
+URL + section number/title; source file:line + function name
 ```
 
-**通过条件**
-- 能引用官方文档的具体条目（不是"看过了"）
-- 能指出官方实现里的关键函数名和行号
+**Pass condition**
+- can cite a specific item from the official documentation (not "I read it")
+- can name the key functions and line numbers in the official implementation
 
-**反模式**
-- ❌ 只写"参考官方驱动"而不给 file:line
-- ❌ 把厂商旧驱动当官方（要区分 vendor 和 mainline）
+**Anti-patterns**
+- ❌ writing "referenced the official driver" without a `file:line`
+- ❌ treating an old vendor driver as official (vendor and mainline differ)
 
 ---
 
-## ③ 反编译（Reverse / forensic）
+## ③ Reverse engineering (反编译)
 
-**目的**：拿到**本机**的真实参数。这一步是唯一能排除"别的机型参数不适用"的步骤。
+**Purpose**: obtain the real parameters of **this device**. This is the only
+step that rules out "another model's parameters do not apply".
 
-**必做**
-1. live FDT 反编译（本机的 DTB，不是别机的）
-2. Android 侧实机取证（`/proc/device-tree`、`/sys/class/...`、dmesg）
-3. 固件提取 / 必要反汇编
+**Mandatory**
+1. live FDT decompilation (this phone's DTB, not another one's)
+2. on-device forensics from the Android side (`/proc/device-tree`,
+   `/sys/class/...`, dmesg)
+3. firmware extraction / disassembly where required
 
-**证据格式**
+**Evidence format**
 ```
-DTB sha256 + 反编译路径 + 关键属性值
-Android 命令 + 完整输出
+DTB sha256 + decompile path + property values
+Android command + full output
 ```
 
-**通过条件**
-- 每个关键参数（地址 / 引脚 / 时钟 / ID / 供电）都有**本机**来源
-- 不残留"从别的机型推断"的参数
+**Pass condition**
+- every key parameter (address / pin / clock / ID / supply) has a **local**
+  source
+- no parameter is left "inferred from another model"
 
-**反模式**
-- ❌ 用 mainline dtsi 的索引代替本机 FDT（2026-11-12：cape/sm8475 的 m/s_ahb 索引是 134/135，mainline sm8450 是 118/119）
-- ❌ 只查寄存器地址不查供电/时钟
+**Anti-patterns**
+- ❌ substituting a mainline dtsi index for the local FDT
+  (2026-11-12: cape/sm8475 carries m/s_ahb at index 134/135, mainline sm8450 at
+  118/119)
+- ❌ checking register addresses without checking supplies and clocks
 
 ---
 
-## ④ 广域（Wide / **Reuse first**）
+## ④ Wide search (广域 / **Reuse first**)
 
-**目的**：**避免重复造轮子。** 这是最容易被跳过、代价最大的一步。
+**Purpose**: **stop rebuilding wheels.** This is the step most often skipped
+and the most expensive to skip.
 
-**必做（按顺序，缺一不可）**
+**Mandatory (in order, none optional)**
 
-1. **★ 查 UniXNU 官方组件目录**
-   - 文件：`UniXNU/components.toml`（25 个组件）
-   - 网页：`https://unixnu.com/zh/reference/components`
-   - **必须逐个回答**：有没有能直接用的？如果没有，为什么不能？
+1. **★ Search the official UniXNU component catalogue**
+   - File: `UniXNU/components.toml` (25 components)
+   - Page: `https://unixnu.com/zh/reference/components`
+   - **Every entry must get an answer**: is there something usable? If not, why
+     not?
 
-2. **★ 查官方驱动仓库列表**
-   - 网页：`https://unixnu.com/zh/drivers/repositories`
-   - 27 个官方驱动 + 12 个社区驱动 + 9 个设备分支
-   - 同样必须回答"有没有能用的"
+2. **★ Search the official driver repository list**
+   - Page: `https://unixnu.com/zh/drivers/repositories`
+   - 27 official drivers + 12 community drivers + 9 device branches
+   - The same "is anything usable" answer is mandatory here too
 
-3. **查同 SoC 兄弟移植**
-   - 例：SM8475 的 PHK110 / d22ap / taro 系列
+3. **Search sibling ports on the same SoC**
+   - Example: the PHK110 / d22ap / taro family on SM8475
 
-4. **查同外设芯片实现**
-   - 例：同款触摸芯片、同款 WiFi 芯片的其他机型
+4. **Search implementations for the same peripheral chip**
+   - Example: other models with the same touch controller or the same WiFi chip
 
-5. **多来源交叉验证**
-   - 至少 2 个独立来源对同一参数给出一致结论
+5. **Cross-check multiple sources**
+   - At least 2 independent sources agree on the same parameter
 
-**证据格式**
+**Evidence format**
 ```
-[catalog_checked] UniXNU/components.toml 25 个组件逐个比对：
-  - QcomGeniSpi: 可用/不可用 + 理由
-  - AdrenoMetal: 可用/不可用 + 理由
+[catalog_checked] UniXNU/components.toml, all 25 components compared one by one:
+  - QcomGeniSpi: usable/not usable + reason
+  - AdrenoMetal: usable/not usable + reason
   ...
-[repositories_checked] unixnu.com/zh/drivers/repositories 27 个官方驱动：
+[repositories_checked] unixnu.com/zh/drivers/repositories, 27 official drivers:
   - ...
 [same_soc] ...
 [same_chip] ...
 [cross_check] ...
 ```
 
-**通过条件**
-- **`catalog_checked = true` 且给出结论**（用 / 不用 + 理由）
-- 如果官方有可用组件却自己造了轮子 → **FAIL**
+**Pass condition**
+- **`catalog_checked = true` with a verdict** (use / do not use + reason)
+- an available official component with a hand-written wheel instead → **FAIL**
 
-**反模式**
-- ❌ 只查同 SoC，不查官方组件目录（2026-11-12：手写 GENI SPI bitbang，而官方 `QcomGeniSpi` 有 DMA 路径）
-- ❌ 只写"参考了 xxx"而不说"能不能直接用"
+**Anti-patterns**
+- ❌ searching only same-SoC ports and skipping the official catalogue
+  (2026-11-12: a hand-written GENI SPI bitbang, while the official
+  `QcomGeniSpi` already has a DMA path)
+- ❌ writing "referenced xxx" without saying whether it can be used directly
 
 ---
 
-## ⑤ 方案（Plan）
+## ⑤ Plan (方案)
 
-**目的**：把前四步的结论变成具体改动。
+**Purpose**: turn the conclusions of the first four steps into concrete changes.
 
-**必做**
-1. 列出要改的每个文件
-2. 每条改动标注依据来源（来自 ①②③④ 的哪一条）
-3. 写明预期结果
+**Mandatory**
+1. list every file that will change
+2. tag every change with the source it rests on (which item of ①②③④)
+3. state the expected outcome
 
-**证据格式**
+**Evidence format**
 ```
-| 文件 | 改动 | 依据 |
+| File | Change | Basis |
 |---|---|---|
-| drivers/X.c | 加 Y | ③ DTB 属性 zz=0x... (file:line) |
+| drivers/X.c | add Y | ③ DTB property zz=0x... (file:line) |
 ```
 
-**通过条件**
-- 每条改动都能追溯到前四步的某条证据
-- 没有"凭经验"的改动
+**Pass condition**
+- every change traces back to a piece of evidence from the first four steps
+- no change is justified by "experience"
 
-**反模式**
-- ❌ 方案里出现"应该是""可能是"
+**Anti-patterns**
+- ❌ a plan containing "should be" or "might be"
 
 ---
 
-## ⑥ 深挖（Deep dive）
+## ⑥ Deep dive (深挖)
 
-**目的**：把方案里所有"不确定"挖到确定。
+**Purpose**: drive every "uncertain" item in the plan to a definite answer.
 
-**必做**
-1. 显式列出方案里的每个不确定项
-2. 对每项给出验证方法并执行到有结论
-3. 结论必须可证伪（能说出"如果是 A 会看到什么，如果是 B 会看到什么"）
+**Mandatory**
+1. list every uncertain item in the plan explicitly
+2. give each item a verification method and run it until there is a conclusion
+3. the conclusion must be falsifiable (it must be possible to say "if it were A
+   we would see this, if it were B we would see that")
 
-**证据格式**
+**Evidence format**
 ```
-| 不确定项 | 验证方法 | 结论 | 依据 |
+| Uncertain item | Verification | Conclusion | Basis |
 |---|---|---|---|
 ```
 
-**通过条件**
-- 不确定项清单为空，或每项都有结论
-- 方案里不再有模糊词
+**Pass condition**
+- the uncertainty list is empty, or every item has a conclusion
+- the plan no longer contains hedging words
 
-**反模式**
-- ❌ 把"深挖"当成"再多读几遍代码"
-
----
-
-## ⑦ 核验（Local verification）
-
-**目的**：**不刷机**就能证明实现是对的。这是刷机的最后一道闸。
-
-**必做（三类，缺一不可）**
-
-1. **静态对照**
-   - 关键常量 / 结构体偏移 / 时序 vs 官方实现**逐行**比对
-   - 例：`goodix_ic_info_misc` 的 packed 偏移 vs 我们的 `misc + N`
-
-2. **离线单元测试**
-   - 用已知输入（参考实现的原始字节序列）喂我们的解析函数
-   - 验证输出符合预期
-
-3. **构建产物检查**
-   - 符号、字符串、大小、签名、段布局
-   - 例：`strings kernel.macho | grep <标记>`、`__TEXT <= 16384`
-
-**证据格式**
-```
-命令 + 完整输出 + 结论（每类一条）
-```
-
-**通过条件**
-- 每一条代码改动都有对应的本地验证证据
-- **"编译通过"不算核验**
-
-**反模式**
-- ❌ 只跑 `make` 成功就认为可以刷机
-- ❌ 只验证一个方面（如只验大小不验逻辑）
+**Anti-patterns**
+- ❌ treating "deep dive" as "read the code a few more times"
 
 ---
 
-## ⑧ 上机（On device）
+## ⑦ Local verification (核验)
 
-**目的**：真机确认，且必须能一眼判定成败。
+**Purpose**: prove the implementation is correct **without flashing**. This is
+the last gate before the phone is touched.
 
-**必做**
-1. **刷机前**声明判据（写进 `EIGHT-STEPS.toml` 的 `prediction`）
-   - `success`：成功时日志里会出现哪一行（要能 grep）
-   - `failure`：失败时会出现哪一行
-2. 只改**一个**变量（其它保持上次成功的配置）
-3. 保留回滚镜像
-4. 刷完对照判据，不要"看起来还行"
+**Mandatory (three kinds, none optional)**
 
-**证据格式**
+1. **Static comparison**
+   - compare key constants / struct offsets / timing against the official
+     implementation **line by line**
+   - example: the packed offset of `goodix_ic_info_misc` against our `misc + N`
+
+2. **Offline unit test**
+   - feed our parser the known input (the byte sequence from the reference
+     implementation)
+   - verify the output matches
+
+3. **Artefact inspection**
+   - symbols, strings, size, signature, segment layout
+   - example: `strings kernel.macho | grep <marker>`, `__TEXT <= 16384`
+
+**Evidence format**
 ```
-日志文件名 + 命中的行原文 + 判据对照
+command + full output + conclusion (one entry per kind)
 ```
 
-**通过条件**
-- `success` 判据命中
-- 如果是 `failure` 命中，要记录到 PITFALLS
+**Pass condition**
+- every code change has matching local verification evidence
+- **"it compiles" does not count**
 
-**反模式**
-- ❌ 没声明判据就刷机，事后解释"其实也算成功"
-- ❌ 一次改多个变量，无法归因
+**Anti-patterns**
+- ❌ running `make` successfully and calling that ready to flash
+- ❌ verifying one dimension only (size but not logic)
 
 ---
 
-## 门禁映射
+## ⑧ On device (上机)
 
-| 阶段 | 要求 |
+**Purpose**: confirm on the real phone, and make success or failure readable at
+a glance.
+
+**Mandatory**
+1. **before flashing**, declare the criteria (in `EIGHT-STEPS.toml` under
+   `prediction`)
+   - `success`: the exact log line that appears on success (it has to be
+     greppable)
+   - `failure`: the line that appears on failure
+2. change **one** variable only (everything else stays at the last successful
+   configuration)
+3. keep a rollback image
+4. after flashing, compare against the criteria instead of "it looks about right"
+
+**Evidence format**
+```
+log file name + the matched line verbatim + criteria comparison
+```
+
+**Pass condition**
+- the `success` criterion matched
+- a `failure` match is recorded in PITFALLS
+
+**Anti-patterns**
+- ❌ flashing with no declared criteria and explaining afterwards that "it
+  really did work"
+- ❌ changing several variables at once, which makes attribution impossible
+
+---
+
+## Gate mapping
+
+| Stage | Requirement |
 |---|---|
-| `build` | ①~⑥ 全部 have evidence |
-| `flash` | ①~⑦ 全部 + ⑧ 的 `prediction.success` / `prediction.failure` |
+| `build` | ①-⑥ all have evidence |
+| `flash` | ①-⑦ all, plus `prediction.success` / `prediction.failure` for ⑧ |
 
-**`④ 广域` 额外硬性要求**：`catalog_checked = true` 且 `catalog_result` 非空。
-这是"不重复造轮子"的机器保障。
+**Extra hard requirement for `④ Wide search`**: `catalog_checked = true` and a
+non-empty `catalog_result`. That is the machine guarantee behind "do not rebuild
+wheels".
 
 ---
 
-## 为什么要有这份规范
+## Why this spec exists
 
-2026-11-12 用户指出：
+On 2026-11-12 the user pointed out:
 
-> "为了避免反复踩坑和反复造轮子，八步流程应该有充分合理的定义"
+> "To stop falling into the same pits and rebuilding the same wheels, the
+> eight-step process needs a thorough and reasonable definition."
 
-在此之前，"八步"只是 `EIGHT-STEP-EVIDENCE.md` 里一张表，每格写个 ✅/◐/❌，
-既没有说清每步要做什么，也没有说清什么算做完。
+Before that, "the eight steps" were one table in `EIGHT-STEP-EVIDENCE.md` with a
+✅/◐/❌ per cell; nothing said what each step had to do, and nothing said what
+counted as finished.
 
-结果：
-- ③ 反编译：只看了 DT，没查供电/时钟
-- ④ 广域：只查同 SoC，**没查官方组件目录** → 手写 GENI SPI，而官方 `QcomGeniSpi` 有 DMA 路径
-- ⑦ 核验：只跑编译，没做任何静态对照或单元测试
+The results:
+- ③ Reverse engineering: only the DT was read, supplies and clocks were not
+  checked
+- ④ Wide search: only same-SoC ports were searched, **the official component
+  catalogue was never opened** → a hand-written GENI SPI, while the official
+  `QcomGeniSpi` has a DMA path
+- ⑦ Local verification: only a build was run, no static comparison and no unit
+  test
 
-这份规范把每一步变成"答不出这个问题就不算完成"。
+This spec turns every step into "if you cannot answer this question, it is not
+done".

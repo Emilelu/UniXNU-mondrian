@@ -1,6 +1,6 @@
 # 平台睡眠（官网 §5 末段）调研
 
-状态：**调研记录，未写代码、未上机**。官网 `https://unixnu.com/zh/porting/power` 的平台睡眠段落
+状态：**调研记录 + 纯逻辑模块（host 53 项断言），未上机**。官网 `https://unixnu.com/zh/porting/power` 的平台睡眠段落
 （快照 `E:/k60-work/scratch/power-page-20261117.txt:119-121`）描述的是板级 XNU 睡眠 hook 与
 ArmCpu 挂起路径；本仓库当前没有任何实现。本文记录 sheng 参考实现的事实、K60 现场 FDT 能确认的
 硬件映射，以及真正实现前缺什么。
@@ -102,14 +102,33 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
 6. **真机验证**：`platform-sleep=1`，记录 `sheng sleep:` 等价日志、唤醒源、唤醒耗时、
    `cpu_off failures`，并做一次 30 秒以上的 `wake-after` 睡眠。
 
-## 6. 边界
+## 6. 已实现的纯逻辑模块（2026-11-18）
 
-- 本文只做事实记录，没有新增代码；§5 的 CPU 探针/投票（`docs/research/power/01-EPSS-PROBE.md`）
+没有内核挂起路径，但掩码/唤醒判定可以先独立验证，和 EPSS 的
+`K60CpuFreqPlan` 做法一致：
+
+- `drivers/PongPower/K60SleepPlan.h` + `.c`：210 引脚计数、保留区
+  `28..31/36..39`、`INTR_CFG` 的 enable/polarity/detection/target 位、
+  `k60_sleep_pin_usable`、`k60_sleep_mask_tlmm`（只清 target=AP 且可用引脚的
+  enable，保留脚不动，容量不足返回 0 且不写输出）、`k60_sleep_pin_pending`、
+  `k60_sleep_power_wakes`（PON bit7，实时或锁存）、`k60_sleep_swallow`、
+  `k60_sleep_deadline_reached`、`k60_sleep_woke_by`。
+- 没有开盖分支：K60 FDT 没有 hall 节点，`K60WakePower` 与 wake-after 是仅有的来源。
+- `scripts/tests/test-k60-sleep-plan.c`：53 项断言，覆盖保留区、非 AP target 不变、
+  已关闭位不变、容量不足不写、PON 实时/锁存、按键吞掉与释放、deadline、唤醒原因文本。
+  运行：`cc -Wall -Wextra -Werror -std=c11 -o /tmp/tk60sleep scripts/tests/test-k60-sleep-plan.c drivers/PongPower/K60SleepPlan.c && /tmp/tk60sleep`
+  → `TESTS OK 53 checks (0 failures)`。
+- 模块没有调用者：没有 TLMM 映射、没有 PON 读取、没有 ArmCpu 注册；这些仍属 §5 的实现步骤。
+  引脚总数 210 来自同一 TLMM IP 的参考值，现场 FDT 未给出，接板级 hook 时要先读硬件计数。
+
+## 7. 边界
+
+- 本文的代码只有纯逻辑掩码模块，没有内核挂起路径、TLMM/PON 访问与真机睡眠；§5 的 CPU 探针/投票（`docs/research/power/01-EPSS-PROBE.md`）
   与本文无关，不要混为“§5 已完成”。
 - 没有上机证据前，平台睡眠状态只能是“未实现”。官网 §5 的其余部分（GPU 频率、
   外设投票所有权、fence 等待）同样未实现。
 
-## 7. 参考
+## 8. 参考
 
 - 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:119-121`。
 - sheng：`origin/main` `package/ShengSleep.h`、`ShengSleep.cpp`、

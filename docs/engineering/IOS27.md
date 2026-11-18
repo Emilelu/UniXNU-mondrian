@@ -88,7 +88,21 @@ sh scripts/build-ios27-linux.sh
 
 `scripts/build-ios27-linux.sh` applies the framework patches, fetches, configures,
 builds the kernel with `--skip-prelink` and packs the payload with the synthetic
-`MONDRIAN` chip id. Extra arguments go to `unixnu build kernel`.
+`MONDRIAN` chip id. Extra arguments go to `unixnu build kernel`. With
+`UNIXNU_UEFI` pointing at a staged `uefi-mondrian` checkout (submodules
+initialised, `nasm` and `acpi-tools` installed) it also builds the firmware
+volume and packs `boot/boot.img`; without it the script stops after the payload.
+
+```sh
+git clone https://github.com/Emilelu/uefi-mondrian.git ~/ios27-src/uefi-mondrian
+cd ~/ios27-src/uefi-mondrian && git submodule update --init --depth 1
+UNIXNU_UEFI=$HOME/ios27-src/uefi-mondrian sh scripts/build-ios27-linux.sh
+```
+
+The firmware is a normal EDK II `CLANGPDB` build of `Mu_Basecore` `6f805f2` plus
+the five `Resources/MuPatches/` fixes `board.toml` lists; it is not
+reproducible by design (`FIRMWARE-REBUILD.md` §2), so a rebuilt volume is judged
+on the device, not by its hash.
 
 That path needs no Mac and no phone. XNU's makefiles still ask for macOS
 tools, so install the three shims once:
@@ -146,7 +160,7 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 | Phase | Work | Exit |
 | --- | --- | --- |
 | F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | `RESULT OK arm64e-capable at EL1`; otherwise the branch stops |
-| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte; `scripts/check-ios27-granules.sh` passes; the boot image needs the firmware (next) |
+| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes the packer's own verification; `scripts/check-ios27-granules.sh` passes |
 | F2 | `XnuPrelink` against the 24A446 fixture, after rebuilding the LTO reference with Xcode 26 | `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI + `./unixnu userdata --os 27` | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
@@ -155,11 +169,15 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 
 `scripts/apply-core-patches.sh` applies every top-level
 `patches/unixnu-core/*.patch` and reports already-applied ones, so it is safe
-on every build. Today that is `linux-arm64e-target.patch`: the driver's Linux
-environment hardcoded `arm64-apple-ios17.0` and an arm64 `libcc_kext.a`, which
-made the arm64e kernel's compile records carry an iOS 17 deployment and the
-linker ignore the profile archive. The patch reads the arch and OS profile
-instead.
+on every build. Two patches today:
+
+- `linux-arm64e-target.patch`: the driver's Linux environment hardcoded
+  `arm64-apple-ios17.0` and an arm64 `libcc_kext.a`, which made the arm64e
+  kernel's compile records carry an iOS 17 deployment and the linker ignore the
+  profile archive. The patch reads the arch and OS profile instead.
+- `deterministic-platform-seed.patch`: `adt.random_seed` is a hexadecimal value
+  repeated to fill the 256-byte `/chosen/random-seed`; unconfigured boards keep
+  the fresh random seed. See the seed trap below for why this branch pins it.
 
 `patches/unixnu-core/legacy/k60-unixnu-core.patch` belongs to the 16.6.1 line
 and is never applied: its boot-image `verify()` change is upstream now, and the
@@ -184,8 +202,14 @@ K60 initrd/ramoops/config deltas are in `uefi-mondrian`'s vendored
 - **Deleting a device script does not delete its copy in the build tree.**
   Delete `out/<board>/<profile>/<config>/tree/scripts/<name>` too, or the next
   build keeps running the removed version.
-- **The ADT seed is fresh every build.** `devicetree.py` writes `os.urandom`
-  into `/chosen/random-seed`, so the physmap slide changes whenever the payload
-  is rebuilt; `docs/research/ios-mondrian-traps.md` measured about one slide in
-  three dying in `pmap_map_bd` on this phone. Pin the seed before treating a
-  reseeded image's failure as a kernel regression.
+- **The ADT seed sets the physmap slide.** `devicetree.py` used to write
+  `os.urandom` into `/chosen/random-seed`, so every rebuild moved the slide and
+  `docs/research/ios-mondrian-traps.md` measured about one slide in three dying
+  in `pmap_map_bd` on this phone. `board.toml` now pins
+  `[payload."adt"].random_seed`, which the framework patch below turns into 256
+  bytes of `0x11` (the reference board table's value, repeated to fill the four
+  seeds xnu-12377 reads). The generated ADT is therefore byte-identical from
+  one build to the next and a boot failure is a kernel change, not a reseeded
+  slide; the FAT image around it still differs in the directory timestamps
+  mtools writes at build time. Stage 0 only: a shipped system must not carry a
+  seed published in this repository.

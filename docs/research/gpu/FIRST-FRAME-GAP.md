@@ -55,3 +55,27 @@
 - 下一步（可执行）：查 `0211-k60-display-startup.patch` 里 `start()` 对 `pong_gpu_only` 的解析，
   以及 `0600` 里 `pong_scanout_frame` 的调用是否有「有 Metal 设备就跳过 CPU 合成」的分支；
   若有，改成「CPU 合成照常产出帧、GPU 只负责 blit」，即官方文档的 scanout 语义。
+
+## 2026-11-18 变体 B/C 的差异：动画路径才会进 Metal
+
+三飞同镜像同命令行，结果分两类。整份日志去掉时间戳后逐类对比，唯一决定性差异：
+
+| 只在 C（软件出帧）出现 | 次数 |
+|---|---|
+| `MiniIOMobileFramebuffer: retained layers …, damage rectangles 1, present …` | 8 |
+
+| 只在 B（卡死）出现 | 次数 |
+|---|---|
+| `SpringBoard[26] <CATransformLayer: …> - changing …` | 83 |
+| `SpringBoard[26] trying to set state of nil layer.` | 10 |
+
+- C 走 `MiniIOMobileFramebuffer` 的 present（软件合成器提交 surface），所以有帧，`c0/0 D0`。
+- B 里 SpringBoard 在跑 CATransformLayer 动画，这是真正要 GPU 的路：日志出现 `D2 F1 M4500`（2 draw / 1 全屏 pass / 4.5 MB），随后卡在 `nmb_render_draw` 内部不再返回，`MiniIOMobileFramebuffer` present 一次都没发生。
+
+因此「同一镜像时好时坏」的变量不是镜像，而是**这次启动有没有触发 SpringBoard 图层动画**。
+
+### 判据口径变更
+
+1. 此后「出帧」必须区分两种：`MiniIOMobileFramebuffer … present` = 软件合成出帧；只有 `Pong Metal: S` 里 `c>0` 才是 Metal 出帧。
+2. 里程碑 M4（首帧）改为：`c>0` 且 `crashed: backboardd = 0` 且出现 `K60DRAW leave`。
+3. 复现 B 变体需要启动期有动画；静止启动会落到 C 变体，不能算「Metal 通过」。

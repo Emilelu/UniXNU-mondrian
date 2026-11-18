@@ -312,6 +312,10 @@ def main() -> int:
     check("the probe falls back to the 2.4 GHz record and names a sweep with no pair",
           'mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz' in net and
           '"wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)"' in net)
+    check("the record filter drops the country element before the record leaves the driver",
+          'return id == 7;   // 802.11d Country' in net and
+          "if (drop_scan_element(static_cast<uint8_t>(id), len)) { dropped = true; continue; }" in net and
+          '"wifi-net: scan record elements filtered: kept %u of %u bytes"' in net)
     check("five probes remove one element group at a time from the real record",
           'static const char *const snm[5] = { "K60F", "K60G", "K60H", "K60I", "K60J" };' in net and
           "static const unsigned sid[5] = { 7, 195, 32, 255, 221 };" in net and

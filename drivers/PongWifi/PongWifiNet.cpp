@@ -562,11 +562,29 @@ void fill_channel(channel &c, uint32_t mhz) {
 uint64_t scan_clock_ns() {
   uint64_t ns=0;absolutetime_to_nanoseconds(mach_continuous_time(),&ns);return ns;
 }
+// wifid keeps this access point's 2.4 GHz record and drops the 5 GHz one although both are served, so a
+// field of the 5 GHz record is the filter. The probes of mission27/28 accept one element group back at a time
+// (K60B..K60E) and remove one group at a time from the real record (K60F..K60J); until one of them names the
+// group, this build also strips the element below from every record it hands over, so the real SSID has a
+// chance to appear in the same flight. The station's own association uses the access point's beacon directly,
+// not this record, so nothing on the air changes. Test branch only.
+static bool drop_scan_element(uint8_t id, uint32_t len) {
+  (void)len;
+  return id == 7;   // 802.11d Country: wifid prints the advertised country of every network before filtering
+}
 void fill_result(scan_result24 &record, const nw_bss_info &b,uint64_t sampled_ns) {
   memset(&record, 0, sizeof record);scan_result &r=record.legacy;
   r.version = 1; fill_channel(r.ch, b.freq_mhz); r.noise_known = 1; r.noise = -95; r.rssi = b.signal_dbm; r.snr = b.signal_dbm + 95;
   r.beacon_interval = b.beacon_int; r.capability = b.caps; memcpy(r.bssid, b.bssid, 6); r.ssid_length = b.ssid_len; memcpy(r.ssid, b.ssid, 32);
-  r.age_ms = b.age_ms; r.elements_length = b.ie_len > sizeof r.elements ? sizeof r.elements : b.ie_len; memcpy(r.elements, b.ie, r.elements_length);
+  r.age_ms = b.age_ms;
+  static unsigned announced; bool dropped = false; r.elements_length = 0;
+  for (unsigned o = 0; o + 2 <= b.ie_len; o += 2 + b.ie[o + 1]) {
+    const unsigned id = b.ie[o], len = b.ie[o + 1];
+    if (o + 2 + len > b.ie_len) break;
+    if (drop_scan_element(static_cast<uint8_t>(id), len)) { dropped = true; continue; }
+    if (r.elements_length + 2 + len <= sizeof r.elements) { memcpy(r.elements + r.elements_length, b.ie + o, 2 + len); r.elements_length += 2 + len; }
+  }
+  if (dropped && announced++ < 3) log(6, "wifi-net: scan record elements filtered: kept %u of %u bytes", r.elements_length, b.ie_len);
   r.rate_count = 0;
   // The station exposes real frame age at millisecond resolution. Sample
   // the clock BEFORE querying it and round age upward, so this estimate

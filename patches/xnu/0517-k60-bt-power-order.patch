@@ -1,0 +1,64 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -204,8 +204,8 @@
+ #define K60_PIN_CFG(pull, drive)    (((drive) << 6) | (pull))
+ 
+ #define K60_XO_PULSE_US             150u    /* vendor: 100..200 us before BT_EN high */
+-#define K60_BT_EN_LOW_MS            50u
+-#define K60_BT_EN_HIGH_MS           50u
++#define K60_BT_EN_LOW_MS            100u    /* official: hold BT_EN low 100 ms */
++#define K60_BT_EN_HIGH_MS           60u     /* official: wait 60 ms after BT_EN high */
+ #define K60_BT_OFF_MS               100u
+ #define K60_WLAN_OFF_DISCHARGE_MS   100u
+ 
+@@ -1047,28 +1047,23 @@
+     }
+     /* Keep UART pins parked while the controller is held in reset. */
+     k60_uart_pins_idle();
+-    /* Read WLAN_EN (GPIO80) without changing its mux/direction: the WLAN
+-     * driver or the bootloader owns that pin. */
++    /* Official K60 Bluetooth bring-up order (unixnu.com/zh/porting/bluetooth):
++     * BT_EN low 100 ms -> serial clock -> QUP engine -> IRQs -> BT_EN high
++     * 60 ms -> pins -> GENI start.  The vendor XO latch is kept around the
++     * BT_EN edge because it clocks the controller, not the QUP. */
+     k60_gpio_output(K60_BT_EN_GPIO, false, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
+     IOSleep(K60_BT_EN_LOW_MS);
+-    if (k60_pin_input(K60_WLAN_EN_GPIO)) {
+-        k60_xo_pulse();
+-        k60_gpio_output(K60_BT_EN_GPIO, true, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
+-        k60_xo_release();
+-    } else {
+-        IOSleep(K60_WLAN_OFF_DISCHARGE_MS);
+-        k60_xo_pulse();
+-        k60_gpio_output(K60_BT_EN_GPIO, true, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
+-        k60_xo_release();
+-    }
+-    IOSleep(K60_BT_EN_HIGH_MS);
+     k60.powered = true; /* mark early so any later failure runs power_off cleanup */
++    /* Read WLAN_EN (GPIO80) without changing its mux/direction: the WLAN
++     * driver or the bootloader owns that pin.  A WLAN-off board needs the
++     * discharge delay before the shared rail is used. */
++    if (!k60_pin_input(K60_WLAN_EN_GPIO))
++        IOSleep(K60_WLAN_OFF_DISCHARGE_MS);
+     k60_gpio_input(K60_BT_SW_CTRL_GPIO, K60_TLMM_PULL_NONE, K60_TLMM_DRIVE_2MA);
+     if (!k60.clocked) {
+         e = k60_serial_clock(true);
+         if (e) return e;
+     }
+-    k60_uart_pins_active();
+     e = k60_stop_engine();
+     if (e) return e;
+     e = k60_prepare_engine();
+@@ -1084,6 +1079,11 @@
+         if (e) return -EIO;
+         k60.wake_irq = true;
+     }
++    k60_xo_pulse();
++    k60_gpio_output(K60_BT_EN_GPIO, true, K60_TLMM_PULL_DOWN, K60_TLMM_DRIVE_2MA);
++    k60_xo_release();
++    IOSleep(K60_BT_EN_HIGH_MS);
++    k60_uart_pins_active();
+     e = qbt_geni_start(&k60.geni);
+     if (e) return e;
+     k60.gated = false;

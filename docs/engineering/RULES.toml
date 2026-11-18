@@ -830,3 +830,27 @@ title = "删掉一次分配不等于删掉那段开销：逐行搬运比线性�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-present-stage-split.py"
 note = "2026-11-18 gpu-stride：把纹理换成 3,200 条 copyFromBuffer，encode 389 -> 15040 us、copy 23.0 -> 37.6 ms；同一对照里 submit 11478 -> 11483 us，证明被优化的不是成本。保留纹理，行循环只做对齐兜底，并把形状名称打进日志。"
+
+[[rule]]
+id = "P-236"
+kind = "pitfall"
+title = "判据失败与没有数据是两件事：零帧的一飞必须先判无效，不能算 F 规则命中"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-judge-gpu-flight.py"
+note = "2026-11-18 gpu-texture-20261118 首飞完整无 panic 但零帧零提交，判决脚本把它判成 S2-S8 全失败并命中 F2；同镜像 9 分钟后重飞 359 帧 PASS。有效性层（frames>0 / client_commits>0 / scanout_lines>0）必须先判，--require-valid 无效时退出 3。"
+
+[[rule]]
+id = "P-237"
+kind = "pitfall"
+title = "计数器要先问窗口：单次调用的计数差被当成累计值，算出「每次提交 52 KB」"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-judge-gpu-flight.py"
+note = "2026-11-18 gpu-publish-probe：calls/cachebytes 是单次 publishMapped 调用前后的全局计数差（中位 610 次 / 135.3 MiB），不是开机累计；84 个样本里 calls 24 对、cachebytes 24 对相邻样本变小（合计 25/83 对）即证。cachebytes/n 与 us/objects 都是跨窗口除法，必须禁止。"
+
+[[rule]]
+id = "P-238"
+kind = "pitfall"
+title = "先到先得的规则必须先有单写者：Local 互斥体不是机器级，竞争者在锁外就重启了设备"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-boot-lock.py"
+note = "2026-11-18 用户把上机规则改为先到先得；原 capture 互斥体是 Local\\ 每会话作用域、supervisor 无锁、flash.sh 在探测前就 adb reboot bootloader。改为 FileShare.None 机器级 claim + K60_AGENT_ID 署名 + rc=6/7，check-boot-procedure.py 增加 B2。"

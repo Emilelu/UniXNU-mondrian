@@ -6206,3 +6206,103 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
    单飞却只能证明「没变好」；把两飞的逐项中位数并排，才能得出「逐行更差 14.6 ms」。
 4. **固定开销要去它自己的层里量**。外层已经证明 `submit` 与形状、与 GPU 都不相关，
    再在外层调搬运就是浪费飞行；下一步必须进 `commit_now`/`submit_batch` 内部打点。
+
+## P-236
+
+**现象（2026-11-18, image `gpu-texture-20261118`, 日志 `usblog-20261118-185517`）**：
+这一飞完整（176,781 B / 2,966 行、`capture.json complete=true`、supervisor rc=0、
+`K60KEXC` 0、panic 0），判决脚本却报 `F2 HIT` + `VERDICT: FAIL (S2..S8)`。
+可日志里连一条 `scanout` 都没有：`MiniIOMobileFramebuffer: N frames` 整行不存在，
+客户端停在 `Pong Metal: c0/0 d0 …`——合成器一次也没提交帧，`present()` 从未执行。
+同一张镜像 9 分钟后重飞出了 359 帧、拿到 PASS。
+
+**真因**：判据层与有效性层混在一起。判据（S2 要有形状行、S6 要 ≤2,000 µs…）的前提是
+「这一飞真的跑到了被测路径」。零帧的日志里所有性能判据都"不满足"，于是脚本把它们
+全判成失败，连 F 规则也一起命中——结论指向镜像，而实际指向一次启动意外。
+
+**修法**：`scripts/judge-gpu-flight.py` 的 `validity()` 把有效性单独成层并先判：
+`frames>0`、`client_commits>0`、`scanout_lines>0` 三者齐备才算有效；
+`--require-valid` 在无效时以 3 退出，让下游脚本无法把无效日志继续判成失败。
+`scripts/tests/test-judge-gpu-flight.py` 13 例覆盖（零帧无效、22 帧但零提交仍无效、
+正常飞行有效、`--require-valid` 退出码 3/0、日志缺失退出 2）。
+
+**教训**：
+1. **判据失败与没有数据是两件事**。零帧必须先判"无效"，不能算任何 F 规则命中；
+   否则一次启动抖动会被记成一次"功能退化"，把后续归因带偏。
+2. **有效性层要自带判据**。"有帧"不能用"日志存在"代替——`MiniIOMobileFramebuffer` 行、
+   客户端 `c<n>`、`scanout` 行三者是三条独立证据，缺一条就说清缺哪条。
+3. **同一张镜像要允许重飞**。9 分钟后的重飞推翻了前一次的结论，说明单次启动失败
+   不足以判定镜像；重飞成本远低于按错误结论改代码。
+
+## P-237
+
+**现象（2026-11-18, image `gpu-publish-probe-20261118`, 日志 `usblog-20261118-201603`）**：
+探针报 `PONG VM: publish sample n=2688 objects=613 … us=10107 calls=565 cachebytes=139517952`。
+据此算出「565 次维护 / 2688 次提交 ⇒ 每次提交只清 52 KB」，
+进而断定「10 ms 的耗时按对象数增长、与维护字节无关」，还写进了上机卡并据以否证 F6。
+
+**真因**：计数器语义读错。`calls`/`cachebytes` 是**单次被抽样调用**前后读取的
+全局计数差（`NativeAdrenoVm.cpp` 在该次 `publishMapped()` 循环前后取 `stats[3]`/`stats[1]`），
+不是开机累计，也不是最近 32 次的累计。用 `cachebytes / n` 得 52 KB 是无量纲拼接：
+分子是"这一次调用"的维护量，分母是"这个 `NativeAdrenoVm` 至今的调用次数"。
+反证很直接：84 个样本里 `calls` 有 **24 对**相邻样本变小、`cachebytes` 也有 **24 对**变小
+（83 对相邻样本中 25 对至少一项变小；`n=480 calls=538` → `n=512 calls=412`），
+累计值不可能变小；真实量级是 **calls 中位 610、cachebytes 中位 135.3 MiB**。
+
+**修法**：`scripts/judge-gpu-flight.py` 的 `window_report()` 把窗口语义写死在输出里——
+统计相邻样本计数变小的对数、列出「相同 objects/bytes/calls/cachebytes 而耗时不同」的样本组，
+并显式打印禁止用 `cachebytes/n` 或 `us/objects` 推算。13 例测试覆盖。
+上机卡 `FLIGHT-CARD-20261118n.md` §5.2 撤回 52 KB 与「按对象耗时」结论，
+并把「按 `buffers[]` 限缩维护」的正确性论证标为未建立（`referenced` 只是 indirect-buffer 字节）。
+
+**教训**：
+1. **读计数器先问窗口**：累加值、单次差、区间差是三种量，混用会给出数量级错误的结论。
+   一个能自证的检查是「这个量会不会变小」——会变小就绝不可能是累计值。
+2. **别用两个不同窗口的量做除法**。`cachebytes / n` 这种式子看起来像"每次提交的开销"，
+   实际是把一次调用的字节配上了全部调用的次数。
+3. **相同输入不同耗时是重要信号，不是噪声**。84 个样本在 objects/bytes/calls/cachebytes
+   几乎一致的情况下分成 ≈3.1 ms（22 个）与 ≈10.3 ms（62 个）两簇，且序列交错
+   （不是预热）。这说明耗时是**状态相关**的，任何"按对象数线性增长"的模型都解释不了；
+   下一步要先分辨状态（频率/被抢占/实际维护页数），再谈优化。
+
+## P-238
+
+**现象（2026-11-18 晚）**：连续三次上机窗口消失，`fastboot devices` 与 `adb devices` 都空，
+只有 `USB Serial Device (COM5)` 还在。第一次归因为"设备自己掉线"，直到用户指出
+（m40682，verbatim）「fastboot消失就是其他agent抢到了boot」。
+
+**真因**：上机入口没有跨进程的单写者。`capture-k60-usblog.ps1` 的互斥体是
+`Local\K60-CDC-ACM-Capture`——`Local\` 是**每会话**命名空间，既不跨 Windows 会话，
+也不跨不同的检出；`boot-and-capture.ps1` 自己完全不持锁；`flash.sh` 在探测 claim 之前
+就先 `adb reboot bootloader`。于是两个 agent 可以同时走到 `fastboot boot`，
+后者的抓取对着已经换了镜像的设备。
+
+**修法**：机器级 claim（`E:\k60-work\state\k60-device-boot.lock`），
+`scripts/k60-boot-lock.ps1` 用 `FileShare.None` 独占句柄（进程退出即由内核释放，
+不需要死锁清理），`boot-and-capture.ps1` 在碰设备前获取、`finally` 释放、
+拿不到以 rc=6 退出且**不发出 boot**；`flash.sh` 只要求 `K60_AGENT_ID` 署名（缺失 rc=7），
+**不再自己探测锁、也不再自己 `adb reboot bootloader`** —— 重启交给 supervisor 在 claim 之内用
+`-RebootToFastboot` 做。`scripts/tests/test-boot-lock.py` 11 例执行验证；
+`scripts/check-boot-procedure.py` 的 B2 检查禁止 `flash.sh` 出现 `flock`/`reboot bootloader`。
+
+**第二版修法（第一版是错的）**：第一版让 `flash.sh` 用 `flock -n "$LOCK" -c true` 预探 claim。
+这是**假安全**：`flock` 是 POSIX 劝告锁，supervisor 持有的是 Windows `FileShare::None` 句柄，
+两者不是同一锁域，探测代码在语义上根本无法看到对方的持有者。实测在 WSL 上 `flock` 会以
+rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**挂载方式的偶然**，不是锁约定；
+换一个挂载方式或换一个调用方就会退化成"永远空闲"。因此判据改成只钉安全方向：
+`test-boot-lock.py` 的 `a shell-side flock never looks free while the claim is held` 断言
+持有期间 shell 探测**绝不会**成功获取。
+
+**教训**：
+1. **先到先得的规则必须先有单写者**。"谁先抢到谁用"在共享资源上等价于"谁都没同步"；
+   规则改动要连同互斥一起改，否则新规则本身就是缺陷。
+2. **`Local\` 不是机器级**。命名互斥体的作用域写错时，保护看起来存在、实际只在
+   自己的会话里成立；判断互斥是否有效，要问"另一个会话/另一个检出能不能进来"。
+3. **抢占点要在不可逆动作之前**。`adb reboot bootloader` 已经把别人的抓取打断了，
+   事后再检测 claim 只能报错、无法补救。
+4. **匿名占用等于没有归属**。事后追查"是谁飞的那一枪"必须有署名；缺 actor 就拒绝，
+   比允许一个 `unknown` 更省事。
+5. **一个锁域只留一个实现者**。加了 `flock` 预探之后，"竞争会被拒绝"这句话在代码里
+   成立、在运行时从不成立——假安全比没有保护更贵，因为它会让人停止怀疑。
+   守则：锁的探测与获取必须是同一个 API；跨语言的第二个探测点只允许是"报告持有者"，
+   不允许参与放行判断。

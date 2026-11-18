@@ -47,6 +47,34 @@ K60_FORCE_NEW=1 bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh <img> <秒�
 争抢的处理是明确的：第二个 collector 拿不到互斥体就以 `capture-busy` 退出（rc=3），
 不会写出第二份证据。
 
+## 上机权：先到先得，但必须单写者
+
+2026-11-18 用户把规则从「只有 Lead 能 boot」改成「**哪个 agent 先抢到就哪个 boot**」。
+先到先得只有在单写者成立时才是安全的：两个 agent 同时 `fastboot boot`，后者的抓取会对着
+已经换了镜像的设备，日志与镜像对不上——那比没有日志更坏，因为它会给出**看起来有证据**的错误结论。
+
+所以 claim 是**机器级**的，落在 `E:\k60-work\state\k60-device-boot.lock`：
+
+| 位置 | 行为 |
+| --- | --- |
+| `scripts/k60-boot-lock.ps1` | `Enter-K60BootLock` 用 `FileShare.None` 独占句柄；`Exit-K60BootLock` 写 `releasedAt` 后释放 |
+| `scripts/boot-and-capture.ps1` | 取到 claim **之后**才碰设备；`finally` 里释放；没拿到就以 rc=6 退出且**不发出 boot** |
+| `scripts/flash.sh` | 只负责要求 `K60_AGENT_ID` 署名并把 `-RebootToFastboot` 交给 supervisor；**不探测锁、不自己重启设备** |
+
+三条必须成立的性质，由 `scripts/tests/test-boot-lock.py` 执行验证：
+
+1. 持有者存在时，第二个申请者被拒绝，错误里带 `K60_BOOT_BUSY` 与持有者署名；
+2. 持有者退出（含崩溃）后锁自动可用——独占句柄由内核在进程结束时释放，不需要人工清死锁文件；
+3. 匿名 claim 被拒绝：没有 `-Actor` 就没有归属，事后无法判断谁占过设备。
+
+`K60_AGENT_ID` 因此是上机的必填项（`flash.sh` 缺它以 rc=7 退出），
+`boot.json` 会记下 `actor` 与 `bootClaimBusy`，让证据自己说明是谁飞的那一枪。
+
+**为什么 `flash.sh` 不再自己探测锁**：它曾用 `flock -n` 预探，而 supervisor 持有的是
+Windows `FileShare::None` 句柄——两个不同锁域，探测在语义上看不到持有者。现在所有碰设备的
+动作（含 `adb reboot bootloader`）都发生在 claim 之内：竞争者由 supervisor 以 rc=6 拒绝，
+而拒绝发生在设备被动过之前。`test-boot-lock.py` 有一条执行判据钉住"shell 探测永不看起来空闲"。
+
 ## flash.sh 内部顺序
 
 1. `porting-gate.py --quick`（文档 / porting / patch 结构 / 序列指纹）
@@ -82,7 +110,8 @@ K60_FORCE_NEW=1 bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh <img> <秒�
 - `port-open-failed` —— 端口出现过但打开失败
 - `port-not-observed` —— 从头到尾没看到端口
 
-supervisor 退出码：0 完整，1 监督/启动失败，2 零字节，3 串口被占用，4 截断，5 自己回了 fastboot。
+supervisor 退出码：0 完整，1 监督/启动失败，2 零字节，3 串口被占用，4 截断，5 自己回了 fastboot，
+6 另一个 agent 持有 boot claim（本次未发出），7 未设置 `K60_AGENT_ID`。
 **0 字节的日志不是"内核没跑"的证据** —— `port-not-observed` 只说明 USB gadget 没枚举成功，
 可能原因从"内核死在 gadget init 之前"到"根本没 boot 成功"都有，必须结合 `boot.json`
 里的 `bootAccepted` 一起看。

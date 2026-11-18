@@ -67,13 +67,23 @@ waitfor() {
 
 echo
 echo "=== 1) 设备状态 ==="
+# 机器级单写者：谁先拿到 claim 谁启动（2026-11-18 用户改为先到先得）。
+# 这里**不**自己探测锁，也**不**自己 adb reboot：`flock` 与 PowerShell 的
+# FileShare::None 是两个互不相通的锁域，用 flock 探 PowerShell 的持有者永远是「空闲」，
+# 那是最坏的一种假安全。所有碰设备的动作（含重启到 fastboot）都交给 supervisor，
+# 在它自己的 claim 之内完成；竞争时它回 rc=6，本次 boot 不会发出。
+ACTOR="${K60_AGENT_ID:-}"
+if [ -z "$ACTOR" ]; then
+  echo "  ❌ 未设置 K60_AGENT_ID：boot claim 无法署名，拒绝启动"
+  exit 7
+fi
 S=$(state)
 echo "  当前: $S"
-case "$S" in
-  fastboot) ;;
-  adb)  "$ADB" -s "$SERIAL" reboot bootloader >/dev/null 2>&1; waitfor fastboot 150 || exit 1 ;;
-  none) echo "  ❌ 设备不可见（既不在 fastboot 也不在 adb）—— 需要长按电源+音量下"; exit 2 ;;
-esac
+if [ "$S" = "none" ]; then
+  # 可能是别的 agent 正在 boot（重启途中既不在 fastboot 也不在 adb），
+  # 也可能是真的没连上。交给 supervisor 判：先取 claim，再决定是不是别人在飞。
+  echo "  ⚠️  现在既不在 fastboot 也不在 adb：可能是另一个 agent 正在启动，交给 supervisor 判"
+fi
 
 echo
 echo "=== 2) 启动（单一 supervisor 先武装抓取）==="
@@ -84,7 +94,7 @@ WIN_BOOT=$(echo "$REPO/scripts/boot-and-capture.ps1" | sed 's|^/mnt/\([a-z]\)/|\
 echo "  img: $WIN_IMG"
 echo "  证据目录: $WIN_OUT"
 powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "$WIN_BOOT" \
-  -Image "$WIN_IMG" -Seconds "$SECS" -WaitFastboot 150 -OutDir "$WIN_OUT" -Serial "$SERIAL"
+  -Image "$WIN_IMG" -Seconds "$SECS" -WaitFastboot 150 -RebootToFastboot -OutDir "$WIN_OUT" -Serial "$SERIAL" -Actor "$ACTOR"
 RC=$?
 echo
 echo "=== 3) 判读 ==="
@@ -96,5 +106,7 @@ case "$RC" in
   3) echo "  ❌ 已有另一个抓取进程占用串口，boot 没有被发出" ;;
   4) echo "  ⚠️  抓到了但被截断或断线：看 capture.json 的 stopReason" ;;
   5) echo "  ⚠️  设备已自己回到 fastboot（可能是 panic 复位），看 console.log 尾部" ;;
+  6) echo "  ❌ 另一个 agent 已持有 boot claim（先到先得），本次 boot 未发出" ;;
+  7) echo "  ❌ 未设置 K60_AGENT_ID，boot claim 无法署名，拒绝启动" ;;
   *) echo "  ❓ 未预期的退出码 $RC" ;;
 esac

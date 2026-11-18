@@ -57,9 +57,14 @@ def hard_rules_in_doc() -> set[str]:
 
 
 def run_check(command: str) -> tuple[bool, str]:
+    # text=True alone decodes with the host locale (GBK on this machine), so a
+    # check that prints UTF-8 or a stray non-ASCII byte kills the whole registry
+    # with UnicodeDecodeError instead of reporting that check as failed. The
+    # registry must be able to *report* a broken check, never die of one.
     result = subprocess.run(command, shell=True, cwd=str(REPO),
-                            capture_output=True, text=True, check=False)
-    output = (result.stdout + result.stderr).strip().splitlines()
+                            capture_output=True, text=True, check=False,
+                            encoding="utf-8", errors="replace")
+    output = ((result.stdout or "") + (result.stderr or "")).strip().splitlines()
     tail = output[-1] if output else "(no output)"
     return result.returncode == 0, tail
 

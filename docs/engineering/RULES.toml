@@ -874,3 +874,11 @@ title = "一个没人赋值的开关让三处跳过判据全是死代码：判�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-gpu-coherence-probe.py"
 note = "2026-11-19: native_adreno_io_coherent 被声明两次、读三处、全仓无赋值，于是 publishMapped/acquireImported/UserClient 的相干跳过全部是死代码，每次提交照旧清 93.2 MiB 导入帧（6.6-10.1 ms）。移植 zizhan 的 coherenceProbe 并在 native_adreno_publish 之前赋值后，真机首次即 d64/64 a1 r1024/0 w1024/1024 s0 k6 通过。门禁要问生产者，不是声明次数。"
+
+[[rule]]
+id = "P-241"
+kind = "pitfall"
+title = "写好的计时表没有调用点，采样又只到 60 s：客户端那 48 ms 因此从未被看见"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-metal-telemetry-stream.py"
+note = "2026-11-19: native_bridge_metal_telemetry()（行 T/G/J/V/K，含每 commit 的 ctc）全仓无调用点的同时，插件只在 5/20/60 s 采状态，200 s 的飞行在 60 s 后静默，于是 present() 之外的 ~48 ms 客户端绘制既没被量也没被报。修法是给表一个调用者（按行 report），并把节奏延到 5/20/60/120/180 s。教训：接口的存在不构成通路（同族 P-240），采样窗口必须覆盖判据声称的时间段。"

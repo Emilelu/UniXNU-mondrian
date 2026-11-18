@@ -57,6 +57,25 @@ static void report(const char *phase,int status)
 #include "PongMetalScanout.h"
 #include "PongQuartzCorePolicy.h"
 namespace {
+// The bridge accumulates per-commit timing (rows T/G/J/V/K) but
+// native_bridge_metal_telemetry() had no caller, so none of it reached the log.
+// Stream it a row at a time: rows are <=90 characters and report() prefixes each.
+static void streamTelemetry(void)
+{
+    static char blob[8192];
+    const size_t bytes=native_bridge_metal_telemetry(blob,sizeof(blob));
+    if(!bytes)return;
+    for(size_t at=0;at<bytes;){
+        size_t end=at;
+        while(end<bytes && blob[end]!='\n')++end;
+        const char saved=blob[end];
+        blob[end]=0;
+        if(end>at)report(blob+at,0);
+        blob[end]=saved;
+        at=end+1;
+    }
+}
+namespace {
 static void missing(const char *type,const char *selector)
 {
     static unsigned count;
@@ -218,11 +237,15 @@ static void startPresentation(id candidate,unsigned port)
     });
     // Bounded observations of real application work, not synthetic renders.
     // RAM cache journals disappear on REC; retain these few status lines.
-    for(unsigned seconds:{5u,20u,60u})
+    // P-241: 5/20/60 s only sampled the launch; a 200 s flight reported nothing
+    // after 60 s, so the steady state - the part that feels slow - was never seen.
+    // From 60 s on, also stream the bridge's own timing table (rows T/G/J/V/K).
+    for(unsigned seconds:{5u,20u,60u,120u,180u})
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,int64_t(seconds)*NSEC_PER_SEC),
             dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
                 char status[240]={};native_bridge_metal_status(status,sizeof(status));
                 report(status,0);
+                if(seconds>=60u)streamTelemetry();
             });
 }
 }

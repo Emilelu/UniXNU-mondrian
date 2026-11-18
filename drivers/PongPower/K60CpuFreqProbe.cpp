@@ -60,19 +60,34 @@ void unmapWindow(Window *window)
     window->va = 0;
 }
 
+void readRows(Window *window, uint32_t *rows)
+{
+    for (unsigned i = 0; i < kLutRows; ++i)
+        rows[i] = rd32(window->va, K60_CPU_FREQ_REG_FREQ_LUT + i * 4);
+}
+
 bool readTable(Window *window, K60CpuFreqTable *table)
 {
     uint32_t rows[kLutRows];
-    unsigned i;
 
-    for (i = 0; i < kLutRows; ++i) rows[i] = rd32(window->va, K60_CPU_FREQ_REG_FREQ_LUT + i * 4);
+    readRows(window, rows);
     return k60_cpufreq_build_table(rows, kLutRows, 0, table) == 0;
 }
 
-void probeDomain(unsigned domain)
+void dumpRows(const char *tag, const uint32_t *rows, unsigned count)
+{
+    for (unsigned i = 0; i < count && i < kLutRows; ++i) {
+        IOLog("K60CpuFreq: %srow=%u raw=0x%08x khz=%u cores=%u turbo=%u\n",
+            tag, i, rows[i], k60_cpufreq_row_khz(rows[i]),
+            k60_cpufreq_row_cores(rows[i]), k60_cpufreq_row_turbo(rows[i]));
+    }
+}
+
+void probeDomain(unsigned domain, bool dump)
 {
     Window window = {};
     K60CpuFreqTable table = {};
+    uint32_t rows[kLutRows] = {};
     unsigned index = 0;
     uint32_t topKhz = 0, stateKhz = 0, state, control, vote;
 
@@ -90,6 +105,10 @@ void probeDomain(unsigned domain)
         domain, static_cast<unsigned long long>(kDomainBase[domain]),
         rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u, state & 0xffu, stateKhz,
         control & 1u, vote, table.count, topKhz, index);
+    if (dump && table.count) {
+        readRows(&window, rows);
+        dumpRows("", rows, table.count);
+    }
     unmapWindow(&window);
 }
 
@@ -120,10 +139,11 @@ void voteDomain(unsigned domain, unsigned mode)
     unmapWindow(&window);
 }
 
-void probeL3()
+void probeL3(bool dump)
 {
     Window window = {};
     K60CpuFreqTable table = {};
+    uint32_t rows[kLutRows] = {};
     unsigned index = 0;
     uint32_t topKhz = 0;
 
@@ -136,6 +156,10 @@ void probeL3()
     IOLog("K60CpuFreq: L3 base=0x%llx vote=%u rows=%u top=%ukHz level=%u\n",
         static_cast<unsigned long long>(kL3Base),
         rd32(window.va, K60_CPU_FREQ_REG_L3_VOTE) & 0xffu, table.count, topKhz, index);
+    if (dump && table.count) {
+        readRows(&window, rows);
+        dumpRows("L3 ", rows, table.count);
+    }
     unmapWindow(&window);
 }
 
@@ -164,10 +188,11 @@ void voteL3(unsigned mode)
     unmapWindow(&window);
 }
 
-void probeAll(void)
+void probeAll(bool dump)
 {
-    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) probeDomain(domain);
-    probeL3();
+    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
+        probeDomain(domain, dump);
+    probeL3(dump);
 }
 
 } // namespace
@@ -186,7 +211,7 @@ extern "C" void k60_cpufreq_probe(void)
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
         mode, K60_CPU_FREQ_DOMAINS, K60_CPU_FREQ_CPUS, K60_CPU_FREQ_LUT_ROWS);
     if (mode == 1) {
-        probeAll();
+        probeAll(true);
         return;
     }
     if (mode == 2) {
@@ -207,6 +232,6 @@ extern "C" void k60_cpufreq_probe_late(void)
     PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
     if (mode != 1) return;
     IOLog("K60CpuFreq: late read begin (mode 1)\n");
-    probeAll();
+    probeAll(false);
     IOLog("K60CpuFreq: late read end\n");
 }

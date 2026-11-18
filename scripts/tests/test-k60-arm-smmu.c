@@ -45,8 +45,29 @@ int main(void) {
             (int)ce, (int)vr, image.mair0);
         return 1;
     }
-    printf("K60 ARM SMMU PASS mair=%#llx tables=%zu leaves=%zu mair0=%#x\n",
+    /* Exact runtime geometry from K60Ipa.c: the IPA SMEM range is the full
+     * 2 MiB smem_region, not the 0x9000 firmware item. Eight table pages must
+     * still fit it; 770 leaves / 7 tables is the measured result. */
+    memset(tables, 0xa5, sizeof(tables));
+    ArmSmmu4KConfig runtime_config = {32u, 36u, 0x10000000ull, 770u};
+    ArmSmmu4KRange runtime_ranges[3] = {
+        {0x146a8000ull, 0x146a8000ull, 0x2000ull, 3u, 2u, 2u},
+        {0x20000000ull, 0x20000000ull, 0x100000ull, 3u, 1u, 3u},
+        {0x80900000ull, 0x80900000ull, 0x200000ull, 3u, 0u, 2u},
+    };
+    ArmSmmu4KResult runtime_result;
+    memset(&runtime_result, 0, sizeof(runtime_result));
+    ArmSmmu4KStatus rs = ArmSmmu4KBuild(&runtime_config, runtime_ranges, 3u,
+        tables, 8u, &runtime_result);
+    if (rs != ArmSmmu4KSuccess || runtime_result.mair != 0x4ff44 ||
+        runtime_result.table_pages != 7u || runtime_result.leaf_pages != 770u) {
+        printf("K60 ARM SMMU RUNTIME FAIL build=%d mair=%#llx tables=%zu leaves=%zu\n",
+            (int)rs, (unsigned long long)runtime_result.mair,
+            runtime_result.table_pages, runtime_result.leaf_pages);
+        return 1;
+    }
+    printf("K60 ARM SMMU PASS mair=%#llx tables=%zu leaves=%zu mair0=%#x runtime_tables=%zu runtime_leaves=%zu\n",
         (unsigned long long)result.mair, result.table_pages, result.leaf_pages,
-        image.mair0);
+        image.mair0, runtime_result.table_pages, runtime_result.leaf_pages);
     return 0;
 }

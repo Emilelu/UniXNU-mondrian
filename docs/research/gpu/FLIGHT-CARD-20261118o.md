@@ -84,4 +84,43 @@
 
 ## 5. 结果登记
 
-（飞行后填写。判据在上机前写死，镜像与内核哈希、日志哈希、S1–S8 逐条结果、F 规则命中情况都要落在这里。）
+### 5.1 这一飞
+
+| 项 | 值 |
+| --- | --- |
+| 镜像 | `gpu-wc-class-20261118` |
+| boot.img | `b02be6d8d99ce6c014fbea75cd15057eeea34e1a9d78db8820286b2158fe1f85` |
+| kernel | `4c97a9007681c6e513f72365a4f1d25552ca1efce446d1fa22ee1a0f0d6e48c9` (105,603,072 B) |
+| 命令行 | 30 项 / 596 B（`pong_metal=1 pong_gpu_scanout=1 sheng-gpu-addon=1 k60_autoreset=300 applog=1`） |
+| 证据 | `E:/k60-work/evidence/usblog-20261118-233946`（306,107 B / 3,9xx 行） |
+| 上机时间 | 2026-11-18 23:39（`K60_AGENT_ID=lead`，先到先得的机器级 claim） |
+
+### 5.2 S1–S8 逐条
+
+| 判据 | 结果 | 实测 |
+| --- | --- | --- |
+| **S1** 无 panic | PASS | `K60KEXC` 0、`panic(` 0；SpringBoard 131 行 |
+| **S2** ≥2 条带分类字段的 publish 样本 | PASS | 125 条 VM 样本，全部带 `trusted/ibytes/obytes/wbytes/wskipped` |
+| **S3** 仍在出帧 | PASS | `scanout frames=` 192 条；`MiniIOMobileFramebuffer` 73 条 |
+| **S5** 三类之和 ≤ 访问总量 | PASS | `ibytes 97,742,848 + 0 + 0 ≤ bytes` |
+| **S6** 写合并信任态自洽 | PASS | `trusted` 恒 1、`wbytes` 恒 0、`wskipped` 中位 274,624,512 B、无 latch 行 |
+| **S7** 单一类别 ≥70% | PASS | 归属 = **imported**（`ibytes/cachebytes = 1.00`） |
+| **S8** 帧率不劣化 | 见 §5.4 | 窗口内 199 帧 / 5,010 ms ≈ 39.7 fps（这是合成器窗口，不是整机帧率） |
+
+### 5.3 F 规则
+
+未命中 F1–F4、F6；**命中 F5**（`ibytes/cachebytes > 0.8`）。
+
+### 5.4 结论（这一飞回答的唯一问题）
+
+1. **写合并不是元凶**：`trusted` 全程为 1，`wbytes` 恒 0，另有 274.6 MB 被 `wskipped` 跳过 —— 每次提交并没有真去清写合并页。这否掉了「`distrust_write_combined_` 从启动就为真」的猜测。
+2. **被维护的主体是 imported 帧**：每次采样调用清+无效化 **93.2 MiB**（`97,742,848 B`）的导入页，`ibytes/cachebytes = 1.00`。
+3. **量级对上了**：93.2 MiB / 64 B = 1.53M 条 cache line；实测 publish 中位 **6,635 µs**（max 7,878 µs），即约 4.3 ns/line —— 与 `dc civac` 每行的成本同阶。**所以 submit 的那几毫秒就是导入帧的 cache 维护，不是遍历开销，也不是写合并。**
+4. 这一飞同时把 n 卡 §5.4 的「双峰」解释了一半：6.6 ms 档是「只维护导入帧」的常态，10.1 ms 档对应更大的导入集。
+5. 下一步按 F5：**减少每帧导入的面数**（当前每帧重新导入 3–5 个客户端 surface），且必须先把映射生命周期写清楚 —— 见 `PongAdrenoScanout.cpp:195-196` 每帧 `release()` 的既有事实。
+
+### 5.5 顺带观察（不构成判据）
+
+- 触摸这一飞全程没有产出过一条已验证帧（`goodix: type=` 计数 0），但初始化序列与 11-14 那次可用飞行逐行相同（`CFG-DL wrote=1488/1488 bad=0`、`COORD-ON ack=80`）；`invalid contact report` 在可用飞行里也有 6 条，属常态噪声，不能当判据。
+- 触摸诊断自身有窗口上限：`goodix_poll()` 的打印条件带 `observations < 40`，40 条之后整段不再输出，所以「poll 1024 之后到底有没有事件」这一飞看不到 —— 下一飞要按「触摸时刻窗口」重新设计取证。同一症状在 20:16 / 22:32 两飞也在（各 7 条 / 4 条），而 11-14、11-15 两次触摸可用的飞行里同样有 6 条 —— 所以这些报错是常态噪声，不是触摸失效的判据。
+- `crashed:` 8 条，需在下一飞按进程名逐条核对是否与 GPU 有关。

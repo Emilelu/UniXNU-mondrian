@@ -140,7 +140,7 @@ uint32_t gRxFrames, gRxErrors; int gRxLastError;
 uint32_t gRxNoBuffer, gRxChains, gRxLongest;   // frames dropped for want of a buffer, frames that took a chain, the longest frame
 struct { unsigned count, kicks, cleared, longest; bool kicked; } gStall;   // input thread stalls (check_input)   // frames handed to the stack, refused ones and the last refusal
 int gAssocResult = kAssocOk;
-unsigned gScanCursor, gScanning;
+unsigned gScanCursor, gScanning, gScanServed;
 thread_call_t gNotifications;
 pong_wifi_notification_queue gNotificationQueue;
 enum { NotifyControl=1, NotifyScan, NotifyAssociate, NotifyLost, NotifyFailed };
@@ -498,10 +498,10 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]); if (!gPower) {nw_wifi_disconnect();pong_wifi_wake();} notify_locked(NotifyPower); return 0; }
     case kScanReq: case kScanReqMultiple: {
       if(!gPower)return ENETDOWN;
-      log(6, "wifi-net: scan request type %d len %u val %d", type, rq.req_len, rq.req_val);
       if(rq.req_len<20)return EINVAL;
       uint8_t buf[0x80]; if (copy_in(rq, buf, sizeof buf, kernel)) return EFAULT;
       uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
+      log(6, "wifi-net: scan request type %d len %u val %d ssid %u", type, rq.req_len, rq.req_val, ssidLength);
       if(ssidLength>32 || rq.req_len<20+ssidLength)return EINVAL;
       // joining or joined: a scan takes the radio off channel for seconds and the access point's beacons and handshake frames are missed, so
       // the daemon gets the last results instead
@@ -509,8 +509,8 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
         if (!gCachedScan) gCachedScan = thread_call_allocate(cached_scan_done, nullptr);
         if (!gCachedScan) return ENOMEM;
         static unsigned answered; if (++answered <= 8 || answered % 64 == 0) log(6, "wifi-net: scan %u while joined: answered from the cache", answered);
-        gScanning = 1; gScanCursor = 0; gResultsShown = 24; uint64_t at; clock_interval_to_deadline(2000, kMillisecondScale, &at); thread_call_enter_delayed(gCachedScan, at); return 0; }
-      gScanning = 1; gScanCursor = 0; gResultsShown = 0;
+        gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 24; uint64_t at; clock_interval_to_deadline(2000, kMillisecondScale, &at); thread_call_enter_delayed(gCachedScan, at); return 0; }
+      gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 0;
       if(nw_wifi_scan(ssidLength?ssid:nullptr,ssidLength)){gScanning=0;return EBUSY;}
       pong_wifi_wake();return 0; }
     case kAssociate: {
@@ -629,10 +629,12 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     nw_bss_info b; const int count = nw_wifi_bss_count();
     const uint64_t sampled_ns=scan_clock_ns();
     if (gScanCursor >= static_cast<unsigned>(count) || nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) {   // after the last record
-      static unsigned ends; if (++ends % 16 == 1) log(6, "wifi-net: scan result end after %d records", count);
-      gScanCursor = 0; return EIO; }
-    gScanCursor++; fill_result(out.res, b,sampled_ns);
-    if (gResultsShown < 3) { ++gResultsShown; log(6, "wifi-net: scan result %u: %u MHz, %d dBm, %.*s", gScanCursor, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid)); }
+      static unsigned ends;
+      if (++ends % 16 == 1) log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);
+      gScanCursor = 0; gScanServed = 0; return EIO; }
+    gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns);
+    // The daemon's list is only as complete as what it read: log what it consumed, not just the first few.
+    if (gScanServed <= 3 || gScanServed % 8 == 0) log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s", gScanServed, count, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
     return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
   case kCurrentNetwork: {
     if (st.state < NW_STA_ASSOC) return ENOENT;

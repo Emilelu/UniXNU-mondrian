@@ -1786,6 +1786,17 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 - 结论：按预声明判据 **PASS**。d11 相对 d10 唯一差别是 0518，证明 NVM 每段约 10 s 的停顿是 UART RX 中断挂错 INTID（587 而非 619）导致 ack 只能等命令期限；0518 修正后 ack 约 1 ms 到达。0518 是修复，0517 不是。
 - 边界：这只证明 patch/NVM 下载、HCI reset、BD_ADDR 设置与 UART SK 注册的传输路径；用户态 `marconi-bt` 仍报 `Unable to match bluetooth service in device tree` 和全零 MAC，`bluetoothd` 已由 `xpcproxy` 拉起但只进入 msg loop。蓝牙可用性仍未证明。
 
+### 7.28 d12（0519+0520）设备结果（2026-11-19 00:02，观测候选，D12-C 形态）
+
+- 设备 `6033dbec`；镜像 `9361ec1c89a7852db2ae9619a8ed89e859343a3d6bf1a9441029dda1cb82e876`（201,887,744 B）；命令 `K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/k60-work/artifacts/bt-0520-uart-control-alias/boot.img 220`；supervisor rc=0。
+- `E:/k60-work/evidence/usblog-20261119-000246`：`boot.json` bootAccepted=true、bootExitCode=0、returnedToFastboot=false（00:02:48–00:06:52）；`capture.json` complete=true、bytes=264656、panic/reset=null、stopReason=budget；console logSha256 `2A5E3FA9…`。
+- 内核探针：`:1349` `[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0`（speed=3000000）、`:1350` `ctl_register com.apple.uart.bluetooth error=0`（0520 别名）、`:1351` `[bluetooth power] nodes ready major=17`（0519 三个节点）。
+- 参数：`:1723` bluetoothd argc=1；`:2083/2873/3286/3527/3729` 五次 BlueTool `[-R]`；`:2871` `KX! 15 137 BlueTool exit=1`。
+- 否定观测：没有任何 `[bluetooth sk] connect` 行，也没有 `[bluetooth power]` open/ioctl 行。两个控制名都注册成功，故 BlueTool 未走到传输打开。
+- 时间：`:2082` = 04:32:51.607，`:2867` = 04:33:24.445 → exec→exit 约 33 s，与 30 s XPC 看门狗吻合；坏参数路线是瞬时退出，可排除。
+- 结论：D12-C 形态（argv 合法、无 connect、无电源节点）；但计划要求的"至少一次 connect"未出现，按探针门槛未达记录。0519 的电源节点从未被打开；0520 的别名错配不是本次 exit=1 的直接原因。
+- 边界：只证明 BlueTool 在打开传输前被看门狗杀死；不证明卡点（XPC、平台探测、设备树读取），不证明蓝牙可用。内核栈自 d11 起未变。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

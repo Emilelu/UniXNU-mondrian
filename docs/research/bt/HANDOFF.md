@@ -1073,3 +1073,15 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 蓝牙：PATCH `segs=602 ret=0`；NVM 单轮 27 段，26 段 `dt_ms=1`、末段 124 B `dt_ms=120`，`segs=27 sent=629 acks=28 final=0 ret=0`；`nvm done`、`hci reset done`、`bdaddr check done`、`uart setup done e=0`、`set bdaddr done e=0`、`return e=0 baud=3000000`；`power=1 result=0 ... firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1`；`[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0`。
 - 因果：d11 相对 d10 唯一差别是 0518。此前 UART RX 中断挂在 INTID 587 而不是 619，每段 ack 只能等 10 s 命令期限；0518 修正后 ack 约 1 ms 到达。**0518 是修复，0517 不是。**
 - 边界：只证明 patch/NVM 下载、HCI reset、BD_ADDR 设置与 UART SK 注册；用户态 `marconi-bt` 仍报 `Unable to match bluetooth service in device tree` 和全零 MAC，`bluetoothd` 已由 `xpcproxy` 拉起但只进入 msg loop。蓝牙可用性仍未证明。
+
+### 48. d12（0519+0520）观测飞行：BlueTool 在打开传输前被 30 s 看门狗杀死（2026-11-19 00:02–00:06）
+
+- 与 d10/d11 不同，d12 是观测候选：0519 增加 `/dev/btreset`、`/dev/btwake`、`/dev/btpoweroff` 三个探针字符设备（open/ioctl 一律返回成功）并把 `K60_BT_TRANSPORT_SPEED` 改成 3000000；0520 增加 `com.apple.uart.bluetooth` 控制别名（stock BlueTool 的默认名）和 `K60ARG` argv 追踪。不改下载/时序/状态机。
+- 权限口径同 item 46/47：先到先得、单设备单写者；只 `fastboot boot`。设备 `6033dbec`，镜像 `9361ec1c…`（201,887,744 B），supervisor rc=0。
+- 采集：`E:/k60-work/evidence/usblog-20261119-000246`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=264656、panic/reset=null、stopReason=budget；console `2A5E3FA9…`。
+- 探针生效：`:1349` UART.SK 注册 error=0（speed=3000000）、`:1350` 别名 `com.apple.uart.bluetooth` 注册 error=0、`:1351` `[bluetooth power] nodes ready major=17`。
+- 参数：`:1723` bluetoothd argc=1；`:2083/2873/3286/3527/3729` 五次 `BlueTool argc=2 [/usr/sbin/BlueTool] [-R]`。`-R` 合法（20G81 的 `com.apple.BlueTool.plist` 只传 `-R`），D12-A 排除。
+- 关键否定：**没有任何 `[bluetooth sk] connect` 行，也没有任何 `[bluetooth power]` open/ioctl 行**。两个控制名在开机时都已注册，说明 BlueTool 在打开传输之前就退出了。
+- 时间：`:2082` 的 wall clock 是 `04:32:51.607`，`:2867` 是 `04:33:24.445`，`:2871` 是 `KX! 15 137 BlueTool exit=1`。exec→exit 约 33 s，等于静态分析的 30 s XPC 看门狗（`dispatch_time(0,0x6FC23AC00)`，`0x1000430f0` → `_exit(1)`），不是坏参数的瞬时退出。
+- 判定：D12-C 形态，但 §6 要求的"至少一次 connect"没有出现，按探针门槛未达记录；结论（看门狗在传输打开前触发）靠时间差成立。0519 的电源节点未被打开，0520 的名字别名错配也被排除为直接原因。
+- 边界：不证明卡在哪一步（XPC 等待、平台/芯片探测、设备树读取），不证明蓝牙可用；内核栈自 d11 起未变。离线补充：从 20G81 IPSW 解出 `com.apple.BlueTool.plist`（`-R`、MachServices `com.apple.BlueTool`、无 RunAtLoad）与 `com.apple.bluetoothd.plist`（RunAtLoad、KeepAlive SuccessfulExit=false），bluetoothd 字符串同时含 `com.apple.uart.sk.bluetooth` 与 `/dev/btwake`。

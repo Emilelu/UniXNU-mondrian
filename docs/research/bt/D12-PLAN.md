@@ -1,6 +1,6 @@
 # d12 诊断飞行计划（bt-0520-uart-control-alias，2026-11-18）
 
-状态：**已构建、离线门禁通过、未飞行。** 2026-11-18 23:44 `bash scripts/k60-device.sh state` = `none`（USB 上没有 fastboot/adb 设备），飞行等设备回到 fastboot。
+状态：**已构建、离线门禁通过、已飞行（2026-11-19 00:02:48–00:06:52），观测不完整，见 §9。**
 
 d12 和 d10/d11 不同：d10/d11 是修复候选，d12 是**观测候选**。它不改变固件下载、状态机、上电时序、budget、段长或地址，只增加内核侧的三处观测，用来回答 d11 遗留的一个问题：BlueTool 为什么 exit=1。
 
@@ -114,6 +114,14 @@ d12 是诊断飞行，判据按"是否拿到可判定的观测"写，不按"蓝�
 - 0519 的电源节点是探针：open/ioctl 一律返回成功，语义不是最终实现；若 BlueTool 依赖真实 GPIO 复位语义，后续必须换成真实实现或 prelink `com.apple.driver.AppleBluetooth`。
 - 回滚基线仍是 d8 `0297012d…`（已知可启动、BT 失败但系统可用）。
 
-## 9. 飞行结果
+## 9. 飞行结果（2026-11-19 00:02:48–00:06:52，D12-C 形态，观测门槛未完全达到）
 
-（待填：设备回到 fastboot 后执行 §5，按 §6 判定。）
+- 设备 `6033dbec`，飞前 `bash scripts/k60-device.sh state` = `fastboot`，无其他 supervisor/collector；只 `fastboot boot`，未 flash。命令 `K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/k60-work/artifacts/bt-0520-uart-control-alias/boot.img 220`，supervisor rc=0。
+- 证据 `E:/k60-work/evidence/usblog-20261119-000246`：`boot.json` bootAccepted=true、bootExitCode=0、returnedToFastboot=false；`capture.json` complete=true、bytes=264656、panic/reset=null、stopReason=budget；console logSha256 `2A5E3FA9…292D98`，264,656 B。
+- 内核探针全部生效：`console:1349` `[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0 firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1 speed=3000000`；`:1350` `[bluetooth sk] ctl_register com.apple.uart.bluetooth error=0`（0520 别名）；`:1351` `[bluetooth power] nodes ready major=17`（0519 的三个字符设备）。
+- 参数观测（排除 D12-A）：`:1723` `K60ARG bluetoothd argc=1 [/usr/sbin/bluetoothd]`；`:2083`、`:2873`、`:3286`、`:3527`、`:3729` 五次 `K60ARG BlueTool argc=2 [/usr/sbin/BlueTool] [-R]`。`-R` 合法，20G81 的 launchd plist 也只传 `-R`，所以 exit=1 不可能是坏 `-F`。
+- 连接观测（缺失）：整份 console **没有**任何 `[bluetooth sk] connect` 行，也没有任何 `[bluetooth power]` 的 open/ioctl/write 行。两个控制名在开机时都已注册成功（`:1349`/`:1350` 均 error=0），如果 BlueTool 走到 `socket(AF_SYSTEM,SOCK_STREAM,SYSPROTO_CONTROL)+CTLIOCGINFO+connect`，0520 的 `control=%s` 日志会打出来；没有打出来说明它在打开传输之前就死了。
+- 时间差：`:2082` 是 `2026-11-03 04:32:51.607`（BlueTool exec 前一行），`:2867` 是 `04:33:24.445`，`:2871` 是 `KX! 15 137 BlueTool exit=1 sig=0`。即这次 BlueTool 的 exec→exit 约 **33 s**，与静态分析的 30 s XPC 看门狗（`dispatch_time(0, 0x6FC23AC00)`，`0x1000430f0` 处 `_exit(1)`）吻合；坏参数路线是瞬时退出，会紧贴 `:2083`。
+- 判定：按 §6，argv 合法 + 无 connect + 无电源节点打开 → **D12-C 形态**。但 §6 的"必须观测"要求至少一次 `connect`，本次没有满足，所以先记 **探针门槛未达**：不能用"没有 connect 行"单独证明"BlueTool 没尝试"，只能证明它在 33 s 内没有走到 connect，再叠加时间差把"看门狗在传输打开之前触发"定为本次结论。下一次诊断必须补一个能看到"是否创建 AF_SYSTEM 控制 socket / 是否发起 CTLIOCGINFO"的探针（§7 的 0521 方向）。
+- 排除项：0520 的控制别名已在开机时注册成功，stock BlueTool 默认名 `com.apple.uart.bluetooth` 的错配**不是**本次 exit=1 的直接原因；0519 的三个电源节点也从未被打开。
+- 边界：只证明内核探针到位、argv 合法、BlueTool 在约 33 s 后被 30 s 看门狗杀死且死在传输打开之前；不证明它卡在哪一步（XPC 等待、芯片/平台探测、设备树读取都可能），不证明蓝牙可用。内核栈自 d11 起未变，0519/0520 不改变下载路径。

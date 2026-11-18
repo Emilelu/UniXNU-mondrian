@@ -1016,6 +1016,8 @@ to test.
 
 mission20 (b0ae4826, head fc8f5432, built 2026-11-19T02:25:38+08:00) was
 superseded by mission21 before it flew and is recorded as
-built-but-never-flown; mission22 (0d6a2f16, head d250f2c3, built
+built-but-never-flown; its 193 MB artifact was deleted on 2026-11-19 05:07 so
+the P-218 gate stops reporting an image nobody will fly (the hash and head above
+are the whole record); mission22 (0d6a2f16, head d250f2c3, built
 2026-11-19T03:57:47+08:00) is built, verified and unflown. K60EXC appears 64
 times in every flight since mission17, so it is not a mission21 anomaly.

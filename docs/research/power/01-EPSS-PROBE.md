@@ -203,7 +203,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   轻触摸并不会抬 d0（win=6976 的 1.8 GHz 来自 busy=1000 的触摸负载）。commit `43af2a5c`
   让 `boost` 对每个域都直接取 top（安静半档仍只给共享簇），并在两个 arm 分支把 `appliedVotes` 清零，
   使 32 票只约束一个窗口；host `TESTS OK 154 checks`，archive 137,520 字节（`5d6d1203…`），
-  image ac 用这份代码构建（见 §6）。
+  image ac 用这份代码构建（见 §6）。image ac 于 07:34 与 07:43 两次上机（boot.img sha256
+  `0d5a5411…`，kernel `001003aa…`，30 项 603 B），两次启动与 mode 8 写回都正常
+  （`restore domains=2 votes=9` 与 `votes=7`），但采集窗口内没有等到屏幕触摸（276/273 条样本全 `tb=0`），
+  因此「轻触摸也抬 d0」与「第二触仍有完整预算」仍未经真机验证。
 - mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
   把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
   再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，

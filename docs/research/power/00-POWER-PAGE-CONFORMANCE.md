@@ -108,6 +108,9 @@
    第二触 win=7207 只写 5 票就 `votes=32` 触发恢复，暴露票数是整轮累计；且 `boost` 只作用于
    共享簇，轻触摸不会抬 d0。`43af2a5c` 改为每窗口重置票数、`boost` 对每个域取 top，host 154 项，
    archive 137,520 B（`5d6d1203…`），image ac 用这份代码构建。
+ - image ac 于 07:34 与 07:43 两次上机（boot.img sha256 `0d5a5411…`，kernel `001003aa…`，30 项 603 B）：
+   启动与 mode 8 写回正常（`restore domains=2 votes=9` 与 `votes=7`），但采集窗口内没有触摸，
+   276/273 条样本全 `tb=0`；「轻触摸抬 d0」与「第二触仍有预算」仍未上机验证。
    GPU DCVS（GMU 忙碌计数器 + HFI 投票 + 16 ms 线程，窗口规则已抽进 host 123 项的模块）已实现；image o 02:14 验证线程与计数器读取，image q 02:36 验证 HFI 投票被接受，但还没有负载驱动的升档
    （`E:/k60-work/artifacts/power-conformance-20261119o/boot.img`，201,887,744 B，sha256
    `b8e44043…`，kernel `d2b246bc…`；参数 gate OK，30 项 605 字节；`pong_gpu_dcvs=1` 默认关闭），o/q 均已上机，只缺负载驱动的升档闭环。

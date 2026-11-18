@@ -3,8 +3,22 @@ schema_version = 1
 [device]
 name = "mondrian"
 soc = "SM8475"
-os_profile = "ipados-16.6.1-20G81"
-summary = "Redmi K60 (mondrian/SM8475). Format 2 device: the kernel builds and prelinks, the payload and the boot image still need the board ADT and the hardware bring-up."
+os_profile = "ios-27.0.1-24A446"
+summary = "Redmi K60 (mondrian/SM8475), branch feat/ios27: iOS 27.0.1 (24A446) as an iPhone 16 Pro Max (iPhone17,2), arm64e, on xnu-12377 with the Darwin 26 calls. main remains the iOS 16.6.1 port."
+
+[[area]]
+id = "ios27-arm64e"
+status = "planned"
+components = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
+paths = ["board.toml", "feeds.toml", "configs/mondrian_ios27_defconfig", "profiles/os/ios-27.0.1-24A446/**", "patches/xnu-12377/**", "docs/engineering/IOS27.md"]
+inputs = ["iOS 27.0.1 build 24A446 iPhone17,2 IPSW; the URL, the size and both hashes are in profiles/os/ios-27.0.1-24A446/profile.toml.", "XNU xnu-12377.121.6 with the Darwin 26 syscall and KPI patches from the arch and OS layers.", "The SM8475 patches/xnu-12377 series (UniXNU-sm8475-common, branch feat/xnu-12377).", "Xcode 26: xnu-12377 uses the four-argument __ptrauth qualifier and older clang cannot compile it."]
+configuration = ["board.os_profile = ios-27.0.1-24A446; the profile sets arch = arm64e and page_size = 4096.", "configs/mondrian_ios27_defconfig is the stage-0 kernel: storage, display and GPU are off so the first failure is not hidden behind a driver ABI.", "The payload arguments are cupid's stage-0 list; the device series patches/xnu-12377/series is empty on purpose."]
+procedure = ["F0: boot the PAC probe from the iOS 16 line (ios-mondrian shim/pac.c) and read FEAT_PAuth, the EL1 key registers and PACIA/AUTIA from the panel.", "F1: scripts/install-os-profile.sh, then ./unixnu defconfig mondrian_ios27_defconfig and build with Xcode 26.", "F2: prelink the 24A446 fixture against the board kernel and boot until bsd_init.", "F3: bring PongUfs to the 27 storage ABI and build the userdata image with ./unixnu userdata --os 27 on macOS.", "F4: panel first frame, then touch."]
+findings = ["2026-11-18: iOS 27.0.1 (24A446) runs on xnu-12377.121.6 with the Darwin 26 system calls added; Apple has not published a Darwin 26 XNU.", "cupid (SM8450) reaches BSD init with this profile and panics on root mount because it has no SM8450 UFS block driver; mondrian already publishes APFS windows through PongUfs on the 16.6.1 branch.", "sheng (SM8550) booted macOS 27.3 arm64e. arm64e on SM8475 has not been measured yet.", "The 24A446 iPhone17,2 kernelcache is MH_FILESET with 305 entries; its decompressed hash and the AMFI early-init address are pinned in the profile."]
+completion = ["The arm64e kernel reaches bsd_init on the board, the OS volume mounts, and SpringBoard draws and accepts a tap."]
+limits = ["No arm64e measurement on SM8475 yet: the PAC gate is written but has not run on hardware.", "The 24A446 userdata image needs macOS and the 12.3 GB IPSW."]
+next_action = ["Run the PAC probe on the board (F0) and record ID_AA64ISAR1/2 and the key-register result in this area."]
+evidence = [{ kind = "source", reference = "profiles/os/ios-27.0.1-24A446/profile.toml", result = "arm64e, page_size 4096, xnu 12377.121.6, iPhone17,2 IPSW pins and prelink fixture" }]
 
 [[area]]
 id = "configuration"

@@ -2,7 +2,8 @@
 
 Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓库。
 
-**当前目标：iOS 16.6.1（20G81）/ darwin22 上跑通完整硬件。**
+> **Branch `feat/ios27`:** iOS **27.0.1 (24A446)** as an **iPhone 16 Pro Max (iPhone17,2)**, arm64e, on xnu-12377 with the Darwin 26 calls. `main` remains the iOS 16.6.1 (20G81) port. Read
+> [`docs/engineering/IOS27.md`](docs/engineering/IOS27.md) for the profile, the inputs and the phase gates.
 
 [English](README_EN.md)
 

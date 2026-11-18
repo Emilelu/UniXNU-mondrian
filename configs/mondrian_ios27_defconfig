@@ -1,0 +1,26 @@
+# Mondrian iOS 27, stage 0: arm64e kernel to bsd_init.
+#
+# The base for this file is cupid's stage-0 defconfig (SM8450, the same X2 /
+# A710 / A510 generation), because that is the configuration that took the
+# 24A446 iPhone17,2 profile to BSD init. Mondrian changes only what its own
+# SoC and board force.
+#
+# The arch profile (profiles/arch/arm64e) brings the 4 KiB tables and PAC;
+# the OS profile (profiles/os/ios-27.0.1-24A446) brings the Darwin 26 calls
+# and the prelink. Do not repeat them here.
+CONFIG_XNU_BUILD_ARCHIVES=y
+CONFIG_XNU_CRYPTO_BOOTSTRAP="source"
+CONFIG_XNU_DT_PANIC_REGION=y
+CONFIG_XNU_ARMVIRT_PLATFORM=n
+CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y
+
+# Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3
+# and the display in F4. Enabling them now would add two untested ABIs to the
+# first kernel that has to prove PAC and the prelink.
+CONFIG_XNU_NATIVE_UFS=n
+CONFIG_XNU_NATIVE_ADRENO=n
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+
+# The SM8475 fragment already sets ARMCPU, ARM_DT_PLATFORM, NATIVE_ARCH_TIMER
+# and NATIVE_PAN. Leave them there: two homes for one switch is how a board
+# ends up building a different kernel than its config says.

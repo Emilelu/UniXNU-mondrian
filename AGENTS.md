@@ -6,8 +6,12 @@ The shared SM8475 resources live in `UniXNU-sm8475-common`; the loader lives in
 `uefi-mondrian`; the build driver, the documentation site and the component
 catalog live in `UniXNU`.
 
-**Current target: iOS 16.6.1 (20G81) / darwin22.** The darwin24 route is retired
-and archived on `chore/archive-darwin24-main-20261103`.
+**`feat/ios27` targets iOS 27.0.1 (24A446) as an iPhone 16 Pro Max
+(iPhone17,2), arm64e, on xnu-12377 with the Darwin 26 calls.** `main` remains
+the iOS 16.6.1 (20G81) / darwin22 port; the darwin24 route is retired and
+archived on `chore/archive-darwin24-main-20261103`. Read
+[`docs/engineering/IOS27.md`](docs/engineering/IOS27.md) before changing this
+branch: the profile, the inputs and the phase gates are there.
 
 The porting record in `porting.toml` is the authoritative device state. Every
 subsystem change updates the record in the same pull request.

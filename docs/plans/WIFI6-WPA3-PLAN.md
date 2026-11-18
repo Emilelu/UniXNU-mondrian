@@ -344,6 +344,12 @@ link is up, plus a log line for every authentication frame the access point send
 back), and the kext arms the gate only from the `pong_sae_probe` boot argument, so
 a normal image links the unit and never sends anything.
 
+The gate is a bare `sae` argument, not `pong_sae_probe=19`: the command line is 602
+bytes against a 607-byte hard limit, so the twelve-character name plus a value would
+not fit. Bare `sae` costs four bytes (606 total) and selects group 19; `sae=2` would
+select group 20 at 609 bytes and is therefore not usable until something else leaves
+the line.
+
 With the access point in WPA2/WPA3 mixed mode, one flight decides:
 - firmware carries the frame and the AP answers commit or confirm → the transport
   half of WPA3 exists, and the remaining work is the SAE state machine plus PMF;

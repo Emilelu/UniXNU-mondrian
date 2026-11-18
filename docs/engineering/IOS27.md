@@ -148,3 +148,10 @@ not force the patch: it would be a third copy of the same fix.
   offset of SM8450's, and PongUfs is not ShengUfs. Do not copy either.
 - **Stage 0 keeps storage, display and GPU off.** They add ABIs that would hide
   the first failure behind a driver.
+- **A device `scripts/` file outranks the framework's.** The tree copies the
+  framework, the SoC and then this repository over one another, so a same-named
+  local script silently replaces the official one. Check `scripts/legacy/`
+  before adding one.
+- **Deleting a device script does not delete its copy in the build tree.**
+  Delete `out/<board>/<profile>/<config>/tree/scripts/<name>` too, or the next
+  build keeps running the removed version.

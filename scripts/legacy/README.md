@@ -14,10 +14,10 @@ These two did exactly that on the first iOS 27 kernel build:
 - `prepare-xnu-source-pong.py` is the 16.6.1 header preparation. The framework's
   copy is what `patches.py` runs before the series on 12377.
 
-Rename, do not delete: the iOS 16 line still needs them, and the comparison is
-the evidence for why the 27 line must not. `build-ios16-pong-macos.py` in
-`scripts/` names the old filenames and is dead on this branch for the same
-reason.
+Kept, not deleted: `main` still carries the originals at their old paths, and
+the comparison is the evidence for why the 27 line must not.
+`build-ios16-pong-macos.py` in `scripts/` names the old filenames and is dead on
+this branch for the same reason.
 
 `build-firehose.sh` and `save-xnu-patch.py` are still shadowing the framework
 copies. Neither runs in the stage-0 kernel build; move them here the moment a

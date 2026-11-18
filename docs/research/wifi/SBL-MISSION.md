@@ -629,14 +629,21 @@ precedes the PASS. That check passed.
 The probe still did not run, and this time the console says why.
 `:529` `K60PROBE bytes=34728 resid=0 error=0` and `:531` `K60PROBE:
 probe write=0 resid=0 len=34728` show the binary written, but `:530`
-`K60PROBE plist vnode_open error=30` is EROFS: the job plist could not
-be created where the kernel tried, so launchd never had a job to load
-and no `k60probe:` line exists. The fix belongs in the next image: either
-write the job into the launchd cache blob that already loads, or fork the
-probe from init before `execve("/sbin/launchd")` and let it wait for the
-address, which removes launchd from the path entirely.
+`K60PROBE plist vnode_open error=30` is EROFS: the job plist cannot be
+created on the sealed root. The job itself does ride the curated cache
+(`:526` `K60LC: curated launchd cache write=0 resid=0 len=10437`, 24
+jobs including `com.pong.netprobe`), but launchd reads that cache at
+`/System/Library/xpc/launchd.plist`, and the only code that can put it
+there is the bindfs view at `userland/init.c:475`. This image runs the
+34,904-byte helper (`:527`-`:528`), whose view table predates that entry,
+and every bindfs view it did attempt failed with EPERM (`:554`, `:556`,
+`:558`, `:560`, `result=-1 errno=1`), so the cache never becomes
+launchd's input. Writing the job into the cache again therefore cannot fix
+delivery; the next image must take launchd out of the path and fork the
+probe from the init helper before `execve("/sbin/launchd")`, letting it
+wait for the address.
 
-Judge: 36 PASS, 7 FAIL, all seven the `k60probe` checks, so the overall
+Judge: 31 PASS, 7 FAIL, all seven the `k60probe` checks, so the overall
 verdict is FAIL by our own prediction. Against the official page mission14
 is the third full pass on the six items and the first with a measured
 disconnect and reconnect.

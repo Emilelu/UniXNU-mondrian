@@ -43,3 +43,19 @@ Copy the `M ... n%u` / `S...<P|F><macf>` line from
 Reference: `E:/k60-work/scratch/METAL-INJECT-PARITY.md` §7 (copy list) and
 `E:/k60-work/scratch/EXEC-INJECT-SEMANTICS.md` (exec_inject is not the mechanism; the
 per-exec read happens long before backboardd execs).
+
+## 2026-11-18 判定：第 1 项（temp+rename）不必要，理由与证据
+
+同一张 `gpu-mini-20261118` 连飞两次得到不同结果（`usblog-20261118-014232` 首帧成立、
+`usblog-20261118-101832` 设备已建但 0 帧、`MiniIOSurface` 1 而非 2），镜像/内核/插件/命令行逐字节相同，
+说明不确定性来自启动早期 seed 与 backboardd 首次读取的先后，而不是写入的字节完整性。
+
+`selectedClient()` 的门是 `.publish` 首字符为 `'1'`；`fcdbb396` 把 `.publish` 放到最后写，
+`8035d3df` 让任一步失败都不写 `.publish`，因此「publish 可见时 bundle 与 clients 已完整」已经成立。
+`.publish` 内容只有 2 字节的单次 write，不存在部分可见。
+
+第三项改动（temp + `IO_SYNC` + `vnode_rename`）需要 `vnode_rename` 原型，而本仓库树里没有该声明
+（`grep -rn vnode_rename --include=*.h .` 零命中，XNU 源只在构建期展开），在无法核对签名的情况下
+不引入猜测实现。若后续确实需要 durability，先确认 XNU 版本里 `vnode_rename` 的签名与 flags 再动手。
+
+结论：第 1 项关闭（不实现），第 2 项 rootvnode 有界等待与第 3 项 `name_reads` 遥测保留。

@@ -17,10 +17,10 @@
 #include <libkern/c++/OSString.h>
 #include <libkern/c++/OSSymbol.h>
 #include <pexpert/pexpert.h>
-#include <libkern/crypto/sha2.h>
 #include <sys/random.h>
 #include <string.h>
 #include "K60PmicGlink.h"
+#include "K60ChargeHmac.h"
 #include "K60Battmgr.h"
 #include "K60ChargeAuth.h"
 #include "K60BatteryProtocol.generated.h"
@@ -38,15 +38,7 @@ void chargeRandom(void *bytes, uint32_t count) { read_random(bytes, count); }
 void chargeHmac(const uint8_t *key, uint32_t keyBytes, const uint8_t *message,
     uint32_t bytes, uint8_t digest[32])
 {
-    uint8_t pad[64], inner[32];
-    SHA256_CTX sha;
-    for (unsigned i = 0; i < sizeof pad; ++i) pad[i] = (i < keyBytes ? key[i] : 0) ^ 0x36;
-    SHA256_Init(&sha); SHA256_Update(&sha, pad, sizeof pad);
-    SHA256_Update(&sha, message, bytes); SHA256_Final(inner, &sha);
-    for (unsigned i = 0; i < sizeof pad; ++i) pad[i] ^= 0x36 ^ 0x5c;
-    SHA256_Init(&sha); SHA256_Update(&sha, pad, sizeof pad);
-    SHA256_Update(&sha, inner, sizeof inner); SHA256_Final(digest, &sha);
-    bzero(pad, sizeof pad); bzero(inner, sizeof inner); bzero(&sha, sizeof sha);
+    k60_charge_hmac(key, keyBytes, message, bytes, digest);
 }
 const K60ChargeCrypto kChargeCrypto = {chargeRandom, chargeHmac};
 uint32_t adapterFamily(uint32_t type)

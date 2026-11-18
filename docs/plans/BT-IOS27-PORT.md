@@ -95,8 +95,9 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
    vanilla plus the four series was used as the adaptation base; the adapted
    patches were then validated against it from scratch (§5.1).
 3. **P2 - port the platform hooks. Done offline** (§4). No build has run.
-4. **P3 - build and inspect. Open.** Every input now exists, including the
-   firmware carrier (§5.2); the build itself has not been run.
+4. **P3 - build and inspect. Done for the build half** (§5.3). The nineteen
+   patches build and prelink on a Linux runner; hardware inspection waits for
+   iOS 27 to reach `bsd_init`.
 5. **P4 - hardware only when iOS 27 reaches `bsd_init`.** Until then, every
    kernel/firmware flight stays on the iOS 16 line.
 
@@ -147,6 +148,43 @@ scripts/gen-k60-bt-blob.py --assembly --output osfmk/arm64/k60_bt_blob.s \
 line, identical sha256). It validates the NGPUADD2 container the same way
 `k60_addon_find` does at runtime, so a container that would fail on the device
 fails the build instead.
+
+### 5.3 First build: Linux CI, with the Bluetooth series
+
+F1 and F2 no longer need a Mac: the framework's Linux path
+(`scripts/linux/setup-toolchain.py` plus
+`patches/unixnu-core/fileset-reference-linux.patch`) builds and prelinks the
+kernel. This branch runs it on GitHub Actions
+(`.github/workflows/ios27-kernel.yml`, branch `ci/ios27-kernel`): the runner
+installs the prebuilt `/opt/unixnu-linux` toolchain from the
+`toolchain-linux-20261119` release, checks out the framework at a pinned
+commit, installs the OS profile and runs `scripts/build-ios27-linux.sh`.
+
+Run [44395638974](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44395638974)
+(head `6f27fbc`, 2026-11-18T20:52:54Z to 21:04:39Z) succeeded:
+
+| Artifact | Size | sha256 |
+| --- | --- | --- |
+| `kernel/kernel.macho` | 93,077,504 B | `bf737397a915fd659d9c1a89c0addd7263d6a6190f3071d5c9311c544f1d8122` |
+| `payload/payload.img` | 201,326,592 B | `36e0014faade8601d517608ab0d3916c2fccb5cec9cdf1ea911a9292d58eaeb4` |
+
+`xnu-patches.list` names 96 patches, with 0500, 0502b, 0501, 0502 and
+0507-0522 in series order. The kernel carries the driver's strings and table
+names, for example `[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth`,
+the 0520 alias `com.apple.uart.bluetooth`, `[bluetooth power]` and
+`K60 BT: no IOKit resource service; bluetooth not published`.
+
+The first run of this branch stopped at `bsd/dev/qbt_k60.c:1851` with
+`call to undeclared function 'kmem_alloc_contig'`; 0522 fixes it (§3). The
+only errors left in the logs are the bootstrap pass, the documented false
+negative: the release reference link reports `RELEASE reference exit 2`,
+removes 67 unavailable forced exports and links again with exit 0. ArmCpu and
+ArmDTPlatform pass their `-Werror` arm64e object audits.
+
+What this proves: the Bluetooth series compiles and links into an arm64e
+xnu-12377 kernel that the profile's prelink step accepts, so the build half of
+P3 is closed. What it does not prove: no hardware has run this kernel, iOS 27
+on SM8475 has not reached `bsd_init`, and every P4 item stays open.
 
 ## 6. Userspace layer: what actually makes the adapter usable
 

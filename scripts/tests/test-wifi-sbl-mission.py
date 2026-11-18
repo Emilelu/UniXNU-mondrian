@@ -312,6 +312,12 @@ def main() -> int:
     check("the probe falls back to the 2.4 GHz record and names a sweep with no pair",
           'mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz' in net and
           '"wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)"' in net)
+    check("five probes remove one element group at a time from the real record",
+          'static const char *const snm[5] = { "K60F", "K60G", "K60H", "K60I", "K60J" };' in net and
+          "static const unsigned sid[5] = { 7, 195, 32, 255, 221 };" in net and
+          "case 2: drop = id == 32 || id == 35; break;" in net and
+          "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
+          'log(6, "wifi-net: probe %s = target minus element %u (%s, %u bytes removed, ie %u)"' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

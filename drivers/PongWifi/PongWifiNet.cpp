@@ -321,6 +321,43 @@ void freeze_scan_list() {
   } else {
     log(6, "wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)", ti, ci, gSnapCount);
   }
+  // The additive probes show which element spoils a record the daemon keeps; these five take the opposite
+  // direction and remove one element group at a time from THIS access point's record. Whichever copy appears in
+  // the Settings list names the element that has to leave the real record, without another flight. Test branch.
+  if (ti >= 0 && gSnapCount + 5 <= 64) {
+    const nw_bss_info t = gSnap[ti];
+    static const char *const snm[5] = { "K60F", "K60G", "K60H", "K60I", "K60J" };
+    static const char *const sshown[5] = { "country", "vht-tx-power", "power-constraint and TPC", "he-capabilities", "vendor" };
+    static const unsigned sid[5] = { 7, 195, 32, 255, 221 };
+    memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);
+    for (int k = 0; k < 5; k++) {
+      nw_bss_info q = t;
+      q.ie_len = 0;
+      unsigned o = 0, removed = 0;
+      while (o + 2 <= t.ie_len) {
+        const unsigned id = t.ie[o], len = t.ie[o + 1];
+        if (o + 2 + len > t.ie_len) break;
+        bool drop = false;
+        switch (k) {
+        case 0: drop = id == 7; break;
+        case 1: drop = id == 195; break;
+        case 2: drop = id == 32 || id == 35; break;
+        case 3: drop = id == 255 && len == 33; break;
+        case 4: drop = id == 221 && len == 2; break;
+        }
+        if (drop) removed += 2 + len;
+        else if (q.ie_len + 2 + len <= sizeof q.ie) { memcpy(q.ie + q.ie_len, t.ie + o, 2 + len); q.ie_len += 2 + len; }
+        o += 2 + len;
+      }
+      q.ssid_len = 4;
+      memset(q.ssid, 0, sizeof q.ssid); memcpy(q.ssid, snm[k], 4);
+      q.bssid[5] = static_cast<uint8_t>(q.bssid[5] ^ (0x45 + k));
+      gSnap[k] = q; gSnapCount++;
+      log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
+          snm[k], q.freq_mhz, q.bssid[0], q.bssid[1], q.bssid[2], q.bssid[3], q.bssid[4], q.bssid[5]);
+      log(6, "wifi-net: probe %s = target minus element %u (%s, %u bytes removed, ie %u)", snm[k], sid[k], sshown[k], removed, q.ie_len);
+    }
+  }
 }
 // The scan list counted by band. The Settings pane builds its list from these records, so a band that is
 // missing here cannot appear there, and the strongest few per band say what the radio actually heard.

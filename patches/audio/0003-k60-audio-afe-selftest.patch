@@ -48,7 +48,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,589 @@
+@@ -858,6 +892,604 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -366,6 +366,8 @@
 +static bool
 +pong_audio_play_receive(PongAudioState *state, int kind, const PongArAnswer *answer)
 +{
++	static unsigned play_skips;
++
 +	if (kind == PongArMapped) {
 +		if (answer->token != state->play_token ||
 +		    state->play_step != (unsigned)PongPlayMap) {
@@ -399,6 +401,19 @@
 +			state->last_error = PongAudioErrPlayback;
 +			printf("PongAudio: playback step %u refused opcode=0x%08x status=%u\n",
 +			    state->play_step, answer->result_opcode, answer->status);
++			if (play_skips < 11u) {
++				play_skips++;
++				if (state->play_step == (unsigned)PongPlayClock) {
++					state->play_graph_ready = true;
++				}
++				printf("PongAudio: playback step %u skipped, continuing\n",
++				    state->play_step);
++				if (state->play_step + 1u < (unsigned)PongPlayStepCount) {
++					pong_audio_play_send_step(state, state->play_step + 1u);
++				} else {
++					pong_audio_play_complete_step(state);
++				}
++			}
 +			return true;
 +		}
 +		pong_audio_play_complete_step(state);

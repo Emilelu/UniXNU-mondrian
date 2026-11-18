@@ -1,6 +1,7 @@
 # 20 — K60 IPA v5.1 数据通路（IPA/GSI、QMAP、PDP）
 
 - 日期：2026-11-18
+- 2026-11-18 M2 验证结果：**上机前阻塞，未执行，不是 PASS。** k14 标准/M2 的 IPA 固件入口先调用 `k60_ipa_clock_vote()`（`K60Ipa.c:1196`），映射/读取 DRV2 `0x17a20000`（`:578-587`），经 TCS4 写入及 `CONTROL_TRIGGER`（`:498-559`，触发写 `:532`）发 RPMh 事务；违反 `docs/ops/HARD-RULES.md:24-76` 的 HR-01，不能用本次 M2 授权覆盖。须先按既有规则处理时钟/供电路径并重新构建，禁止直接飞现有 k14 镜像。只读 porting 门禁另因默认构建输入 series 缺失失败；设备最新探测为 `none`。本次未取得 PAS15、IPA_VERSION 或 GSI 运行时证据，M2 仍未硬件验收；按授权范围记录后待命。
 - 状态：**研究完成；M0 编译骨架、M1 固件校验/暂存/PAS 15 路径、handoff 调用点、IP0 时钟投票、IPA5.1 资源表初始化、GSI 能力/所有权预检（M2 前置）、可宿主测试的 M2 GSI command-DMA 与 SMMU 规划模块，以及 M2 运行时 glue（1 MiB ring、0x8000 SMMU 表块、ArmSmmu4K 三区间页表、SID 0x5c0、SMEM item 497（TCSR SMEM mutex 0x1f43000 下分配/复用）、GSI MMIO/回调，pong_ipa=2 门控）已实现并通过 host tests 与内核编译验收（kernel 619acc64（0621 io_submap 预算修复 + EE0 后置语义修复 + ArmSmmu4K Device-nGnRE 支持 + SMMU IDR/context 诊断 + SMEM item 497 分配修复），k14 标准与 M2 诊断镜像）；固件加载区已按活 FDT 修正为 `memory-regions -> ipa_gsi_region@8b910000/0xa000`（metadata 仍在 `ipa_fw_region` 最后 8 KiB）；尚未上机，数据面未实现，K60 数据面仍为 ENETDOWN，不能声称可上网。**
 - 范围：按 `E:/hackios/UniXNU/docs/zh/porting/baseband.md` 第 2、4 节，给出 K60（mondrian/SM8475）IPA v5.1 数据面的硬件事实、v4.2 复用边界、分阶段计划和首个离线测试。
 - 结论：L1/L2 已有基础，L3 控制桥可枚举，**L4（IPA/GSI + QMAP mux + net TX/RX）数据面仍缺失，M0 只有编译骨架、M1 已有固件暂存/PAS 15 路径、payload FAT handoff 调用点与 IP0 时钟投票**；K60 不是 Coachz 的 v4.2 + PCIe/MHI 组合，不能直接套用 QcomBaseband 的 IPA 适配层。

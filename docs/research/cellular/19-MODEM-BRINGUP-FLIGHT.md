@@ -1,6 +1,7 @@
 # 19 — 基带 PAS 上机计划（route B/C）
 
 - 日期：2026-11-18
+- 2026-11-18 M2 上机前检查：**阻塞，未执行 boot。** k14 的 `pong_ipa=1/2` 共用 `k60_ipa_firmware_start()` → `k60_ipa_clock_vote()`，会映射/读取 DRV2 `0x17a20000` 并写 TCS4、触发 RPMh（`K60Ipa.c:578-610,1196`；触发写在 `K60Ipa.c:532`），违反 `docs/ops/HARD-RULES.md:24-76` 的 HR-01。现有 k14 标准与 M2 镜像均暂停上机；须先解决该路径并通过 Lead 的 `scripts/flash.sh` 全部门禁。独立只读检查中，porting 门禁因默认构建输入 `/opt/k60/trees/usb-cdc-mainline/device/patches/xnu/series` 缺失而失败；其余三项检查通过不构成放行。最新设备状态为 `none`，PAS15/IPA_VERSION/GSI 仍无硬件观测。
 - 状态：**判据已冻结；C/B/C0/IPA-only 候选已重建（2026-11-18 09:25，k14 代：QcomBaseband 设备 patch + IPA M0 骨架 + M1 固件暂存/PAS 路径 + payload FAT 调用点 + IP0 时钟 + IPA 资源表初始化 + GSI EE0 预检 + M2 运行时 glue（1 MiB ring、ArmSmmu4K、SMEM item 497 在 TCSR mutex 下分配、GSI command-DMA，pong_ipa=2 门控）+ 0621-k60-io-submap-budget.patch（IO_MAP_SIZE 32 MiB，P-219）+ SMMU IDR/context 诊断日志，kernel 619acc64）；2026-11-18 01:49 的 C 首飞因旧 FD 无 metadata 未取得 console，待复飞；本文件仍不是飞行许可**
 - k14 M2 诊断：2026-11-18 09:25 另生成 C/C0/IPA-only/B-full 四张 `pong_ipa=2` 镜像（kernel 619acc64），只用于 M2 运行时验证，不是完整 B 候选；细节见 `20-IPA-V51-DATA-PATH.md`。
 - k14 完整代：2026-11-18 09:25 在 b9de56b9 的 ArmSmmu4K Device-nGnRE 修复、71e7c43 的 SMMU IDR/context 诊断日志和 d828f3ab 的 SMEM item 497 分配修复和 5d59eab7 的 0621 io_submap 预算修复上重编 kernel `619acc64`（105,562,112 B）；标准 `pong_ipa=1` boot：C `99be2832...`、C0 `e637b8f4...`、IPA-only `08347941...`、B `6a6ec196...`，M2 `pong_ipa=2` boot：C `f3a8f9e8...`、C0 `75ec7acc...`、IPA-only `451a5da2...`、B-full `df80cc6f...`；标准 C/B 由 fly-modem.ps1 指向，M2 用 fly-modem-m2.ps1；细节见 `20-IPA-V51-DATA-PATH.md`。

@@ -154,6 +154,46 @@ int main(void)
     }
 
     {
+        K60CpuFreqWrite writes[K60_CPU_FREQ_MAX_WRITES], restore[K60_CPU_FREQ_MAX_WRITES];
+        uint32_t original[K60_CPU_FREQ_MAX_WRITES] = {11, 12, 13, 14};
+        uint32_t readback[K60_CPU_FREQ_MAX_WRITES] = {0};
+        K60CpuFreqTable empty = clock;
+        unsigned n, i;
+
+        n = k60_cpufreq_build_votes(0, 1, clock.level[4], writes, K60_CPU_FREQ_MAX_WRITES);
+        check("guard_ok", k60_cpufreq_vote_allowed(1, &clock, clock.level[4], n), 1);
+        check("guard_disabled", k60_cpufreq_vote_allowed(0, &clock, clock.level[4], n), 0);
+        empty.count = 0;
+        check("guard_empty", k60_cpufreq_vote_allowed(1, &empty, clock.level[4], n), 0);
+        check("guard_unlisted", k60_cpufreq_vote_allowed(1, &clock, 39, n), 0);
+        check("guard_no_writes", k60_cpufreq_vote_allowed(1, &clock, clock.level[4], 0), 0);
+        check("guard_oversize", k60_cpufreq_vote_allowed(1, &clock, clock.level[4], 9), 0);
+        check("guard_null", k60_cpufreq_vote_allowed(1, NULL, clock.level[4], n), 0);
+
+        for (i = 0; i < n; ++i) readback[i] = writes[i].value;
+        check("readback_ok", k60_cpufreq_check_readback(writes, readback, n), 1);
+        readback[2] = 0;
+        check("readback_mismatch", k60_cpufreq_check_readback(writes, readback, n), 0);
+        readback[2] = writes[2].value;
+        check("readback_zero", k60_cpufreq_check_readback(writes, readback, 0), 0);
+        check("readback_null_writes", k60_cpufreq_check_readback(NULL, readback, n), 0);
+        check("readback_null_values", k60_cpufreq_check_readback(writes, NULL, n), 0);
+        check("readback_oversize", k60_cpufreq_check_readback(writes, readback, 9), 0);
+
+        n = k60_cpufreq_build_restore(writes, original, n, restore, K60_CPU_FREQ_MAX_WRITES);
+        check("restore_count", n, 4);
+        check("restore_offset0", restore[0].offset, 0x320);
+        check("restore_offset3", restore[3].offset, 0x32c);
+        check("restore_value0", restore[0].value, 11);
+        check("restore_value3", restore[3].value, 14);
+        check("restore_tight", k60_cpufreq_build_restore(writes, original, 4, restore, 3), 0);
+        check("restore_null_original", k60_cpufreq_build_restore(writes, NULL, 4, restore,
+            K60_CPU_FREQ_MAX_WRITES), 0);
+        check("restore_zero", k60_cpufreq_build_restore(writes, original, 0, restore,
+            K60_CPU_FREQ_MAX_WRITES), 0);
+    }
+
+    {
         K60CpuFreqGovernor gov;
         unsigned i;
 

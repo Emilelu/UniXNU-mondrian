@@ -116,7 +116,7 @@
 
 - **第 2 行写死字面量**：13 的 C1 用 `grep -F` 逐字符比对，`%lx` 拼出来的大小写/补零不可控；常量写进字符串，另用 `ASSERT (Carrier.Base == 0x8bc00000ULL && Carrier.Span == 0x13200000ULL)` 保真。
 - **第 1 行打物理地址** `TreeAddress`（`:766` 算出来的值）。`:798` 的 `Args->DeviceTree = Kernel.Base + TreeAddress - Address` 是同一地址的 VA 形式，不要打那个。
-- **第 3 行** 的 `AblEnd` 由 §2.3 的内存图扫描得到（`Display Reserved` 起点 `0xB8000000`，`MemoryMapLib.c:52`），不是硬编码常量。
+- **第 3 行** 的 `AblEnd` 由 §2.3 的内存图扫描得到：取覆盖 metadata 页 `0xB7FF0000..0xB7FF16FC` 的 `EfiReservedMemoryType` 描述符，再以 `0xB8000000` 为上限收敛；它不是硬编码常量，且只作诊断（真正的门是 `MetadataCovered`）。
 - 三行都用 `Print()`，**不能用 `DEBUG()`**：13 的 B4 会在固件源码里 `grep -F "modem-image:"`，只要有一行含 `DEBUG(` 就直接判红。
 
 ### 1.7 payload 容量约束（2026-11-16 实测）
@@ -499,7 +499,7 @@ props，而在包装层对 `srcLen` 出参的误读。
 
 1. 两遍调用 `gBS->GetMemoryMap`（第一遍 `Size = 0` 拿 `EFI_BUFFER_TOO_SMALL`，再 `AllocatePool`），照 `DarwinBoot.c:343-359` 的 `GetMap` 逻辑（带 3 次尝试）。
 2. 找 `PhysicalStart <= Base` 且 `PhysicalStart + NumberOfPages * 4096 >= Base + Span` 的描述符；找不到，或 `Type == EfiConventionalMemory` ⇒ `modem-image: window 0x8bc00000..0x9ee00000 is not reserved, refusing`，硬失败。
-3. 顺带取 `AblEnd`：找 `PhysicalStart == 0xB8000000` 的描述符（`Display Reserved`，`MemoryMapLib.c:52`），把它的起点作为「ABL staging 结束」；找不到就填 0 并继续（它只是诊断数，不阻断）。
+3. 同时记录两个覆盖门：metadata 页 `0xB7FF0000..0xB7FF16FC` 与 IPA 固定窗口 `0x8B900000..0x8B90E000` 都必须被 `EfiReservedMemoryType` 描述符完整覆盖；任一不覆盖就硬失败。`AblEnd` 仅作为诊断数，取覆盖 metadata 的保留描述符终点并以 `0xB8000000` 收敛，不再单独决定是否阻断。
 
 为什么要查：`MemoryMapLib.c` 的数组是构建期写进去的，真机上 `GetMemoryMap` 反映的是 HOB 处理后的结果。`ABL Staging` 的教训（`MemoryMapLib.c:39-51`）就是「数组里有的段没进描述符 ⇒ 首次读 translation fault」。
 
@@ -520,6 +520,22 @@ props，而在包装层对 `srcLen` 出参的误读。
 - 目标属性来自 `MemoryMapLib.c:31` 的 `UNCACHED_UNBUFFERED_XN` ⇒ 写直达内存，**不需要** `FlushRange`；`DarwinBoot.c` 里 `FlushRange` 只用在音频 DMA（`:762`）和 trampoline（`:782`，定义在 `:49`）。
 - 如果将来有人为了「拷得快」把 `mpss_region` 改成 `WRITE_BACK`，必须在 PAS 之前对整段做 clean（`FlushRange` 或 `ArmCleanDataCacheToPoU`），否则 modem 取到旧字节。这一句写进实现注释里，别只写在文档里。
 - 不要改 `:31` 的属性：这段是 modem 与 AP 共享的窗口，非缓存是当前唯一验证过的选择。
+
+### 2.6 2026-11-18 k14 M2 启动失败与 fixed-window 载具
+
+k14 M2 C 镜像（boot `002d9a57...`，payload `c-diagnostic-m2`，内嵌 UEFI FD `e007de8a...`）在 16:11 启动后停在 UEFI 菜单：DXE 日志只有 `UNIXNU: xnu: handing off 0 staged kext(s) to loader`，随后 `UNIXNU: menu: entry 0 returned Device Error`（00:03:42.711 与 00:06:40.644 两次），XNU 从未开始，串口没有内核日志。这不是 0621 的 io_submap 早期 panic（k14 已含 0621），也不是 IPA M2 内核 panic，而是 **DarwinBoot 的 MODEM CARRIER 阶段**。
+
+离线取证把常见怀疑排除：payload 内 kernel 与 ADT 的 SHA-256 与 `payload.json` 一致；FAT 链全部连续；27 个 `.lzma` 都存在且 LZMA-alone 头声明长度与 `K60ModemImageTable.h` 逐行相等；修正解析顺序后 LFN/SFN 校验和也全部匹配；k14 与可启动 k15 的内嵌 UEFI FD 字节相同，所以不是 FD 差异。失败点因此落在 `ImageCarrierLoad()` 的读文件/内存图路径，而不是内核或 IPA。
+
+源码复核另发现一个风险，但它**没有**在 16:11 的现场得到证明：旧 FD 在 `CarrierLoadSegment()` 读完 13 字节 LZMA 头后可能没有可靠的 `SetPosition(0)` 回绕，整文件读会短 13 字节并返回 `EFI_DEVICE_ERROR`；工作树已经补上回绕（`ImageCarrierLib.c:719-730`），但 k14 镜像用的是旧 FD，不能代表新代码。把这条当作待验证假设，不能当作 16:11 的根因。
+
+修复方向是把 IPA 固件也改成 **固定窗口载具**，与 modem 载具同一条 DXE 路径：
+
+- `ImageIpaLoad()`（`ImageCarrierLib.c:1049-1168`）在 MODEM CARRIER 之后、ramdisk/trustcache 之前运行，打开 payload 根目录 `\IPA\ipa_fws.mbn`，要求 1..`0xE000` 字节，清零并写入 `0x8B900000`，回写 cache 后打印 `ipa-image: %d bytes at 0x%lx`；没有 `\IPA` 时打印 `ipa-image: no IPA directory, skipped` 并继续。
+- `CarrierScanMap()` 同时要求 metadata 页 `0xB7FF0000..0xB7FF16FC` 和 IPA 窗口 `0x8B900000..0x8B90E000` 被 `EfiReservedMemoryType` 完整覆盖，任一缺口硬失败（`ImageCarrierLib.c:163-280`）。
+- XNU 侧 `k60_ipa_probe_from_handoff()` 只映射 `0x8b900000` 的前 `0xE000` 字节，再调用 `k60_ipa_firmware_start()`；不再读 payload FAT，也不再依赖 md0。md0 的旧路线是手工拼接镜像里的 `vmd0=0x83b5000.0x2000000` 由 XNU `memdev.c` 创建，首次 FAT 读触发 synchronous external abort `esr 0x96000010`，不可复用。
+
+UEFI 侧提交 `05df05f`（`wip/m2-carrier-debug`）包含上述两段；新 FD `E:/k60-work/artifacts/uefi-debug/SILICIUM_UEFI.carrierfix-fixedwindow.fd` 为 3,145,728 B、sha256 `9b7155f674f2654334cf5c97260e5cd36844e7d3ba8786b4dd9c39d62599c1f8`，Clean DEBUG 构建。它已经进入 k16 的八个启动镜像（标准与 M2 各四张，共享 kernel `03a3aeab`，boot 均 201,895,936 B），但还没有上机验证；k16 镜像显式嵌入这个 FD，没有使用旧的 active `e007de8a`。在 fixed-window C-M2 上机并取得串口证据之前，M2 仍然只能记为“代码完成、硬件未观察”。
 
 ## 3 发布 K60ModemImage
 

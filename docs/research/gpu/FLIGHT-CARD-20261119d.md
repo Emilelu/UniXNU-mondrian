@@ -44,9 +44,10 @@ SpringBoard 下一次合成就会覆盖。若这一帧之后屏幕**仍然**是�
 
 - P1 `wsl -u root -e bash -lc '… scripts/build-strict.sh gpu-blitprobe-20261119 …'` 退出码 0。
 - P2 `image-arg-audit: OK (30 arguments, 596 bytes)`。
-- P3 内核里必须有下面两条字符串（否则探针没进镜像）：
+- P3 插件 bundle 里必须有下面三条字符串（否则探针没进 bundle —— 这三行由
+  `PongAdrenoMetal` 输出，**不是**内核；上一张卡在这里写错过一次）：
   `scanout blit control bytes=%zu src-to-device=%llu us device-to-scanout=%llu us`、
-  `scanout blit control could not run`。
+  `scanout blit control could not run`、`pong_gpu_blit_probe=0`。
 - P4 `python3 scripts/queue-flight.py` 保持 `K60_AGENT_ID` 署名；设备在 fastboot。
 - P5 `✅ flight card: … written before gpu-blitprobe-20261119`。
 - P6 本条卡的 `criteria-sha256` 已钉入 §5（重飞只许重复判据，不许改阈值）。

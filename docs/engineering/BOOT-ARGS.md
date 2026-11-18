@@ -4,7 +4,7 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 591 字节，余 17。
+**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。board.toml 当前 29 项 575 字节；`p120=1` 追加 7 字节为 582，`vsync=120` 追加 10 字节为 585。`p120=1` 叠加 `k60_backlight_control=1` 为 606，仍不越过 607 字节的镜像审计上限；`vsync=120` 与 `k60_backlight_control=1` 同用会到 609 字节，不能放进同一张镜像。
 
 ## 一览
 
@@ -38,11 +38,13 @@
 | `k60_usbvend` | 调试 / USB | 0/1/2 | 0（= 0409 原样） | `0410-k60-usb-vendor-loopback.patch`：0 = 67 字节两接口 CDC-ACM、无回环；1 = 98 字节复合描述符（IAD + IF2 vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN）+ EP6→EP7 回环；2 = 控制台描述符不变、回环跑 CDC 数据对 EP2→EP3（普通 COM 口可验） | mode 1 的 IF2 主机侧没有驱动，要用 libusb 直接开；mode 2 必须同时开 `k60_usblog`（控制台让位给回环） |
 | `pong_modem` | uint32 | 0 | `patches/xnu/0621-k60-modem-pas.patch:325` | `bsd/dev/pong_modem_pas.c` | 0 = quiet; 1 = modem image stage; 2 = image + QRTR verdict `K60MODEM qrtr: verdict ok` (cellular L3). |
 | `k60_wallpaper_reset` | uint32 | 0 | `userland/ui_compat.c:677` | `select_initial_wallpaper()` | 1 = SpringBoard restores the stock 7410 wallpaper through the native setter on the next boot (springboard F1). |
-| `k60_backlight` | uint32 | 1 | `drivers/PongAdreno/K60Backlight.cpp:399` | `k60_backlight_start()` | 0 = never start the backlight service (panel keeps the DBV bring-up left, 0xff). |
-| `k60_backlight_control` | uint32 | **1** | `drivers/PongAdreno/K60Backlight.cpp:292` | `K60Backlight::publishFirst()` | 1 = impersonate AppleARMBacklight and publish `backlight-control`; 0 = publish the level only, never claim the control property (int-236 escape hatch). |
-| `k60_backlight_invert` | uint32 | 0 | `drivers/PongAdreno/K60Backlight.cpp:346` | `K60Backlight::start()` | 1 = invert the level-to-DBV mapping when the panel is wired the other way round. |
+| `k60_backlight` | uint32 | 1 | `drivers/PongAdreno/K60Backlight.cpp:443` | `k60_backlight_start()` | 0 = never start the backlight service (panel keeps the DBV bring-up left, 0xff). |
+| `k60_backlight_control` | uint32 | **0** | `drivers/PongAdreno/K60Backlight.cpp:322` | `K60Backlight::publishFirst()` | 1 = impersonate AppleARMBacklight and publish `backlight-control`, but only if `metaCast("AppleARMBacklight")` then answers true (the kernel side of `IOObjectConformsTo`, `K60Backlight.cpp:161`); 0 (default) = publish `IODisplayParameters` only and never claim the control property. brightness-4 ran with 1 and backboardd crashed with four SIGSEGVs before the first frame (int-236), so the default is off. Judge a log with `python3 scripts/check-backlight-log.py <console.log> [--control=1]`. Index semantics: `docs/research/display/STATS-INDEX.md`. |
+| `k60_backlight_invert` | uint32 | 0 | `drivers/PongAdreno/K60Backlight.cpp:390` | `K60Backlight::startService()` | 1 = invert the level-to-DBV mapping when the panel is wired the other way round. |
 | `pong_thermal_bias` | int32 (mC) | 0 | `drivers/PongThermal/pong_thermal.c:277` | `pong_thermal_start()` | Synthetic offset added to every sensor reading so a cold device can be pushed up the zone ladder: 50000 = level 1, 75000 = level 2, 85000 = level 3. |
 | `gprobe` | uint32 | 0 | `drivers/PongAdreno/PongDsiPanel.cpp:330` | `pong_panel_bring_up()` / `pong_panel_sample()` | 1 = arm the bounded 120 s panel-cadence observation window (GCC_DISP_AHB gate, DISPCC, MDSS) and let `K60 CADENCE:` lines print; 0 = the sample hook stays silent unless the one-shot post-bring-up check is still pending. |
+| `p120` | 显示 | uint32 | 0 | `patches/xnu/0506-k60-120hz-refresh.patch` + `drivers/PongAdreno/PongDsiPanel.cpp` | `refreshHz()` / `pong_panel_switch_120()` | `p120=1` = send the m11a timing@2 eleven-packet switch once at the first completed GPU frame; report the requested 120 Hz to TimingElements and log the separately measured INTF1 rate; 0 (default) = keep the native 60 Hz mode. The `K60 PANEL: INTF1 ... te .../s` line is the measured evidence; a failed switch is visible there even though the one-time TimingElements publication already says 120. |
+| `vsync` | 显示 | 仅 120（其他值忽略） | 0 | `patches/xnu/0506-k60-120hz-refresh.patch` + `drivers/PongAdreno/PongDsiPanel.cpp` | `refreshHz()` / `pong_panel_switch_120()` | Official display-document alias: `vsync=120` is accepted as equivalent to `p120=1`; it is a request, not a report. The same eleven-packet timing@2 switch runs at the first completed GPU frame; refreshHz() publishes the requested 120 Hz and the INTF1 line records the measured rate. Do not combine `vsync=120` with `k60_backlight_control=1` — the boot-args budget reaches 609 B, over the 608-byte limit. |
 | `k60_fontscale` | 显示 | 整数 | 代码默认 | `0214-k60-console-font-scale.patch` 控制台字号倍率 | — |
 | `k60_textonly` | 显示 | 真值 | 代码默认 | 只跑文本控制台，不初始化图形帧 | 用于隔离显示问题 |
 | `fb_threads` | 显示 | 整数 | 代码默认 | `zzzz…-pong-hackios-ui-foundation.patch` framebuffer 线程数 | — |

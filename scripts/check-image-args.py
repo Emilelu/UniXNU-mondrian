@@ -50,7 +50,7 @@ ALLOWED_ADDITIONS = {
     "k60_backlight", "k60_backlight_control", "k60_backlight_invert",
     "pong_thermal_bias",
     "pong_handoff_publish",
-    "gprobe",
+    "gprobe", "p120", "vsync",
 }
 
 # Values that are never acceptable in an experiment image, with the reason.

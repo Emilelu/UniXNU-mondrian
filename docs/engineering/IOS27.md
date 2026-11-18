@@ -40,7 +40,7 @@ The SoC layer's `xnu-12377` series lives on the `feat/xnu-12377` branch of
 commit, so a clean checkout fetches it without a local module:
 
 ```sh
-./unixnu fetch -D ../UniXNU-mondrian-ios27
+./unixnu fetch --device ../UniXNU-mondrian-ios27
 ```
 
 `Emilelu/UniXNU-sm8475-common` does not carry the branch; keep both URLs in
@@ -85,8 +85,8 @@ lzfse under one prefix; the build driver uses it automatically when it exists.
 ```sh
 cd UniXNU
 sudo python3 scripts/linux/setup-toolchain.py --jobs 12 /opt/unixnu-linux
-python3 ./unixnu defconfig mondrian_ios27_defconfig -D ../UniXNU-mondrian-ios27
-python3 ./unixnu build kernel -D ../UniXNU-mondrian-ios27
+python3 ./unixnu defconfig mondrian_ios27_defconfig --device ../UniXNU-mondrian-ios27
+python3 ./unixnu build kernel --device ../UniXNU-mondrian-ios27
 ```
 
 That path needs no Mac and no phone. The 24.4 GiB userdata image still needs

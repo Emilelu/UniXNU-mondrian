@@ -524,6 +524,8 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       uint8_t buf[0x80]; if (copy_in(rq, buf, sizeof buf, kernel)) return EFAULT;
       uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
       log(6, "wifi-net: scan request type %d len %u val %d ssid %u", type, rq.req_len, rq.req_val, ssidLength);
+      // The daemon's scan request carries a channel filter ahead of the SSID; the filter decides what the pane may see.
+      static unsigned reqs; if (++reqs <= 8) { uint32_t wds[4]; memcpy(wds, buf, sizeof wds); log(6, "wifi-net: scan request prefix %08x %08x %08x %08x", wds[0], wds[1], wds[2], wds[3]); }
       if(ssidLength>32 || rq.req_len<20+ssidLength)return EINVAL;
       // joining or joined: a scan takes the radio off channel for seconds and the access point's beacons and handshake frames are missed, so
       // the daemon gets the last results instead
@@ -665,9 +667,13 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       const uint32_t *wds = reinterpret_cast<const uint32_t *>(&out.res);
       log(6, "wifi-net: 5ghz %u words %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x",
           gScanServed, wds[0], wds[1], wds[2], wds[3], wds[4], wds[5], wds[6], wds[7], wds[8], wds[9], wds[10], wds[11]);
+      // The element blob decides the security type the daemon parses, so print its head for the same records.
+      const uint8_t *ie = reinterpret_cast<const uint8_t *>(&out.res.legacy.elements);
+      log(6, "wifi-net: 5ghz %u ie %02x%02x%02x%02x%02x%02x%02x%02x %02x%02x%02x%02x%02x%02x%02x%02x",
+          gScanServed, ie[0],ie[1],ie[2],ie[3],ie[4],ie[5],ie[6],ie[7],ie[8],ie[9],ie[10],ie[11],ie[12],ie[13],ie[14],ie[15]);
     }
     // The daemon's list is only as complete as what it read: log what it consumed, not just the first few.
-    if (gScanServed <= 3 || gScanServed % 8 == 0) log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s", gScanServed, count, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+    if (count <= 40 || gScanServed <= 3 || gScanServed % 8 == 0) log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s", gScanServed, count, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
     return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
   case kCurrentNetwork: {
     if (st.state < NW_STA_ASSOC) return ENOENT;

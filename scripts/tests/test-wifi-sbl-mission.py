@@ -289,6 +289,10 @@ def main() -> int:
     check("a served 5 GHz record prints the words the daemon sees",
           "const uint32_t *wds = reinterpret_cast<const uint32_t *>(&out.res);" in net and
           'log(6, "wifi-net: 5ghz %u words %08x %08x' in net)
+    check("the daemon's scan filter and every served record are in the log",
+          'log(6, "wifi-net: scan request prefix %08x %08x %08x %08x"' in net and
+          "if (count <= 40 || gScanServed <= 3 || gScanServed % 8 == 0)" in net and
+          'log(6, "wifi-net: 5ghz %u ie %02x%02x%02x%02x%02x%02x%02x%02x' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

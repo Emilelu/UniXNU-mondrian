@@ -236,6 +236,22 @@ def main() -> int:
           "WiFi lifecycle test PASS: reconnected BSSID" in plat and
           "WiFi lifecycle test FAIL: reconnect" in plat)
 
+    he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
+    he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
+    check("the station announces an HE capability element",
+          "static u8 g_he_ie[2 + 1 + PONG_HE_CAP_FIXED + PONG_HE_MCS_MAX + PONG_HE_PPE_MAX];" in text and
+          "if (g_he_ie_len) skb_put_data(skb, g_he_ie, g_he_ie_len);" in text and
+          "k60 station: association request HT %u VHT %u HE %u bytes" in text)
+    check("the peer entry carries the access point's narrowed HE capability",
+          "struct ieee80211_sta_he_cap *h = &sta->deflink.he_cap;" in text and
+          "pong_he_narrow(&own, &he_ap);" in text and
+          "g_vif->bss_conf.he_oper.params = g_he_oper.params;" in text)
+    check("the HE codec is a separate host-tested unit",
+          "jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_he.c', out / 'pong_he.o', [])]" in text and
+          "#define PONG_HE_ELEM_ID 255" in he_hdr and
+          "peer->mcs[0] = intersect16(own->mcs[1], peer->mcs[0]);" in he_src and
+          (ROOT / "scripts" / "tests" / "pong-he-selftest.c").is_file())
+
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

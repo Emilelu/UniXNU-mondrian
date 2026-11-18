@@ -520,7 +520,8 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         '-I', str(overlay), '-include', 'PongCompat.h', '-I', str(shared / 'shim/include'),
         '-I', str(pinned), '-I', str(linux / 'include'), '-I', str(linux / 'include/uapi'),
         '-I', str(shared / 'include'), '-I', str(shared / 'src'),
-        '-I', str(gen), '-I', str(out), '-I', str(source.parent), '-DCONFIG_ATH11K_PCI=1',
+        '-I', str(gen), '-I', str(out), '-I', str(source.parent), '-I', str(ROOT / 'drivers/PongWifi/ath11k'),
+        '-DCONFIG_ATH11K_PCI=1',
         '-DLX_BOOT_SETTLE_MS=0']
     ath = 'core hal hal_tx hal_rx wmi mac reg htc qmi dp dp_tx dp_rx ce peer dbring hw pcic fw p2p mhi pci'.split()
     jobs = [(gen / (n + '.c'), out / ('ath11k_' + n + '.o'), []) for n in ath]
@@ -563,6 +564,94 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     sta = sta.replace(assign, rate_selection +
         '  lx_log(6, "k60 station: pre-start band=%u basic_rates=0x%x", band, g_vif->bss_conf.basic_rates);\n'
         '  g_ops->link_info_changed(g_hw, g_vif, &g_vif->bss_conf, BSS_CHANGED_BASIC_RATES);\n' + assign)
+    # HE (802.11ax): the capability codec lives in drivers/PongWifi/ath11k/pong_he.c; the station source gains the
+    # include, four globals and three call sites. The access point's HE Capabilities element is narrowed to this radio
+    # (peer receive against our transmit and the reverse, as the upstream conversion does) and its HE Operation fills
+    # bss_conf.he_oper, which the driver reads when it builds the peer-association request.
+    he_own_fn = """/* The radio's own HE capability for a station, in element bytes, narrowed to the width the access point runs: the
+ * same rule the HT and VHT elements follow, because a 160 MHz claim on an 80 MHz link is not negotiated. */
+static int own_he_cap(enum nl80211_band band, struct pong_he_cap *out) {
+  struct ieee80211_supported_band *sb = g_hw ? g_hw->wiphy->bands[band] : 0;
+  const struct ieee80211_sta_he_cap *he;
+  if (!sb) return -1;
+  he = ieee80211_get_he_iftype_cap(sb, NL80211_IFTYPE_STATION);
+  memset(out, 0, sizeof *out); if (!he || !he->has_he) return -1;
+  memcpy(out->mac, he->he_cap_elem.mac_cap_info, sizeof out->mac);
+  memcpy(out->phy, he->he_cap_elem.phy_cap_info, sizeof out->phy);
+  out->mcs[0] = le16_to_cpu(he->he_mcs_nss_supp.rx_mcs_80); out->mcs[1] = le16_to_cpu(he->he_mcs_nss_supp.tx_mcs_80);
+  out->mcs[2] = le16_to_cpu(he->he_mcs_nss_supp.rx_mcs_160); out->mcs[3] = le16_to_cpu(he->he_mcs_nss_supp.tx_mcs_160);
+  out->mcs[4] = le16_to_cpu(he->he_mcs_nss_supp.rx_mcs_80p80); out->mcs[5] = le16_to_cpu(he->he_mcs_nss_supp.tx_mcs_80p80);
+  out->ppe_len = pong_he_ppe_size(he->ppe_thres[0], out->phy);
+  memcpy(out->ppe, he->ppe_thres, out->ppe_len < sizeof out->ppe ? out->ppe_len : sizeof out->ppe);
+  if (g_width != NL80211_CHAN_WIDTH_160 && g_width != NL80211_CHAN_WIDTH_80P80)
+    out->phy[0] &= (u8)~(IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G | IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_80PLUS80_MHZ_IN_5G);
+  return 0; }
+"""
+    he_peer = """  /* HE: the access point's own capability from its beacon, narrowed to this radio. The driver takes its HE peer
+   * path only when the station entry carries a valid HE capability, and it takes the peer's operation parameters from
+   * the interface's bss_conf; without this the two sides stay at VHT. */
+  g_he_on = false;
+  { struct pong_he_cap own, he_ap; unsigned cap_len = 0, oper_len = 0;
+    const u8 *he_cap_e = pong_he_find_ext(C.ap.ie, C.ap.ie_len, PONG_HE_EXT_CAP, &cap_len);
+    if (!own_he_cap(g_cap_band, &own) && he_cap_e && !pong_he_parse_cap(he_cap_e, cap_len, &he_ap)) {
+      struct ieee80211_sta_he_cap *h = &sta->deflink.he_cap;
+      const u8 *he_oper_e;
+      pong_he_narrow(&own, &he_ap);
+      memset(h, 0, sizeof *h); h->has_he = true;
+      memcpy(h->he_cap_elem.mac_cap_info, he_ap.mac, sizeof he_ap.mac);
+      memcpy(h->he_cap_elem.phy_cap_info, he_ap.phy, sizeof he_ap.phy);
+      h->he_mcs_nss_supp.rx_mcs_80 = cpu_to_le16(he_ap.mcs[0]); h->he_mcs_nss_supp.tx_mcs_80 = cpu_to_le16(he_ap.mcs[1]);
+      h->he_mcs_nss_supp.rx_mcs_160 = cpu_to_le16(he_ap.mcs[2]); h->he_mcs_nss_supp.tx_mcs_160 = cpu_to_le16(he_ap.mcs[3]);
+      h->he_mcs_nss_supp.rx_mcs_80p80 = cpu_to_le16(he_ap.mcs[4]); h->he_mcs_nss_supp.tx_mcs_80p80 = cpu_to_le16(he_ap.mcs[5]);
+      memcpy(h->ppe_thres, he_ap.ppe, he_ap.ppe_len < sizeof h->ppe_thres ? he_ap.ppe_len : sizeof h->ppe_thres);
+      g_he_on = true;
+      he_oper_e = pong_he_find_ext(C.ap.ie, C.ap.ie_len, PONG_HE_EXT_OPER, &oper_len);
+      if (he_oper_e && !pong_he_parse_oper(he_oper_e, oper_len, &g_he_oper)) {
+        g_vif->bss_conf.he_oper.params = g_he_oper.params; g_vif->bss_conf.he_oper.nss_set = g_he_oper.nss_set;
+      } else { g_vif->bss_conf.he_oper.params = 0; g_vif->bss_conf.he_oper.nss_set = 0; } } }
+"""
+    he_log = """  lx_log(6, "wifi: peer HE %s, MCS 80 rx %04x tx %04x, params 0x%08x nss 0x%04x",
+         g_he_on ? "yes" : "no", le16_to_cpu(sta->deflink.he_cap.he_mcs_nss_supp.rx_mcs_80),
+         le16_to_cpu(sta->deflink.he_cap.he_mcs_nss_supp.tx_mcs_80),
+         g_vif->bss_conf.he_oper.params, g_vif->bss_conf.he_oper.nss_set);
+"""
+    he_globals = """static u8 g_he_ie[2 + 1 + PONG_HE_CAP_FIXED + PONG_HE_MCS_MAX + PONG_HE_PPE_MAX];
+static unsigned g_he_ie_len;
+static struct pong_he_oper g_he_oper;
+static bool g_he_on;"""
+    he_edits = [
+        ('#include "nw_events.h"', '#include "nw_events.h"\n#include "pong_he.h"'),
+        ('static bool g_ht_on, g_vht_on;', 'static bool g_ht_on, g_vht_on;\n' + he_globals),
+        ('static void build_cap_ies(enum nl80211_band band) {', he_own_fn + 'static void build_cap_ies(enum nl80211_band band) {'),
+        ('''    g_vht_ie_len = 2 + sizeof cap; g_vht_on = true;
+  }
+}
+static void send_assoc(void) {''',
+         '''    g_vht_ie_len = 2 + sizeof cap; g_vht_on = true;
+  }
+  g_he_ie_len = 0; g_he_on = false;
+  { struct pong_he_cap own;
+    if (!own_he_cap(band, &own)) {
+      const unsigned n = pong_he_write_cap_ie(&own, g_he_ie, sizeof g_he_ie);
+      if (n) { g_he_ie_len = n; g_he_on = true; } } }
+}
+static void send_assoc(void) {'''),
+        ('''  if (g_vht_ie_len) skb_put_data(skb, g_vht_ie, g_vht_ie_len);
+  tx_frame(skb); }''',
+         '''  if (g_vht_ie_len) skb_put_data(skb, g_vht_ie, g_vht_ie_len);
+  if (g_he_ie_len) skb_put_data(skb, g_he_ie, g_he_ie_len);
+  lx_log(6, "k60 station: association request HT %u VHT %u HE %u bytes", g_ht_ie_len, g_vht_ie_len, g_he_ie_len);
+  tx_frame(skb); }'''),
+        ('  { int own_nss = 0; for (int i = 0; i < 4; i++) if (sb->ht_cap.mcs.rx_mask[i]) own_nss = i + 1; if (own_nss && nss > own_nss) nss = own_nss; }',
+         he_peer + '  { int own_nss = 0; for (int i = 0; i < 4; i++) if (sb->ht_cap.mcs.rx_mask[i]) own_nss = i + 1; if (own_nss && nss > own_nss) nss = own_nss; }'),
+        ('''         sta->deflink.vht_cap.vht_supported ? "yes" : "no", sta->deflink.vht_cap.cap, sta->deflink.rx_nss, sta->deflink.rx_nss == 1 ? "" : "s", sta->deflink.bandwidth);''',
+         '''         sta->deflink.vht_cap.vht_supported ? "yes" : "no", sta->deflink.vht_cap.cap, sta->deflink.rx_nss, sta->deflink.rx_nss == 1 ? "" : "s", sta->deflink.bandwidth);
+''' + he_log.rstrip('\n')),
+    ]
+    for he_old, he_new in he_edits:
+        if sta.count(he_old) != 1:
+            raise RuntimeError('shared station HE anchor differs: ' + he_old.splitlines()[0][:64])
+        sta = sta.replace(he_old, he_new)
     (out / 'nw_sta_pong.c').write_text(sta)
     (out / 'lx_rt_pong.c').write_text(adapt_dispatcher_timers((shared / 'shim/src/lx_rt.c').read_text()))
     common_sources = ['src/nw_crypto.c', 'src/nw_events.c', 'src/nw_mac80211.c', 'src/nw_net.c',
@@ -572,6 +661,9 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     jobs += [(linux / ('drivers/soc/qcom/' + n + '.c'), out / (n + '.o'), []) for n in ('qmi_interface', 'qmi_encdec')]
     jobs += [(linux / 'lib/rbtree.c', out / 'rbtree.o', [])]
     jobs += [(ROOT / 'drivers/PongWifi/ath11k/PongAth11k.c', out / 'PongAth11k.o', [])]
+    # The HE (802.11ax) capability codec, kept out of the station transform so scripts/tests/test-pong-he.py can
+    # compile and exercise it on the host.
+    jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_he.c', out / 'pong_he.o', [])]
     commands = []
     def compile(job):
         src, obj, extra = job; cmd = [clang, *flags, *extra, '-c', str(src), '-o', str(obj)]

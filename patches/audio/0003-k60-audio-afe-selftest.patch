@@ -1134,7 +1134,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,23 +1546,95 @@
+@@ -907,23 +1546,93 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -1168,11 +1168,11 @@
 +		return g_pong_audio.last_error ? g_pong_audio.last_error :
 +		    PongAudioErrApmNotReady;
 +	}
-+	/* Pump before the ring check: the consumer must keep draining slots
-+	 * even when the producer arrives with more frames than fit. */
-+	if (g_pong_audio.playback_running) {
-+		pong_audio_pump_one(&g_pong_audio);
-+	}
++	/* Pump before the ring check so the consumer keeps draining slots even
++	 * when the producer arrives with more frames than fit. The pump also owns
++	 * the lead wait that sends the two PREPARE and the START, so it must run
++	 * before playback_running is set as well. */
++	pong_audio_pump_one(&g_pong_audio);
 +	if (frame_count > pong_ring_queue_space(&g_pong_audio.ring)) {
 +		g_pong_audio.ring_dropped += frame_count;
 +		return PongAudioErrRingFull;
@@ -1201,9 +1201,7 @@
 +			    g_pong_audio.inflight);
 +		}
 +	}
-+	if (g_pong_audio.playback_running) {
-+		pong_audio_pump_one(&g_pong_audio);
-+	}
++	pong_audio_pump_one(&g_pong_audio);
 +	return PongAudioOk;
 +}
 +

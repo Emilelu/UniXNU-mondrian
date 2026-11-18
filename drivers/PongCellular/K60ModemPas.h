@@ -35,8 +35,20 @@
 #define K60M_SCM_VAL 0u
 #define K60M_SCM_RW 2u
 
+/* The monitor returns QCOM_SCM_INTERRUPTED when it needs the same call
+ * resumed; x6 carries the continuation context. This is not a failure. */
+#define K60M_SCM_INTERRUPTED 1u
+#define K60M_SCM_MAX_CALLS 100u
+
 /* Peripheral id for the modem (MSS) on SM8475/cape. See the header comment. */
 #define K60_PAS_MODEM 4u
+
+enum {
+	K60ModemPasOk = 0,
+	K60ModemPasDenied = -1,
+	K60ModemPasBadArg = -2,
+	K60ModemPasInterrupted = -3,
+};
 
 /* Function id: SMC64 | SiP owner | service | command. */
 static inline uint32_t
@@ -52,8 +64,9 @@ k60_modem_scm_args(unsigned count, unsigned t0, unsigned t1, unsigned t2)
 	return (count & 0xfu) | ((t0 & 3u) << 4) | ((t1 & 3u) << 6) | ((t2 & 3u) << 8);
 }
 
-/* A call succeeded only when both result registers are zero: x0 alone reports
- * the transport, x1 carries the payload verdict. */
+/* A final call succeeded only when both result registers are zero: x0 alone
+ * reports the transport, x1 carries the payload verdict. x0=1 requests
+ * continuation and is not a final payload result. */
 static inline int
 k60_modem_scm_ok(uint64_t x0, uint64_t x1)
 {
@@ -85,12 +98,6 @@ k60_modem_carrier_ok(const void *at, size_t bytes)
 	}
 	return 1;
 }
-
-enum {
-	K60ModemPasOk = 0,
-	K60ModemPasDenied = -1,
-	K60ModemPasBadArg = -2,
-};
 
 int k60_modem_auth_and_reset(void);
 int k60_modem_init_image(uint64_t phys);

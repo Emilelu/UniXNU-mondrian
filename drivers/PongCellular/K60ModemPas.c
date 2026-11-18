@@ -10,35 +10,76 @@
 
 #ifndef K60_HOST_TEST
 
+/* Host regression replaces only the instruction; the transaction loop and
+ * public PAS entry points below are the production implementation. */
+#ifdef K60_MODEM_SCM_TEST
+#include <stdio.h>
+extern void k60_modem_scm_invoke(uint64_t regs[8]);
+#else
 #include <pexpert/pexpert.h>
 #include <sys/systm.h>
 
+static void
+k60_modem_scm_invoke(uint64_t regs[8])
+{
+	register uint64_t x0 __asm__("x0") = regs[0];
+	register uint64_t x1 __asm__("x1") = regs[1];
+	register uint64_t x2 __asm__("x2") = regs[2];
+	register uint64_t x3 __asm__("x3") = regs[3];
+	register uint64_t x4 __asm__("x4") = regs[4];
+	register uint64_t x5 __asm__("x5") = regs[5];
+	register uint64_t x6 __asm__("x6") = regs[6];
+	register uint64_t x7 __asm__("x7") = regs[7];
+
+	__asm__ volatile("smc #0"
+	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x5),
+	      "+r"(x6), "+r"(x7)
+	    :
+	    : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+	      "x16", "x17", "cc", "memory");
+
+	regs[0] = x0;
+	regs[1] = x1;
+	regs[6] = x6;
+}
+#endif
+
 static int k60_modem_scm_called;
 
-/* x0..x7 are the SMCCC argument registers; the secure monitor writes both the
- * result (x0) and the payload status (x1) back through the same registers. */
 static int
 k60_modem_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
     uint64_t c, uint64_t *rx0, uint64_t *rx1)
 {
-	register uint64_t x0 __asm__("x0") = fn;
-	register uint64_t x1 __asm__("x1") = arginfo;
-	register uint64_t x2 __asm__("x2") = a;
-	register uint64_t x3 __asm__("x3") = b;
-	register uint64_t x4 __asm__("x4") = c;
-	register uint64_t x5 __asm__("x5") = 0;
-	register uint64_t x6 __asm__("x6") = 0;
-	register uint64_t x7 __asm__("x7") = 0;
+	uint64_t regs[8];
+	uint64_t context = 0;
+	unsigned calls;
 
-	__asm__ volatile("smc #0"
-	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
-	    : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
-	    : "memory");
+	/* QCOM_SCM_INTERRUPTED resumes the same transaction, rather than starting
+	 * PAS_INIT_IMAGE again. Reload original x1..x5/x7 on every entry and pass
+	 * the returned x6 back unchanged. Only x0=1 requests continuation. */
+	for (calls = 0; calls < K60M_SCM_MAX_CALLS; calls++) {
+		regs[0] = calls == 0 ? fn : K60M_SCM_INTERRUPTED;
+		regs[1] = arginfo;
+		regs[2] = a;
+		regs[3] = b;
+		regs[4] = c;
+		regs[5] = 0;
+		regs[6] = context;
+		regs[7] = 0;
+		k60_modem_scm_called = 1;
+		k60_modem_scm_invoke(regs);
+		context = regs[6];
+		if (regs[0] != K60M_SCM_INTERRUPTED) {
+			break;
+		}
+	}
 
-	k60_modem_scm_called = 1;
-	*rx0 = x0;
-	*rx1 = x1;
-	return k60_modem_scm_ok(x0, x1) ? K60ModemPasOk : K60ModemPasDenied;
+	*rx0 = regs[0];
+	*rx1 = regs[1];
+	if (regs[0] == K60M_SCM_INTERRUPTED) {
+		return K60ModemPasInterrupted;
+	}
+	return k60_modem_scm_ok(regs[0], regs[1]) ? K60ModemPasOk : K60ModemPasDenied;
 }
 
 static int

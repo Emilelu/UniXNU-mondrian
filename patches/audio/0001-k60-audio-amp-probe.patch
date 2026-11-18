@@ -2067,7 +2067,7 @@
 
 --- /dev/null
 +++ b/bsd/dev/PongAudioAfe.h
-@@ -0,0 +1,695 @@
+@@ -0,0 +1,703 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * Offline encoder for the AFE parameter packets the TERT_TDM speaker path
@@ -2165,6 +2165,7 @@
 +#define PONG_AFE_PORT_CMD_DEVICE_STOP              0x000100e6u
 +#define PONG_AFE_PORT_CMD_SET_PARAM_V2             0x000100efu
 +#define PONG_AFE_SVC_CMD_SET_PARAM                 0x000100f3u
++#define PONG_AFE_SVC_CMD_SET_PARAM_V2              0x000100fcu
 +#define PONG_AFE_MODULE_AUDIO_DEV_INTERFACE        0x0001020cu
 +#define PONG_AFE_MODULE_TDM                        0x0001028au
 +#define PONG_AFE_MODULE_GROUP_DEVICE               0x00010254u
@@ -2222,9 +2223,10 @@
 +#define PONG_AFE_GPR_PORT_CLIENT       0x2001u      /* P: PongAudio.cpp:36 Port */
 +
 +/* Envelope sizes, all packed (M: q6afe.c:396-417). */
-+#define PONG_AFE_SVC_HDR_BYTES   16u  /* payload_size, addr lsw, addr msw, handle */
++#define PONG_AFE_SVC_HDR_BYTES   16u  /* addr lsw, addr msw, handle, payload_size */
 +#define PONG_AFE_PORT_HDR_BYTES  16u  /* port, payload_size, addr lsw, addr msw, handle */
-+#define PONG_AFE_PARAM_BYTES     12u  /* module, param, size, reserved */
++#define PONG_AFE_PARAM_BYTES     12u  /* module, param, size, reserved (v1) */
++#define PONG_AFE_SVC_PARAM_BYTES 16u  /* module, instance, reserved, param, size (v3) */
 +
 +/* Payload sizes (P: hakios.sound.c:349-385, all packed). */
 +#define PONG_AFE_CLOCK_SET_BYTES     20u
@@ -2308,31 +2310,34 @@
 +#define PONG_AFE_OFF_SVC_ADDRESS_MSW  28u
 +#define PONG_AFE_OFF_SVC_MEM_MAP      32u
 +#define PONG_AFE_OFF_SVC_PAYLOAD_SIZE 36u
++#define PONG_AFE_OFF_SVC_PAYLOAD      56u
 +#define PONG_AFE_OFF_PORT_ID          24u
 +#define PONG_AFE_OFF_PORT_PAYLOAD_SIZE 26u
++#define PONG_AFE_OFF_PORT_PAYLOAD     52u
 +#define PONG_AFE_OFF_PARAM            40u
-+#define PONG_AFE_OFF_PAYLOAD          52u
 +
 +/* Service-scoped parameter: clocks and groups (P: afe_service_param
-+ * :386-402). The command header carries the payload size last, the way the
-+ * AudioReach APM header does: address lsw, address msw, mem map handle, then
-+ * the size. The AM boot answered our size-first packet from the AFE port
-+ * (dst 4) with GPR_IBASIC_RSP_RESULT status 2 (EBADPARAM), so this firmware
-+ * does not parse the APR/afe_svc_cmd_set_param_v1 layout. Returns the packet
-+ * length, or 0 if the buffer is too small. */
++ * :386-402). The packet is afe_svc_cmd_set_param_v2 (M: apr_audio-v2.h
++ * :12535-12547): mem map header first, then the payload size, then a
++ * param_hdr_v3 (M: :92-107) with the module instance. The host note for
++ * AFE_PARAM_ID_TDM_LANE_CONFIG (M: :13383-13386) states that group device
++ * parameters go out with SET_PARAM_V2. The AM boot rejected the v1 packet
++ * (size first, 12-byte param_hdr_v1) from the same port with
++ * GPR_IBASIC_RSP_RESULT status 2. Returns the packet length, or 0 if the
++ * buffer is too small. */
 +static inline size_t
 +pong_afe_svc_set_param(uint8_t *buf, size_t bytes, uint32_t module_id,
 +    uint32_t param_id, const uint8_t *payload, size_t payload_bytes,
 +    uint32_t token)
 +{
 +    size_t total = PONG_AFE_GPR_HEADER_BYTES + PONG_AFE_SVC_HDR_BYTES +
-+        PONG_AFE_PARAM_BYTES + payload_bytes;
++        PONG_AFE_SVC_PARAM_BYTES + payload_bytes;
 +
 +    if (buf == NULL || (payload == NULL && payload_bytes != 0u) ||
 +        payload_bytes > 0xffffu || bytes < total) {
 +        return 0;
 +    }
-+    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_SVC_CMD_SET_PARAM, token,
++    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_SVC_CMD_SET_PARAM_V2, token,
 +            PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_SVC_AFE, total) == 0u) {
 +        return 0;
 +    }
@@ -2340,11 +2345,14 @@
 +    pong_afe_put32(buf + PONG_AFE_OFF_SVC_ADDRESS_MSW, 0u);
 +    pong_afe_put32(buf + PONG_AFE_OFF_SVC_MEM_MAP, 0u);
 +    pong_afe_put32(buf + PONG_AFE_OFF_SVC_PAYLOAD_SIZE,
-+        (uint32_t)(PONG_AFE_PARAM_BYTES + payload_bytes));
-+    pong_afe_param(buf + PONG_AFE_OFF_PARAM, module_id, param_id,
-+        (uint16_t)payload_bytes);
++        (uint32_t)(PONG_AFE_SVC_PARAM_BYTES + payload_bytes));
++    pong_afe_put32(buf + PONG_AFE_OFF_PARAM, module_id);
++    pong_afe_put16(buf + PONG_AFE_OFF_PARAM + 4u, 0u);   /* instance */
++    pong_afe_put16(buf + PONG_AFE_OFF_PARAM + 6u, 0u);   /* reserved */
++    pong_afe_put32(buf + PONG_AFE_OFF_PARAM + 8u, param_id);
++    pong_afe_put32(buf + PONG_AFE_OFF_PARAM + 12u, (uint32_t)payload_bytes);
 +    for (size_t i = 0; i < payload_bytes; ++i) {
-+        buf[PONG_AFE_OFF_PAYLOAD + i] = payload[i];
++        buf[PONG_AFE_OFF_SVC_PAYLOAD + i] = payload[i];
 +    }
 +    return total;
 +}
@@ -2379,7 +2387,7 @@
 +    pong_afe_param(buf + PONG_AFE_OFF_PARAM, module_id, param_id,
 +        (uint16_t)payload_bytes);
 +    for (size_t i = 0; i < payload_bytes; ++i) {
-+        buf[PONG_AFE_OFF_PAYLOAD + i] = payload[i];
++        buf[PONG_AFE_OFF_PORT_PAYLOAD + i] = payload[i];
 +    }
 +    return total;
 +}
@@ -2677,7 +2685,7 @@
 +        return PONG_AFE_PORT_CMD_SET_PARAM_V2;
 +    }
 +    if (pong_afe_step_port_scoped(step) == 0 && step != PongAfeStepDeviceStart) {
-+        return PONG_AFE_SVC_CMD_SET_PARAM;
++        return PONG_AFE_SVC_CMD_SET_PARAM_V2;
 +    }
 +    return 0u;
 +}
@@ -2685,8 +2693,8 @@
 +/* The six packets with the K60 values, in one call. This is the only place
 + * that combines a payload builder with its envelope: the kernel sequence
 + * sends exactly these bytes and the host test pins every length, opcode and
-+ * selected field. Max packet: group TDM = 24 + 16 + 12 + 44 = 96 bytes. */
-+#define PONG_AFE_STEP_PACKET_MAX 96u
++ * selected field. Max packet: group TDM = 24 + 16 + 16 + 44 = 100 bytes. */
++#define PONG_AFE_STEP_PACKET_MAX 100u
 +
 +static inline size_t
 +pong_afe_step_packet(uint8_t *out, size_t bytes, unsigned step, uint32_t token)

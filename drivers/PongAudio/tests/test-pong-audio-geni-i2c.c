@@ -2076,8 +2076,8 @@ afe_envelope_cases(void)
     memset(buf, 0, sizeof(buf));
     n = pong_afe_svc_set_param(buf, sizeof(buf), 0x0001028ful, 0x00010290ul,
         NULL, 0ul, 7ul);
-    expect_eq(n, 52ul, "svc envelope = 24 + 16 + 12");
-    expect_eq(buf[20], 0xf3ul, "svc opcode low byte");
+    expect_eq(n, 56ul, "svc envelope = 24 + 16 + 16");
+    expect_eq(buf[20], 0xfcul, "svc opcode low byte = SET_PARAM_V2");
     expect_eq(buf[21], 0x00ul, "svc opcode second byte");
     expect_eq(buf[22], 0x01ul, "svc opcode third byte");
     expect_eq(buf[24], 0ul, "svc address lsw 0");
@@ -2085,17 +2085,20 @@ afe_envelope_cases(void)
     expect_eq(buf[32], 0ul, "svc mem map handle 0");
     expect_eq((unsigned long)buf[36] | ((unsigned long)buf[37] << 8) |
         ((unsigned long)buf[38] << 16) | ((unsigned long)buf[39] << 24),
-        12ul, "svc payload size last = param block only");
+        16ul, "svc payload size = param header only");
     expect_eq((unsigned long)buf[40] | ((unsigned long)buf[41] << 8) |
         ((unsigned long)buf[42] << 16) | ((unsigned long)buf[43] << 24),
         0x0001028ful, "svc module id");
-    expect_eq((unsigned long)buf[44] | ((unsigned long)buf[45] << 8) |
-        ((unsigned long)buf[46] << 16) | ((unsigned long)buf[47] << 24),
+    expect_eq((unsigned long)buf[44] | ((unsigned long)buf[45] << 8),
+        0ul, "svc module instance 0");
+    expect_eq((unsigned long)buf[46] | ((unsigned long)buf[47] << 8),
+        0ul, "svc param reserved 0");
+    expect_eq((unsigned long)buf[48] | ((unsigned long)buf[49] << 8) |
+        ((unsigned long)buf[50] << 16) | ((unsigned long)buf[51] << 24),
         0x00010290ul, "svc param id");
-    expect_eq((unsigned long)buf[48] | ((unsigned long)buf[49] << 8),
+    expect_eq((unsigned long)buf[52] | ((unsigned long)buf[53] << 8) |
+        ((unsigned long)buf[54] << 16) | ((unsigned long)buf[55] << 24),
         0ul, "svc param size 0");
-    expect_eq((unsigned long)buf[50] | ((unsigned long)buf[51] << 8),
-        0ul, "svc reserved 0");
 
     memset(buf, 0, sizeof(buf));
     n = pong_afe_port_set_param(buf, sizeof(buf), 0x9020u, 0x0001020cul,
@@ -2523,11 +2526,11 @@ ring_cases(void)
 static void
 afe_plan_cases(void)
 {
-    static const size_t lengths[PongAfeStepCount] = { 76u, 96u, 56u, 88u, 80u, 28u };
+    static const size_t lengths[PongAfeStepCount] = { 76u, 100u, 60u, 88u, 80u, 28u };
     uint8_t p[PONG_AFE_STEP_PACKET_MAX];
     size_t n;
 
-    expect_eq(PONG_AFE_STEP_PACKET_MAX, 96ul, "planner max packet");
+    expect_eq(PONG_AFE_STEP_PACKET_MAX, 100ul, "planner max packet");
     for (unsigned step = 0; step < (unsigned)PongAfeStepCount; ++step) {
         memset(p, 0, sizeof(p));
         n = pong_afe_step_packet(p, sizeof(p), step, 0x100u + step);
@@ -2554,25 +2557,25 @@ afe_plan_cases(void)
 
     memset(p, 0, sizeof(p));
     n = pong_afe_step_packet(p, sizeof(p), PongAfeStepGroupTdm, 0x202u);
-    expect_eq(n, 96ul, "plan group tdm length");
-    expect_eq(le16(p + 56), PONG_AFE_GROUP_TERT_TDM_RX, "plan group id");
-    expect_eq(le16(p + 60), PONG_AFE_PORT_TERT_TDM_RX_0, "plan group port 0");
+    expect_eq(n, 100ul, "plan group tdm length");
+    expect_eq(le16(p + 60), PONG_AFE_GROUP_TERT_TDM_RX, "plan group id");
+    expect_eq(le16(p + 64), PONG_AFE_PORT_TERT_TDM_RX_0, "plan group port 0");
     for (unsigned i = 1; i < PONG_AFE_MAX_CHANNELS; ++i) {
-        expect_eq(le16(p + 60 + i * 2), PONG_AFE_PORT_INVALID,
+        expect_eq(le16(p + 64 + i * 2), PONG_AFE_PORT_INVALID,
             "plan group leaves the unused ports invalid");
     }
-    expect_eq(le32(p + 76), PONG_AFE_SLOTS, "plan group channels");
-    expect_eq(le32(p + 80), PONG_AFE_RATE, "plan group rate");
-    expect_eq(le32(p + 84), PONG_AFE_SLOT_BITS, "plan group bits");
-    expect_eq(le16(p + 88), PONG_AFE_SLOTS, "plan group slots");
-    expect_eq(le16(p + 90), PONG_AFE_SLOT_BITS, "plan group slot bits");
-    expect_eq(le32(p + 92), 3ul, "plan group slot mask");
+    expect_eq(le32(p + 80), PONG_AFE_SLOTS, "plan group channels");
+    expect_eq(le32(p + 84), PONG_AFE_RATE, "plan group rate");
+    expect_eq(le32(p + 88), PONG_AFE_SLOT_BITS, "plan group bits");
+    expect_eq(le16(p + 92), PONG_AFE_SLOTS, "plan group slots");
+    expect_eq(le16(p + 94), PONG_AFE_SLOT_BITS, "plan group slot bits");
+    expect_eq(le32(p + 96), 3ul, "plan group slot mask");
 
     memset(p, 0, sizeof(p));
     n = pong_afe_step_packet(p, sizeof(p), PongAfeStepGroupEnable, 0x203u);
-    expect_eq(n, 56ul, "plan group enable length");
-    expect_eq(le16(p + 52), PONG_AFE_GROUP_TERT_TDM_RX, "plan enable group");
-    expect_eq(le16(p + 54), 1ul, "plan enable value");
+    expect_eq(n, 60ul, "plan group enable length");
+    expect_eq(le16(p + 56), PONG_AFE_GROUP_TERT_TDM_RX, "plan enable group");
+    expect_eq(le16(p + 58), 1ul, "plan enable value");
 
     memset(p, 0, sizeof(p));
     n = pong_afe_step_packet(p, sizeof(p), PongAfeStepPortTdm, 0x204u);

@@ -98,8 +98,7 @@ bluetoothd 自 1723 起再无日志，也没有任何 `[bluetooth sk] connect` �
 
 **B. 在 iOS 27 上拿到可用蓝牙**
 
-1. 内核 bring-up：F1 构建（已知失败点：`LD_KERNEL_LIBS` 未传给 fileset release-reference 链接，
-   修一行即可重跑）→ F2 prelink 到 bsd_init → F3 存储 ABI → F4 面板/触摸。数周量级，风险集中在这里；
+1. 内核 bring-up：F1 构建（上游 2026-11-19 起用 `patches/unixnu-core/fileset-reference-linux.patch` 与 `scripts/build-ios27-linux.sh` 在 Linux 上出内核、payload 与 prelink，本仓旧记的 `LD_KERNEL_LIBS` 缺口已不是第一步）→ F2 prelink 到 bsd_init → F3 存储 ABI → F4 面板/触摸。数周量级，风险集中在这里；
 2. 用户态：**基本为零**——BlueTool/Type0/bluetoothd 补丁都是现成的，K60 只需 DTS 节点与 MAC 管道
    （0509 已实现）和 `payload.runtime` 接线，约 1–3 天；
 3. 风险：24A446 哈希锁定，换 build 要重做 496 行地址；但那是一次性的、且已有方法论。

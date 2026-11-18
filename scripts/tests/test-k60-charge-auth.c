@@ -62,6 +62,11 @@ int main(void)
     check("init_enabled", a.enabled, 1);
     check("init_state", a.state, K60ChargeIdle);
     check("init_gauges", a.gauges, 1);
+    check("pd_type_five", k60_charge_auth_pd_type(5), 0);
+    check("pd_type_six", k60_charge_auth_pd_type(6), 1);
+    check("pd_type_seven", k60_charge_auth_pd_type(7), 1);
+    check("pd_type_eight", k60_charge_auth_pd_type(8), 1);
+    check("pd_type_nine", k60_charge_auth_pd_type(9), 0);
     k60_charge_auth_set_gauges(&a, 2);
     check("dual_gauges", a.gauges, 2);
     check("wait_idle", k60_charge_auth_wait_ms(&a, 0), 0);
@@ -191,6 +196,25 @@ int main(void)
     check("reconnect_swallows", k60_charge_auth_receive(&a, in, 24, 7301), 1);
     check("reconnect_clears_pending", a.pending, 0);
     check("reconnect_clears_cancelled", a.cancelled, 0);
+
+    /* Losing the current-source qualification suspends the attachment; a
+     * pending request stays cancellable and a timeout then retires it. */
+    k60_charge_auth_init(&a, &crypto);
+    k60_charge_auth_observe(&a, 1, 6, 7400);
+    (void)k60_charge_auth_next(&a, 7400, out);
+    check("suspend_pending", a.pending, 1);
+    k60_charge_auth_observe(&a, 0, 0, 7401);
+    check("suspend_offline", a.online, 0);
+    check("suspend_cancelled", a.cancelled, 1);
+    check("suspend_next", k60_charge_auth_next(&a, 7402, out), 0);
+    k60_charge_auth_timeout(&a, 7403);
+    check("suspend_timeout_pending", a.pending, 0);
+    check("suspend_timeout_idle", a.state, K60ChargeIdle);
+    (void)reply(in, 0x51, 1, 0);
+    check("suspend_late_reply", k60_charge_auth_receive(&a, in, 24, 7404), 0);
+    k60_charge_auth_observe(&a, 1, 6, 7405);
+    check("suspend_rearm", a.state, K60ChargeGaugeCheck);
+    check("suspend_rearm_online", a.online, 1);
 
     /* A reply for another property is not consumed, and a short reply to a
      * 52-byte get is a protocol error. */

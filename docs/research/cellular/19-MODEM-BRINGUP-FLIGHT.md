@@ -321,6 +321,27 @@ k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也
 但仍受“无其他 agent 占用 console”的单一 supervisor 约束。用户 2026-11-19 04:16 明确允许：
 代码准备充分且其他 agent 没有 boot 时，可以自主上机。
 
+### 3.13 k28：B 的 modem 就绪窗口延长到 30 s（离线，未上机）
+
+B 的 QRTR 探测在 `AUTH_AND_RESET` 之后等 modem 自己启动。Pong 是常驻 worker 轮询
+（`PongModemQrtr.cpp:108`），我们只有单次 boot 窗口；原实现 5,000 × 2 ms = 10 s
+（`K60ModemLink.c` 的 `K60_QRTR_POLLS`）可能早于 modem 就绪。`8a2d44fc` 把就绪等待
+单独拆成 `K60_QRTR_READY_POLLS` 15,000（30 s），verdict 轮询仍是 5,000（10 s）。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `8a2d44fc23c893d6c884ca664bfa5e9e36c9f9fd`；0622 重新生成 94,545 B（5 files） |
+| kernel | `E:/k60-work/artifacts/modem-20261117k28/kernel.macho`，105,582,592 B，sha256 `3e4e69fd6695509c64d42d35983c573fbef11f4160f358edc9f601a6dfa527b6` |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k28/boot-modem-b-full.img`，201,895,936 B，sha256 `d86a73ac12040413f62f7da45dc7af19d0729eea157cb6d36df1e835dca9ac38` |
+| payload | `ecd2ecf489f2ebb22a64c9623bbe20bebd9e857d3ff1fe9f4e708682f169af40`（json `96aea7b3…`）；payload kernel `e3f75274…` |
+| args | `pong_modem=2 pong_ipa=0`；FD `40c29d51…`；carrier 27 streams / 109,060,761 B |
+| 静态证据 | `llvm-objdump` `_k60_modem_qrtr_probe`：`mov w23,#0x3a98` @ `fffffff007764044`、`mov w8,#0x3a98` @ `fffffff00776416c`、`mov w8,#0x1388` @ `fffffff007764274`、`mov w23,#0x1388` @ `fffffff007764628` |
+| 验证 | `scripts/verify-boot-image.py` rc0 OK；`test-bootimg-layout.py` OK；主机套件 rc0（QRTR/QMI/QMAP/TRANSPORT PASS，`TESTS OK 30 segments`） |
+| 结论 | B 判据不变（§4 的 S3/S4）；k22 的 B 图 `82c0cab3` 作废，但 k22 内核已在 P1 上机，k28 的差异只有这一个常量。 |
+
+B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fastboot boot`。
+用户 2026-11-19 04:16 的授权是“代码准备充分且其他 agent 没有 boot 时可以自主上机”。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -382,9 +403,10 @@ k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也
    **已飞并 PASS**：2026-11-19 04:23，证据 `E:/k60-work/evidence/usblog-20261119-042322`（§3.12），
    `xo=0x300b0/3`、三条 rail 全成功、停在 `diagnostic stop after power`。
    用户授权（2026-11-19 04:16）：代码准备充分且无其他 agent 飞行时可自主上机。
-3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用与 P1 同一份 k22 kernel/UEFI/DTB/carrier 重新打包的 B 镜像
-   （k21 的 `eefe6fdf` 随 k22 作废），按 §4 的 S/F 判。
-   C/P1/B 必须是同一份 kernel/UEFI/DTB/carrier，只在打包 payload 时改 `--kernel-arg`；不得在 B 上顺手改代码。
+3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用 k28 的
+   `E:/k60-work/artifacts/modem-20261117k28/boot-modem-b-full.img`（`d86a73ac…`，§3.13），按 §4 的 S3/S4 判。
+   k28 与已上机的 k22 内核只差一个常量：modem 就绪等待 10 s → 30 s；UEFI/DTB/carrier 与 C/P1 相同。
+   C/P1 已用 k22 内核证明，B 不得在同一个镜像里再顺手改第二件事。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

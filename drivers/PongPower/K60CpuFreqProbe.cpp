@@ -13,7 +13,9 @@
  * votes every domain and L3, 5 samples idle time read-only, 6 votes domain 0
  * down to its lowest level, 7 runs the idle sampler and applies the governor's
  * down steps inside a bounded window, then restores the original votes, and 8
- * does the same in both directions. Raises are safe to place because the EPSS
+ * does the same in both directions, and 9 measures why the big clusters
+ * ignore the vote by setting the dcvs control bit and writing every core row.
+ * Raises are safe to place because the EPSS
  * firmware owns the CPU rail and performs the voltage transition itself: the
  * reference CpuFreqProbe.cpp, the file the official page points at for the
  * work-point access, writes the same perf-state rows for raises and never
@@ -252,6 +254,82 @@ void voteL3(unsigned mode)
     if (restored) wr32(window.va, restore[0].offset, restore[0].value);
     IOLog("K60CpuFreq: mode%u vote L3 level=%u (%ukHz) writes=%u readback=%s restored=%u\n",
         mode, table.level[index], topKhz, n, ok ? "ok" : "mismatch", restored);
+    unmapWindow(&window);
+}
+
+/* Mode 9: why the big clusters ignore the vote. Domain 0 follows its
+ * perf-state row in both directions (mode 8), while a domain-1 write reads
+ * back and leaves the running level at the top. This probe separates the two
+ * variables on the disabled-by-default path: first one row with the control
+ * bit as the firmware left it, then every core's row with bit 0 set, reading
+ * the domain state after each step. Every register it touches is written back,
+ * so the firmware keeps ownership whatever the answer. */
+void probeDcvsControl(unsigned domain)
+{
+    Window window = {};
+    K60CpuFreqTable table = {};
+    K60CpuFreqWrite single[K60_CPU_FREQ_MAX_WRITES] = {};
+    K60CpuFreqWrite all[K60_CPU_FREQ_MAX_WRITES] = {};
+    uint32_t original[K60_CPU_FREQ_MAX_WRITES] = {};
+    uint32_t topKhz = 0, bottomKhz = 0, control, state, stateA, stateB, stateC, stateD, stateE;
+    unsigned topIndex = 0, bottomIndex = 0, n, i;
+
+    if (!mapWindow(&window, kDomainBase[domain], kDomainWindow)) {
+        IOLog("K60CpuFreq: d%u nomap base=0x%llx\n", domain,
+            static_cast<unsigned long long>(kDomainBase[domain]));
+        return;
+    }
+    if (!readTable(&window, &table) ||
+        k60_cpufreq_pick_highest(&table, 0, &topIndex, &topKhz) ||
+        k60_cpufreq_pick_lowest(&table, &bottomIndex, &bottomKhz)) {
+        IOLog("K60CpuFreq: mode9 d%u skipped: no non-turbo table\n", domain);
+        unmapWindow(&window);
+        return;
+    }
+    control = rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL);
+    state = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    n = k60_cpufreq_build_votes(domain, 1u, table.level[topIndex], all,
+        K60_CPU_FREQ_MAX_WRITES);
+    for (i = 0; i < n; ++i) original[i] = rd32(window.va, all[i].offset);
+    IOLog("K60CpuFreq: mode9 d%u enable=%u ctrl=0x%x vote=%u state=%u (%ukHz) rows=%u top=%u (%ukHz) bottom=%u (%ukHz) extra=%u\n",
+        domain, rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u, control,
+        rd32(window.va, K60_CPU_FREQ_REG_PERF_STATE) & 0xffu, state,
+        state * K60_CPU_FREQ_XO_KHZ, table.count, table.level[topIndex], topKhz,
+        table.level[bottomIndex], bottomKhz, n);
+
+    /* Phase A: one row, control unchanged - the mode 7/8 write set. */
+    k60_cpufreq_build_votes(domain, 0, table.level[topIndex], single,
+        K60_CPU_FREQ_MAX_WRITES);
+    wr32(window.va, single[0].offset, single[0].value);
+    IOSleep(50);
+    stateA = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    single[0].value = table.level[bottomIndex];
+    wr32(window.va, single[0].offset, single[0].value);
+    IOSleep(50);
+    stateB = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    wr32(window.va, K60_CPU_FREQ_REG_PERF_STATE, original[0]);
+    IOSleep(20);
+    IOLog("K60CpuFreq: mode9 d%u a ctrl=0x%x top=%u -> %u (%ukHz) bottom=%u -> %u (%ukHz)\n",
+        domain, control, table.level[topIndex], stateA, stateA * K60_CPU_FREQ_XO_KHZ,
+        table.level[bottomIndex], stateB, stateB * K60_CPU_FREQ_XO_KHZ);
+
+    /* Phase B: every core row, control bit 0 set. */
+    if (!(control & 1u)) wr32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL, control | 1u);
+    for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, table.level[topIndex]);
+    IOSleep(50);
+    stateC = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, table.level[bottomIndex]);
+    IOSleep(50);
+    stateD = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, original[i]);
+    wr32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL, control);
+    IOSleep(50);
+    stateE = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    IOLog("K60CpuFreq: mode9 d%u b ctrl=0x%x rows=%u top -> %u (%ukHz) bottom -> %u (%ukHz) restored ctrl=0x%x state=%u (%ukHz)\n",
+        domain, control | 1u, n, stateC, stateC * K60_CPU_FREQ_XO_KHZ,
+        stateD, stateD * K60_CPU_FREQ_XO_KHZ,
+        rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL), stateE,
+        stateE * K60_CPU_FREQ_XO_KHZ);
     unmapWindow(&window);
 }
 
@@ -571,8 +649,8 @@ extern "C" void k60_cpufreq_probe(void)
 
     PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
     if (!mode || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
-    if (mode == 4 || mode > 8) {
-        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5, 6, 7 and 8 are implemented\n", mode);
+    if (mode == 4 || mode > 9) {
+        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5, 6, 7, 8 and 9 are implemented\n", mode);
         return;
     }
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
@@ -587,6 +665,11 @@ extern "C" void k60_cpufreq_probe(void)
     }
     if (mode == 6) {
         voteDomain(0, mode, true);
+        return;
+    }
+    if (mode == 9) {
+        for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
+            probeDcvsControl(domain);
         return;
     }
     if (mode == 5) {

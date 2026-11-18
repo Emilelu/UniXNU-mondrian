@@ -235,3 +235,4 @@ zzy-native-gpu-addon-mount.patch
 0515-k60-bt-tlv-counters.patch
 0516-k60-bt-qbt-uart-clock.patch
 0517-k60-bt-power-order.patch
+0518-k60-bt-gic-intid.patch

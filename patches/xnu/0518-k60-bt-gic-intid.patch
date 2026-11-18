@@ -1,0 +1,51 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -86,8 +86,11 @@
+ /* E-FDT-07: /soc/qcom,qupv3_2_geni_se@8c0000 reg = <0x8c0000 0x2000> */
+ #define K60_BT_QUP_WRAPPER_BASE     0x008C0000u
+ #define K60_BT_QUP_WRAPPER_SIZE     0x2000u
+-/* E-FDT-06: interrupts-extended GIC SPI 0x24b = 587, type 4 (level high) */
++/* E-FDT-06: interrupts-extended GIC SPI 0x24b = 587, type 4 (level high).
++ * armcpu_spi_attach/mask and GICD take the INTID, not the DT SPI number:
++ * SPIs start at INTID 32. */
+ #define K60_BT_UART_GIC_SPI         587u
++#define K60_BT_UART_GIC_INTID       (32u + K60_BT_UART_GIC_SPI)
+ /* E-FDT-06: second interrupts-extended entry phandle 0x3c (TLMM) gpio 0x4f = 79 */
+ #define K60_BT_RX_WAKE_GPIO         79u
+ #define K60_BT_CTS_GPIO             76u
+@@ -111,6 +114,7 @@
+ #define K60_GIC_DIST_SIZE           0x00010000u
+ /* E-FDT-03: pinctrl@f000000 interrupts = <0x00 0xd0 0x04> -> GIC SPI 208 */
+ #define K60_TLMM_GIC_SPI            208u
++#define K60_TLMM_GIC_INTID          (32u + K60_TLMM_GIC_SPI)
+ 
+ /* E-GCC-01: drivers/clk/qcom/gcc-sm8450.c (Linux v6.6) */
+ #define K60_GCC_BASE                0x00100000u
+@@ -910,8 +914,8 @@
+ static void k60_irq_mask(void *ctx, bool masked) {
+     (void)ctx;
+     if (k60.serial_irq) {
+-        k60_gic_mask(K60_BT_UART_GIC_SPI, masked);
+-        if (armcpu_spi_mask) (void)armcpu_spi_mask(K60_BT_UART_GIC_SPI, masked);
++        k60_gic_mask(K60_BT_UART_GIC_INTID, masked);
++        if (armcpu_spi_mask) (void)armcpu_spi_mask(K60_BT_UART_GIC_INTID, masked);
+     }
+ }
+ static void k60_wake(void *ctx) {
+@@ -1900,13 +1904,13 @@
+     e = k60_prepare_engine();
+     if (e) return e;
+     if (!k60.serial_irq) {
+-        e = armcpu_spi_attach(K60_BT_UART_GIC_SPI, false, k60_uart_irq, NULL, NULL, NULL);
++        e = armcpu_spi_attach(K60_BT_UART_GIC_INTID, false, k60_uart_irq, NULL, NULL, NULL);
+         if (e) return -EIO;
+         k60.serial_irq = true;
+         k60_irq_mask(NULL, true);
+     }
+     if (!k60.wake_irq) {
+-        e = armcpu_spi_attach(K60_TLMM_GIC_SPI, false, k60_tlmm_irq, NULL, NULL, NULL);
++        e = armcpu_spi_attach(K60_TLMM_GIC_INTID, false, k60_tlmm_irq, NULL, NULL, NULL);
+         if (e) return -EIO;
+         k60.wake_irq = true;
+     }

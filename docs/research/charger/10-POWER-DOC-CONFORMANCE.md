@@ -221,10 +221,10 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 
 | 验证项 | 状态 | 证据 / 缺口 |
 | --- | --- | --- |
-| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；image e：`:407` channel up、`:515` 首帧，第三次 image e：`:401` channel up、`:465` 首帧；host 测试 87 项覆盖应答/拒绝/超时 |
-| 有效 / 缺失 / 失败三态 | 已验证 | `K60BatteryValidFields` 与 `K60BatteryFailedFields` 分别给出本轮有效和失败字段，缺失 pack 走 `K60Battery.cpp:163-191` 的独立分支并保留 `K60Raw*`；host 第 11–13 节覆盖原始值、缺失样本和超时位图 |
+| 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；image e：`:407` channel up、`:515` 首帧，第三次 image e：`:401` channel up、`:465` 首帧；host 测试 95 项覆盖应答/拒绝/超时 |
+| 有效 / 缺失 / 失败三态 | 已验证 | `K60BatteryValidFields` 与 `K60BatteryFailedFields` 分别给出本轮有效和失败字段，缺失 pack 走 `K60Battery.cpp:163-191` 的独立分支并保留 `K60Raw*`；host 第 11–13 节覆盖原始值、缺失样本和超时位图；第 16 节覆盖缺失 pack 的 external 快照 |
 | OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；image e `:515`–`:3682` 连续 12 条完整样本；第三次 image e `:465`–`:3577` 连续 12 条完整样本；字段值与原始值换算一致（见 §7.3、§7.4、§7.6、§7.8） |
-| 状态一致性与适配器 | 已验证 | 同一样本在 `K60Battery.cpp:225-231` 设置 installed/external/charging/full/warn/critical；`K60Battmgr.c:244` 拒绝 status=1 无外接、`:263` 拒绝 status=2 正电流；适配器 family/电压/电流/瓦数由 `K60Battery.cpp:291-326` 生成，失败字段保持缺失，不发布 0 瓦 |
+| 状态一致性与适配器 | 已验证 | 同一样本在 `K60Battery.cpp:225-231` 设置 installed/external/charging/full/warn/critical；`K60Battmgr.c:244` 拒绝 status=1 无外接、`:263` 拒绝 status=2 正电流；适配器 family/电压/电流/瓦数由 `K60Battery.cpp:291-326` 生成，失败字段保持缺失，不发布 0 瓦；第 16 节覆盖容量/满充一致性、mAh 估算与适配器限流 |
 | 响应超时 | host 已验证 | `test-k60-charger-subscription.c` 第 13 节：timeout 只标记未完成字段，poisoned epoch 生效；真机未制造超时 |
 | 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:163-191`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，最终 image e/f 已包含该修复，IOKit 级 absent 注册未上真机 |
 | 插拔电源 | host 状态机已验证 / 真机未验证 | 第 15 节构造 USB 在线 1→0 与 status 1→2，断言 `external`/`charging`/`usb_connected` 翻转；真机脚本化插拔仍需要人工在同一次 usblog 里观察 |
@@ -447,10 +447,10 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 
 ## 8. Host 测试覆盖
 
-`scripts/tests/test-k60-charger-subscription.c` 当前 87 项断言，覆盖：
+`scripts/tests/test-k60-charger-subscription.c` 当前 95 项断言，覆盖：
 字段校验/范围、有效-失败位图、原始值复制（4277000 µV / 2830 / 8900 百分之一）、
 电池缺失路径、超时只标记未完成字段、transport 重启后丢弃旧 epoch 并重新发布，
-以及第 15 节的插拔/充电/放电/full 状态转换、充电取 TimeToFull/否则取 TimeToEmpty 的剩余时间选择和非法状态拒绝。
+以及第 15 节的插拔/充电/放电/full 状态转换、充电取 TimeToFull/否则取 TimeToEmpty 的剩余时间选择和非法状态拒绝，和第 16 节的容量一致性/适配器限流/缺失 pack 快照。
 `scripts/tests/test-battery-units.py` 当前 28 项，覆盖 µV/µA、0.01% 和秒的边界与电流符号；
 `test-judge-battery.py` 当前 22 项，覆盖 Android negative=charging 归一化、positive 旧采集显式开关和 dmesg 幅值比较。
 运行方式见 `scripts/tests/run-k60-handoff-host.sh`（WSL gcc）。
@@ -469,7 +469,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   不是 K60 可直接复用的实现。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
   1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118f/boot.img`（sha256 `024466905dec75cbab5d2525f68936d6f18650a4b0d3aed6551d5ccc3df94c6e`）已于 2026-11-18 11:07 构建、11:13 上机，包含 `592523aa`/`6750c7bd`/`af759fe4`/`0bad0c61`；C1/C2 PASS、C3 对同会话 3 行低电流 Android 基线 PASS（`judge-android.txt`，|ΔV|=46mV、|ΔSOC|=1.00pp、|ΔT|=1.00°C），8 行全窗口在 11:56 符号修正后 FAIL（Android 原始正电流按 negative=charging 归一化为放电），见 §7.9/§7.10。上一版 image e（`8b1df...`）不含 `0bad0c61`（剩余时间按 charging 选择），已三次上机且 C1/C2 PASS，但 11:56 符号修正后其匹配电流 C3 PASS 全部作废（§7.10）；image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
-  2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔、充电/放电/full 状态转换和剩余时间选择（87 项），但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e/f 包含），IOKit 级 stop/start 未上真机。
+  2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔、充电/放电/full 状态转换和剩余时间选择（95 项），但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e/f 包含），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同方向、同电流、同电压状态的样本；image f 的低电流 3 对（11/0/92mA）PASS 但电流未比较；11:47 的 13 对匹配电流窗口归一化后 ΔI=29mA，但 ΔV=119mV 超差；image e 的旧匹配 PASS 在符号修正后全部 FAIL。全窗口通过仍要求更稳定的同电流 Android 基线，不能把低电流 PASS 当作 C3 完成。
   4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；标准 `CurrentCapacity`/`MaxCapacity` 现在按官网发布为百分比（`MaxCapacity=100`），`AppleRawCurrentCapacity`/`AppleRawMaxCapacity` 保留 mAh，smoke 同时校验这两组值；缺失电池首帧注册尚未在真机验证。
 - 设备状态（2026-11-18 12:28）：image f 11:47 采集已于 11:52:33 完成（`K60AUTORESET` 300 s 后发布 `restart reason published`，见 §7.10）；controller 报 `returnedToFastboot=False`，随后设备回到 `fastboot`（`k60-device.sh state` = fastboot，serial 6033dbec），`list-boot-watchers.ps1` 当时无 watcher；12:14–12:24 设备在 Android（serial 6033dbec），完成 12:19 的状态/电流复核；12:15 启动的 k60-audio-adsp audio-probe-af watcher 于 12:26:46 引导（`E:/k60-work/evidence/audio-probe-af/run1-20261118-1215`，image `AAAD48173587…`，`boot.json` `bootAccepted=false`/`bootExitCode=-1`，12:27 `console.log` 0 B），12:28 `k60-device.sh state` = none，占机期间不抢。10:47 的 k60-audio-adsp audio-probe-ab watcher（`E:/k60-work/evidence/audio-probe-ab/run1-20261118-1035`）已结束；此前 09:26 的 audio-probe boot（`E:/k60-work/evidence/audio-probe-y/run1-20261118-0415`，:568 SOC=100.00%）只是一个独立 audio 镜像的用户可见 100% 电池显示，不是本分支 image e/f，不作为 §4 一致性证据。

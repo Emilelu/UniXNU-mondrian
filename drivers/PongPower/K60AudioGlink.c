@@ -40,29 +40,42 @@ k60_audio_glink_init(K60AudioGlink *link, QcomGlink *transport)
     link->error = 0;
 }
 
-int
-k60_audio_glink_prepare(K60AudioGlink *link)
+static int
+audio_prepare(K60AudioGlink *link, int open_now)
 {
     if (!link) return K60_PMIC_GLINK_AUDIO_REFUSED;
     if (!link->transport) return K60_PMIC_GLINK_AUDIO_NO_TRANSPORT;
     if (link->transport->broken) return K60_PMIC_GLINK_AUDIO_STALE_LEASE;
     if (__atomic_load_n(&link->attached, __ATOMIC_ACQUIRE) && link->channel)
         return K60_PMIC_GLINK_AUDIO_OK;
-    /* Register the slot before the DSP can OPEN it, but do not talk first:
-     * the audio endpoint is a responder here, and an unsolicited OPEN before
-     * the PMIC channel is up makes the shared transport reset. */
+    /* Registering an audio slot before the PMIC handshake completes makes
+     * the DSP reset the shared transport. The live path therefore calls
+     * open only from the PMIC-up callback; passive prepare remains for the
+     * host tests and holds the slot quiet. */
     const QcomGlinkClient callbacks = {audio_state, audio_receive};
     link->channel = qcom_glink_channel(link->transport, K60_AUDIO_GLINK_NAME,
         K60_AUDIO_GLINK_INTENT_BYTES, K60_AUDIO_GLINK_INTENT_COUNT,
-        link->storage, &callbacks, link, 0);
+        link->storage, &callbacks, link, open_now);
     if (!link->channel) {
         link->error = K60_PMIC_GLINK_AUDIO_REFUSED;
         return link->error;
     }
-    qcom_glink_channel_hold(link->channel);
+    if (!open_now) qcom_glink_channel_hold(link->channel);
     link->attached = true;
     link->error = 0;
     return K60_PMIC_GLINK_AUDIO_OK;
+}
+
+int
+k60_audio_glink_prepare(K60AudioGlink *link)
+{
+    return audio_prepare(link, 0);
+}
+
+int
+k60_audio_glink_open(K60AudioGlink *link)
+{
+    return audio_prepare(link, 1);
 }
 
 int

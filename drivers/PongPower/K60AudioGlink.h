@@ -32,9 +32,10 @@ typedef struct {
 } K60AudioGlink;
 
 void k60_audio_glink_init(K60AudioGlink *, QcomGlink *);
-/* Reserve the adsp_apps slot before the DSP can send its OPEN. The slot is
- * held quiet until the PMIC channel is up and the owner enables it. */
+/* Passive reservation is kept for the host tests. The live owner registers
+ * the slot only after the PMIC channel is up, then opens it actively. */
 int k60_audio_glink_prepare(K60AudioGlink *);
+int k60_audio_glink_open(K60AudioGlink *);
 int k60_audio_glink_enable(K60AudioGlink *);
 int k60_audio_glink_request(K60AudioGlink *, const K60PmicGlinkAudioClient *, void *);
 int k60_audio_glink_service(K60AudioGlink *);

@@ -121,11 +121,6 @@ bool K60PmicGlink::discover()
     const QcomGlinkClient callbacks = {channelState, channelReceive};
     channel = qcom_glink_channel(&native, "PMIC_RTR_ADSP_APPS", 256, 4, intents, &callbacks, this, 1);
     if (!channel) {error = -24; return false;}
-    /* Reserve the audio slot now, while the DSP's OPEN can still find it.
-     * It stays silent (no OPEN/OPEN_ACK) until the PMIC channel is up. */
-    const int audio_rc = k60_audio_glink_prepare(&audio);
-    if (audio_rc < 0)
-        IOLog("K60Battery: audio GLINK slot reserve failed: %d\n", audio_rc);
     return true;
 }
 bool K60PmicGlink::remoteReady() const
@@ -229,12 +224,12 @@ void K60PmicGlink::channelState(void *owner, QcomGlinkChannel *, int up)
 {
     auto self = static_cast<K60PmicGlink *>(owner);
     if (up) {
-        /* The PMIC channel is the GLINK initiator. The audio slot was
-         * reserved earlier but stayed silent; release it only now that the
-         * PMIC handshake is live. */
-        const int audio_rc = k60_audio_glink_enable(&self->audio);
+        /* Registering the audio slot before the PMIC handshake completes
+         * makes the DSP reset the shared transport. Open it only now, and
+         * let our OPEN start the channel. */
+        const int audio_rc = k60_audio_glink_open(&self->audio);
         if (audio_rc < 0)
-            IOLog("K60Battery: audio GLINK slot reserve failed: %d\n", audio_rc);
+            IOLog("K60Battery: audio GLINK open failed: %d\n", audio_rc);
         else
             (void)k60_audio_glink_service(&self->audio);
     }

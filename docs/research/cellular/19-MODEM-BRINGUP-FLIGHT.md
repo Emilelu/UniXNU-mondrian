@@ -382,6 +382,65 @@ resume，而 `K60M_SCM_MAX_CALLS` 只有 100，循环耗尽后我们把它当成
 B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fastboot boot`；用户的
 2026-11-19 04:16 授权只在“代码准备充分且其他 agent 没有 boot”时成立。
 
+### 3.15 k29 B：AUTH_AND_RESET 上机 PASS，S4 卡在 GLINK 通道（2026-11-19 06:23，S3 PASS / S4 FAIL）
+
+k29 B 镜像（`92359e3d…`）于 06:23:23 起飞；`boot.json` 记 `bootAccepted=false` / `bootExitCode=-1`，
+但 console 从 06:23:25 持续写到 06:29:12，捕获完整 230,060 B，sha256 `9ecde6b8…`，
+`stopReason=budget`，无 panic。机械判读：
+
+```
+python3 scripts/check-modem-flight-log.py --phase b …/console.log
+S3: PASS
+S4: FAIL
+  expected exactly one K60MODEM qrtr: dms revision line, found 0
+```
+
+S3 全绿的关键行：
+
+```
+K60MODEM power ok cx=0x30000/6 mss=0x30060/7 xo=0x300b0/3
+K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884
+K60MODEM transport ok smp2p=0xe3070/340 desc=0xdf030/32 tx=0xdf060/16384
+K60MODEM transport prepared
+K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000
+K60MODEM scm cmd=0x5 ok calls=182
+K60MODEM auth_reset ok
+```
+
+`calls=182` 证明 k28 的 `rc=-3` 不是 TZ 拒绝，而是我们的 100 次 resume 上限；monitor 在第 182 次
+resume 后完成，AUTH_AND_RESET 首次上机通过。电源、carrier 暂存、transport、mem_setup 也随同一条
+路径首次在 B 形态下全部验证。
+
+S4 的第一手证据（同一次捕获，`console.log` 493–499 行）：
+
+```
+K60MODEM qrtr: glink desc=0xdf030/32 ours=0xdf060/16384 theirs=0xe31d8/16384
+K60MODEM qrtr: modem ready (smp2p items=2)
+K60MODEM qrtr: opening IPCRTR as initiator
+K60MODEM baseband: bridge disabled
+K60MODEM qrtr: channel up
+K60MODEM qrtr: channel down
+K60MODEM qrtr: glink poll rc=-5 at 2
+```
+
+`rc=-5` 是 `QcomGlinkCorrupt`（`drivers/PongPower/QcomGlink.h`）：RX FIFO 里的下一条消息无法按
+GLINK 命令解析，`k60m_glink_poll()` 因此调用 `k60m_glink_stop()` 并返回 -5；`channel down` 是 stop
+关闭通道时的回调，所以它打印在 rc 之前。通道确实 up 过（OPEN_ACK 已匹配 lcid），命名与方向不是
+这一步的问题；坏的是紧接着的那条命令。`bridge disabled` 属于 QcomBaseband 控制桥（S6），在 S4
+失败之后不再解释。此后 K60DATA/K60DYLD/K60INIT 正常启动，K60EXC n=1 pid=1 是既有 userland 问题。
+
+下一飞（k30）只做一件事：在 `K60ModemLink.c` 的 poll 错误路径里、`return` 之前快照 RX 环头 16 字节，
+打印 `cmd / param1 / param2 / avail`，据此判定是 VERSION、OPEN、INTENT 还是 DATA 分支触发 Corrupt。
+`drivers/PongPower/QcomGlink.c` 属充电线（`docs/engineering/TREE-OWNERS.toml:70`），本线不改它。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `d549badd79bb4a42c8f33caa90b7ab8ecf740a43`（k29，只改 resume 上限与计数打印） |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k29/boot-modem-b-full.img`，sha256 `92359e3d246f9df8e6578533b71772e3fb245d09ffb90c76b02a0cd04c55a57a` |
+| 证据 | `E:/k60-work/evidence/usblog-20261119-062321`（console 230,060 B，sha256 `9ecde6b82b8122fb1418aae20788be57a15cb09286fa20bf5fb3b708d9b70200`，complete，budget） |
+| 判读 | S3 PASS；S4 FAIL（`channel down` + `glink poll rc=-5 at 2`，无 dms revision） |
+| 结论 | 电源/PAS/transport/mem 已上机；下一层是 GLINK 消息解析，不是 PAS 或电源 |
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -414,8 +473,11 @@ B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fas
   `K60MODEM transport ok smp2p=`
   `K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000`
   `K60MODEM auth_reset ok`，且此前出现 `K60MODEM scm cmd=0x5 ok calls=N`（k29 起会打印；`rc=-3` + `calls=` 达到上限仍是失败）
+   实机结果见 §3.15（2026-11-19 06:23，k29 B 的 S3 PASS，`calls=182`）。
 - **S4**：auth 后 10 秒内出现 `K60MODEM qrtr: glink desc=` 与 `K60MODEM qrtr: dms revision `（后随非空版本串），且没有
   `K60MODEM qrtr: modem not ready`、`K60MODEM qrtr: dms revision missing`。
+  实机结果见 §3.15：`glink desc` 出现，但随后 `channel up` → `channel down` → `glink poll rc=-5 at 2`，
+  没有 dms revision，按 S4 判失败（F8）。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
   `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。
 - **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published` 的 N 大于 0；bridge disabled 或 N=0 都算失败。
@@ -431,6 +493,9 @@ B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fas
 - **F5**：auth_reset ok 但 S4 超时（出现 `modem not ready` 或没有 `glink desc`）⇒ 固件/SMP2P；下一飞补写 host item 428。
 - **F6**：S4 过但 S5 不是 `verdict ok` ⇒ GLINK/QRTR；转 QRTR 调查，不再改 PAS。
 - **F7**：S4/S5 通过但 S6 失败 ⇒ QcomBaseband 控制桥/ADT；下一飞只查 `chosen/coachz-baseband`、AppleBaseband 类注册和 `coachz_baseband_configure()`。
+- **F8**：S3 通过、`glink desc` 出现，但随后 `K60MODEM qrtr: channel down` 与 `K60MODEM qrtr: glink poll rc=-5`
+  （`QcomGlinkCorrupt`）⇒ GLINK 消息解析；下一飞只加 RX 快照（cmd/param1/param2），不动 PAS/电源。
+  2026-11-19 06:23 的 k29 B 属于这一类（§3.15）。
 
 ## 5. 飞行顺序
 
@@ -448,6 +513,8 @@ B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fas
    k28 B（`d86a73ac…`）已飞：power/init/transport/mem 全部通过，auth_reset 因 100 次 resume 上限
    报 `rc=-3 x0=0x1 x1=0x1`（§3.14）；k29 只改这一个上限与计数打印。UEFI/DTB/carrier 与 C/P1 相同。
    C/P1 已用 k22 内核证明，B 不得在同一个镜像里再顺手改第二件事。
+   **k29 B 已飞（2026-11-19 06:23）**：S3 PASS（`auth_reset ok`，`calls=182`），S4 FAIL
+   （`channel up` → `channel down` → `glink poll rc=-5 at 2`，无 dms revision，§3.15）；下一飞是 k30 的 RX 快照。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

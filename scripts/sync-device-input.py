@@ -9,6 +9,7 @@
 """
 import argparse
 import filecmp
+import json
 import os
 import shutil
 import subprocess
@@ -77,6 +78,35 @@ ITEMS = [
 MAC_BUILD_PRODUCTS = ('.a', '.o', '.dylib')
 MAC_BUILD_PRODUCT_NAMES = ('build.log', 'build-report.json')
 
+# bindings.json 是真正的输入（编译用的虚表绑定），但里面有一个字段是**产物回执**：
+# compiled_object_sha256 记的是上一次编译出来的 NativeUfs.o 的哈希。构建会把它
+# 重写成新的，于是镜像与仓库只差这一行，iron-5 就报「输入被改过」——而把它同步回去
+# 等于用旧产物冒充新输入，正是上面那段注释警告的事（P-188 同族）。
+# 所以比较时忽略这些字段：键集合相同、其余值相同，就算一致，并且**不覆盖**镜像，
+# 让镜像保留它真实编译出来的回执。
+VOLATILE_JSON_FIELDS = ('compiled_object_sha256',)
+
+
+def json_equal_ignoring_volatile(a, b):
+    """两个 JSON 对象除 VOLATILE_JSON_FIELDS 外完全相同时返回 True。"""
+    try:
+        with open(a, encoding='utf-8') as f:
+            left = json.load(f)
+        with open(b, encoding='utf-8') as f:
+            right = json.load(f)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    if set(left) != set(right):
+        return False
+    for key in left:
+        if key in VOLATILE_JSON_FIELDS:
+            continue
+        if left[key] != right[key]:
+            return False
+    return True
+
 
 def is_build_product(rel):
     if not rel.startswith('mac-build/'):
@@ -120,6 +150,10 @@ def main():
             s = os.path.join(REPO, rel)
             d = os.path.join(DEV, rel)
             if os.path.exists(d) and filecmp.cmp(s, d, shallow=False):
+                same += 1
+                continue
+            if rel.endswith('.json') and json_equal_ignoring_volatile(s, d):
+                # 只差构建回执字段：算一致，且不把镜像里的回执覆盖成仓库的旧值。
                 same += 1
                 continue
             if a.check:

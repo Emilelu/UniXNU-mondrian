@@ -1,18 +1,20 @@
 # K60 Bluetooth on iOS 27 (feat/ios27)
 
-Status: **work in progress, not built, not flown.** The source stack (0507-0520,
-thirteen patches) is carried on local branch `feat/bt-ios27-port` of the xNekom
-fork. No kernel was built from this branch and no device action was taken.
-The driver layer is additionally hardware-verified on the iOS 16.6.1 line: d11
-(0518) completed the firmware download and d12 (0520) registered both control
-names (see `k60-bt` D11/D12 plans).
+Status: **source staged in the iOS 27 series, not built, not flown.** The
+fifteen patches (0501, 0502, 0507-0512, 0514-0520) now live in
+`patches/xnu-12377/series`, the list the iOS 27 board actually selects, with
+the platform hooks rebased onto the 95d9c8a1 tree. No kernel has been built from
+this branch and no device action was taken. The driver layer is additionally
+hardware-verified on the iOS 16.6.1 line: d11 (0518) completed the firmware
+download and d12 (0520) registered both control names (see `k60-bt` D11/D12
+plans).
 
 ## 1. Target
 
 | Item | Value |
 | --- | --- |
 | Device repository | `xNekom/UniXNU-mondrian`, branch `feat/ios27` |
-| Base commit | `96e07b135231dab0811f47e34b0a3be4fc515bdd` |
+| Base commit | `95d9c8a1849e1befed0852ff78f7674089345e6c` |
 | OS profile | iOS 27.0.1, build 24A446, iPhone 16 Pro Max (iPhone17,2), arm64e |
 | XNU | xnu-12377.121.6, commit `ac9718fb1af618d5ce8678d0dc6e8a58f252216f` |
 | Hardware | Redmi K60 (mondrian, SM8475), QCA6490 Bluetooth over QUPV3_2 SE20 UART |
@@ -34,29 +36,11 @@ The Bluetooth work has two layers:
    embedded firmware blob section, and the `native_owner_data_prepare` late
    start hook.
 
-## 3. Compatibility evidence
+## 3. Driver compatibility evidence
 
-A clean archive of the fork was patched with:
-
-```
-0500-k60-bt-qbt-new-files.patch
-0502b-k60-bt-qbt-kernel-stubs.patch
-0507-k60-bt-readonly-probe.patch
-0508-k60-bt-s2-smmu-rcg-reset.patch
-0509-k60-bt-s3-identity-publish.patch   (qbt paths only)
-0510-k60-bt-firmware-addon.patch        (qbt paths only)
-0511-k60-bt-s4-unblock.patch
-0512-k60-bt-late-start.patch            (qbt paths only)
-0514-k60-bt-boot-observability.patch
-0515-k60-bt-tlv-counters.patch
-0516-k60-bt-qbt-uart-clock.patch
-0517-k60-bt-power-order.patch
-0518-k60-bt-gic-intid.patch
-0519-k60-bt-userspace-power-nodes.patch (qbt paths only)
-0520-k60-bt-uart-control-alias.patch   (qbt paths only)
-```
-
-using `git apply --include='bsd/dev/qbt*'`. All patches apply, and the result is:
+A clean archive of the fork was patched with 0500, 0502b and the qbt paths of
+0507-0520 using `git apply --include='bsd/dev/qbt*'`. All patches apply, and the
+result is:
 
 | Property | Value |
 | --- | --- |
@@ -71,61 +55,78 @@ layer therefore needs no rewrite for xnu-12377; only the platform glue does.
 This is a source-compatibility proof, not a build proof. It does not exercise
 xnu-12377 headers, the IOKit build, or any hardware.
 
-## 4. Platform hooks that still need a port
+## 4. Platform hooks, as adapted
 
-| Patch | Extra files | Why it is version-tied |
-| --- | --- | --- |
-| 0509 | `iokit/Kernel/MiniBluetooth.cpp` (new), `MiniDrivers.h`, `MiniIOSurface.cpp`, `iokit/conf/files` | Publishes the `bluetooth` service. The Mini* files are created by UniXNU's earlier iOS 16 series and are absent from vanilla xnu-12377. |
-| 0510 | `osfmk/conf/files.arm64` | Adds the generated `osfmk/arm64/k60_bt_blob.s` to the kernel link. The assembly is a build product, not a tracked source file. |
-| 0512 | `bsd/kern/kern_exec.c` | Calls `qbt_k60_late_start()` from UniXNU's `native_owner_data_prepare()`. That function does not exist in vanilla xnu-12377; it is added by the earlier device series and must be rebased to the 24A446 exec path. |
-| 0519 | `iokit/Kernel/MiniBluetooth.cpp` | Changes `K60_BT_TRANSPORT_SPEED` to 3000000. The file itself is a UniXNU addition, so this hunk rides on the 0509 port. Its `bsd/dev/qbt/qbt_transport.c` half is portable and already proven above. |
-| 0520 | `bsd/kern/kern_exec.c` | Adds the `K60ARG` argv trace after `exec_extract_strings()`. The hook point exists in xnu-12377 at `kern_exec.c:1308`, so this is a small rebase, not a rewrite; the `qbt_transport.c` control alias is portable. |
+The four hooks that touch files a vanilla xnu-12377 does not have were rewritten
+against the patched tree (vanilla plus the arch/soc/os/device series). Only the
+hooks changed; every `bsd/dev/qbt*` hunk is the iOS 16 text.
 
-A direct `git apply` against vanilla xnu-12377 fails for all three, as expected:
-the target files or functions are not there yet. The full fork series also does
-not apply to vanilla xnu-12377 (the first patch, `apple-only-cpu-tunables.patch`,
-already expects a UniXNU-patched `osfmk/arm64/start.s`). The correct base is the
-patched tree produced by the pinned UniXNU and UniXNU-sm8475-common components,
-not the Apple tag alone.
+| Patch | Adaptation |
+| --- | --- |
+| 0501 | `bsd/conf/files`: six qbt sources after `bsd/dev/unix_startup.c` (`qbt_k60.c`, `qbt/qbt_core.c`, `qbt/qbt_geni.c`, `qbt/qbt_transport.c`, `qbt/qbt_linux.c`, `qbt/btqca.c`). `bsd/conf/Makefile.arm64` unchanged. |
+| 0502 | `bsd_init.c`, in `bsd_autoconf()` before `return result;`: `if (result == KERN_SUCCESS) { qbt_k60_start(); }`. The `ARM64_BOARD_CONFIG_PONG` guard is gone because this board is not PONG; `qbt_k60_start` itself checks the `k60bt` boot argument and fails closed. |
+| 0509 | `iokit/Kernel/MiniBluetooth.cpp` is a standalone 198-line file with `IOService::getResourceService()` as provider instead of the `native_pong_ui_services_start` argument; `iokit/conf/files` adds it as `optional iokitcpp`; `bsd_init.c` calls `K60BluetoothPublish()` after `IOKitBSDInit()`. The `MiniDrivers.h` and `MiniIOSurface.cpp` hunks are dropped: those files are UniXNU iOS 16 additions (`MiniDrivers.h` comes from `0212-k60-empty-accelerator.patch`) and have no counterpart here. The published properties are unchanged: `device_type=bluetooth`, `compatible=qcom,wcn7850-bt`, `transport-encoding=1`, `transport-speed`, `local-mac-address`, `/chosen mac-address-bluetooth0`, `K60BluetoothRadio`. |
+| 0510 | `osfmk/conf/files.arm64`: `osfmk/arm64/k60_bt_blob.s` after `lz4_encode_arm64.s`. The iOS 16 anchor sat next to `amcc_rorgn_common.c`, which xnu-12377 spells `amcc_rorgn_ppl_amcc.c`. |
+| 0512 | `kern_exec.c`, `native_owner_data_prepare()` after `native_owner_data_stage = 4`: calls `qbt_k60_late_start()`. |
+| 0519 | Unchanged: the `MiniBluetooth` speed line (`K60_BT_TRANSPORT_SPEED 3000000u`) matches the new file, the `qbt_transport.c` power nodes are portable. |
+| 0520 | Unchanged: the `exec_extract_strings()` anchor moved to `bsd/kern/kern_exec.c:2049` but the surrounding context is identical. |
 
-## 5. Plan
+`0507` and `0508` must stay before `0509`: 0509's include block
+(`mach/vm_param.h`, `mach/vm_statistics.h`, `pexpert/arm64/board_config.h`)
+depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
+`bsd/dev/qbt_k60.c:47`.
 
-1. **P0 - carry the driver stack.** Done on `feat/bt-ios27-port`: 0507-0518
-   patches and the series entries are committed. They are staged in
-   `patches/xnu/series` (the iOS 16 series); the iOS 27 board selects
-   `patches/xnu-12377/series`, so **this branch does not yet build Bluetooth**.
-   See §5.1.
-2. **P1 - assemble the patched xnu-12377 base.** Check out the fork's pinned
-   UniXNU and UniXNU-sm8475-common revisions, apply their arch/soc series, then
-   the device series. Record the first failing patch; do not skip it.
-3. **P2 - port the three platform hooks.** Prefer rebasing 0509/0510/0512 onto
-   the 24A446 files over inventing a second Bluetooth service. Keep the qbt
-   layer untouched.
-4. **P3 - build and inspect.** Build the kernel, confirm the 0500-0518 patches
-   appear in the kernel log, and check that `qbt_k60_start` is reachable. This
-   is still offline: no hardware proof.
+## 5. Status of the plan
+
+1. **P0 - carry and stage the driver stack. Done.** Fifteen patches in
+   `patches/xnu-12377/series`; the iOS 16 `patches/xnu/series` is back to its
+   pre-Bluetooth 227 lines.
+2. **P1 - assemble the patched xnu-12377 base. Done offline.** A tree built from
+   vanilla plus the four series was used as the adaptation base; the adapted
+   patches were then validated against it from scratch (§5.1).
+3. **P2 - port the platform hooks. Done offline** (§4). No build has run.
+4. **P3 - build and inspect. Open.** Blocked on one missing build step: the
+   generated `osfmk/arm64/k60_bt_blob.s` (§5.2).
 5. **P4 - hardware only when iOS 27 reaches `bsd_init`.** Until then, every
    kernel/firmware flight stays on the iOS 16 line.
 
-### 5.1 Series staging and selection
+### 5.1 Series staging and validation
 
 `board.toml` selects four series: `arch:patches/xnu/series`,
 `soc:patches/xnu-12377/series`, `os:patches/xnu/series`, and
-`device:patches/xnu-12377/series`. The thirteen BT patches were appended to
-`patches/xnu/series`, which the iOS 27 board does not read. This is deliberate:
-moving them to `patches/xnu-12377/series` before 0501, 0502, 0509, 0510 and 0512
-are rebased would make the F1 build fail at the first incompatible hunk.
+`device:patches/xnu-12377/series`. The Bluetooth patches are now in the fourth.
 
-Activation order once the hooks are rebased:
+Validation: a fresh checkout of the pre-Bluetooth state (base tree + 0500 +
+0502b) was patched with the series in order; all fifteen applied with no reject,
+and the results are byte-identical to the adaptation tree:
 
-1. port 0501 (`bsd/conf/files` entries) to the xnu-12377 file list;
-2. port 0502 (`bsd_init.c` start call) to the 24A446 init path;
-3. port 0509 (MiniBluetooth service), 0510 (blob link) and 0512 (late start);
-4. append the thirteen patches to `patches/xnu-12377/series` in the same order;
-5. build and confirm the qbt source is compiled and `qbt_k60_start` is linked.
+| File | sha256 |
+| --- | --- |
+| `bsd/dev/qbt_k60.c` | `4a1a4e269fce5f2bf3d964f8610d3c7943f3329aed2dce2da681dd45705ef5fb` |
+| `bsd/kern/kern_exec.c` | `39c1b5ebe32ed38f2937d1067a44c0799d07493c11c6cabd5be5987e52cde747` |
+| `bsd/kern/bsd_init.c` | `94c8e15f91e4beeb1c81589523d29e662d131f7da467a44a73a3a9f2fa74b3f3` |
+| `iokit/Kernel/MiniBluetooth.cpp` | `5a526df5da263777276e29e547c5fe1e5c652d5199b49ce1a1015e10bb78075f` |
 
-Until step 5 passes, this branch's BT code is source-carried but not selected,
-and no iOS 27 build should be described as containing Bluetooth.
+The series order is 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
+0515, 0516, 0517, 0518, 0519, 0520. There is no 0513, as on the iOS 16 line.
+
+### 5.2 The missing build step: the firmware blob
+
+0510 lists `osfmk/arm64/k60_bt_blob.s` in `osfmk/conf/files.arm64`, but that
+file is a generated product, not a tracked source. On the iOS 16 line
+`scripts/build-xnu-4k-baseline.sh:317-323` runs
+`scripts/gen-k60-bt-blob.py --assembly --output <tree>/osfmk/arm64/k60_bt_blob.s`
+before compiling.
+
+`scripts/build-ios27-linux.sh` has no such step (it runs
+`apply-core-patches.sh`, `unixnu fetch`, `defconfig mondrian_ios27_defconfig`,
+`unixnu build kernel`, `unixnu build payload`), and `gen-k60-bt-blob.py` is not
+in this repository. Until both are wired, P3 fails at the compile step with a
+missing `k60_bt_blob.s`.
+
+Without `--container` the generator emits a one-byte stub with length zero:
+every line still builds, and the kernel falls back to the empty GpuAddon range,
+which is what a Bluetooth-free F1 image looks like.
 
 ## 6. Userspace layer: what actually makes the adapter usable
 
@@ -159,13 +160,11 @@ it is already written.
 
 ## 7. What remains before "directly usable after migration"
 
-1. P1/P2, the kernel side: assemble the patched xnu-12377 base and rebase
-   0501, 0502, 0509, 0510 and 0512, plus the `MiniBluetooth.cpp` hunk of 0519
-   and the `kern_exec.c` hunk of 0520 (§4).
-2. Move the thirteen patches from `patches/xnu/series` into
-   `patches/xnu-12377/series` only after step 1 applies cleanly.
-3. `[payload.runtime]` wiring plus the OS image and signing inputs (§6).
-4. Hardware only once the fork's `ios27-arm64e` area reaches `bsd_init`.
+1. Wire the blob generator into the iOS 27 build path (§5.2), then run P3 and
+   confirm the fifteen patches appear in the kernel log and `qbt_k60_start` is
+   linked. Offline: no hardware proof.
+2. `[payload.runtime]` wiring plus the OS image and signing inputs (§6).
+3. Hardware only once the fork's `ios27-arm64e` area reaches `bsd_init`.
 
 Until then the iOS 16.6.1 line stays the only hardware testbed, and every
 kernel/firmware flight is recorded there (d11 PASS, d12 observation).
@@ -174,9 +173,11 @@ kernel/firmware flight is recorded there (d11 PASS, d12 observation).
 
 - The fork's iOS 27 port has no Bluetooth phase and no BT component; this branch
   is ahead of the fork's own bring-up order.
-- The thirteen BT patches are staged in `patches/xnu/series`, not in the
-  `device:patches/xnu-12377/series` list the iOS 27 board reads. No F1 image
-  from this branch contains the qbt driver.
+- The series applies, but nothing has compiled it. The first real build may still
+  find header or link differences that a textual apply cannot see.
+- `k60_bt_blob.s` is generated on the iOS 16 line by a script this repository
+  does not carry yet, so a plain `build-ios27-linux.sh` run stops at 0510's
+  missing input.
 - The iOS 27 userland Bluetooth stack (`bluetoothd`, BlueTool) is a separate
   problem from the kernel transport. Passing firmware download does not make
   Bluetooth usable; §6 lists the wiring it needs.

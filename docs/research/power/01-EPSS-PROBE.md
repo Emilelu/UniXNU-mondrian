@@ -154,7 +154,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy`、`_k60_cpufreq_domain_busy_elapsed`、
   `_k60_cpufreq_tick_delta`、`_k60_cpufreq_sample_stop` 等 cpufreq 符号；undefined-symbol
   检查 imports=313 defs=139 external=242 kernel=22,909 missing=0。image l 用的是修复前的
-  130,648 字节 archive（`70856d4d`）；这份 130,592 字节 archive 尚未进入镜像。
+  130,648 字节 archive（`70856d4d`）；image m 用的就是这份 130,592 字节 archive。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -342,10 +342,20 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   下一窗口半速地板重新生效并把档位拉回半档，所以永远收敛不到最低档；参考
   `CpuFreqProbe.cpp:288-299` 只在 busy>=100 时清零 quiet。修复 `d1d3c3e3` 把 quiet 更新移到
   target 之前并只按 busy 判断，`aef89e8c` 用 24 窗口回归锁住收敛；image l 是修复前构建，
-  d1/d2 稳定降档待下一镜像复测。探针只读：300 s autoreset 先发生，
+  image m 修复后复测见下一条。探针只读：300 s autoreset 先发生，
   没有 `sample stop`；没有任何 EPSS 写入，mode 2/3 未执行。EPSS 硬件自身在采样期间把 d0
   在 691.2/1555.2 MHz、d1 到 2.496 GHz、d2 到 2.9952 GHz 之间移动，说明写路径必须先处理
   硬件自主 DCVS/所有权，不能把只读采样当作写频闭环。
+- 镜像 m 与 quiet 修复复测（2026-11-18 23:53–23:55，`E:/k60-work/evidence/power-conformance-mode5fix-20261118-2353`）：
+  image m 的 `boot.img` 201,887,744 B，sha256 `51ddb82ae276a87af641922f67a9bc9eee93dc793cecba427193b30e503b78e7`；
+  kernel.macho `4195a842f815965e5a2b2075150112657505ce68608726d25b1afb708ea5e173`，payload
+  `a83d31b81d8ad7943431d99bc5eaf9e8f3ba8b987e276bcdbd24b7c3818778b7`；参数 gate `OK (30 arguments, 603 bytes)`。
+  `fastboot.log` 记录 `Booting OKAY`；console.log 114,585 B / 1,739 行，sha256
+  `a96a98f5cefcab7cc5899641b879e698aaef18e8e44eec8c338afd83906e4307`，88 条 `sample win=`（win 64–5632）。
+  busy=0 时 d1/d2 的 governor 档位已是 633.6/787.2 MHz 的最低档（image l 同场景为 1.3248/1.536 GHz），
+  d0 在 300 MHz 与 1.8048 GHz 之间跟随负载，说明 quiet 收敛修复生效。探针仍只读，无 `sample stop`：
+  捕获在 300 s autoreset 前被工具调用超时截断，`boot.json` 的 bootAccepted=false/-1 是 supervisor 被截断后的
+  默认值，`fastboot.log` 的 `Booting OKAY` 才是启动证据；设备随后回到 fastboot，无 EPSS 写入，mode 2/3 未执行。
 
 ## 7. 未实现 / 边界
 

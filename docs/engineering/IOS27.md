@@ -35,14 +35,16 @@ needs `/usr/bin/aea` for the encrypted images. The host does not need the
 phone for any of it. The driver takes the URL directly (`unixnu fetch --ipsw
 PATH_OR_URL`), so the 12.3 GB download does not have to be driven by hand.
 
-The SoC layer's `xnu-12377` series lives on this branch's
-`UniXNU-sm8475-common` fork (`feat/xnu-12377`), not at the upstream commit the
-feed pins. Until that fork is pushed and `feeds.toml` moves, fetch it locally:
+The SoC layer's `xnu-12377` series lives on the `feat/xnu-12377` branch of
+`xNekom/UniXNU-sm8475-common`. `feeds.toml` names that fork and pins the
+commit, so a clean checkout fetches it without a local module:
 
 ```sh
-./unixnu fetch --local-module soc:sm8475=../UniXNU-sm8475-common \
-    -D ../UniXNU-mondrian-ios27
+./unixnu fetch -D ../UniXNU-mondrian-ios27
 ```
+
+`Emilelu/UniXNU-sm8475-common` does not carry the branch; keep both URLs in
+mind when a later change needs to go upstream.
 
 ## What carries over from the iOS 16 line
 
@@ -74,12 +76,38 @@ catalog `ArmCpu` starts the secondary CPUs itself (there is no
 `pong_cpu_start()`), and the catalog `ArmDTPlatform` has a
 `armdt_platform_clock_register` hook instead of the old `boot-epoch` sample.
 
+## Building F1 without Xcode (Linux host)
+
+`UniXNU/scripts/linux/setup-toolchain.py` builds the clang that xnu's
+`kalloc_type` signatures need (`__builtin_xnu_type_*`), cctools-port, mig and
+lzfse under one prefix; the build driver uses it automatically when it exists.
+
+```sh
+cd UniXNU
+sudo python3 scripts/linux/setup-toolchain.py --jobs 12 /opt/unixnu-linux
+python3 ./unixnu defconfig mondrian_ios27_defconfig -D ../UniXNU-mondrian-ios27
+python3 ./unixnu build kernel -D ../UniXNU-mondrian-ios27
+```
+
+That path needs no Mac and no phone. The 24.4 GiB userdata image still needs
+macOS (`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1
+does not.
+
+The 4 KiB granule assertion has its own script because the framework copy
+(`scripts/check-xnu-granules.py`) does not yet pass the two defines xnu-12377
+requires (`KERNEL_PRIVATE`, `VMAPPLE`):
+
+```sh
+sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree
+# granules: 4 KiB BCM2837, TCR_EL1_BOOT=0x00000022a5192519, ARM_PGBYTES=4096
+```
+
 ## Phases and exit criteria
 
 | Phase | Work | Exit |
 | --- | --- | --- |
 | F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | `RESULT OK arm64e-capable at EL1`; otherwise the branch stops |
-| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build | kernel and payload are arm64e 4 KiB; `check-xnu-granules.py` passes |
+| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | kernel and payload are arm64e 4 KiB; `scripts/check-ios27-granules.sh` passes |
 | F2 | `XnuPrelink` against the 24A446 fixture | `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI + `./unixnu userdata --os 27` | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |

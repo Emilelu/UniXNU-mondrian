@@ -1,0 +1,48 @@
+diff --git a/scripts/build-fileset-release-reference.py b/scripts/build-fileset-release-reference.py
+index 2e87000..ac71da5 100644
+--- a/scripts/build-fileset-release-reference.py
++++ b/scripts/build-fileset-release-reference.py
+@@ -38,6 +38,29 @@ def reusable(final, record, inputs):
+         return False
+ 
+ 
++# XNU's PGO support calls the LLVM profile runtime, which a macOS SDK links from
++# libclang_rt.profile. A host without that library leaves the two entry points
++# undefined; this comparison kernel never runs and the prelink reads its layout,
++# so they return zero.
++PROFILE_STUBS = '''#include <stdint.h>
++uint64_t
++__llvm_profile_get_size_for_buffer_internal(const char *data_begin, const char *data_end,
++    const char *counters_begin, const char *counters_end, const char *bitmap_begin, const char *bitmap_end,
++    const char *names_begin, const char *names_end, const char *vtable_begin, const char *vtable_end,
++    const char *vnames_begin, const char *vnames_end)
++{
++\treturn 0;
++}
++int
++__llvm_profile_write_buffer_internal(char *buffer, const char *data_begin, const char *data_end,
++    const char *counters_begin, const char *counters_end, const char *bitmap_begin, const char *bitmap_end,
++    const char *names_begin, const char *names_end)
++{
++\treturn 0;
++}
++'''
++
++
+ def linked_objects(directory, lto):
+     if lto:
+         # XNU splits the final link into non-LTO objects and the code generated
+@@ -152,8 +175,11 @@ def main():
+     require_link_phase(output / f'{mode}-obj/RELEASE_ARM64_BCM2837', options.lto,
+                        result.returncode, build_log, output / f'{mode}-build.log')
+     stub_names = sorted(set(re.findall(r'^\s+"(_(?:native_[a-z0-9_]+|boot_log_[a-z0-9_]+|boot_cache_input_capture))"', build_log, re.M)))
+-    if stub_names:
+-        (output / 'native-stubs.c').write_text(''.join(f'long {name[1:]};\n' for name in stub_names))   # the linker names carry the leading underscore
++    stubs = ''.join(f'long {name[1:]};\n' for name in stub_names)   # the linker names carry the leading underscore
++    if '__llvm_profile_get_size_for_buffer_internal' in build_log and '__llvm_profile_write_buffer_internal' in build_log:
++        stubs += PROFILE_STUBS
++    if stubs:
++        (output / 'native-stubs.c').write_text(stubs)
+         iphoneos = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+         subprocess.run(['xcrun', 'clang', '-arch', 'arm64e', '-mkernel', '-isysroot', iphoneos, '-c',
+                         '-o', str(output / 'native-stubs.o'), str(output / 'native-stubs.c')], check=True)

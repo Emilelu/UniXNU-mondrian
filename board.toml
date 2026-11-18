@@ -22,12 +22,13 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 # and the prelink. The device series carries only ptrauth-string-discriminator.patch,
 # which keeps Apple clang's four-argument __ptrauth out of the Linux build.
 patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:patches/xnu/series", "device:patches/xnu-12377/series"]
-# The fileset reference is not built here: it needs --lto for parity with the
-# release kernel, and cctools-port's ld64 reads no LLVM bitcode while the pinned
-# LLVM 24 has no llvm-link. With --lto removed it still fails on the profile
-# runtime and on a weak data symbol, so the reference stays a macOS/Xcode 26
-# artifact for F2; the kernel itself does not link it.
-archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py"]
+# The fileset reference (the prelink's comparison kernel) builds here without
+# --lto: cctools-port's ld64 reads no LLVM bitcode and the pinned LLVM 24 has no
+# llvm-link, so the LTO variant stays a macOS/Xcode 26 artifact. The non-LTO
+# reference keeps per-object function order and the matcher accepts it as a
+# "symbol-bearing comparison kernel"; its two LLVM profile-runtime calls are
+# stubbed by patches/unixnu-core/fileset-reference-linux.patch.
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-fileset-release-reference.py --tree ."]
 # Boot-record label. The object tree is BCM2837 (the 4 KiB machine config the
 # arch profile builds); PONG belonged to the 16.6.1 line and would point the
 # next reader at a target this branch never produces.

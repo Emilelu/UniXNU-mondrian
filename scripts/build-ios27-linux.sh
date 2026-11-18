@@ -8,8 +8,8 @@
 #   sudo install -m 755 scripts/linux/sysctl /usr/sbin/sysctl
 #   sudo install -m 755 scripts/linux/sw_vers /usr/local/bin/sw_vers
 #
-# The prelink is skipped on purpose: it needs the fileset reference, which is an
-# Xcode 26/LTO artifact. F2 runs on macOS.
+# The fileset reference builds here without --lto (see board.toml): its two
+# LLVM profile-runtime calls are stubbed, and the prelink consumes the result.
 #
 #   sh scripts/build-ios27-linux.sh [extra unixnu build kernel arguments]
 #
@@ -40,7 +40,7 @@ sh "$ROOT/scripts/apply-core-patches.sh" "$UNIXNU"
 cd "$UNIXNU"
 python3 ./unixnu fetch --device "$ROOT"
 python3 ./unixnu defconfig mondrian_ios27_defconfig --device "$ROOT"
-python3 ./unixnu build kernel --device "$ROOT" --skip-prelink "$@"
+python3 ./unixnu build kernel --device "$ROOT" "$@"
 python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
 
 if [ -n "${UNIXNU_UEFI:-}" ]; then

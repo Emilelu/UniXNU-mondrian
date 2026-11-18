@@ -17,6 +17,7 @@ invariant.
 """
 import argparse
 import hashlib
+import json
 import os
 import struct
 import subprocess
@@ -28,9 +29,10 @@ from pathlib import Path
 MH_MAGIC_64 = 0xFEEDFACF
 CPU_TYPE_ARM64 = 0x0100000C
 CPU_SUBTYPE_ARM64E = 2
-MH_EXECUTE = 2
+MH_EXECUTE, MH_FILESET = 2, 12
 MH_NOUNDEFS, MH_PIE = 0x1, 0x200000
 LC_BUILD_VERSION = 0x32
+LC_FILESET_ENTRY = 0x80000035
 PLATFORM_IOS = 2
 FD_BYTES = 0x300000
 FAT_KERNEL = '::/EFI/UniXNU/Payloads/kernel.macho'
@@ -46,7 +48,12 @@ def sha256(path):
 
 
 def macho(path):
-    """Header and LC_BUILD_VERSION of the thin arm64e executable."""
+    """Header and, for an executable, LC_BUILD_VERSION of the thin arm64e kernel.
+
+    The kernel step writes MH_EXECUTE before the prelink and MH_FILESET after
+    it; the fileset container carries platform 0 / minos 0 and holds the
+    version in its members, so only the executable form is checked for those.
+    """
     data = path.read_bytes()
     magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, _ = struct.unpack_from('<8I', data, 0)
     if magic != MH_MAGIC_64:
@@ -55,18 +62,25 @@ def macho(path):
         raise Failure(f'{path.name}: cputype {cputype:#x}, not arm64')
     if cpusubtype & 0x00FFFFFF != CPU_SUBTYPE_ARM64E:
         raise Failure(f'{path.name}: cpusubtype {cpusubtype & 0xFFFFFF}, not arm64e')
-    if filetype != MH_EXECUTE:
-        raise Failure(f'{path.name}: filetype {filetype}, not MH_EXECUTE')
-    for name, bit in (('NOUNDEFS', MH_NOUNDEFS), ('PIE', MH_PIE)):
-        if not flags & bit:
-            raise Failure(f'{path.name}: MH_{name} is not set')
+    if filetype not in (MH_EXECUTE, MH_FILESET):
+        raise Failure(f'{path.name}: filetype {filetype}, neither MH_EXECUTE nor MH_FILESET')
+    entries = 0
     pos, build = 32, None
     for _ in range(ncmds):
         cmd, size = struct.unpack_from('<II', data, pos)
         if cmd == LC_BUILD_VERSION:
             platform, minos, sdk = struct.unpack_from('<3I', data, pos + 8)
             build = (platform, minos, sdk)
+        elif cmd == LC_FILESET_ENTRY:
+            entries += 1
         pos += size
+    if filetype == MH_FILESET:
+        if not entries:
+            raise Failure(f'{path.name}: MH_FILESET with no LC_FILESET_ENTRY')
+        return len(data), flags, f'MH_FILESET, {entries} entries'
+    for name, bit in (('NOUNDEFS', MH_NOUNDEFS), ('PIE', MH_PIE)):
+        if not flags & bit:
+            raise Failure(f'{path.name}: MH_{name} is not set')
     if build is None:
         raise Failure(f'{path.name}: no LC_BUILD_VERSION')
     platform, minos, sdk = build
@@ -75,7 +89,7 @@ def macho(path):
     for label, value in (('minos', minos), ('sdk', sdk)):
         if value >> 16 != 27:
             raise Failure(f'{path.name}: {label} {value >> 16}.{value & 0xFFFF}, not 27.x')
-    return len(data), flags
+    return len(data), flags, 'MH_EXECUTE'
 
 
 def fat_extract(image, member, directory):
@@ -130,8 +144,15 @@ def check(board, chip_id, unique_chip_id):
         if not path.is_file():
             raise Failure(f'missing {path}: build kernel, payload and bootimg first')
 
-    size, flags = macho(kernel)
-    print(f'ok kernel.macho: arm64e MH_EXECUTE, flags {flags:#x}, {size} bytes, sha256 {sha256(kernel)[:12]}')
+    size, flags, kind = macho(kernel)
+    print(f'ok kernel.macho: arm64e {kind}, flags {flags:#x}, {size} bytes, sha256 {sha256(kernel)[:12]}')
+    report = board / 'kernel/kernel.json'
+    if kind.startswith('MH_FILESET') and report.is_file():
+        record = json.loads(report.read_text())
+        missing = record.get('missing') or {}
+        unresolved = sum(len(value) if hasattr(value, '__len__') else int(value) for value in missing.values())
+        print(f'ok prelink: mapping_complete={record.get("mapping_complete")}, '
+              f'{unresolved} unmapped symbols in {len(missing)} bundles, loadable={record.get("loadable")}')
 
     with tempfile.TemporaryDirectory(prefix='ios27-artifacts-') as name:
         directory = Path(name)

@@ -12,7 +12,7 @@ extern "C" {int (*native_adreno_dram_read32)(uint64_t,uint32_t *);int (*native_a
  * proportional to the mapped set and not to the commands. It printed nothing before, so the split between what this pass touches and
  * what the submission actually references was unknown. Every 32nd call reports both, so the next flight measures the cost instead of
  * inferring it from source. */
-extern "C" {volatile uint64_t native_adreno_cache_stats[5];}
+extern "C" {extern volatile uint64_t native_adreno_cache_stats[5];}
 /* 1 once the board proved the GPU's cacheable inner-shareable accesses coherent with the CPU's caches in both directions (the A740's
  * ADRENO_QUIRK_HAS_CACHED_COHERENT behind the dma-coherent GPU SMMU, which Linux maps with IOMMU_CACHE): a mapping with write-back
  * attributes then needs no CPU cache maintenance. 0 keeps every mapping maintained as before. Counters: maintenance passes skipped for

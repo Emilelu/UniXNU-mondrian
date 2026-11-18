@@ -144,9 +144,11 @@ static id openDevice(unsigned port)
     }
     NSString *base=[NSSearchPathForDirectoriesInDomains(NSCachesDirectory,NSUserDomainMask,YES) firstObject];
     if(base)[candidates addObject:[[base stringByAppendingPathComponent:@"PongMetal"] stringByAppendingPathComponent:process]];
-    // A7xx sysmem/no concurrent binning until Pong's BV/BR scheduling is ready.
-    // Plain IOSurface rows match Pong's current framebuffer/scanout contract.
-    setenv("TU_DEBUG","sysmem,nocb",0);
+    // The guide's default render mode is gmem,nocb; Pong used sysmem until the
+    // per-class probe showed the GPU wait (12.4 ms for an 18.4 MB blit, about
+    // 1.5 GB/s) dominating the frame. nocb stays because Pong's BV/BR scheduling
+    // is still unwritten; only the render mode changes, so this is one variable.
+    setenv("TU_DEBUG","gmem,nocb",1);
     setenv("PONG_IOSURFACE_PADDING","1",1);
     // Pong implements NativeAdreno directly, not Sheng's AGX selector tunnel.
     setenv("TU_DARWIN_SERVICE","NativeAdrenoGpuPublished",1);

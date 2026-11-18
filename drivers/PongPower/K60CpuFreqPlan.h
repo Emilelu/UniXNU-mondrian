@@ -85,6 +85,19 @@ unsigned k60_cpufreq_step(const K60CpuFreqTable *table, unsigned *current,
 unsigned k60_cpufreq_domain_of_cpu(unsigned cpu);
 unsigned k60_cpufreq_domain_cores(unsigned domain);
 
+/* Scheduler idle accounting for one window: idle_delta and elapsed are in the
+ * same tick unit. Mirrors the reference (CpuFreqProbe.cpp): a CPU that logged
+ * at least the whole window idle contributes 0, otherwise the busy share is
+ * (elapsed - idle) * 1000 / elapsed. A zero window or an over-counted idle
+ * delta also yields 0; the result is clamped to 1000. */
+unsigned k60_cpufreq_busy_permille(uint64_t idle_delta, uint64_t elapsed);
+
+/* Busiest CPU of one domain, 0 for a bad domain/null/count outside 1..8. This
+ * is the value the governor window wants: the reference takes the maximum over
+ * the domain's CPUs, not the average. */
+unsigned k60_cpufreq_domain_busy(const uint64_t *idle_delta, unsigned count,
+    uint64_t elapsed, unsigned domain);
+
 /* The write set the reference uses to place one domain at a level: the
  * perf_state row always, plus one row per extra core when the dcvs control
  * bit is set. "level" is the LUT row index, not the table index.

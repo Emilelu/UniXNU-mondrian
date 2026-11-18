@@ -132,6 +132,32 @@ unsigned k60_cpufreq_domain_cores(unsigned domain)
     return domain < K60_CPU_FREQ_DOMAINS ? cores[domain] : 0;
 }
 
+unsigned k60_cpufreq_busy_permille(uint64_t idle_delta, uint64_t elapsed)
+{
+    uint64_t busy;
+
+    if (!elapsed || idle_delta >= elapsed) return 0;
+    busy = (elapsed - idle_delta) * 1000u / elapsed;
+    return busy > 1000u ? 1000u : (unsigned)busy;
+}
+
+unsigned k60_cpufreq_domain_busy(const uint64_t *idle_delta, unsigned count,
+    uint64_t elapsed, unsigned domain)
+{
+    unsigned cpu, busy = 0;
+
+    if (!idle_delta || !count || count > K60_CPU_FREQ_CPUS ||
+        domain >= K60_CPU_FREQ_DOMAINS)
+        return 0;
+    for (cpu = 0; cpu < count; ++cpu) {
+        unsigned b;
+        if (k60_cpufreq_domain_of_cpu(cpu) != domain) continue;
+        b = k60_cpufreq_busy_permille(idle_delta[cpu], elapsed);
+        if (b > busy) busy = b;
+    }
+    return busy;
+}
+
 unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned level,
     K60CpuFreqWrite *out, unsigned capacity)
 {

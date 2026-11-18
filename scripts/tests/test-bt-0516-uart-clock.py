@@ -29,7 +29,7 @@ BOOT_IMG_SHA256 = "0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fe
 BOOT_IMG_SIZE = 201887744
 KERNEL_SHA256 = "6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331"
 
-# The first 235 lines are the frozen d8 series.  The 236th line is 0516.
+# The first 235 lines are the frozen d8 series; 0516 is line 236 and 0517 may follow.
 D8_PREFIX_SHA256 = "9a2cfd416b5250854f8fda38d03ca095a631be296e0679bf9522ba445e73cbb8"
 D8_NAMES_SIZES = "f7aa7d63470b891d"
 D8_COUNT = 235
@@ -37,6 +37,7 @@ SERIES_SHA256 = "e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db
 SERIES_COUNT = 236
 PATCH_0516 = "0516-k60-bt-qbt-uart-clock.patch"
 PATCH_0516_SHA256 = "0134a31bedb65fe6669a7ce7745bc5b9fcb6a7cd44ac66f96f3f604bb01ac6c8"
+PATCH_0517 = "0517-k60-bt-power-order.patch"
 
 QBT_SOURCE = {
     "qbt_core.c": "653723e92606893f9b91d2273193e5dabd440bbdba3dff5229160c113992e545",
@@ -166,18 +167,23 @@ def validate_inputs(artifact: Path, patches: Path) -> list[str]:
 
     series_path = patches / "series"
     require_file(series_path, "xnu series")
-    actual_series = sha256(series_path)
-    check(actual_series == SERIES_SHA256, "candidate series sha256", actual_series)
-    if actual_series != SERIES_SHA256:
-        refuse("series bytes differ from the 235-patch d8 series plus 0516")
     lines = [line.strip() for line in series_path.read_text(encoding="utf-8").splitlines()
              if line.strip()]
-    check(len(lines) == SERIES_COUNT, "candidate series count", str(len(lines)))
+    check(len(lines) >= SERIES_COUNT, "series at least 236 entries", str(len(lines)))
     check(len(lines) >= D8_COUNT and lines[D8_COUNT - 1] != PATCH_0516,
           "d8 prefix ends before 0516")
-    check(len(lines) == SERIES_COUNT and lines[-1] == PATCH_0516, "series ends with 0516")
-    if len(lines) != SERIES_COUNT or lines[-1] != PATCH_0516:
-        refuse("candidate series tail is not exactly 0516")
+    check(len(lines) >= SERIES_COUNT and lines[SERIES_COUNT - 1] == PATCH_0516,
+          "0516 at the candidate tail")
+    tail_ok = len(lines) == SERIES_COUNT or (
+        len(lines) == SERIES_COUNT + 1 and lines[-1] == PATCH_0517)
+    check(tail_ok, "candidate tail is 0516 optionally followed by 0517")
+    if not tail_ok:
+        refuse("candidate series tail is not 0516 or 0516+0517")
+    candidate = lines[:SERIES_COUNT]
+    candidate_sha = hashlib.sha256(("\n".join(candidate) + "\n").encode()).hexdigest()
+    check(candidate_sha == SERIES_SHA256, "candidate 236-entry prefix sha256", candidate_sha)
+    if candidate_sha != SERIES_SHA256:
+        refuse("series bytes differ from the 235-patch d8 series plus 0516")
 
     prefix = lines[:D8_COUNT]
     prefix_sha = hashlib.sha256(("\n".join(prefix) + "\n").encode()).hexdigest()

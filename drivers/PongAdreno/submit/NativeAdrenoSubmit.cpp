@@ -1,8 +1,15 @@
 /* SPDX-License-Identifier: MIT */
 #include "NativeAdrenoSubmit.h"
+#include "NativeAdrenoABI.h"
 #include "AdrenoPM4.h"
 #include <kern/clock.h>
 #include <IOKit/IOLib.h>
+
+/* Per kernel method: [method][0] calls, [1] calls that returned non-zero, [2] last status,
+ * [3] total time in us. The user client credits these after each method returns, so a reader
+ * inside NativeAdrenoSubmit sees the last COMPLETED submission, not its own (P-237: name the
+ * window). Until 2026-11-19 nothing in the tree read them (P-241). */
+extern "C" {extern volatile uint32_t native_adreno_method_stats[20][4];}
 
 /* CP_INDIRECT_BUFFER is opcode 0x3f with a 3-word payload: 64-bit GPU address
  * and IB_SIZE in dwords (bits 0..19), exactly as the pinned adreno_pm4.xml

@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,978 @@
+@@ -858,6 +892,1021 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -161,6 +161,14 @@
 +static void
 +pong_audio_play_reap_slots(PongAudioState *state)
 +{
++	{
++		static unsigned reap_logs;
++		if (reap_logs < 6u) {
++			reap_logs++;
++			printf("PongAudio: PCM reap enter inflight=%u\n",
++			    state->inflight);
++		}
++	}
 +	for (unsigned i = 0; i < PONG_AUDIO_SLOTS; i++) {
 +		if (!state->slot_busy[i]) {
 +			continue;
@@ -176,6 +184,14 @@
 +			state->inflight--;
 +		}
 +		printf("PongAudio: PCM slot %u write timed out\n", i);
++	}
++	{
++		static unsigned reap_exit_logs;
++		if (reap_exit_logs < 6u) {
++			reap_exit_logs++;
++			printf("PongAudio: PCM reap exit inflight=%u\n",
++			    state->inflight);
++		}
 +	}
 +}
 +
@@ -294,9 +310,24 @@
 +		}
 +	}
 +	if (slot == PONG_AUDIO_SLOTS) {
++		{
++			static unsigned full_logs;
++			if (full_logs < 4u) {
++				full_logs++;
++				printf("PongAudio: PCM no idle slot\n");
++			}
++		}
 +		return false;
 +	}
 +	if (pong_ring_queue_used(&state->ring) < PONG_AUDIO_PERIOD_FRAMES) {
++		{
++			static unsigned short_logs;
++			if (short_logs < 6u) {
++				short_logs++;
++				printf("PongAudio: PCM slot %u short used=%u\n", slot,
++				    (unsigned)pong_ring_queue_used(&state->ring));
++			}
++		}
 +		return false;
 +	}
 +	/* Pong, the SM8475 device that plays through this same GPR port, tags
@@ -311,11 +342,13 @@
 +	    PONG_AUDIO_PERIOD_BYTES);
 +	if (bytes == 0u) {
 +		state->last_error = PongAudioErrPlayback;
++		printf("PongAudio: PCM slot %u encode failed\n", slot);
 +		return false;
 +	}
 +	const uint32_t got = pong_ring_queue_read(&state->ring, state->period,
 +	    PONG_AUDIO_PERIOD_FRAMES);
 +	if (got != PONG_AUDIO_PERIOD_FRAMES) {
++		printf("PongAudio: PCM slot %u read got=%u\n", slot, got);
 +		return false;
 +	}
 +	if (state->playback_frames == 0u) {
@@ -850,6 +883,16 @@
 +		pong_audio_play_send_step(state, PongPlayPrepareSpeaker);
 +		return;
 +	}
++	{
++		static unsigned pump_logs;
++		if (pump_logs < 6u) {
++			pump_logs++;
++			printf("PongAudio: PCM pump running inflight=%u used=%u step=%u\n",
++			    state->inflight,
++			    (unsigned)pong_ring_queue_used(&state->ring),
++			    state->play_step);
++		}
++	}
 +	pong_audio_play_reap_slots(state);
 +	if (state->inflight == 0u) {
 +		if (pong_ring_queue_used(&state->ring) >=
@@ -1064,7 +1107,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,23 +1546,71 @@
+@@ -907,23 +1546,81 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -1108,6 +1151,16 @@
 +	if (written != frame_count) {
 +		g_pong_audio.ring_dropped += frame_count - written;
 +		return PongAudioErrRingFull;
++	}
++	{
++		static unsigned submit_logs;
++		if ((submit_logs++ & 255u) == 0u) {
++			printf("PongAudio: PCM submit n=%u frames=%u used=%u running=%u inflight=%u\n",
++			    submit_logs, frame_count,
++			    (unsigned)pong_ring_queue_used(&g_pong_audio.ring),
++			    g_pong_audio.playback_running ? 1u : 0u,
++			    g_pong_audio.inflight);
++		}
 +	}
 +	pong_audio_pump_one(&g_pong_audio);
 +	return PongAudioOk;

@@ -2312,10 +2312,10 @@ afe_prm_cases(void)
     expect_eq(p[21], 0x10ul, "prm opcode second byte");
     expect_eq(p[22], 0x00ul, "prm opcode third byte");
     expect_eq(p[23], 0x01ul, "prm opcode top byte");
-    expect_eq(le32(p + 24), 36ul, "prm payload size 36");
-    expect_eq(le32(p + 28), 0ul, "prm address lsw zero");
-    expect_eq(le32(p + 32), 0ul, "prm address msw zero");
-    expect_eq(le32(p + 36), 0ul, "prm mem map handle zero");
+    expect_eq(le32(p + 24), 0ul, "prm address lsw zero");
+    expect_eq(le32(p + 28), 0ul, "prm address msw zero");
+    expect_eq(le32(p + 32), 0ul, "prm mem map handle zero");
+    expect_eq(le32(p + 36), 36ul, "prm payload size 36 after the addresses");
     expect_eq(le32(p + 40), PONG_AFE_PRM_MODULE_INSTANCE_ID,
         "prm module instance 2");
     expect_eq(le32(p + 44), PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK,

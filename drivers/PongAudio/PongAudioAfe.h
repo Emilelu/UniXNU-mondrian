@@ -357,10 +357,13 @@ pong_afe_clock_set(uint8_t *out, size_t bytes, uint16_t clock_id,
  * APM command header, one module parameter header, the clock count and one
  * clock tuple:
  *   [GPR 24][apm_cmd_header 16][apm_module_param_data 16][count 4][cfg 16]
- * payload_size counts everything after the APM command header (36) and
- * param_size everything after the parameter header (20). src_port is the ASM
- * service, dest_port the PRM instance, and both addresses stay zero because
- * the payload is in band. */
+ * The AudioReach command header orders the four words as address lsw, address
+ * msw, mem_map_handle, payload_size (V: audio_prm.h:86-116, P: cmd_header);
+ * the AFE envelope above puts payload_size first, this one puts it last.
+ * payload_size counts everything after the command header (36) and param_size
+ * everything after the parameter header (20). src_port is the ASM service,
+ * dest_port the PRM instance, and both addresses stay zero because the
+ * payload is in band. */
 static inline size_t
 pong_afe_prm_clock_request(uint8_t *out, size_t bytes, uint16_t clock_id,
     uint32_t hz, uint32_t attribute, uint32_t token)
@@ -376,10 +379,10 @@ pong_afe_prm_clock_request(uint8_t *out, size_t bytes, uint16_t clock_id,
     if (n == 0) {
         return 0;
     }
-    pong_afe_put32(out + 24, 36u);   /* payload_size */
-    pong_afe_put32(out + 28, 0u);    /* payload_address_lsw */
-    pong_afe_put32(out + 32, 0u);    /* payload_address_msw */
-    pong_afe_put32(out + 36, 0u);    /* mem_map_handle */
+    pong_afe_put32(out + 24, 0u);    /* payload_address_lsw */
+    pong_afe_put32(out + 28, 0u);    /* payload_address_msw */
+    pong_afe_put32(out + 32, 0u);    /* mem_map_handle */
+    pong_afe_put32(out + 36, 36u);   /* payload_size */
     pong_afe_put32(out + 40, PONG_AFE_PRM_MODULE_INSTANCE_ID);
     pong_afe_put32(out + 44, PONG_AFE_PRM_PARAM_ID_RSC_AUDIO_HW_CLK);
     pong_afe_put32(out + 48, 20u);   /* param_size */

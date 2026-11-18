@@ -906,7 +906,11 @@ static void scheduled(void *context);
 - (void)addScheduledHandler:(MTLCommandBufferHandler)block {if(block)@synchronized(self){[_scheduledHandlers addObject:[block copy]];}}
 - (void)addCompletedHandler:(MTLCommandBufferHandler)block {if(block)@synchronized(self){[_completedHandlers addObject:[block copy]];}}
 // A drawable (RenderBox's CAMetalLayer path) is presented once the GPU has written it: this runtime's scheduling comes before completion.
-- (void)presentDrawable:(id<MTLDrawable>)drawable {[self addCompletedHandler:^(id<MTLCommandBuffer>){[drawable present];}];}
+- (void)presentDrawable:(id<MTLDrawable>)drawable {
+ static std::atomic<uint64_t> k60PdSeen{0};
+ if(k60PdSeen.fetch_add(1)==0)NBLOG(@"K60CB first presentDrawable");
+ [self addCompletedHandler:^(id<MTLCommandBuffer>){[drawable present];}];
+}
 - (void)presentDrawable:(id<MTLDrawable>)drawable atTime:(CFTimeInterval)time {[self addCompletedHandler:^(id<MTLCommandBuffer>){[drawable presentAtTime:time];}];}
 - (void)enqueue {}
 - (void)event:(id<MTLEvent>)event value:(uint64_t)value signal:(bool)signal {
@@ -1020,6 +1024,8 @@ static void completed(void *context) {
 @implementation NBQueue
 - (void)dealloc {nmb_queue_release(_handle);}
 - (id<MTLCommandBuffer>)commandBuffer {
+ static std::atomic<uint64_t> k60CbSeen{0};
+ if(k60CbSeen.fetch_add(1)==0)NBLOG(@"K60CB first command buffer requested");
  NmbCommandBuffer *handle=nmb_command_buffer_new(_handle);
  if(!handle){NBLOG(@"native-metal: commandBuffer refused: %@",lastError());return nil;}
  NBCommandBuffer *commandBuffer=[NBCommandBuffer new];commandBuffer.handle=handle;commandBuffer.queue=self;return (id<MTLCommandBuffer>)commandBuffer;

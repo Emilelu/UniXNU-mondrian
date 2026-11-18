@@ -71,14 +71,15 @@
 ## 汇总
 
 排除 §2/§3（音频分支）后，本分支的完成度估计：§1 约 80 %、§4 约 85 %、
-§5 约 25 %、§6 约 60 %；整页（含音频与充电认证）仍远未闭环。下一步的离线工作
-集中在 §5 的稳压器/温控顺序调研；设备恢复后再补 §4 的真机插拔/放电
-与 EPSS/GPU 读数。
+§5 约 30 %、§6 约 60 %；整页（含音频与充电认证）仍远未闭环。离线部分已经
+把 OPP/EPSS、GPU 规划、boost、投票账本、睡眠掩码、固件清单和稳压器顺序审计
+补齐；下一步离线只剩充电认证的移植设计，温控与真机读数必须等设备窗口。
 
 ## 参考
 
 - 官网快照：`E:/k60-work/scratch/power-page-20261117.txt`。
 - §4：`docs/research/charger/10-POWER-DOC-CONFORMANCE.md`。
 - §5：`docs/research/power/01-EPSS-PROBE.md`、`02-PLATFORM-SLEEP.md`、
-  `03-POWER-VOTES.md`、`04-GPU-FREQUENCY.md`。
+  `03-POWER-VOTES.md`、`04-GPU-FREQUENCY.md`、`05-BOOST-RULES.md`、
+  `06-FIRMWARE-MANIFEST.md`、`07-RAIL-ORDERING.md`。
 - 驱动映射：`docs/plans/OFFICIAL-DRIVER-MAP.md`。

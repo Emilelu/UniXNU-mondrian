@@ -1,7 +1,7 @@
 # GLINK 多槽：把音频通道接进同一个 QcomGlink 实例
 
 > 状态：2026-11-18。**传输层与音频桥已落地并上机**——QCOM_GLINK_MAX_CHANNELS 2、MAX_LOCAL_INTENTS 20、
-> K60AudioGlink 桥；镜像 ad 证明 PMIC up 前存在第二个槽（即使静默）会让 DSP 重置共享 transport，af 改为 PMIC up 后建 initiator 槽；run 2 不申请。
+> K60AudioGlink 桥；镜像 ad 证明 PMIC up 前存在第二个槽（即使静默）会让 DSP 重置共享 transport，af 改为 PMIC up 后建 initiator 槽并在 12:26 上机：530 slot opened、531 PMIC up、无 -5，但 DSP 不回应我方 OPEN，通道仍未 up；镜像 ag（b82ce0fe）加入 OPEN/OPEN_ACK/槽状态诊断。run 2 不申请。
 > 结论先行：传输层本身已经是每槽独立的，挡住第二个消费者的是 QcomGlink.h 的数组长度；
 > 真正的风险不在协议，而在**建槽时机**和**消费者侧的单通道假设**——后者已由 K60AudioGlink 消掉。
 

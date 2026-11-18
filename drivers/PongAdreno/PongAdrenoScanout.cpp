@@ -150,6 +150,11 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
     IOLockLock(scanout_gate);
     if(poisoned){IOLockUnlock(scanout_gate);return 2;}
     if(!client || !waiting || pending.offered){IOLockUnlock(scanout_gate);return 0;}
+    /* The frame path the porting guide asks us to attribute: page preparation,
+     * the offer the render server has to pick up, and the GPU copy itself are
+     * three different waits with three different owners. Report each one, so a
+     * slow frame names the stage instead of the whole driver. */
+    const uint64_t began=mach_absolute_time();
     size_t bytes=(size_t(stride)*height+4095)&~size_t(4095);
     if(offset>source->getLength() || bytes>source->getLength()-offset){IOLockUnlock(scanout_gate);return 0;}
     auto *memory=IOSubMemoryDescriptor::withSubRange(source,offset,bytes,kIODirectionInOut);
@@ -159,10 +164,12 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
     if(memory->prepare()!=kIOReturnSuccess) {
         memory->release();IOLockUnlock(scanout_gate);return 0;
     }
+    const uint64_t prepared=mach_absolute_time();
     pending={true,false,false,++sequence,0,memory,nullptr,stride};
     IOLockWakeup(scanout_gate,&pending,false);const uint64_t until=deadline(2000);
     while(!pending.done && !poisoned)
         if(IOLockSleepDeadline(scanout_gate,&pending,until,THREAD_UNINT)!=THREAD_AWAKENED)break;
+    const uint64_t finished=mach_absolute_time();
     if(pending.delivered && (!pending.done || (pending.status && pending.status!=PongScanoutNotSubmitted))) {
         poisoned=true;note("GPU copy not retired; retain pages and previous frame",pending.id,pending.status?:kIOReturnTimeout);
         IOLockUnlock(scanout_gate);return 2;
@@ -170,6 +177,21 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
     bool ok=pending.done && !pending.status;
     if(ok)pong_panel_sample();
     if(ok && completed++<3)note("GPU frame completed",pending.id,0);
+    /* Only the first frames and then one in sixty: the numbers are what a
+     * frame-rate claim has to be built on, so they must not flood the console
+     * the way an unconditional report would. The three stages are the ones the
+     * porting guide separates: page preparation here, the wait for the render
+     * server to take the offer and copy it, then the panel sample. */
+    if(ok && (completed<=4 || !(completed%60))) {
+        uint64_t prepare=0,wait=0,total=0;
+        absolutetime_to_nanoseconds(prepared-began,&prepare);
+        absolutetime_to_nanoseconds(finished-prepared,&wait);
+        absolutetime_to_nanoseconds(finished-began,&total);
+        char text[220];int n=snprintf(text,sizeof(text),
+            "PONG SCANOUT: frame=%llu prepare=%llu us offer_and_copy=%llu us total=%llu us\n",
+            pending.id,prepare/1000,wait/1000,total/1000);
+        if(n>0)IOLog("%s",text);
+    }
     if(pending.map)pending.map->release();
     (void)pending.memory->complete();pending.memory->release();pending={};
     IOLockUnlock(scanout_gate);return ok?1:0;

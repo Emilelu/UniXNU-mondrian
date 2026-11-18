@@ -59,9 +59,20 @@ k60_audio_glink_prepare(K60AudioGlink *link)
         link->error = K60_PMIC_GLINK_AUDIO_REFUSED;
         return link->error;
     }
+    qcom_glink_channel_hold(link->channel);
     link->attached = true;
     link->error = 0;
     return K60_PMIC_GLINK_AUDIO_OK;
+}
+
+int
+k60_audio_glink_enable(K60AudioGlink *link)
+{
+    const int rc = k60_audio_glink_prepare(link);
+    if (rc < 0) return rc;
+    if (!link->channel) return K60_PMIC_GLINK_AUDIO_REFUSED;
+    return qcom_glink_channel_release(link->channel) == QcomGlinkOk ?
+        K60_PMIC_GLINK_AUDIO_OK : K60_PMIC_GLINK_AUDIO_REFUSED;
 }
 
 int

@@ -136,6 +136,18 @@ QcomGlinkChannel *qcom_glink_channel(QcomGlink *g, const char *name, uint32_t in
     return 0;
 }
 
+void qcom_glink_channel_hold(QcomGlinkChannel *channel)
+{
+    if (channel) channel->open_hold = 1;
+}
+
+int qcom_glink_channel_release(QcomGlinkChannel *channel)
+{
+    if (!channel) return QcomGlinkArgument;
+    channel->open_hold = 0;
+    return QcomGlinkOk;
+}
+
 static QcomGlinkChannel *by_lcid(QcomGlink *g, uint32_t lcid)
 {
     for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i)
@@ -176,6 +188,7 @@ static int advertise(QcomGlink *g, QcomGlinkChannel *c, unsigned index)
 static void reset_channel(QcomGlinkChannel *c)
 {
     c->open_acked = c->remote_open = c->up = c->intent_asked = 0;
+    c->open_held = 0;
     c->open_sent = c->initiator ? 0 : 2;
     c->closing = 0;
     for (unsigned i = 0; i < QCOM_GLINK_MAX_LOCAL_INTENTS; ++i) {
@@ -217,6 +230,11 @@ static void progress(QcomGlink *g)
     for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i) {
         QcomGlinkChannel *c = &g->channel[i];
         if (!c->used) continue;
+        if (c->open_hold) continue;
+        if (c->open_held) {
+            if (command(g, QCOM_GLINK_OPEN_ACK, c->rcid, 0)) return;
+            c->open_held = 0;
+        }
         if (c->closing) {
             if (c->closing == 1) {
                 if (command(g, QCOM_GLINK_CLOSE, c->lcid, 0)) return;
@@ -352,11 +370,19 @@ static int receive_one(QcomGlink *g)
             note_unknown(g, name);
         } else {
             if (c->closing) return QcomGlinkCorrupt;
-            if (command(g, QCOM_GLINK_OPEN_ACK, param1, 0)) return 0;
-            if (c->remote_open && c->up) c->client.state(c->context, c, 0);
-            if (c->remote_open) reset_channel(c);
-            c->rcid = param1;
-            c->remote_open = 1;
+            if (c->open_hold) {
+                /* Record the remote's OPEN, but do not put a single byte on
+                 * the shared FIFO until the owner releases the channel. */
+                c->rcid = param1;
+                c->remote_open = 1;
+                c->open_held = 1;
+            } else {
+                if (command(g, QCOM_GLINK_OPEN_ACK, param1, 0)) return 0;
+                if (c->remote_open && c->up) c->client.state(c->context, c, 0);
+                if (c->remote_open) reset_channel(c);
+                c->rcid = param1;
+                c->remote_open = 1;
+            }
         }
         rx_advance(&g->rx, align8(8 + n));
         g->rx_messages++;

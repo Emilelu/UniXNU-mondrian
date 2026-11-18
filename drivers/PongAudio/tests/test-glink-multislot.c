@@ -621,6 +621,7 @@ static void bridge_cases(void)
     expect_eq(bridge.channel->intent_size, K60_AUDIO_GLINK_INTENT_BYTES,
               "bridge: advertised intent size matches the message limit");
     expect_eq(k60_audio_glink_ready(&bridge), 0, "bridge: registered is not up");
+    expect_eq(bridge.channel->open_hold, 1, "bridge: the prepared audio slot is held");
 
     expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll writes VERSION");
     expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "bridge: VERSION is on the wire");
@@ -631,8 +632,15 @@ static void bridge_cases(void)
     expect_eq(ap_avail(l), 0, "bridge: no unsolicited audio OPEN");
 
     peer_open(l, 0x31, K60_AUDIO_GLINK_NAME);
-    expect(qcom_glink_poll(&l->g) >= 0, "bridge: the DSP opens adsp_apps");
-    expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "bridge: OPEN_ACK is emitted");
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: the DSP opens adsp_apps while held");
+    expect(ap_read_cmd(l, &lcid, &size, &index) == 0, "bridge: a held OPEN is not acknowledged");
+    expect_eq(ap_avail(l), 0, "bridge: a held OPEN writes no bytes");
+    expect_eq(bridge.channel->remote_open, 1, "bridge: the DSP OPEN is recorded");
+    expect_eq(bridge.channel->open_held, 1, "bridge: the acknowledgement is held");
+    expect_eq((unsigned long)(long)k60_audio_glink_enable(&bridge), 0,
+              "bridge: the PMIC-up path releases the audio slot");
+    expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll after releasing the audio slot");
+    expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "bridge: OPEN_ACK is emitted after release");
     expect_eq(lcid, QCOM_GLINK_OPEN_ACK, "bridge: it is an OPEN_ACK");
     expect_eq(size, 0x31, "bridge: the remote rcid is acknowledged");
     expect(ap_read_open(l, &lcid, name, sizeof name) != 0, "bridge: our OPEN follows the DSP");

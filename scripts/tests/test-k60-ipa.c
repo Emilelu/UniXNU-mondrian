@@ -151,6 +151,26 @@ main(int argc, char **argv)
             size, (unsigned long long)plan.span, (unsigned long long)plan.metadata,
             plan.load_segments, plan.relocatable);
         {
+            unsigned char *padded = calloc(1, K60_IPA_METADATA_OFFSET);
+            K60IpaFirmwarePlan paddedPlan;
+            if (!padded) {
+                printf("FAIL padded alloc\n");
+                return 1;
+            }
+            memcpy(padded, blob, (size_t)size);
+            if (k60_ipa_firmware_check(padded, K60_IPA_METADATA_OFFSET, &paddedPlan) != K60IpaOk ||
+                paddedPlan.span != plan.span || paddedPlan.metadata != plan.metadata ||
+                paddedPlan.load_segments != plan.load_segments) {
+                printf("FAIL padded firmware check\n");
+                free(padded);
+                return 1;
+            }
+            printf("K60 IPA FW PAD PASS bytes=%u span=%#llx metadata=%#llx loads=%u\n",
+                K60_IPA_METADATA_OFFSET, (unsigned long long)paddedPlan.span,
+                (unsigned long long)paddedPlan.metadata, paddedPlan.load_segments);
+            free(padded);
+        }
+        {
             K60MdtImage image;
             K60IpaFirmwarePlan staged;
             unsigned char *region = calloc(1, K60_IPA_FIRMWARE_BYTES);

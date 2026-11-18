@@ -37,7 +37,6 @@ def kernel_copy(name: str) -> str:
                            ("K60ModemPas.h", "pong_modem_pas.h"),
                            ("K60PmicRail.h", "pong_pmic_rail.h"),
                            ("K60Smem.h", "pong_smem.h"),
-                           ("K60Fat.h", "pong_fat.h"),
                            ("K60IpaGsi.h", "pong_ipa_gsi.h"),
                            ("K60IpaSmmu.h", "pong_ipa_smmu.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
@@ -56,7 +55,6 @@ def main() -> int:
     assert '#include "pong_ipa.h"' in source
     assert '#include "pong_mdt.h"' in header
     assert '#include "pong_mdt.h"' in mdt_source
-    assert '#include "pong_fat.h"' in source
     assert '#include "pong_pmic_rail.h"' in source
     assert '#include "pong_smem.h"' in source
 
@@ -68,7 +66,8 @@ def main() -> int:
             + newfile("bsd/dev/pong_ipa_gsi.c", gsi_source)
             + newfile("bsd/dev/pong_ipa_smmu.h", smmu_header)
             + newfile("bsd/dev/pong_ipa_smmu.c", smmu_source))
-    OUT.write_text(body)
+    with OUT.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(body)
     print("patch bytes", OUT.stat().st_size)
 
     result = subprocess.run(["git", "apply", "--numstat", str(OUT)], cwd=str(REPO),

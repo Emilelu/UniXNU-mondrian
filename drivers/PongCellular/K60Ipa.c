@@ -8,7 +8,8 @@
  * the metadata block at the last 8 KiB of the 64 KiB ipa_fw_region.
  * k60_ipa_firmware_start() then performs the PAS 15 init/mem-setup/auth-reset
  * sequence and reads the version registers; k60_ipa_probe_from_handoff()
- * supplies the image from IPA/ipa_fws.mbn in the payload FAT.
+ * supplies the image that the UEFI loader copied from IPA/ipa_fws.mbn into
+ * the reserved ipa_fw_region at 0x8b900000.
  */
 
 #include "K60Ipa.h"
@@ -28,7 +29,6 @@
 #include <vm/pmap.h>
 #include <vm/vm_kern.h>
 #include <arm/caches_internal.h>
-#include "K60Fat.h" /* the kernel copy is pong_fat.h; the host build skips it */
 #include "K60PmicRail.h" /* the kernel copy is pong_pmic_rail.h */
 #include "K60Smem.h" /* the kernel copy is pong_smem.h */
 
@@ -617,33 +617,16 @@ k60_ipa_clock_vote(void)
     return rc;
 }
 
-/* md0 carries the payload FAT.  memdev hands us the page numbers through
- * k60_ipa_note_window(); convert them exactly the way k60_adsp_md_window()
- * does, because mdevadd() keeps a kernel VA page number for a vmd entry. */
-static uint64_t k60_ipa_md_base;
-static uint64_t k60_ipa_md_size;
-
+/* The UEFI loader copies IPA/ipa_fws.mbn into the reserved 64 KiB
+ * ipa_fw_region at 0x8b900000 before XNU starts. memdev still reports md0
+ * through k60_ipa_note_window(); keep the hook for compatibility, but do not
+ * derive the firmware source from md0. A UFS-owned Data volume has no
+ * RAMDisk property, so md0 may not exist at all. */
 void
 k60_ipa_note_window(uint64_t base, uint64_t size)
 {
-    k60_ipa_md_base = base;
-    k60_ipa_md_size = size;
-    printf("K60IPA md0 window noted %#llx..%#llx\n",
+    printf("K60IPA md0 window noted %#llx..%#llx (ignored)\n",
         (unsigned long long)base, (unsigned long long)(base + size));
-}
-
-static int
-k60_ipa_md_window(uint64_t *base, uint64_t *size)
-{
-    if (k60_ipa_md_size != 0) {
-        const uint64_t va_pages = 0xfffffff000000000ULL >> 12;
-
-        *base = (k60_ipa_md_base - va_pages) << 12;
-        *size = k60_ipa_md_size << 12;
-        return 0;
-    }
-    printf("K60IPA md0 was never registered\n");
-    return -1;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1333,9 +1316,6 @@ k60_ipa_firmware_start(const void *blob, uint64_t size)
 int
 k60_ipa_probe_from_handoff(void)
 {
-    K60FatVolume volume;
-    uint64_t base = 0, size = 0;
-    uint32_t offset = 0, length = 0;
     vm_offset_t ram;
     int enabled = 0;
     int clock_probe = 0;
@@ -1356,28 +1336,17 @@ k60_ipa_probe_from_handoff(void)
         printf("K60IPA clock probe result rc=%d\n", rc);
         return rc;
     }
-    if (k60_ipa_md_window(&base, &size) != 0) {
-        return -1;
-    }
-    ram = ml_io_map_unmappable((vm_offset_t)base, (vm_size_t)size, 0x2);
+    printf("K60IPA firmware source=%#x bytes=%u\n",
+        K60_IPA_FW_REGION_BASE, K60_IPA_METADATA_OFFSET);
+    ram = ml_io_map_unmappable((vm_offset_t)K60_IPA_FW_REGION_BASE,
+        (vm_size_t)K60_IPA_METADATA_OFFSET, 0x2);
     if (ram == 0) {
-        printf("K60IPA cannot map the payload FAT %#llx\n",
-            (unsigned long long)base);
+        printf("K60IPA cannot map ipa_fw_region %#x\n",
+            K60_IPA_FW_REGION_BASE);
         return -1;
     }
-    if (k60_fat_open((const void *)(uintptr_t)ram, (size_t)size,
-        &volume) != 0) {
-        printf("K60IPA payload FAT open failed\n");
-        return -1;
-    }
-    if (k60_fat_find((const void *)(uintptr_t)ram, &volume, "IPA",
-        "ipa_fws.mbn", &offset, &length) != 0) {
-        printf("K60IPA IPA/ipa_fws.mbn missing\n");
-        return -1;
-    }
-    printf("K60IPA firmware file length=%u\n", length);
-    return k60_ipa_firmware_start((const uint8_t *)(uintptr_t)ram + offset,
-        length);
+    return k60_ipa_firmware_start((const uint8_t *)(uintptr_t)ram,
+        K60_IPA_METADATA_OFFSET);
 }
 #else /* K60_HOST_TEST */
 int

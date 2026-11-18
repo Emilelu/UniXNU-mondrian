@@ -335,11 +335,12 @@ k60_ipa_scm_invoke(uint64_t regs[8])
 
 static int
 k60_ipa_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
-    uint64_t c, uint64_t *rx0, uint64_t *rx1)
+    uint64_t c, uint64_t *rx0, uint64_t *rx1, unsigned *calls_out)
 {
     uint64_t regs[8];
     uint64_t context = 0;
-    unsigned calls;
+    unsigned calls = 0;
+    unsigned issued = 0;
 
     /* Linux __scm_smc_do_quirk resumes while res.a0 is
      * QCOM_SCM_INTERRUPTED, reloading the original arguments and passing the
@@ -356,6 +357,7 @@ k60_ipa_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
         regs[6] = context;
         regs[7] = 0;
         k60_ipa_scm_invoke(regs);
+        issued++;
         context = regs[6];
         if (regs[0] != K60M_SCM_INTERRUPTED) {
             break;
@@ -364,6 +366,7 @@ k60_ipa_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
 
     *rx0 = regs[0];
     *rx1 = regs[1];
+    *calls_out = issued;
     if (regs[0] == K60M_SCM_INTERRUPTED) {
         return K60IpaPasInterrupted;
     }
@@ -375,13 +378,12 @@ k60_ipa_pas_call(uint32_t cmd, uint32_t arginfo, uint64_t a, uint64_t b,
     uint64_t c)
 {
     uint64_t x0 = 0, x1 = 0;
+    unsigned calls = 0;
     int rc = k60_ipa_scm_call(k60_modem_scm_fn(K60M_SCM_SVC_PIL, cmd),
-        arginfo, a, b, c, &x0, &x1);
+        arginfo, a, b, c, &x0, &x1, &calls);
 
-    if (rc != K60IpaOk) {
-        printf("K60IPA scm cmd=%#x rc=%d x0=%#llx x1=%#llx\n", cmd, rc,
-            (unsigned long long)x0, (unsigned long long)x1);
-    }
+    printf("K60IPA scm cmd=%#x rc=%d calls=%u x0=%#llx x1=%#llx\n", cmd, rc,
+        calls, (unsigned long long)x0, (unsigned long long)x1);
     return rc;
 }
 

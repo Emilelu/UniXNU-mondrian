@@ -77,6 +77,7 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | **`XTOM0706/ios-sweet-k60`** | HackiOS / ios-sweet 的 Redmi K60（mondrian / SM8475）独立移植线，2026-10-21 建，含 patched shim、硬件映射、cape 板级准备 | HackiOS userland 结构、shim 思路、板级映射 |
 | **`Seanding1998/hakios-xnu-kernel`**（`phk110-port`） | 一加 Ace 2 / PHK110 / **SM8475** 的 HakiOS 移植 | `docs/phk110/waves/wave12c-electrical.md`：同 SoC 触摸 PASS 全流程（20 ms 节拍 + 分帧收割）；`wave12b`/`wave12a`：软件链闭环与断点定位；`wave12-touch-buttons.md`：cape/sm8475 的 GCC 与 mainline sm8450 差异（m/s_ahb FID 134/135 vs 118/119）；`wave20-launchd.md`：`hw.target` / `PEGetTargetName` 根因与双层修复 |
 | **`yibiya/UniXNU-mondrian`** | 本仓库的 fork，见上方专节 | UI 库、launchd 缓存、触摸/GPU 新线 |
+| **`Ken-u/UniXNU-evb10`** | UniXNU evb10（RK3588 + Broadcom SDIO）设备 fork；`package/Evb10Wifi/WifiNet.cpp` 首行注明 BSD-2-Clause-Patent、源自 UniXNU-sheng | 设置页 Wi‑Fi 的链路机制：`_LimitLoadToDeviceTree` 让 `com.apple.wifid` 只在设备树有 `wlan` 节点时启动（`dts/evb10.dts`）；非 stock Ethernet 的 ifnet 必须实现 `set_bpf_tap` 并把每个帧（含以太头）喂给 tap，地址配置的 ARP 监视器靠 `/dev/bpf` 收帧，busy 标志从 64 s 降到 10 s；接受 `kProperty=383` 与 470/471 两个标志；AP 不在扫描缓存时用链路状态回答 103。见 `evidence/wifi-settings-pane-20261031.txt` |
 
 ### 3.2 Pong 参考实现（Chengdong-Yu）
 

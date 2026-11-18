@@ -72,6 +72,7 @@ enum {
   kCardCaps = 12, kState = 13, kPhyMode = 14, kOpMode = 15, kRssi = 16, kNoise = 17, kPower = 19, kAssociate = 20, kAssociateResult = 21,
   kDisassociate = 22, kSupportedChannels = 27, kLocale = 28, kDeauth = 29, kDriverVersion = 43, kHardwareVersion = 44, kCountryCode = 51,
   kRadioInfo = 54, kWowEnabled = 70, kVirtualRole = 96, kVirtualParent = 97, kScanReqMultiple = 86, kScanCacheClear = 90, kCurrentNetwork = 103, kRssiBounds = 106, kChannelsInfo = 207, kHwSupportedChannels = 254,
+  kProperty = 383, kFlagA = 470, kFlagB = 471,
 };
 // events
 enum { kEvPowerChanged = 1, kEvSsidChanged = 2, kEvBssidChanged = 3, kEvLinkChanged = 4, kEvAssocDone = 9, kEvScanDone = 10, kEvRsnHandshakeDone = 20 };
@@ -151,6 +152,17 @@ void log(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void log(int level, const char *fmt, ...) {
   char line[160]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
   native_wifi_logf(level, "%s", line);
+}
+
+// The packet filter (bpf) tap. The address configuration's ARP monitor reads the router's replies through /dev/bpf, and an interface that is
+// not a stock Ethernet driver has to hand every frame it receives and sends to the tap itself. Without it the interface stays busy for a
+// minute after the link comes up and the Settings pane never stops spinning (evb10 run t36 against run t37).
+volatile bpf_tap_mode gBpfMode;
+bpf_packet_func volatile gBpfTap;
+errno_t if_set_bpf_tap(ifnet_t, bpf_tap_mode mode, bpf_packet_func callback) {
+  gBpfTap = mode ? callback : nullptr; gBpfMode = mode;
+  static unsigned shown; if (shown++ < 6) log(6, "wifi-net: packet filter tap mode %u", mode);
+  return 0;
 }
 
 // ---- events to the framework: class IEEE 802.11 (6), subclass 1, data starting with the interface name ----
@@ -338,6 +350,7 @@ void on_rx(const uint8_t *eth, size_t length) {
   }
   if (done != length) { gRxNoBuffer++; mbuf_freem(m); return; }
   mbuf_pkthdr_setlen(m, length); mbuf_pkthdr_setrcvif(m, gIf);
+  { bpf_packet_func tap = gBpfTap; if (tap && (gBpfMode & BPF_MODE_INPUT)) tap(gIf, m); }   // the whole frame, before the header is set apart
   mbuf_pkthdr_setheader(m, mbuf_data(m)); mbuf_adj(m, 14);   // the stack wants the Ethernet header apart from the payload
   struct ifnet_stat_increment_param inc; memset(&inc, 0, sizeof inc); inc.packets_in = 1; inc.bytes_in = static_cast<uint32_t>(length);
   const errno_t e = ifnet_input(gIf, m, &inc);
@@ -351,6 +364,7 @@ errno_t if_output(ifnet_t, mbuf_t m) {
   if (length >= 14 && length <= 2000) {
     uint8_t frame[2000]; mbuf_copydata(m, 0, length, frame);
     note_frame(frame, length, true);
+    { bpf_packet_func tap = gBpfTap; if (tap && (gBpfMode & BPF_MODE_OUTPUT)) tap(gIf, m); }
     if (nw_wifi_tx(frame, length)) log(6, "wifi-net: a frame was dropped (queue full)");
     else {ifnet_stat_increment_out(gIf, 1, static_cast<uint32_t>(length), 0); pong_wifi_wake();}
   }
@@ -501,6 +515,21 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       return r ? EINVAL : 0; }
     case kDisassociate: case kDeauth: gUserJoin = true; log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
     case kScanCacheClear: case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return 0;
+    // Settings the module has no use for, that the wireless daemon sends at every state change (a property list, two flags): taking them
+    // without effect is what a driver with nothing to configure does; refusing makes the daemon repeat them and log errors.
+    case kProperty: {
+      static int seen; uint8_t buf[320];
+      if (seen < 150 && rq.req_data) {
+        ++seen;
+        memset(buf, 0, sizeof buf);
+        if (copy_in(rq, buf, sizeof buf - 1, kernel)) return 0;
+        for (unsigned i = 0; i < sizeof buf; i++) if (buf[i] < 32 || buf[i] > 126) buf[i] = ' ';
+        buf[sizeof buf - 1] = 0;
+        // the document's own text starts at "<dict>"; the long header before it is the same every time
+        const char *d = strnstr(reinterpret_cast<char *>(buf + 8), "<dict>", sizeof buf - 8);
+        log(6, "wifi-net: property list %.200s", d ? d : reinterpret_cast<char *>(buf + 8)); }
+      return 0; }
+    case kFlagA: case kFlagB: return 0;
     default: return EOPNOTSUPP;
     }
   }
@@ -574,7 +603,12 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
         return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel);
       }
     }
-    return ENOENT; }
+    // Joined by a join that did not scan first (a network the Settings pane did not list): the access point is not in the scan list, so
+    // describe it from the link's own state. Answering "no such network" while associated makes the wireless daemon think the link is gone.
+    memset(&b, 0, sizeof b); memcpy(b.bssid, st.bssid, 6); b.ssid_len = st.ssid_len; memcpy(b.ssid, st.ssid, 32); b.freq_mhz = st.freq_mhz; b.signal_dbm = st.signal_dbm;
+    b.caps = static_cast<uint16_t>(0x0001 | (gKeyed ? 0x0010 : 0)); b.beacon_int = 100;
+    fill_result(out.res, b, scan_clock_ns());
+    return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
   default: return EOPNOTSUPP;
   }
 }
@@ -971,7 +1005,7 @@ extern "C" void pong_wifi_net_start(const uint8_t mac[6]) {
   struct ifnet_init_eparams p; memset(&p, 0, sizeof p);
   p.ver = IFNET_INIT_CURRENT_VERSION; p.len = sizeof p; p.flags = IFNET_INIT_LEGACY | IFNET_INIT_NX_NOAUTO; p.name = "en"; p.unit = 0; p.family = IFNET_FAMILY_ETHERNET; p.subfamily = IFNET_SUBFAMILY_WIFI; p.type = IFT_ETHER;
   p.output = if_output; p.demux = ether_demux; p.add_proto = ether_add_proto; p.del_proto = ether_del_proto; p.check_multi = ether_check_multi; p.framer = ether_frameout;
-  p.ioctl = if_ioctl; p.event = if_event_stub; static const uint8_t bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }; p.broadcast_addr = bcast; p.broadcast_len = 6;
+  p.ioctl = if_ioctl; p.event = if_event_stub; p.set_bpf_tap = if_set_bpf_tap; static const uint8_t bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }; p.broadcast_addr = bcast; p.broadcast_len = 6;
   // Without NX_NOAUTO the stack puts a compatibility nexus in front of a Wi-Fi "en" interface, and its input no longer goes through the
   // interface's own input thread.
   ifnet_t ifp = nullptr; errno_t e = ifnet_allocate_extended(&p, &ifp);

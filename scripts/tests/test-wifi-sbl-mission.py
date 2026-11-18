@@ -236,6 +236,29 @@ def main() -> int:
           "WiFi lifecycle test PASS: reconnected BSSID" in plat and
           "WiFi lifecycle test FAIL: reconnect" in plat)
 
+    dts = (ROOT / "dts" / "mondrian.dts").read_text(encoding="utf-8")
+    wlan = re.search(r"\n\twlan \{(?P<body>[^}]*)\};", dts)
+    check("the device tree carries the wlan node the daemon is limited to",
+          bool(wlan) and
+          'unixnu,adt-name = "wlan";' in wlan.group("body") and
+          'device_type = "wlan";' in wlan.group("body") and
+          '"marconi-wifi"' in wlan.group("body") and
+          "reg =" not in wlan.group("body"),
+          "found=%s" % bool(wlan))
+    check("the interface hands every frame to the packet filter tap",
+          "volatile bpf_tap_mode gBpfMode;" in net and
+          "errno_t if_set_bpf_tap(ifnet_t, bpf_tap_mode mode, bpf_packet_func callback)" in net and
+          "p.set_bpf_tap = if_set_bpf_tap;" in net and
+          "if (tap && (gBpfMode & BPF_MODE_INPUT)) tap(gIf, m);" in net and
+          "if (tap && (gBpfMode & BPF_MODE_OUTPUT)) tap(gIf, m);" in net and
+          net.index("tap(gIf, m); }") < net.index("mbuf_pkthdr_setheader(m, mbuf_data(m));"))
+    check("the daemon's property list and flags are accepted",
+          "kProperty = 383, kFlagA = 470, kFlagB = 471," in net and
+          'log(6, "wifi-net: property list %.200s", d ? d : reinterpret_cast<char *>(buf + 8));' in net and
+          "case kFlagA: case kFlagB: return 0;" in net)
+    check("the current network is answered from the link that exists",
+          "Joined by a join that did not scan first" in net and
+          "b.caps = static_cast<uint16_t>(0x0001 | (gKeyed ? 0x0010 : 0));" in net)
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

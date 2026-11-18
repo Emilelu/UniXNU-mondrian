@@ -48,7 +48,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,604 @@
+@@ -858,6 +892,607 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -250,15 +250,18 @@
 +		printf("PongAudio: playback step %u encode failed\n", step);
 +		return;
 +	}
++	/* The DSP can answer before this call returns, so the expected step
++	 * and token must be published first. */
++	state->play_step = step;
++	state->play_token = token;
 +	const int rc = k60_pmic_glink_send_audio(packet, bytes);
 +	printf("PongAudio: playback step %u send bytes=%u opcode=0x%08x token=0x%08x rc=%d\n",
 +	    step, bytes, opcode, token, rc);
 +	if (rc == K60_PMIC_GLINK_AUDIO_OK) {
-+		state->play_step = step;
-+		state->play_token = token;
 +		state->last_error = PongAudioOk;
 +		return;
 +	}
++	state->play_token = 0;
 +	state->last_error = PongAudioErrPlayback;
 +	printf("PongAudio: playback step %u refused rc=%d\n", step, rc);
 +}

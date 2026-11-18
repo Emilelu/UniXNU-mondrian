@@ -367,7 +367,8 @@ def main():
                      'K60AdspPlatformNative.cpp', 'K60AdspBoard.c',
                      'K60AdspRouteA.c',
                      'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
-                     'K60PmicGlink.cpp', 'K60Battery.cpp', str(generated)):
+                     'K60PmicGlink.cpp', 'K60CpuFreqPlan.c', 'K60CpuFreqProbe.cpp',
+                     'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file
             obj = out / (path.stem + '.o')
             cpp = path.suffix == '.cpp'

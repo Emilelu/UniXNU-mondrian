@@ -502,9 +502,14 @@ void K60Battery::free()
     IOPMPowerSource::free();
 }
 
+/* Read-only EPSS probe, gated by its own k60_cpufreq boot argument; it needs
+ * neither the ADSP lease nor the battery configuration below. */
+extern "C" void k60_cpufreq_probe(void);
+
 extern "C" void k60_physical_battery_start(void)
 {
     static unsigned attempted;
+    k60_cpufreq_probe();
     unsigned enabled = 1;
     PE_parse_boot_argn("k60_battery", &enabled, sizeof(enabled));
     if (!enabled || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;

@@ -17,6 +17,9 @@ int main(void)
 {
     K60GpuTable table;
     K60GpuGovernor gov;
+    K60GpuDcvs dcvs;
+    K60GpuGovernor dgov;
+    unsigned want = 0;
     uint32_t out[3] = {0, 0, 0};
     uint32_t dup[4] = {900000, 900000, 0, 220000};
 
@@ -96,6 +99,91 @@ int main(void)
     check("wake clamps top", k60_gpu_wake_level(&table, 13, 578000), 13);
     check("wake zero level", k60_gpu_wake_level(&table, 0, 578000), 0);
     check("wake null", k60_gpu_wake_level(0, 4, 578000), 0);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 0, 0);
+    check("dcvs floor default", dcvs.level, 1);
+    check("dcvs top default", dcvs.top, 13);
+    check("dcvs gov floor", dgov.level, 1);
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    check("dcvs reset level", dcvs.level, 1);
+    check("dcvs reset wakes", dcvs.wakes, 0);
+    check("dcvs reset idle", (unsigned)dcvs.idle, 0);
+
+    check("dcvs idle window", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0,
+        16000000ull, 1000000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
+    check("dcvs idle flag", (unsigned)dcvs.idle, 1);
+    check("dcvs idle ms", dcvs.idle_ms, 16);
+    check("dcvs idle want", want, 1);
+    check("dcvs idle again", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0,
+        16000000ull, 1016000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
+    check("dcvs idle ms sum", dcvs.idle_ms, 32);
+
+    check("dcvs wake window", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 4800,
+        16000000ull, 1032000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
+    check("dcvs wake count", dcvs.wakes, 1);
+    check("dcvs wake level", dcvs.wake_level, 7);
+    check("dcvs wake want", want, 7);
+    check("dcvs wake end", (unsigned)(dcvs.wake_end_ns / 1000000ull),
+        (unsigned)((1032000000ull + 50000000ull) / 1000000ull));
+    check("dcvs idle cleared", (unsigned)dcvs.idle, 0);
+    check("dcvs idle ms reset", dcvs.idle_ms, 0);
+
+    check("dcvs vote ok", k60_gpu_dcvs_voted(&dcvs, &dgov, 7, 1), 0);
+    check("dcvs voted level", dcvs.level, 7);
+    check("dcvs voted gov", dgov.level, 7);
+    check("dcvs voted changes", dcvs.changes, 1);
+    check("dcvs voted refused", dcvs.refused, 0);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0, 16000000ull,
+        2000000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 4800, 16000000ull,
+        2016000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);
+    check("dcvs wake held", want, 7);
+    check("dcvs wake expires", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 4800,
+        16000000ull, 2067000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
+    check("dcvs wake gone want", want, 1);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0, 16000000ull,
+        3000000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 4800, 16000000ull,
+        3016000000ull, 0, K60_GPU_WAKE_MIN_KHZ, &want);
+    check("dcvs no boost", dcvs.wakes, 0);
+    check("dcvs no boost want", want, 1);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 4);
+    check("dcvs top window", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 307200,
+        16000000ull, 4000000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
+    check("dcvs top clamp", want, 4);
+    check("dcvs top gov", dgov.level, 13);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 9, 13);
+    check("dcvs floor window", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0,
+        100000000ull, 4100000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
+    check("dcvs floor clamp", want, 9);
+    check("dcvs floor gov", dgov.level, 1);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    for (unsigned i = 0; i < 7; i++)
+        check("dcvs refusal holds", k60_gpu_dcvs_voted(&dcvs, &dgov, 5, 0), 0);
+    check("dcvs refusal stops", k60_gpu_dcvs_voted(&dcvs, &dgov, 5, 0), 1);
+    check("dcvs refusal count", dcvs.refused, 8);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    for (unsigned i = 0; i < 3; i++)
+        (void)k60_gpu_dcvs_voted(&dcvs, &dgov, 5, 0);
+    check("dcvs accept resets", k60_gpu_dcvs_voted(&dcvs, &dgov, 5, 1), 0);
+    check("dcvs accept refused", dcvs.refused, 0);
+    for (unsigned i = 0; i < 7; i++)
+        check("dcvs refusal again", k60_gpu_dcvs_voted(&dcvs, &dgov, 5, 0), 0);
+    check("dcvs stops again", k60_gpu_dcvs_voted(&dcvs, &dgov, 5, 0), 1);
+
+    check("dcvs window null", k60_gpu_dcvs_window(0, &dgov, &table, 0, 16000000ull,
+        0, 0, 0, &want), (unsigned)-1);
+    check("dcvs window no want", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0,
+        16000000ull, 0, 0, 0, 0), (unsigned)-1);
+    check("dcvs vote null", k60_gpu_dcvs_voted(0, &dgov, 1, 1), 1);
 
     if (failures) printf("TESTS FAILED %u failures / %u checks\n", failures, checks);
     else printf("TESTS OK %u checks (0 failures)\n", checks);

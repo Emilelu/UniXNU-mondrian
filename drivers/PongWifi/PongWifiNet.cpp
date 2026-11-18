@@ -141,6 +141,7 @@ uint32_t gRxNoBuffer, gRxChains, gRxLongest;   // frames dropped for want of a b
 struct { unsigned count, kicks, cleared, longest; bool kicked; } gStall;   // input thread stalls (check_input)   // frames handed to the stack, refused ones and the last refusal
 int gAssocResult = kAssocOk;
 unsigned gScanCursor, gScanning, gScanServed;
+nw_bss_info gSnap[64]; unsigned gSnapCount;   // the scan list frozen when a sweep completes, strongest first
 thread_call_t gNotifications;
 pong_wifi_notification_queue gNotificationQueue;
 enum { NotifyControl=1, NotifyScan, NotifyAssociate, NotifyLost, NotifyFailed };
@@ -244,6 +245,17 @@ void notify_locked(unsigned events) {
   pong_wifi_notification event={NotifyControl,static_cast<int32_t>(events),0,0};
   queue_notification_locked(event);
 }
+// The daemon reads the list one record per call. A live table that gains or loses entries between two calls
+// shifts the cursor and cuts its copy short (mission16: "served 32 of 33"), so a completed sweep is frozen.
+void freeze_scan_list() {
+  const int count = nw_wifi_bss_count(); gSnapCount = 0;
+  for (int i = 0; i < count && gSnapCount < 64; i++) {
+    nw_bss_info b; if (nw_wifi_bss_get(i, &b)) continue;
+    unsigned at = gSnapCount;
+    while (at && gSnap[at - 1].signal_dbm < b.signal_dbm) { gSnap[at] = gSnap[at - 1]; at--; }
+    gSnap[at] = b; gSnapCount++;
+  }
+}
 // The scan list counted by band. The Settings pane builds its list from these records, so a band that is
 // missing here cannot appear there, and the strongest few per band say what the radio actually heard.
 void log_scan_table() {
@@ -267,6 +279,7 @@ void log_scan_table() {
   }
 }
 void on_scan_done() {
+  freeze_scan_list();
   log_scan_table();
   lck_mtx_lock(gLock);gScanning=0;gScanCursor=0;
   pong_wifi_notification event={NotifyScan,0,0,0};queue_notification_locked(event);
@@ -627,16 +640,27 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     for(unsigned i=0;i<actual && n<401;i++){fill_channel(out.chans.list[n],frequencies[i]);n++;}
     static unsigned shown; if (!shown++) { unsigned lo=0, hi=0;
       for (unsigned i = 0; i < n; i++) (frequencies[i] < 3000 ? lo : hi)++;
-      log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi); }
+      log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi);
+      for (unsigned i = 0; i < n && i < 4; i++) log(6, "wifi-net: channel %u: number %u flags 0x%x", frequencies[i], out.chans.list[i].channel, out.chans.list[i].flags); }
     out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }
   case kScanResult: {
-    nw_bss_info b; const int count = nw_wifi_bss_count();
+    const int count = gSnapCount ? static_cast<int>(gSnapCount) : nw_wifi_bss_count();
+    nw_bss_info b; bool bad = false;
+    if (gScanCursor < static_cast<unsigned>(count)) {
+      if (gSnapCount) b = gSnap[gScanCursor]; else bad = nw_wifi_bss_get(static_cast<int>(gScanCursor), &b) != 0;
+    }
     const uint64_t sampled_ns=scan_clock_ns();
-    if (gScanCursor >= static_cast<unsigned>(count) || nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) {   // after the last record
+    if (gScanCursor >= static_cast<unsigned>(count) || bad) {   // after the last record
       static unsigned ends;
       if (++ends % 16 == 1) log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);
       gScanCursor = 0; gScanServed = 0; return EIO; }
     gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns);
+    // A 5 GHz record the daemon drops despite being served is a field problem, so print its encoded words.
+    if (b.freq_mhz >= 3000 && gScanServed <= 6) {
+      const uint32_t *wds = reinterpret_cast<const uint32_t *>(&out.res);
+      log(6, "wifi-net: 5ghz %u words %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x",
+          gScanServed, wds[0], wds[1], wds[2], wds[3], wds[4], wds[5], wds[6], wds[7], wds[8], wds[9], wds[10], wds[11]);
+    }
     // The daemon's list is only as complete as what it read: log what it consumed, not just the first few.
     if (gScanServed <= 3 || gScanServed % 8 == 0) log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s", gScanServed, count, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
     return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }

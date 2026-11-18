@@ -278,7 +278,16 @@ def main() -> int:
           'log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s"' in net and
           "gScanCursor = 0; gScanServed = 0; return EIO;" in net)
     check("the supported channel list reports both bands",
-          'log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi);' in net)
+          'log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi);' in net and
+          'log(6, "wifi-net: channel %u: number %u flags 0x%x", frequencies[i], out.chans.list[i].channel, out.chans.list[i].flags);' in net)
+    check("the scan list is frozen when a sweep completes and sorted strongest first",
+          "nw_bss_info gSnap[64]; unsigned gSnapCount;" in net and
+          "gSnap[at - 1].signal_dbm < b.signal_dbm" in net and
+          net.index("freeze_scan_list();") < net.index("log_scan_table();") and
+          "gSnapCount ? static_cast<int>(gSnapCount) : nw_wifi_bss_count()" in net)
+    check("a served 5 GHz record prints the words the daemon sees",
+          "const uint32_t *wds = reinterpret_cast<const uint32_t *>(&out.res);" in net and
+          'log(6, "wifi-net: 5ghz %u words %08x %08x' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

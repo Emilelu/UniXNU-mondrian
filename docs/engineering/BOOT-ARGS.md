@@ -26,6 +26,7 @@
 | `pong_adreno_start` | GPU 平台 | 必须 == 1 | 未设 = 不启动 | 缺它则整个 GPU 栈不运行，但日志里没有报错（P-145） |
 | `pong_metal` | GPU / Metal | 必须 == 1 | 未设 = 不发布 | 设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144） |
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |
+| `pong_gpu_coherent` | GPU / 提交 | 0 / 1 / 2（默认 2） | 2 = 跑探针 | 唯一有对方量化证据的一项：zizhan g40/g41 强制开后扫出 24–35 ms → 5–6 ms。用 1 绕过证明等于拿帧的正确性换速度 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
 | `pong_ufs_readwrite` | 存储 | 真值 | 只读 | 写盘会改动 Data 卷 |
@@ -111,6 +112,17 @@
 - **作用**：PongAdrenoScanout.cpp:44 才能走 GPU scanout
 - **陷阱**：官方 next_action 要求先确认 accelerator 已发布再开它
 - **源码**：`drivers/PongAdreno/PongAdrenoScanout.cpp:44`
+
+### `pong_gpu_coherent`
+
+- **所属**：GPU / 提交（每次 `[MTLCommandBuffer commit]` 的缓存维护）
+- **接受值**：`0` 关 / `1` 强制开（**不证明**）/ `2` 跑探针（默认）
+- **未设时**：2 —— 探针，两个方向都过才置位
+- **作用**：PongAdrenoNativeGlue.cpp:151 用 `coherenceProbe()` 的结论给 `native_adreno_io_coherent` 赋值；该变量非零时 `NativeAdrenoVm::publishMapped()`（`submit/NativeAdrenoVm.cpp:359`）、`acquireImported()`（`:389`）与 `NativeAdrenoUserClient.cpp:268` 才真正跳过导入帧的 clean+invalidate
+- **陷阱**：这三处跳过判据一直存在，但此前**全仓无人给该变量赋值**，所以全是死代码；实测每次提交维护 93.2 MiB 导入帧（`usblog-20261118-233946`，`publish` 中位 6,635 µs、`ibytes/cachebytes=1.00`）。探针不读 DTS、不参考 A740，而是写/读真实页并核对 DRAM，脏行不足时最多重试 8 次（sheng int-150 见过一次被写回后的假阳性）。判据写在 `docs/research/gpu/FLIGHT-CARD-20261119b.md`
+- **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:149`
+- **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:151`
+- **源码**：`drivers/PongAdreno/submit/NativeAdrenoVm.cpp:359`
 
 ### `pong_gpu_pool_mib`
 

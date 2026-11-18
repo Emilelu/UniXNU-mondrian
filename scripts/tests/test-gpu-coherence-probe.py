@@ -89,6 +89,10 @@ check("the sample line prints how many mappings were skipped", "skipped=%llu" in
 check("the skipped count is the publishMapped slot",
       "native_adreno_coherent_skips[2]" in vm,
       "slot 2 is publishMapped; slot 3 is acquireImported and would not match this line's cost")
+check("the sampler also reports the first submissions",
+      re.search(r"sample\s*=\s*\(\+\+calls\s*<=\s*4\s*\|\|", vm) is not None,
+      "an idle flight can submit only a handful of times; a every-32nd cadence then reports nothing, "
+      "which reads as 'no cost' instead of 'not measured' (P-233)")
 
 print("the probe is not gated behind a build flag that is off")
 defconfig = ROOT / "configs/mondrian_defconfig"

@@ -339,7 +339,10 @@ IOReturn NativeAdrenoVm::publishMapped()
 {
     if(!attached_ || poisoned_)return kIOReturnNotReady;
     static uint32_t calls;
-    const bool sample=!(++calls&31);
+    /* Sample the first few submissions as well as every 32nd: an idle flight can present only a
+     * handful of frames, and a cadence that needs 32 calls then reports nothing at all, which makes
+     * the cost unjudgeable rather than zero (P-233, already paid for once on the scanout report). */
+    const bool sample=(++calls<=4 || !(calls&31));
     unsigned objects=0,imported=0,combined=0,owned=0;
     uint64_t bytes=0,began=0;
     /* Which class of mapping is the maintenance really spent on? The totals above say 135 MiB and 610

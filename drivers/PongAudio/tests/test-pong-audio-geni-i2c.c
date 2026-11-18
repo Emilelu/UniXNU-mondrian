@@ -2189,8 +2189,8 @@ afe_payload_cases(void)
     memset(p, 0, sizeof(p));
     n = pong_afe_group_tdm(p, sizeof(p), 0x9120u, NULL, 2ul, 48000ul, 32ul,
         2u, 32u, 3ul);
-    expect_eq((unsigned long)p[8] | ((unsigned long)p[9] << 8), 0xfffful,
-        "group ports default to invalid when NULL");
+    expect_eq((unsigned long)p[8] | ((unsigned long)p[9] << 8), 0ul,
+        "group ports default to zero when NULL");
 
     memset(p, 0, sizeof(p));
     n = pong_afe_group_enable(p, sizeof(p), 0x9120u, 1u);
@@ -2561,8 +2561,8 @@ afe_plan_cases(void)
     expect_eq(le16(p + 60), PONG_AFE_GROUP_TERT_TDM_RX, "plan group id");
     expect_eq(le16(p + 64), PONG_AFE_PORT_TERT_TDM_RX_0, "plan group port 0");
     for (unsigned i = 1; i < PONG_AFE_MAX_CHANNELS; ++i) {
-        expect_eq(le16(p + 64 + i * 2), PONG_AFE_PORT_INVALID,
-            "plan group leaves the unused ports invalid");
+        expect_eq(le16(p + 64 + i * 2), 0ul,
+            "plan group leaves the unused ports zero");
     }
     expect_eq(le32(p + 80), PONG_AFE_SLOTS, "plan group channels");
     expect_eq(le32(p + 84), PONG_AFE_RATE, "plan group rate");

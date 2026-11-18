@@ -408,7 +408,8 @@ pong_afe_prm_clock_request(uint8_t *out, size_t bytes, uint16_t clock_id,
  *   version (u32), group, reserved (u16), ports[8] (u16),
  *   channels, rate, bits (u32), slots, slot_bits (u16), slot_mask (u32)
  * The K60 group lists 0x9020 only (the live DT says group-num-ports = 1).
- * All seven remaining member slots are invalid (0xffff). */
+ * The firmware walks the member array until the first zero, so every unused
+ * slot stays zero; 0xffff reads as a port number and makes the set fail. */
 static inline size_t
 pong_afe_group_tdm(uint8_t *out, size_t bytes, uint16_t group,
     const uint16_t *ports, uint32_t channels, uint32_t rate, uint32_t bits,
@@ -422,7 +423,7 @@ pong_afe_group_tdm(uint8_t *out, size_t bytes, uint16_t group,
     pong_afe_put16(out + 6, 0u);           /* reserved */
     for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
         pong_afe_put16(out + 8u + i * 2u,
-            ports != NULL ? ports[i] : PONG_AFE_PORT_INVALID);
+            ports != NULL ? ports[i] : 0u);
     }
     pong_afe_put32(out + 24, channels);
     pong_afe_put32(out + 28, rate);
@@ -645,7 +646,7 @@ pong_afe_step_packet(uint8_t *out, size_t bytes, unsigned step, uint32_t token)
     memset(payload, 0, sizeof(payload));
     if (step == (unsigned)PongAfeStepGroupTdm) {
         for (unsigned i = 0; i < PONG_AFE_MAX_CHANNELS; ++i) {
-            ports[i] = PONG_AFE_PORT_INVALID;
+            ports[i] = 0u;
         }
         ports[0] = PONG_AFE_PORT_TERT_TDM_RX_0;
         n = pong_afe_group_tdm(payload, sizeof(payload),

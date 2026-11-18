@@ -42,6 +42,22 @@ args = count | t0<<4 | t1<<6 | t2<<8；成功 = x0==0 && x1==0），宏名改成
 SMC 本体是 x0..x7 寄存器绑定 + `smc #0` 内联汇编（`K60ModemPas.c`），失败行打印
 `K60MODEM scm cmd=%#x rc=%d x0=%#llx x1=%#llx`。
 
+### 2.1 SCM_INTERRUPTED 的续调修正（2026-11-18）
+
+k16 C-M2 的 `E:/k60-work/evidence/usblog-20261118-204241/console.log:479-480` 是
+`scm cmd=0x1 rc=-1 x0=0x1 x1=0x82` 后接 `init_image failed`。旧封装只发一次 SMC，把非零 x0 一律分类为 `K60ModemPasDenied=-1`；
+这个 rc 不是 Linux errno。**x0=1 是 QCOM_SCM_INTERRUPTED，表示同一次调用尚未完成，不是 TZ 已拒绝 metadata。** 此时 x1=0x82 还等于 INIT_IMAGE 的输入 arginfo，不能当作最终 PAS 错误。
+
+主依据是 Android common 的 `drivers/firmware/qcom_scm-smc.c::__scm_smc_do_quirk()`（固定标签 [android13-5.15-2024-03_r9](https://android.googlesource.com/kernel/common/+/refs/tags/android13-5.15-2024-03_r9/drivers/firmware/qcom_scm-smc.c)）：x0=1 时继续，重送原 x1..x5/x7，并保留返回的 x6 上下文。同 SoC 参考 `E:/k60-work/references/phk110-port/drivers/modem/hakios.mpss.c:1298-1327` 也是相同形状（只参考 ABI 事实，未复制无授权代码）。
+
+提交 `92657c8f` 修正 PAS4 封装：首调 fn、续调 x0=1、每轮重建原参数、传回 x6，最多 100 次；耗尽返回独立的 `K60ModemPasInterrupted=-3`。它不重写 metadata、不改 PA、不修 IPA 的独立单次 SMC 封装。新增 `drivers/PongCellular/tests/run-modem-scm-continuation.sh` 编译实际 `K60ModemPas.c`，模拟 monitor 覆盖一次/多次中断、输入寄存器被改写、64 位 x6、最终 payload 拒绝、transport -12、100 次耗尽和第 100 次成功。k17 内核 `9b21321f...` 已离线编译，未打包/未上机。
+
+### 2.2 metadata 的 CRLF 污染（2026-11-18 审计，未上机）
+
+`K60ModemMetadata.h` 原来从 adb pull 的 `modem.mdt`（5,909 B，含 25 个 CRLF）生成；干净二进制 `modem.mdt.bin` 是 5,884 B。
+取 `modem.mdt[:5884]` 后，前 1,076 B 的 ELF header 正确，但 4,808 B hash segment 从偏移 1,455 起被 25 个 `0x0d` 插入并截掉末尾 25 B：与 `modem.mdt.bin[:5884]` 有 **3,362 B 不同**。旧 CRC32 `0x5ce97b8d` / SHA256 `09180d7c...` 只是对污染数据自洽，所以旧门禁没发现。
+已用干净 binary 重新生成：5,884 B，CRC32 `0xac600b5d`，SHA256 `78d5f2f45aefeab7d2920bc5753009ade0371aa7d9be5eb0f2d21a72704c1fb8`。这不会解释 k16 的 `x0=1`（续调发生在 auth 之前）；它会在 INIT_IMAGE 真正完成后让 hash 校验失败。新 header 尚未编入 UEFI FD、尚未打包/上机，所以 k17 目前不是可飞行候选。
+
 ## 3. 载体问题的 L2 处置：签名自检，而不是搬运
 
 `docs/research/audio/ADSP-CARRIER.md` 已裁决：109 MB 量级的固件字节无法嵌内核（23.5 MB 的 ADSP

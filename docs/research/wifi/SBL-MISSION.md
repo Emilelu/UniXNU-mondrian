@@ -1087,3 +1087,18 @@ The mission24 judge needed two fixes: judge21's element-inventory regex still ex
 (no ht40/vw), which turned a healthy flight into base=FAIL; it now accepts both formats and the same console
 judges base=PASS inventory=SEEN. The full RSN is 24 bytes at element offset 82 (offset 76 in one sweep), and the
 mission24 image still printed only the first 16 of them, which mission25 extends to all 24.
+
+## 26. mission25（2026-11-19 06:46）：探针被 daemon 看见，过滤在元素区
+
+镜像 wifi-20261118sbl-mission25/boot.img，SHA256 95629508…，head ec51f578，201,887,744 B，31 参数 / 602 B；飞于 06:46:57，07:02:24 回到 fastboot（boot.json accepted=true、returnedToFastboot=true），随后脚本恢复 Android。console E:/k60-work/evidence/usblog-20261119-064651/console.log 887,140 B / 11,567 lines / SHA256 fb5cfee0de94a37aabdedc8f4431e3bd87b4c7d59af527d4c39471f868694eed，含 100 行 wifi-net: probe、100 行 synthetic copy、26 条 Preferences 列表。本次多数扫描里 5 GHz 只有 1 条记录（2.4 GHz 25-28 条），探针直到后段出现第二条 5 GHz 记录（5180 MHz，88:c3:97:c6:0a:73，ie 382，cap 0x0511）才配对成功。
+
+判据是人的观察：先看到 K60A、K60C、K60D，K60B 与 K60E 从未出现，且五条探针随刷新闪烁（m33078/m33082/m33085/m33105/m33110）。K60A 是被保留记录的原样改名（基线），K60B 是它加我们的元素区，K60C 是它加我们的 capability，K60D 是我们那条 5240 记录换成载体的元素区，K60E 是我们那条记录换成载体的 capability。A/C/D 出现、B/E 不出现，说明 capability 无辜，元素区就是把 daemon 推开的东西；把我们 5240 记录的元素区换成载体的，daemon 就收下（D）。
+
+两条频段的元素清单（本次 console）：
+
+- 5 GHz c8:bf:4c:30:03:1c：0/10 1/8 3/1 7/42 32/1 35/2 48/24 45/26 61/22 127/10 191/12 192/5 195/5 255/33 255/7 255/2 255/14 244/1 221/23 221/24 221/2
+- 2.4 GHz c8:bf:4c:30:03:1d：0/7 1/8 3/1 5/4 42/1 50/4 48/24 45/26 61/22 74/14 127/10 191/12 192/5 255/26 255/7 255/2 255/14 244/1 221/23 221/24 221/22
+
+5 GHz 独有：国家 IE 7（42 B）、功率约束 32/1、TPC 报告 35/2、VHT 发射功率包络 195/5、HE capability 33 B（2.4 GHz 为 26 B）、厂商 221/2。mission27 把这几项逐个加回载体，一次一个，用「哪一条让载体行消失」定位真正的字段，再从真实记录里删掉或收窄。
+
+mission26（a978c829，只有一条 5 GHz 记录时回退到 2.4 GHz 载体）构建中途取消、未飞，镜像 wifi-20261118sbl-mission26 记为 built-not-flown。

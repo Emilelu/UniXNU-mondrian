@@ -17,7 +17,7 @@
 | 音频 codec/功放、总线、时钟、路由、拓扑、格式、OS ABI | 委派 | 音频分支 `feat/audio-adsp-merge`（2026-11-18 时 HEAD `c74aea80`，145 commits ahead，未合并） |
 | 电池电量计/固件协议、属性 ID、单位、电流符号、通知 | 已验证（测量）/部分（全节） | `K60Battmgr.c`、`K60Battery.cpp`；`charger/04-PROP-MAP.md`；属性 9 静默、USB 输入电流边界见 §4 |
 | 电源时钟域、OPP 表、稳压器、固件投票、温控限制 | 部分（离线） | EPSS/GPU OPP 表现场 FDT 已确认，见 `power/01-EPSS-PROBE.md`、`power/04-GPU-FREQUENCY.md`；稳压器写路径受 HR-01 限制，温控未接入 |
-| 固件清单记录来源和版本 | 未完成 | 本树未维护二进制清单；`qti_battery_charger_main_m81.ko` 等只有零散路径 |
+| 固件清单记录来源和版本 | 部分 | `power/06-FIRMWARE-MANIFEST.md` 记录 ADSP 26 段/充电器 .ko/carrier FD 的哈希与来源；整机其他固件与认证密钥未覆盖 |
 
 ## §2 DSP 传输（:16-27）
 

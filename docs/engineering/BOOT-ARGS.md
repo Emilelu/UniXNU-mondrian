@@ -67,12 +67,12 @@
 | `pong_data_mount` | 存储 | 真值 | 关闭 | `offline-owner-systemos-mount.patch` 挂 Data 卷 | 与 `pong_data_rw` 同用 |
 | `pong_data_rw` | 存储 | 真值 | 只读 | `offline-owner-systemos-mount.patch` Data 卷可写 | 写盘会改动 Data |
 | `xpcproxy_idversion` | 启动链 | 真值 | 关闭 | `zzzz…-pong-hackios-launchd-exec.patch` xpcproxy 版本兼容 | — |
-| `pong_wifi` | WiFi | 必须 == 1 | 未设 = 不启动 | 缺它则 `pong_wifi_start_optional()` 只做 `pong_rpmh_init()` 就返回，日志里没有报错 |
+| `pong_wifi` | WiFi | 1 或 2 | 未设 = 不启动 | 1 = 启动板级 worker；2 = 启动 worker，并在私有 fixture 存在时同时开启关联测试。缺它则 `pong_wifi_start_optional()` 只做 `pong_rpmh_init()` 就返回，日志里没有报错 |
 | `k60_wifi_rsc` | WiFi | 0..2 | 0 = 不动 RSC | 1 = 只读探针 TCS4 后拒绝投票；2 = 允许 RPMh 投票。默认 fail-safe，因为对未上电 RSC 写入会挂死整机（K60-TOUCH-PARAMS.md:120,174） |
 | `k60_wifi_stage` | WiFi | 0..10 | 0 = 跑全部 | 只跑到第 N 级就停，用于把早期挂死收敛到一个 MMIO 块；超范围值等于全跑 |
 | `pong_wifi_dma_mib` | WiFi | 64..128 | 64 | 只接受 64/128，其它值 `return fail("WiFi DMA budget must be 64 or 128 MiB")` 后整条线停 |
 | `pong_wifi_diag` | WiFi | 真值 | 关闭 | 打开 progressDiagnostic，把 stage 进度写进 `pong_wifi_progress[]` |
-| `pong_wifi_test` | WiFi | 真值 | 关闭 | 关联测试：拿到 MAC 后主动连接 fixture 里的 AP |
+| `pong_wifi_test` | WiFi | 真值 | 关闭 | 关联测试：拿到 MAC 后主动连接 fixture 里的 AP；`pong_wifi=2` 是等价且不增加命令行字节的入口 |
 | `pong_wifi_alt` | WiFi | 真值 | 关闭 | 只有 `pong_wifi_test=1` 时才用；选「备用网络」那一组 fixture，不是 SSID 文本 |
 | `pong_wifi_band` | WiFi | 0..5 | 0 = 不限 | 只接受 0/2/5；其它值打 `WiFi association test SKIP: band must be 0, 2 or 5` 并关掉整条测试 |
 | `pong_wifi_cycle` | WiFi | 真值 | 关闭 | 与 `pong_wifi_test=1` **同时**满足才开 gCycleTest（`PongWifiNet.cpp:892-893` 是 `&&` 串联） |
@@ -233,11 +233,11 @@
 ### `pong_wifi`
 
 - **所属**：WiFi
-- **接受值**：必须 == 1
+- **接受值**：1 或 2
 - **未设时**：不启动（`pong_wifi_start_optional()` 只做 `pong_rpmh_init()` 就返回）
-- **作用**：通过后 `kernel_thread_start(worker)` 起 QCA6490 bring-up 线程
+- **作用**：1 = 通过后 `kernel_thread_start(worker)` 起 QCA6490 bring-up 线程；2 = 同一 worker，并在私有 fixture 存在时同时开启关联测试（与 `pong_wifi_test=1` 等价，但复用已有参数、命令行不多占字节）
 - **陷阱**：worker 比 `k60_usblog_start()`（`bsd_init.c:1341`）早约 180 行运行；在控制台起来之前碰未上时钟的外设会挂死整机、串口 0 字节（P-49）。驱动侧已有 `k60_usblog_console_up()` 门，但仍应配合 `k60_wifi_stage` 逐级放行
-- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:716`
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:730-733`；关联测试分支 `PongWifiPlatform.cpp:579-580`
 
 ### `k60_wifi_rsc`
 
@@ -279,9 +279,9 @@
 - **所属**：WiFi
 - **接受值**：真值
 - **未设时**：关闭
-- **作用**：拿到 station MAC 后主动关联测试 AP
-- **陷阱**：没有真实 board data（BDF）时连不上，日志停在 `Pong: actual QMI board firmware` 之后
-- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:572`、`drivers/PongWifi/PongWifiNet.cpp:892`
+- **作用**：拿到 station MAC 后主动关联测试 AP；也可以用 `pong_wifi=2` 达到同样效果而不增加命令行字节
+- **陷阱**：没有真实 board data（BDF）时连不上，日志停在 `Pong: actual QMI board firmware` 之后；注意 `pong_wifi=2` 仅在源码/构建包含私有 fixture 时才会进入关联测试
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:571`、`:579-580`、`drivers/PongWifi/PongWifiNet.cpp:892`
 
 ### `pong_wifi_alt`
 
@@ -330,6 +330,7 @@ pong_gpu_scanout=1     -> 只有在 accelerator 已发布之后才应该打开
 pong_wifi=1                                   +12 -> 587   （c4 实测）
 pong_wifi=1 k60_wifi_rsc=1                    +15 -> 602   （只读探针；c5 实测）
 pong_wifi=1 k60_wifi_rsc=2                    +15 -> 602   （允许投票；与 =1 同长）
+pong_wifi=2 k60_wifi_rsc=2                    +15 -> 602   （mission5 关联测试；与 =1 同长）
 pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10  +18 -> 620 超限
 ```
 

@@ -948,3 +948,32 @@ client-specific filtering, and the pane is not the stage that loses it. That
 makes mission20's pairing (full record dump + a list produced while Settings is
 open) the right instrument, and it makes "copy more reference code" an empty
 lever: neither reference project has a 20G81 daemon to copy from.
+
+## 22. The one-field experiment mission20 should carry
+
+The mission16 record dump leaves exactly one 5 GHz record per table (the
+5240 MHz AP, `ie 384 cap 0x0511 cc CN`), while mission16's pane list shows a
+*different* 5 GHz neighbour (`74:86:6f:79:28:1c`, shown as `d8f;-5G`, -86 dBm).
+So wifid accepts 5 GHz records in general and rejects this one on a property of
+the record, not of the band. The properties that differ are the SSID, the
+capability word (0x0511 vs the neighbours' 0x1c31/0x0431), the element blob
+and channel 48.
+
+wifid carries band-steering strings (`known5ghzSsid`, `invalid 5ghzSsid`,
+"companion network %@ is not a 5ghz network"), so one live hypothesis is that a
+2.4 GHz SSID `X` plus a 5 GHz SSID `X_5G` is treated as one companion pair and
+only the 2.4 GHz row is shown. That is testable in a single flight without new
+code: open Settings -> Wi-Fi, record the list, rename the router's 5 GHz SSID
+from `Emilelu_5G` to a name without the `_5G` suffix, pull to refresh, and see
+whether the row appears. The same console then carries the mission20 dumps for
+both states.
+
+If the rename does not change anything, the remaining suspects are the
+capability word and the element blob, and the next image should serve synthetic
+clones of the one record to bisect them (same BSSID neighbourhood, one field
+changed per clone). Both experiments are cheaper than further static analysis:
+wifid is arm64e with chained fixups, `llvm-objdump --macho --objc-meta-data`
+returns nothing for it, and the 20G81 iPhone 13 runtime has no iPadOS 18
+counterpart in either reference tree, so there is no second binary to diff
+against.
+

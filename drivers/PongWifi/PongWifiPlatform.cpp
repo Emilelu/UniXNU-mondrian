@@ -565,8 +565,8 @@ volatile uint32_t msiArrivals;
 // identical in the log. Count the GIC entries separately.
 volatile uint32_t msiEntries;
 volatile uint32_t msiEmptyStatus;
-// Opt-in bring-up fixture: join only the exact locally supplied network,
-// after real scanning, and report protocol results without credentials.
+// Opt-in bring-up fixture (pong_wifi=2): join only the exact locally supplied
+// network, after real scanning, and report protocol results without credentials.
 unsigned testReconnectState;
 void testNetwork(const nw_wifi_status &st) {
  static bool checked=false,enabled=false,attempted=false,finished=false;
@@ -575,8 +575,9 @@ void testNetwork(const nw_wifi_status &st) {
  static uint8_t firstBssid[6];
  static uint64_t deadline=0, reconnectAt=0;
  if(!checked) {
-  checked=true;uint32_t flag=0;
-  enabled=PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag)&&flag==1;
+  checked=true;uint32_t flag=0,mode=0;
+  enabled=(PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag)&&flag==1)||
+          (PE_parse_boot_argn("pong_wifi",&mode,sizeof mode)&&mode==2);
   alternate=enabled&&PE_parse_boot_argn("pong_wifi_alt",&flag,sizeof flag)&&flag==1;
   if(enabled&&PE_parse_boot_argn("pong_wifi_band",&firstBand,sizeof firstBand)&&
      firstBand!=0&&firstBand!=2&&firstBand!=5) {
@@ -728,7 +729,8 @@ extern "C" void pong_wifi_wake(void) {signalWorker();}
 extern "C" void native_wifi_logf(int level,const char *fmt,...) {char line[256];va_list a;va_start(a,fmt);vsnprintf(line,sizeof line,fmt,a);va_end(a);log(level,line);}
 extern "C" void pong_wifi_start_optional(void) {
  pong_rpmh_init();
- uint32_t enabled=0;if(!PE_parse_boot_argn("pong_wifi",&enabled,sizeof enabled)||enabled!=1)return;
+ // 1 is the normal worker; 2 also enables the private association test.
+ uint32_t enabled=0;if(!PE_parse_boot_argn("pong_wifi",&enabled,sizeof enabled)||enabled==0||enabled>2)return;
  static uint32_t started;if(__atomic_exchange_n(&started,1,__ATOMIC_ACQ_REL))return;
  // These network classes are linked into the native kernel, not loaded as a
  // separate kext. Register their metaclasses before publishing any service.

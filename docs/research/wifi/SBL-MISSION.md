@@ -896,3 +896,55 @@ than one in eight, and the first sixteen bytes of each served 5 GHz record's
 element blob. It must be flown with a person at the screen who opens
 Settings -> Wi-Fi and pulls to refresh; that console will carry both the
 Preferences list and the records behind it.
+
+## 21. What the reference trees actually contain (and do not)
+
+The maintainer's directive for this span was "copy pong and zizhan". The two
+trees were fetched again and compared line by line with our driver, so the
+answer is a list of concrete deltas rather than an impression.
+
+- **pong's wifi driver is a separate repository and it is alive:**
+  `https://github.com/Chengdong-Yu/pong-wifi.git` at `d2e33ca` ("Import
+  PongWifi from UniXNU-pong"), 1,803 lines total. The `UniXNU-pong` superproject
+  itself 404s on GitHub, which is why `drivers/PongWifi` is an empty submodule
+  directory locally. The clone now sits at `E:/k60-work/scratch/pong-wifi`.
+- **zizhan** is unchanged at `034a0b0`; its `drivers/PongWifi` is the tree ours
+  was derived from, down to the enum values and `fill_channel`.
+- **Our driver is already a superset.** pong-wifi has no freezed scan list, no
+  24-style record (timestamp at +0x8d0), no property-list handling, no tap, and
+  it answers `kScanResult` from the live table exactly as we did before
+  mission19. zizhan has the 22H374 record and the user-client tunnel; we have
+  both plus the mission19 freeze/sort and the mission20 request and element
+  dumps. Nothing in either tree handles types 25, 207, 419, 422, 423 or 115 —
+  they are 20G81/22H374 daemon requests that both reference drivers refuse.
+- **Three real deltas exist, and none is a drop-in fix for the missing row.**
+  1. pong sets `flags |= 0x80` on every supported channel
+     (`pong-wifi/PongWifiNet.cpp:427`), and evb10 does the same with a static
+     table. zizhan deliberately does not, with the comment "CWFChannel compares
+     the complete flag word for supported membership. Keep the band/width
+     representation consistent with scan/current/history channels rather than
+     adding ACTIVE only to this answer." Our tree follows zizhan, because a
+     supported-channels entry whose flag word differs from the scan record's
+     cannot match by that rule.
+  2. pong skips `NL80211_BAND_6GHZ` when it enumerates channels
+     (`pong-wifi/ath11k/PongAth11k.c:154`), because "the shared station scan
+     policy and the Apple80211 channel codec currently publish only 2.4/5 GHz
+     channels on this board". Our `nw_wifi_channel_list` does not skip it, which
+     is why the type-254 answer has 102 entries (2.4 GHz 14, "5/6 GHz" 88) while
+     the station sweeps 42 channels. The count is the clue, not the proof: this
+     is a candidate for the next image, not a change to make under a running
+     diagnosis.
+  3. pong answers a scan while joined from the cached table
+     (`pong-wifi/PongWifiNet.cpp:342-345`); that behaviour has been in our
+     driver since mission15 and is unrelated to the row.
+
+One new fact from the mission16 console (checked with
+`scripts/diff-scan-list.py` and by direct search): the 5240 MHz BSSID
+`c8:bf:4c:30:03:1c` appears in **no** daemon list at all — eight
+`client='Preferences'` lists and seven `client='configd'` lists were logged in
+that flight, and the neighbour at 5805 MHz (`74:86:6f:79:28:1c`, shown as
+`d8f;-5G`) appears in both. So the drop happens inside wifid before any
+client-specific filtering, and the pane is not the stage that loses it. That
+makes mission20's pairing (full record dump + a list produced while Settings is
+open) the right instrument, and it makes "copy more reference code" an empty
+lever: neither reference project has a 20G81 daemon to copy from.

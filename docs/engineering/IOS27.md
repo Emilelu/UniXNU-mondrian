@@ -29,10 +29,13 @@ is work without a payoff at stage 0.
 | OS / SystemOS volumes | `board.toml` `root_match_volume_uuid` and the profile's volume table |
 | toolchain | Xcode 26, because xnu-12377 uses the four-argument `__ptrauth` qualifier; the Linux host path is below |
 
-The IPSW is downloaded and unpacked on macOS: `./unixnu userdata --os 27`
-needs `/usr/bin/aea` for the encrypted images. The host does not need the
-phone for any of it. The driver takes the URL directly (`unixnu fetch --ipsw
-PATH_OR_URL`), so the download does not have to be driven by hand.
+The IPSW is never downloaded whole: `unixnu` reads the zip directory and the
+members it needs with HTTP range requests, and the 24A446 kernelcache comes out
+of that path already decompressed by `lzfse`. The one macOS-shaped step in the
+framework is AEA decryption of the `.dmg.aea` OS/SystemOS members
+(`scripts/unixnu/ipsw.py` calls `/usr/bin/aea`); `ipsw fw aea` decrypts the same
+archives on Linux, so `./unixnu userdata --os 27` only needs that patch, not a
+Mac. Neither is done yet.
 
 The SoC layer's `xnu-12377` series lives on the `feat/xnu-12377` branch of
 `xNekom/UniXNU-sm8475-common`. `feeds.toml` names that fork and pins the
@@ -87,11 +90,13 @@ sh scripts/build-ios27-linux.sh
 ```
 
 `scripts/build-ios27-linux.sh` applies the framework patches, fetches, configures,
-builds the kernel with `--skip-prelink` and packs the payload with the synthetic
-`MONDRIAN` chip id. Extra arguments go to `unixnu build kernel`. With
-`UNIXNU_UEFI` pointing at a staged `uefi-mondrian` checkout (submodules
-initialised, `nasm` and `acpi-tools` installed) it also builds the firmware
-volume and packs `boot/boot.img`; without it the script stops after the payload.
+builds the kernel with the prelink and packs the payload with the synthetic
+`MONDRIAN` chip id. Extra arguments go to `unixnu build kernel`. The prelink
+reads the 24A446 kernelcache out of Apple's CDN with HTTP range requests, so the
+12.3 GB IPSW is never downloaded whole. With `UNIXNU_UEFI` pointing at a staged
+`uefi-mondrian` checkout (submodules initialised, `nasm` and `acpi-tools`
+installed) the script also builds the firmware volume and packs
+`boot/boot.img`; without it the script stops after the payload.
 
 ```sh
 git clone https://github.com/Emilelu/uefi-mondrian.git ~/ios27-src/uefi-mondrian
@@ -131,11 +136,14 @@ argument); upstream clang rejects it. The device series carries
 `ptrauth-string-discriminator.patch`, which keeps Apple clang's spelling and
 uses the three-argument form otherwise. Only `ucred.cr_label` is affected.
 
-The **fileset reference** is the one archive this host does not build. It needs
-`--lto` for parity with the release kernel; cctools-port's ld64 reads no LLVM
-bitcode, the pinned LLVM 24 has no `llvm-link` to merge it, and the non-LTO
-variant hits the profile runtime and ArmCpu's weak sleep hook. It stays an
-Xcode 26 artifact for F2, and the kernel link does not include it.
+The **fileset reference** (the prelink's comparison kernel) builds on this host
+too. `board.toml` builds it without `--lto` because cctools-port's ld64 reads no
+LLVM bitcode and the pinned LLVM 24 has no `llvm-link`; the map then records a
+non-LTO reference hash. XNU's own PGO support calls two LLVM profile-runtime
+entry points that a macOS SDK supplies (`libclang_rt.profile`), so
+`patches/unixnu-core/fileset-reference-linux.patch` stubs them — the comparison
+kernel never runs. The LTO reference is still the better order model for the
+matcher; a Mac build should replace it before the map is treated as final.
 
 On a WSL host whose checkouts live under `/mnt/c`, point `UNIXNU_OUT` at ext4:
 
@@ -149,9 +157,10 @@ drvfs put every clang in I/O wait and produced about six objects a minute with
 the machine 95% idle; the feeds, refer clones and objects belong on ext4 and
 only the repositories stay on `/mnt/c`.
 
-The userdata image still needs macOS
-(`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1 does
-not.
+The userdata image is the only step with a macOS-shaped dependency left: the
+24A446 OS/SystemOS members are AEA-encrypted, and the framework calls
+`/usr/bin/aea`. `ipsw fw aea` decrypts them on Linux, so F3 needs that framework
+patch, not a Mac.
 
 The 4 KiB granule assertion has its own script because the framework copy
 (`scripts/check-xnu-granules.py`) does not yet pass the two defines xnu-12377
@@ -167,8 +176,8 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 | Phase | Work | Exit |
 | --- | --- | --- |
 | F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | `RESULT OK arm64e-capable at EL1`; otherwise the branch stops |
-| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes the packer's own verification; `scripts/check-ios27-granules.sh` passes |
-| F2 | `XnuPrelink` against the 24A446 fixture, after rebuilding the LTO reference with Xcode 26 | `arm_init` → `bsd_init` → root-mount panic, cupid parity |
+| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-granules.sh` passes |
+| F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI + `./unixnu userdata --os 27` | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
 
@@ -185,6 +194,15 @@ on every build. Two patches today:
 - `deterministic-platform-seed.patch`: `adt.random_seed` is a hexadecimal value
   repeated to fill the 256-byte `/chosen/random-seed`; unconfigured boards keep
   the fresh random seed. See the seed trap below for why this branch pins it.
+- `fileset-reference-linux.patch`: the reference kernel's two LLVM
+  profile-runtime calls return zero, because a host without the macOS SDK has no
+  `libclang_rt.profile` and the comparison kernel never runs.
+
+`patches/xnu-prelink/*.patch` patches the `kits/XnuPrelink` submodule instead:
+
+- `reference-sections.patch`: `isection` compares section names, so a reference
+  symbol that sits in no section (`section_of` answers `?`) is skipped rather
+  than crashing the matcher on a missing separator.
 
 `patches/unixnu-core/legacy/k60-unixnu-core.patch` belongs to the 16.6.1 line
 and is never applied: its boot-image `verify()` change is upstream now, and the
@@ -193,9 +211,15 @@ K60 initrd/ramoops/config deltas are in `uefi-mondrian`'s vendored
 
 ## Traps
 
-- **The prelink is bound to two hashes** (kernelcache and native kernel). Every
-  kernel rebuild regenerates the map; budget one prelink run per kernel change,
-  not per driver change.
+- **The prelink is bound to two hashes** (kernelcache and native kernel) and the
+  map also records the reference kernel's hash. Every kernel rebuild regenerates
+  the map; budget one prelink run per kernel change, not per driver change.
+- **A non-LTO reference is a weaker order model.** The matcher anchors on unique
+  symbols and on function order; with `--lto` unavailable here the reference
+  keeps per-object order instead of the merged order Apple's release build has.
+  The 2026-11-18 map left 384 symbols unmapped (out of about 2,600) and relies on
+  the profile's `--allow-missing`; fewer would be better, and the honest fix is a
+  reference rebuilt with Xcode 26.
 - **arm64e is documented for sheng only.** SM8450 is the closest attempt and it
   does not boot yet. This branch is exploration, not a supported recipe.
 - **SM8450 has no UFS block driver; SM8475 does.** ShengUfs offsets are not an

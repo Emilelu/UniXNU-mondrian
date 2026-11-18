@@ -236,6 +236,28 @@ green and destroyed the touch agent's work, seven files of it unrecoverable.
   `implemented` is not `device-verified`. Record the observation, the command,
   the full 40-character revision and the result.
 
+### Documentation
+
+The `.md` files are for the next reader, not for the session that wrote them. A
+fact that only mattered while debugging is not documentation.
+
+- **Edit in place, never append.** `STATUS.md` and `porting.toml` describe the
+  current state; rewrite the section that changed and delete what it replaces.
+  A new dated entry is justified only when the date itself carries meaning (a
+  policy decision, the first boot of a subsystem).
+- **Dates only, never times.** `2026-10-23`, not `2026-10-23 14:05 CEST`.
+  Durations are fine ("about four minutes").
+- **No session ephemera.** CI run ids, image or kernel hashes, byte sizes,
+  `/tmp` paths, `adb`/`fastboot` transcripts, "waiting for the user" and
+  narration of what you tried belong in neither a doc nor a commit. A number
+  needed to reproduce something goes into `porting.toml` or `scripts/`, and the
+  doc points there.
+- **One home per fact.** Cross-link instead of repeating; when two files
+  disagree, fix the wrong one rather than adding a third statement.
+- **Every paragraph answers "what do I do with this?"** Keep measured values,
+  invariants that break silently, symptom → cause → fix, and the command a
+  newcomer needs. Drop reasoning that only justifies a decision already made.
+
 ## Reading a failure
 
 The board has no serial console; the screen and the USB log are the evidence.

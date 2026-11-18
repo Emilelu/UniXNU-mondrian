@@ -16,7 +16,10 @@ proves the image, once booted, actually produced the pre-registered evidence:
 
 Why the line counter: INTF_LINE_COUNT (0xb0) is the panel scan line counter;
 one wrap is one frame, and the official DisplayTimingProbe reference measures
-the shortest interval between two wraps (DisplayTimingProbe.cpp:45-70).
+line-counter wraps (DisplayTimingProbe.cpp:45-70). This judge uses the average
+wrap rate over the whole window; the shortest single interval is only a
+fallback when fewer than two wraps are seen, because one 7.6 ms interval reads
+131 Hz while the same 500 ms window has 61 wraps (122 Hz).
 INTF_TEAR_INT_COUNT_VAL (0x298) high 16 bits is a read-pointer frame count and
 was observed wrapping to 55->1 in the 120hz-4 log, so it is not a TE rate.
 INTF_FRAME_COUNT (0xac) counts DPU command-FIFO commits, so a static UI can

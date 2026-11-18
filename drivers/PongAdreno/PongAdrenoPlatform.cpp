@@ -22,6 +22,7 @@
 extern "C" const uint8_t PongAdrenoGmuFirmware[];
 extern "C" const size_t PongAdrenoGmuFirmwareBytes;
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
+extern "C" int pong_adreno_dcvs_start(void);
 extern "C" void pong_rpmh_lock(void);
 extern "C" void pong_rpmh_unlock(void);
 namespace {
@@ -551,6 +552,10 @@ static void run(void *,wait_result_t)
      * or from the last stage that happened to print (P-164). */
     record(cp_status?"startup FAILED at CP/user-client":"startup COMPLETE; hardware armed",
         cp_status,gr.core_version,gr.hfi_version);
+    /* Runtime DCVS is opt-in: it votes HFI and rewrites the GMU counter while
+     * the GPU is live, so a probe enables it with pong_gpu_dcvs=1. A failed CP
+     * start has no session to vote in. */
+    if(!cp_status)pong_adreno_dcvs_start();
 }
 static void worker(void *parameter,wait_result_t result)
 {
@@ -558,6 +563,12 @@ static void worker(void *parameter,wait_result_t result)
     thread_terminate(current_thread());
     thread_block(THREAD_CONTINUE_NULL);
 }
+}
+/* The DCVS thread lives in PongAdrenoDcvs.cpp so this file keeps the startup
+ * order and the thread keeps the hardware session pointer. */
+extern "C" PongGpuGmuDevice *pong_adreno_gmu_device(void)
+{
+    return &gmu;
 }
 extern "C" int pong_touch_iovdd_enable(void)
 {

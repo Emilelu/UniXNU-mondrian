@@ -42,6 +42,14 @@ unsigned k60_gpu_target(const K60GpuTable *table, unsigned current,
 void k60_gpu_governor_reset(K60GpuGovernor *gov, unsigned floor);
 int k60_gpu_governor_window(K60GpuGovernor *gov, const K60GpuTable *table,
     unsigned busy_permille, unsigned idle_ms);
+/* Lowest 1-based level whose OPP is at or above khz, or the top level when no
+ * OPP reaches it. 0 on a missing/empty table. No MMIO. */
+unsigned k60_gpu_level_for_khz(const K60GpuTable *table, uint64_t khz);
+/* Wake boost floor (official section 5: 2x the pre-idle clock, at least
+ * 578 MHz, for 50 ms). Returns the 1-based level, clamped to the table top;
+ * 0 on a missing table or a zero current level. No MMIO. */
+unsigned k60_gpu_wake_level(const K60GpuTable *table, unsigned current,
+    uint64_t min_khz);
 /* HFI GX_BW_PERF_VOTE payload excluding the wire header: {1, level, bandwidth}.
  * Returns 3, or 0 when the level/bandwidth is outside the wire field. */
 unsigned k60_gpu_vote_payload(unsigned level, unsigned bandwidth, uint32_t out[3]);

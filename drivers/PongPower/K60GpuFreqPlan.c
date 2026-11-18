@@ -97,3 +97,21 @@ unsigned k60_gpu_vote_payload(unsigned level, unsigned bandwidth, uint32_t out[3
     out[0] = 1; out[1] = level; out[2] = bandwidth;
     return 3;
 }
+
+unsigned k60_gpu_level_for_khz(const K60GpuTable *table, uint64_t khz)
+{
+    if (!table || !table->count) return 0;
+    for (unsigned i = 0; i < table->count; i++)
+        if (table->khz[i] >= khz) return i + 1;
+    return table->count;
+}
+
+unsigned k60_gpu_wake_level(const K60GpuTable *table, unsigned current,
+    uint64_t min_khz)
+{
+    if (!table || !table->count || current == 0) return 0;
+    if (current > table->count) current = table->count;
+    uint64_t target = (uint64_t)table->khz[current - 1] * 2u;
+    if (target < min_khz) target = min_khz;
+    return k60_gpu_level_for_khz(table, target);
+}

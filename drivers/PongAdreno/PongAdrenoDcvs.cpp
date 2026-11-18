@@ -6,8 +6,9 @@
  * threshold and the 50 ms wake boost come from UniXNU-zizhan
  * drivers/PongAdreno/PongAdrenoPlatform.cpp:396-545 (BSD-2-Clause-Patent),
  * itself from UniXNU-sheng package/GpuPowerProbe.cpp and Linux
- * msm_gpu_devfreq/simple_ondemand. No touch boost: K60 has no touch activity
- * source yet, so pong_gpu_dcvs_touch_ms is not implemented.
+ * msm_gpu_devfreq/simple_ondemand. Official section 5 :115 is wired through
+ * the touch queue counter patch 0622: a changed count arms the boost plan and
+ * the thread holds the top level for 1 s after the last report.
  */
 #include <IOKit/IOLib.h>
 #include <kern/clock.h>
@@ -20,6 +21,7 @@
 
 extern "C" PongGpuGmuDevice *pong_adreno_gmu_device(void);
 extern "C" int pong_adreno_cp_pending(void);
+extern "C" uint32_t pong_touch_report_count(void);
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
 
 namespace {
@@ -64,6 +66,8 @@ static void dcvs(void *,wait_result_t)
     k60_gpu_dcvs_reset(&dcvs,&gov,floor,top);
     K60BoostState boost={};
     k60_boost_reset(&boost);
+    uint32_t touchReports=0;
+    int touchActive=0,touchPrevious=0;
     unsigned submits=0;
     uint64_t last_busy=busy,last=0,report_at=0,win_busy=0,win_us=0;
     absolutetime_to_nanoseconds(mach_absolute_time(),&last);
@@ -101,11 +105,22 @@ static void dcvs(void *,wait_result_t)
          * The boost plan only counts the window; no CPU vote consumes it yet. */
         const int pending=pong_adreno_cp_pending();
         if(pending>0)++submits;
-        k60_boost_window(&boost,at/1000000ull,pending>0);
+        const uint64_t now_ms=at/1000000ull;
+        k60_boost_window(&boost,now_ms,pending>0);
+        const uint32_t reports=pong_touch_report_count();
+        if(reports!=touchReports){k60_boost_touch(&boost,now_ms);touchReports=reports;}
+        touchActive=k60_boost_touch_active(&boost,now_ms);
         unsigned want=0;
         if(k60_gpu_dcvs_window(&dcvs,&gov,&table,delta,ns,at,boost_ms,
             K60_GPU_WAKE_MIN_KHZ,&want)<0)
             {report("STOP DCVS governor",6);break;}
+        if(touchActive && want<top)want=top;
+        if(touchActive!=touchPrevious){
+            report(touchActive?"DCVS touch top":"DCVS touch release",
+                touchActive?top:dcvs.level,
+                (uint64_t(reports)<<32)|now_ms,submits);
+            touchPrevious=touchActive;
+        }
         if(want!=dcvs.level) {
             uint32_t error=0;
             const auto status=PongAdrenoGmuSetLevel(gmu,want,
@@ -120,7 +135,6 @@ static void dcvs(void *,wait_result_t)
         if(!report_at)report_at=at+uint64_t(kReportMs)*1000000ull;
         if(at>=report_at) {
             const unsigned average=win_us?unsigned(win_busy*1000ull/(win_us?win_us:1)):0;
-            const uint64_t now_ms=at/1000000ull;
             report("DCVS window",dcvs.level,(uint64_t(average)<<32)|dcvs.wakes,
                 dcvs.changes);
             report("DCVS frames",k60_boost_frame_count(&boost),

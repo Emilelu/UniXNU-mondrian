@@ -1,0 +1,31 @@
+diff --git a/bsd/dev/pong_input.c b/bsd/dev/pong_input.c
+--- a/bsd/dev/pong_input.c
++++ b/bsd/dev/pong_input.c
+@@ -24,7 +24,8 @@
+     bool opened,ready;
+ };
+ static struct input_queue queues[2];
+ static int input_major=-1;
++static uint32_t touch_reports;
+ 
+ void
+ pong_touch_post(uint32_t type,uint32_t finger,uint32_t x,uint32_t y)
+@@ -36,4 +37,5 @@
+     if (q->tail-q->head==QUEUE_SIZE) q->head++;
+     q->samples[q->tail++%QUEUE_SIZE]=(struct pong_touch){mach_absolute_time(),type,finger,
+         x>65535?65535:x,y>65535?65535:y};
++    __atomic_add_fetch(&touch_reports,1,__ATOMIC_RELAXED);
+     lck_mtx_unlock(&touch_lock);
+@@ -40,6 +42,12 @@
+     wakeup(q);
+ }
+ 
++uint32_t
++pong_touch_report_count(void)
++{
++    return __atomic_load_n(&touch_reports,__ATOMIC_RELAXED);
++}
++
+ static int
+ touch_open(dev_t dev,int flags,__unused int kind,__unused struct proc *p)
+ {

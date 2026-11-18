@@ -49,6 +49,12 @@ extern "C" processor_t processor_array[64];
  * not running yet, which counts as "no submission". */
 extern "C" int pong_adreno_cp_pending(void);
 
+/* Official section 5 :115: touch holds the performance cluster at its top
+ * level for 1 s after the last report. Patch 0622 exports the kernel touch
+ * queue counter; a changed count is one report, and the boost plan owns the
+ * 1 s window. */
+extern "C" uint32_t pong_touch_report_count(void);
+
 namespace {
 
 constexpr uint64_t kDomainBase[K60_CPU_FREQ_DOMAINS] = {0x17d91000, 0x17d92000, 0x17d93000};
@@ -443,6 +449,8 @@ void samplerThread(void *, wait_result_t)
     unsigned busy[K60_CPU_FREQ_DOMAINS] = {};
     K60BoostState boost = {};
     int frameActive = 0, framePrevious = 0;
+    uint32_t touchReports = 0;
+    int touchActive = 0, touchPrevious = 0;
     uint64_t window = 0;
     bool havePrevious = false;
     host_t host = nullptr;
@@ -512,13 +520,20 @@ void samplerThread(void *, wait_result_t)
             if (pending < 0) pending = 0;
             k60_boost_window(&boost, boostNow, pending > 0);
             frameActive = k60_boost_frame_active(&boost, boostNow);
+            const uint32_t reports = pong_touch_report_count();
+            if (reports != touchReports) {
+                k60_boost_touch(&boost, boostNow);
+                touchReports = reports;
+            }
+            touchActive = k60_boost_touch_active(&boost, boostNow);
         }
         for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
             if (!ready[domain]) continue;
             busy[domain] = k60_cpufreq_domain_busy_elapsed(idle, elapsed,
                 K60_CPU_FREQ_CPUS, domain);
             (void)k60_cpufreq_governor_window(&gov, &tables[domain], domain,
-                busy[domain], 0, static_cast<unsigned>(frameActive));
+                busy[domain], static_cast<unsigned>(touchActive),
+                static_cast<unsigned>(frameActive));
         }
         if (frameActive != framePrevious) {
             const uint32_t top = tables[0].count ? tables[0].khz[tables[0].count - 1] : 0;
@@ -527,6 +542,12 @@ void samplerThread(void *, wait_result_t)
                 static_cast<unsigned long long>(window),
                 k60_boost_frame_count(&boost), k60_boost_cpu_floor_khz(top));
             framePrevious = frameActive;
+        }
+        if (touchActive != touchPrevious) {
+            IOLog("K60CpuFreq: mode%u touch boost %s win=%llu reports=%u\n",
+                applyMode, touchActive ? "active" : "released",
+                static_cast<unsigned long long>(window), touchReports);
+            touchPrevious = touchActive;
         }
 
         /* Domains 1 and 2 are still disabled when the first read runs, so
@@ -639,11 +660,12 @@ void samplerThread(void *, wait_result_t)
                 if (ready[domain])
                     hardware[domain] = (rd32(windows[domain].va,
                         K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu) * K60_CPU_FREQ_XO_KHZ;
-            IOLog("K60CpuFreq: sample win=%llu d0=%u/%ukHz/hw%ukHz d1=%u/%ukHz/hw%ukHz d2=%u/%ukHz/hw%ukHz fr=%d\n",
+            IOLog("K60CpuFreq: sample win=%llu d0=%u/%ukHz/hw%ukHz d1=%u/%ukHz/hw%ukHz d2=%u/%ukHz/hw%ukHz fr=%d tb=%d\n",
                 static_cast<unsigned long long>(window),
                 busy[0], tables[0].khz[gov.current[0]], hardware[0],
                 busy[1], tables[1].khz[gov.current[1]], hardware[1],
-                busy[2], tables[2].khz[gov.current[2]], hardware[2], frameActive);
+                busy[2], tables[2].khz[gov.current[2]], hardware[2], frameActive,
+                touchActive);
         }
     }
     if (apply && !restored) {

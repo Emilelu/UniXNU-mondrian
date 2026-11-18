@@ -16,8 +16,10 @@
 #include "PongAdrenoGmu.h"
 #include "PongAdrenoPower.h"
 #include "K60GpuFreqPlan.h"
+#include "K60BoostPlan.h"
 
 extern "C" PongGpuGmuDevice *pong_adreno_gmu_device(void);
+extern "C" int pong_adreno_cp_pending(void);
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
 
 namespace {
@@ -25,6 +27,9 @@ constexpr unsigned kWindowMs=16;
 constexpr unsigned kReportMs=10000;
 /* 19.2 MHz XO: one tick is 625/12 ns (52.083 ns). */
 constexpr uint64_t kTickNsNumerator=625,kTickNsDenominator=12;
+/* Domain 0 top from the live EPSS LUT; official section 5 :116 floors every
+ * CPU domain at 60 % of its top while the GPU is submitting. */
+constexpr uint32_t kD0TopKhz=1804800;
 static volatile unsigned sStarted;
 
 static void report(const char *phase,unsigned result,uint64_t a=0,uint64_t b=0)
@@ -57,6 +62,9 @@ static void dcvs(void *,wait_result_t)
     K60GpuDcvs dcvs={};
     K60GpuGovernor gov={};
     k60_gpu_dcvs_reset(&dcvs,&gov,floor,top);
+    K60BoostState boost={};
+    k60_boost_reset(&boost);
+    unsigned submits=0;
     uint64_t last_busy=busy,last=0,report_at=0,win_busy=0,win_us=0;
     absolutetime_to_nanoseconds(mach_absolute_time(),&last);
     report("DCVS started",0,(uint64_t(top)<<32)|floor,dcvs.level);
@@ -71,6 +79,11 @@ static void dcvs(void *,wait_result_t)
         uint64_t delta=now_ticks-last_busy;last_busy=now_ticks;
         uint64_t busy_ns=delta*kTickNsNumerator/kTickNsDenominator;
         if(busy_ns>ns)busy_ns=ns;
+        /* Official :116 input: a submission is a CP ring that has not retired.
+         * The boost plan only counts the window; no CPU vote consumes it yet. */
+        const int pending=pong_adreno_cp_pending();
+        if(pending>0)++submits;
+        k60_boost_window(&boost,at/1000000ull,pending>0);
         unsigned want=0;
         if(k60_gpu_dcvs_window(&dcvs,&gov,&table,delta,ns,at,boost_ms,
             K60_GPU_WAKE_MIN_KHZ,&want)<0)
@@ -89,8 +102,13 @@ static void dcvs(void *,wait_result_t)
         if(!report_at)report_at=at+uint64_t(kReportMs)*1000000ull;
         if(at>=report_at) {
             const unsigned average=win_us?unsigned(win_busy*1000ull/(win_us?win_us:1)):0;
+            const uint64_t now_ms=at/1000000ull;
             report("DCVS window",dcvs.level,(uint64_t(average)<<32)|dcvs.wakes,
                 dcvs.changes);
+            report("DCVS frames",k60_boost_frame_count(&boost),
+                (uint64_t(k60_boost_cpu_floor_khz(kD0TopKhz))<<32)
+                    |unsigned(k60_boost_frame_active(&boost,now_ms)),
+                submits);
             report_at=at+uint64_t(kReportMs)*1000000ull;win_busy=win_us=0;
         }
     }

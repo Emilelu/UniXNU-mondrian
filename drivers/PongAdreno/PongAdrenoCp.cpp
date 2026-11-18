@@ -268,6 +268,15 @@ static bool hardware_init()
 }
 }
 
+/* Ring occupancy for the DCVS submit window: RPTR != WPTR means the kernel
+ * submitted work the CP has not retired yet. Read-only, no MMIO outside the
+ * already-mapped register window; -1 when the CP is not running. */
+extern "C" int pong_adreno_cp_pending(void)
+{
+    if(!gpu || !gpu->started || gpu->poisoned)return -1;
+    return rd(GEN7_CP_RB_RPTR)==rd(GEN7_CP_RB_WPTR)?0:1;
+}
+
 IOReturn PongAdrenoCpPrepare(const PongCpOps *ops)
 {
     if(gpu || !ops || !ops->record)return kIOReturnBadArgument;

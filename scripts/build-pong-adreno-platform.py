@@ -77,6 +77,12 @@ def main():
     cmd=commands[0].copy();cmd[cmd.index('-c')+1]=str(power/'K60GpuFreqPlan.c');cmd[-1]=str(obj)
     cmd+=['-I'+str(power)]
     subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
+    # The boost rules (touch hold, submit windows, fence bound) are the same
+    # plain C the host test asserts; the DCVS thread feeds them the ring state.
+    obj=out/'K60BoostPlan.o'
+    cmd=commands[0].copy();cmd[cmd.index('-c')+1]=str(power/'K60BoostPlan.c');cmd[-1]=str(obj)
+    cmd+=['-I'+str(power)]
+    subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
     obj=out/'PongAdrenoPlatform.o'
     cmd=['xcrun','clang++','-target','arm64-apple-ios16.0','-isysroot',sdk,
         '-mkernel','-ffreestanding','-fno-builtin','-fno-stack-protector','-mgeneral-regs-only',

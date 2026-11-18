@@ -618,17 +618,17 @@ AdtFindMemoryMapProperty (
 
 | 内核打印 | 文件:行 | 含义 |
 | --- | --- | --- |
-| `K60MODEM carrier absent: no modem image staged at 0x8bc00000` | `K60ModemBoot.c:134` | 头页 16 B 签名不对 |
-| `K60MODEM pas skipped, nothing was handed to the secure monitor` | `K60ModemBoot.c:136` | 因此没发任何 SMC |
-| `K60MODEM carrier present at 0x8bc00000` | `K60ModemBoot.c:139` | 签名命中 |
-| `K60MODEM plan rows=30 copied=... zeroed=... base=... window=...` | `K60ModemBoot.c:48` | 段表计划校验通过 |
-| `K60MODEM plan failed rc=n` | `K60ModemBoot.c:45` | 段表自身有问题（不该出现） |
-| `K60MODEM auth_reset ok` / `auth_reset failed rc=n` | `K60ModemBoot.c:70` / `:67` | PAS peripheral 4 第一步 |
-| `K60MODEM init_image failed seg=n addr=0x... bytes=n rc=n` | `K60ModemBoot.c:81` | 段级失败，带段号 |
-| `K60MODEM mem_setup failed rc=n` | `K60ModemBoot.c:92` | 最后一步 |
-| `K60MODEM scm cmd=0x... rc=n x0=0x... x1=0x...` | `K60ModemPas.c:53` | SMC 原始返回 |
-| `K60MODEM qrtr: glink fifo not fresh (...), not adopted` | `K60ModemLink.c:211` | 设计行为：活 FIFO 不 reset |
-| `K60MODEM qrtr: verdict ok|no reply services=N node0=M wanted=K ...` | `K60ModemLink.c:262` | L3 判据 |
+| `K60MODEM carrier absent: no modem image staged at 0x8bc00000` | `K60ModemBoot.c:208` | 头页 16 B 签名不对 |
+| `K60MODEM pas skipped, nothing was handed to the secure monitor` | `K60ModemBoot.c:210` | 因此没发任何 SMC |
+| `K60MODEM carrier present at 0x8bc00000` | `K60ModemBoot.c:213` | 签名命中 |
+| `K60MODEM plan rows=30 copied=... zeroed=... base=... window=...` | `K60ModemBoot.c:85` | 段表计划校验通过 |
+| `K60MODEM plan failed rc=n` | `K60ModemBoot.c:82` | 段表自身有问题（不该出现） |
+| `K60MODEM auth_reset ok` / `auth_reset failed rc=n` | `K60ModemBoot.c:164` / `:161` | PAS peripheral 4 第一步 |
+| `K60MODEM init_image failed metadata=0x... rc=n` | `K60ModemBoot.c:128` | 段级失败，带 metadata 与 rc |
+| `K60MODEM mem_setup failed rc=n` | `K60ModemBoot.c:148` | 最后一步 |
+| `K60MODEM scm cmd=0x... rc=n x0=0x... x1=0x...` | `K60ModemPas.c:94` | SMC 原始返回 |
+| `K60MODEM qrtr: glink fifo not fresh (...), not adopted` | `K60ModemLink.c:1158` | 设计行为：活 FIFO 不 reset；载具路径 `K60ModemLink.c:844` 只清 AP 自己的 +4/+8 |
+| `K60MODEM qrtr: verdict ok|no reply services=N node0=M wanted=K ...` | `K60ModemLink.c:1303` | L3 判据 |
 
 ### 4.3 判定矩阵：载具没实现 / 载具跑了 / PAS 失败 / QRTR 失败
 

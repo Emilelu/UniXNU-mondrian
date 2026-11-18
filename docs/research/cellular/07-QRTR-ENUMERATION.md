@@ -62,8 +62,9 @@ control 载荷 5 个 u32 = 20 字节：`command` + `words[4]`。
 | 常量 | 值 | 依据 |
 |---|---|---|
 | `K60_MODEM_SMEM_BASE` | `0x80900000` | DT `qcom,smem`，2 MiB（`02-DT-TRUTH.md:184-200` 区域表） |
-| `K60_MODEM_IPCC_BASE` | `0x0ed18000` | DT `mailbox@ed18000`；`mboxes = <&ipcc 2 0>` ⇒ client 2，signal 0 |
+| `K60_MODEM_IPCC_BASE` | `0x0ed18000` | DT `mailbox@ed18000`；`mboxes = <&ipcc 2 0>` ⇒ client 2，signal 0。上游 `v6.6/arch/arm64/boot/dts/qcom/sm8450.dtsi:3176-3183` 同址（`qcom,sm8450-ipcc`，GIC SPI 229 = DT 的 `0xe5`）；门铃字由 `drivers/mailbox/qcom-ipcc.c:17-25,152-153` 定义为 `client<<16 | signal` 写入 `0x0c`，与本实现一致。参考实现 `hakios.mpss.c:616` 的 `0x00408000` 是 SM8250 时代的 IPCC 实例，**不适用本板** |
 | GLINK descriptor / ours / theirs | SMEM item `478 / 479 / 480` | 参考实现 `E:/k60-work/references/phk110-port/drivers/modem/hakios.mpss.c:2563-2565` |
+| GLINK descriptor 布局 | `+0` our tail、`+4` our head、`+8` their tail、`+12` their head、`+16` reserve | 参考实现 `hakios.mpss.c:~2567-2571`（`GLINK_OUR_TAIL/OUR_HEAD/THEIR_TAIL/THEIR_HEAD/RESERVE`）；与本实现 `K60ModemLink.c:1049-1053` 的 `tx=[desc0,desc1]`、`rx=[desc2,desc3]` 逐字段一致 |
 | modem SMP2P | SMEM item `435` | 同文件 `:324-325`（`ITEM_SMP2P_OURS 428` / `ITEM_SMP2P_THEIRS 435`） |
 | SMEM 分区 | host0=0 ↔ host1=1 | `k60_smem_partition(&smem, 0, 1, ...)`（`K60ModemLink.c:183`） |
 
@@ -75,20 +76,35 @@ control 载荷 5 个 u32 = 20 字节：`command` + `words[4]`。
 4. `k60_qrtr_modem_ready()`（:112）读 SMP2P 435：校验 `magic == 0x504d5324`、
    `(words[1] & 0xff) == 1`、`words[2] == 1`、`20 + valid*20 <= bytes`，并找 16 字节名
    `slave-kernel` 要求 `(state & 2) && !(state & 1)`（modem 已 ready、未 stop）；
-5. 几何检查：descriptor 32 字节、两个队列各 ≥ 1024 字节（:202-205）；
-6. **fresh 检查**：`desc[1] != 0 || desc[2] != 0` 就打印
-   `K60MODEM qrtr: glink fifo not fresh (our_head=%u their_tail=%u), not adopted` 并返回（:211）。
-   K60 铁则：**永不 reset 活着的 FIFO**（`drivers/PongPower/QcomGlink.h:2-4`、
-   `K60PmicGlink.cpp:77-78`）。只有双零（全新 epoch）才 adopt；
-7. `qcom_glink_channel(&k60_qrtr_link, "IPCRTR", 0x4400, 4, intents, &callbacks, NULL, 0)`（:228）：
-   `open_now = 0`，因为这条通道是 **modem 主动打开**的
-   （参考实现 `hakios.mpss.c:2625` 的注释："The one channel we answer when the modem opens it"）。
+5. 几何检查：descriptor 32 字节、两个队列各 ≥ 1024 字节（:1145-1149）；
+6. **活 FIFO 不 reset**：载具路径（`k60_modem_transport_prepare()`，:844）先跑 435 的
+   `k60_modem_transport_stale()`（:1002，打印
+   `K60MODEM stale check: modem still owns smp2p entries=%u, refusing reset`），
+   再只清 AP 自己拥有的两个字 —— `desc[1]`（our head）与 `desc[2]`（their tail），
+   与参考实现 `glink_reset` 清 `+4/+8` 完全一致；`desc[0]/desc[3]` 属于远端，永不写。
+   走 probe 的兜底 adopt 仍保留 `desc[1]!=0 || desc[2]!=0` 的旧 gate（:1158，
+   打印 `K60MODEM qrtr: glink fifo not fresh (...), not adopted`）；352d7f30 删掉的是
+   `k60_modem_glink_start()` 里那份重复 gate，不是兜底。
+   铁则不变：**永不 reset 活着的 FIFO**（`drivers/PongPower/QcomGlink.h:2-4`、
+   `K60PmicGlink.cpp:77-78`）；
+7. `qcom_glink_channel(&k60_qrtr_link, "IPCRTR", 0x4400, 4, intents, &callbacks, NULL, 1)`
+   （:1063-1065、:1175-1177）：`open_now = 1`，AP 作为 initiator 先发 OPEN；
+   参考实现相反（固定本地 id 1，等 modem 发 OPEN 再答 `GLINK_OPEN_ACK`，
+   `hakios.mpss.c:2625` 注释 "The one channel we answer when the modem opens it"）。
+   本机先开是 Pong 的路径；B 飞行要看 `K60MODEM glink: IPCRTR opened as initiator`
+   之后是否收到 OPEN_ACK/OPEN —— 这是传输层第一处待验证偏差。
 
 ### 3.1 intent 数量为什么是 0x4400 × 4
 
 DT 要求三组：`0x800×5`、`0x2000×3`、`0x4400×2`。`QcomGlink` 每个通道只支持**一组**
 intent（本机最多 4 个），所以取最大尺寸 `0x4400` 与最大数量 4，覆盖 DT 的第三组并留余量；
 更小的两档报文也能装进大缓冲。这是"够用"而不是"完全等价"，已记录在 `K60ModemLink.c:44-48`。
+
+参考实现通告的是 DT 的完整三组（`hakios.mpss.c:2622`：`intents = { {0x800,5}, {0x2000,3}, {0x4400,2} }`）。
+本机只发一组是 `QcomGlink` 的每通道单组限制，但总量并不缩水：4×0x4400 = 68 KiB，
+与 DT 的 5×0x800 + 3×0x2000 + 2×0x4400 同为 68 KiB。若 B 飞行在 intent 协商阶段出现异常，
+先读 `K60MODEM glink` 的日志，再考虑把 `QcomGlink` 扩成多组；这一条与第 7 条的 open 方向
+一起，是传输层相对参考实现的两处已知偏差。
 
 `QCOM_GLINK_MAX_CHANNELS = 1` 是**每实例**上限：modem 用自己的 `QcomGlink` 实例，
 只开一条 `IPCRTR`，因此不需要改 `PongPower` 的头文件，也不会碰 PMIC 线的实例。

@@ -26,6 +26,7 @@ image e 上机后：`console.log` 254,167 B，C1 PASS（`:407`、`:515`），C2 
 首帧 `:515` 为 4390mV、35.20°C。对同窗口 9 行 Android 基线判 C3，只电流 5/9 对超差（最大 ΔI
 268mA，Android 电流 88–626mA 波动而 XNU 稳定 397mA；ΔV 最大 77mV、ΔSOC 0、ΔT 1.80°C）；
 改用同会话 3 行匹配电流基线则 C3 PASS（ΔV 43mV、ΔI 121mA、ΔSOC 0、ΔT 1.10°C）。
+2026-11-18 10:04–10:14 第二次 image e 上机（`controlled-final-20261118-100431`）再次得到 12 条完整样本；对同会话 36 行 Android 基线判 C3，全窗口仅电压/电流超差（最大 |ΔV|=91mV、|ΔI|=1128mA），抽出 3 行匹配电流基线后 C3 PASS（|ΔV|=43mV、|ΔI|=54mA、|ΔSOC|=0、|ΔT|=0.60°C），见 §7.7。
 真机插拔/充放电/服务重启脚本化验证仍待完成；服务重启生命周期复位已补（`6750c7bd`，image e 包含），
 IOKit 级验证仍待完成。
 
@@ -314,6 +315,25 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   1794965775 4369mV/276mA）判 C3 PASS：3 对全部在阈值内，最大 |ΔV|=43mV、|ΔSOC|=0、|ΔT|=1.10°C、|ΔI|=121mA（报告 `judge-android-matched3.txt`）。
   旧 route-c dmesg 窗口 16447–16652 仍因冷战基线（ΔSOC +12pp、ΔT +7.3°C）判 FAIL，不是同状态基线。
 - 该镜像的插拔、放电、超时与服务重启仍未获得真机脚本化证据；第 15 节只证明 manager 对待发布样本的状态转换，不代替真机插拔。
+
+### 7.7 第二次 image e 上机与匹配 C3（2026-11-18 10:04–10:14）
+
+- controller 输出 `E:/k60-work/evidence/power-conformance/controlled-final-20261118-100431`；日志
+  `E:/k60-work/scratch/controlled-final-image-e.log`。fastboot 预采只有 `battery-voltage: 4393`（10:08 为 4394），
+  `battery-current`/`battery-soc`/`battery-temperature` 均 `FAILED (remote: 'GetVar Variable Not found')`，
+  所以没有可用的 OEM 电流/SOC/温度基线。
+- Android 基线 `android-data.tsv` 36 行（epoch 1794967492–1794967691）：SOC 100%、电压 4249–4417mV、
+  电流 -453–1525mA、温度 35.10–36.40°C、status=2（充电）。
+- image e `console.log` 260,551 B，C1 PASS（`:488`、`:538`），C2 PASS（12 次命中）；首帧 `:538`
+  为 4366mV、397mA、SOC=100.00%、35.60°C；12 条完整样本均 SOC=100.00%、4464/4464mAh、397mA、
+  external=1、charging=1、full=0。
+- 全 36 行窗口 `judge-android.txt`：C1/C2 PASS，C3 FAIL，12 对中只有电压/电流越界，最大 |ΔV|=91mV/±60mV、
+  |ΔI|=1128mA/±150mA；旧 route-c dmesg 窗口（16447–16652）仍因 ΔSOC +12pp、ΔT +6.7~7.6°C 判 FAIL，
+  是冷基线状态不匹配。
+- 同会话匹配电流 3 行基线 `android-matched3.tsv`（1794967527 4351mV/365mA/100%/35.50°C、
+  1794967533 4353mV/343mA/100%/35.50°C、1794967573 4362mV/63mA/100%/36.00°C）判 C3 PASS：
+  3 对全部在阈值内，最大 |ΔV|=43mV、|ΔI|=54mA、|ΔSOC|=0、|ΔT|=0.60°C，报告 `judge-android-matched3.txt`。
+- 结论：图像 e 的 C3 在匹配电流窗口 PASS；全窗口失败来自 Android 侧电流波动，不是发布值错误；本轮没有代码改动。
 
 ## 8. Host 测试覆盖
 

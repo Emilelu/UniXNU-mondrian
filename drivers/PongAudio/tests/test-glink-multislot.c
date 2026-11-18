@@ -75,7 +75,7 @@ typedef struct {
     char a_log[LOG_BYTES], b_log[LOG_BYTES];
 } Link;
 
-static Link link, replay, bridge_link;
+static Link link, replay, bridge_link, active_link;
 
 static void log_add(char *log, const uint8_t *data, uint32_t length)
 {
@@ -611,7 +611,10 @@ static void bridge_cases(void)
               "bridge: the audio client is queued");
     expect_eq(k60_audio_glink_ready(&bridge), 0, "bridge: queued is not ready");
     expect_eq((unsigned long)(long)k60_audio_glink_service(&bridge), 0,
-              "bridge: the workloop registers the queued slot");
+              "bridge: service before PMIC up keeps the attach queued");
+    expect_eq(bridge.channel == 0, 1, "bridge: no adsp_apps slot before the PMIC is up");
+    expect_eq((unsigned long)(long)k60_audio_glink_prepare(&bridge), 0,
+              "bridge: the host prepares the passive slot");
     expect(bridge.channel != 0, "bridge: the adsp_apps slot exists");
     if (!bridge.channel) return;
     expect_name(bridge.channel->name, K60_AUDIO_GLINK_NAME, "bridge: the slot carries adsp_apps");
@@ -706,6 +709,67 @@ static void bridge_cases(void)
               "bridge: send without a transport is refused");
 }
 
+static void active_open_cases(void)
+{
+    Link *l = &active_link;
+    K60AudioGlink bridge;
+    K60PmicGlinkAudioClient client;
+    BridgeSink sink;
+    unsigned lcid, size, index;
+    char name[QCOM_GLINK_NAME];
+
+    memset(l, 0, sizeof *l);
+    memset(&sink, 0, sizeof sink);
+    l->client.state = on_state;
+    l->client.receive = on_receive;
+    const QcomGlinkFifo tx = {&l->txhead, &l->txtail, l->txdata, FIFO_BYTES};
+    const QcomGlinkFifo rx = {&l->rxhead, &l->rxtail, l->rxdata, FIFO_BYTES};
+    expect_eq((unsigned long)qcom_glink_adopt(&l->g, tx, rx, on_kick, l), (unsigned long)QcomGlinkOk,
+              "active: the transport adopts");
+
+    k60_audio_glink_init(&bridge, &l->g);
+    client.state = bridge_state;
+    client.receive = bridge_receive;
+    expect_eq((unsigned long)(long)k60_audio_glink_request(&bridge, &client, &sink), 0,
+              "active: the audio client is queued");
+    expect_eq((unsigned long)(long)k60_audio_glink_service(&bridge), 0,
+              "active: service stays quiet before PMIC up");
+    expect_eq(bridge.channel == 0, 1, "active: no audio slot before PMIC up");
+    expect_eq((unsigned long)(long)k60_audio_glink_open(&bridge), 0,
+              "active: PMIC up opens the audio slot");
+    expect(bridge.channel != 0, "active: the adsp_apps slot exists");
+    expect_eq(bridge.channel->initiator, 1, "active: our side is the initiator");
+    expect_eq(bridge.channel->open_hold, 0, "active: the active slot is not held");
+    expect_eq(k60_audio_glink_ready(&bridge), 0, "active: opened is not ready");
+
+    expect(qcom_glink_poll(&l->g) >= 0, "active: poll writes VERSION");
+    expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "active: VERSION is on the wire");
+    expect_eq(lcid, QCOM_GLINK_VERSION, "active: first message is VERSION");
+    peer_cmd(l, QCOM_GLINK_VERSION_ACK, 1, QCOM_GLINK_FEATURE_INTENT_REUSE);
+    expect(qcom_glink_poll(&l->g) >= 0, "active: poll after VERSION_ACK");
+    expect(ap_read_open(l, &lcid, name, sizeof name) != 0, "active: our OPEN is on the wire");
+    expect_eq(lcid, 1, "active: the audio slot is lcid 1");
+    expect_name(name, K60_AUDIO_GLINK_NAME, "active: OPEN names adsp_apps");
+    peer_open(l, 0x22, K60_AUDIO_GLINK_NAME);
+    expect(qcom_glink_poll(&l->g) >= 0, "active: the DSP opens its side");
+    expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "active: the DSP OPEN is acknowledged");
+    expect_eq(lcid, QCOM_GLINK_OPEN_ACK, "active: the reply is an OPEN_ACK");
+    expect_eq(size, 0x22, "active: the DSP rcid is acknowledged");
+    peer_cmd(l, QCOM_GLINK_OPEN_ACK, 1, 0);
+    expect(qcom_glink_poll(&l->g) >= 0, "active: poll after OPEN_ACK");
+    for (unsigned k = 0; k < K60_AUDIO_GLINK_INTENT_COUNT; ++k) {
+        expect(ap_read_intent(l, &lcid, &size, &index) != 0, "active: every audio intent is advertised");
+        expect_eq(lcid, 1, "active: audio intents carry lcid 1");
+        expect_eq(size, K60_AUDIO_GLINK_INTENT_BYTES, "active: advertised intent size");
+        expect_eq(index, k, "active: advertised intent index");
+    }
+    expect_eq(ap_avail(l), 0, "active: all twenty intents are on the wire");
+    expect_eq(sink.states, 1, "active: one state callback");
+    expect_eq((unsigned long)sink.up, 1, "active: the audio channel is up");
+    expect_eq(k60_audio_glink_ready(&bridge), 1, "active: ready follows the channel state");
+    k60_audio_glink_stop(&bridge);
+}
+
 int main(void)
 {
     printf("two-slot transport: QCOM_GLINK_MAX_CHANNELS=%u, sizeof(QcomGlinkChannel)=%zu, sizeof(QcomGlink)=%zu\n",
@@ -718,6 +782,7 @@ int main(void)
     replay_cases();
     geometry_cases();
     bridge_cases();
+    active_open_cases();
 
     if (fails) {printf("TESTS FAILED %u of %u cases\n", fails, cases); return 1;}
     printf("TESTS OK %u cases\n", cases);

@@ -36,6 +36,7 @@ k60_audio_glink_init(K60AudioGlink *link, QcomGlink *transport)
     link->pending_valid = false;
     link->requested = false;
     link->attached = false;
+    link->opened = false;
     link->announced = false;
     link->error = 0;
 }
@@ -46,8 +47,14 @@ audio_prepare(K60AudioGlink *link, int open_now)
     if (!link) return K60_PMIC_GLINK_AUDIO_REFUSED;
     if (!link->transport) return K60_PMIC_GLINK_AUDIO_NO_TRANSPORT;
     if (link->transport->broken) return K60_PMIC_GLINK_AUDIO_STALE_LEASE;
-    if (__atomic_load_n(&link->attached, __ATOMIC_ACQUIRE) && link->channel)
+    if (__atomic_load_n(&link->attached, __ATOMIC_ACQUIRE) && link->channel) {
+        if (open_now && link->channel->open_hold) {
+            link->channel->open_hold = 0;
+            link->channel->initiator = 1;
+            link->channel->open_sent = 0;
+        }
         return K60_PMIC_GLINK_AUDIO_OK;
+    }
     /* Registering an audio slot before the PMIC handshake completes makes
      * the DSP reset the shared transport. The live path therefore calls
      * open only from the PMIC-up callback; passive prepare remains for the
@@ -75,7 +82,15 @@ k60_audio_glink_prepare(K60AudioGlink *link)
 int
 k60_audio_glink_open(K60AudioGlink *link)
 {
-    return audio_prepare(link, 1);
+    if (!link) return K60_PMIC_GLINK_AUDIO_REFUSED;
+    link->opened = true;
+    const int rc = audio_prepare(link, 1);
+    if (rc < 0) {
+        link->opened = false;
+        return rc;
+    }
+    __atomic_store_n(&link->requested, false, __ATOMIC_RELEASE);
+    return K60_PMIC_GLINK_AUDIO_OK;
 }
 
 int
@@ -140,9 +155,17 @@ int
 k60_audio_glink_service(K60AudioGlink *link)
 {
     if (!link) return K60_PMIC_GLINK_AUDIO_REFUSED;
-    if (__atomic_exchange_n(&link->requested, false, __ATOMIC_ACQUIRE)) {
-        const int rc = k60_audio_glink_prepare(link);
-        if (rc < 0) return rc;
+    if (__atomic_load_n(&link->requested, __ATOMIC_ACQUIRE)) {
+        if (!link->opened) {
+            /* Before the PMIC is up there is no slot at all. A passive slot
+             * (host tests) is already registered, so only clear the request. */
+            if (!__atomic_load_n(&link->attached, __ATOMIC_ACQUIRE) || !link->channel)
+                return K60_PMIC_GLINK_AUDIO_OK;
+            __atomic_store_n(&link->requested, false, __ATOMIC_RELEASE);
+        } else {
+            const int rc = k60_audio_glink_open(link);
+            if (rc < 0) return rc;
+        }
     }
     return audio_flush_pending(link);
 }
@@ -184,6 +207,7 @@ k60_audio_glink_stop(K60AudioGlink *link)
     link->pending_valid = false;
     link->pending_bytes = 0;
     link->attached = false;
+    link->opened = false;
     link->channel = 0;
     link->error = 0;
 }

@@ -27,6 +27,7 @@ typedef struct {
     bool pending_valid;
     bool requested;
     bool attached;
+    bool opened;
     bool announced;
     int error;
 } K60AudioGlink;

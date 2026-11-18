@@ -230,8 +230,10 @@ void K60PmicGlink::channelState(void *owner, QcomGlinkChannel *, int up)
         const int audio_rc = k60_audio_glink_open(&self->audio);
         if (audio_rc < 0)
             IOLog("K60Battery: audio GLINK open failed: %d\n", audio_rc);
-        else
+        else {
+            IOLog("K60Battery: audio GLINK slot opened\n");
             (void)k60_audio_glink_service(&self->audio);
+        }
     }
     self->client.state(self->context, up != 0);
 }

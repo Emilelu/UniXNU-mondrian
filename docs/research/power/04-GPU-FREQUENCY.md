@@ -1,6 +1,7 @@
 # GPU 调频（官网 §5 的 GPU 条目）
 
-状态：**纯逻辑规划模块 + host 56 项断言；没有 GMU 读取、没有 HFI 投票、没有 governor 线程、未上机**。
+状态：**GMU XO 忙碌计数器、HFI id 30 投票与 16 ms governor 线程已实现，host 66 项断言；
+opt-in（`pong_gpu_dcvs=1`），已构建进 image o，尚未上机**。
 官网 `https://unixnu.com/zh/porting/power` §5 对 GPU 的要求只有一句（快照
 `E:/k60-work/scratch/power-page-20261117.txt:114`）：
 
@@ -54,7 +55,7 @@
 - `k60_gpu_vote_payload(level, bandwidth, out)`：生成 `{1, level, bandwidth}` 三字载荷，
   越界返回 0。**只生成载荷，不发送。**
 
-Host 测试 `scripts/tests/test-k60-gpu-freq-plan.c`，56 项：
+Host 测试 `scripts/tests/test-k60-gpu-freq-plan.c`，66 项：
 
 ```sh
 cc -Wall -Wextra -Werror -std=c11 -o /tmp/tgpu \
@@ -62,25 +63,52 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tgpu \
 /tmp/tgpu
 ```
 
-结果：`TESTS OK 56 checks (0 failures)`，覆盖升序/去重/越界、19.2 MHz 换算与夹取、
-50 % 保持、1.1 倍升档、85 % 到顶、0 忙碌降档、4/5 窗口下降、80 ms 空闲、投票载荷边界。
+结果：`TESTS OK 66 checks (0 failures)`，覆盖升序/去重/越界、19.2 MHz 换算与夹取、
+50 % 保持、1.1 倍升档、85 % 到顶、0 忙碌降档、4/5 窗口下降、80 ms 空闲、投票载荷边界，
+以及新增的 kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限、到顶夹取、空表）。
+
+### 3.1 运行时接线（2026-11-19 凌晨）
+
+参考 zizhan 的 GMU 忙碌计数器与 DCVS 线程（同 SM8475，BSD-2-Clause-Patent），移植为：
+
+- `drivers/PongAdreno/PongAdrenoGmu.c`：新增 `PongAdrenoGmuEnableBusyCounter()`
+  （掩码 `0xff000000`、选择 `0x20`、使能后回读）、`PongAdrenoGmuBusyTicks()`
+  （连续读 `XOCLK_0_L/H/H`，高字稳定才接受）与 `PongAdrenoGmuSetLevel()`
+  （HFI id 30 `{1, level, bandwidth}`，100 ms 上限；超时或错误毒化 HFI 会话）。
+  寄存器常量加在 `PongAdrenoRegisters.h`；生成脚本会扫描 `Gmu.c` 的 `GEN7_*` 名字，
+  缺一个就拒绝生成。
+- `drivers/PongAdreno/PongAdrenoDcvs.cpp`：16 ms 线程；每窗口读计数器、按 625/12 ns
+  一个 XO tick 换算、空闲转活跃时给 50 ms 唤醒档，然后走 `k60_gpu_governor_window()`
+  决策并通过 `PongAdrenoGmuSetLevel()` 投票。连续 8 次投票被拒就停止线程并毒化，
+  不空转；每 10 s 打一条汇总，日志前缀 `PONG ADRENO: ` 以便和 ramoops 诊断对齐。
+- 策略仍留在 host 测试覆盖的 `K60GpuFreqPlan`：新增 `k60_gpu_level_for_khz()` 与
+  `k60_gpu_wake_level()`，线程不自己算档位。
+- 启动开关：boot-arg `pong_gpu_dcvs=1`（默认 0）；`pong_gpu_max_level`（默认 13）、
+  `pong_gpu_dcvs_min`（默认 1）、`pong_gpu_dcvs_boost_ms`（默认 50）可调。
+  `PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后才调用 `pong_adreno_dcvs_start()`，
+  CP 启动失败则不启动。
 
 ## 4. 边界
 
-- 没有 GMU 映射，没有读 0x1f844/0x1f845，也没有 HFI 调用；模块不在 battery archive 里，
-  因为还没有消费者。接入时要同时处理「一条 HFI 在途、失败毒化会话」的传输约束。
-- 没有触摸/帧/fence 输入：`native_hid_input_events`、帧提交计数在 K60 上都不存在，
-  所以 1 s 触摸保持、300 ms/60 % 帧下限、50 ms 双倍频率都未实现。
-- 没有选择带宽：`bandwidth` 由调用方从保留的 power 表取；本模块不把 OPP 序号当带宽序号。
-- 没有 governor 线程、没有 16 ms 定时器、没有设备读数或效果证据。
+- **DCVS 未上机**：`pong_gpu_dcvs=1` 的 image o 已构建，但尚未启动；没有一条
+  真实计数器读数、投票结果或帧时间证据。计数器与投票路径只在 host 侧与静态检查中验证过。
+- **没有触摸/帧/fence 输入**：`native_hid_input_events`、帧提交计数在 K60 上都不存在，
+  所以 1 s 触摸保持、300 ms/60 % 帧下限（CPU 侧已在 `K60BoostPlan` 里规划）仍未接。
+  当前的 50 ms 唤醒档只由「计数器从零变为非零」触发。
+- **没有温控/电压顺序**：升档只发 HFI 投票，没有先检查温控、也没有按官网 §5 :108
+  的顺序处理稳压器与互连；如果固件自己降频，投票可能被拒，连续 8 次拒绝会停线程。
+- **带宽来自静态表**：`PongAdrenoPowerLevels[13-want].bus` 是 power 表里的保留值，
+  不是动态测量的带宽需求。
+- **只有一个消费者**：DCVS 线程与 CP 启动共用 GMU HFI 通道；线程在启动记录完成后才起，
+  但之后没有暂停/恢复接口（GPU 目前没有拆卸路径）。
 
-## 5. 下一步（都需要设备或其他线配合）
+## 5. 下一步（都需要设备）
 
-1. 只读探针：映射 GMU core 窗口（`0x03d00000` 段），读 XO 计数器与当前 perf 状态，
-   只打印不投票；先用它确认计数器在 K60 固件上真的在动。
-2. 投票：同一探针里发一条 HFI id 30，命令/应答各一次，失败按传输层规则毒化，不重试。
-3. governor：16 ms 线程 + 触摸/帧信号，先只记录决策日志，确认不会和固件自身的 DVFS 打架。
-4. 设备验收：负载下读频率与帧时间，逐档验证升/降/回落的可观察效果。
+1. 设备探针：用 image o 启动一次 `pong_gpu_dcvs=1`，确认忙碌计数器在动、投票被接受，
+   并记录 10 s 汇总里的档位分布。
+2. 负载对照：跑一段 GPU 负载，比较投票前后的档位与帧时间，确认没有和固件 DVFS 打架。
+3. 触摸/帧信号：等输入线与 Metal 提交计数可用后，把 1 s 保持与 300 ms/60 % 接进来。
+4. 温控与顺序：在升档前接入温度读取与电压/互连顺序，否则只保留降档方向。
 
 ## 6. 参考
 

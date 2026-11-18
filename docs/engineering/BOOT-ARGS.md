@@ -32,6 +32,7 @@
 | `pong_touch` | 触摸 | 真值 | 1 | 0 则整条触摸线不跑 |
 | `pong_init_path` | 启动链 | 路径 | 代码默认 | — |
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
+| `pong_gpu_dcvs` | 电源 / GPU | 0 或 1 | 0（关闭） | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；1=16 ms 读 GMU XO 忙碌计数器并经 HFI id 30 投票，连续 8 次被拒停线程；未上机（image o 2026-11-19 构建） |
 | `k60_cpufreq` | 电源 / EPSS | 1/2/3/5 | 0（关闭） | `drivers/PongPower/K60CpuFreqProbe.cpp`；1=只读三域+L3，2=d0 最高非 turbo，3=三域+L3，5=16 ms `processor_info` 只读采样；2/3 为瞬态验证写（写前守卫、写后回读、立即恢复），4 被拒绝；2/3 未上机，5 已于 2026-11-18 23:19 以 image l 只读上机（274 条样本）；探针镜像需去掉 `applog=1` 才不超 607 字节 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
@@ -309,6 +310,26 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 **为什么默认关闭**：EPSS 是 CPU 频率/电压的现场控制点。官方 §5 要求 OS 明确外设电源投票的所有权与引用计数；在 governor、供电和温控路径接入之前，任何持续写都可能与固件或其它 owner 冲突。探针镜像必须确认设备独占空窗，首次只做 d0 单域。
 
 **陷阱**：`k60_cpufreq` 不在 `board.toml` 的默认参数里。探针镜像若保留 `applog=1`，命令行会超过 DarwinBoot 的 607 字节上限（实测 612 字节）；构建时必须临时去掉 `applog=1`，上机结束后恢复，并把该镜像视为探针镜像而非发布镜像。该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`，但参数 gate 仍会检查 board 契约的其余部分；image i/j/k 构建时 gate 尚未接受该名字。`k60_cpufreq=2/3/6` 的写入路径仍未上机；`k60_cpufreq=5` 已于 2026-11-18 23:19 以 image l 只读上机（159,147 B console，274 条 `sample win=`，d0 可降到 300 MHz，无 `sample stop`，因为 300 s autoreset 先到），23:53 又以 image m 复测 88 条。首次写入建议用 6 而不是 2：降档不抬压，日志里的 `state` 三元组能直接说明写入与恢复是否生效。
+
+### `pong_gpu_dcvs`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不启动 DCVS） |
+| 取值 | 1（其它值不启动） |
+| 来源 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`（`PE_parse_boot_argn("pong_gpu_dcvs", &on, sizeof(on))`）；`PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后调用 `pong_adreno_dcvs_start()`，CP 启动失败则不启动 |
+| 作用 | 1 = 起 16 ms 线程：读 GMU XO 忙碌计数器 → `k60_gpu_governor_window()` → HFI id 30 投 `{1, level, bandwidth}`；计数器从零转非零时给 50 ms 唤醒档（两倍频率、至少 578 MHz）；连续 8 次投票被拒就停线程并毒化 HFI。日志前缀 `PONG ADRENO: `，每 10 s 一条档位汇总。 |
+
+伴随参数（都未列入 board 契约）：`pong_gpu_max_level`（默认 13）、`pong_gpu_dcvs_min`（默认 1）、
+`pong_gpu_dcvs_boost_ms`（默认 50）。
+
+**为什么默认关闭**：官方 §5 要求先处理稳压器/互连/温控顺序。DCVS 只发 HFI 投票，没有温度与电压顺序，
+也没有触摸/帧信号；首次上机只验证计数器在动、投票是否被接受。
+
+**陷阱**：image o（2026-11-19）用探针 board（去掉 `applog=1`）+ `pong_handoff_publish=1` +
+`pong_gpu_dcvs=1`，共 30 项 606 字节，在 607 字节上限内；再加 `applog=1` 会超限。
+该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`。尚未上机。
 
 ### `pong_handoff_publish`
 

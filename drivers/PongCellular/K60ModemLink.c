@@ -133,7 +133,11 @@ extern void delay(int microseconds);
 #define K60_QRTR_INTENT_SIZE     0x4400u
 #define K60_QRTR_INTENT_COUNT    4u
 #define K60_QRTR_POLL_US         2000
-#define K60_QRTR_POLLS           5000   /* ten seconds of polling at most */
+#define K60_QRTR_POLLS           5000   /* ten seconds of verdict polling */
+/* The modem firmware boots asynchronously after AUTH_AND_RESET. Pong keeps a
+ * worker polling until it is ready; a single boot has only this window, so
+ * allow thirty seconds before declaring the modem absent. */
+#define K60_QRTR_READY_POLLS     15000  /* thirty seconds of readiness polling */
 
 static QcomGlink k60_qrtr_link;
 static QcomGlinkChannel *k60_qrtr_channel;
@@ -1123,7 +1127,7 @@ k60_modem_qrtr_probe(void)
 			return -1;
 		}
 	}
-	for (i = 0; i < K60_QRTR_POLLS; i++) {
+	for (i = 0; i < K60_QRTR_READY_POLLS; i++) {
 		if (sizes[2] == 0) {
 			(void)k60_smem_find(&smem, &partition, (uint16_t)items[2],
 			    &offsets[2], &sizes[2]);
@@ -1137,14 +1141,14 @@ k60_modem_qrtr_probe(void)
 		}
 		delay(K60_QRTR_POLL_US);
 	}
-	if (i == K60_QRTR_POLLS) {
+	if (i == K60_QRTR_READY_POLLS) {
 		printf("K60MODEM qrtr: modem not ready after %u ms (smp2p items=%u)\n",
-		    K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u, seen);
+		    K60_QRTR_READY_POLLS * K60_QRTR_POLL_US / 1000u, seen);
 		return -2;
 	}
 	if (sizes[2] == 0) {
 		printf("K60MODEM qrtr: remote glink fifo item %u missing after %u ms\n",
-		    items[2], K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u);
+		    items[2], K60_QRTR_READY_POLLS * K60_QRTR_POLL_US / 1000u);
 		return -2;
 	}
 	printf("K60MODEM qrtr: glink desc=%#x/%u ours=%#x/%u theirs=%#x/%u\n",

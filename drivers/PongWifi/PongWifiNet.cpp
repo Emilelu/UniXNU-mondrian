@@ -772,9 +772,11 @@ OSDefineMetaClassAndStructors(IONetworkStackUserClient, IOUserClient);
 class IONetworkStack : public IOService {
   OSDeclareDefaultStructors(IONetworkStack);
  public:
-  IOReturn newUserClient(task_t task, void *security, UInt32 type, OSDictionary *, IOUserClient **handler) APPLE_KEXT_OVERRIDE {
+  IOReturn newUserClient(task_t task, void *security, UInt32 type, OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE {
     IONetworkStackUserClient *client = OSTypeAlloc(IONetworkStackUserClient);
-    if (!client || !client->initWithTask(task, security, type)) { OSSafeReleaseNULL(client); return kIOReturnNoMemory; }
+    // The 3-argument overload skips IORegistryEntry::init() when getPropertyTable()
+    // already reports the global fallback, leaving fRegistryTable null for attach().
+    if (!client || !client->initWithTask(task, security, type, properties)) { OSSafeReleaseNULL(client); return kIOReturnNoMemory; }
     if (!client->attach(this)) { client->release(); return kIOReturnError; }
     if (!client->start(this)) { client->detach(this); client->release(); return kIOReturnError; }
     log(6, "wifi-net: the network stack was opened (type %u)", static_cast<unsigned>(type));

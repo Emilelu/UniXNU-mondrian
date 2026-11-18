@@ -21,6 +21,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 BUILDER = ROOT / "scripts" / "build-k60-ath11k.py"
 PLATFORM = ROOT / "drivers" / "PongWifi" / "PongWifiPlatform.cpp"
+NET = ROOT / "drivers" / "PongWifi" / "PongWifiNet.cpp"
 FAILS = []
 
 
@@ -106,6 +107,11 @@ def main() -> int:
     check("association test directs a rescan at an absent target",
           '"PongWifi: association rescan %u directed' in platform and
           "nw_wifi_scan(kWifiTestSsid,kWifiTestSsidBytes);" in platform)
+
+    net = NET.read_text(encoding="utf-8")
+    check("network stack user client initializes through the 4-argument overload",
+          "initWithTask(task, security, type, properties)" in net and
+          "initWithTask(task, security, type))" not in net)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors

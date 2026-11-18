@@ -145,7 +145,7 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 | Phase | Work | Exit |
 | --- | --- | --- |
 | F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | `RESULT OK arm64e-capable at EL1`; otherwise the branch stops |
-| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | kernel and payload are arm64e 4 KiB; `scripts/check-ios27-granules.sh` passes |
+| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS` (built on Linux 2026-11-18; the sha is in `porting.toml`); `scripts/check-ios27-granules.sh` passes; the payload is still to build |
 | F2 | `XnuPrelink` against the 24A446 fixture, after rebuilding the LTO reference with Xcode 26 | `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI + `./unixnu userdata --os 27` | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |

@@ -257,27 +257,47 @@ void freeze_scan_list() {
     while (at && gSnap[at - 1].signal_dbm < b.signal_dbm) { gSnap[at] = gSnap[at - 1]; at--; }
     gSnap[at] = b; gSnapCount++;
   }
-  // The daemon's list holds an unrelated 5 GHz network but not this access point's 5 GHz record, so either the
-  // name (iOS guesses a 5 GHz twin of a 2.4 GHz SSID) or a field of the record is the filter. Serving a copy of
-  // this record under an unrelated name separates the two on one screen. Test-branch experiment only.
+  // mission24 proved the daemon drops this record whatever it is called and whatever its BSSID prefix: both
+  // copies were served at positions 2 and 3, the daemon read every record of the sweep, and neither appeared in
+  // its list. So a field of the record is the filter. The next image serves five probes built from a record the
+  // daemon does keep (the carrier) and this access point's record (the target): if replacing the carrier's
+  // elements with ours drops it, the elements are the cause; if replacing our elements with the carrier's brings
+  // the target back, the same is proven from the other side. Capability is probed the same way. Test branch only.
+  int ti = -1, ci = -1;
   for (unsigned i = 0; i < gSnapCount; i++) {
     const nw_bss_info &b = gSnap[i];
-    if (b.freq_mhz < 3000 || b.ssid_len < 2 || gSnapCount + 2 > 64) continue;
-    // Both copies go right after the strongest record: the daemon reads in order and only the first six 5 GHz
-    // records have their encoded words logged, so copies left at the tail keep the experiment unobservable.
-    static const char nmA[] = "K60SYNTH", nmB[] = "K60SYNTH2";
-    nw_bss_info a = b, c = b;
-    a.ssid_len = sizeof nmA - 1; memset(a.ssid, 0, sizeof a.ssid); memcpy(a.ssid, nmA, a.ssid_len);
-    a.bssid[5] = static_cast<uint8_t>(a.bssid[5] ^ 0x40);   // same first five bytes as the access point
-    c.ssid_len = sizeof nmB - 1; memset(c.ssid, 0, sizeof c.ssid); memcpy(c.ssid, nmB, c.ssid_len);
-    c.bssid[0] = static_cast<uint8_t>(c.bssid[0] ^ 0x02);   // a different OUI, so a prefix-keyed merge cannot match
-    if (gSnapCount > 1) memmove(&gSnap[3], &gSnap[1], (gSnapCount - 1) * sizeof gSnap[0]);
-    gSnap[1] = a; gSnap[2] = c; gSnapCount += 2;
-    log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
-        nmA, b.freq_mhz, a.bssid[0], a.bssid[1], a.bssid[2], a.bssid[3], a.bssid[4], a.bssid[5]);
-    log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
-        nmB, b.freq_mhz, c.bssid[0], c.bssid[1], c.bssid[2], c.bssid[3], c.bssid[4], c.bssid[5]);
-    break;
+    if (b.freq_mhz < 3000 || b.ssid_len < 2) continue;
+    if (ti < 0 && b.ssid_len >= 7 && !memcmp(b.ssid, "Emilelu", 7)) { ti = static_cast<int>(i); continue; }
+    if (ci < 0 && (b.caps & 0x0001)) ci = static_cast<int>(i);
+  }
+  if (ci >= 0) {   // prefer a carrier the daemon has already listed: CMCC8888 came from the mission22 log
+    for (unsigned i = 0; i < gSnapCount; i++) {
+      const nw_bss_info &b = gSnap[i];
+      if (b.freq_mhz >= 3000 && b.ssid_len >= 8 && !memcmp(b.ssid, "CMCC8888", 8)) { ci = static_cast<int>(i); break; }
+    }
+  }
+  if (ti >= 0 && ci >= 0 && gSnapCount + 5 <= 64) {
+    const nw_bss_info t = gSnap[ti], c = gSnap[ci];
+    static const char *const nm[5] = { "K60A", "K60B", "K60C", "K60D", "K60E" };
+    static const char *const base[5] = { "carrier", "carrier", "carrier", "target", "target" };
+    static const char *const what[5] = { "nothing", "our elements", "our capability", "carrier elements", "carrier capability" };
+    nw_bss_info pr[5];
+    pr[0] = c;
+    pr[1] = c; pr[1].ie_len = t.ie_len; if (t.ie_len) memcpy(pr[1].ie, t.ie, t.ie_len);
+    pr[2] = c; pr[2].caps = t.caps; pr[2].beacon_int = t.beacon_int;
+    pr[3] = t; pr[3].ie_len = c.ie_len; if (c.ie_len) memcpy(pr[3].ie, c.ie, c.ie_len);
+    pr[4] = t; pr[4].caps = c.caps; pr[4].beacon_int = c.beacon_int;
+    memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);
+    for (int k = 0; k < 5; k++) {
+      nw_bss_info &q = pr[k];
+      q.ssid_len = 4;   // every probe name is four characters
+      memset(q.ssid, 0, sizeof q.ssid); memcpy(q.ssid, nm[k], 4);
+      q.bssid[5] = static_cast<uint8_t>(q.bssid[5] ^ (0x40 + k));
+      gSnap[k] = q; gSnapCount++;
+      log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
+          nm[k], q.freq_mhz, q.bssid[0], q.bssid[1], q.bssid[2], q.bssid[3], q.bssid[4], q.bssid[5]);
+      log(6, "wifi-net: probe %s = %s + %s (ie %u cap %04x)", nm[k], base[k], what[k], q.ie_len, q.caps);
+    }
   }
 }
 // The scan list counted by band. The Settings pane builds its list from these records, so a band that is
@@ -335,9 +355,12 @@ void log_scan_table() {
         b.bssid[4], b.bssid[5], ids);
     if (rsn >= 8) {
       const uint8_t *r = b.ie + rsn_at + 2;
-      log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x",
-          b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4], b.bssid[5], r[0], r[1], r[2], r[3], r[4], r[5],
-          r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]);
+      char rh[80]; unsigned ro = 0; rh[0] = 0;
+      const unsigned rn = rsn < 24 ? rsn : 24;
+      for (unsigned x = 0; x < rn && ro + 3 < sizeof rh; x++)
+        ro += static_cast<unsigned>(snprintf(rh + ro, sizeof rh - ro, "%02x", r[x]));
+      log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %u bytes %s",
+          b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4], b.bssid[5], rsn, rh);
     }
   }
 }

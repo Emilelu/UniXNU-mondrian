@@ -300,13 +300,16 @@ def main() -> int:
     check("a scan record prints its element ids and RSN bytes",
           'log(6, "wifi-net: ie-list %02x:%02x:%02x:%02x:%02x:%02x %s"' in net and
           'snprintf(ids + at, sizeof ids - at, "%s%u/%u"' in net and
-          'log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"' in net)
-    check("two synthetic copies of the 5 GHz record are served from the front of the list",
-          'static const char nmA[] = "K60SYNTH", nmB[] = "K60SYNTH2";' in net and
-          "a.bssid[5] = static_cast<uint8_t>(a.bssid[5] ^ 0x40);" in net and
-          "c.bssid[0] = static_cast<uint8_t>(c.bssid[0] ^ 0x02);" in net and
-          "memmove(&gSnap[3], &gSnap[1], (gSnapCount - 1) * sizeof gSnap[0]);" in net and
-          'log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x"' in net)
+          'log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %u bytes %s"' in net and
+          "const unsigned rn = rsn < 24 ? rsn : 24;" in net)
+    check("five probes swap the elements and the capability between the dropped record and a kept one",
+          'static const char *const nm[5] = { "K60A", "K60B", "K60C", "K60D", "K60E" };' in net and
+          "pr[1] = c; pr[1].ie_len = t.ie_len; if (t.ie_len) memcpy(pr[1].ie, t.ie, t.ie_len);" in net and
+          "pr[3] = t; pr[3].ie_len = c.ie_len; if (c.ie_len) memcpy(pr[3].ie, c.ie, c.ie_len);" in net and
+          "pr[2] = c; pr[2].caps = t.caps; pr[2].beacon_int = t.beacon_int;" in net and
+          "pr[4] = t; pr[4].caps = c.caps; pr[4].beacon_int = c.beacon_int;" in net and
+          "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
+          'log(6, "wifi-net: probe %s = %s + %s (ie %u cap %04x)"' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

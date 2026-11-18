@@ -111,6 +111,43 @@ tries=10/result=`-60`、reconnect 后旧应答被吞掉、52 字节 Get 短应�
 4. 通过 boot-arg 默认关闭，接入后再构建新镜像；上机前先确认 `K60Battmgr` 的
    epoch/超时语义不被认证请求破坏。
 
+### 6.1 队列接线的具体约束（2026-11-18 19:10 代码复核）
+
+这一节只记录接线前必须处理的约束，不表示已经接线。
+
+- **没有注入 52 字节请求的接口**：`K60Battmgr.h` 只暴露
+  `k60_battmgr_next`（24/28 字节）、`k60_battmgr_sent`、`k60_battmgr_receive`、
+  `k60_battmgr_timeout`。认证状态机不能借用 `k60_battmgr_next` 的槽位，必须在
+  `K60Battery` 里单独维护 `authFlight` 和 52 字节的 `authRequest`。
+- **发送失败不能重新 `next`**：`k60_charge_auth_next` 在构造请求时就置
+  `pending=1`（`K60ChargeAuth.c:48-55`）。若 `transport.send` 返回
+  `QcomGlinkAgain`，再次调用 `next` 只会得到 0；必须保留原 52 字节缓冲重发，
+  或给状态机补一个“未发送/可重发”的状态。
+- **pump 的优先级**：`K60Battery::pump`（`K60Battery.cpp:327-342`）现在先检查
+  `manager.flight`/`manager.poisoned`。接线后应先检查 `authFlight`，再让认证
+  请求在 manager 空闲时优先发送；manager 的 `flight` 语义不能被认证请求改写。
+- **接收与超时必须分流**：`receive`（`:360-381`）只调用
+  `k60_battmgr_receive`，`requestAction`（`:407-418`）只处理
+  `manager.flight` 并调用 `k60_battmgr_timeout`（会毒化 epoch）。认证在途时应走
+  `k60_charge_auth_receive`/`k60_charge_auth_timeout`，不能毒化电池 manager 的
+  epoch；真正断链时再统一走 `k60_battmgr_channel_down` 和
+  `k60_charge_auth_reconnect`。
+- **定时器粒度不一致**：`K60Battery` 的请求超时是 3000 ms（`kRequestMs`，
+  `:25`），而认证的 VDM state 截止是 2000 ms、HostRole 截止是 5000 ms。
+  认证不能只靠 `requestTimer` 判超时；`pollAction` 每 20 ms 调用 `pump` 时也要
+  让状态机检查自己的 `due_ms`/`deadline_ms`。
+- **PD 判定缺少字段**：`k60_charge_auth_observe` 只把 USB type 6/7/8 当作 PD；
+  K60 的 `K60BatterySample` 只有 `adapter_type`（property 7），
+  `K60Battmgr` 没有请求 USB type 6。直接拿 `adapter_type` 顶替会把“适配器类型”
+  当成“线缆类型”；新增 property 6 又可能因固件不应答而毒化 epoch。接线前必须先
+  做产品决策：找 UCSI/TypeC 路径，或明确只认证电量计并跳过适配器 HostRole。
+- **crypto 适配层可行但未写**：XNU 已有 `<libkern/crypto/sha2.h>`
+  （`NativeRamBlock.cpp:12`、`PongUfsTransport.cpp:22` 已用），sheng 的
+  `chargeRandom` 用 `read_random`，`chargeHmac` 用 SHA-256 加 0x36/0x5c
+  的 HMAC 构造。接线条目里应先用 host 已知向量验证 HMAC，再接内核回调。
+- **默认关闭**：即使接线完成，也应先用独立 boot-arg 默认关闭；首次上机只观察
+  认证请求/应答计数，不把认证结果当作充电许可。
+
 ## 7. 参考
 
 - 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:82-88`、`:81`。

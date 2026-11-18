@@ -245,9 +245,63 @@ passed MHI/QMI/102 channels/en0/scan, but the association test did not run: ther
 `PongWifi: association test RUNNING`, no `WiFi association test SKIP`/`FAIL`, no
 DHCP line and no IPv4 address. `:728` has the station ready, `:817` has scan 1
 finished with 12 networks, but `:730/:874/:892/:992` say
-`wifi-net: en0 address none, packets in 0 out 0`. The likely cause is
-`PongWifiPlatform.cpp:603` requiring `NW_STA_IDLE` while the completed scan leaves
-the station in `NW_STA_SCANNING` (runtime state 1 at `:873/:891/:991`); mission6
-changes that gate to accept both states. Mission5 is not a valid association result and
-must not be re-flown. A pass would prove association, DHCP/IPv4 and RX/TX only;
-HTTPS/webpage remains a separate userland check.
+`wifi-net: en0 address none, packets in 0 out 0`. The runtime state at
+`:873/:891/:991` is 1, which `nw_abi.h:54` defines as `NW_STA_IDLE`, not
+`NW_STA_SCANNING`; the earlier "scan state gate" explanation was therefore wrong, and
+the gate was satisfied. Mission5 is not a valid association result and must not be
+re-flown. A pass would prove association, DHCP/IPv4 and RX/TX only; HTTPS/webpage remains
+a separate userland check.
+
+## 7. Mission6: the state gate did not explain the absence
+
+Mission6 changed the gate to
+`if(!attempted&&(st.state==NW_STA_IDLE||st.state==NW_STA_SCANNING))` anyway, to rule the
+state check out; the enum correction above shows this was not the root cause. The
+byte-neutral `pong_wifi=2` trigger and the private fixture were unchanged.
+
+| field | value |
+|---|---|
+| tag | `wifi-20261118sbl-mission6` |
+| built_at | 2026-11-18T10:57:39+08:00 |
+| branch / head | `fix/wifi-mission-timeout` / `8bc687f895f12e07cd03ff5231df4b1d9e99ca9c` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission6/boot.img`, 201,887,744 B, SHA256 `78b7ac33069739b208d511040321d6a80db085d63c05b15b94885beb7cd426b2` |
+| kernel | `3fe49e5119c17390c013dad20713ac7fcbcbc1101074536a3634b9778ce151c2` |
+| payload kernel | `227272abfda42afa705b426df7720c73499d7f2df82b3b09ac34a881176a78e3` |
+| ADT | `e17cdc8c0bd4dfdf9b3976f5cd7f426b11000536f78741dbb182d57cd1974737` |
+| WiFi archive | `abaed3b7ebb4f6ca9ba34540347bad8f6115b801f4e5a9bf26299d30069071cd` |
+| ath11k archive | `a3793b0c3f587b20d148f04938436b96aaa18ccc41f78c087d77cdd487f2b120` |
+| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission6/build-manifest.json` |
+| args | 31 / 602 bytes, ending `pong_wifi=2 k60_wifi_rsc=2` |
+
+Source commit `75e5e842` changed the gate; test commit `8bc687f8` pins the scan-state gate
+and the `pong_wifi=2` parse in `scripts/tests/test-wifi-sbl-mission.py` (31 checks pass
+against the mission6 build tree). Offline checks: `build-strict` eight-step 36 checks
+passed, `image-arg-audit: OK (31 arguments, 602 bytes)`, `verify-boot-image: OK`; the
+mission6 judge is the mission5 18-check script with positive/negative controls.
+
+The image was flown once on 2026-11-18 11:01:47. The console
+`E:/k60-work/evidence/usblog-20261118-110147/console.log` (88,387 B, 1,466 lines,
+SHA256 `CF4DF6ADB2509EB0D5B2DF5BAAA66F05CAE0FB5FF76E40BA731941A90D40A9D5`)
+passed MHI/QMI/102 channels/en0/scan: `:666` cached ee=2, `:670` powered up ee=2
+state=2, `:680` chip_id 0x12, `:682` fw_version 0x20070039, `:699` 102 channels,
+`:703` scan 42 channels, `:707` en0 up `00:03:7f:12:b9:88`, `:773` scan 1 finished
+14 networks. It still has no association RUNNING/SKIP/FAIL, no DHCP line and no IPv4
+address; `:872/:891/:908` show BSS=20 but state=1. The 18-check judge passes 11 checks
+and fails association request/PASS, en0 address, DHCP in/out and RX/TX. A kernel data
+abort panic at `:1420` (pc=0xfffffff0084218c4 lr=0xfffffff008425b84 esr=0x96000005
+far=0x0) follows SpringBoard and may cut the 60 s deadline; it is not obviously
+WiFi-related. Mission6 must not be re-flown; its one-shot marker exists.
+
+## 8. Mission7: probe the association hook
+
+Mission7 removes the remaining ambiguity before another flight. The private fixture,
+rather than a particular `pong_wifi` number, enables the test; an unconditional
+`PongWifi: association probe: ... pong_wifi_test=<found>/<value> pong_wifi=<found>/<value>
+fixture=<ssid bytes>/<key bytes> state=<state>` line records what the kernel actually
+parsed. If no scanned BSS matches the fixture, it logs the target length and FNV-1a hash
+plus one `bss[i] len=... hash=... freq=...` line per scan result, so the next flight can
+distinguish "test disabled" from "target not visible" without printing SSIDs or keys.
+It also tolerates a driver-reported trailing NUL in `ssid_len`. Source shape is pinned by
+`scripts/tests/test-wifi-sbl-mission.py`; the images are built with the same private
+WPA2 fixture and 602-byte args, and no credential ever enters the repository, the console
+or the boot arguments.

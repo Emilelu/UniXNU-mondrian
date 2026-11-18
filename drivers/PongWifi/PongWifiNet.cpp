@@ -273,9 +273,14 @@ void log_scan_table() {
   if (tables > 3) return;
   for (int i = 0; i < count; i++) {
     nw_bss_info b; if (nw_wifi_bss_get(i, &b)) continue;
-    log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x %.*s",
+    // The 802.11d Country element: wifid tracks the advertised country per network and can reject a network whose
+    // country differs from the local one, so the record dump must show which country each record carries.
+    char cc[3] = { '-', '-', 0 };
+    for (unsigned o = 0; o + 4 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1])
+      if (b.ie[o] == 7 && b.ie[o + 1] >= 2) { cc[0] = static_cast<char>(b.ie[o + 2]); cc[1] = static_cast<char>(b.ie[o + 3]); break; }
+    log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x cc %c%c %.*s",
         i, count, b.freq_mhz, b.signal_dbm, b.age_ms, b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4],
-        b.bssid[5], b.ie_len, b.caps, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+        b.bssid[5], b.ie_len, b.caps, cc[0], cc[1], b.ssid_len, reinterpret_cast<const char *>(b.ssid));
   }
 }
 void on_scan_done() {

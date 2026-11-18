@@ -270,7 +270,8 @@ def main() -> int:
           'log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);' in net and
           net.index("log_scan_table();") < net.index("pong_wifi_notification event={NotifyScan"))
     check("the first scans list every record with its age and BSSID",
-          'log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x %.*s"' in net and
+          'log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x cc %c%c %.*s"' in net and
+          "if (b.ie[o] == 7 && b.ie[o + 1] >= 2) { cc[0]" in net and
           "if (tables > 3) return;" in net)
     check("the scan log says how many records the daemon read",
           "unsigned gScanCursor, gScanning, gScanServed;" in net and

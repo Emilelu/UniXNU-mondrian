@@ -15,6 +15,8 @@
  * down steps inside a bounded window, then restores the original votes, and 8
  * does the same in both directions, and 9 measures why the big clusters
  * ignore the vote by setting the dcvs control bit and writing every core row.
+ * Touch and frame activity re-arm a short window (1 s and 300 ms) so the
+ * section 5 :115-:116 holds can reach the registers after boot.
  * Raises are safe to place because the EPSS
  * firmware owns the CPU rail and performs the voltage transition itself: the
  * reference CpuFreqProbe.cpp, the file the official page points at for the
@@ -379,6 +381,12 @@ constexpr unsigned kApplyArmWindow = 625;
 constexpr unsigned kApplySpanWindows = 625;
 constexpr unsigned kApplyLatestEndWindow = 6250;
 constexpr unsigned kApplyMaxVotes = 32;
+/* Official section 5 :115 holds the performance cluster for one second after
+ * a touch; section 5 :116 holds the CPU floor for 300 ms after a frame. Both
+ * windows are re-armed by their own signal, not only by the boot-time down
+ * step, so a touch after SpringBoard can reach the hardware too. */
+constexpr unsigned kTouchSpanWindows = 63;
+constexpr unsigned kFrameSpanWindows = 19;
 
 /* Votes written by modes 7 and 8 for one domain, kept so the stop path can put
  * the registers back the way the firmware left them. */
@@ -438,9 +446,10 @@ void samplerThread(void *, wait_result_t)
     bool raiseLogged[K60_CPU_FREQ_DOMAINS] = {};
     unsigned votedIndex[K60_CPU_FREQ_DOMAINS] = {};
     unsigned appliedVotes = 0;
-    bool restored = false;
+    bool deviationArmed = false;
     bool armed = false;
     uint64_t applyStart = 0;
+    uint64_t applySpan = kApplySpanWindows;
     unsigned applyMode = sSampleApply;
     bool apply = applyMode != 0;
     bool allowRaise = applyMode >= 8;
@@ -572,19 +581,31 @@ void samplerThread(void *, wait_result_t)
                     applyMode, domain, state, tables[domain].level[index]);
             }
         }
-        if (apply && !armed && window >= kApplyArmWindow) {
+        if (apply && !armed && !deviationArmed && window >= kApplyArmWindow) {
             for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
                 if (!ready[domain] || !applyReady[domain]) continue;
                 if (applyMode < 8) {
                     if (gov.current[domain] >= votedIndex[domain]) continue;
                 } else if (gov.current[domain] == votedIndex[domain]) continue;
                 armed = true;
+                deviationArmed = true;
                 applyStart = window;
+                applySpan = kApplySpanWindows;
                 IOLog("K60CpuFreq: mode%u armed win=%llu d%u level=%u\n",
                     applyMode, static_cast<unsigned long long>(window), domain,
                     tables[domain].level[gov.current[domain]]);
                 break;
             }
+        }
+        if (apply && !armed && (touchActive || frameActive) &&
+            appliedVotes < kApplyMaxVotes) {
+            armed = true;
+            applyStart = window;
+            applySpan = touchActive ? kTouchSpanWindows : kFrameSpanWindows;
+            IOLog("K60CpuFreq: mode%u %s window win=%llu span=%llu\n", applyMode,
+                touchActive ? "touch" : "frame",
+                static_cast<unsigned long long>(window),
+                static_cast<unsigned long long>(applySpan));
         }
         if (apply) {
             for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
@@ -594,7 +615,7 @@ void samplerThread(void *, wait_result_t)
                 unsigned n, i;
                 bool ok;
 
-                if (!ready[domain] || !applyReady[domain] || restored) continue;
+                if (!ready[domain] || !applyReady[domain]) continue;
                 if (gov.current[domain] > votedIndex[domain] && !allowRaise) {
                     /* Mode 7 keeps the mode-6 rule: no raise is written. */
                     gov.current[domain] = votedIndex[domain];
@@ -606,7 +627,7 @@ void samplerThread(void *, wait_result_t)
                     continue;
                 }
                 if (gov.current[domain] == votedIndex[domain]) continue;
-                if (!armed || window < applyStart || window > applyStart + kApplySpanWindows ||
+                if (!armed || window < applyStart || window > applyStart + applySpan ||
                     window > kApplyLatestEndWindow || appliedVotes >= kApplyMaxVotes) continue;
                 n = k60_cpufreq_build_votes(domain,
                     rd32(windows[domain].va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u,
@@ -646,12 +667,12 @@ void samplerThread(void *, wait_result_t)
                     votedIndex[domain] = gov.current[domain];
                 }
             }
-            if (!restored && armed && (window >= applyStart + kApplySpanWindows ||
+            if (armed && (window >= applyStart + applySpan ||
                     window >= kApplyLatestEndWindow || appliedVotes >= kApplyMaxVotes)) {
                 unsigned domains = restoreApplied(windows, applied);
                 IOLog("K60CpuFreq: mode%u restore domains=%u votes=%u\n",
                     applyMode, domains, appliedVotes);
-                restored = true;
+                armed = false;
             }
         }
         if ((window % kSampleLogWindows) == 0) {
@@ -668,7 +689,7 @@ void samplerThread(void *, wait_result_t)
                 touchActive);
         }
     }
-    if (apply && !restored) {
+    if (apply) {
         unsigned domains = restoreApplied(windows, applied);
         IOLog("K60CpuFreq: mode%u restore domains=%u votes=%u\n",
             applyMode, domains, appliedVotes);

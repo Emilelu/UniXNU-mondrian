@@ -272,12 +272,16 @@ void probeAll(bool dump)
 constexpr unsigned kSampleSleepMs = 16;
 constexpr unsigned kSampleLogWindows = 64;
 
-/* Mode 7 only: the first ten seconds are read-only because the boot burst
- * pins every domain at the top, then at most kApplyMaxVotes down steps are
- * applied until twenty seconds, where every written vote is restored. The
- * bound keeps an unattended run from holding a low vote for the whole boot. */
-constexpr unsigned kApplyStartWindow = 625;
-constexpr unsigned kApplyEndWindow = 1250;
+/* Mode 7 only: the thread waits for the first window where the governor has
+ * already stepped a domain below the level it started from (the boot burst
+ * pins every domain at the top for the first minute, so a fixed time window
+ * would miss the drop), then applies down steps for kApplySpanWindows and
+ * restores. kApplyLatestEndWindow bounds the whole experiment at 100 s even
+ * if the device never goes idle. The bound keeps an unattended run from
+ * holding a low vote for the whole boot. */
+constexpr unsigned kApplyArmWindow = 625;
+constexpr unsigned kApplySpanWindows = 625;
+constexpr unsigned kApplyLatestEndWindow = 6250;
 constexpr unsigned kApplyMaxVotes = 16;
 
 /* Votes written by mode 7 for one domain, kept so the stop path can put the
@@ -340,6 +344,8 @@ void samplerThread(void *, wait_result_t)
     unsigned dcvsCtrl[K60_CPU_FREQ_DOMAINS] = {};
     unsigned appliedVotes = 0;
     bool restored = false;
+    bool armed = false;
+    uint64_t applyStart = 0;
     bool apply = sSampleApply != 0;
     uint32_t previous[K60_CPU_FREQ_CPUS][K60_CPU_FREQ_STATES] = {};
     uint64_t idle[K60_CPU_FREQ_CPUS] = {}, elapsed[K60_CPU_FREQ_CPUS] = {};
@@ -409,6 +415,18 @@ void samplerThread(void *, wait_result_t)
             (void)k60_cpufreq_governor_window(&gov, &tables[domain], domain,
                 busy[domain], 0, 0);
         }
+        if (apply && !armed && window >= kApplyArmWindow) {
+            for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+                if (!ready[domain] || !applyReady[domain]) continue;
+                if (gov.current[domain] >= votedIndex[domain]) continue;
+                armed = true;
+                applyStart = window;
+                IOLog("K60CpuFreq: mode7 armed win=%llu d%u level=%u\n",
+                    static_cast<unsigned long long>(window), domain,
+                    tables[domain].level[gov.current[domain]]);
+                break;
+            }
+        }
         if (apply) {
             for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
                 K60CpuFreqWrite set[K60_CPU_FREQ_MAX_WRITES] = {};
@@ -429,8 +447,8 @@ void samplerThread(void *, wait_result_t)
                     continue;
                 }
                 if (gov.current[domain] == votedIndex[domain]) continue;
-                if (window < kApplyStartWindow || window > kApplyEndWindow ||
-                    appliedVotes >= kApplyMaxVotes) continue;
+                if (!armed || window < applyStart || window > applyStart + kApplySpanWindows ||
+                    window > kApplyLatestEndWindow || appliedVotes >= kApplyMaxVotes) continue;
                 n = k60_cpufreq_build_votes(domain, dcvsCtrl[domain],
                     tables[domain].level[gov.current[domain]], set, K60_CPU_FREQ_MAX_WRITES);
                 if (!k60_cpufreq_vote_allowed(rd32(windows[domain].va,
@@ -468,7 +486,8 @@ void samplerThread(void *, wait_result_t)
                     votedIndex[domain] = gov.current[domain];
                 }
             }
-            if (!restored && (window >= kApplyEndWindow || appliedVotes >= kApplyMaxVotes)) {
+            if (!restored && armed && (window >= applyStart + kApplySpanWindows ||
+                    window >= kApplyLatestEndWindow || appliedVotes >= kApplyMaxVotes)) {
                 unsigned domains = restoreApplied(windows, applied);
                 IOLog("K60CpuFreq: mode7 restore domains=%u votes=%u\n", domains, appliedVotes);
                 restored = true;

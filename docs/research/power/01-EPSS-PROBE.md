@@ -77,6 +77,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 | `c39bf8ec` `feat(power): add the EPSS governor window core` | `K60CpuFreqGovernor` 状态与单窗口决策 |
 | `4a510725` `test(power): drive the governor window sequence` | 降档闩锁/立即升档/boost 释放/错误入参 |
 | `950742e9` `feat(power): add a late EPSS read after battery start` | 电池 `begin` 成功后 5 s 再读一次（仍只读、仍受 `k60_cpufreq=1` 限制） |
+| `eba8de2a` `feat(power): dump the EPSS look-up table rows` | mode 1 早期读取逐行打印 raw/kHz/cores/turbo；延后读取只保留摘要，避免重复 51 行 |
 
 `K60CpuFreqPlan`（纯 C，无 MMIO）：
 
@@ -102,9 +103,11 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 - mode 1（只读）：映射三个 domain 窗口与 L3，读 LUT/enable/state/dcvs/vote，
   **不写任何寄存器、不轮询**；每个 domain 打印 `base/enable/state(kHz)/dcvs/vote/rows/top/level`，
-  L3 打印 `vote/rows/top/level`。电池 `begin` 成功后 5 s，`k60_cpufreq_probe_late()`
-  再做一次同样的只读读取（日志 `late read begin/end`），让 d1/d2 在辅核启动后可见；
-  它不是轮询，也不写寄存器。
+  L3 打印 `vote/rows/top/level`。早期读取随后按解析顺序逐行打印
+  `row=<i> raw=0x<...> khz=<...> cores=<...> turbo=<...>`（L3 前缀 `L3 row=`），
+  每域最多 `table.count` 行；电池 `begin` 成功后 5 s，`k60_cpufreq_probe_late()`
+  再做一次只读摘要读取（日志 `late read begin/end`），让 d1/d2 在辅核启动后可见；
+  延后读取不重复逐行 dump。它不是轮询，也不写寄存器。
 - mode 2：只给 domain 0 投最高非 turbo 档（参考的 mode 2 语义）。
 - mode 3：三个 domain 都投最高非 turbo 档，再投 L3（参考的 mode 3 语义）。
 - 大于 3 的值直接打印 "modes 1-3 are implemented" 并返回；mode 2/3 从未在真机上执行过。
@@ -119,10 +122,11 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
   dcvs 开/关的写条数、缓冲区不足拒绝，以及 governor 的单窗口序列（降档闩锁、立即升档、
   boost 释放后的半速地板、错误入参），以及空闲换算（满忙/半忙/全闲/超计/零窗口）
-  和 4/3/1 域的“最忙 CPU”选择。LUT 行是合成的；真机表尚未读，因此断言的是算术而不是实测频率。
-- archive：`build/k60-battery/libK60PhysicalBattery.a` **125,320 字节**，
-  sha256 `6d66b6b84b4081b2b0cad3bba2a57ac8fb5204b8c9978b741bdb33c1fef65ed1`；
-  `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x580）、
+  和 4/3/1 域的“最忙 CPU”选择。断言使用合成的 LUT 行；真机的行数与最高档已在
+  image i/j 读到，逐行 raw 读取要等 image k。
+- archive（含逐行 dump，commit `eba8de2a`）：`build/k60-battery/libK60PhysicalBattery.a`
+  **126,120 字节**，sha256 `1cb583979b0d435142c5a033816f93f63842af6874000409659d4fc0ea609bd4`；
+  `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
   `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy` 等 cpufreq 符号。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
@@ -213,6 +217,20 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   1,555,200 kHz）与 `vote=11`、L3 `vote=13` 是第一批真机 EPSS 读数；d0/d1/d2 的
   `rows` 14/17/20 与 `top` 1,804,800/2,496,000/2,995,200 kHz 正好对应 K60 的 4/3/1 核
   SM8475 频率上限。本轮没有写任何寄存器，mode 2/3 未执行。
+- 镜像 k 链接验证（**离线构建**，含逐行 LUT dump；2026-11-18 18:18）：
+  `E:/k60-work/artifacts/power-conformance-20261118k/boot.img` 201,887,744 字节，
+  sha256 `74e66779201fa61bd9038ddd3ae3e8f89a52de82576d43839a05779b27612f0b`；
+  kernel.macho `6399b94e5f2cb81527917c5f2acbf6eb4993b93a943d82f958ca6567eaa19b10`，
+  payload `89bfbb30ff57f1513484491d067c70fd7851d564a40f4b16d774d70ff6f381d3`。
+  `verify-boot-img-payload.py`（carrier FD `cf4485712c29…`）OK：payload @ 557056、
+  201,326,592 字节；payload 内 kernel probe-patched `3e124cb383572e91…`，payload.json
+  记录 pre-patch `6399b94e…`；ADT `53ff51130bc81504…`，DTB `2d044eaa08b7e58c…`。
+  payload 字符串含 `K60CpuFreq: %srow=%u raw=0x%08x khz=%u cores=%u turbo=%u` 1 次、
+  `late read begin/end` 各 1 次。首次整镜像构建在 payload 步骤被拒：
+  `kernel command line is 612 bytes; DarwinBoot accepts at most 607`，原因是
+  `applog=1` 已恢复；随后临时去掉 `applog=1` 只重跑 payload/bootimg，参数为 30 个、603 字节，
+  gate 仍因 `k60_cpufreq` 不在 `ALLOWED_ADDITIONS` 且 board 的 `applog=1` 缺失而 REFUSED；
+  构建结束后 `applog=1` 已恢复。`boot.json` 的 `hardware_tested` 仍为 `false`，尚未上机。
 
 ## 7. 未实现 / 边界
 
@@ -224,9 +242,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   没有触摸/帧信号输入、没有 10 s 统计窗口；核心还没有被任何代码调用。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。
-- 真机已有两次 mode 1 快照：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
+- 真机已有两次 mode 1 摘要快照：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
   已变为 `enable=1`（state 633.6/787.2 MHz、vote 16/19），所以三域均可读，早期 0 只是时序。
-  仍只读了行数与最高档，没有逐行 dump LUT；没有负载下频率、温度或 throttle 读数。
+  逐行 LUT dump 已加入 mode 1（commit `eba8de2a`），但尚未在真机上读取；没有负载下频率、
+  温度或 throttle 读数。
 
 ## 8. 后续上机步骤
 

@@ -4,7 +4,7 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 591 字节，余 17。
+**硬限制：DarwinBoot 命令行可用 607 字节**（`CommandLine[608]` 末位保留，含空格分隔）。`board.toml` 当前 29 项 575 字节，余 32；2026-11-18 的 EPSS 探针镜像实测 30 项 603 字节，余 4。
 
 ## 一览
 
@@ -33,6 +33,7 @@
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
+| `k60_charge_auth` | 电源 / 充电 | 0/1 | 0（关闭） | 认证只提供身份证据，不授予充电权限；release 29 项 575 B 可容纳（593 B），EPSS 探针 30 项 603 B 再加会到 621 B（超 14） |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
 | `k60_usblog` | 调试 | 0/1/2 | 代码默认 | `0300-k60-usblog-ep0.patch` USB 日志级别 | 刷机时的主要日志通道 |
 | `k60_usbvend` | 调试 / USB | 0/1/2 | 0（= 0409 原样） | `0410-k60-usb-vendor-loopback.patch`：0 = 67 字节两接口 CDC-ACM、无回环；1 = 98 字节复合描述符（IAD + IF2 vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN）+ EP6→EP7 回环；2 = 控制台描述符不变、回环跑 CDC 数据对 EP2→EP3（普通 COM 口可验） | mode 1 的 IF2 主机侧没有驱动，要用 libusb 直接开；mode 2 必须同时开 `k60_usblog`（控制台让位给回环） |
@@ -227,10 +228,10 @@ pong_gpu_scanout=1     -> 只有在 accelerator 已发布之后才应该打开
 ## 字节预算
 
 ```
-上限 608
-当前 30 项 591，余 17
-pong_metal=1        需 13  -> 超限 7
-pong_gpu_scanout=1  需 19  -> 超限 14
+上限 607
+release board.toml 29 项 575，余 32
+2026-11-18 EPSS 探针镜像 30 项 603，余 4
+k60_charge_auth=1   需 18 -> release 593（余 14），探针 621（超 14）
 ```
 
 候选让位项：`k60_selftest_reboot=300`（23 字节，手动测试不需要）。
@@ -275,6 +276,28 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 
 所以 `k60_battery=0` 是彻底关掉，`k60_battery=1`（默认）是"有租约才启动"。
 没有第三个状态 —— 不存在"强制启动"的开关。
+
+### `k60_charge_auth`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（关闭） |
+| 取值 | 0 / 1；任何非 0 都启用 |
+| 来源 | `drivers/PongPower/K60Battery.cpp:566-570`（`PE_parse_boot_argn("k60_charge_auth", &authArg, sizeof(authArg))`，随后 `k60_charge_auth_init` 与 `set_gauges(1)`）|
+| 作用 | 1 = 在 `K60Battery` 的串行 GLINK 队列里运行 PD/PPS/MiPPS 认证状态机；只有当前样本 `usb_connected`、`K60BmUsbAdapter` 有效且 property 7 原始值为 6/7/8 时才启动。认证成功不是充电许可，不写充电器、不改限流。 |
+| 日志 | 状态变化打印 `K60Battery: charge-auth ... state=... online=... pending=...`；超时打印 `quarantining old channel` 并重开通道。 |
+
+**为什么默认关闭**：认证结果还没有在 K60 真机上与充电器 PDO2/UCSI 数据角色对齐；
+`host_ready` 没有设置者，PDO2 有效时 HostRole 等 5 s 后以 `-95` 失败。默认关闭让
+电池发布路径保持原状。
+
+**参数预算**：`k60_charge_auth=1` 是 17 字节，加分隔空格 18 字节。release 的
+`board.toml` 当前 29 项 575 字节，加入后 593，仍在 607 可用上限内；2026-11-18 的 EPSS
+探针镜像实测 30 项 603 字节（去掉 `applog=1`，加了 `k60_cpufreq=1` 与
+`pong_handoff_publish=1`），再加入认证 token 会到 621，**放不进探针镜像**。
+探针镜像必须再移除另一项（如 `k60_selftest_reboot=300`，23 字节）或省掉一个
+探针参数；release 的 `board.toml` 暂不改。
 
 ### `pong_rail_probe`
 

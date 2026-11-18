@@ -2,9 +2,10 @@
 
 日期：2026-11-18。范围：官网 power 页 §4「sheng 的 PD、PPS 和 MiPPS」（快照
 `E:/k60-work/scratch/power-page-20261117.txt:82-88`）。本文记录 **独立的
-`feat/charge-auth` 分支**：协议状态机已移植并通过 host 断言，但还没有接进
-`K60Battery`/`K60Battmgr`，没有 crypto 适配层，没有 UCSI 数据角色路径，也没有上机。
-按用户 2026-11-18 的指示，充电认证单独开分支；上机测试与插拔测试另行安排。
+`feat/charge-auth` 分支**：协议状态机已移植，并以 `k60_charge_auth=0` 默认关闭的
+方式接入 `K60Battery` 的串行请求队列；HMAC-SHA256 与 `read_random` 已接内核回调。
+仍没有 UCSI 数据角色路径，也没有上机。按用户 2026-11-18 的指示，充电认证单独开
+分支；上机测试与插拔测试另行安排。
 
 ## 1. 官方要求
 
@@ -39,6 +40,10 @@
 
 - 提交 `5449a0bf` `feat(power): add the charge authentication port`（2 文件，351 行）。
 - 提交 `ab96b0b5` `test(power): cover the charge authentication flow`（host 测试）。
+- 提交 `c6c0307a` `feat(power): wire charge authentication into the battery queue`
+  （`K60Battery.cpp`、`K60ChargeAuth.c/.h`、`scripts/build-k60-physical-battery.py`）。
+- 提交 `685aecb0` `test(power): cover the charge-auth suspension path`
+  （host 测试扩到 99 项）。
 - 头文件保留 `extern "C"`，源文件只依赖 `<string.h>`，可按 C11 单独编译：
   `cc -Wall -Wextra -Werror -std=c11 -c drivers/PongPower/K60ChargeAuth.c`。
 - 许可证与 sheng 相同：BSD-2-Clause-Patent，`Copyright (c) 2026, UniXNU contributors`。
@@ -77,43 +82,62 @@ uint32_t k60_charge_auth_wait_ms(const K60ChargeAuth *, uint64_t now_ms);
 
 ## 4. 边界
 
-- **没有接线**：`K60Battery.cpp`/`K60Battmgr.c` 不引用 `K60ChargeAuth`，
-  `scripts/build-k60-physical-battery.py` 的源列表也没有这两个文件，因此
-  `build/k60-battery/libK60PhysicalBattery.a` 与 image g/h/i 都不包含它。
-- **没有 crypto 适配层**：`K60ChargeCrypto.random`/`hmac` 必须由板级提供；
-  XNU 有 SHA-256 但本树还没有把 HMAC-SHA256 包成这两个回调，也没有随机源接线。
-- **没有数据角色路径**：K60 树里 grep 不到 UCSI/TypeC 驱动，`host_ready` 没有设置者；
+- **已接线，默认关闭**：`K60Battery` 用独立的 52 字节缓冲与 `authQueued`/`authSent`
+  槽位接入状态机，保持“一次一个未完成请求”；`k60_charge_auth` 默认 0。构建脚本已把
+  `K60ChargeAuth.c` 编进 `build/k60-battery/libK60PhysicalBattery.a`（135,792 B，
+  sha256 `2c0194cd410ee84dee34f92c4e87f278d2a6881776f3d6896a38465b4bef7844`），
+  但该 archive 还没有链进任何镜像。
+- **触发条件**：只有当前样本 `usb_connected`、`K60BmUsbAdapter` 有效且 property 7
+  的原始值为 6/7/8 时才调用 `observe(online=1)`；样本失配或刷新失败会以
+  `observe(0)` 暂停认证并取消排队。属性 6 未请求，不用电压/电流推断 PD。
+- **crypto 已接内核回调**：`K60Battery.cpp` 用 `<libkern/crypto/sha2.h>` 的
+  SHA-256 加 0x36/0x5c 实现 HMAC-SHA256，随机源用 `read_random`；host 测试仍用
+  假 crypto，没有已知向量测试。密钥与种子是协议公开常量，本文不复制密钥值。
+- **没有 UCSI 数据角色**：K60 树里没有 UCSI/TypeC 驱动，`host_ready` 没有设置者；
   若适配器 PDO2 有效，状态机在 HostRole 等 5 s 后以 `-95` 失败。电量计认证仍可完成。
 - **没有充电控制**：不写充电器、不改限流、不做 PD/PPS 合约或温控策略，符合官方 `:81`
   的所有权边界；认证成功只表示“电量计/适配器身份得到确认”，不表示功率协商成功。
-- 密钥与种子是协议公开常量，源文件按 sheng 原样移植；本文不复制密钥值。
+- **超时隔离**：认证请求超时会清空槽位并 `reopen`/关闭当前 GLINK 通道，旧通道的
+  迟到应答不能推进重试；这条路径不调用 `k60_battmgr_timeout`，所以不毒化
+  `K60Battmgr` 的 epoch，但当前订阅和未完成 cycle 会作废，channel-up 后重新订阅。
 
 ## 5. Host 断言
 
-`scripts/tests/test-k60-charge-auth.c`，85 项，0 失败；ASan/UBSan 下同结果：
+`scripts/tests/test-k60-charge-auth.c`，99 项，0 失败；ASan/UBSan 下同结果：
 
 ```sh
 cc -Wall -Wextra -Werror -std=c11 -Idrivers/PongPower \
   scripts/tests/test-k60-charge-auth.c drivers/PongPower/K60ChargeAuth.c -o /tmp/tca
-/tmp/tca   # TESTS OK 85 checks (0 failures)
+/tmp/tca   # TESTS OK 99 checks (0 failures)
 ```
 
-覆盖：单/双电量计 ack、challenge→digest→mark、适配器 SVID/PDO2 分支、9 次重试后
-tries=10/result=`-60`、reconnect 后旧应答被吞掉、52 字节 Get 短应答拒绝 `-61`、
-18 个诊断属性含一个错误后进 Done、错误 property 的应答被忽略。
+覆盖：PD 类型 6/7/8 分类与 5/9 拒绝、单/双电量计 ack、challenge→digest→mark、
+适配器 SVID/PDO2 分支、9 次重试后 tries=10/result=`-60`、reconnect 后旧应答被吞掉、
+52 字节 Get 短应答拒绝 `-61`、18 个诊断属性含一个错误后进 Done、错误 property 的
+应答被忽略、样本失配时暂停并取消排队、认证超时后旧应答不能推进重试。
+host 侧只测状态机；`K60Battery` 的 `reopen`/GLINK 集成没有 host 覆盖。
+
+archive 的未定义符号已与内核导出表对照：310 个导入、141 个本 archive 定义，244 个外部
+符号全部能在 `kernel.macho` 的 22,909 个导出里找到（缺失 0），包括 `_SHA256_Init`/
+`_SHA256_Update`/`_SHA256_Final`、`_read_random`、`_bzero`。这只证明链接输入齐备，
+不是链接测试，也没有上机。
 
 ## 6. 下一步
 
-1. 在 `K60Battmgr` 的串行请求队列里加认证状态机的槽位，保持“一次一个未完成请求”。
-2. 用内核 SHA-256 实现 HMAC-SHA256 与随机源回调，先做 host 对端校验。
-3. 找到 K60 的 TypeC/UCSI 数据角色路径，或在没有该路径时明确只认证电量计、跳过适配器
-   HostRole（需要产品决策）。
-4. 通过 boot-arg 默认关闭，接入后再构建新镜像；上机前先确认 `K60Battmgr` 的
-   epoch/超时语义不被认证请求破坏。
+1. 上机时用 `k60_charge_auth=1` 只观察 `K60Battery: charge-auth` 行，不把认证结果
+   当作充电许可；release board 的 575 B 可容纳这个 18 字节 token，但 2026-11-18
+   的 603 B EPSS 探针镜像会到 621 B（超过 607），探针必须先移除另一项。
+2. 找到 K60 的 TypeC/UCSI 数据角色路径，设置 `host_ready`；否则 PDO2 有效时
+   HostRole 仍会在 5 s 后以 `-95` 失败（需要产品决策）。
+3. 用 host 已知向量校验 `chargeHmac`，再把认证槽位接到真实固件的 PPS/MiPPS 合约；
+   仍然不取得充电控制权。
+4. 真机插拔、PDO2 有效/无效、认证超时与服务重启按用户安排另行测试。
 
-### 6.1 队列接线的具体约束（2026-11-18 19:10 代码复核）
+### 6.1 接线前的约束（历史，2026-11-18 19:10 代码复核）
 
-这一节只记录接线前必须处理的约束，不表示已经接线。
+这一节保留接线前的复核记录，供追溯；其中“没有注入接口”“不能重新 next”
+“pump 优先级”“接收/超时分流”“定时器粒度”“PD 判定缺字段”“crypto 未写”
+“默认关闭”各项已在 `c6c0307a`/`685aecb0` 处理或明确为边界。
 
 - **没有注入 52 字节请求的接口**：`K60Battmgr.h` 只暴露
   `k60_battmgr_next`（24/28 字节）、`k60_battmgr_sent`、`k60_battmgr_receive`、
@@ -148,10 +172,24 @@ tries=10/result=`-60`、reconnect 后旧应答被吞掉、52 字节 Get 短应�
 - **默认关闭**：即使接线完成，也应先用独立 boot-arg 默认关闭；首次上机只观察
   认证请求/应答计数，不把认证结果当作充电许可。
 
+### 6.2 接线落地（2026-11-18 20:30）
+
+- `K60Battery.cpp` 增加 `auth`、`authEnabled`、52 字节 `authBuffer`、`authQueued`/
+  `authSent`、`authTurn`；`pump` 与电池 manager 交替取请求，`QcomGlinkAgain` 时
+  重发保存的缓冲，不再次 `next`。
+- `receive` 先分流 `auth.pending` 的应答；`requestAction` 先处理认证超时，清槽位、
+  `stale()`、置 `channelDeadline` 并 `reopen`/关闭通道，迟到应答被旧通道丢弃。
+- 样本失配时 `observe(0)` 暂停认证并取消排队；只有 fresh sample 的 property 7
+  ∈ {6,7,8} 才重新开始。
+- `state()` 在通道 up/down 时重置 `authTurn`；通道 down 走 `k60_charge_auth_reconnect`，
+  保留 gauge 数与未完成槽位语义。
+- 构建脚本把 `K60ChargeAuth.c` 加入 archive；`K60Battery.cpp` 单独加
+  `-I <tree>/.cache/xnu-work/EXTERNAL_HEADERS` 以解析 `libkern/crypto/sha2.h`。
+
 ## 7. 参考
 
 - 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:82-88`、`:81`。
 - sheng：`origin/main` `package/ShengChargeAuth.c`、`.h`、`package/ShengBattery.cpp`、
   `package/tests/charge_auth_host.c`。
-- K60 分支：`feat/charge-auth`，提交 `5449a0bf`、`ab96b0b5`。
+- K60 分支：`feat/charge-auth`，提交 `5449a0bf`、`ab96b0b5`、`c6c0307a`、`685aecb0`。
 - 电池测量与固件所有权：`docs/research/charger/10-POWER-DOC-CONFORMANCE.md` §9。

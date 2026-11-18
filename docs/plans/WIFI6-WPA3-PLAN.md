@@ -208,6 +208,62 @@ stops at `src/crypto/crypto.h`.
 PMF is not a fallback either: the legacy station has no IGTK or SA Query code,
 so until the control path moves the honest ceiling is WPA2-PSK **without** PMF.
 
+### 2.1 What the P2 scoping audit found (2026-11-19)
+
+The production path is not a manifest flip: it is a different driver generation
+wired to a different entry point. `src/nw_wifi.c:232` and
+`drivers/PongWifi/ath11k/PongAth11k.c:51` both define `nw_wifi_start`; only the
+legacy one is linked (`scripts/build-k60-ath11k.py:657-666`). Mainline expects
+the initcalls `lx_init_cfg80211_init`, `lx_init_ieee80211_init`,
+`lx_exit_*` (`src/nw_wifi.c:26-29,237-239,268-269`, produced by
+`shim/include/lx_os.h:80-82` from `net/wireless/core.c` and
+`net/mac80211/main.c`), plus `ath12k_wifi7_pci_init` — and ath12k does not own
+the K60's 17cb:1103, ath11k does. Nothing in mainline calls the legacy station;
+nothing in the legacy station calls `nw_mainline_*`.
+
+The missing kernel material is real: the manifest (`tools/sources.txt`) wants 36
+mac80211 files, 12 cfg80211 files and 36 ath12k files, and the pinned checkout is
+a sparse tree without `net/mac80211` or `net/wireless`
+(`git sparse-checkout add net/mac80211 net/wireless`, already listed in
+`tools/source-lock.json:12-13`). `nl80211.c` is deliberately excluded because
+`src/nw_cfg80211_encoding.c` replaces the generic-netlink request path with
+serializers. The FreeBSD linuxkpi is not in this compile path at all; the in-tree
+lx shim is, with debugfs hard-disabled and tracepoints compiled out. How many shim
+symbols mac80211 still wants cannot be known before an actual compile — that is
+the largest unmeasured risk.
+
+The SAE control plane needs four concrete edits, all in shared files:
+`nw_cfg80211_control.c:168,174,185,188` (accept `NL80211_AUTHTYPE_SAE`, carry
+`auth_data`/`auth_data_len`, keep `mfp` up to 2, allow the SAE AKM),
+`userspace/driver_sheng.c:188-191,196,223,480-483` (accept SAE with auth data,
+stop collapsing MFP to 0/1, advertise `WPA_DRIVER_FLAGS_SAE`), a new
+`NW_CONTROL_ATTR_AUTH_DATA` in `include/nw_control.h:39-55`, and
+`userspace/nw_supplicant_frontend.c:67-69,84-85` (key_mgmt SAE, `ieee80211w 2`).
+The supplicant side still has no EC provider: `crypto_openssl.c` is the only
+implementation of `crypto_ec_*`, it needs `CONFIG_ECC` and OpenSSL headers, and
+`tools/build-supplicant.py:22-29` compiles for `arm64e-apple-ios27.0` without
+either.
+
+Two things make this expensive beyond the code: every gate in the chain
+(`tools/fetch-sources.py`, `check-mac80211.py`, `test-mainline-runtime.py`,
+`check-mainline-link.py`) writes a report and needs a macOS toolchain (`xcrun ld`,
+`/opt/local/bin/llvm-*`), and the licence changes character: `include/net/mac80211.h`
+and `include/net/cfg80211.h` are GPL-2.0-only, so importing the stack makes the
+combined kernel GPL-2.0. The archive already links GPL-2.0 files
+(`drivers/soc/qcom/qmi_interface.c`, `qmi_encdec.c`, `lib/rbtree.c`, see
+`THIRD_PARTY_NOTICES.md`), and the shared Ath12kWifi files carry no SPDX at all.
+
+**Decision put to the maintainer.** Path A imports mac80211/cfg80211 and pays the
+GPL-2.0 relicensing plus the unbounded shim work. Path B keeps the legacy station
+and implements the SAE exchange inside it: pass Authentication frames (SAE commit
+and confirm) between the firmware and wpa_supplicant, install the IGTK, and add SA
+Query for PMF — all in code we own, BSD-2-Clause-Patent, with the supplicant
+supplying the Dragonfly crypto. Path B is bounded, keeps the licence unchanged,
+and reuses the same supplicant; it is the recommended route unless the maintainer
+wants the full mac80211 stack for other reasons. Neither path starts until the
+5 GHz pane item is closed and the maintainer chooses.
+
+
 ## 3. Evidence required before any claim
 
 1. HE: the association request carries HE Capabilities only (no 255/36); the

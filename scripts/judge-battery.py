@@ -27,6 +27,9 @@ Usage:
         --window-start 1763000000 --window-end 1763001800
     python3 scripts/judge-battery.py --log <usblog-dir> --android dmesg.txt \
         --window-start 6380 --window-end 6420
+    python3 scripts/judge-battery.py --log <usblog-dir> --android samples.tsv \
+        --android-current-sign positive --window-start 1763000000 \
+        --window-end 1763001800
 
 --android accepts either channel of 07 section 3.1, detected by content:
   * a transcribed file, one sample per line:
@@ -35,9 +38,17 @@ Usage:
   * Android's own dmesg, matched on the
     "BATTERY_CHG: handle_message: [ADSP] fg_update_status::" lines (ssoc, vbat,
     ibat, temp).  dmesg prints no battery status, so charge state comes from the
-    charger driver's usb_present line instead and the current sign is not
-    judged; dmesg has no wall clock either, so the window is dmesg relative
-    seconds, not epoch seconds.
+    charger driver's usb_present line instead; the current magnitude is still
+    normalized and compared, but its sign is not judged because dmesg carries
+    no status field.  dmesg has no wall clock either, so the window is dmesg
+    relative seconds, not epoch seconds.
+
+K60's Android power_supply reports current_now negative while the pack is
+charging (the qcom fuel gauge uses negative=charge, positive=discharge).  The
+XNU power source follows Apple's positive=charging convention.  C3 therefore
+normalizes Android current to positive=charging by default
+(--android-current-sign negative); pass --android-current-sign positive for a
+legacy capture that already used Apple's sign convention.
 
 C3 runs only when C1 and C2 both PASS: whether the values exist is judged
 before how far they are from Android's, because a distance measured against a
@@ -339,7 +350,8 @@ def parse_android(path: pathlib.Path):
     return rows, source
 
 
-def judge_c3(android_path, window, samples, c1_verdict, c2_verdict):
+def judge_c3(android_path, window, samples, c1_verdict, c2_verdict,
+             current_sign="negative"):
     """C3: how far the XNU samples are from Android's, same window.
 
     Order matters: whether the values exist (C1, C2) is judged first, and only
@@ -364,6 +376,10 @@ def judge_c3(android_path, window, samples, c1_verdict, c2_verdict):
 
     inside = [r for r in rows if start <= r["t"] <= end]
     unit = "dmesg 相对秒" if source == "dmesg" else "epoch 秒"
+    # K60 Android reports current_now negative while charging; XNU follows
+    # Apple's positive=charging.  Normalize before comparing either sign or
+    # magnitude, and keep the raw value for the evidence line.
+    sign = -1 if current_sign == "negative" else 1
     if len(inside) < MIN_PAIRS or len(samples) < MIN_PAIRS:
         return "INVALID", 0, [], [
             f"有效对不足：窗口内 Android {len(inside)} 条、XNU {len(samples)} 条，"
@@ -387,10 +403,11 @@ def judge_c3(android_path, window, samples, c1_verdict, c2_verdict):
                 f":{s['line']} 供电状态不一致（XNU external={s['external']} vs "
                 f"Android usb_present={r['external']}；dmesg 无 status 字段，用供电代替充电状态）")
             continue
+        android_current = r["current_ma"] * sign
         dv = s["voltage_mv"] - r["voltage_mv"]
         dsoc = s["soc_hundredths"] - r["soc_hundredths"]
         dt = s["temp_hundredths"] - r["temp_hundredths"]
-        di = s["current_ma"] - r["current_ma"]
+        di = s["current_ma"] - android_current
         worst["v"] = max(worst["v"], abs(dv))
         worst["soc"] = max(worst["soc"], abs(dsoc))
         worst["t"] = max(worst["t"], abs(dt))
@@ -402,10 +419,11 @@ def judge_c3(android_path, window, samples, c1_verdict, c2_verdict):
         if abs(dt) > T_TOL_HUNDREDTHS:
             bad.append(f"ΔT={dt / 100:+.2f}C/±{T_TOL_HUNDREDTHS / 100:g}C")
         if (xnu_charge_state and abs(s["current_ma"]) >= CURRENT_MA[0]
-                and abs(r["current_ma"]) >= CURRENT_MA[0]):
-            if r["status"] is not None and (s["current_ma"] > 0) != (r["current_ma"] > 0):
-                violations.append(f":{s['line']} 充电时两侧电流符号相反"
-                                  f"（XNU {s['current_ma']}mA vs Android {r['current_ma']}mA）")
+                and abs(android_current) >= CURRENT_MA[0]):
+            if r["status"] is not None and (s["current_ma"] > 0) != (android_current > 0):
+                violations.append(
+                    f":{s['line']} 充电时两侧电流符号相反（XNU {s['current_ma']}mA vs "
+                    f"Android 原始 {r['current_ma']}mA，归一化 {android_current}mA）")
                 continue
             current_pairs += 1
             worst["i"] = max(worst["i"], abs(di))
@@ -425,8 +443,11 @@ def judge_c3(android_path, window, samples, c1_verdict, c2_verdict):
     else:
         deltas += "、|ΔI| 未比（两侧没有同时 ≥100 mA 的稳态窗口）"
     if source == "dmesg":
+        convention = "negative（负值=充电）" if sign < 0 else "positive（正值=充电）"
         deltas += ("；输入是 Android dmesg：无 status 字段，用 usb_present 代替充电状态，"
-                   "电流符号不校验")
+                   f"电流按 {convention} 归一化后比较幅值，符号不校验")
+    elif sign < 0:
+        deltas += "；Android 电流按 negative 约定归一化（负值=充电）"
 
     if violations:
         evidence = [int(v.split(":")[1].split(" ")[0]) for v in violations[:3]]
@@ -457,6 +478,10 @@ def main() -> int:
                     help="Android side: transcribed TSV ('<epoch_s> <voltage_mv> "
                          "<current_ma> <soc_pct> <temp_c> <status>') or an Android "
                          "dmesg with fg_update_status lines")
+    ap.add_argument("--android-current-sign", choices=("negative", "positive"),
+                    default="negative",
+                    help="Android current_now convention: negative=charging (K60 "
+                         "default) or positive=charging (legacy captures)")
     ap.add_argument("--window-start", type=float, default=None, help="capture window start, epoch seconds")
     ap.add_argument("--window-end", type=float, default=None, help="capture window end, epoch seconds")
     args = ap.parse_args()
@@ -483,7 +508,8 @@ def main() -> int:
     results = [
         ("C1 订阅成立", c1),
         ("C2 四属性可读", c2),
-        ("C3 Android 同窗口", judge_c3(args.android, window, samples, c1[0], c2[0])),
+        ("C3 Android 同窗口", judge_c3(args.android, window, samples, c1[0], c2[0],
+                                      args.android_current_sign)),
     ]
     evaluated = [v for _name, (v, _h, _e, _n) in results if v != "SKIP"]
     if "FAIL" in evaluated:

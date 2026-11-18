@@ -342,6 +342,45 @@ B 的 QRTR 探测在 `AUTH_AND_RESET` 之后等 modem 自己启动。Pong 是常
 B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fastboot boot`。
 用户 2026-11-19 04:16 的授权是“代码准备充分且其他 agent 没有 boot 时可以自主上机”。
 
+### 3.14 k28 B：AUTH_AND_RESET 在 100 次 resume 处被我们的上限截断（2026-11-19 05:53，S3 FAIL）
+
+k28 B 镜像（`d86a73ac…`）于 05:53:43 起飞，`bootAccepted=true`，05:55:13 自行回到
+fastboot；证据 `E:/k60-work/evidence/usblog-20261119-055343`（`console.log` 41,962 B，
+sha256 `c6caac8cd59966bf6102f9cc1ac15b52bde7c40779d308706964ad6c7239535a`）。S3 之前的分段全部通过：
+
+```
+K60MODEM power ok cx=0x30000/6 mss=0x30060/7 xo=0x300b0/3
+K60MODEM power prepared
+K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884
+K60MODEM transport: remote glink fifo absent, defer IPCRTR
+K60MODEM transport ok smp2p=0xe3070/340 desc=0xdf030/32 tx=0xdf060/16384
+K60MODEM transport prepared
+K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000
+K60MODEM scm cmd=0x5 rc=-3 x0=0x1 x1=0x1
+K60MODEM auth_reset failed rc=-3
+```
+
+`rc=-3` 是 `K60ModemPasInterrupted`；`x0=1` 是 `QCOM_SCM_INTERRUPTED`。monitor 仍在要求
+resume，而 `K60M_SCM_MAX_CALLS` 只有 100，循环耗尽后我们把它当成了失败。Pong 的同一事务
+最多 resume 100000 次（`PongModemRuntime.cpp:112-118`）。
+
+`d549badd` 把上限改成 100000，并在 `calls > 100` 时打印
+`K60MODEM scm cmd=...# ok calls=N`；主机测试新增 1001 次中断后成功的用例（超过旧的 100
+上限），`TESTS OK 8 groups`，其中 last-call 用例打印 `calls=99999`。0621 重新生成为 17,666 B（3 files）。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `d549badd79bb4a42c8f33caa90b7ab8ecf740a43` |
+| kernel | `E:/k60-work/artifacts/modem-20261117k29/kernel.macho`，105,582,592 B，sha256 `80fe7d6ece5c7e3d573e5d327737e18d551e520a58a76624ca48f3d3c05fe19f` |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k29/boot-modem-b-full.img`，201,895,936 B，sha256 `92359e3d246f9df8e6578533b71772e3fb245d09ffb90c76b02a0cd04c55a57a` |
+| payload | `2b7107f9205f39b2624089fec3ebb781e351d43ad50f042375b1ddb4dd59733e`（json `911e6fac…`）；payload kernel `e9b2f946…` |
+| args | `pong_modem=2 pong_ipa=0`；FD `40c29d51…`；carrier 27 streams / 109,060,761 B |
+| 验证 | `scripts/verify-boot-image.py` rc0 OK；`test-bootimg-layout.py` OK（560384 / 201326592 / 3145840 / 4024）；主机套件 rc0 |
+| 结论 | k28 B 图作废；k29 是新的 B 候选，判据仍是 §4 的 S3/S4。判读时 auth 行必须出现 `K60MODEM scm cmd=0x5 ok calls=N` 且 `auth_reset ok`；若仍 `rc=-3` 且 `calls=100000`，说明 100000 次仍不够，属于 PAS/TZ 而不是电源。 |
+
+B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fastboot boot`；用户的
+2026-11-19 04:16 授权只在“代码准备充分且其他 agent 没有 boot”时成立。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -373,7 +412,7 @@ B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fas
   `K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884`
   `K60MODEM transport ok smp2p=`
   `K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000`
-  `K60MODEM auth_reset ok`
+  `K60MODEM auth_reset ok`，且此前出现 `K60MODEM scm cmd=0x5 ok calls=N`（k29 起会打印；`rc=-3` + `calls=` 达到上限仍是失败）
 - **S4**：auth 后 10 秒内出现 `K60MODEM qrtr: glink desc=` 与 `K60MODEM qrtr: dms revision `（后随非空版本串），且没有
   `K60MODEM qrtr: modem not ready`、`K60MODEM qrtr: dms revision missing`。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
@@ -387,7 +426,7 @@ B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fas
 - **F3**：`K60MODEM init_image failed ... rc=-13` ⇒ TZ 不放行；下一飞换 PA 或查 TZ 策略。
 - **F4a**：`K60MODEM power failed:` 出现在 init_image 之前 ⇒ AOP QMP/RPMh 路径；记录冒号后的原因，下一飞只修 power，不发送 PAS。
 - **F4b**：`K60MODEM transport failed rc!=0` 出现在 init_image 之后 ⇒ SMEM item 428/478/479 或 modem 分区；下一飞只修 transport。
-- **F4**：`K60MODEM auth_reset failed rc!=0` ⇒ power 已投票但 PAS 仍失败；下一飞复查 `cx.lvl/mss.lvl` 投票与 AOP 顺序。
+- **F4**：`K60MODEM auth_reset failed rc!=0` ⇒ power 已投票但 PAS 仍失败。`rc=-3` 表示 resume 预算耗尽（先看 `calls=`：100 是旧上限，100000 是 Pong 上限）；`rc=-13` 才是 TZ 拒绝。下一飞按 `calls=` 判断是加预算还是查 TZ，不是复查电源。
 - **F5**：auth_reset ok 但 S4 超时（出现 `modem not ready` 或没有 `glink desc`）⇒ 固件/SMP2P；下一飞补写 host item 428。
 - **F6**：S4 过但 S5 不是 `verdict ok` ⇒ GLINK/QRTR；转 QRTR 调查，不再改 PAS。
 - **F7**：S4/S5 通过但 S6 失败 ⇒ QcomBaseband 控制桥/ADT；下一飞只查 `chosen/coachz-baseband`、AppleBaseband 类注册和 `coachz_baseband_configure()`。
@@ -403,9 +442,10 @@ B 仍受单一 supervisor 约束：只允许 `scripts/flash.sh`、只允许 `fas
    **已飞并 PASS**：2026-11-19 04:23，证据 `E:/k60-work/evidence/usblog-20261119-042322`（§3.12），
    `xo=0x300b0/3`、三条 rail 全成功、停在 `diagnostic stop after power`。
    用户授权（2026-11-19 04:16）：代码准备充分且无其他 agent 飞行时可自主上机。
-3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用 k28 的
-   `E:/k60-work/artifacts/modem-20261117k28/boot-modem-b-full.img`（`d86a73ac…`，§3.13），按 §4 的 S3/S4 判。
-   k28 与已上机的 k22 内核只差一个常量：modem 就绪等待 10 s → 30 s；UEFI/DTB/carrier 与 C/P1 相同。
+3. **B（完整，后飞）**：P1 全绿后，`pong_modem=2`，用 k29 的
+   `E:/k60-work/artifacts/modem-20261117k29/boot-modem-b-full.img`（`92359e3d…`，§3.14），按 §4 的 S3/S4 判。
+   k28 B（`d86a73ac…`）已飞：power/init/transport/mem 全部通过，auth_reset 因 100 次 resume 上限
+   报 `rc=-3 x0=0x1 x1=0x1`（§3.14）；k29 只改这一个上限与计数打印。UEFI/DTB/carrier 与 C/P1 相同。
    C/P1 已用 k22 内核证明，B 不得在同一个镜像里再顺手改第二件事。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

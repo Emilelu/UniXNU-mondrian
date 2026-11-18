@@ -263,7 +263,9 @@ int k60_battmgr_sample(const K60Battmgr *b, K60BatterySample *s)
     if ((status == 2 && s->current_ma > 0) || (status == 1 && s->current_ma < 0)) return 0;
     s->temperature_hundredths = b->value[K60BmTemperature]; s->cycles = (uint32_t)b->value[K60BmCycles];
     s->time_remaining_min = -1;
-    const unsigned tf = s->external ? K60BmTimeToFull : K60BmTimeToEmpty;
+    /* Time-to-full only applies while the pack is actually charging; a
+     * plugged but not-charging pack reports time-to-empty. */
+    const unsigned tf = s->charging ? K60BmTimeToFull : K60BmTimeToEmpty;
     if ((s->valid & BIT(tf)) && b->value[tf] >= 0 && b->value[tf] != 65535)
         s->time_remaining_min = b->value[tf] / 60;
     if (s->full) s->time_remaining_min = 0;

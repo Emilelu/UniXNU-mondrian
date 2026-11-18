@@ -290,8 +290,20 @@ P1 唯一要测的动作，属于「测之前先把被测动作改对」。
 | payload kernel | `229ebe507bf6a2475f3bd390c0d48033e1bb40bfb5453adde90c445979a2d599`（strings 含 `diagnostic stop after power` 与 `K60MODEM power ok cx=`） |
 | args / 布局 | `pong_modem=4 pong_ipa=0`；560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-boot-image.py` 与 `test-bootimg-layout.py` 均 PASS |
 
-k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也随之作废，B 必须在 P1 通过后
-用同一份 k22 kernel/FD/DTB/carrier 重打。P1 判据本身不变（§4.1），只是 `xo=` 现在必须是字面 3。
+同一个 k22 内核也已离线重打成 B 图（`pong_modem=2 pong_ipa=0`，只把 modem 相位从 power-only 改成 full，
+IPA 仍关闭），所以 P1 通过并拿到 B 的显式授权后无需再改代码或重打包：
+
+| 项 | 值 |
+|---|---|
+| boot | `82c0cab36e5d3d8d7a5d88a21b625163c5aa10cba8ee684e3c826a494cbd04d9`，201,895,936 B |
+| payload | `1baec54fdbaa7aab84dd04ba41ad90c23dcb63aa19e009a1caf9e3e27fa62a56`；payload.json `115616728d0cd7e1c9374088d34139432106e01ccef405e816779bd36a1500eb` |
+| payload kernel | `229ebe507bf6a2475f3bd390c0d48033e1bb40bfb5453adde90c445979a2d599`（与 P1 同一内核） |
+| 打包脚本 | `E:/k60-work/artifacts/build-k22-b-full.sh`；FD/DTB/carrier 与 C/P1 同一份 |
+| 验证 | `scripts/verify-boot-image.py` OK；`test-bootimg-layout.py` OK；args 字符串恰好各出现一次 `pong_modem=2`/`pong_ipa=0` |
+| 状态 | 已打包、未上机；只替代 k21 的 B 图 `eefe6fdf`，不能替代 P1 |
+
+k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也随之作废，因为它是带 xo.lvl
+索引缺陷的内核。P1 判据本身不变（§4.1），只是 `xo=` 现在必须是字面 3。
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 

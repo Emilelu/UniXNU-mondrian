@@ -445,6 +445,7 @@ void samplerThread(void *, wait_result_t)
     bool applyReady[K60_CPU_FREQ_DOMAINS] = {};
     bool raiseLogged[K60_CPU_FREQ_DOMAINS] = {};
     unsigned votedIndex[K60_CPU_FREQ_DOMAINS] = {};
+    bool forceVote[K60_CPU_FREQ_DOMAINS] = {};
     unsigned appliedVotes = 0;
     bool deviationArmed = false;
     bool armed = false;
@@ -577,6 +578,7 @@ void samplerThread(void *, wait_result_t)
                 gov.down[domain] = 0;
                 gov.quiet[domain] = 0;
                 votedIndex[domain] = static_cast<unsigned>(index);
+                forceVote[domain] = false;
                 applyReady[domain] = true;
                 IOLog("K60CpuFreq: mode%u reseed d%u state=%u level=%u\n",
                     applyMode, domain, state, tables[domain].level[index]);
@@ -612,7 +614,7 @@ void samplerThread(void *, wait_result_t)
              * bound it. */
             if (allowRaise) {
                 for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
-                    if (ready[domain] && applyReady[domain]) votedIndex[domain] = ~0u;
+                    if (ready[domain] && applyReady[domain]) forceVote[domain] = true;
             }
             IOLog("K60CpuFreq: mode%u %s window win=%llu span=%llu\n", applyMode,
                 touchActive ? "touch" : "frame",
@@ -638,7 +640,7 @@ void samplerThread(void *, wait_result_t)
                     }
                     continue;
                 }
-                if (gov.current[domain] == votedIndex[domain]) continue;
+                if (!forceVote[domain] && gov.current[domain] == votedIndex[domain]) continue;
                 if (!armed || window < applyStart || window > applyStart + applySpan ||
                     (window > kApplyLatestEndWindow && !signalArmed) ||
                     appliedVotes >= kApplyMaxVotes) continue;
@@ -649,6 +651,7 @@ void samplerThread(void *, wait_result_t)
                         K60_CPU_FREQ_REG_ENABLE) & 1u, &tables[domain],
                         tables[domain].level[gov.current[domain]], n)) {
                     gov.current[domain] = votedIndex[domain];
+                    forceVote[domain] = false;
                     continue;
                 }
                 before = rd32(windows[domain].va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
@@ -676,8 +679,10 @@ void samplerThread(void *, wait_result_t)
                     applied[domain].touched = false;
                     applyReady[domain] = false;
                     gov.current[domain] = votedIndex[domain];
+                    forceVote[domain] = false;
                 } else {
                     votedIndex[domain] = gov.current[domain];
+                    forceVote[domain] = false;
                 }
             }
             if (armed && (window >= applyStart + applySpan ||

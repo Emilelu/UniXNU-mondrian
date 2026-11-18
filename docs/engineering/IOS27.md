@@ -84,6 +84,7 @@ lzfse under one prefix; the build driver uses it automatically when it exists.
 ```sh
 cd UniXNU
 sudo python3 scripts/linux/setup-toolchain.py --jobs 12 /opt/unixnu-linux
+sh ../UniXNU-mondrian-ios27/scripts/apply-core-patches.sh .
 python3 ./unixnu defconfig mondrian_ios27_defconfig --device ../UniXNU-mondrian-ios27
 python3 ./unixnu build kernel --device ../UniXNU-mondrian-ios27
 ```
@@ -143,15 +144,20 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 | F3 | `PongUfs` on the 27 storage ABI + `./unixnu userdata --os 27` | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
 
-## The framework patch is not needed on this branch
+## Framework patches this branch carries
 
-`scripts/apply-core-patches.sh` refuses on a current UniXNU checkout, and that
-is correct. `patches/unixnu-core/k60-unixnu-core.patch` was written against the
-framework commit the 16.6.1 line used; on main today the boot-image `verify()`
-already understands v3/v4, and the K60 initrd FAT scan, the ramoops dump, the
-`-1` menu timeout and the volume diagnostics are in `uefi-mondrian`'s vendored
-`Platforms/Xiaomi/UniXNUPkg` (it resolves ahead of the framework's copy). Do
-not force the patch: it would be a third copy of the same fix.
+`scripts/apply-core-patches.sh` applies every top-level
+`patches/unixnu-core/*.patch` and reports already-applied ones, so it is safe
+on every build. Today that is `linux-arm64e-target.patch`: the driver's Linux
+environment hardcoded `arm64-apple-ios17.0` and an arm64 `libcc_kext.a`, which
+made the arm64e kernel's compile records carry an iOS 17 deployment and the
+linker ignore the profile archive. The patch reads the arch and OS profile
+instead.
+
+`patches/unixnu-core/legacy/k60-unixnu-core.patch` belongs to the 16.6.1 line
+and is never applied: its boot-image `verify()` change is upstream now, and the
+K60 initrd/ramoops/config deltas are in `uefi-mondrian`'s vendored
+`Platforms/Xiaomi/UniXNUPkg`, which resolves ahead of the framework's copy.
 
 ## Traps
 

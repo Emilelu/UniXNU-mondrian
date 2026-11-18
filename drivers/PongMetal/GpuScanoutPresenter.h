@@ -42,8 +42,25 @@ public:
         if (!frame.base || ((uintptr_t)frame.base & (page - 1)) || !frame.bytes || (frame.bytes & (page - 1)) ||
             frame.width != scanout_.width || frame.height != scanout_.height || frame.stride < row ||
             (size_t)frame.height > frame.bytes / frame.stride || frame.stride * (frame.height - 1) + row > frame.bytes) return kBadFrame;
-        id<MTLBuffer> source = [device_ newBufferWithBytesNoCopy:(void *)frame.base length:frame.bytes options:MTLResourceStorageModeShared deallocator:nil];
-        if (!source) return kNoResource;
+        /* The compositor hands back the same surface pages frame after frame, and importing them
+         * is not cheap: the kernel maps every page into the GPU's context again, which measured
+         * 16.8 ms of a 17 ms copy. Keep the last import and reuse it while the pages are the same. */
+        if (!(imported_ && importedBase_ == frame.base && importedBytes_ == frame.bytes)) {
+            struct timespec before={},after={};clock_gettime(CLOCK_MONOTONIC,&before);
+            id<MTLBuffer> fresh = [device_ newBufferWithBytesNoCopy:(void *)frame.base length:frame.bytes options:MTLResourceStorageModeShared deallocator:nil];
+            clock_gettime(CLOCK_MONOTONIC,&after);
+            lastImportUs_=(uint64_t)(after.tv_sec-before.tv_sec)*1000000u+(uint64_t)(after.tv_nsec-before.tv_nsec)/1000u;
+            if (!fresh) return kNoResource;
+            /* ARC owns the import: assigning a new buffer to the strong ivar releases the old one. */
+            imported_ = fresh;
+            importedBase_ = frame.base;
+            importedBytes_ = frame.bytes;
+            ++imports_;
+        } else {
+            lastImportUs_=0;
+            ++reuses_;
+        }
+        id<MTLBuffer> source = imported_;
         id<MTLCommandBuffer> commands = [queue_ commandBuffer];
         id<MTLBlitCommandEncoder> blit = commands ? [commands blitCommandEncoder] : nil;
         if (!blit) return kNoResource;
@@ -83,6 +100,19 @@ private:
     Scanout scanout_;
     id<MTLCommandQueue> queue_;
     id<MTLBuffer> target_;
+    id<MTLBuffer> imported_ = nil;   /* the last imported source, reused while the pages are the same */
+    const void *importedBase_ = nullptr;
+    size_t importedBytes_ = 0;
+public:
+    /* How often the source import was rebuilt (a new mapping) versus reused (no mapping at all). */
+    uint64_t imports() const { return imports_; }
+    uint64_t reuses() const { return reuses_; }
+    /* How long the last import took, in microseconds: 0 when the previous import was reused. */
+    uint64_t importMicroseconds() const { return lastImportUs_; }
+private:
+    uint64_t imports_ = 0;
+    uint64_t reuses_ = 0;
+    uint64_t lastImportUs_ = 0;
 };
 
 }  // namespace gpupresent

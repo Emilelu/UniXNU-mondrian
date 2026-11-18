@@ -219,3 +219,19 @@ clean+invalidate，而 K60 的 Adreno 730 在 dma-coherent SMMU 后面，本来�
    5760-stride 扫描缓冲，拷贝会退化成一条命令。
 3. `gmem` 已经在这次飞行里生效（`metal-plugin-20261118l` 就是 `setenv("TU_DEBUG","gmem,nocb",1)`
    那一版），所以 `gpu` 12.6 ms 不是渲染模式问题——别再在渲染模式上花时间。
+
+### 5.8 别把「present() 变快」读成「帧率变高」
+
+同一份日志的实际节拍：`scanout frames=1 at 88.146 s` → `frames=870 at 191.505 s`，
+即 869 帧 / 103.4 s = **8.4 fps**；`MiniIOMobileFramebuffer` 各窗口 4 / 5 / 16 / 15 / 4 / 15 fps；
+客户端 `Pong Metal: c558/0 d558`（558 次 commit、558 次 draw）。
+
+也就是说：`copy`（`present()` 全程）中位约 17–25 ms，而帧间隔约 119 ms ——
+**我们砍掉的 6.2 ms 只占一帧的 5%**。present() 现在是帧时间里较小的一项，
+不是领先项。`sum` 17,233 µs 只能说「present() 自身允许 58 fps」，
+不能说「现在有 58 fps」。
+
+所以下一刀不该继续在 scanout 上打转，而要先回答「那 119 ms 花在哪」。
+现有仪表只覆盖 scanout 一侧（`import/encode/submit/gpu`）与合成器报的帧数，
+**没有任何一项量客户端自己的一次 draw 有多贵**。在 `NativeBridgeMetalFrontend.mm`
+的 `commit` / `waitUntilCompleted` 外面加计时并每 60 帧打一行，是下一步最小的改动。

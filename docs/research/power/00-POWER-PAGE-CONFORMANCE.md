@@ -16,7 +16,7 @@
 | DSP 固件/PAS ID、预留内存、邮箱、共享内存、时钟电源归属 | 部分 | Route A ADSP 启动在 image e/f 上 `rc=0`，PAS1 `epoch=1 flags=15`；`docs/research/charger/02-GLINK-CONTRACT.md`、`docs/plans/OFFICIAL-DRIVER-MAP.md:44` |
 | 音频 codec/功放、总线、时钟、路由、拓扑、格式、OS ABI | 委派 | 音频分支 `feat/audio-adsp-merge`（2026-11-18 时 HEAD `c74aea80`，145 commits ahead，未合并） |
 | 电池电量计/固件协议、属性 ID、单位、电流符号、通知 | 已验证（测量）/部分（全节） | `K60Battmgr.c`、`K60Battery.cpp`；`charger/04-PROP-MAP.md`；属性 9 静默、USB 输入电流边界见 §4 |
-| 电源时钟域、OPP 表、稳压器、固件投票、温控限制 | 部分（离线） | EPSS/GPU OPP 表现场 FDT 已确认，见 `power/01-EPSS-PROBE.md`、`power/04-GPU-FREQUENCY.md`；稳压器写路径受 HR-01 限制，温控未接入 |
+| 电源时钟域、OPP 表、稳压器、固件投票、温控限制 | 部分（离线） | EPSS/GPU OPP 表现场 FDT 已确认；只有路线 A 的 TCS4 lcx/lmx 两条真实投票，CPU/GPU 电压与温控仍无写路径，见 `power/07-RAIL-ORDERING.md` |
 | 固件清单记录来源和版本 | 部分 | `power/06-FIRMWARE-MANIFEST.md` 记录 ADSP 26 段/充电器 .ko/carrier FD 的哈希与来源；整机其他固件与认证密钥未覆盖 |
 
 ## §2 DSP 传输（:16-27）
@@ -57,7 +57,7 @@
 | fence 等待睡眠到中断、最长 1 ms（:117） | 部分（离线） | `K60BoostPlan` 1 ms 预算函数（host 40 项）；提交路径未改 |
 | 外设投票所有权/引用计数、先停 DMA/中断再释放（:109） | 部分（离线） | `K60PowerVotePlan` 纯记账（host 58 项）；无消费者、不写 RSC/TCS |
 | OS 电源回调、休眠保存/恢复（:110） | 未实现 | 见 §5 平台睡眠 |
-| 目标稳压器、互连、温控顺序（:108） | 未实现 | 只有只读 `K60PmicRail`；HR-01 禁止 RSC/TCS 写 |
+| 目标稳压器、互连、温控顺序（:108） | 部分（离线） | 只有路线 A 的 TCS4 lcx/lmx 真实投票；CPU/GPU 电压、互连、温控无写路径；顺序与回滚见 `power/07-RAIL-ORDERING.md` |
 | 平台睡眠（:119-121） | 未实现 | `power/02-PLATFORM-SLEEP.md` 调研 + `K60SleepPlan` 掩码（host 53 项）；无 ArmCpuSleep、TLMM、PON、喂狗、背光/触摸恢复 |
 | 负载下测量频率并逐项验证（:111） | 未完成 | 需要设备；EPSS/GPU 都还没有真机读数 |
 

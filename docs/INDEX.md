@@ -108,6 +108,7 @@ docs/
 | [`power/04-GPU-FREQUENCY.md`](research/power/04-GPU-FREQUENCY.md) | **GPU 调频 §5**：现场 13 档 OPP（900-220MHz）与 HFI 升序 wire index、XO 忙碌计数器与带宽表；纯逻辑规划模块（50% 目标/1.1 倍/85% 到顶/4-5 窗口/80ms 空闲）host 56 项；无 GMU 读取、HFI 投票与 governor 线程 |
 | [`power/05-BOOST-RULES.md`](research/power/05-BOOST-RULES.md) | **触摸/帧/GPU 唤醒/fence 规则**：官网 :115-117 的 1 s 触摸保持、4 窗口 2 帧的 60 % CPU 下限、GPU 双倍/578 MHz/50 ms、1 ms fence 预算做成纯规则，host 40 项；无输入源/线程/消费者 |
 | [`power/06-FIRMWARE-MANIFEST.md`](research/power/06-FIRMWARE-MANIFEST.md) | **电源固件清单**：ADSP 26 段 + mdt 的完整 sha256、充电器 .ko、carrier FD/UEFI 输入；记录来源压缩包与缺失段 b24，声明整机清单与认证密钥仍无来源 |
+| [`power/07-RAIL-ORDERING.md`](research/power/07-RAIL-ORDERING.md) | **稳压器/互连/温控顺序**：审计现有 TCS4 lcx/lmx、触摸 IOVDD TCS3、GPU 电源表与投票账本；给出读状态→温控→电压→互连→频率→回读的顺序和 HR-01 边界 |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |
 | `memory/RESEARCH.md` | **内存布局结论层（本板真值）**：DDR 保留区与寄存器窗口，以及跨板边界——DXE Heap `0xC7000000` 与 Kernel `0xBB000000` 绝不可跨板抄 |

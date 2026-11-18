@@ -1095,6 +1095,8 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
   - 框架 `UniXNU` 本地 `4eaf2b9`（A730 hw_init 生成）。
 - 恢复条件（任一命中就重新评估，不必等用户再次点名）：上游 `docs/engineering/IOS27.md` 记录 F1/F2 镜像在真机到达 `bsd_init`；或 `board.toml`/catalog 出现蓝牙相位或 `QcaBluetooth` 组件；或 `QcaBluetooth` 新增 iOS 16 目标/新 native 适配；或 `feat/ios27` 出现蓝牙相关提交。
 - 恢复后的第一步（已定，不用重新设计）：把 `feat/bt-ios27-port` 变基到新的 `95d9c8a1`，按 `docs/plans/BT-IOS27-PORT.md` §4/§7 重排 0501/0502/0509/0510/0512（含 0519 的 `MiniBluetooth.cpp`、0520 的 `kern_exec.c` 两个 hunk），再把 13 个补丁从 `patches/xnu/series` 移进 `patches/xnu-12377/series`，用上游的 `scripts/build-ios27-linux.sh` 出 F1。
+- 进度更新（2026-11-19 01:50，离线完成，未构建未飞行）：变基与重排都已落地。`feat/bt-ios27-port` 现在基于 `95d9c8a1`，补丁进入 `patches/xnu-12377/series`（18 个：0500、0502b、0501、0502、0507-0512、0514-0520、0521），`patches/xnu/series` 回到 227 行原状。四个平台钩子按 95d9c8a1 重排：0501 在 `bsd/conf/files` 列六个 qbt 源，0502 去掉 `ARM64_BOARD_CONFIG_PONG` 门，0509 变成独立的 `iokit/Kernel/MiniBluetooth.cpp`（用 `IOService::getResourceService()` 当 provider，丢掉 12377 没有的 MiniDrivers/MiniIOSurface hunk），0510 在 `osfmk/conf/files.arm64` 挂 `k60_bt_blob.s`，0512 在 `native_owner_data_prepare()` 里起 late start；0519/0520 原样可用。0510 需要的 `osfmk/arm64/k60_bt_blob.s` 由 0521 提供（生成器不带 `--container` 时的确切 stub，12 行、长度 0），`scripts/gen-k60-bt-blob.py` 已复制进 fork。验证：从 pre-BT 基树按系列顺序应用 18 个补丁全部无 reject，`bsd/dev/qbt_k60.c` 仍是 2239 行 `4a1a4e26…`。远端 tip `9503432`（`emilelu/feat/bt-ios27-port`）。
+- 剩余（都不在待命授权内）：P3 构建并确认 `qbt_k60_start` 进内核；`[payload.runtime]` 用户态接线；等上游真机到 `bsd_init`。
 - 当前没有待飞行项：设备 `k60-device.sh state` = none；d8 `0297012d…`、d10 `6c631bc4…`、0518 `d6beec4c…`、0520 `9361ec1c…` 四枚镜像均在且哈希已复核。
 
 ### 49. 用户态难度对比：iOS 16 停在测试床，用户态预算转向 iOS 27（2026-11-19 00:35）

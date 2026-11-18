@@ -240,6 +240,20 @@ k21 内核与 `pong_modem=4 pong_ipa=0` 的图是离线候选。
 | payload kernel | `0eed483a9e01f7d4f3d7df19f1d13cc3e9adb25ba079dca747b897c84903f464`（strings 含 `diagnostic stop after power` 与 `K60MODEM power ok cx=`） |
 | args / 布局 | `pong_modem=4 pong_ipa=0`；kernel_size 560,384、ramdisk 201,326,592、解压 3,145,840、DTB 4,024；`test-bootimg-layout.py` 与 `scripts/verify-boot-image.py` 均 PASS |
 
+同一个 k21 内核还离线打包了 B 图（`pong_modem=2 pong_ipa=0`，只动 modem 相位，IPA 保持关闭），
+P1 通过并拿到 B 的显式授权后可以直接飞，不需要再改代码或重新打包：
+
+| 项 | 值 |
+|---|---|
+| boot | `eefe6fdfb426910a9990ae6a3e274f9f89ed9f9bb7dd7c2a7a9380e5416e2f0a`，201,895,936 B |
+| payload | `e0c1f86c714b7f192b5a6a43dd001b7e3dae7e7c95c4b5518f45b2312646fda7`；payload.json `b00879d08b1e20b1a61cb9d0cc46aa1be66cef8107855c156fc4898752fbb5cd` |
+| payload kernel | `0eed483a9e01f7d4f3d7df19f1d13cc3e9adb25ba079dca747b897c84903f464`（与 P1 同一内核） |
+| carrier / FD | 27 streams / 109,060,761 B declared；FD `40c29d51…`，与 C/P1 同一份 |
+| 状态 | 已打包，`test-bootimg-layout.py` 与 `scripts/verify-boot-image.py` 均 OK，未上机；只在 P1 PASS 且 B 获授权后飞 |
+
+B 图在 `mem_setup` 之后还会执行 `transport_prepare`（SMEM 428/478/479、SMP2P、GLINK adopt）与
+`auth_reset`，并按 §4 的 S3–S6 判；它不能替代 P1。
+
 上机判据只有三行：`K60MODEM power ok cx=... mss=... xo=...`、`K60MODEM power prepared`、
 `K60MODEM diagnostic stop after power: init_image not sent`；出现任何 `init_image` /
 `mem_setup` / `auth_reset` 行即实现有 bug。它是 HR-01 要求的「单资源、单变量、显式授权」

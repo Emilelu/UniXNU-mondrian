@@ -64,13 +64,14 @@ k60_modem_scm_args(unsigned count, unsigned t0, unsigned t1, unsigned t2)
 	return (count & 0xfu) | ((t0 & 3u) << 4) | ((t1 & 3u) << 6) | ((t2 & 3u) << 8);
 }
 
-/* A final call succeeded only when both result registers are zero: x0 alone
- * reports the transport, x1 carries the payload verdict. x0=1 requests
- * continuation and is not a final payload result. */
+/* Linux qcom_scm_call treats only res.a0 as the return code; a1..a3 are
+ * additional result registers, not a payload verdict. A final call succeeds
+ * when x0 is zero. x0=1 requests continuation and is not final. */
 static inline int
 k60_modem_scm_ok(uint64_t x0, uint64_t x1)
 {
-	return x0 == 0 && x1 == 0;
+	(void)x1;
+	return x0 == 0;
 }
 
 /* Carrier probe: modem.b01 loads at the carveout base and its first 16 bytes

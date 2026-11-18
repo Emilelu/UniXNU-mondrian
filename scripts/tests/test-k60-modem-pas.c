@@ -37,7 +37,7 @@ static void check_args(void)
 static void check_ok(void)
 {
 	assert(k60_modem_scm_ok(0, 0) == 1);
-	assert(k60_modem_scm_ok(0, 1) == 0);   /* transport fine, payload refused */
+	assert(k60_modem_scm_ok(0, 1) == 1);   /* x1 is a result register, not a verdict */
 	assert(k60_modem_scm_ok(1, 0) == 0);   /* transport failed */
 	assert(k60_modem_scm_ok(~0ull, ~0ull) == 0);
 }

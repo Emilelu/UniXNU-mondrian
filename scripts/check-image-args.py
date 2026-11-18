@@ -51,6 +51,7 @@ ALLOWED_ADDITIONS = {
     "k60_backlight", "k60_backlight_control", "k60_backlight_invert",
     "pong_thermal_bias",
     "pong_handoff_publish",
+    "k60_charge_auth",
     "gprobe",
 }
 

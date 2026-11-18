@@ -204,7 +204,7 @@ evidence = "STATUS.md:19 `PONG APFS: OS root binding PASS`、`K60DATA mounted ro
 success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs（三窗全挂）"
 failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
 [hardware.display]
-name = "显示（m11a 面板 / DSI / 背光）"
+name = "显示（m11a 面板 / DSI / 背光 / 120Hz）"
 status = "active"
 paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
 why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"

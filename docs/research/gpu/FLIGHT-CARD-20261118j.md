@@ -32,7 +32,7 @@
 | P4 | 不再跨帧持有导入 | `scripts/tests/test-presenter-import-scope.py` 13 例（无 `imported_`/`reuses_`/`importedBase_`/`importedBytes_`，`present()` 内恰好一次导入，无成员持有，`report()` 768 字节 + 强制换行） |
 | P5 | 既有阶段守卫仍过 | `scripts/tests/test-frame-stage-timing.py` 7 例（`lastWait/lastCopy/lastDone` 走 `span()`，`stamped()` 为假时不上报） |
 | P6 | 内核侧未改 | 本轮 `git diff` 只含 `drivers/PongMetal/` 下四个文件与三个测试 |
-| P7 | 插件由当前源码重编 | 构建日志 `BUILD_EXIT=0`，`strings … \| grep -c "sum=%llu us"` = 1 且 `-c "imports=%llu import="` = 1 |
+| P7 | 插件由当前源码重编并通过产物字节核对 | 构建日志 `BUILD_EXIT=0`；`PongAdrenoMetal` 94,912 B sha256 `3b037882faabdb12ff48e8d457bf518cbef2ddef707874b0a87155e82e4cd49c`；`PongMetalBridge.dylib` 33,237,952 B `0020f7ee…`；`libvulkan_freedreno.dylib` 18,036,688 B `1a35bc19…`；bundle 51,372,258 B；四个格式串 `sum=%llu us` / `imports=%llu import=` / `last frame: wait=` / `gpu=%llu us` 各 1 次 |
 | P8 | 风险已记录且未升级为「已确认」 | `drivers/PongMetal/README.md:6` 仍写 "remain unconfirmed"；`porting.toml` 的 gpu 条目状态不变 |
 
 ## 3. 抓取

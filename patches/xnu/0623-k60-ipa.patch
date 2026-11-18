@@ -4399,3 +4399,224 @@ new file mode 100644
 +	return server->driver_ready != 0 && server->uc_ready != 0 &&
 +	    server->subscribed != 0 && server->indicated != 0;
 +}
+diff --git a/bsd/dev/pong_ipa_qmi_transport.h b/bsd/dev/pong_ipa_qmi_transport.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_qmi_transport.h
+@@ -0,0 +1,70 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* The glue between the IPA service 0x31 QMI server and whatever carries the
++ * frames (QRTR over GLINK in the kernel). It owns the three-attempt
++ * INIT_DRIVER retry, answers every modem request, and publishes the single
++ * 0x22 INIT_COMPLETE indication, so the runtime layer only has to move
++ * buffers and time the retries. Pong does the same sequencing inline in
++ * references/pong-baseband/PongModemWan.h:382-424. */
++
++#ifndef K60_IPA_QMI_TRANSPORT_H
++#define K60_IPA_QMI_TRANSPORT_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include "pong_ipa_qmi_server.h"
++
++/* The largest frame the transport can emit: a rules response. */
++#define K60_IPA_QMI_TRANSPORT_FRAME_BYTES K60_IPA_QMI_RULES_BYTES
++#define K60_IPA_QMI_TRANSPORT_ATTEMPTS 3u
++
++/* Returns 0 when the frame was handed to the link, a negative value when it
++ * was not. A failed frame stays queued, so the caller can retry it. */
++typedef int (*K60IpaQmiTransportSend)(void *context, const uint8_t *frame,
++    size_t bytes);
++
++typedef struct {
++	K60IpaQmiServer server;
++	K60IpaQmiTransportSend send;
++	void *context;
++	uint8_t tx[K60_IPA_QMI_TRANSPORT_FRAME_BYTES];
++	size_t pending_bytes;
++	uint16_t frames_sent;
++	uint16_t send_errors;
++	uint16_t receives;
++	uint8_t pending_complete;
++	uint8_t complete_sent;
++	int last_error;
++} K60IpaQmiTransport;
++
++enum {
++	K60IpaQmiTransportOk = 0,
++	/* Already complete, or the handshake is past the retry window. */
++	K60IpaQmiTransportIgnored = 1,
++	K60IpaQmiTransportBadArgument = -1,
++	K60IpaQmiTransportSendFailed = -2,
++	/* All three INIT_DRIVER attempts were built without a response. */
++	K60IpaQmiTransportExhausted = -3,
++};
++
++void k60_ipa_qmi_transport_reset(K60IpaQmiTransport *transport,
++    uint32_t restricted_base, K60IpaQmiTransportSend send, void *context);
++
++/* Build and send the next INIT_DRIVER attempt, or resend a frame that failed
++ * earlier. Returns 0 when a frame went out, 1 when there is nothing to do and
++ * K60IpaQmiTransportExhausted after three unanswered attempts. */
++int k60_ipa_qmi_transport_start(K60IpaQmiTransport *transport);
++
++/* Feed one QMI frame. Replies and the INIT_COMPLETE indication are sent
++ * immediately; the return value is the number of frames sent (0, 1 or 2), or
++ * a negative error. A frame whose send failed is retried by the next call. */
++int k60_ipa_qmi_transport_receive(K60IpaQmiTransport *transport,
++    const uint8_t *frame, size_t bytes);
++
++/* Retry a frame left queued by a failed send. */
++int k60_ipa_qmi_transport_flush(K60IpaQmiTransport *transport);
++
++/* True only once INIT_COMPLETE actually reached the link. */
++int k60_ipa_qmi_transport_ready(const K60IpaQmiTransport *transport);
++
++#endif /* K60_IPA_QMI_TRANSPORT_H */
+diff --git a/bsd/dev/pong_ipa_qmi_transport.c b/bsd/dev/pong_ipa_qmi_transport.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_qmi_transport.c
+@@ -0,0 +1,141 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* See K60IpaQmiTransport.h. The server marks INIT_COMPLETE as indicated when
++ * it builds the frame, so the transport keeps that frame queued until the
++ * link accepts it; readiness therefore reports delivery, not composition. */
++
++#include <string.h>
++
++#include "pong_ipa_qmi_transport.h"
++
++static int
++send_pending(K60IpaQmiTransport *transport)
++{
++	int rc;
++
++	if (transport->pending_bytes == 0) {
++		return K60IpaQmiTransportOk;
++	}
++	if (transport->send == NULL) {
++		return K60IpaQmiTransportBadArgument;
++	}
++	rc = transport->send(transport->context, transport->tx,
++	    transport->pending_bytes);
++	if (rc < 0) {
++		transport->last_error = rc;
++		transport->send_errors++;
++		return K60IpaQmiTransportSendFailed;
++	}
++	transport->frames_sent++;
++	if (transport->pending_complete != 0) {
++		transport->complete_sent = 1;
++	}
++	transport->pending_bytes = 0;
++	transport->pending_complete = 0;
++	return K60IpaQmiTransportOk;
++}
++
++void
++k60_ipa_qmi_transport_reset(K60IpaQmiTransport *transport,
++    uint32_t restricted_base, K60IpaQmiTransportSend send, void *context)
++{
++	if (transport == NULL) {
++		return;
++	}
++	memset(transport, 0, sizeof(*transport));
++	transport->send = send;
++	transport->context = context;
++	k60_ipa_qmi_server_reset(&transport->server, restricted_base);
++}
++
++int
++k60_ipa_qmi_transport_start(K60IpaQmiTransport *transport)
++{
++	size_t bytes;
++	int rc;
++
++	if (transport == NULL || transport->send == NULL) {
++		return K60IpaQmiTransportBadArgument;
++	}
++	rc = send_pending(transport);
++	if (rc != K60IpaQmiTransportOk) {
++		return rc;
++	}
++	if (transport->complete_sent != 0) {
++		return K60IpaQmiTransportIgnored;
++	}
++	if (transport->server.state != K60IpaQmiServerIdle &&
++	    transport->server.state != K60IpaQmiServerInitSent) {
++		return K60IpaQmiTransportIgnored;
++	}
++	bytes = k60_ipa_qmi_server_init_driver(&transport->server,
++	    transport->tx, sizeof(transport->tx));
++	if (bytes == 0) {
++		return K60IpaQmiTransportExhausted;
++	}
++	transport->pending_bytes = bytes;
++	transport->pending_complete = 0;
++	return send_pending(transport);
++}
++
++int
++k60_ipa_qmi_transport_receive(K60IpaQmiTransport *transport,
++    const uint8_t *frame, size_t bytes)
++{
++	size_t reply = 0;
++	int rc, source, sent = 0;
++
++	if (transport == NULL || transport->send == NULL || frame == NULL) {
++		return K60IpaQmiTransportBadArgument;
++	}
++	rc = send_pending(transport);
++	if (rc != K60IpaQmiTransportOk) {
++		return rc;
++	}
++	transport->receives++;
++	source = k60_ipa_qmi_server_receive(&transport->server, frame, bytes,
++	    transport->tx, sizeof(transport->tx), &reply);
++	if (source < 0) {
++		return source;
++	}
++	if (reply != 0) {
++		transport->pending_bytes = reply;
++		transport->pending_complete = 0;
++		rc = send_pending(transport);
++		if (rc != K60IpaQmiTransportOk) {
++			return rc;
++		}
++		sent++;
++	}
++	if (transport->complete_sent == 0) {
++		bytes = k60_ipa_qmi_server_init_complete(&transport->server,
++		    transport->tx, sizeof(transport->tx));
++		if (bytes != 0) {
++			transport->pending_bytes = bytes;
++			transport->pending_complete = 1;
++			rc = send_pending(transport);
++			if (rc != K60IpaQmiTransportOk) {
++				return rc;
++			}
++			sent++;
++		}
++	}
++	return sent;
++}
++
++int
++k60_ipa_qmi_transport_flush(K60IpaQmiTransport *transport)
++{
++	if (transport == NULL || transport->send == NULL) {
++		return K60IpaQmiTransportBadArgument;
++	}
++	return send_pending(transport);
++}
++
++int
++k60_ipa_qmi_transport_ready(const K60IpaQmiTransport *transport)
++{
++	if (transport == NULL) {
++		return 0;
++	}
++	return transport->complete_sent != 0;
++}

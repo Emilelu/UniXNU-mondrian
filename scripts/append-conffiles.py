@@ -28,6 +28,7 @@ ENTRIES = [
     "bsd/dev/pong_ipa_qmap.c\t\t\tstandard",
     "bsd/dev/pong_ipa_qmi.c\t\t\tstandard",
     "bsd/dev/pong_ipa_qmi_server.c\t\t\tstandard",
+    "bsd/dev/pong_ipa_qmi_transport.c\t\t\tstandard",
     "bsd/dev/qcom_glink.c\t\t\tstandard",
     "bsd/dev/pong_fat.c\t\t\tstandard",
     "bsd/dev/pong_pmic_rail.c\t\t\tstandard",

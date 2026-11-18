@@ -23,6 +23,7 @@ extern "C" {
 #define QCOM_GLINK_MAX_REMOTE_INTENTS 48u
 #define QCOM_GLINK_MAX_LOCAL_INTENTS 20u /* adsp_apps owns 20 x 560-byte intents; PMIC uses 4 */
 #define QCOM_GLINK_NAME 32u
+#define QCOM_GLINK_MAX_PENDING_OPENS 8u /* remote OPENs seen before their slot existed */
 #define QCOM_GLINK_FEATURE_INTENT_REUSE 1u
 
 enum {
@@ -61,6 +62,7 @@ struct QcomGlinkChannel {
     uint16_t lcid, rcid;
     uint8_t used, initiator, open_sent, open_acked, remote_open, up, intent_asked, closing;
     uint8_t open_hold, open_held;
+    uint8_t open_ack_pending; /* adopted remote OPEN still needs its ACK */
     QcomGlinkClient client;
     void *context;
     /* Our receive intents: count buffers of size bytes in storage (count * size). */
@@ -79,6 +81,9 @@ typedef struct {
     uint8_t version_sent, version_agreed, broken, kick_pending, notify_sent;
     uint16_t next_lcid;
     QcomGlinkChannel channel[QCOM_GLINK_MAX_CHANNELS];
+    /* Remote OPENs that raced ahead of their channel registration. */
+    struct {uint16_t rcid; char name[QCOM_GLINK_NAME];} pending_open[QCOM_GLINK_MAX_PENDING_OPENS];
+    uint8_t pending_open_count;
     /* Counters for the log. */
     uint32_t rx_messages, tx_messages, rx_data, unknown_opens, dropped;
     char last_unknown[QCOM_GLINK_NAME];

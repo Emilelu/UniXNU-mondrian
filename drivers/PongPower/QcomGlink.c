@@ -138,6 +138,24 @@ QcomGlinkChannel *qcom_glink_channel(QcomGlink *g, const char *name, uint32_t in
         c->intent_count = intent_count;
         c->initiator = open_now != 0;
         c->open_sent = open_now ? 0 : 2;  /* 2: wait for the remote's OPEN before sending ours */
+        /* The DSP may have opened this name before the slot existed. Adopt that
+         * OPEN now; progress() acknowledges it only after our own OPEN is acked. */
+        for (unsigned p = 0; p < g->pending_open_count; ++p) {
+            unsigned same = 1;
+            for (unsigned b = 0; b < QCOM_GLINK_NAME; ++b) {
+                if (c->name[b] != g->pending_open[p].name[b]) same = 0;
+                if (!c->name[b]) break;
+            }
+            if (!same) continue;
+            c->rcid = g->pending_open[p].rcid;
+            c->remote_open = 1;
+            c->open_ack_pending = 1;
+            for (unsigned k = p + 1; k < g->pending_open_count; ++k)
+                g->pending_open[k - 1] = g->pending_open[k];
+            g->pending_open_count--;
+            QCOM_GLINK_LOG("QcomGlink: adopt remote OPEN %s rcid=%u\n", c->name, (unsigned)c->rcid);
+            break;
+        }
         QCOM_GLINK_LOG("QcomGlink: slot %s lcid=%u open_now=%d\n", c->name, c->lcid, open_now);
         return c;
     }
@@ -197,6 +215,7 @@ static int advertise(QcomGlink *g, QcomGlinkChannel *c, unsigned index)
 static void reset_channel(QcomGlinkChannel *c)
 {
     c->open_acked = c->remote_open = c->up = c->intent_asked = 0;
+    c->open_ack_pending = 0;
     c->open_held = 0;
     c->open_sent = c->initiator ? 0 : 2;
     c->closing = 0;
@@ -256,6 +275,11 @@ static void progress(QcomGlink *g)
         }
         if (c->open_sent == 0 || (c->open_sent == 2 && c->remote_open)) {
             if (send_open(g, c)) return;
+        }
+        if (c->open_ack_pending && c->open_acked) {
+            if (command(g, QCOM_GLINK_OPEN_ACK, c->rcid, 0)) return;
+            QCOM_GLINK_LOG("QcomGlink: late OPEN_ACK %s rcid=%u\n", c->name, (unsigned)c->rcid);
+            c->open_ack_pending = 0;
         }
         if (c->open_sent == 1 && c->open_acked && c->remote_open && !c->up) {
             for (unsigned k = 0; k < c->intent_count; ++k)
@@ -328,6 +352,25 @@ static void note_unknown(QcomGlink *g, const char *name)
     for (unsigned b = 0; b < n; ++b) list[used++] = name[b];
     list[used] = 0;
 }
+/* Remembers the rcid of a remote OPEN whose channel has not been registered yet,
+ * so qcom_glink_channel() can adopt it instead of losing the handshake. */
+static void note_pending_open(QcomGlink *g, const char *name, uint32_t rcid)
+{
+    unsigned n = 0;
+    while (n < QCOM_GLINK_NAME && name[n]) ++n;
+    for (unsigned i = 0; i < g->pending_open_count; ++i) {
+        unsigned same = 1;
+        for (unsigned b = 0; b < QCOM_GLINK_NAME; ++b) {
+            if (g->pending_open[i].name[b] != name[b]) same = 0;
+            if (!name[b]) break;
+        }
+        if (same) {g->pending_open[i].rcid = (uint16_t)rcid; return;}
+    }
+    if (!n || g->pending_open_count >= QCOM_GLINK_MAX_PENDING_OPENS) return;
+    const unsigned i = g->pending_open_count++;
+    for (unsigned b = 0; b < QCOM_GLINK_NAME; ++b) g->pending_open[i].name[b] = b < n ? name[b] : 0;
+    g->pending_open[i].rcid = (uint16_t)rcid;
+}
 static int receive_one(QcomGlink *g)
 {
     const uint32_t avail = qcom_glink_rx_avail(&g->rx);
@@ -376,6 +419,7 @@ static int receive_one(QcomGlink *g)
             g->unknown_opens++;
             for (unsigned b = 0; b < QCOM_GLINK_NAME; ++b) g->last_unknown[b] = name[b];
             note_unknown(g, name);
+            note_pending_open(g, name, param1);
         } else {
             if (c->closing) return QcomGlinkCorrupt;
             if (c->open_hold) {

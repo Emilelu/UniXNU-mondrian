@@ -75,7 +75,7 @@ typedef struct {
     char a_log[LOG_BYTES], b_log[LOG_BYTES];
 } Link;
 
-static Link link, replay, bridge_link, active_link;
+static Link link, replay, bridge_link, active_link, late_link;
 
 static void log_add(char *log, const uint8_t *data, uint32_t length)
 {
@@ -770,6 +770,80 @@ static void active_open_cases(void)
     k60_audio_glink_stop(&bridge);
 }
 
+/* The DSP opened adsp_apps before the audio slot existed (image ag line 208),
+ * then acknowledged our OPEN but never repeated its own. The transport must
+ * adopt the remembered rcid, send a late OPEN_ACK after our OPEN is acked and
+ * bring the channel up instead of waiting forever for a second DSP OPEN. */
+static void late_open_cases(void)
+{
+    Link *l = &late_link;
+    K60AudioGlink bridge;
+    K60PmicGlinkAudioClient client;
+    BridgeSink sink;
+    unsigned lcid, param, index;
+    char name[QCOM_GLINK_NAME];
+
+    memset(l, 0, sizeof *l);
+    memset(&sink, 0, sizeof sink);
+    l->client.state = on_state;
+    l->client.receive = on_receive;
+    const QcomGlinkFifo tx = {&l->txhead, &l->txtail, l->txdata, FIFO_BYTES};
+    const QcomGlinkFifo rx = {&l->rxhead, &l->rxtail, l->rxdata, FIFO_BYTES};
+    expect_eq((unsigned long)qcom_glink_adopt(&l->g, tx, rx, on_kick, l), (unsigned long)QcomGlinkOk,
+              "late: the transport adopts");
+    k60_audio_glink_init(&bridge, &l->g);
+    client.state = bridge_state;
+    client.receive = bridge_receive;
+    expect_eq((unsigned long)(long)k60_audio_glink_request(&bridge, &client, &sink), 0,
+              "late: the audio client is queued");
+
+    expect(qcom_glink_poll(&l->g) >= 0, "late: poll writes VERSION");
+    expect(ap_read_cmd(l, &lcid, &param, &index) != 0, "late: VERSION is on the wire");
+    expect_eq(lcid, QCOM_GLINK_VERSION, "late: first message is VERSION");
+    peer_cmd(l, QCOM_GLINK_VERSION_ACK, 1, QCOM_GLINK_FEATURE_INTENT_REUSE);
+    expect(qcom_glink_poll(&l->g) >= 0, "late: poll after VERSION_ACK");
+
+    /* The DSP opens before the slot exists: remembered, not acknowledged. */
+    peer_open(l, 0x44, K60_AUDIO_GLINK_NAME);
+    expect_eq((unsigned long)qcom_glink_poll(&l->g), 1, "late: the early DSP OPEN is consumed");
+    expect_eq(l->g.unknown_opens, 1, "late: it was unknown when it arrived");
+    expect_eq(l->g.pending_open_count, 1, "late: its rcid is remembered");
+    expect_eq(l->g.pending_open[0].rcid, 0x44, "late: the remembered rcid");
+    expect_eq(ap_avail(l), 0, "late: an unknown OPEN is not acknowledged");
+
+    /* PMIC up: the slot is created and adopts the remembered OPEN. */
+    expect_eq((unsigned long)(long)k60_audio_glink_open(&bridge), 0, "late: PMIC up opens the audio slot");
+    expect(bridge.channel != 0, "late: the adsp_apps slot exists");
+    if (!bridge.channel) return;
+    expect_eq(bridge.channel->remote_open, 1, "late: the early DSP OPEN is adopted");
+    expect_eq(bridge.channel->rcid, 0x44, "late: the adopted rcid");
+    expect_eq(bridge.channel->open_ack_pending, 1, "late: the ACK is still owed");
+    expect_eq(l->g.pending_open_count, 0, "late: the pending record was consumed");
+
+    expect(qcom_glink_poll(&l->g) >= 0, "late: poll after the slot is created");
+    expect(ap_read_open(l, &lcid, name, sizeof name) != 0, "late: our OPEN goes out");
+    expect_eq(lcid, 1, "late: our OPEN carries lcid 1");
+    expect_name(name, K60_AUDIO_GLINK_NAME, "late: our OPEN names adsp_apps");
+    expect_eq(ap_avail(l), 0, "late: the late ACK waits for our OPEN_ACK");
+
+    peer_cmd(l, QCOM_GLINK_OPEN_ACK, 1, 0);
+    expect(qcom_glink_poll(&l->g) >= 0, "late: poll after our OPEN_ACK");
+    expect(ap_read_cmd(l, &lcid, &param, &index) != 0, "late: the owed ACK is on the wire");
+    expect_eq(lcid, QCOM_GLINK_OPEN_ACK, "late: it is an OPEN_ACK");
+    expect_eq(param, 0x44, "late: it acknowledges the early DSP rcid");
+    for (unsigned k = 0; k < K60_AUDIO_GLINK_INTENT_COUNT; ++k) {
+        expect(ap_read_intent(l, &lcid, &param, &index) != 0, "late: every audio intent is advertised");
+        expect_eq(lcid, 1, "late: audio intents carry lcid 1");
+        expect_eq(param, K60_AUDIO_GLINK_INTENT_BYTES, "late: advertised intent size");
+        expect_eq(index, k, "late: advertised intent index");
+    }
+    expect_eq(ap_avail(l), 0, "late: all twenty intents are on the wire");
+    expect_eq(sink.states, 1, "late: one state callback");
+    expect_eq((unsigned long)sink.up, 1, "late: the audio channel is up");
+    expect_eq(k60_audio_glink_ready(&bridge), 1, "late: ready follows the channel state");
+    k60_audio_glink_stop(&bridge);
+}
+
 int main(void)
 {
     printf("two-slot transport: QCOM_GLINK_MAX_CHANNELS=%u, sizeof(QcomGlinkChannel)=%zu, sizeof(QcomGlink)=%zu\n",
@@ -783,6 +857,7 @@ int main(void)
     geometry_cases();
     bridge_cases();
     active_open_cases();
+    late_open_cases();
 
     if (fails) {printf("TESTS FAILED %u of %u cases\n", fails, cases); return 1;}
     printf("TESTS OK %u cases\n", cases);

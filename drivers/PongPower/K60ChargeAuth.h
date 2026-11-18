@@ -44,6 +44,11 @@ typedef struct {
     uint8_t challenge[32], expected[32];
 } K60ChargeAuth;
 
+/* USB type values 6/7/8 are the PD family: the charger module maps them to
+ * USB_PD, and Xiaomi's wired path never reports another PD value. */
+static inline int k60_charge_auth_pd_type(unsigned usb_type) {
+    return usb_type == 6 || usb_type == 7 || usb_type == 8;
+}
 void k60_charge_auth_init(K60ChargeAuth *, const K60ChargeCrypto *);
 /* K60 is a single-cell pack. A dual-gauge board opts in to the slave check. */
 void k60_charge_auth_set_gauges(K60ChargeAuth *, unsigned count);

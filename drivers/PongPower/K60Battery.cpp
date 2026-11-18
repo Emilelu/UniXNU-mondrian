@@ -17,8 +17,12 @@
 #include <libkern/c++/OSString.h>
 #include <libkern/c++/OSSymbol.h>
 #include <pexpert/pexpert.h>
+#include <libkern/crypto/sha2.h>
+#include <sys/random.h>
+#include <string.h>
 #include "K60PmicGlink.h"
 #include "K60Battmgr.h"
+#include "K60ChargeAuth.h"
 #include "K60BatteryProtocol.generated.h"
 
 namespace {
@@ -30,6 +34,21 @@ uint64_t milliseconds()
     clock_get_system_microtime(&seconds, &fraction);
     return uint64_t(seconds) * 1000 + fraction / 1000;
 }
+void chargeRandom(void *bytes, uint32_t count) { read_random(bytes, count); }
+void chargeHmac(const uint8_t *key, uint32_t keyBytes, const uint8_t *message,
+    uint32_t bytes, uint8_t digest[32])
+{
+    uint8_t pad[64], inner[32];
+    SHA256_CTX sha;
+    for (unsigned i = 0; i < sizeof pad; ++i) pad[i] = (i < keyBytes ? key[i] : 0) ^ 0x36;
+    SHA256_Init(&sha); SHA256_Update(&sha, pad, sizeof pad);
+    SHA256_Update(&sha, message, bytes); SHA256_Final(inner, &sha);
+    for (unsigned i = 0; i < sizeof pad; ++i) pad[i] ^= 0x36 ^ 0x5c;
+    SHA256_Init(&sha); SHA256_Update(&sha, pad, sizeof pad);
+    SHA256_Update(&sha, inner, sizeof inner); SHA256_Final(digest, &sha);
+    bzero(pad, sizeof pad); bzero(inner, sizeof inner); bzero(&sha, sizeof sha);
+}
+const K60ChargeCrypto kChargeCrypto = {chargeRandom, chargeHmac};
 uint32_t adapterFamily(uint32_t type)
 {
     switch (type) {
@@ -64,6 +83,15 @@ private:
     uint64_t waitingSince = 0, channelDeadline = 0;
     K60PmicGlink transport;
     K60Battmgr manager = {};
+    K60ChargeAuth auth = {};
+    bool authEnabled = false;
+    uint8_t authBuffer[K60_CHARGE_REQUEST_BYTES] = {};
+    uint32_t authLength = 0;
+    bool authQueued = false, authSent = false;
+    /* Set after a manager request and cleared after an auth request so a
+     * steady refresh stream cannot starve authentication. */
+    bool authTurn = false;
+    uint32_t lastAuthState = 0;
     K60BatterySample lastSample = {};
     struct {const OSSymbol *key = nullptr; uint8_t bits = 32; OSNumber *pending = nullptr;} numbers[kPropertyNumbers];
     const OSSymbol *staleKey = nullptr, *fullKey = nullptr, *sourceKindKey = nullptr, *adapterKey = nullptr;
@@ -83,6 +111,7 @@ private:
     void rawNumbers(const K60BatterySample &);
     bool registerSource();
     void number(unsigned, uint64_t);
+    void authLog(const char *);
     void pump();
     void updateAdapter(const K60BatterySample &);
     void discardPending();
@@ -159,6 +188,21 @@ void K60Battery::stale(const char *why)
 }
 void K60Battery::publish(const K60BatterySample &s)
 {
+    if (authEnabled) {
+        /* The charger module's update_usb_type_work maps usb_prop_cache[7]
+         * values 6/7/8 to USB_PD and everything else away from PD; K60Battmgr
+         * requests that wire property and adapterFamily() already maps the same
+         * values to USBC PD. Fail closed on a missing or non-PD value, and use
+         * USB online rather than the wireless-inclusive external flag so an
+         * unplug still retires the attachment. This remains an offline
+         * inference until a PD contract is observed on the device. */
+        const bool pdType = s.usb_connected &&
+            (s.valid & (1u << K60BmUsbAdapter)) &&
+            k60_charge_auth_pd_type(s.adapter_type);
+        k60_charge_auth_observe(&auth, s.usb_connected ? 1 : 0,
+            pdType ? (int)s.adapter_type : 0, milliseconds());
+        authLog("sample");
+    }
     publishFailed = false;
     if (!s.present) {
         const bool first = !published;
@@ -324,11 +368,56 @@ void K60Battery::updateAdapter(const K60BatterySample &s)
     }
     if (publishFailed) details->release();
 }
+void K60Battery::authLog(const char *why)
+{
+    if (!authEnabled || auth.state == lastAuthState) return;
+    lastAuthState = auth.state;
+    IOLog("K60Battery: charge-auth %s state=%u online=%u pending=%u gauge=%x adapter=%x result=%d errors=%u timeouts=%u\n",
+        why, auth.state, auth.online, auth.pending, auth.gauge_verified,
+        auth.adapter_verified, auth.last_result, auth.errors, auth.timeouts);
+}
 void K60Battery::pump()
 {
     if (stopped || !up || manager.flight || manager.poisoned) return;
-    uint8_t bytes[K60_BATTMGR_NOTIFY_BYTES];
-    const unsigned length = k60_battmgr_next(&manager, bytes);
+    uint8_t bytes[K60_CHARGE_REQUEST_BYTES];
+    unsigned length = 0;
+    bool authRequest = false;
+    if (authQueued && !authSent) {
+        memcpy(bytes, authBuffer, authLength);
+        length = authLength;
+        authRequest = true;
+    } else if (auth.pending) {
+        return;
+    } else {
+        const uint64_t now = milliseconds();
+        /* One exchange at a time, but alternate who gets the next free slot:
+         * a notification-driven manager cycle never returns zero, so always
+         * asking the manager first would starve the auth state machine. */
+        if (authEnabled && authTurn) {
+            length = k60_charge_auth_next(&auth, now, bytes);
+            if (length) {
+                memcpy(authBuffer, bytes, length);
+                authLength = length;
+                authQueued = true;
+                authRequest = true;
+                authTurn = false;
+            }
+        }
+        if (!length) {
+            length = k60_battmgr_next(&manager, bytes);
+            if (length) authTurn = true;
+        }
+        if (!length && authEnabled && !authTurn) {
+            length = k60_charge_auth_next(&auth, now, bytes);
+            if (length) {
+                memcpy(authBuffer, bytes, length);
+                authLength = length;
+                authQueued = true;
+                authRequest = true;
+                authTurn = false;
+            }
+        }
+    }
     if (!length) return;
     const int rc = transport.send(bytes, length);
     if (rc == QcomGlinkAgain) {
@@ -337,7 +426,8 @@ void K60Battery::pump()
     }
     waitingSince = 0;
     if (rc != QcomGlinkOk) {stale("GLINK send refused"); return;}
-    k60_battmgr_sent(&manager);
+    if (authRequest) authSent = true;
+    else k60_battmgr_sent(&manager);
     requestTimer->setTimeoutMS(kRequestMs);
 }
 void K60Battery::state(void *owner, bool ready)
@@ -349,10 +439,19 @@ void K60Battery::state(void *owner, bool ready)
     if (ready) {
         self->channelDeadline = 0;
         k60_battmgr_channel_up(&self->manager);
-        IOLog("K60Battery: actual PMIC_RTR_ADSP_APPS channel up; measured sign=%d subscription-ack=%u/%u\n",
-            int(self->manager.charging_current_sign), self->manager.notify_reply_type, self->manager.notify_reply_bytes);
+        k60_charge_auth_init(&self->auth, self->authEnabled ? &kChargeCrypto : nullptr);
+        k60_charge_auth_set_gauges(&self->auth, 1);
+        self->authLength = 0; self->authQueued = self->authSent = false;
+        self->authTurn = false;
+        self->lastAuthState = self->auth.state;
+        IOLog("K60Battery: actual PMIC_RTR_ADSP_APPS channel up; measured sign=%d subscription-ack=%u/%u auth=%u\n",
+            int(self->manager.charging_current_sign), self->manager.notify_reply_type,
+            self->manager.notify_reply_bytes, self->authEnabled ? 1u : 0u);
     } else {
         k60_battmgr_channel_down(&self->manager);
+        k60_charge_auth_reconnect(&self->auth, milliseconds());
+        self->authLength = 0; self->authQueued = self->authSent = false;
+        self->authTurn = false;
         self->stale("PMIC channel down");
         if (!self->stopped) self->channelDeadline = milliseconds() + kChannelMs;
     }
@@ -361,6 +460,12 @@ void K60Battery::receive(void *owner, const uint8_t *data, unsigned bytes)
 {
     auto self = static_cast<K60Battery *>(owner);
     if (self->stopped || !self->up) return;
+    if (self->auth.pending && k60_charge_auth_receive(&self->auth, data, bytes, milliseconds())) {
+        self->requestTimer->cancelTimeout();
+        self->authLength = 0; self->authQueued = self->authSent = false;
+        self->authLog("reply");
+        return;
+    }
     const int rc = k60_battmgr_receive(&self->manager, data, bytes);
     if (rc == K60BmAnswer || rc == K60BmCycleDone || rc == K60BmSubscribed) self->requestTimer->cancelTimeout();
     if (rc == K60BmCycleDone) {
@@ -368,6 +473,15 @@ void K60Battery::receive(void *owner, const uint8_t *data, unsigned bytes)
         if (k60_battmgr_sample(&self->manager, &sample)) self->publish(sample);
         else {
             self->stale("incomplete/unqualified sample");
+            if (self->authEnabled) {
+                /* No current-source qualification: suspend authentication. An
+                 * unanswered request is retired by requestAction, which also
+                 * quarantines the channel that may still carry its late reply. */
+                k60_charge_auth_observe(&self->auth, 0, 0, milliseconds());
+                self->authLength = 0; self->authQueued = false;
+                if (self->auth.pending) self->requestTimer->setTimeoutMS(1);
+                self->authLog("unqualified sample");
+            }
             IOLog("K60Battery: no publication sample=%u fresh=%x errors=%u sign=%d status=%d dirty=%d refresh=%d notifications=%u valid=%x raw-current=%d raw-temp=%d\n",
                 self->manager.generations, self->manager.last_fresh, self->manager.errors,
                 int(self->manager.charging_current_sign), self->manager.value[K60BmStatus],
@@ -407,7 +521,21 @@ void K60Battery::pollAction(OSObject *owner, IOTimerEventSource *timer)
 void K60Battery::requestAction(OSObject *owner, IOTimerEventSource *)
 {
     auto self = OSDynamicCast(K60Battery, owner);
-    if (!self || self->stopped || !self->manager.flight) return;
+    if (!self || self->stopped) return;
+    if (self->auth.pending) {
+        k60_charge_auth_timeout(&self->auth, milliseconds());
+        self->authLength = 0; self->authQueued = self->authSent = false;
+        self->authLog("timeout");
+        IOLog("K60Battery: charge-auth request timeout state=%u retries=%u errors=%u timeouts=%u; quarantining old channel\n",
+            self->auth.state, self->auth.retries, self->auth.errors, self->auth.timeouts);
+        /* The reply may still arrive and match a retry of the same property;
+         * retire this channel incarnation before one can be sent. */
+        self->stale("charge-auth response timed out");
+        self->channelDeadline = milliseconds() + kChannelMs;
+        if (!self->transport.reopen()) self->transport.close();
+        return;
+    }
+    if (!self->manager.flight) return;
     IOLog("K60Battery: physical PMIC request timeout op=%x property=%u responses=%u ignored=%u errors=%u flight=%u cursor=%u; quarantining old channel\n",
         k60_battmgr_opcode(&self->manager), k60_battmgr_property(&self->manager),
         self->manager.responses, self->manager.ignored, self->manager.errors,
@@ -435,6 +563,14 @@ bool K60Battery::begin(IOService *provider, const K60BatteryConfig &config, cons
     waitingSince = 0;
     lastRefreshLog = 0;
     publishFailed = false;
+    unsigned authArg = 0;
+    PE_parse_boot_argn("k60_charge_auth", &authArg, sizeof(authArg));
+    authEnabled = authArg != 0;
+    k60_charge_auth_init(&auth, authEnabled ? &kChargeCrypto : nullptr);
+    k60_charge_auth_set_gauges(&auth, 1);
+    authLength = 0; authQueued = authSent = false;
+    authTurn = false;
+    lastAuthState = auth.state;
     if (!IOPMPowerSource::start(provider)) return false;
     k60_battmgr_init(&manager, config.charging_current_sign,
         K60_BATTERY_NOTIFY_REPLY_TYPE, K60_BATTERY_NOTIFY_REPLY_BYTES);

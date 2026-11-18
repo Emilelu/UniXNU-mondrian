@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #include "K60ChargeAuth.h"
 /* Port of UniXNU-sheng package/ShengChargeAuth.c (BSD-2-Clause-Patent).
- * Protocol constants from xiaomi-mipps-auth; no K60 wiring yet. */
+ * Protocol constants from xiaomi-mipps-auth; wired into K60Battery behind
+ * k60_charge_auth=0 (default off). */
 #include <string.h>
 
 enum {Owner = 32778, Get = 0x50, Set = 0x51, VerifyDigest = 1, Authentic = 3, SlaveAuthentic = 0xa5,
@@ -112,7 +113,7 @@ void k60_charge_auth_reconnect(K60ChargeAuth *a, uint64_t now) {
     }
 }
 void k60_charge_auth_observe(K60ChargeAuth *a, int online, int usb_type, uint64_t now) {
-    const int pd = usb_type == 6 || usb_type == 7 || usb_type == 8;
+    const int pd = k60_charge_auth_pd_type(usb_type < 0 ? 0u : (unsigned)usb_type);
     if (!online || (!pd && a->online)) {
         k60_charge_auth_reconnect(a, now);
         return;

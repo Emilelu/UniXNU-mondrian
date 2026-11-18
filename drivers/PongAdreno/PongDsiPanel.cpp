@@ -563,14 +563,32 @@ extern "C" bool pong_panel_bringup(void)
     unsigned probe=0;
     probe_enabled=PE_parse_boot_argn("gprobe",&probe,sizeof(probe)) && probe==1;
     cadence_pending=true;
-    unsigned panel_120=0,vsync=0;
-    const bool p120=PE_parse_boot_argn("p120",&panel_120,sizeof(panel_120)) && panel_120==1;
-    const bool vsync120=PE_parse_boot_argn("vsync",&vsync,sizeof(vsync)) && vsync==120;
-    if (p120 || vsync120) {
+    /* 120 Hz is the default since 120hz-7 (usblog-20261118-094621) proved the
+     * m11a panel accepts timing@2: eleven vendor packets rc 0, the INTF1
+     * line-counter average wrap rate 55/s -> 120/s, the first frame presented,
+     * SpringBoard 172 lines and sig=11 zero. Every image built before that
+     * flight left the panel at the firmware timing@0 (60 Hz) while
+     * patches/xnu/0506 declared 120 Hz to CoreAnimation, which is the pacing
+     * mismatch the zizhan note describes (a 60 Hz panel can only show a 3-tick
+     * 40 Hz animation as 33/33/17 ms). The switch therefore no longer needs a
+     * boot argument - bytes are scarce - but both spellings still opt out:
+     *
+     *   p120=0          keep the firmware timing group (native 60 Hz)
+     *   vsync=<not 120> keep the firmware timing group; vsync=120 asks for it
+     */
+    unsigned p120Value=1,vsync=0;
+    const bool p120Arg=PE_parse_boot_argn("p120",&p120Value,sizeof(p120Value));
+    const bool vsyncArg=PE_parse_boot_argn("vsync",&vsync,sizeof(vsync));
+    const bool request120=vsyncArg ? vsync==120 : (p120Arg ? p120Value==1 : true);
+    if (request120) {
         panel_120_requested=true;
         panel_120_switch_pending=true;
         panel_log("K60 PANEL: 120 Hz requested by %s; switch deferred to the first GPU frame\n",
-            p120?"p120=1":"vsync=120");
+            vsyncArg ? (vsync==120 ? "vsync=120" : "vsync!=120")
+                     : (p120Arg ? "p120=1" : "the default"));
+    } else {
+        panel_log("K60 PANEL: staying at the firmware timing group (60 Hz) by %s\n",
+            vsyncArg ? "vsync!=120" : "p120=0");
     }
 	return true;
 }

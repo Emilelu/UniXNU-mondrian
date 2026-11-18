@@ -29,8 +29,9 @@
  *          six-key backlight-calibration-parameters dictionary while that
  *          CoreBrightness reads ten keys with no NULL check. The dictionary is
  *          no longer published at all (see publishCalibration). The property
- *          stays off by default: k60_backlight_control=1 asks for it and the
- *          kernel side of the conformance query must then really answer
+ *          is published by default since brightness-19 / 120hz-7; only an
+ *          explicit k60_backlight_control=0 turns it off, and the kernel side
+ *          of the conformance query must still really answer
  *          AppleARMBacklight (conformsToAppleBacklight).
  *
  * Counting follows the reference layout; see docs/research/display/
@@ -326,8 +327,18 @@ void K60Backlight::publishFirst(void)
      * accepts brightness/FadePeriod requests, so a level can be driven from
      * either side, and nothing that walks the registry is told a backlight
      * control exists. */
-    uint32_t controlArg = 0;
-    if (bootArg("k60_backlight_control", controlArg) && controlArg) {
+    /* backlight-control is the default since brightness-19 and 120hz-7: both
+     * published conformance=1 control=1 on the device with no SIGSEGV, the
+     * first frame presented and SpringBoard at 128-172 lines, and the user
+     * confirmed the slider range end to end (DBV 0x4 .. 0xfff). The earlier
+     * int-236 crash family came from publishCalibration() handing CoreBrightness
+     * a half-built dictionary, not from the impersonation itself, and that call
+     * no longer publishes the dictionary. Keep k60_backlight_control=0 as the
+     * explicit opt-out for an image that must not walk the registry with a
+     * backlight control published. */
+    uint32_t controlArg = 1;
+    const bool controlGiven = bootArg("k60_backlight_control", controlArg);
+    if (controlGiven ? controlArg != 0 : true) {
         /* A successful vtable swap is not the answer that matters: brightness-4
          * swapped it and backboardd still crashed. The flag records the
          * conformance query itself, which is the question user space asks. */

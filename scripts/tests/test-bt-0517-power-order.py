@@ -19,6 +19,7 @@ PATCH = PATCHES / "0517-k60-bt-power-order.patch"
 
 PATCH_0516 = "0516-k60-bt-qbt-uart-clock.patch"
 PATCH_0517 = "0517-k60-bt-power-order.patch"
+PATCH_0518 = "0518-k60-bt-gic-intid.patch"
 SERIES_PREFIX_COUNT = 236
 SERIES_PREFIX_SHA256 = "e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db2"
 SERIES_COUNT = 237
@@ -178,15 +179,21 @@ def main() -> None:
 
     lines = [line.strip() for line in SERIES.read_text(encoding="utf-8").splitlines()
              if line.strip()]
-    check(len(lines) == SERIES_COUNT, "series count", str(len(lines)))
+    check(len(lines) in (SERIES_COUNT, SERIES_COUNT + 1),
+          "series count", str(len(lines)))
     check(lines[SERIES_PREFIX_COUNT - 1] == PATCH_0516,
           "line 236 is 0516", lines[SERIES_PREFIX_COUNT - 1])
-    check(lines[-1] == PATCH_0517, "series ends with 0517", lines[-1])
+    check(lines[SERIES_COUNT - 1] == PATCH_0517,
+          "line 237 is 0517", lines[SERIES_COUNT - 1])
+    tail_ok = len(lines) == SERIES_COUNT or (
+        len(lines) == SERIES_COUNT + 1 and lines[-1] == PATCH_0518)
+    check(tail_ok, "candidate tail is 0517 optionally followed by 0518")
     prefix_sha = hashlib.sha256(
         ("\n".join(lines[:SERIES_PREFIX_COUNT]) + "\n").encode()).hexdigest()
     check(prefix_sha == SERIES_PREFIX_SHA256, "236-line 0516 prefix sha256", prefix_sha)
-    full_sha = hashlib.sha256(("\n".join(lines) + "\n").encode()).hexdigest()
-    check(full_sha == SERIES_SHA256, "237-line series sha256", full_sha)
+    candidate_sha = hashlib.sha256(
+        ("\n".join(lines[:SERIES_COUNT]) + "\n").encode()).hexdigest()
+    check(candidate_sha == SERIES_SHA256, "237-line 0517 series sha256", candidate_sha)
     check(sha256(PATCHES / PATCH_0516) ==
           "0134a31bedb65fe6669a7ce7745bc5b9fcb6a7cd44ac66f96f3f604bb01ac6c8",
           "0516 bytes are unchanged")

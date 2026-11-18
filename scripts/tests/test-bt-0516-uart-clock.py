@@ -38,6 +38,7 @@ SERIES_COUNT = 236
 PATCH_0516 = "0516-k60-bt-qbt-uart-clock.patch"
 PATCH_0516_SHA256 = "0134a31bedb65fe6669a7ce7745bc5b9fcb6a7cd44ac66f96f3f604bb01ac6c8"
 PATCH_0517 = "0517-k60-bt-power-order.patch"
+PATCH_0518 = "0518-k60-bt-gic-intid.patch"
 
 QBT_SOURCE = {
     "qbt_core.c": "653723e92606893f9b91d2273193e5dabd440bbdba3dff5229160c113992e545",
@@ -175,10 +176,12 @@ def validate_inputs(artifact: Path, patches: Path) -> list[str]:
     check(len(lines) >= SERIES_COUNT and lines[SERIES_COUNT - 1] == PATCH_0516,
           "0516 at the candidate tail")
     tail_ok = len(lines) == SERIES_COUNT or (
-        len(lines) == SERIES_COUNT + 1 and lines[-1] == PATCH_0517)
-    check(tail_ok, "candidate tail is 0516 optionally followed by 0517")
+        len(lines) == SERIES_COUNT + 1 and lines[-1] == PATCH_0517) or (
+        len(lines) == SERIES_COUNT + 2 and lines[-2] == PATCH_0517
+        and lines[-1] == PATCH_0518)
+    check(tail_ok, "candidate tail is 0516 optionally followed by 0517 and 0518")
     if not tail_ok:
-        refuse("candidate series tail is not 0516 or 0516+0517")
+        refuse("candidate series tail is not 0516 or 0516+0517+0518")
     candidate = lines[:SERIES_COUNT]
     candidate_sha = hashlib.sha256(("\n".join(candidate) + "\n").encode()).hexdigest()
     check(candidate_sha == SERIES_SHA256, "candidate 236-entry prefix sha256", candidate_sha)

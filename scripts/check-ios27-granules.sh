@@ -15,6 +15,7 @@
 set -eu
 TREE=${1:-${K60_XNU_TREE:-../UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree}}
 CLANG=${CLANG:-clang}
+OBJCOPY=${OBJCOPY:-$(command -v llvm-objcopy || command -v objcopy)}
 
 if [ ! -f "$TREE/refer/xnu/pexpert/pexpert/arm64/board_config.h" ]; then
 	echo "check-ios27-granules: no xnu refer tree at $TREE" >&2
@@ -49,7 +50,7 @@ EOF
 	-I "$TREE/refer/xnu/EXTERNAL_HEADERS" \
 	"$OUT/BCM2837.S" -o "$OUT/BCM2837.o"
 
-llvm-objcopy -O binary "$OUT/BCM2837.o" "$OUT/BCM2837.bin"
+"$OBJCOPY" -O binary "$OUT/BCM2837.o" "$OUT/BCM2837.bin"
 python3 - "$OUT/BCM2837.bin" <<'PY'
 import struct
 import sys

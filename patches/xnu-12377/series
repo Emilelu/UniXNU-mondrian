@@ -15,6 +15,8 @@ armcpu-sleep-hook.patch
 # k60_bt_blob.s in osfmk/conf/files.arm64, 0512 the late start in kern_exec,
 # 0519/0520 as written. 0507 and 0508 must precede 0509: 0509's include block is
 # their work.
+0500-k60-bt-qbt-new-files.patch
+0502b-k60-bt-qbt-kernel-stubs.patch
 0501-k60-bt-qbt-bsd-conf.patch
 0502-k60-bt-qbt-bsd-init.patch
 0507-k60-bt-readonly-probe.patch
@@ -30,3 +32,10 @@ armcpu-sleep-hook.patch
 0518-k60-bt-gic-intid.patch
 0519-k60-bt-userspace-power-nodes.patch
 0520-k60-bt-uart-control-alias.patch
+# 0510 lists osfmk/arm64/k60_bt_blob.s, a generated product: the iOS 16 line
+# writes it from scripts/gen-k60-bt-blob.py before compiling. 0510 without it
+# is a missing input, so the empty carrier is checked in here. It is the exact
+# stub the generator emits without --container (one byte, length zero, kernel
+# falls back to the GpuAddon range); stage a container and regenerate to embed
+# firmware.
+0521-k60-bt-blob-stub.patch

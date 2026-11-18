@@ -1,0 +1,27 @@
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -269,6 +269,24 @@
+ extern int k60_bt_local_address(uint8_t address[6]) __attribute__((weak));
+ extern volatile int native_gpu_addon_stage __attribute__((weak));
+ 
++/* K60_BT_STUBS: ArmCpu.cpp is not linked into this kernel config, and the
++ * GPU addon stage reader is not wired yet. Provide weak fail-closed defaults
++ * so the BT worker links; a real ArmCpu integration can override both. */
++__attribute__((weak)) IOReturn
++armcpu_spi_attach(uint32_t intid, bool edge, void (*handler)(void *), void *context,
++                  uint32_t *readback, uint64_t *router)
++{
++    (void)intid; (void)edge; (void)handler; (void)context; (void)readback; (void)router;
++    return -1; /* kIOReturnUnsupported */
++}
++__attribute__((weak)) IOReturn
++armcpu_spi_mask(uint32_t intid, bool masked)
++{
++    (void)intid; (void)masked;
++    return -1;
++}
++volatile int native_gpu_addon_stage = 1;
++
+ /* Fail-closed default; a board-specific file may provide a strong definition
+  * that reads /chosen/unique-chip-id (see REPORT.md integration notes). */
+ __attribute__((weak)) int

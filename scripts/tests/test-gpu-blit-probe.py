@@ -39,6 +39,11 @@ def main():
             print("  FAIL %s%s" % (name, (" -- " + why) if why else ""))
             failures.append(name)
 
+    check("the control clamps its byte count to the smaller extent",
+          "frame.bytes < scanout_.bytes ? frame.bytes : scanout_.bytes" in presenter)
+    check("and never guards the control away by size",
+          "if (bytes > scanout_.bytes) return false;" not in presenter,
+          "the first flight reported nothing because the source pitch was larger")
     check("the presenter exposes a control", "bool runBlitProbe(const Frame &frame)" in presenter)
     check("the control runs at most once", "if (probeRan_ || !ready()" in presenter)
     check("the control keeps a device buffer of its own", "newBufferWithLength:scanout_.bytes" in presenter)

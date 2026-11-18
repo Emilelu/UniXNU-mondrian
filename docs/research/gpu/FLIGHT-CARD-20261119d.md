@@ -95,4 +95,52 @@ SpringBoard 下一次合成就会覆盖。若这一帧之后屏幕**仍然**是�
 
 （飞行后写在这里；`criteria-sha256` 在第一次写入时钉入。）
 
-- criteria-sha256: `待钉入`
+- criteria-sha256: `28bc85968a223c8eae70745f2261e073002641e5c588ee20201fb45ef87f6897`
+
+### 5.1 第一次飞（`usblog-20261119-064122`）：**F2 命中，对照没跑**
+
+镜像 `gpu-blitprobe-20261119`（`boot.img db77a632…`、kernel `dcbed46f…` 105,693,184 B、
+插件 `metal-plugin-20261119n` 的 `PongAdrenoMetal` 111,808 B sha256 `dfbcf147…`）。
+证据 246,704 B，`supervisor rc=0`，抓取完整、无 panic、无复位。
+
+| 判据 | 结果 | 实测 |
+|---|---|---|
+| S1 无 panic | ✅ | `panic(` 0、`K60KEXC` 0、`crashed: backboardd` 0 |
+| S2 恰一行 control | ❌ | 0 行 |
+| S3 两个数都非零 | ❌ | 没有数 |
+| S4 形状 + `imports==frames` | ✅ | `texture untile source=5888 scanout=5760 rows=3200`，4/4 |
+| S5 三个数都记下 | ❌ | 只有 `copy` 中位 23,802 µs |
+| S6 面板 ≥110 Hz | ✅ | 122/s |
+| S7 仍在出帧 | ✅ | 4 条 `scanout frames=` |
+
+按 §4.3，**F2 命中**：没有 control 行但有 `scanout copy` 行 ⇒ 探针没跑到。
+
+### 5.2 真因：被它要测量的那个差异挡住了
+
+`runBlitProbe()` 第一版用源的行跨度算字节数：
+
+```
+bytes = frame.stride * (frame.height - 1) + row = 5888 * 3199 + 5760 = 18,841,472
+```
+
+而固件帧缓冲只有 `scanout_.stride * height = 5760 * 3200 = 18,432,000` 字节。
+于是那句 `if (bytes > scanout_.bytes) return false;` 直接把它挡掉了 ——
+**保护条件用的是「源比目标宽 128 字节/行」这个事实，而这个事实正是这一飞要解释的东西。**
+
+修法：两条对照各拷**同一个**字节数，取两者中较小的那个
+（`bytes = frame.bytes < scanout_.bytes ? frame.bytes : scanout_.bytes`），
+并删掉那句返回。这样既不会溢出帧缓冲，也不再用尺寸去做准入判断。
+
+这一条本身就是个值得记的形状：**一个为诊断而写的保护条件，把被诊断的现象当成了不合法输入。**
+测试里加了两条（`the control clamps its byte count to the smaller extent`、
+`and never guards the control away by size`），断言的不只是「夹住了」，还有「不再按尺寸拒绝」。
+
+### 5.3 这一飞给出的数（仍然有用）
+
+即便没有 control 行，这一飞也复现了上一飞的结论：`copy` 中位 **23,802 µs**，
+`gpu` 中位 4,577 µs，`imports==frames` 4/4，面板 122 Hz，4 帧、8 次 commit —— 仍然是静屏。
+
+### 5.4 重飞
+
+判据未改，因此 `criteria-sha256` 不变，按 §3 P6 允许在同一张镜像之后重飞——
+但这一飞需要**新镜像**（改动在插件里）。下一张镜像 `gpu-blitprobe2-20261119`。

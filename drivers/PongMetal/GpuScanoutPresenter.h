@@ -124,9 +124,14 @@ public:
     bool runBlitProbe(const Frame &frame) {
         if (probeRan_ || !ready() || !frame.base || !frame.bytes) return false;
         probeRan_ = true;
-        const size_t row = (size_t)frame.width * 4;
-        const size_t bytes = frame.stride * (frame.height - 1) + row;
-        if (bytes > scanout_.bytes) return false;
+        /* Both copies move the same byte count, and it must fit the smaller of the two
+         * extents. The first version used the source extent, frame.stride*(h-1)+row, which
+         * with a 5888 source pitch and a 5760 scanout pitch is 18,841,472 bytes against an
+         * 18,432,000 byte framebuffer - so the guard refused the whole control and the first
+         * flight reported nothing. The size difference this control exists to explain is
+         * exactly what stopped it, so the count is clamped here instead of guarded later. */
+        const size_t bytes = frame.bytes < scanout_.bytes ? frame.bytes : scanout_.bytes;
+        if (!bytes) return false;
         probe_ = [device_ newBufferWithLength:scanout_.bytes options:MTLResourceStorageModeShared];
         if (!probe_) return false;
         id<MTLBuffer> source = [device_ newBufferWithBytesNoCopy:(void *)frame.base length:frame.bytes

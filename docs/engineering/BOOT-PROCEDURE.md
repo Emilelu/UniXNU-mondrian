@@ -70,6 +70,15 @@ K60_FORCE_NEW=1 bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh <img> <秒�
   是否收到、设备是否自己回了 fastboot
 - `collector.stdout.log` / `collector.stderr.log`
 
+**手工拼的飞行也必须留下 `boot.json`。** 2026-11-19 的例子：用 WSL 里的
+`capture-k60-usblog-reopen.ps1` 起抓取、再直接 `fastboot.exe boot` 的写法不会写
+`boot.json`，于是 `check-bisect-coverage.py`（P-218）把 mission14–mission21 这些
+**真的飞过**的镜像全判成“从未飞行”，P-218 的清单因此失去意义。正确做法是让
+`boot-and-capture.ps1` 当唯一 supervisor：它先武装抓取、等 `capture.ready`、再
+`fastboot boot`，最后写账。确实需要事后补记时，`boot.json` 必须带
+`"recordedAfterFlight": true`，且只填能从证据核实的字段：`console.log` 的目录
+时间、镜像 sha256、`capture.ready`。
+
 ## 判据：不是"文件存在吗"
 
 `k60-capture-state.ps1` 把结果分成七个状态，`complete` 只对 `captured` 为真：

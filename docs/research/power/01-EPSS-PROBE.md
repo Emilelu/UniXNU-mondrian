@@ -1,10 +1,10 @@
 # K60 EPSS 只读探针（power §5 起点）
 
 日期：2026-11-18。范围：官网 power 页 §5 的第一条，CPU 频率（EPSS）。
-本文记录寄存器事实、纯算术模块、默认关闭的只读探针、host 断言，以及 2026-11-18 两次真机
-mode 1 读数：17:30 image i 的早期快照，和 17:55 image j 在电池 `begin` 后的第二次快照
-（后者把 d1/d2 从“辅核未启动”的 0 变为 `enable=1`）。设备测试只做到只读快照；没有执行
-任何投票写入。
+本文记录寄存器事实、纯算术模块、默认关闭的只读探针、host 断言，以及 2026-11-18 三次真机
+mode 1 读数：17:30 image i 的早期快照、17:55 image j 在电池 `begin` 后的第二次快照
+（后者把 d1/d2 从“辅核未启动”的 0 变为 `enable=1`），和 18:22 image k 的逐行 LUT dump
+（66 条有效档位全部读出）。设备测试只做到只读快照；没有执行任何投票写入。
 
 ## 1. 官方要求
 
@@ -122,8 +122,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
   dcvs 开/关的写条数、缓冲区不足拒绝，以及 governor 的单窗口序列（降档闩锁、立即升档、
   boost 释放后的半速地板、错误入参），以及空闲换算（满忙/半忙/全闲/超计/零窗口）
-  和 4/3/1 域的“最忙 CPU”选择。断言使用合成的 LUT 行；真机的行数与最高档已在
-  image i/j 读到，逐行 raw 读取要等 image k。
+  和 4/3/1 域的“最忙 CPU”选择。断言使用合成的 LUT 行；真机 image k 已把 66 条有效
+  档位逐行读出。
 - archive（含逐行 dump，commit `eba8de2a`）：`build/k60-battery/libK60PhysicalBattery.a`
   **126,120 字节**，sha256 `1cb583979b0d435142c5a033816f93f63842af6874000409659d4fc0ea609bd4`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
@@ -230,29 +230,73 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `kernel command line is 612 bytes; DarwinBoot accepts at most 607`，原因是
   `applog=1` 已恢复；随后临时去掉 `applog=1` 只重跑 payload/bootimg，参数为 30 个、603 字节，
   gate 仍因 `k60_cpufreq` 不在 `ALLOWED_ADDITIONS` 且 board 的 `applog=1` 缺失而 REFUSED；
-  构建结束后 `applog=1` 已恢复。`boot.json` 的 `hardware_tested` 仍为 `false`，尚未上机。
+  构建结束后 `applog=1` 已恢复。`boot.json` 的 `hardware_tested` 在构建时为 `false`；2026-11-18 18:22 已首次上机，逐行结果见下节。
+- 镜像 k 首次上机（**只读 mode 1 + 逐行 dump**，2026-11-18 18:22）：证据目录
+  `E:/k60-work/evidence/power-conformance/epss-lut-20261118-1822`；`boot.json` 的
+  `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`（18:22:22–18:27:54）；
+  `capture.json` 为 `captured-budget-complete`、`complete=true`、133,807 B、
+  `logSha256=15143B46F4CE069767EF752F5C4E2BDFB256AED8E311DE8876A61C2E5D9BD5CE`、
+  `openErrors=5`（最后一次是 COM5 不存在）、`reopenCount=0`、`stopReason=budget`；
+  `console.log` 133,807 B、同 SHA-256，早期 LUT 行在 `:189–:259`，延后读取在 `:304–:310`，
+  未见 panic marker，300 s 后打印 `K60AUTORESET` 和 restart reason；采集脚本未在窗口内判定回到 fastboot，
+  采集结束后通过 `k60-device.sh state` 独立确认 `fastboot`。
+
+### 逐行 LUT（image k，2026-11-18 18:22）
+
+早期只读 pass 在 `:191–:259` 打印了 66 条有效档位记录（d0 14、d1 17、d2 20、L3 15），
+并非每窗 40 个物理槽的全量转储。四表的输出均为升序，最高档与表头摘要一致。每条记录的
+`cores` 都是 4、`turbo` 都是 0，因此不能把 18:16 位当作本域核数；CPU 域归属仍使用 FDT 的
+4/3/1 映射。`row` 是硬件 LUT 行号，也是这些条目保存在 `table.level` 中的值，而非排序后下标。
+
+| row | d0 raw / kHz | d1 raw / kHz | d2 raw / kHz | L3 raw / kHz |
+|---|---|---|---|---|
+| 0 | 0x0004000f / 300000 | 0x40040021 / 633600 | 0x40040029 / 787200 | 0x0004000f / 300000 |
+| 1 | 0x40040017 / 441600 | 0x40040028 / 768000 | 0x40040030 / 921600 | 0x40040015 / 403200 |
+| 2 | 0x4004001d / 556800 | 0x4004002e / 883200 | 0x40040036 / 1036800 | 0x4004001b / 518400 |
+| 3 | 0x40040024 / 691200 | 0x40040034 / 998400 | 0x4004003d / 1171200 | 0x40040020 / 614400 |
+| 4 | 0x4004002a / 806400 | 0x4004003a / 1113600 | 0x40040043 / 1286400 | 0x40040025 / 710400 |
+| 5 | 0x40040031 / 940800 | 0x4004003f / 1209600 | 0x40040049 / 1401600 | 0x4004002a / 806400 |
+| 6 | 0x40040037 / 1056000 | 0x40040045 / 1324800 | 0x40040050 / 1536000 | 0x4004002f / 902400 |
+| 7 | 0x4004003b / 1132800 | 0x4004004b / 1440000 | 0x40040056 / 1651200 | 0x40040034 / 998400 |
+| 8 | 0x40040040 / 1228800 | 0x40040051 / 1555200 | 0x4004005c / 1766400 | 0x40040038 / 1075200 |
+| 9 | 0x40040045 / 1324800 | 0x40040056 / 1651200 | 0x40040062 / 1881600 | 0x4004003d / 1171200 |
+| 10 | 0x4004004b / 1440000 | 0x4004005c / 1766400 | 0x40040068 / 1996800 | 0x40040042 / 1267200 |
+| 11 | 0x40040051 / 1555200 | 0x40040062 / 1881600 | 0x4004006f / 2131200 | 0x40040048 / 1382400 |
+| 12 | 0x40040057 / 1670400 | 0x40040068 / 1996800 | 0x40040075 / 2246400 | 0x4004004d / 1478400 |
+| 13 | 0x4004005e / 1804800 | 0x4004006e / 2112000 | 0x4004007b / 2361600 | 0x40040053 / 1593600 |
+| 14 | — | 0x40040074 / 2227200 | 0x40040081 / 2476800 | 0x40040059 / 1708800 |
+| 15 | — | 0x4004007a / 2342400 | 0x40040087 / 2592000 | — |
+| 16 | — | 0x40040082 / 2496000 | 0x4004008d / 2707200 | — |
+| 17 | — | — | 0x40040093 / 2822400 | — |
+| 18 | — | — | 0x40040098 / 2918400 | — |
+| 19 | — | — | 0x4004009c / 2995200 | — |
+
+判读：d0 的 14 档 0.3–1.8048 GHz、d1 的 17 档 0.6336–2.496 GHz、d2 的 20 档 0.7872–2.9952 GHz、
+L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 的 `enable=0` 仍只是辅核尚未启动，
+延后读取 `:304–:310` 已变为 `enable=1`。本轮仍无写入，mode 2/3 未执行。
 
 ## 7. 未实现 / 边界
 
 - 投票写集合已实现（mode 2/3），但**从未在真机上执行**：没有 enable 等待、没有写后读回校验、
-  没有 dcvs 反馈；mode 1 已在 image i（早期）与 image j（早期+延后）上读取，三个 domain
-  均 `enable=1`。
+  没有 dcvs 反馈；mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的三个 domain
+  均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 只有纯逻辑核心，没有线程；idle 换算已经纯逻辑化（`k60_cpufreq_domain_busy`），
   但还没有内核 `sheng_cpu_idle_mach` 等价的采样调用、
   没有触摸/帧信号输入、没有 10 s 统计窗口；核心还没有被任何代码调用。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。
-- 真机已有两次 mode 1 摘要快照：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
+- 真机已有三次 mode 1 读数：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
   已变为 `enable=1`（state 633.6/787.2 MHz、vote 16/19），所以三域均可读，早期 0 只是时序。
-  逐行 LUT dump 已加入 mode 1（commit `eba8de2a`），但尚未在真机上读取；没有负载下频率、
-  温度或 throttle 读数。
+  image k 已把 66 条有效 LUT 档位全部读出（d0/d1/d2/L3 = 14/17/20/15 行，见 §6 表）；仍没有负载下
+  频率、温度或 throttle 读数，也没有写后回读。
 
 ## 8. 后续上机步骤
 
 1. image i 已完成早期 mode 1 只读读取（sha256 `f2d91f13…`）；image j 在电池 `begin`
    成功后 5 s 完成第二次读取（sha256 `ff5fd178…`，commit `950742e9`），三个 domain 均
-   `enable=1`。两个镜像都带 `k60_cpufreq=1`，构建时临时去掉 `applog=1`，只用于探针，
-   参数 gate 仍未通过（`k60_cpufreq` 未加入 `ALLOWED_ADDITIONS`）。
+   `enable=1`；image k（sha256 `74e66779…`，commit `eba8de2a`）在 18:22 走同一条只读路径，
+   并把 66 条有效 LUT 档位全部打印。三个镜像都带 `k60_cpufreq=1`，构建时临时去掉 `applog=1`，
+   只用于探针，参数 gate 仍未通过（`k60_cpufreq` 未加入 `ALLOWED_ADDITIONS`）。
    `k60-adsp-handoff/board.toml` 的 `applog=1` 已恢复。
 2. d1/d2 的“辅核启动后补读”已经完成：image j 的 `late read` 在 `ArmCpu` CPU 1–7 全部
    PSCI start PASS、电池首帧发布之后执行，d1 `enable=1 state=33 (633600kHz) vote=16`、
@@ -262,13 +306,15 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
    - `mode=1 EPSS domains=3 cpus=8 lut-rows=40`
    - `d0 base=0x17d91000 enable=… state=… (…kHz) dcvs=… vote=… rows=… top=…kHz level=… mode1=read-only`
    - `late read begin/end` 与第二次的 d0/d1/d2/L3 行
+   - CPU 各域的行跟在对应摘要后，形如 `K60CpuFreq: row=0 raw=0x0004000f khz=300000 cores=4 turbo=0`；L3 行另带 `L3 ` 前缀。
    - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=…`、`mode3 vote L3 …`
-4. 设备空窗：image j 于 2026-11-18 17:55:18 启动、18:00:49 结束，之后仍先跑
+4. 设备空窗：image k 于 2026-11-18 18:22:22 启动、18:27:54 结束；之后仍先跑
    `list-boot-watchers.ps1` 和 `k60-device.sh state`，不要与任何 `boot-and-capture`
-   抢 fastboot；`audio-probe-as` watcher（PID 18704）的镜像当时尚不存在，只轮询。
-5. 判读：d0 `enable=1`、`rows=14`、`top=1804800kHz` 已确认；d1/d2 延后读取均为
-   `enable=1`，窗口可读。`nomap` 或 `rows=0` 才先查窗口/时钟，不得进入 mode 2/3。
-   mode 2/3 第一次上机只投最高档，并同时抓 `state` 是否跟随、温度与是否触发 throttle。
+   抢 fastboot；启动时 `audio-probe-at` watcher（PID 11116）的镜像尚不存在，只轮询。
+5. 首次写入前：参数门禁须通过；离线补齐启用状态守卫、写后回读和恢复原投票的路径。不能仅凭
+   LUT 可读就执行早期 mode 2/3 写入（d1/d2 在辅核启动前 `enable=0`）。首次验证应限定在
+   d0 单域，分别记录请求档位、寄存器回读和负载下的 `state`，并观察温度与 throttle；
+   d1/d2/L3 多域投票和 governor 不与首测合并。`nomap`、`enable=0` 或无有效 LUT 时应拒绝写入。
 
 ## 9. 参考
 

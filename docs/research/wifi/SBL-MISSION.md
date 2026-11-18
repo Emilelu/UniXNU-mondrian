@@ -548,3 +548,48 @@ Prediction: `k60probe: started`, `k60probe: <host> status <code> line <HTTP/1.x 
 `k60probe: <host> tag <n> bytes <n>` and `k60probe: done` appear, while the six
 official criteria stay PASS and no panic appears. If the job never runs, the next
 step is the launchd cache and job permissions, not another DHCP attempt.
+
+## 14. Mission13: the address configuration, the TLS traffic, and the probe that never ran
+
+Mission13 (`wifi-20261118sbl-mission13`, built 2026-11-18T16:30 from
+`a5fa535f9f2bbb28f287e8696ad4c5e4bd4d7aff`, clean tree, image
+`6625d4b3fa235a62b25f7ae0745117dd2e4e3379671f3dfa0557704341ff1521`,
+201,887,744 bytes, 602-byte arguments, series `d27beb4de6da6024`) was the
+first flight to carry the application probe. The kernel wrote it
+(`:502 K60PROBE bytes=34600 resid=0 error=0`, `:503 K60PROBE: probe write=0
+resid=0 len=34600`) and the curated launchd cache loaded (`:499 K60LC`
+`len=10437`), but no `k60probe:` line ever appeared: launchd never
+attempted the job and no `execerr` names it. The probe delivery is
+therefore unresolved and recorded as a limit, not as a WiFi defect.
+
+The flight settled the network itself. Console
+`E:/k60-work/evidence/usblog-20261118-164031/console.log` is 443,391 B,
+6,821 newline-terminated lines, SHA256
+`EA1EDD5977D07CDBBAD9B29EA19B693127E6933B39B3AD339282F1A7B0A508F0`; the
+capture wrote no `capture.json`, only `capture.ready` and the console. The
+stack opens at `:1429` by configd with busy state 1 and no panic;
+`:1459` configd opens the 80211 user client; `:1468` and `:1594` are two
+DHCP DISCOVERs; `:1597` the OFFER for 192.168.31.227 with mask
+255.255.255.0, router and DNS 192.168.31.1 and a 43,200 s lease;
+`:1845` the REQUEST; `:1864` the ACK; `:1918` `WiFi association test
+PASS`; `:1919` `en0 address 192.168.31.227, packets in 20 out 31`.
+
+Traffic then kept rising for the rest of the 900 s window. At `:6741-6746`
+(and again `:6793-6795`) the interface reports 23,397 in / 28,455 out: in
+arp 422 ip4 22,772 dhcp 2 ip6 203, out arp 433 ip4 27,565 dhcp 5 ip6 457,
+and the new counters `tcp443 in 22,315 out 27,138`. The detail lines
+`:3075-3122` show SYN (flags 0xc2) from ports 49166-49170 to
+17.179.252.2:443, 218.77.196.37:443, 54.65.27.74:443 and
+125.89.170.195:443, SYN-ACK 0x52 coming back, a 557-byte ClientHello,
+1,480-byte server data and a 977-byte record: bidirectional TLS for
+thirteen minutes without a panic. Mission11 carried the same traffic (its
+out ip4 reached 13,630) but had no counter for it, so this is the first
+flight that can state it.
+
+Judge: 26/26 baseline PASS; the six `k60probe` checks FAIL, so the overall
+verdict is FAIL by our own prediction. Against the official page (scan,
+authentication, association, address configuration, receive, send)
+mission13 is the second full pass and the strongest one: a fresh boot,
+a new lease, and large receive and send counters. Reconnect was not
+exercised: it needs `pong_wifi_test=1 pong_wifi_cycle=1` and a userland
+`PONG_WIFI_TEST_RECONNECT` ioctl, none of which this image carried.

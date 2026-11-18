@@ -90,7 +90,7 @@ docs/
 | `wifi/MSI-TOPOLOGY.md` | **WiFi 中断拓扑**：PCIe0 的三条 MSI 路径（PARF `MSI0`→SPI140/INTID172 实走、DT `msi-map` 指向 ITS 的 `0x5980`/`0x5981`、`pcie0_msi` 32 条 SPI 768..799 已 disabled）、为什么选 legacy、单 INTID 能看见与看不见什么、c5/c6 飞行证据 |
 | `wifi/SBL-QUEUE.md` | **WiFi SBL 队列候选**：c7 的 `ee=0 exec_env=1` 与官方 `MhiBoot.c` 的 `BHI_EXECENV` 轮询/BHIe 路径、`pong_sbl_pushed` 一次锁、`wifi-20261118sbl-gated` 镜像身份与首飞失败记录 |
 | `wifi/SBL-DIRECT.md` | **WiFi SBL 直接推送候选**：队列路径在 `mhi_sync_power_up` 超时后失效的复盘、同一 worker pass 直接调用 `mhi_download_amss_image` 的官方等价实现、`BHIE_TXVECSTATUS` 诊断与 `wifi-20261118sbl-direct` 判据 |
-| `wifi/SBL-MISSION.md` | **WiFi SBL mission 轮询候选到可用网络**：直接 BHIe 后缓存 `ee=1` 导致 `mhi_sync_power_up` 超时；mission4 将 `ready_timeout_ms` 延到 60 s 并创建 IPCR 通道；mission8 首次 WPA2 关联；mission9 用 4 参数 `initWithTask` 修掉打开 IONetworkStack 的 panic；mission10 让 namer 找到服务；mission11 由原生 configd/IPConfiguration 取得 192.168.31.134 并验证 RX/TX，26/26 judge 通过 |
+| `wifi/SBL-MISSION.md` | **WiFi SBL mission 轮询候选到可用网络**：直接 BHIe 后缓存 `ee=1` 导致 `mhi_sync_power_up` 超时；mission4 将 `ready_timeout_ms` 延到 60 s 并创建 IPCR 通道；mission8 首次 WPA2 关联；mission9 用 4 参数 `initWithTask` 修掉打开 IONetworkStack 的 panic；mission10 让 namer 找到服务；mission11 由原生 configd/IPConfiguration 取得 192.168.31.134 并验证 RX/TX，mission13 从头再飞一次：DHCP 192.168.31.227、in 23,397 / out 28,455、tcp443 in 22,315 / out 27,138，26/26 judge 通过（应用探针 job 未运行，记入 limits） |
 | `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |

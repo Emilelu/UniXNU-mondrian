@@ -1133,9 +1133,10 @@ extern "C" void pong_wifi_net_start(const uint8_t mac[6]) {
   uint32_t test = 0, cycle = 0;
   gCycleTest = PE_parse_boot_argn("pong_wifi_test", &test, sizeof(test)) && test == 1 &&
       PE_parse_boot_argn("pong_wifi_cycle", &cycle, sizeof(cycle)) && cycle == 1;
-  // WPA3 feasibility: the station sends one SAE-sized authentication frame, but only when this argument arms it.
+  // WPA3 feasibility (parked): a bare sae argument arms one SAE-sized authentication frame and costs four bytes of
+  // the 607-byte command line. sae=2 would pick group 20, which the line cannot afford at the moment.
   uint32_t sae = 0;
-  if (PE_parse_boot_argn("pong_sae_probe", &sae, sizeof(sae)) && sae != 0 && nw_wifi_sae_probe) nw_wifi_sae_probe((int)sae);
+  if (PE_parse_boot_argn("sae", &sae, sizeof(sae)) && nw_wifi_sae_probe) nw_wifi_sae_probe(sae == 2 ? 20 : 19);
   struct ifnet_init_eparams p; memset(&p, 0, sizeof p);
   p.ver = IFNET_INIT_CURRENT_VERSION; p.len = sizeof p; p.flags = IFNET_INIT_LEGACY | IFNET_INIT_NX_NOAUTO; p.name = "en"; p.unit = 0; p.family = IFNET_FAMILY_ETHERNET; p.subfamily = IFNET_SUBFAMILY_WIFI; p.type = IFT_ETHER;
   p.output = if_output; p.demux = ether_demux; p.add_proto = ether_add_proto; p.del_proto = ether_del_proto; p.check_multi = ether_check_multi; p.framer = ether_frameout;

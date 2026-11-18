@@ -1,7 +1,7 @@
 # GPU 调频（官网 §5 的 GPU 条目）
 
-状态：**GMU XO 忙碌计数器、HFI id 30 投票与 16 ms governor 线程已实现，host 66 项断言；
-opt-in（`pong_gpu_dcvs=1`），已构建进 image o，尚未上机**。
+状态：**GMU XO 忙碌计数器、HFI id 30 投票与 16 ms governor 线程已实现，host 123 项断言；
+opt-in（`pong_gpu_dcvs=1`），已构建进 image o（修复前策略）与 image p，尚未上机**。
 官网 `https://unixnu.com/zh/porting/power` §5 对 GPU 的要求只有一句（快照
 `E:/k60-work/scratch/power-page-20261117.txt:114`）：
 
@@ -55,7 +55,7 @@ opt-in（`pong_gpu_dcvs=1`），已构建进 image o，尚未上机**。
 - `k60_gpu_vote_payload(level, bandwidth, out)`：生成 `{1, level, bandwidth}` 三字载荷，
   越界返回 0。**只生成载荷，不发送。**
 
-Host 测试 `scripts/tests/test-k60-gpu-freq-plan.c`，66 项：
+Host 测试 `scripts/tests/test-k60-gpu-freq-plan.c`，123 项：
 
 ```sh
 cc -Wall -Wextra -Werror -std=c11 -o /tmp/tgpu \
@@ -63,9 +63,10 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tgpu \
 /tmp/tgpu
 ```
 
-结果：`TESTS OK 66 checks (0 failures)`，覆盖升序/去重/越界、19.2 MHz 换算与夹取、
-50 % 保持、1.1 倍升档、85 % 到顶、0 忙碌降档、4/5 窗口下降、80 ms 空闲、投票载荷边界，
-以及新增的 kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限、到顶夹取、空表）。
+结果：`TESTS OK 123 checks (0 failures)`，覆盖升序/去重/越界、19.2 MHz 换算与夹取、
+50 % 保持、1.1 倍升档、85 % 到顶、0 忙碌降档、4/5 窗口下降、80 ms 空闲、投票载荷边界、
+kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限、到顶夹取、空表），
+以及 2026-11-19 01:41 抽出的 DCVS 窗口规则（见 §3.1）。
 
 ### 3.1 运行时接线（2026-11-19 凌晨）
 
@@ -83,6 +84,12 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tgpu \
   不空转；每 10 s 打一条汇总，日志前缀 `PONG ADRENO: ` 以便和 ramoops 诊断对齐。
 - 策略仍留在 host 测试覆盖的 `K60GpuFreqPlan`：新增 `k60_gpu_level_for_khz()` 与
   `k60_gpu_wake_level()`，线程不自己算档位。
+- 2026-11-19 01:41（`ff49b5a6`）把整条窗口规则也搬进了这个模块：
+  `k60_gpu_dcvs_reset()` / `k60_gpu_dcvs_window()` / `k60_gpu_dcvs_voted()`。
+  线程只剩读计数器、投票、汇总和停止报告；空闲累计、空闲转活跃时布防唤醒档、
+  唤醒到期、floor/top 夹取、连续 8 次被拒停止都在 host 侧断言（`1db88bc2`，123 项）。
+  顺带修掉一处与文档不符的行为：旧代码的 `refused` 计数跨整个运行累加，
+  一次成功投票也不清零；现在按文档「连续 8 次」在成功投票后清零。
 - 启动开关：boot-arg `pong_gpu_dcvs=1`（默认 0）；`pong_gpu_max_level`（默认 13）、
   `pong_gpu_dcvs_min`（默认 1）、`pong_gpu_dcvs_boost_ms`（默认 50）可调。
   `PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后才调用 `pong_adreno_dcvs_start()`，
@@ -90,8 +97,13 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tgpu \
 
 ## 4. 边界
 
-- **DCVS 未上机**：`pong_gpu_dcvs=1` 的 image o 已构建，但尚未启动；没有一条
-  真实计数器读数、投票结果或帧时间证据。计数器与投票路径只在 host 侧与静态检查中验证过。
+- **DCVS 未上机**：`pong_gpu_dcvs=1` 的 image o（内联策略）和 image p（抽出的窗口规则）
+  都已构建，但尚未启动；没有一条真实计数器读数、投票结果或帧时间证据。
+  计数器与投票路径只在 host 侧与静态检查中验证过。
+- image p：`boot.img` 201,887,744 B sha256 `5a03277403d68358c07910a551e3376e3aacebc8a877700f397d8e814a35b676`，
+  kernel `4b9fa1f96302afc6604afaac306cd9c6b389ad5638c4d1b9b1c1f3f0147d3849`，
+  payload `7a6c891224c6045dee50b79a55035b8b595095e259dadf704a2d4025d789387e`；
+  参数 gate `OK (30 arguments, 605 bytes)`；平台 archive 含 3 个 `_k60_gpu_dcvs_*` 符号。
 - **没有触摸/帧/fence 输入**：`native_hid_input_events`、帧提交计数在 K60 上都不存在，
   所以 1 s 触摸保持、300 ms/60 % 帧下限（CPU 侧已在 `K60BoostPlan` 里规划）仍未接。
   当前的 50 ms 唤醒档只由「计数器从零变为非零」触发。

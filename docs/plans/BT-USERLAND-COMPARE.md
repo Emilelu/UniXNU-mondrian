@@ -41,6 +41,12 @@ d12 实测（`E:/k60-work/evidence/usblog-20261119-000246/console.log`）：Blue
 约 33 s 后被 30 s XPC 看门狗杀死（:2871 `KX! 15 137 BlueTool exit=1`），launchd 连续重启 5 次。
 bluetoothd 自 1723 起再无日志，也没有任何 `[bluetooth sk] connect` —— **它卡在 BlueTool 这一步**。
 
+反汇编 `runCommandForCurrentConfig`（0x100015fa4）给出打印之后的调用顺序：`getManufacturer` → `MGIsDeviceOneOfType`（0x100040284）→ `getVendor` →
+`MGCopyAnswer("ReleaseType")` → `stat("/etc/bluetool/<HWModel>.<phase>.script")` →
+`stat("/etc/bluetool/<platform>.<phase>.script")` → 内置 firmwareList。其中只有 MobileGestalt 的同步 XPC 没有超时，
+而看门狗的取消点（0x100042cf0）只有工作函数返回才会执行，因此“约 33 s 被杀”等于“卡在 MG 这一次同步调用里”，
+`stat`/`fopen` 都是本地 VFS 不会无限等待。**这个卡点在内核之外**：内核侧没有可做的补丁，除非伪造 MG 回复（用户态）。
+
 ### 2.3 iOS 27（24A446）的参考实现
 
 `E:/hackios/QcaBluetooth`（BSD-2-Clause-Patent）：

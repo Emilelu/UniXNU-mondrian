@@ -67,7 +67,7 @@ live FDT 副本：`/mnt/e/k60-work/scratch/audio-work/live-fdt.dts`（34,801 行
 - 端口参数与服务参数的区别（afe_service_param :387 / afe_port_param :405）：端口参数包前 2 字节填 PORT、+2 填长度，走 `SET_PARAM_V2`；
   服务级参数（时钟、组）走 `SVC_CMD_SET_PARAM`。
 
-- **这些包已经编码成字节流**：`drivers/PongAudio/PongAudioAfe.h`（纯函数；GPR 24 字节头、svc/port 两种 set-param 信封、上面五个参数结构与 DEVICE_START，另有 57 对 profile 的三字节写流）。宿主 `afe_cases()` 钉住每个字段的偏移、端序与拒绝路径。它**不进 `patches/audio`**：还没有内核 `.c` include 它。
+- **这些包已经编码成字节流**：`drivers/PongAudio/PongAudioAfe.h`（纯函数；GPR 24 字节头、svc/port 两种 set-param 信封、上面五个参数结构与 DEVICE_START，另有 57 对 profile 的三字节写流）。宿主 `afe_cases()` 钉住每个字段的偏移、端序与拒绝路径。它已随 `patches/audio/0001` 进内核，`0003` 的 AFE selftest include 它。
 
 ## 4. phk110 的参数值（移植 GPR/APM 时要换成 K60 DT 的值，见 §5）
 
@@ -77,7 +77,7 @@ live FDT 副本：`/mnt/e/k60-work/scratch/audio-work/live-fdt.dts`（34,801 行
 | slots | 2 × 32 bit，mask 3 | 待定（见 §5 推算）|
 | 端口 0x9000 TDM config | channels 2、bits 32、sync_mode 0、sync_source 1、invert 1、delay 1、slot_mask 3 | DT 同名属性全同（invert-sync 1、delay 1、sync-src 1、sync-mode 1、data-out 0、clk-internal 1）|
 | slot mapping | offsets {0, 4}（两通道字节偏移）| 待定 |
-| 组成员 | 0x9000 + 0x9002 | DT `group-num-ports = <0x01>`，只有 0x9000 |
+| 组成员 | 0x9000 + 0x9002 | DT `group-num-ports = <0x01>`，只有 0x9000；K60 TERT 为 0x9020，单成员（a7d82acf 已删 0x9022）|
 | 时钟 attribute | 4（`CLOCK_INVERT_COUPLE_NO`）| DT `tdm-clk-attribute = 0x01`（:23649）；`mi2s-tdm-is-hw-vote-needed = <1 0 1 0 0 0>`（:23651）→ **PRI 与 TERT 都要 hw vote** |
 
 ## 5. K60 dai-tdm-pri-rx 节点逐字（:20486-20506，phandle 0x49c）

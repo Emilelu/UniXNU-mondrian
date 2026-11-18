@@ -627,15 +627,17 @@ static void bridge_cases(void)
     expect_eq(lcid, QCOM_GLINK_VERSION, "bridge: first message is VERSION");
     peer_cmd(l, QCOM_GLINK_VERSION_ACK, 1, QCOM_GLINK_FEATURE_INTENT_REUSE);
     expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll after VERSION_ACK");
-    expect(ap_read_open(l, &lcid, name, sizeof name) != 0, "bridge: OPEN is emitted");
-    expect_eq(lcid, 1, "bridge: the audio slot is lcid 1");
-    expect_name(name, K60_AUDIO_GLINK_NAME, "bridge: OPEN names adsp_apps");
+    expect(ap_read_open(l, &lcid, name, sizeof name) == 0, "bridge: the passive slot stays quiet");
+    expect_eq(ap_avail(l), 0, "bridge: no unsolicited audio OPEN");
 
     peer_open(l, 0x31, K60_AUDIO_GLINK_NAME);
     expect(qcom_glink_poll(&l->g) >= 0, "bridge: the DSP opens adsp_apps");
     expect(ap_read_cmd(l, &lcid, &size, &index) != 0, "bridge: OPEN_ACK is emitted");
     expect_eq(lcid, QCOM_GLINK_OPEN_ACK, "bridge: it is an OPEN_ACK");
     expect_eq(size, 0x31, "bridge: the remote rcid is acknowledged");
+    expect(ap_read_open(l, &lcid, name, sizeof name) != 0, "bridge: our OPEN follows the DSP");
+    expect_eq(lcid, 1, "bridge: the audio slot is lcid 1");
+    expect_name(name, K60_AUDIO_GLINK_NAME, "bridge: OPEN names adsp_apps");
     peer_cmd(l, QCOM_GLINK_OPEN_ACK, 1, 0);
     expect(qcom_glink_poll(&l->g) >= 0, "bridge: poll after OPEN_ACK");
     for (unsigned k = 0; k < K60_AUDIO_GLINK_INTENT_COUNT; ++k) {

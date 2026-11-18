@@ -48,10 +48,13 @@ k60_audio_glink_prepare(K60AudioGlink *link)
     if (link->transport->broken) return K60_PMIC_GLINK_AUDIO_STALE_LEASE;
     if (__atomic_load_n(&link->attached, __ATOMIC_ACQUIRE) && link->channel)
         return K60_PMIC_GLINK_AUDIO_OK;
+    /* Register the slot before the DSP can OPEN it, but do not talk first:
+     * the audio endpoint is a responder here, and an unsolicited OPEN before
+     * the PMIC channel is up makes the shared transport reset. */
     const QcomGlinkClient callbacks = {audio_state, audio_receive};
     link->channel = qcom_glink_channel(link->transport, K60_AUDIO_GLINK_NAME,
         K60_AUDIO_GLINK_INTENT_BYTES, K60_AUDIO_GLINK_INTENT_COUNT,
-        link->storage, &callbacks, link, 1);
+        link->storage, &callbacks, link, 0);
     if (!link->channel) {
         link->error = K60_PMIC_GLINK_AUDIO_REFUSED;
         return link->error;

@@ -812,3 +812,47 @@ Judge: 24 PASS, 0 FAIL, 1 PENDING (the host-side application receipt) = base
 PASS, HE PASS. The page still cannot be loaded because WebKit is killed; that
 remains the application-layer blocker and it belongs to the WebKit/GPU line.
 mission17 must not be re-flown.
+
+## 19. Mission18: the record is delivered; the country element is the next lead
+
+Mission18 (image c094e5bf5b36fcf658058cb6aa1f38c29f3afa67ce0029431be700a434047e76,
+head 7663471a, built 2026-11-19T00:55:25+08:00) prints every scan record for the
+first three scans and was flown once at 01:00:09. Console
+E:/k60-work/evidence/usblog-20261119-010007/console.log is 479,040 B, 7,115
+lines, SHA256 3ca108dc887cc2598344360d0ef6a4f76bc580a8816bcc30abdd29513723f14b.
+
+The 5240 record is delivered. The tables are 6 BSS (2.4 GHz 4, 5 GHz 1, hidden 1)
+at :771, 27 (17/1, hidden 9) at :4402, and 29 (18/1, hidden 10) at :4443, :4697
+and :5675. Emilelu_5G c8:bf:4c:30:03:1c, 5240 MHz, -51/-50 dBm, element length
+384, capability 0x0511, sits at index 5 of every table, and the daemon read the
+whole table: scan request type 10 len 5456 at :4116, records served 1/2/3/8/16/24,
+and "scan result end after serving 27 of 27 records" at :4437. Mission16's
+"served 32 of 33" had the same property. The record the pane loses therefore
+reached wifid; the loss is on content, not on position.
+
+The ages say what the module does: the 5240 entry ages 6 -> 1285 -> 2812 ms
+between sweeps while 2.4 GHz entries reach 303,825 ms, so the module keeps the
+last observation per BSSID instead of re-hearing every network on every sweep.
+
+The flight could not observe the daemon's own list. No person opened Settings, so
+wifid wrote no Preferences scan list this time (mission16 had two 27-entry lists
+at :5608 and :6453). That comparison needs a flight with a person at the screen.
+
+Country element. wifid logged "2 country code(s) currently advertised by 16
+networks", "Country <BR> IE count 1", "Country <CN> IE count 15" and "Currently
+highest country <CN>" at :5231-:5234. One network advertises a non-local country,
+and CoreWiFi can drop a BSS whose advertised country conflicts with the local
+one; that is the leading candidate for a record that is delivered and then
+discarded.
+
+Judge: the first run printed base=FAIL only because judge-wifi-mission16.py's
+table regexes expected "scan table N BSS" without the ordinal mission18 added.
+Accepting an optional ordinal makes the same console judge base=PASS dump=PASS;
+the user group stays PENDING because no host receipt exists. No code was flown
+twice, and mission18 must not be re-flown.
+
+Two changes follow, neither yet on device. 1cb402db freezes the list when a
+sweep completes, serves it strongest first, and prints the first twelve 32-bit
+words of each served 5 GHz record. 49ee1b8a adds the record's Country element to
+the per-record dump, so mission19 can show whether the dropped record is the
+<BR> one.

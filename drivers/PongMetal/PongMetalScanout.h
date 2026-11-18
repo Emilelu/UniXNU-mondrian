@@ -11,7 +11,7 @@ namespace pongscanout {
 using Open=kern_return_t(*)(unsigned,mach_port_t,unsigned,unsigned *);
 using Call=kern_return_t(*)(unsigned,unsigned,const void *,size_t,void *,size_t *);
 using Map=kern_return_t(*)(unsigned,unsigned,mach_port_t,uint64_t *,uint64_t *,unsigned);
-struct Context {unsigned connection;Call call;gpupresent::Presenter *presenter;};
+struct Context {unsigned connection;Call call;gpupresent::Presenter *presenter;bool blitProbe;};
 /* A span is only meaningful when both ends were actually read: a zeroed timespec is
  * what a failed clock_gettime leaves behind, and treating that as a real stamp would
  * report a stage that never ran. */
@@ -51,6 +51,23 @@ static void *serve(void *opaque)
                          context->presenter->copyShape(),context->presenter->sourceStride(),
                          context->presenter->scanoutStride(),context->presenter->rows());
                 report(path,0);
+                /* The control the 2026-11-19 flight could not provide: the same bytes copied
+                 * into a device buffer and back into the framebuffer. Runs once, only when the
+                 * boot argument asked, and only after a real copy just succeeded, so a zero can
+                 * only mean the control copy itself failed. */
+                if(context->blitProbe && context->presenter->runBlitProbe(
+                       {reinterpret_cast<void *>(frame.address),size_t(frame.bytes),
+                        size_t(frame.stride),frame.width,frame.height})) {
+                    char control[256];
+                    snprintf(control,sizeof(control),
+                        "scanout blit control bytes=%zu src-to-device=%llu us device-to-scanout=%llu us",
+                        context->presenter->probeBytes(),
+                        (unsigned long long)context->presenter->probeSourceToDeviceUs(),
+                        (unsigned long long)context->presenter->probeDeviceToScanoutUs());
+                    report(control,0);
+                } else if(context->blitProbe) {
+                    report("scanout blit control could not run",0);
+                }
             }
             lastCopy=span(t1,t2);
             // Presenter returns kOk only after waitUntilCompleted reports the
@@ -109,6 +126,12 @@ static void *serve(void *opaque)
 static void start(void *iokit,unsigned service,id<MTLDevice> device)
 {
     char args[4096];size_t argsLength=sizeof(args)-1;
+    /* The control copies the same 18.4 MB two more ways, once, after the first real copy
+     * succeeds - roughly 25 ms on one frame. It has no boot argument because the boot line is
+     * full: 596 of the 607 bytes the firmware will accept are already in use, so a new
+     * `pong_gpu_blit_probe=1` would push 31 arguments past the ceiling. `pong_gpu_blit_probe=0`
+     * is still honoured for a flight that wants the frame path untouched. */
+    bool blitProbe=true;
     if(!sysctlbyname("kern.bootargs",args,&argsLength,nullptr,0)) {
         args[argsLength<sizeof(args)?argsLength:sizeof(args)-1]=0;
         const char key[]="pong_gpu_scanout=0";
@@ -120,6 +143,14 @@ static void start(void *iokit,unsigned service,id<MTLDevice> device)
                 report("GPU scanout disabled by boot policy; CPU display active",0);return;
             }
             option+=sizeof(key)-1;
+        }
+        const char probeKey[]="pong_gpu_blit_probe=0";
+        option=args;
+        while((option=strstr(option,probeKey))) {
+            const char after=option[sizeof(probeKey)-1];
+            if((option==args || option[-1]==' ' || option[-1]=='\t') &&
+               (!after || after==' ' || after=='\t')) { blitProbe=false;break; }
+            option+=sizeof(probeKey)-1;
         }
     }
     auto open=(Open)dlsym(iokit,"IOServiceOpen");auto call=(Call)dlsym(iokit,"IOConnectCallStructMethod");
@@ -145,7 +176,7 @@ static void start(void *iokit,unsigned service,id<MTLDevice> device)
         // connection/backing for teardown rather than silently recycle it.
         report("GPU scanout import unavailable; CPU fallback requires retired DMA",-1);return;
     }
-    auto *context=new Context{connection,call,presenter};pthread_t thread;
+    auto *context=new Context{connection,call,presenter,blitProbe};pthread_t thread;
     pthread_attr_t attr;pthread_attr_init(&attr);pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
     pthread_attr_setstacksize(&attr,1024*1024);
     int result=pthread_create(&thread,&attr,serve,context);pthread_attr_destroy(&attr);

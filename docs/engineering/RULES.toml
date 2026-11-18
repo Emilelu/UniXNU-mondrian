@@ -882,3 +882,11 @@ title = "写好的计时表没有调用点，采样又只到 60 s：客户端那
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-metal-telemetry-stream.py"
 note = "2026-11-19: native_bridge_metal_telemetry()（行 T/G/J/V/K，含每 commit 的 ctc）全仓无调用点的同时，插件只在 5/20/60 s 采状态，200 s 的飞行在 60 s 后静默，于是 present() 之外的 ~48 ms 客户端绘制既没被量也没被报。修法是给表一个调用者（按行 report），并把节奏延到 5/20/60/120/180 s。教训：接口的存在不构成通路（同族 P-240），采样窗口必须覆盖判据声称的时间段。"
+
+[[rule]]
+id = "P-242"
+kind = "pitfall"
+title = "按调用形式扫描的门禁会漏掉整类参数：只认 PE_parse_boot_argn 就看不见 sysctlbyname 的键"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-gpu-blit-probe.py"
+note = "2026-11-19 加 pong_gpu_blit_probe 时发现 check-boot-args.py 的源码参数计数 24 没变；补 sysctl 字面量模式后变 25 并立刻报缺文档。"

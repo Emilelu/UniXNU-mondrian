@@ -111,6 +111,36 @@ public:
         lastWaitUs_ = pongscanout::elapsedUs(e2, e3);
         return commands.status == MTLCommandBufferStatusCompleted ? kOk : kGpuFailed;
     }
+    /* A control for the 2026-11-19 finding: a commit that carries nothing but the scanout
+     * blit takes 5.3-22.8 ms, and the same figure comes from the kernel side, the client
+     * side and the compositor. That leaves three candidates - the destination (the firmware
+     * framebuffer), Turnip's copy implementation, or the bandwidth itself - and nothing
+     * measured so far separates them. This probe copies the same bytes two more ways in one
+     * flight: the surface pages into a device buffer the GPU allocated, and that device buffer
+     * into the firmware framebuffer. Same call shape, same byte count, different destination.
+     * If the device-buffer copy is fast and the framebuffer copy is slow, the destination is
+     * the cost; if both are slow, the copy implementation is. It runs at most once, only when
+     * pong_gpu_blit_probe=1 asked for it, and never on the frame path. */
+    bool runBlitProbe(const Frame &frame) {
+        if (probeRan_ || !ready() || !frame.base || !frame.bytes) return false;
+        probeRan_ = true;
+        const size_t row = (size_t)frame.width * 4;
+        const size_t bytes = frame.stride * (frame.height - 1) + row;
+        if (bytes > scanout_.bytes) return false;
+        probe_ = [device_ newBufferWithLength:scanout_.bytes options:MTLResourceStorageModeShared];
+        if (!probe_) return false;
+        id<MTLBuffer> source = [device_ newBufferWithBytesNoCopy:(void *)frame.base length:frame.bytes
+                                                        options:MTLResourceStorageModeShared deallocator:nil];
+        if (!source) return false;
+        probeBytes_ = bytes;
+        probeSourceToDeviceUs_ = timedCopy(source, probe_, bytes);
+        probeDeviceToScanoutUs_ = timedCopy(probe_, target_, bytes);
+        return probeSourceToDeviceUs_ != 0;
+    }
+    bool probeRan() const { return probeRan_; }
+    size_t probeBytes() const { return probeBytes_; }
+    uint64_t probeSourceToDeviceUs() const { return probeSourceToDeviceUs_; }
+    uint64_t probeDeviceToScanoutUs() const { return probeDeviceToScanoutUs_; }
     /* How many times the source pages were imported: one per presented frame, so a
      * flight can prove no import survived into the next frame. */
     uint64_t imports() const { return imports_; }
@@ -128,6 +158,21 @@ public:
     size_t scanoutStride() const { return scanout_.stride; }
     uint32_t rows() const { return lastRows_; }
 private:
+    /* Commit one identical-shape copy and return the GPU time, in microseconds, from commit
+     * to complete. A zero return means the copy failed, which the report prints as a zero. */
+    uint64_t timedCopy(id<MTLBuffer> from, id<MTLBuffer> to, size_t bytes) {
+        id<MTLCommandBuffer> commands = [queue_ commandBuffer];
+        id<MTLBlitCommandEncoder> blit = commands ? [commands blitCommandEncoder] : nil;
+        if (!blit) return 0;
+        [blit copyFromBuffer:from sourceOffset:0 toBuffer:to destinationOffset:0 size:bytes];
+        [blit endEncoding];
+        struct timespec a = {}, b = {};
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        [commands commit];
+        [commands waitUntilCompleted];
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        return commands.status == MTLCommandBufferStatusCompleted ? pongscanout::elapsedUs(a, b) : 0;
+    }
     bool validScanout() const {
         const size_t page = (size_t)getpagesize();
         return scanout_.base && !((uintptr_t)scanout_.base & (page - 1)) && scanout_.bytes && !(scanout_.bytes & (page - 1)) &&
@@ -146,6 +191,11 @@ private:
     const char *lastShape_ = "none";
     size_t lastSourceStride_ = 0;
     uint32_t lastRows_ = 0;
+    id<MTLBuffer> probe_ = nil;
+    bool probeRan_ = false;
+    size_t probeBytes_ = 0;
+    uint64_t probeSourceToDeviceUs_ = 0;
+    uint64_t probeDeviceToScanoutUs_ = 0;
 };
 
 }  // namespace gpupresent

@@ -53,6 +53,13 @@ for p in glob.glob(os.path.join(ROOT, 'drivers/**/*'), recursive=True):
         continue
     for m in re.finditer(r'PE_parse_boot_argn\s*\(\s*"([^"]+)"', t):
         src.add(m.group(1))
+    # A driver that reads the boot line itself through sysctlbyname("kern.bootargs")
+    # matches a literal `key=value` instead of calling PE_parse_boot_argn. Before this
+    # pattern existed, that whole class of arguments was invisible to the gate: the
+    # 2026-11-19 `pong_gpu_blit_probe` check passed while the key was documented nowhere
+    # (the same shape as P-240/P-241 - a check that does not cover the path it names).
+    for m in re.finditer(r'\[\s*\]\s*=\s*"([A-Za-z0-9_.-]+)=', t):
+        src.add(m.group(1))
 
 # 框架/系统级参数，不属于本项目文档范围
 SKIP = {

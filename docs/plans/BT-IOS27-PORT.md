@@ -44,13 +44,21 @@ result is:
 
 | Property | Value |
 | --- | --- |
-| `bsd/dev/qbt_k60.c` | 2239 lines |
+| `bsd/dev/qbt_k60.c` | 2239 lines through 0520 |
 | sha256 | `4a1a4e269fce5f2bf3d964f8610d3c7943f3329aed2dce2da681dd45705ef5fb` |
 | `bsd/dev/qbt/qbt_transport.c` | 598 lines |
 | sha256 | `72f8e3069a372be996777106a5251e3c5f092e5f942153b73113961e8ed13bc8` |
 
 This is byte-identical to the iOS 16 `bt-0518-gic-intid` source. The driver
 layer therefore needs no rewrite for xnu-12377; only the platform glue does.
+
+The single exception is 0522: xnu-12377 split the kmem allocator API
+(`kma_flags_t`, `KMA_*`, `kmem_alloc_contig`) out of `vm_kern.h` into the new
+`vm_kern_xnu.h`, while 8792 still declared it in `vm_kern.h`, so the iOS 16
+series compiled without an explicit include. 0522 adds
+`#include <vm/vm_kern_xnu.h>`; after it the file is 2243 lines,
+`4b973811ed805820d8b59c1e10a624f260b1769bcf24280f546cfedcd5eedc62`. The driver
+logic is untouched.
 
 This is a source-compatibility proof, not a build proof. It does not exercise
 xnu-12377 headers, the IOKit build, or any hardware.
@@ -59,7 +67,7 @@ xnu-12377 headers, the IOKit build, or any hardware.
 
 The four hooks that touch files a vanilla xnu-12377 does not have were rewritten
 against the patched tree (vanilla plus the arch/soc/os/device series). Only the
-hooks changed; every `bsd/dev/qbt*` hunk is the iOS 16 text.
+hooks changed; every `bsd/dev/qbt*` hunk is the iOS 16 text apart from 0522.
 
 | Patch | Adaptation |
 | --- | --- |
@@ -70,6 +78,7 @@ hooks changed; every `bsd/dev/qbt*` hunk is the iOS 16 text.
 | 0512 | `kern_exec.c`, `native_owner_data_prepare()` after `native_owner_data_stage = 4`: calls `qbt_k60_late_start()`. |
 | 0519 | Unchanged: the `MiniBluetooth` speed line (`K60_BT_TRANSPORT_SPEED 3000000u`) matches the new file, the `qbt_transport.c` power nodes are portable. |
 | 0520 | Unchanged: the `exec_extract_strings()` anchor moved to `bsd/kern/kern_exec.c:2049` but the surrounding context is identical. |
+| 0522 | `bsd/dev/qbt_k60.c`: `#include <vm/vm_kern_xnu.h>` after `vm/vm_kern.h`. Without it 12377 reports `call to undeclared function 'kmem_alloc_contig'` and undeclared `KMA_*` flags at the DMA allocation. |
 | 0521 | New file `osfmk/arm64/k60_bt_blob.s`: the empty carrier 0510 lists. The iOS 16 line generates it at build time from `scripts/gen-k60-bt-blob.py`; this repository has no such step, so the stub the generator emits without `--container` is carried as a patch. Replacing it with a real container is a patch refresh (5.2). |
 
 `0507` and `0508` must stay before `0509`: 0509's include block
@@ -79,7 +88,7 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 
 ## 5. Status of the plan
 
-1. **P0 - carry and stage the driver stack. Done.** Fifteen patches in
+1. **P0 - carry and stage the driver stack. Done.** Nineteen patches in
    `patches/xnu-12377/series`; the iOS 16 `patches/xnu/series` is back to its
    pre-Bluetooth 227 lines.
 2. **P1 - assemble the patched xnu-12377 base. Done offline.** A tree built from
@@ -99,19 +108,19 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 
 Validation: a fresh checkout of the pre-Bluetooth tree (vanilla xnu-12377 plus
 the arch, soc and os series, with the qbt files removed) was patched with this
-series in order; all eighteen applied with no reject, and the results are
+series in order; all nineteen applied with no reject, and the results are
 byte-identical to the adaptation tree:
 
 | File | sha256 |
 | --- | --- |
-| `bsd/dev/qbt_k60.c` | `4a1a4e269fce5f2bf3d964f8610d3c7943f3329aed2dce2da681dd45705ef5fb` |
+| `bsd/dev/qbt_k60.c` | `4b973811ed805820d8b59c1e10a624f260b1769bcf24280f546cfedcd5eedc62` |
 | `bsd/kern/kern_exec.c` | `39c1b5ebe32ed38f2937d1067a44c0799d07493c11c6cabd5be5987e52cde747` |
 | `bsd/kern/bsd_init.c` | `94c8e15f91e4beeb1c81589523d29e662d131f7da467a44a73a3a9f2fa74b3f3` |
 | `iokit/Kernel/MiniBluetooth.cpp` | `5a526df5da263777276e29e547c5fe1e5c652d5199b49ce1a1015e10bb78075f` |
 | `osfmk/arm64/k60_bt_blob.s` | `a0e788aacf276750a51372ed47abc90323f7f6d6e2b4dfe230d70611429d9784` |
 
 The series order is 0500, 0502b, 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
-0515, 0516, 0517, 0518, 0519, 0520, 0521. There is no 0513.
+0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522. There is no 0513.
 
 ### 5.2 The firmware carrier
 

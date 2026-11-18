@@ -38,7 +38,8 @@ def kernel_copy(name: str) -> str:
                            ("K60PmicRail.h", "pong_pmic_rail.h"),
                            ("K60Smem.h", "pong_smem.h"),
                            ("K60IpaGsi.h", "pong_ipa_gsi.h"),
-                           ("K60IpaSmmu.h", "pong_ipa_smmu.h")):
+                           ("K60IpaSmmu.h", "pong_ipa_smmu.h"),
+                           ("K60IpaQmap.h", "pong_ipa_qmap.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
     return text
 
@@ -52,11 +53,14 @@ def main() -> int:
     gsi_source = kernel_copy("K60IpaGsi.c")
     smmu_header = kernel_copy("K60IpaSmmu.h")
     smmu_source = kernel_copy("K60IpaSmmu.c")
+    qmap_header = kernel_copy("K60IpaQmap.h")
+    qmap_source = kernel_copy("K60IpaQmap.c")
     assert '#include "pong_ipa.h"' in source
     assert '#include "pong_mdt.h"' in header
     assert '#include "pong_mdt.h"' in mdt_source
     assert '#include "pong_pmic_rail.h"' in source
     assert '#include "pong_smem.h"' in source
+    assert '#include "pong_ipa_qmap.h"' in qmap_source
 
     body = (newfile("bsd/dev/pong_ipa.h", header)
             + newfile("bsd/dev/pong_ipa.c", source)
@@ -65,7 +69,9 @@ def main() -> int:
             + newfile("bsd/dev/pong_ipa_gsi.h", gsi_header)
             + newfile("bsd/dev/pong_ipa_gsi.c", gsi_source)
             + newfile("bsd/dev/pong_ipa_smmu.h", smmu_header)
-            + newfile("bsd/dev/pong_ipa_smmu.c", smmu_source))
+            + newfile("bsd/dev/pong_ipa_smmu.c", smmu_source)
+            + newfile("bsd/dev/pong_ipa_qmap.h", qmap_header)
+            + newfile("bsd/dev/pong_ipa_qmap.c", qmap_source))
     with OUT.open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(body)
     print("patch bytes", OUT.stat().st_size)

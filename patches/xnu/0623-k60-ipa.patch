@@ -3249,3 +3249,224 @@ new file mode 100644
 +    }
 +    return K60IpaSmmuOk;
 +}
+diff --git a/bsd/dev/pong_ipa_qmap.h b/bsd/dev/pong_ipa_qmap.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_qmap.h
+@@ -0,0 +1,88 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* K60 IPA QMAP framing (M5 prerequisite, host-testable).
++ *
++ * The modem WAN path carries raw IP inside QMAP frames: a four-byte header
++ * (pad length:6, reserved:1, command:1 | mux id | length:16 big-endian)
++ * followed by the padded payload. The length field counts the payload and its
++ * padding, NOT the header, and the padding sits at the end of the payload, so
++ * the IP length is length - pad. Pong encodes it this way
++ * (references/pong-baseband/PongModemWan.h:313-342) and parses it the same way
++ * on receive; the PHK110 fork agrees (references/phk110-port/drivers/modem/
++ * hakios.ipa.c:671-689, :710-733).
++ *
++ * WDA Set Data Format negotiates a DAP value (CBD_DAP_QMAP in
++ * references/pong-baseband/PongModemData.h:67, CBD_DAP_QMAPV4=8 and
++ * CBD_DAP_QMAP=5 in coachz_bb_data.h). That value selects aggregation and
++ * checksum capabilities, not the data header: the four-byte header is the same
++ * for QMAP and QMAPv4/v5 data packets. The checksum-offload variant is out of
++ * scope here because the Pong data path advertises no AP checksum/NAT offload
++ * (references/pong-baseband/PongModemRules.h:6); if the modem ever reports one,
++ * the trailer belongs to the negotiation layer, and this codec must be revisited
++ * rather than guessed at.
++ *
++ * Command frames (bit 7) carry MAP control information and are counted and
++ * skipped; they are not IP payloads. A reserved bit, a zero length, a pad larger
++ * than the length or a frame that runs past the buffer are framing errors: the
++ * decoder drops that frame and stops, because resynchronising inside a corrupt
++ * aggregate would deliver garbage to the network stack.
++ */
++
++#ifndef K60_IPA_QMAP_H
++#define K60_IPA_QMAP_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define K60_IPA_QMAP_HEADER_BYTES   4u
++#define K60_IPA_QMAP_ALIGN          4u
++#define K60_IPA_QMAP_PAD_MASK       0x3fu
++#define K60_IPA_QMAP_RESERVED_BIT   0x40u
++#define K60_IPA_QMAP_COMMAND_BIT    0x80u
++#define K60_IPA_QMAP_MUX_MIN        1u
++#define K60_IPA_QMAP_MUX_MAX        254u
++/* The length field is 16 bits and counts the padded payload. */
++#define K60_IPA_QMAP_MAX_LENGTH     0xffffu
++
++enum {
++    K60IpaQmapOk = 0,
++    K60IpaQmapBadArgument = -1,
++    K60IpaQmapTooLong = -2,
++};
++
++typedef struct {
++    uint32_t packets;   /* data frames delivered */
++    uint32_t commands;  /* command frames skipped */
++    uint32_t dropped;   /* frames refused: bad header, truncation or mux */
++    uint64_t bytes;     /* payload bytes delivered, without padding */
++} K60IpaQmapStats;
++
++/* Called once per data frame with the mux id and the IP bytes. The payload
++ * points into the caller's buffer and is valid only during the call. */
++typedef void (*k60_ipa_qmap_receive)(void *context, uint8_t mux,
++    const uint8_t *payload, size_t bytes);
++
++/* Header, payload and trailing padding for a payload of this size. */
++size_t k60_ipa_qmap_frame_bytes(size_t payload_bytes);
++
++/* Build one frame at out. The payload is copied; out must not overlap it.
++ * Rejects mux 0/255, an empty payload, a padded length above 0xffff and a
++ * capacity too small for header + payload + padding. frame_bytes receives the
++ * full frame length on success. */
++int k60_ipa_qmap_encode(uint8_t mux, const void *payload, size_t bytes,
++    void *out, size_t capacity, size_t *frame_bytes);
++
++/* Decode a buffer holding one or more frames. Every data frame is passed to
++ * receive (when non-NULL); stats may be NULL. Returns the number of data frames
++ * delivered and records commands and dropped frames in stats. */
++unsigned k60_ipa_qmap_decode(const void *frames, size_t bytes,
++    k60_ipa_qmap_receive receive, void *context, K60IpaQmapStats *stats);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* K60_IPA_QMAP_H */
+diff --git a/bsd/dev/pong_ipa_qmap.c b/bsd/dev/pong_ipa_qmap.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/pong_ipa_qmap.c
+@@ -0,0 +1,123 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* K60 IPA QMAP framing; see K60IpaQmap.h for the wire layout and the sources.
++ * Pure buffer movement, so the host test runs the same code as the kernel.
++ */
++
++#include "pong_ipa_qmap.h"
++
++#ifdef K60_HOST_TEST
++#include <string.h>
++#else
++#include <sys/systm.h>
++#endif
++
++_Static_assert(K60_IPA_QMAP_ALIGN == 4u, "QMAP padding aligns to four bytes");
++_Static_assert(K60_IPA_QMAP_PAD_MASK == 0x3fu, "pad length occupies bits 5:0");
++
++size_t
++k60_ipa_qmap_frame_bytes(size_t payload_bytes)
++{
++    const size_t padding = (K60_IPA_QMAP_ALIGN -
++        (payload_bytes % K60_IPA_QMAP_ALIGN)) % K60_IPA_QMAP_ALIGN;
++
++    return K60_IPA_QMAP_HEADER_BYTES + payload_bytes + padding;
++}
++
++int
++k60_ipa_qmap_encode(uint8_t mux, const void *payload, size_t bytes, void *out,
++    size_t capacity, size_t *frame_bytes)
++{
++    const uint8_t *from = payload;
++    uint8_t *to = out;
++    size_t padding;
++    size_t length;
++    size_t total;
++
++    if (from == NULL || to == NULL || frame_bytes == NULL || bytes == 0 ||
++        bytes > K60_IPA_QMAP_MAX_LENGTH || mux < K60_IPA_QMAP_MUX_MIN ||
++        mux > K60_IPA_QMAP_MUX_MAX) {
++        return K60IpaQmapBadArgument;
++    }
++    padding = (K60_IPA_QMAP_ALIGN - (bytes % K60_IPA_QMAP_ALIGN)) %
++        K60_IPA_QMAP_ALIGN;
++    length = bytes + padding;
++    if (length > K60_IPA_QMAP_MAX_LENGTH) {
++        return K60IpaQmapTooLong;
++    }
++    total = K60_IPA_QMAP_HEADER_BYTES + length;
++    if (total > capacity) {
++        return K60IpaQmapTooLong;
++    }
++
++    to[0] = (uint8_t)padding;
++    to[1] = mux;
++    to[2] = (uint8_t)(length >> 8);
++    to[3] = (uint8_t)length;
++    memcpy(to + K60_IPA_QMAP_HEADER_BYTES, from, bytes);
++    (void)memset(to + K60_IPA_QMAP_HEADER_BYTES + bytes, 0, padding);
++    *frame_bytes = total;
++    return K60IpaQmapOk;
++}
++
++unsigned
++k60_ipa_qmap_decode(const void *frames, size_t bytes, k60_ipa_qmap_receive receive,
++    void *context, K60IpaQmapStats *stats)
++{
++    const uint8_t *frame = frames;
++    K60IpaQmapStats local;
++    size_t at = 0;
++    unsigned delivered = 0;
++    int stopped = 0;
++
++    local.packets = 0;
++    local.commands = 0;
++    local.dropped = 0;
++    local.bytes = 0;
++
++    if (frame == NULL) {
++        if (stats != NULL) {
++            *stats = local;
++        }
++        return 0;
++    }
++
++    while (at + K60_IPA_QMAP_HEADER_BYTES <= bytes) {
++        const size_t header = at;
++        const uint8_t pad = (uint8_t)(frame[header] & K60_IPA_QMAP_PAD_MASK);
++        const uint8_t mux = frame[header + 1];
++        const size_t length = ((size_t)frame[header + 2] << 8) |
++            (size_t)frame[header + 3];
++        const int command = (frame[header] & K60_IPA_QMAP_COMMAND_BIT) != 0;
++        const int reserved = (frame[header] & K60_IPA_QMAP_RESERVED_BIT) != 0;
++
++        if (length == 0 || pad > length ||
++            at + K60_IPA_QMAP_HEADER_BYTES + length > bytes || reserved) {
++            local.dropped++;
++            stopped = 1;
++            break;
++        }
++        if (command) {
++            local.commands++;
++        } else if (mux < K60_IPA_QMAP_MUX_MIN || mux > K60_IPA_QMAP_MUX_MAX) {
++            local.dropped++;
++        } else {
++            const size_t payload = length - pad;
++
++            if (payload != 0 && receive != NULL) {
++                receive(context, mux,
++                    frame + header + K60_IPA_QMAP_HEADER_BYTES, payload);
++            }
++            local.packets++;
++            local.bytes += payload;
++            delivered++;
++        }
++        at += K60_IPA_QMAP_HEADER_BYTES + length;
++    }
++    if (!stopped && at != bytes) {
++        local.dropped++;
++    }
++    if (stats != NULL) {
++        *stats = local;
++    }
++    return delivered;
++}

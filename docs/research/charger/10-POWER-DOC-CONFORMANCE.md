@@ -453,7 +453,13 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 以及第 15 节的插拔/充电/放电/full 状态转换、充电取 TimeToFull/否则取 TimeToEmpty 的剩余时间选择和非法状态拒绝，和第 16 节的容量一致性/适配器限流/缺失 pack 快照。
 `scripts/tests/test-battery-units.py` 当前 28 项，覆盖 µV/µA、0.01% 和秒的边界与电流符号；
 `test-judge-battery.py` 当前 22 项，覆盖 Android negative=charging 归一化、positive 旧采集显式开关和 dmesg 幅值比较。
-运行方式见 `scripts/tests/run-k60-handoff-host.sh`（WSL gcc）。
+`scripts/tests/run-k60-handoff-host.sh` 全量离线套件在 2026-11-18 12:50 通过（`FULL-HOST-EXIT=0`，日志
+`E:/k60-work/evidence/host-tests-20261118-1250/host-tests.log`）。集成测试要求 0619 前的 XNU 前像；
+当前构建树都已是 0619 后像，因此用 `patches/xnu/0619-k60-adsp-glink-handoff.patch` 对
+`pong_handoff.c/h` 和 `IOKitBSDInit.cpp` 反演构造 `/tmp/k60-pre0619` predecessor fixture，再把它的
+`../fakeroot` 指向构建树 SDK；这是测试前像，不是完整内核系列重放。另修正
+`test-k60-adsp-platform.c:441` 的 ready 超时断言：`K60AdspPlatform.c` 的 ready 等待在 `f80c2e63`
+从 1000 次增到 5000 次，断言相应地由 999/1002 改为 4999/5002（提交 `992db244`）。
 
 ## 9. 边界：固件所有权与未闭项
 

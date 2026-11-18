@@ -153,6 +153,29 @@ int main(void)
         check("l3_vote_no_capacity", k60_cpufreq_build_l3_vote(5, writes, 0), 0);
     }
 
+    {
+        K60CpuFreqGovernor gov;
+        unsigned i;
+
+        k60_cpufreq_governor_reset(&gov, 4);
+        for (i = 0; i < K60_CPU_FREQ_DOWN_WINDOWS - 1; ++i)
+            check("gov_drop_deferred", k60_cpufreq_governor_window(&gov, &clock, 0, 100, 0, 0), 0);
+        check("gov_drop_lands", k60_cpufreq_governor_window(&gov, &clock, 0, 100, 0, 0), 1);
+        check("gov_drop_level", gov.current[0], 0);
+        check("gov_jump_now", k60_cpufreq_governor_window(&gov, &clock, 0, 950, 0, 0), 1);
+        check("gov_jump_level", gov.current[0], 4);
+
+        k60_cpufreq_governor_reset(&gov, 0);
+        check("gov_boost_up", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 1, 0), 1);
+        check("gov_boost_level", gov.current[1], 4);
+        for (i = 0; i < K60_CPU_FREQ_DOWN_WINDOWS - 1; ++i)
+            check("gov_release_hold", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 0);
+        check("gov_release_lands", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 1);
+        check("gov_release_level", gov.current[1], 1);
+        check("gov_bad_domain", k60_cpufreq_governor_window(&gov, &clock, 3, 0, 0, 0), -1);
+        check("gov_null", k60_cpufreq_governor_window(NULL, &clock, 0, 0, 0, 0), -1);
+    }
+
     printf("%s %u checks (%u failure%s)\n", failures ? "TESTS FAILED" : "TESTS OK",
         checks, failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;

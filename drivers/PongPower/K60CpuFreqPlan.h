@@ -100,6 +100,23 @@ unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned l
     K60CpuFreqWrite *out, unsigned capacity);
 unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigned capacity);
 
+/* Per-domain governor state for the reference's 16 ms window loop. Keeping the
+ * state here, instead of in the probe, lets the host test drive a whole
+ * sequence of windows without any kernel timer or idle counter. */
+typedef struct {
+    unsigned current[K60_CPU_FREQ_DOMAINS];
+    unsigned down[K60_CPU_FREQ_DOMAINS];
+    unsigned quiet[K60_CPU_FREQ_DOMAINS];
+} K60CpuFreqGovernor;
+
+void k60_cpufreq_governor_reset(K60CpuFreqGovernor *gov, unsigned level);
+
+/* One 16 ms window for one domain. busy_permille is the busiest CPU of the
+ * domain; boost is the touch boost, framing the frame-floor request. Returns 1
+ * when the level changed, 0 when it did not, and -1 for a bad argument. */
+int k60_cpufreq_governor_window(K60CpuFreqGovernor *gov, const K60CpuFreqTable *table,
+    unsigned domain, unsigned busy_permille, unsigned boost, unsigned framing);
+
 #ifdef __cplusplus
 }
 #endif

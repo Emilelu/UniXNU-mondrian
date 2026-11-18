@@ -155,3 +155,34 @@ unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigne
     out[0].value = level;
     return 1;
 }
+
+void k60_cpufreq_governor_reset(K60CpuFreqGovernor *gov, unsigned level)
+{
+    unsigned d;
+
+    if (!gov) return;
+    for (d = 0; d < K60_CPU_FREQ_DOMAINS; ++d) {
+        gov->current[d] = level;
+        gov->down[d] = 0;
+        gov->quiet[d] = 0;
+    }
+}
+
+int k60_cpufreq_governor_window(K60CpuFreqGovernor *gov, const K60CpuFreqTable *table,
+    unsigned domain, unsigned busy_permille, unsigned boost, unsigned framing)
+{
+    unsigned quiet, want;
+    int changed;
+
+    if (!gov || !table || !table->count || domain >= K60_CPU_FREQ_DOMAINS) return -1;
+    quiet = gov->quiet[domain];
+    want = k60_cpufreq_target(table, gov->current[domain], busy_permille,
+        domain != 0, boost, framing, quiet);
+    changed = (int)k60_cpufreq_step(table, &gov->current[domain], want, &gov->down[domain]);
+    if (changed || boost) {
+        gov->quiet[domain] = 0;
+    } else if (quiet < K60_CPU_FREQ_QUIET_WINDOWS) {
+        gov->quiet[domain] = quiet + 1;
+    }
+    return changed;
+}

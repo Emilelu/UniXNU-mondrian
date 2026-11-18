@@ -600,7 +600,10 @@ void testNetwork(const nw_wifi_status &st) {
   log(6,"WiFi lifecycle test RUNNING: reconnecting to scanned network");
  }
  if(finished)return;
- if(!attempted&&st.state==NW_STA_IDLE) {
+ // The scan completes while the station stays in NW_STA_SCANNING; this
+ // driver returns to IDLE only on teardown, so accept both before the
+ // first connect request. Without this the association test never runs.
+ if(!attempted&&(st.state==NW_STA_IDLE||st.state==NW_STA_SCANNING)) {
   nw_bss_info b={};
   for(int i=0,n=nw_wifi_bss_count();i<n;++i) {
    if(nw_wifi_bss_get(i,&b)||b.ssid_len!=kWifiTestSsidBytes||memcmp(b.ssid,kWifiTestSsid,kWifiTestSsidBytes))continue;

@@ -1199,7 +1199,22 @@ k60_modem_qrtr_probe(void)
 		const int polls = qcom_glink_poll(&k60_qrtr_link);
 
 		if (polls < 0) {
-			printf("K60MODEM qrtr: glink poll rc=%d at %u\n", polls, i);
+			/* QcomGlinkCorrupt leaves the offending message at the head of the
+			 * RX ring (receive_one peeks, never advances, and stop() keeps the
+			 * FIFO). Snapshot it so a single flight identifies the branch. */
+			const QcomGlinkFifo *rx = &k60_qrtr_link.rx;
+			uint32_t avail = rx->data != NULL ? qcom_glink_rx_avail(rx) : 0u;
+			uint32_t head = rx->head != NULL ? *rx->head : 0u;
+			uint32_t tail = rx->tail != NULL ? *rx->tail : 0u;
+			uint8_t m[8] = {0};
+
+			for (uint32_t b = 0; b < 8u && b < avail && rx->data != NULL; ++b) {
+				m[b] = rx->data[(head + b) % rx->length];
+			}
+			printf("K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u cmd=%#x p1=%#x p2=%#x\n",
+			    polls, i, avail, head, tail, (unsigned)(m[0] | (m[1] << 8)),
+			    (unsigned)(m[2] | (m[3] << 8)),
+			    (unsigned)(m[4] | (m[5] << 8) | (m[6] << 16) | ((unsigned)m[7] << 24)));
 			return polls;
 		}
 		coachz_baseband_poll();

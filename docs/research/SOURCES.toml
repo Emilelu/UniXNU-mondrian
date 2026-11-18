@@ -397,3 +397,20 @@ why = "K60 自己的蓝牙节点与使能脚；BT 实现必须以这张表为准
 examined = "2026-11-14"
 finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 E:/hackios/QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具），该仓库不在 research-gate 的两种路径回退范围内，因此不能作为本文件的 path，只能在此说明并写进 REFERENCE-INDEX.md。"""
 
+
+# ---------------------------------------------------------------------------
+# 2026-11-18: the ios-mondrian line (xNekom/ios-mondrian, same phone, other
+# boot path). Only the measured hardware facts are taken; the shim is not.
+# ---------------------------------------------------------------------------
+
+[[subsystem.storage.required]]
+path = "docs/research/ios-mondrian-traps.md"
+why = "the same K60/SM8475 measured by a second port: 16 KiB granule, the 9 GiB window and its four rules, the slot that a failed boot deactivates"
+examined = "2026-11-18"
+finding = """TGran16=1 on this SoC and the iOS dyld cache is hashed in 16 KiB pages, so 4096 from the Android tree is the wrong number. The kernel window has to start above the loader image including its payload, be 32 MiB aligned, end in real memory (XNU takes its first heap pages from the end) and contain no carve-out; 0x840000000+0x240000000 is the only contiguous 9 GiB bank of the six the live tree describes. A random /chosen/random-seed makes the physmap slide a coin flip (about one boot in three dies in pmap_map_bd), so the seed is pinned. After a boot that dies, ABL deactivates the slot and refuses every fastboot boot until --set-active=<current-slot>. PSCI CPU_OFF from EL2 does not take the firmware core down on this TZ: it is parked and left out of the DT."""
+
+[[subsystem.display.required]]
+path = "docs/research/ios-mondrian-traps.md"
+why = "cont_splash_region sits outside the kernel window on this phone and the early console needs a VA alias, not a VA=PA map"
+examined = "2026-11-18"
+finding = """cont_splash_region is 0xb8000000, 0x2b00000 (43 MiB), 1440x3200, and it is outside the 9 GiB window: a VA=PA early console map only works while the framebuffer falls inside the window, which it does not here, so the port installs an explicit kernel VA alias in arm_vm_init. The other measured number is the boot-args ceiling: iOS userland reads kern.bootargs with a 608-byte buffer, so one byte over 607 is ENOMEM for every reader and watchdogd enters a respawn loop (about 28 aborts in ten minutes)."""

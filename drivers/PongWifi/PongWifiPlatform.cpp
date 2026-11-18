@@ -580,7 +580,8 @@ void testNetwork(const nw_wifi_status &st) {
  static bool alternate=false,reconnecting=false,rescanned=false,reported=false;
  static uint32_t firstBand=0;
  static uint8_t firstBssid[6];
- static uint64_t deadline=0, reconnectAt=0;
+ static uint64_t deadline=0, reconnectAt=0, nextRescan=0;
+ static unsigned rescans=0;
  if(!checked) {
   checked=true;uint32_t flag=0,mode=0;
   const bool testFound=PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag);
@@ -611,9 +612,9 @@ void testNetwork(const nw_wifi_status &st) {
   log(6,"WiFi lifecycle test RUNNING: reconnecting to scanned network");
  }
  if(finished)return;
- // The scan completes while the station stays in NW_STA_SCANNING; this
- // driver returns to IDLE only on teardown, so accept both before the
- // first connect request. Without this the association test never runs.
+ // nw_sta_scan_done returns the station to NW_STA_IDLE. Accept the transient
+ // NW_STA_SCANNING too, so a status sampled while a rescan is starting cannot
+ // skip the first connect request.
  if(!attempted&&(st.state==NW_STA_IDLE||st.state==NW_STA_SCANNING)) {
   nw_bss_info b={};
   int n=nw_wifi_bss_count();
@@ -651,6 +652,15 @@ void testNetwork(const nw_wifi_status &st) {
     IOLog("PongWifi: bss[%d] len=%u hash=%08x freq=%u\n",i,(unsigned)b.ssid_len,
      ssidHash(b.ssid,b.ssid_len),(unsigned)b.freq_mhz);
    }
+  }
+  // A wildcard scan can miss a 5 GHz AP's SSID when only its beacon is heard.
+  // One directed scan makes the AP answer a probe request with its SSID; retry
+  // twice, spaced out, before the 60 s association deadline.
+  if(!attempted&&rescans<2&&nw_wifi_stats.stage==6&&now()>=nextRescan) {
+   ++rescans;nextRescan=now()+8000;reported=false;
+   IOLog("PongWifi: association rescan %u directed: target_hash=%08x\n",
+    rescans,ssidHash(kWifiTestSsid,kWifiTestSsidBytes));
+   nw_wifi_scan(kWifiTestSsid,kWifiTestSsidBytes);
   }
   if(alternate&&reconnecting&&!attempted&&!rescanned) {
    rescanned=true;

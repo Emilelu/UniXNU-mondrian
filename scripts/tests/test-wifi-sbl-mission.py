@@ -103,6 +103,9 @@ def main() -> int:
     check("association test tolerates a trailing NUL in ssid_len",
           "b.ssid_len==kWifiTestSsidBytes+1" in platform and
           "!b.ssid[kWifiTestSsidBytes]" in platform)
+    check("association test directs a rescan at an absent target",
+          '"PongWifi: association rescan %u directed' in platform and
+          "nw_wifi_scan(kWifiTestSsid,kWifiTestSsidBytes);" in platform)
 
     # A built tree may be supplied for an end-to-end source-shape check. The
     # repository test still runs when no build is present: the builder anchors

@@ -33,6 +33,9 @@
 | `pong_init_path` | 启动链 | 路径 | 代码默认 | — |
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
 | `pong_gpu_dcvs` | 电源 / GPU | 0 或 1 | 0（关闭） | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；1=16 ms 读 GMU XO 忙碌计数器并经 HFI id 30 投票，连续 8 次被拒停线程；未上机（image o 2026-11-19 构建） |
+| `pong_gpu_max_level` | 电源 / GPU | 1..13 | 13 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；DCVS 可投的最高档，越界回落 13，仅在 `pong_gpu_dcvs=1` 时读取 |
+| `pong_gpu_dcvs_min` | 电源 / GPU | 1..13 | 1 | 同上；空闲时允许降到的最低档，小于 1 夹到 1、大于最高档夹到最高档 |
+| `pong_gpu_dcvs_boost_ms` | 电源 / GPU | ≥ 0（毫秒） | 50 | 同上；GMU 忙碌计数从零转非零后唤醒档（两倍频率、至少 578 MHz）的保持时间，0 = 不保持 |
 | `k60_cpufreq` | 电源 / EPSS | 1/2/3/5 | 0（关闭） | `drivers/PongPower/K60CpuFreqProbe.cpp`；1=只读三域+L3，2=d0 最高非 turbo，3=三域+L3，5=16 ms `processor_info` 只读采样；2/3 为瞬态验证写（写前守卫、写后回读、立即恢复），4 被拒绝；2/3 未上机，5 已于 2026-11-18 23:19 以 image l 只读上机（274 条样本）；探针镜像需去掉 `applog=1` 才不超 607 字节 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
@@ -321,8 +324,13 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 | 来源 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`（`PE_parse_boot_argn("pong_gpu_dcvs", &on, sizeof(on))`）；`PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后调用 `pong_adreno_dcvs_start()`，CP 启动失败则不启动 |
 | 作用 | 1 = 起 16 ms 线程：读 GMU XO 忙碌计数器 → `k60_gpu_governor_window()` → HFI id 30 投 `{1, level, bandwidth}`；计数器从零转非零时给 50 ms 唤醒档（两倍频率、至少 578 MHz）；连续 8 次投票被拒就停线程并毒化 HFI。日志前缀 `PONG ADRENO: `，每 10 s 一条档位汇总。 |
 
-伴随参数（都未列入 board 契约）：`pong_gpu_max_level`（默认 13）、`pong_gpu_dcvs_min`（默认 1）、
-`pong_gpu_dcvs_boost_ms`（默认 50）。
+伴随参数（都未列入 board 契约，只有 `pong_gpu_dcvs=1` 时才读取）：
+
+| 参数 | 默认 | 含义 |
+|---|---|---|
+| `pong_gpu_max_level` | 13 | DCVS 可投的最高档；越界（<1 或 >13）回落 13，`table.count = top` 所以它同时是档位表的顶 |
+| `pong_gpu_dcvs_min` | 1 | 空闲允许降到的最低档；<1 夹到 1，>最高档夹到最高档 |
+| `pong_gpu_dcvs_boost_ms` | 50 | 忙碌计数由零转非零后的唤醒档保持毫秒数；0 = 立即回落，不再保持 |
 
 **为什么默认关闭**：官方 §5 要求先处理稳压器/互连/温控顺序。DCVS 只发 HFI 投票，没有温度与电压顺序，
 也没有触摸/帧信号；首次上机只验证计数器在动、投票是否被接受。

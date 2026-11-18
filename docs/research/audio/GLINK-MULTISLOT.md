@@ -1,7 +1,7 @@
 # GLINK 多槽：把音频通道接进同一个 QcomGlink 实例
 
-> 状态：2026-11-17。**传输层与音频桥已落地（离线）**——QCOM_GLINK_MAX_CHANNELS 2、MAX_LOCAL_INTENTS 20、
-> K60AudioGlink 桥；未上机、不申请 run 2。
+> 状态：2026-11-18。**传输层与音频桥已落地并上机**——QCOM_GLINK_MAX_CHANNELS 2、MAX_LOCAL_INTENTS 20、
+> K60AudioGlink 桥；镜像 ad 证明 PMIC up 前存在第二个槽（即使静默）会让 DSP 重置共享 transport，af 改为 PMIC up 后建 initiator 槽；run 2 不申请。
 > 结论先行：传输层本身已经是每槽独立的，挡住第二个消费者的是 QcomGlink.h 的数组长度；
 > 真正的风险不在协议，而在**建槽时机**和**消费者侧的单通道假设**——后者已由 K60AudioGlink 消掉。
 
@@ -143,7 +143,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 - 真实 FIFO 几何：tx_bytes/rx_bytes 来自 lease（256..65536、8 对齐），宿主用的是 4,096；
 - 真实 DSP 行为：adsp_apps 的 OPEN 是 DSP 主动发起还是我们发起、intent 560×20 是否被接受；
 - 时序：K60PmicGlink::discover() 里 desc[1] == lease.host_tx_head 与 desc[2] == lease.host_rx_tail
-  的比对（K60PmicGlink.cpp:78）发生在音频建槽之前；音频槽在 discover() 末尾提前注册并 hold；DSP OPEN 到达时立即回 OPEN_ACK 以满足 DSP 的超时，直到 K60PmicGlink::channelState() 的 PMIC up 回调才 release 并发我方 OPEN。这样既保证 DSP OPEN 能找到槽，也不在 PMIC 初始握手前主动发起第二个槽的建链；
+  的比对（K60PmicGlink.cpp:78）发生在音频建槽之前；**PMIC 通道 up 之前不注册、不发送任何音频槽字节**，音频 request 只排队。K60PmicGlink::channelState() 的 PMIC up 回调调用 k60_audio_glink_open() 建立 initiator 槽，progress() 在同一轮发我方 OPEN，DSP 回 OPEN_ACK / 反向 OPEN 后通道才 up。镜像 y/ab 的晚建槽会让 DSP 早先的 adsp_apps OPEN 被当未知通道丢弃；z/aa/ad 的提前建槽（无论是否 hold、ACK 早或晚）都会在 PMIC 握手后触发 error=-5，因此提前注册不可用；
 - 中断 / 轮询节奏：真机上 kick 走 IPCC，两个消费者共享一个 poll 循环，谁的延迟预算是多少；
 - SMP2P 443 ready 与 GLINK 通道建立的真实先后。
 
@@ -156,7 +156,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 1. **启动点**：音频 worker 现在是 pong_audio_probe=1 直启（patches/xnu/0504 的 pong_audio_bootstrap()）。
    将来要改成等 k60_adsp_owner_acquire() 成功、且 lease.flags 的 **bit2 K60AdspGlinkExclusive（=4）**
    置位之后才启动；acquire 失败就停在降级档（PAS1-AUDIO-REQUIREMENTS.md §2 的五级表）。
-2. **建槽时机与桥接**：音频侧已经实现 `K60AudioGlink`——`K60PmicGlink::discover()` 在 PMIC_RTR_ADSP_APPS 槽之后调用 `k60_audio_glink_prepare()`，用 passive `qcom_glink_channel(..., open_now=0)` 提前注册 `adsp_apps` 槽并立即 `qcom_glink_channel_hold()`；`K60PmicGlink::channelState()` 在 PMIC 通道 up 的回调里调用 `k60_audio_glink_enable()` 释放 hold，`progress()` 才发 OPEN_ACK/我方 OPEN，随后 `k60_audio_glink_service()` 完成回调；`pong_audio_start()` 只排队 client，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前继续调用 `k60_audio_glink_service()`。provider 不需要再写注册代码，只需保证 `K60PmicGlink::open()` 发生在 **lease 有效之后**（FIFO 与 epoch 已交出）。2026-11-18 实机教训：`open_now=1` 的 active 预注册会在 PMIC 通道 up 前发 OPEN，DSP 以 `QcomGlinkCorrupt (-5)` 重置共享 transport（镜像 z）；passive 槽提前到 `discover()` 但不 hold（镜像 aa）会在 DSP OPEN 时立刻 ACK+OPEN，仍在 PMIC 初始握手前写字节而失败；只在 `channelState()` 建槽（镜像 ab）又太晚，DSP OPEN 已被丢弃；discover 提前建槽 + hold、连 OPEN_ACK 也压到 PMIC up（镜像 ac）会让 DSP 等 ACK 超时，PMIC up 后立即 -5。正确做法是 discover 提前建槽 + hold；DSP OPEN 到达时立即回 OPEN_ACK，只把我方 OPEN 延迟到 PMIC up 后的 release。
+2. **建槽时机与桥接**：音频侧已经实现 `K60AudioGlink`——`K60PmicGlink::discover()` **不**建音频槽；`pong_audio_start()` 只把 client 排队，`K60PmicGlink::poll()` 在 `qcom_glink_poll()` 前调用 `k60_audio_glink_service()`，PMIC up 前该函数只保留 request、不注册槽。`K60PmicGlink::channelState()` 在 PMIC 通道 up 的回调里调用 `k60_audio_glink_open()`，此时才用 initiator `qcom_glink_channel(..., open_now=1)` 注册 `adsp_apps` 槽，`progress()` 同轮发我方 OPEN。provider 不需要再写注册代码，只需保证 `K60PmicGlink::open()` 发生在 **lease 有效之后**（FIFO 与 epoch 已交出）。2026-11-18 实机教训：`open_now=1` 的提前 active 预注册会在 PMIC 通道 up 前发 OPEN，DSP 以 `QcomGlinkCorrupt (-5)` 重置共享 transport（镜像 z）；passive 槽提前到 `discover()` 但不 hold（镜像 aa）会在 DSP OPEN 时立刻 ACK+OPEN，仍在 PMIC 初始握手前写字节而失败；discover 提前建槽 + hold、连 OPEN_ACK 也压到 PMIC up（镜像 ac）会让 DSP 等 ACK 超时，PMIC up 后立即 -5；discover 提前建槽 + hold + 立即 ACK、只延迟我方 OPEN（镜像 ad）仍在 PMIC up 后立刻 -5，说明**只要第二个槽在 PMIC 握手前存在就不行**。因此正确做法是 PMIC up 前完全不建音频槽；PMIC up 回调里再建 initiator 槽并发我方 OPEN。
 3. **epoch 绑定与降级**：音频的 QcomGlinkChannel * 必须与电池挂在**同一个 epoch** 上；
    k60_adsp_owner_revalidate() 失败时，音频侧要主动关掉 AFE 请求并静音（PongAudioAfe.h 的六个步骤
    不再下发），而不是继续往一个死通道里 send 拿 QcomGlinkAgain。
@@ -165,7 +165,7 @@ TX_DATA / RX_DONE），从 tx FIFO 里读回 AP 侧写的东西。没有 MMIO、
 
 ## 5. 怎么跑 / 边界
 
-    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 386 cases
+    sh drivers/PongAudio/tests/run-glink-multislot-tests.sh     # 期望 TESTS OK 497 cases
 
 脚本直接编译当前 `drivers/PongPower/QcomGlink.c`、`QcomGlink.h` 与 `K60AudioGlink.c`，不复制、不打补丁。
 它不是任何门禁的一部分（RULES.toml 里没有规则跑它），需要人手跑——它测的是传输层与音频桥，不是某个

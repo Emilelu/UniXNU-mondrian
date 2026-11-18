@@ -1062,3 +1062,28 @@ weak_import, otherwise a pane image linked against the HE archive fails with
 "_nw_wifi_sae_probe undefined" (the mission24 link caught it), and mission24
 builds against the ath11k-sae1 archive so the symbol resolves; its boot line
 carries no sae argument, so the probe stays off.
+
+## 25. Mission24: the daemon drops the record itself, not its name and not its BSSID prefix
+
+Image wifi-20261118sbl-mission24 (6ba9a0537326ddadded57a0ccaf7658d1fdcde2529f45f9f1fd39ca5938952bd, 201,887,744 bytes,
+built 2026-11-19T05:55:25+08:00, 31 arguments / 602 bytes) was flown once at 06:06:12 with the supervisor
+boot-and-capture.ps1; the capture is usblog-20261119-060604, console 1,180,114 bytes / 14,506 lines / SHA256
+4201f716a09a1387. A person opened Settings -> Wi-Fi and pulled to refresh, so for the first time one flight carries
+both the driver's record dump and the daemon's own Preferences list.
+
+The image serves two copies of the 5240 MHz record from the front of the frozen list: K60SYNTH
+(c8:bf:4c:30:03:5c, the last BSSID byte flipped) and K60SYNTH2 (ca:bf:4c:30:03:1c, the OUI first byte flipped).
+The console shows both at served positions 2 and 3 of 33 and again of 40, and the daemon read whole sweeps
+("scan result end after serving 33 of 33 records"). Its Preferences list, 41 entries over 44 records (30 kept,
+14 dropped), holds Emilelu_5G zero times and neither copy's BSSID in any observer line either.
+
+Conclusion: the filter is not the SSID (a renamed copy is dropped too), not band steering by name, and not a
+BSSID-prefix merge with the joined 2.4 GHz sibling (a copy with a different OUI is dropped as well). The record
+content is the filter. The router screenshot supplied by the user adds the missing context: this access point is
+5 GHz on automatic channel 48 with 160/80/40/20 MHz and WPA3/WPA2 mixed security, while the 2.4 GHz radio is
+40/20 MHz; the only 5 GHz records the pane lists in this flight are neighbours at ordinary widths.
+
+The mission24 judge needed two fixes: judge21's element-inventory regex still expected the mission21 column set
+(no ht40/vw), which turned a healthy flight into base=FAIL; it now accepts both formats and the same console
+judges base=PASS inventory=SEEN. The full RSN is 24 bytes at element offset 82 (offset 76 in one sweep), and the
+mission24 image still printed only the first 16 of them, which mission25 extends to all 24.

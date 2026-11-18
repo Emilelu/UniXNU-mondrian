@@ -11,8 +11,12 @@
  * Off by default, and never automatic: boot argument k60_cpufreq selects the
  * mode. 1 is read-only, 2 votes domain 0 to its highest non-turbo level, 3
  * votes every domain and L3, 5 samples idle time read-only, 6 votes domain 0
- * down to its lowest level. Mode 6 is the safe first write: a lower level never
- * needs a voltage raise. Any other value is logged and ignored so a typo cannot
+ * down to its lowest level, 7 runs the idle sampler and applies the governor's
+ * down steps between ten and twenty seconds, then restores the original votes.
+ * Mode 6 was
+ * the safe first write: a lower level never needs a voltage raise, and mode 7
+ * keeps that rule (it refuses every raise). Any other value is logged and
+ * ignored so a typo cannot
  * start a path that has never been measured. This runs from
  * k60_physical_battery_start(), which is the only userland-triggered IOKit
  * entry the archive owns today; it does not need the ADSP handoff lease.
@@ -261,19 +265,82 @@ void probeAll(bool dump)
  * contributes 0 and a busy one approaches 1000 permille. The governor is fed
  * the real numbers and its chosen level is logged next to the hardware state,
  * but nothing is written: a write loop needs the rail/thermal ordering that
- * section 5 still lacks. */
+ * section 5 still lacks. Mode 7 reuses the same loop and applies only the
+ * governor's down steps, under the mode-6 rule that lowering never needs a
+ * voltage raise; it restores every vote it wrote after ten seconds or when the
+ * thread stops. A raise is refused and logged, never written. */
 constexpr unsigned kSampleSleepMs = 16;
 constexpr unsigned kSampleLogWindows = 64;
 
+/* Mode 7 only: the first ten seconds are read-only because the boot burst
+ * pins every domain at the top, then at most kApplyMaxVotes down steps are
+ * applied until twenty seconds, where every written vote is restored. The
+ * bound keeps an unattended run from holding a low vote for the whole boot. */
+constexpr unsigned kApplyStartWindow = 625;
+constexpr unsigned kApplyEndWindow = 1250;
+constexpr unsigned kApplyMaxVotes = 16;
+
+/* Votes written by mode 7 for one domain, kept so the stop path can put the
+ * registers back the way the firmware left them. */
+struct Applied {
+    K60CpuFreqWrite writes[K60_CPU_FREQ_MAX_WRITES];
+    uint32_t originals[K60_CPU_FREQ_MAX_WRITES];
+    unsigned count;
+    bool touched;
+};
+
+unsigned restoreApplied(Window *windows, Applied *applied)
+{
+    unsigned domains = 0;
+
+    for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+        Applied *a = &applied[domain];
+        if (!a->touched) continue;
+        for (unsigned i = 0; i < a->count; ++i)
+            wr32(windows[domain].va, a->writes[i].offset, a->originals[i]);
+        a->touched = false;
+        ++domains;
+    }
+    return domains;
+}
+
+/* DOMAIN_STATE reports the L field of the row the firmware is running, not the
+ * row index: the mode-6 log shows 81 before a write and 15 after placing row 0,
+ * whose L field is 15. Map the field back through the raw LUT so the governor
+ * starts where the hardware actually is. Returns the table index, or -1 when
+ * the row is not in the non-turbo table. */
+int stateTableIndex(Window *window, const K60CpuFreqTable *table, uint32_t state)
+{
+    uint32_t rows[K60_CPU_FREQ_LUT_ROWS];
+
+    readRows(window, rows);
+    for (unsigned row = 0; row < K60_CPU_FREQ_LUT_ROWS; ++row) {
+        if ((rows[row] & 0xffu) != state) continue;
+        for (unsigned i = 0; i < table->count; ++i)
+            if (table->level[i] == row) return static_cast<int>(i);
+        return -1;
+    }
+    return -1;
+}
+
 volatile unsigned sSampleStop;
 unsigned sSampleStarted;
+volatile unsigned sSampleApply;
 
 void samplerThread(void *, wait_result_t)
 {
     K60CpuFreqTable tables[K60_CPU_FREQ_DOMAINS] = {};
     Window windows[K60_CPU_FREQ_DOMAINS] = {};
     K60CpuFreqGovernor gov = {};
+    Applied applied[K60_CPU_FREQ_DOMAINS] = {};
     bool ready[K60_CPU_FREQ_DOMAINS] = {};
+    bool applyReady[K60_CPU_FREQ_DOMAINS] = {};
+    bool raiseLogged[K60_CPU_FREQ_DOMAINS] = {};
+    unsigned votedIndex[K60_CPU_FREQ_DOMAINS] = {};
+    unsigned dcvsCtrl[K60_CPU_FREQ_DOMAINS] = {};
+    unsigned appliedVotes = 0;
+    bool restored = false;
+    bool apply = sSampleApply != 0;
     uint32_t previous[K60_CPU_FREQ_CPUS][K60_CPU_FREQ_STATES] = {};
     uint64_t idle[K60_CPU_FREQ_CPUS] = {}, elapsed[K60_CPU_FREQ_CPUS] = {};
     unsigned busy[K60_CPU_FREQ_DOMAINS] = {};
@@ -285,6 +352,7 @@ void samplerThread(void *, wait_result_t)
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
         uint32_t state;
         unsigned current = 0;
+        bool matched = false;
 
         if (!mapWindow(&windows[domain], kDomainBase[domain], kDomainWindow)) continue;
         if (!readTable(&windows[domain], &tables[domain])) {
@@ -292,15 +360,22 @@ void samplerThread(void *, wait_result_t)
             continue;
         }
         state = rd32(windows[domain].va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
-        for (unsigned i = 0; i < tables[domain].count; ++i)
-            if (tables[domain].level[i] == state) {current = i; break;}
+        {
+            int index = stateTableIndex(&windows[domain], &tables[domain], state);
+            if (index >= 0) {current = static_cast<unsigned>(index); matched = true;}
+        }
         gov.current[domain] = current;
         gov.down[domain] = 0;
         gov.quiet[domain] = 0;
+        votedIndex[domain] = current;
+        dcvsCtrl[domain] = rd32(windows[domain].va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u;
+        applyReady[domain] = matched;
         ready[domain] = true;
+        if (!matched)
+            IOLog("K60CpuFreq: d%u state=%u not in table; apply disabled\n", domain, state);
     }
-    IOLog("K60CpuFreq: sample start every=%ums log-every=%u domains=%u\n",
-        kSampleSleepMs, kSampleLogWindows, K60_CPU_FREQ_DOMAINS);
+    IOLog("K60CpuFreq: sample start every=%ums log-every=%u domains=%u apply=%u\n",
+        kSampleSleepMs, kSampleLogWindows, K60_CPU_FREQ_DOMAINS, apply ? 1u : 0u);
     while (!sSampleStop) {
         IOSleep(kSampleSleepMs);
         if (sSampleStop) break;
@@ -334,6 +409,71 @@ void samplerThread(void *, wait_result_t)
             (void)k60_cpufreq_governor_window(&gov, &tables[domain], domain,
                 busy[domain], 0, 0);
         }
+        if (apply) {
+            for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+                K60CpuFreqWrite set[K60_CPU_FREQ_MAX_WRITES] = {};
+                uint32_t readback[K60_CPU_FREQ_MAX_WRITES] = {};
+                uint32_t before, after;
+                unsigned n, i;
+                bool ok;
+
+                if (!ready[domain] || !applyReady[domain] || restored) continue;
+                if (gov.current[domain] > votedIndex[domain]) {
+                    /* Raising needs the rail/thermal ordering section 5 still
+                     * lacks; keep the governor honest about what is set. */
+                    gov.current[domain] = votedIndex[domain];
+                    if (!raiseLogged[domain]) {
+                        IOLog("K60CpuFreq: mode7 d%u raise refused; no voltage ordering yet\n", domain);
+                        raiseLogged[domain] = true;
+                    }
+                    continue;
+                }
+                if (gov.current[domain] == votedIndex[domain]) continue;
+                if (window < kApplyStartWindow || window > kApplyEndWindow ||
+                    appliedVotes >= kApplyMaxVotes) continue;
+                n = k60_cpufreq_build_votes(domain, dcvsCtrl[domain],
+                    tables[domain].level[gov.current[domain]], set, K60_CPU_FREQ_MAX_WRITES);
+                if (!k60_cpufreq_vote_allowed(rd32(windows[domain].va,
+                        K60_CPU_FREQ_REG_ENABLE) & 1u, &tables[domain],
+                        tables[domain].level[gov.current[domain]], n)) {
+                    gov.current[domain] = votedIndex[domain];
+                    continue;
+                }
+                before = rd32(windows[domain].va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+                if (!applied[domain].touched) {
+                    for (i = 0; i < n; ++i) {
+                        applied[domain].writes[i] = set[i];
+                        applied[domain].originals[i] = rd32(windows[domain].va, set[i].offset);
+                    }
+                    applied[domain].count = n;
+                    applied[domain].touched = true;
+                }
+                for (i = 0; i < n; ++i) wr32(windows[domain].va, set[i].offset, set[i].value);
+                for (i = 0; i < n; ++i) readback[i] = rd32(windows[domain].va, set[i].offset);
+                ok = k60_cpufreq_check_readback(set, readback, n) != 0;
+                ++appliedVotes;
+                IOSleep(1);
+                after = rd32(windows[domain].va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+                IOLog("K60CpuFreq: mode7 apply d%u level=%u (%ukHz) busy=%u writes=%u readback=%s state=%u->%u\n",
+                    domain, tables[domain].level[gov.current[domain]],
+                    tables[domain].khz[gov.current[domain]], busy[domain], n,
+                    ok ? "ok" : "mismatch", before, after);
+                if (!ok) {
+                    for (i = 0; i < n; ++i)
+                        wr32(windows[domain].va, set[i].offset, applied[domain].originals[i]);
+                    applied[domain].touched = false;
+                    applyReady[domain] = false;
+                    gov.current[domain] = votedIndex[domain];
+                } else {
+                    votedIndex[domain] = gov.current[domain];
+                }
+            }
+            if (!restored && (window >= kApplyEndWindow || appliedVotes >= kApplyMaxVotes)) {
+                unsigned domains = restoreApplied(windows, applied);
+                IOLog("K60CpuFreq: mode7 restore domains=%u votes=%u\n", domains, appliedVotes);
+                restored = true;
+            }
+        }
         if ((window % kSampleLogWindows) == 0) {
             uint32_t hardware[K60_CPU_FREQ_DOMAINS] = {};
             for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
@@ -347,17 +487,22 @@ void samplerThread(void *, wait_result_t)
                 busy[2], tables[2].khz[gov.current[2]], hardware[2]);
         }
     }
+    if (apply && !restored) {
+        unsigned domains = restoreApplied(windows, applied);
+        IOLog("K60CpuFreq: mode7 restore domains=%u votes=%u\n", domains, appliedVotes);
+    }
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
         if (windows[domain].map) unmapWindow(&windows[domain]);
     IOLog("K60CpuFreq: sample stop win=%llu\n", static_cast<unsigned long long>(window));
 }
 
-void startSampler(void)
+void startSampler(bool apply)
 {
     thread_t thread = nullptr;
 
     if (__atomic_exchange_n(&sSampleStarted, 1u, __ATOMIC_ACQ_REL)) return;
     sSampleStop = 0;
+    sSampleApply = apply ? 1u : 0u;
     if (kernel_thread_start(samplerThread, nullptr, &thread) != KERN_SUCCESS) {
         IOLog("K60CpuFreq: sample thread failed\n");
         sSampleStarted = 0;
@@ -375,8 +520,8 @@ extern "C" void k60_cpufreq_probe(void)
 
     PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
     if (!mode || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
-    if (mode == 4 || mode > 6) {
-        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5 and 6 are implemented\n", mode);
+    if (mode == 4 || mode > 7) {
+        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5, 6 and 7 are implemented\n", mode);
         return;
     }
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
@@ -395,7 +540,12 @@ extern "C" void k60_cpufreq_probe(void)
     }
     if (mode == 5) {
         probeAll(false);
-        startSampler();
+        startSampler(false);
+        return;
+    }
+    if (mode == 7) {
+        probeAll(false);
+        startSampler(true);
         return;
     }
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) voteDomain(domain, mode, false);

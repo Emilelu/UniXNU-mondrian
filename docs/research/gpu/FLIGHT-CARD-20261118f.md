@@ -35,13 +35,17 @@ series 227→228），把 `IOMemoryDescriptor::populateDevicePager` 里那段
 - **S4** `Pong Metal: scanout frames=` 出现 ≥**3** 次（即出帧 ≥180，超过基准的 2 次 / 480 帧）。
 - **S5** `IOMemoryDescriptor physical with managed page` 出现次数 = **0**（守卫生效）。
 - **S6** `crashed: backboardd` 出现次数 = 0。
-- **S7** 日志里 `K60HB` 的 `lag=1` 不再从 t=75 一路持续到预算结束（至少有一半的心跳 `lag=0`）。
+- **S7** 出帧速率：取最后两条 `scanout frames=N at T s`，`(N2-N1)/(T2-T1)` **≥ 15 fps**
+  （基准同式 = 420 帧 / 79.2 s ≈ **5.3 fps**；15 fps 是它的 3 倍，足以证明不是噪声）。
+  **不要用 `K60HB` 的 `lag=` 当卡顿判据**：`patches/xnu/0303-k60-heartbeat.patch:58` 是
+  `unsigned int k60_lag = k60_storm_count("launchd");` —— 它是 **launchd 的 exec 风暴计数**，
+  不是延迟/滞后标志；`lag=1` 只表示 1 次异常 exec，与掉帧无关（我在 12:50 的汇报里误读过一次）。
 - **F1** 出现 `K60KEXC` ⇒ 内核异常。
 - **F2** `K60METAL deploy` 缺失或 `error!=0`。
 - **F3** 没有 `real Vulkan-backed device created`。
 - **F4** `scanout frames=` 少于 3 次 ⇒ 帧率没改善。
 - **F5** `IOMemoryDescriptor physical with managed page` 仍出现 ⇒ 守卫没生效（补丁没进内核）。
 - **F6** `crashed: backboardd` 出现。
-- **F7** 心跳 `lag=1` 全程持续 ⇒ 即使打印消失，卡顿另有原因。
+- **F7** S7 的速率 < 15 fps ⇒ 打印风暴消失但帧率没改善，卡顿另有原因（下一层查映射粒度）。
 
 ## 5. 结果登记

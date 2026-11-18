@@ -167,6 +167,17 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   **d1 的写回没有被硬件接受**：`apply d1 level=16 (2496000kHz) readback=ok state=130->130`，
   而采样里的 d1 `hw` 始终是 2.496 GHz，说明 P 域的行写入回读成功但 EPSS 不接受持续投票；
   同一轮 d2 没有产生写回。后续要么先清 DCVS 控制位再接管 d1/d2，要么承认 EPSS 独占大核簇。
+- 帧下限接入（2026-11-19 05:07，image w）：采样线程每 16 ms 调 `pong_adreno_cp_pending()`（CP 环
+  RPTR≠WPTR 表示本窗口有提交，DCVS 线程已用同一读数），把结果喂 `K60BoostPlan`，再把
+  `k60_boost_frame_active()` 作为 `framing` 传给 `k60_cpufreq_governor_window`；官方 §5 :116 的
+  “4 窗口中 2 帧、300 ms、60 % 顶部下限”因此进入 governor 目标，mode 8 的允许升档窗口会把它
+  写成 perf-state 投票。`K60BoostPlan` 与 CP 环读数由 Adreno archive 提供，电池 archive 只引用：
+  `llvm-nm -g` 在 image w 的 kernel.macho 里同时看到 `_pong_adreno_cp_pending`、`_k60_boost_*`
+  与 `_k60_physical_battery_start`。image w（boot.img sha256 `005b3095…`，kernel `ca262497…`，
+  `k60_cpufreq=8`，30 项 603 字节）05:07 上机采集 276 条 `sample win=`，全部 `fr=0`：启动全程
+  CP 环没有出现提交窗口，帧下限一次也没有激活；同一轮 mode 8 仍执行
+  `apply d0 level=13 (1804800kHz) readback=ok state=81->94`、`apply d1 level=6/0 …`，
+  `restore domains=2 votes=3`。因此调用路径已上机验证，**激活条件（真实 GPU 提交）仍未验证**。
 - mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
   把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
   再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，
@@ -189,17 +200,17 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   （含 32 位回绕、全零窗口）与按 CPU 各自窗口的最忙值。断言使用合成的 LUT 行；
   真机 image k 已把 66 条有效档位逐行读出，image l 已把采样线程跑通。
 - archive（含 mode 5 采样、写入守卫、quiet 修复、mode 6 降档写入、mode 7 受限期写回与
-  mode 8 双向写回，commit `3e9917ed`/`38b84c35`/`d1d3c3e3`/`42d8e805`/`545315da`/`9242990d`/`ea8e4e20`）：`build/k60-battery/libK60PhysicalBattery.a`
-  **134,064 字节**，sha256 `ffaf7e43d386f8f197b06221c66177aad1eaba58ddf11e3c1c08efb4f3bec058`；
+  mode 8 双向写回与帧下限接线，commit `3e9917ed`/`38b84c35`/`d1d3c3e3`/`42d8e805`/`545315da`/`9242990d`/`ea8e4e20`/`cbdf382f`）：`build/k60-battery/libK60PhysicalBattery.a`
+  **136,600 字节**，sha256 `9f1197155d65298d7115648eee37a483c8c78c2cf75389f09128a400e52d5f21`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
   `_k60_cpufreq_vote_allowed/check_readback/build_restore`、
   `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy`、`_k60_cpufreq_domain_busy_elapsed`、
   `_k60_cpufreq_tick_delta`、`_k60_cpufreq_sample_stop`、`_k60_cpufreq_pick_lowest` 等 cpufreq 符号；
-  undefined-symbol 检查 imports=314 defs=140 external=242 kernel=22,909 missing=0。image l 用的是
+  undefined-symbol 检查 imports=320 defs=140 external=248 kernel=22,956 missing=0（对照含 Adreno 的 image w kernel.macho；`_pong_adreno_cp_pending` 与 `_k60_boost_*` 由 Adreno archive 提供）。image l 用的是
   修复前的 130,648 字节 archive（`70856d4d`）；image m 用的是 130,592 字节（`1ebfd4d0`）版本，
   均早于 mode 6；image n/o/p/q 用的是 131,008 字节（`08a95bfc`）版本，含 mode 6 但早于 mode 7；
-  image r 用的是 133,632 字节（`7584fcec`）版本，含首次降档窗口的 mode 7 写回；image s 用的是 134,064 字节（`ffaf7e43`）版本，含双向 mode 8 与 d1/d2 reseed。
+  image r 用的是 133,632 字节（`7584fcec`）版本，含首次降档窗口的 mode 7 写回；image s 用的是 134,064 字节（`ffaf7e43`）版本，含双向 mode 8 与 d1/d2 reseed；image w 用的是 136,600 字节（`9f119715`）版本，含帧下限接线。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -427,6 +438,18 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   `:809` `mode8 restore domains=2 votes=11`；恢复后 `sample win=1280` 的 d0 `hw` 从 1.8048 GHz 回到 1.5552 GHz。
   判读：d0 的双向写回与恢复都在真机成立；d1 的行写入回读成功但 EPSS 不接受持续投票，大核簇仍自主变频。
   探针没有触摸/帧输入、没有温度/throttle 读数，300 s autoreset 先到，没有 `sample stop`，mode 2/3 未执行。
+- 镜像 w 与帧下限调用路径（2026-11-19 05:07–05:13，`E:/k60-work/evidence/power-conformance-frame-20261119-0510`）：
+  image w 的 `boot.img` 201,887,744 B，sha256 `005b3095600174911d29d4769ce31385fb296447505c07b707d39d719605f94c`；
+  kernel.macho `ca262497406d0b6986ac75c838a95da0f63d4fc5a068a9086775a9f9d3a3a23c`，payload
+  `4afb4bd7904a1acdd14e6e396225d9b9ef0727e68d0d662a3f952696a5d83af0`；参数 gate `OK (30 arguments, 603 bytes)`。
+  `boot.json` bootAccepted=true、bootExitCode=0；capture.json `captured-budget-complete`、complete=true，
+  console.log 166,296 B，sha256 `de6160f6ea473bba180b9a7f83a5d62a7e61a40d69c291ffb6789022bc0020ae`，
+  panicMarker=null，276 条 `sample win=`。`:205` `sample start every=16ms log-every=64 domains=3 apply=8`；
+  `:779` `mode8 armed win=625 d0 level=13`；`:780` `apply d0 level=13 (1804800kHz) readback=ok state=81->94`；
+  `:781`/`:782` d1 两次写回 `level=6/0 … state=130->130`；`:800` `mode8 restore domains=2 votes=3`。
+  每一条 sample 行都以 `fr=0` 结尾，日志里没有任何 `frame floor active`。
+  判读：新的 CP 环采样与 `framing` 调用路径在真机上执行且没有 panic，mode 8 行为与 image s 一致；
+  但启动全程没有 GPU 提交，帧下限没有触发，§5 :116 的 300 ms / 60 % 效果仍待有 GPU 负载的镜像验证。
 
 ## 7. 未实现 / 边界
 
@@ -442,7 +465,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
-  mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；仍没有触摸/帧信号输入、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
+  mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；仍没有触摸输入、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
   先到，没有 `sample stop`，也没有负载/温度/throttle 读数。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。
@@ -463,7 +486,8 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    `k60-adsp-handoff/board.toml` 的 `applog=1` 已恢复。
    image l（sha256 `86d1933f…`，commit `65c390fd`）于 23:19 以 `k60_cpufreq=5` 上机，
   采集模式为只读采样；证据、分布与边界见 §6 的 image l 条目。image s（sha256 `47c21976…`）于
-  2026-11-19 03:58 以 `k60_cpufreq=8` 上机，双向写回与恢复见 §6 的 image s 条目。
+  2026-11-19 03:58 以 `k60_cpufreq=8` 上机，双向写回与恢复见 §6 的 image s 条目；image w
+   （sha256 `005b3095…`）于 05:07 以同一模式上机，帧下限接线与 276 条 `fr=0` 样本见 §6 的 image w 条目。
 2. d1/d2 的“辅核启动后补读”已经完成：image j 的 `late read` 在 `ArmCpu` CPU 1–7 全部
    PSCI start PASS、电池首帧发布之后执行，d1 `enable=1 state=33 (633600kHz) vote=16`、
    d2 `enable=1 state=41 (787200kHz) vote=19`。不需要再移动调用点，也不要在早期快照上
@@ -476,7 +500,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=… readback=… restored=…`、
      `mode3 vote L3 …`；mode 6 同一行末尾多 `state=<写前>-><写后>-><恢复后>`。
    - mode 5 的行形如 `K60CpuFreq: sample win=… d0=<busy>/<governor>kHz/hw<state>kHz d1=… d2=…`，
-     开头是 `K60CpuFreq: sample start every=16ms log-every=64 domains=3 apply=<mode>`；正常退出才会有 `sample stop`。
+     开头是 `K60CpuFreq: sample start every=16ms log-every=64 domains=3 apply=<mode>`；正常退出才会有 `sample stop`；自 image w 起 sample 行末尾多 `fr=<0|1>`（帧下限状态）。
    - mode 7/8 另打 `mode<7|8> reseed d<domain> state=… level=…`、`mode<7|8> armed win=… d<domain> level=…`、
      `mode<7|8> apply d<domain> level=… (…kHz) busy=… writes=… readback=ok|mismatch state=<写前>-><写后>`、
      `mode<7|8> restore domains=… votes=…`；mode 7 还会打 `raise refused`。

@@ -51,9 +51,9 @@
 | 条目（行号） | 状态 | 证据/缺口 |
 | --- | --- | --- |
 | CPU：16 ms 读空闲、1.25 倍余量、4 窗口降频（:113） | 部分（d0 双向写回已上机；d1/d2 不受控） | `K60CpuFreqPlan` 纯算术 + governor 核心（host 151 项，含 mode 5 的 idle 换算、quiet 收敛与 mode 6 的 lowest 选择）；写前 enable/档位守卫、写后回读、恢复原值已离线（commit `42ca4421`）；image i 2026-11-18 17:30 早读 d0 enable=1 state=1.5552 GHz vote=11 rows=14 top=1.8048 GHz，d1/d2 因辅核未启动读到 0；image j 17:55 在电池 begin 后 5 s 延后读取，d1 enable=1 state=0.6336 GHz vote=16、d2 enable=1 state=0.7872 GHz vote=19，d0/L3 不变（L3 vote=13 rows=15 top=1.7088 GHz）；image k 18:22 转储 66 条有效 LUT 档位（d0/d1/d2/L3 = 14/17/20/15，top 1.8048/2.496/2.9952/1.7088 GHz），所列 raw 行 cores=4/turbo=0，18:16 字段不是域核数；mode 5 于 2026-11-18 23:19 以 image l 上机：274 条 `sample win=`，d0 busy 0..1000、governor 300 MHz..1.8048 GHz、hw 691.2/1555.2 MHz，d1/d2 按 shared-cluster 下限停在半档附近（image l 暴露 quiet 被降档清零的 bug，已由 `d1d3c3e3` 修复；image m 23:53 复测：busy=0 时 d1/d2 governor 已到 633.6/787.2 MHz 最低档，d0 在 300 MHz/1.8048 GHz 跟随负载，88 条样本）；mode 5 只读、不写寄存器，没有 `sample stop`（300 s autoreset 先到）；mode 6 于 2026-11-19 02:47 以 image n 首次真机写入：d0 `state=81->15->81`、`readback=ok restored=1`（1.5552 GHz → 300 MHz → 恢复）；mode 7（首个降档窗口后 10 s 只降档写回、升档拒绝、结束恢复，commit `545315da`/`9242990d`）已于 2026-11-19 03:26 以 image r 上机：`armed win=854 d0 level=9`、`apply d0 level=9 (1324800kHz) readback=ok state=81->69`、`restore domains=1 votes=1`，首次把 governor 降档决策写进 EPSS 并恢复；mode 8（双向写回，commit `ea8e4e20`）于 03:58 以 image s 上机：`mode8 reseed d1 state=33`/`d2 state=41`、`armed win=625 d0 level=13`，d0 升到 1.8048 GHz（`state=81->94`）再降到 1.1328/1.5552 GHz（`state=94->59`/`81`），11 票后 `restore domains=2 votes=11`，恢复后硬件回到 1.5552 GHz；d1 写回 `state=130->130` 且 hw 仍 2.496 GHz，说明 EPSS 不接受大核簇持续投票；mode 2/3 瞬态写仍未执行 |
-| GPU：GMU XO 忙碌计数、50 % 目标、HFI 投票带带宽（:114） | 部分（投票已被接受，仍无负载） | `K60GpuFreqPlan`（host 123 项，含抽出的 DCVS 窗口规则）+ `PongAdrenoGmu` 忙碌计数器/投票 + `PongAdrenoDcvs` 16 ms 线程，opt-in `pong_gpu_dcvs=1`，已构建进 image o/p；CP 环提交窗口（`pong_adreno_cp_pending`）已喂入 boost 规划，60 % 下限只记录未投票；image o 02:14 上机 24 条窗口、计数器恒 0；image q 02:36 用 =2 探针验证升档/还原两次 HFI 投票均被接受，仍无负载驱动读数 |
-| 触摸后 CPU P 域与 GPU 最高档保持 1 s（:115） | 部分（离线） | `K60BoostPlan` 触摸 1000 ms 规则与四窗口提交判定（host 40 项），CP 环已作为提交输入接入 DCVS；仍无触摸输入源，60 % CPU 下限没有投票消费者 |
-| 帧：4 窗口中 2 个有提交时 CPU 各域 300 ms 内不低于 60 %（:116） | 部分（离线） | `K60BoostPlan` 4 窗口/2 帧/300 ms/60 % 规则（host 40 项）；提交路径尚未采样 |
+| GPU：GMU XO 忙碌计数、50 % 目标、HFI 投票带带宽（:114） | 部分（投票已被接受，仍无负载） | `K60GpuFreqPlan`（host 123 项，含抽出的 DCVS 窗口规则）+ `PongAdrenoGmu` 忙碌计数器/投票 + `PongAdrenoDcvs` 16 ms 线程，opt-in `pong_gpu_dcvs=1`，已构建进 image o/p；CP 环提交窗口（`pong_adreno_cp_pending`）已喂入 boost 规划，60 % 下限已由 CPU governor 消费（见下行）；image o 02:14 上机 24 条窗口、计数器恒 0；image q 02:36 用 =2 探针验证升档/还原两次 HFI 投票均被接受，仍无负载驱动读数 |
+| 触摸后 CPU P 域与 GPU 最高档保持 1 s（:115） | 部分（离线） | `K60BoostPlan` 触摸 1000 ms 规则与四窗口提交判定（host 40 项），CP 环已作为提交输入接入 DCVS；仍无触摸输入源，触摸后的 1 s 保持尚未接线 |
+| 帧：4 窗口中 2 个有提交时 CPU 各域 300 ms 内不低于 60 %（:116） | 部分（已接线，未触发） | `K60BoostPlan` 4 窗口/2 帧/300 ms/60 % 规则（host 40 项）；CPU 采样线程每 16 ms 读 `pong_adreno_cp_pending()` 喂 boost，再把 `k60_boost_frame_active()` 作为 `framing` 传给 governor，mode 8 的升档窗口会把它写成 perf-state 投票（commit `cbdf382f`，archive `9f119715`）；image w 05:07 上机 276 条样本全部 `fr=0`——启动全程 CP 环没有提交窗口，下限一次也没激活；真实 GPU 负载下的 300 ms/60 % 效果仍未验证 |
 | fence 等待睡眠到中断、最长 1 ms（:117） | 部分（离线） | `K60BoostPlan` 1 ms 预算函数（host 40 项）；提交路径未改 |
 | 外设投票所有权/引用计数、先停 DMA/中断再释放（:109） | 部分（离线） | `K60PowerVotePlan` 纯记账（host 58 项）；无消费者、不写 RSC/TCS |
 | OS 电源回调、休眠保存/恢复（:110） | 未实现 | 见 §5 平台睡眠 |
@@ -90,6 +90,10 @@
    console 165,881 B，sha256 `d98bdc30…`，277 条 `sample win=`）：d0 双向写回共 11 票后
    `mode8 restore domains=2 votes=11`，升档 `state=81->94`（1.8048 GHz）、降档 `state=94->59`（1.1328 GHz），
    恢复后硬件回到 1.5552 GHz；d1 的写回 `state=130->130`、采样 hw 仍 2.496 GHz，大核簇没有被接管。
+   image w 于 05:07 以同一模式上机（boot.img sha256 `005b3095…`，kernel `ca262497…`，参数 gate
+   `OK (30 arguments, 603 bytes)`，console 166,296 B sha256 `de6160f6…`，276 条 `sample win=`）：
+   新增的 CP 环采样与 `framing` 调用路径执行正常，但每条样本都是 `fr=0`——启动全程没有 GPU
+   提交，帧下限未激活；mode 8 仍完成 d0 双向写回与 `restore domains=2 votes=3`。
    GPU DCVS（GMU 忙碌计数器 + HFI 投票 + 16 ms 线程，窗口规则已抽进 host 123 项的模块）已实现；image o 02:14 验证线程与计数器读取，image q 02:36 验证 HFI 投票被接受，但还没有负载驱动的升档
    （`E:/k60-work/artifacts/power-conformance-20261119o/boot.img`，201,887,744 B，sha256
    `b8e44043…`，kernel `d2b246bc…`；参数 gate OK，30 项 605 字节；`pong_gpu_dcvs=1` 默认关闭），o/q 均已上机，只缺负载驱动的升档闭环。
@@ -105,8 +109,8 @@
 补齐；EPSS 写入守卫、回读与恢复、mode 5 的 16 ms 只读采样、mode 6 的只降 d0 写入路径均已离线
 补齐（host 151 项），mode 5 已于 23:19（274 条）与 23:53（image m，88 条）两次上机，mode 6 已于 02:47（image n）完成首次真机写入；
 image m 复测确认 quiet 修复后 d1/d2 已稳定到 633.6/787.2 MHz 最低档，d0 可降到 300 MHz，探针不写 EPSS；
-GPU DCVS 也已接上 GMU XO 忙碌计数器、HFI id 30 投票与 16 ms 线程（host 123 项）；image o 02:14 上机后线程稳定、计数器恒 0，image q 02:36 的两次探针投票均返回成功，CP 环提交窗口已作为 boost 输入，但 60 % 下限只记录
-（`pong_gpu_dcvs=1`）。image n 的 mode 6 结果：d0 `state=81->15->81`、`readback=ok restored=1`，
+GPU DCVS 也已接上 GMU XO 忙碌计数器、HFI id 30 投票与 16 ms 线程（host 123 项）；image o 02:14 上机后线程稳定、计数器恒 0，image q 02:36 的两次探针投票均返回成功，CP 环提交窗口已作为 boost 输入，60 % 下限也已接进 CPU governor
+（`cbdf382f`，mode 8 升档窗口写回）；image w 05:07 采集 276 条样本全部 `fr=0`，启动全程没有 GPU 提交，下限未激活（`pong_gpu_dcvs=1`）。image n 的 mode 6 结果：d0 `state=81->15->81`、`readback=ok restored=1`，
 **写入与恢复都已在真机成立**，但仍只限 d0 单域、只降不升。governor 写回已由 mode 7 实现并于 03:26 以 image r 上机
 （只降、首个降档窗口后 10 s、最多 16 票、结束恢复原值、升档拒绝）：`armed win=854` 后 d0
 `state=81->69`、`readback=ok`，10 s 后 `restore domains=1 votes=1`，硬件回到 1.5552 GHz；升档仍须先接电压/互连/温控顺序，

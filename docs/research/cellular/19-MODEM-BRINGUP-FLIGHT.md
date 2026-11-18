@@ -476,6 +476,46 @@ kernel.macho 里恰好命中一次 `glink poll rc=%d at %u rx avail`；`llvm-nm`
 | 判据 | S3 必须保持；S4 仍要求 `dms revision`。新增的 `rx avail=… cmd=… p1=… p2=…` 行只用于定位分支，不改变 S4 的通过条件 |
 | 状态 | 已打包、未上机；k29 的 S3 PASS 与这一行诊断一起构成下一次单变量飞行 |
 
+**实机结果（2026-11-19 07:26，k30 B）**：S3 仍然 PASS（`scm cmd=0x5 ok calls=179`、`auth_reset ok`、
+`transport prepared`、`mem_setup ok`），S4 仍然 FAIL，失败行是
+
+```
+K60MODEM qrtr: glink poll rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0 p1=0 p2=0
+```
+
+`cmd=0 p1=0 p2=0` 不是“VERSION 命令坏了”，而是快照取错了环的一端：`head` 是 modem 的写指针
+（下一个空位），解析器与 `rx_peek()` 读的是 `*rx->tail`（最旧未读消息，
+`drivers/PongPower/QcomGlink.c:47-55`，`rx_advance` 在 `:57-63` 推进 tail）。
+`avail=576` 正好等于 `head-tail=648-72`，所以坏消息在 `tail=72`。k30 证明 S3、固件与 SMP2P
+仍然成立，但没有证明 GLINK 命令内容；把取样端改到 tail 的修复是 `d257e2bb`（§3.17）。
+
+### 3.17 k31：RX 快照改读 FIFO tail（离线，未上机）
+
+k30 的失败行读的是 `rx->head`（modem 写指针），而 `k60m_glink_receive_one()` 与 `rx_peek()` 都从
+`*rx->tail` 开始、`rx_advance()` 只推进 tail，所以那 8 个字节永远是环上空位。`d257e2bb` 把快照改成
+
+```
+m[b] = rx->data[(tail + b) % rx->length];
+```
+
+并在注释里记下 k30 的 `cmd=0 p1=0 p2=0` 教训；打印格式不变
+（`K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u cmd=%#x p1=%#x p2=%#x`），
+所以 `check-modem-flight-log.py` 与既有判据不需要改。0622 重新生成为 95,552 B / 5 files；
+`test-k60-modem-image.py` TESTS OK 30 segments、`test-k60-ipa-patch.py` PASS、
+`run-host-tests.sh` rc0（含 FLIGHT LOG）。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `d257e2bb`（"fix(cellular): read the GLINK snapshot from the fifo tail"） |
+| kernel | `E:/k60-work/artifacts/modem-20261117k31/kernel.macho`，105,582,592 B，sha256 `b58ca6927757598f188f7f7ac5e95104c1427bf4bd336336c1ae19c0c0dd1b34` |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k31/boot-modem-b-full.img`，201,895,936 B，sha256 `e9b43266dc804ed9d11f09efaf3e2b86ac59671111acea71e45e3f2019b02cd1` |
+| payload | `2deb9135f48e3a622b1ae758464671ab80c067e8f53c6c5277bf17c6a745fff4`（json `d8d263806580d4a37ef35ba8678301a85f1cdd5e54ac3ee2bf75a7a32b410fb2`）；payload kernel `d1a8fb91ca0d15d72dd4538be01db87d6364d22b3e1484ea732b93185817fdfd` |
+| args | 末尾 `pong_modem=2 pong_ipa=0`；FD `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386`；carrier 27 streams / 109,060,761 B |
+| 验证 | `scripts/verify-boot-image.py` rc0 OK；`test-bootimg-layout.py` OK（560384 / 201326592 / 3145840 / 4024） |
+| 判据 | S3 必须保持 PASS；S4 仍要求 `dms revision`。新的 rx 行必须显示 `tail` 处真实的最旧消息：`cmd` 是 0～15 的命令号且 `p1/p2` 不再是全 0（若仍是全 0，说明取样或打印仍有错） |
+| 状态 | 已打包、未上机；与 k30 只差快照取样端 |
+
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -514,6 +554,8 @@ kernel.macho 里恰好命中一次 `glink poll rc=%d at %u rx avail`；`llvm-nm`
   实机结果见 §3.15：`glink desc` 出现，但随后 `channel up` → `channel down` → `glink poll rc=-5 at 2`，
   没有 dms revision，按 S4 判失败（F8）。
   k30 起，失败行会带 `rx avail=… head=… tail=… cmd=… p1=… p2=…`（§3.16），用于区分 VERSION/OPEN/INTENT/DATA 分支。
+  k30 B（07:26）实测 S3 PASS、S4 FAIL，但该行取样在 `head`，`cmd/p1/p2` 全 0，不能用于分支判断；
+  k31 起改从 `tail` 取样（§3.17），该行的 `cmd/p1/p2` 才代表环头最旧消息。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
   `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。
 - **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published` 的 N 大于 0；bridge disabled 或 N=0 都算失败。
@@ -551,8 +593,10 @@ kernel.macho 里恰好命中一次 `glink poll rc=%d at %u rx avail`；`llvm-nm`
    C/P1 已用 k22 内核证明，B 不得在同一个镜像里再顺手改第二件事。
    **k29 B 已飞（2026-11-19 06:23）**：S3 PASS（`auth_reset ok`，`calls=182`），S4 FAIL
    （`channel up` → `channel down` → `glink poll rc=-5 at 2`，无 dms revision，§3.15）。
-   下一飞用 k30 的 `E:/k60-work/artifacts/modem-20261117k30/boot-modem-b-full.img`（`d1755035…`，§3.16）：
-   与 k29 只差 GLINK 错误行里的 RX 快照，S3 必须保持，S4 仍按 dms revision 判。
+   **k30 B 已飞（2026-11-19 07:26）**：S3 PASS（`calls=179`、`auth_reset ok`），S4 FAIL，失败行
+   `glink poll rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0 p1=0 p2=0`；快照读的是 `head`，因此全 0（§3.16）。
+   下一飞用 k31 的 `E:/k60-work/artifacts/modem-20261117k31/boot-modem-b-full.img`（`e9b43266…`，§3.17）：
+   与 k30 只差快照取样端（tail），S3 必须保持，S4 仍按 dms revision 判，新的 rx 行必须显示真实命令号。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

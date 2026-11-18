@@ -593,3 +593,50 @@ mission13 is the second full pass and the strongest one: a fresh boot,
 a new lease, and large receive and send counters. Reconnect was not
 exercised: it needs `pong_wifi_test=1 pong_wifi_cycle=1` and a userland
 `PONG_WIFI_TEST_RECONNECT` ioctl, none of which this image carried.
+
+## 15. Mission14: the reconnect is proven, the probe never starts
+
+Mission14 carried the bounded probe from `a4b0fa9d` and the fresh-lease
+reconnect proof from `8c2b34da`. Image
+`E:/k60-work/artifacts/wifi-20261118sbl-mission14/boot.img`, 201,887,744
+bytes, SHA256
+`48024084de903efef7d85208017a4c6c6de6bd1fa83be2398a84a0b71108e066`,
+built `2026-11-18T19:17:25+08:00` at head `8c2b34da`, WiFi archive
+`626f852539e023bc27d3dee90dc9022933c92af7ec062343a43aa953ef9ec1e1`,
+602-byte arguments ending `pong_wifi=2 k60_wifi_rsc=2` with
+`k60_autoreset=900`. It flew once at 19:23:12; console is
+`E:/k60-work/evidence/usblog-20261118-192255/console.log`, 436,946 B,
+6,834 newline-terminated lines, SHA256
+`cb25549c3ed89d58c2530b81e03b6241608dbbb5350622d7b84797bb12768449`.
+
+The network came up the way mission13 did. `:1482` configd opens the
+network stack with busy state 1 and no panic; `:1785`, `:1831` and
+`:2071` are DISCOVERs; `:2077` the OFFER for 192.168.31.14 with mask
+255.255.255.0, router and DNS 192.168.31.1 and a 43,200 s lease;
+`:2249` the ACK; `:2289` `WiFi association test PASS`; `:2290`
+`en0 address 192.168.31.14, packets in 71 out 120`.
+
+The new part is the link edge. `:2299` arms the lifecycle test
+(`automatic disconnect in 120 s`); `:3902` and `:3903` run it and
+drop the station; `:3979` reconnects to the scanned network; `:4070`
+prints `WiFi lifecycle test PASS: reconnected BSSID
+c8:bf:4c:30:03:1c state=6 IPv4=1 lease=3/2`. The PASS line carries the
+lease counter because the predicate now requires
+`pong_wifi_net_has_lease()` after a reconnect: a stale IPv4 address
+alone can no longer pass, and the judge checks that the fresh ACK
+precedes the PASS. That check passed.
+
+The probe still did not run, and this time the console says why.
+`:529` `K60PROBE bytes=34728 resid=0 error=0` and `:531` `K60PROBE:
+probe write=0 resid=0 len=34728` show the binary written, but `:530`
+`K60PROBE plist vnode_open error=30` is EROFS: the job plist could not
+be created where the kernel tried, so launchd never had a job to load
+and no `k60probe:` line exists. The fix belongs in the next image: either
+write the job into the launchd cache blob that already loads, or fork the
+probe from init before `execve("/sbin/launchd")` and let it wait for the
+address, which removes launchd from the path entirely.
+
+Judge: 36 PASS, 7 FAIL, all seven the `k60probe` checks, so the overall
+verdict is FAIL by our own prediction. Against the official page mission14
+is the third full pass on the six items and the first with a measured
+disconnect and reconnect.

@@ -135,16 +135,19 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   日志在 `readback/restored` 之后追加 `state=<写前>-><写后>-><恢复后>`（`domain_state & 0xff`），
   让真机一次运行就能看出写入是否真的移动了硬件、恢复是否把它放回去。
   2026-11-19 02:47 已由 image n 上机：`state=81->15->81`、`readback=ok restored=1`。
-- mode 7（受限期 governor 写回，2026-11-19）：复用 mode 5 的 16 ms 采样线程，但在线程启动后
-  第 10–20 秒之间把 governor 的**降档**决策真正写进 EPSS。只降不升，沿用 mode 6 的规则
+- mode 7（受限期 governor 写回，2026-11-19）：复用 mode 5 的 16 ms 采样线程，从第 10 秒
+  （625 窗口）起观察 governor，一旦某域 governor 档位低于已投档位——启动突发把三域顶在最高档，
+  image l/m 直到 window 4864/5312（约 78–85 s）才首次降到 300 MHz——就从该窗口起 10 秒内把后续
+  **降档**决策真正写进 EPSS，100 秒硬上限。只降不升，沿用 mode 6 的规则
   （降档不需要抬压）；升档请求把 `gov.current` 退回已投档位并打印一次
   `mode7 d<domain> raise refused; no voltage ordering yet`，绝不写寄存器。每次写前保存原值，
   写后逐条回读并打印 `mode7 apply d<domain> level=<row> (<kHz>) busy=<permille> writes=<n>
   readback=ok|mismatch state=<写前>-><写后>`；回读不一致时立即恢复该域并停用该域的写回。
-  最多 16 次投票，到第 20 秒或线程停止时把写过的域全部恢复原值，打印
+  最多 16 次投票，到 10 秒窗口结束、100 秒上限或线程停止时把写过的域全部恢复原值，打印
   `mode7 restore domains=<n> votes=<n>`。起始档位现在按 `DOMAIN_STATE` 的 L 字段回查原始 LUT
-  得到（mode 6 的 81→15 说明该字段不是行号），映射失败时该域只读并打印
-  `state=<v> not in table; apply disabled`。前 10 秒保持只读，因为启动突发会把三域都顶在最高档。
+  得到（mode 6 的 81→15 说明该字段是 19.2 MHz 为单位的频率码，不是行号），映射失败时该域只读并打印
+  `state=<v> not in table; apply disabled`（d1/d2 起始 state=0 且 enable=0，因此 mode 7 只写 d0）。
+  在首次降档之前保持只读，因为启动突发会把三域都顶在最高档。
   该模式尚未上机；它仍没有电压/互连/温控顺序、没有触摸/帧输入，也不处理 EPSS 硬件自主变频。
 - mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
   把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
@@ -168,8 +171,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   （含 32 位回绕、全零窗口）与按 CPU 各自窗口的最忙值。断言使用合成的 LUT 行；
   真机 image k 已把 66 条有效档位逐行读出，image l 已把采样线程跑通。
 - archive（含 mode 5 采样、写入守卫、quiet 修复、mode 6 降档写入与 mode 7 受限期写回，
-  commit `3e9917ed`/`38b84c35`/`d1d3c3e3`/`42d8e805`/`545315da`）：`build/k60-battery/libK60PhysicalBattery.a`
-  **133,360 字节**，sha256 `b20c156319667cf09c0d118a9aa9b7c20029cf5b52e01f4499ab353fdb51bbbc`；
+  commit `3e9917ed`/`38b84c35`/`d1d3c3e3`/`42d8e805`/`545315da`/`9242990d`）：`build/k60-battery/libK60PhysicalBattery.a`
+  **133,632 字节**，sha256 `7584fcec8e156e0bb5c2bee1fe387177cda95a70697dbc89b98398b0ad3048bf`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
   `_k60_cpufreq_vote_allowed/check_readback/build_restore`、

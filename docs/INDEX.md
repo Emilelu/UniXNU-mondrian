@@ -209,3 +209,4 @@ python3 scripts/render-eight-step-table.py --check
 - 2026-11-18 GPU 帧路径成本定位、采样节奏教训（P-233）与时间单位缺陷（P-234）：[STATUS 摘要](engineering/STATUS.md) · [飞行卡 j](research/gpu/FLIGHT-CARD-20261118j.md) · [飞行卡 k](research/gpu/FLIGHT-CARD-20261118k.md) · [飞行卡 l](research/gpu/FLIGHT-CARD-20261118l.md)
 - 2026-11-18 GPU 搬运形状对照：逐行比线性纹理慢 14.6 ms、`submit` 与形状无关（P-235）：[飞行卡 m](research/gpu/FLIGHT-CARD-20261118m.md)
 - 2026-11-18 GPU 提交期维护归因（探针窗口的更正、双峰分布、P-237）：[飞行卡 n](research/gpu/FLIGHT-CARD-20261118n.md) · 正在飞的只读归因：[飞行卡 o](research/gpu/FLIGHT-CARD-20261118o.md)
+- 2026-11-19 合并后第一次把 120 Hz 面板、12-bit 背光、电池与 wifi 与 GPU 放进同一张镜像：[飞行卡 a](research/gpu/FLIGHT-CARD-20261119a.md) · [STATUS](engineering/STATUS.md)

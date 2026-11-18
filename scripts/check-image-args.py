@@ -52,6 +52,7 @@ ALLOWED_ADDITIONS = {
     "pong_thermal_bias",
     "pong_handoff_publish",
     "k60_cpufreq",
+    "pong_gpu_dcvs",
     "gprobe",
 }
 

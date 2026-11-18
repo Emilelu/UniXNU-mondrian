@@ -324,3 +324,74 @@ The 60 s deadline did not elapse before the kernel data abort at `:1367`
 (pc=0xfffffff0084218c4 lr=0xfffffff008425b84 esr=0x96000005 far=0x0), so the next
 candidate needs repeated or directed scans and an access point that is actually
 visible. Mission7 must not be re-flown; its one-shot marker exists.
+
+## 9. Mission8: the first WPA2 association, and the stack-open panic
+
+Mission8 keeps mission7's probe and directed rescan but points the fixture at the
+access point that is actually visible: Emilelu_5G (SSID 10 bytes, PSK 11 bytes).
+The plaintext exists only in `E:/k60-work/scratch/wifi-test-emilelu5g.json`; the
+generated header carries byte counts only and no credential enters the repository,
+the console or the boot arguments.
+
+| field | value |
+|---|---|
+| tag | `wifi-20261118sbl-mission8` |
+| built_at | 2026-11-18T12:02:44+08:00 |
+| branch / head | `fix/wifi-mission-timeout` / `2cd63b69c26bcae2a3e25e228f22e901a6c9901d` (dirty 0) |
+| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission8/boot.img`, 201,887,744 B, SHA256 `1414ca38461cc763ba6b05f31bf46ecbb0cc3f296ec0687c7e3630d89bdd1ba5` |
+| kernel | `47202ba7ef4d6242cdbd11dd510243b79f8f4e72c2ebc626c6a3889cd6e638fe` |
+| payload kernel | `30d27427a1990e5c07c9cb535f69c478e27bc529994e8e3fa8790555fdd986cb` |
+| ADT | `3ed7ea4997de1d52ad1ecc8bc2fb66513241d2774d4786c11b8b42331d6df45f` |
+| WiFi archive | `0ba97fb0b2f501116ec1d4b819be0e28222ad79d94c17702e807c0beea20788e` |
+| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission8/build-manifest.json` |
+| args | 31 / 602 bytes, ending `pong_wifi=2 k60_wifi_rsc=2` |
+
+The image was flown once on 2026-11-18 12:07:49. The console
+`E:/k60-work/evidence/usblog-20261118-120749/console.log` (87,208 B, 1,459 lines,
+SHA256 `A98BAE37F9136965255847592B27B4F4E20B46BDD6FC2EFE6A2939BABBF83B8D`)
+keeps the proven MHI/QMI/102-channel/en0/scan chain and then completes a WPA2
+join: `:728 PongWifi: association test RUNNING: scanned target, request=0`;
+`:730 wifi: scan 1 finished (aborted), 4 networks`; `:737 wifi: connecting to
+c8:bf:4c:30:03:1c on 5240 MHz, signal -52 dBm`; `:759 wifi: associated, waiting
+for the key handshake`; `:761`/`:763` handshake messages 2 and 4;
+`:765 wifi: keys installed after message 4 completed`; `:766 wifi: connected`;
+`:767 wifi-net: join finished: module result 0`; `:768 wifi-net: association
+notifications delivered result 0`. `:890 PongWifi: runtime state=6` is
+`NW_STA_UP`, but `:891 wifi-net: en0 address none, packets in 1 out 0`.
+
+The 18-check mission8 judge passes 11 checks: SpringBoard, BHI_STATUS SBL push,
+AMSS begin, BHIe ret=0, cached ee, chip_id, fw_version, hardware registered,
+scan starts, association request, en0 up. It fails association PASS, en0
+address, DHCP in/out and RX/TX because PASS requires a real IPv4 address, and
+its scan-finished regex does not accept `(aborted)`. Authentication,
+association, the four-way handshake and key installation are device-proven;
+address configuration is not.
+
+### The network-stack open panic
+
+At `:1215` configd starts (`KE 38 36 xpcproxy /usr/libexec/configd`). At
+`:1416 K60ATTACH filled expansion this=0xfffffff37c070b40
+cls=IONetworkStackUserClient`, then `:1424 K60KEXC msg=Kernel data abort.
+pc=0xfffffff0084218c4 lr=0xfffffff008425b84 esr=0x96000005 far=0x0` and
+`:1451 K60PANIC: ring kept; restart reason -> bootloader`. The saved registers
+have `x0=0`, `x19=0xfffffff37c070b40` (the client) and
+`x20=0xfffffff37bdf55c0` (the IONetworkStack service). The pc is
+`IORegistryEntry::makeLink` +0x34; the lr is
+`IORegistryEntry::attachToParent` +0xa8, called from
+`IONetworkStack::newUserClient` +0x84.
+
+`makeLink` reads `[this+0x18]` (the registry table) and dereferences it, but
+the client never ran `IORegistryEntry::init()`. Mission8's
+`IOUserClient::initWithTask(task, security, type)` three-argument overload
+begins with `if (getPropertyTable() || super::init()) return reserve();`. On a
+fresh object `getPropertyTable()` reports the global fallback table, so the
+condition is true and `super::init()` is skipped; `reserve()` allocates only
+IOUserClient's expansion record. `attach()` then walks a null registry table and
+panics before configd can send a DHCP request. The four-argument overload
+`initWithTask(task, security, type, properties)` first calls
+`super::init(properties)` and only then the three-argument overload, which is the
+sequence `IOService::newUserClient` uses. Mission9 changes
+`PongWifiNet.cpp` to pass its `properties` argument and pins that shape in
+`scripts/tests/test-wifi-sbl-mission.py`.
+
+Mission8 must not be re-flown; its one-shot marker exists.

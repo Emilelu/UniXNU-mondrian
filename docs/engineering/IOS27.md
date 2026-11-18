@@ -104,6 +104,13 @@ the five `Resources/MuPatches/` fixes `board.toml` lists; it is not
 reproducible by design (`FIRMWARE-REBUILD.md` §2), so a rebuilt volume is judged
 on the device, not by its hash.
 
+The last step is `scripts/check-ios27-artifacts.py`, which reads the three
+artifacts back: the Mach-O header (arm64e `MH_EXECUTE`, `NOUNDEFS`, iOS 27),
+that `payload.img` still carries that exact kernel, that the ADT still pins
+`/chosen/random-seed` and the T8140 identity, and that `boot.img` holds the
+shim, the firmware volume, the appended device tree and the payload byte for
+byte. It prints the boot image's size and sha256.
+
 That path needs no Mac and no phone. XNU's makefiles still ask for macOS
 tools, so install the three shims once:
 

@@ -67,6 +67,16 @@ better starting point than cupid:
 | F3 | `PongUfs` on the 27 storage ABI + `./unixnu userdata --os 27` | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
 
+## The framework patch is not needed on this branch
+
+`scripts/apply-core-patches.sh` refuses on a current UniXNU checkout, and that
+is correct. `patches/unixnu-core/k60-unixnu-core.patch` was written against the
+framework commit the 16.6.1 line used; on main today the boot-image `verify()`
+already understands v3/v4, and the K60 initrd FAT scan, the ramoops dump, the
+`-1` menu timeout and the volume diagnostics are in `uefi-mondrian`'s vendored
+`Platforms/Xiaomi/UniXNUPkg` (it resolves ahead of the framework's copy). Do
+not force the patch: it would be a third copy of the same fix.
+
 ## Traps
 
 - **The prelink is bound to two hashes** (kernelcache and native kernel). Every

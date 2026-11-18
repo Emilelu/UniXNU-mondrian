@@ -89,12 +89,20 @@ python3 ./unixnu defconfig mondrian_ios27_defconfig --device ../UniXNU-mondrian-
 python3 ./unixnu build kernel --device ../UniXNU-mondrian-ios27
 ```
 
-That path needs no Mac and no phone. The baseline script copies libplatform
-headers with macOS's `ditto`, which Linux lacks, so install the shim once:
+That path needs no Mac and no phone. XNU's makefiles still ask for macOS
+tools, so install the three shims once:
 
 ```sh
 sudo install -m 755 scripts/linux/ditto /usr/local/bin/ditto
+sudo mv /usr/sbin/sysctl /usr/sbin/sysctl.procps
+sudo install -m 755 scripts/linux/sysctl /usr/sbin/sysctl
+sudo install -m 755 scripts/linux/sw_vers /usr/local/bin/sw_vers
 ```
+
+`ditto` merges the libplatform headers, `/usr/sbin/sysctl` answers
+`hw.physicalcpu`, `hw.logicalcpu` and `hw.memsize` (the absolute path is in
+XNU's Makefile; the procps binary moves to `sysctl.procps` and still handles
+everything else), and `sw_vers` supplies `HOST_OS_VERSION`.
 
 The userdata image still needs macOS
 (`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1 does

@@ -4,7 +4,7 @@
 > 文件、行号、测试与真机证据上；有缺口的地方必须写成缺口，不用“已覆盖”掩盖。
 > 取材：官网正文抓取自 2026-11-17，本地快照 `E:/k60-work/scratch/power-page-20261117.txt:68-81`；
 > 代码基线 `fix/power-doc-conformance`（从 `fix/battery-sample-dirty` 263ee626 切出）。
-> 边界：本文件只描述测量值发布；充电控制仍归固件，见文末 §9。
+> 边界：本文件只描述测量值发布；充电控制仍归固件，见文末 §9。官网 §4 还附有 Sheng PD/PPS/MiPPS 充电认证与 Linux 充电读取镜像（`:82-104`），属于主机控制充电器的独立实现，本板未纳入本驱动。
 
 ## 0. 一句话结论
 
@@ -307,6 +307,10 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 
 - 本驱动只发布测量值，不写充电器、不改电流限制、不做 PD/PPS 认证；固件继续拥有充电控制
   （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
+- 官网 §4 的「sheng 的 PD、PPS 和 MiPPS」（`:82-88`）与「sheng Linux 充电读取镜像」
+  （`:89-104`）不属于本文件的测量值发布范围：本板 ADSP 固件拥有充电控制，驱动没有
+  充电器认证或主机控制路径；若后续要主机控制充电，需要单独实现 `ShengChargeAuth.c` 等价的
+  HMAC-SHA256 认证、PD/PPS/MiPPS 合约、限值和温控策略。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
   1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118e/boot.img`（sha256 `8b1df0193f5e9dcc5455612fc0ec9bb070b258b1a8591dde22c6f5176a1fbcf1`）已于 2026-11-18 03:22 构建，包含 `592523aa`/`6750c7bd`/`af759fe4`，尚未上机；上一版 image d（`9e66ef...`）不含容量修正。§7.4 是 image c 的实测（image c 构建于这些提交之前），§7.3 是改动前 route-c 对照；image e 上机后需补同格式实测。
   2. 真机插拔、放电未执行；服务重启的代码路径已补（`6750c7bd`），IOKit 级 stop/start 未上真机。

@@ -222,13 +222,17 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | 验证项 | 状态 | 证据 / 缺口 |
 | --- | --- | --- |
 | 协议响应 | 已验证 | Route-c 真机：`console.log:189` adopting、`:401` channel up、`:534` 首帧、`:761` 第二帧；image c：`:429` channel up、`:530` 首帧；image e：`:407` channel up、`:515` 首帧，第三次 image e：`:401` channel up、`:465` 首帧；host 测试 87 项覆盖应答/拒绝/超时 |
+| 有效 / 缺失 / 失败三态 | 已验证 | `K60BatteryValidFields` 与 `K60BatteryFailedFields` 分别给出本轮有效和失败字段，缺失 pack 走 `K60Battery.cpp:163-191` 的独立分支并保留 `K60Raw*`；host 第 11–13 节覆盖原始值、缺失样本和超时位图 |
 | OS 可见更新 | 已验证 | Route-c `:534` `physical source published`、`:761` `physical source updated`；image c `:530` 发布后 `:753`–`:3470` 连续 14 条刷新/更新，`:3464` SOC 由 91.00% 变为 90.00%；image e `:515`–`:3682` 连续 12 条完整样本；第三次 image e `:465`–`:3577` 连续 12 条完整样本；字段值与原始值换算一致（见 §7.3、§7.4、§7.6、§7.8） |
+| 状态一致性与适配器 | 已验证 | 同一样本在 `K60Battery.cpp:225-231` 设置 installed/external/charging/full/warn/critical；`K60Battmgr.c:244` 拒绝 status=1 无外接、`:263` 拒绝 status=2 正电流；适配器 family/电压/电流/瓦数由 `K60Battery.cpp:291-326` 生成，失败字段保持缺失，不发布 0 瓦 |
 | 响应超时 | host 已验证 | `test-k60-charger-subscription.c` 第 13 节：timeout 只标记未完成字段，poisoned epoch 生效；真机未制造超时 |
 | 缺失电池首帧 | 代码已实现 / host 部分 | `K60Battery.cpp:163-191`：首帧 `present=0` 也发布 `K60BatteryFailedFields`/`K60Raw*` 并调用 `registerSource()`；第 12 节覆盖缺失样本的 raw USB 电压与 failed 位，最终 image e/f 已包含该修复，IOKit 级 absent 注册未上真机 |
 | 插拔电源 | host 状态机已验证 / 真机未验证 | 第 15 节构造 USB 在线 1→0 与 status 1→2，断言 `external`/`charging`/`usb_connected` 翻转；真机脚本化插拔仍需要人工在同一次 usblog 里观察 |
 | 充放电 | host 状态机已验证 / 真机未验证 | 第 15 节覆盖 status 1 充电、status 2 放电、status 4 full、status 1 无外接拒绝、status 2 正电流拒绝；Android 侧实际充电/放电段未采样 |
 | 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:429-437` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image e/f），IOKit 级 stop/start 未在真机执行 |
+| 订阅 / 周期刷新 / 断链 stale | 已验证（断链真机未制造） | 订阅请求与 in-flight `K60Battmgr.c:81-85`/`:95`、通知 `:163-172`、应答校验与 `subscribed` 置位 `:174-182`；5 s 刷新 `K60Battery.cpp:420-426`；`transport.poll()<0` 取消定时器并 `stale()` `:382-397`，通道 down `:354-358`；`stale()` 保留最后值并置 `K60BatteryStale=true` `:152-159` |
 | 与 OEM/目标电量计逐项对照 | 部分（仅低电流 3 对 PASS） | image f 11:13 的同会话 3 行低电流基线 PASS（`judge-android.txt`：|ΔV|=46mV/±60mV、|ΔSOC|=1.00pp/±3pp、|ΔT|=1.00C/±3C；Android 侧 <100mA，电流未比较）；11:47 的 13 对匹配电流窗口归一化后 |ΔI|=29mA/±150mA，但 |ΔV|=119mV/±60mV，C3 FAIL；image e 两个匹配窗口在 11:56 符号修正后均 FAIL，旧 PASS 作废（§7.10） |
+| 固件充电所有权 | 边界已确认 | 驱动只发布测量值，不写充电器、不改限流、不做 PD/PPS 认证（§9 与官网 :81）；主机控制充电需要单独的 `ShengChargeAuth.c` 等价工作流 |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
 

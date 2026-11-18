@@ -212,6 +212,14 @@ int main(void)
             check("gov_release_hold", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 0);
         check("gov_release_lands", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 1);
         check("gov_release_level", gov.current[1], 1);
+        /* A quiet shared cluster must walk down to the bottom and stay there:
+         * the down-steps that release the half-top floor must not re-arm it. */
+        k60_cpufreq_governor_reset(&gov, 0);
+        for (i = 0; i < 24; ++i)
+            (void)k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0);
+        check("gov_quiet_settles", gov.current[1], 0);
+        check("gov_quiet_stays", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 0);
+        check("gov_quiet_level", gov.current[1], 0);
         check("gov_bad_domain", k60_cpufreq_governor_window(&gov, &clock, 3, 0, 0, 0), -1);
         check("gov_null", k60_cpufreq_governor_window(NULL, &clock, 0, 0, 0, 0), -1);
     }

@@ -1,7 +1,5 @@
-# Device patches for xnu-12377.121.6 on mondrian, one per line in order.
-#
-# Empty at stage 0. The arch layer carries arm64e/PAC and the 4 KiB tables,
-# the OS layer carries the Darwin 26 calls and the prelink, and the SM8475
-# layer carries the platform switches. A patch belongs here only when it is
-# about this board: the panel, the touch, PongUfs' mondrian wiring or a
-# board-specific workaround.
+# Apple clang 26 accepts a fourth, string argument to __ptrauth; upstream clang,
+# including the one scripts/linux/setup-toolchain.py builds, stops at "must take
+# between 1 and 3 arguments". The only use is ucred.cr_label, which no userland
+# object reads, so non-Apple compilers keep the type discriminator.
+ptrauth-string-discriminator.patch

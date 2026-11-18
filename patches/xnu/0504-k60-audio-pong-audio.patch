@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/pong_audio.c
-@@ -0,0 +1,970 @@
+@@ -0,0 +1,991 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * K60 audio core skeleton: ADSP/PAS1 + AudioReach GPR plumbing.
@@ -245,7 +245,7 @@
 +#define AR_MOD_WR_SHMEM             0x07001000u
 +#define AR_MOD_PCM_CNV              0x07001003u
 +#define AR_MOD_PCM_DEC              0x07001005u
-+#define AR_MOD_I2S_SINK             0x0700100Au
++#define AR_MOD_TDM_SINK             0x0700100Eu
 +
 +/* TODO(k60): these instance IDs are copied from Pong's topology. They MUST
 + * be replaced by K60 ADSP graph enumeration before any graph is started
@@ -255,7 +255,7 @@
 +#define AR_IID_PLAY_SHMEM           0x6001u
 +#define AR_IID_PLAY_DEC             0x6002u
 +#define AR_IID_PLAY_CNV             0x6003u
-+#define AR_IID_SPEAKER_I2S          0x6051u
++#define AR_IID_SPEAKER              0x6051u
 +
 +#define AR_PRM_IID                  2u
 +#define AR_OP_PRM_REQUEST           0x0100100Fu
@@ -269,7 +269,8 @@
 +#define PARAM_MODULE_PROP           0x08001003u
 +#define PARAM_MODULE_CONN           0x08001004u
 +#define PARAM_SG_LIST               0x08001005u
-+#define PARAM_I2S_INTF              0x08001019u
++#define PARAM_TDM_INTF              0x0800101Bu
++#define PARAM_TDM_LANE              0x0800106Au
 +#define PARAM_HW_EP_MF              0x08001017u
 +#define PARAM_FRAME_SIZE_FACTOR     0x08001018u
 +#define PARAM_PCM_OUTPUT            0x08001008u
@@ -286,10 +287,20 @@
 +#define STACK_SIZE                  8192u
 +#define OUT_PORT                    1u
 +#define IN_PORT                     2u
-+#define LPAIF_TYPE                  0u
-+#define I2S_TERTIARY                2u
-+#define I2S_SPEAKER_SD              3u /* K60: SD0|SD1, live-fdt.dts:20063 */
-+#define WS_INTERNAL                 1u
++/* K60 TDM facts (M: live-fdt.dts:20574-20594): tert TDM RX, group 0x9020,
++ * 12.288 MHz = 48 kHz * 32 bits * 8 slots, long sync, inverted, one BCLK
++ * data delay, sync sourced internally, two active slots. */
++#define TDM_LPAIF_TYPE              0u /* LPAIF */
++#define TDM_INTF_TERTIARY           2u
++#define TDM_SYNC_SRC_INTERNAL       1u
++#define TDM_DATA_OE_ENABLE          1u
++#define TDM_SLOT_MASK               3u
++#define TDM_SLOTS_PER_FRAME         8u
++#define TDM_SLOT_WIDTH_BITS         32u
++#define TDM_SYNC_LONG               1u
++#define TDM_SYNC_INVERT             1u
++#define TDM_DATA_DELAY_ONE_BCLK     1u
++#define TDM_LANE_MASK               1u
 +#define INTERLEAVED                 1u
 +#define DEINTERLEAVED_UNPACKED      3u
 +
@@ -529,7 +540,7 @@
 +		SCENARIO_PLAYBACK };
 +	static const PongContainer c = { AR_SG_SPEAKER, POS_GLOBAL_DEV };
 +	static const PongModule m[] = {
-+		{ AR_MOD_I2S_SINK, AR_IID_SPEAKER_I2S, 1, 0 }
++		{ AR_MOD_TDM_SINK, AR_IID_SPEAKER, 1, 0 }
 +	};
 +	return pong_graph_open(out, capacity, port, token, &sg, &c, m, 1, NULL,
 +	    0);
@@ -550,7 +561,7 @@
 +	static const PongLink l[] = {
 +		{ AR_IID_PLAY_SHMEM, AR_IID_PLAY_DEC },
 +		{ AR_IID_PLAY_DEC, AR_IID_PLAY_CNV },
-+		{ AR_IID_PLAY_CNV, AR_IID_SPEAKER_I2S }
++		{ AR_IID_PLAY_CNV, AR_IID_SPEAKER }
 +	};
 +	return pong_graph_open(out, capacity, port, token, &sg, &c, m, 3, l,
 +	    3);
@@ -582,15 +593,25 @@
 +	PongWriter w;
 +	pong_begin(&w, out, capacity, port, AR_APM_IID, token, AR_OP_SET_CFG);
 +	const uint32_t cmd = pong_cmd_payload_start(&w);
-+	const uint32_t at = pong_param_begin(&w, AR_IID_SPEAKER_I2S,
-+	    PARAM_I2S_INTF);
-+	pong_put32(&w, LPAIF_TYPE);
-+	pong_put32(&w, I2S_TERTIARY);
-+	pong_put16(&w, I2S_SPEAKER_SD);
-+	pong_put16(&w, WS_INTERNAL);
++	uint32_t at = pong_param_begin(&w, AR_IID_SPEAKER, PARAM_TDM_INTF);
++	pong_put32(&w, TDM_LPAIF_TYPE);
++	pong_put32(&w, TDM_INTF_TERTIARY);
++	pong_put16(&w, TDM_SYNC_SRC_INTERNAL);
++	pong_put16(&w, TDM_DATA_OE_ENABLE);
++	pong_put32(&w, TDM_SLOT_MASK);
++	pong_put16(&w, TDM_SLOTS_PER_FRAME);
++	pong_put16(&w, TDM_SLOT_WIDTH_BITS);
++	pong_put16(&w, TDM_SYNC_LONG);
++	pong_put16(&w, TDM_SYNC_INVERT);
++	pong_put16(&w, TDM_DATA_DELAY_ONE_BCLK);
++	pong_put16(&w, 0);
 +	pong_param_end(&w, at);
-+	pong_hw_ep_mf(&w, AR_IID_SPEAKER_I2S, f);
-+	pong_frame_size_factor(&w, AR_IID_SPEAKER_I2S);
++	at = pong_param_begin(&w, AR_IID_SPEAKER, PARAM_TDM_LANE);
++	pong_put16(&w, TDM_LANE_MASK);
++	pong_put16(&w, 0);
++	pong_param_end(&w, at);
++	pong_hw_ep_mf(&w, AR_IID_SPEAKER, f);
++	pong_frame_size_factor(&w, AR_IID_SPEAKER);
 +	pong_cmd_payload_end(&w, cmd);
 +	return pong_finish(&w);
 +}

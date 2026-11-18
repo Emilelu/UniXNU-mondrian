@@ -13,7 +13,7 @@
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void thread_terminate_self(void);
-@@ -816,6 +822,34 @@
+@@ -816,6 +822,35 @@
  	uint32_t graph_state;
  	bool mapped;
  	bool service_ready;
@@ -35,6 +35,7 @@
 +	bool play_started;
 +	bool play_graph_ready;
 +	bool playback_running;
++	bool play_speaker_started;
 +	unsigned play_step;
 +	uint32_t play_token;
 +	uint32_t map_handle;
@@ -48,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,607 @@
+@@ -858,6 +892,631 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -63,6 +64,7 @@
 +}
 +
 +extern uint64_t kvtophys(vm_offset_t va);
++extern vm_offset_t ml_io_map_wcomb(vm_offset_t, vm_size_t);
 +
 +static bool
 +pong_audio_dma_lease(void)
@@ -90,7 +92,8 @@
 +			bytes = PONG_AUDIO_DMA_BYTES;
 +		}
 +		if (pa != 0) {
-+			vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
++			vm_offset_t va = ml_io_map_wcomb((vm_offset_t)pa,
++			    (vm_size_t)bytes);
 +			if (va == 0) {
 +				printf("PongAudio: low DMA map failed pa=0x%llx size=0x%llx: %s\n",
 +				    (unsigned long long)pa, (unsigned long long)bytes,
@@ -106,8 +109,9 @@
 +		}
 +	}
 +	/* The loader lease is optional: allocate the same 64 KiB below 4 GiB.
-+	 * Keep the physical allocation and map it as I/O memory; the DSP reads
-+	 * the slots directly, so a normal cached kernel mapping would go stale. */
++	 * Map it write-combined: the DSP reads the slots directly, so a cached
++	 * mapping would go stale, yet the period copy is a memcpy and an I/O
++	 * mapping is only guaranteed to take 1/2/4/8-byte accesses. */
 +	vm_offset_t alloc_va = 0;
 +	kern_return_t kr = kmem_alloc_contig(kernel_map, &alloc_va, bytes,
 +	    PAGE_MASK, (ppnum_t)(atop_64(0x100000000ULL - bytes)), 0,
@@ -116,7 +120,8 @@
 +		pa = kvtophys(alloc_va);
 +		if (pa != 0 && (pa & 0xfffu) == 0u &&
 +		    pa <= 0x100000000ULL - bytes) {
-+			vm_offset_t va = ml_io_map((vm_offset_t)pa, (vm_size_t)bytes);
++			vm_offset_t va = ml_io_map_wcomb((vm_offset_t)pa,
++			    (vm_size_t)bytes);
 +			if (va != 0) {
 +				g_pong_audio.dma_pa = pa;
 +				g_pong_audio.dma_size = (uint32_t)bytes;
@@ -139,6 +144,7 @@
 +	state->play_started = false;
 +	state->play_graph_ready = false;
 +	state->playback_running = false;
++	state->play_speaker_started = false;
 +	state->play_step = 0;
 +	state->play_token = 0;
 +	state->map_handle = 0;
@@ -303,10 +309,18 @@
 +	if (got != PONG_AUDIO_PERIOD_FRAMES) {
 +		return false;
 +	}
++	if (state->playback_frames == 0u) {
++		printf("PongAudio: PCM slot %u copy begin va=0x%llx\n", slot,
++		    (unsigned long long)state->dma_va);
++	}
 +	/* The DSP reads the period from the low-DMA slot, not from the ring. */
 +	memcpy((void *)(state->dma_va +
 +	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES), state->period,
 +	    PONG_PLAY_PERIOD_BYTES);
++	__asm__ volatile("dsb sy" ::: "memory");
++	if (state->playback_frames == 0u) {
++		printf("PongAudio: PCM slot %u copy done\n", slot);
++	}
 +	const int rc = k60_pmic_glink_send_audio(packet, bytes);
 +	if (rc != K60_PMIC_GLINK_AUDIO_OK) {
 +		state->ring_dropped += PONG_AUDIO_PERIOD_FRAMES;
@@ -340,6 +354,9 @@
 +static void
 +pong_audio_play_complete_step(PongAudioState *state)
 +{
++	if (state->play_step == (unsigned)PongPlayStartSpeaker) {
++		state->play_speaker_started = true;
++	}
 +	if (state->play_step == (unsigned)PongPlayClock) {
 +		state->play_graph_ready = true;
 +		state->last_error = PongAudioOk;
@@ -347,6 +364,11 @@
 +		return;
 +	}
 +	if (state->play_step + 1u >= (unsigned)PongPlayStepCount) {
++		if (!state->play_speaker_started) {
++			state->last_error = PongAudioErrPlayback;
++			printf("PongAudio: playback graph started without the speaker; not streaming\n");
++			return;
++		}
 +		state->playback_running = true;
 +		state->last_error = PongAudioOk;
 +		printf("PongAudio: playback graph started; PCM streaming\n");
@@ -404,6 +426,9 @@
 +			state->last_error = PongAudioErrPlayback;
 +			printf("PongAudio: playback step %u refused opcode=0x%08x status=%u\n",
 +			    state->play_step, answer->result_opcode, answer->status);
++			if (state->play_step == (unsigned)PongPlayStartSpeaker) {
++				printf("PongAudio: speaker graph refused; the graph will not be streamed\n");
++			}
 +			if (play_skips < 11u) {
 +				play_skips++;
 +				if (state->play_step == (unsigned)PongPlayClock) {

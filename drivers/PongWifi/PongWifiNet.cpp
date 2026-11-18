@@ -281,6 +281,25 @@ void log_scan_table() {
     log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x cc %c%c %.*s",
         i, count, b.freq_mhz, b.signal_dbm, b.age_ms, b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4],
         b.bssid[5], b.ie_len, b.caps, cc[0], cc[1], b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+    // The element blob is what the daemon parses for security, rates and band capability, so a record it drops
+    // despite being served differs here first. Print the inventory instead of 384 raw bytes.
+    unsigned ssid = 0, rates = 0, dsss = 0, cc_ie = 0, rsn = 0, rsn_at = 0, ht = 0, vht = 0, he = 0, width = 0;
+    for (unsigned o = 0; o + 2 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1]) {
+      const unsigned id = b.ie[o], len = b.ie[o + 1];
+      switch (id) {
+      case 0: ssid = len; break;
+      case 1: rates = len; break;
+      case 3: dsss = 1; break;
+      case 7: cc_ie = 1; break;
+      case 45: ht = 1; if (len > 1) width = (b.ie[o + 3] >> 2) & 1u; break;
+      case 48: rsn = len; rsn_at = o; break;
+      case 191: vht = 1; if (len > 0) width = 1u + b.ie[o + 2]; break;
+      case 255: if (len >= 1 && b.ie[o + 2] == 35) he = 1; break;
+      }
+    }
+    log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u vht %u width %u he %u",
+        b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4], b.bssid[5], ssid, rates, dsss, cc_ie, rsn, rsn_at,
+        ht, vht, width, he);
   }
 }
 void on_scan_done() {

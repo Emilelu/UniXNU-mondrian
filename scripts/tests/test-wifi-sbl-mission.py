@@ -293,6 +293,10 @@ def main() -> int:
           'log(6, "wifi-net: scan request prefix %08x %08x %08x %08x"' in net and
           "if (count <= 40 || gScanServed <= 3 || gScanServed % 8 == 0)" in net and
           'log(6, "wifi-net: 5ghz %u ie %02x%02x%02x%02x%02x%02x%02x%02x' in net)
+    check("every scan record prints its element inventory",
+          'log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u vht %u width %u he %u"' in net and
+          "case 191: vht = 1; if (len > 0) width = 1u + b.ie[o + 2]; break;" in net and
+          "case 255: if (len >= 1 && b.ie[o + 2] == 35) he = 1; break;" in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import os
 import pathlib
+import plistlib
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -179,6 +181,41 @@ def main() -> int:
               "ab_pci->mhi_ctrl->timeout_ms = MHI_TIMEOUT_DEFAULT_MS;" in ctext)
     else:
         print("  SKIP  generated tree not present at %s" % build)
+
+    probe = ROOT / "userland" / "netprobe.c"
+    ptext = probe.read_text(encoding="utf-8")
+    check("the probe asks for a page and prints the status line",
+          '"GET / HTTP/1.0\\r\\nHost: "' in ptext and
+          "k60probe: %s status %d line %s\\n" in ptext and
+          "k60probe: %s tag %d bytes %d\\n" in ptext and
+          "k60probe: no HTTP response within %d s\\n" in ptext)
+    mini_h = (ROOT / "userland" / "libmini" / "mini.h").read_text(encoding="utf-8")
+    mini_c = (ROOT / "userland" / "libmini" / "mini.c").read_text(encoding="utf-8")
+    check("libmini carries the connect system call",
+          "SYS_connect = 98" in mini_h and
+          "int     connect(int fd, const void *address, unsigned length);" in mini_h and
+          "SC(SYS_connect, fd, address, length, 0, 0, 0)" in mini_c)
+    p0616 = (ROOT / "patches" / "xnu" / "0616-k60-init-legacy-helper.patch").read_text(encoding="utf-8")
+    length = int(re.search(r"#define K60_NETPROBE_LEN (\d+)", p0616).group(1))
+    body = p0616.split("static const unsigned char k60_netprobe[K60_NETPROBE_LEN] = {", 1)[1].split("};", 1)[0]
+    check("the kernel writes the probe beside the init helper",
+          '/private/var/pong/k60probe"' in p0616 and
+          "K60PROBE: probe write=%d resid=%d len=%d" in p0616 and
+          "O_CREAT | O_WRONLY | O_TRUNC, 0755" in p0616 and
+          len(re.findall(r"0x[0-9a-f]{2}", body)) == length,
+          "len=%d bytes=%d" % (length, len(re.findall(r"0x[0-9a-f]{2}", body))))
+    p0394 = (ROOT / "patches" / "xnu" / "0394-k60-launchd-cache.patch").read_text(encoding="utf-8")
+    cache_len = int(re.search(r"#define K60_LAUNCHD_CACHE_LEN (\d+)", p0394).group(1))
+    cbody = p0394.split("static const unsigned char k60_launchd_cache[K60_LAUNCHD_CACHE_LEN] = {", 1)[1].split("};", 1)[0]
+    craw = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", cbody))
+    jobs = plistlib.loads(craw)["LaunchDaemons"]
+    job = jobs.get("/System/Library/LaunchDaemons/com.pong.netprobe.plist", {})
+    check("the curated cache starts the probe at load",
+          len(craw) == cache_len and len(jobs) == 24 and
+          job.get("Label") == "com.pong.netprobe" and
+          job.get("ProgramArguments") == ["/private/var/pong/k60probe"] and
+          job.get("RunAtLoad") is True,
+          "len=%d jobs=%d label=%s" % (len(craw), len(jobs), job.get("Label")))
 
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0

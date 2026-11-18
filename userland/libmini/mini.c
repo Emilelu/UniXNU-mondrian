@@ -288,6 +288,12 @@ socket(int domain, int type, int protocol)
 }
 
 int
+connect(int fd, const void *address, unsigned length)
+{
+	return (int)SC(SYS_connect, fd, address, length, 0, 0, 0);
+}
+
+int
 bind(int fd, const void *address, unsigned length)
 {
 	return (int)SC(SYS_bind, fd, address, length, 0, 0, 0);

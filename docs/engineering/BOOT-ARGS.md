@@ -75,6 +75,7 @@
 | `pong_wifi_test` | WiFi | 真值 | 关闭 | 关联测试：拿到 MAC 后主动连接 fixture 里的 AP；`pong_wifi=2` 是等价且不增加命令行字节的入口 |
 | `pong_wifi_alt` | WiFi | 真值 | 关闭 | 只有 `pong_wifi_test=1` 时才用；选「备用网络」那一组 fixture，不是 SSID 文本 |
 | `pong_wifi_band` | WiFi | 0..5 | 0 = 不限 | 只接受 0/2/5；其它值打 `WiFi association test SKIP: band must be 0, 2 or 5` 并关掉整条测试 |
+| `sae` | WiFi | 真值（裸写） | 关闭 | S1 探针：链路起来后让 station 发一帧 SAE 长度的认证帧（alg 3、102 字节），用来判断管理帧通道能否承载 SAE。裸写 = 组 19；`sae=2` 选组 20，但当前命令行 602 字节，裸写占 4 字节后 606，`sae=2` 会到 609 超过 607 上限。WPA3 功能本身暂停（见 docs/plans/WIFI6-WPA3-PLAN.md 2.3） |
 | `pong_wifi_cycle` | WiFi | 真值 | 关闭 | 与 `pong_wifi_test=1` **同时**满足才开 gCycleTest（`PongWifiNet.cpp:892-893` 是 `&&` 串联） |
 
 ## 逐个说明

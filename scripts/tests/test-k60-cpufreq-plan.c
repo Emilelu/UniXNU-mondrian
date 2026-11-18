@@ -243,6 +243,60 @@ int main(void)
         check("domain_zero_count", k60_cpufreq_domain_busy(idle, 0, 16000000, 0), 0);
     }
 
+    {
+        const uint32_t previous[4] = {100, 200, 300, 0};
+        const uint32_t current[4] = {150, 260, 700, 0};
+        uint64_t idle = 0, elapsed = 0;
+
+        check("tick_delta_ok", k60_cpufreq_tick_delta(previous, current, &idle, &elapsed), 0);
+        check("tick_delta_idle", idle, 400);
+        check("tick_delta_elapsed", elapsed, 510);
+
+        {
+            const uint32_t wrap_prev[4] = {0, 0, 0xfffffff0u, 0};
+            const uint32_t wrap_cur[4] = {8, 0, 0x10, 0};
+
+            idle = 0;
+            elapsed = 0;
+            check("tick_delta_wrap", k60_cpufreq_tick_delta(wrap_prev, wrap_cur, &idle, &elapsed), 0);
+            check("tick_delta_wrap_idle", idle, 32);
+            check("tick_delta_wrap_elapsed", elapsed, 40);
+        }
+
+        idle = 0;
+        elapsed = 0;
+        check("tick_delta_still", k60_cpufreq_tick_delta(previous, previous, &idle, &elapsed), -1);
+        check("tick_delta_null", k60_cpufreq_tick_delta(NULL, current, &idle, &elapsed), -1);
+    }
+
+    {
+        uint64_t idle[K60_CPU_FREQ_CPUS];
+        uint64_t elapsed[K60_CPU_FREQ_CPUS];
+
+        for (unsigned c = 0; c < K60_CPU_FREQ_CPUS; ++c) {
+            idle[c] = 16000000;
+            elapsed[c] = 16000000;
+        }
+        idle[1] = 8000000;
+        check("elapsed_domain0_busiest",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 0), 500);
+        check("elapsed_domain1_idle",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 1), 0);
+        idle[7] = 4000000;
+        check("elapsed_domain2_prime",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 2), 750);
+        check("elapsed_bad_domain",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 3), 0);
+        check("elapsed_null",
+            k60_cpufreq_domain_busy_elapsed(NULL, elapsed, K60_CPU_FREQ_CPUS, 0), 0);
+        check("elapsed_zero_count",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, 0, 0), 0);
+        elapsed[1] = 0;
+        idle[1] = 0;
+        check("elapsed_zero_window",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 0), 0);
+    }
+
     printf("%s %u checks (%u failure%s)\n", failures ? "TESTS FAILED" : "TESTS OK",
         checks, failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;

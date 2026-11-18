@@ -1120,55 +1120,13 @@ grep -nE '\b[0-9a-f]{7,40}\b' docs/plans/*.md | grep -v 'revision\|cherry picked
 ---
 
 # 第二章 规则正文（按编号）
-## 铁则 1（HR-01）：**访问 RSC/RPMh 前必须确认 `ml_io_map` 成功 —— 原「RSC 禁止访问」是误诊**
+## 铁则 1（HR-01）：**已验证的 APPS RSC 路径可用，其他用途按证据准入**
 
-> **2026-11-09 22:40 重大更正**：实测证明 RSC（`0x17a00000`）**完全可以安全读写**。
+> 现行操作边界、写路径和首次实机诊断条件统一见 [操作铁则 HR‑01](../ops/HARD-RULES.md)。本节不是第二套放行条件。
 
-### 原错误结论（已作废）
-> "RSC（`0x17a00000`/`0x17a20000`）首读整机死，禁止访问"
-
-### 真相
-驱动代码里：
-```c
-static vm_offset_t tlmm, gcc, se, rsc, cmd_db;
-...
-tlmm   = ml_io_map(TLMM_PHYS + gpio_offset, TLMM_SIZE) - gpio_offset;
-gcc    = ml_io_map(GCC_PHYS, GCC_SIZE);
-se     = ml_io_map(SE_PHYS, SE_SIZE);
-cmd_db = ml_io_map_wcomb(CMD_DB_PHYS, CMD_DB_SIZE);
-// ❌ 没有 rsc = ml_io_map(RSC_PHYS, RSC_SIZE);
-```
-
-**`rsc` 全局变量永远是 0**，于是：
-```c
-#define TCS(reg)  (rsc + 0xd00 + (reg))
-wr(TCS(TCS_CONTROL), ...);   // 写物理地址 0xd00 -> data abort
-```
-
-**这不是「RSC 危险」，这是「空指针解引用」。**
-
-### 实测证据（2026-11-09 22:40，内核 `d2eda50a`，镜像 `9d03cc26`）
-```
-Pong touch: stage10 rsc=0xfffffff188f59000 cmd_db=0xfffffff188f69000   ← 映射成功
-goodix: rails on (ldoc2=0x42c00, AVDD gpio71=1)                        ← RPMh 写成功
-系统正常到用户态，131,988 B 日志，无挂死
-```
-
-### 新铁则
-1. **访问任何 MMIO 前必须先检查 `ml_io_map()` 返回值非 0**；
-   返回 0 → 立刻打印并 `return`，**绝不能继续用该指针**。
-2. **RSC/RPMh 是合法可用的**。RSC 基址：
-   - `rsc@17a00000`，`reg = <0x17a00000 0x10000 0x17a10000 0x10000 0x17a20000 0x10000 0x17a30000 0x10000>`
-   - `reg-names = "drv-0","drv-1","drv-2","drv-3"`
-   - **`qcom,drv-id = <0x02>` → APPS 用 DRV 2 = `0x17a20000`**
-   - `qcom,tcs-offset = <0xd00>`
-3. 写 RPMh 前确认 `TCS_STATUS` 空闲，按 `rpmh_write()` 的完整序列
-   （清 trigger/enable → 写 MSGID/ADDR/DATA → WAIT_FOR_COMPLETION → CMD_ENABLE → trigger → 轮询 IRQ_STATUS → 清理）。
-
-### 教训
-**「某地址不能访问」的结论，必须先排除「映射失败返回 0」这一层。**
-一个未初始化的指针会让任何地址看起来都"致命"。这与 HR-14（存在≠完成）同源：
-**把「表观现象」当成「根因」。**
+- 旧触摸代码曾未初始化 `rsc`，使 `rsc + 0xd00 + reg` 落到低地址；这能解释一类 data abort，不能解释所有早期异常。检查 `ml_io_map()` 非零仍是必要条件，单凭非零不能放行。
+- live FDT 的 `qcom,drv-id=2` 对应 `0x17a20000/0x10000`，不是 `0x17a00000`。K60 Goodix 的 ACTIVE TCS4 写入有[同板实机记录](../research/REFERENCE-INDEX.md)；旧表述「RSC（`0x17a00000`）完全可以安全读写」与旧全面禁写表述都作废。
+- 访问 APPS DRV‑2 必须按具体资源、投票值、启动时机、所有权和完成判据核对。禁止访问其他 DRV 窗口；新的用途须默认关闭并走经授权的单项实机诊断，通过或失败都当天记入操作铁则 HR‑01 的「准入台账与及时晋升」，通过即在同一提交解除对应 HOLD。
 
 ## 铁则 2（HR-02）：**GENI 控制器（SPI/I2C）访问前必须完成完整前置序列**
 
@@ -1231,10 +1189,7 @@ GCC 窗口 0x1270004, 0x1270008, 0x1274dc, 0x1274e4, 0x1274e8, 0x1274f8, 0x16200
 0x13300c  (QUP0 CORE_2X_CBCR)
 ```
 
-**禁止访问**：
-```
-0x17a00000, 0x17a20000 (RSC)
-```
+**RSC 专项（以 HR‑01 为准）**：只允许在满足 HR‑01 前置条件时访问 APPS DRV‑2 `0x17a20000`；其他 DRV 窗口禁止，不能把已验证的触摸路径当成未知用途的通行证。
 
 ### 检查方法
 ```bash
@@ -1457,9 +1412,7 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
 **没有标注的，一律改成「待核实」。**
 
 ### 同理适用于写代码
-改代码前如果基于某条「已知」，先 `grep` 验证。本轮 `touch_thread` 里
-`ml_io_map(RSC_PHYS,...)` 就是因为没核对「RSC 禁止访问」（HR-01 已记录 5 处研究文档），
-浪费了 4 轮排查。
+改代码前先核对「已知」的证据和适用范围。早期 `touch_thread` 的 RSC 访问缺少对正确映射、时机和前置条件的核验，浪费了 4 轮排查；不要把当时的失败概括为所有 RSC 路径都不能访问。
 
 ### 已发生的违规
 - 2026-11-09：5 个任务书里 3 个前提错误

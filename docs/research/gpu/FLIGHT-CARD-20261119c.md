@@ -99,3 +99,95 @@
 ## 5. 结果登记
 
 （飞行后填写；`criteria-sha256` 由 `scripts/pin_criteria_digest.py` 写入，供重飞校验。）
+
+### 5.1 这一飞的判读
+
+镜像 `gpu-telemetry-20261119`（`boot.img 3d005597…`、kernel `93272ff6…` 105,676,800 B、
+payload kernel `fe86b526…`、payload adt `1cb581cf…`、series 228、30 args / 596 B、
+插件 `metal-plugin-20261119m` 的 `PongAdrenoMetal` sha256
+`1979ff0abf97154870286460092f98107ffc27a53d5f6e2e7e2a2e13a8af99e9`）。
+证据 `usblog-20261119-055934`（246,415 B），`capture.json complete=true`、`supervisor rc=0`、
+无 panic、无复位。
+
+有效性（4.1）成立：`compositor=4`、`client_commits=8`、`scanout_lines=5`。
+
+| 判据 | 结果 | 实测 |
+|---|---|---|
+| S1 无 panic | ✅ | `panic(` 0、`K60KEXC` 0、`crashed: backboardd` 0 |
+| S2 计时表十行全到 | ✅ | 10/10 |
+| S3 逐条 commit 行 | ✅ | 14 条 `K<n>`，14 条都带 `ctc=` |
+| S4 采到 120 s 之后 | ✅ | 4 条状态行（节奏 5/20/60/120 s） |
+| S5 渲染没被弄坏 | ❌ | `client_commits=8`，低于本卡自设的 50 |
+| S6 记录下数值 | ✅ | 见 5.2 |
+| S7 面板仍 120 Hz | ✅ | `after the UI frame te 122/s` |
+
+失败规则：无命中。
+
+### 5.2 这一飞真正给出的数
+
+```
+G commit-to-complete  n=8  total=175ms  max=51ms  mean=21,928us
+J completed wait      n=4  total=47ms   max=22ms
+J scheduled wait      n=4  total=0ms    max=0ms
+J surface cache       n=16 bytes=151,289,856 dup=0 us=8 max=2
+T pipeline            n=41 total=219ms  max=17ms
+T library             n=4  total=118ms  max=49ms
+T function            n=41 total=4ms    max=0ms
+V vkpipe              n=0  （没有 Vulkan pipeline 编译）
+V cache               hit41 miss0
+```
+
+逐条 commit（这是本卡最想要的东西）：
+
+```
+K1 rp6  dr82 kpx9050  bl0 ctc=21738us
+K2 rp0  dr0  kpx0     bl1 ctc=10580us
+K3 rp12 dr99 kpx13631 bl0 ctc=51894us
+K4 rp0  dr0  kpx0     bl1 ctc=22798us
+K5 rp12 dr99 kpx13631 bl0 ctc=28799us
+K6 rp0  dr0  kpx0     bl1 ctc=5283us
+K7 rp3  dr79 kpx9015  bl0 ctc=17531us
+K8 rp0  dr0  kpx0     bl1 ctc=16802us
+```
+
+### 5.3 结论：墙就是那个全屏 blit，现在有三条独立证据指向同一个数
+
+`rp0 dr0 bl1` 的 commit——**一个渲染 pass 都没有、只有一次 blit**——`ctc` 是
+**5.3 / 10.6 / 16.8 / 22.8 ms**。有绘制的 commit 是 17.5–51.9 ms。
+
+同一个 18.4 MB 拷贝从三个方向量出来是同一个数：
+
+| 测量的位置 | 值 |
+|---|---|
+| 内核侧 `Pong Metal: … gpu=` （`waitUntilCompleted` 跨度） | 12,593 µs |
+| 客户端 `G commit-to-complete mean` | 21,928–23,515 µs |
+| 合成器 `MiniIOMobileFramebuffer: … us each in the driver` | 13,483–23,589 µs |
+
+18.4 MB / 12.6 ms = **1.5 GB/s**，而这颗 A730 的显存带宽是 50 GB/s 量级。
+
+同时这一飞洗清了另外两个嫌疑：
+- `T pipeline` 累计 219 ms、`T library` 118 ms，`V vkpipe n=0` ⇒ **pipeline/着色器编译是一次性的启动成本，不在稳态路径上**；
+- `J surface cache n=16 bytes=151 MB dup=0 us=8` ⇒ **surface 没有重复导入，缓存不是问题**。
+
+所以 `F5`（Vulkan 编译）与 `F6`（surface cache）都被实测排除，剩下的只有 `F4` 的分支：
+客户端确实在等 GPU 完成这一次提交，而这次提交的绝大部分是那次全屏 blit。
+
+### 5.4 这一飞**不能**回答的部分（结论边界）
+
+整段飞行只有 4 个合成器帧、8 次 commit：屏幕是静的，没有任何动画在驱动绘制。
+所以这张表描述的是**空闲**状态，不是「有动画时的客户端绘制成本」。
+S5 判失败正是为了标出这一点——它是我为「这次真的在渲染」写的代理判据，而不是渲染坏了。
+
+按 P-236 的口径：这一飞**有效**（有帧、有 commit、有 scanout），但**不具代表性**。
+下一飞必须在**有动画驱动**的条件下重测同样几行，才能回答「客户端那 ~48 ms 怎么分」。
+
+### 5.5 下一步（按实测，不按猜测）
+
+1. **先解决动画驱动**：把 HID 触摸注入（或让 SpringBoard 播放已知动画）作为前置条件写进下一张卡，
+   否则客户端侧的数永远只能反映静屏。
+2. **同一飞里加一个同尺寸对照 blit**：往一个 GPU 自有缓冲再拷一份同样 18.4 MB，分别计时。
+   若那份是 1 ms 量级而写固件 framebuffer 是 12 ms，则**目标是慢的那个**，
+   方向就是 zizhan 的 `target`（拷进面板缓冲）而不是固件 framebuffer。
+   这一条是当前唯一能解释「同样形状，zizhan 5–6 ms、我们 12.6 ms」的可测假设。
+3. 若对照 blit 也慢，则回到带宽本身：查 GPU 实际频率（`GPUCC` 只被用来开门，
+   全程没有任何一处读回或设置 GX 频率，日志里也没有一个 MHz 的数）。

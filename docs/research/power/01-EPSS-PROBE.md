@@ -84,6 +84,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 | `70dd3794` `test(power): cover the EPSS vote guard` | host 覆盖守卫/回读/恢复，128 项 |
 | `3e9917ed` `feat(power): sample CPU idle time in a read-only probe` | mode 5：16 ms `processor_info` 采样线程、tick 差分、域内最忙、governor 回放；不写寄存器 |
 | `38b84c35` `test(power): cover the idle tick decoding` | host 覆盖逐 CPU elapsed 最大值、32 位 tick 回绕，总数 143 项 |
+| `d1d3c3e3` `fix(power): keep the shared-cluster quiet count across down-steps` | quiet 只按忙闲增减；降档落地不再清零 quiet，共享簇释放半速地板后能继续降到最低档 |
+| `aef89e8c` `test(power): cover the shared-cluster quiet settling` | host 增加 24 窗口 quiet 收敛回归，总数 146 项 |
 
 `K60CpuFreqPlan`（纯 C，无 MMIO）：
 
@@ -104,8 +106,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 - `k60_cpufreq_vote_allowed`：拒绝 enable=0、表为空、档位不在表内、写条数超限；`k60_cpufreq_check_readback`
   逐条比较回读值；`k60_cpufreq_build_restore` 用写前保存的原值生成恢复写集合。
 - `k60_cpufreq_governor_reset/governor_window`：参考 16 ms 循环的纯逻辑版——每个 domain 保存
-  当前档、降档计数、quiet 计数；忙 90% 立即升，降档连续 4 窗口才落地；boost 结束后的
-  共享簇按半速地板保持 12 个 quiet 窗口。mode 5 的采样线程会调用它，但只打印决策，寄存器仍由探针负责。
+  当前档、降档计数、quiet 计数；忙 90% 立即升，降档连续 4 窗口才落地；共享簇在 busy<100
+  时累加 quiet，连续 12 个 quiet 窗口后释放半速地板并继续降到最低档。quiet 只在忙窗口清零，
+  降档落地本身不清零——否则每降一档都会重新套上半速地板，档位会在半档与低档之间来回跳。
+  mode 5 的采样线程会调用它，但只打印决策，寄存器仍由探针负责。
 
 `K60CpuFreqProbe`（默认关闭，boot arg `k60_cpufreq` 选模式）：
 
@@ -134,22 +138,23 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 ## 6. 构建与验证
 
-- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 143 checks (0 failures)**（含 ASan/UBSan 同数）。
+- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 146 checks (0 failures)**（含 ASan/UBSan 同数）。
   覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、hispeed/frame/quiet/boost 地板、
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
   dcvs 开/关的写条数、缓冲区不足拒绝、enable/档位守卫、写后回读、恢复原值，以及 governor
-  的单窗口序列（降档闩锁、立即升档、boost 释放后的半速地板、错误入参），以及空闲换算
+  的单窗口序列（降档闩锁、立即升档、boost 释放后的半速地板、quiet 收敛、错误入参），以及空闲换算
   （满忙/半忙/全闲/超计/零窗口）、4/3/1 域的“最忙 CPU”选择，以及 mode 5 的 tick 差分
   （含 32 位回绕、全零窗口）与按 CPU 各自窗口的最忙值。断言使用合成的 LUT 行；
   真机 image k 已把 66 条有效档位逐行读出，image l 已把采样线程跑通。
-- archive（含 mode 5 采样与写入守卫，commit `3e9917ed`/`38b84c35`）：`build/k60-battery/libK60PhysicalBattery.a`
-  **130,648 字节**，sha256 `70856d4d51d85c1f0445f6ca94dc4115316f9bb829d5a179837118e761b49c8f`；
+- archive（含 mode 5 采样、写入守卫与 quiet 修复，commit `3e9917ed`/`38b84c35`/`d1d3c3e3`）：`build/k60-battery/libK60PhysicalBattery.a`
+  **130,592 字节**，sha256 `1ebfd4d036b4bfb9f4e5a6a6237c72f404a8566dfd96e47b9a2e0c7c30e27370`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
   `_k60_cpufreq_vote_allowed/check_readback/build_restore`、
   `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy`、`_k60_cpufreq_domain_busy_elapsed`、
   `_k60_cpufreq_tick_delta`、`_k60_cpufreq_sample_stop` 等 cpufreq 符号；undefined-symbol
-  检查 imports=313 defs=139 external=242 kernel=22,909 missing=0。image l 用的是这份 archive。
+  检查 imports=313 defs=139 external=242 kernel=22,909 missing=0。image l 用的是修复前的
+  130,648 字节 archive（`70856d4d`）；这份 130,592 字节 archive 尚未进入镜像。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -332,8 +337,12 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
 
   判读：16 ms 采样、逐 CPU tick 差分、按域取最忙 CPU 后喂 governor 的链路已在真机跑通；
   d0 从持续 1000 busy/top 档降到 0 busy/300 MHz，说明四个较闲窗口后的降档路径生效；d1/d2
-  的 `quiet` 窗口按 shared-cluster 下限停在半档附近，偶发降到 633.6/787.2 MHz 后回到半档，
-  是现有 `K60_CPU_FREQ_QUIET_WINDOWS` 逻辑，不是写频。探针只读：300 s autoreset 先发生，
+  的 `quiet` 窗口按 shared-cluster 下限停在半档附近，偶发降到 633.6/787.2 MHz 后回到半档。
+  这暴露了一个实现 bug：`k60_cpufreq_governor_window` 在每次降档落地后把 quiet 清零，
+  下一窗口半速地板重新生效并把档位拉回半档，所以永远收敛不到最低档；参考
+  `CpuFreqProbe.cpp:288-299` 只在 busy>=100 时清零 quiet。修复 `d1d3c3e3` 把 quiet 更新移到
+  target 之前并只按 busy 判断，`aef89e8c` 用 24 窗口回归锁住收敛；image l 是修复前构建，
+  d1/d2 稳定降档待下一镜像复测。探针只读：300 s autoreset 先发生，
   没有 `sample stop`；没有任何 EPSS 写入，mode 2/3 未执行。EPSS 硬件自身在采样期间把 d0
   在 691.2/1555.2 MHz、d1 到 2.496 GHz、d2 到 2.9952 GHz 之间移动，说明写路径必须先处理
   硬件自主 DCVS/所有权，不能把只读采样当作写频闭环。
@@ -385,7 +394,8 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    `watch-fastboot-v4.ps1` 会先抢到 fastboot，仅靠占位命令行不一定挡得住，必须等它的进程
    真正退出后再启动自己的 supervisor。
 5. 首次写入前：参数门禁须通过。启用状态守卫、写后回读和恢复原投票的路径已在代码中补齐
-  （commit `42ca4421`/`70dd3794` 及 `38b84c35`，host 143 项含 mode 5 采样换算），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
+  （commit `42ca4421`/`70dd3794`/`38b84c35`/`d1d3c3e3`/`aef89e8c`，host 146 项含 mode 5 采样换算与
+  quiet 收敛），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
   写入（d1/d2 在辅核启动前 `enable=0`）。首次验证应限定在 d0 单域，分别记录请求档位、
   寄存器回读、恢复值和负载下的 `state`，并观察温度与 throttle；d1/d2/L3 多域投票和 governor
   不与首测合并。`nomap`、`enable=0` 或无有效 LUT 时应拒绝写入。

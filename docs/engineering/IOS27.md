@@ -57,6 +57,23 @@ better starting point than cupid:
 - Goodix touch on QUPv3 SPI, verified on this board.
 - The SPMI v7 key map and the PAC probe (`ios-mondrian/shim/pac.c`).
 
+## Components come from the catalog
+
+`drivers/ArmCpu` and `drivers/ArmDTPlatform` used to exist in this repository
+and were the iOS 16 line's hand-written drivers. A directory under the device
+repository resolves with origin `device`, which outranks the catalog, so both
+silently replaced `UniXNU/ArmCpu` and `UniXNU/ArmDTPlatform` in every build.
+That is how the first stage-0 build stopped at `ArmCpu/ArmCpuSleep.h`: the
+arch profile's archive recipe asks for the catalog driver, the tree had the
+older local one, and the input was simply absent.
+
+Both are now archived as `drivers/armcpu-darwin24` and
+`drivers/armdtplatform-darwin24`, outside the build. The stage-0 component set
+is therefore the catalog set: `ArmDTPlatform`, `ArmCpu`, `XnuPrelink`. The
+catalog `ArmCpu` starts the secondary CPUs itself (there is no
+`pong_cpu_start()`), and the catalog `ArmDTPlatform` has a
+`armdt_platform_clock_register` hook instead of the old `boot-epoch` sample.
+
 ## Phases and exit criteria
 
 | Phase | Work | Exit |

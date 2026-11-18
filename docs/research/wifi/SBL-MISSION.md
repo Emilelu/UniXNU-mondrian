@@ -395,3 +395,112 @@ sequence `IOService::newUserClient` uses. Mission9 changes
 `scripts/tests/test-wifi-sbl-mission.py`.
 
 Mission8 must not be re-flown; its one-shot marker exists.
+## 10. Mission9: the stack opens, and nothing asks for an address
+
+Mission9 carries the four-argument `initWithTask` and changes nothing else.
+Tag `wifi-20261118sbl-mission9`, built 2026-11-18T12:37:33+08:00 from
+`f64552e7977564b3e48be74014755f522a5a2997` (clean tree), image
+`bf2c03488e757e4c6b027ed325d89b3de4d771f62473fa0b4fe9cbb7810d6783`
+(201,887,744 bytes), kernel `b66a31f410b1023d053617f18c988cdaebb70104364e18b48937fe16bcf937f0`,
+payload kernel `57c2fcd4eba9ce1bf69a45e4c9faad28498223d35fd4060a63760d0958c333fb`,
+ADT `206617d9a93f237bba3a34eec7a6e0f505891060246c308ad77e3e3f808f13e2`, WiFi archive
+`20bddc0a980a9bb186bd4ad213d7110a6ae2420b732b15d361b79828260c6ba2`, and 602-byte
+arguments ending `pong_wifi=2 k60_wifi_rsc=2`.
+
+The flight at 13:02:46 (`E:/k60-work/evidence/usblog-20261118-130246/console.log`,
+257,335 bytes, 3,941 lines, SHA256
+`5d0d5eec9aad2302d5914823394ba2c3186ce16d0c8616f5c932d0af462cff76`) keeps the whole
+association chain: `:790` the directed rescan, `:900` association RUNNING, `:906`
+connecting `c8:bf:4c:30:03:1c` at 5240 MHz, `:907` associated, `:911` keys installed,
+`:912` connected. At `:1431` the stack user client opens:
+`PongWifi[6]: wifi-net: the network stack was opened (type 0)`, with the K60UF
+record showing `rsv_before == rsv_after` and no panic. The panic is gone.
+
+What does not happen is transmission. `en0` reports `packets in 1 ... out 0` at
+`:922`, and the inbound count climbs to 31 while the outbound stays zero through
+every later `log_traffic` line. There is no `wifi-net: dhcp in/out` line, no IPv4
+address, no `wifi-net: network stack command` and no `native client type` line, so
+the stack user client was opened but never asked to name or configure anything.
+configd appears once (`:1244 KE 35 36 xpcproxy /usr/libexec/configd`) with no exit
+record and no network activity. At the 60 s deadline `:1855` reports
+`PongWifi: association test FAIL: target_found=1 state=6 result=0 IPv4=0`.
+
+The 21-check judge scores 15 PASS and 6 FAIL: association PASS, en0 address, DHCP
+in, DHCP out, RX traffic and TX traffic. Mission9 must not be re-flown; its
+one-shot marker exists.
+
+## 11. Mission10: the namer opens the stack, and still nothing asks
+
+Mission10 moves the service where the interface namer looks and answers it the way
+the reference implementation does: IONetworkStack is published under
+`IOService::getResourceService()` (`IOService:/IOResources/IONetworkStack`), the
+service advertises `kIOUserClientClassKey`, the user client's `start()` prints who
+opened it and the registry's busy state, and the naming request returns
+`kIOReturnUnsupported` so the caller cannot believe an interface was named. Tag
+`wifi-20261118sbl-mission10`, built 2026-11-18T13:47:42+08:00 from
+`37bd434152b90080d05cc0fd66b932655b8f1823` (clean tree), image
+`0b2af9b3eea7210b91f1664aa267ff4f05fbb4ba4526ad833a24dce1f717273b`
+(201,887,744 bytes), kernel `85740f06e4b18612a74710d47bad8563d0dbacc0686ad41bd07a239068d41e51`,
+payload kernel `6b251b9a2b76c818f685149284e68ce4d76501ad73d5eaa2f6db86d8fb3b54f1`,
+ADT `ad52bcf976cefc409962a57bbd9e53b0ab0b7f657cb3f3304e34db9254b7e7fb`, WiFi archive
+`75d762f3d7ed9842cb43f2a62e2b81abe42da28aae1b56cd13478049a3453e42`, 602-byte arguments.
+
+The flight at 13:48:54 (`E:/k60-work/evidence/usblog-20261118-134854/console.log`,
+259,781 bytes, 3,941 lines, SHA256
+`c99924c9d289d49ac13339e303ef8e1ff8e2af2a3e8f24046e7441f1a5e31e29`) shows the namer
+reaching the service: `:1455 wifi-net: the network stack was opened by configd;
+the registry's busy state is 1`, then `:1456` the stack open (type 0) and no panic.
+The association chain repeats (`:901` RUNNING, `:907` connecting, `:912` keys,
+`:913` connected, `:903` a directed rescan finishing 33 networks). But the client
+still never sends a naming or configuration command, no DHCP frame leaves, and the
+inbound IPv4 count climbs while `out` stays zero. The 22-check judge scores 16 PASS
+and 6 FAIL: association PASS, en0 address, DHCP in, DHCP out, RX traffic and TX
+traffic. Mission10 must not be re-flown; its one-shot marker exists.
+
+What this narrows it to: the service is findable, openable and observable, yet the
+interface namer inside configd sends nothing. The namer waits for the registry to
+go quiet (or times out after five minutes), while `k60_autoreset=300` reset the
+board before the five-minute timeout could run. Mission11 tests that hypothesis
+directly: the autoreset moves to 900 s, the association test keeps a 10-minute
+deadline after the link comes up, and the driver logs the registry busy state,
+a volume probe for `wifid`/`configd`/IPConfiguration and the naming-client
+commands, so one flight distinguishes "no wifid on the volume" from "namer still
+waiting".
+
+## 12. Mission11: the address configuration arrives, and the network works
+
+Mission11 keeps mission10's changes and moves the autoreset out of the way
+(`k60_autoreset=900`), extends the association test's post-link deadline to ten
+minutes, and logs the registry busy state, a volume probe and the naming-client
+commands. Tag `wifi-20261118sbl-mission11`, built 2026-11-18T14:10:37+08:00 from
+`ded2c5a4cf2094a57d00c1c88c3890f428051698` (clean tree), image
+`56b20bf122d184e201077ad59da751a8d2d97668b7832d44d774a4a0712730e4`
+(201,887,744 bytes), kernel `ade1c3cdd294473337c258e9472cffdb452ec491792d8572f53a79d6048751bf`,
+payload kernel `76937f89f54a6e306d3fda829e2178f9ea4dc41f7fa669b127022641da86820e`,
+ADT `b94d48dcb46394dd51e53d703648a19394d6bff4b6ef5fcb40ad871bf8ecde38`, WiFi archive
+`c1edce2e0730e1d1164b9a1bbc5ed2b7cc613cbdac8449d2ca8a0312a267bb67`, and 602-byte
+arguments ending `pong_wifi=2 k60_wifi_rsc=2`.
+
+The flight at 14:11:40 (`E:/k60-work/evidence/usblog-20261118-141140/console.log`,
+439,287 bytes, 6,836 lines, SHA256
+`DE3F5AC656865DEFBD686CD291D2FD436136A1EFFC2B09E63A49EDE299A2844F`) is the first
+one where the network carries traffic. After the association the native address
+configuration runs: `:4021` `wifi-net: dhcp out type 1`, `:4098`
+`wifi-net: dhcp in type 2` with `yiaddr 192.168.31.134`, `:4103` the REQUEST and
+`:4112` the ACK. `:4130` reports `WiFi association test PASS: authenticated link
+and IPv4 address`, and `:4131` `wifi-net: en0 address 192.168.31.134, packets in
+51 out 39`. By the end of the log the interface has 21,752 packets in and 13,983
+out, with DHCP 6, ARP 324 and IPv4 13,630 outbound. There is no panic.
+
+The volume probe at `:481` reported `/usr/libexec/wifid` absent, which is correct
+for this volume and irrelevant: the offline IPSW audit showed the binary lives at
+`/usr/sbin/wifid`, and the DHCP exchange happened without it. configd (through
+IPConfiguration) opened the network stack at `:1427` with busy state 1, and the
+busy state never reached zero, yet the address configuration proceeded anyway, so
+the namer's quiet-wait was not what gated DHCP.
+
+The 26-check judge scores 26 PASS. All six criteria on the official network page
+are now device-verified: scan, authentication, association, address
+configuration, receive and send. HTTPS and webpage loading are not yet separately
+proven; mission12 instruments TCP 443 and DNS traffic to settle that question.
+Mission11 must not be re-flown; its one-shot marker exists.

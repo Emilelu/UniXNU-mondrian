@@ -84,6 +84,9 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `当前频率 × busy × 1.25` 的最低档；帧下限 60%；共享簇 boost/quiet 地板）。
 - `k60_cpufreq_step`：升档立即、降档连续 4 窗口才落地。
 - `k60_cpufreq_domain_of_cpu/domain_cores`：K60 的 4/3/1 映射。
+- `k60_cpufreq_busy_permille/domain_busy`：参考的调度器空闲换算——每 CPU
+  `(elapsed - idle) * 1000 / elapsed`，域内取最忙的 CPU（不是平均）；空闲计数
+  超过窗口按 0 忙处理，结果上限 1000。
 - `k60_cpufreq_build_votes`：把「一个档位」展开成参考的写集合——总是写 `perf_state 0x320`，
   dcvs 控制位为 1 且该 domain 多于 1 核时，再按 `0x320 + 4×i` 写每核一行（K60 为 4/3/1 核，
   不是参考的 3/4/1）；调用方缓冲区不足时返回 0 且一条都不写。
@@ -105,15 +108,17 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 ## 6. 离线验证
 
-- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 96 checks (0 failures)**。
+- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 107 checks (0 failures)**。
   覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、hispeed/frame/quiet/boost 地板、
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
   dcvs 开/关的写条数、缓冲区不足拒绝，以及 governor 的单窗口序列（降档闩锁、立即升档、
-  boost 释放后的半速地板、错误入参）。LUT 行是合成的；真机表尚未读，因此断言的是算术而不是实测频率。
-- archive：`build/k60-battery/libK60PhysicalBattery.a` **124,224 字节**，
-  sha256 `7a19051a96891baa04b01323c213e7bab02e60fb4835a8d58172973dbe63b030`；
+  boost 释放后的半速地板、错误入参），以及空闲换算（满忙/半忙/全闲/超计/零窗口）
+  和 4/3/1 域的“最忙 CPU”选择。LUT 行是合成的；真机表尚未读，因此断言的是算术而不是实测频率。
+- archive：`build/k60-battery/libK60PhysicalBattery.a` **124,544 字节**，
+  sha256 `82c9ccd055b82b3e6751910bc1c409c41789c7603c1963f5a4039e67c762e8f5`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_build_table`、`_k60_cpufreq_target`、
-  `_k60_cpufreq_build_votes`、`_k60_cpufreq_governor_window` 等 21 个 cpufreq 符号。
+  `_k60_cpufreq_build_votes`、`_k60_cpufreq_governor_window`、
+  `_k60_cpufreq_domain_busy` 等 23 个 cpufreq 符号。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -139,7 +144,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 - 投票写集合已实现（mode 2/3），但**从未在真机上执行**：没有 enable 等待、没有写后读回校验、
   没有 dcvs 反馈；mode 1 是唯一有离线证据的模式。
-- governor 只有纯逻辑核心，没有线程、没有 idle 时间统计（参考用内核 `sheng_cpu_idle_mach`）、
+- governor 只有纯逻辑核心，没有线程；idle 换算已经纯逻辑化（`k60_cpufreq_domain_busy`），
+  但还没有内核 `sheng_cpu_idle_mach` 等价的采样调用、
   没有触摸/帧信号输入、没有 10 s 统计窗口；核心还没有被任何代码调用。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   没有外设供电投票归属/引用计数。

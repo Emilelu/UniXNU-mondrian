@@ -486,11 +486,17 @@ static int receive_one(QcomGlink *g)
             unsigned slot = QCOM_GLINK_MAX_REMOTE_INTENTS;
             for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
                 if (c->remote[k].valid && c->remote[k].id == id) {slot = k; break;}
-            if (slot != QCOM_GLINK_MAX_REMOTE_INTENTS && c->remote[slot].busy) return QcomGlinkCorrupt;
+            /* A re-advertised intent we are still receiving is dropped, not fatal: the DSP re-sends. */
+            if (slot != QCOM_GLINK_MAX_REMOTE_INTENTS && c->remote[slot].busy) {g->dropped++; continue;}
             if (slot == QCOM_GLINK_MAX_REMOTE_INTENTS)
                 for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
                     if (!c->remote[k].valid) {slot = k; break;}
-            if (slot == QCOM_GLINK_MAX_REMOTE_INTENTS) return QcomGlinkCorrupt;
+            /* Full: a larger intent (the one a send asked for) replaces the smallest idle one. */
+            if (slot == QCOM_GLINK_MAX_REMOTE_INTENTS)
+                for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
+                    if (!c->remote[k].busy && c->remote[k].size < size &&
+                        (slot == QCOM_GLINK_MAX_REMOTE_INTENTS || c->remote[k].size < c->remote[slot].size)) slot = k;
+            if (slot == QCOM_GLINK_MAX_REMOTE_INTENTS) {g->dropped++; continue;}
             c->remote[slot].size = size;
             c->remote[slot].id = id;
             c->remote[slot].valid = 1;

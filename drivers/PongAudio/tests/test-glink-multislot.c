@@ -75,7 +75,7 @@ typedef struct {
     char a_log[LOG_BYTES], b_log[LOG_BYTES];
 } Link;
 
-static Link link, replay, bridge_link, active_link, late_link;
+static Link link, replay, bridge_link, active_link, late_link, overflow_link;
 
 static void log_add(char *log, const uint8_t *data, uint32_t length)
 {
@@ -844,6 +844,64 @@ static void late_open_cases(void)
     k60_audio_glink_stop(&bridge);
 }
 
+/* The DSP advertises more intents than the table holds and re-advertises one
+ * while we are still sending into it (image ah line 524). Neither may stop the
+ * shared transport: both are dropped and counted, exactly like the reference. */
+static void intent_overflow_cases(void)
+{
+    Link *l = &overflow_link;
+    uint32_t busy_id = 0, big = 0, small = 0;
+    unsigned busy_slot = QCOM_GLINK_MAX_REMOTE_INTENTS;
+
+    bring_up(l);
+    expect_eq(l->g.dropped, 0, "overflow: nothing dropped yet");
+
+    /* Fill the audio slot's table with idle 100-byte intents. */
+    for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
+        peer_intent(l, RCID_B, 100, 0x2000 + k);
+    expect(qcom_glink_poll(&l->g) >= 0, "overflow: the full advertisement is consumed");
+    for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
+        expect_eq(l->b->remote[k].valid, 1, "overflow: every slot holds an intent");
+    expect_eq(l->g.dropped, 0, "overflow: a full table still takes all of them");
+
+    /* One more, larger: it replaces the smallest idle intent instead of failing. */
+    peer_intent(l, RCID_B, 512, 0x3000);
+    expect(qcom_glink_poll(&l->g) >= 0, "overflow: a larger intent on a full table is not fatal");
+    for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k) {
+        if (!l->b->remote[k].valid) continue;
+        if (l->b->remote[k].size == 512) ++big;
+        if (l->b->remote[k].size == 100) ++small;
+    }
+    expect_eq(big, 1, "overflow: the larger intent took a slot");
+    expect_eq(small, QCOM_GLINK_MAX_REMOTE_INTENTS - 1, "overflow: exactly one idle intent was replaced");
+    expect_eq(l->g.dropped, 0, "overflow: the replacement was not a drop");
+    expect_eq(l->g.broken, 0, "overflow: the link survived a full table");
+
+    /* One more, smaller than every idle intent: dropped and counted, link kept. */
+    peer_intent(l, RCID_B, 64, 0x4000);
+    expect(qcom_glink_poll(&l->g) >= 0, "overflow: a smaller intent on a full table is not fatal");
+    expect_eq(l->g.dropped, 1, "overflow: it is counted as dropped");
+    expect_eq(l->g.broken, 0, "overflow: the link survived the drop");
+
+    /* Re-advertising an intent we are still sending into is dropped, not fatal. */
+    expect_eq((unsigned long)qcom_glink_send(&l->g, l->b, "x", 1), (unsigned long)QcomGlinkOk,
+              "overflow: the audio slot sends inside a remote intent");
+    for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
+        if (l->b->remote[k].valid && l->b->remote[k].busy) {busy_slot = k; break;}
+    expect(busy_slot != QCOM_GLINK_MAX_REMOTE_INTENTS, "overflow: one intent is busy");
+    if (busy_slot == QCOM_GLINK_MAX_REMOTE_INTENTS) return;
+    busy_id = l->b->remote[busy_slot].id;
+    peer_intent(l, RCID_B, l->b->remote[busy_slot].size, busy_id);
+    expect(qcom_glink_poll(&l->g) >= 0, "overflow: a busy re-advertisement is not fatal");
+    expect_eq(l->g.dropped, 2, "overflow: the busy pair is counted as dropped");
+    expect_eq(l->b->remote[busy_slot].busy, 1, "overflow: the busy intent was left alone");
+    expect_eq(l->b->remote[busy_slot].id, busy_id, "overflow: and kept its id");
+    expect_eq(l->g.broken, 0, "overflow: the link survived the busy pair");
+    expect_eq(l->a_up, 1, "overflow: the battery channel stayed up");
+    expect_eq(l->b_up, 1, "overflow: the audio channel stayed up");
+    qcom_glink_stop(&l->g);
+}
+
 int main(void)
 {
     printf("two-slot transport: QCOM_GLINK_MAX_CHANNELS=%u, sizeof(QcomGlinkChannel)=%zu, sizeof(QcomGlink)=%zu\n",
@@ -858,6 +916,7 @@ int main(void)
     bridge_cases();
     active_open_cases();
     late_open_cases();
+    intent_overflow_cases();
 
     if (fails) {printf("TESTS FAILED %u of %u cases\n", fails, cases); return 1;}
     printf("TESTS OK %u cases\n", cases);

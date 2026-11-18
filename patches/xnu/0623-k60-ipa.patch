@@ -4652,7 +4652,7 @@ new file mode 100644
 +
 +#include "pong_ipa_qmi.h"
 +#include "pong_ipa_qmi_transport.h"
-+#include "K60ModemQrtr.h"
++#include "pong_modem_qrtr.h"
 +
 +#define K60_IPA_QRTR_PACKET_BYTES \
 +	(K60_QRTR_HEADER_BYTES + K60_IPA_QMI_TRANSPORT_FRAME_BYTES + 4u)

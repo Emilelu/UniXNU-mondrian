@@ -43,7 +43,8 @@ def kernel_copy(name: str) -> str:
                            ("K60IpaQmi.h", "pong_ipa_qmi.h"),
                            ("K60IpaQmiServer.h", "pong_ipa_qmi_server.h"),
                            ("K60IpaQmiTransport.h", "pong_ipa_qmi_transport.h"),
-                           ("K60IpaQrtr.h", "pong_ipa_qrtr.h")):
+                           ("K60IpaQrtr.h", "pong_ipa_qrtr.h"),
+                           ("K60ModemQrtr.h", "pong_modem_qrtr.h")):
         text = text.replace('#include "%s"' % source, '#include "%s"' % target)
     return text
 

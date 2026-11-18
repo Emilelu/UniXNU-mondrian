@@ -178,6 +178,15 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   CP 环没有出现提交窗口，帧下限一次也没有激活；同一轮 mode 8 仍执行
   `apply d0 level=13 (1804800kHz) readback=ok state=81->94`、`apply d1 level=6/0 …`，
   `restore domains=2 votes=3`。因此调用路径已上机验证，**激活条件（真实 GPU 提交）仍未验证**。
+- 触摸保持接入（2026-11-19 05:47，image x）：补丁 `0622-k60-touch-activity.patch` 在
+  `bsd/dev/pong_input.c` 导出 `pong_touch_report_count()`；采样线程把计数变化喂
+  `k60_boost_touch()`，再把 `k60_boost_touch_active()` 作为 governor 的 `boost`。image x 上机后
+  触摸屏幕，日志出现 `mode8 touch boost active win=7561 reports=1` 与
+  `released win=7648 reports=4`，`sample` 行有 7 条 `tb=1`；同一窗口 d0 governor 被抬到
+  1,804,800 kHz，而 `hw` 仍是 1,555,200 kHz。原因不是触摸路径没生效，而是 mode 8 的写回窗口
+  在开机约 20 s 就已 restore（`restore domains=1 votes=5`），触摸发生在 ~121 s，窗口已关闭。
+  因此 commit `9b8a36b6` 给触摸/帧各自重开一个短窗口（触摸 1 s、63 个窗口；帧 300 ms、19 个窗口），
+  总票数上限仍是 32，image y 用这份代码构建（见 §6）。
 - mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
   把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
   再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，
@@ -201,7 +210,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   真机 image k 已把 66 条有效档位逐行读出，image l 已把采样线程跑通。
 - archive（含 mode 5 采样、写入守卫、quiet 修复、mode 6 降档写入、mode 7 受限期写回与
   mode 8 双向写回与帧下限接线，commit `3e9917ed`/`38b84c35`/`d1d3c3e3`/`42d8e805`/`545315da`/`9242990d`/`ea8e4e20`/`cbdf382f`）：`build/k60-battery/libK60PhysicalBattery.a`
-  **136,600 字节**，sha256 `9f1197155d65298d7115648eee37a483c8c78c2cf75389f09128a400e52d5f21`；
+  **137,320 字节**，sha256 `ef257c01de938b5356543c6f61773e01a2d02e84b70b3cd1fe62c5ef7e590ff3`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
   `_k60_cpufreq_vote_allowed/check_readback/build_restore`、
@@ -210,7 +219,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   undefined-symbol 检查 imports=320 defs=140 external=248 kernel=22,956 missing=0（对照含 Adreno 的 image w kernel.macho；`_pong_adreno_cp_pending` 与 `_k60_boost_*` 由 Adreno archive 提供）。image l 用的是
   修复前的 130,648 字节 archive（`70856d4d`）；image m 用的是 130,592 字节（`1ebfd4d0`）版本，
   均早于 mode 6；image n/o/p/q 用的是 131,008 字节（`08a95bfc`）版本，含 mode 6 但早于 mode 7；
-  image r 用的是 133,632 字节（`7584fcec`）版本，含首次降档窗口的 mode 7 写回；image s 用的是 134,064 字节（`ffaf7e43`）版本，含双向 mode 8 与 d1/d2 reseed；image w 用的是 136,600 字节（`9f119715`）版本，含帧下限接线。
+  image r 用的是 133,632 字节（`7584fcec`）版本，含首次降档窗口的 mode 7 写回；image s 用的是 134,064 字节（`ffaf7e43`）版本，含双向 mode 8 与 d1/d2 reseed；image w 用的是 136,600 字节（`9f119715`）版本，含帧下限接线；image x 用的是 137,016 字节（`baefc961`）版本，含触摸计数消费；image y 用的是 137,320 字节（`ef257c01`）版本，含触摸/帧重开写窗口。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -465,7 +474,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
-  mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；触摸计数自 image x 起由补丁 0622 导出（CPU/GPU 线程消费，尚未上机触摸）、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
+  mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；触摸计数自 image x 起由补丁 0622 导出（CPU/GPU 线程消费；05:47 上机已抓到 `tb=1` 与 governor 抬档，硬件写窗口由 `9b8a36b6` 重开，待 image y 复测）、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
   先到，没有 `sample stop`，也没有负载/温度/throttle 读数。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。

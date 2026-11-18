@@ -170,15 +170,16 @@ it is already written.
 Until then the iOS 16.6.1 line stays the only hardware testbed, and every
 kernel/firmware flight is recorded there (d11 PASS, d12 observation).
 
-## 6. Open risks
+## 8. Open risks
 
 - The fork's iOS 27 port has no Bluetooth phase and no BT component; this branch
   is ahead of the fork's own bring-up order.
-- The eleven BT patches are staged in `patches/xnu/series`, not in the
+- The thirteen BT patches are staged in `patches/xnu/series`, not in the
   `device:patches/xnu-12377/series` list the iOS 27 board reads. No F1 image
   from this branch contains the qbt driver.
 - The iOS 27 userland Bluetooth stack (`bluetoothd`, BlueTool) is a separate
   problem from the kernel transport. Passing firmware download does not make
-  Bluetooth usable.
-- The d8 rollback image `0297012d...` is currently missing from
-  `E:/k60-work/artifacts/bt-d8-tlv`; restore it before any flight.
+  Bluetooth usable; §6 lists the wiring it needs.
+- Rollback images are restored: d8 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`
+  and d10 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`
+  are both byte-exact in `E:/k60-work/artifacts`.

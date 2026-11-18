@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,1053 @@
+@@ -858,6 +892,1048 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -397,10 +397,6 @@
 +		printf("PongAudio: PCM zero-byte probe encode failed\n");
 +		return;
 +	}
-+	state->slot_busy[0] = true;
-+	state->slot_token[0] = token;
-+	state->slot_age[0] = 0;
-+	state->inflight++;
 +	printf("PongAudio: PCM zero-byte probe send bytes=%u address=0x%llx\n",
 +	    bytes, (unsigned long long)address);
 +	const int rc = k60_pmic_glink_send_audio(packet, bytes);
@@ -412,12 +408,7 @@
 +pong_audio_play_begin_stream(PongAudioState *state)
 +{
 +	unsigned primed = 0;
-+	static bool zero_probe_done;
 +
-+	if (!zero_probe_done) {
-+		zero_probe_done = true;
-+		pong_audio_play_probe_zero(state);
-+	}
 +	while (primed < PONG_PLAY_PRIME_SLOTS &&
 +	    pong_audio_play_submit_slot(state)) {
 +		primed++;
@@ -463,6 +454,10 @@
 +		} else {
 +			printf("PongAudio: playback graph started without the speaker; streaming the slots anyway\n");
 +		}
++		/* Probe the command path before the first real period: a zero byte
++		 * write never touches the buffer, so an answer here separates the
++		 * write command from the memory the DSP has to read. */
++		pong_audio_play_probe_zero(state);
 +		return;
 +	}
 +	pong_audio_play_send_step(state, state->play_step + 1u);
@@ -1139,7 +1134,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,23 +1546,88 @@
+@@ -907,23 +1546,95 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -1173,6 +1168,11 @@
 +		return g_pong_audio.last_error ? g_pong_audio.last_error :
 +		    PongAudioErrApmNotReady;
 +	}
++	/* Pump before the ring check: the consumer must keep draining slots
++	 * even when the producer arrives with more frames than fit. */
++	if (g_pong_audio.playback_running) {
++		pong_audio_pump_one(&g_pong_audio);
++	}
 +	if (frame_count > pong_ring_queue_space(&g_pong_audio.ring)) {
 +		g_pong_audio.ring_dropped += frame_count;
 +		return PongAudioErrRingFull;
@@ -1201,7 +1201,9 @@
 +			    g_pong_audio.inflight);
 +		}
 +	}
-+	pong_audio_pump_one(&g_pong_audio);
++	if (g_pong_audio.playback_running) {
++		pong_audio_pump_one(&g_pong_audio);
++	}
 +	return PongAudioOk;
 +}
 +

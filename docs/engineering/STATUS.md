@@ -409,3 +409,33 @@ K60SEED /private/var/pong/PongAdrenoMetal.bundle/Info.plist bytes=555 resid=0 er
 `PongAdrenoMetal.clients` 数十字节（这三项极小，可用内核 blob 方式部署）；
 `PongMetalBridge.dylib` ≈33 MB、`libvulkan_freedreno.dylib` ≈18 MB（必须走
 文件系统，不可能做成 C 数组）。
+
+## 2026-11-18 GPU 帧路径：成本被定位到 `presenter->present()`，采样节奏教训记入 P-233
+
+两次上机都是 Lead 自己飞的，只 `fastboot boot`，没有写过分区。
+
+**第一飞 `gpu-stages-20261118`（证据 `usblog-20261118-135714`）** 把官方文档
+`/zh/porting/gpu` 的七阶段拆成两段可读计时：内核侧 `PONG SCANOUT: frame=N prepare=…
+offer_and_copy=… total=…`、渲染线程侧 `last frame: wait=… copy=… done=…`。实测
+`prepare` 4–12 µs、`offer_and_copy` 13,296–37,320 µs、`copy` 16,813–19,833 µs、`done` 38–55 µs
+⇒ 成本全在 `presenter->present()`（F6），锁页与 offer 交接都被排除。18.4 MB / 16.8 ms ≈ 1.1 GB/s，
+远低于 A730 blit 的预期带宽。
+
+**同日修掉三个问题**（`38b44bed`）：①`_k60Us()` 的跨整秒负数强转会把 17 ms 算成小时级，
+换成带借位的 `PongScanoutTiming.h` 并用 `test-scanout-timing.py` 真编译执行 11 例；
+②`report()` 的 256 字节缓冲把整行尾部连同换行一起截掉，改成 768 字节且强制换行；
+③跨帧复用导入会让 GPU 读已 `release` 的映射（`PongAdrenoScanout.cpp:195-196` 每帧释放），
+缓存整体删除，改为每帧在 `present()` 内导入一次（`test-presenter-import-scope.py` 13 例钉住）。
+
+**第二飞 `gpu-import-scope-20261118`（`boot.img 111851fa…`，证据 `usblog-20261118-161936`）**
+抓取完整（231,325 B / 3,400 行）、`K60KEXC` 0、`actual GPU scanout copy completed` 2 次，
+但**一条阶段样本都没有**：报告行每 60 帧一条，而这次玩家态只有
+`MiniIOMobileFramebuffer: 22 frames in 54713 ms`。判据与采样节奏没有一起设计 ⇒ **P-233**。
+采样改为「前 8 帧每帧一条、之后每 10 帧一条」，`FLIGHT-CARD-20261118k.md` 是按新节奏写的卡，
+镜像 `gpu-import-scope2-20261118`（`boot.img f67c4983…`）已构建、`verify-boot-image: OK`、
+卡片门禁 ✅ —— **等设备回到 fastboot 才能飞**。
+
+当前里程碑：首帧（软件合成）已成立、Metal 出帧（`c>0`）已成立、**帧率仍只有 0.4–7.8 fps**，
+120 fps 与跟手远未达成。下一步按 k 卡的 F6/F7 分支决定：`gpu` 占 `sum` 的 0.8 以上 ⇒ 转
+Turnip 渲染模式（本机被 `PongMetalPlugin.mm:136` 强制 `TU_DEBUG=sysmem,nocb`，官方默认 `gmem,nocb`）；
+`encode`+`submit` 占 0.6 以上 ⇒ 转命令提交的批量/复用。

@@ -53,6 +53,7 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	# payload step compiled.
 	python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
 		--dtb "$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb"
+	python3 "$ROOT/scripts/check-ios27-artifacts.py"
 fi
 
 echo "build-ios27-linux: artifacts under $UNIXNU_OUT"

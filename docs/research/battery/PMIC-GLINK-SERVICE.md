@@ -361,15 +361,15 @@ $ llvm-objdump -dr --start-address=0x32e4 --stop-address=0x3374 qti_battery_char
 | 订阅帧 | 28 B，type=2 | 28 B，type=2 | 28 B，type=2 |
 | 通知帧 | 16 B | 16 B | 16 B（`bytes != 16` 拒收） |
 | Model 响应 | 132 B 负载 | 144 B 总长（12+128+4 对齐） | `16 + 128` |
-| battery prop map | 19 项（`sm8350_bat_prop_map`，`:401-421`） | 25 项 | 18 字段 |
-| usb prop map | 7 项 | 13 项 | 5 字段 |
+| battery prop map | 19 项（`sm8350_bat_prop_map`，`:401-421`） | 25 项 | 19 字段（CURRENT_NOW 跳过，实际请求 18 项） |
+| usb prop map | 7 项 | 13 项 | 6 字段（含 CURRENT_NOW 回退） |
 | wls prop map | 5 项（`sm8350_wls_prop_map`，`:839-845`） | 7 项 | 1 字段 |
 | 小米扩展 | 无 | `xm_prop_map` 187 项 + `0x50`/`0x51` | 无 |
 | 超时 | 由 `pmic_glink` 核心 | 250 jiffies → `-110` | `poisoned` 标记 |
 
 **差异要点**：小米在 AOSP 内核里给 battmgr 加了 `xm_prop_map`（187 项）与 `0x50`/`0x51` 两个私有
 opcode。这解释了为什么 `.ko` 的 prop map 比上游宽，也说明**不能用上游 map 覆盖 `.ko` 的 map**。
-`K60Battmgr.c` 只实现 18 个字段（够 `IOPMPowerSource` 用），是刻意收窄而非遗漏。
+`K60Battmgr.c` 实现 19 个 battery 字段和 6 个 usb 字段（够 `IOPMPowerSource` 用）；battery CURRENT_NOW 在 K60 ADSP 上无响应，运行时跳过，充电时用 usb CURRENT_NOW 回退。这是刻意收窄而非遗漏。
 
 ---
 

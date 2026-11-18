@@ -15,11 +15,13 @@ extern "C" {
 #define K60_BATTMGR_MODEL_BYTES 128u
 
 enum K60BatteryField {
+    /* K60BmCurrent stays for the wire/protocol map, but is optional: the ADSP
+     * property-9 getter did not answer on the K60, so no request is sent. */
     K60BmStatus, K60BmPresent, K60BmCapacity, K60BmVoltage, K60BmCurrent,
     K60BmTemperature, K60BmUsbOnline, K60BmUsbVoltage, K60BmUsbAdapter,
     K60BmUsbMaxCurrent, K60BmUsbInputLimit, K60BmWirelessOnline,
     K60BmFull, K60BmDesign, K60BmCycles, K60BmTimeToFull, K60BmTimeToEmpty,
-    K60BmModel, K60BmFields
+    K60BmModel, K60BmUsbCurrent, K60BmFields
 };
 enum K60BatteryResponse {
     K60BmIgnored = 0, K60BmAnswer = 1, K60BmCycleDone = 2,
@@ -28,7 +30,7 @@ enum K60BatteryResponse {
 
 typedef struct {
     int32_t value[K60BmFields];
-    uint32_t valid, fresh, completed, last_fresh, last_completed;
+    uint32_t valid, fresh, completed, last_fresh, last_completed, failed;
     uint32_t generations, responses, notifications, errors, timeouts, ignored;
     uint32_t last_remote_error;
     uint16_t notify_reply_bytes;
@@ -39,17 +41,28 @@ typedef struct {
     char model[K60_BATTMGR_MODEL_BYTES];
 } K60Battmgr;
 
+typedef enum {
+    K60BatteryCurrentNone = 0,
+    K60BatteryCurrentCell = 1,
+    K60BatteryCurrentUsb = 2
+} K60BatteryCurrentSource;
+
 typedef struct {
-    uint32_t valid;
+    uint32_t valid, failed;
+    /* Raw wire values, in the exact units the ADSP reports. The valid and
+     * failed masks say which entries are measured; unreported entries stay 0. */
+    int32_t raw[K60BmFields];
     int present, external, charging, full, usb_connected;
     uint32_t capacity_hundredths, current_mah, full_mah, design_mah, cycles;
     uint32_t voltage_mv, adapter_mv, adapter_ma, adapter_type;
     int32_t current_ma, temperature_hundredths;
     int time_remaining_min;
+    uint8_t current_source;
     char model[K60_BATTMGR_MODEL_BYTES];
 } K60BatterySample;
 
-/* sign: +1 wire charging-positive, -1 discharge-positive, 0 unqualified.
+/* sign: +1 wire charging-positive, -1 discharge-positive (the PMIC-GLINK
+ * reference convention used by default), 0 unqualified.
  * reply type/length are measured from the ADSP opcode-0x04 handler, which
  * answers 16 bytes with type 1 (docs/research/charger/06-SUBSCRIPTION-CONSTANT.md);
  * a zero reply length still disables subscription, real polling remains. */

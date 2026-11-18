@@ -4,7 +4,7 @@
 #include "../../drivers/PongPower/K60Smem.c"
 #include "../../drivers/PongPower/K60HandoffBuild.c"
 
-#define TOTAL 32768u
+#define TOTAL 131072u
 static uint8_t mem[TOTAL];
 
 int main(void)
@@ -19,22 +19,22 @@ int main(void)
     *(uint32_t *)&mem[toc + 4] = 1;
     *(uint32_t *)&mem[toc + 8] = 1;
     *(uint32_t *)&mem[toc + 32] = part;
-    *(uint32_t *)&mem[toc + 36] = 0x4000u;
+    *(uint32_t *)&mem[toc + 36] = 0x10000u;
     *(uint32_t *)&mem[toc + 44] = 0x00010000u;
     *(uint32_t *)&mem[toc + 48] = 8;
-    p.offset = part; p.size = 0x4000u; p.cacheline = 8; p.host0 = 0; p.host1 = 1;
+    p.offset = part; p.size = 0x10000u; p.cacheline = 8; p.host0 = 0; p.host1 = 1;
     *(uint32_t *)&mem[part] = PART_MAGIC;
     *(uint32_t *)&mem[part + 4] = 0x00010000u;
-    *(uint32_t *)&mem[part + 8] = 0x4000u;
+    *(uint32_t *)&mem[part + 8] = 0x10000u;
     *(uint32_t *)&mem[part + 12] = PART_HEADER;
-    *(uint32_t *)&mem[part + 16] = 0x3c00u;
+    *(uint32_t *)&mem[part + 16] = 0xfc00u;
 
     memset(&plan, 0, sizeof plan);
     plan.required = K60AdspHandoffRequired; plan.epoch = 1793709100u;
     plan.smem_base = 0x80900000ull; plan.smem_bytes = 0x200000u;
     plan.adsp_base = 0x9fd00000ull; plan.adsp_bytes = 0x3100000u;
     plan.desc_item = 0x501u; plan.tx_item = 0x502u; plan.rx_item = 0x503u; plan.smp2p_item = 0x504u;
-    plan.remote_pid = 2; plan.desc_bytes = 32u; plan.tx_bytes = 4096u; plan.rx_bytes = 4096u;
+    plan.remote_pid = 2; plan.desc_bytes = 32u; plan.tx_bytes = 16384u; plan.rx_bytes = 16384u;
     plan.smp2p_bytes = 40u; plan.remote_restart_flag = 1u;
 
     rc = k60_handoff_build(&s, &p, &plan, out);
@@ -65,8 +65,8 @@ int main(void)
             {48, 0x3100000u, 0xffffffffu, "adsp_bytes"},
             {52, 0u, 0xffffffffu, "pad52"},
             {60, 32u, 0xffffffffu, "desc_bytes"},
-            {68, 4096u, 0xffffffffu, "tx_bytes"},
-            {76, 4096u, 0xffffffffu, "rx_bytes"},
+            {68, 16384u, 0xffffffffu, "tx_bytes"},
+            {76, 16384u, 0xffffffffu, "rx_bytes"},
             {80, 0u, 0xffffffffu, "host_tx_head"},
             {84, 0u, 0xffffffffu, "host_rx_tail"},
             {88, 2u, 0xffffffffu, "remote_pid"},

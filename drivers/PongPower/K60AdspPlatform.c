@@ -213,14 +213,14 @@ static int ready(void *ctx,const K60BatteryConfig *c,const K60Smem *s,uint32_t *
     if (!p || p->locked || !c || !s || !bytes || !restart || !same_config(c,&p->config) || !owned(p) ||
         s->base!=p->smem.base || s->size!=p->smem.bytes) return UNAVAILABLE;
     int rc=K60PublishNotReady;
-    for (unsigned i=0;i<1000u;i++) {
+    for (unsigned i=0;i<5000u;i++) {
         if (!owned(p) || lock(p)) {rc=UNAVAILABLE;break;}
         K60SmemPartition part;uint32_t n=0,r=0;
         rc=k60_smem_partition(s,0,(uint16_t)c->remote_pid,&part);
         if (!rc) rc=k60_handoff_remote_ready(c,s,&part,&n,&r);
         unlock(p);
         if (!rc) {*bytes=n;*restart=r;break;}
-        if (i+1u<1000u) p->services.delay_us(p->service_context,1000u);
+        if (i+1u<5000u) p->services.delay_us(p->service_context,1000u);
     }
     event("ready",rc);return rc;
 }

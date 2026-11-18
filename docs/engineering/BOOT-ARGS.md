@@ -393,13 +393,15 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 | 默认 | 0（不探测，任何启动都不映射 RSC） |
 | 取值 | 0 / 1 |
 | 来源 | `patches/xnu/0614-k60-adsp-call-site.patch`（`PE_parse_boot_argn("pong_rail_probe", &pong_rail_probe, sizeof(pong_rail_probe))`），实现在 `drivers/PongPower/K60PmicRail.c` |
-| 作用 | 1 = 在 Data 卷挂载成功后**只读**一次 RPMh `cmd-db` 与 DRV-2 的 `0x17a20000`，打印 `K60RAIL` 三行（cmd-db magic、ldoc2 地址与电平、RSC 布局） |
+| 作用 | 1 = 显式开启 Data 卷挂载后、受 HR-01 四条件约束的 cmd-db / DRV-2 `0x17a20000` 只读取证。历史 railh 只有 cmd-db magic、ldoc2、RSC 布局三行；后加 LCX/LMX 采样器的槽/command 覆盖、状态语义与失败也只尝试一次尚待离线审计。`complete`/`valid` 或非零 `cmd_data` 不证明轨有效；缺记录不证明轨关闭。当前 `resources()` 返回 -63，不置 ResourcesHeld；legacy `k60_rail_inherit()` 不能保护生产 owner 发布路径（P-223） |
 
 **为什么默认关闭**：`docs/ops/HARD-RULES.md` 的 HR-01 规定默认不得访问 RSC —— 2026-11-09 有两次
-早期启动阶段首读即整机死（零控制台）。2026-11-14 的 `rail-20261114h` 证明**Data 挂载之后只读**不会死
+早期启动阶段首读即整机死（零控制台）。2026-11-14 的 `rail-20261114h` 记录了一次 **Data 挂载之后只读**存活
 （`E:\k60-work\evidence\usblog-20261114-railh\console.log:477-479`，3,366 行、129 行 SpringBoard、
 `panicMarker=null`），但一次存活不足以改成默认。所以：只读、单次、必须显式开启；**写 TCS 与
-`CONTROL_TRIGGER` 仍然全面禁止**，供电投票等 ABL 方案。
+`CONTROL_TRIGGER` 仍然全面禁止**。2026-11-16 15:03 裁决撤回 C 与功能图批准；
+`adsp-20261116a` 被门禁拒绝，无 boot.img、未上机。下一次 rail-only 须先完成离线审计再由 Lead 决定，
+不增参数、不扩大到其它 DRV；参数字节数须从真实镜像量，不能沿用旧 592/593 B 估算。
 
 ### `pong_handoff_publish`
 
@@ -409,9 +411,9 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 | 默认 | 0（不发布） |
 | 取值 | 0 / 1 |
 | 来源 | `patches/xnu/0619-k60-adsp-glink-handoff.patch`（`iokit/bsddev/IOKitBSDInit.cpp`，`PE_parse_boot_argn("pong_handoff_publish", …) == 1u`）|
-| 作用 | 1 = 在 IOKitBSDInit 早期跑 `k60_adsp_handoff_publish()`：claim owner=1 → 解析电池板配置 → 范围重叠检查 → `/chosen` 查找 → `k60_adsp_owner_acquire`（阶段 1–4：PAS1 bring-up / discovery / build / self-parse）→ 发布 104 字节认证 lease。成功打 `K60Handoff: published authenticated PAS1 epoch=%u bytes=104 flags=15`，失败打 `K60Handoff: PAS1 bring-up/retained ownership failed rc=%d`。 |
+| 作用 | 1 = 在 IOKitBSDInit 早期跑 `k60_adsp_handoff_publish()`：claim owner=1 → 配置/范围/载体预检 → 安装 board/platform → `k60_adsp_owner_acquire`。当前真实 board 的 `resources()` 在 lease/排他/stopped 通过后仍返回 `K60BoardUnsupported`(-63)，打印 `K60ADSP: rails not verified for handoff; no PAS/SMEM mutation`；owner 拒绝在下游 map_smem、SMEM 分配、INIT_IMAGE、MEM_SETUP、COPY/BSS、AUTH、104 字节 lease 发布之前。`published authenticated ... flags=15` 是未来完整证明后的验收日志，非当前可达成功。 |
 
-**当前状态（2026-11-15）**：owner=1 先 claim 后，`kern_exec.c` 的 legacy `k60_adsp_startup_claim(2u)` 会失败并打
+**当前状态（2026-11-16 15:03）**：本轮不开 `pong_handoff_publish` 或 `pong_adsp`、不出功能图。历史 owner=1 先 claim 后，`kern_exec.c` 的 legacy `k60_adsp_startup_claim(2u)` 会失败并打
 `K60PAS legacy startup excluded by earlier ADSP owner/attempt`——该行在此参数下是**预期输出**，证明发布器先跑。
 载体是内核内嵌 `k60_adsp_blob`（26 记录容器，P-197 workaround），与 `pong_adsp` 的 md0 死路无关。
 
@@ -427,7 +429,9 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 
 **当前状态（2026-11-13）**：探针能从 `memdev` 拿到 md0 的几何，但 `vmd0` 记的是固件
 虚拟地址，XNU 读不到（`esr 0x96000010`，见 `docs/research/audio/ADSP-MD0.md`）。
-所以 `pong_adsp=1` 目前只用于诊断，不能作为可用的音频/电池前提。
+这是 2026-11-13 的 legacy 诊断记录。2026-11-16 15:03 裁决要求本轮不启用 `pong_adsp`；
+legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不能以 TCS 请求证明供电或授权 SCM。
+不能作为可用的音频/电池前提。
 
 ### `sheng-gpu-addon`
 

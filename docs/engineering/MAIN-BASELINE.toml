@@ -266,3 +266,14 @@ note = "build-strict now forwards K60_MODEM_CARRIER and counts the streams back 
 sha = "17190e6"
 state = "build-only"
 note = "build-strict no longer writes a manufactured value into the receipt when an option is off: kernel_args_requested serialises the real KARGS array ([] instead of [\"\"]) and adsp_blob_path stays empty instead of pointing at the filesystem root. Touches scripts/build-strict.sh, so iron-9 wants it registered. Only the receipt text changes; kernel, payload and boot image are byte-identical for any given set of options. The next build writes the first honest receipt."
+
+[[entry]]
+sha = "c4461f9"
+state = "build-only"
+note = """adsp-20261116a 的登记：feat/adsp-handoff-owner 把 ADSP 供电轨账本带进内核
+（drivers/PongPower/K60AdspBoard.{c,h} 新增、K60PmicRail.{c,h} 加账本、
+K60HandoffRuntime.cpp 接线、patches/xnu/0613-k60-adsp-pas.patch 重生成使内核跑仓库
+那版 rail 驱动并带上 P-191 的 NoLevel 修复）。sha 是 merge origin/main 8b57690 之后的
+分支尖端；紧随其后的登记提交只动这个文件，按 RISKY 前缀规则免登记。未上机：判据是
+pong_handoff_publish=1 pong_rail_probe=1 下的六行成功链，缺 'K60ADSP: rails inherited'
+就说明账本没被填上，不是构建问题。"""

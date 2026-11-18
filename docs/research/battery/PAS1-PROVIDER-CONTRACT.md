@@ -32,9 +32,9 @@ Session 一次清零，之后不复制、不重置 live 状态；只有 API 可�
 | 阶段 | 执行条件和行为 | 返回及后置条件 | 宿主测试 |
 |---|---|---|---|
 | 1 k60_owner_claim | Empty；核对本板配置和完整 ops/version/sizeof，available 必须为 1；reader pin 固件并完成真实 MDT 解析，再取得非零当前启动 epoch/cookie、资源和 stopped/live 证明，之后才 map SMEM、短暂探测 TCSR。 | 成功 0，Claimed；不分配 FIFO，不返回 lease。缺依赖/错误几何/忙 mutex 为 -1000。失败取得的锁不会多解锁；映射基址须 8 字节对齐、大小精确。 | [claim](../../../scripts/tests/test-k60-owner-claim.c)：17 场景 |
-| 2 k60_owner_prepare_pas1 | Claimed 且 live/stopped；在短 TCSR 内发现 host0/ADSP2 partition，拒绝既有 478/479/480，分配精确 32/4096/4096 字节 fresh host items；不创建远端 443。 | 成功 0，Prepared；只增加真实 FreshHostFifos 依据。失败 -1000。部分 allocator 改动不回滚、不当作可重试 fresh 状态。 | [prepare](../../../scripts/tests/test-k60-owner-prepare.c)：11 场景 |
+| 2 k60_owner_prepare_pas1 | Claimed 且 live/stopped；在短 TCSR 内发现 host0/ADSP2 partition，对精确尺寸的既有 429/478/479/480 清零后复用，缺失项按 340/32/16384/16384 分配并初始化 SMP2P master-kernel 输出项 429；尺寸不符则拒绝；不创建远端 443。 | 成功 0，Prepared；只增加真实 FreshHostFifos 依据。失败 -1000。部分 allocator 改动不回滚、不当作可重试 fresh 状态。 | [prepare](../../../scripts/tests/test-k60-owner-prepare.c)：12 场景 |
 | 3 k60_owner_auth_and_start | Prepared、排他且 PAS stopped；一次 INIT_IMAGE(header+hash metadata) → 可重定位时 MEM_SETUP(物理 region/span) → 每段 COPY/BSS/CACHE → AUTH_AND_RESET。reader bytes 必须一直被 pin。 | 成功 0，Started，才设置 public Authenticated bit0；仍无 lease。失败 -1000，无有效 lease；AUTH 已尝试则 shutdown 后独立确认 stopped，不能确认时 Poisoned 并保留资源。 | [auth](../../../scripts/tests/test-k60-owner-auth.c)：12 场景 |
-| 4 k60_owner_build_handoff | Started 且 public facts 精确 15；plan.required 精确 15、epoch 匹配。ready callback 后短锁发现 partition/真实 443/全零 descriptor/精确 items，解锁重验 live；最终短锁只 build_existing+self-parse，再解锁核对 offsets/epoch/restart。 | 成功 0，Built，才产生 native lease 并设置内部 build/self-parse bit1。required=14 返回 -47；缺 partition -45，不写 /chosen；其余见下表。 | [build](../../../scripts/tests/test-k60-owner-build.c)：15 场景 |
+| 4 k60_owner_build_handoff | Started 且 public facts 精确 15；plan.required 精确 15、epoch 匹配。ready callback 后短锁发现 partition/真实 443/descriptor word1-2/精确 items，解锁重验 live；最终短锁只 build_existing+self-parse，再解锁核对 offsets/epoch/restart。 | 成功 0，Built，才产生 native lease 并设置内部 build/self-parse bit1。required=14 返回 -47；缺 partition -45，不写 /chosen；其余见下表。 | [build](../../../scripts/tests/test-k60-owner-build.c)：15 场景 |
 | 5 k60_owner_publish | Built；/chosen registry root 就绪、无已有属性、owner live；再次 ready/restart、自解析同一 blob/epoch，再调用原子 no-clobber commit。root 不是已挂载 rootfs。 | 成功 0，Published，当前启动 epoch 的 104 字节记录已提交；没有成功后的 release 路径。已有属性 -41，root 不就绪 -43；commit 失败 -48。 | [publish](../../../scripts/tests/test-k60-owner-publish.c)：22 场景 |
 
 阶段诊断格式为 K60ADSP owner stage=%d rc=%d。日志及 report observer 在 TCSR 释放后执行；report 不得重新进入硬件事务。忙时 API gate 的拒绝不进入阶段主体。无效/陈旧阶段入口拒绝而不拆除已有 Built/Published 状态。
@@ -50,7 +50,7 @@ K60OwnerOps version=1，bytes=sizeof(K60OwnerOps)。除 available/stopped/live �
 | 持续排他 | exclusive(context, config, &epoch, &cookie) 返回真实非零 cookie/当前启动 epoch；resources(context,cookie) 保留 power/XO/interconnect。live(context,cookie,epoch) 只读、非阻塞，绑定同一配置/几何/启动。禁止 reset/restart、并行 GLINK worker、掉票或 token 过期跨越解锁窗口。 |
 | stopped 与映射 | stopped(context,cookie) 独立证明 PAS stopped；未知/正在运行拒绝 takeover。map_smem(context,config,&smem) 只在上述依赖和 stopped 证明后执行；返回精确 0x200000 大小、8 字节对齐映射。lock/unlock 是真实 TCSR 短锁，不是长期软件 lease。 |
 | PAS/装载 | init_image(context,metadata,bytes)、mem_setup(context,base,span)、load(context,destination,bytes,copy_bytes,zero_bytes)、auth_and_reset(context)、shutdown(context)。load 必须写入规划的 ADSP 物理区域并完成 BSS 清零及 cache 同步，AUTH 之前全部完成；不能仅处理 host 缓冲就声称装载。安全后端负责 SCM 串行化、interrupted resume/busy 处理、coherent metadata 和有界事务。 |
-| ready | ready(context,config,smem,&bytes,&restart) 有界等待真实 slave-kernel；每次 discovery 自己取得/释放短 TCSR，sleep 只在解锁后。要求 state&2 且 !(state&1)，保持 restart 一致；不能创建 443 或伪造 ready。具体时限由未来平台后端落实，本轮未安装硬件 polling 实现。 |
+| ready | ready(context,config,smem,&bytes,&restart) 有界等待真实 slave-kernel；每次 discovery 自己取得/释放短 TCSR，sleep 只在解锁后。要求 state&2 且 !(state&1)，保持 restart 一致；不能创建 443 或伪造 ready。本板 K60AdspPlatform 以 5000×1 ms 有界轮询实现，只在解锁后等待。 |
 | registry | K60OwnerPublishOps 的 root_ready(context)、exists(context)、commit(context,blob,bytes)；commit 原子无覆盖且失败不得先写属性。runtime 先分配 OSData，commit 内 append/self-parse 后 runPropertyAction 检查/设置。 |
 
 未自动安装旧 K60AdspPas/K60AdspBoot 的 raw SMC 路径：其一次调用不能提供完整 SCM 事务、coherence、资源或 stopped 证明，旧 AUTH-before-INIT 顺序也未复用。真实后端仍由 Lead/ADSP 接入，测试 fake 不安装到生产入口。
@@ -75,7 +75,7 @@ K60AdspOwnerLease 保持 uint32_t version, bytes, flags, epoch 加 void *token�
 | session.completed | Claim=1、Build/self-parse=2、Prepare=4、Auth=8、Publish=16；仅软件内部进度，绝不转换为公共硬件事实。 |
 | epoch / token | 非零当前启动 epoch，绑定 cookie、板级配置和 items；native token 指向持久 session。revalidate 同时验证真实 backend live，不能仅凭非空地址或数字 15 授权。 |
 
-固定板级输入为 SMEM 0x80900000/0x200000、ADSP 0x9fd00000/0x3100000、mutex 0x1f4100c、IPCC 0xed18000、remote PID2、client3/signal0、478/479/480/443、protocol1；runtime 在 provider 有副作用之前拒绝 XNU RAM 重叠。没有另取旧 carveout 或合成 epoch。
+固定板级输入为 SMEM 0x80900000/0x200000、ADSP 0x9fd00000/0x3100000、mutex 0x1f43000、IPCC 0xed18000、remote PID2、client3/signal0、478/479/480/443、protocol1；runtime 在 provider 有副作用之前拒绝 XNU RAM 重叠。没有另取旧 carveout 或合成 epoch。
 
 ## 锁、失败和终态
 

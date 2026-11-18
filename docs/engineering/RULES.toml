@@ -762,6 +762,16 @@ statement = "跨 worktree 的全局账本记的是「这台机器最后一次成
 check = "python3 scripts/tests/test-porting-gate-book.py"
 note = "2026-11-16 上游跟进构建成功后 porting-gate 仍阻断 [S]：上次成功 4305c6cc2821bcb7(08:59, bt 线 234 条) != 现在 59d8037521a5b07b(main 227 条，07:36 已由 baseline-20261116a 上机)。修法加 booted_series() 读 MAIN-BASELINE.toml 的 state=booted 条目；build-only 永远不能背书。双向验证：真序列 PASS、伪造序列仍 FAIL。"
 
+
+[[rule]]
+id = "P-223"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-223"
+statement = "fail-closed 必须覆盖真实发布链且先于 PAS/SMEM 副作用；未知供电不得置 ResourcesHeld。resources 拒绝后 map_smem/SMEM allocation/INIT_IMAGE/MEM_SETUP/copy/AUTH/publish 均须为零；TCS 请求不等于轨有效。"
+check = 'd=$(mktemp -d) && cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o "$d/rail" scripts/tests/test-k60-pmic-rail.c drivers/PongPower/K60PmicRail.c && "$d/rail" && cc -std=c11 -O1 -Wall -Wextra -I drivers/PongPower -o "$d/board" scripts/tests/test-k60-adsp-board.c drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspStartup.c && "$d/board" && cc -std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongPower -o "$d/claim" scripts/tests/test-k60-owner-claim.c drivers/PongPower/K60AdspOwner.c drivers/PongPower/K60AdspOwnerStages.c drivers/PongPower/K60AdspMdt.c drivers/PongPower/K60Smem.c drivers/PongPower/K60AdspImageReader.c drivers/PongPower/K60Fat.c drivers/PongPower/K60HandoffBuild.c drivers/PongPower/K60HandoffPublish.c drivers/PongPower/K60BatteryConfig.c drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60AdspStartup.c -Wl,--wrap=k60_smem_alloc && "$d/claim"; rc=$?; rm -rf "$d"; exit $rc'
+note = "2026-11-16 15:03 Lead 选择 (iii)：resources 在 lease/排他/stopped 检查后仍返回 K60BoardUnsupported(-63)，不置 resources=1。B 先记账后查表于13:50撤回（读者早于写者）；C 声明成功于15:03撤回（legacy bring_up 的门不覆盖生产 owner stages）。board 仍8场景，第8场景验证回调拒绝；owner-claim 另连真实 board 与 production install/acquire，以 wrap 直接计数 allocation 并验证下游零副作用与 SMEM 不变，不再证明声明成功。rail49仅旧 helper 证据，采样范围/状态语义/单次入口仍待审计；不得出功能图。"
+
+
 [[rule]]
 id = "P-224"
 title = "构建的冻结输入把 python 自己写的字节码算进去了"

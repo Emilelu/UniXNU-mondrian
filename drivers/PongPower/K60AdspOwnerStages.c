@@ -28,7 +28,7 @@ static int config_ok(const K60BatteryConfig *c)
 {
     return c && c->smem_base == UINT64_C(0x80900000) && c->smem_bytes == 0x200000u &&
         c->adsp_base == UINT64_C(0x9fd00000) && c->adsp_bytes == 0x3100000u &&
-        c->mutex_base == 0x1f4100cu && c->ipcc_base == 0xed18000u &&
+        c->mutex_base == 0x1f43000u && c->ipcc_base == 0xed18000u &&
         c->remote_pid == 2u && c->ipcc_client == 3u && !c->ipcc_signal &&
         c->desc_item == 478u && c->tx_item == 479u && c->rx_item == 480u &&
         c->smp2p_item == 443u && c->protocol == 1u;
@@ -101,28 +101,87 @@ static int claim_locked(K60OwnerSession *s, const K60BatteryConfig *c,
     drop(s); s->phase = K60OwnerClaimed; s->completed |= 1u;
     return result(s, 1, 0);
 }
+static void clear_host_item(K60OwnerSession *s, uint32_t at, uint32_t bytes)
+{
+    volatile uint32_t *p = (volatile uint32_t *)(s->smem.base + at);
+    for (uint32_t i = 0; i < bytes / 4u; ++i) p[i] = 0;
+#if defined(__aarch64__) && defined(KERNEL)
+    __asm__ volatile("dmb osh" ::: "memory");
+#endif
+}
+#define K60_SMP2P_OUT_ITEM 429u
+#define K60_SMP2P_OUT_BYTES 340u
+/* The ADSP firmware looks for the AP's outbound SMP2P item before it starts.
+ * Zizhan creates it before QMP/PAS and names one entry master-kernel; without
+ * it the DSP never publishes the inbound slave-kernel item 443. */
+static void init_smp2p_out(K60OwnerSession *s, uint32_t at)
+{
+    volatile uint32_t *p = (volatile uint32_t *)(s->smem.base + at);
+    for (uint32_t i = 0; i < K60_SMP2P_OUT_BYTES / 4u; ++i) p[i] = 0;
+#if defined(__aarch64__) && defined(KERNEL)
+    __asm__ volatile("dmb osh" ::: "memory");
+#endif
+    p[0] = 0x504d5324u;
+    p[2] = (uint32_t)s->config.remote_pid << 16;
+    p[3] = 16u;
+#if defined(__aarch64__) && defined(KERNEL)
+    __asm__ volatile("dmb osh" ::: "memory");
+#endif
+    p[1] = 1u | (1u << 8);
+#if defined(__aarch64__) && defined(KERNEL)
+    __asm__ volatile("dmb osh" ::: "memory");
+#endif
+    static const char name[] = "master-kernel";
+    for (unsigned i = 0; i < 16 && name[i]; ++i)
+        p[5u + i / 4u] |= (uint32_t)(uint8_t)name[i] << (8u * (i % 4u));
+    p[9] = 0;
+#if defined(__aarch64__) && defined(KERNEL)
+    __asm__ volatile("dmb osh" ::: "memory");
+#endif
+    p[3] = 16u | (1u << 16);
+#if defined(__aarch64__) && defined(KERNEL)
+    __asm__ volatile("dmb osh" ::: "memory");
+#endif
+}
 static int prepare_pas1_locked(K60OwnerSession *s)
 {
     if (!s || s->phase != K60OwnerClaimed) return s ? result(s, 2, K60_ADSP_OWNER_UNAVAILABLE) : K60_ADSP_OWNER_UNAVAILABLE;
-    if (!live(s) || s->ops.stopped(s->context, s->cookie) != 1)
+    const int lv = live(s), st = s->ops.stopped(s->context, s->cookie);
+    if (!lv || st != 1)
         return fail(s, 2, K60_ADSP_OWNER_UNAVAILABLE);
     int rc = take(s);
     if (rc) return fail(s, 2, rc);
     K60SmemPartition part;
+    for (unsigned z = 0; z < sizeof part; ++z) ((uint8_t *)&part)[z] = 0;
     rc = k60_smem_partition(&s->smem, 0, 2, &part);
-    const uint16_t ids[3] = {478, 479, 480};
-    const uint32_t sizes[3] = {32, 4096, 4096};
-    /* Refuse existing host items, even all-zero ones. Never allocate SMP2P 443.
-     * Partial allocator failure is not rolled back or treated as a fresh retry. */
-    for (unsigned i = 0; !rc && i < 3; ++i) {
-        uint32_t at, n; int found = k60_smem_find(&s->smem, &part, ids[i], &at, &n);
-        if (found != K60SmemMissing) rc = found ? found : K60SmemExists;
+    const uint16_t ids[4] = {K60_SMP2P_OUT_ITEM, 478, 479, 480};
+    const uint32_t sizes[4] = {K60_SMP2P_OUT_BYTES, 32, 16384, 16384};
+    unsigned present[4] = {0, 0, 0, 0};
+    uint32_t smp2p_out_at = 0;
+    /* A warm boot keeps the ADSP partition, so Android or an earlier attempt
+     * can leave the outbound SMP2P item and 478/479/480 behind. Exact-size
+     * host items are ours to reclaim: the stopped proof above means no remote
+     * consumer is reading them, and clearing the descriptor and both rings
+     * removes every stale pointer. A wrong-size item is still refused. Never
+     * allocate SMP2P 443. Partial allocator failure is not rolled back or
+     * treated as a fresh retry. */
+    for (unsigned i = 0; !rc && i < 4; ++i) {
+        uint32_t at = 0, n = 0; int found = k60_smem_find(&s->smem, &part, ids[i], &at, &n);
+        if (found == K60SmemOk) {
+            if (n != sizes[i]) rc = K60SmemCorrupt;
+            else { present[i] = 1; if (i == 0) smp2p_out_at = at; clear_host_item(s, at, n); }
+        } else if (found != K60SmemMissing) {
+            rc = found;
+        }
     }
-    for (unsigned i = 0; !rc && i < 3; ++i) {
-        uint32_t at, n; rc = k60_smem_alloc(&s->smem, &part, ids[i], sizes[i], &at, &n);
+    for (unsigned i = 0; !rc && i < 4; ++i) {
+        if (present[i]) continue;
+        uint32_t at = 0, n = 0; rc = k60_smem_alloc(&s->smem, &part, ids[i], sizes[i], &at, &n);
         if (!rc && n != sizes[i]) rc = K60SmemCorrupt;
+        if (!rc && i == 0) smp2p_out_at = at;
     }
     drop(s);
+    if (!rc) init_smp2p_out(s, smp2p_out_at);
     if (rc) return fail(s, 2, K60_ADSP_OWNER_UNAVAILABLE);
     s->evidence |= K60AdspFreshHostFifos; s->completed |= 4u; s->phase = K60OwnerPrepared;
     return result(s, 2, 0);
@@ -167,7 +226,7 @@ static int plan_matches(const K60OwnerSession *s, const K60HandoffPlan *p)
         p->adsp_base == c->adsp_base && p->adsp_bytes == c->adsp_bytes &&
         p->desc_item == 478 && p->tx_item == 479 && p->rx_item == 480 &&
         p->smp2p_item == 443 && p->remote_pid == 2 && p->desc_bytes == 32 &&
-        p->tx_bytes == 4096 && p->rx_bytes == 4096 && !p->host_tx_head && !p->host_rx_tail &&
+        p->tx_bytes == 16384 && p->rx_bytes == 16384 && !p->host_tx_head && !p->host_rx_tail &&
         p->smp2p_bytes >= 20 && p->smp2p_bytes <= 340 && p->remote_restart_flag <= 1;
 }
 static int build_handoff_locked(K60OwnerSession *s, const K60HandoffPlan *p)
@@ -186,13 +245,18 @@ static int build_handoff_locked(K60OwnerSession *s, const K60HandoffPlan *p)
         rc = k60_handoff_remote_ready(&s->config, &s->smem, &part, &live_n, &live_restart);
         if (!rc && (live_n != n || live_restart != restart)) rc = -1;
     }
-    const uint16_t ids[3] = {478, 479, 480}; const uint32_t sizes[3] = {32,4096,4096};
+    const uint16_t ids[3] = {478, 479, 480}; const uint32_t sizes[3] = {32,16384,16384};
     code = rc ? code : K60PublishBuildFailed;
     for (unsigned i = 0; !rc && i < 3; ++i) {
         rc = k60_smem_find(&s->smem, &part, ids[i], &off[i], &bytes[i]);
         if (!rc && bytes[i] != sizes[i]) rc = -1;
     }
-    if (!rc) for (unsigned i = 0; i < 32; ++i) if (s->smem.base[off[0] + i]) { rc = -1; code = K60PublishDirtyDescriptor; break; }
+    if (!rc) {
+        const volatile uint32_t *d = (const volatile uint32_t *)(s->smem.base + off[0]);
+        /* The consumer only requires the AP-owned head/tail words to be zero;
+         * the DSP may have written its own tail/head words while starting. */
+        for (unsigned i = 1; i <= 2; ++i) if (d[i]) { rc = -1; code = K60PublishDirtyDescriptor; break; }
+    }
     drop(s);
     if (rc) return fail(s, 4, code);
     if (!live(s)) return fail(s, 4, K60PublishPasFailed);
@@ -204,7 +268,7 @@ static int build_handoff_locked(K60OwnerSession *s, const K60HandoffPlan *p)
     drop(s);
     if (rc || parsed.epoch != s->epoch || parsed.flags != 15u ||
         parsed.desc_offset != off[0] || parsed.tx_offset != off[1] || parsed.rx_offset != off[2] ||
-        parsed.desc_bytes != 32u || parsed.tx_bytes != 4096u || parsed.rx_bytes != 4096u ||
+        parsed.desc_bytes != 32u || parsed.tx_bytes != 16384u || parsed.rx_bytes != 16384u ||
         parsed.remote_restart_flag != restart) return fail(s, 4, K60PublishBuildFailed);
     if (!live(s)) return fail(s, 4, K60PublishPasFailed);
     /* Internal completed bit1 means build/self-parse; public bit1 remains

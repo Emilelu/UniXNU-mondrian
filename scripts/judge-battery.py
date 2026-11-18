@@ -68,9 +68,9 @@ CHANNEL_UP_RE = re.compile(
     r"K60Battery: actual PMIC_RTR_ADSP_APPS channel up; measured sign=(-?\d+) "
     r"subscription-ack=(\d+)/(\d+)")
 SAMPLE_RE = re.compile(
-    r"K60Battery: (physical source published|physical source updated) "
+    r"K60Battery: (physical source published|physical source updated|physical source refreshed) "
     r"sample=(\d+) SOC=(\d+)\.(\d+)% charge=(\d+)/(\d+)mAh design=(\d+)mAh "
-    r"cycles=(\d+) voltage=(\d+)mV current=(-?\d+)mA temp=(-?\d+)\.(\d+)C "
+    r"cycles=(\d+) voltage=(\d+)mV current=(-?\d+)mA (?:current-source=[a-z]+ )?temp=(-?\d+)\.(\d+)C "
     r"external=(\d+) charging=(\d+) full=(\d+) subscribed=(\d+)")
 # Failure lines that explain why no sample was published (07 section 2.4).
 FAILURE_RE = re.compile(

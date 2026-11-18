@@ -13,19 +13,30 @@ int main(void)
     CHECK(!k60_owner_prepare_pas1(&f.session)); CHECK(f.session.phase == K60OwnerPrepared);
     CHECK(f.session.completed == 5 && !(f.session.completed & 2u));
     CHECK((f.session.evidence & K60AdspFreshHostFifos) && !(f.session.evidence & K60AdspAuthenticated));
-    CHECK(f.allocations == 3 && fx_get(&f, FX_PART + 12) == f.baseline_up + 32 + 16 + 4096 + 16 + 4096 + 16);
+    CHECK(f.allocations == 3 && fx_get(&f, FX_PART + 12) == f.baseline_up + 32 + 16 + 16384 + 16 + 16384 + 16);
     for (uint16_t id = 478; id <= 480; ++id) {
-        uint32_t n = 0, want = id == 478 ? 32 : 4096; fx_item(&f, id, &n); CHECK(n == want);
+        uint32_t n = 0, want = id == 478 ? 32 : 16384; fx_item(&f, id, &n); CHECK(n == want);
     }
     CHECK(fx_get(&f, FX_PART + 12) > f.baseline_up);
     CHECK(!memcmp(fx_bytes(&f) + f.remote_offset, f.remote_before, sizeof f.remote_before));
     fx_zero_lease(&f); fx_reported(&f, 2, 0);
 
-    fx_case(&f, "pre-existing host allocation blocks reuse even when zero"); fx_claim(&f);
+    fx_case(&f, "pre-existing exact host items are reclaimed and cleared"); fx_claim(&f);
     { K60Smem smem = {fx_bytes(&f), FX_SMEM_BYTES}; K60SmemPartition part; uint32_t off, n;
-      CHECK(!k60_smem_partition(&smem, 0, 2, &part)); CHECK(!k60_smem_alloc(&smem, &part, 478, 32, &off, &n));
+      CHECK(!k60_smem_partition(&smem, 0, 2, &part));
+      for (uint16_t id = 478; id <= 480; ++id) {
+        const uint32_t size = id == 478 ? 32 : 16384;
+        CHECK(!k60_smem_alloc(&smem, &part, id, size, &off, &n) && n == size);
+        memset(fx_bytes(&f) + off, 0x5a, n);
+      }
       f.baseline_up = fx_get(&f, FX_PART + 12); }
-    failed(); CHECK(f.allocations == 0);
+    CHECK(!k60_owner_prepare_pas1(&f.session)); CHECK(f.session.phase == K60OwnerPrepared);
+    CHECK(f.allocations == 0);
+    for (uint16_t id = 478; id <= 480; ++id) {
+      uint32_t n = 0; const uint32_t at = fx_item(&f, id, &n);
+      CHECK(n == (id == 478 ? 32 : 16384) && fx_zero(fx_bytes(&f) + at, n));
+    }
+    fx_zero_lease(&f); fx_reported(&f, 2, 0);
 
     fx_case(&f, "malformed SMEM partition fails without host allocation"); fx_claim(&f);
     fx_put(&f, FX_PART + 8, FX_PART_BYTES - 8); failed(); CHECK(f.allocations == 0);
@@ -43,7 +54,7 @@ int main(void)
     f.lock_fail_on = 2; failed(); CHECK(f.lock_calls == 2 && f.unlock_calls == 1 && !f.allocations);
 
     fx_case(&f, "partial allocator failure is not rolled back or retryable"); fx_claim(&f);
-    { uint32_t size = f.baseline_up + 16 + 32 + 16 + 4096 + 16 + 4096 - 8;
+    { uint32_t size = f.baseline_up + 16 + 32 + 16 + 16384 + 16 + 16384 - 8;
       fx_put(&f, FX_PART + 8, size); fx_put(&f, FX_PART + 16, size);
       fx_put(&f, FX_SMEM_BYTES - 4096 + 36, size); }
     failed(); CHECK(f.allocations == 2 && fx_get(&f, FX_PART + 12) > f.baseline_up);
@@ -54,10 +65,17 @@ int main(void)
     fx_case(&f, "bad first allocator entry is rejected transactionally"); fx_claim(&f);
     fx_put(&f, FX_PART + 32, 443u << 16); failed(); CHECK(f.allocations == 0);
 
-    fx_case(&f, "allocator refuses host desc collisions including stale zero item"); fx_claim(&f);
+    fx_case(&f, "pre-existing exact item is reused while missing items are allocated"); fx_claim(&f);
     { K60Smem smem = {fx_bytes(&f), FX_SMEM_BYTES}; K60SmemPartition part; uint32_t off, n;
-      CHECK(!k60_smem_partition(&smem, 0, 2, &part)); CHECK(!k60_smem_alloc(&smem, &part, 480, 4096, &off, &n));
+      CHECK(!k60_smem_partition(&smem, 0, 2, &part)); CHECK(!k60_smem_alloc(&smem, &part, 480, 16384, &off, &n));
       memset(fx_bytes(&f) + off, 0, n); f.baseline_up = fx_get(&f, FX_PART + 12); }
+    CHECK(!k60_owner_prepare_pas1(&f.session)); CHECK(f.session.phase == K60OwnerPrepared);
+    CHECK(f.allocations == 2); fx_zero_lease(&f); fx_reported(&f, 2, 0);
+
+    fx_case(&f, "wrong-size pre-existing item blocks reuse"); fx_claim(&f);
+    { K60Smem smem = {fx_bytes(&f), FX_SMEM_BYTES}; K60SmemPartition part; uint32_t off, n;
+      CHECK(!k60_smem_partition(&smem, 0, 2, &part)); CHECK(!k60_smem_alloc(&smem, &part, 478, 64, &off, &n));
+      f.baseline_up = fx_get(&f, FX_PART + 12); }
     failed(); CHECK(f.allocations == 0);
 
     fx_case(&f, "failed prepare reports once and closes mapping and image"); fx_claim(&f);

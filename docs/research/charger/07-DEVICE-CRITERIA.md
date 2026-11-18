@@ -174,7 +174,7 @@ status Charging、current_now 836 mA、voltage_now 4 333 mV、USB CDP online。
 | 容量 | **±3 个百分点（pp）** | 两侧都按 % 比（XNU 用 `SOC=%u.%02u`） |
 | 温度 | **±3 °C** | Android 0.1 °C ÷10 后比 |
 
-符号约定：XNU `current_ma` 已按 `charging_current_sign` 归一化，`K60Battmgr.h:52` 记 **+1 = wire 充电正**。
+符号约定：XNU `current_ma` 已按 `charging_current_sign` 归一化，`K60Battmgr.h:52` 记 **+1 = wire 充电正、-1 = wire 放电正**；PMIC-GLINK 参考实现 `ShengBattmgr.c:228` 的 `-V(BmCurrent)/1000` 表明其固件按放电正汇报，故 K60 默认 **-1**。
 充电时两侧应同号为正；**符号方向不一致直接 FAIL**（比数值超差更早暴露 sign 常量错）。
 
 ### 3.4 命中次数

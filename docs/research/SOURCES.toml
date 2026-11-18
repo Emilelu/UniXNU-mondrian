@@ -302,6 +302,12 @@ why = "K60 本板对 RSC（drv-2 / 0x17a20000）的真实可访问性：这是�
 examined = "2026-11-14"
 finding = """2026-11-10 19:13 的 boot（内核 9ea06001 / 镜像 6ac1d7b1）。:627,:629 打出 goodix: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1（两项前提检查全 PASS）；:630 rails written iovdd=0x42c00 avdd=0x40f00 (ldoc3)；:631 rails on (ldoc2=0x42c00, AVDD gpio71=1) —— ACTIVE TCS4 的投票被硬件接受；:705 goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255。全量复核（582 个 boot 目录，脚本 E:/k60-work/scratch/refmine/rsc_audit3.py）：49 个 boot 带 caps 行、48 个投票成功、只有 1 次 RPMh timeout（usblog-20261110-190459，完成判据错用 IRQ_STATUS 那一轮）、5 次 panicMarker 全在 GPU/display 的 normalize* 实验里且 stopReason=budget。结论：drv-2 可读可写，『一读就死』只对 drv-0（0x17a00000）与 drv-3（0x17a30000）成立；0248 的只读探针 k60rscprobe 在 582 个 boot 里 0 次出现，那两次致死实验没有留日志，因此无法用现有证据闭合。注意 goodix: I/O supply on (1.8 V) 本板 0 次（那是 phk110 的文本，见 forks-review/hakios-xnu-kernel/drivers/input/hakios.goodix.c:268）。"""
 
+[[subsystem.power.required]]
+path = "docs/research/audio/ADSP-RAIL-SAMPLER-AUDIT.md"
+why = "ADSP rail-only采样器的DRV-2几何、请求与实际供电证据边界、唯一入口与失败单次审计"
+examined = "2026-11-16"
+finding = "固定Xiaomi mondrian-s-oss 989b27aa8391a2ede9b067b53877c4c3343955fe核对caps、五类TCS、slot/command stride、TCS_STATUS与CMD_STATUS、enable/msgid；Linux固定提交交叉核验v2.7/v3。9个helper及10个KERNEL entry合成案例复现覆盖缺失、忽略状态、失败重试和cache remap。未改driver/patch；测试exit0是反例复现，不是合规或上机通过。TCS非零只证明请求留痕，不授权供电/SCM；访问许可与AOP聚合/ARC生效状态仍阻塞。"
+
 [[subsystem.audio.required]]
 path = "references/pong-power/ShengAudioReach.c"
 why = "AudioReach / GPR 的参数 ID 与打包格式，ADSP 音频服务的最小可用子集"

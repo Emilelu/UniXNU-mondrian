@@ -127,6 +127,32 @@ int main(void)
     check("domain3_cores", k60_cpufreq_domain_cores(3), 0);
     check("row_source0_ignores_l", k60_cpufreq_row_khz(0x000000ffu), 300000);
 
+    {
+        K60CpuFreqWrite writes[K60_CPU_FREQ_MAX_WRITES];
+        unsigned n;
+
+        n = k60_cpufreq_build_votes(0, 0, 7, writes, K60_CPU_FREQ_MAX_WRITES);
+        check("votes_d0_single_count", n, 1);
+        check("votes_d0_single_offset", writes[0].offset, 0x320);
+        check("votes_d0_single_value", writes[0].value, 7);
+        n = k60_cpufreq_build_votes(0, 1, 9, writes, K60_CPU_FREQ_MAX_WRITES);
+        check("votes_d0_dcvs_count", n, 4);
+        check("votes_d0_core1_offset", writes[1].offset, 0x324);
+        check("votes_d0_core3_offset", writes[3].offset, 0x32c);
+        check("votes_d0_core3_value", writes[3].value, 9);
+        n = k60_cpufreq_build_votes(1, 1, 3, writes, K60_CPU_FREQ_MAX_WRITES);
+        check("votes_d1_dcvs_count", n, 3);
+        n = k60_cpufreq_build_votes(2, 1, 3, writes, K60_CPU_FREQ_MAX_WRITES);
+        check("votes_d2_dcvs_count", n, 1);
+        check("votes_tight_capacity", k60_cpufreq_build_votes(0, 1, 3, writes, 2), 0);
+        check("votes_null", k60_cpufreq_build_votes(0, 1, 3, NULL, 8), 0);
+        n = k60_cpufreq_build_l3_vote(5, writes, 1);
+        check("l3_vote_count", n, 1);
+        check("l3_vote_offset", writes[0].offset, 0x90);
+        check("l3_vote_value", writes[0].value, 5);
+        check("l3_vote_no_capacity", k60_cpufreq_build_l3_vote(5, writes, 0), 0);
+    }
+
     printf("%s %u checks (%u failure%s)\n", failures ? "TESTS FAILED" : "TESTS OK",
         checks, failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;

@@ -98,6 +98,16 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 - archive：`build/k60-battery/libK60PhysicalBattery.a` **121,976 字节**，
   sha256 `3f27f9686f361221f7516c7200c3499298ca86854c26442f16ea130c5869ae52`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_build_table`、`_k60_cpufreq_target` 等符号。
+- 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
+  201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
+  kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
+  payload `39ea4cc5f3724774d6d6d6b57bca18e2eacef49c6a937a4b217f12839b77b4e9`。
+  `verify-boot-img-payload.py` OK：payload @ 557056、201,326,592 字节；payload 内 kernel 为
+  probe-patched `9aa990d1519fe091…`，payload.json 记录的是 pre-patch `8b756640…`；
+  FD `cf4485712c29…`。`check-image-args.py` OK（30 个参数，598 字节）。
+  payload 字符串里 `K60CpuFreq: d`/`K60CpuFreq: L3` 各 2 次、`K60CpuFreq: mode=` 1 次，
+  kernel.macho 符号表含 `_k60_cpufreq_probe/build_table/pick_highest/target/step/domain_*`；
+  `boot.json` 的 `hardware_tested` 为 `false`，即没有任何真机读数。
 
 ## 7. 未实现 / 边界
 
@@ -110,7 +120,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 ## 8. 设备空窗时的上机步骤（当前暂缓）
 
-1. 用带本 archive 的 image 启动，boot args 加 `k60_cpufreq=1`。
+1. 用带本 archive 的 image 启动（当前候选 image g，sha256 `7b0473ae…`），boot args 加 `k60_cpufreq=1`。
 2. 抓 `K60CpuFreq:` 开头的行：
    - `probing EPSS domains=3 cpus=8 lut-rows=40 (read-only)`
    - `d0 base=0x17d91000 enable=… state=… (…kHz) dcvs=… vote=… rows=… top=…kHz level=… mode1=read-only`

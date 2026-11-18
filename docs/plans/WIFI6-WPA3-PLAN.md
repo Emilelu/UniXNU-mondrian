@@ -1,8 +1,9 @@
 # Wi-Fi 6 and WPA3 on the K60: what it takes
 
 Status: plan, revised 2026-11-18 after two read-only audits (HE association
-semantics; SAE control path and crypto provider). No feature code yet.
-Branch `feat/wifi6-wpa3`.
+semantics; SAE control path and crypto provider). The HE byte codec and its
+legacy-station wiring have since landed on branch `feat/wifi6-wpa3` (see
+§0.1); nothing has been flown yet.
 
 The baseline is device-verified: the K60 joins a WPA2-Personal network,
 negotiates HT and VHT, gets a lease through the native DHCP path, carries
@@ -25,6 +26,24 @@ time-boxed probe, not a patch:
 | **P2** (parallel) | EC/BN provider + `CONFIG_SAE` + SAE KATs on the host | host-only; `hardware_verified=false`; no device risk |
 | **P3** | SAE through the migrated control path: auth type SAE with `auth_data`, AKM 8, `ieee80211w=2`, IGTK/SA Query | WPA3-only AP positive and negative tests |
 | **P4** | If P0/P3 prove out of reach, the record says WPA2-PSK without PMF and WPA3 unsupported | `porting.toml` and this plan updated together |
+
+### 0.1 What landed first, and why
+
+The P0 probe answered its question without a build: the pinned tree carries
+`net/mac80211` and `net/wireless` as git objects but not in the sparse
+checkout, and the manifest needs a producer of the mainline link report that
+neither tree has yet. Switching the build is therefore a driver-generation
+change, not a manifest flip, and it stays ahead of any migration work.
+
+The HE byte codec is independent of that choice, so it was written first:
+`drivers/PongWifi/ath11k/pong_he.{c,h}` encodes the HE Capabilities element,
+parses the access point's element and narrows the MCS/NSS maps, with no kernel
+header, and is exercised on the host by `scripts/tests/test-pong-he.py`.
+`scripts/build-k60-ath11k.py` injects the include, the globals and three call
+sites into the generated station source. That wiring is the P1 experiment: it
+runs on the legacy station the image actually flies, and it can be dropped when
+the mainline path lands. It is not evidence that the retired station is the
+production path.
 
 ## 1. Wi-Fi 6 (HE): what the station must actually do
 

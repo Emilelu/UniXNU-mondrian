@@ -608,14 +608,15 @@ void testNetwork(const nw_wifi_status &st) {
  static bool alternate=false,reconnecting=false,rescanned=false,reported=false;
  static uint32_t firstBand=0;
  static uint8_t firstBssid[6];
- static uint64_t deadline=0, reconnectAt=0, nextRescan=0, nextWait=0;
+ static uint64_t deadline=0, reconnectAt=0, nextRescan=0, nextWait=0, autoArmAt=0;
  static unsigned rescans=0;
- static bool addressWait=false;
+ static bool addressWait=false, autoCycle=false, passed=false;
  if(!checked) {
-  checked=true;uint32_t flag=0,mode=0;
+  checked=true;uint32_t flag=0,mode=0,cycleFlag=0;
   const bool testFound=PE_parse_boot_argn("pong_wifi_test",&flag,sizeof flag);
   const bool modeFound=PE_parse_boot_argn("pong_wifi",&mode,sizeof mode);
   enabled=kWifiTestSsidBytes&&kWifiTestKeyBytes;
+  autoCycle=enabled&&PE_parse_boot_argn("pong_wifi_cycle",&cycleFlag,sizeof cycleFlag)&&cycleFlag==1;
   IOLog("PongWifi: association probe: pong_wifi_test=%d/%u pong_wifi=%d/%u fixture=%u/%u state=%u\n",
    testFound?1:0,flag,modeFound?1:0,mode,(unsigned)kWifiTestSsidBytes,
    (unsigned)kWifiTestKeyBytes,(unsigned)st.state);
@@ -639,6 +640,16 @@ void testNetwork(const nw_wifi_status &st) {
   if(now()<reconnectAt)return;
   reconnectAt=0;attempted=false;finished=false;reconnecting=true;deadline=now()+60000;
   log(6,"WiFi lifecycle test RUNNING: reconnecting to scanned network");
+ }
+ if(autoCycle&&passed&&!reconnecting&&!autoArmAt) {
+  autoArmAt=now()+15000;
+  IOLog("PongWifi: WiFi lifecycle test armed: automatic disconnect in 15 s\n");
+ }
+ if(autoArmAt&&now()>=autoArmAt) {
+  autoArmAt=0;
+  unsigned ready=1;
+  if(__atomic_compare_exchange_n(&testReconnectState,&ready,2,false,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED))
+   IOLog("PongWifi: WiFi lifecycle test RUNNING: automatic disconnect\n");
  }
  if(finished)return;
  // nw_sta_scan_done returns the station to NW_STA_IDLE. Accept the transient
@@ -711,18 +722,27 @@ void testNetwork(const nw_wifi_status &st) {
    (unsigned)st.state,pong_wifi_net_has_ipv4()?1:0,root?(unsigned)root->getBusyState():0);
  }
  if(attempted&&st.state==NW_STA_UP&&pong_wifi_net_has_ipv4()) {
-  finished=true;log(6,"WiFi association test PASS: authenticated link and IPv4 address");
+  finished=true;passed=true;log(6,"WiFi association test PASS: authenticated link and IPv4 address");
   if(!reconnecting)memcpy(firstBssid,st.bssid,sizeof firstBssid);
-  else if(alternate)log(6,memcmp(firstBssid,st.bssid,sizeof firstBssid)?
-   "WiFi lifecycle test AP switch PASS: associated to distinct BSSID":
-   "WiFi lifecycle test AP switch FAIL: BSSID did not change");
+  else {
+   IOLog("PongWifi: WiFi lifecycle test PASS: reconnected BSSID %02x:%02x:%02x:%02x:%02x:%02x state=%u IPv4=%u\n",
+    st.bssid[0],st.bssid[1],st.bssid[2],st.bssid[3],st.bssid[4],st.bssid[5],
+    (unsigned)st.state,pong_wifi_net_has_ipv4()?1:0);
+   if(alternate)log(6,memcmp(firstBssid,st.bssid,sizeof firstBssid)?
+    "WiFi lifecycle test AP switch PASS: associated to distinct BSSID":
+    "WiFi lifecycle test AP switch FAIL: BSSID did not change");
+  }
   unsigned idle=0;
   __atomic_compare_exchange_n(&testReconnectState,&idle,1,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED);
   pong_wifi_net_diagnostics();
  } else if(now()>=deadline) {
   finished=true;
-  IOLog("PongWifi: association test FAIL: target_found=%u state=%u result=%d IPv4=%u\n",
-   attempted,st.state,st.result,pong_wifi_net_has_ipv4());
+  if(reconnecting)
+   IOLog("PongWifi: WiFi lifecycle test FAIL: reconnect state=%u result=%d IPv4=%u\n",
+    (unsigned)st.state,st.result,pong_wifi_net_has_ipv4());
+  else
+   IOLog("PongWifi: association test FAIL: target_found=%u state=%u result=%d IPv4=%u\n",
+    attempted,st.state,st.result,pong_wifi_net_has_ipv4());
  }
 }
 void signalWorker() {__atomic_store_n(&wake,1,__ATOMIC_RELEASE);thread_wakeup(reinterpret_cast<event_t>(const_cast<uint32_t *>(&wake)));}

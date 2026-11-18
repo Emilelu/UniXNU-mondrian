@@ -5816,7 +5816,7 @@
  #include "k60_bootjobs_blob.h"
  #include "k60_varpack_blob.h"
  
-@@ -8257,6 +8259,68 @@
+@@ -8257,6 +8259,94 @@
  	return error;
  }
  
@@ -5857,6 +5857,18 @@
 + * 0616: the application probe. launchd starts it from the curated cache, so an
 + * HTTP request reaches the gateway without touching the init helper.
 + */
++static const char k60_netprobe_plist[] =
++    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
++    "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++    "<plist version=\"1.0\"><dict>"
++    "<key>Label</key><string>com.pong.netprobe</string>"
++    "<key>ProgramArguments</key><array>"
++    "<string>/private/var/pong/k60probe</string></array>"
++    "<key>RunAtLoad</key><true/>"
++    "<key>POSIXSpawnType</key><string>Interactive</string>"
++    "<key>StandardErrorPath</key><string>/dev/console</string>"
++    "</dict></plist>\n";
 +static int
 +k60_install_netprobe(int *resid_out)
 +{
@@ -5880,12 +5892,26 @@
 +	}
 +	printf("K60PROBE bytes=%d resid=%d error=%d\n",
 +	    (int)K60_NETPROBE_LEN, resid, error);
++	int plist_error = vnode_open(
++	    "/System/Library/LaunchDaemons/com.pong.netprobe.plist",
++	    O_CREAT | O_WRONLY | O_TRUNC, 0644, 0, &vp, ctx);
++	if (plist_error) {
++		printf("K60PROBE plist vnode_open error=%d\n", plist_error);
++	} else {
++		resid = 0;
++		plist_error = vn_rdwr(UIO_WRITE, vp, (caddr_t)k60_netprobe_plist,
++		    (ssize_t)(sizeof(k60_netprobe_plist) - 1), 0, UIO_SYSSPACE, IO_SYNC,
++		    vfs_context_ucred(ctx), &resid, current_proc());
++		vnode_close(vp, 0, ctx);
++		printf("K60PROBE plist bytes=%d resid=%d error=%d\n",
++		    (int)(sizeof(k60_netprobe_plist) - 1), resid, plist_error);
++	}
 +	return error;
 +}
  static int
  load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
-@@ -8573,9 +8637,13 @@
+@@ -8573,9 +8663,13 @@
  		}
  		if (PE_parse_boot_argn("k60_init_blob", &k60_blob, sizeof(k60_blob)) && k60_blob) {
  			int k60_init_resid = 0;

@@ -216,6 +216,18 @@ def main() -> int:
           job.get("ProgramArguments") == ["/private/var/pong/k60probe"] and
           job.get("RunAtLoad") is True,
           "len=%d jobs=%d label=%s" % (len(craw), len(jobs), job.get("Label")))
+    check("the kernel materializes the probe plist where the cache points",
+          "/System/Library/LaunchDaemons/com.pong.netprobe.plist" in p0616 and
+          "K60PROBE plist bytes=%d resid=%d error=%d" in p0616 and
+          "<key>Label</key><string>com.pong.netprobe</string>" in p0616 and
+          "<key>RunAtLoad</key><true/>" in p0616)
+    plat = (ROOT / "drivers" / "PongWifi" / "PongWifiPlatform.cpp").read_text(encoding="utf-8")
+    check("the lifecycle test can disconnect and reconnect on its own",
+          'PE_parse_boot_argn("pong_wifi_cycle"' in plat and
+          "WiFi lifecycle test armed: automatic disconnect in 15 s" in plat and
+          "WiFi lifecycle test RUNNING: automatic disconnect" in plat and
+          "WiFi lifecycle test PASS: reconnected BSSID" in plat and
+          "WiFi lifecycle test FAIL: reconnect" in plat)
 
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0

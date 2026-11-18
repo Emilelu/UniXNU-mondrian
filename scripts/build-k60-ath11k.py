@@ -652,6 +652,50 @@ static void send_assoc(void) {'''),
         if sta.count(he_old) != 1:
             raise RuntimeError('shared station HE anchor differs: ' + he_old.splitlines()[0][:64])
         sta = sta.replace(he_old, he_new)
+    # SAE (WPA3): the legacy station can only send open-system authentication, so the cheapest question about WPA3 is
+    # whether the management transmit path carries a frame of SAE size at all. The framing lives in
+    # drivers/PongWifi/ath11k/pong_sae.c (host-tested); the station gains a gate, a sender and a receive log, and the
+    # kext arms the gate only from the pong_sae_probe boot argument, so a normal image never sends these frames.
+    sae_code = """/* SAE probe: one Authentication frame with algorithm 3 (SAE) and a commit-sized body, so the firmware's management
+ * transmit path can be measured at the size a real commit needs. The gate comes from the kext (pong_sae_probe); a
+ * normal boot never arms it. This is framing only: the body is filler, and a transmitted frame proves transport. */
+static int g_sae_group, g_sae_sent, g_sae_answered, g_sae_done;
+static u8 g_sae_body[PONG_SAE_MAX_BODY];
+void nw_wifi_sae_probe(int group) {
+  g_sae_group = group == (int)PONG_SAE_GROUP_20 ? (int)PONG_SAE_GROUP_20 : group ? (int)PONG_SAE_GROUP_19 : 0;
+  lx_log(6, "k60 sae: probe %s", g_sae_group == 20 ? "armed for group 20" : g_sae_group ? "armed for group 19" : "off"); }
+static void tx_frame(struct sk_buff *skb);
+static void sae_probe_tick(void) {
+  if (!g_sae_group || g_sae_done || C.state != NW_STA_UP) return;
+  if (g_sae_sent >= 2) { g_sae_done = 1;
+    lx_log(6, "k60 sae: probe finished, %d sent, %d answered", g_sae_sent, g_sae_answered); return; }
+  const unsigned len = pong_sae_commit_body(g_sae_body, sizeof g_sae_body, (unsigned)g_sae_group);
+  if (!len) { g_sae_done = 1; lx_log(3, "k60 sae: the framing unit refused group %d", g_sae_group); return; }
+  struct sk_buff *skb = new_frame(len); if (!skb) return;
+  mgmt_header(skb, IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_AUTH);
+  skb_put_data(skb, g_sae_body, len);
+  g_sae_sent++;
+  lx_log(6, "k60 sae: sending authentication alg %u body %u bytes (try %d)", g_sae_body[0], len, g_sae_sent);
+  tx_frame(skb); }
+static void sae_probe_rx(struct sk_buff *skb) {
+  const struct ieee80211_mgmt *m = (const void *)skb->data;
+  if (!g_sae_group || !ieee80211_is_auth(m->frame_control)) return;
+  const u16 alg = le16_to_cpu(m->u.auth.auth_alg), seq = le16_to_cpu(m->u.auth.auth_transaction);
+  const u16 status = le16_to_cpu(m->u.auth.status_code);
+  g_sae_answered++;
+  lx_log(6, "k60 sae: access point answered alg %u seq %u status %u (%u bytes)", alg, seq, status, skb->len); }
+"""
+    sae_edits = [
+        ('#include "pong_he.h"', '#include "pong_he.h"\n#include "pong_sae.h"'),
+        ('/* ---- chanctx, interface and station entry, in the order a driver of this kind expects ---- */',
+         sae_code + '/* ---- chanctx, interface and station entry, in the order a driver of this kind expects ---- */'),
+        ('  if (now - C.hb_at < 1000) return;', '  if (now - C.hb_at < 1000) return;\n  sae_probe_tick();'),
+        ('  if (memcmp(m->sa, C.ap.bssid, 6)) return;', '  if (memcmp(m->sa, C.ap.bssid, 6)) return;\n  sae_probe_rx(skb);'),
+    ]
+    for sae_old, sae_new in sae_edits:
+        if sta.count(sae_old) != 1:
+            raise RuntimeError('shared station SAE anchor differs: ' + sae_old.splitlines()[0][:64])
+        sta = sta.replace(sae_old, sae_new)
     (out / 'nw_sta_pong.c').write_text(sta)
     (out / 'lx_rt_pong.c').write_text(adapt_dispatcher_timers((shared / 'shim/src/lx_rt.c').read_text()))
     common_sources = ['src/nw_crypto.c', 'src/nw_events.c', 'src/nw_mac80211.c', 'src/nw_net.c',
@@ -664,6 +708,8 @@ static void send_assoc(void) {'''),
     # The HE (802.11ax) capability codec, kept out of the station transform so scripts/tests/test-pong-he.py can
     # compile and exercise it on the host.
     jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_he.c', out / 'pong_he.o', [])]
+    # The SAE authentication framing unit, host-tested by scripts/tests/test-pong-sae.py.
+    jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_sae.c', out / 'pong_sae.o', [])]
     commands = []
     def compile(job):
         src, obj, extra = job; cmd = [clang, *flags, *extra, '-c', str(src), '-o', str(obj)]

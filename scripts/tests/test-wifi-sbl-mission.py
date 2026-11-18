@@ -321,6 +321,13 @@ def main() -> int:
           "peer->mcs[0] = intersect16(own->mcs[1], peer->mcs[0]);" in he_src and
           (ROOT / "scripts" / "tests" / "pong-he-selftest.c").is_file())
 
+    net_src = NET.read_text(encoding="utf-8")
+    check("the SAE probe is armed only by a boot argument",
+          'extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak));' in net_src and
+          'PE_parse_boot_argn("pong_sae_probe", &sae, sizeof(sae))' in net_src and
+          "jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_sae.c', out / 'pong_sae.o', [])]" in text and
+          (ROOT / "scripts" / "tests" / "test-pong-sae.py").is_file())
+
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

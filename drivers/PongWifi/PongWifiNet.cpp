@@ -45,6 +45,8 @@ extern "C" {
 extern "C" bool pong_wifi_test_reconnect(void);
 extern "C" unsigned nw_wifi_channel_list(unsigned *, unsigned);
 extern "C" int nw_wifi_rssi_limits(int *,int *);
+// WPA3 feasibility: the station exports this only when the builder injected the probe, so the call is weak.
+extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak));
 extern "C" volatile uint64_t pong_wifi_progress[3];
 static bool gProgressDiagnostic;
 extern "C" void native_wifi_logf(int level, const char *fmt, ...);
@@ -1131,6 +1133,9 @@ extern "C" void pong_wifi_net_start(const uint8_t mac[6]) {
   uint32_t test = 0, cycle = 0;
   gCycleTest = PE_parse_boot_argn("pong_wifi_test", &test, sizeof(test)) && test == 1 &&
       PE_parse_boot_argn("pong_wifi_cycle", &cycle, sizeof(cycle)) && cycle == 1;
+  // WPA3 feasibility: the station sends one SAE-sized authentication frame, but only when this argument arms it.
+  uint32_t sae = 0;
+  if (PE_parse_boot_argn("pong_sae_probe", &sae, sizeof(sae)) && sae != 0 && nw_wifi_sae_probe) nw_wifi_sae_probe((int)sae);
   struct ifnet_init_eparams p; memset(&p, 0, sizeof p);
   p.ver = IFNET_INIT_CURRENT_VERSION; p.len = sizeof p; p.flags = IFNET_INIT_LEGACY | IFNET_INIT_NX_NOAUTO; p.name = "en"; p.unit = 0; p.family = IFNET_FAMILY_ETHERNET; p.subfamily = IFNET_SUBFAMILY_WIFI; p.type = IFT_ETHER;
   p.output = if_output; p.demux = ether_demux; p.add_proto = ether_add_proto; p.del_proto = ether_del_proto; p.check_multi = ether_check_multi; p.framer = ether_frameout;

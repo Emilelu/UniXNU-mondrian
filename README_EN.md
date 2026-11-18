@@ -20,7 +20,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **display** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **bootchain** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **buttons** | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **Bluetooth / 0516 UART clock candidate** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **Bluetooth / 0517 power-order candidate** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
 | **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
 | **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
@@ -39,7 +39,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 > 八步定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
 <!-- EIGHT-STEP-TABLE:END -->
 
-> The Bluetooth row marks completion of the **d8 diagnostic observation evidence**, not working Bluetooth: both NVM attempts failed, ending at `power=1 result=-60`. See the [S4 flight results](docs/research/bt/S4-SPEC.md#720-d8-实飞patch-软件路径返回成功nvm-两次尝试均失败2026-11-16-1658).
+> The Bluetooth row marks completion of the **d8/d9 diagnostic evidence and the 0517 pre-build**, not working Bluetooth: the NVM attempts failed in both flights, with d9 ending at `power=1 result=-60`; 0517 only aligns the power sequence with the official page and is not yet approved for a flight. See the [S4 flight results](docs/research/bt/S4-SPEC.md#720-d8-实飞patch-软件路径返回成功nvm-两次尝试均失败2026-11-16-1658).
 
 ## Building
 

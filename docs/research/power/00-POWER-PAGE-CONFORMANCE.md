@@ -50,7 +50,7 @@
 
 | 条目（行号） | 状态 | 证据/缺口 |
 | --- | --- | --- |
-| CPU：16 ms 读空闲、1.25 倍余量、4 窗口降频（:113） | 部分（真机只读） | `K60CpuFreqPlan` 纯算术 + governor 核心（host 146 项，含 mode 5 的 idle 换算与 quiet 收敛）；写前 enable/档位守卫、写后回读、恢复原值已离线（commit `42ca4421`）；image i 2026-11-18 17:30 早读 d0 enable=1 state=1.5552 GHz vote=11 rows=14 top=1.8048 GHz，d1/d2 因辅核未启动读到 0；image j 17:55 在电池 begin 后 5 s 延后读取，d1 enable=1 state=0.6336 GHz vote=16、d2 enable=1 state=0.7872 GHz vote=19，d0/L3 不变（L3 vote=13 rows=15 top=1.7088 GHz）；image k 18:22 转储 66 条有效 LUT 档位（d0/d1/d2/L3 = 14/17/20/15，top 1.8048/2.496/2.9952/1.7088 GHz），所列 raw 行 cores=4/turbo=0，18:16 字段不是域核数；mode 5 于 2026-11-18 23:19 以 image l 上机：274 条 `sample win=`，d0 busy 0..1000、governor 300 MHz..1.8048 GHz、hw 691.2/1555.2 MHz，d1/d2 按 shared-cluster 下限停在半档附近（image l 暴露 quiet 被降档清零的 bug，已由 `d1d3c3e3` 修复；image m 23:53 复测：busy=0 时 d1/d2 governor 已到 633.6/787.2 MHz 最低档，d0 在 300 MHz/1.8048 GHz 跟随负载，88 条样本）；只读、不写寄存器，没有 `sample stop`（300 s autoreset 先到），mode 2/3 未上机 |
+| CPU：16 ms 读空闲、1.25 倍余量、4 窗口降频（:113） | 部分（真机只读） | `K60CpuFreqPlan` 纯算术 + governor 核心（host 151 项，含 mode 5 的 idle 换算、quiet 收敛与 mode 6 的 lowest 选择）；写前 enable/档位守卫、写后回读、恢复原值已离线（commit `42ca4421`）；image i 2026-11-18 17:30 早读 d0 enable=1 state=1.5552 GHz vote=11 rows=14 top=1.8048 GHz，d1/d2 因辅核未启动读到 0；image j 17:55 在电池 begin 后 5 s 延后读取，d1 enable=1 state=0.6336 GHz vote=16、d2 enable=1 state=0.7872 GHz vote=19，d0/L3 不变（L3 vote=13 rows=15 top=1.7088 GHz）；image k 18:22 转储 66 条有效 LUT 档位（d0/d1/d2/L3 = 14/17/20/15，top 1.8048/2.496/2.9952/1.7088 GHz），所列 raw 行 cores=4/turbo=0，18:16 字段不是域核数；mode 5 于 2026-11-18 23:19 以 image l 上机：274 条 `sample win=`，d0 busy 0..1000、governor 300 MHz..1.8048 GHz、hw 691.2/1555.2 MHz，d1/d2 按 shared-cluster 下限停在半档附近（image l 暴露 quiet 被降档清零的 bug，已由 `d1d3c3e3` 修复；image m 23:53 复测：busy=0 时 d1/d2 governor 已到 633.6/787.2 MHz 最低档，d0 在 300 MHz/1.8048 GHz 跟随负载，88 条样本）；只读、不写寄存器，没有 `sample stop`（300 s autoreset 先到），mode 2/3 未上机 |
 | GPU：GMU XO 忙碌计数、50 % 目标、HFI 投票带带宽（:114） | 部分（离线） | `K60GpuFreqPlan` 纯规划（host 56 项）；无 GMU 读取、无 HFI 投票、无线程、未上机 |
 | 触摸后 CPU P 域与 GPU 最高档保持 1 s（:115） | 部分（离线） | `K60BoostPlan` 触摸 1000 ms 规则（host 40 项）；仍无触摸输入源 |
 | 帧：4 窗口中 2 个有提交时 CPU 各域 300 ms 内不低于 60 %（:116） | 部分（离线） | `K60BoostPlan` 4 窗口/2 帧/300 ms/60 % 规则（host 40 项）；提交路径尚未采样 |
@@ -87,10 +87,11 @@
 排除 §2/§3（音频分支）后，本分支的完成度估计：§1 约 80 %、§4 约 85 %、
 §5 约 50 %、§6 约 60 %；整页（含音频与充电认证）仍远未闭环。离线部分已经
 把 OPP/EPSS、GPU 规划、boost、投票账本、睡眠掩码、固件清单和稳压器顺序审计
-补齐；EPSS 写入守卫、回读与恢复、mode 5 的 16 ms 只读采样均已离线补齐（host 146 项），
-mode 5 已于 23:19（274 条）与 23:53（image m，88 条）两次上机；
+补齐；EPSS 写入守卫、回读与恢复、mode 5 的 16 ms 只读采样、mode 6 的只降 d0 写入路径均已离线
+补齐（host 151 项），mode 5 已于 23:19（274 条）与 23:53（image m，88 条）两次上机；
 image m 复测确认 quiet 修复后 d1/d2 已稳定到 633.6/787.2 MHz 最低档，d0 可降到 300 MHz，探针不写 EPSS；
-下一步安排独立的 d0 单域写频首测和 GPU 只读探针。
+下一步用 mode 6（只降 d0，不需要抬压）做首次写频上机，日志的 `state=a->b->c` 直接给出写入与恢复
+是否生效；之后再安排 GPU 只读探针。
 电池插拔暂缓；充电认证移植已在 `feat/charge-auth` 分支（未接入）。
 
 ## 参考

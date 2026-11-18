@@ -64,9 +64,9 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   其他 = 19.2 MHz × L）。
 - 不同：参考的 CPU 数是 3/4/1（SM8550），K60 是 **4/3/1**。任何逐核 perf_state 行、
   quiet/boost 逻辑都必须按 K60 的核数改写，不能照抄。
-- 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 已实现模式 1–3
-  和只读采样模式 5（2/3 为带守卫的瞬态写入，未上机；5 为 16 ms 采样线程，不写寄存器），
-  governor 核心由模式 5 的线程调用但仍不写回硬件。
+- 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 已实现模式 1–3、
+  只读采样模式 5 和降档写入模式 6（2/3 为带守卫的瞬态写入，6 只降 d0，均为未上机；
+  5 为 16 ms 采样线程，不写寄存器），governor 核心由模式 5 的线程调用但仍不写回硬件。
 
 ## 5. 已实现
 
@@ -86,12 +86,15 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 | `38b84c35` `test(power): cover the idle tick decoding` | host 覆盖逐 CPU elapsed 最大值、32 位 tick 回绕，总数 143 项 |
 | `d1d3c3e3` `fix(power): keep the shared-cluster quiet count across down-steps` | quiet 只按忙闲增减；降档落地不再清零 quiet，共享簇释放半速地板后能继续降到最低档 |
 | `aef89e8c` `test(power): cover the shared-cluster quiet settling` | host 增加 24 窗口 quiet 收敛回归，总数 146 项 |
+| `42d8e805` `feat(power): add a down-only domain 0 EPSS write test` | mode 6：只把 d0 降到最低非 turbo 档；写入前后各等 20 ms 并打印 `state=a->b->c` |
+| `dc89047c` `test(power): cover the lowest-level picker` | host 覆盖最低档选择与空表拒绝，总数 151 项 |
 
 `K60CpuFreqPlan`（纯 C，无 MMIO）：
 
 - `k60_cpufreq_row_khz/row_cores/row_turbo`：解 LUT 行。
 - `k60_cpufreq_build_table`：升序、去 turbo、按 cap 截断、遇到重复频率停止（硬件表尾两行相同）。
 - `k60_cpufreq_pick_highest`：cap 以内最高档。
+- `k60_cpufreq_pick_lowest`：最低档（mode 6 的降档目标；空表/空指针返回 -1）。
 - `k60_cpufreq_target`：参考 governor 的单窗口决策（忙 90% 直接拉满；否则
   `当前频率 × busy × 1.25` 的最低档；帧下限 60%；共享簇 boost/quiet 地板）。
 - `k60_cpufreq_step`：升档立即、降档连续 4 窗口才落地。
@@ -125,36 +128,42 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 - mode 2/3 的写入是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器的原值，写后逐条回读，
   再立即写回原值；日志带 `readback=ok|mismatch restored=<n>`。因此它验证写路径，不会留下持续投票；
   仍未在真机上执行过。enable=0 的域（例如辅核启动前的 d1/d2）会直接拒绝写入。
+- mode 6（降档写入，2026-11-19）：只对 domain 0 投**最低**非 turbo 档。升档需要抬电压，而电压、
+  互连与温控顺序尚未接入（官方 §5 :108），降档则不需要抬压，因此它是现有守卫下最安全的首次写入。
+  写入流程与 mode 2 相同，只是档位取 `k60_cpufreq_pick_lowest`；写后与恢复后各 `IOSleep(20)`，
+  日志在 `readback/restored` 之后追加 `state=<写前>-><写后>-><恢复后>`（`domain_state & 0xff`），
+  让真机一次运行就能看出写入是否真的移动了硬件、恢复是否把它放回去。同样未上机。
 - mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
   把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
   再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，
   `hw` 是当次读到的硬件档位，不是写入结果。线程由 `kernel_thread_start` 启动，
   `K60Battery::cleanup` 调 `k60_cpufreq_sample_stop` 置标志退出；不写任何寄存器、不投票。
   没有触摸/帧输入（boost/framing 传 0），也没有把 governor 结果写回硬件。
-- mode 4 与大于 5 的值直接打印 "modes 1-3 and 5 are implemented" 并返回。
+- mode 4 与大于 6 的值直接打印 "modes 1-3, 5 and 6 are implemented" 并返回。
 - 调用点：`k60_physical_battery_start()` 开头做第一次读取；电池 `begin` 成功后
   （`K60Battery.cpp` 的同一入口）延迟 5 s 做第二次读取。这是当前 archive 唯一由
   userland 触发的 IOKit 入口；探针不需要 ADSP 租约，也不经过电池配置解析。
 
 ## 6. 构建与验证
 
-- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 146 checks (0 failures)**（含 ASan/UBSan 同数）。
-  覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、hispeed/frame/quiet/boost 地板、
+- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 151 checks (0 failures)**（含 ASan/UBSan 同数）。
+  覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、lowest（含空表/空指针）、hispeed/frame/quiet/boost 地板、
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
   dcvs 开/关的写条数、缓冲区不足拒绝、enable/档位守卫、写后回读、恢复原值，以及 governor
   的单窗口序列（降档闩锁、立即升档、boost 释放后的半速地板、quiet 收敛、错误入参），以及空闲换算
   （满忙/半忙/全闲/超计/零窗口）、4/3/1 域的“最忙 CPU”选择，以及 mode 5 的 tick 差分
   （含 32 位回绕、全零窗口）与按 CPU 各自窗口的最忙值。断言使用合成的 LUT 行；
   真机 image k 已把 66 条有效档位逐行读出，image l 已把采样线程跑通。
-- archive（含 mode 5 采样、写入守卫与 quiet 修复，commit `3e9917ed`/`38b84c35`/`d1d3c3e3`）：`build/k60-battery/libK60PhysicalBattery.a`
-  **130,592 字节**，sha256 `1ebfd4d036b4bfb9f4e5a6a6237c72f404a8566dfd96e47b9a2e0c7c30e27370`；
+- archive（含 mode 5 采样、写入守卫、quiet 修复与 mode 6 降档写入，commit `3e9917ed`/`38b84c35`/`d1d3c3e3`/`42d8e805`）：`build/k60-battery/libK60PhysicalBattery.a`
+  **131,008 字节**，sha256 `08a95bfc8bea2dea9bd6e51ba8c17585f49fcfb47c06d6986a32c9527da7cd61`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
   `_k60_cpufreq_vote_allowed/check_readback/build_restore`、
   `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy`、`_k60_cpufreq_domain_busy_elapsed`、
-  `_k60_cpufreq_tick_delta`、`_k60_cpufreq_sample_stop` 等 cpufreq 符号；undefined-symbol
-  检查 imports=313 defs=139 external=242 kernel=22,909 missing=0。image l 用的是修复前的
-  130,648 字节 archive（`70856d4d`）；image m 用的就是这份 130,592 字节 archive。
+  `_k60_cpufreq_tick_delta`、`_k60_cpufreq_sample_stop`、`_k60_cpufreq_pick_lowest` 等 cpufreq 符号；
+  undefined-symbol 检查 imports=314 defs=140 external=242 kernel=22,909 missing=0。image l 用的是
+  修复前的 130,648 字节 archive（`70856d4d`）；image m 用的是 130,592 字节（`1ebfd4d0`）版本，
+  均早于 mode 6。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -359,9 +368,9 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
 
 ## 7. 未实现 / 边界
 
-- 投票写集合已实现（mode 2/3），并已在代码层加入 enable/档位守卫、写后回读和恢复原值
-  （commit `42ca4421`），但**从未在真机上执行**；没有 enable 等待、没有 dcvs 反馈，
-  也没有验证恢复后的寄存器值。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
+- 投票写集合已实现（mode 2/3，以及只降 d0 的 mode 6），并已在代码层加入 enable/档位守卫、
+  写后回读和恢复原值（commit `42ca4421`/`42d8e805`），但**从未在真机上执行**；没有 enable 等待、
+  没有 dcvs 反馈，也没有验证恢复后的寄存器值（mode 6 只是把这三个值打进日志，等真机来读）。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
@@ -396,7 +405,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    - `late read begin/end` 与第二次的 d0/d1/d2/L3 行
    - CPU 各域的行跟在对应摘要后，形如 `K60CpuFreq: row=0 raw=0x0004000f khz=300000 cores=4 turbo=0`；L3 行另带 `L3 ` 前缀。
    - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=… readback=… restored=…`、
-     `mode3 vote L3 …`
+     `mode3 vote L3 …`；mode 6 同一行末尾多 `state=<写前>-><写后>-><恢复后>`。
    - mode 5 的行形如 `K60CpuFreq: sample win=… d0=<busy>/<governor>kHz/hw<state>kHz d1=… d2=…`，
      开头是 `K60CpuFreq: sample start every=16ms log-every=64 domains=3`；正常退出才会有 `sample stop`。
 4. 设备空窗：image l 于 2026-11-18 23:19:20 启动、23:24:44 结束并回到 fastboot。下一次上机前
@@ -404,11 +413,12 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    `watch-fastboot-v4.ps1` 会先抢到 fastboot，仅靠占位命令行不一定挡得住，必须等它的进程
    真正退出后再启动自己的 supervisor。
 5. 首次写入前：参数门禁须通过。启用状态守卫、写后回读和恢复原投票的路径已在代码中补齐
-  （commit `42ca4421`/`70dd3794`/`38b84c35`/`d1d3c3e3`/`aef89e8c`，host 146 项含 mode 5 采样换算与
-  quiet 收敛），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
-  写入（d1/d2 在辅核启动前 `enable=0`）。首次验证应限定在 d0 单域，分别记录请求档位、
-  寄存器回读、恢复值和负载下的 `state`，并观察温度与 throttle；d1/d2/L3 多域投票和 governor
-  不与首测合并。`nomap`、`enable=0` 或无有效 LUT 时应拒绝写入。
+  （commit `42ca4421`/`70dd3794`/`38b84c35`/`d1d3c3e3`/`aef89e8c`/`42d8e805`，host 151 项含 mode 5
+  采样换算、quiet 收敛与 mode 6 的 lowest 选择），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
+  写入（d1/d2 在辅核启动前 `enable=0`）。首次验证用 mode 6 限定在 d0 单域、只往低档写，
+  分别记录请求档位、寄存器回读、`state=写前->写后->恢复后` 和负载下的硬件档位，并观察温度与
+  throttle；d1/d2/L3 多域投票、mode 2 的最高档和 governor 写回都不与首测合并。`nomap`、`enable=0`
+  或无有效 LUT 时应拒绝写入。
 
 ## 9. 参考
 

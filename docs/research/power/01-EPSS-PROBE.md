@@ -365,12 +365,25 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   d0 在 300 MHz 与 1.8048 GHz 之间跟随负载，说明 quiet 收敛修复生效。探针仍只读，无 `sample stop`：
   捕获在 300 s autoreset 前被工具调用超时截断，`boot.json` 的 bootAccepted=false/-1 是 supervisor 被截断后的
   默认值，`fastboot.log` 的 `Booting OKAY` 才是启动证据；设备随后回到 fastboot，无 EPSS 写入，mode 2/3 未执行。
+- 镜像 n 与首次 EPSS 写入（2026-11-19 02:47–02:52，`E:/k60-work/evidence/power-conformance-mode6-20261119-0247`）：
+  image n 的 `boot.img` 201,887,744 B，sha256 `25f106995601f47c4c098906ddbf549e761ec68891ff403fa874ad6638dfc52c`，
+  参数 gate `OK (30 arguments, 603 bytes)`（`k60_cpufreq=6` + `pong_handoff_publish=1`，探针 board 去掉 `applog=1`）。
+  `boot.json` bootAccepted=true、bootExitCode=0；console.log 128,863 B / 2,049 行，sha256
+  `8558ae64db1556007e48cfa941dc6ac261f2ce845e27eb654623ef92c6d4e773`，panicMarker=null。
+  `:191` `mode=6 EPSS domains=3 cpus=8 lut-rows=40`，`:202`
+  `mode6 vote d0 level=0 (300000kHz) dcvs=0 writes=1 readback=ok restored=1 state=81->15->81`。
+  判读：d0 原状态 0x81（1,555,200 kHz）被写到 0x15（300,000 kHz），回读一致，随后恢复为 0x81；
+  **这是本板第一次在真机上完成 EPSS 频率寄存器的写入、回读与恢复**，且只降不升、不涉及抬压。
+  同一镜像的 mode 6 只动 d0 一个域，d1/d2/L3 与 mode 2/3 均未执行；没有温度/throttle 读数，
+  也没有验证 governor 写回（governor 仍只打印）。
 
 ## 7. 未实现 / 边界
 
 - 投票写集合已实现（mode 2/3，以及只降 d0 的 mode 6），并已在代码层加入 enable/档位守卫、
-  写后回读和恢复原值（commit `42ca4421`/`42d8e805`），但**从未在真机上执行**；没有 enable 等待、
-  没有 dcvs 反馈，也没有验证恢复后的寄存器值（mode 6 只是把这三个值打进日志，等真机来读）。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
+  写后回读和恢复原值（commit `42ca4421`/`42d8e805`）。2026-11-19 02:47 image n 首次真机执行了
+  mode 6：d0 `state=81->15->81`、`readback=ok restored=1`，写入与恢复都成立；**升档（mode 2/3）
+  仍从未执行**——升档要抬压，而电压/互连/温控顺序未接入；没有 enable 等待、没有 dcvs 反馈、
+  没有温度/throttle 观测，也没有 governor 写回。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
@@ -419,6 +432,9 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   分别记录请求档位、寄存器回读、`state=写前->写后->恢复后` 和负载下的硬件档位，并观察温度与
   throttle；d1/d2/L3 多域投票、mode 2 的最高档和 governor 写回都不与首测合并。`nomap`、`enable=0`
   或无有效 LUT 时应拒绝写入。
+   首测已于 2026-11-19 02:47 用 image n 完成（见 §6）：d0 `state=81->15->81`、`readback=ok restored=1`，
+   mode 2/3 与 d1/d2/L3 仍未写入。下一步在同一 d0 单域上观察负载下的 governor 决策与温度，
+   再决定是否把决策写回；升档仍须先接电压/互连/温控顺序。
 
 ## 9. 参考
 

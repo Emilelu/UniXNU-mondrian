@@ -312,7 +312,7 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 
 **为什么默认关闭**：EPSS 是 CPU 频率/电压的现场控制点。官方 §5 要求 OS 明确外设电源投票的所有权与引用计数；在 governor、供电和温控路径接入之前，任何持续写都可能与固件或其它 owner 冲突。探针镜像必须确认设备独占空窗，首次只做 d0 单域。
 
-**陷阱**：`k60_cpufreq` 不在 `board.toml` 的默认参数里。探针镜像若保留 `applog=1`，命令行会超过 DarwinBoot 的 607 字节上限（实测 612 字节）；构建时必须临时去掉 `applog=1`，上机结束后恢复，并把该镜像视为探针镜像而非发布镜像。该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`，但参数 gate 仍会检查 board 契约的其余部分；image i/j/k 构建时 gate 尚未接受该名字。`k60_cpufreq=2/3/6` 的写入路径仍未上机；`k60_cpufreq=5` 已于 2026-11-18 23:19 以 image l 只读上机（159,147 B console，274 条 `sample win=`，d0 可降到 300 MHz，无 `sample stop`，因为 300 s autoreset 先到），23:53 又以 image m 复测 88 条。首次写入建议用 6 而不是 2：降档不抬压，日志里的 `state` 三元组能直接说明写入与恢复是否生效。
+**陷阱**：`k60_cpufreq` 不在 `board.toml` 的默认参数里。探针镜像若保留 `applog=1`，命令行会超过 DarwinBoot 的 607 字节上限（实测 612 字节）；构建时必须临时去掉 `applog=1`，上机结束后恢复，并把该镜像视为探针镜像而非发布镜像。该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`，但参数 gate 仍会检查 board 契约的其余部分；image i/j/k 构建时 gate 尚未接受该名字。`k60_cpufreq=2/3` 的升档写入仍未上机；`k60_cpufreq=6` 已于 2026-11-19 02:47 以 image n 上机（d0 `state=81->15->81`、`readback=ok restored=1`），`k60_cpufreq=5` 已于 2026-11-18 23:19 以 image l 只读上机（159,147 B console，274 条 `sample win=`，d0 可降到 300 MHz，无 `sample stop`，因为 300 s autoreset 先到），23:53 又以 image m 复测 88 条。首次写入建议用 6 而不是 2：降档不抬压，日志里的 `state` 三元组能直接说明写入与恢复是否生效。
 
 ### `pong_gpu_dcvs`
 
